@@ -1,0 +1,2559 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>玄机 · Xuanji — 命理工具 Chinese Metaphysics Toolkit</title>
+<style>
+:root{
+  --bg:#f3f2ee; --panel:#fbfaf7; --line:#ddd9cf; --ink:#17181a; --dim:#83887e;
+  --red:#b5301c; --wood:#55743f; --fire:#b5301c; --earth:#97742e; --metal:#7e7b72; --water:#41637e;
+  --serif:"Noto Serif SC","Songti SC","STSong","SimSun",Georgia,serif;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--ink);font-family:var(--serif);min-height:100vh;
+  -webkit-font-smoothing:antialiased}
+.wrap{max-width:860px;margin:0 auto;padding:34px 20px 90px}
+header{display:flex;align-items:center;gap:14px;padding-bottom:26px}
+.seal{width:44px;height:44px;flex:0 0 44px;background:var(--red);color:#f6efe6;border-radius:3px;
+  display:flex;align-items:center;justify-content:center;font-size:17px;line-height:1.1;text-align:center;
+  transform:rotate(-3deg);letter-spacing:1px;user-select:none}
+h1{font-size:24px;font-weight:600;letter-spacing:10px}
+.sub{color:var(--dim);font-size:10.5px;margin-top:4px;letter-spacing:3px;font-family:var(--mono)}
+.langbtn{margin-left:auto;background:none;border:none;border-bottom:1px solid var(--ink);color:var(--ink);
+  font-family:var(--mono);font-size:12px;padding:2px 1px;cursor:pointer;letter-spacing:2px}
+.langbtn:hover{color:var(--red);border-color:var(--red)}
+/* ---- two-level nav ---- */
+.catnav{display:flex;border-top:1px solid var(--ink);border-bottom:1px solid var(--line)}
+.catnav .cat{flex:1;background:none;border:none;border-right:1px solid var(--line);cursor:pointer;
+  padding:14px 2px 12px;text-align:center;font-family:var(--serif)}
+.catnav .cat:last-child{border-right:none}
+.catnav .ch{display:block;font-size:27px;line-height:1.15;color:var(--ink)}
+.catnav .cap{display:block;font-size:8.5px;letter-spacing:2px;color:var(--dim);font-family:var(--mono);
+  text-transform:uppercase;margin-top:4px}
+.catnav .cat.on .ch{color:var(--red)}
+.catnav .cat.on .cap{color:var(--red)}
+.subnav{display:flex;flex-wrap:wrap;gap:2px 22px;padding:13px 2px 0}
+.subnav .sub{background:none;border:none;cursor:pointer;font-family:var(--serif);font-size:13.5px;
+  color:var(--dim);padding:3px 0;letter-spacing:1px;border-bottom:2px solid transparent}
+.subnav .sub.on{color:var(--ink);border-bottom-color:var(--red)}
+.subnav .sub.todo{color:#b6b2a6;cursor:default}
+.subnav .sub i{font-style:normal;color:var(--red);margin-left:2px}
+section.tab{display:none}section.tab.on{display:block}
+/* ---- sections as hairline-separated blocks ---- */
+.card{padding:26px 0 8px;margin-top:18px;border-top:1px solid var(--line)}
+.card:first-child{border-top:none}
+.card h2{font-size:13px;color:var(--dim);letter-spacing:5px;font-weight:600;margin-bottom:18px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:14px}
+label.f{display:block;font-size:11px;color:var(--dim);letter-spacing:1px}
+label.f span{display:block;margin-bottom:6px}
+input,select{width:100%;background:var(--panel);border:1px solid var(--line);color:var(--ink);
+  font-family:var(--serif);font-size:14px;padding:10px;border-radius:2px}
+input:focus,select:focus{outline:none;border-color:var(--ink)}
+:focus-visible{outline:2px solid var(--red);outline-offset:2px}
+.btn{background:var(--ink);border:1px solid var(--ink);color:#f6f4ee;font-family:var(--serif);
+  font-size:13.5px;letter-spacing:5px;padding:12px 30px;border-radius:2px;cursor:pointer;margin:18px 8px 6px 0}
+.btn:hover{background:var(--red);border-color:var(--red)}
+.btn.ghost{background:none;color:var(--ink);border:1px solid var(--line);letter-spacing:1px}
+.btn.ghost:hover{border-color:var(--ink);background:none}
+.note{font-size:12px;color:var(--dim);margin-top:12px;line-height:1.9}
+/* ---- per-feature quick guide ---- */
+.ghelp{float:right;background:none;border:1px solid var(--line);color:var(--dim);font-family:var(--mono);
+  font-size:10.5px;letter-spacing:2px;padding:3px 10px;border-radius:2px;cursor:pointer;margin-top:-3px}
+.ghelp:hover,.ghelp.open{color:var(--red);border-color:var(--red)}
+.gbody{display:none;background:var(--panel);border:1px solid var(--line);border-left:2px solid var(--red);
+  padding:12px 16px;margin:0 0 18px;font-size:12.5px;line-height:2.1;color:var(--ink)}
+.gbody.open{display:block}
+.gbody b{color:var(--red);font-weight:600;margin-right:6px}
+/* ---- pillars ---- */
+.pillars{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-top:8px}
+.pillar{background:var(--panel);border:1px solid var(--line);border-top:2px solid var(--ink);
+  padding:14px 6px;text-align:center}
+.pillar.dm{border-top-color:var(--red)}
+.pl-title{font-size:10px;color:var(--dim);letter-spacing:3px;font-family:var(--mono);text-transform:uppercase}
+.pl-tg{font-size:12px;color:var(--red);margin-top:9px;min-height:16px}
+.pl-char{font-size:38px;line-height:1.25;margin:2px 0;font-weight:600}
+.pl-py{font-size:10px;color:var(--dim);font-family:var(--mono)}
+.pl-hide{font-size:11px;color:var(--dim);margin-top:10px;line-height:1.9}
+.pl-hide b{font-weight:400}
+.pl-ny{font-size:11px;color:var(--dim);margin-top:9px;border-top:1px solid var(--line);padding-top:7px}
+.e0{color:var(--wood)}.e1{color:var(--fire)}.e2{color:var(--earth)}.e3{color:var(--metal)}.e4{color:var(--water)}
+/* five elements */
+.wuxing{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-top:8px}
+.wx{text-align:center}
+.wx .bar{height:86px;background:var(--panel);border:1px solid var(--line);position:relative;overflow:hidden}
+.wx .fill{position:absolute;bottom:0;left:0;right:0;transition:height .5s}
+.wx .lbl{margin-top:7px;font-size:13px}
+.wx .cnt{font-size:11px;color:var(--dim);font-family:var(--mono)}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{border:1px solid var(--line);padding:8px 5px;text-align:center;background:var(--panel)}
+th{color:var(--dim);font-weight:400;letter-spacing:1px;font-size:11px}
+td .small{font-size:10px;color:var(--dim);display:block;margin-top:2px;font-family:var(--mono)}
+.tscroll{overflow-x:auto}
+/* ---- liuyao ---- */
+.coins{display:flex;gap:16px;justify-content:center;margin:20px 0 26px}
+.coin{width:62px;height:62px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#dbc37a,#a8862e 72%,#8a6d1e);
+  border:1px solid #8a6d1e;display:flex;align-items:center;justify-content:center;position:relative;
+  font-size:13px;color:#3f3208;font-weight:700}
+.coin::after{content:"";width:15px;height:15px;background:var(--bg);border:1px solid #8a6d1e;position:absolute}
+.coin span{position:absolute;bottom:-21px;font-size:10px;color:var(--dim);font-weight:400;width:90px;left:-14px;text-align:center}
+.coin.flip{animation:flip .55s ease}
+@keyframes flip{0%{transform:rotateY(0)}100%{transform:rotateY(720deg)}}
+.hexwrap{display:grid;grid-template-columns:1fr;gap:14px;margin-top:8px}
+@media(min-width:640px){.hexwrap.two{grid-template-columns:1fr 1fr}}
+.hexbox{background:var(--panel);border:1px solid var(--line);padding:16px}
+.hexname{font-size:15px;letter-spacing:2px;margin-bottom:12px;font-weight:600}
+.hexname .en{color:var(--dim);font-size:11px;letter-spacing:0;display:block;margin-top:4px;font-weight:400;font-family:var(--mono)}
+.linerow{display:grid;grid-template-columns:52px 1fr 100px 32px;gap:8px;align-items:center;margin:8px 0;font-size:12px}
+.linerow .beast{color:var(--dim)}
+.yao{height:12px;display:flex;gap:9px}
+.yao i{flex:1;background:var(--ink)}
+.yao.moving i{background:var(--red)}
+.linerow .qin b{font-weight:400}
+.mark{color:var(--red);font-weight:700;text-align:center}
+.shiying{color:var(--red);font-weight:700;text-align:center;font-size:13px}
+.castinfo{font-size:12.5px;color:var(--dim);line-height:2.1;margin-top:16px;border-top:1px solid var(--line);padding-top:12px}
+.castinfo b{color:var(--ink);font-weight:400}
+/* interpretation */
+.iblock{margin-top:16px;border-top:1px solid var(--line);padding-top:14px}
+.ilabel{font-size:11px;color:var(--dim);letter-spacing:4px;margin-bottom:10px}
+.iline{font-size:13.5px;line-height:1.9;padding:3px 0;border-bottom:1px dotted #e6e2d8}
+.iline b{font-weight:600}
+.iverdict{margin-top:12px;font-size:15px;letter-spacing:1px;padding:12px 14px;background:var(--panel);border-left:3px solid var(--dim)}
+.iverdict.v2{border-left-color:var(--wood)}
+.iverdict.v0{border-left-color:var(--red)}
+.lv{font-size:10.5px;font-family:var(--mono);letter-spacing:1px;padding:1px 7px;border:1px solid;margin:0 3px}
+.lv3{color:var(--red);border-color:var(--red)}
+.lv2{color:var(--wood);border-color:var(--wood)}
+.lv1{color:var(--dim);border-color:var(--line)}
+.lv0{color:var(--ink);border-color:var(--ink)}
+.dimtag{color:var(--dim);font-size:11.5px}
+.zw-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:4px;margin-top:8px}
+.zw-cell{background:var(--panel);border:1px solid var(--line);padding:7px 8px;min-height:118px;font-size:11px;position:relative}
+.zw-cell.ming{border-color:var(--red)}
+.zw-hd{display:flex;justify-content:space-between;color:var(--dim);font-family:var(--mono);font-size:9.5px}
+.zw-pn{font-size:12px;letter-spacing:1px;margin:3px 0 5px}
+.zw-cell.ming .zw-pn{color:var(--red)}
+.zw-star{display:inline-block;margin:0 5px 3px 0;line-height:1.5}
+.zw-star.mn{font-weight:600;font-size:12.5px}
+.zw-star sup{color:var(--red);font-size:9px;margin-left:1px}
+.zw-star.mal{color:var(--dim)}
+.zw-dx{position:absolute;right:8px;bottom:6px;color:var(--dim);font-family:var(--mono);font-size:9.5px}
+.zw-shen{position:absolute;left:8px;bottom:6px;color:var(--red);font-size:10px}
+.zw-c{grid-column:2/4;grid-row:2/4;background:var(--panel);border:1px solid var(--line);padding:14px;font-size:12.5px;line-height:2.1}
+@media(max-width:560px){.zw-cell{min-height:96px;font-size:10px}.zw-star.mn{font-size:11px}}
+/* lingqian minimal */
+.q2{display:flex;gap:40px;flex-wrap:wrap;align-items:flex-start}
+.q2-draw{width:140px;text-align:center;cursor:pointer;user-select:none}
+.q2-slot{width:104px;height:144px;margin:0 auto;border:1.5px solid var(--ink);position:relative;background:var(--panel)}
+.q2-slot::after{content:"籤";position:absolute;left:50%;bottom:12px;transform:translateX(-50%);font-size:15px;color:var(--dim)}
+.q2-stick{position:absolute;left:50%;top:-50px;transform:translateX(-50%);width:6px;height:84px;background:var(--ink);transition:top .45s cubic-bezier(.3,1.4,.5,1)}
+.q2-stick::before{content:"";position:absolute;top:0;left:0;right:0;height:22px;background:var(--red)}
+.q2-draw:hover .q2-stick{top:-60px}
+.q2-cap{font-size:11px;color:var(--dim);margin-top:12px;letter-spacing:2px}
+.q2-slip{max-width:300px;background:var(--panel);border:1px solid var(--ink);position:relative}
+.q2s-top{border-bottom:1px solid var(--ink);padding:10px 14px 10px 18px;display:flex;justify-content:space-between;align-items:baseline}
+.q2s-top .t{font-size:12px;letter-spacing:4px}
+.q2s-top .n{font-family:var(--mono);font-size:11px;color:var(--dim)}
+.q2s-body{padding:22px 14px 24px;display:flex;flex-direction:row-reverse;justify-content:center;gap:16px;min-height:200px}
+.q2s-body div{writing-mode:vertical-rl;font-size:15px;letter-spacing:7px;line-height:1}
+.q2s-foot{border-top:1px solid var(--line);padding:9px 14px 9px 18px;display:flex;justify-content:space-between;align-items:center}
+.q2s-foot .lv2{color:var(--red);font-size:12px;letter-spacing:5px}
+.q2s-foot .en2{font-family:var(--mono);font-size:9.5px;color:var(--dim)}
+.q2-redline{position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--red)}
+.q-jie{font-size:12.5px;line-height:2;color:var(--ink);margin-top:14px}
+.q-jie b{color:var(--dim);font-weight:400;letter-spacing:2px;font-size:11px;display:block}
+/* tarot */
+.t2-row{display:flex;gap:18px;flex-wrap:wrap;margin-top:8px}
+.t2{width:150px;height:252px;background:#efe9dc;border:2px solid var(--ink);position:relative;font-family:var(--grot,Helvetica);overflow:hidden;flex:0 0 auto}
+.t2 svg{position:absolute;inset:0;width:100%;height:100%}
+.t2 .num{position:absolute;top:8px;left:10px;font-size:22px;font-weight:800;z-index:2;font-family:Helvetica,Arial,sans-serif}
+.t2 .nm{position:absolute;left:10px;bottom:9px;font-size:10.5px;font-weight:700;letter-spacing:1.5px;z-index:2;line-height:1.35;font-family:Helvetica,Arial,sans-serif;text-transform:uppercase}
+.t2 .nm small{display:block;font-weight:400;color:#5c5f57;font-size:9px;font-family:var(--serif);letter-spacing:1px;text-transform:none}
+.t2.rev{transform:rotate(180deg)}
+.t2 .rtag{position:absolute;right:9px;top:9px;background:var(--ink);color:#efe9dc;font-size:8px;letter-spacing:2px;padding:2px 6px;z-index:2;transform:rotate(180deg);font-family:Helvetica,Arial,sans-serif}
+.t2-pos{font-size:10px;color:var(--dim);letter-spacing:2px;text-align:center;margin-top:7px;font-family:var(--mono)}
+.t2-mean{margin-top:16px}
+/* astro */
+.astro{background:var(--ink);color:#efe9dc;padding:30px 24px 24px;font-family:Helvetica,Arial,sans-serif;margin-top:8px}
+.astro .ahead{font-size:10px;letter-spacing:5px;opacity:.65;margin-bottom:22px}
+.astro .ahead b{color:var(--red)}
+.a-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:2px}
+.a-col{background:#1e1f22;padding:20px 16px 16px;position:relative;min-height:212px}
+.a-col .role{font-size:9px;letter-spacing:3px;color:#84878c}
+.a-col .amark{position:absolute;right:14px;top:16px;width:52px;height:52px}
+.a-col .amark svg{width:100%;height:100%}
+.a-col .big{font-size:38px;font-weight:800;line-height:.92;margin:34px 0 0;text-transform:uppercase}
+.a-col.sun .big{color:var(--red)}
+.a-col .cnl{font-family:var(--serif);font-size:12px;letter-spacing:6px;color:#84878c;margin-top:8px}
+.a-col .deg2{font-family:var(--mono);font-size:11px;color:#84878c;margin-top:10px}
+.a-col .deg2 b{color:#efe9dc;font-weight:400}
+.a-col .track{height:3px;background:#34363a;margin-top:12px;position:relative}
+.a-col .track i{position:absolute;left:0;top:0;bottom:0;background:var(--red)}
+.astro .akw{margin-top:16px;font-size:10px;letter-spacing:1.5px;color:#84878c;line-height:2.1}
+.astro .akw b{color:#efe9dc;font-weight:700}
+.todo-empty{color:var(--dim);font-size:13.5px;line-height:2;padding:10px 0 30px}
+/* ---- almanac ---- */
+.alm-top{display:flex;gap:20px;align-items:baseline;flex-wrap:wrap;margin-bottom:4px}
+.alm-date{font-size:34px;letter-spacing:2px;font-weight:600}
+.alm-lunar{font-size:16px;color:var(--red)}
+.kv{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-top:16px}
+.kv div{background:var(--panel);border:1px solid var(--line);padding:12px 14px;font-size:13px;line-height:2}
+.kv b{color:var(--dim);font-weight:400;letter-spacing:2px;display:block;font-size:10.5px;margin-bottom:2px}
+.yiji{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:14px}
+.yiji div{border:1px solid var(--line);background:var(--panel);padding:14px;font-size:13.5px;line-height:2}
+.yiji .yi b{color:var(--wood)}.yiji .ji b{color:var(--red)}
+.yiji b{font-size:15px;letter-spacing:3px;display:block;margin-bottom:5px;font-weight:600}
+footer{margin-top:44px;border-top:1px solid var(--line);padding-top:14px;color:var(--dim);
+  font-size:10.5px;letter-spacing:1px;line-height:2;font-family:var(--mono)}
+.copyok{color:var(--wood)}
+@media(max-width:560px){
+  .pillars{gap:6px}.pl-char{font-size:27px}h1{font-size:20px;letter-spacing:6px}
+  .catnav .ch{font-size:21px}.catnav .cap{display:none}
+  .linerow{grid-template-columns:42px 1fr 84px 26px}
+  .alm-date{font-size:26px}
+}
+@media (prefers-reduced-motion:reduce){.coin.flip{animation:none}.wx .fill{transition:none}}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <div class="seal" aria-hidden="true">玄<br>机</div>
+  <div>
+    <h1 data-i18n="title">玄机</h1>
+    <div class="sub" data-i18n="subtitle">XUANJI · OFFLINE METAPHYSICS</div>
+  </div>
+  <button class="langbtn" id="langbtn" onclick="toggleLang()">EN</button>
+</header>
+
+<nav class="catnav" id="catnav" aria-label="categories"></nav>
+<nav class="subnav" id="subnav" aria-label="functions"></nav>
+
+<!-- ============ BAZI ============ -->
+<section class="tab on" id="tab0">
+  <div class="card">
+    <h2 data-i18n="bz_input">出生信息</h2>
+    <div class="grid">
+      <label class="f"><span data-i18n="f_name">姓名(可选,支持任何语言)</span>
+        <input id="bz-name" placeholder="e.g. Ming Li / 李明"></label>
+      <label class="f"><span data-i18n="f_gender">性别</span>
+        <select id="bz-gender"><option value="m" data-i18n="male">男</option><option value="f" data-i18n="female">女</option></select></label>
+      <label class="f"><span data-i18n="f_date">出生日期(公历)</span>
+        <input type="date" id="bz-date" value="1995-06-15" min="1900-01-01" max="2100-12-31"></label>
+      <label class="f"><span data-i18n="f_time">出生时间</span>
+        <input type="time" id="bz-time" value="10:30"></label>
+      <label class="f"><span data-i18n="f_tz">出生地时区</span>
+        <select id="bz-tz"></select></label>
+      <label class="f"><span>经度 Longitude(选填,真太阳时)</span>
+        <input type="number" id="bz-lon" step="0.01" min="-180" max="180" placeholder="e.g. 116.4 (北京)"></label>
+    </div>
+    <button class="btn" onclick="doBazi()" data-i18n="btn_bazi">排 盘</button>
+    <button class="btn ghost" id="bz-copy" style="display:none" onclick="copyBazi()" data-i18n="btn_copy">复制结果(可粘贴给 AI 解读)</button>
+    <div class="note" data-i18n="bz_note">说明:月柱、年柱按精确节气换算;时区用于海外出生的节气校正(中国出生选 UTC+8)。23:00 后按次日排日柱。</div>
+  </div>
+  <div id="bz-out"></div>
+</section>
+
+<!-- ============ LIUYAO ============ -->
+<section class="tab" id="tab1">
+  <div class="card">
+    <h2 data-i18n="ly_input">摇卦问事</h2>
+    <label class="f"><span data-i18n="f_question">所问之事(可选)</span>
+      <input id="ly-q" placeholder="e.g. 近期换工作是否顺利 / Should I change jobs?"></label>
+    <label class="f" style="margin-top:10px;max-width:320px"><span data-i18n="f_cat">测算类别(自动断卦按此取用神)</span>
+      <select id="ly-cat" onchange="renderHex()"></select></label>
+    <div class="coins" aria-hidden="true">
+      <div class="coin" id="c0">?</div><div class="coin" id="c1">?</div><div class="coin" id="c2">?</div>
+    </div>
+    <div style="text-align:center">
+      <button class="btn" id="ly-btn" onclick="throwCoins()" data-i18n="btn_throw">掷第 1 爻</button>
+      <button class="btn ghost" onclick="resetHex()" data-i18n="btn_reset">重新起卦</button>
+      <button class="btn ghost" id="ly-copy" style="display:none" onclick="copyHex()" data-i18n="btn_copy">复制结果(可粘贴给 AI 解读)</button>
+    </div>
+    <div class="note" data-i18n="ly_note">铜钱:字面为阳(3)、背面为阴(2)。三枚合计 6=老阴×、7=少阳、8=少阴、9=老阳○。自下而上共摇六次成卦。</div>
+  </div>
+  <div id="ly-out"></div>
+</section>
+
+<!-- ============ ALMANAC ============ -->
+<section class="tab" id="tab2">
+  <div class="card">
+    <h2 data-i18n="al_input">选择日期</h2>
+    <div class="grid">
+      <label class="f"><span data-i18n="f_aldate">日期</span>
+        <input type="date" id="al-date"></label>
+    </div>
+    <button class="btn" onclick="doAlmanac()" data-i18n="btn_al">查 询</button>
+    <div class="note" data-i18n="al_note">黄历按中国标准时间(UTC+8)推算。宜忌依传统"建除十二神"生成,仅供参考。</div>
+  </div>
+  <div id="al-out"></div>
+</section>
+
+<!-- ============ NAME NUMEROLOGY ============ -->
+<section class="tab" id="tab3">
+  <div class="card">
+    <h2 data-i18n="nm_input">英文名测算(数字命理)</h2>
+    <div class="grid">
+      <label class="f"><span data-i18n="f_fullname">英文全名(按平时常用的拼写)</span>
+        <input id="nm-name" placeholder="e.g. Ming Li / Emily Jane Watson"></label>
+      <label class="f"><span data-i18n="f_bd_opt">出生日期(可选,用于生命灵数)</span>
+        <input type="date" id="nm-date" min="1900-01-01" max="2100-12-31"></label>
+    </div>
+    <button class="btn" onclick="doName()" data-i18n="btn_name">测 算</button>
+    <button class="btn ghost" id="nm-copy" style="display:none" onclick="copyName()" data-i18n="btn_copy">复制结果(可粘贴给 AI 解读)</button>
+    <div class="note" data-i18n="nm_note">采用西方毕达哥拉斯数字命理:A=1 … Z 循环映射 1–9。元音算灵魂数,辅音算人格数,全名算表达数,生日算生命灵数;11、22、33 为大师数不再化简。中文姓名请用拼音或平时使用的英文名。</div>
+  </div>
+  <div id="nm-out"></div>
+</section>
+
+
+<!-- ============ MEIHUA ============ -->
+<section class="tab" id="tab4">
+  <div class="card"><h2>梅花易数 · PLUM BLOSSOM</h2>
+    <div class="grid">
+      <label class="f"><span>起卦方式 Method</span>
+        <select id="mh-mode" onchange="mhModeUI()"><option>此刻时间起卦 By current time</option><option>报数起卦 By two numbers</option></select></label>
+      <span id="mh-nums" style="display:none">
+        <label class="f"><span>数一 Number 1</span><input type="number" id="mh-n1" min="1" value="7"></label>
+      </span>
+      <span id="mh-nums2" style="display:none">
+        <label class="f"><span>数二 Number 2</span><input type="number" id="mh-n2" min="1" value="16"></label>
+      </span>
+    </div>
+    <label class="f" style="margin-top:12px"><span>所问之事 Question(可选)</span><input id="mh-q"></label>
+    <button class="btn" onclick="doMeihua()">起 卦</button>
+    <button class="btn ghost" id="mh-copy" style="display:none" onclick="copyMH()">复制结果 Copy for AI</button>
+  </div>
+  <div id="mh-out"></div>
+</section>
+
+<!-- ============ XIAOLIUREN ============ -->
+<section class="tab" id="tab5">
+  <div class="card"><h2>小六壬 · QUICK PALM ORACLE</h2>
+    <div class="grid">
+      <label class="f"><span>方式 Method</span>
+        <select id="xl-mode" onchange="xlModeChange()"><option>此刻掐算 Current moment</option><option>自定三数 Custom numbers</option></select></label>
+      <label class="f"><span>数一(月) N1</span><input type="number" id="xl-1" min="1" value="6"></label>
+      <label class="f"><span>数二(日) N2</span><input type="number" id="xl-2" min="1" value="15"></label>
+      <label class="f"><span>数三(时) N3</span><input type="number" id="xl-3" min="1" value="8"></label>
+    </div>
+    <button class="btn" onclick="doXLR()">掐 算</button>
+  </div>
+  <div id="xl-out"></div>
+</section>
+
+<!-- ============ DATE PICKING ============ -->
+<section class="tab" id="tab6">
+  <div class="card"><h2>择日择吉 · GOOD DATES</h2>
+    <div class="grid">
+      <label class="f"><span>事项 Event</span><select id="zr-ev"></select></label>
+      <label class="f"><span>开始日期 From</span><input type="date" id="zr-from"></label>
+      <label class="f"><span>范围 Range</span>
+        <select id="zr-span"><option value="30">30 天 days</option><option value="60">60 天</option><option value="90">90 天</option></select></label>
+      <label class="f"><span>你的生肖 Your zodiac(避冲)</span><select id="zr-sx"></select></label>
+    </div>
+    <button class="btn" onclick="doZeri()">筛 选</button>
+    <div class="note">按建除十二神事项宜忌 + 避开破日与冲你生肖之日 + 地支合局加分,列出最佳日期。</div>
+  </div>
+  <div id="zr-out"></div>
+</section>
+
+<!-- ============ BONE WEIGHT ============ -->
+<section class="tab" id="tab7">
+  <div class="card"><h2>称骨算命 · BONE WEIGHT</h2>
+    <div class="grid">
+      <label class="f"><span>出生日期(公历) Birth date</span><input type="date" id="cg-date" value="1995-06-15"></label>
+      <label class="f"><span>出生时辰 Hour</span><input type="time" id="cg-time" value="10:30"></label>
+    </div>
+    <button class="btn" onclick="doChenggu()">称 骨</button>
+    <button class="btn ghost" id="cg-copy" style="display:none" onclick="copyCG()">复制结果 Copy for AI</button>
+    <div class="note">依袁天罡称骨法:农历年月日时各配骨重,合计断命。歌诀原文可复制结果请 AI 给出并详解。</div>
+  </div>
+  <div id="cg-out"></div>
+</section>
+
+<!-- ============ MARRIAGE MATCH ============ -->
+<section class="tab" id="tab8">
+  <div class="card"><h2>八字合婚 · COMPATIBILITY</h2>
+    <div class="grid">
+      <label class="f"><span>甲方生日 Person A birth</span><input type="date" id="hh-d1" value="1995-06-15"></label>
+      <label class="f"><span>甲方时间 Time</span><input type="time" id="hh-t1" value="10:30"></label>
+      <label class="f"><span>甲方时区 TZ</span><select id="hh-z1" class="tzsel"></select></label>
+    </div>
+    <div class="grid" style="margin-top:10px">
+      <label class="f"><span>乙方生日 Person B birth</span><input type="date" id="hh-d2" value="1996-03-20"></label>
+      <label class="f"><span>乙方时间 Time</span><input type="time" id="hh-t2" value="08:00"></label>
+      <label class="f"><span>乙方时区 TZ</span><select id="hh-z2" class="tzsel"></select></label>
+    </div>
+    <button class="btn" onclick="doHehun()">合 婚</button>
+    <button class="btn ghost" id="hh-copy" style="display:none" onclick="copyHH()">复制结果 Copy for AI</button>
+  </div>
+  <div id="hh-out"></div>
+</section>
+
+<!-- ============ WUGE ============ -->
+<section class="tab" id="tab9">
+  <div class="card"><h2>中文五格剖象 · FIVE GRIDS</h2>
+    <div class="grid">
+      <label class="f"><span>姓·第1字笔画 Surname ch.1 strokes</span><input type="number" id="wg-s1" min="1" max="48" value="7"></label>
+      <label class="f"><span>姓·第2字(复姓选填)ch.2</span><input type="number" id="wg-s2" min="1" max="48" placeholder="—"></label>
+      <label class="f"><span>名·第1字笔画 Given ch.1</span><input type="number" id="wg-m1" min="1" max="48" value="8"></label>
+      <label class="f"><span>名·第2字(选填)ch.2</span><input type="number" id="wg-m2" min="1" max="48" placeholder="—"></label>
+    </div>
+    <button class="btn" onclick="doWuge()">剖 象</button>
+    <div class="note">请按《康熙字典》繁体笔画数输入(如"陈"按"陳"16画)。五格=天/人/地/外/总,配三才与81数理吉凶。</div>
+  </div>
+  <div id="wg-out"></div>
+</section>
+
+<!-- ============ LUCKY BEARINGS + FLYING STARS ============ -->
+<section class="tab" id="tab10">
+  <div class="card"><h2>吉神方位 · 玄空飞星 · BEARINGS</h2>
+    <div class="grid">
+      <label class="f"><span>日期 Date</span><input type="date" id="fx-date"></label>
+    </div>
+    <button class="btn" onclick="doFangwei()">查 询</button>
+  </div>
+  <div id="fx-out"></div>
+</section>
+
+<!-- ============ EIGHT MANSIONS ============ -->
+<section class="tab" id="tab11">
+  <div class="card"><h2>八宅命卦 · EIGHT MANSIONS</h2>
+    <div class="grid">
+      <label class="f"><span>出生年份 Birth year</span><input type="number" id="bm-y" min="1900" max="2100" value="1995"></label>
+      <label class="f"><span>出生月日(定立春前后)Date</span><input type="date" id="bm-d" value="1995-06-15"></label>
+      <label class="f"><span>性别 Gender</span><select id="bm-g"><option value="m">男 Male</option><option value="f">女 Female</option></select></label>
+    </div>
+    <button class="btn" onclick="doBazhai()">推 命 卦</button>
+  </div>
+  <div id="bm-out"></div>
+</section>
+
+<!-- ============ COMPASS ============ -->
+<section class="tab" id="tab12">
+  <div class="card"><h2>罗盘 · COMPASS</h2>
+    <div id="cp-intro" class="note" style="font-size:14px;line-height:1.8">
+      <b>三步找到今日吉位:</b><br>
+      ① 点下面的大按钮(手机会询问权限,请点"允许")<br>
+      ② 手机<b>平放在手掌上</b>,屏幕朝天<br>
+      ③ 原地慢慢转身,按屏幕提示对准方向即可<br>
+      <span style="color:var(--dim)">Three steps: tap Start &amp; allow permission → hold the phone flat → turn slowly and follow the on-screen hints.</span>
+    </div>
+    <button class="btn" onclick="startCompass()" style="font-size:17px;padding:12px 28px;display:block;margin:14px auto">🧭 开始找方位 Start</button>
+    <div id="cp-out" class="note"></div>
+    <div id="cp-guide"></div>
+    <div id="cp-dial"></div>
+  </div>
+</section>
+
+
+<!-- ============ ZIWEI ============ -->
+<section class="tab" id="tab13">
+  <div class="card"><h2>紫微斗数 · ZI WEI DOU SHU</h2>
+    <div class="grid">
+      <label class="f"><span>出生日期(公历) Birth date</span><input type="date" id="zw-date" value="1995-06-15"></label>
+      <label class="f"><span>出生时间 Time</span><input type="time" id="zw-time" value="10:30"></label>
+      <label class="f"><span>性别 Gender</span><select id="zw-g"><option value="m">男 Male</option><option value="f">女 Female</option></select></label>
+      <label class="f"><span>时区 TZ</span><select id="zw-tz" class="tzsel"></select></label>
+    </div>
+    <button class="btn" onclick="doZiwei()">排 盘</button>
+    <button class="btn ghost" id="zw-copy" style="display:none" onclick="copyZW()">复制结果 Copy for AI</button>
+    <div class="note">十四主星+六吉六煞+禄存天马+四化+大限。闰月按本月计,23:00 后按次日。星曜庙旺与细部解读建议复制盘面请 AI 展开。</div>
+  </div>
+  <div id="zw-out"></div>
+</section>
+
+
+<!-- ============ LINGQIAN ============ -->
+<section class="tab" id="tab14">
+  <div class="card"><h2>观音灵签 · TEMPLE LOTS</h2>
+    <div class="q2" style="margin-top:6px">
+      <div class="q2-draw" onclick="doQian()">
+        <div class="q2-slot"><div class="q2-stick" id="q-stick"></div></div>
+        <div class="q2-cap">点击抽签 DRAW</div>
+      </div>
+      <div id="q-out" style="flex:1;min-width:250px"></div>
+    </div>
+    <div class="note">一百签完整签诗与古本解曰(数据取自传统通行本)。心中默念所问之事再抽。解曰为文言,可复制请 AI 白话详解与英译。</div>
+    <button class="btn ghost" id="q-copy" style="display:none" onclick="copyQian()">复制结果 Copy for AI</button>
+  </div>
+</section>
+
+<!-- ============ TAROT ============ -->
+<section class="tab" id="tab15">
+  <div class="card"><h2>塔罗 · TAROT</h2>
+    <div class="grid">
+      <label class="f"><span>牌阵 Spread</span>
+        <select id="tr-spread"><option>单牌 · 今日指引 Single</option><option>三牌 · 过去现在未来 Three</option><option>凯尔特十字 Celtic Cross</option></select></label>
+      <label class="f"><span>所问之事 Question(可选)</span><input id="tr-q"></label>
+    </div>
+    <button class="btn" onclick="doTarot()">抽 牌</button>
+    <button class="btn ghost" id="tr-copy" style="display:none" onclick="copyTarot()">复制结果 Copy for AI</button>
+    <div class="note">78 张全牌库,加密随机,约半数逆位(整牌倒转+角标)。大阿卡纳每张为专属几何人像构图。</div>
+  </div>
+  <div id="tr-out"></div>
+</section>
+
+<!-- ============ ASTRO ============ -->
+<section class="tab" id="tab16">
+  <div class="card"><h2>星座三要素 · BIG THREE</h2>
+    <div class="grid">
+      <label class="f"><span>出生日期 Birth date</span><input type="date" id="az-date" value="1995-06-15"></label>
+      <label class="f"><span>出生时间 Time</span><input type="time" id="az-time" value="10:30"></label>
+      <label class="f"><span>时区 TZ</span><select id="az-tz" class="tzsel"></select></label>
+      <label class="f"><span>出生地经度 Longitude(东正西负)</span><input type="number" id="az-lon" step="0.01" value="116.40"></label>
+      <label class="f"><span>出生地纬度 Latitude(北正南负)</span><input type="number" id="az-lat" step="0.01" value="39.90"></label>
+    </div>
+    <button class="btn" onclick="doAstro()">推 算</button>
+    <button class="btn ghost" id="az-copy" style="display:none" onclick="copyAstro()">复制结果 Copy for AI</button>
+    <div class="note">太阳/月亮星座按天文黄经实算(非查表,边界日精确);上升星座需准确的出生时间与经纬度。</div>
+  </div>
+  <div id="az-out"></div>
+</section>
+
+<!-- ============ QI MEN DUN JIA ============ -->
+<section class="tab" id="tab17">
+  <div class="card"><h2>奇门遁甲 · QI MEN DUN JIA</h2>
+    <div class="grid">
+      <label class="f"><span>日期 Date</span><input type="date" id="qm-date"></label>
+      <label class="f"><span>时间 Time</span><input type="time" id="qm-time"></label>
+      <label class="f"><span>时区 TZ</span><select id="qm-tz" class="tzsel"></select></label>
+    </div>
+    <button class="btn" onclick="doQimen()">起 局</button>
+    <button class="btn ghost" onclick="qmNow()">此刻 Now</button>
+    <button class="btn ghost" id="qm-copy" style="display:none" onclick="copyQimen()">复制结果 Copy for AI</button>
+    <div class="note">时家奇门 · 转盘法。节气按太阳黄经实算,拆补法定上中下元。九宫依次为:八神 / 九星·天盘干 / 八门 / 地盘干。开休生为三吉门(标红)。</div>
+  </div>
+  <div id="qm-out"></div>
+</section>
+
+<!-- ============ DA LIU REN ============ -->
+<section class="tab" id="tab18">
+  <div class="card"><h2>大六壬 · DA LIU REN</h2>
+    <div class="grid">
+      <label class="f"><span>日期 Date</span><input type="date" id="dl-date"></label>
+      <label class="f"><span>时间 Time</span><input type="time" id="dl-time"></label>
+      <label class="f"><span>时区 TZ</span><select id="dl-tz" class="tzsel"></select></label>
+    </div>
+    <button class="btn" onclick="doLiuren()">起 课</button>
+    <button class="btn ghost" onclick="dlNow()">此刻 Now</button>
+    <button class="btn ghost" id="dl-copy" style="display:none" onclick="copyLiuren()">复制结果 Copy for AI</button>
+    <div class="note">月将按太阳过宫(中气)实算,月将加时布天地盘;日干寄宫起四课,九宗门取三传(涉害以孟仲季法取捷),昼夜贵人分布十二天将。</div>
+  </div>
+  <div id="dl-out"></div>
+</section>
+
+<section class="tab" id="tabTodo"></section>
+
+<footer data-i18n="footer">本工具仅为传统文化研究与娱乐参考 · 所有计算在本机完成,不上传任何数据<br>For personal study &amp; entertainment only · All calculations run locally, no data leaves your device</footer>
+</div>
+
+<script>
+/* ==================== I18N ==================== */
+let LANG='cn';
+const UI={
+ title:{cn:'玄机',en:'Xuanji'},
+ subtitle:{cn:'XUANJI · OFFLINE METAPHYSICS',en:'玄机 · OFFLINE METAPHYSICS'},
+ f_cat:{cn:'测算类别(自动断卦按此取用神)',en:'Question type (sets the focus for auto-reading)'},
+ todo:{cn:'此功能在开发计划中,将按阶段陆续加入。',en:'Planned — arriving in a later build.'},
+ tab_bazi:{cn:'八字排盘',en:'BaZi Chart'},tab_liuyao:{cn:'六爻起卦',en:'Liu Yao Oracle'},tab_almanac:{cn:'今日黄历',en:'Daily Almanac'},
+ bz_input:{cn:'出生信息',en:'Birth Details'},
+ f_name:{cn:'姓名(可选,支持任何语言)',en:'Name (optional, any language)'},
+ f_gender:{cn:'性别',en:'Gender'},male:{cn:'男',en:'Male'},female:{cn:'女',en:'Female'},
+ f_date:{cn:'出生日期(公历)',en:'Birth date (Gregorian)'},f_time:{cn:'出生时间',en:'Birth time'},
+ f_tz:{cn:'出生地时区',en:'Birthplace time zone'},
+ btn_bazi:{cn:'排 盘',en:'Cast Chart'},btn_copy:{cn:'复制结果(可粘贴给 AI 解读)',en:'Copy result (paste to an AI for reading)'},
+ bz_note:{cn:'说明:月柱、年柱按精确节气换算;时区用于海外出生的节气校正(中国出生选 UTC+8)。23:00 后按次日排日柱。',
+          en:'Year & month pillars use exact solar-term times; the time zone corrects solar terms for overseas births (choose UTC+8 for China). After 23:00 the day pillar advances to the next day.'},
+ ly_input:{cn:'摇卦问事',en:'Cast the Coins'},
+ f_question:{cn:'所问之事(可选)',en:'Your question (optional)'},
+ btn_throw:{cn:'掷第 {n} 爻',en:'Throw line {n}'},btn_done:{cn:'成卦完毕',en:'Hexagram complete'},
+ btn_reset:{cn:'重新起卦',en:'Start over'},
+ ly_note:{cn:'铜钱:字面为阳(3)、背面为阴(2)。三枚合计 6=老阴×、7=少阳、8=少阴、9=老阳○。自下而上共摇六次成卦。',
+          en:'Coins: inscribed face = yang (3), reverse = yin (2). Sum of three: 6 = old yin ×, 7 = young yang, 8 = young yin, 9 = old yang ○. Six throws build the hexagram bottom-up.'},
+ al_input:{cn:'选择日期',en:'Pick a Date'},f_aldate:{cn:'日期',en:'Date'},btn_al:{cn:'查 询',en:'Look Up'},
+ tab_name:{cn:'姓名数理',en:'Name Numerology'},
+ nm_input:{cn:'英文名测算(数字命理)',en:'Name Analysis (Numerology)'},
+ f_fullname:{cn:'英文全名(按平时常用的拼写)',en:'Full name (spelling you actually use)'},
+ f_bd_opt:{cn:'出生日期(可选,用于生命灵数)',en:'Birth date (optional, for Life Path)'},
+ btn_name:{cn:'测 算',en:'Analyze'},
+ nm_note:{cn:'采用西方毕达哥拉斯数字命理:A=1 … Z 循环映射 1–9。元音算灵魂数,辅音算人格数,全名算表达数,生日算生命灵数;11、22、33 为大师数不再化简。中文姓名请用拼音或平时使用的英文名。',
+          en:'Uses Pythagorean numerology: letters A=1 … Z map cyclically to 1–9. Vowels give the Soul Urge, consonants the Personality, the full name the Expression, and the birth date the Life Path; 11, 22 and 33 are master numbers and are not reduced. For Chinese names, use pinyin or the English name you actually go by.'},
+ al_note:{cn:'黄历按中国标准时间(UTC+8)推算。宜忌依传统"建除十二神"生成,仅供参考。',
+          en:'Computed on China Standard Time (UTC+8). Auspicious/inauspicious lists follow the traditional Twelve Day Officers; for reference only.'},
+ footer:{cn:'本工具仅为传统文化研究与娱乐参考 · 所有计算在本机完成,不上传任何数据',
+         en:'For cultural study & entertainment only · All calculations run locally; no data leaves your device'},
+ heads:{cn:'字(阳)',en:'Heads (yang)'},tails:{cn:'背(阴)',en:'Tails (yin)'},
+ copied:{cn:'✓ 已复制',en:'✓ Copied'}
+};
+function T(k){const e=UI[k];return e?e[LANG]:k}
+function toggleLang(){LANG=(LANG==='cn')?'en':'cn';document.getElementById('langbtn').textContent=(LANG==='cn')?'EN':'中';
+  document.documentElement.lang=(LANG==='cn')?'zh':'en';applyI18n();rerenderAll();}
+function applyI18n(){document.querySelectorAll('[data-i18n]').forEach(el=>{const k=el.dataset.i18n;
+  if(k==='btn_throw'){updateThrowBtn();return} if(UI[k])el.innerHTML=T(k).replace(/\n/g,'<br>');});}
+
+/* ==================== CORE DATA ==================== */
+const GAN=['甲','乙','丙','丁','戊','己','庚','辛','壬','癸'];
+const GAN_PY=['Jia','Yi','Bing','Ding','Wu','Ji','Geng','Xin','Ren','Gui'];
+const ZHI=['子','丑','寅','卯','辰','巳','午','未','申','酉','戌','亥'];
+const ZHI_PY=['Zi','Chou','Yin','Mao','Chen','Si','Wu','Wei','Shen','You','Xu','Hai'];
+const ANIMAL={cn:['鼠','牛','虎','兔','龙','蛇','马','羊','猴','鸡','狗','猪'],
+  en:['Rat','Ox','Tiger','Rabbit','Dragon','Snake','Horse','Goat','Monkey','Rooster','Dog','Pig']};
+const ELEM={cn:['木','火','土','金','水'],en:['Wood','Fire','Earth','Metal','Water']};
+const ganElem=g=>Math.floor(g/2);
+const zhiElem=[4,2,0,0,2,1,1,2,3,3,2,4];
+const YY={cn:['阳','阴'],en:['Yang','Yin']};
+const CANG=[[9],[5,9,7],[0,2,4],[1],[4,1,9],[2,6,4],[3,5],[5,3,1],[6,8,4],[7],[4,7,3],[8,0]];
+const TG={cn:['比肩','劫财','食神','伤官','偏财','正财','七杀','正官','偏印','正印'],
+  en:['Companion','Rob Wealth','Eating God','Hurting Officer','Indirect Wealth','Direct Wealth','Seven Killings','Direct Officer','Indirect Resource','Direct Resource']};
+const NAYIN={cn:['海中金','炉中火','大林木','路旁土','剑锋金','山头火','涧下水','城头土','白蜡金','杨柳木','泉中水','屋上土','霹雳火','松柏木','长流水','砂中金','山下火','平地木','壁上土','金箔金','覆灯火','天河水','大驿土','钗钏金','桑柘木','大溪水','沙中土','天上火','石榴木','大海水'],
+  en:['Sea Gold','Furnace Fire','Forest Wood','Roadside Earth','Sword Metal','Mountain Fire','Stream Water','Rampart Earth','Wax Metal','Willow Wood','Spring Water','Roof Earth','Thunder Fire','Pine Wood','River Water','Sand Gold','Hillside Fire','Meadow Wood','Wall Earth','Gilt Metal','Lamp Fire','Sky Water','Highway Earth','Hairpin Gold','Mulberry Wood','Brook Water','Desert Earth','Heaven Fire','Pomegranate Wood','Ocean Water']};
+const TERMS={cn:['立春','雨水','惊蛰','春分','清明','谷雨','立夏','小满','芒种','夏至','小暑','大暑','立秋','处暑','白露','秋分','寒露','霜降','立冬','小雪','大雪','冬至','小寒','大寒'],
+  en:['Beginning of Spring','Rain Water','Awakening of Insects','Spring Equinox','Clear & Bright','Grain Rain','Beginning of Summer','Grain Buds','Grain in Ear','Summer Solstice','Minor Heat','Major Heat','Beginning of Autumn','End of Heat','White Dew','Autumn Equinox','Cold Dew',"Frost's Descent",'Beginning of Winter','Minor Snow','Major Snow','Winter Solstice','Minor Cold','Major Cold']};
+function tenGod(dm,g){const de=ganElem(dm),oe=ganElem(g),s=(dm%2)===(g%2);
+  if(oe===de)return s?0:1; if((oe+1)%5===de)return s?8:9; if((de+1)%5===oe)return s?2:3;
+  if((de+2)%5===oe)return s?4:5; return s?6:7;}
+const gz=i=>GAN[i%10]+ZHI[i%12];
+const gzPY=i=>GAN_PY[i%10]+'-'+ZHI_PY[i%12];
+const sexIdx=(g,z)=>{for(let i=0;i<60;i++)if(i%10===g&&i%12===z)return i;return 0};
+
+/* ==================== ASTRONOMY ==================== */
+function jdUTC(y,mo,d,h,mi){h=h||0;mi=mi||0;if(mo<=2){y-=1;mo+=12}
+  const a=Math.floor(y/100),b=2-a+Math.floor(a/4);
+  return Math.floor(365.25*(y+4716))+Math.floor(30.6001*(mo+1))+d+b-1524.5+(h+mi/60)/24;}
+function sunLon(jd){const T=(jd-2451545)/36525,D=Math.PI/180;
+  const L0=280.46646+36000.76983*T+0.0003032*T*T;
+  const M=(357.52911+35999.05029*T-0.0001537*T*T)*D;
+  const C=(1.914602-0.004817*T-0.000014*T*T)*Math.sin(M)+(0.019993-0.000101*T)*Math.sin(2*M)+0.000289*Math.sin(3*M);
+  const O=(125.04-1934.136*T)*D;
+  let l=L0+C-0.00569-0.00478*Math.sin(O);return((l%360)+360)%360;}
+function termJD(target,guess){let jd=guess;
+  for(let i=0;i<60;i++){let df=((target-sunLon(jd)+540)%360)-180;
+    if(Math.abs(df)<1e-7)break; jd+=df/0.98565;} return jd;}
+function newMoonJD(k){const T=k/1236.85,D=Math.PI/180;
+  let j=2451550.09766+29.530588861*k+0.00015437*T*T-1.5e-7*T*T*T+7.3e-10*T*T*T*T;
+  const E=1-0.002516*T-0.0000074*T*T;
+  const M=(2.5534+29.10535670*k-0.0000014*T*T)*D;
+  const Mp=(201.5643+385.81693528*k+0.0107582*T*T+0.00001238*T*T*T)*D;
+  const F=(160.7108+390.67050284*k-0.0016118*T*T)*D;
+  const Om=(124.7746-1.56375588*k+0.0020672*T*T)*D;
+  j+=-0.40720*Math.sin(Mp)+0.17241*E*Math.sin(M)+0.01608*Math.sin(2*Mp)+0.01039*Math.sin(2*F)
+    +0.00739*E*Math.sin(Mp-M)-0.00514*E*Math.sin(Mp+M)+0.00208*E*E*Math.sin(2*M)
+    -0.00111*Math.sin(Mp-2*F)-0.00057*Math.sin(Mp+2*F)+0.00056*E*Math.sin(2*Mp+M)
+    -0.00042*Math.sin(3*Mp)+0.00042*E*Math.sin(M+2*F)+0.00038*E*Math.sin(M-2*F)
+    -0.00024*E*Math.sin(2*Mp-M)-0.00017*Math.sin(Om);
+  return j;}
+const civCST=jd=>Math.floor(jd+8/24+0.5); // civil day number in UTC+8
+function jieAround(jdBirthUTC){ // nearest 节 (odd multiples of 15°) before & after
+  const lam=sunLon(jdBirthUTC);
+  let a=Math.floor((lam-15)/30)*30+15; a=((a%360)+360)%360;
+  const prev=termJD(a, jdBirthUTC-(((lam-a)+360)%360)/0.98565);
+  const nb=(a+30)%360;
+  const next=termJD(nb, jdBirthUTC+(((nb-lam)+360)%360)/0.98565);
+  return {prevAngle:a,prevJD:prev,nextAngle:nb,nextJD:next};}
+
+/* ==================== LUNAR CALENDAR ==================== */
+function lunarFromCivil(y,m,d){
+  const cd=Math.floor(jdUTC(y,m,d,12)+0.5); // treat date as CST civil day
+  let baseY=y;
+  for(let pass=0;pass<2;pass++){
+    const wsA=termJD(270,jdUTC(baseY-1,12,21,0)), wsB=termJD(270,jdUTC(baseY,12,21,0));
+    const kA=Math.round((wsA-2451550.09766)/29.530588861);
+    const kB=Math.round((wsB-2451550.09766)/29.530588861);
+    const nms=[],nmc=[];
+    for(let k=kA-2;k<=kB+3;k++){const j=newMoonJD(k);nms.push(j);nmc.push(civCST(j));}
+    const cA=civCST(wsA),cB=civCST(wsB);
+    let iA=-1,iB=-1;
+    for(let i=0;i<nmc.length;i++){if(nmc[i]<=cA)iA=i; if(nmc[i]<=cB)iB=i;}
+    if(cd>=nmc[iB]){ if(pass===0){baseY=y+1;continue} }
+    if(cd<nmc[iA]) return null;
+    const leapYear=(iB-iA)===13;
+    let leapIdx=-1;
+    if(leapYear){for(let i=iA+1;i<=iB;i++){ // first month w/o zhongqi
+      const t0=nms[i],l0=sunLon(t0);let tgt=Math.ceil(l0/30)*30%360;
+      const zq=termJD(tgt,t0+(((tgt-l0)+360)%360)/0.98565);
+      if(!(civCST(zq)<nmc[i+1])){leapIdx=i;break}}}
+    let num=11,ly=baseY-1,mi=iA,isLeap=false;
+    for(let i=iA;i<=iB+1;i++){
+      if(i>iA){ if(i===leapIdx){isLeap=true;} else {isLeap=false;num=num%12+1;if(num===1)ly++;} }
+      if(i<nmc.length-1 && cd>=nmc[i] && cd<nmc[i+1]){
+        return {year:ly,month:num,leap:isLeap,day:cd-nmc[i]+1};}
+    }
+    if(pass===0)baseY=y+1;
+  }
+  return null;
+}
+const LMON={cn:['正月','二月','三月','四月','五月','六月','七月','八月','九月','十月','冬月','腊月']};
+function lunarDayName(d){const a=['初一','初二','初三','初四','初五','初六','初七','初八','初九','初十','十一','十二','十三','十四','十五','十六','十七','十八','十九','二十','廿一','廿二','廿三','廿四','廿五','廿六','廿七','廿八','廿九','三十'];return a[d-1]||d;}
+function lunarStr(l){if(!l)return '—';
+  if(LANG==='cn')return (l.leap?'闰':'')+LMON.cn[l.month-1]+lunarDayName(l.day);
+  return (l.leap?'Leap ':'')+'Month '+l.month+', Day '+l.day;}
+
+/* ==================== BAZI ==================== */
+let stBazi=null;
+function fillTZ(){const s=document.getElementById('bz-tz');const zones=[];
+  for(let z=-12;z<=13;z++)zones.push(z);
+  s.innerHTML=zones.map(z=>{const lbl='UTC'+(z>=0?'+':'')+z+(z===8?(LANG==='cn'?'(中国)':' (China)'):z===0?' (UK/GMT)':z===1?' (EU)':z===-5?' (US East)':z===-8?' (US West)':'');
+    return '<option value="'+z+'"'+(z===8?' selected':'')+'>'+lbl+'</option>'}).join('');}
+function doBazi(){
+  const dv=document.getElementById('bz-date').value; if(!dv)return;
+  const tv=document.getElementById('bz-time').value||'12:00';
+  const [y,mo,d]=dv.split('-').map(Number); const [h,mi]=tv.split(':').map(Number);
+  const tz=Number(document.getElementById('bz-tz').value);
+  stBazi={name:document.getElementById('bz-name').value.trim(),
+    male:document.getElementById('bz-gender').value==='m',y,mo,d,h,mi,tz,
+    lon:document.getElementById('bz-lon').value};
+  renderBazi();
+  document.getElementById('bz-copy').style.display='inline-block';
+}
+function calcBazi(s){
+  const jdB=jdUTC(s.y,s.mo,s.d,s.h,s.mi)-s.tz/24; // UTC moment of birth
+  // true solar time (optional longitude)
+  let lh=s.h,lmi=s.mi,ly2=s.y,lmo2=s.mo,ld2=s.d,tst=null;
+  if(s.lon!==undefined&&s.lon!==null&&s.lon!==''&&!isNaN(s.lon)){
+    const N=Math.floor(jdUTC(s.y,s.mo,s.d,12)-jdUTC(s.y,1,1,12))+1;
+    const Bb=2*Math.PI*(N-81)/364;
+    const eot=9.87*Math.sin(2*Bb)-7.53*Math.cos(Bb)-1.5*Math.sin(Bb);
+    let t=s.h*60+s.mi+(Number(s.lon)-s.tz*15)*4+eot;
+    const dsh=Math.floor(t/1440); t-=dsh*1440;
+    lh=Math.floor(t/60);lmi=Math.round(t%60);
+    if(dsh!==0){const dt=new Date(Date.UTC(s.y,s.mo-1,s.d));dt.setUTCDate(dt.getUTCDate()+dsh);
+      ly2=dt.getUTCFullYear();lmo2=dt.getUTCMonth()+1;ld2=dt.getUTCDate();}
+    tst=String(lh).padStart(2,'0')+':'+String(lmi).padStart(2,'0');
+  }
+  // year pillar (lichun boundary)
+  const li=termJD(315,jdUTC(s.y,2,4,0)-s.tz/24+0); // lichun near Feb 4 of birth year (UTC)
+  const gy=(jdB>=li)?s.y:s.y-1;
+  const yIdx=((gy-4)%60+60)%60;
+  // month pillar
+  const j=jieAround(jdB);
+  const mBranch=(((j.prevAngle-315)/30)+2+12)%12;
+  const mFromYin=((mBranch-2)+12)%12;
+  const mStem=((yIdx%10)%5*2+2+mFromYin)%10;
+  const mIdx=sexIdx(mStem,mBranch);
+  // day pillar (true-solar local civil date, 23:00+ -> next day)
+  let dy=ly2,dm=lmo2,dd=ld2;
+  if(lh>=23){const t=new Date(Date.UTC(ly2,lmo2-1,ld2));t.setUTCDate(t.getUTCDate()+1);
+    dy=t.getUTCFullYear();dm=t.getUTCMonth()+1;dd=t.getUTCDate();}
+  const jdn=Math.floor(jdUTC(dy,dm,dd,12,0)+0.5);
+  const dIdx=((jdn+49)%60+60)%60;
+  // hour pillar
+  const hb=Math.floor((lh+1)/2)%12;
+  const hs=((dIdx%10)%5*2+hb)%10;
+  const hIdx=sexIdx(hs,hb);
+  // da yun
+  const yangYear=(yIdx%10)%2===0;
+  const fwd=(yangYear===s.male);
+  const days=fwd?(j.nextJD-jdB):(jdB-j.prevJD);
+  const startYears=days/3;
+  const dy8=[];for(let i=1;i<=8;i++){const k=((mIdx+(fwd?i:-i))%60+60)%60;dy8.push(k);}
+  // kong wang of day
+  const xun=dIdx-dIdx%10;
+  const kw=[(xun%12+10)%12,(xun%12+11)%12];
+  const lunar=lunarFromCivil(s.y,s.mo,s.d);
+  return {yIdx,mIdx,dIdx,hIdx,fwd,startYears,dy8,kw,lunar,gy,jdB,jie:j,hb,mBranch,tst};
+}
+function pillarHTML(idx,titleCN,titleEN,dm,isDM){
+  const g=idx%10,z=idx%12,ge=ganElem(g),ze=zhiElem[z];
+  const tg=isDM?(LANG==='cn'?'日主':'Day Master'):TG[LANG][tenGod(dm,g)];
+  const hides=CANG[z].map(cg=>'<b class="e'+ganElem(cg)+'">'+GAN[cg]+'</b> <span>'+TG[LANG][tenGod(dm,cg)]+'</span>').join('<br>');
+  return '<div class="pillar'+(isDM?' dm':'')+'">'
+   +'<div class="pl-title">'+(LANG==='cn'?titleCN:titleEN)+'</div>'
+   +'<div class="pl-tg">'+tg+'</div>'
+   +'<div class="pl-char e'+ge+'">'+GAN[g]+'</div><div class="pl-py">'+GAN_PY[g]+' · '+YY[LANG][g%2]+' '+ELEM[LANG][ge]+'</div>'
+   +'<div class="pl-char e'+ze+'">'+ZHI[z]+'</div><div class="pl-py">'+ZHI_PY[z]+' · '+ELEM[LANG][ze]+(LANG==='en'?' ('+ANIMAL.en[z]+')':'')+'</div>'
+   +'<div class="pl-hide">'+hides+'</div>'
+   +'<div class="pl-ny">'+NAYIN[LANG][Math.floor(idx/2)]+'</div></div>';
+}
+function renderBazi(){
+  if(!stBazi)return; const s=stBazi,r=calcBazi(s);
+  const dm=r.dIdx%10;
+  const cnt=[0,0,0,0,0];
+  [r.yIdx,r.mIdx,r.dIdx,r.hIdx].forEach(i=>{cnt[ganElem(i%10)]++;cnt[zhiElem[i%12]]++;});
+  const mx=Math.max(...cnt,1);
+  const pad=n=>String(n).padStart(2,'0');
+  const dtStr=s.y+'-'+pad(s.mo)+'-'+pad(s.d)+' '+pad(s.h)+':'+pad(s.mi)+' (UTC'+(s.tz>=0?'+':'')+s.tz+')';
+  const zod=(LANG==='cn'?'生肖:':'Zodiac: ')+ANIMAL[LANG][r.yIdx%12];
+  const lun=(LANG==='cn'?'农历:':'Lunar: ')+lunarStr(r.lunar);
+  const kw=(LANG==='cn'?'日柱旬空:':'Void branches (day): ')+ZHI[r.kw[0]]+ZHI[r.kw[1]]+' ('+ZHI_PY[r.kw[0]]+'-'+ZHI_PY[r.kw[1]]+')';
+  const sy=Math.floor(r.startYears),smo=Math.round((r.startYears-sy)*12);
+  const luck=(LANG==='cn'
+    ?('大运'+(r.fwd?'顺行':'逆行')+',约 '+sy+' 岁 '+smo+' 个月起运')
+    :('Luck cycles run '+(r.fwd?'forward':'backward')+'; first cycle begins ≈ age '+sy+'y '+smo+'m'));
+  let dyRows='<tr>'+r.dy8.map((k,i)=>{const age=(r.startYears+10*i);
+      return '<th>'+Math.round(age)+(LANG==='cn'?'岁':'y')+'<span class="small">'+(s.y+Math.floor(age))+'</span></th>'}).join('')+'</tr>'
+    +'<tr>'+r.dy8.map(k=>'<td><span class="e'+ganElem(k%10)+'">'+GAN[k%10]+'</span><span class="e'+zhiElem[k%12]+'">'+ZHI[k%12]+'</span><span class="small">'+gzPY(k)+'</span></td>').join('')+'</tr>';
+  const el=document.getElementById('bz-out');
+  el.innerHTML=
+   '<div class="card"><h2>'+(LANG==='cn'?'命盘':'Natal Chart')+(s.name?' — '+esc(s.name):'')+'</h2>'
+   +'<div class="note" style="margin:0 0 12px">'+dtStr+' · '+lun+' · '+zod+'</div>'
+   +'<div class="pillars">'
+   +pillarHTML(r.yIdx,'年柱','Year',dm,false)
+   +pillarHTML(r.mIdx,'月柱','Month',dm,false)
+   +pillarHTML(r.dIdx,'日柱','Day',dm,true)
+   +pillarHTML(r.hIdx,'时柱','Hour',dm,false)
+   +'</div><div class="note">'+kw+'</div></div>'
+   +'<div class="card"><h2>'+(LANG==='cn'?'五行分布':'Five Elements')+'</h2><div class="wuxing">'
+   +cnt.map((c,i)=>'<div class="wx"><div class="bar"><div class="fill" style="height:'+(c/mx*100)+'%;background:var(--'+['wood','fire','earth','metal','water'][i]+')"></div></div>'
+     +'<div class="lbl e'+i+'">'+ELEM.cn[i]+' '+ELEM.en[i]+'</div><div class="cnt">'+c+'</div></div>').join('')
+   +'</div><div class="note">'+(LANG==='cn'?'日主':'Day master: ')+'<span class="e'+ganElem(dm)+'">'+GAN[dm]+' '+GAN_PY[dm]+'</span> — '+YY[LANG][dm%2]+' '+ELEM[LANG][ganElem(dm)]+'</div></div>'
+   +'<div class="card"><h2>'+(LANG==='cn'?'大运':'Major Luck Cycles')+'</h2>'
+   +'<div class="note" style="margin:0 0 10px">'+luck+'</div><div class="tscroll"><table>'+dyRows+'</table></div></div>'
+   +baziExtras(r,s);
+  const fy=document.getElementById('bz-fy');if(fy)fy.value=stFY;
+}
+function baziText(){const s=stBazi,r=calcBazi(s);const dm=r.dIdx%10;
+  const p=(i,t)=>t+': '+gz(i)+' ('+gzPY(i)+')';
+  return ['[BaZi Chart 八字命盘]'+(s.name?' '+s.name:''),
+   'Birth 出生: '+s.y+'-'+s.mo+'-'+s.d+' '+s.h+':'+String(s.mi).padStart(2,'0')+' UTC'+(s.tz>=0?'+':'')+s.tz+' · '+(s.male?'Male 男':'Female 女'),
+   'Lunar 农历: '+lunarStr(r.lunar),
+   p(r.yIdx,'Year 年柱'),p(r.mIdx,'Month 月柱'),p(r.dIdx,'Day 日柱 (Day Master 日主 '+GAN[dm]+')'),p(r.hIdx,'Hour 时柱'),
+   'Luck cycles 大运 ('+(r.fwd?'forward 顺':'backward 逆')+', from age '+r.startYears.toFixed(1)+'): '+r.dy8.map(gz).join(' '),
+   'Please interpret this BaZi chart. 请解读这个八字。'].join('\n');}
+function copyBazi(){copyText(baziText(),'bz-copy')}
+
+/* ==================== LIUYAO ==================== */
+const TRI_CN=['乾','兑','离','震','巽','坎','艮','坤'];
+const TRI_EN=['Heaven','Lake','Fire','Thunder','Wind','Water','Mountain','Earth'];
+const TRI_BIN=[[1,1,1],[1,1,0],[1,0,1],[1,0,0],[0,1,1],[0,1,0],[0,0,1],[0,0,0]];
+const TRI_ELEM=[3,3,1,0,0,4,2,2];
+const NAJIA_G=[[0,8],[3,3],[5,5],[6,6],[7,7],[4,4],[2,2],[1,9]];
+const NAJIA_Z=[[[0,2,4],[6,8,10]],[[5,3,1],[11,9,7]],[[3,1,11],[9,7,5]],[[0,2,4],[6,8,10]],
+  [[1,11,9],[7,5,3]],[[2,4,6],[8,10,0]],[[4,6,8],[10,0,2]],[[7,5,3],[1,11,9]]];
+const HEXN=[ // [upper][lower] = [cn,en]
+[['乾为天','The Creative'],['天泽履','Treading'],['天火同人','Fellowship'],['天雷无妄','Innocence'],['天风姤','Coming to Meet'],['天水讼','Conflict'],['天山遁','Retreat'],['天地否','Standstill']],
+[['泽天夬','Breakthrough'],['兑为泽','The Joyous'],['泽火革','Revolution'],['泽雷随','Following'],['泽风大过','Great Exceeding'],['泽水困','Oppression'],['泽山咸','Influence'],['泽地萃','Gathering']],
+[['火天大有','Great Possession'],['火泽睽','Opposition'],['离为火','The Clinging'],['火雷噬嗑','Biting Through'],['火风鼎','The Cauldron'],['火水未济','Before Completion'],['火山旅','The Wanderer'],['火地晋','Progress']],
+[['雷天大壮','Great Power'],['雷泽归妹','Marrying Maiden'],['雷火丰','Abundance'],['震为雷','The Arousing'],['雷风恒','Duration'],['雷水解','Deliverance'],['雷山小过','Small Exceeding'],['雷地豫','Enthusiasm']],
+[['风天小畜','Small Taming'],['风泽中孚','Inner Truth'],['风火家人','The Family'],['风雷益','Increase'],['巽为风','The Gentle'],['风水涣','Dispersion'],['风山渐','Gradual Progress'],['风地观','Contemplation']],
+[['水天需','Waiting'],['水泽节','Limitation'],['水火既济','After Completion'],['水雷屯','Difficulty at the Beginning'],['水风井','The Well'],['坎为水','The Abysmal'],['水山蹇','Obstruction'],['水地比','Holding Together']],
+[['山天大畜','Great Taming'],['山泽损','Decrease'],['山火贲','Grace'],['山雷颐','Nourishment'],['山风蛊','Work on the Decayed'],['山水蒙','Youthful Folly'],['艮为山','Keeping Still'],['山地剥','Splitting Apart']],
+[['地天泰','Peace'],['地泽临','Approach'],['地火明夷','Darkening of the Light'],['地雷复','Return'],['地风升','Pushing Upward'],['地水师','The Army'],['地山谦','Modesty'],['坤为地','The Receptive']]];
+const LIUQIN={cn:['兄弟','父母','子孙','妻财','官鬼'],en:['Siblings','Parents','Descendants','Wealth','Officials']};
+const BEAST={cn:['青龙','朱雀','勾陈','腾蛇','白虎','玄武'],en:['Azure Dragon','Vermilion Bird','Hook Array','Coiling Snake','White Tiger','Black Tortoise']};
+const PALACE_MAP={}; // key bits -> {palace, shi}
+(function(){const flips=[[],[0],[0,1],[0,1,2],[0,1,2,3],[0,1,2,3,4],[0,1,2,4],[4]];
+  const shiPos=[5,0,1,2,3,4,3,2];
+  for(let p=0;p<8;p++){const base=[...TRI_BIN[p],...TRI_BIN[p]];
+    for(let v=0;v<8;v++){const b=base.slice();flips[v].forEach(i=>b[i]^=1);
+      PALACE_MAP[b.join('')]={palace:p,shi:shiPos[v]};}}})();
+function triOf(bits,upper){const t=upper?bits.slice(3):bits.slice(0,3);
+  for(let i=0;i<8;i++)if(TRI_BIN[i].join('')===t.join(''))return i;return 0;}
+function hexInfo(bits){const lo=triOf(bits,false),up=triOf(bits,true);
+  const nm=HEXN[up][lo];const pm=PALACE_MAP[bits.join('')];
+  return {lo,up,cn:nm[0],en:nm[1],palace:pm.palace,shi:pm.shi};}
+function liuqin(pElem,zElem){if(zElem===pElem)return 0;
+  if((zElem+1)%5===pElem)return 1; if((pElem+1)%5===zElem)return 2;
+  if((pElem+2)%5===zElem)return 3; return 4;}
+let stHex={vals:[],q:'',day:null,month:null};
+function updateThrowBtn(){const b=document.getElementById('ly-btn');const n=stHex.vals.length;
+  if(n>=6){b.textContent=T('btn_done');b.disabled=true}
+  else{b.textContent=T('btn_throw').replace('{n}',n+1);b.disabled=false}}
+function throwCoins(){
+  if(stHex.vals.length>=6)return;
+  if(stHex.vals.length===0){
+    stHex.q=document.getElementById('ly-q').value.trim();
+    const now=new Date();
+    const jdn=Math.floor(jdUTC(now.getFullYear(),now.getMonth()+1,now.getDate(),12)+0.5);
+    stHex.day=((jdn+49)%60+60)%60;
+    const jdNow=jdUTC(now.getUTCFullYear(),now.getUTCMonth()+1,now.getUTCDate(),now.getUTCHours(),now.getUTCMinutes());
+    const j=jieAround(jdNow);stHex.month=(((j.prevAngle-315)/30)+2+12)%12;
+    stHex.when=now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0')+'-'+String(now.getDate()).padStart(2,'0');
+  }
+  let sum=0;const faces=[];
+  for(let i=0;i<3;i++){const r=crypto.getRandomValues(new Uint32Array(1))[0]%2;faces.push(r);sum+=r?3:2;}
+  faces.forEach((f,i)=>{const c=document.getElementById('c'+i);c.classList.remove('flip');void c.offsetWidth;
+    c.classList.add('flip');c.innerHTML=(f?'字':'背')+'<span>'+(f?T('heads'):T('tails'))+'</span>';});
+  stHex.vals.push(sum);
+  updateThrowBtn();renderHex();
+  if(stHex.vals.length===6)document.getElementById('ly-copy').style.display='inline-block';
+}
+function resetHex(){stHex={vals:[],q:'',day:null,month:null};
+  for(let i=0;i<3;i++){const c=document.getElementById('c'+i);c.innerHTML='?';}
+  document.getElementById('ly-copy').style.display='none';
+  document.getElementById('ly-out').innerHTML='';updateThrowBtn();}
+const YAONAME={cn:['初爻','二爻','三爻','四爻','五爻','上爻'],en:['Line 1','Line 2','Line 3','Line 4','Line 5','Line 6']};
+function hexBoxHTML(bits,info,orig){
+  const pElem=TRI_ELEM[info.palace];
+  let rows='';
+  for(let i=5;i>=0;i--){
+    const yang=bits[i]===1;
+    const inner=i<3;const tri=inner?info.lo:info.up;
+    const zArr=NAJIA_Z[tri][inner?0:1];const z=zArr[i%3];
+    const g=NAJIA_G[tri][inner?0:1];
+    const lq=liuqin(pElem,zhiElem[z]);
+    const mv=orig&&(stHex.vals[i]===6||stHex.vals[i]===9);
+    const mark=orig?(stHex.vals[i]===9?'○':stHex.vals[i]===6?'×':''):'';
+    const sy=orig?(info.shi===i?(LANG==='cn'?'世':'S'):((info.shi+3)%6===i?(LANG==='cn'?'应':'R'):'')):'';
+    rows+='<div class="linerow">'
+      +'<span class="beast">'+(orig?beastName(i):YAONAME[LANG][i])+'</span>'
+      +'<span class="yao'+(mv?' moving':'')+'">'+(yang?'<i></i>':'<i></i><i style="visibility:hidden;max-width:26px"></i><i></i>')+'</span>'
+      +'<span class="qin">'+LIUQIN[LANG][lq]+' <b class="e'+ganElem(g)+'">'+GAN[g]+'</b><b class="e'+zhiElem[z]+'">'+ZHI[z]+'</b> <span style="color:var(--dim)">'+ELEM[LANG][zhiElem[z]]+'</span></span>'
+      +(orig?'<span>'+(mark?'<span class="mark">'+mark+'</span>':'')+(sy?'<span class="shiying">'+sy+'</span>':'')+'</span>':'<span></span>')
+      +'</div>';
+  }
+  const title=info.cn+' <span style="color:var(--dim)">'+TRI_CN[info.up]+'上'+TRI_CN[info.lo]+'下</span>';
+  const titleEN=info.en+' ('+TRI_EN[info.up]+' over '+TRI_EN[info.lo]+')';
+  return '<div class="hexbox"><div class="hexname">'+(orig?(LANG==='cn'?'本卦 ':'Primary · '):(LANG==='cn'?'变卦 ':'Changed · '))
+    +title+'<span class="en">'+titleEN+' · '+(LANG==='cn'?TRI_CN[info.palace]+'宫('+ELEM.cn[TRI_ELEM[info.palace]]+')':TRI_CN[info.palace]+' Palace, '+ELEM.en[TRI_ELEM[info.palace]])+'</span></div>'+rows+'</div>';
+}
+function beastName(i){const ds=stHex.day%10;
+  const start=[0,0,1,1,2,3,4,4,5,5][ds];
+  return BEAST[LANG][(start+i)%6];}
+function renderHex(){
+  const el=document.getElementById('ly-out');
+  if(stHex.vals.length===0){el.innerHTML='';return}
+  const bits=stHex.vals.map(v=>v%2===1?1:0);
+  while(bits.length<6)bits.push(-1);
+  if(stHex.vals.length<6){ // progress view
+    let rows='';for(let i=5;i>=0;i--){
+      rows+='<div class="linerow"><span class="beast">'+YAONAME[LANG][i]+'</span>'
+        +(bits[i]<0?'<span style="color:var(--line)">· · · · · ·</span>'
+        :'<span class="yao'+((stHex.vals[i]===6||stHex.vals[i]===9)?' moving':'')+'">'+(bits[i]?'<i></i>':'<i></i><i style="visibility:hidden;max-width:26px"></i><i></i>')+'</span>')
+        +'<span></span><span>'+(stHex.vals[i]===9?'<span class="mark">○</span>':stHex.vals[i]===6?'<span class="mark">×</span>':'')+'</span></div>';}
+    el.innerHTML='<div class="card"><h2>'+(LANG==='cn'?'起卦中 — 已得 '+stHex.vals.length+' 爻':'Casting — '+stHex.vals.length+' of 6 lines')+'</h2><div class="hexbox">'+rows+'</div></div>';
+    return;
+  }
+  const info=hexInfo(bits);
+  const moving=stHex.vals.some(v=>v===6||v===9);
+  let changedHTML='',cb=null;
+  if(moving){cb=stHex.vals.map(v=>v===6?1:v===9?0:v%2);
+    changedHTML=hexBoxHTML(cb,hexInfo(cb),false);}
+  const xun=stHex.day-stHex.day%10;const kw=[(xun%12+10)%12,(xun%12+11)%12];
+  const cast=(LANG==='cn'
+    ?'占日:<b>'+stHex.when+'</b> · 日辰 <b>'+gz(stHex.day)+'</b> · 月建 <b>'+ZHI[stHex.month]+'月</b> · 旬空 <b>'+ZHI[kw[0]]+ZHI[kw[1]]+'</b>'
+    :'Cast on <b>'+stHex.when+'</b> · Day pillar <b>'+gz(stHex.day)+' ('+gzPY(stHex.day)+')</b> · Month branch <b>'+ZHI_PY[stHex.month]+'</b> · Void <b>'+ZHI_PY[kw[0]]+'-'+ZHI_PY[kw[1]]+'</b>')
+    +(stHex.q?'<br>'+(LANG==='cn'?'所问:':'Question: ')+'<b>'+esc(stHex.q)+'</b>':'');
+  const mean=HEX_MEAN[info.up][info.lo];
+  let interp='<div class="iblock"><div class="ilabel">'+(LANG==='cn'?'卦 意':'MEANING')+'</div>'
+   +'<div class="iline"><b>'+info.cn+'</b><span class="lv lv'+mean[0]+'">'+LV[LANG][mean[0]]+'</span>'+(LANG==='cn'?mean[1]:mean[2])+'</div>';
+  if(moving){const ci=hexInfo(cb);const cm=HEX_MEAN[ci.up][ci.lo];
+   interp+='<div class="iline"><b>'+ci.cn+'</b><span class="lv lv'+cm[0]+'">'+LV[LANG][cm[0]]+'</span>'+(LANG==='cn'?cm[1]:cm[2])
+    +' <span class="dimtag">'+(LANG==='cn'?'(变卦,示最终走向)':'(changed hexagram \u2014 the final direction)')+'</span></div>';}
+  interp+='</div>';
+  const an=analyzeHex(bits,info);
+  interp+='<div class="iblock"><div class="ilabel">'+(LANG==='cn'?'自动断卦':'AUTO READING')+'</div>'
+   +an.bullets.map(b=>'<div class="iline">'+b[LANG==='cn'?0:1]+'</div>').join('')
+   +'<div class="iverdict v'+an.vclass+'">'+an.verdict[LANG==='cn'?0:1]+'</div>'
+   +'<div class="note">'+(LANG==='cn'?'以上由传统断法规则自动生成,仅供参考;复杂卦象建议用"复制结果"请 AI 详解。':'Generated from traditional rules, for reference only; for a deep reading, copy the result to an AI.')+'</div></div>';
+  el.innerHTML='<div class="card"><h2>'+(LANG==='cn'?'卦象':'Hexagram Reading')+'</h2>'
+    +'<div class="hexwrap'+(moving?' two':'')+'">'+hexBoxHTML(bits,info,true)+changedHTML+'</div>'
+    +'<div class="castinfo">'+cast+'</div>'+interp+'</div>';
+}
+function hexText(){
+  const bits=stHex.vals.map(v=>v%2===1?1:0);const info=hexInfo(bits);
+  const pElem=TRI_ELEM[info.palace];
+  let lines=[];
+  for(let i=0;i<6;i++){const inner=i<3,tri=inner?info.lo:info.up;
+    const z=NAJIA_Z[tri][inner?0:1][i%3],g=NAJIA_G[tri][inner?0:1];
+    const lq=liuqin(pElem,zhiElem[z]);
+    lines.push('Line '+(i+1)+': '+(bits[i]?'yang 阳':'yin 阴')+(stHex.vals[i]===9?' (moving ○)':stHex.vals[i]===6?' (moving ×)':'')
+      +' · '+LIUQIN.cn[lq]+' '+LIUQIN.en[lq]+' '+GAN[g]+ZHI[z]+' ('+ZHI_PY[z]+' '+ELEM.en[zhiElem[z]]+')'
+      +' · '+beastName(i)+(info.shi===i?' · 世 Self':((info.shi+3)%6===i?' · 应 Response':'')));}
+  let out=['[Liu Yao 六爻卦]',stHex.q?('Question 所问: '+stHex.q):'',
+    'Cast 占日: '+stHex.when+' · Day 日辰 '+gz(stHex.day)+' · Month 月建 '+ZHI[stHex.month],
+    'Primary 本卦: '+info.cn+' ('+info.en+') · '+TRI_CN[info.palace]+'宫'+ELEM.cn[pElem],...lines];
+  const mv=stHex.vals.some(v=>v===6||v===9);
+  if(mv){const cb2=stHex.vals.map(v=>v===6?1:v===9?0:v%2);const ci=hexInfo(cb2);
+    out.push('Changed 变卦: '+ci.cn+' ('+ci.en+')');}
+  const mean=HEX_MEAN[info.up][info.lo];
+  out.push('卦意: '+mean[1]+' / '+mean[2]+' ['+LV.cn[mean[0]]+' '+LV.en[mean[0]]+']');
+  const an=analyzeHex(bits,info);
+  an.bullets.forEach(b=>out.push('· '+b[0]+' / '+b[1]));
+  out.push(an.verdict[0]+' / '+an.verdict[1]);
+  out.push('Please interpret this hexagram in depth. 请在此基础上深入解读此卦。');
+  return out.filter(Boolean).join('\n');}
+function copyHex(){copyText(hexText(),'ly-copy')}
+
+/* ==================== ALMANAC ==================== */
+const OFFICER={cn:['建','除','满','平','定','执','破','危','成','收','开','闭'],
+  en:['Establish','Remove','Full','Balance','Settle','Hold','Break','Danger','Complete','Receive','Open','Close']};
+const YIJI=[
+ {yi:{cn:'出行、上任、会友、求职',en:'Travel, take office, meet friends, seek work'},ji:{cn:'动土、开仓、安葬',en:'Groundbreaking, opening stores, burial'}},
+ {yi:{cn:'扫除、沐浴、求医、祭祀',en:'Cleaning, bathing, seeking treatment, rituals'},ji:{cn:'嫁娶、远行',en:'Weddings, long journeys'}},
+ {yi:{cn:'祈福、开市、交易、纳财',en:'Blessings, opening business, trade, receiving wealth'},ji:{cn:'安葬、赴任',en:'Burial, assuming office'}},
+ {yi:{cn:'修造、平整、涂饰',en:'Repairs, leveling, decorating'},ji:{cn:'开渠、诉讼',en:'Digging channels, lawsuits'}},
+ {yi:{cn:'订盟、纳采、签约、装修',en:'Engagements, betrothal, signing contracts, renovation'},ji:{cn:'诉讼、出行',en:'Lawsuits, travel'}},
+ {yi:{cn:'捕捉、收购、修屋',en:'Catching, purchasing, house repairs'},ji:{cn:'搬家、开市',en:'Moving house, opening business'}},
+ {yi:{cn:'破屋、拆卸、求医',en:'Demolition, dismantling, medical treatment'},ji:{cn:'诸事不宜(大耗日)',en:'Most matters inauspicious (day of great loss)'}},
+ {yi:{cn:'安床、祭祀、谨慎行事',en:'Setting the bed, rituals, act with caution'},ji:{cn:'登高、冒险、行船',en:'Climbing, risk-taking, sailing'}},
+ {yi:{cn:'开业、嫁娶、入学、动工',en:'Opening business, weddings, starting school or projects'},ji:{cn:'诉讼',en:'Lawsuits'}},
+ {yi:{cn:'纳财、入仓、收账、买卖',en:'Receiving wealth, storage, collecting debts, trading'},ji:{cn:'远行、安葬',en:'Long journeys, burial'}},
+ {yi:{cn:'开市、求职、入学、结婚',en:'Opening business, job seeking, enrollment, marriage'},ji:{cn:'安葬',en:'Burial'}},
+ {yi:{cn:'安葬、筑堤、收尾',en:'Burial, building embankments, wrapping up'},ji:{cn:'开市、出行、动土',en:'Opening business, travel, groundbreaking'}}];
+const SHA={cn:['南','东','北','西'],en:['South','East','North','West']}; // by dayBranch%4: 子辰申->南? mapping below
+let stAl=null;
+function doAlmanac(){const v=document.getElementById('al-date').value;if(!v)return;
+  const [y,m,d]=v.split('-').map(Number);stAl={y,m,d};renderAlmanac();}
+function renderAlmanac(){
+  if(!stAl)return;const {y,m,d}=stAl;
+  const jdn=Math.floor(jdUTC(y,m,d,12)+0.5);
+  const dIdx=((jdn+49)%60+60)%60;
+  const jdNoonCST=jdUTC(y,m,d,12)-8/24;
+  const li=termJD(315,jdUTC(y,2,4,0));
+  const gy=(jdNoonCST>=li)?y:y-1; const yIdx=((gy-4)%60+60)%60;
+  const j=jieAround(jdNoonCST);
+  const mBranch=(((j.prevAngle-315)/30)+2+12)%12;
+  const mStem=((yIdx%10)%5*2+2+((mBranch-2)+12)%12)%10;
+  const mIdx=sexIdx(mStem,mBranch);
+  const lunar=lunarFromCivil(y,m,d);
+  const officer=((dIdx%12)-mBranch+12)%12;
+  const chong=(dIdx%12+6)%12;
+  const shaMap=[0,1,2,3];// index by dayBranch group: 申子辰煞南(0), 巳酉丑煞东(1), 寅午戌煞北(2), 亥卯未煞西(3)
+  const grp=[0,1,2,3,0,1,2,3,0,1,2,3][dIdx%12];
+  // current & next solar term
+  const lam=sunLon(jdNoonCST);
+  const lastA=Math.floor(lam/15)*15%360;
+  const termIdx=(((lastA-315)/15)+24)%24;
+  const nextA=(lastA+15)%360;
+  const nextJD=termJD(nextA,jdNoonCST+(((nextA-lam)+360)%360)/0.98565);
+  const nd=jdToDateCST(nextJD);
+  const nayin=NAYIN[LANG][Math.floor(dIdx/2)];
+  const week={cn:['日','一','二','三','四','五','六'],en:['Sun','Mon','Tue','Wed','Thu','Fri','Sat']};
+  const wd=new Date(Date.UTC(y,m-1,d)).getUTCDay();
+  const el=document.getElementById('al-out');
+  const yj=YIJI[officer];
+  el.innerHTML='<div class="card">'
+   +'<div class="alm-top"><div class="alm-date">'+y+'-'+String(m).padStart(2,'0')+'-'+String(d).padStart(2,'0')
+   +' <span style="font-size:15px;color:var(--dim)">'+(LANG==='cn'?'星期'+week.cn[wd]:week.en[wd])+'</span></div>'
+   +'<div class="alm-lunar">'+(LANG==='cn'?'农历 ':'Lunar: ')+lunarStr(lunar)+'</div></div>'
+   +'<div class="kv">'
+   +kvBox(LANG==='cn'?'干支':'GanZhi Pillars',
+     (LANG==='cn'?'年 ':'Year ')+'<span>'+gz(yIdx)+'</span> ('+gzPY(yIdx)+' · '+ANIMAL[LANG][yIdx%12]+')<br>'
+     +(LANG==='cn'?'月 ':'Month ')+'<span>'+gz(mIdx)+'</span> ('+gzPY(mIdx)+')<br>'
+     +(LANG==='cn'?'日 ':'Day ')+'<span>'+gz(dIdx)+'</span> ('+gzPY(dIdx)+') · '+nayin)
+   +kvBox(LANG==='cn'?'节气':'Solar Term',
+     (LANG==='cn'?'当前:':'Current: ')+TERMS[LANG][termIdx]+'<br>'
+     +(LANG==='cn'?'下一个:':'Next: ')+TERMS[LANG][(termIdx+1)%24]+' — '+nd)
+   +kvBox(LANG==='cn'?'建除十二神':'Day Officer',
+     '<span style="font-size:17px;color:var(--gold)">'+OFFICER.cn[officer]+(LANG==='en'?' · '+OFFICER.en[officer]:'日')+'</span>')
+   +kvBox(LANG==='cn'?'冲煞':'Clash & Sha',
+     (LANG==='cn'?'冲':'Clashes ')+ANIMAL[LANG][chong]+' ('+ZHI[chong]+' '+ZHI_PY[chong]+')<br>'
+     +(LANG==='cn'?'煞':'Sha direction: ')+SHA[LANG][grp])
+   +'</div>'
+   +'<div class="yiji"><div class="yi"><b>'+(LANG==='cn'?'宜':'Auspicious 宜')+'</b>'+yj.yi[LANG]+'</div>'
+   +'<div class="ji"><b>'+(LANG==='cn'?'忌':'Avoid 忌')+'</b>'+yj.ji[LANG]+'</div></div>'
+   +pengzuHTML(dIdx)+shichenHTML(dIdx)
+   +'</div>';
+}
+function kvBox(t,c){return '<div><b>'+t+'</b>'+c+'</div>'}
+function jdToDateCST(jd){jd+=8/24;const z=Math.floor(jd+0.5),f=jd+0.5-z;
+  let a=z;if(z>=2299161){const al=Math.floor((z-1867216.25)/36524.25);a=z+1+al-Math.floor(al/4);}
+  const b=a+1524,c=Math.floor((b-122.1)/365.25),dd=Math.floor(365.25*c),e=Math.floor((b-dd)/30.6001);
+  const day=b-dd-Math.floor(30.6001*e);const mo=e<14?e-1:e-13;const yr=mo>2?c-4716:c-4715;
+  return yr+'-'+String(mo).padStart(2,'0')+'-'+String(day).padStart(2,'0');}
+
+/* ==================== NAME NUMEROLOGY ==================== */
+const NUM_MEAN={
+ 1:{cn:'开创与独立 — 领导力强,喜自主,先行者',en:'Initiative & independence — a natural leader and pioneer'},
+ 2:{cn:'合作与敏感 — 善协调,重和谐,外交型',en:'Cooperation & sensitivity — a diplomat who values harmony'},
+ 3:{cn:'表达与创意 — 乐观外向,长于沟通与艺术',en:'Expression & creativity — optimistic, communicative, artistic'},
+ 4:{cn:'务实与秩序 — 踏实肯干,重规则与稳定',en:'Practicality & order — a steady, disciplined builder'},
+ 5:{cn:'自由与变化 — 爱冒险,适应力强,不喜束缚',en:'Freedom & change — adventurous, adaptable, restless'},
+ 6:{cn:'责任与关怀 — 顾家重情,愿意照顾他人',en:'Responsibility & care — a nurturer devoted to family and duty'},
+ 7:{cn:'思考与探究 — 内省理性,追求真理与专业',en:'Analysis & seeking — introspective, drawn to truth and depth'},
+ 8:{cn:'成就与权力 — 目标导向,擅长经营与物质成就',en:'Achievement & power — ambitious, geared to material success'},
+ 9:{cn:'博爱与理想 — 富同情心,视野宽广,利他',en:'Compassion & idealism — humanitarian with a broad vision'},
+ 11:{cn:'大师数:直觉与启发 — 灵感敏锐,能感召他人',en:'Master number: intuition & inspiration — a visionary who uplifts others'},
+ 22:{cn:'大师数:宏图实现者 — 能把远大理想落到实处',en:'Master number: the master builder — turns grand visions into reality'},
+ 33:{cn:'大师数:大爱导师 — 以奉献与教化为使命',en:'Master number: the master teacher — a calling of service and love'}};
+const NUM_TITLE={
+ exp:{cn:'表达数(全名)',en:'Expression (full name)'},
+ soul:{cn:'灵魂数(元音)',en:'Soul Urge (vowels)'},
+ pers:{cn:'人格数(辅音)',en:'Personality (consonants)'},
+ life:{cn:'生命灵数(生日)',en:'Life Path (birth date)'},
+ bday:{cn:'生日数',en:'Birthday number'}};
+let stName=null;
+const pyVal=ch=>((ch.charCodeAt(0)-65)%9)+1;
+function isVowelAt(w,i){const c=w[i];
+  if('AEIOU'.includes(c))return true;
+  if(c!=='Y')return false;
+  const prev=w[i-1],next=w[i+1];
+  return !('AEIOU'.includes(prev||'')||'AEIOU'.includes(next||''));}
+function reduceNum(n){while(n>9&&n!==11&&n!==22&&n!==33){n=String(n).split('').reduce((a,c)=>a+ +c,0);}return n;}
+function doName(){const nm=document.getElementById('nm-name').value.trim();if(!nm)return;
+  stName={name:nm,date:document.getElementById('nm-date').value||null};
+  renderName();document.getElementById('nm-copy').style.display='inline-block';}
+function calcName(s){
+  const words=s.name.toUpperCase().split(/[^A-Z]+/).filter(Boolean);
+  let all=0,vo=0,co=0,letters=0;
+  words.forEach(w=>{for(let i=0;i<w.length;i++){const v=pyVal(w[i]);letters++;all+=v;
+    if(isVowelAt(w,i))vo+=v;else co+=v;}});
+  if(!letters)return null;
+  const r={exp:reduceNum(all),soul:reduceNum(vo),pers:reduceNum(co),letters,
+    raw:{all,vo,co}};
+  if(s.date){const [y,m,d]=s.date.split('-').map(Number);
+    r.life=reduceNum(reduceNum(y)+reduceNum(m)+reduceNum(d));
+    r.bday=reduceNum(d);}
+  return r;}
+function numCard(key,val){const m=NUM_MEAN[val];
+  return '<div><b>'+NUM_TITLE[key][LANG]+'</b>'
+    +'<span style="font-size:26px;color:'+(val>9?'var(--cinnabar)':'var(--gold)')+';font-family:var(--mono)">'+val+'</span><br>'
+    +(m?m[LANG]:'')+'</div>';}
+function renderName(){
+  if(!stName)return;const r=calcName(stName);const el=document.getElementById('nm-out');
+  if(!r){el.innerHTML='<div class="card"><div class="note">'+(LANG==='cn'?'请输入至少一个英文字母(中文名请用拼音)。':'Please enter at least one Latin letter (use pinyin for Chinese names).')+'</div></div>';return;}
+  let cards=numCard('exp',r.exp)+numCard('soul',r.soul)+numCard('pers',r.pers);
+  if(r.life!==undefined)cards+=numCard('life',r.life)+numCard('bday',r.bday);
+  el.innerHTML='<div class="card"><h2>'+(LANG==='cn'?'数理结果':'Numerology Report')+' — '+esc(stName.name)+'</h2>'
+   +'<div class="kv">'+cards+'</div>'
+   +'<div class="note">'+(LANG==='cn'
+     ?'表达数看天赋与外在走向;灵魂数看内心真正想要的;人格数看给他人的第一印象;生命灵数看一生的主课题。'
+     :'Expression = talents & outer direction · Soul Urge = inner desires · Personality = first impression · Life Path = the main theme of this lifetime.')+'</div></div>';}
+function nameText(){const r=calcName(stName);
+  const line=(k,v)=>NUM_TITLE[k].cn+' / '+NUM_TITLE[k].en+': '+v+' — '+NUM_MEAN[v].cn+' / '+NUM_MEAN[v].en;
+  let out=['[Name Numerology 姓名数理]','Name 姓名: '+stName.name,
+    stName.date?('Birth 生日: '+stName.date):'',
+    line('exp',r.exp),line('soul',r.soul),line('pers',r.pers)];
+  if(r.life!==undefined){out.push(line('life',r.life),line('bday',r.bday));}
+  out.push('Please give a detailed reading of these numbers. 请详细解读这些数字的含义与组合。');
+  return out.filter(Boolean).join('\n');}
+function copyName(){copyText(nameText(),'nm-copy')}
+
+/* ==================== HEX MEANINGS & AUTO READING ==================== */
+const LV={cn:['凶','平','吉','大吉'],en:['Inauspicious','Neutral','Auspicious','Very auspicious']};
+const HEX_MEAN=[ // [upper][lower] = [level, cn, en]
+[[3,'刚健中正,自强不息,大业可成','Pure creative force; persist and great things succeed'],
+ [1,'如履虎尾,谨慎而行,险中有进','Treading the tiger\u2019s tail; care carries you through danger'],
+ [2,'与人同心,协力共事,利涉大川','Fellowship of shared purpose; cooperation brings success'],
+ [1,'不妄为则吉,守正勿贪,顺其自然','Stay honest and natural; force nothing and no blame comes'],
+ [1,'不期而遇,阴气渐长,防小人纠缠','An unexpected encounter; guard against creeping bad influence'],
+ [0,'争讼不利,退让为宜,忌强出头','Conflict favors no one; better to yield than fight it out'],
+ [1,'时机不利,退避自保,以退为进','Time to retreat; withdrawing preserves strength for later'],
+ [0,'天地不交,闭塞不通,静待时变','Standstill and blockage; wait quietly for the tide to turn']],
+[[1,'果断决除,除恶务尽,防其反噬','Resolute breakthrough; cut out the rot but beware backlash'],
+ [2,'喜悦和顺,以诚感人,利于交流','Joy and openness; sincerity makes exchange fruitful'],
+ [2,'变革之时,顺天应人,去旧立新','A time for change; renewal succeeds when the moment is ripe'],
+ [2,'随顺时势,跟对方向,动而有获','Follow the flow and the right people; adaptable moves gain'],
+ [0,'负重过甚,栋梁将倾,非常时行非常事','The beam sags under excess; extraordinary measures needed'],
+ [0,'困顿受挫,守正待时,言多无益','Exhaustion and constraint; endure quietly, words win nothing'],
+ [2,'两情相感,交感则通,利于婚恋','Mutual attraction and influence; excellent for relationships'],
+ [2,'荟萃聚集,聚众成事,利见大人','Gathering together; collective effort and patrons bring gain']],
+[[3,'大有所获,如日中天,盛极宜谦','Great abundance at its zenith; stay modest to keep it'],
+ [1,'乖离不合,小事可为,大事难同','Estrangement; small matters pass, big joint plans struggle'],
+ [1,'光明依附,内明外顺,宜柔守正','Clinging brightness; stay clear within and gentle without'],
+ [1,'咬合除梗,明法决断,除障有力','Bite through the obstacle; firm just action clears the way'],
+ [2,'鼎新革故,稳中图变,养贤得助','The cauldron renews; steady change, nourish talent, be helped'],
+ [1,'事未成局,谨慎收尾,尚差一步','Not yet complete; one careful step remains, do not rush it'],
+ [1,'旅居在外,轻装谨慎,不宜久恋','A traveler abroad; keep light, keep alert, do not overstay'],
+ [2,'旭日东升,晋升有望,进而有为','The rising sun; promotion and advancement are favored']],
+[[2,'阳气大壮,声势正盛,勿恃力妄进','Great vigor abounds; use strength justly, never rashly'],
+ [0,'名分不正,仓促成事,征凶无利','An ill-matched start; hasty unions end in regret'],
+ [2,'丰盛盈满,如日方中,及时而为','Abundance at noon; act while the light is full'],
+ [1,'震动惊惧,惊而后安,处变不乱','Shock and thunder; keep composed and the fright passes'],
+ [2,'恒久有常,守恒不改,利长久计','Duration and constancy; steady persistence wins'],
+ [2,'冰释困解,险去难消,宜速了结','Deliverance; troubles dissolve, settle matters swiftly'],
+ [1,'小有过越,宜小不宜大,谦下则吉','Small exceeding; keep to small matters and stay modest'],
+ [2,'安乐和豫,顺势而动,乐极防怠','Ease and enthusiasm; ride the momentum, avoid complacency']],
+[[1,'小有积蓄,密云不雨,时机未足','Small savings; clouds but no rain, the time is not ripe'],
+ [2,'诚信中孚,信及豚鱼,以诚动人','Inner truth; sincerity so deep it moves every creature'],
+ [2,'家道和正,各安其位,内治外成','The family in order; harmony at home supports success outside'],
+ [3,'损上益下,大得民心,利有攸往','Increase shared widely wins all hearts; favorable to advance'],
+ [1,'柔顺渐入,谦逊而行,利见大人','Gentle penetration; humble persistence slowly succeeds'],
+ [1,'涣散离析,聚拢人心,散中求聚','Dispersion; scattered energies must be gathered again'],
+ [2,'循序渐进,如雁南飞,稳步得成','Gradual progress; step by steady step reaches the goal'],
+ [1,'观察时势,静观其变,先看后动','Contemplation; observe carefully before committing']],
+[[2,'需待时机,养精蓄锐,守正待援','Confident waiting; nourish yourself, the moment will come'],
+ [1,'节制有度,量入为出,苦节不贞','Limitation; measured restraint helps, harshness does not'],
+ [2,'事已成济,初吉终乱,守成须谨','Completion achieved; good at first, guard the later stage'],
+ [1,'创始维艰,萌芽初生,宜得人助','Difficult beginnings; the sprout needs help to break ground'],
+ [1,'井养不穷,修德养人,常道不改','The well nourishes all; maintain it and it never fails'],
+ [0,'重重险陷,险中有险,守信可渡','Danger upon danger; only steadfast sincerity crosses'],
+ [0,'跛足难行,前有险阻,宜止宜返','Obstruction ahead; pause, or turn back and regroup'],
+ [2,'亲比和辅,择善而从,团结则吉','Holding together; alliance with the good brings fortune']],
+[[2,'大有畜聚,厚积薄发,利涉大川','Great stores of strength now support bold undertakings'],
+ [1,'损下益上,有失有得,舍而终吉','Decrease; a sacrifice now brings a truer gain later'],
+ [1,'文饰其表,美化有度,重实轻华','Grace and adornment; polish helps but substance decides'],
+ [1,'颐养之道,谨言节食,自求口实','Nourishment; watch what you take in, words and food alike'],
+ [1,'积弊须治,整饬振废,先难后顺','Repairing decay; hard cleanup first, then renewal'],
+ [1,'蒙昧初开,虚心求教,启蒙则进','Youthful folly; ask humbly and clarity comes'],
+ [1,'止于所止,静守本分,不动无咎','Keeping still; stop where one should stop, no blame'],
+ [0,'剥落侵蚀,小人得势,不利前往','Splitting apart; erosion prevails, do not push forward']],
+[[3,'天地交泰,小往大来,通达安泰','Peace and free flow; the small departs, the great arrives'],
+ [2,'居高临下,盛势可为,盛时防衰','Approach in strength; lead well and mind the turning season'],
+ [0,'明入地中,韬光养晦,艰贞自守','The light is wounded; hide your brightness and endure'],
+ [2,'一阳来复,冬去春回,失而复得','Return; the turning point, what was lost starts back'],
+ [2,'柔顺上升,积小成高,进而必达','Pushing upward; steady growth from small to great'],
+ [1,'兴师动众,以正率众,老成则吉','The army; discipline and a just cause carry the campaign'],
+ [3,'谦谦君子,有终有得,诸事皆利','Modesty carries everything through; favorable in all'],
+ [2,'厚德载物,柔顺利贞,得主有成','Receptive earth; yield, support, and find the right guide']]];
+const LIUHE=['天地否','地天泰','雷地豫','地雷复','水泽节','泽水困','山火贲','火山旅'];
+const CAT_Q=[
+ {cn:'综合运势',en:'General',yong:'shi'},
+ {cn:'求财',en:'Wealth / money',yong:3},
+ {cn:'事业官运',en:'Career / office',yong:4},
+ {cn:'感情(男问)',en:'Love (man asking)',yong:3},
+ {cn:'感情(女问)',en:'Love (woman asking)',yong:4},
+ {cn:'健康',en:'Health',yong:'shi'},
+ {cn:'考试文书',en:'Exams / documents',yong:1},
+ {cn:'出行',en:'Travel',yong:'shi'},
+ {cn:'官司',en:'Lawsuit',yong:'shi'}];
+function fillCat(){const s=document.getElementById('ly-cat');if(!s)return;
+ const cur=s.selectedIndex;
+ s.innerHTML=CAT_Q.map(c=>'<option>'+(LANG==='cn'?c.cn:c.en)+'</option>').join('');
+ s.selectedIndex=cur>=0?cur:0;}
+function yaoLbl(i,L){return LANG==='cn'
+ ? YAONAME.cn[i]+' '+LIUQIN.cn[L[i].lq]+ZHI[L[i].z]
+ : 'line '+(i+1)+' ('+LIUQIN.en[L[i].lq]+' '+ZHI_PY[L[i].z]+')';}
+function analyzeHex(bits,info){
+ const sel=document.getElementById('ly-cat');
+ const cat=CAT_Q[sel&&sel.selectedIndex>=0?sel.selectedIndex:0];
+ const pElem=TRI_ELEM[info.palace];
+ const L=[];
+ for(let i=0;i<6;i++){const inner=i<3,tri=inner?info.lo:info.up;
+  const z=NAJIA_Z[tri][inner?0:1][i%3];
+  L.push({i,z,e:zhiElem[z],lq:liuqin(pElem,zhiElem[z]),mv:stHex.vals[i]===6||stHex.vals[i]===9});}
+ const B=[];let score=0;let yi;
+ if(cat.yong==='shi'){yi=info.shi;
+  B.push(['以世爻为用神:'+yaoLbl(yi,L),'Focus on the Self line: '+yaoLbl(yi,L)]);}
+ else{yi=L.findIndex(l=>l.lq===cat.yong);
+  if(yi<0){score-=1;yi=info.shi;
+   B.push(['用神「'+LIUQIN.cn[cat.yong]+'」不上卦,以世爻参断,力量打折','The focus relative ('+LIUQIN.en[cat.yong]+') is absent \u2014 judging by the Self line, weakened']);}
+  else B.push(['取「'+LIUQIN.cn[cat.yong]+'」为用神:'+yaoLbl(yi,L),'Focus: '+LIUQIN.en[cat.yong]+' \u2014 '+yaoLbl(yi,L)]);}
+ const y=L[yi];
+ const me=zhiElem[stHex.month];
+ let ws,wsi;
+ if(y.e===me){ws=['用神与月建同气,当令而旺','In season this month \u2014 the focus is at full strength'];wsi=2}
+ else if((me+1)%5===y.e){ws=['得月建相生,气势为相','Fed by the month \u2014 well supported'];wsi=1}
+ else if((y.e+1)%5===me){ws=['泄气于月建,气势为休','Drained by the month \u2014 resting, mildly weak'];wsi=0}
+ else if((y.e+2)%5===me){ws=['克月建而自伤,气势为囚','Fighting the month and losing force \u2014 weak'];wsi=-1}
+ else{ws=['被月建所克,气势为死','Overcome by the month \u2014 at its weakest'];wsi=-2}
+ score+=wsi;B.push(ws);
+ const de=zhiElem[stHex.day%12];
+ if(de===y.e||((de+1)%5===y.e)){score+=1;B.push(['得日辰生扶,根气尚存','The day pillar backs the focus'])}
+ else if((de+2)%5===y.e){score-=1;B.push(['受日辰克制','The day pillar works against the focus'])}
+ const xun=stHex.day-stHex.day%10;const kw=[(xun%12+10)%12,(xun%12+11)%12];
+ if(y.z===kw[0]||y.z===kw[1]){score-=1;
+  B.push(['用神逢旬空,近期难有实果,出空之日方见分晓','The focus sits on a void branch \u2014 expect delay; results come once the void passes'])}
+ L.forEach(l=>{if(!l.mv||l.i===yi)return;
+  if((l.e+1)%5===y.e){score+=1;B.push([yaoLbl(l.i,L)+' 发动生用神,有助力','Moving '+yaoLbl(l.i,L)+' feeds the focus \u2014 help arrives'])}
+  else if((l.e+2)%5===y.e){score-=2;B.push([yaoLbl(l.i,L)+' 发动克用神,阻力不小','Moving '+yaoLbl(l.i,L)+' attacks the focus \u2014 real obstruction'])}
+  else if(l.e===y.e){score+=1;B.push([yaoLbl(l.i,L)+' 发动比扶用神','Moving '+yaoLbl(l.i,L)+' reinforces the focus'])}});
+ if(y.mv)B.push(['用神自动,事体正在变化之中','The focus line itself moves \u2014 the matter is actively changing']);
+ if(cat.yong==='shi'){const ry=L[(info.shi+3)%6];
+  if((ry.e+1)%5===y.e){score+=1;B.push(['应爻生世,得对方或外界之助','The Response line feeds the Self \u2014 the other side helps you'])}
+  else if((ry.e+2)%5===y.e){score-=1;B.push(['应爻克世,防对方掣肘','The Response line attacks the Self \u2014 expect resistance'])}}
+ if(LIUHE.indexOf(info.cn)>=0)B.push(['卦逢六合,谋事易成,成事能久','A Six-Harmony hexagram \u2014 things bind together and last']);
+ if(info.lo===info.up||info.cn==='天雷无妄'||info.cn==='雷天大壮')
+  B.push(['卦逢六冲,事多反复,难以速定','A Six-Clash hexagram \u2014 matters scatter or reverse, nothing settles fast']);
+ let v,vc;
+ if(score>=3){v=['综合断:偏吉,事有可成','Overall: favorable \u2014 this tends toward success'];vc=2}
+ else if(score>=1){v=['综合断:略偏吉,把握时机可成','Overall: mildly favorable \u2014 seize the timing'];vc=2}
+ else if(score===0){v=['综合断:吉凶参半,平稳应对','Overall: mixed \u2014 proceed steadily'];vc=1}
+ else if(score>=-2){v=['综合断:略有阻滞,宜缓宜守','Overall: some obstruction \u2014 better to wait and hold'];vc=0}
+ else{v=['综合断:不利,暂不宜进','Overall: unfavorable \u2014 not the time to advance'];vc=0}
+ return {bullets:B,verdict:v,vclass:vc,score};
+}
+
+/* ==================== CN MODULES ==================== */
+const DIR8={cn:['正北','东北','正东','东南','正南','西南','正西','西北'],en:['N','NE','E','SE','S','SW','W','NW']};
+const zhiDir=[0,1,1,2,3,3,4,5,5,6,7,7]; // branch -> 8-dir
+const trioId=b=>b%4; // 0申子辰 1巳酉丑 2寅午戌 3亥卯未
+/* ---- shensha ---- */
+const SS_TY={0:[1,7],4:[1,7],6:[1,7],1:[0,8],5:[0,8],2:[11,9],3:[11,9],8:[3,5],9:[3,5],7:[6,2]};
+const SS_TH=[9,6,3,0],SS_YM=[2,11,8,5],SS_HG=[4,1,10,7],SS_JX=[0,9,6,3],SS_JS=[5,2,11,8];
+const SS_WC=[5,6,8,9,8,9,11,0,2,3],SS_YR={0:3,2:6,4:6,6:9,8:0};
+const TD_MAP={2:['g',3],3:['z',8],4:['g',8],5:['g',7],6:['z',11],7:['g',0],8:['g',9],9:['z',2],10:['g',2],11:['g',1],0:['z',5],1:['g',6]};
+const YD_MAP=[8,6,2,0]; // trio of month branch -> stem 壬庚丙甲
+const CS_NAME={cn:['长生','沐浴','冠带','临官','帝旺','衰','病','死','墓','绝','胎','养'],
+ en:['Birth','Bath','Dress','Office','Peak','Decline','Sickness','Death','Tomb','End','Womb','Nurture']};
+const CS_START={0:11,2:2,4:2,6:5,8:8,1:6,3:9,5:9,7:0,9:3};
+const csStage=(dm,z)=>dm%2===0?(z-CS_START[dm]+12)%12:(CS_START[dm]-z+12)%12;
+const PILN={cn:['年','月','日','时'],en:['Year','Month','Day','Hour']};
+function shenshaList(r){
+  const bs=[r.yIdx%12,r.mIdx%12,r.dIdx%12,r.hIdx%12];
+  const gs=[r.yIdx%10,r.mIdx%10,r.dIdx%10,r.hIdx%10];
+  const yb=bs[0],db=bs[2],dg=gs[2];
+  const out=[];
+  const hit=(name,en,test)=>{const w=[];for(let i=0;i<4;i++)if(test(i))w.push(i);
+    if(w.length)out.push({cn:name,en,w});};
+  hit('天乙贵人','Nobleman',i=>SS_TY[dg].includes(bs[i])||SS_TY[gs[0]].includes(bs[i]));
+  hit('桃花','Peach Blossom',i=>bs[i]===SS_TH[trioId(yb)]||bs[i]===SS_TH[trioId(db)]);
+  hit('驿马','Travel Horse',i=>bs[i]===SS_YM[trioId(yb)]||bs[i]===SS_YM[trioId(db)]);
+  hit('文昌','Literary Star',i=>bs[i]===SS_WC[dg]);
+  hit('华盖','Canopy',i=>bs[i]===SS_HG[trioId(yb)]||bs[i]===SS_HG[trioId(db)]);
+  hit('将星','General Star',i=>bs[i]===SS_JX[trioId(yb)]||bs[i]===SS_JX[trioId(db)]);
+  hit('劫煞','Robbery Sha',i=>bs[i]===SS_JS[trioId(yb)]||bs[i]===SS_JS[trioId(db)]);
+  if(SS_YR[dg]!==undefined)hit('羊刃','Blade',i=>bs[i]===SS_YR[dg]);
+  hit('红鸾','Red Phoenix',i=>bs[i]===(3-yb+12)%12);
+  hit('天喜','Sky Happiness',i=>bs[i]===(9-yb+12)%12);
+  const td=TD_MAP[r.mBranch];
+  hit('天德贵人','Heaven Virtue',i=>td[0]==='g'?gs[i]===td[1]:bs[i]===td[1]);
+  hit('月德贵人','Month Virtue',i=>gs[i]===YD_MAP[trioId(r.mBranch)]);
+  const gg=Math.floor(((yb+1)%12)/3);
+  hit('孤辰','Lonely Star',i=>i>0&&bs[i]===[2,5,8,11][gg]);
+  hit('寡宿','Widow Star',i=>i>0&&bs[i]===[10,1,4,7][gg]);
+  return out;}
+/* ---- branch relations ---- */
+const XING=[[2,5],[5,8],[8,2],[1,10],[10,7],[7,1],[0,3]];
+function branchRels(bs){
+  const R=[];const pn=PILN[LANG];
+  for(let a=0;a<4;a++)for(let b=a+1;b<4;b++){
+    const x=bs[a],y=bs[b];const tag=pn[a]+'-'+pn[b]+' '+ZHI[x]+ZHI[y];
+    if((x-y+12)%12===6)R.push(tag+(LANG==='cn'?' 相冲':' clash 冲'));
+    else if((x+y)%12===1)R.push(tag+(LANG==='cn'?' 六合':' harmony 合'));
+    else if((x+y)%12===7)R.push(tag+(LANG==='cn'?' 相害':' harm 害'));
+    if(x===y&&[4,6,9,11].includes(x))R.push(tag+(LANG==='cn'?' 自刑':' self-punish 刑'));
+    else if(XING.some(p=>(p[0]===x&&p[1]===y)||(p[0]===y&&p[1]===x)))R.push(tag+(LANG==='cn'?' 相刑':' punishment 刑'));
+  }
+  for(let t=0;t<4;t++){const tri=[[8,0,4],[5,9,1],[2,6,10],[11,3,7]][t];
+    if(tri.every(z=>bs.includes(z)))R.push((LANG==='cn'?'三合':'Triple harmony ')+tri.map(z=>ZHI[z]).join('')+(LANG==='cn'?'局('+ELEM.cn[[4,3,1,0][t]]+')':' ('+ELEM.en[[4,3,1,0][t]]+')'));}
+  return R;}
+/* ---- strength & favorable ---- */
+function strength(r){
+  const dm=r.dIdx%10,de=ganElem(dm);
+  const items=[[r.yIdx%10,6,'g'],[r.mIdx%10,8,'g'],[r.hIdx%10,10,'g'],
+   [r.yIdx%12,8,'z'],[r.mIdx%12,40,'z'],[r.dIdx%12,16,'z'],[r.hIdx%12,12,'z']];
+  let sup=0,tot=0;
+  items.forEach(it=>{const e=it[2]==='g'?ganElem(it[0]):zhiElem[it[0]];
+    tot+=it[1];if(e===de||(e+1)%5===de)sup+=it[1];});
+  const pct=Math.round(sup/tot*100);
+  let verdict,fav;
+  if(pct>=55){verdict=LANG==='cn'?'身强':'Strong day master';fav=[(de+3)%5,(de+1)%5,(de+2)%5];}
+  else if(pct>=45){verdict=LANG==='cn'?'中和':'Balanced';fav=[];}
+  else{verdict=LANG==='cn'?'身弱':'Weak day master';fav=[(de+4)%5,de];}
+  return {pct,verdict,fav};}
+/* ---- liunian ---- */
+let stFY=new Date().getFullYear();
+function fyGo(dir){stFY+=dir;renderBazi();}
+function fySet(v){stFY=Number(v)||stFY;renderBazi();}
+function baziExtras(r,s){
+  const dm=r.dIdx%10;
+  const ss=shenshaList(r);
+  const ssHTML=ss.length?ss.map(x=>'<div class="iline"><b>'+(LANG==='cn'?x.cn:x.en)+'</b> — '
+    +x.w.map(i=>PILN[LANG][i]+(LANG==='cn'?'柱':'')).join('、')+'</div>').join('')
+   :'<div class="note">'+(LANG==='cn'?'四柱中未见常用神煞。':'No common symbolic stars found.')+'</div>';
+  const bs=[r.yIdx%12,r.mIdx%12,r.dIdx%12,r.hIdx%12];
+  const cs=bs.map((z,i)=>PILN[LANG][i]+' '+ZHI[z]+' <b>'+CS_NAME[LANG][csStage(dm,z)]+'</b>').join(' · ');
+  // ming gong / tai yuan
+  const m1=((r.mBranch-2+12)%12)+1,t1=r.hb+1;
+  const gsum=m1+t1;const gv=gsum<14?14-gsum:26-gsum;
+  const mgB=(gv+1)%12;
+  const mgG=((r.yIdx%10)%5*2+2+((mgB-2+12)%12))%10;
+  const tyG=(r.mIdx%10+1)%10,tyB=(r.mIdx%12+3)%12;
+  const rels=branchRels(bs);
+  const st=strength(r);
+  const favTxt=st.fav.length?(LANG==='cn'?'喜用五行(初步):':'Favorable elements (rough): ')
+    +st.fav.map(e=>'<b class="e'+e+'">'+ELEM[LANG][e]+'</b>').join(' ')
+   :(LANG==='cn'?'五行较均衡,喜用需细断':'Fairly balanced; needs finer analysis');
+  // liunian
+  const fyIdx=((stFY-4)%60+60)%60;
+  const fyTG=TG[LANG][tenGod(dm,fyIdx%10)];
+  const fyRel=[];const fb=fyIdx%12;
+  if(fb===bs[0])fyRel.push(LANG==='cn'?'值太岁(本命年)':'Year of your zodiac (Tai Sui)');
+  bs.forEach((z,i)=>{if((z-fb+12)%12===6)fyRel.push(PILN[LANG][i]+(LANG==='cn'?'支相冲':' branch clashed'));
+    if((z+fb)%12===1)fyRel.push(PILN[LANG][i]+(LANG==='cn'?'支六合':' branch harmony'));});
+  return '<div class="card"><h2>'+(LANG==='cn'?'神 煞':'SYMBOLIC STARS')+'</h2>'+ssHTML+'</div>'
+   +'<div class="card"><h2>'+(LANG==='cn'?'长生 · 命宫 · 胎元':'LIFE STAGES · PALACES')+'</h2>'
+   +'<div class="iline">'+cs+'</div>'
+   +'<div class="iline">'+(LANG==='cn'?'命宫 ':'Life Palace ')+'<b>'+GAN[mgG]+ZHI[mgB]+'</b> ('+gzPY(sexIdx(mgG,mgB))+')'
+   +' · '+(LANG==='cn'?'胎元 ':'Conception ')+'<b>'+GAN[tyG]+ZHI[tyB]+'</b></div>'
+   +(r.tst?'<div class="note">'+(LANG==='cn'?'已按经度校正真太阳时:':'True solar time applied: ')+r.tst+'</div>':'')+'</div>'
+   +'<div class="card"><h2>'+(LANG==='cn'?'刑冲合害':'BRANCH RELATIONS')+'</h2>'
+   +(rels.length?rels.map(x=>'<div class="iline">'+x+'</div>').join(''):'<div class="note">'+(LANG==='cn'?'四柱地支无明显刑冲合害。':'No notable relations among the four branches.')+'</div>')+'</div>'
+   +'<div class="card"><h2>'+(LANG==='cn'?'日主强弱(参考)':'DAY MASTER STRENGTH')+'</h2>'
+   +'<div class="iline">'+(LANG==='cn'?'扶抑占比 ':'Support ratio ')+'<b>'+st.pct+'%</b> — <b>'+st.verdict+'</b></div>'
+   +'<div class="iline">'+favTxt+'</div>'
+   +'<div class="note">'+(LANG==='cn'?'按得令得地得势加权估算,仅供参考,格局特殊者需人工细辨。':'Weighted estimate for reference; special structures need expert judgment.')+'</div></div>'
+   +'<div class="card"><h2>'+(LANG==='cn'?'流 年':'ANNUAL PILLAR')+'</h2>'
+   +'<div class="grid" style="grid-template-columns:110px 120px auto;align-items:end">'
+   +'<button class="btn ghost" style="margin:0" onclick="fyGo(-1)">◀</button>'
+   +'<input type="number" id="bz-fy" value="'+stFY+'" onchange="fySet(this.value)">'
+   +'<button class="btn ghost" style="margin:0" onclick="fyGo(1)">▶</button></div>'
+   +'<div class="iline" style="margin-top:12px">'+stFY+(LANG==='cn'?'年 ':' ')+'<b>'+gz(fyIdx)+'</b> ('+gzPY(fyIdx)+') · '
+   +ANIMAL[LANG][fb]+' · '+(LANG==='cn'?'对日主为':'To day master: ')+'<b>'+fyTG+'</b> · '+NAYIN[LANG][Math.floor(fyIdx/2)]+'</div>'
+   +(fyRel.length?fyRel.map(x=>'<div class="iline">'+x+'</div>').join(''):'')
+   +'<div class="note">'+(LANG==='cn'?'流年以立春为界。':'Annual pillar changes at Beginning of Spring.')+'</div></div>';
+}
+/* ---- pengzu & shichen ---- */
+const PZ_G=['甲不开仓,财物耗散','乙不栽植,千株不长','丙不修灶,必见灾殃','丁不剃头,头必生疮','戊不受田,田主不祥','己不破券,二比并亡','庚不经络,织机虚张','辛不合酱,主人不尝','壬不泱水,更难提防','癸不词讼,理弱敌强'];
+const PZ_GE=['do not open storehouses','do not plant','do not repair the stove','do not cut hair','do not take on land','do not tear up contracts','do not set up looms','do not make sauces','do not channel water','do not litigate'];
+const PZ_Z=['子不问卜,自惹祸殃','丑不冠带,主不还乡','寅不祭祀,神鬼不尝','卯不穿井,水泉不香','辰不哭泣,必主重丧','巳不远行,财物伏藏','午不苫盖,屋主更张','未不服药,毒气入肠','申不安床,鬼祟入房','酉不会客,醉坐颠狂','戌不吃犬,作怪上床','亥不嫁娶,不利新郎'];
+const PZ_ZE=['no divination','no ceremonies of rank','no offerings','no well-digging','no weeping','no long journeys','no roofing','no taking medicine','no setting up beds','no receiving guests','no eating dog','no weddings'];
+function pengzuHTML(dIdx){const g=dIdx%10,z=dIdx%12;
+ return '<div class="iblock"><div class="ilabel">'+(LANG==='cn'?'彭祖百忌':'PENGZU TABOOS')+'</div>'
+  +'<div class="iline">'+PZ_G[g]+(LANG==='en'?' — '+GAN_PY[g]+' day: '+PZ_GE[g]:'')+'</div>'
+  +'<div class="iline">'+PZ_Z[z]+(LANG==='en'?' — '+ZHI_PY[z]+' hours: '+PZ_ZE[z]:'')+'</div></div>';}
+const SC_SHEN={cn:['青龙','明堂','天刑','朱雀','金匮','天德','白虎','玉堂','天牢','玄武','司命','勾陈'],
+ en:['Azure Dragon','Bright Hall','Punishment','Vermilion Bird','Gold Chest','Heaven Virtue','White Tiger','Jade Hall','Prison','Dark Warrior','Life Master','Hook']};
+const SC_JI=[1,1,0,0,1,1,0,1,0,0,1,0];
+function shichenHTML(dIdx){const start=[8,10,0,2,4,6][(dIdx%12)%6];
+ let cells='';
+ for(let z=0;z<12;z++){const sh=(z-start+12)%12;const ji=SC_JI[sh];
+  cells+='<td style="'+(ji?'':'color:#b6b2a6')+'">'+ZHI[z]+(LANG==='cn'?'时':'')
+   +'<span class="small">'+SC_SHEN[LANG][sh]+' '+(ji?(LANG==='cn'?'吉':'lucky'):(LANG==='cn'?'凶':'avoid'))+'</span></td>';}
+ return '<div class="iblock"><div class="ilabel">'+(LANG==='cn'?'时辰吉凶(黄黑道)':'HOUR FORTUNE')+'</div>'
+  +'<div class="tscroll"><table><tr>'+cells.split('</td>').slice(0,6).join('</td>')+'</td></tr><tr>'
+  +cells.split('</td>').slice(6,12).join('</td>')+'</td></tr></table></div></div>';}
+/* ==================== MEIHUA ==================== */
+let stMH=null;
+function mhModeUI(){const m=document.getElementById('mh-mode').selectedIndex;
+ document.getElementById('mh-nums').style.display=m?'block':'none';
+ document.getElementById('mh-nums2').style.display=m?'block':'none';}
+function doMeihua(){
+ const mode=document.getElementById('mh-mode').selectedIndex;
+ const now=new Date();
+ const hb=Math.floor((now.getHours()+1)/2)%12;
+ let up,lo,mv,how;
+ if(mode===0){
+  const l=lunarFromCivil(now.getFullYear(),now.getMonth()+1,now.getDate());
+  const ly=((l.year-4)%12+12)%12+1;
+  const sum=ly+l.month+l.day;
+  up=(sum-1)%8;lo=(sum+hb+1-1)%8;mv=(sum+hb+1-1)%6;
+  how=(LANG==='cn'?'时间起卦:农历':'By time: lunar ')+ly+'+'+l.month+'+'+l.day+(LANG==='cn'?'(年月日),加时辰':' (+hour) ')+(hb+1);
+ }else{
+  const n1=Math.abs(Number(document.getElementById('mh-n1').value)||1);
+  const n2=Math.abs(Number(document.getElementById('mh-n2').value)||1);
+  up=(n1-1)%8;lo=(n2-1)%8;mv=(n1+n2+hb+1-1)%6;
+  how=(LANG==='cn'?'报数起卦:':'By numbers: ')+n1+' / '+n2+(LANG==='cn'?',加时辰定动爻':' + hour for the moving line');
+ }
+ stMH={up,lo,mv:mv+1,q:document.getElementById('mh-q').value.trim(),how,
+  when:now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0')+'-'+String(now.getDate()).padStart(2,'0'),
+  month:(()=>{const j=jieAround(jdUTC(now.getUTCFullYear(),now.getUTCMonth()+1,now.getUTCDate(),now.getUTCHours()));return (((j.prevAngle-315)/30)+2+12)%12})()};
+ renderMH();document.getElementById('mh-copy').style.display='inline-block';}
+function mhTri(bits){for(let i=0;i<8;i++)if(TRI_BIN[i].join('')===bits.join(''))return i;return 0;}
+function miniHex(bits,title,tags){
+ let rows='';for(let i=5;i>=0;i--){
+  rows+='<div class="linerow" style="grid-template-columns:1fr 60px"><span class="yao'+(tags&&tags.mv===i?' moving':'')+'">'
+   +(bits[i]?'<i></i>':'<i></i><i style="visibility:hidden;max-width:26px"></i><i></i>')+'</span>'
+   +'<span style="font-size:11px;color:var(--dim)">'+(tags&&tags.mv===i?(LANG==='cn'?'动爻':'moving'):'')
+   +(tags&&tags.ti===Math.floor(i/3)?(i%3===1?(LANG==='cn'?'体':'Body'):''):(tags&&i%3===1?(LANG==='cn'?'用':'Use'):''))+'</span></div>';}
+ return '<div class="hexbox"><div class="hexname">'+title+'</div>'+rows+'</div>';}
+function mhRel(a,b){ // body a vs other b
+ const ea=TRI_ELEM[a],eb=TRI_ELEM[b];
+ if(ea===eb)return [1,'比和,和顺通达','same element — smooth accord'];
+ if((eb+1)%5===ea)return [2,'生体,大吉有助','feeds the Body — very favorable'];
+ if((ea+1)%5===eb)return [-1,'体生之,泄耗费力','drains the Body — costly effort'];
+ if((ea+2)%5===eb)return [0.5,'体克之,小吉但费力','Body overcomes it — small gain with effort'];
+ return [-2,'克体,不利有阻','attacks the Body — unfavorable'];}
+function renderMH(){
+ if(!stMH)return;const s=stMH;
+ const upB=TRI_BIN[s.up],loB=TRI_BIN[s.lo];
+ const bits=[...loB,...upB];
+ const mvI=s.mv-1;
+ const useUpper=mvI>=3;
+ const body=useUpper?s.lo:s.up, use=useUpper?s.up:s.lo;
+ const cb=bits.slice();cb[mvI]^=1;
+ const hu=[bits[1],bits[2],bits[3]],hu2=[bits[2],bits[3],bits[4]];
+ const huLo=mhTri(hu),huUp=mhTri(hu2);
+ const info=hexInfo(bits),huInfo=hexInfo([...hu,...hu2]),cInfo=hexInfo(cb);
+ const cUse=useUpper?mhTri(cb.slice(3)):mhTri(cb.slice(0,3));
+ const r1=mhRel(body,use),r2a=mhRel(body,huLo),r2b=mhRel(body,huUp),r3=mhRel(body,cUse);
+ const se=[4,2,0,0,2,1,1,2,3,3,2,4][s.month];
+ const be=TRI_ELEM[body];
+ let seaTxt=null;
+ if(be===se)seaTxt=[LANG==='cn'?'体卦当令而旺,底气足':'The Body element rules this season — strong footing',1];
+ else if((se+1)%5===be)seaTxt=[LANG==='cn'?'体卦得季节相生':'The season feeds the Body element',0.5];
+ else if((se+2)%5===be)seaTxt=[LANG==='cn'?'体卦被季节所克,先天偏弱':'The season works against the Body — weaker footing',-1];
+ const score=r1[0]*2+r3[0]*2+(r2a[0]+r2b[0])*0.5+(seaTxt?seaTxt[1]:0);
+ let v;
+ if(score>=3)v=[LANG==='cn'?'综合断:吉,谋事可成':'Overall: favorable — proceed',2];
+ else if(score>=0.5)v=[LANG==='cn'?'综合断:小吉,努力可成':'Overall: mildly favorable — effort pays',2];
+ else if(score>-2)v=[LANG==='cn'?'综合断:平,成事费力':'Overall: neutral — hard going',1];
+ else v=[LANG==='cn'?'综合断:不利,宜缓宜改':'Overall: unfavorable — postpone or rethink',0];
+ const nm=i=>TRI_CN[i]+(LANG==='en'?' '+TRI_EN[i]:'');
+ document.getElementById('mh-out').innerHTML='<div class="card"><h2>'+(LANG==='cn'?'卦象与体用':'CAST & ANALYSIS')+'</h2>'
+  +'<div class="note" style="margin:0 0 12px">'+s.how+' · '+s.when+(s.q?' · '+esc(s.q):'')+'</div>'
+  +'<div class="hexwrap two" style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr))">'
+  +miniHex(bits,(LANG==='cn'?'本卦 ':'Primary · ')+info.cn+'<span class="en">'+info.en+'</span>',{mv:mvI})
+  +miniHex([...hu,...hu2],(LANG==='cn'?'互卦 ':'Nuclear · ')+huInfo.cn+'<span class="en">'+huInfo.en+'</span>',null)
+  +miniHex(cb,(LANG==='cn'?'变卦 ':'Changed · ')+cInfo.cn+'<span class="en">'+cInfo.en+'</span>',null)+'</div>'
+  +'<div class="iblock"><div class="ilabel">'+(LANG==='cn'?'体用生克':'BODY & USE')+'</div>'
+  +'<div class="iline">'+(LANG==='cn'?'体卦 ':'Body: ')+'<b>'+nm(body)+'</b>('+ELEM[LANG][TRI_ELEM[body]]+') · '
+  +(LANG==='cn'?'用卦 ':'Use: ')+'<b>'+nm(use)+'</b>('+ELEM[LANG][TRI_ELEM[use]]+')'+(LANG==='cn'?' — 动爻在第':' — moving line ')+s.mv+(LANG==='cn'?'爻':'')+'</div>'
+  +'<div class="iline">'+(LANG==='cn'?'当前(用对体):':'Now (Use vs Body): ')+(LANG==='cn'?r1[1]:r1[2])+'</div>'
+  +'<div class="iline">'+(LANG==='cn'?'过程(互卦):':'Process (nuclear): ')+(LANG==='cn'?r2a[1]:r2a[2])+' / '+(LANG==='cn'?r2b[1]:r2b[2])+'</div>'
+  +'<div class="iline">'+(LANG==='cn'?'结果(变卦):':'Outcome (changed): ')+(LANG==='cn'?r3[1]:r3[2])+'</div>'
+  +(seaTxt?'<div class="iline">'+seaTxt[0]+'</div>':'')
+  +'<div class="iverdict v'+v[1]+'">'+v[0]+'</div>'
+  +'<div class="note">'+(LANG==='cn'?'依邵雍体用之法自动推断,仅供参考。':'Automatic reading by the classical Body/Use method; reference only.')+'</div></div></div>';}
+function mhText(){const s=stMH;if(!s)return '';
+ const bits=[...TRI_BIN[s.lo],...TRI_BIN[s.up]];const info=hexInfo(bits);
+ const cb=bits.slice();cb[s.mv-1]^=1;const cInfo=hexInfo(cb);
+ return '[梅花易数 Plum Blossom]\n'+(s.q?'所问: '+s.q+'\n':'')+s.how+'\n本卦 '+info.cn+' ('+info.en+') 动爻第'+s.mv+'爻\n变卦 '+cInfo.cn+' ('+cInfo.en+')\n请按梅花易数体用之法详细解卦。Please interpret in depth.';}
+function copyMH(){copyText(mhText(),'mh-copy')}
+/* ==================== XIAO LIU REN ==================== */
+const XLR={cn:['大安','留连','速喜','赤口','小吉','空亡'],en:['Great Peace','Lingering','Swift Joy','Red Mouth','Small Luck','Emptiness'],
+ ji:[2,1,2,0,2,0],
+ mean:{cn:['身不动时,属木青龙,谋事主一、五、七。有静守之象,事缓则圆,求谋安稳可成。','卒未归时,属水玄武,主二、八、十。事多拖延纠缠,宜耐心周旋,防反复。','人即至时,属火朱雀,主三、六、九。喜讯将至,行事迅捷则吉,求谋速成。','官事凶时,属金白虎,主四、七、十。防口舌是非、争执官非,言语谨慎为上。','人来喜时,属木六合,主一、五、七。和合吉庆,谋事多助,出行有利。','音信稀时,属土勾陈,主三、六、九。虚耗落空之象,谋事难成,宜守不宜进。'],
+ en:['Stillness serves; matters settle slowly but surely. Hold steady and it works out.','Delay and entanglement; be patient and guard against reversals.','Good news approaches; act fast and fortune follows.','Beware quarrels, gossip and disputes; watch your words.','Harmony and help; ventures and journeys are favored.','Things come to nothing for now; hold back rather than push.']}};
+function xlSyncNow(){ // auto-query lunar month/day & hour number into the three boxes
+ const now=new Date();
+ const l=lunarFromCivil(now.getFullYear(),now.getMonth()+1,now.getDate());
+ const n1=l.month,n2=l.day,n3=Math.floor((now.getHours()+1)/2)%12+1;
+ [['xl-1',n1],['xl-2',n2],['xl-3',n3]].forEach(([id,v])=>{document.getElementById(id).value=v;});
+ return {n1,n2,n3,l};}
+function xlModeChange(){
+ const auto=document.getElementById('xl-mode').selectedIndex===0;
+ ['xl-1','xl-2','xl-3'].forEach(id=>{const e=document.getElementById(id);
+  e.readOnly=auto;e.style.opacity=auto?'0.6':'1';});
+ if(auto)xlSyncNow();}
+function doXLR(){
+ const mode=document.getElementById('xl-mode').selectedIndex;
+ let n1,n2,n3,how;
+ if(mode===0){const q=xlSyncNow(); // refresh to the exact moment of the tap
+  n1=q.n1;n2=q.n2;n3=q.n3;
+  how=(LANG==='cn'?'以此刻农历月日时自动取数:':'Auto from lunar month/day/hour now: ')+n1+' / '+n2+' / '+n3
+   +(LANG==='cn'?'(农历'+(q.l.leap?'闰':'')+q.l.month+'月'+lunarDayName(q.l.day)+')':'');
+ }else{n1=Math.abs(Number(document.getElementById('xl-1').value)||1);
+  n2=Math.abs(Number(document.getElementById('xl-2').value)||1);
+  n3=Math.abs(Number(document.getElementById('xl-3').value)||1);
+  how=(LANG==='cn'?'自定三数:':'Custom numbers: ')+n1+' / '+n2+' / '+n3;}
+ const p1=(n1-1)%6,p2=(p1+n2-1)%6,p3=(p2+n3-1)%6;
+ const steps=[p1,p2,p3];
+ document.getElementById('xl-out').innerHTML='<div class="card"><h2>'+(LANG==='cn'?'结果':'RESULT')+'</h2>'
+  +'<div class="note" style="margin:0 0 12px">'+how+'</div>'
+  +'<div class="iline">'+steps.map((p,i)=>['月','日','时'][i]+(LANG==='en'?['(month)','(day)','(hour)'][i]:'')+' → <b>'+XLR.cn[p]+'</b>'+(LANG==='en'?' '+XLR.en[p]:'')).join('　')+'</div>'
+  +'<div class="iverdict v'+XLR.ji[p3]+'" style="margin-top:14px"><b>'+XLR.cn[p3]+' '+XLR.en[p3]+'</b></div>'
+  +'<div class="iline" style="margin-top:8px">'+XLR.mean[LANG==='cn'?'cn':'en'][p3]+'</div></div>';}
+/* ==================== ZERI ==================== */
+const ZR_EV=[
+ {cn:'嫁娶',en:'Wedding',good:[4,8,10,2],bad:[6,0,3,11]},
+ {cn:'开业开市',en:'Opening business',good:[2,8,10,4],bad:[6,11,5]},
+ {cn:'搬家入宅',en:'Moving house',good:[4,8,10,1],bad:[6,11,0]},
+ {cn:'签约交易',en:'Signing contracts',good:[4,8,10],bad:[6,7]},
+ {cn:'出行',en:'Travel',good:[0,10,8,1],bad:[6,11,7]},
+ {cn:'动土装修',en:'Groundbreaking',good:[3,4,8,10],bad:[0,6,7,11]}];
+function fillMisc(){
+ const es=document.getElementById('zr-ev');
+ if(es)es.innerHTML=ZR_EV.map(e=>'<option>'+e.cn+' '+e.en+'</option>').join('');
+ const ss=document.getElementById('zr-sx');
+ if(ss)ss.innerHTML='<option value="-1">'+(LANG==='cn'?'不限':'Any')+'</option>'+ANIMAL.cn.map((a,i)=>'<option value="'+i+'">'+a+' '+ANIMAL.en[i]+'</option>').join('');
+ document.querySelectorAll('.tzsel').forEach(s=>{if(!s.options.length){let h='';
+  for(let z=-12;z<=13;z++)h+='<option value="'+z+'"'+(z===8?' selected':'')+'>UTC'+(z>=0?'+':'')+z+'</option>';s.innerHTML=h;}});
+ const zf=document.getElementById('zr-from');
+ if(zf&&!zf.value){const n=new Date();zf.value=n.getFullYear()+'-'+String(n.getMonth()+1).padStart(2,'0')+'-'+String(n.getDate()).padStart(2,'0');}
+ const fx=document.getElementById('fx-date');
+ if(fx&&!fx.value){const n=new Date();fx.value=n.getFullYear()+'-'+String(n.getMonth()+1).padStart(2,'0')+'-'+String(n.getDate()).padStart(2,'0');}
+}
+function doZeri(){
+ const ev=ZR_EV[document.getElementById('zr-ev').selectedIndex];
+ const sx=Number(document.getElementById('zr-sx').value);
+ const [fy,fm,fd]=document.getElementById('zr-from').value.split('-').map(Number);
+ const span=Number(document.getElementById('zr-span').value);
+ const res=[];
+ for(let k=0;k<span;k++){
+  const dt=new Date(Date.UTC(fy,fm-1,fd));dt.setUTCDate(dt.getUTCDate()+k);
+  const y=dt.getUTCFullYear(),m=dt.getUTCMonth()+1,d=dt.getUTCDate();
+  const jdn=Math.floor(jdUTC(y,m,d,12)+0.5);
+  const dIdx=((jdn+49)%60+60)%60,db=dIdx%12;
+  const j=jieAround(jdUTC(y,m,d,4));
+  const mb=(((j.prevAngle-315)/30)+2+12)%12;
+  const off=((db-mb)+12)%12;
+  if(off===6)continue;
+  if(ev.bad.includes(off))continue;
+  if(sx>=0&&(db-sx+12)%12===6)continue;
+  let sc=0,why=[];
+  if(ev.good.includes(off)){sc+=2;why.push(OFFICER.cn[off]+(LANG==='cn'?'日,宜'+ev.cn:' day suits '+ev.en));}
+  else why.push(OFFICER.cn[off]+(LANG==='cn'?'日,平':' day, neutral'));
+  if(sx>=0){if((db+sx)%12===1){sc+=1;why.push(LANG==='cn'?'日支合你生肖':'harmonizes with your zodiac');}
+   if(trioId(db)===trioId(sx)&&db!==sx){sc+=1;why.push(LANG==='cn'?'与生肖三合':'triple harmony with zodiac');}}
+  res.push({y,m,d,dIdx,sc,why,off,chong:(db+6)%12});}
+ res.sort((a,b)=>b.sc-a.sc||a.y*10000+a.m*100+a.d-(b.y*10000+b.m*100+b.d));
+ const top=res.slice(0,10);
+ document.getElementById('zr-out').innerHTML='<div class="card"><h2>'+(LANG==='cn'?'推荐日期':'RECOMMENDED DATES')+'</h2>'
+  +(top.length?top.map(r=>'<div class="iline"><b>'+r.y+'-'+String(r.m).padStart(2,'0')+'-'+String(r.d).padStart(2,'0')+'</b>　'
+   +gz(r.dIdx)+' · '+r.why.join(' · ')+' · '+(LANG==='cn'?'冲':'clashes ')+ANIMAL[LANG][r.chong]
+   +(r.sc>=2?' <span class="lv lv2">'+(LANG==='cn'?'优选':'best')+'</span>':'')+'</div>').join('')
+   :'<div class="note">'+(LANG==='cn'?'该范围内无合适日期,请扩大范围。':'No suitable dates in range; widen the window.')+'</div>')
+  +'<div class="note">'+(LANG==='cn'?'已排除破日、事项忌日与冲生肖之日。重要日子建议再以八字细核。':'Break days, taboo officers and zodiac-clash days excluded. For major events, verify against the full BaZi.')+'</div></div>';}
+
+/* ==================== CHENGGU ==================== */
+const CG_Y=[12,9,6,7,12,5,9,8,7,8,15,9,16,8,8,19,12,6,8,7,5,15,6,16,15,7,9,12,10,7,15,6,5,14,14,9,7,7,9,12,8,7,13,5,14,5,9,17,5,7,12,8,8,6,19,6,8,16,10,6];
+const CG_M=[6,7,18,9,5,16,9,15,18,8,9,5];
+const CG_D=[5,10,8,15,16,15,8,16,8,16,9,17,8,17,10,8,9,18,5,15,10,9,8,9,15,18,7,8,16,6];
+const CG_H=[16,6,7,10,9,16,10,8,8,9,6,6];
+const CG_TIER=[
+ [29,'骨轻之命:早年多阻,劳碌奔波,宜习一技傍身,勤俭持家,中晚年渐得安稳,大器晚成。','A light-boned chart: a hard early road and much toil. Master a craft, live frugally, and stability comes in later years — a late bloomer.'],
+ [39,'骨重平常:先难后易,离祖自立,六亲助力有限,凡事靠己,中年后根基渐固,衣食无忧。','Ordinary weight: difficult first, easier later. Little family support — self-made. After midlife the foundation firms and livelihood is secure.'],
+ [49,'骨重中平偏上:衣食有余,遇难有救,贵人暗扶,谋事多成,一生小康向上,晚景从容。','Upper-middle weight: comfortable means, timely helpers in trouble, plans mostly succeed — a steadily rising, unhurried life.'],
+ [59,'骨重丰厚:福禄渐旺,才能出众,名利可期,家业兴隆,中年即见成就,晚年荣华。','A rich weight: growing fortune and standing, talent recognized, family and career flourish; success by midlife, honor in age.'],
+ [71,'骨重极贵:世间少有,福寿双全,一呼百应,富贵天成,一生显达安康。','An exceptionally heavy chart — rare indeed: fortune and longevity together, natural authority, prosperity that seems heaven-made.']];
+let stCG=null;
+function doChenggu(){const dv=document.getElementById('cg-date').value;if(!dv)return;
+ const tv=document.getElementById('cg-time').value||'12:00';
+ const [y,m,d]=dv.split('-').map(Number);const [h]=tv.split(':').map(Number);
+ stCG={y,m,d,h};renderCG();document.getElementById('cg-copy').style.display='inline-block';}
+function renderCG(){if(!stCG)return;const {y,m,d,h}=stCG;
+ const l=lunarFromCivil(y,m,d);if(!l)return;
+ const yIdx=((l.year-4)%60+60)%60;
+ const hb=Math.floor((h+1)/2)%12;
+ const w=CG_Y[yIdx]+CG_M[l.month-1]+CG_D[l.day-1]+CG_H[hb];
+ const liang=Math.floor(w/10),qian=w%10;
+ const tier=CG_TIER.find(t=>w<=t[0])||CG_TIER[4];
+ document.getElementById('cg-out').innerHTML='<div class="card"><h2>'+(LANG==='cn'?'骨重':'BONE WEIGHT')+'</h2>'
+  +'<div class="alm-top"><div class="alm-date">'+liang+(LANG==='cn'?' 两 ':' liang ')+qian+(LANG==='cn'?' 钱':' qian')+'</div></div>'
+  +'<div class="kv"><div><b>'+(LANG==='cn'?'构成':'BREAKDOWN')+'</b>'
+  +(LANG==='cn'?'年':'Year ')+gz(yIdx)+' '+(CG_Y[yIdx]/10)+(LANG==='cn'?'两':'')+'<br>'
+  +(LANG==='cn'?'月':'Month ')+(l.leap?'闰':'')+LMON.cn[l.month-1]+' '+(CG_M[l.month-1]/10)+(LANG==='cn'?'两':'')+'<br>'
+  +(LANG==='cn'?'日':'Day ')+lunarDayName(l.day)+' '+(CG_D[l.day-1]/10)+(LANG==='cn'?'两':'')+'<br>'
+  +(LANG==='cn'?'时':'Hour ')+ZHI[hb]+(LANG==='cn'?'时':'')+' '+(CG_H[hb]/10)+(LANG==='cn'?'两':'')+'</div></div>'
+  +'<div class="iline" style="margin-top:14px">'+(LANG==='cn'?tier[1]:tier[2])+'</div>'
+  +'<div class="note">'+(LANG==='cn'?'评语为按骨重分档的现代概述;袁天罡原歌诀可点"复制结果"请 AI 给出原文并详解。':'Summary by weight bracket; copy the result to an AI for the classical verse and a full reading.')+'</div></div>';}
+function copyCG(){const {y,m,d,h}=stCG;const l=lunarFromCivil(y,m,d);
+ const yIdx=((l.year-4)%60+60)%60;const hb=Math.floor((h+1)/2)%12;
+ const w=CG_Y[yIdx]+CG_M[l.month-1]+CG_D[l.day-1]+CG_H[hb];
+ copyText('[称骨算命 Bone Weight]\n农历 '+gz(yIdx)+'年 '+(l.leap?'闰':'')+LMON.cn[l.month-1]+lunarDayName(l.day)+' '+ZHI[hb]+'时\n骨重 '+(Math.floor(w/10))+'两'+(w%10)+'钱\n请给出袁天罡称骨歌此骨重的原文歌诀并详细解读。Please provide the classical verse for this weight and interpret it.','cg-copy');}
+/* ==================== HEHUN ==================== */
+const NAYIN_E=[3,1,0,2,3,1,4,2,3,0,4,2,1,0,4,3,1,0,2,3,1,4,2,3,0,4,2,1,0,4];
+let stHH=null;
+function doHehun(){
+ const g=(p)=>{const dv=document.getElementById('hh-d'+p).value;const tv=document.getElementById('hh-t'+p).value||'12:00';
+  const [y,mo,d]=dv.split('-').map(Number);const [h,mi]=tv.split(':').map(Number);
+  return {y,mo,d,h,mi,tz:Number(document.getElementById('hh-z'+p).value),male:true,lon:null};};
+ stHH={a:g(1),b:g(2)};renderHH();document.getElementById('hh-copy').style.display='inline-block';}
+function renderHH(){if(!stHH)return;
+ const ra=calcBazi(stHH.a),rb=calcBazi(stHH.b);
+ const items=[];let sc=0;
+ const ya=ra.yIdx%12,yb2=rb.yIdx%12;
+ if((ya+yb2)%12===1){sc+=2;items.push(['生肖六合('+ANIMAL.cn[ya]+ANIMAL.cn[yb2]+'),天作之合','Zodiac six-harmony — naturally well matched',1]);}
+ else if(trioId(ya)===trioId(yb2)&&ya!==yb2){sc+=2;items.push(['生肖三合,情投意合','Zodiac triple-harmony — kindred spirits',1]);}
+ else if((ya-yb2+12)%12===6){sc-=3;items.push(['生肖相冲('+ANIMAL.cn[ya]+'冲'+ANIMAL.cn[yb2]+'),聚少离多,需经营','Zodiac clash — friction and distance; needs work',0]);}
+ else if((ya+yb2)%12===7){sc-=1;items.push(['生肖相害,易有摩擦','Zodiac harm — prone to small frictions',0]);}
+ else if(XING.some(p=>(p[0]===ya&&p[1]===yb2)||(p[0]===yb2&&p[1]===ya))){sc-=2;items.push(['生肖相刑,性格易冲突','Zodiac punishment — temperament clashes',0]);}
+ else items.push(['生肖无冲无合,平顺','Zodiacs neutral — no clash, no bond',1]);
+ const da=ra.dIdx%10,db=rb.dIdx%10,za=ra.dIdx%12,zb=rb.dIdx%12;
+ if((da-db+10)%10===5){sc+=2;items.push(['日干相合('+GAN[da]+GAN[db]+'),夫妻宫相亲','Day stems combine — the spouse palaces embrace',1]);}
+ if((za+zb)%12===1){sc+=2;items.push(['日支六合,同床同心','Day branches harmonize — hearts align at home',1]);}
+ else if((za-zb+12)%12===6){sc-=2;items.push(['日支相冲,家宅易起波澜','Day branches clash — household turbulence',0]);}
+ const na=NAYIN_E[Math.floor(ra.yIdx/2)],nb=NAYIN_E[Math.floor(rb.yIdx/2)];
+ if((na+1)%5===nb||(nb+1)%5===na){sc+=2;items.push(['年命纳音相生('+NAYIN.cn[Math.floor(ra.yIdx/2)]+'/'+NAYIN.cn[Math.floor(rb.yIdx/2)]+')','Year nayin elements feed each other',1]);}
+ else if(na===nb){sc+=1;items.push(['年命纳音比和','Year nayin elements match',1]);}
+ else if((na+2)%5===nb||(nb+2)%5===na){sc-=1;items.push(['年命纳音相克,宜互相体谅','Year nayin elements conflict — patience needed',0]);}
+ const cnt=r=>{const c=[0,0,0,0,0];[r.yIdx,r.mIdx,r.dIdx,r.hIdx].forEach(i=>{c[ganElem(i%10)]++;c[zhiElem[i%12]]++;});return c;};
+ const ca=cnt(ra),cb2=cnt(rb);let comp=0;
+ for(let e=0;e<5;e++){if(ca[e]===0&&cb2[e]>=2)comp++;if(cb2[e]===0&&ca[e]>=2)comp++;}
+ if(comp){sc+=Math.min(comp,2);items.push(['五行互补:一方所缺,另一方可补('+comp+'处)','Elemental complementarity — each supplies what the other lacks',1]);}
+ const total=Math.max(30,Math.min(95,60+sc*5));
+ let v;
+ if(total>=80)v=[LANG==='cn'?'上等婚配,彼此成就':'Excellent match — you build each other up',2];
+ else if(total>=65)v=[LANG==='cn'?'中上婚配,和睦可期':'Good match — harmony within reach',2];
+ else if(total>=50)v=[LANG==='cn'?'中平婚配,贵在经营':'Average match — effort makes it work',1];
+ else v=[LANG==='cn'?'配合较难,需多包容':'Challenging match — generosity required',0];
+ document.getElementById('hh-out').innerHTML='<div class="card"><h2>'+(LANG==='cn'?'合婚结果':'COMPATIBILITY')+'</h2>'
+  +'<div class="alm-top"><div class="alm-date">'+total+'<span style="font-size:15px;color:var(--dim)"> /100</span></div>'
+  +'<div class="alm-lunar">'+gz(ra.dIdx)+' × '+gz(rb.dIdx)+'</div></div>'
+  +items.map(x=>'<div class="iline">'+(LANG==='cn'?x[0]:x[1])+'</div>').join('')
+  +'<div class="iverdict v'+v[1]+'">'+v[0]+'</div>'
+  +'<div class="note">'+(LANG==='cn'?'以生肖、日柱、纳音、五行互补合参;完整合婚还需看双方喜用与大运,可复制给 AI 深断。':'Weighs zodiacs, day pillars, nayin and complementarity; a full match also compares favorable elements and luck cycles — copy to an AI for depth.')+'</div></div>';}
+function copyHH(){const ra=calcBazi(stHH.a),rb=calcBazi(stHH.b);
+ copyText('[八字合婚]\nA: '+[gz(ra.yIdx),gz(ra.mIdx),gz(ra.dIdx),gz(ra.hIdx)].join(' ')+'\nB: '+[gz(rb.yIdx),gz(rb.mIdx),gz(rb.dIdx),gz(rb.hIdx)].join(' ')+'\n请从生肖、日柱、五行喜用互补、大运走势详细合婚。Please analyze marriage compatibility in depth.','hh-copy');}
+/* ==================== WUGE ==================== */
+const GOOD81=[1,3,5,6,7,8,11,13,15,16,17,18,21,23,24,25,29,31,32,33,35,37,39,41,45,47,48,52,57,61,63,65,67,68,81];
+const SEMI81=[27,30,38,42,51,55,58,71,73,75,77,78];
+const wgE=n=>({1:0,2:0,3:1,4:1,5:2,6:2,7:3,8:3,9:4,0:4})[n%10];
+function wgLuck(n){const m=n>81?n-80:n;
+ if(GOOD81.includes(m))return [2,LANG==='cn'?'吉':'Lucky'];
+ if(SEMI81.includes(m))return [1,LANG==='cn'?'半吉':'Mixed'];
+ return [0,LANG==='cn'?'凶':'Unlucky'];}
+function doWuge(){
+ const s1=Number(document.getElementById('wg-s1').value)||0;
+ const s2=Number(document.getElementById('wg-s2').value)||0;
+ const m1=Number(document.getElementById('wg-m1').value)||0;
+ const m2=Number(document.getElementById('wg-m2').value)||0;
+ if(!s1||!m1)return;
+ const tian=s2?s1+s2:s1+1;
+ const ren=(s2||s1)+m1;
+ const di=m2?m1+m2:m1+1;
+ const zong=s1+s2+m1+m2;
+ const wai=zong-ren+(s2?0:1)+(m2?0:1);
+ const gs=[['天格 Heaven',tian],['人格 Person',ren],['地格 Earth',di],['外格 Outer',wai],['总格 Total',zong]];
+ const sancai=[wgE(tian),wgE(ren),wgE(di)];
+ const rel=(a,b)=>a===b?1:((a+1)%5===b||(b+1)%5===a?2:((a+2)%5===b||(b+2)%5===a?0:1));
+ const r1=rel(sancai[0],sancai[1]),r2=rel(sancai[1],sancai[2]);
+ let scV;
+ if(r1>0&&r2>0)scV=[2,LANG==='cn'?'三才相生比和,根基稳固':'The three powers feed each other — a stable base'];
+ else if(r1===0&&r2===0)scV=[0,LANG==='cn'?'三才两处相克,起伏较大':'Both links conflict — a turbulent configuration'];
+ else scV=[1,LANG==='cn'?'三才一顺一克,有起有伏':'One link flows, one conflicts — mixed fortunes'];
+ document.getElementById('wg-out').innerHTML='<div class="card"><h2>'+(LANG==='cn'?'五格结果':'FIVE GRIDS')+'</h2>'
+  +'<div class="kv">'+gs.map(g=>{const lk=wgLuck(g[1]);
+   return '<div><b>'+g[0]+'</b><span style="font-size:24px;font-family:var(--mono)">'+g[1]+'</span>'
+    +' <span class="e'+wgE(g[1])+'">'+ELEM[LANG][wgE(g[1])]+'</span> <span class="lv lv'+lk[0]+'">'+lk[1]+'</span></div>';}).join('')+'</div>'
+  +'<div class="iline" style="margin-top:14px">'+(LANG==='cn'?'三才配置:':'Three Powers: ')
+  +sancai.map(e=>'<b class="e'+e+'">'+ELEM[LANG][e]+'</b>').join(' → ')+' — '+scV[1]+'</div>'
+  +'<div class="iverdict v'+scV[0]+'">'+scV[1]+'</div>'
+  +'<div class="note">'+(LANG==='cn'?'人格主中年运与性格核心,总格主一生总运,地格主早年,天格随姓不论吉凶,外格主人际。81数理详解可复制数字请 AI 展开。':'Person = core character & midlife; Total = the whole life; Earth = early years; Heaven = inherited, not judged; Outer = social. Ask an AI for the full 81-number readings.')+'</div></div>';}
+/* ==================== FANGWEI + FLYING STARS ==================== */
+const XI_D=[1,7,5,4,3,1,7,5,4,3],CAI_D=[1,1,5,5,0,0,2,2,4,4];
+const YG_B=[7,8,9,11,1,0,1,2,3,5],YIN_B=[1,0,11,9,7,8,7,6,5,3];
+const STAR9={cn:['一白·人缘桃花','二黑·病符','三碧·是非','四绿·文昌','五黄·大煞','六白·权贵','七赤·口舌','八白·财星','九紫·喜庆'],
+ en:['1 White · Romance','2 Black · Sickness','3 Jade · Disputes','4 Green · Study','5 Yellow · Danger','6 White · Authority','7 Red · Gossip','8 White · Wealth','9 Purple · Celebration'],
+ good:[1,0,0,1,0,1,0,1,1]};
+const digitsum=y=>{let s=String(y).split('').reduce((a,c)=>a+ +c,0);while(s>9)s=String(s).split('').reduce((a,c)=>a+ +c,0);return s;};
+function grid9(cells){ // cells: array of 9 html in order NW N NE W C E SW S SE
+ return '<div class="kv" style="grid-template-columns:repeat(3,1fr);gap:8px">'+cells.map(c=>'<div style="min-height:74px">'+c+'</div>').join('')+'</div>';}
+function doFangwei(){
+ const v=document.getElementById('fx-date').value;if(!v)return;
+ const [y,m,d]=v.split('-').map(Number);
+ const jdn=Math.floor(jdUTC(y,m,d,12)+0.5);
+ const dIdx=((jdn+49)%60+60)%60,dg=dIdx%10;
+ const dirs=[[],[],[],[],[],[],[],[]];
+ dirs[XI_D[dg]].push(LANG==='cn'?'喜神':'Joy');
+ dirs[CAI_D[dg]].push(LANG==='cn'?'财神':'Wealth');
+ dirs[zhiDir[YG_B[dg]]].push(LANG==='cn'?'阳贵':'Noble⁺');
+ dirs[zhiDir[YIN_B[dg]]].push(LANG==='cn'?'阴贵':'Noble⁻');
+ const order=[7,0,1,6,-1,2,5,4,3];
+ const cells=order.map(o=>o<0
+  ?'<b>'+v+'</b>'+gz(dIdx)+(LANG==='cn'?'日':' day')
+  :'<b>'+DIR8[LANG][o]+'</b>'+(dirs[o].length?dirs[o].map(g=>'<span style="color:var(--red)">'+g+'</span>').join(' '):'<span style="color:#b6b2a6">—</span>'));
+ // flying stars
+ const li=termJD(315,jdUTC(y,2,4,0));
+ const gy=(jdUTC(y,m,d,12)-8/24>=li)?y:y-1;
+ let ys=11-digitsum(gy);if(ys>9)ys-=9;
+ const j=jieAround(jdUTC(y,m,d,4));
+ const mb=(((j.prevAngle-315)/30)+2+12)%12,mFY=((mb-2)+12)%12;
+ const yb=((gy-4)%12+12)%12;
+ const mStart=[8,5,2][yb%3];
+ const ms=((mStart-1-mFY)%9+9)%9+1;
+ const fly=c=>{const seq=[];for(let i=0;i<9;i++)seq.push(((c-1+i)%9)+1);
+  // seq order: C NW W NE S N SW E SE -> map to display NW N NE W C E SW S SE
+  const pos={C:seq[0],NW:seq[1],W:seq[2],NE:seq[3],S:seq[4],N:seq[5],SW:seq[6],E:seq[7],SE:seq[8]};
+  return [pos.NW,pos.N,pos.NE,pos.W,pos.C,pos.E,pos.SW,pos.S,pos.SE];};
+ const yf=fly(ys),mf=fly(ms);
+ const dn=[DIR8[LANG][7],DIR8[LANG][0],DIR8[LANG][1],DIR8[LANG][6],(LANG==='cn'?'中宫':'Center'),DIR8[LANG][2],DIR8[LANG][5],DIR8[LANG][4],DIR8[LANG][3]];
+ const starCells=yf.map((sn,i)=>'<b>'+dn[i]+'</b><span style="font-size:17px;font-family:var(--mono);'+(STAR9.good[sn-1]?'color:var(--red)':'color:var(--dim)')+'">'+sn+'</span> '
+  +'<span style="font-size:11px">'+STAR9[LANG][sn-1]+'</span><br><span class="small" style="color:var(--dim)">'+(LANG==='cn'?'月星 ':'mo ')+mf[i]+'</span>');
+ document.getElementById('fx-out').innerHTML=
+  '<div class="card"><h2>'+(LANG==='cn'?'今日吉神方位':'LUCKY BEARINGS')+'</h2>'+grid9(cells)
+  +'<div class="note">'+(LANG==='cn'?'求财往财神方,面试求人往贵人方,喜事往喜神方。':'Seek wealth toward the Wealth bearing, favor toward the Nobles, celebration toward Joy.')+'</div></div>'
+  +'<div class="card"><h2>'+(LANG==='cn'?'玄空飞星(年/月)':'FLYING STARS (year / month)')+'</h2>'
+  +'<div class="note" style="margin:0 0 10px">'+gy+(LANG==='cn'?'年 ':' annual star ')+ys+(LANG==='cn'?'入中 · 本月 ':' in center · month star ')+ms+(LANG==='cn'?'入中':'')+'</div>'
+  +grid9(starCells)
+  +'<div class="note">'+(LANG==='cn'?'八白为财位、四绿利学业文书、一白利人缘;二黑五黄之方宜静不宜动,三碧防口角。':'8 = wealth spot, 4 = study, 1 = relationships; keep the 2 & 5 sectors quiet, mind quarrels at 3.')+'</div></div>';}
+/* ==================== BAZHAI ==================== */
+const GUA_TRI={1:5,2:7,3:3,4:4,6:0,7:1,8:6,9:2};
+const GUA_NAME={1:'坎',2:'坤',3:'震',4:'巽',6:'乾',7:'兑',8:'艮',9:'离'};
+const DIR_TRI=[5,6,3,4,2,7,1,0]; // N NE E SE S SW W NW -> trigram idx
+const BZ_STAR={cn:['伏位','祸害','绝命','天医','生气','六煞','五鬼','延年'],
+ en:['Stability','Mishap','Fatal','Healing','Vitality','Six Curses','Five Ghosts','Longevity'],
+ lv:[2,1,0,2,3,1,0,3],
+ tip:{cn:['宜作卧室书房,守成','小凶,防口角琐碎','大凶,忌床忌门','宜安床,利健康','最吉,宜大门书桌','中凶,防桃花是非','大凶,宜静置重物','大吉,宜卧室,利感情寿元'],
+  en:['Good for bedroom/study; steady','Minor mishaps; avoid key uses','Most harmful; never bed or door','Place the bed here; heals','Best energy; ideal for door & desk','Beware entanglements','Very bad; keep heavy & still','Great for bedroom; bonds & longevity']}};
+function doBazhai(){
+ const dv=document.getElementById('bm-d').value;const yIn=Number(document.getElementById('bm-y').value);
+ let y=yIn;
+ if(dv){const [yy,m,d]=dv.split('-').map(Number);
+  const li=termJD(315,jdUTC(yy,2,4,0));
+  y=(jdUTC(yy,m,d,12)-8/24>=li)?yy:yy-1;}
+ const male=document.getElementById('bm-g').value==='m';
+ const s=digitsum(y);
+ let g=male?(11-s):(s+4);
+ if(g>9)g-=9;if(g===0)g=9;
+ if(g===5)g=male?2:8;
+ const tri=GUA_TRI[g];
+ const east=[1,3,4,9].includes(g);
+ const cells=[];const order=[7,0,1,6,-1,2,5,4,3];
+ order.forEach(o=>{
+  if(o<0){cells.push('<b>'+(LANG==='cn'?'命卦':'Gua')+'</b><span style="font-size:20px">'+GUA_NAME[g]+'</span> '+g+(LANG==='cn'?(east?' 东四命':' 西四命'):(east?' East group':' West group')));return;}
+  const dt=DIR_TRI[o];
+  const a=TRI_BIN[tri],b=TRI_BIN[dt];
+  const key=(a[0]^b[0])+(a[1]^b[1])*2+(a[2]^b[2])*4;
+  const lv=BZ_STAR.lv[key];
+  cells.push('<b>'+DIR8[LANG][o]+'</b><span style="'+(lv>=2?'color:var(--red)':'color:var(--dim)')+'">'+BZ_STAR.cn[key]+(LANG==='en'?' '+BZ_STAR.en[key]:'')+'</span>'
+   +'<br><span class="small" style="color:var(--dim)">'+BZ_STAR.tip[LANG][key]+'</span>');});
+ document.getElementById('bm-out').innerHTML='<div class="card"><h2>'+(LANG==='cn'?'八宅吉凶方位':'EIGHT MANSIONS')+'</h2>'
+  +grid9(cells)
+  +'<div class="note">'+(LANG==='cn'?'东四命宜住坐东、南、北、东南向之宅;西四命宜西、西北、西南、东北。床头与书桌朝吉方,大门开在生气延年方最佳。命卦按立春分年。':'East-group people suit E/S/N/SE homes; West-group suit W/NW/SW/NE. Point bed and desk toward lucky sectors; the door is best at Vitality or Longevity. Year divides at Beginning of Spring.')+'</div></div>';}
+/* ==================== COMPASS ==================== */
+let cpOn=false,cpGotData=false,cpManual=false;
+let cpSmooth=null,cpRot=0; // cpSmooth: filtered heading; cpRot: cumulative rotation (avoids 359->0 spin-back)
+function cpFilter(h){
+ // exponential smoothing on the unit circle (handles wraparound)
+ if(cpSmooth===null){cpSmooth=h;return h;}
+ let d=((h-cpSmooth+540)%360)-180;
+ cpSmooth=((cpSmooth+d*0.25)%360+360)%360;
+ return cpSmooth;}
+function cpSetHeading(h,raw){
+ h=((h%360)+360)%360;
+ if(raw!==false)h=cpFilter(h);
+ // shortest-path cumulative rotation so the dial never spins backwards through 360
+ let delta=((-h-((cpRot%360+360)%360)+540)%360)-180;
+ cpRot+=delta;
+ const disc=document.getElementById('cp-disc');
+ if(disc)disc.style.transform='rotate('+cpRot+'deg)';
+ const dg2=document.getElementById('cp-deg');
+ if(dg2){dg2.textContent=Math.round(h)+'°';dg2.style.transform='translate(-50%,-50%) rotate('+h+'deg)';}
+ cpUpdateGuide(h);}
+function cpDirName(h){return DIR8[LANG][Math.round(((h%360)+360)%360/45)%8];}
+function cpTargets(){
+ const now=new Date();
+ const jdn=Math.floor(jdUTC(now.getFullYear(),now.getMonth()+1,now.getDate(),12)+0.5);
+ const dg=(((jdn+49)%60+60)%60)%10;
+ return [{idx:CAI_D[dg],icon:'💰',cn:'财神方',en:'Wealth'},{idx:XI_D[dg],icon:'🎉',cn:'喜神方',en:'Joy'}];}
+function cpUpdateGuide(h){
+ const g=document.getElementById('cp-guide');
+ if(!g)return;
+ let out='<div class="note" style="text-align:center;font-size:16px;margin:8px 0">📱 '+(LANG==='cn'?'你现在面向:':'You are facing: ')+'<b>'+cpDirName(h)+'</b> '+Math.round(h)+'°</div>';
+ cpTargets().forEach(t=>{
+  const target=t.idx*45;
+  let d=((target-h+540)%360)-180; // -180..180, + means turn right
+  const abs=Math.abs(d);
+  let tip,bg='';
+  if(abs<=15){tip=LANG==='cn'?'✅ 就是这个方向!保持面向它即可':'✅ Aligned — you are facing it!';bg='background:rgba(0,160,0,.12);'}
+  else{const arrow=d>0?'➡️':'⬅️';const word=LANG==='cn'?(d>0?'向右转':'向左转'):(d>0?'turn right':'turn left');
+   tip=arrow+' '+word+(LANG==='cn'?'约 ':' ~')+Math.round(abs)+'°';}
+  out+='<div class="note" style="text-align:center;font-size:15px;margin:6px 0;padding:8px;border:1px solid var(--ink);border-radius:8px;'+bg+'">'
+   +t.icon+' <b>'+(LANG==='cn'?t.cn:t.en)+'</b>('+DIR8[LANG][t.idx]+'):'+tip+'</div>';});
+ g.innerHTML=out;}
+function cpScreenAngle(){
+ // compensate for landscape / upside-down orientation
+ if(screen.orientation&&typeof screen.orientation.angle==='number')return screen.orientation.angle;
+ if(typeof window.orientation==='number')return window.orientation;
+ return 0;}
+function cpDrawDial(){
+ const dial=document.getElementById('cp-dial');
+ const now=new Date();
+ const jdn=Math.floor(jdUTC(now.getFullYear(),now.getMonth()+1,now.getDate(),12)+0.5);
+ const dg=(((jdn+49)%60+60)%60)%10;
+ const marks={};marks[CAI_D[dg]]=(LANG==='cn'?'财':'$');marks[XI_D[dg]]=(marks[XI_D[dg]]||'')+(LANG==='cn'?'喜':'joy');
+ dial.innerHTML='<div style="width:250px;height:250px;border:1px solid var(--ink);border-radius:50%;margin:22px auto;position:relative;transition:transform .15s linear" id="cp-disc">'
+  +DIR8.cn.map((n,i)=>'<div style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%) rotate('+(i*45)+'deg) translateY(-100px) rotate(-'+(i*45)+'deg);font-size:13px;text-align:center">'
+   +(LANG==='cn'?n:DIR8.en[i])+(marks[i]?'<br><span style="color:var(--red);font-size:11px">'+marks[i]+'</span>':'')+'</div>').join('')
+  +'<div style="position:absolute;left:50%;top:8px;transform:translateX(-50%);color:var(--red)">▲</div>'
+  +'<div id="cp-deg" style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);font-family:var(--mono);font-size:19px">0°</div></div>'
+  +'<div id="cp-manual" style="display:none;max-width:290px;margin:0 auto;text-align:center">'
+  +'<input type="range" id="cp-slider" min="0" max="359" value="0" style="width:100%">'
+  +'<div class="note" style="margin-top:6px">'+(LANG==='cn'
+   ?'手动模式:先打开手机自带的"指南针"App(或看太阳:早上太阳在东边),弄清自己面向哪个方向,再拖动上面的滑杆到对应度数(正北0°、正东90°、正南180°、正西270°),屏幕就会告诉你财神、喜神在哪边。'
+   :'Manual mode: use your phone\u2019s built-in Compass app (or the sun) to find which way you face, then drag the slider to that degree (N=0°, E=90°, S=180°, W=270°). The hints above will point you to the lucky bearings.')+'</div></div>';
+ document.getElementById('cp-slider').addEventListener('input',e=>{cpManual=true;cpSetHeading(+e.target.value,false);});
+ const intro=document.getElementById('cp-intro');if(intro)intro.style.display='none';
+ cpUpdateGuide(0);}
+function cpDiag(){
+ const ua=navigator.userAgent;
+ const isAndroid=/Android/i.test(ua),isIOS=/iPhone|iPad|iPod/i.test(ua);
+ const isWebView=(isAndroid&&/; wv\)/.test(ua))||(isIOS&&!/Safari/i.test(ua));
+ const isWeixin=/MicroMessenger/i.test(ua);
+ const lines=[];
+ lines.push((LANG==='cn'?'打开方式:':'Opened via: ')+location.protocol+(LANG==='cn'?(location.protocol==='https:'?'(安全 ✓)':location.protocol==='file:'?'(本地文件 ✓)':location.protocol==='content:'?'(下载列表直接点开,传感器被禁用 ✗)':'(非 https,传感器会被禁用 ✗)'):''));
+ lines.push((LANG==='cn'?'设备:':'Device: ')+(isAndroid?'Android':isIOS?'iPhone/iPad':(LANG==='cn'?'电脑/其他':'Desktop/other')));
+ lines.push((LANG==='cn'?'浏览器环境:':'Browser: ')+(isWeixin?(LANG==='cn'?'微信内置浏览器 ✗':'WeChat in-app ✗'):isWebView?(LANG==='cn'?'App 内置浏览器(WebView)✗':'In-app WebView ✗'):(LANG==='cn'?'独立浏览器 ✓':'Standalone browser ✓')));
+ lines.push((LANG==='cn'?'方向传感器 API:':'Orientation API: ')+((typeof DeviceOrientationEvent!=='undefined')?(LANG==='cn'?'支持 ✓':'yes ✓'):(LANG==='cn'?'不支持 ✗':'no ✗')));
+ let advice='';
+ if(!isAndroid&&!isIOS)advice=LANG==='cn'?'👉 电脑没有方向传感器,请改用手机打开。':'👉 Desktops have no orientation sensor — open on a phone.';
+ else if(location.protocol==='content:')advice=LANG==='cn'?'👉 检测到你是从下载通知/下载列表点开的(content:// 方式),这种方式浏览器会禁用传感器。解决:在浏览器地址栏输入 file:///sdcard/Download/ 加上文件名打开(例如 file:///sdcard/Download/xuanji.html),然后收藏书签;或把文件放到 https 网站上访问。':'👉 Opened via content:// (from the download list) — sensors are blocked this way. Type file:///sdcard/Download/yourfile.html in the address bar instead, or host it on an https site.';
+ else if(isWeixin)advice=LANG==='cn'?'👉 请点右上角"···"选择"在浏览器中打开"。':'👉 Tap "···" and choose "Open in browser".';
+ else if(isWebView)advice=LANG==='cn'?'👉 当前是 App 内置浏览器,传感器常被禁用。请把文件用 Chrome(安卓)或 Safari(iPhone)直接打开:先在浏览器地址栏输入 file:///sdcard/Download/ 找到文件,或分享到浏览器打开。':'👉 You are in an in-app WebView. Open the file directly in Chrome (Android) or Safari (iOS).';
+ else if(location.protocol==='http:')advice=LANG==='cn'?'👉 http 页面被禁用传感器,请用 https 网址或把文件存到手机本地打开。':'👉 Sensors are blocked on http pages — use https or open the file locally.';
+ else if(isIOS)advice=LANG==='cn'?'👉 iPhone:若之前点过"不允许",Safari 会记住。请完全关闭该标签页后重新打开,或到 设置→Safari→高级→网站数据 清除后重试;也可在 设置→Safari 里确认"运动与方向访问"已开启。':'👉 iOS: if you denied permission before, Safari remembers. Close the tab fully and reopen, and check Settings → Safari → Motion & Orientation Access.';
+ else advice=LANG==='cn'?'👉 安卓:请确认用的是 Chrome/Edge 等正规浏览器;若仍无数据,挥动手机画"8"字校准磁力计后点重试;个别机型无磁力计则只能手动模式。':'👉 Android: use Chrome/Edge; wave the phone in a figure-8 to calibrate, then retry. Some phones lack a magnetometer.';
+ return '<div class="note" style="margin-top:8px;text-align:left"><b>'+(LANG==='cn'?'自动诊断':'Diagnostics')+'</b><br>'+lines.join('<br>')+'<br><br>'+advice
+  +'<br><br><button class="btn" onclick="cpRetry()">'+(LANG==='cn'?'🔄 重试自动模式':'🔄 Retry auto mode')+'</button></div>';}
+function cpRetry(){cpOn=false;cpGotData=false;cpManual=false;cpSmooth=null;startCompass();}
+function cpEnableManual(msg){
+ const m=document.getElementById('cp-manual');
+ if(m)m.style.display='block';
+ if(msg)document.getElementById('cp-out').innerHTML='<span style="color:var(--red)">'+msg+'</span>'+cpDiag();}
+function startCompass(){
+ if(cpOn){return;}
+ cpDrawDial();
+ // sensors require a secure context (https or localhost)
+ if(!window.isSecureContext){cpOn=true;cpEnableManual(LANG==='cn'
+   ?'当前页面不是 HTTPS,浏览器禁用了方向传感器,已切换为手动模式。请通过 https 访问以启用自动指向。'
+   :'This page is not served over HTTPS, so the browser blocks the orientation sensor. Manual mode enabled — use https for live heading.');return;}
+ let gotAbsolute=false;
+ const calc=e=>{
+  let h=e.webkitCompassHeading; // iOS: already true compass heading
+  if(h===undefined&&e.alpha!==null)h=360-e.alpha;
+  if(h===undefined)return null;
+  return h+cpScreenAngle();}; // landscape compensation
+ const absHandler=e=>{if(cpManual)return;
+  const h=calc(e);if(h===null)return;
+  if(!cpGotData){const o=document.getElementById('cp-out');if(o)o.textContent=(LANG==='cn'?'✅ 罗盘已工作!手机放平,原地慢慢转身,看下方提示。':'✅ Compass live! Hold flat and turn slowly — follow the hints below.');}
+  gotAbsolute=true;cpGotData=true;cpSetHeading(h);};
+ const relHandler=e=>{if(cpManual||gotAbsolute)return; // prefer absolute data when available
+  if(e.webkitCompassHeading===undefined&&e.absolute===false)return; // relative alpha is not a compass
+  const h=calc(e);if(h===null)return;
+  if(!cpGotData){const o=document.getElementById('cp-out');if(o)o.textContent=(LANG==='cn'?'✅ 罗盘已工作!手机放平,原地慢慢转身,看下方提示。':'✅ Compass live! Hold flat and turn slowly — follow the hints below.');}
+  cpGotData=true;cpSetHeading(h);};
+ const listen=()=>{
+  if('ondeviceorientationabsolute' in window)window.addEventListener('deviceorientationabsolute',absHandler);
+  window.addEventListener('deviceorientation',relHandler);
+  cpOn=true;watchdog();};
+ const watchdog=()=>{setTimeout(()=>{if(!cpGotData)cpEnableManual(LANG==='cn'
+   ?'未收到传感器数据(可能是设备无磁力计或未校准)。已启用手动模式,也可挥动手机画“8”字校准后重试。'
+   :'No sensor data (device may lack a magnetometer or need calibration). Manual mode enabled — try waving the phone in a figure-8 and restarting.');},4000);};
+ if(typeof DeviceOrientationEvent!=='undefined'&&typeof DeviceOrientationEvent.requestPermission==='function'){
+  DeviceOrientationEvent.requestPermission().then(p=>{if(p==='granted'){listen();}
+   else{cpOn=true;cpEnableManual(LANG==='cn'?'未获得传感器权限,已切换为手动模式。':'Sensor permission denied — manual mode enabled.');}}).catch(()=>{
+   cpOn=true;cpEnableManual(LANG==='cn'?'此设备不支持方向传感器,已切换为手动模式。':'Orientation sensor unavailable — manual mode enabled.');});
+ }else if('ondeviceorientationabsolute' in window||'ondeviceorientation' in window){listen();}
+ else{cpOn=true;cpEnableManual(LANG==='cn'?'此设备不支持方向传感器,已切换为手动模式。':'No orientation sensor — manual mode enabled.');}
+ // re-sync when the user rotates the screen
+ if(screen.orientation&&screen.orientation.addEventListener)screen.orientation.addEventListener('change',()=>{cpSmooth=null;});}
+
+/* ==================== ZIWEI ==================== */
+const ZW_PAL={cn:['命宫','兄弟','夫妻','子女','财帛','疾厄','迁移','交友','官禄','田宅','福德','父母'],
+ en:['Life','Siblings','Spouse','Children','Wealth','Health','Travel','Friends','Career','Property','Fortune','Parents']};
+const ZW_MAIN={cn:['紫微','天机','太阳','武曲','天同','廉贞','天府','太阴','贪狼','巨门','天相','天梁','七杀','破军'],
+ en:['Ziwei','Tianji','Taiyang','Wuqu','Tiantong','Lianzhen','Tianfu','Taiyin','Tanlang','Jumen','Tianxiang','Tianliang','Qisha','Pojun']};
+const ZW_JU={cn:['木三局','火六局','土五局','金四局','水二局'],en:['Wood-3','Fire-6','Earth-5','Metal-4','Water-2'],n:[3,6,5,4,2]};
+const ZW_SIHUA={0:['廉贞','破军','武曲','太阳'],1:['天机','天梁','紫微','太阴'],2:['天同','天机','文昌','廉贞'],
+ 3:['太阴','天同','天机','巨门'],4:['贪狼','太阴','右弼','天机'],5:['武曲','贪狼','天梁','文曲'],
+ 6:['太阳','武曲','太阴','天同'],7:['巨门','太阳','文曲','文昌'],8:['天梁','紫微','左辅','武曲'],9:['破军','巨门','太阴','贪狼']};
+const ZW_HUA={cn:['禄','权','科','忌'],en:['Lu','Quan','Ke','Ji']};
+const ZW_LU=[2,3,5,6,5,6,8,9,11,0];
+const ZW_KUI=[1,0,11,11,1,0,1,6,3,3],ZW_YUE=[7,8,9,9,7,8,7,2,5,5];
+const ZW_HUO=[2,1,3,9],ZW_LING=[10,3,10,10]; // by year-branch trio 申子辰/巳酉丑/寅午戌/亥卯未
+let stZW=null;
+function doZiwei(){const dv=document.getElementById('zw-date').value;if(!dv)return;
+ const tv=document.getElementById('zw-time').value||'12:00';
+ const [y,mo,d]=dv.split('-').map(Number);const [h,mi]=tv.split(':').map(Number);
+ stZW={y,mo,d,h,mi,male:document.getElementById('zw-g').value==='m',tz:Number(document.getElementById('zw-tz').value)};
+ renderZW();document.getElementById('zw-copy').style.display='inline-block';}
+function calcZW(s){
+ // lunar date (23:00+ -> next civil day)
+ let cy=s.y,cm=s.mo,cd=s.d;
+ if(s.h>=23){const t=new Date(Date.UTC(s.y,s.mo-1,s.d));t.setUTCDate(t.getUTCDate()+1);
+  cy=t.getUTCFullYear();cm=t.getUTCMonth()+1;cd=t.getUTCDate();}
+ const l=lunarFromCivil(cy,cm,cd);if(!l)return null;
+ const hb=Math.floor((s.h+1)/2)%12;
+ const yIdx=((l.year-4)%60+60)%60,yg=yIdx%10,yb=yIdx%12;
+ const lm=l.month;
+ const ming=((2+(lm-1)-hb)%12+12)%12;
+ const shen=((2+(lm-1)+hb)%12)%12;
+ const palGan=b=>((yg%5)*2+2+((b-2+12)%12))%10;
+ // wuxing ju from ming palace nayin
+ const mIdx60=sexIdx(palGan(ming),ming);
+ const nyE=NAYIN_E[Math.floor(mIdx60/2)];
+ const ju=[3,6,5,4,2][nyE]; // wood fire earth metal water
+ const juName=[0,1,2,3,4][nyE];
+ // ziwei position
+ const n=Math.ceil(l.day/ju),r=n*ju-l.day;
+ const zi=((2+(n-1)+(r%2===0?r:-r))%12+12)%12;
+ const stars={};for(let i=0;i<12;i++)stars[i]=[];
+ const put=(b,name,type)=>stars[((b%12)+12)%12].push({n:name,t:type||'aux'});
+ // ziwei series (reverse)
+ [[0,0],[1,1],[3,2],[4,3],[5,4],[8,5]].forEach(p=>put(zi-p[0],ZW_MAIN.cn[p[1]],'mn'));
+ // tianfu series (forward)
+ const fu=(16-zi)%12;
+ [[0,6],[1,7],[2,8],[3,9],[4,10],[5,11],[6,12],[10,13]].forEach(p=>put(fu+p[0],ZW_MAIN.cn[p[1]],'mn'));
+ // hour stars
+ put(10-hb,'文昌');put(4+hb,'文曲');put(11+hb,'地劫','mal');put(11-hb,'地空','mal');
+ // month stars
+ put(4+lm-1,'左辅');put(10-(lm-1),'右弼');put(9+lm-1,'天刑','mal');put(1+lm-1,'天姚');
+ // year-stem stars
+ put(ZW_LU[yg],'禄存');put(ZW_LU[yg]+1,'擎羊','mal');put(ZW_LU[yg]-1,'陀罗','mal');
+ put(ZW_KUI[yg],'天魁');put(ZW_YUE[yg],'天钺');
+ // year-branch stars
+ const tr=trioId(yb);
+ put(ZW_HUO[tr]+hb,'火星','mal');put(ZW_LING[tr]+hb,'铃星','mal');
+ put(SS_YM[tr],'天马');put((3-yb+12)%12,'红鸾');put((9-yb+12)%12,'天喜');
+ // sihua
+ const sh=ZW_SIHUA[yg];
+ for(let b=0;b<12;b++)stars[b].forEach(st=>{const k=sh.indexOf(st.n);if(k>=0)st.hua=k;});
+ // daxian
+ const yangY=yg%2===0;
+ const fwd=(yangY===s.male);
+ const dx={};for(let i=0;i<12;i++){const b=((ming+(fwd?i:-i))%12+12)%12;dx[b]=[ju+i*10,ju+i*10+9];}
+ return {l,hb,yIdx,yg,yb,lm,ming,shen,palGan,ju,juName,zi,stars,dx,fwd};}
+function renderZW(){
+ if(!stZW)return;const r=calcZW(stZW);
+ if(!r){document.getElementById('zw-out').innerHTML='<div class="card"><div class="note">日期超出支持范围。Date out of range.</div></div>';return;}
+ const layout=[5,6,7,8,4,-1,-1,9,3,-1,-1,10,2,1,0,11];
+ let cells='';
+ layout.forEach((b,i)=>{
+  if(b<0){if(i===5){cells+='<div class="zw-c">'
+   +(LANG==='cn'?'农历 ':'Lunar ')+gz(r.yIdx)+(LANG==='cn'?'年 ':' yr ')+(r.l.leap?'闰':'')+LMON.cn[r.lm-1]+lunarDayName(r.l.day)+' '+ZHI[r.hb]+(LANG==='cn'?'时':' hr')+'<br>'
+   +(LANG==='cn'?'五行局:':'Cycle: ')+'<b>'+ZW_JU.cn[r.juName]+'</b>'+(LANG==='en'?' '+ZW_JU.en[r.juName]:'')+'<br>'
+   +(LANG==='cn'?'命宫 ':'Life palace ')+GAN[r.palGan(r.ming)]+ZHI[r.ming]+' · '+(LANG==='cn'?'身宫 ':'Body ')+ZHI[r.shen]+'<br>'
+   +(LANG==='cn'?'大限':'Decades ')+(r.fwd?(LANG==='cn'?'顺行':' fwd'):(LANG==='cn'?'逆行':' rev'))+' · '+(LANG==='cn'?'自':'from ')+r.ju+(LANG==='cn'?'岁起':'y')+'<br>'
+   +'<span style="color:var(--dim);font-size:10.5px">'+ZW_SIHUA[r.yg].map((s2,k)=>s2+ZW_HUA.cn[k]).join(' ')+'</span></div>';}return;}
+  const pi=((r.ming-b)%12+12)%12;
+  const st=r.stars[b].map(x=>'<span class="zw-star '+(x.t==='mn'?'mn':(x.t==='mal'?'mal':''))+'">'+x.n
+   +(x.hua!==undefined?'<sup>'+ZW_HUA.cn[x.hua]+'</sup>':'')+'</span>').join('');
+  cells+='<div class="zw-cell'+(pi===0?' ming':'')+'">'
+   +'<div class="zw-hd"><span>'+GAN[r.palGan(b)]+ZHI[b]+'</span><span>'+gzPY(sexIdx(r.palGan(b),b))+'</span></div>'
+   +'<div class="zw-pn">'+ZW_PAL[LANG][pi]+'</div>'+st
+   +(b===r.shen?'<div class="zw-shen">'+(LANG==='cn'?'身':'Body')+'</div>':'')
+   +'<div class="zw-dx">'+r.dx[b][0]+'–'+r.dx[b][1]+'</div></div>';});
+ document.getElementById('zw-out').innerHTML='<div class="card"><h2>'+(LANG==='cn'?'命 盘':'NATAL CHART')+'</h2>'
+  +'<div class="zw-grid">'+cells+'</div>'
+  +'<div class="note">'+(LANG==='cn'?'红框为命宫;宫内右下为该宫大限虚岁;主星加粗,煞星淡色;禄权科忌上标为年干四化。':'Red border = Life palace; bottom-right numbers = decade ages; bold = major stars, faded = malefics; superscripts = the four transformations.')+'</div></div>';}
+function copyZW(){const r=calcZW(stZW);if(!r)return;
+ let out=['[紫微斗数命盘 Zi Wei Chart]',
+  '农历 '+gz(r.yIdx)+'年'+(r.l.leap?'闰':'')+LMON.cn[r.lm-1]+lunarDayName(r.l.day)+' '+ZHI[r.hb]+'时 · '+ZW_JU.cn[r.juName]+' · '+(stZW.male?'男':'女')];
+ for(let i=0;i<12;i++){const b=((r.ming-i)%12+12)%12;
+  out.push(ZW_PAL.cn[i]+'('+GAN[r.palGan(b)]+ZHI[b]+')'+(b===r.shen?'[身]':'')+' 大限'+r.dx[b][0]+'-'+r.dx[b][1]+': '
+   +(r.stars[b].map(x=>x.n+(x.hua!==undefined?'('+ZW_HUA.cn[x.hua]+')':'')).join(' ')||'无主星'));}
+ out.push('请详细解读此紫微斗数命盘的格局、三方四正与大限走势。Please give a full reading.');
+ copyText(out.join('\n'),'zw-copy');}
+
+const QIAN=[[1,"上签",["开天辟地作良缘","吉日良时万物全","若得此签非小可","人行忠正帝王宣"],"急速兆速年末值时此卦盘古初开天地之象观音降笔先报君知凡事皆吉也。此签家宅祈福，自身求财秋冬大利，交易婚姻成六甲生男，行人至田蚕六畜好寻人见讼事吉失物在东北，病殁送，山坟吉。","钟离成道"],[2,"下签",["鲸鱼未变守江河","不可升腾更望高","异日峥嵘身变化","许君一跃跳龙门"],"得忍且忍忍耐且耐此卦鲲鱼未变之象，凡须待时至功名还在事忍耐待时也。此签家宅不安，自身还愿，求财欠利婚姻难六甲作福，行人平安，田蚕吉六畜不利，寻人见讼和移徙吉失物东南，病祈保，山坟吉。","苏秦不第"],[3,"下签",["临风冒雨去还乡","正是其身似燕儿","衔得坭来欲作垒","到头垒坏复须坭"],"千般用计晨昏不停此卦燕子衔泥之象，凡事到底劳心费力也。此签家宅先凶后吉，自身谨防，求财有交易成婚姻不合行人吉，六甲生男蚕畜利讼有理寻人见，移徙安失物见病难痊，山坟吉。","董永遇仙"],[4,"上签",["千年古镜复重圆","女再求夫男再婚","自此门庭重改换","更添福禄在儿孙"],"淘沙见金骑龙踏虎此卦古镜重圆之象，凡虽是劳心于中有补是劳心有贵也。此签家宅欠利，自身求财秋冬旺，交易允婚姻成行人至寻人见，六甲祈保蚕畜可食讼不利，移徙守旧，失物迟见，病祈福，山坟吉。","玉莲会十朋"],[5,"中签",["一锥草地要求泉","努力求之得最难","无意俄然遇知己","相逢携手上青天"],"欲望心事皆可求此卦锥地求泉之象，凡不知变动莫可谋事先准后易也。此签家宅祈福，自身求财利交易婚姻合六甲安行人迟寻人见，田蚕宜早种，六畜损讼宜和，移徙吉盗窃不见病攘星，山坟吉。","刘晨遇仙"],[6,"中签",["投身岩下铜鸟居","须是还他大丈夫","拾得营谋谁可得","通行天地此人无"],"衣食无忧身心清爽此卦投岩铜鸟之象，凡待时利乐改旧从新事宜顺吉之兆此签家宅不利，自身求财中吉，交易难婚姻平平，六甲安行人近田蚕早种，六畜损寻人见移徙吉失物见病殁送讼有理，山坟吉。","仁贵遇主"],[7,"下签",["奔波阻隔重重险","带水拖坭去度山","更望他乡求用事","千乡万里未回还"],"退身可得进步为难此卦拖泥带水之象只宜守旧莫望高攀凡是守旧则吉也。此签家宅不利，自身祈福，求财秋冬吉，交易平平，婚姻六甲祈福，行人阻蚕畜不利寻人难讼亏移徙吉失物不见，病作福，山坟吉。","苏娘走难"],[8,"上签",["茂林松柏正兴旺","雨雪风霜总莫为","异日忽然成大用","功名成就栋梁材"],"路上亨通终身有功此卦松桕茂林之象田蚕丰熟家道兴隆凡事有贵气也。此签家宅吉自身顺利，求财中平，交易旺婚姻成田蚕利六畜损，六甲生男，行人有信寻人至讼有理，移徙吉失物见病安山坟吉。","裴度还带"],[9,"中签",["烦君勿作私心事","此意偏宜说问公","一片明心光皎洁","宛如皎月正天心"],"心中正直理顺法宽此卦皓月当空之象，凡圣无私语终有分明事光明能达也。此签家宅吉自身顺求财中平，交易旺盛，婚姻成六甲生男，行人田蚕利六畜损寻人至讼有理，移徙吉失物祈福，病得安，山坟吉。","孔明点将"],[10,"中签",["石藏无价玉和珍","只管他乡外客寻","宛如持灯更觅火","不如收拾枉劳心"],"姻缘待遇谋事难成此卦持灯觅火之象意图可疑眼前是真凡事待时成就也。此签家宅欠利，自身安求财交易难婚姻合六甲女行人动讼亏，田蚕秋吉，六畜难养，寻人见移徙旧安，失物难见，病殁送坟中平","庞涓观阵"],[11,"上签",["欲求胜事可非常","争奈亲姻日暂忙","到头竟必成鹿箭","贵人指引贵人乡"],"有意兴变到底安然此卦因祸得福之象若问用事只近贵人凡事营谋吉利也。此签家宅大吉，自身顺利，求财有交易成婚姻合六甲男寻人见，行人未至，田蚕六畜中平讼有理，移徙旺失物东方，病禳星坟吉","书荐姜维"],[12,"上签",["否去泰来咫尺间","暂交君子出于山","若逢虎兔佳音信","立志忙中事即闲"],"换索得丝喜结良缘此卦祸中有福之象要见分明因灾得福凡事先凶后吉也。此签家宅安自身吉求财有交易宜迟，婚姻成六甲男行人未回，田蚕利六畜慎吉，寻人见讼吉移徙守旧，失物见病秋吉，山坟吉。","武吉遇师"],[13,"中签",["自小生在富贵家","眼前万物总奢华","蒙君赐紫金角带","四海声名定可夸"],"囚人逢赦病即安然此卦龙门待遇之象龙门得遇名遍皇都凡事有变大吉也。此签家宅自身祈福，求财秋冬吉，交易宜迟，婚姻成寻人见讼有理，六甲女行人祈保，田蚕六畜中平移徙守旧，失物东方，病安坟吉","罗通拜帅"],[14,"中签",["宛如仙鹤出凡笼","脱得凡笼路路通","南北东西无阻隔","任君直上九霄宫"],"任意前路有亨通此卦仙鹤离笼之象随心所欲逍遥自在凡事先凶后吉也。此签家宅不安，自身还愿，求财交易合婚姻合六甲生男，行人见田蚕获利，六畜损寻人阻讼宜和，移徙吉失物东南，病殁送坟吉","子牙弃官"],[15,"中签",["行人怨日气难吞","忽有灾事勿近前","鸟破林巢无所宿","可寻深处稳安身"],"若能得恩冤仇可伸此卦喜鹊巢林之象好言不信守旧待时凡事到底应心也。此签家宅先凶后吉，自身谨防，求财吉交易成婚姻阻滞，六甲男行人顺田蚕利六畜旺寻人见讼有理病还原失物难见，山坟吉。","苏秦得志"],[16,"中签",["攒眉思虑暂时开","咫尺云开见日来","宛似污泥中片玉","良工一举出尘埃"],"得处无失损中有益此卦阴阳和合之象，凡人逢凶君子顺吉凡事所谓皆吉也。此签家宅不利，自身秋冬吉，求财交易婚姻成六甲虚惊，行人至田蚕祈福，六畜平寻人见讼不利，移徙守旧，失物空阻败乃成功之母，病作福，山坟安。","叶梦熊朝帝"],[17,"中签",["莫听闲言说是非","晨昏只好念阿弥","若将狂话为真实","书饼如何止得饥"],"心中不定在看经文此卦画饼充饥之象恰似画饼食也难吞凡事多虚少实也。此签家宅祈福，自身求财交易顺利，婚姻阻六甲安田蚕宜早种，六畜不利行人见，寻人见讼和失物不见，移徙守旧病还原，山坟吉。","望梅止渴"],[18,"上签",["金乌西坠兔东升","日夜循环至古今","僧道得知无不利","士农工商各从心"],"心中用事所作有功此卦阴阳消长之象如弓上箭一发当空凡事遂意之兆也。此签家宅安自身吉求财顺交易成婚姻成六甲男行人寻人至，田蚕早种，六畜欠利讼有理失物见，移徙吉病送星，山坟大吉","曹国舅成仙"],[19,"中签",["急水滩头放船归","风波作浪欲何为","若要安然求稳静","等待浪静道此危"],"急水下船险处待时此卦船行急滩之象若问营谋尽可施为凡事守旧待时也。此签家宅自身作福，求财交易未成，婚姻不成，六甲虚惊，行人至田蚕吉六畜损讼和移徙守旧，失物难寻，病祈福，山坟吉。","子仪封王"],[20,"中签",["当春久雨喜开晴","玉兔金乌渐渐明","旧事消散新事遂","看看一跳过龙门"],"神佛护持有灾无危此卦久雨初晴之象遂生平志到底荣归凡事遂意也。此签家宅中平，自身祈福，求财未遇，交易等时，婚姻随意，六甲女田蚕六畜阻讼和移徙吉行人阻寻人迟，失物见山坟旧址吉","姜太公遇文王"],[21,"上签",["阴阳道合总由天","女嫁男婚喜偶然","但看龙蛇相会合","熊罴入梦乐团圆"],"顺从心意婚姻孕男此卦阴阳道合之象，凡资财进益更利田蚕事和合大吉也。此签家宅安自身利求财利交易成婚姻合六甲男田蚕六畜兴，行人至寻人见讼有理，移徙吉失物得见，病遇良方，山坟大吉","李旦龙凤配合"],[22,"中签",["旱时田里皆枯槁","谢天甘雨落淋淋","花果草木皆润泽","始知一雨值千金"],"田蚕倍熟命运渐来此卦久旱甘雨之象，凡事病遇良药行人便回难中有救也。此签家宅祈保，自身安求财颇有，交易迟婚姻合六甲男行人有阻，田蚕六畜利寻人难讼亏移徙守旧，失物西方，病殃送，山坟安吉。","六郎逢救"],[23,"中签",["欲攀仙桂入蟾宫","岂虑天门不任君","忽遇一般音信好","人人皆笑喜欣欣"],"商贾利益行藏无危此卦手攀仙桂之象病安讼遂尽可施为凡事必有贵人也。此签家宅欠安，自身祈福，求财遂意，交易成婚姻合六甲作福，行人有危，田蚕六畜不利，寻人难讼亏移徙欠吉病安山坟旧吉","怀德招亲"],[24,"下签",["不成理论不成家","水性痴人似落花","若问君恩须得力","到头方见事如麻"],"是非莫说必须仔细此卦行人道塞之象，凡心正理直方免定危事守旧待时也。此签家宅不安，自身险求财阻交易难婚姻待时田蚕六畜多灾，六甲祈福，行人寻人阻讼亏移徙吉病急求福，失物难见山坟不吉","殷郊遇师"],[25,"中签",["过了忧危第几重","从今再历永无凶","宽心自有宽心计","得遇高人护大功"],"讼终有理病得安全此卦古井逢泉之象，凡出和求谋古井逢泉事贵人成就也。此签家宅平平，自身求财交易阻婚姻和合，六甲有惊讼有理，行人寻人阻隔，田蚕六畜不利移徙不合，失物难寻，病祈福坟不吉","李广射石"],[26,"中签",["上下传来事转虚","天边接得一封书","书中许我功名遂","直到终时亦是虚"],"上下心烦求闲不闲此卦虚名之象，凡事多欲望功名守旧得安虚少实也。此签家宅祈福，自身求财阻交易婚姻不成，六甲女行人有信，田蚕半熟，六畜可养，寻人西方，讼亏移徙守旧，失物难病祈保，山坟吉。","钟馗得道"],[27,"中签",["一谋一用一番机","虑后疑前不敢为","时至自然逢贵助","银墙铁壁好安居"],"改旧从新寒花遇春此卦屋好墙壁之象，凡从新阻滞今得清心事稳当无险也。此签家宅安自身吉求财有交易难六甲女行人寻人迟，田蚕熟六畜利讼宜和，移徙吉失物无踪，病延安，山坟守旧大吉","刘基谏主"],[28,"中签",["东边月上正蝉娟","顷刻云遮亦暗存","或有圆时还有缺","更言非者亦闲言"],"浮云遮月不须疑惑此卦月被云遮之象，凡等待云开便见收获事费时未定也。此签家宅不安，自身祈保，求财阻交易吉行人田蚕六畜不利婚姻不合，六甲有惊寻人难讼亏移徙守旧，失物西方，病难痊，山坟改","李后寻包公"],[29,"中签",["宝剑出匣耀光明","在匣全然不惹尘","今得贵人携出现","有威有势众人钦"],"宝剑出匣光耀光明此卦宝剑出匣之象，凡贵人指引无不欢美事有威有势也。此签家宅祈福，自身吉求财利交易成婚姻好六甲生女，行人迟田蚕宜早，六畜损寻人见讼和移徙兴失物南方，病还原，山坟吉。","赵子龙救阿斗"],[30,"中签",["劝君切莫向他求","似鹤飞来暗箭投","若去采薪蛇在草","恐遭毒口也忧愁"],"闭口合齿他事莫理此卦安分守己之象，凡若有亏心列头害己事小心谨防也。此签家宅安自身平求财待时，交易滞婚姻未许行人寻人阻隔，六甲虚惊田蚕六畜不利移徙守旧，失物不见，病难痊，山坟大吉","棋盘大会"],[31,"中签",["清闲无事静处坐","饥时吃饭困时卧","放下身心不用忙","必定不遭殃与祸"],"守旧安然叩问神仙此卦守旧安然之象，凡直待时来事亦称然事待时则吉也。此签家宅祈保，自身安求财守待，交易宜迟，婚姻合寻人至讼和，六甲生女田蚕秋熟，六畜稳寻人难移徙吉失物虚病殁送，山坟吉。","佛印会东坡"],[32,"中签",["前程杳杳定无疑","石中藏玉有谁知","一朝良匠分明剖","始觉安然碧玉期"],"宝在石中异人少知此卦剖石见玉之象，凡直待分明尽可施为事着力成功也。此签家宅平平，自身安求财劳力，交易阻婚姻成六甲虚行人杳田蚕晚成，六畜旺寻人见讼惊移徙改失物西方，病欠安，山坟改向吉","刘备求贤"],[33,"中签",["内藏无价宝和珍","得玉何须外界寻","不如等待高人识","宽心犹且更宽心"],"内藏金玉何必外寻此卦藏玉外觅之象，凡遇贵指示不须劳心事待时可也。此签家宅祈保，自身安求财守待，交易迟婚姻就六甲男行人阻田蚕半熟，六畜旺寻人至讼格移徙吉失物北方，病遇良医，山坟宜改","咬金聘仁贵"],[34,"中签",["行藏出入礼义恭","言必忠良信必聪","心不了然且静澈","光明红日正当中"],"肝胆相照秋水澄清此卦红日当空正照之象，凡不须疑惑事自然成事遂意也。此签家宅清吉，自身安求财虚交易难婚姻合六甲有险，行人阻田蚕不利，六畜衰寻人滞讼亏移徙守旧，失物虚病殁送，山坟大吉","桃园结义"],[35,"中签",["衣冠重整旧家风","道是无穹却有功","扫却当途荆棘刺","三人约议再和同"],"不用忧疑自有佳期此卦衣冠重整之象，凡若问前程前路可宜事先难后易也。此签家宅安自身吉求财好交易利婚姻合六甲生男，行人至田蚕不利，六畜兴讼有理，移徙安失物迟见，病祈福可安，山坟守旧","唐僧取经"],[36,"中签",["眼前病讼不须忧","实地资财尽可求","恰似猿猴金锁脱","自归山洞去来游"],"脱身了事且自宽心此卦猿猴脱锁之象，凡待得时来堪寻正路事先难后易也。此签家宅不安，自身安求财大利，交易待时，婚姻未成行人寻人未到，六甲祈福田蚕十足，六畜平讼有理，移徙吉失物远病欠安，山坟吉。","湘子遇宾"],[37,"中签",["欲待身安运泰时","风中灯烛不相宜","不如收拾深堂坐","庶免光摇静处期"],"静处安身待命守时此卦风摇灯烛之象，凡动惹非福守旧无疑事守常则吉也。此签家宅守旧，自身平平，求财有交易难婚姻不合，六甲祈保讼和，行人有信，田蚕秋熟，六畜安寻人见移徙守旧病攘星，山坟勿改","李靖归山"],[38,"下签",["月照天书静处期","忽遭云雾又昏迷","宽心祈待云霞散","此时更改好施为"],"家道忧凶人口有灾此卦云雾遮月之象，凡祈福保庆独恐破财事未遂守旧也。此签家宅不安，自身祈保，求财难交易待时，婚姻难合，六甲虚惊，行人阴田蚕六畜损寻人至讼和移徙安失物虚病延安，山坟宜修","何文秀遇难"],[39,"中签",["天边消息实难思","切莫多心望强求","若把石头磨作镜","曾知枉费己工夫"],"千般用计徒劳无功此卦守常安静之象，凡不如守旧着甚来由事守己则吉也。此签家宅安自身提防，求财平平，交易阻婚姻不合，六甲女行人动田蚕利六畜损寻人难讼亏移徙平失物空病殁送，山坟安。","姜女寻夫"],[40,"中签",["红轮西坠兔东升","阴长阳消百事亨","若是女人宜望用","增添财禄福其心"],"阴利女人不宜男子此卦阴阳消长之象，凡事若是求媒先凶后吉先难后易也。此签家宅不利，自身祈福，求财守待，交易吉婚姻不合田蚕六畜旺，六甲虚行人阻寻人隔讼亏移徙吉失物空病有惊，山坟大吉","武则天登位"],[41,"中签",["无限好言君记取","却为认贼将作子","莫贪眼下有些甜","更虑他年前样看"],"只这一着君子莫错此卦认贼作子之象，凡牢记在心不生愁烦事认假作真也。此签家宅不安，自身平常，求财守待，交易难婚姻未合行人寻人至，六甲有惊田蚕半熟，六畜安讼宜和，移徙祈保病禳星，山坟吉。","董卓收吕布"],[42,"上签",["君皇圣后总为恩","复待祈禳无损增","一切有情皆受用","人间天上得期亨"],"天皇恩降始终莫忘此卦天垂恩泽之象，凡晨昏礼佛可宜烧香事成就大吉也。此签家宅祈福，自身秋冬吉，求财未有，交易成婚姻中吉，六甲平安，行人动田蚕六畜中平，寻人见讼胜移徙守旧，失物空山坟安。","目莲救母"],[43,"上签",["天地交泰万物全","自营自养自然锦","儿孙代代皆英发","事事如心谢圣贤"],"天生万物谋望皆通此卦天地交泰之象，凡福德相助正气冲冲事大吉无危也。此签家宅吉自身安求财有交易利婚姻合六甲生男，行人有阻，田蚕六畜中平，寻人见讼胜移徙亏失物东西，病攘星坟东西吉","行者得道"],[44,"中签",["棋逢敌手着相宜","黑白盘中未决时","皆因一着知胜败","须教自有好推宜"],"欲求心事恰如围棋此卦棋逢敌手之象，凡到底胜败宜用心机事用机则吉也。此签家宅大利，自身平稳，求财顺交易利婚姻未合行人寻人阻，六甲女田蚕平六畜损讼宜和，移徙守旧，失物空病祈保坟守旧","姜维邓艾斗阵"],[45,"上签",["温柔自古胜刚强","积善之门大吉昌","若是有人占此卦","宛如正渴遇瑶浆"],"天地有感应验非常此卦积德温柔之象，凡佛神保佑得之莫望遇贵人和合也。此签家宅吉自身平安，求财遂交易利婚姻合六甲男行人阻讼胜，田蚕秋利，六畜中平，寻人见移徙利失物东方，病祈福坟东西向吉","仁宗认母"],[46,"中签",["劝君耐守旧生涯","把定心肠勿起歹","直待有人轻着力","枯枝老树再生花"],"守旧待时自有成就此卦枯木生花之象，凡动则遭殃静则无咎事自有成就也。此签家宅安自身平吉，求财待时，交易成婚姻就六甲生女，行人阻田蚕五分，六畜难寻人至讼吉移徙吉失物西北，病求福，山坟吉。","渭水钓鱼"],[47,"上签",["锦上添花色愈鲜","运来禄马喜双全","时人莫恨功名晚","一举登科四海传"],"守旧变新名就功成此卦锦上添花之象，凡遂平生志尽皆是命事大吉大利也。此签家宅祈保，自身平安，求财利交易阻婚姻合六甲生男，行人迟田蚕八分，六畜平寻人至讼宜和，移徙吉失物西北，病求福，山坟利。","梁灏登科"],[48,"中签",["昆鸟秋来化作鹏","好游快桨喜飞腾","翱翔万里云霄去","馀外诸禽总不能"],"鸿雁为鹏万禽不能此卦鹏程变化之象，凡事桂香一折福禄自增有变动大吉也。此签家宅利自身平吉，求财秋旺，交易迟婚姻不合，六甲安行人阻滞，田蚕中平，六畜春利，寻人见讼胜移徙守旧，失物西病祈保，山坟安。","韩信挂帅"],[49,"中签",["天寒地冻水成冰","何须贫吝取功名","只好守己静处坐","待时兴变自然明"],"水结成冰冰消成水此卦水结成冰之象，凡若是营谋到底如是事不用再求也。此签家宅不安，自身祈保，求财差交易阻婚姻不合，六甲险行人迟田蚕损六畜损寻人见讼利移徙守旧，失物空病难痊，山坟大吉","王祥求鲤"],[50,"中签",["五湖四海尽君行","高挂帆蓬自在撑","若得顺风随即至","满船宝贝喜层层"],"自在悠游不须着力此卦顺风撑船之象，凡财禄重重无不欣美事皆顺大吉也。此签家宅利自身吉求财利交易宜迟，婚姻不合，六甲女行人阻田蚕秋利，六畜旺寻人至讼亏移徙守旧，失物西方，病解坟南利","陶朱归五湖"],[51,"上签",["夏日炎炎日景长","人人愁热闷非常","天地也解和人意","薰风拂拂自然凉"],"进退莫疑自有佳期此卦人人愁烦之象，凡营谋用度不须着意事随心从意也。此签家宅祈福，自身谨防，求财秋吉，交易平常，婚姻合六甲生男，行人动田蚕损六畜平寻人见讼亏移徙旧失物北方，病还愿，山坟吉。","孔明入川"],[52,"中签",["水中捉月费功夫","费尽功夫却又无","莫说闲言并乱语","枉劳心力强身孤"],"言语难忍费力劳心此卦贪求费力之象，凡宅中忧恼待遇贵人事劳心费力也。此签家宅不安，自身欠吉，求财中平，交易难婚姻未就，六甲祈保，行人有灾，田蚕五分，六畜损寻人至讼合移徙平常病祈保，山坟吉。","李太白醉捞明月"],[53,"中签",["失意番成得意时","龙吟虎啸两相宜","青天自有通宵路","许我功名再有期"],"教去即去教住即住此卦龙吟虎啸之象，凡自有亨通到头必利事顺意有望也。此签家宅不安，自身欠吉，求财中平，交易难婚姻成六甲祈保，行人有灾，田蚕五分，六畜损寻人至讼合移徙平常病祈保，山坟吉。","刘备招亲"],[54,"下签",["梦中得宝醒来无","自拟南柯只是虚","若问婚姻并问病","别寻好路为支吾"],"物在水中形影长短此卦梦中得宝之象，凡皆有分定不用商量事枉费心力也。此签家宅欠安，自身谨防，求财阻交易难婚姻待时田蚕六畜滞，六甲祈保，行人迟寻人见讼亏移徙吉失物空病求神佑，山坟不安","马超追曹"],[55,"中签",["父贤子贵衣传锦","食禄丰足只靠天","堂上椿萱人快乐","饥餐渴饮闷安眠"],"接竹引泉流传不绝此卦接竹引泉之象，凡君子谋望无不欣悦事谋望大吉也。此签家宅欠安，自身还愿，求财利交易成婚姻合行人动寻人难，六甲平安田蚕吉六畜损讼有贵人，移徙吉失物见病攘星，山坟安。","周武王登位"],[56,"中签",["滩小石溪流水响","清风明月贵人忙","路须借问何方去","莫取林中花草香"],"营谋用事劳心费力此卦船行涉滩之象，凡守旧待时必见其利事艰难无望也。此签家宅安自身吉求财中平，交易利婚姻遂意，六甲男行人至田蚕秋利，六畜损寻人至讼有理，移徙吉失物在病即安，山坟宜修","禄山造反"],[57,"中签",["说是说非风过耳","好衣好禄自然丰","君莫记取当年事","汝意还如我意同"],"所作谋望皆大欢喜此卦孩子见母之象，凡从公用事如子逢娘事贵人大吉也。此签家宅不安，自身平平，求财顺交易成婚姻合六甲女行人阻田蚕成六畜损寻人难讼宜和，移徙守旧，失物空病祈福，山坟吉。","董仲寻亲"],[58,"中签",["直言说话君须记","莫在他乡求别艺","切须守己旧生涯","除是其余都不利"],"得住且住可取且取此卦守常待时之象，凡莫宜别事只宜守旧事守旧则吉也。此签家宅平常，自身不利，求财吉交易成婚姻阻六甲惊行人迟田蚕五分，六畜损寻人见讼亏移徙守旧病欠安，失物见山坟宜改","文王问卜"],[59,"中签",["直上重楼去藏身","四围荆棘绕为林","天高君命长和短","得一番成失二人"],"如醉饮酒只宜守旧此卦守旧安分之象，凡直待时来无灾无咎事待时则吉也。此签家宅祈福，自身安求财平常，交易成婚姻不合行人寻人阻，六甲作福田蚕半吉，六畜大利讼亏移徙亏失物凶病祈福，山坟吉。","张良隐山"],[60,"下签",["抱薪救火大皆燃","烧遍三千亦复然","若问荣华并出入","不如收拾枉劳心"],"千般用计不如莫动此卦抱薪救火之象，凡一旦相惹恐祸归身事当自谨防也。此签家宅凶自身祈保，求财微交易难婚姻不合，六甲险行人滞田蚕不利，六畜损寻人至讼亏移徙吉失物西方，病有惊，山坟平平。","赤壁鏖兵"],[61,"中签",["啸聚山林凶恶俦","善良无事苦煎忧","主人大笑出门去","不用干戈盗贼休"],"佳人在屋吟唱诗曲此卦守旧安全之象，凡一片欢心命中祸福事待时吉利也。此签家宅安自身吉求财顺交易利婚姻成六甲女寻人至田蚕熟六畜旺，讼有理，移徙吉病即愈，山坟吉。","苏小妹难夫"],[62,"中签",["晨昏全赖佛扶持","须是逢危却不危","若得贵人相引处","那时财帛亦相随"],"平平稳稳四方名显此卦神佛暗佑之象，凡改旧从新亦无凶险事忍耐大吉也。此签家宅安自身吉求财西方，交易遂婚姻成六甲祈福，行人阻田蚕七分，六畜利寻人西方，讼亏移徙守旧，失物见病祈福，山坟吉。","唐僧得道"],[63,"中签",["昔日行船失了针","今朝依旧海中寻","若然寻得原针在","也费工夫也费心"],"福是禄基禄是福种此卦海中寻针之象，凡说得分明切宜守谨事费心劳力也。此签家宅欠利，自身谨防，求财有交易成婚姻不合行人滞田蚕吉六畜莫养，寻人难讼宜和，移徙吉失物凶病难痊坟暂安","女娲氏炼石"],[64,"下签",["游鱼却在碧波池","撞遭罗网四边围","思量无计番身出","事到头来惹是非"],"屋下安身祸从天降此卦鱼遭罗网之象，凡早觉先防免遭其殃事谨防也。此签家宅不安，自身险求财中平婚姻不合，六甲惊行人有阻，田蚕损六畜衰寻人杳讼亏移徙吉失物凶病有灾险，山坟宜改","马前覆水"],[65,"下签",["眼前欢喜未为欢","亦不危时亦不安","割肉成疮为甚事","不如守旧待时光"],"知止则止知宽自宽此卦割肉成疮之象，凡割自身肉疾痛一般事只宜守旧待时也。此签家宅不安，自身口舌，求财不利，交易小人，婚姻合六甲有惊，行人阻田蚕六畜损寻人招非，讼亏移徙守旧，失物难寻，病反复","孙膑困庞涓"],[66,"下签",["路险马羸人行急","失群军卒困相当","滩高风浪船棹破","日暮花残天降霜"],"守旧待时安静无咎此卦船破下滩之象，凡不用求谋自在忧愁事险阻提防也。此签家宅祈福，自身谨防，求财难交易阻婚姻不成，六甲虚惊，行人阻田蚕损六畜不利，寻人难讼亏移徙守旧，失物难寻，病作福，山坟吉。","霸王被困"],[67,"上签",["一条金线秤君心","无减无增无重轻","为人平生心正直","文章全具艺光明"],"心平正直到底安宁此卦心平正直之象，凡只依本分天下太平事安稳无凶也。此签家宅安自身平求财守慎，交易稳婚姻合行人有信，田蚕稳六畜安寻人迟见，讼和移徙吉失物见病攘星，山坟平。","金星试窦儿"],[68,"中签",["门廷吉庆喜非常","积善之门大吉昌","婚姻田蚕诸事遂","病逢妙药即安康"],"春深日暖百花自开此卦春深百花之象，凡事莫迟疑逢人显达事贵人大吉也。此签家宅旺自身安求财旺交易遂婚姻成六甲防惊，行人到田蚕利六畜旺寻人至讼胜移徙如意，失物急寻，病安山坟大吉","郭汾阳祝寿"],[69,"中签",["冬来岭上一枝梅","叶落枝枯终不摧","但得阳春消息至","依然还我作花魁"],"一箭射空当空不空此卦梅花占魁之象，凡等待春来彩在其中事宜迟则吉也。此签家宅欠利，自身作福，求财谨慎，交易待时，婚姻成行人迟至，六甲春实秋虚寻人见田蚕六畜旺，讼亏失物东方，病虚惊，山坟宜改","梅开二度"],[70,"下签",["朝朝恰似采花蜂","飞出西南又走东","春尽花残无觅处","此心不变旧行踪"],"终朝春色久雨不晴此卦蜜蜂采花之象，凡求谋动用不如安静事劳心费力也。此签家宅口舌，自身小人，求财破耗，交易反复，婚姻不长，六甲虚花，行人阻田蚕六畜损寻人无踪，讼亏失物空病有阻，移徙守旧坟改","李密反唐"],[71,"中签",["谁知苍龙下九衢","女子当年嫁二夫","自是一弓架两箭","切恐龙马上安居"],"事有重复皆由天定此卦一弓架两箭之象，凡营谋出入守身待命事再合则吉也。此签家宅损失，自身是非，求财劳力，交易谨防，婚姻再合行人阻，六甲先虚后实田蚕晚收，六畜损寻人见讼亏病禳星，移徙吉山坟改","文君访相如"],[72,"中签",["养蜂须用求他蜜","只怕遭触尾上钉","须是眼前有异路","暗里深如荆棘林"],"事须仔细不用强求此卦结蜂采蜜之象，凡蜜蜂采蜜有甚来由事劳心费力也。此签家宅欠利，自身防求财旺交易迟婚姻阻隔田蚕六畜少收，六甲虚惊，行人迟寻人难讼亏移徙莫动，失物凶病殁送，山坟改","王莽求贤"],[73,"上签",["春来雷震百虫鸣","番身一转离泥中","始知出入还来往","一朝变化便成龙"],"雷发时转出入两全此卦雷发百虫之象，凡一朝变化直到天门事遇贵人吉兆也。此签家宅祈福，自身平常，求财春利，交易贵人，婚姻合六甲男行人到田蚕早生，六畜春利，寻人见讼顺移徙吉疾病阻山坟吉。","陈桥兵变"],[74,"下签",["似鸽飞来自入笼","欲得番身却不通","南北东西都难出","此卦诚恐恨无穷"],"南北东西都难出此卦似鹊投水之象，凡低头直去悉在其中事多虚少实也。此签家宅不安，自身困滞，求财小人，交易破耗，婚姻刑伤行人阻，六甲劫难田蚕缺六畜瘟寻人杳讼祸移徙不利，失物凶疾，病延山坟吉。","秦败擒三帅"],[75,"中签",["恰如抱虎过高山","战战竞竞胆碎寒","不觉忽然从好事","切须保守一身安"],"惊险重重前程有阻此卦抱石投山之象，凡若问求谋到底辛苦事险凶惊恐也。此签家宅祈保，自身提防，求财谨慎，交易滞婚姻难六甲有惊，行人阻田蚕五分，六畜损寻人杳讼亏失物难病祭虎，移徙守旧坟凶","伍员夜出昭关"],[76,"中签",["鱼龙混杂意相同","耐守深潭待运通","不觉一朝头耸出","禹门一跳过龙宫"],"虽是滋基也要待时此卦鱼龙未变之象，凡营谋自守切莫妄为事待时至可也。此签家宅平安，自身康泰，求财有交易待时，婚姻迟合，六甲生男，行人迟田蚕晚丰，六畜尾利，寻人未遇，讼延移徙守旧坟吉","洪武看牛"],[77,"中签",["梦中说得是多财","声名云外总虚来","水远山遥难信实","贵人指点笑颜开"],"如梦说梦声名莫望此卦梦中得宝之象，凡只待好时贵人指示事虚多少实也。此签家宅祈福，自身阻求财虚交易难成，婚姻不合，六甲虚行人迟田蚕不收，六畜损寻人至讼和移徙待时，失物远病送山坟改","完璧归赵"],[78,"上签",["冷水未烧白沸汤","不寒不热有温凉","要行天下无他事","为有身中百艺强"],"囚人遇赦疾遇良医此卦亨通如意之象，凡事求财谋望贵人指示事大吉也。此签家宅平安，自身吉交易成婚姻合六甲男行人寻人至，田蚕熟六畜旺讼散移徙大吉，失物即见疾，病安然，山坟大吉","临潼救驾"],[79,"中签",["虚空结愿保平安","保得身安愿不还","莫忘圣贤真实语","神恩显赫莫轻慢"],"人有虚见心不用忙此卦信实莫信虚之象，凡观音指示切莫轻慢事守旧之兆也。此签家宅还愿，自身勿轻，求财守分，交易谨慎，婚姻虚六甲生女，行人滞田蚕七分，六畜损寻人至讼和移徙守旧，失物西方，病解坟西向","暗扶倒铜旗"],[80,"上签",["直上仙岩要学仙","岂知一旦帝王宣","青天日月常明照","心正声名四海传"],"有始有终莫向西东此卦贵人接引之象，凡心中有事贵人重重事和合大吉也。此签家宅平安，自身吉利，求财有利，交易遂意，婚姻双配行人回，六甲男田蚕半收，六畜胜寻人遇讼胜移徙吉失物南病安山坟吉。","刘智远投军"],[81,"上签",["梧桐叶落秋将暮","行客归程去似云","谢得天公高着力","顺风船载宝珍归"],"心中取事天必从之此卦梧桐落叶之象，凡营谋用事尽可施为事先凶后吉也。此签家宅祈保，自身平安，求财遂意，交易成婚姻和合，六甲生男，行人动田蚕晚胜，六畜稳寻人至讼胜移徙如意病喜山坟择地","风送滕王阁"],[82,"中签",["炎炎烈火焰连天","焰里还生一朵莲","到底得成终不害","依然生叶长根枝"],"虽然逢险不损其身此卦泥中生莲之象，凡营谋用事皆遇贵人事似险非险也。此签家宅欠安，自身谨防，求财劳力，交易小人，婚姻阻六甲虚惊，行人阻田蚕缺六畜损寻人西讼亏移徙守旧，失物南病殁送，山坟改","火烧葫芦谷"],[83,"中签",["譬若初三四五缺","半无半有未圆全","等待十五良宵夜","到处光明到处圆"],"守旧待时无有不吉此卦月缺未圆之象，凡待等圆时如有初月事候时则吉也。此签家宅许愿，自身夏秋吉，求财谨守，交易待时，婚姻迟六甲生女，行人阻田蚕六畜平稳，寻人难讼和移徙守旧，失物难病殁送，山坟改","李渊登位"],[84,"下签",["因名丧德如何事","切恐吉中变化凶","酒醉不知何处去","青松影里梦朦胧"],"寒鱼离水美中不足此卦寒鱼离水之象，凡若问营谋切勿莫作事不宜移动也。此签家宅祈福，自身谨防，求财难交易阻婚姻不成，六甲煞旺，行人阻田蚕损六畜不利，寻人难讼亏移徙守旧，失物不见，病作福，山坟吉。","庄子试妻"],[85,"中签",["云开雾罩山前路","万物圆中月再圆","若得诗书沉梦醒","贵人指引步天台"],"老者再发春残再开此卦春尽花开之象，凡欲求名利晚遇横财事主后改变也。此签家宅欠利，自身谨慎，求财着力，交易平婚姻迟田蚕六畜好行人阻六甲女，寻人难讼和移徙更新，失物凶病延滞，山坟宜改","韩文公遇雪"],[86,"上签",["春来花发映阳台","万里车来进宝财","若得禹门三级浪","恰如平地一声雷"],"朝帝受职如贫得宝此卦上朝见帝之象，凡谋望从心卦中第一事大吉大利也。此签家宅大吉，自身顺利，求财有交易成婚姻合六甲男行人至田蚕利六畜旺寻人见讼有理，移徙吉失物见病安山坟吉。","商辂中三元"],[87,"中签",["人行半岭日衔山","峻岭崖岩未可安","仰望上天为护佑","此身犹在太平间"],"投石见金淘沙见金此卦淘沙见金之象，凡须要着力只是劳心事有贵人之兆也。此签家宅祈福，自身欠利，求财劳心，交易谨慎，婚姻有阻，六甲虚行人迟田蚕六畜平稳，寻人未遇，讼亏移徙守旧，失物凶病阻坟吉","咬金探地穴"],[88,"中签",["木为一虎在当门","须是有威不害人","分明说是无防事","忧恼迟疑恐惧心"],"炉头点雪似风穿耳此卦木虎有威之象，凡可宜作福后吉前凶事虚惊少实也。此签家宅不安，自身口舌，求财小人，交易不利，婚姻不合，六甲虚险，行人阻讼亏，田蚕六畜损寻人杳移徙守旧，失物虚病祭虎，山坟凶。","庞洪畏包公"],[89,"上签",["出入营谋大吉昌","似玉无瑕石里藏","若得贵人来指引","斯时得宝喜风光"],"如石藏玉贵人指引此卦石藏珍宝之象，凡得宝称心欢怀得意事称心大吉也。此签家宅吉利，自身康泰，求财遂意，交易成婚姻成六甲生男，行人阻讼亏，田蚕着力，六畜勤理，寻人见讼胜移徙吉病安山坟吉。","智服姜维"],[90,"上签",["忽然一信向天飞","泰山宝贝满船归","若问路途成好事","前头仍有贵人推"],"若问功名前有贵人此卦功成名就之象，凡更添喜气财禄丰盈事宜进大吉也。此签家宅兴旺，自身吉利，求财大旺，交易成婚姻成六甲男行人至田蚕利六畜兴寻人见讼有理，移徙吉失物得病安山坟大吉","苍龙遇仙"],[91,"上签",["如展愁眉出众来","前途改变喜多财","一条大路如天阔","凡有施为尽称怀"],"一条在路可向前往此卦前途显达之象，凡心中用事正大光明事通泰大吉也。此签家宅吉自身顺求财有交易成婚姻合六甲男行人至田蚕利六畜旺寻人见讼有理，移徙吉失物见病安山坟吉。","三英战吕布"],[92,"上签",["自幼为商任设谋","财禄盈丰不用求","若是只身谋望事","秀才出去状元回"],"自小至大无阻无碍此卦自小为商之象，凡营谋得意名还在事勤俭无忧此签家宅安自身泰求财顺遂，交易胜婚姻就六甲生男，行人动田蚕丰收，六畜旺寻人见讼胜移徙如意，失物在病即安，山坟大吉","蔡卿报恩"],[93,"中签",["凤凰翔毛雨淋漓","当时却被雀儿欺","终教一日云消散","依旧还君整羽衣"],"小人日盛君子莫为此卦凤凰遇雨之象，凡只宜守己待时施为事待时大利也。此签家宅欠利，自身谨防，求财阻交易待时，婚姻迟滞，六甲有虚，行人动田蚕晚六畜损寻人难讼亏移徙守旧，失物凶病延山坟改","高君保招亲"],[94,"下签",["君子莫体小人为","事若差池多是非","琴鸣须用知音听","守常安静得依稀"],"知己方许闲事莫理此卦要逢知己之象，凡待得贵人无不欢喜事守常则吉也。此签家宅慎出，自身小人，求财待时，交易谨慎，婚姻宜迟，六甲女行人动六畜损寻人勤讼和失物速寻，病阻隔，山坟不利","伯牙访友"],[95,"中签",["志气功名在此朝","莫嫌价贵不坚牢","若见金鸡报君语","钱财福禄与君招"],"志气心勤守己未迟此卦志气成名之象，凡金鸡报语无不欢喜事守常大吉也。此签家宅祈保，自身中平，求财劳心，交易早断，婚姻待成，六甲安田蚕晚胜，六畜成寻人难讼急断，移徙守旧，失物远病延迟，山坟吉。","曹丕称帝"],[96,"上签",["巍巍宝塔不寻常","八面玲珑尽放光","劝君立志勤顶礼","作善苍天降福祥"],"修来福兮众人皆见此卦福德现身之象，凡不用心忙福德前定事大吉大利也。此签家宅许愿，自身平安，求财正胜，交易大吉，婚姻好合，六甲喜行人动田蚕平稳，六畜欠利，寻人遇讼和移徙吉病禳星，山坟平。","窦燕山积善"],[97,"中签",["当风点烛空疏影","恍惚铺成镜里花","累累河山待收拾","怎知只是幻浮槎"],"富贵在天贫穷是命此卦当风点灯之象，凡不用求谋皆是天定事虚名少利也。此签家宅祈福，自身谨慎，求财得利，交易慎重，婚姻中平，六甲有惊，行人杳田蚕六畜损寻人无踪，讼亏移徙守旧，失物凶病犯阴，山坟改","六出祁山"],[98,"下签",["出入求谋事宜迟","只恐闲愁惹是非","如鸟飞入罗网里","相逢能有几多时"],"守旧随时待贵人至此卦守旧随缘之象，凡若问诸般主事定迟事不如意主凶也。此签家宅疑自身小人，求财破交易损失，婚姻不长，六甲刑损，行人困田蚕六畜损寻人至讼亏移徙勿动，失物凶病犯罗网，山坟绝","吉平遇难"],[99,"下签",["勒马持鞭直过来","半有忧危半有灾","恰似遭火焚烧屋","天降时雨荡成灰"],"终身劳力莫管是与非此卦半忧半喜之象，凡枷锁临身怨咨自至事只宜行善也。此签家宅祈保，自身守旧，求财破交易阻婚姻刑克田蚕六畜损，六甲险行人困寻人招非，讼亏移徙守旧，失物凶疾，病危山坟改","陶三春挂帅"],[100,"下签",["佛神灵变与君知","痴人说事转昏迷","老人求得灵签去","不如守旧待时来"],"完满灵签尽报君知此卦守常勿动之象，凡信守勿动待时至事宜待进吉也。此签家宅祈福，自身守旧，求财迟交易难婚姻阻六甲虚惊，行人阻田蚕平六畜损寻人难讼和移徙守旧，失物难寻，病祈福，山坟安。","三教谈道"]];
+/* ==================== LINGQIAN ==================== */
+const QLV={'上签':['上 签','SUPERIOR',2],'中签':['中 签','MODERATE',1],'下签':['下 签','INFERIOR',0]};
+let stQ=null;
+function doQian(){
+ const st=document.getElementById('q-stick');
+ st.style.top='-96px';setTimeout(()=>st.style.top='-50px',650);
+ const n=crypto.getRandomValues(new Uint32Array(1))[0]%100;
+ stQ=QIAN[n];
+ setTimeout(renderQian,320);
+ document.getElementById('q-copy').style.display='inline-block';}
+function renderQian(){
+ if(!stQ)return;const q=stQ;const lv=QLV[q[1]]||[q[1],'',1];
+ const cnum='第'+'零一二三四五六七八九十'.slice(0,0)+numCN(q[0])+'签';
+ document.getElementById('q-out').innerHTML=
+  '<div class="q2-slip"><div class="q2-redline"></div>'
+  +'<div class="q2s-top"><span class="t">观音灵签 · '+cnum+'</span><span class="n">NO. '+q[0]+' / 100</span></div>'
+  +'<div class="q2s-body">'+q[2].map(l=>'<div>'+l+'</div>').join('')+'</div>'
+  +'<div class="q2s-foot"><span class="lv2">'+lv[0]+'</span><span class="en2">'+lv[1]+'</span></div></div>'
+  +'<div class="q-jie"><b>典故 STORY</b>'+q[4]+'</div>'
+  +'<div class="q-jie"><b>解曰 CLASSICAL READING</b>'+q[3]+'</div>';}
+function numCN(n){const d='零一二三四五六七八九';
+ if(n===100)return '一百';
+ const t=Math.floor(n/10),o=n%10;let s='';
+ if(t>1)s+=d[t];if(t>0)s+='十';if(o)s+=d[o];return s||d[0];}
+function copyQian(){if(!stQ)return;const q=stQ;
+ copyText('[观音灵签 第'+q[0]+'签 '+q[1]+']\n'+q[2].join('\n')+'\n典故: '+q[4]+'\n解曰: '+q[3]+'\n请将签诗与解曰翻成白话并结合所问之事详细解签(含英文大意)。Please interpret this temple lot in plain language and English.','q-copy');}
+
+/* ==================== TAROT ==================== */
+const TR_MAJ=[
+['0','The Fool','愚人','新的开始 冒险 纯真','鲁莽 停滞 畏缩'],
+['I','The Magician','魔术师','创造 意志 资源到位','空谈 操纵 才华未用'],
+['II','High Priestess','女祭司','直觉 潜意识 静观','忽视直觉 秘密 浮躁'],
+['III','The Empress','皇后','丰饶 滋养 感官之美','依赖 过度呵护 创意受阻'],
+['IV','The Emperor','皇帝','秩序 权威 稳固架构','专制 僵化 失控'],
+['V','The Hierophant','教皇','传统 师承 规范','教条 叛逆 形式主义'],
+['VI','The Lovers','恋人','结合 抉择 价值一致','失衡 错误选择 分歧'],
+['VII','The Chariot','战车','意志取胜 前进 掌控','失控 方向迷失 内耗'],
+['VIII','Strength','力量','柔性的勇气 耐心 驯服','自我怀疑 急躁 蛮力'],
+['IX','The Hermit','隐士','内省 求道 独处','孤立 逃避 固执'],
+['X','Wheel of Fortune','命运之轮','转机 周期 命运流转','厄运循环 抗拒变化'],
+['XI','Justice','正义','公正 因果 权衡','不公 失衡 逃避责任'],
+['XII','The Hanged Man','倒吊人','换位视角 暂停 舍得','无谓牺牲 拖延 僵局'],
+['XIII','Death','死神','结束与新生 蜕变','抗拒结束 停滞不前'],
+['XIV','Temperance','节制','调和 耐心 恰到好处','失衡 极端 急于求成'],
+['XV','The Devil','恶魔','欲望 束缚 物质执念','挣脱枷锁 觉醒'],
+['XVI','The Tower','高塔','骤变 崩塌 真相显露','侥幸延迟 惧怕改变'],
+['XVII','The Star','星星','希望 疗愈 灵感','灰心 信心不足'],
+['XVIII','The Moon','月亮','幻象 不安 潜流','拨云见月 恐惧消退'],
+['XIX','The Sun','太阳','成功 生机 坦荡','迟来的喜悦 过度乐观'],
+['XX','Judgement','审判','觉醒 召唤 清算过去','自我怀疑 逃避召唤'],
+['XXI','The World','世界','圆满 达成 整合','未竟 差最后一步']];
+const TR_SUIT=[['Wands','权杖','行动·事业·热情'],['Cups','圣杯','情感·关系·直觉'],['Swords','宝剑','思维·冲突·决断'],['Pentacles','星币','物质·财务·积累']];
+const TR_RANK=[['Ace','一','开端与纯粹能量'],['Two','二','平衡与抉择'],['Three','三','成长与协作'],['Four','四','稳定与停顿'],['Five','五','冲突与失落'],['Six','六','调和与馈赠'],['Seven','七','评估与坚持'],['Eight','八','行动与突破'],['Nine','九','将成与承压'],['Ten','十','完成与循环'],['Page','侍从','讯息与学习'],['Knight','骑士','推进与追寻'],['Queen','王后','内在成熟的力量'],['King','国王','外在掌控的力量']];
+const I2='#17181a',C2='#efe9dc',R2='#b5301c';
+const TR_SVG=[
+s=>`<circle cx="75" cy="66" r="34" fill="none" stroke="${R2}" stroke-width="4"/><circle cx="75" cy="120" r="12" fill="${s}"/><polygon points="75,132 60,220 90,220" fill="${s}"/><rect x="84" y="140" width="42" height="6" fill="${s}" transform="rotate(-30 84 140)"/>`,
+s=>`<rect x="70" y="60" width="10" height="120" fill="${s}"/><circle cx="75" cy="46" r="13" fill="${s}"/><rect x="30" y="96" width="90" height="6" fill="${R2}" transform="rotate(-14 75 99)"/><circle cx="30" cy="90" r="6" fill="${R2}"/>`,
+s=>`<circle cx="106" cy="70" r="24" fill="${R2}"/><path d="M50 66 L78 66 L92 92 L84 100 L90 114 L80 122 L86 138 L66 162 L66 214 L36 214 L36 92 Z" fill="${s}"/><rect x="72" y="170" width="3" height="76" fill="${C2}"/>`,
+s=>`<circle cx="75" cy="86" r="30" fill="${s}"/><path d="M45 130 Q75 108 105 130 L105 214 L45 214 Z" fill="${s}"/><circle cx="75" cy="86" r="10" fill="${R2}"/><circle cx="52" cy="170" r="5" fill="${R2}"/><circle cx="98" cy="170" r="5" fill="${R2}"/>`,
+s=>`<rect x="45" y="120" width="60" height="94" fill="${s}"/><rect x="60" y="60" width="30" height="30" fill="${s}"/><rect x="38" y="98" width="74" height="10" fill="${R2}"/><rect x="66" y="34" width="18" height="18" fill="${R2}" transform="rotate(45 75 43)"/>`,
+s=>`<circle cx="75" cy="58" r="14" fill="${s}"/><polygon points="75,76 48,214 102,214" fill="${s}"/><rect x="40" y="120" width="14" height="60" fill="${R2}"/><rect x="96" y="120" width="14" height="60" fill="${R2}"/>`,
+s=>`<circle cx="55" cy="76" r="15" fill="${s}"/><circle cx="95" cy="76" r="15" fill="${R2}"/><polygon points="55,96 40,200 70,200" fill="${s}"/><polygon points="95,96 80,200 110,200" fill="${R2}"/><rect x="68" y="120" width="14" height="6" fill="${s}"/>`,
+s=>`<rect x="34" y="150" width="82" height="46" fill="${s}"/><circle cx="52" cy="206" r="14" fill="none" stroke="${s}" stroke-width="5"/><circle cx="98" cy="206" r="14" fill="none" stroke="${s}" stroke-width="5"/><circle cx="75" cy="118" r="16" fill="${s}"/><polygon points="60,150 90,150 75,96" fill="${R2}"/>`,
+s=>`<circle cx="60" cy="120" r="34" fill="${s}"/><path d="M86 132 Q120 148 108 190" fill="none" stroke="${R2}" stroke-width="8" stroke-linecap="round"/><circle cx="60" cy="120" r="11" fill="${C2}"/>`,
+s=>`<circle cx="75" cy="60" r="12" fill="${s}"/><polygon points="75,74 58,214 92,214" fill="${s}"/><rect x="98" y="80" width="5" height="130" fill="${s}"/><circle cx="100" cy="70" r="8" fill="${R2}"/>`,
+s=>`<circle cx="75" cy="120" r="52" fill="none" stroke="${s}" stroke-width="6"/><circle cx="75" cy="120" r="8" fill="${R2}"/><rect x="72" y="66" width="6" height="40" fill="${s}"/><rect x="72" y="134" width="6" height="40" fill="${s}"/><rect x="38" y="117" width="40" height="6" fill="${s}"/><circle cx="127" cy="120" r="7" fill="${R2}"/>`,
+s=>`<polygon points="75,60 68,80 82,80" fill="${s}"/><rect x="72" y="76" width="6" height="80" fill="${s}"/><rect x="28" y="100" width="94" height="5" fill="${s}"/><circle cx="34" cy="116" r="9" fill="${R2}"/><circle cx="116" cy="122" r="9" fill="${s}"/>`,
+s=>`<rect x="30" y="50" width="90" height="6" fill="${s}"/><rect x="72" y="56" width="5" height="50" fill="${s}"/><circle cx="75" cy="128" r="13" fill="${R2}"/><polygon points="75,144 62,214 88,214" fill="${s}" transform="rotate(180 75 178)"/>`,
+s=>`<rect x="30" y="180" width="90" height="5" fill="${s}"/><path d="M40 180 Q40 120 75 120 Q110 120 110 180" fill="${s}"/><circle cx="75" cy="96" r="16" fill="${C2}" stroke="${s}" stroke-width="5"/><rect x="70" y="40" width="10" height="34" fill="${R2}"/>`,
+s=>`<polygon points="40,214 60,90 70,90 56,214" fill="${s}"/><polygon points="110,214 90,90 80,90 94,214" fill="${R2}"/><path d="M55 80 Q75 60 95 80" fill="none" stroke="${s}" stroke-width="5"/>`,
+s=>`<circle cx="75" cy="90" r="30" fill="${s}"/><polygon points="60,74 68,58 76,74" fill="${s}"/><polygon points="90,74 82,58 74,74" fill="${s}"/><circle cx="65" cy="86" r="5" fill="${R2}"/><circle cx="85" cy="86" r="5" fill="${R2}"/><rect x="45" y="140" width="60" height="8" fill="${s}"/><path d="M55 148 L55 190 M95 148 L95 190" stroke="${s}" stroke-width="6"/>`,
+s=>`<rect x="58" y="80" width="38" height="140" fill="${s}" transform="rotate(8 77 150)"/><polygon points="94,16 64,72 82,72 56,126 114,58 90,58" fill="${R2}"/><circle cx="36" cy="150" r="8" fill="${s}"/><rect x="24" y="158" width="30" height="7" fill="${s}" transform="rotate(-52 24 158)"/>`,
+s=>`<polygon points="75,44 82,68 106,68 87,83 94,107 75,92 56,107 63,83 44,68 68,68" fill="${R2}"/><circle cx="75" cy="150" r="11" fill="${s}"/><polygon points="75,163 62,214 88,214" fill="${s}"/><path d="M48 190 Q75 176 102 190" fill="none" stroke="${s}" stroke-width="4"/>`,
+s=>`<path d="M96 50 A38 38 0 1 0 96 150 A30 30 0 1 1 96 50" fill="${R2}"/><path d="M30 190 Q50 176 70 190 T110 190" fill="none" stroke="${s}" stroke-width="5"/><path d="M30 206 Q50 192 70 206 T110 206" fill="none" stroke="${s}" stroke-width="5"/>`,
+s=>`<circle cx="75" cy="70" r="38" fill="${R2}"/><circle cx="75" cy="132" r="12" fill="${s}"/><polygon points="75,146 62,240 88,240" fill="${s}"/><rect x="30" y="150" width="40" height="7" fill="${s}" transform="rotate(-38 30 150)"/><rect x="80" y="126" width="40" height="7" fill="${s}" transform="rotate(38 80 126)"/>`,
+s=>`<polygon points="40,120 75,60 110,120" fill="none" stroke="${R2}" stroke-width="6"/><circle cx="55" cy="170" r="10" fill="${s}"/><circle cx="95" cy="170" r="10" fill="${s}"/><rect x="49" y="184" width="12" height="30" fill="${s}"/><rect x="89" y="184" width="12" height="30" fill="${s}"/>`,
+s=>`<circle cx="75" cy="120" r="56" fill="none" stroke="${s}" stroke-width="5"/><circle cx="75" cy="120" r="34" fill="none" stroke="${R2}" stroke-width="5"/><circle cx="75" cy="120" r="9" fill="${s}"/>`];
+function trMinorSVG(suit,rank,s){
+ const g={0:(x,y)=>`<rect x="${x-3}" y="${y-16}" width="6" height="32" fill="${s}"/><rect x="${x-3}" y="${y-16}" width="6" height="8" fill="${R2}"/>`,
+  1:(x,y)=>`<path d="M${x-12} ${y-10} Q${x-12} ${y+12} ${x} ${y+12} Q${x+12} ${y+12} ${x+12} ${y-10}" fill="none" stroke="${s}" stroke-width="5"/><circle cx="${x}" cy="${y-14}" r="4" fill="${R2}"/>`,
+  2:(x,y)=>`<line x1="${x-11}" y1="${y+14}" x2="${x+11}" y2="${y-14}" stroke="${s}" stroke-width="5"/><line x1="${x-8}" y1="${y-6}" x2="${x+4}" y2="${y+4}" stroke="${R2}" stroke-width="4"/>`,
+  3:(x,y)=>`<circle cx="${x}" cy="${y}" r="13" fill="none" stroke="${s}" stroke-width="4.5"/><rect x="${x-5}" y="${y-5}" width="10" height="10" fill="${R2}"/>`}[suit];
+ if(rank<10){const n=rank+1;let out='';
+  const cols=n<=3?1:2, rows=Math.ceil(n/cols);
+  let k=0;
+  for(let r=0;r<rows;r++)for(let c=0;c<cols&&k<n;c++,k++){
+   const x=cols===1?75:(c===0?52:98),y=64+r*(n<=3?54:34);out+=g(x,y);}
+  return out;}
+ return g(75,110)+`<circle cx="75" cy="56" r="14" fill="${s}"/>`+(rank>=12?`<polygon points="61,48 89,48 75,30" fill="${R2}"/>`:'');}
+let stTR=null;
+const TR_POS={1:[['指引','GUIDANCE']],3:[['过去','PAST'],['现在','PRESENT'],['未来','FUTURE']],
+ 10:[['现状','PRESENT'],['阻碍','CHALLENGE'],['根基','FOUNDATION'],['过去','PAST'],['目标','CROWN'],['将来','NEAR FUTURE'],['自身','SELF'],['环境','ENVIRONMENT'],['希望恐惧','HOPES/FEARS'],['结果','OUTCOME']]};
+function doTarot(){
+ const n=[1,3,10][document.getElementById('tr-spread').selectedIndex];
+ const deck=[];for(let i=0;i<78;i++)deck.push(i);
+ const rnd=k=>crypto.getRandomValues(new Uint32Array(1))[0]%k;
+ for(let i=77;i>0;i--){const j=rnd(i+1);[deck[i],deck[j]]=[deck[j],deck[i]];}
+ stTR={cards:deck.slice(0,n).map(c=>({c,rev:rnd(2)===1})),q:document.getElementById('tr-q').value.trim(),n};
+ renderTarot();document.getElementById('tr-copy').style.display='inline-block';}
+function trInfo(c){
+ if(c<22){const m=TR_MAJ[c];return {maj:true,num:m[0],en:m[1],cn:m[2],up:m[3],rv:m[4],svg:TR_SVG[c]};}
+ const i=c-22,suit=Math.floor(i/14),rank=i%14;
+ const s=TR_SUIT[suit],r=TR_RANK[rank];
+ return {maj:false,suit,rank,num:r[0],en:r[0]+' of '+s[0],cn:s[1]+r[1],
+  up:r[2]+' × '+s[2],rv:r[2]+'受阻(逆) × '+s[2]};}
+function renderTarot(){
+ if(!stTR)return;const pos=TR_POS[stTR.n];
+ const cards=stTR.cards.map((x,i)=>{const f=trInfo(x.c);
+  const svg=f.maj?f.svg(I2):trMinorSVG(f.suit,f.rank,I2);
+  return '<div><div class="t2'+(x.rev?' rev':'')+'">'
+   +(x.rev?'<span class="rtag">REVERSED</span>':'')
+   +'<span class="num">'+(f.maj?f.num:['A','2','3','4','5','6','7','8','9','10','P','N','Q','K'][f.rank])+'</span>'
+   +'<svg viewBox="0 0 150 252">'+svg+'</svg>'
+   +'<div class="nm">'+f.en+'<small>'+f.cn+'</small></div></div>'
+   +'<div class="t2-pos">'+pos[i][LANG==='cn'?0:1]+'</div></div>';}).join('');
+ const means=stTR.cards.map((x,i)=>{const f=trInfo(x.c);
+  return '<div class="iline"><b>'+pos[i][LANG==='cn'?0:1]+' · '+f.cn+' '+f.en+(x.rev?(LANG==='cn'?'(逆位)':' (reversed)'):'')+'</b> — '
+   +(x.rev?f.rv:f.up)+'</div>';}).join('');
+ document.getElementById('tr-out').innerHTML='<div class="card"><h2>'+(LANG==='cn'?'牌 面':'THE DRAW')+'</h2>'
+  +(stTR.q?'<div class="note" style="margin:0 0 12px">'+(LANG==='cn'?'所问:':'Question: ')+esc(stTR.q)+'</div>':'')
+  +'<div class="t2-row">'+cards+'</div>'
+  +'<div class="t2-mean iblock"><div class="ilabel">'+(LANG==='cn'?'牌意速览':'QUICK MEANINGS')+'</div>'+means
+  +'<div class="note">'+(LANG==='cn'?'牌意为关键词提示;完整解读(牌与牌的呼应、与所问之事的结合)建议复制结果请 AI 展开。':'Keywords only; copy the result to an AI for a full spread reading.')+'</div></div></div>';}
+function copyTarot(){if(!stTR)return;const pos=TR_POS[stTR.n];
+ let out=['[塔罗牌阵 Tarot]',stTR.q?'所问: '+stTR.q:''];
+ stTR.cards.forEach((x,i)=>{const f=trInfo(x.c);
+  out.push(pos[i][0]+' '+pos[i][1]+': '+f.cn+' '+f.en+(x.rev?' (逆位 reversed)':' (正位 upright)'));});
+ out.push('请结合牌阵位置与所问之事,给出完整的塔罗解读。Please give a full spread reading.');
+ copyText(out.filter(Boolean).join('\n'),'tr-copy');}
+
+/* ==================== ASTRO BIG THREE ==================== */
+const AZ_SIGN={en:['ARIES','TAURUS','GEMINI','CANCER','LEO','VIRGO','LIBRA','SCORPIO','SAGITTARIUS','CAPRICORN','AQUARIUS','PISCES'],
+ cn:['白羊座','金牛座','双子座','巨蟹座','狮子座','处女座','天秤座','天蝎座','射手座','摩羯座','水瓶座','双鱼座'],
+ kw:{cn:[['冲劲','直接','开拓'],['踏实','感官','坚持'],['好奇','表达','多线'],['体贴','念旧','护短'],['慷慨','存在感','忠诚'],['细致','务实','挑剔'],['权衡','审美','关系'],['深情','洞察','不轻付'],['乐观','远方','直言'],['自律','野心','长线'],['独立','理念','疏离'],['共情','梦境','包容']],
+ en:[['drive','direct','pioneering'],['grounded','sensual','steadfast'],['curious','expressive','multi-track'],['caring','nostalgic','protective'],['generous','magnetic','loyal'],['precise','practical','exacting'],['balanced','aesthetic','relational'],['intense','perceptive','guarded'],['optimistic','far-seeking','frank'],['disciplined','ambitious','long-game'],['independent','idealistic','detached'],['empathic','dreamlike','accepting']]}};
+const AZ_MARK=[
+s=>`<polyline points="10,44 28,14 46,44" fill="none" stroke="${s}" stroke-width="4"/><circle cx="28" cy="11" r="4" fill="${R2}"/>`,
+s=>`<rect x="8" y="40" width="40" height="5" fill="${s}"/><circle cx="28" cy="26" r="13" fill="${R2}"/>`,
+s=>`<rect x="18" y="10" width="5" height="36" fill="${s}"/><rect x="33" y="10" width="5" height="36" fill="${R2}"/><rect x="18" y="26" width="20" height="2.5" fill="${s}"/>`,
+s=>`<path d="M10 34 A18 18 0 1 1 46 34" fill="none" stroke="${s}" stroke-width="4"/><circle cx="28" cy="32" r="4.5" fill="${R2}"/>`,
+s=>`<circle cx="24" cy="24" r="11" fill="${R2}"/><path d="M33 32 Q46 40 40 50" fill="none" stroke="${s}" stroke-width="4" stroke-linecap="round"/>`,
+s=>`<rect x="14" y="10" width="2.5" height="36" fill="${s}"/><rect x="26" y="10" width="2.5" height="36" fill="${s}"/><rect x="38" y="10" width="2.5" height="36" fill="${s}"/><rect x="10" y="30" width="36" height="3.5" fill="${R2}"/>`,
+s=>`<polygon points="28,30 22,44 34,44" fill="${s}"/><rect x="8" y="24" width="40" height="3.5" fill="${s}"/><circle cx="13" cy="19" r="4" fill="${R2}"/>`,
+s=>`<path d="M8 40 H34 Q44 40 44 30 V22" fill="none" stroke="${s}" stroke-width="4"/><polygon points="44,24 38,15 50,15" fill="${R2}"/>`,
+s=>`<line x1="12" y1="44" x2="40" y2="16" stroke="${s}" stroke-width="4"/><polygon points="44,12 30,16 40,26" fill="${R2}"/>`,
+s=>`<path d="M8 46 H20 V34 H32 V22 H44" fill="none" stroke="${s}" stroke-width="4"/><rect x="40" y="10" width="9" height="9" fill="${R2}"/>`,
+s=>`<polyline points="8,22 18,14 28,22 38,14 48,22" fill="none" stroke="${R2}" stroke-width="4"/><polyline points="8,38 18,30 28,38 38,30 48,38" fill="none" stroke="${s}" stroke-width="4"/>`,
+s=>`<path d="M18 10 Q8 28 18 46" fill="none" stroke="${s}" stroke-width="4"/><path d="M38 10 Q48 28 38 46" fill="none" stroke="${R2}" stroke-width="4"/><line x1="14" y1="28" x2="42" y2="28" stroke="${s}" stroke-width="2.5"/>`];
+function moonLon(jd){const T=(jd-2451545)/36525,D=Math.PI/180;
+ const Lp=218.3164477+481267.88123421*T-0.0015786*T*T+T*T*T/538841;
+ const Dm=(297.8501921+445267.1114034*T-0.0018819*T*T)*D;
+ const M=(357.5291092+35999.0502909*T-0.0001536*T*T)*D;
+ const Mp=(134.9633964+477198.8675055*T+0.0087414*T*T)*D;
+ const F=(93.2720950+483202.0175233*T-0.0036539*T*T)*D;
+ let s=6.288774*Math.sin(Mp)+1.274027*Math.sin(2*Dm-Mp)+0.658314*Math.sin(2*Dm)
+  +0.213618*Math.sin(2*Mp)-0.185116*Math.sin(M)-0.114332*Math.sin(2*F)
+  +0.058793*Math.sin(2*Dm-2*Mp)+0.057066*Math.sin(2*Dm-M-Mp)+0.053322*Math.sin(2*Dm+Mp)
+  +0.045758*Math.sin(2*Dm-M)-0.040923*Math.sin(M-Mp)-0.034720*Math.sin(Dm)
+  -0.030383*Math.sin(M+Mp)+0.015327*Math.sin(2*Dm-2*F)-0.012528*Math.sin(Mp+2*F)
+  +0.010980*Math.sin(Mp-2*F);
+ return ((Lp+s)%360+360)%360;}
+function ascendant(jdUT,lonDeg,latDeg){
+ const T=(jdUT-2451545)/36525,D=Math.PI/180;
+ let gmst=280.46061837+360.98564736629*(jdUT-2451545)+0.000387933*T*T;
+ const lst=((gmst+lonDeg)%360+360)%360;
+ const eps=(23.4392911-0.0130042*T)*D;
+ const ramc=lst*D,phi=latDeg*D;
+ let a=Math.atan2(Math.cos(ramc),-(Math.sin(ramc)*Math.cos(eps)+Math.tan(phi)*Math.sin(eps)))/D;
+ return ((a%360)+360)%360;}
+let stAZ=null;
+function doAstro(){const dv=document.getElementById('az-date').value;if(!dv)return;
+ const tv=document.getElementById('az-time').value||'12:00';
+ const [y,mo,d]=dv.split('-').map(Number);const [h,mi]=tv.split(':').map(Number);
+ stAZ={y,mo,d,h,mi,tz:Number(document.getElementById('az-tz').value),
+  lon:Number(document.getElementById('az-lon').value)||0,lat:Number(document.getElementById('az-lat').value)||0};
+ renderAstro();document.getElementById('az-copy').style.display='inline-block';}
+function calcAstro(s){
+ const jd=jdUTC(s.y,s.mo,s.d,s.h,s.mi)-s.tz/24;
+ const sun=sunLon(jd),moon=moonLon(jd),asc=ascendant(jd,s.lon,s.lat);
+ return [sun,moon,asc];}
+function degFmt(x){const inSign=x%30;const d=Math.floor(inSign),m=Math.round((inSign-d)*60);
+ return String(d).padStart(2,'0')+'\u00b0'+String(m).padStart(2,'0')+'\u2032';}
+function renderAstro(){
+ if(!stAZ)return;const [sun,moon,asc]=calcAstro(stAZ);
+ const roles=[['SUN — '+(LANG==='cn'?'太阳':'Sun'),sun,'sun'],['MOON — '+(LANG==='cn'?'月亮':'Moon'),moon,''],['ASC — '+(LANG==='cn'?'上升':'Rising'),asc,'']];
+ const cols=roles.map(r=>{const sg=Math.floor(r[1]/30)%12;
+  return '<div class="a-col '+r[2]+'"><div class="role">'+r[0]+'</div>'
+   +'<div class="amark"><svg viewBox="0 0 56 56">'+AZ_MARK[sg](C2)+'</svg></div>'
+   +'<div class="big">'+AZ_SIGN.en[sg]+'</div>'
+   +'<div class="cnl">'+AZ_SIGN.cn[sg].split('').join(' ')+'</div>'
+   +'<div class="deg2"><b>'+degFmt(r[1])+'</b> IN SIGN</div>'
+   +'<div class="track"><i style="width:'+(r[1]%30/30*100).toFixed(1)+'%"></i></div></div>';}).join('');
+ const kw=roles.map((r,i)=>{const sg=Math.floor(r[1]/30)%12;
+  return '<b>'+(LANG==='cn'?AZ_SIGN.cn[sg]+'·'+['太阳','月亮','上升'][i]:AZ_SIGN.en[sg]+' '+['SUN','MOON','ASC'][i])+'</b> '
+   +AZ_SIGN.kw[LANG][sg].join(' · ');}).join('　/　');
+ const pad=n=>String(n).padStart(2,'0');
+ document.getElementById('az-out').innerHTML='<div class="astro">'
+  +'<div class="ahead">BIG THREE — <b>'+stAZ.y+'.'+pad(stAZ.mo)+'.'+pad(stAZ.d)+' '+pad(stAZ.h)+':'+pad(stAZ.mi)+'</b> UTC'+(stAZ.tz>=0?'+':'')+stAZ.tz+' \u00b7 '+Math.abs(stAZ.lon).toFixed(1)+'\u00b0'+(stAZ.lon>=0?'E':'W')+' '+Math.abs(stAZ.lat).toFixed(1)+'\u00b0'+(stAZ.lat>=0?'N':'S')+'</div>'
+  +'<div class="a-row">'+cols+'</div>'
+  +'<div class="akw">'+kw+'</div></div>'
+  +'<div class="note">'+(LANG==='cn'?'太阳=核心自我与生命方向;月亮=情绪内在与安全感;上升=外在气质与他人第一印象。月亮精度约±0.1°,上升对出生时间敏感(每4分钟差1°)。':'Sun = core self; Moon = inner emotional life; Ascendant = outward manner & first impression. Moon accurate to ~0.1\u00b0; the Ascendant shifts 1\u00b0 every 4 minutes of birth time.')+'</div>';}
+function copyAstro(){if(!stAZ)return;const [sun,moon,asc]=calcAstro(stAZ);
+ const f=(x,r)=>r+': '+AZ_SIGN.cn[Math.floor(x/30)%12]+' '+AZ_SIGN.en[Math.floor(x/30)%12]+' '+degFmt(x);
+ copyText('[星座三要素 Big Three]\n'+f(sun,'太阳 Sun')+'\n'+f(moon,'月亮 Moon')+'\n'+f(asc,'上升 Asc')+'\n请详细解读这组日月升配置的性格与相处方式。Please interpret this Big Three combination in depth.','az-copy');}
+
+/* ==================== QI MEN DUN JIA ==================== */
+/* 时家奇门 · 转盘法 · 拆补定元 */
+const QM_JU=[ // index by solar-term starting 冬至(270°) step 15°: [上,中,下]; +阳遁 −阴遁
+ [1,7,4],[2,8,5],[3,9,6],[8,5,2],[9,6,3],[1,7,4],[3,9,6],[4,1,7],[5,2,8],[4,1,7],[5,2,8],[6,3,9],
+ [-9,-3,-6],[-8,-2,-5],[-7,-1,-4],[-2,-5,-8],[-1,-4,-7],[-9,-3,-6],[-7,-1,-4],[-6,-9,-3],[-5,-8,-2],[-6,-9,-3],[-5,-8,-2],[-4,-7,-1]];
+const QM_TERM_CN=['冬至','小寒','大寒','立春','雨水','惊蛰','春分','清明','谷雨','立夏','小满','芒种','夏至','小暑','大暑','立秋','处暑','白露','秋分','寒露','霜降','立冬','小雪','大雪'];
+const QM_RING=[1,8,3,4,9,2,7,6]; // palaces clockwise from 坎
+const QM_STAR={cn:['','天蓬','天芮','天冲','天辅','天禽','天心','天柱','天任','天英'],en:['','Peng','Rui','Chong','Fu','Qin','Xin','Zhu','Ren','Ying']};
+const QM_DOOR={cn:['','休门','死门','伤门','杜门','','开门','惊门','生门','景门'],en:['','Rest','Death','Harm','Block','','Open','Fright','Life','View']};
+const QM_GOD={cn:['值符','腾蛇','太阴','六合','白虎','玄武','九地','九天'],en:['Chief','Snake','Yin','Union','Tiger','Tortoise','Earth','Sky']};
+const QM_PALDIR={1:'北 N',2:'西南 SW',3:'东 E',4:'东南 SE',5:'中 C',6:'西北 NW',7:'西 W',8:'东北 NE',9:'南 S'};
+const QM_YI=[4,5,6,7,8,9]; // 甲子戊 甲戌己 甲申庚 甲午辛 甲辰壬 甲寅癸 (stem idx)
+let stQM=null;
+function qmNow(){const n=new Date();
+ document.getElementById('qm-date').value=n.getFullYear()+'-'+String(n.getMonth()+1).padStart(2,'0')+'-'+String(n.getDate()).padStart(2,'0');
+ document.getElementById('qm-time').value=String(n.getHours()).padStart(2,'0')+':'+String(n.getMinutes()).padStart(2,'0');
+ doQimen();}
+function qmDayHour(y,mo,d,h,mi){ // day & hour ganzhi (23:00→next day), same rules as BaZi
+ let dy=y,dm=mo,dd=d;
+ if(h>=23){const t=new Date(Date.UTC(y,mo-1,d));t.setUTCDate(t.getUTCDate()+1);dy=t.getUTCFullYear();dm=t.getUTCMonth()+1;dd=t.getUTCDate();}
+ const jdn=Math.floor(jdUTC(dy,dm,dd,12,0)+0.5);
+ const dIdx=((jdn+49)%60+60)%60;
+ const hb=Math.floor((h+1)/2)%12;
+ const hs=((dIdx%10)%5*2+hb)%10;
+ return {dIdx,hIdx:sexIdx(hs,hb)};}
+function calcQimen(s){
+ const jdU=jdUTC(s.y,s.mo,s.d,s.h,s.mi)-s.tz/24;
+ const {dIdx,hIdx}=qmDayHour(s.y,s.mo,s.d,s.h,s.mi);
+ // solar term index from 冬至, step 15°
+ const lam=sunLon(jdU);
+ const tIdx=Math.floor((((lam-270)%360)+360)%360/15);
+ const yuan=Math.floor((dIdx%15)/5); // 拆补:符头定元 0上1中2下
+ const juSigned=QM_JU[tIdx][yuan];
+ const yang=juSigned>0, ju=Math.abs(juSigned);
+ // 地盘:戊己庚辛壬癸丁丙乙 from 局宫 顺(阳)/逆(阴)
+ const seq=[4,5,6,7,8,9,3,2,1]; // stem idx 戊己庚辛壬癸丁丙乙
+ const ground={}; // palace -> stem idx
+ for(let i=0;i<9;i++){let p=yang?((ju-1+i)%9)+1:((ju-1-i)%9+9)%9+1;ground[p]=seq[i];}
+ const palOf={};Object.keys(ground).forEach(p=>palOf[ground[p]]=+p);
+ // 旬首仪
+ const xun=Math.floor(hIdx/10), yi=QM_YI[xun];
+ const fuPal=palOf[yi]; // 值符星原宫
+ const homeStar=[0,1,2,3,4,5,6,7,8,9]; // palace n -> star n (5=禽)
+ const zhiFuStar=fuPal; // star number = palace number
+ const zhiShiDoor=fuPal===5?2:fuPal; // 中五门寄死门(坤2)
+ // 天盘:值符随时干
+ const hg=hIdx%10, useStem=(hg===0)?yi:hg; // 甲时用旬首仪
+ let tgt=palOf[useStem]; if(tgt===5)tgt=2; // 寄坤
+ const ringPos=p=>QM_RING.indexOf(p);
+ const fuRingHome=fuPal===5?ringPos(2):ringPos(fuPal);
+ const shift=((ringPos(tgt)-fuRingHome)%8+8)%8;
+ const sky={}; // palace -> {star, stems:[..]}
+ QM_RING.forEach((home,i)=>{
+  const dest=QM_RING[(i+shift)%8];
+  const st=home===2?[2,5]:[home]; // 芮携禽
+  const stems=home===2?[ground[2],ground[5]]:[ground[home]];
+  sky[dest]={stars:st,stems:stems};});
+ // 值使门飞宫:从原宫按旬内时序数飞
+ const steps=hIdx-xun*10;
+ let shiPal=yang?((fuPal-1+steps)%9)+1:((fuPal-1-steps)%9+9)%9+1;
+ const doorAt={}; // 转盘八门:值使门转到值使落宫,余门随转
+ let shiPal8=shiPal===5?2:shiPal;
+ const doorHome=zhiShiDoor; // door number = its home palace number
+ const dShift=((ringPos(shiPal8)-ringPos(doorHome===5?2:doorHome))%8+8)%8;
+ QM_RING.forEach((home,i)=>{doorAt[QM_RING[(i+dShift)%8]]=home;});
+ // 八神:值符起天盘值符星落宫,阳顺阴逆
+ const godAt={};
+ const start=ringPos(tgt);
+ for(let i=0;i<8;i++){const p=QM_RING[((start+(yang?i:-i))%8+8)%8];godAt[p]=i;}
+ return {dIdx,hIdx,tIdx,yuan,yang,ju,xun,yi,fuPal,zhiFuStar,zhiShiDoor,shiPal,ground,sky,doorAt,godAt,tgt,lam};}
+function doQimen(){
+ const dv=document.getElementById('qm-date').value;if(!dv)return;
+ const tv=document.getElementById('qm-time').value||'12:00';
+ const [y,mo,d]=dv.split('-').map(Number),[h,mi]=tv.split(':').map(Number);
+ stQM={y,mo,d,h,mi,tz:+document.getElementById('qm-tz').value};
+ renderQimen();document.getElementById('qm-copy').style.display='inline-block';}
+function renderQimen(){
+ if(!stQM)return;const r=calcQimen(stQM);
+ const L=LANG;
+ const goodDoor=[6,1,8]; // 开休生
+ const cell=p=>{
+  if(p===5)return '<b>'+(L==='cn'?'中五':'C-5')+'</b><span style="font-size:17px">'+GAN[r.ground[5]]+'</span><br>'
+   +'<span class="small">'+(L==='cn'?(r.yang?'阳遁':'阴遁')+r.ju+'局':(r.yang?'Yang ':'Yin ')+r.ju)+'</span>';
+  const s=r.sky[p],dr=r.doorAt[p],gd=r.godAt[p];
+  const starTxt=s.stars.map(x=>QM_STAR[L==='cn'?'cn':'en'][x]).join('·');
+  const stemTxt=s.stems.map(x=>GAN[x]).join('');
+  return '<b>'+QM_PALDIR[p]+'</b>'
+   +'<span style="color:var(--dim);font-size:11px">'+QM_GOD[L==='cn'?'cn':'en'][gd]+'</span><br>'
+   +'<span>'+starTxt+' <b>'+stemTxt+'</b></span><br>'
+   +'<span style="'+(goodDoor.includes(dr)?'color:var(--red)':'color:var(--dim)')+'">'+QM_DOOR[L==='cn'?'cn':'en'][dr]+'</span> '
+   +'<span class="small" style="display:inline">'+GAN[r.ground[p]]+'</span>';};
+ const order=[6,1,8,7,5,3,2,9,4]; // grid9: NW N NE / W C E / SW S SE => 乾坎艮 兑中震 坤离巽(上北)
+ const cells=order.map(cell);
+ const term=L==='cn'?QM_TERM_CN[r.tIdx]:TERMS.en[(r.tIdx+21)%24];
+ const yuanN=L==='cn'?['上元','中元','下元'][r.yuan]:['Upper','Middle','Lower'][r.yuan];
+ document.getElementById('qm-out').innerHTML='<div class="card"><h2>'+(L==='cn'?'奇门排盘':'QI MEN CHART')+'</h2>'
+  +'<div class="note" style="margin:0 0 14px">'
+  +(L==='cn'?'日柱 ':'Day ')+'<b>'+gz(r.dIdx)+'</b> · '+(L==='cn'?'时柱 ':'Hour ')+'<b>'+gz(r.hIdx)+'</b> · '
+  +term+' '+yuanN+' · <b>'+(r.yang?(L==='cn'?'阳遁':'Yang'):(L==='cn'?'阴遁':'Yin'))+r.ju+(L==='cn'?'局':'')+'</b><br>'
+  +(L==='cn'?'旬首 ':'Xun ')+gz(r.xun*10)+'('+GAN[r.yi]+') · '
+  +(L==='cn'?'值符 ':'Chief star ')+QM_STAR[L==='cn'?'cn':'en'][r.zhiFuStar]+(L==='cn'?'落':' → ')+QM_PALDIR[r.tgt]+' · '
+  +(L==='cn'?'值使 ':'Duty door ')+QM_DOOR[L==='cn'?'cn':'en'][r.zhiShiDoor]+(L==='cn'?'落':' → ')+QM_PALDIR[r.shiPal===5?2:r.shiPal]
+  +'</div>'+grid9(cells)
+  +'<div class="note">'+(L==='cn'?'每宫自上而下:方位 · 八神 / 九星+天盘干 / 八门+地盘干。开、休、生为三吉门;值符所在宫为全局枢机。中五宫寄坤二。'
+   :'Each palace top-down: direction · God / Star + heaven stem / Door + earth stem. Open, Rest, Life are the three lucky doors. Palace 5 lodges in Kun-2.')+'</div></div>';}
+function copyQimen(){if(!stQM)return;const r=calcQimen(stQM);const L='cn';
+ const lines=[9,5,1,8,4,3,2,7,6].filter(p=>p!==5).map(p=>{const s=r.sky[p];
+  return QM_PALDIR[p]+':'+QM_GOD.cn[r.godAt[p]]+' '+s.stars.map(x=>QM_STAR.cn[x]).join('')+' 天盘'+s.stems.map(x=>GAN[x]).join('')+' '+QM_DOOR.cn[r.doorAt[p]]+' 地盘'+GAN[r.ground[p]];});
+ copyText('[奇门遁甲排盘]\n日柱'+gz(r.dIdx)+' 时柱'+gz(r.hIdx)+' '+QM_TERM_CN[r.tIdx]+['上','中','下'][r.yuan]+'元 '
+  +(r.yang?'阳遁':'阴遁')+r.ju+'局 旬首'+gz(r.xun*10)+'\n值符'+QM_STAR.cn[r.zhiFuStar]+'落'+QM_PALDIR[r.tgt]+' 值使'+QM_DOOR.cn[r.zhiShiDoor]+'落'+QM_PALDIR[r.shiPal===5?2:r.shiPal]+'\n'
+  +lines.join('\n')+'\n中五宫地盘'+GAN[r.ground[5]]+'\n请结合用神详细解读此局吉凶与用法。','qm-copy');}
+
+/* ==================== DA LIU REN ==================== */
+const DL_JIGONG=[2,4,5,7,5,7,8,10,11,1]; // 日干寄宫 甲寅乙辰丙巳丁未戊巳己未庚申辛戌壬亥癸丑
+const DL_GOD={cn:['贵人','腾蛇','朱雀','六合','勾陈','青龙','天空','白虎','太常','玄武','太阴','天后'],
+ en:['Noble','Snake','Phoenix','Union','Hook','Dragon','Void','Tiger','Constant','Tortoise','Yin','Empress']};
+const DL_NOBLE={ // day stem -> [昼贵,夜贵]
+ 0:[1,7],1:[0,8],2:[11,9],3:[11,9],4:[1,7],5:[0,8],6:[1,7],7:[6,2],8:[5,3],9:[5,3]};
+/* 支刑表:子→卯 丑→戌 寅→巳 卯→子 辰→辰 巳→申 午→午 未→丑 申→寅 酉→酉 戌→未 亥→亥 */
+const DL_XING2=[3,10,5,0,4,8,6,1,2,9,7,11];
+let stDL=null;
+function dlNow(){const n=new Date();
+ document.getElementById('dl-date').value=n.getFullYear()+'-'+String(n.getMonth()+1).padStart(2,'0')+'-'+String(n.getDate()).padStart(2,'0');
+ document.getElementById('dl-time').value=String(n.getHours()).padStart(2,'0')+':'+String(n.getMinutes()).padStart(2,'0');
+ doLiuren();}
+function dlClash(a,b){return zhiElem[a]!==undefined&&(zhiElem[a]+2)%5===zhiElem[b];} // a克b (branch elems)
+function dlStemClashBranch(g,z){return (ganElem(g)+2)%5===zhiElem[z];}
+function dlBranchClashStem(z,g){return (zhiElem[z]+2)%5===ganElem(g);}
+function calcLiuren(s){
+ const jdU=jdUTC(s.y,s.mo,s.d,s.h,s.mi)-s.tz/24;
+ const {dIdx,hIdx}=qmDayHour(s.y,s.mo,s.d,s.h,s.mi);
+ const dg=dIdx%10,dz=dIdx%12,hb=hIdx%12;
+ // 月将:太阳过宫(中气)
+ const lam=sunLon(jdU);
+ const k=Math.floor((((lam-330)%360)+360)%360/30);
+ const jiang=((11-k)%12+12)%12;
+ const off=((jiang-hb)%12+12)%12;
+ const tp=b=>(b+off)%12; // 天盘
+ // 四课
+ const jg=DL_JIGONG[dg];
+ const k1=[tp(jg),-1-dg],k2=[tp(tp(jg)),tp(jg)],k3=[tp(dz),dz],k4=[tp(tp(dz)),tp(dz)];
+ const ke=[k1,k2,k3,k4]; // [上神, 下(负数表示日干)]
+ // 上下克检测
+ const lower=c=>c[1]<0?null:c[1]; // branch or null(干)
+ const upClash=c=>{const lo=lower(c);return lo===null?dlBranchClashStem(c[0],dg):dlClash(c[0],lo);};
+ const dnClash=c=>{const lo=lower(c);return lo===null?dlStemClashBranch(dg,c[0]):dlClash(lo,c[0]);};
+ const dgYang=dg%2===0;
+ const bi=b=>(b%2===0)===dgYang; // 阴阳与日干比
+ const uniq=a=>[...new Set(a)];
+ let chu=null,kind='';
+ const isFu=off===0,isFan=off===6;
+ // 贼克候选
+ const zei=uniq(ke.filter(dnClash).map(c=>c[0])); // 下贼上
+ const keUp=uniq(ke.filter(upClash).map(c=>c[0])); // 上克下
+ function pickClash(){
+  if(zei.length===1){kind=LANG==='cn'?'重审':'Zhongshen';return zei[0];}
+  if(zei.length>1){const b2=zei.filter(bi);
+   if(b2.length===1){kind=LANG==='cn'?'比用':'Biyong';return b2[0];}
+   return sheHai(b2.length?b2:zei);}
+  if(keUp.length===1){kind=LANG==='cn'?'元首':'Yuanshou';return keUp[0];}
+  if(keUp.length>1){const b2=keUp.filter(bi);
+   if(b2.length===1){kind=LANG==='cn'?'比用':'Biyong';return b2[0];}
+   return sheHai(b2.length?b2:keUp);}
+  return null;}
+ function sheHai(cands){kind=LANG==='cn'?'涉害':'Shehai';
+  const meng=[2,8,5,11],zhong=[0,6,3,9];
+  const home=x=>((x-off)%12+12)%12; // 地盘宫
+  let f=cands.filter(x=>meng.includes(home(x)));
+  if(!f.length)f=cands.filter(x=>zhong.includes(home(x)));
+  if(!f.length)f=cands;
+  return f[0];}
+ chu=pickClash();
+ let zhong=null,mo=null;
+ if(chu!==null&&!isFu&&!isFan){zhong=tp(chu);mo=tp(zhong);}
+ else if(isFu){ // 伏吟
+  kind=(LANG==='cn'?'伏吟':'Fuyin')+(kind?'·'+kind:'');
+  if(chu===null){chu=dgYang?tp(jg):tp(dz);}
+  const self=[4,6,9,11];
+  if(!self.includes(chu)){zhong=DL_XING2[chu];}
+  else zhong=(chu===tp(jg))?tp(dz):tp(jg);
+  if(!self.includes(zhong))mo=DL_XING2[zhong];else mo=(zhong+6)%12;}
+ else if(isFan){ // 反吟
+  kind=(LANG==='cn'?'反吟':'Fanyin')+(kind?'·'+kind:'');
+  if(chu!==null){zhong=tp(chu);mo=tp(zhong);}
+  else{const ma=[2,11,8,5][dz%4];chu=ma;zhong=tp(dz);mo=tp(jg);}}
+ if(chu===null){ // 遥克
+  const yao1=ke.slice(1).filter(c=>dlBranchClashStem(c[0],dg)).map(c=>c[0]);
+  const yao2=ke.slice(1).filter(c=>dlStemClashBranch(dg,c[0])).map(c=>c[0]);
+  let cands=uniq(yao1.length?yao1:yao2);
+  if(cands.length){const b2=cands.filter(bi);
+   kind=yao1.length?(LANG==='cn'?'遥克·蒿矢':'Haoshi'):(LANG==='cn'?'遥克·弹射':'Tanshe');
+   chu=(b2.length?b2:cands)[0];zhong=tp(chu);mo=tp(zhong);}}
+ if(chu===null){ // 昴星 / 别责 / 八专
+  const kset=uniq(ke.map(c=>String(c[0])+'/'+String(c[1]))).length;
+  if(jg===dz){ // 八专
+   kind=LANG==='cn'?'八专':'Bazhuan';
+   chu=dgYang?(tp(jg)+2)%12:((k4[0]-2)%12+12)%12;
+   zhong=tp(jg);mo=tp(jg);}
+  else if(kset===4){ // 昴星
+   kind=LANG==='cn'?'昴星':'Maoxing';
+   if(dgYang){chu=tp(9);zhong=tp(dz);mo=tp(jg);}
+   else{chu=((9-off)%12+12)%12;zhong=tp(jg);mo=tp(dz);}}
+  else{ // 别责
+   kind=LANG==='cn'?'别责':'Biezé';
+   if(dgYang){const heG=(dg+5)%10;chu=tp(DL_JIGONG[heG]);}
+   else{const tri=[[8,0,4],[5,9,1],[2,6,10],[11,3,7]];
+    const t=tri.find(x=>x.includes(dz));chu=t[(t.indexOf(dz)+1)%3];}
+   zhong=tp(jg);mo=tp(jg);}}
+ // 天将
+ const noble=DL_NOBLE[dg][(hb>=3&&hb<=8)?0:1];
+ const nobleGround=((noble-off)%12+12)%12;
+ const shun=[11,0,1,2,3,4].includes(nobleGround);
+ const godOf=b=>DL_GOD[LANG==='cn'?'cn':'en'][(( (b-noble)*(shun?1:-1) )%12+12)%12];
+ // 遁干 & 空亡
+ const xun=Math.floor(dIdx/10),xunZ=(dIdx-xun*10)%12; // 旬首支 = 子 for 甲子旬: dIdx%10=0 branch dIdx%12
+ const xunStartBranch=(xun*10)%12;
+ const dun=b=>{const p=((b-xunStartBranch)%12+12)%12;return p<10?GAN[p]:null;};
+ const kong=[(xunStartBranch+10)%12,(xunStartBranch+11)%12];
+ // 六亲
+ const rel=b=>{const de=ganElem(dg),be=zhiElem[b];
+  if(be===de)return LANG==='cn'?'兄弟':'Peer';if((be+1)%5===de)return LANG==='cn'?'父母':'Parent';
+  if((de+1)%5===be)return LANG==='cn'?'子孙':'Child';if((de+2)%5===be)return LANG==='cn'?'妻财':'Wealth';
+  return LANG==='cn'?'官鬼':'Officer';};
+ return {dIdx,hIdx,dg,dz,hb,jiang,off,tp,jg,ke,chu,zhong,mo,kind,noble,shun,godOf,dun,kong,rel,lam};}
+function doLiuren(){
+ const dv=document.getElementById('dl-date').value;if(!dv)return;
+ const tv=document.getElementById('dl-time').value||'12:00';
+ const [y,mo,d]=dv.split('-').map(Number),[h,mi]=tv.split(':').map(Number);
+ stDL={y,mo,d,h,mi,tz:+document.getElementById('dl-tz').value};
+ renderLiuren();document.getElementById('dl-copy').style.display='inline-block';}
+function renderLiuren(){
+ if(!stDL)return;const r=calcLiuren(stDL);const L=LANG;
+ const kongMark=b=>r.kong.includes(b)?'<span style="color:var(--red);font-size:10px">空</span>':'';
+ // 天地盘 table
+ const row=(f,lbl)=>'<tr><th>'+lbl+'</th>'+Array.from({length:12},(_,i)=>'<td>'+f(i)+'</td>').join('')+'</tr>';
+ const tiandi='<div class="tscroll"><table>'
+  +row(i=>'<span style="color:var(--dim);font-size:11px">'+r.godOf(r.tp(i))+'</span>',L==='cn'?'天将':'God')
+  +row(i=>'<b>'+ZHI[r.tp(i)]+'</b>'+kongMark(r.tp(i)),L==='cn'?'天盘':'Sky')
+  +row(i=>ZHI[i],L==='cn'?'地盘':'Ground')
+  +'</table></div>';
+ // 四课
+ const kbl=L==='cn'?['一课(干)','二课','三课(支)','四课']:['K1 (stem)','K2','K3 (branch)','K4'];
+ const sike='<div class="tscroll" style="margin-top:14px"><table><tr>'+kbl.map(x=>'<th>'+x+'</th>').join('')+'</tr>'
+  +'<tr>'+r.ke.map(c=>'<td><b>'+ZHI[c[0]]+'</b>'+kongMark(c[0])+'<span class="small">'+r.godOf(c[0])+'</span></td>').join('')+'</tr>'
+  +'<tr>'+r.ke.map(c=>'<td>'+(c[1]<0?GAN[r.dg]:ZHI[c[1]])+'</td>').join('')+'</tr></table></div>';
+ // 三传
+ const chuan=[r.chu,r.zhong,r.mo];
+ const cbl=L==='cn'?['初传','中传','末传']:['First','Middle','Final'];
+ const sanchuan='<div class="tscroll" style="margin-top:14px"><table><tr><th></th><th>'+(L==='cn'?'支':'Branch')+'</th><th>'+(L==='cn'?'遁干':'Stem')+'</th><th>'+(L==='cn'?'六亲':'Relation')+'</th><th>'+(L==='cn'?'天将':'God')+'</th></tr>'
+  +chuan.map((b,i)=>'<tr><th>'+cbl[i]+'</th><td><b style="font-size:16px">'+ZHI[b]+'</b>'+kongMark(b)+'</td><td>'+(r.dun(b)||(L==='cn'?'旬空':'void'))+'</td><td>'+r.rel(b)+'</td><td>'+r.godOf(b)+'</td></tr>').join('')
+  +'</table></div>';
+ document.getElementById('dl-out').innerHTML='<div class="card"><h2>'+(L==='cn'?'六壬课式':'LIU REN CHART')+'</h2>'
+  +'<div class="note" style="margin:0 0 14px">'
+  +(L==='cn'?'日柱 ':'Day ')+'<b>'+gz(r.dIdx)+'</b> · '+(L==='cn'?'时柱 ':'Hour ')+'<b>'+gz(r.hIdx)+'</b> · '
+  +(L==='cn'?'月将 ':'Monthly General ')+'<b>'+ZHI[r.jiang]+'</b>'+(L==='cn'?'加':' on ')+ZHI[r.hb]+' · '
+  +(L==='cn'?'课体 ':'Course ')+'<b>'+r.kind+'</b> · '
+  +(L==='cn'?(r.shun?'贵人顺布':'贵人逆布'):(r.shun?'Noble fwd':'Noble rev'))+'('+ZHI[r.noble]+') · '
+  +(L==='cn'?'旬空 ':'Void ')+ZHI[r.kong[0]]+ZHI[r.kong[1]]
+  +'</div>'+tiandi+sike+sanchuan
+  +'<div class="note">'+(L==='cn'?'九宗门取传;涉害课以孟仲季简法取捷,与深浅数法偶有出入。昼贵用于卯时至申时,余为夜贵。':'Three transmissions follow the nine classical gates; Shehai uses the meng/zhong shortcut. Day noble applies 卯–申 hours.')+'</div></div>';}
+function copyLiuren(){if(!stDL)return;const r=calcLiuren(stDL);
+ const c=[r.chu,r.zhong,r.mo].map((b,i)=>['初传','中传','末传'][i]+ZHI[b]+'('+(r.dun(b)||'空')+'·'+r.rel(b)+'·'+r.godOf(b)+')').join(' ');
+ copyText('[大六壬课式]\n日柱'+gz(r.dIdx)+' 时柱'+gz(r.hIdx)+' 月将'+ZHI[r.jiang]+'加'+ZHI[r.hb]+'时\n课体:'+r.kind
+  +'\n四课:'+r.ke.map(x=>ZHI[x[0]]+'/'+(x[1]<0?GAN[r.dg]:ZHI[x[1]])).join(' ')
+  +'\n三传:'+c+'\n旬空:'+ZHI[r.kong[0]]+ZHI[r.kong[1]]+'\n请详细解读此课吉凶。','dl-copy');}
+
+/* ==================== QUICK GUIDES ==================== */
+const GUIDES={
+ 0:{cn:['填出生日期、时间与时区;不确定时辰可先用 12:00','可选填出生地经度,自动换算真太阳时(更准)','点「排 盘」查看四柱、五行强弱与大运流年','点「复制结果」可粘贴给 AI 深入解读'],
+    en:['Enter birth date, time, timezone (use 12:00 if unsure)','Optionally add birth longitude for true solar time','Tap Calculate for pillars, elements and luck cycles','Tap Copy to paste the chart into an AI for reading']},
+ 1:{cn:['心中默念想问的一件具体事情','点「掷 币」连掷六次,自下而上成卦(或切换手动指定)','得本卦与变卦;动爻(标红)是关键','结合世应与动爻爻辞判断吉凶'],
+    en:['Silently focus on one specific question','Tap Throw six times to build the hexagram bottom-up','Read the main & changed hexagrams; moving lines in red','Judge by moving lines, Self and Other positions']},
+ 2:{cn:['选择要查询的日期(默认今天)','查看当日宜忌、冲煞生肖与吉时','冲到自己生肖之日,重要事项宜避开'],
+    en:['Pick a date (defaults to today)','Check auspicious/avoid lists, clashing zodiac, lucky hours','Avoid key events on days clashing your zodiac']},
+ 3:{cn:['输入拉丁字母拼写的姓名(如护照拼音)','点「计 算」得生命灵数、表达数等','各数字含义见结果下方说明'],
+    en:['Type your name in Latin letters','Tap Calculate for Life Path, Expression numbers etc.','Meanings are explained under each number']},
+ 4:{cn:['默念所问之事','选起卦方式:按当前时间,或自报两个数字','点「起 卦」看体卦与用卦的生克关系','体被生为吉,体被克费力;变卦看结局'],
+    en:['Focus on your question','Choose method: current time or two numbers','Tap Cast and read Body vs Use element relations','Body supported = good; final hexagram = outcome']},
+ 5:{cn:['默念所问之事','「此刻掐算」自动查询农历月、日与时辰数并填入三框;或切「自定三数」手动输入','点「掐 算」;落宫大安/速喜/小吉为吉,赤口/凶为不利'],
+    en:['Focus on your question','Current-moment mode auto-fills lunar month, day and hour numbers; or switch to custom input','Tap Cast; Da-an / Su-xi / Xiao-ji are lucky palaces']},
+ 6:{cn:['选择事项(嫁娶、开业、搬家等)','设起始日期、查询范围和你的生肖','点「筛 选」,按吉度排序列出最佳日期'],
+    en:['Pick the event type (wedding, opening, moving…)','Set start date, range and your zodiac','Tap Filter for the best dates ranked by score']},
+ 7:{cn:['填出生日期与时辰(时区默认中国)','点「称 骨」得骨重与批语歌诀','骨重仅为传统趣味参考'],
+    en:['Enter birth date and hour','Tap Weigh for bone weight and the classic verse','Traditional novelty reading — enjoy lightly']},
+ 8:{cn:['分别填入双方出生信息','点「合 婚」查看生肖、五行、宫度等多维匹配','逐项看评语,总分仅供参考'],
+    en:['Enter both partners\u2019 birth info','Tap Match for zodiac, element and palace compatibility','Read each item; the total score is indicative only']},
+ 9:{cn:['输入中文姓名(姓在前)','点「计 算」得天地人总外五格与三才配置','吉凶按五格数理传统断法'],
+    en:['Type the Chinese name, surname first','Tap Calculate for the Five Grids and Three Talents','Ratings follow traditional grid numerology']},
+ 10:{cn:['选日期(默认今天)','九宫格显示财神、喜神、贵神方位与当日飞星','出行、办事可朝吉神方位'],
+    en:['Pick a date (defaults to today)','The grid shows Wealth/Joy/Noble bearings and flying stars','Face lucky bearings for important errands']},
+ 11:{cn:['填出生年份与性别(生日在立春前后请填精确日期)','点「测 算」得命卦与东四/西四命','九宫格看八方吉凶,床与书桌朝吉方'],
+    en:['Enter birth year and gender (exact date near Feb 4)','Tap Calculate for your Gua and East/West group','Grid shows lucky sectors; point bed & desk there']},
+ 12:{cn:['点「启动罗盘」;手机上允许方向权限后转动即自动指向','电脑或无传感器时自动切换手动模式,拖滑杆旋转','盘面红字标出今日财神、喜神方位'],
+    en:['Tap Start; on a phone grant orientation permission','Desktop / no sensor auto-switches to a manual slider','Red marks show today\u2019s Wealth & Joy bearings']},
+ 13:{cn:['填出生日期、时间与时区(时辰必填)','点「排 盘」得十二宫与十四主星','命宫主星与四化(禄权科忌)是重点'],
+    en:['Enter birth date, time and timezone (hour required)','Tap Calculate for 12 palaces and 14 major stars','Focus on the Life Palace stars and Four Transformations']},
+ 14:{cn:['默念所问之事','点「求 签」抽取签诗','看吉凶等级与签文,点复制可请 AI 详解'],
+    en:['Focus on your question','Tap Draw for a temple lot','Read the level and verse; Copy to ask an AI more']},
+ 15:{cn:['选择牌阵(单张/三张等)','默念问题后点「抽 牌」','正位顺、逆位阻;结合牌位含义解读'],
+    en:['Choose a spread (single / three cards…)','Focus, then tap Draw','Upright flows, reversed blocks; read by position']},
+ 16:{cn:['填出生日期、精确时间、时区与出生地经纬度','点「推 算」得太阳、月亮、上升星座','上升对出生时间敏感,尽量精确到分钟'],
+    en:['Enter birth date, exact time, timezone and coordinates','Tap Calculate for Sun, Moon and Ascendant','Ascendant is time-sensitive — be precise to the minute']},
+ 17:{cn:['填日期时间,或直接点「此刻」','点「起 局」得九宫排盘','开、休、生三吉门标红;值符宫为枢机','点复制可交给 AI 结合用神详断'],
+    en:['Enter date & time, or just tap Now','Tap Cast for the nine-palace chart','Open/Rest/Life doors in red are lucky; Chief palace is key','Copy the chart to an AI for a detailed reading']},
+ 18:{cn:['填日期时间,或直接点「此刻」','点「起 课」得天地盘、四课与三传','初传看事起,中传看经过,末传看结果;留意旬空','点复制可交给 AI 详断'],
+    en:['Enter date & time, or just tap Now','Tap Cast for plates, four lessons and three transmissions','First = start, middle = process, final = outcome; note voids','Copy to an AI for a full reading']}};
+function toggleGuide(i){const b=document.getElementById('gh-'+i),d=document.getElementById('gb-'+i);
+ const open=!d.classList.contains('open');
+ d.classList.toggle('open',open);b.classList.toggle('open',open);}
+function injectGuides(){
+ for(const k in GUIDES){
+  const sec=document.getElementById('tab'+k);if(!sec)continue;
+  const card=sec.querySelector('.card'),h2=card?card.querySelector('h2'):null;if(!h2)continue;
+  let btn=document.getElementById('gh-'+k),body=document.getElementById('gb-'+k);
+  if(!body){body=document.createElement('div');body.id='gb-'+k;body.className='gbody';h2.after(body);}
+  if(!btn){btn=document.createElement('button');btn.id='gh-'+k;btn.className='ghelp';btn.type='button';
+   btn.onclick=()=>toggleGuide(k);}
+  if(btn.parentNode!==h2)h2.appendChild(btn); // re-attach if applyI18n rewrote the h2
+  btn.textContent=LANG==='cn'?'指南 ?':'GUIDE ?';
+  btn.classList.toggle('open',body.classList.contains('open'));
+  body.innerHTML=GUIDES[k][LANG==='cn'?'cn':'en'].map((s,i)=>'<div><b>'+(i+1)+'</b>'+s+'</div>').join('');}}
+
+/* ==================== SHARED ==================== */
+function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
+function copyText(txt,btnId){
+  const done=()=>{const b=document.getElementById(btnId);const old=b.textContent;
+    b.textContent=T('copied');b.classList.add('copyok');setTimeout(()=>{b.textContent=old;b.classList.remove('copyok')},1600);};
+  if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(txt).then(done).catch(()=>fallbackCopy(txt,done));}
+  else fallbackCopy(txt,done);}
+function fallbackCopy(txt,done){const ta=document.createElement('textarea');ta.value=txt;
+  document.body.appendChild(ta);ta.select();try{document.execCommand('copy')}catch(e){}
+  document.body.removeChild(ta);done();}
+const NAVD=[
+ {ch:'命',cap:'Fate',subs:[[0,'八字','BaZi'],[7,'称骨','Bone Weight'],[8,'合婚','Match'],[13,'紫微斗数','Zi Wei']]},
+ {ch:'卜',cap:'Oracle',subs:[[1,'六爻','Liu Yao'],[4,'梅花易数','Plum Blossom'],[5,'小六壬','Quick Palm'],[17,'奇门遁甲','Qi Men'],[18,'大六壬','Da Liu Ren'],[14,'灵签','Temple Lots'],[15,'塔罗','Tarot']]},
+ {ch:'历',cap:'Almanac',subs:[[2,'黄历','Daily'],[6,'择日','Good Dates']]},
+ {ch:'名',cap:'Name',subs:[[3,'英文数理','Numerology'],[9,'中文五格','Five Grids']]},
+ {ch:'星',cap:'Stars',subs:[[16,'星座三要素','Big Three']]},
+ {ch:'方',cap:'Bearings',subs:[[10,'吉神·飞星','Bearings & Stars'],[11,'八宅','Eight Mansions'],[12,'罗盘','Compass']]}];
+let curCat=0,curSub=0;
+function renderNav(){
+ document.getElementById('catnav').innerHTML=NAVD.map((c,i)=>
+  '<button class="cat'+(i===curCat?' on':'')+'" onclick="pickCat('+i+')"><span class="ch">'+c.ch+'</span><span class="cap">'+c.cap+'</span></button>').join('');
+ document.getElementById('subnav').innerHTML=NAVD[curCat].subs.map((s,j)=>
+  '<button class="sub'+(j===curSub?' on':'')+(s[0]<0?' todo':'')+'" onclick="pickSub('+j+')">'+(LANG==='cn'?s[1]:s[2])+(s[0]<0?'<i>·</i>':'')+'</button>').join('');
+}
+function pickCat(i){curCat=i;curSub=Math.max(0,NAVD[i].subs.findIndex(s=>s[0]>=0));renderNav();applySub();}
+function pickSub(j){curSub=j;renderNav();applySub();}
+function applySub(){const s=NAVD[curCat].subs[curSub];
+ ['tab0','tab1','tab2','tab3','tab4','tab5','tab6','tab7','tab8','tab9','tab10','tab11','tab12','tab13','tab14','tab15','tab16','tab17','tab18','tabTodo'].forEach(id=>document.getElementById(id).classList.remove('on'));
+ if(s[0]>=0)document.getElementById('tab'+s[0]).classList.add('on');
+ else{const t=document.getElementById('tabTodo');t.classList.add('on');
+  t.innerHTML='<div class="card"><h2>'+(LANG==='cn'?s[1]:s[2])+'</h2><div class="todo-empty">'+T('todo')+'</div></div>';}}
+function rerenderAll(){fillTZ();fillCat();fillMisc();renderNav();applySub();injectGuides();renderBazi();renderHex();updateThrowBtn();renderAlmanac();renderName();
+ if(stMH)renderMH();if(stCG)renderCG();if(stHH)renderHH();if(stZW)renderZW();if(stQ)renderQian();if(stTR)renderTarot();if(stAZ)renderAstro();if(stQM)renderQimen();if(stDL)renderLiuren();
+ ['fx-out','bm-out'].forEach(id=>{const el=document.getElementById(id);
+  if(el&&el.innerHTML){id==='fx-out'?doFangwei():doBazhai();}});}
+/* init */
+(function(){fillTZ();fillCat();fillMisc();renderNav();applySub();
+  const now=new Date();
+  document.getElementById('al-date').value=now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0')+'-'+String(now.getDate()).padStart(2,'0');
+  stAl={y:now.getFullYear(),m:now.getMonth()+1,d:now.getDate()};
+  const ds=now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0')+'-'+String(now.getDate()).padStart(2,'0'),
+        ts=String(now.getHours()).padStart(2,'0')+':'+String(now.getMinutes()).padStart(2,'0');
+  ['qm','dl'].forEach(p=>{document.getElementById(p+'-date').value=ds;document.getElementById(p+'-time').value=ts;});
+  renderAlmanac();updateThrowBtn();xlModeChange();applyI18n();injectGuides();})();
+</script>
+</body>
+</html>
