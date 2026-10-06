@@ -1,110 +1,140 @@
-# CLAUDE.md — AI 圆桌（AI Roundtable）
+# CLAUDE.md — Roundtable（圆桌）
 
-多个 AI 通过 OpenRouter **匿名协作**解答作业题的辅助平台。
-流程：独立作答 → 匿名互评 → 修订 → 轮值主持汇总共识与分歧 → 揭晓身份。
+让多个 AI **像人类学习小组一样**协作完成作业：讨论、分工、接话、质疑、配合、汇总。
+模型通过 OpenRouter（默认）调用，组员匿名，真实身份只在最后揭晓。
 
-技术栈：Python 3.11+、Streamlit、SQLite、pytest。
-
+技术栈：Python 3.11+、Streamlit、SQLite、pydantic、pytest。
 实施计划见 `docs/PLAN.md`，按阶段推进，不要跳阶段。
 
 ---
 
-## 1. 架构规则（必须遵守）
+## 1. 两层结构（核心概念）
 
-### 1.1 模型注册表：只改配置就能加模型
-- 所有模型定义在 `config/models.yaml`，每条至少包含：`id`（内部唯一名）、`provider`（适配器名）、`model`（提供方的模型标识）、`enabled`，可选 `params`（temperature、max_tokens 等）。
-- 新增模型 **只能** 改 `config/models.yaml`，不得为某个具体模型写分支代码（禁止 `if model_id == "..."`）。
-- 配置用 pydantic 校验，加载失败要给出清晰报错。
+| | 里层（统筹层） | 表层（作业层） |
+|---|---|---|
+| 角色 | 规划者 Planner、调度者 Dispatcher、记录官 Scribe | 匿名组员 Member |
+| 风格 | 理性化：无名字无性格，只输出结构化 JSON | 拟人化：有名字有性格，像同学群聊 |
+| 用户可见 | 侧边面板 | 主界面群聊 |
 
-### 1.2 Provider 适配器模式
-- 统一接口：`core/providers/base.py` 定义 `Provider` 抽象类（如 `complete(messages, model, params) -> Completion`）。
-- 默认适配器：`openrouter`。预留：`direct`（直连官方 API）、`local`（本地模型，如 Ollama / OpenAI 兼容端点）。
-- 适配器通过注册表按 `provider` 名称查找，新增适配器不修改调用方代码。
-- 测试一律使用 `fake` 适配器或 HTTP mock，**测试不得访问真实网络**。
-
-### 1.3 席位数动态
-- 每题上桌席位数 `N` 来自配置（`config/roundtable.yaml`），可被 UI 覆盖。
-- 可用模型数 > N 时，**每题随机抽取 N 个**上桌；可用模型数 < N 时按实际数量开桌并提示（至少 2 个）。
-- 随机数使用可注入的 `random.Random(seed)`，seed 写入数据库，保证可复现。
-
-### 1.4 流程环节 = 插件
-- 每个环节（作答、互评、修订、主持汇总、揭晓……）是一个实现 `Stage` 协议的插件，通过注册表按名称注册。
-- 执行顺序由 `config/roundtable.yaml` 的 `pipeline:` 列表决定；引擎只按顺序执行，不硬编码环节。
-- 新增环节 = 新增一个插件文件 + 改配置，不改引擎。
-
-### 1.5 提示词外置且带版本
-- 所有提示词放在 `prompts/` 下，命名 `prompts/<stage>/v<版本>.md`（如 `prompts/review/v1.md`）。
-- 代码中不得出现内联提示词正文。
-- 使用的提示词版本由配置指定，并随每次调用写入数据库。
-- 修改已发布提示词时 **新建版本文件**，不改旧版本（保证历史讨论可追溯）。
-
-### 1.6 持久化：SQLite
-- 每场讨论（题目、席位、匿名标签映射、每个环节的每次调用、提示词版本、模型、token/耗时、最终汇总、seed）完整写入 SQLite。
-- 数据访问集中在 `core/storage/`（Repository 模式），其他模块不直接写 SQL。
-- 表结构变更通过版本化的迁移脚本完成。
-
-### 1.7 core 与 ui 分离
-- `src/roundtable/core/`：纯业务逻辑，**禁止 import streamlit**。
-- `src/roundtable/ui/`：Streamlit 界面，只通过 core 暴露的服务接口（facade）调用，不直接调用 Provider 或数据库。
-- 有测试检查 core 中不出现 `streamlit` 依赖。
+- **规划者**：理解题目、拆子任务、估算轮数/token/费用。
+- **调度者**：按能力标签分配子任务、组织结对、推进流程、决定何时问用户、何时结束。
+- **记录官**：维护会议记录（minutes）、响应"查原文"、判断是否该结束、统计用量。不参与讨论、不发表观点。
+- **组员**：群聊讨论 + 完成分配到的子任务。
 
 ---
 
-## 2. 中立规则（公平性，必须遵守）
+## 2. 架构规则（必须遵守）
 
-1. **统一提示词**：同一环节所有模型使用完全相同的提示词与参数（模型自身 `params` 的差异仅限于 API 必需项）。
-2. **匿名**：讨论过程中模型只以匿名标签（如「席位 A / B / C」）出现；标签与模型的映射每题随机生成。模型输出中可能暴露身份的自称（如 "As GPT…"、"我是 Claude"）在转给其他模型前要做脱敏。
-3. **随机顺序**：每个评审者看到的他人答案顺序独立随机打乱；席位标签分配也随机。
-4. **不能自评**：互评环节评审者 **永远看不到自己的答案**作为被评对象；由代码强制保证并有测试覆盖。
-5. **轮值主持**：主持人从本题上桌席位中轮换/随机产生，主持人同样只看到匿名内容。
-6. **最后才揭晓**：模型身份只在流程最后的「揭晓」环节对用户展示；在此之前 UI 和任何发给模型的内容都不得包含真实模型名。
+### 2.1 配置驱动，不为具体模型写代码
+- `config/models.yaml`：每个模型含 `id`、`provider`、`model`、`vendor`、`price`（输入/输出每百万 token）、`tags`（能力标签，如 `math`、`derivation`、`writing`、`code`、`research`、`long_context`）、`enabled`、可选 `params`。
+- `config/roundtable.yaml`：表层座位数、轮数阈值、token 阈值、档位定义、发言长度上限、上下文保留轮数、流程步骤顺序、里层角色分配规则。
+- `config/personas.yaml`：组员名字池、性格池。
+- 新增模型 / 性格 / 档位 **只改配置**。禁止 `if model_id == ...`、`if vendor == ...` 之类的分支；调度只看标签。
+- 所有配置用 pydantic 校验，失败给出清晰报错。
+
+### 2.2 Provider 适配器
+- `core/providers/base.py` 定义 `Provider` 抽象类：`complete(messages, model, params) -> Completion`（含文本、token 用量、耗时）。
+- 默认 `openrouter`；预留 `direct`（官方 API 直连）、`local`（OpenAI 兼容本地端点）；测试用 `fake`。
+- 适配器按 `provider` 名称从注册表查找。支持的模型启用 prompt caching。
+- 每次调用的 token 与费用都要计算并入库。
+
+### 2.3 流程步骤 = 插件
+- 每个步骤（plan、confirm_task、discuss、execute、reconcile、compose、reveal……）实现 `Step` 协议并注册。
+- 顺序由 `config/roundtable.yaml` 的 `pipeline:` 决定；编排引擎不硬编码步骤。
+- 每步执行后状态落库，保证可暂停、可从数据库恢复。
+
+### 2.4 提示词外置且带版本
+- `prompts/<role>/v<n>.md`（role：planner、dispatcher、scribe、member、…）。代码中不得内联提示词正文。
+- 使用的版本由配置指定，并随每次调用写入数据库（版本号 + 内容哈希）。
+- 改已有提示词 = **新建版本文件**，旧版本不动。
+
+### 2.5 里层结构化输出
+- 里层一律输出 JSON，用 pydantic schema 校验；不寒暄、不拟人。
+- 解析失败自动重试一次，仍失败则降级并记录。
+- 给用户的确认请求固定格式：**现状 / 选项 / 各选项代价（轮数、token、费用）/ 推荐**。
+
+### 2.6 持久化：SQLite
+- 存：会话、座位与角色分配、随机种子、每次调用（角色、提示词版本、输入输出、token、费用、耗时、错误）、群聊发言、会议记录**每个版本**、子任务、结对结果与比对、确认点及用户回复。
+- 数据访问只经 `core/storage/`（Repository 模式），其他模块不写 SQL；表结构变更走版本化迁移。
+
+### 2.7 core 与 ui 分离
+- `src/roundtable/core/` **禁止 import streamlit**（有测试守卫）。
+- `src/roundtable/ui/` 只调用 `core/service.py` 暴露的接口，不直接碰 Provider 或数据库。
 
 ---
 
-## 3. 安全与密钥
+## 3. 中立性规则（必须由代码保证并有测试）
 
-- API key **只能** 放在项目根目录 `.env`，通过 `python-dotenv` / 环境变量读取。
-- `.env` 必须在 `.gitignore` 中；仓库只提交 `.env.example`（占位符，无真实值）。
-- key 不得出现在：代码、配置 YAML、提示词、日志、异常信息、SQLite、测试快照中。
-- 提交前检查 diff 中没有密钥。
+1. 所有组员使用相同的系统提示模板，只有名字和性格字段不同；同一角色参数一致。
+2. 组员之间只以匿名名字出现；能力标签只有里层可见。
+3. 性格随机分配，**与厂商无关**。
+4. 里层模型（规划者/调度者/记录官）**不兼任同场表层组员**。
+5. 结对：同一子任务两名组员各自独立完成，**彼此看不到过程和结果**；尽量来自不同厂商。
+6. 任何组员不得核对**自己或搭档**的结果；比对时结果以随机顺序呈现。
+7. 组员输出中自报模型身份（"作为 GPT……"、"我是 Claude"）在其他模型看到前遮掉。
+8. 真实身份只在 reveal 步骤显示；此前 UI 和发给任何模型的内容都不得含真实模型名。
+9. 抽座位、分配性格、结对、排序全部使用可注入的 `random.Random(seed)`，seed 存库，可复现。
 
 ---
 
-## 4. 工作流程
+## 4. 省 token 规则
+- 组员上下文 = 会议记录 + 最近 K 轮原文（K 可配置），不发完整历史；做子任务时只给相关上下文。
+- 发言有长度上限、可"跳过"、禁止复述和客套。
+- 杂活交给记录官（最便宜模型）；里层用结构化短输出。
+- 界面实时显示累计 token / 费用。
 
-- **每个阶段完成后进行一次 git 提交**（阶段内可多次小提交），提交信息注明阶段，例如 `phase 2: provider adapters`。
+---
+
+## 5. 用户打扰规则
+只在以下情况暂停问用户，其余时间不打扰：
+1. 任务确认（理解 + 分工方案）
+2. 预估轮数超阈值 → 提供 简单 / 中等 / 完整 三档方案
+3. 决定性结果：关键结论、方向选择、无法调和的分歧
+4. 下一步预估 token 超阈值
+
+确认卡片：**继续 / 修改（可附文字）/ 停止**。等待期间可关闭页面，之后从数据库恢复。
+
+---
+
+## 6. 安全与密钥
+- API key **只能** 放在项目根目录 `.env`（已在 `.gitignore`），仓库只提交 `.env.example`。
+- key 不得出现在代码、YAML、提示词、日志、异常信息、SQLite、测试快照中。提交前检查 diff。
+
+---
+
+## 7. 工作流程
+- **每个阶段完成后 git 提交**，提交信息注明阶段（如 `phase 4: allocation`）。
 - 提交前必须：`ruff check`、`ruff format --check`、`pytest` 全部通过。
-- **每个模块都要写测试**，放在 `tests/` 下与源码结构对应；新功能与测试同一次提交。
-- 测试不访问网络、不依赖真实 key；数据库测试使用临时文件或 `:memory:`。
+- **每个模块都要有测试**，`tests/` 结构与 `src/` 对应；功能与测试同一提交。
+- 测试不访问网络、不依赖真实 key；数据库测试用临时文件或 `:memory:`。
 
 ---
 
-## 5. 目录约定
+## 8. 目录约定
 
 ```
-config/
-  models.yaml          # 模型注册表
-  roundtable.yaml      # 席位数、pipeline 顺序、提示词版本、主持策略
-prompts/
-  <stage>/v1.md        # 版本化提示词
+config/        models.yaml  roundtable.yaml  personas.yaml
+prompts/       <role>/v<n>.md
 src/roundtable/
   core/
-    config/            # 配置加载与校验
-    providers/         # Provider 基类、注册表、openrouter/direct/local/fake
-    prompts/           # 提示词加载与渲染
-    seating/           # 抽席、匿名标签、乱序、脱敏
-    stages/            # 环节插件
-    pipeline/          # 引擎与上下文
-    storage/           # SQLite repository 与迁移
-    service.py         # 对 UI 暴露的 facade
+    config/        配置加载与校验
+    providers/     Provider 基类、注册表、openrouter/direct/local/fake、计费
+    prompts/       提示词加载与渲染
+    allocation/    选记录官、里层角色、表层座位、性格、结对、身份屏蔽
+    storage/       SQLite repository 与迁移
+    scribe/        会议记录、原文保留、查原文
+    inner/         规划者、调度者、输出 schema、预估与档位
+    surface/       群聊引擎、子任务执行、结对独立作业
+    orchestrator/  步骤插件、编排引擎、确认点、暂停/恢复
+    service.py     对 UI 的 facade
   ui/
-    app.py             # Streamlit 入口
-tests/                 # 与 src 结构对应
-docs/PLAN.md           # 分阶段实施计划
+    app.py         Streamlit 入口
+tests/
+docs/PLAN.md
 .env.example
 ```
 
-## 6. 常用命令
+## 9. 常用命令
 
 ```bash
 pip install -e ".[dev]"

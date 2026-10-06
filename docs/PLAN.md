@@ -1,100 +1,110 @@
-# AI 圆桌 — 分阶段实施计划
+# Roundtable 实施计划 v2
 
-规则见根目录 `CLAUDE.md`。每个阶段结束：lint + 测试全绿 → git 提交（`phase N: ...`）。
-
----
-
-## Phase 0 — 项目骨架
-**产出**
-- `pyproject.toml`（依赖：streamlit、httpx、pydantic、pyyaml、python-dotenv；dev：pytest、pytest-asyncio、respx、ruff）
-- 目录结构（见 CLAUDE.md §5）、`.gitignore`（含 `.env`、`*.db`）、`.env.example`
-- 空的 `config/models.yaml`、`config/roundtable.yaml` 示例
-- 架构守卫测试：core 中不得 import streamlit；仓库中不得出现疑似 key（`sk-or-` 等）
-
-**验收**：`pytest` 可运行且守卫测试通过。
-
-## Phase 1 — 配置与模型注册表（`core/config`）
-- pydantic 模型：`ModelSpec`（id, provider, model, enabled, params）、`RoundtableConfig`（seats, pipeline, prompt_versions, moderator_strategy, timeouts）
-- `load_models()` / `load_roundtable()`：读 YAML、校验、id 唯一、provider 必须已注册
-- `Settings`：从环境变量 / `.env` 读取 key（只读，不落盘）
-
-**测试**：合法配置加载；重复 id、未知 provider、缺字段报错；禁用模型被过滤。
-
-## Phase 2 — Provider 适配器（`core/providers`）
-- `Provider` 抽象基类 + `Completion` 数据类（text, usage, latency, raw_model）
-- 适配器注册表（装饰器 `@register_provider("openrouter")`）
-- `OpenRouterProvider`：httpx 异步调用，超时、重试（指数退避）、错误归一化，日志中屏蔽 key
-- `FakeProvider`：可编排的确定性回复，供所有测试使用
-- `DirectProvider`、`LocalProvider`：接口占位 + 基本实现骨架（OpenAI 兼容 base_url）
-
-**测试**：respx mock OpenRouter 请求/响应、重试、超时、401；Fake 行为；异常信息中无 key。
-
-## Phase 3 — 版本化提示词（`core/prompts`）
-- `prompts/answer/v1.md`、`review/v1.md`、`revise/v1.md`、`moderate/v1.md`
-- 加载器：按 `(stage, version)` 读取，模板变量渲染（`string.Template` 或 Jinja2，二选一），缺变量报错
-- 返回 `RenderedPrompt(text, stage, version, sha256)` 以便入库追溯
-
-**测试**：版本解析、缺文件/缺变量报错、hash 稳定。
-
-## Phase 4 — 抽席与匿名化（`core/seating`）
-- `draw_seats(models, n, rng)`：随机抽 N 个（模型数不足时降级，<2 报错）
-- `assign_labels(seats, rng)`：随机分配「席位 A/B/C…」
-- `shuffled_peers(reviewer, answers, rng)`：返回排除自己后的乱序答案列表
-- `pick_moderator(seats, strategy, rng)`：轮值 / 随机
-- `scrub_identity(text, known_names)`：脱敏模型自称
-
-**测试**（重点，中立规则的核心）：
-- 评审者永远不在自己的被评列表中（参数化 + 多 seed 循环）
-- 同 seed 可复现、不同 seed 顺序分布合理
-- 标签中不含模型名；脱敏覆盖常见自称
-
-## Phase 5 — SQLite 存储（`core/storage`）
-- 表：`discussions`（题目、seed、配置快照、状态、时间）、`seats`（discussion_id、label、model_id、是否主持）、`calls`（stage、seat、prompt_version、prompt_hash、输入、输出、tokens、latency、error）、`results`（共识/分歧汇总）
-- 迁移：`migrations/0001_init.sql` + `schema_version` 表
-- `DiscussionRepository`：create / append_call / finish / get / list
-
-**测试**：临时 DB 上的增删查、迁移幂等、未揭晓状态下查询接口不返回模型名（匿名视图）。
-
-## Phase 6 — 环节插件与流程引擎（`core/stages`、`core/pipeline`）
-- `Stage` 协议：`name`、`async run(ctx) -> None`；`@register_stage("answer")`
-- `DiscussionContext`：题目、席位、标签映射、rng、各阶段产出、repository、provider 解析器
-- 内置插件：
-  1. `answer` — 各席位并发独立作答
-  2. `review` — 每席位评审他人匿名答案（乱序、排除自己）
-  3. `revise` — 各席位参考评审意见修订自己的答案
-  4. `moderate` — 轮值主持汇总共识与分歧
-  5. `reveal` — 标记揭晓，生成身份对照
-- `PipelineEngine`：按 `roundtable.yaml` 的 pipeline 顺序执行，每步入库，发出进度事件（回调），单席位失败时记录并继续（可配置）
-
-**测试**：FakeProvider 端到端跑完整流程；自定义 pipeline 顺序/跳过环节；插入一个测试用自定义插件无需改引擎；单模型失败的降级；全程发给模型的内容不含真实模型名。
-
-## Phase 7 — 服务层 facade（`core/service.py`）
-- `RoundtableService`：`start_discussion(question, seats=None, seed=None)`、`get_discussion(id, revealed=False)`、`list_history()`、`reveal(id)`
-- 进度事件流（生成器/回调），供 UI 订阅
-- 可选：`python -m roundtable` 命令行入口，便于不开 UI 调试
-
-**测试**：facade 行为、未 reveal 前返回值不含模型身份。
-
-## Phase 8 — Streamlit UI（`ui/`）
-- 页面：提问（题目输入、席位数滑块、模型池预览只显示数量）、实时进度（按环节展开，匿名标签）、主持汇总（共识 / 分歧）、「揭晓身份」按钮、历史讨论列表
-- 只调用 `RoundtableService`，不直接碰 provider/DB
-- 缺少 key 时给出友好提示（指向 `.env.example`）
-
-**测试**：`streamlit.testing.v1.AppTest` + 注入 Fake 服务：页面渲染、揭晓前不出现模型名、揭晓后出现。
-
-## Phase 9 — 打磨
-- token / 费用统计展示、并发与速率限制、超时配置
-- README（安装、配置 `.env`、加模型示例、加环节示例、加提示词版本示例）
-- 可选：CI（GitHub Actions 跑 ruff + pytest）
+规则见 `CLAUDE.md`。每阶段结束：`ruff` + `pytest` 全绿 → git 提交（`phase N: ...`）。
+v1（独立作答 → 互评 → 修订 → 主持汇总）已被本计划取代；此前尚未写任何代码。
 
 ---
 
-## 待确认的设计决策（暂按默认值推进）
-| 问题 | 默认 |
-|---|---|
-| 主持人是否也参与作答 | 参与（主持人从上桌席位中产生） |
-| 互评形式 | 文字点评 + 1–10 分 + 指出错误 |
-| 修订轮数 | 1 轮，配置项可调 |
-| 默认席位数 N | 3 |
-| 单模型调用失败 | 记录错误、该席位后续环节跳过，剩余 ≥2 席则继续 |
-| 模板引擎 | `string.Template`（零依赖），需要条件逻辑时再换 Jinja2 |
+## 标准流程（运行时）
+
+1. **plan**：规划者理解题目 → 拆子任务 → 估算轮数 / token / 费用
+2. **confirm_task**【确认点】：小组复述理解与分工；预估 >5 轮时同时给出 简单 / 中等 / 完整 三档
+3. **discuss + execute**：表层群聊讨论；子任务按档位结对，独立完成
+4. **reconcile**：里层比对结对结果 —— 一致采用；不一致交表层讨论；仍不一致【确认点】问用户
+5. **compose**：表层汇总成最终作业，保留分歧点
+6. **reveal**：显示各座位真实模型
+
+每轮后记录官更新会议记录。步骤顺序在 `config/roundtable.yaml` 的 `pipeline:` 中配置。
+
+---
+
+## 阶段
+
+### Phase 0 — 项目骨架
+- `pyproject.toml`（streamlit、httpx、pydantic、pyyaml、python-dotenv；dev：pytest、pytest-asyncio、respx、ruff）
+- 目录结构、`.gitignore`（`.env`、`*.db`）、`.env.example`、三个示例配置文件
+- **测试**：core 不导入 streamlit；仓库中无疑似密钥
+
+### Phase 1 — 配置加载与校验（`core/config`）
+- `ModelSpec`（id, provider, model, vendor, price.input/output, tags, enabled, params）
+- `RoundtableConfig`（seats、rounds_threshold、token_threshold、tiers、message_char_limit、context_rounds、pipeline、inner_role_rules）
+- `PersonasConfig`（names、personalities）；标签词表在配置中声明，模型标签须属于词表
+- **测试**：重复 ID、未知 provider、缺字段、非法标签、阈值非法（负数、0）、名字池 < 座位数
+
+### Phase 2 — Provider 与计费（`core/providers`）
+- `Provider` 基类、注册表、`Completion`（text, input/output/cached tokens, latency）
+- `OpenRouterProvider`：httpx 异步、超时、指数退避重试、错误归一化、key 脱敏；prompt caching 透传
+- `FakeProvider`（可编排脚本回复）、`DirectProvider` / `LocalProvider` 骨架
+- `cost(usage, price)`；优先用 OpenRouter 返回的实际费用，缺失时按配置价格计算
+- **测试**：respx 模拟重试/超时/401/429；错误信息无 key；费用计算（含缓存 token）
+
+### Phase 3 — 版本化提示词（`core/prompts`）
+- `prompts/{planner,dispatcher,scribe,member}/v1.md`
+- 按 (role, version) 加载、变量渲染、缺变量报错，返回 `(text, version, sha256)`
+- **测试**：版本查找、缺文件/缺变量、哈希稳定；member 模板只有 name/persona 字段差异
+
+### Phase 4 — 分配逻辑（`core/allocation`）——中立性核心
+- `pick_scribe`：最便宜（输入+输出加权价），并列按 seed；可手动覆盖
+- `pick_inner_roles`：规划者/调度者按配置规则轮换，可同一模型兼任
+- `draw_members`：从剩余模型抽 N 个，尽量覆盖不同厂商
+- `assign_personas`：名字、性格随机分配，与厂商无关
+- `make_pairs(subtask, members, tier)`：跨厂商优先；档位决定是否结对
+- `pick_verifier`：排除本人与搭档
+- `scrub_identity(text, known_names)`：遮掉自报身份
+- **测试**（多 seed 循环）：里层 ∩ 表层 = ∅；记录官为最便宜；不自核/不核搭档；结对跨厂商（可行时）；性格分布与厂商独立；同 seed 可复现；模型不足时报清晰错误
+
+### Phase 5 — SQLite 存储（`core/storage`）
+- 表：sessions、seats（角色/名字/性格/model_id）、calls（角色、提示词版本+哈希、token、费用、耗时、错误）、messages（群聊发言，含发言人与轮次）、minutes（版本化）、subtasks、pair_results、checkpoints（类型、卡片内容、用户选择、附言）
+- 迁移脚本 + `schema_version`
+- 匿名视图：reveal 前的查询接口不含 model_id
+- **测试**：读写、迁移重复执行幂等、匿名视图无模型名
+
+### Phase 6 — 记录官（`core/scribe`）
+- 输入：上一版记录 + 本轮新发言；输出结构化 minutes（结论/决定、分工进度、关键原文、未决问题与分歧）
+- **关键原文由代码保证逐字**：记录官只给出 `message_id + 引文`，代码校验引文确为原文子串，不符则从原文截取替换（便宜模型容易改写公式/数字）
+- "查原文"：按 message_id 从库中取完整发言
+- 杂活：是否该结束、剩余轮数估计、用量统计
+- **测试**：Fake 下记录完整；篡改引文被纠正；查原文返回正确发言；每版入库
+
+### Phase 7 — 里层（`core/inner`）
+- schema：`Plan`（子任务、所需标签、预估轮数/token）、`Dispatch`（分配、结对、下一步动作）、`ConfirmationCard`（现状/选项/代价/推荐）、`TierOption`
+- 结构化调用器：JSON 解析 → 失败重试一次 → 降级（如使用默认分配）并记录
+- 估算：轮数、token、费用；阈值判断；三档方案生成
+- **测试**：schema 校验；坏 JSON 重试与降级；轮数 ≤/> 阈值、token 超阈值的触发；按标签分配无模型分支
+
+### Phase 8 — 表层（`core/surface`）
+- 群聊引擎：发言顺序（随机 + 被点名/被质疑者优先）、"跳过"、长度上限（提示约束 + 超长截断标记）
+- 上下文构造：会议记录 + 最近 K 轮 + 身份遮蔽后的原文
+- 子任务执行：只给相关上下文；结对双方独立调用
+- 用户以"组长"身份插话进入群聊
+- **测试**：结对双方上下文互不包含对方内容；上下文只含记录 + 最近 K 轮；跳过与截断；发给模型的内容无真实模型名
+
+### Phase 9 — 编排引擎（`core/orchestrator`）
+- `Step` 协议 + 注册表；内置 plan / confirm_task / discuss / execute / reconcile / compose / reveal
+- 状态机：每步结束持久化；遇确认点进入 `awaiting_user`，用户回复后继续
+- 失败处理：组员失败则跳过；有搭档则单独采用并标记"未双重验证"；表层 < 2 人时暂停问用户
+- **测试**：Fake 全流程跑通；各确认点按规则触发；从库中恢复后状态一致、不重复调用已完成步骤；自定义步骤无需改引擎
+
+### Phase 10 — 服务接口（`core/service.py`）
+- `start`、`respond_checkpoint(continue/modify/stop, note)`、`user_message`、`resume`、`get_view(revealed)`、`reveal`、`history`、进度事件订阅
+- **测试**：reveal 前任何返回值不含模型身份
+
+### Phase 11 — Streamlit 界面（`ui/`）
+- 主区：群聊（名字 + 头像色块）、组长输入框
+- 侧边栏（可折叠）：计划、分工表、子任务进度、结对比对、当前会议记录、token/费用
+- 确认卡片（继续 / 修改 / 停止）、揭晓按钮、历史记录（含会议记录各版本）
+- 缺 key 时友好提示
+- **测试**：AppTest + Fake 服务：reveal 前无模型名、确认卡片三按钮可用、插话写入群聊
+
+### Phase 12 — 收尾
+- 速率限制与并发控制、README（安装、`.env`、加模型/性格/步骤/提示词版本示例）、可选 GitHub Actions CI
+
+---
+
+## 默认值（采用 v2 文档第 11 节）
+1. 表层 3 座；规划者+调度者可同一模型兼任；记录官独立 → 每场至少 5 个不同模型
+2. 组员失败：跳过；有搭档则单独采用并标"未双重验证"；表层 < 2 人暂停问用户
+3. 单步预估 > 20k token 时询问
+4. 发言上限 200 字/条（子任务产出不限）
+5. 上下文保留最近 2 轮原文
+6. 轮数阈值 5 轮
