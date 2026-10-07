@@ -1,0 +1,22 @@
+# 密钥：只能放在 .env，永不提交
+.env
+.env.*
+!.env.example
+
+# 本地数据（SQLite、上传、产物）
+data/
+*.db
+*.sqlite3
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/

@@ -1,0 +1,13 @@
+# v1 只使用匿名模式：组员显示为 "<code_prefix><代号>"，如 "组员甲"。
+code_prefix: 组员
+codes: [甲, 乙, 丙, 丁, 戊, 己, 庚, 辛]
+
+# 人设模式（后续扩展）：按模型 id 配置昵称、性格、口头禅、专长。
+# 示例：
+# personas:
+#   gpt-6-sol:
+#     nickname: 小G
+#     personality: 开朗自信的班长型优等生
+#     catchphrase: 当然可以！
+#     specialties: [math, writing]
+personas: {}
