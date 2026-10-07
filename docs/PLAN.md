@@ -1,110 +1,72 @@
-# Roundtable 实施计划 v2
+# Roundtable 实施计划 v3
 
-规则见 `CLAUDE.md`。每阶段结束：`ruff` + `pytest` 全绿 → git 提交（`phase N: ...`）。
-v1（独立作答 → 互评 → 修订 → 主持汇总）已被本计划取代；此前尚未写任何代码。
+需求：`docs/REQUIREMENTS_v3.md`。规则：`CLAUDE.md`。界面样板：`docs/mockup.html`。
+每阶段结束：`ruff` + `pytest` 全绿 → git 提交（`phase N: ...`）。
+
+**与 v3 需求第 11 节的差异**：把多媒体（原阶段 9、10）挪到"纯文字版跑通"之后。
+先在阶段 11 得到一个能用的纯文字版本（里程碑 M1），再在其上加多媒体。好处是核心流程和中立规则可以更早用真实模型验证，
+多媒体的接口在阶段 2 先占位，后面不需要回改核心。总阶段数 16（0–15）。
 
 ---
 
-## 标准流程（运行时）
+## 运行时流程
 
-1. **plan**：规划者理解题目 → 拆子任务 → 估算轮数 / token / 费用
-2. **confirm_task**【确认点】：小组复述理解与分工；预估 >5 轮时同时给出 简单 / 中等 / 完整 三档
-3. **discuss + execute**：表层群聊讨论；子任务按档位结对，独立完成
-4. **reconcile**：里层比对结对结果 —— 一致采用；不一致交表层讨论；仍不一致【确认点】问用户
-5. **compose**：表层汇总成最终作业，保留分歧点
-6. **reveal**：显示各座位真实模型
+1. **plan**：统筹读题 → 拆交付物和领域 → 初步分工 + 流水线 → 预估轮数 / token / 媒体费用
+2. **discuss_division**：组员讨论分工是否合适 → 统筹更新分工
+3. **confirm_task**【确认点】：任务确认（预估 > 5 轮时同时给三档；提示可上传资料）
+4. **work_round**（循环）：讨论 → 制作 → 改进 → **pair_check**（结对核对）
+5. **compose**：汇总交付物 + "讨论中做出的改进"清单
+6. **reveal**：匿名模式下揭晓身份
 
-每轮后记录官更新会议记录。步骤顺序在 `config/roundtable.yaml` 的 `pipeline:` 中配置。
+每轮后记录官更新会议记录；步骤顺序在 `config/roundtable.yaml` 的 `pipeline:` 中配置。
 
 ---
 
 ## 阶段
 
-### Phase 0 — 项目骨架
-- `pyproject.toml`（streamlit、httpx、pydantic、pyyaml、python-dotenv；dev：pytest、pytest-asyncio、respx、ruff）
-- 目录结构、`.gitignore`（`.env`、`*.db`）、`.env.example`、三个示例配置文件
-- **测试**：core 不导入 streamlit；仓库中无疑似密钥
+### 第一部分：核心（纯文字）
 
-### Phase 1 — 配置加载与校验（`core/config`）
-- `ModelSpec`（id, provider, model, vendor, price.input/output, tags, enabled, params）
-- `RoundtableConfig`（seats、rounds_threshold、token_threshold、tiers、message_char_limit、context_rounds、pipeline、inner_role_rules）
-- `PersonasConfig`（names、personalities）；标签词表在配置中声明，模型标签须属于词表
-- **测试**：重复 ID、未知 provider、缺字段、非法标签、阈值非法（负数、0）、名字池 < 座位数
+| # | 内容 | 主要测试 | 工作量 |
+|---|---|---|---|
+| 0 | 项目骨架：`pyproject`、目录、`.gitignore`、`.env.example`、三个示例配置（6 个模型、人设）、`scripts/check_models.py`（用户本地用自己的 key 核对模型 ID 与价格） | core 不导入 fastapi/starlette/uvicorn/streamlit；仓库无密钥 | S |
+| 1 | 配置加载与校验：模型、标签词表、人设、代号池、阈值、预算、档位、防敷衍参数 | 重复 ID、未知标签、缺字段、人设缺失、代号池不足、阈值非法 | S–M |
+| 2 | Provider：基类（文本 + 媒体方法占位）、注册表、OpenRouter 文本、Fake、费用（实际费用优先 / 配置价格预估）、prompt caching | 模拟 HTTP：重试、超时、401/429；错误不泄露 key；费用计算 | M |
+| 3 | 版本化提示词：coordinator、scribe、member、reviewer、checker（含防敷衍条款） | 版本查找、缺变量、稳定哈希；组员模板只有人设字段不同 | S |
+| 4 | 分配逻辑：里层角色（统筹轮换、记录官最便宜）、座位、人设/代号映射、核对人选、身份遮蔽 | **中立性**多种子：作者不自核、核对者跨厂商、里层不兼组员、发给模型的内容无模型名/厂商名/昵称、同 seed 可复现 | M |
+| 5 | SQLite 存储与迁移：会话、消息、调用、会议记录版本、子任务/流水线、结对结果、确认点、费用；附件/产物表先建好 | 迁移幂等；匿名视图不含模型身份 | M |
+| 6 | 记录官：结构化会议记录、关键原文代码校验、查原文、防敷衍复判字段 | 被改写的引文被纠正；查原文正确；每版入库 | M |
+| 7 | 统筹：计划/流水线 schema、分工讨论后更新、预估与三档、阈值判断、确认卡片、"连续无新内容"点名 | JSON 校验、重试与降级；轮数/token/预算阈值触发 | M–L |
+| 8 | 表层：发言顺序、跳过、长度上限、防敷衍规则检测、上下文构建、流水线交接、组长插话分派 | 纯附和计为跳过、短而有实质的发言不被误判；上下文只含记录 + 最近 K 轮；结对双方互不可见 | L |
+| 9 | 编排引擎：步骤插件、完整流程、确认点、暂停/恢复、组员失败接手 | Fake 全流程；恢复不重复已完成调用；自定义步骤不改引擎 | L |
+| 10 | 服务 facade + FastAPI + SSE：会话、发消息、确认回复、暂停/继续、模式切换、揭晓、用量、名册 | TestClient：匿名模式揭晓前无模型身份；SSE 事件顺序；key 不出现在响应 | M |
+| 11 | 前端（文字版）：按 mockup 实现圆桌、群聊、确认卡片、里层面板（分工流程、结对核对、会议记录、用量、名册+换头像）、人设/匿名切换、窄屏堆叠 | Playwright：提问→分工讨论→确认→完成→揭晓 | L–XL |
 
-### Phase 2 — Provider 与计费（`core/providers`）
-- `Provider` 基类、注册表、`Completion`（text, input/output/cached tokens, latency）
-- `OpenRouterProvider`：httpx 异步、超时、指数退避重试、错误归一化、key 脱敏；prompt caching 透传
-- `FakeProvider`（可编排脚本回复）、`DirectProvider` / `LocalProvider` 骨架
-- `cost(usage, price)`；优先用 OpenRouter 返回的实际费用，缺失时按配置价格计算
-- **测试**：respx 模拟重试/超时/401/429；错误信息无 key；费用计算（含缓存 token）
+**里程碑 M1**：纯文字版可用，可用真实模型跑一次小作业，校准提示词和阈值。
 
-### Phase 3 — 版本化提示词（`core/prompts`）
-- `prompts/{planner,dispatcher,scribe,member}/v1.md`
-- 按 (role, version) 加载、变量渲染、缺变量报错，返回 `(text, version, sha256)`
-- **测试**：版本查找、缺文件/缺变量、哈希稳定；member 模板只有 name/persona 字段差异
+### 第二部分：多媒体
 
-### Phase 4 — 分配逻辑（`core/allocation`）——中立性核心
-- `pick_scribe`：最便宜（输入+输出加权价），并列按 seed；可手动覆盖
-- `pick_inner_roles`：规划者/调度者按配置规则轮换，可同一模型兼任
-- `draw_members`：从剩余模型抽 N 个，尽量覆盖不同厂商
-- `assign_personas`：名字、性格随机分配，与厂商无关
-- `make_pairs(subtask, members, tier)`：跨厂商优先；档位决定是否结对
-- `pick_verifier`：排除本人与搭档
-- `scrub_identity(text, known_names)`：遮掉自报身份
-- **测试**（多 seed 循环）：里层 ∩ 表层 = ∅；记录官为最便宜；不自核/不核搭档；结对跨厂商（可行时）；性格分布与厂商独立；同 seed 可复现；模型不足时报清晰错误
+| # | 内容 | 主要测试 | 工作量 |
+|---|---|---|---|
+| 12 | 多媒体输入：上传校验、存档、文档解析（PDF/docx/pptx/xlsx/txt/md/csv）、音频转写、视频抽帧 + 转写（ffmpeg）、读图路由到 `vision` 组员、写入会议记录 | 各格式解析样例；无 `vision`/`transcribe` 模型时正确提示；超大/伪造类型被拒 | L |
+| 13 | 多媒体输出：图像生成、TTS、代码渲染图表与动画（沙箱子进程 + 超时）、DOCX/PDF/PPTX/MD 生成、产物版本、付费媒体确认 | Fake 生成占位产物；版本递增旧版保留；付费生成前必有确认点 | L |
+| 14 | 前端多媒体：回形针 + 拖拽上传、内嵌预览（图/音/视频/文档）、文件库、交付物清单与下载、方向选择缩略图 | Playwright 端到端：上传 → 讨论 → 确认 → 生成 → 下载 | M–L |
 
-### Phase 5 — SQLite 存储（`core/storage`）
-- 表：sessions、seats（角色/名字/性格/model_id）、calls（角色、提示词版本+哈希、token、费用、耗时、错误）、messages（群聊发言，含发言人与轮次）、minutes（版本化）、subtasks、pair_results、checkpoints（类型、卡片内容、用户选择、附言）
-- 迁移脚本 + `schema_version`
-- 匿名视图：reveal 前的查询接口不含 model_id
-- **测试**：读写、迁移重复执行幂等、匿名视图无模型名
+### 收尾
 
-### Phase 6 — 记录官（`core/scribe`）
-- 输入：上一版记录 + 本轮新发言；输出结构化 minutes（结论/决定、分工进度、关键原文、未决问题与分歧）
-- **关键原文由代码保证逐字**：记录官只给出 `message_id + 引文`，代码校验引文确为原文子串，不符则从原文截取替换（便宜模型容易改写公式/数字）
-- "查原文"：按 message_id 从库中取完整发言
-- 杂活：是否该结束、剩余轮数估计、用量统计
-- **测试**：Fake 下记录完整；篡改引文被纠正；查原文返回正确发言；每版入库
+| # | 内容 | 工作量 |
+|---|---|---|
+| 15 | 限速与并发、预算硬上限、README（安装、`.env`、加模型/人设/步骤/提示词版本示例）、可选 GitHub Actions CI | S–M |
 
-### Phase 7 — 里层（`core/inner`）
-- schema：`Plan`（子任务、所需标签、预估轮数/token）、`Dispatch`（分配、结对、下一步动作）、`ConfirmationCard`（现状/选项/代价/推荐）、`TierOption`
-- 结构化调用器：JSON 解析 → 失败重试一次 → 降级（如使用默认分配）并记录
-- 估算：轮数、token、费用；阈值判断；三档方案生成
-- **测试**：schema 校验；坏 JSON 重试与降级；轮数 ≤/> 阈值、token 超阈值的触发；按标签分配无模型分支
-
-### Phase 8 — 表层（`core/surface`）
-- 群聊引擎：发言顺序（随机 + 被点名/被质疑者优先）、"跳过"、长度上限（提示约束 + 超长截断标记）
-- 上下文构造：会议记录 + 最近 K 轮 + 身份遮蔽后的原文
-- 子任务执行：只给相关上下文；结对双方独立调用
-- 用户以"组长"身份插话进入群聊
-- **测试**：结对双方上下文互不包含对方内容；上下文只含记录 + 最近 K 轮；跳过与截断；发给模型的内容无真实模型名
-
-### Phase 9 — 编排引擎（`core/orchestrator`）
-- `Step` 协议 + 注册表；内置 plan / confirm_task / discuss / execute / reconcile / compose / reveal
-- 状态机：每步结束持久化；遇确认点进入 `awaiting_user`，用户回复后继续
-- 失败处理：组员失败则跳过；有搭档则单独采用并标记"未双重验证"；表层 < 2 人时暂停问用户
-- **测试**：Fake 全流程跑通；各确认点按规则触发；从库中恢复后状态一致、不重复调用已完成步骤；自定义步骤无需改引擎
-
-### Phase 10 — 服务接口（`core/service.py`）
-- `start`、`respond_checkpoint(continue/modify/stop, note)`、`user_message`、`resume`、`get_view(revealed)`、`reveal`、`history`、进度事件订阅
-- **测试**：reveal 前任何返回值不含模型身份
-
-### Phase 11 — Streamlit 界面（`ui/`）
-- 主区：群聊（名字 + 头像色块）、组长输入框
-- 侧边栏（可折叠）：计划、分工表、子任务进度、结对比对、当前会议记录、token/费用
-- 确认卡片（继续 / 修改 / 停止）、揭晓按钮、历史记录（含会议记录各版本）
-- 缺 key 时友好提示
-- **测试**：AppTest + Fake 服务：reveal 前无模型名、确认卡片三按钮可用、插话写入群聊
-
-### Phase 12 — 收尾
-- 速率限制与并发控制、README（安装、`.env`、加模型/性格/步骤/提示词版本示例）、可选 GitHub Actions CI
+工作量：S ≈ 300 行以内（含测试）；M ≈ 300–800；L ≈ 800–1500；XL > 1500。
 
 ---
 
-## 默认值（采用 v2 文档第 11 节）
-1. 表层 3 座；规划者+调度者可同一模型兼任；记录官独立 → 每场至少 5 个不同模型
-2. 组员失败：跳过；有搭档则单独采用并标"未双重验证"；表层 < 2 人暂停问用户
-3. 单步预估 > 20k token 时询问
-4. 发言上限 200 字/条（子任务产出不限）
-5. 上下文保留最近 2 轮原文
-6. 轮数阈值 5 轮
+## 默认值（v3 第 12 节 + 补充）
+1. 表层 4 组员；里层统筹 1 + 记录官 1；共 6 个模型
+2. 轮数阈值 5；token 询问阈值 20k / 步
+3. 发言上限 200 字（中文按字、英文按词计）；上下文保留最近 2 轮
+4. 默认档位：中等
+5. 动画默认代码渲染；真实视频生成默认关闭
+6. 组员失败：同领域其他组员接手；组员 < 2 时暂停问用户
+7. 预算 $100：用到 80% 提醒，下一步会超出时暂停问用户（补充）
+8. 统筹默认按 personas 表固定岗位；"轮换"作为可选规则（补充）
