@@ -55,6 +55,8 @@ class Route(_Strict):
     model: str = Field(min_length=1)
     # 该渠道的价格与默认价格不同时填写
     price: Price | None = None
+    # 该渠道需要的额外/不同参数（如 max_completion_tokens），覆盖模型级 params
+    params: dict[str, Any] = Field(default_factory=dict)
 
 
 class ModelSpec(_Strict):
@@ -78,6 +80,9 @@ class ModelSpec(_Strict):
 
     def price_for(self, route: Route) -> Price:
         return route.price or self.price
+
+    def params_for(self, route: Route) -> dict[str, Any]:
+        return {**self.params, **route.params}
 
 
 class ModelsConfig(_Strict):

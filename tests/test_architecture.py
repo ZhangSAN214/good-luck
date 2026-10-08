@@ -12,6 +12,13 @@ import pytest
 ROOT = Path(__file__).resolve().parent.parent
 CORE = ROOT / "src" / "roundtable" / "core"
 FORBIDDEN_IN_CORE = {"fastapi", "starlette", "uvicorn", "streamlit"}
+# 只有这些文件可以调用 Secret.reveal()：适配器把 key 放进请求头，secrets 模块自身用于脱敏
+REVEAL_ALLOWED = {
+    "src/roundtable/core/providers/secrets.py",
+    "src/roundtable/core/providers/openai_compat.py",
+    "src/roundtable/core/providers/gemini.py",
+    "src/roundtable/core/providers/anthropic_adapter.py",
+}
 
 SECRET_PATTERNS = [
     re.compile(r"sk-or-v1-[0-9a-f]{16,}"),
@@ -36,6 +43,16 @@ def forbidden_imports(source: str, forbidden: set[str]) -> set[str]:
             continue
         found |= {n.split(".")[0] for n in names} & forbidden
     return found
+
+
+def reveal_calls(source: str) -> int:
+    return sum(
+        1
+        for node in ast.walk(ast.parse(source))
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "reveal"
+    )
 
 
 def repo_files() -> list[Path]:
@@ -97,6 +114,22 @@ def test_core_does_not_import_web_frameworks():
         if found:
             violations[str(path.relative_to(ROOT))] = sorted(found)
     assert violations == {}
+
+
+def test_reveal_only_in_allowed_files():
+    """key 的明文只允许在少数文件中取出，防止被写进日志、数据库或返回给前端。"""
+    offenders = {}
+    for path in (ROOT / "src").rglob("*.py"):
+        rel = path.relative_to(ROOT).as_posix()
+        count = reveal_calls(path.read_text(encoding="utf-8"))
+        if count and rel not in REVEAL_ALLOWED:
+            offenders[rel] = count
+    assert offenders == {}
+
+
+def test_reveal_guard_detects_calls():
+    assert reveal_calls("key.reveal()\nx = s.reveal()") == 2
+    assert reveal_calls("reveal = 1\nprint(reveal)") == 0
 
 
 def test_repo_contains_no_secrets():
