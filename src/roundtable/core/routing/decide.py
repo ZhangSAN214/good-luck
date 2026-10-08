@@ -112,6 +112,7 @@ class RoutingDecision:
             require_tags=a.require_tags,
             rules_matched=a.rules_matched,
             assessment_reason=a.reason,
+            expected_answer_tokens=a.expected_answer_tokens,
             planner_model=a.planner.model_id if a.planner else None,
             planner_cost_usd=self.planner_cost_usd,
             planner_error=a.planner.error if a.planner else None,
@@ -141,6 +142,7 @@ class RoutingRecord:
     require_tags: tuple[str, ...]
     rules_matched: tuple[str, ...]
     assessment_reason: str
+    expected_answer_tokens: int | None
     planner_model: str | None
     planner_cost_usd: float
     planner_error: str | None
@@ -178,6 +180,25 @@ class RoutingRecord:
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
+
+    def assessment(self) -> Assessment:
+        """从记录重建难度判断（不含规划员调用详情），供恢复与升级使用。"""
+        return Assessment(
+            difficulty=self.difficulty,
+            source=self.difficulty_source,
+            task_type=self.task_type,
+            require_tags=tuple(self.require_tags),
+            rules_matched=tuple(self.rules_matched),
+            reason=self.assessment_reason,
+            expected_answer_tokens=self.expected_answer_tokens,
+        )
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> RoutingRecord:
+        data = dict(d)
+        for key in ("attachments", "require_tags", "rules_matched", "members"):
+            data[key] = tuple(data.get(key) or ())
+        return cls(**data)
 
 
 # --- 内部工具 --------------------------------------------------------------------
@@ -218,6 +239,49 @@ def _estimate(
         revise_rounds=config.roundtable.revise_rounds,
         params=params,
     )
+
+
+def estimate_lineup(
+    lineup: Lineup,
+    question: Question,
+    assessment: Assessment,
+    *,
+    config: AppConfig,
+    router: ChannelRouter,
+) -> CostEstimate:
+    """按实际阵容估算花费（公开给编排引擎使用）。"""
+    available = {m.id: m for m in config.models.models}
+    difficulty = assessment.difficulty or config.routing.default_difficulty
+    return _estimate(
+        lineup,
+        config=config,
+        router=router,
+        by_id=available,
+        question=question,
+        answer_tokens=_answer_tokens(config, assessment, difficulty),
+    )
+
+
+def option_lineup(
+    plan_name: str,
+    assessment: Assessment,
+    *,
+    seed: int,
+    config: AppConfig,
+    router: ChannelRouter,
+) -> Lineup:
+    """重建确认卡片上某个备选方案的阵容（与估价时使用同一个随机种子，结果一致）。"""
+    builder = LineupBuilder(
+        config,
+        router.available_models(),
+        random.Random(f"{seed}:{plan_name}"),
+        required_tags=assessment.require_tags,
+        task_type=assessment.task_type,
+    )
+    try:
+        return builder.build(config.routing.plans[plan_name])
+    except NotEnoughModels as exc:
+        raise RoutingError(str(exc)) from None
 
 
 async def _assess(
@@ -444,42 +508,63 @@ def plan_escalation(
 
     升级后的圆桌独立重新作答，不沿用之前的答案，避免被低档位的结论带偏。
     """
-    if decision.escalate_to is None:
+    return escalate(
+        seed=decision.seed,
+        choice=decision.choice,
+        assessment=decision.assessment,
+        from_plan=decision.plan,
+        escalate_to=decision.escalate_to,
+        question=question,
+        signals=signals,
+        config=config,
+        router=router,
+        recent_coordinators=recent_coordinators,
+    )
+
+
+def escalate(
+    *,
+    seed: int,
+    choice: UserChoice,
+    assessment: Assessment,
+    from_plan: str | None,
+    escalate_to: str | None,
+    question: Question,
+    signals: OutcomeSignals,
+    config: AppConfig,
+    router: ChannelRouter,
+    recent_coordinators: Sequence[str] = (),
+) -> RoutingDecision | None:
+    """与 plan_escalation 相同，但只需要存库的信息（恢复执行后也能用）。"""
+    if escalate_to is None:
         return None
     reason = escalation_reason(signals, config.routing.escalation)
     if reason is None:
         return None
-    target = decision.escalate_to
-    plan = config.routing.plans[target]
-    available = router.available_models()
+    plan = config.routing.plans[escalate_to]
     builder = LineupBuilder(
         config,
-        available,
-        random.Random(f"{decision.seed}:escalate:{target}"),
-        required_tags=decision.assessment.require_tags,
-        task_type=decision.assessment.task_type,
+        router.available_models(),
+        random.Random(f"{seed}:escalate:{escalate_to}"),
+        required_tags=assessment.require_tags,
+        task_type=assessment.task_type,
         recent_coordinators=recent_coordinators,
     )
     try:
         lineup = builder.build(plan)
     except NotEnoughModels as exc:
-        raise RoutingError(f"无法升级到 {target}：{exc}") from None
-    difficulty = decision.assessment.difficulty or config.routing.default_difficulty
-    estimate = _estimate(
-        lineup,
-        config=config,
-        router=router,
-        by_id={m.id: m for m in available},
-        question=question,
-        answer_tokens=_answer_tokens(config, decision.assessment, difficulty),
-    )
-    return replace(
-        decision,
-        plan=target,
+        raise RoutingError(f"无法升级到 {escalate_to}：{exc}") from None
+    estimate = estimate_lineup(lineup, question, assessment, config=config, router=router)
+    return RoutingDecision(
+        seed=seed,
+        choice=choice,
+        assessment=assessment,
+        plan=escalate_to,
         lineup=lineup,
         estimate=estimate,
+        options={escalate_to: PlanOption(plan.label, True, estimate)},
         escalate_to=plan.escalate_to,
-        escalated_from=decision.plan,
+        confirm_threshold_usd=config.routing.confirm_threshold_usd,
+        escalated_from=from_plan,
         escalation_reason=reason,
-        warnings=(),
     )

@@ -216,7 +216,7 @@ class Repository:
         row["attachments"] = json.loads(row["attachments"])
         return row
 
-    def reveal(self, session_id: str) -> None:
+    def mark_revealed(self, session_id: str) -> None:
         self._require_session(session_id)
         self._exec(
             "UPDATE sessions SET revealed_at = COALESCE(revealed_at, ?), updated_at = ? "
@@ -267,6 +267,80 @@ class Repository:
             "SELECT record FROM routing_records ORDER BY updated_at DESC LIMIT ?", (limit,)
         ).fetchall()
         return [json.loads(r["record"]) for r in rows]
+
+    # --- 桌子（执行计划，内部使用） -------------------------------------------------
+
+    def create_table(
+        self,
+        session_id: str,
+        table_no: int,
+        *,
+        plan: str | None,
+        pipeline: Sequence[str],
+        members: Mapping[str, str],
+        coordinator: str | None,
+        escalate_to: str | None,
+        estimate: Mapping[str, Any],
+        status: str = "pending",
+        escalation_reason: str | None = None,
+    ) -> None:
+        self._require_session(session_id)
+        now = self.clock()
+        self._exec(
+            "INSERT INTO session_tables (session_id, table_no, plan, pipeline, members,"
+            " coordinator, escalate_to, estimate, status, escalation_reason, created_at,"
+            " updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                session_id,
+                table_no,
+                plan,
+                _json(list(pipeline)),
+                _json(dict(members)),
+                coordinator,
+                escalate_to,
+                _json(dict(estimate)),
+                status,
+                escalation_reason,
+                now,
+                now,
+            ),
+        )
+
+    def replace_table(self, session_id: str, table_no: int, **fields: Any) -> None:
+        """尚未开始的桌子换方案（用户在确认卡片上改选）。"""
+        with self._tx():
+            self.conn.execute(
+                "DELETE FROM session_tables WHERE session_id = ? AND table_no = ?",
+                (session_id, table_no),
+            )
+        self.create_table(session_id, table_no, **fields)
+
+    def set_table_status(self, session_id: str, table_no: int, status: str) -> None:
+        self._exec(
+            "UPDATE session_tables SET status = ?, updated_at = ?"
+            " WHERE session_id = ? AND table_no = ?",
+            (status, self.clock(), session_id, table_no),
+        )
+
+    def tables(self, session_id: str) -> list[dict[str, Any]]:
+        rows = self._exec(
+            "SELECT * FROM session_tables WHERE session_id = ? ORDER BY table_no", (session_id,)
+        ).fetchall()
+        out = []
+        for r in rows:
+            d = dict(r)
+            d["pipeline"] = json.loads(d["pipeline"])
+            d["members"] = json.loads(d["members"])
+            d["estimate"] = json.loads(d["estimate"])
+            out.append(d)
+        return out
+
+    def set_budget_override(self, session_id: str) -> None:
+        self._require_session(session_id)
+        self._exec("UPDATE sessions SET budget_override = 1 WHERE id = ?", (session_id,))
+
+    def budget_override(self, session_id: str) -> bool:
+        return bool(self._require_session(session_id)["budget_override"])
 
     # --- 座位 ------------------------------------------------------------------
 

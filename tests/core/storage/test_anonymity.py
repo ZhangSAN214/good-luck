@@ -102,7 +102,7 @@ async def test_view_before_reveal_has_no_identity(repo, router):
 
 async def test_view_after_reveal_shows_identity(repo, router):
     sid, d = await populated(repo, router)
-    repo.reveal(sid)
+    repo.mark_revealed(sid)
     view = repo.session_view(sid, scrub=SCRUBBER.scrub)
     assert view.revealed
     assert {s.model_id for s in view.seats if s.role == "member"} == set(d.lineup.members)
@@ -116,7 +116,7 @@ async def test_self_identification_in_output_scrubbed_before_reveal(repo, router
     sid, _ = await populated(repo, router, member_output="作为 Claude，我认为答案是 2。")
     before = repo.session_view(sid, scrub=SCRUBBER.scrub)
     assert "Claude" not in before.outputs[0].content
-    repo.reveal(sid)
+    repo.mark_revealed(sid)
     after = repo.session_view(sid, scrub=SCRUBBER.scrub)
     assert "Claude" in after.outputs[0].content  # 揭晓后显示原文
 

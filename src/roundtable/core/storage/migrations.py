@@ -130,4 +130,29 @@ CREATE TABLE checkpoints (
 CREATE INDEX idx_checkpoints_session ON checkpoints(session_id, status);
 """,
     ),
+    (
+        2,
+        "每张桌子的执行计划与预算豁免",
+        """
+-- 每张桌子的执行计划（内部使用，含模型 id，不出现在对外视图中）
+CREATE TABLE session_tables (
+    session_id          TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    table_no            INTEGER NOT NULL,
+    plan                TEXT,                         -- 手动模式为空
+    pipeline            TEXT NOT NULL,                -- JSON 列表
+    members             TEXT NOT NULL,                -- JSON：代号 → 模型 id
+    coordinator         TEXT,
+    escalate_to         TEXT,
+    estimate            TEXT NOT NULL,                -- JSON：总计与各步骤预估
+    status              TEXT NOT NULL,                -- pending / approved / running / done
+    escalation_reason   TEXT,
+    created_at          TEXT NOT NULL,
+    updated_at          TEXT NOT NULL,
+    PRIMARY KEY (session_id, table_no)
+);
+
+-- 用户在预算卡片上选择"超出预算继续"后，本场讨论不再拦截
+ALTER TABLE sessions ADD COLUMN budget_override INTEGER NOT NULL DEFAULT 0;
+""",
+    ),
 ]

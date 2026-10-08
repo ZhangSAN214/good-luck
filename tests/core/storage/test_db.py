@@ -10,6 +10,7 @@ from roundtable.core.storage import migrations as migrations_module
 # 已发布迁移的哈希。新增迁移时在这里追加一行；已有的行不得修改。
 PUBLISHED = {
     1: "933230221ea1f88e4c24d04fc53f637405aa2d31f301751d3a32bad452818567",
+    2: "c00e4408420071964033045c732e853efa6f3b3130a3a65131adf9cb2650cf2b",
 }
 
 

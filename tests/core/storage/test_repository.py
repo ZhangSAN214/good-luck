@@ -31,9 +31,9 @@ def test_session_lifecycle(repo):
     with pytest.raises(ValueError):
         repo.set_status(sid, "exploded")
     assert not repo.is_revealed(sid)
-    repo.reveal(sid)
+    repo.mark_revealed(sid)
     first = repo.session_row(sid)["revealed_at"]
-    repo.reveal(sid)  # 重复揭晓不改时间
+    repo.mark_revealed(sid)  # 重复揭晓不改时间
     assert repo.is_revealed(sid) and repo.session_row(sid)["revealed_at"] == first
 
 
@@ -247,7 +247,7 @@ async def test_usage_totals_and_by_channel(repo):
 def test_list_sessions(repo):
     a = repo.create_session("第一题", seed=1)
     b = repo.create_session("第二题", seed=2)
-    repo.reveal(a)
+    repo.mark_revealed(a)
     listed = repo.list_sessions()
     assert [s.id for s in listed] == [b, a]
     assert listed[1].revealed and not listed[0].revealed
