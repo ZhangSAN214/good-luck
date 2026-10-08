@@ -40,6 +40,9 @@ prompts:
   cross_review: v1
   rework: v1
   merge: v2
+  attachments: v1        # 题目附件（文字版 / 随附图片）
+  describe_image: v1     # 图片文字版
+  transcribe: v1         # 音频转写
 
 # 每个步骤对所有模型统一使用的参数（中立：同一步骤参数相同；模型自身必需的参数在 models.yaml）
 step_params:
@@ -98,3 +101,14 @@ request:
   backoff_s: 2.0              # 两轮之间的等待
   cooldown_rate_limit_s: 30   # 渠道被限流后，冷却期内排到最后
   cooldown_quota_s: 600       # 渠道额度用尽 / key 无效后，冷却期内排到最后
+
+# 文件上传（附件）：类型同时按扩展名和文件头判断；文件按内容哈希存放，文件名只用于显示
+uploads:
+  max_files: 5              # 每道题最多几个附件
+  max_file_mb: 20           # 单个文件大小上限
+  max_pdf_pages: 50
+  max_text_chars: 60000     # 每个附件提取出的文字最多保留的字数（超出截断并注明）
+  scanned_chars_per_page: 20  # PDF 平均每页少于这么多字时提示"可能是扫描件"（不做文字识别）
+  describe_max_tokens: 3000   # 图片文字版的输出上限
+  transcribe_max_tokens: 8000 # 音频转写的输出上限
+  storage_dir: data/uploads

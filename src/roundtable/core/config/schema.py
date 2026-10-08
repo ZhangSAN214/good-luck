@@ -189,6 +189,23 @@ class CollabRules(_Strict):
     max_subtasks: int = Field(default=12, ge=1)
 
 
+class UploadRules(_Strict):
+    """文件上传（附件）的限制。类型同时按扩展名和文件头判断。"""
+
+    max_files: int = Field(default=5, ge=0)
+    max_file_mb: float = Field(default=20, gt=0)
+    max_pdf_pages: int = Field(default=50, ge=1)
+    # 每个附件提取出的文字最多保留多少字（超出部分截断并注明）
+    max_text_chars: int = Field(default=60000, ge=1000)
+    # 扫描件判断：PDF 平均每页少于这么多字时提示"可能是扫描件"
+    scanned_chars_per_page: int = Field(default=20, ge=0)
+    # 预处理（图片文字版、音频转写）使用的输出上限
+    describe_max_tokens: int = Field(default=3000, gt=0)
+    transcribe_max_tokens: int = Field(default=8000, gt=0)
+    # 上传文件的存放目录（相对项目根目录），文件按内容哈希命名
+    storage_dir: str = "data/uploads"
+
+
 class RoundtableConfig(_Strict):
     seats: int = Field(ge=2)
     min_members: int = Field(default=2, ge=2)
@@ -207,6 +224,7 @@ class RoundtableConfig(_Strict):
     step_params: dict[str, dict[str, Any]] = Field(default_factory=dict)
     review_quality: ReviewQuality = ReviewQuality()
     effort_check: EffortCheck = EffortCheck()
+    uploads: UploadRules = UploadRules()
 
     @field_validator("prompts")
     @classmethod
@@ -358,6 +376,8 @@ class EstimateParams(_Strict):
     history_min_samples: int = Field(default=3, ge=1)
     # 统计历史时只看最近这么多场讨论
     history_sessions: int = Field(default=30, ge=1)
+    # 每张图片按多少输入 token 估算（发原图的成员）
+    image_tokens: int = Field(default=1500, ge=0)
     # 本桌实际花费超过"预估 × 此倍数"时暂停询问；None 关闭
     overrun_factor: float | None = Field(default=1.5, gt=1)
 

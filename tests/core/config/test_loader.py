@@ -58,6 +58,9 @@ def test_repo_config_loads_with_defaults():
         "cross_review",
         "rework",
         "merge",
+        "attachments",
+        "describe_image",
+        "transcribe",
     }
     assert rt.collab_pipeline == [
         "decompose",

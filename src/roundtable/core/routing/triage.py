@@ -11,8 +11,10 @@ from roundtable.core.config.schema import Difficulty, RuleCondition, TriageRule
 @dataclass(frozen=True)
 class Question:
     text: str
-    # 附件类型（如 "image"）；v1 不支持附件，字段先留好
+    # 附件类型（image / pdf / docx / text / audio），供规则判断使用
     attachments: tuple[str, ...] = ()
+    # 附件内容的 token 数（文字版 / 提取的文字 / 图片按固定值），用于花费预估
+    attachment_tokens: int = 0
 
 
 @dataclass(frozen=True)

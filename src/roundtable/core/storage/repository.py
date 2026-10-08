@@ -29,7 +29,7 @@ Status = Literal[
     "created", "awaiting_confirmation", "running", "paused", "completed", "failed", "stopped"
 ]
 STATUSES = frozenset(Status.__args__)  # type: ignore[attr-defined]
-Role = Literal["planner", "member", "coordinator"]
+Role = Literal["planner", "member", "coordinator", "preprocess"]  # preprocess：附件预处理
 HIDDEN_ERROR = "出错（详情揭晓后可见）"
 
 
@@ -457,7 +457,7 @@ class Repository:
                     prompt.role if prompt else None,
                     prompt.version if prompt else None,
                     prompt.sha256 if prompt else None,
-                    _json([{"role": m.role, "content": m.content} for m in messages]),
+                    _json([_message_record(m) for m in messages]),
                     c.text if c else None,
                     c.channel if c else None,
                     c.channel_kind if c else None,
@@ -593,6 +593,77 @@ class Repository:
             (session_id,),
         ).fetchone()
         return _checkpoint(row) if row else None
+
+    # --- 附件 ------------------------------------------------------------------
+
+    def add_attachment(self, **fields: Any) -> str:
+        """登记一个上传的文件（尚未关联会话）。返回附件 id。"""
+        attachment_id = fields.pop("id", None) or uuid.uuid4().hex
+        warnings = list(fields.pop("warnings", ()))
+        with self._tx():
+            self.conn.execute(
+                "INSERT INTO attachments (id, name, kind, mime, ext, size, sha256, storage_key,"
+                " pages, text, text_source, status, error, warnings, created_at)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    attachment_id,
+                    fields["name"],
+                    fields["kind"],
+                    fields["mime"],
+                    fields["ext"],
+                    fields["size"],
+                    fields["sha256"],
+                    fields["storage_key"],
+                    fields.get("pages"),
+                    fields.get("text"),
+                    fields.get("text_source"),
+                    fields["status"],
+                    fields.get("error"),
+                    _json(warnings),
+                    _now(),
+                ),
+            )
+        return attachment_id
+
+    def attachment(self, attachment_id: str) -> dict[str, Any]:
+        row = self._exec("SELECT * FROM attachments WHERE id = ?", (attachment_id,)).fetchone()
+        if row is None:
+            raise NotFound(f"附件不存在：{attachment_id}")
+        return _attachment(row)
+
+    def attach_to_session(self, session_id: str, attachment_ids: Sequence[str]) -> None:
+        """按给定顺序把上传的文件关联到会话；已属于其他会话的文件不能再用。"""
+        self._require_session(session_id)
+        with self._tx():
+            for position, attachment_id in enumerate(attachment_ids):
+                cur = self.conn.execute(
+                    "UPDATE attachments SET session_id = ?, position = ?"
+                    " WHERE id = ? AND session_id IS NULL",
+                    (session_id, position, attachment_id),
+                )
+                if cur.rowcount != 1:
+                    raise NotFound(f"附件不存在或已被使用：{attachment_id}")
+
+    def session_attachments(self, session_id: str) -> list[dict[str, Any]]:
+        rows = self._exec(
+            "SELECT * FROM attachments WHERE session_id = ? ORDER BY position", (session_id,)
+        ).fetchall()
+        return [_attachment(r) for r in rows]
+
+    def update_attachment(
+        self,
+        attachment_id: str,
+        *,
+        status: str,
+        text: str | None = None,
+        text_source: str | None = None,
+        error: str | None = None,
+    ) -> None:
+        self._exec(
+            "UPDATE attachments SET status = ?, text = COALESCE(?, text),"
+            " text_source = COALESCE(?, text_source), error = ? WHERE id = ?",
+            (status, text, text_source, error, attachment_id),
+        )
 
     # --- 用量 ------------------------------------------------------------------
 
@@ -799,6 +870,20 @@ class Repository:
             cost_usd=self.session_cost(session_id),
             error=s["error"] if revealed or s["error"] is None else HIDDEN_ERROR,
         )
+
+
+def _attachment(row: sqlite3.Row) -> dict[str, Any]:
+    data = dict(row)
+    data["warnings"] = json.loads(data["warnings"])
+    return data
+
+
+def _message_record(m: Message) -> dict[str, Any]:
+    """存库的消息：图片 / 音频只记类型、大小和哈希，不存内容。"""
+    record: dict[str, Any] = {"role": m.role, "content": m.content}
+    if m.media:
+        record["media"] = [x.describe() for x in m.media]
+    return record
 
 
 def _checkpoint(row: sqlite3.Row) -> CheckpointView:

@@ -14,7 +14,7 @@
 提问时选择两种模式之一（`UserChoice.workflow`，存于 `sessions.workflow`）：
 - **讨论模式**（`discussion`，默认）：所选档位全员上桌 → 独立作答 → 互评 → 修订 → 汇总 →（分歧时询问是否升级）→ 结束
 - **协同模式**（`collab`）：统筹拆分子任务 → 成员自荐（擅长什么、为什么）→ 统筹按自荐和能力标签分配（每人至少一块）→ 按依赖分批并行完成 → 交叉审查（不审自己的）→ 作者按审查修改 → 统筹合并成完整成果（标注每份成果的采纳情况）→（把握低时询问是否升级）→ 结束
-（文件上传见 PLAN.md 的 v2 阶段 14–16，尚未实现。）
+**附件**（阶段 14，后端与命令行已完成，网页上传按钮在阶段 18）：图片、PDF、Word .docx、文本、mp3 / wav 音频，见下方 §2.8。
 **防偷懒**：每位成员的作答、互评、修订都做实质内容检查，空泛的打回重做一次，仍不合格标记"敷衍"；每位成员的**贡献**（被采纳的要点、有效评审与问题、被作者采纳的问题、重做与敷衍次数）按桌记录，界面显示本场与历史。
 
 | 角色 | 由谁担任 | 做什么 |
@@ -37,7 +37,7 @@
 - **执行前预估花费**，并给出各档位的预估；超过单题确认门槛（默认 $0.30）先请用户确认（可改用其他档位）。
 - **每题记录**（`RoutingRecord`）：答案长度判断及来源（规则 / 模型 / 默认）、规划员花费、档位与阵容、缺席、预估与实际花费、是否升级及原因。
 - **匿名开关**（提问时选择，默认**关闭**）：关闭时界面、API、命令行全程显示真实模型名与每次调用的渠道，没有揭晓步骤；开启时组员显示为"组员甲 / 乙 / 丙…"，结束后由用户点"揭晓身份"。**发给模型的内容在两种情况下都只用代号、都做身份遮蔽**。
-- 只处理文字输入和文字输出（文件上传在阶段 14）。
+- 输出只有文字；输入可带附件（§2.8）。
 - **不做**（见 PLAN.md "后续扩展"）：人设模式、记录官与会议记录、多轮群聊、图片生成、语音合成、视频处理。
 
 ---
@@ -92,7 +92,7 @@
 - 每步结束状态落库；可暂停、关页面后恢复，恢复时不重复已完成的调用。
 
 ### 2.4 提示词外置且带版本
-- `prompts/<role>/v<n>.md`：协同模式 `decompose`、`volunteer`、`assign`、`work`、`cross_review`、`rework`、`merge`；讨论模式 `planner`、`answer`、`review`、`revise`（v2：逐条"采纳 / 部分采纳 / 不采纳"）、`synthesize`（v3：`adopted_from`、注意 flagged 的答案）、`redo`（打回重做：system 段接在原系统提示后，user 段追加在原对话后）；`answer_quick` 已不再引用（已发布版本保留）。代码中不得内联提示词正文。
+- `prompts/<role>/v<n>.md`：协同模式 `decompose`、`volunteer`、`assign`、`work`、`cross_review`、`rework`、`merge`；讨论模式 `planner`、`answer`、`review`、`revise`（v2：逐条"采纳 / 部分采纳 / 不采纳"）、`synthesize`（v3：`adopted_from`、注意 flagged 的答案）、`redo`（打回重做：system 段接在原系统提示后，user 段追加在原对话后）；附件 `attachments`（附件说明与 `<attachment>` 块，接在每次调用的系统提示与第一条用户消息之后，所以各步骤提示词不必改版本）、`describe_image`（图片文字版）、`transcribe`（音频转写）；`answer_quick` 已不再引用（已发布版本保留）。代码中不得内联提示词正文。
 - 文件格式：YAML 文件头（`description`、`output: text|json`、`variables`）+ `<!-- system -->` / `<!-- user -->` 两段。占位符用 `{{ name }}`（不用 `$`，避免与数学公式冲突）；声明的变量与正文占位符必须一一对应，渲染时缺少或多余参数都报错；只替换一次，用户输入里的 `{{ x }}` 不会被展开。
 - 题目、他人答案等外部内容放在标签内（`<question>`、`<answer>` …），系统提示说明标签内的指令无效（防提示注入）。
 - 使用的版本由配置指定，随每次调用入库（版本号 + 内容哈希，换行统一为 LF 后计算）。
@@ -116,7 +116,7 @@
 ### 2.6 持久化：SQLite
 - 存：会话（题目、seed、成员档位、匿名开关、工作模式）、**路由记录**（答案长度判断、档位与阵容、缺席、预估与实际花费、升级）、座位与代号映射、统筹、每次调用（步骤、提示词版本 + 哈希、输入输出、**实际渠道与切换记录**、token、费用及来源、耗时、错误）、互评结果、修订稿、汇总、确认点与用户回复、累计费用（总计与按渠道）。
 - 数据访问只经 `core/storage/`（Repository 模式）；表结构变更走版本化迁移（`storage/migrations.py`，只能在末尾追加；已发布迁移的哈希登记在测试中，不得修改），后续扩展加表不改旧表含义。
-- 表：`sessions`、`routing_records`、`seats`（`table_no` 0 为初始圆桌，升级后为 1、2…）、`calls` + `call_attempts`（每次渠道尝试一行）、`outputs`（各步产出，通用表；kind 含 answer / review / revision / synthesis / dropout / effort）、`step_progress`（恢复时跳过已完成步骤）、`checkpoints`、`contributions`（迁移 5：按桌、代号、模型、类别的贡献数量）。
+- 表：`sessions`、`routing_records`、`seats`（`table_no` 0 为初始圆桌，升级后为 1、2…）、`calls` + `call_attempts`（每次渠道尝试一行）、`outputs`（各步产出，通用表；kind 含 answer / review / revision / synthesis / dropout / effort）、`step_progress`（恢复时跳过已完成步骤）、`checkpoints`、`contributions`（迁移 5：按桌、代号、模型、类别的贡献数量）、`attachments`（迁移 6：上传的文件，`session_id` 在提交题目时填入；文字 / 文字版 / 转写稿及来源、状态、警告）。
 - **对外展示只用 `session_view()` / `list_sessions()`**：匿名开启且未揭晓时去掉模型 id、渠道、切换记录、阵容、缺席名单、规划员模型，错误信息替换为通用提示，模型输出经身份遮蔽；揭晓后或匿名关闭时显示全部原文。存储层 `create_session` 默认匿名（更安全），产品默认值（关闭）由服务层 / 命令行决定。
 - `sessions.mode` 自迁移 4 起存成员档位（`budget` / `flagship` / `custom`），旧会话为 `auto` / `preset` / `manual`；旧版本还没路由的会话恢复时明确报错"无法继续"，已有内容照常查看。按渠道的花费汇总（`spent_by_channel()`）可随时展示。
 
@@ -124,13 +124,21 @@
 - `core/`：纯业务逻辑，**禁止 import fastapi / starlette / uvicorn / streamlit**（测试守卫）。
 - `api/`：FastAPI 路由 + SSE，只调用 `core/service.py`（启动时用 `core/runtime.py` 组装；有测试检查导入）。
 - **服务 facade**（`core/service.py`，`RoundtableService`）：返回值都是可 JSON 化的 dict；匿名会话揭晓前全部匿名。`create(question, tier=, models=, coordinator=, anonymous=False, workflow="discussion")`；揭晓只用于匿名会话。提交题目后立即返回会话 id，讨论在后台任务中执行；意外错误把会话标为 `paused`（可 `resume`）。揭晓只允许在讨论结束（完成 / 停止 / 失败）后。
-- **HTTP 接口**：`GET /api/status`、`GET /api/budget`、`GET /api/contributions`、`GET/POST /api/sessions`、`GET /api/sessions/{id}`、`POST …/respond`、`POST …/resume`、`POST …/reveal`、`GET …/events`（SSE）。
+- **HTTP 接口**：`GET /api/status`、`GET /api/budget`、`GET /api/contributions`、`POST /api/uploads?name=`（请求体是文件原始字节，返回附件 id；`POST /api/sessions` 的 `attachments` 带上这些 id）、`GET/POST /api/sessions`、`GET /api/sessions/{id}`、`POST …/respond`、`POST …/resume`、`POST …/reveal`、`GET …/events`（SSE）。
 - **SSE 协议**：第一条 `snapshot`（当前状态），之后是实时事件（只含代号），每当讨论停下来（完成 / 失败 / 停止 / 等待确认 / 暂停）发一条 `state` 并关闭；前端回复确认后重新连接。
 - `web/`：静态前端（`index.html`、`css/app.css`、`js/api.js` 通信、`js/view.js` 渲染、`js/app.js` 状态与交互；ES 模块，无构建步骤），只通过 HTTP/SSE 与后端通信，由 FastAPI 挂在 `/`。
   - 事件流用 `fetch` 读取（不用会自动重连的 `EventSource`）：收到停下来的 `state` 后关闭，回复确认卡片或恢复后重新订阅；事件触发重新拉取会话详情再渲染。
   - 会话详情的 `tables`：每桌方案、流程、代号、已完成步骤（不含模型）；`contributions`：每桌每个代号的贡献（身份未公开时不含模型 id）。
   - 前端源码不得写死任何模型、厂商或渠道名（有测试）；匿名会话揭晓前界面只用代号（组员甲… / 统筹），匿名关闭时在代号旁显示模型。
   - 会话 id 写在地址栏（`#s=<id>`），刷新或关页面后可回到原讨论。
+
+### 2.8 附件（`core/attachments/`）
+- 上传（`ingest()`）：大小上限 → 类型识别（扩展名与文件头必须一致；`.doc`、HEIC 等给出改法）→ 文档直接提取文字（PDF：`pypdf`，加密 / 超页数 / 损坏报错，几乎没有文字层时警告"可能是扫描件"，不做 OCR；`.docx`：段落 + 表格；文本：BOM / UTF-8 / 自动识别编码）→ 按内容哈希存放（`FileStore`，`sha256.扩展名`，文件名只用于显示，读取时校验键名防路径穿越）→ 登记。规则在 `roundtable.yaml` 的 `uploads`。
+- 图片与音频需要模型：没有可用的 `vision` / `transcribe` 模型时拒绝上传。提交题目后、路由之前（`prepare_attachments()`）由最便宜的 `vision` 模型生成图片**文字版**、最便宜的 `transcribe` 模型**转写**音频（普通对话调用，音频作为消息附件），每个文件只做一次；调用记为 `step="attachments"`、`role="preprocess"`，费用计入本场；模型生成的文字经身份遮蔽。音频转写失败时整场失败；图片文字版失败只提示。
+- 发给成员与统筹（`TableContext.messages_for()`，每次调用都附上，包括重做；规划员不看附件）：`attachments` 提示词的说明接在系统提示后，`<attachment name type>` 块接在第一条用户消息后。**带 `vision` 标签的模型收到原图**（块内为"见随附图片 N"），其他模型收到文字版；其余类型都是文字。附件内容中的结束标签被打断（防注入）。这是同一步骤提示词之间**唯一**允许的差别。
+- `Message.media`（`Media`：image / audio、MIME、字节）由各适配器转换：OpenAI 兼容 `image_url`（data URI）/ `input_audio`；Anthropic `image`（base64，音频报 bad_request 不切换）；Gemini `inline_data`。`Media` 的 repr 不含内容；调用记录只存类型、大小与哈希。
+- 预估：附件文字按 token 计入题目长度，图片取 `estimate.image_tokens` 与文字版的较大者。
+- 对外：会话详情的 `attachments` 只有名称、类型、大小、页数、状态、来源、警告（不含内容与存储位置）；`roundtable show --details` 显示图片文字版与转写稿。
 
 ---
 
@@ -184,6 +192,7 @@
 ```
 config/        models.yaml  roundtable.yaml  personas.yaml  routing.yaml
 prompts/       planner/ answer/ answer_quick/ review/ revise/ synthesize/ redo/
+               attachments/ describe_image/ transcribe/
                decompose/ volunteer/ assign/ work/ cross_review/ rework/ merge/  versions.lock
 src/roundtable/
   core/
@@ -193,6 +202,7 @@ src/roundtable/
     allocation/    按档位/标签抽取、代号、互评分配（排除自评）、乱序、身份遮蔽
     routing/       规则判断、规划员、方案与阵容、花费预估、用户模式、升级、每题记录
     storage/       SQLite 迁移、Repository、揭晓前的匿名视图
+    attachments/   上传文件的识别、文字提取、存放、图片文字版 / 音频转写、发给模型时的呈现
     budget/        用量统计（按渠道/模型）、预算守卫（每月 + 每日，UTC）
     cards.py       确认卡片的统一格式
     steps/         answer / review / revise / synthesize / reveal 插件、输出解析与质量检查、防偷懒（effort）、贡献统计、状态恢复
@@ -224,6 +234,7 @@ roundtable export <id> [-o 文件]     # 导出完整记录（UTF-8 带 BOM，�
 roundtable ask '题目'                # 便宜档全员上桌（PowerShell 中题目用单引号）
 roundtable ask --tier flagship --anonymous '题目'   # 旗舰档全员、匿名
 roundtable ask --mode collab '题目'  # 协同模式：拆分子任务、分工完成、合并
+roundtable ask --attach 图.png --attach 讲义.pdf '题目'   # 带附件
 uvicorn roundtable.api.app:app --reload   # 浏览器打开 http://127.0.0.1:8000
 playwright install chromium        # 首次运行前端端到端测试前
 ```

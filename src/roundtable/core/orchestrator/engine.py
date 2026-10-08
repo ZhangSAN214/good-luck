@@ -12,11 +12,12 @@ import asyncio
 import logging
 import random
 import secrets
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
 from typing import Any
 
 from roundtable.core.allocation import assign_codes
+from roundtable.core.attachments import Attachment, prepare_attachments
 from roundtable.core.cards import CardOption, ConfirmationCard, money
 from roundtable.core.routing import (
     EstimateHistory,
@@ -33,6 +34,7 @@ from roundtable.core.routing import (
     history_from_calls,
     option_lineup,
     route_question,
+    text_tokens,
 )
 from roundtable.core.runtime import Runtime
 from roundtable.core.steps import (
@@ -45,7 +47,7 @@ from roundtable.core.steps import (
     restore_state,
     table_contributions,
 )
-from roundtable.core.storage import CheckpointView
+from roundtable.core.storage import CheckpointView, NotFound
 
 log = logging.getLogger(__name__)
 
@@ -89,22 +91,41 @@ class Orchestrator:
         *,
         seed: int | None = None,
         anonymous: bool = False,
+        attachments: Sequence[str] = (),
     ) -> str:
         """只创建会话（立即返回 id）；之后用 run() 执行。Web 服务先拿 id 再在后台运行。
 
         anonymous 只影响给人看的界面；发给模型的内容始终只用代号。
+        attachments：已上传（尚未使用）的附件 id，按顺序关联到本场。
         """
         choice = choice or UserChoice()
         seed = secrets.randbelow(2**31) if seed is None else seed
-        return self.rt.repo.create_session(
+        repo = self.rt.repo
+        limit = self.rt.config.roundtable.uploads.max_files
+        if len(attachments) > limit:
+            raise OrchestratorError(f"每道题最多 {limit} 个附件")
+        if len(set(attachments)) != len(attachments):
+            raise OrchestratorError("附件不能重复")
+        kinds = []
+        for attachment_id in attachments:
+            try:
+                row = repo.attachment(attachment_id)
+            except NotFound:
+                raise OrchestratorError(f"附件不存在：{attachment_id}") from None
+            if row["session_id"] is not None:
+                raise OrchestratorError(f"附件「{row['name']}」已用于其他讨论，请重新上传")
+            kinds.append(row["kind"])
+        sid = repo.create_session(
             question.text,
             seed=seed,
             tier=choice.tier or self.rt.config.routing.default_plan,
             anonymous=anonymous,
             workflow=choice.workflow,
-            attachments=question.attachments,
+            attachments=tuple(kinds) or question.attachments,
             choice=choice.to_dict(),
         )
+        repo.attach_to_session(sid, attachments)
+        return sid
 
     async def run(self, session_id: str) -> RunResult:
         """执行已创建的会话，直到完成或需要用户确认。"""
@@ -121,8 +142,11 @@ class Orchestrator:
         *,
         seed: int | None = None,
         anonymous: bool = False,
+        attachments: Sequence[str] = (),
     ) -> RunResult:
-        return await self.run(self.open(question, choice, seed=seed, anonymous=anonymous))
+        return await self.run(
+            self.open(question, choice, seed=seed, anonymous=anonymous, attachments=attachments)
+        )
 
     async def respond(self, session_id: str, response: str, note: str | None = None) -> RunResult:
         async with self._lock(session_id):
@@ -169,8 +193,48 @@ class Orchestrator:
 
     # --- 路由 ----------------------------------------------------------------------
 
+    def _question(self, row: dict[str, Any]) -> Question:
+        """会话的题目与附件（附件的 token 数计入花费预估：图片取原图与文字版的较大者）。"""
+        params = self.rt.config.routing.estimate
+        tokens = 0
+        for a in self.rt.repo.session_attachments(row["id"]):
+            text = text_tokens(a["text"] or "", params)
+            tokens += max(text, params.image_tokens) if a["kind"] == "image" else text
+        return Question(row["question"], tuple(row["attachments"]), tokens)
+
+    async def _prepare(self, sid: str, row: dict[str, Any]) -> bool:
+        """图片生成文字版、音频转写（每个文件只做一次）。音频转写失败时无法继续。"""
+        repo = self.rt.repo
+        if not any(a["status"] == "pending" for a in repo.session_attachments(sid)):
+            return True
+        self._emit(sid, "step_started", step="attachments", table_no=None)
+        files = await prepare_attachments(
+            sid,
+            config=self.rt.config,
+            router=self.rt.router,
+            prompts=self.rt.prompts,
+            repo=repo,
+            store=self.rt.files,
+            scrubber=self.rt.scrubber,
+            question=row["question"],
+            rng=random.Random(f"{row['seed']}:attachments"),
+        )
+        self._emit(sid, "step_finished", step="attachments", table_no=None)
+        for a in files:
+            if a.status != "failed":
+                continue
+            if a.kind == "audio":
+                error = f"音频「{a.name}」转写失败：{a.error}"
+                repo.set_status(sid, "failed", error=error)
+                self._emit(sid, "failed", error=error)
+                return False
+            self._warn(
+                sid, f"图片「{a.name}」的文字版生成失败（{a.error}），看不到图片的成员无法参考它"
+            )
+        return True
+
     async def _begin(self, sid: str) -> bool:
-        """还没路由的会话：先查预算，再路由。返回是否可以继续执行。"""
+        """还没路由的会话：先查预算，再处理附件、路由。返回是否可以继续执行。"""
         repo = self.rt.repo
         row = repo.session_row(sid)
         if not repo.budget_override(sid):
@@ -179,10 +243,12 @@ class Orchestrator:
                 # 预算已用满：连规划员也先不调用
                 self._checkpoint(sid, verdict.card(), stage="routing")
                 return False
+        if not await self._prepare(sid, row):
+            return False
         try:
             await self._route(
                 sid,
-                Question(row["question"], tuple(row["attachments"])),
+                self._question(row),
                 UserChoice.from_dict(row["choice"]),
                 row["seed"],
             )
@@ -280,7 +346,7 @@ class Orchestrator:
         row = repo.session_row(sid)
         record = RoutingRecord.from_dict(repo.routing_record(sid))
         assessment = record.assessment()
-        question = Question(row["question"], tuple(row["attachments"]))
+        question = self._question(row)
         try:
             lineup = option_lineup(
                 plan_name,
@@ -359,7 +425,7 @@ class Orchestrator:
                 assessment=record.assessment(),
                 from_plan=table["plan"],
                 escalate_to=table["escalate_to"],
-                question=Question(row["question"], tuple(row["attachments"])),
+                question=self._question(row),
                 signals=signals,
                 config=cfg,
                 router=self.rt.router,
@@ -403,7 +469,7 @@ class Orchestrator:
         ctx = TableContext(
             session_id=sid,
             table_no=table_no,
-            question=Question(row["question"], tuple(row["attachments"])),
+            question=self._question(row),
             members=dict(table["members"]),
             coordinator=table["coordinator"],
             config=cfg,
@@ -416,6 +482,10 @@ class Orchestrator:
             on_event=lambda e: self._forward(sid, e),
             prompt_roles=self._prompt_roles(table),
             expected_answer_tokens=self._expected_tokens(sid),
+            attachments=tuple(
+                Attachment.from_row(a).with_data(self.rt.files.load)
+                for a in repo.session_attachments(sid)
+            ),
         )
         done = set(repo.completed_steps(sid, table_no))
         for step in table["pipeline"]:

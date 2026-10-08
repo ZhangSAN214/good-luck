@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 from collections.abc import Sequence
 from typing import Any
 
@@ -14,6 +15,9 @@ from .base import Message, Provider, RawCompletion
 from .errors import ErrorKind, ProviderError
 from .registry import register_adapter
 from .secrets import Secret
+
+# input_audio 的 format 字段
+AUDIO_FORMATS = {"audio/mpeg": "mp3", "audio/wav": "wav", "audio/x-wav": "wav"}
 
 
 @register_adapter("openai_compat")
@@ -40,6 +44,21 @@ class OpenAICompatProvider(Provider):
     def _error(self, kind: ErrorKind, detail: str = "", **kw: Any) -> ProviderError:
         return ProviderError(kind, self.channel, safe_detail(detail, self._secrets), **kw)
 
+    @staticmethod
+    def _message(m: Message) -> dict[str, Any]:
+        if not m.media:
+            return {"role": m.role, "content": m.content}
+        parts: list[dict[str, Any]] = [{"type": "text", "text": m.content}]
+        for media in m.media:
+            data = base64.b64encode(media.data).decode("ascii")
+            if media.kind == "image":
+                url = f"data:{media.mime};base64,{data}"
+                parts.append({"type": "image_url", "image_url": {"url": url}})
+            else:
+                fmt = AUDIO_FORMATS.get(media.mime, media.mime.split("/")[-1])
+                parts.append({"type": "input_audio", "input_audio": {"data": data, "format": fmt}})
+        return {"role": m.role, "content": parts}
+
     async def complete(
         self, model: str, messages: Sequence[Message], params: dict[str, Any]
     ) -> RawCompletion:
@@ -48,7 +67,7 @@ class OpenAICompatProvider(Provider):
             **params,
             **self._extra_body,
             "model": model,
-            "messages": [{"role": m.role, "content": m.content} for m in messages],
+            "messages": [self._message(m) for m in messages],
         }
         try:
             response = await self._client.post("chat/completions", json=body)

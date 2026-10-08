@@ -194,4 +194,35 @@ CREATE TABLE contributions (
 CREATE INDEX idx_contributions_model ON contributions(model_id, kind);
 """,
     ),
+    (
+        6,
+        "附件",
+        """
+-- 用户上传的文件（附件）。上传时 session_id 为空，提交题目时关联到会话（position 为顺序）。
+-- 文件本身按内容哈希存放（storage_key = sha256.扩展名）；name 只用于显示。
+-- kind：image / pdf / docx / text / audio
+-- text：文档提取的文字、图片的文字版（vision 模型生成）或音频转写稿（transcribe 模型生成）
+-- text_source：extract / vision / transcribe；status：ready 可用 / pending 待模型处理 / failed
+CREATE TABLE attachments (
+    id           TEXT PRIMARY KEY,
+    session_id   TEXT REFERENCES sessions(id) ON DELETE CASCADE,
+    position     INTEGER,
+    name         TEXT NOT NULL,
+    kind         TEXT NOT NULL,
+    mime         TEXT NOT NULL,
+    ext          TEXT NOT NULL,
+    size         INTEGER NOT NULL,
+    sha256       TEXT NOT NULL,
+    storage_key  TEXT NOT NULL,
+    pages        INTEGER,
+    text         TEXT,
+    text_source  TEXT,
+    status       TEXT NOT NULL,
+    error        TEXT,
+    warnings     TEXT NOT NULL DEFAULT '[]',   -- JSON
+    created_at   TEXT NOT NULL
+);
+CREATE INDEX idx_attachments_session ON attachments(session_id, position);
+""",
+    ),
 ]

@@ -30,10 +30,10 @@ def planner(difficulty: str = "medium"):
 
 
 class Env:
-    def __init__(self, difficulty="medium", resolved=True, **routing_overrides):
+    def __init__(self, difficulty="medium", resolved=True, pool=None, **routing_overrides):
         self.difficulty = difficulty
         self.resolved = resolved
-        self.config = app_config(**routing_overrides)
+        self.config = app_config(**({"pool": pool} if pool else {}), **routing_overrides)
         self.fake = FakeProvider("c", default=self.reply)
         policy = self.config.roundtable.request.model_copy(update={"backoff_s": 0})
         rt_cfg = self.config.roundtable.model_copy(update={"request": policy})
@@ -44,6 +44,10 @@ class Env:
 
     def reply(self, model, messages):
         system = messages[0].content
+        if "图片转写成" in system:
+            return "图中文字：求 f(x)=x^3-3x 在 [-2, 2] 上的最值。坐标系中画有曲线。"
+        if "逐字转写成文字稿" in system:
+            return "说话人 1：请大家求这个函数的最大值和最小值。"
         if "规划员" in system:
             return planner(self.difficulty)(model, messages)
         if "汇总成一份结论" in system:

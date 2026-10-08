@@ -282,3 +282,26 @@ def test_main_writes_utf8_even_when_stream_is_not(monkeypatch, capsys):
     print("组员甲 ✓ x² 🙂", file=sys.stdout)
     sys.stdout.flush()
     assert raw.getvalue().decode("utf-8") == "组员甲 ✓ x² 🙂\n"
+
+
+async def test_ask_with_attachments(tmp_path):
+    from ..core.attachments.samples import PNG
+
+    notes = tmp_path / "讲义.txt"
+    notes.write_text("讲义：比较极值点和端点处的函数值。", encoding="gbk")
+    image = tmp_path / "graph.png"
+    image.write_bytes(PNG)
+    env = Env(confirm_threshold_usd=100.0)
+    code, text = await cli(
+        env, "ask", MEDIUM, "--attach", str(notes), "--attach", str(image), "--details"
+    )
+    assert code == 0
+    assert "附件：讲义.txt（文本）" in text and "附件：graph.png（图片" in text
+    assert "已生成文字版" in text and "graph.png 的文字版" in text
+
+    code, text = await cli(env, "ask", MEDIUM, "--attach", str(tmp_path / "missing.pdf"))
+    assert code == 2 and "无法读取附件" in text
+    bad = tmp_path / "fake.png"
+    bad.write_bytes(b"text")
+    code, text = await cli(env, "ask", MEDIUM, "--attach", str(bad))
+    assert code == 2 and "附件不可用" in text

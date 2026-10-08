@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 from collections.abc import Sequence
 from typing import Any
 
@@ -18,6 +19,14 @@ from .secrets import Secret
 # 通用参数名 → Gemini generationConfig 字段；其余参数原样放进 generationConfig
 _PARAM_MAP = {"max_tokens": "maxOutputTokens", "temperature": "temperature", "top_p": "topP"}
 _BLOCKED = frozenset({"SAFETY", "PROHIBITED_CONTENT", "BLOCKLIST", "SPII"})
+
+
+def _parts(m: Message) -> list[dict[str, Any]]:
+    parts: list[dict[str, Any]] = [{"text": m.content}]
+    for media in m.media:  # 图片与音频都用 inline_data
+        data = base64.b64encode(media.data).decode("ascii")
+        parts.append({"inline_data": {"mime_type": media.mime, "data": data}})
+    return parts
 
 
 @register_adapter("gemini")
@@ -47,7 +56,7 @@ class GeminiProvider(Provider):
     def _body(messages: Sequence[Message], params: dict[str, Any]) -> dict[str, Any]:
         system = "\n\n".join(m.content for m in messages if m.role == "system")
         contents = [
-            {"role": "model" if m.role == "assistant" else "user", "parts": [{"text": m.content}]}
+            {"role": "model" if m.role == "assistant" else "user", "parts": _parts(m)}
             for m in messages
             if m.role != "system"
         ]

@@ -13,6 +13,7 @@ from typing import Any, Protocol, TypeVar
 from pydantic import ValidationError
 
 from roundtable.core.allocation import IdentityScrubber
+from roundtable.core.attachments import Attachment, attach_messages
 from roundtable.core.config import AppConfig
 from roundtable.core.jsonout import JSONOutputError
 from roundtable.core.prompts import PromptLibrary, RenderedPrompt
@@ -20,6 +21,7 @@ from roundtable.core.providers import (
     AllChannelsFailed,
     ChannelRouter,
     Completion,
+    Message,
     NoChannelAvailable,
 )
 from roundtable.core.routing import Question
@@ -74,6 +76,8 @@ class TableContext:
     prompt_roles: dict[str, str] = field(default_factory=dict)
     # 预估的答案长度（token），用于实质内容检查的字数下限
     expected_answer_tokens: int | None = None
+    # 题目附件（图片带原图数据）；每次调用都附上，vision 成员收到原图，其他成员收到文字版
+    attachments: tuple[Attachment, ...] = ()
 
     @property
     def effort_rule(self):
@@ -100,8 +104,21 @@ class TableContext:
             self.on_event(Event(type_, step, self.table_no, code, data))
 
     def scrub(self, text: str) -> str:
-        """转给其他模型之前遮蔽身份；题目中出现的名称保留。"""
-        return self.scrubber.scrub(text, self.question.text)
+        """转给其他模型之前遮蔽身份；题目和附件中出现的名称保留。"""
+        context = "\n".join([self.question.text, *(a.text or "" for a in self.attachments)])
+        return self.scrubber.scrub(text, context)
+
+    def messages_for(self, prompt: RenderedPrompt, model_id: str) -> tuple[Message, ...]:
+        """一次调用实际发送的消息：没有附件时就是提示词本身。"""
+        if not self.attachments:
+            return prompt.messages
+        template = self.prompts.get("attachments", self.prompt_version("attachments"))
+        vision = "vision" in self.models_by_id[model_id].tags
+        return attach_messages(prompt.messages, self.attachments, template, vision=vision)
+
+    @property
+    def models_by_id(self) -> dict[str, Any]:
+        return {m.id: m for m in self.config.models.models}
 
     def prompt_version(self, role: str) -> str:
         return self.config.roundtable.prompts[role]
@@ -153,15 +170,16 @@ async def call_model(
     code: str | None = None,
 ) -> CallOutcome:
     """调用一次并记录（成功或失败都记录）。渠道层已经负责重试和切换。"""
+    messages = ctx.messages_for(prompt, model_id)
     try:
-        completion = await ctx.router.complete(model_id, prompt.messages, ctx.step_params(step))
+        completion = await ctx.router.complete(model_id, messages, ctx.step_params(step))
     except (AllChannelsFailed, NoChannelAvailable) as exc:
         call_id = ctx.repo.record_call(
             ctx.session_id,
             step=step,
             role=role,
             model_id=model_id,
-            messages=prompt.messages,
+            messages=messages,
             table_no=ctx.table_no,
             code=code,
             prompt=prompt,
@@ -174,7 +192,7 @@ async def call_model(
         step=step,
         role=role,
         model_id=model_id,
-        messages=prompt.messages,
+        messages=messages,
         table_no=ctx.table_no,
         code=code,
         prompt=prompt,

@@ -271,7 +271,7 @@ def _estimate(
         lineup.pipeline,
         members=[seat(m) for m in lineup.members],
         coordinator=seat(lineup.coordinator) if lineup.coordinator else None,
-        question_tokens=text_tokens(question.text, params),
+        question_tokens=text_tokens(question.text, params) + question.attachment_tokens,
         answer_tokens=answer_tokens,
         revise_rounds=config.roundtable.revise_rounds,
         params=params,

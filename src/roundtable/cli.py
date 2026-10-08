@@ -5,6 +5,7 @@
     roundtable ask --models a,b,c "题目"          # 自选上桌的模型
     roundtable ask --anonymous "题目"             # 匿名：结束前只显示代号
     roundtable ask --mode collab "题目"           # 协同：拆分子任务、分工完成、合并
+    roundtable ask --attach 图.png --attach 讲义.pdf "题目"   # 带附件
     roundtable models                             # 查看模型、档位、哪些渠道有 key
     roundtable history                            # 最近的讨论
     roundtable stats                              # 各模型的历史贡献
@@ -26,12 +27,13 @@ import io
 import json
 import sys
 from collections import defaultdict
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any, TextIO
 
+from roundtable.core.attachments import UploadError, ingest
 from roundtable.core.config import ConfigError
-from roundtable.core.orchestrator import Orchestrator, RunResult
+from roundtable.core.orchestrator import Orchestrator, OrchestratorError, RunResult
 from roundtable.core.routing import Question, RoutingError, UserChoice
 from roundtable.core.runtime import Runtime
 from roundtable.core.steps import Event
@@ -51,6 +53,7 @@ STEP_NAMES = {
     "cross_review": "交叉审查",
     "rework": "按审查修改",
     "merge": "统筹合并",
+    "attachments": "处理附件",
 }
 STANCE_NAMES = {"want": "想做", "can": "可以做", "unfit": "不适合"}
 LEVEL_NAMES = {"full": "全部采用", "partial": "部分采用", "none": "未采用"}
@@ -66,6 +69,7 @@ KIND_NAMES = {
     "lazy": "敷衍",
     "dropped": "退出",
 }
+KIND_LABELS = {"image": "图片", "pdf": "PDF", "docx": "Word", "text": "文本", "audio": "音频"}
 LENGTH_NAMES = {"simple": "短", "medium": "中等", "hard": "长", None: "未判断"}
 
 
@@ -214,6 +218,15 @@ class CLI:
                 f"预估 ${r.get('estimated_cost_usd', 0):.4f}"
                 + ("  （已升级）" if r.get("escalated") else "")
             )
+        for row in self.rt.repo.session_attachments(sid):
+            state = {"ready": "", "pending": "，待处理", "failed": f"，失败：{row['error']}"}
+            source = {"vision": "，已生成文字版", "transcribe": "，已转写"}.get(
+                row["text_source"] or "", ""
+            )
+            kind = KIND_LABELS.get(row["kind"], row["kind"])
+            self.p(f"附件：{row['name']}（{kind}{source}{state.get(row['status'], '')}）")
+            if details and row["text_source"] in ("vision", "transcribe") and row["text"]:
+                self.p(f"\n【{row['name']} 的文字版】\n{self.t(row['text'].strip())}\n")
         tables = sorted({o.table_no for o in view.outputs})
         for table_no in tables:
             outputs = [o for o in view.outputs if o.table_no == table_no]
@@ -255,10 +268,11 @@ class CLI:
         view = self.rt.repo.session_view(sid, scrub=self.rt.scrubber.scrub)
         estimates = {t["table_no"]: t["estimate"] for t in self.rt.repo.tables(sid)}
         self.p("\n【花费明细】")
-        planner = [c for c in view.calls if c.table_no is None]
-        if planner:
-            cost = sum(c.cost_usd for c in planner)
-            self.p(f"  规划员：{len(planner)} 次调用 ${cost:.4f}")
+        for role, title in (("planner", "规划员"), ("preprocess", "附件预处理")):
+            calls = [c for c in view.calls if c.table_no is None and c.role == role]
+            if calls:
+                cost = sum(c.cost_usd for c in calls)
+                self.p(f"  {title}：{len(calls)} 次调用 ${cost:.4f}")
         steps: dict[tuple[int, str], list] = defaultdict(list)
         for c in view.calls:
             if c.table_no is not None:
@@ -289,8 +303,10 @@ class CLI:
                 )
         self.p("\n【每次调用】")
         for c in view.calls:
-            where = "规划" if c.table_no is None else f"第 {c.table_no + 1} 桌"
-            who = "规划员" if c.role == "planner" else self.label(c.code, c.table_no or 0)
+            where = "准备" if c.table_no is None else f"第 {c.table_no + 1} 桌"
+            who = {"planner": "规划员", "preprocess": "附件预处理"}.get(c.role) or self.label(
+                c.code, c.table_no or 0
+            )
             channel = f" · {c.channel}" if c.channel else ""
             error = f" · 失败：{c.error}" if c.error else ""
             self.p(
@@ -471,11 +487,42 @@ class CLI:
         details: bool,
         reveal: bool | None,
         anonymous: bool = False,
+        attach: Sequence[str] = (),
     ) -> int:
         if not self.check_available():
             return 2
+        ids = []
+        for path in attach:
+            try:
+                data = Path(path).read_bytes()
+                a = ingest(
+                    Path(path).name,
+                    data,
+                    config=self.rt.config,
+                    router=self.rt.router,
+                    repo=self.rt.repo,
+                    store=self.rt.files,
+                )
+            except OSError as exc:
+                self.p(f"无法读取附件 {path}：{exc.strerror}")
+                return 2
+            except UploadError as exc:
+                self.p(f"附件不可用：{exc}")
+                return 2
+            note = "，".join(a.warnings)
+            self.p(
+                f"附件：{a.name}（{KIND_LABELS.get(a.kind, a.kind)}）"
+                + (f" ⚠ {note}" if note else "")
+            )
+            ids.append(a.id)
         self.p(f"题目：{question}\n")
-        result = await self.orc.start(Question(question), choice, seed=seed, anonymous=anonymous)
+        try:
+            result = await self.orc.start(
+                Question(question), choice, seed=seed, anonymous=anonymous, attachments=ids
+            )
+        except OrchestratorError as exc:
+            self.p(f"无法开始：{exc}")
+            return 2
         return await self.finish(result, details=details, reveal=reveal)
 
     async def finish(self, result: RunResult, *, details: bool, reveal: bool | None) -> int:
@@ -558,6 +605,13 @@ def build_parser() -> argparse.ArgumentParser:
     ask = sub.add_parser("ask", help="提一道题并跑完整个圆桌")
     ask.add_argument("question", nargs="?", help="题目；省略时从 --file 或交互输入读取")
     ask.add_argument("--file", help="从 UTF-8 文本文件读取题目")
+    ask.add_argument(
+        "--attach",
+        action="append",
+        default=[],
+        metavar="文件",
+        help="附件（可多次使用）：图片、PDF、Word .docx、文本、mp3 / wav 音频",
+    )
     lineup = ask.add_mutually_exclusive_group()
     lineup.add_argument(
         "--tier", help="成员档位（routing.yaml 的 plans，如 budget / flagship）：该档位全员上桌"
@@ -655,6 +709,7 @@ async def run(
                 details=args.details,
                 reveal=args.reveal,
                 anonymous=args.anonymous,
+                attach=args.attach,
             )
         if args.command == "models":
             return cli.cmd_models()

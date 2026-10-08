@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 from collections.abc import Sequence
 from typing import Any
 
@@ -46,6 +47,19 @@ class AnthropicProvider(Provider):
     def _error(self, kind: ErrorKind, detail: str = "", **kw: Any) -> ProviderError:
         return ProviderError(kind, self.channel, safe_detail(detail, self._secrets), **kw)
 
+    def _message(self, m: Message) -> dict[str, Any]:
+        if not m.media:
+            return {"role": m.role, "content": m.content}
+        blocks: list[dict[str, Any]] = [{"type": "text", "text": m.content}]
+        for media in m.media:
+            if media.kind != "image":
+                # 该接口不接收音频：换渠道也是同样的请求，不切换
+                raise self._error(ErrorKind.BAD_REQUEST, "不支持音频输入")
+            data = base64.b64encode(media.data).decode("ascii")
+            source = {"type": "base64", "media_type": media.mime, "data": data}
+            blocks.append({"type": "image", "source": source})
+        return {"role": m.role, "content": blocks}
+
     async def complete(
         self, model: str, messages: Sequence[Message], params: dict[str, Any]
     ) -> RawCompletion:
@@ -53,9 +67,7 @@ class AnthropicProvider(Provider):
         kwargs: dict[str, Any] = {
             "model": model,
             "max_tokens": params.pop("max_tokens", DEFAULT_MAX_TOKENS),
-            "messages": [
-                {"role": m.role, "content": m.content} for m in messages if m.role != "system"
-            ],
+            "messages": [self._message(m) for m in messages if m.role != "system"],
             **params,
         }
         system = "\n\n".join(m.content for m in messages if m.role == "system")

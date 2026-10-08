@@ -135,7 +135,8 @@ models:
     aliases: [Gemini, Bard, DeepMind]
     tier: budget
     price: {input: 0.75, output: 3.75}
-    tags: [design, research, long_context, vision]
+    # transcribe：能直接接收音频，用于把上传的音频转写成文字（普通对话调用）
+    tags: [design, research, long_context, vision, transcribe]
     enabled: true
     routes:
       - {channel: google, model: gemini-3.8-flash}

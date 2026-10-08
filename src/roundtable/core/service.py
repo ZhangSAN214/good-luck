@@ -14,6 +14,8 @@ from collections.abc import AsyncIterator, Sequence
 from dataclasses import asdict
 from typing import Any
 
+from roundtable.core.attachments import Attachment, UploadError, ingest
+from roundtable.core.attachments.detect import TYPES as UPLOAD_TYPES
 from roundtable.core.orchestrator import Orchestrator, OrchestratorError, RunResult
 from roundtable.core.routing import CUSTOM, Question, RoutingError, UserChoice
 from roundtable.core.runtime import Runtime
@@ -89,6 +91,11 @@ class RoundtableService:
             "default_plan": cfg.routing.default_plan,
             "custom_label": cfg.routing.custom.label,
             "workflows": {"discussion": "讨论模式", "collab": "协同模式"},
+            "uploads": {
+                "max_files": cfg.roundtable.uploads.max_files,
+                "max_file_mb": cfg.roundtable.uploads.max_file_mb,
+                "types": sorted(UPLOAD_TYPES),
+            },
             "min_members": cfg.roundtable.min_members,
             "confirm_threshold_usd": cfg.routing.confirm_threshold_usd,
             "max_members": cfg.roundtable.seats,
@@ -135,11 +142,13 @@ class RoundtableService:
         anonymous: bool = False,
         workflow: str = "discussion",
         seed: int | None = None,
+        attachments: Sequence[str] = (),
     ) -> str:
         """创建会话并在后台开始执行，立即返回会话 id。
 
         tier：档位名或 "custom"（自选，models 为上桌的模型）；anonymous 默认关闭；
-        workflow：discussion（讨论模式）或 collab（协同模式）。
+        workflow：discussion（讨论模式）或 collab（协同模式）；
+        attachments：先用 upload() 上传得到的附件 id。
         """
         text = question.strip()
         if not text:
@@ -154,9 +163,43 @@ class RoundtableService:
             raise ServiceError(f"未知的档位 {tier!r}")
         if not self.rt.router.available_models():
             raise ServiceError("没有可用的模型：请在 .env 中填写至少一个渠道的 key", 503)
-        sid = self.orc.open(Question(text), choice, seed=seed, anonymous=anonymous)
+        try:
+            sid = self.orc.open(
+                Question(text), choice, seed=seed, anonymous=anonymous, attachments=attachments
+            )
+        except OrchestratorError as exc:
+            raise ServiceError(str(exc)) from None
         self._spawn(sid, self.orc.run(sid))
         return sid
+
+    # --- 附件 ----------------------------------------------------------------------
+
+    @property
+    def max_upload_bytes(self) -> int:
+        return int(self.rt.config.roundtable.uploads.max_file_mb * 1024 * 1024)
+
+    def upload(self, name: str, data: bytes) -> dict[str, Any]:
+        """上传一个文件：识别类型、提取文字并登记，返回附件信息（提交题目时带上它的 id）。
+
+        图片的文字版和音频的转写在提交题目后、讨论开始前生成（费用计入本场）。
+        """
+        try:
+            attachment = ingest(
+                name,
+                data,
+                config=self.rt.config,
+                router=self.rt.router,
+                repo=self.rt.repo,
+                store=self.rt.files,
+            )
+        except UploadError as exc:
+            raise ServiceError(str(exc)) from None
+        return attachment.public()
+
+    def _attachments(self, session_id: str) -> list[dict[str, Any]]:
+        return [
+            Attachment.from_row(r).public() for r in self.rt.repo.session_attachments(session_id)
+        ]
 
     def respond(self, session_id: str, response: str, note: str | None = None) -> None:
         """回复确认卡片；讨论在后台继续。"""
@@ -198,6 +241,7 @@ class RoundtableService:
         data["can_reveal"] = view.anonymous and view.status in REVEALABLE and not view.revealed
         data["tables"] = self._tables(session_id)
         data["contributions"] = self._contributions(session_id, view.revealed)
+        data["attachments"] = self._attachments(session_id)
         return data
 
     def _contributions(self, session_id: str, revealed: bool) -> list[dict[str, Any]]:

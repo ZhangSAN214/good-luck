@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
 from dataclasses import dataclass, field
@@ -12,10 +13,34 @@ from .errors import Attempt, UnsupportedCapability
 Role = Literal["system", "user", "assistant"]
 
 
+MediaKind = Literal["image", "audio"]
+
+
+@dataclass(frozen=True)
+class Media:
+    """随消息发送的图片或音频（附件）。data 不出现在 repr 中，避免进入日志。"""
+
+    kind: MediaKind
+    mime: str
+    data: bytes = field(repr=False)
+    name: str = ""
+
+    def describe(self) -> dict[str, Any]:
+        """存库与日志用的描述（不含内容本身）。"""
+        return {
+            "kind": self.kind,
+            "mime": self.mime,
+            "bytes": len(self.data),
+            "sha256": hashlib.sha256(self.data).hexdigest(),
+        }
+
+
 @dataclass(frozen=True)
 class Message:
     role: Role
     content: str
+    # 附件中的图片 / 音频，放在文字之后（只用于 user 消息）
+    media: tuple[Media, ...] = ()
 
 
 @dataclass(frozen=True)

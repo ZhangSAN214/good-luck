@@ -122,3 +122,24 @@ async def test_unparseable():
     with pytest.raises(ProviderError) as info:
         await make(lambda r: httpx.Response(200, text="oops")).complete("m", MESSAGES, {})
     assert info.value.kind == ErrorKind.INVALID_RESPONSE
+
+
+async def test_media_as_inline_data():
+    import base64
+
+    from roundtable.core.providers import Media
+
+    seen = {}
+
+    def handler(request: httpx.Request):
+        seen["body"] = json.loads(request.content)
+        return httpx.Response(200, json=ok_body())
+
+    media = (Media("image", "image/png", b"PNG"), Media("audio", "audio/wav", b"WAV"))
+    await make(handler).complete("gemini-x", [Message("user", "q", media)], {})
+    parts = seen["body"]["contents"][0]["parts"]
+    assert parts[0] == {"text": "q"}
+    assert parts[1] == {
+        "inline_data": {"mime_type": "image/png", "data": base64.b64encode(b"PNG").decode()}
+    }
+    assert parts[2]["inline_data"]["mime_type"] == "audio/wav"

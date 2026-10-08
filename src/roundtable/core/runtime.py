@@ -9,6 +9,7 @@ from datetime import datetime
 from pathlib import Path
 
 from roundtable.core.allocation import IdentityScrubber
+from roundtable.core.attachments import FileStore
 from roundtable.core.budget import BudgetGuard
 from roundtable.core.config import AppConfig, load_config
 from roundtable.core.config.loader import DEFAULT_CONFIG_DIR
@@ -30,6 +31,7 @@ class Runtime:
     repo: Repository
     scrubber: IdentityScrubber
     budget: BudgetGuard
+    files: FileStore = field(default_factory=lambda: FileStore(None))
     unavailable_channels: dict[str, str] = field(default_factory=dict)
 
     @classmethod
@@ -44,6 +46,7 @@ class Runtime:
         dotenv_path: str | Path | None = PROJECT_ROOT / ".env",
         prompts: PromptLibrary | None = None,
         now: Callable[[], datetime] | None = None,
+        uploads_dir: str | Path | None = None,
     ) -> Runtime:
         """providers 为空时从 .env / 环境变量读取 key 并构建真实渠道（测试中传入 Fake）。"""
         config = config or load_config()
@@ -70,6 +73,11 @@ class Runtime:
         if db_path is None:
             configured = env.get(DB_ENV)
             db_path = PROJECT_ROOT / configured if configured else DEFAULT_DB
+        if uploads_dir is None and str(db_path) != ":memory:":
+            # 默认放在配置的目录；自定义数据库位置时放在数据库旁边
+            default = Path(db_path).resolve() == DEFAULT_DB.resolve()
+            storage = config.roundtable.uploads.storage_dir
+            uploads_dir = PROJECT_ROOT / storage if default else Path(db_path).parent / "uploads"
         repo = Repository(connect(db_path))
         guard = BudgetGuard(config.roundtable.budget, repo, **({"now": now} if now else {}))
         return cls(
@@ -79,6 +87,7 @@ class Runtime:
             repo=repo,
             scrubber=IdentityScrubber.from_config(config.models),
             budget=guard,
+            files=FileStore(Path(uploads_dir) if uploads_dir is not None else None),
             unavailable_channels=dict(unavailable or {}),
         )
 

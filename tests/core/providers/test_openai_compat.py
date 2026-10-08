@@ -176,3 +176,34 @@ def test_repo_openai_channel_renames_max_tokens():
     channels = load_config().models.channels
     assert channels["openai"].param_aliases == {"max_tokens": "max_completion_tokens"}
     assert channels["openrouter"].param_aliases == {}
+
+
+async def test_images_and_audio_as_content_parts():
+    import base64
+
+    from roundtable.core.providers import Media
+
+    seen = {}
+
+    def handler(request: httpx.Request):
+        seen["body"] = json.loads(request.content)
+        return httpx.Response(200, json=ok_body())
+
+    media = (Media("image", "image/png", b"PNGDATA", "a.png"), Media("audio", "audio/mpeg", b"MP3"))
+    msgs = [Message("system", "s"), Message("user", "看图", media)]
+    await make(handler).complete("m", msgs, {})
+    user = seen["body"]["messages"][1]
+    assert user["content"][0] == {"type": "text", "text": "看图"}
+    url = "data:image/png;base64," + base64.b64encode(b"PNGDATA").decode()
+    assert user["content"][1] == {"type": "image_url", "image_url": {"url": url}}
+    audio = {"data": base64.b64encode(b"MP3").decode(), "format": "mp3"}
+    assert user["content"][2] == {"type": "input_audio", "input_audio": audio}
+    assert seen["body"]["messages"][0] == {"role": "system", "content": "s"}  # 纯文字保持原格式
+
+
+def test_media_bytes_not_in_repr():
+    from roundtable.core.providers import Media
+
+    m = Media("image", "image/png", b"SECRET-IMAGE-BYTES")
+    assert "SECRET-IMAGE-BYTES" not in repr(Message("user", "q", (m,)))
+    assert m.describe()["bytes"] == 18 and "data" not in m.describe()

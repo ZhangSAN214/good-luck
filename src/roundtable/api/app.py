@@ -35,6 +35,7 @@ class CreateSession(BaseModel):
     anonymous: bool = False
     workflow: str = "discussion"  # discussion 讨论 / collab 协同
     seed: int | None = None
+    attachments: list[str] = Field(default_factory=list)  # POST /api/uploads 返回的附件 id
 
 
 class Respond(BaseModel):
@@ -101,8 +102,25 @@ def create_app(service: RoundtableService | None = None) -> FastAPI:
             anonymous=body.anonymous,
             workflow=body.workflow,
             seed=body.seed,
+            attachments=body.attachments,
         )
         return {"session_id": sid}
+
+    @app.post("/api/uploads", status_code=201)
+    async def upload(request: Request, name: str) -> dict[str, Any]:
+        """上传一个文件：请求体是文件的原始字节，?name= 为文件名（只用于显示和判断扩展名）。"""
+        service = svc(request)
+        limit = service.max_upload_bytes
+        declared = request.headers.get("content-length")
+        if declared and declared.isdigit() and int(declared) > limit:
+            raise ServiceError("文件超过大小上限", 413)
+        chunks, size = [], 0
+        async for chunk in request.stream():
+            size += len(chunk)
+            if size > limit:
+                raise ServiceError("文件超过大小上限", 413)
+            chunks.append(chunk)
+        return service.upload(name, b"".join(chunks))
 
     @app.get("/api/sessions/{session_id}")
     async def session(request: Request, session_id: str) -> dict[str, Any]:

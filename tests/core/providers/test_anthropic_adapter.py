@@ -133,3 +133,33 @@ def test_requires_key():
     # 不允许 SDK 回退到环境变量或本机登录凭据
     with pytest.raises(ConfigError):
         AnthropicProvider("anthropic", SPEC, None, 30)
+
+
+async def test_image_blocks_and_audio_rejected():
+    import base64
+
+    from roundtable.core.providers import Media
+
+    seen = {}
+
+    def handler(request: httpx2.Request):
+        seen["body"] = json.loads(request.content)
+        return httpx2.Response(200, json=ok_body())
+
+    provider = make(handler)
+    image = Media("image", "image/jpeg", b"JPG", "a.jpg")
+    await provider.complete("claude-test", [Message("user", "看图", (image,))], {})
+    content = seen["body"]["messages"][0]["content"]
+    assert content[0] == {"type": "text", "text": "看图"}
+    source = {
+        "type": "base64",
+        "media_type": "image/jpeg",
+        "data": base64.b64encode(b"JPG").decode(),
+    }
+    assert content[1] == {"type": "image", "source": source}
+
+    audio = Media("audio", "audio/mpeg", b"MP3")
+    with pytest.raises(ProviderError) as info:
+        await provider.complete("claude-test", [Message("user", "听", (audio,))], {})
+    assert info.value.kind == ErrorKind.BAD_REQUEST  # 不切换渠道（换了也是同样的请求）
+    await provider.aclose()

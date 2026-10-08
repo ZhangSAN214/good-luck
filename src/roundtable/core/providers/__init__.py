@@ -2,7 +2,7 @@
 
 # 导入适配器模块以完成注册
 from . import anthropic_adapter, fake, gemini, openai_compat  # noqa: F401
-from .base import Completion, Message, Provider, RawCompletion
+from .base import Completion, Media, Message, Provider, RawCompletion
 from .cost import estimate_cost
 from .errors import (
     AllChannelsFailed,
@@ -25,6 +25,7 @@ __all__ = [
     "ErrorKind",
     "FakeProvider",
     "KeyRing",
+    "Media",
     "Message",
     "NoChannelAvailable",
     "Provider",

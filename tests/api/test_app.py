@@ -185,3 +185,47 @@ def test_frontend_is_served():
             assert c.get(path).status_code == 200, path
         # API 路由不被静态文件覆盖
         assert c.get("/api/status").status_code == 200
+
+
+def test_upload_then_ask_with_attachments(caplog):
+    import logging
+
+    from ..core.attachments.samples import PNG
+
+    marker = "独一无二的讲义内容-XYZZY"
+    env, c = client(confirm_threshold_usd=100.0)
+    with c, caplog.at_level(logging.DEBUG):
+        r = c.post("/api/uploads", params={"name": "../../讲义.txt"}, content=marker.encode())
+        assert r.status_code == 201
+        notes = r.json()
+        assert notes["name"] == "讲义.txt" and notes["kind"] == "text"
+        assert notes["status"] == "ready" and "storage_key" not in notes
+        image = c.post("/api/uploads", params={"name": "g.png"}, content=PNG).json()
+        assert image["status"] == "pending"
+
+        bad = c.post("/api/uploads", params={"name": "x.png"}, content=b"not an image")
+        assert bad.status_code == 400 and "不符" in bad.json()["detail"]
+
+        body = {"question": MEDIUM, "seed": 3, "attachments": [notes["id"], image["id"]]}
+        sid = c.post("/api/sessions", json=body).json()["session_id"]
+        events = sse_events(c, sid)
+        assert events[-1]["status"] == "completed"
+        detail = c.get(f"/api/sessions/{sid}").json()
+        names = [(a["name"], a["status"], a["text_source"]) for a in detail["attachments"]]
+        assert names == [("讲义.txt", "ready", "extract"), ("g.png", "ready", "vision")]
+        assert marker not in json.dumps(detail, ensure_ascii=False)  # 详情不含文件内容
+
+        again = c.post("/api/sessions", json=body)
+        assert again.status_code == 400 and "已用于其他讨论" in again.json()["detail"]
+    logged = "\n".join(r.getMessage() for r in caplog.records)
+    assert marker not in logged  # 上传内容不进日志
+
+
+def test_upload_size_limit():
+    env, c = client()
+    limit = int(env.config.roundtable.uploads.max_file_mb * 1024 * 1024)
+    with c:
+        r = c.post("/api/uploads", params={"name": "big.txt"}, content=b"a" * (limit + 1))
+        assert r.status_code == 413
+        status = c.get("/api/status").json()
+        assert status["uploads"]["max_files"] >= 1 and "pdf" in status["uploads"]["types"]
