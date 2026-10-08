@@ -167,6 +167,32 @@ async def test_models_history_show_reveal_commands():
     assert code == 0 and "组员甲 = " in text
 
 
+async def test_show_contributions_and_stats():
+    env = Env(confirm_threshold_usd=100.0)
+    code, text = await cli(env, "ask", MEDIUM, "--anonymous", "--no-reveal", "--seed", "4")
+    assert code == 0 and "【贡献】" in text and "被采纳的要点" in text
+    assert not any(mentions(text, t) for t in identity_terms(env))
+    code, text = await cli(env, "stats")
+    assert code == 0 and "揭晓后才计入" in text
+    await cli(env, "reveal", env.rt.repo.list_sessions()[0].id)
+    code, text = await cli(env, "stats")
+    assert code == 0 and "1 场" in text and "被采纳的要点" in text
+
+
+async def test_effort_events_printed():
+    env = Env(confirm_threshold_usd=100.0)
+    original = env.reply
+
+    def lazy(model, messages):
+        if "独立完成同一道题" in messages[0].content and len(messages) == 2:
+            return "略"  # 第一次作答敷衍，重做时（对话变长）正常回答
+        return original(model, messages)
+
+    env.fake._default = lazy
+    code, text = await cli(env, "ask", MEDIUM, "--seed", "4")
+    assert code == 0 and "打回重做：只有空话" in text
+
+
 async def test_resume_command():
     env = Env(confirm_threshold_usd=100.0)
     original = env.reply

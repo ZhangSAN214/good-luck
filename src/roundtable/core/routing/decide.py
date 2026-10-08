@@ -219,7 +219,8 @@ def _route_price(router: ChannelRouter, model: ModelSpec) -> Price:
     return model.price_for(usable[0]) if usable else model.price
 
 
-def _answer_tokens(config: AppConfig, a: Assessment) -> int:
+def answer_tokens(config: AppConfig, a: Assessment) -> int:
+    """预估的答案长度（token）：规划员的估计（限制在范围内），否则按难度取默认值。"""
     params = config.routing.estimate
     difficulty: Difficulty = a.difficulty or config.routing.default_difficulty
     if a.expected_answer_tokens:
@@ -268,7 +269,7 @@ def estimate_lineup(
         router=router,
         by_id=available,
         question=question,
-        answer_tokens=_answer_tokens(config, assessment),
+        answer_tokens=answer_tokens(config, assessment),
     )
 
 
@@ -373,7 +374,7 @@ def _options(
             router=router,
             by_id=by_id,
             question=question,
-            answer_tokens=_answer_tokens(config, assessment),
+            answer_tokens=answer_tokens(config, assessment),
         )
         options[name] = PlanOption(plan.label, True, estimate, lineup=lineup)
     return options
@@ -439,7 +440,7 @@ async def route_question(
             router=router,
             by_id=by_id,
             question=question,
-            answer_tokens=_answer_tokens(config, assessment),
+            answer_tokens=answer_tokens(config, assessment),
         )
         options[CUSTOM] = PlanOption(routing.custom.label, True, estimate, lineup=lineup)
         escalate_to = None

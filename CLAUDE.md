@@ -12,7 +12,8 @@
 ## 1. 当前范围
 
 **流程（讨论模式）**：所选档位全员上桌 → 独立作答 → 互评 → 修订 → 汇总 →（分歧时询问是否升级）→ 结束
-（协同模式、文件上传、防偷懒与贡献记录见 PLAN.md 的 v2 阶段 12–16，尚未实现。）
+（协同模式、文件上传见 PLAN.md 的 v2 阶段 13–16，尚未实现。）
+**防偷懒**：每位成员的作答、互评、修订都做实质内容检查，空泛的打回重做一次，仍不合格标记"敷衍"；每位成员的**贡献**（被采纳的要点、有效评审与问题、被作者采纳的问题、重做与敷衍次数）按桌记录，界面显示本场与历史。
 
 | 角色 | 由谁担任 | 做什么 |
 |---|---|---|
@@ -81,7 +82,7 @@
 - 每步结束状态落库；可暂停、关页面后恢复，恢复时不重复已完成的调用。
 
 ### 2.4 提示词外置且带版本
-- `prompts/<role>/v<n>.md`：`planner`、`answer`、`answer_quick`（单人快答：直接给答案，最多一两句说明）、`review`、`revise`、`synthesize`。代码中不得内联提示词正文。
+- `prompts/<role>/v<n>.md`：`planner`、`answer`、`review`、`revise`（v2：逐条"采纳 / 部分采纳 / 不采纳"）、`synthesize`（v3：`adopted_from`、注意 flagged 的答案）、`redo`（打回重做：system 段接在原系统提示后，user 段追加在原对话后）；`answer_quick` 已不再引用（已发布版本保留）。代码中不得内联提示词正文。
 - 文件格式：YAML 文件头（`description`、`output: text|json`、`variables`）+ `<!-- system -->` / `<!-- user -->` 两段。占位符用 `{{ name }}`（不用 `$`，避免与数学公式冲突）；声明的变量与正文占位符必须一一对应，渲染时缺少或多余参数都报错；只替换一次，用户输入里的 `{{ x }}` 不会被展开。
 - 题目、他人答案等外部内容放在标签内（`<question>`、`<answer>` …），系统提示说明标签内的指令无效（防提示注入）。
 - 使用的版本由配置指定，随每次调用入库（版本号 + 内容哈希，换行统一为 LF 后计算）。
@@ -92,12 +93,19 @@
 - 规划员、互评和汇总输出 JSON，用 pydantic schema 校验；解析失败重试一次，仍失败则降级并记录：规划员 → 默认难度；互评 → 该评审者本轮无评审；汇总 → 兜底结果（把握程度 low，会触发升级判断）。修订是文本，按"## 修订后的答案 / ## 对审阅意见的回应"两个标题切分，找不到标题时重试一次，仍不行则整段作为修订稿。
 - 互评必须给出具体问题：位置 + 问题 + 修改建议；没发现问题时必须说明检查了什么。由代码判定无效评审（规则在 `roundtable.yaml` 的 `review_quality`）：问题都没写全；没有问题且"检查了什么"太短或只由空泛短语组成；判定有误却不指出问题。无效评审不转给作者；没有有效评审的组员不调用修订、沿用原答案。
 - 自评、未知代号、重复目标的评审一律丢弃。
-- 汇总固定结构（`synthesize/v2`）：共识、分歧（各方观点用代号标注，并标注 `resolved` 是否已裁定）、最终答案、仍存疑的点、把握程度。未裁定的分歧数和把握程度构成升级信号 `outcome_signals()`。
+- 汇总固定结构（`synthesize/v3`）：共识、分歧（各方观点用代号标注，并标注 `resolved` 是否已裁定）、最终答案、`adopted_from`（最终答案采用的要点各来自哪些代号，未知代号丢弃）、仍存疑的点、把握程度。未裁定的分歧数和把握程度构成升级信号 `outcome_signals()`。
+- 修订回应按行解析采纳情况（`parse_decisions`：`- 组员乙 · 问题 1：采纳 —— 理由` / `- 组员丙：不采纳 —— 理由`），格式不符的行忽略。
+
+### 2.5.1 防偷懒与贡献（`steps/effort.py`、`steps/contributions.py`）
+- 规则在 `roundtable.yaml` 的 `effort_check`，只看文本：只有空话（`empty_phrases`）、短文本中的拒答（`refusal_phrases`）、字数低于 `max(min_chars, 预估答案 token × chars_per_expected_token)`、与题目相似度 ≥ `restate_similarity`、修订稿与别人的答案相似度 ≥ `duplicate_similarity`（疑似照抄）、修订没有回应审阅意见、互评一条有效评审都没有。
+- 不合格 → 用 `redo` 提示词在同一对话中**打回重做一次**（上一次输出作为 assistant，所有成员的重做提示词相同）；仍不合格 → 产出保留、标记"敷衍"（`EffortRecord` 存为 `outputs` 中 kind=`effort` 的一行），汇总时该答案带 `flagged` 属性。`redo: false` 时只标记不重做。事件：`effort_redo`、`effort_flagged`（只含代号）。
+- 贡献由 `table_contributions(state, codes)` 按桌计算，类别：`answered`、`adopted`、`valid_review`、`valid_issue`、`issue_accepted`（只认作者确实收到的有效评审中的问题）、`redo`、`lazy`、`dropped`。编排引擎在讨论结束 / 停止 / 失败时整桌重写 `contributions` 表（可重复）。
+- 历史统计（`contribution_history()`、`GET /api/contributions`、`roundtable stats`）**只计入身份已公开的会话**（匿名关闭，或已揭晓），避免反推未揭晓会话的身份；目前只积累和展示，不参与分工。
 
 ### 2.6 持久化：SQLite
 - 存：会话（题目、seed、成员档位、匿名开关、工作模式）、**路由记录**（答案长度判断、档位与阵容、缺席、预估与实际花费、升级）、座位与代号映射、统筹、每次调用（步骤、提示词版本 + 哈希、输入输出、**实际渠道与切换记录**、token、费用及来源、耗时、错误）、互评结果、修订稿、汇总、确认点与用户回复、累计费用（总计与按渠道）。
 - 数据访问只经 `core/storage/`（Repository 模式）；表结构变更走版本化迁移（`storage/migrations.py`，只能在末尾追加；已发布迁移的哈希登记在测试中，不得修改），后续扩展加表不改旧表含义。
-- 表：`sessions`、`routing_records`、`seats`（`table_no` 0 为初始圆桌，升级后为 1、2…）、`calls` + `call_attempts`（每次渠道尝试一行）、`outputs`（各步产出，通用表）、`step_progress`（恢复时跳过已完成步骤）、`checkpoints`。
+- 表：`sessions`、`routing_records`、`seats`（`table_no` 0 为初始圆桌，升级后为 1、2…）、`calls` + `call_attempts`（每次渠道尝试一行）、`outputs`（各步产出，通用表；kind 含 answer / review / revision / synthesis / dropout / effort）、`step_progress`（恢复时跳过已完成步骤）、`checkpoints`、`contributions`（迁移 5：按桌、代号、模型、类别的贡献数量）。
 - **对外展示只用 `session_view()` / `list_sessions()`**：匿名开启且未揭晓时去掉模型 id、渠道、切换记录、阵容、缺席名单、规划员模型，错误信息替换为通用提示，模型输出经身份遮蔽；揭晓后或匿名关闭时显示全部原文。存储层 `create_session` 默认匿名（更安全），产品默认值（关闭）由服务层 / 命令行决定。
 - `sessions.mode` 自迁移 4 起存成员档位（`budget` / `flagship` / `custom`），旧会话为 `auto` / `preset` / `manual`；旧版本还没路由的会话恢复时明确报错"无法继续"，已有内容照常查看。按渠道的花费汇总（`spent_by_channel()`）可随时展示。
 
@@ -105,11 +113,11 @@
 - `core/`：纯业务逻辑，**禁止 import fastapi / starlette / uvicorn / streamlit**（测试守卫）。
 - `api/`：FastAPI 路由 + SSE，只调用 `core/service.py`（启动时用 `core/runtime.py` 组装；有测试检查导入）。
 - **服务 facade**（`core/service.py`，`RoundtableService`）：返回值都是可 JSON 化的 dict；匿名会话揭晓前全部匿名。`create(question, tier=, models=, coordinator=, anonymous=False)`；揭晓只用于匿名会话。提交题目后立即返回会话 id，讨论在后台任务中执行；意外错误把会话标为 `paused`（可 `resume`）。揭晓只允许在讨论结束（完成 / 停止 / 失败）后。
-- **HTTP 接口**：`GET /api/status`、`GET /api/budget`、`GET/POST /api/sessions`、`GET /api/sessions/{id}`、`POST …/respond`、`POST …/resume`、`POST …/reveal`、`GET …/events`（SSE）。
+- **HTTP 接口**：`GET /api/status`、`GET /api/budget`、`GET /api/contributions`、`GET/POST /api/sessions`、`GET /api/sessions/{id}`、`POST …/respond`、`POST …/resume`、`POST …/reveal`、`GET …/events`（SSE）。
 - **SSE 协议**：第一条 `snapshot`（当前状态），之后是实时事件（只含代号），每当讨论停下来（完成 / 失败 / 停止 / 等待确认 / 暂停）发一条 `state` 并关闭；前端回复确认后重新连接。
 - `web/`：静态前端（`index.html`、`css/app.css`、`js/api.js` 通信、`js/view.js` 渲染、`js/app.js` 状态与交互；ES 模块，无构建步骤），只通过 HTTP/SSE 与后端通信，由 FastAPI 挂在 `/`。
   - 事件流用 `fetch` 读取（不用会自动重连的 `EventSource`）：收到停下来的 `state` 后关闭，回复确认卡片或恢复后重新订阅；事件触发重新拉取会话详情再渲染。
-  - 会话详情的 `tables`：每桌方案、流程、代号、已完成步骤（不含模型）。
+  - 会话详情的 `tables`：每桌方案、流程、代号、已完成步骤（不含模型）；`contributions`：每桌每个代号的贡献（身份未公开时不含模型 id）。
   - 前端源码不得写死任何模型、厂商或渠道名（有测试）；匿名会话揭晓前界面只用代号（组员甲… / 统筹），匿名关闭时在代号旁显示模型。
   - 会话 id 写在地址栏（`#s=<id>`），刷新或关页面后可回到原讨论。
 
@@ -162,7 +170,7 @@
 
 ```
 config/        models.yaml  roundtable.yaml  personas.yaml  routing.yaml
-prompts/       planner/ answer/ answer_quick/ review/ revise/ synthesize/  versions.lock
+prompts/       planner/ answer/ answer_quick/ review/ revise/ synthesize/ redo/  versions.lock
 src/roundtable/
   core/
     config/        配置加载与校验
@@ -173,7 +181,7 @@ src/roundtable/
     storage/       SQLite 迁移、Repository、揭晓前的匿名视图
     budget/        用量统计（按渠道/模型）、预算守卫（每月 + 每日，UTC）
     cards.py       确认卡片的统一格式
-    steps/         answer / review / revise / synthesize / reveal 插件、输出解析与质量检查、状态恢复
+    steps/         answer / review / revise / synthesize / reveal 插件、输出解析与质量检查、防偷懒（effort）、贡献统计、状态恢复
     orchestrator/  编排引擎、确认点、暂停/恢复、失败处理
     runtime.py     组装配置、密钥、渠道、数据库、预算
     jsonout.py     从模型输出中提取 JSON
@@ -196,6 +204,7 @@ ruff check . && ruff format --check .
 pytest
 python scripts/lock_prompts.py      # 新增提示词版本后登记
 roundtable models                   # 查看模型、档位、可用渠道与预算
+roundtable stats                    # 各模型的历史贡献
 roundtable ask '题目'                # 便宜档全员上桌（PowerShell 中题目用单引号）
 roundtable ask --tier flagship --anonymous '题目'   # 旗舰档全员、匿名
 uvicorn roundtable.api.app:app --reload   # 浏览器打开 http://127.0.0.1:8000

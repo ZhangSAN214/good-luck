@@ -145,6 +145,18 @@ def test_responses_never_contain_keys(tmp_path):
     assert keys.has("OPENROUTER_API_KEY")
 
 
+def test_contributions_endpoint():
+    env, c = client(confirm_threshold_usd=100.0)
+    with c:
+        assert c.get("/api/contributions").json() == []
+        sid = c.post("/api/sessions", json={"question": MEDIUM, "seed": 2}).json()["session_id"]
+        sse_events(c, sid)
+        history = c.get("/api/contributions").json()
+        assert history and all("counts" in h and h["sessions"] == 1 for h in history)
+        session = c.get(f"/api/sessions/{sid}").json()
+        assert session["contributions"] and all(r["model_id"] for r in session["contributions"])
+
+
 def test_openapi_available():
     env, c = client()
     with c:

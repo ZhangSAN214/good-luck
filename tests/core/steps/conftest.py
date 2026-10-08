@@ -23,11 +23,29 @@ REPO_CONFIG = load_config()
 QUESTION = "求函数 f(x)=x^3-3x 在区间 [-2, 2] 上的最大值与最小值。"
 MEMBERS = {"甲": "b1", "乙": "b2", "丙": "b3"}
 COORDINATOR = "f1"
-LABEL = re.compile(r'<answer code="组员(.)">')
+LABEL = re.compile(r'<answer code="组员(.)"[^>]*>')
+# 合格答案需要有实质内容（防偷懒检查有字数下限），Fake 的回复因此带上完整推导
+REASONING = (
+    "推导：f'(x)=3x^2-3，令 f'(x)=0 得驻点 x=-1 和 x=1。区间端点为 x=-2 和 x=2。"
+    "计算函数值：f(-2)=-8+6=-2，f(-1)=-1+3=2，f(1)=1-3=-2，f(2)=8-6=2。"
+    "比较驻点与端点处的函数值，最大值为 2（在 x=-1 与 x=2 处取得），"
+    "最小值为 -2（在 x=-2 与 x=1 处取得）。结论：最大值 2，最小值 -2。"
+)
+REVISED = (
+    "修订说明：按审阅意见补充了单调性分析。f'(x)=3(x-1)(x+1)，在 (-2,-1) 上大于零，"
+    "在 (-1,1) 上小于零，在 (1,2) 上大于零，所以函数先增后减再增。"
+    "极大值 f(-1)=2，极小值 f(1)=-2，再与端点值 f(-2)=-2、f(2)=2 比较，"
+    "得到区间上的最大值为 2、最小值为 -2，与原结论一致，但论证更完整。"
+)
+
+
+def user_text(messages) -> str:
+    """模型看到的全部用户内容（重做时题目和材料在前面的轮次里）。"""
+    return "\n".join(m.content for m in messages if m.role == "user")
 
 
 def labels_in(messages) -> list[str]:
-    return LABEL.findall(messages[-1].content)
+    return LABEL.findall(user_text(messages))
 
 
 def good_review(model: str, messages: list[Message]) -> str:
@@ -52,8 +70,15 @@ def good_review(model: str, messages: list[Message]) -> str:
     return json.dumps({"reviews": reviews}, ensure_ascii=False)
 
 
+REVIEW_FROM = re.compile(r'<review from="组员(.)"')
+
+
 def revision_reply(model: str, messages: list[Message]) -> str:
-    return f"## 修订后的答案\n{model} 的修订稿\n\n## 对审阅意见的回应\n采纳。"
+    """逐条回应收到的评审：每位评审者的问题 1 都采纳。"""
+    received = REVIEW_FROM.findall(user_text(messages)) if messages else []
+    lines = [f"- 组员{c} · 问题 1：采纳 —— 指出得对" for c in received]
+    responses = "\n".join(lines) or "采纳。"
+    return f"## 修订后的答案\n{model} 的修订稿。{REVISED}\n\n## 对审阅意见的回应\n{responses}"
 
 
 def synthesis_reply(resolved=True, confidence="high") -> Callable:
@@ -71,6 +96,10 @@ def synthesis_reply(resolved=True, confidence="high") -> Callable:
                     }
                 ],
                 "final_answer": "最大值 2，最小值 -2",
+                "adopted_from": [
+                    {"point": "端点与驻点比较", "members": [f"组员{c}" for c in codes]},
+                    {"point": "单调性分析", "members": [f"组员{codes[0]}", "组员癸"]},
+                ],
                 "open_questions": [],
                 "confidence": confidence,
             },
@@ -87,9 +116,9 @@ def default_reply(model: str, messages: list[Message]) -> str:
         return good_review(model, messages)
     if "根据审阅意见修订" in system:
         return revision_reply(model, messages)
-    if "统筹" in system:
+    if "学习小组的统筹" in system:
         return synthesis_reply()(model, messages)
-    return f"{model} 的答案：最大值 2，最小值 -2。"
+    return f"{model} 的答案：最大值 2，最小值 -2。{REASONING}"
 
 
 class Table:

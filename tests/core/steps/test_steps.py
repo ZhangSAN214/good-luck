@@ -186,7 +186,7 @@ async def test_revise_sees_only_valid_reviews_about_self(table):
         prompt = table.prompts_for(model)[-1]
         assert f'<review from="组员{code}"' not in prompt  # 没有自评
         assert prompt.count("<review from=") == 2
-        assert table.ctx.state.revisions[code].answer == f"{model} 的修订稿"
+        assert table.ctx.state.revisions[code].answer.startswith(f"{model} 的修订稿")
 
 
 async def test_revise_skipped_without_valid_reviews(table):
@@ -285,7 +285,7 @@ async def test_synthesize_requires_separate_coordinator():
 async def test_solo_table_final_answer():
     t = Table(members={"甲": "b1"}, coordinator=None)
     await run(t, "answer", "reveal")
-    assert final_answer(t.ctx.state) == "b1 的答案：最大值 2，最小值 -2。"
+    assert final_answer(t.ctx.state).startswith("b1 的答案：最大值 2，最小值 -2。")
     assert outcome_signals(t.ctx.state) is None
 
 
@@ -293,11 +293,12 @@ async def test_solo_table_final_answer():
 
 
 async def test_restore_state_roundtrip(table):
-    table.fake.queue("b2", "作答", revision_reply("b2", []))
+    table.fake.queue("b2", "作答", revision_reply("b2", []))  # 第一次作答敷衍 → 打回重做
     await run(table, "answer", "review", "revise", "synthesize")
     table.ctx.drop("丙", "manual", "测试")
     restored = restore_state(table.repo, table.session, 0)
     s = table.ctx.state
+    assert s.effort and restored.effort == s.effort
     assert restored.answers == s.answers
     assert restored.reviews == s.reviews
     assert restored.revisions == s.revisions

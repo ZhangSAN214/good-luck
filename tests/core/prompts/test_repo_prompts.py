@@ -84,6 +84,11 @@ def test_structured_roles_declare_json():
         assert LIBRARY.get(role, CONFIG.roundtable.prompts[role]).output == "text"
 
 
+def test_redo_prompt_only_takes_code_generated_reasons():
+    redo = LIBRARY.get("redo", CONFIG.roundtable.prompts["redo"])
+    assert redo.variables == {"reasons"} and redo.output == "text"
+
+
 def test_coordinator_prompt_has_no_member_code():
     """统筹不是组员，不应被分配代号。"""
     assert (
@@ -91,7 +96,15 @@ def test_coordinator_prompt_has_no_member_code():
     )
 
 
-@pytest.mark.parametrize("template", ALL_TEMPLATES, ids=lambda t: f"{t.role}/{t.version}")
+# 追加在原对话之后的提示词：只含代码生成的内容（如重做原因），没有外部材料
+APPENDED_ROLES = ("redo",)
+
+
+@pytest.mark.parametrize(
+    "template",
+    [t for t in ALL_TEMPLATES if t.role not in APPENDED_ROLES],
+    ids=lambda t: f"{t.role}/{t.version}",
+)
 def test_user_content_is_delimited(template):
     """题目和他人答案放在标签里，并说明标签内的指令不生效（防提示注入）。"""
     assert "<question>" in template.user

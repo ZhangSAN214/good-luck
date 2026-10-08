@@ -180,11 +180,32 @@ RESPONSE_HEADING = "## 对审阅意见的回应"
 
 
 @dataclass(frozen=True)
+class ReviewDecision:
+    """作者对一条评审意见的回应：reviewer 为代号，issue 为问题序号（整条意见时为空）。"""
+
+    reviewer: str
+    issue: int | None
+    decision: str  # accepted / partial / rejected
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"reviewer": self.reviewer, "issue": self.issue, "decision": self.decision}
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> ReviewDecision:
+        return cls(d["reviewer"], d.get("issue"), d["decision"])
+
+    @property
+    def accepted(self) -> bool:
+        return self.decision in ("accepted", "partial")
+
+
+@dataclass(frozen=True)
 class Revision:
     answer: str
     responses: str
     skipped: bool = False  # 没有有效评审，沿用原答案、未调用模型
     degraded: bool = False  # 输出格式不符，整段作为答案
+    decisions: tuple[ReviewDecision, ...] = ()  # 从回应中解析出的逐条采纳情况
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -192,11 +213,13 @@ class Revision:
             "responses": self.responses,
             "skipped": self.skipped,
             "degraded": self.degraded,
+            "decisions": [d.to_dict() for d in self.decisions],
         }
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> Revision:
-        return cls(d["answer"], d["responses"], d["skipped"], d["degraded"])
+        decisions = tuple(ReviewDecision.from_dict(x) for x in d.get("decisions") or ())
+        return cls(d["answer"], d["responses"], d["skipped"], d["degraded"], decisions)
 
 
 def parse_revision(text: str) -> Revision | None:
@@ -209,6 +232,34 @@ def parse_revision(text: str) -> Revision | None:
     answer = (body[:split] if split != -1 else body).strip()
     responses = body[split + len(RESPONSE_HEADING) :].strip() if split != -1 else ""
     return Revision(answer, responses) if answer else None
+
+
+_DECISION_WORDS = {"部分采纳": "partial", "不采纳": "rejected", "采纳": "accepted"}
+_DECISION_LINE = re.compile(
+    r"^[\s\-*•·]*(?P<who>[^\s·・:：]+?)\s*(?:[·・\-—]\s*问题\s*(?P<n>\d+)\s*)?[:：]\s*"
+    r"(?P<d>部分采纳|不采纳|采纳)"
+)
+
+
+def parse_decisions(
+    responses: str, to_code: Callable[[str], str | None]
+) -> tuple[ReviewDecision, ...]:
+    """从"对审阅意见的回应"中解析逐条的采纳情况；格式不符的行忽略（不计入贡献）。
+
+    每行形如"- 组员乙 · 问题 1：采纳 —— 理由"或"- 组员丙：不采纳 —— 理由"。
+    同一评审者的同一问题只取第一次出现的回应。
+    """
+    seen: dict[tuple[str, int | None], ReviewDecision] = {}
+    for line in responses.splitlines():
+        m = _DECISION_LINE.match(line.replace("**", ""))
+        if not m:
+            continue
+        code = to_code(m["who"])
+        if code is None:
+            continue
+        key = (code, int(m["n"]) if m["n"] else None)
+        seen.setdefault(key, ReviewDecision(code, key[1], _DECISION_WORDS[m["d"]]))
+    return tuple(seen.values())
 
 
 # --- 汇总 ---------------------------------------------------------------------
@@ -226,10 +277,18 @@ class Disagreement(_Loose):
     resolved: bool = False
 
 
+class Adoption(_Loose):
+    """最终答案采用的一个要点，以及它来自哪些组员（synthesize/v3 起）。"""
+
+    point: str = ""
+    members: list[str] = Field(default_factory=list)
+
+
 class SynthesisOutput(_Loose):
     consensus: list[str] = Field(default_factory=list)
     disagreements: list[Disagreement] = Field(default_factory=list)
     final_answer: str = Field(min_length=1)
+    adopted_from: list[Adoption] = Field(default_factory=list)
     open_questions: list[str] = Field(default_factory=list)
     confidence: Confidence = "medium"
 
@@ -263,6 +322,9 @@ def parse_synthesis(text: str, to_code: Callable[[str], str | None]) -> Synthesi
     for d in output.disagreements:
         for p in d.positions:
             p.members = [c for c in (to_code(m) for m in p.members) if c]
+    for a in output.adopted_from:
+        a.members = list(dict.fromkeys(c for c in (to_code(m) for m in a.members) if c))
+    output.adopted_from = [a for a in output.adopted_from if a.point.strip() and a.members]
     return Synthesis(output)
 
 
@@ -278,6 +340,41 @@ def fallback_synthesis(error: str) -> Synthesis:
     )
 
 
+@dataclass(frozen=True)
+class EffortRecord:
+    """一份产出的实质内容检查结果：redone（重做后合格）或 lazy（仍不合格，标记敷衍）。"""
+
+    step: str
+    code: str
+    status: str  # redone / lazy
+    reasons: tuple[str, ...]  # 第一次不合格的原因
+    final_reasons: tuple[str, ...] = ()  # 重做后仍不合格的原因（lazy 时）
+    redone: bool = True  # 是否打回重做过（配置关闭重做时为 False）
+
+    @property
+    def lazy(self) -> bool:
+        return self.status == "lazy"
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "status": self.status,
+            "reasons": list(self.reasons),
+            "final_reasons": list(self.final_reasons),
+            "redone": self.redone,
+        }
+
+    @classmethod
+    def from_dict(cls, step: str, code: str, d: dict[str, Any]) -> EffortRecord:
+        return cls(
+            step,
+            code,
+            d["status"],
+            tuple(d["reasons"]),
+            tuple(d.get("final_reasons") or ()),
+            d.get("redone", True),
+        )
+
+
 @dataclass
 class TableState:
     """一张桌子在各步骤之间传递的数据（可从数据库恢复）。键均为代号。"""
@@ -288,3 +385,9 @@ class TableState:
     synthesis: Synthesis | None = None
     dropped: dict[str, str] = field(default_factory=dict)  # 代号 → 退出原因
     ready_for_reveal: bool = False
+    # (步骤, 代号) → 实质内容检查结果（只记录重做过或被标记敷衍的）
+    effort: dict[tuple[str, str], EffortRecord] = field(default_factory=dict)
+
+    def flagged(self, code: str) -> bool:
+        """该组员是否有产出被标记为敷衍。"""
+        return any(r.lazy for (_, c), r in self.effort.items() if c == code)

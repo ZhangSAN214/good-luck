@@ -82,6 +82,10 @@ def create_app(service: RoundtableService | None = None) -> FastAPI:
     async def budget(request: Request) -> dict[str, Any]:
         return svc(request).budget()
 
+    @app.get("/api/contributions")
+    async def contributions(request: Request) -> list[dict[str, Any]]:
+        return svc(request).contributions()
+
     @app.get("/api/sessions")
     async def sessions(request: Request, limit: int = 50) -> list[dict[str, Any]]:
         return svc(request).sessions(min(max(limit, 1), 200))

@@ -50,7 +50,9 @@ def test_repo_config_loads_with_defaults():
         "review",
         "revise",
         "synthesize",
+        "redo",
     }
+    assert rt.effort_check.enabled and rt.effort_check.redo
     # 每个档位的全部模型都能坐下（一个当统筹）
     for plan in cfg.routing.plans.values():
         tier_models = [m for m in cfg.models.enabled if m.tier in plan.tiers]

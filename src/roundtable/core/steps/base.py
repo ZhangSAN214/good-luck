@@ -25,7 +25,7 @@ from roundtable.core.providers import (
 from roundtable.core.routing import Question
 from roundtable.core.storage import Repository
 
-from .schemas import CheckedReview, Revision, Synthesis, TableState
+from .schemas import CheckedReview, EffortRecord, Revision, Synthesis, TableState
 
 log = logging.getLogger(__name__)
 
@@ -72,6 +72,12 @@ class TableContext:
     on_event: EventSink | None = None
     # 步骤 → 提示词角色（来自方案的 prompt_roles；未指定时与步骤同名）
     prompt_roles: dict[str, str] = field(default_factory=dict)
+    # 预估的答案长度（token），用于实质内容检查的字数下限
+    expected_answer_tokens: int | None = None
+
+    @property
+    def effort_rule(self):
+        return self.config.roundtable.effort_check
 
     # 代号与展示标签（"甲" ↔ "组员甲"）
     def label(self, code: str) -> str:
@@ -242,8 +248,10 @@ def neutralize(text: str, tags: Sequence[str]) -> str:
 TAGS = ("answer", "review", "question", "your_answer")
 
 
-def answer_block(label: str, text: str) -> str:
-    return f'<answer code="{label}">\n{neutralize(text, TAGS)}\n</answer>'
+def answer_block(label: str, text: str, *, flagged: bool = False) -> str:
+    """flagged：该组员的产出被标记为敷衍（统筹汇总时会看到这个属性）。"""
+    attr = ' flagged="未通过实质内容检查"' if flagged else ""
+    return f'<answer code="{label}"{attr}>\n{neutralize(text, TAGS)}\n</answer>'
 
 
 def review_block(label: str, review: CheckedReview) -> str:
@@ -339,6 +347,9 @@ def restore_state(repo: Repository, session_id: str, table_no: int) -> TableStat
             state.synthesis = Synthesis.from_dict(json.loads(o["content"]))
         elif kind == "dropout":
             state.dropped[code] = json.loads(o["content"])["reason"]
+        elif kind == "effort":
+            record = EffortRecord.from_dict(o["step"], code, json.loads(o["content"]))
+            state.effort[(o["step"], code)] = record
     return state
 
 

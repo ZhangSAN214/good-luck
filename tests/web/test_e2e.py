@@ -111,7 +111,7 @@ def test_custom_tier(serve, page):
     page.click("#tier button[data-v='budget']")
     assert leaks(srv.identity_terms(), anonymous_text(page)) == []
     assert srv.env is not None
-    members = {c.model for c in srv.env.fake.calls if "统筹" not in c.messages[0].content}
+    members = {c.model for c in srv.env.fake.calls if "学习小组的统筹" not in c.messages[0].content}
     assert members == {"b1", "b2"}
 
 
@@ -226,3 +226,32 @@ def test_live_progress_highlights_speakers(serve, page):
     wait_done(page)
     assert page.locator("#stage .seat.speaking").count() == 0
     assert page.is_hidden("#typing")
+
+
+def test_lazy_member_flagged_and_contributions_tab(serve, page):
+    srv = serve(confirm_threshold_usd=100.0)
+    assert srv.env is not None
+    original = srv.env.reply
+
+    def lazy_b1(model, messages):
+        if model == "b1" and "独立完成同一道题" in messages[0].content:
+            return "略"  # 重做后仍然敷衍
+        return original(model, messages)
+
+    srv.env.fake._default = lazy_b1
+    page.goto(srv.url)
+    page.click("#tier button[data-v='custom']")
+    for m in ("b1", "b2", "f1"):
+        page.check(f"#picks input[value='{m}']")
+    page.select_option("#coordinator", "f1")
+    ask(page, MEDIUM)
+    wait_done(page)
+    assert page.locator(".sys.bad:has-text('标记为敷衍')").count() == 1
+    assert page.locator(".msg .tagp.bad:has-text('敷衍')").count() == 1
+    assert page.locator("#stage .seat.lazy").count() == 1
+    page.click('#tabs button[data-t="contrib"]')
+    page.wait_for_selector("#pbody table")
+    panel = page.inner_text("#pbody")
+    assert "本场" in panel and "被采纳" in panel and "敷衍" in panel
+    page.wait_for_selector("#pbody h4:has-text('历史') + table")  # 匿名关闭：计入历史
+    assert "b1" in page.inner_text("#pbody")

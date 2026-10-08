@@ -174,4 +174,24 @@ ALTER TABLE sessions ADD COLUMN workflow TEXT NOT NULL DEFAULT 'discussion';
 -- 自 v2 起 sessions.mode 存成员档位（budget / flagship / custom），preset 不再使用
 """,
     ),
+    (
+        5,
+        "成员贡献记录",
+        """
+-- 每位成员在每张桌子上的贡献（按模型 id 记，为以后按历史表现分工积累数据）
+-- kind：answered 作答 / adopted 被采纳的要点 / valid_review 有效评审 / valid_issue 指出的有效问题 /
+--       issue_accepted 被作者采纳的问题 / redo 被打回重做 / lazy 被标记敷衍 / dropped 中途退出
+CREATE TABLE contributions (
+    session_id  TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    table_no    INTEGER NOT NULL,
+    code        TEXT NOT NULL,
+    model_id    TEXT NOT NULL,
+    kind        TEXT NOT NULL,
+    amount      INTEGER NOT NULL,
+    created_at  TEXT NOT NULL,
+    PRIMARY KEY (session_id, table_no, code, kind)
+);
+CREATE INDEX idx_contributions_model ON contributions(model_id, kind);
+""",
+    ),
 ]

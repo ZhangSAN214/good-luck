@@ -46,7 +46,7 @@ class Env:
         system = messages[0].content
         if "规划员" in system:
             return planner(self.difficulty)(model, messages)
-        if "统筹" in system:
+        if "学习小组的统筹" in system:
             return synthesis_reply(resolved=self.resolved)(model, messages)
         return default_reply(model, messages)
 

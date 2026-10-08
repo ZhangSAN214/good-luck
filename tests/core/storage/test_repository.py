@@ -326,3 +326,24 @@ def test_table_plan_keeps_seat_order(repo):
     assert repo.tables(sid)[0]["members"] == {"甲": "m9"}
     repo.set_table_status(sid, 0, "done")
     assert repo.tables(sid)[0]["status"] == "done"
+
+
+# --- 贡献 ---------------------------------------------------------------------
+
+
+def test_contributions_replace_and_history(repo):
+    a = repo.create_session("q1", seed=1, anonymous=False)
+    repo.replace_contributions(a, 0, [("甲", "m1", "adopted", 2), ("乙", "m2", "lazy", 1)])
+    repo.replace_contributions(a, 0, [("甲", "m1", "adopted", 3), ("乙", "m2", "redo", 0)])
+    assert repo.contributions(a) == [
+        {"table_no": 0, "code": "甲", "model_id": "m1", "kind": "adopted", "amount": 3}
+    ]  # 整桌重写；数量为 0 的不存
+    b = repo.create_session("q2", seed=2, anonymous=True)  # 匿名且未揭晓：不计入历史
+    repo.replace_contributions(b, 0, [("甲", "m1", "adopted", 5)])
+    assert repo.contribution_history() == [
+        {"model_id": "m1", "kind": "adopted", "amount": 3, "sessions": 1}
+    ]
+    repo.mark_revealed(b)
+    assert repo.contribution_history() == [
+        {"model_id": "m1", "kind": "adopted", "amount": 8, "sessions": 2}
+    ]

@@ -4,6 +4,7 @@ import {
   STATUS_LABELS,
   STEP_LABELS,
   castPanel,
+  contributionsPanel,
   channelsPanel,
   esc,
   feedItems,
@@ -23,6 +24,7 @@ const S = {
   status: null, // /api/status
   budget: null,
   history: null,
+  contribHistory: null,
   sid: null,
   session: null,
   tab: 'flow',
@@ -158,6 +160,7 @@ function renderPanel() {
   if (S.tab === 'channels') h = channelsPanel(S.status);
   if (S.tab === 'history') h = historyPanel(S.history, S.sid);
   if (S.tab === 'cast') h = castPanel(S.session, prefix());
+  if (S.tab === 'contrib') h = contributionsPanel(S.session, S.contribHistory, prefix());
   $('#pbody').innerHTML = h;
 }
 
@@ -307,7 +310,7 @@ async function refresh(all = false) {
       S.session = null;
     }
   }
-  if (all) await Promise.all([loadBudget(), loadHistory()]);
+  if (all) await Promise.all([loadBudget(), loadHistory(), loadContributions()]);
   render();
 }
 
@@ -422,6 +425,15 @@ async function loadBudget() {
   if (S.tab === 'usage') renderPanel();
 }
 
+async function loadContributions() {
+  try {
+    S.contribHistory = await API.getContributions();
+  } catch {
+    /* 下次再试 */
+  }
+  if (S.tab === 'contrib') renderPanel();
+}
+
 async function loadHistory() {
   try {
     S.history = await API.listSessions();
@@ -472,6 +484,7 @@ function bind() {
     if (!b) return;
     S.tab = b.dataset.t;
     if (S.tab === 'history') loadHistory();
+    if (S.tab === 'contrib') loadContributions();
     if (S.tab === 'usage') loadBudget();
     renderPanel();
   });

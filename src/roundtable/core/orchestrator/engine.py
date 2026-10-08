@@ -24,6 +24,7 @@ from roundtable.core.routing import (
     RoutingError,
     RoutingRecord,
     UserChoice,
+    answer_tokens,
     cost_card,
     escalate,
     escalation_card,
@@ -40,6 +41,7 @@ from roundtable.core.steps import (
     get_step,
     outcome_signals,
     restore_state,
+    table_contributions,
 )
 from roundtable.core.storage import CheckpointView
 
@@ -397,6 +399,7 @@ class Orchestrator:
             state=restore_state(repo, sid, table_no),
             on_event=lambda e: self._forward(sid, e),
             prompt_roles=self._prompt_roles(table),
+            expected_answer_tokens=self._expected_tokens(sid),
         )
         done = set(repo.completed_steps(sid, table_no))
         for step in table["pipeline"]:
@@ -430,6 +433,29 @@ class Orchestrator:
             )
         repo.set_table_status(sid, table_no, DONE)
         return DONE
+
+    def _expected_tokens(self, sid: str) -> int | None:
+        """路由时估计的答案长度（实质内容检查的字数下限依据）。"""
+        stored = self.rt.repo.routing_record(sid)
+        if stored is None:
+            return None
+        return answer_tokens(self.rt.config, RoutingRecord.from_dict(stored).assessment())
+
+    def _record_contributions(self, sid: str) -> None:
+        """按各桌当前状态重算贡献（可重复调用；只统计已经入座的桌子）。"""
+        repo = self.rt.repo
+        for table in repo.tables(sid):
+            table_no = table["table_no"]
+            if not repo.seats(sid, table_no):
+                continue
+            members = dict(table["members"])
+            counts = table_contributions(restore_state(repo, sid, table_no), list(members))
+            rows = [
+                (code, members[code], kind, amount)
+                for code, counter in counts.items()
+                for kind, amount in counter.items()
+            ]
+            repo.replace_contributions(sid, table_no, rows)
 
     def _prompt_roles(self, table: dict[str, Any]) -> dict[str, str]:
         """档位指定的提示词角色（自选与旧版本的方案没有）。"""
@@ -514,6 +540,7 @@ class Orchestrator:
 
     def _update_record(self, sid: str, tables: list[dict[str, Any]]) -> None:
         repo = self.rt.repo
+        self._record_contributions(sid)
         stored = repo.routing_record(sid)
         if stored is None:
             return

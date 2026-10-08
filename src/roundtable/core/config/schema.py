@@ -163,6 +163,26 @@ class ReviewQuality(_Strict):
     vague_phrases: list[str] = Field(default_factory=list)
 
 
+class EffortCheck(_Strict):
+    """防偷懒：成员产出的实质内容检查（作答、互评、修订）。不合格打回重做一次，仍不合格标记敷衍。"""
+
+    enabled: bool = True
+    redo: bool = True  # 不合格时打回重做一次
+    # 字数下限 = max(min_chars, 预估答案 token 数 × chars_per_expected_token)
+    min_chars: int = Field(default=15, ge=0)
+    chars_per_expected_token: float = Field(default=0.1, ge=0)
+    # 去掉这些短语和标点后什么都不剩：空话（如"略""同上"）
+    empty_phrases: list[str] = Field(default_factory=list)
+    # 含有这些短语且全文不超过 refusal_max_chars：拒答
+    refusal_phrases: list[str] = Field(default_factory=list)
+    refusal_max_chars: int = Field(default=200, ge=0)
+    # 与题目的相似度不低于此值：只复述题目
+    restate_similarity: float = Field(default=0.8, gt=0, le=1)
+    # 修订稿与另一位组员的答案相似度不低于此值（且两者都不短于 duplicate_min_chars）：疑似照抄
+    duplicate_similarity: float = Field(default=0.95, gt=0, le=1)
+    duplicate_min_chars: int = Field(default=100, ge=0)
+
+
 class RoundtableConfig(_Strict):
     seats: int = Field(ge=2)
     min_members: int = Field(default=2, ge=2)
@@ -178,6 +198,7 @@ class RoundtableConfig(_Strict):
     request: RequestPolicy = RequestPolicy()
     step_params: dict[str, dict[str, Any]] = Field(default_factory=dict)
     review_quality: ReviewQuality = ReviewQuality()
+    effort_check: EffortCheck = EffortCheck()
 
     @field_validator("prompts")
     @classmethod

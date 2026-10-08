@@ -221,3 +221,21 @@ async def test_custom_plan_label():
     sid = svc.create(SHORT, tier="custom", models=["b1", "b2", "f1"], seed=1)
     await svc.wait(sid)
     assert svc.session(sid)["tables"][0]["plan_label"] == "自选"
+
+
+async def test_session_contributions_and_history():
+    env, svc = make(confirm_threshold_usd=100.0)
+    sid = svc.create(MEDIUM, seed=2, anonymous=True)
+    await svc.wait(sid)
+    data = svc.session(sid)
+    rows = data["contributions"]
+    assert {r["code"] for r in rows} == {"甲", "乙"}
+    assert all(r["model_id"] is None for r in rows)  # 匿名未揭晓：不含模型
+    assert all(r["counts"]["answered"] == 1 for r in rows)
+    assert leaks(env, rows) == []
+    assert svc.contributions() == []  # 未揭晓：不计入历史
+    revealed = svc.reveal_identities(sid)
+    assert all(r["model_id"] for r in revealed["contributions"])
+    history = svc.contributions()
+    assert {h["model_id"] for h in history} == {r["model_id"] for r in revealed["contributions"]}
+    assert all(h["sessions"] == 1 and h["counts"]["answered"] == 1 for h in history)

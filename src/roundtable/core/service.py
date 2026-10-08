@@ -194,7 +194,35 @@ class RoundtableService:
         )
         data["can_reveal"] = view.anonymous and view.status in REVEALABLE and not view.revealed
         data["tables"] = self._tables(session_id)
+        data["contributions"] = self._contributions(session_id, view.revealed)
         return data
+
+    def _contributions(self, session_id: str, revealed: bool) -> list[dict[str, Any]]:
+        """本场每位组员的贡献（按桌、代号）；身份未公开时不含模型 id。"""
+        grouped: dict[tuple[int, str], dict[str, Any]] = {}
+        for r in self.rt.repo.contributions(session_id):
+            row = grouped.setdefault(
+                (r["table_no"], r["code"]),
+                {
+                    "table_no": r["table_no"],
+                    "code": r["code"],
+                    "model_id": r["model_id"] if revealed else None,
+                    "counts": {},
+                },
+            )
+            row["counts"][r["kind"]] = r["amount"]
+        return list(grouped.values())
+
+    def contributions(self) -> list[dict[str, Any]]:
+        """跨会话按模型汇总的贡献（只统计身份已公开的会话），供以后按历史表现分工。"""
+        by_model: dict[str, dict[str, Any]] = {}
+        for r in self.rt.repo.contribution_history():
+            row = by_model.setdefault(
+                r["model_id"], {"model_id": r["model_id"], "sessions": 0, "counts": {}}
+            )
+            row["counts"][r["kind"]] = r["amount"]
+            row["sessions"] = max(row["sessions"], r["sessions"])
+        return list(by_model.values())
 
     def _plan_label(self, plan: str | None) -> str:
         if plan == CUSTOM:

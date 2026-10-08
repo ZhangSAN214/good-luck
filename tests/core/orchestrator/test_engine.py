@@ -361,3 +361,51 @@ async def test_models_only_see_codes_even_when_not_anonymous(env):
                 if re.search(rf"(?<![0-9A-Za-z]){re.escape(t)}(?![0-9A-Za-z])", sent)
             ]
             assert found == [], (anonymous, c.model, found)
+
+
+# --- 防偷懒与贡献 ---------------------------------------------------------------
+
+
+async def test_contributions_recorded_when_finished(env):
+    r = await env.orc.start(Question(MEDIUM), seed=13)
+    rows = env.rt.repo.contributions(r.session_id)
+    table = env.rt.repo.tables(r.session_id)[0]
+    assert {x["code"] for x in rows} == set(table["members"])
+    assert all(x["model_id"] == table["members"][x["code"]] for x in rows)
+    kinds = {x["kind"] for x in rows}
+    assert {"answered", "adopted", "valid_review", "valid_issue", "issue_accepted"} <= kinds
+    history = env.rt.repo.contribution_history()  # 匿名关闭：直接计入历史
+    assert {h["model_id"] for h in history} == set(table["members"].values())
+
+
+async def test_contributions_recorded_when_stopped():
+    env = Env(resolved=False, confirm_threshold_usd=100.0)
+    r = await env.orc.start(Question(MEDIUM), seed=13, anonymous=True)
+    assert r.checkpoint.kind == "escalation"
+    r = await env.orc.respond(r.session_id, "stop")
+    assert r.status == "stopped" and env.rt.repo.contributions(r.session_id)
+    assert env.rt.repo.contribution_history() == []  # 匿名未揭晓：不计入历史
+    env.orc.reveal_identities(r.session_id)
+    assert env.rt.repo.contribution_history()
+
+
+async def test_lazy_member_flagged_end_to_end():
+    env = Env(confirm_threshold_usd=100.0)
+    original = env.reply
+
+    def lazy_b1(model, messages):
+        if model == "b1" and "独立完成同一道题" in messages[0].content:
+            return "略"
+        return original(model, messages)
+
+    env.fake._default = lazy_b1
+    r = await env.orc.start(Question(MEDIUM), seed=14)
+    assert r.status == "completed"
+    table = env.rt.repo.tables(r.session_id)[0]
+    if "b1" not in table["members"].values():
+        pytest.skip("该种子下 b1 是统筹")
+    code = next(c for c, m in table["members"].items() if m == "b1")
+    rows = {(x["code"], x["kind"]): x["amount"] for x in env.rt.repo.contributions(r.session_id)}
+    assert rows[(code, "lazy")] == 1 and rows[(code, "redo")] == 1
+    types = [e.type for _, e in env.events]
+    assert "effort_redo" in types and "effort_flagged" in types

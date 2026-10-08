@@ -6,6 +6,7 @@
     roundtable ask --anonymous "题目"             # 匿名：结束前只显示代号
     roundtable models                             # 查看模型、档位、哪些渠道有 key
     roundtable history                            # 最近的讨论
+    roundtable stats                              # 各模型的历史贡献
     roundtable resume <会话 id>                   # 中断后继续
     roundtable show <会话 id>                     # 查看结果
     roundtable reveal <会话 id>                   # 揭晓身份（匿名讨论）
@@ -39,6 +40,16 @@ STEP_NAMES = {
     "reveal": "揭晓准备",
 }
 SOURCE_NAMES = {"rule": "规则判断", "model": "规划员判断", "default": "默认"}
+KIND_NAMES = {
+    "answered": "作答",
+    "adopted": "被采纳的要点",
+    "valid_review": "有效评审",
+    "valid_issue": "指出的有效问题",
+    "issue_accepted": "被作者采纳的问题",
+    "redo": "被打回重做",
+    "lazy": "敷衍",
+    "dropped": "退出",
+}
 LENGTH_NAMES = {"simple": "短", "medium": "中等", "hard": "长", None: "未判断"}
 
 
@@ -127,6 +138,11 @@ class CLI:
             self.p(f"  注意：{names} 的输出格式不符，已降级处理")
         elif e.type == "escalating":
             self.p(f"\n⚠ 建议升级：{d['reason']}（预计 ${d['estimate_usd']:.4f}）")
+        elif e.type == "effort_redo":
+            reasons = "；".join(d.get("reasons", []))
+            self.p(f"  {self.label(e.code, e.table_no)} 的产出没有实质内容，打回重做：{reasons}")
+        elif e.type == "effort_flagged":
+            self.p(f"  ⚠ {self.label(e.code, e.table_no)} 重做后仍不合格，标记为敷衍")
         elif e.type == "budget_warning":
             self.p(f"⚠ {d['message']}")
 
@@ -209,8 +225,28 @@ class CLI:
                         else only.content
                     )
                     self.p(f"\n【答案】\n{self.t(text)}")
+        self.print_contributions(sid, view.revealed)
         if view.error:
             self.p(f"\n错误：{view.error}")
+
+    def print_contributions(self, sid: str, revealed: bool) -> None:
+        rows = self.rt.repo.contributions(sid)
+        if not rows:
+            return
+        grouped: dict[tuple[int, str], dict[str, int]] = {}
+        for r in rows:
+            grouped.setdefault((r["table_no"], r["code"]), {})[r["kind"]] = r["amount"]
+        multi = len({t for t, _ in grouped}) > 1
+        self.p("\n【贡献】")
+        for (table_no, code), counts in grouped.items():
+            who = self.label(code, table_no) if revealed else self.label(code)
+            prefix = f"第 {table_no + 1} 桌 " if multi else ""
+            parts = [
+                f"{KIND_NAMES[k]} {counts[k]}"
+                for k in KIND_NAMES
+                if k != "answered" and k in counts
+            ]
+            self.p(f"  {prefix}{who}：{'，'.join(parts) or '—'}")
 
     def print_review(self, reviewer: str, data: dict[str, Any], table_no: int = 0) -> None:
         self.p(f"\n【{reviewer} 的评审】")
@@ -351,6 +387,22 @@ class CLI:
         self.p(month.describe() + (f"；{day.describe()}" if day else ""))
         return 0
 
+    def cmd_stats(self) -> int:
+        """跨会话按模型统计贡献（只统计身份已公开的会话）。"""
+        rows = self.rt.repo.contribution_history()
+        if not rows:
+            self.p("还没有可统计的讨论（匿名讨论揭晓后才计入）。")
+            return 0
+        by_model: dict[str, dict[str, int]] = {}
+        sessions: dict[str, int] = {}
+        for r in rows:
+            by_model.setdefault(r["model_id"], {})[r["kind"]] = r["amount"]
+            sessions[r["model_id"]] = max(sessions.get(r["model_id"], 0), r["sessions"])
+        for model, counts in by_model.items():
+            parts = [f"{KIND_NAMES[k]} {counts[k]}" for k in KIND_NAMES if k in counts]
+            self.p(f"  {model:<22} {sessions[model]} 场  " + "，".join(parts))
+        return 0
+
     def cmd_history(self, limit: int) -> int:
         for s in self.rt.repo.list_sessions(limit):
             q = s.question if len(s.question) <= 30 else s.question[:30] + "…"
@@ -389,6 +441,7 @@ def build_parser() -> argparse.ArgumentParser:
     reveal.add_argument("--no-reveal", dest="reveal", action="store_false", help="结束后不揭晓")
 
     sub.add_parser("models", help="查看模型、档位与可用渠道")
+    sub.add_parser("stats", help="各模型的历史贡献（被采纳、有效问题、敷衍次数等）")
     history = sub.add_parser("history", help="最近的讨论")
     history.add_argument("--limit", type=int, default=20)
     for name, text in (("resume", "中断后继续"), ("show", "查看结果"), ("reveal", "揭晓身份")):
@@ -452,6 +505,8 @@ async def run(
             )
         if args.command == "models":
             return cli.cmd_models()
+        if args.command == "stats":
+            return cli.cmd_stats()
         if args.command == "history":
             return cli.cmd_history(args.limit)
         if args.command == "resume":

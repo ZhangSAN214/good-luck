@@ -96,7 +96,7 @@ function avatar(sp, extra = '') {
 
 function msg(sp, kind, body) {
   const ai = sp.ai ? `<span class="ai">${esc(sp.ai)}</span>` : '';
-  return `<div class="msg">${avatar(sp)}<div class="body"><div class="who"><b>${esc(sp.name)}</b>${ai}<span class="kind">${esc(kind)}</span></div>${body}</div></div>`;
+  return `<div class="msg">${avatar(sp)}<div class="body"><div class="who"><b>${esc(sp.name)}</b>${ai}<span class="kind">${esc(kind)}</span>${sp.tag || ''}</div>${body}</div></div>`;
 }
 
 function sys(role, text, tone = '', extra = '') {
@@ -137,6 +137,7 @@ export function feedItems(sv, ctx) {
   }
 
   const outputs = sv.outputs || [];
+  const lazy = lazyKeys(outputs);
   for (const t of tables) {
     cpAt((d, cp) => cp.kind === 'escalation' && d.table_no === t.table_no);
     if (t.table_no === 0) cpAt((d, cp) => cp.kind === 'cost' && d.table_no === 0);
@@ -154,7 +155,7 @@ export function feedItems(sv, ctx) {
       if (step === 'reveal') continue;
       push(`s${t.table_no}:${step}`, `<div class="phase">${esc(STEP_LABELS[step] || step)}</div>`);
       outs.forEach((o, i) => {
-        const html = output(o, names);
+        const html = output(o, names, lazy);
         if (html) push(`o${t.table_no}:${step}:${o.kind}:${o.code || ''}:${i}`, html);
       });
     }
@@ -173,9 +174,38 @@ function modeText(sv, ctx) {
   return sv.anonymous ? `${tier} · 匿名` : tier;
 }
 
-function output(o, names) {
+// 被标记为敷衍的产出：`桌:步骤:代号`
+export function lazyKeys(outputs) {
+  const keys = new Set();
+  for (const o of outputs) {
+    if (o.kind !== 'effort') continue;
+    const d = parse(o.content);
+    if (d && d.status === 'lazy') keys.add(`${o.table_no}:${o.step}:${o.code}`);
+  }
+  return keys;
+}
+
+const LAZY_TAG = `<span class="tagp bad" title="重做后仍没有通过实质内容检查">敷衍</span>`;
+
+function effort(o, sp, data) {
+  const what = STEP_LABELS[o.step] || o.step;
+  const first = (data.reasons || []).join('；');
+  if (data.status === 'lazy') {
+    const final = (data.final_reasons || data.reasons || []).join('；');
+    const redo = data.redone ? '重做后仍不合格，' : '';
+    return sys('检查', `${esc(sp.name)} 的${esc(what)}${redo}标记为敷衍：${esc(final)}`, 'bad');
+  }
+  return sys('检查', `${esc(sp.name)} 的${esc(what)}没有实质内容（${esc(first)}），已打回重做，重做后合格`);
+}
+
+function output(o, names, lazy = new Set()) {
   const sp = names.speaker(o.table_no, o.code);
+  if (lazy.has(`${o.table_no}:${o.step}:${o.code}`)) sp.tag = LAZY_TAG;
   if (o.kind === 'answer') return msg(sp, '作答', `<div class="bubble">${md(o.content)}</div>`);
+  if (o.kind === 'effort') {
+    const d = parse(o.content);
+    return d ? effort(o, sp, d) : '';
+  }
   if (o.kind === 'dropout') {
     return sys('统筹', `${esc(sp.name)} 退出：调用失败，已有的内容仍参与汇总`, 'bad');
   }
@@ -310,6 +340,9 @@ export function stageHTML(sv, live, prefix) {
   const dropped = new Set(
     (sv?.outputs || []).filter((o) => o.kind === 'dropout' && o.table_no === tableNo).map((o) => o.code),
   );
+  const lazyCodes = new Set(
+    [...lazyKeys(sv?.outputs || [])].filter((k) => k.startsWith(`${tableNo}:`)).map((k) => k.split(':')[2]),
+  );
   const pos = seatPositions(codes.length);
   let ph = '圆桌';
   let act = '提交题目后入座';
@@ -349,8 +382,9 @@ export function stageHTML(sv, live, prefix) {
   }
   codes.forEach((c, i) => {
     const sp = names.speaker(tableNo, c);
-    const cls = [live.speaking.has(c) ? 'speaking' : '', dropped.has(c) ? 'dropped' : ''].join(' ');
-    h += seat(pos[i], cls, avatar(sp), sp.name, sp.ai || (dropped.has(c) ? '已退出' : '组员'));
+    const cls = [live.speaking.has(c) ? 'speaking' : '', dropped.has(c) ? 'dropped' : '', lazyCodes.has(c) ? 'lazy' : ''].join(' ');
+    const role = dropped.has(c) ? '已退出' : lazyCodes.has(c) ? '敷衍' : '组员';
+    h += seat(pos[i], cls, avatar(sp), sp.name, sp.ai ? `${sp.ai}${lazyCodes.has(c) ? ' · 敷衍' : ''}` : role);
   });
   h += seat(ME_POS, '', '<div class="av me">你</div>', '你', '提问');
   return h;
@@ -527,6 +561,46 @@ export function historyPanel(list, currentId) {
     h += `<tr class="click${s.id === currentId ? ' cur' : ''}" data-sid="${esc(s.id)}"><td>${esc(q)}<div class="hint">${esc(s.created_at.slice(0, 16).replace('T', ' '))}${s.anonymous ? (s.revealed ? ' · 匿名 · 已揭晓' : ' · 匿名') : ''}</div></td><td><span class="pill ${pill}">${esc(STATUS_LABELS[s.status] || s.status)}</span></td><td class="num">${money(s.cost_usd)}</td></tr>`;
   }
   return h + '</tbody></table><p class="hint">点击打开；已暂停或等待确认的讨论可以继续。</p>';
+}
+
+const CONTRIB_COLUMNS = [
+  ['adopted', '被采纳'],
+  ['valid_issue', '有效问题'],
+  ['issue_accepted', '问题被采纳'],
+  ['redo', '重做'],
+  ['lazy', '敷衍'],
+];
+
+export function contributionsPanel(sv, history, prefix) {
+  const names = new Names(sv, prefix);
+  const head = `<tr><th>成员</th>${CONTRIB_COLUMNS.map(([, t]) => `<th class="num">${t}</th>`).join('')}</tr>`;
+  const cells = (counts) =>
+    CONTRIB_COLUMNS.map(([k]) => `<td class="num${k === 'lazy' && counts[k] ? ' warnc' : ''}">${counts[k] || 0}</td>`).join('');
+  let h = '<h4>本场</h4>';
+  const rows = sv?.contributions || [];
+  if (!rows.length) h += `<p class="empty">${sv ? '讨论结束后统计。' : '提交题目后显示。'}</p>`;
+  else {
+    const multi = new Set(rows.map((r) => r.table_no)).size > 1;
+    h += `<table><thead>${head}</thead><tbody>`;
+    for (const r of rows) {
+      const sp = names.speaker(r.table_no, r.code);
+      const who = `${multi ? `第 ${r.table_no + 1} 桌 · ` : ''}${sp.name}${sp.ai ? ` · ${sp.ai}` : ''}`;
+      h += `<tr><td>${esc(who)}${r.counts.dropped ? ' <span class="pill badp">退出</span>' : ''}</td>${cells(r.counts)}</tr>`;
+    }
+    h += '</tbody></table>';
+  }
+  h += '<p class="hint">被采纳：统筹汇总时注明来自该成员的要点数；有效问题：有效评审中指出的问题；问题被采纳：作者修订时明确采纳的问题数。</p>';
+  h += '<h4>历史（按模型）</h4>';
+  if (!history) h += '<p class="empty">加载中…</p>';
+  else if (!history.length) h += '<p class="empty">还没有可统计的讨论。匿名讨论揭晓后才计入，避免反推身份。</p>';
+  else {
+    h += `<table><thead><tr><th>模型</th><th class="num">场次</th>${CONTRIB_COLUMNS.map(([, t]) => `<th class="num">${t}</th>`).join('')}</tr></thead><tbody>`;
+    for (const r of history) {
+      h += `<tr><td>${esc(r.model_id)}</td><td class="num">${r.sessions}</td>${cells(r.counts)}</tr>`;
+    }
+    h += '</tbody></table><p class="hint">这些数据为以后按历史表现分工积累，目前不影响谁上桌、谁当统筹。</p>';
+  }
+  return h;
 }
 
 export function castPanel(sv, prefix) {

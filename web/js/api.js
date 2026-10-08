@@ -34,6 +34,7 @@ function errorText(data, status) {
 export const getStatus = () => api('/api/status');
 export const getBudget = () => api('/api/budget');
 export const listSessions = () => api('/api/sessions?limit=50');
+export const getContributions = () => api('/api/contributions');
 export const getSession = (id) => api(`/api/sessions/${id}`);
 export const createSession = (body) => api('/api/sessions', { method: 'POST', body });
 export const respond = (id, response, note) =>

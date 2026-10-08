@@ -625,6 +625,53 @@ class Repository:
             usage.setdefault(r["channel"], ChannelUsage()).failed_attempts = r["n"]
         return usage
 
+    # --- 贡献 ------------------------------------------------------------------
+
+    def replace_contributions(
+        self,
+        session_id: str,
+        table_no: int,
+        rows: Sequence[tuple[str, str, str, int]],
+    ) -> None:
+        """整桌重写（可重复调用）：rows 为 (代号, 模型 id, 类别, 数量)，数量为 0 的不存。"""
+        self._require_session(session_id)
+        now = self.clock()
+        with self._tx():
+            self.conn.execute(
+                "DELETE FROM contributions WHERE session_id = ? AND table_no = ?",
+                (session_id, table_no),
+            )
+            self.conn.executemany(
+                "INSERT INTO contributions (session_id, table_no, code, model_id, kind, amount,"
+                " created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                [
+                    (session_id, table_no, code, model, kind, amount, now)
+                    for code, model, kind, amount in rows
+                    if amount
+                ],
+            )
+
+    def contributions(self, session_id: str) -> list[dict[str, Any]]:
+        """内部使用（含模型 id）。"""
+        rows = self._exec(
+            "SELECT table_no, code, model_id, kind, amount FROM contributions"
+            " WHERE session_id = ? ORDER BY table_no, code, kind",
+            (session_id,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def contribution_history(self) -> list[dict[str, Any]]:
+        """跨会话按模型汇总。只统计身份已经公开的会话（匿名关闭，或匿名但已揭晓），
+        避免从统计里反推出未揭晓会话中各代号的身份。"""
+        rows = self._exec(
+            "SELECT c.model_id, c.kind, SUM(c.amount) AS amount,"
+            " COUNT(DISTINCT c.session_id) AS sessions"
+            " FROM contributions c JOIN sessions s ON s.id = c.session_id"
+            " WHERE s.anonymous = 0 OR s.revealed_at IS NOT NULL"
+            " GROUP BY c.model_id, c.kind ORDER BY c.model_id, c.kind",
+        ).fetchall()
+        return [dict(r) for r in rows]
+
     # --- 对外视图 ----------------------------------------------------------------
 
     def list_sessions(self, limit: int = 50) -> list[SessionSummary]:
