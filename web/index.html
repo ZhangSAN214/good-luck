@@ -12,7 +12,7 @@
 <body>
 <div class="app">
   <header class="top">
-    <div class="brand"><h1>圆桌</h1><span class="sim">匿名文字圆桌</span></div>
+    <div class="brand"><h1>圆桌</h1><span class="sim">全员上桌 · 文字圆桌</span></div>
     <div class="ctrls">
       <button class="btn" id="new" type="button">新题目</button>
       <button class="btn gold" id="reveal" type="button" disabled title="讨论结束后可以揭晓">揭晓身份</button>
@@ -35,18 +35,14 @@
       </div>
       <form class="composer" id="composer" autocomplete="off">
         <div class="row">
-          <div class="seg" id="mode" aria-label="模式">
-            <button type="button" data-v="auto" aria-pressed="true">自动</button>
-            <button type="button" data-v="preset" aria-pressed="false">预设</button>
-            <button type="button" data-v="manual" aria-pressed="false">手动</button>
-          </div>
-          <div class="seg" id="preset" aria-label="预设" hidden></div>
+          <div class="seg" id="tier" aria-label="成员档位"></div>
+          <label class="hint switch"><input type="checkbox" id="anonymous"> 匿名</label>
           <span class="hint" id="mode-hint"></span>
         </div>
         <div class="row" id="manual" hidden>
           <div class="picks" id="picks"></div>
           <label class="hint">统筹
-            <select id="coordinator"><option value="">自动选择</option></select>
+            <select id="coordinator" aria-label="统筹"><option value="">自动选择</option></select>
           </label>
         </div>
         <div class="row">

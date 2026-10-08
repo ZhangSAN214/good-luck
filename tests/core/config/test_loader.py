@@ -37,22 +37,25 @@ def expect_error(config_dir: Path, *fragments: str) -> str:
 # --- 仓库自带的配置 -----------------------------------------------------------
 
 
-def test_repo_config_loads_with_v1_defaults():
+def test_repo_config_loads_with_defaults():
     cfg = load_config()
     rt = cfg.roundtable
-    assert rt.seats == 4
+    assert rt.seats == 12 and rt.reviews_per_answer == 3
     assert (rt.budget.monthly_usd, rt.budget.daily_usd, rt.budget.warn_ratio) == (20.0, 3.0, 0.8)
     assert rt.channel_mode == "auto"
     assert rt.pipeline == ["answer", "review", "revise", "synthesize", "reveal"]
     assert set(rt.prompts) == {
         "planner",
         "answer",
-        "answer_quick",
         "review",
         "revise",
         "synthesize",
     }
-    assert len(cfg.models.enabled) >= rt.seats + 1
+    # 每个档位的全部模型都能坐下（一个当统筹）
+    for plan in cfg.routing.plans.values():
+        tier_models = [m for m in cfg.models.enabled if m.tier in plan.tiers]
+        assert rt.min_members + 1 <= len(tier_models) <= rt.seats + 1
+    assert len(cfg.personas.codes) >= rt.seats
 
 
 def test_repo_config_has_both_channel_kinds():
@@ -168,7 +171,8 @@ def test_channel_without_key_is_allowed(config_dir):
     "change, fragment",
     [
         (lambda d: d.update(seats=1), "seats"),
-        (lambda d: d.update(min_members=5), "min_members"),
+        (lambda d: d.update(reviews_per_answer=0), "reviews_per_answer"),
+        (lambda d: d.update(min_members=13), "min_members"),
         (lambda d: d["budget"].update(monthly_usd=0), "budget.monthly_usd"),
         (lambda d: d["budget"].update(daily_usd=-1), "budget.daily_usd"),
         (lambda d: d["budget"].pop("monthly_usd"), "budget.monthly_usd"),
@@ -212,7 +216,7 @@ def test_duplicate_codes(config_dir):
 
 
 def test_codes_fewer_than_seats(config_dir):
-    edit(config_dir, "personas.yaml", lambda d: d.update(codes=["甲", "乙", "丙"]))
+    edit(config_dir, "personas.yaml", lambda d: d.update(codes=["甲", "乙", "丙", "丁"]))
     expect_error(config_dir, "代号池", "座位数")
 
 

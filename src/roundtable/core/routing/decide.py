@@ -1,16 +1,16 @@
-"""成本优先路由的入口：判断难度 → 选方案 → 组阵容 → 预估花费 → 是否需要确认；以及升级。
+"""路由入口：估计答案长度 → 组阵容（所选档位全员上桌）→ 预估花费 → 是否需要确认；以及升级。
 
 用户的选择永远优先：
-- auto（默认）：规则判断 → 规则判断不出时调用规划员 → 按难度选方案；
-- preset：直接使用预设对应的方案，只做零成本的规则判断用于记录；
-- manual：用户勾选的组员原样上桌（统筹可指定），只做规则判断用于记录。
+- 档位（plans 中的名称，如 budget / flagship）：该档位所有可用模型上桌；
+- custom（自选）：勾选的模型全部上桌，统筹可指定。
+难度判断（规则，规则判断不出时调用规划员）只用于估计答案长度，不影响谁上桌。
 """
 
 from __future__ import annotations
 
 import random
 from collections.abc import Sequence
-from dataclasses import asdict, dataclass, field, replace
+from dataclasses import asdict, dataclass, field, fields, replace
 from typing import Any, Literal
 
 from roundtable.core.allocation import NotEnoughModels
@@ -24,34 +24,40 @@ from .lineup import Lineup, LineupBuilder
 from .planner import PlannerResult, run_planner
 from .triage import Question, triage
 
-Mode = Literal["auto", "preset", "manual"]
-Source = Literal["rule", "model", "default", "skipped"]
+CUSTOM = "custom"
+Source = Literal["rule", "model", "default"]
 
 
 class RoutingError(ValueError):
-    """用户选择无效，或可用模型无法满足方案。"""
+    """用户选择无效，或可用模型无法满足所选档位。"""
 
 
 @dataclass(frozen=True)
 class UserChoice:
-    mode: Mode = "auto"
-    preset: str | None = None
-    members: tuple[str, ...] = ()
+    """tier：档位名（routing.yaml 的 plans）或 "custom"；为空时用 default_plan。"""
+
+    tier: str | None = None
+    models: tuple[str, ...] = ()
     coordinator: str | None = None
 
     def __post_init__(self) -> None:
-        if self.mode == "preset" and not self.preset:
-            raise RoutingError("预设模式需要指定预设")
-        if self.mode == "manual" and not self.members:
-            raise RoutingError("手动模式至少需要勾选一个模型")
-        if self.mode != "preset" and self.preset:
-            raise RoutingError("只有预设模式可以指定预设")
-        if self.mode != "manual" and (self.members or self.coordinator):
-            raise RoutingError("只有手动模式可以勾选模型")
-        if len(set(self.members)) != len(self.members):
+        if self.tier == CUSTOM and not self.models:
+            raise RoutingError("自选模式至少需要勾选模型")
+        if self.tier != CUSTOM and (self.models or self.coordinator):
+            raise RoutingError("只有自选模式可以勾选模型或指定统筹")
+        if len(set(self.models)) != len(self.models):
             raise RoutingError("勾选的模型不能重复")
-        if self.coordinator and self.coordinator in self.members:
-            raise RoutingError("统筹不能兼任组员")
+        if self.coordinator and self.coordinator not in self.models:
+            raise RoutingError("统筹必须是勾选的模型之一")
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"tier": self.tier, "models": list(self.models), "coordinator": self.coordinator}
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> UserChoice:
+        if "mode" in d and "tier" not in d:
+            raise RoutingError("这是旧版本创建的会话（按难度分配人数），无法继续执行")
+        return cls(d.get("tier"), tuple(d.get("models") or ()), d.get("coordinator"))
 
 
 @dataclass(frozen=True)
@@ -72,6 +78,7 @@ class PlanOption:
     available: bool
     estimate: CostEstimate | None = None
     reason: str = ""
+    lineup: Lineup | None = None
 
 
 @dataclass(frozen=True)
@@ -79,7 +86,7 @@ class RoutingDecision:
     seed: int
     choice: UserChoice
     assessment: Assessment
-    plan: str | None  # 手动模式为 None
+    plan: str  # 档位名或 "custom"
     lineup: Lineup
     estimate: CostEstimate
     options: dict[str, PlanOption]
@@ -104,8 +111,6 @@ class RoutingDecision:
             seed=self.seed,
             question_chars=len(question.text),
             attachments=question.attachments,
-            mode=self.choice.mode,
-            preset=self.choice.preset,
             difficulty=a.difficulty,
             difficulty_source=a.source,
             task_type=a.task_type,
@@ -119,6 +124,7 @@ class RoutingDecision:
             plan=self.plan,
             members=self.lineup.members,
             coordinator=self.lineup.coordinator,
+            absent=self.lineup.absent,
             estimated_cost_usd=self.estimate.total_usd,
             needs_confirmation=self.needs_confirmation,
             options={
@@ -129,13 +135,11 @@ class RoutingDecision:
 
 @dataclass(frozen=True)
 class RoutingRecord:
-    """每题一条，供以后调整规则：难度判断、预估与实际花费、是否升级。"""
+    """每题一条，供以后调整规则：答案长度判断、阵容、预估与实际花费、是否升级。"""
 
     seed: int
     question_chars: int
     attachments: tuple[str, ...]
-    mode: Mode
-    preset: str | None
     difficulty: Difficulty | None
     difficulty_source: Source
     task_type: str | None
@@ -149,6 +153,7 @@ class RoutingRecord:
     plan: str | None
     members: tuple[str, ...]
     coordinator: str | None
+    absent: tuple[str, ...]
     estimated_cost_usd: float
     needs_confirmation: bool
     options: dict[str, float | None]
@@ -195,9 +200,13 @@ class RoutingRecord:
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> RoutingRecord:
-        data = dict(d)
-        for key in ("attachments", "require_tags", "rules_matched", "members"):
+        """忽略旧版本记录中已不存在的字段（如 mode / preset），缺少的字段用默认值。"""
+        known = {f.name for f in fields(cls)}
+        data = {k: v for k, v in d.items() if k in known}
+        for key in ("attachments", "require_tags", "rules_matched", "members", "absent"):
             data[key] = tuple(data.get(key) or ())
+        if data.get("difficulty_source") not in ("rule", "model", "default"):
+            data["difficulty_source"] = "default"
         return cls(**data)
 
 
@@ -210,8 +219,9 @@ def _route_price(router: ChannelRouter, model: ModelSpec) -> Price:
     return model.price_for(usable[0]) if usable else model.price
 
 
-def _answer_tokens(config: AppConfig, a: Assessment, difficulty: Difficulty) -> int:
+def _answer_tokens(config: AppConfig, a: Assessment) -> int:
     params = config.routing.estimate
+    difficulty: Difficulty = a.difficulty or config.routing.default_difficulty
     if a.expected_answer_tokens:
         b = params.answer_tokens_bounds
         return max(b.min, min(b.max, a.expected_answer_tokens))
@@ -238,6 +248,7 @@ def _estimate(
         answer_tokens=answer_tokens,
         revise_rounds=config.roundtable.revise_rounds,
         params=params,
+        reviews_per_answer=config.roundtable.reviews_per_answer,
     )
 
 
@@ -251,32 +262,30 @@ def estimate_lineup(
 ) -> CostEstimate:
     """按实际阵容估算花费（公开给编排引擎使用）。"""
     available = {m.id: m for m in config.models.models}
-    difficulty = assessment.difficulty or config.routing.default_difficulty
     return _estimate(
         lineup,
         config=config,
         router=router,
         by_id=available,
         question=question,
-        answer_tokens=_answer_tokens(config, assessment, difficulty),
+        answer_tokens=_answer_tokens(config, assessment),
     )
 
 
 def option_lineup(
     plan_name: str,
-    assessment: Assessment,
     *,
     seed: int,
     config: AppConfig,
     router: ChannelRouter,
+    recent_coordinators: Sequence[str] = (),
 ) -> Lineup:
-    """重建确认卡片上某个备选方案的阵容（与估价时使用同一个随机种子，结果一致）。"""
+    """重建某个档位的阵容（与估价时使用同一个随机种子，结果一致）。"""
     builder = LineupBuilder(
         config,
         router.available_models(),
         random.Random(f"{seed}:{plan_name}"),
-        required_tags=assessment.require_tags,
-        task_type=assessment.task_type,
+        recent_coordinators=recent_coordinators,
     )
     try:
         return builder.build(config.routing.plans[plan_name])
@@ -286,7 +295,6 @@ def option_lineup(
 
 async def _assess(
     question: Question,
-    choice: UserChoice,
     *,
     config: AppConfig,
     router: ChannelRouter,
@@ -297,13 +305,13 @@ async def _assess(
     rules = triage(question, config.routing.triage)
     base = Assessment(
         difficulty=rules.difficulty,
-        source="rule" if rules.difficulty else "skipped",
+        source="rule",
         task_type=rules.task_type,
         require_tags=rules.require_tags,
         rules_matched=rules.matched,
         reason=f"规则 {rules.difficulty_rule}" if rules.difficulty_rule else "",
     )
-    if rules.difficulty is not None or choice.mode != "auto":
+    if rules.difficulty is not None:
         return base
 
     planner = await run_planner(
@@ -342,8 +350,9 @@ def _options(
     router: ChannelRouter,
     available: Sequence[ModelSpec],
     seed: int,
+    recent_coordinators: Sequence[str],
 ) -> dict[str, PlanOption]:
-    """所有方案的预估花费，供界面展示和用户切换。用独立的随机数，不影响实际抽取。"""
+    """每个档位的阵容与预估花费，供界面对比和用户改选。每个档位用独立的随机数。"""
     by_id = {m.id: m for m in available}
     options = {}
     for name, plan in config.routing.plans.items():
@@ -351,10 +360,8 @@ def _options(
             config,
             available,
             random.Random(f"{seed}:{name}"),
-            required_tags=assessment.require_tags,
-            task_type=assessment.task_type,
+            recent_coordinators=recent_coordinators,
         )
-        difficulty = assessment.difficulty or config.routing.default_difficulty
         try:
             lineup = builder.build(plan)
         except NotEnoughModels as exc:
@@ -366,9 +373,9 @@ def _options(
             router=router,
             by_id=by_id,
             question=question,
-            answer_tokens=_answer_tokens(config, assessment, difficulty),
+            answer_tokens=_answer_tokens(config, assessment),
         )
-        options[name] = PlanOption(plan.label, True, estimate)
+        options[name] = PlanOption(plan.label, True, estimate, lineup=lineup)
     return options
 
 
@@ -386,92 +393,72 @@ async def route_question(
     recent_coordinators: Sequence[str] = (),
 ) -> RoutingDecision:
     choice = choice or UserChoice()
-    rng = random.Random(seed)
+    routing = config.routing
+    tier = choice.tier or routing.default_plan
     available = router.available_models()
     by_id = {m.id: m for m in available}
-    routing = config.routing
-    warnings: list[str] = []
 
-    if choice.mode == "preset" and choice.preset not in routing.presets:
-        raise RoutingError(f"未知的预设 {choice.preset!r}，可选：{sorted(routing.presets)}")
-    if choice.mode == "manual":
-        unknown = [m for m in (*choice.members, choice.coordinator) if m and m not in by_id]
+    if tier != CUSTOM and tier not in routing.plans:
+        raise RoutingError(f"未知的档位 {tier!r}，可选：{[*routing.plans, CUSTOM]}")
+    if tier == CUSTOM:
+        unknown = [m for m in choice.models if m not in by_id]
         if unknown:
             raise RoutingError(f"以下模型不可用（未启用或没有可用渠道）：{unknown}")
-        if len(choice.members) > config.roundtable.seats:
-            raise RoutingError(f"最多勾选 {config.roundtable.seats} 个组员")
 
     assessment = await _assess(
         question,
-        choice,
         config=config,
         router=router,
         prompts=prompts,
         available=available,
-        rng=rng,
-    )
-    builder = LineupBuilder(
-        config,
-        available,
-        rng,
-        required_tags=assessment.require_tags,
-        task_type=assessment.task_type,
-        recent_coordinators=recent_coordinators,
-    )
-
-    plan_name: str | None
-    escalate_to: str | None
-    try:
-        if choice.mode == "manual":
-            plan_name, escalate_to = None, None
-            lineup = builder.build_manual(
-                choice.members, choice.coordinator, routing.manual.coordinator
-            )
-            missing = [
-                m for m in choice.members if not set(assessment.require_tags) <= set(by_id[m].tags)
-            ]
-            if missing:
-                warnings.append(
-                    f"按题目需要标签 {list(assessment.require_tags)}，但所选的 {missing} 不具备；"
-                    "按你的选择执行"
-                )
-        else:
-            if choice.mode == "preset":
-                preset = routing.presets[choice.preset]
-                plan_name = preset.plan
-                escalate_to = routing.plans[plan_name].escalate_to if preset.escalate else None
-            else:
-                plan_name = routing.difficulty_plans[assessment.difficulty]
-                escalate_to = routing.plans[plan_name].escalate_to
-            lineup = builder.build(routing.plans[plan_name])
-    except NotEnoughModels as exc:
-        raise RoutingError(str(exc)) from None
-
-    difficulty = assessment.difficulty or routing.default_difficulty
-    estimate = _estimate(
-        lineup,
-        config=config,
-        router=router,
-        by_id=by_id,
-        question=question,
-        answer_tokens=_answer_tokens(config, assessment, difficulty),
+        rng=random.Random(seed),
     )
     options = _options(
-        question, assessment, config=config, router=router, available=available, seed=seed
+        question,
+        assessment,
+        config=config,
+        router=router,
+        available=available,
+        seed=seed,
+        recent_coordinators=recent_coordinators,
     )
-    if plan_name is not None:  # 已选方案按实际阵容估价，与执行时一致
-        options[plan_name] = PlanOption(routing.plans[plan_name].label, True, estimate)
+    if tier == CUSTOM:
+        builder = LineupBuilder(
+            config,
+            available,
+            random.Random(f"{seed}:{CUSTOM}"),
+            recent_coordinators=recent_coordinators,
+        )
+        try:
+            lineup = builder.build_custom(choice.models, choice.coordinator)
+        except NotEnoughModels as exc:
+            raise RoutingError(str(exc)) from None
+        estimate = _estimate(
+            lineup,
+            config=config,
+            router=router,
+            by_id=by_id,
+            question=question,
+            answer_tokens=_answer_tokens(config, assessment),
+        )
+        options[CUSTOM] = PlanOption(routing.custom.label, True, estimate, lineup=lineup)
+        escalate_to = None
+    else:
+        chosen = options[tier]
+        if not chosen.available or chosen.lineup is None or chosen.estimate is None:
+            raise RoutingError(chosen.reason)
+        lineup, estimate = chosen.lineup, chosen.estimate
+        escalate_to = routing.plans[tier].escalate_to
     return RoutingDecision(
         seed=seed,
         choice=choice,
         assessment=assessment,
-        plan=plan_name,
+        plan=tier,
         lineup=lineup,
         estimate=estimate,
         options=options,
         escalate_to=escalate_to,
         confirm_threshold_usd=routing.confirm_threshold_usd,
-        warnings=tuple(warnings),
     )
 
 
@@ -506,6 +493,7 @@ def plan_escalation(
 ) -> RoutingDecision | None:
     """满足升级条件时，返回升级后的新决定（重新组建阵容、重新预估）；否则返回 None。
 
+    升级不会自动执行：编排引擎总是先弹卡片询问用户。
     升级后的圆桌独立重新作答，不沿用之前的答案，避免被低档位的结论带偏。
     """
     return escalate(
@@ -546,8 +534,6 @@ def escalate(
         config,
         router.available_models(),
         random.Random(f"{seed}:escalate:{escalate_to}"),
-        required_tags=assessment.require_tags,
-        task_type=assessment.task_type,
         recent_coordinators=recent_coordinators,
     )
     try:

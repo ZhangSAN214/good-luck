@@ -1,9 +1,11 @@
 # 圆桌运行参数
 
-# 一张桌最多的组员座位数（各方案的组员数见 routing.yaml，不得超过此值）
-seats: 4
+# 一张桌最多的组员座位数（所选档位的可用模型都上桌，人数超过此值时拒绝执行；代号池不得少于此值）
+seats: 12
 # 组员少于此数时暂停问用户；开桌至少需要 min_members 个组员 + 1 个统筹
 min_members: 2
+# 互评：每份答案由几位其他组员评审（分配均衡、不评自己）；组员不多于此数 + 1 时等于全员互评
+reviews_per_answer: 3
 
 # 预算按 UTC 自然月 / 自然日统计（每月 1 号、每天 0 点 UTC 进入新周期）。
 # 达到 warn_ratio 时提醒（不打断）；已超出或下一步预计会超出时暂停，请用户确认继续或停止。
@@ -16,7 +18,8 @@ budget:
 token_threshold: 20000
 
 coordinator:
-  # rotate: 在非组员的可用模型中按会话轮换；random: 随机；fixed: 固定为 fixed_id
+  # 统筹从上桌的模型中选出，本题不作答。
+  # rotate: 按会话轮换（最近当过统筹的排后，其余随机）；random: 随机；fixed: 固定为 fixed_id（不在上桌范围内时按 rotate）
   strategy: rotate
   fixed_id: null
 
@@ -26,7 +29,6 @@ revise_rounds: 1
 prompts:
   planner: v1
   answer: v1
-  answer_quick: v1
   review: v1
   revise: v1
   synthesize: v2

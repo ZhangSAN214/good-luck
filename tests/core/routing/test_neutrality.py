@@ -1,30 +1,11 @@
-"""无品牌偏好：同档位内均匀随机；把所有厂商和 id 换名，结果在位置上完全一致。"""
+"""无品牌偏好：把所有厂商和 id 换名，结果在位置上完全一致（统筹均匀随机见 test_lineup）。"""
 
 from __future__ import annotations
 
-import random
-from collections import Counter
-
 from roundtable.core.providers import FakeProvider
-from roundtable.core.routing import LineupBuilder, Question, UserChoice, route_question
+from roundtable.core.routing import Question, UserChoice, route_question
 
 from .conftest import POOL, Env, app_config
-
-
-def available(cfg):
-    return Env(cfg, FakeProvider("c")).router.available_models()
-
-
-def test_uniform_within_tier_without_task_preference():
-    cfg = app_config(prefer_task_tags=False, prefer_distinct_vendors=False)
-    models = available(cfg)
-    counts = Counter()
-    for seed in range(3000):
-        lineup = LineupBuilder(cfg, models, random.Random(seed)).build(cfg.routing.plans["simple"])
-        counts[lineup.members[0]] += 1
-    assert set(counts) == {"b1", "b2", "b3"}
-    for c in counts.values():
-        assert 850 < c < 1150, counts
 
 
 def renamed_pool():
@@ -46,9 +27,9 @@ async def decide(cfg, choice, seed):
 async def test_renaming_does_not_change_decisions():
     original, renamed = app_config(), app_config(pool=renamed_pool())
     rename = {p[0]: r[0] for p, r in zip(POOL, renamed_pool(), strict=True)}
-    for preset in ("saver", "balanced", "strongest"):
+    for tier in ("budget", "flagship"):
         for seed in range(30):
-            choice = UserChoice("preset", preset=preset)
+            choice = UserChoice(tier)
             a = await route_question(
                 Question("一道题目"),
                 choice,
@@ -68,3 +49,4 @@ async def test_renaming_does_not_change_decisions():
             assert tuple(rename[m] for m in a.lineup.members) == b.lineup.members
             assert rename.get(a.lineup.coordinator) == b.lineup.coordinator
             assert a.estimate.total_usd == b.estimate.total_usd
+            assert tuple(rename[m] for m in a.lineup.absent) == b.lineup.absent

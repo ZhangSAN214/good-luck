@@ -39,7 +39,7 @@ async def collect(svc: RoundtableService, sid: str) -> list[dict]:
 
 async def test_create_runs_in_background_and_streams_events():
     env, svc = make(confirm_threshold_usd=100.0)
-    sid = svc.create(MEDIUM, seed=2)
+    sid = svc.create(MEDIUM, seed=2, anonymous=True)
     events = await collect(svc, sid)
     types = [e["type"] for e in events]
     assert types[0] == "snapshot" and types[-1] == "state"
@@ -48,7 +48,21 @@ async def test_create_runs_in_background_and_streams_events():
     assert leaks(env, events) == []
     data = svc.session(sid)
     assert data["status"] == "completed" and data["can_reveal"] and not data["revealed"]
-    assert leaks(env, data) == []
+    assert data["anonymous"] and leaks(env, data) == []
+
+
+async def test_not_anonymous_by_default():
+    env, svc = make(confirm_threshold_usd=100.0)
+    sid = svc.create(MEDIUM, seed=2)
+    events = await collect(svc, sid)
+    assert leaks(env, events) == []  # 事件流本身只含代号
+    data = svc.session(sid)
+    assert not data["anonymous"] and data["revealed"] and not data["can_reveal"]
+    assert leaks(env, data)  # 匿名关闭：会话详情直接显示模型
+    assert all(s["model_id"] for s in data["seats"])
+    with pytest.raises(ServiceError, match="没有开启匿名") as info:
+        svc.reveal_identities(sid)
+    assert info.value.status == 409
 
 
 async def test_events_for_finished_session_end_immediately():
@@ -62,7 +76,7 @@ async def test_events_for_finished_session_end_immediately():
 
 async def test_checkpoint_flow():
     env, svc = make(confirm_threshold_usd=0.0001)
-    sid = svc.create(SHORT, mode="preset", preset="strongest", seed=6)
+    sid = svc.create(SHORT, tier="flagship", seed=6)
     events = await collect(svc, sid)
     state = events[-1]
     assert state["status"] == "awaiting_confirmation" and state["checkpoint"]["kind"] == "cost"
@@ -79,7 +93,7 @@ async def test_checkpoint_flow():
 
 async def test_reveal_only_after_finish():
     env, svc = make(confirm_threshold_usd=0.0001)
-    sid = svc.create(SHORT, mode="preset", preset="strongest", seed=6)
+    sid = svc.create(SHORT, tier="flagship", seed=6, anonymous=True)
     await svc.wait(sid)
     with pytest.raises(ServiceError) as info:
         svc.reveal_identities(sid)  # 还在等待确认
@@ -117,9 +131,10 @@ async def test_invalid_requests():
     for kwargs in (
         {"question": "   "},
         {"question": "x" * 20_001},
-        {"question": "q", "mode": "preset"},
-        {"question": "q", "mode": "manual"},
-        {"question": "q", "mode": "auto", "members": ["b1"]},
+        {"question": "q", "tier": "giant"},
+        {"question": "q", "tier": "custom"},
+        {"question": "q", "tier": "budget", "models": ["b1"]},
+        {"question": "q", "tier": "custom", "models": ["b1", "b2"], "coordinator": "f1"},
     ):
         with pytest.raises(ServiceError):
             svc.create(**kwargs)
@@ -130,7 +145,7 @@ async def test_invalid_requests():
 
 async def test_routing_error_is_reported_in_session():
     env, svc = make()
-    sid = svc.create(SHORT, mode="manual", members=["b1", "ghost"])
+    sid = svc.create(SHORT, tier="custom", models=["b1", "b2", "ghost"])
     await svc.wait(sid)
     data = svc.session(sid)
     assert data["status"] == "failed"
@@ -150,8 +165,9 @@ async def test_status_and_budget():
     sid = svc.create(SHORT, seed=1)
     await svc.wait(sid)
     status = svc.status()
-    assert status["plans"]["simple"] == "单人快答"
-    assert set(status["presets"]) == {"saver", "balanced", "strongest"}
+    assert status["plans"] == {"budget": "便宜档全员", "flagship": "旗舰档全员"}
+    assert status["default_plan"] == "budget" and status["custom_label"] == "自选"
+    assert status["min_members"] == 2
     assert any(m["available"] for m in status["models"])
     budget = status["budget"]
     assert budget["month"]["limit_usd"] == 20.0 and budget["day"]["limit_usd"] == 3.0
@@ -164,22 +180,44 @@ async def test_unrouted_session_resumes_with_routing():
     env, svc = make(confirm_threshold_usd=100.0)
     from roundtable.core.routing import Question, UserChoice
 
-    sid = svc.orc.open(Question(SHORT), UserChoice("manual", members=("b1",)), seed=3)
+    sid = svc.orc.open(Question(SHORT), UserChoice("custom", ("b1", "b2", "f1"), "f1"), seed=3)
     svc.resume(sid)
     events = await collect(svc, sid)
     assert events[-1]["status"] == "completed"
-    assert env.models_called("这是一道简单题") == ["b1"]  # 用到了保存的手动选择
+    assert sorted(env.models_called("独立完成同一道题")) == ["b1", "b2"]  # 用到了保存的自选
+
+
+async def test_old_session_without_routing_fails_clearly():
+    """v2 之前创建、还没路由就中断的会话：恢复时说明无法继续，而不是崩溃。"""
+    env, svc = make()
+    sid = env.rt.repo.create_session(
+        SHORT, seed=1, anonymous=False, choice={"mode": "auto", "preset": None}
+    )
+    svc.resume(sid)
+    await svc.wait(sid)
+    data = svc.session(sid)
+    assert data["status"] == "failed" and "旧版本" in data["error"]
 
 
 async def test_session_tables_show_plan_and_progress_without_models():
     env, svc = make(resolved=False, confirm_threshold_usd=100.0)
-    sid = svc.create(MEDIUM, seed=3)
+    sid = svc.create(MEDIUM, seed=3, anonymous=True)
+    await svc.wait(sid)
+    svc.respond(sid, "continue")  # 升级总是先询问
     await svc.wait(sid)
     tables = svc.session(sid)["tables"]
     assert [t["table_no"] for t in tables] == [0, 1]
     first, second = tables
-    assert first["plan"] == "medium" and first["plan_label"] == "小圆桌"
+    assert first["plan"] == "budget" and first["plan_label"] == "便宜档全员"
     assert first["steps_done"] == first["pipeline"]
     assert first["codes"] == ["甲", "乙"] and first["estimate_usd"] > 0
-    assert second["plan"] == "hard" and second["escalation_reason"]
+    assert second["plan"] == "flagship" and second["escalation_reason"]
+    assert second["codes"] == ["甲", "乙", "丙", "丁"]
     assert leaks(env, tables) == []
+
+
+async def test_custom_plan_label():
+    env, svc = make(confirm_threshold_usd=100.0)
+    sid = svc.create(SHORT, tier="custom", models=["b1", "b2", "f1"], seed=1)
+    await svc.wait(sid)
+    assert svc.session(sid)["tables"][0]["plan_label"] == "自选"

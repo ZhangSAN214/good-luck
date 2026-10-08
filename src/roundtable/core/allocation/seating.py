@@ -22,16 +22,29 @@ def assign_codes(
     return dict(zip(codes[: len(shuffled)], shuffled, strict=True))
 
 
-def review_assignments(codes: Sequence[str], rng: random.Random) -> dict[str, list[str]]:
-    """每个评审者要评审的对象：除自己以外的所有人，顺序对每个评审者独立打乱。"""
+def review_assignments(
+    codes: Sequence[str], rng: random.Random, per_answer: int | None = None
+) -> dict[str, list[str]]:
+    """每个评审者要评审的对象（永远不含自己），顺序对每个评审者独立打乱。
+
+    per_answer 为空或不小于 n - 1 时全员互评；否则把代号随机排成一圈，
+    每人评审圈上紧随其后的 per_answer 个人：每份答案恰好被 per_answer 人评审，
+    每人也恰好评审 per_answer 份，负担均衡。
+    """
     if len(set(codes)) != len(codes):
         raise ValueError("代号不能重复")
+    if per_answer is not None and per_answer < 1:
+        raise ValueError("per_answer 至少为 1")
+    n = len(codes)
+    ring = list(codes)
+    rng.shuffle(ring)
+    k = n - 1 if per_answer is None else min(per_answer, n - 1)
     result = {}
-    for reviewer in codes:
-        targets = [c for c in codes if c != reviewer]
+    for i, reviewer in enumerate(ring):
+        targets = [ring[(i + j) % n] for j in range(1, k + 1)]
         rng.shuffle(targets)
         result[reviewer] = targets
-    return result
+    return {c: result[c] for c in codes}
 
 
 def reviews_for(

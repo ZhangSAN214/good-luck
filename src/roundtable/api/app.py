@@ -14,7 +14,7 @@ from typing import Any
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from roundtable.core.service import (
     MAX_QUESTION_CHARS,
@@ -26,15 +26,19 @@ WEB_DIR = Path(__file__).resolve().parents[3] / "web"
 
 
 class CreateSession(BaseModel):
+    model_config = ConfigDict(extra="forbid")  # 旧字段（mode / preset）直接报错，不悄悄忽略
+
     question: str = Field(min_length=1, max_length=MAX_QUESTION_CHARS)
-    mode: str = "auto"
-    preset: str | None = None
-    members: list[str] = Field(default_factory=list)
+    tier: str | None = None  # 档位名或 custom（自选）
+    models: list[str] = Field(default_factory=list)
     coordinator: str | None = None
+    anonymous: bool = False
     seed: int | None = None
 
 
 class Respond(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     response: str
     note: str | None = None
 
@@ -86,10 +90,10 @@ def create_app(service: RoundtableService | None = None) -> FastAPI:
     async def create(request: Request, body: CreateSession) -> dict[str, str]:
         sid = svc(request).create(
             body.question,
-            mode=body.mode,
-            preset=body.preset,
-            members=body.members,
+            tier=body.tier,
+            models=body.models,
             coordinator=body.coordinator,
+            anonymous=body.anonymous,
             seed=body.seed,
         )
         return {"session_id": sid}

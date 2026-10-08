@@ -51,9 +51,12 @@ def estimate_pipeline(
     answer_tokens: int,
     revise_rounds: int,
     params: EstimateParams,
+    reviews_per_answer: int | None = None,
 ) -> CostEstimate:
-    """按步骤估算。n = 组员数，A = 答案长度，Q = 题目长度，O = 每次调用的固定开销。"""
+    """按步骤估算。n = 组员数，A = 答案长度，Q = 题目长度，O = 每次调用的固定开销，
+    k = 每份答案的评审人数（每位评审者也评 k 份；None 表示全员互评）。"""
     n = len(member_prices)
+    k = n - 1 if reviews_per_answer is None else max(0, min(reviews_per_answer, n - 1))
     o, q, a = params.prompt_overhead_tokens, question_tokens, answer_tokens
     r = params.review_tokens_per_peer
     revised = a + params.revise_overhead_tokens
@@ -64,10 +67,10 @@ def estimate_pipeline(
         if step == "answer":
             tin, tout, cost = _calls(member_prices, o + q, a)
         elif step == "review":
-            tin, tout, cost = _calls(member_prices, o + q + (n - 1) * a, (n - 1) * r)
+            tin, tout, cost = _calls(member_prices, o + q + k * a, k * r)
             tin, tout, cost = tin * revise_rounds, tout * revise_rounds, cost * revise_rounds
         elif step == "revise":
-            tin, tout, cost = _calls(member_prices, o + q + a + (n - 1) * r, revised)
+            tin, tout, cost = _calls(member_prices, o + q + a + k * r, revised)
             tin, tout, cost = tin * revise_rounds, tout * revise_rounds, cost * revise_rounds
         elif step == "synthesize":
             prices = [coordinator_price] if coordinator_price else []

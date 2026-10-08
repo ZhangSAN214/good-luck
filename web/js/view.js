@@ -1,5 +1,6 @@
-// 把服务端返回的会话（揭晓前已匿名）渲染成 HTML。这里只做展示，不发请求。
-// 揭晓前服务端不返回模型和渠道，界面只用代号（组员甲 / 乙 / 丙 / 丁、统筹）。
+// 把服务端返回的会话渲染成 HTML。这里只做展示，不发请求。
+// 匿名讨论在揭晓前，服务端不返回模型和渠道，界面只用代号（组员甲 / 乙 / 丙…、统筹）；
+// 匿名关闭时服务端直接给出模型，界面在代号旁显示。
 
 export const STEP_LABELS = {
   plan: '规划',
@@ -9,8 +10,8 @@ export const STEP_LABELS = {
   synthesize: '汇总',
   reveal: '揭晓',
 };
-const DIFFICULTY = { simple: '简单', medium: '中等', hard: '困难' };
-const SOURCE = { rule: '规则判断', model: '规划员判断', default: '默认难度', skipped: '按你的选择' };
+const LENGTH = { simple: '短', medium: '中等', hard: '长' };
+const SOURCE = { rule: '规则判断', model: '规划员判断', default: '默认' };
 const VERDICT = {
   correct: ['正确', 'ok'],
   partially_correct: ['部分正确', 'wait'],
@@ -124,11 +125,15 @@ export function feedItems(sv, ctx) {
   cpAt((d) => d.stage === 'routing');
 
   if (r) {
-    const plan = ctx.plans[r.plan] || r.plan;
+    const label = (k) => (k === 'custom' ? ctx.customLabel : ctx.plans[k] || k);
     const opts = Object.entries(r.options || {})
-      .map(([k, v]) => `${ctx.plans[k] || k} ${money(v)}`)
+      .filter(([, v]) => v !== null && v !== undefined)
+      .map(([k, v]) => `${label(k)} ${money(v)}`)
       .join(' · ');
-    push('route', sys('规划', `难度：${esc(DIFFICULTY[r.difficulty] || r.difficulty)}（${esc(SOURCE[r.difficulty_source] || r.difficulty_source)}）→ 方案：<b>${esc(plan)}</b> · 预计 ${money(r.estimated_cost_usd)}${opts ? `<br>各方案预估：${esc(opts)}` : ''}`));
+    const t0 = (sv.tables || [])[0];
+    const people = t0 ? ` · ${t0.codes.length} 位组员 + 统筹` : '';
+    const absent = r.absent && r.absent.length ? ` · ${r.absent.length} 个模型缺席（无可用渠道）` : '';
+    push('route', sys('规划', `档位：<b>${esc(label(r.plan))}</b>${esc(people)}${esc(absent)} · 预计 ${money(r.estimated_cost_usd)}${opts ? `<br>各档位预估：${esc(opts)}` : ''}`));
   }
 
   const outputs = sv.outputs || [];
@@ -164,9 +169,8 @@ export function feedItems(sv, ctx) {
 }
 
 function modeText(sv, ctx) {
-  if (sv.mode === 'preset') return `预设 · ${ctx.presets[sv.preset] || sv.preset}`;
-  if (sv.mode === 'manual') return '手动选择组员';
-  return '自动';
+  const tier = sv.tier === 'custom' ? ctx.customLabel : ctx.plans[sv.tier] || sv.tier;
+  return sv.anonymous ? `${tier} · 匿名` : tier;
 }
 
 function output(o, names) {
@@ -265,6 +269,7 @@ function ending(sv, ctx) {
   if (sv.running) return '';
   const cost = money(sv.cost_usd);
   if (sv.status === 'completed') {
+    if (!sv.anonymous) return sys('统筹', `讨论完成 · 本场花费 ${cost}`, 'ok');
     const tail = sv.revealed ? '身份已揭晓' : '可以点「揭晓身份」查看各代号对应的模型';
     return sys('统筹', `讨论完成 · 本场花费 ${cost} · ${tail}`, 'ok');
   }
@@ -354,14 +359,14 @@ export function stageHTML(sv, live, prefix) {
 export function legendHTML() {
   return `<div class="row"><svg width="22" height="8"><line x1="1" y1="4" x2="21" y2="4" stroke="var(--brass)" stroke-width="2" stroke-dasharray="3 3"/></svg><span><b>金色虚线</b> 互评时组员两两交换匿名答案；汇总时修订稿交给统筹</span></div>
 <div class="row"><span style="width:22px;display:inline-grid;place-items:center"><span style="width:12px;height:12px;border-radius:30%;background:var(--c-coord);display:inline-block"></span></span><span><b>方形头像</b> 统筹：只读修订稿并汇总，不兼任组员</span></div>
-<div class="row"><span style="width:22px;text-align:center">甲</span><span><b>代号</b> 每题随机分配；讨论结束后点「揭晓身份」才显示模型</span></div>`;
+<div class="row"><span style="width:22px;text-align:center">甲</span><span><b>代号</b> 每题随机分配，模型之间只用代号称呼；开启匿名时界面也只显示代号</span></div>`;
 }
 
 // --- 右侧面板 -----------------------------------------------------------------------
 
 export function flowPanel(sv, live, ctx) {
   if (!sv) {
-    return `<p class="empty">提交题目后，这里显示难度判断、方案、各步骤进度和花费预估。</p>
+    return `<p class="empty">提交题目后，这里显示档位、各步骤进度和花费预估。</p>
 <h4>规则</h4><table><tbody>
 <tr><td>单题确认门槛</td><td class="num">${money(ctx.threshold)}</td></tr>
 <tr><td>最多组员</td><td class="num">${esc(ctx.maxMembers ?? '—')}</td></tr>
@@ -376,30 +381,33 @@ export function flowPanel(sv, live, ctx) {
       const done = t.steps_done.includes(step);
       const now = !done && live.table === t.table_no && live.step === step;
       const cls = done ? 'done' : now ? 'now' : '';
-      const who = step === 'synthesize' ? '统筹' : step === 'reveal' ? '讨论结束后由你点「揭晓身份」' : t.codes.join(' · ');
-      const label = step === 'reveal' ? '可揭晓' : STEP_LABELS[step] || step;
+      const who = step === 'synthesize' ? '统筹' : step === 'reveal' ? (sv.anonymous ? '讨论结束后由你点「揭晓身份」' : '匿名关闭，身份一直公开') : t.codes.join(' · ');
+      const label = step === 'reveal' ? (sv.anonymous ? '可揭晓' : '结束') : STEP_LABELS[step] || step;
       h += `<div class="pn ${cls}" data-step="${esc(step)}"><span class="dot"></span><span class="t">${esc(label)}<small>${esc(who)}</small></span><span class="pill ${done ? 'okp' : now ? 'run' : ''}">${done ? '完成' : now ? '进行中' : '待开始'}</span></div>`;
     }
     h += '</div>';
   }
-  if (!h) h = '<p class="empty">正在判断难度、选择方案…</p>';
+  if (!h) h = '<p class="empty">正在安排座位、预估花费…</p>';
   const r = sv.routing;
   if (r) {
-    h += '<h4>花费预估与方案对比</h4><table><thead><tr><th>方案</th><th class="num">预估</th></tr></thead><tbody>';
+    h += '<h4>花费预估与档位对比</h4><table><thead><tr><th>档位</th><th class="num">预估</th></tr></thead><tbody>';
     for (const [k, v] of Object.entries(r.options || {})) {
+      if (v === null || v === undefined) continue;
       const cur = k === r.plan;
       const over = v > ctx.threshold ? ' · 需确认' : '';
-      h += `<tr class="${cur ? 'cur' : ''}"><td>${esc(ctx.plans[k] || k)}${cur ? ' ✓' : ''}</td><td class="num">${money(v)}${over}</td></tr>`;
+      const name = k === 'custom' ? ctx.customLabel : ctx.plans[k] || k;
+      h += `<tr class="${cur ? 'cur' : ''}"><td>${esc(name)}${cur ? ' ✓' : ''}</td><td class="num">${money(v)}${over}</td></tr>`;
     }
     h += `</tbody></table><p class="hint">超过单题门槛 ${money(ctx.threshold)} 时先请你确认。</p>`;
     h += '<h4>路由记录</h4><table><tbody>';
     const rows = [
-      ['难度', `${DIFFICULTY[r.difficulty] || r.difficulty}（${SOURCE[r.difficulty_source] || r.difficulty_source}）`],
+      ['答案长度', `${LENGTH[r.difficulty] || r.difficulty}（${SOURCE[r.difficulty_source] || r.difficulty_source}）`],
+      ['缺席', r.absent ? `${r.absent.length} 个模型（无可用渠道）` : '—'],
       ['题型', r.task_type || '—'],
       ['判断理由', r.assessment_reason || '—'],
       ['预计花费', money(r.estimated_cost_usd)],
       ['实际花费', money(r.actual_cost_usd ?? sv.cost_usd)],
-      ['升级', r.escalated ? `是 → ${ctx.plans[r.escalated_plan] || r.escalated_plan}（${r.escalation_reason || ''}）` : '否'],
+      ['升级', r.escalated ? `是 → ${ctx.plans[r.escalated_plan] || r.escalated_plan}（${r.escalation_reason || ''}）` : r.escalation_reason ? `建议过，未升级（${r.escalation_reason}）` : '否'],
     ];
     for (const [k, v] of rows) h += `<tr><td>${esc(k)}</td><td>${esc(v)}</td></tr>`;
     h += '</tbody></table>';
@@ -516,7 +524,7 @@ export function historyPanel(list, currentId) {
   for (const s of list) {
     const q = s.question.length > 40 ? s.question.slice(0, 40) + '…' : s.question;
     const pill = { completed: 'okp', running: 'run', awaiting_confirmation: 'wait', paused: 'wait', failed: 'badp', stopped: 'badp' }[s.status] || '';
-    h += `<tr class="click${s.id === currentId ? ' cur' : ''}" data-sid="${esc(s.id)}"><td>${esc(q)}<div class="hint">${esc(s.created_at.slice(0, 16).replace('T', ' '))}${s.revealed ? ' · 已揭晓' : ''}</div></td><td><span class="pill ${pill}">${esc(STATUS_LABELS[s.status] || s.status)}</span></td><td class="num">${money(s.cost_usd)}</td></tr>`;
+    h += `<tr class="click${s.id === currentId ? ' cur' : ''}" data-sid="${esc(s.id)}"><td>${esc(q)}<div class="hint">${esc(s.created_at.slice(0, 16).replace('T', ' '))}${s.anonymous ? (s.revealed ? ' · 匿名 · 已揭晓' : ' · 匿名') : ''}</div></td><td><span class="pill ${pill}">${esc(STATUS_LABELS[s.status] || s.status)}</span></td><td class="num">${money(s.cost_usd)}</td></tr>`;
   }
   return h + '</tbody></table><p class="hint">点击打开；已暂停或等待确认的讨论可以继续。</p>';
 }
@@ -525,6 +533,9 @@ export function castPanel(sv, prefix) {
   if (!sv) return '<p class="empty">提交题目后显示座位。</p>';
   const names = new Names(sv, prefix);
   let h = sv.revealed ? '' : '<p class="empty">匿名进行中：讨论结束后点「揭晓身份」才显示各代号对应的模型，以及每次调用走的渠道。</p>';
+  if (sv.routing && sv.routing.absent && sv.routing.absent.length) {
+    h += `<p class="hint">缺席（没有可用渠道）：${esc(sv.routing.absent.join('、'))}</p>`;
+  }
   const calls = sv.calls || [];
   const callLines = (pred) =>
     calls
@@ -552,7 +563,7 @@ export function castPanel(sv, prefix) {
   if (sv.revealed) {
     const planner = calls.filter((c) => c.role === 'planner');
     if (planner.length) {
-      h += `<h4>规划员</h4><div class="ros"><div class="ro"><div class="av coord">规</div><b>规划员 <span class="ai">· ${esc(planner[0].model_id || '')}</span></b><p>判断难度</p><div class="calls">${callLines((c) => c.role === 'planner')}</div></div></div>`;
+      h += `<h4>规划员</h4><div class="ros"><div class="ro"><div class="av coord">规</div><b>规划员 <span class="ai">· ${esc(planner[0].model_id || '')}</span></b><p>估计答案长度</p><div class="calls">${callLines((c) => c.role === 'planner')}</div></div></div>`;
     }
   }
   return h;

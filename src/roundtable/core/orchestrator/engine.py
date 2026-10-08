@@ -2,7 +2,7 @@
 
 所有进度都落库，任何时候都可以中断后用 resume() 继续：
     路由 → [单题花费确认] → 第 0 张桌子逐步执行（每步前查预算）
-         → [满足条件时升级：新建桌子，必要时确认] → 完成
+         → [满足条件时询问是否升级：确认后新建桌子] → 完成
 需要用户拍板时创建确认点并返回；用户用 respond() 回复后继续。
 """
 
@@ -79,18 +79,26 @@ class Orchestrator:
     # --- 对外接口 ------------------------------------------------------------------
 
     def open(
-        self, question: Question, choice: UserChoice | None = None, *, seed: int | None = None
+        self,
+        question: Question,
+        choice: UserChoice | None = None,
+        *,
+        seed: int | None = None,
+        anonymous: bool = False,
     ) -> str:
-        """只创建会话（立即返回 id）；之后用 run() 执行。Web 服务先拿 id 再在后台运行。"""
+        """只创建会话（立即返回 id）；之后用 run() 执行。Web 服务先拿 id 再在后台运行。
+
+        anonymous 只影响给人看的界面；发给模型的内容始终只用代号。
+        """
         choice = choice or UserChoice()
         seed = secrets.randbelow(2**31) if seed is None else seed
         return self.rt.repo.create_session(
             question.text,
             seed=seed,
-            mode=choice.mode,
-            preset=choice.preset,
+            tier=choice.tier or self.rt.config.routing.default_plan,
+            anonymous=anonymous,
             attachments=question.attachments,
-            choice=_choice_dict(choice),
+            choice=choice.to_dict(),
         )
 
     async def run(self, session_id: str) -> RunResult:
@@ -102,9 +110,14 @@ class Orchestrator:
             return await self._advance(session_id)
 
     async def start(
-        self, question: Question, choice: UserChoice | None = None, *, seed: int | None = None
+        self,
+        question: Question,
+        choice: UserChoice | None = None,
+        *,
+        seed: int | None = None,
+        anonymous: bool = False,
     ) -> RunResult:
-        return await self.run(self.open(question, choice, seed=seed))
+        return await self.run(self.open(question, choice, seed=seed, anonymous=anonymous))
 
     async def respond(self, session_id: str, response: str, note: str | None = None) -> RunResult:
         async with self._lock(session_id):
@@ -165,7 +178,7 @@ class Orchestrator:
             await self._route(
                 sid,
                 Question(row["question"], tuple(row["attachments"])),
-                _choice_from(row["choice"]),
+                UserChoice.from_dict(row["choice"]),
                 row["seed"],
             )
         except RoutingError as exc:
@@ -176,6 +189,7 @@ class Orchestrator:
 
     async def _route(self, sid: str, question: Question, choice: UserChoice, seed: int) -> None:
         repo = self.rt.repo
+        recent = repo.recent_coordinators()
         decision = await route_question(
             question,
             choice,
@@ -183,11 +197,14 @@ class Orchestrator:
             router=self.rt.router,
             prompts=self.rt.prompts,
             seed=seed,
-            recent_coordinators=repo.recent_coordinators(),
+            recent_coordinators=recent,
         )
         if decision.assessment.planner:
             repo.record_planner(sid, decision.assessment.planner)
-        repo.save_routing(sid, decision.record(question))
+        record = decision.record(question)
+        # 记下轮换依据：用户在花费卡片上改选档位时，重建出与卡片估价一致的阵容
+        record = replace(record, extra={**record.extra, "recent_coordinators": list(recent)})
+        repo.save_routing(sid, record)
         self._warn(sid, *decision.warnings)
         self._emit(
             sid,
@@ -196,6 +213,7 @@ class Orchestrator:
             source=decision.assessment.source,
             plan=decision.plan,
             members=len(decision.lineup.members),
+            absent=len(decision.lineup.absent),
             estimate_usd=decision.estimate.total_usd,
             options={
                 k: (v.estimate.total_usd if v.estimate else None)
@@ -241,30 +259,34 @@ class Orchestrator:
             self.rt.repo.create_table(sid, table_no, **fields)
 
     def _switch_plan(self, sid: str, table_no: int, plan_name: str) -> None:
-        """用户在花费卡片上改选其他方案：重建该方案的阵容（与卡片上的估价一致）。"""
+        """用户在花费卡片上改选其他档位：重建该档位的阵容（与卡片上的估价一致）。"""
         cfg, repo = self.rt.config, self.rt.repo
         if plan_name not in cfg.routing.plans:
-            raise OrchestratorError(f"未知方案 {plan_name!r}")
+            raise OrchestratorError(f"未知档位 {plan_name!r}")
         row = repo.session_row(sid)
         record = RoutingRecord.from_dict(repo.routing_record(sid))
         assessment = record.assessment()
         question = Question(row["question"], tuple(row["attachments"]))
-        lineup = option_lineup(
-            plan_name, assessment, seed=row["seed"], config=cfg, router=self.rt.router
-        )
+        try:
+            lineup = option_lineup(
+                plan_name,
+                seed=row["seed"],
+                config=cfg,
+                router=self.rt.router,
+                recent_coordinators=record.extra.get("recent_coordinators", ()),
+            )
+        except RoutingError as exc:
+            raise OrchestratorError(str(exc)) from None
         estimate = estimate_lineup(lineup, question, assessment, config=cfg, router=self.rt.router)
-        allow_escalation = row["mode"] == "auto" or (
-            row["mode"] == "preset" and cfg.routing.presets[row["preset"]].escalate
-        )
         decision = RoutingDecision(
             seed=row["seed"],
-            choice=UserChoice(),
+            choice=UserChoice(plan_name),
             assessment=assessment,
             plan=plan_name,
             lineup=lineup,
             estimate=estimate,
             options={},
-            escalate_to=cfg.routing.plans[plan_name].escalate_to if allow_escalation else None,
+            escalate_to=cfg.routing.plans[plan_name].escalate_to,
             confirm_threshold_usd=cfg.routing.confirm_threshold_usd,
         )
         self._create_table(sid, table_no, decision, status="approved", replace_existing=True)
@@ -275,6 +297,7 @@ class Orchestrator:
                 plan=plan_name,
                 members=lineup.members,
                 coordinator=lineup.coordinator,
+                absent=lineup.absent,
                 estimated_cost_usd=estimate.total_usd,
                 extra={**record.extra, "switched_by_user": True},
             ),
@@ -303,10 +326,10 @@ class Orchestrator:
             return self._complete(sid, tables)
 
     async def _maybe_escalate(self, sid: str, table: dict[str, Any]) -> bool:
-        """本桌完成后判断是否升级；需要升级时新建下一张桌子。"""
-        if not table["escalate_to"]:
-            return False
+        """本桌完成后判断是否需要升级；需要时新建下一张桌子并询问用户（从不自动升级）。"""
         repo, cfg = self.rt.repo, self.rt.config
+        if not table["escalate_to"] or table["escalate_to"] not in cfg.routing.plans:
+            return False
         signals = outcome_signals(restore_state(repo, sid, table["table_no"]))
         if signals is None:
             return False
@@ -315,7 +338,7 @@ class Orchestrator:
         try:
             decision = escalate(
                 seed=row["seed"],
-                choice=UserChoice(),
+                choice=UserChoice(table["escalate_to"]),
                 assessment=record.assessment(),
                 from_plan=table["plan"],
                 escalate_to=table["escalate_to"],
@@ -331,8 +354,7 @@ class Orchestrator:
         if decision is None:
             return False
         table_no = table["table_no"] + 1
-        needs = decision.needs_confirmation
-        self._create_table(sid, table_no, decision, status="pending" if needs else "approved")
+        self._create_table(sid, table_no, decision, status="pending")
         self._emit(
             sid,
             "escalating",
@@ -341,8 +363,7 @@ class Orchestrator:
             reason=decision.escalation_reason,
             estimate_usd=decision.estimate.total_usd,
         )
-        if needs:
-            self._checkpoint(sid, escalation_card(decision), table_no=table_no)
+        self._checkpoint(sid, escalation_card(decision), table_no=table_no)
         return True
 
     async def _run_table(self, sid: str, table: dict[str, Any]) -> str:
@@ -411,12 +432,10 @@ class Orchestrator:
         return DONE
 
     def _prompt_roles(self, table: dict[str, Any]) -> dict[str, str]:
-        """方案指定的提示词角色；手动模式只选了一个组员时，按单人方案处理。"""
-        routing = self.rt.config.routing
+        """档位指定的提示词角色（自选与旧版本的方案没有）。"""
+        plans = self.rt.config.routing.plans
         plan = table["plan"]
-        if plan is None and len(table["members"]) == 1:
-            plan = routing.difficulty_plans["simple"]
-        return dict(routing.plans[plan].prompt_roles) if plan in routing.plans else {}
+        return dict(plans[plan].prompt_roles) if plan in plans else {}
 
     # --- 预算与确认 ----------------------------------------------------------------
 
@@ -552,18 +571,3 @@ class Orchestrator:
     def _forward(self, sid: str, event: Event) -> None:
         if self.on_event:
             self.on_event(sid, event)
-
-
-def _choice_dict(choice: UserChoice) -> dict[str, Any]:
-    return {
-        "mode": choice.mode,
-        "preset": choice.preset,
-        "members": list(choice.members),
-        "coordinator": choice.coordinator,
-    }
-
-
-def _choice_from(d: dict[str, Any]) -> UserChoice:
-    return UserChoice(
-        d["mode"], d.get("preset"), tuple(d.get("members") or ()), d.get("coordinator")
-    )

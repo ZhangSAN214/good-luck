@@ -1,10 +1,10 @@
-"""前端端到端：三种模式各跑一次；超门槛出现确认卡片；揭晓前页面不显示模型和渠道。"""
+"""前端端到端：各档位与自选；匿名开 / 关；超门槛的确认卡片；匿名讨论揭晓前不显示身份。"""
 
 from __future__ import annotations
 
 import re
 
-from ..core.orchestrator.conftest import MEDIUM, SHORT
+from ..core.orchestrator.conftest import MEDIUM
 
 DONE = "讨论完成"
 
@@ -33,10 +33,12 @@ def wait_done(page) -> None:
     page.wait_for_selector(f".sys.ok:has-text('{DONE}')", timeout=15000)
 
 
-def test_auto_mode_runs_anonymously_then_reveals(serve, page):
+def test_anonymous_budget_tier_then_reveal(serve, page):
     srv = serve(confirm_threshold_usd=100.0)
     page.goto(srv.url)
-    page.wait_for_selector("#mode button[data-v='auto'][aria-pressed='true']")
+    page.wait_for_selector("#tier button[data-v='budget'][aria-pressed='true']")  # 默认便宜档
+    assert not page.is_checked("#anonymous")  # 匿名默认关闭
+    page.check("#anonymous")
     ask(page, MEDIUM)
     wait_done(page)
 
@@ -45,6 +47,7 @@ def test_auto_mode_runs_anonymously_then_reveals(serve, page):
     for label in ("作答", "互评", "修订", "汇总"):
         assert page.locator(f".phase:text-is('{label}')").count() == 1
     assert page.locator("#stage .seat .nm:has-text('组员甲')").count() == 1
+    assert "便宜档全员 · 匿名" in page.inner_text("#chat")
     assert "s=" in page.url  # 刷新后可以回到这场讨论
 
     text = anonymous_text(page)
@@ -64,55 +67,69 @@ def test_auto_mode_runs_anonymously_then_reveals(serve, page):
     assert leaks(srv.identity_terms(), revealed)
 
 
-def test_preset_mode(serve, page):
+def test_not_anonymous_shows_models_from_the_start(serve, page):
     srv = serve(confirm_threshold_usd=100.0)
     page.goto(srv.url)
-    page.click("#mode button[data-v='preset']")
-    page.wait_for_selector("#preset:not([hidden]) button")
-    page.click("#preset button:has-text('省钱')")
-    assert page.get_attribute("#preset button:has-text('省钱')", "aria-pressed") == "true"
     ask(page, MEDIUM)
     wait_done(page)
-    assert "预设 · 省钱" in page.inner_text("#chat")
-    page.click('#tabs button[data-t="flow"]')
-    assert "小圆桌" in page.inner_text("#pbody")
+    stage = page.inner_text("#stage")
+    assert {"b1", "b2", "b3"} <= set(leaks(srv.identity_terms(), stage))  # 全员都显示真实模型
+    assert page.is_hidden("#reveal")  # 没有揭晓步骤
+    page.click('#tabs button[data-t="cast"]')
+    assert "作答 · c · $" in page.inner_text("#pbody")  # 每次调用的渠道直接显示
+
+
+def test_flagship_tier(serve, page):
+    srv = serve(confirm_threshold_usd=100.0)
+    page.goto(srv.url)
+    page.click("#tier button[data-v='flagship']")
+    assert page.get_attribute("#tier button[data-v='flagship']", "aria-pressed") == "true"
+    page.check("#anonymous")
+    ask(page, MEDIUM)
+    wait_done(page)
+    assert "旗舰档全员" in page.inner_text("#chat")
+    assert page.locator("#stage .seat .nm:has-text('组员')").count() == 4
     assert leaks(srv.identity_terms(), anonymous_text(page)) == []
     assert srv.env is not None
-    # 预设模式不调用规划员
-    assert not any("规划员" in c.messages[0].content for c in srv.env.fake.calls)
+    called = {c.model for c in srv.env.fake.calls if "规划员" not in c.messages[0].content}
+    assert called == {"f1", "f2", "f3", "f4", "f5"}  # 5 个旗舰全部上桌
 
 
-def test_manual_mode(serve, page):
+def test_custom_tier(serve, page):
     srv = serve(confirm_threshold_usd=100.0)
     page.goto(srv.url)
-    page.click("#mode button[data-v='manual']")
+    page.click("#tier button[data-v='custom']")
     page.wait_for_selector("#manual:not([hidden])")
-    page.check("#picks input[value='b1']")
-    page.check("#picks input[value='b2']")
+    for m in ("b1", "b2", "f1"):
+        page.check(f"#picks input[value='{m}']")
     page.select_option("#coordinator", "f1")
+    page.check("#anonymous")
     ask(page, MEDIUM)
     wait_done(page)
-    assert "手动选择组员" in page.inner_text("#chat")
-    # 手动勾选的模型列表收起后，会话区域仍然匿名
-    page.click("#mode button[data-v='auto']")
+    assert "自选" in page.inner_text("#chat")
+    # 勾选列表收起后，会话区域仍然匿名
+    page.click("#tier button[data-v='budget']")
     assert leaks(srv.identity_terms(), anonymous_text(page)) == []
     assert srv.env is not None
     members = {c.model for c in srv.env.fake.calls if "统筹" not in c.messages[0].content}
     assert members == {"b1", "b2"}
 
 
-def test_manual_mode_requires_members(serve, page):
+def test_custom_tier_requires_enough_models(serve, page):
     srv = serve()
     page.goto(srv.url)
-    page.click("#mode button[data-v='manual']")
+    page.click("#tier button[data-v='custom']")
+    page.check("#picks input[value='b1']")
+    page.check("#picks input[value='b2']")
     ask(page, MEDIUM)
     page.wait_for_selector("#formerr:not([hidden])")
-    assert "至少勾选" in page.inner_text("#formerr")
+    assert "至少勾选 3 个" in page.inner_text("#formerr")
 
 
 def test_cost_card_over_threshold(serve, page):
     srv = serve(difficulty="hard", confirm_threshold_usd=0.0001)
     page.goto(srv.url)
+    page.check("#anonymous")
     ask(page, MEDIUM)
     card = page.wait_for_selector(".card:not(.resolved)", timeout=15000)
     text = card.inner_text()
@@ -127,6 +144,7 @@ def test_cost_card_over_threshold(serve, page):
 def test_cost_card_stop(serve, page):
     srv = serve(difficulty="hard", confirm_threshold_usd=0.0001)
     page.goto(srv.url)
+    page.check("#anonymous")
     ask(page, MEDIUM)
     page.wait_for_selector(".card:not(.resolved)", timeout=15000)
     page.click(".card:not(.resolved) .opt[data-opt='stop']")
@@ -134,14 +152,15 @@ def test_cost_card_stop(serve, page):
     assert page.is_enabled("#reveal")
 
 
-def test_simple_question_single_answer(serve, page):
-    srv = serve(difficulty="simple", confirm_threshold_usd=100.0)
+def test_escalation_is_always_asked(serve, page):
+    srv = serve(resolved=False, confirm_threshold_usd=100.0)
     page.goto(srv.url)
-    ask(page, SHORT)
+    ask(page, MEDIUM)
+    card = page.wait_for_selector(".card[data-kind='escalation']:not(.resolved)", timeout=15000)
+    assert "旗舰档全员" in card.inner_text()
+    page.click(".card:not(.resolved) .opt[data-opt='accept']")
     wait_done(page)
-    assert page.locator(".msg .kind:text-is('作答')").count() == 1
-    assert page.locator(".final").count() == 0
-    assert "单人快答" in page.inner_text("#chat")
+    assert page.locator(".final").count() == 1
 
 
 def test_history_and_reload(serve, page):

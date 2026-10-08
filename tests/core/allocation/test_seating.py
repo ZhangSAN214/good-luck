@@ -62,6 +62,45 @@ def test_review_orders_are_shuffled_independently():
 def test_review_assignments_rejects_duplicates():
     with pytest.raises(ValueError):
         review_assignments(["甲", "甲"], random.Random(0))
+    with pytest.raises(ValueError):
+        review_assignments(["甲", "乙"], random.Random(0), per_answer=0)
+
+
+MANY = ["甲", "乙", "丙", "丁", "戊", "己", "庚", "辛", "壬", "癸", "子"]
+
+
+@pytest.mark.parametrize("k", [1, 2, 3, 5])
+def test_k_reviews_per_answer_is_balanced_and_never_self(k):
+    for seed in SEEDS:
+        plan = review_assignments(MANY, random.Random(seed), per_answer=k)
+        assert list(plan) == MANY
+        received = Counter()
+        for reviewer, targets in plan.items():
+            assert reviewer not in targets
+            assert len(targets) == len(set(targets)) == k  # 每人评 k 份
+            received.update(targets)
+        assert set(received.values()) == {k}  # 每份答案恰好 k 人评审
+
+
+def test_k_not_smaller_than_peers_means_everyone():
+    for seed in range(20):
+        plan = review_assignments(CODES[:4], random.Random(seed), per_answer=3)
+        for reviewer, targets in plan.items():
+            assert sorted(targets) == sorted(c for c in CODES[:4] if c != reviewer)
+
+
+def test_k_reviewer_sets_vary_with_seed():
+    seen = {
+        tuple(sorted(review_assignments(MANY, random.Random(seed), per_answer=3)["甲"]))
+        for seed in SEEDS
+    }
+    assert len(seen) > 20  # 评审对象随机，不固定
+
+
+def test_k_assignment_reproducible():
+    a = review_assignments(MANY, random.Random(7), per_answer=3)
+    b = review_assignments(MANY, random.Random(7), per_answer=3)
+    assert a == b
 
 
 def test_reviews_for_excludes_self_review_even_if_present():

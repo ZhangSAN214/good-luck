@@ -26,8 +26,8 @@ const S = {
   sid: null,
   session: null,
   tab: 'flow',
-  mode: 'auto',
-  preset: null,
+  tier: null, // 档位名或 custom
+  anonymous: false,
   live: freshLive(),
   stream: null, // AbortController
   cardError: null,
@@ -51,6 +51,9 @@ function render() {
 }
 
 function renderStage() {
+  const tables = S.session?.tables || [];
+  const seats = Math.max(0, ...tables.map((t) => t.codes.length));
+  $('#stage').classList.toggle('many', seats > 6); // 人多时座位缩小
   $('#stage').innerHTML = stageHTML(S.session, S.live, prefix());
 }
 
@@ -66,8 +69,9 @@ function renderHeader() {
   meter.classList.toggle('warn', warn);
   meter.title = warn ? '预算已用超过提醒比例' : '';
   const rv = $('#reveal');
+  rv.hidden = !!sv && !sv.anonymous; // 匿名关闭时身份一直公开，没有揭晓步骤
   rv.disabled = !(sv && sv.can_reveal);
-  rv.textContent = sv && sv.revealed ? '已揭晓' : '揭晓身份';
+  rv.textContent = sv && sv.anonymous && sv.revealed ? '已揭晓' : '揭晓身份';
   $('#pstate').textContent = sv
     ? sv.running && sv.status !== 'awaiting_confirmation'
       ? '进行中'
@@ -91,7 +95,7 @@ function renderFeed() {
     const items = feedItems(S.session, {
       prefix: prefix(),
       plans: plans(),
-      presets: S.status?.presets || {},
+      customLabel: S.status?.custom_label || '自选',
       threshold: S.status?.confirm_threshold_usd,
       live: S.live,
       cardError: S.cardError,
@@ -132,11 +136,10 @@ function renderTyping() {
 function welcomeHTML() {
   const th = money(S.status?.confirm_threshold_usd ?? 0.3);
   return `<div class="welcome"><h2>把题目交给圆桌</h2>
-<ol><li>先判断难度：简单题由一个便宜模型直接回答；中等题开小圆桌；难题开旗舰圆桌。</li>
-<li>组员匿名独立作答 → 互相评审 → 根据评审修订 → 统筹汇总共识与分歧。</li>
-<li>小圆桌出现未裁定的分歧或把握低时会升级；预计花费超过 ${th} 先问你。</li>
-<li>讨论结束后点「揭晓身份」，才显示各代号对应的模型。</li></ol>
-<p>也可以在下方切换「预设」（省钱 / 均衡 / 最强）或「手动」勾选组员。你的选择永远优先于自动判断。</p></div>`;
+<ol><li>所选档位的每个模型都上桌：一位当统筹，其余是组员。省钱靠选档位，不靠减人。</li>
+<li>组员独立作答 → 互相评审 → 根据评审修订 → 统筹汇总共识与分歧。</li>
+<li>便宜档汇总仍有分歧或把握低时，会问你要不要用旗舰档重做；预计花费超过 ${th} 也先问你。</li>
+<li>勾选「匿名」时，讨论结束前只显示代号，结束后点「揭晓身份」。发给模型的内容始终只用代号。</li></ol></div>`;
 }
 
 function renderPanel() {
@@ -161,23 +164,19 @@ function renderPanel() {
 // --- 提问区 ---------------------------------------------------------------------
 
 function renderComposer() {
-  document
-    .querySelectorAll('#mode button')
-    .forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.v === S.mode)));
-  const presets = S.status?.presets || {};
-  const seg = $('#preset');
-  seg.hidden = S.mode !== 'preset';
-  if (!S.preset) S.preset = 'balanced' in presets ? 'balanced' : Object.keys(presets)[0];
-  seg.innerHTML = Object.entries(presets)
-    .map(([k, label]) => `<button type="button" data-v="${esc(k)}" aria-pressed="${k === S.preset}">${esc(label)}</button>`)
+  const plans = S.status?.plans || {};
+  if (!S.tier) S.tier = S.status?.default_plan || Object.keys(plans)[0] || 'custom';
+  const options = { ...plans, custom: S.status?.custom_label || '自选' };
+  $('#tier').innerHTML = Object.entries(options)
+    .map(([k, label]) => `<button type="button" data-v="${esc(k)}" aria-pressed="${k === S.tier}">${esc(label)}</button>`)
     .join('');
-  $('#manual').hidden = S.mode !== 'manual';
-  const hints = {
-    auto: `先按规则判断难度，判断不了再请最便宜的规划员；预计超过 ${money(S.status?.confirm_threshold_usd ?? 0.3)} 先问你`,
-    preset: '按预设方案执行，不调用规划员',
-    manual: `勾选 2–${S.status?.max_members ?? 4} 个组员（勾 1 个即单人快答）；统筹不能兼任组员`,
-  };
-  $('#mode-hint').textContent = hints[S.mode];
+  $('#anonymous').checked = S.anonymous;
+  $('#manual').hidden = S.tier !== 'custom';
+  const min = (S.status?.min_members ?? 2) + 1;
+  $('#mode-hint').textContent =
+    S.tier === 'custom'
+      ? `勾选至少 ${min} 个模型，全部上桌（其中一个当统筹）`
+      : `该档位所有可用模型上桌；预计超过 ${money(S.status?.confirm_threshold_usd ?? 0.3)} 先问你`;
 }
 
 function renderPicks() {
@@ -210,16 +209,22 @@ async function submit(ev) {
     formError('请先输入题目');
     return;
   }
-  const body = { question, mode: S.mode };
-  if (S.mode === 'preset') body.preset = S.preset;
-  if (S.mode === 'manual') {
-    body.members = [...document.querySelectorAll('#picks input:checked')].map((i) => i.value);
-    if (!body.members.length) {
-      formError('手动模式请至少勾选一个组员');
+  const body = { question, tier: S.tier, anonymous: S.anonymous };
+  if (S.tier === 'custom') {
+    body.models = [...document.querySelectorAll('#picks input:checked')].map((i) => i.value);
+    const min = (S.status?.min_members ?? 2) + 1;
+    if (body.models.length < min) {
+      formError(`自选至少勾选 ${min} 个模型`);
       return;
     }
     const coord = $('#coordinator').value;
-    if (coord) body.coordinator = coord;
+    if (coord) {
+      if (!body.models.includes(coord)) {
+        formError('统筹必须是勾选的模型之一');
+        return;
+      }
+      body.coordinator = coord;
+    }
   }
   formError('');
   $('#submit').disabled = true;
@@ -447,18 +452,15 @@ function bind() {
   $('#ask').addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) $('#composer').requestSubmit();
   });
-  $('#mode').addEventListener('click', (e) => {
+  $('#tier').addEventListener('click', (e) => {
     const b = e.target.closest('button');
     if (!b) return;
-    S.mode = b.dataset.v;
+    S.tier = b.dataset.v;
     formError('');
     renderComposer();
   });
-  $('#preset').addEventListener('click', (e) => {
-    const b = e.target.closest('button');
-    if (!b) return;
-    S.preset = b.dataset.v;
-    renderComposer();
+  $('#anonymous').addEventListener('change', (e) => {
+    S.anonymous = e.target.checked;
   });
   $('#feed').addEventListener('click', (e) => {
     const opt = e.target.closest('[data-opt]');

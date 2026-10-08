@@ -163,4 +163,15 @@ ALTER TABLE sessions ADD COLUMN budget_override INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE sessions ADD COLUMN choice TEXT NOT NULL DEFAULT '{}';
 """,
     ),
+    (
+        4,
+        "匿名开关与工作模式",
+        """
+-- 匿名开关：开启时揭晓前不显示身份；v2 起默认关闭（之前的会话都是匿名进行的，因此旧行为 1）
+ALTER TABLE sessions ADD COLUMN anonymous INTEGER NOT NULL DEFAULT 1;
+-- 工作模式：discussion 讨论（作答 → 互评 → 修订 → 汇总）/ collab 协同
+ALTER TABLE sessions ADD COLUMN workflow TEXT NOT NULL DEFAULT 'discussion';
+-- 自 v2 起 sessions.mode 存成员档位（budget / flagship / custom），preset 不再使用
+""",
+    ),
 ]

@@ -1,21 +1,18 @@
-# 成本优先路由：先判断题目难度，再决定开多大的圆桌、用哪个档位的模型。
+# 阵容与花费：所选档位内的每个可用模型都上桌（担任组员或统筹），省钱靠选档位，不靠减人。
 #
-# 中立原则：这里的规则只引用档位（flagship / budget）和能力标签，
-# 同档位内随机抽取；不得出现具体模型名或厂商名（有测试检查）。
-# 用户的选择（预设 / 手动勾选）永远优先于自动判断。
+# 中立原则：这里只引用档位（flagship / budget）和能力标签，不得出现具体模型名或厂商名（有测试检查）。
+# 用户的选择（档位 / 自选的模型）永远优先。
 
 # 单题预计花费超过此值时，执行前先请用户确认（美元）
 confirm_threshold_usd: 0.30
 
-# 规则和规划员都判断不出时使用的难度
+# 用户没有指定时使用的档位（plans 中的名称）
+default_plan: budget
+
+# 难度只用于估计答案长度（花费预估）；规则和规划员都判断不出时使用此值
 default_difficulty: medium
 
-# 同一张桌上尽量不让两个模型来自同一厂商（不够时放宽）
-prefer_distinct_vendors: true
-# 题型对应的能力标签：同档位内有足够多带该标签的模型时，只从它们中抽取
-prefer_task_tags: true
-
-# 规划员：用最便宜的模型判断题型和难度（只在"自动"模式、且规则判断不出时调用）
+# 规划员：规则判断不出时，用最便宜的模型估计题型与答案长度（不影响谁上桌）
 planner:
   tiers: [budget]
   max_tokens: 300
@@ -24,13 +21,13 @@ planner:
   expected_output_tokens: 150
 
 # 规则判断（不调用模型）。按顺序检查：
-# - 第一条给出 difficulty 的规则决定难度；
+# - 第一条给出 difficulty 的规则决定难度（只影响预估的答案长度）；
 # - require_tags / task_type 会累积（例如有图片 → 需要 vision 标签）。
 # 条件（when）之间是"且"的关系：
 #   min_chars / max_chars   题目字数范围
 #   any_keywords            包含任一关键词
 #   no_keywords             不包含任何关键词
-#   attachment_types        带有任一类型的附件（v1 不支持附件，规则先留好）
+#   attachment_types        带有任一类型的附件
 triage:
   - name: has_image
     when: {attachment_types: [image]}
@@ -44,54 +41,24 @@ triage:
       no_keywords: [证明, 推导, 为什么, 分析, 比较, 论述, prove, derive, why, explain, compare]
     then: {difficulty: simple}
 
-# 方案。members.tiers 是优先顺序：先从前面的档位抽满 max；
-# 前面的档位不够 min 时，才用后面的档位补到 min。
-# coordinator.tiers 同理：按顺序选第一个有空余模型的档位（统筹不兼任组员）。
+# 成员档位：tiers 中所有可用模型都上桌；其中一个按 roundtable.yaml 的 coordinator 规则
+# 担任统筹（本题不作答），其余为组员。没有可用渠道的模型列为"缺席"。
 # pipeline 省略时使用 roundtable.yaml 中的完整流程。
-# prompt_roles 可让某个步骤改用另一份提示词（版本在 roundtable.yaml 的 prompts 中指定）。
+# escalate_to：汇总仍有分歧或把握低时，询问用户是否用该档位重做（不会自动升级）。
 plans:
-  simple:
-    label: 单人快答
-    members: {tiers: [budget, flagship], min: 1, max: 1}
-    coordinator: null
-    pipeline: [answer, reveal]
-    prompt_roles: {answer: answer_quick}   # 简单题直接给答案，不展开推导
-  medium:
-    label: 小圆桌
-    members: {tiers: [budget], min: 2, max: 3}
-    coordinator: {tiers: [budget, flagship]}
-    escalate_to: hard          # 出现分歧时升级
-  hard:
-    label: 旗舰圆桌
-    members: {tiers: [flagship, budget], min: 2, max: 4}
-    coordinator: {tiers: [flagship, budget]}
+  budget:
+    label: 便宜档全员
+    tiers: [budget]
+    escalate_to: flagship
+  flagship:
+    label: 旗舰档全员
+    tiers: [flagship]
 
-# 自动模式：难度 → 方案
-difficulty_plans:
-  simple: simple
-  medium: medium
-  hard: hard
+# 自选：用户勾选上桌的模型（至少 min_members + 1 个），可指定其中一个当统筹
+custom:
+  label: 自选
 
-# 预设模式：直接指定方案，不看难度
-presets:
-  saver:
-    label: 省钱
-    plan: medium
-    escalate: false
-  balanced:
-    label: 均衡
-    plan: medium
-    escalate: true
-  strongest:
-    label: 最强
-    plan: hard
-    escalate: false
-
-# 手动模式：用户勾选组员；统筹可指定，否则按此规则从未勾选的模型中选
-manual:
-  coordinator: {tiers: [budget, flagship]}
-
-# 升级条件（满足任一即升级）：汇总中未解决的分歧数 ≥ min_disagreements，或把握程度在列表中
+# 升级询问条件（满足任一即询问）：汇总中未解决的分歧数 ≥ min_disagreements，或把握程度在列表中
 escalation:
   min_disagreements: 1
   confidence: [low]

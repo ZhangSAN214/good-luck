@@ -24,7 +24,7 @@ CONFIG = load_config()
 ALL_TEMPLATES = [
     LIBRARY.get(role, version) for role in LIBRARY.roles() for version in LIBRARY.versions(role)
 ]
-MEMBER_ROLES = ("answer", "answer_quick", "review", "revise")
+MEMBER_ROLES = ("answer", "review", "revise")
 
 
 def test_configured_prompts_exist_and_parse():
@@ -80,7 +80,7 @@ def test_member_prompts_only_vary_by_neutral_variables(role):
 def test_structured_roles_declare_json():
     for role in ("review", "synthesize"):
         assert LIBRARY.get(role, CONFIG.roundtable.prompts[role]).output == "json"
-    for role in ("answer", "answer_quick", "revise"):
+    for role in ("answer", "revise"):
         assert LIBRARY.get(role, CONFIG.roundtable.prompts[role]).output == "text"
 
 

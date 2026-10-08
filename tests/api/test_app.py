@@ -44,7 +44,7 @@ def leaks(env: Env, text: str) -> list[str]:
 def test_full_flow_over_http():
     env, c = client(confirm_threshold_usd=100.0)
     with c:
-        r = c.post("/api/sessions", json={"question": MEDIUM, "seed": 2})
+        r = c.post("/api/sessions", json={"question": MEDIUM, "seed": 2, "anonymous": True})
         assert r.status_code == 202
         sid = r.json()["session_id"]
         events = sse_events(c, sid)
@@ -60,20 +60,32 @@ def test_full_flow_over_http():
         assert leaks(env, revealed.text)
 
 
+def test_not_anonymous_session_over_http():
+    env, c = client(confirm_threshold_usd=100.0)
+    with c:
+        sid = c.post("/api/sessions", json={"question": SHORT}).json()["session_id"]
+        events = sse_events(c, sid)
+        assert leaks(env, json.dumps(events, ensure_ascii=False)) == []  # 事件只含代号
+        session = c.get(f"/api/sessions/{sid}").json()
+        assert not session["anonymous"] and session["revealed"] and not session["can_reveal"]
+        assert leaks(env, json.dumps(session, ensure_ascii=False))
+        assert c.post(f"/api/sessions/{sid}/reveal").status_code == 409
+
+
 def test_checkpoint_over_http():
     env, c = client(confirm_threshold_usd=0.0001)
     with c:
         sid = c.post(
-            "/api/sessions", json={"question": SHORT, "mode": "preset", "preset": "strongest"}
+            "/api/sessions", json={"question": SHORT, "tier": "flagship", "anonymous": True}
         ).json()["session_id"]
         state = sse_events(c, sid)[-1]
         assert state["checkpoint"]["kind"] == "cost"
         keys = [o["key"] for o in state["checkpoint"]["card"]["options"]]
-        assert "plan:simple" in keys
+        assert "plan:budget" in keys
         assert c.post(f"/api/sessions/{sid}/reveal").status_code == 409
         assert c.post(f"/api/sessions/{sid}/respond", json={"response": "bogus"}).status_code == 400
         assert (
-            c.post(f"/api/sessions/{sid}/respond", json={"response": "plan:simple"}).status_code
+            c.post(f"/api/sessions/{sid}/respond", json={"response": "plan:budget"}).status_code
             == 202
         )
         assert sse_events(c, sid)[-1]["status"] == "completed"
@@ -85,8 +97,12 @@ def test_errors():
         assert c.get("/api/sessions/nope").status_code == 404
         assert c.get("/api/sessions/nope/events").status_code == 404
         assert c.post("/api/sessions", json={"question": ""}).status_code == 422
-        r = c.post("/api/sessions", json={"question": "q", "mode": "preset"})
-        assert r.status_code == 400 and "预设" in r.json()["detail"]
+        r = c.post("/api/sessions", json={"question": "q", "tier": "custom"})
+        assert r.status_code == 400 and "自选" in r.json()["detail"]
+        r = c.post("/api/sessions", json={"question": "q", "tier": "giant"})
+        assert r.status_code == 400 and "档位" in r.json()["detail"]
+        # 旧版本的字段不再接受
+        assert c.post("/api/sessions", json={"question": "q", "mode": "auto"}).status_code == 422
         assert c.post("/api/sessions/nope/resume").status_code == 404
 
 
@@ -113,7 +129,9 @@ def test_responses_never_contain_keys(tmp_path):
     )
     c = TestClient(create_app(RoundtableService(rt)))
     with c:
-        sid = c.post("/api/sessions", json={"question": MEDIUM}).json()["session_id"]
+        sid = c.post("/api/sessions", json={"question": MEDIUM, "anonymous": True}).json()[
+            "session_id"
+        ]
         events = sse_events(c, sid)
         texts = [
             json.dumps(events),

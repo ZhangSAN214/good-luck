@@ -1,4 +1,4 @@
-"""路由入口：三种用户模式、确认门槛、方案花费、记录。"""
+"""路由入口：档位全员 / 自选、答案长度判断、确认门槛、各档位花费、记录。"""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ import json
 import pytest
 
 from roundtable.core.providers import ErrorKind, FakeProvider
-from roundtable.core.routing import Question, RoutingError, UserChoice, route_question
+from roundtable.core.routing import CUSTOM, Question, RoutingError, UserChoice, route_question
 
 from .conftest import Env, app_config, planner_reply
 
@@ -27,63 +27,54 @@ async def decide(env: Env, text=MID_QUESTION, choice=None, seed=1, **kw):
 
 def tiers(env, ids):
     by = {m.id: m for m in env.config.models.models}
-    return [by[i].tier for i in ids]
+    return {by[i].tier for i in ids}
 
 
-# --- 自动模式 -------------------------------------------------------------------
+# --- 档位 -----------------------------------------------------------------------
 
 
-async def test_auto_rule_decides_without_calling_model(env):
+async def test_default_is_budget_tier_all_seated(env):
+    d = await decide(env, "1+1=?")
+    assert d.plan == "budget" and d.escalate_to == "flagship"
+    assert {*d.lineup.members, d.lineup.coordinator} == {"b1", "b2", "b3"}
+    assert tiers(env, d.lineup.members) == {"budget"}
+
+
+async def test_flagship_tier(env):
+    d = await decide(env, "1+1=?", UserChoice("flagship"))
+    assert d.plan == "flagship" and d.escalate_to is None
+    assert len(d.lineup.members) == 4 and tiers(env, d.lineup.members) == {"flagship"}
+
+
+async def test_difficulty_only_changes_estimate_not_people(env):
+    short = await decide(env, "1+1=?")
+    env.fake.queue("b1", planner_reply("hard"))
+    long = await decide(env)
+    assert len(short.lineup.members) == len(long.lineup.members)
+    assert long.estimate.total_usd > short.estimate.total_usd
+
+
+async def test_rule_decides_length_without_calling_model(env):
     d = await decide(env, "1+1=?")
     assert d.assessment.source == "rule" and d.assessment.difficulty == "simple"
-    assert env.fake.calls == []  # 规则判断出来了，不调用规划员
-    assert d.plan == "simple" and len(d.lineup.members) == 1 and d.lineup.coordinator is None
+    assert env.fake.calls == []
     assert d.planner_cost_usd == 0
 
 
-@pytest.mark.parametrize(
-    "difficulty, plan, member_tier",
-    [("simple", "simple", "budget"), ("medium", "medium", "budget"), ("hard", "hard", "flagship")],
-)
-async def test_auto_planner_difficulty_to_plan(env, difficulty, plan, member_tier):
-    env.fake.queue("b1", planner_reply(difficulty))
+async def test_planner_called_when_rules_cannot_decide(env):
+    env.fake.queue("b1", planner_reply("hard"))
     d = await decide(env)
-    assert d.assessment.source == "model" and d.assessment.difficulty == difficulty
+    assert d.assessment.source == "model" and d.assessment.difficulty == "hard"
     assert d.assessment.planner.model_id == "b1"  # 最便宜的便宜档
-    assert d.plan == plan
-    assert set(tiers(env, d.lineup.members)) == {member_tier}
     assert d.planner_cost_usd > 0
 
 
-async def test_auto_medium_can_escalate(env):
-    env.fake.queue("b1", planner_reply("medium"))
-    assert (await decide(env)).escalate_to == "hard"
-
-
-async def test_auto_planner_failure_uses_default(env):
+async def test_planner_failure_uses_default(env):
     env.fake.queue("b1", ErrorKind.QUOTA)
     d = await decide(env)
     assert d.assessment.source == "default"
     assert d.assessment.difficulty == env.config.routing.default_difficulty
     assert "规划员不可用" in d.assessment.reason
-
-
-async def test_auto_image_requires_vision(env):
-    d = await decide(env, "这张图里的函数是什么？", attachments=("image",))
-    assert d.assessment.require_tags == ("vision",)
-    by = {m.id: m for m in env.config.models.models}
-    assert all("vision" in by[m].tags for m in d.lineup.members)
-
-
-async def test_auto_no_vision_models_is_clear_error():
-    pool = [
-        p
-        for p in __import__("tests.core.routing.conftest", fromlist=["POOL"]).POOL
-        if "vision" not in p[3]
-    ]
-    env = Env(app_config(pool=pool), FakeProvider("c"))
-    with pytest.raises(RoutingError, match="vision"):
-        await decide(env, "这张图是什么？", attachments=("image",))
 
 
 async def test_planner_answer_length_used_and_clamped(env):
@@ -94,71 +85,53 @@ async def test_planner_answer_length_used_and_clamped(env):
     assert answer.output_tokens == bounds.max * len(d.lineup.members)
 
 
-# --- 预设与手动：用户选择优先 ---------------------------------------------------
+async def test_image_question_still_seats_everyone(env):
+    """有图片也不减人：没有 vision 的成员以后收到文字版（阶段 14）。"""
+    d = await decide(env, "这张图里的函数是什么？", attachments=("image",))
+    assert d.assessment.require_tags == ("vision",)
+    assert {*d.lineup.members, d.lineup.coordinator} == {"b1", "b2", "b3"}
 
 
-async def test_preset_overrides_difficulty_and_skips_planner(env):
-    d = await decide(env, "1+1=?", UserChoice("preset", preset="strongest"))
-    assert d.assessment.difficulty == "simple"  # 规则照常记录
-    assert d.plan == "hard"  # 但用户选了"最强"
-    assert set(tiers(env, d.lineup.members)) == {"flagship"}
-    d2 = await decide(env, MID_QUESTION, UserChoice("preset", preset="saver"))
-    assert d2.assessment.source == "skipped" and env.fake.calls == []
-    assert d2.plan == "medium" and d2.escalate_to is None  # 省钱：不升级
+async def test_unknown_tier(env):
+    with pytest.raises(RoutingError, match="未知的档位"):
+        await decide(env, "1+1=?", UserChoice("giant"))
 
 
-async def test_preset_balanced_escalates(env):
-    d = await decide(env, MID_QUESTION, UserChoice("preset", preset="balanced"))
-    assert d.plan == "medium" and d.escalate_to == "hard"
+async def test_tier_with_too_few_models_is_clear_error():
+    env = Env(app_config(disabled=("b3",)), FakeProvider("c"))
+    with pytest.raises(RoutingError, match="至少需要 3 个"):
+        await decide(env, "1+1=?")
 
 
-async def test_unknown_preset(env):
-    with pytest.raises(RoutingError, match="未知的预设"):
-        await decide(env, choice=UserChoice("preset", preset="luxury"))
+# --- 自选 -----------------------------------------------------------------------
 
 
-async def test_manual_exact_models(env):
-    d = await decide(env, "1+1=?", UserChoice("manual", members=("f1", "f4"), coordinator="b3"))
-    assert d.lineup.members == ("f1", "f4") and d.lineup.coordinator == "b3"
-    assert d.plan is None and d.escalate_to is None
-    assert env.fake.calls == []
+async def test_custom_exact_models(env):
+    d = await decide(env, "1+1=?", UserChoice(CUSTOM, ("b1", "f1", "f2"), "f2"))
+    assert d.plan == CUSTOM and d.escalate_to is None
+    assert d.lineup.members == ("b1", "f1") and d.lineup.coordinator == "f2"
+    assert d.options[CUSTOM].estimate == d.estimate
 
 
-async def test_manual_single_model_is_solo(env):
-    d = await decide(env, MID_QUESTION, UserChoice("manual", members=("f2",)))
-    assert d.lineup.members == ("f2",) and d.lineup.pipeline == ("answer", "reveal")
+async def test_custom_rejects_unavailable_models():
+    env = Env(app_config(disabled=("f5",)), FakeProvider("c"))
+    with pytest.raises(RoutingError, match="f5"):
+        await decide(env, "1+1=?", UserChoice(CUSTOM, ("f1", "f2", "f5")))
 
 
-async def test_manual_warns_but_obeys_when_tags_missing(env):
-    d = await decide(
-        env, "图里是什么", UserChoice("manual", members=("b3",)), attachments=("image",)
-    )
-    assert d.lineup.members == ("b3",)
-    assert d.warnings and "vision" in d.warnings[0]
-
-
-async def test_manual_rejects_unavailable_models():
-    env = Env(app_config(disabled=["f4"]), FakeProvider("c"))
-    with pytest.raises(RoutingError, match="f4"):
-        await decide(env, choice=UserChoice("manual", members=("f1", "f4")))
-    with pytest.raises(RoutingError, match="ghost"):
-        await decide(env, choice=UserChoice("manual", members=("ghost",)))
-
-
-async def test_manual_too_many(env):
-    with pytest.raises(RoutingError, match="最多"):
-        await decide(env, choice=UserChoice("manual", members=("f1", "f2", "f3", "f4", "f5")))
+async def test_custom_too_few(env):
+    with pytest.raises(RoutingError, match="至少需要"):
+        await decide(env, "1+1=?", UserChoice(CUSTOM, ("f1", "f2")))
 
 
 @pytest.mark.parametrize(
     "kwargs",
     [
-        {"mode": "preset"},
-        {"mode": "manual"},
-        {"mode": "auto", "preset": "saver"},
-        {"mode": "auto", "members": ("f1",)},
-        {"mode": "manual", "members": ("f1", "f1")},
-        {"mode": "manual", "members": ("f1",), "coordinator": "f1"},
+        {"tier": CUSTOM},
+        {"tier": "budget", "models": ("f1",)},
+        {"tier": "budget", "coordinator": "f1"},
+        {"tier": CUSTOM, "models": ("f1", "f1")},
+        {"tier": CUSTOM, "models": ("f1", "f2", "f3"), "coordinator": "f4"},
     ],
 )
 def test_invalid_choices(kwargs):
@@ -166,21 +139,48 @@ def test_invalid_choices(kwargs):
         UserChoice(**kwargs)
 
 
+def test_choice_roundtrip_and_old_sessions():
+    c = UserChoice(CUSTOM, ("f1", "f2", "f3"), "f1")
+    assert UserChoice.from_dict(c.to_dict()) == c
+    with pytest.raises(RoutingError, match="旧版本"):
+        UserChoice.from_dict({"mode": "auto", "preset": None})
+
+
 # --- 花费与确认 -----------------------------------------------------------------
 
 
-async def test_options_cover_all_plans_and_chosen_matches(env):
-    env.fake.queue("b1", planner_reply("medium"))
-    d = await decide(env)
-    assert set(d.options) == {"simple", "medium", "hard"}
-    assert d.options["medium"].estimate.total_usd == d.estimate.total_usd
-    costs = [d.options[p].estimate.total_usd for p in ("simple", "medium", "hard")]
-    assert costs == sorted(costs)
+async def test_options_cover_all_tiers_and_chosen_matches(env):
+    d = await decide(env, "1+1=?")
+    assert set(d.options) == {"budget", "flagship"}
+    assert d.options["budget"].estimate == d.estimate
+    assert d.options["budget"].lineup == d.lineup
+    assert d.options["flagship"].estimate.total_usd > d.estimate.total_usd
+
+
+async def test_option_unavailable_when_tier_too_small():
+    env = Env(app_config(disabled=("f2", "f3", "f4", "f5")), FakeProvider("c"))
+    d = await decide(env, "1+1=?")
+    assert not d.options["flagship"].available and "至少需要" in d.options["flagship"].reason
+
+
+async def test_review_estimate_uses_reviews_per_answer():
+    """组员多时每人只评 k 份：预估随 k 变化，与组员数的平方无关。"""
+    cfg = app_config()
+    env = Env(cfg, FakeProvider("c"))
+    full = await decide(env, "1+1=?", UserChoice("flagship"))
+    rt = cfg.roundtable.model_copy(update={"reviews_per_answer": 1})
+    small = Env(cfg.model_copy(update={"roundtable": rt}), FakeProvider("c"))
+    one = await decide(small, "1+1=?", UserChoice("flagship"))
+    review = {
+        d: next(s for s in x.estimate.steps if s.step == "review")
+        for d, x in (("full", full), ("one", one))
+    }
+    assert review["one"].input_tokens < review["full"].input_tokens
 
 
 async def test_confirmation_threshold():
-    cheap = Env(app_config(confirm_threshold_usd=1.0), FakeProvider("c"))
-    d = await decide(cheap, choice=UserChoice("preset", preset="strongest"))
+    cheap = Env(app_config(confirm_threshold_usd=5.0), FakeProvider("c"))
+    d = await decide(cheap, "1+1=?", UserChoice("flagship"))
     assert not d.needs_confirmation
     strict = Env(app_config(confirm_threshold_usd=0.0001), FakeProvider("c"))
     d = await decide(strict, "1+1=?")
@@ -188,8 +188,8 @@ async def test_confirmation_threshold():
 
 
 async def test_seed_reproducible(env):
-    a = await decide(env, "1+1=?", UserChoice("preset", preset="strongest"), seed=9)
-    b = await decide(env, "1+1=?", UserChoice("preset", preset="strongest"), seed=9)
+    a = await decide(env, "1+1=?", UserChoice("flagship"), seed=9)
+    b = await decide(env, "1+1=?", UserChoice("flagship"), seed=9)
     assert a.lineup == b.lineup and a.estimate == b.estimate
 
 
@@ -203,14 +203,10 @@ async def test_record_contents_and_outcome(env):
         q, None, config=env.config, router=env.router, prompts=env.prompts, seed=3
     )
     r = d.record(q)
-    assert (r.mode, r.difficulty, r.difficulty_source, r.plan) == (
-        "auto",
-        "medium",
-        "model",
-        "medium",
-    )
+    assert (r.difficulty, r.difficulty_source, r.plan) == ("medium", "model", "budget")
     assert r.assessment_reason == "多步计算" and r.planner_model == "b1" and r.planner_cost_usd > 0
-    assert r.members == d.lineup.members and r.estimated_cost_usd == d.estimate.total_usd
+    assert r.members == d.lineup.members and r.coordinator == d.lineup.coordinator
+    assert r.absent == () and r.estimated_cost_usd == d.estimate.total_usd
     assert r.actual_cost_usd is None and not r.escalated
     done = r.with_outcome(actual_cost_usd=0.012, user_confirmed=None)
     assert done.actual_cost_usd == 0.012 and not done.escalated

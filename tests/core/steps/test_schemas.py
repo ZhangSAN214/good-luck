@@ -142,7 +142,7 @@ def test_check_pipelines():
     with pytest.raises(ConfigError, match="debate"):
         check_pipelines(cfg.model_copy(update={"roundtable": bad_rt}))
     plans = dict(cfg.routing.plans)
-    plans["simple"] = plans["simple"].model_copy(update={"pipeline": ["answer", "poll"]})
+    plans["budget"] = plans["budget"].model_copy(update={"pipeline": ["answer", "poll"]})
     bad_routing = cfg.routing.model_copy(update={"plans": plans})
     with pytest.raises(ConfigError, match="poll"):
         check_pipelines(cfg.model_copy(update={"routing": bad_routing}))

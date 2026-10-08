@@ -12,11 +12,12 @@ from .test_loader import config_dir, edit, expect_error  # noqa: F401 - fixture
 def test_repo_routing_defaults():
     r = load_config().routing
     assert r.confirm_threshold_usd == 0.30
-    assert set(r.plans) == {"simple", "medium", "hard"}
-    assert r.difficulty_plans == {"simple": "simple", "medium": "medium", "hard": "hard"}
-    assert set(r.presets) == {"saver", "balanced", "strongest"}
-    assert r.plans["medium"].escalate_to == "hard"
-    assert r.plans["simple"].coordinator is None
+    assert set(r.plans) == {"budget", "flagship"}
+    assert r.default_plan == "budget"
+    assert r.plans["budget"].tiers == ["budget"] and r.plans["flagship"].tiers == ["flagship"]
+    assert r.plans["budget"].escalate_to == "flagship"
+    assert r.plans["flagship"].escalate_to is None
+    assert r.custom.label == "自选"
 
 
 def test_repo_routing_mentions_no_models_or_vendors():
@@ -35,13 +36,15 @@ def test_repo_routing_mentions_no_models_or_vendors():
 @pytest.mark.parametrize(
     "change, fragment",
     [
-        (lambda d: d["difficulty_plans"].pop("hard"), "缺少难度"),
-        (lambda d: d["difficulty_plans"].update(hard="giant"), "不存在的方案"),
-        (lambda d: d["presets"]["saver"].update(plan="giant"), "不存在的方案"),
-        (lambda d: d["plans"]["hard"].update(escalate_to="medium"), "成环"),
-        (lambda d: d["plans"]["medium"]["members"].update(min=4, max=3), "min 不能大于"),
-        (lambda d: d["plans"]["medium"]["members"].update(tiers=["budget", "budget"]), "不能重复"),
-        (lambda d: d["plans"]["medium"]["members"].update(tiers=["premium"]), "tiers"),
+        (lambda d: d.update(default_plan="giant"), "default_plan"),
+        (lambda d: d["plans"]["budget"].update(escalate_to="giant"), "不存在的档位"),
+        (lambda d: d["plans"]["flagship"].update(escalate_to="budget"), "成环"),
+        (lambda d: d["plans"]["budget"].update(tiers=["budget", "budget"]), "不能重复"),
+        (lambda d: d["plans"]["budget"].update(tiers=["premium"]), "tiers"),
+        (lambda d: d["plans"]["budget"].update(tiers=[]), "tiers"),
+        (lambda d: d["plans"].update(custom={"label": "x", "tiers": ["budget"]}), "保留名"),
+        (lambda d: d["plans"]["budget"].update(members={"tiers": ["budget"]}), "members"),
+        (lambda d: d.update(presets={}), "presets"),
         (lambda d: d.update(confirm_threshold_usd=-1), "confirm_threshold_usd"),
         (lambda d: d.update(default_difficulty="extreme"), "default_difficulty"),
         (
@@ -62,13 +65,9 @@ def test_invalid_routing(config_dir, change, fragment):  # noqa: F811
 @pytest.mark.parametrize(
     "change, fragment",
     [
-        (lambda d: d["plans"]["hard"]["members"].update(max=9), "超过座位数"),
-        (lambda d: d["plans"]["medium"].update(coordinator=None), "coordinator"),
-        (lambda d: d["plans"]["simple"].update(coordinator={"tiers": ["budget"]}), "coordinator"),
-        (lambda d: d["plans"]["medium"]["members"].update(min=1), "至少为 2"),
         (lambda d: d["triage"][0]["then"].update(require_tags=["telepathy"]), "未知标签"),
         (lambda d: d["triage"][0]["then"].update(task_type="cooking"), "task_type"),
-        (lambda d: d["plans"]["simple"].update(prompt_roles={"answer": "ghost"}), "ghost"),
+        (lambda d: d["plans"]["budget"].update(prompt_roles={"answer": "ghost"}), "ghost"),
     ],
 )
 def test_routing_cross_checks(config_dir, change, fragment):  # noqa: F811

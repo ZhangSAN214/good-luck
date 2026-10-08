@@ -1,7 +1,8 @@
-"""成本优先路由：规则判断 + 规划员 → 方案 → 阵容 → 花费预估 → 确认 / 升级。"""
+"""路由：答案长度判断 → 档位全员上桌的阵容 → 花费预估 → 确认 / 升级询问。"""
 
 from .cards import cost_card, escalation_card
 from .decide import (
+    CUSTOM,
     Assessment,
     OutcomeSignals,
     PlanOption,
@@ -22,6 +23,7 @@ from .planner import PlannerOutput, PlannerResult, pick_planner_model, run_plann
 from .triage import Question, TriageResult, triage
 
 __all__ = [
+    "CUSTOM",
     "Assessment",
     "CostEstimate",
     "Lineup",

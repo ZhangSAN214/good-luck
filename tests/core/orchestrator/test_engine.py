@@ -14,7 +14,6 @@ from roundtable.core.routing import Question, UserChoice
 from .conftest import MEDIUM, SHORT, Env
 
 ANSWER = "独立完成同一道题"  # 圆桌作答提示词中的片段，用于统计调用
-QUICK = "这是一道简单题"  # 单人快答提示词中的片段
 
 
 def record(env: Env, sid: str) -> dict:
@@ -24,17 +23,23 @@ def record(env: Env, sid: str) -> dict:
 # --- 完整流程 -------------------------------------------------------------------
 
 
-async def test_simple_question_single_member(env):
+async def test_short_question_seats_whole_budget_tier(env):
     r = await env.orc.start(Question(SHORT), seed=1)
     assert r.status == "completed" and r.checkpoint is None
-    assert len(env.models_called(QUICK)) == 1 and env.models_called(ANSWER) == []
-    assert r.final_answer.endswith("的答案：最大值 2，最小值 -2。")
+    members = env.models_called(ANSWER)
+    assert sorted(members) != [] and env.tiers(members) == {"budget"}
+    table = env.rt.repo.tables(r.session_id)[0]
+    seated = {*table["members"].values(), table["coordinator"]}
+    assert seated == {"b1", "b2", "b3"}  # 便宜档全员上桌
+    assert table["coordinator"] not in members  # 统筹不作答
+    assert r.final_answer == "最大值 2，最小值 -2"
     rec = record(env, r.session_id)
-    assert rec["plan"] == "simple" and rec["actual_cost_usd"] == pytest.approx(r.cost_usd)
+    assert rec["plan"] == "budget" and rec["actual_cost_usd"] == pytest.approx(r.cost_usd)
+    assert rec["difficulty_source"] == "rule" and rec["planner_cost_usd"] == 0
     assert not rec["escalated"]
 
 
-async def test_medium_question_small_table(env):
+async def test_medium_question_budget_table(env):
     r = await env.orc.start(Question(MEDIUM), seed=2)
     assert r.status == "completed"
     assert r.final_answer == "最大值 2，最小值 -2"
@@ -44,18 +49,21 @@ async def test_medium_question_small_table(env):
     assert steps == ["answer", "review", "revise", "synthesize", "reveal"]
     rec = record(env, r.session_id)
     assert rec["difficulty_source"] == "model" and not rec["escalated"]
-    assert rec["planner_cost_usd"] > 0
+    assert rec["planner_cost_usd"] > 0  # 规则判断不出答案长度时才调用规划员
 
 
-async def test_roundtable_keeps_full_answer_prompt(env):
-    await env.orc.start(Question(MEDIUM), seed=2)
-    assert env.models_called(QUICK) == [] and len(env.models_called(ANSWER)) == 2
-
-
-async def test_manual_single_member_uses_quick_prompt(env):
-    r = await env.orc.start(Question(MEDIUM), UserChoice("manual", members=("f2",)), seed=2)
+async def test_flagship_tier_seats_all_flagships(env):
+    r = await env.orc.start(Question(SHORT), UserChoice("flagship"), seed=2)
     assert r.status == "completed"
-    assert env.models_called(QUICK) == ["f2"]
+    members = env.models_called(ANSWER)
+    assert env.tiers(members) == {"flagship"} and len(members) == 4
+
+
+async def test_custom_lineup_with_named_coordinator(env):
+    r = await env.orc.start(Question(SHORT), UserChoice("custom", ("b1", "b2", "f1"), "f1"), seed=2)
+    assert r.status == "completed"
+    assert sorted(env.models_called(ANSWER)) == ["b1", "b2"]
+    assert env.rt.repo.tables(r.session_id)[0]["coordinator"] == "f1"
 
 
 async def test_events_have_no_model_identity(env):
@@ -71,21 +79,25 @@ async def test_events_have_no_model_identity(env):
 # --- 升级 ---------------------------------------------------------------------
 
 
-async def test_auto_escalation_when_cheap_enough():
+async def test_escalation_always_asks_even_when_cheap():
     env = Env(resolved=False, confirm_threshold_usd=100.0)
     r = await env.orc.start(Question(MEDIUM), seed=3)
+    assert r.status == "awaiting_confirmation" and r.checkpoint.kind == "escalation"
+    assert [t["status"] for t in env.rt.repo.tables(r.session_id)] == ["done", "pending"]
+    r = await env.orc.respond(r.session_id, "continue")
     assert r.status == "completed"
     tables = env.rt.repo.tables(r.session_id)
     assert [t["status"] for t in tables] == ["done", "done"]
-    assert env.tiers(tables[1]["members"].values()) == {"flagship"}
+    seated = {*tables[1]["members"].values(), tables[1]["coordinator"]}
+    assert env.tiers(seated) == {"flagship"} and len(seated) == 5
     rec = record(env, r.session_id)
-    assert rec["escalated"] and rec["escalated_plan"] == "hard"
+    assert rec["escalated"] and rec["escalated_plan"] == "flagship"
     assert "分歧" in rec["escalation_reason"]
 
 
 async def test_escalation_needs_confirmation_then_accept():
     env = Env(resolved=False, confirm_threshold_usd=0.0001)
-    # 自动模式的小圆桌本身也会超门槛，先确认
+    # 便宜档本身也超门槛，先确认
     r = await env.orc.start(Question(MEDIUM), seed=4)
     assert r.checkpoint.kind == "cost"
     r = await env.orc.respond(r.session_id, "continue")
@@ -107,9 +119,9 @@ async def test_escalation_confirmed_runs_flagship_table():
     assert record(env, r.session_id)["escalated"]
 
 
-async def test_saver_preset_never_escalates():
+async def test_flagship_never_escalates():
     env = Env(resolved=False, confirm_threshold_usd=100.0)
-    r = await env.orc.start(Question(MEDIUM), UserChoice("preset", preset="saver"), seed=5)
+    r = await env.orc.start(Question(MEDIUM), UserChoice("flagship"), seed=5)
     assert r.status == "completed" and len(env.rt.repo.tables(r.session_id)) == 1
 
 
@@ -118,11 +130,11 @@ async def test_saver_preset_never_escalates():
 
 async def test_cost_confirmation_continue():
     env = Env(confirm_threshold_usd=0.0001)
-    r = await env.orc.start(Question(SHORT), UserChoice("preset", preset="strongest"), seed=6)
+    r = await env.orc.start(Question(SHORT), UserChoice("flagship"), seed=6)
     assert r.status == "awaiting_confirmation" and r.checkpoint.kind == "cost"
     assert env.models_called(ANSWER) == []  # 确认前不开始作答
     card = r.checkpoint.card
-    assert {"continue", "stop", "plan:simple", "plan:medium"} <= {o["key"] for o in card["options"]}
+    assert [o["key"] for o in card["options"]] == ["continue", "plan:budget", "stop"]
     r = await env.orc.respond(r.session_id, "continue")
     assert r.status == "completed"
     assert env.tiers(env.models_called(ANSWER)) == {"flagship"}
@@ -131,21 +143,23 @@ async def test_cost_confirmation_continue():
 
 async def test_cost_confirmation_switch_plan():
     env = Env(confirm_threshold_usd=0.0001)
-    r = await env.orc.start(Question(SHORT), UserChoice("preset", preset="strongest"), seed=6)
-    simple_cost = next(
-        o["cost_usd"] for o in r.checkpoint.card["options"] if o["key"] == "plan:simple"
+    r = await env.orc.start(Question(SHORT), UserChoice("flagship"), seed=6)
+    budget_cost = next(
+        o["cost_usd"] for o in r.checkpoint.card["options"] if o["key"] == "plan:budget"
     )
-    r = await env.orc.respond(r.session_id, "plan:simple")
+    r = await env.orc.respond(r.session_id, "plan:budget")
     assert r.status == "completed"
-    assert len(env.models_called(QUICK)) == 1 and env.models_called(ANSWER) == []
+    assert env.tiers(env.models_called(ANSWER)) == {"budget"}
     rec = record(env, r.session_id)
-    assert rec["plan"] == "simple" and rec["estimated_cost_usd"] == pytest.approx(simple_cost)
+    assert rec["plan"] == "budget" and rec["estimated_cost_usd"] == pytest.approx(budget_cost)
     assert rec["extra"]["switched_by_user"]
+    table = env.rt.repo.tables(r.session_id)[0]
+    assert set(rec["members"]) == set(table["members"].values())
 
 
 async def test_cost_confirmation_stop():
     env = Env(confirm_threshold_usd=0.0001)
-    r = await env.orc.start(Question(SHORT), UserChoice("preset", preset="strongest"), seed=6)
+    r = await env.orc.start(Question(SHORT), UserChoice("flagship"), seed=6)
     r = await env.orc.respond(r.session_id, "stop")
     assert r.status == "stopped" and env.models_called(ANSWER) == []
 
@@ -215,14 +229,14 @@ async def test_daily_cap_pauses_mid_run():
 async def test_too_few_members_asks_then_continues():
     env = Env(confirm_threshold_usd=100.0)
     r = await env.orc.start(
-        Question(SHORT), UserChoice("manual", members=("b1", "b2", "b3"), coordinator="f1"), seed=9
+        Question(SHORT), UserChoice("custom", ("b1", "b2", "b3", "f1"), "f1"), seed=9
     )
     assert r.status == "completed"  # 正常情况
     env2 = Env(confirm_threshold_usd=100.0)
     env2.fake.queue("b2", *[ErrorKind.SERVER] * 4)
     env2.fake.queue("b3", *[ErrorKind.SERVER] * 4)
     r = await env2.orc.start(
-        Question(SHORT), UserChoice("manual", members=("b1", "b2", "b3"), coordinator="f1"), seed=9
+        Question(SHORT), UserChoice("custom", ("b1", "b2", "b3", "f1"), "f1"), seed=9
     )
     assert r.status == "paused" and r.checkpoint.kind == "members"
     r = await env2.orc.respond(r.session_id, "continue")
@@ -233,15 +247,13 @@ async def test_all_members_fail():
     env = Env(confirm_threshold_usd=100.0)
     for m in ("b1", "b2"):
         env.fake.queue(m, *[ErrorKind.SERVER] * 4)
-    r = await env.orc.start(
-        Question(SHORT), UserChoice("manual", members=("b1", "b2"), coordinator="f1"), seed=9
-    )
+    r = await env.orc.start(Question(SHORT), UserChoice("custom", ("b1", "b2", "f1"), "f1"), seed=9)
     assert r.status == "failed"
 
 
 async def test_routing_failure_marks_failed():
     env = Env()
-    r = await env.orc.start(Question(SHORT), UserChoice("manual", members=("b1", "ghost")), seed=1)
+    r = await env.orc.start(Question(SHORT), UserChoice("custom", ("b1", "b2", "ghost")), seed=1)
     assert r.status == "failed"
 
 
@@ -310,9 +322,42 @@ async def test_resume_finished_session_is_noop(env):
     assert r2.final_answer == r.final_answer
 
 
-async def test_reveal(env):
-    r = await env.orc.start(Question(SHORT), seed=1)
-    assert not env.rt.repo.session_view(r.session_id).revealed
+async def test_reveal_anonymous_session(env):
+    r = await env.orc.start(Question(SHORT), seed=1, anonymous=True)
+    view = env.rt.repo.session_view(r.session_id)
+    assert view.anonymous and not view.revealed
+    assert not any(s.model_id for s in view.seats)
     env.orc.reveal_identities(r.session_id)
     view = env.rt.repo.session_view(r.session_id)
     assert view.revealed and all(s.model_id for s in view.seats)
+
+
+async def test_not_anonymous_by_default_shows_identity(env):
+    r = await env.orc.start(Question(SHORT), seed=1)
+    view = env.rt.repo.session_view(r.session_id)
+    assert not view.anonymous and view.revealed
+    assert all(s.model_id for s in view.seats)
+
+
+async def test_models_only_see_codes_even_when_not_anonymous(env):
+    """匿名开关只管界面：发给模型的内容在两种情况下都只用代号、无任何身份。"""
+    terms = set(env.config.models.channels)
+    for m in env.config.models.models:
+        terms |= {m.id, m.vendor, *m.aliases}
+    for anonymous in (False, True):
+        env.fake.calls.clear()
+        await env.orc.start(Question(MEDIUM), seed=12, anonymous=anonymous)
+        peer_steps = [c for c in env.fake.calls if "规划员" not in c.messages[0].content]
+        assert peer_steps
+        import re
+
+        for c in peer_steps:
+            # 组员自己的答案原文会带模型名（Fake 的回复格式），转给别人之前必须遮蔽
+            sent = "\n".join(m.content for m in c.messages)
+            own = c.model
+            found = [
+                t
+                for t in terms - {own}
+                if re.search(rf"(?<![0-9A-Za-z]){re.escape(t)}(?![0-9A-Za-z])", sent)
+            ]
+            assert found == [], (anonymous, c.model, found)

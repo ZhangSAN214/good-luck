@@ -107,8 +107,10 @@ class SessionView:
     created_at: str
     question: str
     status: str
-    mode: str
-    preset: str | None
+    tier: str  # 成员档位：budget / flagship / custom（旧会话为 auto / preset / manual）
+    workflow: str  # discussion / collab
+    anonymous: bool
+    # 是否显示身份：匿名关闭时始终为真；匿名开启时用户点"揭晓身份"后为真
     revealed: bool
     routing: dict[str, Any] | None
     seats: tuple[SeatView, ...]
@@ -129,6 +131,8 @@ class SessionSummary:
     plan: str | None
     cost_usd: float
     revealed: bool
+    anonymous: bool
+    workflow: str
 
 
 @dataclass
@@ -141,7 +145,14 @@ class ChannelUsage:
 
 
 # 揭晓前从路由记录中去掉的字段（阵容与规划员模型都是身份信息）
-_ROUTING_PRIVATE = ("members", "coordinator", "planner_model", "planner_error", "extra")
+_ROUTING_PRIVATE = (
+    "members",
+    "coordinator",
+    "absent",
+    "planner_model",
+    "planner_error",
+    "extra",
+)
 
 
 @dataclass
@@ -188,16 +199,19 @@ class Repository:
         question: str,
         *,
         seed: int,
-        mode: str = "auto",
-        preset: str | None = None,
+        tier: str = "budget",
+        anonymous: bool = True,
+        workflow: str = "discussion",
         attachments: Sequence[str] = (),
         choice: Mapping[str, Any] | None = None,
     ) -> str:
+        """anonymous 在存储层默认开启（更安全）；产品默认值由服务层决定。"""
         session_id = uuid.uuid4().hex
         now = self.clock()
         self._exec(
             "INSERT INTO sessions (id, created_at, updated_at, question, attachments, seed, mode,"
-            " preset, status, choice) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'created', ?)",
+            " status, choice, anonymous, workflow)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, 'created', ?, ?, ?)",
             (
                 session_id,
                 now,
@@ -205,9 +219,10 @@ class Repository:
                 question,
                 _json(list(attachments)),
                 seed,
-                mode,
-                preset,
-                _json(dict(choice or {"mode": mode, "preset": preset})),
+                tier,
+                _json(dict(choice or {"tier": tier})),
+                int(anonymous),
+                workflow,
             ),
         )
         return session_id
@@ -237,7 +252,9 @@ class Repository:
         )
 
     def is_revealed(self, session_id: str) -> bool:
-        return self._require_session(session_id)["revealed_at"] is not None
+        """是否显示身份：匿名关闭时始终显示。"""
+        row = self._require_session(session_id)
+        return row["revealed_at"] is not None or not row["anonymous"]
 
     # --- 路由记录 --------------------------------------------------------------
 
@@ -612,7 +629,8 @@ class Repository:
 
     def list_sessions(self, limit: int = 50) -> list[SessionSummary]:
         rows = self._exec(
-            "SELECT s.id, s.created_at, s.question, s.status, s.revealed_at,"
+            "SELECT s.id, s.created_at, s.question, s.status, s.revealed_at, s.anonymous,"
+            " s.workflow,"
             " r.difficulty, r.plan,"
             " (SELECT COALESCE(SUM(cost_usd), 0) FROM calls c WHERE c.session_id = s.id) AS cost"
             " FROM sessions s LEFT JOIN routing_records r ON r.session_id = s.id"
@@ -628,7 +646,9 @@ class Repository:
                 r["difficulty"],
                 r["plan"],
                 r["cost"],
-                r["revealed_at"] is not None,
+                r["revealed_at"] is not None or not r["anonymous"],
+                bool(r["anonymous"]),
+                r["workflow"],
             )
             for r in rows
         ]
@@ -636,9 +656,13 @@ class Repository:
     def session_view(
         self, session_id: str, *, scrub: Callable[[str, str], str] | None = None
     ) -> SessionView:
-        """对外展示。揭晓前隐藏模型、渠道、阵容；scrub(text, question) 用于遮蔽输出中的身份。"""
+        """对外展示。
+
+        匿名开启且未揭晓时隐藏模型、渠道、阵容，scrub(text, question) 遮蔽输出中的身份；
+        匿名关闭时始终显示全部原文。
+        """
         s = self._require_session(session_id)
-        revealed = s["revealed_at"] is not None
+        revealed = s["revealed_at"] is not None or not s["anonymous"]
         question = s["question"]
 
         def clean(text: str) -> str:
@@ -700,8 +724,9 @@ class Repository:
             created_at=s["created_at"],
             question=question,
             status=s["status"],
-            mode=s["mode"],
-            preset=s["preset"],
+            tier=s["mode"],
+            workflow=s["workflow"],
+            anonymous=bool(s["anonymous"]),
             revealed=revealed,
             routing=record,
             seats=seats,

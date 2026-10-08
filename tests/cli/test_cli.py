@@ -1,4 +1,4 @@
-"""命令行：用 Fake 模型跑完整流程；揭晓前输出中不得出现任何模型 / 厂商 / 渠道名。"""
+"""命令行：用 Fake 模型跑完整流程；匿名讨论揭晓前输出中不得出现任何模型 / 厂商 / 渠道名。"""
 
 from __future__ import annotations
 
@@ -50,7 +50,9 @@ def before_reveal(text: str) -> str:
 
 async def test_ask_full_flow_anonymous_until_reveal():
     env = Env(confirm_threshold_usd=100.0)
-    code, text = await cli(env, "ask", MEDIUM, "--details", "--seed", "3", answers=Answers("n"))
+    code, text = await cli(
+        env, "ask", MEDIUM, "--anonymous", "--details", "--seed", "3", answers=Answers("n")
+    )
     assert code == 0
     for term in identity_terms(env):
         assert not mentions(text, term), term
@@ -61,7 +63,7 @@ async def test_ask_full_flow_anonymous_until_reveal():
 
 async def test_reveal_after_run_shows_models_and_channels():
     env = Env(confirm_threshold_usd=100.0)
-    code, text = await cli(env, "ask", SHORT, "--reveal")
+    code, text = await cli(env, "ask", SHORT, "--anonymous", "--reveal")
     assert code == 0
     revealed = text.split("揭晓身份")[1]
     assert "渠道：c" in revealed and "规划员" not in revealed  # 简单题不调用规划员
@@ -69,41 +71,65 @@ async def test_reveal_after_run_shows_models_and_channels():
     assert not any(mentions(before_reveal(text), t) for t in identity_terms(env))
 
 
+async def test_not_anonymous_by_default_shows_models_throughout():
+    env = Env(confirm_threshold_usd=100.0)
+    code, text = await cli(env, "ask", SHORT, "--details", "--seed", "3")
+    assert code == 0
+    progress = text.split("═")[0]  # 实时进度部分
+    assert any(mentions(progress, m) for m in ("b1", "b2", "b3"))  # 上桌时就显示模型
+    assert "组员甲（" in text and "统筹（" in text
+    assert "上桌的模型与每次调用" in text and "渠道：c" in text
+    assert "按回车揭晓身份" not in text and "roundtable reveal" not in text
+    code, text = await cli(env, "reveal", env.rt.repo.list_sessions()[0].id)
+    assert code == 0 and "没有开启匿名" in text
+
+
 async def test_checkpoint_enter_takes_recommendation():
     env = Env(confirm_threshold_usd=0.0001)
     answers = Answers("", "n")  # 回车 = 推荐（继续），然后不揭晓
-    code, text = await cli(env, "ask", SHORT, "--preset", "strongest", answers=answers)
+    code, text = await cli(env, "ask", SHORT, "--tier", "flagship", answers=answers)
     assert code == 0 and "需要你确认" in text and "← 推荐" in text
     assert "推荐项 1" in answers.prompts[0]
 
 
 async def test_checkpoint_number_and_invalid_input():
     env = Env(confirm_threshold_usd=0.0001)
-    # 卡片选项：1 继续、2 改用单人快答、3 改用小圆桌、4 停止
-    answers = Answers("9", "abc", "4")
-    code, text = await cli(env, "ask", SHORT, "--preset", "strongest", answers=answers)
+    # 卡片选项：1 继续、2 改用便宜档全员、3 停止
+    answers = Answers("9", "abc", "3")
+    code, text = await cli(env, "ask", SHORT, "--tier", "flagship", answers=answers)
     assert code == 1 and text.count("无效的输入") == 2
     assert "状态：stopped" in text
 
 
 async def test_yes_flag_auto_continues():
     env = Env(confirm_threshold_usd=0.0001)
-    code, text = await cli(env, "ask", SHORT, "--preset", "strongest", "--yes", "--no-reveal")
+    code, text = await cli(env, "ask", SHORT, "--tier", "flagship", "--yes", "--no-reveal")
     assert code == 0 and "自动选择继续" in text
 
 
-async def test_manual_members_flag():
+async def test_custom_models_flag():
     env = Env(confirm_threshold_usd=100.0)
     code, text = await cli(
-        env, "ask", SHORT, "--members", "b1,b2", "--coordinator", "f1", "--no-reveal"
+        env, "ask", SHORT, "--models", "b1,b2,f1", "--coordinator", "f1", "--no-reveal"
     )
-    assert code == 0 and "2 位组员" in text
+    assert code == 0 and "自选（2 位组员 + 统筹）" in text
+    assert "统筹（f1）" in text
 
 
-async def test_unknown_member_is_reported():
+async def test_flagship_tier_flag():
+    env = Env(confirm_threshold_usd=100.0)
+    code, text = await cli(env, "ask", SHORT, "--tier", "flagship", "--anonymous", "--no-reveal")
+    assert code == 0 and "旗舰档全员（4 位组员 + 统筹）" in text
+
+
+async def test_unknown_model_or_tier_is_reported():
     env = Env()
-    code, text = await cli(env, "ask", SHORT, "--members", "b1,ghost", "--no-reveal")
+    code, text = await cli(env, "ask", SHORT, "--models", "b1,b2,ghost", "--no-reveal")
     assert code == 1 and "无法开始" in text and "ghost" in text
+    code, text = await cli(env, "ask", SHORT, "--tier", "giant", "--no-reveal")
+    assert code == 1 and "未知的档位" in text
+    code, text = await cli(env, "ask", SHORT, "--coordinator", "f1", "--no-reveal")
+    assert code == 2 and "--models" in text
 
 
 async def test_question_from_prompt_and_file(tmp_path):
@@ -129,7 +155,7 @@ async def test_no_models_available(tmp_path):
 
 async def test_models_history_show_reveal_commands():
     env = Env(confirm_threshold_usd=100.0)
-    await cli(env, "ask", SHORT, "--no-reveal")
+    await cli(env, "ask", SHORT, "--anonymous", "--no-reveal")
     code, text = await cli(env, "models")
     assert code == 0 and "✓ b1" in text and "本月已用" in text
     code, text = await cli(env, "history")
@@ -164,17 +190,19 @@ def test_main_handles_parse_errors():
     from roundtable.cli import build_parser
 
     with pytest.raises(SystemExit):
-        build_parser().parse_args(["ask", "--preset", "luxury", "q"])
+        build_parser().parse_args(["ask", "--preset", "saver", "q"])  # 旧参数已移除
     with pytest.raises(SystemExit):
-        build_parser().parse_args(["ask", "--preset", "saver", "--members", "a", "q"])
+        build_parser().parse_args(["ask", "--tier", "budget", "--models", "a", "q"])
 
 
 async def test_latex_shown_as_plain_text_unless_raw():
     env = Env(confirm_threshold_usd=100.0)
     env.fake.queue("b1", r"**答案**是 \(\frac{1}{2}\)，即 $\boxed{0.5}$。")
-    code, text = await cli(env, "ask", SHORT, "--members", "b1", "--no-reveal")
+    code, text = await cli(
+        env, "ask", SHORT, "--models", "b1,b2,f1", "--coordinator", "f1", "--details"
+    )
     assert code == 0 and "答案是 1/2，即 0.5。" in text and "\\frac" not in text
     assert "**" not in text
     sid = env.rt.repo.list_sessions()[0].id
-    code, raw = await cli(env, "show", sid, "--raw")
+    code, raw = await cli(env, "show", sid, "--raw", "--details")
     assert "\\frac{1}{2}" in raw and "**答案**" in raw

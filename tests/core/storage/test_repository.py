@@ -16,14 +16,15 @@ from .conftest import CONFIG, MSG
 
 
 def test_session_lifecycle(repo):
-    sid = repo.create_session("题目", seed=7, mode="preset", preset="saver", attachments=["image"])
+    sid = repo.create_session("题目", seed=7, tier="flagship", attachments=["image"])
     row = repo.session_row(sid)
-    assert (row["question"], row["seed"], row["mode"], row["preset"]) == (
+    assert (row["question"], row["seed"], row["mode"], row["choice"]) == (
         "题目",
         7,
-        "preset",
-        "saver",
+        "flagship",
+        {"tier": "flagship"},
     )
+    assert row["anonymous"] == 1 and row["workflow"] == "discussion"  # 存储层默认匿名
     assert row["attachments"] == ["image"] and row["status"] == "created"
     repo.set_status(sid, "running")
     repo.set_status(sid, "failed", error="出错")
@@ -56,17 +57,60 @@ async def make_decision(router, text="1+1=?", choice=None):
 
 
 async def test_routing_record_roundtrip_and_update(repo, router):
-    q, d = await make_decision(router, choice=UserChoice("preset", preset="balanced"))
+    q, d = await make_decision(router, choice=UserChoice("flagship"))
     sid = repo.create_session(q.text, seed=d.seed)
     record = d.record(q)
     repo.save_routing(sid, record)
     stored = repo.routing_record(sid)
-    assert stored["plan"] == "medium" and stored["members"] == list(d.lineup.members)
+    assert stored["plan"] == "flagship" and stored["members"] == list(d.lineup.members)
     assert stored["actual_cost_usd"] is None
 
     repo.save_routing(sid, record.with_outcome(actual_cost_usd=0.02))  # 结束后更新
     assert repo.routing_record(sid)["actual_cost_usd"] == 0.02
     assert len(repo.routing_records()) == 1
+
+
+def test_non_anonymous_session_always_shows_identity(repo):
+    sid = repo.create_session("题目", seed=1, anonymous=False)
+    repo.add_seats(sid, 0, {"甲": "m1", "乙": "m2"}, coordinator="c1")
+    assert repo.is_revealed(sid)
+    view = repo.session_view(sid, scrub=lambda text, q: "[遮蔽]")
+    assert not view.anonymous and view.revealed
+    assert {s.model_id for s in view.seats} == {"m1", "m2", "c1"}
+    summary = repo.list_sessions()[0]
+    assert summary.revealed and not summary.anonymous and summary.workflow == "discussion"
+
+
+def test_old_routing_record_still_loads(repo):
+    """迁移前的路由记录（含 mode / preset 等旧字段）仍能读取。"""
+    from roundtable.core.routing import RoutingRecord
+
+    old = {
+        "seed": 1,
+        "question_chars": 3,
+        "attachments": [],
+        "mode": "preset",
+        "preset": "saver",
+        "difficulty": "medium",
+        "difficulty_source": "skipped",
+        "task_type": None,
+        "require_tags": [],
+        "rules_matched": [],
+        "assessment_reason": "",
+        "expected_answer_tokens": None,
+        "planner_model": None,
+        "planner_cost_usd": 0.0,
+        "planner_error": None,
+        "plan": "medium",
+        "members": ["m1", "m2"],
+        "coordinator": "c1",
+        "estimated_cost_usd": 0.01,
+        "needs_confirmation": False,
+        "options": {"medium": 0.01},
+    }
+    record = RoutingRecord.from_dict(old)
+    assert record.plan == "medium" and record.absent == ()
+    assert record.difficulty_source == "default"
 
 
 # --- 座位与轮换 ---------------------------------------------------------------

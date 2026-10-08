@@ -1,15 +1,17 @@
 """命令行试用：用真实模型跑一场圆桌。
 
-    roundtable ask "题目"                 # 自动模式
-    roundtable ask --preset strongest "题目"
-    roundtable ask --members gpt-6-luna,qwen3.8-flash "题目"
-    roundtable models                     # 查看模型、档位、哪些渠道有 key
-    roundtable history                    # 最近的讨论
-    roundtable resume <会话 id>           # 中断后继续
-    roundtable show <会话 id>             # 查看结果（未揭晓时保持匿名）
-    roundtable reveal <会话 id>           # 揭晓身份
+    roundtable ask "题目"                         # 便宜档全员上桌
+    roundtable ask --tier flagship "题目"         # 旗舰档全员上桌
+    roundtable ask --models a,b,c "题目"          # 自选上桌的模型
+    roundtable ask --anonymous "题目"             # 匿名：结束前只显示代号
+    roundtable models                             # 查看模型、档位、哪些渠道有 key
+    roundtable history                            # 最近的讨论
+    roundtable resume <会话 id>                   # 中断后继续
+    roundtable show <会话 id>                     # 查看结果
+    roundtable reveal <会话 id>                   # 揭晓身份（匿名讨论）
 
-揭晓前，终端上不会出现任何模型名、厂商名或渠道名。
+匿名讨论在揭晓前，终端上不会出现任何模型名、厂商名或渠道名。
+发给模型的内容无论是否匿名都只用代号。
 """
 
 from __future__ import annotations
@@ -36,8 +38,8 @@ STEP_NAMES = {
     "synthesize": "汇总",
     "reveal": "揭晓准备",
 }
-SOURCE_NAMES = {"rule": "规则判断", "model": "规划员判断", "default": "默认", "skipped": "未判断"}
-DIFFICULTY_NAMES = {"simple": "简单", "medium": "中等", "hard": "困难", None: "未判断"}
+SOURCE_NAMES = {"rule": "规则判断", "model": "规划员判断", "default": "默认"}
+LENGTH_NAMES = {"simple": "短", "medium": "中等", "hard": "长", None: "未判断"}
 
 
 class CLI:
@@ -57,8 +59,11 @@ class CLI:
         self.plain_math = plain_math
         self.orc = Orchestrator(runtime, on_event=self.on_event)
         self.prefix = runtime.config.personas.code_prefix
-        plans = runtime.config.routing.plans
-        self.plan_labels = {name: p.label for name, p in plans.items()}
+        routing = runtime.config.routing
+        self.plan_labels = {name: p.label for name, p in routing.plans.items()}
+        self.plan_labels["custom"] = routing.custom.label
+        # 匿名关闭时：代号 → 模型 id（按桌）；匿名开启且未揭晓时为空
+        self.names: dict[tuple[int, str | None], str] = {}
 
     def p(self, text: str = "") -> None:
         print(text, file=self.out, flush=True)
@@ -67,19 +72,32 @@ class CLI:
         """模型输出：数学式转纯文本、去掉加粗符号（--raw 时保持原样）。"""
         return to_terminal(text) if self.plain_math else text
 
-    def label(self, code: str | None) -> str:
-        return f"{self.prefix}{code}" if code else "统筹"
+    def label(self, code: str | None, table_no: int = 0) -> str:
+        base = f"{self.prefix}{code}" if code else "统筹"
+        model = self.names.get((table_no, code))
+        return f"{base}（{model}）" if model else base
+
+    def load_names(self, sid: str) -> None:
+        """身份可以显示时（匿名关闭，或已揭晓）记下各座位对应的模型。"""
+        self.names = {}
+        if not self.rt.repo.is_revealed(sid):
+            return
+        for seat in self.rt.repo.seats(sid):
+            code = seat["code"] if seat["role"] == "member" else None
+            self.names[(seat["table_no"], code)] = seat["model_id"]
 
     # --- 实时进度（事件只含代号，不含模型身份） --------------------------------------
 
     def on_event(self, sid: str, e: Event) -> None:
         d = e.data
         if e.type == "routed":
-            plan = self.plan_labels.get(d["plan"], "手动选择")
+            plan = self.plan_labels.get(d["plan"], d["plan"])
+            absent = f"，{d['absent']} 个模型缺席（无可用渠道）" if d.get("absent") else ""
             self.p(
-                f"难度：{DIFFICULTY_NAMES.get(d['difficulty'], d['difficulty'])}"
+                f"档位：{plan}（{d['members']} 位组员 + 统筹{absent}）"
+                f"  预计 ${d['estimate_usd']:.4f}"
+                f"  答案长度：{LENGTH_NAMES.get(d['difficulty'], d['difficulty'])}"
                 f"（{SOURCE_NAMES.get(d['source'], d['source'])}）"
-                f"  方案：{plan}（{d['members']} 位组员）  预计 ${d['estimate_usd']:.4f}"
             )
             others = [
                 f"{self.plan_labels.get(k, k)} ${v:.4f}"
@@ -87,26 +105,28 @@ class CLI:
                 if v is not None and k != d["plan"]
             ]
             if others:
-                self.p(f"  其他方案预计：{'；'.join(others)}")
+                self.p(f"  其他档位预计：{'；'.join(others)}")
         elif e.type == "table_started":
+            self.load_names(sid)
             if e.table_no > 0:
                 self.p(
                     f"\n=== 第 {e.table_no + 1} 张桌子：{self.plan_labels.get(d['plan'], '')} ==="
                 )
-            self.p(f"上桌：{'、'.join(self.label(c) for c in d['members'])} + 统筹")
+            members = "、".join(self.label(c, e.table_no) for c in d["members"])
+            self.p(f"上桌：{members} + {self.label(None, e.table_no)}")
         elif e.type == "step_started" and e.step != "reveal":
             self.p(f"\n▶ {STEP_NAMES.get(e.step, e.step)}")
         elif e.type == "call_done":
-            self.p(f"  {self.label(e.code)} 完成（${d.get('cost', 0):.4f}）")
+            self.p(f"  {self.label(e.code, e.table_no)} 完成（${d.get('cost', 0):.4f}）")
         elif e.type == "call_failed":
-            self.p(f"  {self.label(e.code)} 调用失败")
+            self.p(f"  {self.label(e.code, e.table_no)} 调用失败")
         elif e.type == "member_dropped":
-            self.p(f"  {self.label(e.code)} 退出本轮（已有内容保留）")
+            self.p(f"  {self.label(e.code, e.table_no)} 退出本轮（已有内容保留）")
         elif e.type == "step_finished" and d.get("degraded"):
             names = "、".join(self.label(None if c == "coordinator" else c) for c in d["degraded"])
             self.p(f"  注意：{names} 的输出格式不符，已降级处理")
         elif e.type == "escalating":
-            self.p(f"\n⚠ 需要升级：{d['reason']}（预计 ${d['estimate_usd']:.4f}）")
+            self.p(f"\n⚠ 建议升级：{d['reason']}（预计 ${d['estimate_usd']:.4f}）")
         elif e.type == "budget_warning":
             self.p(f"⚠ {d['message']}")
 
@@ -150,13 +170,13 @@ class CLI:
 
     def show(self, sid: str, *, details: bool = False) -> None:
         view = self.rt.repo.session_view(sid, scrub=self.rt.scrubber.scrub)
+        self.load_names(sid)
         self.p("\n" + "═" * 40)
         self.p(f"状态：{view.status}    本题花费：${view.cost_usd:.4f}    会话：{view.id}")
         if view.routing:
             r = view.routing
             self.p(
-                f"难度：{DIFFICULTY_NAMES.get(r.get('difficulty'), r.get('difficulty'))}  "
-                f"方案：{self.plan_labels.get(r.get('plan'), '手动选择')}  "
+                f"档位：{self.plan_labels.get(r.get('plan'), r.get('plan'))}  "
                 f"预估 ${r.get('estimated_cost_usd', 0):.4f}"
                 + ("  （已升级）" if r.get("escalated") else "")
             )
@@ -167,17 +187,18 @@ class CLI:
                 self.p(f"\n—— 第 {table_no + 1} 张桌子 ——")
             if details:
                 for o in outputs:
+                    who = self.label(o.code, table_no)
                     if o.kind == "answer":
-                        self.p(f"\n【{self.label(o.code)} 的答案】\n{self.t(o.content)}")
+                        self.p(f"\n【{who} 的答案】\n{self.t(o.content)}")
                     elif o.kind == "review":
-                        self.print_review(o.code, json.loads(o.content))
+                        self.print_review(who, json.loads(o.content), table_no)
                     elif o.kind == "revision":
                         rev = json.loads(o.content)
                         tag = "（无有效评审，沿用原答案）" if rev["skipped"] else ""
-                        self.p(f"\n【{self.label(o.code)} 修订后{tag}】\n{self.t(rev['answer'])}")
+                        self.p(f"\n【{who} 修订后{tag}】\n{self.t(rev['answer'])}")
             synth = next((o for o in outputs if o.kind == "synthesis"), None)
             if synth:
-                self.print_synthesis(json.loads(synth.content))
+                self.print_synthesis(json.loads(synth.content), table_no)
             elif not details:
                 answers = [o for o in outputs if o.kind in ("revision", "answer")]
                 if len(answers) == 1:
@@ -191,16 +212,16 @@ class CLI:
         if view.error:
             self.p(f"\n错误：{view.error}")
 
-    def print_review(self, reviewer: str, data: dict[str, Any]) -> None:
-        self.p(f"\n【{self.label(reviewer)} 的评审】")
+    def print_review(self, reviewer: str, data: dict[str, Any], table_no: int = 0) -> None:
+        self.p(f"\n【{reviewer} 的评审】")
         for r in data["reviews"]:
             state = "有效" if r["valid"] else f"无效：{'；'.join(r['invalid_reasons'])}"
-            self.p(f"  → {self.label(r['target'])}：{r['verdict']}（{state}）")
+            self.p(f"  → {self.label(r['target'], table_no)}：{r['verdict']}（{state}）")
             for i in r["issues"]:
                 where, what, fix = (self.t(i[k]) for k in ("location", "problem", "suggestion"))
                 self.p(f"     · [{i['severity']}] {where}：{what} → {fix}")
 
-    def print_synthesis(self, s: dict[str, Any]) -> None:
+    def print_synthesis(self, s: dict[str, Any], table_no: int = 0) -> None:
         if s.get("degraded"):
             self.p("\n（统筹的汇总不可用，以下为兜底结果）")
         if s["consensus"]:
@@ -213,7 +234,7 @@ class CLI:
                 status = "已裁定" if d.get("resolved") else "未解决"
                 self.p(f"  · {self.t(d['point'])}（{status}）")
                 for pos in d["positions"]:
-                    who = "、".join(self.label(m) for m in pos["members"]) or "?"
+                    who = "、".join(self.label(m, table_no) for m in pos["members"]) or "?"
                     self.p(f"      {who}：{self.t(pos['view'])}")
                 if d.get("assessment"):
                     self.p(f"      统筹评估：{self.t(d['assessment'])}")
@@ -224,9 +245,17 @@ class CLI:
                 self.p(f"  · {self.t(q)}")
 
     def reveal_identities(self, sid: str) -> None:
+        if not self.rt.repo.session_row(sid)["anonymous"]:
+            self.p("这场讨论没有开启匿名，身份一直是公开的。")
+            self.print_identities(sid, "上桌的模型")
+            return
         self.orc.reveal_identities(sid)
+        self.print_identities(sid, "揭晓身份")
+
+    def print_identities(self, sid: str, title: str) -> None:
         view = self.rt.repo.session_view(sid)
-        self.p("\n" + "═" * 40 + "\n揭晓身份")
+        self.names = {}  # 这里单独列出模型，代号后不再重复
+        self.p("\n" + "═" * 40 + "\n" + title)
         for seat in view.seats:
             who = self.label(seat.code) if seat.role == "member" else "统筹"
             table = f"第 {seat.table_no + 1} 桌 " if any(s.table_no for s in view.seats) else ""
@@ -264,11 +293,12 @@ class CLI:
         seed: int | None,
         details: bool,
         reveal: bool | None,
+        anonymous: bool = False,
     ) -> int:
         if not self.check_available():
             return 2
         self.p(f"题目：{question}\n")
-        result = await self.orc.start(Question(question), choice, seed=seed)
+        result = await self.orc.start(Question(question), choice, seed=seed, anonymous=anonymous)
         return await self.finish(result, details=details, reveal=reveal)
 
     async def finish(self, result: RunResult, *, details: bool, reveal: bool | None) -> int:
@@ -282,6 +312,9 @@ class CLI:
             if result.status in ("paused", "running", "awaiting_confirmation"):
                 self.p(f"\n可以用 roundtable resume {result.session_id} 继续。")
             return 1
+        if not self.rt.repo.session_row(result.session_id)["anonymous"]:
+            self.print_identities(result.session_id, "上桌的模型与每次调用")
+            return 0
         if reveal is None:
             raw = self.ask("\n按回车揭晓身份，输入 n 跳过：").strip().lower()
             reveal = raw not in ("n", "no", "否")
@@ -332,10 +365,17 @@ def build_parser() -> argparse.ArgumentParser:
     ask = sub.add_parser("ask", help="提一道题并跑完整个圆桌")
     ask.add_argument("question", nargs="?", help="题目；省略时从 --file 或交互输入读取")
     ask.add_argument("--file", help="从 UTF-8 文本文件读取题目")
-    mode = ask.add_mutually_exclusive_group()
-    mode.add_argument("--preset", choices=["saver", "balanced", "strongest"], help="预设模式")
-    mode.add_argument("--members", help="手动模式：逗号分隔的模型 id（见 roundtable models）")
-    ask.add_argument("--coordinator", help="手动模式下指定统筹的模型 id")
+    lineup = ask.add_mutually_exclusive_group()
+    lineup.add_argument(
+        "--tier", help="成员档位（routing.yaml 的 plans，如 budget / flagship）：该档位全员上桌"
+    )
+    lineup.add_argument(
+        "--models", help="自选：逗号分隔的模型 id，全部上桌（见 roundtable models）"
+    )
+    ask.add_argument("--coordinator", help="自选时指定由哪个模型当统筹（必须在 --models 中）")
+    ask.add_argument(
+        "--anonymous", action="store_true", help="匿名：结束前只显示代号，结束后可揭晓"
+    )
     ask.add_argument("--seed", type=int, help="随机种子（用于复现）")
     ask.add_argument("--details", action="store_true", help="显示每位组员的答案、评审和修订稿")
     ask.add_argument(
@@ -391,18 +431,24 @@ async def run(
             if not question:
                 cli.p("题目不能为空。")
                 return 2
-            if args.members:
+            if args.models:
                 choice = UserChoice(
-                    "manual",
-                    members=tuple(m.strip() for m in args.members.split(",") if m.strip()),
+                    "custom",
+                    models=tuple(m.strip() for m in args.models.split(",") if m.strip()),
                     coordinator=args.coordinator,
                 )
-            elif args.preset:
-                choice = UserChoice("preset", preset=args.preset)
             else:
-                choice = UserChoice()
+                if args.coordinator:
+                    cli.p("--coordinator 只能和 --models 一起使用。")
+                    return 2
+                choice = UserChoice(args.tier)
             return await cli.cmd_ask(
-                question, choice, seed=args.seed, details=args.details, reveal=args.reveal
+                question,
+                choice,
+                seed=args.seed,
+                details=args.details,
+                reveal=args.reveal,
+                anonymous=args.anonymous,
             )
         if args.command == "models":
             return cli.cmd_models()

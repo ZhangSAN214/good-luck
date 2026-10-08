@@ -38,7 +38,7 @@ async def populated(repo, router, *, member_output="答案是 2。"):
     sid = repo.create_session(q.text, seed=d.seed)
     repo.save_routing(sid, d.record(q))
     repo.record_planner(sid, d.assessment.planner)
-    codes = dict(zip(["甲", "乙", "丙"], d.lineup.members, strict=False))
+    codes = dict(zip(CONFIG.personas.codes, d.lineup.members, strict=False))
     repo.add_seats(sid, 0, codes, coordinator=d.lineup.coordinator)
 
     member = d.lineup.members[0]

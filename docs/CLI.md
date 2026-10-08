@@ -38,16 +38,18 @@ roundtable ask '求函数 f(x)=x^3-3x 在 [-2,2] 上的最大值和最小值'
 - **题目请用单引号**。PowerShell 会把双引号里的 `$x` 当成变量，数学题里的 `$` 会被吞掉。
 - 题目很长或有多行时，写进 UTF-8 文本文件：`roundtable ask --file 题目.txt`
 - 直接运行 `roundtable ask` 会提示你输入题目。
+- 默认**便宜档全员上桌**（一个当统筹，其余作答），开始前会显示预计花费和其他档位的预估。
 
 常用选项：
 
 | 选项 | 作用 |
 |---|---|
-| `--preset saver` / `balanced` / `strongest` | 预设：省钱 / 均衡 / 最强（不按难度自动选） |
-| `--members gpt-6-luna,qwen3.8-flash --coordinator deepseek-v4.1-flash` | 手动指定组员和统筹（id 见 `roundtable models`） |
+| `--tier flagship` | 旗舰档全员上桌（默认 `budget` 便宜档全员） |
+| `--models gpt-6-luna,qwen3.8-flash,deepseek-v4.1-flash --coordinator deepseek-v4.1-flash` | 自选上桌的模型（至少 3 个），可指定其中一个当统筹（id 见 `roundtable models`） |
+| `--anonymous` | 匿名：结束前只显示"组员甲 / 乙…"，结束后可揭晓（默认不匿名，全程显示模型名） |
 | `--details` | 显示每位组员的答案、评审和修订稿 |
 | `--yes` | 单题花费 / 升级确认自动选"继续"（预算确认仍会询问） |
-| `--reveal` / `--no-reveal` | 结束后直接揭晓 / 不揭晓（默认结束时询问） |
+| `--reveal` / `--no-reveal` | 匿名讨论结束后直接揭晓 / 不揭晓（默认结束时询问） |
 | `--seed 42` | 固定随机种子，便于复现 |
 | `--raw` | 保持模型输出的原样（默认会把 LaTeX 转成易读的纯文本，如 `\frac{1}{2}` → `1/2`、`x^2` → `x²`，并去掉 `**加粗**` 符号） |
 
@@ -58,7 +60,7 @@ roundtable ask '求函数 f(x)=x^3-3x 在 [-2,2] 上的最大值和最小值'
 ```powershell
 roundtable history              # 最近的讨论（含会话 id）
 roundtable show <会话id> --details
-roundtable reveal <会话id>      # 揭晓身份、每次调用走的渠道和花费
+roundtable reveal <会话id>      # 匿名讨论：揭晓身份、每次调用走的渠道和花费
 roundtable resume <会话id>      # 中断（Ctrl+C、断网）后继续，已完成的步骤不会重复
 ```
 

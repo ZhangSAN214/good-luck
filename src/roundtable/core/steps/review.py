@@ -1,4 +1,4 @@
-"""匿名互评：每个组员评审其他人的答案（永远不含自己的），顺序对每个评审者独立打乱。"""
+"""匿名互评：每份答案由 reviews_per_answer 位其他组员评审（永远不评自己），顺序独立打乱。"""
 
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ class ReviewStep:
     async def run(self, ctx: TableContext) -> StepResult:
         authors = [c for c in ctx.members if c in ctx.state.answers]
         reviewers = [c for c in ctx.active if c in ctx.state.answers]
-        plan = review_assignments(authors, ctx.rng)
+        plan = review_assignments(authors, ctx.rng, ctx.config.roundtable.reviews_per_answer)
         todo = [c for c in reviewers if c not in ctx.state.reviews]
         version = ctx.prompt_version("review")
         quality = ctx.config.roundtable.review_quality

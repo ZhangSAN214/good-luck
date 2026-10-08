@@ -37,48 +37,48 @@ def test_escalation_rule_configurable():
     assert "2" in escalation_reason(OutcomeSignals(2, "high"), rule)
 
 
-async def medium_decision(env, choice=None):
+async def budget_decision(env, choice=None):
     env.fake.queue("b1", planner_reply("medium"))
     return await route_question(
         Q, choice, config=env.config, router=env.router, prompts=env.prompts, seed=5
     )
 
 
-async def test_escalates_to_flagship_table(env):
-    d = await medium_decision(env)
+async def test_escalates_to_flagship_tier(env):
+    d = await budget_decision(env)
     up = plan_escalation(d, Q, OutcomeSignals(2, "medium"), config=env.config, router=env.router)
     assert up is not None
-    assert (up.plan, up.escalated_from, up.escalate_to) == ("hard", "medium", None)
+    assert (up.plan, up.escalated_from, up.escalate_to) == ("flagship", "budget", None)
     by = {m.id: m for m in env.config.models.models}
-    assert {by[m].tier for m in up.lineup.members} == {"flagship"}
+    seated = {*up.lineup.members, up.lineup.coordinator}
+    assert seated == {m.id for m in env.config.models.enabled if m.tier == "flagship"}
+    assert {by[m].tier for m in seated} == {"flagship"}
     assert up.estimate.total_usd > d.estimate.total_usd
     assert "分歧" in up.escalation_reason
-    # 升级后也按门槛判断是否要确认
-    assert up.needs_confirmation == (up.estimate.total_usd > up.confirm_threshold_usd)
 
     record = d.record(Q).with_outcome(actual_cost_usd=0.3, escalation=up, user_confirmed=True)
-    assert record.escalated and record.escalated_plan == "hard"
+    assert record.escalated and record.escalated_plan == "flagship"
     assert record.escalation_estimated_cost_usd == up.estimate.total_usd
 
 
 async def test_no_escalation_when_consensus(env):
-    d = await medium_decision(env)
+    d = await budget_decision(env)
     assert (
         plan_escalation(d, Q, OutcomeSignals(0, "high"), config=env.config, router=env.router)
         is None
     )
 
 
-async def test_saver_preset_never_escalates(env):
-    d = await medium_decision(env, UserChoice("preset", preset="saver"))
+async def test_flagship_never_escalates(env):
+    d = await budget_decision(env, UserChoice("flagship"))
     assert (
         plan_escalation(d, Q, OutcomeSignals(5, "low"), config=env.config, router=env.router)
         is None
     )
 
 
-async def test_manual_never_escalates(env):
-    d = await medium_decision(env, UserChoice("manual", members=("b1", "b2")))
+async def test_custom_never_escalates(env):
+    d = await budget_decision(env, UserChoice("custom", ("b1", "b2", "f1")))
     assert (
         plan_escalation(d, Q, OutcomeSignals(5, "low"), config=env.config, router=env.router)
         is None

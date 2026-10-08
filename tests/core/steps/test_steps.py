@@ -15,7 +15,7 @@ from roundtable.core.steps import (
     restore_state,
 )
 
-from .conftest import COORDINATOR, MEMBERS, Table, revision_reply, synthesis_reply
+from .conftest import COORDINATOR, MEMBERS, Table, labels_in, revision_reply, synthesis_reply
 
 SEEDS = range(20)
 
@@ -84,6 +84,27 @@ async def test_review_order_shuffled_per_reviewer():
 
         orders.add(tuple(labels_in(t.calls_for("b1")[-1].messages)))
     assert len(orders) == 2  # 两份他人答案的两种顺序都出现过
+
+
+BIG = {"甲": "b1", "乙": "b2", "丙": "b3", "丁": "f2", "戊": "f3"}
+
+
+@pytest.mark.parametrize("seed", range(10))
+async def test_k_reviews_per_answer_on_a_big_table(seed):
+    """5 位组员、每份答案 2 人评审：每人只看到 2 份他人答案，每份答案恰好收到 2 条评审。"""
+    t = Table(seed, members=BIG)
+    rt = t.config.roundtable.model_copy(update={"reviews_per_answer": 2})
+    t.ctx.config = t.config.model_copy(update={"roundtable": rt})
+    await run(t, "answer", "review", "revise")
+    received = {code: 0 for code in BIG}
+    for code, model in BIG.items():
+        seen = labels_in(t.calls_for(model)[1].messages)  # 第 2 次调用是互评
+        assert len(seen) == 2 and code not in seen
+        for target in seen:
+            received[target] += 1
+    assert set(received.values()) == {2}
+    for code, reviews in t.ctx.state.reviews.items():
+        assert len(reviews) == 2 and all(r.target != code for r in reviews)
 
 
 async def test_peer_answers_are_scrubbed_and_neutralized(table):

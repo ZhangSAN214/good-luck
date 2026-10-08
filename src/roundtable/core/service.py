@@ -15,7 +15,7 @@ from dataclasses import asdict
 from typing import Any
 
 from roundtable.core.orchestrator import Orchestrator, OrchestratorError, RunResult
-from roundtable.core.routing import Question, RoutingError, UserChoice
+from roundtable.core.routing import CUSTOM, Question, RoutingError, UserChoice
 from roundtable.core.runtime import Runtime
 from roundtable.core.steps import Event
 from roundtable.core.storage import NotFound
@@ -84,8 +84,11 @@ class RoundtableService:
                 for m in cfg.models.models
                 if m.enabled
             ],
+            # 成员档位（所选档位的可用模型全部上桌）与自选
             "plans": {name: p.label for name, p in cfg.routing.plans.items()},
-            "presets": {name: p.label for name, p in cfg.routing.presets.items()},
+            "default_plan": cfg.routing.default_plan,
+            "custom_label": cfg.routing.custom.label,
+            "min_members": cfg.roundtable.min_members,
             "confirm_threshold_usd": cfg.routing.confirm_threshold_usd,
             "max_members": cfg.roundtable.seats,
             "code_prefix": cfg.personas.code_prefix,
@@ -125,25 +128,30 @@ class RoundtableService:
         self,
         question: str,
         *,
-        mode: str = "auto",
-        preset: str | None = None,
-        members: Sequence[str] = (),
+        tier: str | None = None,
+        models: Sequence[str] = (),
         coordinator: str | None = None,
+        anonymous: bool = False,
         seed: int | None = None,
     ) -> str:
-        """创建会话并在后台开始执行，立即返回会话 id。"""
+        """创建会话并在后台开始执行，立即返回会话 id。
+
+        tier：档位名或 "custom"（自选，models 为上桌的模型）；anonymous 默认关闭。
+        """
         text = question.strip()
         if not text:
             raise ServiceError("题目不能为空")
         if len(text) > MAX_QUESTION_CHARS:
             raise ServiceError(f"题目过长（超过 {MAX_QUESTION_CHARS} 字）")
         try:
-            choice = UserChoice(mode, preset, tuple(members), coordinator)  # type: ignore[arg-type]
+            choice = UserChoice(tier, tuple(models), coordinator)
         except (RoutingError, ValueError) as exc:
             raise ServiceError(str(exc)) from None
+        if tier is not None and tier != CUSTOM and tier not in self.rt.config.routing.plans:
+            raise ServiceError(f"未知的档位 {tier!r}")
         if not self.rt.router.available_models():
             raise ServiceError("没有可用的模型：请在 .env 中填写至少一个渠道的 key", 503)
-        sid = self.orc.open(Question(text), choice, seed=seed)
+        sid = self.orc.open(Question(text), choice, seed=seed, anonymous=anonymous)
         self._spawn(sid, self.orc.run(sid))
         return sid
 
@@ -166,8 +174,10 @@ class RoundtableService:
             self._spawn(session_id, self.orc.resume(session_id))
 
     def reveal_identities(self, session_id: str) -> dict[str, Any]:
-        """揭晓身份：只允许在讨论结束后。"""
+        """揭晓身份：只用于匿名开启的会话，且只允许在讨论结束后。"""
         row = self._require(session_id)
+        if not row["anonymous"]:
+            raise ServiceError("这场讨论没有开启匿名，身份一直是公开的", 409)
         if row["status"] not in REVEALABLE or self.running(session_id):
             raise ServiceError("讨论结束后才能揭晓身份", 409)
         self.orc.reveal_identities(session_id)
@@ -182,9 +192,14 @@ class RoundtableService:
         data["pending_checkpoint"] = next(
             (c for c in data["checkpoints"] if c["status"] == "pending"), None
         )
-        data["can_reveal"] = view.status in REVEALABLE and not view.revealed
+        data["can_reveal"] = view.anonymous and view.status in REVEALABLE and not view.revealed
         data["tables"] = self._tables(session_id)
         return data
+
+    def _plan_label(self, plan: str | None) -> str:
+        if plan == CUSTOM:
+            return self.rt.config.routing.custom.label
+        return plan or ""
 
     def _tables(self, session_id: str) -> list[dict[str, Any]]:
         """每张桌子的执行计划与进度（只含代号，不含模型）。"""
@@ -196,7 +211,7 @@ class RoundtableService:
                 {
                     "table_no": t["table_no"],
                     "plan": t["plan"],
-                    "plan_label": plan.label if plan else t["plan"],
+                    "plan_label": plan.label if plan else self._plan_label(t["plan"]),
                     "pipeline": list(t["pipeline"]),
                     "codes": list(t["members"]),
                     "status": t["status"],
