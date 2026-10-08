@@ -496,10 +496,20 @@ export function stageHTML(sv, live, prefix) {
   return h;
 }
 
-export function legendHTML() {
-  return `<div class="row"><svg width="22" height="8"><line x1="1" y1="4" x2="21" y2="4" stroke="var(--brass)" stroke-width="2" stroke-dasharray="3 3"/></svg><span><b>金色虚线</b> 互评时组员两两交换匿名答案；汇总时修订稿交给统筹</span></div>
-<div class="row"><span style="width:22px;display:inline-grid;place-items:center"><span style="width:12px;height:12px;border-radius:30%;background:var(--c-coord);display:inline-block"></span></span><span><b>方形头像</b> 统筹：只读修订稿并汇总，不兼任组员</span></div>
-<div class="row"><span style="width:22px;text-align:center">甲</span><span><b>代号</b> 每题随机分配，模型之间只用代号称呼；开启匿名时界面也只显示代号</span></div>`;
+/** 左下角说明：随匿名开关与模式变化（会话打开时按会话本身的设置，否则按提问区的选择）。 */
+export function legendHTML({ anonymous = false, workflow = 'discussion' } = {}) {
+  const collab = workflow === 'collab';
+  const swap = anonymous ? '匿名' : '';
+  const line = collab
+    ? `交叉审查时成员互相审查对方的${swap}成果（不审自己的）；合并时各份成果交给统筹`
+    : `互评时组员两两交换${swap}答案；汇总时修订稿交给统筹`;
+  const coord = collab ? '统筹：拆分子任务、分配并合并成果，不兼任组员' : '统筹：只读修订稿并汇总，不兼任组员';
+  const codes = anonymous
+    ? '每题随机分配；已开启匿名，界面只显示代号，结束后可揭晓身份'
+    : '每题随机分配，模型之间只用代号称呼；未开启匿名，界面在代号旁显示真实模型';
+  return `<div class="row"><svg width="22" height="8"><line x1="1" y1="4" x2="21" y2="4" stroke="var(--brass)" stroke-width="2" stroke-dasharray="3 3"/></svg><span><b>金色虚线</b> ${line}</span></div>
+<div class="row"><span style="width:22px;display:inline-grid;place-items:center"><span style="width:12px;height:12px;border-radius:30%;background:var(--c-coord);display:inline-block"></span></span><span><b>方形头像</b> ${coord}</span></div>
+<div class="row"><span style="width:22px;text-align:center">甲</span><span><b>代号</b> ${codes}</span></div>`;
 }
 
 // --- 右侧面板 -----------------------------------------------------------------------

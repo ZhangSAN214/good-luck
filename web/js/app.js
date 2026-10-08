@@ -61,7 +61,15 @@ function renderStage() {
   $('#stage').innerHTML = stageHTML(S.session, S.live, prefix());
 }
 
+function renderLegend() {
+  const sv = S.session;
+  $('#legend').innerHTML = legendHTML(
+    sv ? { anonymous: sv.anonymous, workflow: sv.workflow } : { anonymous: S.anonymous, workflow: S.workflow },
+  );
+}
+
 function renderHeader() {
+  renderLegend();
   const sv = S.session;
   const b = S.budget;
   const parts = [`本场 ${money(sv ? sv.cost_usd : 0)}`];
@@ -482,9 +490,11 @@ function bind() {
     if (!b) return;
     S.workflow = b.dataset.v;
     renderComposer();
+    renderLegend();
   });
   $('#anonymous').addEventListener('change', (e) => {
     S.anonymous = e.target.checked;
+    renderLegend();
   });
   $('#feed').addEventListener('click', (e) => {
     const opt = e.target.closest('[data-opt]');
@@ -517,7 +527,6 @@ function bind() {
 
 async function init() {
   bind();
-  $('#legend').innerHTML = legendHTML();
   try {
     S.status = await API.getStatus();
     S.budget = S.status.budget;

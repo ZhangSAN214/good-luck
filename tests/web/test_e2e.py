@@ -276,3 +276,18 @@ def test_collab_mode(serve, page):
     page.click('#tabs button[data-t="flow"]')
     assert "拆分子任务" in page.inner_text("#pbody")
     assert leaks(srv.identity_terms(), anonymous_text(page)) == []
+
+
+def test_legend_follows_anonymous_switch_and_mode(serve, page):
+    srv = serve(confirm_threshold_usd=100.0)
+    page.goto(srv.url)
+    page.wait_for_selector("#legend .row")
+    legend = page.inner_text("#legend")
+    assert "匿名答案" not in legend and "显示真实模型" in legend  # 默认匿名关闭
+    page.check("#anonymous")
+    legend = page.inner_text("#legend")
+    assert "匿名答案" in legend and "只显示代号" in legend
+    page.click("#workflow button[data-v='collab']")
+    assert "交叉审查" in page.inner_text("#legend")
+    page.uncheck("#anonymous")
+    assert "匿名" not in page.inner_text("#legend").split("代号")[0]

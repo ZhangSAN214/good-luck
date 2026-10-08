@@ -13,6 +13,8 @@ python -m venv .venv
 pip install -e .
 ```
 
+**网页版一键启动**：双击项目根目录的 `start.bat`。它会进入项目目录、激活 `.venv`（没有时自动创建）、`git pull`、`pip install -e ".[dev]"`、启动服务，并自动打开 http://127.0.0.1:8000 。关闭窗口或按 Ctrl+C 停止。
+
 ## 2. 填写 key
 
 ```powershell

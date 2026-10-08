@@ -1,2 +1,5 @@
 # 提示词内容参与哈希校验，统一使用 LF
 prompts/** text eol=lf
+
+# Windows 批处理必须是 CRLF，否则 cmd 解析标签和 goto 会出错
+*.bat text eol=crlf
