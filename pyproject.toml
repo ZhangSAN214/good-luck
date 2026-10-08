@@ -28,6 +28,8 @@ dev = [
     # anthropic SDK 1.x 基于 httpx2；测试直接用它的 MockTransport
     "httpx2>=2.0",
     "ruff>=0.5",
+    # 前端端到端测试（tests/web）；还需要 `playwright install chromium`，没有浏览器时自动跳过
+    "playwright>=1.40",
 ]
 
 [tool.setuptools.packages.find]

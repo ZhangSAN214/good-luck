@@ -103,7 +103,11 @@
 - **服务 facade**（`core/service.py`，`RoundtableService`）：返回值都是可 JSON 化的 dict；揭晓前全部匿名。提交题目后立即返回会话 id，讨论在后台任务中执行；意外错误把会话标为 `paused`（可 `resume`）。揭晓只允许在讨论结束（完成 / 停止 / 失败）后。
 - **HTTP 接口**：`GET /api/status`、`GET /api/budget`、`GET/POST /api/sessions`、`GET /api/sessions/{id}`、`POST …/respond`、`POST …/resume`、`POST …/reveal`、`GET …/events`（SSE）。
 - **SSE 协议**：第一条 `snapshot`（当前状态），之后是实时事件（只含代号），每当讨论停下来（完成 / 失败 / 停止 / 等待确认 / 暂停）发一条 `state` 并关闭；前端回复确认后重新连接。
-- `web/`：静态前端，只通过 HTTP/SSE 与后端通信。
+- `web/`：静态前端（`index.html`、`css/app.css`、`js/api.js` 通信、`js/view.js` 渲染、`js/app.js` 状态与交互；ES 模块，无构建步骤），只通过 HTTP/SSE 与后端通信，由 FastAPI 挂在 `/`。
+  - 事件流用 `fetch` 读取（不用会自动重连的 `EventSource`）：收到停下来的 `state` 后关闭，回复确认卡片或恢复后重新订阅；事件触发重新拉取会话详情再渲染。
+  - 会话详情的 `tables`：每桌方案、流程、代号、已完成步骤（不含模型）。
+  - 前端源码不得写死任何模型、厂商或渠道名（有测试）；揭晓前界面只用代号（组员甲… / 统筹）。
+  - 会话 id 写在地址栏（`#s=<id>`），刷新或关页面后可回到原讨论。
 
 ---
 
@@ -146,6 +150,7 @@
 - 提交前必须：`ruff check`、`ruff format --check`、`pytest` 全部通过。
 - **每个模块都要有测试**，`tests/` 结构与 `src/` 对应；功能与测试同一提交。
 - 测试不联网、不依赖真实 key；数据库测试用临时文件或 `:memory:`。
+- 前端端到端测试在 `tests/web/`（Playwright + Chromium，Fake 模型的服务跑在真实 uvicorn 上）；没有安装 playwright 或浏览器时自动跳过。
 
 ---
 
@@ -172,7 +177,7 @@ src/roundtable/
   cli.py         命令行试用（`roundtable` 命令，见 docs/CLI.md）
   plaintext.py   命令行显示用：LaTeX 数学式转纯文本、去掉 Markdown 加粗符号（不改动存储的原文）
   api/           FastAPI 应用、路由、SSE
-web/             index.html、js/、css/
+web/             index.html、css/app.css、js/（api.js 通信、view.js 渲染、app.js 状态与交互）
 tests/
 docs/            REQUIREMENTS_v3.md  PLAN.md  CLI.md  mockup.html
 scripts/         check_models.py（核对 OpenRouter 渠道的模型 ID 与价格）  lock_prompts.py（登记提示词版本）
@@ -188,5 +193,6 @@ pytest
 python scripts/lock_prompts.py      # 新增提示词版本后登记
 roundtable models                   # 查看模型、档位、可用渠道与预算
 roundtable ask '题目'                # 用真实模型跑一场圆桌（PowerShell 中题目用单引号）
-uvicorn roundtable.api.app:app --reload
+uvicorn roundtable.api.app:app --reload   # 浏览器打开 http://127.0.0.1:8000
+playwright install chromium        # 首次运行前端端到端测试前
 ```

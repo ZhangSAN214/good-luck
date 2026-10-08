@@ -169,3 +169,17 @@ async def test_unrouted_session_resumes_with_routing():
     events = await collect(svc, sid)
     assert events[-1]["status"] == "completed"
     assert env.models_called("这是一道简单题") == ["b1"]  # 用到了保存的手动选择
+
+
+async def test_session_tables_show_plan_and_progress_without_models():
+    env, svc = make(resolved=False, confirm_threshold_usd=100.0)
+    sid = svc.create(MEDIUM, seed=3)
+    await svc.wait(sid)
+    tables = svc.session(sid)["tables"]
+    assert [t["table_no"] for t in tables] == [0, 1]
+    first, second = tables
+    assert first["plan"] == "medium" and first["plan_label"] == "小圆桌"
+    assert first["steps_done"] == first["pipeline"]
+    assert first["codes"] == ["甲", "乙"] and first["estimate_usd"] > 0
+    assert second["plan"] == "hard" and second["escalation_reason"]
+    assert leaks(env, tables) == []

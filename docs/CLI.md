@@ -71,3 +71,13 @@ Windows Terminal + PowerShell 7 一般不需要处理。旧版控制台出现乱
 ```powershell
 [Console]::OutputEncoding = [Text.UTF8Encoding]::new()
 ```
+
+## 网页版
+
+```powershell
+uvicorn roundtable.api.app:app
+```
+
+然后在浏览器打开 <http://127.0.0.1:8000>。网页与命令行共用同一个数据库和预算：在网页里能看到命令行跑过的讨论（「历史」标签），反之亦然。
+讨论进行中可以关掉页面，地址栏里带着会话 id（`#s=…`），重新打开该地址即可回到原讨论；已暂停的讨论点「继续」。
+默认只监听本机；不要加 `--host 0.0.0.0` 暴露到局域网（目前没有登录和限速，阶段 11 再加）。

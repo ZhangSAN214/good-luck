@@ -183,7 +183,29 @@ class RoundtableService:
             (c for c in data["checkpoints"] if c["status"] == "pending"), None
         )
         data["can_reveal"] = view.status in REVEALABLE and not view.revealed
+        data["tables"] = self._tables(session_id)
         return data
+
+    def _tables(self, session_id: str) -> list[dict[str, Any]]:
+        """每张桌子的执行计划与进度（只含代号，不含模型）。"""
+        plans = self.rt.config.routing.plans
+        out = []
+        for t in self.rt.repo.tables(session_id):
+            plan = plans.get(t["plan"])
+            out.append(
+                {
+                    "table_no": t["table_no"],
+                    "plan": t["plan"],
+                    "plan_label": plan.label if plan else t["plan"],
+                    "pipeline": list(t["pipeline"]),
+                    "codes": list(t["members"]),
+                    "status": t["status"],
+                    "steps_done": self.rt.repo.completed_steps(session_id, t["table_no"]),
+                    "estimate_usd": t["estimate"].get("total"),
+                    "escalation_reason": t["escalation_reason"],
+                }
+            )
+        return out
 
     def sessions(self, limit: int = 50) -> list[dict[str, Any]]:
         return [asdict(s) for s in self.rt.repo.list_sessions(limit)]

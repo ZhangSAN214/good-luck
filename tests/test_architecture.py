@@ -174,6 +174,24 @@ def test_decision_code_has_no_brand_names():
     assert hits == {}
 
 
+def test_frontend_has_no_brand_or_channel_names():
+    """前端只显示服务端给的内容，代码里不能写死任何模型、厂商或渠道名。"""
+    from roundtable.core.config import load_config
+
+    terms = identity_terms() | {c.lower() for c in load_config().models.channels}
+    hits = {}
+    for path in (ROOT / "web").rglob("*"):
+        if path.suffix not in {".html", ".js", ".css"}:
+            continue
+        text = path.read_text(encoding="utf-8").lower()
+        found = sorted(
+            t for t in terms if re.search(rf"(?<![0-9a-z]){re.escape(t)}(?![0-9a-z])", text)
+        )
+        if found:
+            hits[str(path.relative_to(ROOT))] = found
+    assert hits == {}
+
+
 def roundtable_imports(source: str) -> set[str]:
     found = set()
     for node in ast.walk(ast.parse(source)):

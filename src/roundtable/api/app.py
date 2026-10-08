@@ -129,7 +129,7 @@ def create_app(service: RoundtableService | None = None) -> FastAPI:
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
         )
 
-    if WEB_DIR.is_dir():  # 前端在阶段 10 加入
+    if WEB_DIR.is_dir():  # 静态前端（web/）
         app.mount("/", StaticFiles(directory=WEB_DIR, html=True), name="web")
     return app
 

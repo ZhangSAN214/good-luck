@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>圆桌 Roundtable</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Noto+Sans+SC:wght@400;500;700&family=ZCOOL+XiaoWei&display=swap">
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+<div class="app">
+  <header class="top">
+    <div class="brand"><h1>圆桌</h1><span class="sim">匿名文字圆桌</span></div>
+    <div class="ctrls">
+      <button class="btn" id="new" type="button">新题目</button>
+      <button class="btn gold" id="reveal" type="button" disabled title="讨论结束后可以揭晓">揭晓身份</button>
+      <button class="btn" id="toggle" type="button" aria-expanded="true">收起面板</button>
+    </div>
+    <span class="meter" id="meter">本场 $0.0000</span>
+  </header>
+
+  <div class="main" id="main">
+    <div class="stagecol">
+      <div class="stage" id="stage" aria-label="圆桌座位图"></div>
+      <div class="legend" id="legend"></div>
+    </div>
+
+    <section class="chat" id="chat" aria-label="讨论过程">
+      <div class="q" id="question" hidden></div>
+      <div class="feed" id="feed" aria-live="polite">
+        <div class="feed-list" id="feed-list"></div>
+        <div class="typing" id="typing" hidden></div>
+      </div>
+      <form class="composer" id="composer" autocomplete="off">
+        <div class="row">
+          <div class="seg" id="mode" aria-label="模式">
+            <button type="button" data-v="auto" aria-pressed="true">自动</button>
+            <button type="button" data-v="preset" aria-pressed="false">预设</button>
+            <button type="button" data-v="manual" aria-pressed="false">手动</button>
+          </div>
+          <div class="seg" id="preset" aria-label="预设" hidden></div>
+          <span class="hint" id="mode-hint"></span>
+        </div>
+        <div class="row" id="manual" hidden>
+          <div class="picks" id="picks"></div>
+          <label class="hint">统筹
+            <select id="coordinator"><option value="">自动选择</option></select>
+          </label>
+        </div>
+        <div class="row">
+          <textarea id="ask" placeholder="输入题目，Ctrl+Enter 提交" aria-label="题目"></textarea>
+          <button class="btn primary" type="submit" id="submit">提交</button>
+        </div>
+        <div class="formerr" id="formerr" hidden></div>
+      </form>
+    </section>
+
+    <aside class="panel" aria-label="统筹面板">
+      <div class="phd"><h2>统筹面板</h2><span id="pstate">空闲</span></div>
+      <div class="tabs" role="tablist" id="tabs">
+        <button role="tab" data-t="flow" aria-selected="true">流程</button>
+        <button role="tab" data-t="reviews" aria-selected="false">互评</button>
+        <button role="tab" data-t="usage" aria-selected="false">用量</button>
+        <button role="tab" data-t="channels" aria-selected="false">渠道</button>
+        <button role="tab" data-t="history" aria-selected="false">历史</button>
+        <button role="tab" data-t="cast" aria-selected="false">名册</button>
+      </div>
+      <div class="pbody" id="pbody"></div>
+    </aside>
+  </div>
+</div>
+<script type="module" src="js/app.js"></script>
+</body>
+</html>
