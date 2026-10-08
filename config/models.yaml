@@ -64,11 +64,16 @@ channels:
   #   base_url: http://localhost:11434/v1
   #   key_env: null
 
+# tier: flagship（高价高能力）/ budget（便宜档）。成本优先路由（config/routing.yaml）
+#       只看档位和能力标签；启用的模型必须填写档位。
+# aliases: 别称，会在转发给其他模型前被遮蔽，防止暴露身份。
 # routes 按优先顺序排列：前一个渠道遇到 429、额度用尽、网络错误等时切换到下一个。
 # price: 美元 / 每百万 token，只用于事前预估；实际费用以渠道返回为准（有则用）。
 models:
   - id: gpt-6-sol
     vendor: OpenAI
+    tier: flagship
+    aliases: [ChatGPT, GPT]
     price: {input: 2.00, output: 10.00}
     tags: [math, writing, code, research, vision]
     enabled: true
@@ -78,6 +83,8 @@ models:
 
   - id: claude-sonnet-5.5
     vendor: Anthropic
+    tier: flagship
+    aliases: [Claude]
     price: {input: 2.00, output: 10.00, cached_input: 0.20}
     tags: [writing, code, research, long_context, vision]
     enabled: true
@@ -87,6 +94,7 @@ models:
 
   - id: gemini-3.1-pro
     vendor: Google
+    aliases: [Gemini, Bard, DeepMind]
     tier: flagship
     # 搜索结果中最新的 Pro 为 3.1 Pro Preview（未找到 3.8 Pro）；待核对
     price: {input: 2.00, output: 12.00, cached_input: 0.20}
@@ -98,6 +106,7 @@ models:
 
   - id: gemini-3.8-flash
     vendor: Google
+    aliases: [Gemini, Bard, DeepMind]
     tier: budget
     price: {input: 0.75, output: 3.75}
     tags: [design, research, long_context, vision]
@@ -108,6 +117,7 @@ models:
 
   - id: qwen3.8-max
     vendor: Alibaba
+    aliases: [Qwen, 通义千问, 千问, 通义, 阿里巴巴, 阿里云]
     tier: flagship
     price: {input: 2.00, output: 6.00}   # 已由用户核对
     tags: [math, derivation, science, code]
@@ -119,6 +129,7 @@ models:
   # 这里用不带日期的别名，会跟随 OpenRouter 指向最新版本
   - id: qwen3.8-flash
     vendor: Alibaba
+    aliases: [Qwen, 通义千问, 千问, 通义, 阿里巴巴, 阿里云]
     tier: budget
     price: {input: 0.15, output: 0.47}
     tags: [math, code, long_context, vision]
@@ -128,6 +139,8 @@ models:
 
   - id: grok-4.7
     vendor: xAI
+    tier: flagship
+    aliases: [Grok]
     price: {input: 2.00, output: 6.00}
     tags: [math, code, research]
     enabled: true
@@ -137,6 +150,7 @@ models:
 
   - id: deepseek-v4-pro
     vendor: DeepSeek
+    aliases: [深度求索]
     tier: flagship
     # 搜索结果中的旗舰为 V4 Pro（未找到 V4.1 旗舰版）。OpenRouter 价格取 8 月 GA 版本；待核对
     price: {input: 0.66, output: 1.98}
@@ -149,6 +163,7 @@ models:
 
   - id: deepseek-v4.1-flash
     vendor: DeepSeek
+    aliases: [深度求索]
     tier: budget
     # 分时段计价（闲时 0.15/0.60）；这里按高峰价保守预估
     price: {input: 0.30, output: 1.20}

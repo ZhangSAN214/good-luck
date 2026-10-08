@@ -9,7 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 ChannelKind = Literal["aggregator", "direct", "local"]
 ChannelMode = Literal["openrouter", "direct", "auto"]
-# 同一厂商内的档位：flagship 旗舰 / budget 便宜档。仅作标注，v1 不参与调度
+# 档位：flagship 旗舰（高价高能力）/ budget 便宜档。成本优先路由只看档位和能力标签
 Tier = Literal["flagship", "budget"]
 
 _ENV_NAME = re.compile(r"^[A-Z][A-Z0-9_]*$")
@@ -69,6 +69,8 @@ class ModelSpec(_Strict):
     tags: list[str] = Field(default_factory=list)
     enabled: bool = True
     params: dict[str, Any] = Field(default_factory=dict)
+    # 产品名、中文名等别称；转发给其他模型前会被遮蔽（见 allocation.identity）
+    aliases: list[str] = Field(default_factory=list)
     # 按优先顺序排列的渠道
     routes: list[Route] = Field(min_length=1)
 
