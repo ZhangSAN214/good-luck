@@ -103,6 +103,7 @@ class GeminiProvider(Provider):
                 output_tokens=int(usage.get("candidatesTokenCount") or 0)
                 + int(usage.get("thoughtsTokenCount") or 0),
                 cached_tokens=int(usage.get("cachedContentTokenCount") or 0),
+                truncated=candidate.get("finishReason") == "MAX_TOKENS",
             )
         except ProviderError:
             raise

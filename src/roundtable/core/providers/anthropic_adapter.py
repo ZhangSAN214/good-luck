@@ -94,6 +94,7 @@ class AnthropicProvider(Provider):
             input_tokens=usage.input_tokens + cache_read + cache_write,
             output_tokens=usage.output_tokens,
             cached_tokens=cache_read,
+            truncated=response.stop_reason == "max_tokens",
         )
 
     async def aclose(self) -> None:

@@ -186,7 +186,9 @@ def cross_review_reply(model: str, messages: list[Message]) -> str:
     return json.dumps({"reviews": reviews}, ensure_ascii=False)
 
 
-def merge_reply(confidence: str = "high") -> Callable:
+def merge_reply(confidence: str = "high", legacy: bool = False) -> Callable:
+    """merge/v2 的格式：Markdown 正文 + 末尾 JSON 合并说明（legacy=True 时给出 v1 的整段 JSON）。"""
+
     def reply(model: str, messages: list[Message]) -> str:
         found = MERGE_WORK.findall(user_text(messages))
         subtasks: dict[str, list[dict]] = {}
@@ -194,16 +196,17 @@ def merge_reply(confidence: str = "high") -> Callable:
             subtasks.setdefault(sid, []).append(
                 {"member": f"组员{code}", "level": "full", "reason": "推导完整"}
             )
-        return json.dumps(
-            {
-                "result": "完整成果：最大值 2，最小值 -2",
-                "subtasks": [{"subtask": k, "adopted": v} for k, v in subtasks.items()],
-                "gaps": [],
-                "open_questions": [],
-                "confidence": confidence,
-            },
-            ensure_ascii=False,
-        )
+        notes = {
+            "subtasks": [{"subtask": k, "adopted": v} for k, v in subtasks.items()],
+            "gaps": [],
+            "open_questions": [],
+            "confidence": confidence,
+        }
+        result = "完整成果：最大值 2，最小值 -2"
+        if legacy:
+            return json.dumps({"result": result, **notes}, ensure_ascii=False)
+        body = json.dumps(notes, ensure_ascii=False, indent=2)
+        return f"## 完整成果\n{result}\n\n## 合并说明\n```json\n{body}\n```"
 
     return reply
 

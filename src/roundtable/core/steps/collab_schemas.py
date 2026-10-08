@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import random
+import re
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Literal
@@ -110,7 +111,33 @@ def parse_decomposition(
             )
         )
     layers(subtasks)  # 检查循环依赖
-    return tuple(subtasks)
+    return add_implied_dependencies(tuple(subtasks))
+
+
+_ID_MENTION = re.compile(r"(?<![A-Za-z0-9])T\d+(?![0-9])", re.IGNORECASE)
+
+
+def add_implied_dependencies(subtasks: tuple[Subtask, ...]) -> tuple[Subtask, ...]:
+    """子任务的标题、要求或验收标准里提到了别的子任务（如"核对 T3"），却没写依赖时补上依赖，
+    否则它会与被提到的子任务同时开始、拿不到其结果。补上会形成循环的依赖不加。"""
+    known = {s.id for s in subtasks}
+    result = list(subtasks)
+    for i, s in enumerate(result):
+        text = f"{s.title}\n{s.requirements}\n{s.acceptance}"
+        mentioned = [m.upper() for m in _ID_MENTION.findall(text)]
+        for dep in dict.fromkeys(mentioned):
+            if dep == s.id or dep not in known or dep in result[i].depends_on:
+                continue
+            candidate = Subtask(
+                s.id, s.title, s.requirements, s.acceptance, s.tags, (*result[i].depends_on, dep)
+            )
+            trial = [*result[:i], candidate, *result[i + 1 :]]
+            try:
+                layers(trial)
+            except ValueError:
+                continue  # 会形成循环：不加
+            result = trial
+    return tuple(result)
 
 
 def fallback_decomposition() -> tuple[Subtask, ...]:
@@ -395,11 +422,49 @@ class Merge:
         return cls(MergeOutput.model_validate(d), d.get("degraded", False), d.get("error"))
 
 
+RESULT_HEADING = "## 完整成果"
+NOTES_HEADING = "## 合并说明"
+
+
 def parse_merge(
     text: str, subtask_ids: Sequence[str], to_code: Callable[[str], str | None]
 ) -> Merge:
-    """解析合并 JSON；采纳情况中的子任务与成员统一为 id 与代号，未知的丢弃。"""
-    output = MergeOutput.model_validate(extract_json_object(text))
+    """解析合并结果；采纳情况中的子任务与成员统一为 id 与代号，未知的丢弃。
+
+    merge/v2：成果是"## 完整成果"下的 Markdown 正文，采纳情况等在"## 合并说明"后的 JSON 里。
+    正文可以单独成立：合并说明缺失或格式不符时保留正文，只记录说明不可用。
+    没有"完整成果"标题时按 merge/v1 的整段 JSON 解析。格式错误抛 ValueError。
+    """
+    start = text.find(RESULT_HEADING)
+    if start == -1:
+        return _clean_merge(
+            MergeOutput.model_validate(extract_json_object(text)), subtask_ids, to_code
+        )
+    body = text[start + len(RESULT_HEADING) :]
+    split = body.rfind(NOTES_HEADING)  # 正文里可能有自己的二级标题，取最后一个"合并说明"
+    result = (body[:split] if split != -1 else body).strip()
+    if not result:
+        raise ValueError("完整成果为空")
+    notes: dict[str, Any] = {}
+    error = None
+    if split == -1:
+        error = "缺少合并说明，未记录采纳情况"
+    else:
+        try:
+            notes = extract_json_object(body[split + len(NOTES_HEADING) :])
+        except ValueError:
+            error = "合并说明格式不符，未记录采纳情况"
+    try:
+        output = MergeOutput.model_validate({**notes, "result": result})
+    except ValueError:
+        output, error = MergeOutput(result=result), "合并说明格式不符，未记录采纳情况"
+    merge = _clean_merge(output, subtask_ids, to_code)
+    return Merge(merge.output, error=error)
+
+
+def _clean_merge(
+    output: MergeOutput, subtask_ids: Sequence[str], to_code: Callable[[str], str | None]
+) -> Merge:
     known = set(subtask_ids)
     cleaned = []
     for s in output.subtasks:

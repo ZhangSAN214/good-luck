@@ -266,3 +266,148 @@ async def test_collab_contributions():
 
 def test_reasoning_fixture_is_substantive():
     assert len(REASONING) > 150
+
+
+async def test_legacy_json_merge_still_parsed():
+    from .conftest import merge_reply
+
+    t = Table(15)
+
+    def reply(model, messages):
+        if "合并成一份完整成果" in messages[0].content:
+            return merge_reply(legacy=True)(model, messages)
+        return default_reply(model, messages)
+
+    t.fake._default = reply
+    await run(t, *STEPS)
+    assert not t.ctx.state.collab.merge.degraded
+
+
+async def test_merge_retried_once_then_recovers():
+    t = Table(16)
+    attempts = {"n": 0}
+
+    def reply(model, messages):
+        if "合并成一份完整成果" in messages[0].content:
+            attempts["n"] += 1
+            if attempts["n"] == 1:
+                return "（没有按格式输出）"
+        return default_reply(model, messages)
+
+    t.fake._default = reply
+    await run(t, *STEPS)
+    assert attempts["n"] == 2 and not t.ctx.state.collab.merge.degraded
+
+
+async def test_truncated_merge_reports_length_limit():
+    from roundtable.core.providers import RawCompletion
+
+    t = Table(17)
+    await run(t, *STEPS[:-1])
+    t.fake.queue(COORDINATOR, RawCompletion("（输出被截断", truncated=True))
+    t.fake.queue(COORDINATOR, RawCompletion("（又被截断", truncated=True))
+    await run(t, "merge")
+    merge = t.ctx.state.collab.merge
+    assert merge.degraded and "长度上限" in merge.error and "max_tokens" in merge.error
+
+
+def subtasks_reply(subtasks):
+    def reply(model, messages):
+        if "把任务拆成子任务" in messages[0].content and "学习小组的统筹" in messages[0].content:
+            return json.dumps({"subtasks": subtasks}, ensure_ascii=False)
+        return default_reply(model, messages)
+
+    return reply
+
+
+async def test_check_subtask_that_only_mentions_others_waits_for_them():
+    """回归（会话 a80560c2）：质检子任务没写依赖，与 T3、T4 同时开始，只能写出"预审框架"。
+    提到别的子任务即自动补依赖，按顺序执行并拿到它们的成果。"""
+    t = Table(18, members=BIG)
+    t.fake._default = subtasks_reply(
+        [
+            {"id": "T1", "title": "设定稿", "requirements": "写设定"},
+            {"id": "T2", "title": "提示词", "requirements": "写提示词"},
+            {"id": "T3", "title": "质检标准", "requirements": "针对 T1、T2 的产出制定评审表"},
+        ]
+    )
+    await run(t, "decompose", "volunteer", "assign", "work")
+    work_calls = calls(t, "你负责下面 <your_subtask>")
+    t3 = [i for i, c in enumerate(work_calls) if 'your_subtask id="T3"' in c.messages[1].content]
+    others = [
+        i for i, c in enumerate(work_calls) if 'your_subtask id="T3"' not in c.messages[1].content
+    ]
+    assert t3 and max(others) < min(t3)
+    prompt = work_calls[t3[0]].messages[1].content
+    assert '<dependency subtask="T1"' in prompt and '<dependency subtask="T2"' in prompt
+
+
+async def test_dropped_owner_block_is_reassigned_before_dependents_start():
+    t = Table(19, members={"甲": "b1", "乙": "b2"})  # 每块只有一位负责人
+    t.fake._default = subtasks_reply(
+        [
+            {"id": "T1", "title": "基础部分", "requirements": "推导"},
+            {"id": "T2", "title": "后续部分", "requirements": "在 T1 基础上完成"},
+        ]
+    )
+    await run(t, "decompose", "volunteer", "assign")
+    owner = t.ctx.state.collab.assignment.owners["T1"][0]
+    model = MEMBERS[owner]
+    original = t.fake._default
+
+    def failing(m, messages):
+        if m == model and "你负责下面 <your_subtask>" in messages[0].content:
+            from roundtable.core.providers import ErrorKind
+
+            return ErrorKind.SERVER
+        return original(m, messages)
+
+    t.fake._default = failing
+    t.ctx.config = t.config.model_copy(
+        update={
+            "roundtable": t.config.roundtable.model_copy(
+                update={
+                    "request": t.config.roundtable.request.model_copy(update={"failover_rounds": 1})
+                }
+            )
+        }
+    )
+    [result] = await run(t, "work")
+    c = t.ctx.state.collab
+    assert owner in t.ctx.state.dropped
+    new_owner = c.assignment.owners["T1"][0]
+    assert new_owner != owner and ("T1", new_owner) in c.works
+    assert any("改派" in n for n in result.notes)
+    assert len(c.works) == 2
+    t2_prompt = next(
+        x.messages[1].content
+        for x in calls(t, "你负责下面 <your_subtask>")
+        if 'your_subtask id="T2"' in x.messages[1].content
+    )
+    assert '<dependency subtask="T1"' in t2_prompt  # 后续子任务拿到了改派后的成果
+    restored = restore_state(t.repo, t.session, 0)
+    assert restored.collab.assignment == c.assignment  # 改派已存库，恢复后一致
+
+
+async def test_cross_review_receives_the_work_under_review():
+    t = Table(20)
+    await run(t, *STEPS[:5])
+    c = t.ctx.state.collab
+    items = c.items()
+    for call in calls(t, "请你审查分给你的几份成果"):
+        content = call.messages[1].content
+        for item in re.findall(r'<work id="(W\\d+)">', content):
+            sid, code = items[item]
+            assert c.works[(sid, code)][:40] in content  # 被审的成果原文确实在审查者手里
+
+
+async def test_block_with_surviving_co_owner_is_not_reassigned():
+    t = Table(21)
+    await run(t, "decompose", "volunteer", "assign")
+    owners = t.ctx.state.collab.assignment.owners
+    shared = next(sid for sid, o in owners.items() if len(o) > 1)
+    gone = owners[shared][0]
+    t.ctx.state.dropped[gone] = "测试"
+    [result] = await run(t, "work")
+    assert t.ctx.state.collab.assignment.owners[shared] == owners[shared]
+    assert not any("改派" in n for n in result.notes)

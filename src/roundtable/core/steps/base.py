@@ -221,6 +221,9 @@ async def call_and_parse(
             value, error = None, f"输出格式不符：{type(exc).__name__}"
         else:
             error = None if value is not None else "输出格式不符"
+        if value is None and outcome.completion.truncated:
+            limit = ctx.step_params(step).get("max_tokens")
+            error = f"输出达到长度上限被截断（max_tokens={limit}）"
         if value is not None:
             return Parsed(value, call_id, False, None, raw)
         log.warning("步骤 %s 输出格式不符（第 %d 次）", step, attempt + 1)

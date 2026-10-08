@@ -136,7 +136,13 @@ def _redact_record(record: logging.LogRecord) -> None:
         message = record.getMessage()
     except Exception:  # noqa: BLE001 - 格式化失败时保留原样，交给 logging 自己报告
         return
-    record.msg, record.args = redact(message), None
+    clean = redact(message)
+    if clean != message:
+        # 只有真的含密钥时才改写：保留原始的 msg / args，第三方格式化器（如 uvicorn 的彩色日志会
+        # 再用 color_message % args 格式化一次）才能正常工作
+        record.msg, record.args = clean, None
+        if hasattr(record, "color_message"):
+            record.color_message = clean
     if record.exc_info and record.exc_info[0] is not None:
         record.exc_text = redact("".join(traceback.format_exception(*record.exc_info)).rstrip())
         record.exc_info = None

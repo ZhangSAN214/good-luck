@@ -26,6 +26,7 @@ from .base import (
     review_block,
 )
 from .collab_schemas import (
+    STANCE_SCORE,
     Assignment,
     CollabState,
     Merge,
@@ -374,8 +375,6 @@ class WorkStep:
         if c.assignment is None:
             raise StepFailed("还没有分配子任务")
         by_id = {s.id: s for s in c.subtasks}
-        items = c.items()
-        ids_by_key = {v: k for k, v in items.items()}
         rule = ctx.effort_rule
         redone: list[str] = []
         notes: list[str] = []
@@ -394,7 +393,7 @@ class WorkStep:
         async def work(sid: str, code: str) -> None:
             nonlocal calls
             subtask = by_id[sid]
-            item = ids_by_key[(sid, code)]
+            item = {v: k for k, v in c.items().items()}[(sid, code)]  # 可能刚改派过
             prompt = ctx.render(
                 self.name,
                 code=ctx.label(code),
@@ -456,18 +455,23 @@ class WorkStep:
                 call_id=call_id,
             )
 
-        before = set(ctx.state.dropped)
-        for layer in layers(c.subtasks):  # 按依赖分批：同一批并行
-            batch = [
+        def pending(layer: Sequence[str]) -> list[tuple[str, str]]:
+            return [
                 (sid, code)
                 for sid in layer
                 for code in c.assignment.owners.get(sid, ())
                 if (sid, code) not in c.works and code not in ctx.state.dropped
             ]
-            await asyncio.gather(*(work(sid, code) for sid, code in batch))
+
+        before = set(ctx.state.dropped)
+        for layer in layers(c.subtasks):  # 按依赖分批：同一批并行；后一批能拿到前一批的成果
+            await asyncio.gather(*(work(sid, code) for sid, code in pending(layer)))
+            # 负责人中途退出、这一块一份成果都没有：改派给在场的组员，在下一批开始前补上
+            if self._reassign(ctx, layer, notes):
+                await asyncio.gather(*(work(sid, code) for sid, code in pending(layer)))
         missing = [
             f"{sid}（{ctx.label(code)}）"
-            for sid, code in items.values()
+            for sid, code in c.items().values()
             if (sid, code) not in c.works
         ]
         if missing:
@@ -478,6 +482,50 @@ class WorkStep:
             dropped=tuple(x for x in ctx.state.dropped if x not in before),
             notes=tuple(notes),
         )
+
+    def _reassign(self, ctx: TableContext, layer: Sequence[str], notes: list[str]) -> bool:
+        """把没有任何成果、且负责人都已退出的子任务改派给在场组员（替换退出者的位置，
+        不改变其他成果的编号）。选合适程度最高、负担最轻的人；改动存为新的分配记录。"""
+        c = _c(ctx)
+        owners = {k: list(v) for k, v in c.assignment.owners.items()}
+        load = {code: 0 for code in ctx.active}
+        for v in owners.values():
+            for code in v:
+                if code in load:
+                    load[code] += 1
+        tags = _member_tags(ctx)
+        by_id = {s.id: s for s in c.subtasks}
+        changes: list[str] = []
+        for sid in layer:
+            done = any(key[0] == sid for key in c.works)
+            gone = [code for code in owners[sid] if code in ctx.state.dropped]
+            if done or not gone or not load:
+                continue
+            candidates = [code for code in load if code not in owners[sid]]
+            if not candidates:
+                continue
+
+            def fit(code: str, sid: str = sid) -> int:
+                v = c.volunteers.get(code)
+                stance = v.stance(sid) if v else "can"
+                overlap = len(set(tags.get(code, ())) & set(by_id[sid].tags))
+                return STANCE_SCORE[stance] + overlap
+
+            pick = sorted(candidates, key=lambda x: (load[x], -fit(x), x))[0]
+            owners[sid][owners[sid].index(gone[0])] = pick
+            load[pick] += 1
+            changes.append(f"{sid} 的负责人{ctx.label(gone[0])}已退出，改派给{ctx.label(pick)}")
+        if not changes:
+            return False
+        c.assignment = Assignment(
+            {k: tuple(v) for k, v in owners.items()},
+            c.assignment.rationale,
+            (*c.assignment.repaired, *changes),
+            c.assignment.degraded,
+        )
+        _save(ctx, "work", "assignment", c.assignment.to_dict())
+        notes.append("；".join(changes))
+        return True
 
 
 # --- 交叉审查 -------------------------------------------------------------------
@@ -845,7 +893,13 @@ class MergeStep:
         )
         c.merge = merge
         _save(ctx, self.name, "merge", merge.to_dict(), call_id=result.call_id)
-        return StepResult(self.name, calls=1, degraded=("coordinator",) if merge.degraded else ())
+        notes = (f"统筹合并：{merge.error}",) if merge.error else ()
+        return StepResult(
+            self.name,
+            calls=1,
+            degraded=("coordinator",) if merge.degraded else (),
+            notes=notes,
+        )
 
 
 for _step in (

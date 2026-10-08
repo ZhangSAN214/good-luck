@@ -29,3 +29,30 @@ def test_unrelated_messages_untouched(caplog):
     caplog.set_level(logging.INFO)
     logging.getLogger("x").info("调用 %s 成功，用时 %.1fs", "openrouter", 1.25)
     assert "调用 openrouter 成功，用时 1.2s" in caplog.text
+
+
+def test_records_without_secrets_keep_their_format_args():
+    """不含密钥的日志记录保持原样：uvicorn 的 color_message % args 等仍能格式化。"""
+    record = logging.getLogRecordFactory()(
+        "uvicorn.error",
+        logging.INFO,
+        __file__,
+        1,
+        "Uvicorn running on %s://%s:%d",
+        ("http", "127.0.0.1", 8000),
+        None,
+    )
+    record.color_message = "Uvicorn running on %s://%s:%d"
+    assert record.args == ("http", "127.0.0.1", 8000)
+    assert record.getMessage() == "Uvicorn running on http://127.0.0.1:8000"
+    assert record.color_message % record.args == "Uvicorn running on http://127.0.0.1:8000"
+
+
+def test_records_with_secrets_are_rewritten_including_color_message():
+    from roundtable.core.providers import Secret
+
+    key = "sk-or-v1-" + "c" * 48
+    Secret(key)
+    record = logging.getLogRecordFactory()("x", logging.INFO, __file__, 1, "key=%s", (key,), None)
+    record.color_message = "key=%s"
+    assert key not in record.getMessage() and record.args is None

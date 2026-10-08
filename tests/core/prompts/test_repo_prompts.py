@@ -98,11 +98,11 @@ def test_structured_roles_declare_json():
         "volunteer",
         "assign",
         "cross_review",
-        "merge",
     )
     for role in json_roles:
         assert LIBRARY.get(role, CONFIG.roundtable.prompts[role]).output == "json"
-    for role in ("answer", "revise", "work", "rework"):
+    # merge/v2 起：长篇成果用 Markdown 正文，只有末尾的合并说明是 JSON
+    for role in ("answer", "revise", "work", "rework", "merge"):
         assert LIBRARY.get(role, CONFIG.roundtable.prompts[role]).output == "text"
 
 

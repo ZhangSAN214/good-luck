@@ -182,6 +182,7 @@ class ChannelRouter:
             cost_source=source,
             latency_s=latency,
             attempts=tuple(attempts),
+            truncated=raw.truncated,
         )
 
     async def aclose(self) -> None:

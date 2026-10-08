@@ -203,3 +203,72 @@ def test_parse_merge_and_fallback():
     fb = fallback_merge("坏了", SUBS, {("T1", "组员甲"): "甲的", ("T2", "组员乙"): "乙的"})
     assert fb.degraded and fb.output.confidence == "low"
     assert fb.output.result.index("甲的") < fb.output.result.index("乙的")
+
+
+MERGE_V2 = """## 完整成果
+# 设定稿
+第一部分含有"引号"和换行
+## 小节标题（正文自己的二级标题）
+内容
+
+## 合并说明
+```json
+{"subtasks": [{"subtask": "t1", "adopted": [{"member": "组员甲", "level": "partial"}]}],
+ "gaps": [], "open_questions": ["核实比例"], "confidence": "high"}
+```"""
+
+
+def test_parse_merge_v2_text_and_notes():
+    m = parse_merge(MERGE_V2, ["T1"], to_code)
+    assert m.output.result.startswith("# 设定稿") and "## 小节标题" in m.output.result
+    assert "合并说明" not in m.output.result
+    assert m.adoption() == {("T1", "甲"): "partial"}
+    assert m.output.confidence == "high" and m.error is None and not m.degraded
+
+
+def test_parse_merge_v2_keeps_result_when_notes_broken():
+    broken = MERGE_V2.replace('"confidence": "high"}', '"confidence": "high"')
+    m = parse_merge(broken, ["T1"], to_code)
+    assert "设定稿" in m.output.result and not m.degraded
+    assert m.adoption() == {} and "合并说明格式不符" in m.error
+    missing = parse_merge("## 完整成果\n成果正文", ["T1"], to_code)
+    assert missing.output.result == "成果正文" and "缺少合并说明" in missing.error
+    with pytest.raises(ValueError):
+        parse_merge("## 完整成果\n\n## 合并说明\n{}", ["T1"], to_code)
+
+
+def test_json_with_raw_newlines_in_strings_is_accepted():
+    """模型常把多行 Markdown 直接放进 JSON 字符串而不转义换行：不应整份拒绝。"""
+    from roundtable.core.jsonout import extract_json_object
+
+    text = '{"result": "第一行\n第二行\t缩进", "confidence": "low"}'
+    assert extract_json_object(text)["result"] == "第一行\n第二行\t缩进"
+    m = parse_merge('{"result": "多行\n成果", "confidence": "low"}', ["T1"], to_code)
+    assert m.output.result == "多行\n成果"
+
+
+def test_mentioned_subtasks_become_dependencies():
+    text = decomposition(
+        [
+            st(1),
+            st(2),
+            {"id": "T3", "title": "质检标准", "requirements": "针对 T1、t2 的产出制定评审表"},
+            {"id": "T4", "title": "复盘", "requirements": "参考T3", "depends_on": ["T3"]},
+        ]
+    )
+    out = parse_decomposition(text, max_subtasks=5, vocabulary=VOCAB)
+    by = {s.id: s for s in out}
+    assert by["T3"].depends_on == ("T1", "T2")
+    assert by["T4"].depends_on == ("T3",)
+    assert layers(out) == [["T1", "T2"], ["T3"], ["T4"]]
+
+
+def test_implied_dependency_that_would_create_a_cycle_is_skipped():
+    text = decomposition(
+        [
+            {"id": "T1", "title": "a", "requirements": "与 T2 保持一致"},
+            {"id": "T2", "title": "b", "depends_on": ["T1"]},
+        ]
+    )
+    out = parse_decomposition(text, max_subtasks=5, vocabulary=VOCAB)
+    assert out[0].depends_on == () and out[1].depends_on == ("T1",)

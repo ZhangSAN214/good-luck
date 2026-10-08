@@ -30,6 +30,7 @@ class RawCompletion:
     output_tokens: int = 0
     cached_tokens: int = 0
     reported_cost_usd: float | None = None
+    truncated: bool = False  # 达到输出长度上限被截断（max_tokens）
 
 
 @dataclass(frozen=True)
@@ -48,6 +49,7 @@ class Completion:
     cost_source: Literal["reported", "estimated"]
     latency_s: float
     attempts: tuple[Attempt, ...] = field(default_factory=tuple)
+    truncated: bool = False  # 输出达到长度上限被截断
 
     @property
     def failed_over(self) -> bool:

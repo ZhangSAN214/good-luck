@@ -82,6 +82,7 @@ class OpenAICompatProvider(Provider):
                 output_tokens=int(usage.get("completion_tokens") or 0),
                 cached_tokens=int(details.get("cached_tokens") or 0),
                 reported_cost_usd=_float_or_none(usage.get("cost")),
+                truncated=choice.get("finish_reason") == "length",
             )
         except (ValueError, KeyError, IndexError, TypeError, AttributeError):
             raise self._error(ErrorKind.INVALID_RESPONSE, "无法解析返回内容") from None

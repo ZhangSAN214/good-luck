@@ -33,13 +33,13 @@ prompts:
   revise: v2
   synthesize: v3
   redo: v1
-  decompose: v1
+  decompose: v2
   volunteer: v1
   assign: v1
   work: v1
   cross_review: v1
   rework: v1
-  merge: v1
+  merge: v2
 
 # 每个步骤对所有模型统一使用的参数（中立：同一步骤参数相同；模型自身必需的参数在 models.yaml）
 step_params:
