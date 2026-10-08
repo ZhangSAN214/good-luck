@@ -41,7 +41,7 @@ def test_repo_config_loads_with_v1_defaults():
     cfg = load_config()
     rt = cfg.roundtable
     assert rt.seats == 4
-    assert rt.budget.total_usd == 20.0 and rt.budget.warn_ratio == 0.8
+    assert (rt.budget.monthly_usd, rt.budget.daily_usd, rt.budget.warn_ratio) == (20.0, 3.0, 0.8)
     assert rt.channel_mode == "auto"
     assert rt.pipeline == ["answer", "review", "revise", "synthesize", "reveal"]
     assert set(rt.prompts) == {"planner", "answer", "review", "revise", "synthesize"}
@@ -162,7 +162,9 @@ def test_channel_without_key_is_allowed(config_dir):
     [
         (lambda d: d.update(seats=1), "seats"),
         (lambda d: d.update(min_members=5), "min_members"),
-        (lambda d: d["budget"].update(total_usd=0), "budget.total_usd"),
+        (lambda d: d["budget"].update(monthly_usd=0), "budget.monthly_usd"),
+        (lambda d: d["budget"].update(daily_usd=-1), "budget.daily_usd"),
+        (lambda d: d["budget"].pop("monthly_usd"), "budget.monthly_usd"),
         (lambda d: d["budget"].update(warn_ratio=1.2), "budget.warn_ratio"),
         (lambda d: d.update(token_threshold=-5), "token_threshold"),
         (lambda d: d.update(channel_mode="cheapest"), "channel_mode"),
@@ -176,6 +178,11 @@ def test_channel_without_key_is_allowed(config_dir):
 def test_invalid_roundtable(config_dir, change, fragment):
     edit(config_dir, "roundtable.yaml", change)
     expect_error(config_dir, "roundtable.yaml", fragment)
+
+
+def test_daily_cap_can_be_disabled(config_dir):
+    edit(config_dir, "roundtable.yaml", lambda d: d["budget"].update(daily_usd=None))
+    assert load_config(config_dir).roundtable.budget.daily_usd is None
 
 
 def test_channel_mode_defaults_to_auto(config_dir):
@@ -235,7 +242,7 @@ def test_disabled_model_may_omit_tier(config_dir):
     assert load_config(config_dir).models.models[0].tier is None
 
 
-@pytest.mark.parametrize("vendor", ["OpenAI", "Anthropic", "Google", "DeepSeek", "Alibaba"])
+@pytest.mark.parametrize("vendor", ["OpenAI", "Anthropic", "Google", "xAI", "DeepSeek", "Alibaba"])
 def test_repo_vendors_have_flagship_and_budget(vendor):
     tiers = sorted(m.tier for m in load_config().models.models if m.vendor == vendor)
     assert tiers == ["budget", "flagship"]

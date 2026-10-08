@@ -171,17 +171,30 @@ models:
       - {channel: xai, model: grok-4.7}
       - {channel: openrouter, model: x-ai/grok-4.7}
 
+  # 未找到 Grok 4.7 的轻量版，使用 Grok 4.1 Fast。ID 与价格待核对；
+  # 官方直连价格来源不一致，按较高的标价保守预估
+  - id: grok-4.1-fast
+    vendor: xAI
+    tier: budget
+    aliases: [Grok]
+    price: {input: 0.20, output: 0.50}
+    tags: [math, code, research]
+    enabled: true
+    routes:
+      - {channel: xai, model: grok-4-1-fast, price: {input: 1.00, output: 4.00}}
+      - {channel: openrouter, model: x-ai/grok-4.1-fast}
+
   - id: deepseek-v4-pro
     vendor: DeepSeek
     aliases: [深度求索]
     tier: flagship
-    # 搜索结果中的旗舰为 V4 Pro（未找到 V4.1 旗舰版）。OpenRouter 价格取 8 月 GA 版本；待核对
-    price: {input: 0.66, output: 1.98}
+    # 搜索结果中的旗舰为 V4 Pro（未找到 V4.1 旗舰版）。价格已由 check_models.py 核对（OpenRouter）
+    price: {input: 0.2088, output: 0.4176}
     tags: [math, derivation, code, research, long_context]
     enabled: true
     routes:
-      # 官方直连价格来源不一致，按较高的标价保守预估；待核对
-      - {channel: deepseek, model: deepseek-v4-pro, price: {input: 1.74, output: 3.48}}
+      # 直连没有返回实际费用，按此价格记账；官方价格待核对
+      - {channel: deepseek, model: deepseek-v4-pro}
       - {channel: openrouter, model: deepseek/deepseek-v4-pro}
 
   - id: deepseek-v4.1-flash
