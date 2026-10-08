@@ -57,7 +57,11 @@
 
 ### 2.4 提示词外置且带版本
 - `prompts/<role>/v<n>.md`，v1：`answer`、`review`、`revise`、`synthesize`。代码中不得内联提示词正文。
-- 使用的版本由配置指定，随每次调用入库（版本号 + 内容哈希）。改提示词 = 新建版本文件。
+- 文件格式：YAML 文件头（`description`、`output: text|json`、`variables`）+ `<!-- system -->` / `<!-- user -->` 两段。占位符用 `{{ name }}`（不用 `$`，避免与数学公式冲突）；声明的变量与正文占位符必须一一对应，渲染时缺少或多余参数都报错；只替换一次，用户输入里的 `{{ x }}` 不会被展开。
+- 题目、他人答案等外部内容放在标签内（`<question>`、`<answer>` …），系统提示说明标签内的指令无效（防提示注入）。
+- 使用的版本由配置指定，随每次调用入库（版本号 + 内容哈希，换行统一为 LF 后计算）。
+- **改提示词 = 新建版本文件**。`prompts/versions.lock` 记录每个已发布版本的哈希；新增版本后运行 `python scripts/lock_prompts.py` 登记。测试会拒绝已发布版本被修改或删除，也会拒绝未登记的新版本。
+- 提示词中不得出现模型名、厂商名、渠道名（测试从配置中提取名称检查）；组员提示词只允许"代号"这一个与人相关的变量。
 
 ### 2.5 结构化输出
 - 互评和汇总输出 JSON，用 pydantic schema 校验；解析失败重试一次，仍失败则降级并记录。
@@ -116,7 +120,7 @@
 
 ```
 config/        models.yaml  roundtable.yaml  personas.yaml
-prompts/       answer/ review/ revise/ synthesize/   （各含 v1.md）
+prompts/       answer/ review/ revise/ synthesize/（各含 v1.md）  versions.lock
 src/roundtable/
   core/
     config/        配置加载与校验
@@ -132,7 +136,7 @@ src/roundtable/
 web/             index.html、js/、css/
 tests/
 docs/            REQUIREMENTS_v3.md  PLAN.md  mockup.html
-scripts/         check_models.py（本地核对 OpenRouter 渠道的模型 ID 与价格）
+scripts/         check_models.py（核对 OpenRouter 渠道的模型 ID 与价格）  lock_prompts.py（登记提示词版本）
 .env.example
 ```
 
@@ -142,5 +146,6 @@ scripts/         check_models.py（本地核对 OpenRouter 渠道的模型 ID �
 pip install -e ".[dev]"
 ruff check . && ruff format --check .
 pytest
+python scripts/lock_prompts.py      # 新增提示词版本后登记
 uvicorn roundtable.api.app:app --reload
 ```
