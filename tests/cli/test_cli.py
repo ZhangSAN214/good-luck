@@ -171,9 +171,10 @@ def test_main_handles_parse_errors():
 
 async def test_latex_shown_as_plain_text_unless_raw():
     env = Env(confirm_threshold_usd=100.0)
-    env.fake.queue("b1", r"答案是 \(\frac{1}{2}\)，即 $\boxed{0.5}$。")
+    env.fake.queue("b1", r"**答案**是 \(\frac{1}{2}\)，即 $\boxed{0.5}$。")
     code, text = await cli(env, "ask", SHORT, "--members", "b1", "--no-reveal")
     assert code == 0 and "答案是 1/2，即 0.5。" in text and "\\frac" not in text
+    assert "**" not in text
     sid = env.rt.repo.list_sessions()[0].id
     code, raw = await cli(env, "show", sid, "--raw")
-    assert "\\frac{1}{2}" in raw
+    assert "\\frac{1}{2}" in raw and "**答案**" in raw

@@ -170,7 +170,7 @@ src/roundtable/
     jsonout.py     从模型输出中提取 JSON
     service.py     对外 facade
   cli.py         命令行试用（`roundtable` 命令，见 docs/CLI.md）
-  plaintext.py   命令行显示用：LaTeX 数学式转纯文本（不改动存储的原文）
+  plaintext.py   命令行显示用：LaTeX 数学式转纯文本、去掉 Markdown 加粗符号（不改动存储的原文）
   api/           FastAPI 应用、路由、SSE
 web/             index.html、js/、css/
 tests/

@@ -56,3 +56,26 @@ def test_non_math_text_untouched(src):
 def test_unbalanced_input_does_not_crash():
     for src in [r"\frac{1}{", r"$\sqrt{$", r"\begin{aligned} x", "$$", r"\\", r"x^"]:
         t(src)
+
+
+@pytest.mark.parametrize(
+    "src, expected",
+    [
+        ("**最终答案**：2", "最终答案：2"),
+        ("结论是 **x = 2**，另见 **说明**。", "结论是 x = 2，另见 说明。"),
+        ("**Answer:** 42", "Answer: 42"),
+        ("python 里 2**3 + 4**2 = 24", "python 里 2**3 + 4**2 = 24"),  # 乘方不动
+        ("单个 ** 不成对", "单个 ** 不成对"),
+        ("** 两侧有空格 **", "** 两侧有空格 **"),
+    ],
+)
+def test_strip_bold(src, expected):
+    from roundtable.plaintext import strip_bold
+
+    assert strip_bold(src) == expected
+
+
+def test_to_terminal_combines_math_and_bold():
+    from roundtable.plaintext import to_terminal
+
+    assert to_terminal(r"**答案**：$\frac{1}{2}$") == "答案：1/2"

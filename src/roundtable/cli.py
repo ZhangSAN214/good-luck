@@ -26,7 +26,7 @@ from roundtable.core.orchestrator import Orchestrator, RunResult
 from roundtable.core.routing import Question, RoutingError, UserChoice
 from roundtable.core.runtime import Runtime
 from roundtable.core.steps import Event
-from roundtable.plaintext import latex_to_text
+from roundtable.plaintext import to_terminal
 
 STEP_NAMES = {
     "plan": "规划",
@@ -64,8 +64,8 @@ class CLI:
         print(text, file=self.out, flush=True)
 
     def t(self, text: str) -> str:
-        """模型输出：把 LaTeX 数学式转成易读的纯文本（--raw 时保持原样）。"""
-        return latex_to_text(text) if self.plain_math else text
+        """模型输出：数学式转纯文本、去掉加粗符号（--raw 时保持原样）。"""
+        return to_terminal(text) if self.plain_math else text
 
     def label(self, code: str | None) -> str:
         return f"{self.prefix}{code}" if code else "统筹"
@@ -338,7 +338,9 @@ def build_parser() -> argparse.ArgumentParser:
     ask.add_argument("--coordinator", help="手动模式下指定统筹的模型 id")
     ask.add_argument("--seed", type=int, help="随机种子（用于复现）")
     ask.add_argument("--details", action="store_true", help="显示每位组员的答案、评审和修订稿")
-    ask.add_argument("--raw", action="store_true", help="数学式保持模型输出的原样（不转成纯文本）")
+    ask.add_argument(
+        "--raw", action="store_true", help="保持模型输出的原样（不转换数学式、不去掉加粗符号）"
+    )
     ask.add_argument(
         "--yes", action="store_true", help="花费 / 升级确认自动选择继续（预算确认仍会询问）"
     )

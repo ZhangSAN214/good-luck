@@ -354,3 +354,17 @@ def latex_to_text(text: str) -> str:
     if "\\" in converted:
         converted = _Parser(converted, strict=False).parse()
     return re.sub(r"\n{3,}", "\n\n", converted)
+
+
+# 成对的 **加粗**；两侧紧挨字母 / 数字时不处理（避免误伤代码里的 2**3 这类乘方）
+_BOLD = re.compile(r"(?<![A-Za-z0-9*])\*\*(?=\S)(.+?)(?<=\S)\*\*(?![A-Za-z0-9*])")
+
+
+def strip_bold(text: str) -> str:
+    """去掉 Markdown 加粗符号，只保留文字。"""
+    return _BOLD.sub(r"\1", text)
+
+
+def to_terminal(text: str) -> str:
+    """命令行显示：数学式转纯文本，并去掉加粗符号。"""
+    return strip_bold(latex_to_text(text))
