@@ -1,4 +1,4 @@
-"""核对 config/models.yaml 与 OpenRouter 上的实际模型 ID 和价格。
+"""核对 config/models.yaml 中 OpenRouter 渠道的模型 ID 和价格。
 
 用法（在项目根目录）：
     python scripts/check_models.py            # 读取 .env 中的 OPENROUTER_API_KEY（可选）
@@ -17,11 +17,12 @@ from pathlib import Path
 from typing import Any
 
 import httpx
-import yaml
 from dotenv import load_dotenv
 
+from roundtable.core.config import load_config
+
 ROOT = Path(__file__).resolve().parent.parent
-MODELS_YAML = ROOT / "config" / "models.yaml"
+CHANNEL = "openrouter"
 MODELS_URL = "https://openrouter.ai/api/v1/models"
 PER_MILLION = 1_000_000
 
@@ -34,9 +35,22 @@ class Finding:
     detail: str = ""
 
 
-def load_local_models(path: Path = MODELS_YAML) -> list[dict[str, Any]]:
-    data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-    return list(data.get("models", []))
+def load_local_models(config_dir: Path | None = None) -> list[dict[str, Any]]:
+    """每个模型取 OpenRouter 渠道的路由；没有该渠道的模型标为 skipped。"""
+    cfg = load_config(config_dir) if config_dir else load_config()
+    entries = []
+    for m in cfg.models.models:
+        route = next((r for r in m.routes if r.channel == CHANNEL), None)
+        price = m.price_for(route) if route else m.price
+        entries.append(
+            {
+                "id": m.id,
+                "model": route.model if route else "-",
+                "provider": CHANNEL if route else "other",
+                "price": {"input": price.input, "output": price.output},
+            }
+        )
+    return entries
 
 
 def fetch_remote(api_key: str | None, timeout: float = 30.0) -> dict[str, Any]:
@@ -62,7 +76,7 @@ def compare(
     for entry in local:
         model_id, model = entry.get("id", "?"), entry.get("model", "?")
         if entry.get("provider") != "openrouter":
-            findings.append(Finding(model_id, model, "skipped", "非 openrouter 模型"))
+            findings.append(Finding(model_id, model, "skipped", "未配置 openrouter 渠道"))
             continue
         remote_model = remote_by_id.get(model)
         if remote_model is None:

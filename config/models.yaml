@@ -1,10 +1,7 @@
-# 模型注册表。加模型只改这里，代码不针对具体模型写分支。
+# 模型注册表。加模型 / 加渠道只改这里，代码不针对具体模型或厂商写分支。
 #
-# model: OpenRouter 上的模型 ID —— 写入前请运行 `python scripts/check_models.py` 核对
-# price: 美元 / 每百万 token，只用于事前预估；实际费用以 OpenRouter 返回为准
-# tags:  能力标签，必须属于下方 tag_vocabulary
-#
-# ⚠️ 以下 model ID 和价格来自网页搜索，尚未用 OpenRouter API 核对。
+# ⚠️ 以下模型 ID 与价格来自网页搜索，尚未用官方 API 核对。
+#    OpenRouter 部分可运行 `python scripts/check_models.py` 核对。
 
 tag_vocabulary:
   # 领域类
@@ -23,52 +20,103 @@ tag_vocabulary:
   - transcribe
   - video_gen
 
+# 调用渠道。key 只从 .env 读取，这里只写环境变量名。
+#   adapter: 适配器实现（openai_compat / anthropic / gemini）
+#   kind:    aggregator（聚合平台）| direct（官方直连）| local（本地）
+#            roundtable.yaml 的 channel_mode 据此筛选渠道
+channels:
+  openrouter:
+    adapter: openai_compat
+    kind: aggregator
+    base_url: https://openrouter.ai/api/v1
+    key_env: OPENROUTER_API_KEY
+    extra_body:
+      usage: {include: true}   # 让 OpenRouter 返回实际费用
+  openai:
+    adapter: openai_compat
+    kind: direct
+    base_url: https://api.openai.com/v1
+    key_env: OPENAI_API_KEY
+  anthropic:
+    adapter: anthropic
+    kind: direct
+    base_url: https://api.anthropic.com
+    key_env: ANTHROPIC_API_KEY
+  google:
+    adapter: gemini
+    kind: direct
+    base_url: https://generativelanguage.googleapis.com/v1beta
+    key_env: GEMINI_API_KEY
+  xai:
+    adapter: openai_compat
+    kind: direct
+    base_url: https://api.x.ai/v1
+    key_env: XAI_API_KEY
+  deepseek:
+    adapter: openai_compat
+    kind: direct
+    base_url: https://api.deepseek.com/v1
+    key_env: DEEPSEEK_API_KEY
+  # 本地模型示例（OpenAI 兼容端点，不需要 key）：
+  # local:
+  #   adapter: openai_compat
+  #   kind: local
+  #   base_url: http://localhost:11434/v1
+  #   key_env: null
+
+# routes 按优先顺序排列：前一个渠道遇到 429、额度用尽、网络错误等时切换到下一个。
+# price: 美元 / 每百万 token，只用于事前预估；实际费用以渠道返回为准（有则用）。
 models:
   - id: gpt-6-sol
-    provider: openrouter
-    model: openai/gpt-6-sol
     vendor: OpenAI
     price: {input: 2.00, output: 10.00}
     tags: [math, writing, code, research, vision]
     enabled: true
+    routes:
+      - {channel: openai, model: gpt-6-sol}
+      - {channel: openrouter, model: openai/gpt-6-sol}
 
   - id: claude-sonnet-5.5
-    provider: openrouter
-    model: anthropic/claude-sonnet-5.5
     vendor: Anthropic
-    price: {input: 2.00, output: 10.00}
+    price: {input: 2.00, output: 10.00, cached_input: 0.20}
     tags: [writing, code, research, long_context, vision]
     enabled: true
+    routes:
+      - {channel: anthropic, model: claude-sonnet-5-5}
+      - {channel: openrouter, model: anthropic/claude-sonnet-5.5}
 
   - id: gemini-3.8-flash
-    provider: openrouter
-    model: google/gemini-3.8-flash
     vendor: Google
     price: {input: 0.75, output: 3.75}
     tags: [design, research, long_context, vision]
     enabled: true
+    routes:
+      - {channel: google, model: gemini-3.8-flash}
+      - {channel: openrouter, model: google/gemini-3.8-flash}
 
   - id: qwen3.8-max
-    provider: openrouter
-    model: qwen/qwen3.8-max
     vendor: Alibaba
     price: {input: 2.00, output: 6.00}
     tags: [math, derivation, science, code]
     enabled: true
+    routes:
+      - {channel: openrouter, model: qwen/qwen3.8-max}
 
   - id: grok-4.7
-    provider: openrouter
-    model: x-ai/grok-4.7
     vendor: xAI
     price: {input: 2.00, output: 6.00}
     tags: [math, code, research]
     enabled: true
+    routes:
+      - {channel: xai, model: grok-4.7}
+      - {channel: openrouter, model: x-ai/grok-4.7}
 
   - id: deepseek-v4.1-flash
-    provider: openrouter
-    model: deepseek/deepseek-v4.1-flash
     vendor: DeepSeek
     # 分时段计价（闲时 0.15/0.60）；这里按高峰价保守预估
     price: {input: 0.30, output: 1.20}
     tags: [math, derivation, code]
     enabled: true
+    routes:
+      - {channel: deepseek, model: deepseek-v4.1-flash}
+      - {channel: openrouter, model: deepseek/deepseek-v4.1-flash}

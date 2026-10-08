@@ -29,6 +29,16 @@ prompts:
 # 步骤顺序（插件名）
 pipeline: [answer, review, revise, synthesize, reveal]
 
+# 渠道模式：
+#   openrouter —— 只走聚合平台
+#   direct     —— 只走官方直连（及本地）
+#   auto       —— 按每个模型 routes 的顺序，直连与 OpenRouter 都可用
+# 没有 key 的渠道自动跳过。
+channel_mode: auto
+
 request:
   timeout_s: 120
-  max_retries: 3
+  failover_rounds: 2          # 所有渠道都失败后从头再试的轮数（含第一轮）
+  backoff_s: 2.0              # 两轮之间的等待
+  cooldown_rate_limit_s: 30   # 渠道被限流后，冷却期内排到最后
+  cooldown_quota_s: 600       # 渠道额度用尽 / key 无效后，冷却期内排到最后
