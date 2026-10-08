@@ -11,6 +11,7 @@ from roundtable.core.storage import migrations as migrations_module
 PUBLISHED = {
     1: "933230221ea1f88e4c24d04fc53f637405aa2d31f301751d3a32bad452818567",
     2: "c00e4408420071964033045c732e853efa6f3b3130a3a65131adf9cb2650cf2b",
+    3: "9e510c35c3870f79db2aaad4478e8b674be7702f36983aba04e0b93a4e55e6fa",
 }
 
 

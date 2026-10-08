@@ -99,7 +99,10 @@
 
 ### 2.7 分层
 - `core/`：纯业务逻辑，**禁止 import fastapi / starlette / uvicorn / streamlit**（测试守卫）。
-- `api/`：FastAPI 路由 + SSE，只调用 `core/service.py`。
+- `api/`：FastAPI 路由 + SSE，只调用 `core/service.py`（启动时用 `core/runtime.py` 组装；有测试检查导入）。
+- **服务 facade**（`core/service.py`，`RoundtableService`）：返回值都是可 JSON 化的 dict；揭晓前全部匿名。提交题目后立即返回会话 id，讨论在后台任务中执行；意外错误把会话标为 `paused`（可 `resume`）。揭晓只允许在讨论结束（完成 / 停止 / 失败）后。
+- **HTTP 接口**：`GET /api/status`、`GET /api/budget`、`GET/POST /api/sessions`、`GET /api/sessions/{id}`、`POST …/respond`、`POST …/resume`、`POST …/reveal`、`GET …/events`（SSE）。
+- **SSE 协议**：第一条 `snapshot`（当前状态），之后是实时事件（只含代号），每当讨论停下来（完成 / 失败 / 停止 / 等待确认 / 暂停）发一条 `state` 并关闭；前端回复确认后重新连接。
 - `web/`：静态前端，只通过 HTTP/SSE 与后端通信。
 
 ---

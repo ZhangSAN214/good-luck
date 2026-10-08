@@ -174,6 +174,27 @@ def test_decision_code_has_no_brand_names():
     assert hits == {}
 
 
+def roundtable_imports(source: str) -> set[str]:
+    found = set()
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.ImportFrom) and node.module and node.level == 0:
+            names = [node.module]
+        elif isinstance(node, ast.Import):
+            names = [a.name for a in node.names]
+        else:
+            continue
+        found |= {n for n in names if n.startswith("roundtable")}
+    return found
+
+
+def test_api_only_uses_service():
+    """Web 层只能通过 core.service 访问核心逻辑（构建运行时除外）。"""
+    allowed = {"roundtable.core.service", "roundtable.core.runtime"}
+    for path in (ROOT / "src" / "roundtable" / "api").rglob("*.py"):
+        extra = roundtable_imports(path.read_text(encoding="utf-8")) - allowed
+        assert extra == set(), f"{path.name} 直接导入了 {sorted(extra)}"
+
+
 def test_repo_contains_no_secrets():
     leaks = {}
     for path in repo_files():

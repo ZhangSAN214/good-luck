@@ -155,4 +155,12 @@ CREATE TABLE session_tables (
 ALTER TABLE sessions ADD COLUMN budget_override INTEGER NOT NULL DEFAULT 0;
 """,
     ),
+    (
+        3,
+        "保存用户的模式选择",
+        """
+-- 用户选择（模式、预设、手动勾选的组员与统筹），JSON；路由前中断也能恢复
+ALTER TABLE sessions ADD COLUMN choice TEXT NOT NULL DEFAULT '{}';
+""",
+    ),
 ]

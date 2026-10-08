@@ -78,33 +78,33 @@ class Orchestrator:
 
     # --- 对外接口 ------------------------------------------------------------------
 
-    async def start(
+    def open(
         self, question: Question, choice: UserChoice | None = None, *, seed: int | None = None
-    ) -> RunResult:
+    ) -> str:
+        """只创建会话（立即返回 id）；之后用 run() 执行。Web 服务先拿 id 再在后台运行。"""
         choice = choice or UserChoice()
         seed = secrets.randbelow(2**31) if seed is None else seed
-        repo = self.rt.repo
-        sid = repo.create_session(
+        return self.rt.repo.create_session(
             question.text,
             seed=seed,
             mode=choice.mode,
             preset=choice.preset,
             attachments=question.attachments,
+            choice=_choice_dict(choice),
         )
-        async with self._lock(sid):
-            verdict = self.rt.budget.check(0.0)
-            if not verdict.allowed:
-                # 预算已用满：连规划员也先不调用
-                card = verdict.card()
-                self._checkpoint(sid, card, stage="routing", choice=_choice_dict(choice))
-                return self._result(sid)
-            try:
-                await self._route(sid, question, choice, seed)
-            except RoutingError as exc:
-                repo.set_status(sid, "failed", error=str(exc))
-                self._emit(sid, "failed", error=str(exc))
-                return self._result(sid)
-            return await self._advance(sid)
+
+    async def run(self, session_id: str) -> RunResult:
+        """执行已创建的会话，直到完成或需要用户确认。"""
+        async with self._lock(session_id):
+            row = self.rt.repo.session_row(session_id)
+            if row["status"] in FINISHED or self.rt.repo.pending_checkpoint(session_id):
+                return self._result(session_id)
+            return await self._advance(session_id)
+
+    async def start(
+        self, question: Question, choice: UserChoice | None = None, *, seed: int | None = None
+    ) -> RunResult:
+        return await self.run(self.open(question, choice, seed=seed))
 
     async def respond(self, session_id: str, response: str, note: str | None = None) -> RunResult:
         async with self._lock(session_id):
@@ -123,16 +123,7 @@ class Orchestrator:
             details = cp.card.get("details", {})
             if cp.kind == "budget":
                 repo.set_budget_override(session_id)
-                if details.get("stage") == "routing":
-                    row = repo.session_row(session_id)
-                    question = Question(row["question"], tuple(row["attachments"]))
-                    try:
-                        await self._route(
-                            session_id, question, _choice_from(details["choice"]), row["seed"]
-                        )
-                    except RoutingError as exc:
-                        repo.set_status(session_id, "failed", error=str(exc))
-                        return self._result(session_id)
+                # 路由前被拦下的情况由 _advance 继续路由
             elif cp.kind == "cost":
                 table_no = details["table_no"]
                 if response.startswith("plan:"):
@@ -159,6 +150,29 @@ class Orchestrator:
         self._emit(session_id, "revealed")
 
     # --- 路由 ----------------------------------------------------------------------
+
+    async def _begin(self, sid: str) -> bool:
+        """还没路由的会话：先查预算，再路由。返回是否可以继续执行。"""
+        repo = self.rt.repo
+        row = repo.session_row(sid)
+        if not repo.budget_override(sid):
+            verdict = self.rt.budget.check(0.0)
+            if not verdict.allowed:
+                # 预算已用满：连规划员也先不调用
+                self._checkpoint(sid, verdict.card(), stage="routing")
+                return False
+        try:
+            await self._route(
+                sid,
+                Question(row["question"], tuple(row["attachments"])),
+                _choice_from(row["choice"]),
+                row["seed"],
+            )
+        except RoutingError as exc:
+            repo.set_status(sid, "failed", error=str(exc))
+            self._emit(sid, "failed", error=str(exc))
+            return False
+        return True
 
     async def _route(self, sid: str, question: Question, choice: UserChoice, seed: int) -> None:
         repo = self.rt.repo
@@ -270,6 +284,9 @@ class Orchestrator:
 
     async def _advance(self, sid: str) -> RunResult:
         repo = self.rt.repo
+        needs_routing = repo.routing_record(sid) is None and not repo.pending_checkpoint(sid)
+        if needs_routing and not await self._begin(sid):
+            return self._result(sid)
         while True:
             if repo.pending_checkpoint(sid):
                 return self._result(sid)

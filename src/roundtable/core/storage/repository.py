@@ -191,13 +191,24 @@ class Repository:
         mode: str = "auto",
         preset: str | None = None,
         attachments: Sequence[str] = (),
+        choice: Mapping[str, Any] | None = None,
     ) -> str:
         session_id = uuid.uuid4().hex
         now = self.clock()
         self._exec(
             "INSERT INTO sessions (id, created_at, updated_at, question, attachments, seed, mode,"
-            " preset, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'created')",
-            (session_id, now, now, question, _json(list(attachments)), seed, mode, preset),
+            " preset, status, choice) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'created', ?)",
+            (
+                session_id,
+                now,
+                now,
+                question,
+                _json(list(attachments)),
+                seed,
+                mode,
+                preset,
+                _json(dict(choice or {"mode": mode, "preset": preset})),
+            ),
         )
         return session_id
 
@@ -214,6 +225,7 @@ class Repository:
         """内部使用的完整记录（含 seed），不用于对外展示。"""
         row = dict(self._require_session(session_id))
         row["attachments"] = json.loads(row["attachments"])
+        row["choice"] = json.loads(row["choice"])
         return row
 
     def mark_revealed(self, session_id: str) -> None:
