@@ -111,7 +111,7 @@ async def redo_call(
 
 def record_effort(ctx: TableContext, record: EffortRecord) -> None:
     """保存检查结果（作为一种产出），供界面、汇总标注和贡献统计使用。"""
-    ctx.state.effort[(record.step, record.code)] = record
+    ctx.state.effort[record.key] = record
     ctx.repo.save_output(
         ctx.session_id,
         table_no=ctx.table_no,

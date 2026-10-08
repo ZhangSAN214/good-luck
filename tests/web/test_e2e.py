@@ -255,3 +255,24 @@ def test_lazy_member_flagged_and_contributions_tab(serve, page):
     assert "本场" in panel and "被采纳" in panel and "敷衍" in panel
     page.wait_for_selector("#pbody h4:has-text('历史') + table")  # 匿名关闭：计入历史
     assert "b1" in page.inner_text("#pbody")
+
+
+def test_collab_mode(serve, page):
+    srv = serve(confirm_threshold_usd=100.0)
+    page.goto(srv.url)
+    page.wait_for_selector("#workflow button[data-v='discussion'][aria-pressed='true']")
+    page.click("#workflow button[data-v='collab']")
+    page.check("#anonymous")
+    ask(page, MEDIUM)
+    wait_done(page)
+    chat = page.inner_text("#chat")
+    for label in ("拆分子任务", "自荐", "分配", "完成子任务", "交叉审查", "修改", "合并"):
+        assert page.locator(f".phase:text-is('{label}')").count() == 1, label
+    assert "协同 · 便宜档全员 · 匿名" in chat and "拆分为 2 个子任务" in chat
+    assert page.locator(".final h3:has-text('合并成果')").count() == 1
+    assert "采纳情况" in page.inner_text(".final")
+    page.click('#tabs button[data-t="reviews"]')
+    assert "W1（T1 ·" in page.inner_text("#pbody")
+    page.click('#tabs button[data-t="flow"]')
+    assert "拆分子任务" in page.inner_text("#pbody")
+    assert leaks(srv.identity_terms(), anonymous_text(page)) == []

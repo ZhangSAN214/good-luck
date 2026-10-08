@@ -128,7 +128,22 @@ def test_parse_synthesis():
 
 
 def test_registry():
-    assert step_names() == ["answer", "reveal", "review", "revise", "synthesize"]
+    assert step_names() == sorted(
+        [
+            "answer",
+            "reveal",
+            "review",
+            "revise",
+            "synthesize",
+            "decompose",
+            "volunteer",
+            "assign",
+            "work",
+            "cross_review",
+            "rework",
+            "merge",
+        ]
+    )
     with pytest.raises(ValueError):
         register_step(get_step("answer"))
     with pytest.raises(KeyError, match="debate"):

@@ -25,6 +25,7 @@ from .planner import PlannerResult, run_planner
 from .triage import Question, triage
 
 CUSTOM = "custom"
+WORKFLOWS = ("discussion", "collab")  # 讨论模式 / 协同模式
 Source = Literal["rule", "model", "default"]
 
 
@@ -34,13 +35,17 @@ class RoutingError(ValueError):
 
 @dataclass(frozen=True)
 class UserChoice:
-    """tier：档位名（routing.yaml 的 plans）或 "custom"；为空时用 default_plan。"""
+    """tier：档位名（routing.yaml 的 plans）或 "custom"；为空时用 default_plan。
+    workflow：discussion（讨论模式）或 collab（协同模式）。"""
 
     tier: str | None = None
     models: tuple[str, ...] = ()
     coordinator: str | None = None
+    workflow: str = "discussion"
 
     def __post_init__(self) -> None:
+        if self.workflow not in WORKFLOWS:
+            raise RoutingError(f"未知的模式 {self.workflow!r}，可选：{list(WORKFLOWS)}")
         if self.tier == CUSTOM and not self.models:
             raise RoutingError("自选模式至少需要勾选模型")
         if self.tier != CUSTOM and (self.models or self.coordinator):
@@ -51,13 +56,23 @@ class UserChoice:
             raise RoutingError("统筹必须是勾选的模型之一")
 
     def to_dict(self) -> dict[str, Any]:
-        return {"tier": self.tier, "models": list(self.models), "coordinator": self.coordinator}
+        return {
+            "tier": self.tier,
+            "models": list(self.models),
+            "coordinator": self.coordinator,
+            "workflow": self.workflow,
+        }
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> UserChoice:
         if "mode" in d and "tier" not in d:
             raise RoutingError("这是旧版本创建的会话（按难度分配人数），无法继续执行")
-        return cls(d.get("tier"), tuple(d.get("models") or ()), d.get("coordinator"))
+        return cls(
+            d.get("tier"),
+            tuple(d.get("models") or ()),
+            d.get("coordinator"),
+            d.get("workflow") or "discussion",
+        )
 
 
 @dataclass(frozen=True)
@@ -111,6 +126,7 @@ class RoutingDecision:
             seed=self.seed,
             question_chars=len(question.text),
             attachments=question.attachments,
+            workflow=self.choice.workflow,
             difficulty=a.difficulty,
             difficulty_source=a.source,
             task_type=a.task_type,
@@ -157,6 +173,7 @@ class RoutingRecord:
     estimated_cost_usd: float
     needs_confirmation: bool
     options: dict[str, float | None]
+    workflow: str = "discussion"
     # 以下在讨论结束后填写
     actual_cost_usd: float | None = None
     escalated: bool = False
@@ -280,6 +297,7 @@ def option_lineup(
     config: AppConfig,
     router: ChannelRouter,
     recent_coordinators: Sequence[str] = (),
+    workflow: str = "discussion",
 ) -> Lineup:
     """重建某个档位的阵容（与估价时使用同一个随机种子，结果一致）。"""
     builder = LineupBuilder(
@@ -289,7 +307,7 @@ def option_lineup(
         recent_coordinators=recent_coordinators,
     )
     try:
-        return builder.build(config.routing.plans[plan_name])
+        return builder.build(config.routing.plans[plan_name], workflow)
     except NotEnoughModels as exc:
         raise RoutingError(str(exc)) from None
 
@@ -352,6 +370,7 @@ def _options(
     available: Sequence[ModelSpec],
     seed: int,
     recent_coordinators: Sequence[str],
+    workflow: str = "discussion",
 ) -> dict[str, PlanOption]:
     """每个档位的阵容与预估花费，供界面对比和用户改选。每个档位用独立的随机数。"""
     by_id = {m.id: m for m in available}
@@ -364,7 +383,7 @@ def _options(
             recent_coordinators=recent_coordinators,
         )
         try:
-            lineup = builder.build(plan)
+            lineup = builder.build(plan, workflow)
         except NotEnoughModels as exc:
             options[name] = PlanOption(plan.label, False, None, str(exc))
             continue
@@ -422,6 +441,7 @@ async def route_question(
         available=available,
         seed=seed,
         recent_coordinators=recent_coordinators,
+        workflow=choice.workflow,
     )
     if tier == CUSTOM:
         builder = LineupBuilder(
@@ -431,7 +451,7 @@ async def route_question(
             recent_coordinators=recent_coordinators,
         )
         try:
-            lineup = builder.build_custom(choice.models, choice.coordinator)
+            lineup = builder.build_custom(choice.models, choice.coordinator, choice.workflow)
         except NotEnoughModels as exc:
             raise RoutingError(str(exc)) from None
         estimate = _estimate(
@@ -538,7 +558,7 @@ def escalate(
         recent_coordinators=recent_coordinators,
     )
     try:
-        lineup = builder.build(plan)
+        lineup = builder.build(plan, choice.workflow)
     except NotEnoughModels as exc:
         raise RoutingError(f"无法升级到 {escalate_to}：{exc}") from None
     estimate = estimate_lineup(lineup, question, assessment, config=config, router=router)

@@ -69,7 +69,10 @@ register_step(SynthesizeStep())
 
 
 def outcome_signals(state: TableState) -> OutcomeSignals | None:
-    """供升级判断：未解决的分歧数与把握程度。汇总降级时视为把握低。"""
+    """供升级判断：未解决的分歧数与把握程度。汇总 / 合并降级时视为把握低。"""
+    merge = state.collab.merge
+    if merge is not None:  # 协同模式：只看把握程度
+        return OutcomeSignals(0, "low" if merge.degraded else merge.output.confidence)
     s = state.synthesis
     if s is None:
         return None
@@ -78,7 +81,9 @@ def outcome_signals(state: TableState) -> OutcomeSignals | None:
 
 
 def final_answer(state: TableState) -> str | None:
-    """本桌的最终答案：有汇总用汇总；只有一个组员时用他的最终稿。"""
+    """本桌的最终答案：协同模式用合并成果；有汇总用汇总；只有一个组员时用他的最终稿。"""
+    if state.collab.merge is not None:
+        return state.collab.merge.output.result
     if state.synthesis is not None:
         return state.synthesis.output.final_answer
     if len(state.answers) == 1:

@@ -193,6 +193,22 @@ async def test_effort_events_printed():
     assert code == 0 and "打回重做：只有空话" in text
 
 
+async def test_collab_mode():
+    env = Env(confirm_threshold_usd=100.0)
+    code, text = await cli(env, "ask", MEDIUM, "--mode", "collab", "--details", "--seed", "5")
+    assert code == 0
+    for marker in (
+        "统筹拆分子任务",
+        "成员自荐",
+        "交叉审查",
+        "【子任务与分工】",
+        "【完整成果】",
+        "【采纳情况】",
+    ):
+        assert marker in text, marker
+    assert "全部采用" in text and "自荐被采纳" in text
+
+
 async def test_resume_command():
     env = Env(confirm_threshold_usd=100.0)
     original = env.reply

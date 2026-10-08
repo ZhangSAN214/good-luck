@@ -109,9 +109,120 @@ def synthesis_reply(resolved=True, confidence="high") -> Callable:
     return reply
 
 
+SUBTASK_ID = re.compile(r'<subtask id="(T\d+)">')
+VOLUNTEER_CODE = re.compile(r'<volunteer code="组员(.)">')
+WORK_ID = re.compile(r'<work id="(W\d+)"')
+MERGE_WORK = re.compile(r'<work id="W\d+" subtask="(T\d+)" from="组员(.)"')
+
+
+def decompose_reply(n: int = 2, depends: bool = False) -> Callable:
+    def reply(model: str, messages: list[Message]) -> str:
+        subtasks = [
+            {
+                "id": f"T{i}",
+                "title": f"第 {i} 部分",
+                "requirements": f"完成第 {i} 部分的推导",
+                "acceptance": "推理正确、结论明确",
+                "tags": ["math"],
+                "depends_on": ["T1"] if depends and i > 1 else [],
+            }
+            for i in range(1, n + 1)
+        ]
+        return json.dumps({"subtasks": subtasks, "notes": "按步骤拆分"}, ensure_ascii=False)
+
+    return reply
+
+
+def volunteer_reply(model: str, messages: list[Message]) -> str:
+    ids = SUBTASK_ID.findall(user_text(messages))
+    prefs = [
+        {
+            "subtask": sid,
+            "stance": "want" if i == 0 else "can",
+            "reason": "这一部分主要是求导与比较函数值，我擅长这类推导",
+        }
+        for i, sid in enumerate(ids)
+    ]
+    return json.dumps(
+        {"strengths": "擅长微积分推导与数值核对，能写出完整步骤", "preferences": prefs},
+        ensure_ascii=False,
+    )
+
+
+def assign_reply(model: str, messages: list[Message]) -> str:
+    """轮流分配：每人至少一块，每块至少一人。"""
+    text = user_text(messages)
+    ids, codes = SUBTASK_ID.findall(text), VOLUNTEER_CODE.findall(text)
+    owners: dict[str, list[str]] = {sid: [] for sid in ids}
+    for i in range(max(len(ids), len(codes))):
+        owners[ids[i % len(ids)]].append(f"组员{codes[i % len(codes)]}")
+    return json.dumps(
+        {
+            "assignments": [{"subtask": k, "members": sorted(set(v))} for k, v in owners.items()],
+            "rationale": "按自荐轮流分配",
+        },
+        ensure_ascii=False,
+    )
+
+
+def cross_review_reply(model: str, messages: list[Message]) -> str:
+    reviews = [
+        {
+            "target": item,
+            "verdict": "partially_correct",
+            "issues": [
+                {
+                    "location": "第 2 步",
+                    "problem": f"{model} 指出的问题",
+                    "suggestion": "改正",
+                    "severity": "minor",
+                }
+            ],
+            "checked": "",
+            "strengths": "步骤清楚",
+        }
+        for item in WORK_ID.findall(user_text(messages))
+    ]
+    return json.dumps({"reviews": reviews}, ensure_ascii=False)
+
+
+def merge_reply(confidence: str = "high") -> Callable:
+    def reply(model: str, messages: list[Message]) -> str:
+        found = MERGE_WORK.findall(user_text(messages))
+        subtasks: dict[str, list[dict]] = {}
+        for sid, code in found:
+            subtasks.setdefault(sid, []).append(
+                {"member": f"组员{code}", "level": "full", "reason": "推导完整"}
+            )
+        return json.dumps(
+            {
+                "result": "完整成果：最大值 2，最小值 -2",
+                "subtasks": [{"subtask": k, "adopted": v} for k, v in subtasks.items()],
+                "gaps": [],
+                "open_questions": [],
+                "confidence": confidence,
+            },
+            ensure_ascii=False,
+        )
+
+    return reply
+
+
 def default_reply(model: str, messages: list[Message]) -> str:
     """按提示词判断步骤，给出合格回复。"""
     system = messages[0].content
+    if "把任务拆成子任务" in system and "学习小组的统筹" in system:
+        return decompose_reply()(model, messages)
+    if "现在请你自荐" in system:
+        return volunteer_reply(model, messages)
+    if "负责把子任务分配给组员" in system:
+        return assign_reply(model, messages)
+    if "请你审查分给你的几份成果" in system:
+        return cross_review_reply(model, messages)
+    if "负责的子任务已经由其他组员审查" in system:
+        return revision_reply(model, messages)
+    if "合并成一份完整成果" in system:
+        return merge_reply()(model, messages)
     if "审阅每一份答案" in system:
         return good_review(model, messages)
     if "根据审阅意见修订" in system:

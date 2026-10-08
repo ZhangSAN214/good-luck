@@ -85,7 +85,7 @@ async def test_lazy_answer_is_redone_once_and_replaced(table):
     assert "只有空话" in redo[3].content and "打回重做" in redo[0].content
     assert redo[1].content == calls[0].messages[1].content  # 原题目原样保留
     assert table.ctx.state.answers["甲"].startswith("b1 的答案")
-    record = table.ctx.state.effort[("answer", "甲")]
+    record = table.ctx.state.effort[("answer", "甲", "")]
     assert record.status == "redone" and not record.lazy
     assert [e.type for e in table.events].count("effort_redo") == 1
     # 合格的组员不重做
@@ -96,7 +96,7 @@ async def test_still_lazy_after_redo_is_flagged_and_kept(table):
     table.fake.queue("b1", "略", "抱歉，我无法回答。")
     [result] = await run(table, "answer")
     assert table.ctx.state.answers["甲"] == "抱歉，我无法回答。"  # 产出保留
-    record = table.ctx.state.effort[("answer", "甲")]
+    record = table.ctx.state.effort[("answer", "甲", "")]
     assert record.lazy and record.reasons == ("只有空话，没有实质内容",)
     assert "拒绝作答或只表示无法完成" in record.final_reasons
     assert table.ctx.state.flagged("甲") and not table.ctx.state.flagged("乙")
@@ -125,7 +125,7 @@ async def test_redo_disabled_flags_without_calling(table):
     table.fake.queue("b1", "略")
     await run(table, "answer")
     assert len(table.calls_for("b1")) == 1
-    record = table.ctx.state.effort[("answer", "甲")]
+    record = table.ctx.state.effort[("answer", "甲", "")]
     assert record.lazy and not record.redone
 
 
@@ -181,7 +181,7 @@ async def test_review_with_no_valid_review_is_redone(table):
     await run(table, "review")
     assert len([c for c in table.calls_for("b1") if "审阅每一份答案" in c.messages[0].content]) == 2
     assert all(r.valid for r in table.ctx.state.reviews["甲"])
-    assert table.ctx.state.effort[("review", "甲")].status == "redone"
+    assert table.ctx.state.effort[("review", "甲", "")].status == "redone"
 
 
 async def test_review_still_vague_is_flagged(table):
@@ -194,7 +194,7 @@ async def test_review_still_vague_is_flagged(table):
 
     table.fake._default = vague
     await run(table, "review")
-    record = table.ctx.state.effort[("review", "甲")]
+    record = table.ctx.state.effort[("review", "甲", "")]
     assert record.lazy and "所有评审都无效" in record.final_reasons[0]
     assert not any(r.valid for r in table.ctx.state.reviews["甲"])
 
@@ -203,7 +203,7 @@ async def test_revision_without_responses_is_redone(table):
     await run(table, "answer", "review")
     table.fake.queue("b1", f"## 修订后的答案\nb1 的修订稿。{REVISED}\n\n## 对审阅意见的回应\n")
     await run(table, "revise")
-    record = table.ctx.state.effort[("revise", "甲")]
+    record = table.ctx.state.effort[("revise", "甲", "")]
     assert record.reasons == ("没有回应审阅意见",) and record.status == "redone"
     assert table.ctx.state.revisions["甲"].decisions  # 重做后的回应已解析
 
@@ -214,7 +214,7 @@ async def test_revision_copying_a_peer_is_flagged(table):
     copied = f"## 修订后的答案\n{peer}\n\n## 对审阅意见的回应\n- 组员乙 · 问题 1：采纳 —— 对"
     table.fake.queue("b1", copied, copied)
     await run(table, "revise")
-    record = table.ctx.state.effort[("revise", "甲")]
+    record = table.ctx.state.effort[("revise", "甲", "")]
     assert record.lazy and "疑似照抄" in record.final_reasons[0]
 
 

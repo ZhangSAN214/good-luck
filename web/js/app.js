@@ -3,6 +3,7 @@ import * as API from './api.js';
 import {
   STATUS_LABELS,
   STEP_LABELS,
+  COORD_STEPS,
   castPanel,
   contributionsPanel,
   channelsPanel,
@@ -29,6 +30,7 @@ const S = {
   session: null,
   tab: 'flow',
   tier: null, // 档位名或 custom
+  workflow: 'discussion', // discussion 讨论 / collab 协同
   anonymous: false,
   live: freshLive(),
   stream: null, // AbortController
@@ -174,6 +176,10 @@ function renderComposer() {
     .map(([k, label]) => `<button type="button" data-v="${esc(k)}" aria-pressed="${k === S.tier}">${esc(label)}</button>`)
     .join('');
   $('#anonymous').checked = S.anonymous;
+  const workflows = S.status?.workflows || { discussion: '讨论模式', collab: '协同模式' };
+  $('#workflow').innerHTML = Object.entries(workflows)
+    .map(([k, label]) => `<button type="button" data-v="${esc(k)}" aria-pressed="${k === S.workflow}" title="${k === 'collab' ? '统筹拆分子任务，成员自荐、分工完成、交叉审查，最后合并' : '全员各自作答，互评、修订后由统筹汇总'}">${esc(label)}</button>`)
+    .join('');
   $('#manual').hidden = S.tier !== 'custom';
   const min = (S.status?.min_members ?? 2) + 1;
   $('#mode-hint').textContent =
@@ -212,7 +218,7 @@ async function submit(ev) {
     formError('请先输入题目');
     return;
   }
-  const body = { question, tier: S.tier, anonymous: S.anonymous };
+  const body = { question, tier: S.tier, anonymous: S.anonymous, workflow: S.workflow };
   if (S.tier === 'custom') {
     body.models = [...document.querySelectorAll('#picks input:checked')].map((i) => i.value);
     const min = (S.status?.min_members ?? 2) + 1;
@@ -335,7 +341,7 @@ function onEvent(sid, e) {
         (S.session?.outputs || []).filter((o) => o.kind === 'dropout' && o.table_no === e.table_no).map((o) => o.code),
       );
       L.speaking = new Set();
-      if (e.step === 'synthesize') L.speaking.add('统');
+      if (COORD_STEPS.has(e.step)) L.speaking.add('统');
       else if (e.step !== 'reveal') (t?.codes || []).filter((c) => !dropped.has(c)).forEach((c) => L.speaking.add(c));
       L.act = `${STEP_LABELS[e.step] || e.step}中`;
       break;
@@ -469,6 +475,12 @@ function bind() {
     if (!b) return;
     S.tier = b.dataset.v;
     formError('');
+    renderComposer();
+  });
+  $('#workflow').addEventListener('click', (e) => {
+    const b = e.target.closest('button');
+    if (!b) return;
+    S.workflow = b.dataset.v;
     renderComposer();
   });
   $('#anonymous').addEventListener('change', (e) => {

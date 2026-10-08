@@ -314,7 +314,10 @@ def check_pipelines(config: AppConfig) -> None:
     """配置中出现的所有步骤（默认流程和各方案的流程）都必须已注册。"""
     from roundtable.core.config import ConfigError
 
-    pipelines = {"roundtable.pipeline": config.roundtable.pipeline}
+    pipelines = {
+        "roundtable.pipeline": config.roundtable.pipeline,
+        "roundtable.collab_pipeline": config.roundtable.collab_pipeline,
+    }
     for name, plan in config.routing.plans.items():
         if plan.pipeline is not None:
             pipelines[f"routing.plans.{name}.pipeline"] = plan.pipeline
@@ -349,8 +352,32 @@ def restore_state(repo: Repository, session_id: str, table_no: int) -> TableStat
             state.dropped[code] = json.loads(o["content"])["reason"]
         elif kind == "effort":
             record = EffortRecord.from_dict(o["step"], code, json.loads(o["content"]))
-            state.effort[(o["step"], code)] = record
+            state.effort[record.key] = record
+        else:
+            restore_collab(state, kind, code, json.loads(o["content"]))
     return state
+
+
+def restore_collab(state: TableState, kind: str, code: str | None, data: dict[str, Any]) -> None:
+    """协同模式各步骤的产出。"""
+    from .collab_schemas import Assignment, Merge, Subtask, Volunteer
+
+    c = state.collab
+    if kind == "subtasks":
+        c.subtasks = tuple(Subtask.from_dict(x) for x in data["subtasks"])
+        c.subtasks_degraded = data.get("degraded", False)
+    elif kind == "volunteer":
+        c.volunteers[code] = Volunteer.from_dict(data)
+    elif kind == "assignment":
+        c.assignment = Assignment.from_dict(data)
+    elif kind == "work":
+        c.works[(data["subtask"], code)] = data["text"]
+    elif kind == "cross_review":
+        c.cross_reviews[code] = tuple(CheckedReview.from_dict(r) for r in data["reviews"])
+    elif kind == "rework":
+        c.reworks[(data["subtask"], code)] = Revision.from_dict(data)
+    elif kind == "merge":
+        c.merge = Merge.from_dict(data)
 
 
 def members_from_seats(seats: Sequence[Mapping[str, Any]]) -> tuple[dict[str, str], str | None]:

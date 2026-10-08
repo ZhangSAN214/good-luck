@@ -46,6 +46,7 @@ roundtable ask '求函数 f(x)=x^3-3x 在 [-2,2] 上的最大值和最小值'
 |---|---|
 | `--tier flagship` | 旗舰档全员上桌（默认 `budget` 便宜档全员） |
 | `--models gpt-6-luna,qwen3.8-flash,deepseek-v4.1-flash --coordinator deepseek-v4.1-flash` | 自选上桌的模型（至少 3 个），可指定其中一个当统筹（id 见 `roundtable models`） |
+| `--mode collab` | 协同模式：统筹拆分子任务 → 成员自荐 → 分配（每人至少一块）→ 分工完成 → 交叉审查 → 修改 → 合并成完整成果（默认 `discussion` 讨论模式：全员各自作答再互评汇总） |
 | `--anonymous` | 匿名：结束前只显示"组员甲 / 乙…"，结束后可揭晓（默认不匿名，全程显示模型名） |
 | `--details` | 显示每位组员的答案、评审和修订稿 |
 | `--yes` | 单题花费 / 升级确认自动选"继续"（预算确认仍会询问） |

@@ -33,6 +33,7 @@ class CreateSession(BaseModel):
     models: list[str] = Field(default_factory=list)
     coordinator: str | None = None
     anonymous: bool = False
+    workflow: str = "discussion"  # discussion 讨论 / collab 协同
     seed: int | None = None
 
 
@@ -98,6 +99,7 @@ def create_app(service: RoundtableService | None = None) -> FastAPI:
             models=body.models,
             coordinator=body.coordinator,
             anonymous=body.anonymous,
+            workflow=body.workflow,
             seed=body.seed,
         )
         return {"session_id": sid}

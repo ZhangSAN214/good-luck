@@ -88,6 +88,7 @@ class RoundtableService:
             "plans": {name: p.label for name, p in cfg.routing.plans.items()},
             "default_plan": cfg.routing.default_plan,
             "custom_label": cfg.routing.custom.label,
+            "workflows": {"discussion": "讨论模式", "collab": "协同模式"},
             "min_members": cfg.roundtable.min_members,
             "confirm_threshold_usd": cfg.routing.confirm_threshold_usd,
             "max_members": cfg.roundtable.seats,
@@ -132,11 +133,13 @@ class RoundtableService:
         models: Sequence[str] = (),
         coordinator: str | None = None,
         anonymous: bool = False,
+        workflow: str = "discussion",
         seed: int | None = None,
     ) -> str:
         """创建会话并在后台开始执行，立即返回会话 id。
 
-        tier：档位名或 "custom"（自选，models 为上桌的模型）；anonymous 默认关闭。
+        tier：档位名或 "custom"（自选，models 为上桌的模型）；anonymous 默认关闭；
+        workflow：discussion（讨论模式）或 collab（协同模式）。
         """
         text = question.strip()
         if not text:
@@ -144,7 +147,7 @@ class RoundtableService:
         if len(text) > MAX_QUESTION_CHARS:
             raise ServiceError(f"题目过长（超过 {MAX_QUESTION_CHARS} 字）")
         try:
-            choice = UserChoice(tier, tuple(models), coordinator)
+            choice = UserChoice(tier, tuple(models), coordinator, workflow)
         except (RoutingError, ValueError) as exc:
             raise ServiceError(str(exc)) from None
         if tier is not None and tier != CUSTOM and tier not in self.rt.config.routing.plans:

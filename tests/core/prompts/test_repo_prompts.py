@@ -24,7 +24,7 @@ CONFIG = load_config()
 ALL_TEMPLATES = [
     LIBRARY.get(role, version) for role in LIBRARY.roles() for version in LIBRARY.versions(role)
 ]
-MEMBER_ROLES = ("answer", "review", "revise")
+MEMBER_ROLES = ("answer", "review", "revise", "volunteer", "work", "cross_review", "rework")
 
 
 def test_configured_prompts_exist_and_parse():
@@ -61,7 +61,20 @@ def test_prompts_do_not_name_models_or_vendors(template):
 def test_member_prompts_only_vary_by_neutral_variables(role):
     """组员提示词对所有人相同：唯一和"人"有关的变量是匿名代号。"""
     template = LIBRARY.get(role, CONFIG.roundtable.prompts[role])
-    allowed = {"code", "question", "peer_answers", "own_answer", "reviews_of_you"}
+    allowed = {
+        "code",
+        "question",
+        "peer_answers",
+        "own_answer",
+        "reviews_of_you",
+        # 协同模式：子任务、分工、前置结果、待审成果、自己的成果（都由代码按代号生成）
+        "subtasks",
+        "plan",
+        "subtask",
+        "dependencies",
+        "items",
+        "own_work",
+    }
     assert template.variables <= allowed
 
     def values(code: str) -> dict[str, str]:
@@ -78,9 +91,18 @@ def test_member_prompts_only_vary_by_neutral_variables(role):
 
 
 def test_structured_roles_declare_json():
-    for role in ("review", "synthesize"):
+    json_roles = (
+        "review",
+        "synthesize",
+        "decompose",
+        "volunteer",
+        "assign",
+        "cross_review",
+        "merge",
+    )
+    for role in json_roles:
         assert LIBRARY.get(role, CONFIG.roundtable.prompts[role]).output == "json"
-    for role in ("answer", "revise"):
+    for role in ("answer", "revise", "work", "rework"):
         assert LIBRARY.get(role, CONFIG.roundtable.prompts[role]).output == "text"
 
 
@@ -89,11 +111,10 @@ def test_redo_prompt_only_takes_code_generated_reasons():
     assert redo.variables == {"reasons"} and redo.output == "text"
 
 
-def test_coordinator_prompt_has_no_member_code():
+@pytest.mark.parametrize("role", ["synthesize", "decompose", "assign", "merge"])
+def test_coordinator_prompt_has_no_member_code(role):
     """统筹不是组员，不应被分配代号。"""
-    assert (
-        "code" not in LIBRARY.get("synthesize", CONFIG.roundtable.prompts["synthesize"]).variables
-    )
+    assert "code" not in LIBRARY.get(role, CONFIG.roundtable.prompts[role]).variables
 
 
 # 追加在原对话之后的提示词：只含代码生成的内容（如重做原因），没有外部材料

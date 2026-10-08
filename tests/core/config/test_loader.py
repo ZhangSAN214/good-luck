@@ -51,7 +51,24 @@ def test_repo_config_loads_with_defaults():
         "revise",
         "synthesize",
         "redo",
+        "decompose",
+        "volunteer",
+        "assign",
+        "work",
+        "cross_review",
+        "rework",
+        "merge",
     }
+    assert rt.collab_pipeline == [
+        "decompose",
+        "volunteer",
+        "assign",
+        "work",
+        "cross_review",
+        "rework",
+        "merge",
+        "reveal",
+    ]
     assert rt.effort_check.enabled and rt.effort_check.redo
     # 每个档位的全部模型都能坐下（一个当统筹）
     for plan in cfg.routing.plans.values():

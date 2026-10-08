@@ -79,7 +79,14 @@ class LineupBuilder:
             )
         return Lineup(members, chosen.id, tuple(pipeline), tuple(absent))
 
-    def build(self, plan: PlanSpec) -> Lineup:
+    def pipeline(self, plan: PlanSpec | None, workflow: str) -> list[str]:
+        """协同模式用 collab_pipeline；讨论模式用档位自己的 pipeline 或默认流程。"""
+        rt = self.config.roundtable
+        if workflow == "collab":
+            return rt.collab_pipeline
+        return (plan.pipeline if plan else None) or rt.pipeline
+
+    def build(self, plan: PlanSpec, workflow: str = "discussion") -> Lineup:
         """档位全员：该档位的所有可用模型上桌。"""
         tiers = set(plan.tiers)
         pool = [m for m in self.available if m.tier in tiers]
@@ -87,13 +94,18 @@ class LineupBuilder:
         absent = [
             m.id for m in self.config.models.enabled if m.tier in tiers and m.id not in seated
         ]
-        pipeline = plan.pipeline or self.config.roundtable.pipeline
+        pipeline = self.pipeline(plan, workflow)
         return self._seat(pool, pipeline, absent=absent, scope=f"「{plan.label}」")
 
-    def build_custom(self, model_ids: Sequence[str], coordinator_id: str | None) -> Lineup:
+    def build_custom(
+        self, model_ids: Sequence[str], coordinator_id: str | None, workflow: str = "discussion"
+    ) -> Lineup:
         """自选：勾选的模型全部上桌；统筹可指定（必须是勾选的模型之一），否则按规则选。"""
         by_id = {m.id: m for m in self.available}
         pool = [by_id[i] for i in model_ids]
         return self._seat(
-            pool, self.config.roundtable.pipeline, coordinator=coordinator_id, scope="自选阵容"
+            pool,
+            self.pipeline(None, workflow),
+            coordinator=coordinator_id,
+            scope="自选阵容",
         )

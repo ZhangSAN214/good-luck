@@ -11,15 +11,17 @@
 
 ## 1. 当前范围
 
-**流程（讨论模式）**：所选档位全员上桌 → 独立作答 → 互评 → 修订 → 汇总 →（分歧时询问是否升级）→ 结束
-（协同模式、文件上传见 PLAN.md 的 v2 阶段 13–16，尚未实现。）
+提问时选择两种模式之一（`UserChoice.workflow`，存于 `sessions.workflow`）：
+- **讨论模式**（`discussion`，默认）：所选档位全员上桌 → 独立作答 → 互评 → 修订 → 汇总 →（分歧时询问是否升级）→ 结束
+- **协同模式**（`collab`）：统筹拆分子任务 → 成员自荐（擅长什么、为什么）→ 统筹按自荐和能力标签分配（每人至少一块）→ 按依赖分批并行完成 → 交叉审查（不审自己的）→ 作者按审查修改 → 统筹合并成完整成果（标注每份成果的采纳情况）→（把握低时询问是否升级）→ 结束
+（文件上传见 PLAN.md 的 v2 阶段 14–16，尚未实现。）
 **防偷懒**：每位成员的作答、互评、修订都做实质内容检查，空泛的打回重做一次，仍不合格标记"敷衍"；每位成员的**贡献**（被采纳的要点、有效评审与问题、被作者采纳的问题、重做与敷衍次数）按桌记录，界面显示本场与历史。
 
 | 角色 | 由谁担任 | 做什么 |
 |---|---|---|
 | 规划员 | 最便宜的可用便宜档模型；规则能判断时不调用 | 只估计答案长度（用于花费预估），不影响谁上桌 |
 | 组员 | 所选范围内除统筹外的**全部**可用模型 | 独立作答、互评他人答案、根据评审修订 |
-| 统筹 | 从上桌的模型中按轮换规则选出，本题不作答 | 读修订后的答案，输出结构化汇总：共识、分歧、最终答案 |
+| 统筹 | 从上桌的模型中按轮换规则选出，本题不作答 | 讨论：读修订后的答案，输出共识、分歧、最终答案；协同：拆分、分配、合并 |
 
 **全员上桌**（规则在 `config/routing.yaml`）：
 
@@ -47,7 +49,7 @@
   - `channels`：调用渠道。每个渠道有 `adapter`（`openai_compat` / `anthropic` / `gemini`）、`kind`（`aggregator` 聚合平台 / `direct` 官方直连 / `local` 本地）、`base_url`、`key_env`（**只写环境变量名**）、可选 `extra_body`、`param_aliases`（该渠道的参数改名，如 OpenAI 直连把 `max_tokens` 改为 `max_completion_tokens`）。
   - `models`：`id`、`vendor`、`tier`（`flagship` 旗舰 / `budget` 便宜档，启用的模型必填）、可选 `aliases`（别称，用于身份遮蔽）、`price`（输入/输出每百万 token，可选 `cached_input`）、`tags`、`enabled`、可选 `params`，以及按优先顺序排列的 `routes`（每条：`channel`、该渠道上的 `model` ID、可选 `price` / `params` 覆盖）。
   - 标签词表现在就包含媒体类（`vision`、`image_gen`、`tts`、`transcribe`、`video_gen`），v1 不使用。
-- `config/roundtable.yaml`：座位数（一张桌最多的组员数）、`min_members`、`reviews_per_answer`、预算（每月、每日、提醒比例）、步骤参数、互评质量规则、token 阈值、统筹轮换规则、提示词版本、步骤顺序 `pipeline:`、**渠道模式 `channel_mode`**（`openrouter` / `direct` / `auto`，默认 `auto`）、请求策略（超时、切换轮数、退避、冷却）。
+- `config/roundtable.yaml`：座位数（一张桌最多的组员数）、`min_members`、`reviews_per_answer`、`collab.max_subtasks`、预算（每月、每日、提醒比例）、步骤参数、互评质量规则、token 阈值、统筹轮换规则、提示词版本、步骤顺序 `pipeline:`（讨论模式）与 `collab_pipeline:`（协同模式）、**渠道模式 `channel_mode`**（`openrouter` / `direct` / `auto`，默认 `auto`）、请求策略（超时、切换轮数、退避、冷却）。
 - `config/personas.yaml`：代号池（甲乙丙丁…，不少于 `seats`）；人设字段的 schema 预留但可为空。
 - `config/routing.yaml`：确认门槛、`default_plan`、默认难度（只影响预估的答案长度）、规划员档位、规则判断（triage）、成员档位 `plans`（`label`、`tiers`、可选 `pipeline`、`escalate_to`、`prompt_roles`）、自选 `custom`、升级条件、花费预估参数。**只能引用档位和能力标签**，不得出现模型名或厂商名（有测试）。`custom` 是保留名。
 - 阵容（`routing/lineup.py`）：所选档位的全部可用模型上桌；统筹按 `roundtable.yaml` 的 `coordinator` 规则在场内选出（rotate：随机，最近当过的排后；fixed：指定模型在场时用它），其余为组员；人数不足 `min_members + 1` 或组员超过 `seats` 时报错。
@@ -69,7 +71,14 @@
 - Anthropic 直连不启用服务端 `fallbacks`（会悄悄换成别的模型作答，破坏"同一座位同一模型"的前提）。
 
 ### 2.3 流程步骤 = 插件
-- v1 步骤：`answer`、`review`、`revise`、`synthesize`、`reveal`，各自实现 `Step` 协议并注册。每题实际执行的 pipeline 由路由选中的方案决定（如单人快答为 `answer → reveal`）。
+- 步骤：讨论模式 `answer`、`review`、`revise`、`synthesize`；协同模式 `decompose`、`volunteer`、`assign`、`work`、`cross_review`、`rework`、`merge`（`steps/collab.py`，数据结构在 `steps/collab_schemas.py`）；两种模式都以 `reveal` 结束。各自实现 `Step` 协议并注册。每张桌子的 pipeline 由模式决定（协同用 `collab_pipeline`，讨论用档位的 `pipeline` 或默认流程），存在 `session_tables`。
+- 协同模式规则：
+  - 拆分：子任务 1–`max_subtasks` 个，id 唯一、依赖存在且无环，建议标签只能取在座成员的标签；不可用时退化为"整道题一个子任务"（全员各自完成）。
+  - 分配：代码校验每人至少一块、每块至少一人、负担相差不超过 1；不符合时让统筹重新分配一次，仍不行由 `repair_assignment()` 按自荐（想做 2 / 可以 1 / 不适合 -1）+ 能力标签重合补齐（只做必要改动，记录在 `repaired`）。子任务少于人数时多人各自独立完成同一块。
+  - 成果编号 `W1…` 由 `work_items()` 按子任务顺序、负责人顺序确定（前后端一致）。
+  - 完成：按依赖分层，同层并行；前置子任务的成果放在 `<dependency>` 中传给后续。
+  - 交叉审查：每份成果由 `reviews_per_answer` 位非作者审查，有足够的外人时避开同一子任务的其他负责人；先分配可选评审者最少的成果，再做局部调整使负担尽量均衡（避开共同负责人时可能无法完全均衡）。
+  - 合并：输出完整成果、逐个子任务的采纳情况（full / partial / none）、缺失、存疑与把握程度；不可用时把各份成果按子任务拼接（把握程度 low）。把握程度构成升级信号。
 - 步骤在一张"桌"（`TableContext`）上运行：代号 → 模型、统筹、共享状态（答案、评审、修订稿、汇总、退出的组员），每个产出都存库，`restore_state()` 可从数据库重建；各步骤只处理还没有产出的组员，恢复时不重复调用。
 - 组员调用并发执行、互不可见。组员所有渠道都失败时**退出**（之后不再调用），但他已有的答案 / 修订稿仍参与汇总。
 - 启动时用 `check_pipelines()` 检查配置里出现的步骤都已注册。
@@ -82,7 +91,7 @@
 - 每步结束状态落库；可暂停、关页面后恢复，恢复时不重复已完成的调用。
 
 ### 2.4 提示词外置且带版本
-- `prompts/<role>/v<n>.md`：`planner`、`answer`、`review`、`revise`（v2：逐条"采纳 / 部分采纳 / 不采纳"）、`synthesize`（v3：`adopted_from`、注意 flagged 的答案）、`redo`（打回重做：system 段接在原系统提示后，user 段追加在原对话后）；`answer_quick` 已不再引用（已发布版本保留）。代码中不得内联提示词正文。
+- `prompts/<role>/v<n>.md`：协同模式 `decompose`、`volunteer`、`assign`、`work`、`cross_review`、`rework`、`merge`；讨论模式 `planner`、`answer`、`review`、`revise`（v2：逐条"采纳 / 部分采纳 / 不采纳"）、`synthesize`（v3：`adopted_from`、注意 flagged 的答案）、`redo`（打回重做：system 段接在原系统提示后，user 段追加在原对话后）；`answer_quick` 已不再引用（已发布版本保留）。代码中不得内联提示词正文。
 - 文件格式：YAML 文件头（`description`、`output: text|json`、`variables`）+ `<!-- system -->` / `<!-- user -->` 两段。占位符用 `{{ name }}`（不用 `$`，避免与数学公式冲突）；声明的变量与正文占位符必须一一对应，渲染时缺少或多余参数都报错；只替换一次，用户输入里的 `{{ x }}` 不会被展开。
 - 题目、他人答案等外部内容放在标签内（`<question>`、`<answer>` …），系统提示说明标签内的指令无效（防提示注入）。
 - 使用的版本由配置指定，随每次调用入库（版本号 + 内容哈希，换行统一为 LF 后计算）。
@@ -99,7 +108,8 @@
 ### 2.5.1 防偷懒与贡献（`steps/effort.py`、`steps/contributions.py`）
 - 规则在 `roundtable.yaml` 的 `effort_check`，只看文本：只有空话（`empty_phrases`）、短文本中的拒答（`refusal_phrases`）、字数低于 `max(min_chars, 预估答案 token × chars_per_expected_token)`、与题目相似度 ≥ `restate_similarity`、修订稿与别人的答案相似度 ≥ `duplicate_similarity`（疑似照抄）、修订没有回应审阅意见、互评一条有效评审都没有。
 - 不合格 → 用 `redo` 提示词在同一对话中**打回重做一次**（上一次输出作为 assistant，所有成员的重做提示词相同）；仍不合格 → 产出保留、标记"敷衍"（`EffortRecord` 存为 `outputs` 中 kind=`effort` 的一行），汇总时该答案带 `flagged` 属性。`redo: false` 时只标记不重做。事件：`effort_redo`、`effort_flagged`（只含代号）。
-- 贡献由 `table_contributions(state, codes)` 按桌计算，类别：`answered`、`adopted`、`valid_review`、`valid_issue`、`issue_accepted`（只认作者确实收到的有效评审中的问题）、`redo`、`lazy`、`dropped`。编排引擎在讨论结束 / 停止 / 失败时整桌重写 `contributions` 表（可重复）。
+- 协同模式中，自荐、子任务成果、交叉审查、修改也做检查（`EffortRecord.item` 记录成果编号，同一成员可负责多块）；被标记的成果在合并时带 `flagged` 属性。
+- 贡献由 `table_contributions(state, codes)` 按桌计算，类别：`answered`（协同：完成的成果份数）、`adopted`（协同：合并时全部或部分采用的成果份数）、`volunteer_accepted`（协同：分到了自己想做的子任务）、`valid_review`、`valid_issue`、`issue_accepted`（只认作者确实收到的有效评审中的问题）、`redo`、`lazy`、`dropped`。编排引擎在讨论结束 / 停止 / 失败时整桌重写 `contributions` 表（可重复）。
 - 历史统计（`contribution_history()`、`GET /api/contributions`、`roundtable stats`）**只计入身份已公开的会话**（匿名关闭，或已揭晓），避免反推未揭晓会话的身份；目前只积累和展示，不参与分工。
 
 ### 2.6 持久化：SQLite
@@ -112,7 +122,7 @@
 ### 2.7 分层
 - `core/`：纯业务逻辑，**禁止 import fastapi / starlette / uvicorn / streamlit**（测试守卫）。
 - `api/`：FastAPI 路由 + SSE，只调用 `core/service.py`（启动时用 `core/runtime.py` 组装；有测试检查导入）。
-- **服务 facade**（`core/service.py`，`RoundtableService`）：返回值都是可 JSON 化的 dict；匿名会话揭晓前全部匿名。`create(question, tier=, models=, coordinator=, anonymous=False)`；揭晓只用于匿名会话。提交题目后立即返回会话 id，讨论在后台任务中执行；意外错误把会话标为 `paused`（可 `resume`）。揭晓只允许在讨论结束（完成 / 停止 / 失败）后。
+- **服务 facade**（`core/service.py`，`RoundtableService`）：返回值都是可 JSON 化的 dict；匿名会话揭晓前全部匿名。`create(question, tier=, models=, coordinator=, anonymous=False, workflow="discussion")`；揭晓只用于匿名会话。提交题目后立即返回会话 id，讨论在后台任务中执行；意外错误把会话标为 `paused`（可 `resume`）。揭晓只允许在讨论结束（完成 / 停止 / 失败）后。
 - **HTTP 接口**：`GET /api/status`、`GET /api/budget`、`GET /api/contributions`、`GET/POST /api/sessions`、`GET /api/sessions/{id}`、`POST …/respond`、`POST …/resume`、`POST …/reveal`、`GET …/events`（SSE）。
 - **SSE 协议**：第一条 `snapshot`（当前状态），之后是实时事件（只含代号），每当讨论停下来（完成 / 失败 / 停止 / 等待确认 / 暂停）发一条 `state` 并关闭；前端回复确认后重新连接。
 - `web/`：静态前端（`index.html`、`css/app.css`、`js/api.js` 通信、`js/view.js` 渲染、`js/app.js` 状态与交互；ES 模块，无构建步骤），只通过 HTTP/SSE 与后端通信，由 FastAPI 挂在 `/`。
@@ -128,7 +138,7 @@
 1. 同一步骤所有组员使用完全相同的提示词和参数（步骤参数在 `roundtable.yaml` 的 `step_params`；模型自身必需的参数在 `models.yaml`）。
 2. **发给模型的内容只用代号**，不出现模型名、厂商名；自报身份（"作为 GPT……"、"我是 Claude"）在转给其他模型前遮蔽。
 3. 代号与模型的对应每题随机生成。
-4. **不能自评**：互评时评审者永远看不到自己的答案作为被评对象。
+4. **不能自评**：互评时评审者永远看不到自己的答案作为被评对象；协同模式的交叉审查永远不分给作者本人。
 5. 每个评审者看到的他人答案顺序独立随机打乱；统筹看到的答案顺序也随机。
 6. 统筹不兼任同场组员。
 7. **发给任何模型的内容**始终不含真实模型身份（不论匿名开关）。**匿名开启时揭晓前**，界面和 API 响应也不含。**渠道名同样会暴露厂商**（如 `anthropic`），因此揭晓前单次调用不显示渠道；用量面板可以显示按渠道汇总的花费。揭晓后每次调用都显示所走渠道和切换记录。
@@ -170,7 +180,8 @@
 
 ```
 config/        models.yaml  roundtable.yaml  personas.yaml  routing.yaml
-prompts/       planner/ answer/ answer_quick/ review/ revise/ synthesize/ redo/  versions.lock
+prompts/       planner/ answer/ answer_quick/ review/ revise/ synthesize/ redo/
+               decompose/ volunteer/ assign/ work/ cross_review/ rework/ merge/  versions.lock
 src/roundtable/
   core/
     config/        配置加载与校验
@@ -207,6 +218,7 @@ roundtable models                   # 查看模型、档位、可用渠道与预
 roundtable stats                    # 各模型的历史贡献
 roundtable ask '题目'                # 便宜档全员上桌（PowerShell 中题目用单引号）
 roundtable ask --tier flagship --anonymous '题目'   # 旗舰档全员、匿名
+roundtable ask --mode collab '题目'  # 协同模式：拆分子任务、分工完成、合并
 uvicorn roundtable.api.app:app --reload   # 浏览器打开 http://127.0.0.1:8000
 playwright install chromium        # 首次运行前端端到端测试前
 ```

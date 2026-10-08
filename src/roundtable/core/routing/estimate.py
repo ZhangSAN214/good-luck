@@ -11,7 +11,22 @@ from roundtable.core.config.schema import EstimateParams
 from roundtable.core.providers import estimate_cost
 
 # 不在此表中的步骤（例如以后新增的插件）不计费，并在结果中列出
-KNOWN_STEPS = frozenset({"answer", "review", "revise", "synthesize", "reveal"})
+KNOWN_STEPS = frozenset(
+    {
+        "answer",
+        "review",
+        "revise",
+        "synthesize",
+        "reveal",
+        "decompose",
+        "volunteer",
+        "assign",
+        "work",
+        "cross_review",
+        "rework",
+        "merge",
+    }
+)
 
 
 def text_tokens(text: str, params: EstimateParams) -> int:
@@ -60,6 +75,8 @@ def estimate_pipeline(
     o, q, a = params.prompt_overhead_tokens, question_tokens, answer_tokens
     r = params.review_tokens_per_peer
     revised = a + params.revise_overhead_tokens
+    d = params.decompose_tokens
+    coord = [coordinator_price] if coordinator_price else []
     steps: list[StepCost] = []
     unknown: list[str] = []
 
@@ -77,6 +94,23 @@ def estimate_pipeline(
             tin, tout, cost = _calls(prices, o + q + n * revised, params.synthesize_tokens)
         elif step == "reveal":
             tin, tout, cost = 0, 0, 0.0
+        # 协同模式：D = 拆分结果长度；每位成员按完成一块、每块按整题长度粗估（偏保守）
+        elif step == "decompose":
+            tin, tout, cost = _calls(coord, o + q, d)
+        elif step == "volunteer":
+            tin, tout, cost = _calls(member_prices, o + q + d, params.volunteer_tokens)
+        elif step == "assign":
+            tin, tout, cost = _calls(
+                coord, o + q + d + n * params.volunteer_tokens, params.assign_tokens
+            )
+        elif step == "work":
+            tin, tout, cost = _calls(member_prices, o + q + d + a, a)
+        elif step == "cross_review":
+            tin, tout, cost = _calls(member_prices, o + q + k * a, k * r)
+        elif step == "rework":
+            tin, tout, cost = _calls(member_prices, o + q + d + a + k * r, revised)
+        elif step == "merge":
+            tin, tout, cost = _calls(coord, o + q + d + n * revised, params.merge_tokens)
         else:
             unknown.append(step)
             continue

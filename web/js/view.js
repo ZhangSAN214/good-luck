@@ -9,7 +9,18 @@ export const STEP_LABELS = {
   revise: '修订',
   synthesize: '汇总',
   reveal: '揭晓',
+  decompose: '拆分子任务',
+  volunteer: '自荐',
+  assign: '分配',
+  work: '完成子任务',
+  cross_review: '交叉审查',
+  rework: '修改',
+  merge: '合并',
 };
+// 由统筹执行的步骤
+export const COORD_STEPS = new Set(['synthesize', 'decompose', 'assign', 'merge']);
+const STANCE = { want: ['想做', 'ok'], can: ['可以做', ''], unfit: ['不适合', 'bad'] };
+const LEVEL = { full: ['全部采用', 'ok'], partial: ['部分采用', 'wait'], none: ['未采用', ''] };
 const LENGTH = { simple: '短', medium: '中等', hard: '长' };
 const SOURCE = { rule: '规则判断', model: '规划员判断', default: '默认' };
 const VERDICT = {
@@ -72,6 +83,29 @@ export class Names {
     this.prefix = prefix;
     this.revealed = !!session?.revealed;
     this.seats = session?.seats || [];
+    // 协同模式：每桌的子任务标题与成果编号（W1… → [子任务, 代号]），与服务端的编号规则一致
+    this.subtasks = {};
+    this.items = {};
+    for (const o of session?.outputs || []) {
+      const d = o.kind === 'subtasks' || o.kind === 'assignment' ? parse(o.content) : null;
+      if (!d) continue;
+      if (o.kind === 'subtasks') {
+        this.subtasks[o.table_no] = Object.fromEntries(d.subtasks.map((x) => [x.id, x.title]));
+      } else {
+        const items = {};
+        for (const a of d.assignments) for (const c of a.members) items[`W${Object.keys(items).length + 1}`] = [a.subtask, c];
+        this.items[o.table_no] = items;
+      }
+    }
+  }
+  subtask(tableNo, id) {
+    const title = (this.subtasks[tableNo] || {})[id];
+    return title ? `${id}「${title}」` : id;
+  }
+  // 互评对象：讨论模式是代号，协同模式是成果编号
+  target(tableNo, target) {
+    const item = (this.items[tableNo] || {})[target];
+    return item ? `${target}（${item[0]} · ${this.member(item[1])}）` : this.member(target);
   }
   member(code) {
     return `${this.prefix}${code}`;
@@ -171,7 +205,9 @@ export function feedItems(sv, ctx) {
 
 function modeText(sv, ctx) {
   const tier = sv.tier === 'custom' ? ctx.customLabel : ctx.plans[sv.tier] || sv.tier;
-  return sv.anonymous ? `${tier} · 匿名` : tier;
+  const parts = [sv.workflow === 'collab' ? '协同' : '讨论', tier];
+  if (sv.anonymous) parts.push('匿名');
+  return parts.join(' · ');
 }
 
 // 被标记为敷衍的产出：`桌:步骤:代号`
@@ -211,7 +247,9 @@ function output(o, names, lazy = new Set()) {
   }
   const data = parse(o.content);
   if (!data) return msg(sp, o.kind, `<div class="bubble">${md(o.content)}</div>`);
-  if (o.kind === 'review') return msg(sp, '互评', review(data, names));
+  if (o.kind === 'review') return msg(sp, '互评', review(data, names, o.table_no));
+  const collab = collabOutput(o, sp, data, names);
+  if (collab !== null) return collab;
   if (o.kind === 'revision') {
     if (data.skipped) return sys('统筹', `${esc(sp.name)} 没有收到有效评审，沿用原答案`);
     const resp = data.responses
@@ -223,16 +261,83 @@ function output(o, names, lazy = new Set()) {
   return '';
 }
 
-function review(data, names) {
+function collabOutput(o, sp, data, names) {
+  const t = o.table_no;
+  const li = (xs) => `<ul>${xs.join('')}</ul>`;
+  if (o.kind === 'subtasks') {
+    const items = data.subtasks.map(
+      (x) =>
+        `<li><b>${esc(x.id)} ${md(x.title)}</b>${x.requirements ? `：${md(x.requirements)}` : ''}${x.acceptance ? `<div class="meta">验收：${md(x.acceptance)}</div>` : ''}${x.depends_on && x.depends_on.length ? `<div class="meta">依赖：${esc(x.depends_on.join('、'))}</div>` : ''}</li>`,
+    );
+    const note = data.degraded ? '<div class="meta">拆分不可用，整道题作为一个子任务由全员各自完成</div>' : '';
+    return msg(sp, `拆分为 ${data.subtasks.length} 个子任务`, `<div class="bubble">${li(items)}${note}</div>`);
+  }
+  if (o.kind === 'volunteer') {
+    const prefs = data.preferences.map((p) => {
+      const [st, sc] = STANCE[p.stance] || [p.stance, ''];
+      return `<li>${esc(names.subtask(t, p.subtask))} ${tag(st, sc)}${p.reason ? ` ${md(p.reason)}` : ''}</li>`;
+    });
+    const strengths = data.strengths ? `<div>擅长：${md(data.strengths)}</div>` : '';
+    return msg(sp, '自荐', `<div class="bubble">${strengths}${li(prefs)}</div>`);
+  }
+  if (o.kind === 'assignment') {
+    const rows = data.assignments.map(
+      (a) => `<li>${esc(names.subtask(t, a.subtask))}：${esc(a.members.map((c) => names.member(c)).join('、'))}</li>`,
+    );
+    const why = data.rationale ? `<div class="meta">理由：${md(data.rationale)}</div>` : '';
+    const fixed = data.repaired && data.repaired.length
+      ? `<details class="more"><summary>分配不符合规则，已由代码补齐</summary><div>${esc(data.repaired.join('\n'))}</div></details>`
+      : '';
+    return msg(sp, '分配', `<div class="bubble">${li(rows)}${why}</div>${fixed}`);
+  }
+  if (o.kind === 'work') {
+    return msg(sp, `完成 ${names.subtask(t, data.subtask)}`, `<div class="bubble">${md(data.text)}</div>`);
+  }
+  if (o.kind === 'cross_review') return msg(sp, '交叉审查', review(data, names, t));
+  if (o.kind === 'rework') {
+    const what = names.subtask(t, data.subtask);
+    if (data.skipped) return sys('统筹', `${esc(sp.name)} 的 ${esc(what)} 没有收到有效审查，沿用原成果`);
+    const resp = data.responses
+      ? `<details class="more"><summary>对审查意见的回应</summary><div>${md(data.responses)}</div></details>`
+      : '';
+    return msg(sp, `修改 ${what}`, `<div class="bubble">${md(data.answer)}</div>${resp}`);
+  }
+  if (o.kind === 'merge') return merged(t, data, names);
+  return null;
+}
+
+function merged(tableNo, d, names) {
+  const sp = names.speaker(tableNo, null);
+  const [ct, cc] = CONFIDENCE[d.confidence] || [d.confidence, ''];
+  const list = (xs) => `<ul>${xs.map((x) => `<li>${md(x)}</li>`).join('')}</ul>`;
+  const adoption = (d.subtasks || [])
+    .map((s) => {
+      const parts = s.adopted.map((a) => {
+        const [lt, lc] = LEVEL[a.level] || [a.level, ''];
+        return `${esc(names.member(a.member))} ${tag(lt, lc)}${a.reason ? ` ${md(a.reason)}` : ''}`;
+      });
+      return `<li><b>${esc(names.subtask(tableNo, s.subtask))}</b>：${parts.join('；')}</li>`;
+    })
+    .join('');
+  const ai = sp.ai ? ` · ${esc(sp.ai)}` : '';
+  return `<div class="final"><h3>合并成果<small>统筹${ai} · 把握程度 ${tag(ct, cc)}</small></h3>
+<div class="answer">${md(d.result || '')}</div>
+${adoption ? `<div class="sec">采纳情况</div><ul>${adoption}</ul>` : ''}
+${d.gaps && d.gaps.length ? `<div class="sec">缺失</div>${list(d.gaps)}` : ''}
+${d.open_questions && d.open_questions.length ? `<div class="sec">仍存疑</div>${list(d.open_questions)}` : ''}
+${d.degraded ? '<div class="note">合并格式有误，以上为各份成果原文（把握程度记为低）。</div>' : ''}</div>`;
+}
+
+function review(data, names, tableNo = 0) {
   const reviews = data.reviews || [];
   if (!reviews.length) {
     const why = data.degraded ? '格式错误，本轮没有可用的评审' : '没有评审';
     return `<div class="bubble invalid"><span class="meta">${esc(why)}</span></div>`;
   }
-  return `<div class="bubble">${reviews.map((rv) => reviewItem(rv, names)).join('')}</div>`;
+  return `<div class="bubble">${reviews.map((rv) => reviewItem(rv, names, tableNo)).join('')}</div>`;
 }
 
-function reviewItem(rv, names) {
+function reviewItem(rv, names, tableNo = 0) {
   const [vt, vc] = VERDICT[rv.verdict] || [rv.verdict, ''];
   const invalid = rv.invalid_reasons && rv.invalid_reasons.length;
   const issues = (rv.issues || [])
@@ -241,7 +346,7 @@ function reviewItem(rv, names) {
         `<li>${i.severity === 'major' ? tag('重要', 'bad') + ' ' : ''}<b>${md(i.location || '—')}</b>：${md(i.problem)}${i.suggestion ? ` → ${md(i.suggestion)}` : ''}</li>`,
     )
     .join('');
-  return `<div class="rv"><div class="hd">→ <b>${esc(names.member(rv.target))}</b> ${tag(vt, vc)}${invalid ? ' ' + tag('无效：' + rv.invalid_reasons.join('；'), 'bad') : ''}</div>${issues ? `<ul>${issues}</ul>` : ''}${rv.checked ? `<div class="meta">检查了：${md(rv.checked)}</div>` : ''}${rv.strengths ? `<div class="meta">优点：${md(rv.strengths)}</div>` : ''}</div>`;
+  return `<div class="rv"><div class="hd">→ <b>${esc(names.target(tableNo, rv.target))}</b> ${tag(vt, vc)}${invalid ? ' ' + tag('无效：' + rv.invalid_reasons.join('；'), 'bad') : ''}</div>${issues ? `<ul>${issues}</ul>` : ''}${rv.checked ? `<div class="meta">检查了：${md(rv.checked)}</div>` : ''}${rv.strengths ? `<div class="meta">优点：${md(rv.strengths)}</div>` : ''}</div>`;
 }
 
 function synthesis(tableNo, d, names) {
@@ -362,11 +467,11 @@ export function stageHTML(sv, live, prefix) {
     const e = [b[0] - (dx / L) * 9, b[1] - (dy / L) * 9];
     return `<line class="flowline" x1="${s[0]}" y1="${s[1]}" x2="${e[0]}" y2="${e[1]}" stroke="var(--brass)" stroke-width=".7" stroke-dasharray="2 2"${arrow ? ' marker-end="url(#ah)"' : ''}/>`;
   };
-  if (live.step === 'review' && live.table === tableNo) {
+  if ((live.step === 'review' || live.step === 'cross_review') && live.table === tableNo) {
     for (let i = 0; i < codes.length; i++)
       for (let j = i + 1; j < codes.length; j++) sv2 += line(pos[i], pos[j], false);
   }
-  if (live.step === 'synthesize' && live.table === tableNo && hasCoord) {
+  if ((live.step === 'synthesize' || live.step === 'merge') && live.table === tableNo && hasCoord) {
     codes.forEach((c, i) => {
       if (!dropped.has(c)) sv2 += line(pos[i], COORD_POS, true);
     });
@@ -415,7 +520,7 @@ export function flowPanel(sv, live, ctx) {
       const done = t.steps_done.includes(step);
       const now = !done && live.table === t.table_no && live.step === step;
       const cls = done ? 'done' : now ? 'now' : '';
-      const who = step === 'synthesize' ? '统筹' : step === 'reveal' ? (sv.anonymous ? '讨论结束后由你点「揭晓身份」' : '匿名关闭，身份一直公开') : t.codes.join(' · ');
+      const who = COORD_STEPS.has(step) ? '统筹' : step === 'reveal' ? (sv.anonymous ? '讨论结束后由你点「揭晓身份」' : '匿名关闭，身份一直公开') : t.codes.join(' · ');
       const label = step === 'reveal' ? (sv.anonymous ? '可揭晓' : '结束') : STEP_LABELS[step] || step;
       h += `<div class="pn ${cls}" data-step="${esc(step)}"><span class="dot"></span><span class="t">${esc(label)}<small>${esc(who)}</small></span><span class="pill ${done ? 'okp' : now ? 'run' : ''}">${done ? '完成' : now ? '进行中' : '待开始'}</span></div>`;
     }
@@ -453,7 +558,7 @@ const TABLE_STATUS = { pending: '待确认', approved: '待开始', running: '�
 
 export function reviewsPanel(sv, prefix) {
   const names = new Names(sv, prefix);
-  const reviews = (sv?.outputs || []).filter((o) => o.kind === 'review');
+  const reviews = (sv?.outputs || []).filter((o) => o.kind === 'review' || o.kind === 'cross_review');
   if (!reviews.length) return '<p class="empty">互评开始后，这里显示谁评了谁、结论和问题数。</p>';
   let h = '';
   for (const t of sv.tables || []) {
@@ -470,7 +575,7 @@ export function reviewsPanel(sv, prefix) {
         const [vt, vc] = VERDICT[rv.verdict] || [rv.verdict, ''];
         const pill = { ok: 'okp', wait: 'wait', bad: 'badp' }[vc] || '';
         const invalid = rv.invalid_reasons && rv.invalid_reasons.length;
-        h += `<tr><td>${esc(names.member(rv.reviewer))}</td><td>${esc(names.member(rv.target))}</td><td><span class="pill ${pill}${invalid ? ' strike' : ''}">${esc(vt)}</span>${invalid ? ' <span class="pill badp">无效</span>' : ''}</td><td class="num">${(rv.issues || []).length}</td></tr>`;
+        h += `<tr><td>${esc(names.member(rv.reviewer))}</td><td>${esc(names.target(o.table_no, rv.target))}</td><td><span class="pill ${pill}${invalid ? ' strike' : ''}">${esc(vt)}</span>${invalid ? ' <span class="pill badp">无效</span>' : ''}</td><td class="num">${(rv.issues || []).length}</td></tr>`;
       }
     }
     h += '</tbody></table>';
@@ -565,6 +670,7 @@ export function historyPanel(list, currentId) {
 
 const CONTRIB_COLUMNS = [
   ['adopted', '被采纳'],
+  ['volunteer_accepted', '自荐被采纳'],
   ['valid_issue', '有效问题'],
   ['issue_accepted', '问题被采纳'],
   ['redo', '重做'],

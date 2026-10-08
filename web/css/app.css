@@ -188,6 +188,7 @@ details.more div{white-space:pre-wrap;margin-top:4px;color:var(--ink)}
 .panel td.num,.panel th.num{font-family:var(--f-mono);text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
 .panel tr.cur td{color:var(--brass)}
 .panel td.warnc{color:#f0a08e}
+.panel td:first-child{overflow-wrap:normal;word-break:keep-all}
 .panel tr.click{cursor:pointer}
 .panel tr.click:hover td{background:var(--inner-2)}
 .pill{display:inline-block;font-size:11px;padding:0 7px;border-radius:999px;border:1px solid var(--inner-line);color:var(--inner-muted);white-space:nowrap}

@@ -73,3 +73,8 @@ estimate:
   review_tokens_per_peer: 400
   revise_overhead_tokens: 300
   synthesize_tokens: 1500
+  # 协同模式
+  decompose_tokens: 800             # 统筹拆分子任务
+  volunteer_tokens: 300             # 每位成员的自荐
+  assign_tokens: 400                # 统筹分配
+  merge_tokens: 3000                # 统筹合并成完整成果

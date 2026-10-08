@@ -350,6 +350,11 @@ class EffortRecord:
     reasons: tuple[str, ...]  # 第一次不合格的原因
     final_reasons: tuple[str, ...] = ()  # 重做后仍不合格的原因（lazy 时）
     redone: bool = True  # 是否打回重做过（配置关闭重做时为 False）
+    item: str | None = None  # 协同模式：成果编号（同一成员可能负责多块）
+
+    @property
+    def key(self) -> tuple[str, str, str]:
+        return (self.step, self.code, self.item or "")
 
     @property
     def lazy(self) -> bool:
@@ -361,6 +366,7 @@ class EffortRecord:
             "reasons": list(self.reasons),
             "final_reasons": list(self.final_reasons),
             "redone": self.redone,
+            "item": self.item,
         }
 
     @classmethod
@@ -372,6 +378,7 @@ class EffortRecord:
             tuple(d["reasons"]),
             tuple(d.get("final_reasons") or ()),
             d.get("redone", True),
+            d.get("item"),
         )
 
 
@@ -385,9 +392,20 @@ class TableState:
     synthesis: Synthesis | None = None
     dropped: dict[str, str] = field(default_factory=dict)  # 代号 → 退出原因
     ready_for_reveal: bool = False
-    # (步骤, 代号) → 实质内容检查结果（只记录重做过或被标记敷衍的）
-    effort: dict[tuple[str, str], EffortRecord] = field(default_factory=dict)
+    # (步骤, 代号, 成果编号或空) → 实质内容检查结果（只记录重做过或被标记敷衍的）
+    effort: dict[tuple[str, str, str], EffortRecord] = field(default_factory=dict)
+    # 协同模式的数据
+    collab: Any = field(default_factory=lambda: _new_collab())
 
-    def flagged(self, code: str) -> bool:
-        """该组员是否有产出被标记为敷衍。"""
-        return any(r.lazy for (_, c), r in self.effort.items() if c == code)
+    def flagged(self, code: str, item: str | None = None) -> bool:
+        """该组员（的某份成果）是否有产出被标记为敷衍。"""
+        return any(
+            r.lazy and r.code == code and (item is None or r.item in (None, item))
+            for r in self.effort.values()
+        )
+
+
+def _new_collab():
+    from .collab_schemas import CollabState
+
+    return CollabState()

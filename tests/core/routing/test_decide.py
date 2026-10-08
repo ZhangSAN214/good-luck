@@ -211,3 +211,25 @@ async def test_record_contents_and_outcome(env):
     done = r.with_outcome(actual_cost_usd=0.012, user_confirmed=None)
     assert done.actual_cost_usd == 0.012 and not done.escalated
     json.dumps(done.to_dict(), ensure_ascii=False)  # 可序列化入库
+
+
+# --- 协同模式 -------------------------------------------------------------------
+
+
+async def test_collab_uses_collab_pipeline_and_estimates_every_step(env):
+    d = await decide(env, "1+1=?", UserChoice(workflow="collab"))
+    assert d.lineup.pipeline == tuple(env.config.roundtable.collab_pipeline)
+    steps = {s.step: s for s in d.estimate.steps}
+    assert d.estimate.unknown_steps == ()
+    for step in ("decompose", "volunteer", "assign", "work", "cross_review", "rework", "merge"):
+        assert steps[step].cost_usd > 0, step
+    assert d.options["flagship"].lineup.pipeline == d.lineup.pipeline
+    assert d.record(Question("1+1=?")).workflow == "collab"
+    custom = await decide(env, "1+1=?", UserChoice(CUSTOM, ("b1", "b2", "f1"), workflow="collab"))
+    assert custom.lineup.pipeline == d.lineup.pipeline
+
+
+def test_unknown_workflow():
+    with pytest.raises(RoutingError, match="未知的模式"):
+        UserChoice(workflow="debate")
+    assert UserChoice.from_dict({"tier": "budget"}).workflow == "discussion"

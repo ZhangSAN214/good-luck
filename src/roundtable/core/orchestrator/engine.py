@@ -48,7 +48,7 @@ from roundtable.core.storage import CheckpointView
 log = logging.getLogger(__name__)
 
 # 至少需要两名组员才有意义的步骤
-PEER_STEPS = frozenset({"review", "revise"})
+PEER_STEPS = frozenset({"review", "revise", "cross_review", "rework"})
 DONE, SKIPPED = "done", "skipped"
 FINISHED = frozenset({"completed", "stopped", "failed"})
 
@@ -99,6 +99,7 @@ class Orchestrator:
             seed=seed,
             tier=choice.tier or self.rt.config.routing.default_plan,
             anonymous=anonymous,
+            workflow=choice.workflow,
             attachments=question.attachments,
             choice=choice.to_dict(),
         )
@@ -276,13 +277,14 @@ class Orchestrator:
                 config=cfg,
                 router=self.rt.router,
                 recent_coordinators=record.extra.get("recent_coordinators", ()),
+                workflow=row["workflow"],
             )
         except RoutingError as exc:
             raise OrchestratorError(str(exc)) from None
         estimate = estimate_lineup(lineup, question, assessment, config=cfg, router=self.rt.router)
         decision = RoutingDecision(
             seed=row["seed"],
-            choice=UserChoice(plan_name),
+            choice=UserChoice(plan_name, workflow=row["workflow"]),
             assessment=assessment,
             plan=plan_name,
             lineup=lineup,
@@ -340,7 +342,7 @@ class Orchestrator:
         try:
             decision = escalate(
                 seed=row["seed"],
-                choice=UserChoice(table["escalate_to"]),
+                choice=UserChoice(table["escalate_to"], workflow=row["workflow"]),
                 assessment=record.assessment(),
                 from_plan=table["plan"],
                 escalate_to=table["escalate_to"],

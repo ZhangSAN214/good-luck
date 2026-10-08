@@ -33,6 +33,13 @@ prompts:
   revise: v2
   synthesize: v3
   redo: v1
+  decompose: v1
+  volunteer: v1
+  assign: v1
+  work: v1
+  cross_review: v1
+  rework: v1
+  merge: v1
 
 # 每个步骤对所有模型统一使用的参数（中立：同一步骤参数相同；模型自身必需的参数在 models.yaml）
 step_params:
@@ -40,6 +47,13 @@ step_params:
   review: {max_tokens: 3000}
   revise: {max_tokens: 6000}
   synthesize: {max_tokens: 6000}
+  decompose: {max_tokens: 3000}
+  volunteer: {max_tokens: 2000}
+  assign: {max_tokens: 2000}
+  work: {max_tokens: 6000}
+  cross_review: {max_tokens: 3000}
+  rework: {max_tokens: 6000}
+  merge: {max_tokens: 8000}
 
 # 互评质量检查：空泛的评审判为无效，不转给作者
 review_quality:
@@ -61,7 +75,13 @@ effort_check:
   duplicate_min_chars: 100
 
 # 步骤顺序（插件名）
+# 讨论模式：同一题全员各自作答 → 互评 → 修订 → 汇总
 pipeline: [answer, review, revise, synthesize, reveal]
+# 协同模式：统筹拆分子任务 → 成员自荐 → 统筹分配（每人至少一块）→ 并行完成 → 交叉审查（不审自己的）
+#          → 作者按审查修改 → 统筹合并成完整成果
+collab_pipeline: [decompose, volunteer, assign, work, cross_review, rework, merge, reveal]
+collab:
+  max_subtasks: 12        # 拆分的子任务上限（子任务少于人数时，多人各自独立完成同一块）
 
 # 渠道模式：
 #   openrouter —— 只走聚合平台

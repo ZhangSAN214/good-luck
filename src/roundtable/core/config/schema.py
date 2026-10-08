@@ -183,6 +183,12 @@ class EffortCheck(_Strict):
     duplicate_min_chars: int = Field(default=100, ge=0)
 
 
+class CollabRules(_Strict):
+    """协同模式：拆分子任务的数量范围。"""
+
+    max_subtasks: int = Field(default=12, ge=1)
+
+
 class RoundtableConfig(_Strict):
     seats: int = Field(ge=2)
     min_members: int = Field(default=2, ge=2)
@@ -193,7 +199,9 @@ class RoundtableConfig(_Strict):
     coordinator: CoordinatorRule = CoordinatorRule()
     revise_rounds: int = Field(default=1, ge=1)
     prompts: dict[str, str]
-    pipeline: list[str] = Field(min_length=1)
+    pipeline: list[str] = Field(min_length=1)  # 讨论模式
+    collab_pipeline: list[str] = Field(min_length=1)  # 协同模式
+    collab: CollabRules = CollabRules()
     channel_mode: ChannelMode = "auto"
     request: RequestPolicy = RequestPolicy()
     step_params: dict[str, dict[str, Any]] = Field(default_factory=dict)
@@ -208,7 +216,7 @@ class RoundtableConfig(_Strict):
             raise ValueError(f"提示词版本必须形如 v1、v2：{bad}")
         return prompts
 
-    @field_validator("pipeline")
+    @field_validator("pipeline", "collab_pipeline")
     @classmethod
     def _unique_steps(cls, steps: list[str]) -> list[str]:
         if len(steps) != len(set(steps)):
@@ -339,6 +347,11 @@ class EstimateParams(_Strict):
     review_tokens_per_peer: int = Field(default=400, ge=0)
     revise_overhead_tokens: int = Field(default=300, ge=0)
     synthesize_tokens: int = Field(default=1500, ge=0)
+    # 协同模式
+    decompose_tokens: int = Field(default=800, ge=0)
+    volunteer_tokens: int = Field(default=300, ge=0)
+    assign_tokens: int = Field(default=400, ge=0)
+    merge_tokens: int = Field(default=3000, ge=0)
 
     @field_validator("answer_tokens")
     @classmethod

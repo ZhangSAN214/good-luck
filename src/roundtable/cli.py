@@ -4,6 +4,7 @@
     roundtable ask --tier flagship "题目"         # 旗舰档全员上桌
     roundtable ask --models a,b,c "题目"          # 自选上桌的模型
     roundtable ask --anonymous "题目"             # 匿名：结束前只显示代号
+    roundtable ask --mode collab "题目"           # 协同：拆分子任务、分工完成、合并
     roundtable models                             # 查看模型、档位、哪些渠道有 key
     roundtable history                            # 最近的讨论
     roundtable stats                              # 各模型的历史贡献
@@ -38,11 +39,21 @@ STEP_NAMES = {
     "revise": "修订",
     "synthesize": "汇总",
     "reveal": "揭晓准备",
+    "decompose": "统筹拆分子任务",
+    "volunteer": "成员自荐",
+    "assign": "统筹分配",
+    "work": "完成子任务",
+    "cross_review": "交叉审查",
+    "rework": "按审查修改",
+    "merge": "统筹合并",
 }
+STANCE_NAMES = {"want": "想做", "can": "可以做", "unfit": "不适合"}
+LEVEL_NAMES = {"full": "全部采用", "partial": "部分采用", "none": "未采用"}
 SOURCE_NAMES = {"rule": "规则判断", "model": "规划员判断", "default": "默认"}
 KIND_NAMES = {
     "answered": "作答",
     "adopted": "被采纳的要点",
+    "volunteer_accepted": "自荐被采纳",
     "valid_review": "有效评审",
     "valid_issue": "指出的有效问题",
     "issue_accepted": "被作者采纳的问题",
@@ -123,6 +134,8 @@ class CLI:
                 self.p(
                     f"\n=== 第 {e.table_no + 1} 张桌子：{self.plan_labels.get(d['plan'], '')} ==="
                 )
+            if self.rt.repo.session_row(sid)["workflow"] == "collab":
+                self.p("模式：协同（拆分子任务 → 自荐 → 分工完成 → 交叉审查 → 合并）")
             members = "、".join(self.label(c, e.table_no) for c in d["members"])
             self.p(f"上桌：{members} + {self.label(None, e.table_no)}")
         elif e.type == "step_started" and e.step != "reveal":
@@ -201,6 +214,9 @@ class CLI:
             outputs = [o for o in view.outputs if o.table_no == table_no]
             if len(tables) > 1:
                 self.p(f"\n—— 第 {table_no + 1} 张桌子 ——")
+            if any(o.kind == "subtasks" for o in outputs):
+                self.print_collab(outputs, table_no, details)
+                continue
             if details:
                 for o in outputs:
                     who = self.label(o.code, table_no)
@@ -228,6 +244,62 @@ class CLI:
         self.print_contributions(sid, view.revealed)
         if view.error:
             self.p(f"\n错误：{view.error}")
+
+    def print_collab(self, outputs, table_no: int, details: bool) -> None:
+        """协同模式：子任务与分工、（--details 时）各份成果与审查、合并结果。"""
+        by_kind: dict[str, list] = {}
+        for o in outputs:
+            by_kind.setdefault(o.kind, []).append(o)
+        subtasks = json.loads(by_kind["subtasks"][0].content)["subtasks"]
+        assignment = (
+            json.loads(by_kind["assignment"][0].content) if "assignment" in by_kind else None
+        )
+        owners = {a["subtask"]: a["members"] for a in (assignment or {}).get("assignments", [])}
+        self.p("\n【子任务与分工】")
+        for s in subtasks:
+            who = "、".join(self.label(c, table_no) for c in owners.get(s["id"], [])) or "—"
+            self.p(f"  {s['id']} {s['title']}：{who}")
+        if assignment and assignment.get("repaired"):
+            self.p("  （统筹的分配不符合规则，已由代码补齐）")
+        if details:
+            for o in by_kind.get("volunteer", []):
+                v = json.loads(o.content)
+                prefs = "，".join(
+                    f"{p['subtask']} {STANCE_NAMES.get(p['stance'], p['stance'])}"
+                    for p in v["preferences"]
+                )
+                self.p(f"\n【{self.label(o.code, table_no)} 的自荐】{v['strengths']}（{prefs}）")
+            final = {
+                (json.loads(o.content)["subtask"], o.code): json.loads(o.content)
+                for o in by_kind.get("rework", [])
+            }
+            for o in by_kind.get("work", []):
+                w = json.loads(o.content)
+                rework = final.get((w["subtask"], o.code))
+                text = rework["answer"] if rework and not rework["skipped"] else w["text"]
+                tag = "（已按审查修改）" if rework and not rework["skipped"] else ""
+                who = self.label(o.code, table_no)
+                self.p(f"\n【{w['subtask']} · {who}{tag}】\n{self.t(text)}")
+            for o in by_kind.get("cross_review", []):
+                self.print_review(self.label(o.code, table_no), json.loads(o.content), table_no)
+        if "merge" in by_kind:
+            m = json.loads(by_kind["merge"][0].content)
+            if m.get("degraded"):
+                self.p("\n（统筹的合并不可用，以下为各份成果原文）")
+            self.p(f"\n【完整成果】（把握程度：{m['confidence']}）\n{self.t(m['result'])}")
+            adoption = [
+                f"{a_s['subtask']} {self.label(a['member'], table_no)}"
+                f" {LEVEL_NAMES.get(a['level'], a['level'])}"
+                for a_s in m.get("subtasks", [])
+                for a in a_s["adopted"]
+            ]
+            if adoption:
+                self.p("\n【采纳情况】" + "；".join(adoption))
+            for title, key in (("【缺失】", "gaps"), ("【仍需核实】", "open_questions")):
+                if m.get(key):
+                    self.p("\n" + title)
+                    for x in m[key]:
+                        self.p(f"  · {self.t(x)}")
 
     def print_contributions(self, sid: str, revealed: bool) -> None:
         rows = self.rt.repo.contributions(sid)
@@ -428,6 +500,12 @@ def build_parser() -> argparse.ArgumentParser:
     ask.add_argument(
         "--anonymous", action="store_true", help="匿名：结束前只显示代号，结束后可揭晓"
     )
+    ask.add_argument(
+        "--mode",
+        choices=["discussion", "collab"],
+        default="discussion",
+        help="discussion 讨论（全员各自作答再互评汇总，默认）/ collab 协同（拆分子任务分工完成）",
+    )
     ask.add_argument("--seed", type=int, help="随机种子（用于复现）")
     ask.add_argument("--details", action="store_true", help="显示每位组员的答案、评审和修订稿")
     ask.add_argument(
@@ -489,12 +567,13 @@ async def run(
                     "custom",
                     models=tuple(m.strip() for m in args.models.split(",") if m.strip()),
                     coordinator=args.coordinator,
+                    workflow=args.mode,
                 )
             else:
                 if args.coordinator:
                     cli.p("--coordinator 只能和 --models 一起使用。")
                     return 2
-                choice = UserChoice(args.tier)
+                choice = UserChoice(args.tier, workflow=args.mode)
             return await cli.cmd_ask(
                 question,
                 choice,

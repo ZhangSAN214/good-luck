@@ -409,3 +409,81 @@ async def test_lazy_member_flagged_end_to_end():
     assert rows[(code, "lazy")] == 1 and rows[(code, "redo")] == 1
     types = [e.type for _, e in env.events]
     assert "effort_redo" in types and "effort_flagged" in types
+
+
+# --- 协同模式 -------------------------------------------------------------------
+
+COLLAB = ("decompose", "volunteer", "assign", "work", "cross_review", "rework", "merge", "reveal")
+
+
+async def test_collab_full_flow(env):
+    r = await env.orc.start(Question(MEDIUM), UserChoice(workflow="collab"), seed=21)
+    assert r.status == "completed" and r.final_answer.startswith("完整成果")
+    assert env.rt.repo.completed_steps(r.session_id, 0) == list(COLLAB)
+    assert env.rt.repo.session_row(r.session_id)["workflow"] == "collab"
+    rec = record(env, r.session_id)
+    assert rec["workflow"] == "collab"
+    assert env.models_called(ANSWER) == []  # 没有走讨论模式的作答
+    kinds = {x["kind"] for x in env.rt.repo.contributions(r.session_id)}
+    assert {"answered", "adopted", "valid_review"} <= kinds
+
+
+async def test_collab_models_only_see_codes(env):
+    terms = set(env.config.models.channels)
+    for m in env.config.models.models:
+        terms |= {m.id, m.vendor, *m.aliases}
+    import re
+
+    for anonymous in (False, True):
+        env.fake.calls.clear()
+        await env.orc.start(
+            Question(MEDIUM),
+            UserChoice("flagship", workflow="collab"),
+            seed=22,
+            anonymous=anonymous,
+        )
+        for c in env.fake.calls:
+            sent = "\n".join(m.content for m in c.messages if m.role != "assistant")
+            found = [
+                t
+                for t in terms - {c.model}
+                if re.search(rf"(?<![0-9A-Za-z]){re.escape(t)}(?![0-9A-Za-z])", sent)
+            ]
+            assert found == [], (anonymous, c.model, found)
+
+
+async def test_collab_low_confidence_asks_to_escalate():
+    env = Env(resolved=False, confirm_threshold_usd=100.0)
+    r = await env.orc.start(Question(MEDIUM), UserChoice(workflow="collab"), seed=23)
+    assert r.status == "awaiting_confirmation" and r.checkpoint.kind == "escalation"
+    r = await env.orc.respond(r.session_id, "continue")
+    # 旗舰档没有 escalate_to：第二张桌子结束后直接完成，仍是协同模式
+    assert r.status == "completed"
+    tables = env.rt.repo.tables(r.session_id)
+    assert [t["status"] for t in tables] == ["done", "done"]
+    assert tables[1]["plan"] == "flagship" and tables[1]["pipeline"] == list(COLLAB)
+
+
+async def test_collab_resume_after_crash():
+    env = Env(confirm_threshold_usd=100.0)
+    crashed = {"done": False}
+    original = env.reply
+
+    def flaky(model, messages):
+        if "请你审查分给你的几份成果" in messages[0].content and not crashed["done"]:
+            crashed["done"] = True
+            raise Crash("进程中断")
+        return original(model, messages)
+
+    env.fake._default = flaky
+    with pytest.raises(Crash):
+        await env.orc.start(Question(MEDIUM), UserChoice(workflow="collab"), seed=24)
+    sid = env.rt.repo.list_sessions()[0].id
+    assert env.rt.repo.completed_steps(sid, 0) == ["decompose", "volunteer", "assign", "work"]
+    work_calls = len(
+        [c for c in env.fake.calls if "你负责下面 <your_subtask>" in c.messages[0].content]
+    )
+    r = await env.orc.resume(sid)
+    assert r.status == "completed"
+    after = len([c for c in env.fake.calls if "你负责下面 <your_subtask>" in c.messages[0].content])
+    assert after == work_calls  # 已完成的子任务没有重做

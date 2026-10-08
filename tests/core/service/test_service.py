@@ -239,3 +239,27 @@ async def test_session_contributions_and_history():
     history = svc.contributions()
     assert {h["model_id"] for h in history} == {r["model_id"] for r in revealed["contributions"]}
     assert all(h["sessions"] == 1 and h["counts"]["answered"] == 1 for h in history)
+
+
+async def test_collab_session_over_service():
+    env, svc = make(confirm_threshold_usd=100.0)
+    sid = svc.create(MEDIUM, workflow="collab", seed=5, anonymous=True)
+    events = await collect(svc, sid)
+    assert events[-1]["status"] == "completed"
+    data = svc.session(sid)
+    assert data["workflow"] == "collab"
+    kinds = {o["kind"] for o in data["outputs"]}
+    assert {
+        "subtasks",
+        "volunteer",
+        "assignment",
+        "work",
+        "cross_review",
+        "rework",
+        "merge",
+    } <= kinds
+    assert data["tables"][0]["pipeline"][0] == "decompose"
+    assert leaks(env, data) == [] and leaks(env, events) == []
+    assert svc.status()["workflows"] == {"discussion": "讨论模式", "collab": "协同模式"}
+    with pytest.raises(ServiceError, match="未知的模式"):
+        svc.create(MEDIUM, workflow="debate")

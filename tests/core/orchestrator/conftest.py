@@ -9,7 +9,7 @@ from roundtable.core.providers import FakeProvider
 from roundtable.core.runtime import Runtime
 
 from ..routing.conftest import app_config
-from ..steps.conftest import default_reply, synthesis_reply
+from ..steps.conftest import default_reply, merge_reply, synthesis_reply
 
 SHORT = "1+1=?"
 MEDIUM = "求函数 f(x)=x^3-3x 在区间 [-2, 2] 上的最大值与最小值，并写出完整过程。"
@@ -46,8 +46,10 @@ class Env:
         system = messages[0].content
         if "规划员" in system:
             return planner(self.difficulty)(model, messages)
-        if "学习小组的统筹" in system:
+        if "汇总成一份结论" in system:
             return synthesis_reply(resolved=self.resolved)(model, messages)
+        if "合并成一份完整成果" in system:
+            return merge_reply("high" if self.resolved else "low")(model, messages)
         return default_reply(model, messages)
 
     def models_called(self, step_marker: str) -> list[str]:

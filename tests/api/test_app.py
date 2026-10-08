@@ -145,6 +145,19 @@ def test_responses_never_contain_keys(tmp_path):
     assert keys.has("OPENROUTER_API_KEY")
 
 
+def test_collab_over_http():
+    env, c = client(confirm_threshold_usd=100.0)
+    with c:
+        r = c.post("/api/sessions", json={"question": MEDIUM, "workflow": "collab"})
+        sid = r.json()["session_id"]
+        assert sse_events(c, sid)[-1]["status"] == "completed"
+        session = c.get(f"/api/sessions/{sid}").json()
+        assert session["workflow"] == "collab"
+        assert any(o["kind"] == "merge" for o in session["outputs"])
+        bad = c.post("/api/sessions", json={"question": MEDIUM, "workflow": "debate"})
+        assert bad.status_code == 400
+
+
 def test_contributions_endpoint():
     env, c = client(confirm_threshold_usd=100.0)
     with c:
