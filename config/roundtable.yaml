@@ -28,7 +28,19 @@ prompts:
   answer: v1
   review: v1
   revise: v1
-  synthesize: v1
+  synthesize: v2
+
+# 每个步骤对所有模型统一使用的参数（中立：同一步骤参数相同；模型自身必需的参数在 models.yaml）
+step_params:
+  answer: {max_tokens: 6000}
+  review: {max_tokens: 3000}
+  revise: {max_tokens: 6000}
+  synthesize: {max_tokens: 6000}
+
+# 互评质量检查：空泛的评审判为无效，不转给作者
+review_quality:
+  min_checked_chars: 15     # 没有指出问题时，"检查了什么"至少要写这么多字
+  vague_phrases: [挺好, 很好, 不错, 同意, 没问题, 没有问题, 正确, 都对, 很棒, looks good, lgtm, good, fine, ok, agree, correct, no issues]
 
 # 步骤顺序（插件名）
 pipeline: [answer, review, revise, synthesize, reveal]

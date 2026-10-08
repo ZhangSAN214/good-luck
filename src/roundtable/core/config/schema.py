@@ -156,6 +156,11 @@ class RequestPolicy(_Strict):
     cooldown_quota_s: float = Field(default=600, ge=0)
 
 
+class ReviewQuality(_Strict):
+    min_checked_chars: int = Field(default=15, ge=0)
+    vague_phrases: list[str] = Field(default_factory=list)
+
+
 class RoundtableConfig(_Strict):
     seats: int = Field(ge=2)
     min_members: int = Field(default=2, ge=2)
@@ -167,6 +172,8 @@ class RoundtableConfig(_Strict):
     pipeline: list[str] = Field(min_length=1)
     channel_mode: ChannelMode = "auto"
     request: RequestPolicy = RequestPolicy()
+    step_params: dict[str, dict[str, Any]] = Field(default_factory=dict)
+    review_quality: ReviewQuality = ReviewQuality()
 
     @field_validator("prompts")
     @classmethod

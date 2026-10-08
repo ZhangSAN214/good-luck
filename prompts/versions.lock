@@ -3,5 +3,6 @@
   "planner/v1": "cb905ba97b2032a4b0be4dc6b663a846131a55a806ddfa4ecd0f55e5fda0f60c",
   "review/v1": "aa88fe8b2842fc72980ef4204b856f1bf4c74e09f639db7c6221503cf9a2d07a",
   "revise/v1": "0540e93316c2fd2b00cddf469467506822d9e6e6c664212b16d7a6e423d2aade",
-  "synthesize/v1": "701815c9d95e37a9cced49b9f97da0722d2e741723e6ad1f2ca69ef9e7fbabc8"
+  "synthesize/v1": "701815c9d95e37a9cced49b9f97da0722d2e741723e6ad1f2ca69ef9e7fbabc8",
+  "synthesize/v2": "5397da44e0b928c4df877cdf2981adfc4946e10dfae15a33e85af76d70e57916"
 }
