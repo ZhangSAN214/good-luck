@@ -1,5 +1,6 @@
 """成本优先路由：规则判断 + 规划员 → 方案 → 阵容 → 花费预估 → 确认 / 升级。"""
 
+from .cards import cost_card, escalation_card
 from .decide import (
     Assessment,
     OutcomeSignals,
@@ -32,6 +33,8 @@ __all__ = [
     "RoutingRecord",
     "TriageResult",
     "UserChoice",
+    "cost_card",
+    "escalation_card",
     "escalation_reason",
     "estimate_pipeline",
     "pick_planner_model",

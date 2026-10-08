@@ -13,6 +13,7 @@ from .repository import (
     SeatView,
     SessionSummary,
     SessionView,
+    iso,
 )
 
 __all__ = [
@@ -31,5 +32,6 @@ __all__ = [
     "SessionView",
     "connect",
     "current_version",
+    "iso",
     "migrate",
 ]

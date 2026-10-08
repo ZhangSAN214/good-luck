@@ -37,8 +37,15 @@ class NotFound(LookupError):
     pass
 
 
+def iso(moment: datetime) -> str:
+    """库中时间戳的统一格式（UTC，毫秒），可按字符串比较先后。"""
+    if moment.tzinfo is None:
+        raise ValueError("时间必须带时区")
+    return moment.astimezone(UTC).isoformat(timespec="milliseconds")
+
+
 def _now() -> str:
-    return datetime.now(UTC).isoformat(timespec="milliseconds")
+    return iso(datetime.now(UTC))
 
 
 def _json(value: Any) -> str:
@@ -487,6 +494,13 @@ class Repository:
 
     def total_spent(self) -> float:
         return self._exec("SELECT COALESCE(SUM(cost_usd), 0) FROM calls").fetchone()[0]
+
+    def spent_between(self, start: datetime, end: datetime) -> float:
+        """[start, end) 内的花费（按调用记录时间）。"""
+        return self._exec(
+            "SELECT COALESCE(SUM(cost_usd), 0) FROM calls WHERE created_at >= ? AND created_at < ?",
+            (iso(start), iso(end)),
+        ).fetchone()[0]
 
     def session_cost(self, session_id: str) -> float:
         return self._exec(

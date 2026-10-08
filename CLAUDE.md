@@ -43,7 +43,7 @@
   - `channels`：调用渠道。每个渠道有 `adapter`（`openai_compat` / `anthropic` / `gemini`）、`kind`（`aggregator` 聚合平台 / `direct` 官方直连 / `local` 本地）、`base_url`、`key_env`（**只写环境变量名**）、可选 `extra_body`。
   - `models`：`id`、`vendor`、`tier`（`flagship` 旗舰 / `budget` 便宜档，启用的模型必填）、可选 `aliases`（别称，用于身份遮蔽）、`price`（输入/输出每百万 token，可选 `cached_input`）、`tags`、`enabled`、可选 `params`，以及按优先顺序排列的 `routes`（每条：`channel`、该渠道上的 `model` ID、可选 `price` / `params` 覆盖）。
   - 标签词表现在就包含媒体类（`vision`、`image_gen`、`tts`、`transcribe`、`video_gen`），v1 不使用。
-- `config/roundtable.yaml`：座位数、预算、提醒比例、token 阈值、统筹轮换规则、提示词版本、步骤顺序 `pipeline:`、**渠道模式 `channel_mode`**（`openrouter` / `direct` / `auto`，默认 `auto`）、请求策略（超时、切换轮数、退避、冷却）。
+- `config/roundtable.yaml`：座位数、预算（每月、每日、提醒比例）、token 阈值、统筹轮换规则、提示词版本、步骤顺序 `pipeline:`、**渠道模式 `channel_mode`**（`openrouter` / `direct` / `auto`，默认 `auto`）、请求策略（超时、切换轮数、退避、冷却）。
 - `config/personas.yaml`：v1 只用匿名代号池（甲乙丙丁…）；人设字段的 schema 预留但可为空。
 - `config/routing.yaml`：确认门槛、默认难度、规划员档位、规则判断（triage）、方案（组员档位与人数、统筹档位、pipeline、升级目标）、难度→方案、预设、手动模式的统筹规则、升级条件、花费预估参数。**只能引用档位和能力标签**，不得出现模型名或厂商名（有测试）。
 - 方案的组员档位是优先顺序：先从第一个档位抽满 max，不够 min 时才用后面的档位补；组员与统筹争抢同一档位时，组员先保证首选档位的 min，统筹再保留首选档位。同档位内随机抽取；`prefer_distinct_vendors` 时尽量不让同一厂商在一张桌上出现两次；`prefer_task_tags` 时优先带题型标签的模型（数量够才筛）。
@@ -111,11 +111,13 @@
 ---
 
 ## 4. 预算
-- **单题确认门槛**默认 **$0.30**（`routing.yaml`）：预计花费超过时执行前先确认；升级时重新预估、重新判断。
-- 总预算默认 **$20**（跨会话累计，配置可改）。
-- 累计费用达到 **80%** 时提醒（界面提示，不打断流程）。
-- 下一步预估会让累计超过预算，或已经超过时：**暂停**，弹确认卡片（现状 / 选项 / 代价 / 推荐；按钮：继续、停止）。
-- 界面实时显示累计 token、费用和预算条。
+- **单题确认门槛**默认 **$0.30**（`routing.yaml`）：预计花费超过时执行前先确认（可改用其他方案）；升级时重新预估、重新判断。
+- **每月预算**默认 **$20**，**每日上限**默认 **$3**（`roundtable.yaml` 的 `budget`，每日上限可设为 `null` 关闭）。按 **UTC 自然月 / 自然日**统计调用记录中的花费：每月 1 号、每天 0 点（UTC）自动进入新周期，不需要定时任务。
+- 已用达到 **80%** 时提醒（界面提示，不打断流程；月、日分别判断）。
+- 已用满，或"已用 + 下一步预计"会超出任一额度时：**暂停**，弹确认卡片（继续 / 停止，推荐停止）。只超出每日上限时，卡片说明次日 0 点 UTC 恢复。
+- 金额比较带极小的浮点容差：正好用满不算超出。
+- 所有确认卡片统一为 `ConfirmationCard`（`core/cards.py`）：现状 / 选项（含各选项代价）/ 推荐及理由。路由的花费卡片与升级卡片在 `routing/cards.py`，预算卡片由 `BudgetVerdict.card()` 生成。
+- 界面实时显示本月 / 今日已用、预算条和按渠道花费。
 
 ---
 
@@ -148,7 +150,8 @@ src/roundtable/
     allocation/    按档位/标签抽取、代号、互评分配（排除自评）、乱序、身份遮蔽
     routing/       规则判断、规划员、方案与阵容、花费预估、用户模式、升级、每题记录
     storage/       SQLite 迁移、Repository、揭晓前的匿名视图
-    budget/        用量统计（按渠道/模型）、预估、预算检查
+    budget/        用量统计（按渠道/模型）、预算守卫（每月 + 每日，UTC）
+    cards.py       确认卡片的统一格式
     steps/         answer / review / revise / synthesize / reveal 插件
     orchestrator/  编排引擎、确认点、暂停/恢复、失败处理
     jsonout.py     从模型输出中提取 JSON

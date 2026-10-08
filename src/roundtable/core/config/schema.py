@@ -126,7 +126,11 @@ class ModelsConfig(_Strict):
 
 
 class Budget(_Strict):
-    total_usd: float = Field(gt=0)
+    """按 UTC 自然月 / 自然日统计花费；每月 1 号、每天 0 点（UTC）自动进入新周期。"""
+
+    monthly_usd: float = Field(gt=0)
+    # None 表示不设每日上限
+    daily_usd: float | None = Field(default=None, gt=0)
     warn_ratio: float = Field(gt=0, lt=1)
 
 
