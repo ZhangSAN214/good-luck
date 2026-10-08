@@ -48,7 +48,7 @@ class IdentityScrubber:
             )
         return re.compile("|".join(parts), re.IGNORECASE)
 
-    def scrub(self, text: str, *, context: str = "") -> str:
+    def scrub(self, text: str, context: str = "") -> str:
         """遮蔽 text 中的身份名称；context（通常是题目）里出现过的名称保留。"""
         lowered = context.lower()
         active = [t for t in self._terms if t.lower() not in lowered]

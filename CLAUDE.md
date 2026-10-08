@@ -84,7 +84,9 @@
 
 ### 2.6 持久化：SQLite
 - 存：会话、题目、seed、**路由记录**（难度判断、方案、预估与实际花费、升级）、座位与代号映射、统筹、每次调用（步骤、提示词版本 + 哈希、输入输出、**实际渠道与切换记录**、token、费用及来源、耗时、错误）、互评结果、修订稿、汇总、确认点与用户回复、累计费用（总计与按渠道）。
-- 数据访问只经 `core/storage/`（Repository 模式）；表结构变更走版本化迁移，后续扩展加表不改旧表含义。
+- 数据访问只经 `core/storage/`（Repository 模式）；表结构变更走版本化迁移（`storage/migrations.py`，只能在末尾追加；已发布迁移的哈希登记在测试中，不得修改），后续扩展加表不改旧表含义。
+- 表：`sessions`、`routing_records`、`seats`（`table_no` 0 为初始圆桌，升级后为 1、2…）、`calls` + `call_attempts`（每次渠道尝试一行）、`outputs`（各步产出，通用表）、`step_progress`（恢复时跳过已完成步骤）、`checkpoints`。
+- **对外展示只用 `session_view()` / `list_sessions()`**：揭晓前去掉模型 id、渠道、切换记录、阵容、规划员模型，错误信息替换为通用提示，模型输出经身份遮蔽；揭晓后显示全部原文。按渠道的花费汇总（`spent_by_channel()`）可随时展示。
 
 ### 2.7 分层
 - `core/`：纯业务逻辑，**禁止 import fastapi / starlette / uvicorn / streamlit**（测试守卫）。
@@ -145,7 +147,7 @@ src/roundtable/
     prompts/       提示词加载与渲染
     allocation/    按档位/标签抽取、代号、互评分配（排除自评）、乱序、身份遮蔽
     routing/       规则判断、规划员、方案与阵容、花费预估、用户模式、升级、每题记录
-    storage/       SQLite repository 与迁移
+    storage/       SQLite 迁移、Repository、揭晓前的匿名视图
     budget/        用量统计（按渠道/模型）、预估、预算检查
     steps/         answer / review / revise / synthesize / reveal 插件
     orchestrator/  编排引擎、确认点、暂停/恢复、失败处理

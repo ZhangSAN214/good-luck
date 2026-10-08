@@ -14,7 +14,13 @@ from roundtable.core.config import AppConfig, ModelSpec
 from roundtable.core.config.schema import Difficulty
 from roundtable.core.jsonout import JSONOutputError, extract_json_object
 from roundtable.core.prompts import PromptLibrary
-from roundtable.core.providers import AllChannelsFailed, ChannelRouter, NoChannelAvailable
+from roundtable.core.providers import (
+    AllChannelsFailed,
+    ChannelRouter,
+    Completion,
+    Message,
+    NoChannelAvailable,
+)
 
 log = logging.getLogger(__name__)
 
@@ -40,6 +46,9 @@ class PlannerResult:
     prompt_version: str
     prompt_sha256: str | None
     error: str | None = None
+    # 供存储逐次记录：发送的消息、每次成功调用的结果
+    messages: tuple[Message, ...] = ()
+    completions: tuple[Completion, ...] = ()
 
     @property
     def ok(self) -> bool:
@@ -80,22 +89,37 @@ async def run_planner(
         "planner", version, question=question, task_types=", ".join([*vocab, OTHER])
     )
     params = {"max_tokens": config.routing.planner.max_tokens}
-    cost, calls, error = 0.0, 0, None
+    cost, error = 0.0, None
+    completions: list[Completion] = []
+
+    def result(output: PlannerOutput | None) -> PlannerResult:
+        return PlannerResult(
+            model.id,
+            output,
+            cost,
+            len(completions),
+            version,
+            rendered.sha256,
+            None if output else error,
+            rendered.messages,
+            tuple(completions),
+        )
+
     for _ in range(ATTEMPTS):
         try:
             completion = await router.complete(model.id, rendered.messages, params)
         except (AllChannelsFailed, NoChannelAvailable) as exc:
             error = f"调用失败：{exc}"
             break  # 渠道层已经重试和切换过
-        calls += 1
+        completions.append(completion)
         cost += completion.cost_usd
         try:
             output = PlannerOutput.model_validate(extract_json_object(completion.text))
         except (JSONOutputError, ValidationError) as exc:
             error = f"输出无法解析：{type(exc).__name__}"
-            log.warning("规划员输出无法解析，第 %d 次", calls)
+            log.warning("规划员输出无法解析，第 %d 次", len(completions))
             continue
         if output.task_type not in vocab:
             output = output.model_copy(update={"task_type": OTHER})
-        return PlannerResult(model.id, output, cost, calls, version, rendered.sha256)
-    return PlannerResult(model.id, None, cost, calls, version, rendered.sha256, error)
+        return result(output)
+    return result(None)

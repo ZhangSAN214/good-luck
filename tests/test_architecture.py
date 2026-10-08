@@ -133,7 +133,7 @@ def test_reveal_guard_detects_calls():
 
 
 # 分配与路由属于"决策逻辑"，不得写死任何模型 / 厂商 / 别称（适配器按协议命名，不在此列）
-DECISION_PACKAGES = ["allocation", "routing", "prompts", "budget"]
+DECISION_PACKAGES = ["allocation", "routing", "prompts", "budget", "storage"]
 
 
 def identity_terms() -> set[str]:
