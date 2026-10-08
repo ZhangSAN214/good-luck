@@ -347,3 +347,30 @@ def test_contributions_replace_and_history(repo):
     assert repo.contribution_history() == [
         {"model_id": "m1", "kind": "adopted", "amount": 8, "sessions": 2}
     ]
+
+
+async def test_table_cost_and_call_samples(repo):
+    from roundtable.core.providers import ChannelRouter
+
+    providers = {n: FakeProvider(n, reported_cost_usd=0.01) for n in CONFIG.models.channels}
+    router = ChannelRouter(CONFIG.models, providers)
+    sids = [repo.create_session(f"q{i}", seed=i) for i in range(3)]
+    for sid in sids:
+        for table_no in (0, 1):
+            completion = await router.complete("gemini-3.8-flash", MSG)
+            repo.record_call(
+                sid,
+                step="answer",
+                role="member",
+                model_id="gemini-3.8-flash",
+                messages=MSG,
+                table_no=table_no,
+                code="甲",
+                completion=completion,
+            )
+    assert repo.table_cost(sids[0], 0) == pytest.approx(0.01)
+    assert repo.session_cost(sids[0]) == pytest.approx(0.02)
+    rows = repo.call_samples()
+    assert len(rows) == 6 and {r["step"] for r in rows} == {"answer"}
+    assert set(rows[0]) >= {"model_id", "input_tokens", "output_tokens", "code", "error"}
+    assert len(repo.call_samples(sessions=1)) == 2  # 只看最近的若干场

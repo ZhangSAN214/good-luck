@@ -19,7 +19,7 @@ from roundtable.core.config.schema import Confidence, Difficulty, EscalationRule
 from roundtable.core.prompts import PromptLibrary
 from roundtable.core.providers import ChannelRouter
 
-from .estimate import CostEstimate, estimate_pipeline, text_tokens
+from .estimate import CostEstimate, EstimateHistory, Participant, estimate_pipeline, text_tokens
 from .lineup import Lineup, LineupBuilder
 from .planner import PlannerResult, run_planner
 from .triage import Question, triage
@@ -254,19 +254,30 @@ def _estimate(
     by_id: dict[str, ModelSpec],
     question: Question,
     answer_tokens: int,
+    history: EstimateHistory | None = None,
 ) -> CostEstimate:
     params = config.routing.estimate
+
+    def seat(model_id: str) -> Participant:
+        spec = by_id[model_id]
+        return Participant(model_id, spec.tier, _route_price(router, spec))
+
+    caps = {
+        step: int(p["max_tokens"])
+        for step, p in config.roundtable.step_params.items()
+        if p.get("max_tokens")
+    }
     return estimate_pipeline(
         lineup.pipeline,
-        member_prices=[_route_price(router, by_id[m]) for m in lineup.members],
-        coordinator_price=(
-            _route_price(router, by_id[lineup.coordinator]) if lineup.coordinator else None
-        ),
+        members=[seat(m) for m in lineup.members],
+        coordinator=seat(lineup.coordinator) if lineup.coordinator else None,
         question_tokens=text_tokens(question.text, params),
         answer_tokens=answer_tokens,
         revise_rounds=config.roundtable.revise_rounds,
         params=params,
         reviews_per_answer=config.roundtable.reviews_per_answer,
+        history=history,
+        caps=caps,
     )
 
 
@@ -277,6 +288,7 @@ def estimate_lineup(
     *,
     config: AppConfig,
     router: ChannelRouter,
+    history: EstimateHistory | None = None,
 ) -> CostEstimate:
     """按实际阵容估算花费（公开给编排引擎使用）。"""
     available = {m.id: m for m in config.models.models}
@@ -287,6 +299,7 @@ def estimate_lineup(
         by_id=available,
         question=question,
         answer_tokens=answer_tokens(config, assessment),
+        history=history,
     )
 
 
@@ -371,6 +384,7 @@ def _options(
     seed: int,
     recent_coordinators: Sequence[str],
     workflow: str = "discussion",
+    history: EstimateHistory | None = None,
 ) -> dict[str, PlanOption]:
     """每个档位的阵容与预估花费，供界面对比和用户改选。每个档位用独立的随机数。"""
     by_id = {m.id: m for m in available}
@@ -394,6 +408,7 @@ def _options(
             by_id=by_id,
             question=question,
             answer_tokens=answer_tokens(config, assessment),
+            history=history,
         )
         options[name] = PlanOption(plan.label, True, estimate, lineup=lineup)
     return options
@@ -411,6 +426,7 @@ async def route_question(
     prompts: PromptLibrary,
     seed: int,
     recent_coordinators: Sequence[str] = (),
+    history: EstimateHistory | None = None,
 ) -> RoutingDecision:
     choice = choice or UserChoice()
     routing = config.routing
@@ -442,6 +458,7 @@ async def route_question(
         seed=seed,
         recent_coordinators=recent_coordinators,
         workflow=choice.workflow,
+        history=history,
     )
     if tier == CUSTOM:
         builder = LineupBuilder(
@@ -461,6 +478,7 @@ async def route_question(
             by_id=by_id,
             question=question,
             answer_tokens=answer_tokens(config, assessment),
+            history=history,
         )
         options[CUSTOM] = PlanOption(routing.custom.label, True, estimate, lineup=lineup)
         escalate_to = None
@@ -511,6 +529,7 @@ def plan_escalation(
     config: AppConfig,
     router: ChannelRouter,
     recent_coordinators: Sequence[str] = (),
+    history: EstimateHistory | None = None,
 ) -> RoutingDecision | None:
     """满足升级条件时，返回升级后的新决定（重新组建阵容、重新预估）；否则返回 None。
 
@@ -528,6 +547,7 @@ def plan_escalation(
         config=config,
         router=router,
         recent_coordinators=recent_coordinators,
+        history=history,
     )
 
 
@@ -543,6 +563,7 @@ def escalate(
     config: AppConfig,
     router: ChannelRouter,
     recent_coordinators: Sequence[str] = (),
+    history: EstimateHistory | None = None,
 ) -> RoutingDecision | None:
     """与 plan_escalation 相同，但只需要存库的信息（恢复执行后也能用）。"""
     if escalate_to is None:
@@ -561,7 +582,9 @@ def escalate(
         lineup = builder.build(plan, choice.workflow)
     except NotEnoughModels as exc:
         raise RoutingError(f"无法升级到 {escalate_to}：{exc}") from None
-    estimate = estimate_lineup(lineup, question, assessment, config=config, router=router)
+    estimate = estimate_lineup(
+        lineup, question, assessment, config=config, router=router, history=history
+    )
     return RoutingDecision(
         seed=seed,
         choice=choice,

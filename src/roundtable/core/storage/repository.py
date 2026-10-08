@@ -611,6 +611,22 @@ class Repository:
             "SELECT COALESCE(SUM(cost_usd), 0) FROM calls WHERE session_id = ?", (session_id,)
         ).fetchone()[0]
 
+    def table_cost(self, session_id: str, table_no: int) -> float:
+        return self._exec(
+            "SELECT COALESCE(SUM(cost_usd), 0) FROM calls WHERE session_id = ? AND table_no = ?",
+            (session_id, table_no),
+        ).fetchone()[0]
+
+    def call_samples(self, sessions: int = 30) -> list[dict[str, Any]]:
+        """最近若干场讨论中各步骤的调用（成员与统筹，不含规划员），供花费预估用历史校准。"""
+        rows = self._exec(
+            "SELECT session_id, table_no, step, code, role, model_id, input_tokens,"
+            " output_tokens, error FROM calls WHERE table_no IS NOT NULL AND session_id IN"
+            " (SELECT id FROM sessions ORDER BY created_at DESC LIMIT ?)",
+            (sessions,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
     def spent_by_channel(self) -> dict[str, ChannelUsage]:
         usage: dict[str, ChannelUsage] = {}
         for r in self._exec(

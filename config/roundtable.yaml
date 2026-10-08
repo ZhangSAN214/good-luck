@@ -43,17 +43,19 @@ prompts:
 
 # 每个步骤对所有模型统一使用的参数（中立：同一步骤参数相同；模型自身必需的参数在 models.yaml）
 step_params:
-  answer: {max_tokens: 6000}
-  review: {max_tokens: 3000}
-  revise: {max_tokens: 6000}
-  synthesize: {max_tokens: 6000}
-  decompose: {max_tokens: 3000}
-  volunteer: {max_tokens: 2000}
-  assign: {max_tokens: 2000}
-  work: {max_tokens: 6000}
-  cross_review: {max_tokens: 3000}
-  rework: {max_tokens: 6000}
-  merge: {max_tokens: 8000}
+  # max_tokens 是每次调用的输出上限（推理模型的思考 token 也计入），防止输出失控；
+  # 预估卡片上的"最多"按所有调用都写满这个上限计算
+  answer: {max_tokens: 4000}
+  review: {max_tokens: 2500}
+  revise: {max_tokens: 4000}
+  synthesize: {max_tokens: 4000}
+  decompose: {max_tokens: 2000}
+  volunteer: {max_tokens: 1500}
+  assign: {max_tokens: 1500}
+  work: {max_tokens: 5000}
+  cross_review: {max_tokens: 2500}
+  rework: {max_tokens: 5000}
+  merge: {max_tokens: 10000}
 
 # 互评质量检查：空泛的评审判为无效，不转给作者
 review_quality:

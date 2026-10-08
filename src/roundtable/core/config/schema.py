@@ -352,6 +352,14 @@ class EstimateParams(_Strict):
     volunteer_tokens: int = Field(default=300, ge=0)
     assign_tokens: int = Field(default=400, ge=0)
     merge_tokens: int = Field(default=3000, ge=0)
+    # 没有历史记录时，输出 token 按档位放大（推理模型的思考 token 也按输出计费）
+    output_multiplier: dict[str, float] = Field(default_factory=dict)
+    # 某个模型在某个步骤至少有这么多次成功调用，才用它的历史中位数代替公式
+    history_min_samples: int = Field(default=3, ge=1)
+    # 统计历史时只看最近这么多场讨论
+    history_sessions: int = Field(default=30, ge=1)
+    # 本桌实际花费超过"预估 × 此倍数"时暂停询问；None 关闭
+    overrun_factor: float | None = Field(default=1.5, gt=1)
 
     @field_validator("answer_tokens")
     @classmethod

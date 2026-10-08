@@ -35,6 +35,7 @@ const CARD_TITLES = {
   escalation: '是否升级',
   budget: '预算',
   members: '组员不足',
+  overrun: '花费超出预估',
 };
 export const STATUS_LABELS = {
   created: '准备中',

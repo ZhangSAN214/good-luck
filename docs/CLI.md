@@ -64,6 +64,9 @@ roundtable ask '求函数 f(x)=x^3-3x 在 [-2,2] 上的最大值和最小值'
 roundtable history              # 最近的讨论（含会话 id）
 roundtable stats                # 各模型的历史贡献：被采纳的要点、有效问题、敷衍次数等（匿名讨论揭晓后才计入）
 roundtable show <会话id> --details
+roundtable show <会话id> --costs      # 每桌每步的预估与实际花费、每次调用的 token
+roundtable export <会话id>           # 完整记录（含每位成员的产出和花费明细）导出成 UTF-8 文本文件
+roundtable export <会话id> -o 记录.txt
 roundtable reveal <会话id>      # 匿名讨论：揭晓身份、每次调用走的渠道和花费
 roundtable resume <会话id>      # 中断（Ctrl+C、断网）后继续，已完成的步骤不会重复
 ```
@@ -71,6 +74,9 @@ roundtable resume <会话id>      # 中断（Ctrl+C、断网）后继续，已�
 记录保存在 `data/roundtable.db`（不会提交到 git）。
 
 ## 中文显示乱码时
+
+命令行输出统一用 UTF-8（包括用 `>` 或 `|` 重定向时）。要把结果保存成文件，推荐直接用
+`roundtable export <会话id>`，它自己写文件（带 BOM 的 UTF-8，记事本能正确打开），不经过 PowerShell 的编码转换。
 
 Windows Terminal + PowerShell 7 一般不需要处理。旧版控制台出现乱码时先执行：
 

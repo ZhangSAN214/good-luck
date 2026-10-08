@@ -248,3 +248,37 @@ async def test_latex_shown_as_plain_text_unless_raw():
     sid = env.rt.repo.list_sessions()[0].id
     code, raw = await cli(env, "show", sid, "--raw", "--details")
     assert "\\frac{1}{2}" in raw and "**答案**" in raw
+
+
+async def test_show_costs_and_export_utf8(tmp_path):
+    env = Env(confirm_threshold_usd=100.0)
+    await cli(env, "ask", MEDIUM, "--anonymous", "--seed", "3", answers=Answers("n"))
+    sid = env.rt.repo.list_sessions()[0].id
+    code, text = await cli(env, "show", sid, "--costs")
+    assert code == 0 and "【花费明细】" in text and "【每次调用】" in text
+    assert "规划员" in text and "第 1 桌：预估" in text and "独立作答：预估" in text
+    for term in identity_terms(env):  # 匿名未揭晓：花费明细中也不显示模型与渠道
+        assert not mentions(text.split("【花费明细】")[1], term), term
+
+    target = tmp_path / "out.txt"
+    code, text = await cli(env, "export", sid, "-o", str(target))
+    assert code == 0 and "已导出到" in text
+    raw = target.read_bytes()
+    assert raw.startswith(b"\xef\xbb\xbf")  # UTF-8 BOM：Windows 记事本 / PowerShell 能识别
+    content = raw.decode("utf-8-sig")
+    assert "【最终答案】" in content and "【花费明细】" in content
+    assert "组员甲 的答案" in content  # 导出包含每位成员的产出
+
+
+def test_main_writes_utf8_even_when_stream_is_not(monkeypatch, capsys):
+    import sys
+
+    from roundtable import cli as cli_module
+
+    raw = io.BytesIO()
+    stream = io.TextIOWrapper(raw, encoding="gbk")
+    monkeypatch.setattr(sys, "stdout", stream)
+    cli_module._utf8_streams()
+    print("组员甲 ✓ x² 🙂", file=sys.stdout)
+    sys.stdout.flush()
+    assert raw.getvalue().decode("utf-8") == "组员甲 ✓ x² 🙂\n"

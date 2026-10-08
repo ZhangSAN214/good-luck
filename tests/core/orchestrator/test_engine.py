@@ -487,3 +487,57 @@ async def test_collab_resume_after_crash():
     assert r.status == "completed"
     after = len([c for c in env.fake.calls if "你负责下面 <your_subtask>" in c.messages[0].content])
     assert after == work_calls  # 已完成的子任务没有重做
+
+
+# --- 花费失控保护 -----------------------------------------------------------------
+
+
+async def test_overrun_pauses_then_continue_raises_limit():
+    env = Env(confirm_threshold_usd=100.0)
+    env.fake._reported_cost = 0.05  # 每次调用的实际花费远高于预估
+    r = await env.orc.start(Question(SHORT), seed=3)
+    assert r.status == "paused" and r.checkpoint.kind == "overrun"
+    details = r.checkpoint.card["details"]
+    assert details["step"] == "review"  # 第一步照常执行，执行后才知道实际花费
+    assert details["next_limit"] > 0
+    asked = 1
+    while r.status == "paused":
+        assert r.checkpoint.kind == "overrun"
+        r = await env.orc.respond(r.session_id, "continue")
+        asked += 1
+    assert r.status == "completed"
+    assert asked <= 5  # 每次继续都提高上限，不会每一步都问
+
+
+async def test_overrun_stop_keeps_partial_results():
+    env = Env(confirm_threshold_usd=100.0)
+    env.fake._reported_cost = 0.05
+    r = await env.orc.start(Question(SHORT), seed=3)
+    calls = len(env.fake.calls)
+    r = await env.orc.respond(r.session_id, "stop")
+    assert r.status == "stopped" and len(env.fake.calls) == calls
+
+
+async def test_normal_cost_never_triggers_overrun(env):
+    r = await env.orc.start(Question(MEDIUM), seed=3)
+    while r.status == "awaiting_confirmation" and r.checkpoint.kind == "cost":
+        r = await env.orc.respond(r.session_id, "continue")
+    assert r.status == "completed"
+    kinds = [c.kind for c in env.rt.repo.session_view(r.session_id).checkpoints]
+    assert "overrun" not in kinds
+
+
+async def test_estimate_uses_history_and_shows_upper_bound():
+    env = Env(confirm_threshold_usd=0.0)  # 总是弹花费卡片，便于检查文字
+    r = await env.orc.start(Question(MEDIUM), seed=4)
+    assert r.checkpoint.kind == "cost"
+    assert "最多约" in r.checkpoint.card["situation"]
+    first = r.checkpoint.card["options"][0]["cost_usd"]
+    assert "历史" not in r.checkpoint.card["situation"]
+    await env.orc.respond(r.session_id, "continue")
+    for seed in range(5, 11):
+        r = await env.orc.start(Question(MEDIUM), seed=seed)
+        await env.orc.respond(r.session_id, "continue")
+    r = await env.orc.start(Question(MEDIUM), seed=11)
+    assert "已按本机历史记录校准" in r.checkpoint.card["situation"]
+    assert r.checkpoint.card["options"][0]["cost_usd"] != first

@@ -17,8 +17,9 @@ from dataclasses import dataclass, replace
 from typing import Any
 
 from roundtable.core.allocation import assign_codes
-from roundtable.core.cards import CardOption, ConfirmationCard
+from roundtable.core.cards import CardOption, ConfirmationCard, money
 from roundtable.core.routing import (
+    EstimateHistory,
     Question,
     RoutingDecision,
     RoutingError,
@@ -29,6 +30,7 @@ from roundtable.core.routing import (
     escalate,
     escalation_card,
     estimate_lineup,
+    history_from_calls,
     option_lineup,
     route_question,
 )
@@ -201,6 +203,7 @@ class Orchestrator:
             prompts=self.rt.prompts,
             seed=seed,
             recent_coordinators=recent,
+            history=self._history(),
         )
         if decision.assessment.planner:
             repo.record_planner(sid, decision.assessment.planner)
@@ -228,6 +231,12 @@ class Orchestrator:
         if needs:
             self._checkpoint(sid, cost_card(decision), table_no=0)
 
+    def _history(self) -> EstimateHistory:
+        """本机历史调用的 token 统计，用于校准花费预估（推理 token、重试、重做都已包含在内）。"""
+        params = self.rt.config.routing.estimate
+        rows = self.rt.repo.call_samples(params.history_sessions)
+        return history_from_calls(rows, params.history_min_samples)
+
     def _create_table(
         self,
         sid: str,
@@ -251,6 +260,8 @@ class Orchestrator:
             escalate_to=decision.escalate_to,
             estimate={
                 "total": decision.estimate.total_usd,
+                "max": decision.estimate.max_usd,
+                "calibrated": decision.estimate.calibrated,
                 "steps": {s.step: s.cost_usd for s in decision.estimate.steps},
             },
             status=status,
@@ -281,7 +292,9 @@ class Orchestrator:
             )
         except RoutingError as exc:
             raise OrchestratorError(str(exc)) from None
-        estimate = estimate_lineup(lineup, question, assessment, config=cfg, router=self.rt.router)
+        estimate = estimate_lineup(
+            lineup, question, assessment, config=cfg, router=self.rt.router, history=self._history()
+        )
         decision = RoutingDecision(
             seed=row["seed"],
             choice=UserChoice(plan_name, workflow=row["workflow"]),
@@ -351,6 +364,7 @@ class Orchestrator:
                 config=cfg,
                 router=self.rt.router,
                 recent_coordinators=repo.recent_coordinators(),
+                history=self._history(),
             )
         except RoutingError as exc:
             self._warn(sid, f"需要升级但无法组建阵容：{exc}")
@@ -408,6 +422,8 @@ class Orchestrator:
             if step in done:
                 continue
             if not self._budget_ok(sid, table, step):
+                return "paused"
+            if not self._overrun_ok(sid, table, step, done):
                 return "paused"
             if step in PEER_STEPS and len(ctx.active) < cfg.roundtable.min_members:
                 if not ctx.active:
@@ -480,6 +496,52 @@ class Orchestrator:
             return True
         self.rt.repo.set_status(sid, "paused")
         self._checkpoint(sid, verdict.card(), table_no=table["table_no"], step=step)
+        return False
+
+    def _overrun_ok(self, sid: str, table: dict[str, Any], step: str, done: set[str]) -> bool:
+        """本桌实际花费 + 下一步预估超过"本桌预估 × overrun_factor"时暂停询问，防止花费失控。
+
+        用户选择继续后，上限提高到"已花费 + 剩余步骤预估"再乘以倍数；之后再超出会再次询问。
+        """
+        repo = self.rt.repo
+        factor = self.rt.config.routing.estimate.overrun_factor
+        estimate = table["estimate"]
+        total = estimate.get("total") or 0.0
+        if factor is None or total <= 0:
+            return True
+        table_no = table["table_no"]
+        limit = total * factor
+        for c in repo.session_view(sid).checkpoints:
+            details = c.card.get("details", {})
+            if c.kind == "overrun" and c.response == "continue" and details["table_no"] == table_no:
+                limit = max(limit, details["next_limit"])
+        spent = repo.table_cost(sid, table_no)
+        step_estimate = estimate["steps"].get(step, 0.0)
+        if spent + step_estimate <= limit + 1e-9:
+            return True
+        remaining = sum(estimate["steps"].get(s, 0.0) for s in table["pipeline"] if s not in done)
+        card = ConfirmationCard(
+            kind="overrun",
+            situation=(
+                f"本桌已花费 {money(spent)}，执行前预估 {money(total)}；"
+                f"下一步「{step}」预计 {money(step_estimate)}，"
+                f"会超过预估的 {factor:g} 倍（{money(limit)}）。"
+            ),
+            options=(
+                CardOption("continue", "继续", remaining, "剩余步骤按预估计算"),
+                CardOption("stop", "停止", 0.0, "保留已完成的部分"),
+            ),
+            recommendation="continue",
+            reason="剩余步骤预计 " + money(remaining) + "；之后如果再超出会再次询问",
+        )
+        repo.set_status(sid, "paused")
+        self._checkpoint(
+            sid,
+            card,
+            table_no=table_no,
+            step=step,
+            next_limit=(spent + remaining) * factor,
+        )
         return False
 
     def _approved(self, sid: str, kind: str, table_no: int) -> bool:

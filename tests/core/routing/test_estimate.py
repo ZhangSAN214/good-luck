@@ -3,7 +3,14 @@ from __future__ import annotations
 import pytest
 
 from roundtable.core.config import Price
-from roundtable.core.routing import estimate_pipeline, text_tokens
+from roundtable.core.routing import (
+    EstimateHistory,
+    Participant,
+    estimate_pipeline,
+    history_from_calls,
+    text_tokens,
+)
+from roundtable.core.routing.estimate import TokenStat
 
 from .conftest import REPO
 
@@ -72,3 +79,85 @@ def test_flagship_prices_dominate():
     cheap = run(price=Price(input=0.1, output=0.4), coordinator=Price(input=0.1, output=0.4))
     pricey = run(price=Price(input=2, output=10), coordinator=Price(input=2, output=10))
     assert pricey.total_usd > 10 * cheap.total_usd
+
+
+# --- 档位倍数、历史校准、上限 ---------------------------------------------------------
+
+
+PM = P.model_copy(update={"output_multiplier": {"flagship": 2.0}, "history_min_samples": 2})
+
+
+def seats(*tiers):
+    return [Participant(f"m{i}", t, UNIT) for i, t in enumerate(tiers)]
+
+
+def run2(members, *, history=None, caps=None, pipeline=("answer",)):
+    return estimate_pipeline(
+        pipeline,
+        members=members,
+        coordinator=Participant("c", "budget", UNIT),
+        question_tokens=100,
+        answer_tokens=1000,
+        revise_rounds=1,
+        params=PM,
+        history=history,
+        caps=caps,
+    )
+
+
+def test_flagship_output_multiplied_for_reasoning_tokens():
+    e = run2(seats("flagship", "budget"))
+    assert e.output_tokens == 2000 + 1000 and not e.calibrated
+
+
+def test_output_clamped_to_step_cap_and_upper_bound():
+    e = run2(seats("flagship"), caps={"answer": 1500})
+    assert e.output_tokens == 1500
+    o = PM.prompt_overhead_tokens
+    assert e.max_usd == pytest.approx((o + 100 + 1500) / 1e6)
+    assert e.max_usd >= e.total_usd
+
+
+def test_history_replaces_formula_when_enough_samples():
+    h = EstimateHistory({("m0", "answer"): TokenStat(50, 7000, 2)})
+    e = run2(seats("flagship"), history=h)
+    o = PM.prompt_overhead_tokens
+    assert e.output_tokens == 7000 and e.input_tokens == o + 100  # 输入取较大者
+    assert e.calibrated
+    few = EstimateHistory({("m0", "answer"): TokenStat(50, 7000, 1)})
+    assert run2(seats("flagship"), history=few).output_tokens == 2000
+
+
+def test_history_retry_rate_scales_cost():
+    base = run2(seats("budget"))
+    h = EstimateHistory(calls_per_slot={"answer": 1.5})
+    e = run2(seats("budget"), history=h)
+    assert e.total_usd == pytest.approx(base.total_usd * 1.5) and e.calibrated
+
+
+def _row(sid, code, step="answer", model="m0", tin=100, tout=1000, error=None):
+    return {
+        "session_id": sid,
+        "table_no": 0,
+        "step": step,
+        "code": code,
+        "role": "member",
+        "model_id": model,
+        "input_tokens": tin,
+        "output_tokens": tout,
+        "error": error,
+    }
+
+
+def test_history_from_calls_medians_and_retry_rate():
+    rows = [
+        _row("s1", "甲", tout=1000),
+        _row("s1", "甲", tout=3000),  # 同一座位第二次调用（格式重试 / 打回重做）
+        _row("s2", "甲", tout=2000),
+        _row("s3", "乙", tout=5000),
+        _row("s3", "丙", tout=0, error="timeout"),  # 没产出 token 的失败调用不计
+    ]
+    h = history_from_calls(rows, min_samples=3)
+    assert h.tokens[("m0", "answer")] == TokenStat(100, 2500, 4)
+    assert h.calls_per_slot["answer"] == pytest.approx(4 / 3)
+    assert history_from_calls(rows, min_samples=4).calls_per_slot == {}

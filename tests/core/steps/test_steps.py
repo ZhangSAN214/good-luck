@@ -35,7 +35,7 @@ async def test_answer_identical_prompts_except_code(table):
     }
     assert len(normalized) == 1  # 换掉代号后完全一致
     params = {json.dumps(c.params, sort_keys=True) for c in table.fake.calls}
-    assert params == {json.dumps({"max_tokens": 6000})}  # 同一步骤参数相同
+    assert params == {json.dumps({"max_tokens": 4000})}  # 同一步骤参数相同
     assert set(table.ctx.state.answers) == set(MEMBERS)
     assert len(table.repo.outputs(table.session, kind="answer")) == 3
 

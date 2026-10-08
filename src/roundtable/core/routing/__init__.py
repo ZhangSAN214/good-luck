@@ -18,7 +18,14 @@ from .decide import (
     plan_escalation,
     route_question,
 )
-from .estimate import CostEstimate, estimate_pipeline, text_tokens
+from .estimate import (
+    CostEstimate,
+    EstimateHistory,
+    Participant,
+    estimate_pipeline,
+    history_from_calls,
+    text_tokens,
+)
 from .lineup import Lineup, LineupBuilder
 from .planner import PlannerOutput, PlannerResult, pick_planner_model, run_planner
 from .triage import Question, TriageResult, triage
@@ -27,6 +34,9 @@ __all__ = [
     "CUSTOM",
     "Assessment",
     "CostEstimate",
+    "EstimateHistory",
+    "Participant",
+    "history_from_calls",
     "Lineup",
     "LineupBuilder",
     "OutcomeSignals",

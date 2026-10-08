@@ -9,7 +9,8 @@
     roundtable history                            # 最近的讨论
     roundtable stats                              # 各模型的历史贡献
     roundtable resume <会话 id>                   # 中断后继续
-    roundtable show <会话 id>                     # 查看结果
+    roundtable show <会话 id>                     # 查看结果（--costs 显示花费明细）
+    roundtable export <会话 id> [-o 文件]         # 导出完整记录（UTF-8 文本文件，含花费明细）
     roundtable reveal <会话 id>                   # 揭晓身份（匿名讨论）
 
 匿名讨论在揭晓前，终端上不会出现任何模型名、厂商名或渠道名。
@@ -20,9 +21,13 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import contextlib
+import io
 import json
 import sys
+from collections import defaultdict
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any, TextIO
 
 from roundtable.core.config import ConfigError
@@ -244,6 +249,70 @@ class CLI:
         self.print_contributions(sid, view.revealed)
         if view.error:
             self.p(f"\n错误：{view.error}")
+
+    def print_costs(self, sid: str) -> None:
+        """花费明细：每桌每步的预估与实际（调用次数、输入 / 输出 token），以及每次调用。"""
+        view = self.rt.repo.session_view(sid, scrub=self.rt.scrubber.scrub)
+        estimates = {t["table_no"]: t["estimate"] for t in self.rt.repo.tables(sid)}
+        self.p("\n【花费明细】")
+        planner = [c for c in view.calls if c.table_no is None]
+        if planner:
+            cost = sum(c.cost_usd for c in planner)
+            self.p(f"  规划员：{len(planner)} 次调用 ${cost:.4f}")
+        steps: dict[tuple[int, str], list] = defaultdict(list)
+        for c in view.calls:
+            if c.table_no is not None:
+                steps[(c.table_no, c.step)].append(c)
+        for table_no in sorted({t for t, _ in steps} | set(estimates)):
+            est = estimates.get(table_no) or {}
+            spent = sum(c.cost_usd for (t, _), cs in steps.items() if t == table_no for c in cs)
+            limit = f"（最多约 ${est['max']:.4f}）" if est.get("max") else ""
+            self.p(
+                f"  第 {table_no + 1} 桌：预估 ${est.get('total', 0):.4f}{limit}，实际 ${spent:.4f}"
+            )
+            order = list(
+                dict.fromkeys([*est.get("steps", {}), *(s for t, s in steps if t == table_no)])
+            )
+            for step in order:
+                cs = steps.get((table_no, step), [])
+                if not cs and not est.get("steps", {}).get(step):
+                    continue
+                tin = sum(c.input_tokens for c in cs)
+                tout = sum(c.output_tokens for c in cs)
+                failed = sum(c.failed for c in cs)
+                fail = f"，失败 {failed}" if failed else ""
+                planned = est.get("steps", {}).get(step, 0)
+                self.p(
+                    f"    {STEP_NAMES.get(step, step)}：预估 ${planned:.4f}"
+                    f"，实际 ${sum(c.cost_usd for c in cs):.4f}"
+                    f"（{len(cs)} 次调用{fail}，输入 {tin} / 输出 {tout} token）"
+                )
+        self.p("\n【每次调用】")
+        for c in view.calls:
+            where = "规划" if c.table_no is None else f"第 {c.table_no + 1} 桌"
+            who = "规划员" if c.role == "planner" else self.label(c.code, c.table_no or 0)
+            channel = f" · {c.channel}" if c.channel else ""
+            error = f" · 失败：{c.error}" if c.error else ""
+            self.p(
+                f"  #{c.id} {where} {STEP_NAMES.get(c.step, c.step)} {who}{channel}："
+                f"输入 {c.input_tokens} / 输出 {c.output_tokens} token，${c.cost_usd:.4f}"
+                + (f"，{c.latency_s:.1f}s" if c.latency_s is not None else "")
+                + error
+            )
+
+    def export(self, sid: str, path: str | None) -> Path:
+        """把完整记录（含每位成员的产出和花费明细）写成 UTF-8 文本文件，不经过终端编码。"""
+        buffer = io.StringIO()
+        out, self.out = self.out, buffer
+        try:
+            self.show(sid, details=True)
+            self.print_costs(sid)
+        finally:
+            self.out = out
+        target = Path(path or f"roundtable-{sid[:8]}.txt")
+        # 带 BOM：Windows 记事本和旧版 PowerShell 也能正确识别 UTF-8
+        target.write_text(buffer.getvalue(), encoding="utf-8-sig")
+        return target
 
     def print_collab(self, outputs, table_no: int, details: bool) -> None:
         """协同模式：子任务与分工、（--details 时）各份成果与审查、合并结果。"""
@@ -528,6 +597,11 @@ def build_parser() -> argparse.ArgumentParser:
         if name == "show":
             cmd.add_argument("--details", action="store_true")
             cmd.add_argument("--raw", action="store_true")
+            cmd.add_argument("--costs", action="store_true", help="显示每步与每次调用的花费")
+    export = sub.add_parser("export", help="导出完整记录到 UTF-8 文本文件（含花费明细）")
+    export.add_argument("session_id")
+    export.add_argument("-o", "--output", help="输出文件，默认 roundtable-<会话 id 前 8 位>.txt")
+    export.add_argument("--raw", action="store_true", help="保持模型输出的原样")
     return parser
 
 
@@ -593,6 +667,12 @@ async def run(
             return await cli.finish(result, details=False, reveal=None)
         if args.command == "show":
             cli.show(args.session_id, details=args.details)
+            if args.costs:
+                cli.print_costs(args.session_id)
+            return 0
+        if args.command == "export":
+            target = cli.export(args.session_id, args.output)
+            print(f"已导出到 {target.resolve()}", file=out)
             return 0
         if args.command == "reveal":
             cli.reveal_identities(args.session_id)
@@ -606,10 +686,19 @@ async def run(
     return 0
 
 
-def main(argv: list[str] | None = None) -> int:
+def _utf8_streams() -> None:
+    """输出统一用 UTF-8（Windows 终端、PowerShell 管道重定向时也是）。
+
+    errors="replace" 保证遇到无法编码的字符也不会中途报错、留下空文件。
+    """
     for stream in (sys.stdout, sys.stderr):
         if hasattr(stream, "reconfigure"):
-            stream.reconfigure(encoding="utf-8")  # Windows 终端下保证中文正常输出
+            with contextlib.suppress(OSError, ValueError):
+                stream.reconfigure(encoding="utf-8", errors="replace")
+
+
+def main(argv: list[str] | None = None) -> int:
+    _utf8_streams()
     try:
         return asyncio.run(run(argv))
     except KeyboardInterrupt:

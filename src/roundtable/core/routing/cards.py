@@ -15,6 +15,17 @@ def _people(decision: RoutingDecision) -> str:
     return text
 
 
+def _range(decision: RoutingDecision) -> str:
+    """预计花费（及上限）：上限 = 每次调用都写满该步骤的输出长度上限。"""
+    e = decision.estimate
+    text = f"预计 {money(e.total_usd)}"
+    if e.max_usd > e.total_usd:
+        text += f"（最多约 {money(e.max_usd)}）"
+    if e.calibrated:
+        text += "，已按本机历史记录校准"
+    return text
+
+
 def cost_card(decision: RoutingDecision) -> ConfirmationCard:
     """预计花费超过单题门槛时：按当前档位继续、换成其他档位、或停止。"""
     current = decision.plan
@@ -29,13 +40,13 @@ def cost_card(decision: RoutingDecision) -> ConfirmationCard:
     return ConfirmationCard(
         kind="cost",
         situation=(
-            f"「{label}」：{_people(decision)}，预计 {money(decision.estimate.total_usd)}，"
+            f"「{label}」：{_people(decision)}，{_range(decision)}，"
             f"超过单题确认门槛 {money(decision.confirm_threshold_usd)}。"
         ),
         options=tuple(options),
         recommendation="continue",
         reason="这是你选择的档位；想省钱可以改用更便宜的档位（人数不变）",
-        details={"plan": current},
+        details={"plan": current, "max_usd": decision.estimate.max_usd},
     )
 
 
@@ -46,8 +57,7 @@ def escalation_card(escalation: RoutingDecision) -> ConfirmationCard:
         kind="escalation",
         situation=(
             f"当前结果{escalation.escalation_reason}。"
-            f"用「{target}」（{_people(escalation)}）重做预计 "
-            f"{money(escalation.estimate.total_usd)}。"
+            f"用「{target}」（{_people(escalation)}）重做，{_range(escalation)}。"
         ),
         options=(
             CardOption("continue", f"用「{target}」重做", escalation.estimate.total_usd),
