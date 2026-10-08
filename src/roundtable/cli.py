@@ -26,6 +26,7 @@ from roundtable.core.orchestrator import Orchestrator, RunResult
 from roundtable.core.routing import Question, RoutingError, UserChoice
 from roundtable.core.runtime import Runtime
 from roundtable.core.steps import Event
+from roundtable.plaintext import latex_to_text
 
 STEP_NAMES = {
     "plan": "规划",
@@ -47,11 +48,13 @@ class CLI:
         out: TextIO = sys.stdout,
         ask: Callable[[str], str] = input,
         auto_confirm: bool = False,
+        plain_math: bool = True,
     ) -> None:
         self.rt = runtime
         self.out = out
         self.ask = ask
         self.auto_confirm = auto_confirm
+        self.plain_math = plain_math
         self.orc = Orchestrator(runtime, on_event=self.on_event)
         self.prefix = runtime.config.personas.code_prefix
         plans = runtime.config.routing.plans
@@ -59,6 +62,10 @@ class CLI:
 
     def p(self, text: str = "") -> None:
         print(text, file=self.out, flush=True)
+
+    def t(self, text: str) -> str:
+        """模型输出：把 LaTeX 数学式转成易读的纯文本（--raw 时保持原样）。"""
+        return latex_to_text(text) if self.plain_math else text
 
     def label(self, code: str | None) -> str:
         return f"{self.prefix}{code}" if code else "统筹"
@@ -161,20 +168,26 @@ class CLI:
             if details:
                 for o in outputs:
                     if o.kind == "answer":
-                        self.p(f"\n【{self.label(o.code)} 的答案】\n{o.content}")
+                        self.p(f"\n【{self.label(o.code)} 的答案】\n{self.t(o.content)}")
                     elif o.kind == "review":
                         self.print_review(o.code, json.loads(o.content))
                     elif o.kind == "revision":
                         rev = json.loads(o.content)
                         tag = "（无有效评审，沿用原答案）" if rev["skipped"] else ""
-                        self.p(f"\n【{self.label(o.code)} 修订后{tag}】\n{rev['answer']}")
+                        self.p(f"\n【{self.label(o.code)} 修订后{tag}】\n{self.t(rev['answer'])}")
             synth = next((o for o in outputs if o.kind == "synthesis"), None)
             if synth:
                 self.print_synthesis(json.loads(synth.content))
             elif not details:
                 answers = [o for o in outputs if o.kind in ("revision", "answer")]
                 if len(answers) == 1:
-                    self.p(f"\n【答案】\n{answers[0].content}")
+                    only = answers[0]
+                    text = (
+                        json.loads(only.content)["answer"]
+                        if only.kind == "revision"
+                        else only.content
+                    )
+                    self.p(f"\n【答案】\n{self.t(text)}")
         if view.error:
             self.p(f"\n错误：{view.error}")
 
@@ -184,9 +197,8 @@ class CLI:
             state = "有效" if r["valid"] else f"无效：{'；'.join(r['invalid_reasons'])}"
             self.p(f"  → {self.label(r['target'])}：{r['verdict']}（{state}）")
             for i in r["issues"]:
-                self.p(
-                    f"     · [{i['severity']}] {i['location']}：{i['problem']} → {i['suggestion']}"
-                )
+                where, what, fix = (self.t(i[k]) for k in ("location", "problem", "suggestion"))
+                self.p(f"     · [{i['severity']}] {where}：{what} → {fix}")
 
     def print_synthesis(self, s: dict[str, Any]) -> None:
         if s.get("degraded"):
@@ -194,22 +206,22 @@ class CLI:
         if s["consensus"]:
             self.p("\n【共识】")
             for c in s["consensus"]:
-                self.p(f"  · {c}")
+                self.p(f"  · {self.t(c)}")
         if s["disagreements"]:
             self.p("\n【分歧】")
             for d in s["disagreements"]:
                 status = "已裁定" if d.get("resolved") else "未解决"
-                self.p(f"  · {d['point']}（{status}）")
+                self.p(f"  · {self.t(d['point'])}（{status}）")
                 for pos in d["positions"]:
                     who = "、".join(self.label(m) for m in pos["members"]) or "?"
-                    self.p(f"      {who}：{pos['view']}")
+                    self.p(f"      {who}：{self.t(pos['view'])}")
                 if d.get("assessment"):
-                    self.p(f"      统筹评估：{d['assessment']}")
-        self.p(f"\n【最终答案】（把握程度：{s['confidence']}）\n{s['final_answer']}")
+                    self.p(f"      统筹评估：{self.t(d['assessment'])}")
+        self.p(f"\n【最终答案】（把握程度：{s['confidence']}）\n{self.t(s['final_answer'])}")
         if s["open_questions"]:
             self.p("\n【仍需核实】")
             for q in s["open_questions"]:
-                self.p(f"  · {q}")
+                self.p(f"  · {self.t(q)}")
 
     def reveal_identities(self, sid: str) -> None:
         self.orc.reveal_identities(sid)
@@ -326,6 +338,7 @@ def build_parser() -> argparse.ArgumentParser:
     ask.add_argument("--coordinator", help="手动模式下指定统筹的模型 id")
     ask.add_argument("--seed", type=int, help="随机种子（用于复现）")
     ask.add_argument("--details", action="store_true", help="显示每位组员的答案、评审和修订稿")
+    ask.add_argument("--raw", action="store_true", help="数学式保持模型输出的原样（不转成纯文本）")
     ask.add_argument(
         "--yes", action="store_true", help="花费 / 升级确认自动选择继续（预算确认仍会询问）"
     )
@@ -341,6 +354,7 @@ def build_parser() -> argparse.ArgumentParser:
         cmd.add_argument("session_id")
         if name == "show":
             cmd.add_argument("--details", action="store_true")
+            cmd.add_argument("--raw", action="store_true")
     return parser
 
 
@@ -357,7 +371,13 @@ async def run(
     except ConfigError as exc:
         print(f"配置错误：{exc}", file=out)
         return 2
-    cli = CLI(rt, out=out, ask=ask, auto_confirm=getattr(args, "yes", False))
+    cli = CLI(
+        rt,
+        out=out,
+        ask=ask,
+        auto_confirm=getattr(args, "yes", False),
+        plain_math=not getattr(args, "raw", False),
+    )
     try:
         if args.command == "ask":
             question = args.question

@@ -24,7 +24,7 @@ CONFIG = load_config()
 ALL_TEMPLATES = [
     LIBRARY.get(role, version) for role in LIBRARY.roles() for version in LIBRARY.versions(role)
 ]
-MEMBER_ROLES = ("answer", "review", "revise")
+MEMBER_ROLES = ("answer", "answer_quick", "review", "revise")
 
 
 def test_configured_prompts_exist_and_parse():
@@ -63,8 +63,13 @@ def test_member_prompts_only_vary_by_neutral_variables(role):
     template = LIBRARY.get(role, CONFIG.roundtable.prompts[role])
     allowed = {"code", "question", "peer_answers", "own_answer", "reviews_of_you"}
     assert template.variables <= allowed
-    a = template.render(**{v: "X" for v in template.variables} | {"code": "组员甲"})
-    b = template.render(**{v: "X" for v in template.variables} | {"code": "组员乙"})
+
+    def values(code: str) -> dict[str, str]:
+        base = {v: "X" for v in template.variables}
+        return base | ({"code": code} if "code" in template.variables else {})
+
+    a = template.render(**values("组员甲"))
+    b = template.render(**values("组员乙"))
     differ = [
         x.content.replace("组员甲", "组员乙") == y.content
         for x, y in zip(a.messages, b.messages, strict=True)
@@ -75,7 +80,7 @@ def test_member_prompts_only_vary_by_neutral_variables(role):
 def test_structured_roles_declare_json():
     for role in ("review", "synthesize"):
         assert LIBRARY.get(role, CONFIG.roundtable.prompts[role]).output == "json"
-    for role in ("answer", "revise"):
+    for role in ("answer", "answer_quick", "revise"):
         assert LIBRARY.get(role, CONFIG.roundtable.prompts[role]).output == "text"
 
 

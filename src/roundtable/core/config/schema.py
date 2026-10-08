@@ -264,6 +264,8 @@ class PlanSpec(_Strict):
     # None 表示使用 roundtable.yaml 的完整 pipeline
     pipeline: list[str] | None = None
     escalate_to: str | None = None
+    # 步骤 → 提示词角色（默认与步骤同名），如单人快答的 answer 使用 answer_quick
+    prompt_roles: dict[str, str] = Field(default_factory=dict)
 
 
 class RuleCondition(_Strict):
@@ -428,3 +430,8 @@ class AppConfig(_Strict):
                 raise ValueError(f"方案 {name}：有 synthesize 步骤时必须配置 coordinator，反之亦然")
             if "review" in steps and plan.members.min < 2:
                 raise ValueError(f"方案 {name}：含互评步骤时 members.min 至少为 2")
+            missing = sorted(set(plan.prompt_roles.values()) - set(rt.prompts))
+            if missing:
+                raise ValueError(
+                    f"方案 {name} 的 prompt_roles 引用了 prompts 中没有的角色 {missing}"
+                )

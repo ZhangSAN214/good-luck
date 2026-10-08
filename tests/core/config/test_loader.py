@@ -44,7 +44,14 @@ def test_repo_config_loads_with_v1_defaults():
     assert (rt.budget.monthly_usd, rt.budget.daily_usd, rt.budget.warn_ratio) == (20.0, 3.0, 0.8)
     assert rt.channel_mode == "auto"
     assert rt.pipeline == ["answer", "review", "revise", "synthesize", "reveal"]
-    assert set(rt.prompts) == {"planner", "answer", "review", "revise", "synthesize"}
+    assert set(rt.prompts) == {
+        "planner",
+        "answer",
+        "answer_quick",
+        "review",
+        "revise",
+        "synthesize",
+    }
     assert len(cfg.models.enabled) >= rt.seats + 1
 
 

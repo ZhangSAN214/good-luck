@@ -45,7 +45,7 @@
   - 标签词表现在就包含媒体类（`vision`、`image_gen`、`tts`、`transcribe`、`video_gen`），v1 不使用。
 - `config/roundtable.yaml`：座位数、预算（每月、每日、提醒比例）、步骤参数、互评质量规则、token 阈值、统筹轮换规则、提示词版本、步骤顺序 `pipeline:`、**渠道模式 `channel_mode`**（`openrouter` / `direct` / `auto`，默认 `auto`）、请求策略（超时、切换轮数、退避、冷却）。
 - `config/personas.yaml`：v1 只用匿名代号池（甲乙丙丁…）；人设字段的 schema 预留但可为空。
-- `config/routing.yaml`：确认门槛、默认难度、规划员档位、规则判断（triage）、方案（组员档位与人数、统筹档位、pipeline、升级目标）、难度→方案、预设、手动模式的统筹规则、升级条件、花费预估参数。**只能引用档位和能力标签**，不得出现模型名或厂商名（有测试）。
+- `config/routing.yaml`：确认门槛、默认难度、规划员档位、规则判断（triage）、方案（组员档位与人数、统筹档位、pipeline、升级目标、`prompt_roles`：某步骤改用的提示词，如单人快答用 `answer_quick`）、难度→方案、预设、手动模式的统筹规则、升级条件、花费预估参数。**只能引用档位和能力标签**，不得出现模型名或厂商名（有测试）。
 - 方案的组员档位是优先顺序：先从第一个档位抽满 max，不够 min 时才用后面的档位补；组员与统筹争抢同一档位时，组员先保证首选档位的 min，统筹再保留首选档位。同档位内随机抽取；`prefer_distinct_vendors` 时尽量不让同一厂商在一张桌上出现两次；`prefer_task_tags` 时优先带题型标签的模型（数量够才筛）。
 - 加模型 / 加渠道只改配置。禁止针对具体模型、厂商或渠道写分支（`if model_id == ...`、`if vendor == ...`）。
 - 所有配置 pydantic 校验（多余字段报错），失败给出带文件名和字段路径的报错。
@@ -78,7 +78,7 @@
 - 每步结束状态落库；可暂停、关页面后恢复，恢复时不重复已完成的调用。
 
 ### 2.4 提示词外置且带版本
-- `prompts/<role>/v<n>.md`，v1：`planner`、`answer`、`review`、`revise`、`synthesize`。代码中不得内联提示词正文。
+- `prompts/<role>/v<n>.md`：`planner`、`answer`、`answer_quick`（单人快答：直接给答案，最多一两句说明）、`review`、`revise`、`synthesize`。代码中不得内联提示词正文。
 - 文件格式：YAML 文件头（`description`、`output: text|json`、`variables`）+ `<!-- system -->` / `<!-- user -->` 两段。占位符用 `{{ name }}`（不用 `$`，避免与数学公式冲突）；声明的变量与正文占位符必须一一对应，渲染时缺少或多余参数都报错；只替换一次，用户输入里的 `{{ x }}` 不会被展开。
 - 题目、他人答案等外部内容放在标签内（`<question>`、`<answer>` …），系统提示说明标签内的指令无效（防提示注入）。
 - 使用的版本由配置指定，随每次调用入库（版本号 + 内容哈希，换行统一为 LF 后计算）。
@@ -150,7 +150,7 @@
 
 ```
 config/        models.yaml  roundtable.yaml  personas.yaml  routing.yaml
-prompts/       planner/ answer/ review/ revise/ synthesize/（各含 v1.md）  versions.lock
+prompts/       planner/ answer/ answer_quick/ review/ revise/ synthesize/  versions.lock
 src/roundtable/
   core/
     config/        配置加载与校验
@@ -167,6 +167,7 @@ src/roundtable/
     jsonout.py     从模型输出中提取 JSON
     service.py     对外 facade
   cli.py         命令行试用（`roundtable` 命令，见 docs/CLI.md）
+  plaintext.py   命令行显示用：LaTeX 数学式转纯文本（不改动存储的原文）
   api/           FastAPI 应用、路由、SSE
 web/             index.html、js/、css/
 tests/

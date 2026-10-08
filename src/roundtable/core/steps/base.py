@@ -70,6 +70,8 @@ class TableContext:
     rng: random.Random
     state: TableState = field(default_factory=TableState)
     on_event: EventSink | None = None
+    # 步骤 → 提示词角色（来自方案的 prompt_roles；未指定时与步骤同名）
+    prompt_roles: dict[str, str] = field(default_factory=dict)
 
     # 代号与展示标签（"甲" ↔ "组员甲"）
     def label(self, code: str) -> str:
@@ -97,6 +99,15 @@ class TableContext:
 
     def prompt_version(self, role: str) -> str:
         return self.config.roundtable.prompts[role]
+
+    def prompt_role(self, step: str) -> str:
+        return self.prompt_roles.get(step, step)
+
+    def render(self, step: str, **values: str) -> RenderedPrompt:
+        """按方案指定的角色渲染提示词；只传入该模板声明的变量。"""
+        role = self.prompt_role(step)
+        template = self.prompts.get(role, self.prompt_version(role))
+        return template.render(**{k: v for k, v in values.items() if k in template.variables})
 
     def step_params(self, step: str) -> dict[str, Any]:
         return dict(self.config.roundtable.step_params.get(step, {}))

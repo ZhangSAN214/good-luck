@@ -68,6 +68,7 @@ def test_invalid_routing(config_dir, change, fragment):  # noqa: F811
         (lambda d: d["plans"]["medium"]["members"].update(min=1), "至少为 2"),
         (lambda d: d["triage"][0]["then"].update(require_tags=["telepathy"]), "未知标签"),
         (lambda d: d["triage"][0]["then"].update(task_type="cooking"), "task_type"),
+        (lambda d: d["plans"]["simple"].update(prompt_roles={"answer": "ghost"}), "ghost"),
     ],
 )
 def test_routing_cross_checks(config_dir, change, fragment):  # noqa: F811

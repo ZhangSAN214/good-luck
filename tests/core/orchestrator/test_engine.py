@@ -13,7 +13,8 @@ from roundtable.core.routing import Question, UserChoice
 
 from .conftest import MEDIUM, SHORT, Env
 
-ANSWER = "独立完成同一道题"  # 作答提示词中的片段，用于统计调用
+ANSWER = "独立完成同一道题"  # 圆桌作答提示词中的片段，用于统计调用
+QUICK = "这是一道简单题"  # 单人快答提示词中的片段
 
 
 def record(env: Env, sid: str) -> dict:
@@ -26,7 +27,7 @@ def record(env: Env, sid: str) -> dict:
 async def test_simple_question_single_member(env):
     r = await env.orc.start(Question(SHORT), seed=1)
     assert r.status == "completed" and r.checkpoint is None
-    assert len(env.models_called(ANSWER)) == 1
+    assert len(env.models_called(QUICK)) == 1 and env.models_called(ANSWER) == []
     assert r.final_answer.endswith("的答案：最大值 2，最小值 -2。")
     rec = record(env, r.session_id)
     assert rec["plan"] == "simple" and rec["actual_cost_usd"] == pytest.approx(r.cost_usd)
@@ -44,6 +45,17 @@ async def test_medium_question_small_table(env):
     rec = record(env, r.session_id)
     assert rec["difficulty_source"] == "model" and not rec["escalated"]
     assert rec["planner_cost_usd"] > 0
+
+
+async def test_roundtable_keeps_full_answer_prompt(env):
+    await env.orc.start(Question(MEDIUM), seed=2)
+    assert env.models_called(QUICK) == [] and len(env.models_called(ANSWER)) == 2
+
+
+async def test_manual_single_member_uses_quick_prompt(env):
+    r = await env.orc.start(Question(MEDIUM), UserChoice("manual", members=("f2",)), seed=2)
+    assert r.status == "completed"
+    assert env.models_called(QUICK) == ["f2"]
 
 
 async def test_events_have_no_model_identity(env):
@@ -125,7 +137,7 @@ async def test_cost_confirmation_switch_plan():
     )
     r = await env.orc.respond(r.session_id, "plan:simple")
     assert r.status == "completed"
-    assert len(env.models_called(ANSWER)) == 1
+    assert len(env.models_called(QUICK)) == 1 and env.models_called(ANSWER) == []
     rec = record(env, r.session_id)
     assert rec["plan"] == "simple" and rec["estimated_cost_usd"] == pytest.approx(simple_cost)
     assert rec["extra"]["switched_by_user"]

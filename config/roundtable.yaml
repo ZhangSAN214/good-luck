@@ -26,6 +26,7 @@ revise_rounds: 1
 prompts:
   planner: v1
   answer: v1
+  answer_quick: v1
   review: v1
   revise: v1
   synthesize: v2

@@ -48,12 +48,14 @@ triage:
 # 前面的档位不够 min 时，才用后面的档位补到 min。
 # coordinator.tiers 同理：按顺序选第一个有空余模型的档位（统筹不兼任组员）。
 # pipeline 省略时使用 roundtable.yaml 中的完整流程。
+# prompt_roles 可让某个步骤改用另一份提示词（版本在 roundtable.yaml 的 prompts 中指定）。
 plans:
   simple:
     label: 单人快答
     members: {tiers: [budget, flagship], min: 1, max: 1}
     coordinator: null
     pipeline: [answer, reveal]
+    prompt_roles: {answer: answer_quick}   # 简单题直接给答案，不展开推导
   medium:
     label: 小圆桌
     members: {tiers: [budget], min: 2, max: 3}
@@ -99,7 +101,7 @@ estimate:
   cjk_chars_per_token: 1.0
   other_chars_per_token: 4.0
   prompt_overhead_tokens: 500       # 系统提示等固定开销 / 每次调用
-  answer_tokens: {simple: 500, medium: 1200, hard: 2500}
+  answer_tokens: {simple: 200, medium: 1200, hard: 2500}
   answer_tokens_bounds: {min: 200, max: 6000}  # 规划员给出的长度估计会被限制在此范围
   review_tokens_per_peer: 400
   revise_overhead_tokens: 300

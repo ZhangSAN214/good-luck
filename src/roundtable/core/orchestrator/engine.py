@@ -358,6 +358,7 @@ class Orchestrator:
             rng=random.Random(),
             state=restore_state(repo, sid, table_no),
             on_event=lambda e: self._forward(sid, e),
+            prompt_roles=self._prompt_roles(table),
         )
         done = set(repo.completed_steps(sid, table_no))
         for step in table["pipeline"]:
@@ -391,6 +392,14 @@ class Orchestrator:
             )
         repo.set_table_status(sid, table_no, DONE)
         return DONE
+
+    def _prompt_roles(self, table: dict[str, Any]) -> dict[str, str]:
+        """方案指定的提示词角色；手动模式只选了一个组员时，按单人方案处理。"""
+        routing = self.rt.config.routing
+        plan = table["plan"]
+        if plan is None and len(table["members"]) == 1:
+            plan = routing.difficulty_plans["simple"]
+        return dict(routing.plans[plan].prompt_roles) if plan in routing.plans else {}
 
     # --- 预算与确认 ----------------------------------------------------------------
 

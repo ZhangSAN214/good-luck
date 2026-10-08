@@ -10,12 +10,9 @@ class AnswerStep:
 
     async def run(self, ctx: TableContext) -> StepResult:
         todo = [c for c in ctx.active if c not in ctx.state.answers]  # 恢复时跳过已完成的
-        version = ctx.prompt_version("answer")
 
         async def work(code: str) -> None:
-            prompt = ctx.prompts.render(
-                "answer", version, code=ctx.label(code), question=ctx.question.text
-            )
+            prompt = ctx.render(self.name, code=ctx.label(code), question=ctx.question.text)
             out = await call_model(
                 ctx,
                 step=self.name,
