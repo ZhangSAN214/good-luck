@@ -29,7 +29,7 @@
 ### 2.1 配置驱动
 - `config/models.yaml`：
   - `channels`：调用渠道。每个渠道有 `adapter`（`openai_compat` / `anthropic` / `gemini`）、`kind`（`aggregator` 聚合平台 / `direct` 官方直连 / `local` 本地）、`base_url`、`key_env`（**只写环境变量名**）、可选 `extra_body`。
-  - `models`：`id`、`vendor`、`price`（输入/输出每百万 token，可选 `cached_input`）、`tags`、`enabled`、可选 `params`，以及按优先顺序排列的 `routes`（每条：`channel`、该渠道上的 `model` ID、可选 `price` / `params` 覆盖）。
+  - `models`：`id`、`vendor`、可选 `tier`（`flagship` 旗舰 / `budget` 便宜档，仅作标注，v1 不参与调度）、`price`（输入/输出每百万 token，可选 `cached_input`）、`tags`、`enabled`、可选 `params`，以及按优先顺序排列的 `routes`（每条：`channel`、该渠道上的 `model` ID、可选 `price` / `params` 覆盖）。
   - 标签词表现在就包含媒体类（`vision`、`image_gen`、`tts`、`transcribe`、`video_gen`），v1 不使用。
 - `config/roundtable.yaml`：座位数、预算、提醒比例、token 阈值、统筹轮换规则、提示词版本、步骤顺序 `pipeline:`、**渠道模式 `channel_mode`**（`openrouter` / `direct` / `auto`，默认 `auto`）、请求策略（超时、切换轮数、退避、冷却）。
 - `config/personas.yaml`：v1 只用匿名代号池（甲乙丙丁…）；人设字段的 schema 预留但可为空。

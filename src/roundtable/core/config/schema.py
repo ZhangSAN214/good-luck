@@ -9,6 +9,8 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 ChannelKind = Literal["aggregator", "direct", "local"]
 ChannelMode = Literal["openrouter", "direct", "auto"]
+# 同一厂商内的档位：flagship 旗舰 / budget 便宜档。仅作标注，v1 不参与调度
+Tier = Literal["flagship", "budget"]
 
 _ENV_NAME = re.compile(r"^[A-Z][A-Z0-9_]*$")
 _PROMPT_VERSION = re.compile(r"^v\d+$")
@@ -62,6 +64,7 @@ class Route(_Strict):
 class ModelSpec(_Strict):
     id: str = Field(min_length=1)
     vendor: str = Field(min_length=1)
+    tier: Tier | None = None
     price: Price
     tags: list[str] = Field(default_factory=list)
     enabled: bool = True

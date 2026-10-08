@@ -214,3 +214,29 @@ def test_fixed_coordinator_must_exist(config_dir):
 def test_persona_for_unknown_model(config_dir):
     edit(config_dir, "personas.yaml", lambda d: d.update(personas={"ghost": {"nickname": "x"}}))
     expect_error(config_dir, "personas", "ghost")
+
+
+# --- 档位 ---------------------------------------------------------------------
+
+
+def test_tier_values(config_dir):
+    edit(config_dir, "models.yaml", lambda d: d["models"][0].update(tier="premium"))
+    expect_error(config_dir, "models.0.tier")
+
+
+def test_tier_is_optional(config_dir):
+    edit(config_dir, "models.yaml", lambda d: d["models"][0].pop("tier", None))
+    assert load_config(config_dir).models.models[0].tier is None
+
+
+@pytest.mark.parametrize("vendor", ["Google", "DeepSeek", "Alibaba"])
+def test_repo_vendors_have_flagship_and_budget(vendor):
+    tiers = sorted(m.tier for m in load_config().models.models if m.vendor == vendor)
+    assert tiers == ["budget", "flagship"]
+
+
+def test_gemini_pro_prefers_google_direct():
+    pro = next(
+        m for m in load_config().models.models if m.vendor == "Google" and m.tier == "flagship"
+    )
+    assert [r.channel for r in pro.routes] == ["google", "openrouter"]

@@ -85,8 +85,20 @@ models:
       - {channel: anthropic, model: claude-sonnet-5-5}
       - {channel: openrouter, model: anthropic/claude-sonnet-5.5}
 
+  - id: gemini-3.1-pro
+    vendor: Google
+    tier: flagship
+    # 搜索结果中最新的 Pro 为 3.1 Pro Preview（未找到 3.8 Pro）；待核对
+    price: {input: 2.00, output: 12.00, cached_input: 0.20}
+    tags: [math, derivation, science, research, long_context, vision]
+    enabled: true
+    routes:
+      - {channel: google, model: gemini-3.1-pro-preview}
+      - {channel: openrouter, model: google/gemini-3.1-pro-preview}
+
   - id: gemini-3.8-flash
     vendor: Google
+    tier: budget
     price: {input: 0.75, output: 3.75}
     tags: [design, research, long_context, vision]
     enabled: true
@@ -96,16 +108,18 @@ models:
 
   - id: qwen3.8-max
     vendor: Alibaba
+    tier: flagship
     price: {input: 2.00, output: 6.00}   # 已由用户核对
     tags: [math, derivation, science, code]
     enabled: true
     routes:
       - {channel: openrouter, model: qwen/qwen3.8-max-0902}
 
-  # 便宜档。OpenRouter 上的固定版本为 qwen/qwen3.8-flash-20260826；
+  # OpenRouter 上的固定版本为 qwen/qwen3.8-flash-20260826；
   # 这里用不带日期的别名，会跟随 OpenRouter 指向最新版本
   - id: qwen3.8-flash
     vendor: Alibaba
+    tier: budget
     price: {input: 0.15, output: 0.47}
     tags: [math, code, long_context, vision]
     enabled: true
@@ -121,8 +135,21 @@ models:
       - {channel: xai, model: grok-4.7}
       - {channel: openrouter, model: x-ai/grok-4.7}
 
+  - id: deepseek-v4-pro
+    vendor: DeepSeek
+    tier: flagship
+    # 搜索结果中的旗舰为 V4 Pro（未找到 V4.1 旗舰版）。OpenRouter 价格取 8 月 GA 版本；待核对
+    price: {input: 0.66, output: 1.98}
+    tags: [math, derivation, code, research, long_context]
+    enabled: true
+    routes:
+      # 官方直连价格来源不一致，按较高的标价保守预估；待核对
+      - {channel: deepseek, model: deepseek-v4-pro, price: {input: 1.74, output: 3.48}}
+      - {channel: openrouter, model: deepseek/deepseek-v4-pro}
+
   - id: deepseek-v4.1-flash
     vendor: DeepSeek
+    tier: budget
     # 分时段计价（闲时 0.15/0.60）；这里按高峰价保守预估
     price: {input: 0.30, output: 1.20}
     tags: [math, derivation, code]
