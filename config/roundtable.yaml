@@ -1,6 +1,6 @@
 # 圆桌运行参数
 
-# 每题上桌的组员数；可用模型更多时随机抽取
+# 一张桌最多的组员座位数（各方案的组员数见 routing.yaml，不得超过此值）
 seats: 4
 # 组员少于此数时暂停问用户；开桌至少需要 min_members 个组员 + 1 个统筹
 min_members: 2
@@ -21,6 +21,7 @@ revise_rounds: 1
 
 # 各步骤使用的提示词版本（prompts/<role>/<version>.md）
 prompts:
+  planner: v1
   answer: v1
   review: v1
   revise: v1

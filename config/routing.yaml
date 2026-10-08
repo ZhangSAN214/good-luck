@@ -1,0 +1,106 @@
+# 成本优先路由：先判断题目难度，再决定开多大的圆桌、用哪个档位的模型。
+#
+# 中立原则：这里的规则只引用档位（flagship / budget）和能力标签，
+# 同档位内随机抽取；不得出现具体模型名或厂商名（有测试检查）。
+# 用户的选择（预设 / 手动勾选）永远优先于自动判断。
+
+# 单题预计花费超过此值时，执行前先请用户确认（美元）
+confirm_threshold_usd: 0.20
+
+# 规则和规划员都判断不出时使用的难度
+default_difficulty: medium
+
+# 同一张桌上尽量不让两个模型来自同一厂商（不够时放宽）
+prefer_distinct_vendors: true
+# 题型对应的能力标签：同档位内有足够多带该标签的模型时，只从它们中抽取
+prefer_task_tags: true
+
+# 规划员：用最便宜的模型判断题型和难度（只在"自动"模式、且规则判断不出时调用）
+planner:
+  tiers: [budget]
+  max_tokens: 300
+  # 用于挑选"最便宜"时估算单次调用成本
+  expected_input_tokens: 700
+  expected_output_tokens: 150
+
+# 规则判断（不调用模型）。按顺序检查：
+# - 第一条给出 difficulty 的规则决定难度；
+# - require_tags / task_type 会累积（例如有图片 → 需要 vision 标签）。
+# 条件（when）之间是"且"的关系：
+#   min_chars / max_chars   题目字数范围
+#   any_keywords            包含任一关键词
+#   no_keywords             不包含任何关键词
+#   attachment_types        带有任一类型的附件（v1 不支持附件，规则先留好）
+triage:
+  - name: has_image
+    when: {attachment_types: [image]}
+    then: {require_tags: [vision]}
+  - name: very_long
+    when: {min_chars: 1500}
+    then: {difficulty: hard}
+  - name: very_short
+    when:
+      max_chars: 30
+      no_keywords: [证明, 推导, 为什么, 分析, 比较, 论述, prove, derive, why, explain, compare]
+    then: {difficulty: simple}
+
+# 方案。members.tiers 是优先顺序：先从前面的档位抽满 max；
+# 前面的档位不够 min 时，才用后面的档位补到 min。
+# coordinator.tiers 同理：按顺序选第一个有空余模型的档位（统筹不兼任组员）。
+# pipeline 省略时使用 roundtable.yaml 中的完整流程。
+plans:
+  simple:
+    label: 单人快答
+    members: {tiers: [budget, flagship], min: 1, max: 1}
+    coordinator: null
+    pipeline: [answer, reveal]
+  medium:
+    label: 小圆桌
+    members: {tiers: [budget], min: 2, max: 3}
+    coordinator: {tiers: [budget, flagship]}
+    escalate_to: hard          # 出现分歧时升级
+  hard:
+    label: 旗舰圆桌
+    members: {tiers: [flagship, budget], min: 2, max: 4}
+    coordinator: {tiers: [flagship, budget]}
+
+# 自动模式：难度 → 方案
+difficulty_plans:
+  simple: simple
+  medium: medium
+  hard: hard
+
+# 预设模式：直接指定方案，不看难度
+presets:
+  saver:
+    label: 省钱
+    plan: medium
+    escalate: false
+  balanced:
+    label: 均衡
+    plan: medium
+    escalate: true
+  strongest:
+    label: 最强
+    plan: hard
+    escalate: false
+
+# 手动模式：用户勾选组员；统筹可指定，否则按此规则从未勾选的模型中选
+manual:
+  coordinator: {tiers: [budget, flagship]}
+
+# 升级条件（满足任一即升级）：汇总中未解决的分歧数 ≥ min_disagreements，或把握程度在列表中
+escalation:
+  min_disagreements: 1
+  confidence: [low]
+
+# 花费预估参数（token 数为粗估，用于执行前提示，可按实际记录调整）
+estimate:
+  cjk_chars_per_token: 1.0
+  other_chars_per_token: 4.0
+  prompt_overhead_tokens: 500       # 系统提示等固定开销 / 每次调用
+  answer_tokens: {simple: 500, medium: 1200, hard: 2500}
+  answer_tokens_bounds: {min: 200, max: 6000}  # 规划员给出的长度估计会被限制在此范围
+  review_tokens_per_peer: 400
+  revise_overhead_tokens: 300
+  synthesize_tokens: 1500

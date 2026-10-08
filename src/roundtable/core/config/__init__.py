@@ -2,6 +2,7 @@
 
 from .loader import DEFAULT_CONFIG_DIR, ConfigError, load_config
 from .schema import (
+    DIFFICULTIES,
     AppConfig,
     ChannelMode,
     ChannelSpec,
@@ -15,6 +16,7 @@ from .schema import (
 
 __all__ = [
     "DEFAULT_CONFIG_DIR",
+    "DIFFICULTIES",
     "AppConfig",
     "ChannelMode",
     "ChannelSpec",
@@ -25,5 +27,6 @@ __all__ = [
     "Price",
     "Route",
     "RoundtableConfig",
+    "RoutingConfig",
     "load_config",
 ]

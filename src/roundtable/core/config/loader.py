@@ -8,7 +8,7 @@ from typing import Any
 import yaml
 from pydantic import ValidationError
 
-from .schema import AppConfig, ModelsConfig, PersonasConfig, RoundtableConfig
+from .schema import AppConfig, ModelsConfig, PersonasConfig, RoundtableConfig, RoutingConfig
 
 DEFAULT_CONFIG_DIR = Path(__file__).resolve().parents[4] / "config"
 
@@ -16,6 +16,7 @@ FILES = {
     "models": ("models.yaml", ModelsConfig),
     "roundtable": ("roundtable.yaml", RoundtableConfig),
     "personas": ("personas.yaml", PersonasConfig),
+    "routing": ("routing.yaml", RoutingConfig),
 }
 
 

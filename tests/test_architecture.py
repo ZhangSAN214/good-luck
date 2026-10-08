@@ -132,6 +132,40 @@ def test_reveal_guard_detects_calls():
     assert reveal_calls("reveal = 1\nprint(reveal)") == 0
 
 
+# 分配与路由属于"决策逻辑"，不得写死任何模型 / 厂商 / 别称（适配器按协议命名，不在此列）
+DECISION_PACKAGES = ["allocation", "routing", "prompts", "budget"]
+
+
+def identity_terms() -> set[str]:
+    from roundtable.core.config import load_config
+
+    cfg = load_config()
+    terms = set()
+    for m in cfg.models.models:
+        terms |= {m.id, m.vendor, *m.aliases, *(r.model for r in m.routes)}
+    return {t.lower() for t in terms if len(t) >= 3}
+
+
+def string_constants(source: str) -> list[str]:
+    return [
+        node.value
+        for node in ast.walk(ast.parse(source))
+        if isinstance(node, ast.Constant) and isinstance(node.value, str)
+    ]
+
+
+def test_decision_code_has_no_brand_names():
+    terms = identity_terms()
+    hits = {}
+    for package in DECISION_PACKAGES:
+        for path in (CORE / package).rglob("*.py"):
+            for text in string_constants(path.read_text(encoding="utf-8")):
+                found = sorted(t for t in terms if t in text.lower())
+                if found:
+                    hits.setdefault(str(path.relative_to(ROOT)), []).extend(found)
+    assert hits == {}
+
+
 def test_repo_contains_no_secrets():
     leaks = {}
     for path in repo_files():

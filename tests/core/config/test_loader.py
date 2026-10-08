@@ -44,7 +44,7 @@ def test_repo_config_loads_with_v1_defaults():
     assert rt.budget.total_usd == 20.0 and rt.budget.warn_ratio == 0.8
     assert rt.channel_mode == "auto"
     assert rt.pipeline == ["answer", "review", "revise", "synthesize", "reveal"]
-    assert set(rt.prompts) == {"answer", "review", "revise", "synthesize"}
+    assert set(rt.prompts) == {"planner", "answer", "review", "revise", "synthesize"}
     assert len(cfg.models.enabled) >= rt.seats + 1
 
 
@@ -224,8 +224,14 @@ def test_tier_values(config_dir):
     expect_error(config_dir, "models.0.tier")
 
 
-def test_tier_is_optional(config_dir):
+def test_enabled_model_needs_tier(config_dir):
     edit(config_dir, "models.yaml", lambda d: d["models"][0].pop("tier", None))
+    expect_error(config_dir, "缺少 tier")
+
+
+def test_disabled_model_may_omit_tier(config_dir):
+    edit(config_dir, "models.yaml", lambda d: d["models"][0].pop("tier", None))
+    edit(config_dir, "models.yaml", lambda d: d["models"][0].update(enabled=False))
     assert load_config(config_dir).models.models[0].tier is None
 
 
