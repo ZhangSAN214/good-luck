@@ -235,7 +235,7 @@ def test_disabled_model_may_omit_tier(config_dir):
     assert load_config(config_dir).models.models[0].tier is None
 
 
-@pytest.mark.parametrize("vendor", ["Google", "DeepSeek", "Alibaba"])
+@pytest.mark.parametrize("vendor", ["OpenAI", "Anthropic", "Google", "DeepSeek", "Alibaba"])
 def test_repo_vendors_have_flagship_and_budget(vendor):
     tiers = sorted(m.tier for m in load_config().models.models if m.vendor == vendor)
     assert tiers == ["budget", "flagship"]

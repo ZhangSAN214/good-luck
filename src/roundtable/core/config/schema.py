@@ -332,7 +332,7 @@ class EstimateParams(_Strict):
 
 
 class RoutingConfig(_Strict):
-    confirm_threshold_usd: float = Field(default=0.20, ge=0)
+    confirm_threshold_usd: float = Field(default=0.30, ge=0)
     default_difficulty: Difficulty = "medium"
     prefer_distinct_vendors: bool = True
     prefer_task_tags: bool = True

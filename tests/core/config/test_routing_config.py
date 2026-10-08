@@ -11,7 +11,7 @@ from .test_loader import config_dir, edit, expect_error  # noqa: F401 - fixture
 
 def test_repo_routing_defaults():
     r = load_config().routing
-    assert r.confirm_threshold_usd == 0.20
+    assert r.confirm_threshold_usd == 0.30
     assert set(r.plans) == {"simple", "medium", "hard"}
     assert r.difficulty_plans == {"simple": "simple", "medium": "medium", "hard": "hard"}
     assert set(r.presets) == {"saver", "balanced", "strongest"}

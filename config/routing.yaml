@@ -5,7 +5,7 @@
 # 用户的选择（预设 / 手动勾选）永远优先于自动判断。
 
 # 单题预计花费超过此值时，执行前先请用户确认（美元）
-confirm_threshold_usd: 0.20
+confirm_threshold_usd: 0.30
 
 # 规则和规划员都判断不出时使用的难度
 default_difficulty: medium

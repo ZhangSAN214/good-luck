@@ -81,6 +81,18 @@ models:
       - {channel: openai, model: gpt-6-sol}
       - {channel: openrouter, model: openai/gpt-6-sol}
 
+  - id: gpt-6-luna
+    vendor: OpenAI
+    tier: budget
+    aliases: [ChatGPT, GPT]
+    # 搜索所得，待核对
+    price: {input: 0.10, output: 0.50}
+    tags: [math, writing, code]
+    enabled: true
+    routes:
+      - {channel: openai, model: gpt-6-luna}
+      - {channel: openrouter, model: openai/gpt-6-luna}
+
   - id: claude-sonnet-5.5
     vendor: Anthropic
     tier: flagship
@@ -91,6 +103,17 @@ models:
     routes:
       - {channel: anthropic, model: claude-sonnet-5-5}
       - {channel: openrouter, model: anthropic/claude-sonnet-5.5}
+
+  - id: claude-haiku-4.5
+    vendor: Anthropic
+    tier: budget
+    aliases: [Claude]
+    price: {input: 1.00, output: 5.00, cached_input: 0.10}
+    tags: [writing, code, vision]
+    enabled: true
+    routes:
+      - {channel: anthropic, model: claude-haiku-4-5}
+      - {channel: openrouter, model: anthropic/claude-haiku-4.5}
 
   - id: gemini-3.1-pro
     vendor: Google
