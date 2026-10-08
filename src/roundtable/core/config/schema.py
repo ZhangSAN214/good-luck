@@ -41,6 +41,8 @@ class ChannelSpec(_Strict):
     key_env: str | None = None
     # 附加到每个请求体的字段（不得包含密钥）
     extra_body: dict[str, Any] = Field(default_factory=dict)
+    # 参数改名（如 OpenAI 新模型要求 max_completion_tokens 而不是 max_tokens）
+    param_aliases: dict[str, str] = Field(default_factory=dict)
 
     @field_validator("key_env")
     @classmethod

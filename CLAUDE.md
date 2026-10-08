@@ -40,7 +40,7 @@
 
 ### 2.1 配置驱动
 - `config/models.yaml`：
-  - `channels`：调用渠道。每个渠道有 `adapter`（`openai_compat` / `anthropic` / `gemini`）、`kind`（`aggregator` 聚合平台 / `direct` 官方直连 / `local` 本地）、`base_url`、`key_env`（**只写环境变量名**）、可选 `extra_body`。
+  - `channels`：调用渠道。每个渠道有 `adapter`（`openai_compat` / `anthropic` / `gemini`）、`kind`（`aggregator` 聚合平台 / `direct` 官方直连 / `local` 本地）、`base_url`、`key_env`（**只写环境变量名**）、可选 `extra_body`、`param_aliases`（该渠道的参数改名，如 OpenAI 直连把 `max_tokens` 改为 `max_completion_tokens`）。
   - `models`：`id`、`vendor`、`tier`（`flagship` 旗舰 / `budget` 便宜档，启用的模型必填）、可选 `aliases`（别称，用于身份遮蔽）、`price`（输入/输出每百万 token，可选 `cached_input`）、`tags`、`enabled`、可选 `params`，以及按优先顺序排列的 `routes`（每条：`channel`、该渠道上的 `model` ID、可选 `price` / `params` 覆盖）。
   - 标签词表现在就包含媒体类（`vision`、`image_gen`、`tts`、`transcribe`、`video_gen`），v1 不使用。
 - `config/roundtable.yaml`：座位数、预算（每月、每日、提醒比例）、步骤参数、互评质量规则、token 阈值、统筹轮换规则、提示词版本、步骤顺序 `pipeline:`、**渠道模式 `channel_mode`**（`openrouter` / `direct` / `auto`，默认 `auto`）、请求策略（超时、切换轮数、退避、冷却）。
@@ -166,10 +166,11 @@ src/roundtable/
     runtime.py     组装配置、密钥、渠道、数据库、预算
     jsonout.py     从模型输出中提取 JSON
     service.py     对外 facade
+  cli.py         命令行试用（`roundtable` 命令，见 docs/CLI.md）
   api/           FastAPI 应用、路由、SSE
 web/             index.html、js/、css/
 tests/
-docs/            REQUIREMENTS_v3.md  PLAN.md  mockup.html
+docs/            REQUIREMENTS_v3.md  PLAN.md  CLI.md  mockup.html
 scripts/         check_models.py（核对 OpenRouter 渠道的模型 ID 与价格）  lock_prompts.py（登记提示词版本）
 .env.example
 ```
@@ -181,5 +182,7 @@ pip install -e ".[dev]"
 ruff check . && ruff format --check .
 pytest
 python scripts/lock_prompts.py      # 新增提示词版本后登记
+roundtable models                   # 查看模型、档位、可用渠道与预算
+roundtable ask '题目'                # 用真实模型跑一场圆桌（PowerShell 中题目用单引号）
 uvicorn roundtable.api.app:app --reload
 ```

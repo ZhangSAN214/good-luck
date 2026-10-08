@@ -30,7 +30,7 @@ Status = Literal[
 ]
 STATUSES = frozenset(Status.__args__)  # type: ignore[attr-defined]
 Role = Literal["planner", "member", "coordinator"]
-HIDDEN_ERROR = "调用失败（详情揭晓后可见）"
+HIDDEN_ERROR = "出错（详情揭晓后可见）"
 
 
 class NotFound(LookupError):
@@ -295,7 +295,8 @@ class Repository:
                 table_no,
                 plan,
                 _json(list(pipeline)),
-                _json(dict(members)),
+                # 保持座位顺序（甲、乙、丙…），不能按键排序
+                json.dumps([[c, m] for c, m in members.items()], ensure_ascii=False),
                 coordinator,
                 escalate_to,
                 _json(dict(estimate)),
@@ -330,7 +331,7 @@ class Repository:
         for r in rows:
             d = dict(r)
             d["pipeline"] = json.loads(d["pipeline"])
-            d["members"] = json.loads(d["members"])
+            d["members"] = dict(json.loads(d["members"]))
             d["estimate"] = json.loads(d["estimate"])
             out.append(d)
         return out

@@ -32,6 +32,7 @@ class OpenAICompatProvider(Provider):
             headers["Authorization"] = f"Bearer {key.reveal()}"
         self._secrets = [key.reveal()] if key else []
         self._extra_body = dict(spec.extra_body)
+        self._aliases = dict(spec.param_aliases)
         self._client = httpx.AsyncClient(
             base_url=spec.base_url, headers=headers, timeout=timeout_s, transport=transport
         )
@@ -42,6 +43,7 @@ class OpenAICompatProvider(Provider):
     async def complete(
         self, model: str, messages: Sequence[Message], params: dict[str, Any]
     ) -> RawCompletion:
+        params = {self._aliases.get(k, k): v for k, v in params.items()}
         body = {
             **params,
             **self._extra_body,

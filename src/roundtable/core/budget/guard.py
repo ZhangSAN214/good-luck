@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Literal
 
-from roundtable.core.cards import CardOption, ConfirmationCard
+from roundtable.core.cards import CardOption, ConfirmationCard, money
 from roundtable.core.config.schema import Budget
 from roundtable.core.storage import Repository
 
@@ -91,7 +91,7 @@ class BudgetVerdict:
             return None
         statuses = [s for s in (self.month, self.day) if s and s.period in self.blocked_by]
         lines = [s.describe() for s in statuses]
-        lines.append(f"下一步预计 ${self.estimate_usd:.2f}，会超出上述额度，已暂停。")
+        lines.append(f"下一步预计 {money(self.estimate_usd)}，会超出上述额度，已暂停。")
         if self.blocked_by == ("day",):
             reason = f"只超出每日上限，{self.day.resets_at:%Y-%m-%d %H:%M} UTC 后可在额度内继续"
         else:

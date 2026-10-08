@@ -65,6 +65,8 @@ class RunResult:
     final_answer: str | None
     cost_usd: float
     warnings: tuple[str, ...] = ()
+    # 还没有人上桌时的错误（如手动勾选了不存在的模型），不涉及匿名，可以直接显示
+    error: str | None = None
 
 
 class Orchestrator:
@@ -498,6 +500,7 @@ class Orchestrator:
             done = [t for t in repo.tables(sid) if t["status"] == DONE]
             if done:
                 answer = final_answer(restore_state(repo, sid, done[-1]["table_no"]))
+        seated = bool(repo.seats(sid))
         return RunResult(
             session_id=sid,
             status=row["status"],
@@ -505,6 +508,7 @@ class Orchestrator:
             final_answer=answer,
             cost_usd=repo.session_cost(sid),
             warnings=tuple(self._warnings.get(sid, [])),
+            error=row["error"] if row["error"] and not seated else None,
         )
 
     def _lock(self, sid: str) -> asyncio.Lock:

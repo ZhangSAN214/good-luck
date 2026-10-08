@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from roundtable.core.cards import CardOption, ConfirmationCard
+from roundtable.core.cards import DIFFICULTY_LABELS, CardOption, ConfirmationCard, money
 
 from .decide import RoutingDecision
 
@@ -18,12 +18,12 @@ def cost_card(decision: RoutingDecision) -> ConfirmationCard:
                 CardOption(f"plan:{name}", f"改用「{option.label}」", option.estimate.total_usd)
             )
     options.append(CardOption("stop", "停止", 0.0))
-    difficulty = decision.assessment.difficulty or "未判断"
+    difficulty = DIFFICULTY_LABELS.get(decision.assessment.difficulty or "", "未判断")
     return ConfirmationCard(
         kind="cost",
         situation=(
-            f"难度：{difficulty}；方案「{label}」预计 ${decision.estimate.total_usd:.2f}，"
-            f"超过单题确认门槛 ${decision.confirm_threshold_usd:.2f}。"
+            f"难度：{difficulty}；方案「{label}」预计 {money(decision.estimate.total_usd)}，"
+            f"超过单题确认门槛 {money(decision.confirm_threshold_usd)}。"
         ),
         options=tuple(options),
         recommendation="continue",
@@ -39,7 +39,7 @@ def escalation_card(escalation: RoutingDecision) -> ConfirmationCard:
         kind="escalation",
         situation=(
             f"当前结果{escalation.escalation_reason}。"
-            f"升级为「{target}」预计 ${escalation.estimate.total_usd:.2f}。"
+            f"升级为「{target}」预计 {money(escalation.estimate.total_usd)}。"
         ),
         options=(
             CardOption("continue", f"升级为「{target}」", escalation.estimate.total_usd),

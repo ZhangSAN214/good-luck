@@ -155,3 +155,24 @@ async def test_media_capabilities_not_supported():
         await provider.synthesize_speech("m", "hi", {})
     with pytest.raises(UnsupportedCapability):
         await provider.transcribe("m", b"", {})
+
+
+async def test_param_aliases_rename_parameters():
+    seen = {}
+
+    def handler(request):
+        seen["body"] = json.loads(request.content)
+        return httpx.Response(200, json=ok_body())
+
+    provider = make(handler, param_aliases={"max_tokens": "max_completion_tokens"})
+    await provider.complete("m", MESSAGES, {"max_tokens": 100, "temperature": 0.2})
+    assert seen["body"]["max_completion_tokens"] == 100
+    assert "max_tokens" not in seen["body"] and seen["body"]["temperature"] == 0.2
+
+
+def test_repo_openai_channel_renames_max_tokens():
+    from roundtable.core.config import load_config
+
+    channels = load_config().models.channels
+    assert channels["openai"].param_aliases == {"max_tokens": "max_completion_tokens"}
+    assert channels["openrouter"].param_aliases == {}

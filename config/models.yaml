@@ -23,6 +23,7 @@ tag_vocabulary:
 # 调用渠道。key 只从 .env 读取，这里只写环境变量名。
 #   adapter: 适配器实现（openai_compat / anthropic / gemini）
 #   kind:    aggregator（聚合平台）| direct（官方直连）| local（本地）
+#   param_aliases: 该渠道的参数改名（统一参数名 → 渠道要求的参数名）
 #            roundtable.yaml 的 channel_mode 据此筛选渠道
 channels:
   openrouter:
@@ -37,6 +38,8 @@ channels:
     kind: direct
     base_url: https://api.openai.com/v1
     key_env: OPENAI_API_KEY
+    param_aliases:
+      max_tokens: max_completion_tokens   # OpenAI 新模型不接受 max_tokens
   anthropic:
     adapter: anthropic
     kind: direct

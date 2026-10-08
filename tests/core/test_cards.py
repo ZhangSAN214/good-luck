@@ -16,3 +16,9 @@ def test_card_dict():
     card = ConfirmationCard("x", "现状", (CardOption("go", "继续", 0.1),), "go", "理由")
     d = card.to_dict()
     assert d["situation"] == "现状" and d["options"][0]["cost_usd"] == 0.1
+
+
+def test_money_format():
+    from roundtable.core.cards import money
+
+    assert money(0.0123) == "$0.0123" and money(12.5) == "$12.50" and money(0) == "$0.0000"

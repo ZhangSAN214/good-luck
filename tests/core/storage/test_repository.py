@@ -251,3 +251,34 @@ def test_list_sessions(repo):
     listed = repo.list_sessions()
     assert [s.id for s in listed] == [b, a]
     assert listed[1].revealed and not listed[0].revealed
+
+
+def test_table_plan_keeps_seat_order(repo):
+    sid = repo.create_session("q", seed=1)
+    members = {"甲": "m3", "乙": "m1", "丙": "m2"}
+    repo.create_table(
+        sid,
+        0,
+        plan="medium",
+        pipeline=["answer"],
+        members=members,
+        coordinator="c",
+        escalate_to=None,
+        estimate={"total": 0.1, "steps": {"answer": 0.1}},
+    )
+    [table] = repo.tables(sid)
+    assert list(table["members"]) == ["甲", "乙", "丙"]  # 不能被按键排序打乱
+    repo.replace_table(
+        sid,
+        0,
+        plan="simple",
+        pipeline=["answer"],
+        members={"甲": "m9"},
+        coordinator=None,
+        escalate_to=None,
+        estimate={"total": 0.0, "steps": {}},
+        status="approved",
+    )
+    assert repo.tables(sid)[0]["members"] == {"甲": "m9"}
+    repo.set_table_status(sid, 0, "done")
+    assert repo.tables(sid)[0]["status"] == "done"

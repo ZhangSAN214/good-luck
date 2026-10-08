@@ -6,6 +6,14 @@ from dataclasses import asdict, dataclass, field
 from typing import Any
 
 
+def money(usd: float) -> str:
+    """金额显示：不足 1 美元时保留 4 位小数，避免小额显示成 $0.00。"""
+    return f"${usd:.2f}" if abs(usd) >= 1 else f"${usd:.4f}"
+
+
+DIFFICULTY_LABELS = {"simple": "简单", "medium": "中等", "hard": "困难"}
+
+
 @dataclass(frozen=True)
 class CardOption:
     key: str  # 回复时使用的值，如 continue / stop

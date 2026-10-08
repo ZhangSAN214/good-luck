@@ -43,4 +43,6 @@ async def test_escalation_card(env):
     up = plan_escalation(d, Q, OutcomeSignals(2, "low"), config=env.config, router=env.router)
     card = escalation_card(up)
     assert card.option_keys() == ["continue", "accept", "stop"]
-    assert "分歧" in card.situation and f"{up.estimate.total_usd:.2f}" in card.situation
+    from roundtable.core.cards import money
+
+    assert "分歧" in card.situation and money(up.estimate.total_usd) in card.situation
