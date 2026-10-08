@@ -61,6 +61,8 @@ def test_repo_config_loads_with_defaults():
         "attachments",
         "describe_image",
         "transcribe",
+        "tools",
+        "image_gen",
     }
     assert rt.collab_pipeline == [
         "decompose",
@@ -277,7 +279,8 @@ def test_disabled_model_may_omit_tier(config_dir):
 
 @pytest.mark.parametrize("vendor", ["OpenAI", "Anthropic", "Google", "xAI", "DeepSeek", "Alibaba"])
 def test_repo_vendors_have_flagship_and_budget(vendor):
-    tiers = sorted(m.tier for m in load_config().models.models if m.vendor == vendor)
+    seated = [m for m in load_config().models.models if m.vendor == vendor and m.seat]
+    tiers = sorted(m.tier for m in seated)
     assert tiers == ["budget", "flagship"]
 
 
@@ -286,3 +289,8 @@ def test_gemini_pro_prefers_google_direct():
         m for m in load_config().models.models if m.vendor == "Google" and m.tier == "flagship"
     )
     assert [r.channel for r in pro.routes] == ["google", "openrouter"]
+
+
+def test_tool_models_have_no_seat_and_image_gen():
+    tools = [m for m in load_config().models.models if not m.seat]
+    assert tools and all("image_gen" in m.tags and m.tier is None for m in tools)

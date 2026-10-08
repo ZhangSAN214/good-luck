@@ -39,6 +39,8 @@ class Env:
         rt_cfg = self.config.roundtable.model_copy(update={"request": policy})
         self.config = self.config.model_copy(update={"roundtable": rt_cfg})
         self.rt = Runtime.build(config=self.config, providers={"c": self.fake}, db_path=":memory:")
+        # 默认没有代码运行环境（不依赖本机是否装了沙箱）；工具测试中注入假沙箱
+        self.rt.tools_sandbox = (None, "测试环境")
         self.events = []
         self.orc = Orchestrator(self.rt, on_event=lambda sid, e: self.events.append((sid, e)))
 

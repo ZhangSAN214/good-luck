@@ -225,4 +225,48 @@ CREATE TABLE attachments (
 CREATE INDEX idx_attachments_session ON attachments(session_id, position);
 """,
     ),
+    (
+        7,
+        "工具调用与成员生成的文件",
+        """
+-- 成员在作答过程中申请的工具调用（python / write_file / generate_image）
+-- round：同一次作答中的第几轮；call_id：提出申请的那次模型调用
+-- status：ok / error（程序出错）/ timeout / rejected（不允许或格式不符）/ limit（额度用完）
+CREATE TABLE tool_calls (
+    id          INTEGER PRIMARY KEY,
+    session_id  TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    table_no    INTEGER NOT NULL,
+    step        TEXT NOT NULL,
+    code        TEXT,
+    round       INTEGER NOT NULL,
+    tool        TEXT NOT NULL,
+    input       TEXT NOT NULL,
+    output      TEXT,
+    status      TEXT NOT NULL,
+    duration_s  REAL,
+    cost_usd    REAL NOT NULL DEFAULT 0,   -- 仅供展示；预算按 calls 表统计
+    call_id     INTEGER,
+    created_at  TEXT NOT NULL
+);
+CREATE INDEX idx_tool_calls_session ON tool_calls(session_id);
+-- 成员生成的文件；内容按哈希存放（storage_key），path 是 out/ 下清理过的相对路径
+-- 同一成员重写同一路径时新增一行，最新的一行为准
+CREATE TABLE files (
+    id           TEXT PRIMARY KEY,
+    session_id   TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    table_no     INTEGER NOT NULL,
+    step         TEXT NOT NULL,
+    code         TEXT,
+    tool_call_id INTEGER,
+    path         TEXT NOT NULL,
+    kind         TEXT NOT NULL,
+    mime         TEXT NOT NULL,
+    size         INTEGER NOT NULL,
+    sha256       TEXT NOT NULL,
+    storage_key  TEXT NOT NULL,
+    created_at   TEXT NOT NULL
+);
+CREATE INDEX idx_files_session ON files(session_id, table_no, code);
+""",
+    ),
 ]

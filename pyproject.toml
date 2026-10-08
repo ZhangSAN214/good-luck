@@ -19,6 +19,9 @@ dependencies = [
     "pypdf>=4.0",
     "python-docx>=1.1",
     "charset-normalizer>=3.3",
+    # 成员生成的表格预览；代码运行时监视子进程内存
+    "openpyxl>=3.1",
+    "psutil>=5.9",
 ]
 
 [project.scripts]
@@ -38,6 +41,10 @@ dev = [
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+# 沙箱的 Deno 启动脚本
+"roundtable.core.tools" = ["runner.mjs"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

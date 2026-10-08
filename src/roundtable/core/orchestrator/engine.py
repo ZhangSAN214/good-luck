@@ -36,7 +36,7 @@ from roundtable.core.routing import (
     route_question,
     text_tokens,
 )
-from roundtable.core.runtime import Runtime
+from roundtable.core.runtime import PROJECT_ROOT, Runtime
 from roundtable.core.steps import (
     Event,
     StepFailed,
@@ -48,6 +48,7 @@ from roundtable.core.steps import (
     table_contributions,
 )
 from roundtable.core.storage import CheckpointView, NotFound
+from roundtable.core.tools import ToolBox
 
 log = logging.getLogger(__name__)
 
@@ -487,6 +488,36 @@ class Orchestrator:
                 for a in repo.session_attachments(sid)
             ),
         )
+        ctx.file_store = self.rt.files
+        if cfg.roundtable.tools.enabled:
+            sandbox, reason = self.rt.sandbox()
+            ctx.toolbox = ToolBox(
+                session_id=sid,
+                table_no=table_no,
+                config=cfg,
+                router=self.rt.router,
+                prompts=self.rt.prompts,
+                repo=repo,
+                store=self.rt.files,
+                scrubber=self.rt.scrubber,
+                attachments=ctx.attachments,
+                sandbox=sandbox,
+                sandbox_reason=reason,
+                budget_ok=lambda: repo.budget_override(sid) or self.rt.budget.check(0.0).allowed,
+                seed=str(row["seed"]),
+                project_root=PROJECT_ROOT,
+            )
+        try:
+            return await self._run_steps(sid, table, ctx, row)
+        finally:
+            if ctx.toolbox is not None:
+                ctx.toolbox.close()
+
+    async def _run_steps(
+        self, sid: str, table: dict[str, Any], ctx: TableContext, row: dict[str, Any]
+    ) -> str:
+        repo, cfg = self.rt.repo, self.rt.config
+        table_no = table["table_no"]
         done = set(repo.completed_steps(sid, table_no))
         for step in table["pipeline"]:
             if step in done:

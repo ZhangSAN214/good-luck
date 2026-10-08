@@ -119,10 +119,12 @@ class _Pricer:
         params: EstimateParams,
         history: EstimateHistory | None,
         caps: dict[str, int],
+        extra_calls: dict[str, float] | None = None,
     ) -> None:
         self.params = params
         self.history = history or EstimateHistory()
         self.caps = caps
+        self.extra_calls = extra_calls or {}
         self.calibrated = False
 
     def calls(
@@ -131,7 +133,10 @@ class _Pricer:
         """一组人各调用一次：返回 (输入 token, 输出 token, 预计花费, 上限花费)。"""
         tin_total = tout_total = 0
         cost = upper = 0.0
-        repeat = self.history.calls_per_slot.get(step, 1.0)
+        # 每个座位的调用次数：有历史时用历史（已包含格式重试、打回重做、工具轮次），
+        # 否则按配置的额外轮次（能用工具的步骤）估计
+        observed = self.history.calls_per_slot.get(step)
+        repeat = observed if observed is not None else 1.0 + self.extra_calls.get(step, 0.0)
         cap = self.caps.get(step)
         for p in people:
             stat = self.history.tokens.get((p.model_id, step))
@@ -144,12 +149,12 @@ class _Pricer:
                 tin, tout = tokens_in, round(tokens_out * multiplier)
             if cap:
                 tout = min(tout, cap)  # 单次输出不会超过该步骤的 max_tokens
-            if repeat > 1:
+            if observed is not None:
                 self.calibrated = True
             tin_total += round(tin * repeat)
             tout_total += round(tout * repeat)
             cost += estimate_cost(p.price, tin, tout) * repeat
-            upper += estimate_cost(p.price, tin, cap or tout)
+            upper += estimate_cost(p.price, tin, cap or tout) * repeat
         return tin_total, tout_total, cost, upper
 
 
@@ -167,6 +172,7 @@ def estimate_pipeline(
     coordinator: Participant | None = None,
     history: EstimateHistory | None = None,
     caps: dict[str, int] | None = None,
+    extra_calls: dict[str, float] | None = None,
 ) -> CostEstimate:
     """按步骤估算。n = 组员数，A = 答案长度，Q = 题目长度，O = 每次调用的固定开销，
     k = 每份答案的评审人数（每位评审者也评 k 份；None 表示全员互评）。
@@ -179,7 +185,7 @@ def estimate_pipeline(
         members = [Participant("", None, p) for p in member_prices]
     if coordinator is None and coordinator_price is not None:
         coordinator = Participant("", None, coordinator_price)
-    pricer = _Pricer(params, history, dict(caps or {}))
+    pricer = _Pricer(params, history, dict(caps or {}), extra_calls)
     n = len(members)
     k = n - 1 if reviews_per_answer is None else max(0, min(reviews_per_answer, n - 1))
     o, q, a = params.prompt_overhead_tokens, question_tokens, answer_tokens

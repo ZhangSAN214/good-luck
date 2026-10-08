@@ -360,7 +360,7 @@ def dependencies_block(ctx: TableContext, subtask: Subtask) -> str:
     for dep in subtask.depends_on:
         for (sid, code), text in latest.items():
             if sid == dep:
-                body = neutralize(ctx.scrub(text), TAGS)
+                body = neutralize(ctx.scrub(text + ctx.files_note(code)), TAGS)
                 parts.append(
                     f'<dependency subtask="{dep}" from="{ctx.label(code)}">\n{body}\n</dependency>'
                 )
@@ -582,7 +582,8 @@ def items_block(ctx: TableContext, item_ids: Sequence[str]) -> str:
             head.append(f"要求：{s.requirements}")
         if s.acceptance:
             head.append(f"验收标准：{s.acceptance}")
-        body = neutralize("\n".join(head) + "\n\n" + ctx.scrub(c.works[(sid, code)]), TAGS)
+        work = ctx.scrub(c.works[(sid, code)] + ctx.files_note(code))
+        body = neutralize("\n".join(head) + "\n\n" + work, TAGS)
         parts.append(f'<work id="{item}">\n{body}\n</work>')
     return "\n\n".join(parts)
 
@@ -853,7 +854,7 @@ def works_block(ctx: TableContext) -> str:
             item = ids_by_key.get(key, "")
             flagged = ctx.state.flagged(key[1], item)
             attr = ' flagged="未通过实质内容检查"' if flagged else ""
-            body = neutralize(ctx.scrub(latest[key]), TAGS)
+            body = neutralize(ctx.scrub(latest[key] + ctx.files_note(key[1])), TAGS)
             parts.append(
                 f'<work id="{item}" subtask="{s.id}" from="{ctx.label(key[1])}"{attr}>\n'
                 f"{body}\n</work>"

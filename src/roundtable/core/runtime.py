@@ -17,6 +17,7 @@ from roundtable.core.prompts import PromptLibrary
 from roundtable.core.providers import ChannelRouter, KeyRing, Provider, build_providers
 from roundtable.core.steps import check_pipelines
 from roundtable.core.storage import Repository, connect
+from roundtable.core.tools import Sandbox, pick_sandbox
 
 PROJECT_ROOT = DEFAULT_CONFIG_DIR.parent
 DEFAULT_DB = PROJECT_ROOT / "data" / "roundtable.db"
@@ -33,6 +34,8 @@ class Runtime:
     budget: BudgetGuard
     files: FileStore = field(default_factory=lambda: FileStore(None))
     unavailable_channels: dict[str, str] = field(default_factory=dict)
+    # 代码运行沙箱 (后端, 不可用原因)；为空时第一次使用才检测，测试中可直接注入
+    tools_sandbox: tuple[Sandbox | None, str | None] | None = None
 
     @classmethod
     def build(
@@ -90,6 +93,12 @@ class Runtime:
             files=FileStore(Path(uploads_dir) if uploads_dir is not None else None),
             unavailable_channels=dict(unavailable or {}),
         )
+
+    def sandbox(self) -> tuple[Sandbox | None, str | None]:
+        """代码运行沙箱（第一次使用时按配置选择后端并缓存）。返回 (沙箱, 不可用原因)。"""
+        if self.tools_sandbox is None:
+            self.tools_sandbox = pick_sandbox(self.config.roundtable.tools.python)
+        return self.tools_sandbox
 
     async def aclose(self) -> None:
         await self.router.aclose()

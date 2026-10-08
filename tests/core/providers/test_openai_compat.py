@@ -207,3 +207,20 @@ def test_media_bytes_not_in_repr():
     m = Media("image", "image/png", b"SECRET-IMAGE-BYTES")
     assert "SECRET-IMAGE-BYTES" not in repr(Message("user", "q", (m,)))
     assert m.describe()["bytes"] == 18 and "data" not in m.describe()
+
+
+async def test_image_output_parsed_from_data_uri():
+    import base64
+
+    url = "data:image/png;base64," + base64.b64encode(b"PNGBYTES").decode()
+
+    def handler(request: httpx.Request):
+        body = ok_body()
+        body["choices"][0]["message"]["images"] = [
+            {"type": "image_url", "image_url": {"url": url}},
+            {"type": "image_url", "image_url": {"url": "https://not-a-data-uri"}},
+        ]
+        return httpx.Response(200, json=body)
+
+    raw = await make(handler).complete("m", MESSAGES, {"modalities": ["image", "text"]})
+    assert [(m.mime, m.data) for m in raw.images] == [("image/png", b"PNGBYTES")]

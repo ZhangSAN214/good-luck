@@ -211,3 +211,17 @@ models:
     routes:
       - {channel: deepseek, model: deepseek-v4.1-flash}
       - {channel: openrouter, model: deepseek/deepseek-v4.1-flash}
+
+  # 工具模型（seat: false）：不上桌，只供成员的 generate_image 工具使用（最便宜的 image_gen 模型）
+  # 价格与 ID 来自 OpenRouter 模型页（2026-06），可用 python scripts/check_models.py 核对
+  - id: gemini-3.1-flash-image
+    vendor: Google
+    aliases: [Gemini, Nano Banana]
+    seat: false
+    price: {input: 0.50, output: 3.00}
+    tags: [image_gen, vision]
+    enabled: true
+    routes:
+      - channel: openrouter
+        model: google/gemini-3.1-flash-image
+        params: {modalities: [image, text]}

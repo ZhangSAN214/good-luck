@@ -40,6 +40,7 @@ def models_config(pool=POOL, disabled=()) -> ModelsConfig:
                     "tags": tags,
                     "price": {"input": pin, "output": pout},
                     "enabled": mid not in disabled,
+                    "seat": tier is not None,  # 没有档位的是工具模型（如图像生成），不上桌
                     "routes": [{"channel": "c", "model": mid}],
                 }
                 for mid, vendor, tier, tags, pin, pout in pool

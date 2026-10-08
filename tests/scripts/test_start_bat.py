@@ -24,3 +24,8 @@ def test_start_bat_steps_in_order():
 def test_start_bat_has_no_secrets():
     text = BAT.read_text(encoding="ascii")
     assert "API_KEY=" not in text and "sk-" not in text
+
+
+def test_start_bat_installs_sandbox_before_server():
+    text = BAT.read_text(encoding="ascii")
+    assert text.index("setup_sandbox.py --check") < text.index("uvicorn")

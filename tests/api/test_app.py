@@ -229,3 +229,52 @@ def test_upload_size_limit():
         assert r.status_code == 413
         status = c.get("/api/status").json()
         assert status["uploads"]["max_files"] >= 1 and "pdf" in status["uploads"]["types"]
+
+
+def test_generated_files_download_and_preview():
+    from ..core.attachments.samples import PNG
+    from ..core.orchestrator.test_tools import scripted, with_tools
+
+    env, c = client(confirm_threshold_usd=100.0)
+    with_tools(env)
+    scripted(
+        env,
+        "独立完成同一道题",
+        '<tool_call name="python">import plot</tool_call>\n'
+        '<tool_call name="write_file" path="page.html"><script>alert(1)</script></tool_call>',
+    )
+    with c:
+        sid = c.post(
+            "/api/sessions", json={"question": MEDIUM, "seed": 3, "anonymous": True}
+        ).json()["session_id"]
+        assert sse_events(c, sid)[-1]["status"] == "completed"
+        detail = c.get(f"/api/sessions/{sid}").json()
+        assert detail["tool_calls"] and {t["tool"] for t in detail["tool_calls"]} == {
+            "python",
+            "write_file",
+        }
+        files = {f["path"]: f for f in detail["files"] if f["latest"]}
+        assert set(files) == {"plot.png", "page.html"}
+        assert leaks(env, json.dumps(detail, ensure_ascii=False)) == []
+
+        png = c.get(f"/api/sessions/{sid}/files/{files['plot.png']['id']}")
+        assert png.content == PNG
+        assert png.headers["content-disposition"].startswith("attachment;")
+        assert png.headers["x-content-type-options"] == "nosniff"
+        inline = c.get(f"/api/sessions/{sid}/files/{files['plot.png']['id']}", params={"inline": 1})
+        assert inline.headers["content-type"] == "image/png"
+        assert inline.headers["content-disposition"].startswith("inline;")
+
+        html_id = files["page.html"]["id"]
+        page = c.get(f"/api/sessions/{sid}/files/{html_id}", params={"inline": 1})
+        assert page.headers["content-type"] == "application/octet-stream"  # HTML 不在页面中打开
+        assert page.headers["content-disposition"].startswith("attachment;")
+        assert "sandbox" in page.headers["content-security-policy"]
+        preview = c.get(f"/api/sessions/{sid}/files/{html_id}/preview").json()
+        assert preview["type"] == "text" and preview["format"] == "code"
+
+        other = c.post("/api/sessions", json={"question": SHORT, "seed": 4}).json()["session_id"]
+        sse_events(c, other)
+        assert c.get(f"/api/sessions/{other}/files/{html_id}").status_code == 404
+        status = c.get("/api/status").json()["tools"]
+        assert status["enabled"] and "generate_image" in status["unavailable"]

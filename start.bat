@@ -16,6 +16,13 @@ git pull || echo [warn] git pull failed, starting with the local code.
 echo [2/3] pip install -e ".[dev]" ...
 python -m pip install -e ".[dev]" || goto :error
 
+rem Code sandbox for the python tool (one-time download, then offline)
+python scripts\setup_sandbox.py --check >nul 2>&1
+if errorlevel 1 (
+    echo [setup] Installing the code sandbox ^(Deno + Pyodide, one time^) ...
+    python scripts\setup_sandbox.py || echo [warn] Sandbox not installed: the python tool stays off.
+)
+
 if not exist ".env" echo [warn] .env not found: copy .env.example to .env and fill in at least one API key.
 
 echo [3/3] Starting server at http://127.0.0.1:8000  (Ctrl+C to stop)

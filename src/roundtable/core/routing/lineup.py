@@ -33,7 +33,8 @@ class LineupBuilder:
         recent_coordinators: Sequence[str] = (),
     ) -> None:
         self.config = config
-        self.available = list(available)
+        # seat: false 的模型只作为工具使用（如图像生成），不上桌
+        self.available = [m for m in available if m.seat]
         self.rng = rng
         self.recent_coordinators = list(recent_coordinators)
 

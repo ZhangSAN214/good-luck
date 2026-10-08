@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import base64
+import binascii
 import hashlib
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
@@ -35,6 +37,18 @@ class Media:
         }
 
 
+def media_from_data_uri(url: str) -> Media | None:
+    """解析 data:image/png;base64,... 形式的图片；格式不符时返回 None。"""
+    head, sep, body = url.partition(",")
+    if not sep or not head.startswith("data:image/") or not head.endswith(";base64"):
+        return None
+    try:
+        data = base64.b64decode(body, validate=True)
+    except (ValueError, binascii.Error):
+        return None
+    return Media("image", head[5:-7], data)
+
+
 @dataclass(frozen=True)
 class Message:
     role: Role
@@ -56,6 +70,7 @@ class RawCompletion:
     cached_tokens: int = 0
     reported_cost_usd: float | None = None
     truncated: bool = False  # 达到输出长度上限被截断（max_tokens）
+    images: tuple[Media, ...] = ()  # 图像生成模型返回的图片
 
 
 @dataclass(frozen=True)
@@ -75,6 +90,7 @@ class Completion:
     latency_s: float
     attempts: tuple[Attempt, ...] = field(default_factory=tuple)
     truncated: bool = False  # 输出达到长度上限被截断
+    images: tuple[Media, ...] = ()  # 图像生成模型返回的图片
 
     @property
     def failed_over(self) -> bool:

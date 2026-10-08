@@ -278,7 +278,17 @@ def _estimate(
         reviews_per_answer=config.roundtable.reviews_per_answer,
         history=history,
         caps=caps,
+        extra_calls=_tool_rounds(config),
     )
+
+
+def _tool_rounds(config: AppConfig) -> dict[str, float]:
+    """能用工具的步骤：每次工具调用多一次模型调用，按 estimate.tool_rounds 估计。"""
+    tools = config.roundtable.tools
+    if not tools.enabled:
+        return {}
+    rounds = config.routing.estimate.tool_rounds
+    return {step: rounds for step, names in tools.by_step.items() if names}
 
 
 def estimate_lineup(
@@ -431,7 +441,7 @@ async def route_question(
     choice = choice or UserChoice()
     routing = config.routing
     tier = choice.tier or routing.default_plan
-    available = router.available_models()
+    available = [m for m in router.available_models() if m.seat]
     by_id = {m.id: m for m in available}
 
     if tier != CUSTOM and tier not in routing.plans:

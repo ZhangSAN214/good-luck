@@ -33,7 +33,11 @@ class SynthesizeStep:
             raise StepFailed("没有可汇总的答案")
         order = shuffled(sorted(texts), ctx.rng)
         block = "\n\n".join(
-            answer_block(ctx.label(c), ctx.scrub(texts[c]), flagged=ctx.state.flagged(c))
+            answer_block(
+                ctx.label(c),
+                ctx.scrub(texts[c] + ctx.files_note(c)),
+                flagged=ctx.state.flagged(c),
+            )
             for c in order
         )
         prompt = ctx.prompts.render(

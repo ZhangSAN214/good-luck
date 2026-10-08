@@ -23,7 +23,7 @@ MISSING_MODEL = {
 
 
 def capable(router: ChannelRouter, tag: str) -> list:
-    return eligible(router.available_models(), required_tags=[tag])
+    return eligible([m for m in router.available_models() if m.seat], required_tags=[tag])
 
 
 def ingest(

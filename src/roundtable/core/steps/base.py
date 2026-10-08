@@ -13,7 +13,7 @@ from typing import Any, Protocol, TypeVar
 from pydantic import ValidationError
 
 from roundtable.core.allocation import IdentityScrubber
-from roundtable.core.attachments import Attachment, attach_messages
+from roundtable.core.attachments import Attachment, FileStore, attach_messages
 from roundtable.core.config import AppConfig
 from roundtable.core.jsonout import JSONOutputError
 from roundtable.core.prompts import PromptLibrary, RenderedPrompt
@@ -26,6 +26,7 @@ from roundtable.core.providers import (
 )
 from roundtable.core.routing import Question
 from roundtable.core.storage import Repository
+from roundtable.core.tools import TEXT_EXTS, ToolBox
 
 from .schemas import CheckedReview, EffortRecord, Revision, Synthesis, TableState
 
@@ -78,6 +79,10 @@ class TableContext:
     expected_answer_tokens: int | None = None
     # 题目附件（图片带原图数据）；每次调用都附上，vision 成员收到原图，其他成员收到文字版
     attachments: tuple[Attachment, ...] = ()
+    # 工具环境（运行代码、写文件、生成图片）；为空时不提供工具
+    toolbox: ToolBox | None = None
+    # 读取成员生成的文件（转交给其他成员时附上文本文件的内容）
+    file_store: FileStore | None = None
 
     @property
     def effort_rule(self):
@@ -115,6 +120,30 @@ class TableContext:
         template = self.prompts.get("attachments", self.prompt_version("attachments"))
         vision = "vision" in self.models_by_id[model_id].tags
         return attach_messages(prompt.messages, self.attachments, template, vision=vision)
+
+    def files_note(self, code: str | None) -> str:
+        """某位成员生成的文件（最新版本），附在他的答案 / 成果后面交给其他成员与统筹。"""
+        latest: dict[str, dict[str, Any]] = {}
+        for row in self.repo.files(self.session_id):
+            if row["table_no"] == self.table_no and row["code"] == code:
+                latest[row["path"]] = row
+        if not latest:
+            return ""
+        limit = self.config.roundtable.tools.files.share_text_chars
+        lines = []
+        for path in sorted(latest):
+            row = latest[path]
+            attrs = f'path="out/{path}" type="{row["kind"]}" size="{_size(row["size"])}"'
+            ext = path.rsplit(".", 1)[-1].lower()
+            if self.file_store and limit and ext in TEXT_EXTS:
+                text = self.file_store.load(row["storage_key"]).decode("utf-8", errors="replace")
+                if len(text) > limit:
+                    text = text[:limit] + "\n……（以下省略）"
+                body = neutralize(text, ("file", "files"))
+                lines.append(f"<file {attrs}>\n{body}\n</file>")
+            else:
+                lines.append(f"<file {attrs}/>")
+        return "\n\n<files>\n" + "\n".join(lines) + "\n</files>"
 
     @property
     def models_by_id(self) -> dict[str, Any]:
@@ -169,8 +198,41 @@ async def call_model(
     prompt: RenderedPrompt,
     code: str | None = None,
 ) -> CallOutcome:
-    """调用一次并记录（成功或失败都记录）。渠道层已经负责重试和切换。"""
+    """调用一次并记录（成功或失败都记录）。渠道层已经负责重试和切换。
+
+    该步骤配置了工具时，成员可以在输出中申请工具，代码执行后把结果追加到同一对话再调用，
+    直到不再申请工具（见 steps/tooluse.py）；返回的是最终结果。
+    """
     messages = ctx.messages_for(prompt, model_id)
+    tools = ctx.toolbox.tools_for(step) if ctx.toolbox else []
+    if tools:
+        from .tooluse import call_with_tools
+
+        return await call_with_tools(
+            ctx,
+            step=step,
+            role=role,
+            model_id=model_id,
+            prompt=prompt,
+            code=code,
+            messages=messages,
+            tools=tools,
+        )
+    return await call_once(
+        ctx, step=step, role=role, model_id=model_id, prompt=prompt, code=code, messages=messages
+    )
+
+
+async def call_once(
+    ctx: TableContext,
+    *,
+    step: str,
+    role: str,
+    model_id: str,
+    prompt: RenderedPrompt,
+    code: str | None,
+    messages: Sequence[Message],
+) -> CallOutcome:
     try:
         completion = await ctx.router.complete(model_id, messages, ctx.step_params(step))
     except (AllChannelsFailed, NoChannelAvailable) as exc:
@@ -257,6 +319,10 @@ async def gather_members(
 
 
 # --- 渲染 ---------------------------------------------------------------------
+
+
+def _size(n: int) -> str:
+    return f"{n / 1024:.1f} KB" if n < 2**20 else f"{n / 2**20:.1f} MB"
 
 
 def neutralize(text: str, tags: Sequence[str]) -> str:

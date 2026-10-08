@@ -37,8 +37,8 @@
 - **执行前预估花费**，并给出各档位的预估；超过单题确认门槛（默认 $0.30）先请用户确认（可改用其他档位）。
 - **每题记录**（`RoutingRecord`）：答案长度判断及来源（规则 / 模型 / 默认）、规划员花费、档位与阵容、缺席、预估与实际花费、是否升级及原因。
 - **匿名开关**（提问时选择，默认**关闭**）：关闭时界面、API、命令行全程显示真实模型名与每次调用的渠道，没有揭晓步骤；开启时组员显示为"组员甲 / 乙 / 丙…"，结束后由用户点"揭晓身份"。**发给模型的内容在两种情况下都只用代号、都做身份遮蔽**。
-- 输出只有文字；输入可带附件（§2.8）。
-- **不做**（见 PLAN.md "后续扩展"）：人设模式、记录官与会议记录、多轮群聊、图片生成、语音合成、视频处理。
+- 输入可带附件（§2.8）；成员可以用**工具**（§2.9）运行代码、写文件、生成图片，产出代码、图表、Word / Excel / PPT / PDF 等文件。
+- **不做**（见 PLAN.md "后续扩展"）：人设模式、记录官与会议记录、多轮群聊、语音合成、视频处理。（图片生成已作为成员的工具提供，见 §2.9。）
 
 ---
 
@@ -116,7 +116,7 @@
 ### 2.6 持久化：SQLite
 - 存：会话（题目、seed、成员档位、匿名开关、工作模式）、**路由记录**（答案长度判断、档位与阵容、缺席、预估与实际花费、升级）、座位与代号映射、统筹、每次调用（步骤、提示词版本 + 哈希、输入输出、**实际渠道与切换记录**、token、费用及来源、耗时、错误）、互评结果、修订稿、汇总、确认点与用户回复、累计费用（总计与按渠道）。
 - 数据访问只经 `core/storage/`（Repository 模式）；表结构变更走版本化迁移（`storage/migrations.py`，只能在末尾追加；已发布迁移的哈希登记在测试中，不得修改），后续扩展加表不改旧表含义。
-- 表：`sessions`、`routing_records`、`seats`（`table_no` 0 为初始圆桌，升级后为 1、2…）、`calls` + `call_attempts`（每次渠道尝试一行）、`outputs`（各步产出，通用表；kind 含 answer / review / revision / synthesis / dropout / effort）、`step_progress`（恢复时跳过已完成步骤）、`checkpoints`、`contributions`（迁移 5：按桌、代号、模型、类别的贡献数量）、`attachments`（迁移 6：上传的文件，`session_id` 在提交题目时填入；文字 / 文字版 / 转写稿及来源、状态、警告）。
+- 表：`sessions`、`routing_records`、`seats`（`table_no` 0 为初始圆桌，升级后为 1、2…）、`calls` + `call_attempts`（每次渠道尝试一行）、`outputs`（各步产出，通用表；kind 含 answer / review / revision / synthesis / dropout / effort）、`step_progress`（恢复时跳过已完成步骤）、`checkpoints`、`contributions`（迁移 5：按桌、代号、模型、类别的贡献数量）、`attachments`（迁移 6：上传的文件，`session_id` 在提交题目时填入；文字 / 文字版 / 转写稿及来源、状态、警告）、`tool_calls` 与 `files`（迁移 7，见 §2.9）。
 - **对外展示只用 `session_view()` / `list_sessions()`**：匿名开启且未揭晓时去掉模型 id、渠道、切换记录、阵容、缺席名单、规划员模型，错误信息替换为通用提示，模型输出经身份遮蔽；揭晓后或匿名关闭时显示全部原文。存储层 `create_session` 默认匿名（更安全），产品默认值（关闭）由服务层 / 命令行决定。
 - `sessions.mode` 自迁移 4 起存成员档位（`budget` / `flagship` / `custom`），旧会话为 `auto` / `preset` / `manual`；旧版本还没路由的会话恢复时明确报错"无法继续"，已有内容照常查看。按渠道的花费汇总（`spent_by_channel()`）可随时展示。
 
@@ -124,7 +124,7 @@
 - `core/`：纯业务逻辑，**禁止 import fastapi / starlette / uvicorn / streamlit**（测试守卫）。
 - `api/`：FastAPI 路由 + SSE，只调用 `core/service.py`（启动时用 `core/runtime.py` 组装；有测试检查导入）。
 - **服务 facade**（`core/service.py`，`RoundtableService`）：返回值都是可 JSON 化的 dict；匿名会话揭晓前全部匿名。`create(question, tier=, models=, coordinator=, anonymous=False, workflow="discussion")`；揭晓只用于匿名会话。提交题目后立即返回会话 id，讨论在后台任务中执行；意外错误把会话标为 `paused`（可 `resume`）。揭晓只允许在讨论结束（完成 / 停止 / 失败）后。
-- **HTTP 接口**：`GET /api/status`、`GET /api/budget`、`GET /api/contributions`、`POST /api/uploads?name=`（请求体是文件原始字节，返回附件 id；`POST /api/sessions` 的 `attachments` 带上这些 id）、`GET/POST /api/sessions`、`GET /api/sessions/{id}`、`POST …/respond`、`POST …/resume`、`POST …/reveal`、`GET …/events`（SSE）。
+- **HTTP 接口**：`GET /api/status`、`GET /api/budget`、`GET /api/contributions`、`POST /api/uploads?name=`（请求体是文件原始字节，返回附件 id；`POST /api/sessions` 的 `attachments` 带上这些 id）、`GET/POST /api/sessions`、`GET /api/sessions/{id}`、`GET …/files/{fid}`（下载）与 `…/files/{fid}/preview`、`POST …/respond`、`POST …/resume`、`POST …/reveal`、`GET …/events`（SSE）。
 - **SSE 协议**：第一条 `snapshot`（当前状态），之后是实时事件（只含代号），每当讨论停下来（完成 / 失败 / 停止 / 等待确认 / 暂停）发一条 `state` 并关闭；前端回复确认后重新连接。
 - `web/`：静态前端（`index.html`、`css/app.css`、`js/api.js` 通信、`js/view.js` 渲染、`js/app.js` 状态与交互；ES 模块，无构建步骤），只通过 HTTP/SSE 与后端通信，由 FastAPI 挂在 `/`。
   - 事件流用 `fetch` 读取（不用会自动重连的 `EventSource`）：收到停下来的 `state` 后关闭，回复确认卡片或恢复后重新订阅；事件触发重新拉取会话详情再渲染。
@@ -140,6 +140,17 @@
 - 预估：附件文字按 token 计入题目长度，图片取 `estimate.image_tokens` 与文字版的较大者。
 - 对外：会话详情的 `attachments` 只有名称、类型、大小、页数、状态、来源、警告（不含内容与存储位置）；`roundtable show --details` 显示图片文字版与转写稿。
 
+### 2.9 工具（`core/tools/`、`steps/tooluse.py`）
+- **文字协议**（`tools/protocol.py`）：成员在输出中写 `<tool_call name="python">代码</tool_call>`、`<tool_call name="write_file" path="x.md">内容</tool_call>`、`<tool_call name="generate_image" path="x.png">画面描述</tool_call>`；代码执行后把 `<tool_result>` 追加到同一对话再调用，直到不再申请工具；最终结果去掉工具调用。不用各家原生 function calling（格式不一、部分模型不支持）。
+- 工具说明 `prompts/tools`（system 段接在该步骤系统提示后，user 段用于每轮发回结果）；**同一步骤所有成员的工具、限额、说明完全相同**。可用工具 = `roundtable.yaml` 的 `tools.by_step` ∩ 当前可用（python 需要沙箱，generate_image 需要可用的 `image_gen` 模型）。默认：作答 / 修订 / 完成子任务 / 修改：全部；互评 / 交叉审查：python；合并：python、write_file；其他步骤没有。
+- 限额：每次作答最多 `max_rounds` 轮；python 每步 `max_runs` 次、`timeout_s`、`memory_mb`、输出截断；文件单个 / 每场合计大小、每步个数；每步最多生成 `image.max_per_step` 张图；每轮前查预算，额度用完时工具返回"额度已用完"。达到轮数仍申请工具时去掉调用作为结果。
+- **沙箱**（`tools/sandbox.py`，`tools.python.backend`）：`wasm`（默认）= Deno + Pyodide，Deno 只能读运行时目录和本次工作目录、只能写 `out/`，没有网络 / 环境变量 / 子进程权限，`runner.mjs` 把 `in/`、`out/` 复制进内存文件系统并屏蔽启动子进程的函数；`docker`（可选，`sandbox/Dockerfile`）= `--network none`、只读根目录、内存 / 进程数限制、`--cap-drop ALL`、非 root、只挂载 `in/`(ro)、`out/`、`main.py`(ro)。两者都由宿主限时、用 psutil 监视内存与 `out/` 大小、截断输出，子进程环境变量只有必需的几项。没有后端时 python 关闭，绝不在本机直接运行。运行时由 `scripts/setup_sandbox.py` 安装到用户缓存目录（不在项目目录，脚本拒绝装到项目里）。越权测试 `tests/core/tools/test_sandbox_escape.py`（没有后端时跳过）。
+- **工作目录**（`tools/files.py` 的 `Workspace`）：每位成员每张桌子一个系统临时目录，`in/` = 附件原文件，`out/` = 生成的文件（跨步骤保留，重启后从数据库恢复）。每次工具调用后收集 `out/`：扩展名白名单、拒绝符号链接与硬链接、文件名清理（`clean_path`）、大小与个数限制；通过的按内容哈希存放并登记到 `files`（作者代号、步骤、来源工具调用），不合格的删除并告诉成员。
+- **图像生成**：由 `seat: false`（不上桌、不需要档位）、带 `image_gen` 标签的最便宜可用模型完成（OpenRouter 用 `modalities`，Gemini 返回 `inlineData`，`RawCompletion.images`）；描述经身份遮蔽后放进 `prompts/image_gen`；调用记为 `role="tool"`、代号为申请的成员，照常计费。
+- **转交**：成员生成的文件（最新版本）以 `<files>` 块附在他的答案 / 成果后面交给其他成员与统筹（`TableContext.files_note()`，文本类附上前 `share_text_chars` 字，其他只列名称、类型、大小）。
+- 记录：`tool_calls`（迁移 7：步骤、代号、轮次、工具、输入、输出、状态 ok / error / timeout / rejected / limit、耗时、提出申请的模型调用）与 `files`（迁移 7）。每轮工具调用都是一次照常计费的模型调用；预估中能用工具的步骤按 `estimate.tool_rounds` 多估调用次数，有历史后改用实际次数。事件 `tool_started` / `tool_finished`（只含代号）。
+- 对外：会话详情的 `files`、`tool_calls`（匿名揭晓前经身份遮蔽）；`GET /api/sessions/{id}/files/{fid}`（始终 `attachment` 下载 + `nosniff` + `CSP sandbox`，只有 png / jpg / gif / webp 可以 `?inline=1` 显示）与 `…/preview`（`core/preview.py`：文本 / 代码 / Markdown / CSV / xlsx / docx / pdf；HTML 与 SVG 只作为源代码）；`/api/status` 的 `tools`（各步骤工具与不可用原因）。命令行 `show --details` 显示工具调用，`roundtable files <id>` 保存文件。
+
 ---
 
 ## 3. 中立性规则（代码保证 + 测试）
@@ -154,6 +165,7 @@
 8. 抽座位、选统筹、分配代号、排序全部用可注入的 `random.Random(seed)`，seed 存库，可复现。
 9. **无品牌偏好**：路由与分配只看档位、能力标签和价格（规划员按预计调用成本选最便宜的）；所选档位全员上桌，统筹在场内均匀随机（轮换）。测试验证：把所有厂商和 id 换名后同一 seed 的结果完全一致；`allocation` / `routing` / `prompts` / `budget` 的源码中不得出现模型名或厂商名。
 10. 组员输出转给其他模型前，遮蔽配置中所有模型 id、厂商名、别称和渠道上的模型名；题目本身出现的名称保留。
+11. **工具对所有成员相同**：同一步骤可用的工具、限额、工具说明完全一样（只看配置和当前可用性，不看是哪个模型）；工具模型（`seat: false`，如图像生成）从不上桌。
 
 ---
 
@@ -192,7 +204,7 @@
 ```
 config/        models.yaml  roundtable.yaml  personas.yaml  routing.yaml
 prompts/       planner/ answer/ answer_quick/ review/ revise/ synthesize/ redo/
-               attachments/ describe_image/ transcribe/
+               attachments/ describe_image/ transcribe/ tools/ image_gen/
                decompose/ volunteer/ assign/ work/ cross_review/ rework/ merge/  versions.lock
 src/roundtable/
   core/
@@ -203,6 +215,8 @@ src/roundtable/
     routing/       规则判断、规划员、方案与阵容、花费预估、用户模式、升级、每题记录
     storage/       SQLite 迁移、Repository、揭晓前的匿名视图
     attachments/   上传文件的识别、文字提取、存放、图片文字版 / 音频转写、发给模型时的呈现
+    tools/         工具协议、沙箱（wasm / docker，runner.mjs）、工作目录与文件收集、ToolBox（执行与额度）
+    preview.py     成员生成的文件的预览
     budget/        用量统计（按渠道/模型）、预算守卫（每月 + 每日，UTC）
     cards.py       确认卡片的统一格式
     steps/         answer / review / revise / synthesize / reveal 插件、输出解析与质量检查、防偷懒（effort）、贡献统计、状态恢复
@@ -217,6 +231,8 @@ web/             index.html、css/app.css、js/（api.js 通信、view.js 渲染
 tests/
 docs/            REQUIREMENTS_v3.md  PLAN.md  CLI.md  mockup.html
 scripts/         check_models.py（核对 OpenRouter 渠道的模型 ID 与价格）  lock_prompts.py（登记提示词版本）
+                 setup_sandbox.py（安装代码运行沙箱）
+sandbox/         Dockerfile（可选的 docker 沙箱）、README.md
 .env.example
 ```
 
@@ -235,6 +251,8 @@ roundtable ask '题目'                # 便宜档全员上桌（PowerShell 中�
 roundtable ask --tier flagship --anonymous '题目'   # 旗舰档全员、匿名
 roundtable ask --mode collab '题目'  # 协同模式：拆分子任务、分工完成、合并
 roundtable ask --attach 图.png --attach 讲义.pdf '题目'   # 带附件
+roundtable files <id> [-o 目录]      # 保存成员生成的文件
+python scripts/setup_sandbox.py     # 一次性安装代码运行沙箱（--check 只检查）
 uvicorn roundtable.api.app:app --reload   # 浏览器打开 http://127.0.0.1:8000
 playwright install chromium        # 首次运行前端端到端测试前
 ```

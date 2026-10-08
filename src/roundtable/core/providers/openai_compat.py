@@ -11,7 +11,7 @@ import httpx
 from roundtable.core.config.schema import ChannelSpec
 
 from ._http import error_fields, kind_for_status, retry_after, safe_detail
-from .base import Message, Provider, RawCompletion
+from .base import Media, Message, Provider, RawCompletion, media_from_data_uri
 from .errors import ErrorKind, ProviderError
 from .registry import register_adapter
 from .secrets import Secret
@@ -102,6 +102,7 @@ class OpenAICompatProvider(Provider):
                 cached_tokens=int(details.get("cached_tokens") or 0),
                 reported_cost_usd=_float_or_none(usage.get("cost")),
                 truncated=choice.get("finish_reason") == "length",
+                images=_images(choice["message"].get("images") or []),
             )
         except (ValueError, KeyError, IndexError, TypeError, AttributeError):
             raise self._error(ErrorKind.INVALID_RESPONSE, "无法解析返回内容") from None
@@ -112,6 +113,17 @@ class OpenAICompatProvider(Provider):
 
     async def aclose(self) -> None:
         await self._client.aclose()
+
+
+def _images(items: list[Any]) -> tuple[Media, ...]:
+    """图像输出（OpenRouter 等）：message.images[*].image_url.url 为 data URI。"""
+    out = []
+    for item in items:
+        url = ((item or {}).get("image_url") or {}).get("url") or ""
+        media = media_from_data_uri(url)
+        if media is not None:
+            out.append(media)
+    return tuple(out)
 
 
 def _float_or_none(value: Any) -> float | None:

@@ -143,3 +143,18 @@ async def test_media_as_inline_data():
         "inline_data": {"mime_type": "image/png", "data": base64.b64encode(b"PNG").decode()}
     }
     assert parts[2]["inline_data"]["mime_type"] == "audio/wav"
+
+
+async def test_image_output_inline_data():
+    import base64
+
+    def handler(request: httpx.Request):
+        body = ok_body()
+        body["candidates"][0]["content"]["parts"].append(
+            {"inlineData": {"mimeType": "image/jpeg", "data": base64.b64encode(b"JPG").decode()}}
+        )
+        return httpx.Response(200, json=body)
+
+    raw = await make(handler).complete("gemini-x", MESSAGES, {})
+    assert [(m.mime, m.data) for m in raw.images] == [("image/jpeg", b"JPG")]
+    assert raw.text == "answer"

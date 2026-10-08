@@ -11,7 +11,7 @@ import httpx
 from roundtable.core.config.schema import ChannelSpec
 
 from ._http import error_fields, kind_for_status, retry_after, safe_detail
-from .base import Message, Provider, RawCompletion
+from .base import Media, Message, Provider, RawCompletion
 from .errors import ErrorKind, ProviderError
 from .registry import register_adapter
 from .secrets import Secret
@@ -113,6 +113,7 @@ class GeminiProvider(Provider):
                 + int(usage.get("thoughtsTokenCount") or 0),
                 cached_tokens=int(usage.get("cachedContentTokenCount") or 0),
                 truncated=candidate.get("finishReason") == "MAX_TOKENS",
+                images=_images(parts),
             )
         except ProviderError:
             raise
@@ -125,6 +126,19 @@ class GeminiProvider(Provider):
 
     async def aclose(self) -> None:
         await self._client.aclose()
+
+
+def _images(parts: list[dict[str, Any]]) -> tuple[Media, ...]:
+    """图像输出：响应中的 inlineData（图片）部分。"""
+    out = []
+    for p in parts:
+        d = p.get("inlineData") or p.get("inline_data")
+        if p.get("thought") or not d:
+            continue
+        mime = str(d.get("mimeType") or d.get("mime_type") or "")
+        if mime.startswith("image/"):
+            out.append(Media("image", mime, base64.b64decode(d["data"])))
+    return tuple(out)
 
 
 def _invalid_key(payload: Any) -> bool:

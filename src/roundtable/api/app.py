@@ -10,9 +10,10 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -23,6 +24,8 @@ from roundtable.core.service import (
 )
 
 WEB_DIR = Path(__file__).resolve().parents[3] / "web"
+# 可以在页面里直接显示的图片类型（SVG 不在其中：只作为文本预览或下载）
+INLINE_IMAGES = frozenset({"image/png", "image/jpeg", "image/gif", "image/webp"})
 
 
 class CreateSession(BaseModel):
@@ -105,6 +108,26 @@ def create_app(service: RoundtableService | None = None) -> FastAPI:
             attachments=body.attachments,
         )
         return {"session_id": sid}
+
+    @app.get("/api/sessions/{session_id}/files/{file_id}")
+    async def file_download(request: Request, session_id: str, file_id: str) -> Response:
+        """下载成员生成的文件。始终作为附件下载（不在页面中打开），图片可以 ?inline=1 显示。"""
+        data, row = svc(request).file_content(session_id, file_id)
+        name = row["path"].rsplit("/", 1)[-1]
+        inline = request.query_params.get("inline") == "1" and row["mime"] in INLINE_IMAGES
+        disposition = "inline" if inline else "attachment"
+        headers = {
+            "Content-Disposition": f"{disposition}; filename*=UTF-8''{quote(name)}",
+            "X-Content-Type-Options": "nosniff",
+            "Content-Security-Policy": "default-src 'none'; sandbox",
+            "Cache-Control": "private, max-age=3600",
+        }
+        media = row["mime"] if inline else "application/octet-stream"
+        return Response(content=data, media_type=media, headers=headers)
+
+    @app.get("/api/sessions/{session_id}/files/{file_id}/preview")
+    async def file_preview(request: Request, session_id: str, file_id: str) -> dict[str, Any]:
+        return svc(request).file_preview(session_id, file_id)
 
     @app.post("/api/uploads", status_code=201)
     async def upload(request: Request, name: str) -> dict[str, Any]:

@@ -52,7 +52,8 @@ async def test_medium_question_budget_table(env):
     assert rec["planner_cost_usd"] > 0  # 规则判断不出答案长度时才调用规划员
 
 
-async def test_flagship_tier_seats_all_flagships(env):
+async def test_flagship_tier_seats_all_flagships():
+    env = Env(confirm_threshold_usd=100.0)
     r = await env.orc.start(Question(SHORT), UserChoice("flagship"), seed=2)
     assert r.status == "completed"
     members = env.models_called(ANSWER)

@@ -12,6 +12,7 @@
     roundtable resume <会话 id>                   # 中断后继续
     roundtable show <会话 id>                     # 查看结果（--costs 显示花费明细）
     roundtable export <会话 id> [-o 文件]         # 导出完整记录（UTF-8 文本文件，含花费明细）
+    roundtable files <会话 id> [-o 目录]          # 保存成员生成的文件（代码、图片、文档等）
     roundtable reveal <会话 id>                   # 揭晓身份（匿名讨论）
 
 匿名讨论在揭晓前，终端上不会出现任何模型名、厂商名或渠道名。
@@ -69,8 +70,21 @@ KIND_NAMES = {
     "lazy": "敷衍",
     "dropped": "退出",
 }
+TOOL_NAMES = {"python": "运行代码", "write_file": "写文件", "generate_image": "生成图片"}
+TOOL_STATUS = {
+    "ok": "成功",
+    "error": "出错",
+    "timeout": "超时",
+    "rejected": "被拒绝",
+    "limit": "额度已用完",
+}
+FILE_KINDS = {"image": "图片", "code": "代码", "text": "文本", "table": "表格", "document": "文档"}
 KIND_LABELS = {"image": "图片", "pdf": "PDF", "docx": "Word", "text": "文本", "audio": "音频"}
 LENGTH_NAMES = {"simple": "短", "medium": "中等", "hard": "长", None: "未判断"}
+
+
+def _indent(text: str) -> str:
+    return "\n".join("    " + line for line in text.splitlines())
 
 
 class CLI:
@@ -167,6 +181,12 @@ class CLI:
             self.p(f"  ⚠ {self.label(e.code, e.table_no)} 重做后仍不合格，标记为敷衍")
         elif e.type == "budget_warning":
             self.p(f"⚠ {d['message']}")
+        elif e.type == "tool_finished":
+            who = self.label(e.code, e.table_no or 0)
+            tool = TOOL_NAMES.get(d.get("tool"), d.get("tool"))
+            status = TOOL_STATUS.get(d.get("status"), d.get("status"))
+            files = f"，生成 {'、'.join(d['files'])}" if d.get("files") else ""
+            self.p(f"  {who} {tool}：{status}{files}")
 
     # --- 确认卡片 --------------------------------------------------------------------
 
@@ -259,6 +279,7 @@ class CLI:
                         else only.content
                     )
                     self.p(f"\n【答案】\n{self.t(text)}")
+        self.print_tools(sid, view.revealed, details)
         self.print_contributions(sid, view.revealed)
         if view.error:
             self.p(f"\n错误：{view.error}")
@@ -385,6 +406,55 @@ class CLI:
                     self.p("\n" + title)
                     for x in m[key]:
                         self.p(f"  · {self.t(x)}")
+
+    def latest_files(self, sid: str) -> list[dict[str, Any]]:
+        latest: dict[tuple[int, str | None, str], dict[str, Any]] = {}
+        for row in self.rt.repo.files(sid):
+            latest[(row["table_no"], row["code"], row["path"])] = row
+        return list(latest.values())
+
+    def print_tools(self, sid: str, revealed: bool, details: bool) -> None:
+        """工具调用（--details 时逐条显示）与生成的文件。"""
+        scrub = (lambda t: t) if revealed else self.rt.scrubber.scrub
+        calls = self.rt.repo.tool_calls(sid)
+        if details and calls:
+            self.p("\n【工具调用】")
+            for c in calls:
+                who = self.label(c["code"], c["table_no"])
+                tool = TOOL_NAMES.get(c["tool"], c["tool"])
+                status = TOOL_STATUS.get(c["status"], c["status"])
+                took = f"，{c['duration_s']:.1f}s" if c["duration_s"] else ""
+                self.p(
+                    f"\n· {who} · {STEP_NAMES.get(c['step'], c['step'])} · 第 {c['round']} 轮"
+                    f" · {tool}：{status}{took}"
+                )
+                if c["tool"] == "python" and c["input"].get("code"):
+                    self.p("  代码：\n" + _indent(scrub(c["input"]["code"])[:3000]))
+                elif c["input"].get("path"):
+                    self.p(f"  文件：{c['input']['path']}")
+                if c["output"]:
+                    self.p("  结果：\n" + _indent(scrub(c["output"])[:2000]))
+        files = self.latest_files(sid)
+        if files:
+            self.p("\n【生成的文件】")
+            for f in files:
+                kind = FILE_KINDS.get(f["kind"], f["kind"])
+                who = self.label(f["code"], f["table_no"])
+                self.p(f"  {who}：{f['path']}（{kind}，{f['size'] / 1024:.1f} KB）")
+            self.p(f"  保存到本地：roundtable files {sid}")
+
+    def save_files(self, sid: str, target: str | None) -> Path:
+        """把每位成员生成的文件（最新版本）保存到目录：<目录>/<成员>/<文件路径>。"""
+        root = Path(target or f"roundtable-{sid[:8]}-files")
+        self.load_names(sid)
+        for f in self.latest_files(sid):
+            folder = self.label(f["code"], f["table_no"]).replace("（", "_").replace("）", "")
+            if len({r["table_no"] for r in self.latest_files(sid)}) > 1:
+                folder = f"第{f['table_no'] + 1}桌_{folder}"
+            path = root / folder / f["path"]
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(self.rt.files.load(f["storage_key"]))
+        return root
 
     def print_contributions(self, sid: str, revealed: bool) -> None:
         rows = self.rt.repo.contributions(sid)
@@ -652,6 +722,9 @@ def build_parser() -> argparse.ArgumentParser:
             cmd.add_argument("--details", action="store_true")
             cmd.add_argument("--raw", action="store_true")
             cmd.add_argument("--costs", action="store_true", help="显示每步与每次调用的花费")
+    files = sub.add_parser("files", help="把成员生成的文件保存到本地目录")
+    files.add_argument("session_id")
+    files.add_argument("-o", "--output", help="目录，默认 roundtable-<会话 id 前 8 位>-files")
     export = sub.add_parser("export", help="导出完整记录到 UTF-8 文本文件（含花费明细）")
     export.add_argument("session_id")
     export.add_argument("-o", "--output", help="输出文件，默认 roundtable-<会话 id 前 8 位>.txt")
@@ -724,6 +797,13 @@ async def run(
             cli.show(args.session_id, details=args.details)
             if args.costs:
                 cli.print_costs(args.session_id)
+            return 0
+        if args.command == "files":
+            if not cli.latest_files(args.session_id):
+                cli.p("这场讨论没有生成文件。")
+                return 0
+            root = cli.save_files(args.session_id, args.output)
+            print(f"已保存到 {root.resolve()}", file=out)
             return 0
         if args.command == "export":
             target = cli.export(args.session_id, args.output)

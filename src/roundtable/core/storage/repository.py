@@ -29,7 +29,8 @@ Status = Literal[
     "created", "awaiting_confirmation", "running", "paused", "completed", "failed", "stopped"
 ]
 STATUSES = frozenset(Status.__args__)  # type: ignore[attr-defined]
-Role = Literal["planner", "member", "coordinator", "preprocess"]  # preprocess：附件预处理
+Role = Literal["planner", "member", "coordinator", "preprocess", "tool"]
+# preprocess：附件预处理；tool：工具中的模型调用（如图像生成）
 HIDDEN_ERROR = "出错（详情揭晓后可见）"
 
 
@@ -665,6 +666,111 @@ class Repository:
             (status, text, text_source, error, attachment_id),
         )
 
+    # --- 工具与生成的文件 ----------------------------------------------------------
+
+    def record_tool_call(
+        self,
+        session_id: str,
+        *,
+        table_no: int,
+        step: str,
+        code: str | None,
+        round_no: int,
+        tool: str,
+        input: Mapping[str, Any],
+        output: str | None,
+        status: str,
+        duration_s: float | None = None,
+        cost_usd: float = 0.0,
+        call_id: int | None = None,
+    ) -> int:
+        with self._tx():
+            cur = self.conn.execute(
+                "INSERT INTO tool_calls (session_id, table_no, step, code, round, tool, input,"
+                " output, status, duration_s, cost_usd, call_id, created_at)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    session_id,
+                    table_no,
+                    step,
+                    code,
+                    round_no,
+                    tool,
+                    _json(dict(input)),
+                    output,
+                    status,
+                    duration_s,
+                    cost_usd,
+                    call_id,
+                    _now(),
+                ),
+            )
+        return int(cur.lastrowid)
+
+    def tool_calls(self, session_id: str) -> list[dict[str, Any]]:
+        rows = self._exec(
+            "SELECT * FROM tool_calls WHERE session_id = ? ORDER BY id", (session_id,)
+        ).fetchall()
+        out = []
+        for r in rows:
+            d = dict(r)
+            d["input"] = json.loads(d["input"])
+            out.append(d)
+        return out
+
+    def add_file(self, session_id: str, **fields: Any) -> str:
+        file_id = uuid.uuid4().hex
+        with self._tx():
+            self.conn.execute(
+                "INSERT INTO files (id, session_id, table_no, step, code, tool_call_id, path, kind,"
+                " mime, size, sha256, storage_key, created_at)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    file_id,
+                    session_id,
+                    fields["table_no"],
+                    fields["step"],
+                    fields.get("code"),
+                    fields.get("tool_call_id"),
+                    fields["path"],
+                    fields["kind"],
+                    fields["mime"],
+                    fields["size"],
+                    fields["sha256"],
+                    fields["storage_key"],
+                    _now(),
+                ),
+            )
+        return file_id
+
+    def link_files(self, file_ids: Sequence[str], tool_call_id: int) -> None:
+        """把文件登记到生成它的工具调用名下。"""
+        with self._tx():
+            self.conn.executemany(
+                "UPDATE files SET tool_call_id = ? WHERE id = ?",
+                [(tool_call_id, f) for f in file_ids],
+            )
+
+    def files(self, session_id: str) -> list[dict[str, Any]]:
+        """本场生成的全部文件（按生成顺序，含同一路径的旧版本）。"""
+        rows = self._exec(
+            "SELECT * FROM files WHERE session_id = ? ORDER BY created_at, rowid", (session_id,)
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def file(self, session_id: str, file_id: str) -> dict[str, Any]:
+        row = self._exec(
+            "SELECT * FROM files WHERE session_id = ? AND id = ?", (session_id, file_id)
+        ).fetchone()
+        if row is None:
+            raise NotFound(f"文件不存在：{file_id}")
+        return dict(row)
+
+    def session_file_bytes(self, session_id: str) -> int:
+        return self._exec(
+            "SELECT COALESCE(SUM(size), 0) FROM files WHERE session_id = ?", (session_id,)
+        ).fetchone()[0]
+
     # --- 用量 ------------------------------------------------------------------
 
     def total_spent(self) -> float:
@@ -692,7 +798,8 @@ class Repository:
         """最近若干场讨论中各步骤的调用（成员与统筹，不含规划员），供花费预估用历史校准。"""
         rows = self._exec(
             "SELECT session_id, table_no, step, code, role, model_id, input_tokens,"
-            " output_tokens, error FROM calls WHERE table_no IS NOT NULL AND session_id IN"
+            " output_tokens, error FROM calls WHERE table_no IS NOT NULL"
+            " AND role IN ('member', 'coordinator') AND session_id IN"
             " (SELECT id FROM sessions ORDER BY created_at DESC LIMIT ?)",
             (sessions,),
         ).fetchall()

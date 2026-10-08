@@ -305,3 +305,25 @@ async def test_ask_with_attachments(tmp_path):
     bad.write_bytes(b"text")
     code, text = await cli(env, "ask", MEDIUM, "--attach", str(bad))
     assert code == 2 and "附件不可用" in text
+
+
+async def test_tool_calls_and_files_command(tmp_path):
+    from ..core.orchestrator.test_tools import scripted, with_tools
+
+    env = Env(confirm_threshold_usd=100.0)
+    with_tools(env)
+    scripted(
+        env, "独立完成同一道题", '<tool_call name="write_file" path="解答.md"># 解答</tool_call>'
+    )
+    code, text = await cli(env, "ask", MEDIUM, "--details", "--anonymous", "--no-reveal")
+    assert code == 0
+    assert "写文件：成功" in text and "【工具调用】" in text and "【生成的文件】" in text
+    sid = env.rt.repo.list_sessions()[0].id
+    code, text = await cli(env, "files", sid, "-o", str(tmp_path / "out"))
+    assert code == 0 and "已保存到" in text
+    saved = sorted(
+        p.relative_to(tmp_path / "out").as_posix() for p in (tmp_path / "out").rglob("*.md")
+    )
+    assert len(saved) == 2 and all(p.startswith("组员") and p.endswith("/解答.md") for p in saved)
+    for term in identity_terms(env):  # 匿名未揭晓：目录名只用代号
+        assert not any(mentions(p, term) for p in saved)

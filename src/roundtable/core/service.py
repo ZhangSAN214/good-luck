@@ -17,6 +17,7 @@ from typing import Any
 from roundtable.core.attachments import Attachment, UploadError, ingest
 from roundtable.core.attachments.detect import TYPES as UPLOAD_TYPES
 from roundtable.core.orchestrator import Orchestrator, OrchestratorError, RunResult
+from roundtable.core.preview import render_preview
 from roundtable.core.routing import CUSTOM, Question, RoutingError, UserChoice
 from roundtable.core.runtime import Runtime
 from roundtable.core.steps import Event
@@ -82,6 +83,7 @@ class RoundtableService:
                     "tags": m.tags,
                     "price": {"input": m.price.input, "output": m.price.output},
                     "available": m.id in available,
+                    "seat": m.seat,
                 }
                 for m in cfg.models.models
                 if m.enabled
@@ -96,6 +98,7 @@ class RoundtableService:
                 "max_file_mb": cfg.roundtable.uploads.max_file_mb,
                 "types": sorted(UPLOAD_TYPES),
             },
+            "tools": self._tools_status(),
             "min_members": cfg.roundtable.min_members,
             "confirm_threshold_usd": cfg.routing.confirm_threshold_usd,
             "max_members": cfg.roundtable.seats,
@@ -242,7 +245,89 @@ class RoundtableService:
         data["tables"] = self._tables(session_id)
         data["contributions"] = self._contributions(session_id, view.revealed)
         data["attachments"] = self._attachments(session_id)
+        data["files"] = self._files(session_id)
+        data["tool_calls"] = self._tool_calls(session_id, view.revealed)
         return data
+
+    # --- 工具与生成的文件 ----------------------------------------------------------
+
+    def _tools_status(self) -> dict[str, Any]:
+        rules = self.rt.config.roundtable.tools
+        _, reason = self.rt.sandbox() if rules.enabled else (None, None)
+        unavailable = {}
+        if reason:
+            unavailable["python"] = reason
+        if not any("image_gen" in m.tags for m in self.rt.router.available_models()):
+            unavailable["generate_image"] = "没有可用的图像生成模型（需要带 image_gen 标签的模型）"
+        return {"enabled": rules.enabled, "by_step": rules.by_step, "unavailable": unavailable}
+
+    def _files(self, session_id: str) -> list[dict[str, Any]]:
+        rows = self.rt.repo.files(session_id)
+        latest = {(r["table_no"], r["code"], r["path"]): r["id"] for r in rows}
+        return [
+            {
+                "id": r["id"],
+                "table_no": r["table_no"],
+                "step": r["step"],
+                "code": r["code"],
+                "path": r["path"],
+                "kind": r["kind"],
+                "mime": r["mime"],
+                "size": r["size"],
+                "tool_call_id": r["tool_call_id"],
+                "latest": latest[(r["table_no"], r["code"], r["path"])] == r["id"],
+            }
+            for r in rows
+        ]
+
+    def _tool_calls(self, session_id: str, revealed: bool) -> list[dict[str, Any]]:
+        scrub = (lambda t: t) if revealed else self.rt.scrubber.scrub
+        out = []
+        for r in self.rt.repo.tool_calls(session_id):
+            inputs = {k: scrub(v) if isinstance(v, str) else v for k, v in r["input"].items()}
+            out.append(
+                {
+                    "id": r["id"],
+                    "table_no": r["table_no"],
+                    "step": r["step"],
+                    "code": r["code"],
+                    "round": r["round"],
+                    "tool": r["tool"],
+                    "input": inputs,
+                    "output": scrub((r["output"] or "")[:4000]),
+                    "status": r["status"],
+                    "duration_s": r["duration_s"],
+                }
+            )
+        return out
+
+    def file_content(self, session_id: str, file_id: str) -> tuple[bytes, dict[str, Any]]:
+        """下载：文件内容与元数据（文件名只取路径最后一段）。"""
+        self._require(session_id)
+        try:
+            row = self.rt.repo.file(session_id, file_id)
+        except NotFound:
+            raise ServiceError("文件不存在", 404) from None
+        return self.rt.files.load(row["storage_key"]), row
+
+    def file_preview(self, session_id: str, file_id: str) -> dict[str, Any]:
+        """预览：文本类给出文字（匿名会话揭晓前经身份遮蔽），表格给出前几行，文档给出文字。
+
+        图片由前端用下载地址直接显示；HTML 只提供下载、不在页面内渲染。
+        """
+        data, row = self.file_content(session_id, file_id)
+        view = self.rt.repo.session_view(session_id)
+        scrub = (lambda t: t) if view.revealed else self.rt.scrubber.scrub
+        try:
+            preview = render_preview(row["path"], data)
+        except Exception:  # noqa: BLE001 - 文件由模型生成，格式可能有误
+            preview = {"type": "none", "reason": "无法预览这个文件，请下载查看"}
+        if "text" in preview:
+            preview["text"] = scrub(preview["text"])
+        if "sheets" in preview:
+            for sheet in preview["sheets"]:
+                sheet["rows"] = [[scrub(c) for c in r] for r in sheet["rows"]]
+        return {"file": {k: row[k] for k in ("id", "path", "kind", "mime", "size")}, **preview}
 
     def _contributions(self, session_id: str, revealed: bool) -> list[dict[str, Any]]:
         """本场每位组员的贡献（按桌、代号）；身份未公开时不含模型 id。"""

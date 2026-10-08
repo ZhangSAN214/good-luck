@@ -43,6 +43,8 @@ prompts:
   attachments: v1        # 题目附件（文字版 / 随附图片）
   describe_image: v1     # 图片文字版
   transcribe: v1         # 音频转写
+  tools: v1              # 工具说明与工具结果
+  image_gen: v1          # 图像生成工具
 
 # 每个步骤对所有模型统一使用的参数（中立：同一步骤参数相同；模型自身必需的参数在 models.yaml）
 step_params:
@@ -112,3 +114,30 @@ uploads:
   describe_max_tokens: 3000   # 图片文字版的输出上限
   transcribe_max_tokens: 8000 # 音频转写的输出上限
   storage_dir: data/uploads
+
+# 工具：成员在作答过程中可以运行代码、写文件、生成图片（文字协议，见 prompts/tools）
+# 同一步骤所有成员可用的工具、限额和说明完全相同
+tools:
+  enabled: true
+  max_rounds: 6               # 每次作答最多几轮工具调用
+  by_step:
+    answer: [python, write_file, generate_image]
+    revise: [python, write_file, generate_image]
+    work: [python, write_file, generate_image]
+    rework: [python, write_file, generate_image]
+    review: [python]          # 互评 / 交叉审查：用来核算
+    cross_review: [python]
+    merge: [python, write_file]   # 统筹整理交付文件
+  python:
+    backend: auto             # wasm（Deno + Pyodide，python scripts/setup_sandbox.py 安装）/ docker / auto / off
+    timeout_s: 60             # 每次运行的时限（含加载 numpy 等包）
+    memory_mb: 1024
+    max_runs: 3               # 每位成员每步最多运行几次（出错重跑也算）
+    max_output_chars: 8000    # 回传给成员的输出最多多少字
+  files:
+    max_file_mb: 10
+    max_session_mb: 100
+    max_files_per_step: 20
+    share_text_chars: 3000    # 转交给其他成员时，每个文本文件最多附上多少字
+  image:
+    max_per_step: 2           # 每位成员每步最多生成几张图（需要带 image_gen 标签的模型）

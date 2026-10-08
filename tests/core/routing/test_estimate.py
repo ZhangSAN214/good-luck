@@ -161,3 +161,28 @@ def test_history_from_calls_medians_and_retry_rate():
     assert h.tokens[("m0", "answer")] == TokenStat(100, 2500, 4)
     assert h.calls_per_slot["answer"] == pytest.approx(4 / 3)
     assert history_from_calls(rows, min_samples=4).calls_per_slot == {}
+
+
+def test_tool_steps_get_extra_calls_until_history_known():
+    base = run2(seats("budget"))
+    more = estimate_pipeline(
+        ("answer",),
+        members=seats("budget"),
+        question_tokens=100,
+        answer_tokens=1000,
+        revise_rounds=1,
+        params=PM,
+        extra_calls={"answer": 0.5},
+    )
+    assert more.total_usd == pytest.approx(base.total_usd * 1.5) and not more.calibrated
+    known = estimate_pipeline(
+        ("answer",),
+        members=seats("budget"),
+        question_tokens=100,
+        answer_tokens=1000,
+        revise_rounds=1,
+        params=PM,
+        extra_calls={"answer": 0.5},
+        history=EstimateHistory(calls_per_slot={"answer": 1.2}),
+    )
+    assert known.total_usd == pytest.approx(base.total_usd * 1.2)  # 历史已包含工具轮次

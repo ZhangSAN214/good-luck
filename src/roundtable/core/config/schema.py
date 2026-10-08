@@ -75,6 +75,8 @@ class ModelSpec(_Strict):
     aliases: list[str] = Field(default_factory=list)
     # 按优先顺序排列的渠道
     routes: list[Route] = Field(min_length=1)
+    # False：只作为工具使用（如图像生成模型），不上桌、不需要档位
+    seat: bool = True
 
     @field_validator("routes")
     @classmethod
@@ -206,6 +208,78 @@ class UploadRules(_Strict):
     storage_dir: str = "data/uploads"
 
 
+ToolName = Literal["python", "write_file", "generate_image"]
+
+
+class PythonTool(_Strict):
+    """代码运行：backend 为 wasm（Deno + Pyodide）/ docker / auto（先 wasm 后 docker）/ off。"""
+
+    backend: Literal["auto", "wasm", "docker", "off"] = "auto"
+    timeout_s: float = Field(default=60, gt=0)  # 含加载 numpy 等包的时间
+    memory_mb: int = Field(default=1024, ge=64)
+    max_runs: int = Field(default=3, ge=1)  # 每位成员每个步骤最多运行几次（出错重跑也算）
+    max_output_chars: int = Field(default=8000, ge=200)
+    # wasm 后端的运行时目录（Deno 与 Pyodide）；为空时用 ROUNDTABLE_SANDBOX_DIR 或用户缓存目录
+    runtime_dir: str | None = None
+    docker_image: str = "roundtable-sandbox:1"
+    # wasm 后端随附的包（由 scripts/setup_sandbox.py 下载）；pure 为从 PyPI 下载的纯 Python 包
+    packages: list[str] = Field(
+        default_factory=lambda: [
+            "numpy",
+            "pandas",
+            "matplotlib",
+            "sympy",
+            "scipy",
+            "pillow",
+            "networkx",
+            "lxml",
+        ]
+    )
+    pure_packages: list[str] = Field(
+        default_factory=lambda: [
+            "openpyxl",
+            "python-docx",
+            "XlsxWriter",
+            "fpdf2",
+            "python-pptx",
+            "seaborn",
+        ]
+    )
+
+
+class FileRules(_Strict):
+    """成员生成的文件：扩展名白名单、大小上限（单个、每场合计）。"""
+
+    max_file_mb: float = Field(default=10, gt=0)
+    max_session_mb: float = Field(default=100, gt=0)
+    max_files_per_step: int = Field(default=20, ge=1)
+    extensions: list[str] = Field(
+        default_factory=lambda: [
+            "py", "txt", "md", "csv", "json", "tex", "html", "svg",
+            "xlsx", "docx", "pptx", "pdf", "png", "jpg", "jpeg", "gif", "webp",
+        ]
+    )  # fmt: skip
+    # 转交给其他成员时，每个文本文件最多附上多少字
+    share_text_chars: int = Field(default=3000, ge=0)
+
+
+class ImageTool(_Strict):
+    """图像生成：由带 image_gen 标签、seat: false 的模型完成（最便宜者优先）。"""
+
+    max_per_step: int = Field(default=2, ge=0)
+    max_tokens: int = Field(default=4000, gt=0)
+
+
+class ToolsConfig(_Strict):
+    enabled: bool = True
+    max_rounds: int = Field(default=6, ge=1)  # 每次作答最多几轮工具调用
+    # 步骤 → 可用的工具；同一步骤所有成员相同
+    by_step: dict[str, list[ToolName]] = Field(default_factory=dict)
+    python: PythonTool = PythonTool()
+    files: FileRules = FileRules()
+    image: ImageTool = ImageTool()
+
+
 class RoundtableConfig(_Strict):
     seats: int = Field(ge=2)
     min_members: int = Field(default=2, ge=2)
@@ -225,6 +299,7 @@ class RoundtableConfig(_Strict):
     review_quality: ReviewQuality = ReviewQuality()
     effort_check: EffortCheck = EffortCheck()
     uploads: UploadRules = UploadRules()
+    tools: ToolsConfig = ToolsConfig()
 
     @field_validator("prompts")
     @classmethod
@@ -376,6 +451,8 @@ class EstimateParams(_Strict):
     history_min_samples: int = Field(default=3, ge=1)
     # 统计历史时只看最近这么多场讨论
     history_sessions: int = Field(default=30, ge=1)
+    # 能用工具的步骤，每个座位平均多几次模型调用（工具轮次）；有历史记录后改用实际次数
+    tool_rounds: float = Field(default=0.5, ge=0)
     # 每张图片按多少输入 token 估算（发原图的成员）
     image_tokens: int = Field(default=1500, ge=0)
     # 本桌实际花费超过"预估 × 此倍数"时暂停询问；None 关闭
@@ -450,7 +527,7 @@ class AppConfig(_Strict):
 
     def _check_routing(self) -> None:
         rt, routing = self.roundtable, self.routing
-        untiered = sorted(m.id for m in self.models.enabled if m.tier is None)
+        untiered = sorted(m.id for m in self.models.enabled if m.seat and m.tier is None)
         if untiered:
             raise ValueError(f"成本优先路由只按档位分配，以下启用的模型缺少 tier：{untiered}")
         vocab = set(self.models.tag_vocabulary)

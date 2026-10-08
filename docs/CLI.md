@@ -15,6 +15,8 @@ pip install -e .
 
 **网页版一键启动**：双击项目根目录的 `start.bat`。它会进入项目目录、激活 `.venv`（没有时自动创建）、`git pull`、`pip install -e ".[dev]"`、启动服务，并自动打开 http://127.0.0.1:8000 。关闭窗口或按 Ctrl+C 停止。
 
+**代码运行环境**（让成员能运行 Python、画图、生成 Word / Excel / PPT / PDF）：`python scripts/setup_sandbox.py` 一次性安装（`start.bat` 会自动安装）。没装时成员仍可写文本文件、生成图片，只是不能运行代码。详见 `sandbox/README.md`。
+
 ## 2. 填写 key
 
 ```powershell
@@ -68,6 +70,7 @@ roundtable history              # 最近的讨论（含会话 id）
 roundtable stats                # 各模型的历史贡献：被采纳的要点、有效问题、敷衍次数等（匿名讨论揭晓后才计入）
 roundtable show <会话id> --details
 roundtable show <会话id> --costs      # 每桌每步的预估与实际花费、每次调用的 token
+roundtable files <会话id>            # 把成员生成的文件（代码、图表、文档等）保存到本地目录
 roundtable export <会话id>           # 完整记录（含每位成员的产出和花费明细）导出成 UTF-8 文本文件
 roundtable export <会话id> -o 记录.txt
 roundtable reveal <会话id>      # 匿名讨论：揭晓身份、每次调用走的渠道和花费

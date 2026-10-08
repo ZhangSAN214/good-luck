@@ -84,7 +84,9 @@ async def test_planner_answer_length_used_and_clamped(env):
     bounds = env.config.routing.estimate.answer_tokens_bounds
     cap = env.config.roundtable.step_params["answer"]["max_tokens"]
     assert bounds.max > cap  # 规划员的估计被限制在范围内，单次输出又不超过该步骤的上限
-    assert answer.output_tokens == cap * len(d.lineup.members)
+    # 能用工具的步骤按 estimate.tool_rounds 多估一些调用
+    rounds = 1 + env.config.routing.estimate.tool_rounds
+    assert answer.output_tokens == round(cap * rounds) * len(d.lineup.members)
 
 
 async def test_image_question_still_seats_everyone(env):
