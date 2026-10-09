@@ -20,3 +20,6 @@ venv/
 .ruff_cache/
 .coverage
 htmlcov/
+
+# pip download 等产生的临时安装包
+*.whl
