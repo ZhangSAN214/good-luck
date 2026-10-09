@@ -22,6 +22,7 @@ from roundtable.core.providers import (
     AllChannelsFailed,
     ChannelRouter,
     Completion,
+    Media,
     Message,
     NoChannelAvailable,
 )
@@ -115,12 +116,49 @@ class TableContext:
         return self.scrubber.scrub(text, context)
 
     def messages_for(self, prompt: RenderedPrompt, model_id: str) -> tuple[Message, ...]:
-        """一次调用实际发送的消息：没有附件时就是提示词本身。"""
-        if not self.attachments:
-            return prompt.messages
-        template = self.prompts.get("attachments", self.prompt_version("attachments"))
+        """一次调用实际发送的消息：题目附件，以及其他成员生成的图片（只发给带 vision 标签的模型）。
+
+        同一步骤的成员之间，唯一的差别是图片以原图还是文字（名称、说明）呈现。
+        """
+        messages = prompt.messages
         vision = "vision" in self.models_by_id[model_id].tags
-        return attach_messages(prompt.messages, self.attachments, template, vision=vision)
+        if self.attachments:
+            template = self.prompts.get("attachments", self.prompt_version("attachments"))
+            messages = attach_messages(messages, self.attachments, template, vision=vision)
+        if vision:
+            messages = self._attach_generated_images(messages)
+        return messages
+
+    def _attach_generated_images(self, messages: tuple[Message, ...]) -> tuple[Message, ...]:
+        """把用户消息中 <file type="image"> 指向的图片作为随附图片附上，并在标签上注明编号。"""
+        rules = self.config.roundtable.tools.files
+        index = next((i for i, m in enumerate(messages) if m.role == "user"), None)
+        if index is None or rules.share_images == 0:
+            return messages
+        user = messages[index]
+        media = list(user.media)
+        content = user.content
+
+        def attach(match: re.Match[str]) -> str:
+            if len(media) - len(user.media) >= rules.share_images:
+                return match.group(0)
+            try:
+                row = self.repo.file(self.session_id, match.group(1))
+            except LookupError:
+                return match.group(0)
+            if row["mime"] not in SHAREABLE_IMAGES or row["size"] > rules.share_image_mb * 2**20:
+                return match.group(0)
+            if self.file_store is None:
+                return match.group(0)
+            data = self.file_store.load(row["storage_key"])
+            media.append(Media("image", row["mime"], data, row["path"]))
+            return match.group(0)[:-2] + f' attached="随附图片 {len(media)}"/>'
+
+        content = _IMAGE_FILE.sub(attach, content)
+        if len(media) == len(user.media):
+            return messages
+        updated = Message(user.role, content, tuple(media))
+        return (*messages[:index], updated, *messages[index + 1 :])
 
     def citation_problems(self, step: str, code: str | None, text: str) -> list[str]:
         """来源标注检查：引用了没有检索到的来源；或本步骤用过搜索却一条都没标注。"""
@@ -164,7 +202,8 @@ class TableContext:
         lines = []
         for path in sorted(latest):
             row = latest[path]
-            attrs = f'path="out/{path}" type="{row["kind"]}" size="{_size(row["size"])}"'
+            size = _size(row["size"])
+            attrs = f'id="{row["id"]}" path="out/{path}" type="{row["kind"]}" size="{size}"'
             ext = path.rsplit(".", 1)[-1].lower()
             if self.file_store and limit and ext in TEXT_EXTS:
                 text = self.file_store.load(row["storage_key"]).decode("utf-8", errors="replace")
@@ -350,6 +389,11 @@ async def gather_members(
 
 
 # --- 渲染 ---------------------------------------------------------------------
+
+
+# 可以作为随附图片发给模型的类型；文件块中图片的写法（files_note 生成）
+SHAREABLE_IMAGES = frozenset({"image/png", "image/jpeg", "image/gif", "image/webp"})
+_IMAGE_FILE = re.compile(r'<file id="([0-9a-f]{32})" [^<>]*type="image"[^<>]*/>')
 
 
 def _size(n: int) -> str:

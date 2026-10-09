@@ -62,6 +62,15 @@ try {
   }
 } catch (_) { /* 没有附加包 */ }
 
+// 中文字体（setup_sandbox.py 安装在 fonts/cjk.otf）：固定放在 /usr/share/fonts/roundtable/cjk.otf
+let hasFont = false;
+try {
+  const font = Deno.readFileSync(`${runtimeDir}/fonts/cjk.otf`);
+  FS.mkdirTree("/usr/share/fonts/roundtable");
+  FS.writeFile("/usr/share/fonts/roundtable/cjk.otf", font);
+  hasFont = true;
+} catch (_) { /* 没有安装字体 */ }
+
 copyIn(`${jobDir}/in`, "/work/in");
 copyIn(`${jobDir}/out`, "/work/out");
 const code = Deno.readTextFileSync(`${jobDir}/main.py`);
@@ -86,6 +95,14 @@ for _name in ('execv', 'execve', 'execvp', 'spawnv', 'fork', 'posix_spawn'):
 subprocess.Popen = subprocess.run = subprocess.call = subprocess.check_output = _blocked
 del _blocked, _name
 `;
+const FONT_SETUP = `
+from matplotlib import font_manager as _fm, rcParams as _rc
+_fm.fontManager.addfont('/usr/share/fonts/roundtable/cjk.otf')
+_name = _fm.FontProperties(fname='/usr/share/fonts/roundtable/cjk.otf').get_name()
+_rc['font.sans-serif'] = [_name] + [f for f in _rc['font.sans-serif'] if f != _name]
+_rc['axes.unicode_minus'] = False
+del _fm, _rc, _name
+`;
 let status = 0;
 try {
   if (deps.length) await py.loadPackage(deps, { messageCallback: () => {} });
@@ -94,6 +111,8 @@ try {
     errorCallback: (m) => emit(Deno.stderr, "err", m),
   });
   py.runPython(SETUP);
+  // 用到绘图时预先登记中文字体（matplotlib 在 WebAssembly 中不会自动扫描系统字体目录）
+  if (hasFont && /matplotlib|seaborn|\.plot\(|\.hist\(/.test(code)) py.runPython(FONT_SETUP);
   await py.runPythonAsync(code);
 } catch (e) {
   emit(Deno.stderr, "err", String(e && e.message ? e.message : e));

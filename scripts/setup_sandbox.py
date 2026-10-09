@@ -44,6 +44,12 @@ from roundtable.core.tools.sandbox import (  # noqa: E402
 
 DENO_VERSION = "2.6.0"
 PYODIDE_VERSION = "314.0.7"
+# 中文字体（图表与图片中的中文）：Noto Sans SC 子集 OTF，固定版本并校验哈希
+FONT_URL = (
+    "https://raw.githubusercontent.com/notofonts/noto-cjk/Sans2.004/"
+    "Sans/SubsetOTF/SC/NotoSansSC-Regular.otf"
+)
+FONT_SHA256 = "faa6c9df652116dde789d351359f3d7e5d2285a2b2a1f04a2d7244df706d5ea9"
 CORE_FILES = ("pyodide.mjs", "pyodide.asm.mjs", "pyodide.asm.wasm", "python_stdlib.zip")
 
 
@@ -71,7 +77,20 @@ def deno_target() -> str:
     return f"{arch}-unknown-linux-gnu"
 
 
+def _deno_version(exe: Path) -> bool:
+    import subprocess
+
+    try:
+        out = subprocess.run([str(exe), "--version"], capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return out.stdout.startswith(f"deno {DENO_VERSION} ")
+
+
 def install_deno(target_dir: Path, archive: Path | None) -> None:
+    exe = "deno.exe" if sys.platform == "win32" else "deno"
+    if (target_dir / exe).is_file() and archive is None and _deno_version(target_dir / exe):
+        return  # 已安装同一版本
     name = f"deno-{deno_target()}.zip"
     base = f"https://github.com/denoland/deno/releases/download/v{DENO_VERSION}/{name}"
     if archive:
@@ -82,7 +101,6 @@ def install_deno(target_dir: Path, archive: Path | None) -> None:
         expected = fetch(base + ".sha256sum").split()[0].decode().lower()
         if sha256(data) != expected:
             raise SystemExit("Deno 下载内容校验失败")
-    exe = "deno.exe" if sys.platform == "win32" else "deno"
     with zipfile.ZipFile(io.BytesIO(data)) as z:
         (target_dir / exe).write_bytes(z.read(exe))
     (target_dir / exe).chmod(0o755)
@@ -226,6 +244,19 @@ def install_pure(target: Path, names: list[str], lock: dict) -> tuple[dict, list
     return imports, sorted(needed_pyodide)
 
 
+def install_font(target: Path, archive: Path | None) -> None:
+    fonts = target / "fonts"
+    fonts.mkdir(exist_ok=True)
+    dest = fonts / "cjk.otf"
+    if dest.is_file() and sha256(dest.read_bytes()) == FONT_SHA256:
+        return
+    log("下载中文字体（Noto Sans SC，约 8 MB）…")
+    data = archive.read_bytes() if archive else fetch(FONT_URL, timeout=600)
+    if sha256(data) != FONT_SHA256:
+        raise SystemExit("中文字体校验失败")
+    dest.write_bytes(data)
+
+
 def check(target: Path) -> int:
     rules = load_config().roundtable.tools.python
     sandbox = WasmSandbox(rules, target)
@@ -237,8 +268,14 @@ def check(target: Path) -> int:
         job = Path(tmp)
         (job / "in").mkdir()
         (job / "out").mkdir()
-        (job / "main.py").write_text("import numpy\nprint('ok', numpy.__version__)\n")
+        (job / "main.py").write_text(
+            "import numpy, os\nprint('ok', numpy.__version__,"
+            " 'cjk' if os.path.exists('/usr/share/fonts/roundtable/cjk.otf') else 'no-cjk')\n"
+        )
         result = asyncio.run(sandbox.run(job))
+    if result.ok and "no-cjk" in result.stdout:
+        log("✗ 缺少中文字体（重新运行 python scripts/setup_sandbox.py 补装）")
+        return 1
     if result.ok and result.stdout.startswith("ok"):
         took = f"{result.duration_s:.1f}s"
         log(f"✓ 代码运行环境可用（{target}）：{result.stdout.strip()}，用时 {took}")
@@ -253,6 +290,7 @@ def main() -> int:
     parser.add_argument("--check", action="store_true", help="只检查")
     parser.add_argument("--deno-archive", type=Path, help="使用已下载的 Deno zip")
     parser.add_argument("--pyodide-archive", type=Path, help="使用已下载的 Pyodide 完整发行包")
+    parser.add_argument("--font-file", type=Path, help="使用已下载的 NotoSansSC-Regular.otf")
     args = parser.parse_args()
     rules = load_config().roundtable.tools.python
     target = (Path(args.dir) if args.dir else default_runtime_dir(rules.runtime_dir)).resolve()
@@ -267,6 +305,7 @@ def main() -> int:
     imports, extra = install_pure(target, rules.pure_packages, lock)
     if extra:
         install_pyodide(target, [*rules.packages, "micropip", *extra], args.pyodide_archive)
+    install_font(target, args.font_file)
     (target / "extras.json").write_text(json.dumps(imports, indent=1), encoding="utf-8")
     shutil.copyfile(RUNNER, target / "runner.mjs")
     log(f"已安装到 {target}")

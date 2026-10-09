@@ -43,7 +43,7 @@ prompts:
   attachments: v1        # 题目附件（文字版 / 随附图片）
   describe_image: v1     # 图片文字版
   transcribe: v1         # 音频转写
-  tools: v2              # 工具说明与工具结果（v2：联网搜索与来源标注）
+  tools: v3              # 工具说明与工具结果（v2：联网搜索与来源标注；v3：图表中文）
   image_gen: v1          # 图像生成工具
 
 # 每个步骤对所有模型统一使用的参数（中立：同一步骤参数相同；模型自身必需的参数在 models.yaml）

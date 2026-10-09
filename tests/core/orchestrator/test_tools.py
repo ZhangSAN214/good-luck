@@ -106,10 +106,19 @@ async def test_python_round_trip_files_shared_with_reviewers():
     assert all("<tool_call" not in o.content for o in answers)
 
     reviews = [c for c in env.fake.calls if REVIEW in c.messages[0].content]
-    assert all('<file path="out/plot.png" type="image"' in last_user(c.messages) for c in reviews)
+    assert all('path="out/plot.png" type="image"' in last_user(c.messages) for c in reviews)
+    # 生成的图片：带 vision 标签的模型（b2、统筹 f1）收到原图，其他只看到文件名
+    for c in reviews:
+        user = [m for m in c.messages if m.role == "user"][0]
+        if c.model == "b2":
+            assert [m.data for m in user.media] == [PNG, PNG]  # 评审另外两位组员
+            assert user.content.count('attached="随附图片') == 2
+        else:
+            assert user.media == () and "attached=" not in user.content
     assert all("本步骤可用的工具：python。" in c.messages[0].content for c in reviews)
     synth = [c for c in env.fake.calls if "汇总成一份结论" in c.messages[0].content]
     assert synth and GUIDE not in synth[0].messages[0].content  # 汇总没有配置工具
+    assert len(synth[0].messages[1].media) == 3 and "随附图片 3" in synth[0].messages[1].content
 
 
 async def test_limits_rounds_runs_and_errors():
@@ -295,3 +304,26 @@ async def test_real_wasm_sandbox_end_to_end():
     files = env.rt.repo.files(r.session_id)
     assert {f["path"] for f in files} == {"f.png"}
     assert env.rt.files.load(files[0]["storage_key"]).startswith(b"\x89PNG")
+
+
+async def test_shared_images_limited_and_only_raster():
+    env = Env(confirm_threshold_usd=100.0)
+    with_tools(env)
+    files = env.rt.config.roundtable.tools.files.model_copy(update={"share_images": 1})
+    tools = env.rt.config.roundtable.tools.model_copy(update={"files": files})
+    rt_cfg = env.rt.config.roundtable.model_copy(update={"tools": tools})
+    env.rt.config = env.rt.config.model_copy(update={"roundtable": rt_cfg})
+    scripted(
+        env,
+        ANSWER,
+        '<tool_call name="python">import plot</tool_call>\n'
+        '<tool_call name="write_file" path="d.svg"><svg xmlns="http://www.w3.org/2000/svg"/></tool_call>',
+    )
+    r = await env.orc.start(Question(MEDIUM), CUSTOM, seed=8)
+    assert r.status == "completed"
+    synth = [c for c in env.fake.calls if "汇总成一份结论" in c.messages[0].content][0]
+    user = synth.messages[1]
+    assert (
+        len(user.media) == 1 and user.media[0].mime == "image/png"
+    )  # 上限 1 张；SVG 不作为图片发送
+    assert user.content.count("attached=") == 1

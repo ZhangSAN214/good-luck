@@ -13,7 +13,7 @@ python scripts/setup_sandbox.py           # 下载 Deno 与 Pyodide（约 60 MB�
 python scripts/setup_sandbox.py --check   # 检查能否运行
 ```
 
-安装到用户缓存目录（Windows：`%LOCALAPPDATA%\roundtable\sandbox`；其他：`~/.cache/roundtable/sandbox`），
+包含中文字体（Noto Sans SC），图表和图片里可以直接写中文。安装到用户缓存目录（Windows：`%LOCALAPPDATA%\roundtable\sandbox`；其他：`~/.cache/roundtable/sandbox`），
 不在项目目录里。`start.bat` 第一次启动时会自动安装。
 
 ## docker 后端（可选）

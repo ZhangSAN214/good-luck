@@ -283,6 +283,9 @@ class FileRules(_Strict):
     )  # fmt: skip
     # 转交给其他成员时，每个文本文件最多附上多少字
     share_text_chars: int = Field(default=3000, ge=0)
+    # 生成的图片随答案转交给带 vision 标签的模型：每次调用最多几张、每张大小上限
+    share_images: int = Field(default=6, ge=0)
+    share_image_mb: float = Field(default=4, gt=0)
 
 
 class ImageTool(_Strict):
