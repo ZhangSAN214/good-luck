@@ -3,6 +3,11 @@ import * as API from './api.js';
 import {
   STATUS_LABELS,
   STEP_LABELS,
+  attachmentsHTML,
+  estimateHTML,
+  previewHTML,
+  splitPanel,
+  toolsPanel,
   COORD_STEPS,
   castPanel,
   contributionsPanel,
@@ -36,6 +41,10 @@ const S = {
   stream: null, // AbortController
   cardError: null,
   busy: false,
+  attachments: [], // 已上传 / 上传中的附件（提问区）
+  estimate: null, // /api/estimate 的结果
+  estKey: '', // 该结果对应的请求（不含 seed）
+  estSeed: null, // 提交时带上，阵容与预估一致
 };
 
 function freshLive() {
@@ -58,6 +67,7 @@ function renderStage() {
   const tables = S.session?.tables || [];
   const seats = Math.max(0, ...tables.map((t) => t.codes.length));
   $('#stage').classList.toggle('many', seats > 6); // 人多时座位缩小
+  $('#stage').classList.toggle('dense', seats > 9);
   $('#stage').innerHTML = stageHTML(S.session, S.live, prefix());
 }
 
@@ -151,6 +161,8 @@ function welcomeHTML() {
 <ol><li>所选档位的每个模型都上桌：一位当统筹，其余是组员。省钱靠选档位，不靠减人。</li>
 <li>组员独立作答 → 互相评审 → 根据评审修订 → 统筹汇总共识与分歧。</li>
 <li>便宜档汇总仍有分歧或把握低时，会问你要不要用旗舰档重做；预计花费超过 ${th} 也先问你。</li>
+<li>可以添加图片、PDF、Word、文本或音频附件（点「添加附件」或把文件拖进来）；成员还能运行代码、写文件、生成图片、联网搜索，生成的文件可在过程区和「工具」标签里预览、下载。</li>
+<li>提交前，输入框下方会列出各档位的预计花费。</li>
 <li>勾选「匿名」时，讨论结束前只显示代号，结束后点「揭晓身份」。发给模型的内容始终只用代号。</li></ol></div>`;
 }
 
@@ -166,6 +178,8 @@ function renderPanel() {
   let h = '';
   if (S.tab === 'flow') h = flowPanel(S.session, S.live, ctx);
   if (S.tab === 'reviews') h = reviewsPanel(S.session, prefix());
+  if (S.tab === 'split') h = splitPanel(S.session, prefix());
+  if (S.tab === 'tools') h = toolsPanel(S.session, prefix());
   if (S.tab === 'usage') h = usagePanel(S.session, S.budget);
   if (S.tab === 'channels') h = channelsPanel(S.status);
   if (S.tab === 'history') h = historyPanel(S.history, S.sid);
@@ -213,6 +227,107 @@ function renderPicks() {
       .join('');
 }
 
+// --- 附件与提交前预估 ---------------------------------------------------------------
+
+function renderAttachments() {
+  const el = $('#attachments');
+  el.hidden = !S.attachments.length;
+  el.innerHTML = attachmentsHTML(S.attachments);
+}
+
+async function addFiles(files) {
+  const max = S.status?.uploads?.max_files ?? 5;
+  for (const file of files) {
+    if (S.attachments.filter((a) => !a.error).length >= max) {
+      formError(`最多添加 ${max} 个附件`);
+      break;
+    }
+    const item = { name: file.name, pending: true };
+    S.attachments.push(item);
+    renderAttachments();
+    try {
+      Object.assign(item, await API.upload(file), { pending: false });
+    } catch (e) {
+      Object.assign(item, { pending: false, error: e.message });
+    }
+    renderAttachments();
+  }
+  scheduleEstimate();
+}
+
+function estimateRequest() {
+  const question = $('#ask').value.trim();
+  if (!question) return null;
+  const req = {
+    question,
+    tier: S.tier,
+    anonymous: S.anonymous,
+    workflow: S.workflow,
+    attachments: S.attachments.filter((a) => a.id).map((a) => a.id),
+  };
+  if (S.tier === 'custom') {
+    req.models = [...document.querySelectorAll('#picks input:checked')].map((i) => i.value);
+    if (req.models.length < (S.status?.min_members ?? 2) + 1) return null;
+    const coord = $('#coordinator').value;
+    if (coord && req.models.includes(coord)) req.coordinator = coord;
+  }
+  return req;
+}
+
+let estTimer = null;
+function scheduleEstimate() {
+  clearTimeout(estTimer);
+  estTimer = setTimeout(runEstimate, 350);
+}
+
+async function runEstimate() {
+  const req = estimateRequest();
+  const el = $('#estimate');
+  if (!req) {
+    S.estimate = null;
+    S.estKey = '';
+    el.hidden = true;
+    return;
+  }
+  const key = JSON.stringify(req);
+  try {
+    const est = await API.estimate({ ...req, seed: S.estSeed ?? undefined });
+    if (JSON.stringify(estimateRequest()) !== key) return; // 输入又变了
+    S.estimate = est;
+    S.estKey = key;
+    S.estSeed = est.seed;
+    renderEstimate();
+  } catch (e) {
+    S.estimate = null;
+    S.estKey = '';
+    el.hidden = false;
+    el.textContent = `无法预估：${e.message}`;
+  }
+}
+
+function renderEstimate() {
+  const el = $('#estimate');
+  const html = estimateHTML(S.estimate, {
+    workflow: S.workflow,
+    anonymous: S.anonymous,
+    plans: plans(),
+    customLabel: S.status?.custom_label || '自选',
+  });
+  el.hidden = !html;
+  el.innerHTML = html;
+}
+
+async function showPreview(fid) {
+  const dlg = $('#viewer');
+  dlg.innerHTML = '<div class="vb">加载中…</div>';
+  if (!dlg.open) dlg.showModal();
+  try {
+    dlg.innerHTML = previewHTML(S.sid, await API.filePreview(S.sid, fid));
+  } catch (e) {
+    dlg.innerHTML = `<div class="vh"><b>预览失败</b><button class="btn sm" type="button" data-close>关闭</button></div><div class="vb">${esc(e.message)}</div>`;
+  }
+}
+
 function formError(text) {
   const e = $('#formerr');
   e.hidden = !text;
@@ -226,7 +341,17 @@ async function submit(ev) {
     formError('请先输入题目');
     return;
   }
-  const body = { question, tier: S.tier, anonymous: S.anonymous, workflow: S.workflow };
+  if (S.attachments.some((a) => a.pending)) {
+    formError('附件还在上传，请稍等');
+    return;
+  }
+  const body = {
+    question,
+    tier: S.tier,
+    anonymous: S.anonymous,
+    workflow: S.workflow,
+    attachments: S.attachments.filter((a) => a.id).map((a) => a.id),
+  };
   if (S.tier === 'custom') {
     body.models = [...document.querySelectorAll('#picks input:checked')].map((i) => i.value);
     const min = (S.status?.min_members ?? 2) + 1;
@@ -244,10 +369,16 @@ async function submit(ev) {
     }
   }
   formError('');
+  if (S.estimate && S.estKey === JSON.stringify(estimateRequest())) body.seed = S.estimate.seed;
   $('#submit').disabled = true;
   try {
     const { session_id } = await API.createSession(body);
     $('#ask').value = '';
+    S.attachments = [];
+    S.estimate = null;
+    S.estSeed = null;
+    renderAttachments();
+    renderEstimate();
     await open(session_id);
   } catch (e) {
     formError(e.message);
@@ -484,6 +615,41 @@ function bind() {
     S.tier = b.dataset.v;
     formError('');
     renderComposer();
+    scheduleEstimate();
+  });
+  $('#ask').addEventListener('input', scheduleEstimate);
+  $('#picks').addEventListener('change', scheduleEstimate);
+  $('#coordinator').addEventListener('change', scheduleEstimate);
+  $('#attach').addEventListener('click', () => $('#file').click());
+  $('#file').addEventListener('change', (e) => {
+    const files = [...e.target.files];
+    e.target.value = '';
+    addFiles(files);
+  });
+  $('#attachments').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-rm]');
+    if (!b) return;
+    S.attachments.splice(Number(b.dataset.rm), 1);
+    renderAttachments();
+    scheduleEstimate();
+  });
+  const comp = $('#composer');
+  comp.addEventListener('dragover', (e) => {
+    if (![...(e.dataTransfer?.types || [])].includes('Files')) return;
+    e.preventDefault();
+    comp.classList.add('drag');
+  });
+  comp.addEventListener('dragleave', () => comp.classList.remove('drag'));
+  comp.addEventListener('drop', (e) => {
+    e.preventDefault();
+    comp.classList.remove('drag');
+    addFiles([...(e.dataTransfer?.files || [])]);
+  });
+  document.addEventListener('click', (e) => {
+    const pv = e.target.closest('[data-preview]');
+    if (pv && S.sid) showPreview(pv.dataset.preview);
+    if (e.target.closest('[data-close]')) $('#viewer').close();
+    if (e.target === $('#viewer')) $('#viewer').close();
   });
   $('#workflow').addEventListener('click', (e) => {
     const b = e.target.closest('button');
@@ -491,10 +657,12 @@ function bind() {
     S.workflow = b.dataset.v;
     renderComposer();
     renderLegend();
+    scheduleEstimate();
   });
   $('#anonymous').addEventListener('change', (e) => {
     S.anonymous = e.target.checked;
     renderLegend();
+    scheduleEstimate();
   });
   $('#feed').addEventListener('click', (e) => {
     const opt = e.target.closest('[data-opt]');

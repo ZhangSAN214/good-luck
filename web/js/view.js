@@ -77,6 +77,42 @@ function tag(text, cls = '') {
   return `<span class="tagp ${cls}">${esc(text)}</span>`;
 }
 
+const TOOL_LABELS = { python: '运行代码', write_file: '写文件', generate_image: '生成图片', search: '联网搜索', fetch: '读取网页' };
+const TOOL_STATUS = { ok: ['成功', 'ok'], error: ['出错', 'bad'], timeout: ['超时', 'bad'], rejected: ['被拒绝', 'bad'], limit: ['额度用完', 'wait'] };
+const KIND_ICONS = { image: '图片', text: '文本', code: '代码', table: '表格', document: '文档' };
+
+export function bytes(n) {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  return `${(n / 1024 / 1024).toFixed(1)} MB`;
+}
+
+function safeUrl(u) {
+  return /^https?:\/\//i.test(u || '') ? u : null;
+}
+
+/** 来源编号 → 链接：按成员在本桌内连续编号（S1、S2…），key 为 `桌:代号`。 */
+export function sourceIndex(sv) {
+  const idx = {};
+  for (const t of sv?.tool_calls || []) {
+    if (t.tool !== 'search') continue;
+    const m = (idx[`${t.table_no}:${t.code}`] ||= {});
+    for (const src of t.input?.sources || []) m[src.id] = src;
+  }
+  return idx;
+}
+
+/** md() 之后把 [S1] 换成可点击的来源链接（只认该成员检索到的来源，且只允许 http/https）。 */
+export function cite(html, sources) {
+  if (!sources) return html;
+  return html.replace(/\[S(\d+)\]/g, (all, n) => {
+    const src = sources[`S${n}`];
+    const url = src && safeUrl(src.url);
+    if (!url) return all;
+    return `<a class="cite" href="${esc(url)}" target="_blank" rel="noopener noreferrer" title="${esc(src.title || url)}">[S${n}]</a>`;
+  });
+}
+
 // --- 名称 --------------------------------------------------------------------------
 
 export class Names {
@@ -173,6 +209,10 @@ export function feedItems(sv, ctx) {
 
   const outputs = sv.outputs || [];
   const lazy = lazyKeys(outputs);
+  const sources = sourceIndex(sv);
+  const toolRows = sv.tool_calls || [];
+  const fileRows = (sv.files || []).filter((f) => f.latest);
+  const MAIN = new Set(['answer', 'revision', 'work', 'rework', 'merge']);
   for (const t of tables) {
     cpAt((d, cp) => cp.kind === 'escalation' && d.table_no === t.table_no);
     if (t.table_no === 0) cpAt((d, cp) => cp.kind === 'cost' && d.table_no === 0);
@@ -189,10 +229,24 @@ export function feedItems(sv, ctx) {
       if (!outs.length && !live) continue;
       if (step === 'reveal') continue;
       push(`s${t.table_no}:${step}`, `<div class="phase">${esc(STEP_LABELS[step] || step)}</div>`);
+      const shown = new Set();
+      const showTools = (code) => {
+        const k = code || '';
+        if (shown.has(k)) return;
+        shown.add(k);
+        const mine = toolRows.filter((x) => x.table_no === t.table_no && x.step === step && (x.code || '') === k);
+        for (const x of mine) push(`tc${x.id}`, toolItem(x, names, sv.id));
+      };
       outs.forEach((o, i) => {
-        const html = output(o, names, lazy);
+        if (MAIN.has(o.kind)) showTools(o.code);
+        const html = output(o, names, lazy, sources[`${t.table_no}:${o.code}`]);
         if (html) push(`o${t.table_no}:${step}:${o.kind}:${o.code || ''}:${i}`, html);
+        if (MAIN.has(o.kind)) {
+          const mine = fileRows.filter((f) => f.table_no === t.table_no && f.step === step && (f.code || '') === (o.code || ''));
+          if (mine.length) push(`f${t.table_no}:${step}:${o.code || ''}:${mine.map((f) => f.id).join()}`, fileBar(mine, sv.id));
+        }
       });
+      for (const x of toolRows) if (x.table_no === t.table_no && x.step === step) showTools(x.code);
     }
   }
   cpAt(() => true);
@@ -235,10 +289,10 @@ function effort(o, sp, data) {
   return sys('检查', `${esc(sp.name)} 的${esc(what)}没有实质内容（${esc(first)}），已打回重做，重做后合格`);
 }
 
-function output(o, names, lazy = new Set()) {
+function output(o, names, lazy = new Set(), sources = null) {
   const sp = names.speaker(o.table_no, o.code);
   if (lazy.has(`${o.table_no}:${o.step}:${o.code}`)) sp.tag = LAZY_TAG;
-  if (o.kind === 'answer') return msg(sp, '作答', `<div class="bubble">${md(o.content)}</div>`);
+  if (o.kind === 'answer') return msg(sp, '作答', `<div class="bubble">${cite(md(o.content), sources)}</div>`);
   if (o.kind === 'effort') {
     const d = parse(o.content);
     return d ? effort(o, sp, d) : '';
@@ -249,20 +303,20 @@ function output(o, names, lazy = new Set()) {
   const data = parse(o.content);
   if (!data) return msg(sp, o.kind, `<div class="bubble">${md(o.content)}</div>`);
   if (o.kind === 'review') return msg(sp, '互评', review(data, names, o.table_no));
-  const collab = collabOutput(o, sp, data, names);
+  const collab = collabOutput(o, sp, data, names, sources);
   if (collab !== null) return collab;
   if (o.kind === 'revision') {
     if (data.skipped) return sys('统筹', `${esc(sp.name)} 没有收到有效评审，沿用原答案`);
     const resp = data.responses
       ? `<details class="more"><summary>对审阅意见的回应</summary><div>${md(data.responses)}</div></details>`
       : '';
-    return msg(sp, '修订', `<div class="bubble">${md(data.answer)}</div>${resp}`);
+    return msg(sp, '修订', `<div class="bubble">${cite(md(data.answer), sources)}</div>${resp}`);
   }
   if (o.kind === 'synthesis') return synthesis(o.table_no, data, names);
   return '';
 }
 
-function collabOutput(o, sp, data, names) {
+function collabOutput(o, sp, data, names, sources = null) {
   const t = o.table_no;
   const li = (xs) => `<ul>${xs.join('')}</ul>`;
   if (o.kind === 'subtasks') {
@@ -292,7 +346,7 @@ function collabOutput(o, sp, data, names) {
     return msg(sp, '分配', `<div class="bubble">${li(rows)}${why}</div>${fixed}`);
   }
   if (o.kind === 'work') {
-    return msg(sp, `完成 ${names.subtask(t, data.subtask)}`, `<div class="bubble">${md(data.text)}</div>`);
+    return msg(sp, `完成 ${names.subtask(t, data.subtask)}`, `<div class="bubble">${cite(md(data.text), sources)}</div>`);
   }
   if (o.kind === 'cross_review') return msg(sp, '交叉审查', review(data, names, t));
   if (o.kind === 'rework') {
@@ -301,10 +355,74 @@ function collabOutput(o, sp, data, names) {
     const resp = data.responses
       ? `<details class="more"><summary>对审查意见的回应</summary><div>${md(data.responses)}</div></details>`
       : '';
-    return msg(sp, `修改 ${what}`, `<div class="bubble">${md(data.answer)}</div>${resp}`);
+    return msg(sp, `修改 ${what}`, `<div class="bubble">${cite(md(data.answer), sources)}</div>${resp}`);
   }
   if (o.kind === 'merge') return merged(t, data, names);
   return null;
+}
+
+function toolSummary(x) {
+  const i = x.input || {};
+  if (x.tool === 'python') return `${(i.code || '').split('\n').length} 行代码`;
+  if (x.tool === 'write_file') return i.path || '';
+  if (x.tool === 'generate_image') return i.path || '';
+  if (x.tool === 'search') return i.query || '';
+  if (x.tool === 'fetch') return i.source || '';
+  return '';
+}
+
+/** 一次工具调用：代码 / 搜索词折叠显示，展开后是输出、来源。 */
+export function toolItem(x, names, sid) {
+  const sp = names.speaker(x.table_no, x.code);
+  const [st, sc] = TOOL_STATUS[x.status] || [x.status, ''];
+  const i = x.input || {};
+  let body = '';
+  if (x.tool === 'python') body += `<div class="k">代码</div><pre>${esc(i.code)}</pre>`;
+  else if (x.tool === 'write_file') body += `<div class="k">写入 ${esc(i.path)}（${esc(i.chars ?? '')} 字）</div>`;
+  else if (x.tool === 'generate_image') body += `<div class="k">画面描述</div><pre>${esc(i.description)}</pre>`;
+  else if (x.tool === 'search') body += `<div class="k">搜索词</div><pre>${esc(i.query)}</pre>`;
+  else if (x.tool === 'fetch') body += `<div class="k">读取来源 ${esc(i.source)}${i.url ? ` · ${esc(i.url)}` : ''}</div>`;
+  const srcs = (i.sources || [])
+    .map((s) => {
+      const u = safeUrl(s.url);
+      return `<li>${esc(s.id)} ${u ? `<a href="${esc(u)}" target="_blank" rel="noopener noreferrer">${esc(s.title || u)}</a>` : esc(s.title)}</li>`;
+    })
+    .join('');
+  if (srcs) body += `<div class="k">来源</div><ul class="src">${srcs}</ul>`;
+  if (x.output) body += `<div class="k">输出</div><pre>${esc(x.output)}</pre>`;
+  const dur = x.duration_s ? ` · ${x.duration_s.toFixed(1)} 秒` : '';
+  return `<details class="tool" data-tool="${esc(x.tool)}"><summary><span class="tn">${esc(TOOL_LABELS[x.tool] || x.tool)}</span><span>${esc(sp.name)} · 第 ${esc(x.round)} 轮${esc(dur)}</span>${tag(st, sc)}<span class="meta">${esc(toolSummary(x))}</span></summary>${body}</details>`;
+}
+
+/** 成员生成的文件：预览 / 下载；图片直接显示缩略图。 */
+export function fileBar(files, sid) {
+  const chips = files.map((f) => fileChip(f, sid)).join('');
+  const thumbs = files
+    .filter((f) => f.kind === 'image' && /^image\/(png|jpeg|gif|webp)$/.test(f.mime))
+    .map((f) => `<img class="thumb" data-preview="${esc(f.id)}" alt="${esc(f.path)}" loading="lazy" src="/api/sessions/${esc(sid)}/files/${esc(f.id)}?inline=1">`)
+    .join('');
+  return `<div class="filebar-wrap" style="margin-left:44px"><div class="filebar">${chips}</div>${thumbs}</div>`;
+}
+
+export function fileChip(f, sid, withAuthor = '') {
+  const name = f.path.split('/').pop();
+  return `<span class="fchip" data-file="${esc(f.id)}">${esc(withAuthor)}<b>${esc(name)}</b><span class="meta">${esc(KIND_ICONS[f.kind] || f.kind)} · ${bytes(f.size)}</span><button type="button" data-preview="${esc(f.id)}">预览</button><a href="/api/sessions/${esc(sid)}/files/${esc(f.id)}" download>下载</a></span>`;
+}
+
+/** 预览对话框内容。HTML、SVG 只作为源代码文本显示，从不渲染。 */
+export function previewHTML(sid, p) {
+  const f = p.file;
+  const head = `<div class="vh"><b>${esc(f.path)}</b><span class="meta">${bytes(f.size)}</span><a class="btn sm" href="/api/sessions/${esc(sid)}/files/${esc(f.id)}" download>下载</a><button class="btn sm" type="button" data-close>关闭</button></div>`;
+  let body;
+  if (p.type === 'image') body = `<img alt="${esc(f.path)}" src="/api/sessions/${esc(sid)}/files/${esc(f.id)}?inline=1">`;
+  else if (p.type === 'text') body = `<pre>${esc(p.text)}</pre>${p.truncated ? '<p class="meta">内容较长，已截断；完整内容请下载。</p>' : ''}`;
+  else if (p.type === 'table') {
+    body = (p.sheets || [])
+      .map((sh) => `<h4>${esc(sh.name)}</h4><table><tbody>${sh.rows.map((r) => `<tr>${r.map((c) => `<td>${esc(c)}</td>`).join('')}</tr>`).join('')}</tbody></table>`)
+      .join('');
+    if (p.truncated) body += '<p class="meta">只显示前几行。</p>';
+  } else body = `<p>${esc(p.reason || '这个文件无法预览，请下载查看。')}</p>`;
+  return `${head}<div class="vb">${body}</div>`;
 }
 
 function merged(tableNo, d, names) {
@@ -756,6 +874,139 @@ export function castPanel(sv, prefix) {
     if (planner.length) {
       h += `<h4>规划员</h4><div class="ros"><div class="ro"><div class="av coord">规</div><b>规划员 <span class="ai">· ${esc(planner[0].model_id || '')}</span></b><p>估计答案长度</p><div class="calls">${callLines((c) => c.role === 'planner')}</div></div></div>`;
     }
+  }
+  return h;
+}
+
+// --- 分工（协同模式） -----------------------------------------------------------------
+
+export function splitPanel(sv, prefix) {
+  if (!sv) return '<p class="empty">提交题目后显示。</p>';
+  if (sv.workflow !== 'collab') {
+    return '<p class="empty">这是讨论模式，没有分工。选择「协同模式」提问后，这里显示子任务、自荐、负责人、成果与采纳情况。</p>';
+  }
+  const names = new Names(sv, prefix);
+  const lazy = lazyKeys(sv.outputs || []);
+  let h = '';
+  for (const t of sv.tables || []) {
+    const outs = (sv.outputs || []).filter((o) => o.table_no === t.table_no);
+    const pick = (kind) => outs.filter((o) => o.kind === kind).map((o) => ({ o, d: parse(o.content) })).filter((x) => x.d);
+    const subs = pick('subtasks')[0]?.d;
+    if (!subs) continue;
+    const assign = pick('assignment')[0]?.d;
+    const merge = pick('merge')[0]?.d;
+    const works = pick('work');
+    const vols = pick('volunteer');
+    h += `<h4>${esc(`第 ${t.table_no + 1} 桌 · 子任务与负责人`)}</h4>`;
+    h += '<table><thead><tr><th>子任务</th><th>负责人</th><th>成果</th><th>采纳</th></tr></thead><tbody>';
+    let n = 0;
+    for (const st of subs.subtasks) {
+      const a = assign?.assignments.find((x) => x.subtask === st.id);
+      const owners = a ? a.members : [];
+      const cells = owners.map((c) => {
+        n += 1;
+        const w = works.find((x) => x.o.code === c && x.d.subtask === st.id);
+        const flag = lazy.has(`${t.table_no}:work:${c}`) ? ' <span class="pill badp">敷衍</span>' : '';
+        return { id: `W${n}`, c, done: !!w, flag };
+      });
+      const adopted = merge ? (merge.subtasks || []).find((x) => x.subtask === st.id)?.adopted || [] : null;
+      const who = owners.length ? owners.map((c) => esc(names.member(c))).join('<br>') : '—';
+      const res = cells.length
+        ? cells.map((x) => `${x.id} ${x.done ? '<span class="pill okp">已完成</span>' : '<span class="pill">进行中</span>'}${x.flag}`).join('<br>')
+        : '—';
+      let ad = '—';
+      if (adopted) {
+        ad = adopted.length
+          ? adopted.map((x) => `${esc(names.member(x.member))} ${esc((LEVEL[x.level] || [x.level])[0])}`).join('<br>')
+          : '未采用';
+      }
+      const deps = st.depends_on && st.depends_on.length ? `<div class="hint">依赖 ${esc(st.depends_on.join('、'))}</div>` : '';
+      h += `<tr><td><b>${esc(st.id)}</b> ${esc(st.title)}${deps}</td><td>${who}</td><td>${res}</td><td>${ad}</td></tr>`;
+    }
+    h += '</tbody></table>';
+    if (assign?.repaired?.length) h += '<p class="hint">统筹的分配不符合规则，已由代码按自荐补齐。</p>';
+    if (vols.length) {
+      h += '<h4>自荐表态</h4><table><thead><tr><th>成员</th>' + subs.subtasks.map((s) => `<th>${esc(s.id)}</th>`).join('') + '</tr></thead><tbody>';
+      for (const { d, o } of vols) {
+        const cells = subs.subtasks.map((s) => {
+          const p = d.preferences.find((x) => x.subtask === s.id);
+          const [lt, lc] = p ? STANCE[p.stance] || [p.stance, ''] : ['—', ''];
+          return `<td>${lc === 'ok' ? `<span class="pill okp">${esc(lt)}</span>` : lc === 'bad' ? `<span class="pill badp">${esc(lt)}</span>` : esc(lt)}</td>`;
+        });
+        h += `<tr><td>${esc(names.member(o.code))}</td>${cells.join('')}</tr>`;
+      }
+      h += '</tbody></table>';
+    }
+  }
+  return h || '<p class="empty">统筹拆分子任务后显示。</p>';
+}
+
+// --- 工具与文件 ------------------------------------------------------------------------
+
+export function toolsPanel(sv, prefix) {
+  if (!sv) return '<p class="empty">提交题目后显示。成员作答时可以运行代码、写文件、生成图片、联网搜索。</p>';
+  const names = new Names(sv, prefix);
+  const calls = sv.tool_calls || [];
+  const files = (sv.files || []).filter((f) => f.latest);
+  const billed = (sv.calls || []).filter((c) => c.role === 'tool');
+  const cost = billed.reduce((a, c) => a + (c.cost_usd || 0), 0);
+  let h = `<h4>工具花费</h4><div class="big" id="tool-cost">${money(cost)}</div><div class="hint">共 ${calls.length} 次工具调用、${billed.length} 次计费（搜索、图像生成）；运行代码本地进行、不计费，但每一轮都会多一次模型调用。</div>`;
+  h += '<h4>工具调用</h4>';
+  if (!calls.length) h += '<p class="empty">这场没有使用工具。</p>';
+  else {
+    h += '<table><thead><tr><th>成员</th><th>步骤</th><th>工具</th><th>状态</th></tr></thead><tbody>';
+    for (const x of calls) {
+      const sp = names.speaker(x.table_no, x.code);
+      const [st, sc] = TOOL_STATUS[x.status] || [x.status, ''];
+      const pill = { ok: 'okp', wait: 'wait', bad: 'badp' }[sc] || '';
+      h += `<tr><td>${esc(sp.name)}</td><td>${esc(STEP_LABELS[x.step] || x.step)} · 第 ${esc(x.round)} 轮</td><td>${esc(TOOL_LABELS[x.tool] || x.tool)}<div class="hint">${esc(toolSummary(x))}</div></td><td><span class="pill ${pill}">${esc(st)}</span></td></tr>`;
+    }
+    h += '</tbody></table>';
+  }
+  h += '<h4>生成的文件</h4>';
+  if (!files.length) h += '<p class="empty">还没有文件。</p>';
+  else {
+    h += '<div class="filebar" style="flex-direction:column;align-items:stretch">';
+    for (const f of files) h += fileChip(f, sv.id, `${names.speaker(f.table_no, f.code).name} · `);
+    h += '</div><p class="hint">只保留每个文件的最新版本；HTML、SVG 只显示源代码，不会在页面中运行。</p>';
+  }
+  return h;
+}
+
+// --- 提问区：附件与提交前预估 ----------------------------------------------------------------
+
+export function attachmentsHTML(list) {
+  return list
+    .map((a, i) => {
+      if (a.pending) return `<span class="chip">${esc(a.name)} · 上传中…</span>`;
+      if (a.error) return `<span class="chip bad" title="${esc(a.error)}">${esc(a.name)} · ${esc(a.error)}<button class="x" type="button" data-rm="${i}" aria-label="移除">×</button></span>`;
+      const warn = (a.warnings || []).length ? ` <span class="w" title="${esc(a.warnings.join('；'))}">⚠ ${esc(a.warnings[0])}</span>` : '';
+      return `<span class="chip" data-att="${esc(a.id)}">${esc(a.name)} · ${bytes(a.size)}${a.pages ? ` · ${a.pages} 页` : ''}${warn}<button class="x" type="button" data-rm="${i}" aria-label="移除">×</button></span>`;
+    })
+    .join('');
+}
+
+export function estimateHTML(est, { workflow, anonymous, plans, customLabel }) {
+  if (!est) return '';
+  const opts = (est.options || []).filter((o) => o.workflow === workflow);
+  if (!opts.length) return '';
+  let h = '<table><thead><tr><th>档位</th><th class="num">上桌</th><th class="num">预计</th><th class="num">最多约</th><th></th></tr></thead><tbody>';
+  for (const o of opts) {
+    const label = o.plan === 'custom' ? customLabel : plans[o.plan] || o.label;
+    if (!o.available) {
+      h += `<tr><th>${esc(label)}</th><td colspan="4">${esc(o.reason || '不可用')}</td></tr>`;
+      continue;
+    }
+    const absent = o.absent ? `，缺席 ${o.absent}` : '';
+    const over = o.over_threshold ? `<span class="over">超过门槛 ${money(est.confirm_threshold_usd)}，提交后先确认</span>` : '';
+    h += `<tr class="${o.selected ? 'sel' : ''}${o.over_threshold ? ' over-row' : ''}" data-plan="${esc(o.plan)}"><th>${esc(label)}${o.selected ? ' ✓' : ''}</th><td class="num">${o.members + 1} 人${esc(absent)}</td><td class="num${o.over_threshold ? ' over' : ''}">${money(o.estimate_usd)}</td><td class="num">${money(o.max_usd)}</td><td>${over}</td></tr>`;
+  }
+  h += '</tbody></table>';
+  const sel = opts.find((o) => o.selected && o.steps);
+  if (sel) {
+    h += `<details><summary>步骤明细</summary>${sel.steps.map((s) => `${esc(STEP_LABELS[s.step] || s.step)} ${money(s.cost_usd)}`).join(' · ')}</details>`;
+    if (!anonymous && sel.lineup) h += `<div>上桌：${esc([...sel.lineup.members, sel.lineup.coordinator].filter(Boolean).join('、'))}${sel.lineup.absent.length ? `；缺席：${esc(sel.lineup.absent.join('、'))}` : ''}</div>`;
+    if (anonymous) h += '<div>匿名已开启：不显示上桌名单。</div>';
   }
   return h;
 }

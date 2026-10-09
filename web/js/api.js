@@ -31,6 +31,28 @@ function errorText(data, status) {
   return `请求失败（${status}）`;
 }
 
+export const estimate = (body) => api('/api/estimate', { method: 'POST', body });
+export const filePreview = (sid, fid) => api(`/api/sessions/${sid}/files/${fid}/preview`);
+export const fileUrl = (sid, fid, inline = false) =>
+  `/api/sessions/${sid}/files/${fid}${inline ? '?inline=1' : ''}`;
+
+// 上传一个文件：请求体是原始字节，文件名放在查询参数里。
+export async function upload(file) {
+  const r = await fetch(`/api/uploads?name=${encodeURIComponent(file.name)}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/octet-stream' },
+    body: file,
+  });
+  let data = null;
+  try {
+    data = await r.json();
+  } catch {
+    data = null;
+  }
+  if (!r.ok) throw new ApiError(errorText(data, r.status), r.status);
+  return data;
+}
+
 export const getStatus = () => api('/api/status');
 export const getBudget = () => api('/api/budget');
 export const listSessions = () => api('/api/sessions?limit=50');

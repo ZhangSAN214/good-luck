@@ -47,9 +47,15 @@
           </label>
         </div>
         <div class="row">
-          <textarea id="ask" placeholder="输入题目，Ctrl+Enter 提交" aria-label="题目"></textarea>
-          <button class="btn primary" type="submit" id="submit">提交</button>
+          <textarea id="ask" placeholder="输入题目，Ctrl+Enter 提交；可以把文件拖到这里" aria-label="题目"></textarea>
+          <div class="side">
+            <button class="btn" type="button" id="attach" title="上传图片、PDF、Word、文本或音频">添加附件</button>
+            <button class="btn primary" type="submit" id="submit">提交</button>
+          </div>
+          <input type="file" id="file" multiple hidden>
         </div>
+        <div class="files" id="attachments" hidden></div>
+        <div class="estimate" id="estimate" hidden aria-label="提交前预估"></div>
         <div class="formerr" id="formerr" hidden></div>
       </form>
     </section>
@@ -58,7 +64,9 @@
       <div class="phd"><h2>统筹面板</h2><span id="pstate">空闲</span></div>
       <div class="tabs" role="tablist" id="tabs">
         <button role="tab" data-t="flow" aria-selected="true">流程</button>
+        <button role="tab" data-t="split" aria-selected="false">分工</button>
         <button role="tab" data-t="reviews" aria-selected="false">互评</button>
+        <button role="tab" data-t="tools" aria-selected="false">工具</button>
         <button role="tab" data-t="contrib" aria-selected="false">贡献</button>
         <button role="tab" data-t="usage" aria-selected="false">用量</button>
         <button role="tab" data-t="channels" aria-selected="false">渠道</button>
@@ -69,6 +77,7 @@
     </aside>
   </div>
 </div>
+<dialog class="viewer" id="viewer" aria-label="文件预览"></dialog>
 <script type="module" src="js/app.js"></script>
 </body>
 </html>

@@ -74,6 +74,9 @@ svg.flows{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;o
 .seat.lazy .av{box-shadow:0 0 0 2px var(--bad)}
 .seat.lazy .rl{color:var(--bad)}
 .stage.many .seat{width:15%}
+.stage.dense .seat{width:12%}
+.stage.dense .seat .nm{font-size:10px}
+.stage.dense .seat .rl{display:none}
 .stage.many .seat .nm{font-size:11px}
 .stage.many .seat .rl{font-size:9px;max-width:80px}
 .seat.inner .av{border-radius:30%;background:var(--c-coord)}
@@ -171,6 +174,43 @@ details.more div{white-space:pre-wrap;margin-top:4px;color:var(--ink)}
 .pick.off{opacity:.45}
 .formerr{color:var(--bad);font-size:12px}
 
+.composer .side{display:flex;flex-direction:column;gap:6px}
+.composer.drag{outline:2px dashed var(--brass);outline-offset:-4px}
+.files{display:flex;flex-wrap:wrap;gap:6px}
+.chip{display:inline-flex;gap:6px;align-items:center;border:1px solid var(--line);border-radius:999px;padding:1px 4px 1px 10px;font-size:12px;background:var(--surface-2);max-width:100%}
+.chip.bad{border-color:var(--bad);color:var(--bad)}
+.chip .x{border:0;background:none;color:var(--muted);padding:0 6px;font-size:14px;line-height:1}
+.chip .w{color:var(--brass-ink)}
+.estimate{border:1px solid var(--line);border-radius:8px;background:var(--surface-2);padding:6px 10px;font-size:12px;color:var(--muted)}
+.estimate table{border-collapse:collapse;width:100%}
+.estimate td,.estimate th{padding:2px 8px 2px 0;text-align:left;font-weight:400;white-space:nowrap}
+.estimate td.num{font-family:var(--f-mono);font-variant-numeric:tabular-nums;text-align:right}
+.estimate tr.sel td,.estimate tr.sel th{color:var(--ink);font-weight:500}
+.estimate .over{color:var(--bad)}
+.estimate details summary{cursor:pointer}
+
+/* tools / files in the feed */
+.tool{margin-left:44px;border:1px solid var(--line);border-radius:8px;background:var(--surface-2);font-size:12px;padding:4px 10px;animation:in .25s ease-out;max-width:720px}
+.tool summary{cursor:pointer;display:flex;gap:8px;align-items:baseline;flex-wrap:wrap}
+.tool summary .tn{font-family:var(--f-mono);color:var(--brass-ink)}
+.tool pre{margin:4px 0;padding:6px 8px;background:var(--bg);border:1px solid var(--line);border-radius:6px;white-space:pre-wrap;overflow-wrap:anywhere;font-family:var(--f-mono);font-size:11px;max-height:240px;overflow:auto}
+.tool .k{color:var(--muted);margin-top:4px}
+.tool .src a,.bubble a.cite{color:var(--brass-ink)}
+.filebar{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+.fchip{display:inline-flex;gap:6px;align-items:center;border:1px solid var(--brass-line);border-radius:8px;background:var(--brass-bg);padding:2px 4px 2px 8px;font-size:12px}
+.fchip button,.fchip a{border:1px solid var(--line);background:var(--surface);border-radius:6px;padding:0 7px;font-size:11px;color:var(--ink);text-decoration:none}
+.fchip .old{color:var(--muted)}
+.thumb{display:block;max-width:240px;max-height:180px;border:1px solid var(--line);border-radius:6px;margin-top:6px;cursor:pointer}
+dialog.viewer{border:1px solid var(--line);border-radius:12px;background:var(--surface);color:var(--ink);width:min(880px,94vw);max-height:86vh;padding:0}
+dialog.viewer::backdrop{background:rgba(0,0,0,.5)}
+.viewer .vh{display:flex;gap:8px;align-items:center;padding:10px 14px;border-bottom:1px solid var(--line)}
+.viewer .vh b{margin-right:auto;overflow-wrap:anywhere}
+.viewer .vb{padding:12px 14px;overflow:auto;max-height:70vh}
+.viewer pre{margin:0;white-space:pre-wrap;overflow-wrap:anywhere;font-family:var(--f-mono);font-size:12px}
+.viewer table{border-collapse:collapse;font-size:12px}
+.viewer td,.viewer th{border:1px solid var(--line);padding:2px 6px;text-align:left}
+.viewer img{max-width:100%}
+
 /* ---------- inner panel ---------- */
 .panel{min-width:0;min-height:0;display:flex;flex-direction:column;background:var(--inner);color:var(--inner-ink);border-radius:12px;overflow:hidden}
 .phd{padding:12px 14px 0;display:flex;justify-content:space-between;align-items:baseline;gap:8px}
@@ -215,6 +255,8 @@ details.more div{white-space:pre-wrap;margin-top:4px;color:var(--ink)}
 .ro p{margin:0;font-size:12px;color:var(--inner-ink)}
 .ro .calls{grid-column:1/-1;font-family:var(--f-mono);font-size:11px;color:var(--inner-muted)}
 .ro .calls div{overflow-wrap:anywhere}
+.panel .fchip{background:var(--inner-2);border-color:var(--inner-line)}
+.panel .fchip button,.panel .fchip a{background:var(--inner);border-color:var(--inner-line);color:var(--inner-ink)}
 .panel .btn{background:var(--inner-2);border-color:var(--inner-line);color:var(--inner-ink)}
 
 @keyframes in{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
