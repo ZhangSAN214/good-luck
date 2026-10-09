@@ -29,6 +29,7 @@ class SearchUnavailable(RuntimeError):
 @dataclass(frozen=True)
 class SearchCall:
     provider: str
+    relayed: bool  # 读取网页时：正文经模型转述
     cost_usd: float
     cost_source: str  # reported / estimated
     latency_s: float
@@ -51,8 +52,9 @@ class SearchService:
         keys: KeyRing,
         timeout_s: float,
         render: Callable[[str], list[dict[str, str]]] | None = None,
+        render_fetch: Callable[[str], list[dict[str, str]]] | None = None,
     ) -> SearchService:
-        """render：搜索词 → 发给搜索用模型的消息（只有借助模型搜索的服务需要）。"""
+        """render / render_fetch：搜索词 / 网址 → 发给借助模型搜索、读取的服务的消息。"""
         providers: dict[str, SearchProvider] = {}
         unavailable: dict[str, str] = {}
         for name, spec in models.search_providers.items():
@@ -66,6 +68,8 @@ class SearchService:
             provider = search_adapter(spec.adapter)(name, spec, key, timeout_s)
             if render is not None and hasattr(provider, "render"):
                 provider.render = render
+            if render_fetch is not None and hasattr(provider, "render_fetch"):
+                provider.render_fetch = render_fetch
             providers[name] = provider
         return cls(providers, unavailable)
 
@@ -106,7 +110,8 @@ class SearchService:
                 cost, source = price.per_search, "estimated"
             else:
                 cost, source = price.per_fetch * len(args[0]), "estimated"
-            return result, SearchCall(name, cost, source, latency, tuple(attempts))
+            relayed = op == "fetch" and provider.relayed_fetch
+            return result, SearchCall(name, relayed, cost, source, latency, tuple(attempts))
         raise SearchUnavailable(
             "所有搜索服务都不可用" if attempts else self.reason(), tuple(attempts)
         )

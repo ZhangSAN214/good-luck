@@ -1,6 +1,6 @@
 # CLAUDE.md — Roundtable（圆桌）
 
-多个 AI 协作完成作业。长期目标见 `docs/REQUIREMENTS_v3.md`；当前范围以本文件和 `docs/PLAN.md` 为准（v1 已完成，v2 改版阶段 11–17 已完成，接下来 18 前端改版、19 媒体生成（待确认）、20 收尾）。
+多个 AI 协作完成作业。长期目标见 `docs/REQUIREMENTS_v3.md`；当前范围以本文件和 `docs/PLAN.md` 为准（v1 已完成，v2 改版阶段 11–17 已完成，接下来 18 前端改版、19 媒体生成（方案已确认）、20 收尾）。
 界面样板：`docs/mockup.html`（v1 只实现其中文字圆桌相关部分）。
 按 `docs/PLAN.md` 的阶段推进，不要跳阶段，不要提前实现"后续扩展"里的功能。
 
@@ -150,7 +150,7 @@
 - **转交**：成员生成的文件（最新版本）以 `<files>` 块附在他的答案 / 成果后面交给其他成员与统筹（`TableContext.files_note()`，文本类附上前 `share_text_chars` 字，其他只列名称、类型、大小）。**生成的图片**（png / jpg / gif / webp）对带 `vision` 标签的模型作为随附图片发送（`messages_for()` → `_attach_generated_images()`，标签上注明 `attached="随附图片 N"`，每次调用最多 `files.share_images` 张、每张不超过 `share_image_mb`），其他模型只看到名称；这与附件一样只是呈现方式的差别。
 - **中文字体**：`setup_sandbox.py` 下载固定版本的 Noto Sans SC（校验 sha256）到运行时目录 `fonts/cjk.otf`；`runner.mjs` 放到 `/usr/share/fonts/roundtable/cjk.otf`，代码用到绘图时登记为 matplotlib 默认字体（Pillow 可直接用该路径）；docker 镜像中是同一文件与路径（`MATPLOTLIBRC`）。`--check` 在缺字体时报错，`start.bat` 会补装。
 - 记录：`tool_calls`（迁移 7：步骤、代号、轮次、工具、输入、输出、状态 ok / error / timeout / rejected / limit、耗时、提出申请的模型调用）与 `files`（迁移 7）。每轮工具调用都是一次照常计费的模型调用；预估中能用工具的步骤按 `estimate.tool_rounds` 多估调用次数，有历史后改用实际次数。事件 `tool_started` / `tool_finished`（只含代号）。
-- **联网搜索**（`core/search/`，阶段 16）：搜索服务配置在 `models.yaml` 的 `search_providers`（`adapter`、`base_url`、`key_env`、`price.per_search` / `per_fetch`、`params`），按顺序使用，没有 key 的跳过，限流 / 额度 / 网络错误换下一家（`SearchService`，错误分类与模型渠道相同）；适配器用 `@register_search` 注册。**默认是 OpenRouter 自带的联网搜索**（`openrouter`，共用 `OPENROUTER_API_KEY`）：用 `params.model` 指定的便宜模型发一次 `/chat/completions` 并打开搜索（`request: plugin` 为 `plugins: [{id: web}]`，`server_tool` 为 `openrouter:web_search`），只取响应中的 `url_citation` 注释作为结果，费用以 `usage.cost` 为准（搜索引擎按次收费 + 少量 token），发给该模型的指令在 `prompts/web_search`；它不支持读取网页正文（`supports_fetch = False`）。**备选 Tavily**（填了 `TAVILY_API_KEY` 才启用；`/search`、`/extract`，key 在 Authorization 头，432 / 433 视为额度用完）负责 `fetch`；没有支持读取的服务时 `fetch` 工具关闭。工具 `search`（搜索词）与 `fetch`（`source="S2"`，**只能读本人搜索结果里出现过的来源**）；结果放在 `<search_result id url>` 内（结束标签与属性中的引号、尖括号被处理），来源编号按成员在本桌内连续（S1、S2…，存在 `tool_calls.input.sources`）。**来源标注检查**（`TableContext.citation_problems()`，并入防偷懒检查）：引用了没检索到的编号，或本步骤搜索过却一条都没标注 → 打回重做（`tools.search.require_citations`）。成员检索到的来源以 `<sources>` 块随答案交给评审者与统筹（`member_notes()` = 文件 + 来源）。每次搜索 / 读取记一次 `calls`（`role="tool"`、渠道为搜索服务名、费用按服务返回或配置单价），因而进入月 / 日预算与按渠道花费；预估中能搜索的步骤每个座位按 `estimate.searches` / `fetches` 次数加上搜索费用。题目和搜索词会发给搜索服务。
+- **联网搜索**（`core/search/`，阶段 16）：搜索服务配置在 `models.yaml` 的 `search_providers`（`adapter`、`base_url`、`key_env`、`price.per_search` / `per_fetch`、`params`），按顺序使用，没有 key 的跳过，限流 / 额度 / 网络错误换下一家（`SearchService`，错误分类与模型渠道相同）；适配器用 `@register_search` 注册。**默认是 OpenRouter 自带的联网搜索**（`openrouter`，共用 `OPENROUTER_API_KEY`）：用 `params.model` 指定的便宜模型发一次 `/chat/completions` 并打开搜索（`request: plugin` 为 `plugins: [{id: web}]`，`server_tool` 为 `openrouter:web_search`），只取响应中的 `url_citation` 注释作为结果，费用以 `usage.cost` 为准（搜索引擎按次收费 + 少量 token），发给该模型的指令在 `prompts/web_search`。**读取网页（fetch）默认也用 OpenRouter**：同一模型调用 `openrouter:web_fetch` 服务端工具（`params.fetch_tool`，默认只写类型），取回的正文只交给模型，由模型按 `prompts/web_fetch` 原样输出（失败输出 `FETCH_FAILED`）；注释里有该网址更完整的正文时优先用注释；正文经过转述，结果标注 `via="model"`（`relayed_fetch`），`tools/v4` 提醒成员谨慎引用。`params.fetch: false` 可关闭。**备选 Tavily**（填了 `TAVILY_API_KEY` 才启用；`/search`、`/extract`，key 在 Authorization 头，432 / 433 视为额度用完）直接取回正文，OpenRouter 出错时接替；没有支持读取的服务时 `fetch` 工具关闭。工具 `search`（搜索词）与 `fetch`（`source="S2"`，**只能读本人搜索结果里出现过的来源**）；结果放在 `<search_result id url>` 内（结束标签与属性中的引号、尖括号被处理），来源编号按成员在本桌内连续（S1、S2…，存在 `tool_calls.input.sources`）。**来源标注检查**（`TableContext.citation_problems()`，并入防偷懒检查）：引用了没检索到的编号，或本步骤搜索过却一条都没标注 → 打回重做（`tools.search.require_citations`）。成员检索到的来源以 `<sources>` 块随答案交给评审者与统筹（`member_notes()` = 文件 + 来源）。每次搜索 / 读取记一次 `calls`（`role="tool"`、渠道为搜索服务名、费用按服务返回或配置单价），因而进入月 / 日预算与按渠道花费；预估中能搜索的步骤每个座位按 `estimate.searches` / `fetches` 次数加上搜索费用。题目和搜索词会发给搜索服务。
 - 对外：会话详情的 `files`、`tool_calls`（匿名揭晓前经身份遮蔽）；`GET /api/sessions/{id}/files/{fid}`（始终 `attachment` 下载 + `nosniff` + `CSP sandbox`，只有 png / jpg / gif / webp 可以 `?inline=1` 显示）与 `…/preview`（`core/preview.py`：文本 / 代码 / Markdown / CSV / xlsx / docx / pdf；HTML 与 SVG 只作为源代码）；`/api/status` 的 `tools`（各步骤工具与不可用原因）。命令行 `show --details` 显示工具调用，`roundtable files <id>` 保存文件。
 
 ---
@@ -206,7 +206,7 @@
 ```
 config/        models.yaml  roundtable.yaml  personas.yaml  routing.yaml
 prompts/       planner/ answer/ answer_quick/ review/ revise/ synthesize/ redo/
-               attachments/ describe_image/ transcribe/ tools/（v3） image_gen/ web_search/
+               attachments/ describe_image/ transcribe/ tools/（v4） image_gen/ web_search/ web_fetch/
                decompose/ volunteer/ assign/ work/ cross_review/ rework/ merge/  versions.lock
 src/roundtable/
   core/

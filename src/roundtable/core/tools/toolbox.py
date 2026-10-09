@@ -150,7 +150,7 @@ class ToolBox:
         if not self.search.available:
             out["search"] = out["fetch"] = self.search.reason()
         elif not self.search.can_fetch:
-            out["fetch"] = "当前的搜索服务不支持读取网页正文（需要 Tavily 等）"
+            out["fetch"] = "当前的搜索服务都不支持读取网页正文"
         return out
 
     # --- 工作目录 ----------------------------------------------------------------
@@ -313,7 +313,8 @@ class ToolBox:
         if page is None or not page.ok or not page.text.strip():
             return ToolResult("fetch", "error", "这个网页读取不到正文。"), inputs
         sid, url = match["id"], _attr(match["url"])
-        head = f'<search_result id="{sid}" url="{url}" kind="page">'
+        via = ' via="model"' if call.relayed else ""
+        head = f'<search_result id="{sid}" url="{url}" kind="page"{via}>'
         text = f"{head}\n{_neutral(page.text)}\n</search_result>"
         return ToolResult("fetch", "ok", text), inputs
 

@@ -64,6 +64,7 @@ def test_repo_config_loads_with_defaults():
         "tools",
         "image_gen",
         "web_search",
+        "web_fetch",
     }
     assert rt.collab_pipeline == [
         "decompose",

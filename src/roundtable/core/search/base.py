@@ -42,6 +42,7 @@ class FetchResponse:
 
 class SearchProvider(ABC):
     supports_fetch = True  # 能否读取网页正文（fetch 工具）
+    relayed_fetch = False  # 正文是否经模型转述（而不是直接取回）
 
     def __init__(self, name: str, spec: SearchProviderSpec) -> None:
         self.name = name

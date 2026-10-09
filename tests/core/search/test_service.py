@@ -51,7 +51,9 @@ async def test_fetch_skips_providers_without_fetch():
 
     no_fetch = OpenRouterSearch(
         "or",
-        SearchProviderSpec(adapter="openrouter", base_url="https://x.test", params={"model": "m"}),
+        SearchProviderSpec(
+            adapter="openrouter", base_url="https://x.test", params={"model": "m", "fetch": False}
+        ),
         None,
         10,
     )

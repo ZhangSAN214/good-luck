@@ -110,14 +110,17 @@ async def test_errors_and_no_fetch():
     with pytest.raises(ProviderError) as info:
         await make(handler).search("q", 3)
     assert info.value.kind == ErrorKind.QUOTA and KEY not in str(info.value)
-    assert make(handler).supports_fetch is False
+    assert make(handler).supports_fetch is True
+    assert make(handler, fetch=False).supports_fetch is False
 
 
 async def test_default_is_openrouter_and_tavily_optional():
     models = load_config().models
     assert list(models.search_providers)[0] == "openrouter"
     only_or = SearchService.build(models, KeyRing({"OPENROUTER_API_KEY": Secret(KEY)}), 10)
-    assert list(only_or.providers) == ["openrouter"] and not only_or.can_fetch
+    assert (
+        list(only_or.providers) == ["openrouter"] and only_or.can_fetch
+    )  # 读取也默认用 OpenRouter
     both = SearchService.build(
         models,
         KeyRing({"OPENROUTER_API_KEY": Secret(KEY), "TAVILY_API_KEY": Secret("tvly-" + "x" * 30)}),
@@ -132,3 +135,71 @@ def test_model_required():
     bad = SearchProviderSpec(adapter="openrouter", base_url="https://x.test", params={})
     with pytest.raises(ValueError, match="params.model"):
         OpenRouterSearch("openrouter", bad, None, 10)
+
+
+async def test_fetch_via_web_fetch_tool():
+    seen = []
+    page = "这是网页的正文内容，" * 20
+
+    def handler(request):
+        seen.append(json.loads(request.content))
+        return httpx.Response(
+            200,
+            json={
+                "choices": [{"message": {"role": "assistant", "content": page}}],
+                "usage": {"cost": 0.0012},
+            },
+        )
+
+    provider = make(handler)
+    provider.render_fetch = lambda u: [{"role": "user", "content": f"<url>{u}</url>"}]
+    out = await provider.fetch(["https://a.test/1"], 50)
+    body = seen[0]
+    assert body["tools"] == [{"type": "openrouter:web_fetch"}] and body["model"] == "vendor/cheap"
+    assert body["messages"] == [{"role": "user", "content": "<url>https://a.test/1</url>"}]
+    assert "plugins" not in body and body["max_tokens"] == 50 // 2 + 200
+    assert out.pages[0].ok and out.pages[0].text == page[:50]
+    assert out.cost_usd == pytest.approx(0.0012) and provider.relayed_fetch
+
+
+@pytest.mark.parametrize("content", ["FETCH_FAILED", "", "短"])
+async def test_fetch_failure_marker(content):
+    def handler(request):
+        return httpx.Response(200, json={"choices": [{"message": {"content": content}}]})
+
+    out = await make(handler).fetch(["https://a.test/1"], 1000)
+    assert not out.pages[0].ok and out.pages[0].text == "" and out.cost_usd is None
+
+
+async def test_fetch_prefers_direct_citation_content():
+    longer = "原文" * 100
+
+    def handler(request):
+        return httpx.Response(
+            200,
+            json={
+                "choices": [
+                    {
+                        "message": {
+                            "content": "模型转述的较短内容，只有一句话而已。",
+                            "annotations": [cite("https://a.test/1/", "T", longer)],
+                        }
+                    }
+                ]
+            },
+        )
+
+    out = await make(handler).fetch(["https://a.test/1"], 10000)
+    assert out.pages[0].text == longer
+
+
+async def test_fetch_tool_object_configurable():
+    seen = {}
+
+    def handler(request):
+        seen["body"] = json.loads(request.content)
+        return httpx.Response(200, json={"choices": [{"message": {"content": "x" * 40}}]})
+
+    tool = {"type": "openrouter:web_fetch", "parameters": {"engine": "openrouter"}}
+    await make(handler, fetch_tool=tool).fetch(["https://a.test/1"], 1000)
+    assert seen["body"]["tools"] == [tool]

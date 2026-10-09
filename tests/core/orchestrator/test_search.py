@@ -204,3 +204,26 @@ async def test_search_without_fetch_capability():
     assert r.status == "completed"
     guide = answer_calls(env)[0].messages[0].content
     assert "本步骤可用的工具：write_file、search。" in guide
+
+
+async def test_relayed_fetch_is_marked():
+    env = Env(confirm_threshold_usd=100.0)
+    search = with_search(env)
+    search.relayed_fetch = True  # 正文经模型转述（如 OpenRouter 的网页读取）
+
+    def plan(model, done, messages):
+        if done == 0:
+            return '<tool_call name="search">极值</tool_call>'
+        if done == 1:
+            return '<tool_call name="fetch" source="S1"></tool_call>'
+        return FINAL + " [S1]"
+
+    member_script(env, plan)
+    r = await env.orc.start(Question(MEDIUM), CUSTOM, seed=10)
+    while r.status == "paused" and r.checkpoint.kind == "overrun":
+        r = await env.orc.respond(r.session_id, "continue")
+    assert r.status == "completed"
+    pages = [
+        last_user(c.messages) for c in answer_calls(env) if 'kind="page"' in last_user(c.messages)
+    ]
+    assert pages and all('kind="page" via="model"' in p for p in pages)

@@ -43,9 +43,10 @@ prompts:
   attachments: v1        # 题目附件（文字版 / 随附图片）
   describe_image: v1     # 图片文字版
   transcribe: v1         # 音频转写
-  tools: v3              # 工具说明与工具结果（v2：联网搜索与来源标注；v3：图表中文）
+  tools: v4              # 工具说明与工具结果（v2：联网搜索；v3：图表中文；v4：转述的网页正文）
   image_gen: v1          # 图像生成工具
   web_search: v1         # 借助聚合平台联网搜索时发给搜索用模型的指令
+  web_fetch: v1          # 借助聚合平台读取网页时发给读取用模型的指令
 
 # 每个步骤对所有模型统一使用的参数（中立：同一步骤参数相同；模型自身必需的参数在 models.yaml）
 step_params:

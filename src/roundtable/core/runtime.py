@@ -75,8 +75,14 @@ class Runtime:
                     rendered = prompts.render("web_search", version, query=query)
                     return [{"role": m.role, "content": m.content} for m in rendered.messages]
 
+                fetch_version = config.roundtable.prompts["web_fetch"]
+
+                def render_fetch(url: str) -> list[dict[str, str]]:
+                    rendered = prompts.render("web_fetch", fetch_version, url=url)
+                    return [{"role": m.role, "content": m.content} for m in rendered.messages]
+
                 search = SearchService.build(
-                    config.models, keys, config.roundtable.request.timeout_s, render
+                    config.models, keys, config.roundtable.request.timeout_s, render, render_fetch
                 )
         router = ChannelRouter(
             config.models,
