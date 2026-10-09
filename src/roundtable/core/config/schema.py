@@ -94,10 +94,32 @@ class ModelSpec(_Strict):
         return {**self.params, **route.params}
 
 
+class SearchPrice(_Strict):
+    per_search: float = Field(default=0.0, ge=0)  # 美元 / 次搜索
+    per_fetch: float = Field(default=0.0, ge=0)  # 美元 / 读取一个网页
+
+
+class SearchProviderSpec(_Strict):
+    """联网搜索服务（成员的 search / fetch 工具使用）。按 search_providers 的顺序优先使用。"""
+
+    adapter: str
+    base_url: str
+    key_env: str | None = None
+    price: SearchPrice = SearchPrice()
+    params: dict[str, Any] = Field(default_factory=dict)  # 附加到每次搜索请求的参数
+    enabled: bool = True
+
+    @field_validator("key_env")
+    @classmethod
+    def _env_name(cls, v: str | None) -> str | None:
+        return ChannelSpec._env_name(v)
+
+
 class ModelsConfig(_Strict):
     tag_vocabulary: list[str]
     channels: dict[str, ChannelSpec]
     models: list[ModelSpec]
+    search_providers: dict[str, SearchProviderSpec] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def _cross_check(self) -> ModelsConfig:
@@ -208,7 +230,7 @@ class UploadRules(_Strict):
     storage_dir: str = "data/uploads"
 
 
-ToolName = Literal["python", "write_file", "generate_image"]
+ToolName = Literal["python", "write_file", "generate_image", "search", "fetch"]
 
 
 class PythonTool(_Strict):
@@ -270,6 +292,18 @@ class ImageTool(_Strict):
     max_tokens: int = Field(default=4000, gt=0)
 
 
+class SearchTool(_Strict):
+    """联网搜索：每步最多搜索几次、读取几个网页；结果条数与网页正文长度。"""
+
+    max_per_step: int = Field(default=3, ge=0)
+    max_fetch_per_step: int = Field(default=3, ge=0)
+    max_results: int = Field(default=5, ge=1, le=20)
+    fetch_max_chars: int = Field(default=8000, ge=500)
+    query_max_chars: int = Field(default=300, ge=20)
+    # 用过搜索的成员：引用了没检索到的来源，或一条都没引用 → 打回重做（防偷懒机制）
+    require_citations: bool = True
+
+
 class ToolsConfig(_Strict):
     enabled: bool = True
     max_rounds: int = Field(default=6, ge=1)  # 每次作答最多几轮工具调用
@@ -278,6 +312,7 @@ class ToolsConfig(_Strict):
     python: PythonTool = PythonTool()
     files: FileRules = FileRules()
     image: ImageTool = ImageTool()
+    search: SearchTool = SearchTool()
 
 
 class RoundtableConfig(_Strict):
@@ -453,6 +488,9 @@ class EstimateParams(_Strict):
     history_sessions: int = Field(default=30, ge=1)
     # 能用工具的步骤，每个座位平均多几次模型调用（工具轮次）；有历史记录后改用实际次数
     tool_rounds: float = Field(default=0.5, ge=0)
+    # 能搜索的步骤，每个座位平均搜索几次、读取几个网页（按搜索服务单价计入预估）
+    searches: float = Field(default=1.0, ge=0)
+    fetches: float = Field(default=0.5, ge=0)
     # 每张图片按多少输入 token 估算（发原图的成员）
     image_tokens: int = Field(default=1500, ge=0)
     # 本桌实际花费超过"预估 × 此倍数"时暂停询问；None 关闭

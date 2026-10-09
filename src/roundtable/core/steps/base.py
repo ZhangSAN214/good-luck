@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 import random
+import re
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Protocol, TypeVar
@@ -120,6 +121,36 @@ class TableContext:
         template = self.prompts.get("attachments", self.prompt_version("attachments"))
         vision = "vision" in self.models_by_id[model_id].tags
         return attach_messages(prompt.messages, self.attachments, template, vision=vision)
+
+    def citation_problems(self, step: str, code: str | None, text: str) -> list[str]:
+        """来源标注检查：引用了没有检索到的来源；或本步骤用过搜索却一条都没标注。"""
+        if self.toolbox is None or not self.config.roundtable.tools.search.require_citations:
+            return []
+        known = {s["id"] for s in self.toolbox.sources(code)}
+        cited = {f"S{n}" for n in re.findall(r"\[S(\d+)\]", text)}
+        found = []
+        unknown = sorted(cited - known, key=lambda s: int(s[1:]))
+        if unknown:
+            found.append(f"引用了没有检索到的来源 {'、'.join(f'[{s}]' for s in unknown)}")
+        if self.toolbox.searched(step, code) and not cited & known:
+            found.append("用过联网搜索，但答案中没有用 [S1] 这样的编号标注任何来源")
+        return found
+
+    def member_notes(self, code: str | None) -> str:
+        """附在某位成员的答案 / 成果后面的材料：生成的文件与检索到的来源。"""
+        return self.files_note(code) + self.sources_note(code)
+
+    def sources_note(self, code: str | None) -> str:
+        if self.toolbox is None:
+            return ""
+        sources = self.toolbox.sources(code)
+        if not sources:
+            return ""
+        lines = []
+        for s in sources:
+            title = neutralize(s["title"], ("source", "sources"))
+            lines.append(f'<source id="{s["id"]}" url="{s["url"]}">{title}</source>')
+        return "\n\n<sources>\n" + "\n".join(lines) + "\n</sources>"
 
     def files_note(self, code: str | None) -> str:
         """某位成员生成的文件（最新版本），附在他的答案 / 成果后面交给其他成员与统筹。"""

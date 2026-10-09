@@ -37,7 +37,7 @@
 - **执行前预估花费**，并给出各档位的预估；超过单题确认门槛（默认 $0.30）先请用户确认（可改用其他档位）。
 - **每题记录**（`RoutingRecord`）：答案长度判断及来源（规则 / 模型 / 默认）、规划员花费、档位与阵容、缺席、预估与实际花费、是否升级及原因。
 - **匿名开关**（提问时选择，默认**关闭**）：关闭时界面、API、命令行全程显示真实模型名与每次调用的渠道，没有揭晓步骤；开启时组员显示为"组员甲 / 乙 / 丙…"，结束后由用户点"揭晓身份"。**发给模型的内容在两种情况下都只用代号、都做身份遮蔽**。
-- 输入可带附件（§2.8）；成员可以用**工具**（§2.9）运行代码、写文件、生成图片，产出代码、图表、Word / Excel / PPT / PDF 等文件。
+- 输入可带附件（§2.8）；成员可以用**工具**（§2.9）运行代码、写文件、生成图片、联网搜索，产出代码、图表、Word / Excel / PPT / PDF 等文件。
 - **不做**（见 PLAN.md "后续扩展"）：人设模式、记录官与会议记录、多轮群聊、语音合成、视频处理。（图片生成已作为成员的工具提供，见 §2.9。）
 
 ---
@@ -149,6 +149,7 @@
 - **图像生成**：由 `seat: false`（不上桌、不需要档位）、带 `image_gen` 标签的最便宜可用模型完成（OpenRouter 用 `modalities`，Gemini 返回 `inlineData`，`RawCompletion.images`）；描述经身份遮蔽后放进 `prompts/image_gen`；调用记为 `role="tool"`、代号为申请的成员，照常计费。
 - **转交**：成员生成的文件（最新版本）以 `<files>` 块附在他的答案 / 成果后面交给其他成员与统筹（`TableContext.files_note()`，文本类附上前 `share_text_chars` 字，其他只列名称、类型、大小）。
 - 记录：`tool_calls`（迁移 7：步骤、代号、轮次、工具、输入、输出、状态 ok / error / timeout / rejected / limit、耗时、提出申请的模型调用）与 `files`（迁移 7）。每轮工具调用都是一次照常计费的模型调用；预估中能用工具的步骤按 `estimate.tool_rounds` 多估调用次数，有历史后改用实际次数。事件 `tool_started` / `tool_finished`（只含代号）。
+- **联网搜索**（`core/search/`，阶段 16）：搜索服务配置在 `models.yaml` 的 `search_providers`（`adapter`、`base_url`、`key_env`、`price.per_search` / `per_fetch`、`params`），按顺序使用，没有 key 的跳过，限流 / 额度 / 网络错误换下一家（`SearchService`，错误分类与模型渠道相同）；适配器用 `@register_search` 注册，首家为 Tavily（`/search`、`/extract`，key 在 Authorization 头，432 / 433 视为额度用完）。工具 `search`（搜索词）与 `fetch`（`source="S2"`，**只能读本人搜索结果里出现过的来源**）；结果放在 `<search_result id url>` 内（结束标签与属性中的引号、尖括号被处理），来源编号按成员在本桌内连续（S1、S2…，存在 `tool_calls.input.sources`）。**来源标注检查**（`TableContext.citation_problems()`，并入防偷懒检查）：引用了没检索到的编号，或本步骤搜索过却一条都没标注 → 打回重做（`tools.search.require_citations`）。成员检索到的来源以 `<sources>` 块随答案交给评审者与统筹（`member_notes()` = 文件 + 来源）。每次搜索 / 读取记一次 `calls`（`role="tool"`、渠道为搜索服务名、费用按服务返回或配置单价），因而进入月 / 日预算与按渠道花费；预估中能搜索的步骤每个座位按 `estimate.searches` / `fetches` 次数加上搜索费用。题目和搜索词会发给搜索服务。
 - 对外：会话详情的 `files`、`tool_calls`（匿名揭晓前经身份遮蔽）；`GET /api/sessions/{id}/files/{fid}`（始终 `attachment` 下载 + `nosniff` + `CSP sandbox`，只有 png / jpg / gif / webp 可以 `?inline=1` 显示）与 `…/preview`（`core/preview.py`：文本 / 代码 / Markdown / CSV / xlsx / docx / pdf；HTML 与 SVG 只作为源代码）；`/api/status` 的 `tools`（各步骤工具与不可用原因）。命令行 `show --details` 显示工具调用，`roundtable files <id>` 保存文件。
 
 ---
@@ -183,9 +184,9 @@
 ---
 
 ## 5. 安全与密钥
-- API key **只能**放在项目根目录 `.env`（在 `.gitignore` 中），仓库只提交 `.env.example`。所有 key 都可选：`OPENROUTER_API_KEY`、`OPENAI_API_KEY`、`ANTHROPIC_API_KEY`、`GEMINI_API_KEY`、`XAI_API_KEY`、`DEEPSEEK_API_KEY`。
+- API key **只能**放在项目根目录 `.env`（在 `.gitignore` 中），仓库只提交 `.env.example`。所有 key 都可选：`OPENROUTER_API_KEY`、`OPENAI_API_KEY`、`ANTHROPIC_API_KEY`、`GEMINI_API_KEY`、`XAI_API_KEY`、`DEEPSEEK_API_KEY`、`TAVILY_API_KEY`（联网搜索）。
 - key 不得出现在代码、YAML、提示词、日志、异常信息、SQLite、测试快照、前端代码与 API 响应中。
-- 读入的 key 一律包成 `Secret`：`repr` / `str` / 格式化只显示 `***`，不可序列化；**只有适配器在组装请求头时调用 `reveal()`**（架构测试限定了允许的文件）。
+- 读入的 key 一律包成 `Secret`：`repr` / `str` / 格式化只显示 `***`，不可序列化；**只有适配器（模型渠道与搜索服务）在组装请求头时调用 `reveal()`**（架构测试限定了允许的文件）。
 - 外部返回的错误文本先脱敏、截断再放进异常；异常用 `from None` 切断原始异常链。
 - 每个 `Secret` 自动登记到进程级脱敏表，日志记录创建时统一脱敏（覆盖第三方库的 DEBUG 日志和回溯）。
 - 测试用的假 key 用字符串拼接生成，避免被仓库密钥扫描误报；提交前检查 diff。
@@ -204,7 +205,7 @@
 ```
 config/        models.yaml  roundtable.yaml  personas.yaml  routing.yaml
 prompts/       planner/ answer/ answer_quick/ review/ revise/ synthesize/ redo/
-               attachments/ describe_image/ transcribe/ tools/ image_gen/
+               attachments/ describe_image/ transcribe/ tools/（v2：含搜索） image_gen/
                decompose/ volunteer/ assign/ work/ cross_review/ rework/ merge/  versions.lock
 src/roundtable/
   core/
@@ -216,6 +217,7 @@ src/roundtable/
     storage/       SQLite 迁移、Repository、揭晓前的匿名视图
     attachments/   上传文件的识别、文字提取、存放、图片文字版 / 音频转写、发给模型时的呈现
     tools/         工具协议、沙箱（wasm / docker，runner.mjs）、工作目录与文件收集、ToolBox（执行与额度）
+    search/        联网搜索服务（注册、Tavily、按顺序切换的 SearchService）
     preview.py     成员生成的文件的预览
     budget/        用量统计（按渠道/模型）、预算守卫（每月 + 每日，UTC）
     cards.py       确认卡片的统一格式

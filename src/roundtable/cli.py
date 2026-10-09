@@ -70,7 +70,13 @@ KIND_NAMES = {
     "lazy": "敷衍",
     "dropped": "退出",
 }
-TOOL_NAMES = {"python": "运行代码", "write_file": "写文件", "generate_image": "生成图片"}
+TOOL_NAMES = {
+    "python": "运行代码",
+    "write_file": "写文件",
+    "generate_image": "生成图片",
+    "search": "联网搜索",
+    "fetch": "读取网页",
+}
 TOOL_STATUS = {
     "ok": "成功",
     "error": "出错",
@@ -432,6 +438,14 @@ class CLI:
                     self.p("  代码：\n" + _indent(scrub(c["input"]["code"])[:3000]))
                 elif c["input"].get("path"):
                     self.p(f"  文件：{c['input']['path']}")
+                elif c["tool"] == "search":
+                    self.p(f"  搜索：{scrub(c['input'].get('query', ''))}")
+                    for src in c["input"].get("sources", []):
+                        self.p(f"    [{src['id']}] {src['title']}  {src['url']}")
+                    continue
+                elif c["tool"] == "fetch" and c["input"].get("url"):
+                    self.p(f"  读取：[{c['input']['source']}] {c['input']['url']}")
+                    continue
                 if c["output"]:
                     self.p("  结果：\n" + _indent(scrub(c["output"])[:2000]))
         files = self.latest_files(sid)

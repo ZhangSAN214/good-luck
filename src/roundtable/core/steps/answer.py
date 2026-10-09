@@ -16,7 +16,7 @@ class AnswerStep:
         notes: list[str] = []
         redone: list[str] = []
 
-        def problems(text: str) -> list[str]:
+        def problems(text: str, code: str) -> list[str]:
             if not rule.enabled:
                 return []
             return text_problems(
@@ -24,7 +24,7 @@ class AnswerStep:
                 rule=rule,
                 question=ctx.question.text,
                 expected_tokens=ctx.expected_answer_tokens,
-            )
+            ) + ctx.citation_problems(self.name, code, text)
 
         async def work(code: str) -> None:
             prompt = ctx.render(self.name, code=ctx.label(code), question=ctx.question.text)
@@ -37,7 +37,7 @@ class AnswerStep:
                 ctx.drop(code, self.name, "调用失败" if out.completion is None else "回答为空")
                 return
             call_id = out.call_id
-            first = problems(text)
+            first = problems(text, code)
             if first:
                 final = first
                 if rule.redo:
@@ -54,7 +54,7 @@ class AnswerStep:
                     )
                     retry = again.completion.text.strip() if again.completion else ""
                     if retry:  # 重做调用失败时保留第一次的答案
-                        text, call_id, final = retry, again.call_id, problems(retry)
+                        text, call_id, final = retry, again.call_id, problems(retry, code)
                 status = "lazy" if final else "redone"
                 record_effort(
                     ctx,

@@ -15,6 +15,7 @@ from roundtable.core.config import AppConfig, load_config
 from roundtable.core.config.loader import DEFAULT_CONFIG_DIR
 from roundtable.core.prompts import PromptLibrary
 from roundtable.core.providers import ChannelRouter, KeyRing, Provider, build_providers
+from roundtable.core.search import SearchService
 from roundtable.core.steps import check_pipelines
 from roundtable.core.storage import Repository, connect
 from roundtable.core.tools import Sandbox, pick_sandbox
@@ -33,6 +34,7 @@ class Runtime:
     scrubber: IdentityScrubber
     budget: BudgetGuard
     files: FileStore = field(default_factory=lambda: FileStore(None))
+    search: SearchService = field(default_factory=lambda: SearchService({}))
     unavailable_channels: dict[str, str] = field(default_factory=dict)
     # 代码运行沙箱 (后端, 不可用原因)；为空时第一次使用才检测，测试中可直接注入
     tools_sandbox: tuple[Sandbox | None, str | None] | None = None
@@ -50,6 +52,7 @@ class Runtime:
         prompts: PromptLibrary | None = None,
         now: Callable[[], datetime] | None = None,
         uploads_dir: str | Path | None = None,
+        search: SearchService | None = None,
     ) -> Runtime:
         """providers 为空时从 .env / 环境变量读取 key 并构建真实渠道（测试中传入 Fake）。"""
         config = config or load_config()
@@ -59,11 +62,16 @@ class Runtime:
 
         if providers is None:
             names = [c.key_env for c in config.models.channels.values() if c.key_env]
+            names += [p.key_env for p in config.models.search_providers.values() if p.key_env]
             keys = KeyRing.from_env(names, environ=environ, dotenv_path=dotenv_path)
             built, missing = build_providers(
                 config.models, keys, config.roundtable.request.timeout_s
             )
             providers, unavailable = built, missing
+            if search is None:
+                search = SearchService.build(
+                    config.models, keys, config.roundtable.request.timeout_s
+                )
         router = ChannelRouter(
             config.models,
             providers,
@@ -91,6 +99,7 @@ class Runtime:
             scrubber=IdentityScrubber.from_config(config.models),
             budget=guard,
             files=FileStore(Path(uploads_dir) if uploads_dir is not None else None),
+            search=search or SearchService({}),
             unavailable_channels=dict(unavailable or {}),
         )
 
@@ -102,4 +111,5 @@ class Runtime:
 
     async def aclose(self) -> None:
         await self.router.aclose()
+        await self.search.aclose()
         self.repo.conn.close()

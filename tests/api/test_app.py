@@ -278,3 +278,4 @@ def test_generated_files_download_and_preview():
         assert c.get(f"/api/sessions/{other}/files/{html_id}").status_code == 404
         status = c.get("/api/status").json()["tools"]
         assert status["enabled"] and "generate_image" in status["unavailable"]
+        assert "search" in status["unavailable"]  # 测试环境没有搜索服务

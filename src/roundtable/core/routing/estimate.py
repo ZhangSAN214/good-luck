@@ -120,7 +120,9 @@ class _Pricer:
         history: EstimateHistory | None,
         caps: dict[str, int],
         extra_calls: dict[str, float] | None = None,
+        extra_usd: dict[str, float] | None = None,
     ) -> None:
+        self.extra_usd = extra_usd or {}
         self.params = params
         self.history = history or EstimateHistory()
         self.caps = caps
@@ -155,6 +157,9 @@ class _Pricer:
             tout_total += round(tout * repeat)
             cost += estimate_cost(p.price, tin, tout) * repeat
             upper += estimate_cost(p.price, tin, cap or tout) * repeat
+            # 工具服务的费用（如联网搜索），每个座位按配置的预计次数
+            cost += self.extra_usd.get(step, 0.0)
+            upper += self.extra_usd.get(step, 0.0)
         return tin_total, tout_total, cost, upper
 
 
@@ -173,6 +178,7 @@ def estimate_pipeline(
     history: EstimateHistory | None = None,
     caps: dict[str, int] | None = None,
     extra_calls: dict[str, float] | None = None,
+    extra_usd: dict[str, float] | None = None,
 ) -> CostEstimate:
     """按步骤估算。n = 组员数，A = 答案长度，Q = 题目长度，O = 每次调用的固定开销，
     k = 每份答案的评审人数（每位评审者也评 k 份；None 表示全员互评）。
@@ -185,7 +191,7 @@ def estimate_pipeline(
         members = [Participant("", None, p) for p in member_prices]
     if coordinator is None and coordinator_price is not None:
         coordinator = Participant("", None, coordinator_price)
-    pricer = _Pricer(params, history, dict(caps or {}), extra_calls)
+    pricer = _Pricer(params, history, dict(caps or {}), extra_calls, extra_usd)
     n = len(members)
     k = n - 1 if reviews_per_answer is None else max(0, min(reviews_per_answer, n - 1))
     o, q, a = params.prompt_overhead_tokens, question_tokens, answer_tokens

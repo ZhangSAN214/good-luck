@@ -259,6 +259,8 @@ class RoundtableService:
             unavailable["python"] = reason
         if not any("image_gen" in m.tags for m in self.rt.router.available_models()):
             unavailable["generate_image"] = "没有可用的图像生成模型（需要带 image_gen 标签的模型）"
+        if not self.rt.search.available:
+            unavailable["search"] = unavailable["fetch"] = self.rt.search.reason()
         return {"enabled": rules.enabled, "by_step": rules.by_step, "unavailable": unavailable}
 
     def _files(self, session_id: str) -> list[dict[str, Any]]:

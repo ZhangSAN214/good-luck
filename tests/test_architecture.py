@@ -18,6 +18,7 @@ REVEAL_ALLOWED = {
     "src/roundtable/core/providers/openai_compat.py",
     "src/roundtable/core/providers/gemini.py",
     "src/roundtable/core/providers/anthropic_adapter.py",
+    "src/roundtable/core/search/tavily.py",
 }
 
 SECRET_PATTERNS = [

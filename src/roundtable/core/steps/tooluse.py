@@ -42,6 +42,8 @@ async def call_with_tools(
             max_runs=str(rules.python.max_runs),
             timeout_s=f"{rules.python.timeout_s:g}",
             max_images=str(rules.image.max_per_step),
+            max_searches=str(rules.search.max_per_step),
+            max_fetches=str(rules.search.max_fetch_per_step),
             results=results,
             remaining=str(remaining),
         )

@@ -360,7 +360,7 @@ def dependencies_block(ctx: TableContext, subtask: Subtask) -> str:
     for dep in subtask.depends_on:
         for (sid, code), text in latest.items():
             if sid == dep:
-                body = neutralize(ctx.scrub(text + ctx.files_note(code)), TAGS)
+                body = neutralize(ctx.scrub(text + ctx.member_notes(code)), TAGS)
                 parts.append(
                     f'<dependency subtask="{dep}" from="{ctx.label(code)}">\n{body}\n</dependency>'
                 )
@@ -380,7 +380,7 @@ class WorkStep:
         notes: list[str] = []
         calls = 0
 
-        def problems(text: str) -> list[str]:
+        def problems(text: str, code: str) -> list[str]:
             if not rule.enabled:
                 return []
             return text_problems(
@@ -388,7 +388,7 @@ class WorkStep:
                 rule=rule,
                 question=ctx.question.text,
                 expected_tokens=_item_expected(ctx),
-            )
+            ) + ctx.citation_problems(self.name, code, text)
 
         async def work(sid: str, code: str) -> None:
             nonlocal calls
@@ -412,7 +412,7 @@ class WorkStep:
                 ctx.drop(code, self.name, "调用失败" if out.completion is None else "回答为空")
                 return
             call_id = out.call_id
-            first = problems(text)
+            first = problems(text, code)
             if first:
                 final = first
                 if rule.redo:
@@ -430,7 +430,7 @@ class WorkStep:
                     calls += 1
                     retry = again.completion.text.strip() if again.completion else ""
                     if retry:
-                        text, call_id, final = retry, again.call_id, problems(retry)
+                        text, call_id, final = retry, again.call_id, problems(retry, code)
                 record_effort(
                     ctx,
                     EffortRecord(
@@ -582,7 +582,7 @@ def items_block(ctx: TableContext, item_ids: Sequence[str]) -> str:
             head.append(f"要求：{s.requirements}")
         if s.acceptance:
             head.append(f"验收标准：{s.acceptance}")
-        work = ctx.scrub(c.works[(sid, code)] + ctx.files_note(code))
+        work = ctx.scrub(c.works[(sid, code)] + ctx.member_notes(code))
         body = neutralize("\n".join(head) + "\n\n" + work, TAGS)
         parts.append(f'<work id="{item}">\n{body}\n</work>')
     return "\n\n".join(parts)
@@ -725,7 +725,7 @@ class ReworkStep:
         notes: list[str] = []
         called = 0
 
-        def problems(revision: Revision) -> list[str]:
+        def problems(revision: Revision, code: str) -> list[str]:
             if not rule.enabled or revision.degraded:
                 return []
             found = text_problems(
@@ -733,7 +733,7 @@ class ReworkStep:
                 rule=rule,
                 question=ctx.question.text,
                 expected_tokens=_item_expected(ctx),
-            )
+            ) + ctx.citation_problems(self.name, code, revision.answer)
             if not revision.responses.strip():
                 found.append("没有回应审查意见")
             return found
@@ -777,7 +777,7 @@ class ReworkStep:
                 call_id = result.call_id
                 if result.value is not None:
                     revision = with_decisions(result.value)
-                    first = problems(revision)
+                    first = problems(revision, code)
                     if first:
                         final = first
                         if rule.redo:
@@ -797,7 +797,7 @@ class ReworkStep:
                             )
                             if retry is not None:
                                 revision, call_id = with_decisions(retry), again.call_id
-                                final = problems(revision)
+                                final = problems(revision, code)
                         record_effort(
                             ctx,
                             EffortRecord(
@@ -854,7 +854,7 @@ def works_block(ctx: TableContext) -> str:
             item = ids_by_key.get(key, "")
             flagged = ctx.state.flagged(key[1], item)
             attr = ' flagged="未通过实质内容检查"' if flagged else ""
-            body = neutralize(ctx.scrub(latest[key] + ctx.files_note(key[1])), TAGS)
+            body = neutralize(ctx.scrub(latest[key] + ctx.member_notes(key[1])), TAGS)
             parts.append(
                 f'<work id="{item}" subtask="{s.id}" from="{ctx.label(key[1])}"{attr}>\n'
                 f"{body}\n</work>"

@@ -279,6 +279,7 @@ def _estimate(
         history=history,
         caps=caps,
         extra_calls=_tool_rounds(config),
+        extra_usd=_tool_costs(config),
     )
 
 
@@ -289,6 +290,17 @@ def _tool_rounds(config: AppConfig) -> dict[str, float]:
         return {}
     rounds = config.routing.estimate.tool_rounds
     return {step: rounds for step, names in tools.by_step.items() if names}
+
+
+def _tool_costs(config: AppConfig) -> dict[str, float]:
+    """能搜索的步骤：每个座位按 estimate.searches / fetches 次数和第一家搜索服务的单价估计。"""
+    tools = config.roundtable.tools
+    provider = next((p for p in config.models.search_providers.values() if p.enabled), None)
+    if not tools.enabled or provider is None:
+        return {}
+    est = config.routing.estimate
+    per_seat = est.searches * provider.price.per_search + est.fetches * provider.price.per_fetch
+    return {step: per_seat for step, names in tools.by_step.items() if "search" in names}
 
 
 def estimate_lineup(

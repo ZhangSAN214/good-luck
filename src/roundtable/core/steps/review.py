@@ -47,7 +47,7 @@ class ReviewStep:
                 ctx.state.reviews[reviewer] = ()
                 return
             peers = "\n\n".join(
-                answer_block(ctx.label(t), ctx.scrub(ctx.state.answers[t] + ctx.files_note(t)))
+                answer_block(ctx.label(t), ctx.scrub(ctx.state.answers[t] + ctx.member_notes(t)))
                 for t in targets
             )
             prompt = ctx.prompts.render(

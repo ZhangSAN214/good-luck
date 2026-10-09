@@ -35,7 +35,7 @@ class SynthesizeStep:
         block = "\n\n".join(
             answer_block(
                 ctx.label(c),
-                ctx.scrub(texts[c] + ctx.files_note(c)),
+                ctx.scrub(texts[c] + ctx.member_notes(c)),
                 flagged=ctx.state.flagged(c),
             )
             for c in order

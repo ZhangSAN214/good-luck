@@ -506,6 +506,7 @@ class Orchestrator:
                 budget_ok=lambda: repo.budget_override(sid) or self.rt.budget.check(0.0).allowed,
                 seed=str(row["seed"]),
                 project_root=PROJECT_ROOT,
+                search=self.rt.search,
             )
         try:
             return await self._run_steps(sid, table, ctx, row)

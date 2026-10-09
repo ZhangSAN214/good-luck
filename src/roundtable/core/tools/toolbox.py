@@ -17,7 +17,14 @@ from roundtable.core.allocation import IdentityScrubber, cheapest
 from roundtable.core.attachments import Attachment, FileStore
 from roundtable.core.config import AppConfig, ModelSpec
 from roundtable.core.prompts import PromptLibrary
-from roundtable.core.providers import AllChannelsFailed, ChannelRouter, NoChannelAvailable
+from roundtable.core.providers import (
+    AllChannelsFailed,
+    ChannelRouter,
+    Completion,
+    Message,
+    NoChannelAvailable,
+)
+from roundtable.core.search import SearchCall, SearchService, SearchUnavailable
 from roundtable.core.storage import Repository
 
 from .files import TEXT_EXTS, Workspace, clean_path
@@ -50,6 +57,16 @@ class ToolResult:
         return f'<tool_result tool="{self.tool}" status="{state}">\n{body.strip()}\n</tool_result>'
 
 
+def _attr(text: str) -> str:
+    return " ".join(text.split()).replace('"', "'").replace("<", "‹").replace(">", "›")
+
+
+def _neutral(text: str) -> str:
+    for tag in ("search_result", "tool_result", "tool_call"):
+        text = text.replace(f"</{tag}", f"<\u200b/{tag}").replace(f"<{tag}", f"<\u200b{tag}")
+    return text
+
+
 def _clip(text: str, limit: int) -> str:
     if len(text) <= limit:
         return text
@@ -75,6 +92,7 @@ class ToolBox:
         budget_ok: Callable[[], bool] = lambda: True,
         seed: str = "",
         project_root: Path | None = None,
+        search: SearchService | None = None,
     ) -> None:
         self.session_id, self.table_no = session_id, table_no
         self.config, self.router, self.prompts = config, router, prompts
@@ -85,6 +103,7 @@ class ToolBox:
         self.budget_ok = budget_ok
         self.rng = random.Random(f"{seed}:{table_no}:tools")
         self.project_root = project_root
+        self.search = search or SearchService({})
         self._workspaces: dict[str | None, Workspace] = {}
         self.usage: Counter[tuple[str, str | None, str]] = Counter()
 
@@ -110,6 +129,8 @@ class ToolBox:
         for tool in self.rules.by_step.get(step, []):
             if tool == "python" and self.sandbox is None:
                 continue
+            if tool in ("search", "fetch") and not self.search.available:
+                continue
             if tool == "generate_image" and (
                 self.rules.image.max_per_step == 0 or self.image_model() is None
             ):
@@ -124,6 +145,8 @@ class ToolBox:
             out["python"] = self.sandbox_reason or "没有可用的代码运行环境"
         if self.image_model() is None:
             out["generate_image"] = "没有可用的图像生成模型（需要带 image_gen 标签的模型）"
+        if not self.search.available:
+            out["search"] = out["fetch"] = self.search.reason()
         return out
 
     # --- 工作目录 ----------------------------------------------------------------
@@ -176,6 +199,10 @@ class ToolBox:
             result, inputs = await self._python(req, step, code)
         elif req.name == "write_file":
             result, inputs = self._write_file(req, step, code)
+        elif req.name == "search":
+            result, inputs = await self._search(req, step, code)
+        elif req.name == "fetch":
+            result, inputs = await self._fetch(req, step, code)
         else:
             result, inputs = await self._image(req, step, code, on_model_call)
         tool_call_id = self.repo.record_tool_call(
@@ -206,6 +233,112 @@ class ToolBox:
         collected = ws.collect(step=step, tool_call_id=None, step_count=self._count(step, code))
         self._new_files += [r["id"] for r in collected.new]
         return tuple(r["path"] for r in collected.new), collected.rejected
+
+    # --- 联网搜索 ----------------------------------------------------------------
+
+    def sources(self, code: str | None) -> list[dict[str, str]]:
+        """该成员在本桌检索到的全部来源（S1、S2…，跨步骤连续编号）。"""
+        out: list[dict[str, str]] = []
+        for row in self.repo.tool_calls(self.session_id):
+            if row["table_no"] == self.table_no and row["code"] == code and row["tool"] == "search":
+                out += row["input"].get("sources", [])
+        return out
+
+    def searched(self, step: str, code: str | None) -> bool:
+        return any(
+            r["table_no"] == self.table_no
+            and r["code"] == code
+            and r["step"] == step
+            and r["tool"] == "search"
+            and r["status"] == "ok"
+            for r in self.repo.tool_calls(self.session_id)
+        )
+
+    async def _search(self, req: ToolRequest, step: str, code: str | None):
+        rules = self.rules.search
+        query = " ".join(req.body.split())[: rules.query_max_chars]
+        inputs: dict = {"query": query}
+        key = (step, code, "search")
+        if not query:
+            return ToolResult("search", "rejected", "请在标签内写出搜索词。"), inputs
+        if self.usage[key] >= rules.max_per_step:
+            text = f"本步骤最多搜索 {rules.max_per_step} 次，额度已用完。"
+            return ToolResult("search", "limit", text), inputs
+        self.usage[key] += 1
+        try:
+            response, call = await self.search.search(query, rules.max_results)
+        except SearchUnavailable as exc:
+            return ToolResult("search", "error", f"搜索失败：{exc}"), inputs
+        self._bill(call, "search", query, step, code)
+        start = len(self.sources(code)) + 1
+        sources, blocks = [], []
+        for i, hit in enumerate(response.hits, start):
+            sid = f"S{i}"
+            sources.append({"id": sid, "title": hit.title[:200], "url": hit.url})
+            title = _attr(hit.title[:200])
+            body = _neutral(hit.snippet[:1500])
+            head = f'<search_result id="{sid}" title="{title}" url="{_attr(hit.url)}">'
+            blocks.append(f"{head}\n{body}\n</search_result>")
+        inputs["sources"] = sources
+        if not blocks:
+            return ToolResult("search", "ok", "没有找到结果，可以换个说法再搜。"), inputs
+        text = "\n\n".join(blocks) + "\n引用时在相应位置用来源编号标注，如 [S1]。"
+        return ToolResult("search", "ok", text), inputs
+
+    async def _fetch(self, req: ToolRequest, step: str, code: str | None):
+        rules = self.rules.search
+        target = (req.attrs.get("source") or req.body).strip()
+        known = self.sources(code)
+        match = next((s for s in known if target in (s["id"], s["url"])), None)
+        inputs: dict = {"source": target}
+        if match is None:
+            text = "只能读取你自己搜索结果中出现过的来源（写来源编号，如 S1）。"
+            return ToolResult("fetch", "rejected", text), inputs
+        inputs = {"source": match["id"], "url": match["url"]}
+        key = (step, code, "fetch")
+        if self.usage[key] >= rules.max_fetch_per_step:
+            text = f"本步骤最多读取 {rules.max_fetch_per_step} 个网页，额度已用完。"
+            return ToolResult("fetch", "limit", text), inputs
+        self.usage[key] += 1
+        try:
+            response, call = await self.search.fetch([match["url"]], rules.fetch_max_chars)
+        except SearchUnavailable as exc:
+            return ToolResult("fetch", "error", f"读取失败：{exc}"), inputs
+        self._bill(call, "fetch", match["url"], step, code)
+        page = response.pages[0] if response.pages else None
+        if page is None or not page.ok or not page.text.strip():
+            return ToolResult("fetch", "error", "这个网页读取不到正文。"), inputs
+        sid, url = match["id"], _attr(match["url"])
+        head = f'<search_result id="{sid}" url="{url}" kind="page">'
+        text = f"{head}\n{_neutral(page.text)}\n</search_result>"
+        return ToolResult("fetch", "ok", text), inputs
+
+    def _bill(self, call: SearchCall, op: str, text: str, step: str, code: str | None) -> None:
+        """搜索服务的花费记进 calls 表（渠道为该搜索服务），进入预算与按渠道统计。"""
+        completion = Completion(
+            text="",
+            model_id=f"search:{call.provider}",
+            channel=call.provider,
+            channel_kind="search",
+            route_model=op,
+            input_tokens=0,
+            output_tokens=0,
+            cached_tokens=0,
+            cost_usd=call.cost_usd,
+            cost_source=call.cost_source,  # type: ignore[arg-type]
+            latency_s=call.latency_s,
+            attempts=call.attempts,
+        )
+        self.repo.record_call(
+            self.session_id,
+            step=step,
+            role="tool",
+            model_id=completion.model_id,
+            messages=[Message("user", f"{op}: {text}")],
+            table_no=self.table_no,
+            code=code,
+            completion=completion,
+        )
 
     async def _python(self, req: ToolRequest, step: str, code: str | None):
         rules = self.rules.python

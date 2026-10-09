@@ -55,7 +55,7 @@ class ReviseStep:
                 expected_tokens=ctx.expected_answer_tokens,
                 peers=peers,
                 label=ctx.label,
-            )
+            ) + ctx.citation_problems(self.name, code, revision.answer)
             if not revision.responses.strip():
                 found.append("没有回应审阅意见")
             return found
