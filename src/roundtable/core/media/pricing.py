@@ -30,6 +30,24 @@ def unit_cost(
     return price.usd * quantities(images=images, seconds=seconds, chars=chars)[price.unit]
 
 
+def mostly_cjk(text: str, threshold: float = 0.3) -> bool:
+    """脚本主要是中日韩文字（非空白字符中占比不低于 threshold）。"""
+    chars = [c for c in text if not c.isspace()]
+    if not chars:
+        return False
+    cjk = sum(1 for c in chars if "\u3400" <= c <= "\u9fff" or "\u3040" <= c <= "\u30ff")
+    return cjk / len(chars) >= threshold
+
+
+def speech_cost(model: ModelSpec, route: Route | None, chars: int) -> float:
+    """语音合成的费用：按字符计价的用单价；按 token 计价的按每字符约多少音频 token 估算。"""
+    cost = unit_cost(model, route, chars=chars)
+    if cost is not None:
+        return cost
+    price = model.price_for(route) if route else model.price
+    return estimate_cost(price, chars, round(chars * (model.speech_tokens_per_char or 0)))
+
+
 def estimate_generation(model: ModelSpec, kind: str, rules: MediaRules, *, chars: int = 0) -> float:
     """一次生成的预计费用。没有 media_price 的模型（按 token 计价）按一次典型调用估算。"""
     if kind == "image":
@@ -37,7 +55,7 @@ def estimate_generation(model: ModelSpec, kind: str, rules: MediaRules, *, chars
     elif kind == "video":
         cost = unit_cost(model, seconds=rules.video.duration_s)
     else:
-        cost = unit_cost(model, chars=min(chars, rules.speech.max_chars))
+        return speech_cost(model, None, min(chars, rules.speech.max_chars))
     if cost is not None:
         return cost
     return estimate_cost(model.price, 300, 1500)

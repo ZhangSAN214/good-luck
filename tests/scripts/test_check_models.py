@@ -136,7 +136,7 @@ def test_missing_media_model_is_reported():
 def test_local_config_has_media_models_with_unit_prices():
     media = [m for m in check_models.load_local_models() if m["media_price"]]
     units = {m["media_price"]["unit"] for m in media}
-    assert {"second", "minute", "char"} <= units
+    assert {"second", "char"} <= units
     image = [m for m in check_models.load_local_models() if m["image_tokens"]]
     assert image and all(not m["media_price"] for m in image)  # 图像模型按 token 计价
 
@@ -182,3 +182,25 @@ def test_image_token_models_compare_against_image_output():
     }
     [f] = check_models.compare([entry], off)
     assert f.status == "price_mismatch" and "output" in f.detail and "30" in f.detail
+
+
+def test_transcription_and_speech_lists_are_queried():
+    urls = check_models.MEDIA_URLS
+    assert urls["transcription"].endswith("output_modalities=transcription")
+    assert urls["speech"].endswith("output_modalities=speech")
+
+
+def test_local_config_stt_and_tts_models():
+    models = {m["id"]: m for m in check_models.load_local_models()}
+    assert models["whisper-large-v3-turbo"]["model"] == "openai/whisper-large-v3-turbo"
+    assert models["whisper-large-v3-turbo"]["media_price"] == {"unit": "second", "usd": 0.000003}
+    assert models["gemini-3.8-flash-tts"]["speech_tokens_per_char"] == 3.0
+    assert models["qwen-audio-3.0-tts-flash"]["media_price"] == {"unit": "char", "usd": 0.000015}
+    assert "gpt-4o-mini-tts" not in models and "whisper-1" not in models
+
+
+def test_token_priced_tts_is_listed_for_manual_check():
+    entry = {**local("t", "v/t", price=(0.5, 9.0)), "speech_tokens_per_char": 3.0}
+    remote_data = {"data": [{"id": "v/t", "pricing": {"prompt": "5e-7", "audio_output": "9e-6"}}]}
+    [f] = check_models.compare([entry], remote_data)
+    assert f.status == "manual" and "audio_output" in f.detail and "输入 0.5" in f.detail

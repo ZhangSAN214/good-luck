@@ -35,6 +35,8 @@ MEDIA_URLS = {
     "image": f"{MODELS_URL}?output_modalities=image",
     "audio": f"{MODELS_URL}?output_modalities=audio",
     "speech": f"{MODELS_URL}?output_modalities=speech",
+    # 语音转文字模型不在默认列表里，要用 transcription 筛选（官方文档）
+    "transcription": f"{MODELS_URL}?output_modalities=transcription",
     "video": "https://openrouter.ai/api/v1/videos/models",
 }
 PER_MILLION = 1_000_000
@@ -70,6 +72,7 @@ def load_local_models(config_dir: Path | None = None) -> list[dict[str, Any]]:
                 else None,
                 # 按 token 计价的图像模型：输出价格对应远端的 image_output
                 "image_tokens": m.image_tokens,
+                "speech_tokens_per_char": m.speech_tokens_per_char,
             }
         )
     return entries
@@ -123,6 +126,18 @@ def compare(
             continue
         pricing = remote_model.get("pricing", {})
         price = entry.get("price", {})
+        if entry.get("speech_tokens_per_char"):
+            raw = json.dumps(pricing, ensure_ascii=False)
+            findings.append(
+                Finding(
+                    model_id,
+                    model,
+                    "manual",
+                    f"按 token 计价：配置 输入 {price['input']:g} / 输出 {price['output']:g}"
+                    f"（每百万）；远端 pricing = {raw}",
+                )
+            )
+            continue
         if entry.get("media_price"):
             mp = entry["media_price"]
             raw = json.dumps(pricing or remote_model.get("pricing_skus"), ensure_ascii=False)

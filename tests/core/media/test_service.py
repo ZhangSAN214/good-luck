@@ -43,7 +43,9 @@ async def test_tier_selects_models_by_tag_and_tier_only(rig: Rig):
     assert svc.model_for("image", "flagship").id == "gpt-image-2"
     assert svc.model_for("video", "budget").id == "alibaba-wan-video"
     assert svc.model_for("video", "flagship").id == "veo-3.1"
-    assert svc.model_for("speech", "flagship").id == "gpt-4o-mini-tts"  # 没有该档时退到另一档
+    assert (
+        svc.model_for("speech", "flagship").id == "gemini-3.8-flash-tts"
+    )  # 没有该档时退到另一档，取默认
     # 同一场、同档、同种类总是同一个模型
     assert {svc.model_for("image", "budget").id for _ in range(5)} == {svc.model_for("image").id}
     picks = set()
@@ -87,7 +89,9 @@ async def test_speech_billed_per_character(rig: Rig):
     assert res.ok
     row = rig.rt.repo.file(rig.sid, res.file_id)
     assert (row["kind"], row["mime"]) == ("audio", "audio/wav")
-    assert res.cost_usd == pytest.approx(len(text) * 0.0000006)
+    assert res.cost_usd == pytest.approx(
+        len(text) * 0.000015
+    )  # 中文脚本 → 擅长中文的模型，按字符计价
     params = rig.calls("speech")[0][3]
     assert params["voice"] == "alloy" and params["response_format"] == "mp3"
 
@@ -213,5 +217,26 @@ async def test_image_failure_is_recorded_without_cost(rig: Rig):
 def test_estimate_uses_unit_prices(rig: Rig):
     svc = rig.service()
     assert svc.estimate("video", "flagship") == pytest.approx(0.40 * 5)
-    assert svc.estimate("image", "flagship") == pytest.approx((300 * 5.0 + 1056 * 30.0) / 1e6)
-    assert svc.estimate("speech", chars=1000) == pytest.approx(1000 * 0.0000006)
+    assert svc.estimate("image", "flagship") == pytest.approx((300 * 8.0 + 1056 * 30.0) / 1e6)
+    # 默认的语音模型按 token 计价：输入 1000 token、输出 1000 × 3 个音频 token
+    assert svc.estimate("speech", chars=1000) == pytest.approx((1000 * 0.5 + 3000 * 9.0) / 1e6)
+
+
+async def test_speech_model_follows_script_language_and_default(rig: Rig):
+    svc = rig.service()
+    zh = await svc.generate("speech", "大家好，欢迎收听今天的节目。", Placement(0, "media", 1))
+    en = await svc.generate(
+        "speech", "Hello everyone, welcome to the show.", Placement(0, "media", 2)
+    )
+    assert zh.model_id == "qwen-audio-3.0-tts-flash"  # 主要是中文：带 zh 标签的优先
+    assert en.model_id == "gemini-3.8-flash-tts"  # 其余：默认模型
+    # 按 token 计价的默认模型：渠道没返回费用时按每字符约 3 个音频输出 token 估算
+    text = "Hello everyone, welcome to the show."
+    assert en.cost_usd == pytest.approx((len(text) * 0.5 + len(text) * 3 * 9.0) / 1e6)
+    # 混合文字：中文占比不到三成时不算中文
+    mixed = await svc.generate(
+        "speech",
+        "Please read this: 你好 and then continue in English for a while.",
+        Placement(0, "media", 3),
+    )
+    assert mixed.model_id == "gemini-3.8-flash-tts"

@@ -85,6 +85,10 @@ class ModelSpec(_Strict):
     # 按 token 计价的图像模型：生成一张图的典型输出 token 数（price.output 此时是图像输出的价格）。
     # 只用于预估和渠道没有返回用量时的记账；渠道返回实际费用时一律以实际为准
     image_tokens: int | None = Field(default=None, ge=1)
+    # 按 token 计价的语音合成模型：每个字符约对应的音频输出 token 数（预估、渠道没返回费用时记账）
+    speech_tokens_per_char: float | None = Field(default=None, gt=0)
+    # 媒体模型的默认项：同一候选组里有默认模型时，只在默认模型之间选（见 media/select.py）
+    default: bool = False
     tags: list[str] = Field(default_factory=list)
     enabled: bool = True
     params: dict[str, Any] = Field(default_factory=dict)

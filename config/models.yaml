@@ -13,6 +13,7 @@ tag_vocabulary:
   - research
   - design
   - long_context
+  - zh              # 擅长中文（语音合成按脚本语言选择时使用）
   # 媒体类
   - vision          # 能看图（图片、视频截帧）
   - transcribe      # 能直接接收音频的对话模型（旧的转写方式；有 stt 模型时优先用 stt）
@@ -223,7 +224,7 @@ models:
   # OpenRouter 对图像模型按 token 计价（price.output 是图像输出价格，image_tokens 是一张图的典型输出
   # token 数，只用于预估）；实际费用以 OpenRouter 返回的 usage.cost 为准。
   # 典型 token 数：Gemini 1K×1K ≈ 1290；OpenAI 图像模型 1024×1024 中等质量 ≈ 1056（mini 按其公布的
-  # 每张 $0.011 反推为 1375）。输入价格（提示词）尚未核对，请以 check_models.py 的输出为准。
+  # 每张 $0.011 反推为 1375）。输入价格已由用户核对。
   - id: gemini-3.1-flash-image
     vendor: Google
     aliases: [Gemini, Nano Banana]
@@ -242,7 +243,7 @@ models:
     aliases: [GPT Image 1 Mini]
     seat: false
     tier: budget
-    price: {input: 2.0, output: 8.0}
+    price: {input: 2.5, output: 8.0}
     image_tokens: 1375
     tags: [image_gen, image_edit]
     enabled: true
@@ -255,7 +256,7 @@ models:
     aliases: [GPT Image 2]
     seat: false
     tier: flagship
-    price: {input: 5.0, output: 30.0}
+    price: {input: 8.0, output: 30.0}
     image_tokens: 1056
     tags: [image_gen, image_edit]
     enabled: true
@@ -264,27 +265,40 @@ models:
         model: openai/gpt-image-2
         params: {modalities: [image, text]}
   # --- 语音转文字（上传音频的转写；优先于带 transcribe 标签的对话模型）---
-  - id: whisper-1
+  - id: whisper-large-v3-turbo
     vendor: OpenAI
     aliases: [Whisper]
     seat: false
     tier: budget
-    media_price: {unit: minute, usd: 0.006}
+    media_price: {unit: second, usd: 0.000003}   # 按音频秒数计价（$0.00018 / 分钟）
     tags: [stt]
     enabled: true
     routes:
-      - {channel: openrouter, model: openai/whisper-1}
+      - {channel: openrouter, model: openai/whisper-large-v3-turbo}
   # --- 文字转语音 ---
-  - id: gpt-4o-mini-tts
-    vendor: OpenAI
-    aliases: [GPT-4o mini TTS]
+  # 同档内有 default: true 的模型时，只在它们之间选；脚本主要是中文时，先限定在带 zh 标签的模型里
+  - id: gemini-3.8-flash-tts
+    vendor: Google
+    aliases: [Gemini]
     seat: false
     tier: budget
-    media_price: {unit: char, usd: 0.0000006}   # $0.60 / 百万字符
+    default: true                         # 文字转语音的默认模型
+    price: {input: 0.50, output: 9.0}     # 按 token 计价（音频输出）
+    speech_tokens_per_char: 3.0           # 每个字符约对应的音频输出 token 数，只用于预估
     tags: [tts]
     enabled: true
     routes:
-      - {channel: openrouter, model: openai/gpt-4o-mini-tts-2025-12-15}
+      - {channel: openrouter, model: google/gemini-3.8-flash-tts}
+  - id: qwen-audio-3.0-tts-flash
+    vendor: Alibaba
+    aliases: [Qwen, 通义千问, 千问, 通义]
+    seat: false
+    tier: budget
+    media_price: {unit: char, usd: 0.000015}   # $15 / 百万字符
+    tags: [tts, zh]                            # zh：擅长中文，脚本主要是中文时优先
+    enabled: true
+    routes:
+      - {channel: openrouter, model: qwen/qwen-audio-3.0-tts-flash}
   # --- 视频（异步任务：提交 → 轮询 → 下载）---
   - id: alibaba-wan-video
     vendor: Alibaba

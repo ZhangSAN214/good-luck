@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import random
+from collections.abc import Iterable
 
 from roundtable.core.config import ModelSpec
 from roundtable.core.providers import ChannelRouter
@@ -30,10 +31,16 @@ def pick_media_model(
     kind: str,
     tier: str,
     rng: random.Random,
+    prefer_tags: Iterable[str] = (),
 ) -> ModelSpec | None:
-    """同一组候选内随机选一个（不看 id、厂商，换名不影响结果）。没有可用模型时返回 None。"""
+    """从候选组里选一个，不看 id、厂商（换名不影响）：先限定在带偏好标签的模型里（有的话），
+    再限定在 default: true 的模型里（有的话），最后随机。没有可用模型时返回 None。"""
     group = media_group(router, kind, tier)
-    return rng.choice(group) if group else None
+    if not group:
+        return None
+    wanted = set(prefer_tags)
+    group = [m for m in group if wanted & set(m.tags)] or group
+    return rng.choice([m for m in group if m.default] or group)
 
 
 def pick_stt_model(router: ChannelRouter, rng: random.Random) -> ModelSpec | None:

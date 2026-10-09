@@ -37,7 +37,7 @@ from roundtable.core.providers import (
 from roundtable.core.providers.errors import ErrorKind
 from roundtable.core.storage import Repository
 
-from .pricing import KIND_LABELS, estimate_generation, unit_cost
+from .pricing import KIND_LABELS, estimate_generation, mostly_cjk, speech_cost, unit_cost
 from .select import pick_media_model
 
 log = logging.getLogger(__name__)
@@ -113,13 +113,15 @@ class MediaService:
 
     # --- 选择与预估 ----------------------------------------------------------------
 
-    def model_for(self, kind: str, tier: str | None = None) -> ModelSpec | None:
-        """本场某种媒体使用的模型：同一场、同一档位、同一种类总是同一个（按 seed 派生）。"""
+    def model_for(self, kind: str, tier: str | None = None, *, text: str = "") -> ModelSpec | None:
+        """本场某种媒体使用的模型：同一场、同一档位、同一种类总是同一个（按 seed 派生）。
+        语音合成例外地看脚本语言：主要是中文时优先选带 zh 标签的模型（有的话）。"""
         if not self.rules.enabled:
             return None
         tier = tier or self.rules.default_tier
         rng = random.Random(f"{self.seed}:media:{kind}:{tier}")
-        return pick_media_model(self.router, kind, tier, rng)
+        prefer = ("zh",) if kind == "speech" and mostly_cjk(text) else ()
+        return pick_media_model(self.router, kind, tier, rng, prefer)
 
     def unavailable_reason(self, kind: str, tier: str | None = None) -> str | None:
         if not self.rules.enabled:
@@ -141,7 +143,7 @@ class MediaService:
         last = existing[-1] if existing else None
         if last and last["state"] == "completed" and last["file_id"]:
             return self._result(last, len(existing))
-        model = self.model_for(kind, tier)
+        model = self.model_for(kind, tier, text=prompt)
         if model is None:
             return MediaResult(False, kind, error=self.unavailable_reason(kind, tier))
         text = self.scrubber.scrub(prompt).strip()
@@ -252,7 +254,7 @@ class MediaService:
         else:
             medias = [out.media]
             reported, tokens = out.cost_usd, (0, 0)
-            fallback = unit_cost(model, inv.route, chars=len(text))
+            fallback = speech_cost(model, inv.route, len(text))
         if not medias:
             self._fail(job_id, kind, "模型没有返回内容", where=where)
             return MediaResult(False, kind, job_id, model_id=model.id, error="模型没有返回内容")

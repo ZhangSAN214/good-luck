@@ -86,7 +86,7 @@ roundtable models                             # 模型、档位、可用渠道�
 
 加完运行 `python scripts/check_models.py` 核对 OpenRouter 上的模型 ID 与价格。**加渠道**同理：在 `channels` 里写 `adapter`（`openai_compat` / `anthropic` / `gemini`）、`kind`（`aggregator` / `direct` / `local`）、`base_url` 和 `key_env`（只写环境变量名）。本地模型用 `kind: local` 且不需要 key。
 
-媒体模型（图片、语音、转写、视频）同样在这里配置：`seat: false`（不上桌），带能力标签 `image_gen` / `tts` / `stt` / `video_gen`，按秒 / 分钟 / 字符计价用 `media_price`，图像模型按 token 计价则给 `price.output`（图像输出价）和 `image_tokens`（一张图的典型 token 数，只用于预估；实际费用以渠道返回为准）。选择只看标签和档位，同档内随机。
+媒体模型（图片、语音、转写、视频）同样在这里配置：`seat: false`（不上桌），带能力标签 `image_gen` / `tts` / `stt` / `video_gen`，按秒 / 分钟 / 字符计价用 `media_price`，图像模型按 token 计价则给 `price.output`（图像输出价）和 `image_tokens`（一张图的典型 token 数，只用于预估；实际费用以渠道返回为准）。选择只看标签和档位，同档内随机；`default: true` 的模型在同档内优先；语音合成还会按脚本语言选（主要是中文时优先带 `zh` 标签的模型）。
 
 ### 加一个流程步骤
 

@@ -31,8 +31,11 @@ def media_step_cost(
     if not group:
         return StepCost("media", 0, 0, 0.0, 0.0)
     chars = prompt_tokens * 2
-    costs = [estimate_generation(m, kind, rules, chars=chars) for m in group]
-    mean, worst = sum(costs) / len(costs), max(costs)
+    # 平均按"通常会选到的"模型（有默认模型时只算默认的）；上限按候选里最贵的
+    typical = [m for m in group if m.default] or group
+    costs = [estimate_generation(m, kind, rules, chars=chars) for m in typical]
+    worst = max(estimate_generation(m, kind, rules, chars=chars) for m in group)
+    mean = sum(costs) / len(costs)
 
     # 评审（带 vision 标签的成员，最多 reviewers 位）+ 统筹改写提示词；语音没有评审
     seeing = [p for p in members if "vision" in by_id[p.model_id].tags][: rules.reviewers]

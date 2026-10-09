@@ -84,3 +84,35 @@ def test_renaming_models_and_vendors_does_not_change_the_choice():
 def test_stt_prefers_the_cheapest_tier():
     router = router_for(models_config(with_media=True))
     assert pick_stt_model(router, random.Random(0)).id == "ms1"
+
+
+def test_prefer_tags_then_default_flag_then_random():
+    cfg = models_config(with_media=True)
+    tts = next(m for m in cfg.models if "tts" in m.tags)
+    zh = tts.model_copy(update={"id": "mt-zh", "tags": ["tts", "zh"], "vendor": "VZ"})
+    third = tts.model_copy(update={"id": "mt-3", "vendor": "V3"})
+    cfg = cfg.model_copy(update={"models": [*cfg.models, zh, third]})
+    router = router_for(cfg)
+    seeds = range(40)
+    free = {pick_media_model(router, "speech", "budget", random.Random(s)).id for s in seeds}
+    assert free == {"mt1", "mt-zh", "mt-3"}  # 没有默认项：同档内随机
+    zh_only = {
+        pick_media_model(router, "speech", "budget", random.Random(s), ["zh"]).id for s in seeds
+    }
+    assert zh_only == {"mt-zh"}  # 偏好标签优先
+    none_have = {
+        pick_media_model(router, "speech", "budget", random.Random(s), ["fr"]).id for s in seeds
+    }
+    assert none_have == free  # 没有任何模型带该标签时不限制
+
+    flagged = cfg.model_copy(
+        update={"models": [m.model_copy(update={"default": m.id == "mt-3"}) for m in cfg.models]}
+    )
+    router = router_for(flagged)
+    assert {pick_media_model(router, "speech", "budget", random.Random(s)).id for s in seeds} == {
+        "mt-3"
+    }
+    # 偏好标签先于默认项
+    assert {
+        pick_media_model(router, "speech", "budget", random.Random(s), ["zh"]).id for s in seeds
+    } == {"mt-zh"}
