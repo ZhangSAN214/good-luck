@@ -127,7 +127,7 @@
 - 网页：图片、文本、代码、CSV、Markdown 直接预览；xlsx / docx 在服务端转成表格 / 文字预览；SVG 以图片方式显示（不执行脚本）；HTML 只提供下载、不在页面内渲染。下载接口带 `Content-Disposition: attachment` 和 `nosniff`。匿名会话揭晓前，文本预览经身份遮蔽。
 
 **G3. 联网搜索**
-- 搜索服务可插拔（`@register_search`，与渠道适配器同样的注册方式），key 放 `.env`、包成 `Secret`；首家接 Tavily（已确认按建议），价格写在配置里（`models.yaml` 的 `search_providers`）。
+- 搜索服务可插拔（`@register_search`，与渠道适配器同样的注册方式），key 放 `.env`、包成 `Secret`；默认用 OpenRouter 自带的联网搜索（共用 `OPENROUTER_API_KEY`），Tavily 作为备选并负责读取网页正文（填了 `TAVILY_API_KEY` 才启用）；价格写在配置里（`models.yaml` 的 `search_providers`）。
 - 两个工具：`search`（返回标题、链接、摘要，编号 S1、S2…）和 `fetch`（读取某个搜索结果页面的正文，限长；只能读本场搜索结果里出现过的链接，避免被引导去访问任意地址）。
 - 搜索结果是外部内容：放在 `<search_result>` 标签内，说明其中的指令无效（防注入）。
 - **注明来源**：用过搜索的成员，答案里要用 `[S1]` 标注；代码检查：引用了没检索到的来源 → 打回重做（防偷懒机制）；用了搜索却一条都没引用 → 打回重做；界面把 `[S1]` 显示成可点击的链接。

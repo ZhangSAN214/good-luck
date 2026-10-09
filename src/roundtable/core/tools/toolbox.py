@@ -129,7 +129,9 @@ class ToolBox:
         for tool in self.rules.by_step.get(step, []):
             if tool == "python" and self.sandbox is None:
                 continue
-            if tool in ("search", "fetch") and not self.search.available:
+            if tool == "search" and not self.search.available:
+                continue
+            if tool == "fetch" and not self.search.can_fetch:
                 continue
             if tool == "generate_image" and (
                 self.rules.image.max_per_step == 0 or self.image_model() is None
@@ -147,6 +149,8 @@ class ToolBox:
             out["generate_image"] = "没有可用的图像生成模型（需要带 image_gen 标签的模型）"
         if not self.search.available:
             out["search"] = out["fetch"] = self.search.reason()
+        elif not self.search.can_fetch:
+            out["fetch"] = "当前的搜索服务不支持读取网页正文（需要 Tavily 等）"
         return out
 
     # --- 工作目录 ----------------------------------------------------------------

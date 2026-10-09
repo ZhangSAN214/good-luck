@@ -261,6 +261,8 @@ class RoundtableService:
             unavailable["generate_image"] = "没有可用的图像生成模型（需要带 image_gen 标签的模型）"
         if not self.rt.search.available:
             unavailable["search"] = unavailable["fetch"] = self.rt.search.reason()
+        elif not self.rt.search.can_fetch:
+            unavailable["fetch"] = "当前的搜索服务不支持读取网页正文（需要 Tavily 等）"
         return {"enabled": rules.enabled, "by_step": rules.by_step, "unavailable": unavailable}
 
     def _files(self, session_id: str) -> list[dict[str, Any]]:

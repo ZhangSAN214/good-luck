@@ -24,5 +24,6 @@
   "tools/v3": "b32fc021fa02e4d78fa288df731233f9733e96757ba4c6a1daaf7b04bb76a2bf",
   "transcribe/v1": "e4e3c8f03538105d15cbc0872a1ff253b7243cdd2372dc18d537979faddc43d8",
   "volunteer/v1": "4c135d84b941db0880b65a65857f907d3c31afeec5bc0b1baccdb6b51767b014",
+  "web_search/v1": "cfd0cdbda7eb52ddcd12d2099eaa2159f5493567c9d9e084c879eb87ce250178",
   "work/v1": "c05bd6eea71784e87859dd8a2bf1fd0b8e3bbfb8b8e830967bc41f186692329d"
 }

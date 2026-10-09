@@ -1,6 +1,6 @@
 """联网搜索：服务注册（@register_search）、Tavily 实现、按顺序切换的 SearchService。"""
 
-from . import fake, tavily  # noqa: F401 - 注册适配器
+from . import fake, openrouter, tavily  # noqa: F401 - 注册适配器
 from .base import (
     FetchedPage,
     FetchResponse,

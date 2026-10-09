@@ -194,3 +194,13 @@ async def test_estimate_includes_search_cost():
     by_step = env.config.roundtable.tools.by_step
     steps = sum(1 for s in ("answer", "review", "revise") if "search" in by_step.get(s, []))
     assert estimates[1] - estimates[0] == pytest_approx(per_seat * 3 * steps)
+
+
+async def test_search_without_fetch_capability():
+    env = Env(confirm_threshold_usd=100.0)
+    search = with_search(env)
+    search.supports_fetch = False  # 例如只有 OpenRouter 搜索
+    r = await env.orc.start(Question(MEDIUM), CUSTOM, seed=9)
+    assert r.status == "completed"
+    guide = answer_calls(env)[0].messages[0].content
+    assert "本步骤可用的工具：write_file、search。" in guide

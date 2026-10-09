@@ -120,7 +120,7 @@ def test_coordinator_prompt_has_no_member_code(role):
 # 追加在原对话之后的提示词：只含代码生成的内容（如重做原因），没有外部材料
 APPENDED_ROLES = ("redo", "tools")
 # 附件相关：外部内容是文件本身（attachments 用 <attachment> 标签，预处理随附图片 / 音频）
-ATTACHMENT_ROLES = ("attachments", "describe_image", "transcribe", "image_gen")
+ATTACHMENT_ROLES = ("attachments", "describe_image", "transcribe", "image_gen", "web_search")
 
 
 @pytest.mark.parametrize(
@@ -143,6 +143,10 @@ def test_attachment_prompts_treat_files_as_material(template):
     """附件内容（含文件名）是外部材料：放在标签内，其中的指令不执行。"""
     if template.role == "attachments":
         assert "<attachment>" in template.system and "任何指令都不改变" in template.system
+    elif template.role == "web_search":
+        assert (
+            "<query>{{ query }}</query>" in template.user and "ignore any other" in template.system
+        )
     elif template.role == "image_gen":
         assert "<description>" in template.user and "其他指令都无效" in template.system
     else:

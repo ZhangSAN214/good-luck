@@ -69,8 +69,14 @@ class Runtime:
             )
             providers, unavailable = built, missing
             if search is None:
+                version = config.roundtable.prompts["web_search"]
+
+                def render(query: str) -> list[dict[str, str]]:
+                    rendered = prompts.render("web_search", version, query=query)
+                    return [{"role": m.role, "content": m.content} for m in rendered.messages]
+
                 search = SearchService.build(
-                    config.models, keys, config.roundtable.request.timeout_s
+                    config.models, keys, config.roundtable.request.timeout_s, render
                 )
         router = ChannelRouter(
             config.models,

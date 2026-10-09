@@ -41,6 +41,8 @@ class FetchResponse:
 
 
 class SearchProvider(ABC):
+    supports_fetch = True  # 能否读取网页正文（fetch 工具）
+
     def __init__(self, name: str, spec: SearchProviderSpec) -> None:
         self.name = name
         self.spec = spec

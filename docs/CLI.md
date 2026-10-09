@@ -17,7 +17,7 @@ pip install -e .
 
 **代码运行环境**（让成员能运行 Python、画图、生成 Word / Excel / PPT / PDF）：`python scripts/setup_sandbox.py` 一次性安装（`start.bat` 会自动安装）。没装时成员仍可写文本文件、生成图片，只是不能运行代码。详见 `sandbox/README.md`。
 
-**联网搜索**：在 `.env` 中填写 `TAVILY_API_KEY` 后，成员可以搜索并读取网页，答案里用 [S1] 这样的编号注明来源（题目和搜索词会发给搜索服务）。没有填写时搜索工具自动关闭。
+**联网搜索**：默认使用 OpenRouter 自带的联网搜索（用已有的 `OPENROUTER_API_KEY`，不需要新账号），成员可以搜索，答案里用 [S1] 这样的编号注明来源（题目和搜索词会发给搜索服务）。如果还想让成员读取网页全文，在 `.env` 中填写 `TAVILY_API_KEY`（Tavily 同时作为备选搜索服务）。
 
 ## 2. 填写 key
 

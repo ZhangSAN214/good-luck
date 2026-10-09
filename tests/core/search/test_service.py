@@ -44,3 +44,21 @@ async def test_no_key_means_unavailable():
     with pytest.raises(SearchUnavailable):
         await service.search("q", 3)
     assert "search_providers" in SearchService({}).reason()
+
+
+async def test_fetch_skips_providers_without_fetch():
+    from roundtable.core.search.openrouter import OpenRouterSearch
+
+    no_fetch = OpenRouterSearch(
+        "or",
+        SearchProviderSpec(adapter="openrouter", base_url="https://x.test", params={"model": "m"}),
+        None,
+        10,
+    )
+    tavily_like = fake("t")
+    service = SearchService({"or": no_fetch, "t": tavily_like})
+    assert service.can_fetch
+    _, call = await service.fetch(["https://x/1"], 100)
+    assert call.provider == "t"
+    assert not SearchService({"or": no_fetch}).can_fetch
+    await no_fetch.aclose()

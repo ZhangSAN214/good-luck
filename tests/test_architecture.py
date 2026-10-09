@@ -19,6 +19,7 @@ REVEAL_ALLOWED = {
     "src/roundtable/core/providers/gemini.py",
     "src/roundtable/core/providers/anthropic_adapter.py",
     "src/roundtable/core/search/tavily.py",
+    "src/roundtable/core/search/openrouter.py",
 }
 
 SECRET_PATTERNS = [

@@ -227,8 +227,19 @@ models:
         params: {modalities: [image, text]}
 
 # 联网搜索服务（成员的 search / fetch 工具），按顺序优先使用；没有 key 的自动跳过
-# 价格：美元 / 次（第三方汇总的 2026 年按量价格：基础搜索 1 积分 ≈ $0.008，读取网页 5 个 1 积分），请按实际套餐修改
 search_providers:
+  # 默认：OpenRouter 自带的联网搜索，与模型共用 OPENROUTER_API_KEY。
+  # 用一个便宜模型发起搜索、只取返回的来源；费用 = 搜索引擎按次收费（exa：每次 $0.007，
+  # 含最多 10 条结果）+ 该模型的少量 token 费，以响应中的实际费用为准。不支持读取网页正文。
+  # request: plugin（plugins: [{id: web}]，已标记为旧接口但仍可用）/ server_tool（openrouter:web_search）
+  openrouter:
+    adapter: openrouter
+    base_url: https://openrouter.ai/api/v1
+    key_env: OPENROUTER_API_KEY
+    price: {per_search: 0.0075, per_fetch: 0.0}   # 没有返回实际费用时的估计值
+    params: {model: openai/gpt-6-luna, engine: exa, request: plugin}
+  # 备选：Tavily（填了 TAVILY_API_KEY 才启用），支持读取网页正文（fetch）
+  # 价格：第三方汇总的 2026 年按量价格（基础搜索 1 积分 ≈ $0.008，读取网页 5 个 1 积分），请按实际套餐修改
   tavily:
     adapter: tavily
     base_url: https://api.tavily.com

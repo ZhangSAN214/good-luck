@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 import time
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 
 from roundtable.core.config import ModelsConfig
@@ -45,7 +45,14 @@ class SearchService:
         self.unavailable = dict(unavailable or {})
 
     @classmethod
-    def build(cls, models: ModelsConfig, keys: KeyRing, timeout_s: float) -> SearchService:
+    def build(
+        cls,
+        models: ModelsConfig,
+        keys: KeyRing,
+        timeout_s: float,
+        render: Callable[[str], list[dict[str, str]]] | None = None,
+    ) -> SearchService:
+        """render：搜索词 → 发给搜索用模型的消息（只有借助模型搜索的服务需要）。"""
         providers: dict[str, SearchProvider] = {}
         unavailable: dict[str, str] = {}
         for name, spec in models.search_providers.items():
@@ -56,12 +63,19 @@ class SearchService:
             if spec.key_env and key is None:
                 unavailable[name] = REASON_NO_KEY
                 continue
-            providers[name] = search_adapter(spec.adapter)(name, spec, key, timeout_s)
+            provider = search_adapter(spec.adapter)(name, spec, key, timeout_s)
+            if render is not None and hasattr(provider, "render"):
+                provider.render = render
+            providers[name] = provider
         return cls(providers, unavailable)
 
     @property
     def available(self) -> bool:
         return bool(self.providers)
+
+    @property
+    def can_fetch(self) -> bool:
+        return any(p.supports_fetch for p in self.providers.values())
 
     def reason(self) -> str:
         if self.available:
@@ -73,6 +87,8 @@ class SearchService:
     async def _run(self, op: str, *args) -> tuple[SearchResponse | FetchResponse, SearchCall]:
         attempts: list[Attempt] = []
         for name, provider in self.providers.items():
+            if op == "fetch" and not provider.supports_fetch:
+                continue
             start = time.monotonic()
             try:
                 result = await getattr(provider, op)(*args)
