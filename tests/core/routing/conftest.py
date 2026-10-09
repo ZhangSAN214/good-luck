@@ -77,14 +77,38 @@ def models_config(pool=POOL, disabled=(), with_media=False) -> ModelsConfig:
     )
 
 
-def app_config(pool=POOL, disabled=(), with_media=False, **routing_overrides) -> AppConfig:
+def with_pipeline(roundtable, enabled: bool):
+    """协同流水线开关。旧的协同测试默认关闭（沿用 v1 的拆分方式），流水线测试显式打开。"""
+    collab = roundtable.collab
+    return roundtable.model_copy(
+        update={
+            "collab": collab.model_copy(
+                update={"pipeline": collab.pipeline.model_copy(update={"enabled": enabled})}
+            )
+        }
+    )
+
+
+def app_config(
+    pool=POOL, disabled=(), with_media=False, pipeline=False, **routing_overrides
+) -> AppConfig:
     routing = (
         REPO.routing.model_copy(update=routing_overrides) if routing_overrides else REPO.routing
     )
     return AppConfig(
         models=models_config(pool, disabled, with_media),
-        roundtable=REPO.roundtable,
-        personas=REPO.personas,
+        roundtable=with_pipeline(REPO.roundtable, pipeline),
+        # 步骤测试用 "组员甲" 式代号：前缀放回去（真实配置里前缀为空，代号本身就是称呼）
+        personas=REPO.personas.model_copy(
+            update={
+                "code_prefix": "组员",
+                # 合成厂商的昵称：不含厂商名，否则"昵称·模式"会被当成泄露身份
+                "nicknames": {
+                    **{f"V{i}": f"阿{'零一二三四五六七八九'[i]}" for i in range(1, 7)},
+                    **{f"VM{i}": f"媒{'零一二三四五六七八九'[i]}" for i in range(1, 7)},
+                },
+            }
+        ),
         routing=routing,
     )
 

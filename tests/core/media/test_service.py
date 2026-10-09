@@ -93,7 +93,9 @@ async def test_speech_billed_per_character(rig: Rig):
         len(text) * 0.000015
     )  # 中文脚本 → 擅长中文的模型，按字符计价
     params = rig.calls("speech")[0][3]
-    assert params["voice"] == "alloy" and params["response_format"] == "mp3"
+    # 默认音色是模型自己配置的（models.yaml 的 params.voice），不是全局默认
+    assert params["voice"] == "loongjohn"
+    assert params["response_format"] == "mp3"
 
 
 async def test_reported_cost_wins_over_configured_price(rig: Rig):

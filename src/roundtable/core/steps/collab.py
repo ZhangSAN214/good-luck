@@ -14,6 +14,7 @@ import asyncio
 from collections.abc import Sequence
 
 from roundtable.core.allocation import shuffled
+from roundtable.core.config.schema import KindRule
 from roundtable.core.media import KIND_LABELS, KINDS, Placement
 
 from .base import (
@@ -47,6 +48,15 @@ from .collab_schemas import (
 )
 from .effort import record_effort, redo_call, text_problems
 from .media import media_gate, media_payload
+from .pipeline import (
+    ancestors,
+    assignment_conflicts,
+    build_template,
+    normalize_media,
+    pick_template,
+    pipeline_problems,
+    solve_assignment,
+)
 from .review import review_problems
 from .schemas import (
     CheckedReview,
@@ -85,8 +95,11 @@ def _save(ctx: TableContext, step: str, kind: str, content, code=None, call_id=N
     )
 
 
-def subtask_block(s: Subtask, tag: str = "subtask") -> str:
+def subtask_block(s: Subtask, tag: str = "subtask", ctx: TableContext | None = None) -> str:
     lines = [f"标题：{s.title}"]
+    rule = ctx.config.roundtable.collab.kinds.get(s.kind or "") if ctx is not None else None
+    if rule is not None:
+        lines.append(f"类型：{rule.label}")
     if s.requirements:
         lines.append(f"要求：{s.requirements}")
     if s.acceptance:
@@ -99,8 +112,67 @@ def subtask_block(s: Subtask, tag: str = "subtask") -> str:
     return f'<{tag} id="{s.id}">\n{body}\n</{tag}>'
 
 
-def subtasks_block(subtasks: Sequence[Subtask]) -> str:
-    return "\n\n".join(subtask_block(s) for s in subtasks)
+def subtasks_block(subtasks: Sequence[Subtask], ctx: TableContext | None = None) -> str:
+    return "\n\n".join(subtask_block(s, ctx=ctx) for s in subtasks)
+
+
+# --- 流水线辅助 ----------------------------------------------------------------
+
+
+def pipeline_wanted(ctx: TableContext) -> bool:
+    """成员够多且配置了类型与模板时，按流水线拆分（否则沿用旧的拆分方式）。"""
+    rules = ctx.config.roundtable.collab
+    return (
+        rules.pipeline.enabled
+        and bool(rules.kinds)
+        and bool(rules.templates)
+        and len(ctx.active) >= rules.pipeline.min_members
+    )
+
+
+def kind_rule(ctx: TableContext, s: Subtask) -> KindRule | None:
+    """流水线子任务的类型规则；旧流程的子任务（没有类型）返回 None。"""
+    if not _c(ctx).pipeline:
+        return None
+    return ctx.config.roundtable.collab.kinds.get(s.kind or "")
+
+
+def kinds_text(ctx: TableContext) -> str:
+    """给统筹的类型词表：每种类型的含义和规则（来自配置）。"""
+    kinds = ctx.config.roundtable.collab.kinds
+    lines = []
+    for name, k in kinds.items():
+        rules = []
+        rules.append(
+            "可按内容拆成多个平行子任务" if k.parallel else "只能一人负责，不能拆成平行子任务"
+        )
+        if k.needs:
+            rules.append(
+                "必须依赖「" + "、".join(kinds[x].label for x in k.needs) + "」类型的子任务"
+            )
+        if k.audit:
+            rules.append("必须依赖被审查的成果（非审查类子任务）")
+        if k.min_upstream:
+            rules.append(f"至少依赖 {k.min_upstream} 个上游子任务")
+        if k.requires_media:
+            rules.append("需要媒体生成模型，并标注 media")
+        if k.avoid_hard or k.avoid_soft:
+            rules.append(
+                "负责人不能同时负责上游的「"
+                + "、".join(kinds[x].label for x in [*k.avoid_hard, *k.avoid_soft])
+                + "」"
+            )
+        meaning = f"：{k.meaning}" if k.meaning else ""
+        lines.append(f"- {name}（{k.label}）{meaning}。{'；'.join(rules)}。")
+    return "\n".join(lines)
+
+
+def available_tools(ctx: TableContext) -> list[str]:
+    return ctx.toolbox.tools_for("work") if ctx.toolbox else []
+
+
+def has_image_attachment(ctx: TableContext) -> bool:
+    return any(a.kind == "image" for a in ctx.attachments)
 
 
 def _tags_at_table(ctx: TableContext) -> list[str]:
@@ -170,27 +242,105 @@ class DecomposeStep:
         rules = ctx.config.roundtable.collab
         tags = _tags_at_table(ctx)
         kinds = media_kinds(ctx)
-        prompt = ctx.render(
-            self.name,
+        pipeline = pipeline_wanted(ctx)
+        members = len(ctx.active)
+        values = dict(
             question=ctx.question.text,
-            member_count=str(len(ctx.active)),
+            member_count=str(members),
             max_subtasks=str(rules.max_subtasks),
             tags=", ".join(tags),
             media_kinds=media_kinds_text(kinds),
+            kinds=kinds_text(ctx),
         )
-        result = await call_and_parse(
+
+        def parse(text: str):
+            return parse_decomposition(
+                text,
+                max_subtasks=rules.max_subtasks,
+                vocabulary=tags,
+                media_kinds=kinds,
+                kinds=rules.kinds if pipeline else (),
+            )
+
+        def check(value) -> tuple[tuple[Subtask, ...], list[str]]:
+            value = normalize_media(value, rules, kinds)
+            return value, pipeline_problems(
+                value,
+                rules=rules,
+                members=members,
+                question=ctx.question.text,
+                media_available=kinds,
+            )
+
+        first = await call_and_parse(
             ctx,
             step=self.name,
             role="coordinator",
             model_id=coordinator,
-            prompt=prompt,
-            parse=lambda text: parse_decomposition(
-                text, max_subtasks=rules.max_subtasks, vocabulary=tags, media_kinds=kinds
-            ),
+            prompt=ctx.render(self.name, **values),
+            parse=parse,
         )
-        degraded = result.value is None
-        c.subtasks = result.value or fallback_decomposition()
-        c.subtasks_degraded = degraded
+        calls = 1
+        info: dict = {"source": "coordinator", "problems": []}
+        subtasks: tuple[Subtask, ...] | None = None
+        call_id = first.call_id
+        error = first.error
+        if not pipeline:
+            subtasks = first.value
+        else:
+            problems: list[str] = []
+            if first.value is not None:
+                value, problems = check(first.value)
+                if not problems:
+                    subtasks = value
+            else:
+                problems = [first.error or "输出格式不符，无法解析成 JSON"]
+            if subtasks is None:  # 不合格：把具体问题列给统筹，重拆一次
+                info["problems"] = problems
+                retry = await call_and_parse(
+                    ctx,
+                    step=self.name,
+                    role="coordinator",
+                    model_id=coordinator,
+                    prompt=ctx.render(
+                        "decompose_retry",
+                        **values,
+                        previous=first.raw_text or "（上次没有可用的输出）",
+                        problems="\n".join(f"- {p}" for p in problems),
+                    ),
+                    parse=parse,
+                )
+                calls += 1
+                call_id = retry.call_id
+                if retry.value is not None:
+                    value, again = check(retry.value)
+                    if not again:
+                        subtasks, info["source"] = value, "retry"
+                    else:
+                        info["retry_problems"] = again
+                else:
+                    info["retry_problems"] = [retry.error or "输出格式不符"]
+        degraded = subtasks is None
+        notes: tuple[str, ...] = ()
+        if subtasks is None and pipeline:
+            template = pick_template(
+                rules,
+                question=ctx.question.text,
+                image_attachment=has_image_attachment(ctx),
+                media_available=kinds,
+                tools=available_tools(ctx),
+            )
+            subtasks = build_template(template, members, rules.max_subtasks)
+            info.update(source="template", template=template.name, template_label=template.label)
+            why = "；".join(info.get("retry_problems") or info["problems"])
+            notes = (f"统筹两次都没有拆出合格的流水线（{why}），已按模板「{template.label}」生成",)
+        elif subtasks is None:
+            subtasks = fallback_decomposition()
+            notes = ("统筹的拆分不可用，整道题作为一个子任务由全员各自完成",)
+        elif info["source"] == "retry":
+            notes = ("统筹的第一次拆分不符合流水线规则，已按指出的问题重拆",)
+        c.subtasks, c.subtasks_degraded = subtasks, degraded
+        c.pipeline, c.pipeline_info = pipeline, info
         _save(
             ctx,
             self.name,
@@ -198,13 +348,14 @@ class DecomposeStep:
             {
                 "subtasks": [s.to_dict() for s in c.subtasks],
                 "degraded": degraded,
-                "error": result.error if degraded else None,
+                "error": error if degraded else None,
+                "pipeline": pipeline,
+                "info": info,
             },
-            call_id=result.call_id,
+            call_id=call_id,
         )
-        notes = ("统筹的拆分不可用，整道题作为一个子任务由全员各自完成",) if degraded else ()
         return StepResult(
-            self.name, calls=1, degraded=("coordinator",) if degraded else (), notes=notes
+            self.name, calls=calls, degraded=("coordinator",) if degraded else (), notes=notes
         )
 
 
@@ -220,7 +371,7 @@ class VolunteerStep:
         todo = [code for code in ctx.active if code not in c.volunteers]
         rule = ctx.effort_rule
         min_reason = ctx.config.roundtable.review_quality.min_checked_chars
-        block = subtasks_block(c.subtasks)
+        block = subtasks_block(c.subtasks, ctx)
         degraded: list[str] = []
         redone: list[str] = []
         notes: list[str] = []
@@ -330,7 +481,7 @@ class AssignStep:
         prompt = ctx.render(
             self.name,
             question=ctx.question.text,
-            subtasks=subtasks_block(c.subtasks),
+            subtasks=subtasks_block(c.subtasks, ctx),
             volunteers=volunteers_block(ctx),
             members="、".join(ctx.label(x) for x in codes),
         )
@@ -338,6 +489,8 @@ class AssignStep:
         best: Assignment | None = None
         call_id = None
         problems: list[str] = []
+        kinds = ctx.config.roundtable.collab.kinds
+        pipeline = c.pipeline
         for _ in range(2):  # 不符合规则时重新分配一次
             result = await call_and_parse(
                 ctx,
@@ -353,17 +506,31 @@ class AssignStep:
                 continue
             best = result.value
             problems = coverage_problems(best, codes)
+            if pipeline:
+                problems += self._pipeline_problems(ctx, best, codes)
             if not problems:
                 break
         degraded = best is None
-        assignment = repair_assignment(
-            best or Assignment({s: () for s in ids}, degraded=True),
-            codes,
-            c.subtasks,
-            c.volunteers,
-            _member_tags(ctx),
-            ctx.rng,
-        )
+        empty = Assignment({s: () for s in ids}, degraded=True)
+        if pipeline:
+            # 统筹的分配合格就原样采用；否则只作为起点，由代码按流水线规则重新求解
+            assignment = (
+                best
+                if best is not None and not problems
+                else solve_assignment(
+                    best or empty,
+                    codes,
+                    c.subtasks,
+                    c.volunteers,
+                    _member_tags(ctx),
+                    kinds,
+                    ctx.rng,
+                )
+            )
+        else:
+            assignment = repair_assignment(
+                best or empty, codes, c.subtasks, c.volunteers, _member_tags(ctx), ctx.rng
+            )
         c.assignment = assignment
         _save(ctx, self.name, "assignment", assignment.to_dict(), call_id=call_id)
         notes = []
@@ -375,6 +542,18 @@ class AssignStep:
             degraded=("coordinator",) if degraded else (),
             notes=tuple(notes),
         )
+
+    @staticmethod
+    def _pipeline_problems(ctx: TableContext, a: Assignment, codes: Sequence[str]) -> list[str]:
+        """流水线的分配规则：每块恰好一人（子任务够分时）、不可并行的类型一人、审查者回避上游作者。"""
+        c = _c(ctx)
+        found: list[str] = []
+        if len(c.subtasks) >= len(codes):
+            multi = [s for s, owners in a.owners.items() if len(owners) > 1]
+            if multi:
+                found.append(f"这些子任务有多人负责（应恰好一人，不能几个人做同一份内容）：{multi}")
+        hard, soft = assignment_conflicts(a.owners, c.subtasks, ctx.config.roundtable.collab.kinds)
+        return [*found, *hard, *soft]
 
 
 # --- 完成子任务 -----------------------------------------------------------------
@@ -389,18 +568,104 @@ def plan_block(ctx: TableContext) -> str:
     return "<plan>\n" + neutralize("\n".join(lines), TAGS) + "\n</plan>"
 
 
-def dependencies_block(ctx: TableContext, subtask: Subtask) -> str:
+def _attr(text: str) -> str:
+    return " ".join(text.split()).replace('"', "'").replace("<", "‹").replace(">", "›")
+
+
+def upstream_files(ctx: TableContext, subtask: Subtask) -> list[tuple[str, str, dict]]:
+    """依赖链上游子任务的负责人生成的文件（最新版本）：(上游子任务, 作者, 文件行)。"""
+    c = _c(ctx)
+    anc = ancestors(c.subtasks).get(subtask.id, set())
+    seen: set[str] = set()
+    found = []
+    for s in c.subtasks:  # 子任务顺序，同一个文件只算一次
+        if s.id not in anc:
+            continue
+        for (sid, author), _ in c.latest().items():
+            if sid != s.id:
+                continue
+            for row in ctx.latest_files(author):
+                if row["id"] not in seen:
+                    seen.add(row["id"])
+                    found.append((sid, author, row))
+    return found
+
+
+def stage_inputs(ctx: TableContext, subtask: Subtask, code: str) -> dict[str, str]:
+    """把上游生成的文件放进负责人的工作目录 in/（没有工具环境时不放）。
+
+    返回 文件 id → in/ 下的文件名。
+    """
+    if ctx.toolbox is None or not _c(ctx).pipeline:
+        return {}
+    rows = upstream_files(ctx, subtask)
+    if not rows:
+        return {}
+    labels = {row["id"]: sid for sid, _, row in rows}
+    return ctx.toolbox.workspace(code).add_inputs([row for _, _, row in rows], labels)
+
+
+def dependencies_block(
+    ctx: TableContext,
+    subtask: Subtask,
+    code: str | None = None,
+    inputs: dict[str, str] | None = None,
+) -> str:
+    """上游产出：每块标明来自哪个子任务、谁交的、交的是什么；上游生成的文件写成 in/ 下的路径。"""
     c = _c(ctx)
     latest = c.latest()
+    titles = {s.id: s.title for s in c.subtasks}
+    by_id = {s.id: s for s in c.subtasks}
     parts = []
     for dep in subtask.depends_on:
-        for (sid, code), text in latest.items():
-            if sid == dep:
-                body = neutralize(ctx.scrub(text + ctx.member_notes(code)), TAGS)
-                parts.append(
-                    f'<dependency subtask="{dep}" from="{ctx.label(code)}">\n{body}\n</dependency>'
-                )
+        for (sid, author), text in latest.items():
+            if sid != dep:
+                continue
+            if c.pipeline:
+                note = ctx.files_note(author, inputs) + ctx.sources_note(author)
+            else:
+                note = ctx.member_notes(author)
+            body = neutralize(ctx.scrub(text + note), TAGS)
+            attrs = f'subtask="{dep}" from="{ctx.label(author)}"'
+            if c.pipeline:
+                gives = _attr(subtask.handoff(dep, titles))
+                kind = kind_rule(ctx, by_id[dep]) if dep in by_id else None
+                attrs += f' gives="{gives}"' + (f' kind="{kind.label}"' if kind else "")
+            parts.append(f"<dependency {attrs}>\n{body}\n</dependency>")
     return "\n\n".join(parts) or "（这个子任务没有前置依赖）"
+
+
+def record_handoffs(ctx: TableContext, subtask: Subtask, code: str, inputs: dict[str, str]) -> None:
+    """下游子任务开始时记录交接：谁把什么交给了谁（只含代号，匿名揭晓前也安全）。"""
+    c = _c(ctx)
+    titles = {s.id: s.title for s in c.subtasks}
+    done = {(h["from_subtask"], h["from_code"], h["to_subtask"], h["to_code"]) for h in c.handoffs}
+    for dep in subtask.depends_on:
+        for sid, author in [k for k in c.works if k[0] == dep]:
+            if (sid, author, subtask.id, code) in done:
+                continue
+            record = {
+                "from_subtask": sid,
+                "from_code": author,
+                "to_subtask": subtask.id,
+                "to_code": code,
+                "gives": subtask.handoff(dep, titles),
+                "files": [
+                    {"id": row["id"], "name": row["path"], "kind": row["kind"]}
+                    for row in ctx.latest_files(author)
+                ],
+            }
+            c.handoffs.append(record)
+            _save(ctx, "work", "handoff", record, code=code)
+            ctx.emit(
+                "handoff",
+                "work",
+                code,
+                from_code=author,
+                from_subtask=sid,
+                to_subtask=subtask.id,
+                gives=record["gives"],
+            )
 
 
 class WorkStep:
@@ -433,18 +698,27 @@ class WorkStep:
             subtask = by_id[sid]
             medium = subtask.media if ctx.media is not None else None
             item = {v: k for k, v in c.items().items()}[(sid, code)]  # 可能刚改派过
+            krule = kind_rule(ctx, subtask)
+            inputs = stage_inputs(ctx, subtask, code) if krule else {}
+            if krule:
+                record_handoffs(ctx, subtask, code, inputs)
             values = dict(
                 code=ctx.label(code),
                 question=ctx.question.text,
                 plan=plan_block(ctx),
-                subtask=subtask_block(subtask, "your_subtask"),
-                dependencies=dependencies_block(ctx, subtask),
+                subtask=subtask_block(subtask, "your_subtask", ctx),
+                dependencies=dependencies_block(ctx, subtask, code, inputs),
             )
-            prompt = (
-                media_prompt(ctx, "work_media", medium, **values)
-                if medium
-                else ctx.render(self.name, **values)
-            )
+            if krule:
+                template = ctx.prompts.get(krule.prompt, ctx.prompt_version(krule.prompt))
+                extra = {"medium": KIND_LABELS[medium]} if medium else {}
+                prompt = template.render(
+                    **{k: v for k, v in {**values, **extra}.items() if k in template.variables}
+                )
+            elif medium:
+                prompt = media_prompt(ctx, "work_media", medium, **values)
+            else:
+                prompt = ctx.render(self.name, **values)
             model_id = ctx.members[code]
             out = await call_model(
                 ctx, step=self.name, role="member", model_id=model_id, prompt=prompt, code=code
@@ -839,7 +1113,7 @@ class ReworkStep:
                 values = dict(
                     code=ctx.label(code),
                     question=ctx.question.text,
-                    subtask=subtask_block(by_id[sid], "your_subtask"),
+                    subtask=subtask_block(by_id[sid], "your_subtask", ctx),
                     own_work=original,
                     reviews_of_you=ctx.scrub(block),
                 )
@@ -989,7 +1263,7 @@ class MergeStep:
         prompt = ctx.render(
             self.name,
             question=ctx.question.text,
-            subtasks=subtasks_block(c.subtasks),
+            subtasks=subtasks_block(c.subtasks, ctx),
             works=works_block(ctx),
         )
         result = await call_and_parse(

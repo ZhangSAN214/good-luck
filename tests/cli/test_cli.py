@@ -3,13 +3,17 @@
 from __future__ import annotations
 
 import io
+import re
 
 import pytest
 
 from roundtable.cli import run
+from roundtable.core.config import load_config
 from roundtable.core.runtime import Runtime
 
 from ..core.orchestrator.conftest import MEDIUM, SHORT, Env
+
+TAROT = set(load_config().personas.codes)
 
 
 class Answers:
@@ -56,7 +60,9 @@ async def test_ask_full_flow_anonymous_until_reveal():
     assert code == 0
     for term in identity_terms(env):
         assert not mentions(text, term), term
-    assert "组员甲" in text and "【最终答案】" in text and "最大值 2，最小值 -2" in text
+    assert (
+        any(c in text for c in TAROT) and "【最终答案】" in text and "最大值 2，最小值 -2" in text
+    )
     assert "【共识】" in text and "【分歧】" in text
     assert "稍后可用 roundtable reveal" in text
 
@@ -77,7 +83,7 @@ async def test_not_anonymous_by_default_shows_models_throughout():
     assert code == 0
     progress = text.split("═")[0]  # 实时进度部分
     assert any(mentions(progress, m) for m in ("b1", "b2", "b3"))  # 上桌时就显示模型
-    assert "组员甲（" in text and "统筹（" in text
+    assert "·节电（" in text and "（统筹）（" in text  # 昵称·模式（统筹）（模型）
     assert "上桌的模型与每次调用" in text and "渠道：c" in text
     assert "按回车揭晓身份" not in text and "roundtable reveal" not in text
     code, text = await cli(env, "reveal", env.rt.repo.list_sessions()[0].id)
@@ -94,7 +100,7 @@ async def test_checkpoint_enter_takes_recommendation():
 
 async def test_checkpoint_number_and_invalid_input():
     env = Env(confirm_threshold_usd=0.0001)
-    # 卡片选项：1 继续、2 改用便宜档全员、3 停止
+    # 卡片选项：1 继续、2 改用节电模式、3 停止
     answers = Answers("9", "abc", "3")
     code, text = await cli(env, "ask", SHORT, "--tier", "flagship", answers=answers)
     assert code == 1 and text.count("无效的输入") == 2
@@ -113,13 +119,13 @@ async def test_custom_models_flag():
         env, "ask", SHORT, "--models", "b1,b2,f1", "--coordinator", "f1", "--no-reveal"
     )
     assert code == 0 and "自选（2 位组员 + 统筹）" in text
-    assert "统筹（f1）" in text
+    assert "（统筹）（f1）" in text
 
 
 async def test_flagship_tier_flag():
     env = Env(confirm_threshold_usd=100.0)
     code, text = await cli(env, "ask", SHORT, "--tier", "flagship", "--anonymous", "--no-reveal")
-    assert code == 0 and "旗舰档全员（4 位组员 + 统筹）" in text
+    assert code == 0 and "全力模式（4 位组员 + 统筹）" in text
 
 
 async def test_unknown_model_or_tier_is_reported():
@@ -164,7 +170,7 @@ async def test_models_history_show_reveal_commands():
     code, text = await cli(env, "show", sid)
     assert code == 0 and not any(mentions(text, t) for t in identity_terms(env))
     code, text = await cli(env, "reveal", sid)
-    assert code == 0 and "组员甲 = " in text
+    assert code == 0 and re.search(r"组员\S+ = b\d", text)
 
 
 async def test_show_contributions_and_stats():
@@ -267,7 +273,7 @@ async def test_show_costs_and_export_utf8(tmp_path):
     assert raw.startswith(b"\xef\xbb\xbf")  # UTF-8 BOM：Windows 记事本 / PowerShell 能识别
     content = raw.decode("utf-8-sig")
     assert "【最终答案】" in content and "【花费明细】" in content
-    assert "组员甲 的答案" in content  # 导出包含每位成员的产出
+    assert re.search(r"组员\S+ 的答案", content)  # 导出包含每位成员的产出
 
 
 def test_main_writes_utf8_even_when_stream_is_not(monkeypatch, capsys):
@@ -333,14 +339,14 @@ async def test_estimate_command_and_ask_preview():
     env = Env(confirm_threshold_usd=100.0)
     code, text = await cli(env, "estimate", MEDIUM, "--seed", "5")
     assert code == 0 and env.fake.calls == []
-    assert "提交前预估" in text and "▶ 讨论 · 便宜档全员" in text and "协同 · 旗舰档全员" in text
+    assert "提交前预估" in text and "▶ 讨论 · 节电模式" in text and "协同 · 全力模式" in text
     assert "上桌：" in text and "随机种子：5" in text
     code, text = await cli(env, "estimate", MEDIUM, "--anonymous")
     assert "上桌：" not in text
     for term in identity_terms(env):
         assert not mentions(text, term), term
     code, text = await cli(env, "ask", MEDIUM, "--mode", "collab", "--seed", "5")
-    assert code == 0 and "提交前预估" in text and "▶ 协同 · 便宜档全员" in text
+    assert code == 0 and "提交前预估" in text and "▶ 协同 · 节电模式" in text
     assert "讨论 · " not in text.split("题目：")[1].split("档位：")[0]  # ask 只列所选模式
 
 
@@ -402,3 +408,26 @@ async def test_media_flag_rejected_in_collab():
     env = Env(with_media=True)
     code, text = await cli(env, "ask", MEDIUM, "--mode", "collab", "--media", "image")
     assert code == 2 and "协同模式" in text
+
+
+async def test_collab_pipeline_shows_kinds_and_handoff_chain():
+    """流水线：子任务带类型，show 里有交接链；token 用量显示为大米。"""
+    from ..core.orchestrator.test_media import script
+    from ..core.orchestrator.test_pipeline import WHOLE
+
+    env = Env(confirm_threshold_usd=100.0, pipeline=True)
+    script(
+        env,
+        **{"把任务拆成子任务": lambda m, msgs: WHOLE, "没有通过代码检查": lambda m, msgs: WHOLE},
+    )
+    code, text = await cli(env, "ask", MEDIUM, "--mode", "collab", "--details", "--seed", "5")
+    assert code == 0
+    assert "【子任务与分工】" in text and "[分析]" in text and "[整合]" in text
+    assert "已按模板「文档」生成" in text
+    assert "【交接链】" in text and "把〈提纲与要点〉交给" in text
+    sid = env.rt.repo.list_sessions(1)[0].id
+    code, costs = await cli(env, "show", sid, "--costs")
+    assert (
+        code == 0 and "token" not in costs and re.search(r"输入 [\d.]+ 粒 / 输出 [\d.]+ 粒", costs)
+    )
+    assert "$" in costs  # 金额仍是美元

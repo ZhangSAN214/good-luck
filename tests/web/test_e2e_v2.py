@@ -99,7 +99,7 @@ def test_estimate_before_submit_and_over_threshold(serve, page):
     page.fill("#ask", MEDIUM)
     page.wait_for_selector("#estimate table")
     est = page.inner_text("#estimate")
-    for label in ("便宜档全员", "旗舰档全员"):
+    for label in ("节电模式", "全力模式"):
         assert label in est
     assert page.locator("#estimate tr.sel").count() == 1
     assert page.locator("#estimate tr.over-row").count() >= 1  # 超过门槛的标红
@@ -194,7 +194,7 @@ def test_tool_output_and_files_hide_identity_until_reveal(serve, page):
     page.locator(".fchip:has-text('who.md') button[data-preview]").first.click()
     page.wait_for_selector("#viewer[open] pre")
     parts.append(page.inner_text("#viewer"))
-    assert leaks(srv.identity_terms(), "\n".join(parts)) == []
+    assert leaks(srv.anonymous_terms(), "\n".join(parts)) == []
 
 
 def test_search_sources_become_links(serve, page):
@@ -266,6 +266,7 @@ def test_twelve_seats_do_not_overlap(serve, browser):
         ask(page, MEDIUM)
         wait_done(page)
         assert page.locator("#stage.dense").count() == 1
+        page.wait_for_timeout(500)  # 讨论刚结束时圆桌会重绘一次，等它稳定再量位置
         seats = page.locator("#stage .seat")
         assert seats.count() == 12 + 1 + 1  # 12 位组员 + 统筹 + 你
         boxes = [seats.nth(i).bounding_box() for i in range(seats.count())]

@@ -236,7 +236,7 @@ def parse_revision(text: str) -> Revision | None:
 
 _DECISION_WORDS = {"部分采纳": "partial", "不采纳": "rejected", "采纳": "accepted"}
 _DECISION_LINE = re.compile(
-    r"^[\s\-*•·]*(?P<who>[^\s·・:：]+?)\s*(?:[·・\-—]\s*问题\s*(?P<n>\d+)\s*)?[:：]\s*"
+    r"^[\s\-*•·]*(?P<who>[^:：]+?)\s*(?:[·・\-—]\s*问题\s*(?P<n>\d+)\s*)?[:：]\s*"
     r"(?P<d>部分采纳|不采纳|采纳)"
 )
 
@@ -246,7 +246,7 @@ def parse_decisions(
 ) -> tuple[ReviewDecision, ...]:
     """从"对审阅意见的回应"中解析逐条的采纳情况；格式不符的行忽略（不计入贡献）。
 
-    每行形如"- 组员乙 · 问题 1：采纳 —— 理由"或"- 组员丙：不采纳 —— 理由"。
+    每行形如"- 鲸鱼娘·全力 · 问题 1：采纳 —— 理由"或"- 愚者：不采纳 —— 理由"（称呼可含"·"）。
     同一评审者的同一问题只取第一次出现的回应。
     """
     seen: dict[tuple[str, int | None], ReviewDecision] = {}

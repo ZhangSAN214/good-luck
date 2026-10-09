@@ -31,12 +31,21 @@ def planner(difficulty: str = "medium"):
 
 class Env:
     def __init__(
-        self, difficulty="medium", resolved=True, pool=None, with_media=False, **routing_overrides
+        self,
+        difficulty="medium",
+        resolved=True,
+        pool=None,
+        with_media=False,
+        pipeline=False,
+        **routing_overrides,
     ):
         self.difficulty = difficulty
         self.resolved = resolved
         self.config = app_config(
-            **({"pool": pool} if pool else {}), with_media=with_media, **routing_overrides
+            **({"pool": pool} if pool else {}),
+            with_media=with_media,
+            pipeline=pipeline,
+            **routing_overrides,
         )
         self.fake = FakeProvider("c", default=self.reply)
         policy = self.config.roundtable.request.model_copy(update={"backoff_s": 0})

@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import socket
 import threading
 import time
@@ -84,12 +85,19 @@ class Server:
             terms |= {m.id, m.vendor, *m.aliases}
         return terms
 
+    def anonymous_terms(self) -> set[str]:
+        """匿名进行中界面上不能出现的名称：模型 id、厂商、别称、渠道，以及厂商昵称。"""
+        assert self.env is not None
+        return self.identity_terms() | set(self.env.config.personas.nicknames.values())
+
 
 @pytest.fixture(scope="session")
 def browser():
     with sync_api.sync_playwright() as p:
         try:
-            b = p.chromium.launch()
+            # ROUNDTABLE_CHROMIUM：指定已安装的 Chromium 可执行文件（与 playwright 版本不匹配时用）
+            path = os.environ.get("ROUNDTABLE_CHROMIUM") or None
+            b = p.chromium.launch(executable_path=path)
         except Exception as exc:  # noqa: BLE001 - 没有浏览器时跳过
             pytest.skip(f"无法启动 Chromium：{exc}")
         yield b

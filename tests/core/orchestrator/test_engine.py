@@ -7,6 +7,7 @@ from dataclasses import asdict
 
 import pytest
 
+from roundtable.core.allocation import display_name
 from roundtable.core.orchestrator import OrchestratorError
 from roundtable.core.providers import ErrorKind
 from roundtable.core.routing import Question, UserChoice
@@ -341,10 +342,12 @@ async def test_not_anonymous_by_default_shows_identity(env):
 
 
 async def test_models_only_see_codes_even_when_not_anonymous(env):
-    """匿名开关只管界面：发给模型的内容在两种情况下都只用代号、无任何身份。"""
+    """发给模型的内容在两种情况下都没有模型 id、厂商名；匿名关闭时成员互称"昵称·模式"（那是称呼，
+    不是自报身份），匿名开启时只有塔罗牌代号。"""
     terms = set(env.config.models.channels)
     for m in env.config.models.models:
         terms |= {m.id, m.vendor, *m.aliases}
+    display = sorted({display_name(m.id, env.config) for m in env.config.models.models}, key=len)
     for anonymous in (False, True):
         env.fake.calls.clear()
         await env.orc.start(Question(MEDIUM), seed=12, anonymous=anonymous)
@@ -355,6 +358,9 @@ async def test_models_only_see_codes_even_when_not_anonymous(env):
         for c in peer_steps:
             # 组员自己的答案原文会带模型名（Fake 的回复格式），转给别人之前必须遮蔽
             sent = "\n".join(m.content for m in c.messages)
+            if not anonymous:
+                for name in reversed(display):  # 称呼里的昵称、模式名不算
+                    sent = sent.replace(name, "")
             own = c.model
             found = [
                 t

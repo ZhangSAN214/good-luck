@@ -7,9 +7,12 @@ import re
 
 import pytest
 
+from roundtable.core.config import load_config
 from roundtable.core.service import RoundtableService, ServiceError
 
 from ..orchestrator.conftest import MEDIUM, SHORT, Env
+
+TAROT = set(load_config().personas.codes)
 
 
 def make(**kw) -> tuple[Env, RoundtableService]:
@@ -165,7 +168,7 @@ async def test_status_and_budget():
     sid = svc.create(SHORT, seed=1)
     await svc.wait(sid)
     status = svc.status()
-    assert status["plans"] == {"budget": "便宜档全员", "flagship": "旗舰档全员"}
+    assert status["plans"] == {"budget": "节电模式", "flagship": "全力模式"}
     assert status["default_plan"] == "budget" and status["custom_label"] == "自选"
     assert status["min_members"] == 2
     assert any(m["available"] for m in status["models"])
@@ -208,11 +211,11 @@ async def test_session_tables_show_plan_and_progress_without_models():
     tables = svc.session(sid)["tables"]
     assert [t["table_no"] for t in tables] == [0, 1]
     first, second = tables
-    assert first["plan"] == "budget" and first["plan_label"] == "便宜档全员"
+    assert first["plan"] == "budget" and first["plan_label"] == "节电模式"
     assert first["steps_done"] == first["pipeline"]
-    assert first["codes"] == ["甲", "乙"] and first["estimate_usd"] > 0
+    assert len(first["codes"]) == 2 and set(first["codes"]) <= TAROT and first["estimate_usd"] > 0
     assert second["plan"] == "flagship" and second["escalation_reason"]
-    assert second["codes"] == ["甲", "乙", "丙", "丁"]
+    assert len(second["codes"]) == 4 and set(second["codes"]) <= TAROT
     assert leaks(env, tables) == []
 
 
@@ -229,7 +232,7 @@ async def test_session_contributions_and_history():
     await svc.wait(sid)
     data = svc.session(sid)
     rows = data["contributions"]
-    assert {r["code"] for r in rows} == {"甲", "乙"}
+    assert len({r["code"] for r in rows}) == 2 and {r["code"] for r in rows} <= TAROT
     assert all(r["model_id"] is None for r in rows)  # 匿名未揭晓：不含模型
     assert all(r["counts"]["answered"] == 1 for r in rows)
     assert leaks(env, rows) == []
@@ -263,3 +266,80 @@ async def test_collab_session_over_service():
     assert svc.status()["workflows"] == {"discussion": "讨论模式", "collab": "协同模式"}
     with pytest.raises(ServiceError, match="未知的模式"):
         svc.create(MEDIUM, workflow="debate")
+
+
+# --- 称呼：匿名 = 塔罗牌，匿名关闭 = 昵称·模式 ---------------------------------------
+
+
+def nickname_terms(env: Env) -> set[str]:
+    return set(env.config.personas.nicknames.values())
+
+
+async def test_anonymous_session_never_shows_nicknames_models_or_vendors():
+    """匿名开启：事件、会话详情、贡献、发给模型的每条消息里都没有昵称、模型 id、厂商名。"""
+    env, svc = make(confirm_threshold_usd=100.0)
+    sid = svc.create(MEDIUM, seed=4, anonymous=True)
+    events = await collect(svc, sid)
+    data = svc.session(sid)
+    terms = identity_terms(env) | nickname_terms(env)
+
+    def found(text: str, allowed=()) -> list[str]:
+        return [
+            t
+            for t in terms - set(allowed)
+            if re.search(rf"(?<![0-9A-Za-z]){re.escape(t)}(?![0-9A-Za-z])", text)
+        ]
+
+    for name, payload in (
+        ("events", events),
+        ("session", data),
+        ("contributions", data["contributions"]),
+        ("history", svc.contributions()),
+    ):
+        assert found(json.dumps(payload, ensure_ascii=False, default=str)) == [], name
+    assert set(data["tables"][0]["codes"]) <= TAROT
+    assert all("label" not in s for s in data["seats"])  # 统筹没有昵称称呼
+    sent = [c for c in env.fake.calls if "规划员" not in c.messages[0].content]
+    assert sent
+    for call in sent:
+        text = "\n".join(m.content for m in call.messages)
+        assert found(text, allowed={call.model}) == [], (
+            call.model
+        )  # 自己的答案里有自己的 id（Fake 的格式）
+        assert not any(n in text for n in nickname_terms(env))
+    # 揭晓后才能看到模型
+    svc.reveal_identities(sid)
+    assert any(s["model_id"] for s in svc.session(sid)["seats"])
+
+
+async def test_non_anonymous_members_are_named_by_nickname_and_mode():
+    env, svc = make(confirm_threshold_usd=100.0)
+    sid = svc.create(MEDIUM, seed=2, tier="budget")
+    await svc.wait(sid)
+    data = svc.session(sid)
+    codes = data["tables"][0]["codes"]
+    assert all(c.endswith("·节电") and c.split("·")[0] in nickname_terms(env) for c in codes)
+    coordinator = next(s for s in data["seats"] if s["role"] == "coordinator")
+    assert coordinator["label"].endswith("·节电（统筹）")
+    assert coordinator["label"].split("·")[0] in nickname_terms(env)
+    # 成员之间互相称呼也用昵称：评审者收到的答案标签是昵称，不是模型 id
+    review_calls = [c for c in env.fake.calls if "审阅每一份答案" in c.messages[0].content]
+    assert review_calls
+    text = "\n".join(m.content for m in review_calls[0].messages)
+    assert any(c in text for c in codes)
+    for m in env.config.models.models:
+        assert m.id not in text.replace(review_calls[0].model, "")
+
+
+def test_status_carries_rice_ratios_and_mode_names():
+    env, svc = make()
+    status = svc.status()
+    assert status["rice"] == {
+        "grain_name": "粒",
+        "spoon_name": "勺",
+        "bowl_name": "碗",
+        "grain_tokens": 1000,
+        "spoon_grains": 100,
+        "bowl_spoons": 30,
+    }
+    assert status["plans"] == {"budget": "节电模式", "flagship": "全力模式"}

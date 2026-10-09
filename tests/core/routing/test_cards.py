@@ -27,7 +27,7 @@ async def test_cost_card_offers_other_tiers(env):
     assert card.kind == "cost" and card.recommendation == "continue"
     assert card.option_keys() == ["continue", "plan:budget", "stop"]
     assert card.options[0].cost_usd == d.estimate.total_usd
-    assert "旗舰档全员" in card.situation and "4 位组员 + 1 位统筹" in card.situation
+    assert "全力模式" in card.situation and "4 位组员 + 1 位统筹" in card.situation
 
 
 async def test_cost_card_for_custom_choice(env):

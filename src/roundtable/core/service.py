@@ -15,6 +15,7 @@ from collections.abc import AsyncIterator, Sequence
 from dataclasses import asdict
 from typing import Any
 
+from roundtable.core.allocation import coordinator_name, display_name
 from roundtable.core.attachments import Attachment, UploadError, ingest
 from roundtable.core.attachments.detect import TYPES as UPLOAD_TYPES
 from roundtable.core.media import KIND_LABELS, KINDS, MediaService
@@ -114,6 +115,8 @@ class RoundtableService:
             "confirm_threshold_usd": cfg.routing.confirm_threshold_usd,
             "max_members": cfg.roundtable.seats,
             "code_prefix": cfg.personas.code_prefix,
+            "rice": cfg.roundtable.display.rice.model_dump(),
+            "collab_kinds": {name: k.label for name, k in cfg.roundtable.collab.kinds.items()},
             "budget": self.budget(),
         }
 
@@ -383,6 +386,10 @@ class RoundtableService:
         data["pending_checkpoint"] = next(
             (c for c in data["checkpoints"] if c["status"] == "pending"), None
         )
+        if not view.anonymous:  # 匿名关闭：统筹显示为"昵称·模式（统筹）"（成员的代号本身就是昵称）
+            for seat in data["seats"]:
+                if seat["role"] == "coordinator" and seat["model_id"]:
+                    seat["label"] = coordinator_name(seat["model_id"], self.rt.config)
         data["can_reveal"] = view.anonymous and view.status in REVEALABLE and not view.revealed
         data["tables"] = self._tables(session_id)
         data["contributions"] = self._contributions(session_id, view.revealed)
@@ -547,7 +554,13 @@ class RoundtableService:
         by_model: dict[str, dict[str, Any]] = {}
         for r in self.rt.repo.contribution_history():
             row = by_model.setdefault(
-                r["model_id"], {"model_id": r["model_id"], "sessions": 0, "counts": {}}
+                r["model_id"],
+                {
+                    "model_id": r["model_id"],
+                    "label": display_name(r["model_id"], self.rt.config),  # 昵称·模式
+                    "sessions": 0,
+                    "counts": {},
+                },
             )
             row["counts"][r["kind"]] = r["amount"]
             row["sessions"] = max(row["sessions"], r["sessions"])

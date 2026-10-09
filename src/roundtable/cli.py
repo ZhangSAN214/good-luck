@@ -1,7 +1,7 @@
 """命令行试用：用真实模型跑一场圆桌。
 
-    roundtable ask "题目"                         # 便宜档全员上桌
-    roundtable ask --tier flagship "题目"         # 旗舰档全员上桌
+    roundtable ask "题目"                         # 节电模式（便宜档全员）上桌
+    roundtable ask --tier flagship "题目"         # 全力模式（旗舰档全员）上桌
     roundtable ask --models a,b,c "题目"          # 自选上桌的模型
     roundtable ask --anonymous "题目"             # 匿名：结束前只显示代号
     roundtable ask --mode collab "题目"           # 协同：拆分子任务、分工完成、合并
@@ -34,8 +34,10 @@ from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any, TextIO
 
+from roundtable.core.allocation import coordinator_name, display_name
 from roundtable.core.attachments import UploadError, ingest
 from roundtable.core.config import ConfigError
+from roundtable.core.display import format_rice
 from roundtable.core.orchestrator import Orchestrator, OrchestratorError, RunResult
 from roundtable.core.routing import (
     CUSTOM,
@@ -151,9 +153,18 @@ class CLI:
         return to_terminal(text) if self.plain_math else text
 
     def label(self, code: str | None, table_no: int = 0) -> str:
-        base = f"{self.prefix}{code}" if code else "统筹"
         model = self.names.get((table_no, code))
+        if code:
+            base = f"{self.prefix}{code}"
+        elif model:  # 匿名关闭 / 已揭晓：统筹显示为"昵称·模式（统筹）"
+            base = coordinator_name(model, self.rt.config)
+        else:
+            base = "统筹"
         return f"{base}（{model}）" if model else base
+
+    def rice(self, tokens: int) -> str:
+        """token 用量显示为"大米"（金额仍是美元）。"""
+        return format_rice(tokens, self.rt.config.roundtable.display.rice)
 
     def load_names(self, sid: str) -> None:
         """身份可以显示时（匿名关闭，或已揭晓）记下各座位对应的模型。"""
@@ -326,7 +337,7 @@ class CLI:
             self.p(f"\n错误：{view.error}")
 
     def print_costs(self, sid: str) -> None:
-        """花费明细：每桌每步的预估与实际（调用次数、输入 / 输出 token），以及每次调用。"""
+        """花费明细：每桌每步的预估与实际（调用次数、输入 / 输出用量，单位大米），以及每次调用。"""
         view = self.rt.repo.session_view(sid, scrub=self.rt.scrubber.scrub)
         estimates = {t["table_no"]: t["estimate"] for t in self.rt.repo.tables(sid)}
         self.p("\n【花费明细】")
@@ -361,7 +372,7 @@ class CLI:
                 self.p(
                     f"    {STEP_NAMES.get(step, step)}：预估 ${planned:.4f}"
                     f"，实际 ${sum(c.cost_usd for c in cs):.4f}"
-                    f"（{len(cs)} 次调用{fail}，输入 {tin} / 输出 {tout} token）"
+                    f"（{len(cs)} 次调用{fail}，输入 {self.rice(tin)} / 输出 {self.rice(tout)}）"
                 )
         self.p("\n【每次调用】")
         for c in view.calls:
@@ -373,7 +384,8 @@ class CLI:
             error = f" · 失败：{c.error}" if c.error else ""
             self.p(
                 f"  #{c.id} {where} {STEP_NAMES.get(c.step, c.step)} {who}{channel}："
-                f"输入 {c.input_tokens} / 输出 {c.output_tokens} token，${c.cost_usd:.4f}"
+                f"输入 {self.rice(c.input_tokens)} / 输出 {self.rice(c.output_tokens)}，"
+                f"${c.cost_usd:.4f}"
                 + (f"，{c.latency_s:.1f}s" if c.latency_s is not None else "")
                 + error
             )
@@ -402,12 +414,31 @@ class CLI:
             json.loads(by_kind["assignment"][0].content) if "assignment" in by_kind else None
         )
         owners = {a["subtask"]: a["members"] for a in (assignment or {}).get("assignments", [])}
+        kinds = self.rt.config.roundtable.collab.kinds
         self.p("\n【子任务与分工】")
         for s in subtasks:
             who = "、".join(self.label(c, table_no) for c in owners.get(s["id"], [])) or "—"
-            self.p(f"  {s['id']} {s['title']}：{who}")
+            kind = f"[{kinds[s['kind']].label}] " if s.get("kind") in kinds else ""
+            self.p(f"  {s['id']} {kind}{s['title']}：{who}")
         if assignment and assignment.get("repaired"):
-            self.p("  （统筹的分配不符合规则，已由代码补齐）")
+            self.p("  （统筹的分配不符合规则，已由代码补齐 / 调整）")
+        info = json.loads(by_kind["subtasks"][0].content).get("info") or {}
+        if info.get("source") == "template":
+            self.p(
+                "  （统筹两次都没有拆出合格的流水线，"
+                f"已按模板「{info.get('template_label')}」生成）"
+            )
+        elif info.get("source") == "retry":
+            self.p("  （统筹的第一次拆分不符合流水线规则，已按指出的问题重拆）")
+        if by_kind.get("handoff"):
+            self.p("\n【交接链】")
+            for o in by_kind["handoff"]:
+                h = json.loads(o.content)
+                files = "、".join(f["name"] for f in h.get("files", []))
+                tail = f"（文件：{files}）" if files else ""
+                src = f"{h['from_subtask']} {self.label(h['from_code'], table_no)}"
+                dst = f"{h['to_subtask']} {self.label(h['to_code'], table_no)}"
+                self.p(f"  {src} 把〈{h['gives']}〉交给 {dst}{tail}")
         if details:
             for o in by_kind.get("volunteer", []):
                 v = json.loads(o.content)
@@ -804,7 +835,8 @@ class CLI:
             sessions[r["model_id"]] = max(sessions.get(r["model_id"], 0), r["sessions"])
         for model, counts in by_model.items():
             parts = [f"{KIND_NAMES[k]} {counts[k]}" for k in KIND_NAMES if k in counts]
-            self.p(f"  {model:<22} {sessions[model]} 场  " + "，".join(parts))
+            name = f"{display_name(model, self.rt.config)}（{model}）"
+            self.p(f"  {name:<28} {sessions[model]} 场  " + "，".join(parts))
         return 0
 
     def cmd_history(self, limit: int) -> int:

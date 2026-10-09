@@ -113,7 +113,9 @@ class Runtime:
             router=router,
             prompts=prompts,
             repo=repo,
-            scrubber=IdentityScrubber.from_config(config.models),
+            scrubber=IdentityScrubber.from_config(
+                config.models, config.personas.nicknames.values()
+            ),
             budget=guard,
             files=FileStore(Path(uploads_dir) if uploads_dir is not None else None),
             search=search or SearchService({}),

@@ -297,3 +297,16 @@ audio.player{width:min(420px,100%)}
   .msg{max-width:100%}
   .sys,.typing{padding-left:0}.card,.final{margin-left:0}
 }
+
+/* ---------- 协同流水线：子任务类型与交接链 ---------- */
+.pill.kind{background:var(--brass-bg);color:var(--brass-ink);border:1px solid var(--brass-line)}
+.chain{display:flex;gap:10px;overflow-x:auto;padding-bottom:6px;align-items:flex-start}
+.chain .col{display:grid;gap:8px;min-width:150px;max-width:210px;flex:0 0 auto}
+.chain .colh{font-size:11px;color:var(--muted);letter-spacing:.06em}
+.chain .node{border:1px solid var(--line);border-radius:8px;background:var(--surface-2);padding:6px 8px;font-size:12px;display:grid;gap:3px;position:relative}
+.chain .node.done{border-color:var(--ok)}
+.chain .node .who{color:var(--muted)}
+.chain .node .in{color:var(--muted);border-top:1px dashed var(--line);padding-top:3px;overflow-wrap:anywhere}
+.chain .node .in.wait{opacity:.7}
+.thumb{display:inline-block;height:44px;width:auto;max-width:72px;object-fit:cover;border-radius:4px;border:1px solid var(--line);margin:2px 4px 0 0;vertical-align:middle}
+.thumbs{display:block;margin-top:4px}

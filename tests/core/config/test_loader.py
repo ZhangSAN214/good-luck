@@ -55,6 +55,17 @@ def test_repo_config_loads_with_defaults():
         "volunteer",
         "assign",
         "work",
+        "decompose_retry",
+        "work_analyze",
+        "work_research",
+        "work_write",
+        "work_prompt",
+        "work_generate",
+        "work_code",
+        "work_verify",
+        "work_review",
+        "work_factcheck",
+        "work_assemble",
         "cross_review",
         "rework",
         "merge",
@@ -318,3 +329,10 @@ def test_limits_defaults_and_validation(config_dir):
     edit(config_dir, "roundtable.yaml", lambda d: d["request"].update(max_concurrent=2))
     edit(config_dir, "roundtable.yaml", lambda d: d["limits"].update(max_running_sessions=0))
     expect_error(config_dir, "limits.max_running_sessions")
+
+
+def test_default_tts_voices_are_set_per_model():
+    """两个语音合成模型各自的默认音色写在 params 里（覆盖全局默认）。"""
+    models = load_config().models
+    assert models.get("gemini-3.8-flash-tts").params["voice"] == "Zephyr"
+    assert models.get("qwen-audio-3.0-tts-flash").params["voice"] == "loongjohn"

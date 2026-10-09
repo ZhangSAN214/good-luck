@@ -1,6 +1,6 @@
 # CLAUDE.md — Roundtable（圆桌）
 
-多个 AI 协作完成作业。长期目标见 `docs/REQUIREMENTS_v3.md`；当前范围以本文件和 `docs/PLAN.md` 为准（v1 已完成，v2 改版阶段 11–20 全部完成（19 媒体生成、20 收尾：限速与并发、README、CI））。
+多个 AI 协作完成作业。长期目标见 `docs/REQUIREMENTS_v3.md`；当前范围以本文件和 `docs/PLAN.md` 为准（v1 已完成，v2 改版阶段 11–20 全部完成（19 媒体生成、20 收尾：限速与并发、README、CI），v2.1 阶段 21 协同流水线 + 昵称 / 塔罗牌代号 / 大米已完成，接下来 22 参考图风格与图生图）。
 界面样板：`docs/mockup.html`（v1 只实现其中文字圆桌相关部分）。
 按 `docs/PLAN.md` 的阶段推进，不要跳阶段，不要提前实现"后续扩展"里的功能。
 
@@ -27,8 +27,8 @@
 
 | 成员档位 | 谁上桌 |
 |---|---|
-| 便宜档全员（默认） | 所有可用的便宜档模型：一个当统筹，其余为组员；汇总有未裁定分歧或把握低时**询问**是否用旗舰档全员重做 |
-| 旗舰档全员 | 所有可用的旗舰模型 |
+| 节电模式 = 便宜档全员（默认） | 所有可用的便宜档模型：一个当统筹，其余为组员；汇总有未裁定分歧或把握低时**询问**是否用全力模式重做 |
+| 全力模式 = 旗舰档全员 | 所有可用的旗舰模型 |
 | 自选 | 用户勾选的模型（至少 `min_members + 1` 个），可指定其中一个当统筹 |
 
 - **不按难度减人**，省钱靠选档位。没有可用渠道的模型无法上桌，记为"缺席"（卡片与面板只显示人数，名单在揭晓后 / 匿名关闭时显示）。
@@ -36,7 +36,7 @@
 - **升级从不自动执行**：满足条件时总是弹卡片（升级 / 采用当前结果 / 停止）。
 - **执行前预估花费**，并给出各档位的预估；超过单题确认门槛（默认 $0.30）先请用户确认（可改用其他档位）。
 - **每题记录**（`RoutingRecord`）：答案长度判断及来源（规则 / 模型 / 默认）、规划员花费、档位与阵容、缺席、预估与实际花费、是否升级及原因。
-- **匿名开关**（提问时选择，默认**关闭**）：关闭时界面、API、命令行全程显示真实模型名与每次调用的渠道，没有揭晓步骤；开启时组员显示为"组员甲 / 乙 / 丙…"，结束后由用户点"揭晓身份"。**发给模型的内容在两种情况下都只用代号、都做身份遮蔽**。
+- **匿名开关**（提问时选择，默认**关闭**）：关闭时界面、API、命令行全程显示真实模型名与每次调用的渠道，没有揭晓步骤；开启时成员用**塔罗牌代号**（22 张大阿卡纳随机分配，不含任何身份信息），结束后由用户点"揭晓身份"。**称呼**：匿名关闭时成员叫"昵称·模式"（厂商昵称 + 档位名，如"鲸鱼娘·全力"，统筹为"昵称·模式（统筹）"），界面、过程区、交接链、贡献统计、成员之间互相称呼（提示词里）都用它；匿名开启时一律用塔罗牌代号。昵称与模式名在 `personas.yaml`。**发给模型的内容在两种情况下都不含模型 id、厂商名，并做身份遮蔽**（匿名关闭时昵称是称呼，不遮蔽；匿名开启时昵称同样被遮蔽，不会出现）。
 - 输入可带附件（§2.8）；讨论模式可选输出图片 / 语音 / 视频、协同模式可有媒体子任务（§2.10）；成员可以用**工具**（§2.9）运行代码、写文件、生成图片、联网搜索，产出代码、图表、Word / Excel / PPT / PDF 等文件。
 - **不做**（见 PLAN.md "后续扩展"）：人设模式、记录官与会议记录、多轮群聊、语音合成、视频处理。（图片生成已作为成员的工具提供，见 §2.9。）
 
@@ -50,7 +50,8 @@
   - `models`：`id`、`vendor`、`tier`（`flagship` 旗舰 / `budget` 便宜档，启用的模型必填）、可选 `aliases`（别称，用于身份遮蔽）、`price`（输入/输出每百万 token，可选 `cached_input`）、`tags`、`enabled`、可选 `params`，以及按优先顺序排列的 `routes`（每条：`channel`、该渠道上的 `model` ID、可选 `price` / `params` 覆盖）。
   - 标签词表含媒体类：`vision`、`transcribe`、`image_gen`、`image_edit`、`tts`、`stt`、`video_gen`、`music_gen`（后两个预留）。媒体模型 `seat: false`（不上桌、不占座位），可有 `tier`；视频 / 转写 / 语音按秒 / 分钟 / 字符计价，用 `media_price: {unit, usd}`（`price` 写 0），可被路由覆盖；**图像模型在 OpenRouter 上按 token 计价**：`price.output` 填图像输出价格，`image_tokens` 填一张图的典型输出 token 数（只用于预估和渠道没返回用量时的记账，`providers/cost.py` 的 `image_cost`），实际费用一律以渠道返回的 `usage.cost` 为准。
 - `config/roundtable.yaml`：座位数（一张桌最多的组员数）、`min_members`、`reviews_per_answer`、`collab.max_subtasks`、预算（每月、每日、提醒比例）、步骤参数、互评质量规则、token 阈值、统筹轮换规则、提示词版本、步骤顺序 `pipeline:`（讨论模式）与 `collab_pipeline:`（协同模式）、**渠道模式 `channel_mode`**（`openrouter` / `direct` / `auto`，默认 `auto`）、请求策略（超时、切换轮数、退避、冷却）。
-- `config/personas.yaml`：代号池（甲乙丙丁…，不少于 `seats`）；人设字段的 schema 预留但可为空。
+- `config/personas.yaml`：匿名代号池（塔罗牌 22 张大阿卡纳，不少于 `seats`）、厂商昵称 `nicknames`（厂商 → 昵称）、档位显示名 `tier_labels`（flagship = 全力，budget = 节电）、`nickname_separator`、`coordinator_suffix`、`code_prefix`（默认空：代号 / 昵称本身就是称呼）；同一桌里厂商和档位都相同的模型自动加序号（鲸鱼娘·全力2）；人设字段的 schema 预留但可为空。称呼生成在 `allocation/names.py`（`member_codes()`）。
+- `roundtable.yaml` 的 `display.rice`：token 用量显示为"大米"（1 粒 = 1000 token，1 勺 = 100 粒，1 碗 = 30 勺，比例与单位名在配置里），自动换算（`core/display/rice.py`，前端用 `/api/status` 的 `rice` 同一套比例）；**只替换 token 数量的显示，所有金额仍是美元**。
 - `config/routing.yaml`：确认门槛、`default_plan`、默认难度（只影响预估的答案长度）、规划员档位、规则判断（triage）、成员档位 `plans`（`label`、`tiers`、可选 `pipeline`、`escalate_to`、`prompt_roles`）、自选 `custom`、升级条件、花费预估参数。**只能引用档位和能力标签**，不得出现模型名或厂商名（有测试）。`custom` 是保留名。
 - 阵容（`routing/lineup.py`）：所选档位的全部可用模型上桌；统筹按 `roundtable.yaml` 的 `coordinator` 规则在场内选出（rotate：随机，最近当过的排后；fixed：指定模型在场时用它），其余为组员；人数不足 `min_members + 1` 或组员超过 `seats` 时报错。
 - 加模型 / 加渠道只改配置。禁止针对具体模型、厂商或渠道写分支（`if model_id == ...`、`if vendor == ...`）。
@@ -74,8 +75,11 @@
 ### 2.3 流程步骤 = 插件
 - 步骤：讨论模式 `answer`、`review`、`revise`、`synthesize`（选了媒体输出时在 `reveal` 前加 `media`）；协同模式 `decompose`、`volunteer`、`assign`、`work`、`cross_review`、`rework`、`merge`（`steps/collab.py`，数据结构在 `steps/collab_schemas.py`）；两种模式都以 `reveal` 结束。各自实现 `Step` 协议并注册。每张桌子的 pipeline 由模式决定（协同用 `collab_pipeline`，讨论用档位的 `pipeline` 或默认流程），存在 `session_tables`。
 - 协同模式规则：
-  - 拆分：子任务 1–`max_subtasks` 个，id 唯一、依赖存在且无环，建议标签只能取在座成员的标签；不可用时退化为"整道题一个子任务"（全员各自完成）。
+  - 拆分（旧流程，成员不足 `collab.pipeline.min_members` 时）：子任务 1–`max_subtasks` 个，id 唯一、依赖存在且无环，建议标签只能取在座成员的标签；不可用时退化为"整道题一个子任务"（全员各自完成）。
+  - **流水线（阶段 21，成员 ≥ 2 时默认）**：协同不是"各做各的"。子任务有**类型** `kind`（`collab.kinds`：analyze 分析 / research 搜索调研 / write 撰写 / prompt 写提示词 / generate 执行生成 / code 写代码 / verify 运行验证 / review 审查 / factcheck 事实核查 / assemble 整合；每类的偏好标签、能否并行、必须依赖的类型、回避规则、工作提示词都在配置里），依赖写成 `{"id", "gives"}`（上游交给下游的内容）。`decompose/v4` 要求流水线。`pipeline_problems()` 校验：不是整题当一个子任务、子任务数 ≥ 成员数（不足就把可并行的步骤**按内容**拆成平行子任务，不允许几个人做同一份内容）、依赖图连通且至少两层、类型不单一、类型规则（执行生成依赖写提示词且需要可用的媒体模型、审查类依赖被审成果、整合至少两个上游）、平行子任务不重复；不合格 → 把具体问题列给统筹重拆一次（`decompose_retry/v1`）→ 仍不合格按**模板**自动生成（`collab.templates`：带参考图的创作 / 无参考图的创作 / 调研（搜索→分析整理→撰写→事实核查→整合）/ 数据代码（理解需求→写代码→运行验证→审查→写报告）/ 文档，按题目性质与可用能力选第一个条件满足的；成员比步骤多时 split 的步骤按内容拆成平行部分，每个部分写明自己负责哪一份；成员少于步骤数时每人负责多个步骤，不合并）。
   - 分配：代码校验每人至少一块、每块至少一人、负担相差不超过 1；不符合时让统筹重新分配一次，仍不行由 `repair_assignment()` 按自荐（想做 2 / 可以 1 / 不适合 -1）+ 能力标签重合补齐（只做必要改动，记录在 `repaired`）。子任务少于人数时多人各自独立完成同一块。
+  - **流水线的分配**：统筹的分配合格就原样采用；否则 `solve_assignment()`（爬山 + 随机重启）求解：每个子任务**恰好一位负责人**、负担相差不超过 1、**审查类的负责人回避上游的作者**（`avoid_hard`：写提示词的人永远不审查自己提示词生成的结果；`avoid_soft`：执行生成 / 撰写 / 写代码的作者，成员够多时同样回避，成员太少无法满足时只放宽 soft，写进 `repaired`）、类型偏好标签（权重大于自荐）。子任务比成员少（超过 `max_subtasks` 的大桌）时，没有任务的成员加入可并行类型的子任务。
+  - **交接**：下游子任务的 `<dependency>` 标明来自哪个子任务、谁交的、交的是什么（`gives`）；上游生成的文件（依赖链上全部上游，最新版本）放进下游负责人工作目录的 `in/`（`Workspace.add_inputs()`，同名加子任务前缀），图片按 `vision` 规则随附；每次交接记为 `handoff` 产出 + `handoff` 事件（只含代号）；`generate` 类型由负责人先做一次短调用确认提示词（`work_generate`，不得改动风格规范），再由代码调用媒体服务生成，登记在负责人名下。界面"分工"面板有交接链图，过程区逐条显示"X 把〈…〉交给 Y"，命令行 `show` 有"交接链"。
   - 成果编号 `W1…` 由 `work_items()` 按子任务顺序、负责人顺序确定（前后端一致）。
   - 完成：按依赖分层，同层并行；前置子任务的成果放在 `<dependency>` 中传给后续。
   - 交叉审查：每份成果由 `reviews_per_answer` 位非作者审查，有足够的外人时避开同一子任务的其他负责人；先分配可选评审者最少的成果，再做局部调整使负担尽量均衡（避开共同负责人时可能无法完全均衡）。
@@ -94,7 +98,7 @@
 - 每步结束状态落库；可暂停、关页面后恢复，恢复时不重复已完成的调用。
 
 ### 2.4 提示词外置且带版本
-- `prompts/<role>/v<n>.md`：协同模式 `decompose`（v3：子任务可标 `media`）、`volunteer`、`assign`、`work`、`cross_review`、`rework`、`merge`；媒体：`media_brief`（把需求改写成「写生成提示词」的任务）、`media_review`、`media_refine`、`work_media`、`rework_media`；讨论模式 `planner`、`answer`、`review`、`revise`（v2：逐条"采纳 / 部分采纳 / 不采纳"）、`synthesize`（v3：`adopted_from`、注意 flagged 的答案）、`redo`（打回重做：system 段接在原系统提示后，user 段追加在原对话后）；附件 `attachments`（附件说明与 `<attachment>` 块，接在每次调用的系统提示与第一条用户消息之后，所以各步骤提示词不必改版本）、`describe_image`（图片文字版）、`transcribe`（音频转写）；`answer_quick` 已不再引用（已发布版本保留）。代码中不得内联提示词正文。
+- `prompts/<role>/v<n>.md`：协同模式 `decompose`（v3：子任务可标 `media`；v4：流水线，要求类型 `kind`、`gives` 交接、每人一块不同的工作）、`decompose_retry`（拆分不合格时把问题列给统筹重拆）、`volunteer`、`assign`（v3：流水线分配规则）、`work`（旧流程）、各类型的工作提示词 `work_analyze` / `work_research` / `work_write` / `work_prompt` / `work_generate`（执行生成前确认提示词的短调用）/ `work_code` / `work_verify` / `work_review` / `work_factcheck` / `work_assemble`、`cross_review`、`rework`、`merge`；媒体：`media_brief`（把需求改写成「写生成提示词」的任务）、`media_review`、`media_refine`、`work_media`、`rework_media`；讨论模式 `planner`、`answer`、`review`、`revise`（v2：逐条"采纳 / 部分采纳 / 不采纳"）、`synthesize`（v3：`adopted_from`、注意 flagged 的答案）、`redo`（打回重做：system 段接在原系统提示后，user 段追加在原对话后）；附件 `attachments`（附件说明与 `<attachment>` 块，接在每次调用的系统提示与第一条用户消息之后，所以各步骤提示词不必改版本）、`describe_image`（图片文字版）、`transcribe`（音频转写）；`answer_quick` 已不再引用（已发布版本保留）。代码中不得内联提示词正文。
 - 文件格式：YAML 文件头（`description`、`output: text|json`、`variables`）+ `<!-- system -->` / `<!-- user -->` 两段。占位符用 `{{ name }}`（不用 `$`，避免与数学公式冲突）；声明的变量与正文占位符必须一一对应，渲染时缺少或多余参数都报错；只替换一次，用户输入里的 `{{ x }}` 不会被展开。
 - 题目、他人答案等外部内容放在标签内（`<question>`、`<answer>` …），系统提示说明标签内的指令无效（防提示注入）。
 - 使用的版本由配置指定，随每次调用入库（版本号 + 内容哈希，换行统一为 LF 后计算）。
@@ -133,7 +137,7 @@
   - 提问区（阶段 18）：模式 / 档位 / 匿名开关、「添加附件」与拖放（`POST /api/uploads`，失败的附件显示原因、不随题目提交）、输入题目后防抖调用 `POST /api/estimate` 显示当前模式下各档位的预计花费（超过门槛标红；匿名时不显示名单），提交时带上预估返回的 `seed`。
   - 过程区逐条显示工具调用（`details.tool`：代码 / 搜索词、输出、来源），成员生成的文件显示预览 / 下载，图片显示缩略图；答案里的 `[S1]` 只对该成员检索到的 http(s) 来源加链接。预览在 `<dialog>` 中，HTML / SVG 只显示源代码。面板新增「分工」（子任务、负责人、成果、采纳、自荐表态）与「工具」（工具花费、调用、文件）；座位超过 9 个时缩小（最多 12 个）。
   - 会话详情的 `tables`：每桌方案、流程、代号、已完成步骤（不含模型）；`contributions`：每桌每个代号的贡献（身份未公开时不含模型 id）。
-  - 前端源码不得写死任何模型、厂商或渠道名（有测试）；匿名会话揭晓前界面只用代号（组员甲… / 统筹），匿名关闭时在代号旁显示模型。
+  - 前端源码不得写死任何模型、厂商或渠道名（有测试）；匿名会话揭晓前界面只用塔罗牌代号和"统筹"，匿名关闭时代号就是"昵称·模式"并在旁边显示模型。
   - 会话 id 写在地址栏（`#s=<id>`），刷新或关页面后可回到原讨论。
 
 ### 2.8 附件（`core/attachments/`）
@@ -174,12 +178,12 @@
 ## 3. 中立性规则（代码保证 + 测试）
 
 1. 同一步骤所有组员使用完全相同的提示词和参数（步骤参数在 `roundtable.yaml` 的 `step_params`；模型自身必需的参数在 `models.yaml`）。
-2. **发给模型的内容只用代号**，不出现模型名、厂商名；自报身份（"作为 GPT……"、"我是 Claude"）在转给其他模型前遮蔽。
-3. 代号与模型的对应每题随机生成。
+2. **发给模型的内容只用代号 / 昵称**（匿名开启：塔罗牌代号；匿名关闭："昵称·模式"），不出现模型 id、厂商名；自报身份（"作为 GPT……"、"我是 Claude"）在转给其他模型前遮蔽。
+3. 代号与模型的对应每题随机生成（塔罗牌随机抽取，座次随机；昵称随模型走）。
 4. **不能自评**：互评时评审者永远看不到自己的答案作为被评对象；协同模式的交叉审查永远不分给作者本人。
 5. 每个评审者看到的他人答案顺序独立随机打乱；统筹看到的答案顺序也随机。
 6. 统筹不兼任同场组员。
-7. **发给任何模型的内容**始终不含真实模型身份（不论匿名开关）。**匿名开启时揭晓前**，界面和 API 响应也不含。**渠道名同样会暴露厂商**（如 `anthropic`），因此揭晓前单次调用不显示渠道；用量面板可以显示按渠道汇总的花费。揭晓后每次调用都显示所走渠道和切换记录。
+7. **发给任何模型的内容**始终不含模型 id、厂商名（不论匿名开关；匿名关闭时模型之间互称昵称，那是称呼，不是自报身份）。**匿名开启时揭晓前**，界面和 API 响应也不含模型、渠道、昵称（有测试覆盖事件、会话详情、贡献、发给模型的每条消息）。**渠道名同样会暴露厂商**（如 `anthropic`），因此揭晓前单次调用不显示渠道；用量面板可以显示按渠道汇总的花费。揭晓后每次调用都显示所走渠道和切换记录。
 8. 抽座位、选统筹、分配代号、排序全部用可注入的 `random.Random(seed)`，seed 存库，可复现。
 9. **无品牌偏好**：路由与分配只看档位、能力标签和价格（规划员按预计调用成本选最便宜的）；所选档位全员上桌，统筹在场内均匀随机（轮换）。测试验证：把所有厂商和 id 换名后同一 seed 的结果完全一致；`allocation` / `routing` / `prompts` / `budget` 的源码中不得出现模型名或厂商名。
 10. 组员输出转给其他模型前，遮蔽配置中所有模型 id、厂商名、别称和渠道上的模型名；题目本身出现的名称保留。
@@ -225,7 +229,7 @@ README.md      安装、.env、加模型 / 步骤 / 提示词版本、上传、�
 config/        models.yaml  roundtable.yaml  personas.yaml  routing.yaml
 prompts/       planner/ answer/ answer_quick/ review/ revise/ synthesize/ redo/
                attachments/ describe_image/ transcribe/ tools/（v4） image_gen/ web_search/ web_fetch/
-               decompose/（v3）volunteer/ assign/ work/ cross_review/ rework/ merge/
+               decompose/（v4） decompose_retry/ volunteer/ assign/（v3） work/ work_<类型>/ cross_review/ rework/ merge/
                media_brief/ media_review/ media_refine/ work_media/ rework_media/  versions.lock
 src/roundtable/
   core/
@@ -271,8 +275,8 @@ roundtable models                   # 查看模型、档位、可用渠道与预
 roundtable stats                    # 各模型的历史贡献
 roundtable show <id> --costs        # 每步预估与实际花费、每次调用的 token
 roundtable export <id> [-o 文件]     # 导出完整记录（UTF-8 带 BOM，含花费明细）
-roundtable ask '题目'                # 便宜档全员上桌（PowerShell 中题目用单引号）
-roundtable ask --tier flagship --anonymous '题目'   # 旗舰档全员、匿名
+roundtable ask '题目'                # 节电模式（便宜档全员）上桌（PowerShell 中题目用单引号）
+roundtable ask --tier flagship --anonymous '题目'   # 全力模式（旗舰档全员）、匿名
 roundtable ask --mode collab '题目'  # 协同模式：拆分子任务、分工完成、合并
 roundtable ask --attach 图.png --attach 讲义.pdf '题目'   # 带附件
 roundtable files <id> [-o 目录]      # 保存成员生成的文件（含图片 / 音频 / 视频）

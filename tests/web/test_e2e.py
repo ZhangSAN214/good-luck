@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import re
 
+from roundtable.core.config import load_config
+
 from ..core.orchestrator.conftest import MEDIUM
 
+TAROT = set(load_config().personas.codes)
 DONE = "讨论完成"
 
 
@@ -46,13 +49,13 @@ def test_anonymous_budget_tier_then_reveal(serve, page):
     assert "最终答案" in page.inner_text(".final")
     for label in ("作答", "互评", "修订", "汇总"):
         assert page.locator(f".phase:text-is('{label}')").count() == 1
-    assert page.locator("#stage .seat .nm:has-text('组员甲')").count() == 1
-    assert "便宜档全员 · 匿名" in page.inner_text("#chat")
+    assert page.locator("#stage .seat .nm:has-text('组员')").count() == 2  # 塔罗牌代号
+    assert "节电模式 · 匿名" in page.inner_text("#chat")
     assert "s=" in page.url  # 刷新后可以回到这场讨论
 
     text = anonymous_text(page)
-    assert "组员甲" in text and "组员乙" in text
-    assert leaks(srv.identity_terms(), text) == []
+    assert sum(card in text for card in TAROT) >= 2
+    assert leaks(srv.anonymous_terms(), text) == []
 
     # 互评面板有结论表格
     page.click('#tabs button[data-t="reviews"]')
@@ -87,9 +90,9 @@ def test_flagship_tier(serve, page):
     page.check("#anonymous")
     ask(page, MEDIUM)
     wait_done(page)
-    assert "旗舰档全员" in page.inner_text("#chat")
+    assert "全力模式" in page.inner_text("#chat")
     assert page.locator("#stage .seat .nm:has-text('组员')").count() == 4
-    assert leaks(srv.identity_terms(), anonymous_text(page)) == []
+    assert leaks(srv.anonymous_terms(), anonymous_text(page)) == []
     assert srv.env is not None
     called = {c.model for c in srv.env.fake.calls if "规划员" not in c.messages[0].content}
     assert called == {"f1", "f2", "f3", "f4", "f5"}  # 5 个旗舰全部上桌
@@ -109,7 +112,7 @@ def test_custom_tier(serve, page):
     assert "自选" in page.inner_text("#chat")
     # 勾选列表收起后，会话区域仍然匿名
     page.click("#tier button[data-v='budget']")
-    assert leaks(srv.identity_terms(), anonymous_text(page)) == []
+    assert leaks(srv.anonymous_terms(), anonymous_text(page)) == []
     assert srv.env is not None
     members = {c.model for c in srv.env.fake.calls if "学习小组的统筹" not in c.messages[0].content}
     assert members == {"b1", "b2"}
@@ -135,7 +138,7 @@ def test_cost_card_over_threshold(serve, page):
     text = card.inner_text()
     assert "花费确认" in text and "推荐" in text and "$" in text
     assert page.inner_text("#pstate") == "等待你决定"
-    assert leaks(srv.identity_terms(), anonymous_text(page)) == []
+    assert leaks(srv.anonymous_terms(), anonymous_text(page)) == []
     page.click(".card:not(.resolved) .opt[data-opt='continue']")
     page.wait_for_selector(".card.resolved .result:has-text('已选择')")
     wait_done(page)
@@ -157,7 +160,7 @@ def test_escalation_is_always_asked(serve, page):
     page.goto(srv.url)
     ask(page, MEDIUM)
     card = page.wait_for_selector(".card[data-kind='escalation']:not(.resolved)", timeout=15000)
-    assert "旗舰档全员" in card.inner_text()
+    assert "全力模式" in card.inner_text()
     page.click(".card:not(.resolved) .opt[data-opt='accept']")
     wait_done(page)
     assert page.locator(".final").count() == 1
@@ -268,14 +271,14 @@ def test_collab_mode(serve, page):
     chat = page.inner_text("#chat")
     for label in ("拆分子任务", "自荐", "分配", "完成子任务", "交叉审查", "修改", "合并"):
         assert page.locator(f".phase:text-is('{label}')").count() == 1, label
-    assert "协同 · 便宜档全员 · 匿名" in chat and "拆分为 2 个子任务" in chat
+    assert "协同 · 节电模式 · 匿名" in chat and "拆分为 2 个子任务" in chat
     assert page.locator(".final h3:has-text('合并成果')").count() == 1
     assert "采纳情况" in page.inner_text(".final")
     page.click('#tabs button[data-t="reviews"]')
     assert "W1（T1 ·" in page.inner_text("#pbody")
     page.click('#tabs button[data-t="flow"]')
     assert "拆分子任务" in page.inner_text("#pbody")
-    assert leaks(srv.identity_terms(), anonymous_text(page)) == []
+    assert leaks(srv.anonymous_terms(), anonymous_text(page)) == []
 
 
 def test_legend_follows_anonymous_switch_and_mode(serve, page):
@@ -291,3 +294,25 @@ def test_legend_follows_anonymous_switch_and_mode(serve, page):
     assert "交叉审查" in page.inner_text("#legend")
     page.uncheck("#anonymous")
     assert "匿名" not in page.inner_text("#legend").split("代号")[0]
+
+
+def test_non_anonymous_uses_nicknames_and_rice(serve, page):
+    """匿名关闭：座位、过程区用"昵称·模式"，统筹带"（统筹）"；token 用量是大米，金额仍是美元。"""
+    srv = serve(confirm_threshold_usd=100.0)
+    page.goto(srv.url)
+    ask(page, MEDIUM)
+    wait_done(page)
+    nicknames = set(srv.env.config.personas.nicknames.values())
+    seat_names = page.locator("#stage .seat .nm").all_inner_texts()
+    members = [n for n in seat_names if "·节电" in n and "统筹" not in n]
+    assert len(members) == 2 and all(
+        n.split("·")[0].removeprefix("组员") in nicknames for n in members
+    )
+    assert any(n.endswith("·节电（统筹）") for n in seat_names)
+    chat = page.inner_text("#chat")
+    assert any(f"{n}·节电" in chat for n in nicknames)
+    assert not any(card in chat for card in TAROT)
+    page.click('#tabs button[data-t="usage"]')
+    usage = page.inner_text("#pbody")
+    assert "大米" in usage and re.search(r"\d+(\.\d)? 粒", usage)
+    assert "token" not in usage and "$" in usage  # 金额仍是美元

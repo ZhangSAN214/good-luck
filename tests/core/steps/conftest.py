@@ -23,7 +23,7 @@ REPO_CONFIG = load_config()
 QUESTION = "求函数 f(x)=x^3-3x 在区间 [-2, 2] 上的最大值与最小值。"
 MEMBERS = {"甲": "b1", "乙": "b2", "丙": "b3"}
 COORDINATOR = "f1"
-LABEL = re.compile(r'<answer code="组员(.)"[^>]*>')
+LABEL = re.compile(r'<answer code="组员([^"]+)"[^>]*>')
 # 合格答案需要有实质内容（防偷懒检查有字数下限），Fake 的回复因此带上完整推导
 REASONING = (
     "推导：f'(x)=3x^2-3，令 f'(x)=0 得驻点 x=-1 和 x=1。区间端点为 x=-2 和 x=2。"
@@ -70,7 +70,7 @@ def good_review(model: str, messages: list[Message]) -> str:
     return json.dumps({"reviews": reviews}, ensure_ascii=False)
 
 
-REVIEW_FROM = re.compile(r'<review from="组员(.)"')
+REVIEW_FROM = re.compile(r'<review from="组员([^"]+)"')
 
 
 def revision_reply(model: str, messages: list[Message]) -> str:
@@ -110,9 +110,9 @@ def synthesis_reply(resolved=True, confidence="high") -> Callable:
 
 
 SUBTASK_ID = re.compile(r'<subtask id="(T\d+)">')
-VOLUNTEER_CODE = re.compile(r'<volunteer code="组员(.)">')
+VOLUNTEER_CODE = re.compile(r'<volunteer code="组员([^"]+)">')
 WORK_ID = re.compile(r'<work id="(W\d+)"')
-MERGE_WORK = re.compile(r'<work id="W\d+" subtask="(T\d+)" from="组员(.)"')
+MERGE_WORK = re.compile(r'<work id="W\d+" subtask="(T\d+)" from="组员([^"]+)"')
 
 
 def decompose_reply(n: int = 2, depends: bool = False, media: dict | None = None) -> Callable:
@@ -240,7 +240,9 @@ def media_decision_reply(satisfied: bool, prompt: str = "改进后的提示词")
 def default_reply(model: str, messages: list[Message]) -> str:
     """按提示词判断步骤，给出合格回复。"""
     system = messages[0].content
-    if "把任务拆成子任务" in system and "学习小组的统筹" in system:
+    if ("把任务拆成子任务" in system or "拆成一条" in system) and "学习小组的统筹" in system:
+        return decompose_reply()(model, messages)
+    if "没有通过代码检查" in system and "学习小组的统筹" in system:
         return decompose_reply()(model, messages)
     if "现在请你自荐" in system:
         return volunteer_reply(model, messages)
@@ -268,8 +270,8 @@ def default_reply(model: str, messages: list[Message]) -> str:
 
 
 class Table:
-    def __init__(self, seed: int = 0, members=None, coordinator=COORDINATOR):
-        self.config = app_config()
+    def __init__(self, seed: int = 0, members=None, coordinator=COORDINATOR, pipeline=False):
+        self.config = app_config(pipeline=pipeline)
         self.fake = FakeProvider("c", default=default_reply)
         policy = self.config.roundtable.request.model_copy(update={"backoff_s": 0})
         self.router = ChannelRouter(self.config.models, {"c": self.fake}, policy=policy)

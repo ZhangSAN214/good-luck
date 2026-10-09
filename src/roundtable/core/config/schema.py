@@ -235,10 +235,104 @@ class EffortCheck(_Strict):
     duplicate_min_chars: int = Field(default=100, ge=0)
 
 
+class KindRule(_Strict):
+    """子任务类型：流水线里的一种工作。规则全在配置里，代码不认具体的类型名。"""
+
+    label: str
+    meaning: str = ""  # 一句话说明这类工作做什么（写进给统筹的类型词表）
+    prompt: str  # 负责人完成这类子任务用的提示词角色（roundtable.yaml 的 prompts 里要有）
+    tags: list[str] = Field(default_factory=list)  # 偏好的能力标签（分配时加分）
+    parallel: bool = True  # 能否按内容拆成多个平行子任务（成员比步骤多时用）
+    needs: list[str] = Field(default_factory=list)  # 必须依赖其中某一类的子任务
+    audit: bool = False  # 审查类：必须依赖至少一个非审查类的子任务
+    min_upstream: int = Field(default=0, ge=0)  # 至少依赖几个子任务（整合类）
+    requires_media: bool = False  # 需要可用的媒体生成模型
+    avoid_hard: list[str] = Field(default_factory=list)  # 负责人不能是这些类型上游子任务的负责人
+    avoid_soft: list[str] = Field(default_factory=list)  # 同上，但成员太少无法满足时放宽
+
+
+class PipelineRules(_Strict):
+    """流水线拆分的校验：不合格就让统筹重拆一次，仍不合格按模板自动生成。"""
+
+    enabled: bool = True
+    min_members: int = Field(default=2, ge=2)  # 成员数达到才启用
+    min_kinds: int = Field(default=3, ge=1)  # 至少有几种不同类型（子任务更少时取子任务数）
+    # 判定"整道题当一个子任务"：标题 / 要求含这些短语，或与题目相似度不低于阈值
+    whole_task_phrases: list[str] = Field(default_factory=list)
+    whole_task_similarity: float = Field(default=0.75, gt=0, le=1)
+    # 同类型、同上游的平行子任务，内容相似度不低于阈值视为重复（几个人做同一份内容）
+    sibling_similarity: float = Field(default=0.95, gt=0, le=1)
+
+
+class TemplateDep(_Strict):
+    id: str
+    gives: str = ""
+
+
+class TemplateStep(_Strict):
+    id: str
+    kind: str
+    title: str
+    requirements: str = ""
+    acceptance: str = ""
+    depends_on: list[TemplateDep | str] = Field(default_factory=list)
+    media: str | None = None
+    # 成员比步骤多时，这一步按内容拆成几个平行部分；split_by 写怎么分（会写进每个部分的要求）
+    split: bool = False
+    split_by: str = ""
+    split_hints: list[str] = Field(default_factory=list)
+
+
+class TemplateWhen(_Strict):
+    """选用条件，全部满足才选用；什么都不写表示总是满足。"""
+
+    media: list[str] = Field(default_factory=list)  # 这些媒体种类都有可用的模型
+    image_attachment: bool | None = None  # 题目是否带图片附件
+    tools: list[str] = Field(default_factory=list)  # 这些工具都可用
+    keywords: list[str] = Field(default_factory=list)  # 题目含其中任一词（不区分大小写）
+
+
+class PipelineTemplate(_Strict):
+    name: str
+    label: str
+    when: TemplateWhen = TemplateWhen()
+    steps: list[TemplateStep] = Field(min_length=2)
+
+
 class CollabRules(_Strict):
-    """协同模式：拆分子任务的数量范围。"""
+    """协同模式：拆分子任务的数量范围，以及流水线（子任务类型、校验、模板）。"""
 
     max_subtasks: int = Field(default=12, ge=1)
+    pipeline: PipelineRules = PipelineRules()
+    kinds: dict[str, KindRule] = Field(default_factory=dict)
+    templates: list[PipelineTemplate] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _check(self) -> CollabRules:
+        kinds = set(self.kinds)
+        for name, k in self.kinds.items():
+            for ref in (*k.needs, *k.avoid_hard, *k.avoid_soft):
+                if ref not in kinds:
+                    raise ValueError(f"collab.kinds.{name} 引用了不存在的类型 {ref!r}")
+        names = [t.name for t in self.templates]
+        if len(names) != len(set(names)):
+            raise ValueError("collab.templates 的名字不能重复")
+        for t in self.templates:
+            ids = [s.id for s in t.steps]
+            if len(ids) != len(set(ids)):
+                raise ValueError(f"模板 {t.name} 的步骤 id 重复")
+            for s in t.steps:
+                if s.kind not in kinds:
+                    raise ValueError(f"模板 {t.name} 的步骤 {s.id} 用了不存在的类型 {s.kind!r}")
+                for d in s.depends_on:
+                    dep = d if isinstance(d, str) else d.id
+                    if dep not in ids[: ids.index(s.id)]:
+                        raise ValueError(f"模板 {t.name} 的步骤 {s.id} 依赖了不在它前面的 {dep!r}")
+            if len(t.steps) > self.max_subtasks:
+                raise ValueError(f"模板 {t.name} 的步骤数超过 max_subtasks")
+        if self.templates and self.templates[-1].when != TemplateWhen():
+            raise ValueError("最后一个模板必须没有条件（作为兜底）")
+        return self
 
 
 class UploadRules(_Strict):
@@ -384,6 +478,21 @@ class MediaRules(_Strict):
     prompt_max_chars: int = Field(default=2000, ge=50)
 
 
+class RiceRules(_Strict):
+    """token 用量的显示单位（"大米"）：只改变 token 数量的显示，金额仍用美元。"""
+
+    grain_name: str = "粒"
+    spoon_name: str = "勺"
+    bowl_name: str = "碗"
+    grain_tokens: int = Field(default=1000, ge=1)  # 1 粒 = 多少 token
+    spoon_grains: int = Field(default=100, ge=2)  # 1 勺 = 多少粒
+    bowl_spoons: int = Field(default=30, ge=2)  # 1 碗 = 多少勺
+
+
+class DisplayConfig(_Strict):
+    rice: RiceRules = RiceRules()
+
+
 class Limits(_Strict):
     """服务端限制：避免同时开太多场讨论把额度和渠道用光。"""
 
@@ -412,6 +521,7 @@ class RoundtableConfig(_Strict):
     tools: ToolsConfig = ToolsConfig()
     media: MediaRules = MediaRules()
     limits: Limits = Limits()
+    display: DisplayConfig = DisplayConfig()
 
     @field_validator("prompts")
     @classmethod
@@ -448,8 +558,15 @@ class Persona(_Strict):
 
 
 class PersonasConfig(_Strict):
+    # 代号前缀；留空时代号本身就是称呼（塔罗牌名、昵称）
     code_prefix: str = "组员"
+    # 匿名开启时使用的代号池（塔罗牌）：随机分配，不含任何身份信息
     codes: list[str] = Field(min_length=2)
+    # 匿名关闭时的称呼：厂商 → 昵称，档位 → 模式名；"昵称·模式"，统筹再加后缀
+    nicknames: dict[str, str] = Field(default_factory=dict)
+    tier_labels: dict[Tier, str] = Field(default_factory=dict)
+    nickname_separator: str = "·"
+    coordinator_suffix: str = "（统筹）"
     personas: dict[str, Persona] = Field(default_factory=dict)
 
     @field_validator("codes")
@@ -458,6 +575,16 @@ class PersonasConfig(_Strict):
         if len(codes) != len(set(codes)):
             raise ValueError("代号不能重复")
         return codes
+
+    @model_validator(mode="after")
+    def _distinct_names(self) -> PersonasConfig:
+        names = list(self.nicknames.values())
+        if len(names) != len(set(names)):
+            raise ValueError("nicknames 中的昵称不能重复")
+        clash = sorted(set(names) & set(self.codes))
+        if clash:
+            raise ValueError(f"昵称不能与匿名代号相同：{clash}")
+        return self
 
 
 # --- routing.yaml --------------------------------------------------------------
@@ -638,7 +765,24 @@ class AppConfig(_Strict):
         if unknown:
             raise ValueError(f"personas 中有未知模型 id：{unknown}")
         self._check_routing()
+        self._check_collab()
         return self
+
+    def _check_collab(self) -> None:
+        rt = self.roundtable
+        vocab = set(self.models.tag_vocabulary)
+        for name, kind in rt.collab.kinds.items():
+            if kind.prompt not in rt.prompts:
+                raise ValueError(
+                    f"collab.kinds.{name}.prompt 引用了 prompts 中没有的角色 {kind.prompt!r}"
+                )
+            unknown = sorted(set(kind.tags) - vocab)
+            if unknown:
+                raise ValueError(f"collab.kinds.{name}.tags 含未知标签 {unknown}")
+        for template in rt.collab.templates:
+            for step in template.steps:
+                if step.media not in (None, "image", "speech", "video"):
+                    raise ValueError(f"模板 {template.name} 的步骤 {step.id} 的 media 无效")
 
     def _check_routing(self) -> None:
         rt, routing = self.roundtable, self.routing

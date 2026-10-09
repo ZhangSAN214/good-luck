@@ -72,6 +72,14 @@ EventSink = Callable[[Event], None]
 # --- 上下文 -------------------------------------------------------------------
 
 
+_SEPARATORS = str.maketrans({"・": "·", "•": "·", "-": "·", "—": "·", "－": "·", "∙": "·"})
+
+
+def _fold(text: str) -> str:
+    """称呼比较用：去掉空白，各种分隔符统一，不区分大小写。"""
+    return "".join(text.translate(_SEPARATORS).split()).lower()
+
+
 @dataclass
 class TableContext:
     session_id: str
@@ -107,21 +115,28 @@ class TableContext:
     budget_gate: Callable[[float], ConfirmationCard | None] = lambda estimate: None
     frame_extractor: Callable[..., list[Media]] = extract_frames
     frame_cache: dict[str, list[Media]] = field(default_factory=dict)
+    # 匿名关闭时代号就是昵称（"鲸鱼娘·全力"），发给模型的内容里也用昵称
+    anonymous: bool = True
 
     @property
     def effort_rule(self):
         return self.config.roundtable.effort_check
 
-    # 代号与展示标签（"甲" ↔ "组员甲"）
+    # 代号与称呼：匿名时代号是塔罗牌名，否则是"昵称·模式"；称呼 = 前缀 + 代号
     def label(self, code: str) -> str:
         return f"{self.config.personas.code_prefix}{code}"
 
     def to_code(self, text: str) -> str | None:
-        t = text.strip()
+        """模型写出的称呼 → 代号。容忍空格、分隔符写法不同（· ・ -）、多写的前缀、书名号引号。"""
+        t = text.strip().strip("「」『』“”\"'《》<>")
         prefix = self.config.personas.code_prefix
-        if t.startswith(prefix):
+        if prefix and t.startswith(prefix):
             t = t[len(prefix) :].strip()
-        return t if t in self.members else None
+        if t in self.members:
+            return t
+        wanted = _fold(t)
+        matches = [c for c in self.members if _fold(c) == wanted]
+        return matches[0] if len(matches) == 1 else None
 
     @property
     def active(self) -> list[str]:
@@ -134,7 +149,8 @@ class TableContext:
 
     def scrub(self, text: str) -> str:
         """转给其他模型之前遮蔽身份；题目和附件中出现的名称保留。"""
-        context = "\n".join([self.question.text, *(a.text or "" for a in self.attachments)])
+        names = [] if self.anonymous else list(self.members)  # 昵称是称呼，不是自报身份
+        context = "\n".join([self.question.text, *(a.text or "" for a in self.attachments), *names])
         return self.scrubber.scrub(text, context)
 
     def messages_for(self, prompt: RenderedPrompt, model_id: str) -> tuple[Message, ...]:
@@ -237,20 +253,30 @@ class TableContext:
             lines.append(f'<source id="{s["id"]}" url="{s["url"]}">{title}</source>')
         return "\n\n<sources>\n" + "\n".join(lines) + "\n</sources>"
 
-    def files_note(self, code: str | None) -> str:
-        """某位成员生成的文件（最新版本），附在他的答案 / 成果后面交给其他成员与统筹。"""
+    def latest_files(self, code: str | None) -> list[dict[str, Any]]:
+        """某位成员生成的文件（每个路径取最新版本）。"""
         latest: dict[str, dict[str, Any]] = {}
         for row in self.repo.files(self.session_id):
             if row["table_no"] == self.table_no and row["code"] == code:
                 latest[row["path"]] = row
-        if not latest:
+        return [latest[p] for p in sorted(latest)]
+
+    def files_note(self, code: str | None, names: Mapping[str, str] | None = None) -> str:
+        """某位成员生成的文件（最新版本），附在他的答案 / 成果后面交给其他成员与统筹。
+
+        names：文件 id → 放进接收者工作目录 in/ 后的文件名；给出时路径写成 in/<名字>
+        （下游子任务读取上游交来的文件），否则写成作者自己的 out/<路径>。
+        """
+        rows = self.latest_files(code)
+        if not rows:
             return ""
         limit = self.config.roundtable.tools.files.share_text_chars
         lines = []
-        for path in sorted(latest):
-            row = latest[path]
+        for row in rows:
+            path = row["path"]
             size = _size(row["size"])
-            attrs = f'id="{row["id"]}" path="out/{path}" type="{row["kind"]}" size="{size}"'
+            shown = f"in/{names[row['id']]}" if names and row["id"] in names else f"out/{path}"
+            attrs = f'id="{row["id"]}" path="{shown}" type="{row["kind"]}" size="{size}"'
             ext = path.rsplit(".", 1)[-1].lower()
             if self.file_store and limit and ext in TEXT_EXTS:
                 text = self.file_store.load(row["storage_key"]).decode("utf-8", errors="replace")
@@ -576,6 +602,10 @@ def restore_collab(state: TableState, kind: str, code: str | None, data: dict[st
     if kind == "subtasks":
         c.subtasks = tuple(Subtask.from_dict(x) for x in data["subtasks"])
         c.subtasks_degraded = data.get("degraded", False)
+        c.pipeline = bool(data.get("pipeline", False))
+        c.pipeline_info = dict(data.get("info") or {})
+    elif kind == "handoff":
+        c.handoffs.append(data)
     elif kind == "volunteer":
         c.volunteers[code] = Volunteer.from_dict(data)
     elif kind == "assignment":

@@ -311,3 +311,37 @@ async def test_events_have_no_model_identity(table):
     text = json.dumps([e.__dict__ for e in table.events], ensure_ascii=False, default=str)
     for model in [*MEMBERS.values(), COORDINATOR]:
         assert f'"{model}"' not in text
+
+
+def test_to_code_accepts_nicknames_with_separator_variants(table):
+    """称呼里有分隔符（鲸鱼娘·全力）：容忍空格、全角点、书名号等写法差异；不认识的称呼返回 None。"""
+    table.ctx.members = {"鲸鱼娘·全力": "b1", "鲸鱼娘·节电": "b2", "愚者": "b3"}
+    to_code = table.ctx.to_code
+    for text in (
+        "鲸鱼娘·全力",
+        " 鲸鱼娘 · 全力 ",
+        "鲸鱼娘・全力",
+        "「鲸鱼娘·全力」",
+        "鲸鱼娘-全力",
+    ):
+        assert to_code(text) == "鲸鱼娘·全力", text
+    assert to_code("组员愚者") == "愚者"  # 多写的前缀
+    assert to_code("鲸鱼娘") is None  # 只写昵称有歧义，不猜
+    assert to_code("克劳德·全力") is None
+
+
+def test_parse_decisions_with_nickname_labels(table):
+    from roundtable.core.steps.schemas import parse_decisions
+
+    table.ctx.members = {"鲸鱼娘·全力": "b1", "愚者": "b2"}
+    text = (
+        "- 鲸鱼娘·全力 · 问题 1：采纳 —— 对\n"
+        "- 鲸鱼娘·全力 · 问题 2：不采纳 —— 否\n"
+        "- 愚者：部分采纳 —— 一半"
+    )
+    got = [(d.reviewer, d.issue, d.decision) for d in parse_decisions(text, table.ctx.to_code)]
+    assert got == [
+        ("鲸鱼娘·全力", 1, "accepted"),
+        ("鲸鱼娘·全力", 2, "rejected"),
+        ("愚者", None, "partial"),
+    ]

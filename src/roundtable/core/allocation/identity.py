@@ -33,8 +33,9 @@ class IdentityScrubber:
         self._terms = sorted(set(terms), key=len, reverse=True)
 
     @classmethod
-    def from_config(cls, models: ModelsConfig) -> IdentityScrubber:
-        return cls(identity_terms(models))
+    def from_config(cls, models: ModelsConfig, extra: Iterable[str] = ()) -> IdentityScrubber:
+        """extra：额外要遮蔽的名称（厂商昵称：匿名时它们同样会暴露身份）。"""
+        return cls(identity_terms(models) | {t for t in extra if len(t) >= _MIN_LEN})
 
     def _pattern(self, terms: list[str]) -> re.Pattern[str] | None:
         if not terms:

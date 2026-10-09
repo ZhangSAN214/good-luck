@@ -94,6 +94,7 @@ class Workspace:
         (self.root / "in").mkdir()
         (self.root / "out").mkdir()
         self.known: dict[str, str] = {}  # out/ 相对路径 → sha256
+        self.inputs: dict[str, str] = {}  # 上游交来的文件：files 表的 id → in/ 下的文件名
         for a in attachments:  # 附件原文件（同名时后者加序号）
             name = clean_path(PurePosixPath(a.name).name) or f"attachment.{a.ext}"
             target = self.root / "in" / name
@@ -107,6 +108,28 @@ class Workspace:
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(store.load(row["storage_key"]))
             self.known[row["path"]] = row["sha256"]
+
+    def add_inputs(self, rows: list[dict], owner_labels: dict[str, str]) -> dict[str, str]:
+        """把上游子任务生成的文件（files 表的行，最新版本）放进 in/，返回 文件 id → in/ 下的文件名。
+
+        同名但不是同一个文件时，文件名前面加上来源（owner_labels：行 id → 如 "T3"）；
+        重复调用不重复写入。
+        """
+        for row in rows:
+            if row["id"] in self.inputs:
+                continue
+            base = (
+                clean_path(PurePosixPath(row["path"]).name)
+                or f"file.{row['path'].rsplit('.', 1)[-1]}"
+            )
+            name, n = base, 1
+            while (self.root / "in" / name).exists():
+                tag = owner_labels.get(row["id"], "up")
+                name = f"{tag}-{base}" if n == 1 else f"{tag}-{n}-{base}"
+                n += 1
+            (self.root / "in" / name).write_bytes(self.store.load(row["storage_key"]))
+            self.inputs[row["id"]] = name
+        return {r["id"]: self.inputs[r["id"]] for r in rows}
 
     def _mine(self) -> list[dict]:
         latest: dict[str, dict] = {}

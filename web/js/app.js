@@ -22,6 +22,7 @@ import {
   money,
   reviewsPanel,
   stageHTML,
+  setKindLabels,
   usagePanel,
 } from './view.js';
 
@@ -164,10 +165,10 @@ function welcomeHTML() {
   return `<div class="welcome"><h2>把题目交给圆桌</h2>
 <ol><li>所选档位的每个模型都上桌：一位当统筹，其余是组员。省钱靠选档位，不靠减人。</li>
 <li>组员独立作答 → 互相评审 → 根据评审修订 → 统筹汇总共识与分歧。</li>
-<li>便宜档汇总仍有分歧或把握低时，会问你要不要用旗舰档重做；预计花费超过 ${th} 也先问你。</li>
+<li>节电模式汇总仍有分歧或把握低时，会问你要不要用全力模式重做；预计花费超过 ${th} 也先问你。</li>
 <li>可以添加图片、PDF、Word、文本或音频附件（点「添加附件」或把文件拖进来）；成员还能运行代码、写文件、生成图片、联网搜索，生成的文件可在过程区和「工具」标签里预览、下载。</li>
 <li>提交前，输入框下方会列出各档位的预计花费。</li>
-<li>勾选「匿名」时，讨论结束前只显示代号，结束后点「揭晓身份」。发给模型的内容始终只用代号。</li></ol></div>`;
+<li>勾选「匿名」时，成员用塔罗牌代号（愚者、魔术师…），讨论结束后点「揭晓身份」；不匿名时用「昵称·模式」（如 鲸鱼娘·全力）。发给模型的内容不含模型 id 和厂商名。</li></ol></div>`;
 }
 
 function renderPanel() {
@@ -185,7 +186,7 @@ function renderPanel() {
   if (S.tab === 'split') h = splitPanel(S.session, prefix());
   if (S.tab === 'tools') h = toolsPanel(S.session, prefix());
   if (S.tab === 'media') h = mediaPanel(S.session, prefix());
-  if (S.tab === 'usage') h = usagePanel(S.session, S.budget);
+  if (S.tab === 'usage') h = usagePanel(S.session, S.budget, S.status?.rice);
   if (S.tab === 'channels') h = channelsPanel(S.status);
   if (S.tab === 'history') h = historyPanel(S.history, S.sid);
   if (S.tab === 'cast') h = castPanel(S.session, prefix());
@@ -240,7 +241,7 @@ function renderMediaChoice() {
 
 function renderPicks() {
   const models = S.status?.models || [];
-  const tierLabel = { flagship: '旗舰', budget: '便宜档' };
+  const tierLabel = { flagship: '全力', budget: '节电' };
   $('#picks').innerHTML = models
     .map(
       (m) =>
@@ -752,6 +753,7 @@ async function init() {
   bind();
   try {
     S.status = await API.getStatus();
+    setKindLabels(S.status.collab_kinds);
     S.budget = S.status.budget;
   } catch (e) {
     formError(`无法连接服务：${e.message}`);

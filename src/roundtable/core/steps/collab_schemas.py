@@ -17,14 +17,20 @@ from .schemas import Confidence, _choice, _Loose
 # --- 子任务 -------------------------------------------------------------------
 
 
+class DependencyModel(_Loose):
+    id: str
+    gives: str = ""  # 上游交给这个子任务的内容
+
+
 class SubtaskModel(_Loose):
     id: str
     title: str = Field(min_length=1)
     requirements: str = ""
     acceptance: str = ""
     tags: list[str] = Field(default_factory=list)
-    depends_on: list[str] = Field(default_factory=list)
+    depends_on: list[str | DependencyModel] = Field(default_factory=list)
     media: str | None = None  # image / speech / video：这一块的成果是生成的图片 / 语音 / 视频
+    kind: str | None = None  # 流水线子任务类型（collab.kinds 的键）
 
 
 class DecompositionOutput(_Loose):
@@ -41,6 +47,13 @@ class Subtask:
     tags: tuple[str, ...] = ()
     depends_on: tuple[str, ...] = ()
     media: str | None = None
+    kind: str | None = None  # 流水线子任务类型；旧流程为空
+    gives: tuple[tuple[str, str], ...] = ()  # (上游子任务 id, 交接内容)
+
+    def handoff(self, dep: str, titles: Mapping[str, str] | None = None) -> str:
+        """上游 dep 交给这个子任务的内容；没写时用上游子任务的标题。"""
+        given = dict(self.gives).get(dep, "").strip()
+        return given or (titles or {}).get(dep, dep)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -51,6 +64,8 @@ class Subtask:
             "tags": list(self.tags),
             "depends_on": list(self.depends_on),
             "media": self.media,
+            "kind": self.kind,
+            "gives": {dep: text for dep, text in self.gives},
         }
 
     @classmethod
@@ -63,6 +78,8 @@ class Subtask:
             tuple(d.get("tags") or ()),
             tuple(d.get("depends_on") or ()),
             d.get("media") or None,
+            d.get("kind") or None,
+            tuple((dict(d.get("gives") or {})).items()),
         )
 
 
@@ -93,20 +110,26 @@ def parse_decomposition(
     max_subtasks: int,
     vocabulary: Iterable[str],
     media_kinds: Iterable[str] = (),
+    kinds: Iterable[str] = (),
 ) -> tuple[Subtask, ...]:
     """解析并校验拆分结果：数量、id 唯一、依赖存在且无环；未知标签丢弃。不合格抛 ValueError。"""
     output = DecompositionOutput.model_validate(extract_json_object(text))
     if len(output.subtasks) > max_subtasks:
         raise ValueError(f"子任务数量 {len(output.subtasks)} 超过上限 {max_subtasks}")
     vocab = set(vocabulary)
-    kinds = set(media_kinds)  # 当前可以生成的媒体种类；其他写法一律当作普通子任务
+    media_ok = set(media_kinds)  # 当前可以生成的媒体种类；其他写法一律当作普通子任务
+    task_kinds = set(kinds)  # 流水线子任务类型；不认识的类型当作没写（校验时会指出）
     ids = [_norm_id(s.id) for s in output.subtasks]
     if len(set(ids)) != len(ids) or not all(ids):
         raise ValueError("子任务 id 为空或重复")
     known = set(ids)
     subtasks = []
     for sid, s in zip(ids, output.subtasks, strict=True):
-        deps = tuple(dict.fromkeys(_norm_id(d) for d in s.depends_on))
+        dep_items = [
+            d if isinstance(d, DependencyModel) else DependencyModel(id=d) for d in s.depends_on
+        ]
+        deps = tuple(dict.fromkeys(_norm_id(d.id) for d in dep_items))
+        gives = tuple((_norm_id(d.id), d.gives.strip()) for d in dep_items if d.gives.strip())
         if sid in deps or not set(deps) <= known:
             raise ValueError(f"子任务 {sid} 的依赖无效：{list(deps)}")
         subtasks.append(
@@ -118,8 +141,12 @@ def parse_decomposition(
                 tuple(t for t in s.tags if t in vocab),
                 deps,
                 (s.media or "").strip().lower()
-                if (s.media or "").strip().lower() in kinds
+                if (s.media or "").strip().lower() in media_ok
                 else None,
+                (s.kind or "").strip().lower()
+                if (s.kind or "").strip().lower() in task_kinds
+                else None,
+                gives,
             )
         )
     layers(subtasks)  # 检查循环依赖
@@ -523,6 +550,10 @@ class CollabState:
     cross_reviews: dict[str, tuple] = field(default_factory=dict)  # 评审者 → CheckedReview…
     reworks: dict[tuple[str, str], Any] = field(default_factory=dict)  # (子任务, 代号) → Revision
     merge: Merge | None = None
+    # 流水线：拆分是否按流水线规则校验过、拆分的来源与问题；上游交给下游的记录（交接链）
+    pipeline: bool = False
+    pipeline_info: dict[str, Any] = field(default_factory=dict)
+    handoffs: list[dict[str, Any]] = field(default_factory=list)
 
     def items(self) -> dict[str, tuple[str, str]]:
         return work_items(self.subtasks, self.assignment) if self.assignment else {}

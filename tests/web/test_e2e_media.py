@@ -173,7 +173,7 @@ def test_anonymous_media_session_hides_models_until_reveal(serve, page):
     page.click('#tabs button[data-t="media"]')
     text += page.inner_text("#pbody")
     assert page.locator(".mediajob img.thumb").count() == 1
-    assert leaks(srv.identity_terms(), text) == []
+    assert leaks(srv.anonymous_terms(), text) == []
     page.click("#reveal")
     page.wait_for_selector(".mediajob .ai")
     assert "mi1" in page.inner_text(".mediajob")

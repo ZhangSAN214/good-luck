@@ -47,11 +47,11 @@ triage:
 # escalate_to：汇总仍有分歧或把握低时，询问用户是否用该档位重做（不会自动升级）。
 plans:
   budget:
-    label: 便宜档全员
+    label: 节电模式
     tiers: [budget]
     escalate_to: flagship
   flagship:
-    label: 旗舰档全员
+    label: 全力模式
     tiers: [flagship]
 
 # 自选：用户勾选上桌的模型（至少 min_members + 1 个），可指定其中一个当统筹

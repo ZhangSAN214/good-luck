@@ -29,17 +29,28 @@ revise_rounds: 1
 prompts:
   planner: v1
   answer: v1
-  review: v1
-  revise: v2
-  synthesize: v3
+  review: v2
+  revise: v3
+  synthesize: v4
   redo: v1
-  decompose: v3
+  decompose: v4
   volunteer: v1
-  assign: v1
+  assign: v3
   work: v1
+  decompose_retry: v1    # 流水线拆分不合格时，把问题列给统筹重拆
+  work_analyze: v1       # 协同流水线：各类型子任务的工作提示词
+  work_research: v1
+  work_write: v1
+  work_prompt: v1
+  work_generate: v1
+  work_code: v1
+  work_verify: v1
+  work_review: v1
+  work_factcheck: v1
+  work_assemble: v1
   cross_review: v1
-  rework: v1
-  merge: v2
+  rework: v2
+  merge: v3
   attachments: v1        # 题目附件（文字版 / 随附图片）
   describe_image: v1     # 图片文字版
   transcribe: v1         # 音频转写
@@ -49,7 +60,7 @@ prompts:
   media_review: v1       # 评审生成结果（图片 / 视频截帧）
   media_refine: v1       # 统筹根据评审决定是否改提示词重新生成
   work_media: v1         # 协同：媒体子任务，成员写生成提示词
-  rework_media: v1       # 协同：按审查意见修改生成提示词
+  rework_media: v2       # 协同：按审查意见修改生成提示词
   web_search: v1         # 借助聚合平台联网搜索时发给搜索用模型的指令
   web_fetch: v1          # 借助聚合平台读取网页时发给读取用模型的指令
 
@@ -95,7 +106,253 @@ pipeline: [answer, review, revise, synthesize, reveal]
 #          → 作者按审查修改 → 统筹合并成完整成果
 collab_pipeline: [decompose, volunteer, assign, work, cross_review, rework, merge, reveal]
 collab:
-  max_subtasks: 12        # 拆分的子任务上限（子任务少于人数时，多人各自独立完成同一块）
+  max_subtasks: 12        # 拆分的子任务上限
+
+  # --- 流水线（成员数 ≥ pipeline.min_members 时启用）---------------------------------
+  # 协同不是"各做各的"：统筹把题目拆成一条流水线（每个子任务有类型，上游产出交给下游继续做），
+  # 每位成员至少分到一块不同的实质工作；成员比步骤多时，可以并行的步骤按内容拆成平行子任务
+  # （例如四个角色的文案每人写一个），不允许几个人做同一份内容。
+  # 拆分不合格（整题当一个子任务、没有上下游、类型单一、人数不够分、类型规则不符）→ 统筹重拆一次
+  # → 仍不合格按下面的模板自动生成。
+  pipeline:
+    enabled: true
+    min_members: 2
+    min_kinds: 3
+    whole_task_phrases: [完成整道题, 完成整个题目, 完成全部要求, 全部要求, 独立完成题目, 整道题]
+    whole_task_similarity: 0.75
+    sibling_similarity: 0.95
+
+  # 子任务类型。prompt：负责人完成这类子任务用的提示词；tags：偏好的能力标签；
+  # parallel：能否按内容拆成平行子任务；needs：必须依赖其中某类；audit：审查类（必须依赖被审成果）；
+  # avoid_hard / avoid_soft：负责人不能是这些类型上游子任务的负责人（soft：成员太少时放宽）。
+  kinds:
+    analyze:   {label: 分析, meaning: 读题目 / 材料 / 参考图，提炼要点、规范或需求清单,     prompt: work_analyze,   tags: [vision, research]}
+    research:  {label: 搜索调研, meaning: 联网搜索，收集带来源的资料, prompt: work_research,  tags: [research]}
+    write:     {label: 撰写, meaning: 撰写设定、文案、正文、报告,     prompt: work_write,     tags: [writing]}
+    prompt:    {label: 写提示词, meaning: 把设定与规范写成交给生成模型的提示词, prompt: work_prompt,    tags: [writing, design], parallel: false}
+    generate:  {label: 执行生成, meaning: 用上游提示词调用生成模型（有参考图时一并传入）, prompt: work_generate,  parallel: false, needs: [prompt], requires_media: true}
+    code:      {label: 写代码, meaning: 编写代码并保存成文件,   prompt: work_code,      tags: [code]}
+    verify:    {label: 运行验证, meaning: 实际运行上游代码，记录结果, prompt: work_verify,    tags: [code], parallel: false, needs: [code]}
+    review:    {label: 审查, meaning: 对照要求（和参考图）检查上游成果，指出问题,     prompt: work_review,    tags: [vision], audit: true, avoid_hard: [prompt], avoid_soft: [generate, write, code]}
+    factcheck: {label: 事实核查, meaning: 核对上游成果中的事实、数字、引用, prompt: work_factcheck, tags: [research], audit: true, avoid_soft: [write]}
+    assemble:  {label: 整合, meaning: 把上游产出（含文件）整合、排版成最终成品,     prompt: work_assemble,  tags: [code, writing], parallel: false, min_upstream: 2}
+
+  # 模板兜底（按顺序取第一个条件满足的；最后一个必须无条件）。
+  # depends_on 里的 gives 是交给下游的内容；split 的步骤在成员比步骤多时按内容拆成平行子任务。
+  templates:
+    - name: creation_reference
+      label: 带参考图的创作
+      when:
+        media: [image]
+        image_attachment: true
+        keywords: [画, 绘, 生成图, 作图, 配图, 插图, 海报, 卡片, 人物卡, 四格, 插画, 漫画, 设计, 二创, 创作, 头像, 表情包, draw, poster, illustration, sticker]
+      steps:
+        - id: T1
+          kind: analyze
+          title: 分析参考图，提炼风格规范
+          requirements: 仔细看参考图，提炼可以直接照着做的风格规范：画风、配色（色值）、线条、构图、版式（格数、边框、比例）、字体与文字排布、禁忌。
+          acceptance: 风格规范条目具体、可检查，别人不看原图也能照做
+          split: true
+          split_by: 按风格维度划分（画风与配色 / 线条与构图 / 版式与文字排布）
+          split_hints: [画风与配色, 线条与构图, 版式与文字排布]
+        - id: T2
+          kind: write
+          title: 撰写角色设定与文案
+          requirements: 按题目要求撰写角色设定和每格的文案，措辞贴合风格规范。
+          acceptance: 每个角色都有设定和文案，没有遗漏，文字量适合版面
+          depends_on: [{id: T1, gives: 风格规范}]
+          split: true
+          split_by: 按角色划分，每人负责不同的角色，各写各的
+        - id: T3
+          kind: prompt
+          title: 写出交给画图模型的提示词
+          requirements: 把风格规范和角色设定写成画图提示词，逐条落实风格规范，不得改动风格规范。
+          acceptance: 提示词完整、具体，包含风格、构图、文字内容和禁忌
+          depends_on: [{id: T1, gives: 风格规范}, {id: T2, gives: 角色设定与文案}]
+        - id: T4
+          kind: generate
+          title: 带参考图调用画图模型生成
+          requirements: 用上游提示词生成图片（有参考图时一并传给画图模型）。
+          acceptance: 生成了图片
+          depends_on: [{id: T3, gives: 画图提示词}]
+          media: image
+        - id: T5
+          kind: review
+          title: 对照参考图审查生成结果
+          requirements: 对照参考图和风格规范逐条检查生成结果，指出不符合的地方。
+          acceptance: 逐条给出符合 / 不符合和理由
+          depends_on: [{id: T4, gives: 生成的图片}, {id: T1, gives: 风格规范}]
+          split: true
+          split_by: 按检查维度划分（风格与配色 / 构图与版式 / 文字与内容）
+          split_hints: [风格与配色, 构图与版式, 文字与内容]
+        - id: T6
+          kind: assemble
+          title: 用 Python 拼成成品
+          requirements: 把生成的图片和文案排版成最终成品文件（按题目要求的版式）。
+          acceptance: 成品文件可以直接使用，版式符合要求
+          depends_on: [{id: T4, gives: 生成的图片}, {id: T2, gives: 角色设定与文案}, {id: T5, gives: 审查意见}]
+
+    - name: creation
+      label: 无参考图的创作
+      when:
+        media: [image]
+        keywords: [画, 绘, 生成图, 作图, 配图, 插图, 海报, 卡片, 人物卡, 四格, 插画, 漫画, 设计, 二创, 创作, 头像, 表情包, draw, poster, illustration, sticker]
+      steps:
+        - id: T1
+          kind: write
+          title: 撰写设定与文案
+          requirements: 按题目要求确定风格方向，并撰写设定和文案。
+          acceptance: 设定完整，风格方向明确
+          split: true
+          split_by: 按角色或场景划分，每人负责不同的部分，各写各的
+        - id: T2
+          kind: prompt
+          title: 写出交给画图模型的提示词
+          requirements: 把设定写成画图提示词，包含风格、构图、文字内容和禁忌。
+          acceptance: 提示词完整、具体
+          depends_on: [{id: T1, gives: 设定与文案}]
+        - id: T3
+          kind: generate
+          title: 调用画图模型生成
+          requirements: 用上游提示词生成图片。
+          acceptance: 生成了图片
+          depends_on: [{id: T2, gives: 画图提示词}]
+          media: image
+        - id: T4
+          kind: review
+          title: 审查生成结果
+          requirements: 对照设定和提示词逐条检查生成结果，指出不符合的地方。
+          acceptance: 逐条给出符合 / 不符合和理由
+          depends_on: [{id: T3, gives: 生成的图片}, {id: T1, gives: 设定与文案}]
+          split: true
+          split_by: 按检查维度划分（风格与配色 / 构图与版式 / 文字与内容）
+          split_hints: [风格与配色, 构图与版式, 文字与内容]
+        - id: T5
+          kind: assemble
+          title: 用 Python 拼成成品
+          requirements: 把图片和文案排版成最终成品文件。
+          acceptance: 成品文件可以直接使用
+          depends_on: [{id: T3, gives: 生成的图片}, {id: T1, gives: 设定与文案}, {id: T4, gives: 审查意见}]
+
+    - name: research
+      label: 调研
+      when:
+        tools: [search]
+        keywords: [调研, 研究, 综述, 搜索, 检索, 查找, 资料, 现状, 趋势, 市场, 文献, 对比, 盘点, research, survey, review of, landscape]
+      steps:
+        - id: T1
+          kind: research
+          title: 联网搜索并收集资料
+          requirements: 围绕题目联网搜索，收集可靠来源的资料，每条都记下来源编号。
+          acceptance: 资料覆盖题目的主要方面，每条有来源
+          split: true
+          split_by: 按子主题或来源类型划分，每人搜索不同的方面，不要搜同样的内容
+        - id: T2
+          kind: analyze
+          title: 分析整理资料
+          requirements: 把资料去重、归类，提炼要点，指出资料之间的矛盾和空白。
+          acceptance: 要点清晰，矛盾与空白被指出，来源编号保留
+          depends_on: [{id: T1, gives: 收集到的资料}]
+          split: true
+          split_by: 按主题划分，每人整理不同的主题
+        - id: T3
+          kind: write
+          title: 撰写调研报告
+          requirements: 依据整理后的要点撰写报告，结论有来源支撑。
+          acceptance: 结构完整，结论有 [S1] 这样的来源标注
+          depends_on: [{id: T2, gives: 整理后的要点}]
+          split: true
+          split_by: 按章节划分，每人写不同的章节
+        - id: T4
+          kind: factcheck
+          title: 事实核查
+          requirements: 逐条核对报告中的事实、数字和引用是否有来源支撑，必要时重新搜索。
+          acceptance: 列出核对过的论断及结果，错误和无来源的论断被指出
+          depends_on: [{id: T3, gives: 报告初稿}, {id: T1, gives: 收集到的资料}]
+          split: true
+          split_by: 按报告章节划分，每人核查不同的部分
+        - id: T5
+          kind: assemble
+          title: 整合成最终报告
+          requirements: 把各章节按核查意见改正后整合成完整报告文件。
+          acceptance: 报告完整，核查指出的问题已处理
+          depends_on: [{id: T3, gives: 报告初稿}, {id: T4, gives: 核查意见}]
+
+    - name: data_code
+      label: 数据 / 代码
+      when:
+        tools: [python]
+        keywords: [代码, 编程, 程序, 脚本, 算法, 数据分析, 数据处理, 统计, 计算, 实现, 函数, 爬虫, 可视化, 图表, 报表, python, code, script, dataset, csv, excel]
+      steps:
+        - id: T1
+          kind: analyze
+          title: 理解需求
+          requirements: 弄清题目要什么：输入、输出、约束、边界情况和验收方式，写成清单。
+          acceptance: 需求清单具体，歧义处写出了采用的假设
+          split: true
+          split_by: 按需求的模块或功能点划分
+        - id: T2
+          kind: code
+          title: 编写代码
+          requirements: 按需求清单写出代码，保存成文件。
+          acceptance: 代码完整、可运行、覆盖需求清单
+          depends_on: [{id: T1, gives: 需求清单}]
+          split: true
+          split_by: 按模块划分，每人写不同的模块，接口按需求清单约定
+        - id: T3
+          kind: verify
+          title: 运行验证
+          requirements: 实际运行上游代码，用测试数据或样例验证，记录运行结果和发现的问题。
+          acceptance: 给出运行命令、输出和结论；失败时说明原因
+          depends_on: [{id: T2, gives: 代码}, {id: T1, gives: 需求清单}]
+        - id: T4
+          kind: review
+          title: 审查代码与结果
+          requirements: 审查代码的正确性、边界情况和可读性，核对运行结果是否满足需求。
+          acceptance: 逐条给出问题位置、原因和修改建议
+          depends_on: [{id: T2, gives: 代码}, {id: T3, gives: 验证记录}]
+          split: true
+          split_by: 按审查维度划分（正确性 / 边界与健壮性 / 可读性与结构）
+          split_hints: [正确性, 边界与健壮性, 可读性与结构]
+        - id: T5
+          kind: write
+          title: 撰写报告
+          requirements: 写出报告：需求、方法、代码说明、验证结果、已知局限和使用方法。
+          acceptance: 报告完整，结果与验证记录一致
+          depends_on: [{id: T2, gives: 代码}, {id: T3, gives: 验证记录}, {id: T4, gives: 审查意见}]
+
+    - name: document
+      label: 文档
+      steps:
+        - id: T1
+          kind: analyze
+          title: 分析题目与材料
+          requirements: 弄清题目要求，提炼要点和需要覆盖的内容，列出提纲。
+          acceptance: 提纲覆盖题目的全部要求
+          split: true
+          split_by: 按要点或材料划分，每人分析不同的部分
+        - id: T2
+          kind: write
+          title: 起草正文
+          requirements: 按提纲起草完整正文。
+          acceptance: 正文完整，结构清楚，覆盖提纲
+          depends_on: [{id: T1, gives: 提纲与要点}]
+          split: true
+          split_by: 按章节划分，每人写不同的章节
+        - id: T3
+          kind: review
+          title: 审查草稿
+          requirements: 对照题目要求检查草稿的完整性、准确性和逻辑，指出问题。
+          acceptance: 逐条给出问题位置和修改建议
+          depends_on: [{id: T2, gives: 草稿}, {id: T1, gives: 提纲与要点}]
+          split: true
+          split_by: 按章节划分，每人审查不同的部分
+        - id: T4
+          kind: assemble
+          title: 整合成最终文档
+          requirements: 按审查意见改正并整合成完整文档。
+          acceptance: 文档完整，审查指出的问题已处理
+          depends_on: [{id: T2, gives: 草稿}, {id: T3, gives: 审查意见}]
 
 # 渠道模式：
 #   openrouter —— 只走聚合平台
@@ -186,3 +443,14 @@ media:
 # 服务端限制（Web 服务）：同时在后台执行的讨论数。等待你确认的讨论不占名额。
 limits:
   max_running_sessions: 3
+
+# token 用量的显示单位："大米"。1 粒 = 1000 token，1 勺 = 100 粒，1 碗 = 30 勺，
+# 自动换算到合适的单位（85 粒、3 碗 12 勺）。只改变 token 数量的显示，所有金额仍用美元。
+display:
+  rice:
+    grain_name: 粒
+    spoon_name: 勺
+    bowl_name: 碗
+    grain_tokens: 1000
+    spoon_grains: 100
+    bowl_spoons: 30

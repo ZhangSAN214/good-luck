@@ -16,7 +16,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
 from typing import Any
 
-from roundtable.core.allocation import assign_codes
+from roundtable.core.allocation import member_codes
 from roundtable.core.attachments import Attachment, prepare_attachments
 from roundtable.core.cards import CardOption, ConfirmationCard, money
 from roundtable.core.media import KIND_LABELS, MediaService
@@ -98,7 +98,8 @@ class Orchestrator:
     ) -> str:
         """只创建会话（立即返回 id）；之后用 run() 执行。Web 服务先拿 id 再在后台运行。
 
-        anonymous 只影响给人看的界面；发给模型的内容始终只用代号。
+        anonymous 决定称呼：开启时成员是塔罗牌代号（界面与发给模型的内容都一样），
+        关闭时是"昵称·模式"；任何情况下发给模型的内容都不含模型 id、厂商名。
         attachments：已上传（尚未使用）的附件 id，按顺序关联到本场。
         """
         choice = choice or UserChoice()
@@ -330,10 +331,11 @@ class Orchestrator:
         replace_existing: bool = False,
     ) -> None:
         seed = self.rt.repo.session_row(sid)["seed"]
-        codes = assign_codes(
+        codes = member_codes(
             list(decision.lineup.members),
-            self.rt.config.personas.codes,
+            self.rt.config,
             random.Random(f"{seed}:codes:{table_no}"),
+            anonymous=bool(self.rt.repo.session_row(sid)["anonymous"]),
         )
         pipeline = list(decision.lineup.pipeline)
         if (self.rt.repo.session_row(sid)["choice"] or {}).get("media") and "media" not in pipeline:
@@ -505,6 +507,7 @@ class Orchestrator:
             repo=repo,
             scrubber=self.rt.scrubber,
             rng=random.Random(),
+            anonymous=bool(row["anonymous"]),
             state=restore_state(repo, sid, table_no),
             on_event=lambda e: self._forward(sid, e),
             prompt_roles=self._prompt_roles(table),

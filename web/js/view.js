@@ -1,5 +1,6 @@
 // 把服务端返回的会话渲染成 HTML。这里只做展示，不发请求。
-// 匿名讨论在揭晓前，服务端不返回模型和渠道，界面只用代号（组员甲 / 乙 / 丙…、统筹）；
+// 匿名讨论在揭晓前，服务端不返回模型和渠道，界面只用塔罗牌代号（愚者、魔术师…）和「统筹」；
+// 匿名关闭时代号就是「昵称·模式」（鲸鱼娘·全力），统筹显示为「昵称·模式（统筹）」；
 // 匿名关闭时服务端直接给出模型，界面在代号旁显示。
 
 export const STEP_LABELS = {
@@ -29,6 +30,14 @@ const JOB_STATE = {
 };
 // 由统筹执行的步骤
 export const COORD_STEPS = new Set(['synthesize', 'decompose', 'assign', 'merge']);
+// 协同流水线的子任务类型名（来自 /api/status 的 collab_kinds，不写死在前端）
+let KIND_LABELS_CFG = {};
+export function setKindLabels(map) {
+  KIND_LABELS_CFG = map || {};
+}
+const kindLabel = (k) => (k ? KIND_LABELS_CFG[k] || k : '');
+const kindPill = (k) => (k ? `<span class="pill kind">${esc(kindLabel(k))}</span> ` : '');
+
 const STANCE = { want: ['想做', 'ok'], can: ['可以做', ''], unfit: ['不适合', 'bad'] };
 const LEVEL = { full: ['全部采用', 'ok'], partial: ['部分采用', 'wait'], none: ['未采用', ''] };
 const LENGTH = { simple: '短', medium: '中等', hard: '长' };
@@ -129,6 +138,7 @@ export function cite(html, sources) {
 export class Names {
   constructor(session, prefix = '组员') {
     this.prefix = prefix;
+    this.sid = session?.id;
     this.revealed = !!session?.revealed;
     this.seats = session?.seats || [];
     // 协同模式：每桌的子任务标题与成果编号（W1… → [子任务, 代号]），与服务端的编号规则一致
@@ -165,10 +175,15 @@ export class Names {
     );
     return s ? s.model_id : null;
   }
+  // 匿名关闭时服务端给统筹的称呼（昵称·模式（统筹））；匿名时没有，只叫「统筹」
+  coordinatorName(tableNo) {
+    const s = this.seats.find((x) => x.table_no === tableNo && x.role === 'coordinator');
+    return (s && s.label) || '统筹';
+  }
   // 发言者：头像字、名称、揭晓后的模型
   speaker(tableNo, code) {
-    if (code) return { ch: code, name: this.member(code), ai: this.model(tableNo, 'member', code) };
-    return { ch: '统', name: '统筹', ai: this.model(tableNo, 'coordinator'), coord: true };
+    if (code) return { ch: [...String(code)][0] || '?', name: this.member(code), ai: this.model(tableNo, 'member', code) };
+    return { ch: '统', name: this.coordinatorName(tableNo), ai: this.model(tableNo, 'coordinator'), coord: true };
   }
 }
 
@@ -347,15 +362,34 @@ function output(o, names, lazy = new Set(), sources = null) {
   return '';
 }
 
+/** 交接：下游子任务开始时，谁把什么交给了谁（只含代号；上游生成的图片显示缩略图）。 */
+function handoffLine(h, names, sid) {
+  const thumbs = (h.files || [])
+    .filter((f) => /\.(png|jpe?g|gif|webp)$/i.test(f.name))
+    .map((f) => `<img class="thumb" alt="${esc(f.name)}" src="/api/sessions/${esc(sid)}/files/${esc(f.id)}?inline=1">`)
+    .join('');
+  const text = `${esc(names.member(h.from_code))} 把〈${esc(h.gives)}〉交给 ${esc(names.member(h.to_code))}<span class="meta">（${esc(h.from_subtask)} → ${esc(h.to_subtask)}）</span>`;
+  return sys('交接', text, '', thumbs ? `<span class="thumbs">${thumbs}</span>` : '');
+}
+
 function collabOutput(o, sp, data, names, sources = null) {
   const t = o.table_no;
   const li = (xs) => `<ul>${xs.join('')}</ul>`;
   if (o.kind === 'subtasks') {
     const items = data.subtasks.map(
       (x) =>
-        `<li><b>${esc(x.id)} ${md(x.title)}</b>${x.requirements ? `：${md(x.requirements)}` : ''}${x.acceptance ? `<div class="meta">验收：${md(x.acceptance)}</div>` : ''}${x.depends_on && x.depends_on.length ? `<div class="meta">依赖：${esc(x.depends_on.join('、'))}</div>` : ''}</li>`,
+        `<li>${kindPill(x.kind)}<b>${esc(x.id)} ${md(x.title)}</b>${x.requirements ? `：${md(x.requirements)}` : ''}${x.acceptance ? `<div class="meta">验收：${md(x.acceptance)}</div>` : ''}${x.depends_on && x.depends_on.length ? `<div class="meta">依赖：${esc(x.depends_on.map((d) => (x.gives && x.gives[d] ? `${d}（${x.gives[d]}）` : d)).join('、'))}</div>` : ''}</li>`,
     );
-    const note = data.degraded ? '<div class="meta">拆分不可用，整道题作为一个子任务由全员各自完成</div>' : '';
+    const info = data.info || {};
+    const note = data.pipeline
+      ? info.source === 'template'
+        ? `<div class="meta">统筹两次都没有拆出合格的流水线，已按模板「${esc(info.template_label || info.template)}」生成</div>`
+        : info.source === 'retry'
+          ? '<div class="meta">第一次拆分不符合流水线规则，已按指出的问题重拆</div>'
+          : ''
+      : data.degraded
+        ? '<div class="meta">拆分不可用，整道题作为一个子任务由全员各自完成</div>'
+        : '';
     return msg(sp, `拆分为 ${data.subtasks.length} 个子任务`, `<div class="bubble">${li(items)}${note}</div>`);
   }
   if (o.kind === 'volunteer') {
@@ -378,6 +412,9 @@ function collabOutput(o, sp, data, names, sources = null) {
   }
   if (o.kind === 'work') {
     return msg(sp, `完成 ${names.subtask(t, data.subtask)}`, `<div class="bubble">${cite(md(data.text), sources)}</div>${mediaFoot(data.media)}`);
+  }
+  if (o.kind === 'handoff') {
+    return handoffLine(data, names, names.sid);
   }
   if (o.kind === 'cross_review') return msg(sp, '交叉审查', review(data, names, t));
   if (o.kind === 'rework') {
@@ -687,7 +724,7 @@ export function stageHTML(sv, live, prefix) {
   if (hasCoord) {
     const sp = names.speaker(tableNo, null);
     const speaking = live.speaking.has('统') ? 'speaking' : '';
-    h += seat(COORD_POS, `inner ${speaking}`, avatar(sp), '统筹', sp.ai || '汇总 · 不作答');
+    h += seat(COORD_POS, `inner ${speaking}`, avatar(sp), sp.name, sp.ai || '汇总 · 不作答');
   }
   codes.forEach((c, i) => {
     const sp = names.speaker(tableNo, c);
@@ -803,7 +840,24 @@ function budgetBlock(title, s) {
   return `<h4>${esc(title)} ${money(s.limit_usd)}</h4><div class="bar${s.warn ? ' warn' : ''}"><i style="width:${pct.toFixed(1)}%"></i></div><div class="hint">已用 ${money(s.spent_usd)}（${pct.toFixed(1)}%）${s.exhausted ? ' · 已用满' : s.warn ? ' · 接近上限' : ''} · ${esc(s.resets_at.slice(0, 10))} 重置（UTC）</div>`;
 }
 
-export function usagePanel(sv, budget) {
+/** token 用量显示为「大米」：1 粒 = grain_tokens，1 勺 = spoon_grains 粒，1 碗 = bowl_spoons 勺（比例来自 /api/status）。金额不走这里。 */
+export function riceText(tokens, rice) {
+  const r = rice || { grain_name: '粒', spoon_name: '勺', bowl_name: '碗', grain_tokens: 1000, spoon_grains: 100, bowl_spoons: 30 };
+  let grains = Math.max(0, Number(tokens) || 0) / r.grain_tokens;
+  if (grains >= 10) grains = Math.round(grains);
+  if (grains < r.spoon_grains) {
+    const text = grains === 0 ? '0' : grains < 10 ? String(Math.max(0.1, Math.round(grains * 10) / 10)) : String(grains);
+    return `${text} ${r.grain_name}`;
+  }
+  const spoons = Math.floor(grains / r.spoon_grains);
+  const restGrains = grains % r.spoon_grains;
+  if (spoons < r.bowl_spoons) return `${spoons} ${r.spoon_name}${restGrains ? ` ${restGrains} ${r.grain_name}` : ''}`;
+  const bowls = Math.floor(spoons / r.bowl_spoons);
+  const restSpoons = spoons % r.bowl_spoons;
+  return `${bowls} ${r.bowl_name}${restSpoons ? ` ${restSpoons} ${r.spoon_name}` : ''}`;
+}
+
+export function usagePanel(sv, budget, rice) {
   let h = '';
   if (sv) {
     h += `<h4>本场累计</h4><div class="big" id="session-cost">${money(sv.cost_usd)}</div>`;
@@ -819,10 +873,10 @@ export function usagePanel(sv, budget) {
       groups.set(key, g);
     }
     if (groups.size) {
-      h += '<h4>按步骤</h4><table><thead><tr><th>步骤</th><th class="num">调用</th><th class="num">token</th><th class="num">费用</th></tr></thead><tbody>';
+      h += '<h4>按步骤</h4><table><thead><tr><th>步骤</th><th class="num">调用</th><th class="num">大米</th><th class="num">费用</th></tr></thead><tbody>';
       for (const g of groups.values()) {
         const label = `${g.table !== null && g.table !== undefined ? `第 ${g.table + 1} 桌 · ` : ''}${STEP_LABELS[g.step] || g.step}`;
-        h += `<tr><td>${esc(label)}${g.failed ? ` <span class="pill badp">失败 ${g.failed}</span>` : ''}</td><td class="num">${g.n}</td><td class="num">${g.i + g.o}</td><td class="num">${money(g.cost)}</td></tr>`;
+        h += `<tr><td>${esc(label)}${g.failed ? ` <span class="pill badp">失败 ${g.failed}</span>` : ''}</td><td class="num">${g.n}</td><td class="num" title="${g.i + g.o} token">${esc(riceText(g.i + g.o, rice))}</td><td class="num">${money(g.cost)}</td></tr>`;
       }
       h += '</tbody></table>';
     }
@@ -861,7 +915,7 @@ export function channelsPanel(status) {
     t.all += 1;
     t.ok += m.available ? 1 : 0;
   }
-  const tierLabel = { flagship: '旗舰', budget: '便宜档' };
+  const tierLabel = { flagship: '全力', budget: '节电' };
   h += '<h4>可用模型</h4><table><tbody>';
   for (const [k, v] of Object.entries(tiers)) {
     h += `<tr><td>${esc(tierLabel[k] || k)}</td><td class="num">${v.ok} / ${v.all}</td></tr>`;
@@ -916,7 +970,7 @@ export function contributionsPanel(sv, history, prefix) {
   else {
     h += `<table><thead><tr><th>模型</th><th class="num">场次</th>${CONTRIB_COLUMNS.map(([, t]) => `<th class="num">${t}</th>`).join('')}</tr></thead><tbody>`;
     for (const r of history) {
-      h += `<tr><td>${esc(r.model_id)}</td><td class="num">${r.sessions}</td>${cells(r.counts)}</tr>`;
+      h += `<tr><td>${esc(r.label || r.model_id)}<div class="hint">${esc(r.model_id)}</div></td><td class="num">${r.sessions}</td>${cells(r.counts)}</tr>`;
     }
     h += '</tbody></table><p class="hint">这些数据为以后按历史表现分工积累，目前不影响谁上桌、谁当统筹。</p>';
   }
@@ -965,6 +1019,51 @@ export function castPanel(sv, prefix) {
 
 // --- 分工（协同模式） -----------------------------------------------------------------
 
+/** 交接链：按依赖分层从左到右；节点 = 子任务（类型、标题、负责人、状态），节点里写从哪个上游收到什么。 */
+function chainGraph(subs, assign, works, handoffs, names, tableNo) {
+  const list = subs.subtasks;
+  const layerOf = {};
+  const depth = (s, seen = new Set()) => {
+    if (layerOf[s.id] !== undefined) return layerOf[s.id];
+    if (seen.has(s.id)) return 0;
+    seen.add(s.id);
+    const ups = (s.depends_on || []).map((d) => list.find((x) => x.id === d)).filter(Boolean);
+    layerOf[s.id] = ups.length ? Math.max(...ups.map((u) => depth(u, seen))) + 1 : 0;
+    return layerOf[s.id];
+  };
+  list.forEach((s) => depth(s));
+  const cols = [];
+  for (const s of list) (cols[layerOf[s.id]] ||= []).push(s);
+  const sid = names.sid;
+  let h = '<h4>交接链</h4><div class="chain">';
+  cols.forEach((col, i) => {
+    h += `<div class="col"><div class="colh">第 ${i + 1} 段</div>`;
+    for (const s of col) {
+      const owners = (assign?.assignments.find((x) => x.subtask === s.id)?.members || []).map((c) => esc(names.member(c))).join('、') || '—';
+      const done = works.length && (assign?.assignments.find((x) => x.subtask === s.id)?.members || []).every((c) => works.some((w) => w.o.code === c && w.d.subtask === s.id));
+      const incoming = new Map();
+      for (const x of handoffs.filter((x) => x.to_subtask === s.id)) {
+        const e = incoming.get(x.from_subtask) || { gives: x.gives, files: [] };
+        e.files.push(...(x.files || []));
+        incoming.set(x.from_subtask, e);
+      }
+      let ins = '';
+      for (const [from, e] of incoming) {
+        const imgs = [...new Map(e.files.filter((f) => /\.(png|jpe?g|gif|webp)$/i.test(f.name)).map((f) => [f.id, f])).values()]
+          .map((f) => `<img class="thumb" alt="${esc(f.name)}" src="/api/sessions/${esc(sid)}/files/${esc(f.id)}?inline=1">`)
+          .join('');
+        ins += `<div class="in">← ${esc(from)}：${esc(e.gives)}${imgs}</div>`;
+      }
+      if (!incoming.size && (s.depends_on || []).length) {
+        ins = s.depends_on.map((d) => `<div class="in wait">← ${esc(d)}：${esc((s.gives || {})[d] || '')}（尚未交接）</div>`).join('');
+      }
+      h += `<div class="node${done ? ' done' : ''}">${kindPill(s.kind)}<b>${esc(s.id)} ${esc(s.title)}</b><div class="who">${owners}</div><div>${done ? '<span class="pill okp">已完成</span>' : '<span class="pill">未完成</span>'}</div>${ins}</div>`;
+    }
+    h += '</div>';
+  });
+  return `${h}</div>`;
+}
+
 export function splitPanel(sv, prefix) {
   if (!sv) return '<p class="empty">提交题目后显示。</p>';
   if (sv.workflow !== 'collab') {
@@ -1006,10 +1105,11 @@ export function splitPanel(sv, prefix) {
           : '未采用';
       }
       const deps = st.depends_on && st.depends_on.length ? `<div class="hint">依赖 ${esc(st.depends_on.join('、'))}</div>` : '';
-      h += `<tr><td><b>${esc(st.id)}</b> ${esc(st.title)}${deps}</td><td>${who}</td><td>${res}</td><td>${ad}</td></tr>`;
+      h += `<tr><td>${kindPill(st.kind)}<b>${esc(st.id)}</b> ${esc(st.title)}${deps}</td><td>${who}</td><td>${res}</td><td>${ad}</td></tr>`;
     }
     h += '</tbody></table>';
-    if (assign?.repaired?.length) h += '<p class="hint">统筹的分配不符合规则，已由代码按自荐补齐。</p>';
+    if (subs.pipeline) h += chainGraph(subs, assign, works, pick('handoff').map((x) => x.d), names, t.table_no);
+    if (assign?.repaired?.length) h += '<p class="hint">统筹的分配不符合规则，已由代码按规则调整（回避自己审查自己、均衡负担）。</p>';
     if (vols.length) {
       h += '<h4>自荐表态</h4><table><thead><tr><th>成员</th>' + subs.subtasks.map((s) => `<th>${esc(s.id)}</th>`).join('') + '</tr></thead><tbody>';
       for (const { d, o } of vols) {

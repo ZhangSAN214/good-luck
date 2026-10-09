@@ -286,6 +286,7 @@ models:
     price: {input: 0.50, output: 9.0}     # 按 token 计价（音频输出）
     speech_tokens_per_char: 3.0           # 每个字符约对应的音频输出 token 数，只用于预估
     tags: [tts]
+    params: {voice: Zephyr}               # 默认音色（覆盖 roundtable.yaml 的 media.speech.voice）
     enabled: true
     routes:
       - {channel: openrouter, model: google/gemini-3.8-flash-tts}
@@ -296,6 +297,7 @@ models:
     tier: budget
     media_price: {unit: char, usd: 0.000015}   # $15 / 百万字符
     tags: [tts, zh]                            # zh：擅长中文，脚本主要是中文时优先
+    params: {voice: loongjohn}                 # 默认音色
     enabled: true
     routes:
       - {channel: openrouter, model: qwen/qwen-audio-3.0-tts-flash}
