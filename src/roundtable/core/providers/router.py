@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from collections import deque
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Generic, TypeVar
@@ -80,6 +81,9 @@ class ChannelRouter:
         self._clock = clock
         self._sleep = sleep
         self._cooldown_until: dict[str, float] = {}
+        # 限速与并发：每个渠道一个信号量（同时在途的请求数）和最近一分钟的请求时间
+        self._slots: dict[str, asyncio.Semaphore] = {}
+        self._recent: dict[str, deque[float]] = {}
 
     @property
     def mode(self) -> ChannelMode:
@@ -117,6 +121,28 @@ class ChannelRouter:
             if not plan.usable:
                 result[m.id] = plan.skipped
         return result
+
+    # --- 限速与并发 ----------------------------------------------------------------
+
+    def _slot(self, channel: str) -> asyncio.Semaphore:
+        if channel not in self._slots:
+            self._slots[channel] = asyncio.Semaphore(self._policy.max_concurrent)
+        return self._slots[channel]
+
+    async def _throttle(self, channel: str) -> None:
+        """每分钟请求数上限：达到上限时等到最早的一次请求满一分钟。"""
+        limit = self._policy.requests_per_minute
+        if limit is None:
+            return
+        recent = self._recent.setdefault(channel, deque())
+        while True:
+            now = self._clock()
+            while recent and now - recent[0] >= 60:
+                recent.popleft()
+            if len(recent) < limit:
+                recent.append(now)
+                return
+            await self._sleep(60 - (now - recent[0]))
 
     # --- 调用 ------------------------------------------------------------------
 
@@ -173,9 +199,11 @@ class ChannelRouter:
             if round_no:
                 await self._sleep(self._policy.backoff_s * round_no)
             for route in self._ordered(remaining):
-                started = self._clock()
                 try:
-                    result = await call(self._providers[route.channel], route, plan.model)
+                    async with self._slot(route.channel):
+                        await self._throttle(route.channel)
+                        started = self._clock()
+                        result = await call(self._providers[route.channel], route, plan.model)
                 except UnsupportedCapability:
                     error = ProviderError(ErrorKind.NOT_FOUND, route.channel, "渠道不支持该能力")
                     attempts.append(

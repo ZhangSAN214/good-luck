@@ -200,6 +200,10 @@ class RequestPolicy(_Strict):
     # 渠道出错后的冷却时间：冷却中的渠道被排到最后
     cooldown_rate_limit_s: float = Field(default=30, ge=0)
     cooldown_quota_s: float = Field(default=600, ge=0)
+    # 限速与并发（每个渠道分别计）：同时在途的请求数上限（全员并发调用时避免触发限流）；
+    # 每分钟请求数上限，None 表示不限。超过时排队等待，不报错
+    max_concurrent: int = Field(default=6, ge=1)
+    requests_per_minute: int | None = Field(default=None, ge=1)
 
 
 class ReviewQuality(_Strict):
@@ -376,6 +380,12 @@ class MediaRules(_Strict):
     prompt_max_chars: int = Field(default=2000, ge=50)
 
 
+class Limits(_Strict):
+    """服务端限制：避免同时开太多场讨论把额度和渠道用光。"""
+
+    max_running_sessions: int = Field(default=3, ge=1)  # 同时在后台执行的讨论数
+
+
 class RoundtableConfig(_Strict):
     seats: int = Field(ge=2)
     min_members: int = Field(default=2, ge=2)
@@ -397,6 +407,7 @@ class RoundtableConfig(_Strict):
     uploads: UploadRules = UploadRules()
     tools: ToolsConfig = ToolsConfig()
     media: MediaRules = MediaRules()
+    limits: Limits = Limits()
 
     @field_validator("prompts")
     @classmethod

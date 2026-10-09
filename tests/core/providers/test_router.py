@@ -318,3 +318,58 @@ async def test_aclose_closes_all():
     router, *_ = make_router(providers={n: Closing(n) for n in CHANNELS})
     await router.aclose()
     assert sorted(closed) == sorted(CHANNELS)
+
+
+# --- 限速与并发 -------------------------------------------------------------------
+
+
+async def test_concurrency_is_capped_per_channel():
+    import asyncio
+
+    class Slow(FakeProvider):
+        def __init__(self, name):
+            super().__init__(name)
+            self.now = self.peak = 0
+
+        async def complete(self, model, messages, params):
+            self.now += 1
+            self.peak = max(self.peak, self.now)
+            await asyncio.sleep(0.01)
+            self.now -= 1
+            return await super().complete(model, messages, params)
+
+    slow = Slow("openrouter")
+    router, *_ = make_router(
+        providers={"openrouter": slow}, policy=RequestPolicy(failover_rounds=1, max_concurrent=3)
+    )
+    await asyncio.gather(*(router.complete("qwen", MSG) for _ in range(12)))
+    assert slow.peak == 3 and len(slow.calls) == 12
+
+
+async def test_requests_per_minute_queues_instead_of_failing():
+    router, providers, clock, sleeper = make_router(
+        providers={"openrouter": FakeProvider("openrouter")},
+        policy=RequestPolicy(failover_rounds=1, requests_per_minute=2),
+    )
+
+    async def advancing(seconds):  # 等待会让时间前进（否则限速循环永远等不到）
+        sleeper.calls.append(seconds)
+        clock.now += seconds
+
+    router._sleep = advancing  # noqa: SLF001
+    for _ in range(2):
+        await router.complete("qwen", MSG)
+    assert sleeper.calls == []
+    clock.now += 20
+    await router.complete("qwen", MSG)  # 第 3 次：最早的一次是 20 秒前，要等满 60 秒
+    assert sleeper.calls == [pytest.approx(40)]
+    assert len(providers["openrouter"].calls) == 3
+
+
+async def test_limits_do_not_apply_across_channels():
+    router, providers, clock, sleeper = make_router(
+        policy=RequestPolicy(failover_rounds=1, requests_per_minute=1)
+    )
+    await router.complete("gemini", MSG)  # google
+    await router.complete("claude", MSG)  # anthropic：各渠道分别计
+    assert sleeper.calls == []

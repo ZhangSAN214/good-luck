@@ -110,6 +110,8 @@ request:
   backoff_s: 2.0              # 两轮之间的等待
   cooldown_rate_limit_s: 30   # 渠道被限流后，冷却期内排到最后
   cooldown_quota_s: 600       # 渠道额度用尽 / key 无效后，冷却期内排到最后
+  max_concurrent: 6           # 每个渠道同时在途的请求数上限（全员并发调用时避免触发限流），超过的排队
+  requests_per_minute: null   # 每个渠道每分钟请求数上限；null 不限，达到时排队等待
 
 # 文件上传（附件）：类型同时按扩展名和文件头判断；文件按内容哈希存放，文件名只用于显示
 uploads:
@@ -180,3 +182,7 @@ media:
   review_tokens: 500
   refine_tokens: 600
   prompt_max_chars: 2000
+
+# 服务端限制（Web 服务）：同时在后台执行的讨论数。等待你确认的讨论不占名额。
+limits:
+  max_running_sessions: 3

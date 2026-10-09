@@ -182,6 +182,7 @@ class RoundtableService:
             raise ServiceError(f"未知的档位 {tier!r}")
         if not self.rt.router.available_models():
             raise ServiceError("没有可用的模型：请在 .env 中填写至少一个渠道的 key", 503)
+        self._check_capacity()
         try:
             sid = self.orc.open(
                 Question(text), choice, seed=seed, anonymous=anonymous, attachments=attachments
@@ -354,11 +355,13 @@ class RoundtableService:
         keys = [o["key"] for o in checkpoint.card["options"]]
         if response not in keys:
             raise ServiceError(f"无效的选项 {response!r}，可选：{keys}")
+        self._check_capacity()
         self._spawn(session_id, self.orc.respond(session_id, response, note))
 
     def resume(self, session_id: str) -> None:
         self._require(session_id)
         if not self.running(session_id):
+            self._check_capacity()
             self._spawn(session_id, self.orc.resume(session_id))
 
     def reveal_identities(self, session_id: str) -> dict[str, Any]:
@@ -578,6 +581,13 @@ class RoundtableService:
 
     def sessions(self, limit: int = 50) -> list[dict[str, Any]]:
         return [asdict(s) for s in self.rt.repo.list_sessions(limit)]
+
+    def _check_capacity(self) -> None:
+        """同时在后台执行的讨论数上限（limits.max_running_sessions）；等待确认的不占名额。"""
+        limit = self.rt.config.roundtable.limits.max_running_sessions
+        busy = sum(1 for t in self._tasks.values() if not t.done())
+        if busy >= limit:
+            raise ServiceError(f"同时进行的讨论已达上限（{limit} 场），请等其中一场结束后再试", 429)
 
     def running(self, session_id: str) -> bool:
         task = self._tasks.get(session_id)

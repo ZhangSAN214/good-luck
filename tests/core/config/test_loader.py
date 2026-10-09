@@ -306,3 +306,15 @@ def test_tool_models_have_no_seat_and_image_gen():
     assert all(m.media_price or m.image_tokens for m in tools)
     for kind_tag in ("image_gen", "tts", "stt", "video_gen"):
         assert any(kind_tag in m.tags for m in tools), kind_tag
+
+
+def test_limits_defaults_and_validation(config_dir):
+    cfg = load_config()
+    assert cfg.roundtable.request.max_concurrent == 6
+    assert cfg.roundtable.request.requests_per_minute is None
+    assert cfg.roundtable.limits.max_running_sessions == 3
+    edit(config_dir, "roundtable.yaml", lambda d: d["request"].update(max_concurrent=0))
+    expect_error(config_dir, "request.max_concurrent")
+    edit(config_dir, "roundtable.yaml", lambda d: d["request"].update(max_concurrent=2))
+    edit(config_dir, "roundtable.yaml", lambda d: d["limits"].update(max_running_sessions=0))
+    expect_error(config_dir, "limits.max_running_sessions")

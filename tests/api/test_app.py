@@ -279,3 +279,30 @@ def test_generated_files_download_and_preview():
         status = c.get("/api/status").json()["tools"]
         assert status["enabled"] and "generate_image" in status["unavailable"]
         assert "search" in status["unavailable"]  # 测试环境没有搜索服务
+
+
+def test_running_sessions_are_capped_and_waiting_ones_do_not_count():
+    import asyncio
+
+    env = Env(confirm_threshold_usd=100.0)
+    limits = env.rt.config.roundtable.limits.model_copy(update={"max_running_sessions": 1})
+    env.rt.config = env.rt.config.model_copy(
+        update={"roundtable": env.rt.config.roundtable.model_copy(update={"limits": limits})}
+    )
+    original = env.fake.complete
+
+    async def slow(*args, **kwargs):
+        await asyncio.sleep(0.2)
+        return await original(*args, **kwargs)
+
+    env.fake.complete = slow
+    c = TestClient(create_app(RoundtableService(env.rt)))
+    with c:
+        first = c.post("/api/sessions", json={"question": MEDIUM, "seed": 1})
+        assert first.status_code == 202
+        second = c.post("/api/sessions", json={"question": MEDIUM, "seed": 2})
+        assert second.status_code == 429 and "上限" in second.json()["detail"]
+        sse_events(c, first.json()["session_id"])  # 等第一场结束
+        third = c.post("/api/sessions", json={"question": MEDIUM, "seed": 3})
+        assert third.status_code == 202
+        sse_events(c, third.json()["session_id"])

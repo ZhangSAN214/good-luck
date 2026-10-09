@@ -1,6 +1,6 @@
 # CLAUDE.md — Roundtable（圆桌）
 
-多个 AI 协作完成作业。长期目标见 `docs/REQUIREMENTS_v3.md`；当前范围以本文件和 `docs/PLAN.md` 为准（v1 已完成，v2 改版阶段 11–19 已完成（19 为媒体生成），接下来 20 收尾）。
+多个 AI 协作完成作业。长期目标见 `docs/REQUIREMENTS_v3.md`；当前范围以本文件和 `docs/PLAN.md` 为准（v1 已完成，v2 改版阶段 11–20 全部完成（19 媒体生成、20 收尾：限速与并发、README、CI））。
 界面样板：`docs/mockup.html`（v1 只实现其中文字圆桌相关部分）。
 按 `docs/PLAN.md` 的阶段推进，不要跳阶段，不要提前实现"后续扩展"里的功能。
 
@@ -65,6 +65,7 @@
   3. 遇到 429、额度用尽、key 无效、模型不存在、网络错误、超时、5xx 时**切换到下一个渠道**；请求本身有问题（400）或模型拒答时不切换。
   4. 所有渠道都失败后按 `failover_rounds` 退避重试；额度用尽 / key 无效的渠道本次不再重试。
   5. 出错的渠道进入冷却期（限流短、额度长，参考 `retry-after`），冷却中排到最后。
+- **限速与并发**（`request.max_concurrent` / `request.requests_per_minute`，按渠道分别计，在 `ChannelRouter.invoke` 里）：同时在途的请求数超过上限时排队；每分钟请求数达到上限时等待而不是报错。Web 服务另有 `limits.max_running_sessions`（同时在后台执行的讨论数，超过时 HTTP 429；等待确认的不占名额）。
 - 适配器本身不重试（SDK 的 `max_retries=0`），重试和切换只由路由负责。
 - 每次调用返回 `Completion`：实际走的渠道、渠道类型、各次尝试（渠道 + 错误类型）、token、费用及来源。
 - 费用：优先使用渠道返回的实际费用（OpenRouter），否则按该路由的配置价格估算；**按渠道分别统计**（`core/budget/usage.py`）。
@@ -219,6 +220,8 @@
 ## 7. 目录约定
 
 ```
+README.md      安装、.env、加模型 / 步骤 / 提示词版本、上传、沙箱、搜索与隐私
+.github/workflows/ci.yml   ruff + pytest（含 Playwright 端到端）
 config/        models.yaml  roundtable.yaml  personas.yaml  routing.yaml
 prompts/       planner/ answer/ answer_quick/ review/ revise/ synthesize/ redo/
                attachments/ describe_image/ transcribe/ tools/（v4） image_gen/ web_search/ web_fetch/
