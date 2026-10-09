@@ -41,6 +41,19 @@ class CreateSession(BaseModel):
     attachments: list[str] = Field(default_factory=list)  # POST /api/uploads 返回的附件 id
 
 
+class EstimateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    question: str = Field(min_length=1, max_length=MAX_QUESTION_CHARS)
+    tier: str | None = None
+    models: list[str] = Field(default_factory=list)
+    coordinator: str | None = None
+    workflow: str | None = None  # 为空时两种模式都给出
+    anonymous: bool = False
+    attachments: list[str] = Field(default_factory=list)
+    seed: int | None = None
+
+
 class Respond(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -128,6 +141,20 @@ def create_app(service: RoundtableService | None = None) -> FastAPI:
     @app.get("/api/sessions/{session_id}/files/{file_id}/preview")
     async def file_preview(request: Request, session_id: str, file_id: str) -> dict[str, Any]:
         return svc(request).file_preview(session_id, file_id)
+
+    @app.post("/api/estimate")
+    async def estimate(request: Request, body: EstimateRequest) -> dict[str, Any]:
+        """提交前预估（不调用模型、不产生费用）。提交时带上返回的 seed，阵容与预估一致。"""
+        return svc(request).estimate(
+            body.question,
+            tier=body.tier,
+            models=body.models,
+            coordinator=body.coordinator,
+            workflow=body.workflow,
+            anonymous=body.anonymous,
+            attachments=body.attachments,
+            seed=body.seed,
+        )
 
     @app.post("/api/uploads", status_code=201)
     async def upload(request: Request, name: str) -> dict[str, Any]:

@@ -436,6 +436,119 @@ def _options(
     return options
 
 
+# --- 提交前预估（不调用任何模型） ------------------------------------------------------
+
+
+def rules_assessment(question: Question, config: AppConfig) -> Assessment:
+    """只用规则判断答案长度（不调用规划员）；规则判断不出时用默认难度。"""
+    rules = triage(question, config.routing.triage)
+    if rules.difficulty is not None:
+        return Assessment(
+            difficulty=rules.difficulty,
+            source="rule",
+            task_type=rules.task_type,
+            require_tags=rules.require_tags,
+            rules_matched=rules.matched,
+            reason=f"规则 {rules.difficulty_rule}",
+        )
+    return Assessment(
+        difficulty=config.routing.default_difficulty,
+        source="default",
+        task_type=rules.task_type,
+        require_tags=rules.require_tags,
+        rules_matched=rules.matched,
+        reason="提交前预估不调用规划员，按默认难度估计答案长度",
+    )
+
+
+@dataclass(frozen=True)
+class PreviewOption:
+    """提交前预估中的一项：某个模式 × 某个档位（或自选）。"""
+
+    workflow: str
+    plan: str
+    label: str
+    available: bool
+    reason: str = ""
+    estimate: CostEstimate | None = None
+    lineup: Lineup | None = None
+
+
+def preview_estimates(
+    question: Question,
+    *,
+    config: AppConfig,
+    router: ChannelRouter,
+    seed: int,
+    recent_coordinators: Sequence[str] = (),
+    history: EstimateHistory | None = None,
+    workflows: Sequence[str] = WORKFLOWS,
+    custom: UserChoice | None = None,
+) -> tuple[Assessment, list[PreviewOption]]:
+    """提交前对比：各模式 × 各档位（及自选）的阵容与预计花费。不调用规划员，不产生费用。
+
+    阵容按与正式路由相同的随机种子组建；提交时带上同一个 seed，上桌名单就与这里一致。
+    """
+    assessment = rules_assessment(question, config)
+    available = [m for m in router.available_models() if m.seat]
+    by_id = {m.id: m for m in available}
+    tokens = answer_tokens(config, assessment)
+    out: list[PreviewOption] = []
+    for workflow in workflows:
+        options = _options(
+            question,
+            assessment,
+            config=config,
+            router=router,
+            available=available,
+            seed=seed,
+            recent_coordinators=recent_coordinators,
+            workflow=workflow,
+            history=history,
+        )
+        for name, option in options.items():
+            out.append(
+                PreviewOption(
+                    workflow,
+                    name,
+                    option.label,
+                    option.available,
+                    option.reason,
+                    option.estimate,
+                    option.lineup,
+                )
+            )
+        if custom is not None and custom.tier == CUSTOM:
+            builder = LineupBuilder(
+                config,
+                available,
+                random.Random(f"{seed}:{CUSTOM}"),
+                recent_coordinators=recent_coordinators,
+            )
+            try:
+                lineup = builder.build_custom(custom.models, custom.coordinator, workflow)
+            except (NotEnoughModels, KeyError) as exc:
+                out.append(
+                    PreviewOption(workflow, CUSTOM, config.routing.custom.label, False, str(exc))
+                )
+                continue
+            estimate = _estimate(
+                lineup,
+                config=config,
+                router=router,
+                by_id=by_id,
+                question=question,
+                answer_tokens=tokens,
+                history=history,
+            )
+            out.append(
+                PreviewOption(
+                    workflow, CUSTOM, config.routing.custom.label, True, "", estimate, lineup
+                )
+            )
+    return assessment, out
+
+
 # --- 入口 --------------------------------------------------------------------------
 
 

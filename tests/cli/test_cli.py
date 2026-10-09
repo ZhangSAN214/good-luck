@@ -327,3 +327,18 @@ async def test_tool_calls_and_files_command(tmp_path):
     assert len(saved) == 2 and all(p.startswith("组员") and p.endswith("/解答.md") for p in saved)
     for term in identity_terms(env):  # 匿名未揭晓：目录名只用代号
         assert not any(mentions(p, term) for p in saved)
+
+
+async def test_estimate_command_and_ask_preview():
+    env = Env(confirm_threshold_usd=100.0)
+    code, text = await cli(env, "estimate", MEDIUM, "--seed", "5")
+    assert code == 0 and env.fake.calls == []
+    assert "提交前预估" in text and "▶ 讨论 · 便宜档全员" in text and "协同 · 旗舰档全员" in text
+    assert "上桌：" in text and "随机种子：5" in text
+    code, text = await cli(env, "estimate", MEDIUM, "--anonymous")
+    assert "上桌：" not in text
+    for term in identity_terms(env):
+        assert not mentions(text, term), term
+    code, text = await cli(env, "ask", MEDIUM, "--mode", "collab", "--seed", "5")
+    assert code == 0 and "提交前预估" in text and "▶ 协同 · 便宜档全员" in text
+    assert "讨论 · " not in text.split("题目：")[1].split("档位：")[0]  # ask 只列所选模式

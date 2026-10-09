@@ -6,6 +6,7 @@
     roundtable ask --anonymous "题目"             # 匿名：结束前只显示代号
     roundtable ask --mode collab "题目"           # 协同：拆分子任务、分工完成、合并
     roundtable ask --attach 图.png --attach 讲义.pdf "题目"   # 带附件
+    roundtable estimate "题目"                     # 提交前预估：各模式 × 各档位的花费
     roundtable models                             # 查看模型、档位、哪些渠道有 key
     roundtable history                            # 最近的讨论
     roundtable stats                              # 各模型的历史贡献
@@ -26,6 +27,7 @@ import asyncio
 import contextlib
 import io
 import json
+import secrets
 import sys
 from collections import defaultdict
 from collections.abc import Callable, Sequence
@@ -35,7 +37,14 @@ from typing import Any, TextIO
 from roundtable.core.attachments import UploadError, ingest
 from roundtable.core.config import ConfigError
 from roundtable.core.orchestrator import Orchestrator, OrchestratorError, RunResult
-from roundtable.core.routing import Question, RoutingError, UserChoice
+from roundtable.core.routing import (
+    CUSTOM,
+    Question,
+    RoutingError,
+    UserChoice,
+    attachment_tokens,
+    preview_estimates,
+)
 from roundtable.core.runtime import Runtime
 from roundtable.core.steps import Event
 from roundtable.plaintext import to_terminal
@@ -413,6 +422,68 @@ class CLI:
                     for x in m[key]:
                         self.p(f"  · {self.t(x)}")
 
+    # --- 提交前预估 -------------------------------------------------------------------
+
+    def preview(self, question: str, choice: UserChoice, ids: Sequence[str], *, seed: int):
+        rows = [self.rt.repo.attachment(i) for i in ids]
+        params = self.rt.config.routing.estimate
+        q = Question(question, tuple(r["kind"] for r in rows), attachment_tokens(rows, params))
+        return preview_estimates(
+            q,
+            config=self.rt.config,
+            router=self.rt.router,
+            seed=seed,
+            recent_coordinators=self.rt.repo.recent_coordinators(),
+            history=self.orc.estimate_history(),
+            custom=choice if choice.tier == CUSTOM else None,
+        )
+
+    def print_preview(
+        self,
+        question: str,
+        choice: UserChoice,
+        ids: Sequence[str] = (),
+        *,
+        seed: int,
+        anonymous: bool,
+        brief: bool = False,
+    ) -> None:
+        """各模式 × 各档位的预计花费（不调用模型）。brief：只列所选模式，并标出所选档位。"""
+        assessment, options = self.preview(question, choice, ids, seed=seed)
+        cfg = self.rt.config.routing
+        plan = choice.tier or cfg.default_plan
+        threshold = cfg.confirm_threshold_usd
+        mode_names = {"discussion": "讨论", "collab": "协同"}
+        length = LENGTH_NAMES.get(assessment.difficulty, assessment.difficulty)
+        source = SOURCE_NAMES.get(assessment.source, assessment.source)
+        self.p(f"提交前预估（答案长度：{length}，{source}；不含规划员）：")
+        for o in options:
+            if brief and o.workflow != choice.workflow:
+                continue
+            mark = "▶" if o.plan == plan and o.workflow == choice.workflow else " "
+            head = f" {mark} {mode_names.get(o.workflow, o.workflow)} · {o.label}"
+            if not o.available or o.estimate is None or o.lineup is None:
+                reason = self.rt.scrubber.scrub(o.reason) if anonymous else o.reason
+                self.p(f"{head}：不可用（{reason}）")
+                continue
+            e = o.estimate
+            over = "  超过确认门槛" if e.total_usd > threshold else ""
+            absent = f"，缺席 {len(o.lineup.absent)}" if o.lineup.absent else ""
+            self.p(
+                f"{head}：{len(o.lineup.members)} 位组员 + 统筹{absent}，"
+                f"预计 ${e.total_usd:.4f}（最多约 ${e.max_usd:.4f}）{over}"
+            )
+            if not anonymous and not brief:
+                self.p(f"      上桌：{'、'.join(o.lineup.members)}；统筹 {o.lineup.coordinator}")
+            if not brief:
+                steps = "，".join(
+                    f"{STEP_NAMES.get(st.step, st.step)} ${st.cost_usd:.4f}"
+                    for st in e.steps
+                    if st.step != "reveal"
+                )
+                self.p(f"      {steps}")
+        self.p("")
+
     def latest_files(self, sid: str) -> list[dict[str, Any]]:
         latest: dict[tuple[int, str | None, str], dict[str, Any]] = {}
         for row in self.rt.repo.files(sid):
@@ -600,6 +671,8 @@ class CLI:
             )
             ids.append(a.id)
         self.p(f"题目：{question}\n")
+        seed = secrets.randbelow(2**31) if seed is None else seed
+        self.print_preview(question, choice, ids, seed=seed, anonymous=anonymous, brief=True)
         try:
             result = await self.orc.start(
                 Question(question), choice, seed=seed, anonymous=anonymous, attachments=ids
@@ -736,6 +809,14 @@ def build_parser() -> argparse.ArgumentParser:
             cmd.add_argument("--details", action="store_true")
             cmd.add_argument("--raw", action="store_true")
             cmd.add_argument("--costs", action="store_true", help="显示每步与每次调用的花费")
+    estimate = sub.add_parser("estimate", help="提交前预估：各模式 × 各档位的上桌人数与预计花费")
+    estimate.add_argument("question", nargs="?", help="题目；省略时从 --file 读取")
+    estimate.add_argument("--file", help="从 UTF-8 文本文件读取题目")
+    estimate.add_argument("--tier", help="标出要用的档位")
+    estimate.add_argument("--models", help="自选：逗号分隔的模型 id")
+    estimate.add_argument("--coordinator", help="自选时指定统筹")
+    estimate.add_argument("--anonymous", action="store_true", help="不显示上桌的模型名")
+    estimate.add_argument("--seed", type=int, help="随机种子（与 ask --seed 相同时阵容一致）")
     files = sub.add_parser("files", help="把成员生成的文件保存到本地目录")
     files.add_argument("session_id")
     files.add_argument("-o", "--output", help="目录，默认 roundtable-<会话 id 前 8 位>-files")
@@ -811,6 +892,22 @@ async def run(
             cli.show(args.session_id, details=args.details)
             if args.costs:
                 cli.print_costs(args.session_id)
+            return 0
+        if args.command == "estimate":
+            question = args.question
+            if args.file:
+                with open(args.file, encoding="utf-8") as f:
+                    question = f.read().strip()
+            if not question:
+                cli.p("题目不能为空。")
+                return 2
+            models = tuple(m.strip() for m in (args.models or "").split(",") if m.strip())
+            choice = (
+                UserChoice("custom", models, args.coordinator) if models else UserChoice(args.tier)
+            )
+            seed = args.seed if args.seed is not None else secrets.randbelow(2**31)
+            cli.print_preview(question, choice, seed=seed, anonymous=args.anonymous)
+            cli.p(f"随机种子：{seed}（roundtable ask --seed {seed} 时上桌名单与此一致）")
             return 0
         if args.command == "files":
             if not cli.latest_files(args.session_id):

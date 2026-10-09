@@ -248,3 +248,12 @@ def average_price(prices: Sequence[Price]) -> Price:
         input=sum(p.input for p in prices) / k,
         output=sum(p.output for p in prices) / k,
     )
+
+
+def attachment_tokens(rows: Sequence[Mapping[str, Any]], params: EstimateParams) -> int:
+    """附件计入题目长度的 token 数：文字按长度；图片取原图（固定值）与文字版的较大者。"""
+    total = 0
+    for a in rows:
+        text = text_tokens(a.get("text") or "", params)
+        total += max(text, params.image_tokens) if a["kind"] == "image" else text
+    return total

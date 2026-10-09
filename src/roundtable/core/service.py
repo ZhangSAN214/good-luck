@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import secrets
 from collections.abc import AsyncIterator, Sequence
 from dataclasses import asdict
 from typing import Any
@@ -18,7 +19,15 @@ from roundtable.core.attachments import Attachment, UploadError, ingest
 from roundtable.core.attachments.detect import TYPES as UPLOAD_TYPES
 from roundtable.core.orchestrator import Orchestrator, OrchestratorError, RunResult
 from roundtable.core.preview import render_preview
-from roundtable.core.routing import CUSTOM, Question, RoutingError, UserChoice
+from roundtable.core.routing import (
+    CUSTOM,
+    WORKFLOWS,
+    Question,
+    RoutingError,
+    UserChoice,
+    attachment_tokens,
+    preview_estimates,
+)
 from roundtable.core.runtime import Runtime
 from roundtable.core.steps import Event
 from roundtable.core.storage import NotFound
@@ -174,6 +183,103 @@ class RoundtableService:
             raise ServiceError(str(exc)) from None
         self._spawn(sid, self.orc.run(sid))
         return sid
+
+    # --- 提交前预估 ------------------------------------------------------------------
+
+    def estimate(
+        self,
+        question: str,
+        *,
+        tier: str | None = None,
+        models: Sequence[str] = (),
+        coordinator: str | None = None,
+        workflow: str | None = None,
+        anonymous: bool = False,
+        attachments: Sequence[str] = (),
+        seed: int | None = None,
+    ) -> dict[str, Any]:
+        """提交前预估：各模式 × 各档位（及自选）的上桌人数、缺席、预计花费与步骤明细。
+
+        不调用任何模型（答案长度只用规则判断，判断不出时用默认值）。返回的 seed 在提交时
+        一并传给 create()，上桌名单就与预估一致。匿名开启时不返回模型名单。
+        """
+        text = question.strip()
+        if not text:
+            raise ServiceError("题目不能为空")
+        if workflow is not None and workflow not in WORKFLOWS:
+            raise ServiceError(f"未知的模式 {workflow!r}")
+        custom = None
+        if tier == CUSTOM:
+            try:
+                custom = UserChoice(CUSTOM, tuple(models), coordinator)
+            except (RoutingError, ValueError) as exc:
+                raise ServiceError(str(exc)) from None
+        rows = []
+        for attachment_id in attachments:
+            try:
+                rows.append(self.rt.repo.attachment(attachment_id))
+            except NotFound:
+                raise ServiceError(f"附件不存在：{attachment_id}") from None
+        cfg = self.rt.config
+        question_obj = Question(
+            text,
+            tuple(r["kind"] for r in rows),
+            attachment_tokens(rows, cfg.routing.estimate),
+        )
+        seed = secrets.randbelow(2**31) if seed is None else seed
+        assessment, options = preview_estimates(
+            question_obj,
+            config=cfg,
+            router=self.rt.router,
+            seed=seed,
+            recent_coordinators=self.rt.repo.recent_coordinators(),
+            history=self.orc.estimate_history(),
+            workflows=(workflow,) if workflow else WORKFLOWS,
+            custom=custom,
+        )
+        threshold = cfg.routing.confirm_threshold_usd
+        selected_plan = tier or cfg.routing.default_plan
+        scrub = self.rt.scrubber.scrub if anonymous else (lambda t: t)
+        out = []
+        for o in options:
+            selected = o.plan == selected_plan and workflow in (None, o.workflow)
+            item: dict[str, Any] = {
+                "workflow": o.workflow,
+                "plan": o.plan,
+                "label": o.label,
+                "available": o.available,
+                "reason": scrub(o.reason),
+                "selected": selected,
+            }
+            if o.estimate is not None and o.lineup is not None:
+                e = o.estimate
+                item.update(
+                    estimate_usd=e.total_usd,
+                    max_usd=e.max_usd,
+                    calibrated=e.calibrated,
+                    over_threshold=e.total_usd > threshold,
+                    steps=[
+                        {"step": st.step, "cost_usd": st.cost_usd, "max_usd": st.max_usd}
+                        for st in e.steps
+                        if st.step != "reveal"
+                    ],
+                    members=len(o.lineup.members),
+                    absent=len(o.lineup.absent),
+                )
+                if not anonymous:
+                    item["lineup"] = {
+                        "members": list(o.lineup.members),
+                        "coordinator": o.lineup.coordinator,
+                        "absent": list(o.lineup.absent),
+                    }
+            out.append(item)
+        return {
+            "seed": seed,
+            "answer_length": assessment.difficulty,
+            "length_source": assessment.source,
+            "confirm_threshold_usd": threshold,
+            "options": out,
+        }
 
     # --- 附件 ----------------------------------------------------------------------
 

@@ -237,3 +237,15 @@ def test_unknown_workflow():
     with pytest.raises(RoutingError, match="未知的模式"):
         UserChoice(workflow="debate")
     assert UserChoice.from_dict({"tier": "budget"}).workflow == "discussion"
+
+
+def test_rules_assessment_never_calls_planner():
+    from roundtable.core.routing import Question, rules_assessment
+
+    from .conftest import app_config
+
+    cfg = app_config()
+    short = rules_assessment(Question("1+1=?"), cfg)
+    assert short.source == "rule" and short.planner is None
+    long = rules_assessment(Question("请分析这道开放性问题的多种思路并比较优劣。" * 3), cfg)
+    assert long.source in ("rule", "default") and long.planner is None

@@ -27,6 +27,7 @@ from roundtable.core.routing import (
     RoutingRecord,
     UserChoice,
     answer_tokens,
+    attachment_tokens,
     cost_card,
     escalate,
     escalation_card,
@@ -34,7 +35,6 @@ from roundtable.core.routing import (
     history_from_calls,
     option_lineup,
     route_question,
-    text_tokens,
 )
 from roundtable.core.runtime import PROJECT_ROOT, Runtime
 from roundtable.core.steps import (
@@ -196,11 +196,8 @@ class Orchestrator:
 
     def _question(self, row: dict[str, Any]) -> Question:
         """会话的题目与附件（附件的 token 数计入花费预估：图片取原图与文字版的较大者）。"""
-        params = self.rt.config.routing.estimate
-        tokens = 0
-        for a in self.rt.repo.session_attachments(row["id"]):
-            text = text_tokens(a["text"] or "", params)
-            tokens += max(text, params.image_tokens) if a["kind"] == "image" else text
+        rows = self.rt.repo.session_attachments(row["id"])
+        tokens = attachment_tokens(rows, self.rt.config.routing.estimate)
         return Question(row["question"], tuple(row["attachments"]), tokens)
 
     async def _prepare(self, sid: str, row: dict[str, Any]) -> bool:
@@ -270,7 +267,7 @@ class Orchestrator:
             prompts=self.rt.prompts,
             seed=seed,
             recent_coordinators=recent,
-            history=self._history(),
+            history=self.estimate_history(),
         )
         if decision.assessment.planner:
             repo.record_planner(sid, decision.assessment.planner)
@@ -298,7 +295,7 @@ class Orchestrator:
         if needs:
             self._checkpoint(sid, cost_card(decision), table_no=0)
 
-    def _history(self) -> EstimateHistory:
+    def estimate_history(self) -> EstimateHistory:
         """本机历史调用的 token 统计，用于校准花费预估（推理 token、重试、重做都已包含在内）。"""
         params = self.rt.config.routing.estimate
         rows = self.rt.repo.call_samples(params.history_sessions)
@@ -360,7 +357,12 @@ class Orchestrator:
         except RoutingError as exc:
             raise OrchestratorError(str(exc)) from None
         estimate = estimate_lineup(
-            lineup, question, assessment, config=cfg, router=self.rt.router, history=self._history()
+            lineup,
+            question,
+            assessment,
+            config=cfg,
+            router=self.rt.router,
+            history=self.estimate_history(),
         )
         decision = RoutingDecision(
             seed=row["seed"],
@@ -431,7 +433,7 @@ class Orchestrator:
                 config=cfg,
                 router=self.rt.router,
                 recent_coordinators=repo.recent_coordinators(),
-                history=self._history(),
+                history=self.estimate_history(),
             )
         except RoutingError as exc:
             self._warn(sid, f"需要升级但无法组建阵容：{exc}")

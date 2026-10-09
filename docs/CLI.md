@@ -68,6 +68,7 @@ roundtable ask '求函数 f(x)=x^3-3x 在 [-2,2] 上的最大值和最小值'
 ## 4. 之后
 
 ```powershell
+roundtable estimate '题目'      # 提交前预估：讨论 / 协同 × 各档位的上桌人数、预计与最多花费、步骤明细（不调用模型、不花钱）
 roundtable history              # 最近的讨论（含会话 id）
 roundtable stats                # 各模型的历史贡献：被采纳的要点、有效问题、敷衍次数等（匿名讨论揭晓后才计入）
 roundtable show <会话id> --details

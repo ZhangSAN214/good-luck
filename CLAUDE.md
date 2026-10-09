@@ -1,6 +1,6 @@
 # CLAUDE.md — Roundtable（圆桌）
 
-多个 AI 协作完成作业。长期目标见 `docs/REQUIREMENTS_v3.md`；当前范围以本文件和 `docs/PLAN.md` 为准（v1 已完成，正在做 v2 改版：阶段 11–20，其中 19 媒体生成待确认）。
+多个 AI 协作完成作业。长期目标见 `docs/REQUIREMENTS_v3.md`；当前范围以本文件和 `docs/PLAN.md` 为准（v1 已完成，v2 改版阶段 11–17 已完成，接下来 18 前端改版、19 媒体生成（待确认）、20 收尾）。
 界面样板：`docs/mockup.html`（v1 只实现其中文字圆桌相关部分）。
 按 `docs/PLAN.md` 的阶段推进，不要跳阶段，不要提前实现"后续扩展"里的功能。
 
@@ -124,7 +124,7 @@
 - `core/`：纯业务逻辑，**禁止 import fastapi / starlette / uvicorn / streamlit**（测试守卫）。
 - `api/`：FastAPI 路由 + SSE，只调用 `core/service.py`（启动时用 `core/runtime.py` 组装；有测试检查导入）。
 - **服务 facade**（`core/service.py`，`RoundtableService`）：返回值都是可 JSON 化的 dict；匿名会话揭晓前全部匿名。`create(question, tier=, models=, coordinator=, anonymous=False, workflow="discussion")`；揭晓只用于匿名会话。提交题目后立即返回会话 id，讨论在后台任务中执行；意外错误把会话标为 `paused`（可 `resume`）。揭晓只允许在讨论结束（完成 / 停止 / 失败）后。
-- **HTTP 接口**：`GET /api/status`、`GET /api/budget`、`GET /api/contributions`、`POST /api/uploads?name=`（请求体是文件原始字节，返回附件 id；`POST /api/sessions` 的 `attachments` 带上这些 id）、`GET/POST /api/sessions`、`GET /api/sessions/{id}`、`GET …/files/{fid}`（下载）与 `…/files/{fid}/preview`、`POST …/respond`、`POST …/resume`、`POST …/reveal`、`GET …/events`（SSE）。
+- **HTTP 接口**：`GET /api/status`、`GET /api/budget`、`GET /api/contributions`、`POST /api/estimate`（提交前预估：各模式 × 各档位 / 自选的上桌人数、缺席、预计与最多花费、步骤明细；不调用任何模型，答案长度只用规则判断；返回 `seed`，提交时带上它，阵容与预估一致；匿名时不含模型名单）、`POST /api/uploads?name=`（请求体是文件原始字节，返回附件 id；`POST /api/sessions` 的 `attachments` 带上这些 id）、`GET/POST /api/sessions`、`GET /api/sessions/{id}`、`GET …/files/{fid}`（下载）与 `…/files/{fid}/preview`、`POST …/respond`、`POST …/resume`、`POST …/reveal`、`GET …/events`（SSE）。
 - **SSE 协议**：第一条 `snapshot`（当前状态），之后是实时事件（只含代号），每当讨论停下来（完成 / 失败 / 停止 / 等待确认 / 暂停）发一条 `state` 并关闭；前端回复确认后重新连接。
 - `web/`：静态前端（`index.html`、`css/app.css`、`js/api.js` 通信、`js/view.js` 渲染、`js/app.js` 状态与交互；ES 模块，无构建步骤），只通过 HTTP/SSE 与后端通信，由 FastAPI 挂在 `/`。
   - 事件流用 `fetch` 读取（不用会自动重连的 `EventSource`）：收到停下来的 `state` 后关闭，回复确认卡片或恢复后重新订阅；事件触发重新拉取会话详情再渲染。
@@ -246,6 +246,7 @@ pip install -e ".[dev]"
 ruff check . && ruff format --check .
 pytest
 python scripts/lock_prompts.py      # 新增提示词版本后登记
+roundtable estimate '题目'           # 提交前预估：各模式 × 各档位的上桌人数与花费（不调用模型）
 roundtable models                   # 查看模型、档位、可用渠道与预算
 roundtable stats                    # 各模型的历史贡献
 roundtable show <id> --costs        # 每步预估与实际花费、每次调用的 token

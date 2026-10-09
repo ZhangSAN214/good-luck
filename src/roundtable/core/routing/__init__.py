@@ -3,9 +3,11 @@
 from .cards import cost_card, escalation_card
 from .decide import (
     CUSTOM,
+    WORKFLOWS,
     Assessment,
     OutcomeSignals,
     PlanOption,
+    PreviewOption,
     RoutingDecision,
     RoutingError,
     RoutingRecord,
@@ -16,12 +18,15 @@ from .decide import (
     estimate_lineup,
     option_lineup,
     plan_escalation,
+    preview_estimates,
     route_question,
+    rules_assessment,
 )
 from .estimate import (
     CostEstimate,
     EstimateHistory,
     Participant,
+    attachment_tokens,
     estimate_pipeline,
     history_from_calls,
     text_tokens,
@@ -32,8 +37,13 @@ from .triage import Question, TriageResult, triage
 
 __all__ = [
     "CUSTOM",
+    "WORKFLOWS",
     "Assessment",
     "CostEstimate",
+    "attachment_tokens",
+    "PreviewOption",
+    "preview_estimates",
+    "rules_assessment",
     "EstimateHistory",
     "Participant",
     "history_from_calls",
