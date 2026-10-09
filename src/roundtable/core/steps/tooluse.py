@@ -35,8 +35,19 @@ async def call_with_tools(
     rules = ctx.config.roundtable.tools
     template = ctx.prompts.get("tools", ctx.prompt_version("tools"))
 
+    refs = len(ctx.style_references())
+    references = (
+        f"本场有 {refs} 张风格参考图（编号 1–{refs}，就是题目附件里标注为风格参考的图片）。"
+        "想让画出的图贴近参考图的风格，在标签上写 refs（用到的参考图编号，空格分隔），"
+        "图像模型会把这些参考图一并作为输入，例如：\n"
+        '<tool_call name="generate_image" path="scene.png" refs="1 2">画面描述</tool_call>\n'
+        "没有支持参考图的图像模型时 refs 会被忽略（只按文字描述画）。"
+        if refs
+        else "本场没有风格参考图，不要写 refs。"
+    )
+
     def render(results: str, remaining: int) -> RenderedPrompt:
-        return template.render(
+        values = dict(
             available="、".join(tools),
             max_rounds=str(rules.max_rounds),
             max_runs=str(rules.python.max_runs),
@@ -44,9 +55,11 @@ async def call_with_tools(
             max_images=str(rules.image.max_per_step),
             max_searches=str(rules.search.max_per_step),
             max_fetches=str(rules.search.max_fetch_per_step),
+            references=references,
             results=results,
             remaining=str(remaining),
         )
+        return template.render(**{k: v for k, v in values.items() if k in template.variables})
 
     guide = next(m.content for m in render("", rules.max_rounds).messages if m.role == "system")
     convo = list(messages)

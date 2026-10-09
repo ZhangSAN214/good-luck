@@ -385,6 +385,9 @@ async function submit(ev) {
   };
   if (S.media) body.media = S.media;
   if (S.media || S.workflow === 'collab') body.media_tier = S.mediaTier;
+  // 取消勾选"风格参考"的图片只是普通附件：只有存在取消时才传 style_refs（省略 = 全部图片）
+  const images = S.attachments.filter((a) => a.id && a.kind === 'image');
+  if (images.some((a) => a.style_ref === false)) body.style_refs = images.filter((a) => a.style_ref !== false).map((a) => a.id);
   if (S.tier === 'custom') {
     body.models = [...document.querySelectorAll('#picks input:checked')].map((i) => i.value);
     const min = (S.status?.min_members ?? 2) + 1;
@@ -667,6 +670,11 @@ function bind() {
     const files = [...e.target.files];
     e.target.value = '';
     addFiles(files);
+  });
+  $('#attachments').addEventListener('change', (e) => {
+    const box = e.target.closest('[data-sref]');
+    if (!box) return;
+    S.attachments[Number(box.dataset.sref)].style_ref = box.checked;
   });
   $('#attachments').addEventListener('click', (e) => {
     const b = e.target.closest('[data-rm]');

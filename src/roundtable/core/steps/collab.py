@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Sequence
+from dataclasses import replace
 
 from roundtable.core.allocation import shuffled
 from roundtable.core.config.schema import KindRule
@@ -67,6 +68,7 @@ from .schemas import (
     parse_reviews,
     parse_revision,
 )
+from .style import retag_failed, style_gate
 
 TAGS = ("question", "subtask", "your_subtask", "dependency", "work", "plan", "volunteer")
 
@@ -214,11 +216,49 @@ def media_prompt(ctx: TableContext, role: str, kind: str, **values: str):
 async def make_media(
     ctx: TableContext, kind: str, text: str, step: str, sid: str, code: str, round_no: int
 ) -> dict:
+    """生成并（图片有风格清单时）对照清单校验，不通过则退回作者重画。
+
+    返回写进成员产出的媒体信息；风格校验改写了提示词时，final_prompt 是最终采用的提示词。
+    """
     assert ctx.media is not None
     res = await ctx.media.generate(
-        kind, text, Placement(ctx.table_no, step, round_no, code, sid), tier=ctx.media_tier
+        kind,
+        text,
+        Placement(ctx.table_no, step, round_no, code, sid),
+        tier=ctx.media_tier,
+        references=ctx.style_references() if kind == "image" else (),
     )
-    return media_payload(res, kind, round_no)
+    final_prompt = None
+    style = None
+    if kind == "image" and res.ok:
+        by_id = {s.id: s for s in _c(ctx).subtasks}
+        outcome = await style_gate(
+            ctx,
+            sid=sid,
+            code=code,
+            prompt=text,
+            res=res,
+            phase=round_no,
+            subtask_block_text=subtask_block(by_id[sid], "your_subtask", ctx)
+            if sid in by_id
+            else "",
+        )
+        retag_failed(ctx, sid, code, outcome)
+        res = outcome.result
+        if outcome.prompt != text:
+            final_prompt = outcome.prompt
+        if outcome.passed is not None or outcome.notes:
+            style = {
+                "passed": outcome.passed,
+                "attempts": outcome.attempts,
+                "notes": list(outcome.notes),
+            }
+    payload = media_payload(res, kind, round_no)
+    if style is not None:
+        payload["style"] = style
+    if final_prompt is not None:
+        payload["final_prompt"] = final_prompt
+    return payload
 
 
 def _item_expected(ctx: TableContext) -> int | None:
@@ -768,6 +808,12 @@ class WorkStep:
                 info = await make_media(ctx, medium, text, self.name, sid, code, 1)
                 if not info["ok"]:
                     notes.append(f"{ctx.label(code)} 的 {sid} 生成失败：{info['error']}")
+                elif info.get("final_prompt"):  # 风格校验退回重画后，最终采用的提示词才是成果
+                    text = c.works[(sid, code)] = info.pop("final_prompt")
+                if info.get("warning") and info["warning"] not in notes:
+                    notes.append(info["warning"])
+                if (info.get("style") or {}).get("passed") is False:
+                    notes.append(f"{ctx.label(code)} 的 {sid} 重画后仍未通过风格清单")
             _save(
                 ctx,
                 self.name,
@@ -1182,6 +1228,11 @@ class ReworkStep:
                 info = await make_media(ctx, medium, revision.answer, self.name, sid, code, 2)
                 if not info["ok"]:
                     notes.append(f"{ctx.label(code)} 的 {sid} 重新生成失败：{info['error']}")
+                elif info.get("final_prompt"):
+                    revision = replace(revision, answer=info.pop("final_prompt"))
+                    c.reworks[key] = revision
+                if (info.get("style") or {}).get("passed") is False:
+                    notes.append(f"{ctx.label(code)} 的 {sid} 重画后仍未通过风格清单")
             _save(
                 ctx,
                 self.name,
@@ -1240,6 +1291,8 @@ def works_block(ctx: TableContext) -> str:
             item = ids_by_key.get(key, "")
             flagged = ctx.state.flagged(key[1], item)
             attr = ' flagged="未通过实质内容检查"' if flagged else ""
+            if key in c.style_failed:
+                attr += ' style="重画后仍未通过参考图风格清单"'
             body = neutralize(ctx.scrub(latest[key] + ctx.member_notes(key[1])), TAGS)
             parts.append(
                 f'<work id="{item}" subtask="{s.id}" from="{ctx.label(key[1])}"{attr}>\n'

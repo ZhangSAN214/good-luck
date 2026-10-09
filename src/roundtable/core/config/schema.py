@@ -457,6 +457,22 @@ class SpeechRules(_Strict):
     max_chars: int = Field(default=4000, ge=1)
 
 
+class ReferenceRules(_Strict):
+    """传给画图模型的风格参考图。"""
+
+    max: int = Field(default=3, ge=0)  # 最多几张
+    max_mb: float = Field(default=5, gt=0)  # 每张最大多少 MB
+
+
+class StyleRules(_Strict):
+    """风格规范提取（style 步骤）：有风格参考图又要画图时，先把参考图提炼成全员共用的规范。"""
+
+    enabled: bool = True
+    reviewers: int = Field(default=2, ge=1)  # 最多几位带 vision 标签的成员各自看原图
+    checklist_min: int = Field(default=6, ge=1)  # 风格清单条数
+    checklist_max: int = Field(default=10, ge=1)
+
+
 class MediaRules(_Strict):
     """媒体生成（图片、语音、视频）：由 seat: false 的媒体模型完成，按标签和档位选择。"""
 
@@ -476,6 +492,10 @@ class MediaRules(_Strict):
     refine_tokens: int = Field(default=600, ge=0)
     # 生成用的提示词（成员写出）最多多少字
     prompt_max_chars: int = Field(default=2000, ge=50)
+    references: ReferenceRules = ReferenceRules()
+    # 生成的图片没通过风格清单时，最多退回重画几次（0 = 不重画，只标记）；每次由几位非作者的成员判定
+    style_retries: int = Field(default=2, ge=0)
+    gate_reviewers: int = Field(default=1, ge=1)
 
 
 class RiceRules(_Strict):
@@ -522,6 +542,7 @@ class RoundtableConfig(_Strict):
     media: MediaRules = MediaRules()
     limits: Limits = Limits()
     display: DisplayConfig = DisplayConfig()
+    style: StyleRules = StyleRules()
 
     @field_validator("prompts")
     @classmethod

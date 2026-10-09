@@ -37,6 +37,7 @@ class Env:
         pool=None,
         with_media=False,
         pipeline=False,
+        rt_update=None,
         **routing_overrides,
     ):
         self.difficulty = difficulty
@@ -45,6 +46,7 @@ class Env:
             **({"pool": pool} if pool else {}),
             with_media=with_media,
             pipeline=pipeline,
+            rt_update=rt_update,
             **routing_overrides,
         )
         self.fake = FakeProvider("c", default=self.reply)

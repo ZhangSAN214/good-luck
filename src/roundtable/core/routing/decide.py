@@ -22,7 +22,7 @@ from roundtable.core.providers import ChannelRouter
 
 from .estimate import CostEstimate, EstimateHistory, Participant, estimate_pipeline, text_tokens
 from .lineup import Lineup, LineupBuilder
-from .media_estimate import with_media_step
+from .media_estimate import style_wanted, with_media_step, with_style_step
 from .planner import PlannerResult, run_planner
 from .triage import Question, triage
 
@@ -314,6 +314,22 @@ def _estimate(
             by_id=by_id,
             question_tokens=question_tokens,
             prompt_tokens=answer_tokens,
+        )
+    if style_wanted(
+        config,
+        router,
+        has_style_images="image" in question.attachments,
+        media=question.media,
+        collab="decompose" in lineup.pipeline,
+        tier=question.media_tier,
+    ):
+        estimate = with_style_step(
+            estimate,
+            config=config,
+            members=members,
+            coordinator=coordinator,
+            by_id=by_id,
+            question_tokens=question_tokens,
         )
     return estimate
 

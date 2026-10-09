@@ -7,14 +7,15 @@
 from __future__ import annotations
 
 import random
+import re
 import time
 from collections import Counter
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from roundtable.core.allocation import IdentityScrubber
-from roundtable.core.attachments import Attachment, FileStore
+from roundtable.core.attachments import Attachment, FileStore, style_reference_media
 from roundtable.core.config import AppConfig, ModelSpec
 from roundtable.core.media import pick_media_model
 from roundtable.core.prompts import PromptLibrary
@@ -118,11 +119,18 @@ class ToolBox:
 
     # --- 可用工具 ----------------------------------------------------------------
 
-    def image_model(self) -> ModelSpec | None:
-        """图像生成工具使用的模型：只看 image_gen 标签和档位，同档内随机（同一场总是同一个）。"""
+    def image_model(self, references: bool = False) -> ModelSpec | None:
+        """图像生成工具使用的模型：只看 image_gen 标签和档位，同档内随机（同一场总是同一个）；
+        带风格参考图时优先选带 image_edit 标签（支持参考图输入）的模型。"""
         tier = self.media_tier or self.config.roundtable.media.default_tier
         rng = random.Random(f"{self.session_id}:image:{tier}")
-        return pick_media_model(self.router, "image", tier, rng)
+        prefer = ("image_edit",) if references else ()
+        return pick_media_model(self.router, "image", tier, rng, prefer)
+
+    def references(self) -> list:
+        """风格参考图（编号 = 位置 + 1），与 TableContext.style_references() 同一套规则。"""
+        rules = self.config.roundtable.media.references
+        return style_reference_media(self.attachments, rules.max, rules.max_mb)
 
     def tools_for(self, step: str) -> list[str]:
         if not self.rules.enabled:
@@ -410,7 +418,9 @@ class ToolBox:
         inputs = {"path": raw, "description": description[:2000]}
         key = (step, code, "generate_image")
         limit = self.rules.image.max_per_step
-        model = self.image_model()
+        refs = self._wanted_references(req)
+        inputs["refs"] = list(refs)
+        model = self.image_model(references=bool(refs))
         if rel is None:
             return ToolResult("generate_image", "rejected", f"文件路径不合法：{raw!r}"), inputs
         if model is None:
@@ -424,6 +434,17 @@ class ToolBox:
         version = self.config.roundtable.prompts["image_gen"]
         clean = self.scrubber.scrub(description)
         prompt = self.prompts.render("image_gen", version, description=clean)
+        notice = ""
+        if refs:
+            if "image_edit" in model.tags:
+                pool = self.references()
+                media = tuple(pool[n - 1] for n in refs if n <= len(pool))
+                user = next(i for i, m in enumerate(prompt.messages) if m.role == "user")
+                messages = list(prompt.messages)
+                messages[user] = replace(messages[user], media=media)
+                prompt = replace(prompt, messages=tuple(messages))
+            else:
+                notice = "（没有支持参考图的图像模型，参考图被忽略，只按文字描述画。）"
         params = {"max_tokens": self.rules.image.max_tokens}
         try:
             completion = await self.router.complete(model.id, prompt.messages, params)
@@ -444,4 +465,11 @@ class ToolBox:
         files, rejected = self._collect(step, code)
         if rejected:
             return ToolResult("generate_image", "rejected", "；".join(rejected)), inputs
-        return ToolResult("generate_image", "ok", f"已生成 out/{rel}", files), inputs
+        return ToolResult("generate_image", "ok", f"已生成 out/{rel}{notice}", files), inputs
+
+    def _wanted_references(self, req: ToolRequest) -> tuple[int, ...]:
+        """generate_image 的 refs 属性（参考图编号，空格 / 逗号分隔）→ 有效的编号。"""
+        raw = req.attrs.get("refs", "")
+        have = len(self.references())
+        found = [int(x) for x in re.findall(r"\d+", raw)]
+        return tuple(dict.fromkeys(n for n in found if 1 <= n <= have))

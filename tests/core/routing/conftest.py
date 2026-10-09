@@ -28,7 +28,7 @@ POOL = [
 # 媒体模型（不上桌）：图片 / 语音 / 转写 / 视频，各有便宜档与高质量档
 MEDIA_MODELS = [
     ("mi1", "VM1", "budget", ["image_gen"], {"unit": "image", "usd": 0.04}),
-    ("mi2", "VM2", "flagship", ["image_gen"], {"unit": "image", "usd": 0.20}),
+    ("mi2", "VM2", "flagship", ["image_gen", "image_edit"], {"unit": "image", "usd": 0.20}),
     ("mt1", "VM3", "budget", ["tts"], {"unit": "char", "usd": 0.00002}),
     ("ms1", "VM4", "budget", ["stt"], {"unit": "minute", "usd": 0.006}),
     ("mv1", "VM5", "budget", ["video_gen"], {"unit": "second", "usd": 0.10}),
@@ -90,14 +90,19 @@ def with_pipeline(roundtable, enabled: bool):
 
 
 def app_config(
-    pool=POOL, disabled=(), with_media=False, pipeline=False, **routing_overrides
+    pool=POOL,
+    disabled=(),
+    with_media=False,
+    pipeline=False,
+    rt_update=None,
+    **routing_overrides,
 ) -> AppConfig:
     routing = (
         REPO.routing.model_copy(update=routing_overrides) if routing_overrides else REPO.routing
     )
     return AppConfig(
         models=models_config(pool, disabled, with_media),
-        roundtable=with_pipeline(REPO.roundtable, pipeline),
+        roundtable=with_pipeline(REPO.roundtable, pipeline).model_copy(update=rt_update or {}),
         # 步骤测试用 "组员甲" 式代号：前缀放回去（真实配置里前缀为空，代号本身就是称呼）
         personas=REPO.personas.model_copy(
             update={

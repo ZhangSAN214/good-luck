@@ -50,14 +50,17 @@ prompts:
   work_assemble: v1
   cross_review: v1
   rework: v2
-  merge: v3
+  merge: v4
   attachments: v1        # 题目附件（文字版 / 随附图片）
   describe_image: v1     # 图片文字版
   transcribe: v1         # 音频转写
-  tools: v4              # 工具说明与工具结果（v2：联网搜索；v3：图表中文；v4：转述的网页正文）
+  tools: v5              # 工具说明与工具结果（v2：联网搜索；v3：图表中文；v4：转述的网页正文；v5：in/ 上游文件与参考图）
   image_gen: v1          # 图像生成工具
   media_brief: v1        # 媒体输出：把题目改写成「写生成提示词」的任务
-  media_review: v1       # 评审生成结果（图片 / 视频截帧）
+  media_review: v2       # 评审生成结果（图片 / 视频截帧）；v2：对照风格清单逐条判定
+  style_extract: v1      # 风格规范提取：成员各自看参考图
+  style_merge: v1        # 统筹合并成规范 + 清单
+  style_guide: v1        # 风格规范，接在之后的每次调用上
   media_refine: v1       # 统筹根据评审决定是否改提示词重新生成
   work_media: v1         # 协同：媒体子任务，成员写生成提示词
   rework_media: v2       # 协同：按审查意见修改生成提示词
@@ -79,6 +82,8 @@ step_params:
   cross_review: {max_tokens: 2500}
   rework: {max_tokens: 5000}
   merge: {max_tokens: 10000}
+  style: {max_tokens: 1500}
+  style_gate: {max_tokens: 1500}
 
 # 互评质量检查：空泛的评审判为无效，不转给作者
 review_quality:
@@ -439,6 +444,22 @@ media:
   review_tokens: 500
   refine_tokens: 600
   prompt_max_chars: 2000
+  # 风格参考图：上传的图片默认作为风格参考。生成图片时优先选带 image_edit 标签（支持参考图）的模型，
+  # 把参考图一并传给它；没有这样的模型时退回只按文字风格规范生成，并在界面上明确提示。
+  references: {max: 3, max_mb: 5}
+  # 生成的图片对照风格清单由非作者的成员判定；不通过就带着意见退回作者重画，最多这么多次。
+  # 仍不通过时保留最后一版，标记"风格未通过"，汇总 / 合并时统筹可见。
+  style_retries: 2
+  gate_reviewers: 1
+
+# 风格规范提取（style 步骤，讨论 / 协同两种模式共用）：题目带风格参考图又要画图时，放在流程最前面。
+# 带 vision 标签的成员（最多 reviewers 位）各自看原图写风格描述，统筹合并成一份规范 + 一份可逐条检查的清单，
+# 之后的每次调用都会带上它。没有 vision 成员时改用图片的文字版，并提示"可能不准"。
+style:
+  enabled: true
+  reviewers: 2
+  checklist_min: 6
+  checklist_max: 10
 
 # 服务端限制（Web 服务）：同时在后台执行的讨论数。等待你确认的讨论不占名额。
 limits:

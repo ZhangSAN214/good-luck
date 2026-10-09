@@ -382,6 +382,39 @@ class EffortRecord:
         )
 
 
+@dataclass(frozen=True)
+class StyleSpec:
+    """风格规范（style 步骤的产出）：全员共用的规范和可逐条检查的风格清单。"""
+
+    spec: str
+    checklist: tuple[str, ...]
+    extractors: tuple[str, ...] = ()  # 各自看过原图的成员代号
+    text_only: bool = False  # 来自图片的文字版（没有 vision 成员）：可能不准
+    warning: str | None = None
+    degraded: bool = False  # 合并失败，规范是各份描述的拼接、没有清单
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "spec": self.spec,
+            "checklist": list(self.checklist),
+            "extractors": list(self.extractors),
+            "text_only": self.text_only,
+            "warning": self.warning,
+            "degraded": self.degraded,
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> StyleSpec:
+        return cls(
+            d["spec"],
+            tuple(d.get("checklist") or ()),
+            tuple(d.get("extractors") or ()),
+            bool(d.get("text_only", False)),
+            d.get("warning"),
+            bool(d.get("degraded", False)),
+        )
+
+
 @dataclass
 class TableState:
     """一张桌子在各步骤之间传递的数据（可从数据库恢复）。键均为代号。"""
@@ -394,6 +427,8 @@ class TableState:
     ready_for_reveal: bool = False
     # (步骤, 代号, 成果编号或空) → 实质内容检查结果（只记录重做过或被标记敷衍的）
     effort: dict[tuple[str, str, str], EffortRecord] = field(default_factory=dict)
+    # 风格规范（有风格参考图又要画图时由 style 步骤产生）
+    style: StyleSpec | None = None
     # 协同模式的数据
     collab: Any = field(default_factory=lambda: _new_collab())
 

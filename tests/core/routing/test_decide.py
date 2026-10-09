@@ -249,3 +249,51 @@ def test_rules_assessment_never_calls_planner():
     assert short.source == "rule" and short.planner is None
     long = rules_assessment(Question("请分析这道开放性问题的多种思路并比较优劣。" * 3), cfg)
     assert long.source in ("rule", "default") and long.planner is None
+
+
+# --- 风格规范步骤的预估（阶段 22）--------------------------------------------------------
+
+
+def with_images(**kw):
+    return dict(attachments=("image",), attachment_tokens=800, **kw)
+
+
+async def test_style_step_is_estimated_only_when_references_and_drawing_apply():
+    env = Env(app_config(with_media=True), FakeProvider("c", default=planner_reply()))
+    plain = await decide(env, MID_QUESTION, UserChoice("budget"), **with_images())
+    assert [s.step for s in plain.estimate.steps][0] != "style"  # 有图片但不画图
+    drawing = await decide(
+        env, MID_QUESTION, UserChoice("budget", media="image"), **with_images(media="image")
+    )
+    steps = [s.step for s in drawing.estimate.steps]
+    assert steps[0] == "style" and steps.index("media") > steps.index("synthesize")
+    style = drawing.estimate.steps[0]
+    assert 0 < style.cost_usd <= style.max_usd
+    assert drawing.estimate.total_usd == pytest.approx(
+        sum(s.cost_usd for s in drawing.estimate.steps)
+    )
+    # 同样的题没有图片附件：没有 style
+    no_image = await decide(env, MID_QUESTION, UserChoice("budget", media="image"), media="image")
+    assert "style" not in [s.step for s in no_image.estimate.steps]
+    # 协同模式：有画图模型时预估里有 style
+    collab = await decide(
+        env, MID_QUESTION, UserChoice("budget", workflow="collab"), **with_images()
+    )
+    assert [s.step for s in collab.estimate.steps][0] == "style"
+
+
+async def test_no_style_estimate_without_image_models_or_when_disabled():
+    env = Env(app_config(), FakeProvider("c", default=planner_reply()))  # 没有画图模型
+    collab = await decide(
+        env, MID_QUESTION, UserChoice("budget", workflow="collab"), **with_images()
+    )
+    assert "style" not in [s.step for s in collab.estimate.steps]
+    off = app_config(
+        with_media=True,
+        rt_update={"style": app_config().roundtable.style.model_copy(update={"enabled": False})},
+    )
+    env2 = Env(off, FakeProvider("c", default=planner_reply()))
+    d = await decide(
+        env2, MID_QUESTION, UserChoice("budget", media="image"), **with_images(media="image")
+    )
+    assert "style" not in [s.step for s in d.estimate.steps]

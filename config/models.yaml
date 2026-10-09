@@ -18,7 +18,7 @@ tag_vocabulary:
   - vision          # 能看图（图片、视频截帧）
   - transcribe      # 能直接接收音频的对话模型（旧的转写方式；有 stt 模型时优先用 stt）
   - image_gen       # 图像生成
-  - image_edit      # 图像编辑（预留）
+  - image_edit      # 支持以参考图为输入的图像生成 / 编辑（风格参考图用）
   - tts             # 文字转语音
   - stt             # 语音转文字（Whisper 系列）
   - video_gen       # 视频生成（异步）
@@ -232,7 +232,7 @@ models:
     tier: budget
     price: {input: 0.50, output: 60.0}
     image_tokens: 1290
-    tags: [image_gen, vision]
+    tags: [image_gen, image_edit, vision]   # image_edit：支持以参考图为输入（图生图）
     enabled: true
     routes:
       - channel: openrouter

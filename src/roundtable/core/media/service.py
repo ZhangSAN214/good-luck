@@ -14,7 +14,7 @@ import hashlib
 import logging
 import random
 import time
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -55,6 +55,7 @@ EXT = {
 }
 FILE_KIND = {"image": "image", "speech": "audio", "video": "video"}
 ACTIVE = ("submitted", "pending", "running")
+NO_REFERENCE_MODEL = "没有支持参考图的画图模型，只能按文字风格规范生成"
 MAX_POLL_ERRORS = 5
 
 Emit = Callable[..., None]
@@ -82,6 +83,8 @@ class MediaResult:
     error: str | None = None
     attempts: int = 1
     paths: tuple[str, ...] = field(default=())
+    references: int = 0  # 传给画图模型的风格参考图张数
+    warning: str | None = None  # 如"没有支持参考图的画图模型，只能按文字风格规范生成"
 
     @property
     def file_id(self) -> str | None:
@@ -113,14 +116,19 @@ class MediaService:
 
     # --- 选择与预估 ----------------------------------------------------------------
 
-    def model_for(self, kind: str, tier: str | None = None, *, text: str = "") -> ModelSpec | None:
+    def model_for(
+        self, kind: str, tier: str | None = None, *, text: str = "", references: bool = False
+    ) -> ModelSpec | None:
         """本场某种媒体使用的模型：同一场、同一档位、同一种类总是同一个（按 seed 派生）。
-        语音合成例外地看脚本语言：主要是中文时优先选带 zh 标签的模型（有的话）。"""
+        语音合成例外地看脚本语言：主要是中文时优先选带 zh 标签的模型（有的话）；
+        带风格参考图的图片生成优先选带 image_edit 标签（支持参考图输入）的模型（有的话）。"""
         if not self.rules.enabled:
             return None
         tier = tier or self.rules.default_tier
         rng = random.Random(f"{self.seed}:media:{kind}:{tier}")
         prefer = ("zh",) if kind == "speech" and mostly_cjk(text) else ()
+        if kind == "image" and references:
+            prefer = ("image_edit",)
         return pick_media_model(self.router, kind, tier, rng, prefer)
 
     def unavailable_reason(self, kind: str, tier: str | None = None) -> str | None:
@@ -137,15 +145,27 @@ class MediaService:
     # --- 生成 ----------------------------------------------------------------------
 
     async def generate(
-        self, kind: str, prompt: str, where: Placement, *, tier: str | None = None
+        self,
+        kind: str,
+        prompt: str,
+        where: Placement,
+        *,
+        tier: str | None = None,
+        references: Sequence[Media] = (),
     ) -> MediaResult:
+        """references：风格参考图（只对图片有意义）。选带 image_edit 标签的模型并把参考图传给它；
+        没有这样的模型时退回只传文字，结果的 warning 里写明。"""
         existing = self._jobs(where)
         last = existing[-1] if existing else None
         if last and last["state"] == "completed" and last["file_id"]:
             return self._result(last, len(existing))
-        model = self.model_for(kind, tier, text=prompt)
+        refs = list(references)[: self.rules.references.max] if kind == "image" else []
+        model = self.model_for(kind, tier, text=prompt, references=bool(refs))
         if model is None:
             return MediaResult(False, kind, error=self.unavailable_reason(kind, tier))
+        warning = None
+        if refs and "image_edit" not in model.tags:
+            refs, warning = [], NO_REFERENCE_MODEL
         text = self.scrubber.scrub(prompt).strip()
         if kind == "speech":
             text = text[: self.rules.speech.max_chars]
@@ -155,7 +175,7 @@ class MediaService:
             return MediaResult(False, kind, error="生成提示词为空")
         if kind == "video":
             return await self._video(model, text, where, existing)
-        return await self._sync(kind, model, text, where, existing)
+        return await self._sync(kind, model, text, where, existing, refs, warning)
 
     def _jobs(self, where: Placement) -> list[dict[str, Any]]:
         return [
@@ -178,10 +198,19 @@ class MediaService:
             None,
             attempts,
             paths,
+            int(job.get("reference_count") or 0),
+            job["params"].get("warning"),
         )
 
     def _new_job(
-        self, kind: str, model: ModelSpec, text: str, where: Placement, attempt: int
+        self,
+        kind: str,
+        model: ModelSpec,
+        text: str,
+        where: Placement,
+        attempt: int,
+        references: int = 0,
+        warning: str | None = None,
     ) -> int:
         return self.repo.create_media_job(
             self.session_id,
@@ -194,6 +223,8 @@ class MediaService:
             kind=kind,
             model_id=model.id,
             prompt=text,
+            reference_count=references,
+            params={"warning": warning} if warning else {},
         )
 
     def _fail(
@@ -221,12 +252,16 @@ class MediaService:
         text: str,
         where: Placement,
         existing: list[dict[str, Any]],
+        refs: Sequence[Media] = (),
+        warning: str | None = None,
     ) -> MediaResult:
-        job_id = self._new_job(kind, model, text, where, len(existing) + 1)
-        self._event("media_started", where, kind=kind)
+        job_id = self._new_job(kind, model, text, where, len(existing) + 1, len(refs), warning)
+        self._event("media_started", where, kind=kind, references=len(refs))
+        if warning:
+            self._event("media_warning", where, kind=kind, message=warning)
         style = {
             "image": lambda prov, route, m: prov.generate_image(
-                route.model, text, dict(m.params_for(route))
+                route.model, text, dict(m.params_for(route)), images=tuple(refs)
             ),
             "speech": lambda prov, route, m: prov.synthesize_speech(
                 route.model,
@@ -272,7 +307,7 @@ class MediaService:
             route_model=inv.route.model,
             cost_usd=cost,
             file_id=file_ids[0],
-            params={"extra_files": file_ids[1:]},
+            params={"extra_files": file_ids[1:], **({"warning": warning} if warning else {})},
         )
         self._record_call(model, text, where, inv, cost, source, tokens)
         self._event("media_done", where, kind=kind)

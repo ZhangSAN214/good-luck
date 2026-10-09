@@ -18,6 +18,8 @@ export const STEP_LABELS = {
   rework: '修改',
   merge: '合并',
   media: '生成媒体',
+  style: '风格规范',
+  style_gate: '风格校验',
 };
 export const MEDIA_LABELS = { image: '图片', speech: '语音', video: '视频' };
 const JOB_STATE = {
@@ -249,7 +251,12 @@ export function feedItems(sv, ctx) {
       push(`esc${t.table_no}`, sys('统筹', `升级到「${esc(t.plan_label)}」：${esc(t.escalation_reason)}`, 'bad'));
     }
     for (const step of t.pipeline) {
-      const outs = outputs.filter((o) => o.table_no === t.table_no && o.step === step);
+      // 风格校验的记录跟在生成它的那一步后面（phase 1 = 完成子任务，2 = 按审查修改）
+      const gateStep = (o) => {
+        if (o.step !== 'style_gate') return null;
+        return (parse(o.content)?.phase ?? 1) === 2 ? 'rework' : 'work';
+      };
+      const outs = outputs.filter((o) => o.table_no === t.table_no && (o.step === step || gateStep(o) === step));
       const live = ctx.live.table === t.table_no && ctx.live.step === step;
       cpAt((d) => d.table_no === t.table_no && d.step === step && !(step === 'media' && d.key));
       const mediaJobs = step === 'media' ? (sv.media || []).filter((j) => j.table_no === t.table_no && j.step === 'media') : [];
@@ -348,6 +355,11 @@ function output(o, names, lazy = new Set(), sources = null) {
   }
   const data = parse(o.content);
   if (!data) return msg(sp, o.kind, `<div class="bubble">${md(o.content)}</div>`);
+  if (o.kind === 'style_spec') return styleCard(o, data);
+  if (o.kind === 'style_gate') return styleGateLine(sp, data, names);
+  if (o.kind === 'style_redraw') {
+    return msg(sp, `按风格意见改提示词 ${data.subtask}`, `<details class="more"><summary>修改后的提示词（第 ${esc(data.attempt)} 次重画）</summary><div>${md(data.prompt)}</div></details>`);
+  }
   if (o.kind === 'review') return msg(sp, '互评', review(data, names, o.table_no));
   const collab = collabOutput(o, sp, data, names, sources);
   if (collab !== null) return collab;
@@ -514,7 +526,42 @@ function mediaFoot(m) {
   if (!m) return '';
   const what = MEDIA_LABELS[m.kind] || m.kind;
   if (!m.ok) return `<div class="meta bad">${esc(what)}生成失败（第 ${esc(m.round)} 轮）：${esc(m.error || '')}</div>`;
-  return `<div class="meta">已生成${esc(what)}（第 ${esc(m.round)} 轮 · ${money(m.cost_usd)}）</div>`;
+  const refs = m.references ? ` · 参考图 ${esc(m.references)} 张` : '';
+  const warn = m.warning ? `<div class="meta bad">${esc(m.warning)}</div>` : '';
+  let style = '';
+  if (m.style && m.style.passed !== null && m.style.passed !== undefined) {
+    style = m.style.passed
+      ? `<div class="meta">${tag('风格校验通过', 'ok')}${m.style.attempts > 1 ? ` 重画 ${esc(m.style.attempts - 1)} 次后通过` : ''}</div>`
+      : `<div class="meta">${tag('风格未通过', 'bad')} 重画 ${esc(Math.max(0, m.style.attempts - 1))} 次后仍不符合风格清单，保留最后一版</div>`;
+  }
+  return `<div class="meta">已生成${esc(what)}（第 ${esc(m.round)} 轮 · ${money(m.cost_usd)}${refs}）</div>${warn}${style}`;
+}
+
+/** 风格规范卡片：规范、可逐条检查的风格清单、来源与提示。 */
+function styleCard(o, d) {
+  const how = d.text_only ? '来自图片的文字版' : `${(d.extractors || []).length} 位成员看了原图`;
+  const warn = d.warning ? `<div class="meta bad">${esc(d.warning)}</div>` : '';
+  const items = (d.checklist || []).map((x) => `<li>${md(x)}</li>`).join('');
+  const list = items ? `<div class="k">风格清单（${d.checklist.length} 条）</div><ol class="checklist">${items}</ol>` : '';
+  return sys(
+    '风格',
+    `风格规范已提取（${esc(how)}）<details class="more stylecard" data-style="${esc(o.table_no)}"><summary>查看风格规范</summary><div class="md">${md(d.spec)}</div>${list}</details>${warn}`,
+    d.warning ? 'bad' : '',
+  );
+}
+
+/** 一次风格校验：对照风格清单逐条符合 / 不符合。 */
+function styleGateLine(sp, d, names) {
+  const checks = (d.checks || [])
+    .map((c) => `<li>${c.ok ? tag('符合', 'ok') : tag('不符合', 'bad')} ${md(c.item)}${c.note ? `<span class="meta"> ${md(c.note)}</span>` : ''}</li>`)
+    .join('');
+  const who = (d.reviewers || []).map((c) => names.member(c)).join('、');
+  const verdict = d.passed ? tag('通过', 'ok') : d.final ? tag('未通过（保留最后一版）', 'bad') : tag('不通过，退回重画', 'wait');
+  return msg(
+    sp,
+    `风格校验 ${d.subtask} · 第 ${d.attempt} 次`,
+    `<div class="bubble">${verdict} <span class="meta">${esc(who)} 对照风格清单判定</span>${checks ? `<ul class="gate">${checks}</ul>` : ''}</div>`,
+  );
 }
 
 /** 讨论模式 media 步骤中的评审与统筹决定。 */
@@ -527,7 +574,11 @@ function mediaOutput(o, sp) {
       .map((p) => `<li><b>${md(p.what)}</b>${p.fix ? ` → ${md(p.fix)}` : ''}</li>`)
       .join('');
     const verdict = d.satisfied ? tag('可以交付', 'ok') : tag('需要改进', 'wait');
-    return msg(sp, `评审第 ${d.round} 轮`, `<div class="bubble">${verdict}${problems ? `<ul>${problems}</ul>` : ''}${d.checked ? `<div class="meta">检查了：${md(d.checked)}</div>` : ''}</div>`);
+    const checks = (d.checks || [])
+      .map((c) => `<li>${c.ok ? tag('符合', 'ok') : tag('不符合', 'bad')} ${md(c.item)}${c.note ? `<span class="meta"> ${md(c.note)}</span>` : ''}</li>`)
+      .join('');
+    const list = checks ? `<div class="k">对照风格清单</div><ul class="gate">${checks}</ul>` : '';
+    return msg(sp, `评审第 ${d.round} 轮`, `<div class="bubble">${verdict}${list}${problems ? `<ul>${problems}</ul>` : ''}${d.checked ? `<div class="meta">检查了：${md(d.checked)}</div>` : ''}</div>`);
   }
   const text = d.satisfied ? '认为可以交付，不再重新生成' : `决定修改提示词重新生成：${md(d.reason)}`;
   const next = d.satisfied ? '' : `<details class="more"><summary>修改后的提示词</summary><div>${md(d.prompt)}</div></details>`;
@@ -544,7 +595,9 @@ export function mediaJobCard(j, sv, names) {
   const players = file ? mediaPlayer(file, sv.id) : '';
   const dl = file ? `<a class="btn sm" href="/api/sessions/${esc(sv.id)}/files/${esc(file.id)}" download>下载</a>` : '';
   const err = j.error ? `<div class="meta bad">${esc(j.error)}</div>` : '';
-  return `<div class="mediajob" data-job="${j.id}" data-state="${esc(j.state)}"><div class="who"><b>${esc(MEDIA_LABELS[j.kind] || j.kind)}</b><span class="kind">第 ${j.round} 轮${j.attempt > 1 ? ` · 第 ${j.attempt} 次尝试` : ''}</span><span class="kind">${esc(where)}</span>${tag(st, sc)}<span class="meta">${money(j.cost_usd)}</span>${model}</div>${players}${err}<details class="more"><summary>生成提示词</summary><div>${esc(j.prompt)}</div></details>${dl}</div>`;
+  const refs = j.reference_count ? `<span class="kind">参考图 ${esc(j.reference_count)} 张</span>` : '';
+  const warn = j.warning ? `<div class="meta bad">${esc(j.warning)}</div>` : '';
+  return `<div class="mediajob" data-job="${j.id}" data-state="${esc(j.state)}"><div class="who"><b>${esc(MEDIA_LABELS[j.kind] || j.kind)}</b><span class="kind">第 ${j.round} 轮${j.attempt > 1 ? ` · 第 ${j.attempt} 次尝试` : ''}</span><span class="kind">${esc(where)}</span>${refs}${tag(st, sc)}<span class="meta">${money(j.cost_usd)}</span>${model}</div>${players}${warn}${err}<details class="more"><summary>生成提示词</summary><div>${esc(j.prompt)}</div></details>${dl}</div>`;
 }
 
 function merged(tableNo, d, names) {
@@ -1166,7 +1219,10 @@ export function attachmentsHTML(list) {
       if (a.pending) return `<span class="chip">${esc(a.name)} · 上传中…</span>`;
       if (a.error) return `<span class="chip bad" title="${esc(a.error)}">${esc(a.name)} · ${esc(a.error)}<button class="x" type="button" data-rm="${i}" aria-label="移除">×</button></span>`;
       const warn = (a.warnings || []).length ? ` <span class="w" title="${esc(a.warnings.join('；'))}">⚠ ${esc(a.warnings[0])}</span>` : '';
-      return `<span class="chip" data-att="${esc(a.id)}">${esc(a.name)} · ${bytes(a.size)}${a.pages ? ` · ${a.pages} 页` : ''}${warn}<button class="x" type="button" data-rm="${i}" aria-label="移除">×</button></span>`;
+      const sref = a.kind === 'image'
+        ? ` <label class="sref" title="勾选：提取成风格规范，并作为参考图传给画图模型；取消：只当普通附件"><input type="checkbox" data-sref="${i}"${a.style_ref === false ? '' : ' checked'}> 风格参考</label>`
+        : '';
+      return `<span class="chip" data-att="${esc(a.id)}">${esc(a.name)} · ${bytes(a.size)}${a.pages ? ` · ${a.pages} 页` : ''}${warn}${sref}<button class="x" type="button" data-rm="${i}" aria-label="移除">×</button></span>`;
     })
     .join('');
 }
@@ -1212,7 +1268,7 @@ export function mediaPanel(sv, prefix) {
     const pill = { ok: 'okp', wait: 'wait', bad: 'badp' }[sc] || '';
     const who = j.code ? names.member(j.code) : '统筹';
     const model = j.model_id ? `<div class="hint">${esc(j.model_id)}${j.channel ? ` · ${esc(j.channel)}` : ''}</div>` : '';
-    h += `<tr><td>第 ${j.round} 轮${j.attempt > 1 ? `<div class="hint">第 ${j.attempt} 次尝试</div>` : ''}</td><td>${esc(MEDIA_LABELS[j.kind] || j.kind)} · ${esc(who)}${j.subtask ? ` · ${esc(j.subtask)}` : ''}${model}<details class="more"><summary>提示词</summary><div>${esc(j.prompt)}</div></details></td><td><span class="pill ${pill}">${esc(st)}</span></td><td class="num">${money(j.cost_usd)}</td></tr>`;
+    h += `<tr><td>第 ${j.round} 轮${j.attempt > 1 ? `<div class="hint">第 ${j.attempt} 次尝试</div>` : ''}</td><td>${esc(MEDIA_LABELS[j.kind] || j.kind)} · ${esc(who)}${j.subtask ? ` · ${esc(j.subtask)}` : ''}${j.reference_count ? `<div class="hint">参考图 ${esc(j.reference_count)} 张</div>` : ''}${j.warning ? `<div class="hint bad">${esc(j.warning)}</div>` : ''}${model}<details class="more"><summary>提示词</summary><div>${esc(j.prompt)}</div></details></td><td><span class="pill ${pill}">${esc(st)}</span></td><td class="num">${money(j.cost_usd)}</td></tr>`;
   }
   h += '</tbody></table><h4>成果</h4><div class="filebar" style="flex-direction:column;align-items:stretch">';
   for (const j of jobs) {

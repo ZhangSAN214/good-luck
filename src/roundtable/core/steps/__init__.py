@@ -1,6 +1,15 @@
 """流程步骤插件：answer / review / revise / synthesize / reveal；实质内容检查与贡献统计。"""
 
-from . import answer, collab, media, reveal, review, revise, synthesize  # noqa: F401 - 导入即注册
+from . import (  # noqa: F401 - 导入即注册
+    answer,
+    collab,
+    media,
+    reveal,
+    review,
+    revise,
+    style,
+    synthesize,
+)
 from .base import (
     Event,
     NeedsApproval,

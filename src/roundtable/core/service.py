@@ -162,12 +162,14 @@ class RoundtableService:
         attachments: Sequence[str] = (),
         media: str | None = None,
         media_tier: str | None = None,
+        style_refs: Sequence[str] | None = None,
     ) -> str:
         """创建会话并在后台开始执行，立即返回会话 id。
 
         tier：档位名或 "custom"（自选，models 为上桌的模型）；anonymous 默认关闭；
         workflow：discussion（讨论模式）或 collab（协同模式）；
         attachments：先用 upload() 上传得到的附件 id；
+        style_refs：其中作为风格参考的图片附件 id（None = 全部图片；传空表示都不是）；
         media：讨论模式的输出类型（image / speech / video，默认文字）；
         media_tier：媒体模型的档位（budget / flagship）。
         """
@@ -188,7 +190,12 @@ class RoundtableService:
         self._check_capacity()
         try:
             sid = self.orc.open(
-                Question(text), choice, seed=seed, anonymous=anonymous, attachments=attachments
+                Question(text),
+                choice,
+                seed=seed,
+                anonymous=anonymous,
+                attachments=attachments,
+                style_refs=style_refs,
             )
         except OrchestratorError as exc:
             raise ServiceError(str(exc)) from None
@@ -459,6 +466,8 @@ class RoundtableService:
                 "error": j["error"],
                 "file_id": j["file_id"],
                 "extra_files": j["params"].get("extra_files", []),
+                "reference_count": j["reference_count"],
+                "warning": j["params"].get("warning"),
                 "model_id": j["model_id"] if revealed else None,
                 "channel": j["channel"] if revealed else None,
             }

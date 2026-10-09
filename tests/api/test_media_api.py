@@ -158,3 +158,54 @@ def test_anonymous_media_hides_models_and_prompts_are_masked():
         assert leaks(env, json.dumps(events, ensure_ascii=False) + json.dumps(data)) == []
         revealed = c.post(f"/api/sessions/{sid}/reveal").json()
         assert revealed["media"][0]["model_id"] == "mi1"
+
+
+def test_style_references_flow_over_http():
+    """上传的图片默认是风格参考，可以取消勾选；风格规范、参考图张数出现在会话详情里。"""
+    from ..core.attachments.samples import PNG
+    from ..core.orchestrator.test_style import with_style_replies
+
+    env, c = client()
+    with_style_replies(env)
+    with c:
+        up = c.post("/api/uploads", params={"name": "ref.png"}, content=PNG).json()
+        assert up["style_ref"] is True
+        sid = c.post(
+            "/api/sessions",
+            json={
+                "question": MEDIUM,
+                **PICKS,
+                "media": "image",
+                "media_tier": "flagship",
+                "attachments": [up["id"]],
+            },
+        ).json()["session_id"]
+        data = wait_rest(c, sid)
+        assert data["status"] == "completed"
+        assert data["attachments"][0]["style_ref"] is True
+        spec = [o for o in data["outputs"] if o["kind"] == "style_spec"]
+        assert spec and len(json.loads(spec[0]["content"])["checklist"]) == 6
+        assert data["media"][0]["reference_count"] == 1 and data["media"][0]["warning"] is None
+        assert "style" in data["tables"][0]["pipeline"]
+        # 取消勾选：只是普通附件，没有风格规范，也不传参考图
+        up2 = c.post("/api/uploads", params={"name": "ref2.png"}, content=PNG).json()
+        sid2 = c.post(
+            "/api/sessions",
+            json={
+                "question": MEDIUM,
+                **PICKS,
+                "media": "image",
+                "attachments": [up2["id"]],
+                "style_refs": [],
+            },
+        ).json()["session_id"]
+        plain = wait_rest(c, sid2)
+        assert plain["attachments"][0]["style_ref"] is False
+        assert not [o for o in plain["outputs"] if o["kind"] == "style_spec"]
+        assert plain["media"][0]["reference_count"] == 0
+        # 风格参考必须是本次提交的附件
+        bad = c.post(
+            "/api/sessions",
+            json={"question": MEDIUM, **PICKS, "attachments": [], "style_refs": ["nope"]},
+        )
+        assert bad.status_code == 400 and "风格参考" in bad.json()["detail"]

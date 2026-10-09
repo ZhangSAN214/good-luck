@@ -69,3 +69,57 @@ def with_media_step(estimate: CostEstimate, **kw) -> CostEstimate:
         max_usd=estimate.max_usd + step.max_usd,
         steps=tuple(steps),
     )
+
+
+def style_wanted(
+    config: AppConfig,
+    router: ChannelRouter,
+    *,
+    has_style_images: bool,
+    media: str | None,
+    collab: bool,
+    tier: str | None,
+) -> bool:
+    """要不要提取风格规范：有风格参考图，而且会用到画图（讨论模式选了图片输出；
+    协同模式且有可用的画图模型，由统筹决定哪些子任务生成图片）。"""
+    if not (
+        config.roundtable.style.enabled and config.roundtable.media.enabled and has_style_images
+    ):
+        return False
+    if not collab:
+        return media == "image"
+    return bool(media_group(router, "image", tier or config.roundtable.media.default_tier))
+
+
+def style_step_cost(
+    config: AppConfig,
+    *,
+    members: Sequence[Participant],
+    coordinator: Participant | None,
+    by_id: Mapping[str, ModelSpec],
+    question_tokens: int,
+) -> StepCost:
+    """style 步骤：带 vision 标签的成员（最多 reviewers 位）各看一遍原图 + 统筹合并一次。"""
+    rules = config.roundtable.style
+    params = config.routing.estimate
+    out_cap = int(config.roundtable.step_params.get("style", {}).get("max_tokens", 1500))
+    seeing = [p for p in members if "vision" in by_id[p.model_id].tags][: rules.reviewers]
+    tin = params.prompt_overhead_tokens + question_tokens + params.image_tokens
+    cost = sum(estimate_cost(p.price, tin, out_cap // 2) for p in seeing)
+    upper = sum(estimate_cost(p.price, tin, out_cap) for p in seeing)
+    if coordinator is not None:
+        merge_in = params.prompt_overhead_tokens + question_tokens + max(1, len(seeing)) * out_cap
+        cost += estimate_cost(coordinator.price, merge_in // 2, out_cap // 2)
+        upper += estimate_cost(coordinator.price, merge_in, out_cap)
+    return StepCost("style", len(seeing) + 1, len(seeing) + 1, cost, upper)
+
+
+def with_style_step(estimate: CostEstimate, **kw) -> CostEstimate:
+    """把 style 步骤的花费并入估算（放在最前面）。"""
+    step = style_step_cost(kw.pop("config"), **kw)
+    return replace(
+        estimate,
+        total_usd=estimate.total_usd + step.cost_usd,
+        max_usd=estimate.max_usd + step.max_usd,
+        steps=(step, *estimate.steps),
+    )

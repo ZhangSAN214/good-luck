@@ -30,6 +30,7 @@ class Attachment:
     error: str | None = None
     warnings: tuple[str, ...] = ()
     data: bytes | None = field(default=None, repr=False)  # 图片原图（发给 vision 成员）
+    style_ref: bool = True  # 图片是否作为风格参考（用户可取消勾选，取消后只是普通附件）
 
     @classmethod
     def from_row(cls, row: dict[str, Any]) -> Attachment:
@@ -47,6 +48,7 @@ class Attachment:
             pages=row["pages"],
             error=row["error"],
             warnings=tuple(row["warnings"]),
+            style_ref=bool(row.get("style_ref", 1)),
         )
 
     def with_data(self, load: Callable[[str], bytes]) -> Attachment:
@@ -65,7 +67,20 @@ class Attachment:
             "text_chars": len(self.text or ""),
             "error": self.error,
             "warnings": list(self.warnings),
+            "style_ref": self.style_ref if self.kind == "image" else False,
         }
+
+
+def style_reference_media(files: Sequence[Attachment], max_refs: int, max_mb: float) -> list[Media]:
+    """风格参考图：标注为风格参考的图片附件原图（数量和大小有上限），编号即列表位置 + 1。"""
+    out: list[Media] = []
+    for a in files:
+        if a.kind != "image" or not a.style_ref or not a.data:
+            continue
+        if len(a.data) > max_mb * 2**20 or len(out) >= max_refs:
+            continue
+        out.append(Media("image", a.mime, a.data, a.name))
+    return out
 
 
 def _neutralize(text: str) -> str:
@@ -89,6 +104,25 @@ def attachment_block(files: Sequence[Attachment], *, vision: bool) -> tuple[str,
         body = a.text if a.text else "（这个附件的内容不可用）"
         blocks.append(f"<attachment {attrs}>\n{_neutralize(body)}\n</attachment>")
     return "\n\n".join(blocks), tuple(media)
+
+
+def append_to_messages(
+    messages: Sequence[Message], template: PromptTemplate, **values: str
+) -> tuple[Message, ...]:
+    """把一段额外说明接到一次调用上：system 段接在系统提示之后，user 段接在第一条用户消息之后。"""
+    filled = template.render(**values)
+    extra_system = next(m.content for m in filled.messages if m.role == "system")
+    extra_user = next(m.content for m in filled.messages if m.role == "user")
+    out: list[Message] = []
+    first_user = True
+    for m in messages:
+        if m.role == "system":
+            m = Message("system", f"{m.content}\n\n{extra_system}", m.media)
+        elif m.role == "user" and first_user:
+            m = Message("user", f"{m.content}\n\n{extra_user}", m.media)
+            first_user = False
+        out.append(m)
+    return tuple(out)
 
 
 def attach_messages(

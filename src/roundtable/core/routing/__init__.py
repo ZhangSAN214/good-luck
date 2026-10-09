@@ -32,6 +32,7 @@ from .estimate import (
     text_tokens,
 )
 from .lineup import Lineup, LineupBuilder
+from .media_estimate import style_wanted
 from .planner import PlannerOutput, PlannerResult, pick_planner_model, run_planner
 from .triage import Question, TriageResult, triage
 
@@ -71,6 +72,7 @@ __all__ = [
     "plan_escalation",
     "route_question",
     "run_planner",
+    "style_wanted",
     "text_tokens",
     "triage",
 ]

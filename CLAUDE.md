@@ -1,6 +1,6 @@
 # CLAUDE.md — Roundtable（圆桌）
 
-多个 AI 协作完成作业。长期目标见 `docs/REQUIREMENTS_v3.md`；当前范围以本文件和 `docs/PLAN.md` 为准（v1 已完成，v2 改版阶段 11–20 全部完成（19 媒体生成、20 收尾：限速与并发、README、CI），v2.1 阶段 21 协同流水线 + 昵称 / 塔罗牌代号 / 大米已完成，接下来 22 参考图风格与图生图）。
+多个 AI 协作完成作业。长期目标见 `docs/REQUIREMENTS_v3.md`；当前范围以本文件和 `docs/PLAN.md` 为准（v1 已完成，v2 改版阶段 11–20 全部完成（19 媒体生成、20 收尾：限速与并发、README、CI），v2.1 阶段 21 协同流水线 + 昵称 / 塔罗牌代号 / 大米、22 参考图风格与图生图均已完成）。
 界面样板：`docs/mockup.html`（v1 只实现其中文字圆桌相关部分）。
 按 `docs/PLAN.md` 的阶段推进，不要跳阶段，不要提前实现"后续扩展"里的功能。
 
@@ -98,7 +98,7 @@
 - 每步结束状态落库；可暂停、关页面后恢复，恢复时不重复已完成的调用。
 
 ### 2.4 提示词外置且带版本
-- `prompts/<role>/v<n>.md`：协同模式 `decompose`（v3：子任务可标 `media`；v4：流水线，要求类型 `kind`、`gives` 交接、每人一块不同的工作）、`decompose_retry`（拆分不合格时把问题列给统筹重拆）、`volunteer`、`assign`（v3：流水线分配规则）、`work`（旧流程）、各类型的工作提示词 `work_analyze` / `work_research` / `work_write` / `work_prompt` / `work_generate`（执行生成前确认提示词的短调用）/ `work_code` / `work_verify` / `work_review` / `work_factcheck` / `work_assemble`、`cross_review`、`rework`、`merge`；媒体：`media_brief`（把需求改写成「写生成提示词」的任务）、`media_review`、`media_refine`、`work_media`、`rework_media`；讨论模式 `planner`、`answer`、`review`、`revise`（v2：逐条"采纳 / 部分采纳 / 不采纳"）、`synthesize`（v3：`adopted_from`、注意 flagged 的答案）、`redo`（打回重做：system 段接在原系统提示后，user 段追加在原对话后）；附件 `attachments`（附件说明与 `<attachment>` 块，接在每次调用的系统提示与第一条用户消息之后，所以各步骤提示词不必改版本）、`describe_image`（图片文字版）、`transcribe`（音频转写）；`answer_quick` 已不再引用（已发布版本保留）。代码中不得内联提示词正文。
+- `prompts/<role>/v<n>.md`：风格：`style_extract`（成员各自看参考图）、`style_merge`（统筹合并成规范 + 清单）、`style_guide`（接在之后的每次调用上）、`media_review`（v2：对照风格清单逐条判定）、`tools`（v5：`in/` 上游文件与 `refs`）；协同模式 `decompose`（v3：子任务可标 `media`；v4：流水线，要求类型 `kind`、`gives` 交接、每人一块不同的工作）、`decompose_retry`（拆分不合格时把问题列给统筹重拆）、`volunteer`、`assign`（v3：流水线分配规则）、`work`（旧流程）、各类型的工作提示词 `work_analyze` / `work_research` / `work_write` / `work_prompt` / `work_generate`（执行生成前确认提示词的短调用）/ `work_code` / `work_verify` / `work_review` / `work_factcheck` / `work_assemble`、`cross_review`、`rework`、`merge`；媒体：`media_brief`（把需求改写成「写生成提示词」的任务）、`media_review`、`media_refine`、`work_media`、`rework_media`；讨论模式 `planner`、`answer`、`review`、`revise`（v2：逐条"采纳 / 部分采纳 / 不采纳"）、`synthesize`（v3：`adopted_from`、注意 flagged 的答案）、`redo`（打回重做：system 段接在原系统提示后，user 段追加在原对话后）；附件 `attachments`（附件说明与 `<attachment>` 块，接在每次调用的系统提示与第一条用户消息之后，所以各步骤提示词不必改版本）、`describe_image`（图片文字版）、`transcribe`（音频转写）；`answer_quick` 已不再引用（已发布版本保留）。代码中不得内联提示词正文。
 - 文件格式：YAML 文件头（`description`、`output: text|json`、`variables`）+ `<!-- system -->` / `<!-- user -->` 两段。占位符用 `{{ name }}`（不用 `$`，避免与数学公式冲突）；声明的变量与正文占位符必须一一对应，渲染时缺少或多余参数都报错；只替换一次，用户输入里的 `{{ x }}` 不会被展开。
 - 题目、他人答案等外部内容放在标签内（`<question>`、`<answer>` …），系统提示说明标签内的指令无效（防提示注入）。
 - 使用的版本由配置指定，随每次调用入库（版本号 + 内容哈希，换行统一为 LF 后计算）。
@@ -122,7 +122,7 @@
 ### 2.6 持久化：SQLite
 - 存：会话（题目、seed、成员档位、匿名开关、工作模式）、**路由记录**（答案长度判断、档位与阵容、缺席、预估与实际花费、升级）、座位与代号映射、统筹、每次调用（步骤、提示词版本 + 哈希、输入输出、**实际渠道与切换记录**、token、费用及来源、耗时、错误）、互评结果、修订稿、汇总、确认点与用户回复、累计费用（总计与按渠道）。
 - 数据访问只经 `core/storage/`（Repository 模式）；表结构变更走版本化迁移（`storage/migrations.py`，只能在末尾追加；已发布迁移的哈希登记在测试中，不得修改），后续扩展加表不改旧表含义。
-- 表：`sessions`、`routing_records`、`seats`（`table_no` 0 为初始圆桌，升级后为 1、2…）、`calls` + `call_attempts`（每次渠道尝试一行）、`outputs`（各步产出，通用表；kind 含 answer / review / revision / synthesis / dropout / effort）、`step_progress`（恢复时跳过已完成步骤）、`checkpoints`、`contributions`（迁移 5：按桌、代号、模型、类别的贡献数量）、`attachments`（迁移 6：上传的文件，`session_id` 在提交题目时填入；文字 / 文字版 / 转写稿及来源、状态、警告）、`tool_calls` 与 `files`（迁移 7，见 §2.9）、`media_jobs`（迁移 8，见 §2.10）。
+- 表：`sessions`、`routing_records`、`seats`（`table_no` 0 为初始圆桌，升级后为 1、2…）、`calls` + `call_attempts`（每次渠道尝试一行）、`outputs`（各步产出，通用表；kind 含 answer / review / revision / synthesis / dropout / effort）、`step_progress`（恢复时跳过已完成步骤）、`checkpoints`、`contributions`（迁移 5：按桌、代号、模型、类别的贡献数量）、`attachments`（迁移 6：上传的文件，`session_id` 在提交题目时填入；文字 / 文字版 / 转写稿及来源、状态、警告；迁移 9 加 `style_ref`：图片是否作为风格参考，默认 1）、`tool_calls` 与 `files`（迁移 7，见 §2.9）、`media_jobs`（迁移 8，见 §2.10；迁移 9 加 `reference_count`：传给画图模型的参考图张数）。
 - **对外展示只用 `session_view()` / `list_sessions()`**：匿名开启且未揭晓时去掉模型 id、渠道、切换记录、阵容、缺席名单、规划员模型，错误信息替换为通用提示，模型输出经身份遮蔽；揭晓后或匿名关闭时显示全部原文。存储层 `create_session` 默认匿名（更安全），产品默认值（关闭）由服务层 / 命令行决定。
 - `sessions.mode` 自迁移 4 起存成员档位（`budget` / `flagship` / `custom`），旧会话为 `auto` / `preset` / `manual`；旧版本还没路由的会话恢复时明确报错"无法继续"，已有内容照常查看。按渠道的花费汇总（`spent_by_channel()`）可随时展示。
 
@@ -146,6 +146,7 @@
 - 发给成员与统筹（`TableContext.messages_for()`，每次调用都附上，包括重做；规划员不看附件）：`attachments` 提示词的说明接在系统提示后，`<attachment name type>` 块接在第一条用户消息后。**带 `vision` 标签的模型收到原图**（块内为"见随附图片 N"），其他模型收到文字版；其余类型都是文字。附件内容中的结束标签被打断（防注入）。这是同一步骤提示词之间**唯一**允许的差别。
 - `Message.media`（`Media`：image / audio、MIME、字节）由各适配器转换：OpenAI 兼容 `image_url`（data URI）/ `input_audio`；Anthropic `image`（base64，音频报 bad_request 不切换）；Gemini `inline_data`。`Media` 的 repr 不含内容；调用记录只存类型、大小与哈希。
 - 预估：附件文字按 token 计入题目长度，图片取 `estimate.image_tokens` 与文字版的较大者。
+- **风格参考**（阶段 22）：上传的图片默认是**风格参考**（`attachments.style_ref`；提问区每张图片有「风格参考」勾选，取消后只是普通附件；`POST /api/sessions` 的 `style_refs` 传仍作为风格参考的图片 id，省略 = 全部图片，`[]` = 都不是；命令行 `--no-style-ref`）。见 §2.10 的风格规范与参考图。
 - 对外：会话详情的 `attachments` 只有名称、类型、大小、页数、状态、来源、警告（不含内容与存储位置）；`roundtable show --details` 显示图片文字版与转写稿。
 
 ### 2.9 工具（`core/tools/`、`steps/tooluse.py`）
@@ -154,7 +155,7 @@
 - 限额：每次作答最多 `max_rounds` 轮；python 每步 `max_runs` 次、`timeout_s`、`memory_mb`、输出截断；文件单个 / 每场合计大小、每步个数；每步最多生成 `image.max_per_step` 张图；每轮前查预算，额度用完时工具返回"额度已用完"。达到轮数仍申请工具时去掉调用作为结果。
 - **沙箱**（`tools/sandbox.py`，`tools.python.backend`）：`wasm`（默认）= Deno + Pyodide，Deno 只能读运行时目录和本次工作目录、只能写 `out/`，没有网络 / 环境变量 / 子进程权限，`runner.mjs` 把 `in/`、`out/` 复制进内存文件系统并屏蔽启动子进程的函数；`docker`（可选，`sandbox/Dockerfile`）= `--network none`、只读根目录、内存 / 进程数限制、`--cap-drop ALL`、非 root、只挂载 `in/`(ro)、`out/`、`main.py`(ro)。两者都由宿主限时、用 psutil 监视内存与 `out/` 大小、截断输出，子进程环境变量只有必需的几项。没有后端时 python 关闭，绝不在本机直接运行。运行时由 `scripts/setup_sandbox.py` 安装到用户缓存目录（不在项目目录，脚本拒绝装到项目里）。越权测试 `tests/core/tools/test_sandbox_escape.py`（没有后端时跳过）。
 - **工作目录**（`tools/files.py` 的 `Workspace`）：每位成员每张桌子一个系统临时目录，`in/` = 附件原文件，`out/` = 生成的文件（跨步骤保留，重启后从数据库恢复）。每次工具调用后收集 `out/`：扩展名白名单、拒绝符号链接与硬链接、文件名清理（`clean_path`）、大小与个数限制；通过的按内容哈希存放并登记到 `files`（作者代号、步骤、来源工具调用），不合格的删除并告诉成员。
-- **图像生成**：由 `seat: false`（不上桌、不需要档位）、带 `image_gen` 标签的最便宜可用模型完成（OpenRouter 用 `modalities`，Gemini 返回 `inlineData`，`RawCompletion.images`）；描述经身份遮蔽后放进 `prompts/image_gen`；调用记为 `role="tool"`、代号为申请的成员，照常计费。
+- **图像生成**（带风格参考图时见 §2.10：`refs` 属性、优先 `image_edit` 模型）：由 `seat: false`（不上桌、不需要档位）、带 `image_gen` 标签的最便宜可用模型完成（OpenRouter 用 `modalities`，Gemini 返回 `inlineData`，`RawCompletion.images`）；描述经身份遮蔽后放进 `prompts/image_gen`；调用记为 `role="tool"`、代号为申请的成员，照常计费。
 - **转交**：成员生成的文件（最新版本）以 `<files>` 块附在他的答案 / 成果后面交给其他成员与统筹（`TableContext.files_note()`，文本类附上前 `share_text_chars` 字，其他只列名称、类型、大小）。**生成的图片**（png / jpg / gif / webp）对带 `vision` 标签的模型作为随附图片发送（`messages_for()` → `_attach_generated_images()`，标签上注明 `attached="随附图片 N"`，每次调用最多 `files.share_images` 张、每张不超过 `share_image_mb`），其他模型只看到名称；这与附件一样只是呈现方式的差别。
 - **中文字体**：`setup_sandbox.py` 下载固定版本的 Noto Sans SC（校验 sha256）到运行时目录 `fonts/cjk.otf`；`runner.mjs` 放到 `/usr/share/fonts/roundtable/cjk.otf`，代码用到绘图时登记为 matplotlib 默认字体（Pillow 可直接用该路径）；docker 镜像中是同一文件与路径（`MATPLOTLIBRC`）。`--check` 在缺字体时报错，`start.bat` 会补装。
 - 记录：`tool_calls`（迁移 7：步骤、代号、轮次、工具、输入、输出、状态 ok / error / timeout / rejected / limit、耗时、提出申请的模型调用）与 `files`（迁移 7）。每轮工具调用都是一次照常计费的模型调用；预估中能用工具的步骤按 `estimate.tool_rounds` 多估调用次数，有历史后改用实际次数。事件 `tool_started` / `tool_finished`（只含代号）。
@@ -162,6 +163,12 @@
 - 对外：会话详情的 `files`、`tool_calls`（匿名揭晓前经身份遮蔽）；`GET /api/sessions/{id}/files/{fid}`（始终 `attachment` 下载 + `nosniff` + `CSP sandbox`，只有 png / jpg / gif / webp 可以 `?inline=1` 显示）与 `…/preview`（`core/preview.py`：文本 / 代码 / Markdown / CSV / xlsx / docx / pdf；HTML 与 SVG 只作为源代码）；`/api/status` 的 `tools`（各步骤工具与不可用原因）。命令行 `show --details` 显示工具调用，`roundtable files <id>` 保存文件。
 
 ### 2.10 媒体生成（`core/media/`、`steps/media.py`，阶段 19）
+- **风格规范与参考图（阶段 22，`steps/style.py`）**：
+  - **`style` 步骤**（讨论 / 协同共用，`_create_table` 在满足条件时插到 pipeline 最前面）：有标注为风格参考的图片附件，**而且会用到画图**（讨论模式选了图片输出；协同模式且有可用的画图模型）时触发（`style_wanted()`，预估与引擎共用；`style.enabled` 可关）。带 `vision` 标签的在场成员（最多 `style.reviewers` 位）各自看原图，按固定结构（画风 / 配色 / 线条 / 构图 / 版式 / 字体与文字排布 / 禁忌）写风格描述（`style_extract/v1`）；统筹合并成一份**风格规范**和 6–10 条可逐条判定的**风格清单**（`style_merge/v1`，JSON，清单去重截断）。没有 vision 成员时改用图片的文字版，并标注"来自文字描述，可能不准"；合并失败则规范 = 各份描述的拼接、没有清单（不做逐条校验）。结果存为 `outputs` 的 `style_spec`（`StyleSpec`，恢复时不重复调用）。
+  - **进入每次调用**：之后每一次模型调用都在系统提示后接 `style_guide/v1` 的说明、在第一条用户消息后接 `<style_spec>` / `<style_checklist>`（`TableContext._attach_style`，和附件同一做法，同一步骤所有成员相同；文字版来源会注明可能不准）。提取 / 合并两次调用本身不带。
+  - **参考图传给画图模型**：`MediaService.generate(..., references=)`（图片；数量 `media.references.max`、每张 `max_mb`）。带参考图时优先选带 **`image_edit`** 标签（支持以参考图为输入）的模型，参考图作为 `image_url` 随提示词发出；没有这样的模型时退回只传文字，job 的 `params.warning` 与结果 `warning` 写明"没有支持参考图的画图模型，只能按文字风格规范生成"（事件 `media_warning`，界面和命令行都显示）；`media_jobs.reference_count` 记录实际传了几张。提示词里仍写入风格规范（双保险）。讨论模式的 `media` 步骤、协同模式的 `generate` 子任务、`generate_image` 工具（标签上写 `refs="1 2"`，编号 = 风格参考图的顺序，`tools/v5`）都走这条路径。
+  - **对照参考图校验**：讨论模式的评审（`media_review/v2`）带着参考图（附件原图）和风格清单逐条判定 `checks`（符合 / 不符合 + 依据），**任意一条不符合即不通过**（代码保证，不信模型自己的 `satisfied`），统筹的改写意见针对不符合的条目（轮数仍受 `media.max_rounds`）。协同模式生成图片后（完成子任务与按审查修改两处，`make_media()`）立即做**风格校验**（`style_gate()`，事件 `style_checked`）：由 `media.gate_reviewers` 位**非作者**的 vision 成员对照清单判定；不通过则作者按意见改提示词（沿用 `rework_media`）并重画，最多 `media.style_retries` 次（默认 2）；仍不通过时保留最后一版并标"风格未通过"（`style_failed`，合并时 `<work style=…>` 让统筹可见，`merge/v4` 要求如实说明）。每次判定 / 改写都存库（`style_gate` / `style_redraw`，按 phase 区分），恢复时不重复调用；重画受预算和单题确认门槛约束（需要确认或预算不足时不自动重画，不在并发任务里弹卡片）。
+  - 界面：提问区的「风格参考」勾选、过程区的风格规范卡片（可折叠，含清单和来源提示）、风格校验逐条通过 / 不通过、生成卡片的"参考图 N 张"与警告；命令行 `show` 有【风格规范】与校验结果。
 - **模型**：图片（`image_gen`，通过对话接口返回图片）、文字转语音（`tts`）、语音转文字（`stt`，Whisper 系列）、视频（`video_gen`，异步）都是 `seat: false` 的工具模型。选择只看能力标签和档位（`pick_media_model`：先取指定档位，没有则取未分档的，再取另一档；同组内先限定在带偏好标签的模型里（语音合成：脚本主要是中文时偏好 `zh` 标签）、再限定在 `default: true` 的模型里（有的话），最后按 seed 随机，换名不影响）；同一场同种类同档位总是同一个模型（语音合成按脚本语言选，例外）。按 token 计价的语音模型用 `speech_tokens_per_char` 估算（渠道没返回费用时记账用）。`config/models.yaml` 里的媒体模型 ID 与价格来自网页搜索、**尚未核对**，用 `python scripts/check_models.py` 核对（存在性检查；列表含 `output_modalities=image / audio / speech / transcription / video`，转写模型必须用 `transcription` 才查得到；按秒 / 字符 / token 计价的媒体模型只列出远端 pricing 供人工核对）。
 - **配置**（`roundtable.yaml` 的 `media`）：`default_tier`、`max_rounds`（生成 → 评审 → 重新生成，含第一次）、`reviewers`、`confirm_video`、语音（voice / format）、视频（时长 / 分辨率 / 轮询间隔 / 超时 / 重试 / 截帧数）、预估参数。
 - **`MediaService`**：`generate(kind, prompt, Placement(table, step, round, code, subtask))` 按位置幂等（已完成的不重复生成 / 计费）；提示词发出前遮蔽身份；每次生成一行 `media_jobs`（提示词、模型、渠道、状态、花费、第几轮、尝试次数、文件），成功的同时记入 `calls`（`role="media"`），所以进入每月 / 每日预算与按渠道花费。计价：渠道返回实际费用优先，否则按 `media_price`（张 / 秒 / 分钟 / 字符），图像模型再按用量 token 或 `image_tokens` 估算。**视频**：提交 → 轮询 → 下载，任务 id 与轮询地址存库，暂停 / 重启后继续轮询同一个任务；超时（`video.timeout_s`，按提交时间的墙钟计）、任务失败或提交失败按 `submit_retries` 重新提交；轮询连续出错 5 次或鉴权 / 额度错误则失败；失败不计费。生成的文件登记在 `files`（kind image / audio / video），始终经下载接口取用。
@@ -257,7 +264,7 @@ src/roundtable/
 web/             index.html、css/app.css、js/（api.js 通信、view.js 渲染、app.js 状态与交互）
 tests/
 docs/            REQUIREMENTS_v3.md  PLAN.md  CLI.md  mockup.html
-scripts/         check_models.py（核对 OpenRouter 渠道的模型 ID 与价格）  lock_prompts.py（登记提示词版本）
+scripts/         check_models.py（核对 OpenRouter 渠道的模型 ID 与价格；带 vision / image_edit 标签的模型还核对远端 input_modalities 含 image）  lock_prompts.py（登记提示词版本）
                  setup_sandbox.py（安装代码运行沙箱）
 sandbox/         Dockerfile（可选的 docker 沙箱）、README.md
 .env.example

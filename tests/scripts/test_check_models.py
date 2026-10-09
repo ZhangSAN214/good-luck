@@ -204,3 +204,69 @@ def test_token_priced_tts_is_listed_for_manual_check():
     remote_data = {"data": [{"id": "v/t", "pricing": {"prompt": "5e-7", "audio_output": "9e-6"}}]}
     [f] = check_models.compare([entry], remote_data)
     assert f.status == "manual" and "audio_output" in f.detail and "输入 0.5" in f.detail
+
+
+# --- 输入模态核对（阶段 22）--------------------------------------------------------------
+
+
+def tagged(mid, model, *tags, provider="openrouter"):
+    return {**local(mid, model, provider), "tags": list(tags)}
+
+
+def with_modalities(model, input_modalities=None):
+    arch = (
+        {} if input_modalities is None else {"architecture": {"input_modalities": input_modalities}}
+    )
+    return {"id": model, "pricing": {"prompt": "1e-6", "completion": "2e-6"}, **arch}
+
+
+def test_vision_and_image_edit_models_must_accept_image_input():
+    entries = [
+        tagged("seer", "v/seer", "vision"),
+        tagged("editor", "v/editor", "image_gen", "image_edit"),
+        tagged("blind", "v/blind", "vision"),
+        tagged("both", "v/both", "vision", "image_edit"),
+        tagged("plain", "v/plain", "math"),
+        tagged("direct", "v/direct", "vision", provider="local"),
+    ]
+    remote_data = {
+        "data": [
+            with_modalities("v/seer", ["text", "image"]),
+            with_modalities("v/editor", ["text", "image"]),
+            with_modalities("v/blind", ["text"]),
+            with_modalities("v/both", None),
+            with_modalities("v/plain", ["text"]),
+        ]
+    }
+    found = {f.model_id: f for f in check_models.check_modalities(entries, remote_data)}
+    assert found["seer"].status == "input_ok" and found["editor"].status == "input_ok"
+    assert found["blind"].status == "modality_mismatch" and "不含 image" in found["blind"].detail
+    assert found["both"].status == "unverified"
+    assert "plain" not in found and "direct" not in found  # 没有图片相关标签 / 非 openrouter 渠道
+
+
+@respx.mock
+def test_main_fails_when_a_tagged_model_has_no_image_input(monkeypatch, capsys):
+    monkeypatch.setattr(check_models, "load_dotenv", lambda *_: None)
+    monkeypatch.setattr(
+        check_models, "load_local_models", lambda: [tagged("blind", "v/blind", "vision")]
+    )
+    mock_media_lists()
+    route = respx.get(check_models.MODELS_URL.split("?")[0]).mock(
+        return_value=httpx.Response(200, json={"data": [with_modalities("v/blind", ["text"])]})
+    )
+    assert check_models.main([]) == 1
+    assert "modality_mismatch" in capsys.readouterr().out
+    route.mock(
+        return_value=httpx.Response(
+            200, json={"data": [with_modalities("v/blind", ["text", "image"])]}
+        )
+    )
+    assert check_models.main([]) == 0
+
+
+def test_local_config_image_models_carry_the_tags_that_get_checked():
+    models = {m["id"]: m for m in check_models.load_local_models()}
+    for mid in ("gemini-3.1-flash-image", "gpt-image-1-mini", "gpt-image-2"):
+        assert "image_edit" in models[mid]["tags"]  # 支持参考图输入，由脚本核对远端
+    assert "vision" in models["claude-sonnet-5.5"]["tags"]

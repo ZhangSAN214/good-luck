@@ -111,7 +111,7 @@ class FakeProvider(Provider):
     async def generate_image(
         self, model: str, prompt: str, params: dict[str, Any], images=()
     ) -> ImageOutput:
-        self.media_calls.append(("image", model, prompt, dict(params)))
+        self.media_calls.append(("image", model, prompt, dict(params), tuple(images)))
         self._media_fail(self.submit_errors)
         return ImageOutput((Media("image", "image/png", FAKE_PNG),), self.media_cost)
 

@@ -7,6 +7,10 @@
 按 token 计价的图像模型（配置了 image_tokens）的输出价格对照远端的 image_output。
 发现模型不存在或价格偏差超出容差时，退出码为 1。本脚本只读，不修改任何文件。
 
+带 vision / image_edit 标签的模型（要看图 / 以参考图为输入）还会核对远端的 input_modalities
+必须含 image：标了标签但远端不支持图片输入，状态为 modality_mismatch，退出码为 1；
+远端没有给出这个字段时标为 unverified（不影响退出码）。
+
 媒体模型（seat: false）：先查 ID 是否存在（图片 / 语音走 /models 的 output_modalities 筛选，视频走
 /videos/models）；按张 / 秒 / 分钟 / 字符计价的模型，远端价格字段因模型而异，脚本只把远端的
 pricing 原样列出供人工核对（状态 manual，不影响退出码）。拿不到某个列表时标为 unverified。
@@ -70,6 +74,7 @@ def load_local_models(config_dir: Path | None = None) -> list[dict[str, Any]]:
                 "media_price": {"unit": media_price.unit, "usd": media_price.usd}
                 if media_price
                 else None,
+                "tags": list(m.tags),
                 # 按 token 计价的图像模型：输出价格对应远端的 image_output
                 "image_tokens": m.image_tokens,
                 "speech_tokens_per_char": m.speech_tokens_per_char,
@@ -167,6 +172,45 @@ def compare(
     return findings
 
 
+IMAGE_INPUT_TAGS = frozenset({"vision", "image_edit"})
+
+
+def check_modalities(local: list[dict[str, Any]], remote: dict[str, Any]) -> list[Finding]:
+    """带 vision / image_edit 标签的模型，远端的 input_modalities 必须含 image。"""
+    remote_by_id = {m.get("id"): m for m in remote.get("data", [])}
+    findings: list[Finding] = []
+    for entry in local:
+        wanted = IMAGE_INPUT_TAGS & set(entry.get("tags") or ())
+        if entry.get("provider") != "openrouter" or not wanted:
+            continue
+        model_id, model = entry.get("id", "?"), entry.get("model", "?")
+        remote_model = remote_by_id.get(model)
+        if remote_model is None:
+            continue  # 模型不存在已经由价格核对报告
+        modalities = (remote_model.get("architecture") or {}).get("input_modalities")
+        tags = "、".join(sorted(wanted))
+        if modalities is None:
+            findings.append(
+                Finding(
+                    model_id, model, "unverified", f"带 {tags} 标签，远端没有给出 input_modalities"
+                )
+            )
+        elif "image" not in modalities:
+            findings.append(
+                Finding(
+                    model_id,
+                    model,
+                    "modality_mismatch",
+                    f"带 {tags} 标签，但远端 input_modalities = {modalities} 不含 image",
+                )
+            )
+        else:
+            findings.append(
+                Finding(model_id, model, "input_ok", f"带 {tags} 标签，远端支持图片输入")
+            )
+    return findings
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--tolerance", type=float, default=0.01, help="价格相对偏差容差")
@@ -194,9 +238,11 @@ def main(argv: list[str] | None = None) -> int:
             else f
             for f in findings
         ]
+    findings += check_modalities(entries, merged)
     for f in findings:
-        print(f"[{f.status:>14}] {f.model_id:<22} {f.model:<34} {f.detail}")
-    return 1 if any(f.status in ("missing", "price_mismatch") for f in findings) else 0
+        print(f"[{f.status:>17}] {f.model_id:<22} {f.model:<34} {f.detail}")
+    bad = ("missing", "price_mismatch", "modality_mismatch")
+    return 1 if any(f.status in bad for f in findings) else 0
 
 
 if __name__ == "__main__":

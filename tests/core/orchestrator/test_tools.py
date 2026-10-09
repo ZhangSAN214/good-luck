@@ -327,3 +327,114 @@ async def test_shared_images_limited_and_only_raster():
         len(user.media) == 1 and user.media[0].mime == "image/png"
     )  # 上限 1 张；SVG 不作为图片发送
     assert user.content.count("attached=") == 1
+
+
+# --- 风格参考图（阶段 22）-------------------------------------------------------------
+
+
+def reference_box(env: Env, *, style_ref=True, count=1):
+    from roundtable.core.attachments import Attachment, FileStore
+    from roundtable.core.tools import ToolBox
+
+    sid = env.rt.repo.create_session("q", seed=1)
+    store = FileStore(None)
+    files = tuple(
+        Attachment(
+            f"a{i}",
+            f"ref{i}.png",
+            "image",
+            "image/png",
+            "png",
+            len(PNG),
+            store.save(PNG + bytes([i]), "png"),
+            "ready",
+            data=PNG + bytes([i]),
+            style_ref=style_ref,
+        )
+        for i in range(count)
+    )
+    return ToolBox(
+        session_id=sid,
+        table_no=0,
+        config=env.config,
+        router=env.rt.router,
+        prompts=env.rt.prompts,
+        repo=env.rt.repo,
+        store=store,
+        scrubber=env.rt.scrubber,
+        attachments=files,
+    )
+
+
+def draw_pool():
+    return [
+        *POOL,
+        ("img1", "V9", None, ["image_gen"], 0.5, 2.0),
+        ("img2", "V10", None, ["image_gen", "image_edit"], 0.5, 2.0),
+    ]
+
+
+async def draw(box, **attrs):
+    from roundtable.core.tools import ToolRequest
+
+    return await box.execute(
+        ToolRequest("generate_image", {"path": "a.png", **attrs}, "画面描述"),
+        step="answer",
+        code="甲",
+        round_no=1,
+        call_id=None,
+        allowed=["generate_image"],
+    )
+
+
+async def test_generate_image_refs_pick_an_image_edit_model_and_attach_the_references():
+    env = Env(pool=draw_pool(), confirm_threshold_usd=100.0)
+    env.fake.queue("img2", *[RawCompletion("", images=(Media("image", "image/png", PNG),))] * 3)
+    box = reference_box(env, count=2)
+    try:
+        assert [m.data for m in box.references()] == [PNG + b"\x00", PNG + b"\x01"]
+        result = await draw(box, refs="2 1 9")  # 9 不存在，忽略
+        assert result.status == "ok" and "参考图被忽略" not in result.text
+        calls = [c for c in env.fake.calls if c.model == "img2"]
+        assert calls and [m.data for m in calls[0].messages[1].media] == [
+            PNG + b"\x01",
+            PNG + b"\x00",
+        ]
+        row = env.rt.repo.conn.execute("SELECT input FROM tool_calls").fetchone()
+        assert '"refs": [2, 1]' in row["input"]
+        before = len(calls)
+        again = await draw(box)  # 没写 refs：不附参考图
+        assert again.status == "ok"
+        later = [c for c in env.fake.calls if c.model in ("img1", "img2")][before:]
+        assert later and all(not m.media for c in later for m in c.messages)
+    finally:
+        box.close()
+
+
+async def test_generate_image_refs_without_an_edit_model_are_ignored_with_a_notice():
+    pool = [*POOL, ("img1", "V9", None, ["image_gen"], 0.5, 2.0)]
+    env = Env(pool=pool, confirm_threshold_usd=100.0)
+    env.fake.queue("img1", RawCompletion("", images=(Media("image", "image/png", PNG),)))
+    box = reference_box(env)
+    try:
+        result = await draw(box, refs="1")
+        assert result.status == "ok" and "参考图被忽略" in result.text
+        calls = [c for c in env.fake.calls if c.model == "img1"]
+        assert calls and all(not m.media for m in calls[0].messages)
+    finally:
+        box.close()
+
+
+async def test_non_style_images_are_not_references():
+    env = Env(pool=draw_pool(), confirm_threshold_usd=100.0)
+    box = reference_box(env, style_ref=False)
+    try:
+        assert box.references() == []
+        env.fake.queue("img1", RawCompletion("", images=(Media("image", "image/png", PNG),)))
+        env.fake.queue("img2", RawCompletion("", images=(Media("image", "image/png", PNG),)))
+        result = await draw(box, refs="1")  # 编号无效：忽略
+        assert result.status == "ok"
+        sent = [c for c in env.fake.calls if c.model in ("img1", "img2")]
+        assert sent and all(not m.media for m in sent[0].messages)
+    finally:
+        box.close()

@@ -36,6 +36,7 @@ from roundtable.core.routing import (
     history_from_calls,
     option_lineup,
     route_question,
+    style_wanted,
 )
 from roundtable.core.runtime import PROJECT_ROOT, Runtime
 from roundtable.core.steps import (
@@ -95,12 +96,14 @@ class Orchestrator:
         seed: int | None = None,
         anonymous: bool = False,
         attachments: Sequence[str] = (),
+        style_refs: Sequence[str] | None = None,
     ) -> str:
         """只创建会话（立即返回 id）；之后用 run() 执行。Web 服务先拿 id 再在后台运行。
 
         anonymous 决定称呼：开启时成员是塔罗牌代号（界面与发给模型的内容都一样），
         关闭时是"昵称·模式"；任何情况下发给模型的内容都不含模型 id、厂商名。
         attachments：已上传（尚未使用）的附件 id，按顺序关联到本场。
+        style_refs：其中作为风格参考的图片附件 id；None = 全部图片都是风格参考（用户可取消勾选）。
         """
         choice = choice or UserChoice()
         seed = secrets.randbelow(2**31) if seed is None else seed
@@ -110,6 +113,8 @@ class Orchestrator:
             raise OrchestratorError(f"每道题最多 {limit} 个附件")
         if len(set(attachments)) != len(attachments):
             raise OrchestratorError("附件不能重复")
+        if style_refs is not None and not set(style_refs) <= set(attachments):
+            raise OrchestratorError("风格参考必须是本次提交的附件")
         kinds = []
         for attachment_id in attachments:
             try:
@@ -128,7 +133,7 @@ class Orchestrator:
             attachments=tuple(kinds) or question.attachments,
             choice=choice.to_dict(),
         )
-        repo.attach_to_session(sid, attachments)
+        repo.attach_to_session(sid, attachments, style_refs)
         return sid
 
     async def run(self, session_id: str) -> RunResult:
@@ -147,9 +152,17 @@ class Orchestrator:
         seed: int | None = None,
         anonymous: bool = False,
         attachments: Sequence[str] = (),
+        style_refs: Sequence[str] | None = None,
     ) -> RunResult:
         return await self.run(
-            self.open(question, choice, seed=seed, anonymous=anonymous, attachments=attachments)
+            self.open(
+                question,
+                choice,
+                seed=seed,
+                anonymous=anonymous,
+                attachments=attachments,
+                style_refs=style_refs,
+            )
         )
 
     async def respond(self, session_id: str, response: str, note: str | None = None) -> RunResult:
@@ -338,10 +351,24 @@ class Orchestrator:
             anonymous=bool(self.rt.repo.session_row(sid)["anonymous"]),
         )
         pipeline = list(decision.lineup.pipeline)
-        if (self.rt.repo.session_row(sid)["choice"] or {}).get("media") and "media" not in pipeline:
+        choice = self.rt.repo.session_row(sid)["choice"] or {}
+        if choice.get("media") and "media" not in pipeline:
             pipeline.insert(
                 pipeline.index("reveal") if "reveal" in pipeline else len(pipeline), "media"
             )
+        # 有风格参考图又要画图：先提取全员共用的风格规范（放在最前面）
+        if "style" not in pipeline and style_wanted(
+            self.rt.config,
+            self.rt.router,
+            has_style_images=any(
+                a["kind"] == "image" and a["style_ref"]
+                for a in self.rt.repo.session_attachments(sid)
+            ),
+            media=choice.get("media"),
+            collab="decompose" in pipeline,
+            tier=choice.get("media_tier"),
+        ):
+            pipeline.insert(0, "style")
         fields: dict[str, Any] = dict(
             plan=decision.plan,
             pipeline=tuple(pipeline),

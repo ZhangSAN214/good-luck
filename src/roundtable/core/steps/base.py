@@ -14,7 +14,13 @@ from typing import Any, Protocol, TypeVar
 from pydantic import ValidationError
 
 from roundtable.core.allocation import IdentityScrubber
-from roundtable.core.attachments import Attachment, FileStore, attach_messages
+from roundtable.core.attachments import (
+    Attachment,
+    FileStore,
+    append_to_messages,
+    attach_messages,
+    style_reference_media,
+)
 from roundtable.core.cards import ConfirmationCard
 from roundtable.core.config import AppConfig
 from roundtable.core.jsonout import JSONOutputError
@@ -32,7 +38,7 @@ from roundtable.core.routing import Question
 from roundtable.core.storage import Repository
 from roundtable.core.tools import TEXT_EXTS, ToolBox
 
-from .schemas import CheckedReview, EffortRecord, Revision, Synthesis, TableState
+from .schemas import CheckedReview, EffortRecord, Revision, StyleSpec, Synthesis, TableState
 
 log = logging.getLogger(__name__)
 
@@ -72,6 +78,7 @@ EventSink = Callable[[Event], None]
 # --- 上下文 -------------------------------------------------------------------
 
 
+STYLE_TAGS = ("style_spec", "style_checklist")
 _SEPARATORS = str.maketrans({"・": "·", "•": "·", "-": "·", "—": "·", "－": "·", "∙": "·"})
 
 
@@ -163,9 +170,31 @@ class TableContext:
         if self.attachments:
             template = self.prompts.get("attachments", self.prompt_version("attachments"))
             messages = attach_messages(messages, self.attachments, template, vision=vision)
+        if self.state.style is not None:
+            messages = self._attach_style(messages)
         if vision:
             messages = self._attach_generated_images(messages)
         return messages
+
+    def _attach_style(self, messages: tuple[Message, ...]) -> tuple[Message, ...]:
+        """风格规范接在每次调用上（和附件一样的做法；同一步骤所有成员相同）。"""
+        style = self.state.style
+        assert style is not None
+        template = self.prompts.get("style_guide", self.prompt_version("style_guide"))
+        listed = "\n".join(f"{i}. {item}" for i, item in enumerate(style.checklist, 1))
+        note = "（这份规范来自参考图的文字描述，可能不准。）" if style.text_only else ""
+        return append_to_messages(
+            messages,
+            template,
+            spec=neutralize(style.spec, STYLE_TAGS),
+            checklist=neutralize(listed or "（没有清单）", STYLE_TAGS),
+            note=note,
+        )
+
+    def style_references(self) -> list[Media]:
+        """传给画图模型的风格参考图：标注为风格参考的图片附件原图（数量和大小有上限）。"""
+        rules = self.config.roundtable.media.references
+        return style_reference_media(self.attachments, rules.max, rules.max_mb)
 
     def _attach_generated_images(self, messages: tuple[Message, ...]) -> tuple[Message, ...]:
         """把用户消息中 <file type="image"> 指向的图片作为随附图片附上，并在标签上注明编号。"""
@@ -589,6 +618,8 @@ def restore_state(repo: Repository, session_id: str, table_no: int) -> TableStat
         elif kind == "effort":
             record = EffortRecord.from_dict(o["step"], code, json.loads(o["content"]))
             state.effort[record.key] = record
+        elif kind == "style_spec":
+            state.style = StyleSpec.from_dict(json.loads(o["content"]))
         else:
             restore_collab(state, kind, code, json.loads(o["content"]))
     return state
@@ -606,6 +637,12 @@ def restore_collab(state: TableState, kind: str, code: str | None, data: dict[st
         c.pipeline_info = dict(data.get("info") or {})
     elif kind == "handoff":
         c.handoffs.append(data)
+    elif kind == "style_gate" and data.get("final"):
+        key = (data["subtask"], code)
+        if data.get("passed"):
+            c.style_failed.discard(key)
+        else:
+            c.style_failed.add(key)
     elif kind == "volunteer":
         c.volunteers[code] = Volunteer.from_dict(data)
     elif kind == "assignment":

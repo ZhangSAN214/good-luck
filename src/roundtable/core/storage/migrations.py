@@ -306,4 +306,14 @@ CREATE TABLE media_jobs (
 CREATE INDEX idx_media_jobs_session ON media_jobs(session_id, table_no, step);
 """,
     ),
+    (
+        9,
+        "风格参考图与参考图张数",
+        """
+-- 风格参考图：上传的图片默认是"风格参考"（style_ref = 1），取消勾选后为 0（只是普通附件）。
+-- 媒体生成任务记下传给画图模型的参考图张数（0 = 没传，只按文字描述生成）。
+ALTER TABLE attachments ADD COLUMN style_ref INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE media_jobs ADD COLUMN reference_count INTEGER NOT NULL DEFAULT 0;
+""",
+    ),
 ]

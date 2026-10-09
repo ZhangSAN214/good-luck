@@ -7,7 +7,7 @@ import asyncio
 import pytest
 
 from roundtable.core.media import Placement
-from roundtable.core.providers import ErrorKind
+from roundtable.core.providers import ErrorKind, Media
 
 from .conftest import Rig
 
@@ -242,3 +242,66 @@ async def test_speech_model_follows_script_language_and_default(rig: Rig):
         Placement(0, "media", 3),
     )
     assert mixed.model_id == "gemini-3.8-flash-tts"
+
+
+# --- 风格参考图（阶段 22）-------------------------------------------------------------
+
+REF = Media("image", "image/png", b"\x89PNG-ref-1", "ref1.png")
+REF2 = Media("image", "image/png", b"\x89PNG-ref-2", "ref2.png")
+
+
+async def test_references_are_sent_to_an_image_edit_model_and_recorded(rig: Rig):
+    svc = rig.service()
+    res = await svc.generate("image", "四格人物卡", WHERE, tier="budget", references=[REF, REF2])
+    assert res.ok and res.references == 2 and res.warning is None
+    assert "image_edit" in rig.config.models.get(res.model_id).tags
+    call = rig.calls("image")[0]
+    assert [m.data for m in call[4]] == [REF.data, REF2.data]
+    job = rig.rt.repo.media_jobs(rig.sid)[0]
+    assert job["reference_count"] == 2 and "warning" not in job["params"]
+    started = next(e for e in rig.events if e[0] == "media_started")
+    assert started[1]["references"] == 2
+    # 同一处再请求：返回已有结果（记录里仍是 2 张）
+    again = await svc.generate("image", "四格人物卡", WHERE, tier="budget", references=[REF])
+    assert again.references == 2 and len(rig.calls("image")) == 1
+
+
+async def test_without_an_image_edit_model_text_only_with_a_warning():
+    rig = Rig(no_image_edit=True)
+    res = await rig.service().generate(
+        "image", "四格人物卡", WHERE, tier="budget", references=[REF]
+    )
+    assert res.ok and res.references == 0
+    assert res.warning == "没有支持参考图的画图模型，只能按文字风格规范生成"
+    assert rig.calls("image")[0][4] == ()
+    job = rig.rt.repo.media_jobs(rig.sid)[0]
+    assert job["reference_count"] == 0
+    assert job["params"]["warning"] == res.warning
+    warning = next(e for e in rig.events if e[0] == "media_warning")
+    assert warning[1]["message"] == res.warning
+    # 再读一次（恢复）：警告仍然在
+    again = await rig.service().generate("image", "四格人物卡", WHERE, tier="budget")
+    assert again.warning == res.warning
+
+
+async def test_references_limited_and_ignored_for_other_media(rig: Rig):
+    limit = rig.config.roundtable.media.references.max
+    many = [Media("image", "image/png", bytes([i]) * 8, f"r{i}.png") for i in range(limit + 2)]
+    res = await rig.service().generate("image", "x", WHERE, tier="budget", references=many)
+    assert res.references == limit and len(rig.calls("image")[0][4]) == limit
+    speech = await rig.service().generate(
+        "speech", "大家好", Placement(0, "media", 2), references=[REF]
+    )
+    assert (
+        speech.ok
+        and speech.references == 0
+        and "warning" not in rig.rt.repo.media_jobs(rig.sid)[-1]["params"]
+    )
+
+
+async def test_model_choice_with_references_prefers_image_edit_and_stays_stable(rig: Rig):
+    svc = rig.service()
+    plain = {svc.model_for("image", "budget").id for _ in range(3)}
+    with_refs = {svc.model_for("image", "budget", references=True).id for _ in range(3)}
+    assert len(plain) == 1 and len(with_refs) == 1  # 同一场总是同一个
+    assert "image_edit" in rig.config.models.get(next(iter(with_refs))).tags

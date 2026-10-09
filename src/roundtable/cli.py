@@ -67,6 +67,8 @@ STEP_NAMES = {
     "merge": "统筹合并",
     "attachments": "处理附件",
     "media": "生成媒体",
+    "style": "提取风格规范",
+    "style_gate": "风格校验",
 }
 MEDIA_NAMES = {"image": "图片", "speech": "语音", "video": "视频"}
 JOB_STATE = {
@@ -303,6 +305,7 @@ class CLI:
             outputs = [o for o in view.outputs if o.table_no == table_no]
             if len(tables) > 1:
                 self.p(f"\n—— 第 {table_no + 1} 张桌子 ——")
+            self.print_style(outputs, table_no, details)
             if any(o.kind == "subtasks" for o in outputs):
                 self.print_collab(outputs, table_no, details)
                 continue
@@ -553,6 +556,32 @@ class CLI:
             latest[(row["table_no"], row["code"], row["path"])] = row
         return list(latest.values())
 
+    def print_style(self, outputs, table_no: int, details: bool) -> None:
+        """风格规范（有风格参考图又要画图时）与风格校验的结果。"""
+        spec = next((o for o in outputs if o.kind == "style_spec"), None)
+        if spec is None:
+            return
+        data = json.loads(spec.content)
+        how = "文字版" if data["text_only"] else f"{len(data['extractors'])} 位成员看了原图"
+        self.p(f"\n【风格规范】（{how}；风格清单 {len(data['checklist'])} 条）")
+        if data.get("warning"):
+            self.p(f"  ⚠ {data['warning']}")
+        if details:
+            self.p(_indent(self.t(data["spec"])))
+            for i, item in enumerate(data["checklist"], 1):
+                self.p(f"  {i}. {self.t(item)}")
+        gates = [
+            json.loads(o.content) | {"code": o.code} for o in outputs if o.kind == "style_gate"
+        ]
+        for g in gates:
+            if not details and not g["final"]:
+                continue
+            who = self.label(g["code"], table_no)
+            failed = [c for c in g["checks"] if not c["ok"]]
+            verdict = "通过" if g["passed"] else "不通过：" + "；".join(c["item"] for c in failed)
+            tail = "" if g["passed"] or not g["final"] else "（重画次数用完，保留最后一版）"
+            self.p(f"  风格校验 · {who} · {g['subtask']} 第 {g['attempt']} 次：{verdict}{tail}")
+
     def print_media(self, sid: str, revealed: bool, details: bool) -> None:
         """媒体生成：每次生成的轮次、状态、花费、文件（--details 时显示提示词；揭晓后显示模型）。"""
         jobs = self.rt.repo.media_jobs(sid)
@@ -570,7 +599,10 @@ class CLI:
                 f"  {MEDIA_NAMES.get(j['kind'], j['kind'])} · {where} · 第 {j['round']} 轮"
                 f"（尝试 {j['attempt']}）：{JOB_STATE.get(j['state'], j['state'])}"
                 f" · ${j['cost_usd']:.4f}{model}"
+                + (f" · 参考图 {j['reference_count']} 张" if j["reference_count"] else "")
             )
+            if j["params"].get("warning"):
+                self.p(f"    ⚠ {j['params']['warning']}")
             if j["error"]:
                 self.p(f"    原因：{scrub(j['error'])}")
             if details:
@@ -729,6 +761,7 @@ class CLI:
         reveal: bool | None,
         anonymous: bool = False,
         attach: Sequence[str] = (),
+        style_ref: bool = True,
     ) -> int:
         if not self.check_available():
             return 2
@@ -766,6 +799,7 @@ class CLI:
                 seed=seed,
                 anonymous=anonymous,
                 attachments=ids,
+                style_refs=None if style_ref else [],
             )
         except OrchestratorError as exc:
             self.p(f"无法开始：{exc}")
@@ -859,6 +893,11 @@ def build_parser() -> argparse.ArgumentParser:
         default=[],
         metavar="文件",
         help="附件（可多次使用）：图片、PDF、Word .docx、文本、mp3 / wav 音频",
+    )
+    ask.add_argument(
+        "--no-style-ref",
+        action="store_true",
+        help="图片附件只当普通附件，不作为风格参考（默认图片都是风格参考）",
     )
     lineup = ask.add_mutually_exclusive_group()
     lineup.add_argument(
@@ -985,6 +1024,7 @@ async def run(
                 reveal=args.reveal,
                 anonymous=args.anonymous,
                 attach=args.attach,
+                style_ref=not args.no_style_ref,
             )
         if args.command == "models":
             return cli.cmd_models()

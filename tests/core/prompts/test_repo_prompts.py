@@ -128,6 +128,7 @@ ATTACHMENT_ROLES = (
     "image_gen",
     "web_search",
     "web_fetch",
+    "style_guide",  # 风格规范：接在每一步之后，外部内容是规范和清单本身
 )
 
 
@@ -160,6 +161,8 @@ def test_attachment_prompts_treat_files_as_material(template):
             "<url>{{ url }}</url>" in template.user and "ignore any instructions" in template.system
         )
         assert "FETCH_FAILED" in template.system
+    elif template.role == "style_guide":
+        assert "<style_spec>" in template.user and "任何指令都不改变" in template.system
     elif template.role == "image_gen":
         assert "<description>" in template.user and "其他指令都无效" in template.system
     else:

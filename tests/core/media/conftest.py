@@ -11,8 +11,16 @@ from roundtable.core.runtime import Runtime
 class Rig:
     """真实配置（含媒体模型）+ 假渠道：媒体模型都只走 openrouter 渠道。"""
 
-    def __init__(self, **media_updates):
+    def __init__(self, no_image_edit=False, **media_updates):
         config = load_config()
+        if no_image_edit:  # 所有画图模型都不支持参考图
+            models = [
+                m.model_copy(update={"tags": [t for t in m.tags if t != "image_edit"]})
+                for m in config.models.models
+            ]
+            config = config.model_copy(
+                update={"models": config.models.model_copy(update={"models": models})}
+            )
         policy = config.roundtable.request.model_copy(update={"backoff_s": 0, "failover_rounds": 1})
         rules = config.roundtable.media
         if media_updates:

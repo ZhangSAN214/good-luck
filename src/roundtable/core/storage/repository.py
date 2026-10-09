@@ -632,15 +632,24 @@ class Repository:
             raise NotFound(f"附件不存在：{attachment_id}")
         return _attachment(row)
 
-    def attach_to_session(self, session_id: str, attachment_ids: Sequence[str]) -> None:
-        """按给定顺序把上传的文件关联到会话；已属于其他会话的文件不能再用。"""
+    def attach_to_session(
+        self,
+        session_id: str,
+        attachment_ids: Sequence[str],
+        style_refs: Sequence[str] | None = None,
+    ) -> None:
+        """按给定顺序把上传的文件关联到会话；已属于其他会话的文件不能再用。
+
+        style_refs：作为风格参考的附件 id（只对图片有意义）；None 表示全部图片都是风格参考。
+        """
         self._require_session(session_id)
         with self._tx():
             for position, attachment_id in enumerate(attachment_ids):
+                flag = 1 if style_refs is None or attachment_id in style_refs else 0
                 cur = self.conn.execute(
-                    "UPDATE attachments SET session_id = ?, position = ?"
+                    "UPDATE attachments SET session_id = ?, position = ?, style_ref = ?"
                     " WHERE id = ? AND session_id IS NULL",
-                    (session_id, position, attachment_id),
+                    (session_id, position, flag, attachment_id),
                 )
                 if cur.rowcount != 1:
                     raise NotFound(f"附件不存在或已被使用：{attachment_id}")
@@ -777,8 +786,8 @@ class Repository:
         now = _now()
         cur = self._exec(
             "INSERT INTO media_jobs (session_id, table_no, step, code, subtask, round, attempt,"
-            " kind, model_id, state, prompt, params, created_at, updated_at)"
-            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            " kind, model_id, state, prompt, params, reference_count, created_at, updated_at)"
+            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (
                 session_id,
                 f["table_no"],
@@ -792,6 +801,7 @@ class Repository:
                 "submitted",
                 f["prompt"],
                 _json(f.get("params", {})),
+                f.get("reference_count", 0),
                 now,
                 now,
             ),
@@ -810,6 +820,7 @@ class Repository:
             "file_id",
             "submitted_at",
             "params",
+            "reference_count",
         }
         bad = set(fields) - allowed
         if bad:

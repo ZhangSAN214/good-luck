@@ -3,7 +3,13 @@
 from .detect import FileType, UploadError, detect, display_name
 from .extract import Extracted, decode_text, extract, extract_docx, extract_pdf
 from .ingest import ingest
-from .model import Attachment, attach_messages, attachment_block
+from .model import (
+    Attachment,
+    append_to_messages,
+    attach_messages,
+    attachment_block,
+    style_reference_media,
+)
 from .prepare import prepare_attachments
 from .store import FileStore
 
@@ -13,6 +19,7 @@ __all__ = [
     "FileStore",
     "FileType",
     "UploadError",
+    "append_to_messages",
     "attach_messages",
     "attachment_block",
     "decode_text",
@@ -23,4 +30,5 @@ __all__ = [
     "extract_pdf",
     "ingest",
     "prepare_attachments",
+    "style_reference_media",
 ]

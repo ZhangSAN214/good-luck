@@ -431,3 +431,30 @@ async def test_collab_pipeline_shows_kinds_and_handoff_chain():
         code == 0 and "token" not in costs and re.search(r"输入 [\d.]+ 粒 / 输出 [\d.]+ 粒", costs)
     )
     assert "$" in costs  # 金额仍是美元
+
+
+async def test_style_reference_flow_in_the_cli(tmp_path):
+    """图片附件默认是风格参考：show 里有风格规范、媒体任务显示参考图张数；--no-style-ref 则没有。"""
+    from ..core.attachments.samples import PNG
+    from ..core.orchestrator.test_media import make_env
+    from ..core.orchestrator.test_style import with_style_replies
+
+    ref = tmp_path / "ref.png"
+    ref.write_bytes(PNG)
+    argv = ("ask", MEDIUM, "--models", "b1,b2,f1,b3", "--coordinator", "b3", "--media", "image")
+    argv += ("--media-tier", "flagship", "--attach", str(ref), "--details", "--seed", "5")
+    env = make_env()
+    with_style_replies(env)
+    code, text = await cli(env, *argv)
+    assert code == 0
+    assert "【风格规范】" in text and "风格清单 6 条" in text and "看了原图" in text
+    assert "1. 清单第 1 条" in text  # --details 显示规范与清单
+    assert "参考图 1 张" in text
+    code, shown = await cli(env, "show", env.rt.repo.list_sessions(1)[0].id)
+    assert "【风格规范】" in shown and "清单第 1 条" not in shown  # 不带 --details 只有一行概述
+
+    env2 = make_env()
+    with_style_replies(env2)
+    code, plain = await cli(env2, *argv, "--no-style-ref")
+    assert code == 0 and "【风格规范】" not in plain and "参考图" not in plain
+    assert not [c for c in env2.fake.calls if "独立、仔细地观察风格参考图" in c.messages[0].content]

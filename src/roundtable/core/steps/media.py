@@ -19,6 +19,7 @@ from roundtable.core.allocation import shuffled
 from roundtable.core.cards import CardOption, ConfirmationCard, money
 from roundtable.core.jsonout import extract_json_object
 from roundtable.core.media import KIND_LABELS, MediaResult, Placement
+from roundtable.core.prompts import RenderedPrompt
 from roundtable.core.providers import Media
 
 from .base import (
@@ -85,9 +86,16 @@ class _Problem(_Loose):
     fix: str = ""
 
 
+class _Check(_Loose):
+    item: str = ""
+    ok: bool = False
+    note: str = ""
+
+
 class MediaReviewOutput(_Loose):
     satisfied: bool = False
     problems: list[_Problem] = Field(default_factory=list)
+    checks: list[_Check] = Field(default_factory=list)  # media_review/v2：风格清单逐条判定
     checked: str = ""
 
 
@@ -102,6 +110,7 @@ class MediaReview:
     satisfied: bool
     problems: tuple[tuple[str, str], ...]
     checked: str
+    checks: tuple[tuple[str, bool, str], ...] = ()  # (清单项, 是否符合, 依据)
 
     @property
     def valid(self) -> bool:
@@ -114,6 +123,7 @@ class MediaReview:
         return {
             "satisfied": self.satisfied,
             "problems": [{"what": w, "fix": f} for w, f in self.problems],
+            "checks": [{"item": i, "ok": ok, "note": n} for i, ok, n in self.checks],
             "checked": self.checked,
             "valid": self.valid,
         }
@@ -132,7 +142,13 @@ class MediaDecision:
 def parse_media_review(text: str) -> MediaReview:
     out = MediaReviewOutput.model_validate(extract_json_object(text))
     problems = tuple((p.what.strip(), p.fix.strip()) for p in out.problems)
-    return MediaReview(out.satisfied, problems, out.checked.strip())
+    checks = tuple((c.item.strip(), c.ok, c.note.strip()) for c in out.checks if c.item.strip())
+    # 清单里任意一条不符合，就不能说"可以交付"（代码保证，不信模型自己的 satisfied）
+    satisfied = out.satisfied and all(ok for _, ok, _ in checks)
+    if not satisfied and not any(w for w, _ in problems):
+        failed = [f"不符合风格清单：{i}" for i, ok, _ in checks if not ok]
+        problems = tuple((f, "按清单要求修改提示词") for f in failed) or problems
+    return MediaReview(satisfied, problems, out.checked.strip(), checks)
 
 
 def parse_media_decision(text: str) -> MediaDecision:
@@ -154,7 +170,26 @@ def media_payload(res: MediaResult, kind: str, round_no: int) -> dict[str, Any]:
         "file_id": res.file_id,
         "cost_usd": res.cost_usd,
         "error": res.error,
+        "references": res.references,
+        "warning": res.warning,
     }
+
+
+def media_review_prompt(
+    ctx: TableContext, code: str, kind: str, prompt: str, note: str, medias: list[Media]
+) -> RenderedPrompt:
+    """评审生成结果的提示词（结果图片 / 视频截帧作为随附图片发给评审者）。"""
+    base = ctx.prompts.get("media_review", ctx.prompt_version("media_review")).render(
+        code=ctx.label(code),
+        medium=KIND_LABELS[kind],
+        question=ctx.question.text,
+        generation_prompt=neutralize(ctx.scrub(prompt), TAGS),
+        result=note,
+    )
+    user = next(i for i, m in enumerate(base.messages) if m.role == "user")
+    messages = list(base.messages)
+    messages[user] = replace(messages[user], media=tuple(medias))
+    return replace(base, messages=tuple(messages))
 
 
 def result_note(ctx: TableContext, kind: str, res: MediaResult) -> tuple[str, list[Media]]:
@@ -215,11 +250,17 @@ class MediaStep:
                 notes.append(f"第 {round_no} 轮按你的选择没有生成")
                 break
             res = await ctx.media.generate(
-                kind, prompt, Placement(ctx.table_no, self.name, round_no), tier=ctx.media_tier
+                kind,
+                prompt,
+                Placement(ctx.table_no, self.name, round_no),
+                tier=ctx.media_tier,
+                references=ctx.style_references() if kind == "image" else (),
             )
             if not res.ok:
                 notes.append(f"第 {round_no} 轮生成失败：{res.error}")
                 break
+            if res.warning and res.warning not in notes:
+                notes.append(res.warning)
             if round_no == rules.max_rounds or kind == "speech":
                 break
             made, decision = await self._review_and_decide(ctx, kind, prompt, res, round_no)
@@ -281,17 +322,7 @@ class MediaStep:
 
         async def review(code: str) -> None:
             nonlocal calls
-            base = ctx.prompts.get("media_review", ctx.prompt_version("media_review")).render(
-                code=ctx.label(code),
-                medium=KIND_LABELS[kind],
-                question=ctx.question.text,
-                generation_prompt=neutralize(ctx.scrub(prompt), TAGS),
-                result=note,
-            )
-            user = next(i for i, m in enumerate(base.messages) if m.role == "user")
-            messages = list(base.messages)
-            messages[user] = replace(messages[user], media=tuple(medias))
-            rendered = replace(base, messages=tuple(messages))
+            rendered = media_review_prompt(ctx, code, kind, prompt, note, medias)
             parsed = await call_and_parse(
                 ctx,
                 step=STEP,
@@ -340,6 +371,11 @@ class MediaStep:
         for n, r in enumerate(shuffled(reviews, ctx.rng), 1):
             lines = ["可以交付" if r["satisfied"] else "需要改进"]
             lines += [f"问题：{p['what']}；建议：{p['fix']}" for p in r.get("problems", [])]
+            lines += [
+                f"不符合风格清单：{c['item']}（{c.get('note', '')}）"
+                for c in r.get("checks", [])
+                if not c["ok"]
+            ]
             if r.get("checked"):
                 lines.append(f"检查了：{r['checked']}")
             blocks.append(f'<review no="{n}">\n{neutralize(chr(10).join(lines), TAGS)}\n</review>')

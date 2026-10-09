@@ -135,6 +135,7 @@ def test_registry():
             "review",
             "revise",
             "synthesize",
+            "style",
             "decompose",
             "volunteer",
             "assign",
