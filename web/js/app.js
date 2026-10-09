@@ -223,6 +223,10 @@ function renderMediaChoice() {
   const collab = S.workflow === 'collab';
   if (collab) S.media = null; // 协同模式由统筹决定哪些子任务生成媒体
   const outputs = [[null, '文字'], ...Object.entries(kinds).map(([k, v]) => [k, v.label])];
+  if (collab) {
+    // 协同模式不选输出类型：不显示一排灰按钮（容易误以为不能画图），直接说明
+    $('#media').innerHTML = '<span class="hint" id="media-auto">输出类型由统筹按任务自动决定</span>';
+  } else
   $('#media').innerHTML = outputs
     .map(([k, label]) => {
       const off = k !== null && (collab || !kinds[k].available);

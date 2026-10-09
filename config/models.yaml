@@ -233,6 +233,7 @@ models:
     price: {input: 0.50, output: 60.0}
     image_tokens: 1290
     tags: [image_gen, image_edit, vision]   # image_edit：支持以参考图为输入（图生图）
+    image_api: chat          # 走对话接口（modalities 返回图片）
     enabled: true
     routes:
       - channel: openrouter
@@ -246,11 +247,11 @@ models:
     price: {input: 2.5, output: 8.0}
     image_tokens: 1375
     tags: [image_gen, image_edit]
+    image_api: images        # 只能走 /api/v1/images，不能走对话接口
     enabled: true
     routes:
       - channel: openrouter
         model: openai/gpt-image-1-mini
-        params: {modalities: [image, text]}
   - id: gpt-image-2
     vendor: OpenAI
     aliases: [GPT Image 2]
@@ -259,11 +260,11 @@ models:
     price: {input: 8.0, output: 30.0}
     image_tokens: 1056
     tags: [image_gen, image_edit]
+    image_api: images
     enabled: true
     routes:
       - channel: openrouter
         model: openai/gpt-image-2
-        params: {modalities: [image, text]}
   # --- 语音转文字（上传音频的转写；优先于带 transcribe 标签的对话模型）---
   - id: whisper-large-v3-turbo
     vendor: OpenAI

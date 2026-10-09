@@ -38,7 +38,7 @@ from roundtable.core.providers.errors import ErrorKind
 from roundtable.core.storage import Repository
 
 from .pricing import KIND_LABELS, estimate_generation, mostly_cjk, speech_cost, unit_cost
-from .select import pick_media_model
+from .select import media_group, pick_media_model
 
 log = logging.getLogger(__name__)
 
@@ -163,9 +163,6 @@ class MediaService:
         model = self.model_for(kind, tier, text=prompt, references=bool(refs))
         if model is None:
             return MediaResult(False, kind, error=self.unavailable_reason(kind, tier))
-        warning = None
-        if refs and "image_edit" not in model.tags:
-            refs, warning = [], NO_REFERENCE_MODEL
         text = self.scrubber.scrub(prompt).strip()
         if kind == "speech":
             text = text[: self.rules.speech.max_chars]
@@ -175,7 +172,27 @@ class MediaService:
             return MediaResult(False, kind, error="生成提示词为空")
         if kind == "video":
             return await self._video(model, text, where, existing)
-        return await self._sync(kind, model, text, where, existing, refs, warning)
+        # 一个模型失败后换同档的其他模型重试（带参考图时先试支持参考图的）
+        result = MediaResult(False, kind, error="生成失败")
+        for candidate in self._candidates(kind, model, tier, bool(refs)):
+            use, warning = refs, None
+            if refs and "image_edit" not in candidate.tags:
+                use, warning = [], NO_REFERENCE_MODEL
+            result = await self._sync(kind, candidate, text, where, self._jobs(where), use, warning)
+            if result.ok:
+                return result
+            log.warning("模型 %s 生成%s失败：%s", candidate.id, KIND_LABELS[kind], result.error)
+        return result
+
+    def _candidates(
+        self, kind: str, first: ModelSpec, tier: str | None, references: bool
+    ) -> list[ModelSpec]:
+        """首选模型 + 同档的其他可用模型（顺序：支持参考图的在前，其余按配置顺序）。"""
+        group = media_group(self.router, kind, tier or self.rules.default_tier)
+        rest = [m for m in group if m.id != first.id]
+        if references:
+            rest.sort(key=lambda m: "image_edit" not in m.tags)
+        return [first, *rest]
 
     def _jobs(self, where: Placement) -> list[dict[str, Any]]:
         return [
@@ -261,7 +278,11 @@ class MediaService:
             self._event("media_warning", where, kind=kind, message=warning)
         style = {
             "image": lambda prov, route, m: prov.generate_image(
-                route.model, text, dict(m.params_for(route)), images=tuple(refs)
+                route.model,
+                text,
+                dict(m.params_for(route)),
+                images=tuple(refs),
+                api=m.image_api_for(route),
             ),
             "speech": lambda prov, route, m: prov.synthesize_speech(
                 route.model,

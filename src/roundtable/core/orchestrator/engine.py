@@ -246,7 +246,7 @@ class Orchestrator:
             prompts=self.rt.prompts,
             repo=repo,
             store=self.rt.files,
-            scrubber=self.rt.scrubber,
+            scrubber=self.rt.scrubber.bound(row["question"], enabled=bool(row["anonymous"])),
             question=row["question"],
             rng=random.Random(f"{row['seed']}:attachments"),
         )
@@ -545,6 +545,11 @@ class Orchestrator:
             ),
         )
         ctx.file_store = self.rt.files
+        # 匿名关闭：生成提示词、工具描述都不做身份遮蔽；匿名开启时题目和附件里本来就有的名称保留
+        table_scrubber = self.rt.scrubber.bound(
+            "\n".join([ctx.question.text, *(a.text or "" for a in ctx.attachments)]),
+            enabled=bool(row["anonymous"]),
+        )
         choice = row["choice"] or {}
         ctx.media = MediaService(
             session_id=sid,
@@ -552,7 +557,7 @@ class Orchestrator:
             router=self.rt.router,
             repo=repo,
             store=self.rt.files,
-            scrubber=self.rt.scrubber,
+            scrubber=table_scrubber,
             seed=row["seed"],
             emit=lambda type_, step, code, **data: self._forward(
                 sid, Event(type_, step, table_no, code, data)
@@ -575,7 +580,7 @@ class Orchestrator:
                 prompts=self.rt.prompts,
                 repo=repo,
                 store=self.rt.files,
-                scrubber=self.rt.scrubber,
+                scrubber=table_scrubber,
                 attachments=ctx.attachments,
                 sandbox=sandbox,
                 sandbox_reason=reason,

@@ -7,7 +7,6 @@ from dataclasses import asdict
 
 import pytest
 
-from roundtable.core.allocation import display_name
 from roundtable.core.orchestrator import OrchestratorError
 from roundtable.core.providers import ErrorKind
 from roundtable.core.routing import Question, UserChoice
@@ -341,33 +340,41 @@ async def test_not_anonymous_by_default_shows_identity(env):
     assert all(s.model_id for s in view.seats)
 
 
-async def test_models_only_see_codes_even_when_not_anonymous(env):
-    """发给模型的内容在两种情况下都没有模型 id、厂商名；匿名关闭时成员互称"昵称·模式"（那是称呼，
-    不是自报身份），匿名开启时只有塔罗牌代号。"""
+async def test_identity_masking_only_when_anonymous(env):
+    """匿名开启：发给模型的内容没有模型 id、厂商名、昵称（只有塔罗牌代号）；
+    匿名关闭：不做任何身份遮蔽（成员的原文原样转给其他成员，互称"昵称·模式"）。"""
+    import re
+
     terms = set(env.config.models.channels)
     for m in env.config.models.models:
         terms |= {m.id, m.vendor, *m.aliases}
-    display = sorted({display_name(m.id, env.config) for m in env.config.models.models}, key=len)
-    for anonymous in (False, True):
-        env.fake.calls.clear()
-        await env.orc.start(Question(MEDIUM), seed=12, anonymous=anonymous)
-        peer_steps = [c for c in env.fake.calls if "规划员" not in c.messages[0].content]
-        assert peer_steps
-        import re
+    terms |= set(env.config.personas.nicknames.values())
 
-        for c in peer_steps:
-            # 组员自己的答案原文会带模型名（Fake 的回复格式），转给别人之前必须遮蔽
-            sent = "\n".join(m.content for m in c.messages)
-            if not anonymous:
-                for name in reversed(display):  # 称呼里的昵称、模式名不算
-                    sent = sent.replace(name, "")
-            own = c.model
-            found = [
-                t
-                for t in terms - {own}
-                if re.search(rf"(?<![0-9A-Za-z]){re.escape(t)}(?![0-9A-Za-z])", sent)
-            ]
-            assert found == [], (anonymous, c.model, found)
+    def leaks(c):
+        sent = "\n".join(m.content for m in c.messages)
+        return [
+            t
+            for t in terms - {c.model}
+            if re.search(rf"(?<![0-9A-Za-z]){re.escape(t)}(?![0-9A-Za-z])", sent)
+        ]
+
+    env.fake.calls.clear()
+    await env.orc.start(Question(MEDIUM), seed=12, anonymous=True)
+    steps = [c for c in env.fake.calls if "规划员" not in c.messages[0].content]
+    assert steps and all(leaks(c) == [] for c in steps)
+    env.fake.calls.clear()
+    await env.orc.start(Question(MEDIUM), seed=12, anonymous=False)
+    steps = [c for c in env.fake.calls if "规划员" not in c.messages[0].content]
+    assert any(leaks(c) for c in steps)  # 别人的答案里带着模型名，没有被遮蔽
+    assert not any("[已隐去]" in "".join(m.content for m in c.messages) for c in steps)
+
+
+async def test_names_in_the_question_survive_masking_even_when_anonymous(env):
+    question = MEDIUM + " 请对比一下 b1 和 b2 这两个编号。"
+    env.fake.calls.clear()
+    await env.orc.start(Question(question), seed=12, anonymous=True)
+    own = [c for c in env.fake.calls if "独立完成同一道题" in c.messages[0].content]
+    assert own and all("b1 和 b2" in c.messages[1].content for c in own)
 
 
 # --- 防偷懒与贡献 ---------------------------------------------------------------

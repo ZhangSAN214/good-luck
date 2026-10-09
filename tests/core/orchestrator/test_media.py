@@ -451,3 +451,18 @@ async def test_audio_upload_uses_stt_model_and_bills_by_minute():
         "SELECT role, step, cost_usd FROM calls WHERE role='preprocess'"
     ).fetchall()
     assert len(pre) == 1 and pre[0]["step"] == "attachments" and pre[0]["cost_usd"] > 0
+
+
+async def test_generation_prompts_are_masked_only_when_anonymous():
+    """匿名关闭：生成提示词原样发出；匿名开启：遮蔽，但题目里本来就有的名字保留。"""
+    question = MEDIUM + " 画面里写上 GPT 和 Claude。"
+    for anonymous in (False, True):
+        env = make_env()
+        script(env, **{"把任务拆成子任务": decompose_reply(2)})
+        env.fake.calls.clear()
+        r = await env.orc.start(Question(question), choice("image"), seed=1, anonymous=anonymous)
+        assert r.status == "completed"
+        job = jobs(env, r.session_id)[0]
+        assert "[已隐去]" not in job["prompt"]
+        sent = [c for c in env.fake.media_calls if c[0] == "image"][0][2]
+        assert "[已隐去]" not in sent

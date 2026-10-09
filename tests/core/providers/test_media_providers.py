@@ -171,3 +171,93 @@ async def test_router_invoke_fails_over_and_skips_unsupported():
     assert inv.channel == "openrouter" and inv.result.media.data == FAKE_WAV
     assert [a.channel for a in inv.attempts] == ["google", "openrouter"]
     assert [a.ok for a in inv.attempts] == [False, True]
+
+
+# --- 画图接口：对话接口 vs /images（gpt-image 系列只能走后者）-------------------------------
+
+
+async def test_images_api_request_and_b64_response():
+    import base64
+
+    seen = {}
+
+    def handler(request: httpx.Request):
+        seen["url"], seen["body"] = str(request.url), json.loads(request.content)
+        data = {
+            "data": [{"b64_json": base64.b64encode(FAKE_PNG).decode()}],
+            "usage": {"cost": 0.04, "input_tokens": 12, "output_tokens": 1056},
+        }
+        return httpx.Response(200, json=data)
+
+    ref = Media("image", "image/png", b"ref-bytes", "ref.png")
+    out = await make(handler).generate_image(
+        "openai/gpt-image-2",
+        "四格人物卡",
+        {"modalities": ["image", "text"], "quality": "low"},
+        images=[ref],
+        api="images",
+    )
+    assert seen["url"].endswith("/images") and "chat/completions" not in seen["url"]
+    body = seen["body"]
+    assert body["model"] == "openai/gpt-image-2" and body["prompt"] == "四格人物卡"
+    assert "modalities" not in body and body["quality"] == "low"  # 对话接口专用的参数不带
+    assert base64.b64decode(body["images"][0]["image_url"].split(",", 1)[1]) == b"ref-bytes"
+    assert out.images[0].data == FAKE_PNG and out.images[0].mime == "image/png"
+    assert (out.cost_usd, out.input_tokens, out.output_tokens) == (0.04, 12, 1056)
+
+
+async def test_images_api_without_references_and_url_response():
+    seen = []
+
+    def handler(request: httpx.Request):
+        seen.append(str(request.url))
+        if request.url.path.endswith("/images"):
+            assert "images" not in json.loads(request.content)
+            return httpx.Response(200, json={"data": [{"url": "https://cdn.example/x.png"}]})
+        return httpx.Response(200, content=FAKE_PNG)
+
+    out = await make(handler).generate_image("m", "猫", {}, api="images")
+    assert out.images[0].data == FAKE_PNG and seen[-1] == "https://cdn.example/x.png"
+
+
+async def test_images_api_errors_are_classified_and_empty_result_is_invalid():
+    def not_found(request):
+        return httpx.Response(404, json={"error": {"message": "no such model"}})
+
+    with pytest.raises(ProviderError) as info:
+        await make(not_found).generate_image("m", "猫", {}, api="images")
+    assert info.value.kind == ErrorKind.NOT_FOUND
+
+    def empty(request):
+        return httpx.Response(200, json={"data": []})
+
+    with pytest.raises(ProviderError) as info:
+        await make(empty).generate_image("m", "猫", {}, api="images")
+    assert info.value.kind == ErrorKind.INVALID_RESPONSE
+
+
+async def test_chat_api_still_goes_through_chat_completions():
+    seen = {}
+
+    def handler(request: httpx.Request):
+        seen["url"] = str(request.url)
+        data = {
+            "choices": [
+                {
+                    "message": {
+                        "content": "",
+                        "images": [{"image_url": {"url": "data:image/png;base64,iVBORw0KGgo="}}],
+                    }
+                }
+            ]
+        }
+        return httpx.Response(200, json=data)
+
+    out = await make(handler).generate_image("g", "猫", {"modalities": ["image"]}, api="chat")
+    assert seen["url"].endswith("/chat/completions") and out.images
+
+
+async def test_providers_without_an_images_endpoint_refuse_it():
+    p = FakeProvider("c")
+    with pytest.raises(UnsupportedCapability):
+        await FakeProvider.__mro__[1].generate_image(p, "m", "猫", {}, api="images")

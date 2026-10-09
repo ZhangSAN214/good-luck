@@ -37,11 +37,14 @@ def test_output_selector_reflects_availability(serve, page):
     choose_output(page, "video")
     assert page.is_visible("#mediatier")
     page.click("#workflow button[data-v='collab']")
-    assert (
-        page.locator("#media button[data-v='image'][disabled]").count() == 1
-    )  # 协同模式由统筹决定
-    assert page.locator("#media button[data-v=''][aria-pressed='true']").count() == 1
+    # 协同模式不显示一排灰按钮，而是直接说明
+    assert page.locator("#media button").count() == 0
+    assert page.inner_text("#media") == "输出类型由统筹按任务自动决定"
     assert page.is_visible("#mediatier")  # 媒体子任务也用这个档位
+    page.click("#workflow button[data-v='discussion']")  # 切回讨论模式：输出类型按钮恢复
+    page.wait_for_selector("#media button[data-v='image']:not([disabled])")
+    page.click("#workflow button[data-v='discussion']")  # 切回讨论模式：输出类型按钮恢复
+    page.wait_for_selector("#media button[data-v='image']:not([disabled])")
 
 
 def test_estimate_lists_media_step(serve, page):

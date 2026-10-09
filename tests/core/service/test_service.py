@@ -327,8 +327,7 @@ async def test_non_anonymous_members_are_named_by_nickname_and_mode():
     assert review_calls
     text = "\n".join(m.content for m in review_calls[0].messages)
     assert any(c in text for c in codes)
-    for m in env.config.models.models:
-        assert m.id not in text.replace(review_calls[0].model, "")
+    assert "[已隐去]" not in text  # 匿名关闭：不做任何身份遮蔽
 
 
 def test_status_carries_rice_ratios_and_mode_names():

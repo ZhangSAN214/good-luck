@@ -12,6 +12,7 @@ from roundtable.core.config.schema import ChannelSpec
 
 from ._http import error_fields, kind_for_status, retry_after, safe_detail
 from .base import (
+    ImageOutput,
     Media,
     MediaOutput,
     Message,
@@ -152,6 +153,59 @@ class OpenAICompatProvider(Provider):
             raise self._error(ErrorKind.INVALID_RESPONSE, "无法解析返回内容")
         return data
 
+    async def generate_image(
+        self,
+        model: str,
+        prompt: str,
+        params: dict[str, Any],
+        images: Sequence[Media] = (),
+        api: str = "chat",
+    ) -> ImageOutput:
+        """api="images"：OpenRouter 的 /images 接口（gpt-image 系列不能走对话接口）。参考图作为
+        data URI 放进 images；返回 data[*].b64_json 或 url。api="chat" 走对话接口。"""
+        if api != "images":
+            return await super().generate_image(model, prompt, params, images, api)
+        params = {k: v for k, v in params.items() if k not in ("modalities", "max_tokens")}
+        body: dict[str, Any] = {"model": model, "prompt": prompt, "n": 1, **params}
+        if images:
+            body["images"] = [
+                {
+                    "image_url": f"data:{m.mime};base64,{base64.b64encode(m.data).decode('ascii')}",
+                }
+                for m in images
+            ]
+        data = self._json(await self._send("POST", "images", json=body))
+        out: list[Media] = []
+        for item in data.get("data") or []:
+            if not isinstance(item, dict):
+                continue
+            if item.get("b64_json"):
+                try:
+                    raw = base64.b64decode(item["b64_json"])
+                except ValueError:
+                    continue
+                out.append(Media("image", _sniff_image_mime(raw), raw))
+            elif str(item.get("url", "")).startswith("data:"):
+                media = media_from_data_uri(item["url"])
+                if media is not None:
+                    out.append(media)
+            elif str(item.get("url", "")).startswith("http"):
+                try:
+                    got = await self._client.get(item["url"])
+                except httpx.HTTPError:
+                    continue
+                if got.status_code == 200 and got.content:
+                    out.append(Media("image", _sniff_image_mime(got.content), got.content))
+        if not out:
+            raise self._error(ErrorKind.INVALID_RESPONSE, "图像接口没有返回图片")
+        usage = data.get("usage") or {}
+        return ImageOutput(
+            tuple(out),
+            _float_or_none(usage.get("cost")),
+            int(usage.get("input_tokens") or usage.get("prompt_tokens") or 0),
+            int(usage.get("output_tokens") or usage.get("completion_tokens") or 0),
+        )
+
     async def synthesize_speech(self, model: str, text: str, params: dict[str, Any]) -> MediaOutput:
         params = dict(params)
         fmt = params.pop("response_format", "mp3")
@@ -232,6 +286,16 @@ class OpenAICompatProvider(Provider):
 
     async def aclose(self) -> None:
         await self._client.aclose()
+
+
+def _sniff_image_mime(data: bytes) -> str:
+    if data.startswith(b"\xff\xd8"):
+        return "image/jpeg"
+    if data.startswith(b"RIFF") and data[8:12] == b"WEBP":
+        return "image/webp"
+    if data.startswith(b"GIF8"):
+        return "image/gif"
+    return "image/png"
 
 
 def _images(items: list[Any]) -> tuple[Media, ...]:

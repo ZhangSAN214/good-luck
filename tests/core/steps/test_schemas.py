@@ -163,3 +163,88 @@ def test_check_pipelines():
     bad_routing = cfg.routing.model_copy(update={"plans": plans})
     with pytest.raises(ConfigError, match="poll"):
         check_pipelines(cfg.model_copy(update={"routing": bad_routing}))
+
+
+# --- 便宜模型常见的互评格式毛病：不该整份作废 ---------------------------------------------
+
+
+def parse_loose(text, expected=("甲",)):
+    from roundtable.core.config import load_config
+    from roundtable.core.steps.schemas import parse_reviews
+
+    quality = load_config().roundtable.review_quality
+    return parse_reviews(
+        text,
+        reviewer="乙",
+        expected=list(expected),
+        to_code=lambda t: t.strip() or None,
+        quality=quality,
+    )
+
+
+ISSUE = {"location": "第 2 步", "problem": "漏掉端点", "suggestion": "补上端点比较"}
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        # 整个数组
+        [{"target": "甲", "verdict": "incorrect", "issues": [ISSUE]}],
+        # 单条评审对象
+        {"target": "甲", "verdict": "incorrect", "issues": [ISSUE]},
+        # reviews 是单个对象
+        {"reviews": {"target": "甲", "verdict": "incorrect", "issues": [ISSUE]}},
+        # issues 是单个对象；null 字段；verdict 写法不规范；数字当文字
+        {
+            "reviews": [
+                {
+                    "target": "甲",
+                    "verdict": "Partially-Correct",
+                    "issues": ISSUE,
+                    "checked": None,
+                    "strengths": None,
+                }
+            ]
+        },
+        {
+            "reviews": [
+                {
+                    "target": "甲",
+                    "verdict": "partial",
+                    "issues": [dict(ISSUE, severity=None, location=2)],
+                }
+            ]
+        },
+        # checked 写成了列表
+        {
+            "reviews": [
+                {
+                    "target": "甲",
+                    "verdict": "correct",
+                    "issues": [],
+                    "checked": ["检查了端点值", "检查了驻点和单调性"],
+                }
+            ]
+        },
+    ],
+)
+def test_review_shapes_cheap_models_produce_are_accepted(payload):
+    import json
+
+    got = parse_loose(json.dumps(payload, ensure_ascii=False))
+    assert [r.target for r in got.reviews] == ["甲"] and not got.missing
+    assert got.reviews[0].valid, got.reviews[0].invalid_reasons
+
+
+def test_string_issues_are_kept_but_judged_incomplete():
+    text = '{"reviews": [{"target": "甲", "verdict": "incorrect", "issues": ["漏了端点"]}]}'
+    got = parse_loose(text)
+    assert got.reviews and not got.reviews[0].valid  # 缺位置 / 建议：无效评审，但不是格式错误
+
+
+def test_review_json_with_latex_backslashes_still_parses():
+    checked = "核对了 \\(f(x)=x^3-3x\\) 的驻点与端点值，结论一致"
+    prefix = '{"reviews": [{"target": "甲", "verdict": "correct", "issues": [], "checked": "'
+    text = prefix + checked + '"}]}'  # 反斜杠原样写进 JSON 字符串（非法转义）
+    got = parse_loose(text)
+    assert got.reviews and got.reviews[0].valid

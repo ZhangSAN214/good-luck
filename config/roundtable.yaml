@@ -29,7 +29,7 @@ revise_rounds: 1
 prompts:
   planner: v1
   answer: v1
-  review: v2
+  review: v3
   revise: v3
   synthesize: v4
   redo: v1

@@ -153,9 +153,17 @@ class Provider(ABC):
     # --- 媒体能力：默认不支持（适配器按需实现）-------------------------------------
 
     async def generate_image(
-        self, model: str, prompt: str, params: dict[str, Any], images: Sequence[Media] = ()
+        self,
+        model: str,
+        prompt: str,
+        params: dict[str, Any],
+        images: Sequence[Media] = (),
+        api: str = "chat",
     ) -> ImageOutput:
-        """图像生成。默认走对话接口（模型在回复中返回图片，如 OpenRouter 的 modalities）。"""
+        """图像生成。默认走对话接口（模型在回复中返回图片，如 OpenRouter 的 modalities）；
+        api="images" 走专门的图像接口（适配器按需实现，默认不支持）。"""
+        if api == "images":
+            raise UnsupportedCapability(f"{self.channel} 不支持图像接口")
         raw = await self.complete(model, [Message("user", prompt, tuple(images))], params)
         return ImageOutput(
             raw.images,

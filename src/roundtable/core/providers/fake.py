@@ -80,6 +80,7 @@ class FakeProvider(Provider):
         # 媒体：每次调用记录为 (种类, 模型, 输入, 参数)；cost 为 None 时由路由按配置价格估算
         self.media_calls: list[tuple[str, str, Any, dict[str, Any]]] = []
         self.media_cost: float | None = None
+        self.broken_models: set[str] = set()  # 画图时总是失败的模型（测试换模型重试用）
         self.transcript = "说话人 1：这是一段测试转写。"
         # 视频任务：poll 依次返回的状态（用完后一直 completed）；ErrorKind 表示该次轮询抛错
         self.video_states: deque[str | ErrorKind] = deque()
@@ -109,9 +110,11 @@ class FakeProvider(Provider):
             raise ProviderError(errors.popleft(), self.channel, "fake")
 
     async def generate_image(
-        self, model: str, prompt: str, params: dict[str, Any], images=()
+        self, model: str, prompt: str, params: dict[str, Any], images=(), api: str = "chat"
     ) -> ImageOutput:
-        self.media_calls.append(("image", model, prompt, dict(params), tuple(images)))
+        self.media_calls.append(("image", model, prompt, dict(params), tuple(images), api))
+        if model in self.broken_models:
+            raise ProviderError(ErrorKind.NOT_FOUND, self.channel, "fake: 模型不能用这个接口")
         self._media_fail(self.submit_errors)
         return ImageOutput((Media("image", "image/png", FAKE_PNG),), self.media_cost)
 

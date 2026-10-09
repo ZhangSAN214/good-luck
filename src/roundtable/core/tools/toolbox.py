@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import logging
 import random
 import re
 import time
@@ -17,7 +18,7 @@ from pathlib import Path
 from roundtable.core.allocation import IdentityScrubber
 from roundtable.core.attachments import Attachment, FileStore, style_reference_media
 from roundtable.core.config import AppConfig, ModelSpec
-from roundtable.core.media import pick_media_model
+from roundtable.core.media import media_group, pick_media_model
 from roundtable.core.prompts import PromptLibrary
 from roundtable.core.providers import (
     AllChannelsFailed,
@@ -25,6 +26,7 @@ from roundtable.core.providers import (
     Completion,
     Message,
     NoChannelAvailable,
+    image_cost,
 )
 from roundtable.core.search import SearchCall, SearchService, SearchUnavailable
 from roundtable.core.storage import Repository
@@ -33,6 +35,7 @@ from .files import TEXT_EXTS, Workspace, clean_path
 from .protocol import ToolRequest
 from .sandbox import Sandbox, pick_sandbox
 
+log = logging.getLogger(__name__)
 IMAGE_EXTS = {"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/gif": "gif"}
 STATUS_TEXT = {
     "ok": "成功",
@@ -434,29 +437,36 @@ class ToolBox:
         version = self.config.roundtable.prompts["image_gen"]
         clean = self.scrubber.scrub(description)
         prompt = self.prompts.render("image_gen", version, description=clean)
+        pool = self.references()
+        wanted = tuple(pool[n - 1] for n in refs if n <= len(pool))
         notice = ""
-        if refs:
-            if "image_edit" in model.tags:
-                pool = self.references()
-                media = tuple(pool[n - 1] for n in refs if n <= len(pool))
+        completion = None
+        # 一个模型失败后换同档的其他画图模型重试（带参考图时先试支持参考图的）
+        for cand in self._image_candidates(model, bool(refs)):
+            use = wanted if "image_edit" in cand.tags else ()
+            sent = prompt
+            if use:
                 user = next(i for i, m in enumerate(prompt.messages) if m.role == "user")
                 messages = list(prompt.messages)
-                messages[user] = replace(messages[user], media=media)
-                prompt = replace(prompt, messages=tuple(messages))
-            else:
-                notice = "（没有支持参考图的图像模型，参考图被忽略，只按文字描述画。）"
-        params = {"max_tokens": self.rules.image.max_tokens}
-        try:
-            completion = await self.router.complete(model.id, prompt.messages, params)
-        except (AllChannelsFailed, NoChannelAvailable) as exc:
+                messages[user] = replace(messages[user], media=use)
+                sent = replace(prompt, messages=tuple(messages))
+            try:
+                completion = await self._draw(cand, clean, sent, use)
+            except (AllChannelsFailed, NoChannelAvailable) as exc:
+                log.warning("画图模型 %s 失败，换下一个：%s", cand.id, type(exc).__name__)
+                if on_model_call:
+                    on_model_call(cand.id, sent, None, exc)
+                continue
             if on_model_call:
-                on_model_call(model.id, prompt, None, exc)
+                on_model_call(cand.id, sent, completion, None)
+            if completion.images:
+                if refs and not use:
+                    notice = "（没有支持参考图的图像模型，参考图被忽略，只按文字描述画。）"
+                break
+            completion = None
+        if completion is None:
             text = "图像生成失败，可以稍后重试或改用 python 画图。"
             return ToolResult("generate_image", "error", text), inputs
-        if on_model_call:
-            on_model_call(model.id, prompt, completion, None)
-        if not completion.images:
-            return ToolResult("generate_image", "error", "图像模型没有返回图片。"), inputs
         image = completion.images[0]
         ext = IMAGE_EXTS.get(image.mime, "png")
         stem = rel.rsplit(".", 1)[0] if "." in rel else rel
@@ -466,6 +476,48 @@ class ToolBox:
         if rejected:
             return ToolResult("generate_image", "rejected", "；".join(rejected)), inputs
         return ToolResult("generate_image", "ok", f"已生成 out/{rel}{notice}", files), inputs
+
+    def _image_candidates(self, first: ModelSpec, references: bool) -> list[ModelSpec]:
+        tier = self.media_tier or self.config.roundtable.media.default_tier
+        rest = [m for m in media_group(self.router, "image", tier) if m.id != first.id]
+        if references:
+            rest.sort(key=lambda m: "image_edit" not in m.tags)
+        return [first, *rest]
+
+    async def _draw(self, model: ModelSpec, description: str, prompt, media) -> Completion:
+        """一次画图调用：按模型配置走对话接口或专门的图像接口（/images）。"""
+        if model.image_api == "chat" and all(r.image_api in (None, "chat") for r in model.routes):
+            params = {"max_tokens": self.rules.image.max_tokens}
+            return await self.router.complete(model.id, prompt.messages, params)
+
+        def call(prov, route, m):
+            return prov.generate_image(
+                route.model, description, dict(m.params_for(route)), images=tuple(media),
+                api=m.image_api_for(route),
+            )  # fmt: skip
+
+        inv = await self.router.invoke(model.id, call)
+        out = inv.result
+        cost = out.cost_usd
+        if cost is None:
+            cost = image_cost(
+                model, inv.route, len(out.images), out.input_tokens, out.output_tokens
+            )
+        return Completion(
+            text="",
+            model_id=model.id,
+            channel=inv.channel,
+            channel_kind=inv.channel_kind,
+            route_model=inv.route.model,
+            input_tokens=out.input_tokens,
+            output_tokens=out.output_tokens,
+            cached_tokens=0,
+            cost_usd=cost,
+            cost_source="reported" if out.cost_usd is not None else "estimated",
+            latency_s=inv.latency_s,
+            attempts=inv.attempts,
+            images=out.images,
+        )
 
     def _wanted_references(self, req: ToolRequest) -> tuple[int, ...]:
         """generate_image 的 refs 属性（参考图编号，空格 / 逗号分隔）→ 有效的编号。"""

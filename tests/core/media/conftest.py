@@ -44,13 +44,13 @@ class Rig:
         self.now += seconds
 
     def service(self, **kw) -> MediaService:
+        kw.setdefault("scrubber", self.rt.scrubber)
         return MediaService(
             session_id=self.sid,
             config=self.config,
             router=self.rt.router,
             repo=self.rt.repo,
             store=self.rt.files,
-            scrubber=self.rt.scrubber,
             seed=7,
             sleep=self.sleep,
             wall_clock=lambda: self.now,

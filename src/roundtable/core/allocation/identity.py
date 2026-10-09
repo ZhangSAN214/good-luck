@@ -56,7 +56,26 @@ class IdentityScrubber:
         pattern = self._pattern(active)
         return pattern.sub(MASK, text) if pattern else text
 
+    def bound(self, context: str = "", *, enabled: bool = True) -> IdentityScrubber:
+        """绑定了固定上下文的遮蔽器：题目 / 附件里本来就有的名称保留。enabled=False 时完全不遮蔽
+        （匿名关闭：成员之间、成员与工具之间都不做身份遮蔽）。"""
+        return _Bound(self, context, enabled)
+
     def found(self, text: str) -> list[str]:
         """text 中出现的身份名称（用于测试与审计）。"""
         pattern = self._pattern(self._terms)
         return sorted({m.group(0) for m in pattern.finditer(text)}) if pattern else []
+
+
+class _Bound(IdentityScrubber):
+    def __init__(self, base: IdentityScrubber, context: str, enabled: bool) -> None:
+        super().__init__(())
+        self._base, self._context, self._enabled = base, context, enabled
+
+    def scrub(self, text: str, context: str = "") -> str:
+        if not self._enabled:
+            return text
+        return self._base.scrub(text, f"{self._context}\n{context}" if context else self._context)
+
+    def found(self, text: str) -> list[str]:
+        return self._base.found(text)

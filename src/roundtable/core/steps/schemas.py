@@ -7,7 +7,7 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from roundtable.core.config.schema import ReviewQuality
 from roundtable.core.jsonout import extract_json_object
@@ -18,7 +18,25 @@ Confidence = Literal["high", "medium", "low"]
 
 
 class _Loose(BaseModel):
-    model_config = ConfigDict(extra="ignore")
+    """模型输出的宽松解析：多余字段忽略；null 当作没写（用默认值）；数字当文字；
+    文字字段写成了列表时用"；"连起来（便宜模型常见的小毛病，不值得整份重来）。"""
+
+    model_config = ConfigDict(extra="ignore", coerce_numbers_to_str=True)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _tolerate(cls, data: Any) -> Any:
+        if not isinstance(data, dict):
+            return data
+        out = {}
+        for key, value in data.items():
+            if value is None:
+                continue
+            field = cls.model_fields.get(key)
+            if field is not None and field.annotation is str and isinstance(value, list | tuple):
+                value = "；".join(str(x) for x in value)
+            out[key] = value
+        return out
 
 
 def _choice(value: Any, allowed: tuple[str, ...], default: str) -> str:
@@ -51,11 +69,37 @@ class PeerReview(_Loose):
     @field_validator("verdict", mode="before")
     @classmethod
     def _verdict(cls, v: Any) -> str:
-        return _choice(v, ("correct", "partially_correct", "incorrect", "unclear"), "unclear")
+        text = str(v or "").strip().lower().replace(" ", "_").replace("-", "_")
+        if text in ("partial", "partly_correct", "mostly_correct"):
+            text = "partially_correct"
+        return _choice(text, ("correct", "partially_correct", "incorrect", "unclear"), "unclear")
+
+    @field_validator("issues", mode="before")
+    @classmethod
+    def _issues(cls, v: Any) -> Any:
+        """问题可能写成单个对象或字符串列表：字符串当作只写了问题（缺位置 / 建议即不完整）。"""
+        if isinstance(v, dict | str):
+            v = [v]
+        if isinstance(v, list):
+            return [{"problem": x} if isinstance(x, str) else x for x in v]
+        return v
 
 
 class ReviewOutput(_Loose):
     reviews: list[PeerReview]
+
+    @model_validator(mode="before")
+    @classmethod
+    def _shapes(cls, data: Any) -> Any:
+        """便宜模型常把评审写成：整个数组、单条评审对象、或 reviews 是单个对象。"""
+        if isinstance(data, dict):
+            if "reviews" not in data and "_list" in data:
+                data = {"reviews": data["_list"]}
+            elif "reviews" not in data and "target" in data:
+                data = {"reviews": [data]}
+            elif isinstance(data.get("reviews"), dict):
+                data = {**data, "reviews": [data["reviews"]]}
+        return data
 
 
 @dataclass(frozen=True)

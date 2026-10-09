@@ -11,6 +11,7 @@ ChannelKind = Literal["aggregator", "direct", "local"]
 ChannelMode = Literal["openrouter", "direct", "auto"]
 # 档位：flagship 旗舰（高价高能力）/ budget 便宜档。成本优先路由只看档位和能力标签
 Tier = Literal["flagship", "budget"]
+ImageApi = Literal["chat", "images"]
 
 _ENV_NAME = re.compile(r"^[A-Z][A-Z0-9_]*$")
 _PROMPT_VERSION = re.compile(r"^v\d+$")
@@ -73,6 +74,8 @@ class Route(_Strict):
     media_price: MediaPrice | None = None
     # 该渠道需要的额外/不同参数（如 max_completion_tokens），覆盖模型级 params
     params: dict[str, Any] = Field(default_factory=dict)
+    # 画图模型在该渠道用哪种接口（覆盖模型级 image_api）
+    image_api: ImageApi | None = None
 
 
 class ModelSpec(_Strict):
@@ -92,6 +95,9 @@ class ModelSpec(_Strict):
     tags: list[str] = Field(default_factory=list)
     enabled: bool = True
     params: dict[str, Any] = Field(default_factory=dict)
+    # 画图模型调用的接口：chat = 对话接口（返回图片，如 Gemini 图像模型）；
+    # images = 专门的图像接口（OpenRouter 的 /api/v1/images，OpenAI 的 gpt-image 系列只能走这个）
+    image_api: ImageApi = "chat"
     # 产品名、中文名等别称；转发给其他模型前会被遮蔽（见 allocation.identity）
     aliases: list[str] = Field(default_factory=list)
     # 按优先顺序排列的渠道
@@ -116,6 +122,9 @@ class ModelSpec(_Strict):
 
     def params_for(self, route: Route) -> dict[str, Any]:
         return {**self.params, **route.params}
+
+    def image_api_for(self, route: Route) -> ImageApi:
+        return route.image_api or self.image_api
 
 
 class SearchPrice(_Strict):

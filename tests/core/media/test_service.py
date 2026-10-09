@@ -305,3 +305,87 @@ async def test_model_choice_with_references_prefers_image_edit_and_stays_stable(
     with_refs = {svc.model_for("image", "budget", references=True).id for _ in range(3)}
     assert len(plain) == 1 and len(with_refs) == 1  # 同一场总是同一个
     assert "image_edit" in rig.config.models.get(next(iter(with_refs))).tags
+
+
+# --- 画图接口与换模型重试 ----------------------------------------------------------------
+
+
+def test_each_image_model_declares_which_api_it_uses(rig: Rig):
+    models = rig.config.models
+    assert models.get("gpt-image-2").image_api == "images"
+    assert models.get("gpt-image-1-mini").image_api == "images"
+    assert models.get("gemini-3.1-flash-image").image_api == "chat"
+    for mid in ("gpt-image-2", "gpt-image-1-mini"):
+        route = models.get(mid).routes[0]
+        assert "modalities" not in models.get(mid).params_for(route)  # 对话接口专用的参数
+        assert models.get(mid).image_api_for(route) == "images"
+
+
+async def test_the_api_is_chosen_per_model(rig: Rig):
+    svc = rig.service()
+    await svc.generate("image", "猫", Placement(0, "media", 1), tier="flagship")
+    await svc.generate("image", "猫", Placement(0, "media", 2), tier="budget")
+    apis = {c[1]: c[5] for c in rig.calls("image")}
+    assert apis["openai/gpt-image-2"] == "images"
+    assert set(apis.values()) <= {"images", "chat"} and apis["openai/gpt-image-2"] == "images"
+    if "google/gemini-3.1-flash-image" in apis:
+        assert apis["google/gemini-3.1-flash-image"] == "chat"
+
+
+async def test_a_failed_model_is_replaced_by_another_one_of_the_same_tier(rig: Rig):
+    svc = rig.service()
+    first = svc.model_for("image", "budget")
+    rig.fake.broken_models = {first.id, f"google/{first.id}", f"openai/{first.id}"}
+    res = await svc.generate("image", "猫", WHERE, tier="budget")
+    assert res.ok and res.model_id != first.id
+    assert rig.config.models.get(res.model_id).tier == "budget"  # 同档
+    jobs = rig.rt.repo.media_jobs(rig.sid)
+    assert [j["state"] for j in jobs] == ["failed", "completed"]
+    assert [j["attempt"] for j in jobs] == [1, 2]
+    assert jobs[0]["model_id"] == first.id
+    # 失败的那次也记在 calls 里（不计费），完成的那次计费
+    assert rig.rt.repo.session_cost(rig.sid) == pytest.approx(res.cost_usd)
+
+
+async def test_all_models_of_the_tier_failing_reports_failure(rig: Rig):
+    svc = rig.service()
+    rig.fake.broken_models = {
+        r.model for m in rig.config.models.models if "image_gen" in m.tags for r in m.routes
+    }
+    res = await svc.generate("image", "猫", WHERE, tier="budget")
+    assert not res.ok and res.error
+    states = [j["state"] for j in rig.rt.repo.media_jobs(rig.sid)]
+    assert states and set(states) == {"failed"} and len(states) >= 2  # 每个候选都试过
+
+
+async def test_references_prefer_image_edit_candidates_when_failing_over(rig: Rig):
+    svc = rig.service()
+    first = svc.model_for("image", "budget", references=True)
+    rig.fake.broken_models = {r.model for r in first.routes}
+    res = await svc.generate("image", "猫", WHERE, tier="budget", references=[REF])
+    assert res.ok and res.references == 1
+    assert "image_edit" in rig.config.models.get(res.model_id).tags
+
+
+# --- 身份遮蔽：匿名关闭时不遮蔽；匿名开启时题目里本来就有的名字保留 ------------------------------
+
+
+async def test_prompt_masking_follows_the_anonymity_switch(rig: Rig):
+    text = "画一张图：GPT 和 Claude 在下棋"
+    plain = rig.rt.scrubber.bound("", enabled=False)
+    svc = rig.service(scrubber=plain)
+    await svc.generate("image", text, Placement(0, "media", 1), tier="budget")
+    assert rig.calls("image")[-1][2] == text  # 匿名关闭：原样发给画图模型
+
+    masked = rig.rt.scrubber.bound("", enabled=True)
+    await rig.service(scrubber=masked).generate(
+        "image", text, Placement(0, "media", 2), tier="budget"
+    )
+    assert "[已隐去]" in rig.calls("image")[-1][2] and "GPT" not in rig.calls("image")[-1][2]
+
+    # 题目里本来就有的名字不遮
+    keep = rig.rt.scrubber.bound("请画 GPT 和 Claude 下棋", enabled=True)
+    await rig.service(scrubber=keep).generate(
+        "image", text, Placement(0, "media", 3), tier="budget"
+    )
+    assert rig.calls("image")[-1][2] == text

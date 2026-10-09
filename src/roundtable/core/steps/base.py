@@ -156,8 +156,9 @@ class TableContext:
 
     def scrub(self, text: str) -> str:
         """转给其他模型之前遮蔽身份；题目和附件中出现的名称保留。"""
-        names = [] if self.anonymous else list(self.members)  # 昵称是称呼，不是自报身份
-        context = "\n".join([self.question.text, *(a.text or "" for a in self.attachments), *names])
+        if not self.anonymous:  # 匿名关闭：不做任何身份遮蔽
+            return text
+        context = "\n".join([self.question.text, *(a.text or "" for a in self.attachments)])
         return self.scrubber.scrub(text, context)
 
     def messages_for(self, prompt: RenderedPrompt, model_id: str) -> tuple[Message, ...]:
