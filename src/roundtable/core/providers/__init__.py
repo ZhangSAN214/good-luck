@@ -14,7 +14,7 @@ from .base import (
     Transcription,
     VideoJob,
 )
-from .cost import estimate_cost
+from .cost import estimate_cost, image_cost
 from .errors import (
     AllChannelsFailed,
     Attempt,
@@ -54,6 +54,7 @@ __all__ = [
     "adapter_names",
     "build_providers",
     "estimate_cost",
+    "image_cost",
     "redact",
     "register_adapter",
 ]

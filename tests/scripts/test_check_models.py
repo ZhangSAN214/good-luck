@@ -136,7 +136,9 @@ def test_missing_media_model_is_reported():
 def test_local_config_has_media_models_with_unit_prices():
     media = [m for m in check_models.load_local_models() if m["media_price"]]
     units = {m["media_price"]["unit"] for m in media}
-    assert {"image", "second", "minute", "char"} <= units
+    assert {"second", "minute", "char"} <= units
+    image = [m for m in check_models.load_local_models() if m["image_tokens"]]
+    assert image and all(not m["media_price"] for m in image)  # 图像模型按 token 计价
 
 
 @respx.mock
@@ -157,3 +159,26 @@ def test_main_merges_media_lists_and_survives_failed_ones(monkeypatch, capsys):
     captured = capsys.readouterr()
     assert "manual" in captured.out and "unverified" in captured.out
     assert "video" in captured.err
+
+
+def test_image_token_models_compare_against_image_output():
+    entry = {**local("g", "v/g", price=(0.5, 60.0)), "image_tokens": 1290}
+    ok = {
+        "data": [
+            {
+                "id": "v/g",
+                "pricing": {"prompt": "5e-7", "completion": "3e-6", "image_output": "6e-5"},
+            }
+        ]
+    }
+    assert check_models.compare([entry], ok)[0].status == "ok"
+    off = {
+        "data": [
+            {
+                "id": "v/g",
+                "pricing": {"prompt": "5e-7", "completion": "6e-5", "image_output": "3e-5"},
+            }
+        ]
+    }
+    [f] = check_models.compare([entry], off)
+    assert f.status == "price_mismatch" and "output" in f.detail and "30" in f.detail

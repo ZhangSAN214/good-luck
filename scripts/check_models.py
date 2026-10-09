@@ -4,6 +4,7 @@
     python scripts/check_models.py            # 读取 .env 中的 OPENROUTER_API_KEY（可选）
     python scripts/check_models.py --tolerance 0.05
 
+按 token 计价的图像模型（配置了 image_tokens）的输出价格对照远端的 image_output。
 发现模型不存在或价格偏差超出容差时，退出码为 1。本脚本只读，不修改任何文件。
 
 媒体模型（seat: false）：先查 ID 是否存在（图片 / 语音走 /models 的 output_modalities 筛选，视频走
@@ -33,6 +34,7 @@ MODELS_URL = "https://openrouter.ai/api/v1/models"
 MEDIA_URLS = {
     "image": f"{MODELS_URL}?output_modalities=image",
     "audio": f"{MODELS_URL}?output_modalities=audio",
+    "speech": f"{MODELS_URL}?output_modalities=speech",
     "video": "https://openrouter.ai/api/v1/videos/models",
 }
 PER_MILLION = 1_000_000
@@ -66,6 +68,8 @@ def load_local_models(config_dir: Path | None = None) -> list[dict[str, Any]]:
                 "media_price": {"unit": media_price.unit, "usd": media_price.usd}
                 if media_price
                 else None,
+                # 按 token 计价的图像模型：输出价格对应远端的 image_output
+                "image_tokens": m.image_tokens,
             }
         )
     return entries
@@ -133,7 +137,8 @@ def compare(
             )
             continue
         problems = []
-        for side, remote_key in (("input", "prompt"), ("output", "completion")):
+        output_key = "image_output" if entry.get("image_tokens") else "completion"
+        for side, remote_key in (("input", "prompt"), ("output", output_key)):
             actual = _per_million(pricing.get(remote_key))
             expected = price.get(side)
             if actual is None or expected is None:

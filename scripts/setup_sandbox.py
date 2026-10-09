@@ -67,6 +67,18 @@ def sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+def parse_sha256sum(text: bytes | str) -> str:
+    """读出 .sha256sum 文件里的 SHA-256。Linux / macOS 是 `哈希  文件名`；Windows 版是
+    PowerShell Get-FileHash 的输出（`Algorithm : SHA256` / `Hash      : 哈希` / `Path ...`），
+    所以不能简单取第一个词，而是找 64 位十六进制串。"""
+    if isinstance(text, bytes):
+        text = text.decode("utf-8", errors="replace")
+    found = re.findall(r"(?<![0-9A-Fa-f])[0-9A-Fa-f]{64}(?![0-9A-Fa-f])", text)
+    if len(set(h.lower() for h in found)) != 1:
+        raise SystemExit("无法从 .sha256sum 文件中读出唯一的校验值")
+    return found[0].lower()
+
+
 def deno_target() -> str:
     machine = platform.machine().lower()
     arch = "aarch64" if machine in ("arm64", "aarch64") else "x86_64"
@@ -98,7 +110,7 @@ def install_deno(target_dir: Path, archive: Path | None) -> None:
     else:
         log(f"下载 Deno {DENO_VERSION} …")
         data = fetch(base, timeout=600)
-        expected = fetch(base + ".sha256sum").split()[0].decode().lower()
+        expected = parse_sha256sum(fetch(base + ".sha256sum"))
         if sha256(data) != expected:
             raise SystemExit("Deno 下载内容校验失败")
     with zipfile.ZipFile(io.BytesIO(data)) as z:

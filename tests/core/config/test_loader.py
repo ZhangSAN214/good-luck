@@ -302,6 +302,7 @@ def test_tool_models_have_no_seat_and_image_gen():
     tools = [m for m in load_config().models.models if not m.seat]
     media_tags = {"image_gen", "image_edit", "tts", "stt", "video_gen", "music_gen"}
     assert tools and all(media_tags & set(m.tags) and m.tier for m in tools)
-    assert all(m.media_price for m in tools)  # 媒体模型按张 / 秒 / 分钟 / 字符计价
+    # 媒体模型按秒 / 分钟 / 字符计价，或（图像）按 token 计价并给出一张图的典型 token 数
+    assert all(m.media_price or m.image_tokens for m in tools)
     for kind_tag in ("image_gen", "tts", "stt", "video_gen"):
         assert any(kind_tag in m.tags for m in tools), kind_tag

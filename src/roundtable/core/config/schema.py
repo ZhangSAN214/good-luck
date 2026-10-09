@@ -82,6 +82,9 @@ class ModelSpec(_Strict):
     # 按 token 计价；只按张 / 秒 / 分钟 / 字符计价的媒体模型写 0 并填 media_price
     price: Price = Price(input=0.0, output=0.0)
     media_price: MediaPrice | None = None
+    # 按 token 计价的图像模型：生成一张图的典型输出 token 数（price.output 此时是图像输出的价格）。
+    # 只用于预估和渠道没有返回用量时的记账；渠道返回实际费用时一律以实际为准
+    image_tokens: int | None = Field(default=None, ge=1)
     tags: list[str] = Field(default_factory=list)
     enabled: bool = True
     params: dict[str, Any] = Field(default_factory=dict)

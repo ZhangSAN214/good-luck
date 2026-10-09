@@ -13,7 +13,7 @@ from roundtable.core.config import ChannelMode, ModelsConfig, ModelSpec, Route
 from roundtable.core.config.schema import ChannelKind, RequestPolicy
 
 from .base import Completion, Message, Provider
-from .cost import estimate_cost
+from .cost import estimate_cost, image_cost
 from .errors import (
     PERMANENT_KINDS,
     AllChannelsFailed,
@@ -217,9 +217,10 @@ class ChannelRouter:
     def _completion(self, model, route, raw, latency, attempts) -> Completion:
         if raw.reported_cost_usd is not None:
             cost, source = raw.reported_cost_usd, "reported"
-        elif (media := model.media_price_for(route)) and media.unit == "image" and raw.images:
-            # 按张计价的图像模型：渠道没有返回实际费用时，按配置的每张单价
-            cost, source = media.usd * len(raw.images), "estimated"
+        elif raw.images:
+            # 图像模型：渠道没有返回实际费用时，按每张单价或图像 token（见 image_cost）
+            cost = image_cost(model, route, len(raw.images), raw.input_tokens, raw.output_tokens)
+            source = "estimated"
         else:
             cost = estimate_cost(
                 model.price_for(route), raw.input_tokens, raw.output_tokens, raw.cached_tokens

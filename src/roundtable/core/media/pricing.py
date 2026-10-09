@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from roundtable.core.config import MediaRules, ModelSpec, Route
-from roundtable.core.providers import estimate_cost
+from roundtable.core.providers import estimate_cost, image_cost
 
 KINDS = ("image", "speech", "video")
 # 媒体种类 → 生成所需的模型能力标签
@@ -33,7 +33,7 @@ def unit_cost(
 def estimate_generation(model: ModelSpec, kind: str, rules: MediaRules, *, chars: int = 0) -> float:
     """一次生成的预计费用。没有 media_price 的模型（按 token 计价）按一次典型调用估算。"""
     if kind == "image":
-        cost = unit_cost(model, images=rules.images_per_round)
+        return image_cost(model, None, rules.images_per_round)
     elif kind == "video":
         cost = unit_cost(model, seconds=rules.video.duration_s)
     else:

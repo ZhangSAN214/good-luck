@@ -32,6 +32,7 @@ from roundtable.core.providers import (
     ProviderError,
     VideoJob,
     estimate_cost,
+    image_cost,
 )
 from roundtable.core.providers.errors import ErrorKind
 from roundtable.core.storage import Repository
@@ -245,7 +246,9 @@ class MediaService:
         if kind == "image":
             medias: list[Media] = list(out.images)[: self.rules.images_per_round]
             reported, tokens = out.cost_usd, (out.input_tokens, out.output_tokens)
-            fallback = unit_cost(model, inv.route, images=len(medias))
+            fallback = image_cost(
+                model, inv.route, len(medias), out.input_tokens, out.output_tokens
+            )
         else:
             medias = [out.media]
             reported, tokens = out.cost_usd, (0, 0)

@@ -30,7 +30,9 @@ async def test_image_generation_registers_file_job_and_billing(rig: Rig):
     assert job["prompt"] == "一只坐在窗台上的橘猫" and job["channel"] == "openrouter"
     # 按张计价（渠道没有返回实际费用）：记入 calls，进入预算与按渠道统计
     model = rig.config.models.get(res.model_id)
-    assert res.cost_usd == pytest.approx(model.media_price.usd)
+    # 渠道没有返回用量和费用：按一张图的典型输出 token 数 × 图像输出价格估算
+    expected = (300 * model.price.input + model.image_tokens * model.price.output) / 1e6
+    assert res.cost_usd == pytest.approx(expected)
     assert rig.rt.repo.session_cost(rig.sid) == pytest.approx(res.cost_usd)
     assert rig.rt.repo.spent_by_channel()["openrouter"].calls == 1
     assert [e[0] for e in rig.events] == ["media_started", "media_done"]
@@ -85,7 +87,7 @@ async def test_speech_billed_per_character(rig: Rig):
     assert res.ok
     row = rig.rt.repo.file(rig.sid, res.file_id)
     assert (row["kind"], row["mime"]) == ("audio", "audio/wav")
-    assert res.cost_usd == pytest.approx(len(text) * 0.000015)
+    assert res.cost_usd == pytest.approx(len(text) * 0.0000006)
     params = rig.calls("speech")[0][3]
     assert params["voice"] == "alloy" and params["response_format"] == "mp3"
 
@@ -211,5 +213,5 @@ async def test_image_failure_is_recorded_without_cost(rig: Rig):
 def test_estimate_uses_unit_prices(rig: Rig):
     svc = rig.service()
     assert svc.estimate("video", "flagship") == pytest.approx(0.40 * 5)
-    assert svc.estimate("image", "flagship") == pytest.approx(0.17)
-    assert svc.estimate("speech", chars=1000) == pytest.approx(1000 * 0.000015)
+    assert svc.estimate("image", "flagship") == pytest.approx((300 * 5.0 + 1056 * 30.0) / 1e6)
+    assert svc.estimate("speech", chars=1000) == pytest.approx(1000 * 0.0000006)
