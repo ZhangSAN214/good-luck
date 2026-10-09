@@ -304,8 +304,9 @@ async def test_truncated_merge_reports_length_limit():
 
     t = Table(17)
     await run(t, *STEPS[:-1])
-    t.fake.queue(COORDINATOR, RawCompletion("（输出被截断", truncated=True))
-    t.fake.queue(COORDINATOR, RawCompletion("（又被截断", truncated=True))
+    # 每次格式尝试里，几乎没有正文的截断会先自动用较低思考强度再调一次，所以共 4 次调用
+    for text in ("（输出被截断", "（又被截断", "（还是截断", "（仍然截断"):
+        t.fake.queue(COORDINATOR, RawCompletion(text, truncated=True))
     await run(t, "merge")
     merge = t.ctx.state.collab.merge
     assert merge.degraded and "长度上限" in merge.error and "max_tokens" in merge.error

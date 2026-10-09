@@ -212,3 +212,38 @@ async def test_image_output_parsed_from_data_uri():
 
     raw = await make(handler).complete("m", MESSAGES, {"modalities": ["image", "text"]})
     assert [(m.mime, m.data) for m in raw.images] == [("image/png", b"PNGBYTES")]
+
+
+async def test_finish_reason_and_reasoning_tokens_are_parsed():
+    def handler(request):
+        body = ok_body(completion_tokens_details={"reasoning_tokens": 3900})
+        body["choices"][0]["finish_reason"] = "length"
+        return httpx.Response(200, json=body)
+
+    raw = await make(handler).complete("m", MESSAGES, {})
+    assert (raw.finish_reason, raw.truncated, raw.reasoning_tokens) == ("length", True, 3900)
+
+
+@pytest.mark.parametrize(
+    "spec_kw, expected",
+    [
+        ({"kind": "aggregator"}, {"reasoning": {"max_tokens": 800}}),
+        ({"kind": "aggregator", "reasoning": "effort"}, {"reasoning_effort": "low"}),
+        ({"kind": "direct"}, {}),  # 未声明：直连渠道忽略思考参数，不报错
+        ({"kind": "direct", "reasoning": "effort"}, {"reasoning_effort": "low"}),
+        ({"kind": "aggregator", "reasoning": "none"}, {}),
+    ],
+)
+async def test_neutral_reasoning_param_translated_per_channel(spec_kw, expected):
+    seen = {}
+
+    def handler(request):
+        seen["body"] = json.loads(request.content)
+        return httpx.Response(200, json=ok_body())
+
+    params = {"reasoning": {"max_tokens": 800}}
+    if expected.get("reasoning_effort"):
+        params = {"reasoning": {"effort": "low"}}
+    await make(handler, **spec_kw).complete("m", MESSAGES, params)
+    body = seen["body"]
+    assert {k: body[k] for k in ("reasoning", "reasoning_effort") if k in body} == expected

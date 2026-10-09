@@ -316,4 +316,13 @@ ALTER TABLE attachments ADD COLUMN style_ref INTEGER NOT NULL DEFAULT 1;
 ALTER TABLE media_jobs ADD COLUMN reference_count INTEGER NOT NULL DEFAULT 0;
 """,
     ),
+    (
+        10,
+        "调用记录：结束原因与思考 token",
+        """
+-- finish_reason：渠道返回的结束原因（length = 被截断）；reasoning_tokens 已含在 output_tokens 内
+ALTER TABLE calls ADD COLUMN finish_reason TEXT;
+ALTER TABLE calls ADD COLUMN reasoning_tokens INTEGER NOT NULL DEFAULT 0;
+""",
+    ),
 ]

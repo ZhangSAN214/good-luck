@@ -349,6 +349,13 @@ class Synthesis:
     error: str | None = None
 
     @property
+    def usable_final_answer(self) -> str | None:
+        """可作为后续步骤（如媒体生成的提示词）输入的最终答案；降级或占位时为 None。"""
+        if self.degraded or is_placeholder_text(self.output.final_answer):
+            return None
+        return self.output.final_answer.strip()
+
+    @property
     def unresolved_disagreements(self) -> int:
         return sum(1 for d in self.output.disagreements if not d.resolved)
 
@@ -372,10 +379,21 @@ def parse_synthesis(text: str, to_code: Callable[[str], str | None]) -> Synthesi
     return Synthesis(output)
 
 
+PLACEHOLDER_FINAL = "（汇总失败，请直接参考各组员修订后的答案）"
+
+
+def is_placeholder_text(text: str | None) -> bool:
+    """降级占位文字（汇总失败的兜底等）：不是真正的内容，不能当作生成提示词或交付物。"""
+    t = (text or "").strip()
+    return (
+        not t or t == PLACEHOLDER_FINAL or (t.startswith("（") and t.endswith("）") and "失败" in t)
+    )
+
+
 def fallback_synthesis(error: str) -> Synthesis:
     return Synthesis(
         SynthesisOutput(
-            final_answer="（汇总失败，请直接参考各组员修订后的答案）",
+            final_answer=PLACEHOLDER_FINAL,
             open_questions=["统筹未能给出可用的汇总"],
             confidence="low",
         ),

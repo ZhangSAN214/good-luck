@@ -370,13 +370,15 @@ async def call_model(
     model_id: str,
     prompt: RenderedPrompt,
     code: str | None = None,
+    followup: Sequence[Message] = (),
+    extra_params: dict[str, Any] | None = None,
 ) -> CallOutcome:
     """调用一次并记录（成功或失败都记录）。渠道层已经负责重试和切换。
 
     该步骤配置了工具时，成员可以在输出中申请工具，代码执行后把结果追加到同一对话再调用，
     直到不再申请工具（见 steps/tooluse.py）；返回的是最终结果。
     """
-    messages = ctx.messages_for(prompt, model_id)
+    messages = [*ctx.messages_for(prompt, model_id), *followup]
     tools = ctx.toolbox.tools_for(step) if ctx.toolbox else []
     if tools:
         from .tooluse import call_with_tools
@@ -392,7 +394,14 @@ async def call_model(
             tools=tools,
         )
     return await call_once(
-        ctx, step=step, role=role, model_id=model_id, prompt=prompt, code=code, messages=messages
+        ctx,
+        step=step,
+        role=role,
+        model_id=model_id,
+        prompt=prompt,
+        code=code,
+        messages=messages,
+        extra_params=extra_params,
     )
 
 
@@ -405,9 +414,13 @@ async def call_once(
     prompt: RenderedPrompt,
     code: str | None,
     messages: Sequence[Message],
+    extra_params: dict[str, Any] | None = None,
 ) -> CallOutcome:
+    params = ctx.step_params(step)
+    if extra_params:
+        params = {**params, **extra_params}
     try:
-        completion = await ctx.router.complete(model_id, messages, ctx.step_params(step))
+        completion = await ctx.router.complete(model_id, messages, params)
     except (AllChannelsFailed, NoChannelAvailable) as exc:
         call_id = ctx.repo.record_call(
             ctx.session_id,
@@ -434,7 +447,54 @@ async def call_once(
         completion=completion,
     )
     ctx.emit("call_done", step, code, tokens=completion.output_tokens, cost=completion.cost_usd)
+    guard = ctx.config.roundtable.length_guard
+    if (
+        guard.enabled
+        and extra_params is None  # 升级后的那一次不再递归
+        and completion.truncated
+        and completion.visible_chars < guard.min_visible_chars
+    ):
+        # 思考 token 挤占了正文：降低思考强度、提高上限再调一次，绝不原样重发
+        log.warning("步骤 %s 被长度上限截断且几乎没有正文，降低思考强度重试", step)
+        ctx.emit("length_retry", step, code)
+        return await call_once(
+            ctx,
+            step=step,
+            role=role,
+            model_id=model_id,
+            prompt=prompt,
+            code=code,
+            messages=messages,
+            extra_params=guard.escalate(params),
+        )
     return CallOutcome(completion, call_id)
+
+
+def describe_error(exc: Exception) -> str:
+    """格式错误的具体原因（带字段路径，不含模型身份），用于重试时告诉模型哪里不对。"""
+    if isinstance(exc, ValidationError):
+        parts = []
+        for e in exc.errors()[:5]:
+            where = ".".join(str(x) for x in e.get("loc", ())) or "（整体）"
+            parts.append(f"{where}：{e.get('msg', '')}")
+        return "；".join(parts) or "字段不符合要求"
+    return str(exc).strip()[:200] or type(exc).__name__
+
+
+RETRY_ECHO_CHARS = 1500
+
+
+def retry_followup(previous: str | None, reason: str | None) -> list[Message]:
+    """格式重试时附在对话后面：上一次的输出 + 具体错误原因。同样的输入不会连发两次。"""
+    shown = (previous or "").strip()
+    if len(shown) > RETRY_ECHO_CHARS:
+        shown = shown[:RETRY_ECHO_CHARS] + "……（以下省略）"
+    why = reason or "输出格式不符"
+    ask = (
+        f"你上一次的输出无法使用：{why}。\n"
+        "请严格按照要求的格式重新输出完整内容；不要解释，也不要输出格式之外的文字。"
+    )
+    return [Message("assistant", shown or "（空）"), Message("user", ask)]
 
 
 @dataclass(frozen=True)
@@ -460,18 +520,30 @@ async def call_and_parse(
     error = None
     call_id = None
     raw = None
+    truncated = False
     for attempt in range(ATTEMPTS):
         outcome = await call_model(
-            ctx, step=step, role=role, model_id=model_id, prompt=prompt, code=code
+            ctx,
+            step=step,
+            role=role,
+            model_id=model_id,
+            prompt=prompt,
+            code=code,
+            followup=retry_followup(raw, error) if attempt else (),
+            # 上一次是被长度上限截断：这次提高上限并降低思考强度
+            extra_params=ctx.config.roundtable.length_guard.escalate(ctx.step_params(step))
+            if attempt and truncated
+            else None,
         )
         call_id = outcome.call_id
         if outcome.completion is None:
             return Parsed(None, call_id, True, outcome.error, raw)
         raw = outcome.completion.text
+        truncated = outcome.completion.truncated
         try:
             value = parse(raw)
         except (JSONOutputError, ValidationError, ValueError) as exc:
-            value, error = None, f"输出格式不符：{type(exc).__name__}"
+            value, error = None, f"输出格式不符：{describe_error(exc)}"
         else:
             error = None if value is not None else "输出格式不符"
         if value is None and outcome.completion.truncated:

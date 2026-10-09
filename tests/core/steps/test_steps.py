@@ -35,7 +35,9 @@ async def test_answer_identical_prompts_except_code(table):
     }
     assert len(normalized) == 1  # 换掉代号后完全一致
     params = {json.dumps(c.params, sort_keys=True) for c in table.fake.calls}
-    assert params == {json.dumps({"max_tokens": 4000})}  # 同一步骤参数相同
+    expected = table.ctx.step_params("answer")
+    assert params == {json.dumps(expected)}  # 同一步骤参数相同
+    assert expected["max_tokens"] > expected["reasoning"].get("max_tokens", 0)  # 正文有空间
     assert set(table.ctx.state.answers) == set(MEMBERS)
     assert len(table.repo.outputs(table.session, kind="answer")) == 3
 
@@ -345,3 +347,80 @@ def test_parse_decisions_with_nickname_labels(table):
         ("鲸鱼娘·全力", 2, "rejected"),
         ("愚者", None, "partial"),
     ]
+
+
+# --- 长度保护与带原因的重试 -------------------------------------------------------
+
+
+async def test_truncated_with_no_visible_text_retries_with_lower_reasoning_and_higher_cap(table):
+    from roundtable.core.providers import RawCompletion
+
+    base = table.ctx.step_params("answer")
+    table.fake.queue(
+        "b1", RawCompletion("", output_tokens=5000, truncated=True, finish_reason="length")
+    )
+    await run(table, "answer")
+    calls = table.calls_for("b1")
+    assert len(calls) == 2
+    first, second = calls
+    assert first.params == base
+    assert second.params["reasoning"] == {"effort": "low"}
+    assert second.params["max_tokens"] > base["max_tokens"]
+    # 第二次调用的结果被采用
+    assert table.ctx.state.answers["甲"].strip() != ""
+    assert first.messages == second.messages  # 对话相同，但参数不同：不是原样重试
+    assert first.params != second.params
+
+
+async def test_long_truncated_text_is_kept_without_a_second_call(table):
+    from roundtable.core.providers import RawCompletion
+
+    table.fake.queue("b1", RawCompletion("很长的正文。" * 100, truncated=True))
+    await run(table, "answer")
+    assert len(table.calls_for("b1")) == 1
+
+
+async def test_length_guard_can_be_disabled(table):
+    from roundtable.core.providers import RawCompletion
+
+    cfg = table.config.roundtable
+    table.ctx.config = table.config.model_copy(
+        update={
+            "roundtable": cfg.model_copy(
+                update={"length_guard": cfg.length_guard.model_copy(update={"enabled": False})}
+            )
+        }
+    )
+    table.fake.queue("b1", RawCompletion("", truncated=True))
+    await run(table, "answer")
+    assert len(table.calls_for("b1")) == 1
+
+
+async def test_format_retry_includes_previous_output_and_specific_reason(table):
+    await run(table, "answer")
+    table.fake.queue("b1", '{"reviews": "不是列表"}')  # 第二次走默认的合格回复
+    await run(table, "review")
+    review_calls = [c for c in table.calls_for("b1")][1:]
+    assert len(review_calls) == 2
+    first, retry = review_calls
+    assert len(retry.messages) == len(first.messages) + 2
+    assert retry.messages[-2].role == "assistant" and "不是列表" in retry.messages[-2].content
+    ask = retry.messages[-1].content
+    assert retry.messages[-1].role == "user" and "无法使用" in ask and "输出格式不符" in ask
+
+
+async def test_no_two_identical_requests_in_a_full_pipeline_with_flaky_output():
+    t = Table(pipeline=True)
+    await run(t, "answer")
+    t.fake.queue("b1", "不是 JSON")
+    t.fake.queue("b2", "也不是 JSON", "还是不是")
+    await run(t, "review")
+    seen = []
+    for c in t.fake.calls:
+        key = (
+            c.model,
+            tuple((m.role, m.content) for m in c.messages),
+            json.dumps(c.params, sort_keys=True),
+        )
+        assert key not in seen, f"同样的请求发了两次：{c.model}"
+        seen.append(key)

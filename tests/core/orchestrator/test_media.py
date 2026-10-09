@@ -466,3 +466,44 @@ async def test_generation_prompts_are_masked_only_when_anonymous():
         assert "[已隐去]" not in job["prompt"]
         sent = [c for c in env.fake.media_calls if c[0] == "image"][0][2]
         assert "[已隐去]" not in sent
+
+
+SYNTH = "汇总成一份结论"
+REWRITE = "综合出一份完整"
+GOOD_PROMPT = "一只在黑板前讲解函数最值的卡通猫，扁平插画风格，暖色调，不要文字"
+
+
+async def test_failed_synthesis_placeholder_never_becomes_the_prompt():
+    from roundtable.core.steps.schemas import PLACEHOLDER_FINAL
+
+    env = make_env()
+    script(env, **{SYNTH: lambda m, msgs: "不是 JSON", REWRITE: lambda m, msgs: GOOD_PROMPT})
+    r = await start(env)
+    assert r.status == "completed"
+    job = jobs(env, r.session_id)[0]
+    assert job["prompt"] == GOOD_PROMPT and PLACEHOLDER_FINAL not in job["prompt"]
+    assert PLACEHOLDER_FINAL not in str(env.fake.media_calls)
+    # 重写由一位在场组员完成（不是统筹），并且发给他的是各份修订稿
+    rewrites = [c for c in env.fake.calls if REWRITE in c.messages[0].content]
+    assert len(rewrites) == 1 and rewrites[0].model in MEMBERS[:3]
+    assert "<answer" in rewrites[0].messages[-1].content
+
+
+async def test_failed_synthesis_and_failed_rewrite_skips_media_with_a_note():
+    env = make_env()
+    script(
+        env,
+        **{SYNTH: lambda m, msgs: "不是 JSON", REWRITE: lambda m, msgs: "（汇总失败，请参考答案）"},
+    )
+    r = await start(env)
+    assert r.status == "completed"
+    assert not media_calls(env, "image") and not jobs(env, r.session_id)
+
+
+async def test_rewritten_prompt_is_persisted_and_not_regenerated_on_resume():
+    env = make_env()
+    script(env, **{SYNTH: lambda m, msgs: "不是 JSON", REWRITE: lambda m, msgs: GOOD_PROMPT})
+    r = await start(env)
+    before = len([c for c in env.fake.calls if REWRITE in c.messages[0].content])
+    saved = env.rt.repo.outputs(r.session_id, kind="media_prompt")
+    assert before == 1 and [json.loads(o["content"])["prompt"] for o in saved] == [GOOD_PROMPT]

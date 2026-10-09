@@ -62,6 +62,7 @@ prompts:
   style_merge: v1        # 统筹合并成规范 + 清单
   style_guide: v1        # 风格规范，接在之后的每次调用上
   media_refine: v1       # 统筹根据评审决定是否改提示词重新生成
+  media_rewrite: v1      # 汇总失败时，由一位成员根据修订稿重写生成提示词
   work_media: v1         # 协同：媒体子任务，成员写生成提示词
   rework_media: v2       # 协同：按审查意见修改生成提示词
   web_search: v1         # 借助聚合平台联网搜索时发给搜索用模型的指令
@@ -70,20 +71,33 @@ prompts:
 # 每个步骤对所有模型统一使用的参数（中立：同一步骤参数相同；模型自身必需的参数在 models.yaml）
 step_params:
   # max_tokens 是每次调用的输出上限（推理模型的思考 token 也计入），防止输出失控；
-  # 预估卡片上的"最多"按所有调用都写满这个上限计算
-  answer: {max_tokens: 4000}
-  review: {max_tokens: 2500}
-  revise: {max_tokens: 4000}
-  synthesize: {max_tokens: 4000}
-  decompose: {max_tokens: 2000}
-  volunteer: {max_tokens: 1500}
-  assign: {max_tokens: 1500}
-  work: {max_tokens: 5000}
-  cross_review: {max_tokens: 2500}
-  rework: {max_tokens: 5000}
-  merge: {max_tokens: 10000}
-  style: {max_tokens: 1500}
-  style_gate: {max_tokens: 1500}
+  # 预估卡片上的"最多"按所有调用都写满这个上限计算。
+  # reasoning 是中立的思考预算参数（同一步骤所有模型相同；渠道不支持时自动忽略）：
+  #   {effort: low|medium|high} 或 {max_tokens: N}（思考最多用 N token，其余留给正文），二选一。
+  #   原则：作答 / 修订 / 完成子任务要认真想，但封顶，保证正文有足够空间；
+  #   评审、汇总、拆分、分配、自荐、风格校验等用低强度。
+  answer: {max_tokens: 5000, reasoning: {max_tokens: 2000}}
+  review: {max_tokens: 3000, reasoning: {max_tokens: 800}}
+  revise: {max_tokens: 5000, reasoning: {max_tokens: 2000}}
+  synthesize: {max_tokens: 5000, reasoning: {effort: low}}
+  decompose: {max_tokens: 2500, reasoning: {effort: low}}
+  volunteer: {max_tokens: 1500, reasoning: {effort: low}}
+  assign: {max_tokens: 1500, reasoning: {effort: low}}
+  work: {max_tokens: 6000, reasoning: {max_tokens: 2000}}
+  cross_review: {max_tokens: 3000, reasoning: {max_tokens: 800}}
+  rework: {max_tokens: 6000, reasoning: {max_tokens: 2000}}
+  merge: {max_tokens: 10000, reasoning: {effort: low}}
+  style: {max_tokens: 1500, reasoning: {effort: low}}
+  style_gate: {max_tokens: 1500, reasoning: {effort: low}}
+
+# 长度保护：输出被长度上限截断（finish_reason=length）而可见文字很少 = 思考 token 挤占了正文。
+# 此时不原样重试：降低思考强度、提高输出上限（×factor，不超过 cap）再调用一次（单独记录、单独计费）。
+length_guard:
+  enabled: true
+  min_visible_chars: 200
+  max_tokens_factor: 1.5
+  max_tokens_cap: 12000
+  retry_effort: low
 
 # 互评质量检查：空泛的评审判为无效，不转给作者
 review_quality:
@@ -413,7 +427,7 @@ tools:
   image:
     max_per_step: 2           # 每位成员每步最多生成几张图（需要带 image_gen 标签的模型）
   search:                     # 联网搜索（需要 models.yaml 的 search_providers 中有可用服务）
-    max_per_step: 3           # 每位成员每步最多搜索几次
+    max_per_step: 2           # 每位成员每步最多搜索几次
     max_fetch_per_step: 3     # 每步最多读取几个网页（只能读本人搜索结果中的链接）
     max_results: 5
     fetch_max_chars: 8000

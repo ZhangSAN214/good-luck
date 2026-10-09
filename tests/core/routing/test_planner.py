@@ -53,7 +53,10 @@ async def test_success(env):
     assert r.cost_usd > 0 and r.prompt_version == "v1" and r.prompt_sha256
     sent = env.fake.calls[0]
     assert "证明某定理" in sent.messages[-1].content
-    assert sent.params == {"max_tokens": env.config.routing.planner.max_tokens}
+    assert sent.params == {
+        "max_tokens": env.config.routing.planner.max_tokens,
+        "reasoning": {"effort": "low"},
+    }
 
 
 async def test_unknown_task_type_becomes_other(env):

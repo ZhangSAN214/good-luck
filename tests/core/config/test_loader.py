@@ -82,6 +82,7 @@ def test_repo_config_loads_with_defaults():
         "media_brief",
         "media_review",
         "media_refine",
+        "media_rewrite",
         "work_media",
         "rework_media",
     }

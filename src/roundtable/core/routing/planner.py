@@ -88,7 +88,7 @@ async def run_planner(
     rendered = prompts.render(
         "planner", version, question=question, task_types=", ".join([*vocab, OTHER])
     )
-    params = {"max_tokens": config.routing.planner.max_tokens}
+    params = {"max_tokens": config.routing.planner.max_tokens, "reasoning": {"effort": "low"}}
     cost, error = 0.0, None
     completions: list[Completion] = []
 
@@ -105,9 +105,10 @@ async def run_planner(
             tuple(completions),
         )
 
+    messages = list(rendered.messages)
     for _ in range(ATTEMPTS):
         try:
-            completion = await router.complete(model.id, rendered.messages, params)
+            completion = await router.complete(model.id, messages, params)
         except (AllChannelsFailed, NoChannelAvailable) as exc:
             error = f"调用失败：{exc}"
             break  # 渠道层已经重试和切换过
@@ -116,8 +117,18 @@ async def run_planner(
         try:
             output = PlannerOutput.model_validate(extract_json_object(completion.text))
         except (JSONOutputError, ValidationError) as exc:
-            error = f"输出无法解析：{type(exc).__name__}"
+            error = f"输出无法解析：{exc}"[:200]
             log.warning("规划员输出无法解析，第 %d 次", len(completions))
+            # 重试时附上上一次的输出与具体原因，不原样重发
+            messages = [
+                *rendered.messages,
+                Message("assistant", completion.text.strip()[:1500] or "（空）"),
+                Message(
+                    "user",
+                    f"你上一次的输出无法使用：{error}。"
+                    "请严格按要求的 JSON 格式重新输出，不要输出其他文字。",
+                ),
+            ]
             continue
         if output.task_type not in vocab:
             output = output.model_copy(update={"task_type": OTHER})

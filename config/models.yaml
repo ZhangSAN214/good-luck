@@ -229,7 +229,8 @@ models:
     vendor: Google
     aliases: [Gemini, Nano Banana]
     seat: false
-    tier: budget
+    # 实测约 $0.067 / 张，比 gpt-image-2 还贵，所以放在旗舰档（节电模式默认只用 gpt-image-1-mini）
+    tier: flagship
     price: {input: 0.50, output: 60.0}
     image_tokens: 1290
     tags: [image_gen, image_edit, vision]   # image_edit：支持以参考图为输入（图生图）

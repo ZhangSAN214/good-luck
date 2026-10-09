@@ -47,6 +47,7 @@ class OpenAICompatProvider(Provider):
         self._secrets = [key.reveal()] if key else []
         self._extra_body = dict(spec.extra_body)
         self._aliases = dict(spec.param_aliases)
+        self._reasoning = spec.reasoning_style
         self._client = httpx.AsyncClient(
             base_url=spec.base_url, headers=headers, timeout=timeout_s, transport=transport
         )
@@ -72,6 +73,12 @@ class OpenAICompatProvider(Provider):
     async def complete(
         self, model: str, messages: Sequence[Message], params: dict[str, Any]
     ) -> RawCompletion:
+        params = dict(params)
+        reasoning = params.pop("reasoning", None)
+        if reasoning and self._reasoning == "object":
+            params["reasoning"] = reasoning
+        elif reasoning and self._reasoning == "effort" and reasoning.get("effort"):
+            params["reasoning_effort"] = reasoning["effort"]
         params = {self._aliases.get(k, k): v for k, v in params.items()}
         body = {
             **params,
@@ -105,6 +112,7 @@ class OpenAICompatProvider(Provider):
             text = choice["message"].get("content") or ""
             usage = data.get("usage") or {}
             details = usage.get("prompt_tokens_details") or {}
+            out_details = usage.get("completion_tokens_details") or {}
             result = RawCompletion(
                 text=text if isinstance(text, str) else str(text),
                 input_tokens=int(usage.get("prompt_tokens") or 0),
@@ -113,6 +121,8 @@ class OpenAICompatProvider(Provider):
                 reported_cost_usd=_float_or_none(usage.get("cost")),
                 truncated=choice.get("finish_reason") == "length",
                 images=_images(choice["message"].get("images") or []),
+                finish_reason=choice.get("finish_reason"),
+                reasoning_tokens=int(out_details.get("reasoning_tokens") or 0),
             )
         except (ValueError, KeyError, IndexError, TypeError, AttributeError):
             raise self._error(ErrorKind.INVALID_RESPONSE, "无法解析返回内容") from None

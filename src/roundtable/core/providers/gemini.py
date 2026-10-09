@@ -63,7 +63,7 @@ class GeminiProvider(Provider):
         body: dict[str, Any] = {"contents": contents}
         if system:
             body["systemInstruction"] = {"parts": [{"text": system}]}
-        config = {_PARAM_MAP.get(k, k): v for k, v in params.items()}
+        config = {_PARAM_MAP.get(k, k): v for k, v in params.items() if k != "reasoning"}
         if config:
             body["generationConfig"] = config
         return body
@@ -114,6 +114,8 @@ class GeminiProvider(Provider):
                 cached_tokens=int(usage.get("cachedContentTokenCount") or 0),
                 truncated=candidate.get("finishReason") == "MAX_TOKENS",
                 images=_images(parts),
+                finish_reason=candidate.get("finishReason"),
+                reasoning_tokens=int(usage.get("thoughtsTokenCount") or 0),
             )
         except ProviderError:
             raise

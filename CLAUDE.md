@@ -70,6 +70,8 @@
 - 适配器本身不重试（SDK 的 `max_retries=0`），重试和切换只由路由负责。
 - 每次调用返回 `Completion`：实际走的渠道、渠道类型、各次尝试（渠道 + 错误类型）、token、费用及来源。
 - 费用：优先使用渠道返回的实际费用（OpenRouter），否则按该路由的配置价格估算；**按渠道分别统计**（`core/budget/usage.py`）。
+- **思考预算与长度保护**：`step_params` 里每步可带中立参数 `reasoning`（`{effort: low|medium|high}` 或 `{max_tokens: N}`，同一步骤所有模型相同），渠道层按 `models.yaml` 渠道的 `reasoning` 写法转换（`object` = OpenRouter 的 `reasoning` 对象；`effort` = `reasoning_effort`；`none` = 忽略；不填时聚合平台 `object`、其余 `none`），不支持的渠道自动忽略。原则：作答 / 修订 / 完成子任务封顶思考（max_tokens 留出正文空间），评审、汇总、拆分、分配、自荐、风格校验、规划员、附件预处理用低强度。**长度保护**（`roundtable.yaml` 的 `length_guard`）：`finish_reason=length` 且可见文字少于 `min_visible_chars` = 思考 token 挤占了正文，`call_once` 不原样重试，而是降低思考强度、把 `max_tokens` 乘以 `max_tokens_factor`（不超过 `max_tokens_cap`）再调一次（单独记录、单独计费）；格式解析失败且上一次被截断时同样升级参数。`calls` 表记录 `finish_reason` 与 `reasoning_tokens`（迁移 10）。
+- **不原样重试**：格式错误重试（`call_and_parse`、规划员）必须在对话后附上上一次的输出和具体错误原因（`retry_followup()`，字段路径来自 `describe_error()`）；同一个模型不会收到完全相同的请求两次（测试守卫）。
 - Anthropic 直连不启用服务端 `fallbacks`（会悄悄换成别的模型作答，破坏"同一座位同一模型"的前提）。
 
 ### 2.3 流程步骤 = 插件
@@ -89,6 +91,7 @@
 - 组员调用并发执行、互不可见。组员所有渠道都失败时**退出**（之后不再调用），但他已有的答案 / 修订稿仍参与汇总。
 - 步骤需要用户先拍板时抛 `NeedsApproval(card, key)`（视频生成确认、预算已用满）：引擎创建确认点并暂停，回复后重新执行该步骤，步骤用 `ctx.approval(key)` 读取回复；步骤做到一半停下后重新进入时不再重复检查开始前的预估 / 超支（`_answered_midstep`）。
 - 启动时用 `check_pipelines()` 检查配置里出现的步骤都已注册。
+- **媒体步骤（讨论模式）的提示词来源**：汇总的 `usable_final_answer`；汇总失败（降级 / 占位文字，`is_placeholder_text()`）时**绝不**把占位文字当作生成提示词——改由一位随机在场成员按 `media_rewrite/v1` 根据全体修订稿重写（结果存 `outputs` kind=`media_prompt`，恢复时不重复调用）；重写也失败则跳过媒体生成并在步骤说明里提示，不花钱。
 - 揭晓步骤只标记"可以揭晓"，真正的揭晓由用户点击触发。
 - **编排引擎**（`core/orchestrator`）：路由 → 单题花费确认（可改选其他档位）→ 逐步执行（每步前按该步预估查预算；组员少于 `min_members` 时询问，同意一次对整张桌子有效）→ 满足条件时**询问**是否升级（确认后新建 `table_no + 1` 的桌子）→ 完成并回写路由记录。`open(..., anonymous=False)` 记录匿名开关。需要用户拍板时创建确认点并返回，`respond()` 回复后继续；`resume()` 从数据库继续，已完成的步骤不重复。每张桌子的执行计划（方案、流程、代号 → 模型、统筹、预估）存在 `session_tables`。
 - 用户在预算卡片上选"超出预算继续"后，本场讨论不再拦截（`budget_override`）。
@@ -153,9 +156,10 @@
 ### 2.9 工具（`core/tools/`、`steps/tooluse.py`）
 - **文字协议**（`tools/protocol.py`）：成员在输出中写 `<tool_call name="python">代码</tool_call>`、`<tool_call name="write_file" path="x.md">内容</tool_call>`、`<tool_call name="generate_image" path="x.png">画面描述</tool_call>`；代码执行后把 `<tool_result>` 追加到同一对话再调用，直到不再申请工具；最终结果去掉工具调用。不用各家原生 function calling（格式不一、部分模型不支持）。
 - 工具说明 `prompts/tools`（system 段接在该步骤系统提示后，user 段用于每轮发回结果）；**同一步骤所有成员的工具、限额、说明完全相同**。可用工具 = `roundtable.yaml` 的 `tools.by_step` ∩ 当前可用（python 需要沙箱，generate_image 需要可用的 `image_gen` 模型）。默认：作答 / 修订 / 完成子任务 / 修改：全部；互评 / 交叉审查：python；合并：python、write_file；其他步骤没有。
-- 限额：每次作答最多 `max_rounds` 轮；python 每步 `max_runs` 次、`timeout_s`、`memory_mb`、输出截断；文件单个 / 每场合计大小、每步个数；每步最多生成 `image.max_per_step` 张图；每轮前查预算，额度用完时工具返回"额度已用完"。达到轮数仍申请工具时去掉调用作为结果。
+- 限额：每次作答最多 `max_rounds` 轮；python 每步 `max_runs` 次、`timeout_s`、`memory_mb`、输出截断；文件单个 / 每场合计大小、每步个数；每步最多生成 `image.max_per_step` 张图；每步最多搜索 `search.max_per_step` 次（默认 2）；每轮前查预算，额度用完时工具返回"额度已用完"。达到轮数仍申请工具时去掉调用作为结果。
 - **沙箱**（`tools/sandbox.py`，`tools.python.backend`）：`wasm`（默认）= Deno + Pyodide，Deno 只能读运行时目录和本次工作目录、只能写 `out/`，没有网络 / 环境变量 / 子进程权限，`runner.mjs` 把 `in/`、`out/` 复制进内存文件系统并屏蔽启动子进程的函数；`docker`（可选，`sandbox/Dockerfile`）= `--network none`、只读根目录、内存 / 进程数限制、`--cap-drop ALL`、非 root、只挂载 `in/`(ro)、`out/`、`main.py`(ro)。两者都由宿主限时、用 psutil 监视内存与 `out/` 大小、截断输出，子进程环境变量只有必需的几项。没有后端时 python 关闭，绝不在本机直接运行。运行时由 `scripts/setup_sandbox.py` 安装到用户缓存目录（不在项目目录，脚本拒绝装到项目里）。越权测试 `tests/core/tools/test_sandbox_escape.py`（没有后端时跳过）。
 - **工作目录**（`tools/files.py` 的 `Workspace`）：每位成员每张桌子一个系统临时目录，`in/` = 附件原文件，`out/` = 生成的文件（跨步骤保留，重启后从数据库恢复）。每次工具调用后收集 `out/`：扩展名白名单、拒绝符号链接与硬链接、文件名清理（`clean_path`）、大小与个数限制；通过的按内容哈希存放并登记到 `files`（作者代号、步骤、来源工具调用），不合格的删除并告诉成员。
+- **图片模型档位**：`gpt-image-1-mini`（节电档，默认）、`gpt-image-2` 与 `gemini-3.1-flash-image`（旗舰档，同档内随机；后者实测约 $0.067 / 张，比 gpt-image-2 还贵，所以不在节电档）。
 - **图像生成**（带风格参考图时见 §2.10：`refs` 属性、优先 `image_edit` 模型）：由 `seat: false`（不上桌、不需要档位）、带 `image_gen` 标签的最便宜可用模型完成（OpenRouter 用 `modalities`，Gemini 返回 `inlineData`，`RawCompletion.images`）；描述经身份遮蔽后放进 `prompts/image_gen`；调用记为 `role="tool"`、代号为申请的成员，照常计费。
 - **转交**：成员生成的文件（最新版本）以 `<files>` 块附在他的答案 / 成果后面交给其他成员与统筹（`TableContext.files_note()`，文本类附上前 `share_text_chars` 字，其他只列名称、类型、大小）。**生成的图片**（png / jpg / gif / webp）对带 `vision` 标签的模型作为随附图片发送（`messages_for()` → `_attach_generated_images()`，标签上注明 `attached="随附图片 N"`，每次调用最多 `files.share_images` 张、每张不超过 `share_image_mb`），其他模型只看到名称；这与附件一样只是呈现方式的差别。
 - **中文字体**：`setup_sandbox.py` 下载固定版本的 Noto Sans SC（校验 sha256）到运行时目录 `fonts/cjk.otf`；`runner.mjs` 放到 `/usr/share/fonts/roundtable/cjk.otf`，代码用到绘图时登记为 matplotlib 默认字体（Pillow 可直接用该路径）；docker 镜像中是同一文件与路径（`MATPLOTLIBRC`）。`--check` 在缺字体时报错，`start.bat` 会补装。
@@ -220,6 +224,13 @@
 - 外部返回的错误文本先脱敏、截断再放进异常；异常用 `from None` 切断原始异常链。
 - 每个 `Secret` 自动登记到进程级脱敏表，日志记录创建时统一脱敏（覆盖第三方库的 DEBUG 日志和回溯）。
 - 测试用的假 key 用字符串拼接生成，避免被仓库密钥扫描误报；提交前检查 diff。
+
+## 5.1 产品原则（日常模式与群聊，适用于 `docs/PLAN.md` 的 v3 方案）
+1. 成员**坦诚自己是 AI**，不假装是真人、不编造现实经历；被问到时直接承认。
+2. **不设计制造依赖的机制**（连续打卡、挽留、情感绑架、制造焦虑）；适时鼓励用户与现实中的朋友、家人联系。
+3. **不一味附和**：有不同意见或发现错误时直说，并给出理由。
+4. **记忆和聊天记录只存本地**（SQLite），不上传、不用于训练；用户可随时查看、修改、删除、一键清空。
+5. 工作模式继续使用中立提示词，**不受任何人设影响**（有测试）；人设只用于群聊。
 
 ## 6. 工作流程
 - **每个阶段完成后 git 提交**，提交信息注明阶段（如 `phase 4: allocation`）。

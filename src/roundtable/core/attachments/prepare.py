@@ -70,7 +70,9 @@ async def prepare_attachments(
             for m in rendered.messages
         )
         try:
-            completion = await router.complete(model.id, messages, {"max_tokens": max_tokens})
+            completion = await router.complete(
+                model.id, messages, {"max_tokens": max_tokens, "reasoning": {"effort": "low"}}
+            )
         except (AllChannelsFailed, NoChannelAvailable) as exc:
             repo.record_call(
                 session_id,

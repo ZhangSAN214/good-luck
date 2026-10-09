@@ -71,6 +71,8 @@ class RawCompletion:
     reported_cost_usd: float | None = None
     truncated: bool = False  # 达到输出长度上限被截断（max_tokens）
     images: tuple[Media, ...] = ()  # 图像生成模型返回的图片
+    finish_reason: str | None = None  # 渠道返回的结束原因（stop / length / …），原样记录
+    reasoning_tokens: int = 0  # 其中用于思考的 token（已含在 output_tokens 内）
 
 
 @dataclass(frozen=True)
@@ -132,6 +134,12 @@ class Completion:
     attempts: tuple[Attempt, ...] = field(default_factory=tuple)
     truncated: bool = False  # 输出达到长度上限被截断
     images: tuple[Media, ...] = ()  # 图像生成模型返回的图片
+    finish_reason: str | None = None
+    reasoning_tokens: int = 0
+
+    @property
+    def visible_chars(self) -> int:
+        return len(self.text.strip())
 
     @property
     def failed_over(self) -> bool:

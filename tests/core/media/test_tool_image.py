@@ -15,7 +15,7 @@ CHAT_MODEL = "google/gemini-3.1-flash-image"  # 对话接口
 IMAGES_MODEL = "openai/gpt-image-1-mini"  # 专门的图像接口
 
 
-def box_for(rig: Rig) -> ToolBox:
+def box_for(rig: Rig, tier: str = "budget") -> ToolBox:
     return ToolBox(
         session_id=rig.sid,
         table_no=0,
@@ -25,7 +25,7 @@ def box_for(rig: Rig) -> ToolBox:
         repo=rig.rt.repo,
         store=FileStore(None),
         scrubber=rig.rt.scrubber,
-        media_tier="budget",
+        media_tier=tier,
     )
 
 
@@ -83,7 +83,7 @@ async def test_gpt_image_models_use_the_images_interface(rig: Rig):
 
 
 async def test_a_failing_model_is_replaced_by_the_other_one_of_the_tier(rig: Rig):
-    box = box_for(rig)
+    box = box_for(rig, "flagship")
     try:
         queue_chat_image(rig)
         first = box.image_model()

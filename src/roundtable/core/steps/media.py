@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from dataclasses import dataclass, replace
 from typing import Any
 
@@ -27,11 +28,13 @@ from .base import (
     StepFailed,
     StepResult,
     TableContext,
+    answer_block,
     call_and_parse,
+    call_model,
     neutralize,
     register_step,
 )
-from .schemas import _Loose
+from .schemas import _Loose, is_placeholder_text
 
 STEP = "media"
 TAGS = ("generation_prompt", "request", "result", "review")
@@ -226,15 +229,23 @@ class MediaStep:
         if ctx.media is None or kind is None:
             return StepResult(self.name, notes=("本场没有选择媒体输出",))
         synthesis = ctx.state.synthesis
-        if synthesis is None or not synthesis.output.final_answer.strip():
-            raise StepFailed("没有可用的生成提示词（汇总结果为空）")
+        if synthesis is None:
+            raise StepFailed("没有可用的生成提示词（没有汇总结果）")
         rules = ctx.config.roundtable.media
         reason = ctx.media.unavailable_reason(kind, ctx.media_tier)
         if reason:
             return StepResult(self.name, notes=(reason,))
         notes: list[str] = []
         calls = 0
-        prompt = synthesis.output.final_answer.strip()
+        prompt = synthesis.usable_final_answer
+        if prompt is None:
+            # 汇总失败的占位文字绝不能当作提示词：改由一位成员根据修订稿重写
+            prompt, made = await self._rewrite_prompt(ctx, kind)
+            calls += made
+            if prompt is None:
+                note = "汇总失败，也没能从各组员的答案中重写出生成提示词，已跳过媒体生成"
+                return StepResult(self.name, calls=calls, notes=(note,))
+            notes.append("汇总失败，生成提示词由一位成员根据修订稿重新写成")
         for round_no in range(1, rules.max_rounds + 1):
             if round_no > 1:
                 prompt = self._next_prompt(ctx, round_no - 1) or prompt
@@ -275,14 +286,62 @@ class MediaStep:
     # --- 持久化的评审与决定 ---------------------------------------------------------
 
     def _rows(self, ctx: TableContext, kind: str, round_no: int) -> list[dict[str, Any]]:
-        import json
-
         out = []
         for o in ctx.repo.outputs(ctx.session_id, table_no=ctx.table_no, kind=kind):
             data = json.loads(o["content"])
             if o["step"] == STEP and data.get("round") == round_no:
                 out.append({"code": o["code"], **data})
         return out
+
+    async def _rewrite_prompt(self, ctx: TableContext, kind: str) -> tuple[str | None, int]:
+        """汇总失败时：随机一位有答案的成员根据全体修订稿写生成提示词（结果入库，恢复时不重复调用）。"""
+        saved = ctx.repo.outputs(ctx.session_id, table_no=ctx.table_no, kind="media_prompt")
+        if saved:
+            text = json.loads(saved[-1]["content"])["prompt"]
+            return (None if is_placeholder_text(text) else text), 0
+        texts = {
+            c: (ctx.state.revisions[c].answer if c in ctx.state.revisions else a)
+            for c, a in ctx.state.answers.items()
+            if c in ctx.active
+        }
+        texts = {c: t for c, t in texts.items() if not is_placeholder_text(t)}
+        if not texts:
+            return None, 0
+        blocks = "\n\n".join(
+            answer_block(ctx.label(c), ctx.scrub(texts[c]))
+            for c in shuffled(sorted(texts), ctx.rng)
+        )
+        rendered = ctx.prompts.get("media_rewrite", ctx.prompt_version("media_rewrite")).render(
+            medium=KIND_LABELS[kind], question=ctx.question.text, answers=blocks
+        )
+        calls = 0
+        for code in shuffled(sorted(texts), ctx.rng)[:2]:  # 第一位失败时换另一位，不原样重发
+            outcome = await call_model(
+                ctx,
+                step=STEP,
+                role="member",
+                model_id=ctx.members[code],
+                prompt=rendered,
+                code=code,
+            )
+            calls += 1
+            if outcome.completion is None:
+                ctx.drop(code, STEP, "调用失败")
+                continue
+            text = outcome.completion.text.strip().strip("`").strip()
+            if is_placeholder_text(text) or len(text) < 8:
+                continue
+            ctx.repo.save_output(
+                ctx.session_id,
+                table_no=ctx.table_no,
+                step=STEP,
+                kind="media_prompt",
+                code=code,
+                content={"prompt": text},
+                call_id=outcome.call_id,
+            )
+            return text, calls
+        return None, calls
 
     def _next_prompt(self, ctx: TableContext, round_no: int) -> str | None:
         rows = self._rows(ctx, "media_decision", round_no)

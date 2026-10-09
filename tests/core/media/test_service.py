@@ -17,7 +17,7 @@ WHERE = Placement(table_no=0, step="media", round_no=1)
 async def test_image_generation_registers_file_job_and_billing(rig: Rig):
     svc = rig.service()
     res = await svc.generate("image", "一只坐在窗台上的橘猫", WHERE, tier="budget")
-    assert res.ok and res.file_id and res.model_id in {"gemini-3.1-flash-image", "gpt-image-1-mini"}
+    assert res.ok and res.file_id and res.model_id == "gpt-image-1-mini"  # 节电档的图片模型只有它
     row = rig.rt.repo.file(rig.sid, res.file_id)
     assert (row["kind"], row["mime"], row["step"], row["path"]) == (
         "image",
@@ -40,7 +40,8 @@ async def test_image_generation_registers_file_job_and_billing(rig: Rig):
 
 async def test_tier_selects_models_by_tag_and_tier_only(rig: Rig):
     svc = rig.service()
-    assert svc.model_for("image", "flagship").id == "gpt-image-2"
+    assert svc.model_for("image", "budget").id == "gpt-image-1-mini"
+    assert svc.model_for("image", "flagship").id in {"gpt-image-2", "gemini-3.1-flash-image"}
     assert svc.model_for("video", "budget").id == "alibaba-wan-video"
     assert svc.model_for("video", "flagship").id == "veo-3.1"
     assert (
@@ -53,7 +54,13 @@ async def test_tier_selects_models_by_tag_and_tier_only(rig: Rig):
         picks.add(
             rig.service().__class__(**{**_kw(rig), "seed": seed}).model_for("image", "budget").id
         )
-    assert picks == {"gemini-3.1-flash-image", "gpt-image-1-mini"}  # 同档内随机
+    assert picks == {"gpt-image-1-mini"}  # 节电档只有它（实测更贵的 gemini 图像模型在旗舰档）
+    flagship = set()
+    for seed in range(40):
+        flagship.add(
+            rig.service().__class__(**{**_kw(rig), "seed": seed}).model_for("image", "flagship").id
+        )
+    assert flagship == {"gpt-image-2", "gemini-3.1-flash-image"}  # 同档内随机
 
 
 def _kw(rig: Rig) -> dict:
@@ -219,7 +226,9 @@ async def test_image_failure_is_recorded_without_cost(rig: Rig):
 def test_estimate_uses_unit_prices(rig: Rig):
     svc = rig.service()
     assert svc.estimate("video", "flagship") == pytest.approx(0.40 * 5)
-    assert svc.estimate("image", "flagship") == pytest.approx((300 * 8.0 + 1056 * 30.0) / 1e6)
+    # 旗舰档有两个图片模型（同档内随机），估算按本场选中的那个
+    options = [(300 * 8.0 + 1056 * 30.0) / 1e6, (300 * 0.50 + 1290 * 60.0) / 1e6]
+    assert min(abs(svc.estimate("image", "flagship") - o) for o in options) < 1e-9
     # 默认的语音模型按 token 计价：输入 1000 token、输出 1000 × 3 个音频 token
     assert svc.estimate("speech", chars=1000) == pytest.approx((1000 * 0.5 + 3000 * 9.0) / 1e6)
 
@@ -326,19 +335,21 @@ async def test_the_api_is_chosen_per_model(rig: Rig):
     await svc.generate("image", "猫", Placement(0, "media", 1), tier="flagship")
     await svc.generate("image", "猫", Placement(0, "media", 2), tier="budget")
     apis = {c[1]: c[5] for c in rig.calls("image")}
-    assert apis["openai/gpt-image-2"] == "images"
-    assert set(apis.values()) <= {"images", "chat"} and apis["openai/gpt-image-2"] == "images"
+    assert apis["openai/gpt-image-1-mini"] == "images"  # 节电档
+    assert set(apis.values()) <= {"images", "chat"}
+    if "openai/gpt-image-2" in apis:
+        assert apis["openai/gpt-image-2"] == "images"
     if "google/gemini-3.1-flash-image" in apis:
         assert apis["google/gemini-3.1-flash-image"] == "chat"
 
 
 async def test_a_failed_model_is_replaced_by_another_one_of_the_same_tier(rig: Rig):
     svc = rig.service()
-    first = svc.model_for("image", "budget")
+    first = svc.model_for("image", "flagship")
     rig.fake.broken_models = {first.id, f"google/{first.id}", f"openai/{first.id}"}
-    res = await svc.generate("image", "猫", WHERE, tier="budget")
+    res = await svc.generate("image", "猫", WHERE, tier="flagship")
     assert res.ok and res.model_id != first.id
-    assert rig.config.models.get(res.model_id).tier == "budget"  # 同档
+    assert rig.config.models.get(res.model_id).tier == "flagship"  # 同档
     jobs = rig.rt.repo.media_jobs(rig.sid)
     assert [j["state"] for j in jobs] == ["failed", "completed"]
     assert [j["attempt"] for j in jobs] == [1, 2]
@@ -352,7 +363,7 @@ async def test_all_models_of_the_tier_failing_reports_failure(rig: Rig):
     rig.fake.broken_models = {
         r.model for m in rig.config.models.models if "image_gen" in m.tags for r in m.routes
     }
-    res = await svc.generate("image", "猫", WHERE, tier="budget")
+    res = await svc.generate("image", "猫", WHERE, tier="flagship")
     assert not res.ok and res.error
     states = [j["state"] for j in rig.rt.repo.media_jobs(rig.sid)]
     assert states and set(states) == {"failed"} and len(states) >= 2  # 每个候选都试过
@@ -360,9 +371,9 @@ async def test_all_models_of_the_tier_failing_reports_failure(rig: Rig):
 
 async def test_references_prefer_image_edit_candidates_when_failing_over(rig: Rig):
     svc = rig.service()
-    first = svc.model_for("image", "budget", references=True)
+    first = svc.model_for("image", "flagship", references=True)
     rig.fake.broken_models = {r.model for r in first.routes}
-    res = await svc.generate("image", "猫", WHERE, tier="budget", references=[REF])
+    res = await svc.generate("image", "猫", WHERE, tier="flagship", references=[REF])
     assert res.ok and res.references == 1
     assert "image_edit" in rig.config.models.get(res.model_id).tags
 

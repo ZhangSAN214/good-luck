@@ -55,6 +55,14 @@ class ChannelSpec(_Strict):
     extra_body: dict[str, Any] = Field(default_factory=dict)
     # 参数改名（如 OpenAI 新模型要求 max_completion_tokens 而不是 max_tokens）
     param_aliases: dict[str, str] = Field(default_factory=dict)
+    # 步骤参数里的中立参数 reasoning（思考强度 / 预算）怎么发给该渠道：
+    # object = {"reasoning": {...}}（OpenRouter）；effort = {"reasoning_effort": "low"}；
+    # none = 不发送（渠道不支持时忽略，不报错）。不填：聚合平台 object，其余 none
+    reasoning: Literal["object", "effort", "none"] | None = None
+
+    @property
+    def reasoning_style(self) -> str:
+        return self.reasoning or ("object" if self.kind == "aggregator" else "none")
 
     @field_validator("key_env")
     @classmethod
@@ -429,7 +437,7 @@ class ImageTool(_Strict):
 class SearchTool(_Strict):
     """联网搜索：每步最多搜索几次、读取几个网页；结果条数与网页正文长度。"""
 
-    max_per_step: int = Field(default=3, ge=0)
+    max_per_step: int = Field(default=2, ge=0)
     max_fetch_per_step: int = Field(default=3, ge=0)
     max_results: int = Field(default=5, ge=1, le=20)
     fetch_max_chars: int = Field(default=8000, ge=500)
@@ -528,6 +536,29 @@ class Limits(_Strict):
     max_running_sessions: int = Field(default=3, ge=1)  # 同时在后台执行的讨论数
 
 
+class LengthGuard(_Strict):
+    """输出被长度上限截断（finish_reason=length）而可见文字很少 = 思考 token 挤占了正文。
+
+    处理：不原样重试，改用较低的思考强度、较高的输出上限再调用一次（本次调用单独计费、单独记录）。
+    """
+
+    enabled: bool = True
+    min_visible_chars: int = Field(default=200, ge=0)  # 截断且可见文字少于这个数才触发
+    max_tokens_factor: float = Field(default=1.5, ge=1.0)
+    max_tokens_cap: int = Field(default=12000, gt=0)
+    retry_effort: Literal["minimal", "low", "medium", "high"] = "low"
+
+    def escalate(self, params: dict[str, Any]) -> dict[str, Any]:
+        out = dict(params)
+        base = int(out.get("max_tokens") or 0)
+        if base:
+            out["max_tokens"] = min(
+                max(int(base * self.max_tokens_factor), base), self.max_tokens_cap
+            )
+        out["reasoning"] = {"effort": self.retry_effort}
+        return out
+
+
 class RoundtableConfig(_Strict):
     seats: int = Field(ge=2)
     min_members: int = Field(default=2, ge=2)
@@ -544,6 +575,7 @@ class RoundtableConfig(_Strict):
     channel_mode: ChannelMode = "auto"
     request: RequestPolicy = RequestPolicy()
     step_params: dict[str, dict[str, Any]] = Field(default_factory=dict)
+    length_guard: LengthGuard = LengthGuard()
     review_quality: ReviewQuality = ReviewQuality()
     effort_check: EffortCheck = EffortCheck()
     uploads: UploadRules = UploadRules()

@@ -447,7 +447,8 @@ class Repository:
                 "INSERT INTO calls (session_id, table_no, step, role, code, model_id, prompt_role,"
                 " prompt_version, prompt_sha256, input, output, channel, channel_kind, route_model,"
                 " input_tokens, output_tokens, cached_tokens, cost_usd, cost_source, latency_s,"
-                " error, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                " error, created_at, finish_reason, reasoning_tokens)"
+                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     session_id,
                     table_no,
@@ -471,6 +472,8 @@ class Repository:
                     c.latency_s if c else None,
                     str(failure) if failure else None,
                     self.clock(),
+                    c.finish_reason if c else None,
+                    c.reasoning_tokens if c else 0,
                 ),
             )
             call_id = cur.lastrowid

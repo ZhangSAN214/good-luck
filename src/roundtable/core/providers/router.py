@@ -269,6 +269,8 @@ class ChannelRouter:
             attempts=tuple(attempts),
             truncated=raw.truncated,
             images=raw.images,
+            finish_reason=raw.finish_reason,
+            reasoning_tokens=raw.reasoning_tokens,
         )
 
     async def aclose(self) -> None:

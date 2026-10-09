@@ -64,6 +64,7 @@ class AnthropicProvider(Provider):
         self, model: str, messages: Sequence[Message], params: dict[str, Any]
     ) -> RawCompletion:
         params = dict(params)
+        params.pop("reasoning", None)  # 未启用扩展思考，中立的思考参数不适用
         kwargs: dict[str, Any] = {
             "model": model,
             "max_tokens": params.pop("max_tokens", DEFAULT_MAX_TOKENS),
@@ -107,6 +108,7 @@ class AnthropicProvider(Provider):
             output_tokens=usage.output_tokens,
             cached_tokens=cache_read,
             truncated=response.stop_reason == "max_tokens",
+            finish_reason=response.stop_reason,
         )
 
     async def aclose(self) -> None:

@@ -374,3 +374,25 @@ async def test_table_cost_and_call_samples(repo):
     assert len(rows) == 6 and {r["step"] for r in rows} == {"answer"}
     assert set(rows[0]) >= {"model_id", "input_tokens", "output_tokens", "code", "error"}
     assert len(repo.call_samples(sessions=1)) == 2  # 只看最近的若干场
+
+
+async def test_call_records_finish_reason_and_reasoning_tokens(repo):
+    from roundtable.core.providers import ChannelRouter, RawCompletion
+
+    fake = FakeProvider("google")
+    fake.queue(
+        "gemini-3.8-flash",
+        RawCompletion(
+            "短", output_tokens=4000, truncated=True, finish_reason="length", reasoning_tokens=3900
+        ),
+    )
+    providers = {n: FakeProvider(n) for n in CONFIG.models.channels} | {"google": fake}
+    router = ChannelRouter(CONFIG.models, providers, policy=CONFIG.roundtable.request)
+    completion = await router.complete("gemini-3.8-flash", MSG)
+    sid = repo.create_session("q", seed=1)
+    call_id = repo.record_call(
+        sid, step="answer", role="member", model_id="gemini-3.8-flash", messages=MSG,
+        table_no=0, code="甲", completion=completion,
+    )  # fmt: skip
+    row = repo.conn.execute("SELECT * FROM calls WHERE id = ?", (call_id,)).fetchone()
+    assert (row["finish_reason"], row["reasoning_tokens"]) == ("length", 3900)

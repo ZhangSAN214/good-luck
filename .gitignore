@@ -23,3 +23,4 @@ htmlcov/
 
 # pip download 等产生的临时安装包
 *.whl
+check_result.txt
