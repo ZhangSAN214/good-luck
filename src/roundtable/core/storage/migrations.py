@@ -269,4 +269,41 @@ CREATE TABLE files (
 CREATE INDEX idx_files_session ON files(session_id, table_no, code);
 """,
     ),
+    (
+        8,
+        "媒体生成任务",
+        """
+-- 每次媒体生成（图片 / 语音 / 视频）一行；视频是异步任务，external_id / polling_url 存库，
+-- 暂停或重启后从数据库继续轮询同一个任务，不会重复提交（不重复计费）。
+-- 同一处（桌、步骤、成员、子任务、轮次）重试时 attempt 递增，最后一行为准。
+-- state：submitted 已提交 / pending 排队 / running 生成中 / completed / failed / timeout
+-- cost_usd 与 calls 表中 role = media 的记录一致；file_id 指向 files 表
+CREATE TABLE media_jobs (
+    id           INTEGER PRIMARY KEY,
+    session_id   TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    table_no     INTEGER NOT NULL,
+    step         TEXT NOT NULL,
+    code         TEXT,
+    subtask      TEXT,
+    round        INTEGER NOT NULL,
+    attempt      INTEGER NOT NULL DEFAULT 1,
+    kind         TEXT NOT NULL,
+    model_id     TEXT NOT NULL,
+    channel      TEXT,
+    route_model  TEXT,
+    external_id  TEXT,
+    polling_url  TEXT,
+    state        TEXT NOT NULL,
+    prompt       TEXT NOT NULL,
+    params       TEXT NOT NULL DEFAULT '{}',   -- JSON
+    cost_usd     REAL NOT NULL DEFAULT 0,
+    error        TEXT,
+    file_id      TEXT,
+    submitted_at REAL,                          -- Unix 秒，用于计算轮询超时
+    created_at   TEXT NOT NULL,
+    updated_at   TEXT NOT NULL
+);
+CREATE INDEX idx_media_jobs_session ON media_jobs(session_id, table_no, step);
+""",
+    ),
 ]

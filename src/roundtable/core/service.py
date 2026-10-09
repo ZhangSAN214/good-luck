@@ -17,6 +17,7 @@ from typing import Any
 
 from roundtable.core.attachments import Attachment, UploadError, ingest
 from roundtable.core.attachments.detect import TYPES as UPLOAD_TYPES
+from roundtable.core.media import KIND_LABELS, KINDS, MediaService
 from roundtable.core.orchestrator import Orchestrator, OrchestratorError, RunResult
 from roundtable.core.preview import render_preview
 from roundtable.core.routing import (
@@ -108,6 +109,7 @@ class RoundtableService:
                 "types": sorted(UPLOAD_TYPES),
             },
             "tools": self._tools_status(),
+            "media": self._media_status(),
             "min_members": cfg.roundtable.min_members,
             "confirm_threshold_usd": cfg.routing.confirm_threshold_usd,
             "max_members": cfg.roundtable.seats,
@@ -155,12 +157,16 @@ class RoundtableService:
         workflow: str = "discussion",
         seed: int | None = None,
         attachments: Sequence[str] = (),
+        media: str | None = None,
+        media_tier: str | None = None,
     ) -> str:
         """创建会话并在后台开始执行，立即返回会话 id。
 
         tier：档位名或 "custom"（自选，models 为上桌的模型）；anonymous 默认关闭；
         workflow：discussion（讨论模式）或 collab（协同模式）；
-        attachments：先用 upload() 上传得到的附件 id。
+        attachments：先用 upload() 上传得到的附件 id；
+        media：讨论模式的输出类型（image / speech / video，默认文字）；
+        media_tier：媒体模型的档位（budget / flagship）。
         """
         text = question.strip()
         if not text:
@@ -168,9 +174,10 @@ class RoundtableService:
         if len(text) > MAX_QUESTION_CHARS:
             raise ServiceError(f"题目过长（超过 {MAX_QUESTION_CHARS} 字）")
         try:
-            choice = UserChoice(tier, tuple(models), coordinator, workflow)
+            choice = UserChoice(tier, tuple(models), coordinator, workflow, media, media_tier)
         except (RoutingError, ValueError) as exc:
             raise ServiceError(str(exc)) from None
+        self._check_media(media, media_tier)
         if tier is not None and tier != CUSTOM and tier not in self.rt.config.routing.plans:
             raise ServiceError(f"未知的档位 {tier!r}")
         if not self.rt.router.available_models():
@@ -183,6 +190,23 @@ class RoundtableService:
             raise ServiceError(str(exc)) from None
         self._spawn(sid, self.orc.run(sid))
         return sid
+
+    def _check_media(self, media: str | None, media_tier: str | None) -> None:
+        if media is None:
+            return
+        reason = self._media_service().unavailable_reason(media, media_tier)
+        if reason:
+            raise ServiceError(reason)
+
+    def _media_service(self) -> MediaService:
+        return MediaService(
+            session_id="",
+            config=self.rt.config,
+            router=self.rt.router,
+            repo=self.rt.repo,
+            store=self.rt.files,
+            scrubber=self.rt.scrubber,
+        )
 
     # --- 提交前预估 ------------------------------------------------------------------
 
@@ -197,6 +221,8 @@ class RoundtableService:
         anonymous: bool = False,
         attachments: Sequence[str] = (),
         seed: int | None = None,
+        media: str | None = None,
+        media_tier: str | None = None,
     ) -> dict[str, Any]:
         """提交前预估：各模式 × 各档位（及自选）的上桌人数、缺席、预计花费与步骤明细。
 
@@ -209,6 +235,11 @@ class RoundtableService:
         if workflow is not None and workflow not in WORKFLOWS:
             raise ServiceError(f"未知的模式 {workflow!r}")
         custom = None
+        try:
+            UserChoice(None, (), None, workflow or "discussion", media, media_tier)
+        except (RoutingError, ValueError) as exc:
+            raise ServiceError(str(exc)) from None
+        self._check_media(media, media_tier)
         if tier == CUSTOM:
             try:
                 custom = UserChoice(CUSTOM, tuple(models), coordinator)
@@ -225,6 +256,8 @@ class RoundtableService:
             text,
             tuple(r["kind"] for r in rows),
             attachment_tokens(rows, cfg.routing.estimate),
+            media,
+            media_tier,
         )
         seed = secrets.randbelow(2**31) if seed is None else seed
         assessment, options = preview_estimates(
@@ -353,6 +386,10 @@ class RoundtableService:
         data["attachments"] = self._attachments(session_id)
         data["files"] = self._files(session_id)
         data["tool_calls"] = self._tool_calls(session_id, view.revealed)
+        data["media"] = self._media_jobs(session_id, view.revealed)
+        choice = self.rt.repo.session_row(session_id)["choice"] or {}
+        data["media_kind"] = choice.get("media")
+        data["media_tier"] = choice.get("media_tier")
         return data
 
     # --- 工具与生成的文件 ----------------------------------------------------------
@@ -370,6 +407,53 @@ class RoundtableService:
         elif not self.rt.search.can_fetch:
             unavailable["fetch"] = "当前的搜索服务都不支持读取网页正文"
         return {"enabled": rules.enabled, "by_step": rules.by_step, "unavailable": unavailable}
+
+    def _media_status(self) -> dict[str, Any]:
+        """各种媒体的可用情况（不含模型名）：可选的档位、不可用的原因、确认与轮数规则。"""
+        rules = self.rt.config.roundtable.media
+        svc = self._media_service()
+        kinds = {}
+        for kind in KINDS:
+            tiers = {tier: svc.model_for(kind, tier) is not None for tier in ("budget", "flagship")}
+            kinds[kind] = {
+                "label": KIND_LABELS[kind],
+                "available": svc.unavailable_reason(kind) is None,
+                "reason": svc.unavailable_reason(kind),
+                "tiers": tiers,
+                "estimate_usd": svc.estimate(kind, rules.default_tier, chars=500),
+            }
+        return {
+            "enabled": rules.enabled,
+            "default_tier": rules.default_tier,
+            "max_rounds": rules.max_rounds,
+            "confirm_video": rules.confirm_video,
+            "kinds": kinds,
+        }
+
+    def _media_jobs(self, session_id: str, revealed: bool) -> list[dict[str, Any]]:
+        """每次媒体生成：提示词、第几轮、花费、状态、文件；模型和渠道只在身份公开后给出。"""
+        scrub = (lambda t: t) if revealed else self.rt.scrubber.scrub
+        return [
+            {
+                "id": j["id"],
+                "table_no": j["table_no"],
+                "step": j["step"],
+                "code": j["code"],
+                "subtask": j["subtask"],
+                "round": j["round"],
+                "attempt": j["attempt"],
+                "kind": j["kind"],
+                "state": j["state"],
+                "prompt": scrub(j["prompt"]),
+                "cost_usd": j["cost_usd"],
+                "error": j["error"],
+                "file_id": j["file_id"],
+                "extra_files": j["params"].get("extra_files", []),
+                "model_id": j["model_id"] if revealed else None,
+                "channel": j["channel"] if revealed else None,
+            }
+            for j in self.rt.repo.media_jobs(session_id)
+        ]
 
     def _files(self, session_id: str) -> list[dict[str, Any]]:
         rows = self.rt.repo.files(session_id)

@@ -16,6 +16,16 @@ export const STEP_LABELS = {
   cross_review: '交叉审查',
   rework: '修改',
   merge: '合并',
+  media: '生成媒体',
+};
+export const MEDIA_LABELS = { image: '图片', speech: '语音', video: '视频' };
+const JOB_STATE = {
+  submitted: ['已提交', ''],
+  pending: ['排队中', 'wait'],
+  running: ['生成中', 'wait'],
+  completed: ['完成', 'ok'],
+  failed: ['失败', 'bad'],
+  timeout: ['超时', 'bad'],
 };
 // 由统筹执行的步骤
 export const COORD_STEPS = new Set(['synthesize', 'decompose', 'assign', 'merge']);
@@ -36,6 +46,7 @@ const CARD_TITLES = {
   budget: '预算',
   members: '组员不足',
   overrun: '花费超出预估',
+  media: '媒体生成',
 };
 export const STATUS_LABELS = {
   created: '准备中',
@@ -225,10 +236,28 @@ export function feedItems(sv, ctx) {
     for (const step of t.pipeline) {
       const outs = outputs.filter((o) => o.table_no === t.table_no && o.step === step);
       const live = ctx.live.table === t.table_no && ctx.live.step === step;
-      cpAt((d) => d.table_no === t.table_no && d.step === step);
-      if (!outs.length && !live) continue;
+      cpAt((d) => d.table_no === t.table_no && d.step === step && !(step === 'media' && d.key));
+      const mediaJobs = step === 'media' ? (sv.media || []).filter((j) => j.table_no === t.table_no && j.step === 'media') : [];
+      const mediaCards = step === 'media' ? cps.filter((c) => c.card.details?.key?.startsWith(`media:${t.table_no}:`)) : [];
+      if (!outs.length && !live && !mediaJobs.length && !mediaCards.length) continue;
       if (step === 'reveal') continue;
       push(`s${t.table_no}:${step}`, `<div class="phase">${esc(STEP_LABELS[step] || step)}</div>`);
+      if (step === 'media') {
+        const roundOf = (o) => parse(o.content)?.round ?? 0;
+        const rounds = [...new Set([...mediaJobs.map((j) => j.round), ...outs.map(roundOf), ...mediaCards.map((c) => Number(c.card.details.key.split(':')[2]))])].sort((a, b) => a - b);
+        for (const r of rounds) {
+          cpAt((d) => d.key === `media:${t.table_no}:${r}`);
+          for (const j of mediaJobs.filter((x) => x.round === r)) push(`mj${j.id}:${j.state}`, mediaJobCard(j, sv, names));
+          const mine = outs.filter((o) => roundOf(o) === r);
+          for (const kind of ['media_review', 'media_decision']) {
+            mine.filter((o) => o.kind === kind).forEach((o, i) => {
+              const html = output(o, names, lazy, null);
+              if (html) push(`mo${t.table_no}:${r}:${kind}:${o.code || ''}:${i}`, html);
+            });
+          }
+        }
+        continue;
+      }
       const shown = new Set();
       const showTools = (code) => {
         const k = code || '';
@@ -261,6 +290,7 @@ export function feedItems(sv, ctx) {
 function modeText(sv, ctx) {
   const tier = sv.tier === 'custom' ? ctx.customLabel : ctx.plans[sv.tier] || sv.tier;
   const parts = [sv.workflow === 'collab' ? '协同' : '讨论', tier];
+  if (sv.media_kind) parts.push(`输出${MEDIA_LABELS[sv.media_kind] || sv.media_kind}`);
   if (sv.anonymous) parts.push('匿名');
   return parts.join(' · ');
 }
@@ -293,6 +323,7 @@ function output(o, names, lazy = new Set(), sources = null) {
   const sp = names.speaker(o.table_no, o.code);
   if (lazy.has(`${o.table_no}:${o.step}:${o.code}`)) sp.tag = LAZY_TAG;
   if (o.kind === 'answer') return msg(sp, '作答', `<div class="bubble">${cite(md(o.content), sources)}</div>`);
+  if (o.kind === 'media_review' || o.kind === 'media_decision') return mediaOutput(o, sp);
   if (o.kind === 'effort') {
     const d = parse(o.content);
     return d ? effort(o, sp, d) : '';
@@ -346,7 +377,7 @@ function collabOutput(o, sp, data, names, sources = null) {
     return msg(sp, '分配', `<div class="bubble">${li(rows)}${why}</div>${fixed}`);
   }
   if (o.kind === 'work') {
-    return msg(sp, `完成 ${names.subtask(t, data.subtask)}`, `<div class="bubble">${cite(md(data.text), sources)}</div>`);
+    return msg(sp, `完成 ${names.subtask(t, data.subtask)}`, `<div class="bubble">${cite(md(data.text), sources)}</div>${mediaFoot(data.media)}`);
   }
   if (o.kind === 'cross_review') return msg(sp, '交叉审查', review(data, names, t));
   if (o.kind === 'rework') {
@@ -355,7 +386,7 @@ function collabOutput(o, sp, data, names, sources = null) {
     const resp = data.responses
       ? `<details class="more"><summary>对审查意见的回应</summary><div>${md(data.responses)}</div></details>`
       : '';
-    return msg(sp, `修改 ${what}`, `<div class="bubble">${cite(md(data.answer), sources)}</div>${resp}`);
+    return msg(sp, `修改 ${what}`, `<div class="bubble">${cite(md(data.answer), sources)}</div>${resp}${mediaFoot(data.media)}`);
   }
   if (o.kind === 'merge') return merged(t, data, names);
   return null;
@@ -394,14 +425,29 @@ export function toolItem(x, names, sid) {
   return `<details class="tool" data-tool="${esc(x.tool)}"><summary><span class="tn">${esc(TOOL_LABELS[x.tool] || x.tool)}</span><span>${esc(sp.name)} · 第 ${esc(x.round)} 轮${esc(dur)}</span>${tag(st, sc)}<span class="meta">${esc(toolSummary(x))}</span></summary>${body}</details>`;
 }
 
-/** 成员生成的文件：预览 / 下载；图片直接显示缩略图。 */
+const PLAYABLE_AUDIO = /^audio\/(mpeg|wav|ogg)$/;
+const PLAYABLE_VIDEO = /^video\/(mp4|webm)$/;
+
+/** 图片直接显示；音频、视频在页面里播放（只播放服务端允许内联的类型，其余只给下载）。 */
+export function mediaPlayer(f, sid) {
+  const src = `/api/sessions/${esc(sid)}/files/${esc(f.id)}?inline=1`;
+  if (f.kind === 'image' && /^image\/(png|jpeg|gif|webp)$/.test(f.mime)) {
+    return `<img class="thumb" data-preview="${esc(f.id)}" alt="${esc(f.path)}" loading="lazy" src="${src}">`;
+  }
+  if (PLAYABLE_AUDIO.test(f.mime)) {
+    return `<audio class="player" controls preload="metadata" src="${src}" aria-label="${esc(f.path)}"></audio>`;
+  }
+  if (PLAYABLE_VIDEO.test(f.mime)) {
+    return `<video class="player" controls preload="metadata" src="${src}" aria-label="${esc(f.path)}"></video>`;
+  }
+  return '';
+}
+
+/** 成员生成的文件：预览 / 下载；图片显示缩略图，音频 / 视频可以直接播放。 */
 export function fileBar(files, sid) {
   const chips = files.map((f) => fileChip(f, sid)).join('');
-  const thumbs = files
-    .filter((f) => f.kind === 'image' && /^image\/(png|jpeg|gif|webp)$/.test(f.mime))
-    .map((f) => `<img class="thumb" data-preview="${esc(f.id)}" alt="${esc(f.path)}" loading="lazy" src="/api/sessions/${esc(sid)}/files/${esc(f.id)}?inline=1">`)
-    .join('');
-  return `<div class="filebar-wrap" style="margin-left:44px"><div class="filebar">${chips}</div>${thumbs}</div>`;
+  const players = files.map((f) => mediaPlayer(f, sid)).join('');
+  return `<div class="filebar-wrap" style="margin-left:44px"><div class="filebar">${chips}</div>${players}</div>`;
 }
 
 export function fileChip(f, sid, withAuthor = '') {
@@ -415,6 +461,7 @@ export function previewHTML(sid, p) {
   const head = `<div class="vh"><b>${esc(f.path)}</b><span class="meta">${bytes(f.size)}</span><a class="btn sm" href="/api/sessions/${esc(sid)}/files/${esc(f.id)}" download>下载</a><button class="btn sm" type="button" data-close>关闭</button></div>`;
   let body;
   if (p.type === 'image') body = `<img alt="${esc(f.path)}" src="/api/sessions/${esc(sid)}/files/${esc(f.id)}?inline=1">`;
+  else if (p.type === 'audio' || p.type === 'video') body = mediaPlayer({ ...f, kind: p.type === 'audio' ? 'audio' : 'video' }, sid) || '<p>这种格式不能在页面中播放，请下载。</p>';
   else if (p.type === 'text') body = `<pre>${esc(p.text)}</pre>${p.truncated ? '<p class="meta">内容较长，已截断；完整内容请下载。</p>' : ''}`;
   else if (p.type === 'table') {
     body = (p.sheets || [])
@@ -423,6 +470,44 @@ export function previewHTML(sid, p) {
     if (p.truncated) body += '<p class="meta">只显示前几行。</p>';
   } else body = `<p>${esc(p.reason || '这个文件无法预览，请下载查看。')}</p>`;
   return `${head}<div class="vb">${body}</div>`;
+}
+
+/** 协同模式媒体子任务：成员写的是生成提示词，这里注明生成的轮次、花费或失败原因。 */
+function mediaFoot(m) {
+  if (!m) return '';
+  const what = MEDIA_LABELS[m.kind] || m.kind;
+  if (!m.ok) return `<div class="meta bad">${esc(what)}生成失败（第 ${esc(m.round)} 轮）：${esc(m.error || '')}</div>`;
+  return `<div class="meta">已生成${esc(what)}（第 ${esc(m.round)} 轮 · ${money(m.cost_usd)}）</div>`;
+}
+
+/** 讨论模式 media 步骤中的评审与统筹决定。 */
+function mediaOutput(o, sp) {
+  const d = parse(o.content);
+  if (!d) return '';
+  if (o.kind === 'media_review') {
+    if (d.degraded || !d.valid) return sys('检查', `${esc(sp.name)} 的评审格式有误或没有写明依据，未采用`, 'bad');
+    const problems = (d.problems || [])
+      .map((p) => `<li><b>${md(p.what)}</b>${p.fix ? ` → ${md(p.fix)}` : ''}</li>`)
+      .join('');
+    const verdict = d.satisfied ? tag('可以交付', 'ok') : tag('需要改进', 'wait');
+    return msg(sp, `评审第 ${d.round} 轮`, `<div class="bubble">${verdict}${problems ? `<ul>${problems}</ul>` : ''}${d.checked ? `<div class="meta">检查了：${md(d.checked)}</div>` : ''}</div>`);
+  }
+  const text = d.satisfied ? '认为可以交付，不再重新生成' : `决定修改提示词重新生成：${md(d.reason)}`;
+  const next = d.satisfied ? '' : `<details class="more"><summary>修改后的提示词</summary><div>${md(d.prompt)}</div></details>`;
+  return msg(sp, `决定（第 ${d.round} 轮）`, `<div class="bubble">${text}</div>${next}`);
+}
+
+/** 一次媒体生成：第几轮、状态、花费、提示词，以及可以直接显示 / 播放的成果。 */
+export function mediaJobCard(j, sv, names) {
+  const [st, sc] = JOB_STATE[j.state] || [j.state, ''];
+  const file = j.file_id ? (sv.files || []).find((f) => f.id === j.file_id) : null;
+  const who = j.code ? names.member(j.code) : '统筹';
+  const where = j.subtask ? `${who} · ${j.subtask}` : STEP_LABELS[j.step] || j.step;
+  const model = j.model_id ? `<span class="ai">${esc(j.model_id)}${j.channel ? ` · ${esc(j.channel)}` : ''}</span>` : '';
+  const players = file ? mediaPlayer(file, sv.id) : '';
+  const dl = file ? `<a class="btn sm" href="/api/sessions/${esc(sv.id)}/files/${esc(file.id)}" download>下载</a>` : '';
+  const err = j.error ? `<div class="meta bad">${esc(j.error)}</div>` : '';
+  return `<div class="mediajob" data-job="${j.id}" data-state="${esc(j.state)}"><div class="who"><b>${esc(MEDIA_LABELS[j.kind] || j.kind)}</b><span class="kind">第 ${j.round} 轮${j.attempt > 1 ? ` · 第 ${j.attempt} 次尝试` : ''}</span><span class="kind">${esc(where)}</span>${tag(st, sc)}<span class="meta">${money(j.cost_usd)}</span>${model}</div>${players}${err}<details class="more"><summary>生成提示词</summary><div>${esc(j.prompt)}</div></details>${dl}</div>`;
 }
 
 function merged(tableNo, d, names) {
@@ -649,7 +734,7 @@ export function flowPanel(sv, live, ctx) {
       const done = t.steps_done.includes(step);
       const now = !done && live.table === t.table_no && live.step === step;
       const cls = done ? 'done' : now ? 'now' : '';
-      const who = COORD_STEPS.has(step) ? '统筹' : step === 'reveal' ? (sv.anonymous ? '讨论结束后由你点「揭晓身份」' : '匿名关闭，身份一直公开') : t.codes.join(' · ');
+      const who = step === 'media' ? '评审者与统筹' : COORD_STEPS.has(step) ? '统筹' : step === 'reveal' ? (sv.anonymous ? '讨论结束后由你点「揭晓身份」' : '匿名关闭，身份一直公开') : t.codes.join(' · ');
       const label = step === 'reveal' ? (sv.anonymous ? '可揭晓' : '结束') : STEP_LABELS[step] || step;
       h += `<div class="pn ${cls}" data-step="${esc(step)}"><span class="dot"></span><span class="t">${esc(label)}<small>${esc(who)}</small></span><span class="pill ${done ? 'okp' : now ? 'run' : ''}">${done ? '完成' : now ? '进行中' : '待开始'}</span></div>`;
     }
@@ -1009,4 +1094,30 @@ export function estimateHTML(est, { workflow, anonymous, plans, customLabel }) {
     if (anonymous) h += '<div>匿名已开启：不显示上桌名单。</div>';
   }
   return h;
+}
+
+// --- 媒体面板 ----------------------------------------------------------------------------
+
+export function mediaPanel(sv, prefix) {
+  if (!sv) return '<p class="empty">提交题目时可以选择输出图片、语音或视频；协同模式由统筹决定哪些子任务要生成媒体。</p>';
+  const names = new Names(sv, prefix);
+  const jobs = sv.media || [];
+  const total = jobs.reduce((a, j) => a + (j.cost_usd || 0), 0);
+  let h = `<h4>媒体花费</h4><div class="big" id="media-cost">${money(total)}</div><div class="hint">共 ${jobs.length} 次生成，已计入本月 / 今日预算。视频每次生成前都会先问你。</div>`;
+  h += '<h4>每次生成</h4>';
+  if (!jobs.length) return h + '<p class="empty">这场没有媒体生成。</p>';
+  h += '<table><thead><tr><th>轮次</th><th>内容</th><th>状态</th><th class="num">花费</th></tr></thead><tbody>';
+  for (const j of jobs) {
+    const [st, sc] = JOB_STATE[j.state] || [j.state, ''];
+    const pill = { ok: 'okp', wait: 'wait', bad: 'badp' }[sc] || '';
+    const who = j.code ? names.member(j.code) : '统筹';
+    const model = j.model_id ? `<div class="hint">${esc(j.model_id)}${j.channel ? ` · ${esc(j.channel)}` : ''}</div>` : '';
+    h += `<tr><td>第 ${j.round} 轮${j.attempt > 1 ? `<div class="hint">第 ${j.attempt} 次尝试</div>` : ''}</td><td>${esc(MEDIA_LABELS[j.kind] || j.kind)} · ${esc(who)}${j.subtask ? ` · ${esc(j.subtask)}` : ''}${model}<details class="more"><summary>提示词</summary><div>${esc(j.prompt)}</div></details></td><td><span class="pill ${pill}">${esc(st)}</span></td><td class="num">${money(j.cost_usd)}</td></tr>`;
+  }
+  h += '</tbody></table><h4>成果</h4><div class="filebar" style="flex-direction:column;align-items:stretch">';
+  for (const j of jobs) {
+    const file = (sv.files || []).find((f) => f.id === j.file_id);
+    if (file) h += fileChip(file, sv.id, `第 ${j.round} 轮 · `) + mediaPlayer(file, sv.id);
+  }
+  return h + '</div>';
 }

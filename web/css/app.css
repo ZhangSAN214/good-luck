@@ -211,6 +211,18 @@ dialog.viewer::backdrop{background:rgba(0,0,0,.5)}
 .viewer td,.viewer th{border:1px solid var(--line);padding:2px 6px;text-align:left}
 .viewer img{max-width:100%}
 
+/* media in the feed */
+.mediajob{margin-left:44px;border:1px solid var(--line);border-radius:12px;background:var(--surface-2);padding:8px 12px;max-width:720px;animation:in .25s ease-out}
+.mediajob .who{margin-bottom:6px}
+.mediajob .meta.bad,.meta.bad{color:var(--bad)}
+.mediajob .more{margin-top:6px}
+.mediajob .btn{display:inline-block;margin-top:6px;text-decoration:none}
+.mediajob[data-state="running"],.mediajob[data-state="pending"]{border-style:dashed}
+.player{display:block;max-width:100%;margin-top:6px;border-radius:8px}
+video.player{width:min(480px,100%);background:#000}
+audio.player{width:min(420px,100%)}
+.viewer .player{margin:0 auto}
+
 /* ---------- inner panel ---------- */
 .panel{min-width:0;min-height:0;display:flex;flex-direction:column;background:var(--inner);color:var(--inner-ink);border-radius:12px;overflow:hidden}
 .phd{padding:12px 14px 0;display:flex;justify-content:space-between;align-items:baseline;gap:8px}
@@ -255,6 +267,7 @@ dialog.viewer::backdrop{background:rgba(0,0,0,.5)}
 .ro p{margin:0;font-size:12px;color:var(--inner-ink)}
 .ro .calls{grid-column:1/-1;font-family:var(--f-mono);font-size:11px;color:var(--inner-muted)}
 .ro .calls div{overflow-wrap:anywhere}
+.panel audio.player,.panel video.player{width:100%}
 .panel .fchip{background:var(--inner-2);border-color:var(--inner-line)}
 .panel .fchip button,.panel .fchip a{background:var(--inner);border-color:var(--inner-line);color:var(--inner-ink)}
 .panel .btn{background:var(--inner-2);border-color:var(--inner-line);color:var(--inner-ink)}

@@ -13,9 +13,10 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
-from roundtable.core.allocation import IdentityScrubber, cheapest
+from roundtable.core.allocation import IdentityScrubber
 from roundtable.core.attachments import Attachment, FileStore
 from roundtable.core.config import AppConfig, ModelSpec
+from roundtable.core.media import pick_media_model
 from roundtable.core.prompts import PromptLibrary
 from roundtable.core.providers import (
     AllChannelsFailed,
@@ -93,6 +94,7 @@ class ToolBox:
         seed: str = "",
         project_root: Path | None = None,
         search: SearchService | None = None,
+        media_tier: str | None = None,
     ) -> None:
         self.session_id, self.table_no = session_id, table_no
         self.config, self.router, self.prompts = config, router, prompts
@@ -103,6 +105,7 @@ class ToolBox:
         self.budget_ok = budget_ok
         self.rng = random.Random(f"{seed}:{table_no}:tools")
         self.project_root = project_root
+        self.media_tier = media_tier
         self.search = search or SearchService({})
         self._workspaces: dict[str | None, Workspace] = {}
         self.usage: Counter[tuple[str, str | None, str]] = Counter()
@@ -116,11 +119,10 @@ class ToolBox:
     # --- 可用工具 ----------------------------------------------------------------
 
     def image_model(self) -> ModelSpec | None:
-        pool = [m for m in self.router.available_models() if "image_gen" in m.tags]
-        if not pool:
-            return None
-        rng = random.Random(f"{self.session_id}:image")
-        return cheapest(pool, rng, input_tokens=200, output_tokens=1000)
+        """图像生成工具使用的模型：只看 image_gen 标签和档位，同档内随机（同一场总是同一个）。"""
+        tier = self.media_tier or self.config.roundtable.media.default_tier
+        rng = random.Random(f"{self.session_id}:image:{tier}")
+        return pick_media_model(self.router, "image", tier, rng)
 
     def tools_for(self, step: str) -> list[str]:
         if not self.rules.enabled:

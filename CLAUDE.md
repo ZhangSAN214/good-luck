@@ -1,6 +1,6 @@
 # CLAUDE.md — Roundtable（圆桌）
 
-多个 AI 协作完成作业。长期目标见 `docs/REQUIREMENTS_v3.md`；当前范围以本文件和 `docs/PLAN.md` 为准（v1 已完成，v2 改版阶段 11–18 已完成，接下来 19 媒体生成（方案已确认）、20 收尾）。
+多个 AI 协作完成作业。长期目标见 `docs/REQUIREMENTS_v3.md`；当前范围以本文件和 `docs/PLAN.md` 为准（v1 已完成，v2 改版阶段 11–19 已完成（19 为媒体生成），接下来 20 收尾）。
 界面样板：`docs/mockup.html`（v1 只实现其中文字圆桌相关部分）。
 按 `docs/PLAN.md` 的阶段推进，不要跳阶段，不要提前实现"后续扩展"里的功能。
 
@@ -37,7 +37,7 @@
 - **执行前预估花费**，并给出各档位的预估；超过单题确认门槛（默认 $0.30）先请用户确认（可改用其他档位）。
 - **每题记录**（`RoutingRecord`）：答案长度判断及来源（规则 / 模型 / 默认）、规划员花费、档位与阵容、缺席、预估与实际花费、是否升级及原因。
 - **匿名开关**（提问时选择，默认**关闭**）：关闭时界面、API、命令行全程显示真实模型名与每次调用的渠道，没有揭晓步骤；开启时组员显示为"组员甲 / 乙 / 丙…"，结束后由用户点"揭晓身份"。**发给模型的内容在两种情况下都只用代号、都做身份遮蔽**。
-- 输入可带附件（§2.8）；成员可以用**工具**（§2.9）运行代码、写文件、生成图片、联网搜索，产出代码、图表、Word / Excel / PPT / PDF 等文件。
+- 输入可带附件（§2.8）；讨论模式可选输出图片 / 语音 / 视频、协同模式可有媒体子任务（§2.10）；成员可以用**工具**（§2.9）运行代码、写文件、生成图片、联网搜索，产出代码、图表、Word / Excel / PPT / PDF 等文件。
 - **不做**（见 PLAN.md "后续扩展"）：人设模式、记录官与会议记录、多轮群聊、语音合成、视频处理。（图片生成已作为成员的工具提供，见 §2.9。）
 
 ---
@@ -48,7 +48,7 @@
 - `config/models.yaml`：
   - `channels`：调用渠道。每个渠道有 `adapter`（`openai_compat` / `anthropic` / `gemini`）、`kind`（`aggregator` 聚合平台 / `direct` 官方直连 / `local` 本地）、`base_url`、`key_env`（**只写环境变量名**）、可选 `extra_body`、`param_aliases`（该渠道的参数改名，如 OpenAI 直连把 `max_tokens` 改为 `max_completion_tokens`）。
   - `models`：`id`、`vendor`、`tier`（`flagship` 旗舰 / `budget` 便宜档，启用的模型必填）、可选 `aliases`（别称，用于身份遮蔽）、`price`（输入/输出每百万 token，可选 `cached_input`）、`tags`、`enabled`、可选 `params`，以及按优先顺序排列的 `routes`（每条：`channel`、该渠道上的 `model` ID、可选 `price` / `params` 覆盖）。
-  - 标签词表现在就包含媒体类（`vision`、`image_gen`、`tts`、`transcribe`、`video_gen`），v1 不使用。
+  - 标签词表含媒体类：`vision`、`transcribe`、`image_gen`、`image_edit`、`tts`、`stt`、`video_gen`、`music_gen`（后两个预留）。媒体模型 `seat: false`（不上桌、不占座位），可有 `tier`；按张 / 秒 / 分钟 / 字符计价的用 `media_price: {unit, usd}`（`price` 写 0），可被路由覆盖。
 - `config/roundtable.yaml`：座位数（一张桌最多的组员数）、`min_members`、`reviews_per_answer`、`collab.max_subtasks`、预算（每月、每日、提醒比例）、步骤参数、互评质量规则、token 阈值、统筹轮换规则、提示词版本、步骤顺序 `pipeline:`（讨论模式）与 `collab_pipeline:`（协同模式）、**渠道模式 `channel_mode`**（`openrouter` / `direct` / `auto`，默认 `auto`）、请求策略（超时、切换轮数、退避、冷却）。
 - `config/personas.yaml`：代号池（甲乙丙丁…，不少于 `seats`）；人设字段的 schema 预留但可为空。
 - `config/routing.yaml`：确认门槛、`default_plan`、默认难度（只影响预估的答案长度）、规划员档位、规则判断（triage）、成员档位 `plans`（`label`、`tiers`、可选 `pipeline`、`escalate_to`、`prompt_roles`）、自选 `custom`、升级条件、花费预估参数。**只能引用档位和能力标签**，不得出现模型名或厂商名（有测试）。`custom` 是保留名。
@@ -57,7 +57,7 @@
 - 所有配置 pydantic 校验（多余字段报错），失败给出带文件名和字段路径的报错。
 
 ### 2.2 Provider 与双渠道
-- `core/providers/base.py`：`Provider` 抽象类，**一个渠道一个实例**。v1 实现文本补全；图像生成、TTS、转写的方法签名已定义，默认抛 `UnsupportedCapability`。
+- `core/providers/base.py`：`Provider` 抽象类，**一个渠道一个实例**。文本补全必须实现；媒体能力 `generate_image`（默认走对话接口的 `images`）、`synthesize_speech`、`transcribe`、`submit_video` / `poll_video` / `fetch_video`（异步任务）默认抛 `UnsupportedCapability`。`openai_compat` 按 OpenRouter 的接口实现后四项（`/audio/speech`、`/audio/transcriptions`、`/videos`）。`ChannelRouter.invoke(model_id, call)` 是通用的渠道调用（切换 / 退避 / 冷却规则同文本；渠道不支持该能力时视为不可用换下一个），`complete()` 建立在它之上。
 - 适配器：`openai_compat`（OpenRouter、OpenAI、xAI、DeepSeek、本地端点共用）、`anthropic`（官方 SDK）、`gemini`（官方 REST，key 走请求头）、`fake`（测试）。用 `@register_adapter` 注册，按名称查找。
 - **渠道路由 `ChannelRouter`**：
   1. 按 `channel_mode` 筛选渠道：`openrouter` 只用聚合平台；`direct` 只用直连和本地；`auto` 按模型 `routes` 的顺序都可用。
@@ -71,7 +71,7 @@
 - Anthropic 直连不启用服务端 `fallbacks`（会悄悄换成别的模型作答，破坏"同一座位同一模型"的前提）。
 
 ### 2.3 流程步骤 = 插件
-- 步骤：讨论模式 `answer`、`review`、`revise`、`synthesize`；协同模式 `decompose`、`volunteer`、`assign`、`work`、`cross_review`、`rework`、`merge`（`steps/collab.py`，数据结构在 `steps/collab_schemas.py`）；两种模式都以 `reveal` 结束。各自实现 `Step` 协议并注册。每张桌子的 pipeline 由模式决定（协同用 `collab_pipeline`，讨论用档位的 `pipeline` 或默认流程），存在 `session_tables`。
+- 步骤：讨论模式 `answer`、`review`、`revise`、`synthesize`（选了媒体输出时在 `reveal` 前加 `media`）；协同模式 `decompose`、`volunteer`、`assign`、`work`、`cross_review`、`rework`、`merge`（`steps/collab.py`，数据结构在 `steps/collab_schemas.py`）；两种模式都以 `reveal` 结束。各自实现 `Step` 协议并注册。每张桌子的 pipeline 由模式决定（协同用 `collab_pipeline`，讨论用档位的 `pipeline` 或默认流程），存在 `session_tables`。
 - 协同模式规则：
   - 拆分：子任务 1–`max_subtasks` 个，id 唯一、依赖存在且无环，建议标签只能取在座成员的标签；不可用时退化为"整道题一个子任务"（全员各自完成）。
   - 分配：代码校验每人至少一块、每块至少一人、负担相差不超过 1；不符合时让统筹重新分配一次，仍不行由 `repair_assignment()` 按自荐（想做 2 / 可以 1 / 不适合 -1）+ 能力标签重合补齐（只做必要改动，记录在 `repaired`）。子任务少于人数时多人各自独立完成同一块。
@@ -82,6 +82,7 @@
   - 合并（`merge/v2`）：`## 完整成果`（Markdown）+ `## 合并说明`（JSON：逐个子任务的采纳情况 full / partial / none、缺失、存疑与把握程度）；说明缺失或损坏时保留成果、不记采纳情况；成果不可用时重试一次，仍失败把各份成果按子任务拼接（把握程度 low）。输出因 `max_tokens` 被截断时错误信息注明长度上限。把握程度构成升级信号。
 - 步骤在一张"桌"（`TableContext`）上运行：代号 → 模型、统筹、共享状态（答案、评审、修订稿、汇总、退出的组员），每个产出都存库，`restore_state()` 可从数据库重建；各步骤只处理还没有产出的组员，恢复时不重复调用。
 - 组员调用并发执行、互不可见。组员所有渠道都失败时**退出**（之后不再调用），但他已有的答案 / 修订稿仍参与汇总。
+- 步骤需要用户先拍板时抛 `NeedsApproval(card, key)`（视频生成确认、预算已用满）：引擎创建确认点并暂停，回复后重新执行该步骤，步骤用 `ctx.approval(key)` 读取回复；步骤做到一半停下后重新进入时不再重复检查开始前的预估 / 超支（`_answered_midstep`）。
 - 启动时用 `check_pipelines()` 检查配置里出现的步骤都已注册。
 - 揭晓步骤只标记"可以揭晓"，真正的揭晓由用户点击触发。
 - **编排引擎**（`core/orchestrator`）：路由 → 单题花费确认（可改选其他档位）→ 逐步执行（每步前按该步预估查预算；组员少于 `min_members` 时询问，同意一次对整张桌子有效）→ 满足条件时**询问**是否升级（确认后新建 `table_no + 1` 的桌子）→ 完成并回写路由记录。`open(..., anonymous=False)` 记录匿名开关。需要用户拍板时创建确认点并返回，`respond()` 回复后继续；`resume()` 从数据库继续，已完成的步骤不重复。每张桌子的执行计划（方案、流程、代号 → 模型、统筹、预估）存在 `session_tables`。
@@ -92,7 +93,7 @@
 - 每步结束状态落库；可暂停、关页面后恢复，恢复时不重复已完成的调用。
 
 ### 2.4 提示词外置且带版本
-- `prompts/<role>/v<n>.md`：协同模式 `decompose`、`volunteer`、`assign`、`work`、`cross_review`、`rework`、`merge`；讨论模式 `planner`、`answer`、`review`、`revise`（v2：逐条"采纳 / 部分采纳 / 不采纳"）、`synthesize`（v3：`adopted_from`、注意 flagged 的答案）、`redo`（打回重做：system 段接在原系统提示后，user 段追加在原对话后）；附件 `attachments`（附件说明与 `<attachment>` 块，接在每次调用的系统提示与第一条用户消息之后，所以各步骤提示词不必改版本）、`describe_image`（图片文字版）、`transcribe`（音频转写）；`answer_quick` 已不再引用（已发布版本保留）。代码中不得内联提示词正文。
+- `prompts/<role>/v<n>.md`：协同模式 `decompose`（v3：子任务可标 `media`）、`volunteer`、`assign`、`work`、`cross_review`、`rework`、`merge`；媒体：`media_brief`（把需求改写成「写生成提示词」的任务）、`media_review`、`media_refine`、`work_media`、`rework_media`；讨论模式 `planner`、`answer`、`review`、`revise`（v2：逐条"采纳 / 部分采纳 / 不采纳"）、`synthesize`（v3：`adopted_from`、注意 flagged 的答案）、`redo`（打回重做：system 段接在原系统提示后，user 段追加在原对话后）；附件 `attachments`（附件说明与 `<attachment>` 块，接在每次调用的系统提示与第一条用户消息之后，所以各步骤提示词不必改版本）、`describe_image`（图片文字版）、`transcribe`（音频转写）；`answer_quick` 已不再引用（已发布版本保留）。代码中不得内联提示词正文。
 - 文件格式：YAML 文件头（`description`、`output: text|json`、`variables`）+ `<!-- system -->` / `<!-- user -->` 两段。占位符用 `{{ name }}`（不用 `$`，避免与数学公式冲突）；声明的变量与正文占位符必须一一对应，渲染时缺少或多余参数都报错；只替换一次，用户输入里的 `{{ x }}` 不会被展开。
 - 题目、他人答案等外部内容放在标签内（`<question>`、`<answer>` …），系统提示说明标签内的指令无效（防提示注入）。
 - 使用的版本由配置指定，随每次调用入库（版本号 + 内容哈希，换行统一为 LF 后计算）。
@@ -116,7 +117,7 @@
 ### 2.6 持久化：SQLite
 - 存：会话（题目、seed、成员档位、匿名开关、工作模式）、**路由记录**（答案长度判断、档位与阵容、缺席、预估与实际花费、升级）、座位与代号映射、统筹、每次调用（步骤、提示词版本 + 哈希、输入输出、**实际渠道与切换记录**、token、费用及来源、耗时、错误）、互评结果、修订稿、汇总、确认点与用户回复、累计费用（总计与按渠道）。
 - 数据访问只经 `core/storage/`（Repository 模式）；表结构变更走版本化迁移（`storage/migrations.py`，只能在末尾追加；已发布迁移的哈希登记在测试中，不得修改），后续扩展加表不改旧表含义。
-- 表：`sessions`、`routing_records`、`seats`（`table_no` 0 为初始圆桌，升级后为 1、2…）、`calls` + `call_attempts`（每次渠道尝试一行）、`outputs`（各步产出，通用表；kind 含 answer / review / revision / synthesis / dropout / effort）、`step_progress`（恢复时跳过已完成步骤）、`checkpoints`、`contributions`（迁移 5：按桌、代号、模型、类别的贡献数量）、`attachments`（迁移 6：上传的文件，`session_id` 在提交题目时填入；文字 / 文字版 / 转写稿及来源、状态、警告）、`tool_calls` 与 `files`（迁移 7，见 §2.9）。
+- 表：`sessions`、`routing_records`、`seats`（`table_no` 0 为初始圆桌，升级后为 1、2…）、`calls` + `call_attempts`（每次渠道尝试一行）、`outputs`（各步产出，通用表；kind 含 answer / review / revision / synthesis / dropout / effort）、`step_progress`（恢复时跳过已完成步骤）、`checkpoints`、`contributions`（迁移 5：按桌、代号、模型、类别的贡献数量）、`attachments`（迁移 6：上传的文件，`session_id` 在提交题目时填入；文字 / 文字版 / 转写稿及来源、状态、警告）、`tool_calls` 与 `files`（迁移 7，见 §2.9）、`media_jobs`（迁移 8，见 §2.10）。
 - **对外展示只用 `session_view()` / `list_sessions()`**：匿名开启且未揭晓时去掉模型 id、渠道、切换记录、阵容、缺席名单、规划员模型，错误信息替换为通用提示，模型输出经身份遮蔽；揭晓后或匿名关闭时显示全部原文。存储层 `create_session` 默认匿名（更安全），产品默认值（关闭）由服务层 / 命令行决定。
 - `sessions.mode` 自迁移 4 起存成员档位（`budget` / `flagship` / `custom`），旧会话为 `auto` / `preset` / `manual`；旧版本还没路由的会话恢复时明确报错"无法继续"，已有内容照常查看。按渠道的花费汇总（`spent_by_channel()`）可随时展示。
 
@@ -124,7 +125,7 @@
 - `core/`：纯业务逻辑，**禁止 import fastapi / starlette / uvicorn / streamlit**（测试守卫）。
 - `api/`：FastAPI 路由 + SSE，只调用 `core/service.py`（启动时用 `core/runtime.py` 组装；有测试检查导入）。
 - **服务 facade**（`core/service.py`，`RoundtableService`）：返回值都是可 JSON 化的 dict；匿名会话揭晓前全部匿名。`create(question, tier=, models=, coordinator=, anonymous=False, workflow="discussion")`；揭晓只用于匿名会话。提交题目后立即返回会话 id，讨论在后台任务中执行；意外错误把会话标为 `paused`（可 `resume`）。揭晓只允许在讨论结束（完成 / 停止 / 失败）后。
-- **HTTP 接口**：`GET /api/status`、`GET /api/budget`、`GET /api/contributions`、`POST /api/estimate`（提交前预估：各模式 × 各档位 / 自选的上桌人数、缺席、预计与最多花费、步骤明细；不调用任何模型，答案长度只用规则判断；返回 `seed`，提交时带上它，阵容与预估一致；匿名时不含模型名单）、`POST /api/uploads?name=`（请求体是文件原始字节，返回附件 id；`POST /api/sessions` 的 `attachments` 带上这些 id）、`GET/POST /api/sessions`、`GET /api/sessions/{id}`、`GET …/files/{fid}`（下载）与 `…/files/{fid}/preview`、`POST …/respond`、`POST …/resume`、`POST …/reveal`、`GET …/events`（SSE）。
+- **HTTP 接口**：`GET /api/status`、`GET /api/budget`、`GET /api/contributions`、`POST /api/estimate`（提交前预估：各模式 × 各档位 / 自选的上桌人数、缺席、预计与最多花费、步骤明细；不调用任何模型，答案长度只用规则判断；返回 `seed`，提交时带上它，阵容与预估一致；匿名时不含模型名单）、`POST /api/uploads?name=`（请求体是文件原始字节，返回附件 id；`POST /api/sessions` 的 `attachments` 带上这些 id）、`GET/POST /api/sessions`（`media` / `media_tier`）、`GET /api/sessions/{id}`、`GET …/files/{fid}`（下载；`?inline=1` 可内联播放 png / jpg / gif / webp 与 mp3 / wav / ogg / mp4 / webm，后者支持 Range）与 `…/files/{fid}/preview`、`POST …/respond`、`POST …/resume`、`POST …/reveal`、`GET …/events`（SSE）。
 - **SSE 协议**：第一条 `snapshot`（当前状态），之后是实时事件（只含代号），每当讨论停下来（完成 / 失败 / 停止 / 等待确认 / 暂停）发一条 `state` 并关闭；前端回复确认后重新连接。
 - `web/`：静态前端（`index.html`、`css/app.css`、`js/api.js` 通信、`js/view.js` 渲染、`js/app.js` 状态与交互；ES 模块，无构建步骤），只通过 HTTP/SSE 与后端通信，由 FastAPI 挂在 `/`。
   - 事件流用 `fetch` 读取（不用会自动重连的 `EventSource`）：收到停下来的 `state` 后关闭，回复确认卡片或恢复后重新订阅；事件触发重新拉取会话详情再渲染。
@@ -154,6 +155,18 @@
 - 记录：`tool_calls`（迁移 7：步骤、代号、轮次、工具、输入、输出、状态 ok / error / timeout / rejected / limit、耗时、提出申请的模型调用）与 `files`（迁移 7）。每轮工具调用都是一次照常计费的模型调用；预估中能用工具的步骤按 `estimate.tool_rounds` 多估调用次数，有历史后改用实际次数。事件 `tool_started` / `tool_finished`（只含代号）。
 - **联网搜索**（`core/search/`，阶段 16）：搜索服务配置在 `models.yaml` 的 `search_providers`（`adapter`、`base_url`、`key_env`、`price.per_search` / `per_fetch`、`params`），按顺序使用，没有 key 的跳过，限流 / 额度 / 网络错误换下一家（`SearchService`，错误分类与模型渠道相同）；适配器用 `@register_search` 注册。**默认是 OpenRouter 自带的联网搜索**（`openrouter`，共用 `OPENROUTER_API_KEY`）：用 `params.model` 指定的便宜模型发一次 `/chat/completions` 并打开搜索（`request: plugin` 为 `plugins: [{id: web}]`，`server_tool` 为 `openrouter:web_search`），只取响应中的 `url_citation` 注释作为结果，费用以 `usage.cost` 为准（搜索引擎按次收费 + 少量 token），发给该模型的指令在 `prompts/web_search`。**读取网页（fetch）默认也用 OpenRouter**：同一模型调用 `openrouter:web_fetch` 服务端工具（`params.fetch_tool`，默认只写类型），取回的正文只交给模型，由模型按 `prompts/web_fetch` 原样输出（失败输出 `FETCH_FAILED`）；注释里有该网址更完整的正文时优先用注释；正文经过转述，结果标注 `via="model"`（`relayed_fetch`），`tools/v4` 提醒成员谨慎引用。`params.fetch: false` 可关闭。**备选 Tavily**（填了 `TAVILY_API_KEY` 才启用；`/search`、`/extract`，key 在 Authorization 头，432 / 433 视为额度用完）直接取回正文，OpenRouter 出错时接替；没有支持读取的服务时 `fetch` 工具关闭。工具 `search`（搜索词）与 `fetch`（`source="S2"`，**只能读本人搜索结果里出现过的来源**）；结果放在 `<search_result id url>` 内（结束标签与属性中的引号、尖括号被处理），来源编号按成员在本桌内连续（S1、S2…，存在 `tool_calls.input.sources`）。**来源标注检查**（`TableContext.citation_problems()`，并入防偷懒检查）：引用了没检索到的编号，或本步骤搜索过却一条都没标注 → 打回重做（`tools.search.require_citations`）。成员检索到的来源以 `<sources>` 块随答案交给评审者与统筹（`member_notes()` = 文件 + 来源）。每次搜索 / 读取记一次 `calls`（`role="tool"`、渠道为搜索服务名、费用按服务返回或配置单价），因而进入月 / 日预算与按渠道花费；预估中能搜索的步骤每个座位按 `estimate.searches` / `fetches` 次数加上搜索费用。题目和搜索词会发给搜索服务。
 - 对外：会话详情的 `files`、`tool_calls`（匿名揭晓前经身份遮蔽）；`GET /api/sessions/{id}/files/{fid}`（始终 `attachment` 下载 + `nosniff` + `CSP sandbox`，只有 png / jpg / gif / webp 可以 `?inline=1` 显示）与 `…/preview`（`core/preview.py`：文本 / 代码 / Markdown / CSV / xlsx / docx / pdf；HTML 与 SVG 只作为源代码）；`/api/status` 的 `tools`（各步骤工具与不可用原因）。命令行 `show --details` 显示工具调用，`roundtable files <id>` 保存文件。
+
+### 2.10 媒体生成（`core/media/`、`steps/media.py`，阶段 19）
+- **模型**：图片（`image_gen`，通过对话接口返回图片）、文字转语音（`tts`）、语音转文字（`stt`，Whisper 系列）、视频（`video_gen`，异步）都是 `seat: false` 的工具模型。选择只看能力标签和档位（`pick_media_model`：先取指定档位，没有则取未分档的，再取另一档；同组内按 seed 随机，换名不影响）；同一场同种类同档位总是同一个模型。`config/models.yaml` 里的媒体模型 ID 与价格来自网页搜索、**尚未核对**，用 `python scripts/check_models.py` 核对（存在性检查；媒体价格只列出远端 pricing 供人工核对）。
+- **配置**（`roundtable.yaml` 的 `media`）：`default_tier`、`max_rounds`（生成 → 评审 → 重新生成，含第一次）、`reviewers`、`confirm_video`、语音（voice / format）、视频（时长 / 分辨率 / 轮询间隔 / 超时 / 重试 / 截帧数）、预估参数。
+- **`MediaService`**：`generate(kind, prompt, Placement(table, step, round, code, subtask))` 按位置幂等（已完成的不重复生成 / 计费）；提示词发出前遮蔽身份；每次生成一行 `media_jobs`（提示词、模型、渠道、状态、花费、第几轮、尝试次数、文件），成功的同时记入 `calls`（`role="media"`），所以进入每月 / 每日预算与按渠道花费。计价：渠道返回实际费用优先，否则按 `media_price`（张 / 秒 / 分钟 / 字符）。**视频**：提交 → 轮询 → 下载，任务 id 与轮询地址存库，暂停 / 重启后继续轮询同一个任务；超时（`video.timeout_s`，按提交时间的墙钟计）、任务失败或提交失败按 `submit_retries` 重新提交；轮询连续出错 5 次或鉴权 / 额度错误则失败；失败不计费。生成的文件登记在 `files`（kind image / audio / video），始终经下载接口取用。
+- **讨论模式**（提问时选输出类型，存在 `sessions.choice`）：题目经 `media_brief` 改写为「商定并写出生成提示词」，流程照常（作答 → 互评 → 修订 → 汇总），汇总的最终答案就是第一版提示词；`media` 步骤：生成 → 带 `vision` 标签的在场成员评审（图片、视频截帧作为随附图片真正发给他们；非 vision 成员不参与）→ 统筹（`media_refine`）决定是否改提示词重新生成，最多 `max_rounds` 轮，最后一轮不再评审。语音只生成一次（没有可评审的画面）。没有 vision 评审者时保留第一版并提示。评审与决定存 `outputs`（`media_review`、`media_decision`），恢复时不重复调用。协同模式不提供「输出类型」选择（拒绝），由拆分决定。
+- **协同模式**：`decompose/v3` 的子任务可带 `media`（image / speech / video，只接受当前有可用模型的种类，其余丢弃）；负责人用 `work_media` 写生成提示词，程序生成（第 1 轮），其他成员交叉审查（生成物随 `<files>` 转交，vision 成员收到图片 / 视频截帧），作者按审查用 `rework_media` 改提示词，提示词有变化且有有效审查时重新生成（第 2 轮）。
+- **确认与预算**：视频每次生成前都必须确认（`media_gate`：卡片 `kind="media"`，选项 生成 / 不生成 / 停止，`--yes` 也不自动同意）；图片、语音只在预计超过单题门槛时确认；协同模式按「批」确认（`work` 每层、`rework` 一次）。每次生成前还会查预算（`ctx.budget_gate`），不足时弹预算卡片（继续 = 超出预算继续）。步骤开始前照常按该步预估查预算；`media` 的花费不计入超支保护（它有自己的确认）。
+- **预估**（`routing/media_estimate.py`）：`Question.media` 非空时在 `reveal` 前加一项 `media`：生成费用取候选模型的平均（上限取最大）× `expected_rounds`（上限 `max_rounds`）+ 评审者与统筹改写提示词的模型调用；`POST /api/estimate` 与命令行 `estimate --media` 单列显示。协同模式的媒体子任务拆分前未知，不在预估内，由确认与预算兜住。
+- **音频转写**：上传音频时优先用 `stt` 模型（`provider.transcribe`，按渠道返回的费用，否则每分钟单价 × 时长），失败或没有时回退到带 `transcribe` 标签的对话模型（旧方式）；任一可用即允许上传。
+- **图像生成工具**（§2.9 `generate_image`）并入这里的档位选择（`media_tier`，默认 `default_tier`）；按张计价的图像模型在渠道没有返回实际费用时按每张单价记账。
+- **对外**：会话详情 `media`（每次生成：轮次、尝试、提示词、状态、花费、文件；模型和渠道揭晓前为空，提示词经遮蔽）、`media_kind` / `media_tier`；`/api/status` 的 `media`（各种类是否可用及原因、两个档位是否有模型，不含模型名）。事件 `media_started` / `media_progress` / `media_done` / `media_failed`（只含种类、轮次、状态）。网页：提问区「输出」选择（文字 / 图片 / 语音 / 视频，不可用的灰掉并说明原因）与「普通 / 高质量」；过程区每次生成一张卡片（第几轮、状态、花费、提示词、图片 / 音频 / 视频播放器与下载），评审与统筹决定逐条显示；面板「媒体」标签列出全部生成与成果。命令行 `ask --media image|speech|video --media-tier budget|flagship`、`estimate --media`；`show` 有「媒体生成」段；`files` 一并保存媒体文件。视频截帧用 PyAV（可选依赖 `pip install 'roundtable[media]'`；没有时评审者只看文字说明并被告知）。
 
 ---
 
@@ -209,7 +222,8 @@
 config/        models.yaml  roundtable.yaml  personas.yaml  routing.yaml
 prompts/       planner/ answer/ answer_quick/ review/ revise/ synthesize/ redo/
                attachments/ describe_image/ transcribe/ tools/（v4） image_gen/ web_search/ web_fetch/
-               decompose/ volunteer/ assign/ work/ cross_review/ rework/ merge/  versions.lock
+               decompose/（v3）volunteer/ assign/ work/ cross_review/ rework/ merge/
+               media_brief/ media_review/ media_refine/ work_media/ rework_media/  versions.lock
 src/roundtable/
   core/
     config/        配置加载与校验
@@ -219,6 +233,7 @@ src/roundtable/
     routing/       规则判断、规划员、方案与阵容、花费预估、用户模式、升级、每题记录
     storage/       SQLite 迁移、Repository、揭晓前的匿名视图
     attachments/   上传文件的识别、文字提取、存放、图片文字版 / 音频转写、发给模型时的呈现
+    media/         媒体生成：模型选择（标签 + 档位）、计价、MediaService（图片 / 语音 / 视频异步任务）、视频截帧
     tools/         工具协议、沙箱（wasm / docker，runner.mjs）、工作目录与文件收集、ToolBox（执行与额度）
     search/        联网搜索服务（注册、OpenRouter 搜索（默认）、Tavily、按顺序切换的 SearchService）
     preview.py     成员生成的文件的预览
@@ -257,7 +272,8 @@ roundtable ask '题目'                # 便宜档全员上桌（PowerShell 中�
 roundtable ask --tier flagship --anonymous '题目'   # 旗舰档全员、匿名
 roundtable ask --mode collab '题目'  # 协同模式：拆分子任务、分工完成、合并
 roundtable ask --attach 图.png --attach 讲义.pdf '题目'   # 带附件
-roundtable files <id> [-o 目录]      # 保存成员生成的文件
+roundtable files <id> [-o 目录]      # 保存成员生成的文件（含图片 / 音频 / 视频）
+roundtable ask --media image '画一只猫'   # 输出图片（--media speech / video；--media-tier flagship 用高质量档）
 python scripts/setup_sandbox.py     # 一次性安装代码运行沙箱（--check 只检查）
 uvicorn roundtable.api.app:app --reload   # 浏览器打开 http://127.0.0.1:8000
 playwright install chromium        # 首次运行前端端到端测试前

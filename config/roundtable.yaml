@@ -33,7 +33,7 @@ prompts:
   revise: v2
   synthesize: v3
   redo: v1
-  decompose: v2
+  decompose: v3
   volunteer: v1
   assign: v1
   work: v1
@@ -45,6 +45,11 @@ prompts:
   transcribe: v1         # 音频转写
   tools: v4              # 工具说明与工具结果（v2：联网搜索；v3：图表中文；v4：转述的网页正文）
   image_gen: v1          # 图像生成工具
+  media_brief: v1        # 媒体输出：把题目改写成「写生成提示词」的任务
+  media_review: v1       # 评审生成结果（图片 / 视频截帧）
+  media_refine: v1       # 统筹根据评审决定是否改提示词重新生成
+  work_media: v1         # 协同：媒体子任务，成员写生成提示词
+  rework_media: v1       # 协同：按审查意见修改生成提示词
   web_search: v1         # 借助聚合平台联网搜索时发给搜索用模型的指令
   web_fetch: v1          # 借助聚合平台读取网页时发给读取用模型的指令
 
@@ -149,3 +154,29 @@ tools:
     max_results: 5
     fetch_max_chars: 8000
     require_citations: true   # 用过搜索的答案要用 [S1] 标注来源；编造来源或一条都不引用 → 打回重做
+
+# 媒体生成（图片 / 语音 / 视频）：媒体模型是工具（models.yaml 中 seat: false），按标签 + 档位选择，同档内随机。
+# 讨论模式提问时选择输出类型：成员先讨论并写出生成提示词 → 生成 → 带 vision 标签的成员评审结果
+# （图片、视频截帧真正发给他们）→ 不满意就改提示词重新生成，最多 max_rounds 轮。
+# 协同模式：拆分时可把子任务标为 image / speech / video，由负责人写提示词并生成，再交叉审查。
+media:
+  enabled: true
+  default_tier: budget       # 提问时可改选 flagship（高质量档）
+  max_rounds: 3              # 生成 → 评审 → 重新生成，最多几轮（含第一次生成）
+  reviewers: 3               # 每轮最多几位评审者（需带 vision 标签）
+  confirm_video: true        # 视频每次生成前都先问你；图片、语音只在超过单题门槛时才问
+  images_per_round: 1
+  speech: {voice: alloy, format: mp3, max_chars: 4000}
+  video:
+    duration_s: 5
+    resolution: 720p
+    aspect_ratio: "16:9"
+    poll_interval_s: 10      # 轮询间隔
+    timeout_s: 900           # 提交后最多等多久；超时记为失败
+    submit_retries: 1        # 提交失败 / 任务失败后再试几次
+    frames: 4                # 发给评审者的截帧数
+    max_mb: 100
+  expected_rounds: 1.5       # 花费预估：平均生成几轮
+  review_tokens: 500
+  refine_tokens: 600
+  prompt_max_chars: 2000

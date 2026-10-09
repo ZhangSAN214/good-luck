@@ -30,10 +30,14 @@ def planner(difficulty: str = "medium"):
 
 
 class Env:
-    def __init__(self, difficulty="medium", resolved=True, pool=None, **routing_overrides):
+    def __init__(
+        self, difficulty="medium", resolved=True, pool=None, with_media=False, **routing_overrides
+    ):
         self.difficulty = difficulty
         self.resolved = resolved
-        self.config = app_config(**({"pool": pool} if pool else {}), **routing_overrides)
+        self.config = app_config(
+            **({"pool": pool} if pool else {}), with_media=with_media, **routing_overrides
+        )
         self.fake = FakeProvider("c", default=self.reply)
         policy = self.config.roundtable.request.model_copy(update={"backoff_s": 0})
         rt_cfg = self.config.roundtable.model_copy(update={"request": policy})
@@ -41,6 +45,12 @@ class Env:
         self.rt = Runtime.build(config=self.config, providers={"c": self.fake}, db_path=":memory:")
         # 默认没有代码运行环境（不依赖本机是否装了沙箱）；工具测试中注入假沙箱
         self.rt.tools_sandbox = (None, "测试环境")
+        self.sleeps: list[float] = []
+
+        async def sleep(seconds: float) -> None:  # 媒体任务轮询：不真的等待
+            self.sleeps.append(seconds)
+
+        self.rt.media_hooks = {"sleep": sleep}
         self.events = []
         self.orc = Orchestrator(self.rt, on_event=lambda sid, e: self.events.append((sid, e)))
 

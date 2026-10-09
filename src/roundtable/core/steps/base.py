@@ -15,8 +15,10 @@ from pydantic import ValidationError
 
 from roundtable.core.allocation import IdentityScrubber
 from roundtable.core.attachments import Attachment, FileStore, attach_messages
+from roundtable.core.cards import ConfirmationCard
 from roundtable.core.config import AppConfig
 from roundtable.core.jsonout import JSONOutputError
+from roundtable.core.media import FramesUnavailable, MediaService, extract_frames
 from roundtable.core.prompts import PromptLibrary, RenderedPrompt
 from roundtable.core.providers import (
     AllChannelsFailed,
@@ -40,6 +42,16 @@ T = TypeVar("T")
 
 class StepFailed(RuntimeError):
     """步骤无法继续（例如统筹调用失败），需要编排引擎处理。"""
+
+
+class NeedsApproval(Exception):
+    """步骤需要用户先拍板（视频生成确认、预算已用满）：编排引擎创建确认点并暂停；
+    用户回复后重新执行该步骤，步骤用 ctx.approval(key) 读取回复。"""
+
+    def __init__(self, card: ConfirmationCard, key: str = "") -> None:
+        super().__init__(card.kind)
+        self.card = card
+        self.key = key
 
 
 # --- 事件（供界面实时显示；只含代号，不含模型身份） --------------------------------
@@ -85,6 +97,16 @@ class TableContext:
     toolbox: ToolBox | None = None
     # 读取成员生成的文件（转交给其他成员时附上文本文件的内容）
     file_store: FileStore | None = None
+    # 媒体生成（图片 / 语音 / 视频）：服务、讨论模式的输出类型与档位
+    media: MediaService | None = None
+    media_kind: str | None = None
+    media_tier: str | None = None
+    # 用户对某个确认点（key）的回复；还没回复时为 None
+    approval: Callable[[str], str | None] = lambda key: None
+    # 预算已不允许再花 estimate 美元时返回要弹出的预算卡片，否则 None
+    budget_gate: Callable[[float], ConfirmationCard | None] = lambda estimate: None
+    frame_extractor: Callable[..., list[Media]] = extract_frames
+    frame_cache: dict[str, list[Media]] = field(default_factory=dict)
 
     @property
     def effort_rule(self):
@@ -155,10 +177,35 @@ class TableContext:
             return match.group(0)[:-2] + f' attached="随附图片 {len(media)}"/>'
 
         content = _IMAGE_FILE.sub(attach, content)
+
+        def attach_video(match: re.Match[str]) -> str:
+            frames = self.video_frames(match.group(1))
+            room = rules.share_images - (len(media) - len(user.media))
+            if not frames or room <= 0:
+                return match.group(0)
+            first = len(media) + 1
+            media.extend(frames[:room])
+            return match.group(0)[:-2] + f' attached="随附图片 {first}-{len(media)}（视频截帧）"/>'
+
+        content = _VIDEO_FILE.sub(attach_video, content)
         if len(media) == len(user.media):
             return messages
         updated = Message(user.role, content, tuple(media))
         return (*messages[:index], updated, *messages[index + 1 :])
+
+    def video_frames(self, file_id: str) -> list[Media]:
+        """视频的截帧（评审者需要真正看到画面）。无法截帧时返回空，评审者只看到文件说明。"""
+        if file_id not in self.frame_cache:
+            frames: list[Media] = []
+            try:
+                row = self.repo.file(self.session_id, file_id)
+                if self.file_store is not None and row["kind"] == "video":
+                    data = self.file_store.load(row["storage_key"])
+                    frames = self.frame_extractor(data, self.config.roundtable.media.video.frames)
+            except (LookupError, FramesUnavailable) as exc:
+                log.warning("视频截帧不可用：%s", exc)
+            self.frame_cache[file_id] = frames
+        return self.frame_cache[file_id]
 
     def citation_problems(self, step: str, code: str | None, text: str) -> list[str]:
         """来源标注检查：引用了没有检索到的来源；或本步骤用过搜索却一条都没标注。"""
@@ -394,6 +441,7 @@ async def gather_members(
 # 可以作为随附图片发给模型的类型；文件块中图片的写法（files_note 生成）
 SHAREABLE_IMAGES = frozenset({"image/png", "image/jpeg", "image/gif", "image/webp"})
 _IMAGE_FILE = re.compile(r'<file id="([0-9a-f]{32})" [^<>]*type="image"[^<>]*/>')
+_VIDEO_FILE = re.compile(r'<file id="([0-9a-f]{32})" [^<>]*type="video"[^<>]*/>')
 
 
 def _size(n: int) -> str:

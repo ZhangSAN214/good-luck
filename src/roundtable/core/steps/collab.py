@@ -14,6 +14,7 @@ import asyncio
 from collections.abc import Sequence
 
 from roundtable.core.allocation import shuffled
+from roundtable.core.media import KIND_LABELS, KINDS, Placement
 
 from .base import (
     StepFailed,
@@ -45,6 +46,7 @@ from .collab_schemas import (
     volunteer_problems,
 )
 from .effort import record_effort, redo_call, text_problems
+from .media import media_gate, media_payload
 from .review import review_problems
 from .schemas import (
     CheckedReview,
@@ -115,6 +117,38 @@ def _member_tags(ctx: TableContext) -> dict[str, tuple[str, ...]]:
     return {c: tuple(by_id[m].tags) if m in by_id else () for c, m in ctx.members.items()}
 
 
+def media_kinds(ctx: TableContext) -> list[str]:
+    """当前可以生成的媒体种类（有可用的模型）。"""
+    if ctx.media is None:
+        return []
+    return [k for k in KINDS if ctx.media.unavailable_reason(k, ctx.media_tier) is None]
+
+
+def media_kinds_text(kinds: Sequence[str]) -> str:
+    if not kinds:
+        return "本次没有可用的媒体生成能力，所有子任务的 media 一律写 null。"
+    listed = "、".join(f"{k}（{KIND_LABELS[k]}）" for k in kinds)
+    return f"media 只能取这些值：{listed}，或 null。"
+
+
+def media_prompt(ctx: TableContext, role: str, kind: str, **values: str):
+    """媒体类子任务使用专门的提示词（成员写的是生成提示词）。"""
+    template = ctx.prompts.get(role, ctx.prompt_version(role))
+    return template.render(
+        medium=KIND_LABELS[kind], **{k: v for k, v in values.items() if k in template.variables}
+    )
+
+
+async def make_media(
+    ctx: TableContext, kind: str, text: str, step: str, sid: str, code: str, round_no: int
+) -> dict:
+    assert ctx.media is not None
+    res = await ctx.media.generate(
+        kind, text, Placement(ctx.table_no, step, round_no, code, sid), tier=ctx.media_tier
+    )
+    return media_payload(res, kind, round_no)
+
+
 def _item_expected(ctx: TableContext) -> int | None:
     """单个子任务的预估长度：整题长度按子任务数平分。"""
     if ctx.expected_answer_tokens is None:
@@ -135,12 +169,14 @@ class DecomposeStep:
         coordinator = _require_coordinator(ctx)
         rules = ctx.config.roundtable.collab
         tags = _tags_at_table(ctx)
+        kinds = media_kinds(ctx)
         prompt = ctx.render(
             self.name,
             question=ctx.question.text,
             member_count=str(len(ctx.active)),
             max_subtasks=str(rules.max_subtasks),
             tags=", ".join(tags),
+            media_kinds=media_kinds_text(kinds),
         )
         result = await call_and_parse(
             ctx,
@@ -149,7 +185,7 @@ class DecomposeStep:
             model_id=coordinator,
             prompt=prompt,
             parse=lambda text: parse_decomposition(
-                text, max_subtasks=rules.max_subtasks, vocabulary=tags
+                text, max_subtasks=rules.max_subtasks, vocabulary=tags, media_kinds=kinds
             ),
         )
         degraded = result.value is None
@@ -380,27 +416,34 @@ class WorkStep:
         notes: list[str] = []
         calls = 0
 
-        def problems(text: str, code: str) -> list[str]:
+        def problems(text: str, code: str, medium: str | None = None) -> list[str]:
             if not rule.enabled:
                 return []
             return text_problems(
                 text,
                 rule=rule,
                 question=ctx.question.text,
-                expected_tokens=_item_expected(ctx),
+                expected_tokens=None if medium else _item_expected(ctx),
             ) + ctx.citation_problems(self.name, code, text)
+
+        generate = True  # 用户在确认卡片上选了"不生成"时为 False
 
         async def work(sid: str, code: str) -> None:
             nonlocal calls
             subtask = by_id[sid]
+            medium = subtask.media if ctx.media is not None else None
             item = {v: k for k, v in c.items().items()}[(sid, code)]  # 可能刚改派过
-            prompt = ctx.render(
-                self.name,
+            values = dict(
                 code=ctx.label(code),
                 question=ctx.question.text,
                 plan=plan_block(ctx),
                 subtask=subtask_block(subtask, "your_subtask"),
                 dependencies=dependencies_block(ctx, subtask),
+            )
+            prompt = (
+                media_prompt(ctx, "work_media", medium, **values)
+                if medium
+                else ctx.render(self.name, **values)
             )
             model_id = ctx.members[code]
             out = await call_model(
@@ -412,7 +455,7 @@ class WorkStep:
                 ctx.drop(code, self.name, "调用失败" if out.completion is None else "回答为空")
                 return
             call_id = out.call_id
-            first = problems(text, code)
+            first = problems(text, code, medium)
             if first:
                 final = first
                 if rule.redo:
@@ -430,7 +473,7 @@ class WorkStep:
                     calls += 1
                     retry = again.completion.text.strip() if again.completion else ""
                     if retry:
-                        text, call_id, final = retry, again.call_id, problems(retry, code)
+                        text, call_id, final = retry, again.call_id, problems(retry, code, medium)
                 record_effort(
                     ctx,
                     EffortRecord(
@@ -446,11 +489,16 @@ class WorkStep:
                 if final:
                     notes.append(f"{ctx.label(code)} 的 {sid} 被标记为敷衍")
             c.works[(sid, code)] = text
+            info = None
+            if medium and generate:
+                info = await make_media(ctx, medium, text, self.name, sid, code, 1)
+                if not info["ok"]:
+                    notes.append(f"{ctx.label(code)} 的 {sid} 生成失败：{info['error']}")
             _save(
                 ctx,
                 self.name,
                 "work",
-                {"subtask": sid, "item": item, "text": text},
+                {"subtask": sid, "item": item, "text": text, **({"media": info} if info else {})},
                 code=code,
                 call_id=call_id,
             )
@@ -464,7 +512,22 @@ class WorkStep:
             ]
 
         before = set(ctx.state.dropped)
-        for layer in layers(c.subtasks):  # 按依赖分批：同一批并行；后一批能拿到前一批的成果
+        for number, layer in enumerate(layers(c.subtasks)):
+            # 按依赖分批：同一批并行；后一批能拿到前一批的成果
+            kinds = [by_id[sid].media for sid, _ in pending(layer) if by_id[sid].media]
+            if kinds and ctx.media is not None:
+                generate = (
+                    media_gate(
+                        ctx,
+                        f"work:{ctx.table_no}:{number}",
+                        kinds,
+                        what=f"第 {number + 1} 批子任务",
+                        chars=800,
+                    )
+                    == "go"
+                )
+                if not generate:
+                    notes.append("按你的选择，这一批的媒体成果没有生成")
             await asyncio.gather(*(work(sid, code) for sid, code in pending(layer)))
             # 负责人中途退出、这一块一份成果都没有：改派给在场的组员，在下一批开始前补上
             if self._reassign(ctx, layer, notes):
@@ -582,6 +645,11 @@ def items_block(ctx: TableContext, item_ids: Sequence[str]) -> str:
             head.append(f"要求：{s.requirements}")
         if s.acceptance:
             head.append(f"验收标准：{s.acceptance}")
+        if s.media:
+            head.append(
+                f"这一块需要生成{KIND_LABELS.get(s.media, s.media)}：下面的成果是作者写的"
+                "生成提示词，生成结果在文件说明中（图片 / 视频截帧会作为随附图片发给你）。"
+            )
         work = ctx.scrub(c.works[(sid, code)] + ctx.member_notes(code))
         body = neutralize("\n".join(head) + "\n\n" + work, TAGS)
         parts.append(f'<work id="{item}">\n{body}\n</work>')
@@ -711,6 +779,15 @@ def reviews_of_item(ctx: TableContext, item: str, author: str) -> list[CheckedRe
     return [received[k] for k in shuffled(sorted(received), ctx.rng)]
 
 
+def has_valid_review(ctx: TableContext, item: str, author: str) -> bool:
+    return any(
+        r.target == item and r.valid
+        for reviewer, reviews in _c(ctx).cross_reviews.items()
+        if reviewer != author
+        for r in reviews
+    )
+
+
 class ReworkStep:
     name = "rework"
 
@@ -724,15 +801,16 @@ class ReworkStep:
         redone: list[str] = []
         notes: list[str] = []
         called = 0
+        generate = True  # 用户在确认卡片上选了"不生成"时为 False
 
-        def problems(revision: Revision, code: str) -> list[str]:
+        def problems(revision: Revision, code: str, medium: str | None = None) -> list[str]:
             if not rule.enabled or revision.degraded:
                 return []
             found = text_problems(
                 revision.answer,
                 rule=rule,
                 question=ctx.question.text,
-                expected_tokens=_item_expected(ctx),
+                expected_tokens=None if medium else _item_expected(ctx),
             ) + ctx.citation_problems(self.name, code, revision.answer)
             if not revision.responses.strip():
                 found.append("没有回应审查意见")
@@ -751,19 +829,24 @@ class ReworkStep:
             item = ids_by_key[key]
             original = c.works[key]
             received = reviews_of_item(ctx, item, code)
+            medium = by_id[sid].media if ctx.media is not None else None
             call_id = None
             if not received:
                 revision = Revision(original, "", skipped=True)
             else:
                 called += 1
                 block = "\n\n".join(review_block(ctx.label(r.reviewer), r) for r in received)
-                prompt = ctx.render(
-                    self.name,
+                values = dict(
                     code=ctx.label(code),
                     question=ctx.question.text,
                     subtask=subtask_block(by_id[sid], "your_subtask"),
                     own_work=original,
                     reviews_of_you=ctx.scrub(block),
+                )
+                prompt = (
+                    media_prompt(ctx, "rework_media", medium, **values)
+                    if medium
+                    else ctx.render(self.name, **values)
                 )
                 result = await call_and_parse(
                     ctx,
@@ -777,7 +860,7 @@ class ReworkStep:
                 call_id = result.call_id
                 if result.value is not None:
                     revision = with_decisions(result.value)
-                    first = problems(revision, code)
+                    first = problems(revision, code, medium)
                     if first:
                         final = first
                         if rule.redo:
@@ -797,7 +880,7 @@ class ReworkStep:
                             )
                             if retry is not None:
                                 revision, call_id = with_decisions(retry), again.call_id
-                                final = problems(revision, code)
+                                final = problems(revision, code, medium)
                         record_effort(
                             ctx,
                             EffortRecord(
@@ -819,16 +902,45 @@ class ReworkStep:
                     text = (result.raw_text or "").strip()
                     revision = Revision(text or original, "", degraded=True)
             c.reworks[key] = revision
+            info = None
+            changed = revision.answer.strip() != original.strip()
+            if medium and generate and not revision.skipped and not revision.degraded and changed:
+                info = await make_media(ctx, medium, revision.answer, self.name, sid, code, 2)
+                if not info["ok"]:
+                    notes.append(f"{ctx.label(code)} 的 {sid} 重新生成失败：{info['error']}")
             _save(
                 ctx,
                 self.name,
                 "rework",
-                {"subtask": sid, "item": item, **revision.to_dict()},
+                {
+                    "subtask": sid,
+                    "item": item,
+                    **revision.to_dict(),
+                    **({"media": info} if info else {}),
+                },
                 code=code,
                 call_id=call_id,
             )
 
         before = set(ctx.state.dropped)
+        kinds = [
+            by_id[sid].media
+            for sid, code in todo
+            if by_id[sid].media and has_valid_review(ctx, ids_by_key[(sid, code)], code)
+        ]
+        if kinds and ctx.media is not None:
+            generate = (
+                media_gate(
+                    ctx,
+                    f"rework:{ctx.table_no}",
+                    kinds,
+                    what="根据审查意见重新生成",
+                    chars=800,
+                )
+                == "go"
+            )
+            if not generate:
+                notes.append("按你的选择，修改后的媒体成果没有重新生成")
         await asyncio.gather(*(work(key) for key in todo))
         return StepResult(
             self.name,

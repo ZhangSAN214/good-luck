@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import hashlib
+import random
 
 from roundtable.core.allocation import eligible
 from roundtable.core.config import AppConfig
+from roundtable.core.media import pick_stt_model
 from roundtable.core.providers import ChannelRouter
 from roundtable.core.storage import Repository
 
@@ -18,12 +20,22 @@ from .store import FileStore
 MODEL_TAGS = {"image": "vision", "audio": "transcribe"}
 MISSING_MODEL = {
     "image": "没有可用的识图模型（需要带 vision 标签且有可用渠道的模型），无法上传图片",
-    "audio": "没有可用的转写模型（需要带 transcribe 标签且有可用渠道的模型），无法上传音频",
+    "audio": (
+        "没有可用的转写模型（需要带 stt 标签的语音转文字模型，或带 transcribe 标签的对话模型，"
+        "且有可用渠道），无法上传音频"
+    ),
 }
 
 
 def capable(router: ChannelRouter, tag: str) -> list:
     return eligible([m for m in router.available_models() if m.seat], required_tags=[tag])
+
+
+def can_process(router: ChannelRouter, kind: str) -> bool:
+    """这类附件是否有可用的模型处理。音频优先用 stt 模型，旧的 transcribe 标签仍然兼容。"""
+    if kind == "audio" and pick_stt_model(router, random.Random(0)) is not None:
+        return True
+    return bool(capable(router, MODEL_TAGS[kind]))
 
 
 def ingest(
@@ -41,8 +53,7 @@ def ingest(
     if len(data) > limit:
         raise UploadError(f"文件「{name}」超过 {rules.max_file_mb:g} MB 上限")
     file_type = detect(name, data)
-    tag = MODEL_TAGS.get(file_type.kind)
-    if tag and not capable(router, tag):
+    if file_type.kind in MODEL_TAGS and not can_process(router, file_type.kind):
         raise UploadError(MISSING_MODEL[file_type.kind])
     extracted = extract(file_type, data, rules)
     key = store.save(data, file_type.ext)

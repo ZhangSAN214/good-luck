@@ -74,12 +74,21 @@ def test_local_config_loads():
     assert len(models) >= 5
 
 
+def mock_media_lists(**responses):
+    """媒体模型的额外列表：默认返回空列表；可按名称指定响应。"""
+    for name, url in check_models.MEDIA_URLS.items():
+        respx.get(url).mock(
+            return_value=responses.get(name, httpx.Response(200, json={"data": []}))
+        )
+
+
 @respx.mock
 def test_main_sends_key_and_exit_codes(monkeypatch, capsys):
     monkeypatch.setenv("OPENROUTER_API_KEY", FAKE_KEY)
     monkeypatch.setattr(check_models, "load_dotenv", lambda *_: None)
     monkeypatch.setattr(check_models, "load_local_models", lambda: [local()])
-    route = respx.get(check_models.MODELS_URL).mock(
+    mock_media_lists()
+    route = respx.get(check_models.MODELS_URL.split("?")[0]).mock(
         return_value=httpx.Response(200, json=remote(("v/a", 1.0, 2.0)))
     )
     assert check_models.main([]) == 0
@@ -98,6 +107,7 @@ def test_main_sends_key_and_exit_codes(monkeypatch, capsys):
 def test_main_http_failure_does_not_leak_key(monkeypatch, capsys, response):
     monkeypatch.setenv("OPENROUTER_API_KEY", FAKE_KEY)
     monkeypatch.setattr(check_models, "load_dotenv", lambda *_: None)
+    mock_media_lists()
     route = respx.get(check_models.MODELS_URL)
     if isinstance(response, Exception):
         route.mock(side_effect=response)
@@ -106,3 +116,44 @@ def test_main_http_failure_does_not_leak_key(monkeypatch, capsys, response):
     assert check_models.main([]) == 2
     captured = capsys.readouterr()
     assert FAKE_KEY not in captured.out + captured.err
+
+
+def media_local(mid="img", model="v/img", unit="image", usd=0.04):
+    return {**local(mid, model), "media_price": {"unit": unit, "usd": usd}}
+
+
+def test_media_models_are_found_but_price_is_left_to_humans():
+    remote_data = {"data": [{"id": "v/img", "pricing": {"image": "0.04"}}]}
+    [f] = check_models.compare([media_local()], remote_data)
+    assert f.status == "manual" and "按张计价" in f.detail and "0.04" in f.detail
+
+
+def test_missing_media_model_is_reported():
+    [f] = check_models.compare([media_local()], {"data": []})
+    assert f.status == "missing"
+
+
+def test_local_config_has_media_models_with_unit_prices():
+    media = [m for m in check_models.load_local_models() if m["media_price"]]
+    units = {m["media_price"]["unit"] for m in media}
+    assert {"image", "second", "minute", "char"} <= units
+
+
+@respx.mock
+def test_main_merges_media_lists_and_survives_failed_ones(monkeypatch, capsys):
+    monkeypatch.setattr(check_models, "load_dotenv", lambda *_: None)
+    monkeypatch.setattr(
+        check_models,
+        "load_local_models",
+        lambda: [local(), media_local(), media_local("vid", "v/vid", "second", 0.1)],
+    )
+    respx.get(check_models.MODELS_URL).mock(
+        return_value=httpx.Response(
+            200, json={"data": [*remote(("v/a", 1.0, 2.0))["data"], {"id": "v/img", "pricing": {}}]}
+        )
+    )
+    mock_media_lists(video=httpx.Response(500))
+    assert check_models.main([]) == 0  # 找不到的媒体模型是 unverified，不算失败
+    captured = capsys.readouterr()
+    assert "manual" in captured.out and "unverified" in captured.out
+    assert "video" in captured.err

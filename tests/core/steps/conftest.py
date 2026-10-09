@@ -115,7 +115,7 @@ WORK_ID = re.compile(r'<work id="(W\d+)"')
 MERGE_WORK = re.compile(r'<work id="W\d+" subtask="(T\d+)" from="组员(.)"')
 
 
-def decompose_reply(n: int = 2, depends: bool = False) -> Callable:
+def decompose_reply(n: int = 2, depends: bool = False, media: dict | None = None) -> Callable:
     def reply(model: str, messages: list[Message]) -> str:
         subtasks = [
             {
@@ -125,6 +125,7 @@ def decompose_reply(n: int = 2, depends: bool = False) -> Callable:
                 "acceptance": "推理正确、结论明确",
                 "tags": ["math"],
                 "depends_on": ["T1"] if depends and i > 1 else [],
+                "media": (media or {}).get(f"T{i}"),
             }
             for i in range(1, n + 1)
         ]
@@ -211,6 +212,31 @@ def merge_reply(confidence: str = "high", legacy: bool = False) -> Callable:
     return reply
 
 
+def media_review_reply(satisfied: bool, what: str = "主体不对") -> Callable:
+    def reply(model: str, messages: list[Message]) -> str:
+        problems = [] if satisfied else [{"what": what, "fix": "在提示词中强调主体"}]
+        return json.dumps(
+            {
+                "satisfied": satisfied,
+                "problems": problems,
+                "checked": "对照需求逐项检查了主体和风格",
+            },
+            ensure_ascii=False,
+        )
+
+    return reply
+
+
+def media_decision_reply(satisfied: bool, prompt: str = "改进后的提示词") -> Callable:
+    def reply(model: str, messages: list[Message]) -> str:
+        return json.dumps(
+            {"satisfied": satisfied, "prompt": prompt, "reason": "按评审意见调整"},
+            ensure_ascii=False,
+        )
+
+    return reply
+
+
 def default_reply(model: str, messages: list[Message]) -> str:
     """按提示词判断步骤，给出合格回复。"""
     system = messages[0].content
@@ -226,6 +252,12 @@ def default_reply(model: str, messages: list[Message]) -> str:
         return revision_reply(model, messages)
     if "合并成一份完整成果" in system:
         return merge_reply()(model, messages)
+    if "检查生成的成果" in system:
+        return media_review_reply(True)(model, messages)
+    if "决定是否需要重新生成" in system:
+        return media_decision_reply(True)(model, messages)
+    if "需要生成「" in system and "修改提示词" in system:
+        return revision_reply(model, messages)
     if "审阅每一份答案" in system:
         return good_review(model, messages)
     if "根据审阅意见修订" in system:

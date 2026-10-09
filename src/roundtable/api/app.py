@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -26,6 +27,8 @@ from roundtable.core.service import (
 WEB_DIR = Path(__file__).resolve().parents[3] / "web"
 # 可以在页面里直接显示的图片类型（SVG 不在其中：只作为文本预览或下载）
 INLINE_IMAGES = frozenset({"image/png", "image/jpeg", "image/gif", "image/webp"})
+# 生成的音频 / 视频可以在页面里播放（支持 Range，便于拖动进度条）
+INLINE_MEDIA = frozenset({"audio/mpeg", "audio/wav", "audio/ogg", "video/mp4", "video/webm"})
 
 
 class CreateSession(BaseModel):
@@ -39,6 +42,8 @@ class CreateSession(BaseModel):
     workflow: str = "discussion"  # discussion 讨论 / collab 协同
     seed: int | None = None
     attachments: list[str] = Field(default_factory=list)  # POST /api/uploads 返回的附件 id
+    media: str | None = None  # 讨论模式的输出类型：image / speech / video
+    media_tier: str | None = None  # 媒体模型的档位：budget / flagship
 
 
 class EstimateRequest(BaseModel):
@@ -52,6 +57,8 @@ class EstimateRequest(BaseModel):
     anonymous: bool = False
     attachments: list[str] = Field(default_factory=list)
     seed: int | None = None
+    media: str | None = None
+    media_tier: str | None = None
 
 
 class Respond(BaseModel):
@@ -59,6 +66,24 @@ class Respond(BaseModel):
 
     response: str
     note: str | None = None
+
+
+def _byte_range(header: str | None, size: int) -> tuple[int, int] | str | None:
+    """解析 Range: bytes=a-b（只支持单个区间）。没有 Range 返回 None；无法满足返回 "invalid"。"""
+    if not header:
+        return None
+    match = re.fullmatch(r"bytes=(\d*)-(\d*)", header.strip())
+    if not match or not (match.group(1) or match.group(2)):
+        return None
+    first, last = match.groups()
+    if first:
+        start = int(first)
+        end = min(int(last), size - 1) if last else size - 1
+    else:  # 最后 N 个字节
+        start, end = max(0, size - int(last)), size - 1
+    if start >= size or start > end:
+        return "invalid"
+    return start, end
 
 
 def sse(event: dict[str, Any]) -> str:
@@ -119,6 +144,8 @@ def create_app(service: RoundtableService | None = None) -> FastAPI:
             workflow=body.workflow,
             seed=body.seed,
             attachments=body.attachments,
+            media=body.media,
+            media_tier=body.media_tier,
         )
         return {"session_id": sid}
 
@@ -127,7 +154,10 @@ def create_app(service: RoundtableService | None = None) -> FastAPI:
         """下载成员生成的文件。始终作为附件下载（不在页面中打开），图片可以 ?inline=1 显示。"""
         data, row = svc(request).file_content(session_id, file_id)
         name = row["path"].rsplit("/", 1)[-1]
-        inline = request.query_params.get("inline") == "1" and row["mime"] in INLINE_IMAGES
+        playable = row["mime"] in INLINE_MEDIA
+        inline = request.query_params.get("inline") == "1" and (
+            row["mime"] in INLINE_IMAGES or playable
+        )
         disposition = "inline" if inline else "attachment"
         headers = {
             "Content-Disposition": f"{disposition}; filename*=UTF-8''{quote(name)}",
@@ -136,6 +166,20 @@ def create_app(service: RoundtableService | None = None) -> FastAPI:
             "Cache-Control": "private, max-age=3600",
         }
         media = row["mime"] if inline else "application/octet-stream"
+        if inline and playable:
+            headers["Accept-Ranges"] = "bytes"
+            span = _byte_range(request.headers.get("range"), len(data))
+            if span == "invalid":
+                return Response(status_code=416, headers={"Content-Range": f"bytes */{len(data)}"})
+            if span is not None:
+                start, end = span
+                headers["Content-Range"] = f"bytes {start}-{end}/{len(data)}"
+                return Response(
+                    content=data[start : end + 1],
+                    status_code=206,
+                    media_type=media,
+                    headers=headers,
+                )
         return Response(content=data, media_type=media, headers=headers)
 
     @app.get("/api/sessions/{session_id}/files/{file_id}/preview")
@@ -154,6 +198,8 @@ def create_app(service: RoundtableService | None = None) -> FastAPI:
             anonymous=body.anonymous,
             attachments=body.attachments,
             seed=body.seed,
+            media=body.media,
+            media_tier=body.media_tier,
         )
 
     @app.post("/api/uploads", status_code=201)

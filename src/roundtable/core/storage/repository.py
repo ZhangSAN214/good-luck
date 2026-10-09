@@ -29,7 +29,7 @@ Status = Literal[
     "created", "awaiting_confirmation", "running", "paused", "completed", "failed", "stopped"
 ]
 STATUSES = frozenset(Status.__args__)  # type: ignore[attr-defined]
-Role = Literal["planner", "member", "coordinator", "preprocess", "tool"]
+Role = Literal["planner", "member", "coordinator", "preprocess", "tool", "media"]
 # preprocess：附件预处理；tool：工具中的模型调用（如图像生成）
 HIDDEN_ERROR = "出错（详情揭晓后可见）"
 
@@ -771,6 +771,68 @@ class Repository:
             "SELECT COALESCE(SUM(size), 0) FROM files WHERE session_id = ?", (session_id,)
         ).fetchone()[0]
 
+    # --- 媒体任务 ----------------------------------------------------------------
+
+    def create_media_job(self, session_id: str, **f: Any) -> int:
+        now = _now()
+        cur = self._exec(
+            "INSERT INTO media_jobs (session_id, table_no, step, code, subtask, round, attempt,"
+            " kind, model_id, state, prompt, params, created_at, updated_at)"
+            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (
+                session_id,
+                f["table_no"],
+                f["step"],
+                f.get("code"),
+                f.get("subtask"),
+                f["round"],
+                f.get("attempt", 1),
+                f["kind"],
+                f["model_id"],
+                "submitted",
+                f["prompt"],
+                _json(f.get("params", {})),
+                now,
+                now,
+            ),
+        )
+        return cur.lastrowid
+
+    def update_media_job(self, job_id: int, **fields: Any) -> None:
+        allowed = {
+            "channel",
+            "route_model",
+            "external_id",
+            "polling_url",
+            "state",
+            "cost_usd",
+            "error",
+            "file_id",
+            "submitted_at",
+            "params",
+        }
+        bad = set(fields) - allowed
+        if bad:
+            raise ValueError(f"不能更新的字段：{sorted(bad)}")
+        if "params" in fields:
+            fields["params"] = _json(fields["params"])
+        sets = ", ".join(f"{k} = ?" for k in fields)
+        self._exec(
+            f"UPDATE media_jobs SET {sets}, updated_at = ? WHERE id = ?",
+            (*fields.values(), _now(), job_id),
+        )
+
+    def media_jobs(self, session_id: str) -> list[dict[str, Any]]:
+        rows = self._exec(
+            "SELECT * FROM media_jobs WHERE session_id = ? ORDER BY id", (session_id,)
+        ).fetchall()
+        out = []
+        for r in rows:
+            d = dict(r)
+            d["params"] = json.loads(d["params"])
+            out.append(d)
+        return out
+
     # --- 用量 ------------------------------------------------------------------
 
     def total_spent(self) -> float:
@@ -788,11 +850,11 @@ class Repository:
             "SELECT COALESCE(SUM(cost_usd), 0) FROM calls WHERE session_id = ?", (session_id,)
         ).fetchone()[0]
 
-    def table_cost(self, session_id: str, table_no: int) -> float:
-        return self._exec(
-            "SELECT COALESCE(SUM(cost_usd), 0) FROM calls WHERE session_id = ? AND table_no = ?",
-            (session_id, table_no),
-        ).fetchone()[0]
+    def table_cost(self, session_id: str, table_no: int, *, include_media: bool = True) -> float:
+        sql = "SELECT COALESCE(SUM(cost_usd), 0) FROM calls WHERE session_id = ? AND table_no = ?"
+        if not include_media:
+            sql += " AND role != 'media'"
+        return self._exec(sql, (session_id, table_no)).fetchone()[0]
 
     def call_samples(self, sessions: int = 30) -> list[dict[str, Any]]:
         """最近若干场讨论中各步骤的调用（成员与统筹，不含规划员），供花费预估用历史校准。"""

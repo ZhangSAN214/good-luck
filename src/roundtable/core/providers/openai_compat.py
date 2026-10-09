@@ -11,7 +11,16 @@ import httpx
 from roundtable.core.config.schema import ChannelSpec
 
 from ._http import error_fields, kind_for_status, retry_after, safe_detail
-from .base import Media, Message, Provider, RawCompletion, media_from_data_uri
+from .base import (
+    Media,
+    MediaOutput,
+    Message,
+    Provider,
+    RawCompletion,
+    Transcription,
+    VideoJob,
+    media_from_data_uri,
+)
 from .errors import ErrorKind, ProviderError
 from .registry import register_adapter
 from .secrets import Secret
@@ -110,6 +119,116 @@ class OpenAICompatProvider(Provider):
         if choice.get("finish_reason") == "content_filter":
             raise self._error(ErrorKind.REFUSAL, "内容被过滤")
         return result
+
+    # --- 媒体：语音合成 / 转写 / 异步视频（OpenRouter 的接口格式）----------------------
+
+    async def _send(self, method: str, url: str, **kw: Any) -> httpx.Response:
+        try:
+            response = await self._client.request(method, url, **kw)
+        except httpx.TimeoutException:
+            raise self._error(ErrorKind.TIMEOUT) from None
+        except httpx.TransportError as exc:
+            raise self._error(ErrorKind.NETWORK, type(exc).__name__) from None
+        if response.status_code >= 400:
+            try:
+                payload = response.json()
+            except ValueError:
+                payload = response.text
+            code, message = error_fields(payload)
+            raise self._error(
+                kind_for_status(response.status_code, code),
+                message or (payload if isinstance(payload, str) else ""),
+                status=response.status_code,
+                retry_after=retry_after(response.headers),
+            ) from None
+        return response
+
+    def _json(self, response: httpx.Response) -> dict[str, Any]:
+        try:
+            data = response.json()
+        except ValueError:
+            data = None
+        if not isinstance(data, dict):
+            raise self._error(ErrorKind.INVALID_RESPONSE, "无法解析返回内容")
+        return data
+
+    async def synthesize_speech(self, model: str, text: str, params: dict[str, Any]) -> MediaOutput:
+        params = dict(params)
+        fmt = params.pop("response_format", "mp3")
+        body = {"model": model, "input": text, "response_format": fmt, **params}
+        response = await self._send("POST", "audio/speech", json=body)
+        if not response.content:
+            raise self._error(ErrorKind.INVALID_RESPONSE, "没有返回音频")
+        mime = {"mp3": "audio/mpeg", "wav": "audio/wav", "opus": "audio/ogg"}.get(fmt, "audio/mpeg")
+        return MediaOutput(Media("audio", mime, response.content, f"speech.{fmt}"))
+
+    async def transcribe(self, model: str, audio: Media, params: dict[str, Any]) -> Transcription:
+        fmt = AUDIO_FORMATS.get(audio.mime, audio.mime.split("/")[-1])
+        body: dict[str, Any] = {
+            "model": model,
+            "input_audio": {"data": base64.b64encode(audio.data).decode("ascii"), "format": fmt},
+            **params,
+        }
+        data = self._json(await self._send("POST", "audio/transcriptions", json=body))
+        usage = data.get("usage") or {}
+        return Transcription(
+            text=str(data.get("text") or ""),
+            cost_usd=_float_or_none(usage.get("cost")),
+            seconds=_float_or_none(usage.get("seconds")),
+        )
+
+    async def submit_video(
+        self, model: str, prompt: str, params: dict[str, Any], images: Sequence[Media] = ()
+    ) -> VideoJob:
+        body: dict[str, Any] = {"model": model, "prompt": prompt, **params}
+        if images:
+            body["frame_images"] = [
+                {
+                    "type": "image_url",
+                    "image_url": {
+                        "url": f"data:{m.mime};base64,{base64.b64encode(m.data).decode('ascii')}"
+                    },
+                }
+                for m in images
+            ]
+        return self._job(self._json(await self._send("POST", "videos", json=body)))
+
+    async def poll_video(self, model: str, job: VideoJob) -> VideoJob:
+        url = job.polling_url or f"videos/{job.job_id}"
+        return self._job(self._json(await self._send("GET", url)), job)
+
+    async def fetch_video(self, model: str, job: VideoJob, index: int = 0) -> Media:
+        response = await self._send("GET", f"videos/{job.job_id}/content", params={"index": index})
+        if not response.content:
+            raise self._error(ErrorKind.INVALID_RESPONSE, "没有返回视频")
+        mime = response.headers.get("content-type", "video/mp4").split(";")[0].strip()
+        return Media("video", mime if mime.startswith("video/") else "video/mp4", response.content)
+
+    def _job(self, data: dict[str, Any], previous: VideoJob | None = None) -> VideoJob:
+        job_id = str(data.get("id") or (previous.job_id if previous else ""))
+        if not job_id:
+            raise self._error(ErrorKind.INVALID_RESPONSE, "没有返回任务 id")
+        status = str(data.get("status") or "pending")
+        state = {"in_progress": "running", "processing": "running", "queued": "pending"}.get(
+            status, status
+        )
+        if state not in ("pending", "running", "completed", "failed", "cancelled", "expired"):
+            state = "running"
+        polling = data.get("polling_url") or (previous.polling_url if previous else None)
+        if isinstance(polling, str) and polling.startswith(str(self._client.base_url).rstrip("/")):
+            polling = polling[len(str(self._client.base_url)) :].lstrip("/")
+        elif isinstance(polling, str) and polling.startswith("/api/v1/"):
+            polling = polling.removeprefix("/api/v1/")
+        usage = data.get("usage") or {}
+        error = data.get("error")
+        return VideoJob(
+            job_id=job_id,
+            state=state,
+            polling_url=polling if isinstance(polling, str) else None,
+            content_urls=tuple(str(u) for u in (data.get("unsigned_urls") or ())),
+            cost_usd=_float_or_none(usage.get("cost")),
+            error=safe_detail(str(error), self._secrets) if error else None,
+        )
 
     async def aclose(self) -> None:
         await self._client.aclose()

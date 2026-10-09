@@ -64,6 +64,16 @@ STEP_NAMES = {
     "rework": "按审查修改",
     "merge": "统筹合并",
     "attachments": "处理附件",
+    "media": "生成媒体",
+}
+MEDIA_NAMES = {"image": "图片", "speech": "语音", "video": "视频"}
+JOB_STATE = {
+    "submitted": "已提交",
+    "pending": "排队中",
+    "running": "生成中",
+    "completed": "完成",
+    "failed": "失败",
+    "timeout": "超时",
 }
 STANCE_NAMES = {"want": "想做", "can": "可以做", "unfit": "不适合"}
 LEVEL_NAMES = {"full": "全部采用", "partial": "部分采用", "none": "未采用"}
@@ -93,7 +103,15 @@ TOOL_STATUS = {
     "rejected": "被拒绝",
     "limit": "额度已用完",
 }
-FILE_KINDS = {"image": "图片", "code": "代码", "text": "文本", "table": "表格", "document": "文档"}
+FILE_KINDS = {
+    "image": "图片",
+    "audio": "音频",
+    "video": "视频",
+    "code": "代码",
+    "text": "文本",
+    "table": "表格",
+    "document": "文档",
+}
 KIND_LABELS = {"image": "图片", "pdf": "PDF", "docx": "Word", "text": "文本", "audio": "音频"}
 LENGTH_NAMES = {"simple": "短", "medium": "中等", "hard": "长", None: "未判断"}
 
@@ -196,6 +214,13 @@ class CLI:
             self.p(f"  ⚠ {self.label(e.code, e.table_no)} 重做后仍不合格，标记为敷衍")
         elif e.type == "budget_warning":
             self.p(f"⚠ {d['message']}")
+        elif e.type == "media_started":
+            kind = MEDIA_NAMES.get(d.get("kind"), d.get("kind"))
+            self.p(f"  生成{kind}（第 {d.get('round', 1)} 轮）…")
+        elif e.type == "media_progress":
+            self.p(f"  视频任务：{JOB_STATE.get(d.get('state'), d.get('state'))}")
+        elif e.type == "media_failed":
+            self.p(f"  ⚠ {MEDIA_NAMES.get(d.get('kind'), '媒体')}生成失败")
         elif e.type == "tool_finished":
             who = self.label(e.code, e.table_no or 0)
             tool = TOOL_NAMES.get(d.get("tool"), d.get("tool"))
@@ -294,6 +319,7 @@ class CLI:
                         else only.content
                     )
                     self.p(f"\n【答案】\n{self.t(text)}")
+        self.print_media(sid, view.revealed, details)
         self.print_tools(sid, view.revealed, details)
         self.print_contributions(sid, view.revealed)
         if view.error:
@@ -427,7 +453,13 @@ class CLI:
     def preview(self, question: str, choice: UserChoice, ids: Sequence[str], *, seed: int):
         rows = [self.rt.repo.attachment(i) for i in ids]
         params = self.rt.config.routing.estimate
-        q = Question(question, tuple(r["kind"] for r in rows), attachment_tokens(rows, params))
+        q = Question(
+            question,
+            tuple(r["kind"] for r in rows),
+            attachment_tokens(rows, params),
+            choice.media,
+            choice.media_tier,
+        )
         return preview_estimates(
             q,
             config=self.rt.config,
@@ -489,6 +521,29 @@ class CLI:
         for row in self.rt.repo.files(sid):
             latest[(row["table_no"], row["code"], row["path"])] = row
         return list(latest.values())
+
+    def print_media(self, sid: str, revealed: bool, details: bool) -> None:
+        """媒体生成：每次生成的轮次、状态、花费、文件（--details 时显示提示词；揭晓后显示模型）。"""
+        jobs = self.rt.repo.media_jobs(sid)
+        if not jobs:
+            return
+        scrub = (lambda t: t) if revealed else self.rt.scrubber.scrub
+        self.p("\n【媒体生成】")
+        for j in jobs:
+            who = self.label(j["code"], j["table_no"]) if j["code"] else "统筹"
+            where = (
+                f"{who} · {j['subtask']}" if j["subtask"] else STEP_NAMES.get(j["step"], j["step"])
+            )
+            model = f" · {j['model_id']}（{j['channel']}）" if revealed and j["channel"] else ""
+            self.p(
+                f"  {MEDIA_NAMES.get(j['kind'], j['kind'])} · {where} · 第 {j['round']} 轮"
+                f"（尝试 {j['attempt']}）：{JOB_STATE.get(j['state'], j['state'])}"
+                f" · ${j['cost_usd']:.4f}{model}"
+            )
+            if j["error"]:
+                self.p(f"    原因：{scrub(j['error'])}")
+            if details:
+                self.p("    提示词：\n" + _indent(self.t(scrub(j["prompt"]))))
 
     def print_tools(self, sid: str, revealed: bool, details: bool) -> None:
         """工具调用（--details 时逐条显示）与生成的文件。"""
@@ -675,7 +730,11 @@ class CLI:
         self.print_preview(question, choice, ids, seed=seed, anonymous=anonymous, brief=True)
         try:
             result = await self.orc.start(
-                Question(question), choice, seed=seed, anonymous=anonymous, attachments=ids
+                Question(question, (), 0, choice.media, choice.media_tier),
+                choice,
+                seed=seed,
+                anonymous=anonymous,
+                attachments=ids,
             )
         except OrchestratorError as exc:
             self.p(f"无法开始：{exc}")
@@ -786,6 +845,16 @@ def build_parser() -> argparse.ArgumentParser:
         default="discussion",
         help="discussion 讨论（全员各自作答再互评汇总，默认）/ collab 协同（拆分子任务分工完成）",
     )
+    ask.add_argument(
+        "--media",
+        choices=["image", "speech", "video"],
+        help="输出类型（仅讨论模式）：商定提示词 → 生成图片 / 语音 / 视频 → 评审 → 重新生成",
+    )
+    ask.add_argument(
+        "--media-tier",
+        choices=["budget", "flagship"],
+        help="媒体模型的档位（默认 budget）；协同模式下也适用于媒体子任务",
+    )
     ask.add_argument("--seed", type=int, help="随机种子（用于复现）")
     ask.add_argument("--details", action="store_true", help="显示每位组员的答案、评审和修订稿")
     ask.add_argument(
@@ -816,6 +885,8 @@ def build_parser() -> argparse.ArgumentParser:
     estimate.add_argument("--models", help="自选：逗号分隔的模型 id")
     estimate.add_argument("--coordinator", help="自选时指定统筹")
     estimate.add_argument("--anonymous", action="store_true", help="不显示上桌的模型名")
+    estimate.add_argument("--media", choices=["image", "speech", "video"], help="输出类型")
+    estimate.add_argument("--media-tier", choices=["budget", "flagship"], help="媒体模型的档位")
     estimate.add_argument("--seed", type=int, help="随机种子（与 ask --seed 相同时阵容一致）")
     files = sub.add_parser("files", help="把成员生成的文件保存到本地目录")
     files.add_argument("session_id")
@@ -864,12 +935,16 @@ async def run(
                     models=tuple(m.strip() for m in args.models.split(",") if m.strip()),
                     coordinator=args.coordinator,
                     workflow=args.mode,
+                    media=args.media,
+                    media_tier=args.media_tier,
                 )
             else:
                 if args.coordinator:
                     cli.p("--coordinator 只能和 --models 一起使用。")
                     return 2
-                choice = UserChoice(args.tier, workflow=args.mode)
+                choice = UserChoice(
+                    args.tier, workflow=args.mode, media=args.media, media_tier=args.media_tier
+                )
             return await cli.cmd_ask(
                 question,
                 choice,
@@ -902,8 +977,11 @@ async def run(
                 cli.p("题目不能为空。")
                 return 2
             models = tuple(m.strip() for m in (args.models or "").split(",") if m.strip())
+            extra = {"media": args.media, "media_tier": args.media_tier}
             choice = (
-                UserChoice("custom", models, args.coordinator) if models else UserChoice(args.tier)
+                UserChoice("custom", models, args.coordinator, **extra)
+                if models
+                else UserChoice(args.tier, **extra)
             )
             seed = args.seed if args.seed is not None else secrets.randbelow(2**31)
             cli.print_preview(question, choice, seed=seed, anonymous=args.anonymous)

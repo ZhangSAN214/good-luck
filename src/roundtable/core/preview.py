@@ -25,6 +25,10 @@ def render_preview(path: str, data: bytes) -> dict[str, Any]:
     ext = path.rsplit(".", 1)[-1].lower() if "." in path else ""
     if ext in ("png", "jpg", "jpeg", "gif", "webp"):
         return {"type": "image"}
+    if ext in ("mp3", "wav", "ogg"):
+        return {"type": "audio"}
+    if ext in ("mp4", "webm"):
+        return {"type": "video"}
     if ext == "csv":
         rows = list(csv.reader(io.StringIO(_text(data))))
         return {

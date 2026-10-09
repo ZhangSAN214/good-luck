@@ -342,3 +342,63 @@ async def test_estimate_command_and_ask_preview():
     code, text = await cli(env, "ask", MEDIUM, "--mode", "collab", "--seed", "5")
     assert code == 0 and "提交前预估" in text and "▶ 协同 · 便宜档全员" in text
     assert "讨论 · " not in text.split("题目：")[1].split("档位：")[0]  # ask 只列所选模式
+
+
+async def test_ask_media_image_shows_generation_and_costs():
+    env = Env(confirm_threshold_usd=100.0, with_media=True)
+    code, text = await cli(
+        env,
+        "ask",
+        MEDIUM,
+        "--models",
+        "b1,b2,b3,f1",
+        "--coordinator",
+        "f1",
+        "--media",
+        "image",
+        "--seed",
+        "3",
+        "--details",
+    )
+    assert code == 0
+    assert "▶ 生成媒体" in text and "生成图片（第 1 轮）" in text
+    assert "【媒体生成】" in text and "图片 · 生成媒体 · 第 1 轮" in text and "提示词" in text
+    assert "【生成的文件】" in text and "image_r1.png" in text
+    assert "提交前预估" in text
+
+
+async def test_ask_video_always_asks_even_with_yes():
+    env = Env(confirm_threshold_usd=100.0, with_media=True)
+    answers = Answers("2")  # 选"不生成"
+    code, text = await cli(
+        env,
+        "ask",
+        MEDIUM,
+        "--models",
+        "b1,b2,b3,f1",
+        "--coordinator",
+        "f1",
+        "--media",
+        "video",
+        "--yes",
+        "--seed",
+        "3",
+        answers=answers,
+    )
+    assert code == 0 and answers.prompts  # --yes 不会自动同意视频生成
+    assert "每次生成前都会先问你" in text and "【媒体生成】" not in text
+
+
+async def test_estimate_command_with_media():
+    env = Env(with_media=True)
+    _, plain = await cli(env, "estimate", MEDIUM, "--seed", "1")
+    _, media = await cli(
+        env, "estimate", MEDIUM, "--media", "video", "--media-tier", "flagship", "--seed", "1"
+    )
+    assert "生成媒体 $" not in plain and "生成媒体 $" in media
+
+
+async def test_media_flag_rejected_in_collab():
+    env = Env(with_media=True)
+    code, text = await cli(env, "ask", MEDIUM, "--mode", "collab", "--media", "image")
+    assert code == 2 and "协同模式" in text

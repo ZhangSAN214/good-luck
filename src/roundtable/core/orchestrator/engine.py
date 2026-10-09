@@ -19,6 +19,7 @@ from typing import Any
 from roundtable.core.allocation import assign_codes
 from roundtable.core.attachments import Attachment, prepare_attachments
 from roundtable.core.cards import CardOption, ConfirmationCard, money
+from roundtable.core.media import KIND_LABELS, MediaService
 from roundtable.core.routing import (
     EstimateHistory,
     Question,
@@ -39,6 +40,7 @@ from roundtable.core.routing import (
 from roundtable.core.runtime import PROJECT_ROOT, Runtime
 from roundtable.core.steps import (
     Event,
+    NeedsApproval,
     StepFailed,
     TableContext,
     final_answer,
@@ -198,7 +200,24 @@ class Orchestrator:
         """会话的题目与附件（附件的 token 数计入花费预估：图片取原图与文字版的较大者）。"""
         rows = self.rt.repo.session_attachments(row["id"])
         tokens = attachment_tokens(rows, self.rt.config.routing.estimate)
-        return Question(row["question"], tuple(row["attachments"]), tokens)
+        choice = row["choice"] or {}
+        return Question(
+            row["question"],
+            tuple(row["attachments"]),
+            tokens,
+            choice.get("media"),
+            choice.get("media_tier"),
+        )
+
+    def _table_question(self, row: dict[str, Any]) -> Question:
+        """桌上成员看到的题目。选了媒体输出时，把需求改写成"商定并写出生成提示词"的任务。"""
+        question = self._question(row)
+        if not question.media:
+            return question
+        cfg = self.rt.config
+        template = self.rt.prompts.get("media_brief", cfg.roundtable.prompts["media_brief"])
+        brief = template.render(medium=KIND_LABELS[question.media], question=question.text)
+        return replace(question, text=next(m.content for m in brief.messages if m.role == "user"))
 
     async def _prepare(self, sid: str, row: dict[str, Any]) -> bool:
         """图片生成文字版、音频转写（每个文件只做一次）。音频转写失败时无法继续。"""
@@ -316,9 +335,14 @@ class Orchestrator:
             self.rt.config.personas.codes,
             random.Random(f"{seed}:codes:{table_no}"),
         )
+        pipeline = list(decision.lineup.pipeline)
+        if (self.rt.repo.session_row(sid)["choice"] or {}).get("media") and "media" not in pipeline:
+            pipeline.insert(
+                pipeline.index("reveal") if "reveal" in pipeline else len(pipeline), "media"
+            )
         fields: dict[str, Any] = dict(
             plan=decision.plan,
-            pipeline=decision.lineup.pipeline,
+            pipeline=tuple(pipeline),
             members=codes,
             coordinator=decision.lineup.coordinator,
             escalate_to=decision.escalate_to,
@@ -472,7 +496,7 @@ class Orchestrator:
         ctx = TableContext(
             session_id=sid,
             table_no=table_no,
-            question=self._question(row),
+            question=self._table_question(row),
             members=dict(table["members"]),
             coordinator=table["coordinator"],
             config=cfg,
@@ -491,6 +515,26 @@ class Orchestrator:
             ),
         )
         ctx.file_store = self.rt.files
+        choice = row["choice"] or {}
+        ctx.media = MediaService(
+            session_id=sid,
+            config=cfg,
+            router=self.rt.router,
+            repo=repo,
+            store=self.rt.files,
+            scrubber=self.rt.scrubber,
+            seed=row["seed"],
+            emit=lambda type_, step, code, **data: self._forward(
+                sid, Event(type_, step, table_no, code, data)
+            ),
+            **self.rt.media_hooks,
+        )
+        if self.rt.frame_extractor is not None:
+            ctx.frame_extractor = self.rt.frame_extractor
+        ctx.media_kind = choice.get("media")
+        ctx.media_tier = choice.get("media_tier") or cfg.roundtable.media.default_tier
+        ctx.approval = self._approval_lookup(sid)
+        ctx.budget_gate = self._budget_gate(sid)
         if cfg.roundtable.tools.enabled:
             sandbox, reason = self.rt.sandbox()
             ctx.toolbox = ToolBox(
@@ -509,6 +553,7 @@ class Orchestrator:
                 seed=str(row["seed"]),
                 project_root=PROJECT_ROOT,
                 search=self.rt.search,
+                media_tier=(row["choice"] or {}).get("media_tier"),
             )
         try:
             return await self._run_steps(sid, table, ctx, row)
@@ -525,9 +570,12 @@ class Orchestrator:
         for step in table["pipeline"]:
             if step in done:
                 continue
-            if not self._budget_ok(sid, table, step):
+            # 步骤做到一半停下来问过用户（如视频生成确认）后重新进入：预估已在开始时检查过，
+            # 此时本桌花费里已含这一步已花的部分，再检查一次会把这一步的预估算两遍
+            midstep = self._answered_midstep(sid, table_no, step)
+            if not midstep and not self._budget_ok(sid, table, step):
                 return "paused"
-            if not self._overrun_ok(sid, table, step, done):
+            if not midstep and not self._overrun_ok(sid, table, step, done):
                 return "paused"
             if step in PEER_STEPS and len(ctx.active) < cfg.roundtable.min_members:
                 if not ctx.active:
@@ -540,6 +588,8 @@ class Orchestrator:
             self._emit(sid, "step_started", step=step, table_no=table_no)
             try:
                 result = await get_step(step).run(ctx)
+            except NeedsApproval as need:
+                return self._needs_approval(sid, table_no, step, need)
             except StepFailed as exc:
                 return self._fail(sid, f"步骤 {step} 失败：{exc}")
             repo.mark_step_done(sid, table_no, step)
@@ -610,8 +660,11 @@ class Orchestrator:
         repo = self.rt.repo
         factor = self.rt.config.routing.estimate.overrun_factor
         estimate = table["estimate"]
-        total = estimate.get("total") or 0.0
-        if factor is None or total <= 0:
+        # 媒体生成有自己的确认（视频每次问、超过门槛问）和预算检查，不计入超支保护：
+        # 协同模式的媒体子任务在预估时还不知道，否则每次确认之后都会再弹一张超支卡片
+        media_estimate = estimate["steps"].get("media", 0.0)
+        total = (estimate.get("total") or 0.0) - media_estimate
+        if step == "media" or factor is None or total <= 0:
             return True
         table_no = table["table_no"]
         limit = total * factor
@@ -619,7 +672,7 @@ class Orchestrator:
             details = c.card.get("details", {})
             if c.kind == "overrun" and c.response == "continue" and details["table_no"] == table_no:
                 limit = max(limit, details["next_limit"])
-        spent = repo.table_cost(sid, table_no)
+        spent = repo.table_cost(sid, table_no, include_media=False)
         step_estimate = estimate["steps"].get(step, 0.0)
         if spent + step_estimate <= limit + 1e-9:
             return True
@@ -647,6 +700,43 @@ class Orchestrator:
             next_limit=(spent + remaining) * factor,
         )
         return False
+
+    def _answered_midstep(self, sid: str, table_no: int, step: str) -> bool:
+        return any(
+            c.kind == "media"
+            and c.response is not None
+            and c.card.get("details", {}).get("table_no") == table_no
+            and c.card.get("details", {}).get("step") == step
+            for c in self.rt.repo.session_view(sid).checkpoints
+        )
+
+    def _approval_lookup(self, sid: str) -> Callable[[str], str | None]:
+        """步骤用它读取用户对某个确认点（key）的回复。"""
+
+        def lookup(key: str) -> str | None:
+            for c in self.rt.repo.session_view(sid).checkpoints:
+                if c.kind == "media" and c.card.get("details", {}).get("key") == key and c.response:
+                    return c.response
+            return None
+
+        return lookup
+
+    def _budget_gate(self, sid: str) -> Callable[[float], ConfirmationCard | None]:
+        """步骤内部（如媒体生成前）查预算：不允许时返回要弹出的预算卡片。"""
+
+        def gate(estimate: float) -> ConfirmationCard | None:
+            if self.rt.repo.budget_override(sid):
+                return None
+            verdict = self.rt.budget.check(estimate)
+            return None if verdict.allowed else verdict.card()
+
+        return gate
+
+    def _needs_approval(self, sid: str, table_no: int, step: str, need: NeedsApproval) -> str:
+        if need.card.kind == "budget":
+            self.rt.repo.set_status(sid, "paused")
+        self._checkpoint(sid, need.card, table_no=table_no, step=step, key=need.key)
+        return "paused"
 
     def _approved(self, sid: str, kind: str, table_no: int) -> bool:
         """用户是否已对这张桌子的此类确认点选择了继续（同意一次即对整张桌子有效）。"""

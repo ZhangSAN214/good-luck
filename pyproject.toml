@@ -28,7 +28,14 @@ dependencies = [
 roundtable = "roundtable.cli:main"
 
 [project.optional-dependencies]
+# 视频生成结果的截帧（发给评审者）；没有安装时视频评审只看文字说明
+media = [
+    "av>=12",
+    "pillow>=10",
+]
 dev = [
+    "av>=12",
+    "pillow>=10",
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
     "respx>=0.21",

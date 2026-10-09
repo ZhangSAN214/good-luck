@@ -1,15 +1,20 @@
-"""核对 config/models.yaml 中 OpenRouter 渠道的模型 ID 和价格。
+"""核对 config/models.yaml 中 OpenRouter 渠道的模型 ID 和价格（含图片、语音、转写、视频模型）。
 
 用法（在项目根目录）：
     python scripts/check_models.py            # 读取 .env 中的 OPENROUTER_API_KEY（可选）
     python scripts/check_models.py --tolerance 0.05
 
 发现模型不存在或价格偏差超出容差时，退出码为 1。本脚本只读，不修改任何文件。
+
+媒体模型（seat: false）：先查 ID 是否存在（图片 / 语音走 /models 的 output_modalities 筛选，视频走
+/videos/models）；按张 / 秒 / 分钟 / 字符计价的模型，远端价格字段因模型而异，脚本只把远端的
+pricing 原样列出供人工核对（状态 manual，不影响退出码）。拿不到某个列表时标为 unverified。
 """
 
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sys
 from dataclasses import dataclass
@@ -24,7 +29,16 @@ from roundtable.core.config import load_config
 ROOT = Path(__file__).resolve().parent.parent
 CHANNEL = "openrouter"
 MODELS_URL = "https://openrouter.ai/api/v1/models"
+# 媒体模型不一定出现在默认的 /models 列表里：额外查询这些列表（失败只提示，不终止）
+MEDIA_URLS = {
+    "image": f"{MODELS_URL}?output_modalities=image",
+    "audio": f"{MODELS_URL}?output_modalities=audio",
+    "video": "https://openrouter.ai/api/v1/videos/models",
+}
 PER_MILLION = 1_000_000
+
+
+UNITS = {"image": "张", "second": "秒", "minute": "分钟", "char": "字符"}
 
 
 @dataclass(frozen=True)
@@ -42,12 +56,16 @@ def load_local_models(config_dir: Path | None = None) -> list[dict[str, Any]]:
     for m in cfg.models.models:
         route = next((r for r in m.routes if r.channel == CHANNEL), None)
         price = m.price_for(route) if route else m.price
+        media_price = (m.media_price_for(route) if route else m.media_price) if not m.seat else None
         entries.append(
             {
                 "id": m.id,
                 "model": route.model if route else "-",
                 "provider": CHANNEL if route else "other",
                 "price": {"input": price.input, "output": price.output},
+                "media_price": {"unit": media_price.unit, "usd": media_price.usd}
+                if media_price
+                else None,
             }
         )
     return entries
@@ -58,6 +76,23 @@ def fetch_remote(api_key: str | None, timeout: float = 30.0) -> dict[str, Any]:
     response = httpx.get(MODELS_URL, headers=headers, timeout=timeout)
     response.raise_for_status()
     return response.json()
+
+
+def fetch_media_remote(
+    api_key: str | None, timeout: float = 30.0
+) -> tuple[list[dict[str, Any]], list[str]]:
+    """额外的媒体模型列表（合并）。返回 (模型, 没能获取的列表名)。"""
+    headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+    found: list[dict[str, Any]] = []
+    failed: list[str] = []
+    for name, url in MEDIA_URLS.items():
+        try:
+            response = httpx.get(url, headers=headers, timeout=timeout)
+            response.raise_for_status()
+            found += response.json().get("data", [])
+        except (httpx.HTTPError, ValueError):
+            failed.append(name)
+    return found, failed
 
 
 def _per_million(value: Any) -> float | None:
@@ -84,6 +119,19 @@ def compare(
             continue
         pricing = remote_model.get("pricing", {})
         price = entry.get("price", {})
+        if entry.get("media_price"):
+            mp = entry["media_price"]
+            raw = json.dumps(pricing or remote_model.get("pricing_skus"), ensure_ascii=False)
+            findings.append(
+                Finding(
+                    model_id,
+                    model,
+                    "manual",
+                    f"按{UNITS.get(mp['unit'], mp['unit'])}计价：配置 ${mp['usd']:g}；"
+                    f"远端 pricing = {raw}",
+                )
+            )
+            continue
         problems = []
         for side, remote_key in (("input", "prompt"), ("output", "completion")):
             actual = _per_million(pricing.get(remote_key))
@@ -112,7 +160,20 @@ def main(argv: list[str] | None = None) -> int:
         print(f"获取 OpenRouter 模型列表失败：{type(exc).__name__}", file=sys.stderr)
         return 2
 
-    findings = compare(load_local_models(), remote, args.tolerance)
+    api_key = os.environ.get("OPENROUTER_API_KEY") or None
+    extra, failed = fetch_media_remote(api_key)
+    merged = {"data": [*remote.get("data", []), *extra]}
+    entries = load_local_models()
+    findings = compare(entries, merged, args.tolerance)
+    if failed:
+        print(f"提示：没能获取这些媒体模型列表：{'、'.join(failed)}", file=sys.stderr)
+        media_ids = {e["id"] for e in entries if e.get("media_price")}
+        findings = [
+            Finding(f.model_id, f.model, "unverified", "媒体列表获取失败，无法确认 ID 是否存在")
+            if f.status == "missing" and f.model_id in media_ids
+            else f
+            for f in findings
+        ]
     for f in findings:
         print(f"[{f.status:>14}] {f.model_id:<22} {f.model:<34} {f.detail}")
     return 1 if any(f.status in ("missing", "price_mismatch") for f in findings) else 0

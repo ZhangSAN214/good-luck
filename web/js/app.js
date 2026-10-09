@@ -2,6 +2,7 @@
 import * as API from './api.js';
 import {
   STATUS_LABELS,
+  MEDIA_LABELS,
   STEP_LABELS,
   attachmentsHTML,
   estimateHTML,
@@ -17,6 +18,7 @@ import {
   flowPanel,
   historyPanel,
   legendHTML,
+  mediaPanel,
   money,
   reviewsPanel,
   stageHTML,
@@ -37,6 +39,8 @@ const S = {
   tier: null, // 档位名或 custom
   workflow: 'discussion', // discussion 讨论 / collab 协同
   anonymous: false,
+  media: null, // 输出类型：null 文字 / image / speech / video（仅讨论模式）
+  mediaTier: 'budget', // 媒体模型档位
   live: freshLive(),
   stream: null, // AbortController
   cardError: null,
@@ -180,6 +184,7 @@ function renderPanel() {
   if (S.tab === 'reviews') h = reviewsPanel(S.session, prefix());
   if (S.tab === 'split') h = splitPanel(S.session, prefix());
   if (S.tab === 'tools') h = toolsPanel(S.session, prefix());
+  if (S.tab === 'media') h = mediaPanel(S.session, prefix());
   if (S.tab === 'usage') h = usagePanel(S.session, S.budget);
   if (S.tab === 'channels') h = channelsPanel(S.status);
   if (S.tab === 'history') h = historyPanel(S.history, S.sid);
@@ -202,12 +207,35 @@ function renderComposer() {
   $('#workflow').innerHTML = Object.entries(workflows)
     .map(([k, label]) => `<button type="button" data-v="${esc(k)}" aria-pressed="${k === S.workflow}" title="${k === 'collab' ? '统筹拆分子任务，成员自荐、分工完成、交叉审查，最后合并' : '全员各自作答，互评、修订后由统筹汇总'}">${esc(label)}</button>`)
     .join('');
+  renderMediaChoice();
   $('#manual').hidden = S.tier !== 'custom';
   const min = (S.status?.min_members ?? 2) + 1;
   $('#mode-hint').textContent =
     S.tier === 'custom'
       ? `勾选至少 ${min} 个模型，全部上桌（其中一个当统筹）`
       : `该档位所有可用模型上桌；预计超过 ${money(S.status?.confirm_threshold_usd ?? 0.3)} 先问你`;
+}
+
+function renderMediaChoice() {
+  const info = S.status?.media;
+  const kinds = info?.kinds || {};
+  const collab = S.workflow === 'collab';
+  if (collab) S.media = null; // 协同模式由统筹决定哪些子任务生成媒体
+  const outputs = [[null, '文字'], ...Object.entries(kinds).map(([k, v]) => [k, v.label])];
+  $('#media').innerHTML = outputs
+    .map(([k, label]) => {
+      const off = k !== null && (collab || !kinds[k].available);
+      const why = collab ? '协同模式下由统筹决定哪些子任务要生成媒体' : (kinds[k]?.reason || '');
+      return `<button type="button" data-v="${esc(k ?? '')}" aria-pressed="${k === S.media}"${off ? ' disabled' : ''}${off && why ? ` title="${esc(why)}"` : ''}>${esc(label)}</button>`;
+    })
+    .join('');
+  $('#media').hidden = !info || !Object.keys(kinds).length;
+  // 质量档位：选了媒体输出，或协同模式（媒体子任务也用它）时显示
+  const showTier = !!info && (S.media !== null || collab) && Object.values(kinds).some((v) => v.available);
+  $('#mediatier').hidden = !showTier;
+  $('#mediatier').innerHTML = [['budget', '普通'], ['flagship', '高质量']]
+    .map(([k, label]) => `<button type="button" data-v="${k}" aria-pressed="${k === S.mediaTier}" title="媒体模型的档位：${k === 'budget' ? '便宜' : '更贵、质量更高'}">${label}</button>`)
+    .join('');
 }
 
 function renderPicks() {
@@ -265,6 +293,8 @@ function estimateRequest() {
     workflow: S.workflow,
     attachments: S.attachments.filter((a) => a.id).map((a) => a.id),
   };
+  if (S.media) req.media = S.media;
+  if (S.media) req.media_tier = S.mediaTier;
   if (S.tier === 'custom') {
     req.models = [...document.querySelectorAll('#picks input:checked')].map((i) => i.value);
     if (req.models.length < (S.status?.min_members ?? 2) + 1) return null;
@@ -352,6 +382,8 @@ async function submit(ev) {
     workflow: S.workflow,
     attachments: S.attachments.filter((a) => a.id).map((a) => a.id),
   };
+  if (S.media) body.media = S.media;
+  if (S.media || S.workflow === 'collab') body.media_tier = S.mediaTier;
   if (S.tier === 'custom') {
     body.models = [...document.querySelectorAll('#picks input:checked')].map((i) => i.value);
     const min = (S.status?.min_members ?? 2) + 1;
@@ -496,6 +528,15 @@ function onEvent(sid, e) {
       break;
     case 'escalating':
       L.act = `升级中：${e.data.reason || ''}`;
+      break;
+    case 'media_started':
+      L.act = `生成${MEDIA_LABELS[e.data.kind] || '媒体'}（第 ${e.data.round} 轮）…`;
+      break;
+    case 'media_progress':
+      L.act = `视频${e.data.state === 'pending' ? '排队中' : '生成中'}（第 ${e.data.round} 轮）…`;
+      break;
+    case 'media_done':
+      L.act = `${MEDIA_LABELS[e.data.kind] || '媒体'}已生成，评审中…`;
       break;
     case 'budget_warning':
       L.warnings.push(e.data.message);
@@ -650,6 +691,20 @@ function bind() {
     if (pv && S.sid) showPreview(pv.dataset.preview);
     if (e.target.closest('[data-close]')) $('#viewer').close();
     if (e.target === $('#viewer')) $('#viewer').close();
+  });
+  $('#media').addEventListener('click', (e) => {
+    const b = e.target.closest('button');
+    if (!b || b.disabled) return;
+    S.media = b.dataset.v || null;
+    renderMediaChoice();
+    scheduleEstimate();
+  });
+  $('#mediatier').addEventListener('click', (e) => {
+    const b = e.target.closest('button');
+    if (!b) return;
+    S.mediaTier = b.dataset.v;
+    renderMediaChoice();
+    scheduleEstimate();
   });
   $('#workflow').addEventListener('click', (e) => {
     const b = e.target.closest('button');

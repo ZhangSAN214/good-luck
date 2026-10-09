@@ -7,6 +7,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 from roundtable.core.allocation import IdentityScrubber
 from roundtable.core.attachments import FileStore
@@ -38,6 +39,10 @@ class Runtime:
     unavailable_channels: dict[str, str] = field(default_factory=dict)
     # 代码运行沙箱 (后端, 不可用原因)；为空时第一次使用才检测，测试中可直接注入
     tools_sandbox: tuple[Sandbox | None, str | None] | None = None
+    # 媒体生成的时钟 / 等待函数（sleep、wall_clock），测试中注入以免真的等待
+    media_hooks: dict[str, Any] = field(default_factory=dict)
+    # 视频截帧函数（默认用 PyAV）；测试中注入
+    frame_extractor: Callable[..., list[Any]] | None = None
 
     @classmethod
     def build(

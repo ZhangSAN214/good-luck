@@ -7,7 +7,7 @@ import logging
 import time
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Generic, TypeVar
 
 from roundtable.core.config import ChannelMode, ModelsConfig, ModelSpec, Route
 from roundtable.core.config.schema import ChannelKind, RequestPolicy
@@ -21,7 +21,10 @@ from .errors import (
     ErrorKind,
     NoChannelAvailable,
     ProviderError,
+    UnsupportedCapability,
 )
+
+T = TypeVar("T")
 
 log = logging.getLogger(__name__)
 
@@ -39,6 +42,22 @@ class RoutePlan:
     model: ModelSpec
     usable: tuple[Route, ...]
     skipped: dict[str, str] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class Invocation(Generic[T]):
+    """一次成功的渠道调用：结果以及实际走的模型、路由与渠道。"""
+
+    result: T
+    model: ModelSpec
+    route: Route
+    channel_kind: str
+    latency_s: float
+    attempts: tuple[Attempt, ...]
+
+    @property
+    def channel(self) -> str:
+        return self.route.channel
 
 
 class ChannelRouter:
@@ -82,6 +101,10 @@ class ChannelRouter:
                 usable.append(route)
         return RoutePlan(model, tuple(usable), skipped)
 
+    def provider(self, channel: str) -> Provider:
+        """某个渠道的适配器（异步任务需要回到提交任务的那个渠道轮询）。"""
+        return self._providers[channel]
+
     def available_models(self) -> list[ModelSpec]:
         """已启用、且当前模式下至少有一个可用渠道的模型。"""
         return [m for m in self._models.enabled if self.plan(m.id).usable]
@@ -118,6 +141,23 @@ class ChannelRouter:
         messages: Sequence[Message],
         params: dict[str, Any] | None = None,
     ) -> Completion:
+        inv = await self.invoke(
+            model_id,
+            lambda provider, route, model: provider.complete(
+                route.model, messages, {**model.params_for(route), **(params or {})}
+            ),
+        )
+        return self._completion(inv.model, inv.route, inv.result, inv.latency_s, inv.attempts)
+
+    async def invoke(
+        self,
+        model_id: str,
+        call: Callable[[Provider, Route, ModelSpec], Awaitable[T]],
+    ) -> Invocation[T]:
+        """按渠道顺序执行 call（文本、图片、语音、视频提交等），规则同 complete()：
+        可切换的错误换下一个渠道，所有渠道失败后按 failover_rounds 退避重试。
+        渠道不支持该能力（UnsupportedCapability）时视为该渠道不可用，换下一个。
+        """
         plan = self.plan(model_id)
         if not plan.usable:
             raise NoChannelAvailable(model_id, plan.skipped)
@@ -135,9 +175,15 @@ class ChannelRouter:
             for route in self._ordered(remaining):
                 started = self._clock()
                 try:
-                    raw = await self._providers[route.channel].complete(
-                        route.model, messages, {**plan.model.params_for(route), **(params or {})}
+                    result = await call(self._providers[route.channel], route, plan.model)
+                except UnsupportedCapability:
+                    error = ProviderError(ErrorKind.NOT_FOUND, route.channel, "渠道不支持该能力")
+                    attempts.append(
+                        Attempt(route.channel, False, self._clock() - started, error.kind)
                     )
+                    last_error = error
+                    given_up.add(route.channel)
+                    continue
                 except ProviderError as error:
                     attempts.append(
                         Attempt(route.channel, False, self._clock() - started, error.kind)
@@ -156,7 +202,14 @@ class ChannelRouter:
                 self._cooldown_until.pop(route.channel, None)
                 if attempts[0].channel != route.channel:
                     log.info("模型 %s 已切换到渠道 %s", model_id, route.channel)
-                return self._completion(plan.model, route, raw, latency, attempts)
+                return Invocation(
+                    result,
+                    plan.model,
+                    route,
+                    self._models.channels[route.channel].kind,
+                    latency,
+                    tuple(attempts),
+                )
 
         assert last_error is not None
         raise AllChannelsFailed(model_id, attempts, last_error)
@@ -164,6 +217,9 @@ class ChannelRouter:
     def _completion(self, model, route, raw, latency, attempts) -> Completion:
         if raw.reported_cost_usd is not None:
             cost, source = raw.reported_cost_usd, "reported"
+        elif (media := model.media_price_for(route)) and media.unit == "image" and raw.images:
+            # 按张计价的图像模型：渠道没有返回实际费用时，按配置的每张单价
+            cost, source = media.usd * len(raw.images), "estimated"
         else:
             cost = estimate_cost(
                 model.price_for(route), raw.input_tokens, raw.output_tokens, raw.cached_tokens

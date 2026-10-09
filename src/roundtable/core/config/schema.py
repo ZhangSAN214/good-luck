@@ -31,6 +31,17 @@ class Price(_Strict):
     cached_input: float | None = Field(default=None, ge=0)
 
 
+# 媒体模型的计价单位：张、秒、分钟、字符；按 token 计价的模型沿用 Price
+MediaUnit = Literal["image", "second", "minute", "char"]
+
+
+class MediaPrice(_Strict):
+    """媒体模型每个单位的价格（美元）：图片每张、视频每秒、转写每分钟、语音合成每字符。"""
+
+    unit: MediaUnit
+    usd: float = Field(ge=0)
+
+
 class ChannelSpec(_Strict):
     """一个调用渠道（如 openrouter、anthropic 直连）。"""
 
@@ -59,6 +70,7 @@ class Route(_Strict):
     model: str = Field(min_length=1)
     # 该渠道的价格与默认价格不同时填写
     price: Price | None = None
+    media_price: MediaPrice | None = None
     # 该渠道需要的额外/不同参数（如 max_completion_tokens），覆盖模型级 params
     params: dict[str, Any] = Field(default_factory=dict)
 
@@ -67,7 +79,9 @@ class ModelSpec(_Strict):
     id: str = Field(min_length=1)
     vendor: str = Field(min_length=1)
     tier: Tier | None = None
-    price: Price
+    # 按 token 计价；只按张 / 秒 / 分钟 / 字符计价的媒体模型写 0 并填 media_price
+    price: Price = Price(input=0.0, output=0.0)
+    media_price: MediaPrice | None = None
     tags: list[str] = Field(default_factory=list)
     enabled: bool = True
     params: dict[str, Any] = Field(default_factory=dict)
@@ -89,6 +103,9 @@ class ModelSpec(_Strict):
 
     def price_for(self, route: Route) -> Price:
         return route.price or self.price
+
+    def media_price_for(self, route: Route) -> MediaPrice | None:
+        return route.media_price or self.media_price
 
     def params_for(self, route: Route) -> dict[str, Any]:
         return {**self.params, **route.params}
@@ -318,6 +335,44 @@ class ToolsConfig(_Strict):
     search: SearchTool = SearchTool()
 
 
+class VideoRules(_Strict):
+    duration_s: int = Field(default=5, ge=1)
+    resolution: str = "720p"
+    aspect_ratio: str = "16:9"
+    poll_interval_s: float = Field(default=10, ge=0)
+    timeout_s: float = Field(default=900, gt=0)  # 提交后最多等多久；超时记为失败
+    submit_retries: int = Field(default=1, ge=0)  # 提交失败或任务失败后再试几次
+    frames: int = Field(default=4, ge=1, le=12)  # 发给评审者的截帧数
+    max_mb: float = Field(default=100, gt=0)
+
+
+class SpeechRules(_Strict):
+    voice: str = "alloy"
+    format: Literal["mp3", "wav"] = "mp3"
+    max_chars: int = Field(default=4000, ge=1)
+
+
+class MediaRules(_Strict):
+    """媒体生成（图片、语音、视频）：由 seat: false 的媒体模型完成，按标签和档位选择。"""
+
+    enabled: bool = True
+    default_tier: Tier = "budget"
+    # 讨论模式：生成 → 评审 → 重新生成，最多几轮（含第一次生成）
+    max_rounds: int = Field(default=3, ge=1)
+    reviewers: int = Field(default=3, ge=1)  # 每轮最多几位带 vision 标签的评审者
+    # 视频每次生成前都必须确认；图片、语音只在预计超过单题门槛时确认
+    confirm_video: bool = True
+    images_per_round: int = Field(default=1, ge=1, le=4)
+    speech: SpeechRules = SpeechRules()
+    video: VideoRules = VideoRules()
+    # 花费预估：平均生成几轮；评审与改写提示词每次的 token 数
+    expected_rounds: float = Field(default=1.5, ge=1)
+    review_tokens: int = Field(default=500, ge=0)
+    refine_tokens: int = Field(default=600, ge=0)
+    # 生成用的提示词（成员写出）最多多少字
+    prompt_max_chars: int = Field(default=2000, ge=50)
+
+
 class RoundtableConfig(_Strict):
     seats: int = Field(ge=2)
     min_members: int = Field(default=2, ge=2)
@@ -338,6 +393,7 @@ class RoundtableConfig(_Strict):
     effort_check: EffortCheck = EffortCheck()
     uploads: UploadRules = UploadRules()
     tools: ToolsConfig = ToolsConfig()
+    media: MediaRules = MediaRules()
 
     @field_validator("prompts")
     @classmethod

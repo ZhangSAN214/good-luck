@@ -16,16 +16,19 @@ from typing import Any, Literal
 from roundtable.core.allocation import NotEnoughModels
 from roundtable.core.config import AppConfig, ModelSpec, Price
 from roundtable.core.config.schema import Confidence, Difficulty, EscalationRule
+from roundtable.core.media import KINDS
 from roundtable.core.prompts import PromptLibrary
 from roundtable.core.providers import ChannelRouter
 
 from .estimate import CostEstimate, EstimateHistory, Participant, estimate_pipeline, text_tokens
 from .lineup import Lineup, LineupBuilder
+from .media_estimate import with_media_step
 from .planner import PlannerResult, run_planner
 from .triage import Question, triage
 
 CUSTOM = "custom"
 WORKFLOWS = ("discussion", "collab")  # 讨论模式 / 协同模式
+MEDIA_KINDS = KINDS
 Source = Literal["rule", "model", "default"]
 
 
@@ -42,8 +45,19 @@ class UserChoice:
     models: tuple[str, ...] = ()
     coordinator: str | None = None
     workflow: str = "discussion"
+    # 媒体输出（仅讨论模式）：image / speech / video；media_tier：媒体模型的档位
+    media: str | None = None
+    media_tier: str | None = None
 
     def __post_init__(self) -> None:
+        if self.media is not None and self.media not in MEDIA_KINDS:
+            raise RoutingError(f"未知的输出类型 {self.media!r}，可选：{list(MEDIA_KINDS)}")
+        if self.media is not None and self.workflow != "discussion":
+            raise RoutingError(
+                "协同模式不需要选择输出类型：拆分子任务时统筹会决定哪些子任务要生成图片、语音或视频"
+            )
+        if self.media_tier not in (None, "budget", "flagship"):
+            raise RoutingError(f"未知的媒体档位 {self.media_tier!r}，可选：budget / flagship")
         if self.workflow not in WORKFLOWS:
             raise RoutingError(f"未知的模式 {self.workflow!r}，可选：{list(WORKFLOWS)}")
         if self.tier == CUSTOM and not self.models:
@@ -61,6 +75,8 @@ class UserChoice:
             "models": list(self.models),
             "coordinator": self.coordinator,
             "workflow": self.workflow,
+            "media": self.media,
+            "media_tier": self.media_tier,
         }
 
     @classmethod
@@ -72,6 +88,8 @@ class UserChoice:
             tuple(d.get("models") or ()),
             d.get("coordinator"),
             d.get("workflow") or "discussion",
+            d.get("media"),
+            d.get("media_tier"),
         )
 
 
@@ -267,11 +285,14 @@ def _estimate(
         for step, p in config.roundtable.step_params.items()
         if p.get("max_tokens")
     }
-    return estimate_pipeline(
+    members = [seat(m) for m in lineup.members]
+    coordinator = seat(lineup.coordinator) if lineup.coordinator else None
+    question_tokens = text_tokens(question.text, params) + question.attachment_tokens
+    estimate = estimate_pipeline(
         lineup.pipeline,
-        members=[seat(m) for m in lineup.members],
-        coordinator=seat(lineup.coordinator) if lineup.coordinator else None,
-        question_tokens=text_tokens(question.text, params) + question.attachment_tokens,
+        members=members,
+        coordinator=coordinator,
+        question_tokens=question_tokens,
         answer_tokens=answer_tokens,
         revise_rounds=config.roundtable.revise_rounds,
         params=params,
@@ -281,6 +302,20 @@ def _estimate(
         extra_calls=_tool_rounds(config),
         extra_usd=_tool_costs(config),
     )
+    if question.media:
+        estimate = with_media_step(
+            estimate,
+            config=config,
+            router=router,
+            kind=question.media,
+            tier=question.media_tier or config.roundtable.media.default_tier,
+            members=members,
+            coordinator=coordinator,
+            by_id=by_id,
+            question_tokens=question_tokens,
+            prompt_tokens=answer_tokens,
+        )
+    return estimate
 
 
 def _tool_rounds(config: AppConfig) -> dict[str, float]:

@@ -142,6 +142,7 @@ def test_registry():
             "cross_review",
             "rework",
             "merge",
+            "media",
         ]
     )
     with pytest.raises(ValueError):

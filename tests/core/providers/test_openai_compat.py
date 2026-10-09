@@ -145,18 +145,6 @@ async def test_content_filter_is_refusal():
     assert info.value.kind == ErrorKind.REFUSAL
 
 
-async def test_media_capabilities_not_supported():
-    from roundtable.core.providers import UnsupportedCapability
-
-    provider = make(lambda r: httpx.Response(200, json=ok_body()))
-    with pytest.raises(UnsupportedCapability):
-        await provider.generate_image("m", "cat", {})
-    with pytest.raises(UnsupportedCapability):
-        await provider.synthesize_speech("m", "hi", {})
-    with pytest.raises(UnsupportedCapability):
-        await provider.transcribe("m", b"", {})
-
-
 async def test_param_aliases_rename_parameters():
     seen = {}
 

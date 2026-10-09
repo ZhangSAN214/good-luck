@@ -13,12 +13,15 @@ tag_vocabulary:
   - research
   - design
   - long_context
-  # 媒体类（v1 不使用，预留）
-  - vision
-  - image_gen
-  - tts
-  - transcribe
-  - video_gen
+  # 媒体类
+  - vision          # 能看图（图片、视频截帧）
+  - transcribe      # 能直接接收音频的对话模型（旧的转写方式；有 stt 模型时优先用 stt）
+  - image_gen       # 图像生成
+  - image_edit      # 图像编辑（预留）
+  - tts             # 文字转语音
+  - stt             # 语音转文字（Whisper 系列）
+  - video_gen       # 视频生成（异步）
+  - music_gen       # 音乐 / 音效生成（预留，暂不启用）
 
 # 调用渠道。key 只从 .env 读取，这里只写环境变量名。
 #   adapter: 适配器实现（openai_compat / anthropic / gemini）
@@ -212,19 +215,91 @@ models:
       - {channel: deepseek, model: deepseek-v4.1-flash}
       - {channel: openrouter, model: deepseek/deepseek-v4.1-flash}
 
-  # 工具模型（seat: false）：不上桌，只供成员的 generate_image 工具使用（最便宜的 image_gen 模型）
-  # 价格与 ID 来自 OpenRouter 模型页（2026-06），可用 python scripts/check_models.py 核对
+  # 媒体模型（seat: false）：不上桌、不占座位，作为工具使用。选择只看能力标签和档位（tier），
+  # 同档内随机，不写死品牌。按张 / 秒 / 分钟 / 字符计价的模型用 media_price（price 写 0）；
+  # 渠道返回实际费用时以实际费用为准。
+  # ⚠️ 下列 ID 与价格来自网页搜索、尚未核对：运行 `python scripts/check_models.py` 核对后再启用。
+  # --- 图片（通过对话接口返回图片）---
   - id: gemini-3.1-flash-image
     vendor: Google
     aliases: [Gemini, Nano Banana]
     seat: false
+    tier: budget
     price: {input: 0.50, output: 3.00}
+    media_price: {unit: image, usd: 0.04}
     tags: [image_gen, vision]
     enabled: true
     routes:
       - channel: openrouter
         model: google/gemini-3.1-flash-image
         params: {modalities: [image, text]}
+  - id: gpt-image-1-mini
+    vendor: OpenAI
+    aliases: [GPT Image 1 Mini]
+    seat: false
+    tier: budget
+    media_price: {unit: image, usd: 0.011}
+    tags: [image_gen, image_edit]
+    enabled: true
+    routes:
+      - channel: openrouter
+        model: openai/gpt-image-1-mini
+        params: {modalities: [image, text]}
+  - id: gpt-image-2
+    vendor: OpenAI
+    aliases: [GPT Image 2]
+    seat: false
+    tier: flagship
+    media_price: {unit: image, usd: 0.17}
+    tags: [image_gen, image_edit]
+    enabled: true
+    routes:
+      - channel: openrouter
+        model: openai/gpt-image-2
+        params: {modalities: [image, text]}
+  # --- 语音转文字（上传音频的转写；优先于带 transcribe 标签的对话模型）---
+  - id: whisper-large-v3
+    vendor: OpenAI
+    aliases: [Whisper]
+    seat: false
+    tier: budget
+    media_price: {unit: minute, usd: 0.006}
+    tags: [stt]
+    enabled: true
+    routes:
+      - {channel: openrouter, model: openai/whisper-large-v3}
+  # --- 文字转语音 ---
+  - id: gpt-4o-mini-tts
+    vendor: OpenAI
+    aliases: [GPT-4o mini TTS]
+    seat: false
+    tier: budget
+    media_price: {unit: char, usd: 0.000015}
+    tags: [tts]
+    enabled: true
+    routes:
+      - {channel: openrouter, model: openai/gpt-4o-mini-tts}
+  # --- 视频（异步任务：提交 → 轮询 → 下载）---
+  - id: alibaba-wan-video
+    vendor: Alibaba
+    aliases: [通义万相]
+    seat: false
+    tier: budget
+    media_price: {unit: second, usd: 0.10}
+    tags: [video_gen]
+    enabled: true
+    routes:
+      - {channel: openrouter, model: alibaba/wan-2.6}
+  - id: veo-3.1
+    vendor: Google
+    aliases: [Veo]
+    seat: false
+    tier: flagship
+    media_price: {unit: second, usd: 0.40}
+    tags: [video_gen]
+    enabled: true
+    routes:
+      - {channel: openrouter, model: google/veo-3.1}
 
 # 联网搜索服务（成员的 search / fetch 工具），按顺序优先使用；没有 key 的自动跳过
 search_providers:

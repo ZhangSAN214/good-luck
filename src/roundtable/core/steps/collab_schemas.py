@@ -5,7 +5,7 @@ from __future__ import annotations
 import random
 import re
 from collections.abc import Callable, Iterable, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Literal
 
 from pydantic import Field, field_validator
@@ -24,6 +24,7 @@ class SubtaskModel(_Loose):
     acceptance: str = ""
     tags: list[str] = Field(default_factory=list)
     depends_on: list[str] = Field(default_factory=list)
+    media: str | None = None  # image / speech / video：这一块的成果是生成的图片 / 语音 / 视频
 
 
 class DecompositionOutput(_Loose):
@@ -39,6 +40,7 @@ class Subtask:
     acceptance: str = ""
     tags: tuple[str, ...] = ()
     depends_on: tuple[str, ...] = ()
+    media: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -48,6 +50,7 @@ class Subtask:
             "acceptance": self.acceptance,
             "tags": list(self.tags),
             "depends_on": list(self.depends_on),
+            "media": self.media,
         }
 
     @classmethod
@@ -59,6 +62,7 @@ class Subtask:
             d.get("acceptance", ""),
             tuple(d.get("tags") or ()),
             tuple(d.get("depends_on") or ()),
+            d.get("media") or None,
         )
 
 
@@ -84,13 +88,18 @@ def layers(subtasks: Sequence[Subtask]) -> list[list[str]]:
 
 
 def parse_decomposition(
-    text: str, *, max_subtasks: int, vocabulary: Iterable[str]
+    text: str,
+    *,
+    max_subtasks: int,
+    vocabulary: Iterable[str],
+    media_kinds: Iterable[str] = (),
 ) -> tuple[Subtask, ...]:
     """解析并校验拆分结果：数量、id 唯一、依赖存在且无环；未知标签丢弃。不合格抛 ValueError。"""
     output = DecompositionOutput.model_validate(extract_json_object(text))
     if len(output.subtasks) > max_subtasks:
         raise ValueError(f"子任务数量 {len(output.subtasks)} 超过上限 {max_subtasks}")
     vocab = set(vocabulary)
+    kinds = set(media_kinds)  # 当前可以生成的媒体种类；其他写法一律当作普通子任务
     ids = [_norm_id(s.id) for s in output.subtasks]
     if len(set(ids)) != len(ids) or not all(ids):
         raise ValueError("子任务 id 为空或重复")
@@ -108,6 +117,9 @@ def parse_decomposition(
                 s.acceptance.strip(),
                 tuple(t for t in s.tags if t in vocab),
                 deps,
+                (s.media or "").strip().lower()
+                if (s.media or "").strip().lower() in kinds
+                else None,
             )
         )
     layers(subtasks)  # 检查循环依赖
@@ -128,9 +140,7 @@ def add_implied_dependencies(subtasks: tuple[Subtask, ...]) -> tuple[Subtask, ..
         for dep in dict.fromkeys(mentioned):
             if dep == s.id or dep not in known or dep in result[i].depends_on:
                 continue
-            candidate = Subtask(
-                s.id, s.title, s.requirements, s.acceptance, s.tags, (*result[i].depends_on, dep)
-            )
+            candidate = replace(s, depends_on=(*result[i].depends_on, dep))
             trial = [*result[:i], candidate, *result[i + 1 :]]
             try:
                 layers(trial)

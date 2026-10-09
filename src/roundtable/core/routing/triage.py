@@ -15,6 +15,9 @@ class Question:
     attachments: tuple[str, ...] = ()
     # 附件内容的 token 数（文字版 / 提取的文字 / 图片按固定值），用于花费预估
     attachment_tokens: int = 0
+    # 媒体输出（讨论模式：image / speech / video）与质量档位；只用于花费预估
+    media: str | None = None
+    media_tier: str | None = None
 
 
 @dataclass(frozen=True)

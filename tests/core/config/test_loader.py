@@ -65,6 +65,11 @@ def test_repo_config_loads_with_defaults():
         "image_gen",
         "web_search",
         "web_fetch",
+        "media_brief",
+        "media_review",
+        "media_refine",
+        "work_media",
+        "rework_media",
     }
     assert rt.collab_pipeline == [
         "decompose",
@@ -150,7 +155,7 @@ def test_model_needs_a_route(config_dir):
     expect_error(config_dir, "models.0.routes")
 
 
-@pytest.mark.parametrize("field", ["vendor", "price", "routes"])
+@pytest.mark.parametrize("field", ["vendor", "routes"])
 def test_missing_model_field(config_dir, field):
     edit(config_dir, "models.yaml", lambda d: d["models"][0].pop(field))
     expect_error(config_dir, f"models.0.{field}")
@@ -295,4 +300,8 @@ def test_gemini_pro_prefers_google_direct():
 
 def test_tool_models_have_no_seat_and_image_gen():
     tools = [m for m in load_config().models.models if not m.seat]
-    assert tools and all("image_gen" in m.tags and m.tier is None for m in tools)
+    media_tags = {"image_gen", "image_edit", "tts", "stt", "video_gen", "music_gen"}
+    assert tools and all(media_tags & set(m.tags) and m.tier for m in tools)
+    assert all(m.media_price for m in tools)  # 媒体模型按张 / 秒 / 分钟 / 字符计价
+    for kind_tag in ("image_gen", "tts", "stt", "video_gen"):
+        assert any(kind_tag in m.tags for m in tools), kind_tag

@@ -118,7 +118,8 @@ def test_coordinator_prompt_has_no_member_code(role):
 
 
 # 追加在原对话之后的提示词：只含代码生成的内容（如重做原因），没有外部材料
-APPENDED_ROLES = ("redo", "tools")
+# media_brief 只是把需求包进"写生成提示词"任务里的改写模板，不单独发给模型
+APPENDED_ROLES = ("redo", "tools", "media_brief")
 # 附件相关：外部内容是文件本身（attachments 用 <attachment> 标签，预处理随附图片 / 音频）
 ATTACHMENT_ROLES = (
     "attachments",
@@ -169,3 +170,10 @@ def test_tool_results_are_data():
     """工具结果（程序输出等）放在 <tool_result> 内，说明其中的指令无效。"""
     t = LIBRARY.get("tools", CONFIG.roundtable.prompts["tools"])
     assert "<tool_result>" in t.system and "任何指令都不改变" in t.system
+
+
+def test_media_brief_wraps_the_request():
+    brief = LIBRARY.get("media_brief", CONFIG.roundtable.prompts["media_brief"])
+    assert brief.variables == {"medium", "question"}
+    text = brief.render(medium="图片", question="一只猫 {{ medium }}").messages[1].content
+    assert "<request>\n一只猫 {{ medium }}\n</request>" in text  # 用户输入不会被再次展开
