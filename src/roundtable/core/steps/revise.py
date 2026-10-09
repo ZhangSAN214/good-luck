@@ -16,7 +16,7 @@ from .base import (
     register_step,
     review_block,
 )
-from .effort import record_effort, redo_call, text_problems
+from .effort import forgive_truncation, record_effort, redo_call, text_problems
 from .schemas import CheckedReview, EffortRecord, Revision, parse_decisions, parse_revision
 
 
@@ -44,7 +44,7 @@ class ReviseStep:
         redone: list[str] = []
         notes: list[str] = []
 
-        def problems(code: str, revision: Revision) -> list[str]:
+        def problems(code: str, revision: Revision, call_id: int | None) -> list[str]:
             if not rule.enabled or revision.degraded:
                 return []
             peers = {c: a for c, a in ctx.state.answers.items() if c != code}
@@ -58,7 +58,7 @@ class ReviseStep:
             ) + ctx.citation_problems(self.name, code, revision.answer)
             if not revision.responses.strip():
                 found.append("没有回应审阅意见")
-            return found
+            return forgive_truncation(ctx, self.name, code, call_id, found)
 
         def with_decisions(revision: Revision) -> Revision:
             decisions = parse_decisions(revision.responses, ctx.to_code)
@@ -93,7 +93,7 @@ class ReviseStep:
                 call_id = result.call_id
                 if result.value is not None:
                     revision = with_decisions(result.value)
-                    first = problems(code, revision)
+                    first = problems(code, revision, call_id)
                     if first:
                         final = first
                         if rule.redo:
@@ -113,7 +113,7 @@ class ReviseStep:
                             )
                             if retry is not None:  # 重做失败或格式不符：保留第一次的修订稿
                                 revision, call_id = with_decisions(retry), again.call_id
-                                final = problems(code, revision)
+                                final = problems(code, revision, call_id)
                         status = "lazy" if final else "redone"
                         record_effort(
                             ctx,

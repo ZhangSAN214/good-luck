@@ -38,7 +38,7 @@ def test_empty_phrases(text):
 
 def test_refusal():
     found = problems("抱歉，我无法回答这个问题。")
-    assert "拒绝作答或只表示无法完成" in found
+    assert any(p.startswith("拒绝作答或只表示无法完成") for p in found)
 
 
 def test_long_answer_mentioning_apology_is_not_refusal():
@@ -54,13 +54,16 @@ def test_too_short_relative_to_expected_length():
 
 
 def test_restating_the_question():
-    assert "基本只是复述题目，没有作答" in problems(QUESTION + " 请写出完整过程。", expected=10)
+    assert any(
+        p.startswith("基本只是复述题目，没有作答")
+        for p in problems(QUESTION + " 请写出完整过程。", expected=10)
+    )
 
 
 def test_copying_a_peer():
     peers = {"乙": GOOD + "补充。", "丙": "完全不同的另一种解法。" * 20}
     found = problems(GOOD, peers=peers)
-    assert found == ["与乙的答案几乎相同，疑似照抄"]
+    assert len(found) == 1 and found[0].startswith("与乙的答案几乎相同，疑似照抄（相似度")
     # 太短的文本不判照抄（简短结论相同很正常）
     short = "最大值为 2，最小值为 -2，见端点与驻点比较。"
     assert problems(short, expected=1, peers={"乙": short}) == []
@@ -98,7 +101,7 @@ async def test_still_lazy_after_redo_is_flagged_and_kept(table):
     assert table.ctx.state.answers["甲"] == "抱歉，我无法回答。"  # 产出保留
     record = table.ctx.state.effort[("answer", "甲", "")]
     assert record.lazy and record.reasons == ("只有空话，没有实质内容",)
-    assert "拒绝作答或只表示无法完成" in record.final_reasons
+    assert any(r.startswith("拒绝作答或只表示无法完成") for r in record.final_reasons)
     assert table.ctx.state.flagged("甲") and not table.ctx.state.flagged("乙")
     assert any("敷衍" in n for n in result.notes)
     assert "effort_flagged" in [e.type for e in table.events]
@@ -223,3 +226,32 @@ async def test_effort_survives_restore(table):
     await run(table, "answer")
     restored = restore_state(table.repo, table.session, 0)
     assert restored.effort == table.ctx.state.effort and restored.flagged("甲")
+
+
+async def test_truncated_output_is_not_flagged_as_lazy(table):
+    from roundtable.core.providers import RawCompletion
+
+    table.ctx.expected_answer_tokens = 6000  # 字数门槛 600
+    cut = "先求导，再比较端点与极值点。" * 20  # 约 280 字，被长度上限截断
+    table.fake.queue("b1", RawCompletion(cut, truncated=True, finish_reason="length"))
+    [result] = await run(table, "answer")
+    record = table.ctx.state.effort[("answer", "甲", "")]
+    assert record.status == "truncated" and not record.lazy and not record.redone
+    assert "长度上限" in record.reasons[0] and "内容过短" in record.reasons[0]
+    assert table.ctx.state.answers["甲"] == cut.strip()
+    assert not table.ctx.state.flagged("甲")
+    assert len(table.calls_for("b1")) == 1  # 没有打回重做
+
+
+async def test_short_output_that_was_not_truncated_is_still_lazy(table):
+    table.ctx.expected_answer_tokens = 6000
+    table.fake.queue("b1", "先求导，再比较端点与极值点。" * 20, "先求导，再比较端点与极值点。" * 21)
+    await run(table, "answer")
+    assert table.ctx.state.effort[("answer", "甲", "")].lazy
+
+
+def test_reasons_include_the_measured_numbers():
+    found = problems(QUESTION + " 请写出完整过程。", expected=10)
+    assert any("相似度" in p and "门槛" in p for p in found)
+    short = problems("最大值 2，最小值 -2，因为求导后比较。", 1200)
+    assert any("门槛 120 字" in p and "1200 token" in p for p in short)

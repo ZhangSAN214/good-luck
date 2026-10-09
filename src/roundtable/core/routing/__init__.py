@@ -33,10 +33,14 @@ from .estimate import (
 )
 from .lineup import Lineup, LineupBuilder
 from .media_estimate import style_wanted
+from .multi_media import MultiMediaHint, collab_advice, detect_multi_media
 from .planner import PlannerOutput, PlannerResult, pick_planner_model, run_planner
 from .triage import Question, TriageResult, triage
 
 __all__ = [
+    "MultiMediaHint",
+    "collab_advice",
+    "detect_multi_media",
     "CUSTOM",
     "WORKFLOWS",
     "Assessment",

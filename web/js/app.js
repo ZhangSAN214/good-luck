@@ -727,6 +727,15 @@ function bind() {
     renderLegend();
     scheduleEstimate();
   });
+  // 预估区的建议按钮：讨论模式下题目需要多个媒体文件 → 一键切换到协同模式
+  $('#estimate').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-switch-workflow]');
+    if (!b) return;
+    S.workflow = b.dataset.switchWorkflow;
+    renderComposer();
+    renderLegend();
+    scheduleEstimate();
+  });
   $('#anonymous').addEventListener('change', (e) => {
     S.anonymous = e.target.checked;
     renderLegend();

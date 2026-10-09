@@ -97,3 +97,23 @@ def test_estimate_anonymous_custom_and_attachments():
             == 400
         )
         assert env.fake.calls == []
+
+
+MULTI = "画四张不同风格的插画，然后拼成一张长图"
+
+
+def test_discussion_estimate_advises_collab_when_many_media_files_are_needed():
+    env, c = client()
+    with c:
+        data = c.post("/api/estimate", json={"question": MULTI, "workflow": "discussion"}).json()
+        [advice] = data["advice"]
+        assert advice["kind"] == "multi_media" and advice["suggest_workflow"] == "collab"
+        assert advice["count"] == 4 and "协同模式" in advice["message"]
+        assert env.fake.calls == []  # 只是规则判断，不调用模型
+        # 没指定模式时（同时预估两种模式）也提示；协同模式本身、普通题目不提示
+        assert c.post("/api/estimate", json={"question": MULTI}).json()["advice"]
+        assert (
+            c.post("/api/estimate", json={"question": MULTI, "workflow": "collab"}).json()["advice"]
+            == []
+        )
+        assert c.post("/api/estimate", json={"question": MEDIUM}).json()["advice"] == []

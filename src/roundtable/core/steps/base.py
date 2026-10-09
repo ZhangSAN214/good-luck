@@ -124,6 +124,8 @@ class TableContext:
     frame_cache: dict[str, list[Media]] = field(default_factory=dict)
     # 匿名关闭时代号就是昵称（"鲸鱼娘·全力"），发给模型的内容里也用昵称
     anonymous: bool = True
+    # 被长度上限截断的调用（calls.id）：这类产出的"过短""没回应审阅意见"不算敷衍
+    truncated_calls: set[int] = field(default_factory=set)
 
     @property
     def effort_rule(self):
@@ -447,6 +449,8 @@ async def call_once(
         completion=completion,
     )
     ctx.emit("call_done", step, code, tokens=completion.output_tokens, cost=completion.cost_usd)
+    if completion.truncated:
+        ctx.truncated_calls.add(call_id)
     guard = ctx.config.roundtable.length_guard
     if (
         guard.enabled

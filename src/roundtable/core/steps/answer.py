@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from .base import StepResult, TableContext, call_model, gather_members, register_step
-from .effort import record_effort, redo_call, text_problems
+from .effort import forgive_truncation, record_effort, redo_call, text_problems
 from .schemas import EffortRecord
 
 
@@ -16,15 +16,16 @@ class AnswerStep:
         notes: list[str] = []
         redone: list[str] = []
 
-        def problems(text: str, code: str) -> list[str]:
+        def problems(text: str, code: str, call_id: int | None) -> list[str]:
             if not rule.enabled:
                 return []
-            return text_problems(
+            found = text_problems(
                 text,
                 rule=rule,
                 question=ctx.question.text,
                 expected_tokens=ctx.expected_answer_tokens,
             ) + ctx.citation_problems(self.name, code, text)
+            return forgive_truncation(ctx, self.name, code, call_id, found)
 
         async def work(code: str) -> None:
             prompt = ctx.render(self.name, code=ctx.label(code), question=ctx.question.text)
@@ -37,7 +38,7 @@ class AnswerStep:
                 ctx.drop(code, self.name, "调用失败" if out.completion is None else "回答为空")
                 return
             call_id = out.call_id
-            first = problems(text, code)
+            first = problems(text, code, call_id)
             if first:
                 final = first
                 if rule.redo:
@@ -54,7 +55,8 @@ class AnswerStep:
                     )
                     retry = again.completion.text.strip() if again.completion else ""
                     if retry:  # 重做调用失败时保留第一次的答案
-                        text, call_id, final = retry, again.call_id, problems(retry, code)
+                        text, call_id = retry, again.call_id
+                        final = problems(retry, code, call_id)
                 status = "lazy" if final else "redone"
                 record_effort(
                     ctx,

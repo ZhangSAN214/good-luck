@@ -458,3 +458,11 @@ async def test_style_reference_flow_in_the_cli(tmp_path):
     code, plain = await cli(env2, *argv, "--no-style-ref")
     assert code == 0 and "【风格规范】" not in plain and "参考图" not in plain
     assert not [c for c in env2.fake.calls if "独立、仔细地观察风格参考图" in c.messages[0].content]
+
+
+async def test_estimate_warns_when_discussion_needs_many_media_files():
+    env = Env()
+    code, text = await cli(env, "estimate", "画四张不同风格的插画，然后拼成一张长图", "--seed", "1")
+    assert code == 0 and "建议切换到协同模式" in text and "--mode collab" in text
+    code, text = await cli(env, "estimate", MEDIUM, "--seed", "1")
+    assert "建议切换到协同模式" not in text

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, timedelta, tzinfo
 from typing import Literal
 
 from roundtable.core.cards import CardOption, ConfirmationCard, money
@@ -38,6 +38,21 @@ def day_window(now: datetime) -> tuple[datetime, datetime]:
     return start, start + timedelta(days=1)
 
 
+def reset_text(moment: datetime, tz: tzinfo | None = None) -> str:
+    """重置时间：先写 UTC，再写本地时间（tz 为空时用本机时区；与 UTC 相同时不重复）。"""
+    utc = moment.astimezone(UTC)
+    text = f"{utc:%Y-%m-%d %H:%M} UTC"
+    local = utc.astimezone(tz)  # tz 为 None：本机时区
+    offset = local.utcoffset() or timedelta(0)
+    if offset == timedelta(0):
+        return text
+    minutes = int(offset.total_seconds() // 60)
+    sign = "+" if minutes >= 0 else "-"
+    h, m = divmod(abs(minutes), 60)
+    zone = f"UTC{sign}{h}" + (f":{m:02d}" if m else "")
+    return f"{text}（本地时间 {local:%Y-%m-%d %H:%M}，{zone}）"
+
+
 @dataclass(frozen=True)
 class BudgetStatus:
     period: PeriodName
@@ -46,6 +61,7 @@ class BudgetStatus:
     starts_at: datetime
     resets_at: datetime
     warn_ratio: float
+    tz: tzinfo | None = None  # 显示用的本地时区；None = 本机时区
 
     @property
     def remaining_usd(self) -> float:
@@ -69,7 +85,7 @@ class BudgetStatus:
     def describe(self) -> str:
         return (
             f"{LABELS[self.period]}已用 ${self.spent_usd:.2f} / ${self.limit_usd:.2f}"
-            f"（{self.ratio:.0%}），{self.resets_at:%Y-%m-%d %H:%M} UTC 重置"
+            f"（{self.ratio:.0%}），{reset_text(self.resets_at, self.tz)} 重置"
         )
 
 
@@ -93,7 +109,9 @@ class BudgetVerdict:
         lines = [s.describe() for s in statuses]
         lines.append(f"下一步预计 {money(self.estimate_usd)}，会超出上述额度，已暂停。")
         if self.blocked_by == ("day",):
-            reason = f"只超出每日上限，{self.day.resets_at:%Y-%m-%d %H:%M} UTC 后可在额度内继续"
+            reason = (
+                f"只超出每日上限，{reset_text(self.day.resets_at, self.day.tz)} 后可在额度内继续"
+            )
         else:
             reason = "超出预算的花费不会自动执行；确需继续请明确选择"
         return ConfirmationCard(
@@ -128,10 +146,12 @@ class BudgetGuard:
         policy: Budget,
         repo: Repository,
         now: Callable[[], datetime] = lambda: datetime.now(UTC),
+        tz: tzinfo | None = None,
     ) -> None:
         self.policy = policy
         self.repo = repo
         self.now = now
+        self.tz = tz  # 卡片与提醒里显示本地时间用；None = 本机时区
 
     def _status(self, period: PeriodName, limit: float, moment: datetime) -> BudgetStatus:
         start, end = month_window(moment) if period == "month" else day_window(moment)
@@ -142,6 +162,7 @@ class BudgetGuard:
             starts_at=start,
             resets_at=end,
             warn_ratio=self.policy.warn_ratio,
+            tz=self.tz,
         )
 
     def status(self) -> tuple[BudgetStatus, BudgetStatus | None]:

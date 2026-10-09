@@ -408,7 +408,7 @@ class EffortRecord:
 
     step: str
     code: str
-    status: str  # redone / lazy
+    status: str  # redone / lazy / truncated（输出被长度上限截断，未判为敷衍）
     reasons: tuple[str, ...]  # 第一次不合格的原因
     final_reasons: tuple[str, ...] = ()  # 重做后仍不合格的原因（lazy 时）
     redone: bool = True  # 是否打回重做过（配置关闭重做时为 False）

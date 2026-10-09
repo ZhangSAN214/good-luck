@@ -771,12 +771,30 @@ class EstimateParams(_Strict):
         return v
 
 
+class MultiMediaRule(_Strict):
+    """讨论模式下题目需要生成多个媒体文件的检测（规则判断，不调用模型）。
+
+    讨论模式让每位成员各自把整题做一遍，要产出多张图 / 多段媒体时每人都会各做一整套，花费成倍增加；
+    检测到时在提交前建议改用协同模式（分工，每人只做一部分）。
+    """
+
+    enabled: bool = True
+    min_count: int = Field(default=2, ge=2)  # 数量 ≥ 此值才算"多个"
+    # 媒体名词（数量词后面紧跟的东西）
+    nouns: list[str] = Field(min_length=1)
+    # 数量词与量词：1–10 的中文数字和"几 / 多 / 若干"自动识别；量词在这里配置
+    classifiers: list[str] = Field(default_factory=list)
+    # 明确表示"多个 / 一套 / 拼接"的词，且题目里出现媒体名词时也算
+    hints: list[str] = Field(default_factory=list)
+
+
 class RoutingConfig(_Strict):
     confirm_threshold_usd: float = Field(default=0.30, ge=0)
     default_plan: str
     default_difficulty: Difficulty = "medium"
     planner: PlannerSpec = PlannerSpec()
     triage: list[TriageRule] = Field(default_factory=list)
+    multi_media: MultiMediaRule | None = None
     plans: dict[str, PlanSpec] = Field(min_length=1)
     custom: CustomSpec = CustomSpec()
     escalation: EscalationRule = EscalationRule()

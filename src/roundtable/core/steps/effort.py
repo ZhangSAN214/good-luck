@@ -65,19 +65,57 @@ def text_problems(
     if len(body) <= rule.refusal_max_chars and any(
         p.lower() in lowered for p in rule.refusal_phrases
     ):
-        problems.append("拒绝作答或只表示无法完成")
+        hit = next(p for p in rule.refusal_phrases if p.lower() in lowered)
+        problems.append(f"拒绝作答或只表示无法完成（{len(body)} 字且含「{hit}」）")
     need = min_chars(rule, expected_tokens)
     if len(body) < need:
-        problems.append(f"内容过短（{len(body)} 字，至少应有 {need} 字的推理与结论）")
-    if similarity(body, question) >= rule.restate_similarity:
-        problems.append("基本只是复述题目，没有作答")
+        basis = (
+            f"预估答案约 {expected_tokens} token × {rule.chars_per_expected_token}"
+            if expected_tokens and need > rule.min_chars
+            else f"最低 {rule.min_chars} 字"
+        )
+        problems.append(f"内容过短（{len(body)} 字，门槛 {need} 字：{basis}）")
+    sim = similarity(body, question)
+    if sim >= rule.restate_similarity:
+        problems.append(
+            f"基本只是复述题目，没有作答（与题目相似度 {sim:.2f}，门槛 {rule.restate_similarity}）"
+        )
     for code, other in (peers or {}).items():
-        if (
-            min(len(body), len(other.strip())) >= rule.duplicate_min_chars
-            and similarity(body, other) >= rule.duplicate_similarity
-        ):
-            problems.append(f"与{label(code)}的答案几乎相同，疑似照抄")
+        if min(len(body), len(other.strip())) >= rule.duplicate_min_chars:
+            sim = similarity(body, other)
+            if sim >= rule.duplicate_similarity:
+                problems.append(
+                    f"与{label(code)}的答案几乎相同，疑似照抄"
+                    f"（相似度 {sim:.2f}，门槛 {rule.duplicate_similarity}）"
+                )
     return problems
+
+
+# 输出被长度上限截断时，这两类问题是截断造成的，不是成员偷懒
+TRUNCATION_EXPLAINED = ("内容过短", "没有回应")
+
+
+def forgive_truncation(
+    ctx: TableContext,
+    step: str,
+    code: str,
+    call_id: int | None,
+    found: list[str],
+    item: str | None = None,
+) -> list[str]:
+    """产出来自被长度上限截断的调用时，去掉"过短""没回应审阅意见"这类由截断造成的问题。
+
+    去掉了问题时登记一条 status="truncated" 的检查记录（界面显示"输出被截断，未判为敷衍"）；
+    之后如果还有别的真问题，后续的 redone / lazy 记录会覆盖它。
+    """
+    if call_id is None or call_id not in ctx.truncated_calls:
+        return found
+    kept = [p for p in found if not p.startswith(TRUNCATION_EXPLAINED)]
+    forgiven = [p for p in found if p.startswith(TRUNCATION_EXPLAINED)]
+    if forgiven and not kept:
+        reasons = tuple(f"输出被长度上限截断（{p}）" for p in forgiven)
+        record_effort(ctx, EffortRecord(step, code, "truncated", reasons, (), False, item))
+    return kept
 
 
 async def redo_call(

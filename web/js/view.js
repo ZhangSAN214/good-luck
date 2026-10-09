@@ -77,9 +77,54 @@ export function esc(t) {
   );
 }
 
-// 模型输出是 Markdown：只把 **加粗** 转成粗体，其余原样保留（换行由 CSS 保留）
+// 模型输出是 Markdown：支持 **加粗** 和表格（单元格里的 <br> 变成换行），其余原样保留（换行由 CSS 保留）
+const BR = /&lt;br\s*\/?&gt;/gi;
+const bold = (h) => h.replace(/(^|[^*\w])\*\*(?=\S)(.+?)(?<=\S)\*\*(?![*\w])/g, '$1<b>$2</b>');
+const splitRow = (line) => {
+  let t = line.trim();
+  if (t.startsWith('|')) t = t.slice(1);
+  if (t.endsWith('|')) t = t.slice(0, -1);
+  return t.split('|').map((c) => c.trim());
+};
+const isRow = (l) => /^\s*\|.*\|\s*$/.test(l);
+const isSep = (l) => isRow(l) && splitRow(l).every((c) => /^:?-{2,}:?$/.test(c));
+
 export function md(t) {
-  return esc(t).replace(/(^|[^*\w])\*\*(?=\S)(.+?)(?<=\S)\*\*(?![*\w])/g, '$1<b>$2</b>');
+  const lines = String(t ?? '').split('\n');
+  const out = [];
+  for (let i = 0; i < lines.length; i += 1) {
+    // 表头 + 分隔行 + 若干数据行 = 一张表
+    if (isRow(lines[i]) && i + 1 < lines.length && isSep(lines[i + 1])) {
+      const head = splitRow(lines[i]);
+      let j = i + 2;
+      const rows = [];
+      while (j < lines.length && isRow(lines[j])) rows.push(splitRow(lines[j++]));
+      const cell = (c) => bold(esc(c)).replace(BR, '<br>');
+      const th = head.map((c) => `<th>${cell(c)}</th>`).join('');
+      const tr = rows.map((r) => `<tr>${head.map((_, k) => `<td>${cell(r[k] ?? '')}</td>`).join('')}</tr>`).join('');
+      out.push(`<table class="mdt"><thead><tr>${th}</tr></thead><tbody>${tr}</tbody></table>`);
+      i = j - 1;
+    } else {
+      out.push(bold(esc(lines[i])).replace(BR, '\n'));
+    }
+  }
+  // 表格是块级元素，前后的换行不再重复显示
+  return out.join('\n').replace(/\n?(<table[\s\S]*?<\/table>)\n?/g, '$1');
+}
+
+// 重置时间：UTC + 浏览器本地时间（时区与 UTC 相同时不重复）
+export function resetText(iso) {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return String(iso).slice(0, 10);
+  const p = (n) => String(n).padStart(2, '0');
+  const utc = `${d.getUTCFullYear()}-${p(d.getUTCMonth() + 1)}-${p(d.getUTCDate())} ${p(d.getUTCHours())}:${p(d.getUTCMinutes())} UTC`;
+  const off = -d.getTimezoneOffset();
+  if (off === 0) return utc;
+  const sign = off >= 0 ? '+' : '-';
+  const hh = Math.floor(Math.abs(off) / 60);
+  const mm = Math.abs(off) % 60;
+  const local = `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+  return `${utc}（本地时间 ${local}，UTC${sign}${hh}${mm ? ':' + p(mm) : ''}）`;
 }
 
 export function money(v) {
@@ -318,21 +363,29 @@ function modeText(sv, ctx) {
 }
 
 // 被标记为敷衍的产出：`桌:步骤:代号`
+// 返回 Map：键 → 判定原因（重做后仍不合格的原因），`has()` 即是否被标记
 export function lazyKeys(outputs) {
-  const keys = new Set();
+  const keys = new Map();
   for (const o of outputs) {
     if (o.kind !== 'effort') continue;
     const d = parse(o.content);
-    if (d && d.status === 'lazy') keys.add(`${o.table_no}:${o.step}:${o.code}`);
+    if (d && d.status === 'lazy') keys.set(`${o.table_no}:${o.step}:${o.code}`, (d.final_reasons || d.reasons || []).join('；'));
   }
   return keys;
 }
 
-const LAZY_TAG = `<span class="tagp bad" title="重做后仍没有通过实质内容检查">敷衍</span>`;
+// 标记旁直接显示判定原因（含字数 / 门槛、相似度等数值），悬停可看完整文字
+function lazyTag(reason) {
+  const why = reason ? ` <span class="why" title="${esc(reason)}">${esc(reason)}</span>` : '';
+  return `<span class="tagp bad" title="${esc(reason || '重做后仍没有通过实质内容检查')}">敷衍</span>${why}`;
+}
 
 function effort(o, sp, data) {
   const what = STEP_LABELS[o.step] || o.step;
   const first = (data.reasons || []).join('；');
+  if (data.status === 'truncated') {
+    return sys('检查', `${esc(sp.name)} 的${esc(what)}输出被长度上限截断，未判为敷衍：${esc(first)}`);
+  }
   if (data.status === 'lazy') {
     const final = (data.final_reasons || data.reasons || []).join('；');
     const redo = data.redone ? '重做后仍不合格，' : '';
@@ -341,9 +394,10 @@ function effort(o, sp, data) {
   return sys('检查', `${esc(sp.name)} 的${esc(what)}没有实质内容（${esc(first)}），已打回重做，重做后合格`);
 }
 
-function output(o, names, lazy = new Set(), sources = null) {
+function output(o, names, lazy = new Map(), sources = null) {
   const sp = names.speaker(o.table_no, o.code);
-  if (lazy.has(`${o.table_no}:${o.step}:${o.code}`)) sp.tag = LAZY_TAG;
+  const lazyWhy = lazy.get(`${o.table_no}:${o.step}:${o.code}`);
+  if (lazyWhy !== undefined) sp.tag = lazyTag(lazyWhy);
   if (o.kind === 'answer') return msg(sp, '作答', `<div class="bubble">${cite(md(o.content), sources)}</div>`);
   if (o.kind === 'media_review' || o.kind === 'media_decision') return mediaOutput(o, sp);
   if (o.kind === 'effort') {
@@ -740,7 +794,7 @@ export function stageHTML(sv, live, prefix) {
     (sv?.outputs || []).filter((o) => o.kind === 'dropout' && o.table_no === tableNo).map((o) => o.code),
   );
   const lazyCodes = new Set(
-    [...lazyKeys(sv?.outputs || [])].filter((k) => k.startsWith(`${tableNo}:`)).map((k) => k.split(':')[2]),
+    [...lazyKeys(sv?.outputs || []).keys()].filter((k) => k.startsWith(`${tableNo}:`)).map((k) => k.split(':')[2]),
   );
   const pos = seatPositions(codes.length);
   let ph = '圆桌';
@@ -890,7 +944,7 @@ export function reviewsPanel(sv, prefix) {
 function budgetBlock(title, s) {
   if (!s) return `<h4>${esc(title)}</h4><p class="empty">未设上限</p>`;
   const pct = Math.min(100, s.ratio * 100);
-  return `<h4>${esc(title)} ${money(s.limit_usd)}</h4><div class="bar${s.warn ? ' warn' : ''}"><i style="width:${pct.toFixed(1)}%"></i></div><div class="hint">已用 ${money(s.spent_usd)}（${pct.toFixed(1)}%）${s.exhausted ? ' · 已用满' : s.warn ? ' · 接近上限' : ''} · ${esc(s.resets_at.slice(0, 10))} 重置（UTC）</div>`;
+  return `<h4>${esc(title)} ${money(s.limit_usd)}</h4><div class="bar${s.warn ? ' warn' : ''}"><i style="width:${pct.toFixed(1)}%"></i></div><div class="hint">已用 ${money(s.spent_usd)}（${pct.toFixed(1)}%）${s.exhausted ? ' · 已用满' : s.warn ? ' · 接近上限' : ''} · ${esc(resetText(s.resets_at))} 重置</div>`;
 }
 
 /** token 用量显示为「大米」：1 粒 = grain_tokens，1 勺 = spoon_grains 粒，1 碗 = bowl_spoons 勺（比例来自 /api/status）。金额不走这里。 */
@@ -1143,7 +1197,8 @@ export function splitPanel(sv, prefix) {
       const cells = owners.map((c) => {
         n += 1;
         const w = works.find((x) => x.o.code === c && x.d.subtask === st.id);
-        const flag = lazy.has(`${t.table_no}:work:${c}`) ? ' <span class="pill badp">敷衍</span>' : '';
+        const why = lazy.get(`${t.table_no}:work:${c}`);
+        const flag = why !== undefined ? ` <span class="pill badp" title="${esc(why)}">敷衍</span>` : '';
         return { id: `W${n}`, c, done: !!w, flag };
       });
       const adopted = merge ? (merge.subtasks || []).find((x) => x.subtask === st.id)?.adopted || [] : null;
@@ -1227,11 +1282,24 @@ export function attachmentsHTML(list) {
     .join('');
 }
 
+// 提交前的建议（如：讨论模式下题目需要多个媒体文件 → 建议切换到协同模式）
+function adviceHTML(est, workflow) {
+  return (est.advice || [])
+    .filter((a) => a.applies_to === workflow)
+    .map(
+      (a) =>
+        `<div class="advice" data-advice="${esc(a.kind)}"><b>建议切换到协同模式</b><div>${esc(a.message)}</div>` +
+        `<button class="btn sm" type="button" data-switch-workflow="${esc(a.suggest_workflow)}">切换到协同模式</button></div>`,
+    )
+    .join('');
+}
+
 export function estimateHTML(est, { workflow, anonymous, plans, customLabel }) {
   if (!est) return '';
   const opts = (est.options || []).filter((o) => o.workflow === workflow);
   if (!opts.length) return '';
-  let h = '<table><thead><tr><th>档位</th><th class="num">上桌</th><th class="num">预计</th><th class="num">最多约</th><th></th></tr></thead><tbody>';
+  let h = adviceHTML(est, workflow);
+  h += '<table><thead><tr><th>档位</th><th class="num">上桌</th><th class="num">预计</th><th class="num">最多约</th><th></th></tr></thead><tbody>';
   for (const o of opts) {
     const label = o.plan === 'custom' ? customLabel : plans[o.plan] || o.label;
     if (!o.available) {

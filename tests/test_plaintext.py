@@ -79,3 +79,10 @@ def test_to_terminal_combines_math_and_bold():
     from roundtable.plaintext import to_terminal
 
     assert to_terminal(r"**答案**：$\frac{1}{2}$") == "答案：1/2"
+
+
+def test_br_becomes_a_newline_in_terminal_output():
+    from roundtable.plaintext import to_terminal
+
+    assert to_terminal("| A | 第一行<br>第二行 |") == "| A | 第一行\n第二行 |"
+    assert to_terminal("a<BR/>b<br />c") == "a\nb\nc"

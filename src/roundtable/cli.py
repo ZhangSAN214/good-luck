@@ -45,6 +45,8 @@ from roundtable.core.routing import (
     RoutingError,
     UserChoice,
     attachment_tokens,
+    collab_advice,
+    detect_multi_media,
     preview_estimates,
 )
 from roundtable.core.runtime import Runtime
@@ -548,6 +550,9 @@ class CLI:
                     if st.step != "reveal"
                 )
                 self.p(f"      {steps}")
+        hint = detect_multi_media(question, self.rt.config.routing.multi_media)
+        if hint is not None and choice.workflow == "discussion":
+            self.p(f"⚠ {collab_advice(hint)['message']}（加 --mode collab 即可）")
         self.p("")
 
     def latest_files(self, sid: str) -> list[dict[str, Any]]:

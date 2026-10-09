@@ -212,3 +212,42 @@ def test_budget_card_format(env):
     assert "$3.00 / $3.00" in card.situation and "$0.40" in card.situation
     d = card.to_dict()
     assert d["details"]["blocked_by"] == ["day"] and d["details"]["month"]["limit_usd"] == 20.0
+
+
+# --- 重置时间同时显示 UTC 与本地时间 --------------------------------------------------
+
+
+def test_reset_text_shows_utc_and_local_time():
+    from roundtable.core.budget.guard import reset_text
+
+    beijing = timezone(timedelta(hours=8))
+    assert (
+        reset_text(dt(2026, 10, 16), beijing)
+        == "2026-10-16 00:00 UTC（本地时间 2026-10-16 08:00，UTC+8）"
+    )
+    ist = timezone(timedelta(hours=5, minutes=30))
+    assert "UTC+5:30" in reset_text(dt(2026, 10, 16), ist)
+    west = timezone(timedelta(hours=-7))  # 本地日期早一天
+    assert (
+        reset_text(dt(2026, 10, 16), west)
+        == "2026-10-16 00:00 UTC（本地时间 2026-10-15 17:00，UTC-7）"
+    )
+    # 本地时区就是 UTC：不重复
+    assert reset_text(dt(2026, 10, 16), UTC) == "2026-10-16 00:00 UTC"
+
+
+def test_card_and_warning_include_local_time():
+    beijing = timezone(timedelta(hours=8))
+    clock = Clock(dt(2026, 10, 15, 12))
+    repo = Repository(connect(), clock=lambda: iso(clock.now))
+    session = repo.create_session("q", seed=1)
+    guard = BudgetGuard(POLICY, repo, now=clock, tz=beijing)
+    spend(repo, session, 2.5)  # 每日 83%：提醒
+    verdict = guard.check(0.0)
+    assert any(
+        "2026-10-16 00:00 UTC（本地时间 2026-10-16 08:00，UTC+8）" in w for w in verdict.warnings
+    )
+    spend(repo, session, 0.4)
+    card = guard.check(0.2).card()
+    assert "2026-10-16 00:00 UTC（本地时间 2026-10-16 08:00，UTC+8）" in card.reason
+    assert "UTC+8" in card.situation  # 每日 / 每月状态行同样带本地时间

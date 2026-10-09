@@ -28,6 +28,8 @@ from roundtable.core.routing import (
     RoutingError,
     UserChoice,
     attachment_tokens,
+    collab_advice,
+    detect_multi_media,
     preview_estimates,
 )
 from roundtable.core.runtime import Runtime
@@ -317,12 +319,17 @@ class RoundtableService:
                         "absent": list(o.lineup.absent),
                     }
             out.append(item)
+        advice = []
+        hint = detect_multi_media(text, cfg.routing.multi_media)
+        if hint is not None and workflow in (None, "discussion"):
+            advice.append(collab_advice(hint))
         return {
             "seed": seed,
             "answer_length": assessment.difficulty,
             "length_source": assessment.source,
             "confirm_threshold_usd": threshold,
             "options": out,
+            "advice": advice,
         }
 
     # --- 附件 ----------------------------------------------------------------------

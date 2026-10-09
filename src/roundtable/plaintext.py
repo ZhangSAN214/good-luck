@@ -365,6 +365,9 @@ def strip_bold(text: str) -> str:
     return _BOLD.sub(r"\1", text)
 
 
+_BR = re.compile(r"<br\s*/?>", re.IGNORECASE)
+
+
 def to_terminal(text: str) -> str:
-    """命令行显示：数学式转纯文本，并去掉加粗符号。"""
-    return strip_bold(latex_to_text(text))
+    """命令行显示：数学式转纯文本，去掉加粗符号，<br> 换成换行（表格单元格里常见）。"""
+    return _BR.sub("\n", strip_bold(latex_to_text(text)))

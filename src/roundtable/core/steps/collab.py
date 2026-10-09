@@ -47,7 +47,7 @@ from .collab_schemas import (
     repair_assignment,
     volunteer_problems,
 )
-from .effort import record_effort, redo_call, text_problems
+from .effort import forgive_truncation, record_effort, redo_call, text_problems
 from .media import media_gate, media_payload
 from .pipeline import (
     ancestors,
@@ -721,15 +721,22 @@ class WorkStep:
         notes: list[str] = []
         calls = 0
 
-        def problems(text: str, code: str, medium: str | None = None) -> list[str]:
+        def problems(
+            text: str,
+            code: str,
+            medium: str | None = None,
+            call_id: int | None = None,
+            item: str | None = None,
+        ) -> list[str]:
             if not rule.enabled:
                 return []
-            return text_problems(
+            found = text_problems(
                 text,
                 rule=rule,
                 question=ctx.question.text,
                 expected_tokens=None if medium else _item_expected(ctx),
             ) + ctx.citation_problems(self.name, code, text)
+            return forgive_truncation(ctx, self.name, code, call_id, found, item)
 
         generate = True  # 用户在确认卡片上选了"不生成"时为 False
 
@@ -769,7 +776,7 @@ class WorkStep:
                 ctx.drop(code, self.name, "调用失败" if out.completion is None else "回答为空")
                 return
             call_id = out.call_id
-            first = problems(text, code, medium)
+            first = problems(text, code, medium, call_id, item)
             if first:
                 final = first
                 if rule.redo:
@@ -787,7 +794,8 @@ class WorkStep:
                     calls += 1
                     retry = again.completion.text.strip() if again.completion else ""
                     if retry:
-                        text, call_id, final = retry, again.call_id, problems(retry, code, medium)
+                        text, call_id = retry, again.call_id
+                        final = problems(retry, code, medium, call_id, item)
                 record_effort(
                     ctx,
                     EffortRecord(
@@ -1123,7 +1131,13 @@ class ReworkStep:
         called = 0
         generate = True  # 用户在确认卡片上选了"不生成"时为 False
 
-        def problems(revision: Revision, code: str, medium: str | None = None) -> list[str]:
+        def problems(
+            revision: Revision,
+            code: str,
+            medium: str | None = None,
+            call_id: int | None = None,
+            item: str | None = None,
+        ) -> list[str]:
             if not rule.enabled or revision.degraded:
                 return []
             found = text_problems(
@@ -1134,7 +1148,7 @@ class ReworkStep:
             ) + ctx.citation_problems(self.name, code, revision.answer)
             if not revision.responses.strip():
                 found.append("没有回应审查意见")
-            return found
+            return forgive_truncation(ctx, self.name, code, call_id, found, item)
 
         def with_decisions(revision: Revision) -> Revision:
             return Revision(
@@ -1180,7 +1194,7 @@ class ReworkStep:
                 call_id = result.call_id
                 if result.value is not None:
                     revision = with_decisions(result.value)
-                    first = problems(revision, code, medium)
+                    first = problems(revision, code, medium, call_id, item)
                     if first:
                         final = first
                         if rule.redo:
@@ -1200,7 +1214,7 @@ class ReworkStep:
                             )
                             if retry is not None:
                                 revision, call_id = with_decisions(retry), again.call_id
-                                final = problems(revision, code, medium)
+                                final = problems(revision, code, medium, call_id, item)
                         record_effort(
                             ctx,
                             EffortRecord(
