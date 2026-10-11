@@ -172,15 +172,20 @@ class OpenAICompatProvider(Provider):
         api: str = "chat",
     ) -> ImageOutput:
         """api="images"：OpenRouter 的 /images 接口（gpt-image 系列不能走对话接口）。参考图作为
-        data URI 放进 images；返回 data[*].b64_json 或 url。api="chat" 走对话接口。"""
+        data URI 放进 input_references（[{type: image_url, image_url: {url}}]，见
+        https://openrouter.ai/docs/features/multimodal/image-generation）；返回 data[*].b64_json
+        （附 media_type）或 url。api="chat" 走对话接口。"""
         if api != "images":
             return await super().generate_image(model, prompt, params, images, api)
         params = {k: v for k, v in params.items() if k not in ("modalities", "max_tokens")}
         body: dict[str, Any] = {"model": model, "prompt": prompt, "n": 1, **params}
         if images:
-            body["images"] = [
+            body["input_references"] = [
                 {
-                    "image_url": f"data:{m.mime};base64,{base64.b64encode(m.data).decode('ascii')}",
+                    "type": "image_url",
+                    "image_url": {
+                        "url": f"data:{m.mime};base64,{base64.b64encode(m.data).decode('ascii')}"
+                    },
                 }
                 for m in images
             ]
@@ -194,7 +199,10 @@ class OpenAICompatProvider(Provider):
                     raw = base64.b64decode(item["b64_json"])
                 except ValueError:
                     continue
-                out.append(Media("image", _sniff_image_mime(raw), raw))
+                mime = str(item.get("media_type") or "")
+                if not mime.startswith("image/"):
+                    mime = _sniff_image_mime(raw)
+                out.append(Media("image", mime, raw))
             elif str(item.get("url", "")).startswith("data:"):
                 media = media_from_data_uri(item["url"])
                 if media is not None:

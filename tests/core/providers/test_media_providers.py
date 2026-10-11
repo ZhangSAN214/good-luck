@@ -201,7 +201,13 @@ async def test_images_api_request_and_b64_response():
     body = seen["body"]
     assert body["model"] == "openai/gpt-image-2" and body["prompt"] == "四格人物卡"
     assert "modalities" not in body and body["quality"] == "low"  # 对话接口专用的参数不带
-    assert base64.b64decode(body["images"][0]["image_url"].split(",", 1)[1]) == b"ref-bytes"
+    # OpenRouter /images 的参考图字段是 input_references（不是 images）
+    assert "images" not in body
+    ref_part = body["input_references"][0]
+    assert ref_part["type"] == "image_url"
+    url = ref_part["image_url"]["url"]
+    assert url.startswith("data:image/png;base64,")
+    assert base64.b64decode(url.split(",", 1)[1]) == b"ref-bytes"
     assert out.images[0].data == FAKE_PNG and out.images[0].mime == "image/png"
     assert (out.cost_usd, out.input_tokens, out.output_tokens) == (0.04, 12, 1056)
 
@@ -212,12 +218,36 @@ async def test_images_api_without_references_and_url_response():
     def handler(request: httpx.Request):
         seen.append(str(request.url))
         if request.url.path.endswith("/images"):
-            assert "images" not in json.loads(request.content)
+            body = json.loads(request.content)
+            assert "images" not in body and "input_references" not in body
             return httpx.Response(200, json={"data": [{"url": "https://cdn.example/x.png"}]})
         return httpx.Response(200, content=FAKE_PNG)
 
     out = await make(handler).generate_image("m", "猫", {}, api="images")
     assert out.images[0].data == FAKE_PNG and seen[-1] == "https://cdn.example/x.png"
+
+
+async def test_images_api_uses_returned_media_type():
+    import base64
+
+    jpeg = b"\xff\xd8\xff\xe0fake-jpeg"
+
+    def handler(request: httpx.Request):
+        data = {
+            "created": 1748372400,
+            "data": [{"b64_json": base64.b64encode(jpeg).decode(), "media_type": "image/webp"}],
+            "usage": {
+                "prompt_tokens": 0,
+                "completion_tokens": 4175,
+                "total_tokens": 4175,
+                "cost": 0.04,
+            },
+        }
+        return httpx.Response(200, json=data)
+
+    out = await make(handler).generate_image("openai/gpt-image-1-mini", "猫", {}, api="images")
+    assert out.images[0].data == jpeg and out.images[0].mime == "image/webp"
+    assert (out.cost_usd, out.input_tokens, out.output_tokens) == (0.04, 0, 4175)
 
 
 async def test_images_api_errors_are_classified_and_empty_result_is_invalid():
