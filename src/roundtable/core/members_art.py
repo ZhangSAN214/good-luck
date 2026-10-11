@@ -3,6 +3,7 @@
 素材不进 git（data/ 已忽略）。目录或 members.json 不存在、损坏时返回 available=False 与原因，
 绝不抛错。图片路径相对 members.json，必须落在素材目录内；文件不存在的图片记为 None。
 成员按 vendor 对应到配置里的模型（不写死任何厂商或模型名）。
+小人的逐帧素材（可选）在 pet.json：缺失或损坏时当作没有，不影响其他图片。
 """
 
 from __future__ import annotations
@@ -24,6 +25,37 @@ IMAGE_TYPES = {
     ".webp": "image/webp",
 }
 SIZES = ("256", "128", "64")
+PET_FILE = "pet.json"
+# 小人的动作与表情名（与 web/js/agent/brain.js 一致）；pet.json 里其他名字忽略
+PET_ACTIONS = (
+    "idle",
+    "blink",
+    "walk",
+    "jump",
+    "wave",
+    "think",
+    "talk",
+    "type",
+    "celebrate",
+    "sleepy",
+    "sleep",
+    "drag",
+    "land",
+)
+PET_EXPRESSIONS = (
+    "happy",
+    "smug",
+    "thinking",
+    "surprised",
+    "confused",
+    "shy",
+    "angry",
+    "sad",
+    "sleepy",
+)
+PET_MAX_FRAMES = 64
+PET_FPS = (1, 30)
+PET_MAX_BYTES = 256 * 1024
 # 只接受 #rgb / #rrggbb / #rrggbbaa，防止把任意文字写进页面样式
 COLOR = re.compile(r"#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})")
 
@@ -59,6 +91,8 @@ class Member:
     status: str | None
     # 键同 members.json；值为素材目录内的相对路径（posix），尺寸图为 {"256": 路径或 None, …}
     images: dict[str, Any] = field(default_factory=dict)
+    # 逐帧素材：{"fps", "actions": {名: {"frames": [相对路径], "fps", "loop"}}, "expressions"}
+    pet: dict[str, Any] | None = None
 
     @property
     def display(self) -> str:
@@ -87,7 +121,7 @@ class MembersArt:
         return out
 
 
-def resolve_file(root: Path | None, rel: str) -> Path | None:
+def resolve_file(root: Path | None, rel: str, types: Iterable[str] = IMAGE_TYPES) -> Path | None:
     """素材目录内、扩展名允许、确实存在的图片文件；否则 None（防路径穿越）。"""
     if root is None or not isinstance(rel, str) or not rel or "\x00" in rel:
         return None
@@ -98,7 +132,7 @@ def resolve_file(root: Path | None, rel: str) -> Path | None:
         path = (base / rel).resolve()
     except (OSError, RuntimeError, ValueError):
         return None
-    if not path.is_relative_to(base) or path.suffix.lower() not in IMAGE_TYPES:
+    if not path.is_relative_to(base) or path.suffix.lower() not in types:
         return None
     return path if path.is_file() else None
 
@@ -122,6 +156,61 @@ def _images(root: Path, raw: dict[str, Any]) -> dict[str, Any]:
         else:
             out[key] = _image(root, value)
     return out
+
+
+def _fps(value: Any, default: int) -> int:
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return default
+    return int(min(max(value, PET_FPS[0]), PET_FPS[1]))
+
+
+def _clips(root: Path, base: str, raw: Any, names: tuple[str, ...], fps: int) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    if not isinstance(raw, dict):
+        return out
+    for name in names:
+        clip = raw.get(name)
+        if not isinstance(clip, dict) or not isinstance(clip.get("frames"), list):
+            continue
+        frames = [
+            f
+            for f in (
+                _image(root, f"{base}{x}") if isinstance(x, str) and x else None
+                for x in clip["frames"][:PET_MAX_FRAMES]
+            )
+            if f
+        ]
+        if frames:
+            out[name] = {
+                "frames": frames,
+                "fps": _fps(clip.get("fps"), fps),
+                "loop": bool(clip.get("loop", name in ("idle", "walk", "sleep", "drag", "type"))),
+            }
+    return out
+
+
+def _pet(root: Path, member_id: str, value: Any) -> dict[str, Any] | None:
+    """读 pet.json；没有、越界、损坏或一帧都没有时返回 None。帧路径相对 pet.json 所在目录。"""
+    rel = value if isinstance(value, str) and value else f"{member_id}/{PET_FILE}"
+    path = resolve_file(root, rel, (".json",))
+    if path is None:
+        return None
+    try:
+        if path.stat().st_size > PET_MAX_BYTES:
+            return None
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    folder = path.parent.relative_to(root.resolve()).as_posix()
+    base = "" if folder == "." else f"{folder}/"
+    fps = _fps(data.get("fps"), 8)
+    actions = _clips(root, base, data.get("actions"), PET_ACTIONS, fps)
+    expressions = _clips(root, base, data.get("expressions"), PET_EXPRESSIONS, fps)
+    if not actions and not expressions:
+        return None
+    return {"fps": fps, "actions": actions, "expressions": expressions}
 
 
 def load_members(root: Path | None) -> MembersArt:
@@ -151,7 +240,8 @@ def load_members(root: Path | None) -> MembersArt:
                 theme_color=color,
                 order=e.order,
                 status=e.status,
-                images=_images(root, e.images),
+                images=_images(root, {k: v for k, v in e.images.items() if k != "pet"}),
+                pet=_pet(root, e.id, e.images.get("pet")),
             )
         )
     return MembersArt(True, None, tuple(members))

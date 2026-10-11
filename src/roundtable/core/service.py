@@ -141,6 +141,19 @@ class RoundtableService:
                     return url(sizes[size])
             return None
 
+        def pet(raw: dict[str, Any] | None) -> dict[str, Any] | None:
+            if not raw:
+                return None
+
+            def clips(group: dict[str, Any]) -> dict[str, Any]:
+                return {k: {**c, "frames": [url(f) for f in c["frames"]]} for k, c in group.items()}
+
+            return {
+                "fps": raw["fps"],
+                "actions": clips(raw["actions"]),
+                "expressions": clips(raw["expressions"]),
+            }
+
         models = [(m.id, m.vendor) for m in self.rt.config.models.models]
         return {
             "available": art.available,
@@ -160,6 +173,7 @@ class RoundtableService:
                         "avatar_256": avatar(m.images, "256"),
                         "chibi": url(m.images.get("chibi_transparent")),
                     },
+                    "pet": pet(m.pet),
                 }
                 for m in art.members
             ],
