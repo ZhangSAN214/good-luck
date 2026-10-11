@@ -24,6 +24,9 @@ from roundtable.core.tools import Sandbox, pick_sandbox
 PROJECT_ROOT = DEFAULT_CONFIG_DIR.parent
 DEFAULT_DB = PROJECT_ROOT / "data" / "roundtable.db"
 DB_ENV = "ROUNDTABLE_DB_PATH"
+# 成员形象素材（头像、小人）目录：在用户本机，不进 git
+DEFAULT_MEMBERS_DIR = PROJECT_ROOT / "data" / "avatars" / "roundtable_assets"
+MEMBERS_ENV = "ROUNDTABLE_ASSETS_DIR"
 
 
 @dataclass
@@ -43,6 +46,8 @@ class Runtime:
     media_hooks: dict[str, Any] = field(default_factory=dict)
     # 视频截帧函数（默认用 PyAV）；测试中注入
     frame_extractor: Callable[..., list[Any]] | None = None
+    # 成员形象素材目录（members.json 所在目录）；为空表示没有素材
+    members_dir: Path | None = None
 
     @classmethod
     def build(
@@ -58,6 +63,7 @@ class Runtime:
         now: Callable[[], datetime] | None = None,
         uploads_dir: str | Path | None = None,
         search: SearchService | None = None,
+        members_dir: str | Path | None = None,
     ) -> Runtime:
         """providers 为空时从 .env / 环境变量读取 key 并构建真实渠道（测试中传入 Fake）。"""
         config = config or load_config()
@@ -106,6 +112,9 @@ class Runtime:
             default = Path(db_path).resolve() == DEFAULT_DB.resolve()
             storage = config.roundtable.uploads.storage_dir
             uploads_dir = PROJECT_ROOT / storage if default else Path(db_path).parent / "uploads"
+        if members_dir is None:
+            configured = env.get(MEMBERS_ENV)
+            members_dir = PROJECT_ROOT / configured if configured else DEFAULT_MEMBERS_DIR
         repo = Repository(connect(db_path))
         guard = BudgetGuard(config.roundtable.budget, repo, **({"now": now} if now else {}))
         return cls(
@@ -120,6 +129,7 @@ class Runtime:
             files=FileStore(Path(uploads_dir) if uploads_dir is not None else None),
             search=search or SearchService({}),
             unavailable_channels=dict(unavailable or {}),
+            members_dir=Path(members_dir),
         )
 
     def sandbox(self) -> tuple[Sandbox | None, str | None]:

@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from roundtable.core.config import ConfigError, load_config
-from roundtable.core.runtime import DB_ENV, Runtime
+from roundtable.core.runtime import DB_ENV, DEFAULT_MEMBERS_DIR, MEMBERS_ENV, Runtime
 
 
 async def test_build_from_environment(tmp_path):
@@ -44,3 +44,17 @@ def test_build_rejects_unregistered_steps(tmp_path):
             providers={},
             db_path=tmp_path / "z.db",
         )
+
+
+async def test_members_dir_from_argument_environment_or_default(tmp_path):
+    env = {"OPENROUTER_API_KEY": "placeholder-key-123"}
+    rt = Runtime.build(environ=env, dotenv_path=None, db_path=":memory:")
+    assert rt.members_dir == DEFAULT_MEMBERS_DIR
+    await rt.aclose()
+    custom = {**env, MEMBERS_ENV: str(tmp_path / "art")}
+    rt = Runtime.build(environ=custom, dotenv_path=None, db_path=":memory:")
+    assert rt.members_dir == tmp_path / "art"
+    await rt.aclose()
+    rt = Runtime.build(environ=custom, dotenv_path=None, db_path=":memory:", members_dir=tmp_path)
+    assert rt.members_dir == tmp_path
+    await rt.aclose()
