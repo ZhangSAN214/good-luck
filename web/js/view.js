@@ -37,6 +37,32 @@ let KIND_LABELS_CFG = {};
 export function setKindLabels(map) {
   KIND_LABELS_CFG = map || {};
 }
+// 成员形象（来自 /api/members，不写死在前端）；没有素材时为空。只在显示模型时（匿名关闭或已揭晓）使用
+let MEMBER_ART = { members: {}, models: {} };
+let artFallback = false;
+export function setMemberArt(data) {
+  const ok = data && data.available;
+  const members = {};
+  for (const m of (ok && data.members) || []) members[m.id] = m;
+  MEMBER_ART = { members, models: (ok && data.models) || {} };
+  // 头像加载失败：移除图片，显示原来的单字
+  if (!artFallback && typeof document !== 'undefined') {
+    artFallback = true;
+    document.addEventListener(
+      'error',
+      (e) => {
+        const img = e.target;
+        const av = img && img.tagName === 'IMG' ? img.parentElement : null;
+        if (av && av.classList.contains('av') && av.dataset.ch !== undefined) {
+          av.textContent = av.dataset.ch;
+          av.style.borderColor = '';
+        }
+      },
+      true,
+    );
+  }
+}
+const memberArt = (modelId) => (modelId ? MEMBER_ART.members[MEMBER_ART.models[modelId]] || null : null);
 const kindLabel = (k) => (k ? KIND_LABELS_CFG[k] || k : '');
 const kindPill = (k) => (k ? `<span class="pill kind">${esc(kindLabel(k))}</span> ` : '');
 
@@ -228,14 +254,24 @@ export class Names {
     return (s && s.label) || '统筹';
   }
   // 发言者：头像字、名称、揭晓后的模型
+  // 只有显示模型时（匿名关闭或已揭晓）才按模型查成员头像
   speaker(tableNo, code) {
-    if (code) return { ch: [...String(code)][0] || '?', name: this.member(code), ai: this.model(tableNo, 'member', code) };
-    return { ch: '统', name: this.coordinatorName(tableNo), ai: this.model(tableNo, 'coordinator'), coord: true };
+    if (code) {
+      const ai = this.model(tableNo, 'member', code);
+      return { ch: [...String(code)][0] || '?', name: this.member(code), ai, art: memberArt(ai) };
+    }
+    const ai = this.model(tableNo, 'coordinator');
+    return { ch: '统', name: this.coordinatorName(tableNo), ai, art: memberArt(ai), coord: true };
   }
 }
 
 function avatar(sp, extra = '') {
-  return `<div class="av ${sp.coord ? 'coord' : ''} ${extra}">${esc(sp.ch)}</div>`;
+  const cls = `av ${sp.coord ? 'coord' : ''} ${extra}`;
+  const src = sp.art && sp.art.images && sp.art.images.avatar_128;
+  if (!src) return `<div class="${cls}">${esc(sp.ch)}</div>`;
+  const border = sp.art.theme_color ? ` style="border-color:${esc(sp.art.theme_color)}"` : '';
+  const alt = sp.art.display || sp.art.name || '';
+  return `<div class="${cls}" data-ch="${esc(sp.ch)}"${border}><img src="${esc(src)}" alt="${esc(alt)}" loading="lazy"></div>`;
 }
 
 function msg(sp, kind, body) {

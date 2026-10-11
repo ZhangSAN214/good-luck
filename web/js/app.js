@@ -23,6 +23,7 @@ import {
   reviewsPanel,
   stageHTML,
   setKindLabels,
+  setMemberArt,
   usagePanel,
 } from './view.js';
 
@@ -778,6 +779,11 @@ async function init() {
     S.budget = S.status.budget;
   } catch (e) {
     formError(`无法连接服务：${e.message}`);
+  }
+  try {
+    setMemberArt(await API.members()); // 成员头像；失败就当没有素材
+  } catch {
+    setMemberArt(null);
   }
   renderComposer();
   renderPicks();

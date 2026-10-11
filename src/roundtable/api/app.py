@@ -127,6 +127,16 @@ def create_app(service: RoundtableService | None = None) -> FastAPI:
     async def budget(request: Request) -> dict[str, Any]:
         return svc(request).budget()
 
+    @app.get("/api/members")
+    async def members(request: Request) -> dict[str, Any]:
+        return svc(request).members()
+
+    @app.get("/api/members/files/{path:path}")
+    async def member_file(request: Request, path: str) -> Response:
+        data, mime = svc(request).member_file(path)
+        headers = {"X-Content-Type-Options": "nosniff", "Cache-Control": "private, max-age=3600"}
+        return Response(content=data, media_type=mime, headers=headers)
+
     @app.get("/api/contributions")
     async def contributions(request: Request) -> list[dict[str, Any]]:
         return svc(request).contributions()
