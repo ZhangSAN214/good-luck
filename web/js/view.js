@@ -384,7 +384,9 @@ function effort(o, sp, data) {
   const what = STEP_LABELS[o.step] || o.step;
   const first = (data.reasons || []).join('；');
   if (data.status === 'truncated') {
-    return sys('检查', `${esc(sp.name)} 的${esc(what)}输出被长度上限截断，未判为敷衍：${esc(first)}`);
+    // 原因形如「输出被长度上限截断（内容过短（…））」：句子里已经说了截断，括号里只放原问题
+    const why = (data.reasons || []).map((r) => r.replace(/^输出被长度上限截断（([\s\S]*)）$/, '$1')).join('；');
+    return sys('检查', `${esc(sp.name)} 的${esc(what)}输出被长度上限截断，未判为敷衍（${esc(why)}）`);
   }
   if (data.status === 'lazy') {
     const final = (data.final_reasons || data.reasons || []).join('；');
