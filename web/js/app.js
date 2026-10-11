@@ -26,6 +26,7 @@ import {
   setMemberArt,
   usagePanel,
 } from './view.js';
+import { Pet } from './agent/pet.js';
 
 const $ = (q) => document.querySelector(q);
 const RESTING = new Set(['completed', 'stopped', 'failed', 'awaiting_confirmation', 'paused']);
@@ -57,6 +58,14 @@ function freshLive() {
   return { table: null, step: null, act: '', speaking: new Set(), warnings: [] };
 }
 
+// 网页小人：匿名且未揭晓的会话里不出现（启动时先不显示，确定当前会话后再决定）
+const pet = new Pet();
+let petReady = false;
+function syncPet() {
+  const sv = S.session;
+  if (petReady) pet.setAllowed(!(sv && sv.anonymous && !sv.revealed));
+}
+
 const prefix = () => S.status?.code_prefix || '组员';
 const plans = () => S.status?.plans || {};
 
@@ -86,6 +95,7 @@ function renderLegend() {
 
 function renderHeader() {
   renderLegend();
+  syncPet();
   const sv = S.session;
   const b = S.budget;
   const parts = [`本场 ${money(sv ? sv.cost_usd : 0)}`];
@@ -780,17 +790,23 @@ async function init() {
   } catch (e) {
     formError(`无法连接服务：${e.message}`);
   }
+  let art = null;
   try {
-    setMemberArt(await API.members()); // 成员头像；失败就当没有素材
+    art = await API.members(); // 成员头像与小人；失败就当没有素材
   } catch {
-    setMemberArt(null);
+    art = null;
   }
+  setMemberArt(art);
+  pet.setAllowed(false);
+  pet.setMembers(art);
   renderComposer();
   renderPicks();
   render();
   loadHistory();
   const m = location.hash.match(/s=([0-9a-f]+)/);
   if (m) await open(m[1]);
+  petReady = true;
+  syncPet();
 }
 
 init();
