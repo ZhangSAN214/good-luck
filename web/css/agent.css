@@ -17,13 +17,12 @@
 /* 小部件 */
 .pet-hide{position:absolute;top:-6px;right:-6px;width:22px;height:22px;padding:0;border-radius:50%;border:1px solid var(--line);background:var(--surface);color:var(--muted);font-size:14px;line-height:20px;opacity:0;transition:opacity .15s;z-index:3}
 .pet:hover .pet-hide,.pet:focus-within .pet-hide{opacity:1}
-.pet-emote{position:absolute;top:-4px;right:6px;min-width:1em;font-size:20px;font-weight:700;line-height:1;color:var(--pet-color);text-shadow:0 1px 0 var(--surface),0 0 4px var(--surface);pointer-events:none;animation:pet-float 1.4s ease-in-out infinite;z-index:2}
+.pet-emote{position:absolute;top:-8px;right:30px;min-width:1em;font-size:22px;font-weight:700;line-height:1;color:var(--pet-color);text-shadow:0 1px 0 var(--surface),0 0 4px var(--surface);pointer-events:none;animation:pet-float 1.4s ease-in-out infinite;z-index:2}
 .pet-emote:empty{display:none}
 .pet-blush{position:absolute;top:36%;width:14%;height:6%;border-radius:50%;background:#ff7f9a;opacity:0;filter:blur(1.5px);transition:opacity .25s;pointer-events:none}
 .pet-blush.l{left:28%}.pet-blush.r{right:28%}
 .pet-sweat{position:absolute;top:16%;left:20%;width:9px;height:13px;border-radius:50% 50% 50% 50%/60% 60% 40% 40%;background:#8fd0ff;opacity:0;transition:opacity .2s;pointer-events:none}
 .pet-prop{position:absolute;font-size:22px;line-height:1;pointer-events:none;z-index:2}
-.pet-prop:empty{display:none}
 .pet-bubble{position:absolute;top:-14px;left:-22px;display:none;gap:4px;padding:6px 9px;border-radius:12px;background:var(--surface);border:1px solid var(--line);box-shadow:0 2px 6px rgba(0,0,0,.12);z-index:2}
 .pet-bubble i{width:6px;height:6px;border-radius:50%;background:var(--pet-color);animation:pet-dot 1s infinite}
 .pet-bubble i:nth-child(2){animation-delay:.2s}.pet-bubble i:nth-child(3){animation-delay:.4s}

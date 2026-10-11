@@ -245,7 +245,9 @@ export function snap(pos, size, view, dist = 48) {
   if (edges.has('right') && !edges.has('left')) p.x = Math.max(0, view.w - size.w);
   if (edges.has('top')) p.y = 0;
   if (edges.has('bottom') && !edges.has('top')) p.y = Math.max(0, view.h - size.h);
-  return { ...p, edge: gaps[0][0] };
+  // 贴在角上时算左右边（小人靠着侧边）
+  const edge = edges.has('left') ? 'left' : edges.has('right') ? 'right' : gaps[0][0];
+  return { ...p, edge };
 }
 
 // 默认位置：右下角，离边留一点
