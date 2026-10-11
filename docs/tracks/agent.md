@@ -46,7 +46,7 @@
 - `api.js` 的 `members()`；`app.js` 启动时请求一次，失败当作没有素材。
 - `view.js` 的 `setMemberArt(data)`；`Names.speaker()` 带上 `art`；`avatar()` 有头像时渲染 128px `<img>`（`alt` 为昵称，`loading="lazy"`，边框为 `theme_color`），加载失败时移除图片、恢复单字。
 
-## R2：网页小人·动起来（设计，2026-10-11）
+## R2：网页小人·动起来（已完成，2026-10-11）
 
 ### 做什么
 
@@ -101,3 +101,15 @@
 - `tests/web/test_agent_brain.py`（用 node 跑 brain.js，没有 node 时跳过）：状态机转换与优先级、拖动 → 挣扎 → 落地、困 / 睡与唤醒、贴边与夹回可见区域、`localStorage` 抛错时不报错。
 - `tests/web/test_e2e_agent.py`（Playwright）：有素材时出现小人且能拖动、位置刷新后保留；隐藏后能叫回；匿名未揭晓时页面上没有小人和素材地址、揭晓后出现；没有素材时没有小人也没有 JS 报错；`localStorage` 抛错时页面正常；有 pet.json 时用逐帧图片。
 - 全部素材都是测试里临时目录的假图片。
+
+### 实现记录（R2 完成，提交 afaba79）
+
+- 按上面的设计实现；与设计不同的细节：贴在角上时 `edge` 记左 / 右边（小人靠着侧边）；轻点小人会开心地跳一下，双击播放全部动作和表情的演示（约 40 秒），方便在本机检查效果。
+- 动作 / 表情名在 `core/members_art.py`（`PET_ACTIONS` / `PET_EXPRESSIONS`）和 `web/js/agent/brain.js` 各有一份，`tests/web/test_agent_brain.py` 检查两边一致。眨眼在后端是动作名 `blink`，前端是叠在任何动作上的效果。
+- `localStorage` 键 `roundtable.pet`：`{x, y, edge, hidden, member}`；`member` 预留给 R3 的「设置里换成员」。
+- 给 R3 的接口：`app.js` 里的 `pet.act(动作, {ms})`、`pet.feel(表情, {ms})`；被拖着时其他动作和表情会被拒绝（返回 false）。
+- 测试：`tests/core/test_members_art.py`、`tests/api/test_members_api.py`（pet.json）、`tests/web/test_agent_brain.py`（9 个）、`tests/web/test_e2e_agent.py`（7 个）。
+
+## 下一步：R3 网页小人·汇报与互动
+
+和圆桌 SSE 事件联动（`onEvent` 里调 `pet.act` / `pet.feel`）、气泡汇报、点击菜单、摸头 / 戳等免费互动、设置里换成员。

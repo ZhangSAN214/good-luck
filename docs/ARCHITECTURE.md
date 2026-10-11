@@ -137,6 +137,7 @@
   - 会话详情的 `tables`：每桌方案、流程、代号、已完成步骤（不含模型）；`contributions`：每桌每个代号的贡献（身份未公开时不含模型 id）。
   - 前端源码不得写死任何模型、厂商或渠道名（有测试）；匿名会话揭晓前界面只用塔罗牌代号和"统筹"，匿名关闭时代号就是"昵称·模式"并在旁边显示模型。
   - 会话 id 写在地址栏（`#s=<id>`），刷新或关页面后可回到原讨论。
+  - 网页小人（R2）：`js/agent/brain.js`（状态机、位置、存储容错，纯逻辑）+ `js/agent/pet.js`（DOM）+ `css/agent.css`；用 `/api/members` 的 chibi 与可选的 `pet.json` 逐帧素材；匿名且未揭晓的会话里整个移除。详见 docs/tracks/agent.md。
 
 ### 2.8 附件（`core/attachments/`）
 - 上传（`ingest()`）：大小上限 → 类型识别（扩展名与文件头必须一致；`.doc`、HEIC 等给出改法）→ 文档直接提取文字（PDF：`pypdf`，加密 / 超页数 / 损坏报错，几乎没有文字层时警告"可能是扫描件"，不做 OCR；`.docx`：段落 + 表格；文本：BOM / UTF-8 / 自动识别编码）→ 按内容哈希存放（`FileStore`，`sha256.扩展名`，文件名只用于显示，读取时校验键名防路径穿越）→ 登记。规则在 `roundtable.yaml` 的 `uploads`。
@@ -224,7 +225,7 @@ src/roundtable/
   cli.py         命令行试用（`roundtable` 命令，见 docs/CLI.md）
   plaintext.py   命令行显示用：LaTeX 数学式转纯文本、去掉 Markdown 加粗符号（不改动存储的原文）
   api/           FastAPI 应用、路由、SSE
-web/             index.html、css/app.css、js/（api.js 通信、view.js 渲染、app.js 状态与交互）
+web/             index.html、css/（app.css、agent.css 小人）、js/（api.js 通信、view.js 渲染、app.js 状态与交互、agent/ 网页小人）
 tests/
 docs/            REQUIREMENTS_v3.md  PLAN.md  CLI.md  mockup.html
 scripts/         check_models.py（核对 OpenRouter 渠道的模型 ID 与价格；带 vision / image_edit 标签的模型还核对远端 input_modalities 含 image）  lock_prompts.py（登记提示词版本）
