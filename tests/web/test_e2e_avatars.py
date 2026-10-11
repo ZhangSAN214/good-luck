@@ -76,8 +76,12 @@ def test_broken_avatar_falls_back_to_letter(serve, page, tmp_path):
     page.goto(srv.url)
     ask(page, MEDIUM)
     wait_done(page)
-    page.wait_for_function("() => document.querySelectorAll('#stage .av img').length === 0")
-    assert page.locator("#stage .seat .av").first.inner_text().strip() != ""
+    # 图片移除、单字恢复；之后的重绘也不再使用这个地址
+    page.wait_for_function(
+        "() => { const avs = [...document.querySelectorAll('#stage .seat .av')];"
+        " return avs.length > 0"
+        " && avs.every(a => !a.querySelector('img') && a.textContent.trim()); }"
+    )
 
 
 def test_no_assets_keeps_letters(serve, page):

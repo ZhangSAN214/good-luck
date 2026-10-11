@@ -40,6 +40,7 @@ export function setKindLabels(map) {
 // 成员形象（来自 /api/members，不写死在前端）；没有素材时为空。只在显示模型时（匿名关闭或已揭晓）使用
 let MEMBER_ART = { members: {}, models: {} };
 let artFallback = false;
+const ART_FAILED = new Set(); // 加载失败的头像地址：之后重绘不再使用
 export function setMemberArt(data) {
   const ok = data && data.available;
   const members = {};
@@ -54,6 +55,7 @@ export function setMemberArt(data) {
         const img = e.target;
         const av = img && img.tagName === 'IMG' ? img.parentElement : null;
         if (av && av.classList.contains('av') && av.dataset.ch !== undefined) {
+          ART_FAILED.add(img.getAttribute('src'));
           av.textContent = av.dataset.ch;
           av.style.borderColor = '';
         }
@@ -268,7 +270,7 @@ export class Names {
 function avatar(sp, extra = '') {
   const cls = `av ${sp.coord ? 'coord' : ''} ${extra}`;
   const src = sp.art && sp.art.images && sp.art.images.avatar_128;
-  if (!src) return `<div class="${cls}">${esc(sp.ch)}</div>`;
+  if (!src || ART_FAILED.has(src)) return `<div class="${cls}">${esc(sp.ch)}</div>`;
   const border = sp.art.theme_color ? ` style="border-color:${esc(sp.art.theme_color)}"` : '';
   const alt = sp.art.display || sp.art.name || '';
   return `<div class="${cls}" data-ch="${esc(sp.ch)}"${border}><img src="${esc(src)}" alt="${esc(alt)}" loading="lazy"></div>`;
