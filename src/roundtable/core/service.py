@@ -14,11 +14,13 @@ import secrets
 from collections.abc import AsyncIterator, Sequence
 from dataclasses import asdict
 from typing import Any
+from urllib.parse import quote
 
 from roundtable.core.allocation import coordinator_name, display_name
 from roundtable.core.attachments import Attachment, UploadError, ingest
 from roundtable.core.attachments.detect import TYPES as UPLOAD_TYPES
 from roundtable.core.media import KIND_LABELS, KINDS, MediaService
+from roundtable.core.members_art import load_members, mime_of, resolve_file
 from roundtable.core.orchestrator import Orchestrator, OrchestratorError, RunResult
 from roundtable.core.preview import render_preview
 from roundtable.core.routing import (
@@ -121,6 +123,58 @@ class RoundtableService:
             "collab_kinds": {name: k.label for name, k in cfg.roundtable.collab.kinds.items()},
             "budget": self.budget(),
         }
+
+    def members(self) -> dict[str, Any]:
+        """成员形象（头像、小人）与「模型 id → 成员 id」。不涉及具体会话。
+
+        前端只在显示模型时（匿名关闭或已揭晓）才用它查头像。
+        """
+        art = load_members(self.rt.members_dir)
+
+        def url(rel: str | None) -> str | None:
+            return f"/api/members/files/{quote(rel)}" if rel else None
+
+        def avatar(images: dict[str, Any], size: str) -> str | None:
+            for key in ("avatar_circle_light", "avatar_circle"):
+                sizes = images.get(key)
+                if isinstance(sizes, dict) and sizes.get(size):
+                    return url(sizes[size])
+            return None
+
+        models = [(m.id, m.vendor) for m in self.rt.config.models.models]
+        return {
+            "available": art.available,
+            "reason": art.reason,
+            "members": [
+                {
+                    "id": m.id,
+                    "name": m.name,
+                    "nickname": m.nickname,
+                    "display": m.display,
+                    "theme_color": m.theme_color,
+                    "order": m.order,
+                    "status": m.status,
+                    "images": {
+                        "avatar_64": avatar(m.images, "64"),
+                        "avatar_128": avatar(m.images, "128"),
+                        "avatar_256": avatar(m.images, "256"),
+                        "chibi": url(m.images.get("chibi_transparent")),
+                    },
+                }
+                for m in art.members
+            ],
+            "models": art.model_map(models),
+        }
+
+    def member_file(self, path: str) -> tuple[bytes, str]:
+        """成员形象图片：只允许素材目录内的 png / jpg / webp。返回 (内容, MIME)。"""
+        found = resolve_file(self.rt.members_dir, path)
+        if found is None:
+            raise ServiceError("文件不存在", 404)
+        try:
+            return found.read_bytes(), mime_of(found)
+        except OSError:
+            raise ServiceError("文件不存在", 404) from None
 
     def budget(self) -> dict[str, Any]:
         month, day = self.rt.budget.status()

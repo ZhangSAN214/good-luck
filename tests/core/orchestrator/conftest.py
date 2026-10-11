@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 
@@ -11,6 +12,7 @@ from roundtable.core.runtime import Runtime
 from ..routing.conftest import app_config
 from ..steps.conftest import default_reply, merge_reply, synthesis_reply
 
+NO_MEMBERS = Path(__file__).parent / "_no_members"
 SHORT = "1+1=?"
 MEDIUM = "求函数 f(x)=x^3-3x 在区间 [-2, 2] 上的最大值与最小值，并写出完整过程。"
 
@@ -38,6 +40,7 @@ class Env:
         with_media=False,
         pipeline=False,
         rt_update=None,
+        members_dir=None,
         **routing_overrides,
     ):
         self.difficulty = difficulty
@@ -53,7 +56,13 @@ class Env:
         policy = self.config.roundtable.request.model_copy(update={"backoff_s": 0})
         rt_cfg = self.config.roundtable.model_copy(update={"request": policy})
         self.config = self.config.model_copy(update={"roundtable": rt_cfg})
-        self.rt = Runtime.build(config=self.config, providers={"c": self.fake}, db_path=":memory:")
+        # 默认指向不存在的目录：测试不读用户本机的形象素材
+        self.rt = Runtime.build(
+            config=self.config,
+            providers={"c": self.fake},
+            db_path=":memory:",
+            members_dir=members_dir or NO_MEMBERS,
+        )
         # 默认没有代码运行环境（不依赖本机是否装了沙箱）；工具测试中注入假沙箱
         self.rt.tools_sandbox = (None, "测试环境")
         self.sleeps: list[float] = []

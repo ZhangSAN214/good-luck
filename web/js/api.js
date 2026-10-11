@@ -55,6 +55,7 @@ export async function upload(file) {
 
 export const getStatus = () => api('/api/status');
 export const getBudget = () => api('/api/budget');
+export const members = () => api('/api/members');
 export const listSessions = () => api('/api/sessions?limit=50');
 export const getContributions = () => api('/api/contributions');
 export const getSession = (id) => api(`/api/sessions/${id}`);
