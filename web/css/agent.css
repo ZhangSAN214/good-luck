@@ -95,6 +95,18 @@
 .pet.framed .pet-pose,.pet.framed .pet-face{animation:none;transform:none;filter:none}
 .pet.framed .pet-blush,.pet.framed .pet-sweat{display:none}
 
+/* ---------- 汇报气泡与菜单（R3） ---------- */
+.pet-more{position:absolute;top:-6px;left:-6px;width:22px;height:22px;padding:0;border-radius:50%;border:1px solid var(--line);background:var(--surface);color:var(--muted);font-size:14px;line-height:18px;opacity:0;transition:opacity .15s;z-index:3}
+.pet:hover .pet-more,.pet:focus-within .pet-more{opacity:1}
+.pet-say{position:absolute;bottom:100%;right:0;width:max-content;max-width:210px;margin-bottom:6px;padding:7px 10px;border-radius:12px;background:var(--surface);border:1px solid var(--line);box-shadow:0 2px 8px rgba(0,0,0,.14);font-size:13px;line-height:1.45;color:var(--ink,inherit);cursor:pointer;z-index:4;animation:pet-pop .25s ease-out 1}
+.pet-say[hidden]{display:none}
+.pet-say.urgent{border-color:var(--pet-color);box-shadow:0 0 0 2px var(--pet-color),0 2px 8px rgba(0,0,0,.14)}
+.pet-say::after{content:"";position:absolute;right:24px;top:100%;width:9px;height:9px;margin-top:-5px;background:inherit;border-right:1px solid var(--line);border-bottom:1px solid var(--line);transform:rotate(45deg)}
+.pet[data-edge="left"] .pet-say{left:0;right:auto}
+.pet-menu{position:absolute;bottom:100%;right:0;display:flex;flex-direction:column;min-width:116px;margin-bottom:6px;padding:4px;border-radius:10px;background:var(--surface);border:1px solid var(--line);box-shadow:0 4px 14px rgba(0,0,0,.18);z-index:5}
+.pet-menu button{padding:6px 10px;border:0;border-radius:6px;background:none;color:inherit;font-size:13px;text-align:left;cursor:pointer}
+.pet-menu button:hover,.pet-menu button:focus-visible{background:var(--brass-bg)}
+
 @keyframes pet-breathe{0%,100%{transform:scale(1,1)}50%{transform:scale(.99,1.03)}}
 @keyframes pet-bob{0%,100%{transform:translateY(0) rotate(-3deg)}50%{transform:translateY(-5px) rotate(3deg)}}
 @keyframes pet-jump{0%{transform:translateY(0) scale(1.08,.9)}15%{transform:translateY(0) scale(.94,1.08)}45%{transform:translateY(-46px)}75%{transform:translateY(0) scale(1.1,.88)}100%{transform:translateY(0) scale(1,1)}}

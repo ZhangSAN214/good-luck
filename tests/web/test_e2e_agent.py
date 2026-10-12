@@ -25,6 +25,16 @@ def box(page):
     return page.locator(PET).bounding_box()
 
 
+def tap_body(page):
+    b = box(page)
+    page.mouse.click(b["x"] + b["width"] / 2, b["y"] + b["height"] * 0.75)
+
+
+def tap_head(page):
+    b = box(page)
+    page.mouse.click(b["x"] + b["width"] / 2, b["y"] + b["height"] * 0.2)
+
+
 def drag(page, dx, dy):
     b = box(page)
     x, y = b["x"] + b["width"] / 2, b["y"] + b["height"] / 2
@@ -61,9 +71,9 @@ def test_pet_shows_chibi_and_can_be_dragged_and_snapped(serve, page, tmp_path):
     assert page.eval_on_selector(PET, "e => e.style.left") == "0px"
     assert page.get_attribute(PET, "data-edge") == "left"
 
-    # 轻点一下会跳；双击开始演示
-    page.locator(f"{PET} .pet-img").click(force=True)
-    page.wait_for_selector(f"{PET}[data-action='jump'][data-face='happy']")
+    # 轻点身体会被戳到：惊讶地跳一下
+    tap_body(page)
+    page.wait_for_selector(f"{PET}[data-action='jump'][data-face='surprised']")
 
 
 def test_hide_and_call_back(serve, page, tmp_path):
@@ -172,5 +182,71 @@ def test_pet_json_frames_are_used(serve, page, tmp_path):
         srcs.add(page.get_attribute(f"{PET} .pet-img", "src"))
         page.wait_for_timeout(60)
     assert {f"{ART_URL}m1/idle/0.png", f"{ART_URL}m1/idle/1.png"} <= srcs
-    page.locator(f"{PET} .pet-img").click(force=True)  # 跳：用专门的帧，不叠加程序姿势
+    tap_body(page)  # 跳：用专门的帧，不叠加程序姿势
     page.wait_for_selector(f"{PET}.framed[data-action='jump'] .pet-img[src$='m1/jump.png']")
+
+
+# --- R3：汇报与互动 ---------------------------------------------------------------------
+
+
+def test_pet_reacts_to_discussion_and_bubble_jumps_to_discussion(serve, page, tmp_path):
+    srv = serve(delay=0.4, confirm_threshold_usd=100.0, members_dir=assets(tmp_path))
+    page.goto(srv.url)
+    wait_pet(page)
+    ask(page, MEDIUM)
+    # 讨论中冒过进度气泡（可能很快就过去，所以记下来）
+    page.wait_for_function("() => document.querySelector('.pet-say:not([hidden])')", timeout=15000)
+    wait_done(page)
+    page.wait_for_selector(f"{PET}[data-action='celebrate']")
+    say = page.locator(f"{PET} .pet-say")
+    assert "完成" in say.inner_text()
+    # 点气泡：气泡收起，讨论区滚到最新
+    say.click()
+    assert say.is_hidden()
+
+
+def test_head_pat_poke_and_angry(serve, page, tmp_path):
+    srv = serve(members_dir=assets(tmp_path))
+    page.goto(srv.url)
+    wait_pet(page)
+    tap_head(page)
+    page.wait_for_selector(f"{PET}[data-face='shy']")
+    page.wait_for_timeout(100)
+    for _ in range(3):
+        tap_body(page)
+        page.wait_for_timeout(60)
+    page.wait_for_selector(f"{PET}[data-face='angry']")
+    assert "戳" in page.locator(f"{PET} .pet-say").inner_text()
+
+
+def test_menu_who_status_quiet_and_switch_member(serve, page, tmp_path):
+    srv = serve(members_dir=assets(tmp_path))
+    page.goto(srv.url)
+    wait_pet(page)
+    page.hover(PET)
+    page.click(f"{PET} .pet-more")
+    page.click(".pet-menu [data-item='who']")
+    assert "AI" in page.locator(f"{PET} .pet-say").inner_text()
+    assert page.locator(".pet-menu").count() == 0  # 选完就关
+
+    page.click(f"{PET} .pet-more")
+    page.click(".pet-menu [data-item='status']")
+    assert page.locator(f"{PET} .pet-say").inner_text() == "空闲"
+
+    # 安静一会儿：之后不再冒进度气泡，菜单里变成「不用安静了」
+    page.click(f"{PET} .pet-more")
+    page.click(".pet-menu [data-item='quiet']")
+    page.click(f"{PET} .pet-more")
+    assert page.locator(".pet-menu [data-item='unquiet']").count() == 1
+    page.keyboard.press("Escape")
+    assert page.locator(".pet-menu").count() == 0
+
+
+def test_no_bubbles_leak_for_anonymous_unrevealed_session(serve, page, tmp_path):
+    srv = serve(confirm_threshold_usd=100.0, members_dir=assets(tmp_path))
+    page.goto(srv.url)
+    wait_pet(page)
+    page.check("#anonymous")
+    ask(page, MEDIUM)
+    wait_done(page)
+    assert page.locator(PET).count() == 0 and page.locator(".pet-say").count() == 0

@@ -2,6 +2,7 @@
 // 动作和表情由 brain.js 的状态机决定；有 pet.json 逐帧素材的用逐帧播放，其余用 CSS 程序动画。
 // 匿名且未揭晓的会话里由 app.js 调 setAllowed(false)：小人整个从页面移除，不留任何素材地址。
 import { ACTIONS, Brain, EXPRESSIONS, clamp, home, loadJSON, saveJSON, snap } from './brain.js';
+import { Reporter, hitPart, lookDir } from './reactions.js';
 
 const KEY = 'roundtable.pet'; // {x, y, edge, hidden, member}
 const TICK_MS = 100;
@@ -18,8 +19,14 @@ export function pickMember(data, preferred) {
 }
 
 export class Pet {
-  constructor({ root = document.body, storage = () => window.localStorage, now = () => Date.now() } = {}) {
+  // labels：步骤名表；goto：点气泡 / 菜单「跳到讨论」时调用
+  constructor({ root = document.body, storage = () => window.localStorage, now = () => Date.now(), labels = {}, goto = null } = {}) {
     this.root = root;
+    this.goto = goto;
+    this.reporter = new Reporter({ labels, now });
+    this.members = [];
+    this.sayTimer = null;
+    this.menu = null;
     this.storage = storage;
     this.now = now;
     let calm = false;
@@ -43,10 +50,22 @@ export class Pet {
     this.frameStart = 0;
     this.onResize = () => this.place(this.pos, false);
     this.onActivity = () => this.brain.poke();
+    this.onMouse = (ev) => {
+      this.brain.poke();
+      this.lookAt(ev.clientX, ev.clientY);
+    };
+    this.onOutside = (ev) => {
+      if (this.menu && !ev.target.closest?.('.pet-menu, .pet-more')) this.closeMenu();
+    };
+    this.onKey = (ev) => {
+      this.brain.poke();
+      if (ev.key === 'Escape') this.closeMenu();
+    };
   }
 
   // 成员素材（/api/members 的结果，失败时为 null）
   setMembers(data) {
+    this.members = data && data.available ? (data.members || []).filter((m) => m && m.images && m.images.chibi) : [];
     this.member = pickMember(data, this.saved.member);
     this.failed = false;
     this.sync();
@@ -70,6 +89,52 @@ export class Pet {
     const ok = this.brain.feel(name, opts);
     if (ok) this.render();
     return ok;
+  }
+
+  // 圆桌事件（SSE）：小人做动作、换表情、冒气泡
+  report(e) {
+    const r = this.reporter.react(e);
+    if (!r || !this.el) return r;
+    if (r.act) this.act(r.act, r.actMs ? { ms: r.actMs } : r.ms && !r.feel ? { ms: r.ms } : undefined);
+    if (r.feel) this.feel(r.feel, r.ms ? { ms: r.ms } : undefined);
+    if (r.say && !this.reporter.muted) this.say(r.say, { urgent: r.urgent });
+    return r;
+  }
+
+  // 新题目 / 换会话：清掉气泡
+  resetReport() {
+    this.reporter.reset();
+    this.hush();
+  }
+
+  // 头顶冒一个气泡；点气泡跳到讨论
+  say(text, { ms = 7000, urgent = false } = {}) {
+    if (!this.el || !text) return;
+    const b = this.el.querySelector('.pet-say');
+    b.textContent = text;
+    b.hidden = false;
+    b.classList.toggle('urgent', !!urgent);
+    clearTimeout(this.sayTimer);
+    this.sayTimer = setTimeout(() => this.hush(), ms);
+  }
+
+  hush() {
+    clearTimeout(this.sayTimer);
+    const b = this.el && this.el.querySelector('.pet-say');
+    if (b) {
+      b.hidden = true;
+      b.textContent = '';
+    }
+  }
+
+  // 鼠标靠近时看向鼠标（只在待机时，不抢动作）
+  lookAt(x, y) {
+    if (!this.el || this.drag || this.brain.action !== 'idle' || !this.pos) return;
+    const d = lookDir({ ...this.pos, ...this.size() }, { x, y });
+    if (d && d !== this.brain.dir) {
+      this.brain.dir = d;
+      this.render();
+    }
   }
 
   get visible() {
@@ -103,6 +168,8 @@ export class Pet {
     if (m.theme_color) el.style.setProperty('--pet-color', m.theme_color);
     el.innerHTML = `
       <button class="pet-hide" type="button" title="隐藏小人" aria-label="隐藏小人">×</button>
+      <button class="pet-more" type="button" title="小人菜单" aria-label="小人菜单" aria-haspopup="menu">⋯</button>
+      <span class="pet-say" role="status" hidden></span>
       <div class="pet-shadow"></div>
       <div class="pet-body"><div class="pet-pose"><div class="pet-face">
         <img class="pet-img" alt="${esc(name)}" draggable="false" src="${esc(m.images.chibi)}">
@@ -130,6 +197,19 @@ export class Pet {
       e.stopPropagation();
       this.setHidden(true);
     });
+    el.querySelector('.pet-more').addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.menu ? this.closeMenu() : this.openMenu();
+    });
+    el.querySelector('.pet-say').addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.hush();
+      this.goto?.();
+    });
+    el.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      this.openMenu();
+    });
     el.addEventListener('pointerdown', (e) => this.down(e));
     el.addEventListener('dblclick', () => this.brain.startDemo());
     this.preload();
@@ -137,13 +217,18 @@ export class Pet {
     this.place(this.saved.x !== undefined ? this.saved : null, false);
     if (this.saved.edge) el.dataset.edge = this.saved.edge;
     window.addEventListener('resize', this.onResize);
-    for (const ev of ['pointermove', 'keydown', 'wheel']) document.addEventListener(ev, this.onActivity, { passive: true });
+    document.addEventListener('pointermove', this.onMouse, { passive: true });
+    document.addEventListener('keydown', this.onKey, { passive: true });
+    document.addEventListener('wheel', this.onActivity, { passive: true });
+    document.addEventListener('pointerdown', this.onOutside, true);
     this.shown = '';
     this.render();
     this.timer = setInterval(() => this.step(), TICK_MS);
   }
 
   unmountPet() {
+    clearTimeout(this.sayTimer);
+    this.closeMenu();
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
     if (this.el) this.el.remove();
@@ -151,7 +236,10 @@ export class Pet {
     this.img = null;
     this.drag = null;
     window.removeEventListener('resize', this.onResize);
-    for (const ev of ['pointermove', 'keydown', 'wheel']) document.removeEventListener(ev, this.onActivity);
+    document.removeEventListener('pointermove', this.onMouse);
+    document.removeEventListener('keydown', this.onKey);
+    document.removeEventListener('wheel', this.onActivity);
+    document.removeEventListener('pointerdown', this.onOutside, true);
   }
 
   mountCall() {
@@ -221,7 +309,7 @@ export class Pet {
   }
 
   down(e) {
-    if (e.button !== 0 || e.target.closest('.pet-hide')) return;
+    if (e.button !== 0 || e.target.closest('.pet-hide, .pet-more, .pet-say, .pet-menu')) return;
     e.preventDefault();
     this.el.setPointerCapture?.(e.pointerId);
     this.drag = { dx: e.clientX - this.pos.x, dy: e.clientY - this.pos.y, x0: e.clientX, y0: e.clientY, moved: false };
@@ -253,15 +341,110 @@ export class Pet {
         this.save({ x: this.pos.x, y: this.pos.y, edge: s.edge });
         this.brain.drop();
       } else {
-        // 轻点一下：开心地跳一下（更多互动在下一步）
-        this.brain.act('jump');
-        this.brain.feel('happy', { ms: 1200 });
+        this.tap(d.y0 - this.pos.y);
       }
       this.render();
     };
     this.el.addEventListener('pointermove', move);
     this.el.addEventListener('pointerup', up);
     this.el.addEventListener('pointercancel', up);
+  }
+
+  // 轻点：点头顶是摸头，点身体是戳；连戳几下会生气
+  tap(relY) {
+    this.reporter.wake();
+    if (hitPart(relY, this.size().h) === 'head') {
+      this.brain.act('idle');
+      this.brain.feel('shy', { ms: 2200 });
+      this.say('嘿嘿～', { ms: 1800 });
+      return;
+    }
+    if (this.reporter.poke()) {
+      this.brain.feel('angry', { ms: 2600 });
+      this.say('别戳啦！', { ms: 2000 });
+      return;
+    }
+    this.brain.act('jump');
+    this.brain.feel('surprised', { ms: 1200 });
+  }
+
+  // --- 点击菜单 -------------------------------------------------------------------------
+
+  openMenu() {
+    if (!this.el) return;
+    this.closeMenu();
+    const name = this.member.display || this.member.name || '小人';
+    const items = [
+      ['who', '她是谁'],
+      ['status', '当前状态'],
+      ['goto', '跳到讨论'],
+      [this.reporter.muted ? 'unquiet' : 'quiet', this.reporter.muted ? '不用安静了' : '安静一会儿'],
+    ];
+    if (this.members.length > 1) items.push(['switch', '换个小人']);
+    const menu = document.createElement('div');
+    menu.className = 'pet-menu';
+    menu.setAttribute('role', 'menu');
+    const draw = (rows) => {
+      menu.textContent = '';
+      for (const [id, label] of rows) {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.setAttribute('role', 'menuitem');
+        b.dataset.item = id;
+        b.textContent = label;
+        b.addEventListener('click', (ev) => {
+          ev.stopPropagation();
+          this.choose(id, name, draw);
+        });
+        menu.appendChild(b);
+      }
+    };
+    draw(items);
+    this.el.appendChild(menu);
+    this.menu = menu;
+  }
+
+  closeMenu() {
+    if (this.menu) this.menu.remove();
+    this.menu = null;
+  }
+
+  choose(id, name, draw) {
+    if (id === 'switch') {
+      draw(this.members.map((m) => [`m:${m.id}`, `${m.display || m.name || m.id}${m.id === this.member.id ? ' ✓' : ''}`]));
+      return;
+    }
+    if (id.startsWith('m:')) {
+      this.closeMenu();
+      this.setMember(id.slice(2));
+      return;
+    }
+    this.closeMenu();
+    if (id === 'who') {
+      this.say(`我是${name}，圆桌里的一位 AI 成员。点我的头摸一摸，点身体戳一戳。`, { ms: 8000 });
+      this.act('wave');
+    } else if (id === 'status') {
+      this.say(this.reporter.status, { ms: 6000 });
+    } else if (id === 'goto') {
+      this.goto?.();
+    } else if (id === 'quiet') {
+      this.reporter.quiet();
+      this.hush();
+      this.say('好，我安静一会儿，不冒泡了。', { ms: 2500 });
+    } else if (id === 'unquiet') {
+      this.reporter.wake();
+      this.say('我回来啦。', { ms: 2000 });
+    }
+  }
+
+  // 换成另一位成员（记在本地，下次打开也用她）
+  setMember(id) {
+    const m = this.members.find((x) => x.id === id);
+    if (!m || (this.member && m.id === this.member.id)) return;
+    this.save({ member: id });
+    this.member = m;
+    this.unmountPet();
+    this.sync();
   }
 
   // --- 每一拍 -------------------------------------------------------------------------

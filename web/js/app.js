@@ -59,7 +59,13 @@ function freshLive() {
 }
 
 // 网页小人：匿名且未揭晓的会话里不出现（启动时先不显示，确定当前会话后再决定）
-const pet = new Pet();
+const pet = new Pet({ labels: STEP_LABELS, goto: gotoDiscussion });
+// 点气泡 / 菜单「跳到讨论」：滚到最新的讨论内容
+function gotoDiscussion() {
+  const feed = document.getElementById('feed');
+  const last = document.querySelector('#feed-list')?.lastElementChild;
+  (last || feed)?.scrollIntoView?.({ behavior: 'smooth', block: 'end' });
+}
 let petReady = false;
 function syncPet() {
   const sv = S.session;
@@ -444,6 +450,7 @@ async function open(sid) {
   stopStream();
   S.sid = sid;
   S.live = freshLive();
+  pet.resetReport();
   S.cardError = null;
   rendered.clear();
   try {
@@ -512,6 +519,7 @@ async function refresh(all = false) {
 
 function onEvent(sid, e) {
   if (sid !== S.sid) return;
+  pet.report(e);
   const L = S.live;
   switch (e.type) {
     case 'snapshot':
@@ -653,6 +661,7 @@ function newQuestion() {
   S.sid = null;
   S.session = null;
   S.live = freshLive();
+  pet.resetReport();
   try {
     history.replaceState(null, '', location.pathname);
   } catch {
