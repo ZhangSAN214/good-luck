@@ -183,6 +183,7 @@ def test_new_actions_special_idle_and_easter_eggs(tmp_path):
             "easter_eggs": [
                 {
                     "action": "gift",
+                    "say": "  " + "收到信啦" * 20,
                     "probability": 5,
                     "cooldown_s": -3,
                     "max_per_day": 99,
@@ -200,6 +201,7 @@ def test_new_actions_special_idle_and_easter_eggs(tmp_path):
     assert m.pet["easter_eggs"] == [
         {
             "action": "gift",
+            "say": ("收到信啦" * 20)[:40],
             "probability": 1.0,
             "cooldown_s": 0,
             "max_per_day": 10,
@@ -228,6 +230,7 @@ def test_special_idle_and_eggs_need_real_clips_and_clamp(tmp_path):
     # 缺省值：5%、12 小时、每天 1 次、两种时机
     assert eggs[0] == {
         "action": "gift",
+        "say": "",
         "probability": 0.05,
         "cooldown_s": 43200,
         "max_per_day": 1,

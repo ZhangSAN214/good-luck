@@ -153,6 +153,8 @@ export class Pet {
     const r = this.brain.rollEgg(trigger, { busy });
     if (r.fired) {
       saveJSON(this.storage, EGG_KEY, this.brain.eggState);
+      const egg = this.brain.eggs.find((e) => e.action === r.action);
+      if (egg && egg.say) this.say(egg.say, { ms: 4500 });
       this.render();
     }
     return r;

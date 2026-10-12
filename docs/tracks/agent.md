@@ -148,6 +148,8 @@
 - **手机**：视口 ≤ 600px 加 `.phone`（小人 96×120，触摸屏 `(hover:none)` 下「⋯」「×」常显且热区 ≥ 44px）；触摸要按住 300ms 才能拖动，之前的移动算轻划，不拖也不算点击；页面切后台时停掉所有定时器，回来算一次活动；`prefers-reduced-motion` 沿用。
 - **测试**：`test_agent_brain.py` +7（特殊待机假时钟、忙碌、彩蛋概率 0/1/种子、冷却 / 每日上限 / 重启恢复、长按）；`test_e2e_agent.py` +5（行礼与忽略连点、写信直到活动、回来触发彩蛋并落库、手机长按拖动 / 轻划不拖、后台暂停动画）；后端 `test_members_art.py`、`test_members_api.py` 各有新增。
 - **待用户在本机验证**：真机长按 / 贴边手感；写信循环的观感；彩蛋 0.05 的出现频率；members.json 的 `images.pet` 指向素材包的 pet.json。
-- 未做：彩蛋气泡文案（需要配置字段，暂不冒气泡）；设置里调 after_s（目前只能改 pet.json）。
+- 彩蛋可带 `say`（≤40 字，写在 pet.json）：触发时冒一句气泡；克劳德已配置。
+- 克劳德素材已装到本机 `data/avatars/roundtable_assets/members/claude/pet/`，members.json 的 claude 条目加了 `images.pet`（原文件备份为 members.backup.json）。
+- 未做：设置里调 after_s（目前只能改 pet.json）。
 
 ## 下一步：R4 差分素材清单与检查脚本

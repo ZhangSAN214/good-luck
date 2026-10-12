@@ -232,9 +232,11 @@ def _easter_eggs(raw: Any, actions: dict[str, Any]) -> list[dict[str, Any]]:
             continue
         triggers = e.get("triggers")
         picked = [t for t in PET_EGG_TRIGGERS if isinstance(triggers, list) and t in triggers]
+        say = e.get("say")
         out.append(
             {
                 "action": e["action"],
+                "say": say.strip()[:40] if isinstance(say, str) else "",
                 "probability": round(_num(e.get("probability"), (0.0, 1.0), 0.05), 4),
                 "cooldown_s": int(_num(e.get("cooldown_s"), PET_EGG_COOLDOWN_S, 43200)),
                 "max_per_day": int(_num(e.get("max_per_day"), PET_EGG_MAX_PER_DAY, 1)),
