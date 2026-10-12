@@ -148,11 +148,15 @@ class RoundtableService:
             def clips(group: dict[str, Any]) -> dict[str, Any]:
                 return {k: {**c, "frames": [url(f) for f in c["frames"]]} for k, c in group.items()}
 
-            return {
+            out = {
                 "fps": raw["fps"],
                 "actions": clips(raw["actions"]),
                 "expressions": clips(raw["expressions"]),
             }
+            for key in ("special_idle", "easter_eggs"):
+                if raw.get(key):
+                    out[key] = raw[key]
+            return out
 
         models = [(m.id, m.vendor) for m in self.rt.config.models.models]
         return {

@@ -41,7 +41,15 @@ PET_ACTIONS = (
     "sleep",
     "drag",
     "land",
+    "talk_book",  # 说话时书角强调
+    "letter",  # 特殊待机：写信，一直循环到下一次活动
+    "gift",  # 彩蛋：收到来信
+    "curtsy",  # 特殊点击：被摸头行礼
+    "flip",  # 翻书思考
+    "bookface",  # 书盖脸
 )
+# 默认循环播放的动作（pet.json 里没写 loop 时）
+PET_LOOPING = ("idle", "walk", "sleep", "drag", "type", "letter", "flip", "bookface")
 PET_EXPRESSIONS = (
     "happy",
     "smug",
@@ -53,6 +61,12 @@ PET_EXPRESSIONS = (
     "sad",
     "sleepy",
 )
+# 特殊待机 / 彩蛋：只接受这些时机，数值限制在范围内
+PET_EGG_TRIGGERS = ("user_return", "task_done")
+PET_IDLE_AFTER_S = (5, 7200)
+PET_EGG_COOLDOWN_S = (0, 7 * 86400)
+PET_EGG_MAX_PER_DAY = (0, 10)
+PET_HOLD_LAST_S = (0.0, 10.0)
 PET_MAX_FRAMES = 64
 PET_FPS = (1, 30)
 PET_MAX_BYTES = 256 * 1024
@@ -184,8 +198,49 @@ def _clips(root: Path, base: str, raw: Any, names: tuple[str, ...], fps: int) ->
             out[name] = {
                 "frames": frames,
                 "fps": _fps(clip.get("fps"), fps),
-                "loop": bool(clip.get("loop", name in ("idle", "walk", "sleep", "drag", "type"))),
+                "loop": bool(clip.get("loop", name in PET_LOOPING)),
             }
+            hold = clip.get("hold_last_s")
+            if isinstance(hold, int | float) and not isinstance(hold, bool):
+                out[name]["hold_last_s"] = round(_num(hold, PET_HOLD_LAST_S, 0.0), 2)
+    return out
+
+
+def _num(value: Any, bounds: tuple[float, float], default: float) -> float:
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return default
+    return min(max(value, bounds[0]), bounds[1])
+
+
+def _special_idle(raw: Any, actions: dict[str, Any]) -> dict[str, Any] | None:
+    """长时间没有操作后一直循环的动作。动作必须有逐帧素材，否则忽略（没有素材就不特殊待机）。"""
+    if not isinstance(raw, dict) or raw.get("action") not in actions:
+        return None
+    return {
+        "action": raw["action"],
+        "after_s": int(_num(raw.get("after_s"), PET_IDLE_AFTER_S, 600)),
+    }
+
+
+def _easter_eggs(raw: Any, actions: dict[str, Any]) -> list[dict[str, Any]]:
+    """概率彩蛋：动作须有素材；概率 0～1、冷却、每日上限、触发时机都做范围限制。最多 4 个。"""
+    out: list[dict[str, Any]] = []
+    for e in raw[:16] if isinstance(raw, list) else []:
+        if len(out) >= 4:
+            break
+        if not isinstance(e, dict) or e.get("action") not in actions:
+            continue
+        triggers = e.get("triggers")
+        picked = [t for t in PET_EGG_TRIGGERS if isinstance(triggers, list) and t in triggers]
+        out.append(
+            {
+                "action": e["action"],
+                "probability": round(_num(e.get("probability"), (0.0, 1.0), 0.05), 4),
+                "cooldown_s": int(_num(e.get("cooldown_s"), PET_EGG_COOLDOWN_S, 43200)),
+                "max_per_day": int(_num(e.get("max_per_day"), PET_EGG_MAX_PER_DAY, 1)),
+                "triggers": picked or list(PET_EGG_TRIGGERS),
+            }
+        )
     return out
 
 
@@ -210,7 +265,14 @@ def _pet(root: Path, member_id: str, value: Any) -> dict[str, Any] | None:
     expressions = _clips(root, base, data.get("expressions"), PET_EXPRESSIONS, fps)
     if not actions and not expressions:
         return None
-    return {"fps": fps, "actions": actions, "expressions": expressions}
+    pet: dict[str, Any] = {"fps": fps, "actions": actions, "expressions": expressions}
+    idle = _special_idle(data.get("special_idle"), actions)
+    if idle:
+        pet["special_idle"] = idle
+    eggs = _easter_eggs(data.get("easter_eggs"), actions)
+    if eggs:
+        pet["easter_eggs"] = eggs
+    return pet
 
 
 def load_members(root: Path | None) -> MembersArt:

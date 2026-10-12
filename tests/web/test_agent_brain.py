@@ -197,3 +197,112 @@ def test_storage_errors_are_swallowed():
         """
     )
     assert out == [None, False, None, False, True, {"x": 3}, None, None]
+
+
+# --- 特殊待机与彩蛋（有 special_idle / easter_eggs 的成员） ---------------------------------
+
+SETUP = """
+const eggs = (o = {}) => [{ action: 'gift', probability: 0.05, cooldown_s: 43200, max_per_day: 1,
+  triggers: ['user_return', 'task_done'], ms: 5000, ...o }];
+const mk = (cfg = {}) => {
+  const b = brain();
+  b.configure({ special: { action: 'letter', after_s: 600 }, eggs: eggs(), ...cfg });
+  return b;
+};
+"""
+
+
+def test_special_idle_replaces_sleep_and_loops_until_activity():
+    out = run(
+        SETUP
+        + """
+        const b = mk(); const r = [];
+        clock.t += 599_000; r.push(b.tick().action);
+        clock.t += 2_000; r.push(b.tick().action);
+        clock.t += 3_600_000; r.push(b.tick().action);   // 再久也不睡、不结束
+        const p = b.poke(); r.push(b.state().action, p.long, p.wasSpecial);
+        return r;
+        """
+    )
+    assert out == ["idle", "letter", "letter", "idle", True, True]
+
+
+def test_members_without_special_idle_still_sleep():
+    out = run(
+        "const b = brain(); clock.t += 300_000; b.tick(); clock.t += 1; return b.tick().action;"
+    )
+    assert out in ("sleep", "sleepy")
+
+
+def test_special_idle_waits_while_busy():
+    out = run(
+        SETUP
+        + """
+        const b = mk(); let busy = true; b.busy = () => busy;
+        clock.t += 700_000; const a = b.tick().action;
+        busy = false; const c = b.tick().action;
+        return [a, c];
+        """
+    )
+    assert out == ["idle", "letter"]
+
+
+def test_egg_probability_zero_never_one_always_and_seeded():
+    out = run(
+        SETUP
+        + """
+        const r = [];
+        let b = mk({ eggs: eggs({ probability: 0 }) }); seq = [0];
+        r.push(b.rollEgg('user_return').fired);
+        b = mk({ eggs: eggs({ probability: 1 }) }); seq = [0.99];
+        const f = b.rollEgg('user_return');
+        r.push(f.fired, b.state().action);
+        b = mk(); seq = [0.04]; r.push(b.rollEgg('user_return').fired);
+        b = mk(); seq = [0.05]; r.push(b.rollEgg('user_return').fired);
+        b = mk(); seq = [0.01]; r.push(b.rollEgg('nope').why);
+        return r;
+        """
+    )
+    assert out == [False, True, "gift", True, False, "none"]
+
+
+def test_egg_cooldown_daily_cap_busy_and_restore():
+    out = run(
+        SETUP
+        + """
+        const r = [];
+        const b = mk({ eggs: eggs({ probability: 1, cooldown_s: 10, max_per_day: 2 }) });
+        r.push(b.rollEgg('user_return').fired);
+        clock.t += 6000; b.tick();
+        r.push(b.rollEgg('user_return').why);          // 冷却中
+        clock.t += 60_000; b.tick();
+        r.push(b.rollEgg('user_return', { busy: true }).why);
+        r.push(b.rollEgg('user_return').fired);        // 第二次
+        clock.t += 60_000; b.tick();
+        r.push(b.rollEgg('user_return').why);          // 当天已满
+        const saved = JSON.parse(JSON.stringify(b.eggState));
+        const c = mk({ eggs: eggs({ probability: 1, cooldown_s: 10, max_per_day: 2 }),
+          eggState: saved });
+        r.push(c.rollEgg('user_return').why);          // 重启后上限仍在
+        clock.t += 86_400_000; c.tick();
+        r.push(c.rollEgg('user_return').fired);        // 第二天重新计数
+        return r;
+        """
+    )
+    assert out == [True, "cooldown", "busy", True, "daily", "daily", True]
+
+
+def test_poke_reports_long_absence_without_special_idle():
+    out = run(
+        "const b = brain(); b.poke(); clock.t += 700_000; const p = b.poke(); const q = b.poke();"
+        "return [p.long, q.long];"
+    )
+    assert out == [True, False]
+
+
+def test_touch_needs_a_long_press_to_drag():
+    out = run(
+        "return [B.canDrag('touch', 100), B.canDrag('touch', B.LONG_PRESS_MS),"
+        " B.canDrag('mouse', 0)];"
+    )
+    assert out == [False, True, True]

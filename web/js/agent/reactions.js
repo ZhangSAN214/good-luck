@@ -86,6 +86,11 @@ export class Reporter {
     }
   }
 
+  // 等用户确认中（彩蛋和特殊待机都不打扰）
+  get confirming() {
+    return this.status === '等你确认';
+  }
+
   restingText(status) {
     return (
       { completed: '已完成', stopped: '已停止', failed: '出错了', awaiting_confirmation: '等你确认', paused: '已暂停' }[status] ||

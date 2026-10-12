@@ -100,3 +100,22 @@ def test_pet_frames_become_urls(tmp_path):
         }
         assert c.get(m["pet"]["actions"]["wave"]["frames"][1]).status_code == 200
         assert c.get("/api/members/files/m1/pet.json").status_code == 404  # 只给图片
+
+
+def test_pet_special_idle_and_eggs_reach_the_api(tmp_path):
+    model = Env().config.models.models[0]
+    root = write_assets(tmp_path / "assets", model.vendor)
+    (root / "m1" / "pet.json").write_text(
+        '{"actions": {"letter": {"frames": ["chibi.png"]},'
+        ' "gift": {"frames": ["c64.png"], "hold_last_s": 3}},'
+        ' "special_idle": {"action": "letter", "after_s": 600},'
+        ' "easter_eggs": [{"action": "gift", "probability": 0.05}]}',
+        encoding="utf-8",
+    )
+    _, c = client(root)
+    with c:
+        (m,) = c.get("/api/members").json()["members"]
+        assert m["pet"]["special_idle"] == {"action": "letter", "after_s": 600}
+        assert m["pet"]["easter_eggs"][0]["action"] == "gift"
+        assert m["pet"]["actions"]["gift"]["hold_last_s"] == 3.0
+        assert m["pet"]["actions"]["letter"]["loop"] is True

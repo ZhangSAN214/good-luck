@@ -1,10 +1,12 @@
 // 网页小人：悬浮在页面上的一位成员（/api/members 的 chibi），能拖动、贴边、隐藏。
 // 动作和表情由 brain.js 的状态机决定；有 pet.json 逐帧素材的用逐帧播放，其余用 CSS 程序动画。
 // 匿名且未揭晓的会话里由 app.js 调 setAllowed(false)：小人整个从页面移除，不留任何素材地址。
-import { ACTIONS, Brain, EXPRESSIONS, clamp, home, loadJSON, saveJSON, snap } from './brain.js';
+import { ACTIONS, Brain, EXPRESSIONS, LONG_PRESS_MS, canDrag, clamp, home, loadJSON, saveJSON, snap } from './brain.js';
 import { Reporter, hitPart, lookDir } from './reactions.js';
 
 const KEY = 'roundtable.pet'; // {x, y, edge, hidden, member}
+const EGG_KEY = 'roundtable.pet.egg'; // 彩蛋的冷却和每日次数：{动作: {lastAt, day, count}}，只存本机
+const PHONE_MAX_W = 600; // 视口不宽于此按手机处理：小人缩小、收在角落
 const TICK_MS = 100;
 const WALK_PX_PER_S = 36;
 
@@ -48,17 +50,26 @@ export class Pet {
     this.shown = '';
     this.frameKey = '';
     this.frameStart = 0;
-    this.onResize = () => this.place(this.pos, false);
-    this.onActivity = () => this.brain.poke();
+    this.onResize = () => {
+      this.el?.classList.toggle('phone', this.phone);
+      this.place(this.pos, false);
+    };
+    this.pendingEgg = false; // 任务刚完成、等庆祝结束后掷 task_done 彩蛋
+    // 任何用户活动：特殊待机立刻停笔；长时间没动之后回来则掷 user_return 彩蛋
+    this.onActivity = () => this.activity();
     this.onMouse = (ev) => {
-      this.brain.poke();
-      this.lookAt(ev.clientX, ev.clientY);
+      this.activity();
+      if (ev.pointerType !== 'touch') this.lookAt(ev.clientX, ev.clientY);
+    };
+    this.onVisible = () => {
+      if (document.hidden) return this.pause();
+      this.resume();
     };
     this.onOutside = (ev) => {
       if (this.menu && !ev.target.closest?.('.pet-menu, .pet-more')) this.closeMenu();
     };
     this.onKey = (ev) => {
-      this.brain.poke();
+      this.activity();
       if (ev.key === 'Escape') this.closeMenu();
     };
   }
@@ -95,6 +106,7 @@ export class Pet {
   report(e) {
     const r = this.reporter.react(e);
     if (!r || !this.el) return r;
+    if (r.act === 'celebrate') this.pendingEgg = true;
     if (r.act) this.act(r.act, r.actMs ? { ms: r.actMs } : r.ms && !r.feel ? { ms: r.ms } : undefined);
     if (r.feel) this.feel(r.feel, r.ms ? { ms: r.ms } : undefined);
     if (r.say && !this.reporter.muted) this.say(r.say, { urgent: r.urgent });
@@ -125,6 +137,48 @@ export class Pet {
       b.hidden = true;
       b.textContent = '';
     }
+  }
+
+  activity() {
+    const r = this.brain.poke();
+    if (r.long) this.rollEgg('user_return');
+    if (r.wasSpecial && this.el) this.render();
+    return r;
+  }
+
+  // 掷彩蛋；命中就按帧数和末帧停留算出播放时长，并把冷却状态存进本机
+  rollEgg(trigger) {
+    if (!this.el || !this.allowed) return null;
+    const busy = this.reporter.running || this.reporter.confirming || !!this.menu || !!this.drag;
+    const r = this.brain.rollEgg(trigger, { busy });
+    if (r.fired) {
+      saveJSON(this.storage, EGG_KEY, this.brain.eggState);
+      this.render();
+    }
+    return r;
+  }
+
+  // 页面切到后台：停掉所有定时器；回来算一次活动
+  pause() {
+    if (this.timer) clearInterval(this.timer);
+    this.timer = null;
+    this.hiddenAt = this.now();
+  }
+
+  resume() {
+    if (!this.el || this.timer) return;
+    const away = this.hiddenAt ? this.now() - this.hiddenAt : 0;
+    this.hiddenAt = 0;
+    this.timer = setInterval(() => this.step(), TICK_MS);
+    // 后台的这段时间也算没操作：时钟补回，再按「回来」处理
+    const r = this.brain.poke();
+    if (r.long || away >= this.brain.awayMs()) this.rollEgg('user_return');
+    this.render();
+  }
+
+  // 手机视口：小人缩小、收在角落（CSS 的 .phone 管大小）
+  get phone() {
+    return this.view().w <= PHONE_MAX_W;
   }
 
   // 鼠标靠近时看向鼠标（只在待机时，不抢动作）
@@ -213,6 +267,7 @@ export class Pet {
     el.addEventListener('pointerdown', (e) => this.down(e));
     el.addEventListener('dblclick', () => this.brain.startDemo());
     this.preload();
+    this.configureBehavior();
     this.root.appendChild(el);
     this.place(this.saved.x !== undefined ? this.saved : null, false);
     if (this.saved.edge) el.dataset.edge = this.saved.edge;
@@ -221,6 +276,12 @@ export class Pet {
     document.addEventListener('keydown', this.onKey, { passive: true });
     document.addEventListener('wheel', this.onActivity, { passive: true });
     document.addEventListener('pointerdown', this.onOutside, true);
+    document.addEventListener('pointerdown', this.onActivity, { passive: true, capture: true });
+    document.addEventListener('touchstart', this.onActivity, { passive: true });
+    document.addEventListener('scroll', this.onActivity, { passive: true, capture: true });
+    window.addEventListener('focus', this.onActivity);
+    document.addEventListener('visibilitychange', this.onVisible);
+    this.el.classList.toggle('phone', this.phone);
     this.shown = '';
     this.render();
     this.timer = setInterval(() => this.step(), TICK_MS);
@@ -240,6 +301,11 @@ export class Pet {
     document.removeEventListener('keydown', this.onKey);
     document.removeEventListener('wheel', this.onActivity);
     document.removeEventListener('pointerdown', this.onOutside, true);
+    document.removeEventListener('pointerdown', this.onActivity, true);
+    document.removeEventListener('touchstart', this.onActivity);
+    document.removeEventListener('scroll', this.onActivity, true);
+    window.removeEventListener('focus', this.onActivity);
+    document.removeEventListener('visibilitychange', this.onVisible);
   }
 
   mountCall() {
@@ -273,6 +339,24 @@ export class Pet {
   save(patch) {
     this.saved = { ...this.saved, ...patch };
     saveJSON(this.storage, KEY, this.saved);
+  }
+
+  // 这位成员的特殊待机和彩蛋（pet.json 声明、服务端校验过）；每个彩蛋的播放时长按它的帧数算
+  configureBehavior() {
+    const pet = this.member.pet || {};
+    const clipMs = (name) => {
+      const c = pet.actions && pet.actions[name];
+      if (!c) return undefined;
+      return Math.round((c.frames.length / Math.max(1, c.fps)) * 1000 + (c.hold_last_s || 0) * 1000);
+    };
+    const have = (n) => !!(pet.actions && pet.actions[n]);
+    this.brain.configure({
+      special: pet.special_idle && have(pet.special_idle.action) ? pet.special_idle : null,
+      eggs: (pet.easter_eggs || []).filter((e) => have(e.action)).map((e) => ({ ...e, ms: clipMs(e.action) })),
+      eggState: loadJSON(this.storage, EGG_KEY) || {},
+    });
+    this.brain.busy = () => this.reporter.running || this.reporter.confirming || !!this.menu || !!this.drag;
+    this.curtsy = have('curtsy');
   }
 
   preload() {
@@ -311,12 +395,26 @@ export class Pet {
   down(e) {
     if (e.button !== 0 || e.target.closest('.pet-hide, .pet-more, .pet-say, .pet-menu')) return;
     e.preventDefault();
-    this.el.setPointerCapture?.(e.pointerId);
-    this.drag = { dx: e.clientX - this.pos.x, dy: e.clientY - this.pos.y, x0: e.clientX, y0: e.clientY, moved: false };
+    try {
+      this.el.setPointerCapture?.(e.pointerId);
+    } catch {
+      // 合成事件没有活动指针，忽略
+    }
+    this.drag = {
+      dx: e.clientX - this.pos.x,
+      dy: e.clientY - this.pos.y,
+      x0: e.clientX,
+      y0: e.clientY,
+      moved: false,
+      type: e.pointerType,
+      t0: this.now(),
+    };
     const move = (ev) => {
       const d = this.drag;
       if (!d) return;
       if (!d.moved && Math.hypot(ev.clientX - d.x0, ev.clientY - d.y0) < 4) return;
+      // 触摸屏：没按够时间就挪动，算轻划，不拖（页面照常滚动）
+      if (!d.moved && !canDrag(d.type, this.now() - d.t0)) return void (d.swiped = true);
       if (!d.moved) {
         d.moved = true;
         this.brain.grab();
@@ -340,7 +438,7 @@ export class Pet {
         if (s.edge) this.el.dataset.edge = s.edge;
         this.save({ x: this.pos.x, y: this.pos.y, edge: s.edge });
         this.brain.drop();
-      } else {
+      } else if (!d.swiped) {
         this.tap(d.y0 - this.pos.y);
       }
       this.render();
@@ -353,7 +451,12 @@ export class Pet {
   // 轻点：点头顶是摸头，点身体是戳；连戳几下会生气
   tap(relY) {
     this.reporter.wake();
+    if (this.brain.oneShot()) return; // 行礼 / 彩蛋 / 庆祝播放中再点：忽略，播完再响应
     if (hitPart(relY, this.size().h) === 'head') {
+      if (this.curtsy) {
+        this.brain.act('curtsy', { ms: this.clipMs('curtsy') });
+        return;
+      }
       this.brain.act('idle');
       this.brain.feel('shy', { ms: 2200 });
       this.say('嘿嘿～', { ms: 1800 });
@@ -366,6 +469,11 @@ export class Pet {
     }
     this.brain.act('jump');
     this.brain.feel('surprised', { ms: 1200 });
+  }
+
+  clipMs(name) {
+    const c = this.member.pet && this.member.pet.actions[name];
+    return c ? Math.round((c.frames.length / Math.max(1, c.fps)) * 1000) : undefined;
   }
 
   // --- 点击菜单 -------------------------------------------------------------------------
@@ -452,6 +560,10 @@ export class Pet {
   step() {
     if (!this.el) return;
     this.brain.tick();
+    if (this.pendingEgg && this.brain.action === 'idle') {
+      this.pendingEgg = false;
+      this.rollEgg('task_done');
+    }
     if (this.brain.action === 'walk' && !this.drag) this.walk();
     this.render();
   }

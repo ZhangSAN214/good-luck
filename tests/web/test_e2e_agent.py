@@ -250,3 +250,122 @@ def test_no_bubbles_leak_for_anonymous_unrevealed_session(serve, page, tmp_path)
     ask(page, MEDIUM)
     wait_done(page)
     assert page.locator(PET).count() == 0 and page.locator(".pet-say").count() == 0
+
+
+# --- 特殊待机 / 彩蛋 / 摸头行礼 / 手机 ------------------------------------------------------
+
+
+def special_assets(tmp_path, *, probability=0.0, after_s=5):
+    root = assets(tmp_path)
+    clips = {"idle": 2, "curtsy": 3, "letter": 2, "gift": 2}
+    for name, n in clips.items():
+        (root / "m1" / name).mkdir(exist_ok=True)
+        for i in range(n):
+            (root / "m1" / name / f"{i}.png").write_bytes(PNG_1PX)
+    (root / "m1" / "pet.json").write_text(
+        json.dumps(
+            {
+                "fps": 10,
+                "actions": {
+                    name: {
+                        "frames": [f"{name}/{i}.png" for i in range(n)],
+                        "loop": name in ("idle", "letter"),
+                    }
+                    for name, n in clips.items()
+                },
+                "special_idle": {"action": "letter", "after_s": after_s},
+                "easter_eggs": [
+                    {
+                        "action": "gift",
+                        "probability": probability,
+                        "cooldown_s": 0,
+                        "max_per_day": 5,
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    return root
+
+
+def test_head_pat_curtsies_and_ignores_taps_while_it_plays(serve, page, tmp_path):
+    srv = serve(members_dir=special_assets(tmp_path))
+    page.goto(srv.url)
+    wait_pet(page)
+    tap_head(page)
+    page.wait_for_selector(f"{PET}[data-action='curtsy']")
+    tap_body(page)  # 行礼中：忽略
+    assert page.get_attribute(PET, "data-action") == "curtsy"
+    page.wait_for_selector(f"{PET}[data-action='idle']")
+    tap_body(page)  # 播完后恢复响应
+    page.wait_for_selector(f"{PET}[data-action='jump']")
+
+
+def test_special_idle_writes_until_user_is_active_again(serve, page, tmp_path):
+    srv = serve(members_dir=special_assets(tmp_path))
+    page.goto(srv.url)
+    wait_pet(page)
+    page.wait_for_selector(f"{PET}[data-action='letter']", timeout=15000)
+    page.wait_for_timeout(1500)
+    assert page.get_attribute(PET, "data-action") == "letter"  # 不自己结束
+    page.mouse.move(5, 5)
+    page.mouse.move(9, 9)
+    page.wait_for_selector(f"{PET}[data-action='idle']")
+
+
+def test_return_from_special_idle_can_trigger_the_egg(serve, page, tmp_path):
+    srv = serve(members_dir=special_assets(tmp_path, probability=1.0))
+    page.goto(srv.url)
+    wait_pet(page)
+    page.wait_for_selector(f"{PET}[data-action='letter']", timeout=15000)
+    page.mouse.move(5, 5)
+    page.mouse.move(9, 9)
+    page.wait_for_selector(f"{PET}[data-action='gift']")
+    state = json.loads(page.evaluate("() => localStorage.getItem('roundtable.pet.egg')"))
+    assert state["gift"]["count"] == 1
+
+
+def test_phone_viewport_long_press_drags_and_swipe_does_not(serve, page, tmp_path):
+    page.set_viewport_size({"width": 390, "height": 700})
+    srv = serve(members_dir=special_assets(tmp_path))
+    page.goto(srv.url)
+    wait_pet(page)
+    assert "phone" in page.get_attribute(PET, "class")
+    start = box(page)
+    touch = (
+        "(a) => { const el = document.querySelector('.pet'); const r = el.getBoundingClientRect();"
+        " const x = r.x + r.width / 2, y = r.y + r.height / 2;"
+        " const ev = (t, dx) => el.dispatchEvent(new PointerEvent(t, {"
+        " pointerType: 'touch', pointerId: 7, button: 0, bubbles: true,"
+        " clientX: x + dx, clientY: y }));"
+        " return new Promise((ok) => { ev('pointerdown', 0);"
+        " setTimeout(() => { ev('pointermove', 60); ev('pointerup', 60); ok(); }, a); }); }"
+    )
+    page.evaluate(touch, 50)  # 没按够 300ms：算轻划，不拖
+    assert box(page)["x"] == start["x"]
+    page.evaluate(touch, 450)  # 长按之后再动：拖起来
+    assert box(page)["x"] != start["x"]
+
+
+def test_hidden_page_pauses_animation(serve, page, tmp_path):
+    srv = serve(members_dir=special_assets(tmp_path))
+    page.goto(srv.url)
+    wait_pet(page)
+
+    def sample(n=10):
+        seen = set()
+        for _ in range(n):
+            seen.add(page.get_attribute(f"{PET} .pet-img", "src"))
+            page.wait_for_timeout(70)
+        return seen
+
+    set_hidden = (
+        "(h) => { Object.defineProperty(document, 'hidden', { value: h, configurable: true });"
+        " document.dispatchEvent(new Event('visibilitychange')); }"
+    )
+    page.evaluate(set_hidden, True)
+    page.wait_for_timeout(200)
+    assert len(sample()) == 1
+    page.evaluate(set_hidden, False)
+    assert len(sample()) > 1

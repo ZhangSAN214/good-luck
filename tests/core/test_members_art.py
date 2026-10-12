@@ -160,3 +160,94 @@ def test_broken_or_outside_pet_json_is_ignored(tmp_path):
     (root / "members.json").write_text(json.dumps(data), encoding="utf-8")
     (root / "m1" / "pet.json").unlink()
     assert load_members(root).members[0].pet is None
+
+
+def _frames(root, *names):
+    for n in names:
+        (root / "m1" / n).parent.mkdir(parents=True, exist_ok=True)
+        (root / "m1" / n).write_bytes(PNG_1PX)
+
+
+def test_new_actions_special_idle_and_easter_eggs(tmp_path):
+    root = write_assets(tmp_path / "a", "VendorA")
+    _frames(root, "letter/0.png", "letter/1.png", "gift/0.png", "curtsy/0.png")
+    write_pet(
+        root,
+        {
+            "actions": {
+                "letter": {"frames": ["letter/0.png", "letter/1.png"], "fps": 3},
+                "gift": {"frames": ["gift/0.png"], "loop": False, "hold_last_s": 99},
+                "curtsy": {"frames": ["curtsy/0.png"]},
+            },
+            "special_idle": {"action": "letter", "after_s": 600},
+            "easter_eggs": [
+                {
+                    "action": "gift",
+                    "probability": 5,
+                    "cooldown_s": -3,
+                    "max_per_day": 99,
+                    "triggers": ["task_done", "x"],
+                }
+            ],
+        },
+    )
+    (m,) = load_members(root).members
+    assert m.pet["actions"]["letter"]["loop"] is True  # 写信默认循环
+    assert m.pet["actions"]["gift"]["loop"] is False
+    assert m.pet["actions"]["gift"]["hold_last_s"] == 10.0  # 限制在 0～10 秒
+    assert m.pet["actions"]["curtsy"]["loop"] is False
+    assert m.pet["special_idle"] == {"action": "letter", "after_s": 600}
+    assert m.pet["easter_eggs"] == [
+        {
+            "action": "gift",
+            "probability": 1.0,
+            "cooldown_s": 0,
+            "max_per_day": 10,
+            "triggers": ["task_done"],
+        }
+    ]
+
+
+def test_special_idle_and_eggs_need_real_clips_and_clamp(tmp_path):
+    root = write_assets(tmp_path / "a", "VendorA")
+    _frames(root, "letter/0.png", "gift/0.png")
+    write_pet(
+        root,
+        {
+            "actions": {"letter": {"frames": ["letter/0.png"]}, "gift": {"frames": ["gift/0.png"]}},
+            # 动作没有素材（curtsy）/ 名字未知（dance）/ 不是对象：全部忽略
+            "special_idle": {"action": "curtsy", "after_s": 600},
+            "easter_eggs": [{"action": "dance"}, "gift", {"action": "curtsy"}]
+            + [{"action": "gift"}] * 9,
+        },
+    )
+    (m,) = load_members(root).members
+    assert "special_idle" not in m.pet
+    eggs = m.pet["easter_eggs"]
+    assert len(eggs) == 4  # 最多 4 个
+    # 缺省值：5%、12 小时、每天 1 次、两种时机
+    assert eggs[0] == {
+        "action": "gift",
+        "probability": 0.05,
+        "cooldown_s": 43200,
+        "max_per_day": 1,
+        "triggers": ["user_return", "task_done"],
+    }
+    write_pet(
+        root,
+        {
+            "actions": {"letter": {"frames": ["letter/0.png"]}},
+            "special_idle": {"action": "letter", "after_s": 1},
+        },
+    )
+    (m,) = load_members(root).members
+    assert m.pet["special_idle"]["after_s"] == 5  # 下限 5 秒
+    write_pet(
+        root,
+        {
+            "actions": {"letter": {"frames": ["letter/0.png"]}},
+            "special_idle": {"action": "letter", "after_s": 10**9},
+        },
+    )
+    (m,) = load_members(root).members
+    assert m.pet["special_idle"]["after_s"] == 7200

@@ -15,6 +15,13 @@ export const ACTIONS = {
   sleep: { label: '睡', prio: 1 },
   drag: { label: '被拖起', prio: 9, face: 'surprised' },
   land: { label: '落地', prio: 8, ms: 500 },
+  // 有逐帧素材（pet.json）的成员才会用到：没有对应的帧就什么也不做
+  talk_book: { label: '书角强调', prio: 2, ms: 1600 },
+  letter: { label: '写信', prio: 1 }, // 特殊待机：一直持续，直到用户再次活动
+  gift: { label: '收到来信', prio: 3, ms: 5000 }, // 彩蛋；实际时长按帧数算
+  curtsy: { label: '行礼', prio: 3, ms: 2600 }, // 特殊点击：摸头
+  flip: { label: '翻书思考', prio: 2, ms: 3200 },
+  bookface: { label: '书盖脸', prio: 1 },
 };
 
 // 眨眼不是动作，叠在任何动作上
@@ -34,6 +41,8 @@ export const EXPRESSIONS = {
 };
 
 export const FACE_MS = 2600;
+export const LONG_PRESS_MS = 300; // 触摸屏上要按住这么久才能拖动，避免和页面滚动冲突
+export const RETURN_AFTER_MS = 600_000; // 没有特殊待机的成员：离开这么久回来也算「长时间离开」
 export const SLEEPY_AFTER = 90_000; // 这么久没有操作就犯困
 export const SLEEP_AFTER = 240_000; // 再久一点就睡着
 
@@ -51,6 +60,7 @@ const IDLE_FACES = ['happy', 'smug', 'confused', 'shy'];
 // 演示：依次展示所有动作和表情（双击小人）
 export const DEMO = [
   ...['wave', 'jump', 'walk', 'think', 'talk', 'type', 'celebrate', 'sleepy', 'sleep'].map((a) => ['act', a]),
+  ...['talk_book', 'curtsy', 'gift', 'letter', 'flip', 'bookface'].map((a) => ['act', a]),
   ...Object.keys(EXPRESSIONS).map((f) => ['feel', f]),
 ];
 
@@ -71,6 +81,17 @@ export class Brain {
     this.nextIdle = t + this.gap();
     this.demo = [];
     this.nextDemo = 0;
+    this.special = null; // {action, after_s}：长时间无操作后一直做的动作，取代犯困 / 睡觉
+    this.eggs = []; // [{action, probability, cooldown_s, max_per_day, triggers, ms}]
+    this.eggState = {}; // {动作: {lastAt, day, count}}，由 pet.js 存进 localStorage
+    this.busy = () => false; // 外部有事（任务进行中、有确认卡片…）时不进入特殊待机、不掷彩蛋
+  }
+
+  // 成员的特殊待机和彩蛋（来自 pet.json，已由服务端校验）；没有对应素材时传 null / []
+  configure({ special = null, eggs = [], eggState = {} } = {}) {
+    this.special = special && ACTIONS[special.action] ? { action: special.action, after_s: special.after_s } : null;
+    this.eggs = eggs.filter((e) => ACTIONS[e.action]);
+    this.eggState = eggState && typeof eggState === 'object' ? eggState : {};
   }
 
   gap() {
@@ -114,17 +135,62 @@ export class Brain {
   }
 
   // 用户有操作：记下时间；在困或睡就醒过来
+  awayMs() {
+    return this.special ? this.special.after_s * 1000 : RETURN_AFTER_MS;
+  }
+
+  // 返回 {quiet, long}：long 为 true 表示这是「长时间没操作之后的第一次活动」（写信 / 睡着 / 离开很久）
   poke() {
     const t = this.now();
+    const quiet = t - this.lastActive;
+    const wasSpecial = !!this.special && this.action === this.special.action;
+    const wasAsleep = this.action === 'sleep';
     this.lastActive = t;
-    if (this.action === 'sleep' || this.action === 'sleepy') {
-      const wasAsleep = this.action === 'sleep';
+    if (wasSpecial) {
+      // 立刻停笔，回到站立，眨一下眼
+      this.action = 'idle';
+      this.actionUntil = Infinity;
+      this.face = null;
+      this.actionFace = false;
+      this.blink();
+      this.nextIdle = t + this.gap();
+    } else if (this.action === 'sleep' || this.action === 'sleepy') {
       this.action = 'idle';
       this.actionUntil = Infinity;
       this.face = null;
       if (wasAsleep) this.feel('surprised', { ms: 900 });
       this.nextIdle = t + this.gap();
     }
+    return { quiet, wasSpecial, long: wasSpecial || wasAsleep || quiet >= this.awayMs() };
+  }
+
+  // 正在做不能打断的一次性动作（摸头行礼、彩蛋、庆祝…）或被拖着
+  oneShot() {
+    if (this.action === 'drag') return true;
+    return this.now() < this.actionUntil && ACTIONS[this.action].prio >= 3;
+  }
+
+  // 掷一次彩蛋。trigger：user_return / task_done。返回 {fired, why, roll, action}
+  // 条件：忙碌、冷却未过、今天已达上限时不掷；随机数可注入，结果可复现。触不触发都没有任何奖惩。
+  rollEgg(trigger, { busy = false } = {}) {
+    const t = this.now();
+    const egg = this.eggs.find((e) => e.triggers.includes(trigger));
+    if (!egg) return { fired: false, why: 'none' };
+    if (busy || this.busy() || this.oneShot() || ACTIONS[this.action].prio >= 2) return { fired: false, why: 'busy' };
+    const d = new Date(t);
+    const day = `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
+    const st = { lastAt: -Infinity, day: '', count: 0, ...(this.eggState[egg.action] || {}) };
+    if (typeof st.lastAt !== 'number') st.lastAt = -Infinity;
+    const count = st.day === day ? st.count : 0;
+    if (t - st.lastAt < egg.cooldown_s * 1000) return { fired: false, why: 'cooldown' };
+    if (count >= egg.max_per_day) return { fired: false, why: 'daily' };
+    const roll = this.random();
+    if (roll >= egg.probability) return { fired: false, why: 'miss', roll };
+    this.eggState[egg.action] = { lastAt: t, day, count: count + 1 };
+    this.action = 'idle';
+    this.actionUntil = 0;
+    this.act(egg.action, { ms: egg.ms });
+    return { fired: true, why: 'hit', roll, action: egg.action };
   }
 
   grab() {
@@ -166,7 +232,7 @@ export class Brain {
       if (kind === 'act') {
         this.action = 'idle';
         this.actionUntil = 0;
-        this.act(name, { ms: name === 'sleepy' || name === 'sleep' ? 2400 : undefined });
+        this.act(name, { ms: ['sleepy', 'sleep', 'letter', 'bookface'].includes(name) ? 2400 : undefined });
         this.nextDemo = t + Math.min(this.actionUntil - t, 3200);
       } else {
         this.action = 'idle';
@@ -182,7 +248,13 @@ export class Brain {
 
   idleTick(t) {
     const quiet = t - this.lastActive;
-    if (this.action === 'idle' || this.action === 'sleepy') {
+    if (this.special) {
+      // 有特殊待机的成员：不犯困、不睡觉；时间一到就一直做这个动作，直到下一次活动
+      if (this.action === this.special.action) return;
+      if (this.action === 'idle' && quiet >= this.special.after_s * 1000 && !this.busy()) {
+        return void this.act(this.special.action);
+      }
+    } else if (this.action === 'idle' || this.action === 'sleepy') {
       if (quiet >= SLEEP_AFTER) return void this.act('sleep');
       if (quiet >= SLEEPY_AFTER && this.action === 'idle') return void this.act('sleepy');
     }
@@ -214,6 +286,11 @@ export class Brain {
       dir: this.dir,
     };
   }
+}
+
+// 触摸屏要长按 LONG_PRESS_MS 才能拖动；鼠标 / 笔按住就能拖
+export function canDrag(pointerType, heldMs) {
+  return pointerType !== 'touch' || heldMs >= LONG_PRESS_MS;
 }
 
 // --- 位置 ---------------------------------------------------------------------------

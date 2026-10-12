@@ -133,3 +133,11 @@
   .pet .pet-body,.pet .pet-pose,.pet .pet-face,.pet .pet-prop,.pet .pet-emote,.pet .pet-bubble i{animation:none!important}
   .pet .pet-confetti{display:none!important}
 }
+
+/* 手机 / 触屏：触摸目标不小于 44px，没有悬停也要看得到「⋯」；小人缩小收在角落 */
+.pet.phone{width:96px;height:120px}
+@media (hover:none){
+  .pet-more,.pet-hide{opacity:1;width:28px;height:28px;font-size:16px;line-height:24px}
+  .pet-more::after,.pet-hide::after{content:"";position:absolute;inset:-8px}
+  .pet.phone .pet-say{max-width:60vw}
+}
