@@ -327,3 +327,7 @@ ul.gate li{margin:2px 0}
 table.mdt{border-collapse:collapse;margin:6px 0;font-size:13px;max-width:100%}
 table.mdt th,table.mdt td{border:1px solid var(--line);padding:4px 8px;text-align:left;vertical-align:top;white-space:normal}
 table.mdt th{background:var(--bg-soft,rgba(127,127,127,.12));font-weight:600}
+
+.noteform{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:6px 0}
+.noteform input{flex:1;min-width:160px;padding:6px 10px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--ink);font:inherit}
+.noteform .hint{color:var(--bad)}

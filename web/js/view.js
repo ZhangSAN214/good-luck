@@ -304,6 +304,10 @@ export function feedItems(sv, ctx) {
   };
 
   push('q', `<div class="msg me"><div class="av me">你</div><div class="body"><div class="who"><b>你</b><span class="kind">${esc(modeText(sv, ctx))}</span></div><div class="bubble">${esc(sv.question)}</div></div></div>`);
+  for (const n of sv.notes || []) {
+    const state = n.applied_step ? '已带给大家' : '下一步开始时带上';
+    push(`note${n.id}:${n.applied_step || ''}`, `<div class="msg me"><div class="av me">你</div><div class="body"><div class="who"><b>你</b><span class="kind">中途补充 · ${esc(state)}</span></div><div class="bubble">${esc(n.text)}</div></div></div>`);
+  }
   cpAt((d) => d.stage === 'routing');
 
   if (r) {

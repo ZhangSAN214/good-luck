@@ -8,6 +8,7 @@ import re
 from fastapi.testclient import TestClient
 
 from roundtable.api.app import create_app
+from roundtable.core.routing import Question
 from roundtable.core.service import RoundtableService
 
 from ..core.orchestrator.conftest import MEDIUM, SHORT, Env
@@ -306,3 +307,24 @@ def test_running_sessions_are_capped_and_waiting_ones_do_not_count():
         third = c.post("/api/sessions", json={"question": MEDIUM, "seed": 3})
         assert third.status_code == 202
         sse_events(c, third.json()["session_id"])
+
+
+def test_notes_endpoint_validation_and_listing():
+    env, c = client(confirm_threshold_usd=100.0)
+    with c:
+        assert c.post("/api/sessions/nope/notes", json={"text": "嗨"}).status_code == 404
+        sid = c.post("/api/sessions", json={"question": SHORT, "seed": 1}).json()["session_id"]
+        sse_events(c, sid)  # 等到结束
+        done = c.post(f"/api/sessions/{sid}/notes", json={"text": "补充"})
+        assert done.status_code == 409  # 已结束
+        sid2 = env.orc.open(Question(SHORT), seed=2)
+        assert c.post(f"/api/sessions/{sid2}/notes", json={"text": "  "}).status_code == 400
+        too_long = c.post(f"/api/sessions/{sid2}/notes", json={"text": "字" * 1001})
+        assert too_long.status_code == 400
+        ok = c.post(f"/api/sessions/{sid2}/notes", json={"text": "请注意单位"})
+        assert ok.status_code == 201 and ok.json()["text"] == "请注意单位"
+        for i in range(4):
+            assert c.post(f"/api/sessions/{sid2}/notes", json={"text": f"n{i}"}).status_code == 201
+        assert c.post(f"/api/sessions/{sid2}/notes", json={"text": "多了"}).status_code == 409
+        notes = c.get(f"/api/sessions/{sid2}").json()["notes"]
+        assert [n["text"] for n in notes][0] == "请注意单位" and len(notes) == 5

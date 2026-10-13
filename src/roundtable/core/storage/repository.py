@@ -598,6 +598,54 @@ class Repository:
         ).fetchone()
         return _checkpoint(row) if row else None
 
+    # --- 用户中途插话 -------------------------------------------------------------
+
+    def add_note(self, session_id: str, text: str) -> int:
+        """登记一条用户补充；下一个步骤开始时被带上。返回编号。"""
+        self._require_session(session_id)
+        with self._tx():
+            cur = self.conn.execute(
+                "INSERT INTO user_notes (session_id, text, created_at) VALUES (?, ?, ?)",
+                (session_id, text, _now()),
+            )
+        return int(cur.lastrowid or 0)
+
+    def pending_notes(self, session_id: str) -> list[dict[str, Any]]:
+        rows = self._exec(
+            "SELECT id, text, created_at FROM user_notes"
+            " WHERE session_id = ? AND applied_step IS NULL ORDER BY id",
+            (session_id,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def mark_notes_applied(
+        self, session_id: str, note_ids: Sequence[int], table_no: int, step: str
+    ) -> None:
+        with self._tx():
+            for note_id in note_ids:
+                self.conn.execute(
+                    "UPDATE user_notes SET applied_table = ?, applied_step = ?, applied_at = ?"
+                    " WHERE id = ? AND session_id = ? AND applied_step IS NULL",
+                    (table_no, step, _now(), note_id, session_id),
+                )
+
+    def applied_notes(self, session_id: str) -> list[str]:
+        """已经被带上的补充（按时间顺序）；之后的每个步骤都带着它们。"""
+        rows = self._exec(
+            "SELECT text FROM user_notes WHERE session_id = ? AND applied_step IS NOT NULL"
+            " ORDER BY id",
+            (session_id,),
+        ).fetchall()
+        return [r["text"] for r in rows]
+
+    def notes(self, session_id: str) -> list[dict[str, Any]]:
+        rows = self._exec(
+            "SELECT id, text, created_at, applied_table, applied_step FROM user_notes"
+            " WHERE session_id = ? ORDER BY id",
+            (session_id,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
     # --- 附件 ------------------------------------------------------------------
 
     def add_attachment(self, **fields: Any) -> str:

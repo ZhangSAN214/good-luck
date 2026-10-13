@@ -618,6 +618,7 @@ class Orchestrator:
                 if not self._approved(sid, "members", table_no):
                     self._members_checkpoint(sid, table_no, step, len(ctx.active))
                     return "paused"
+            self._apply_notes(sid, table_no, step, ctx)
             # 每个步骤使用由 seed 派生的独立随机数：中途恢复也与不中断时结果一致
             ctx.rng = random.Random(f"{row['seed']}:{table_no}:{step}")
             self._emit(sid, "step_started", step=step, table_no=table_no)
@@ -640,6 +641,15 @@ class Orchestrator:
             )
         repo.set_table_status(sid, table_no, DONE)
         return DONE
+
+    def _apply_notes(self, sid: str, table_no: int, step: str, ctx: TableContext) -> None:
+        """步骤开始前：把用户刚补充的意见带上；之后的步骤继续带着（不打断进行中的调用）。"""
+        repo = self.rt.repo
+        fresh = repo.pending_notes(sid)
+        if fresh:
+            repo.mark_notes_applied(sid, [n["id"] for n in fresh], table_no, step)
+            self._emit(sid, "notes_applied", step=step, table_no=table_no, count=len(fresh))
+        ctx.user_notes = tuple(repo.applied_notes(sid))
 
     def _expected_tokens(self, sid: str) -> int | None:
         """路由时估计的答案长度（实质内容检查的字数下限依据）。"""

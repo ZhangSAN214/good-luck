@@ -58,6 +58,7 @@ def test_repo_config_loads_with_defaults():
         "decompose_retry",
         "style_extract",
         "style_merge",
+        "user_notes",
         "style_guide",
         "work_analyze",
         "work_research",

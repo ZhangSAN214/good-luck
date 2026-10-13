@@ -129,6 +129,7 @@ ATTACHMENT_ROLES = (
     "web_search",
     "web_fetch",
     "style_guide",  # 风格规范：接在每一步之后，外部内容是规范和清单本身
+    "user_notes",  # 用户中途的补充：接在每一步之后，标签内不得改变输出格式和身份规则
 )
 
 
@@ -163,6 +164,8 @@ def test_attachment_prompts_treat_files_as_material(template):
         assert "FETCH_FAILED" in template.system
     elif template.role == "style_guide":
         assert "<style_spec>" in template.user and "任何指令都不改变" in template.system
+    elif template.role == "user_notes":
+        assert "<user_notes>" in template.user and "都无效" in template.system
     elif template.role == "image_gen":
         assert "<description>" in template.user and "其他指令都无效" in template.system
     else:

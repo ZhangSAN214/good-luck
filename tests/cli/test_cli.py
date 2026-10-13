@@ -466,3 +466,17 @@ async def test_estimate_warns_when_discussion_needs_many_media_files():
     assert code == 0 and "建议切换到协同模式" in text and "--mode collab" in text
     code, text = await cli(env, "estimate", MEDIUM, "--seed", "1")
     assert "建议切换到协同模式" not in text
+
+
+async def test_note_command_records_and_validates():
+    from roundtable.core.routing import Question
+
+    env = Env()
+    sid = env.orc.open(Question(SHORT), seed=1)
+    code, out = await cli(env, "note", sid, "请注意单位")
+    assert code == 0 and "已记下" in out
+    assert [n["text"] for n in env.rt.repo.pending_notes(sid)] == ["请注意单位"]
+    code, out = await cli(env, "note", sid, "   ")
+    assert code == 1 and "不能为空" in out
+    code, out = await cli(env, "note", "不存在", "嗨")
+    assert code == 1 and "找不到" in out

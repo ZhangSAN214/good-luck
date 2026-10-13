@@ -325,4 +325,22 @@ ALTER TABLE calls ADD COLUMN finish_reason TEXT;
 ALTER TABLE calls ADD COLUMN reasoning_tokens INTEGER NOT NULL DEFAULT 0;
 """,
     ),
+    (
+        11,
+        "用户中途插话",
+        """
+-- 用户中途插话：讨论进行中随时补充意见。下一个步骤开始时被带上（applied_* 记下是哪一桌、哪一步），
+-- 之后的步骤继续带着；还没被带上的（applied_step 为空）是待处理的。
+CREATE TABLE user_notes (
+    id            INTEGER PRIMARY KEY,
+    session_id    TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    text          TEXT NOT NULL,
+    created_at    TEXT NOT NULL,
+    applied_table INTEGER,
+    applied_step  TEXT,
+    applied_at    TEXT
+);
+CREATE INDEX idx_user_notes_session ON user_notes(session_id, id);
+""",
+    ),
 ]

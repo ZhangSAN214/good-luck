@@ -38,6 +38,7 @@ from roundtable.core.allocation import coordinator_name, display_name
 from roundtable.core.attachments import UploadError, ingest
 from roundtable.core.config import ConfigError
 from roundtable.core.display import format_rice
+from roundtable.core.notes import NoteError, check_can_add, clean_note
 from roundtable.core.orchestrator import Orchestrator, OrchestratorError, RunResult
 from roundtable.core.routing import (
     CUSTOM,
@@ -51,6 +52,7 @@ from roundtable.core.routing import (
 )
 from roundtable.core.runtime import Runtime
 from roundtable.core.steps import Event
+from roundtable.core.storage import NotFound
 from roundtable.plaintext import to_terminal
 
 STEP_NAMES = {
@@ -878,6 +880,23 @@ class CLI:
             self.p(f"  {name:<28} {sessions[model]} 场  " + "，".join(parts))
         return 0
 
+    def cmd_note(self, session_id: str, text: str) -> int:
+        """讨论进行中补充意见（可在另一个终端运行）：下一个步骤开始时被带上。"""
+        repo = self.rt.repo
+        try:
+            row = repo.session_row(session_id)
+            cleaned = clean_note(text)
+            check_can_add(row["status"], len(repo.pending_notes(session_id)))
+        except NotFound:
+            self.p(f"找不到会话 {session_id}")
+            return 1
+        except NoteError as exc:
+            self.p(str(exc))
+            return 1
+        repo.add_note(session_id, cleaned)
+        self.p("已记下，下一个步骤开始时会带给统筹和组员。")
+        return 0
+
     def cmd_history(self, limit: int) -> int:
         for s in self.rt.repo.list_sessions(limit):
             q = s.question if len(s.question) <= 30 else s.question[:30] + "…"
@@ -947,6 +966,9 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("stats", help="各模型的历史贡献（被采纳、有效问题、敷衍次数等）")
     history = sub.add_parser("history", help="最近的讨论")
     history.add_argument("--limit", type=int, default=20)
+    note = sub.add_parser("note", help="讨论进行中补充意见（下一个步骤开始时带上）")
+    note.add_argument("session_id")
+    note.add_argument("text", help="补充的内容")
     for name, text in (("resume", "中断后继续"), ("show", "查看结果"), ("reveal", "揭晓身份")):
         cmd = sub.add_parser(name, help=text)
         cmd.add_argument("session_id")
@@ -1035,6 +1057,8 @@ async def run(
             return cli.cmd_models()
         if args.command == "stats":
             return cli.cmd_stats()
+        if args.command == "note":
+            return cli.cmd_note(args.session_id, args.text)
         if args.command == "history":
             return cli.cmd_history(args.limit)
         if args.command == "resume":

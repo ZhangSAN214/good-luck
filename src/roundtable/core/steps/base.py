@@ -126,6 +126,8 @@ class TableContext:
     anonymous: bool = True
     # 被长度上限截断的调用（calls.id）：这类产出的"过短""没回应审阅意见"不算敷衍
     truncated_calls: set[int] = field(default_factory=set)
+    # 用户中途补充的意见（按时间顺序，已被带上的）；之后每一步的每次调用都附上，同一步骤所有成员相同
+    user_notes: tuple[str, ...] = ()
 
     @property
     def effort_rule(self):
@@ -175,9 +177,20 @@ class TableContext:
             messages = attach_messages(messages, self.attachments, template, vision=vision)
         if self.state.style is not None:
             messages = self._attach_style(messages)
+        if self.user_notes:
+            messages = self._attach_notes(messages)
         if vision:
             messages = self._attach_generated_images(messages)
         return messages
+
+    def _attach_notes(self, messages: tuple[Message, ...]) -> tuple[Message, ...]:
+        """用户中途补充的意见接在每次调用上（和风格规范一样的做法）。"""
+        template = self.prompts.get("user_notes", self.prompt_version("user_notes"))
+        listed = "\n".join(
+            f'<note n="{i}">{neutralize(text, ("note", "user_notes"))}</note>'
+            for i, text in enumerate(self.user_notes, 1)
+        )
+        return append_to_messages(messages, template, notes=listed)
 
     def _attach_style(self, messages: tuple[Message, ...]) -> tuple[Message, ...]:
         """风格规范接在每次调用上（和附件一样的做法；同一步骤所有成员相同）。"""

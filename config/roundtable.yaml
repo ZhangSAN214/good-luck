@@ -61,6 +61,7 @@ prompts:
   style_extract: v1      # 风格规范提取：成员各自看参考图
   style_merge: v1        # 统筹合并成规范 + 清单
   style_guide: v1        # 风格规范，接在之后的每次调用上
+  user_notes: v1         # 用户中途补充的意见，接在之后的每次调用上
   media_refine: v1       # 统筹根据评审决定是否改提示词重新生成
   media_rewrite: v1      # 汇总失败时，由一位成员根据修订稿重写生成提示词
   work_media: v1         # 协同：媒体子任务，成员写生成提示词

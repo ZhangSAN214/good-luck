@@ -121,6 +121,8 @@ function renderHeader() {
       ? '进行中'
       : STATUS_LABELS[sv.status] || sv.status
     : '空闲';
+  const canNote = !!sv && sv.running && sv.status !== 'awaiting_confirmation';
+  $('#noteform').hidden = !canNote;
   const q = $('#question');
   q.hidden = !sv;
   if (sv) q.innerHTML = `<span class="tag">题目</span>${esc(sv.question)}`;
@@ -565,6 +567,10 @@ function onEvent(sid, e) {
     case 'media_done':
       L.act = `${MEDIA_LABELS[e.data.kind] || '媒体'}已生成，评审中…`;
       break;
+    case 'note_added':
+    case 'notes_applied':
+      refresh();
+      break;
     case 'budget_warning':
       L.warnings.push(e.data.message);
       break;
@@ -706,6 +712,20 @@ function bind() {
     S.attachments.splice(Number(b.dataset.rm), 1);
     renderAttachments();
     scheduleEstimate();
+  });
+  $('#noteform').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const input = $('#note');
+    const text = input.value.trim();
+    if (!text || !S.sid) return;
+    $('#noteerr').textContent = '';
+    try {
+      await API.addNote(S.sid, text);
+      input.value = '';
+      await refresh();
+    } catch (err) {
+      $('#noteerr').textContent = err.message;
+    }
   });
   const comp = $('#composer');
   comp.addEventListener('dragover', (e) => {
