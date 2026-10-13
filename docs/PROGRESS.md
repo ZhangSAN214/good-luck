@@ -66,7 +66,7 @@
 
 ## R8 协同降低花费（2026-10-13）
 
-花费分析写入 `docs/COST_ANALYSIS.md`；新增 `collab.cross_review`（短成果少找审查者）与测试。合并不传上游全文、按类型设 `max_tokens` 未做（见文档）。
+花费分析写入 `docs/COST_ANALYSIS.md`；新增 `collab.cross_review`（短成果少找审查者）与测试。合并不传上游全文、按类型设 `max_tokens` 已做（`collab.kinds.<类型>.step_params`）。
 
 ## 下一步
 

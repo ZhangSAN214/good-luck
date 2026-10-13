@@ -156,19 +156,20 @@ collab:
     whole_task_similarity: 0.75
     sibling_similarity: 0.95
 
+  # step_params：这类子任务覆盖 work 步骤的参数（只限制最长输出；同一类型所有成员相同）。
   # 子任务类型。prompt：负责人完成这类子任务用的提示词；tags：偏好的能力标签；
   # parallel：能否按内容拆成平行子任务；needs：必须依赖其中某类；audit：审查类（必须依赖被审成果）；
   # avoid_hard / avoid_soft：负责人不能是这些类型上游子任务的负责人（soft：成员太少时放宽）。
   kinds:
-    analyze:   {label: 分析, meaning: 读题目 / 材料 / 参考图，提炼要点、规范或需求清单,     prompt: work_analyze,   tags: [vision, research]}
+    analyze:   {label: 分析, meaning: 读题目 / 材料 / 参考图，提炼要点、规范或需求清单,     prompt: work_analyze,   tags: [vision, research], step_params: {max_tokens: 4500}}
     research:  {label: 搜索调研, meaning: 联网搜索，收集带来源的资料, prompt: work_research,  tags: [research]}
     write:     {label: 撰写, meaning: 撰写设定、文案、正文、报告,     prompt: work_write,     tags: [writing]}
-    prompt:    {label: 写提示词, meaning: 把设定与规范写成交给生成模型的提示词, prompt: work_prompt,    tags: [writing, design], parallel: false}
-    generate:  {label: 执行生成, meaning: 用上游提示词调用生成模型（有参考图时一并传入）, prompt: work_generate,  parallel: false, needs: [prompt], requires_media: true}
+    prompt:    {label: 写提示词, meaning: 把设定与规范写成交给生成模型的提示词, prompt: work_prompt,    tags: [writing, design], parallel: false, step_params: {max_tokens: 3000}}
+    generate:  {label: 执行生成, meaning: 用上游提示词调用生成模型（有参考图时一并传入）, prompt: work_generate,  parallel: false, needs: [prompt], requires_media: true, step_params: {max_tokens: 3000}}
     code:      {label: 写代码, meaning: 编写代码并保存成文件,   prompt: work_code,      tags: [code]}
-    verify:    {label: 运行验证, meaning: 实际运行上游代码，记录结果, prompt: work_verify,    tags: [code], parallel: false, needs: [code]}
-    review:    {label: 审查, meaning: 对照要求（和参考图）检查上游成果，指出问题,     prompt: work_review,    tags: [vision], audit: true, avoid_hard: [prompt], avoid_soft: [generate, write, code]}
-    factcheck: {label: 事实核查, meaning: 核对上游成果中的事实、数字、引用, prompt: work_factcheck, tags: [research], audit: true, avoid_soft: [write]}
+    verify:    {label: 运行验证, meaning: 实际运行上游代码，记录结果, prompt: work_verify,    tags: [code], parallel: false, needs: [code], step_params: {max_tokens: 4000}}
+    review:    {label: 审查, meaning: 对照要求（和参考图）检查上游成果，指出问题,     prompt: work_review,    tags: [vision], audit: true, avoid_hard: [prompt], avoid_soft: [generate, write, code], step_params: {max_tokens: 4000}}
+    factcheck: {label: 事实核查, meaning: 核对上游成果中的事实、数字、引用, prompt: work_factcheck, tags: [research], audit: true, avoid_soft: [write], step_params: {max_tokens: 4000}}
     assemble:  {label: 整合, meaning: 把上游产出（含文件）整合、排版成最终成品,     prompt: work_assemble,  tags: [code, writing], parallel: false, min_upstream: 2}
 
   # 模板兜底（按顺序取第一个条件满足的；最后一个必须无条件）。

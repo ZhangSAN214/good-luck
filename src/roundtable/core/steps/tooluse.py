@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import replace
+from typing import Any
 
 from roundtable.core.prompts import RenderedPrompt
 from roundtable.core.providers import Message
@@ -29,6 +30,7 @@ async def call_with_tools(
     code: str | None,
     messages: Sequence[Message],
     tools: list[str],
+    base_params: dict[str, Any] | None = None,
 ) -> CallOutcome:
     box = ctx.toolbox
     assert box is not None
@@ -83,7 +85,14 @@ async def call_with_tools(
     round_no = 0
     while True:
         out = await call_once(
-            ctx, step=step, role=role, model_id=model_id, prompt=prompt, code=code, messages=convo
+            ctx,
+            step=step,
+            role=role,
+            model_id=model_id,
+            prompt=prompt,
+            code=code,
+            messages=convo,
+            base_params=base_params,
         )
         if out.completion is None:
             return out

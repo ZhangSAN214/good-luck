@@ -387,6 +387,7 @@ async def call_model(
     code: str | None = None,
     followup: Sequence[Message] = (),
     extra_params: dict[str, Any] | None = None,
+    base_params: dict[str, Any] | None = None,
 ) -> CallOutcome:
     """调用一次并记录（成功或失败都记录）。渠道层已经负责重试和切换。
 
@@ -407,6 +408,7 @@ async def call_model(
             code=code,
             messages=messages,
             tools=tools,
+            base_params=base_params,
         )
     return await call_once(
         ctx,
@@ -417,6 +419,7 @@ async def call_model(
         code=code,
         messages=messages,
         extra_params=extra_params,
+        base_params=base_params,
     )
 
 
@@ -430,8 +433,10 @@ async def call_once(
     code: str | None,
     messages: Sequence[Message],
     extra_params: dict[str, Any] | None = None,
+    base_params: dict[str, Any] | None = None,
 ) -> CallOutcome:
-    params = ctx.step_params(step)
+    # base_params：本次调用所属任务类型的参数覆盖（同类任务所有成员相同），长度保护的升级叠加其上
+    params = {**ctx.step_params(step), **(base_params or {})}
     if extra_params:
         params = {**params, **extra_params}
     try:
@@ -483,6 +488,7 @@ async def call_once(
             code=code,
             messages=messages,
             extra_params=guard.escalate(params),
+            base_params=base_params,
         )
     return CallOutcome(completion, call_id)
 

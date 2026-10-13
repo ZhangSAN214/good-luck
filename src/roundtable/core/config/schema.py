@@ -266,6 +266,8 @@ class KindRule(_Strict):
     requires_media: bool = False  # 需要可用的媒体生成模型
     avoid_hard: list[str] = Field(default_factory=list)  # 负责人不能是这些类型上游子任务的负责人
     avoid_soft: list[str] = Field(default_factory=list)  # 同上，但成员太少无法满足时放宽
+    # 完成这类子任务时覆盖「work」步骤参数（如 max_tokens）：同一类型的所有成员相同，与成员是谁无关
+    step_params: dict[str, Any] = Field(default_factory=dict)
 
 
 class PipelineRules(_Strict):

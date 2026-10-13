@@ -885,7 +885,13 @@ class WorkStep:
                 prompt = ctx.render(self.name, **values)
             model_id = ctx.members[code]
             out = await call_model(
-                ctx, step=self.name, role="member", model_id=model_id, prompt=prompt, code=code
+                ctx,
+                step=self.name,
+                role="member",
+                model_id=model_id,
+                prompt=prompt,
+                code=code,
+                base_params=dict(krule.step_params) if krule and krule.step_params else None,
             )
             calls += 1
             text = out.completion.text.strip() if out.completion else ""
