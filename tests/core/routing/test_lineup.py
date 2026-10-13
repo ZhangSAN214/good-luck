@@ -121,3 +121,29 @@ def test_custom_lineup():
         assert len(auto.members) == 3
     with pytest.raises(NotEnoughModels):
         b.build_custom(["b1", "f1"], None)  # 2 个组员 + 1 个统筹 至少 3 个
+
+
+# --- 个人作答（R13）---------------------------------------------------------------
+
+
+@pytest.mark.parametrize("plan, cheapest_id", [("budget", "b1"), ("flagship", "f5")])
+def test_solo_picks_cheapest_in_tier_without_coordinator(plan, cheapest_id):
+    for seed in SEEDS:
+        cfg, b = builder(seed=seed)
+        lineup = b.build(cfg.routing.plans[plan], "solo")
+        assert lineup.members == (cheapest_id,) and lineup.coordinator is None
+        assert lineup.pipeline == tuple(cfg.roundtable.solo_pipeline)
+
+
+def test_solo_respects_required_tags_then_relaxes():
+    cfg, b = builder()
+    assert b.build(cfg.routing.plans["budget"], "solo", ("vision",)).members == ("b2",)
+    # 没有任何模型满足标签时放宽，仍选出一位而不是报错
+    assert b.build(cfg.routing.plans["budget"], "solo", ("nonexistent",)).members == ("b1",)
+
+
+def test_solo_custom_needs_exactly_one_model():
+    cfg, b = builder()
+    assert b.build_custom(["b3"], None, "solo").members == ("b3",)
+    with pytest.raises(NotEnoughModels):
+        b.build_custom(["b1", "b2"], None, "solo")

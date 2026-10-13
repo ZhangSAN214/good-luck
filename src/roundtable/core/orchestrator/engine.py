@@ -406,6 +406,7 @@ class Orchestrator:
                 router=self.rt.router,
                 recent_coordinators=record.extra.get("recent_coordinators", ()),
                 workflow=row["workflow"],
+                require_tags=assessment.require_tags,
             )
         except RoutingError as exc:
             raise OrchestratorError(str(exc)) from None

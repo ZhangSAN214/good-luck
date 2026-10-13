@@ -40,7 +40,7 @@ const S = {
   session: null,
   tab: 'flow',
   tier: null, // 档位名或 custom
-  workflow: 'discussion', // discussion 讨论 / collab 协同
+  workflow: 'discussion', // discussion 讨论 / collab 协同 / solo 个人作答
   anonymous: false,
   media: null, // 输出类型：null 文字 / image / speech / video（仅讨论模式）
   mediaTier: 'budget', // 媒体模型档位
@@ -223,9 +223,9 @@ function renderComposer() {
     .map(([k, label]) => `<button type="button" data-v="${esc(k)}" aria-pressed="${k === S.tier}">${esc(label)}</button>`)
     .join('');
   $('#anonymous').checked = S.anonymous;
-  const workflows = S.status?.workflows || { discussion: '讨论模式', collab: '协同模式' };
+  const workflows = S.status?.workflows || { discussion: '讨论模式', collab: '协同模式', solo: '个人作答' };
   $('#workflow').innerHTML = Object.entries(workflows)
-    .map(([k, label]) => `<button type="button" data-v="${esc(k)}" aria-pressed="${k === S.workflow}" title="${k === 'collab' ? '统筹拆分子任务，成员自荐、分工完成、交叉审查，最后合并' : '全员各自作答，互评、修订后由统筹汇总'}">${esc(label)}</button>`)
+    .map(([k, label]) => `<button type="button" data-v="${esc(k)}" aria-pressed="${k === S.workflow}" title="${{ collab: '统筹拆分子任务，成员自荐、分工完成、交叉审查，最后合并', solo: '只请一位成员直接回答：在所选档位里挑最便宜的，不互评、不汇总' }[k] || '全员各自作答，互评、修订后由统筹汇总'}">${esc(label)}</button>`)
     .join('');
   renderMediaChoice();
   $('#manual').hidden = S.tier !== 'custom';
@@ -240,9 +240,11 @@ function renderMediaChoice() {
   const info = S.status?.media;
   const kinds = info?.kinds || {};
   const collab = S.workflow === 'collab';
-  if (collab) S.media = null; // 协同模式由统筹决定哪些子任务生成媒体
+  if (collab || S.workflow === 'solo') S.media = null; // 协同模式由统筹决定哪些子任务生成媒体；个人作答只出文字
   const outputs = [[null, '文字'], ...Object.entries(kinds).map(([k, v]) => [k, v.label])];
-  if (collab) {
+  if (S.workflow === 'solo') {
+    $('#media').innerHTML = '<span class="hint" id="media-auto">个人作答只输出文字</span>';
+  } else if (collab) {
     // 协同模式不选输出类型：不显示一排灰按钮（容易误以为不能画图），直接说明
     $('#media').innerHTML = '<span class="hint" id="media-auto">输出类型由统筹按任务自动决定</span>';
   } else

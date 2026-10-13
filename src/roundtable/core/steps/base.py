@@ -678,6 +678,7 @@ def check_pipelines(config: AppConfig) -> None:
     pipelines = {
         "roundtable.pipeline": config.roundtable.pipeline,
         "roundtable.collab_pipeline": config.roundtable.collab_pipeline,
+        "roundtable.solo_pipeline": config.roundtable.solo_pipeline,
     }
     for name, plan in config.routing.plans.items():
         if plan.pipeline is not None:

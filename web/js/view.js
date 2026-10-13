@@ -400,7 +400,7 @@ export function feedItems(sv, ctx) {
 
 function modeText(sv, ctx) {
   const tier = sv.tier === 'custom' ? ctx.customLabel : ctx.plans[sv.tier] || sv.tier;
-  const parts = [sv.workflow === 'collab' ? '协同' : '讨论', tier];
+  const parts = [({ collab: '协同', solo: '个人' }[sv.workflow] || '讨论'), tier];
   if (sv.media_kind) parts.push(`输出${MEDIA_LABELS[sv.media_kind] || sv.media_kind}`);
   if (sv.anonymous) parts.push('匿名');
   return parts.join(' · ');

@@ -263,7 +263,11 @@ async def test_collab_session_over_service():
     } <= kinds
     assert data["tables"][0]["pipeline"][0] == "decompose"
     assert leaks(env, data) == [] and leaks(env, events) == []
-    assert svc.status()["workflows"] == {"discussion": "讨论模式", "collab": "协同模式"}
+    assert svc.status()["workflows"] == {
+        "discussion": "讨论模式",
+        "collab": "协同模式",
+        "solo": "个人作答",
+    }
     with pytest.raises(ServiceError, match="未知的模式"):
         svc.create(MEDIUM, workflow="debate")
 

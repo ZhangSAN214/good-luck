@@ -108,7 +108,7 @@ class RoundtableService:
             "plans": {name: p.label for name, p in cfg.routing.plans.items()},
             "default_plan": cfg.routing.default_plan,
             "custom_label": cfg.routing.custom.label,
-            "workflows": {"discussion": "讨论模式", "collab": "协同模式"},
+            "workflows": {"discussion": "讨论模式", "collab": "协同模式", "solo": "个人作答"},
             "uploads": {
                 "max_files": cfg.roundtable.uploads.max_files,
                 "max_file_mb": cfg.roundtable.uploads.max_file_mb,

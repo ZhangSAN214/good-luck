@@ -598,6 +598,7 @@ class RoundtableConfig(_Strict):
     prompts: dict[str, str]
     pipeline: list[str] = Field(min_length=1)  # 讨论模式
     collab_pipeline: list[str] = Field(min_length=1)  # 协同模式
+    solo_pipeline: list[str] = Field(default_factory=lambda: ["answer", "reveal"], min_length=1)
     collab: CollabRules = CollabRules()
     channel_mode: ChannelMode = "auto"
     request: RequestPolicy = RequestPolicy()
@@ -620,7 +621,7 @@ class RoundtableConfig(_Strict):
             raise ValueError(f"提示词版本必须形如 v1、v2：{bad}")
         return prompts
 
-    @field_validator("pipeline", "collab_pipeline")
+    @field_validator("pipeline", "collab_pipeline", "solo_pipeline")
     @classmethod
     def _unique_steps(cls, steps: list[str]) -> list[str]:
         if len(steps) != len(set(steps)):

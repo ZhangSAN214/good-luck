@@ -27,7 +27,7 @@ from .planner import PlannerResult, run_planner
 from .triage import Question, triage
 
 CUSTOM = "custom"
-WORKFLOWS = ("discussion", "collab")  # 讨论模式 / 协同模式
+WORKFLOWS = ("discussion", "collab", "solo")  # 讨论模式 / 协同模式 / 个人作答
 MEDIA_KINDS = KINDS
 Source = Literal["rule", "model", "default"]
 
@@ -39,7 +39,7 @@ class RoutingError(ValueError):
 @dataclass(frozen=True)
 class UserChoice:
     """tier：档位名（routing.yaml 的 plans）或 "custom"；为空时用 default_plan。
-    workflow：discussion（讨论模式）或 collab（协同模式）。"""
+    workflow：discussion（讨论模式）、collab（协同模式）或 solo（个人作答：只请一位成员回答）。"""
 
     tier: str | None = None
     models: tuple[str, ...] = ()
@@ -52,16 +52,20 @@ class UserChoice:
     def __post_init__(self) -> None:
         if self.media is not None and self.media not in MEDIA_KINDS:
             raise RoutingError(f"未知的输出类型 {self.media!r}，可选：{list(MEDIA_KINDS)}")
-        if self.media is not None and self.workflow != "discussion":
+        if self.media is not None and self.workflow == "collab":
             raise RoutingError(
                 "协同模式不需要选择输出类型：拆分子任务时统筹会决定哪些子任务要生成图片、语音或视频"
             )
+        if self.media is not None and self.workflow == "solo":
+            raise RoutingError("个人作答不支持选择输出类型，请用讨论模式生成图片、语音或视频")
         if self.media_tier not in (None, "budget", "flagship"):
             raise RoutingError(f"未知的媒体档位 {self.media_tier!r}，可选：budget / flagship")
         if self.workflow not in WORKFLOWS:
             raise RoutingError(f"未知的模式 {self.workflow!r}，可选：{list(WORKFLOWS)}")
         if self.tier == CUSTOM and not self.models:
             raise RoutingError("自选模式至少需要勾选模型")
+        if self.tier == CUSTOM and self.workflow == "solo" and len(self.models) != 1:
+            raise RoutingError("个人作答只能勾选一个模型")
         if self.tier != CUSTOM and (self.models or self.coordinator):
             raise RoutingError("只有自选模式可以勾选模型或指定统筹")
         if len(set(self.models)) != len(self.models):
@@ -384,6 +388,7 @@ def option_lineup(
     router: ChannelRouter,
     recent_coordinators: Sequence[str] = (),
     workflow: str = "discussion",
+    require_tags: Sequence[str] = (),
 ) -> Lineup:
     """重建某个档位的阵容（与估价时使用同一个随机种子，结果一致）。"""
     builder = LineupBuilder(
@@ -393,7 +398,7 @@ def option_lineup(
         recent_coordinators=recent_coordinators,
     )
     try:
-        return builder.build(config.routing.plans[plan_name], workflow)
+        return builder.build(config.routing.plans[plan_name], workflow, require_tags)
     except NotEnoughModels as exc:
         raise RoutingError(str(exc)) from None
 
@@ -470,7 +475,7 @@ def _options(
             recent_coordinators=recent_coordinators,
         )
         try:
-            lineup = builder.build(plan, workflow)
+            lineup = builder.build(plan, workflow, assessment.require_tags)
         except NotEnoughModels as exc:
             options[name] = PlanOption(plan.label, False, None, str(exc))
             continue
@@ -765,7 +770,7 @@ def escalate(
         recent_coordinators=recent_coordinators,
     )
     try:
-        lineup = builder.build(plan, choice.workflow)
+        lineup = builder.build(plan, choice.workflow, assessment.require_tags)
     except NotEnoughModels as exc:
         raise RoutingError(f"无法升级到 {escalate_to}：{exc}") from None
     estimate = estimate_lineup(

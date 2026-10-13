@@ -132,6 +132,8 @@ effort_check:
 pipeline: [answer, review, revise, synthesize, reveal]
 # 协同模式：统筹拆分子任务 → 成员自荐 → 统筹分配（每人至少一块）→ 并行完成 → 交叉审查（不审自己的）
 #          → 作者按审查修改 → 统筹合并成完整成果
+# 个人作答：只请一位成员直接回答，没有统筹、互评和汇总
+solo_pipeline: [answer, reveal]
 collab_pipeline: [decompose, volunteer, assign, discuss, work, cross_review, rework, accept, merge, reveal]
 collab:
   max_subtasks: 12        # 拆分的子任务上限

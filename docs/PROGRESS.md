@@ -68,6 +68,10 @@
 
 花费分析写入 `docs/COST_ANALYSIS.md`；新增 `collab.cross_review`（短成果少找审查者）与测试。合并不传上游全文、按类型设 `max_tokens` 已做（`collab.kinds.<类型>.step_params`）。
 
+## R13 个人作答（2026-10-13）
+
+新增 `solo` 模式：档位内按价格挑最便宜的一位（题目需要的能力标签先作硬条件），流程 `solo_pipeline: [answer, reveal]`，无统筹；网页、命令行 `--mode solo`、预估、测试已完成；规则 9 已注明例外。
+
 ## 下一步
 
 1. 等你确认 v3 方案（尤其是 `docs/PLAN.md` 末尾「需要你拍板的地方」8 条）。

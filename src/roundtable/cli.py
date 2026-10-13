@@ -525,7 +525,7 @@ class CLI:
         cfg = self.rt.config.routing
         plan = choice.tier or cfg.default_plan
         threshold = cfg.confirm_threshold_usd
-        mode_names = {"discussion": "讨论", "collab": "协同"}
+        mode_names = {"discussion": "讨论", "collab": "协同", "solo": "个人"}
         length = LENGTH_NAMES.get(assessment.difficulty, assessment.difficulty)
         source = SOURCE_NAMES.get(assessment.source, assessment.source)
         self.p(f"提交前预估（答案长度：{length}，{source}；不含规划员）：")
@@ -938,9 +938,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     ask.add_argument(
         "--mode",
-        choices=["discussion", "collab"],
+        choices=["discussion", "collab", "solo"],
         default="discussion",
-        help="discussion 讨论（全员各自作答再互评汇总，默认）/ collab 协同（拆分子任务分工完成）",
+        help=(
+            "discussion 讨论（全员各自作答再互评汇总，默认）/ collab 协同（拆分子任务分工完成）"
+            "/ solo 个人作答（档位内挑最便宜的一位直接回答）"
+        ),
     )
     ask.add_argument(
         "--media",
