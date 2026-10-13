@@ -69,6 +69,7 @@ STEP_NAMES = {
     "work": "完成子任务",
     "cross_review": "交叉审查",
     "rework": "按审查修改",
+    "accept": "逐条验收",
     "merge": "统筹合并",
     "attachments": "处理附件",
     "media": "生成媒体",

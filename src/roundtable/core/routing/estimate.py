@@ -25,6 +25,7 @@ KNOWN_STEPS = frozenset(
         "volunteer",
         "assign",
         "discuss",
+        "accept",
         "work",
         "cross_review",
         "rework",
@@ -215,6 +216,7 @@ def estimate_pipeline(
         "work": (members, o + q + d + a, a),
         "cross_review": (members, o + q + k * a, k * r),
         "rework": (members, o + q + d + a + k * r, revised),
+        "accept": (coord, o + q + d + n * revised, params.accept_tokens),
         "merge": (coord, o + q + d + n * revised, params.merge_tokens),
     }
     steps: list[StepCost] = []

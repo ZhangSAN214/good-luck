@@ -36,6 +36,8 @@ prompts:
   decompose: v4
   volunteer: v1
   assign: v3
+  accept: v1             # 协同：合并前统筹按验收标准逐条验收
+  accept_fix: v1         # 协同：未通过验收的作者修改一次
   discuss: v1            # 协同：分工后组员提调整建议
   adjust: v1             # 协同：统筹据此最多调整一次
   work: v1
@@ -91,6 +93,8 @@ step_params:
   work: {max_tokens: 6000, reasoning: {max_tokens: 2000}}
   cross_review: {max_tokens: 3000, reasoning: {max_tokens: 800}}
   rework: {max_tokens: 6000, reasoning: {max_tokens: 2000}}
+  accept: {max_tokens: 2000, reasoning: {effort: low}}
+  accept_fix: {max_tokens: 6000, reasoning: {max_tokens: 2000}}
   merge: {max_tokens: 10000, reasoning: {effort: low}}
   style: {max_tokens: 1500, reasoning: {effort: low}}
   style_gate: {max_tokens: 1500, reasoning: {effort: low}}
@@ -128,11 +132,13 @@ effort_check:
 pipeline: [answer, review, revise, synthesize, reveal]
 # 协同模式：统筹拆分子任务 → 成员自荐 → 统筹分配（每人至少一块）→ 并行完成 → 交叉审查（不审自己的）
 #          → 作者按审查修改 → 统筹合并成完整成果
-collab_pipeline: [decompose, volunteer, assign, discuss, work, cross_review, rework, merge, reveal]
+collab_pipeline: [decompose, volunteer, assign, discuss, work, cross_review, rework, accept, merge, reveal]
 collab:
   max_subtasks: 12        # 拆分的子任务上限
   # 分工讨论：分工确定后组员对方案提简短建议，统筹最多调整一次（调整后仍须满足分配规则，否则保持原分工）
   discussion: {enabled: true, min_members: 3, max_suggestions: 3}
+  # 逐条验收：合并前统筹按验收标准检查每个文字子任务，不合格的退回作者改一次（媒体成果不验收）
+  acceptance: {enabled: true, max_fix_items: 3}
 
   # --- 流水线（成员数 ≥ pipeline.min_members 时启用）---------------------------------
   # 协同不是"各做各的"：统筹把题目拆成一条流水线（每个子任务有类型，上游产出交给下游继续做），
@@ -303,6 +309,76 @@ collab:
           requirements: 把各章节按核查意见改正后整合成完整报告文件。
           acceptance: 报告完整，核查指出的问题已处理
           depends_on: [{id: T3, gives: 报告初稿}, {id: T4, gives: 核查意见}]
+
+    - name: report
+      label: 报告 / 论文
+      when:
+        keywords: [报告, 论文, 作文, 议论文, 小论文, 论述, 实验报告, essay, report, thesis, paper, lab report]
+      steps:
+        - id: T1
+          kind: analyze
+          title: 分析题目，拟定提纲与论点
+          requirements: 弄清题目和评分要求，确定中心论点或研究问题，列出章节提纲和每章要回答的问题。
+          acceptance: 提纲覆盖题目的全部要求，论点明确，章节之间逻辑连贯
+          split: true
+          split_by: 按要点或材料划分，每人分析不同的部分
+        - id: T2
+          kind: write
+          title: 撰写各章节
+          requirements: 按提纲撰写完整章节，论述有依据，数据、公式和引用准确。
+          acceptance: 章节完整，论证清楚，没有遗漏提纲中的问题
+          depends_on: [{id: T1, gives: 提纲与论点}]
+          split: true
+          split_by: 按章节划分，每人写不同的章节
+        - id: T3
+          kind: review
+          title: 审查论证与准确性
+          requirements: 对照题目要求检查论证是否成立、数据和引用是否准确、章节之间是否衔接，指出问题。
+          acceptance: 逐条给出问题位置和修改建议
+          depends_on: [{id: T2, gives: 章节草稿}, {id: T1, gives: 提纲与论点}]
+          split: true
+          split_by: 按章节划分，每人审查不同的部分
+        - id: T4
+          kind: assemble
+          title: 整合成完整报告
+          requirements: 按审查意见改正，统一术语和格式，写出摘要和结论，整合成完整报告。
+          acceptance: 报告完整，摘要和结论与正文一致，审查指出的问题已处理
+          depends_on: [{id: T2, gives: 章节草稿}, {id: T3, gives: 审查意见}]
+
+    - name: study_notes
+      label: 学习笔记 / 复习资料
+      when:
+        keywords: [笔记, 复习, 总结, 知识点, 考点, 讲义, 梳理, 速记, 思维导图, 重点, notes, revision, summary, cheat sheet, study guide]
+      steps:
+        - id: T1
+          kind: analyze
+          title: 梳理知识结构
+          requirements: 把材料或题目涉及的内容按主题归类，列出知识点清单和它们之间的联系。
+          acceptance: 清单覆盖全部主题，分类清楚，重点和难点被标出
+          split: true
+          split_by: 按主题划分，每人梳理不同的主题
+        - id: T2
+          kind: write
+          title: 编写笔记正文
+          requirements: 按知识结构写笔记：概念、公式、例子和易错点，简洁、可以直接复习使用。
+          acceptance: 每个知识点有清楚的解释，公式和数字准确，有至少一个例子或易错点提示
+          depends_on: [{id: T1, gives: 知识结构}]
+          split: true
+          split_by: 按主题划分，每人写不同的主题
+        - id: T3
+          kind: review
+          title: 核对准确性与遗漏
+          requirements: 核对笔记中的概念、公式和数字是否正确，检查是否遗漏知识点，指出问题。
+          acceptance: 逐条给出错误或遗漏的位置和修改建议
+          depends_on: [{id: T2, gives: 笔记草稿}, {id: T1, gives: 知识结构}]
+          split: true
+          split_by: 按主题划分，每人核对不同的部分
+        - id: T4
+          kind: assemble
+          title: 整合成复习资料
+          requirements: 按核对意见改正，统一格式，补一页速查总结（公式、定义、易错点）。
+          acceptance: 资料完整，格式统一，速查总结与正文一致，核对指出的问题已处理
+          depends_on: [{id: T2, gives: 笔记草稿}, {id: T3, gives: 核对意见}]
 
     - name: data_code
       label: 数据 / 代码

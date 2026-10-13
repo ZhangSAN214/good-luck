@@ -17,6 +17,7 @@ export const STEP_LABELS = {
   work: '完成子任务',
   cross_review: '交叉审查',
   rework: '修改',
+  accept: '逐条验收',
   merge: '合并',
   media: '生成媒体',
   style: '风格规范',
@@ -32,7 +33,7 @@ const JOB_STATE = {
   timeout: ['超时', 'bad'],
 };
 // 由统筹执行的步骤
-export const COORD_STEPS = new Set(['synthesize', 'decompose', 'assign', 'merge']);
+export const COORD_STEPS = new Set(['synthesize', 'decompose', 'assign', 'accept', 'merge']);
 // 协同流水线的子任务类型名（来自 /api/status 的 collab_kinds，不写死在前端）
 let KIND_LABELS_CFG = {};
 export function setKindLabels(map) {
@@ -532,6 +533,15 @@ function collabOutput(o, sp, data, names, sources = null) {
   if (o.kind === 'discuss_result') {
     return sys('统筹', `${data.adjusted ? '已调整分工' : '保持原分工'}：${md(data.why || '')}`, data.adjusted ? 'ok' : '');
   }
+  if (o.kind === 'acceptance') {
+    if (data.degraded) return sys('验收', '统筹的验收结果不可用，按现有成果合并', 'bad');
+    const rows = data.items.map((x) => {
+      const state = x.passed ? tag('通过', 'ok') : tag(data.fixed.includes(x.subtask) ? '已退回修改' : '不合格', 'bad');
+      const why = x.problems.length ? `<div class="meta">${x.problems.map((p) => md(p)).join('<br>')}</div>` : '';
+      return `<li>${esc(names.subtask(t, x.subtask))} ${state}${why}</li>`;
+    });
+    return msg(sp, '逐条验收', `<div class="bubble">${li(rows)}</div>`);
+  }
   if (o.kind === 'work') {
     return msg(sp, `完成 ${names.subtask(t, data.subtask)}`, `<div class="bubble">${cite(md(data.text), sources)}</div>${mediaFoot(data.media)}`);
   }
@@ -545,7 +555,7 @@ function collabOutput(o, sp, data, names, sources = null) {
     const resp = data.responses
       ? `<details class="more"><summary>对审查意见的回应</summary><div>${md(data.responses)}</div></details>`
       : '';
-    return msg(sp, `修改 ${what}`, `<div class="bubble">${cite(md(data.answer), sources)}</div>${resp}${mediaFoot(data.media)}`);
+    return msg(sp, `${data.accepted_fix ? '验收后修改' : '修改'} ${what}`, `<div class="bubble">${cite(md(data.answer), sources)}</div>${resp}${mediaFoot(data.media)}`);
   }
   if (o.kind === 'merge') return merged(t, data, names);
   return null;

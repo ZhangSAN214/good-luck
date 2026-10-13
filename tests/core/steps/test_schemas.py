@@ -136,6 +136,7 @@ def test_registry():
             "revise",
             "synthesize",
             "style",
+            "accept",
             "decompose",
             "discuss",
             "volunteer",

@@ -371,6 +371,60 @@ def parse_discussion(text: str, subtask_ids: Sequence[str], max_suggestions: int
     return Discussion(not items, tuple(items))
 
 
+# --- 逐条验收 -----------------------------------------------------------------
+
+
+class AcceptItemOut(_Loose):
+    subtask: str = ""
+    passed: bool = True
+    problems: list[str] = Field(default_factory=list)
+
+
+class AcceptanceOutput(_Loose):
+    items: list[AcceptItemOut] = Field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class Acceptance:
+    """统筹按验收标准给每个子任务的结论：子任务 id → (是否通过, 具体问题)。"""
+
+    results: dict[str, tuple[bool, tuple[str, ...]]]
+    fixed: tuple[str, ...] = ()  # 退回作者修改过的子任务
+    degraded: bool = False  # 统筹的输出不可用：视为全部通过
+
+    def failed(self) -> list[str]:
+        return [sid for sid, (ok, why) in self.results.items() if not ok and why]
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "items": [
+                {"subtask": k, "passed": v[0], "problems": list(v[1])}
+                for k, v in self.results.items()
+            ],
+            "fixed": list(self.fixed),
+            "degraded": self.degraded,
+        }
+
+    @classmethod
+    def from_dict(cls, d: Mapping[str, Any]) -> Acceptance:
+        results = {x["subtask"]: (bool(x["passed"]), tuple(x["problems"])) for x in d["items"]}
+        return cls(results, tuple(d.get("fixed") or ()), bool(d.get("degraded", False)))
+
+
+def parse_acceptance(text: str, subtask_ids: Sequence[str]) -> Acceptance:
+    output = AcceptanceOutput.model_validate(extract_json_object(text))
+    known = set(subtask_ids)
+    results: dict[str, tuple[bool, tuple[str, ...]]] = {}
+    for x in output.items:
+        sid = _norm_id(x.subtask)
+        if sid not in known or sid in results:
+            continue
+        problems = tuple(p.strip() for p in x.problems if p.strip())
+        # 写了不通过却没有具体问题：作者无从修改，按通过处理
+        results[sid] = (x.passed or not problems, problems if not x.passed else ())
+    return Acceptance({s: results.get(s, (True, ())) for s in subtask_ids})
+
+
 def coverage_problems(a: Assignment, codes: Sequence[str]) -> list[str]:
     """分配是否满足规则：每人至少一块、每块至少一人、负担相差不超过 1。"""
     problems = []
@@ -597,6 +651,7 @@ class CollabState:
     assignment: Assignment | None = None
     discussions: dict[str, Discussion] = field(default_factory=dict)  # 代号 → 对分工的意见
     discussion_result: dict[str, Any] | None = None  # 统筹的决定（保持 / 调整）；有值即讨论已结束
+    acceptance: Acceptance | None = None  # 合并前的逐条验收；有值即验收已结束
     works: dict[tuple[str, str], str] = field(default_factory=dict)  # (子任务, 代号) → 成果
     cross_reviews: dict[str, tuple] = field(default_factory=dict)  # 评审者 → CheckedReview…
     reworks: dict[tuple[str, str], Any] = field(default_factory=dict)  # (子任务, 代号) → Revision

@@ -435,6 +435,7 @@ COLLAB = (
     "work",
     "cross_review",
     "rework",
+    "accept",
     "merge",
     "reveal",
 )

@@ -324,11 +324,19 @@ class DiscussionRules(_Strict):
     max_suggestions: int = Field(default=3, ge=1)  # 每位组员最多提几条
 
 
+class AcceptanceRules(_Strict):
+    """合并前的逐条验收：统筹按验收标准检查，不合格的退回作者改一次。"""
+
+    enabled: bool = True
+    max_fix_items: int = Field(default=3, ge=1)  # 最多退回几个子任务（防止成本失控）
+
+
 class CollabRules(_Strict):
     """协同模式：拆分子任务的数量范围，以及流水线（子任务类型、校验、模板）。"""
 
     max_subtasks: int = Field(default=12, ge=1)
     discussion: DiscussionRules = DiscussionRules()
+    acceptance: AcceptanceRules = AcceptanceRules()
     pipeline: PipelineRules = PipelineRules()
     kinds: dict[str, KindRule] = Field(default_factory=dict)
     templates: list[PipelineTemplate] = Field(default_factory=list)
@@ -755,6 +763,7 @@ class EstimateParams(_Strict):
     volunteer_tokens: int = Field(default=300, ge=0)
     assign_tokens: int = Field(default=400, ge=0)
     discuss_tokens: int = Field(default=250, ge=0)
+    accept_tokens: int = Field(default=500, ge=0)
     merge_tokens: int = Field(default=3000, ge=0)
     # 没有历史记录时，输出 token 按档位放大（推理模型的思考 token 也按输出计费）
     output_multiplier: dict[str, float] = Field(default_factory=dict)

@@ -27,3 +27,4 @@ def test_board_and_discussion_are_shown(serve, page):
         == panel.locator(".board .bcard").count()
     )
     assert "进度看板" in panel.inner_text()
+    assert "逐条验收" in page.inner_text("#chat")  # 合并前的验收记录出现在过程区

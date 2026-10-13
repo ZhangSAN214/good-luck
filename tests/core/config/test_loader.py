@@ -58,6 +58,8 @@ def test_repo_config_loads_with_defaults():
         "adjust",
         "work",
         "decompose_retry",
+        "accept",
+        "accept_fix",
         "style_extract",
         "style_merge",
         "user_notes",
@@ -97,6 +99,7 @@ def test_repo_config_loads_with_defaults():
         "work",
         "cross_review",
         "rework",
+        "accept",
         "merge",
         "reveal",
     ]

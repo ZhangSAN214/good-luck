@@ -3,7 +3,7 @@
 // 气泡文字只用步骤名、桌号和服务端给的提示，不含成员身份（匿名未揭晓的会话里小人本来就不出现）。
 
 const RESTING = new Set(['completed', 'stopped', 'failed', 'awaiting_confirmation', 'paused', 'created']);
-const COORD = new Set(['synthesize', 'decompose', 'assign', 'merge']);
+const COORD = new Set(['synthesize', 'decompose', 'assign', 'accept', 'merge']);
 export const NEAR_PX = 240; // 鼠标靠近到这个距离，小人看向鼠标
 export const POKE_ANGRY = 3; // 连戳这么多次就生气
 export const POKE_WINDOW_MS = 4000;

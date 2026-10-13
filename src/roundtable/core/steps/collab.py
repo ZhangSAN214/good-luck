@@ -30,6 +30,7 @@ from .base import (
 )
 from .collab_schemas import (
     STANCE_SCORE,
+    Acceptance,
     Assignment,
     CollabState,
     Discussion,
@@ -41,6 +42,7 @@ from .collab_schemas import (
     fallback_decomposition,
     fallback_merge,
     layers,
+    parse_acceptance,
     parse_assignment,
     parse_decomposition,
     parse_discussion,
@@ -1408,13 +1410,15 @@ class ReworkStep:
 # --- 合并 ---------------------------------------------------------------------
 
 
-def works_block(ctx: TableContext) -> str:
+def works_block(ctx: TableContext, only: set[str] | None = None) -> str:
     """按子任务分组的各份最终成果（同一子任务内顺序随机，作者只以代号标注）。"""
     c = _c(ctx)
     latest = c.latest()
     ids_by_key = {v: k for k, v in c.items().items()}
     parts = []
     for s in c.subtasks:
+        if only is not None and s.id not in only:
+            continue
         keys = [k for k in latest if k[0] == s.id]
         for key in shuffled(sorted(keys), ctx.rng):
             item = ids_by_key.get(key, "")
@@ -1428,6 +1432,109 @@ def works_block(ctx: TableContext) -> str:
                 f"{body}\n</work>"
             )
     return "\n\n".join(parts)
+
+
+# --- 逐条验收 -----------------------------------------------------------------
+
+
+class AcceptStep:
+    """合并前：统筹按每个文字子任务的验收标准逐条验收；不合格的退回作者改一次。
+
+    媒体成果不验收（它们有自己的风格校验）；最多退回 `max_fix_items` 个子任务；
+    作者的修改作为新版本替换原成果，之后由统筹合并。
+    """
+
+    name = "accept"
+
+    async def run(self, ctx: TableContext) -> StepResult:
+        c = _c(ctx)
+        rule = ctx.config.roundtable.collab.acceptance
+        if c.acceptance is not None or not rule.enabled:
+            return StepResult(self.name)
+        latest = c.latest()
+        texts = [s for s in c.subtasks if not s.media and any(k[0] == s.id for k in latest)]
+        if not texts:
+            return StepResult(self.name)
+        coordinator = _require_coordinator(ctx)
+        ids = [s.id for s in texts]
+        only = set(ids)
+        prompt = ctx.render(
+            self.name,
+            question=ctx.question.text,
+            subtasks=subtasks_block(texts, ctx),
+            works=works_block(ctx, only),
+        )
+        result = await call_and_parse(
+            ctx,
+            step=self.name,
+            role="coordinator",
+            model_id=coordinator,
+            prompt=prompt,
+            parse=lambda text: parse_acceptance(text, ids),
+        )
+        calls = 1
+        verdict: Acceptance = result.value or Acceptance({}, degraded=True)
+        by_id = {s.id: s for s in c.subtasks}
+        ids_by_key = {v: k for k, v in c.items().items()}
+        fixed: list[str] = []
+        notes: list[str] = []
+        for sid in verdict.failed()[: rule.max_fix_items]:
+            problems = "\n".join(f"- {p}" for p in verdict.results[sid][1])
+            for key in sorted(k for k in latest if k[0] == sid):
+                code = key[1]
+                if code in ctx.state.dropped:
+                    continue
+                fix = ctx.render(
+                    "accept_fix",
+                    code=ctx.label(code),
+                    question=ctx.question.text,
+                    subtask=subtask_block(by_id[sid], "your_subtask", ctx),
+                    own_work=latest[key],
+                    problems=neutralize(ctx.scrub(problems), TAGS),
+                )
+                again = await call_and_parse(
+                    ctx,
+                    step=self.name,
+                    role="member",
+                    model_id=ctx.members[code],
+                    prompt=fix,
+                    code=code,
+                    parse=parse_revision,
+                )
+                calls += 1
+                revision = again.value
+                if revision is None or not revision.answer.strip():
+                    notes.append(f"{ctx.label(code)} 对 {sid} 的验收修改不可用，沿用原成果")
+                    continue
+                c.reworks[key] = revision
+                if sid not in fixed:
+                    fixed.append(sid)
+                _save(
+                    ctx,
+                    self.name,
+                    "rework",
+                    {
+                        "subtask": sid,
+                        "item": ids_by_key.get(key),
+                        **revision.to_dict(),
+                        "accepted_fix": True,
+                    },
+                    code=code,
+                    call_id=again.call_id,
+                )
+        c.acceptance = Acceptance(verdict.results, tuple(fixed), verdict.degraded)
+        _save(ctx, self.name, "acceptance", c.acceptance.to_dict(), call_id=result.call_id)
+        skipped = len(verdict.failed()) - rule.max_fix_items
+        if skipped > 0:
+            notes.append(f"有 {skipped} 个子任务验收不合格但超过退回上限，按现有成果合并")
+        if fixed:
+            notes.append(f"验收退回并修改：{'、'.join(fixed)}")
+        return StepResult(
+            self.name,
+            calls=calls,
+            degraded=("coordinator",) if verdict.degraded else (),
+            notes=tuple(notes),
+        )
 
 
 class MergeStep:
@@ -1479,6 +1586,7 @@ for _step in (
     WorkStep(),
     CrossReviewStep(),
     ReworkStep(),
+    AcceptStep(),
     MergeStep(),
 ):
     register_step(_step)
