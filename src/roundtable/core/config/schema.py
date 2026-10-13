@@ -331,12 +331,20 @@ class AcceptanceRules(_Strict):
     max_fix_items: int = Field(default=3, ge=1)  # 最多退回几个子任务（防止成本失控）
 
 
+class CrossReviewRules(_Strict):
+    """交叉审查的花费控制：很短的成果少找几位审查者（与作者是谁无关）。"""
+
+    short_chars: int = Field(default=0, ge=0)  # 成果少于这么多字算"很短"；0 = 不启用
+    short_reviews: int = Field(default=1, ge=1)  # 很短的成果找几位审查者
+
+
 class CollabRules(_Strict):
     """协同模式：拆分子任务的数量范围，以及流水线（子任务类型、校验、模板）。"""
 
     max_subtasks: int = Field(default=12, ge=1)
     discussion: DiscussionRules = DiscussionRules()
     acceptance: AcceptanceRules = AcceptanceRules()
+    cross_review: CrossReviewRules = CrossReviewRules()
     pipeline: PipelineRules = PipelineRules()
     kinds: dict[str, KindRule] = Field(default_factory=dict)
     templates: list[PipelineTemplate] = Field(default_factory=list)

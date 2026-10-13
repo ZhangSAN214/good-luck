@@ -106,11 +106,41 @@ async def test_dependencies_run_in_order_and_are_passed_on():
     assert '<dependency subtask="T1"' in t2_prompt and "推导" in t2_prompt
 
 
+def long_works(t, chars=2000):
+    """成果够长：每份都找满 reviews_per_answer 位审查者（短成果少找人另有测试）。"""
+    c = t.ctx.state.collab
+    for key in c.works:
+        c.works[key] = c.works[key] + "。" * chars
+
+
+async def test_short_works_get_fewer_reviewers_regardless_of_author():
+    t = Table(3, members=BIG)
+    with_decompose(t, 3)
+    await run(t, "decompose", "volunteer", "assign", "work")
+    c = t.ctx.state.collab
+    rule = t.ctx.config.roundtable.collab.cross_review
+    assert rule.short_chars > 0 and all(len(w) < rule.short_chars for w in c.works.values())
+    items = c.items()
+    received: dict[str, int] = {}
+    for targets in cross_review_plan(t.ctx, list(BIG)).values():
+        for item in targets:
+            received[item] = received.get(item, 0) + 1
+    assert set(received) == set(items) and set(received.values()) == {rule.short_reviews}
+    # 长成果恢复原来的审查人数
+    long_works(t, rule.short_chars)
+    again: dict[str, int] = {}
+    for targets in cross_review_plan(t.ctx, list(BIG)).values():
+        for item in targets:
+            again[item] = again.get(item, 0) + 1
+    assert set(again.values()) == {t.config.roundtable.reviews_per_answer}
+
+
 @pytest.mark.parametrize("seed", range(15))
 async def test_cross_review_never_own_work_and_balanced(seed):
     t = Table(seed, members=BIG)
     with_decompose(t, 3)
     await run(t, "decompose", "volunteer", "assign", "work")
+    long_works(t)
     items = t.ctx.state.collab.items()
     plan = cross_review_plan(t.ctx, list(BIG))
     received: dict[str, int] = {}
@@ -135,6 +165,7 @@ async def test_cross_review_balanced_when_each_owns_one_block(seed):
     t = Table(seed, members=BIG)
     with_decompose(t, 5)
     await run(t, "decompose", "volunteer", "assign", "work")
+    long_works(t)
     plan = cross_review_plan(t.ctx, list(BIG))
     loads = [len(v) for v in plan.values()]
     assert max(loads) - min(loads) <= 1

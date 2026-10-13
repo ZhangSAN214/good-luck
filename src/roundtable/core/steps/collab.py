@@ -1044,8 +1044,16 @@ def cross_review_plan(ctx: TableContext, reviewers: Sequence[str]) -> dict[str, 
     负担均衡、随机打破平局。返回 评审者 → 成果编号（顺序随机）。"""
     c = _c(ctx)
     k = ctx.config.roundtable.reviews_per_answer
+    short = ctx.config.roundtable.collab.cross_review
     owners_of = {sid: set(codes) for sid, codes in c.assignment.owners.items()}
     items = [(i, key) for i, key in c.items().items() if key in c.works]
+    # 很短的成果（按字数，与作者是谁无关）少找几位审查者：省下的是每位审查者读全文的花费
+    want = {
+        i: min(k, short.short_reviews)
+        if short.short_chars and len(c.works[key].strip()) < short.short_chars
+        else k
+        for i, key in items
+    }
     plan: dict[str, list[str]] = {r: [] for r in reviewers}
     order = shuffled(list(reviewers), ctx.rng)
     rank = {r: n for n, r in enumerate(order)}
@@ -1059,7 +1067,7 @@ def cross_review_plan(ctx: TableContext, reviewers: Sequence[str]) -> dict[str, 
     queue = shuffled(items, ctx.rng)
     queue.sort(key=lambda x: len(pool(*x[1])))
     for item, (sid, author) in queue:
-        chosen = sorted(pool(sid, author), key=lambda r: (len(plan[r]), rank[r]))[:k]
+        chosen = sorted(pool(sid, author), key=lambda r: (len(plan[r]), rank[r]))[: want[item]]
         for r in chosen:
             plan[r].append(item)
     # 局部调整：把最重的人手里的一份交给最轻、且可以审这份的人，直到相差不超过 1

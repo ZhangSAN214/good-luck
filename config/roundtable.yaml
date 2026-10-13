@@ -139,6 +139,8 @@ collab:
   discussion: {enabled: true, min_members: 3, max_suggestions: 3}
   # 逐条验收：合并前统筹按验收标准检查每个文字子任务，不合格的退回作者改一次（媒体成果不验收）
   acceptance: {enabled: true, max_fix_items: 3}
+  # 省钱：很短的成果（少于 short_chars 字）只找 short_reviews 位审查者；0 = 不启用。只看成果长度，与作者是谁无关
+  cross_review: {short_chars: 400, short_reviews: 1}
 
   # --- 流水线（成员数 ≥ pipeline.min_members 时启用）---------------------------------
   # 协同不是"各做各的"：统筹把题目拆成一条流水线（每个子任务有类型，上游产出交给下游继续做），
