@@ -25,6 +25,7 @@ from roundtable.core.notes import NoteError, check_can_add, clean_note
 from roundtable.core.orchestrator import Orchestrator, OrchestratorError, RunResult
 from roundtable.core.preview import render_preview
 from roundtable.core.routing import (
+    AUTO,
     CUSTOM,
     WORKFLOWS,
     Question,
@@ -108,7 +109,12 @@ class RoundtableService:
             "plans": {name: p.label for name, p in cfg.routing.plans.items()},
             "default_plan": cfg.routing.default_plan,
             "custom_label": cfg.routing.custom.label,
-            "workflows": {"discussion": "讨论模式", "collab": "协同模式", "solo": "个人作答"},
+            "workflows": {
+                "discussion": "讨论模式",
+                "collab": "协同模式",
+                "solo": "个人作答",
+                "auto": "自动",
+            },
             "uploads": {
                 "max_files": cfg.roundtable.uploads.max_files,
                 "max_file_mb": cfg.roundtable.uploads.max_file_mb,
@@ -318,6 +324,8 @@ class RoundtableService:
         text = question.strip()
         if not text:
             raise ServiceError("题目不能为空")
+        if workflow == AUTO:
+            workflow = None  # 自动模式：预估列出全部方式，供对比
         if workflow is not None and workflow not in WORKFLOWS:
             raise ServiceError(f"未知的模式 {workflow!r}")
         custom = None

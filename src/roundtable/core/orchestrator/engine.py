@@ -21,6 +21,8 @@ from roundtable.core.attachments import Attachment, prepare_attachments
 from roundtable.core.cards import CardOption, ConfirmationCard, money
 from roundtable.core.media import KIND_LABELS, MediaService
 from roundtable.core.routing import (
+    AUTO,
+    WORKFLOWS,
     EstimateHistory,
     Question,
     RoutingDecision,
@@ -35,8 +37,11 @@ from roundtable.core.routing import (
     estimate_lineup,
     history_from_calls,
     option_lineup,
+    preview_estimates,
     route_question,
+    run_panel,
     style_wanted,
+    triage_card,
 )
 from roundtable.core.runtime import PROJECT_ROOT, Runtime
 from roundtable.core.steps import (
@@ -189,6 +194,8 @@ class Orchestrator:
                     self._switch_plan(session_id, table_no, response.removeprefix("plan:"))
                 else:
                     repo.set_table_status(session_id, table_no, "approved")
+            elif cp.kind == "triage":
+                self._apply_triage(session_id, response, details)
             elif cp.kind == "escalation":
                 table_no = details["table_no"]
                 status = "approved" if response == "continue" else SKIPPED
@@ -276,6 +283,9 @@ class Orchestrator:
                 return False
         if not await self._prepare(sid, row):
             return False
+        if (row["choice"] or {}).get("workflow") == AUTO:
+            await self._triage(sid, row)
+            return False
         try:
             await self._route(
                 sid,
@@ -288,6 +298,55 @@ class Orchestrator:
             self._emit(sid, "failed", error=str(exc))
             return False
         return True
+
+    async def _triage(self, sid: str, row: dict[str, Any]) -> None:
+        """自动模式：分诊小组给建议，弹出确认卡片（只推荐，由用户决定）。"""
+        repo, cfg = self.rt.repo, self.rt.config
+        question = self._question(row)
+        available = [m for m in self.rt.router.available_models() if m.seat]
+        self._emit(sid, "step_started", step="triage", table_no=None)
+        result = await run_panel(
+            question,
+            config=cfg,
+            router=self.rt.router,
+            prompts=self.rt.prompts,
+            available=available,
+            rng=random.Random(f"{row['seed']}:triage"),
+        )
+        repo.record_panel(sid, result)
+        _, options = preview_estimates(
+            question,
+            config=cfg,
+            router=self.rt.router,
+            seed=row["seed"],
+            recent_coordinators=repo.recent_coordinators(),
+            history=self.estimate_history(),
+        )
+        costs = {
+            (o.workflow, o.plan): o.estimate.total_usd
+            for o in options
+            if o.available and o.estimate
+        }
+        scrub = self.rt.scrubber.bound(question.text, enabled=bool(row["anonymous"])).scrub
+        labels = {name: plan.label for name, plan in cfg.routing.plans.items()}
+        card = triage_card(result, costs, labels, [scrub(r) for r in result.reasons])
+        self._emit(
+            sid, "step_finished", step="triage", table_no=None, cost_usd=repo.session_cost(sid)
+        )
+        self._warn(sid, *([result.note] if result.note else []))
+        self._checkpoint(sid, card, stage="routing")
+
+    def _apply_triage(self, sid: str, response: str, details: dict[str, Any]) -> None:
+        """用户确认分诊建议后：把"自动"改成具体的作答方式和档位，之后按普通流程路由。"""
+        cfg, repo = self.rt.config, self.rt.repo
+        if response == "continue":
+            workflow, tier = details["workflow"], details["tier"]
+        else:
+            _, workflow, tier = response.split(":", 2)
+        if workflow not in WORKFLOWS or tier not in cfg.routing.plans:
+            raise OrchestratorError(f"无效的选项 {response!r}")
+        choice = UserChoice.from_dict(repo.session_row(sid)["choice"] or {})
+        repo.update_session_choice(sid, replace(choice, workflow=workflow, tier=tier).to_dict())
 
     async def _route(self, sid: str, question: Question, choice: UserChoice, seed: int) -> None:
         repo = self.rt.repo

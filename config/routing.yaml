@@ -20,6 +20,18 @@ planner:
   expected_input_tokens: 700
   expected_output_tokens: 150
 
+# 分诊小组：题目开始时（作答方式选"自动"），几位最便宜的模型各给一条简短建议，
+# 代码汇总成推荐（只推荐，由用户在确认卡片上决定）。规则能判断为简单题时不调用模型。
+panel:
+  size: 3
+  tiers: [budget]
+  max_tokens: 200
+  expected_input_tokens: 500
+  expected_output_tokens: 100
+  skip_when_simple: true
+  default_workflow: discussion      # 小组没有给出有效建议时
+  tier_by_difficulty: {simple: budget, medium: budget, hard: flagship}
+
 # 规则判断（不调用模型）。按顺序检查：
 # - 第一条给出 difficulty 的规则决定难度（只影响预估的答案长度）；
 # - require_tags / task_type 会累积（例如有图片 → 需要 vision 标签）。

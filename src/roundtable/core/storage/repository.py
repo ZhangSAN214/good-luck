@@ -513,6 +513,37 @@ class Repository:
             for c in result.completions
         ]
 
+    def record_panel(self, session_id: str, result: Any) -> list[int]:
+        """分诊小组的每次成功调用各记一条（step=triage，计入花费与预算）。"""
+        return [
+            self.record_call(
+                session_id,
+                step="triage",
+                role="planner",
+                model_id=c.model_id,
+                messages=c.messages,
+                prompt=RenderedPrompt(
+                    "panel", result.prompt_version, result.prompt_sha256 or "", c.messages
+                ),
+                completion=c.completion,
+            )
+            for c in result.calls
+        ]
+
+    def update_session_choice(self, session_id: str, choice: Mapping[str, Any]) -> None:
+        """分诊建议被用户确认后，把"自动"改成具体的作答方式与档位。"""
+        self._require_session(session_id)
+        self._exec(
+            "UPDATE sessions SET choice = ?, workflow = ?, mode = ?, updated_at = ? WHERE id = ?",
+            (
+                _json(dict(choice)),
+                choice["workflow"],
+                choice.get("tier") or "budget",
+                self.clock(),
+                session_id,
+            ),
+        )
+
     # --- 产出与进度 --------------------------------------------------------------
 
     def save_output(

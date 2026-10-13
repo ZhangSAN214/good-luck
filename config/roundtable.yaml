@@ -28,6 +28,7 @@ revise_rounds: 1
 # 各步骤使用的提示词版本（prompts/<role>/<version>.md）
 prompts:
   planner: v1
+  panel: v1
   answer: v1
   review: v3
   revise: v3

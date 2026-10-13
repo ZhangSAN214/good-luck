@@ -270,7 +270,7 @@ class CLI:
             self.p(f"  {n}. {o['label']}{note}{cost}{mark}")
         if card.get("reason"):
             self.p(f"  推荐理由：{card['reason']}")
-        if self.auto_confirm and card["kind"] in ("cost", "escalation", "members"):
+        if self.auto_confirm and card["kind"] in ("cost", "escalation", "members", "triage"):
             self.p("  （--yes：自动选择继续）")
             return "continue"
         keys = [o["key"] for o in options]
@@ -535,12 +535,12 @@ class CLI:
         cfg = self.rt.config.routing
         plan = choice.tier or cfg.default_plan
         threshold = cfg.confirm_threshold_usd
-        mode_names = {"discussion": "讨论", "collab": "协同", "solo": "个人"}
+        mode_names = {"discussion": "讨论", "collab": "协同", "solo": "个人", "auto": "自动"}
         length = LENGTH_NAMES.get(assessment.difficulty, assessment.difficulty)
         source = SOURCE_NAMES.get(assessment.source, assessment.source)
         self.p(f"提交前预估（答案长度：{length}，{source}；不含规划员）：")
         for o in options:
-            if brief and o.workflow != choice.workflow:
+            if brief and choice.workflow != "auto" and o.workflow != choice.workflow:
                 continue
             mark = "▶" if o.plan == plan and o.workflow == choice.workflow else " "
             head = f" {mark} {mode_names.get(o.workflow, o.workflow)} · {o.label}"
@@ -551,8 +551,9 @@ class CLI:
             e = o.estimate
             over = "  超过确认门槛" if e.total_usd > threshold else ""
             absent = f"，缺席 {len(o.lineup.absent)}" if o.lineup.absent else ""
+            coord = " + 统筹" if o.lineup.coordinator else ""
             self.p(
-                f"{head}：{len(o.lineup.members)} 位组员 + 统筹{absent}，"
+                f"{head}：{len(o.lineup.members)} 位组员{coord}{absent}，"
                 f"预计 ${e.total_usd:.4f}（最多约 ${e.max_usd:.4f}）{over}"
             )
             if not anonymous and not brief:
@@ -1050,11 +1051,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     ask.add_argument(
         "--mode",
-        choices=["discussion", "collab", "solo"],
+        choices=["discussion", "collab", "solo", "auto"],
         default="discussion",
         help=(
             "discussion 讨论（全员各自作答再互评汇总，默认）/ collab 协同（拆分子任务分工完成）"
             "/ solo 个人作答（档位内挑最便宜的一位直接回答）"
+            "/ auto 自动（先请分诊小组给建议，你确认后再开始）"
         ),
     )
     ask.add_argument(

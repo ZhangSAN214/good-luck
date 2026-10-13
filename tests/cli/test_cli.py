@@ -515,3 +515,22 @@ async def test_bench_rejects_bad_bank_and_empty_filter(tmp_path):
     assert code == 2 and "实验设置有误" in text
     code, text = await cli(env, "bench", "--category", "no-such-category")
     assert code == 2 and "没有符合条件" in text
+
+
+async def test_ask_auto_mode_shows_panel_advice_and_yes_accepts_it():
+    from ..core.orchestrator.test_media import script
+
+    env = Env(confirm_threshold_usd=100.0)
+    script(
+        env,
+        **{
+            "分诊小组的一员": lambda m, msgs: (
+                '{"difficulty": "simple", "workflow": "solo", "reason": "一步就能算出"}'
+            )
+        },
+    )
+    code, text = await cli(env, "ask", MEDIUM, "--mode", "auto", "--yes", "--seed", "3")
+    assert code == 0
+    assert "需要你确认" in text and "采用建议：个人作答" in text and "一步就能算出" in text
+    assert "（--yes：自动选择继续）" in text
+    assert env.models_called("独立完成同一道题") == ["b1"]

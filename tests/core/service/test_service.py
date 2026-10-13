@@ -267,6 +267,7 @@ async def test_collab_session_over_service():
         "discussion": "讨论模式",
         "collab": "协同模式",
         "solo": "个人作答",
+        "auto": "自动",
     }
     with pytest.raises(ServiceError, match="未知的模式"):
         svc.create(MEDIUM, workflow="debate")
@@ -346,3 +347,10 @@ def test_status_carries_rice_ratios_and_mode_names():
         "bowl_spoons": 30,
     }
     assert status["plans"] == {"budget": "节电模式", "flagship": "全力模式"}
+
+
+def test_status_lists_auto_and_estimate_accepts_it_as_all_modes():
+    env, svc = make()
+    assert "auto" in svc.status()["workflows"]
+    est = svc.estimate("求导数 f(x)=x^2", workflow="auto", seed=1)
+    assert {o["workflow"] for o in est["options"]} == {"discussion", "collab", "solo"}

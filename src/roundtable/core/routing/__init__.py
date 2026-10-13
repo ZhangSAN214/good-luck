@@ -1,7 +1,8 @@
 """路由：答案长度判断 → 档位全员上桌的阵容 → 花费预估 → 确认 / 升级询问。"""
 
-from .cards import cost_card, escalation_card
+from .cards import cost_card, escalation_card, triage_card
 from .decide import (
+    AUTO,
     CUSTOM,
     WORKFLOWS,
     Assessment,
@@ -34,6 +35,7 @@ from .estimate import (
 from .lineup import Lineup, LineupBuilder
 from .media_estimate import style_wanted
 from .multi_media import MultiMediaHint, collab_advice, detect_multi_media
+from .panel import PanelResult, PanelVote, aggregate, run_panel
 from .planner import PlannerOutput, PlannerResult, pick_planner_model, run_planner
 from .triage import Question, TriageResult, triage
 
@@ -42,6 +44,12 @@ __all__ = [
     "collab_advice",
     "detect_multi_media",
     "CUSTOM",
+    "PanelResult",
+    "PanelVote",
+    "aggregate",
+    "run_panel",
+    "triage_card",
+    "AUTO",
     "WORKFLOWS",
     "Assessment",
     "CostEstimate",

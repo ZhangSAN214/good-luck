@@ -28,6 +28,7 @@ from .triage import Question, triage
 
 CUSTOM = "custom"
 WORKFLOWS = ("discussion", "collab", "solo")  # 讨论模式 / 协同模式 / 个人作答
+AUTO = "auto"  # 自动：先请分诊小组给建议，用户确认后改成上面三种之一
 MEDIA_KINDS = KINDS
 Source = Literal["rule", "model", "default"]
 
@@ -60,8 +61,10 @@ class UserChoice:
             raise RoutingError("个人作答不支持选择输出类型，请用讨论模式生成图片、语音或视频")
         if self.media_tier not in (None, "budget", "flagship"):
             raise RoutingError(f"未知的媒体档位 {self.media_tier!r}，可选：budget / flagship")
-        if self.workflow not in WORKFLOWS:
-            raise RoutingError(f"未知的模式 {self.workflow!r}，可选：{list(WORKFLOWS)}")
+        if self.workflow not in (*WORKFLOWS, AUTO):
+            raise RoutingError(f"未知的模式 {self.workflow!r}，可选：{[*WORKFLOWS, AUTO]}")
+        if self.workflow == AUTO and (self.media is not None or self.tier == CUSTOM):
+            raise RoutingError("自动模式不能同时指定输出类型或自选阵容：请先选定作答方式")
         if self.tier == CUSTOM and not self.models:
             raise RoutingError("自选模式至少需要勾选模型")
         if self.tier == CUSTOM and self.workflow == "solo" and len(self.models) != 1:

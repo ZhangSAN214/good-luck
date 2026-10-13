@@ -750,6 +750,31 @@ class PlannerSpec(_Strict):
     expected_output_tokens: int = Field(default=150, gt=0)
 
 
+class PanelSpec(_Strict):
+    """分诊小组：题目开始时几位最便宜的模型各给一条作答方式建议（只推荐，用户确认）。"""
+
+    size: int = Field(default=3, ge=1, le=7)
+    tiers: list[Tier] = Field(default_factory=lambda: ["budget"], min_length=1)
+    max_tokens: int = Field(default=200, gt=0)
+    expected_input_tokens: int = Field(default=500, gt=0)
+    expected_output_tokens: int = Field(default=100, gt=0)
+    # 规则已能判断为简单题时不调用小组，直接建议个人作答
+    skip_when_simple: bool = True
+    # 小组没有给出有效建议时的作答方式
+    default_workflow: Literal["solo", "discussion", "collab"] = "discussion"
+    # 难度（取中位数）对应推荐的档位
+    tier_by_difficulty: dict[Difficulty, str] = Field(
+        default_factory=lambda: {"simple": "budget", "medium": "budget", "hard": "flagship"}
+    )
+
+    @model_validator(mode="after")
+    def _all_difficulties(self) -> PanelSpec:
+        missing = {"simple", "medium", "hard"} - set(self.tier_by_difficulty)
+        if missing:
+            raise ValueError(f"tier_by_difficulty 缺少难度 {sorted(missing)}")
+        return self
+
+
 class EscalationRule(_Strict):
     min_disagreements: int = Field(default=1, ge=1)
     confidence: list[Confidence] = Field(default_factory=lambda: ["low"])
@@ -823,6 +848,7 @@ class RoutingConfig(_Strict):
     default_plan: str
     default_difficulty: Difficulty = "medium"
     planner: PlannerSpec = PlannerSpec()
+    panel: PanelSpec = PanelSpec()
     triage: list[TriageRule] = Field(default_factory=list)
     multi_media: MultiMediaRule | None = None
     plans: dict[str, PlanSpec] = Field(min_length=1)
@@ -908,6 +934,11 @@ class AppConfig(_Strict):
                 raise ValueError(f"triage 规则 {rule.name} 的 task_type 不在标签词表中")
         if "planner" not in rt.prompts:
             raise ValueError("roundtable.yaml 的 prompts 缺少 planner 版本")
+        if "panel" not in rt.prompts:
+            raise ValueError("roundtable.yaml 的 prompts 缺少 panel 版本")
+        unknown_tiers = sorted(set(routing.panel.tier_by_difficulty.values()) - set(routing.plans))
+        if unknown_tiers:
+            raise ValueError(f"routing.panel.tier_by_difficulty 引用了不存在的档位 {unknown_tiers}")
         for name, plan in routing.plans.items():
             missing = sorted(set(plan.prompt_roles.values()) - set(rt.prompts))
             if missing:

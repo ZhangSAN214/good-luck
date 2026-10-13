@@ -46,6 +46,7 @@ def test_repo_config_loads_with_defaults():
     assert rt.pipeline == ["answer", "review", "revise", "synthesize", "reveal"]
     assert set(rt.prompts) == {
         "planner",
+        "panel",
         "answer",
         "review",
         "revise",
