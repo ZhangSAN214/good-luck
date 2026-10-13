@@ -493,6 +493,8 @@ class TableState:
     style: StyleSpec | None = None
     # 协同模式的数据
     collab: Any = field(default_factory=lambda: _new_collab())
+    # 头脑风暴的数据
+    brain: Any = field(default_factory=lambda: _new_brain())
 
     def flagged(self, code: str, item: str | None = None) -> bool:
         """该组员（的某份成果）是否有产出被标记为敷衍。"""
@@ -500,6 +502,12 @@ class TableState:
             r.lazy and r.code == code and (item is None or r.item in (None, item))
             for r in self.effort.values()
         )
+
+
+def _new_brain():
+    from .brain_schemas import BrainState
+
+    return BrainState()
 
 
 def _new_collab():

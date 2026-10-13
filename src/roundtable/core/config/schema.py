@@ -326,6 +326,16 @@ class DiscussionRules(_Strict):
     max_suggestions: int = Field(default=3, ge=1)  # 每位组员最多提几条
 
 
+class BrainstormRules(_Strict):
+    """头脑风暴：每人最多提几个想法、拓展几条，导图的分支与条目上限。"""
+
+    max_ideas: int = Field(default=4, ge=1)
+    max_expansions: int = Field(default=3, ge=0)
+    max_branches: int = Field(default=6, ge=1)
+    max_ideas_per_branch: int = Field(default=6, ge=1)
+    max_next_steps: int = Field(default=5, ge=0)
+
+
 class AcceptanceRules(_Strict):
     """合并前的逐条验收：统筹按验收标准检查，不合格的退回作者改一次。"""
 
@@ -599,6 +609,10 @@ class RoundtableConfig(_Strict):
     pipeline: list[str] = Field(min_length=1)  # 讨论模式
     collab_pipeline: list[str] = Field(min_length=1)  # 协同模式
     solo_pipeline: list[str] = Field(default_factory=lambda: ["answer", "reveal"], min_length=1)
+    brainstorm_pipeline: list[str] = Field(
+        default_factory=lambda: ["ideate", "expand", "organize", "reveal"], min_length=1
+    )
+    brainstorm: BrainstormRules = BrainstormRules()
     collab: CollabRules = CollabRules()
     channel_mode: ChannelMode = "auto"
     request: RequestPolicy = RequestPolicy()
@@ -621,7 +635,7 @@ class RoundtableConfig(_Strict):
             raise ValueError(f"提示词版本必须形如 v1、v2：{bad}")
         return prompts
 
-    @field_validator("pipeline", "collab_pipeline", "solo_pipeline")
+    @field_validator("pipeline", "collab_pipeline", "solo_pipeline", "brainstorm_pipeline")
     @classmethod
     def _unique_steps(cls, steps: list[str]) -> list[str]:
         if len(steps) != len(set(steps)):
@@ -801,6 +815,9 @@ class EstimateParams(_Strict):
     discuss_tokens: int = Field(default=250, ge=0)
     accept_tokens: int = Field(default=500, ge=0)
     merge_tokens: int = Field(default=3000, ge=0)
+    ideate_tokens: int = Field(default=500, ge=0)
+    expand_tokens: int = Field(default=400, ge=0)
+    organize_tokens: int = Field(default=1500, ge=0)
     # 没有历史记录时，输出 token 按档位放大（推理模型的思考 token 也按输出计费）
     output_multiplier: dict[str, float] = Field(default_factory=dict)
     # 某个模型在某个步骤至少有这么多次成功调用，才用它的历史中位数代替公式

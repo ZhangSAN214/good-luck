@@ -223,9 +223,9 @@ function renderComposer() {
     .map(([k, label]) => `<button type="button" data-v="${esc(k)}" aria-pressed="${k === S.tier}">${esc(label)}</button>`)
     .join('');
   $('#anonymous').checked = S.anonymous;
-  const workflows = S.status?.workflows || { discussion: '讨论模式', collab: '协同模式', solo: '个人作答', auto: '自动' };
+  const workflows = S.status?.workflows || { discussion: '讨论模式', collab: '协同模式', solo: '个人作答', brainstorm: '头脑风暴', auto: '自动' };
   $('#workflow').innerHTML = Object.entries(workflows)
-    .map(([k, label]) => `<button type="button" data-v="${esc(k)}" aria-pressed="${k === S.workflow}" title="${{ auto: '开始时由几位最便宜的模型给出建议（用哪种方式、难度），你确认后再开始；简单题不调用它们', collab: '统筹拆分子任务，成员自荐、分工完成、交叉审查，最后合并', solo: '只请一位成员直接回答：在所选档位里挑最便宜的，不互评、不汇总' }[k] || '全员各自作答，互评、修订后由统筹汇总'}">${esc(label)}</button>`)
+    .map(([k, label]) => `<button type="button" data-v="${esc(k)}" aria-pressed="${k === S.workflow}" title="${{ brainstorm: '让大家各自发散想法、互相拓展，统筹整合成思维导图，帮你拓展思路并选择方向', auto: '开始时由几位最便宜的模型给出建议（用哪种方式、难度），你确认后再开始；简单题不调用它们', collab: '统筹拆分子任务，成员自荐、分工完成、交叉审查，最后合并', solo: '只请一位成员直接回答：在所选档位里挑最便宜的，不互评、不汇总' }[k] || '全员各自作答，互评、修订后由统筹汇总'}">${esc(label)}</button>`)
     .join('');
   renderMediaChoice();
   $('#manual').hidden = S.tier !== 'custom';
@@ -240,10 +240,11 @@ function renderMediaChoice() {
   const info = S.status?.media;
   const kinds = info?.kinds || {};
   const collab = S.workflow === 'collab';
-  if (collab || S.workflow === 'solo' || S.workflow === 'auto') S.media = null; // 协同模式由统筹决定哪些子任务生成媒体；个人作答只出文字
+  if (collab || ['solo', 'auto', 'brainstorm'].includes(S.workflow)) S.media = null; // 协同模式由统筹决定哪些子任务生成媒体；个人作答只出文字
   const outputs = [[null, '文字'], ...Object.entries(kinds).map(([k, v]) => [k, v.label])];
-  if (S.workflow === 'solo' || S.workflow === 'auto') {
-    $('#media').innerHTML = `<span class="hint" id="media-auto">${S.workflow === 'auto' ? '自动模式先出建议，输出类型请在选定作答方式后再选' : '个人作答只输出文字'}</span>`;
+  if (['solo', 'auto', 'brainstorm'].includes(S.workflow)) {
+    const why = { auto: '自动模式先出建议，输出类型请在选定作答方式后再选', brainstorm: '头脑风暴输出思维导图和大纲' }[S.workflow] || '个人作答只输出文字';
+    $('#media').innerHTML = `<span class="hint" id="media-auto">${why}</span>`;
   } else if (collab) {
     // 协同模式不选输出类型：不显示一排灰按钮（容易误以为不能画图），直接说明
     $('#media').innerHTML = '<span class="hint" id="media-auto">输出类型由统筹按任务自动决定</span>';

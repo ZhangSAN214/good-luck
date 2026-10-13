@@ -113,6 +113,7 @@ class RoundtableService:
                 "discussion": "讨论模式",
                 "collab": "协同模式",
                 "solo": "个人作答",
+                "brainstorm": "头脑风暴",
                 "auto": "自动",
             },
             "uploads": {

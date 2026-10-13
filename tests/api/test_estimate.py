@@ -18,13 +18,16 @@ def test_estimate_all_modes_and_tiers_without_calls():
         assert data["seed"] == 7 and data["length_source"] in ("rule", "default")
         keys = {(o["workflow"], o["plan"]) for o in data["options"]}
         assert keys == {
-            (w, p) for w in ("discussion", "collab", "solo") for p in ("budget", "flagship")
+            (w, p)
+            for w in ("discussion", "collab", "solo", "brainstorm")
+            for p in ("budget", "flagship")
         }
         selected = [o for o in data["options"] if o["selected"]]
         assert {(o["workflow"], o["plan"]) for o in selected} == {
             ("discussion", "budget"),
             ("collab", "budget"),
             ("solo", "budget"),
+            ("brainstorm", "budget"),
         }
         for o in data["options"]:
             assert o["available"] and o["estimate_usd"] > 0 and o["max_usd"] >= o["estimate_usd"]

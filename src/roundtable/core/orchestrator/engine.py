@@ -22,6 +22,7 @@ from roundtable.core.cards import CardOption, ConfirmationCard, money
 from roundtable.core.media import KIND_LABELS, MediaService
 from roundtable.core.routing import (
     AUTO,
+    PANEL_WORKFLOWS,
     WORKFLOWS,
     EstimateHistory,
     Question,
@@ -321,6 +322,7 @@ class Orchestrator:
             seed=row["seed"],
             recent_coordinators=repo.recent_coordinators(),
             history=self.estimate_history(),
+            workflows=PANEL_WORKFLOWS,
         )
         costs = {
             (o.workflow, o.plan): o.estimate.total_usd

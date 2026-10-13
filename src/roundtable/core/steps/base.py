@@ -38,6 +38,7 @@ from roundtable.core.routing import Question
 from roundtable.core.storage import Repository
 from roundtable.core.tools import TEXT_EXTS, ToolBox
 
+from .brain_schemas import restore_brain
 from .schemas import CheckedReview, EffortRecord, Revision, StyleSpec, Synthesis, TableState
 
 log = logging.getLogger(__name__)
@@ -679,6 +680,7 @@ def check_pipelines(config: AppConfig) -> None:
         "roundtable.pipeline": config.roundtable.pipeline,
         "roundtable.collab_pipeline": config.roundtable.collab_pipeline,
         "roundtable.solo_pipeline": config.roundtable.solo_pipeline,
+        "roundtable.brainstorm_pipeline": config.roundtable.brainstorm_pipeline,
     }
     for name, plan in config.routing.plans.items():
         if plan.pipeline is not None:
@@ -717,7 +719,7 @@ def restore_state(repo: Repository, session_id: str, table_no: int) -> TableStat
             state.effort[record.key] = record
         elif kind == "style_spec":
             state.style = StyleSpec.from_dict(json.loads(o["content"]))
-        else:
+        elif not restore_brain(state.brain, kind, code, json.loads(o["content"])):
             restore_collab(state, kind, code, json.loads(o["content"]))
     return state
 

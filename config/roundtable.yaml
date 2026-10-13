@@ -29,6 +29,9 @@ revise_rounds: 1
 prompts:
   planner: v1
   panel: v1
+  ideate: v1
+  expand: v1
+  organize: v1
   answer: v1
   review: v3
   revise: v3
@@ -86,6 +89,9 @@ step_params:
   review: {max_tokens: 3000, reasoning: {max_tokens: 800}}
   revise: {max_tokens: 5000, reasoning: {max_tokens: 2000}}
   synthesize: {max_tokens: 5000, reasoning: {effort: low}}
+  ideate: {max_tokens: 2000, reasoning: {effort: low}}
+  expand: {max_tokens: 1500, reasoning: {effort: low}}
+  organize: {max_tokens: 4000, reasoning: {effort: low}}
   decompose: {max_tokens: 2500, reasoning: {effort: low}}
   volunteer: {max_tokens: 1500, reasoning: {effort: low}}
   assign: {max_tokens: 1500, reasoning: {effort: low}}
@@ -135,6 +141,9 @@ pipeline: [answer, review, revise, synthesize, reveal]
 #          → 作者按审查修改 → 统筹合并成完整成果
 # 个人作答：只请一位成员直接回答，没有统筹、互评和汇总
 solo_pipeline: [answer, reveal]
+# 头脑风暴：每人独立发散 → 看别人的想法做拓展 → 统筹整合成思维导图
+brainstorm_pipeline: [ideate, expand, organize, reveal]
+brainstorm: {max_ideas: 4, max_expansions: 3, max_branches: 6, max_ideas_per_branch: 6, max_next_steps: 5}
 collab_pipeline: [decompose, volunteer, assign, discuss, work, cross_review, rework, accept, merge, reveal]
 collab:
   max_subtasks: 12        # 拆分的子任务上限

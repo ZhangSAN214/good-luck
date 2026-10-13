@@ -102,6 +102,8 @@ roundtable export <id> [-o 文件]     # 导出完整记录（UTF-8 带 BOM，�
 roundtable ask '题目'                # 节电模式（便宜档全员）上桌（PowerShell 中题目用单引号）
 roundtable ask --tier flagship --anonymous '题目'   # 全力模式（旗舰档全员）、匿名
 roundtable ask --mode collab '题目'  # 协同模式：拆分子任务、分工完成、合并
+roundtable ask --mode solo|brainstorm|auto '题目'   # 个人作答 / 头脑风暴（思维导图）/ 自动（分诊小组先给建议）
+roundtable mindmap <id> -o 导图.svg  # 保存头脑风暴的导图（.svg / .md / .mmd）
 roundtable ask --attach 图.png --attach 讲义.pdf '题目'   # 带附件
 roundtable files <id> [-o 目录]      # 保存成员生成的文件（含图片 / 音频 / 视频）
 roundtable ask --media image '画一只猫'   # 输出图片（--media speech / video；--media-tier flagship 用高质量档）

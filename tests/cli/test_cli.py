@@ -534,3 +534,29 @@ async def test_ask_auto_mode_shows_panel_advice_and_yes_accepts_it():
     assert "需要你确认" in text and "采用建议：个人作答" in text and "一步就能算出" in text
     assert "（--yes：自动选择继续）" in text
     assert env.models_called("独立完成同一道题") == ["b1"]
+
+
+async def test_brainstorm_cli_and_mindmap_export(tmp_path):
+    from ..core.orchestrator.test_brainstorm import make
+
+    env = make()
+    code, text = await cli(env, "ask", "怎样拓展思路", "--mode", "brainstorm", "--seed", "3")
+    assert code == 0 and "降低开裂" in text
+    sid = re.search(r"会话：(\w+)", text).group(1)
+    svg = tmp_path / "m.svg"
+    code, text = await cli(env, "mindmap", sid, "-o", str(svg))
+    assert code == 0 and svg.read_text(encoding="utf-8").startswith("<svg")
+    md = tmp_path / "m.md"
+    assert (await cli(env, "mindmap", sid, "-o", str(md)))[0] == 0
+    assert md.read_text(encoding="utf-8").startswith("# 降低开裂")
+    mmd = tmp_path / "m.mmd"
+    await cli(env, "mindmap", sid, "-o", str(mmd))
+    assert mmd.read_text(encoding="utf-8").startswith("mindmap")
+
+
+async def test_mindmap_command_without_mindmap_explains():
+    env = Env(confirm_threshold_usd=100.0)
+    await cli(env, "ask", SHORT, "--seed", "1", answers=Answers("n"))
+    sid = re.search(r"会话：(\w+)", (await cli(env, "history"))[1])
+    code, text = await cli(env, "mindmap", sid.group(1) if sid else "x")
+    assert code == 2 or "没有思维导图" in text

@@ -81,6 +81,9 @@ STEP_NAMES = {
     "rework": "按审查修改",
     "accept": "逐条验收",
     "merge": "统筹合并",
+    "ideate": "成员发散",
+    "expand": "互相拓展",
+    "organize": "统筹整合导图",
     "attachments": "处理附件",
     "media": "生成媒体",
     "style": "提取风格规范",
@@ -325,6 +328,9 @@ class CLI:
             if any(o.kind == "subtasks" for o in outputs):
                 self.print_collab(outputs, table_no, details)
                 continue
+            if any(o.kind in ("ideas", "mindmap") for o in outputs):
+                self.print_brainstorm(outputs, table_no, details)
+                continue
             if details:
                 for o in outputs:
                     who = self.label(o.code, table_no)
@@ -535,7 +541,13 @@ class CLI:
         cfg = self.rt.config.routing
         plan = choice.tier or cfg.default_plan
         threshold = cfg.confirm_threshold_usd
-        mode_names = {"discussion": "讨论", "collab": "协同", "solo": "个人", "auto": "自动"}
+        mode_names = {
+            "discussion": "讨论",
+            "collab": "协同",
+            "solo": "个人",
+            "brainstorm": "头脑风暴",
+            "auto": "自动",
+        }
         length = LENGTH_NAMES.get(assessment.difficulty, assessment.difficulty)
         source = SOURCE_NAMES.get(assessment.source, assessment.source)
         self.p(f"提交前预估（答案长度：{length}，{source}；不含规划员）：")
@@ -706,6 +718,33 @@ class CLI:
             for i in r["issues"]:
                 where, what, fix = (self.t(i[k]) for k in ("location", "problem", "suggestion"))
                 self.p(f"     · [{i['severity']}] {where}：{what} → {fix}")
+
+    def print_brainstorm(self, outputs, table_no: int, details: bool) -> None:
+        """头脑风暴：详情里列出每人的想法与拓展；最后给出整合后的大纲。"""
+        if details:
+            for o in outputs:
+                who = self.label(o.code, table_no)
+                if o.kind == "ideas":
+                    items = json.loads(o.content)["ideas"]
+                    self.p(f"\n【{who} 的想法】")
+                    for i in items:
+                        detail = f"：{self.t(i['detail'])}" if i["detail"] else ""
+                        self.p(f"  {i['id']} {self.t(i['title'])}{detail}")
+                elif o.kind == "expansions":
+                    items = json.loads(o.content)["items"]
+                    if items:
+                        self.p(f"\n【{who} 的拓展】")
+                    for x in items:
+                        on = f"（针对 {x['on']}）" if x["on"] else ""
+                        self.p(f"  [{x['kind']}]{on} {self.t(x['text'])}")
+        mm = next((o for o in outputs if o.kind == "mindmap"), None)
+        if mm is None:
+            return
+        data = json.loads(mm.content)
+        if data["map"].get("degraded"):
+            self.p("\n（统筹没能整合出导图，以下按成员分别列出各自的想法）")
+        self.p("\n【思维导图（大纲）】\n" + self.t(data["markdown"]))
+        self.p("保存图片或代码：roundtable mindmap <会话 id> -o 导图.svg（也可用 .md / .mmd）")
 
     def print_synthesis(self, s: dict[str, Any], table_no: int = 0) -> None:
         if s.get("degraded"):
@@ -961,6 +1000,21 @@ class CLI:
             self.p(f"已导出到 {target.resolve()}")
         return 0
 
+    def cmd_mindmap(self, session_id: str, output: str | None) -> int:
+        """保存头脑风暴的思维导图：按后缀 .svg（图）/ .md（大纲）/ .mmd（Mermaid）。"""
+        rows = self.rt.repo.outputs(session_id, kind="mindmap")
+        if not rows:
+            self.p("这场讨论没有思维导图（只有头脑风暴模式会生成）。")
+            return 2
+        data = json.loads(rows[-1]["content"])
+        target = Path(output or f"roundtable-{session_id[:8]}-mindmap.svg")
+        text = {".md": data["markdown"], ".mmd": data["mermaid"]}.get(
+            target.suffix.lower(), data["svg"]
+        )
+        target.write_text(text, encoding="utf-8")
+        self.p(f"已保存到 {target.resolve()}")
+        return 0
+
     def cmd_models(self) -> int:
         available = {m.id for m in self.rt.router.available_models()}
         self.p(f"渠道模式：{self.rt.router.mode}")
@@ -1051,11 +1105,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     ask.add_argument(
         "--mode",
-        choices=["discussion", "collab", "solo", "auto"],
+        choices=["discussion", "collab", "solo", "brainstorm", "auto"],
         default="discussion",
         help=(
             "discussion 讨论（全员各自作答再互评汇总，默认）/ collab 协同（拆分子任务分工完成）"
             "/ solo 个人作答（档位内挑最便宜的一位直接回答）"
+            "/ brainstorm 头脑风暴（发散、拓展、整合成思维导图）"
             "/ auto 自动（先请分诊小组给建议，你确认后再开始）"
         ),
     )
@@ -1127,6 +1182,11 @@ def build_parser() -> argparse.ArgumentParser:
     files = sub.add_parser("files", help="把成员生成的文件保存到本地目录")
     files.add_argument("session_id")
     files.add_argument("-o", "--output", help="目录，默认 roundtable-<会话 id 前 8 位>-files")
+    mindmap = sub.add_parser("mindmap", help="保存头脑风暴的思维导图（.svg 图 / .md 大纲 / .mmd）")
+    mindmap.add_argument("session_id")
+    mindmap.add_argument(
+        "-o", "--output", help="输出文件，默认 roundtable-<会话 id 前 8 位>-mindmap.svg"
+    )
     export = sub.add_parser("export", help="导出完整记录到 UTF-8 文本文件（含花费明细）")
     export.add_argument("session_id")
     export.add_argument("-o", "--output", help="输出文件，默认 roundtable-<会话 id 前 8 位>.txt")
@@ -1235,6 +1295,8 @@ async def run(
             root = cli.save_files(args.session_id, args.output)
             print(f"已保存到 {root.resolve()}", file=out)
             return 0
+        if args.command == "mindmap":
+            return cli.cmd_mindmap(args.session_id, args.output)
         if args.command == "export":
             target = cli.export(args.session_id, args.output)
             print(f"已导出到 {target.resolve()}", file=out)

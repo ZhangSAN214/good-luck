@@ -87,6 +87,8 @@ class LineupBuilder:
             return rt.collab_pipeline
         if workflow == "solo":
             return rt.solo_pipeline
+        if workflow == "brainstorm":
+            return rt.brainstorm_pipeline
         return (plan.pipeline if plan else None) or rt.pipeline
 
     def build_solo(self, plan: PlanSpec, require_tags: Sequence[str] = ()) -> Lineup:

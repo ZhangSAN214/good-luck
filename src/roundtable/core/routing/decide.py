@@ -27,7 +27,7 @@ from .planner import PlannerResult, run_planner
 from .triage import Question, triage
 
 CUSTOM = "custom"
-WORKFLOWS = ("discussion", "collab", "solo")  # 讨论模式 / 协同模式 / 个人作答
+WORKFLOWS = ("discussion", "collab", "solo", "brainstorm")  # 讨论 / 协同 / 个人作答 / 头脑风暴
 AUTO = "auto"  # 自动：先请分诊小组给建议，用户确认后改成上面三种之一
 MEDIA_KINDS = KINDS
 Source = Literal["rule", "model", "default"]
@@ -57,8 +57,10 @@ class UserChoice:
             raise RoutingError(
                 "协同模式不需要选择输出类型：拆分子任务时统筹会决定哪些子任务要生成图片、语音或视频"
             )
-        if self.media is not None and self.workflow == "solo":
-            raise RoutingError("个人作答不支持选择输出类型，请用讨论模式生成图片、语音或视频")
+        if self.media is not None and self.workflow in ("solo", "brainstorm"):
+            raise RoutingError(
+                "个人作答和头脑风暴不支持选择输出类型，请用讨论模式生成图片、语音或视频"
+            )
         if self.media_tier not in (None, "budget", "flagship"):
             raise RoutingError(f"未知的媒体档位 {self.media_tier!r}，可选：budget / flagship")
         if self.workflow not in (*WORKFLOWS, AUTO):

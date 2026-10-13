@@ -22,6 +22,9 @@ export const STEP_LABELS = {
   media: '生成媒体',
   style: '风格规范',
   style_gate: '风格校验',
+  ideate: '发散',
+  expand: '拓展',
+  organize: '整合成导图',
 };
 export const MEDIA_LABELS = { image: '图片', speech: '语音', video: '视频' };
 const JOB_STATE = {
@@ -33,7 +36,7 @@ const JOB_STATE = {
   timeout: ['超时', 'bad'],
 };
 // 由统筹执行的步骤
-export const COORD_STEPS = new Set(['synthesize', 'decompose', 'assign', 'accept', 'merge']);
+export const COORD_STEPS = new Set(['synthesize', 'decompose', 'assign', 'accept', 'merge', 'organize']);
 // 协同流水线的子任务类型名（来自 /api/status 的 collab_kinds，不写死在前端）
 let KIND_LABELS_CFG = {};
 export function setKindLabels(map) {
@@ -400,7 +403,7 @@ export function feedItems(sv, ctx) {
 
 function modeText(sv, ctx) {
   const tier = sv.tier === 'custom' ? ctx.customLabel : ctx.plans[sv.tier] || sv.tier;
-  const parts = [({ collab: '协同', solo: '个人', auto: '自动' }[sv.workflow] || '讨论'), tier];
+  const parts = [({ collab: '协同', solo: '个人', auto: '自动', brainstorm: '头脑风暴' }[sv.workflow] || '讨论'), tier];
   if (sv.media_kind) parts.push(`输出${MEDIA_LABELS[sv.media_kind] || sv.media_kind}`);
   if (sv.anonymous) parts.push('匿名');
   return parts.join(' · ');
@@ -440,6 +443,28 @@ function effort(o, sp, data) {
   return sys('检查', `${esc(sp.name)} 的${esc(what)}没有实质内容（${esc(first)}），已打回重做，重做后合格`);
 }
 
+const EXPAND_NAMES = { build: '深化', combine: '组合', challenge: '质疑改进', new: '全新想法' };
+
+function ideaList(ideas) {
+  const rows = (ideas || []).map((i) => `<li><b>${esc(i.id)} ${esc(i.title)}</b>${i.detail ? `：${esc(i.detail)}` : ''}</li>`);
+  return `<div class="bubble"><ul>${rows.join('')}</ul></div>`;
+}
+
+function expansionList(items) {
+  const rows = items.map((x) => `<li><b>${esc(EXPAND_NAMES[x.kind] || x.kind)}${x.on ? ` · ${esc(x.on)}` : ''}</b>：${esc(x.text)}</li>`);
+  return `<div class="bubble"><ul>${rows.join('')}</ul></div>`;
+}
+
+/** 思维导图：服务端生成的 SVG 放进 <img>（图片里的脚本不会执行），附 Markdown 大纲和 Mermaid 供复制。 */
+function mindmapCard(data) {
+  const src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(data.svg || '')}`;
+  const note = data.map?.degraded ? '<div class="meta">统筹没能整合，这里按成员分别列出了想法。</div>' : '';
+  return `<div class="bubble mindmap">${note}<div class="mm-scroll"><img alt="思维导图" src="${src}"></div>
+<div class="mm-actions"><a download="mindmap.svg" href="${src}">下载 SVG</a></div>
+<details class="more"><summary>Markdown 大纲</summary><pre>${esc(data.markdown || '')}</pre></details>
+<details class="more"><summary>Mermaid 代码</summary><pre>${esc(data.mermaid || '')}</pre></details></div>`;
+}
+
 function output(o, names, lazy = new Map(), sources = null) {
   const sp = names.speaker(o.table_no, o.code);
   const lazyWhy = lazy.get(`${o.table_no}:${o.step}:${o.code}`);
@@ -455,6 +480,9 @@ function output(o, names, lazy = new Map(), sources = null) {
   }
   const data = parse(o.content);
   if (!data) return msg(sp, o.kind, `<div class="bubble">${md(o.content)}</div>`);
+  if (o.kind === 'ideas') return msg(sp, '想法', ideaList(data.ideas));
+  if (o.kind === 'expansions') return data.items.length ? msg(sp, '拓展', expansionList(data.items)) : '';
+  if (o.kind === 'mindmap') return msg(sp, '思维导图', mindmapCard(data));
   if (o.kind === 'style_spec') return styleCard(o, data);
   if (o.kind === 'style_gate') return styleGateLine(sp, data, names);
   if (o.kind === 'style_redraw') {

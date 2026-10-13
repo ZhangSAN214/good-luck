@@ -47,6 +47,9 @@ def test_repo_config_loads_with_defaults():
     assert set(rt.prompts) == {
         "planner",
         "panel",
+        "ideate",
+        "expand",
+        "organize",
         "answer",
         "review",
         "revise",

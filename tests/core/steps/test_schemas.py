@@ -146,6 +146,9 @@ def test_registry():
             "rework",
             "merge",
             "media",
+            "ideate",
+            "expand",
+            "organize",
         ]
     )
     with pytest.raises(ValueError):

@@ -7,7 +7,12 @@ from roundtable.core.cards import CardOption, ConfirmationCard, money
 from .decide import RoutingDecision
 from .panel import PanelResult
 
-WORKFLOW_NAMES = {"solo": "个人作答", "discussion": "讨论模式", "collab": "协同模式"}
+WORKFLOW_NAMES = {
+    "solo": "个人作答",
+    "discussion": "讨论模式",
+    "collab": "协同模式",
+    "brainstorm": "头脑风暴",
+}
 
 
 def _people(decision: RoutingDecision) -> str:

@@ -218,6 +218,14 @@ def estimate_pipeline(
         "rework": (members, o + q + d + a + k * r, revised),
         "accept": (coord, o + q + d + n * revised, params.accept_tokens),
         "merge": (coord, o + q + d + n * revised, params.merge_tokens),
+        # 头脑风暴：每人 ideate_tokens 的想法；拓展时看别人的想法；统筹整合全部
+        "ideate": (members, o + q, params.ideate_tokens),
+        "expand": (members, o + q + (n - 1) * params.ideate_tokens, params.expand_tokens),
+        "organize": (
+            coord,
+            o + q + n * (params.ideate_tokens + params.expand_tokens),
+            params.organize_tokens,
+        ),
     }
     steps: list[StepCost] = []
     unknown: list[str] = []
