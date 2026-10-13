@@ -480,3 +480,38 @@ async def test_note_command_records_and_validates():
     assert code == 1 and "不能为空" in out
     code, out = await cli(env, "note", "不存在", "嗨")
     assert code == 1 and "找不到" in out
+
+
+async def test_bench_runs_reports_exports_and_lists(tmp_path):
+    env = Env(confirm_threshold_usd=100.0)
+    bank = tmp_path / "q.yaml"
+    bank.write_text(
+        "questions:\n  - {id: m-1, category: math, text: '" + MEDIUM + "', "
+        "judge: {type: number, answer: -2}}\n",
+        encoding="utf-8",
+    )
+    out_csv = tmp_path / "r.csv"
+    code, text = await cli(
+        env, "bench", "--questions", str(bank), "--modes", "solo:budget,discussion:budget",
+        "--batch", "demo", "--seed", "4", "-o", str(out_csv),
+    )  # fmt: skip
+    assert code == 0
+    assert "预估花费" in text and "solo/budget" in text and "每答对一题平均花费" in text
+    assert "m-1" in text and "✓" in text
+    assert out_csv.read_text(encoding="utf-8-sig").startswith("id,batch,question_id")
+    code, text = await cli(env, "bench", "--list")
+    assert code == 0 and "demo" in text
+    code, text = await cli(env, "bench", "--report", "demo", "-o", str(tmp_path / "r.json"))
+    assert code == 0 and (tmp_path / "r.json").exists()
+    code, text = await cli(env, "bench", "--report", "nope")
+    assert code == 2
+
+
+async def test_bench_rejects_bad_bank_and_empty_filter(tmp_path):
+    env = Env()
+    bad = tmp_path / "bad.yaml"
+    bad.write_text("questions: 3\n")
+    code, text = await cli(env, "bench", "--questions", str(bad))
+    assert code == 2 and "实验设置有误" in text
+    code, text = await cli(env, "bench", "--category", "no-such-category")
+    assert code == 2 and "没有符合条件" in text

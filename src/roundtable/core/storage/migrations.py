@@ -343,4 +343,27 @@ CREATE TABLE user_notes (
 CREATE INDEX idx_user_notes_session ON user_notes(session_id, id);
 """,
     ),
+    (
+        12,
+        "对比实验结果",
+        """
+-- 对比实验（roundtable bench）：每行是一道题在一种模式下的一次运行。
+-- correct 为空表示没有跑完（出错、被停止或超预算），不计入正确率。
+CREATE TABLE bench_runs (
+    id          INTEGER PRIMARY KEY,
+    batch       TEXT NOT NULL,
+    question_id TEXT NOT NULL,
+    category    TEXT NOT NULL,
+    workflow    TEXT NOT NULL,
+    tier        TEXT NOT NULL,
+    session_id  TEXT,
+    status      TEXT NOT NULL,
+    correct     INTEGER,
+    cost_usd    REAL NOT NULL DEFAULT 0,
+    seconds     REAL NOT NULL DEFAULT 0,
+    created_at  TEXT NOT NULL
+);
+CREATE INDEX idx_bench_runs_batch ON bench_runs(batch, id);
+""",
+    ),
 ]

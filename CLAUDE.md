@@ -96,6 +96,7 @@ python scripts/lock_prompts.py      # 新增提示词版本后登记
 roundtable estimate '题目'           # 提交前预估：各模式 × 各档位的上桌人数与花费（不调用模型）
 roundtable models                   # 查看模型、档位、可用渠道与预算
 roundtable stats                    # 各模型的历史贡献
+roundtable bench --max-usd 2          # 对比实验：个人 / 讨论 / 协同各跑同一批题，比正确率、花费、耗时
 roundtable show <id> --costs        # 每步预估与实际花费、每次调用的 token
 roundtable export <id> [-o 文件]     # 导出完整记录（UTF-8 带 BOM，含花费明细）
 roundtable ask '题目'                # 节电模式（便宜档全员）上桌（PowerShell 中题目用单引号）

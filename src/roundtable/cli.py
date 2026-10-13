@@ -25,17 +25,27 @@ from __future__ import annotations
 import argparse
 import asyncio
 import contextlib
+import csv
 import io
 import json
 import secrets
 import sys
 from collections import defaultdict
 from collections.abc import Callable, Sequence
+from datetime import datetime
 from pathlib import Path
 from typing import Any, TextIO
 
 from roundtable.core.allocation import coordinator_name, display_name
 from roundtable.core.attachments import UploadError, ingest
+from roundtable.core.bench import (
+    BenchError,
+    BenchRunner,
+    cost_per_correct,
+    load_questions,
+    parse_modes,
+    summarize,
+)
 from roundtable.core.config import ConfigError
 from roundtable.core.display import format_rice
 from roundtable.core.notes import NoteError, check_can_add, clean_note
@@ -50,7 +60,7 @@ from roundtable.core.routing import (
     detect_multi_media,
     preview_estimates,
 )
-from roundtable.core.runtime import Runtime
+from roundtable.core.runtime import PROJECT_ROOT, Runtime
 from roundtable.core.steps import Event
 from roundtable.core.storage import NotFound
 from roundtable.plaintext import to_terminal
@@ -848,6 +858,108 @@ class CLI:
             self.p(f"  {channel}：{reason}")
         return False
 
+    async def cmd_bench(self, args: argparse.Namespace) -> int:
+        """对比实验：同一批题用不同模式各跑一遍，比较正确率、花费、耗时。"""
+        if args.list:
+            batches = self.rt.repo.bench_batches()
+            if not batches:
+                self.p("还没有做过对比实验。")
+            for b in batches:
+                self.p(
+                    f"  {b['batch']}  {b['runs']} 次运行  ${b['cost_usd']:.4f}  {b['started_at']}"
+                )
+            return 0
+        if args.report:
+            return self._bench_report(args.report, args.output)
+        if not self.check_available():
+            return 2
+        try:
+            questions = load_questions(args.questions)
+            modes = parse_modes(args.modes)
+        except BenchError as exc:
+            self.p(f"实验设置有误：{exc}")
+            return 2
+        if args.category:
+            questions = [q for q in questions if q.category in args.category]
+        if args.limit:
+            questions = questions[: args.limit]
+        if not questions:
+            self.p("没有符合条件的题目。")
+            return 2
+        seed = args.seed if args.seed is not None else secrets.randbelow(2**31)
+        batch = args.batch or datetime.now().strftime("bench-%Y%m%d-%H%M%S")
+        self.p(
+            f"实验 {batch}：{len(questions)} 道题 × {len(modes)} 种模式，花费上限 ${args.max_usd:g}"
+        )
+        self.print_bench_estimate(questions, modes, seed)
+        runner = BenchRunner(self.orc, self.rt.repo)
+
+        def line(r) -> None:
+            mark = {True: "✓", False: "✗", None: "—"}[r.correct]
+            self.p(
+                f"  {r.question_id:<12} {r.workflow}/{r.tier:<9} {mark}  ${r.cost_usd:.4f}"
+                f"  {r.seconds:.1f}s  {r.status}"
+            )
+
+        try:
+            done = await runner.run(
+                questions, modes, batch=batch, seed=seed, max_usd=args.max_usd, on_result=line
+            )
+        except BenchError as exc:
+            self.p(f"实验设置有误：{exc}")
+            return 2
+        if len(done) < len(questions) * len(modes):
+            self.p(f"\n已达到花费上限 ${args.max_usd:g}，提前停止（{len(done)} 次运行已保存）。")
+        return self._bench_report(batch, args.output)
+
+    def print_bench_estimate(self, questions, modes, seed: int) -> None:
+        totals = {m.label: 0.0 for m in modes}
+        for q in questions:
+            _, options = preview_estimates(
+                Question(q.text),
+                config=self.rt.config,
+                router=self.rt.router,
+                seed=seed,
+                workflows=sorted({m.workflow for m in modes}),
+            )
+            for m in modes:
+                for o in options:
+                    if o.workflow == m.workflow and o.plan == m.tier and o.estimate:
+                        totals[m.label] += o.estimate.total_usd
+        self.p("预估花费：" + "；".join(f"{k} ${v:.4f}" for k, v in totals.items()))
+
+    def _bench_report(self, batch: str, output: str | None) -> int:
+        rows = self.rt.repo.bench_runs(batch)
+        if not rows:
+            self.p(f"没有找到实验 {batch}。")
+            return 2
+        summary = summarize(rows)
+        self.p(f"\n实验 {batch} 汇总（只统计跑完的运行）：")
+        self.p("  模式              类别      题数 答对 正确率  平均花费   平均耗时")
+        for r in summary:
+            self.p(
+                f"  {r['workflow'] + '/' + r['tier']:<16} {r['category']:<9} {r['questions']:>3}"
+                f" {r['correct']:>4} {r['accuracy']:>6.0%}  ${r['avg_cost_usd']:<8.4f} "
+                f"{r['avg_seconds']:.1f}s"
+            )
+        for (workflow, tier), value in sorted(cost_per_correct(rows).items()):
+            text = f"${value:.4f}" if value is not None else "没有答对的题"
+            self.p(f"  {workflow}/{tier}：每答对一题平均花费 {text}")
+        if output:
+            target = Path(output)
+            if target.suffix.lower() == ".json":
+                target.write_text(
+                    json.dumps({"runs": rows, "summary": summary}, ensure_ascii=False, indent=2),
+                    encoding="utf-8",
+                )
+            else:
+                with target.open("w", encoding="utf-8-sig", newline="") as f:
+                    w = csv.DictWriter(f, fieldnames=list(rows[0]))
+                    w.writeheader()
+                    w.writerows(rows)
+            self.p(f"已导出到 {target.resolve()}")
+        return 0
+
     def cmd_models(self) -> int:
         available = {m.id for m in self.rt.router.available_models()}
         self.p(f"渠道模式：{self.rt.router.mode}")
@@ -968,6 +1080,25 @@ def build_parser() -> argparse.ArgumentParser:
     reveal.add_argument("--no-reveal", dest="reveal", action="store_false", help="结束后不揭晓")
 
     sub.add_parser("models", help="查看模型、档位与可用渠道")
+    bench = sub.add_parser(
+        "bench", help="对比实验：同一批题用个人 / 讨论 / 协同各跑一遍，比较正确率、花费、耗时"
+    )
+    bench.add_argument(
+        "--questions", default=str(PROJECT_ROOT / "benchmarks"), help="题库文件或目录"
+    )
+    bench.add_argument(
+        "--modes",
+        default="solo:budget,discussion:budget,collab:budget",
+        help="模式:档位，逗号分隔，如 solo:budget,collab:flagship",
+    )
+    bench.add_argument("--category", action="append", help="只跑这些类别（可重复）")
+    bench.add_argument("--limit", type=int, help="只跑前 N 题")
+    bench.add_argument("--max-usd", type=float, default=2.0, help="花费上限，默认 2 美元")
+    bench.add_argument("--seed", type=int)
+    bench.add_argument("--batch", help="实验名称，默认按时间生成")
+    bench.add_argument("--list", action="store_true", help="列出历次实验")
+    bench.add_argument("--report", metavar="BATCH", help="只查看某次实验的汇总")
+    bench.add_argument("-o", "--output", help="导出 CSV 或 JSON（按后缀）")
     sub.add_parser("stats", help="各模型的历史贡献（被采纳、有效问题、敷衍次数等）")
     history = sub.add_parser("history", help="最近的讨论")
     history.add_argument("--limit", type=int, default=20)
@@ -1058,6 +1189,8 @@ async def run(
                 attach=args.attach,
                 style_ref=not args.no_style_ref,
             )
+        if args.command == "bench":
+            return await cli.cmd_bench(args)
         if args.command == "models":
             return cli.cmd_models()
         if args.command == "stats":

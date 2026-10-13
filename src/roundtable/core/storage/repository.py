@@ -598,6 +598,55 @@ class Repository:
         ).fetchone()
         return _checkpoint(row) if row else None
 
+    # --- 对比实验 -----------------------------------------------------------------
+
+    def add_bench_run(
+        self,
+        *,
+        batch: str,
+        question_id: str,
+        category: str,
+        workflow: str,
+        tier: str,
+        session_id: str | None,
+        status: str,
+        correct: bool | None,
+        cost_usd: float,
+        seconds: float,
+    ) -> int:
+        with self._tx():
+            cur = self.conn.execute(
+                "INSERT INTO bench_runs (batch, question_id, category, workflow, tier, session_id,"
+                " status, correct, cost_usd, seconds, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                (
+                    batch,
+                    question_id,
+                    category,
+                    workflow,
+                    tier,
+                    session_id,
+                    status,
+                    None if correct is None else int(correct),
+                    cost_usd,
+                    seconds,
+                    _now(),
+                ),
+            )
+        return int(cur.lastrowid or 0)
+
+    def bench_runs(self, batch: str) -> list[dict[str, Any]]:
+        rows = self._exec("SELECT * FROM bench_runs WHERE batch = ? ORDER BY id", (batch,))
+        return [dict(r) for r in rows.fetchall()]
+
+    def bench_batches(self) -> list[dict[str, Any]]:
+        """历次实验：最近的在前。"""
+        rows = self._exec(
+            "SELECT batch, COUNT(*) AS runs, COALESCE(SUM(cost_usd), 0) AS cost_usd,"
+            " MIN(created_at) AS started_at FROM bench_runs GROUP BY batch"
+            " ORDER BY MAX(id) DESC"
+        )
+        return [dict(r) for r in rows.fetchall()]
+
     # --- 用户中途插话 -------------------------------------------------------------
 
     def add_note(self, session_id: str, text: str) -> int:
