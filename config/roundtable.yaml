@@ -36,6 +36,8 @@ prompts:
   decompose: v4
   volunteer: v1
   assign: v3
+  discuss: v1            # 协同：分工后组员提调整建议
+  adjust: v1             # 协同：统筹据此最多调整一次
   work: v1
   decompose_retry: v1    # 流水线拆分不合格时，把问题列给统筹重拆
   work_analyze: v1       # 协同流水线：各类型子任务的工作提示词
@@ -84,6 +86,8 @@ step_params:
   decompose: {max_tokens: 2500, reasoning: {effort: low}}
   volunteer: {max_tokens: 1500, reasoning: {effort: low}}
   assign: {max_tokens: 1500, reasoning: {effort: low}}
+  discuss: {max_tokens: 1200, reasoning: {effort: low}}
+  adjust: {max_tokens: 1500, reasoning: {effort: low}}
   work: {max_tokens: 6000, reasoning: {max_tokens: 2000}}
   cross_review: {max_tokens: 3000, reasoning: {max_tokens: 800}}
   rework: {max_tokens: 6000, reasoning: {max_tokens: 2000}}
@@ -124,9 +128,11 @@ effort_check:
 pipeline: [answer, review, revise, synthesize, reveal]
 # 协同模式：统筹拆分子任务 → 成员自荐 → 统筹分配（每人至少一块）→ 并行完成 → 交叉审查（不审自己的）
 #          → 作者按审查修改 → 统筹合并成完整成果
-collab_pipeline: [decompose, volunteer, assign, work, cross_review, rework, merge, reveal]
+collab_pipeline: [decompose, volunteer, assign, discuss, work, cross_review, rework, merge, reveal]
 collab:
   max_subtasks: 12        # 拆分的子任务上限
+  # 分工讨论：分工确定后组员对方案提简短建议，统筹最多调整一次（调整后仍须满足分配规则，否则保持原分工）
+  discussion: {enabled: true, min_members: 3, max_suggestions: 3}
 
   # --- 流水线（成员数 ≥ pipeline.min_members 时启用）---------------------------------
   # 协同不是"各做各的"：统筹把题目拆成一条流水线（每个子任务有类型，上游产出交给下游继续做），

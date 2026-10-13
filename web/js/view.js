@@ -13,6 +13,7 @@ export const STEP_LABELS = {
   decompose: '拆分子任务',
   volunteer: '自荐',
   assign: '分配',
+  discuss: '分工讨论',
   work: '完成子任务',
   cross_review: '交叉审查',
   rework: '修改',
@@ -519,6 +520,17 @@ function collabOutput(o, sp, data, names, sources = null) {
       ? `<details class="more"><summary>分配不符合规则，已由代码补齐</summary><div>${esc(data.repaired.join('\n'))}</div></details>`
       : '';
     return msg(sp, '分配', `<div class="bubble">${li(rows)}${why}</div>${fixed}`);
+  }
+  if (o.kind === 'discuss') {
+    if (data.degraded) return sys('分工讨论', `${esc(sp.name)} 没有给出可用的意见，按无异议处理`);
+    if (!data.suggestions.length) return sys('分工讨论', `${esc(sp.name)}：同意当前分工`);
+    const rows = data.suggestions.map(
+      (x) => `<li>${esc(names.subtask(t, x.subtask))}：${md(x.suggestion)}${x.reason ? `<div class="meta">理由：${md(x.reason)}</div>` : ''}</li>`,
+    );
+    return msg(sp, '对分工的建议', `<div class="bubble">${li(rows)}</div>`);
+  }
+  if (o.kind === 'discuss_result') {
+    return sys('统筹', `${data.adjusted ? '已调整分工' : '保持原分工'}：${md(data.why || '')}`, data.adjusted ? 'ok' : '');
   }
   if (o.kind === 'work') {
     return msg(sp, `完成 ${names.subtask(t, data.subtask)}`, `<div class="bubble">${cite(md(data.text), sources)}</div>${mediaFoot(data.media)}`);
@@ -1215,6 +1227,55 @@ function chainGraph(subs, assign, works, handoffs, names, tableNo) {
   return `${h}</div>`;
 }
 
+// 实时进度看板：每个子任务当前处于哪个阶段（只根据已有记录推断，不额外调用模型）
+export function boardStates(running, subs, assign, merge, works, crossReviews, reworks) {
+  const ownersOf = (id) => (assign?.assignments.find((x) => x.subtask === id) || { members: [] }).members;
+  const finished = (id) => {
+    const o = ownersOf(id);
+    return o.length > 0 && o.every((c) => works.some((w) => w.o.code === c && w.d.subtask === id));
+  };
+  return subs.subtasks.map((st) => {
+    const owners = (assign?.assignments.find((x) => x.subtask === st.id) || { members: [] }).members;
+    let state = '待开始';
+    if (merge) state = '已完成';
+    else if (!assign || !owners.length) state = '待分配';
+    else if (!owners.every((c) => works.some((w) => w.o.code === c && w.d.subtask === st.id))) {
+      const waiting = (st.depends_on || []).some((d) => !finished(d)); // 上游还没交付
+      state = running && !waiting ? '进行中' : '待开始';
+    } else if (!crossReviews.length) state = running ? '审查中' : '待审查';
+    else if (!owners.every((c) => reworks.some((r) => r.o.code === c && r.d.subtask === st.id))) state = running ? '修改中' : '待修改';
+    else state = '待合并';
+    return { st, owners, state };
+  });
+}
+
+const BOARD_CLS = { 待开始: '', 待分配: '', 进行中: 'wait', 审查中: 'wait', 修改中: 'wait', 待审查: '', 待修改: '', 待合并: 'okp', 已完成: 'okp' };
+
+function boardHTML(sv, t, subs, assign, merge, works, crossReviews, reworks, names) {
+  const rows = boardStates(!!sv.running, subs, assign, merge, works, crossReviews, reworks);
+  const done = rows.filter((r) => r.state === '已完成' || r.state === '待合并').length;
+  let h = `<h4>${esc(`第 ${t.table_no + 1} 桌 · 进度看板`)} <span class="hint">${done}/${rows.length}</span></h4><div class="board" role="list">`;
+  for (const { st, owners, state } of rows) {
+    const who = owners.length ? owners.map((c) => esc(names.member(c))).join('、') : '—';
+    h += `<div class="bcard" role="listitem" data-state="${esc(state)}"><div class="bt">${kindPill(st.kind)}<b>${esc(st.id)}</b> ${esc(st.title)}</div><div class="bm"><span class="pill ${BOARD_CLS[state] || ''}">${esc(state)}</span><span class="hint">${who}</span></div></div>`;
+  }
+  return `${h}</div>`;
+}
+
+function discussionHTML(items, result, names, tableNo) {
+  if (!items.length && !result) return '';
+  let h = '<h4>分工讨论</h4>';
+  if (!items.length) h += '<p class="hint">没有收集到意见。</p>';
+  for (const { o, d } of items) {
+    const who = esc(names.member(o.code));
+    if (d.degraded) h += `<p class="hint">${who}：没有给出可用的意见，按无异议处理</p>`;
+    else if (!d.suggestions.length) h += `<p class="hint">${who}：同意当前分工</p>`;
+    else h += `<p class="hint">${who}：${d.suggestions.map((x) => `${esc(names.subtask(tableNo, x.subtask))} ${esc(x.suggestion)}`).join('；')}</p>`;
+  }
+  if (result) h += `<p>${result.adjusted ? '统筹已调整分工' : '统筹保持原分工'}：${esc(result.why || '')}</p>`;
+  return h;
+}
+
 export function splitPanel(sv, prefix) {
   if (!sv) return '<p class="empty">提交题目后显示。</p>';
   if (sv.workflow !== 'collab') {
@@ -1228,10 +1289,12 @@ export function splitPanel(sv, prefix) {
     const pick = (kind) => outs.filter((o) => o.kind === kind).map((o) => ({ o, d: parse(o.content) })).filter((x) => x.d);
     const subs = pick('subtasks')[0]?.d;
     if (!subs) continue;
-    const assign = pick('assignment')[0]?.d;
+    const assign = pick('assignment').at(-1)?.d; // 分工讨论后可能调整过，取最后一份
     const merge = pick('merge')[0]?.d;
     const works = pick('work');
     const vols = pick('volunteer');
+    h += boardHTML(sv, t, subs, assign, merge, works, pick('cross_review'), pick('rework'), names);
+    h += discussionHTML(pick('discuss'), pick('discuss_result')[0]?.d, names, t.table_no);
     h += `<h4>${esc(`第 ${t.table_no + 1} 桌 · 子任务与负责人`)}</h4>`;
     h += '<table><thead><tr><th>子任务</th><th>负责人</th><th>成果</th><th>采纳</th></tr></thead><tbody>';
     let n = 0;

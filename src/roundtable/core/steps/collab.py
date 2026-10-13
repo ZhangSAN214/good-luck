@@ -32,6 +32,7 @@ from .collab_schemas import (
     STANCE_SCORE,
     Assignment,
     CollabState,
+    Discussion,
     Merge,
     Subtask,
     Volunteer,
@@ -42,6 +43,7 @@ from .collab_schemas import (
     layers,
     parse_assignment,
     parse_decomposition,
+    parse_discussion,
     parse_merge,
     parse_volunteer,
     repair_assignment,
@@ -594,6 +596,119 @@ class AssignStep:
                 found.append(f"这些子任务有多人负责（应恰好一人，不能几个人做同一份内容）：{multi}")
         hard, soft = assignment_conflicts(a.owners, c.subtasks, ctx.config.roundtable.collab.kinds)
         return [*found, *hard, *soft]
+
+
+# --- 分工讨论 -----------------------------------------------------------------
+
+
+def suggestions_block(ctx: TableContext) -> str:
+    """组员的建议（顺序随机，只用称呼）；放在标签内，其中的指令无效。"""
+    c = _c(ctx)
+    titles = {s.id: s.title for s in c.subtasks}
+    rows = [(code, d) for code, d in c.discussions.items() if code in ctx.active and d.suggestions]
+    ctx.rng.shuffle(rows)
+    blocks = []
+    for code, d in rows:
+        lines = [
+            f"{sid}「{titles.get(sid, '')}」：{text}　理由：{why}"
+            for sid, text, why in d.suggestions
+        ]
+        body = neutralize("\n".join(lines), TAGS)
+        blocks.append(f'<suggestion from="{ctx.label(code)}">\n{ctx.scrub(body)}\n</suggestion>')
+    return "\n\n".join(blocks)
+
+
+class DiscussStep:
+    """分工确定后：每位组员对方案提一次意见；有人提建议时统筹最多调整一次。
+
+    调整只改负责人，且必须通过与分配相同的规则检查；不合格或没有变化就保持原分工。
+    """
+
+    name = "discuss"
+
+    async def run(self, ctx: TableContext) -> StepResult:
+        c = _c(ctx)
+        rule = ctx.config.roundtable.collab.discussion
+        if c.discussion_result is not None or c.assignment is None:
+            return StepResult(self.name)
+        if not rule.enabled or len(ctx.active) < rule.min_members:
+            return StepResult(self.name)
+        coordinator = _require_coordinator(ctx)
+        ids = [s.id for s in c.subtasks]
+        subtasks = subtasks_block(c.subtasks, ctx)
+        plan = plan_block(ctx)
+        todo = [code for code in ctx.active if code not in c.discussions]
+        calls = 0
+
+        async def ask(code: str) -> None:
+            prompt = ctx.render(
+                self.name,
+                code=ctx.label(code),
+                question=ctx.question.text,
+                subtasks=subtasks,
+                plan=plan,
+            )
+            result = await call_and_parse(
+                ctx,
+                step=self.name,
+                role="member",
+                model_id=ctx.members[code],
+                prompt=prompt,
+                code=code,
+                parse=lambda text: parse_discussion(text, ids, rule.max_suggestions),
+            )
+            value: Discussion = result.value or Discussion(True, (), degraded=True)
+            c.discussions[code] = value
+            _save(ctx, self.name, "discuss", value.to_dict(), code=code, call_id=result.call_id)
+
+        await asyncio.gather(*(ask(code) for code in todo))
+        calls += len(todo)
+
+        if not any(d.suggestions for d in c.discussions.values()):
+            c.discussion_result = {"adjusted": False, "why": "全员同意，保持原分工"}
+            _save(ctx, self.name, "discuss_result", c.discussion_result)
+            return StepResult(self.name, calls=calls)
+
+        codes = list(ctx.active)
+        prompt = ctx.render(
+            "adjust",
+            question=ctx.question.text,
+            subtasks=subtasks,
+            plan=plan,
+            suggestions=suggestions_block(ctx),
+            members="、".join(ctx.label(x) for x in codes),
+        )
+        result = await call_and_parse(
+            ctx,
+            step=self.name,
+            role="coordinator",
+            model_id=coordinator,
+            prompt=prompt,
+            parse=lambda text: parse_assignment(text, ids, ctx.to_code),
+        )
+        calls += 1
+        new: Assignment | None = result.value
+        why, adjusted = "统筹未能给出可用的调整，保持原分工", False
+        if new is not None:
+            problems = coverage_problems(new, codes)
+            if c.pipeline:
+                problems += AssignStep._pipeline_problems(ctx, new, codes)
+            if problems:
+                why = f"统筹的调整不符合分配规则（{'；'.join(problems)}），保持原分工"
+            elif new.owners == c.assignment.owners:
+                why = new.rationale or "统筹认为无需调整，保持原分工"
+            else:
+                c.assignment = new
+                adjusted, why = True, new.rationale or "统筹已按建议调整分工"
+                _save(ctx, self.name, "assignment", new.to_dict(), call_id=result.call_id)
+        c.discussion_result = {"adjusted": adjusted, "why": why}
+        _save(ctx, self.name, "discuss_result", c.discussion_result, call_id=result.call_id)
+        return StepResult(
+            self.name,
+            calls=calls,
+            degraded=("coordinator",) if result.value is None else (),
+            notes=(f"分工讨论后已调整分工：{why}",) if adjusted else (),
+        )
 
 
 # --- 完成子任务 -----------------------------------------------------------------
@@ -1360,6 +1475,7 @@ for _step in (
     DecomposeStep(),
     VolunteerStep(),
     AssignStep(),
+    DiscussStep(),
     WorkStep(),
     CrossReviewStep(),
     ReworkStep(),

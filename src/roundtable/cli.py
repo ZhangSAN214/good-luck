@@ -65,6 +65,7 @@ STEP_NAMES = {
     "decompose": "统筹拆分子任务",
     "volunteer": "成员自荐",
     "assign": "统筹分配",
+    "discuss": "分工讨论",
     "work": "完成子任务",
     "cross_review": "交叉审查",
     "rework": "按审查修改",

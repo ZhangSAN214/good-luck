@@ -331,3 +331,9 @@ table.mdt th{background:var(--bg-soft,rgba(127,127,127,.12));font-weight:600}
 .noteform{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:6px 0}
 .noteform input{flex:1;min-width:160px;padding:6px 10px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--ink);font:inherit}
 .noteform .hint{color:var(--bad)}
+
+.board{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:8px;margin-bottom:12px}
+.bcard{border:1px solid var(--line);border-radius:8px;padding:8px 10px;background:var(--surface);display:grid;gap:6px;min-width:0}
+.bcard[data-state="已完成"],.bcard[data-state="待合并"]{border-color:var(--ok)}
+.bcard .bt{overflow-wrap:anywhere}
+.bcard .bm{display:flex;gap:8px;align-items:center;flex-wrap:wrap}

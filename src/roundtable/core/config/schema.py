@@ -316,10 +316,19 @@ class PipelineTemplate(_Strict):
     steps: list[TemplateStep] = Field(min_length=2)
 
 
+class DiscussionRules(_Strict):
+    """分工讨论：分工后组员提建议，统筹最多调整一次。"""
+
+    enabled: bool = True
+    min_members: int = Field(default=3, ge=2)  # 组员不足时跳过（两个人没什么好商量的）
+    max_suggestions: int = Field(default=3, ge=1)  # 每位组员最多提几条
+
+
 class CollabRules(_Strict):
     """协同模式：拆分子任务的数量范围，以及流水线（子任务类型、校验、模板）。"""
 
     max_subtasks: int = Field(default=12, ge=1)
+    discussion: DiscussionRules = DiscussionRules()
     pipeline: PipelineRules = PipelineRules()
     kinds: dict[str, KindRule] = Field(default_factory=dict)
     templates: list[PipelineTemplate] = Field(default_factory=list)
@@ -745,6 +754,7 @@ class EstimateParams(_Strict):
     decompose_tokens: int = Field(default=800, ge=0)
     volunteer_tokens: int = Field(default=300, ge=0)
     assign_tokens: int = Field(default=400, ge=0)
+    discuss_tokens: int = Field(default=250, ge=0)
     merge_tokens: int = Field(default=3000, ge=0)
     # 没有历史记录时，输出 token 按档位放大（推理模型的思考 token 也按输出计费）
     output_multiplier: dict[str, float] = Field(default_factory=dict)

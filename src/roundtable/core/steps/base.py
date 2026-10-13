@@ -717,7 +717,7 @@ def restore_state(repo: Repository, session_id: str, table_no: int) -> TableStat
 
 def restore_collab(state: TableState, kind: str, code: str | None, data: dict[str, Any]) -> None:
     """协同模式各步骤的产出。"""
-    from .collab_schemas import Assignment, Merge, Subtask, Volunteer
+    from .collab_schemas import Assignment, Discussion, Merge, Subtask, Volunteer
 
     c = state.collab
     if kind == "subtasks":
@@ -737,6 +737,10 @@ def restore_collab(state: TableState, kind: str, code: str | None, data: dict[st
         c.volunteers[code] = Volunteer.from_dict(data)
     elif kind == "assignment":
         c.assignment = Assignment.from_dict(data)
+    elif kind == "discuss":
+        c.discussions[code] = Discussion.from_dict(data)
+    elif kind == "discuss_result":
+        c.discussion_result = dict(data)
     elif kind == "work":
         c.works[(data["subtask"], code)] = data["text"]
     elif kind == "cross_review":
