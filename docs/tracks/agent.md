@@ -153,4 +153,11 @@
 - 未做：设置里调 after_s（目前只能改 pet.json）。
 - 克劳德美术已由用户验收通过（2026-10-13）。其余 7 位的差分素材仍未开始。
 
-## 下一步：R4 差分素材清单与检查脚本
+## R4 差分素材清单与检查脚本（2026-10-13）
+
+- `docs/agent/差分清单.md`：规格（1254×1254、二值透明、脚底 92%）、每个动作的帧数 / fps / 循环、窗口分配、可复制的改图提示词、收图后的流程。
+- `scripts/check_pet_art.py`：`python scripts/check_pet_art.py <目录> --member whale [--write] [--strict]`，检查命名、序号、尺寸、半透明、脚底、帧数，无错误时写 `pet.json`；测试 `tests/scripts/test_check_pet_art.py`（含与后端加载器、动作 / 表情名一致）。
+- `docs/agent/桌面版方案.md`：Tauri 透明置顶小人，只写方案。
+- 其余 7 位的图需要你在 ChatGPT 按清单生成（一天一位）；做好后用上面的脚本检查。
+
+## 下一步：等 7 位成员素材

@@ -84,6 +84,10 @@
 
 新增 `brainstorm` 模式：每人独立发散 → 看别人的想法做拓展 → 统筹整合成思维导图；同一份数据输出 Markdown 大纲、Mermaid、SVG 图；网页显示导图并可下载 SVG，命令行 `roundtable mindmap`。提示词 `ideate/expand/organize` v1、配置、测试（含网页端到端）已完成。直观图表目前只有思维导图。
 
+## R4 小人差分素材工具（2026-10-13）
+
+新增 `docs/agent/差分清单.md`、`scripts/check_pet_art.py`（检查素材并生成 `pet.json`，有测试）、`docs/agent/桌面版方案.md`。其余 7 位成员的图要你在 ChatGPT 按清单生成，不进 git。
+
 ## 下一步
 
 1. 等你确认 v3 方案（尤其是 `docs/PLAN.md` 末尾「需要你拍板的地方」8 条）。
