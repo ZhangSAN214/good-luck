@@ -88,6 +88,10 @@
 
 新增 `docs/agent/差分清单.md`、`scripts/check_pet_art.py`（检查素材并生成 `pet.json`，有测试）、`docs/agent/桌面版方案.md`。其余 7 位成员的图要你在 ChatGPT 按清单生成，不进 git。
 
+## 小人统筹（2026-10-14）
+
+新增 `docs/agent/小人总览.md`：现状、素材清单、流程、卡点、待你决定的事；`scripts/gen_pet_frames.py` 草稿生成脚本；举牌子分镜文档（8 位）。
+
 ## 下一步
 
 1. 等你确认 v3 方案（尤其是 `docs/PLAN.md` 末尾「需要你拍板的地方」8 条）。
