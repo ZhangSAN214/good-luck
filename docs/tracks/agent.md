@@ -151,5 +151,6 @@
 - 彩蛋可带 `say`（≤40 字，写在 pet.json）：触发时冒一句气泡；克劳德已配置。
 - 克劳德素材已装到本机 `data/avatars/roundtable_assets/members/claude/pet/`，members.json 的 claude 条目加了 `images.pet`（原文件备份为 members.backup.json）。
 - 未做：设置里调 after_s（目前只能改 pet.json）。
+- 克劳德美术已由用户验收通过（2026-10-13）。其余 7 位的差分素材仍未开始。
 
 ## 下一步：R4 差分素材清单与检查脚本
