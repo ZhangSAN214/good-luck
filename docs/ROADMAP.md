@@ -4,6 +4,7 @@
 > 用户的总体要求与版本规划：v2.2 稳定版 → v2.3 桌面小人（网页版）→ v2.4 协同进化 → v3.0 三入口 + 日常 → v3.1 记忆 → v3.2 群聊 → v3.3 更多成员 → v3.4 本地化 → v4.0 完整生命。
 
 ## 分支规则
+- 当前分支关系和合并建议见 `docs/STATUS.md`（`track/agent-claude-behavior` 已包含 `roadmap/auto`，线性领先，无需再合并分叉）。
 - 所有自动步骤都在分支 `roadmap/auto` 上，一步叠一步，**不合并**到 `ccr-86975127-sv4cvy` 或 `main`（由用户决定）。
 - 每次开工先 `git fetch origin ccr-86975127-sv4cvy roadmap/auto`，检出 `roadmap/auto`，再 `git merge origin/ccr-86975127-sv4cvy`（把用户在开发分支上的新改动带进来）。合并有冲突且无法明确解决时：停止，不提交，在汇报里说明。
 - 绝不推送到 `ccr-86975127-sv4cvy` 或 `main`；绝不提交 `data/` 下的任何文件、`.env` 或任何 key。
