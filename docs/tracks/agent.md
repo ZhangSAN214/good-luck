@@ -153,11 +153,14 @@
 - 未做：设置里调 after_s（目前只能改 pet.json）。
 - 克劳德美术已由用户验收通过（2026-10-13）。其余 7 位的差分素材仍未开始。
 
-## R4 差分素材清单与检查脚本（2026-10-13）
+## R4：差分素材清单与检查脚本（已完成，2026-10-13）
 
-- `docs/agent/差分清单.md`：规格（1254×1254、二值透明、脚底 92%）、每个动作的帧数 / fps / 循环、窗口分配、可复制的改图提示词、收图后的流程。
-- `scripts/check_pet_art.py`：`python scripts/check_pet_art.py <目录> --member whale [--write] [--strict]`，检查命名、序号、尺寸、半透明、脚底、帧数，无错误时写 `pet.json`；测试 `tests/scripts/test_check_pet_art.py`（含与后端加载器、动作 / 表情名一致）。
-- `docs/agent/桌面版方案.md`：Tauri 透明置顶小人，只写方案。
-- 其余 7 位的图需要你在 ChatGPT 按清单生成（一天一位）；做好后用上面的脚本检查。
+- `docs/agent/差分清单.md`：画布 256×256、透明背景、脚底锚点、像素风规范；13 个动作和 9 个表情的帧数 / 帧率 / 循环；文件夹命名；可复制的改图提示词（动作帧、表情帧、逐项动作描述）；逐位打勾表。
+- `scripts/check_pet_assets.py`：`python scripts/check_pet_assets.py [--dir D] [--member ID] [--size 256] [--write]`。素材约定 `<成员 id>/<动作>/00.png…` 与 `<成员 id>/face/<表情>/00.png…`。检查命名与序号连续、尺寸一致、有透明通道且四角透明、不是空图、脚底与水平锚点、内容贴边、帧数下限、必需的 `idle`；错误退出码 1，只有提醒退出码 0；`--write` 对通过的成员写出 `<成员 id>/pet.json`（帧率、循环按清单），生成结果由 `members_art` 加载测试验证。脚本不改图片，需要 Pillow。
+- `docs/agent/桌面版方案.md`：Tauri 透明置顶小人，只写方案，含选型、结构、桌面行为、隐私、分步建议、待用户决定的事。
+- 测试：`tests/scripts/test_check_pet_assets.py`（14 个，假图片，不读本机素材）。
+- 待决：桌面版是否要做、默认成员、开机自启动（见方案文档第 8 节）。
+
+- **整合说明（2026-10-14）**：自动任务（`roadmap/auto`）和本分支各做了一套 R4。已合并为一套：检查脚本以 `check_pet_assets.py` 为准（按文件夹命名 `<成员>/<动作>/00.png`，可一次检查全部成员，动作 / 表情清单直接读 `core/members_art.py`），默认画布改为 512（与已验收的克劳德素材一致）；原 `check_pet_assets.py`（平铺命名、1254 画布）已移除。出图流程（ChatGPT 分窗口、`pose_process.py`、Gemini 草稿）并入 `差分清单.md` 第 8 节。
 
 ## 下一步：等 7 位成员素材

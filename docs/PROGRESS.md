@@ -86,7 +86,7 @@
 
 ## R4 小人差分素材工具（2026-10-13）
 
-新增 `docs/agent/差分清单.md`、`scripts/check_pet_art.py`（检查素材并生成 `pet.json`，有测试）、`docs/agent/桌面版方案.md`。其余 7 位成员的图要你在 ChatGPT 按清单生成，不进 git。
+新增 `docs/agent/差分清单.md`、`scripts/check_pet_assets.py`（检查素材并生成 `pet.json`，有测试）、`docs/agent/桌面版方案.md`。其余 7 位成员的图要你在 ChatGPT 按清单生成，不进 git。
 
 ## 小人统筹（2026-10-14）
 
