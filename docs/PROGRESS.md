@@ -68,7 +68,9 @@
 
 ## R8 协同降低花费（2026-10-13）
 
-花费分析写入 `docs/COST_ANALYSIS.md`；新增 `collab.cross_review`（短成果少找审查者）与测试。合并不传上游全文、按类型设 `max_tokens` 已做（`collab.kinds.<类型>.step_params`）。
+花费分析写入 `docs/COST_ANALYSIS.md`；新增 `collab.cross_review`（短成果少找审查者）与测试；按类型设 `max_tokens`（`collab.kinds.<类型>.step_params`）。
+
+2026-10-14 补上**合并不重复传上游全文**：`collab.merge_trim` + `merge/v5`，已被下游接手的上游成果只给统筹看开头摘录；推算全力模式统筹合并约省 41%、协同合计约省 7%（见 `docs/COST_ANALYSIS.md`）；测试 `tests/core/steps/test_collab_merge_trim.py`。
 
 ## R13 个人作答（2026-10-13）
 

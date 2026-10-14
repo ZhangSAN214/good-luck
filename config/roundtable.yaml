@@ -61,7 +61,7 @@ prompts:
   work_assemble: v1
   cross_review: v1
   rework: v2
-  merge: v4
+  merge: v5              # v5：已被下游接手的上游成果只给开头摘录
   attachments: v1        # 题目附件（文字版 / 随附图片）
   describe_image: v1     # 图片文字版
   transcribe: v1         # 音频转写
@@ -160,6 +160,9 @@ collab:
   # 澄清提问：有上游产出的文字子任务，负责人动手前可以向上游作者提一次问题（只在需要时问；
   # 不问就不多花钱）。答复记为 clarify 步骤的调用；enabled: false 关闭
   clarify: {enabled: true, max_question_chars: 300}
+  # 省钱：合并时，已经交给下游、下游成果合格（未被标记敷衍）的上游成果只给统筹看开头 excerpt_chars 字，
+  # 不再重复传全文；终点子任务、被标记敷衍或风格未通过的成果仍给全文。只看依赖关系，与作者无关
+  merge_trim: {enabled: true, excerpt_chars: 600}
 
   # --- 流水线（成员数 ≥ pipeline.min_members 时启用）---------------------------------
   # 协同不是"各做各的"：统筹把题目拆成一条流水线（每个子任务有类型，上游产出交给下游继续做），

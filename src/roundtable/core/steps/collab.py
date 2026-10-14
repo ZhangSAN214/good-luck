@@ -1588,11 +1588,42 @@ class ReworkStep:
 # --- 合并 ---------------------------------------------------------------------
 
 
-def works_block(ctx: TableContext, only: set[str] | None = None) -> str:
-    """按子任务分组的各份最终成果（同一子任务内顺序随机，作者只以代号标注）。"""
+def consumed_by(ctx: TableContext) -> dict[str, list[str]]:
+    """合并时可以只给摘录的上游子任务 → 接手它的下游子任务。
+
+    下游至少有一份成果、且没有任何一份被标记敷衍时才算接手（只看依赖关系与检查结果）。"""
     c = _c(ctx)
     latest = c.latest()
     ids_by_key = {v: k for k, v in c.items().items()}
+
+    def good(sid: str) -> bool:
+        keys = [k for k in latest if k[0] == sid]
+        return bool(keys) and not any(ctx.state.flagged(k[1], ids_by_key.get(k, "")) for k in keys)
+
+    found: dict[str, list[str]] = {}
+    for s in c.subtasks:
+        if good(s.id):
+            for dep in s.depends_on:
+                found.setdefault(dep, []).append(s.id)
+    return found
+
+
+def excerpt(text: str, limit: int) -> str:
+    """开头 limit 字左右（尽量在换行处断开）。"""
+    head = text[:limit]
+    cut = head.rfind("\n")
+    return (head[:cut] if cut > limit // 2 else head).rstrip() + "\n……"
+
+
+def works_block(ctx: TableContext, only: set[str] | None = None, trim: bool = False) -> str:
+    """按子任务分组的各份最终成果（同一子任务内顺序随机，作者只以代号标注）。
+
+    trim：合并时，已被下游接手的上游成果只给开头摘录（collab.merge_trim）。"""
+    c = _c(ctx)
+    latest = c.latest()
+    ids_by_key = {v: k for k, v in c.items().items()}
+    rule = ctx.config.roundtable.collab.merge_trim
+    used = consumed_by(ctx) if trim and rule.enabled else {}
     parts = []
     for s in c.subtasks:
         if only is not None and s.id not in only:
@@ -1604,7 +1635,20 @@ def works_block(ctx: TableContext, only: set[str] | None = None) -> str:
             attr = ' flagged="未通过实质内容检查"' if flagged else ""
             if key in c.style_failed:
                 attr += ' style="重画后仍未通过参考图风格清单"'
-            body = neutralize(ctx.scrub(latest[key] + ctx.member_notes(key[1])), TAGS)
+            text = latest[key]
+            short = (
+                s.id in used
+                and not flagged
+                and key not in c.style_failed
+                and len(text) > rule.excerpt_chars
+            )
+            if short:
+                text = excerpt(text, rule.excerpt_chars)
+                attr += f' excerpt="完整内容已交给 {"、".join(used[s.id])} 继续使用"'
+                # 生成的文件已经随交接交给下游；来源列表很短，保留供核对引用
+                body = neutralize(ctx.scrub(text + ctx.sources_note(key[1])), TAGS)
+            else:
+                body = neutralize(ctx.scrub(text + ctx.member_notes(key[1])), TAGS)
             parts.append(
                 f'<work id="{item}" subtask="{s.id}" from="{ctx.label(key[1])}"{attr}>\n'
                 f"{body}\n</work>"
@@ -1731,7 +1775,7 @@ class MergeStep:
             self.name,
             question=ctx.question.text,
             subtasks=subtasks_block(c.subtasks, ctx),
-            works=works_block(ctx),
+            works=works_block(ctx, trim=True),
         )
         result = await call_and_parse(
             ctx,
