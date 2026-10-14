@@ -8,6 +8,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Noto+Sans+SC:wght@400;500;700&family=ZCOOL+XiaoWei&display=swap">
 <link rel="stylesheet" href="css/app.css">
+<link rel="stylesheet" href="css/agent.css">
 </head>
 <body>
 <div class="app">
@@ -33,6 +34,11 @@
         <div class="feed-list" id="feed-list"></div>
         <div class="typing" id="typing" hidden></div>
       </div>
+      <form class="noteform" id="noteform" autocomplete="off" hidden>
+        <input type="text" id="note" maxlength="1000" placeholder="中途补充意见（下一个步骤开始时带给大家）" aria-label="中途补充">
+        <button class="btn" type="submit" id="notesend">补充</button>
+        <span class="hint" id="noteerr" role="alert"></span>
+      </form>
       <form class="composer" id="composer" autocomplete="off">
         <div class="row">
           <div class="seg" id="workflow" aria-label="模式"></div>

@@ -322,6 +322,109 @@ def parse_assignment(
     return Assignment({k: tuple(v) for k, v in owners.items()}, output.rationale.strip())
 
 
+# --- 分工讨论 -----------------------------------------------------------------
+
+
+class SuggestionItem(_Loose):
+    subtask: str = ""
+    suggestion: str = ""
+    reason: str = ""
+
+
+class DiscussionOutput(_Loose):
+    agree: bool = True
+    suggestions: list[SuggestionItem] = Field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class Discussion:
+    """一位组员对分工方案的意见：没有异议（agree）或最多几条针对子任务的建议。"""
+
+    agree: bool
+    suggestions: tuple[tuple[str, str, str], ...] = ()  # (子任务 id, 建议, 理由)
+    degraded: bool = False  # 调用失败或输出无法解析：视为没有意见
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "agree": self.agree,
+            "suggestions": [
+                {"subtask": a, "suggestion": b, "reason": c} for a, b, c in self.suggestions
+            ],
+            "degraded": self.degraded,
+        }
+
+    @classmethod
+    def from_dict(cls, d: Mapping[str, Any]) -> Discussion:
+        items = tuple((x["subtask"], x["suggestion"], x["reason"]) for x in d["suggestions"])
+        return cls(bool(d["agree"]), items, bool(d.get("degraded", False)))
+
+
+def parse_discussion(text: str, subtask_ids: Sequence[str], max_suggestions: int) -> Discussion:
+    output = DiscussionOutput.model_validate(extract_json_object(text))
+    known = set(subtask_ids)
+    items = []
+    for x in output.suggestions:
+        sid = _norm_id(x.subtask)
+        if sid in known and x.suggestion.strip():
+            items.append((sid, x.suggestion.strip(), x.reason.strip()))
+    items = items[:max_suggestions]
+    return Discussion(not items, tuple(items))
+
+
+# --- 逐条验收 -----------------------------------------------------------------
+
+
+class AcceptItemOut(_Loose):
+    subtask: str = ""
+    passed: bool = True
+    problems: list[str] = Field(default_factory=list)
+
+
+class AcceptanceOutput(_Loose):
+    items: list[AcceptItemOut] = Field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class Acceptance:
+    """统筹按验收标准给每个子任务的结论：子任务 id → (是否通过, 具体问题)。"""
+
+    results: dict[str, tuple[bool, tuple[str, ...]]]
+    fixed: tuple[str, ...] = ()  # 退回作者修改过的子任务
+    degraded: bool = False  # 统筹的输出不可用：视为全部通过
+
+    def failed(self) -> list[str]:
+        return [sid for sid, (ok, why) in self.results.items() if not ok and why]
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "items": [
+                {"subtask": k, "passed": v[0], "problems": list(v[1])}
+                for k, v in self.results.items()
+            ],
+            "fixed": list(self.fixed),
+            "degraded": self.degraded,
+        }
+
+    @classmethod
+    def from_dict(cls, d: Mapping[str, Any]) -> Acceptance:
+        results = {x["subtask"]: (bool(x["passed"]), tuple(x["problems"])) for x in d["items"]}
+        return cls(results, tuple(d.get("fixed") or ()), bool(d.get("degraded", False)))
+
+
+def parse_acceptance(text: str, subtask_ids: Sequence[str]) -> Acceptance:
+    output = AcceptanceOutput.model_validate(extract_json_object(text))
+    known = set(subtask_ids)
+    results: dict[str, tuple[bool, tuple[str, ...]]] = {}
+    for x in output.items:
+        sid = _norm_id(x.subtask)
+        if sid not in known or sid in results:
+            continue
+        problems = tuple(p.strip() for p in x.problems if p.strip())
+        # 写了不通过却没有具体问题：作者无从修改，按通过处理
+        results[sid] = (x.passed or not problems, problems if not x.passed else ())
+    return Acceptance({s: results.get(s, (True, ())) for s in subtask_ids})
+
+
 def coverage_problems(a: Assignment, codes: Sequence[str]) -> list[str]:
     """分配是否满足规则：每人至少一块、每块至少一人、负担相差不超过 1。"""
     problems = []
@@ -546,6 +649,9 @@ class CollabState:
     subtasks_degraded: bool = False
     volunteers: dict[str, Volunteer] = field(default_factory=dict)
     assignment: Assignment | None = None
+    discussions: dict[str, Discussion] = field(default_factory=dict)  # 代号 → 对分工的意见
+    discussion_result: dict[str, Any] | None = None  # 统筹的决定（保持 / 调整）；有值即讨论已结束
+    acceptance: Acceptance | None = None  # 合并前的逐条验收；有值即验收已结束
     works: dict[tuple[str, str], str] = field(default_factory=dict)  # (子任务, 代号) → 成果
     cross_reviews: dict[str, tuple] = field(default_factory=dict)  # 评审者 → CheckedReview…
     reworks: dict[tuple[str, str], Any] = field(default_factory=dict)  # (子任务, 代号) → Revision

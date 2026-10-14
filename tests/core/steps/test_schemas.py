@@ -136,7 +136,9 @@ def test_registry():
             "revise",
             "synthesize",
             "style",
+            "accept",
             "decompose",
+            "discuss",
             "volunteer",
             "assign",
             "work",
@@ -144,6 +146,9 @@ def test_registry():
             "rework",
             "merge",
             "media",
+            "ideate",
+            "expand",
+            "organize",
         ]
     )
     with pytest.raises(ValueError):

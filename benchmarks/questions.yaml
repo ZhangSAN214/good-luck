@@ -1,0 +1,17 @@
+# 对比实验题库：题目文字会发给模型，判分方式（judge）和标准答案不会。
+# judge.type：number（最终答案里的最后一个数字，允许误差 tol）/ exact（去掉空白和标点后相等）
+#           / keywords（all：必须都出现；any：至少出现一个；max_chars：字数上限）
+questions:
+  - {id: math-01, category: math, text: "一个等差数列首项为 3，公差为 4，求前 20 项的和。只需给出最终数值。", judge: {type: number, answer: 820}}
+  - {id: math-02, category: math, text: "解方程 2x^2 - 7x + 3 = 0，求两个根中较大的一个。给出最终数值。", judge: {type: number, answer: 3}}
+  - {id: math-03, category: math, text: "从 1 到 100 的整数中，能被 3 或 5 整除的数一共有多少个？给出最终数值。", judge: {type: number, answer: 47}}
+  - {id: math-04, category: math, text: "计算定积分 ∫_0^2 (3x^2 + 1) dx。给出最终数值。", judge: {type: number, answer: 10}}
+  - {id: math-05, category: math, text: "一个袋中有 3 个红球 2 个白球，不放回连续抽两个，两个都是红球的概率是多少？以小数给出，保留两位。", judge: {type: number, answer: 0.3, tol: 0.005}}
+  - {id: logic-01, category: logic, text: "甲乙丙三人中只有一人说了真话。甲说：乙在说谎。乙说：丙在说谎。丙说：甲和乙都在说谎。请问谁说了真话？只答一个字。", judge: {type: exact, answer: "乙"}}
+  - {id: logic-02, category: logic, text: "有 8 个外观相同的球，其中一个略重，用天平最少称几次一定能找出重球？只答数字。", judge: {type: number, answer: 2}}
+  - {id: logic-03, category: logic, text: "把 10 个苹果放进 3 个盒子，每个盒子至少放 1 个，一共有多少种放法（盒子不同，苹果相同）？只答数字。", judge: {type: number, answer: 36}}
+  - {id: chinese-01, category: chinese, text: "《红楼梦》中“金陵十二钗”正册的第一位是谁？", judge: {type: keywords, any: ["林黛玉", "薛宝钗"]}}
+  - {id: chinese-02, category: chinese, text: "请用一句话解释成语“刻舟求剑”的含义，并说明它出自哪部典籍。", judge: {type: keywords, all: ["吕氏春秋"], any: ["不知变通", "拘泥", "固执", "不懂得变化", "守旧", "静止"]}}
+  - {id: chinese-03, category: chinese, text: "“春风又绿江南岸”中最传神的字是哪一个？这句诗出自谁的哪首诗？", judge: {type: keywords, all: ["绿", "王安石"]}}
+  - {id: writing-01, category: writing, text: "用不超过 60 个字写一段介绍“钢的淬火”的话，必须包含“马氏体”和“冷却”两个词。", judge: {type: keywords, all: ["马氏体", "冷却"], max_chars: 120}}
+  - {id: writing-02, category: writing, text: "写一封给教授的邮件，请求把作业截止日期延后两天。要求包含“尊敬的”“延后”“感谢”三个词，不超过 150 字。", judge: {type: keywords, all: ["尊敬的", "延后", "感谢"], max_chars: 300}}

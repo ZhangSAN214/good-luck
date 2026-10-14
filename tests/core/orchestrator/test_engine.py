@@ -427,7 +427,18 @@ async def test_lazy_member_flagged_end_to_end():
 
 # --- 协同模式 -------------------------------------------------------------------
 
-COLLAB = ("decompose", "volunteer", "assign", "work", "cross_review", "rework", "merge", "reveal")
+COLLAB = (
+    "decompose",
+    "volunteer",
+    "assign",
+    "discuss",
+    "work",
+    "cross_review",
+    "rework",
+    "accept",
+    "merge",
+    "reveal",
+)
 
 
 async def test_collab_full_flow(env):
@@ -493,7 +504,13 @@ async def test_collab_resume_after_crash():
     with pytest.raises(Crash):
         await env.orc.start(Question(MEDIUM), UserChoice(workflow="collab"), seed=24)
     sid = env.rt.repo.list_sessions()[0].id
-    assert env.rt.repo.completed_steps(sid, 0) == ["decompose", "volunteer", "assign", "work"]
+    assert env.rt.repo.completed_steps(sid, 0) == [
+        "decompose",
+        "volunteer",
+        "assign",
+        "discuss",
+        "work",
+    ]
     work_calls = len(
         [c for c in env.fake.calls if "你负责下面 <your_subtask>" in c.messages[0].content]
     )

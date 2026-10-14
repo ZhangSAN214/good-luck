@@ -1,0 +1,143 @@
+/* 网页小人（web/js/agent/）：悬浮、可拖动、贴边、隐藏。
+   三层动画互不覆盖：.pet-body 管位移（走、跳、庆祝），.pet-pose 管姿势（呼吸、挥手、睡），
+   .pet-face 管表情（倾斜、抖动、滤镜）；头顶符号、腮红、道具、对话框、彩纸是独立的小部件。
+   有 pet.json 专门帧时（.framed）不再叠加姿势和表情的变形。 */
+.pet{position:fixed;left:0;top:0;width:120px;height:150px;z-index:40;touch-action:none;user-select:none;-webkit-user-select:none;cursor:grab;--flip:1;--pet-color:var(--brass);transition:transform .25s ease}
+.pet.held{cursor:grabbing}
+.pet[data-dir="left"]{--flip:-1}
+.pet[data-edge="left"]{transform:translateX(-16px) rotate(5deg)}
+.pet[data-edge="right"]{transform:translateX(16px) rotate(-5deg)}
+.pet[data-edge="top"]{transform:translateY(-10px)}
+.pet-body,.pet-pose,.pet-face{position:absolute;inset:0;transform-origin:50% 100%}
+.pet-face{transition:transform .25s ease,filter .25s ease}
+.pet-img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;object-position:50% 100%;pointer-events:none;transform-origin:50% 100%;transform:scaleX(var(--flip));transition:transform .08s ease;filter:drop-shadow(0 2px 2px rgba(0,0,0,.18))}
+.pet.blink .pet-img{transform:scaleX(var(--flip)) scaleY(.95)}
+.pet-shadow{position:absolute;left:22%;right:22%;bottom:-4px;height:10px;border-radius:50%;background:rgba(0,0,0,.18);filter:blur(1px);transition:opacity .2s,transform .2s}
+
+/* 小部件 */
+.pet-hide{position:absolute;top:-6px;right:-6px;width:22px;height:22px;padding:0;border-radius:50%;border:1px solid var(--line);background:var(--surface);color:var(--muted);font-size:14px;line-height:20px;opacity:0;transition:opacity .15s;z-index:3}
+.pet:hover .pet-hide,.pet:focus-within .pet-hide{opacity:1}
+.pet-emote{position:absolute;top:-8px;right:30px;min-width:1em;font-size:22px;font-weight:700;line-height:1;color:var(--pet-color);text-shadow:0 1px 0 var(--surface),0 0 4px var(--surface);pointer-events:none;animation:pet-float 1.4s ease-in-out infinite;z-index:2}
+.pet-emote:empty{display:none}
+.pet-blush{position:absolute;top:36%;width:14%;height:6%;border-radius:50%;background:#ff7f9a;opacity:0;filter:blur(1.5px);transition:opacity .25s;pointer-events:none}
+.pet-blush.l{left:28%}.pet-blush.r{right:28%}
+.pet-sweat{position:absolute;top:16%;left:20%;width:9px;height:13px;border-radius:50% 50% 50% 50%/60% 60% 40% 40%;background:#8fd0ff;opacity:0;transition:opacity .2s;pointer-events:none}
+.pet-prop{position:absolute;font-size:22px;line-height:1;pointer-events:none;z-index:2}
+.pet-bubble{position:absolute;top:-14px;left:-22px;display:none;gap:4px;padding:6px 9px;border-radius:12px;background:var(--surface);border:1px solid var(--line);box-shadow:0 2px 6px rgba(0,0,0,.12);z-index:2}
+.pet-bubble i{width:6px;height:6px;border-radius:50%;background:var(--pet-color);animation:pet-dot 1s infinite}
+.pet-bubble i:nth-child(2){animation-delay:.2s}.pet-bubble i:nth-child(3){animation-delay:.4s}
+.pet-confetti{position:absolute;left:50%;top:30%;display:none;pointer-events:none}
+.pet-confetti i{position:absolute;width:6px;height:9px;border-radius:1px;background:var(--c,#e9b949);animation:pet-confetti 1.2s ease-out infinite;animation-delay:var(--d,0s)}
+.pet-confetti i:nth-child(1){--cx:-58px;--cy:-54px;--c:#e9b949}
+.pet-confetti i:nth-child(2){--cx:52px;--cy:-60px;--c:#5cba8f;--d:.1s}
+.pet-confetti i:nth-child(3){--cx:-36px;--cy:-78px;--c:#e3826c;--d:.25s}
+.pet-confetti i:nth-child(4){--cx:30px;--cy:-84px;--c:#7aa7e8;--d:.35s}
+.pet-confetti i:nth-child(5){--cx:-66px;--cy:-20px;--c:#c58be0;--d:.5s}
+.pet-confetti i:nth-child(6){--cx:64px;--cy:-26px;--c:#e9b949;--d:.6s}
+.pet-confetti i:nth-child(7){--cx:-14px;--cy:-92px;--c:#5cba8f;--d:.7s}
+.pet-confetti i:nth-child(8){--cx:12px;--cy:-70px;--c:#e3826c;--d:.85s}
+.pet-confetti i:nth-child(9){--cx:-46px;--cy:-40px;--c:#7aa7e8;--d:.95s}
+.pet-confetti i:nth-child(10){--cx:44px;--cy:-44px;--c:#c58be0;--d:1.05s}
+
+.pet-call{position:fixed;right:0;bottom:96px;z-index:40;padding:8px 5px;writing-mode:vertical-rl;letter-spacing:.2em;font-size:12px;border:1px solid var(--brass-line);border-right:0;border-radius:8px 0 0 8px;background:var(--brass-bg);color:var(--brass-ink)}
+.pet-call:hover{padding-right:9px}
+
+/* ---------- 动作 ---------- */
+.pet[data-action="idle"] .pet-pose{animation:pet-breathe 3.2s ease-in-out infinite}
+.pet[data-action="walk"] .pet-body{animation:pet-bob .42s ease-in-out infinite}
+.pet[data-action="jump"] .pet-body{animation:pet-jump .75s ease-out 1}
+.pet[data-action="jump"] .pet-shadow{animation:pet-shadow .75s ease-out 1}
+.pet[data-action="wave"] .pet-pose{animation:pet-wave .5s ease-in-out infinite}
+.pet[data-action="wave"] .pet-prop::before{content:"👋"}
+.pet[data-action="wave"] .pet-prop{top:34%;left:-8px;transform-origin:70% 90%;animation:pet-hand .3s ease-in-out infinite alternate}
+.pet[data-action="think"] .pet-pose{animation:pet-think 2.4s ease-in-out infinite}
+.pet[data-action="think"] .pet-prop::before{content:"💭"}
+.pet[data-action="think"] .pet-prop{top:-10px;left:-6px;animation:pet-float 1.8s ease-in-out infinite}
+.pet[data-action="talk"] .pet-pose{animation:pet-talk .26s ease-in-out infinite}
+.pet[data-action="talk"] .pet-bubble{display:flex}
+.pet[data-action="type"] .pet-body{animation:pet-type .16s linear infinite}
+.pet[data-action="type"] .pet-prop::before{content:"⌨️"}
+.pet[data-action="type"] .pet-prop{bottom:-2px;left:50%;margin-left:-14px;font-size:26px}
+.pet[data-action="celebrate"] .pet-body{animation:pet-hop .6s ease-in-out infinite}
+.pet[data-action="celebrate"] .pet-shadow{animation:pet-shadow .6s ease-in-out infinite}
+.pet[data-action="celebrate"] .pet-confetti{display:block}
+.pet[data-action="celebrate"] .pet-prop::before{content:"🎉"}
+.pet[data-action="celebrate"] .pet-prop{top:-8px;left:-6px;animation:pet-pop .5s ease-out 1}
+.pet[data-action="sleepy"] .pet-pose{animation:pet-sway 3.6s ease-in-out infinite}
+.pet[data-action="sleep"] .pet-pose{animation:pet-sleep 3.6s ease-in-out infinite;filter:brightness(.86)}
+.pet[data-action="sleep"] .pet-prop::before{content:"Z"}
+.pet[data-action="sleep"] .pet-prop{top:4px;right:2px;font-weight:700;font-size:18px;color:var(--pet-color);animation:pet-z 2s ease-out infinite}
+.pet[data-action="drag"] .pet-pose{transform-origin:50% 10%;animation:pet-struggle .28s ease-in-out infinite}
+.pet[data-action="drag"] .pet-shadow{opacity:.25;transform:scale(.6)}
+.pet[data-action="drag"] .pet-sweat{opacity:.9}
+.pet[data-action="land"] .pet-pose{animation:pet-land .5s ease-out 1}
+.pet[data-action="land"] .pet-prop::before{content:"💨"}
+.pet[data-action="land"] .pet-prop{bottom:0;left:-10px;font-size:16px;animation:pet-pop .4s ease-out 1}
+
+/* ---------- 表情 ---------- */
+.pet[data-face="happy"] .pet-face{filter:saturate(1.15) brightness(1.04)}
+.pet[data-face="happy"] .pet-blush{opacity:.45}
+.pet[data-face="smug"] .pet-face{transform:rotate(-5deg) scale(1.02)}
+.pet[data-face="thinking"] .pet-face{transform:rotate(-4deg)}
+.pet[data-face="surprised"] .pet-face{transform:translateY(-4px) scale(1.06)}
+.pet[data-face="surprised"] .pet-emote{font-size:24px;color:var(--bad)}
+.pet[data-face="confused"] .pet-face{transform:rotate(7deg)}
+.pet[data-face="confused"] .pet-sweat{opacity:.9}
+.pet[data-face="shy"] .pet-face{transform:translateY(2px) scale(.97)}
+.pet[data-face="shy"] .pet-blush{opacity:.9}
+.pet[data-face="shy"] .pet-emote{font-size:14px;color:#ff7f9a}
+.pet[data-face="angry"] .pet-face{animation:pet-shake .18s linear infinite;filter:saturate(1.25) drop-shadow(0 0 6px rgba(220,40,30,.55))}
+.pet[data-face="sad"] .pet-face{transform:translateY(4px) scale(1,.96);filter:grayscale(.45) brightness(.94)}
+.pet[data-face="sleepy"] .pet-face{filter:brightness(.93)}
+.pet[data-face="sleepy"] .pet-emote{animation:pet-z 2.2s ease-out infinite}
+
+/* 有专门的逐帧素材：帧里已经画好了姿势和表情 */
+.pet.framed .pet-pose,.pet.framed .pet-face{animation:none;transform:none;filter:none}
+.pet.framed .pet-blush,.pet.framed .pet-sweat{display:none}
+
+/* ---------- 汇报气泡与菜单（R3） ---------- */
+.pet-more{position:absolute;top:-6px;left:-6px;width:22px;height:22px;padding:0;border-radius:50%;border:1px solid var(--line);background:var(--surface);color:var(--muted);font-size:14px;line-height:18px;opacity:0;transition:opacity .15s;z-index:3}
+.pet:hover .pet-more,.pet:focus-within .pet-more{opacity:1}
+.pet-say{position:absolute;bottom:100%;right:0;width:max-content;max-width:210px;margin-bottom:6px;padding:7px 10px;border-radius:12px;background:var(--surface);border:1px solid var(--line);box-shadow:0 2px 8px rgba(0,0,0,.14);font-size:13px;line-height:1.45;color:var(--ink,inherit);cursor:pointer;z-index:4;animation:pet-pop .25s ease-out 1}
+.pet-say[hidden]{display:none}
+.pet-say.urgent{border-color:var(--pet-color);box-shadow:0 0 0 2px var(--pet-color),0 2px 8px rgba(0,0,0,.14)}
+.pet-say::after{content:"";position:absolute;right:24px;top:100%;width:9px;height:9px;margin-top:-5px;background:inherit;border-right:1px solid var(--line);border-bottom:1px solid var(--line);transform:rotate(45deg)}
+.pet[data-edge="left"] .pet-say{left:0;right:auto}
+.pet-menu{position:absolute;bottom:100%;right:0;display:flex;flex-direction:column;min-width:116px;margin-bottom:6px;padding:4px;border-radius:10px;background:var(--surface);border:1px solid var(--line);box-shadow:0 4px 14px rgba(0,0,0,.18);z-index:5}
+.pet-menu button{padding:6px 10px;border:0;border-radius:6px;background:none;color:inherit;font-size:13px;text-align:left;cursor:pointer}
+.pet-menu button:hover,.pet-menu button:focus-visible{background:var(--brass-bg)}
+
+@keyframes pet-breathe{0%,100%{transform:scale(1,1)}50%{transform:scale(.99,1.03)}}
+@keyframes pet-bob{0%,100%{transform:translateY(0) rotate(-3deg)}50%{transform:translateY(-5px) rotate(3deg)}}
+@keyframes pet-jump{0%{transform:translateY(0) scale(1.08,.9)}15%{transform:translateY(0) scale(.94,1.08)}45%{transform:translateY(-46px)}75%{transform:translateY(0) scale(1.1,.88)}100%{transform:translateY(0) scale(1,1)}}
+@keyframes pet-shadow{0%,100%{transform:scale(1);opacity:1}45%{transform:scale(.55);opacity:.5}}
+@keyframes pet-wave{0%,100%{transform:rotate(0)}25%{transform:rotate(-7deg)}75%{transform:rotate(7deg)}}
+@keyframes pet-hand{from{transform:rotate(-20deg)}to{transform:rotate(25deg)}}
+@keyframes pet-think{0%,100%{transform:rotate(-6deg) translateY(0)}50%{transform:rotate(-8deg) translateY(-2px)}}
+@keyframes pet-talk{0%,100%{transform:scale(1,1)}50%{transform:scale(1.02,.97)}}
+@keyframes pet-type{0%,100%{transform:translateY(0)}50%{transform:translateY(-2px)}}
+@keyframes pet-hop{0%,100%{transform:translateY(0) scale(1,1)}10%{transform:translateY(0) scale(1.08,.9)}45%{transform:translateY(-30px) rotate(-6deg)}80%{transform:translateY(0) scale(1.06,.94)}}
+@keyframes pet-sway{0%,100%{transform:rotate(-4deg)}50%{transform:rotate(4deg) translateY(2px)}}
+@keyframes pet-sleep{0%,100%{transform:rotate(10deg) translateY(6px) scale(1,.96)}50%{transform:rotate(10deg) translateY(6px) scale(1.01,.99)}}
+@keyframes pet-struggle{0%,100%{transform:rotate(-12deg)}50%{transform:rotate(12deg)}}
+@keyframes pet-land{0%{transform:scale(1.18,.78)}40%{transform:scale(.94,1.06)}70%{transform:scale(1.04,.97)}100%{transform:scale(1,1)}}
+@keyframes pet-z{0%{opacity:0;transform:translate(0,0) scale(.6)}30%{opacity:1}100%{opacity:0;transform:translate(14px,-26px) scale(1.2)}}
+@keyframes pet-pop{0%{transform:scale(.3);opacity:0}60%{transform:scale(1.25);opacity:1}100%{transform:scale(1);opacity:1}}
+@keyframes pet-float{0%,100%{transform:translateY(0)}50%{transform:translateY(-4px)}}
+@keyframes pet-shake{0%,100%{transform:translateX(0)}25%{transform:translateX(-2px) rotate(-1deg)}75%{transform:translateX(2px) rotate(1deg)}}
+@keyframes pet-dot{0%,100%{opacity:.25}50%{opacity:1}}
+@keyframes pet-confetti{0%{transform:translate(0,0) rotate(0);opacity:1}100%{transform:translate(var(--cx),var(--cy)) rotate(540deg);opacity:0}}
+
+/* 系统设置了「减少动态效果」：只保留表情符号和静态姿势 */
+@media (prefers-reduced-motion: reduce){
+  .pet .pet-body,.pet .pet-pose,.pet .pet-face,.pet .pet-prop,.pet .pet-emote,.pet .pet-bubble i{animation:none!important}
+  .pet .pet-confetti{display:none!important}
+}
+
+/* 手机 / 触屏：触摸目标不小于 44px，没有悬停也要看得到「⋯」；小人缩小收在角落 */
+.pet.phone{width:96px;height:120px}
+@media (hover:none){
+  .pet-more,.pet-hide{opacity:1;width:28px;height:28px;font-size:16px;line-height:24px}
+  .pet-more::after,.pet-hide::after{content:"";position:absolute;inset:-8px}
+  .pet.phone .pet-say{max-width:60vw}
+}

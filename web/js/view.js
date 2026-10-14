@@ -13,13 +13,18 @@ export const STEP_LABELS = {
   decompose: '拆分子任务',
   volunteer: '自荐',
   assign: '分配',
+  discuss: '分工讨论',
   work: '完成子任务',
   cross_review: '交叉审查',
   rework: '修改',
+  accept: '逐条验收',
   merge: '合并',
   media: '生成媒体',
   style: '风格规范',
   style_gate: '风格校验',
+  ideate: '发散',
+  expand: '拓展',
+  organize: '整合成导图',
 };
 export const MEDIA_LABELS = { image: '图片', speech: '语音', video: '视频' };
 const JOB_STATE = {
@@ -31,7 +36,7 @@ const JOB_STATE = {
   timeout: ['超时', 'bad'],
 };
 // 由统筹执行的步骤
-export const COORD_STEPS = new Set(['synthesize', 'decompose', 'assign', 'merge']);
+export const COORD_STEPS = new Set(['synthesize', 'decompose', 'assign', 'accept', 'merge', 'organize']);
 // 协同流水线的子任务类型名（来自 /api/status 的 collab_kinds，不写死在前端）
 let KIND_LABELS_CFG = {};
 export function setKindLabels(map) {
@@ -304,6 +309,10 @@ export function feedItems(sv, ctx) {
   };
 
   push('q', `<div class="msg me"><div class="av me">你</div><div class="body"><div class="who"><b>你</b><span class="kind">${esc(modeText(sv, ctx))}</span></div><div class="bubble">${esc(sv.question)}</div></div></div>`);
+  for (const n of sv.notes || []) {
+    const state = n.applied_step ? '已带给大家' : '下一步开始时带上';
+    push(`note${n.id}:${n.applied_step || ''}`, `<div class="msg me"><div class="av me">你</div><div class="body"><div class="who"><b>你</b><span class="kind">中途补充 · ${esc(state)}</span></div><div class="bubble">${esc(n.text)}</div></div></div>`);
+  }
   cpAt((d) => d.stage === 'routing');
 
   if (r) {
@@ -394,7 +403,7 @@ export function feedItems(sv, ctx) {
 
 function modeText(sv, ctx) {
   const tier = sv.tier === 'custom' ? ctx.customLabel : ctx.plans[sv.tier] || sv.tier;
-  const parts = [sv.workflow === 'collab' ? '协同' : '讨论', tier];
+  const parts = [({ collab: '协同', solo: '个人', auto: '自动', brainstorm: '头脑风暴' }[sv.workflow] || '讨论'), tier];
   if (sv.media_kind) parts.push(`输出${MEDIA_LABELS[sv.media_kind] || sv.media_kind}`);
   if (sv.anonymous) parts.push('匿名');
   return parts.join(' · ');
@@ -434,6 +443,28 @@ function effort(o, sp, data) {
   return sys('检查', `${esc(sp.name)} 的${esc(what)}没有实质内容（${esc(first)}），已打回重做，重做后合格`);
 }
 
+const EXPAND_NAMES = { build: '深化', combine: '组合', challenge: '质疑改进', new: '全新想法' };
+
+function ideaList(ideas) {
+  const rows = (ideas || []).map((i) => `<li><b>${esc(i.id)} ${esc(i.title)}</b>${i.detail ? `：${esc(i.detail)}` : ''}</li>`);
+  return `<div class="bubble"><ul>${rows.join('')}</ul></div>`;
+}
+
+function expansionList(items) {
+  const rows = items.map((x) => `<li><b>${esc(EXPAND_NAMES[x.kind] || x.kind)}${x.on ? ` · ${esc(x.on)}` : ''}</b>：${esc(x.text)}</li>`);
+  return `<div class="bubble"><ul>${rows.join('')}</ul></div>`;
+}
+
+/** 思维导图：服务端生成的 SVG 放进 <img>（图片里的脚本不会执行），附 Markdown 大纲和 Mermaid 供复制。 */
+function mindmapCard(data) {
+  const src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(data.svg || '')}`;
+  const note = data.map?.degraded ? '<div class="meta">统筹没能整合，这里按成员分别列出了想法。</div>' : '';
+  return `<div class="bubble mindmap">${note}<div class="mm-scroll"><img alt="思维导图" src="${src}"></div>
+<div class="mm-actions"><a download="mindmap.svg" href="${src}">下载 SVG</a></div>
+<details class="more"><summary>Markdown 大纲</summary><pre>${esc(data.markdown || '')}</pre></details>
+<details class="more"><summary>Mermaid 代码</summary><pre>${esc(data.mermaid || '')}</pre></details></div>`;
+}
+
 function output(o, names, lazy = new Map(), sources = null) {
   const sp = names.speaker(o.table_no, o.code);
   const lazyWhy = lazy.get(`${o.table_no}:${o.step}:${o.code}`);
@@ -449,6 +480,9 @@ function output(o, names, lazy = new Map(), sources = null) {
   }
   const data = parse(o.content);
   if (!data) return msg(sp, o.kind, `<div class="bubble">${md(o.content)}</div>`);
+  if (o.kind === 'ideas') return msg(sp, '想法', ideaList(data.ideas));
+  if (o.kind === 'expansions') return data.items.length ? msg(sp, '拓展', expansionList(data.items)) : '';
+  if (o.kind === 'mindmap') return msg(sp, '思维导图', mindmapCard(data));
   if (o.kind === 'style_spec') return styleCard(o, data);
   if (o.kind === 'style_gate') return styleGateLine(sp, data, names);
   if (o.kind === 'style_redraw') {
@@ -516,6 +550,26 @@ function collabOutput(o, sp, data, names, sources = null) {
       : '';
     return msg(sp, '分配', `<div class="bubble">${li(rows)}${why}</div>${fixed}`);
   }
+  if (o.kind === 'discuss') {
+    if (data.degraded) return sys('分工讨论', `${esc(sp.name)} 没有给出可用的意见，按无异议处理`);
+    if (!data.suggestions.length) return sys('分工讨论', `${esc(sp.name)}：同意当前分工`);
+    const rows = data.suggestions.map(
+      (x) => `<li>${esc(names.subtask(t, x.subtask))}：${md(x.suggestion)}${x.reason ? `<div class="meta">理由：${md(x.reason)}</div>` : ''}</li>`,
+    );
+    return msg(sp, '对分工的建议', `<div class="bubble">${li(rows)}</div>`);
+  }
+  if (o.kind === 'discuss_result') {
+    return sys('统筹', `${data.adjusted ? '已调整分工' : '保持原分工'}：${md(data.why || '')}`, data.adjusted ? 'ok' : '');
+  }
+  if (o.kind === 'acceptance') {
+    if (data.degraded) return sys('验收', '统筹的验收结果不可用，按现有成果合并', 'bad');
+    const rows = data.items.map((x) => {
+      const state = x.passed ? tag('通过', 'ok') : tag(data.fixed.includes(x.subtask) ? '已退回修改' : '不合格', 'bad');
+      const why = x.problems.length ? `<div class="meta">${x.problems.map((p) => md(p)).join('<br>')}</div>` : '';
+      return `<li>${esc(names.subtask(t, x.subtask))} ${state}${why}</li>`;
+    });
+    return msg(sp, '逐条验收', `<div class="bubble">${li(rows)}</div>`);
+  }
   if (o.kind === 'work') {
     return msg(sp, `完成 ${names.subtask(t, data.subtask)}`, `<div class="bubble">${cite(md(data.text), sources)}</div>${mediaFoot(data.media)}`);
   }
@@ -529,7 +583,7 @@ function collabOutput(o, sp, data, names, sources = null) {
     const resp = data.responses
       ? `<details class="more"><summary>对审查意见的回应</summary><div>${md(data.responses)}</div></details>`
       : '';
-    return msg(sp, `修改 ${what}`, `<div class="bubble">${cite(md(data.answer), sources)}</div>${resp}${mediaFoot(data.media)}`);
+    return msg(sp, `${data.accepted_fix ? '验收后修改' : '修改'} ${what}`, `<div class="bubble">${cite(md(data.answer), sources)}</div>${resp}${mediaFoot(data.media)}`);
   }
   if (o.kind === 'merge') return merged(t, data, names);
   return null;
@@ -1211,6 +1265,55 @@ function chainGraph(subs, assign, works, handoffs, names, tableNo) {
   return `${h}</div>`;
 }
 
+// 实时进度看板：每个子任务当前处于哪个阶段（只根据已有记录推断，不额外调用模型）
+export function boardStates(running, subs, assign, merge, works, crossReviews, reworks) {
+  const ownersOf = (id) => (assign?.assignments.find((x) => x.subtask === id) || { members: [] }).members;
+  const finished = (id) => {
+    const o = ownersOf(id);
+    return o.length > 0 && o.every((c) => works.some((w) => w.o.code === c && w.d.subtask === id));
+  };
+  return subs.subtasks.map((st) => {
+    const owners = (assign?.assignments.find((x) => x.subtask === st.id) || { members: [] }).members;
+    let state = '待开始';
+    if (merge) state = '已完成';
+    else if (!assign || !owners.length) state = '待分配';
+    else if (!owners.every((c) => works.some((w) => w.o.code === c && w.d.subtask === st.id))) {
+      const waiting = (st.depends_on || []).some((d) => !finished(d)); // 上游还没交付
+      state = running && !waiting ? '进行中' : '待开始';
+    } else if (!crossReviews.length) state = running ? '审查中' : '待审查';
+    else if (!owners.every((c) => reworks.some((r) => r.o.code === c && r.d.subtask === st.id))) state = running ? '修改中' : '待修改';
+    else state = '待合并';
+    return { st, owners, state };
+  });
+}
+
+const BOARD_CLS = { 待开始: '', 待分配: '', 进行中: 'wait', 审查中: 'wait', 修改中: 'wait', 待审查: '', 待修改: '', 待合并: 'okp', 已完成: 'okp' };
+
+function boardHTML(sv, t, subs, assign, merge, works, crossReviews, reworks, names) {
+  const rows = boardStates(!!sv.running, subs, assign, merge, works, crossReviews, reworks);
+  const done = rows.filter((r) => r.state === '已完成' || r.state === '待合并').length;
+  let h = `<h4>${esc(`第 ${t.table_no + 1} 桌 · 进度看板`)} <span class="hint">${done}/${rows.length}</span></h4><div class="board" role="list">`;
+  for (const { st, owners, state } of rows) {
+    const who = owners.length ? owners.map((c) => esc(names.member(c))).join('、') : '—';
+    h += `<div class="bcard" role="listitem" data-state="${esc(state)}"><div class="bt">${kindPill(st.kind)}<b>${esc(st.id)}</b> ${esc(st.title)}</div><div class="bm"><span class="pill ${BOARD_CLS[state] || ''}">${esc(state)}</span><span class="hint">${who}</span></div></div>`;
+  }
+  return `${h}</div>`;
+}
+
+function discussionHTML(items, result, names, tableNo) {
+  if (!items.length && !result) return '';
+  let h = '<h4>分工讨论</h4>';
+  if (!items.length) h += '<p class="hint">没有收集到意见。</p>';
+  for (const { o, d } of items) {
+    const who = esc(names.member(o.code));
+    if (d.degraded) h += `<p class="hint">${who}：没有给出可用的意见，按无异议处理</p>`;
+    else if (!d.suggestions.length) h += `<p class="hint">${who}：同意当前分工</p>`;
+    else h += `<p class="hint">${who}：${d.suggestions.map((x) => `${esc(names.subtask(tableNo, x.subtask))} ${esc(x.suggestion)}`).join('；')}</p>`;
+  }
+  if (result) h += `<p>${result.adjusted ? '统筹已调整分工' : '统筹保持原分工'}：${esc(result.why || '')}</p>`;
+  return h;
+}
+
 export function splitPanel(sv, prefix) {
   if (!sv) return '<p class="empty">提交题目后显示。</p>';
   if (sv.workflow !== 'collab') {
@@ -1224,10 +1327,12 @@ export function splitPanel(sv, prefix) {
     const pick = (kind) => outs.filter((o) => o.kind === kind).map((o) => ({ o, d: parse(o.content) })).filter((x) => x.d);
     const subs = pick('subtasks')[0]?.d;
     if (!subs) continue;
-    const assign = pick('assignment')[0]?.d;
+    const assign = pick('assignment').at(-1)?.d; // 分工讨论后可能调整过，取最后一份
     const merge = pick('merge')[0]?.d;
     const works = pick('work');
     const vols = pick('volunteer');
+    h += boardHTML(sv, t, subs, assign, merge, works, pick('cross_review'), pick('rework'), names);
+    h += discussionHTML(pick('discuss'), pick('discuss_result')[0]?.d, names, t.table_no);
     h += `<h4>${esc(`第 ${t.table_no + 1} 桌 · 子任务与负责人`)}</h4>`;
     h += '<table><thead><tr><th>子任务</th><th>负责人</th><th>成果</th><th>采纳</th></tr></thead><tbody>';
     let n = 0;

@@ -63,6 +63,12 @@ class EstimateRequest(BaseModel):
     media_tier: str | None = None
 
 
+class Note(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    text: str
+
+
 class Respond(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -239,6 +245,10 @@ def create_app(service: RoundtableService | None = None) -> FastAPI:
     async def respond(request: Request, session_id: str, body: Respond) -> dict[str, str]:
         svc(request).respond(session_id, body.response, body.note)
         return {"session_id": session_id}
+
+    @app.post("/api/sessions/{session_id}/notes", status_code=201)
+    async def add_note(request: Request, session_id: str, body: Note) -> dict[str, Any]:
+        return svc(request).add_note(session_id, body.text)
 
     @app.post("/api/sessions/{session_id}/resume", status_code=202)
     async def resume(request: Request, session_id: str) -> dict[str, str]:

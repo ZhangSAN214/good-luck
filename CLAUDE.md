@@ -42,7 +42,7 @@
 
 ## 3. 中立性规则（代码保证 + 测试）
 
-1. 同一步骤所有组员使用完全相同的提示词和参数（步骤参数在 `roundtable.yaml` 的 `step_params`；模型自身必需的参数在 `models.yaml`）。
+1. 同一步骤所有组员使用完全相同的提示词和参数（步骤参数在 `roundtable.yaml` 的 `step_params`；模型自身必需的参数在 `models.yaml`）。协同的 `work` 步骤允许按**子任务类型**覆盖参数（`collab.kinds.<类型>.step_params`，如 `max_tokens`）：同一类型的所有成员完全相同，与成员是谁无关。
 2. **匿名开启时发给模型的内容只用塔罗牌代号**，不出现模型 id、厂商名、昵称；自报身份（"作为 GPT……"、"我是 Claude"）在转给其他模型前遮蔽，但题目和附件里本来就有的名字保留。**匿名关闭时不做任何身份遮蔽**，成员互称"昵称·模式"。
 3. 代号与模型的对应每题随机生成（塔罗牌随机抽取，座次随机；昵称随模型走）。
 4. **不能自评**：互评时评审者永远看不到自己的答案作为被评对象；协同模式的交叉审查永远不分给作者本人。
@@ -50,7 +50,7 @@
 6. 统筹不兼任同场组员。
 7. **匿名开启时**，发给任何模型的内容不含模型 id、厂商名、昵称；**匿名关闭时**不遮蔽（`IdentityScrubber.bound(context, enabled=)`，引擎按会话的匿名开关给 `TableContext`、媒体服务、工具箱、附件预处理分别绑定）。**匿名开启时揭晓前**，界面和 API 响应也不含模型、渠道、昵称（有测试覆盖事件、会话详情、贡献、发给模型的每条消息）。**渠道名同样会暴露厂商**（如 `anthropic`），因此揭晓前单次调用不显示渠道；用量面板可以显示按渠道汇总的花费。揭晓后每次调用都显示所走渠道和切换记录。
 8. 抽座位、选统筹、分配代号、排序全部用可注入的 `random.Random(seed)`，seed 存库，可复现。
-9. **无品牌偏好**：路由与分配只看档位、能力标签和价格（规划员按预计调用成本选最便宜的）；所选档位全员上桌，统筹在场内均匀随机（轮换）。测试验证：把所有厂商和 id 换名后同一 seed 的结果完全一致；`allocation` / `routing` / `prompts` / `budget` 的源码中不得出现模型名或厂商名。
+9. **无品牌偏好**：路由与分配只看档位、能力标签和价格（规划员按预计调用成本选最便宜的）；所选档位全员上桌（个人作答模式例外：档位内按价格挑一位，无统筹），统筹在场内均匀随机（轮换）。测试验证：把所有厂商和 id 换名后同一 seed 的结果完全一致；`allocation` / `routing` / `prompts` / `budget` 的源码中不得出现模型名或厂商名。
 10. 匿名开启时，组员输出转给其他模型前遮蔽配置中所有模型 id、厂商名、别称、昵称和渠道上的模型名；题目和附件本身出现的名称保留。匿名关闭时不遮蔽。
 11. **工具对所有成员相同**：同一步骤可用的工具、限额、工具说明完全一样（只看配置和当前可用性，不看是哪个模型）；工具模型（`seat: false`，如图像生成）从不上桌。
 
@@ -96,11 +96,14 @@ python scripts/lock_prompts.py      # 新增提示词版本后登记
 roundtable estimate '题目'           # 提交前预估：各模式 × 各档位的上桌人数与花费（不调用模型）
 roundtable models                   # 查看模型、档位、可用渠道与预算
 roundtable stats                    # 各模型的历史贡献
+roundtable bench --max-usd 2          # 对比实验：个人 / 讨论 / 协同各跑同一批题，比正确率、花费、耗时
 roundtable show <id> --costs        # 每步预估与实际花费、每次调用的 token
 roundtable export <id> [-o 文件]     # 导出完整记录（UTF-8 带 BOM，含花费明细）
 roundtable ask '题目'                # 节电模式（便宜档全员）上桌（PowerShell 中题目用单引号）
 roundtable ask --tier flagship --anonymous '题目'   # 全力模式（旗舰档全员）、匿名
 roundtable ask --mode collab '题目'  # 协同模式：拆分子任务、分工完成、合并
+roundtable ask --mode solo|brainstorm|auto '题目'   # 个人作答 / 头脑风暴（思维导图）/ 自动（分诊小组先给建议）
+roundtable mindmap <id> -o 导图.svg  # 保存头脑风暴的导图（.svg / .md / .mmd）
 roundtable ask --attach 图.png --attach 讲义.pdf '题目'   # 带附件
 roundtable files <id> [-o 目录]      # 保存成员生成的文件（含图片 / 音频 / 视频）
 roundtable ask --media image '画一只猫'   # 输出图片（--media speech / video；--media-tier flagship 用高质量档）

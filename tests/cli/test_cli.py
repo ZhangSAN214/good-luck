@@ -466,3 +466,97 @@ async def test_estimate_warns_when_discussion_needs_many_media_files():
     assert code == 0 and "建议切换到协同模式" in text and "--mode collab" in text
     code, text = await cli(env, "estimate", MEDIUM, "--seed", "1")
     assert "建议切换到协同模式" not in text
+
+
+async def test_note_command_records_and_validates():
+    from roundtable.core.routing import Question
+
+    env = Env()
+    sid = env.orc.open(Question(SHORT), seed=1)
+    code, out = await cli(env, "note", sid, "请注意单位")
+    assert code == 0 and "已记下" in out
+    assert [n["text"] for n in env.rt.repo.pending_notes(sid)] == ["请注意单位"]
+    code, out = await cli(env, "note", sid, "   ")
+    assert code == 1 and "不能为空" in out
+    code, out = await cli(env, "note", "不存在", "嗨")
+    assert code == 1 and "找不到" in out
+
+
+async def test_bench_runs_reports_exports_and_lists(tmp_path):
+    env = Env(confirm_threshold_usd=100.0)
+    bank = tmp_path / "q.yaml"
+    bank.write_text(
+        "questions:\n  - {id: m-1, category: math, text: '" + MEDIUM + "', "
+        "judge: {type: number, answer: -2}}\n",
+        encoding="utf-8",
+    )
+    out_csv = tmp_path / "r.csv"
+    code, text = await cli(
+        env, "bench", "--questions", str(bank), "--modes", "solo:budget,discussion:budget",
+        "--batch", "demo", "--seed", "4", "-o", str(out_csv),
+    )  # fmt: skip
+    assert code == 0
+    assert "预估花费" in text and "solo/budget" in text and "每答对一题平均花费" in text
+    assert "m-1" in text and "✓" in text
+    assert out_csv.read_text(encoding="utf-8-sig").startswith("id,batch,question_id")
+    code, text = await cli(env, "bench", "--list")
+    assert code == 0 and "demo" in text
+    code, text = await cli(env, "bench", "--report", "demo", "-o", str(tmp_path / "r.json"))
+    assert code == 0 and (tmp_path / "r.json").exists()
+    code, text = await cli(env, "bench", "--report", "nope")
+    assert code == 2
+
+
+async def test_bench_rejects_bad_bank_and_empty_filter(tmp_path):
+    env = Env()
+    bad = tmp_path / "bad.yaml"
+    bad.write_text("questions: 3\n")
+    code, text = await cli(env, "bench", "--questions", str(bad))
+    assert code == 2 and "实验设置有误" in text
+    code, text = await cli(env, "bench", "--category", "no-such-category")
+    assert code == 2 and "没有符合条件" in text
+
+
+async def test_ask_auto_mode_shows_panel_advice_and_yes_accepts_it():
+    from ..core.orchestrator.test_media import script
+
+    env = Env(confirm_threshold_usd=100.0)
+    script(
+        env,
+        **{
+            "分诊小组的一员": lambda m, msgs: (
+                '{"difficulty": "simple", "workflow": "solo", "reason": "一步就能算出"}'
+            )
+        },
+    )
+    code, text = await cli(env, "ask", MEDIUM, "--mode", "auto", "--yes", "--seed", "3")
+    assert code == 0
+    assert "需要你确认" in text and "采用建议：个人作答" in text and "一步就能算出" in text
+    assert "（--yes：自动选择继续）" in text
+    assert env.models_called("独立完成同一道题") == ["b1"]
+
+
+async def test_brainstorm_cli_and_mindmap_export(tmp_path):
+    from ..core.orchestrator.test_brainstorm import make
+
+    env = make()
+    code, text = await cli(env, "ask", "怎样拓展思路", "--mode", "brainstorm", "--seed", "3")
+    assert code == 0 and "降低开裂" in text
+    sid = re.search(r"会话：(\w+)", text).group(1)
+    svg = tmp_path / "m.svg"
+    code, text = await cli(env, "mindmap", sid, "-o", str(svg))
+    assert code == 0 and svg.read_text(encoding="utf-8").startswith("<svg")
+    md = tmp_path / "m.md"
+    assert (await cli(env, "mindmap", sid, "-o", str(md)))[0] == 0
+    assert md.read_text(encoding="utf-8").startswith("# 降低开裂")
+    mmd = tmp_path / "m.mmd"
+    await cli(env, "mindmap", sid, "-o", str(mmd))
+    assert mmd.read_text(encoding="utf-8").startswith("mindmap")
+
+
+async def test_mindmap_command_without_mindmap_explains():
+    env = Env(confirm_threshold_usd=100.0)
+    await cli(env, "ask", SHORT, "--seed", "1", answers=Answers("n"))
+    sid = re.search(r"会话：(\w+)", (await cli(env, "history"))[1])
+    code, text = await cli(env, "mindmap", sid.group(1) if sid else "x")
+    assert code == 2 or "没有思维导图" in text

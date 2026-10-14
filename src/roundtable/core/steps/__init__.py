@@ -2,6 +2,7 @@
 
 from . import (  # noqa: F401 - 导入即注册
     answer,
+    brainstorm,
     collab,
     media,
     reveal,

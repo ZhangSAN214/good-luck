@@ -9,7 +9,7 @@ import random
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-from roundtable.core.allocation import NotEnoughModels
+from roundtable.core.allocation import NotEnoughModels, cheapest
 from roundtable.core.config import AppConfig, ModelSpec
 from roundtable.core.config.schema import PlanSpec
 
@@ -85,10 +85,38 @@ class LineupBuilder:
         rt = self.config.roundtable
         if workflow == "collab":
             return rt.collab_pipeline
+        if workflow == "solo":
+            return rt.solo_pipeline
+        if workflow == "brainstorm":
+            return rt.brainstorm_pipeline
         return (plan.pipeline if plan else None) or rt.pipeline
 
-    def build(self, plan: PlanSpec, workflow: str = "discussion") -> Lineup:
-        """档位全员：该档位的所有可用模型上桌。"""
+    def build_solo(self, plan: PlanSpec, require_tags: Sequence[str] = ()) -> Lineup:
+        """个人作答：只在所选档位里按预计价格挑最便宜的一位（价格相同随机）；没有统筹。
+
+        题目需要的能力标签（如看图）先作为硬条件；没有模型满足时放宽标签再选。
+        只看档位、标签和价格，不看模型名或厂商。
+        """
+        tiers = set(plan.tiers)
+        pool = [m for m in self.available if m.tier in tiers]
+        if not pool:
+            raise NotEnoughModels(f"「{plan.label}」没有可用模型")
+        tagged = [m for m in pool if set(require_tags) <= set(m.tags)]
+        spec = self.config.routing.planner
+        chosen = cheapest(
+            tagged or pool,
+            self.rng,
+            input_tokens=spec.expected_input_tokens,
+            output_tokens=spec.expected_output_tokens,
+        )
+        return Lineup((chosen.id,), None, tuple(self.pipeline(plan, "solo")))
+
+    def build(
+        self, plan: PlanSpec, workflow: str = "discussion", require_tags: Sequence[str] = ()
+    ) -> Lineup:
+        """档位全员：该档位的所有可用模型上桌。个人作答只挑一位。"""
+        if workflow == "solo":
+            return self.build_solo(plan, require_tags)
         tiers = set(plan.tiers)
         pool = [m for m in self.available if m.tier in tiers]
         seated = {m.id for m in pool}
@@ -104,6 +132,10 @@ class LineupBuilder:
         """自选：勾选的模型全部上桌；统筹可指定（必须是勾选的模型之一），否则按规则选。"""
         by_id = {m.id: m for m in self.available}
         pool = [by_id[i] for i in model_ids]
+        if workflow == "solo":
+            if len(pool) != 1:
+                raise NotEnoughModels("个人作答只能勾选一个模型")
+            return Lineup((pool[0].id,), None, tuple(self.pipeline(None, workflow)))
         return self._seat(
             pool,
             self.pipeline(None, workflow),

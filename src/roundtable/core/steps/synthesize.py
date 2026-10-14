@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from roundtable.core.allocation import shuffled
+from roundtable.core.mindmap import to_markdown, to_mermaid
 from roundtable.core.routing import OutcomeSignals
 
 from .base import StepFailed, StepResult, TableContext, answer_block, call_and_parse, register_step
@@ -86,6 +87,9 @@ def outcome_signals(state: TableState) -> OutcomeSignals | None:
 
 def final_answer(state: TableState) -> str | None:
     """本桌的最终答案：协同模式用合并成果；有汇总用汇总；只有一个组员时用他的最终稿。"""
+    if state.brain.mindmap is not None:
+        m = state.brain.mindmap
+        return f"{to_markdown(m)}\n```mermaid\n{to_mermaid(m)}```\n"
     if state.collab.merge is not None:
         return state.collab.merge.output.result
     if state.synthesis is not None:

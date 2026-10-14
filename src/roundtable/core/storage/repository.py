@@ -513,6 +513,37 @@ class Repository:
             for c in result.completions
         ]
 
+    def record_panel(self, session_id: str, result: Any) -> list[int]:
+        """分诊小组的每次成功调用各记一条（step=triage，计入花费与预算）。"""
+        return [
+            self.record_call(
+                session_id,
+                step="triage",
+                role="planner",
+                model_id=c.model_id,
+                messages=c.messages,
+                prompt=RenderedPrompt(
+                    "panel", result.prompt_version, result.prompt_sha256 or "", c.messages
+                ),
+                completion=c.completion,
+            )
+            for c in result.calls
+        ]
+
+    def update_session_choice(self, session_id: str, choice: Mapping[str, Any]) -> None:
+        """分诊建议被用户确认后，把"自动"改成具体的作答方式与档位。"""
+        self._require_session(session_id)
+        self._exec(
+            "UPDATE sessions SET choice = ?, workflow = ?, mode = ?, updated_at = ? WHERE id = ?",
+            (
+                _json(dict(choice)),
+                choice["workflow"],
+                choice.get("tier") or "budget",
+                self.clock(),
+                session_id,
+            ),
+        )
+
     # --- 产出与进度 --------------------------------------------------------------
 
     def save_output(
@@ -597,6 +628,103 @@ class Repository:
             (session_id,),
         ).fetchone()
         return _checkpoint(row) if row else None
+
+    # --- 对比实验 -----------------------------------------------------------------
+
+    def add_bench_run(
+        self,
+        *,
+        batch: str,
+        question_id: str,
+        category: str,
+        workflow: str,
+        tier: str,
+        session_id: str | None,
+        status: str,
+        correct: bool | None,
+        cost_usd: float,
+        seconds: float,
+    ) -> int:
+        with self._tx():
+            cur = self.conn.execute(
+                "INSERT INTO bench_runs (batch, question_id, category, workflow, tier, session_id,"
+                " status, correct, cost_usd, seconds, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                (
+                    batch,
+                    question_id,
+                    category,
+                    workflow,
+                    tier,
+                    session_id,
+                    status,
+                    None if correct is None else int(correct),
+                    cost_usd,
+                    seconds,
+                    _now(),
+                ),
+            )
+        return int(cur.lastrowid or 0)
+
+    def bench_runs(self, batch: str) -> list[dict[str, Any]]:
+        rows = self._exec("SELECT * FROM bench_runs WHERE batch = ? ORDER BY id", (batch,))
+        return [dict(r) for r in rows.fetchall()]
+
+    def bench_batches(self) -> list[dict[str, Any]]:
+        """历次实验：最近的在前。"""
+        rows = self._exec(
+            "SELECT batch, COUNT(*) AS runs, COALESCE(SUM(cost_usd), 0) AS cost_usd,"
+            " MIN(created_at) AS started_at FROM bench_runs GROUP BY batch"
+            " ORDER BY MAX(id) DESC"
+        )
+        return [dict(r) for r in rows.fetchall()]
+
+    # --- 用户中途插话 -------------------------------------------------------------
+
+    def add_note(self, session_id: str, text: str) -> int:
+        """登记一条用户补充；下一个步骤开始时被带上。返回编号。"""
+        self._require_session(session_id)
+        with self._tx():
+            cur = self.conn.execute(
+                "INSERT INTO user_notes (session_id, text, created_at) VALUES (?, ?, ?)",
+                (session_id, text, _now()),
+            )
+        return int(cur.lastrowid or 0)
+
+    def pending_notes(self, session_id: str) -> list[dict[str, Any]]:
+        rows = self._exec(
+            "SELECT id, text, created_at FROM user_notes"
+            " WHERE session_id = ? AND applied_step IS NULL ORDER BY id",
+            (session_id,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def mark_notes_applied(
+        self, session_id: str, note_ids: Sequence[int], table_no: int, step: str
+    ) -> None:
+        with self._tx():
+            for note_id in note_ids:
+                self.conn.execute(
+                    "UPDATE user_notes SET applied_table = ?, applied_step = ?, applied_at = ?"
+                    " WHERE id = ? AND session_id = ? AND applied_step IS NULL",
+                    (table_no, step, _now(), note_id, session_id),
+                )
+
+    def applied_notes(self, session_id: str) -> list[str]:
+        """已经被带上的补充（按时间顺序）；之后的每个步骤都带着它们。"""
+        rows = self._exec(
+            "SELECT text FROM user_notes WHERE session_id = ? AND applied_step IS NOT NULL"
+            " ORDER BY id",
+            (session_id,),
+        ).fetchall()
+        return [r["text"] for r in rows]
+
+    def notes(self, session_id: str) -> list[dict[str, Any]]:
+        rows = self._exec(
+            "SELECT id, text, created_at, applied_table, applied_step FROM user_notes"
+            " WHERE session_id = ? ORDER BY id",
+            (session_id,),
+        ).fetchall()
+        return [dict(r) for r in rows]
 
     # --- 附件 ------------------------------------------------------------------
 

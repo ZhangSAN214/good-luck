@@ -24,6 +24,8 @@ KNOWN_STEPS = frozenset(
         "decompose",
         "volunteer",
         "assign",
+        "discuss",
+        "accept",
         "work",
         "cross_review",
         "rework",
@@ -210,10 +212,20 @@ def estimate_pipeline(
         "decompose": (coord, o + q, d),
         "volunteer": (members, o + q + d, params.volunteer_tokens),
         "assign": (coord, o + q + d + n * params.volunteer_tokens, params.assign_tokens),
+        "discuss": (members, o + q + d + n * 60, params.discuss_tokens),
         "work": (members, o + q + d + a, a),
         "cross_review": (members, o + q + k * a, k * r),
         "rework": (members, o + q + d + a + k * r, revised),
+        "accept": (coord, o + q + d + n * revised, params.accept_tokens),
         "merge": (coord, o + q + d + n * revised, params.merge_tokens),
+        # 头脑风暴：每人 ideate_tokens 的想法；拓展时看别人的想法；统筹整合全部
+        "ideate": (members, o + q, params.ideate_tokens),
+        "expand": (members, o + q + (n - 1) * params.ideate_tokens, params.expand_tokens),
+        "organize": (
+            coord,
+            o + q + n * (params.ideate_tokens + params.expand_tokens),
+            params.organize_tokens,
+        ),
     }
     steps: list[StepCost] = []
     unknown: list[str] = []

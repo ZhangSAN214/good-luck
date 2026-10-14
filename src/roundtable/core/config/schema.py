@@ -266,6 +266,8 @@ class KindRule(_Strict):
     requires_media: bool = False  # 需要可用的媒体生成模型
     avoid_hard: list[str] = Field(default_factory=list)  # 负责人不能是这些类型上游子任务的负责人
     avoid_soft: list[str] = Field(default_factory=list)  # 同上，但成员太少无法满足时放宽
+    # 完成这类子任务时覆盖「work」步骤参数（如 max_tokens）：同一类型的所有成员相同，与成员是谁无关
+    step_params: dict[str, Any] = Field(default_factory=dict)
 
 
 class PipelineRules(_Strict):
@@ -316,10 +318,45 @@ class PipelineTemplate(_Strict):
     steps: list[TemplateStep] = Field(min_length=2)
 
 
+class DiscussionRules(_Strict):
+    """分工讨论：分工后组员提建议，统筹最多调整一次。"""
+
+    enabled: bool = True
+    min_members: int = Field(default=3, ge=2)  # 组员不足时跳过（两个人没什么好商量的）
+    max_suggestions: int = Field(default=3, ge=1)  # 每位组员最多提几条
+
+
+class BrainstormRules(_Strict):
+    """头脑风暴：每人最多提几个想法、拓展几条，导图的分支与条目上限。"""
+
+    max_ideas: int = Field(default=4, ge=1)
+    max_expansions: int = Field(default=3, ge=0)
+    max_branches: int = Field(default=6, ge=1)
+    max_ideas_per_branch: int = Field(default=6, ge=1)
+    max_next_steps: int = Field(default=5, ge=0)
+
+
+class AcceptanceRules(_Strict):
+    """合并前的逐条验收：统筹按验收标准检查，不合格的退回作者改一次。"""
+
+    enabled: bool = True
+    max_fix_items: int = Field(default=3, ge=1)  # 最多退回几个子任务（防止成本失控）
+
+
+class CrossReviewRules(_Strict):
+    """交叉审查的花费控制：很短的成果少找几位审查者（与作者是谁无关）。"""
+
+    short_chars: int = Field(default=0, ge=0)  # 成果少于这么多字算"很短"；0 = 不启用
+    short_reviews: int = Field(default=1, ge=1)  # 很短的成果找几位审查者
+
+
 class CollabRules(_Strict):
     """协同模式：拆分子任务的数量范围，以及流水线（子任务类型、校验、模板）。"""
 
     max_subtasks: int = Field(default=12, ge=1)
+    discussion: DiscussionRules = DiscussionRules()
+    acceptance: AcceptanceRules = AcceptanceRules()
+    cross_review: CrossReviewRules = CrossReviewRules()
     pipeline: PipelineRules = PipelineRules()
     kinds: dict[str, KindRule] = Field(default_factory=dict)
     templates: list[PipelineTemplate] = Field(default_factory=list)
@@ -571,6 +608,11 @@ class RoundtableConfig(_Strict):
     prompts: dict[str, str]
     pipeline: list[str] = Field(min_length=1)  # 讨论模式
     collab_pipeline: list[str] = Field(min_length=1)  # 协同模式
+    solo_pipeline: list[str] = Field(default_factory=lambda: ["answer", "reveal"], min_length=1)
+    brainstorm_pipeline: list[str] = Field(
+        default_factory=lambda: ["ideate", "expand", "organize", "reveal"], min_length=1
+    )
+    brainstorm: BrainstormRules = BrainstormRules()
     collab: CollabRules = CollabRules()
     channel_mode: ChannelMode = "auto"
     request: RequestPolicy = RequestPolicy()
@@ -593,7 +635,7 @@ class RoundtableConfig(_Strict):
             raise ValueError(f"提示词版本必须形如 v1、v2：{bad}")
         return prompts
 
-    @field_validator("pipeline", "collab_pipeline")
+    @field_validator("pipeline", "collab_pipeline", "solo_pipeline", "brainstorm_pipeline")
     @classmethod
     def _unique_steps(cls, steps: list[str]) -> list[str]:
         if len(steps) != len(set(steps)):
@@ -722,6 +764,31 @@ class PlannerSpec(_Strict):
     expected_output_tokens: int = Field(default=150, gt=0)
 
 
+class PanelSpec(_Strict):
+    """分诊小组：题目开始时几位最便宜的模型各给一条作答方式建议（只推荐，用户确认）。"""
+
+    size: int = Field(default=3, ge=1, le=7)
+    tiers: list[Tier] = Field(default_factory=lambda: ["budget"], min_length=1)
+    max_tokens: int = Field(default=200, gt=0)
+    expected_input_tokens: int = Field(default=500, gt=0)
+    expected_output_tokens: int = Field(default=100, gt=0)
+    # 规则已能判断为简单题时不调用小组，直接建议个人作答
+    skip_when_simple: bool = True
+    # 小组没有给出有效建议时的作答方式
+    default_workflow: Literal["solo", "discussion", "collab"] = "discussion"
+    # 难度（取中位数）对应推荐的档位
+    tier_by_difficulty: dict[Difficulty, str] = Field(
+        default_factory=lambda: {"simple": "budget", "medium": "budget", "hard": "flagship"}
+    )
+
+    @model_validator(mode="after")
+    def _all_difficulties(self) -> PanelSpec:
+        missing = {"simple", "medium", "hard"} - set(self.tier_by_difficulty)
+        if missing:
+            raise ValueError(f"tier_by_difficulty 缺少难度 {sorted(missing)}")
+        return self
+
+
 class EscalationRule(_Strict):
     min_disagreements: int = Field(default=1, ge=1)
     confidence: list[Confidence] = Field(default_factory=lambda: ["low"])
@@ -745,7 +812,12 @@ class EstimateParams(_Strict):
     decompose_tokens: int = Field(default=800, ge=0)
     volunteer_tokens: int = Field(default=300, ge=0)
     assign_tokens: int = Field(default=400, ge=0)
+    discuss_tokens: int = Field(default=250, ge=0)
+    accept_tokens: int = Field(default=500, ge=0)
     merge_tokens: int = Field(default=3000, ge=0)
+    ideate_tokens: int = Field(default=500, ge=0)
+    expand_tokens: int = Field(default=400, ge=0)
+    organize_tokens: int = Field(default=1500, ge=0)
     # 没有历史记录时，输出 token 按档位放大（推理模型的思考 token 也按输出计费）
     output_multiplier: dict[str, float] = Field(default_factory=dict)
     # 某个模型在某个步骤至少有这么多次成功调用，才用它的历史中位数代替公式
@@ -793,6 +865,7 @@ class RoutingConfig(_Strict):
     default_plan: str
     default_difficulty: Difficulty = "medium"
     planner: PlannerSpec = PlannerSpec()
+    panel: PanelSpec = PanelSpec()
     triage: list[TriageRule] = Field(default_factory=list)
     multi_media: MultiMediaRule | None = None
     plans: dict[str, PlanSpec] = Field(min_length=1)
@@ -878,6 +951,11 @@ class AppConfig(_Strict):
                 raise ValueError(f"triage 规则 {rule.name} 的 task_type 不在标签词表中")
         if "planner" not in rt.prompts:
             raise ValueError("roundtable.yaml 的 prompts 缺少 planner 版本")
+        if "panel" not in rt.prompts:
+            raise ValueError("roundtable.yaml 的 prompts 缺少 panel 版本")
+        unknown_tiers = sorted(set(routing.panel.tier_by_difficulty.values()) - set(routing.plans))
+        if unknown_tiers:
+            raise ValueError(f"routing.panel.tier_by_difficulty 引用了不存在的档位 {unknown_tiers}")
         for name, plan in routing.plans.items():
             missing = sorted(set(plan.prompt_roles.values()) - set(rt.prompts))
             if missing:

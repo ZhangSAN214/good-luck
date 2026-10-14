@@ -38,6 +38,7 @@ from roundtable.core.routing import Question
 from roundtable.core.storage import Repository
 from roundtable.core.tools import TEXT_EXTS, ToolBox
 
+from .brain_schemas import restore_brain
 from .schemas import CheckedReview, EffortRecord, Revision, StyleSpec, Synthesis, TableState
 
 log = logging.getLogger(__name__)
@@ -126,6 +127,8 @@ class TableContext:
     anonymous: bool = True
     # 被长度上限截断的调用（calls.id）：这类产出的"过短""没回应审阅意见"不算敷衍
     truncated_calls: set[int] = field(default_factory=set)
+    # 用户中途补充的意见（按时间顺序，已被带上的）；之后每一步的每次调用都附上，同一步骤所有成员相同
+    user_notes: tuple[str, ...] = ()
 
     @property
     def effort_rule(self):
@@ -175,9 +178,20 @@ class TableContext:
             messages = attach_messages(messages, self.attachments, template, vision=vision)
         if self.state.style is not None:
             messages = self._attach_style(messages)
+        if self.user_notes:
+            messages = self._attach_notes(messages)
         if vision:
             messages = self._attach_generated_images(messages)
         return messages
+
+    def _attach_notes(self, messages: tuple[Message, ...]) -> tuple[Message, ...]:
+        """用户中途补充的意见接在每次调用上（和风格规范一样的做法）。"""
+        template = self.prompts.get("user_notes", self.prompt_version("user_notes"))
+        listed = "\n".join(
+            f'<note n="{i}">{neutralize(text, ("note", "user_notes"))}</note>'
+            for i, text in enumerate(self.user_notes, 1)
+        )
+        return append_to_messages(messages, template, notes=listed)
 
     def _attach_style(self, messages: tuple[Message, ...]) -> tuple[Message, ...]:
         """风格规范接在每次调用上（和附件一样的做法；同一步骤所有成员相同）。"""
@@ -374,6 +388,7 @@ async def call_model(
     code: str | None = None,
     followup: Sequence[Message] = (),
     extra_params: dict[str, Any] | None = None,
+    base_params: dict[str, Any] | None = None,
 ) -> CallOutcome:
     """调用一次并记录（成功或失败都记录）。渠道层已经负责重试和切换。
 
@@ -394,6 +409,7 @@ async def call_model(
             code=code,
             messages=messages,
             tools=tools,
+            base_params=base_params,
         )
     return await call_once(
         ctx,
@@ -404,6 +420,7 @@ async def call_model(
         code=code,
         messages=messages,
         extra_params=extra_params,
+        base_params=base_params,
     )
 
 
@@ -417,8 +434,10 @@ async def call_once(
     code: str | None,
     messages: Sequence[Message],
     extra_params: dict[str, Any] | None = None,
+    base_params: dict[str, Any] | None = None,
 ) -> CallOutcome:
-    params = ctx.step_params(step)
+    # base_params：本次调用所属任务类型的参数覆盖（同类任务所有成员相同），长度保护的升级叠加其上
+    params = {**ctx.step_params(step), **(base_params or {})}
     if extra_params:
         params = {**params, **extra_params}
     try:
@@ -470,6 +489,7 @@ async def call_once(
             code=code,
             messages=messages,
             extra_params=guard.escalate(params),
+            base_params=base_params,
         )
     return CallOutcome(completion, call_id)
 
@@ -659,6 +679,8 @@ def check_pipelines(config: AppConfig) -> None:
     pipelines = {
         "roundtable.pipeline": config.roundtable.pipeline,
         "roundtable.collab_pipeline": config.roundtable.collab_pipeline,
+        "roundtable.solo_pipeline": config.roundtable.solo_pipeline,
+        "roundtable.brainstorm_pipeline": config.roundtable.brainstorm_pipeline,
     }
     for name, plan in config.routing.plans.items():
         if plan.pipeline is not None:
@@ -697,14 +719,14 @@ def restore_state(repo: Repository, session_id: str, table_no: int) -> TableStat
             state.effort[record.key] = record
         elif kind == "style_spec":
             state.style = StyleSpec.from_dict(json.loads(o["content"]))
-        else:
+        elif not restore_brain(state.brain, kind, code, json.loads(o["content"])):
             restore_collab(state, kind, code, json.loads(o["content"]))
     return state
 
 
 def restore_collab(state: TableState, kind: str, code: str | None, data: dict[str, Any]) -> None:
     """协同模式各步骤的产出。"""
-    from .collab_schemas import Assignment, Merge, Subtask, Volunteer
+    from .collab_schemas import Acceptance, Assignment, Discussion, Merge, Subtask, Volunteer
 
     c = state.collab
     if kind == "subtasks":
@@ -724,6 +746,12 @@ def restore_collab(state: TableState, kind: str, code: str | None, data: dict[st
         c.volunteers[code] = Volunteer.from_dict(data)
     elif kind == "assignment":
         c.assignment = Assignment.from_dict(data)
+    elif kind == "discuss":
+        c.discussions[code] = Discussion.from_dict(data)
+    elif kind == "discuss_result":
+        c.discussion_result = dict(data)
+    elif kind == "acceptance":
+        c.acceptance = Acceptance.from_dict(data)
     elif kind == "work":
         c.works[(data["subtask"], code)] = data["text"]
     elif kind == "cross_review":

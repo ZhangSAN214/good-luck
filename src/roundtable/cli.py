@@ -25,19 +25,30 @@ from __future__ import annotations
 import argparse
 import asyncio
 import contextlib
+import csv
 import io
 import json
 import secrets
 import sys
 from collections import defaultdict
 from collections.abc import Callable, Sequence
+from datetime import datetime
 from pathlib import Path
 from typing import Any, TextIO
 
 from roundtable.core.allocation import coordinator_name, display_name
 from roundtable.core.attachments import UploadError, ingest
+from roundtable.core.bench import (
+    BenchError,
+    BenchRunner,
+    cost_per_correct,
+    load_questions,
+    parse_modes,
+    summarize,
+)
 from roundtable.core.config import ConfigError
 from roundtable.core.display import format_rice
+from roundtable.core.notes import NoteError, check_can_add, clean_note
 from roundtable.core.orchestrator import Orchestrator, OrchestratorError, RunResult
 from roundtable.core.routing import (
     CUSTOM,
@@ -49,8 +60,9 @@ from roundtable.core.routing import (
     detect_multi_media,
     preview_estimates,
 )
-from roundtable.core.runtime import Runtime
+from roundtable.core.runtime import PROJECT_ROOT, Runtime
 from roundtable.core.steps import Event
+from roundtable.core.storage import NotFound
 from roundtable.plaintext import to_terminal
 
 STEP_NAMES = {
@@ -63,10 +75,15 @@ STEP_NAMES = {
     "decompose": "统筹拆分子任务",
     "volunteer": "成员自荐",
     "assign": "统筹分配",
+    "discuss": "分工讨论",
     "work": "完成子任务",
     "cross_review": "交叉审查",
     "rework": "按审查修改",
+    "accept": "逐条验收",
     "merge": "统筹合并",
+    "ideate": "成员发散",
+    "expand": "互相拓展",
+    "organize": "统筹整合导图",
     "attachments": "处理附件",
     "media": "生成媒体",
     "style": "提取风格规范",
@@ -256,7 +273,7 @@ class CLI:
             self.p(f"  {n}. {o['label']}{note}{cost}{mark}")
         if card.get("reason"):
             self.p(f"  推荐理由：{card['reason']}")
-        if self.auto_confirm and card["kind"] in ("cost", "escalation", "members"):
+        if self.auto_confirm and card["kind"] in ("cost", "escalation", "members", "triage"):
             self.p("  （--yes：自动选择继续）")
             return "continue"
         keys = [o["key"] for o in options]
@@ -310,6 +327,9 @@ class CLI:
             self.print_style(outputs, table_no, details)
             if any(o.kind == "subtasks" for o in outputs):
                 self.print_collab(outputs, table_no, details)
+                continue
+            if any(o.kind in ("ideas", "mindmap") for o in outputs):
+                self.print_brainstorm(outputs, table_no, details)
                 continue
             if details:
                 for o in outputs:
@@ -521,12 +541,18 @@ class CLI:
         cfg = self.rt.config.routing
         plan = choice.tier or cfg.default_plan
         threshold = cfg.confirm_threshold_usd
-        mode_names = {"discussion": "讨论", "collab": "协同"}
+        mode_names = {
+            "discussion": "讨论",
+            "collab": "协同",
+            "solo": "个人",
+            "brainstorm": "头脑风暴",
+            "auto": "自动",
+        }
         length = LENGTH_NAMES.get(assessment.difficulty, assessment.difficulty)
         source = SOURCE_NAMES.get(assessment.source, assessment.source)
         self.p(f"提交前预估（答案长度：{length}，{source}；不含规划员）：")
         for o in options:
-            if brief and o.workflow != choice.workflow:
+            if brief and choice.workflow != "auto" and o.workflow != choice.workflow:
                 continue
             mark = "▶" if o.plan == plan and o.workflow == choice.workflow else " "
             head = f" {mark} {mode_names.get(o.workflow, o.workflow)} · {o.label}"
@@ -537,8 +563,9 @@ class CLI:
             e = o.estimate
             over = "  超过确认门槛" if e.total_usd > threshold else ""
             absent = f"，缺席 {len(o.lineup.absent)}" if o.lineup.absent else ""
+            coord = " + 统筹" if o.lineup.coordinator else ""
             self.p(
-                f"{head}：{len(o.lineup.members)} 位组员 + 统筹{absent}，"
+                f"{head}：{len(o.lineup.members)} 位组员{coord}{absent}，"
                 f"预计 ${e.total_usd:.4f}（最多约 ${e.max_usd:.4f}）{over}"
             )
             if not anonymous and not brief:
@@ -692,6 +719,33 @@ class CLI:
                 where, what, fix = (self.t(i[k]) for k in ("location", "problem", "suggestion"))
                 self.p(f"     · [{i['severity']}] {where}：{what} → {fix}")
 
+    def print_brainstorm(self, outputs, table_no: int, details: bool) -> None:
+        """头脑风暴：详情里列出每人的想法与拓展；最后给出整合后的大纲。"""
+        if details:
+            for o in outputs:
+                who = self.label(o.code, table_no)
+                if o.kind == "ideas":
+                    items = json.loads(o.content)["ideas"]
+                    self.p(f"\n【{who} 的想法】")
+                    for i in items:
+                        detail = f"：{self.t(i['detail'])}" if i["detail"] else ""
+                        self.p(f"  {i['id']} {self.t(i['title'])}{detail}")
+                elif o.kind == "expansions":
+                    items = json.loads(o.content)["items"]
+                    if items:
+                        self.p(f"\n【{who} 的拓展】")
+                    for x in items:
+                        on = f"（针对 {x['on']}）" if x["on"] else ""
+                        self.p(f"  [{x['kind']}]{on} {self.t(x['text'])}")
+        mm = next((o for o in outputs if o.kind == "mindmap"), None)
+        if mm is None:
+            return
+        data = json.loads(mm.content)
+        if data["map"].get("degraded"):
+            self.p("\n（统筹没能整合出导图，以下按成员分别列出各自的想法）")
+        self.p("\n【思维导图（大纲）】\n" + self.t(data["markdown"]))
+        self.p("保存图片或代码：roundtable mindmap <会话 id> -o 导图.svg（也可用 .md / .mmd）")
+
     def print_synthesis(self, s: dict[str, Any], table_no: int = 0) -> None:
         if s.get("degraded"):
             self.p("\n（统筹的汇总不可用，以下为兜底结果）")
@@ -844,6 +898,123 @@ class CLI:
             self.p(f"  {channel}：{reason}")
         return False
 
+    async def cmd_bench(self, args: argparse.Namespace) -> int:
+        """对比实验：同一批题用不同模式各跑一遍，比较正确率、花费、耗时。"""
+        if args.list:
+            batches = self.rt.repo.bench_batches()
+            if not batches:
+                self.p("还没有做过对比实验。")
+            for b in batches:
+                self.p(
+                    f"  {b['batch']}  {b['runs']} 次运行  ${b['cost_usd']:.4f}  {b['started_at']}"
+                )
+            return 0
+        if args.report:
+            return self._bench_report(args.report, args.output)
+        if not self.check_available():
+            return 2
+        try:
+            questions = load_questions(args.questions)
+            modes = parse_modes(args.modes)
+        except BenchError as exc:
+            self.p(f"实验设置有误：{exc}")
+            return 2
+        if args.category:
+            questions = [q for q in questions if q.category in args.category]
+        if args.limit:
+            questions = questions[: args.limit]
+        if not questions:
+            self.p("没有符合条件的题目。")
+            return 2
+        seed = args.seed if args.seed is not None else secrets.randbelow(2**31)
+        batch = args.batch or datetime.now().strftime("bench-%Y%m%d-%H%M%S")
+        self.p(
+            f"实验 {batch}：{len(questions)} 道题 × {len(modes)} 种模式，花费上限 ${args.max_usd:g}"
+        )
+        self.print_bench_estimate(questions, modes, seed)
+        runner = BenchRunner(self.orc, self.rt.repo)
+
+        def line(r) -> None:
+            mark = {True: "✓", False: "✗", None: "—"}[r.correct]
+            self.p(
+                f"  {r.question_id:<12} {r.workflow}/{r.tier:<9} {mark}  ${r.cost_usd:.4f}"
+                f"  {r.seconds:.1f}s  {r.status}"
+            )
+
+        try:
+            done = await runner.run(
+                questions, modes, batch=batch, seed=seed, max_usd=args.max_usd, on_result=line
+            )
+        except BenchError as exc:
+            self.p(f"实验设置有误：{exc}")
+            return 2
+        if len(done) < len(questions) * len(modes):
+            self.p(f"\n已达到花费上限 ${args.max_usd:g}，提前停止（{len(done)} 次运行已保存）。")
+        return self._bench_report(batch, args.output)
+
+    def print_bench_estimate(self, questions, modes, seed: int) -> None:
+        totals = {m.label: 0.0 for m in modes}
+        for q in questions:
+            _, options = preview_estimates(
+                Question(q.text),
+                config=self.rt.config,
+                router=self.rt.router,
+                seed=seed,
+                workflows=sorted({m.workflow for m in modes}),
+            )
+            for m in modes:
+                for o in options:
+                    if o.workflow == m.workflow and o.plan == m.tier and o.estimate:
+                        totals[m.label] += o.estimate.total_usd
+        self.p("预估花费：" + "；".join(f"{k} ${v:.4f}" for k, v in totals.items()))
+
+    def _bench_report(self, batch: str, output: str | None) -> int:
+        rows = self.rt.repo.bench_runs(batch)
+        if not rows:
+            self.p(f"没有找到实验 {batch}。")
+            return 2
+        summary = summarize(rows)
+        self.p(f"\n实验 {batch} 汇总（只统计跑完的运行）：")
+        self.p("  模式              类别      题数 答对 正确率  平均花费   平均耗时")
+        for r in summary:
+            self.p(
+                f"  {r['workflow'] + '/' + r['tier']:<16} {r['category']:<9} {r['questions']:>3}"
+                f" {r['correct']:>4} {r['accuracy']:>6.0%}  ${r['avg_cost_usd']:<8.4f} "
+                f"{r['avg_seconds']:.1f}s"
+            )
+        for (workflow, tier), value in sorted(cost_per_correct(rows).items()):
+            text = f"${value:.4f}" if value is not None else "没有答对的题"
+            self.p(f"  {workflow}/{tier}：每答对一题平均花费 {text}")
+        if output:
+            target = Path(output)
+            if target.suffix.lower() == ".json":
+                target.write_text(
+                    json.dumps({"runs": rows, "summary": summary}, ensure_ascii=False, indent=2),
+                    encoding="utf-8",
+                )
+            else:
+                with target.open("w", encoding="utf-8-sig", newline="") as f:
+                    w = csv.DictWriter(f, fieldnames=list(rows[0]))
+                    w.writeheader()
+                    w.writerows(rows)
+            self.p(f"已导出到 {target.resolve()}")
+        return 0
+
+    def cmd_mindmap(self, session_id: str, output: str | None) -> int:
+        """保存头脑风暴的思维导图：按后缀 .svg（图）/ .md（大纲）/ .mmd（Mermaid）。"""
+        rows = self.rt.repo.outputs(session_id, kind="mindmap")
+        if not rows:
+            self.p("这场讨论没有思维导图（只有头脑风暴模式会生成）。")
+            return 2
+        data = json.loads(rows[-1]["content"])
+        target = Path(output or f"roundtable-{session_id[:8]}-mindmap.svg")
+        text = {".md": data["markdown"], ".mmd": data["mermaid"]}.get(
+            target.suffix.lower(), data["svg"]
+        )
+        target.write_text(text, encoding="utf-8")
+        self.p(f"已保存到 {target.resolve()}")
+        return 0
+
     def cmd_models(self) -> int:
         available = {m.id for m in self.rt.router.available_models()}
         self.p(f"渠道模式：{self.rt.router.mode}")
@@ -876,6 +1047,23 @@ class CLI:
             parts = [f"{KIND_NAMES[k]} {counts[k]}" for k in KIND_NAMES if k in counts]
             name = f"{display_name(model, self.rt.config)}（{model}）"
             self.p(f"  {name:<28} {sessions[model]} 场  " + "，".join(parts))
+        return 0
+
+    def cmd_note(self, session_id: str, text: str) -> int:
+        """讨论进行中补充意见（可在另一个终端运行）：下一个步骤开始时被带上。"""
+        repo = self.rt.repo
+        try:
+            row = repo.session_row(session_id)
+            cleaned = clean_note(text)
+            check_can_add(row["status"], len(repo.pending_notes(session_id)))
+        except NotFound:
+            self.p(f"找不到会话 {session_id}")
+            return 1
+        except NoteError as exc:
+            self.p(str(exc))
+            return 1
+        repo.add_note(session_id, cleaned)
+        self.p("已记下，下一个步骤开始时会带给统筹和组员。")
         return 0
 
     def cmd_history(self, limit: int) -> int:
@@ -917,9 +1105,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     ask.add_argument(
         "--mode",
-        choices=["discussion", "collab"],
+        choices=["discussion", "collab", "solo", "brainstorm", "auto"],
         default="discussion",
-        help="discussion 讨论（全员各自作答再互评汇总，默认）/ collab 协同（拆分子任务分工完成）",
+        help=(
+            "discussion 讨论（全员各自作答再互评汇总，默认）/ collab 协同（拆分子任务分工完成）"
+            "/ solo 个人作答（档位内挑最便宜的一位直接回答）"
+            "/ brainstorm 头脑风暴（发散、拓展、整合成思维导图）"
+            "/ auto 自动（先请分诊小组给建议，你确认后再开始）"
+        ),
     )
     ask.add_argument(
         "--media",
@@ -944,9 +1137,31 @@ def build_parser() -> argparse.ArgumentParser:
     reveal.add_argument("--no-reveal", dest="reveal", action="store_false", help="结束后不揭晓")
 
     sub.add_parser("models", help="查看模型、档位与可用渠道")
+    bench = sub.add_parser(
+        "bench", help="对比实验：同一批题用个人 / 讨论 / 协同各跑一遍，比较正确率、花费、耗时"
+    )
+    bench.add_argument(
+        "--questions", default=str(PROJECT_ROOT / "benchmarks"), help="题库文件或目录"
+    )
+    bench.add_argument(
+        "--modes",
+        default="solo:budget,discussion:budget,collab:budget",
+        help="模式:档位，逗号分隔，如 solo:budget,collab:flagship",
+    )
+    bench.add_argument("--category", action="append", help="只跑这些类别（可重复）")
+    bench.add_argument("--limit", type=int, help="只跑前 N 题")
+    bench.add_argument("--max-usd", type=float, default=2.0, help="花费上限，默认 2 美元")
+    bench.add_argument("--seed", type=int)
+    bench.add_argument("--batch", help="实验名称，默认按时间生成")
+    bench.add_argument("--list", action="store_true", help="列出历次实验")
+    bench.add_argument("--report", metavar="BATCH", help="只查看某次实验的汇总")
+    bench.add_argument("-o", "--output", help="导出 CSV 或 JSON（按后缀）")
     sub.add_parser("stats", help="各模型的历史贡献（被采纳、有效问题、敷衍次数等）")
     history = sub.add_parser("history", help="最近的讨论")
     history.add_argument("--limit", type=int, default=20)
+    note = sub.add_parser("note", help="讨论进行中补充意见（下一个步骤开始时带上）")
+    note.add_argument("session_id")
+    note.add_argument("text", help="补充的内容")
     for name, text in (("resume", "中断后继续"), ("show", "查看结果"), ("reveal", "揭晓身份")):
         cmd = sub.add_parser(name, help=text)
         cmd.add_argument("session_id")
@@ -967,6 +1182,11 @@ def build_parser() -> argparse.ArgumentParser:
     files = sub.add_parser("files", help="把成员生成的文件保存到本地目录")
     files.add_argument("session_id")
     files.add_argument("-o", "--output", help="目录，默认 roundtable-<会话 id 前 8 位>-files")
+    mindmap = sub.add_parser("mindmap", help="保存头脑风暴的思维导图（.svg 图 / .md 大纲 / .mmd）")
+    mindmap.add_argument("session_id")
+    mindmap.add_argument(
+        "-o", "--output", help="输出文件，默认 roundtable-<会话 id 前 8 位>-mindmap.svg"
+    )
     export = sub.add_parser("export", help="导出完整记录到 UTF-8 文本文件（含花费明细）")
     export.add_argument("session_id")
     export.add_argument("-o", "--output", help="输出文件，默认 roundtable-<会话 id 前 8 位>.txt")
@@ -1031,10 +1251,14 @@ async def run(
                 attach=args.attach,
                 style_ref=not args.no_style_ref,
             )
+        if args.command == "bench":
+            return await cli.cmd_bench(args)
         if args.command == "models":
             return cli.cmd_models()
         if args.command == "stats":
             return cli.cmd_stats()
+        if args.command == "note":
+            return cli.cmd_note(args.session_id, args.text)
         if args.command == "history":
             return cli.cmd_history(args.limit)
         if args.command == "resume":
@@ -1071,6 +1295,8 @@ async def run(
             root = cli.save_files(args.session_id, args.output)
             print(f"已保存到 {root.resolve()}", file=out)
             return 0
+        if args.command == "mindmap":
+            return cli.cmd_mindmap(args.session_id, args.output)
         if args.command == "export":
             target = cli.export(args.session_id, args.output)
             print(f"已导出到 {target.resolve()}", file=out)

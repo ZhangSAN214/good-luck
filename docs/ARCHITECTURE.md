@@ -4,9 +4,13 @@
 
 ## 1. 当前范围
 
-提问时选择两种模式之一（`UserChoice.workflow`，存于 `sessions.workflow`）：
+提问时选择四种模式之一（讨论 / 协同 / 个人作答 / 头脑风暴），或选「自动」让分诊小组先给建议（`UserChoice.workflow`，存于 `sessions.workflow`）：
 - **讨论模式**（`discussion`，默认）：所选档位全员上桌 → 独立作答 → 互评 → 修订 → 汇总 →（分歧时询问是否升级）→ 结束
+- **个人作答**（`solo`，R13）：在所选档位里按预计调用成本挑最便宜的一位（题目需要的能力标签如 vision 先作硬条件，无人满足时放宽），流程 `solo_pipeline: [answer, reveal]`，没有统筹、互评和汇总；自选时只能勾一个模型；不支持媒体输出。这是中立性规则 9「所选档位全员上桌」的唯一例外，选人仍只看档位、标签和价格
+- **头脑风暴**（`brainstorm`，R16）：所选档位全员上桌（统筹不提想法）。`ideate`（每人独立发散，每人最多 `brainstorm.max_ideas` 个想法）→ `expand`（每人看别人的想法随机顺序、不看自己的，做深化 / 组合 / 质疑改进 / 全新想法）→ `organize`（统筹整合成思维导图，refs 标注来源）→ 揭晓。导图数据 `core/mindmap.py` 同一份渲染成 Markdown 大纲、Mermaid mindmap 和 SVG（文字全部转义；网页放进 `<img>`，命令行 `roundtable mindmap <id> -o 文件.svg|.md|.mmd` 保存）。统筹整合失败时降级为按成员分组的导图。最终答案 = 大纲 + Mermaid 代码块。不支持媒体输出；不触发升级询问。
 - **协同模式**（`collab`）：统筹拆分子任务 → 成员自荐（擅长什么、为什么）→ 统筹按自荐和能力标签分配（每人至少一块）→ 按依赖分批并行完成 → 交叉审查（不审自己的）→ 作者按审查修改 → 统筹合并成完整成果（标注每份成果的采纳情况）→（把握低时询问是否升级）→ 结束
+**自动模式 / 分诊小组**（R15，`UserChoice.workflow = auto`）：路由前，几位最便宜的模型（`routing.panel`，只看档位和价格）各用同一份提示词 `panel/v1` 给一条极短的 JSON（难度、作答方式、一句理由），代码汇总：作答方式多数票（票数相同取更便宜的）、难度取中位数、档位按 `tier_by_difficulty`；规则已判断为简单题时不调用小组。**只推荐不执行**：弹出 `triage` 确认卡片（采用建议 / 改用其他方式与档位，附各自预计花费 / 停止），用户回复后会话的 `workflow` 与档位改成具体值，再走普通路由。小组的调用记为 `step=triage` 计入本题花费与预算；卡片里不出现模型名。
+**对比实验**（R14，`roundtable bench`）：`benchmarks/*.yaml` 题库（题目文字发给模型，判分方式和标准答案不发；判分只用规则：数字 / 精确 / 关键词，不调用模型）；`core/bench.py` 逐题逐模式（个人 / 讨论 / 协同 × 档位）运行并自动回答确认卡片（继续、不升级），结果存 `bench_runs`（迁移 12），累计花费到 `--max-usd`（默认 $2）就停。输出各模式 × 类别的正确率、平均花费、平均耗时和“每答对一题花费”，可导出 CSV / JSON。
 **附件**（阶段 14，网页上传按钮与拖放在阶段 18）：图片、PDF、Word .docx、文本、mp3 / wav 音频，见下方 §2.8。
 **防偷懒**：每位成员的作答、互评、修订都做实质内容检查，空泛的打回重做一次，仍不合格标记"敷衍"；每位成员的**贡献**（被采纳的要点、有效评审与问题、被作者采纳的问题、重做与敷衍次数）按桌记录，界面显示本场与历史。
 
@@ -67,6 +71,11 @@
 
 ### 2.3 流程步骤 = 插件
 - 步骤：讨论模式 `answer`、`review`、`revise`、`synthesize`（选了媒体输出时在 `reveal` 前加 `media`）；协同模式 `decompose`、`volunteer`、`assign`、`work`、`cross_review`、`rework`、`merge`（`steps/collab.py`，数据结构在 `steps/collab_schemas.py`）；两种模式都以 `reveal` 结束。各自实现 `Step` 协议并注册。每张桌子的 pipeline 由模式决定（协同用 `collab_pipeline`，讨论用档位的 `pipeline` 或默认流程），存在 `session_tables`。
+- **中途插话（R5）**：讨论 / 协同进行中，用户可补充意见（`POST /api/sessions/{id}/notes`、`roundtable note <id> '内容'`、网页输入框）。补充存在 `user_notes`（迁移 11），不打断进行中的调用；下一个步骤开始时（`_apply_notes`）标记为已应用，之后每个步骤、每次调用（组员与统筹）都在消息末尾带上同一份「用户补充」（`user_notes/v1`，标签内的指令无效）。同一步骤所有人看到的内容相同；匿名开启时随其它内容一起遮蔽；不增加任何模型调用。每条最多 1000 字，未应用的最多 5 条，已结束的会话不再接受（409）。事件 `note_added` / `notes_applied`（仅实时）。
+- **分工讨论（R6）**：协同的 `assign` 之后、`work` 之前加 `discuss` 步骤（`collab.discussion`：`enabled`、`min_members` 默认 3、`max_suggestions` 默认 3；组员不足时跳过）。每位组员收到相同的分工方案（`discuss/v1`），回复同意或最多 3 条针对子任务的建议；有人提建议时统筹据此**最多调整一次**（`adjust/v1`，只改负责人）。调整必须通过与分配相同的规则检查（每人至少一块、负担均衡、流水线回避规则），不合格或没有变化就保持原分工。产出 `discuss`（每人）、`discuss_result`（保持 / 调整及原因）、调整时再存一份 `assignment`；恢复时取最后一份分工。调用失败或输出无法解析按无异议处理，不会让成员退出。网页「分工」面板显示进度看板（每个子任务 待开始 / 进行中 / 审查中 / 修改中 / 待合并 / 已完成、负责人，只根据已有记录推断）与讨论记录。**尚未做**：下游向上游作者提一次澄清问题。
+- **逐条验收（R7）**：协同的 `rework` 之后、`merge` 之前加 `accept` 步骤（`collab.acceptance`：`enabled`、`max_fix_items` 默认 3）。统筹（`accept/v1`）按每个**文字**子任务的验收标准逐条给结论（通过 / 不通过 + 具体问题；媒体成果不验收，只写了不通过却没有具体问题的按通过处理）；不合格的子任务退回其作者修改一次（`accept_fix/v1`，复用修订解析），修改稿替换原成果（存为 `rework` 并带 `accepted_fix`），之后由统筹合并。最多退回 `max_fix_items` 个，超出的按现有成果合并并记一条提示；统筹输出不可用按全部通过。记录为 `acceptance`。新增模板 `report`（报告 / 论文）与 `study_notes`（学习笔记 / 复习资料）；`research` 模板本来就含事实核查。
+- **交叉审查省钱（R8）**：`collab.cross_review`（`short_chars` 默认 400、`short_reviews` 默认 1；0 关闭）。成果少于 `short_chars` 字时只找 `short_reviews` 位审查者；只看长度，与作者无关。花费分析见 `docs/COST_ANALYSIS.md`。
+- **按类型覆盖参数（R8）**：`collab.kinds.<类型>.step_params` 覆盖 `work` 步骤的参数（目前只用 `max_tokens`；analyze 4500、prompt / generate 3000、verify / review / factcheck 4000，其余用步骤默认值）。同一类型的所有成员相同，不看模型；通过 `call_model(base_params=)` 传入，长度保护的升级照常叠加其上。它只限制最长输出，只有模型本来会写得很长时才省钱。
 - 协同模式规则：
   - 拆分（旧流程，成员不足 `collab.pipeline.min_members` 时）：子任务 1–`max_subtasks` 个，id 唯一、依赖存在且无环，建议标签只能取在座成员的标签；不可用时退化为"整道题一个子任务"（全员各自完成）。
   - **流水线（阶段 21，成员 ≥ 2 时默认）**：协同不是"各做各的"。子任务有**类型** `kind`（`collab.kinds`：analyze 分析 / research 搜索调研 / write 撰写 / prompt 写提示词 / generate 执行生成 / code 写代码 / verify 运行验证 / review 审查 / factcheck 事实核查 / assemble 整合；每类的偏好标签、能否并行、必须依赖的类型、回避规则、工作提示词都在配置里），依赖写成 `{"id", "gives"}`（上游交给下游的内容）。`decompose/v4` 要求流水线。`pipeline_problems()` 校验：不是整题当一个子任务、子任务数 ≥ 成员数（不足就把可并行的步骤**按内容**拆成平行子任务，不允许几个人做同一份内容）、依赖图连通且至少两层、类型不单一、类型规则（执行生成依赖写提示词且需要可用的媒体模型、审查类依赖被审成果、整合至少两个上游）、平行子任务不重复；不合格 → 把具体问题列给统筹重拆一次（`decompose_retry/v1`）→ 仍不合格按**模板**自动生成（`collab.templates`：带参考图的创作 / 无参考图的创作 / 调研（搜索→分析整理→撰写→事实核查→整合）/ 数据代码（理解需求→写代码→运行验证→审查→写报告）/ 文档，按题目性质与可用能力选第一个条件满足的；成员比步骤多时 split 的步骤按内容拆成平行部分，每个部分写明自己负责哪一份；成员少于步骤数时每人负责多个步骤，不合并）。
@@ -127,7 +136,7 @@
 - `core/`：纯业务逻辑，**禁止 import fastapi / starlette / uvicorn / streamlit**（测试守卫）。
 - `api/`：FastAPI 路由 + SSE，只调用 `core/service.py`（启动时用 `core/runtime.py` 组装；有测试检查导入）。
 - **服务 facade**（`core/service.py`，`RoundtableService`）：返回值都是可 JSON 化的 dict；匿名会话揭晓前全部匿名。`create(question, tier=, models=, coordinator=, anonymous=False, workflow="discussion")`；揭晓只用于匿名会话。提交题目后立即返回会话 id，讨论在后台任务中执行；意外错误把会话标为 `paused`（可 `resume`）。揭晓只允许在讨论结束（完成 / 停止 / 失败）后。
-- **HTTP 接口**：`GET /api/status`、`GET /api/budget`、`GET /api/contributions`、`POST /api/estimate`（提交前预估：各模式 × 各档位 / 自选的上桌人数、缺席、预计与最多花费、步骤明细；不调用任何模型，答案长度只用规则判断；返回 `seed`，提交时带上它，阵容与预估一致；匿名时不含模型名单）、`POST /api/uploads?name=`（请求体是文件原始字节，返回附件 id；`POST /api/sessions` 的 `attachments` 带上这些 id）、`GET/POST /api/sessions`（`media` / `media_tier`）、`GET /api/sessions/{id}`、`GET …/files/{fid}`（下载；`?inline=1` 可内联播放 png / jpg / gif / webp 与 mp3 / wav / ogg / mp4 / webm，后者支持 Range）与 `…/files/{fid}/preview`、`POST …/respond`、`POST …/resume`、`POST …/reveal`、`GET …/events`（SSE）。
+- **HTTP 接口**：`GET /api/status`、`GET /api/budget`、`GET /api/contributions`、`POST /api/estimate`（提交前预估：各模式 × 各档位 / 自选的上桌人数、缺席、预计与最多花费、步骤明细；不调用任何模型，答案长度只用规则判断；返回 `seed`，提交时带上它，阵容与预估一致；匿名时不含模型名单）、`POST /api/uploads?name=`（请求体是文件原始字节，返回附件 id；`POST /api/sessions` 的 `attachments` 带上这些 id）、`GET/POST /api/sessions`（`media` / `media_tier`）、`GET /api/sessions/{id}`、`GET …/files/{fid}`（下载；`?inline=1` 可内联播放 png / jpg / gif / webp 与 mp3 / wav / ogg / mp4 / webm，后者支持 Range）与 `…/files/{fid}/preview`、`POST …/respond`、`POST …/notes`（中途补充）、`POST …/resume`、`POST …/reveal`、`GET …/events`（SSE）。
 - **SSE 协议**：第一条 `snapshot`（当前状态），之后是实时事件（只含代号），每当讨论停下来（完成 / 失败 / 停止 / 等待确认 / 暂停）发一条 `state` 并关闭；前端回复确认后重新连接。
 - `web/`：静态前端（`index.html`、`css/app.css`、`js/api.js` 通信、`js/view.js` 渲染、`js/app.js` 状态与交互；ES 模块，无构建步骤），只通过 HTTP/SSE 与后端通信，由 FastAPI 挂在 `/`。
   - 事件流用 `fetch` 读取（不用会自动重连的 `EventSource`）：收到停下来的 `state` 后关闭，回复确认卡片或恢复后重新订阅；事件触发重新拉取会话详情再渲染。
@@ -137,6 +146,7 @@
   - 会话详情的 `tables`：每桌方案、流程、代号、已完成步骤（不含模型）；`contributions`：每桌每个代号的贡献（身份未公开时不含模型 id）。
   - 前端源码不得写死任何模型、厂商或渠道名（有测试）；匿名会话揭晓前界面只用塔罗牌代号和"统筹"，匿名关闭时代号就是"昵称·模式"并在旁边显示模型。
   - 会话 id 写在地址栏（`#s=<id>`），刷新或关页面后可回到原讨论。
+  - 网页小人（R2）：`js/agent/brain.js`（状态机、位置、存储容错，纯逻辑）+ `js/agent/pet.js`（DOM）+ `css/agent.css`；用 `/api/members` 的 chibi 与可选的 `pet.json` 逐帧素材；匿名且未揭晓的会话里整个移除。详见 docs/tracks/agent.md。
 
 ### 2.8 附件（`core/attachments/`）
 - 上传（`ingest()`）：大小上限 → 类型识别（扩展名与文件头必须一致；`.doc`、HEIC 等给出改法）→ 文档直接提取文字（PDF：`pypdf`，加密 / 超页数 / 损坏报错，几乎没有文字层时警告"可能是扫描件"，不做 OCR；`.docx`：段落 + 表格；文本：BOM / UTF-8 / 自动识别编码）→ 按内容哈希存放（`FileStore`，`sha256.扩展名`，文件名只用于显示，读取时校验键名防路径穿越）→ 登记。规则在 `roundtable.yaml` 的 `uploads`。
@@ -224,7 +234,7 @@ src/roundtable/
   cli.py         命令行试用（`roundtable` 命令，见 docs/CLI.md）
   plaintext.py   命令行显示用：LaTeX 数学式转纯文本、去掉 Markdown 加粗符号（不改动存储的原文）
   api/           FastAPI 应用、路由、SSE
-web/             index.html、css/app.css、js/（api.js 通信、view.js 渲染、app.js 状态与交互）
+web/             index.html、css/（app.css、agent.css 小人）、js/（api.js 通信、view.js 渲染、app.js 状态与交互、agent/ 网页小人）
 tests/
 docs/            REQUIREMENTS_v3.md  PLAN.md  CLI.md  mockup.html
 scripts/         check_models.py（核对 OpenRouter 渠道的模型 ID 与价格；带 vision / image_edit 标签的模型还核对远端 input_modalities 含 image）  lock_prompts.py（登记提示词版本）

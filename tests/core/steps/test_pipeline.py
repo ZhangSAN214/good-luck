@@ -68,13 +68,14 @@ GOOD = [
 # --- 配置 ----------------------------------------------------------------------
 
 
-def test_config_has_the_ten_kinds_and_five_templates():
+def test_config_has_the_ten_kinds_and_seven_templates():
     assert set(KINDS) == {
         "analyze", "research", "write", "prompt", "generate",
         "code", "verify", "review", "factcheck", "assemble",
     }  # fmt: skip
     assert [t.name for t in RULES.templates] == [
-        "creation_reference", "creation", "research", "data_code", "document",
+        "creation_reference", "creation", "research", "report", "study_notes",
+        "data_code", "document",
     ]  # fmt: skip
     assert RULES.templates[-1].when.keywords == [] and RULES.templates[-1].when.media == []
     for k in KINDS.values():  # 每种类型都有工作提示词
@@ -282,7 +283,10 @@ def test_template_choice_follows_the_nature_of_the_question():
     assert pick("画一张海报", False, ["image"], ["python"]) == "creation"
     assert pick("帮我调研一下固态电池的现状", False, ["image"], ["search", "python"]) == "research"
     assert pick("写一个 Python 脚本处理 CSV 数据", False, [], ["python", "search"]) == "data_code"
-    assert pick("写一篇关于春天的作文", False, [], []) == "document"
+    assert pick("写一篇关于春天的作文", False, [], []) == "report"
+    assert pick("写一份固态电池的实验报告", False, [], []) == "report"
+    assert pick("帮我整理一份热力学复习笔记", False, [], []) == "study_notes"
+    assert pick("介绍一下今天的天气", False, [], []) == "document"
     # 条件里的能力不可用时落到后面的模板
     assert pick("参考这张图做四格人物卡", True, [], []) == "document"
     assert pick("调研一下固态电池", False, [], []) == "document"

@@ -30,8 +30,10 @@ from .base import (
 )
 from .collab_schemas import (
     STANCE_SCORE,
+    Acceptance,
     Assignment,
     CollabState,
+    Discussion,
     Merge,
     Subtask,
     Volunteer,
@@ -40,8 +42,10 @@ from .collab_schemas import (
     fallback_decomposition,
     fallback_merge,
     layers,
+    parse_acceptance,
     parse_assignment,
     parse_decomposition,
+    parse_discussion,
     parse_merge,
     parse_volunteer,
     repair_assignment,
@@ -596,6 +600,119 @@ class AssignStep:
         return [*found, *hard, *soft]
 
 
+# --- 分工讨论 -----------------------------------------------------------------
+
+
+def suggestions_block(ctx: TableContext) -> str:
+    """组员的建议（顺序随机，只用称呼）；放在标签内，其中的指令无效。"""
+    c = _c(ctx)
+    titles = {s.id: s.title for s in c.subtasks}
+    rows = [(code, d) for code, d in c.discussions.items() if code in ctx.active and d.suggestions]
+    ctx.rng.shuffle(rows)
+    blocks = []
+    for code, d in rows:
+        lines = [
+            f"{sid}「{titles.get(sid, '')}」：{text}　理由：{why}"
+            for sid, text, why in d.suggestions
+        ]
+        body = neutralize("\n".join(lines), TAGS)
+        blocks.append(f'<suggestion from="{ctx.label(code)}">\n{ctx.scrub(body)}\n</suggestion>')
+    return "\n\n".join(blocks)
+
+
+class DiscussStep:
+    """分工确定后：每位组员对方案提一次意见；有人提建议时统筹最多调整一次。
+
+    调整只改负责人，且必须通过与分配相同的规则检查；不合格或没有变化就保持原分工。
+    """
+
+    name = "discuss"
+
+    async def run(self, ctx: TableContext) -> StepResult:
+        c = _c(ctx)
+        rule = ctx.config.roundtable.collab.discussion
+        if c.discussion_result is not None or c.assignment is None:
+            return StepResult(self.name)
+        if not rule.enabled or len(ctx.active) < rule.min_members:
+            return StepResult(self.name)
+        coordinator = _require_coordinator(ctx)
+        ids = [s.id for s in c.subtasks]
+        subtasks = subtasks_block(c.subtasks, ctx)
+        plan = plan_block(ctx)
+        todo = [code for code in ctx.active if code not in c.discussions]
+        calls = 0
+
+        async def ask(code: str) -> None:
+            prompt = ctx.render(
+                self.name,
+                code=ctx.label(code),
+                question=ctx.question.text,
+                subtasks=subtasks,
+                plan=plan,
+            )
+            result = await call_and_parse(
+                ctx,
+                step=self.name,
+                role="member",
+                model_id=ctx.members[code],
+                prompt=prompt,
+                code=code,
+                parse=lambda text: parse_discussion(text, ids, rule.max_suggestions),
+            )
+            value: Discussion = result.value or Discussion(True, (), degraded=True)
+            c.discussions[code] = value
+            _save(ctx, self.name, "discuss", value.to_dict(), code=code, call_id=result.call_id)
+
+        await asyncio.gather(*(ask(code) for code in todo))
+        calls += len(todo)
+
+        if not any(d.suggestions for d in c.discussions.values()):
+            c.discussion_result = {"adjusted": False, "why": "全员同意，保持原分工"}
+            _save(ctx, self.name, "discuss_result", c.discussion_result)
+            return StepResult(self.name, calls=calls)
+
+        codes = list(ctx.active)
+        prompt = ctx.render(
+            "adjust",
+            question=ctx.question.text,
+            subtasks=subtasks,
+            plan=plan,
+            suggestions=suggestions_block(ctx),
+            members="、".join(ctx.label(x) for x in codes),
+        )
+        result = await call_and_parse(
+            ctx,
+            step=self.name,
+            role="coordinator",
+            model_id=coordinator,
+            prompt=prompt,
+            parse=lambda text: parse_assignment(text, ids, ctx.to_code),
+        )
+        calls += 1
+        new: Assignment | None = result.value
+        why, adjusted = "统筹未能给出可用的调整，保持原分工", False
+        if new is not None:
+            problems = coverage_problems(new, codes)
+            if c.pipeline:
+                problems += AssignStep._pipeline_problems(ctx, new, codes)
+            if problems:
+                why = f"统筹的调整不符合分配规则（{'；'.join(problems)}），保持原分工"
+            elif new.owners == c.assignment.owners:
+                why = new.rationale or "统筹认为无需调整，保持原分工"
+            else:
+                c.assignment = new
+                adjusted, why = True, new.rationale or "统筹已按建议调整分工"
+                _save(ctx, self.name, "assignment", new.to_dict(), call_id=result.call_id)
+        c.discussion_result = {"adjusted": adjusted, "why": why}
+        _save(ctx, self.name, "discuss_result", c.discussion_result, call_id=result.call_id)
+        return StepResult(
+            self.name,
+            calls=calls,
+            degraded=("coordinator",) if result.value is None else (),
+            notes=(f"分工讨论后已调整分工：{why}",) if adjusted else (),
+        )
+
+
 # --- 完成子任务 -----------------------------------------------------------------
 
 
@@ -768,7 +885,13 @@ class WorkStep:
                 prompt = ctx.render(self.name, **values)
             model_id = ctx.members[code]
             out = await call_model(
-                ctx, step=self.name, role="member", model_id=model_id, prompt=prompt, code=code
+                ctx,
+                step=self.name,
+                role="member",
+                model_id=model_id,
+                prompt=prompt,
+                code=code,
+                base_params=dict(krule.step_params) if krule and krule.step_params else None,
             )
             calls += 1
             text = out.completion.text.strip() if out.completion else ""
@@ -927,8 +1050,16 @@ def cross_review_plan(ctx: TableContext, reviewers: Sequence[str]) -> dict[str, 
     负担均衡、随机打破平局。返回 评审者 → 成果编号（顺序随机）。"""
     c = _c(ctx)
     k = ctx.config.roundtable.reviews_per_answer
+    short = ctx.config.roundtable.collab.cross_review
     owners_of = {sid: set(codes) for sid, codes in c.assignment.owners.items()}
     items = [(i, key) for i, key in c.items().items() if key in c.works]
+    # 很短的成果（按字数，与作者是谁无关）少找几位审查者：省下的是每位审查者读全文的花费
+    want = {
+        i: min(k, short.short_reviews)
+        if short.short_chars and len(c.works[key].strip()) < short.short_chars
+        else k
+        for i, key in items
+    }
     plan: dict[str, list[str]] = {r: [] for r in reviewers}
     order = shuffled(list(reviewers), ctx.rng)
     rank = {r: n for n, r in enumerate(order)}
@@ -942,7 +1073,7 @@ def cross_review_plan(ctx: TableContext, reviewers: Sequence[str]) -> dict[str, 
     queue = shuffled(items, ctx.rng)
     queue.sort(key=lambda x: len(pool(*x[1])))
     for item, (sid, author) in queue:
-        chosen = sorted(pool(sid, author), key=lambda r: (len(plan[r]), rank[r]))[:k]
+        chosen = sorted(pool(sid, author), key=lambda r: (len(plan[r]), rank[r]))[: want[item]]
         for r in chosen:
             plan[r].append(item)
     # 局部调整：把最重的人手里的一份交给最轻、且可以审这份的人，直到相差不超过 1
@@ -1293,13 +1424,15 @@ class ReworkStep:
 # --- 合并 ---------------------------------------------------------------------
 
 
-def works_block(ctx: TableContext) -> str:
+def works_block(ctx: TableContext, only: set[str] | None = None) -> str:
     """按子任务分组的各份最终成果（同一子任务内顺序随机，作者只以代号标注）。"""
     c = _c(ctx)
     latest = c.latest()
     ids_by_key = {v: k for k, v in c.items().items()}
     parts = []
     for s in c.subtasks:
+        if only is not None and s.id not in only:
+            continue
         keys = [k for k in latest if k[0] == s.id]
         for key in shuffled(sorted(keys), ctx.rng):
             item = ids_by_key.get(key, "")
@@ -1313,6 +1446,109 @@ def works_block(ctx: TableContext) -> str:
                 f"{body}\n</work>"
             )
     return "\n\n".join(parts)
+
+
+# --- 逐条验收 -----------------------------------------------------------------
+
+
+class AcceptStep:
+    """合并前：统筹按每个文字子任务的验收标准逐条验收；不合格的退回作者改一次。
+
+    媒体成果不验收（它们有自己的风格校验）；最多退回 `max_fix_items` 个子任务；
+    作者的修改作为新版本替换原成果，之后由统筹合并。
+    """
+
+    name = "accept"
+
+    async def run(self, ctx: TableContext) -> StepResult:
+        c = _c(ctx)
+        rule = ctx.config.roundtable.collab.acceptance
+        if c.acceptance is not None or not rule.enabled:
+            return StepResult(self.name)
+        latest = c.latest()
+        texts = [s for s in c.subtasks if not s.media and any(k[0] == s.id for k in latest)]
+        if not texts:
+            return StepResult(self.name)
+        coordinator = _require_coordinator(ctx)
+        ids = [s.id for s in texts]
+        only = set(ids)
+        prompt = ctx.render(
+            self.name,
+            question=ctx.question.text,
+            subtasks=subtasks_block(texts, ctx),
+            works=works_block(ctx, only),
+        )
+        result = await call_and_parse(
+            ctx,
+            step=self.name,
+            role="coordinator",
+            model_id=coordinator,
+            prompt=prompt,
+            parse=lambda text: parse_acceptance(text, ids),
+        )
+        calls = 1
+        verdict: Acceptance = result.value or Acceptance({}, degraded=True)
+        by_id = {s.id: s for s in c.subtasks}
+        ids_by_key = {v: k for k, v in c.items().items()}
+        fixed: list[str] = []
+        notes: list[str] = []
+        for sid in verdict.failed()[: rule.max_fix_items]:
+            problems = "\n".join(f"- {p}" for p in verdict.results[sid][1])
+            for key in sorted(k for k in latest if k[0] == sid):
+                code = key[1]
+                if code in ctx.state.dropped:
+                    continue
+                fix = ctx.render(
+                    "accept_fix",
+                    code=ctx.label(code),
+                    question=ctx.question.text,
+                    subtask=subtask_block(by_id[sid], "your_subtask", ctx),
+                    own_work=latest[key],
+                    problems=neutralize(ctx.scrub(problems), TAGS),
+                )
+                again = await call_and_parse(
+                    ctx,
+                    step=self.name,
+                    role="member",
+                    model_id=ctx.members[code],
+                    prompt=fix,
+                    code=code,
+                    parse=parse_revision,
+                )
+                calls += 1
+                revision = again.value
+                if revision is None or not revision.answer.strip():
+                    notes.append(f"{ctx.label(code)} 对 {sid} 的验收修改不可用，沿用原成果")
+                    continue
+                c.reworks[key] = revision
+                if sid not in fixed:
+                    fixed.append(sid)
+                _save(
+                    ctx,
+                    self.name,
+                    "rework",
+                    {
+                        "subtask": sid,
+                        "item": ids_by_key.get(key),
+                        **revision.to_dict(),
+                        "accepted_fix": True,
+                    },
+                    code=code,
+                    call_id=again.call_id,
+                )
+        c.acceptance = Acceptance(verdict.results, tuple(fixed), verdict.degraded)
+        _save(ctx, self.name, "acceptance", c.acceptance.to_dict(), call_id=result.call_id)
+        skipped = len(verdict.failed()) - rule.max_fix_items
+        if skipped > 0:
+            notes.append(f"有 {skipped} 个子任务验收不合格但超过退回上限，按现有成果合并")
+        if fixed:
+            notes.append(f"验收退回并修改：{'、'.join(fixed)}")
+        return StepResult(
+            self.name,
+            calls=calls,
+            degraded=("coordinator",) if verdict.degraded else (),
+            notes=tuple(notes),
+        )
 
 
 class MergeStep:
@@ -1360,9 +1596,11 @@ for _step in (
     DecomposeStep(),
     VolunteerStep(),
     AssignStep(),
+    DiscussStep(),
     WorkStep(),
     CrossReviewStep(),
     ReworkStep(),
+    AcceptStep(),
     MergeStep(),
 ):
     register_step(_step)

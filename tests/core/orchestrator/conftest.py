@@ -84,6 +84,8 @@ class Env:
             return planner(self.difficulty)(model, messages)
         if "汇总成一份结论" in system:
             return synthesis_reply(resolved=self.resolved)(model, messages)
+        if "逐条验收" in system and "合并之前" in system:  # 统筹验收：默认全部通过
+            return json.dumps({"items": []})
         if "合并成一份完整成果" in system:
             return merge_reply("high" if self.resolved else "low")(model, messages)
         return default_reply(model, messages)

@@ -26,6 +26,7 @@ import {
   setMemberArt,
   usagePanel,
 } from './view.js';
+import { Pet } from './agent/pet.js';
 
 const $ = (q) => document.querySelector(q);
 const RESTING = new Set(['completed', 'stopped', 'failed', 'awaiting_confirmation', 'paused']);
@@ -39,7 +40,7 @@ const S = {
   session: null,
   tab: 'flow',
   tier: null, // 档位名或 custom
-  workflow: 'discussion', // discussion 讨论 / collab 协同
+  workflow: 'discussion', // discussion 讨论 / collab 协同 / solo 个人作答 / auto 自动（分诊小组先给建议）
   anonymous: false,
   media: null, // 输出类型：null 文字 / image / speech / video（仅讨论模式）
   mediaTier: 'budget', // 媒体模型档位
@@ -55,6 +56,20 @@ const S = {
 
 function freshLive() {
   return { table: null, step: null, act: '', speaking: new Set(), warnings: [] };
+}
+
+// 网页小人：匿名且未揭晓的会话里不出现（启动时先不显示，确定当前会话后再决定）
+const pet = new Pet({ labels: STEP_LABELS, goto: gotoDiscussion });
+// 点气泡 / 菜单「跳到讨论」：滚到最新的讨论内容
+function gotoDiscussion() {
+  const feed = document.getElementById('feed');
+  const last = document.querySelector('#feed-list')?.lastElementChild;
+  (last || feed)?.scrollIntoView?.({ behavior: 'smooth', block: 'end' });
+}
+let petReady = false;
+function syncPet() {
+  const sv = S.session;
+  if (petReady) pet.setAllowed(!(sv && sv.anonymous && !sv.revealed));
 }
 
 const prefix = () => S.status?.code_prefix || '组员';
@@ -86,6 +101,7 @@ function renderLegend() {
 
 function renderHeader() {
   renderLegend();
+  syncPet();
   const sv = S.session;
   const b = S.budget;
   const parts = [`本场 ${money(sv ? sv.cost_usd : 0)}`];
@@ -105,6 +121,8 @@ function renderHeader() {
       ? '进行中'
       : STATUS_LABELS[sv.status] || sv.status
     : '空闲';
+  const canNote = !!sv && sv.running && sv.status !== 'awaiting_confirmation';
+  $('#noteform').hidden = !canNote;
   const q = $('#question');
   q.hidden = !sv;
   if (sv) q.innerHTML = `<span class="tag">题目</span>${esc(sv.question)}`;
@@ -205,9 +223,9 @@ function renderComposer() {
     .map(([k, label]) => `<button type="button" data-v="${esc(k)}" aria-pressed="${k === S.tier}">${esc(label)}</button>`)
     .join('');
   $('#anonymous').checked = S.anonymous;
-  const workflows = S.status?.workflows || { discussion: '讨论模式', collab: '协同模式' };
+  const workflows = S.status?.workflows || { discussion: '讨论模式', collab: '协同模式', solo: '个人作答', brainstorm: '头脑风暴', auto: '自动' };
   $('#workflow').innerHTML = Object.entries(workflows)
-    .map(([k, label]) => `<button type="button" data-v="${esc(k)}" aria-pressed="${k === S.workflow}" title="${k === 'collab' ? '统筹拆分子任务，成员自荐、分工完成、交叉审查，最后合并' : '全员各自作答，互评、修订后由统筹汇总'}">${esc(label)}</button>`)
+    .map(([k, label]) => `<button type="button" data-v="${esc(k)}" aria-pressed="${k === S.workflow}" title="${{ brainstorm: '让大家各自发散想法、互相拓展，统筹整合成思维导图，帮你拓展思路并选择方向', auto: '开始时由几位最便宜的模型给出建议（用哪种方式、难度），你确认后再开始；简单题不调用它们', collab: '统筹拆分子任务，成员自荐、分工完成、交叉审查，最后合并', solo: '只请一位成员直接回答：在所选档位里挑最便宜的，不互评、不汇总' }[k] || '全员各自作答，互评、修订后由统筹汇总'}">${esc(label)}</button>`)
     .join('');
   renderMediaChoice();
   $('#manual').hidden = S.tier !== 'custom';
@@ -222,9 +240,12 @@ function renderMediaChoice() {
   const info = S.status?.media;
   const kinds = info?.kinds || {};
   const collab = S.workflow === 'collab';
-  if (collab) S.media = null; // 协同模式由统筹决定哪些子任务生成媒体
+  if (collab || ['solo', 'auto', 'brainstorm'].includes(S.workflow)) S.media = null; // 协同模式由统筹决定哪些子任务生成媒体；个人作答只出文字
   const outputs = [[null, '文字'], ...Object.entries(kinds).map(([k, v]) => [k, v.label])];
-  if (collab) {
+  if (['solo', 'auto', 'brainstorm'].includes(S.workflow)) {
+    const why = { auto: '自动模式先出建议，输出类型请在选定作答方式后再选', brainstorm: '头脑风暴输出思维导图和大纲' }[S.workflow] || '个人作答只输出文字';
+    $('#media').innerHTML = `<span class="hint" id="media-auto">${why}</span>`;
+  } else if (collab) {
     // 协同模式不选输出类型：不显示一排灰按钮（容易误以为不能画图），直接说明
     $('#media').innerHTML = '<span class="hint" id="media-auto">输出类型由统筹按任务自动决定</span>';
   } else
@@ -299,6 +320,7 @@ function estimateRequest() {
     workflow: S.workflow,
     attachments: S.attachments.filter((a) => a.id).map((a) => a.id),
   };
+  if (S.workflow === 'auto') delete req.workflow; // 预估区列出全部方式，供对比
   if (S.media) req.media = S.media;
   if (S.media) req.media_tier = S.mediaTier;
   if (S.tier === 'custom') {
@@ -344,7 +366,7 @@ async function runEstimate() {
 function renderEstimate() {
   const el = $('#estimate');
   const html = estimateHTML(S.estimate, {
-    workflow: S.workflow,
+    workflow: S.workflow === 'auto' ? 'discussion' : S.workflow,
     anonymous: S.anonymous,
     plans: plans(),
     customLabel: S.status?.custom_label || '自选',
@@ -434,6 +456,7 @@ async function open(sid) {
   stopStream();
   S.sid = sid;
   S.live = freshLive();
+  pet.resetReport();
   S.cardError = null;
   rendered.clear();
   try {
@@ -502,6 +525,7 @@ async function refresh(all = false) {
 
 function onEvent(sid, e) {
   if (sid !== S.sid) return;
+  pet.report(e);
   const L = S.live;
   switch (e.type) {
     case 'snapshot':
@@ -546,6 +570,10 @@ function onEvent(sid, e) {
       break;
     case 'media_done':
       L.act = `${MEDIA_LABELS[e.data.kind] || '媒体'}已生成，评审中…`;
+      break;
+    case 'note_added':
+    case 'notes_applied':
+      refresh();
       break;
     case 'budget_warning':
       L.warnings.push(e.data.message);
@@ -643,6 +671,7 @@ function newQuestion() {
   S.sid = null;
   S.session = null;
   S.live = freshLive();
+  pet.resetReport();
   try {
     history.replaceState(null, '', location.pathname);
   } catch {
@@ -687,6 +716,20 @@ function bind() {
     S.attachments.splice(Number(b.dataset.rm), 1);
     renderAttachments();
     scheduleEstimate();
+  });
+  $('#noteform').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const input = $('#note');
+    const text = input.value.trim();
+    if (!text || !S.sid) return;
+    $('#noteerr').textContent = '';
+    try {
+      await API.addNote(S.sid, text);
+      input.value = '';
+      await refresh();
+    } catch (err) {
+      $('#noteerr').textContent = err.message;
+    }
   });
   const comp = $('#composer');
   comp.addEventListener('dragover', (e) => {
@@ -780,17 +823,23 @@ async function init() {
   } catch (e) {
     formError(`无法连接服务：${e.message}`);
   }
+  let art = null;
   try {
-    setMemberArt(await API.members()); // 成员头像；失败就当没有素材
+    art = await API.members(); // 成员头像与小人；失败就当没有素材
   } catch {
-    setMemberArt(null);
+    art = null;
   }
+  setMemberArt(art);
+  pet.setAllowed(false);
+  pet.setMembers(art);
   renderComposer();
   renderPicks();
   render();
   loadHistory();
   const m = location.hash.match(/s=([0-9a-f]+)/);
   if (m) await open(m[1]);
+  petReady = true;
+  syncPet();
 }
 
 init();

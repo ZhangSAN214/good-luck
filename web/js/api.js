@@ -62,6 +62,8 @@ export const getSession = (id) => api(`/api/sessions/${id}`);
 export const createSession = (body) => api('/api/sessions', { method: 'POST', body });
 export const respond = (id, response, note) =>
   api(`/api/sessions/${id}/respond`, { method: 'POST', body: { response, note } });
+export const addNote = (id, text) =>
+  api(`/api/sessions/${id}/notes`, { method: 'POST', body: { text } });
 export const resume = (id) => api(`/api/sessions/${id}/resume`, { method: 'POST' });
 export const reveal = (id) => api(`/api/sessions/${id}/reveal`, { method: 'POST' });
 

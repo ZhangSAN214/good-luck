@@ -21,9 +21,11 @@ from roundtable.core.attachments import Attachment, UploadError, ingest
 from roundtable.core.attachments.detect import TYPES as UPLOAD_TYPES
 from roundtable.core.media import KIND_LABELS, KINDS, MediaService
 from roundtable.core.members_art import load_members, mime_of, resolve_file
+from roundtable.core.notes import NoteError, check_can_add, clean_note
 from roundtable.core.orchestrator import Orchestrator, OrchestratorError, RunResult
 from roundtable.core.preview import render_preview
 from roundtable.core.routing import (
+    AUTO,
     CUSTOM,
     WORKFLOWS,
     Question,
@@ -107,7 +109,13 @@ class RoundtableService:
             "plans": {name: p.label for name, p in cfg.routing.plans.items()},
             "default_plan": cfg.routing.default_plan,
             "custom_label": cfg.routing.custom.label,
-            "workflows": {"discussion": "讨论模式", "collab": "协同模式"},
+            "workflows": {
+                "discussion": "讨论模式",
+                "collab": "协同模式",
+                "solo": "个人作答",
+                "brainstorm": "头脑风暴",
+                "auto": "自动",
+            },
             "uploads": {
                 "max_files": cfg.roundtable.uploads.max_files,
                 "max_file_mb": cfg.roundtable.uploads.max_file_mb,
@@ -141,6 +149,23 @@ class RoundtableService:
                     return url(sizes[size])
             return None
 
+        def pet(raw: dict[str, Any] | None) -> dict[str, Any] | None:
+            if not raw:
+                return None
+
+            def clips(group: dict[str, Any]) -> dict[str, Any]:
+                return {k: {**c, "frames": [url(f) for f in c["frames"]]} for k, c in group.items()}
+
+            out = {
+                "fps": raw["fps"],
+                "actions": clips(raw["actions"]),
+                "expressions": clips(raw["expressions"]),
+            }
+            for key in ("special_idle", "easter_eggs"):
+                if raw.get(key):
+                    out[key] = raw[key]
+            return out
+
         models = [(m.id, m.vendor) for m in self.rt.config.models.models]
         return {
             "available": art.available,
@@ -160,6 +185,7 @@ class RoundtableService:
                         "avatar_256": avatar(m.images, "256"),
                         "chibi": url(m.images.get("chibi_transparent")),
                     },
+                    "pet": pet(m.pet),
                 }
                 for m in art.members
             ],
@@ -299,6 +325,8 @@ class RoundtableService:
         text = question.strip()
         if not text:
             raise ServiceError("题目不能为空")
+        if workflow == AUTO:
+            workflow = None  # 自动模式：预估列出全部方式，供对比
         if workflow is not None and workflow not in WORKFLOWS:
             raise ServiceError(f"未知的模式 {workflow!r}")
         custom = None
@@ -429,6 +457,23 @@ class RoundtableService:
         self._check_capacity()
         self._spawn(session_id, self.orc.respond(session_id, response, note))
 
+    def add_note(self, session_id: str, text: str) -> dict[str, Any]:
+        """讨论进行中补充意见：下一个步骤开始时带给统筹和组员；不打断进行中的调用。"""
+        row = self._require(session_id)
+        try:
+            cleaned = clean_note(text)
+        except NoteError as exc:
+            raise ServiceError(str(exc), 400) from None
+        try:
+            check_can_add(row["status"], len(self.rt.repo.pending_notes(session_id)))
+        except NoteError as exc:
+            raise ServiceError(str(exc), 409) from None
+        note_id = self.rt.repo.add_note(session_id, cleaned)
+        self._publish(
+            session_id, Event("note_added", "", 0, None, {"id": note_id, "text": cleaned})
+        )
+        return {"id": note_id, "text": cleaned}
+
     def resume(self, session_id: str) -> None:
         self._require(session_id)
         if not self.running(session_id):
@@ -460,6 +505,7 @@ class RoundtableService:
                     seat["label"] = coordinator_name(seat["model_id"], self.rt.config)
         data["can_reveal"] = view.anonymous and view.status in REVEALABLE and not view.revealed
         data["tables"] = self._tables(session_id)
+        data["notes"] = self.rt.repo.notes(session_id)
         data["contributions"] = self._contributions(session_id, view.revealed)
         data["attachments"] = self._attachments(session_id)
         data["files"] = self._files(session_id)
