@@ -1,0 +1,872 @@
+<title>圆桌 Roundtable</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Noto+Sans+SC:wght@400;500;700&family=ZCOOL+XiaoWei&display=swap">
+<style>
+/* Layout: a night study room seen from above — the round table (felt top, brass rim) is the stage; group chat beside it; the rational inner layer is an instrument panel on the right */
+:root{
+  --bg:#e4e7e1; --surface:#f7f8f4; --surface-2:#eef0ea; --ink:#1a201e; --muted:#5b6762; --line:#cfd5ce;
+  --felt:#1f5a50; --felt-2:#174a42; --brass:#b9873a; --brass-ink:#8a5f1c; --brass-bg:#f3e6cf; --brass-line:#d8b47a;
+  --inner:#1b2629; --inner-2:#223135; --inner-ink:#d5e1dd; --inner-muted:#8aa099; --inner-line:#34474b;
+  --ok:#2b7a56; --ok-bg:#dcefe4; --bad:#b0412c; --bad-bg:#f6e0d9;
+  --c-grok:#b4513a; --c-gpt:#2c8667; --c-claude:#b07034; --c-gemini:#5268cc; --c-qwen:#7650c0; --c-deepseek:#2b79ab; --c-me:#1a201e; --c-me-ink:#f7f8f4; --c-anon:#7a8580;
+  --f-display:"ZCOOL XiaoWei","Songti SC","Noto Serif SC",serif;
+  --f-body:"Noto Sans SC","PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0f1413; --surface:#161d1b; --surface-2:#1c2422; --ink:#e1e8e4; --muted:#93a29c; --line:#29332f;
+  --felt:#1b4d45; --felt-2:#123a34; --brass:#d3a457; --brass-ink:#e2b46a; --brass-bg:#2b2215; --brass-line:#6a4d22;
+  --inner:#0c1315; --inner-2:#142024; --inner-ink:#d5e1dd; --inner-muted:#83988f; --inner-line:#28393d;
+  --ok:#5cba8f; --ok-bg:#15302a; --bad:#e3826c; --bad-bg:#3a1f19;
+  --c-me:#e1e8e4; --c-me-ink:#0f1413; --c-anon:#5b6662; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0f1413; --surface:#161d1b; --surface-2:#1c2422; --ink:#e1e8e4; --muted:#93a29c; --line:#29332f;
+  --felt:#1b4d45; --felt-2:#123a34; --brass:#d3a457; --brass-ink:#e2b46a; --brass-bg:#2b2215; --brass-line:#6a4d22;
+  --inner:#0c1315; --inner-2:#142024; --inner-ink:#d5e1dd; --inner-muted:#83988f; --inner-line:#28393d;
+  --ok:#5cba8f; --ok-bg:#15302a; --bad:#e3826c; --bad-bg:#3a1f19;
+  --c-me:#e1e8e4; --c-me-ink:#0f1413; --c-anon:#5b6662; color-scheme:dark}
+
+html,body{height:100%}
+body{background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:14px;line-height:1.6}
+*{box-sizing:border-box}
+button{font:inherit;color:inherit;cursor:pointer}
+:focus-visible{outline:2px solid var(--brass);outline-offset:2px}
+.app{height:100%;display:flex;flex-direction:column;gap:12px;padding-inline:16px;padding-block:12px}
+
+.top{display:flex;flex-wrap:wrap;align-items:center;gap:8px 16px}
+.brand{display:flex;align-items:center;gap:10px;margin-right:auto}
+.brand h1{font-family:var(--f-display);font-weight:400;font-size:28px;margin:0;letter-spacing:.08em;line-height:1}
+.brand .sim{font-size:12px;color:var(--brass-ink);border:1px solid var(--brass-line);background:var(--brass-bg);padding:1px 8px;border-radius:999px}
+.ctrls{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden;background:var(--surface)}
+.seg button{border:0;background:none;padding:4px 10px;font-size:13px;color:var(--muted)}
+.seg button[aria-pressed="true"]{background:var(--ink);color:var(--surface)}
+.btn{border:1px solid var(--line);background:var(--surface);border-radius:8px;padding:4px 12px;font-size:13px}
+.btn:hover:not(:disabled){border-color:var(--muted)}
+.btn.primary{background:var(--ink);color:var(--surface);border-color:var(--ink)}
+.btn.gold{border-color:var(--brass);color:var(--brass-ink)}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+.btn.sm{padding:2px 9px;font-size:12px}
+.meter{font-family:var(--f-mono);font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
+
+.main{flex:1;min-height:0;display:grid;grid-template-columns:340px minmax(0,1fr) 380px;gap:14px}
+.main.collapsed{grid-template-columns:340px minmax(0,1fr)}
+.main.collapsed .panel{display:none}
+
+/* ---------- the round table ---------- */
+.stagecol{min-width:0;display:flex;flex-direction:column;gap:12px}
+.stage{position:relative;width:100%;aspect-ratio:1;max-width:340px}
+.table{position:absolute;inset:21%;border-radius:50%;
+  background:radial-gradient(circle at 42% 38%,var(--felt) 0%,var(--felt-2) 72%);
+  box-shadow:0 0 0 6px var(--brass),0 0 0 9px var(--felt-2),0 18px 40px -12px rgba(0,0,0,.45);}
+.table::after{content:"";position:absolute;inset:9%;border-radius:50%;border:1px dashed rgba(255,255,255,.12)}
+.plate{position:absolute;inset:33%;border-radius:50%;display:grid;place-items:center;text-align:center;color:#e8efe9;padding:6px}
+.plate .ph{font-family:var(--f-display);font-size:14px;line-height:1.25;text-wrap:balance}
+.plate .act{font-size:11px;color:#b9cec6;margin-top:4px;line-height:1.35;text-wrap:balance}
+svg.flows{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;overflow:visible}
+.seat{position:absolute;width:22%;transform:translate(-50%,-50%);display:flex;flex-direction:column;align-items:center;gap:2px;text-align:center}
+.seat .av{width:58%;aspect-ratio:1;font-size:clamp(13px,1.3vw,18px)}
+.seat .nm{font-size:12px;font-weight:500;line-height:1.2;white-space:nowrap}
+.seat .rl{font-size:10px;color:var(--muted);line-height:1.2;white-space:nowrap}
+.seat.speaking .av{box-shadow:0 0 0 3px var(--surface),0 0 0 6px var(--brass);animation:pulse 1.2s ease-in-out infinite}
+.seat.inner .av{border-radius:30%}
+.seat.desk{width:20%}
+.desk-tag{position:absolute;right:0;bottom:2%;font-size:10px;color:var(--muted)}
+.av{flex:none;border-radius:50%;display:grid;place-items:center;color:#fff;font-family:var(--f-display);font-size:16px;overflow:hidden;background:var(--c-anon);border:2px solid var(--surface)}
+.av img{width:100%;height:100%;object-fit:cover}
+.legend{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:10px 12px;font-size:12px;color:var(--muted);display:grid;gap:4px}
+.legend b{color:var(--ink);font-weight:500}
+.legend .row{display:flex;gap:8px;align-items:center}
+.legend svg{flex:none}
+
+/* ---------- chat ---------- */
+.chat{min-width:0;min-height:0;display:flex;flex-direction:column;background:var(--surface);border:1px solid var(--line);border-radius:12px;overflow:hidden;position:relative}
+.q{padding:10px 16px;border-bottom:1px solid var(--line);font-size:13px;background:var(--surface-2)}
+.q .tag{font-family:var(--f-mono);font-size:11px;color:var(--muted);letter-spacing:.08em;margin-right:6px}
+.feed{flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:12px}
+.composer{display:flex;gap:8px;padding:10px 12px;border-top:1px solid var(--line);align-items:center}
+.composer input[type=text]{flex:1;min-width:0;border:1px solid var(--line);border-radius:8px;padding:7px 10px;background:var(--bg);color:var(--ink);font:inherit}
+.iconbtn{border:1px solid var(--line);background:var(--surface);border-radius:8px;width:36px;height:34px;display:grid;place-items:center;flex:none}
+[hidden]{display:none!important}
+.drop{position:absolute;inset:0;background:color-mix(in srgb,var(--surface) 85%,transparent);border:2px dashed var(--brass);border-radius:12px;display:grid;place-items:center;font-size:15px;color:var(--brass-ink);z-index:5}
+
+.msg{display:flex;gap:10px;align-items:flex-start;max-width:680px;animation:in .25s ease-out}
+.msg .av{width:34px;height:34px}
+.msg .body{min-width:0;flex:1}
+.who{font-size:12px;color:var(--muted);display:flex;gap:6px;align-items:baseline;flex-wrap:wrap}
+.who b{color:var(--ink);font-size:13px}
+.who .id{font-family:var(--f-mono);font-size:11px}
+.who .ai{font-family:var(--f-mono);font-size:11px;color:var(--brass-ink);border:1px solid var(--brass-line);border-radius:4px;padding:0 5px}
+.bubble{background:var(--surface-2);border:1px solid var(--line);border-radius:4px 12px 12px 12px;padding:8px 12px;margin-top:3px;white-space:pre-wrap;overflow-wrap:anywhere}
+.msg.me{align-self:flex-end;flex-direction:row-reverse}
+.msg.me .who{justify-content:flex-end}
+.msg.me .bubble{background:var(--c-me);color:var(--c-me-ink);border-color:var(--c-me);border-radius:12px 4px 12px 12px}
+.simtag{font-size:10px;color:var(--brass-ink);border:1px dashed var(--brass-line);border-radius:4px;padding:0 4px}
+.typing{font-size:12px;color:var(--muted);display:flex;gap:6px;align-items:center;padding-left:44px}
+.typing i{width:5px;height:5px;border-radius:50%;background:var(--muted);display:inline-block;animation:blink 1s infinite}
+.typing i:nth-child(2){animation-delay:.15s}.typing i:nth-child(3){animation-delay:.3s}
+.sys{font-family:var(--f-mono);font-size:12px;color:var(--muted);display:flex;gap:8px;align-items:baseline;padding-left:44px;animation:in .25s ease-out}
+.sys .role{flex:none;background:var(--inner);color:var(--inner-ink);padding:0 6px;border-radius:4px;font-size:11px;font-family:var(--f-body)}
+.sys.ok{color:var(--ok)} .sys.bad{color:var(--bad)}
+.phase{display:flex;align-items:center;gap:10px;font-family:var(--f-display);font-size:14px;color:var(--brass-ink);letter-spacing:.06em}
+.phase::before,.phase::after{content:"";flex:1;height:1px;background:var(--brass-line)}
+
+/* attachments */
+.atts{display:flex;flex-wrap:wrap;gap:8px;margin-top:6px}
+.att{border:1px solid var(--line);border-radius:10px;background:var(--surface);overflow:hidden;min-width:0;max-width:100%}
+.att .cap{display:flex;justify-content:space-between;gap:8px;align-items:center;padding:6px 8px;font-size:12px;border-top:1px solid var(--line)}
+.att .cap span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.att canvas{display:block;cursor:zoom-in}
+.att.poster canvas{width:200px;height:auto}
+.att.thumb canvas{width:130px}
+.att.video canvas{width:300px;max-width:100%;cursor:pointer}
+.att img,.att video{display:block;max-width:260px;max-height:200px}
+.att audio{display:block;width:260px;max-width:100%;margin:8px}
+.att.audio,.att.doc,.att.file{width:300px;padding:10px 12px}
+.att.audio .cap,.att.doc .cap,.att.file .cap{border:0;padding:6px 0 0}
+.wave{display:flex;align-items:center;gap:2px;height:30px}
+.wave i{flex:1;background:var(--brass);border-radius:2px;opacity:.75}
+.att.playing .wave i{animation:wv .8s ease-in-out infinite alternate}
+.att .fn{font-family:var(--f-mono);font-size:12px}
+.att .meta{font-size:11px;color:var(--muted)}
+.att .pre{font-size:12px;color:var(--muted);max-height:4.8em;overflow:hidden;margin-top:4px;white-space:pre-wrap}
+
+/* checkpoint */
+.card{margin-left:44px;border:1px solid var(--brass-line);background:var(--brass-bg);border-radius:12px;padding:12px 14px;animation:in .3s ease-out}
+.card h3{margin:0 0 4px;font-size:14px;color:var(--brass-ink);display:flex;gap:8px;align-items:baseline;flex-wrap:wrap}
+.card h3 small{font-family:var(--f-mono);font-weight:400;font-size:11px}
+.card .k{font-size:11px;letter-spacing:.1em;color:var(--brass-ink);margin-top:8px}
+.card ul{margin:2px 0 0;padding-left:18px}
+.opts{display:grid;gap:6px;margin-top:6px}
+.opts.two{grid-template-columns:repeat(auto-fit,minmax(160px,1fr))}
+.opt{display:grid;grid-template-columns:1fr auto;gap:2px 12px;text-align:left;border:1px solid var(--brass-line);background:var(--surface);border-radius:8px;padding:7px 10px;align-items:start}
+.opt:hover:not(:disabled){border-color:var(--brass)}
+.opt b{font-size:13px}
+.opt .c{font-family:var(--f-mono);font-size:11px;color:var(--muted);text-align:right;font-variant-numeric:tabular-nums}
+.opt .n{grid-column:1/-1;font-size:12px;color:var(--muted)}
+.opt .rec{font-size:11px;color:var(--brass-ink);margin-left:6px}
+.opt canvas{grid-column:1/-1;width:100%;max-width:150px;border-radius:4px;margin-top:4px}
+.opt.chosen{border-color:var(--brass);box-shadow:inset 0 0 0 1px var(--brass)}
+.cardbar{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
+.cardbar textarea{flex-basis:100%;min-height:56px;border:1px solid var(--brass-line);border-radius:8px;padding:6px 8px;background:var(--surface);color:var(--ink);font:inherit}
+.card.resolved .cardbar{display:none}
+.card .result{font-size:12px;color:var(--brass-ink);margin-top:8px}
+
+.final{margin-left:44px;background:var(--surface);border:1px solid var(--ink);border-radius:12px;padding:14px 16px;animation:in .3s ease-out}
+.final h3{font-family:var(--f-display);font-weight:400;margin:0 0 8px;font-size:20px}
+.deliv{display:grid;gap:6px}
+.deliv .d{display:flex;justify-content:space-between;gap:10px;align-items:center;border-bottom:1px solid var(--line);padding:6px 0;font-size:13px}
+.deliv .d .fn{font-family:var(--f-mono);font-size:12px;overflow-wrap:anywhere}
+.final .note{margin-top:10px;font-size:12px;color:var(--muted)}
+.final .note li{margin:2px 0}
+
+/* ---------- inner panel ---------- */
+.panel{min-width:0;min-height:0;display:flex;flex-direction:column;background:var(--inner);color:var(--inner-ink);border-radius:12px;overflow:hidden}
+.phd{padding:12px 14px 0;display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+.phd h2{margin:0;font-size:13px;letter-spacing:.14em;font-weight:500}
+.phd span{font-family:var(--f-mono);font-size:11px;color:var(--inner-muted)}
+.tabs{display:flex;gap:2px;padding:8px 8px 0;border-bottom:1px solid var(--inner-line);overflow-x:auto}
+.tabs button{border:0;background:none;color:var(--inner-muted);padding:6px 9px;font-size:13px;border-bottom:2px solid transparent;white-space:nowrap}
+.tabs button[aria-selected="true"]{color:var(--inner-ink);border-bottom-color:var(--brass)}
+.pbody{flex:1;overflow:auto;padding:14px}
+.pbody h4{margin:16px 0 6px;font-size:11px;letter-spacing:.14em;color:var(--inner-muted);font-weight:500}
+.pbody h4:first-child{margin-top:0}
+.json{font-family:var(--f-mono);font-size:11.5px;background:var(--inner-2);border:1px solid var(--inner-line);border-radius:8px;padding:10px;white-space:pre;overflow-x:auto;line-height:1.55}
+.json .k{color:var(--inner-muted)} .json .s{color:#e6c38c}
+table{width:100%;border-collapse:collapse;font-size:12px}
+th{font-weight:500;color:var(--inner-muted);text-align:left;font-size:11px;padding:5px 6px;border-bottom:1px solid var(--inner-line)}
+td{padding:6px;border-bottom:1px solid var(--inner-line);vertical-align:top}
+td.num{font-family:var(--f-mono);text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.pill{display:inline-block;font-size:11px;padding:0 7px;border-radius:999px;border:1px solid var(--inner-line);color:var(--inner-muted);white-space:nowrap}
+.pill.run{color:#9cc5e8;border-color:#3d5f7a}.pill.okp{color:#7fd1a8;border-color:#2f6650}.pill.wait{color:#e6c38c;border-color:#6b4c22}.pill.badp{color:#f0a08e;border-color:#7a3b2e}
+.empty{color:var(--inner-muted);font-size:13px}
+.hint{font-size:12px;color:var(--inner-muted);margin-top:6px}
+.pipe{display:grid;gap:0}
+.pn{display:grid;grid-template-columns:22px 1fr auto;gap:8px;align-items:start;padding:6px 0}
+.pn .dot{width:12px;height:12px;border-radius:50%;border:2px solid var(--inner-muted);margin:4px 0 0 4px}
+.pn.done .dot{background:#7fd1a8;border-color:#7fd1a8}
+.pn.now .dot{border-color:var(--brass);background:var(--brass)}
+.pn .t{font-size:13px}.pn .t small{display:block;color:var(--inner-muted);font-size:11px}
+.pipe .pn+.pn{border-top:1px dashed var(--inner-line)}
+.cmp{border:1px solid var(--inner-line);border-radius:8px;padding:10px;margin-bottom:10px;background:var(--inner-2)}
+.cmp .hd{display:flex;justify-content:space-between;gap:8px;margin-bottom:6px;font-size:13px}
+.cmp .row{display:grid;grid-template-columns:76px 1fr;gap:8px;font-size:12px;padding:3px 0}
+.cmp .row span:first-child{color:var(--inner-muted)}
+details.mv{border:1px solid var(--inner-line);border-radius:8px;margin-bottom:8px;background:var(--inner-2)}
+details.mv summary{padding:7px 10px;cursor:pointer;font-size:12px;font-family:var(--f-mono);color:var(--inner-muted)}
+details.mv[open] summary{color:var(--inner-ink);border-bottom:1px solid var(--inner-line)}
+.mvb{padding:8px 10px;font-size:12px}
+.mvb .sec{color:var(--inner-muted);font-size:11px;letter-spacing:.1em;margin-top:8px}
+.mvb .sec:first-child{margin-top:0}
+.mvb ul{margin:2px 0;padding-left:16px}
+.quote{font-family:var(--f-mono);font-size:11.5px;border-left:2px solid var(--brass);padding:2px 0 2px 8px;margin:4px 0;white-space:pre-wrap}
+.quote small{display:block;color:var(--inner-muted);font-size:10px}
+.flist{display:grid;gap:6px}
+.fi{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center;background:var(--inner-2);border:1px solid var(--inner-line);border-radius:8px;padding:7px 9px}
+.fi .ic{width:30px;height:30px;border-radius:6px;background:var(--inner);display:grid;place-items:center;font-size:10px;font-family:var(--f-mono);color:var(--inner-muted);overflow:hidden}
+.fi .ic img{width:100%;height:100%;object-fit:cover}
+.fi .fn{font-family:var(--f-mono);font-size:12px;overflow-wrap:anywhere}
+.fi .meta{font-size:11px;color:var(--inner-muted)}
+.panel .btn{background:var(--inner-2);border-color:var(--inner-line);color:var(--inner-ink)}
+.big{font-family:var(--f-mono);font-size:22px;font-variant-numeric:tabular-nums}
+.bar{height:6px;background:var(--inner-2);border-radius:3px;overflow:hidden;margin-top:6px;border:1px solid var(--inner-line)}
+.bar i{display:block;height:100%;background:var(--brass)}
+.ros{display:grid;gap:8px}
+.ro{display:grid;grid-template-columns:auto 1fr;gap:4px 10px;background:var(--inner-2);border:1px solid var(--inner-line);border-radius:10px;padding:10px}
+.ro .av{width:44px;height:44px;grid-row:span 3;border-color:var(--inner-2);font-size:18px}
+.ro b{font-size:14px}.ro .ai{font-family:var(--f-mono);font-size:11px;color:var(--inner-muted)}
+.ro p{margin:0;font-size:12px;color:var(--inner-ink)}
+.ro .tags{grid-column:2;display:flex;gap:4px;flex-wrap:wrap;align-items:center}
+.ro label.btn{font-size:11px;padding:1px 8px;cursor:pointer}
+
+.lightbox{position:fixed;inset:0;background:rgba(0,0,0,.72);display:grid;place-items:center;z-index:50;padding:16px}
+.lightbox canvas{max-width:min(92vw,560px);max-height:88vh;width:auto;height:auto;border-radius:6px}
+
+@keyframes in{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+@keyframes blink{0%,100%{opacity:.25}50%{opacity:1}}
+@keyframes pulse{50%{box-shadow:0 0 0 3px var(--surface),0 0 0 9px color-mix(in srgb,var(--brass) 40%,transparent)}}
+@keyframes wv{from{transform:scaleY(.4)}to{transform:scaleY(1)}}
+@keyframes dash{to{stroke-dashoffset:-8}}
+.flowline{animation:dash .6s linear infinite}
+@media (prefers-reduced-motion: reduce){*{animation:none!important}}
+
+@media (max-width:1280px){
+  .main{grid-template-columns:minmax(0,1fr) 360px;grid-template-rows:auto minmax(0,1fr)}
+  .main.collapsed{grid-template-columns:minmax(0,1fr)}
+  .stagecol{flex-direction:row;align-items:center}
+  .stage{width:250px;flex:none}
+  .legend{flex:1}
+  .panel{grid-column:2;grid-row:1/3}
+}
+@media (max-width:900px){
+  html,body{height:auto}.app{height:auto}
+  .main{display:flex;flex-direction:column}
+  .stagecol{flex-direction:column;align-items:center}
+  .stage{width:min(340px,100%)}
+  .legend{align-self:stretch}
+  .chat{height:75vh}.panel{min-height:70vh}
+  .msg{max-width:100%}
+  .sys,.typing{padding-left:0}.card,.final{margin-left:0}
+}
+</style>
+
+<div class="app">
+  <header class="top">
+    <div class="brand"><h1>圆桌</h1><span class="sim">模拟版 · 剧本演示</span></div>
+    <div class="ctrls">
+      <div class="seg" id="mode" aria-label="显示模式">
+        <button type="button" data-v="persona" aria-pressed="true">人设模式</button>
+        <button type="button" data-v="anon" aria-pressed="false">匿名模式</button>
+      </div>
+      <div class="seg" id="scn" aria-label="演示场景">
+        <button type="button" data-v="normal" aria-pressed="true">普通（≤5 轮）</button>
+        <button type="button" data-v="big" aria-pressed="false">超 5 轮</button>
+      </div>
+    </div>
+    <div class="ctrls">
+      <button class="btn primary" id="play" type="button">暂停</button>
+      <button class="btn" id="stepb" type="button">单步</button>
+      <div class="seg" id="spd">
+        <button type="button" data-v="1" aria-pressed="false">1×</button>
+        <button type="button" data-v="2" aria-pressed="true">2×</button>
+        <button type="button" data-v="4" aria-pressed="false">4×</button>
+      </div>
+      <button class="btn" id="restart" type="button">重新开始</button>
+      <button class="btn gold" id="reveal" type="button" hidden disabled>揭晓身份</button>
+      <button class="btn" id="toggle" type="button" aria-expanded="true">收起里层</button>
+    </div>
+    <span class="meter" id="meter">0 token · $0.000</span>
+  </header>
+
+  <div class="main" id="main">
+    <div class="stagecol">
+      <div class="stage" id="stage" aria-label="圆桌座位图"></div>
+      <div class="legend" id="legend"></div>
+    </div>
+
+    <section class="chat" id="chat" aria-label="表层小组群聊">
+      <div class="q"><span class="tag">小组作业</span>为大一新生制作「铝合金时效强化」科普材料包：① A3 海报 ② 约 60 秒讲解音频 ③ 10 秒原理动画 ④ 300 字说明文档。</div>
+      <div class="feed" id="feed" aria-live="polite"></div>
+      <form class="composer" id="composer">
+        <button class="iconbtn" type="button" id="attach" aria-label="上传图片、音频、视频或文件" title="上传图片 / 音频 / 视频 / 文件">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M21 11.5l-8.6 8.6a5.5 5.5 0 0 1-7.8-7.8l8.6-8.6a3.7 3.7 0 0 1 5.2 5.2l-8.6 8.6a1.8 1.8 0 0 1-2.6-2.6l7.9-7.9"/></svg>
+        </button>
+        <input type="file" id="file" multiple hidden accept="image/*,audio/*,video/*,.pdf,.doc,.docx,.ppt,.pptx,.xlsx,.csv,.txt,.md">
+        <input type="text" id="say" placeholder="以组长身份插话，或拖入图片 / 音频 / 视频 / 文件" autocomplete="off">
+        <button class="btn primary" type="submit">发送</button>
+      </form>
+      <div class="drop" id="drop" hidden>松开即可上传给小组</div>
+    </section>
+
+    <aside class="panel" aria-label="里层统筹面板">
+      <div class="phd"><h2>里层 · 统筹</h2><span id="pstate">进行中</span></div>
+      <div class="tabs" role="tablist" id="tabs">
+        <button role="tab" data-t="plan" aria-selected="true">分工流程</button>
+        <button role="tab" data-t="cmp" aria-selected="false">结对核对</button>
+        <button role="tab" data-t="min" aria-selected="false">会议记录</button>
+        <button role="tab" data-t="files" aria-selected="false">文件库</button>
+        <button role="tab" data-t="use" aria-selected="false">用量</button>
+        <button role="tab" data-t="cast" aria-selected="false">名册</button>
+      </div>
+      <div class="pbody" id="pbody"></div>
+    </aside>
+  </div>
+</div>
+
+<script>
+const $=q=>document.querySelector(q);
+const CAST={
+  grok:{nick:'格罗克',ai:'Grok 4.7',vendor:'xAI',ch:'格',col:'--c-grok',layer:'inner',role:'统筹（规划 / 调度）',
+    persona:'嘴毒但效率极高的项目经理。切进里层就只说数字和结论，不寒暄。',tags:['规划','调度','实时信息'],price:[2,6]},
+  deepseek:{nick:'小鲸',ai:'DeepSeek V4.1 Flash',vendor:'DeepSeek',ch:'鲸',col:'--c-deepseek',layer:'inner',role:'记录官',
+    persona:'深海学霸，话少记性好，全组最便宜也最能干。值班记录时只写事实。',tags:['记录','数学','代码'],price:[0.3,1.2]},
+  gpt:{nick:'小G',ai:'GPT-6 Sol',vendor:'OpenAI',ch:'G',col:'--c-gpt',layer:'member',role:'讲解稿 · 配音 · 分镜',
+    persona:'开朗自信的班长型优等生，什么活都能接，爱列 1-2-3，口头禅「当然可以！」',tags:['写作','讲解','语音'],price:[2,10]},
+  claude:{nick:'克劳德',ai:'Claude Sonnet 5.5',vendor:'Anthropic',ch:'克',col:'--c-claude',layer:'member',role:'说法表 · 审稿 · 文档',
+    persona:'温柔细致的文艺学姐，写作和审稿担当，常说「我想补充一点」，偶尔过分谨慎。',tags:['写作','审稿','长文本'],price:[3,15]},
+  gemini:{nick:'双子',ai:'Gemini 3.8 Flash',vendor:'Google',ch:'双',col:'--c-gemini',layer:'member',role:'海报 · 动画',
+    persona:'灵感很多的艺术生，读图第一名，习惯拿出两个方向让人挑，说话爱带「～」。',tags:['设计','读图','多模态'],price:[0.75,3.75]},
+  qwen:{nick:'千问',ai:'Qwen3.8-Max',vendor:'Alibaba',ch:'千',col:'--c-qwen',layer:'member',role:'原理 · 科学核对',
+    persona:'较真的理科学霸，中文好、推导稳，专门抓科学错误。',tags:['数学','推导','读图'],price:[2,6]},
+  me:{nick:'组长',ch:'长',col:'--c-me',role:'你'}
+};
+const ANON={grok:'统筹',deepseek:'记录官',gpt:'组员甲',claude:'组员乙',gemini:'组员丙',qwen:'组员丁',me:'组长'};
+const ANONCH={grok:'统',deepseek:'记',gpt:'甲',claude:'乙',gemini:'丙',qwen:'丁',me:'长'};
+const SEATPOS={grok:[50,8],gpt:[86,29],gemini:[86,71],me:[50,92],qwen:[14,71],claude:[14,29],deepseek:[91,95]};
+const MEDIA_PRICE={img:0.04,tts:0.012};
+
+let S, gen=0, running=false, DL=null, AVATARS={};
+try{AVATARS=JSON.parse(localStorage.getItem('rt-avatars')||'{}')}catch(e){AVATARS={}}
+
+/* ---------- naming ---------- */
+const persona=()=>S.mode==='persona';
+const nm=k=>(persona()||S.revealed)?CAST[k].nick:ANON[k];
+const T=t=>t.replace(/\{(\w+)\}/g,(m,k)=>CAST[k]?nm(k):m);
+const val=v=>typeof v==='function'?v(S):v;
+function avatarHTML(k,cls=''){
+  const c=CAST[k]; const showP=persona()||S.revealed||k==='me';
+  const bg=showP?`var(${c.col})`:'var(--c-anon)'; const fg=k==='me'?'var(--c-me-ink)':'#fff';
+  const img=showP&&AVATARS[k]?`<img src="${AVATARS[k]}" alt="">`:(showP?c.ch:ANONCH[k]);
+  return `<div class="av ${cls}" style="background:${bg};color:${fg}">${img}</div>`;
+}
+
+/* ---------- state ---------- */
+function fresh(){
+  return {mode:S?S.mode:'persona',scenario:S?S.scenario:'normal',speed:S?S.speed:2,tab:S?S.tab:'plan',
+    playing:true,waiting:false,ended:false,revealed:false,idx:0,msgN:0,ids:{},texts:{},usage:{},media:0,
+    tier:'中等',style:null,mediaChoice:'all',pipeOn:false,planShown:false,
+    stage:{phase:'规划',act:'读取任务'},speaking:null,flow:null,pair:null,
+    minutes:[],cmp:[],files:[],notes:[],
+    pipe:[{id:'kw',t:'关键词',who:'qwen',st:''},{id:'say',t:'核心说法表',who:'claude',st:''},{id:'design',t:'海报设计',who:'gemini',st:''},{id:'improve',t:'改进版面与文字',who:'claude',st:''},{id:'av',t:'讲解音频 + 动画',who:'gpt',st:''},{id:'check',t:'科学核对',who:'qwen',st:''},{id:'doc',t:'说明文档与汇总',who:'claude',st:''}]};
+}
+function pipeSet(id,st){const p=S.pipe.find(x=>x.id===id);if(p)p.st=st}
+function use(k,i,o){const p=CAST[k].price;const u=S.usage[k]||(S.usage[k]={i:0,o:0,c:0});u.i+=i;u.o+=o;u.c+=(i*p[0]+o*p[1])/1e6;renderMeter()}
+function useMedia(kind){S.media+=MEDIA_PRICE[kind]||0;renderMeter()}
+function totals(){let i=0,o=0,c=S.media;for(const k in S.usage){i+=S.usage[k].i;o+=S.usage[k].o;c+=S.usage[k].c}return{i,o,c}}
+const fmtK=n=>n>=1000?(n/1000).toFixed(1)+'k':String(n);
+
+/* ---------- content ---------- */
+const AUDIO_V2='你有没有想过，飞机为什么能用铝来造？纯铝其实很软，秘密在于一种叫「时效强化」的热处理。先把铝铜合金加热到五百多度，让铜原子溶进铝里，再迅速冷却，把它们「冻」住。接着保温，铜原子会慢慢聚成细小的颗粒，就像路上的路障。小路障一推就倒；大小合适、排得紧密的时候，金属里的缺陷最难通过，这时合金最硬；可要是保温太久，路障合并成几个大块，中间留出空隙，缺陷就能绕过去，合金又变软了。所以，掌握好温度和时间，铝合金就能撑起整架飞机。';
+const AUDIO_V1=AUDIO_V2.replace('接着保温，','换句话说，就是让铜原子在铝里慢慢聚在一起。接着保温，');
+const DOC_TEXT=`为什么飞机的铝合金不会软？——时效强化简介
+
+纯铝很软，但飞机蒙皮和机翼用的铝合金，强度能提高好几倍，关键在于「时效强化」。
+
+第一步是固溶处理：把铝铜合金加热到约 500–550 °C，让铜原子均匀溶进铝里，再迅速淬火，把这种过饱和状态「冻」住。第二步是时效：在室温或 150–190 °C 下保温，铜原子逐渐聚集，依次形成 GP 区、θ″、θ′，最后成为平衡相 θ（Al₂Cu）。
+
+这些析出物像路障一样阻碍位错运动。颗粒太小时，位错能直接切过；大小合适、间距紧密时最难通过，合金达到峰值硬度，即「峰值时效」。若保温过久，颗粒合并长大、间距变宽，位错能绕过去，硬度反而下降，这就是「过时效」。
+
+控制好时效的温度和时间，就能把强度调到最佳。2024、7075 等时效强化铝合金正是飞机结构的主要材料。`;
+
+/* ---------- script ---------- */
+const big=s=>s.scenario==='big';
+const SCRIPT=[
+ {type:'phase',text:'规划 · 里层'},
+ {type:'sys',who:'grok',text:'读取任务：4 个交付物（海报 / 讲解音频 / 原理动画 / 说明文档），横跨 理科 · 文科 · 设计 · 音视频',use:[2800,700],fx:s=>{s.planShown=true;s.stage.act='拆解任务'}},
+ {type:'sys',who:'grok',text:'按能力标签初分工：原理 → {qwen}；海报与动画 → {gemini}；文案与审稿 → {claude}；讲解稿与配音 → {gpt}',use:[900,260],fx:s=>{s.stage.act='按能力标签初分工'}},
+ {type:'sys',who:'grok',text:s=>big(s)?'预估 8 轮 · ≈110k token + 媒体 ≈$0.30 → 超过 5 轮阈值，暂停询问组长':'预估 5 轮 · ≈62k token + 媒体 ≈$0.12 → 未超阈值，直接进行（档位：中等）',use:[800,200]},
+ {type:'checkpoint',id:'tier',when:big},
+ {type:'sys',who:'deepseek',text:'记录席就位：只记事实，不发表观点',use:[300,40]},
+ {type:'phase',text:'讨论 · 这样分工合适吗'},
+ {type:'msg',who:'gpt',text:'当然可以！不过我有个担心：讲解稿和海报文案要是各写各的，口径很容易对不上。要不要先统一说法？'},
+ {type:'msg',who:'claude',text:'我同意{gpt}的担心。我想补充一点：可以由我先整理一份「核心说法表」，三四句标准表述，海报、讲解稿、说明文档都从这里取，谁写都不会跑偏。'},
+ {type:'msg',who:'qwen',text:'说法表里的科学表述得我先过一遍。比如「析出物越多越硬」就是错的，过时效时颗粒长大变稀，反而变软。这种坑我来挡。'},
+ {type:'msg',who:'gemini',text:'那流程就是：{qwen}给关键词和「不能说错的点」→ 我出海报和动画 → {claude}改版面和文字 → {qwen}最后核对～ 不过给我的关键词要能画出来，别只给术语哦'},
+ {type:'msg',who:'gpt',text:'动画的分镜脚本我来写吧，{gemini}专心画。讲解稿和配音也归我，句子都从说法表里取。'},
+ {type:'msg',who:'gemini',text:'好耶，分镜交给你！'},
+ {type:'sys',who:'grok',text:'采纳讨论结果：新增「核心说法表」（{claude} 写，{qwen} 审）；动画分镜改由 {gpt}；流水线 = 关键词 → 设计 → 改进 → 核对',use:[1400,320],fx:s=>{s.pipeOn=true;s.stage.act='分工已按讨论调整'}},
+ {type:'checkpoint',id:'confirm'},
+ {type:'phase',text:'第 1 轮 · 关键词与说法表',fx:s=>pipeSet('kw','now')},
+ {type:'msg',who:'qwen',key:'kw',flow:['qwen','claude','关键词'],text:'理科关键词：固溶处理（约 500–550 °C）→ 淬火 → 时效（150–190 °C）；析出序列 GP 区 → θ″ → θ′ → θ（Al₂Cu）；小颗粒被位错切过，大颗粒被绕过（Orowan）。\n不能说错：① 不是析出越多越硬；② θ′ 是半共格，不是共格。'},
+ {type:'msg',who:'qwen',key:'kwv',flow:['qwen','gemini','画面关键词'],text:'给{gemini}的画面关键词：一条硬度随时效时间先升后降的曲线；三个小窗口——密密的小点 / 大小刚好的颗粒卡住一条位错线 / 稀疏的大颗粒，位错线绕过去。',fx:s=>{pipeSet('kw','done');pipeSet('say','now')}},
+ {type:'msg',who:'claude',key:'say1',text:'说法表 v1：\n1. 加热淬火后，铜原子被「冻」在铝里。\n2. 时效时铜原子聚成细小析出物，像路上的减速带拖住位错。\n3. 减速带合适时最硬，这就是峰值时效。'},
+ {type:'msg',who:'gpt',text:'减速带这个比喻好懂！讲解稿就用它？'},
+ {type:'msg',who:'qwen',text:'减速带有个问题：减速带越多车越慢，读者会以为析出越多越硬。过时效不是变少，是变大变稀。比喻得能体现「大小和间距」。'},
+ {type:'msg',who:'claude',key:'say2',flow:['claude','qwen','说法表 v2'],text:'你说得对，我改成「路障」：\n2. 小路障一推就倒（被切过）；\n3. 大小合适、排得紧密时最难通过（峰值时效）；\n4. 合并成少数大路障，中间留出空隙就能绕过去（过时效，变软）。'},
+ {type:'msg',who:'qwen',text:'这个准确，通过 ✓'},
+ {type:'pair',id:'P1',when:s=>s.tier!=='简单',task:'核心说法表 · 科学核对',author:'claude',seats:['qwen','gpt'],res:{qwen:'4 句均准确；析出序列与强化机制无误',gpt:'4 句均准确；建议第 1 句补「过饱和」二字'},verdict:'一致',vnote:'采纳措辞建议'},
+ {type:'minutes',fx:s=>{pipeSet('say','done');pipeSet('design','now')}},
+ {type:'phase',text:'第 2 轮 · 海报设计'},
+ {type:'msg',who:'gemini',text:'按画面关键词出了两个方向：A 工程蓝图风，B 手绘科普风。风格会连带影响动画和配色，这个得组长定～',att:[{kind:'poster',style:'A',ver:1,thumb:true},{kind:'poster',style:'B',ver:1,thumb:true}],media:['img','img']},
+ {type:'checkpoint',id:'style'},
+ {type:'msg',who:'gemini',flow:['gemini','claude','海报 v1'],text:s=>`好，按${s.style==='A'?'蓝图':'手绘'}风出了完整版 v1：`,att:s=>[{kind:'poster',style:s.style,ver:1}],media:['img'],fx:s=>{pipeSet('design','done');pipeSet('improve','now')}},
+ {type:'msg',who:'claude',text:'我看了版面，两点建议：\n① 主标题太长，新生扫一眼抓不住。主标题只留「为什么飞机的铝合金不会软？」，「时效强化」放副标题；\n② 曲线最高点没标注，读者不知道最佳在哪，加上「峰值时效」。'},
+ {type:'msg',who:'qwen',text:'还有一个科学错误：中间小窗把 θ′ 标成了「共格」，应该是「半共格」。正是我说的第 ② 个坑。'},
+ {type:'msg',who:'gemini',flow:['gemini','qwen','海报 v2'],text:'啊被抓到了！三处都改好了，v2 ↓',att:s=>[{kind:'poster',style:s.style,ver:2}],media:['img'],fx:s=>{pipeSet('improve','done')}},
+ {type:'pair',id:'P2',when:s=>s.tier==='完整',task:'海报 v2 · 科学内容核对',author:'gemini',seats:['qwen','gpt'],res:{qwen:'曲线、析出序列、三个小窗标注均正确',gpt:'均正确'},verdict:'一致',vnote:''},
+ {type:'msg',who:'qwen',text:'v2 核对通过 ✓ 析出序列、曲线形状、三个小窗都对。'},
+ {type:'minutes'},
+ {type:'phase',text:'第 3 轮 · 讲解音频与动画',fx:s=>pipeSet('av','now')},
+ {type:'msg',who:'gpt',key:'story',flow:['gpt','gemini','分镜'],text:'分镜（10 秒）：\n0–3 s 淬火后铜原子均匀散在铝里；\n3–6.5 s 析出细小颗粒，位错线被卡住、弯起来；\n6.5–10 s 颗粒长大变稀，位错线绕过去，留下小圈。'},
+ {type:'checkpoint',id:'media'},
+ {type:'msg',who:'gpt',when:s=>s.mediaChoice!=='none',text:'讲解稿写好并配了音，句子都取自说法表 v2：',att:[{kind:'audio',ver:1}],media:['tts']},
+ {type:'msg',who:'claude',when:s=>s.mediaChoice!=='none',text:'我计时了一下，朗读约 68 秒，超了。第二句「换句话说」和前一句重复，删掉后约 57 秒：',att:[{kind:'audio',ver:2}],media:['tts']},
+ {type:'msg',who:'gemini',when:s=>s.mediaChoice==='all',text:'动画按{gpt}的分镜做好了～ 我没调用视频模型，是写绘图代码逐帧画的，便宜很多',att:[{kind:'video'}]},
+ {type:'msg',who:'qwen',when:s=>s.mediaChoice==='all',text:'动画里峰值阶段位错线是「卡住弯曲」，过时效阶段是「绕过留圈」，机制对 ✓',fx:s=>pipeSet('av','done')},
+ {type:'minutes',fx:s=>{pipeSet('av','done');pipeSet('check','done');pipeSet('doc','now')}},
+ {type:'phase',text:'第 4 轮 · 汇总'},
+ {type:'msg',who:'claude',flow:['claude','qwen','说明文档'],text:'说明文档写好了，约 300 字，结构是「是什么 → 为什么变硬 → 为什么会过头 → 飞机上用在哪」。',att:[{kind:'doc'}]},
+ {type:'msg',who:'qwen',text:'四份材料的科学表述我逐条对过，和说法表 v2 一致 ✓'},
+ {type:'msg',who:'gpt',text:'文件名统一成「MATS_时效强化_xx」了，组长可以直接交。',fx:s=>pipeSet('doc','done')},
+ {type:'final'},
+ {type:'sys',who:'deepseek',text:'会议记录终版归档；本场 token 与媒体费用已写入数据库',use:[900,120]},
+ {type:'end'}
+];
+
+const CP={
+ tier:{title:'方案选择',tag:'预估超过 5 轮',status:['统筹预估本次作业需要 8 轮，约 110k token，另有图片 / 配音生成费。','超过 5 轮阈值，按规则暂停。'],
+  opts:[{id:'简单',label:'简单',cost:'4 轮 · ≈$0.35',note:'不结对核对，直接出四个交付物'},
+        {id:'中等',label:'中等',cost:'5 轮 · ≈$0.62',note:'核心说法表结对独立核对',rec:true},
+        {id:'完整',label:'完整',cost:'8 轮 · ≈$1.10',note:'说法表和海报科学内容都结对核对'}],
+  apply:(s,id)=>{s.tier=id}},
+ confirm:{title:'任务确认',tag:'开始前',
+  status:s=>['理解：给大一新生做时效强化科普，四个交付物口径统一、科学零错误。',T('流水线：{qwen} 关键词 → {claude} 说法表 → {gemini} 海报 → {claude} 改进 → {gpt} 配音与分镜 → {gemini} 动画 → {qwen} 核对 → {claude} 文档'),`档位：${s.tier}${s.tier==='简单'?'（不结对）':''}`,'有课件截图、老师录音等参考资料，可以现在用左下角回形针上传。'],
+  opts:[{id:'go',label:'确认，开始',cost:'',rec:true}],apply:()=>{}},
+ style:{title:'决定性结果',tag:'方向选择',status:['海报有两个方向，会决定后续动画和配色。'],
+  opts:[{id:'A',label:'A · 工程蓝图风',cost:'',note:'冷静专业，适合工程系走廊',poster:'A'},
+        {id:'B',label:'B · 手绘科普风',cost:'',note:'亲切好懂，适合新生',poster:'B',rec:true}],two:true,
+  apply:(s,id)=>{s.style=id}},
+ media:{title:'大额消耗',tag:'超过 token 阈值',status:['下一步：生成讲解音频（TTS）和原理动画。','预估 26k token + 配音费，超过单步 20k 阈值。'],
+  opts:[{id:'all',label:'音频和动画都生成',cost:'≈26k · ≈$0.24',rec:true},
+        {id:'audio',label:'只生成讲解音频',cost:'≈14k · ≈$0.13'},
+        {id:'none',label:'先不生成音视频',cost:'0',note:'只交海报和文档'}],
+  apply:(s,id)=>{s.mediaChoice=id}}
+};
+
+/* ---------- stage ---------- */
+function renderStage(){
+  const st=$('#stage'); let h='<div class="table"></div>';
+  h+=`<div class="plate"><div><div class="ph">${esc(S.stage.phase)}</div><div class="act">${esc(T(S.stage.act||''))}</div></div></div>`;
+  // flows svg
+  let sv='<svg class="flows" viewBox="0 0 100 100" aria-hidden="true"><defs><marker id="ah" viewBox="0 0 6 6" refX="5" refY="3" markerWidth="4" markerHeight="4" orient="auto"><path d="M0 0L6 3L0 6z" fill="var(--brass)"/></marker></defs>';
+  if(S.pair){const [a,b]=S.pair.map(k=>SEATPOS[k]);const mx=(a[0]+b[0])/2,my=(a[1]+b[1])/2;
+    sv+=`<line x1="${a[0]}" y1="${a[1]}" x2="${b[0]}" y2="${b[1]}" stroke="var(--bad)" stroke-width=".6" stroke-dasharray="1.6 1.4"/>`;
+    sv+=`<rect x="${mx-9}" y="${my-3.4}" width="18" height="6.4" rx="1.6" fill="var(--surface)" stroke="var(--bad)" stroke-width=".4"/><text x="${mx}" y="${my+1.2}" text-anchor="middle" font-size="3" fill="var(--bad)">独立 · 互不可见</text>`;}
+  if(S.flow){const [f,t,l]=S.flow;const a=SEATPOS[f],b=SEATPOS[t];
+    const cx=(a[0]+b[0])/2+(50-(a[0]+b[0])/2)*.7, cy=(a[1]+b[1])/2+(50-(a[1]+b[1])/2)*.7;
+    const sh=(p,q,d)=>{const dx=q[0]-p[0],dy=q[1]-p[1],L=Math.hypot(dx,dy);return [p[0]+dx/L*d,p[1]+dy/L*d]};
+    const a2=sh(a,[cx,cy],8),b2=sh(b,[cx,cy],9);
+    sv+=`<path class="flowline" d="M${a2[0]} ${a2[1]} Q${cx} ${cy} ${b2[0]} ${b2[1]}" fill="none" stroke="var(--brass)" stroke-width=".9" stroke-dasharray="2 2" marker-end="url(#ah)"/>`;
+    const lx=(a2[0]+2*cx+b2[0])/4, ly=(a2[1]+2*cy+b2[1])/4; const w=Math.max(12,l.length*3.3+4);
+    sv+=`<rect x="${lx-w/2}" y="${ly-3.4}" width="${w}" height="6.4" rx="3.2" fill="var(--brass)"/><text x="${lx}" y="${ly+1.2}" text-anchor="middle" font-size="3.1" fill="#fff">${esc(l)}</text>`;}
+  sv+='</svg>';
+  h+=sv;
+  for(const k in SEATPOS){const c=CAST[k];const [x,y]=SEATPOS[k];
+    const lab=k==='me'?'你':k==='grok'?'里层 · 统筹':k==='deepseek'?'里层 · 记录':(persona()||S.revealed?c.role.split(' · ')[0]:'组员');
+    h+=`<div class="seat ${c.layer==='inner'?'inner':''} ${k==='deepseek'?'desk':''} ${S.speaking===k?'speaking':''}" style="left:${x}%;top:${y}%">${avatarHTML(k)}<div class="nm">${nm(k)}</div><div class="rl">${lab}</div></div>`;}
+  st.innerHTML=h;
+}
+function renderLegend(){
+  $('#legend').innerHTML=`<div class="row"><svg width="22" height="8"><line x1="1" y1="4" x2="21" y2="4" stroke="var(--brass)" stroke-width="2" stroke-dasharray="3 3"/></svg><span><b>金色箭头</b> 交接：谁把什么交给谁</span></div>
+  <div class="row"><svg width="22" height="8"><line x1="1" y1="4" x2="21" y2="4" stroke="var(--bad)" stroke-width="1.5" stroke-dasharray="2 2"/></svg><span><b>红色虚线</b> 结对独立作业，彼此看不到</span></div>
+  <div class="row"><span style="width:22px;display:inline-grid;place-items:center"><span style="width:12px;height:12px;border-radius:30%;background:var(--inner);display:inline-block"></span></span><span><b>方形头像</b> 里层：理性统筹，不参与讨论</span></div>`;
+}
+
+/* ---------- feed ---------- */
+const feed=$('#feed');
+function esc(t){return String(t).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
+function add(el){feed.appendChild(el);feed.scrollTop=feed.scrollHeight;return el}
+function div(cls,html){const d=document.createElement('div');d.className=cls;d.innerHTML=html;return d}
+const sleep=ms=>new Promise(r=>setTimeout(r,ms/S.speed));
+function postMsg(k,text,opts={}){
+  S.msgN++;const id=S.msgN; if(opts.key){S.ids[opts.key]=id;S.texts[opts.key]=text}
+  const c=CAST[k];
+  const aiTag=(persona()||S.revealed)&&c.ai?`<span class="ai">${c.ai}</span>`:'';
+  const el=div('msg'+(k==='me'?' me':''),`${avatarHTML(k)}<div class="body"><div class="who"><b>${nm(k)}</b>${aiTag}<span class="id">#${id}</span>${opts.sim?'<span class="simtag">模拟回应</span>':''}</div>${text?`<div class="bubble">${esc(text)}</div>`:''}<div class="atts"></div></div>`);
+  add(el);
+  const box=el.querySelector('.atts');
+  (opts.att||[]).forEach(a=>box.appendChild(renderAtt(a,k)));
+  if(!box.children.length)box.remove();
+  feed.scrollTop=feed.scrollHeight;
+  return id;
+}
+function postSys(k,text,tone){add(div('sys'+(tone?' '+tone:''),`<span class="role">${k==='deepseek'?'记录官':'统筹'}${persona()||S.revealed?' · '+CAST[k].nick:''}</span><span>${esc(T(text))}</span>`))}
+
+/* ---------- attachments & generated media ---------- */
+function regFile(f){if(!S.files.find(x=>x.name===f.name))S.files.push(f);}
+function renderAtt(a,by){
+  const d=document.createElement('div');
+  if(a.kind==='poster'){
+    const name=`MATS_时效强化_海报_${a.style}_v${a.ver}.png`;
+    d.className='att poster'+(a.thumb?' thumb':'');
+    const cv=posterCanvas(a.style,a.ver,a.thumb?260:420);
+    d.appendChild(cv); cv.onclick=()=>lightbox(a.style,a.ver);
+    d.insertAdjacentHTML('beforeend',`<div class="cap"><span class="fn">${a.thumb?'方向 '+a.style:name}</span>${a.thumb?'':saveBtn(name)}</div>`);
+    if(!a.thumb)regFile({name,kind:'海报',by,ver:a.ver,make:()=>posterBlob(a.style,a.ver)});
+    wireSave(d,name,()=>posterBlob(a.style,a.ver));
+  }else if(a.kind==='audio'){
+    const text=a.ver===1?AUDIO_V1:AUDIO_V2; const sec=a.ver===1?68:57;
+    const name=`MATS_时效强化_讲解稿_v${a.ver}.md`;
+    d.className='att audio';
+    const bars=Array.from({length:42},(_,i)=>`<i style="height:${20+Math.abs(Math.sin(i*1.7+a.ver))*80}%"></i>`).join('');
+    d.innerHTML=`<div class="wave">${bars}</div><div class="cap"><span><span class="fn">讲解音频 v${a.ver}</span> <span class="meta">约 ${sec} 秒</span></span><span style="display:flex;gap:6px"><button class="btn sm" data-play type="button">朗读</button>${saveBtn(name,'存讲解稿')}</span></div><div class="meta">演示用浏览器朗读；真实版由语音模型生成音频文件。</div>`;
+    d.querySelector('[data-play]').onclick=e=>speak(text,d,e.currentTarget);
+    regFile({name,kind:'讲解稿',by,ver:a.ver,make:()=>new Blob([text],{type:'text/markdown'})});
+    wireSave(d,name,()=>new Blob([`# 讲解稿 v${a.ver}（约 ${sec} 秒）\n\n${text}\n`],{type:'text/markdown'}));
+  }else if(a.kind==='video'){
+    const name='MATS_时效强化_原理动画.webm';
+    d.className='att video';
+    const cv=document.createElement('canvas');cv.width=640;cv.height=360;d.appendChild(cv);
+    d.insertAdjacentHTML('beforeend',`<div class="cap"><span class="fn">原理动画 · 10 秒</span><span style="display:flex;gap:6px"><button class="btn sm" data-tog type="button">暂停</button>${saveBtn(name,'录制并保存')}</span></div>`);
+    const player=startAnim(cv); d.querySelector('[data-tog]').onclick=e=>{player.toggle();e.currentTarget.textContent=player.on?'暂停':'播放'};
+    cv.onclick=()=>d.querySelector('[data-tog]').click();
+    regFile({name,kind:'动画',by,ver:1,make:recordAnim});
+    wireSave(d,name,recordAnim,true);
+  }else if(a.kind==='doc'){
+    const name='MATS_时效强化_说明文档.md';
+    d.className='att doc';
+    d.innerHTML=`<div class="fn">${name}</div><div class="meta">约 300 字 · Markdown</div><div class="pre">${esc(DOC_TEXT)}</div><div class="cap"><span class="meta">真实版可另存为 .docx / .pdf</span>${saveBtn(name)}</div>`;
+    regFile({name,kind:'文档',by,ver:1,make:()=>new Blob([DOC_TEXT],{type:'text/markdown'})});
+    wireSave(d,name,()=>new Blob([DOC_TEXT],{type:'text/markdown'}));
+  }else if(a.kind==='upload'){
+    const f=a.f; d.className='att '+(f.type.startsWith('image')||f.type.startsWith('video')?'':'file');
+    if(f.type.startsWith('image'))d.innerHTML=`<img src="${a.url}" alt="${esc(f.name)}"><div class="cap"><span class="fn">${esc(f.name)}</span><span class="meta">${esc(a.meta||'')}</span></div>`;
+    else if(f.type.startsWith('video'))d.innerHTML=`<video src="${a.url}" controls preload="metadata"></video><div class="cap"><span class="fn">${esc(f.name)}</span><span class="meta">${esc(a.meta||'')}</span></div>`;
+    else if(f.type.startsWith('audio'))d.innerHTML=`<div class="fn">${esc(f.name)}</div><audio src="${a.url}" controls preload="metadata"></audio><div class="meta">${esc(a.meta||'')}</div>`;
+    else d.innerHTML=`<div class="fn">${esc(f.name)}</div><div class="meta">${esc(a.meta||'')}</div>`;
+  }
+  return d;
+}
+function saveBtn(name,label='保存'){return `<button class="btn sm" data-save="${esc(name)}" type="button" ${DL?'':'hidden'}>${label}</button>`}
+function wireSave(d,name,make,isVideo){const b=d.querySelector('[data-save]');if(b)b.onclick=()=>saveFile(name,make,b,isVideo)}
+async function saveFile(name,make,btn,isVideo){
+  if(!DL)return; const old=btn.textContent; btn.disabled=true;
+  try{ if(isVideo)btn.textContent='录制中…'; const blob=await make(btn); btn.textContent='等待确认';
+    await DL.save({filename:name,data:blob}); btn.textContent='已保存';}
+  catch(e){btn.textContent=e&&e.code==='declined'?'已取消':(e&&e.code==='rejected_extension'?'此格式不可存':'保存失败');}
+  setTimeout(()=>{btn.textContent=old;btn.disabled=false},2200);
+}
+function speak(text,card,btn){
+  const ss=window.speechSynthesis; if(!ss){btn.textContent='此浏览器不支持朗读';return}
+  if(card.classList.contains('playing')){ss.cancel();card.classList.remove('playing');btn.textContent='朗读';return}
+  ss.cancel(); const u=new SpeechSynthesisUtterance(text); u.lang='zh-CN'; u.rate=1.05;
+  const v=ss.getVoices().find(v=>/zh/i.test(v.lang)); if(v)u.voice=v;
+  u.onend=u.onerror=()=>{card.classList.remove('playing');btn.textContent='朗读'};
+  document.querySelectorAll('.att.playing').forEach(x=>x.classList.remove('playing'));
+  card.classList.add('playing'); btn.textContent='停止'; ss.speak(u);
+}
+
+/* ---------- poster drawing (original artwork drawn in code) ---------- */
+function rng(seed){return()=>{seed=(seed*16807)%2147483647;return seed/2147483647}}
+function drawPoster(ctx,style,ver){
+  const W=594,H=840; const A=style==='A';
+  const P=A?{bg:'#0f2746',grid:'rgba(255,255,255,.07)',ink:'#f2f5f8',sub:'#a9bdd6',acc:'#f2b84b',acc2:'#6fd0c4',box:'rgba(255,255,255,.06)',line:'rgba(255,255,255,.55)'}
+          :{bg:'#f1ece2',grid:'rgba(0,0,0,0)',ink:'#262522',sub:'#6b655b',acc:'#d9562f',acc2:'#2e8475',box:'#fffaf0',line:'#3b3934'};
+  ctx.fillStyle=P.bg;ctx.fillRect(0,0,W,H);
+  if(A){ctx.strokeStyle=P.grid;ctx.lineWidth=1;for(let x=0;x<W;x+=22){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,H);ctx.stroke()}for(let y=0;y<H;y+=22){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(W,y);ctx.stroke()}}
+  else{const r=rng(7);ctx.fillStyle='rgba(0,0,0,.035)';for(let i=0;i<500;i++)ctx.fillRect(r()*W,r()*H,2,2)}
+  const ff='"Noto Sans SC","PingFang SC",sans-serif', fd=A?'"IBM Plex Mono",monospace':'"ZCOOL XiaoWei",serif';
+  ctx.fillStyle=P.sub;ctx.font=`500 13px ${ff}`;ctx.fillText(A?'MATS · MATERIALS NOTE 04':'MATS 材料小科普 · 第 4 期',36,46);
+  ctx.fillStyle=P.ink;
+  if(ver===1){ctx.font=`700 26px ${ff}`;wrap(ctx,'铝合金时效强化：为什么飞机用的铝合金经过加热处理以后反而会变得更硬？',36,92,520,34)}
+  else{ctx.font=`${A?700:400} ${A?36:44}px ${A?ff:fd}`;ctx.fillText('为什么飞机的铝合金',36,100);ctx.fillText('不会软？',36,150);
+    ctx.fillStyle=P.acc;ctx.font=`500 17px ${ff}`;ctx.fillText('时效强化 · 析出物如何挡住位错',36,184)}
+  // process strip
+  const steps=[['固溶','500–550 °C'],['淬火','冻住铜原子'],['时效','150–190 °C']];
+  steps.forEach((s,i)=>{const x=36+i*182,y=212;ctx.fillStyle=P.box;rr(ctx,x,y,150,58,A?2:12);ctx.fill();ctx.strokeStyle=P.line;ctx.lineWidth=1.2;rr(ctx,x,y,150,58,A?2:12);ctx.stroke();
+    ctx.fillStyle=P.ink;ctx.font=`700 17px ${ff}`;ctx.fillText(s[0],x+14,y+25);ctx.fillStyle=P.sub;ctx.font=`13px ${ff}`;ctx.fillText(s[1],x+14,y+46);
+    if(i<2){ctx.strokeStyle=P.acc;ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(x+156,y+29);ctx.lineTo(x+176,y+29);ctx.stroke();ctx.beginPath();ctx.moveTo(x+170,y+23);ctx.lineTo(x+177,y+29);ctx.lineTo(x+170,y+35);ctx.stroke()}});
+  // curve
+  const cx=70,cy=300,cw=470,ch=230;
+  ctx.strokeStyle=P.line;ctx.lineWidth=1.4;ctx.beginPath();ctx.moveTo(cx,cy);ctx.lineTo(cx,cy+ch);ctx.lineTo(cx+cw,cy+ch);ctx.stroke();
+  ctx.fillStyle=P.sub;ctx.font=`12px ${ff}`;ctx.save();ctx.translate(cx-14,cy+ch/2+20);ctx.rotate(-Math.PI/2);ctx.fillText('硬度',0,0);ctx.restore();ctx.fillText('时效时间 →',cx+cw-70,cy+ch+20);
+  ctx.strokeStyle=P.acc;ctx.lineWidth=3.5;ctx.beginPath();
+  const f=t=>cy+ch-25-(ch-60)*Math.exp(-Math.pow((t-.45)/.24,2))*(t<.45?1:.92)-(t>.45?0:0);
+  for(let i=0;i<=100;i++){const t=i/100,x=cx+10+t*(cw-20),y=f(t);i?ctx.lineTo(x,y):ctx.moveTo(x,y)}ctx.stroke();
+  const zones=[['欠时效',.18],['过时效',.82]];
+  ctx.fillStyle=P.sub;ctx.font=`13px ${ff}`;zones.forEach(z=>ctx.fillText(z[0],cx+10+z[1]*(cw-20)-20,cy+ch-8));
+  if(ver===2){const px=cx+10+.45*(cw-20),py=f(.45);ctx.fillStyle=P.acc;ctx.beginPath();ctx.arc(px,py,7,0,7);ctx.fill();
+    ctx.strokeStyle=P.acc;ctx.setLineDash([4,4]);ctx.lineWidth=1.2;ctx.beginPath();ctx.moveTo(px,py+10);ctx.lineTo(px,cy+ch);ctx.stroke();ctx.setLineDash([]);
+    ctx.fillStyle=P.ink;ctx.font=`700 15px ${ff}`;ctx.fillText('峰值时效 · 最硬',px+14,py+4)}
+  // windows
+  const wy=568,ww=168,wh=150; const labels=[['小颗粒 · 被切过','GP 区 / θ″'],['卡住位错 · 最难通过',ver===1?'θ″ / θ′（共格）':'θ″ / θ′（半共格）'],['粗大稀疏 · 绕过去','θ（Al₂Cu）']];
+  labels.forEach((L,i)=>{const x=36+i*183;ctx.fillStyle=P.box;rr(ctx,x,wy,ww,wh,A?2:12);ctx.fill();ctx.strokeStyle=P.line;ctx.lineWidth=1.2;rr(ctx,x,wy,ww,wh,A?2:12);ctx.stroke();
+    ctx.save();rr(ctx,x,wy,ww,wh,A?2:12);ctx.clip();const r=rng(11+i);
+    const n=[60,18,5][i],sz=[2.2,5,12][i];ctx.fillStyle=P.acc2;
+    const pts=[];for(let j=0;j<n;j++){const px=x+10+r()*(ww-20),py=wy+10+r()*(wh-20);pts.push([px,py]);ctx.beginPath();ctx.arc(px,py,sz,0,7);ctx.fill()}
+    ctx.strokeStyle=P.acc;ctx.lineWidth=2.2;ctx.beginPath();
+    if(i===0){ctx.moveTo(x+ww*.55,wy);ctx.lineTo(x+ww*.55,wy+wh)}
+    else if(i===1){for(let k=0;k<=40;k++){const t=k/40,yy=wy+t*wh;const xx=x+ww*.5+Math.abs(Math.sin(t*Math.PI*4))*16;k?ctx.lineTo(xx,yy):ctx.moveTo(xx,yy)}}
+    else{ctx.moveTo(x+ww*.82,wy);ctx.bezierCurveTo(x+ww*.82,wy+wh*.4,x+ww*.82,wy+wh*.6,x+ww*.82,wy+wh);pts.slice(0,3).forEach(p=>{ctx.moveTo(p[0]+sz+6,p[1]);ctx.arc(p[0],p[1],sz+6,0,7)})}
+    ctx.stroke();ctx.restore();
+    ctx.fillStyle=P.ink;ctx.font=`700 13px ${ff}`;ctx.fillText(L[0],x,wy+wh+22);ctx.fillStyle=(ver===1&&i===1)?P.acc:P.sub;ctx.font=`12px ${ff}`;ctx.fillText(L[1],x,wy+wh+40)});
+  ctx.fillStyle=P.sub;ctx.font=`12px ${ff}`;ctx.fillText('析出序列：过饱和固溶体 → GP 区 → θ″ → θ′ → θ（Al₂Cu） · 2024 / 7075 用于机身与机翼',36,H-26);
+}
+function wrap(ctx,t,x,y,w,lh){let line='';for(const ch of t){if(ctx.measureText(line+ch).width>w){ctx.fillText(line,x,y);line=ch;y+=lh}else line+=ch}ctx.fillText(line,x,y)}
+function rr(ctx,x,y,w,h,r){ctx.beginPath();ctx.moveTo(x+r,y);ctx.arcTo(x+w,y,x+w,y+h,r);ctx.arcTo(x+w,y+h,x,y+h,r);ctx.arcTo(x,y+h,x,y,r);ctx.arcTo(x,y,x+w,y,r);ctx.closePath()}
+function posterCanvas(style,ver,px){const c=document.createElement('canvas');const s=px/594;c.width=px;c.height=Math.round(840*s);const ctx=c.getContext('2d');ctx.scale(s,s);drawPoster(ctx,style,ver);
+  if(document.fonts&&document.fonts.ready)document.fonts.ready.then(()=>{ctx.setTransform(s,0,0,s,0,0);drawPoster(ctx,style,ver)});return c}
+function posterBlob(style,ver){return new Promise(r=>posterCanvas(style,ver,1188).toBlob(r,'image/png'))}
+function lightbox(style,ver){const lb=div('lightbox','');lb.appendChild(posterCanvas(style,ver,1100));lb.onclick=()=>lb.remove();document.body.appendChild(lb)}
+
+/* ---------- animation ---------- */
+function drawAnim(ctx,t){
+  const W=640,H=360; ctx.fillStyle='#10202a';ctx.fillRect(0,0,W,H);
+  ctx.fillStyle='rgba(255,255,255,.10)';for(let x=12;x<W;x+=18)for(let y=12;y<H-40;y+=18)ctx.fillRect(x,y,2,2);
+  const r=rng(5); const ph=t<3?0:t<6.5?1:2;
+  if(ph===0){ctx.fillStyle='#e8a54a';for(let i=0;i<140;i++){ctx.beginPath();ctx.arc(r()*W,r()*(H-40),2,0,7);ctx.fill()}}
+  const grow=ph===1?Math.min(1,(t-3)/1):1;
+  const parts=[];
+  if(ph===1){for(let gx=0;gx<9;gx++)for(let gy=0;gy<5;gy++)parts.push([60+gx*64+(r()-.5)*20,30+gy*58+(r()-.5)*16,5*grow])}
+  if(ph===2){const g=Math.min(1,(t-6.5)/1.2);for(let i=0;i<6;i++)parts.push([110+(i%3)*190+(r()-.5)*30,70+Math.floor(i/3)*170,6+12*g])}
+  ctx.fillStyle='#6fd0c4';parts.forEach(p=>{ctx.beginPath();ctx.arc(p[0],p[1],p[2],0,7);ctx.fill()});
+  // dislocation line
+  ctx.strokeStyle='#f2b84b';ctx.lineWidth=3;ctx.beginPath();
+  if(ph===0){const x=40+t*30;ctx.moveTo(x,0);ctx.lineTo(x,H-40)}
+  else if(ph===1){const base=Math.min(300,60+(t-3)*120);for(let k=0;k<=80;k++){const y=k/80*(H-40);const bow=base>=290?Math.abs(Math.sin(y/58*Math.PI))*18:0;k?ctx.lineTo(base+bow,y):ctx.moveTo(base+bow,y)}}
+  else{const base=40+(t-6.5)/3.5*560;for(let k=0;k<=80;k++){const y=k/80*(H-40);const near=parts.reduce((m,p)=>Math.min(m,Math.abs(y-p[1])),99);const bow=near<40?-(40-near)*.6:0;k?ctx.lineTo(base+bow,y):ctx.moveTo(base+bow,y)}
+    ctx.stroke();ctx.strokeStyle='rgba(242,184,75,.8)';ctx.lineWidth=2;parts.forEach(p=>{if(p[0]<base-20){ctx.beginPath();ctx.arc(p[0],p[1],p[2]+7,0,7);ctx.stroke()}})}
+  ctx.stroke();
+  ctx.fillStyle='rgba(0,0,0,.45)';ctx.fillRect(0,H-40,W,40);ctx.fillStyle='#fff';ctx.font='500 16px "Noto Sans SC",sans-serif';
+  ctx.fillText(['① 淬火后：铜原子均匀溶在铝里','② 时效：细小析出物卡住位错 → 变硬','③ 过时效：颗粒粗大稀疏，位错绕过并留下小圈 → 变软'][ph],16,H-14);
+  ctx.fillStyle='rgba(255,255,255,.6)';ctx.font='12px "IBM Plex Mono",monospace';ctx.fillText(t.toFixed(1)+' s',W-56,H-14);
+}
+const ANIMS=new Set();
+function startAnim(cv){const ctx=cv.getContext('2d');const p={on:true,t0:performance.now(),off:0,toggle(){this.on=!this.on;if(this.on)this.t0=performance.now()-this.off*1000}};
+  const tick=now=>{if(!cv.isConnected){ANIMS.delete(p);return}if(p.on){p.off=((now-p.t0)/1000)%10;drawAnim(ctx,p.off)}requestAnimationFrame(tick)};
+  if(matchMedia('(prefers-reduced-motion: reduce)').matches){p.on=false;drawAnim(ctx,4.5)}
+  requestAnimationFrame(tick);ANIMS.add(p);return p}
+function recordAnim(btn){return new Promise((res,rej)=>{
+  const cv=document.createElement('canvas');cv.width=640;cv.height=360;const ctx=cv.getContext('2d');
+  if(!cv.captureStream||!window.MediaRecorder){rej({code:'unavailable'});return}
+  const mt=['video/webm;codecs=vp9','video/webm;codecs=vp8','video/webm'].find(m=>MediaRecorder.isTypeSupported(m));
+  if(!mt){rej({code:'unavailable'});return}
+  const rec=new MediaRecorder(cv.captureStream(30),{mimeType:mt});const chunks=[];rec.ondataavailable=e=>e.data.size&&chunks.push(e.data);
+  rec.onstop=()=>res(new Blob(chunks,{type:'video/webm'}));const t0=performance.now();rec.start();
+  const tick=()=>{const t=(performance.now()-t0)/1000;if(t>=10){rec.stop();return}drawAnim(ctx,t);if(btn)btn.textContent=`录制中 ${Math.floor(t)}/10 s`;requestAnimationFrame(tick)};tick();
+})}
+
+/* ---------- execution ---------- */
+function next(){while(S.idx<SCRIPT.length){const ev=SCRIPT[S.idx++];if(ev.when&&!ev.when(S))continue;return ev}return null}
+async function exec(ev,g){
+  if(ev.fx&&ev.type!=='msg')ev.fx(S);
+  switch(ev.type){
+  case 'phase':S.stage.phase=val(ev.text);S.stage.act='';S.flow=null;add(div('phase',esc(val(ev.text))));await sleep(450);break;
+  case 'sys':await sleep(650);if(g!==gen)return;postSys(ev.who,val(ev.text),ev.tone);use(ev.who,...(ev.use||[500,120]));break;
+  case 'msg':{
+    const text=T(val(ev.text)); S.speaking=ev.who; renderStage();
+    const t=add(div('typing',`${esc(nm(ev.who))} 正在输入 <i></i><i></i><i></i>`));
+    await sleep(Math.min(2800,700+text.length*20)); t.remove(); if(g!==gen)return;
+    if(ev.flow){S.flow=ev.flow;S.stage.act=`${nm(ev.flow[0])} → ${nm(ev.flow[1])}：${ev.flow[2]}`}
+    postMsg(ev.who,text,{key:ev.key,att:val(ev.att)}); S.speaking=null;
+    use(ev.who,2000,400+text.length*2); (ev.media||[]).forEach(useMedia);
+    if(ev.fx)ev.fx(S); break;}
+  case 'pair':{
+    const [a,b]=ev.seats; S.pair=[a,b]; S.stage.act=`${nm(a)} × ${nm(b)} 独立核对：${ev.task}`; renderStage();
+    postSys('grok',`关键内容结对核对：${nm(a)}、${nm(b)} 各自独立检查「${ev.task.split(' · ')[0]}」，看不到对方结果；作者 ${nm(ev.author)} 不参与`);
+    const rec={id:ev.id,task:ev.task,author:ev.author,res:ev.seats.map(k=>({k,t:ev.res[k]})).sort(()=>Math.random()-.5),verdict:'核对中'};S.cmp.push(rec);renderPanel();
+    await sleep(2200);if(g!==gen)return; ev.seats.forEach(k=>use(k,1600,900)); use('grok',1200,200);
+    rec.verdict=ev.verdict; S.pair=null; postSys('grok',`两份核对结果${ev.verdict}${ev.vnote?'，'+ev.vnote:''} → 通过`,'ok');break;}
+  case 'minutes':await sleep(700);if(g!==gen)return;makeMinutes();postSys('deepseek',`会议记录更新至 v${S.minutes.length}（关键原文由代码逐字复制）`);use('deepseek',3200,700);break;
+  case 'checkpoint':showCheckpoint(ev.id);S.waiting=true;break;
+  case 'final':await sleep(800);if(g!==gen)return;showFinal();use('grok',1800,400);break;
+  case 'end':S.ended=true;S.playing=false;S.stage.act='全部交付物完成';
+    if(S.mode==='anon'){$('#reveal').disabled=false;postSys('grok','讨论结束。点「揭晓身份」查看各座位是哪家 AI','ok')}
+    else postSys('grok','讨论结束。所有文件在右侧「文件库」','ok');break;
+  }
+  renderStage();renderPanel();
+}
+
+/* ---------- checkpoints ---------- */
+function showCheckpoint(id){
+  const c=CP[id]; const st=val(c.status); S.stage.act='等待组长决定';renderStage();
+  const card=div('card',`<h3>需要你决定 · ${c.title}<small>${c.tag}</small></h3><div class="k">现状</div><ul>${st.map(x=>`<li>${esc(x)}</li>`).join('')}</ul>
+   <div class="k">选项</div><div class="opts${c.two?' two':''}">${c.opts.map(o=>`<button type="button" class="opt" data-o="${o.id}"><b>${o.label}${o.rec?'<span class="rec">推荐</span>':''}</b><span class="c">${o.cost}</span>${o.note?`<span class="n">${o.note}</span>`:''}${o.poster?'<span class="pslot"></span>':''}</button>`).join('')}</div>
+   <div class="cardbar"><button class="btn" type="button" data-a="mod">修改</button><button class="btn" type="button" data-a="stop">停止</button></div>`);
+  card.querySelectorAll('.opt').forEach(b=>{const o=c.opts.find(x=>x.id===b.dataset.o);if(o.poster)b.querySelector('.pslot').replaceWith(posterCanvas(o.poster,1,300))});
+  add(card); $('#pstate').textContent='等待组长';
+  card.addEventListener('click',e=>{
+    if(card.classList.contains('resolved'))return;
+    const ob=e.target.closest('.opt'),ab=e.target.closest('[data-a]');
+    if(ob)resolve(card,id,ob.dataset.o);
+    else if(ab&&ab.dataset.a==='stop')stopSession(card);
+    else if(ab&&ab.dataset.a==='mod'&&!card.querySelector('textarea')){
+      const bar=card.querySelector('.cardbar');const ta=document.createElement('textarea');ta.id='mod-'+id;ta.placeholder='写下修改意见，例如：海报再加一张飞机剖面示意';
+      const send=document.createElement('button');send.className='btn primary';send.type='button';send.textContent='提交修改';bar.prepend(send);bar.prepend(ta);ta.focus();
+      send.onclick=()=>{const t=ta.value.trim();if(!t){ta.focus();return}resolve(card,id,(c.opts.find(o=>o.rec)||c.opts[0]).id,t)}}
+  });
+}
+function resolve(card,id,opt,mod){
+  const c=CP[id],o=c.opts.find(x=>x.id===opt);card.classList.add('resolved');
+  card.querySelectorAll('.opt').forEach(b=>{b.disabled=true;if(b.dataset.o===opt)b.classList.add('chosen')});
+  card.insertAdjacentHTML('beforeend',`<div class="result">已选择：${o.label}${mod?' · 附修改意见':''}</div>`);
+  c.apply(S,opt);
+  if(mod){postMsg('me',mod);S.notes.push(mod);postSys('grok','已按组长意见调整计划，意见写入会议记录')}
+  if(id==='tier')postSys('grok',`组长选择「${opt}」档`);
+  S.waiting=false;$('#pstate').textContent='进行中';renderPanel();if(S.playing)loop();
+}
+function stopSession(card){card.classList.add('resolved');card.insertAdjacentHTML('beforeend','<div class="result">已停止</div>');
+  S.waiting=false;S.ended=true;S.playing=false;postSys('grok','会话已停止。状态已存档，之后可从历史记录恢复','bad');$('#pstate').textContent='已停止';if(S.mode==='anon')$('#reveal').disabled=false;syncPlay();renderPanel()}
+
+/* ---------- final ---------- */
+function showFinal(){
+  const items=S.files.filter(f=>!f.upload);const latest={};items.forEach(f=>{const key=f.kind;if(!latest[key]||f.ver>latest[key].ver)latest[key]=f});
+  const list=Object.values(latest);
+  const el=div('final',`<h3>小组作业 · 交付物</h3><div class="deliv">${list.map(f=>`<div class="d"><span><span class="fn">${esc(f.name)}</span> <span class="meta" style="color:var(--muted);font-size:12px">· ${f.kind} · ${esc(nm(f.by))}</span></span>${saveBtn(f.name)}</div>`).join('')}</div>
+   <div class="note"><b>讨论中做出的改进</b><ul><li>比喻从「减速带」改为「路障」，避免读者误以为析出越多越硬（${esc(nm('qwen'))} 提出，${esc(nm('claude'))} 改写）</li><li>海报标题拆为主副标题，曲线补「峰值时效」标注（${esc(nm('claude'))}）</li><li>θ′ 标注由「共格」更正为「半共格」（${esc(nm('qwen'))}）</li>${S.mediaChoice!=='none'?`<li>讲解音频从约 68 秒压到 57 秒（${esc(nm('claude'))}）</li>`:'<li>音视频按组长决定暂不生成</li>'}${S.notes.map(n=>`<li>组长意见：${esc(n)}</li>`).join('')}</ul></div>`);
+  add(el); list.forEach(f=>{const b=el.querySelector(`[data-save="${CSS.escape(f.name)}"]`);if(b)b.onclick=()=>saveFile(f.name,f.make,b,f.kind==='动画')});
+}
+
+/* ---------- minutes ---------- */
+function makeMinutes(){
+  const m={v:S.minutes.length+1,concl:[],quotes:[],open:[],prog:S.pipe.filter(p=>p.st).map(p=>`${p.t} · ${nm(p.who)} · ${p.st==='done'?'完成':'进行中'}`)};
+  m.concl.push('分工按讨论调整：新增核心说法表，四个交付物都从说法表取句子');
+  const q=k=>{if(S.ids[k])m.quotes.push({id:S.ids[k],t:S.texts[k]})};
+  q('kw');
+  if(S.ids.say2){m.concl.push('比喻定为「路障」（弃用「减速带」）');q('say2')}
+  if(S.style){m.concl.push(`海报方向：${S.style==='A'?'A 工程蓝图风':'B 手绘科普风'}（组长决定）`)}
+  if(S.minutes.length>=2)m.concl.push('海报 v2：主副标题拆分、补峰值标注、θ′ 改为半共格');
+  if(S.ids.story){q('story');m.concl.push(S.mediaChoice==='none'?'音视频暂不生成（组长决定）':'讲解音频压至约 57 秒')}
+  S.notes.forEach(n=>m.concl.push('组长意见：'+n));
+  S.files.filter(f=>f.upload).forEach(f=>m.concl.push('组长上传参考资料：'+f.name));
+  if(!S.style&&S.minutes.length>=1)m.open.push('海报风格待定');
+  S.minutes.push(m);
+}
+
+/* ---------- panel ---------- */
+function jsonHTML(o){return esc(JSON.stringify(o,null,2)).replace(/&quot;([^&]*?)&quot;:/g,'<span class="k">"$1"</span>:').replace(/: &quot;(.*?)&quot;/g,': <span class="s">"$1"</span>')}
+function renderPanel(){
+  document.querySelectorAll('#tabs button').forEach(b=>b.setAttribute('aria-selected',b.dataset.t===S.tab));
+  const P=$('#pbody');let h='';
+  if(S.tab==='plan'){
+    if(!S.planShown)h='<p class="empty">统筹正在读题…</p>';
+    else{
+      h+='<h4>流水线（关键词 → 设计 → 改进 → 核对）</h4>';
+      if(!S.pipeOn)h+='<p class="empty">分工讨论中，确定后显示。</p>';
+      else h+='<div class="pipe">'+S.pipe.map(p=>`<div class="pn ${p.st==='done'?'done':p.st==='now'?'now':''}"><span class="dot"></span><span class="t">${p.t}<small>${esc(nm(p.who))}</small></span><span class="pill ${p.st==='done'?'okp':p.st==='now'?'run':''}">${p.st==='done'?'完成':p.st==='now'?'进行中':'待开始'}</span></div>`).join('')+'</div>';
+      h+='<h4>统筹输出（结构化）</h4><div class="json">'+jsonHTML({deliverables:['poster_A3','audio_60s','animation_10s','doc_300'],domains:['理科','文科','设计','音视频'],tier:S.tier,
+        assign:{principle:nm('qwen'),style_guide:nm('claude')+'（'+nm('qwen')+' 审）',poster:nm('gemini'),storyboard:nm('gpt'),voice:nm('gpt'),animation:nm('gemini'),check:nm('qwen'),doc:nm('claude')},
+        pair_check:S.tier==='简单'?[]:S.tier==='中等'?['style_guide']:['style_guide','poster']})+'</div>';
+      h+='<h4>本场规则</h4><table><tbody>'+[['轮数阈值','5 轮'],['token 询问阈值','20k / 步'],['发言上限','200 字'],['组员上下文','会议记录 + 最近 2 轮'],['动画生成方式','代码逐帧绘制'],['随机种子','20261007']].map(r=>`<tr><td>${r[0]}</td><td class="num">${r[1]}</td></tr>`).join('')+'</tbody></table>';
+    }
+  }
+  if(S.tab==='cmp'){
+    if(!S.cmp.length)h=`<p class="empty">${S.tier==='简单'?'简单档不结对。':'还没有结对任务。关键内容会由两名组员各自独立核对，结果只送到这里。'}</p>`;
+    S.cmp.forEach(c=>{const cls=c.verdict==='一致'?'okp':'wait';
+      h+=`<div class="cmp"><div class="hd"><b>${esc(c.task)}</b><span class="pill ${cls}">${c.verdict}</span></div>`+c.res.map((r,i)=>`<div class="row"><span>结果${'甲乙'[i]} · ${esc(nm(r.k))}</span><span>${esc(r.t)}</span></div>`).join('')+`<div class="hint">作者 ${esc(nm(c.author))} 不参与核对；两份结果随机顺序呈现。</div></div>`});
+  }
+  if(S.tab==='min'){
+    if(!S.minutes.length)h='<p class="empty">第 1 轮结束后生成第一版。</p>';
+    S.minutes.slice().reverse().forEach((m,i)=>{h+=`<details class="mv"${i===0?' open':''}><summary>会议记录 v${m.v}${i===0?' · 当前':''}</summary><div class="mvb">
+      <div class="sec">结论与决定</div><ul>${m.concl.map(x=>`<li>${esc(x)}</li>`).join('')}</ul>
+      <div class="sec">进度</div><ul>${m.prog.map(x=>`<li>${esc(x)}</li>`).join('')}</ul>
+      <div class="sec">关键原文（逐字）</div>${m.quotes.map(q=>`<div class="quote">${esc(q.t)}<small>#${q.id}</small></div>`).join('')}
+      <div class="sec">未解决</div>${m.open.length?'<ul>'+m.open.map(x=>`<li>${esc(x)}</li>`).join('')+'</ul>':'<div>无</div>'}</div></details>`});
+    if(S.minutes.length)h+='<p class="hint">组员发言时只收到当前版记录 + 最近 2 轮原文。</p>';
+  }
+  if(S.tab==='files'){
+    const ups=S.files.filter(f=>f.upload),outs=S.files.filter(f=>!f.upload);
+    h+='<h4>你上传的参考资料</h4>'+(ups.length?'<div class="flist">'+ups.map(f=>`<div class="fi"><div class="ic">${f.thumb?`<img src="${f.thumb}" alt="">`:esc(f.ext)}</div><div><div class="fn">${esc(f.name)}</div><div class="meta">${esc(f.meta)}</div></div><span></span></div>`).join('')+'</div>':'<p class="empty">还没有。用聊天框左边的回形针上传，或直接拖进聊天区。支持图片、音频、视频、PDF、Office 文档。</p>');
+    h+='<h4>小组生成的文件</h4>'+(outs.length?'<div class="flist">'+outs.map(f=>`<div class="fi"><div class="ic">${f.name.split('.').pop()}</div><div><div class="fn">${esc(f.name)}</div><div class="meta">${f.kind} · ${esc(nm(f.by))}${f.ver>1?' · v'+f.ver:''}</div></div>${DL?`<button class="btn sm" data-fsave="${esc(f.name)}" type="button">保存</button>`:'<span></span>'}</div>`).join('')+'</div>':'<p class="empty">设计阶段开始后出现。</p>');
+    if(!DL)h+='<p class="hint">当前视图不支持保存文件。</p>';
+  }
+  if(S.tab==='use'){
+    const t=totals();
+    h+=`<h4>本场累计</h4><div class="big">$${t.c.toFixed(3)}</div><div class="hint">${fmtK(t.i)} 输入 · ${fmtK(t.o)} 输出（含思考） · 媒体 $${S.media.toFixed(3)}</div>`;
+    h+=`<h4>预算 $100</h4><div class="bar"><i style="width:${Math.min(100,t.c)}%"></i></div><div class="hint">已用 ${t.c.toFixed(2)}%${S.ended&&t.c>0?` · 按本场费用约可做 ${Math.floor(100/t.c)} 份同类作业`:''}</div>`;
+    h+='<h4>按成员</h4><table><thead><tr><th>成员</th><th>输入</th><th>输出</th><th>费用</th></tr></thead><tbody>'+['gpt','claude','gemini','qwen','grok','deepseek'].map(k=>{const u=S.usage[k]||{i:0,o:0,c:0};return `<tr><td>${esc(nm(k))}</td><td class="num">${fmtK(u.i)}</td><td class="num">${fmtK(u.o)}</td><td class="num">$${u.c.toFixed(4)}</td></tr>`}).join('')+`<tr><td>图片 / 配音生成</td><td></td><td></td><td class="num">$${S.media.toFixed(4)}</td></tr></tbody></table><p class="hint">价格为示例值，真实数字以 OpenRouter 返回为准。</p>`;
+  }
+  if(S.tab==='cast'){
+    const hide=S.mode==='anon'&&!S.revealed;
+    h+=hide?'<p class="empty">匿名模式：讨论结束、点「揭晓身份」后才显示各座位是哪家 AI。</p>':'';
+    h+='<div class="ros">'+['gpt','claude','gemini','qwen','grok','deepseek'].map(k=>{const c=CAST[k];
+      if(hide)return `<div class="ro">${avatarHTML(k)}<b>${ANON[k]}</b><span class="ai">身份隐藏</span><p>${c.layer==='inner'?'里层：理性统筹，不参与讨论':'表层组员'}</p></div>`;
+      return `<div class="ro">${avatarHTML(k)}<b>${c.nick} <span class="ai">· ${c.ai}</span></b><p>${esc(c.persona)}</p><div class="tags"><span class="pill ${c.layer==='inner'?'wait':'run'}">${c.layer==='inner'?'里层 · ':''}${c.role}</span>${c.tags.map(t=>`<span class="pill">${t}</span>`).join('')}<label class="btn" for="av-${k}">换头像</label><input type="file" id="av-${k}" accept="image/*" hidden data-av="${k}"></div></div>`}).join('')+'</div>';
+    if(!hide)h+='<p class="hint">人设按各家 AI 的公认特点设定，头像可以换成你自己的图（只存在这个浏览器里）。发给模型的内容里各成员仍用代号，避免模型之间因为认出对方而偏袒。里层每场轮换，这场由格罗克统筹、小鲸记录。</p>';
+  }
+  P.innerHTML=h;
+  P.querySelectorAll('[data-fsave]').forEach(b=>{const f=S.files.find(x=>x.name===b.dataset.fsave);b.onclick=()=>saveFile(f.name,f.make,b,f.kind==='动画')});
+  P.querySelectorAll('[data-av]').forEach(inp=>inp.onchange=()=>setAvatar(inp.dataset.av,inp.files[0]));
+}
+function setAvatar(k,file){if(!file)return;const img=new Image();const url=URL.createObjectURL(file);img.onload=()=>{const c=document.createElement('canvas');c.width=c.height=96;const ctx=c.getContext('2d');const s=Math.min(img.width,img.height);ctx.drawImage(img,(img.width-s)/2,(img.height-s)/2,s,s,0,0,96,96);AVATARS[k]=c.toDataURL('image/jpeg',.85);try{localStorage.setItem('rt-avatars',JSON.stringify(AVATARS))}catch(e){}URL.revokeObjectURL(url);renderStage();renderPanel();
+  document.querySelectorAll('.msg').forEach(()=>{})};img.src=url}
+function renderMeter(){const t=totals();$('#meter').textContent=`${fmtK(t.i+t.o)} token · $${t.c.toFixed(3)}`}
+
+/* ---------- uploads ---------- */
+function fileMeta(f,url){return new Promise(res=>{
+  const size=f.size>1048576?(f.size/1048576).toFixed(1)+' MB':Math.max(1,Math.round(f.size/1024))+' KB';
+  if(f.type.startsWith('image')){const i=new Image();i.onload=()=>res({meta:`${i.naturalWidth}×${i.naturalHeight} · ${size}`,dims:[i.naturalWidth,i.naturalHeight]});i.onerror=()=>res({meta:size});i.src=url}
+  else if(f.type.startsWith('audio')||f.type.startsWith('video')){const m=document.createElement(f.type.startsWith('audio')?'audio':'video');m.preload='metadata';m.onloadedmetadata=()=>res({meta:`${Math.round(m.duration||0)} 秒 · ${size}`,dur:Math.round(m.duration||0)});m.onerror=()=>res({meta:size});m.src=url}
+  else res({meta:size})})}
+const REACT={
+  image:(f,m)=>[['gemini',`收到「${f.name}」${m.dims?`（${m.dims[0]}×${m.dims[1]}）`:''}。我会参考它的构图和配色，用在海报里～`],['qwen','如果里面有曲线或相图，我顺手核对一下数据，和说法表不一致的地方会标出来。']],
+  audio:(f,m)=>[['gpt',`收到录音「${f.name}」${m.dur?`（${m.dur} 秒）`:''}！我先转写成文字，把老师强调的重点提出来给大家。`],['claude','转写出来后我对照说法表，看有没有需要补的表述。']],
+  video:(f,m)=>[['gemini',`收到视频「${f.name}」${m.dur?`（${m.dur} 秒）`:''}，我参考它的节奏和镜头做动画～`],['gpt','我也看一下，分镜可以借它的开场方式。']],
+  file:(f)=>[['claude',`收到文档「${f.name}」。我先读一遍，把里面的要求整理进任务清单，有和现在分工冲突的地方会提出来。`]]
+};
+async function handleFiles(list){
+  for(const f of list){
+    const url=URL.createObjectURL(f);const m=await fileMeta(f,url);
+    const kind=f.type.startsWith('image')?'image':f.type.startsWith('audio')?'audio':f.type.startsWith('video')?'video':'file';
+    postMsg('me','',{att:[{kind:'upload',f,url,meta:m.meta}]});
+    S.files.push({upload:true,name:f.name,meta:m.meta,ext:(f.name.split('.').pop()||'').slice(0,4),thumb:kind==='image'?url:null});
+    renderPanel();
+    const g=gen; for(const [k,t] of REACT[kind](f,m)){S.speaking=k;renderStage();await sleep(1200);if(g!==gen)return;postMsg(k,t,{sim:true});use(k,kind==='file'?6000:3000,300)}
+    S.speaking=null;postSys('deepseek',`附件「${f.name}」已归档到文件库，写入会议记录`);renderStage();
+  }
+}
+$('#attach').onclick=()=>$('#file').click();
+$('#file').onchange=e=>{handleFiles([...e.target.files]);e.target.value=''};
+const chat=$('#chat'),drop=$('#drop');let dragN=0;
+chat.addEventListener('dragenter',e=>{if([...e.dataTransfer.types].includes('Files')){dragN++;drop.hidden=false}});
+chat.addEventListener('dragleave',()=>{if(--dragN<=0){dragN=0;drop.hidden=true}});
+chat.addEventListener('dragover',e=>e.preventDefault());
+chat.addEventListener('drop',e=>{e.preventDefault();dragN=0;drop.hidden=true;if(e.dataTransfer.files.length)handleFiles([...e.dataTransfer.files])});
+
+/* ---------- free chat ---------- */
+function route(t){if(/图|海报|颜色|配色|设计|排版|画/.test(t))return 'gemini';if(/原理|公式|计算|对不对|科学|数据|温度/.test(t))return 'qwen';if(/音频|配音|讲解|语速|分镜|视频|动画/.test(t))return 'gpt';if(/文案|文档|措辞|语气|标题|字数/.test(t))return 'claude';return null}
+const REPLY={gemini:'收到组长！这条我来改，改完发新版给大家看～',qwen:'明白，我先核对这一点，确认没问题再往下走。',gpt:'当然可以！我按这个调整，顺便同步给负责动画的同学。',claude:'好的。我想补充一点：这样改的话说法表也要同步更新，我一起处理。'};
+$('#composer').onsubmit=async e=>{
+  e.preventDefault();const inp=$('#say');const t=inp.value.trim();if(!t)return;inp.value='';
+  postMsg('me',t);S.notes.push(t);const g=gen;
+  const k=route(t);
+  if(k){S.speaking=k;renderStage();await sleep(1100);if(g!==gen)return;postMsg(k,REPLY[k],{sim:true});use(k,2000,200)}
+  else{await sleep(800);if(g!==gen)return;postSys('grok','组长意见已收到：分派给最相关的成员处理，写入会议记录');use('grok',800,120)}
+  S.speaking=null;renderStage();
+};
+
+/* ---------- loop & controls ---------- */
+async function loop(){if(running)return;running=true;const g=gen;
+  while(S.playing&&!S.waiting&&!S.ended&&g===gen){const ev=next();if(!ev){S.ended=true;break}await exec(ev,g)}
+  if(g===gen)running=false;syncPlay()}
+async function stepOnce(){if(running||S.waiting||S.ended)return;S.playing=false;syncPlay();running=true;const g=gen;const ev=next();if(ev)await exec(ev,g);if(g===gen)running=false}
+function syncPlay(){const b=$('#play');b.textContent=S.playing&&!S.ended?'暂停':'播放';b.disabled=S.ended}
+function start(){gen++;running=false;try{speechSynthesis.cancel()}catch(e){}S=fresh();feed.innerHTML='';
+  $('#reveal').hidden=S.mode!=='anon';$('#reveal').disabled=true;$('#pstate').textContent='进行中';
+  renderStage();renderLegend();renderMeter();renderPanel();syncPlay();loop()}
+$('#play').onclick=()=>{S.playing=!S.playing;syncPlay();if(S.playing)loop()};
+$('#stepb').onclick=stepOnce;
+$('#restart').onclick=()=>start();
+$('#reveal').onclick=()=>{S.revealed=true;S.tab='cast';$('#reveal').disabled=true;renderStage();renderPanel();postSys('grok','身份已揭晓','ok')};
+$('#toggle').onclick=()=>{const c=$('#main').classList.toggle('collapsed');$('#toggle').textContent=c?'展开里层':'收起里层';$('#toggle').setAttribute('aria-expanded',!c)};
+$('#tabs').onclick=e=>{const b=e.target.closest('button');if(!b)return;S.tab=b.dataset.t;renderPanel()};
+function segBind(id,fn){document.querySelectorAll(`#${id} button`).forEach(b=>b.onclick=()=>{document.querySelectorAll(`#${id} button`).forEach(x=>x.setAttribute('aria-pressed',x===b));fn(b.dataset.v)})}
+segBind('mode',v=>{S.mode=v;start()});
+segBind('scn',v=>{S.scenario=v;start()});
+segBind('spd',v=>{S.speed=+v});
+
+S={mode:'persona',scenario:'normal',speed:2,tab:'plan'};
+start();
+(async()=>{try{if(window.claude&&window.claude.use){DL=await window.claude.use('downloads');if(DL){document.querySelectorAll('[data-save]').forEach(b=>b.hidden=false);renderPanel()}}}catch(e){DL=null}})();
+</script>

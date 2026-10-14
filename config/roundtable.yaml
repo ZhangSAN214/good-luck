@@ -1,0 +1,589 @@
+# 圆桌运行参数
+
+# 一张桌最多的组员座位数（所选档位的可用模型都上桌，人数超过此值时拒绝执行；代号池不得少于此值）
+seats: 12
+# 组员少于此数时暂停问用户；开桌至少需要 min_members 个组员 + 1 个统筹
+min_members: 2
+# 互评：每份答案由几位其他组员评审（分配均衡、不评自己）；组员不多于此数 + 1 时等于全员互评
+reviews_per_answer: 3
+
+# 预算按 UTC 自然月 / 自然日统计（每月 1 号、每天 0 点 UTC 进入新周期）。
+# 达到 warn_ratio 时提醒（不打断）；已超出或下一步预计会超出时暂停，请用户确认继续或停止。
+budget:
+  monthly_usd: 20.0    # 每月预算
+  daily_usd: 3.0       # 每日上限；填 null 表示不设
+  warn_ratio: 0.8
+
+# 单步预估 token 超过此值时询问用户
+token_threshold: 20000
+
+coordinator:
+  # 统筹从上桌的模型中选出，本题不作答。
+  # rotate: 按会话轮换（最近当过统筹的排后，其余随机）；random: 随机；fixed: 固定为 fixed_id（不在上桌范围内时按 rotate）
+  strategy: rotate
+  fixed_id: null
+
+revise_rounds: 1
+
+# 各步骤使用的提示词版本（prompts/<role>/<version>.md）
+prompts:
+  planner: v1
+  panel: v1
+  ideate: v1
+  expand: v1
+  organize: v1
+  answer: v1
+  review: v3
+  revise: v3
+  synthesize: v4
+  redo: v1
+  decompose: v4
+  volunteer: v1
+  assign: v3
+  accept: v1             # 协同：合并前统筹按验收标准逐条验收
+  accept_fix: v1         # 协同：未通过验收的作者修改一次
+  discuss: v1            # 协同：分工后组员提调整建议
+  adjust: v1             # 协同：统筹据此最多调整一次
+  work: v1
+  decompose_retry: v1    # 流水线拆分不合格时，把问题列给统筹重拆
+  work_analyze: v1       # 协同流水线：各类型子任务的工作提示词
+  work_research: v1
+  work_write: v1
+  work_prompt: v1
+  work_generate: v1
+  work_code: v1
+  work_verify: v1
+  work_review: v1
+  work_factcheck: v1
+  work_assemble: v1
+  cross_review: v1
+  rework: v2
+  merge: v4
+  attachments: v1        # 题目附件（文字版 / 随附图片）
+  describe_image: v1     # 图片文字版
+  transcribe: v1         # 音频转写
+  tools: v5              # 工具说明与工具结果（v2：联网搜索；v3：图表中文；v4：转述的网页正文；v5：in/ 上游文件与参考图）
+  image_gen: v1          # 图像生成工具
+  media_brief: v1        # 媒体输出：把题目改写成「写生成提示词」的任务
+  media_review: v2       # 评审生成结果（图片 / 视频截帧）；v2：对照风格清单逐条判定
+  style_extract: v1      # 风格规范提取：成员各自看参考图
+  style_merge: v1        # 统筹合并成规范 + 清单
+  style_guide: v1        # 风格规范，接在之后的每次调用上
+  user_notes: v1         # 用户中途补充的意见，接在之后的每次调用上
+  media_refine: v1       # 统筹根据评审决定是否改提示词重新生成
+  media_rewrite: v1      # 汇总失败时，由一位成员根据修订稿重写生成提示词
+  work_media: v1         # 协同：媒体子任务，成员写生成提示词
+  rework_media: v2       # 协同：按审查意见修改生成提示词
+  web_search: v1         # 借助聚合平台联网搜索时发给搜索用模型的指令
+  web_fetch: v1          # 借助聚合平台读取网页时发给读取用模型的指令
+
+# 每个步骤对所有模型统一使用的参数（中立：同一步骤参数相同；模型自身必需的参数在 models.yaml）
+step_params:
+  # max_tokens 是每次调用的输出上限（推理模型的思考 token 也计入），防止输出失控；
+  # 预估卡片上的"最多"按所有调用都写满这个上限计算。
+  # reasoning 是中立的思考预算参数（同一步骤所有模型相同；渠道不支持时自动忽略）：
+  #   {effort: low|medium|high} 或 {max_tokens: N}（思考最多用 N token，其余留给正文），二选一。
+  #   原则：作答 / 修订 / 完成子任务要认真想，但封顶，保证正文有足够空间；
+  #   评审、汇总、拆分、分配、自荐、风格校验等用低强度。
+  answer: {max_tokens: 5000, reasoning: {max_tokens: 2000}}
+  review: {max_tokens: 3000, reasoning: {max_tokens: 800}}
+  revise: {max_tokens: 5000, reasoning: {max_tokens: 2000}}
+  synthesize: {max_tokens: 5000, reasoning: {effort: low}}
+  ideate: {max_tokens: 2000, reasoning: {effort: low}}
+  expand: {max_tokens: 1500, reasoning: {effort: low}}
+  organize: {max_tokens: 4000, reasoning: {effort: low}}
+  decompose: {max_tokens: 2500, reasoning: {effort: low}}
+  volunteer: {max_tokens: 1500, reasoning: {effort: low}}
+  assign: {max_tokens: 1500, reasoning: {effort: low}}
+  discuss: {max_tokens: 1200, reasoning: {effort: low}}
+  adjust: {max_tokens: 1500, reasoning: {effort: low}}
+  work: {max_tokens: 6000, reasoning: {max_tokens: 2000}}
+  cross_review: {max_tokens: 3000, reasoning: {max_tokens: 800}}
+  rework: {max_tokens: 6000, reasoning: {max_tokens: 2000}}
+  accept: {max_tokens: 2000, reasoning: {effort: low}}
+  accept_fix: {max_tokens: 6000, reasoning: {max_tokens: 2000}}
+  merge: {max_tokens: 10000, reasoning: {effort: low}}
+  style: {max_tokens: 1500, reasoning: {effort: low}}
+  style_gate: {max_tokens: 1500, reasoning: {effort: low}}
+
+# 长度保护：输出被长度上限截断（finish_reason=length）而可见文字很少 = 思考 token 挤占了正文。
+# 此时不原样重试：降低思考强度、提高输出上限（×factor，不超过 cap）再调用一次（单独记录、单独计费）。
+length_guard:
+  enabled: true
+  min_visible_chars: 200
+  max_tokens_factor: 1.5
+  max_tokens_cap: 12000
+  retry_effort: low
+
+# 互评质量检查：空泛的评审判为无效，不转给作者
+review_quality:
+  min_checked_chars: 15     # 没有指出问题时，"检查了什么"至少要写这么多字
+  vague_phrases: [挺好, 很好, 不错, 同意, 没问题, 没有问题, 正确, 都对, 很棒, looks good, lgtm, good, fine, ok, agree, correct, no issues]
+
+# 防偷懒：检查每位成员产出是否有实质内容（作答、互评、修订）。
+# 不合格时附上原因打回重做一次（提示词 redo）；仍不合格就保留内容并标记"敷衍"，汇总时统筹会看到标记。
+effort_check:
+  enabled: true
+  redo: true
+  min_chars: 15                    # 字数下限 = max(min_chars, 预估答案 token 数 × chars_per_expected_token)
+  chars_per_expected_token: 0.1
+  empty_phrases: [略, 同上, 见上, 同上所述, 无, 暂无, 待补充, 不知道, todo, tbd, n/a, "...", 同意, 赞同]
+  refusal_phrases: [无法回答, 不能回答, 无法完成, 无法提供, 我不能, 抱歉, 对不起, i cannot, i can't, i am unable, as an ai]
+  refusal_max_chars: 200           # 含拒答短语且不超过这么多字才算拒答
+  restate_similarity: 0.8          # 与题目相似度 ≥ 此值：只复述题目
+  duplicate_similarity: 0.95       # 修订稿与别人的答案相似度 ≥ 此值：疑似照抄
+  duplicate_min_chars: 100
+
+# 步骤顺序（插件名）
+# 讨论模式：同一题全员各自作答 → 互评 → 修订 → 汇总
+pipeline: [answer, review, revise, synthesize, reveal]
+# 协同模式：统筹拆分子任务 → 成员自荐 → 统筹分配（每人至少一块）→ 并行完成 → 交叉审查（不审自己的）
+#          → 作者按审查修改 → 统筹合并成完整成果
+# 个人作答：只请一位成员直接回答，没有统筹、互评和汇总
+solo_pipeline: [answer, reveal]
+# 头脑风暴：每人独立发散 → 看别人的想法做拓展 → 统筹整合成思维导图
+brainstorm_pipeline: [ideate, expand, organize, reveal]
+brainstorm: {max_ideas: 4, max_expansions: 3, max_branches: 6, max_ideas_per_branch: 6, max_next_steps: 5}
+collab_pipeline: [decompose, volunteer, assign, discuss, work, cross_review, rework, accept, merge, reveal]
+collab:
+  max_subtasks: 12        # 拆分的子任务上限
+  # 分工讨论：分工确定后组员对方案提简短建议，统筹最多调整一次（调整后仍须满足分配规则，否则保持原分工）
+  discussion: {enabled: true, min_members: 3, max_suggestions: 3}
+  # 逐条验收：合并前统筹按验收标准检查每个文字子任务，不合格的退回作者改一次（媒体成果不验收）
+  acceptance: {enabled: true, max_fix_items: 3}
+  # 省钱：很短的成果（少于 short_chars 字）只找 short_reviews 位审查者；0 = 不启用。只看成果长度，与作者是谁无关
+  cross_review: {short_chars: 400, short_reviews: 1}
+
+  # --- 流水线（成员数 ≥ pipeline.min_members 时启用）---------------------------------
+  # 协同不是"各做各的"：统筹把题目拆成一条流水线（每个子任务有类型，上游产出交给下游继续做），
+  # 每位成员至少分到一块不同的实质工作；成员比步骤多时，可以并行的步骤按内容拆成平行子任务
+  # （例如四个角色的文案每人写一个），不允许几个人做同一份内容。
+  # 拆分不合格（整题当一个子任务、没有上下游、类型单一、人数不够分、类型规则不符）→ 统筹重拆一次
+  # → 仍不合格按下面的模板自动生成。
+  pipeline:
+    enabled: true
+    min_members: 2
+    min_kinds: 3
+    whole_task_phrases: [完成整道题, 完成整个题目, 完成全部要求, 全部要求, 独立完成题目, 整道题]
+    whole_task_similarity: 0.75
+    sibling_similarity: 0.95
+
+  # step_params：这类子任务覆盖 work 步骤的参数（只限制最长输出；同一类型所有成员相同）。
+  # 子任务类型。prompt：负责人完成这类子任务用的提示词；tags：偏好的能力标签；
+  # parallel：能否按内容拆成平行子任务；needs：必须依赖其中某类；audit：审查类（必须依赖被审成果）；
+  # avoid_hard / avoid_soft：负责人不能是这些类型上游子任务的负责人（soft：成员太少时放宽）。
+  kinds:
+    analyze:   {label: 分析, meaning: 读题目 / 材料 / 参考图，提炼要点、规范或需求清单,     prompt: work_analyze,   tags: [vision, research], step_params: {max_tokens: 4500}}
+    research:  {label: 搜索调研, meaning: 联网搜索，收集带来源的资料, prompt: work_research,  tags: [research]}
+    write:     {label: 撰写, meaning: 撰写设定、文案、正文、报告,     prompt: work_write,     tags: [writing]}
+    prompt:    {label: 写提示词, meaning: 把设定与规范写成交给生成模型的提示词, prompt: work_prompt,    tags: [writing, design], parallel: false, step_params: {max_tokens: 3000}}
+    generate:  {label: 执行生成, meaning: 用上游提示词调用生成模型（有参考图时一并传入）, prompt: work_generate,  parallel: false, needs: [prompt], requires_media: true, step_params: {max_tokens: 3000}}
+    code:      {label: 写代码, meaning: 编写代码并保存成文件,   prompt: work_code,      tags: [code]}
+    verify:    {label: 运行验证, meaning: 实际运行上游代码，记录结果, prompt: work_verify,    tags: [code], parallel: false, needs: [code], step_params: {max_tokens: 4000}}
+    review:    {label: 审查, meaning: 对照要求（和参考图）检查上游成果，指出问题,     prompt: work_review,    tags: [vision], audit: true, avoid_hard: [prompt], avoid_soft: [generate, write, code], step_params: {max_tokens: 4000}}
+    factcheck: {label: 事实核查, meaning: 核对上游成果中的事实、数字、引用, prompt: work_factcheck, tags: [research], audit: true, avoid_soft: [write], step_params: {max_tokens: 4000}}
+    assemble:  {label: 整合, meaning: 把上游产出（含文件）整合、排版成最终成品,     prompt: work_assemble,  tags: [code, writing], parallel: false, min_upstream: 2}
+
+  # 模板兜底（按顺序取第一个条件满足的；最后一个必须无条件）。
+  # depends_on 里的 gives 是交给下游的内容；split 的步骤在成员比步骤多时按内容拆成平行子任务。
+  templates:
+    - name: creation_reference
+      label: 带参考图的创作
+      when:
+        media: [image]
+        image_attachment: true
+        keywords: [画, 绘, 生成图, 作图, 配图, 插图, 海报, 卡片, 人物卡, 四格, 插画, 漫画, 设计, 二创, 创作, 头像, 表情包, draw, poster, illustration, sticker]
+      steps:
+        - id: T1
+          kind: analyze
+          title: 分析参考图，提炼风格规范
+          requirements: 仔细看参考图，提炼可以直接照着做的风格规范：画风、配色（色值）、线条、构图、版式（格数、边框、比例）、字体与文字排布、禁忌。
+          acceptance: 风格规范条目具体、可检查，别人不看原图也能照做
+          split: true
+          split_by: 按风格维度划分（画风与配色 / 线条与构图 / 版式与文字排布）
+          split_hints: [画风与配色, 线条与构图, 版式与文字排布]
+        - id: T2
+          kind: write
+          title: 撰写角色设定与文案
+          requirements: 按题目要求撰写角色设定和每格的文案，措辞贴合风格规范。
+          acceptance: 每个角色都有设定和文案，没有遗漏，文字量适合版面
+          depends_on: [{id: T1, gives: 风格规范}]
+          split: true
+          split_by: 按角色划分，每人负责不同的角色，各写各的
+        - id: T3
+          kind: prompt
+          title: 写出交给画图模型的提示词
+          requirements: 把风格规范和角色设定写成画图提示词，逐条落实风格规范，不得改动风格规范。
+          acceptance: 提示词完整、具体，包含风格、构图、文字内容和禁忌
+          depends_on: [{id: T1, gives: 风格规范}, {id: T2, gives: 角色设定与文案}]
+        - id: T4
+          kind: generate
+          title: 带参考图调用画图模型生成
+          requirements: 用上游提示词生成图片（有参考图时一并传给画图模型）。
+          acceptance: 生成了图片
+          depends_on: [{id: T3, gives: 画图提示词}]
+          media: image
+        - id: T5
+          kind: review
+          title: 对照参考图审查生成结果
+          requirements: 对照参考图和风格规范逐条检查生成结果，指出不符合的地方。
+          acceptance: 逐条给出符合 / 不符合和理由
+          depends_on: [{id: T4, gives: 生成的图片}, {id: T1, gives: 风格规范}]
+          split: true
+          split_by: 按检查维度划分（风格与配色 / 构图与版式 / 文字与内容）
+          split_hints: [风格与配色, 构图与版式, 文字与内容]
+        - id: T6
+          kind: assemble
+          title: 用 Python 拼成成品
+          requirements: 把生成的图片和文案排版成最终成品文件（按题目要求的版式）。
+          acceptance: 成品文件可以直接使用，版式符合要求
+          depends_on: [{id: T4, gives: 生成的图片}, {id: T2, gives: 角色设定与文案}, {id: T5, gives: 审查意见}]
+
+    - name: creation
+      label: 无参考图的创作
+      when:
+        media: [image]
+        keywords: [画, 绘, 生成图, 作图, 配图, 插图, 海报, 卡片, 人物卡, 四格, 插画, 漫画, 设计, 二创, 创作, 头像, 表情包, draw, poster, illustration, sticker]
+      steps:
+        - id: T1
+          kind: write
+          title: 撰写设定与文案
+          requirements: 按题目要求确定风格方向，并撰写设定和文案。
+          acceptance: 设定完整，风格方向明确
+          split: true
+          split_by: 按角色或场景划分，每人负责不同的部分，各写各的
+        - id: T2
+          kind: prompt
+          title: 写出交给画图模型的提示词
+          requirements: 把设定写成画图提示词，包含风格、构图、文字内容和禁忌。
+          acceptance: 提示词完整、具体
+          depends_on: [{id: T1, gives: 设定与文案}]
+        - id: T3
+          kind: generate
+          title: 调用画图模型生成
+          requirements: 用上游提示词生成图片。
+          acceptance: 生成了图片
+          depends_on: [{id: T2, gives: 画图提示词}]
+          media: image
+        - id: T4
+          kind: review
+          title: 审查生成结果
+          requirements: 对照设定和提示词逐条检查生成结果，指出不符合的地方。
+          acceptance: 逐条给出符合 / 不符合和理由
+          depends_on: [{id: T3, gives: 生成的图片}, {id: T1, gives: 设定与文案}]
+          split: true
+          split_by: 按检查维度划分（风格与配色 / 构图与版式 / 文字与内容）
+          split_hints: [风格与配色, 构图与版式, 文字与内容]
+        - id: T5
+          kind: assemble
+          title: 用 Python 拼成成品
+          requirements: 把图片和文案排版成最终成品文件。
+          acceptance: 成品文件可以直接使用
+          depends_on: [{id: T3, gives: 生成的图片}, {id: T1, gives: 设定与文案}, {id: T4, gives: 审查意见}]
+
+    - name: research
+      label: 调研
+      when:
+        tools: [search]
+        keywords: [调研, 研究, 综述, 搜索, 检索, 查找, 资料, 现状, 趋势, 市场, 文献, 对比, 盘点, research, survey, review of, landscape]
+      steps:
+        - id: T1
+          kind: research
+          title: 联网搜索并收集资料
+          requirements: 围绕题目联网搜索，收集可靠来源的资料，每条都记下来源编号。
+          acceptance: 资料覆盖题目的主要方面，每条有来源
+          split: true
+          split_by: 按子主题或来源类型划分，每人搜索不同的方面，不要搜同样的内容
+        - id: T2
+          kind: analyze
+          title: 分析整理资料
+          requirements: 把资料去重、归类，提炼要点，指出资料之间的矛盾和空白。
+          acceptance: 要点清晰，矛盾与空白被指出，来源编号保留
+          depends_on: [{id: T1, gives: 收集到的资料}]
+          split: true
+          split_by: 按主题划分，每人整理不同的主题
+        - id: T3
+          kind: write
+          title: 撰写调研报告
+          requirements: 依据整理后的要点撰写报告，结论有来源支撑。
+          acceptance: 结构完整，结论有 [S1] 这样的来源标注
+          depends_on: [{id: T2, gives: 整理后的要点}]
+          split: true
+          split_by: 按章节划分，每人写不同的章节
+        - id: T4
+          kind: factcheck
+          title: 事实核查
+          requirements: 逐条核对报告中的事实、数字和引用是否有来源支撑，必要时重新搜索。
+          acceptance: 列出核对过的论断及结果，错误和无来源的论断被指出
+          depends_on: [{id: T3, gives: 报告初稿}, {id: T1, gives: 收集到的资料}]
+          split: true
+          split_by: 按报告章节划分，每人核查不同的部分
+        - id: T5
+          kind: assemble
+          title: 整合成最终报告
+          requirements: 把各章节按核查意见改正后整合成完整报告文件。
+          acceptance: 报告完整，核查指出的问题已处理
+          depends_on: [{id: T3, gives: 报告初稿}, {id: T4, gives: 核查意见}]
+
+    - name: report
+      label: 报告 / 论文
+      when:
+        keywords: [报告, 论文, 作文, 议论文, 小论文, 论述, 实验报告, essay, report, thesis, paper, lab report]
+      steps:
+        - id: T1
+          kind: analyze
+          title: 分析题目，拟定提纲与论点
+          requirements: 弄清题目和评分要求，确定中心论点或研究问题，列出章节提纲和每章要回答的问题。
+          acceptance: 提纲覆盖题目的全部要求，论点明确，章节之间逻辑连贯
+          split: true
+          split_by: 按要点或材料划分，每人分析不同的部分
+        - id: T2
+          kind: write
+          title: 撰写各章节
+          requirements: 按提纲撰写完整章节，论述有依据，数据、公式和引用准确。
+          acceptance: 章节完整，论证清楚，没有遗漏提纲中的问题
+          depends_on: [{id: T1, gives: 提纲与论点}]
+          split: true
+          split_by: 按章节划分，每人写不同的章节
+        - id: T3
+          kind: review
+          title: 审查论证与准确性
+          requirements: 对照题目要求检查论证是否成立、数据和引用是否准确、章节之间是否衔接，指出问题。
+          acceptance: 逐条给出问题位置和修改建议
+          depends_on: [{id: T2, gives: 章节草稿}, {id: T1, gives: 提纲与论点}]
+          split: true
+          split_by: 按章节划分，每人审查不同的部分
+        - id: T4
+          kind: assemble
+          title: 整合成完整报告
+          requirements: 按审查意见改正，统一术语和格式，写出摘要和结论，整合成完整报告。
+          acceptance: 报告完整，摘要和结论与正文一致，审查指出的问题已处理
+          depends_on: [{id: T2, gives: 章节草稿}, {id: T3, gives: 审查意见}]
+
+    - name: study_notes
+      label: 学习笔记 / 复习资料
+      when:
+        keywords: [笔记, 复习, 总结, 知识点, 考点, 讲义, 梳理, 速记, 思维导图, 重点, notes, revision, summary, cheat sheet, study guide]
+      steps:
+        - id: T1
+          kind: analyze
+          title: 梳理知识结构
+          requirements: 把材料或题目涉及的内容按主题归类，列出知识点清单和它们之间的联系。
+          acceptance: 清单覆盖全部主题，分类清楚，重点和难点被标出
+          split: true
+          split_by: 按主题划分，每人梳理不同的主题
+        - id: T2
+          kind: write
+          title: 编写笔记正文
+          requirements: 按知识结构写笔记：概念、公式、例子和易错点，简洁、可以直接复习使用。
+          acceptance: 每个知识点有清楚的解释，公式和数字准确，有至少一个例子或易错点提示
+          depends_on: [{id: T1, gives: 知识结构}]
+          split: true
+          split_by: 按主题划分，每人写不同的主题
+        - id: T3
+          kind: review
+          title: 核对准确性与遗漏
+          requirements: 核对笔记中的概念、公式和数字是否正确，检查是否遗漏知识点，指出问题。
+          acceptance: 逐条给出错误或遗漏的位置和修改建议
+          depends_on: [{id: T2, gives: 笔记草稿}, {id: T1, gives: 知识结构}]
+          split: true
+          split_by: 按主题划分，每人核对不同的部分
+        - id: T4
+          kind: assemble
+          title: 整合成复习资料
+          requirements: 按核对意见改正，统一格式，补一页速查总结（公式、定义、易错点）。
+          acceptance: 资料完整，格式统一，速查总结与正文一致，核对指出的问题已处理
+          depends_on: [{id: T2, gives: 笔记草稿}, {id: T3, gives: 核对意见}]
+
+    - name: data_code
+      label: 数据 / 代码
+      when:
+        tools: [python]
+        keywords: [代码, 编程, 程序, 脚本, 算法, 数据分析, 数据处理, 统计, 计算, 实现, 函数, 爬虫, 可视化, 图表, 报表, python, code, script, dataset, csv, excel]
+      steps:
+        - id: T1
+          kind: analyze
+          title: 理解需求
+          requirements: 弄清题目要什么：输入、输出、约束、边界情况和验收方式，写成清单。
+          acceptance: 需求清单具体，歧义处写出了采用的假设
+          split: true
+          split_by: 按需求的模块或功能点划分
+        - id: T2
+          kind: code
+          title: 编写代码
+          requirements: 按需求清单写出代码，保存成文件。
+          acceptance: 代码完整、可运行、覆盖需求清单
+          depends_on: [{id: T1, gives: 需求清单}]
+          split: true
+          split_by: 按模块划分，每人写不同的模块，接口按需求清单约定
+        - id: T3
+          kind: verify
+          title: 运行验证
+          requirements: 实际运行上游代码，用测试数据或样例验证，记录运行结果和发现的问题。
+          acceptance: 给出运行命令、输出和结论；失败时说明原因
+          depends_on: [{id: T2, gives: 代码}, {id: T1, gives: 需求清单}]
+        - id: T4
+          kind: review
+          title: 审查代码与结果
+          requirements: 审查代码的正确性、边界情况和可读性，核对运行结果是否满足需求。
+          acceptance: 逐条给出问题位置、原因和修改建议
+          depends_on: [{id: T2, gives: 代码}, {id: T3, gives: 验证记录}]
+          split: true
+          split_by: 按审查维度划分（正确性 / 边界与健壮性 / 可读性与结构）
+          split_hints: [正确性, 边界与健壮性, 可读性与结构]
+        - id: T5
+          kind: write
+          title: 撰写报告
+          requirements: 写出报告：需求、方法、代码说明、验证结果、已知局限和使用方法。
+          acceptance: 报告完整，结果与验证记录一致
+          depends_on: [{id: T2, gives: 代码}, {id: T3, gives: 验证记录}, {id: T4, gives: 审查意见}]
+
+    - name: document
+      label: 文档
+      steps:
+        - id: T1
+          kind: analyze
+          title: 分析题目与材料
+          requirements: 弄清题目要求，提炼要点和需要覆盖的内容，列出提纲。
+          acceptance: 提纲覆盖题目的全部要求
+          split: true
+          split_by: 按要点或材料划分，每人分析不同的部分
+        - id: T2
+          kind: write
+          title: 起草正文
+          requirements: 按提纲起草完整正文。
+          acceptance: 正文完整，结构清楚，覆盖提纲
+          depends_on: [{id: T1, gives: 提纲与要点}]
+          split: true
+          split_by: 按章节划分，每人写不同的章节
+        - id: T3
+          kind: review
+          title: 审查草稿
+          requirements: 对照题目要求检查草稿的完整性、准确性和逻辑，指出问题。
+          acceptance: 逐条给出问题位置和修改建议
+          depends_on: [{id: T2, gives: 草稿}, {id: T1, gives: 提纲与要点}]
+          split: true
+          split_by: 按章节划分，每人审查不同的部分
+        - id: T4
+          kind: assemble
+          title: 整合成最终文档
+          requirements: 按审查意见改正并整合成完整文档。
+          acceptance: 文档完整，审查指出的问题已处理
+          depends_on: [{id: T2, gives: 草稿}, {id: T3, gives: 审查意见}]
+
+# 渠道模式：
+#   openrouter —— 只走聚合平台
+#   direct     —— 只走官方直连（及本地）
+#   auto       —— 按每个模型 routes 的顺序，直连与 OpenRouter 都可用
+# 没有 key 的渠道自动跳过。
+channel_mode: auto
+
+request:
+  timeout_s: 120
+  failover_rounds: 2          # 所有渠道都失败后从头再试的轮数（含第一轮）
+  backoff_s: 2.0              # 两轮之间的等待
+  cooldown_rate_limit_s: 30   # 渠道被限流后，冷却期内排到最后
+  cooldown_quota_s: 600       # 渠道额度用尽 / key 无效后，冷却期内排到最后
+  max_concurrent: 6           # 每个渠道同时在途的请求数上限（全员并发调用时避免触发限流），超过的排队
+  requests_per_minute: null   # 每个渠道每分钟请求数上限；null 不限，达到时排队等待
+
+# 文件上传（附件）：类型同时按扩展名和文件头判断；文件按内容哈希存放，文件名只用于显示
+uploads:
+  max_files: 5              # 每道题最多几个附件
+  max_file_mb: 20           # 单个文件大小上限
+  max_pdf_pages: 50
+  max_text_chars: 60000     # 每个附件提取出的文字最多保留的字数（超出截断并注明）
+  scanned_chars_per_page: 20  # PDF 平均每页少于这么多字时提示"可能是扫描件"（不做文字识别）
+  describe_max_tokens: 3000   # 图片文字版的输出上限
+  transcribe_max_tokens: 8000 # 音频转写的输出上限
+  storage_dir: data/uploads
+
+# 工具：成员在作答过程中可以运行代码、写文件、生成图片（文字协议，见 prompts/tools）
+# 同一步骤所有成员可用的工具、限额和说明完全相同
+tools:
+  enabled: true
+  max_rounds: 6               # 每次作答最多几轮工具调用
+  by_step:
+    answer: [python, write_file, generate_image, search, fetch]
+    revise: [python, write_file, generate_image, search, fetch]
+    work: [python, write_file, generate_image, search, fetch]
+    rework: [python, write_file, generate_image, search, fetch]
+    review: [python, search, fetch]   # 互评 / 交叉审查：用来核算、核对来源
+    cross_review: [python, search, fetch]
+    merge: [python, write_file]   # 统筹整理交付文件
+  python:
+    backend: auto             # wasm（Deno + Pyodide，python scripts/setup_sandbox.py 安装）/ docker / auto / off
+    timeout_s: 60             # 每次运行的时限（含加载 numpy 等包）
+    memory_mb: 1024
+    max_runs: 3               # 每位成员每步最多运行几次（出错重跑也算）
+    max_output_chars: 8000    # 回传给成员的输出最多多少字
+  files:
+    max_file_mb: 10
+    max_session_mb: 100
+    max_files_per_step: 20
+    share_text_chars: 3000    # 转交给其他成员时，每个文本文件最多附上多少字
+  image:
+    max_per_step: 2           # 每位成员每步最多生成几张图（需要带 image_gen 标签的模型）
+  search:                     # 联网搜索（需要 models.yaml 的 search_providers 中有可用服务）
+    max_per_step: 2           # 每位成员每步最多搜索几次
+    max_fetch_per_step: 3     # 每步最多读取几个网页（只能读本人搜索结果中的链接）
+    max_results: 5
+    fetch_max_chars: 8000
+    require_citations: true   # 用过搜索的答案要用 [S1] 标注来源；编造来源或一条都不引用 → 打回重做
+
+# 媒体生成（图片 / 语音 / 视频）：媒体模型是工具（models.yaml 中 seat: false），按标签 + 档位选择，同档内随机。
+# 讨论模式提问时选择输出类型：成员先讨论并写出生成提示词 → 生成 → 带 vision 标签的成员评审结果
+# （图片、视频截帧真正发给他们）→ 不满意就改提示词重新生成，最多 max_rounds 轮。
+# 协同模式：拆分时可把子任务标为 image / speech / video，由负责人写提示词并生成，再交叉审查。
+media:
+  enabled: true
+  default_tier: budget       # 提问时可改选 flagship（高质量档）
+  max_rounds: 3              # 生成 → 评审 → 重新生成，最多几轮（含第一次生成）
+  reviewers: 3               # 每轮最多几位评审者（需带 vision 标签）
+  confirm_video: true        # 视频每次生成前都先问你；图片、语音只在超过单题门槛时才问
+  images_per_round: 1
+  speech: {voice: alloy, format: mp3, max_chars: 4000}
+  video:
+    duration_s: 5
+    resolution: 720p
+    aspect_ratio: "16:9"
+    poll_interval_s: 10      # 轮询间隔
+    timeout_s: 900           # 提交后最多等多久；超时记为失败
+    submit_retries: 1        # 提交失败 / 任务失败后再试几次
+    frames: 4                # 发给评审者的截帧数
+    max_mb: 100
+  expected_rounds: 1.5       # 花费预估：平均生成几轮
+  review_tokens: 500
+  refine_tokens: 600
+  prompt_max_chars: 2000
+  # 风格参考图：上传的图片默认作为风格参考。生成图片时优先选带 image_edit 标签（支持参考图）的模型，
+  # 把参考图一并传给它；没有这样的模型时退回只按文字风格规范生成，并在界面上明确提示。
+  references: {max: 3, max_mb: 5}
+  # 生成的图片对照风格清单由非作者的成员判定；不通过就带着意见退回作者重画，最多这么多次。
+  # 仍不通过时保留最后一版，标记"风格未通过"，汇总 / 合并时统筹可见。
+  style_retries: 2
+  gate_reviewers: 1
+
+# 风格规范提取（style 步骤，讨论 / 协同两种模式共用）：题目带风格参考图又要画图时，放在流程最前面。
+# 带 vision 标签的成员（最多 reviewers 位）各自看原图写风格描述，统筹合并成一份规范 + 一份可逐条检查的清单，
+# 之后的每次调用都会带上它。没有 vision 成员时改用图片的文字版，并提示"可能不准"。
+style:
+  enabled: true
+  reviewers: 2
+  checklist_min: 6
+  checklist_max: 10
+
+# 服务端限制（Web 服务）：同时在后台执行的讨论数。等待你确认的讨论不占名额。
+limits:
+  max_running_sessions: 3
+
+# token 用量的显示单位："大米"。1 粒 = 1000 token，1 勺 = 100 粒，1 碗 = 30 勺，
+# 自动换算到合适的单位（85 粒、3 碗 12 勺）。只改变 token 数量的显示，所有金额仍用美元。
+display:
+  rice:
+    grain_name: 粒
+    spoon_name: 勺
+    bowl_name: 碗
+    grain_tokens: 1000
+    spoon_grains: 100
+    bowl_spoons: 30

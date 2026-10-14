@@ -1,0 +1,845 @@
+// 页面控制：状态、事件流、交互。渲染在 view.js，通信在 api.js。
+import * as API from './api.js';
+import {
+  STATUS_LABELS,
+  MEDIA_LABELS,
+  STEP_LABELS,
+  attachmentsHTML,
+  estimateHTML,
+  previewHTML,
+  splitPanel,
+  toolsPanel,
+  COORD_STEPS,
+  castPanel,
+  contributionsPanel,
+  channelsPanel,
+  esc,
+  feedItems,
+  flowPanel,
+  historyPanel,
+  legendHTML,
+  mediaPanel,
+  money,
+  reviewsPanel,
+  stageHTML,
+  setKindLabels,
+  setMemberArt,
+  usagePanel,
+} from './view.js';
+import { Pet } from './agent/pet.js';
+
+const $ = (q) => document.querySelector(q);
+const RESTING = new Set(['completed', 'stopped', 'failed', 'awaiting_confirmation', 'paused']);
+
+const S = {
+  status: null, // /api/status
+  budget: null,
+  history: null,
+  contribHistory: null,
+  sid: null,
+  session: null,
+  tab: 'flow',
+  tier: null, // 档位名或 custom
+  workflow: 'discussion', // discussion 讨论 / collab 协同 / solo 个人作答 / auto 自动（分诊小组先给建议）
+  anonymous: false,
+  media: null, // 输出类型：null 文字 / image / speech / video（仅讨论模式）
+  mediaTier: 'budget', // 媒体模型档位
+  live: freshLive(),
+  stream: null, // AbortController
+  cardError: null,
+  busy: false,
+  attachments: [], // 已上传 / 上传中的附件（提问区）
+  estimate: null, // /api/estimate 的结果
+  estKey: '', // 该结果对应的请求（不含 seed）
+  estSeed: null, // 提交时带上，阵容与预估一致
+};
+
+function freshLive() {
+  return { table: null, step: null, act: '', speaking: new Set(), warnings: [] };
+}
+
+// 网页小人：匿名且未揭晓的会话里不出现（启动时先不显示，确定当前会话后再决定）
+const pet = new Pet({ labels: STEP_LABELS, goto: gotoDiscussion });
+// 点气泡 / 菜单「跳到讨论」：滚到最新的讨论内容
+function gotoDiscussion() {
+  const feed = document.getElementById('feed');
+  const last = document.querySelector('#feed-list')?.lastElementChild;
+  (last || feed)?.scrollIntoView?.({ behavior: 'smooth', block: 'end' });
+}
+let petReady = false;
+function syncPet() {
+  const sv = S.session;
+  if (petReady) pet.setAllowed(!(sv && sv.anonymous && !sv.revealed));
+}
+
+const prefix = () => S.status?.code_prefix || '组员';
+const plans = () => S.status?.plans || {};
+
+// --- 渲染 -----------------------------------------------------------------------
+
+function render() {
+  renderStage();
+  renderFeed();
+  renderPanel();
+  renderHeader();
+}
+
+function renderStage() {
+  const tables = S.session?.tables || [];
+  const seats = Math.max(0, ...tables.map((t) => t.codes.length));
+  $('#stage').classList.toggle('many', seats > 6); // 人多时座位缩小
+  $('#stage').classList.toggle('dense', seats > 9);
+  $('#stage').innerHTML = stageHTML(S.session, S.live, prefix());
+}
+
+function renderLegend() {
+  const sv = S.session;
+  $('#legend').innerHTML = legendHTML(
+    sv ? { anonymous: sv.anonymous, workflow: sv.workflow } : { anonymous: S.anonymous, workflow: S.workflow },
+  );
+}
+
+function renderHeader() {
+  renderLegend();
+  syncPet();
+  const sv = S.session;
+  const b = S.budget;
+  const parts = [`本场 ${money(sv ? sv.cost_usd : 0)}`];
+  if (b?.month) parts.push(`本月 ${money(b.month.spent_usd)} / ${money(b.month.limit_usd)}`);
+  if (b?.day) parts.push(`今日 ${money(b.day.spent_usd)} / ${money(b.day.limit_usd)}`);
+  const meter = $('#meter');
+  meter.textContent = parts.join(' · ');
+  const warn = !!(b && ((b.month && b.month.warn) || (b.day && b.day.warn)));
+  meter.classList.toggle('warn', warn);
+  meter.title = warn ? '预算已用超过提醒比例' : '';
+  const rv = $('#reveal');
+  rv.hidden = !!sv && !sv.anonymous; // 匿名关闭时身份一直公开，没有揭晓步骤
+  rv.disabled = !(sv && sv.can_reveal);
+  rv.textContent = sv && sv.anonymous && sv.revealed ? '已揭晓' : '揭晓身份';
+  $('#pstate').textContent = sv
+    ? sv.running && sv.status !== 'awaiting_confirmation'
+      ? '进行中'
+      : STATUS_LABELS[sv.status] || sv.status
+    : '空闲';
+  const canNote = !!sv && sv.running && sv.status !== 'awaiting_confirmation';
+  $('#noteform').hidden = !canNote;
+  const q = $('#question');
+  q.hidden = !sv;
+  if (sv) q.innerHTML = `<span class="tag">题目</span>${esc(sv.question)}`;
+}
+
+const rendered = new Map(); // key -> {html, el}
+
+function renderFeed() {
+  const list = $('#feed-list');
+  const feed = $('#feed');
+  const atBottom = feed.scrollHeight - feed.scrollTop - feed.clientHeight < 120;
+  if (!S.session) {
+    rendered.clear();
+    list.innerHTML = welcomeHTML();
+  } else {
+    const items = feedItems(S.session, {
+      prefix: prefix(),
+      plans: plans(),
+      customLabel: S.status?.custom_label || '自选',
+      threshold: S.status?.confirm_threshold_usd,
+      live: S.live,
+      cardError: S.cardError,
+    });
+    const els = [];
+    const keep = new Set();
+    for (const it of items) {
+      let r = rendered.get(it.key);
+      if (!r || r.html !== it.html) {
+        const tpl = document.createElement('template');
+        tpl.innerHTML = it.html.trim();
+        r = { html: it.html, el: tpl.content.firstElementChild };
+        rendered.set(it.key, r);
+      } else {
+        r.el.classList.add('seen');
+      }
+      keep.add(it.key);
+      els.push(r.el);
+    }
+    for (const k of [...rendered.keys()]) if (!keep.has(k)) rendered.delete(k);
+    list.replaceChildren(...els);
+  }
+  renderTyping();
+  if (atBottom) feed.scrollTop = feed.scrollHeight;
+}
+
+function renderTyping() {
+  const t = $('#typing');
+  const who = [...S.live.speaking].map((c) => (c === '统' ? '统筹' : `${prefix()}${c}`));
+  if (!S.session || !S.live.step || !who.length) {
+    t.hidden = true;
+    return;
+  }
+  t.hidden = false;
+  t.innerHTML = `<i></i><i></i><i></i><span>${esc(who.join('、'))} 正在${esc(STEP_LABELS[S.live.step] || S.live.step)}…</span>`;
+}
+
+function welcomeHTML() {
+  const th = money(S.status?.confirm_threshold_usd ?? 0.3);
+  return `<div class="welcome"><h2>把题目交给圆桌</h2>
+<ol><li>所选档位的每个模型都上桌：一位当统筹，其余是组员。省钱靠选档位，不靠减人。</li>
+<li>组员独立作答 → 互相评审 → 根据评审修订 → 统筹汇总共识与分歧。</li>
+<li>节电模式汇总仍有分歧或把握低时，会问你要不要用全力模式重做；预计花费超过 ${th} 也先问你。</li>
+<li>可以添加图片、PDF、Word、文本或音频附件（点「添加附件」或把文件拖进来）；成员还能运行代码、写文件、生成图片、联网搜索，生成的文件可在过程区和「工具」标签里预览、下载。</li>
+<li>提交前，输入框下方会列出各档位的预计花费。</li>
+<li>勾选「匿名」时，成员用塔罗牌代号（愚者、魔术师…），讨论结束后点「揭晓身份」；不匿名时用「昵称·模式」（如 鲸鱼娘·全力）。发给模型的内容不含模型 id 和厂商名。</li></ol></div>`;
+}
+
+function renderPanel() {
+  document
+    .querySelectorAll('#tabs button')
+    .forEach((b) => b.setAttribute('aria-selected', String(b.dataset.t === S.tab)));
+  const ctx = {
+    plans: plans(),
+    threshold: S.status?.confirm_threshold_usd,
+    maxMembers: S.status?.max_members,
+  };
+  let h = '';
+  if (S.tab === 'flow') h = flowPanel(S.session, S.live, ctx);
+  if (S.tab === 'reviews') h = reviewsPanel(S.session, prefix());
+  if (S.tab === 'split') h = splitPanel(S.session, prefix());
+  if (S.tab === 'tools') h = toolsPanel(S.session, prefix());
+  if (S.tab === 'media') h = mediaPanel(S.session, prefix());
+  if (S.tab === 'usage') h = usagePanel(S.session, S.budget, S.status?.rice);
+  if (S.tab === 'channels') h = channelsPanel(S.status);
+  if (S.tab === 'history') h = historyPanel(S.history, S.sid);
+  if (S.tab === 'cast') h = castPanel(S.session, prefix());
+  if (S.tab === 'contrib') h = contributionsPanel(S.session, S.contribHistory, prefix());
+  $('#pbody').innerHTML = h;
+}
+
+// --- 提问区 ---------------------------------------------------------------------
+
+function renderComposer() {
+  const plans = S.status?.plans || {};
+  if (!S.tier) S.tier = S.status?.default_plan || Object.keys(plans)[0] || 'custom';
+  const options = { ...plans, custom: S.status?.custom_label || '自选' };
+  $('#tier').innerHTML = Object.entries(options)
+    .map(([k, label]) => `<button type="button" data-v="${esc(k)}" aria-pressed="${k === S.tier}">${esc(label)}</button>`)
+    .join('');
+  $('#anonymous').checked = S.anonymous;
+  const workflows = S.status?.workflows || { discussion: '讨论模式', collab: '协同模式', solo: '个人作答', brainstorm: '头脑风暴', auto: '自动' };
+  $('#workflow').innerHTML = Object.entries(workflows)
+    .map(([k, label]) => `<button type="button" data-v="${esc(k)}" aria-pressed="${k === S.workflow}" title="${{ brainstorm: '让大家各自发散想法、互相拓展，统筹整合成思维导图，帮你拓展思路并选择方向', auto: '开始时由几位最便宜的模型给出建议（用哪种方式、难度），你确认后再开始；简单题不调用它们', collab: '统筹拆分子任务，成员自荐、分工完成、交叉审查，最后合并', solo: '只请一位成员直接回答：在所选档位里挑最便宜的，不互评、不汇总' }[k] || '全员各自作答，互评、修订后由统筹汇总'}">${esc(label)}</button>`)
+    .join('');
+  renderMediaChoice();
+  $('#manual').hidden = S.tier !== 'custom';
+  const min = (S.status?.min_members ?? 2) + 1;
+  $('#mode-hint').textContent =
+    S.tier === 'custom'
+      ? `勾选至少 ${min} 个模型，全部上桌（其中一个当统筹）`
+      : `该档位所有可用模型上桌；预计超过 ${money(S.status?.confirm_threshold_usd ?? 0.3)} 先问你`;
+}
+
+function renderMediaChoice() {
+  const info = S.status?.media;
+  const kinds = info?.kinds || {};
+  const collab = S.workflow === 'collab';
+  if (collab || ['solo', 'auto', 'brainstorm'].includes(S.workflow)) S.media = null; // 协同模式由统筹决定哪些子任务生成媒体；个人作答只出文字
+  const outputs = [[null, '文字'], ...Object.entries(kinds).map(([k, v]) => [k, v.label])];
+  if (['solo', 'auto', 'brainstorm'].includes(S.workflow)) {
+    const why = { auto: '自动模式先出建议，输出类型请在选定作答方式后再选', brainstorm: '头脑风暴输出思维导图和大纲' }[S.workflow] || '个人作答只输出文字';
+    $('#media').innerHTML = `<span class="hint" id="media-auto">${why}</span>`;
+  } else if (collab) {
+    // 协同模式不选输出类型：不显示一排灰按钮（容易误以为不能画图），直接说明
+    $('#media').innerHTML = '<span class="hint" id="media-auto">输出类型由统筹按任务自动决定</span>';
+  } else
+  $('#media').innerHTML = outputs
+    .map(([k, label]) => {
+      const off = k !== null && (collab || !kinds[k].available);
+      const why = collab ? '协同模式下由统筹决定哪些子任务要生成媒体' : (kinds[k]?.reason || '');
+      return `<button type="button" data-v="${esc(k ?? '')}" aria-pressed="${k === S.media}"${off ? ' disabled' : ''}${off && why ? ` title="${esc(why)}"` : ''}>${esc(label)}</button>`;
+    })
+    .join('');
+  $('#media').hidden = !info || !Object.keys(kinds).length;
+  // 质量档位：选了媒体输出，或协同模式（媒体子任务也用它）时显示
+  const showTier = !!info && (S.media !== null || collab) && Object.values(kinds).some((v) => v.available);
+  $('#mediatier').hidden = !showTier;
+  $('#mediatier').innerHTML = [['budget', '普通'], ['flagship', '高质量']]
+    .map(([k, label]) => `<button type="button" data-v="${k}" aria-pressed="${k === S.mediaTier}" title="媒体模型的档位：${k === 'budget' ? '便宜' : '更贵、质量更高'}">${label}</button>`)
+    .join('');
+}
+
+function renderPicks() {
+  const models = S.status?.models || [];
+  const tierLabel = { flagship: '全力', budget: '节电' };
+  $('#picks').innerHTML = models
+    .map(
+      (m) =>
+        `<label class="pick${m.available ? '' : ' off'}"><input type="checkbox" value="${esc(m.id)}"${m.available ? '' : ' disabled'}>${esc(m.id)}<span class="tier">${esc(tierLabel[m.tier] || m.tier)} · $${m.price.input}/$${m.price.output}</span></label>`,
+    )
+    .join('');
+  $('#coordinator').innerHTML =
+    '<option value="">自动选择</option>' +
+    models
+      .filter((m) => m.available)
+      .map((m) => `<option value="${esc(m.id)}">${esc(m.id)}</option>`)
+      .join('');
+}
+
+// --- 附件与提交前预估 ---------------------------------------------------------------
+
+function renderAttachments() {
+  const el = $('#attachments');
+  el.hidden = !S.attachments.length;
+  el.innerHTML = attachmentsHTML(S.attachments);
+}
+
+async function addFiles(files) {
+  const max = S.status?.uploads?.max_files ?? 5;
+  for (const file of files) {
+    if (S.attachments.filter((a) => !a.error).length >= max) {
+      formError(`最多添加 ${max} 个附件`);
+      break;
+    }
+    const item = { name: file.name, pending: true };
+    S.attachments.push(item);
+    renderAttachments();
+    try {
+      Object.assign(item, await API.upload(file), { pending: false });
+    } catch (e) {
+      Object.assign(item, { pending: false, error: e.message });
+    }
+    renderAttachments();
+  }
+  scheduleEstimate();
+}
+
+function estimateRequest() {
+  const question = $('#ask').value.trim();
+  if (!question) return null;
+  const req = {
+    question,
+    tier: S.tier,
+    anonymous: S.anonymous,
+    workflow: S.workflow,
+    attachments: S.attachments.filter((a) => a.id).map((a) => a.id),
+  };
+  if (S.workflow === 'auto') delete req.workflow; // 预估区列出全部方式，供对比
+  if (S.media) req.media = S.media;
+  if (S.media) req.media_tier = S.mediaTier;
+  if (S.tier === 'custom') {
+    req.models = [...document.querySelectorAll('#picks input:checked')].map((i) => i.value);
+    if (req.models.length < (S.status?.min_members ?? 2) + 1) return null;
+    const coord = $('#coordinator').value;
+    if (coord && req.models.includes(coord)) req.coordinator = coord;
+  }
+  return req;
+}
+
+let estTimer = null;
+function scheduleEstimate() {
+  clearTimeout(estTimer);
+  estTimer = setTimeout(runEstimate, 350);
+}
+
+async function runEstimate() {
+  const req = estimateRequest();
+  const el = $('#estimate');
+  if (!req) {
+    S.estimate = null;
+    S.estKey = '';
+    el.hidden = true;
+    return;
+  }
+  const key = JSON.stringify(req);
+  try {
+    const est = await API.estimate({ ...req, seed: S.estSeed ?? undefined });
+    if (JSON.stringify(estimateRequest()) !== key) return; // 输入又变了
+    S.estimate = est;
+    S.estKey = key;
+    S.estSeed = est.seed;
+    renderEstimate();
+  } catch (e) {
+    S.estimate = null;
+    S.estKey = '';
+    el.hidden = false;
+    el.textContent = `无法预估：${e.message}`;
+  }
+}
+
+function renderEstimate() {
+  const el = $('#estimate');
+  const html = estimateHTML(S.estimate, {
+    workflow: S.workflow === 'auto' ? 'discussion' : S.workflow,
+    anonymous: S.anonymous,
+    plans: plans(),
+    customLabel: S.status?.custom_label || '自选',
+  });
+  el.hidden = !html;
+  el.innerHTML = html;
+}
+
+async function showPreview(fid) {
+  const dlg = $('#viewer');
+  dlg.innerHTML = '<div class="vb">加载中…</div>';
+  if (!dlg.open) dlg.showModal();
+  try {
+    dlg.innerHTML = previewHTML(S.sid, await API.filePreview(S.sid, fid));
+  } catch (e) {
+    dlg.innerHTML = `<div class="vh"><b>预览失败</b><button class="btn sm" type="button" data-close>关闭</button></div><div class="vb">${esc(e.message)}</div>`;
+  }
+}
+
+function formError(text) {
+  const e = $('#formerr');
+  e.hidden = !text;
+  e.textContent = text || '';
+}
+
+async function submit(ev) {
+  ev.preventDefault();
+  const question = $('#ask').value.trim();
+  if (!question) {
+    formError('请先输入题目');
+    return;
+  }
+  if (S.attachments.some((a) => a.pending)) {
+    formError('附件还在上传，请稍等');
+    return;
+  }
+  const body = {
+    question,
+    tier: S.tier,
+    anonymous: S.anonymous,
+    workflow: S.workflow,
+    attachments: S.attachments.filter((a) => a.id).map((a) => a.id),
+  };
+  if (S.media) body.media = S.media;
+  if (S.media || S.workflow === 'collab') body.media_tier = S.mediaTier;
+  // 取消勾选"风格参考"的图片只是普通附件：只有存在取消时才传 style_refs（省略 = 全部图片）
+  const images = S.attachments.filter((a) => a.id && a.kind === 'image');
+  if (images.some((a) => a.style_ref === false)) body.style_refs = images.filter((a) => a.style_ref !== false).map((a) => a.id);
+  if (S.tier === 'custom') {
+    body.models = [...document.querySelectorAll('#picks input:checked')].map((i) => i.value);
+    const min = (S.status?.min_members ?? 2) + 1;
+    if (body.models.length < min) {
+      formError(`自选至少勾选 ${min} 个模型`);
+      return;
+    }
+    const coord = $('#coordinator').value;
+    if (coord) {
+      if (!body.models.includes(coord)) {
+        formError('统筹必须是勾选的模型之一');
+        return;
+      }
+      body.coordinator = coord;
+    }
+  }
+  formError('');
+  if (S.estimate && S.estKey === JSON.stringify(estimateRequest())) body.seed = S.estimate.seed;
+  $('#submit').disabled = true;
+  try {
+    const { session_id } = await API.createSession(body);
+    $('#ask').value = '';
+    S.attachments = [];
+    S.estimate = null;
+    S.estSeed = null;
+    renderAttachments();
+    renderEstimate();
+    await open(session_id);
+  } catch (e) {
+    formError(e.message);
+  } finally {
+    $('#submit').disabled = false;
+  }
+}
+
+// --- 会话与事件流 -----------------------------------------------------------------
+
+async function open(sid) {
+  stopStream();
+  S.sid = sid;
+  S.live = freshLive();
+  pet.resetReport();
+  S.cardError = null;
+  rendered.clear();
+  try {
+    history.replaceState(null, '', `#s=${sid}`);
+  } catch {
+    /* 忽略 */
+  }
+  await refresh();
+  connect();
+}
+
+function stopStream() {
+  if (S.stream) S.stream.abort();
+  S.stream = null;
+}
+
+function connect() {
+  const sid = S.sid;
+  if (!sid) return;
+  stopStream();
+  const ctrl = new AbortController();
+  S.stream = ctrl;
+  API.streamEvents(sid, (e) => onEvent(sid, e), ctrl.signal)
+    .catch((err) => {
+      if (err.name !== 'AbortError') console.warn('事件流中断', err);
+    })
+    .finally(() => {
+      if (S.stream === ctrl) S.stream = null;
+      if (S.sid === sid) refresh(true);
+    });
+}
+
+let timer = null;
+function scheduleRefresh() {
+  if (timer) return;
+  timer = setTimeout(() => {
+    timer = null;
+    refresh();
+  }, 120);
+}
+
+async function refresh(all = false) {
+  const sid = S.sid;
+  if (!sid) {
+    render();
+    return;
+  }
+  try {
+    const sv = await API.getSession(sid);
+    if (S.sid !== sid) return;
+    S.session = sv;
+    if (!sv.running) {
+      S.live.step = null;
+      S.live.speaking.clear();
+      S.live.act = '';
+    }
+  } catch (e) {
+    if (e.status === 404) {
+      S.sid = null;
+      S.session = null;
+    }
+  }
+  if (all) await Promise.all([loadBudget(), loadHistory(), loadContributions()]);
+  render();
+}
+
+function onEvent(sid, e) {
+  if (sid !== S.sid) return;
+  pet.report(e);
+  const L = S.live;
+  switch (e.type) {
+    case 'snapshot':
+      break;
+    case 'routed':
+      L.act = `${plans()[e.data.plan] || e.data.plan} · 预计 ${money(e.data.estimate_usd)}`;
+      break;
+    case 'table_started':
+      L.table = e.table_no;
+      L.act = '';
+      break;
+    case 'step_started': {
+      L.table = e.table_no;
+      L.step = e.step;
+      const t = S.session?.tables?.find((x) => x.table_no === e.table_no);
+      const dropped = new Set(
+        (S.session?.outputs || []).filter((o) => o.kind === 'dropout' && o.table_no === e.table_no).map((o) => o.code),
+      );
+      L.speaking = new Set();
+      if (COORD_STEPS.has(e.step)) L.speaking.add('统');
+      else if (e.step !== 'reveal') (t?.codes || []).filter((c) => !dropped.has(c)).forEach((c) => L.speaking.add(c));
+      L.act = `${STEP_LABELS[e.step] || e.step}中`;
+      break;
+    }
+    case 'call_done':
+    case 'call_failed':
+      L.speaking.delete(e.code || '统');
+      break;
+    case 'step_finished':
+      L.step = null;
+      L.speaking = new Set();
+      loadBudget();
+      break;
+    case 'escalating':
+      L.act = `升级中：${e.data.reason || ''}`;
+      break;
+    case 'media_started':
+      L.act = `生成${MEDIA_LABELS[e.data.kind] || '媒体'}（第 ${e.data.round} 轮）…`;
+      break;
+    case 'media_progress':
+      L.act = `视频${e.data.state === 'pending' ? '排队中' : '生成中'}（第 ${e.data.round} 轮）…`;
+      break;
+    case 'media_done':
+      L.act = `${MEDIA_LABELS[e.data.kind] || '媒体'}已生成，评审中…`;
+      break;
+    case 'note_added':
+    case 'notes_applied':
+      refresh();
+      break;
+    case 'budget_warning':
+      L.warnings.push(e.data.message);
+      break;
+    case 'checkpoint':
+      L.step = null;
+      L.speaking = new Set();
+      L.act = '等待你决定';
+      break;
+    case 'state':
+      if (RESTING.has(e.status)) {
+        L.step = null;
+        L.speaking = new Set();
+      }
+      break;
+    default:
+      break;
+  }
+  renderStage();
+  renderTyping();
+  scheduleRefresh();
+}
+
+async function answer(cpId, key) {
+  if (S.busy || !S.sid) return;
+  S.busy = true;
+  S.cardError = null;
+  document.querySelectorAll(`[data-cp="${cpId}"]`).forEach((b) => (b.disabled = true));
+  try {
+    await API.respond(S.sid, key);
+    S.live.act = '';
+    connect();
+  } catch (e) {
+    S.cardError = e.message;
+    await refresh();
+  } finally {
+    S.busy = false;
+  }
+}
+
+async function doResume() {
+  if (!S.sid) return;
+  try {
+    await API.resume(S.sid);
+    connect();
+  } catch (e) {
+    formError(e.message);
+  }
+}
+
+async function doReveal() {
+  if (!S.sid) return;
+  $('#reveal').disabled = true;
+  try {
+    S.session = await API.reveal(S.sid);
+    rendered.clear();
+    await loadHistory();
+    render();
+  } catch (e) {
+    formError(e.message);
+    renderHeader();
+  }
+}
+
+async function loadBudget() {
+  try {
+    S.budget = await API.getBudget();
+  } catch {
+    /* 下次再试 */
+  }
+  renderHeader();
+  if (S.tab === 'usage') renderPanel();
+}
+
+async function loadContributions() {
+  try {
+    S.contribHistory = await API.getContributions();
+  } catch {
+    /* 下次再试 */
+  }
+  if (S.tab === 'contrib') renderPanel();
+}
+
+async function loadHistory() {
+  try {
+    S.history = await API.listSessions();
+  } catch {
+    /* 下次再试 */
+  }
+  if (S.tab === 'history') renderPanel();
+}
+
+function newQuestion() {
+  stopStream();
+  S.sid = null;
+  S.session = null;
+  S.live = freshLive();
+  pet.resetReport();
+  try {
+    history.replaceState(null, '', location.pathname);
+  } catch {
+    /* 忽略 */
+  }
+  render();
+  $('#ask').focus();
+}
+
+// --- 启动 -----------------------------------------------------------------------
+
+function bind() {
+  $('#composer').addEventListener('submit', submit);
+  $('#ask').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) $('#composer').requestSubmit();
+  });
+  $('#tier').addEventListener('click', (e) => {
+    const b = e.target.closest('button');
+    if (!b) return;
+    S.tier = b.dataset.v;
+    formError('');
+    renderComposer();
+    scheduleEstimate();
+  });
+  $('#ask').addEventListener('input', scheduleEstimate);
+  $('#picks').addEventListener('change', scheduleEstimate);
+  $('#coordinator').addEventListener('change', scheduleEstimate);
+  $('#attach').addEventListener('click', () => $('#file').click());
+  $('#file').addEventListener('change', (e) => {
+    const files = [...e.target.files];
+    e.target.value = '';
+    addFiles(files);
+  });
+  $('#attachments').addEventListener('change', (e) => {
+    const box = e.target.closest('[data-sref]');
+    if (!box) return;
+    S.attachments[Number(box.dataset.sref)].style_ref = box.checked;
+  });
+  $('#attachments').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-rm]');
+    if (!b) return;
+    S.attachments.splice(Number(b.dataset.rm), 1);
+    renderAttachments();
+    scheduleEstimate();
+  });
+  $('#noteform').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const input = $('#note');
+    const text = input.value.trim();
+    if (!text || !S.sid) return;
+    $('#noteerr').textContent = '';
+    try {
+      await API.addNote(S.sid, text);
+      input.value = '';
+      await refresh();
+    } catch (err) {
+      $('#noteerr').textContent = err.message;
+    }
+  });
+  const comp = $('#composer');
+  comp.addEventListener('dragover', (e) => {
+    if (![...(e.dataTransfer?.types || [])].includes('Files')) return;
+    e.preventDefault();
+    comp.classList.add('drag');
+  });
+  comp.addEventListener('dragleave', () => comp.classList.remove('drag'));
+  comp.addEventListener('drop', (e) => {
+    e.preventDefault();
+    comp.classList.remove('drag');
+    addFiles([...(e.dataTransfer?.files || [])]);
+  });
+  document.addEventListener('click', (e) => {
+    const pv = e.target.closest('[data-preview]');
+    if (pv && S.sid) showPreview(pv.dataset.preview);
+    if (e.target.closest('[data-close]')) $('#viewer').close();
+    if (e.target === $('#viewer')) $('#viewer').close();
+  });
+  $('#media').addEventListener('click', (e) => {
+    const b = e.target.closest('button');
+    if (!b || b.disabled) return;
+    S.media = b.dataset.v || null;
+    renderMediaChoice();
+    scheduleEstimate();
+  });
+  $('#mediatier').addEventListener('click', (e) => {
+    const b = e.target.closest('button');
+    if (!b) return;
+    S.mediaTier = b.dataset.v;
+    renderMediaChoice();
+    scheduleEstimate();
+  });
+  $('#workflow').addEventListener('click', (e) => {
+    const b = e.target.closest('button');
+    if (!b) return;
+    S.workflow = b.dataset.v;
+    renderComposer();
+    renderLegend();
+    scheduleEstimate();
+  });
+  // 预估区的建议按钮：讨论模式下题目需要多个媒体文件 → 一键切换到协同模式
+  $('#estimate').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-switch-workflow]');
+    if (!b) return;
+    S.workflow = b.dataset.switchWorkflow;
+    renderComposer();
+    renderLegend();
+    scheduleEstimate();
+  });
+  $('#anonymous').addEventListener('change', (e) => {
+    S.anonymous = e.target.checked;
+    renderLegend();
+    scheduleEstimate();
+  });
+  $('#feed').addEventListener('click', (e) => {
+    const opt = e.target.closest('[data-opt]');
+    if (opt && !opt.disabled) answer(Number(opt.dataset.cp), opt.dataset.opt);
+    if (e.target.closest('[data-act="resume"]')) doResume();
+  });
+  $('#tabs').addEventListener('click', (e) => {
+    const b = e.target.closest('button');
+    if (!b) return;
+    S.tab = b.dataset.t;
+    if (S.tab === 'history') loadHistory();
+    if (S.tab === 'contrib') loadContributions();
+    if (S.tab === 'usage') loadBudget();
+    renderPanel();
+  });
+  $('#pbody').addEventListener('click', (e) => {
+    const row = e.target.closest('[data-sid]');
+    if (row) open(row.dataset.sid);
+  });
+  $('#reveal').addEventListener('click', doReveal);
+  $('#new').addEventListener('click', newQuestion);
+  $('#toggle').addEventListener('click', (e) => {
+    const main = $('#main');
+    main.classList.toggle('collapsed');
+    const open_ = !main.classList.contains('collapsed');
+    e.currentTarget.setAttribute('aria-expanded', String(open_));
+    e.currentTarget.textContent = open_ ? '收起面板' : '展开面板';
+  });
+}
+
+async function init() {
+  bind();
+  try {
+    S.status = await API.getStatus();
+    setKindLabels(S.status.collab_kinds);
+    S.budget = S.status.budget;
+  } catch (e) {
+    formError(`无法连接服务：${e.message}`);
+  }
+  let art = null;
+  try {
+    art = await API.members(); // 成员头像与小人；失败就当没有素材
+  } catch {
+    art = null;
+  }
+  setMemberArt(art);
+  pet.setAllowed(false);
+  pet.setMembers(art);
+  renderComposer();
+  renderPicks();
+  render();
+  loadHistory();
+  const m = location.hash.match(/s=([0-9a-f]+)/);
+  if (m) await open(m[1]);
+  petReady = true;
+  syncPet();
+}
+
+init();

@@ -1,0 +1,392 @@
+# 模型注册表。加模型 / 加渠道只改这里，代码不针对具体模型或厂商写分支。
+#
+# ⚠️ 以下模型 ID 与价格来自网页搜索，尚未用官方 API 核对。
+#    OpenRouter 部分可运行 `python scripts/check_models.py` 核对。
+
+tag_vocabulary:
+  # 领域类
+  - math
+  - derivation
+  - science
+  - writing
+  - code
+  - research
+  - design
+  - long_context
+  - zh              # 擅长中文（语音合成按脚本语言选择时使用）
+  # 媒体类
+  - vision          # 能看图（图片、视频截帧）
+  - transcribe      # 能直接接收音频的对话模型（旧的转写方式；有 stt 模型时优先用 stt）
+  - image_gen       # 图像生成
+  - image_edit      # 支持以参考图为输入的图像生成 / 编辑（风格参考图用）
+  - tts             # 文字转语音
+  - stt             # 语音转文字（Whisper 系列）
+  - video_gen       # 视频生成（异步）
+  - music_gen       # 音乐 / 音效生成（预留，暂不启用）
+
+# 调用渠道。key 只从 .env 读取，这里只写环境变量名。
+#   adapter: 适配器实现（openai_compat / anthropic / gemini）
+#   kind:    aggregator（聚合平台）| direct（官方直连）| local（本地）
+#   param_aliases: 该渠道的参数改名（统一参数名 → 渠道要求的参数名）
+#            roundtable.yaml 的 channel_mode 据此筛选渠道
+channels:
+  openrouter:
+    adapter: openai_compat
+    kind: aggregator
+    base_url: https://openrouter.ai/api/v1
+    key_env: OPENROUTER_API_KEY
+    extra_body:
+      usage: {include: true}   # 让 OpenRouter 返回实际费用
+  openai:
+    adapter: openai_compat
+    kind: direct
+    base_url: https://api.openai.com/v1
+    key_env: OPENAI_API_KEY
+    param_aliases:
+      max_tokens: max_completion_tokens   # OpenAI 新模型不接受 max_tokens
+  anthropic:
+    adapter: anthropic
+    kind: direct
+    base_url: https://api.anthropic.com
+    key_env: ANTHROPIC_API_KEY
+  google:
+    adapter: gemini
+    kind: direct
+    base_url: https://generativelanguage.googleapis.com/v1beta
+    key_env: GEMINI_API_KEY
+  xai:
+    adapter: openai_compat
+    kind: direct
+    base_url: https://api.x.ai/v1
+    key_env: XAI_API_KEY
+  deepseek:
+    adapter: openai_compat
+    kind: direct
+    base_url: https://api.deepseek.com/v1
+    key_env: DEEPSEEK_API_KEY
+  # 本地模型示例（OpenAI 兼容端点，不需要 key）：
+  # local:
+  #   adapter: openai_compat
+  #   kind: local
+  #   base_url: http://localhost:11434/v1
+  #   key_env: null
+
+# tier: flagship（高价高能力）/ budget（便宜档）。成本优先路由（config/routing.yaml）
+#       只看档位和能力标签；启用的模型必须填写档位。
+# aliases: 别称，会在转发给其他模型前被遮蔽，防止暴露身份。
+# routes 按优先顺序排列：前一个渠道遇到 429、额度用尽、网络错误等时切换到下一个。
+# price: 美元 / 每百万 token，只用于事前预估；实际费用以渠道返回为准（有则用）。
+models:
+  - id: gpt-6-sol
+    vendor: OpenAI
+    tier: flagship
+    aliases: [ChatGPT, GPT]
+    price: {input: 2.00, output: 10.00}
+    tags: [math, writing, code, research, vision]
+    enabled: true
+    routes:
+      - {channel: openai, model: gpt-6-sol}
+      - {channel: openrouter, model: openai/gpt-6-sol}
+
+  - id: gpt-6-luna
+    vendor: OpenAI
+    tier: budget
+    aliases: [ChatGPT, GPT]
+    # 搜索所得，待核对
+    price: {input: 0.10, output: 0.50}
+    tags: [math, writing, code]
+    enabled: true
+    routes:
+      - {channel: openai, model: gpt-6-luna}
+      - {channel: openrouter, model: openai/gpt-6-luna}
+
+  - id: claude-sonnet-5.5
+    vendor: Anthropic
+    tier: flagship
+    aliases: [Claude]
+    price: {input: 2.00, output: 10.00, cached_input: 0.20}
+    tags: [writing, code, research, long_context, vision]
+    enabled: true
+    routes:
+      - {channel: anthropic, model: claude-sonnet-5-5}
+      - {channel: openrouter, model: anthropic/claude-sonnet-5.5}
+
+  - id: claude-haiku-4.5
+    vendor: Anthropic
+    tier: budget
+    aliases: [Claude]
+    price: {input: 1.00, output: 5.00, cached_input: 0.10}
+    tags: [writing, code, vision]
+    enabled: true
+    routes:
+      - {channel: anthropic, model: claude-haiku-4-5}
+      - {channel: openrouter, model: anthropic/claude-haiku-4.5}
+
+  - id: gemini-3.1-pro
+    vendor: Google
+    aliases: [Gemini, Bard, DeepMind]
+    tier: flagship
+    # 搜索结果中最新的 Pro 为 3.1 Pro Preview（未找到 3.8 Pro）；待核对
+    price: {input: 2.00, output: 12.00, cached_input: 0.20}
+    tags: [math, derivation, science, research, long_context, vision]
+    enabled: true
+    routes:
+      - {channel: google, model: gemini-3.1-pro-preview}
+      - {channel: openrouter, model: google/gemini-3.1-pro-preview}
+
+  - id: gemini-3.8-flash
+    vendor: Google
+    aliases: [Gemini, Bard, DeepMind]
+    tier: budget
+    price: {input: 0.75, output: 3.75}
+    # transcribe：能直接接收音频，用于把上传的音频转写成文字（普通对话调用）
+    tags: [design, research, long_context, vision, transcribe]
+    enabled: true
+    routes:
+      - {channel: google, model: gemini-3.8-flash}
+      - {channel: openrouter, model: google/gemini-3.8-flash}
+
+  - id: qwen3.8-max
+    vendor: Alibaba
+    aliases: [Qwen, 通义千问, 千问, 通义, 阿里巴巴, 阿里云]
+    tier: flagship
+    price: {input: 2.00, output: 6.00}   # 已由用户核对
+    tags: [math, derivation, science, code]
+    enabled: true
+    routes:
+      - {channel: openrouter, model: qwen/qwen3.8-max-0902}
+
+  # OpenRouter 上的固定版本为 qwen/qwen3.8-flash-20260826；
+  # 这里用不带日期的别名，会跟随 OpenRouter 指向最新版本
+  - id: qwen3.8-flash
+    vendor: Alibaba
+    aliases: [Qwen, 通义千问, 千问, 通义, 阿里巴巴, 阿里云]
+    tier: budget
+    price: {input: 0.15, output: 0.47}
+    tags: [math, code, long_context, vision]
+    enabled: true
+    routes:
+      - {channel: openrouter, model: qwen/qwen3.8-flash}
+
+  - id: grok-4.7
+    vendor: xAI
+    tier: flagship
+    aliases: [Grok]
+    price: {input: 2.00, output: 6.00}
+    tags: [math, code, research]
+    enabled: true
+    routes:
+      - {channel: xai, model: grok-4.7}
+      - {channel: openrouter, model: x-ai/grok-4.7}
+
+  # xAI 没有 Grok 4.7 的轻量版；OpenRouter 上最便宜的在售 Grok 为 4.3（用户核对）
+  - id: grok-4.3
+    vendor: xAI
+    tier: budget
+    aliases: [Grok]
+    price: {input: 1.25, output: 2.50, cached_input: 0.20}
+    tags: [math, code, research, long_context]
+    enabled: true
+    routes:
+      - {channel: xai, model: grok-4.3}
+      - {channel: openrouter, model: x-ai/grok-4.3}
+
+  - id: deepseek-v4-pro
+    vendor: DeepSeek
+    aliases: [深度求索]
+    tier: flagship
+    # 搜索结果中的旗舰为 V4 Pro（未找到 V4.1 旗舰版）。价格已由 check_models.py 核对（OpenRouter，2026-10）
+    price: {input: 0.95526, output: 1.91052}
+    tags: [math, derivation, code, research, long_context]
+    enabled: true
+    routes:
+      # 直连没有返回实际费用，按此价格记账；官方价格待核对
+      - {channel: deepseek, model: deepseek-v4-pro}
+      - {channel: openrouter, model: deepseek/deepseek-v4-pro}
+
+  - id: deepseek-v4.1-flash
+    vendor: DeepSeek
+    aliases: [深度求索]
+    tier: budget
+    # 分时段计价（闲时 0.15/0.60）；这里按高峰价保守预估
+    price: {input: 0.30, output: 1.20}
+    tags: [math, derivation, code]
+    enabled: true
+    routes:
+      - {channel: deepseek, model: deepseek-v4.1-flash}
+      - {channel: openrouter, model: deepseek/deepseek-v4.1-flash}
+
+  # ⚠️ 以下四个模型（Kimi、GLM）的 ID 来自 OpenRouter 网页（2026-10），价格因页面位置不同有出入，
+  #    这里按偏高的一侧保守预估。请运行 `python scripts/check_models.py` 核对后再依赖预算数字。
+  - id: kimi-k3
+    vendor: Moonshot AI
+    aliases: [Kimi, 月之暗面, Moonshot]
+    tier: flagship
+    price: {input: 2.28, output: 22.00}
+    tags: [zh, math, code, research, long_context, vision]
+    enabled: true
+    routes:
+      - {channel: openrouter, model: moonshotai/kimi-k3}
+
+  - id: kimi-k2.6
+    vendor: Moonshot AI
+    aliases: [Kimi, 月之暗面, Moonshot]
+    tier: budget
+    price: {input: 0.47, output: 2.45}
+    tags: [zh, code, long_context]
+    enabled: true
+    routes:
+      - {channel: openrouter, model: moonshotai/kimi-k2.6}
+
+  - id: glm-5.3-prime
+    vendor: Zhipu AI
+    aliases: [GLM, 智谱, 智谱清言, Z.ai, Zhipu, ChatGLM]
+    tier: flagship
+    price: {input: 2.80, output: 8.80}
+    tags: [zh, math, code, research, long_context]
+    enabled: true
+    routes:
+      - {channel: openrouter, model: z-ai/glm-5.3-prime}
+
+  - id: glm-5.3-flashx
+    vendor: Zhipu AI
+    aliases: [GLM, 智谱, 智谱清言, Z.ai, Zhipu, ChatGLM]
+    tier: budget
+    price: {input: 0.37, output: 1.25}
+    tags: [zh, code, long_context]
+    enabled: true
+    routes:
+      - {channel: openrouter, model: z-ai/glm-5.3-flashx}
+
+  # 媒体模型（seat: false）：不上桌、不占座位，作为工具使用。选择只看能力标签和档位（tier），
+  # 同档内随机，不写死品牌。按张 / 秒 / 分钟 / 字符计价的模型用 media_price（price 写 0）；
+  # 渠道返回实际费用时以实际费用为准。
+  # ⚠️ 下列 ID 与价格来自网页搜索、尚未核对：运行 `python scripts/check_models.py` 核对后再启用。
+  # --- 图片（通过对话接口返回图片）---
+  # OpenRouter 对图像模型按 token 计价（price.output 是图像输出价格，image_tokens 是一张图的典型输出
+  # token 数，只用于预估）；实际费用以 OpenRouter 返回的 usage.cost 为准。
+  # 典型 token 数：Gemini 1K×1K ≈ 1290；OpenAI 图像模型 1024×1024 中等质量 ≈ 1056（mini 按其公布的
+  # 每张 $0.011 反推为 1375）。输入价格已由用户核对。
+  - id: gemini-3.1-flash-image
+    vendor: Google
+    aliases: [Gemini, Nano Banana]
+    seat: false
+    # 实测约 $0.067 / 张，比 gpt-image-2 还贵，所以放在旗舰档（节电模式默认只用 gpt-image-1-mini）
+    tier: flagship
+    price: {input: 0.50, output: 60.0}
+    image_tokens: 1290
+    tags: [image_gen, image_edit, vision]   # image_edit：支持以参考图为输入（图生图）
+    image_api: chat          # 走对话接口（modalities 返回图片）
+    enabled: true
+    routes:
+      - channel: openrouter
+        model: google/gemini-3.1-flash-image
+        params: {modalities: [image, text]}
+  - id: gpt-image-1-mini
+    vendor: OpenAI
+    aliases: [GPT Image 1 Mini]
+    seat: false
+    tier: budget
+    price: {input: 2.5, output: 8.0}
+    image_tokens: 1375
+    tags: [image_gen, image_edit]
+    image_api: images        # 只能走 /api/v1/images，不能走对话接口
+    enabled: true
+    routes:
+      - channel: openrouter
+        model: openai/gpt-image-1-mini
+  - id: gpt-image-2
+    vendor: OpenAI
+    aliases: [GPT Image 2]
+    seat: false
+    tier: flagship
+    price: {input: 8.0, output: 30.0}
+    image_tokens: 1056
+    tags: [image_gen, image_edit]
+    image_api: images
+    enabled: true
+    routes:
+      - channel: openrouter
+        model: openai/gpt-image-2
+  # --- 语音转文字（上传音频的转写；优先于带 transcribe 标签的对话模型）---
+  - id: whisper-large-v3-turbo
+    vendor: OpenAI
+    aliases: [Whisper]
+    seat: false
+    tier: budget
+    media_price: {unit: second, usd: 0.000003}   # 按音频秒数计价（$0.00018 / 分钟）
+    tags: [stt]
+    enabled: true
+    routes:
+      - {channel: openrouter, model: openai/whisper-large-v3-turbo}
+  # --- 文字转语音 ---
+  # 同档内有 default: true 的模型时，只在它们之间选；脚本主要是中文时，先限定在带 zh 标签的模型里
+  - id: gemini-3.8-flash-tts
+    vendor: Google
+    aliases: [Gemini]
+    seat: false
+    tier: budget
+    default: true                         # 文字转语音的默认模型
+    price: {input: 0.50, output: 9.0}     # 按 token 计价（音频输出）
+    speech_tokens_per_char: 3.0           # 每个字符约对应的音频输出 token 数，只用于预估
+    tags: [tts]
+    params: {voice: Zephyr}               # 默认音色（覆盖 roundtable.yaml 的 media.speech.voice）
+    enabled: true
+    routes:
+      - {channel: openrouter, model: google/gemini-3.8-flash-tts}
+  - id: qwen-audio-3.0-tts-flash
+    vendor: Alibaba
+    aliases: [Qwen, 通义千问, 千问, 通义]
+    seat: false
+    tier: budget
+    media_price: {unit: char, usd: 0.000015}   # $15 / 百万字符
+    tags: [tts, zh]                            # zh：擅长中文，脚本主要是中文时优先
+    params: {voice: loongjohn}                 # 默认音色
+    enabled: true
+    routes:
+      - {channel: openrouter, model: qwen/qwen-audio-3.0-tts-flash}
+  # --- 视频（异步任务：提交 → 轮询 → 下载）---
+  - id: alibaba-wan-video
+    vendor: Alibaba
+    aliases: [通义万相]
+    seat: false
+    tier: budget
+    media_price: {unit: second, usd: 0.10}
+    tags: [video_gen]
+    enabled: true
+    routes:
+      - {channel: openrouter, model: alibaba/wan-2.6}
+  - id: veo-3.1
+    vendor: Google
+    aliases: [Veo]
+    seat: false
+    tier: flagship
+    media_price: {unit: second, usd: 0.40}
+    tags: [video_gen]
+    enabled: true
+    routes:
+      - {channel: openrouter, model: google/veo-3.1}
+
+# 联网搜索服务（成员的 search / fetch 工具），按顺序优先使用；没有 key 的自动跳过
+search_providers:
+  # 默认：OpenRouter 自带的联网搜索与网页读取，与模型共用 OPENROUTER_API_KEY。
+  # 搜索：用一个便宜模型发起搜索、只取返回的来源；费用 = 搜索引擎按次收费（exa：每次 $0.007，
+  # 含最多 10 条结果）+ 该模型的少量 token 费，以响应中的实际费用为准。
+  # request: plugin（plugins: [{id: web}]，已标记为旧接口但仍可用）/ server_tool（openrouter:web_search）
+  # 读取网页（fetch）：同一模型调用 openrouter:web_fetch，取回的正文只交给模型，由模型原样输出，
+  # 因此正文经过转述（结果标注 via="model"）；费用 = 取回（openrouter 引擎免费，exa 每次 $0.001）
+  # + 输出正文的 token 费。fetch: false 时改由下面的 Tavily 直接取回正文。
+  openrouter:
+    adapter: openrouter
+    base_url: https://openrouter.ai/api/v1
+    key_env: OPENROUTER_API_KEY
+    price: {per_search: 0.0075, per_fetch: 0.003}   # 没有返回实际费用时的估计值
+    params: {model: openai/gpt-6-luna, engine: exa, request: plugin, fetch: true}
+  # 备选：Tavily（填了 TAVILY_API_KEY 才启用），直接取回网页正文；OpenRouter 出错时接替
+  # 价格：第三方汇总的 2026 年按量价格（基础搜索 1 积分 ≈ $0.008，读取网页 5 个 1 积分），请按实际套餐修改
+  tavily:
+    adapter: tavily
+    base_url: https://api.tavily.com
+    key_env: TAVILY_API_KEY
+    price: {per_search: 0.008, per_fetch: 0.0016}
+    params: {search_depth: basic}

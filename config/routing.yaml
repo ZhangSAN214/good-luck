@@ -1,0 +1,114 @@
+# 阵容与花费：所选档位内的每个可用模型都上桌（担任组员或统筹），省钱靠选档位，不靠减人。
+#
+# 中立原则：这里只引用档位（flagship / budget）和能力标签，不得出现具体模型名或厂商名（有测试检查）。
+# 用户的选择（档位 / 自选的模型）永远优先。
+
+# 单题预计花费超过此值时，执行前先请用户确认（美元）
+confirm_threshold_usd: 0.30
+
+# 用户没有指定时使用的档位（plans 中的名称）
+default_plan: budget
+
+# 难度只用于估计答案长度（花费预估）；规则和规划员都判断不出时使用此值
+default_difficulty: medium
+
+# 规划员：规则判断不出时，用最便宜的模型估计题型与答案长度（不影响谁上桌）
+planner:
+  tiers: [budget]
+  max_tokens: 300
+  # 用于挑选"最便宜"时估算单次调用成本
+  expected_input_tokens: 700
+  expected_output_tokens: 150
+
+# 分诊小组：题目开始时（作答方式选"自动"），几位最便宜的模型各给一条简短建议，
+# 代码汇总成推荐（只推荐，由用户在确认卡片上决定）。规则能判断为简单题时不调用模型。
+panel:
+  size: 3
+  tiers: [budget]
+  max_tokens: 200
+  expected_input_tokens: 500
+  expected_output_tokens: 100
+  skip_when_simple: true
+  default_workflow: discussion      # 小组没有给出有效建议时
+  tier_by_difficulty: {simple: budget, medium: budget, hard: flagship}
+
+# 规则判断（不调用模型）。按顺序检查：
+# - 第一条给出 difficulty 的规则决定难度（只影响预估的答案长度）；
+# - require_tags / task_type 会累积（例如有图片 → 需要 vision 标签）。
+# 条件（when）之间是"且"的关系：
+#   min_chars / max_chars   题目字数范围
+#   any_keywords            包含任一关键词
+#   no_keywords             不包含任何关键词
+#   attachment_types        带有任一类型的附件
+triage:
+  - name: has_image
+    when: {attachment_types: [image]}
+    then: {require_tags: [vision]}
+  - name: very_long
+    when: {min_chars: 1500}
+    then: {difficulty: hard}
+  - name: very_short
+    when:
+      max_chars: 30
+      no_keywords: [证明, 推导, 为什么, 分析, 比较, 论述, prove, derive, why, explain, compare]
+    then: {difficulty: simple}
+
+# 讨论模式下题目需要生成多个媒体文件时，提交前提示"建议切换到协同模式"（只提示，不自动切换）。
+# 讨论模式让每位成员各自把整题做一遍，要画多张图 / 做多段媒体时每人都会各做一整套，花费成倍增加；
+# 协同模式拆分后每人只做一部分。数量词识别 1–10 的阿拉伯 / 中文数字，"多 / 几 / 若干 / 一套 / 系列"见 hints。
+multi_media:
+  enabled: true
+  min_count: 2
+  nouns: [图, 图片, 插图, 插画, 图像, 海报, 卡片, 卡, 头像, 表情包, 配图, 漫画, 视频, 语音, 音频, 动画, 封面, image, picture, video]
+  classifiers: [张, 幅, 个, 段, 条, 份, 格, 套, 组, 种, 版, 款, 页]
+  hints: [多张, 几张, 若干张, 一套, 系列, 拼图, 拼接, 拼成, 拼在一起, 合成一张, 合并成一张, 分别生成, 分别画, 每个人物, 每人一张, 每个角色, 四格, 九宫格, 分镜, 多个视频, 多段, 多幅]
+
+# 成员档位：tiers 中所有可用模型都上桌；其中一个按 roundtable.yaml 的 coordinator 规则
+# 担任统筹（本题不作答），其余为组员。没有可用渠道的模型列为"缺席"。
+# pipeline 省略时使用 roundtable.yaml 中的完整流程。
+# escalate_to：汇总仍有分歧或把握低时，询问用户是否用该档位重做（不会自动升级）。
+plans:
+  budget:
+    label: 节电模式
+    tiers: [budget]
+    escalate_to: flagship
+  flagship:
+    label: 全力模式
+    tiers: [flagship]
+
+# 自选：用户勾选上桌的模型（至少 min_members + 1 个），可指定其中一个当统筹
+custom:
+  label: 自选
+
+# 升级询问条件（满足任一即询问）：汇总中未解决的分歧数 ≥ min_disagreements，或把握程度在列表中
+escalation:
+  min_disagreements: 1
+  confidence: [low]
+
+# 花费预估参数（token 数为粗估，用于执行前提示，可按实际记录调整）
+estimate:
+  cjk_chars_per_token: 1.0
+  other_chars_per_token: 4.0
+  prompt_overhead_tokens: 500       # 系统提示等固定开销 / 每次调用
+  answer_tokens: {simple: 200, medium: 1200, hard: 2500}
+  answer_tokens_bounds: {min: 200, max: 6000}  # 规划员给出的长度估计会被限制在此范围
+  review_tokens_per_peer: 400
+  revise_overhead_tokens: 300
+  synthesize_tokens: 1500
+  # 协同模式
+  decompose_tokens: 800             # 统筹拆分子任务
+  volunteer_tokens: 300             # 每位成员的自荐
+  assign_tokens: 400                # 统筹分配
+  merge_tokens: 3000                # 统筹合并成完整成果
+  ideate_tokens: 500                # 头脑风暴：每人第一轮的想法
+  expand_tokens: 400                # 头脑风暴：每人对别人想法的拓展
+  organize_tokens: 1500             # 头脑风暴：统筹整合成思维导图
+  # 没有历史记录时，输出 token 按档位放大：旗舰档多为推理模型，思考 token 按输出计费
+  output_multiplier: {flagship: 2.5, budget: 1.3}
+  history_min_samples: 3            # 某模型在某步骤至少 3 次成功调用后，改用它的真实 token 中位数
+  history_sessions: 30              # 只统计最近 30 场讨论
+  searches: 1.0                     # 能搜索的步骤，每位成员平均搜索几次、读几个网页（按搜索服务单价）
+  fetches: 0.5
+  tool_rounds: 0.5                  # 能用工具的步骤，每位成员平均多几次模型调用（有历史后用实际次数）
+  # 本桌实际花费超过"预估 × 此倍数"时暂停询问（继续 / 停止），防止失控
+  overrun_factor: 1.5
