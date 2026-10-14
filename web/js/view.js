@@ -576,6 +576,12 @@ function collabOutput(o, sp, data, names, sources = null) {
   if (o.kind === 'handoff') {
     return handoffLine(data, names, names.sid);
   }
+  if (o.kind === 'clarify') {
+    const to = data.to_code ? names.member(data.to_code) : '上游';
+    const head = `<div class="meta">向 ${esc(to)} 提问（${esc(data.subtask)} ← ${esc(data.to_subtask)}）</div>`;
+    const ans = data.answer ? md(data.answer) : '<span class="meta">上游作者没有答复，按自己的理解完成</span>';
+    return msg(sp, '澄清提问', `<div class="bubble">${head}<div><b>问：</b>${md(data.question)}</div><div><b>答：</b>${ans}</div></div>`);
+  }
   if (o.kind === 'cross_review') return msg(sp, '交叉审查', review(data, names, t));
   if (o.kind === 'rework') {
     const what = names.subtask(t, data.subtask);

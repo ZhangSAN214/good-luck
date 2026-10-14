@@ -58,7 +58,9 @@
 
 ## R6 协同分工讨论与进度看板（2026-10-13）
 
-`discuss` 步骤（成员提建议、统筹最多调整一次、不合规则保持原分工）、提示词 `discuss/v1`、`adjust/v1`、网页进度看板与讨论记录、测试已完成；澄清提问未做。
+`discuss` 步骤（成员提建议、统筹最多调整一次、不合规则保持原分工）、提示词 `discuss/v1`、`adjust/v1`、网页进度看板与讨论记录、测试已完成。
+
+2026-10-14 补上**澄清提问**：有上游成果的文字子任务，负责人动手前可以向上游作者问一次（`clarify_offer/v1`、`clarify_answer/v1`、`clarify_reply/v1`，配置 `collab.clarify`）；不问不多花钱；问答存库、网页过程区和 `show` 显示；测试 `tests/core/steps/test_collab_clarify.py`。
 
 ## R7 协同逐条验收与新模板（2026-10-13）
 

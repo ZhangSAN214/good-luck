@@ -660,6 +660,8 @@ class CollabState:
     pipeline: bool = False
     pipeline_info: dict[str, Any] = field(default_factory=dict)
     handoffs: list[dict[str, Any]] = field(default_factory=list)
+    # 下游向上游提的澄清问题与答复：(子任务, 提问者代号) → 记录（每位负责人每块最多一次）
+    clarifications: dict[tuple[str, str], dict[str, Any]] = field(default_factory=dict)
     # 重画次数用完仍没通过风格清单的成果：(子任务, 代号)
     style_failed: set[tuple[str, str]] = field(default_factory=set)
 
