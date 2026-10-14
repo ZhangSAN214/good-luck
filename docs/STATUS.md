@@ -2,32 +2,26 @@
 
 更新：2026-10-14。这份文件把「圆桌平台」和「圆桌智能体拟人立绘 / 小人」两条线合在一起看；步骤编号以 `docs/ROADMAP.md`（R0～R16）为准，阶段编号（0～36）以 `docs/PROGRESS.md` 为准。
 
-## 1. 分支现状（2026-10-14，PR #3 合并后重新核对）
+## 1. 分支现状（2026-10-14）
 
 ```
 main (fdd82b0，另有 1 个提交：xuanji.html)
-  └─ ccr-86975127-sv4cvy  (5da2f4c，已含 PR #3；比 main 多 55 个提交)
-       ├─ 已并入：track/agent-claude-behavior、agent-avatars、slim-claude-md-djgom1
-       └─ roadmap/auto  (fedb05f)：比开发分支多 4 个提交，全是 R4 —— 没有并入
+  └─ ccr-86975127-sv4cvy  (5da2f4c，已含 PR #3)
+       └─ track/merge-r4：并入 roadmap/auto 的 4 个 R4 提交，整合成一套（尚未开 PR，等你确认）
 ```
 
-**更正**：之前写的「roadmap/auto 已被包含」不对，是本地分支引用过期造成的。每日自动任务在 2026-10-13 又往 `roadmap/auto` 推了 4 个 R4 提交（8352845、37525d3、ea715e5、fedb05f），内容：
-
-- `scripts/check_pet_assets.py` + `tests/scripts/test_check_pet_assets.py`（素材检查与 pet.json 生成）
-- `docs/agent/差分清单.md`、`docs/agent/桌面版方案.md`（与开发分支里的同名文件内容不同）
-- `docs/ROADMAP.md`、`docs/tracks/agent.md` 的 R4 记录
-
-开发分支里已经有另一套 R4：`scripts/check_pet_art.py`、`gen_pet_frames.py`、同名的差分清单和桌面版方案。**两套做的是同一件事、文件名不同（`check_pet_assets.py` ↔ `check_pet_art.py`），合并会得到两份重复的检查脚本和两份互相冲突的文档。**
-
-其他分支：
-- `agent-avatars`、`slim-claude-md-djgom1`：已并入，可以删。
-- `track/agent`、`track/collab`、`track/groupchat`（及 `worktree-agent-*`）：停在旧提交，没有新工作。
-- `main` 比开发分支多一个提交 `fdd82b0`（上传 `xuanji.html`）。
+- PR #3 已并入开发分支：`track/agent-claude-behavior`、`agent-avatars`、`slim-claude-md-djgom1` 都已在里面。
+- `roadmap/auto` 当时还比开发分支多 4 个 R4 提交（素材检查脚本、差分清单、桌面版方案），和开发分支里的 R4 做的是同一件事但约定不同，在 `track/merge-r4` 上已整合成一套：
+  - 检查脚本以 `scripts/check_pet_assets.py` 为准：按文件夹命名 `<成员>/<动作>/00.png`（和已验收的克劳德素材一致）、可一次检查全部成员、动作 / 表情清单直接读 `core/members_art.py`；默认画布 512。
+  - 原来的 `check_pet_art.py`（平铺命名、1254 画布）已移除；出图流程（ChatGPT 分窗口、`pose_process.py`、Gemini 草稿）并入 `差分清单.md` 第 8 节。
+  - 整合时测试发现检查脚本缺 R3.1 的 6 个专属动作，已补上。`tests/scripts` 与 `tests/core` 通过（1478 个）；全量测试未跑。
+- 其他分支：`track/agent`、`track/collab`、`track/groupchat`（及 `worktree-agent-*`）停在旧提交，没有新工作。`main` 比开发分支多一个提交 `fdd82b0`。
 - 规则：自动步骤不得推送到开发分支或 `main`；合并由用户决定。
 
 ### 需要你决定
-1. R4 保留哪一套：（a）保留开发分支里已有的（建议，已经测试通过并合并），把 `roadmap/auto` 的 4 个提交当作重复丢弃，删除分支前先打一个标签保存；（b）取 `roadmap/auto` 的检查脚本替换；（c）两套都留。
-2. 之后：是否把开发分支并入 `main`（先把 `xuanji.html` 带进来）；是否删除上面列出的已并入 / 空壳分支。
+1. 是否采用 `track/merge-r4`（开 PR 合并到开发分支）；不采用就删掉这个分支。
+2. 是否把开发分支并入 `main`（先把 `xuanji.html` 带进来）。
+3. 是否删除已并入 / 空壳的旧分支（`roadmap/auto` 先打标签保存）；每日自动任务是否停掉或把基准切到开发分支。
 
 ## 2. 进度（R 步骤）
 
@@ -36,7 +30,7 @@ main (fdd82b0，另有 1 个提交：xuanji.html)
 | 小人 | R1 头像接入 | 已完成（PR #2） |
 | 小人 | R2 网页小人动起来 | 已完成 |
 | 小人 | R3 / R3.1 汇报与互动、特殊待机、彩蛋 | 已完成，待你在本机试用 |
-| 小人 | R4 差分素材：清单、检查脚本、生成脚本、桌面版方案 | 开发分支里已有一套；`roadmap/auto` 上还有另一套重复实现（见第 1 节）；克劳德已验收；其余 7 位的图要你在网页端生成 |
+| 小人 | R4 差分素材：清单、检查脚本、生成脚本、桌面版方案 | 两套已整合成一套（PR #4）；克劳德已验收；其余 7 位的图要你在网页端生成 |
 | 协同 | R5 中途插话 | 已完成 |
 | 协同 | R6 分工讨论 + 进度看板 | 部分完成：下游向上游的澄清提问未做 |
 | 协同 | R7 验收与模板 | 已完成 |
