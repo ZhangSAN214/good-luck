@@ -2,25 +2,32 @@
 
 更新：2026-10-14。这份文件把「圆桌平台」和「圆桌智能体拟人立绘 / 小人」两条线合在一起看；步骤编号以 `docs/ROADMAP.md`（R0～R16）为准，阶段编号（0～36）以 `docs/PROGRESS.md` 为准。
 
-## 1. 分支现状：其实是一条直线，没有需要合并的分叉
+## 1. 分支现状（2026-10-14，PR #3 合并后重新核对）
 
 ```
-main (fdd82b0)
-  └─ ccr-86975127-sv4cvy  (+25，你的开发分支；R1 头像 PR #2 已并入)
-       └─ roadmap/auto  (+15，R2 小人动起来、R3 / R3.1 汇报与互动)
-            └─ track/agent-claude-behavior  (+13，R4 差分工具、R5～R8 协同、R13～R16)  ← 当前最前
+main (fdd82b0，另有 1 个提交：xuanji.html)
+  └─ ccr-86975127-sv4cvy  (5da2f4c，已含 PR #3；比 main 多 55 个提交)
+       ├─ 已并入：track/agent-claude-behavior、agent-avatars、slim-claude-md-djgom1
+       └─ roadmap/auto  (fedb05f)：比开发分支多 4 个提交，全是 R4 —— 没有并入
 ```
 
-- `track/agent-claude-behavior` 已经包含 `roadmap/auto` 和 `ccr-86975127-sv4cvy` 的全部提交（合并基点就是 `roadmap/auto` 的顶端 502ba27），所以两个项目的成果已经在同一个分支里。
-- `agent-avatars`、`slim-claude-md-djgom1`：内容都已在 `ccr-86975127-sv4cvy` 里（领先 0 个提交），可以删除。
-- `main` 比以上分支多一个提交 `fdd82b0`（上传了 `xuanji.html`），其他分支没有它。
-- `track/agent`、`track/collab`、`track/groupchat`（以及对应的 `worktree-agent-*`）停在旧提交 f474b88，没有新工作，是并行试验留下的空壳。
-- 规则（ROADMAP「分支规则」）：自动步骤不得推送到 `ccr-86975127-sv4cvy` 或 `main`；是否合并由你决定。
+**更正**：之前写的「roadmap/auto 已被包含」不对，是本地分支引用过期造成的。每日自动任务在 2026-10-13 又往 `roadmap/auto` 推了 4 个 R4 提交（8352845、37525d3、ea715e5、fedb05f），内容：
 
-### 建议的合并方式（需你确认，我不会自己合并）
-1. 在 GitHub 上开一个 PR：`track/agent-claude-behavior` → `ccr-86975127-sv4cvy`（线性，无冲突）。
-2. 合并后再决定 `ccr-86975127-sv4cvy` → `main`；`main` 上的 `xuanji.html` 需要先 `git merge origin/main` 带进来。
-3. 合并完成后删除：`roadmap/auto`、`agent-avatars`、`slim-claude-md-djgom1`、`track/agent`、`track/collab`、`track/groupchat`、`worktree-agent-*`。
+- `scripts/check_pet_assets.py` + `tests/scripts/test_check_pet_assets.py`（素材检查与 pet.json 生成）
+- `docs/agent/差分清单.md`、`docs/agent/桌面版方案.md`（与开发分支里的同名文件内容不同）
+- `docs/ROADMAP.md`、`docs/tracks/agent.md` 的 R4 记录
+
+开发分支里已经有另一套 R4：`scripts/check_pet_art.py`、`gen_pet_frames.py`、同名的差分清单和桌面版方案。**两套做的是同一件事、文件名不同（`check_pet_assets.py` ↔ `check_pet_art.py`），合并会得到两份重复的检查脚本和两份互相冲突的文档。**
+
+其他分支：
+- `agent-avatars`、`slim-claude-md-djgom1`：已并入，可以删。
+- `track/agent`、`track/collab`、`track/groupchat`（及 `worktree-agent-*`）：停在旧提交，没有新工作。
+- `main` 比开发分支多一个提交 `fdd82b0`（上传 `xuanji.html`）。
+- 规则：自动步骤不得推送到开发分支或 `main`；合并由用户决定。
+
+### 需要你决定
+1. R4 保留哪一套：（a）保留开发分支里已有的（建议，已经测试通过并合并），把 `roadmap/auto` 的 4 个提交当作重复丢弃，删除分支前先打一个标签保存；（b）取 `roadmap/auto` 的检查脚本替换；（c）两套都留。
+2. 之后：是否把开发分支并入 `main`（先把 `xuanji.html` 带进来）；是否删除上面列出的已并入 / 空壳分支。
 
 ## 2. 进度（R 步骤）
 
@@ -29,7 +36,7 @@ main (fdd82b0)
 | 小人 | R1 头像接入 | 已完成（PR #2） |
 | 小人 | R2 网页小人动起来 | 已完成 |
 | 小人 | R3 / R3.1 汇报与互动、特殊待机、彩蛋 | 已完成，待你在本机试用 |
-| 小人 | R4 差分素材：清单、检查脚本、生成脚本、桌面版方案 | 工具与文档完成；克劳德已验收；其余 7 位的图要你在网页端生成 |
+| 小人 | R4 差分素材：清单、检查脚本、生成脚本、桌面版方案 | 开发分支里已有一套；`roadmap/auto` 上还有另一套重复实现（见第 1 节）；克劳德已验收；其余 7 位的图要你在网页端生成 |
 | 协同 | R5 中途插话 | 已完成 |
 | 协同 | R6 分工讨论 + 进度看板 | 部分完成：下游向上游的澄清提问未做 |
 | 协同 | R7 验收与模板 | 已完成 |
