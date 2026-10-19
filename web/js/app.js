@@ -12,6 +12,7 @@ import {
   COORD_STEPS,
   castPanel,
   contributionsPanel,
+  officePanel,
   channelsPanel,
   esc,
   feedItems,
@@ -36,6 +37,8 @@ const S = {
   budget: null,
   history: null,
   contribHistory: null,
+  office: null, // 员工名册（/api/office）
+  payslip: null, // { sid, data }：当前会话的工资单
   sid: null,
   session: null,
   tab: 'flow',
@@ -205,7 +208,8 @@ function renderPanel() {
   if (S.tab === 'split') h = splitPanel(S.session, prefix());
   if (S.tab === 'tools') h = toolsPanel(S.session, prefix());
   if (S.tab === 'media') h = mediaPanel(S.session, prefix());
-  if (S.tab === 'usage') h = usagePanel(S.session, S.budget, S.status?.rice);
+  if (S.tab === 'usage') h = usagePanel(S.session, S.budget, S.status?.rice, S.payslip?.sid === S.sid ? S.payslip.data : null);
+  if (S.tab === 'office') h = officePanel(S.office, S.status?.rice);
   if (S.tab === 'channels') h = channelsPanel(S.status);
   if (S.tab === 'history') h = historyPanel(S.history, S.sid);
   if (S.tab === 'cast') h = castPanel(S.session, prefix());
@@ -645,7 +649,30 @@ async function loadBudget() {
     /* 下次再试 */
   }
   renderHeader();
+  if (S.tab === 'usage') {
+    renderPanel();
+    loadPayslip();
+  }
+}
+
+async function loadPayslip() {
+  if (!S.sid) return;
+  const sid = S.sid;
+  try {
+    S.payslip = { sid, data: await API.getPayslip(sid) };
+  } catch {
+    /* 下次再试 */
+  }
   if (S.tab === 'usage') renderPanel();
+}
+
+async function loadOffice() {
+  try {
+    S.office = await API.getOffice();
+  } catch {
+    /* 下次再试 */
+  }
+  if (S.tab === 'office') renderPanel();
 }
 
 async function loadContributions() {
@@ -797,6 +824,7 @@ function bind() {
     if (S.tab === 'history') loadHistory();
     if (S.tab === 'contrib') loadContributions();
     if (S.tab === 'usage') loadBudget();
+    if (S.tab === 'office') loadOffice();
     renderPanel();
   });
   $('#pbody').addEventListener('click', (e) => {

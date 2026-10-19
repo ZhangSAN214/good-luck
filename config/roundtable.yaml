@@ -14,6 +14,12 @@ budget:
   daily_usd: 3.0       # 每日上限；填 null 表示不设
   warn_ratio: 0.8
 
+# 办公室模式（O1 起，见 docs/OFFICE.md）：AI 是员工，token 是工资。经理在 models.yaml 用 office_role: manager 指定。
+# task_caps_usd：每件事的工资上限，按办事方式（单人办 / 开会 / 项目分工）分别设；预计超出时先问你。
+office:
+  task_caps_usd: {single: 0.05, meeting: 0.15, project: 0.80}
+  manager_strategy: rotate   # 两位以上经理：每件事轮流主办，项目级任务由另一位复核
+
 # 单步预估 token 超过此值时询问用户
 token_threshold: 20000
 

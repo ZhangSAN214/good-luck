@@ -12,6 +12,7 @@ ChannelMode = Literal["openrouter", "direct", "auto"]
 # 档位：flagship 旗舰（高价高能力）/ budget 便宜档。成本优先路由只看档位和能力标签
 Tier = Literal["flagship", "budget"]
 ImageApi = Literal["chat", "images"]
+OfficeRole = Literal["manager", "staff"]
 
 _ENV_NAME = re.compile(r"^[A-Z][A-Z0-9_]*$")
 _PROMPT_VERSION = re.compile(r"^v\d+$")
@@ -112,6 +113,9 @@ class ModelSpec(_Strict):
     routes: list[Route] = Field(min_length=1)
     # False：只作为工具使用（如图像生成模型），不上桌、不需要档位
     seat: bool = True
+    # 办公室模式的岗位：manager = 经理（收活、分诊、派活、拍板、写最终交付，由用户指定），
+    # staff = 员工（默认）。只在办公室模式生效；讨论 / 协同等旧模式不看它
+    office_role: OfficeRole = "staff"
 
     @field_validator("routes")
     @classmethod
@@ -176,7 +180,14 @@ class ModelsConfig(_Strict):
             for r in m.routes:
                 if r.channel not in self.channels:
                     raise ValueError(f"模型 {m.id} 引用了未定义的渠道 {r.channel!r}")
+            if m.office_role == "manager" and not m.seat:
+                raise ValueError(f"模型 {m.id} 是经理，必须能上桌（seat: true）")
         return self
+
+    @property
+    def managers(self) -> list[ModelSpec]:
+        """办公室模式的经理（启用的、office_role 为 manager 的模型，按配置顺序）。"""
+        return [m for m in self.enabled if m.office_role == "manager"]
 
     def get(self, model_id: str) -> ModelSpec:
         for m in self.models:
@@ -563,6 +574,22 @@ class RiceRules(_Strict):
     bowl_spoons: int = Field(default=30, ge=2)  # 1 碗 = 多少勺
 
 
+class OfficeTaskCaps(_Strict):
+    """办公室模式：每件事的工资上限（美元），按办事方式分别设；预计超出时先问老板。"""
+
+    single: float = Field(default=0.05, gt=0)  # 单人办
+    meeting: float = Field(default=0.15, gt=0)  # 开会
+    project: float = Field(default=0.80, gt=0)  # 项目分工
+
+
+class OfficeRules(_Strict):
+    """办公室模式（O1～O5，见 docs/OFFICE.md）。经理在 models.yaml 的 office_role 里指定。"""
+
+    task_caps_usd: OfficeTaskCaps = OfficeTaskCaps()
+    # 两位以上经理时怎么分：rotate = 每件事轮流当主办经理，项目级任务由另一位复核
+    manager_strategy: Literal["rotate"] = "rotate"
+
+
 class DisplayConfig(_Strict):
     rice: RiceRules = RiceRules()
 
@@ -626,6 +653,7 @@ class RoundtableConfig(_Strict):
     limits: Limits = Limits()
     display: DisplayConfig = DisplayConfig()
     style: StyleRules = StyleRules()
+    office: OfficeRules = OfficeRules()
 
     @field_validator("prompts")
     @classmethod

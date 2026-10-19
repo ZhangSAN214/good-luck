@@ -1058,10 +1058,44 @@ export function riceText(tokens, rice) {
   return `${bowls} ${r.bowl_name}${restSpoons ? ` ${restSpoons} ${r.spoon_name}` : ''}`;
 }
 
-export function usagePanel(sv, budget, rice) {
+/** 工资单：一件事里每个人（组员、统筹）领了多少，外包（搜索、媒体、规划员等）另列。 */
+export function payslipBlock(slip, rice) {
+  if (!slip || !(slip.lines || []).length) return '';
+  let h = '<h4>工资单</h4><table id="payslip"><thead><tr><th>谁</th><th class="num">调用</th><th class="num">大米</th><th class="num">工资</th></tr></thead><tbody>';
+  for (const l of slip.lines) {
+    const t = (l.input_tokens || 0) + (l.output_tokens || 0);
+    h += `<tr><td>${esc(l.who)}${l.failed_calls ? ` <span class="pill badp">失败 ${l.failed_calls}</span>` : ''}</td><td class="num">${l.calls}</td><td class="num" title="${t} token">${esc(riceText(t, rice))}</td><td class="num">${money(l.cost_usd)}</td></tr>`;
+  }
+  return `${h}</tbody></table>`;
+}
+
+const ROLE_LABELS = { manager: '经理', staff: '员工' };
+
+/** 员工名册（办公室模式）：经理与员工、工资标准（每百万 token 的美元价格）、本月已领工资。 */
+export function officePanel(office, rice) {
+  if (!office) return '<p class="empty">加载中…</p>';
+  const caps = office.task_caps_usd || {};
+  let h = '<h4>员工名册</h4><table id="office-roster"><thead><tr><th>谁</th><th>岗位</th><th class="num">工资标准<br>输入 / 输出</th><th class="num">本月已领</th></tr></thead><tbody>';
+  for (const e of office.staff || []) {
+    const t = (e.month_input_tokens || 0) + (e.month_output_tokens || 0);
+    const off = e.available ? '' : ' <span class="pill badp">缺勤</span>';
+    h += `<tr data-role="${esc(e.role)}"><td>${esc(e.name)}${off}<div class="hint">${esc(e.model_id)}</div></td><td>${esc(ROLE_LABELS[e.role] || e.role)}</td><td class="num">$${e.wage_input} / $${e.wage_output}</td><td class="num" title="${t} token · ${e.month_calls} 次调用">${money(e.month_paid_usd)}<div class="hint">${esc(riceText(t, rice))}</div></td></tr>`;
+  }
+  h += '</tbody></table><p class="hint">工资标准是每百万 token 的价格；已领工资按本月（UTC）的调用记录合计。缺勤 = 没有可用渠道。</p>';
+  h += '<h4>每件事的工资上限</h4><table><tbody>';
+  for (const [k, label] of [['single', '单人办'], ['meeting', '开会'], ['project', '项目分工']]) {
+    if (caps[k] !== undefined) h += `<tr><td>${label}</td><td class="num">${money(caps[k])}</td></tr>`;
+  }
+  h += '</tbody></table><p class="hint">办公室模式按这些上限派活，预计超出时先问你（办公室模式的派活在后续步骤上线）。</p>';
+  if (office.month) h += budgetBlock('本月工资预算', office.month);
+  return h;
+}
+
+export function usagePanel(sv, budget, rice, slip = null) {
   let h = '';
   if (sv) {
     h += `<h4>本场累计</h4><div class="big" id="session-cost">${money(sv.cost_usd)}</div>`;
+    h += payslipBlock(slip, rice);
     const groups = new Map();
     for (const c of sv.calls || []) {
       const key = `${c.table_no ?? '-'}:${c.step}`;

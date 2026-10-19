@@ -143,6 +143,14 @@ def create_app(service: RoundtableService | None = None) -> FastAPI:
         headers = {"X-Content-Type-Options": "nosniff", "Cache-Control": "private, max-age=3600"}
         return Response(content=data, media_type=mime, headers=headers)
 
+    @app.get("/api/office")
+    async def office(request: Request) -> dict[str, Any]:
+        return svc(request).office()
+
+    @app.get("/api/sessions/{session_id}/payslip")
+    async def payslip(request: Request, session_id: str) -> dict[str, Any]:
+        return svc(request).payslip(session_id)
+
     @app.get("/api/contributions")
     async def contributions(request: Request) -> list[dict[str, Any]]:
         return svc(request).contributions()

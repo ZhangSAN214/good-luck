@@ -19,9 +19,11 @@ from urllib.parse import quote
 from roundtable.core.allocation import coordinator_name, display_name
 from roundtable.core.attachments import Attachment, UploadError, ingest
 from roundtable.core.attachments.detect import TYPES as UPLOAD_TYPES
+from roundtable.core.budget.guard import month_window
 from roundtable.core.media import KIND_LABELS, KINDS, MediaService
 from roundtable.core.members_art import load_members, mime_of, resolve_file
 from roundtable.core.notes import NoteError, check_can_add, clean_note
+from roundtable.core.office import payslip, roster
 from roundtable.core.orchestrator import Orchestrator, OrchestratorError, RunResult
 from roundtable.core.preview import render_preview
 from roundtable.core.routing import (
@@ -228,6 +230,38 @@ class RoundtableService:
             },
             "total_usd": self.rt.repo.total_spent(),
         }
+
+    # --- 办公室：名册与工资单 ------------------------------------------------------
+
+    def office(self) -> dict[str, Any]:
+        """名册：经理与员工、工资标准（每百万 token 的美元价格）、本月已领工资。不涉及具体会话。"""
+        cfg = self.rt.config
+        start, end = month_window(self.rt.budget.now())
+        entries = roster(
+            cfg,
+            (m.id for m in self.rt.router.available_models()),
+            self.rt.repo.spent_by_model(start, end),
+        )
+        return {
+            "staff": [asdict(e) for e in entries],
+            "task_caps_usd": cfg.roundtable.office.task_caps_usd.model_dump(),
+            "manager_strategy": cfg.roundtable.office.manager_strategy,
+            "month": self.budget()["month"],
+        }
+
+    def payslip(self, session_id: str) -> dict[str, Any]:
+        """一件事的工资单：每位组员 / 统筹各领多少，外包（搜索、媒体、规划员等）另列。
+
+        按会话视图汇总：匿名会话揭晓前只列代号和"统筹"，不含模型 id。
+        """
+        self._require(session_id)
+        view = self.rt.repo.session_view(session_id)
+
+        def coordinator_label(model_id: str | None) -> str:
+            return coordinator_name(model_id, self.rt.config) if model_id else "统筹"
+
+        slip = payslip(view.calls, view.seats, coordinator_label=coordinator_label)
+        return {"lines": [asdict(line) for line in slip.lines], "total_usd": slip.total_usd}
 
     # --- 会话 ----------------------------------------------------------------------
 

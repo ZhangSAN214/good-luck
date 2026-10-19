@@ -115,6 +115,14 @@ def test_status_and_budget_endpoints():
         assert c.get("/api/budget").json()["month"]["limit_usd"] == 20.0
 
 
+def test_office_and_payslip_endpoints():
+    env, c = client()
+    with c:
+        office = c.get("/api/office").json()
+        assert office["staff"] and {"single", "meeting", "project"} == set(office["task_caps_usd"])
+        assert c.get("/api/sessions/nope/payslip").status_code == 404
+
+
 def test_responses_never_contain_keys(tmp_path):
     """用真实格式的 key 构建运行时（渠道用 Fake 替换），所有响应中都不得出现 key。"""
     from roundtable.core.providers import FakeProvider, KeyRing, build_providers

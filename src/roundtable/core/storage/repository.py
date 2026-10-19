@@ -1009,6 +1009,25 @@ class Repository:
         ).fetchall()
         return [dict(r) for r in rows]
 
+    def spent_by_model(self, start: datetime, end: datetime) -> dict[str, dict[str, float]]:
+        """[start, end) 内按模型汇总的调用次数、token 与花费（办公室模式的"已领工资"）。"""
+        rows = self._exec(
+            "SELECT model_id, COUNT(*) AS calls, COALESCE(SUM(input_tokens), 0) AS tin,"
+            " COALESCE(SUM(output_tokens), 0) AS tout, COALESCE(SUM(cost_usd), 0) AS cost"
+            " FROM calls WHERE model_id IS NOT NULL AND created_at >= ? AND created_at < ?"
+            " GROUP BY model_id",
+            (iso(start), iso(end)),
+        ).fetchall()
+        return {
+            r["model_id"]: {
+                "calls": r["calls"],
+                "input_tokens": r["tin"],
+                "output_tokens": r["tout"],
+                "cost_usd": r["cost"],
+            }
+            for r in rows
+        }
+
     def spent_by_channel(self) -> dict[str, ChannelUsage]:
         usage: dict[str, ChannelUsage] = {}
         for r in self._exec(

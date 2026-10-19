@@ -58,6 +58,8 @@ export const getBudget = () => api('/api/budget');
 export const members = () => api('/api/members');
 export const listSessions = () => api('/api/sessions?limit=50');
 export const getContributions = () => api('/api/contributions');
+export const getOffice = () => api('/api/office');
+export const getPayslip = (id) => api(`/api/sessions/${id}/payslip`);
 export const getSession = (id) => api(`/api/sessions/${id}`);
 export const createSession = (body) => api('/api/sessions', { method: 'POST', body });
 export const respond = (id, response, note) =>
