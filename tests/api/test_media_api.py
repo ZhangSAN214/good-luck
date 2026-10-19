@@ -86,15 +86,23 @@ def test_estimate_includes_media_cost():
 
 
 def test_image_flow_with_playback_download_and_range():
-    env, c = client()
+    # 记录发布的每个事件：新版 Starlette 的 TestClient 里讨论可能在连上 SSE 之前就跑完
+    # （那时只收到快照），所以不靠 SSE 判断媒体事件
+    published: list[str] = []
+
+    class Recording(RoundtableService):
+        def _publish(self, session_id, event):
+            published.append(event.type)
+            super()._publish(session_id, event)
+
+    env = Env(with_media=True, confirm_threshold_usd=100.0)
+    c = TestClient(create_app(Recording(env.rt)))
     with c:
         sid = c.post(
             "/api/sessions", json={"question": MEDIUM, "media": "image", "seed": 3, **PICKS}
         ).json()["session_id"]
-        events = sse_events(c, sid)
-        assert any(e["type"] == "media_started" for e in events)
-        assert any(e["type"] == "media_done" for e in events)
         data = wait_rest(c, sid)
+        assert "media_started" in published and "media_done" in published
         assert data["status"] == "completed" and data["media_kind"] == "image"
         job = data["media"][0]
         assert job["kind"] == "image" and job["round"] == 1 and job["state"] == "completed"
