@@ -5,6 +5,7 @@ from . import (  # noqa: F401 - 导入即注册
     brainstorm,
     collab,
     media,
+    office,
     reveal,
     review,
     revise,

@@ -25,6 +25,10 @@ export const STEP_LABELS = {
   ideate: '发散',
   expand: '拓展',
   organize: '整合成导图',
+  intake: '分诊派活',
+  handle: '办理',
+  check: '经理过目',
+  fix: '按意见修改',
 };
 export const MEDIA_LABELS = { image: '图片', speech: '语音', video: '视频' };
 const JOB_STATE = {
@@ -36,7 +40,7 @@ const JOB_STATE = {
   timeout: ['超时', 'bad'],
 };
 // 由统筹执行的步骤
-export const COORD_STEPS = new Set(['synthesize', 'decompose', 'assign', 'accept', 'merge', 'organize']);
+export const COORD_STEPS = new Set(['synthesize', 'decompose', 'assign', 'accept', 'merge', 'organize', 'intake', 'check']);
 // 协同流水线的子任务类型名（来自 /api/status 的 collab_kinds，不写死在前端）
 let KIND_LABELS_CFG = {};
 export function setKindLabels(map) {
@@ -332,7 +336,9 @@ export function feedItems(sv, ctx) {
   const sources = sourceIndex(sv);
   const toolRows = sv.tool_calls || [];
   const fileRows = (sv.files || []).filter((f) => f.latest);
-  const MAIN = new Set(['answer', 'revision', 'work', 'rework', 'merge']);
+  const MAIN = new Set(['answer', 'revision', 'work', 'rework', 'merge', 'office_work', 'office_fix']);
+  // 办公室模式：退回后的修改（step=fix）显示在「经理过目」之下
+  const inStep = (x, step) => x.step === step || (step === 'check' && x.step === 'fix');
   for (const t of tables) {
     cpAt((d, cp) => cp.kind === 'escalation' && d.table_no === t.table_no);
     if (t.table_no === 0) cpAt((d, cp) => cp.kind === 'cost' && d.table_no === 0);
@@ -348,7 +354,7 @@ export function feedItems(sv, ctx) {
         if (o.step !== 'style_gate') return null;
         return (parse(o.content)?.phase ?? 1) === 2 ? 'rework' : 'work';
       };
-      const outs = outputs.filter((o) => o.table_no === t.table_no && (o.step === step || gateStep(o) === step));
+      const outs = outputs.filter((o) => o.table_no === t.table_no && (inStep(o, step) || gateStep(o) === step));
       const live = ctx.live.table === t.table_no && ctx.live.step === step;
       cpAt((d) => d.table_no === t.table_no && d.step === step && !(step === 'media' && d.key));
       const mediaJobs = step === 'media' ? (sv.media || []).filter((j) => j.table_no === t.table_no && j.step === 'media') : [];
@@ -377,7 +383,7 @@ export function feedItems(sv, ctx) {
         const k = code || '';
         if (shown.has(k)) return;
         shown.add(k);
-        const mine = toolRows.filter((x) => x.table_no === t.table_no && x.step === step && (x.code || '') === k);
+        const mine = toolRows.filter((x) => x.table_no === t.table_no && inStep(x, step) && (x.code || '') === k);
         for (const x of mine) push(`tc${x.id}`, toolItem(x, names, sv.id));
       };
       outs.forEach((o, i) => {
@@ -385,11 +391,15 @@ export function feedItems(sv, ctx) {
         const html = output(o, names, lazy, sources[`${t.table_no}:${o.code}`]);
         if (html) push(`o${t.table_no}:${step}:${o.kind}:${o.code || ''}:${i}`, html);
         if (MAIN.has(o.kind)) {
-          const mine = fileRows.filter((f) => f.table_no === t.table_no && f.step === step && (f.code || '') === (o.code || ''));
+          const mine = fileRows.filter((f) => f.table_no === t.table_no && inStep(f, step) && (f.code || '') === (o.code || ''));
           if (mine.length) push(`f${t.table_no}:${step}:${o.code || ''}:${mine.map((f) => f.id).join()}`, fileBar(mine, sv.id));
         }
       });
-      for (const x of toolRows) if (x.table_no === t.table_no && x.step === step) showTools(x.code);
+      for (const x of toolRows) if (x.table_no === t.table_no && inStep(x, step)) showTools(x.code);
+      if (step === 'check') {
+        const html = officeDelivery(outputs.filter((o) => o.table_no === t.table_no), names, sources);
+        if (html) push(`od${t.table_no}:${outs.length}`, html);
+      }
     }
   }
   cpAt(() => true);
@@ -403,7 +413,7 @@ export function feedItems(sv, ctx) {
 
 function modeText(sv, ctx) {
   const tier = sv.tier === 'custom' ? ctx.customLabel : ctx.plans[sv.tier] || sv.tier;
-  const parts = [({ collab: '协同', solo: '个人', auto: '自动', brainstorm: '头脑风暴' }[sv.workflow] || '讨论'), tier];
+  const parts = [({ office: '办公室', collab: '协同', solo: '个人', auto: '自动', brainstorm: '头脑风暴' }[sv.workflow] || '讨论'), tier];
   if (sv.media_kind) parts.push(`输出${MEDIA_LABELS[sv.media_kind] || sv.media_kind}`);
   if (sv.anonymous) parts.push('匿名');
   return parts.join(' · ');
@@ -491,6 +501,8 @@ function output(o, names, lazy = new Map(), sources = null) {
   if (o.kind === 'review') return msg(sp, '互评', review(data, names, o.table_no));
   const collab = collabOutput(o, sp, data, names, sources);
   if (collab !== null) return collab;
+  const office = officeOutput(o, sp, data, names, sources);
+  if (office !== null) return office;
   if (o.kind === 'revision') {
     if (data.skipped) return sys('统筹', `${esc(sp.name)} 没有收到有效评审，沿用原答案`);
     const resp = data.responses
@@ -587,6 +599,45 @@ function collabOutput(o, sp, data, names, sources = null) {
   }
   if (o.kind === 'merge') return merged(t, data, names);
   return null;
+}
+
+const OFFICE_MODES = { single: '单人办', meeting: '开会', project: '项目分工' };
+
+function officeOutput(o, sp, data, names, sources = null) {
+  if (o.kind === 'office_intake') {
+    const who = names.member(data.assignee);
+    const how = OFFICE_MODES[data.mode] || data.mode;
+    const search = data.needs_search ? ' · 需要查资料' : '';
+    const why = data.by_rule
+      ? `<div class="meta">${esc(data.rule_reason || '按规则派活')}</div>`
+      : data.reason ? `<div class="meta">理由：${md(data.reason)}</div>` : '';
+    const brief = data.brief ? `<details class="more"><summary>工作说明</summary><div>${md(data.brief)}</div></details>` : '';
+    return msg(sp, '分诊派活', `<div class="bubble">建议<b>${esc(how)}</b>，派给 <b>${esc(who)}</b>${esc(search)}${why}</div>${brief}`);
+  }
+  if (o.kind === 'office_work') return msg(sp, '办理', `<div class="bubble">${cite(md(data.text), sources)}</div>`);
+  if (o.kind === 'office_check') {
+    if (data.degraded) return sys('经理', '过目没有完成，直接交付员工的成果', 'bad');
+    const pass = data.verdict === 'pass';
+    const issues = (data.issues || []).length ? `<ol>${data.issues.map((x) => `<li>${md(x)}</li>`).join('')}</ol>` : '';
+    return msg(sp, '过目', `<div class="bubble">${tag(pass ? '通过' : '退回修改一次', pass ? 'ok' : 'bad')}${data.note ? ` ${md(data.note)}` : ''}${issues}</div>`);
+  }
+  if (o.kind === 'office_fix') return msg(sp, '按意见修改', `<div class="bubble">${cite(md(data.text), sources)}</div>`);
+  return null;
+}
+
+/** 办公室模式的交付：经理过目后交给你的版本（退回改过的用修改版）。 */
+function officeDelivery(outs, names, sources) {
+  const check = outs.find((o) => o.kind === 'office_check');
+  const final = outs.find((o) => o.kind === 'office_fix') || outs.find((o) => o.kind === 'office_work');
+  if (!check || !final) return '';
+  const c = parse(check.content) || {};
+  if (c.verdict === 'revise' && final.kind !== 'office_fix' && !c.degraded) return ''; // 还在改
+  const d = parse(final.content) || {};
+  const who = names.member(final.code);
+  const sp = names.speaker(final.table_no, final.code);
+  const ai = sp.ai ? ` · ${esc(sp.ai)}` : '';
+  return `<div class="final"><h3>交付<small>${esc(who)} 办理${ai} · 经理${c.degraded ? '没有过目' : '已过目'}</small></h3>
+<div class="answer">${cite(md(d.text || ''), sources[`${final.table_no}:${final.code}`])}</div></div>`;
 }
 
 function toolSummary(x) {

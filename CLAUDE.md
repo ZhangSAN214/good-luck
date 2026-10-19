@@ -1,6 +1,6 @@
 # CLAUDE.md — Roundtable（圆桌）
 
-多个 AI 协作完成作业。长期目标见 `docs/REQUIREMENTS_v3.md`；当前范围以本文件和 `docs/PLAN.md` 为准（v1 已完成，v2 改版阶段 11–20 全部完成（19 媒体生成、20 收尾：限速与并发、README、CI），v2.1 阶段 21 协同流水线 + 昵称 / 塔罗牌代号 / 大米、22 参考图风格与图生图均已完成）。R17 办公室模式（AI 是员工、token 是工资，见 `docs/OFFICE.md`）O1 名册与工资单已完成，O2～O5 依次推进。
+多个 AI 协作完成作业。长期目标见 `docs/REQUIREMENTS_v3.md`；当前范围以本文件和 `docs/PLAN.md` 为准（v1 已完成，v2 改版阶段 11–20 全部完成（19 媒体生成、20 收尾：限速与并发、README、CI），v2.1 阶段 21 协同流水线 + 昵称 / 塔罗牌代号 / 大米、22 参考图风格与图生图均已完成）。R17 办公室模式（AI 是员工、token 是工资，见 `docs/OFFICE.md`）O1 名册与工资单、O2 经理分诊 + 单人办（默认方式）已完成，O3～O5 依次推进。
 界面样板：`docs/mockup.html`（v1 只实现其中文字圆桌相关部分）。
 按 `docs/PLAN.md` 的阶段推进，不要跳阶段，不要提前实现"后续扩展"里的功能。
 
@@ -100,7 +100,7 @@ roundtable stats                    # 各模型的历史贡献
 roundtable bench --max-usd 2          # 对比实验：个人 / 讨论 / 协同各跑同一批题，比正确率、花费、耗时
 roundtable show <id> --costs        # 每步预估与实际花费、每次调用的 token
 roundtable export <id> [-o 文件]     # 导出完整记录（UTF-8 带 BOM，含花费明细）
-roundtable ask '题目'                # 节电模式（便宜档全员）上桌（PowerShell 中题目用单引号）
+roundtable ask '题目'                # 默认办公室模式（节电档）：经理派一位员工办理、过目；--mode discussion 为全员讨论（PowerShell 中题目用单引号）
 roundtable ask --tier flagship --anonymous '题目'   # 全力模式（旗舰档全员）、匿名
 roundtable ask --mode collab '题目'  # 协同模式：拆分子任务、分工完成、合并
 roundtable ask --mode solo|brainstorm|auto '题目'   # 个人作答 / 头脑风暴（思维导图）/ 自动（分诊小组先给建议）

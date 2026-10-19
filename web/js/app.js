@@ -32,6 +32,16 @@ import { Pet } from './agent/pet.js';
 const $ = (q) => document.querySelector(q);
 const RESTING = new Set(['completed', 'stopped', 'failed', 'awaiting_confirmation', 'paused']);
 
+// 作答方式：每位使用者在本机记住上次的选择（只是便利，读不到就用默认的办公室模式）
+const WORKFLOW_KEY = 'roundtable.workflow';
+function savedWorkflow() {
+  try {
+    return localStorage.getItem(WORKFLOW_KEY);
+  } catch {
+    return null;
+  }
+}
+
 const S = {
   status: null, // /api/status
   budget: null,
@@ -43,7 +53,7 @@ const S = {
   session: null,
   tab: 'flow',
   tier: null, // 档位名或 custom
-  workflow: 'discussion', // discussion 讨论 / collab 协同 / solo 个人作答 / auto 自动（分诊小组先给建议）
+  workflow: savedWorkflow() || 'office', // 记住上次选的方式；office 办公室（经理派一位员工办理，默认）/ discussion 讨论 / collab 协同 / solo 个人作答 / auto 自动（分诊小组先给建议）
   anonymous: false,
   media: null, // 输出类型：null 文字 / image / speech / video（仅讨论模式）
   mediaTier: 'budget', // 媒体模型档位
@@ -227,15 +237,17 @@ function renderComposer() {
     .map(([k, label]) => `<button type="button" data-v="${esc(k)}" aria-pressed="${k === S.tier}">${esc(label)}</button>`)
     .join('');
   $('#anonymous').checked = S.anonymous;
-  const workflows = S.status?.workflows || { discussion: '讨论模式', collab: '协同模式', solo: '个人作答', brainstorm: '头脑风暴', auto: '自动' };
+  const workflows = S.status?.workflows || { office: '办公室', discussion: '讨论模式', collab: '协同模式', solo: '个人作答', brainstorm: '头脑风暴', auto: '自动' };
   $('#workflow').innerHTML = Object.entries(workflows)
-    .map(([k, label]) => `<button type="button" data-v="${esc(k)}" aria-pressed="${k === S.workflow}" title="${{ brainstorm: '让大家各自发散想法、互相拓展，统筹整合成思维导图，帮你拓展思路并选择方向', auto: '开始时由几位最便宜的模型给出建议（用哪种方式、难度），你确认后再开始；简单题不调用它们', collab: '统筹拆分子任务，成员自荐、分工完成、交叉审查，最后合并', solo: '只请一位成员直接回答：在所选档位里挑最便宜的，不互评、不汇总' }[k] || '全员各自作答，互评、修订后由统筹汇总'}">${esc(label)}</button>`)
+    .map(([k, label]) => `<button type="button" data-v="${esc(k)}" aria-pressed="${k === S.workflow}" title="${{ office: '经理看题后派一位合适的员工办理，经理过目，不合格退回改一次；只有需要时才查资料', brainstorm: '让大家各自发散想法、互相拓展，统筹整合成思维导图，帮你拓展思路并选择方向', auto: '开始时由几位最便宜的模型给出建议（用哪种方式、难度），你确认后再开始；简单题不调用它们', collab: '统筹拆分子任务，成员自荐、分工完成、交叉审查，最后合并', solo: '只请一位成员直接回答：在所选档位里挑最便宜的，不互评、不汇总' }[k] || '全员各自作答，互评、修订后由统筹汇总'}">${esc(label)}</button>`)
     .join('');
   renderMediaChoice();
   $('#manual').hidden = S.tier !== 'custom';
   const min = (S.status?.min_members ?? 2) + 1;
   $('#mode-hint').textContent =
-    S.tier === 'custom'
+    S.workflow === 'office'
+      ? `经理分诊后派一位员工办理并过目；预计超过 ${money(S.status?.office_threshold_usd ?? 0.05)} 先问你`
+      : S.tier === 'custom'
       ? `勾选至少 ${min} 个模型，全部上桌（其中一个当统筹）`
       : `该档位所有可用模型上桌；预计超过 ${money(S.status?.confirm_threshold_usd ?? 0.3)} 先问你`;
 }
@@ -244,10 +256,10 @@ function renderMediaChoice() {
   const info = S.status?.media;
   const kinds = info?.kinds || {};
   const collab = S.workflow === 'collab';
-  if (collab || ['solo', 'auto', 'brainstorm'].includes(S.workflow)) S.media = null; // 协同模式由统筹决定哪些子任务生成媒体；个人作答只出文字
+  if (collab || ['office', 'solo', 'auto', 'brainstorm'].includes(S.workflow)) S.media = null; // 协同模式由统筹决定哪些子任务生成媒体；个人作答只出文字
   const outputs = [[null, '文字'], ...Object.entries(kinds).map(([k, v]) => [k, v.label])];
-  if (['solo', 'auto', 'brainstorm'].includes(S.workflow)) {
-    const why = { auto: '自动模式先出建议，输出类型请在选定作答方式后再选', brainstorm: '头脑风暴输出思维导图和大纲' }[S.workflow] || '个人作答只输出文字';
+  if (['office', 'solo', 'auto', 'brainstorm'].includes(S.workflow)) {
+    const why = { office: '办公室模式先只出文字（员工可以用画图工具）', auto: '自动模式先出建议，输出类型请在选定作答方式后再选', brainstorm: '头脑风暴输出思维导图和大纲' }[S.workflow] || '个人作答只输出文字';
     $('#media').innerHTML = `<span class="hint" id="media-auto">${why}</span>`;
   } else if (collab) {
     // 协同模式不选输出类型：不显示一排灰按钮（容易误以为不能画图），直接说明
@@ -794,6 +806,11 @@ function bind() {
     const b = e.target.closest('button');
     if (!b) return;
     S.workflow = b.dataset.v;
+    try {
+      localStorage.setItem(WORKFLOW_KEY, S.workflow);
+    } catch {
+      // 隐私模式等存不了：只是下次回到默认
+    }
     renderComposer();
     renderLegend();
     scheduleEstimate();

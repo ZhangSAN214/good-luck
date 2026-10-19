@@ -89,6 +89,8 @@ class LineupBuilder:
             return rt.solo_pipeline
         if workflow == "brainstorm":
             return rt.brainstorm_pipeline
+        if workflow == "office":
+            return rt.office_pipeline
         return (plan.pipeline if plan else None) or rt.pipeline
 
     def build_solo(self, plan: PlanSpec, require_tags: Sequence[str] = ()) -> Lineup:
@@ -111,12 +113,59 @@ class LineupBuilder:
         )
         return Lineup((chosen.id,), None, tuple(self.pipeline(plan, "solo")))
 
+    def build_office(self, plan: PlanSpec | None) -> Lineup:
+        """办公室模式：主办经理 + 在岗员工。
+
+        经理是用户在 models.yaml 用 office_role: manager 指定的模型（不受档位限制），多位经理时
+        按统筹的轮换规则轮流主办；员工是所选档位里其余能上桌的可用模型（自选时为勾选的模型），
+        全部"在岗"入座，由经理分诊后只派其中一位干活（O2 单人办）。经理不兼任员工。
+        """
+        managers = [m for m in self.available if m.office_role == "manager"]
+        if not managers:
+            raise NotEnoughModels(
+                "办公室模式没有可用的经理：请在 models.yaml 给能用的模型设 office_role: manager"
+            )
+        manager = self.pick_coordinator(managers)
+        tiers = set(plan.tiers) if plan else None
+        staff = [
+            m
+            for m in self.available
+            if m.office_role != "manager" and (tiers is None or m.tier in tiers)
+        ]
+        if not staff:
+            label = f"「{plan.label}」" if plan else "自选阵容"
+            raise NotEnoughModels(f"{label}没有可用的员工")
+        absent = (
+            [
+                m.id
+                for m in self.config.models.enabled
+                if m.seat
+                and m.office_role != "manager"
+                and m.tier in tiers
+                and m.id not in {x.id for x in staff}
+            ]
+            if tiers
+            else []
+        )
+        if len(staff) > self.config.roundtable.seats:
+            raise NotEnoughModels(
+                f"在岗员工 {len(staff)} 位，超过座位数 {self.config.roundtable.seats}"
+            )
+        return Lineup(
+            tuple(m.id for m in staff),
+            manager.id,
+            tuple(self.pipeline(plan, "office")),
+            tuple(absent),
+        )
+
     def build(
         self, plan: PlanSpec, workflow: str = "discussion", require_tags: Sequence[str] = ()
     ) -> Lineup:
-        """档位全员：该档位的所有可用模型上桌。个人作答只挑一位。"""
+        """档位全员：该档位的所有可用模型上桌。个人作答只挑一位；办公室模式见 build_office。"""
         if workflow == "solo":
             return self.build_solo(plan, require_tags)
+        if workflow == "office":
+            return self.build_office(plan)
         tiers = set(plan.tiers)
         pool = [m for m in self.available if m.tier in tiers]
         seated = {m.id for m in pool}
@@ -132,6 +181,16 @@ class LineupBuilder:
         """自选：勾选的模型全部上桌；统筹可指定（必须是勾选的模型之一），否则按规则选。"""
         by_id = {m.id: m for m in self.available}
         pool = [by_id[i] for i in model_ids]
+        if workflow == "office":
+            # 自选：勾选的模型里非经理的为员工；经理仍由配置指定
+            picked = set(model_ids)
+            sub = LineupBuilder(
+                self.config,
+                [m for m in self.available if m.id in picked or m.office_role == "manager"],
+                self.rng,
+                recent_coordinators=self.recent_coordinators,
+            )
+            return sub.build_office(None)
         if workflow == "solo":
             if len(pool) != 1:
                 raise NotEnoughModels("个人作答只能勾选一个模型")

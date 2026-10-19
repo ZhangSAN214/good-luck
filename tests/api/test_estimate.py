@@ -19,11 +19,12 @@ def test_estimate_all_modes_and_tiers_without_calls():
         keys = {(o["workflow"], o["plan"]) for o in data["options"]}
         assert keys == {
             (w, p)
-            for w in ("discussion", "collab", "solo", "brainstorm")
+            for w in ("office", "discussion", "collab", "solo", "brainstorm")
             for p in ("budget", "flagship")
         }
         selected = [o for o in data["options"] if o["selected"]]
         assert {(o["workflow"], o["plan"]) for o in selected} == {
+            ("office", "budget"),
             ("discussion", "budget"),
             ("collab", "budget"),
             ("solo", "budget"),
@@ -33,7 +34,7 @@ def test_estimate_all_modes_and_tiers_without_calls():
             assert o["available"] and o["estimate_usd"] > 0 and o["max_usd"] >= o["estimate_usd"]
             assert {s["step"] for s in o["steps"]}
             assert o["members"] >= (1 if o["workflow"] == "solo" else 2)
-            assert o["over_threshold"] == (o["estimate_usd"] > data["confirm_threshold_usd"])
+            assert o["over_threshold"] == (o["estimate_usd"] > o["threshold_usd"])
             assert "lineup" in o  # 匿名关闭：显示模型
         collab = next(o for o in data["options"] if o["workflow"] == "collab")
         assert "decompose" in {s["step"] for s in collab["steps"]}

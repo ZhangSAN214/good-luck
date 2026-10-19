@@ -57,6 +57,7 @@ from roundtable.core.routing import (
     UserChoice,
     attachment_tokens,
     collab_advice,
+    confirm_threshold,
     detect_multi_media,
     preview_estimates,
 )
@@ -88,7 +89,12 @@ STEP_NAMES = {
     "media": "生成媒体",
     "style": "提取风格规范",
     "style_gate": "风格校验",
+    "intake": "经理分诊",
+    "handle": "员工办理",
+    "check": "经理过目",
+    "fix": "员工修改",
 }
+MODE_LABELS = {"single": "单人办", "meeting": "开会", "project": "项目分工"}
 MEDIA_NAMES = {"image": "图片", "speech": "语音", "video": "视频"}
 JOB_STATE = {
     "submitted": "已提交",
@@ -331,6 +337,9 @@ class CLI:
             if any(o.kind in ("ideas", "mindmap") for o in outputs):
                 self.print_brainstorm(outputs, table_no, details)
                 continue
+            if any(o.kind == "office_intake" for o in outputs):
+                self.print_office(outputs, table_no, details)
+                continue
             if details:
                 for o in outputs:
                     who = self.label(o.code, table_no)
@@ -540,8 +549,8 @@ class CLI:
         assessment, options = self.preview(question, choice, ids, seed=seed)
         cfg = self.rt.config.routing
         plan = choice.tier or cfg.default_plan
-        threshold = cfg.confirm_threshold_usd
         mode_names = {
+            "office": "办公室",
             "discussion": "讨论",
             "collab": "协同",
             "solo": "个人",
@@ -561,7 +570,11 @@ class CLI:
                 self.p(f"{head}：不可用（{reason}）")
                 continue
             e = o.estimate
-            over = "  超过确认门槛" if e.total_usd > threshold else ""
+            over = (
+                "  超过确认门槛"
+                if e.total_usd > confirm_threshold(self.rt.config, o.workflow)
+                else ""
+            )
             absent = f"，缺席 {len(o.lineup.absent)}" if o.lineup.absent else ""
             coord = " + 统筹" if o.lineup.coordinator else ""
             self.p(
@@ -718,6 +731,38 @@ class CLI:
             for i in r["issues"]:
                 where, what, fix = (self.t(i[k]) for k in ("location", "problem", "suggestion"))
                 self.p(f"     · [{i['severity']}] {where}：{what} → {fix}")
+
+    def print_office(self, outputs, table_no: int, details: bool) -> None:
+        """办公室模式：经理怎么派的活、员工的成果、经理过目的意见，最后是交付的版本。"""
+        by_kind = {o.kind: o for o in outputs}
+        intake = json.loads(by_kind["office_intake"].content)
+        who = self.label(intake["assignee"], table_no)
+        how = MODE_LABELS.get(intake["mode"], intake["mode"])
+        search = "，需要查资料" if intake.get("needs_search") else ""
+        self.p(f"\n【经理分诊】经理建议{how}，派给 {who}{search}")
+        if intake.get("by_rule"):
+            self.p(f"  （{intake.get('rule_reason') or '按规则派活'}）")
+        elif intake.get("reason"):
+            self.p(f"  理由：{self.t(intake['reason'])}")
+        if details and intake.get("brief"):
+            self.p(f"  工作说明：{self.t(intake['brief'])}")
+        work = by_kind.get("office_work")
+        fix = by_kind.get("office_fix")
+        check = by_kind.get("office_check")
+        if details and work and fix:
+            draft = json.loads(work.content)["text"]
+            self.p(f"\n【{self.label(work.code, table_no)} 的初稿】\n{self.t(draft)}")
+        if check:
+            c = json.loads(check.content)
+            verdict = "通过" if c["verdict"] == "pass" else "退回修改一次"
+            if c.get("degraded"):
+                verdict = "没有完成，直接交付"
+            self.p(f"\n【经理过目】{verdict}" + (f"：{self.t(c['note'])}" if c.get("note") else ""))
+            for i, issue in enumerate(c.get("issues") or [], 1):
+                self.p(f"  {i}. {self.t(issue)}")
+        final = fix or work
+        if final:
+            self.p(f"\n【交付】\n{self.t(json.loads(final.content)['text'])}")
 
     def print_brainstorm(self, outputs, table_no: int, details: bool) -> None:
         """头脑风暴：详情里列出每人的想法与拓展；最后给出整合后的大纲。"""
@@ -1105,10 +1150,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     ask.add_argument(
         "--mode",
-        choices=["discussion", "collab", "solo", "brainstorm", "auto"],
-        default="discussion",
+        choices=["office", "discussion", "collab", "solo", "brainstorm", "auto"],
+        default="office",
         help=(
-            "discussion 讨论（全员各自作答再互评汇总，默认）/ collab 协同（拆分子任务分工完成）"
+            "office 办公室（经理分诊后派给一位员工办理，经理过目，默认）"
+            "/ discussion 讨论（全员各自作答再互评汇总）/ collab 协同（拆分子任务分工完成）"
             "/ solo 个人作答（档位内挑最便宜的一位直接回答）"
             "/ brainstorm 头脑风暴（发散、拓展、整合成思维导图）"
             "/ auto 自动（先请分诊小组给建议，你确认后再开始）"

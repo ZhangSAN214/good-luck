@@ -186,3 +186,13 @@ def test_tool_steps_get_extra_calls_until_history_known():
         history=EstimateHistory(calls_per_slot={"answer": 1.2}),
     )
     assert known.total_usd == pytest.approx(base.total_usd * 1.2)  # 历史已包含工具轮次
+
+
+def test_office_prices_one_staff_and_manager_twice():
+    office = run(["intake", "handle", "check", "reveal"], n=5)
+    assert [s.step for s in office.steps] == ["intake", "handle", "check", "reveal"]
+    # 不管在岗几位，只有一位员工办理；比全员讨论便宜得多
+    assert office.total_usd == pytest.approx(
+        run(["intake", "handle", "check", "reveal"], n=2).total_usd, rel=0.2
+    )
+    assert office.total_usd < run(n=5).total_usd / 3

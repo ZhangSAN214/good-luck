@@ -8,6 +8,7 @@ from .decide import RoutingDecision
 from .panel import PanelResult
 
 WORKFLOW_NAMES = {
+    "office": "办公室",
     "solo": "个人作答",
     "discussion": "讨论模式",
     "collab": "协同模式",
@@ -17,7 +18,10 @@ WORKFLOW_NAMES = {
 
 def _people(decision: RoutingDecision) -> str:
     lineup = decision.lineup
-    text = f"{len(lineup.members)} 位组员 + 1 位统筹"
+    if "intake" in lineup.pipeline:  # 办公室模式：经理分诊后只派一位员工
+        text = f"经理 + {len(lineup.members)} 位在岗员工（派一位办理）"
+    else:
+        text = f"{len(lineup.members)} 位组员 + 1 位统筹"
     if lineup.absent:
         text += f"，{len(lineup.absent)} 个模型因没有可用渠道缺席"
     return text

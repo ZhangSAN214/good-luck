@@ -73,6 +73,10 @@ prompts:
   media_brief: v1        # 媒体输出：把题目改写成「写生成提示词」的任务
   media_review: v2       # 评审生成结果（图片 / 视频截帧）；v2：对照风格清单逐条判定
   style_extract: v1      # 风格规范提取：成员各自看参考图
+  office_intake: v1      # 办公室：经理分诊派活
+  office_handle: v1      # 办公室：员工办理
+  office_check: v1       # 办公室：经理过目
+  office_fix: v1         # 办公室：退回后员工改一次
   style_merge: v1        # 统筹合并成规范 + 清单
   style_guide: v1        # 风格规范，接在之后的每次调用上
   user_notes: v1         # 用户中途补充的意见，接在之后的每次调用上
@@ -111,6 +115,11 @@ step_params:
   merge: {max_tokens: 10000, reasoning: {effort: low}}
   style: {max_tokens: 1500, reasoning: {effort: low}}
   style_gate: {max_tokens: 1500, reasoning: {effort: low}}
+  # 办公室模式：经理的判断和把关要认真想（中等强度），员工办理同作答
+  intake: {max_tokens: 1500, reasoning: {effort: medium}}
+  handle: {max_tokens: 6000, reasoning: {max_tokens: 2000}}
+  check: {max_tokens: 2000, reasoning: {effort: medium}}
+  fix: {max_tokens: 6000, reasoning: {max_tokens: 2000}}
 
 # 长度保护：输出被长度上限截断（finish_reason=length）而可见文字很少 = 思考 token 挤占了正文。
 # 此时不原样重试：降低思考强度、提高输出上限（×factor，不超过 cap）再调用一次（单独记录、单独计费）。
@@ -149,6 +158,9 @@ pipeline: [answer, review, revise, synthesize, reveal]
 solo_pipeline: [answer, reveal]
 # 头脑风暴：每人独立发散 → 看别人的想法做拓展 → 统筹整合成思维导图
 brainstorm_pipeline: [ideate, expand, organize, reveal]
+# 办公室模式（O2：单人办）：经理分诊派活 → 员工办理 → 经理过目（不合格退回改一次）。
+# 经理建议开会 / 项目分工时，O2 先按单人办处理并注明（开会、分工在 O3、O4 上线）
+office_pipeline: [intake, handle, check, reveal]
 brainstorm: {max_ideas: 4, max_expansions: 3, max_branches: 6, max_ideas_per_branch: 6, max_next_steps: 5}
 collab_pipeline: [decompose, volunteer, assign, discuss, work, cross_review, rework, accept, merge, reveal]
 collab:
@@ -517,6 +529,9 @@ tools:
     review: [python, search, fetch]   # 互评 / 交叉审查：用来核算、核对来源
     cross_review: [python, search, fetch]
     merge: [python, write_file]   # 统筹整理交付文件
+    # 办公室模式：员工办理与修改；search / fetch 只在经理判断需要查资料时提供
+    handle: [python, write_file, generate_image, search, fetch]
+    fix: [python, write_file, generate_image, search, fetch]
   python:
     backend: auto             # wasm（Deno + Pyodide，python scripts/setup_sandbox.py 安装）/ docker / auto / off
     timeout_s: 60             # 每次运行的时限（含加载 numpy 等包）

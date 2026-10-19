@@ -29,8 +29,12 @@ class Answers:
 
 
 async def cli(env: Env, *argv: str, answers: Answers | None = None) -> tuple[int, str]:
+    """命令行默认是办公室模式；这些测试针对讨论模式，没写 --mode 时按讨论模式运行。"""
+    args = list(argv)
+    if args and args[0] == "ask" and "--mode" not in args:
+        args[1:1] = ["--mode", "discussion"]
     out = io.StringIO()
-    code = await run(list(argv), runtime=env.rt, out=out, ask=answers or Answers())
+    code = await run(args, runtime=env.rt, out=out, ask=answers or Answers())
     return code, out.getvalue()
 
 
@@ -560,3 +564,18 @@ async def test_mindmap_command_without_mindmap_explains():
     sid = re.search(r"会话：(\w+)", (await cli(env, "history"))[1])
     code, text = await cli(env, "mindmap", sid.group(1) if sid else "x")
     assert code == 2 or "没有思维导图" in text
+
+
+async def test_ask_defaults_to_office_mode():
+    """不写 --mode 时是办公室模式：经理派一位员工办理，经理过目后交付。"""
+    env = Env(confirm_threshold_usd=100.0)
+    out = io.StringIO()
+    code = await run(["ask", SHORT, "--seed", "3"], runtime=env.rt, out=out, ask=Answers("n"))
+    text = out.getvalue()
+    assert code == 0, text
+    assert "【经理分诊】" in text and "【经理过目】通过" in text and "【交付】" in text
+    assert "最大值 2，最小值 -2" in text.split("【交付】")[1]
+    assert "按规则派活" not in text  # 经理的分诊可用
+    # 经理两次（分诊、过目），只有一位员工办理
+    assert len(env.models_called("办公室的经理")) == 2
+    assert len(env.models_called("办公室的员工")) == 1

@@ -121,6 +121,11 @@ def serve():
 @pytest.fixture
 def page(browser):
     ctx = browser.new_context(viewport={"width": 1400, "height": 900})
+    # 这些端到端测试多数针对讨论模式：预先记住"讨论模式"（办公室模式的测试会清掉它）
+    ctx.add_init_script(
+        "try { if (!localStorage.getItem('roundtable.workflow'))"
+        " localStorage.setItem('roundtable.workflow', 'discussion') } catch {}"
+    )
     pg = ctx.new_page()
     pg.route("https://fonts.googleapis.com/**", lambda r: r.abort())
     pg.route("https://fonts.gstatic.com/**", lambda r: r.abort())

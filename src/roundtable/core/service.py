@@ -35,6 +35,7 @@ from roundtable.core.routing import (
     UserChoice,
     attachment_tokens,
     collab_advice,
+    confirm_threshold,
     detect_multi_media,
     preview_estimates,
 )
@@ -112,6 +113,7 @@ class RoundtableService:
             "default_plan": cfg.routing.default_plan,
             "custom_label": cfg.routing.custom.label,
             "workflows": {
+                "office": "办公室",
                 "discussion": "讨论模式",
                 "collab": "协同模式",
                 "solo": "个人作答",
@@ -127,6 +129,8 @@ class RoundtableService:
             "media": self._media_status(),
             "min_members": cfg.roundtable.min_members,
             "confirm_threshold_usd": cfg.routing.confirm_threshold_usd,
+            # 办公室模式单人办的确认门槛（每件事的工资上限）
+            "office_threshold_usd": cfg.roundtable.office.task_caps_usd.single,
             "max_members": cfg.roundtable.seats,
             "code_prefix": cfg.personas.code_prefix,
             "rice": cfg.roundtable.display.rice.model_dump(),
@@ -399,7 +403,7 @@ class RoundtableService:
             workflows=(workflow,) if workflow else WORKFLOWS,
             custom=custom,
         )
-        threshold = cfg.routing.confirm_threshold_usd
+        threshold = confirm_threshold(cfg, workflow or "discussion")
         selected_plan = tier or cfg.routing.default_plan
         scrub = self.rt.scrubber.scrub if anonymous else (lambda t: t)
         out = []
@@ -419,7 +423,8 @@ class RoundtableService:
                     estimate_usd=e.total_usd,
                     max_usd=e.max_usd,
                     calibrated=e.calibrated,
-                    over_threshold=e.total_usd > threshold,
+                    over_threshold=e.total_usd > confirm_threshold(cfg, o.workflow),
+                    threshold_usd=confirm_threshold(cfg, o.workflow),
                     steps=[
                         {"step": st.step, "cost_usd": st.cost_usd, "max_usd": st.max_usd}
                         for st in e.steps

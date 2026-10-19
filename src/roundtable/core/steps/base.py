@@ -389,6 +389,7 @@ async def call_model(
     followup: Sequence[Message] = (),
     extra_params: dict[str, Any] | None = None,
     base_params: dict[str, Any] | None = None,
+    exclude_tools: Sequence[str] = (),
 ) -> CallOutcome:
     """调用一次并记录（成功或失败都记录）。渠道层已经负责重试和切换。
 
@@ -397,6 +398,8 @@ async def call_model(
     """
     messages = [*ctx.messages_for(prompt, model_id), *followup]
     tools = ctx.toolbox.tools_for(step) if ctx.toolbox else []
+    # exclude_tools：这次调用不提供的工具（如办公室模式中经理判断不需要查资料时去掉 search / fetch）
+    tools = [t for t in tools if t not in exclude_tools]
     if tools:
         from .tooluse import call_with_tools
 
@@ -681,6 +684,7 @@ def check_pipelines(config: AppConfig) -> None:
         "roundtable.collab_pipeline": config.roundtable.collab_pipeline,
         "roundtable.solo_pipeline": config.roundtable.solo_pipeline,
         "roundtable.brainstorm_pipeline": config.roundtable.brainstorm_pipeline,
+        "roundtable.office_pipeline": config.roundtable.office_pipeline,
     }
     for name, plan in config.routing.plans.items():
         if plan.pipeline is not None:
@@ -700,6 +704,8 @@ def check_pipelines(config: AppConfig) -> None:
 
 def restore_state(repo: Repository, session_id: str, table_no: int) -> TableState:
     """根据已保存的产出重建单桌状态（暂停后恢复时使用）。"""
+    from .office import restore_office
+
     state = TableState()
     for o in repo.outputs(session_id, table_no=table_no):
         kind, code = o["kind"], o["code"]
@@ -719,6 +725,8 @@ def restore_state(repo: Repository, session_id: str, table_no: int) -> TableStat
             state.effort[record.key] = record
         elif kind == "style_spec":
             state.style = StyleSpec.from_dict(json.loads(o["content"]))
+        elif restore_office(state, kind, code, json.loads(o["content"])):
+            pass
         elif not restore_brain(state.brain, kind, code, json.loads(o["content"])):
             restore_collab(state, kind, code, json.loads(o["content"]))
     return state

@@ -88,6 +88,12 @@ class Env:
             return json.dumps({"items": []})
         if "合并成一份完整成果" in system:
             return merge_reply("high" if self.resolved else "low")(model, messages)
+        if "办公室的经理" in system and "派给合适的员工" in system:  # 办公室：派给名单第一位
+            first = messages[-1].content.split("<staff>")[1].strip().splitlines()[0]
+            who = first.removeprefix("- ").split("｜")[0]
+            return json.dumps({"mode": "single", "assignee": who, "brief": "写清推导"})
+        if "办公室的经理" in system and "过目" in system:
+            return json.dumps({"verdict": "pass", "issues": [], "note": "核对了结论"})
         return default_reply(model, messages)
 
     def models_called(self, step_marker: str) -> list[str]:

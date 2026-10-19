@@ -263,6 +263,7 @@ def test_twelve_seats_do_not_overlap(serve, browser):
     page.route("https://fonts.gstatic.com/**", lambda r: r.abort())
     try:
         page.goto(srv.url)
+        page.click("#workflow button[data-v='discussion']")  # 全员上桌的是讨论模式
         ask(page, MEDIUM)
         wait_done(page)
         assert page.locator("#stage.dense").count() == 1

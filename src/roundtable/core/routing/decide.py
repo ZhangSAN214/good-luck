@@ -27,7 +27,13 @@ from .planner import PlannerResult, run_planner
 from .triage import Question, triage
 
 CUSTOM = "custom"
-WORKFLOWS = ("discussion", "collab", "solo", "brainstorm")  # 讨论 / 协同 / 个人作答 / 头脑风暴
+WORKFLOWS = (
+    "office",
+    "discussion",
+    "collab",
+    "solo",
+    "brainstorm",
+)  # 办公室 / 讨论 / 协同 / 个人作答 / 头脑风暴
 AUTO = "auto"  # 自动：先请分诊小组给建议，用户确认后改成上面三种之一
 MEDIA_KINDS = KINDS
 Source = Literal["rule", "model", "default"]
@@ -57,9 +63,9 @@ class UserChoice:
             raise RoutingError(
                 "协同模式不需要选择输出类型：拆分子任务时统筹会决定哪些子任务要生成图片、语音或视频"
             )
-        if self.media is not None and self.workflow in ("solo", "brainstorm"):
+        if self.media is not None and self.workflow in ("solo", "brainstorm", "office"):
             raise RoutingError(
-                "个人作答和头脑风暴不支持选择输出类型，请用讨论模式生成图片、语音或视频"
+                "个人作答、头脑风暴和办公室模式不支持选择输出类型，请用讨论模式生成图片、语音或视频"
             )
         if self.media_tier not in (None, "budget", "flagship"):
             raise RoutingError(f"未知的媒体档位 {self.media_tier!r}，可选：budget / flagship")
@@ -261,6 +267,13 @@ def _route_price(router: ChannelRouter, model: ModelSpec) -> Price:
     """该模型当前会首先使用的渠道的价格。"""
     usable = router.plan(model.id).usable
     return model.price_for(usable[0]) if usable else model.price
+
+
+def confirm_threshold(config: AppConfig, workflow: str) -> float:
+    """执行前确认的门槛：办公室模式用"单人办"的工资上限（O2 只有单人办），其余用单题确认门槛。"""
+    if workflow == "office":
+        return config.roundtable.office.task_caps_usd.single
+    return config.routing.confirm_threshold_usd
 
 
 def answer_tokens(config: AppConfig, a: Assessment) -> int:
@@ -693,7 +706,7 @@ async def route_question(
         estimate=estimate,
         options=options,
         escalate_to=escalate_to,
-        confirm_threshold_usd=routing.confirm_threshold_usd,
+        confirm_threshold_usd=confirm_threshold(config, choice.workflow),
     )
 
 
@@ -790,7 +803,7 @@ def escalate(
         estimate=estimate,
         options={escalate_to: PlanOption(plan.label, True, estimate)},
         escalate_to=plan.escalate_to,
-        confirm_threshold_usd=config.routing.confirm_threshold_usd,
+        confirm_threshold_usd=confirm_threshold(config, choice.workflow),
         escalated_from=from_plan,
         escalation_reason=reason,
     )

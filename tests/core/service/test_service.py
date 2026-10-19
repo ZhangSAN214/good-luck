@@ -264,6 +264,7 @@ async def test_collab_session_over_service():
     assert data["tables"][0]["pipeline"][0] == "decompose"
     assert leaks(env, data) == [] and leaks(env, events) == []
     assert svc.status()["workflows"] == {
+        "office": "办公室",
         "discussion": "讨论模式",
         "collab": "协同模式",
         "solo": "个人作答",
@@ -354,7 +355,13 @@ def test_status_lists_auto_and_estimate_accepts_it_as_all_modes():
     env, svc = make()
     assert "auto" in svc.status()["workflows"]
     est = svc.estimate("求导数 f(x)=x^2", workflow="auto", seed=1)
-    assert {o["workflow"] for o in est["options"]} == {"discussion", "collab", "solo", "brainstorm"}
+    assert {o["workflow"] for o in est["options"]} == {
+        "office",
+        "discussion",
+        "collab",
+        "solo",
+        "brainstorm",
+    }
 
 
 # --- 办公室：名册与工资单 -----------------------------------------------------------

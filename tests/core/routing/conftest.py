@@ -24,6 +24,9 @@ POOL = [
     ("f5", "V6", "flagship", ["research"], 1.0, 4.0),
 ]
 
+# 办公室模式的经理（其余为员工）；只在办公室模式生效
+MANAGERS = ("f1", "f2")
+
 
 # 媒体模型（不上桌）：图片 / 语音 / 转写 / 视频，各有便宜档与高质量档
 MEDIA_MODELS = [
@@ -69,6 +72,7 @@ def models_config(pool=POOL, disabled=(), with_media=False) -> ModelsConfig:
                     "price": {"input": pin, "output": pout},
                     "enabled": mid not in disabled,
                     "seat": tier is not None,  # 没有档位的是工具模型（如图像生成），不上桌
+                    "office_role": "manager" if mid in MANAGERS else "staff",
                     "routes": [{"channel": "c", "model": mid}],
                 }
                 for mid, vendor, tier, tags, pin, pout in pool

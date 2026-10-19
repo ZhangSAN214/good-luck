@@ -32,6 +32,7 @@ from roundtable.core.routing import (
     UserChoice,
     answer_tokens,
     attachment_tokens,
+    confirm_threshold,
     cost_card,
     escalate,
     escalation_card,
@@ -488,7 +489,7 @@ class Orchestrator:
             estimate=estimate,
             options={},
             escalate_to=cfg.routing.plans[plan_name].escalate_to,
-            confirm_threshold_usd=cfg.routing.confirm_threshold_usd,
+            confirm_threshold_usd=confirm_threshold(cfg, row["workflow"]),
         )
         self._create_table(sid, table_no, decision, status="approved", replace_existing=True)
         repo.save_routing(
