@@ -92,6 +92,8 @@ class Env:
             first = messages[-1].content.split("<staff>")[1].strip().splitlines()[0]
             who = first.removeprefix("- ").split("｜")[0]
             return json.dumps({"mode": "single", "assignee": who, "brief": "写清推导"})
+        if "你在一个群聊里" in system:  # 群聊：回一句短话
+            return f"收到，我是 {model} 的模型，我们聊聊。"
         if "办公室的经理" in system and "过目" in system:
             return json.dumps({"verdict": "pass", "issues": [], "note": "核对了结论"})
         return default_reply(model, messages)

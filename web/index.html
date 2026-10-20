@@ -14,10 +14,11 @@
 <body>
 <div class="app">
   <header class="top">
-    <div class="brand"><h1>圆桌</h1><span class="sim">全员上桌 · 文字圆桌</span></div>
+    <div class="brand"><h1>圆桌</h1><span class="sim">AI 办公室 · token 就是工资</span></div>
     <nav class="seg entries" id="entries" aria-label="入口（Alt+1 / 2 / 3）">
       <button type="button" data-m="work" aria-pressed="true">办公室</button>
       <button type="button" data-m="home" aria-pressed="false">公寓楼</button>
+      <button type="button" data-m="chat" aria-pressed="false">群聊</button>
     </nav>
     <div class="ctrls" id="workctrls">
       <button class="btn" id="new" type="button">新题目</button>
@@ -28,6 +29,7 @@
   </header>
 
   <section class="home view" id="home" hidden aria-label="公寓楼"></section>
+  <section class="gchat view" id="gchat" hidden aria-label="群聊"></section>
 
   <div class="main" id="main">
     <div class="stagecol">

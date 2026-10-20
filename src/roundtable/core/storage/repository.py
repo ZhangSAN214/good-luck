@@ -1024,6 +1024,60 @@ class Repository:
         ).fetchall()
         return [dict(r) for r in rows]
 
+    # --- 群聊 ------------------------------------------------------------------
+
+    def chat_session(self, room: str) -> str:
+        """群聊对应的隐藏会话（workflow = 'chat'）：成员发言的调用挂在这里，计入预算和工资。"""
+        question = f"群聊：{room}"
+        row = self._exec(
+            "SELECT id FROM sessions WHERE workflow = 'chat' AND question = ? LIMIT 1", (question,)
+        ).fetchone()
+        if row:
+            return row["id"]
+        return self.create_session(question, seed=0, anonymous=False, workflow="chat")
+
+    def add_chat_message(
+        self,
+        room: str,
+        author: str,
+        text: str,
+        *,
+        model_id: str | None = None,
+        reply_to: int | None = None,
+        cost_usd: float = 0.0,
+    ) -> dict[str, Any]:
+        cur = self._exec(
+            "INSERT INTO chat_messages (room, author, model_id, text, reply_to, cost_usd,"
+            " created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (room, author, model_id, text, reply_to, cost_usd, self.clock()),
+        )
+        row = self._exec("SELECT * FROM chat_messages WHERE id = ?", (cur.lastrowid,)).fetchone()
+        return dict(row)
+
+    def chat_messages(
+        self, room: str, *, after: int = 0, limit: int = 200, query: str | None = None
+    ) -> list[dict[str, Any]]:
+        """id 大于 after 的消息（按时间先后）；有 query 时只返回包含它的消息（最近的 limit 条）。"""
+        sql = "SELECT * FROM chat_messages WHERE room = ? AND id > ?"
+        params: list[Any] = [room, after]
+        if query:
+            sql += " AND instr(text, ?) > 0"
+            params.append(query)
+        rows = self._exec(
+            f"SELECT * FROM ({sql} ORDER BY id DESC LIMIT ?) ORDER BY id", (*params, limit)
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def clear_chat(self, room: str) -> int:
+        """一键清空：删掉聊天记录，并抹掉对应调用里存的消息原文（花费记录保留，预算照算）。"""
+        session_id = self.chat_session(room)
+        with self._tx():
+            n = self.conn.execute("DELETE FROM chat_messages WHERE room = ?", (room,)).rowcount
+            self.conn.execute(
+                "UPDATE calls SET input = '[]', output = NULL WHERE session_id = ?", (session_id,)
+            )
+        return n
+
     def spent_by_model(self, start: datetime, end: datetime) -> dict[str, dict[str, float]]:
         """[start, end) 内按模型汇总的调用次数、token 与花费（办公室模式的"已领工资"）。"""
         rows = self._exec(
@@ -1113,6 +1167,7 @@ class Repository:
             " r.difficulty, r.plan,"
             " (SELECT COALESCE(SUM(cost_usd), 0) FROM calls c WHERE c.session_id = s.id) AS cost"
             " FROM sessions s LEFT JOIN routing_records r ON r.session_id = s.id"
+            " WHERE s.workflow != 'chat'"
             " ORDER BY s.created_at DESC LIMIT ?",
             (limit,),
         ).fetchall()

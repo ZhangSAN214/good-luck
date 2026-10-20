@@ -68,6 +68,7 @@ def test_repo_config_loads_with_defaults():
         "office_intake",
         "office_handle",
         "office_check",
+        "chat",
         "office_fix",
         "style_merge",
         "user_notes",

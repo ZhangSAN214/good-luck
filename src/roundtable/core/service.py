@@ -21,6 +21,7 @@ from roundtable.core.allocation import coordinator_name, display_name
 from roundtable.core.attachments import Attachment, UploadError, ingest
 from roundtable.core.attachments.detect import TYPES as UPLOAD_TYPES
 from roundtable.core.budget.guard import month_window
+from roundtable.core.chat import GroupChat
 from roundtable.core.media import KIND_LABELS, KINDS, MediaService
 from roundtable.core.members_art import load_members, mime_of, resolve_file
 from roundtable.core.notes import NoteError, check_can_add, clean_note
@@ -50,6 +51,7 @@ log = logging.getLogger(__name__)
 RESTING = frozenset({"completed", "stopped", "failed", "awaiting_confirmation", "paused"})
 REVEALABLE = frozenset({"completed", "stopped", "failed"})
 MAX_QUESTION_CHARS = 20_000
+MAX_CHAT_CHARS = 2000
 # 公寓楼：进行中的会话这么久没有更新就不算在上班（服务意外退出后留下的 running）
 WORKING_WINDOW_H = 3
 
@@ -75,9 +77,11 @@ class RoundtableService:
         self.orc = Orchestrator(runtime, on_event=self._publish)
         self._subscribers: dict[str, set[asyncio.Queue[dict[str, Any]]]] = {}
         self._tasks: dict[str, asyncio.Task[None]] = {}
+        self.chat = GroupChat(runtime)
+        self._chat_tasks: set[asyncio.Task[Any]] = set()
 
     async def aclose(self) -> None:
-        for task in list(self._tasks.values()):
+        for task in [*self._tasks.values(), *self._chat_tasks]:
             task.cancel()
             with contextlib.suppress(asyncio.CancelledError, Exception):
                 await task
@@ -294,6 +298,48 @@ class RoundtableService:
             "residents": [asdict(r) for r in b.residents],
             "hidden_meetings": b.hidden_meetings,
         }
+
+    # --- 群聊 ----------------------------------------------------------------------
+
+    def chat_view(self, after: int = 0, query: str | None = None) -> dict[str, Any]:
+        """群成员、消息（id 大于 after 的；有 query 时为搜索结果）与正在输入的成员。"""
+        members = self.chat.members()
+        names = {m.id: m.name for m in members} | {"user": "我", "system": "系统"}
+        rows = self.rt.repo.chat_messages(self.chat.room, after=after, query=query or None)
+        return {
+            "members": [asdict(m) for m in members],
+            "messages": [
+                {
+                    "id": r["id"],
+                    "author": r["author"],
+                    "name": names.get(r["author"], r["author"]),
+                    "text": r["text"],
+                    "reply_to": r["reply_to"],
+                    "cost_usd": r["cost_usd"],
+                    "created_at": r["created_at"],
+                }
+                for r in rows
+            ],
+            "typing": list(self.chat.typing),
+        }
+
+    async def chat_post(self, text: str) -> dict[str, Any]:
+        """用户发一条消息；被选中的成员在后台依次回应（前端轮询 chat_view 拿到）。"""
+        text = (text or "").strip()
+        if not text:
+            raise ServiceError("消息不能为空")
+        if len(text) > MAX_CHAT_CHARS:
+            raise ServiceError(f"消息太长（最多 {MAX_CHAT_CHARS} 字）")
+        msg, speakers = self.chat.post(text)
+        if speakers:
+            task = asyncio.get_running_loop().create_task(self.chat.replies(msg["id"], speakers))
+            self._chat_tasks.add(task)
+            task.add_done_callback(self._chat_tasks.discard)
+        return {"id": msg["id"], "speakers": [m.name for m in speakers]}
+
+    def chat_clear(self) -> dict[str, Any]:
+        """一键清空聊天记录（花费记录保留，预算照算）。"""
+        return {"deleted": self.rt.repo.clear_chat(self.chat.room)}
 
     def payslip(self, session_id: str) -> dict[str, Any]:
         """一件事的工资单：每位组员 / 统筹各领多少，外包（搜索、媒体、规划员等）另列。

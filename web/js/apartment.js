@@ -57,11 +57,12 @@ export function whereText(r, dormName) {
 }
 
 export class Apartment {
-  constructor(root, { api, now = () => new Date(), openSession = null } = {}) {
+  constructor(root, { api, now = () => new Date(), openSession = null, chatWith = null } = {}) {
     this.root = root;
     this.api = api;
     this.now = now;
     this.openSession = openSession;
+    this.chatWith = chatWith;
     this.art = null;
     this.data = null;
     this.selected = null;
@@ -152,7 +153,8 @@ export class Apartment {
       h += `<div class="card" id="resident-card"><div class="who">${m?.images?.avatar_128 ? `<img src="${esc(m.images.avatar_128)}" alt="">` : ''}<div><b>${esc(m?.display || sel.name)}</b><div class="hint">${esc(ROLE[sel.role] || sel.role)} · 住 ${esc(dorms[sel.dorm] || '')}</div></div></div>`;
       h += `<p>${esc(whereText(sel, dorms[sel.dorm]))}</p>`;
       h += `<p class="hint">本月工资 $${Number(sel.month_paid_usd || 0).toFixed(4)} · ${sel.model_ids.length} 种工作模式</p>`;
-      if (sel.session_id) h += `<button type="button" class="btn" data-open="${esc(sel.session_id)}">去看 TA 在办的事</button>`;
+      if (sel.session_id) h += `<button type="button" class="btn" data-open="${esc(sel.session_id)}">去看 TA 在办的事</button> `;
+      if (this.chatWith) h += `<button type="button" class="btn" data-chat="${esc(sel.name)}">在群聊里 @ TA</button>`;
       h += '</div>';
     }
     h += '<ul class="roster">';
@@ -189,6 +191,8 @@ export class Apartment {
   onClick(e) {
     const open = e.target.closest('[data-open]');
     if (open && this.openSession) return this.openSession(open.dataset.open);
+    const talk = e.target.closest('[data-chat]');
+    if (talk && this.chatWith) return this.chatWith(talk.dataset.chat);
     const r = e.target.closest('[data-r]');
     if (!r) return;
     this.selected = this.selected === r.dataset.r ? null : r.dataset.r;

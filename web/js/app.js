@@ -29,6 +29,7 @@ import {
 } from './view.js';
 import { Pet } from './agent/pet.js';
 import { Apartment } from './apartment.js';
+import { GroupChat } from './groupchat.js';
 
 const $ = (q) => document.querySelector(q);
 const RESTING = new Set(['completed', 'stopped', 'failed', 'awaiting_confirmation', 'paused']);
@@ -75,11 +76,16 @@ function freshLive() {
 
 // 网页小人：匿名且未揭晓的会话里不出现（启动时先不显示，确定当前会话后再决定）
 const pet = new Pet({ labels: STEP_LABELS, goto: gotoDiscussion });
+const gchat = new GroupChat($('#gchat'), { api: { get: API.getChat, post: API.postChat, clear: API.clearChat } });
 const home = new Apartment($('#home'), {
   api: API.getApartment,
   openSession: async (sid) => {
     setEntry('work');
     await open(sid);
+  },
+  chatWith: (name) => {
+    setEntry('chat');
+    gchat.insertMention(name);
   },
 });
 // 点气泡 / 菜单「跳到讨论」：滚到最新的讨论内容
@@ -764,12 +770,12 @@ function typing(el) {
   return !!el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName));
 }
 
-// --- 入口：办公室 / 公寓楼 ------------------------------------------------------------
+// --- 入口：办公室 / 公寓楼 / 群聊 ------------------------------------------------------------
 
-const ENTRIES = ['work', 'home'];
+const ENTRIES = ['work', 'home', 'chat'];
 let entry = 'work';
 
-/** 切换入口。办公室是原来的界面；公寓楼是只读的像素剖面图。地址栏 #m=home 刷新后回到原入口。 */
+/** 切换入口。办公室是原来的界面；公寓楼是只读的像素剖面图；群聊和成员聊天。地址栏 #m=home / #m=chat 刷新后回到原入口。 */
 function setEntry(m) {
   if (!ENTRIES.includes(m)) m = 'work';
   entry = m;
@@ -777,19 +783,18 @@ function setEntry(m) {
   $('#main').hidden = m !== 'work';
   $('#workctrls').hidden = m !== 'work';
   $('#meter').hidden = m !== 'work';
-  if (m === 'home') {
-    home.show();
-    history.replaceState(null, '', '#m=home');
-  } else {
-    home.hide();
-    if (location.hash.startsWith('#m=')) history.replaceState(null, '', S.sid ? `#s=${S.sid}` : location.pathname);
-  }
+  if (m === 'home') home.show();
+  else home.hide();
+  if (m === 'chat') gchat.show();
+  else gchat.hide();
+  if (m !== 'work') history.replaceState(null, '', `#m=${m}`);
+  else if (location.hash.startsWith('#m=')) history.replaceState(null, '', S.sid ? `#s=${S.sid}` : location.pathname);
 }
 
 /**
  * 全局快捷键（不在输入框里时）：
  * / 或 Ctrl+K 聚焦题目输入框；Esc 离开输入框；1～9 选择等待确认卡片的对应选项；
- * N 新题目；Alt+1 / Alt+2 切换办公室 / 公寓楼。输入框里只处理 Esc、Ctrl+K 与 Alt+数字。
+ * N 新题目；Alt+1 / 2 / 3 切换办公室 / 公寓楼 / 群聊。输入框里只处理 Esc、Ctrl+K 与 Alt+数字。
  */
 function shortcut(e) {
   if (composing(e) || e.defaultPrevented) return;
@@ -1012,6 +1017,7 @@ async function init() {
   pet.setAllowed(false);
   pet.setMembers(art);
   home.setArt(art);
+  gchat.setArt(art);
   renderComposer();
   renderPicks();
   render();

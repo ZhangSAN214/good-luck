@@ -69,6 +69,12 @@ class Note(BaseModel):
     text: str
 
 
+class ChatBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    text: str
+
+
 class Respond(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -146,6 +152,18 @@ def create_app(service: RoundtableService | None = None) -> FastAPI:
     @app.get("/api/office")
     async def office(request: Request) -> dict[str, Any]:
         return svc(request).office()
+
+    @app.get("/api/chat")
+    async def chat(request: Request, after: int = 0, q: str | None = None) -> dict[str, Any]:
+        return svc(request).chat_view(after, q)
+
+    @app.post("/api/chat", status_code=202)
+    async def chat_post(request: Request, body: ChatBody) -> dict[str, Any]:
+        return await svc(request).chat_post(body.text)
+
+    @app.delete("/api/chat")
+    async def chat_clear(request: Request) -> dict[str, Any]:
+        return svc(request).chat_clear()
 
     @app.get("/api/apartment")
     async def apartment(request: Request, hour: int, weekday: int) -> dict[str, Any]:

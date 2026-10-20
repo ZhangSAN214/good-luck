@@ -78,3 +78,45 @@
   .home .tenant{width:42px;height:54px;margin-left:-21px}
   .home .tenant img{width:42px;height:42px}
 }
+
+/* ---------- 群聊 ---------- */
+.gchat{display:grid;grid-template-columns:200px minmax(0,1fr);gap:12px;height:100%;min-height:0}
+.gc-members{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px;overflow:auto}
+.gc-members h3{margin:0 0 8px;font-size:14px}
+.gc-members ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:2px}
+.gc-members button{width:100%;display:flex;align-items:center;gap:8px;border:0;background:none;padding:4px 6px;border-radius:8px;text-align:left}
+.gc-members button:hover{background:var(--surface-2)}
+.gc-members button.off{opacity:.55}
+.gc-main{display:flex;flex-direction:column;min-height:0;background:var(--surface);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.gc-head{display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+.gc-head b{margin-right:auto}
+.gc-head input{border:1px solid var(--line);border-radius:8px;padding:3px 8px;background:var(--surface-2);width:180px;max-width:100%}
+.gc-feed{flex:1;overflow:auto;padding:12px;display:flex;flex-direction:column;gap:10px;background:var(--surface-2)}
+.gc-msg{display:flex;gap:8px;align-items:flex-start;max-width:min(80%,640px)}
+.gc-msg.me{align-self:flex-end;flex-direction:row-reverse}
+.gc-av{width:34px;height:34px;border-radius:50%;flex:none;object-fit:cover}
+.gc-av.ini{display:grid;place-items:center;color:#fff;font-weight:700;font-size:14px}
+.gc-body{display:flex;flex-direction:column;min-width:0}
+.gc-msg.me .gc-body{align-items:flex-end}
+.gc-name{font-size:12px;color:var(--muted)}
+.gc-bub{background:var(--surface);border:1px solid var(--line);border-radius:4px 12px 12px 12px;padding:6px 10px;white-space:normal;overflow-wrap:anywhere}
+.gc-msg.me .gc-bub{background:var(--ink);color:var(--surface);border-color:var(--ink);border-radius:12px 4px 12px 12px}
+.gc-bub .at{color:var(--brass-ink)}
+.gc-msg.me .gc-bub .at{color:var(--brass-line)}
+.gc-msg time{font-size:11px;color:var(--muted)}
+.gc-sys{align-self:center;font-size:12px;color:var(--muted);background:var(--surface);border-radius:999px;padding:1px 10px}
+.gc-typing{padding:2px 14px;font-size:12px;color:var(--muted)}
+.gc-compose{position:relative;display:flex;gap:8px;padding:10px 12px;border-top:1px solid var(--line);align-items:flex-end}
+.gc-compose textarea{flex:1;resize:none;border:1px solid var(--line);border-radius:8px;padding:6px 10px;background:var(--surface-2);min-height:44px;max-height:160px}
+.gc-suggest{position:absolute;bottom:100%;left:12px;background:var(--surface);border:1px solid var(--line);border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,.12);padding:4px;display:flex;flex-direction:column;min-width:140px;z-index:5}
+.gc-suggest button{border:0;background:none;text-align:left;padding:4px 8px;border-radius:6px}
+.gc-suggest button[aria-selected="true"]{background:var(--ink);color:var(--surface)}
+.gc-err{margin:0;padding:0 12px 8px;color:var(--bad)}
+@media (max-width: 760px){
+  .gchat{grid-template-columns:1fr;grid-template-rows:auto minmax(0,1fr)}
+  .gc-members{max-height:120px}
+  .gc-members ul{flex-direction:row;flex-wrap:wrap}
+  .gc-members button{width:auto}
+  .gc-members .hint{display:none}
+  .gc-msg{max-width:92%}
+}

@@ -20,6 +20,14 @@ office:
   task_caps_usd: {single: 0.05, meeting: 0.15, project: 0.80}
   manager_strategy: rotate   # 两位以上经理：每件事轮流主办，项目级任务由另一位复核
 
+# 群聊：成员只回应你，不主动发消息；没有 @ 人时随机一两位回应
+chat:
+  tier: budget
+  max_repliers: 2
+  max_mentioned: 4
+  history_messages: 30
+  max_tokens: 500
+
 # 单步预估 token 超过此值时询问用户
 token_threshold: 20000
 
@@ -75,6 +83,7 @@ prompts:
   style_extract: v1      # 风格规范提取：成员各自看参考图
   office_intake: v1      # 办公室：经理分诊派活
   office_handle: v2      # 办公室：员工办理（v2：带字画面用代码画、数字须核实）
+  chat: v1               # 群聊：口语、短句，坦诚自己是 AI
   office_check: v1       # 办公室：经理过目
   office_fix: v2         # 办公室：退回后员工改一次（v2：改程序必须重跑出图）
   style_merge: v1        # 统筹合并成规范 + 清单
