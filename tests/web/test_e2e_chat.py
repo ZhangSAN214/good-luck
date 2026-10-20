@@ -56,7 +56,8 @@ def test_search_and_two_step_clear(serve, page):
 def test_apartment_resident_can_be_mentioned_in_chat(serve, page):
     srv = serve(confirm_threshold_usd=100.0)
     page.goto(srv.url + "/#m=home")
-    page.locator("#home .tenant").first.click()
+    # 夜里住户睡在床上（SVG），点被子；白天点人
+    page.locator("#home .tenant:not(.sleeper), #home .sleeper rect").first.click()
     page.click("#resident-card [data-chat]")
     page.wait_for_selector("#gchat:not([hidden])")
     assert page.input_value("#chat-input").startswith("@")

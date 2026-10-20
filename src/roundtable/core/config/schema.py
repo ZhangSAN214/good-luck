@@ -603,7 +603,7 @@ class ChatRules(_Strict):
 
     tier: Tier = "budget"  # 每位成员用这个档位的模型发言（没有就用该成员最便宜的）
     max_repliers: int = Field(default=2, ge=1, le=6)  # 没有 @ 人时，一条消息最多几位回应
-    max_mentioned: int = Field(default=4, ge=1, le=12)  # @全员 或 @多人 时最多几位回应
+    max_mentioned: int = Field(default=8, ge=1, le=12)  # @全员 / 所有人 / @多人 时最多几位回应
     history_messages: int = Field(default=30, ge=4, le=200)  # 发给模型的最近聊天条数
     max_tokens: int = Field(default=500, ge=64)
     max_chars: int = Field(default=800, ge=50)  # 一条消息最多保留的字数

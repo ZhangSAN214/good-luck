@@ -42,7 +42,8 @@ def test_pick_without_mentions_is_one_or_two_available_members():
     sizes = {len(chat(env, seed).pick("今天吃什么")) for seed in range(20)}
     assert sizes == {1, 2}
     assert [m.id for m in chat(env).pick("@阿二 你说呢")] == ["V2"]
-    assert len(chat(env).pick("@全员 早上好")) == env.config.roundtable.chat.max_mentioned
+    cap = env.config.roundtable.chat.max_mentioned
+    assert len(chat(env).pick("@全员 早上好")) == min(cap, len(chat(env).members()))
 
 
 def test_clean_reply():
@@ -122,3 +123,24 @@ async def test_search_messages():
     env.rt.repo.add_chat_message("main", "user", "今天下雨")
     found = env.rt.repo.chat_messages("main", query="爬山")
     assert [r["text"] for r in found] == ["周末去爬山"]
+
+
+def test_everyone_words_ask_all_available_members():
+    env = Env()
+    n = len(chat(env).members())
+    for text in ("所有人自我介绍一下自己", "大家觉得呢", "各位早"):
+        assert len(chat(env).pick(text)) == n
+    # 点了名就只叫被点名的人
+    assert [m.id for m in chat(env).pick("@阿二 大家说的对吗")] == ["V2"]
+
+
+async def test_empty_reply_is_explained_and_low_effort_params_are_used():
+    env = Env()
+    env.fake.queue("b1", "")
+    room = chat(env)
+    msg, _ = room.post("@阿一 在吗")
+    assert await room.replies(msg["id"], room.pick("@阿一 在吗")) == []
+    texts = [r["text"] for r in env.rt.repo.chat_messages("main")]
+    assert "阿一 没有回复（回复是空的）。" in texts
+    params = env.fake.calls[-1].params
+    assert params["max_tokens"] == 1500 and params["reasoning"] == {"effort": "low"}

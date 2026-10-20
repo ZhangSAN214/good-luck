@@ -23,6 +23,18 @@ ROOM = "main"
 USER = "user"
 SYSTEM = "system"
 EVERYONE = "全员"
+# 没有 @ 但明显是叫所有人（"所有人自我介绍一下"、"大家觉得呢"）：全员依次回应
+EVERYONE_WORDS = (
+    f"@{EVERYONE}",
+    "所有人",
+    "大家",
+    "各位",
+    "全体",
+    "每个人",
+    "每位",
+    "你们都",
+    "你们每",
+)
 USER_LABEL = "用户"
 
 
@@ -60,6 +72,10 @@ def chat_members(config: Any, available: set[str]) -> list[ChatMember]:
             )
         )
     return members
+
+
+def addresses_everyone(text: str) -> bool:
+    return any(w in text for w in EVERYONE_WORDS)
 
 
 def mentioned(text: str, members: list[ChatMember]) -> list[ChatMember]:
@@ -106,6 +122,12 @@ class GroupChat:
     def rules(self) -> Any:
         return self.rt.config.roundtable.chat
 
+    def params(self) -> dict[str, Any]:
+        """step_params.chat（如低思考强度）；没写 max_tokens 时用 chat.max_tokens。"""
+        params = dict(self.rt.config.roundtable.step_params.get("chat", {}))
+        params.setdefault("max_tokens", self.rules.max_tokens)
+        return params
+
     def members(self) -> list[ChatMember]:
         available = {m.id for m in self.rt.router.available_models()}
         return chat_members(self.rt.config, available)
@@ -114,7 +136,7 @@ class GroupChat:
         members = self.members()
         online = [m for m in members if m.available]
         named = [m for m in mentioned(text, members) if m.available]
-        if f"@{EVERYONE}" in text:
+        if addresses_everyone(text) and not named:
             named = list(online)
             self.rng.shuffle(named)
         if named:
@@ -171,9 +193,7 @@ class GroupChat:
         self.typing.append(member.name)
         self.on_change()
         try:
-            completion = await rt.router.complete(
-                member.model_id, prompt.messages, {"max_tokens": rules.max_tokens}
-            )
+            completion = await rt.router.complete(member.model_id, prompt.messages, self.params())
         except (AllChannelsFailed, NoChannelAvailable, ProviderError) as e:
             rt.repo.record_call(
                 session,
@@ -200,6 +220,10 @@ class GroupChat:
         )
         text = clean_reply(completion.text, member.name, rules.max_chars)
         if not text:
+            # 没说出话（多半是思考把输出上限用完了）：在群里说明，不静默跳过
+            why = "想得太久，没来得及写完" if completion.finish_reason == "length" else "回复是空的"
+            rt.repo.add_chat_message(self.room, SYSTEM, f"{member.name} 没有回复（{why}）。")
+            self.on_change()
             return {}
         msg = rt.repo.add_chat_message(
             self.room,

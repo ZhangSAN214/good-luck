@@ -137,8 +137,14 @@ export class GroupChat {
       this.members = data.members || [];
       if ((data.messages || []).length) {
         this.messages.push(...data.messages);
+        for (const m of data.messages) {
+          const i = (this.pending || []).findIndex((n) => n === m.name || (m.author === 'system' && m.text.startsWith(n)));
+          if (i >= 0) this.pending.splice(i, 1);
+          else if (m.author === 'system' && m.text.includes('预算用完')) this.pending = [];
+        }
         this.lastId = this.messages[this.messages.length - 1].id;
       }
+      if ((this.pending || []).length) this.fastUntil = Math.max(this.fastUntil, this.now() + FAST_MS * 3);
       const changed = newMembers || (data.messages || []).length || String(data.typing) !== String(this.typing);
       this.typing = data.typing || [];
       if (changed) this.renderAll();
@@ -156,7 +162,9 @@ export class GroupChat {
     this.sending = true;
     this.$('#gc-send').disabled = true;
     try {
-      await this.api.post(text);
+      const res = await this.api.post(text);
+      // 排队等着回应的人：收到 TA 的消息（或系统说明 TA 为什么没回）后划掉
+      this.pending = [...(this.pending || []), ...((res && res.speakers) || [])];
       input.value = '';
       this.closeSuggest();
       this.fastUntil = this.now() + FAST_FOR_MS;
@@ -336,8 +344,12 @@ export class GroupChat {
 
   renderTyping() {
     const t = this.$('#gc-typing');
-    t.hidden = !this.typing.length;
-    t.textContent = this.typing.length ? `${this.typing.join('、')} 正在输入…` : '';
+    const waiting = (this.pending || []).filter((n) => !this.typing.includes(n));
+    const parts = [];
+    if (this.typing.length) parts.push(`${this.typing.join('、')} 正在输入…`);
+    if (waiting.length) parts.push(`接下来：${waiting.join('、')}`);
+    t.hidden = !parts.length;
+    t.textContent = parts.join('　');
   }
 
   renderError() {

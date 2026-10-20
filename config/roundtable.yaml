@@ -24,9 +24,9 @@ office:
 chat:
   tier: budget
   max_repliers: 2
-  max_mentioned: 4
+  max_mentioned: 8                 # 「@全员」「所有人」「大家」时最多几位依次回应
   history_messages: 30
-  max_tokens: 500
+  max_tokens: 1500
 
 # 单步预估 token 超过此值时询问用户
 token_threshold: 20000
@@ -105,6 +105,7 @@ step_params:
   #   原则：作答 / 修订 / 完成子任务要认真想，但封顶，保证正文有足够空间；
   #   评审、汇总、拆分、分配、自荐、风格校验等用低强度。
   answer: {max_tokens: 5000, reasoning: {max_tokens: 2000}}
+  chat: {max_tokens: 1500, reasoning: {effort: low}}   # 群聊：一两句话，少想多说（思考会挤占输出，之前 500 上限时有人回复为空）
   review: {max_tokens: 3000, reasoning: {max_tokens: 800}}
   revise: {max_tokens: 5000, reasoning: {max_tokens: 2000}}
   synthesize: {max_tokens: 5000, reasoning: {effort: low}}
