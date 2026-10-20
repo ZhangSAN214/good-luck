@@ -427,6 +427,8 @@ class PythonTool(_Strict):
     timeout_s: float = Field(default=60, gt=0)  # 含加载 numpy 等包的时间
     memory_mb: int = Field(default=1024, ge=64)
     max_runs: int = Field(default=3, ge=1)  # 每位成员每个步骤最多运行几次（出错重跑也算）
+    # 按步骤覆盖 max_runs（同一步骤所有成员相同），如办公室模式一个人办完全部、改的时候要重跑出图
+    max_runs_by_step: dict[str, int] = Field(default_factory=dict)
     max_output_chars: int = Field(default=8000, ge=200)
     # wasm 后端的运行时目录（Deno 与 Pyodide）；为空时用 ROUNDTABLE_SANDBOX_DIR 或用户缓存目录
     runtime_dir: str | None = None
@@ -454,6 +456,9 @@ class PythonTool(_Strict):
             "seaborn",
         ]
     )
+
+    def runs_for(self, step: str) -> int:
+        return self.max_runs_by_step.get(step, self.max_runs)
 
 
 class FileRules(_Strict):

@@ -8,6 +8,7 @@ import pytest
 
 from roundtable.core.providers import ErrorKind, FakeProvider
 from roundtable.core.routing import CUSTOM, Question, RoutingError, UserChoice, route_question
+from roundtable.core.routing.lineup import Lineup
 
 from .conftest import Env, app_config, planner_reply
 
@@ -297,3 +298,17 @@ async def test_no_style_estimate_without_image_models_or_when_disabled():
         env2, MID_QUESTION, UserChoice("budget", media="image"), **with_images(media="image")
     )
     assert "style" not in [s.step for s in d.estimate.steps]
+
+
+def test_office_estimate_counts_one_picture_when_the_question_asks_for_one():
+    """办公室模式：题目要海报 / 图时，办理一步按便宜档画一张图计入（其他模式不变）。"""
+    from roundtable.core.routing.decide import _tool_costs
+
+    cfg = app_config(with_media=True)
+    env = Env(cfg, FakeProvider("c"))
+    lineup = Lineup(("b1", "b2"), "f1", tuple(cfg.roundtable.office_pipeline))
+    drawing = _tool_costs(cfg, env.router, lineup, Question("画一张奶茶新品海报"))
+    plain = _tool_costs(cfg, env.router, lineup, Question("求 1+1"))
+    assert drawing["handle"] == pytest.approx(plain.get("handle", 0.0) + 0.04)
+    discussion = Lineup(("b1", "b2"), "f1", tuple(cfg.roundtable.pipeline))
+    assert "handle" not in _tool_costs(cfg, env.router, discussion, Question("画一张海报"))

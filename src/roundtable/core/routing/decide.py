@@ -16,7 +16,7 @@ from typing import Any, Literal
 from roundtable.core.allocation import NotEnoughModels
 from roundtable.core.config import AppConfig, ModelSpec, Price
 from roundtable.core.config.schema import Confidence, Difficulty, EscalationRule
-from roundtable.core.media import KINDS
+from roundtable.core.media import KINDS, estimate_generation, media_group
 from roundtable.core.prompts import PromptLibrary
 from roundtable.core.providers import ChannelRouter
 
@@ -322,7 +322,7 @@ def _estimate(
         history=history,
         caps=caps,
         extra_calls=_tool_rounds(config),
-        extra_usd=_tool_costs(config),
+        extra_usd=_tool_costs(config, router, lineup, question),
     )
     if question.media:
         estimate = with_media_step(
@@ -365,15 +365,52 @@ def _tool_rounds(config: AppConfig) -> dict[str, float]:
     return {step: rounds for step, names in tools.by_step.items() if names}
 
 
-def _tool_costs(config: AppConfig) -> dict[str, float]:
-    """能搜索的步骤：每个座位按 estimate.searches / fetches 次数和第一家搜索服务的单价估计。"""
+def _tool_costs(
+    config: AppConfig,
+    router: ChannelRouter | None = None,
+    lineup: Lineup | None = None,
+    question: Question | None = None,
+) -> dict[str, float]:
+    """工具服务的费用（每个座位）：
+
+    - 能搜索的步骤：按 estimate.searches / fetches 次数和第一家搜索服务的单价估计。
+    - 办公室模式的办理（handle）：题目提到图、海报等（routing.yaml 的 multi_media.nouns）时，
+      按便宜档图像模型画一张图计入（员工可以用画图工具，单人办上限很低，不算会漏掉一大块）。
+    """
     tools = config.roundtable.tools
-    provider = next((p for p in config.models.search_providers.values() if p.enabled), None)
-    if not tools.enabled or provider is None:
+    if not tools.enabled:
         return {}
-    est = config.routing.estimate
-    per_seat = est.searches * provider.price.per_search + est.fetches * provider.price.per_fetch
-    return {step: per_seat for step, names in tools.by_step.items() if "search" in names}
+    costs: dict[str, float] = {}
+    provider = next((p for p in config.models.search_providers.values() if p.enabled), None)
+    if provider is not None:
+        est = config.routing.estimate
+        per_seat = est.searches * provider.price.per_search + est.fetches * provider.price.per_fetch
+        costs = {step: per_seat for step, names in tools.by_step.items() if "search" in names}
+    if router is not None and lineup is not None and question is not None:
+        image = _office_image_cost(config, router, lineup, question)
+        if image:
+            costs["handle"] = costs.get("handle", 0.0) + image
+    return costs
+
+
+def _office_image_cost(
+    config: AppConfig, router: ChannelRouter, lineup: Lineup, question: Question
+) -> float:
+    if (
+        "handle" not in lineup.pipeline
+        or "generate_image" not in config.roundtable.tools.by_step.get("handle", [])
+    ):
+        return 0.0
+    rule = config.routing.multi_media
+    text = question.text.lower()
+    if rule is None or not any(n.lower() in text for n in rule.nouns):
+        return 0.0
+    group = media_group(router, "image", config.roundtable.media.default_tier)
+    if not group:
+        return 0.0
+    typical = [m for m in group if m.default] or group
+    rules = config.roundtable.media
+    return sum(estimate_generation(m, "image", rules, chars=0) for m in typical) / len(typical)
 
 
 def estimate_lineup(

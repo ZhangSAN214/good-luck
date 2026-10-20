@@ -364,8 +364,9 @@ class ToolBox:
         inputs = {"code": req.body}
         if self.sandbox is None:
             return ToolResult("python", "rejected", "代码运行环境不可用。"), inputs
-        if self.usage[key] >= rules.max_runs:
-            text = f"本步骤已运行 {rules.max_runs} 次，额度已用完，请直接给出最终结果。"
+        max_runs = rules.runs_for(step)
+        if self.usage[key] >= max_runs:
+            text = f"本步骤已运行 {max_runs} 次，额度已用完，请直接给出最终结果。"
             return ToolResult("python", "limit", text), inputs
         self.usage[key] += 1
         ws = self.workspace(code)
@@ -391,7 +392,7 @@ class ToolBox:
         files, rejected = self._collect(step, code)
         if rejected:
             note += "\n以下文件没有保存：" + "；".join(rejected)
-        left = rules.max_runs - self.usage[key]
+        left = max_runs - self.usage[key]
         note += f"\n（本步骤还可以运行 {left} 次）"
         text = _clip("\n".join(parts), rules.max_output_chars) + "\n" + note.strip()
         return ToolResult("python", status, text.strip(), files), inputs

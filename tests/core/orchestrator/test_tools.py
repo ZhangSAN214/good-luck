@@ -154,6 +154,33 @@ async def test_limits_rounds_runs_and_errors():
     assert all("<tool_call" not in s for s in stored)
 
 
+async def test_max_runs_can_be_set_per_step():
+    """max_runs_by_step 覆盖某一步骤的运行次数（同一步骤所有成员相同）。"""
+    env = Env(confirm_threshold_usd=100.0)
+    with_tools(env, max_rounds=3, by_step={"answer": ["python"]})
+    rules = env.rt.config.roundtable.tools
+    rules_py = rules.python.model_copy(update={"max_runs": 5, "max_runs_by_step": {"answer": 1}})
+    assert rules_py.runs_for("answer") == 1 and rules_py.runs_for("review") == 5
+    rt_cfg = env.rt.config.roundtable.model_copy(
+        update={"tools": rules.model_copy(update={"python": rules_py})}
+    )
+    env.rt.config = env.rt.config.model_copy(update={"roundtable": rt_cfg})
+    original = env.reply
+
+    def greedy(model, messages):
+        if model == "b1" and ANSWER in messages[0].content:
+            rounds = sum("<tool_result" in m.content for m in messages if m.role == "user")
+            return f'答案草稿 {rounds}\n<tool_call name="python">\nprint(1)\n</tool_call>'
+        return original(model, messages)
+
+    env.fake._default = greedy
+    r = await env.orc.start(Question(MEDIUM), CUSTOM, seed=2)
+    statuses = [t["status"] for t in env.rt.repo.tool_calls(r.session_id) if t["code"]]
+    assert statuses[:2] == ["ok", "limit"]
+    b1 = [c for c in answer_calls(env) if c.model == "b1"]
+    assert "最多运行 1 次" in b1[0].messages[0].content
+
+
 async def test_write_file_and_rejections():
     env = Env(confirm_threshold_usd=100.0)
     with_tools(env)

@@ -74,9 +74,9 @@ prompts:
   media_review: v2       # 评审生成结果（图片 / 视频截帧）；v2：对照风格清单逐条判定
   style_extract: v1      # 风格规范提取：成员各自看参考图
   office_intake: v1      # 办公室：经理分诊派活
-  office_handle: v1      # 办公室：员工办理
+  office_handle: v2      # 办公室：员工办理（v2：带字画面用代码画、数字须核实）
   office_check: v1       # 办公室：经理过目
-  office_fix: v1         # 办公室：退回后员工改一次
+  office_fix: v2         # 办公室：退回后员工改一次（v2：改程序必须重跑出图）
   style_merge: v1        # 统筹合并成规范 + 清单
   style_guide: v1        # 风格规范，接在之后的每次调用上
   user_notes: v1         # 用户中途补充的意见，接在之后的每次调用上
@@ -537,6 +537,7 @@ tools:
     timeout_s: 60             # 每次运行的时限（含加载 numpy 等包）
     memory_mb: 1024
     max_runs: 3               # 每位成员每步最多运行几次（出错重跑也算）
+    max_runs_by_step: {handle: 5, fix: 4}   # 办公室模式一个人办完全部（算、画图、改完重跑），多给几次
     max_output_chars: 8000    # 回传给成员的输出最多多少字
   files:
     max_file_mb: 10
