@@ -59,6 +59,7 @@ export const members = () => api('/api/members');
 export const listSessions = () => api('/api/sessions?limit=50');
 export const getContributions = () => api('/api/contributions');
 export const getOffice = () => api('/api/office');
+export const getApartment = (hour, weekday) => api(`/api/apartment?hour=${hour}&weekday=${weekday}`);
 export const getCandidates = () => api('/api/models/candidates');
 export const refreshCandidates = () => api('/api/models/candidates/refresh', { method: 'POST' });
 export const getPayslip = (id) => api(`/api/sessions/${id}/payslip`);

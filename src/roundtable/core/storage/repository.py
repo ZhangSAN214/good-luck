@@ -408,6 +408,21 @@ class Repository:
             params.append(table_no)
         return [dict(r) for r in self._exec(sql + " ORDER BY table_no, id", params).fetchall()]
 
+    def working_seats(self, since: datetime) -> list[dict[str, Any]]:
+        """进行中（running / awaiting_confirmation）且 since 之后还有更新的会话的座位（内部使用）。
+
+        hidden 为真表示匿名开启且未揭晓：调用方不得把这些座位对应到具体模型展示。
+        """
+        rows = self._exec(
+            "SELECT s.id AS session_id, s.status, s.workflow, st.model_id,"
+            " (s.anonymous = 1 AND s.revealed_at IS NULL) AS hidden"
+            " FROM sessions s JOIN seats st ON st.session_id = s.id"
+            " WHERE s.status IN ('running', 'awaiting_confirmation') AND s.updated_at >= ?"
+            " ORDER BY s.updated_at DESC, st.id",
+            (iso(since),),
+        ).fetchall()
+        return [{**dict(r), "hidden": bool(r["hidden"])} for r in rows]
+
     def recent_coordinators(self, limit: int = 5) -> list[str]:
         """最近担任统筹的模型，最近的在前（供轮换）。"""
         rows = self._exec(

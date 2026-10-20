@@ -13,6 +13,7 @@ import logging
 import secrets
 from collections.abc import AsyncIterator, Sequence
 from dataclasses import asdict
+from datetime import timedelta
 from typing import Any
 from urllib.parse import quote
 
@@ -23,7 +24,7 @@ from roundtable.core.budget.guard import month_window
 from roundtable.core.media import KIND_LABELS, KINDS, MediaService
 from roundtable.core.members_art import load_members, mime_of, resolve_file
 from roundtable.core.notes import NoteError, check_can_add, clean_note
-from roundtable.core.office import payslip, roster
+from roundtable.core.office import building, payslip, roster
 from roundtable.core.orchestrator import Orchestrator, OrchestratorError, RunResult
 from roundtable.core.preview import render_preview
 from roundtable.core.routing import (
@@ -49,6 +50,8 @@ log = logging.getLogger(__name__)
 RESTING = frozenset({"completed", "stopped", "failed", "awaiting_confirmation", "paused"})
 REVEALABLE = frozenset({"completed", "stopped", "failed"})
 MAX_QUESTION_CHARS = 20_000
+# 公寓楼：进行中的会话这么久没有更新就不算在上班（服务意外退出后留下的 running）
+WORKING_WINDOW_H = 3
 
 __all__ = [
     "MAX_QUESTION_CHARS",
@@ -268,6 +271,28 @@ class RoundtableService:
             "task_caps_usd": cfg.roundtable.office.task_caps_usd.model_dump(),
             "manager_strategy": cfg.roundtable.office.manager_strategy,
             "month": self.budget()["month"],
+        }
+
+    def apartment(self, hour: int, weekday: int) -> dict[str, Any]:
+        """公寓楼：住户按作息在各房间活动，正在办事的在办公室 / 会议室。
+
+        hour / weekday 用浏览器的本地时间。匿名未揭晓的会话只计数，不说是谁。
+        """
+        if not (0 <= hour < 24 and 0 <= weekday < 7):
+            raise ServiceError("hour 应为 0～23，weekday 应为 0～6")
+        now = self.rt.budget.now()
+        start, end = month_window(now)
+        b = building(
+            self.rt.config,
+            hour=hour,
+            weekday=weekday,
+            working=self.rt.repo.working_seats(now - timedelta(hours=WORKING_WINDOW_H)),
+            month_usage=self.rt.repo.spent_by_model(start, end),
+        )
+        return {
+            "floors": b.floors,
+            "residents": [asdict(r) for r in b.residents],
+            "hidden_meetings": b.hidden_meetings,
         }
 
     def payslip(self, session_id: str) -> dict[str, Any]:
