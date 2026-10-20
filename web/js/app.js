@@ -410,6 +410,7 @@ function formError(text) {
 
 async function submit(ev) {
   ev.preventDefault();
+  if ($('#submit').disabled) return; // 正在提交：连按 Enter 不会重复提交
   const question = $('#ask').value.trim();
   if (!question) {
     formError('请先输入题目');
@@ -720,12 +721,78 @@ function newQuestion() {
   $('#ask').focus();
 }
 
+// --- 键盘 -----------------------------------------------------------------------
+
+// 输入法组合输入（中文选字）中按下的键：keyCode 229 兼容旧浏览器
+function composing(e) {
+  return e.isComposing || e.keyCode === 229;
+}
+
+function typing(el) {
+  return !!el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName));
+}
+
+/**
+ * 全局快捷键（不在输入框里时）：
+ * / 或 Ctrl+K 聚焦题目输入框；Esc 离开输入框；1～9 选择等待确认卡片的对应选项；
+ * N 新题目。输入框里只处理 Esc 与 Ctrl+K。
+ */
+function shortcut(e) {
+  if (composing(e) || e.defaultPrevented) return;
+  const el = document.activeElement;
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+    e.preventDefault();
+    $('#ask').focus();
+    return;
+  }
+  if (e.key === 'Escape') {
+    if ($('#viewer').open) return; // 预览框自己处理 Esc
+    if (typing(el)) el.blur();
+    return;
+  }
+  if (typing(el) || e.ctrlKey || e.metaKey || e.altKey) return;
+  if (e.key === '/') {
+    e.preventDefault();
+    $('#ask').focus();
+    return;
+  }
+  if (/^[1-9]$/.test(e.key)) {
+    const opts = [...document.querySelectorAll('#feed .opt[data-opt]:not([disabled])')];
+    const b = opts[Number(e.key) - 1];
+    if (b) {
+      e.preventDefault();
+      b.click();
+    }
+    return;
+  }
+  if (e.key === 'n' || e.key === 'N') {
+    e.preventDefault();
+    $('#new').click();
+  }
+}
+
 // --- 启动 -----------------------------------------------------------------------
 
 function bind() {
   $('#composer').addEventListener('submit', submit);
   $('#ask').addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) $('#composer').requestSubmit();
+    if (e.key !== 'Enter' || composing(e)) return; // 输入法选字时的 Enter 只确认候选词
+    if (e.shiftKey || e.altKey) return; // Shift+Enter / Alt+Enter 换行
+    e.preventDefault();
+    $('#composer').requestSubmit();
+  });
+  document.addEventListener('keydown', shortcut);
+  $('#tabs').addEventListener('keydown', (e) => {
+    // 面板标签页：← → 切换（Home / End 到头尾）
+    const tabs = [...$('#tabs').querySelectorAll('button')];
+    const i = tabs.indexOf(document.activeElement);
+    if (i < 0) return;
+    const next = { ArrowRight: i + 1, ArrowLeft: i - 1, Home: 0, End: tabs.length - 1 }[e.key];
+    if (next === undefined) return;
+    e.preventDefault();
+    const b = tabs[(next + tabs.length) % tabs.length];
+    b.focus();
+    b.click();
   });
   $('#tier').addEventListener('click', (e) => {
     const b = e.target.closest('button');
