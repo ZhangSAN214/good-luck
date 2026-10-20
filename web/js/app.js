@@ -97,7 +97,8 @@ function gotoDiscussion() {
 let petReady = false;
 function syncPet() {
   const sv = S.session;
-  if (petReady) pet.setAllowed(!(sv && sv.anonymous && !sv.revealed));
+  // 公寓楼和群聊里有自己的小人：网页小人只在办公室出现
+  if (petReady) pet.setAllowed(entry === 'work' && !(sv && sv.anonymous && !sv.revealed));
 }
 
 const prefix = () => S.status?.code_prefix || '组员';
@@ -787,6 +788,7 @@ function setEntry(m) {
   else home.hide();
   if (m === 'chat') gchat.show();
   else gchat.hide();
+  syncPet();
   if (m !== 'work') history.replaceState(null, '', `#m=${m}`);
   else if (location.hash.startsWith('#m=')) history.replaceState(null, '', S.sid ? `#s=${S.sid}` : location.pathname);
 }

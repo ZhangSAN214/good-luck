@@ -46,3 +46,32 @@ def test_working_resident_links_to_the_session(serve, page):
     page.click("#resident-card [data-open]")
     page.wait_for_selector("#main", state="visible")
     page.wait_for_function(f"() => location.hash === '#s={sid}'")
+
+
+FAKE_3AM = (
+    "const _D = Date; Date = class extends _D { constructor(...a) {"
+    " if (a.length) super(...a); else { super(); this.setHours(3, 0, 0, 0); } } };"
+    " Date.now = _D.now;"
+)
+
+
+def test_night_sleepers_lie_in_bed_and_nobody_leaves_the_building(serve, page):
+    srv = serve(confirm_threshold_usd=100.0)
+    page.add_init_script(FAKE_3AM)
+    page.goto(srv.url + "/#m=home")
+    page.wait_for_selector("#home .sleeper")
+    vendors = {m.vendor for m in srv.env.config.models.models if m.seat and m.tier}
+    # 凌晨三点：大家都在自己宿舍的床上，公共房间熄灯
+    assert page.locator("#home .room.k-dorm .sleeper").count() == len(vendors)
+    assert page.locator("#home .room.k-office.dark").count() == 1
+    # 键盘选中床上的住户
+    page.focus("#home .sleeper")
+    page.keyboard.press("Enter")
+    page.wait_for_selector("#resident-card")
+    # 网页小人只在办公室出现
+    assert page.locator(".pet").count() == 0
+    # 所有住户都在楼的范围内
+    box = page.locator("#home .bldg").bounding_box()
+    for el in page.locator("#home .tenant").all():
+        b = el.bounding_box()
+        assert box["x"] - 1 <= b["x"] and b["x"] + b["width"] <= box["x"] + box["width"] + 1
