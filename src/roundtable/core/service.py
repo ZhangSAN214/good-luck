@@ -237,6 +237,23 @@ class RoundtableService:
 
     # --- 办公室：名册与工资单 ------------------------------------------------------
 
+    def model_candidates(self) -> dict[str, Any]:
+        """模型人才市场的最近结果：价格变动、下架、可能更合适的新模型。只提示，不改配置。"""
+        if self.rt.catalog is None:
+            return {"fetched_at": None, "stale": False, "available": False}
+        return self.rt.catalog.view()
+
+    async def refresh_model_candidates(self) -> dict[str, Any]:
+        """重新查询聚合渠道的公开模型列表（不需要 key）。"""
+        if self.rt.catalog is None:
+            raise ServiceError("没有可用的模型列表来源", 404)
+        try:
+            return await self.rt.catalog.refresh()
+        except LookupError as e:
+            raise ServiceError(str(e), 404) from None
+        except Exception as e:  # noqa: BLE001 - 网络错误只报类型，不带外部文本
+            raise ServiceError(f"查询模型列表失败（{type(e).__name__}）", 502) from None
+
     def office(self) -> dict[str, Any]:
         """名册：经理与员工、工资标准（每百万 token 的美元价格）、本月已领工资。不涉及具体会话。"""
         cfg = self.rt.config

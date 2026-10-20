@@ -579,3 +579,29 @@ async def test_ask_defaults_to_office_mode():
     # 经理两次（分诊、过目），只有一位员工办理
     assert len(env.models_called("办公室的经理")) == 2
     assert len(env.models_called("办公室的员工")) == 1
+
+
+async def test_models_check_updates_only_reports():
+    env = Env()
+
+    async def fetch(url):
+        data = [
+            {"id": m.id, "created": 1, "pricing": {"prompt": "0", "completion": "0"}}
+            for m in env.config.models.models
+            if m.id != "f5"
+        ]
+        return {"data": data}
+
+    env.rt.catalog.fetch = fetch
+    before = env.config.model_dump()
+    code, text = await cli(env, "models", "--check-updates")
+    assert code == 0 and "价格变动" in text and "b1" in text
+    assert "找不到" in text and "f5" in text and "只提示" in text
+    assert env.rt.config.model_dump() == before  # 不改配置
+
+    async def broken(url):
+        raise OSError("secret-ish detail")
+
+    env.rt.catalog.fetch = broken
+    code, text = await cli(env, "models", "--check-updates")
+    assert code == 1 and "OSError" in text and "secret-ish" not in text

@@ -147,6 +147,14 @@ def create_app(service: RoundtableService | None = None) -> FastAPI:
     async def office(request: Request) -> dict[str, Any]:
         return svc(request).office()
 
+    @app.get("/api/models/candidates")
+    async def model_candidates(request: Request) -> dict[str, Any]:
+        return svc(request).model_candidates()
+
+    @app.post("/api/models/candidates/refresh")
+    async def refresh_model_candidates(request: Request) -> dict[str, Any]:
+        return await svc(request).refresh_model_candidates()
+
     @app.get("/api/sessions/{session_id}/payslip")
     async def payslip(request: Request, session_id: str) -> dict[str, Any]:
         return svc(request).payslip(session_id)

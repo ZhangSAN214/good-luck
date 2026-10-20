@@ -8,6 +8,7 @@
     roundtable ask --attach 图.png --attach 讲义.pdf "题目"   # 带附件
     roundtable estimate "题目"                     # 提交前预估：各模式 × 各档位的花费
     roundtable models                             # 查看模型、档位、哪些渠道有 key
+    roundtable models --check-updates             # 人才市场：价格变动、下架、新模型（只提示）
     roundtable history                            # 最近的讨论
     roundtable stats                              # 各模型的历史贡献
     roundtable resume <会话 id>                   # 中断后继续
@@ -1077,6 +1078,43 @@ class CLI:
         self.p(month.describe() + (f"；{day.describe()}" if day else ""))
         return 0
 
+    async def cmd_model_updates(self) -> int:
+        catalog = self.rt.catalog
+        if catalog is None:
+            self.p("没有可用的模型列表来源。")
+            return 1
+        try:
+            data = await catalog.refresh()
+        except LookupError as e:
+            self.p(str(e))
+            return 1
+        except Exception as e:  # noqa: BLE001 - 网络错误只报类型
+            self.p(f"查询模型列表失败（{type(e).__name__}）。")
+            return 1
+        self.p(f"来源：{data['source']}（只提示，不会自动修改 config/models.yaml）")
+        changes, missing, fresh = data["price_changes"], data["missing"], data["candidates"]
+        if changes:
+            self.p("价格变动（每百万 token，输入 / 输出）：")
+            for c in changes:
+                (ci, co), (ai, ao) = c["configured"], c["actual"]
+                self.p(f"  {c['model_id']:<22} 配置 ${ci:g}/${co:g} → 实际 ${ai:g}/${ao:g}")
+        if missing:
+            self.p("找不到（可能已下架或改名）：")
+            for m in missing:
+                self.p(f"  {m['model_id']:<22} {m['route']}")
+        if fresh:
+            self.p("可能更合适的新模型：")
+            for c in fresh:
+                i, o = c["price"]
+                tier = c["tier"] or "不在现有档位价格区间"
+                swap = f"，可替换 {'、'.join(c['replaces'])}" if c["replaces"] else ""
+                self.p(f"  {c['route']:<36} ${i:g}/${o:g}  建议档位：{tier}{swap}")
+        if not (changes or missing or fresh):
+            self.p("配置的模型都是最新的，价格也一致。")
+        else:
+            self.p("要采纳请改 config/models.yaml（或告诉我，确认后再改）。")
+        return 0
+
     def cmd_stats(self) -> int:
         """跨会话按模型统计贡献（只统计身份已公开的会话）。"""
         rows = self.rt.repo.contribution_history()
@@ -1182,7 +1220,12 @@ def build_parser() -> argparse.ArgumentParser:
     reveal.add_argument("--reveal", action="store_true", default=None, help="结束后直接揭晓")
     reveal.add_argument("--no-reveal", dest="reveal", action="store_false", help="结束后不揭晓")
 
-    sub.add_parser("models", help="查看模型、档位与可用渠道")
+    models = sub.add_parser("models", help="查看模型、档位与可用渠道")
+    models.add_argument(
+        "--check-updates",
+        action="store_true",
+        help="查询聚合渠道的模型列表：价格变动、下架、可能更合适的新模型（只提示，不改配置）",
+    )
     bench = sub.add_parser(
         "bench", help="对比实验：同一批题用个人 / 讨论 / 协同各跑一遍，比较正确率、花费、耗时"
     )
@@ -1300,6 +1343,8 @@ async def run(
         if args.command == "bench":
             return await cli.cmd_bench(args)
         if args.command == "models":
+            if args.check_updates:
+                return await cli.cmd_model_updates()
             return cli.cmd_models()
         if args.command == "stats":
             return cli.cmd_stats()

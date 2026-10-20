@@ -33,3 +33,18 @@ def test_chosen_workflow_is_remembered(serve, page):
     page.click("#workflow button[data-v='solo']")
     page.reload()
     page.wait_for_selector("#workflow button[data-v='solo'][aria-pressed='true']")
+
+
+def test_talent_market_lists_changes_and_refreshes(serve, page):
+    srv = serve(confirm_threshold_usd=100.0)
+    page.goto(srv.url)
+    page.click('#tabs button[data-t="office"]')
+    # 第一次打开：没查过 → 自动查一次
+    page.wait_for_selector("#talent tr[data-kind='price']")
+    talent = page.inner_text("#talent")
+    assert "b1" in talent and "f5" in talent
+    assert "不会自动生效" in page.inner_text("#pbody")
+    assert srv.catalog_calls == 1
+    page.click("#talent-refresh")
+    page.wait_for_function("() => !document.querySelector('#talent-refresh').disabled")
+    assert srv.catalog_calls == 2

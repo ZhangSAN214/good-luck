@@ -48,6 +48,7 @@ const S = {
   history: null,
   contribHistory: null,
   office: null, // 员工名册（/api/office）
+  talent: null, // 人才市场（/api/models/candidates）：只提示，不改配置
   payslip: null, // { sid, data }：当前会话的工资单
   sid: null,
   session: null,
@@ -221,7 +222,7 @@ function renderPanel() {
   if (S.tab === 'tools') h = toolsPanel(S.session, prefix());
   if (S.tab === 'media') h = mediaPanel(S.session, prefix());
   if (S.tab === 'usage') h = usagePanel(S.session, S.budget, S.status?.rice, S.payslip?.sid === S.sid ? S.payslip.data : null);
-  if (S.tab === 'office') h = officePanel(S.office, S.status?.rice);
+  if (S.tab === 'office') h = officePanel(S.office, S.status?.rice, S.talent);
   if (S.tab === 'channels') h = channelsPanel(S.status);
   if (S.tab === 'history') h = historyPanel(S.history, S.sid);
   if (S.tab === 'cast') h = castPanel(S.session, prefix());
@@ -688,6 +689,27 @@ async function loadOffice() {
     /* 下次再试 */
   }
   if (S.tab === 'office') renderPanel();
+  if (S.talent) return;
+  try {
+    S.talent = await API.getCandidates();
+  } catch {
+    return;
+  }
+  if (S.tab === 'office') renderPanel();
+  if (S.talent.available && S.talent.stale) refreshTalent(); // 超过一天没查：自动查一次（只提示，不改配置）
+}
+
+/** 人才市场：重新查询聚合渠道的模型列表。 */
+async function refreshTalent() {
+  if (!S.talent || S.talent.loading) return;
+  S.talent = { ...S.talent, loading: true, error: null };
+  if (S.tab === 'office') renderPanel();
+  try {
+    S.talent = await API.refreshCandidates();
+  } catch (e) {
+    S.talent = { ...S.talent, loading: false, error: e.message || '查询失败' };
+  }
+  if (S.tab === 'office') renderPanel();
 }
 
 async function loadContributions() {
@@ -852,6 +874,7 @@ function bind() {
     addFiles([...(e.dataTransfer?.files || [])]);
   });
   document.addEventListener('click', (e) => {
+    if (e.target.closest('#talent-refresh')) refreshTalent();
     const pv = e.target.closest('[data-preview]');
     if (pv && S.sid) showPreview(pv.dataset.preview);
     if (e.target.closest('[data-close]')) $('#viewer').close();

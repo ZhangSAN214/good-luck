@@ -44,6 +44,7 @@ class Server:
     def _run(self, env_kw) -> None:
         async def main() -> None:
             self.env = Env(**env_kw)
+            self.env.rt.catalog.fetch = self._catalog  # 人才市场：不联网
             if self.delay:
                 self._slow_down(self.env.fake)
             app = create_app(RoundtableService(self.env.rt))
@@ -56,6 +57,23 @@ class Server:
             await serve
 
         asyncio.run(main())
+
+    async def _catalog(self, url: str) -> dict:
+        """聚合渠道的模型列表：b1 的价格和配置不一样，f5 找不到。"""
+        self.catalog_calls = getattr(self, "catalog_calls", 0) + 1
+        data = []
+        for m in self.env.config.models.models:
+            if m.id == "f5":
+                continue
+            out = m.price.output * (2 if m.id == "b1" else 1)
+            data.append(
+                {
+                    "id": m.routes[0].model,
+                    "created": 1,
+                    "pricing": {"prompt": str(m.price.input / 1e6), "completion": str(out / 1e6)},
+                }
+            )
+        return {"data": data}
 
     def _slow_down(self, fake) -> None:
         """每次模型调用前等一会儿，便于观察实时进度（发言高亮、当前步骤）。"""

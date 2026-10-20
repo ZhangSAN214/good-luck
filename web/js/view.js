@@ -1123,7 +1123,7 @@ export function payslipBlock(slip, rice) {
 const ROLE_LABELS = { manager: '经理', staff: '员工' };
 
 /** 员工名册（办公室模式）：经理与员工、工资标准（每百万 token 的美元价格）、本月已领工资。 */
-export function officePanel(office, rice) {
+export function officePanel(office, rice, talent = null) {
   if (!office) return '<p class="empty">加载中…</p>';
   const caps = office.task_caps_usd || {};
   let h = '<h4>员工名册</h4><table id="office-roster"><thead><tr><th>谁</th><th>岗位</th><th class="num">工资标准<br>输入 / 输出</th><th class="num">本月已领</th></tr></thead><tbody>';
@@ -1139,6 +1139,42 @@ export function officePanel(office, rice) {
   }
   h += '</tbody></table><p class="hint">办公室模式按这些上限派活，预计超出时先问你（办公室模式的派活在后续步骤上线）。</p>';
   if (office.month) h += budgetBlock('本月工资预算', office.month);
+  return h + talentBlock(talent);
+}
+
+/** 人才市场：聚合渠道上价格变了、下架了、或可能更合适的新模型。只提示，换人由用户决定。 */
+export function talentBlock(t) {
+  if (!t || t.available === false) return '';
+  const when = t.fetched_at ? new Date(t.fetched_at * 1000).toLocaleString() : '';
+  let h = `<h4>人才市场 <button type="button" class="btn" id="talent-refresh"${t.loading ? ' disabled' : ''}>${t.loading ? '查询中…' : '刷新'}</button></h4>`;
+  if (t.error) h += `<p class="hint badp">${esc(t.error)}</p>`;
+  if (!t.fetched_at) return `${h}<p class="empty">${t.loading ? '正在查询模型列表…' : '还没有查询过。'}</p>`;
+  const price = (p) => `$${p[0]} / $${p[1]}`;
+  const changes = t.price_changes || [];
+  const missing = t.missing || [];
+  const fresh = t.candidates || [];
+  h += '<div id="talent">';
+  if (changes.length) {
+    h += '<p>工资标准变了：</p><table><tbody>';
+    for (const c of changes) h += `<tr data-kind="price"><td>${esc(c.model_id)}</td><td class="num">${price(c.configured)} → ${price(c.actual)}</td></tr>`;
+    h += '</tbody></table>';
+  }
+  if (missing.length) {
+    h += '<p>找不到（可能离职或改名）：</p><table><tbody>';
+    for (const m of missing) h += `<tr data-kind="missing"><td>${esc(m.model_id)}</td><td class="hint">${esc(m.route)}</td></tr>`;
+    h += '</tbody></table>';
+  }
+  if (fresh.length) {
+    h += '<p>可能更合适的新人：</p><table><thead><tr><th>模型</th><th class="num">工资标准</th><th>建议</th></tr></thead><tbody>';
+    for (const c of fresh) {
+      const tier = c.tier ? ({ flagship: '全力档', budget: '节电档' }[c.tier] || c.tier) : '价格不在现有档位';
+      const swap = (c.replaces || []).length ? `，可替换 ${c.replaces.map(esc).join('、')}` : '';
+      h += `<tr data-kind="candidate"><td>${esc(c.name)}${c.vision ? ' <span class="pill">看图</span>' : ''}<div class="hint">${esc(c.route)}</div></td><td class="num">${price(c.price)}</td><td>${esc(tier)}${swap}</td></tr>`;
+    }
+    h += '</tbody></table>';
+  }
+  if (!changes.length && !missing.length && !fresh.length) h += '<p class="empty">名册上的都是最新的，工资标准也一致。</p>';
+  h += `</div><p class="hint">${esc(when)} 查询自 ${esc(t.source || '')}。只是提示：改工资标准或换人要改 config/models.yaml，不会自动生效。</p>`;
   return h;
 }
 
