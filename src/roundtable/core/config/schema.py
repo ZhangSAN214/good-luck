@@ -478,6 +478,9 @@ class FileRules(_Strict):
     # 生成的图片随答案转交给带 vision 标签的模型：每次调用最多几张、每张大小上限
     share_images: int = Field(default=6, ge=0)
     share_image_mb: float = Field(default=4, gt=0)
+    # 转交前把图片缩小到长边不超过这么多像素（上传更快、看图 token 更少）；0 = 原图转交。
+    # 需要 Pillow（pip install 'roundtable[media]'），没有安装时原图转交
+    share_image_max_side: int = Field(default=1280, ge=0)
 
 
 class ImageTool(_Strict):

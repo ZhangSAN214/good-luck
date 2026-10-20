@@ -12,6 +12,7 @@ import asyncio
 import logging
 import random
 import secrets
+import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
 from typing import Any
@@ -685,6 +686,7 @@ class Orchestrator:
             # 每个步骤使用由 seed 派生的独立随机数：中途恢复也与不中断时结果一致
             ctx.rng = random.Random(f"{row['seed']}:{table_no}:{step}")
             self._emit(sid, "step_started", step=step, table_no=table_no)
+            began = time.monotonic()
             try:
                 result = await get_step(step).run(ctx)
             except NeedsApproval as need:
@@ -692,6 +694,15 @@ class Orchestrator:
             except StepFailed as exc:
                 return self._fail(sid, f"步骤 {step} 失败：{exc}")
             repo.mark_step_done(sid, table_no, step)
+            # 每步用时写进日志（排查"慢"：哪一步、几次调用）
+            log.info(
+                "会话 %s 第 %d 桌 %s：%.1f 秒，%d 次调用",
+                sid,
+                table_no,
+                step,
+                time.monotonic() - began,
+                result.calls,
+            )
             self._warn(sid, *result.notes)
             self._emit(
                 sid,

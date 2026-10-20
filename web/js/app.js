@@ -175,7 +175,9 @@ function renderFeed() {
       els.push(r.el);
     }
     for (const k of [...rendered.keys()]) if (!keep.has(k)) rendered.delete(k);
-    list.replaceChildren(...els);
+    // 只有内容或顺序变了才动 DOM：长讨论里每个事件都整体重排会卡顿、打断选中的文字
+    const same = list.children.length === els.length && els.every((el, i) => list.children[i] === el);
+    if (!same) list.replaceChildren(...els);
   }
   renderTyping();
   if (atBottom) feed.scrollTop = feed.scrollHeight;

@@ -466,6 +466,7 @@ async def _assess(
     prompts: PromptLibrary,
     available: Sequence[ModelSpec],
     rng: random.Random,
+    workflow: str = "discussion",
 ) -> Assessment:
     rules = triage(question, config.routing.triage)
     base = Assessment(
@@ -478,6 +479,15 @@ async def _assess(
     )
     if rules.difficulty is not None:
         return base
+    if workflow == "office":
+        # 办公室模式由经理分诊，不再先请规划员判断难度（省一次调用和几秒等待）；
+        # 难度只用于花费预估的答案长度，按默认难度估
+        return replace(
+            base,
+            difficulty=config.routing.default_difficulty,
+            source="default",
+            reason="办公室模式由经理分诊，按默认难度预估",
+        )
 
     planner = await run_planner(
         question.text,
@@ -694,6 +704,7 @@ async def route_question(
         prompts=prompts,
         available=available,
         rng=random.Random(seed),
+        workflow=choice.workflow,
     )
     options = _options(
         question,

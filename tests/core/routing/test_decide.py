@@ -312,3 +312,17 @@ def test_office_estimate_counts_one_picture_when_the_question_asks_for_one():
     assert drawing["handle"] == pytest.approx(plain.get("handle", 0.0) + 0.04)
     discussion = Lineup(("b1", "b2"), "f1", tuple(cfg.roundtable.pipeline))
     assert "handle" not in _tool_costs(cfg, env.router, discussion, Question("画一张海报"))
+
+
+async def test_office_skips_the_planner(env):
+    """办公室模式由经理分诊：不先调用规划员。"""
+    question = "比较两种排序算法在大数据量下的优劣，并给出建议"
+    d = await route_question(
+        Question(question),
+        UserChoice(workflow="office"),
+        config=env.config,
+        router=env.router,
+        prompts=env.prompts,
+        seed=1,
+    )
+    assert env.fake.calls == [] and d.assessment.source in ("default", "rule")

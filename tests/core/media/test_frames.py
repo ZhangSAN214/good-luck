@@ -43,3 +43,28 @@ def test_fewer_frames_than_requested():
 def test_garbage_is_reported():
     with pytest.raises(FramesUnavailable):
         extract_frames(b"not a video", 4)
+
+
+def test_shrink_image_keeps_small_images_and_shrinks_big_ones():
+    import io
+
+    from PIL import Image
+
+    from roundtable.core.media import shrink_image
+
+    def png(size, mode="RGB"):
+        buf = io.BytesIO()
+        Image.effect_noise(size, 64).convert(mode).save(buf, "PNG")
+        return buf.getvalue()
+
+    small = png((300, 200))
+    assert shrink_image(small, "image/png", 1280) == (small, "image/png")
+    big = png((2400, 1600))
+    data, mime = shrink_image(big, "image/png", 1280)
+    assert mime == "image/jpeg" and len(data) < len(big)
+    assert max(Image.open(io.BytesIO(data)).size) == 1280
+    clear = png((2000, 2000), "RGBA")  # 透明背景保持 PNG
+    data, mime = shrink_image(clear, "image/png", 1000)
+    assert mime == "image/png" and max(Image.open(io.BytesIO(data)).size) == 1000
+    assert shrink_image(big, "image/png", 0) == (big, "image/png")  # 0 = 原图
+    assert shrink_image(b"not an image", "image/png", 100) == (b"not an image", "image/png")

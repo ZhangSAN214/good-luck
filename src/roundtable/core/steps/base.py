@@ -24,7 +24,7 @@ from roundtable.core.attachments import (
 from roundtable.core.cards import ConfirmationCard
 from roundtable.core.config import AppConfig
 from roundtable.core.jsonout import JSONOutputError
-from roundtable.core.media import FramesUnavailable, MediaService, extract_frames
+from roundtable.core.media import FramesUnavailable, MediaService, extract_frames, shrink_image
 from roundtable.core.prompts import PromptLibrary, RenderedPrompt
 from roundtable.core.providers import (
     AllChannelsFailed,
@@ -234,8 +234,10 @@ class TableContext:
                 return match.group(0)
             if self.file_store is None:
                 return match.group(0)
-            data = self.file_store.load(row["storage_key"])
-            media.append(Media("image", row["mime"], data, row["path"]))
+            data, mime = shrink_image(
+                self.file_store.load(row["storage_key"]), row["mime"], rules.share_image_max_side
+            )
+            media.append(Media("image", mime, data, row["path"]))
             return match.group(0)[:-2] + f' attached="随附图片 {len(media)}"/>'
 
         content = _IMAGE_FILE.sub(attach, content)
