@@ -2,13 +2,16 @@
 // 数据来自 /api/apartment（按浏览器本地时间）；小人用 /api/members 的 chibi，没有素材时用昵称首字。
 // 匿名未揭晓的会话：服务端只给数量，这里只在会议室门上挂牌，不显示是谁。
 
+import { cutout } from './cutout.js';
+
 const esc = (s) =>
   String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 
 const REFRESH_MS = 30_000;
 
-// 活动 → 头顶的小气泡
-const BUBBLES = { sleep: 'z', eat: '🍙', idle: '♪', work: '⌨', wait: '?', exercise: '💪', chat: '…', read: '📖', stargaze: '✧', game: '🎮' };
+// 活动 → 头顶的小气泡（一个字，闲着时不显示）
+const BUBBLES = { sleep: 'z', eat: '吃', work: '忙', wait: '等', exercise: '练', chat: '聊', read: '读', stargaze: '望', game: '玩' };
+const WEEK = '一二三四五六日';
 const ROOM_VERB = { office: '在办公室', meeting: '在会议室', canteen: '在食堂', lounge: '在休息室', gym: '在健身房', rooftop: '在天台' };
 const ROLE = { manager: '经理', staff: '员工' };
 
@@ -102,7 +105,8 @@ export function phase(hour) {
 
 /** 住户现在在哪儿、干什么的一句话 */
 export function whereText(r, dormName) {
-  const at = r.room === r.dorm ? `在${dormName || '宿舍'}` : ROOM_VERB[r.room] || '';
+  // 中文与数字之间留一个空格：在 01 号房看书
+  const at = r.room === r.dorm ? `在${/^\d/.test(dormName || '') ? ' ' : ''}${dormName || '宿舍'}` : ROOM_VERB[r.room] || '';
   return `${at}${r.activity_label}`;
 }
 
@@ -124,6 +128,18 @@ export class Apartment {
 
   setArt(art) {
     this.art = art && art.available ? art : null;
+    this.cut = new Map();
+    // 小人素材的浅色底在浏览器里抠掉（一次），抠好后换上
+    for (const m of this.art?.members || []) {
+      const src = m.images?.chibi;
+      if (!src) continue;
+      cutout(src).then((out) => {
+        if (out === src || this.art?.members?.indexOf(m) < 0) return;
+        this.cut.set(src, out);
+        clearTimeout(this.cutTimer);
+        this.cutTimer = setTimeout(() => this.data && !this.root.hidden && this.render(), 50);
+      });
+    }
     if (this.data) this.render();
   }
 
@@ -151,7 +167,8 @@ export class Apartment {
       this.error = e.message || '加载失败';
     }
     this.hour = t.getHours();
-    this.clock = t.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    this.clock = `${String(t.getHours()).padStart(2, '0')}:${String(t.getMinutes()).padStart(2, '0')}`;
+    this.day = `${t.getMonth() + 1} 月 ${t.getDate()} 日 · 周${WEEK[weekday]}`;
     this.render();
   }
 
@@ -166,14 +183,14 @@ export class Apartment {
     const color = m?.theme_color || 'var(--brass)';
     const name = m?.display || r.name;
     const img = m?.images?.chibi
-      ? `<img src="${esc(m.images.chibi)}" alt="" loading="lazy" draggable="false">`
+      ? `<img src="${esc(this.cut?.get(m.images.chibi) || m.images.chibi)}" alt="" loading="lazy" draggable="false">`
       : `<span class="ini" style="background:${esc(color)}">${esc(name.slice(0, 1))}</span>`;
     const dorms = this.dormNames();
     const label = `${name}（${ROLE[r.role] || r.role}）：${whereText(r, dorms[r.dorm])}`;
     const x = n <= 1 ? 50 : 10 + (80 * i) / (n - 1);
     const k = (this.data?.residents || []).indexOf(r);
     const pressed = this.selected === r.id;
-    return `<button type="button" class="tenant act-${esc(r.activity)}${pressed ? ' on' : ''}" data-r="${esc(r.id)}" aria-pressed="${pressed}" aria-label="${esc(label)}" title="${esc(label)}" style="--x:${x.toFixed(1)}%;--d:${6 + (k % 4) * 1.7}s;--c:${esc(color)}">${img}<i class="bub">${BUBBLES[r.activity] || ''}</i><b class="tag">${esc(name)}</b></button>`;
+    return `<button type="button" class="tenant act-${esc(r.activity)}${pressed ? ' on' : ''}" data-r="${esc(r.id)}" aria-pressed="${pressed}" aria-label="${esc(label)}" title="${esc(label)}" style="--x:${x.toFixed(1)}%;--d:${6 + (k % 4) * 1.7}s;--c:${esc(color)}">${img}${BUBBLES[r.activity] ? `<i class="bub">${BUBBLES[r.activity]}</i>` : ''}<b class="tag">${esc(name)}</b></button>`;
   }
 
   dormNames() {
@@ -212,7 +229,7 @@ export class Apartment {
     const d = this.data;
     const dorms = this.dormNames();
     const sel = (d.residents || []).find((r) => r.id === this.selected);
-    let h = `<div class="clock"><span class="big">${esc(this.clock)}</span><span class="hint">按你电脑的时间作息；30 秒刷新一次</span></div>`;
+    let h = `<div class="clock"><span class="big">${esc(this.clock)}</span><span class="day">${esc(this.day || '')}</span><span class="hint">按你电脑的时间作息，30 秒刷新一次</span></div>`;
     if (sel) {
       const m = this.look(sel);
       h += `<div class="card" id="resident-card"><div class="who">${m?.images?.avatar_128 ? `<img src="${esc(m.images.avatar_128)}" alt="">` : ''}<div><b>${esc(m?.display || sel.name)}</b><div class="hint">${esc(ROLE[sel.role] || sel.role)} · 住 ${esc(dorms[sel.dorm] || '')}</div></div></div>`;
@@ -225,9 +242,12 @@ export class Apartment {
     h += '<ul class="roster">';
     for (const r of d.residents || []) {
       const m = this.look(r);
-      h += `<li><button type="button" class="link${this.selected === r.id ? ' on' : ''}" data-r="${esc(r.id)}"><span><b>${esc(m?.display || r.name)}</b>${r.role === 'manager' ? ' <span class="pill">经理</span>' : ''}</span><span class="hint">${esc(whereText(r, dorms[r.dorm]))}</span></button></li>`;
+      const av = m?.images?.avatar_64
+        ? `<img class="av" src="${esc(m.images.avatar_64)}" alt="">`
+        : `<span class="av ini" style="background:${esc(m?.theme_color || 'var(--c-coord)')}">${esc((m?.display || r.name).slice(0, 1))}</span>`;
+      h += `<li><button type="button" class="link${this.selected === r.id ? ' on' : ''}" data-r="${esc(r.id)}">${av}<span class="tx"><span class="nm"><b>${esc(m?.display || r.name)}</b>${r.role === 'manager' ? '<span class="role">经理</span>' : ''}</span><span class="hint">${esc(whereText(r, dorms[r.dorm]))}</span></span></button></li>`;
     }
-    h += '</ul><p class="hint">住户就是办公室的员工；同一位的全力 / 节电两种模式住一间。这里只是看看，不调用模型、不花钱。</p>';
+    h += '</ul><p class="hint foot">住户就是办公室的员工，同一位的全力和节电两种模式住一间。这里只是看看，不调用模型，也不花钱。</p>';
     return h;
   }
 

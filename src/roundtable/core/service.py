@@ -23,7 +23,7 @@ from roundtable.core.attachments.detect import TYPES as UPLOAD_TYPES
 from roundtable.core.budget.guard import month_window
 from roundtable.core.chat import GroupChat
 from roundtable.core.media import KIND_LABELS, KINDS, MediaService
-from roundtable.core.members_art import load_members, mime_of, resolve_file
+from roundtable.core.members_art import MEMBERS_FILE, load_members, mime_of, resolve_file
 from roundtable.core.notes import NoteError, check_can_add, clean_note
 from roundtable.core.office import building, payslip, roster
 from roundtable.core.orchestrator import Orchestrator, OrchestratorError, RunResult
@@ -77,7 +77,8 @@ class RoundtableService:
         self.orc = Orchestrator(runtime, on_event=self._publish)
         self._subscribers: dict[str, set[asyncio.Queue[dict[str, Any]]]] = {}
         self._tasks: dict[str, asyncio.Task[None]] = {}
-        self.chat = GroupChat(runtime)
+        self._art_names_cache: tuple[int | None, dict[str, str]] | None = None
+        self.chat = GroupChat(runtime, names=self._art_names)
         self._chat_tasks: set[asyncio.Task[Any]] = set()
 
     async def aclose(self) -> None:
@@ -144,6 +145,20 @@ class RoundtableService:
             "collab_kinds": {name: k.label for name, k in cfg.roundtable.collab.kinds.items()},
             "budget": self.budget(),
         }
+
+    def _art_names(self) -> dict[str, str]:
+        """成员形象里的称呼（小写厂商名 → 称呼），给群聊里没有昵称的成员用。"""
+        root = self.rt.members_dir
+        try:
+            stamp = (root / MEMBERS_FILE).stat().st_mtime_ns if root else None
+        except OSError:
+            stamp = None
+        if self._art_names_cache is None or self._art_names_cache[0] != stamp:
+            out: dict[str, str] = {}
+            for m in load_members(root).members:
+                out.setdefault(m.vendor.strip().lower(), m.display)
+            self._art_names_cache = (stamp, out)
+        return self._art_names_cache[1]
 
     def members(self) -> dict[str, Any]:
         """成员形象（头像、小人）与「模型 id → 成员 id」。不涉及具体会话。

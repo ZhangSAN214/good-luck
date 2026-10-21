@@ -133,11 +133,12 @@ function renderHeader() {
   syncPet();
   const sv = S.session;
   const b = S.budget;
-  const parts = [`本场 ${money(sv ? sv.cost_usd : 0)}`];
-  if (b?.month) parts.push(`本月 ${money(b.month.spent_usd)} / ${money(b.month.limit_usd)}`);
-  if (b?.day) parts.push(`今日 ${money(b.day.spent_usd)} / ${money(b.day.limit_usd)}`);
+  const part = (k, v, cap) => `<span>${k}<b>${esc(v)}</b>${cap ? `<small>/ ${esc(cap)}</small>` : ''}</span>`;
+  const parts = [part('本场', money(sv ? sv.cost_usd : 0))];
+  if (b?.month) parts.push(part('本月', money(b.month.spent_usd), money(b.month.limit_usd)));
+  if (b?.day) parts.push(part('今日', money(b.day.spent_usd), money(b.day.limit_usd)));
   const meter = $('#meter');
-  meter.textContent = parts.join(' · ');
+  meter.innerHTML = parts.join('');
   const warn = !!(b && ((b.month && b.month.warn) || (b.day && b.day.warn)));
   meter.classList.toggle('warn', warn);
   meter.title = warn ? '预算已用超过提醒比例' : '';
@@ -212,13 +213,13 @@ function renderTyping() {
 
 function welcomeHTML() {
   const th = money(S.status?.confirm_threshold_usd ?? 0.3);
-  return `<div class="welcome"><h2>把题目交给圆桌</h2>
-<ol><li>所选档位的每个模型都上桌：一位当统筹，其余是组员。省钱靠选档位，不靠减人。</li>
-<li>组员独立作答 → 互相评审 → 根据评审修订 → 统筹汇总共识与分歧。</li>
-<li>节电模式汇总仍有分歧或把握低时，会问你要不要用全力模式重做；预计花费超过 ${th} 也先问你。</li>
-<li>可以添加图片、PDF、Word、文本或音频附件（点「添加附件」或把文件拖进来）；成员还能运行代码、写文件、生成图片、联网搜索，生成的文件可在过程区和「工具」标签里预览、下载。</li>
-<li>提交前，输入框下方会列出各档位的预计花费。</li>
-<li>勾选「匿名」时，成员用塔罗牌代号（愚者、魔术师…），讨论结束后点「揭晓身份」；不匿名时用「昵称·模式」（如 鲸鱼娘·全力）。发给模型的内容不含模型 id 和厂商名。</li></ol></div>`;
+  return `<div class="welcome"><h2>新题目</h2>
+<p class="lead">在下面写题目，选好办理方式后按 <kbd>Enter</kbd> 提交。提交前会列出预计花费，超过 ${th} 会先问你。</p>
+<dl><dt>办公室</dt><dd>经理分诊，派一位员工办理，经理过目后交付。花费最少，默认用这个。</dd>
+<dt>讨论</dt><dd>所选档位的成员都上桌：各自作答、互相评审、修订，最后由统筹汇总共识与分歧。</dd>
+<dt>协同</dt><dd>把题目拆成子任务分给不同成员，做完再合并。适合篇幅长、分工明确的作业。</dd>
+<dt>附件</dt><dd>图片、PDF、Word、文本、音频，拖进输入框即可。成员可以运行代码、写文件、画图和联网搜索，生成的文件在过程区和「工具」里预览、下载。</dd>
+<dt>匿名</dt><dd>成员用塔罗牌代号（愚者、魔术师…），结束后再揭晓身份；不匿名时用「昵称·模式」，如 鲸鱼娘·全力。发给模型的内容不含模型 id 和厂商名。</dd></dl></div>`;
 }
 
 function renderPanel() {

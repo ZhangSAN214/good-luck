@@ -68,10 +68,10 @@ export class GroupChat {
   build() {
     this.built = true;
     this.root.innerHTML = `
-      <aside class="gc-members" aria-label="群成员"><h3>群成员</h3><ul id="gc-members"></ul>
-        <p class="hint">成员都是 AI，只回应你、不会主动发消息。点名字可以 @ TA。</p></aside>
+      <aside class="gc-members" aria-label="群成员"><h3>成员 <span id="gc-online"></span></h3><ul id="gc-members"></ul>
+        <p class="hint">成员都是 AI，只在你发言后回应。点名字可以 @ 对方；写「大家」或「所有人」时每位在线成员都会回。</p></aside>
       <section class="gc-main" aria-label="群聊">
-        <header class="gc-head"><b id="gc-title">大家庭</b>
+        <header class="gc-head"><b id="gc-title">大家庭</b><span class="gc-count" id="gc-count"></span>
           <form id="gc-search" role="search"><input type="search" id="gc-q" placeholder="搜索聊天记录" aria-label="搜索聊天记录"></form>
           <button type="button" class="btn" id="gc-clear" title="删除全部聊天记录（花费记录保留）">清空记录</button></header>
         <div class="gc-feed" id="gc-feed" aria-live="polite"></div>
@@ -311,13 +311,18 @@ export class GroupChat {
     return `<span class="gc-av ini" style="background:${esc(color)}">${esc((name || '?').slice(0, 1))}</span>`;
   }
 
-  bubble(msg) {
+  /** prev：上一条消息。同一个人三分钟内连续发言时不再重复头像和名字。 */
+  bubble(msg, prev) {
     if (msg.author === 'system') return `<div class="gc-sys" data-id="${msg.id}">${esc(msg.text)}</div>`;
-    const time = new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const at = new Date(msg.created_at);
+    const time = at.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false });
     const text = esc(msg.text).replace(/@(\S{1,12})/g, '<b class="at">@$1</b>').replace(/\n/g, '<br>');
-    if (msg.author === 'user') return `<div class="gc-msg me" data-id="${msg.id}"><div class="gc-body"><div class="gc-bub">${text}</div><time>${esc(time)}</time></div></div>`;
+    const follow = prev && prev.author === msg.author && at - new Date(prev.created_at) < 180000;
+    const cls = `gc-msg${msg.author === 'user' ? ' me' : ''}${follow ? ' follow' : ''}`;
+    const stamp = `<time datetime="${esc(msg.created_at)}">${esc(time)}</time>`;
+    if (msg.author === 'user') return `<div class="${cls}" data-id="${msg.id}"><div class="gc-body"><div class="gc-meta">${stamp}</div><div class="gc-bub">${text}</div></div></div>`;
     const member = this.members.find((m) => m.id === msg.author);
-    return `<div class="gc-msg" data-id="${msg.id}" data-author="${esc(msg.author)}">${this.avatar(member, msg.name)}<div class="gc-body"><span class="gc-name">${esc(msg.name)}</span><div class="gc-bub">${text}</div><time>${esc(time)}</time></div></div>`;
+    return `<div class="${cls}" data-id="${msg.id}" data-author="${esc(msg.author)}">${this.avatar(member, msg.name)}<div class="gc-body"><div class="gc-meta"><span class="gc-name">${esc(msg.name)}</span>${stamp}</div><div class="gc-bub">${text}</div></div></div>`;
   }
 
   renderFeed() {
@@ -329,16 +334,18 @@ export class GroupChat {
     }
     const near = feed.scrollHeight - feed.scrollTop - feed.clientHeight < 80;
     feed.innerHTML = this.messages.length
-      ? this.messages.map((m) => this.bubble(m)).join('')
-      : '<p class="empty">还没有消息。打个招呼吧：成员都是 AI，会坦诚自己是 AI。</p>';
+      ? this.messages.map((m, i) => this.bubble(m, this.messages[i - 1])).join('')
+      : '<div class="gc-empty"><b>还没有消息</b><p>打个招呼，或者写「大家自我介绍一下」。成员都是 AI，被问到时会直说。</p></div>';
     if (near || this.stick !== false) feed.scrollTop = feed.scrollHeight;
     this.stick = near;
   }
 
   renderMembers() {
-    this.$('#gc-title').textContent = `大家庭（${this.members.length + 1} 人）`;
+    const online = this.members.filter((m) => m.available).length;
+    this.$('#gc-count').textContent = `${this.members.length + 1} 人`;
+    this.$('#gc-online').textContent = `${online}/${this.members.length} 在线`;
     this.$('#gc-members').innerHTML = this.members
-      .map((m) => `<li><button type="button" class="link${m.available ? '' : ' off'}" data-name="${esc(m.name)}" title="${m.available ? `@${esc(m.name)}` : '没有可用渠道'}">${this.avatar(m, m.name)}<span>${esc(m.name)}</span>${m.available ? '' : '<span class="pill badp">离线</span>'}</button></li>`)
+      .map((m) => `<li><button type="button" class="link${m.available ? '' : ' off'}" data-name="${esc(m.name)}" title="${m.available ? `@${esc(m.name)}` : '离线：没有可用渠道（检查 .env 里的 key）'}"><span class="gc-avwrap">${this.avatar(m, m.name)}<i class="dot${m.available ? ' on' : ''}" aria-label="${m.available ? '在线' : '离线'}"></i></span><span class="nm">${esc(m.name)}</span></button></li>`)
       .join('');
   }
 
@@ -349,7 +356,7 @@ export class GroupChat {
     if (this.typing.length) parts.push(`${this.typing.join('、')} 正在输入…`);
     if (waiting.length) parts.push(`接下来：${waiting.join('、')}`);
     t.hidden = !parts.length;
-    t.textContent = parts.join('　');
+    t.innerHTML = `${this.typing.length ? '<i></i><i></i><i></i>' : ''}<span>${esc(parts.join('　'))}</span>`;
   }
 
   renderError() {

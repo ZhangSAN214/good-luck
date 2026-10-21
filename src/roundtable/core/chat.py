@@ -50,8 +50,14 @@ def _price(m: Any) -> tuple[float, float]:
     return (m.price.output, m.price.input)
 
 
-def chat_members(config: Any, available: set[str]) -> list[ChatMember]:
-    """每个厂商一位；按配置顺序。"""
+def chat_members(
+    config: Any, available: set[str], names: dict[str, str] | None = None
+) -> list[ChatMember]:
+    """每个厂商一位；按配置顺序。
+
+    名字：personas 里的昵称；没有时用成员形象里的称呼（names，键为小写厂商名），再没有用厂商名。
+    """
+    names = names or {}
     tier = config.roundtable.chat.tier
     groups: dict[str, list[Any]] = {}
     for m in config.models.enabled:
@@ -66,7 +72,9 @@ def chat_members(config: Any, available: set[str]) -> list[ChatMember]:
         members.append(
             ChatMember(
                 id=vendor,
-                name=config.personas.nicknames.get(vendor, vendor),
+                name=config.personas.nicknames.get(vendor)
+                or names.get(vendor.strip().lower())
+                or vendor,
                 model_id=pick.id,
                 available=pick.id in available,
             )
@@ -110,11 +118,13 @@ class GroupChat:
         room: str = ROOM,
         rng: random.Random | None = None,
         on_change: Callable[[], None] | None = None,
+        names: Callable[[], dict[str, str]] | None = None,
     ) -> None:
         self.rt = rt
         self.room = room
         self.rng = rng or random.Random()
         self.on_change = on_change or (lambda: None)
+        self.names = names or dict
         self.typing: list[str] = []
         self._lock = asyncio.Lock()
 
@@ -130,7 +140,7 @@ class GroupChat:
 
     def members(self) -> list[ChatMember]:
         available = {m.id for m in self.rt.router.available_models()}
-        return chat_members(self.rt.config, available)
+        return chat_members(self.rt.config, available, self.names())
 
     def pick(self, text: str) -> list[ChatMember]:
         members = self.members()

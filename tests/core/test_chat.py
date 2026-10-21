@@ -144,3 +144,21 @@ async def test_empty_reply_is_explained_and_low_effort_params_are_used():
     assert "阿一 没有回复（回复是空的）。" in texts
     params = env.fake.calls[-1].params
     assert params["max_tokens"] == 1500 and params["reasoning"] == {"effort": "low"}
+
+
+def test_members_without_nickname_use_the_art_name_then_the_vendor():
+    env = Env()
+    cfg = env.config
+    config = SimpleNamespace(
+        roundtable=cfg.roundtable,
+        models=cfg.models,
+        personas=SimpleNamespace(nicknames={"V1": "阿一"}),
+    )
+    ids = {m.id for m in cfg.models.models}
+    names = {m.id: m.name for m in chat_members(config, ids, {"v1": "别名", "v2": "小二"})}
+    assert names["V1"] == "阿一"  # personas 的昵称优先
+    assert names["V2"] == "小二"  # 没有昵称时用成员形象里的称呼（厂商名不区分大小写）
+    assert names["V3"] == "V3"  # 都没有时用厂商名
+    # GroupChat 每次取成员时都问一次称呼来源
+    gc = GroupChat(env.rt, names=lambda: {"v1": "别名"})
+    assert {m.id: m.name for m in gc.members()}["V1"] == "阿一"

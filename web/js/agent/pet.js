@@ -1,6 +1,7 @@
 // 网页小人：悬浮在页面上的一位成员（/api/members 的 chibi），能拖动、贴边、隐藏。
 // 动作和表情由 brain.js 的状态机决定；有 pet.json 逐帧素材的用逐帧播放，其余用 CSS 程序动画。
 // 匿名且未揭晓的会话里由 app.js 调 setAllowed(false)：小人整个从页面移除，不留任何素材地址。
+import { cutout } from '../cutout.js';
 import { ACTIONS, Brain, EXPRESSIONS, LONG_PRESS_MS, canDrag, clamp, home, loadJSON, saveJSON, snap } from './brain.js';
 import { Reporter, hitPart, lookDir } from './reactions.js';
 
@@ -239,6 +240,13 @@ export class Pet {
     this.el = el;
     this.img = el.querySelector('.pet-img');
     this.chibi = m.images.chibi;
+    this.cutChibi = null;
+    // 素材带浅色底时在浏览器里抠掉（js/cutout.js），抠好后换上
+    cutout(this.chibi).then((out) => {
+      if (out === m.images.chibi || this.chibi !== m.images.chibi) return;
+      this.cutChibi = out;
+      if (this.img && this.img.getAttribute('src') === this.chibi) this.img.src = out;
+    });
     this.img.addEventListener('error', () => {
       // 图片坏了：不显示小人（逐帧图坏了就退回 chibi）
       if (this.img && this.img.getAttribute('src') !== this.chibi) {
@@ -615,7 +623,7 @@ export class Pet {
       this.frameStart = this.now();
     }
     this.el.classList.toggle('framed', !!own); // 有专门的帧时不再叠加程序姿势
-    const src = clip ? clip.frames[this.frameIndex(clip)] : this.chibi;
+    const src = clip ? clip.frames[this.frameIndex(clip)] : this.cutChibi || this.chibi;
     if (this.img.getAttribute('src') !== src) this.img.setAttribute('src', src);
   }
 
