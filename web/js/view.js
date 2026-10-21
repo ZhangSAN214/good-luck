@@ -915,7 +915,7 @@ function seatPositions(n) {
   const right = Math.ceil(n / 2);
   const left = n - right;
   const pos = [];
-  const R = 40;
+  const R = 41;
   const at = (deg) => [50 + R * Math.cos((deg * Math.PI) / 180), 50 + R * Math.sin((deg * Math.PI) / 180)];
   for (let j = 0; j < right; j++) pos.push(at(-90 + (180 * (j + 1)) / (right + 1)));
   for (let j = 0; j < left; j++) pos.push(at(90 + (180 * (j + 1)) / (left + 1)));
@@ -972,7 +972,7 @@ export function stageHTML(sv, live, prefix) {
   h += sv2 + '</svg>';
 
   const seat = ([x, y], cls, av, nm, rl) =>
-    `<div class="seat ${cls}" style="left:${x}%;top:${y}%">${av}<div class="nm">${esc(nm)}</div><div class="rl">${esc(rl)}</div></div>`;
+    `<div class="seat ${cls}" style="left:${x}%;top:${y}%" title="${esc(nm)}${rl ? ` · ${esc(rl)}` : ''}">${av}<div class="nm">${esc(nm)}</div><div class="rl">${esc(rl)}</div></div>`;
   if (hasCoord) {
     const sp = names.speaker(tableNo, null);
     const speaking = live.speaking.has('统') ? 'speaking' : '';
@@ -1126,11 +1126,12 @@ const ROLE_LABELS = { manager: '经理', staff: '员工' };
 export function officePanel(office, rice, talent = null) {
   if (!office) return '<p class="empty">加载中…</p>';
   const caps = office.task_caps_usd || {};
-  let h = '<h4>员工名册</h4><table id="office-roster"><thead><tr><th>谁</th><th>岗位</th><th class="num">工资标准<br>输入 / 输出</th><th class="num">本月已领</th></tr></thead><tbody>';
+  // 右栏窄：每人两行，首行姓名与岗位，次行模型与工资标准；本月已领靠右
+  let h = '<h4>员工名册</h4><table id="office-roster" class="roster"><thead><tr><th>谁 · 工资标准（输入 / 输出）</th><th class="num">本月已领</th></tr></thead><tbody>';
   for (const e of office.staff || []) {
     const t = (e.month_input_tokens || 0) + (e.month_output_tokens || 0);
     const off = e.available ? '' : ' <span class="pill badp">缺勤</span>';
-    h += `<tr data-role="${esc(e.role)}"><td>${esc(e.name)}${off}<div class="hint">${esc(e.model_id)}</div></td><td>${esc(ROLE_LABELS[e.role] || e.role)}</td><td class="num">$${e.wage_input} / $${e.wage_output}</td><td class="num" title="${t} token · ${e.month_calls} 次调用">${money(e.month_paid_usd)}<div class="hint">${esc(riceText(t, rice))}</div></td></tr>`;
+    h += `<tr data-role="${esc(e.role)}"><td><div class="rn"><b>${esc(e.name)}</b><span class="pill${e.role === 'manager' ? ' wait' : ''}">${esc(ROLE_LABELS[e.role] || e.role)}</span>${off}</div><div class="rm"><span>${esc(e.model_id)}</span><span>$${e.wage_input} / $${e.wage_output}</span></div></td><td class="num" title="${t} token · ${e.month_calls} 次调用">${money(e.month_paid_usd)}<div class="hint">${esc(riceText(t, rice))}</div></td></tr>`;
   }
   h += '</tbody></table><p class="hint">工资标准是每百万 token 的价格；已领工资按本月（UTC）的调用记录合计。缺勤 = 没有可用渠道。</p>';
   h += '<h4>每件事的工资上限</h4><table><tbody>';
