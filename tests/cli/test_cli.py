@@ -639,6 +639,29 @@ async def test_ask_office_project_shows_team_and_review():
     assert "修改后的项目成果" in text.split("【交付（按验收意见修改后）】")[1]
 
 
+async def test_export_covers_office_meeting_and_project(tmp_path):
+    """导出的完整记录里有开会的发言和拍板、项目组的分工和复核，以及每步花费。"""
+    for mode, expected in (
+        ("meeting", ("【经理分诊】开会，参会：", "发言】", "## 结论", "员工发言", "经理拍板")),
+        (
+            "project",
+            ("—— 项目组 ——", "【子任务与分工】", "【复核经理验收】", "复核经理验收 复核经理（f2）"),
+        ),
+    ):
+        env = Env(confirm_threshold_usd=100.0)
+        env.office_mode = mode
+        await run(
+            ["ask", SHORT, "--seed", "3"], runtime=env.rt, out=io.StringIO(), ask=Answers("n")
+        )
+        sid = env.rt.repo.list_sessions()[0].id
+        target = tmp_path / f"{mode}.txt"
+        code, _ = await cli(env, "export", sid, "-o", str(target))
+        text = target.read_text(encoding="utf-8-sig")
+        assert code == 0 and "【花费明细】" in text and "统筹" not in text
+        for part in expected:
+            assert part in text, (mode, part)
+
+
 async def test_performance_command_lists_and_resets():
     env = Env(confirm_threshold_usd=100.0)
     code, text = await cli(env, "performance")

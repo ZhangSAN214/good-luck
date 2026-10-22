@@ -116,6 +116,10 @@ def test_office_project_shows_team_table_and_review(serve, page):
         else page.locator(".final").all_inner_texts()
     )
     assert any("按验收意见修改" in f and "修改后的项目成果" in f for f in finals)
+    # 「上桌」页：复核经理不在桌上，单独列出它的调用
+    page.click('#tabs button[data-t="cast"]')
+    cast = page.inner_text("#pbody")
+    assert "复核经理 · f2" in cast and "复核经理验收" in cast
 
 
 def test_staff_panel_shows_performance_and_two_step_reset(serve, page):

@@ -95,6 +95,10 @@ STEP_NAMES = {
     "handle": "员工办理",
     "check": "经理过目",
     "fix": "员工修改",
+    "speak": "员工发言",
+    "decide": "经理拍板",
+    "office_review": "复核经理验收",
+    "office_revise": "按复核修改",
 }
 MODE_LABELS = {"single": "单人办", "meeting": "开会", "project": "项目分工"}
 MEDIA_NAMES = {"image": "图片", "speech": "语音", "video": "视频"}
@@ -208,6 +212,16 @@ class CLI:
 
     # --- 实时进度（事件只含代号，不含模型身份） --------------------------------------
 
+    def step_name(self, step: str) -> str:
+        """步骤的中文名；办公室模式里统筹就是经理、成员就是员工。"""
+        name = STEP_NAMES.get(step, step)
+        return name.replace("统筹", "经理").replace("成员", "员工") if self.office else name
+
+    def who(self, role: str | None, code: str | None, table_no: int = 0) -> str:
+        """一次调用是谁：规划员、附件预处理、复核经理（另一位经理）或桌上的成员 / 统筹。"""
+        extra = {"planner": "规划员", "preprocess": "附件预处理", "reviewer": "复核经理"}
+        return extra.get(role or "") or self.label(code, table_no)
+
     def _people(self, sid: str, members: int) -> str:
         if self.rt.repo.session_row(sid)["workflow"] == "office":
             return f"经理 + {members} 位在岗员工"
@@ -242,11 +256,12 @@ class CLI:
             members = "、".join(self.label(c, e.table_no) for c in d["members"])
             self.p(f"上桌：{members} + {self.label(None, e.table_no)}")
         elif e.type == "step_started" and e.step != "reveal":
-            self.p(f"\n▶ {STEP_NAMES.get(e.step, e.step)}")
+            self.p(f"\n▶ {self.step_name(e.step)}")
         elif e.type == "call_done":
-            self.p(f"  {self.label(e.code, e.table_no)} 完成（${d.get('cost', 0):.4f}）")
+            who = self.who(d.get("role"), e.code, e.table_no)
+            self.p(f"  {who} 完成（${d.get('cost', 0):.4f}）")
         elif e.type == "call_failed":
-            self.p(f"  {self.label(e.code, e.table_no)} 调用失败")
+            self.p(f"  {self.who(d.get('role'), e.code, e.table_no)} 调用失败")
         elif e.type == "member_dropped":
             self.p(f"  {self.label(e.code, e.table_no)} 退出本轮（已有内容保留）")
         elif e.type == "step_finished" and d.get("degraded"):
@@ -416,20 +431,20 @@ class CLI:
                 fail = f"，失败 {failed}" if failed else ""
                 planned = est.get("steps", {}).get(step, 0)
                 self.p(
-                    f"    {STEP_NAMES.get(step, step)}：预估 ${planned:.4f}"
+                    f"    {self.step_name(step)}：预估 ${planned:.4f}"
                     f"，实际 ${sum(c.cost_usd for c in cs):.4f}"
                     f"（{len(cs)} 次调用{fail}，输入 {self.rice(tin)} / 输出 {self.rice(tout)}）"
                 )
         self.p("\n【每次调用】")
         for c in view.calls:
             where = "准备" if c.table_no is None else f"第 {c.table_no + 1} 桌"
-            who = {"planner": "规划员", "preprocess": "附件预处理"}.get(c.role) or self.label(
-                c.code, c.table_no or 0
-            )
+            who = self.who(c.role, c.code, c.table_no or 0)
+            if c.role == "reviewer" and self.names:  # 身份可以显示时，复核经理也带上模型
+                who += f"（{c.model_id}）"
             channel = f" · {c.channel}" if c.channel else ""
             error = f" · 失败：{c.error}" if c.error else ""
             self.p(
-                f"  #{c.id} {where} {STEP_NAMES.get(c.step, c.step)} {who}{channel}："
+                f"  #{c.id} {where} {self.step_name(c.step)} {who}{channel}："
                 f"输入 {self.rice(c.input_tokens)} / 输出 {self.rice(c.output_tokens)}，"
                 f"${c.cost_usd:.4f}"
                 + (f"，{c.latency_s:.1f}s" if c.latency_s is not None else "")
@@ -602,7 +617,7 @@ class CLI:
                 )
             if not brief:
                 steps = "，".join(
-                    f"{STEP_NAMES.get(st.step, st.step)} ${st.cost_usd:.4f}"
+                    f"{self.step_name(st.step)} ${st.cost_usd:.4f}"
                     for st in e.steps
                     if st.step != "reveal"
                 )
@@ -654,9 +669,7 @@ class CLI:
         for j in jobs:
             lead = "经理" if self.office else "统筹"
             who = self.label(j["code"], j["table_no"]) if j["code"] else lead
-            where = (
-                f"{who} · {j['subtask']}" if j["subtask"] else STEP_NAMES.get(j["step"], j["step"])
-            )
+            where = f"{who} · {j['subtask']}" if j["subtask"] else self.step_name(j["step"])
             model = f" · {j['model_id']}（{j['channel']}）" if revealed and j["channel"] else ""
             self.p(
                 f"  {MEDIA_NAMES.get(j['kind'], j['kind'])} · {where} · 第 {j['round']} 轮"
@@ -683,7 +696,7 @@ class CLI:
                 status = TOOL_STATUS.get(c["status"], c["status"])
                 took = f"，{c['duration_s']:.1f}s" if c["duration_s"] else ""
                 self.p(
-                    f"\n· {who} · {STEP_NAMES.get(c['step'], c['step'])} · 第 {c['round']} 轮"
+                    f"\n· {who} · {self.step_name(c['step'])} · 第 {c['round']} 轮"
                     f" · {tool}：{status}{took}"
                 )
                 if c["tool"] == "python" and c["input"].get("code"):
@@ -929,7 +942,7 @@ class CLI:
                 else {"planner": "规划员", "reviewer": "复核经理"}.get(c.role, lead)
             )
             self.p(
-                f"  {STEP_NAMES.get(c.step, c.step):<6} {who:<6} {c.model_id}  渠道：{trail or '-'}"
+                f"  {self.step_name(c.step):<6} {who:<6} {c.model_id}  渠道：{trail or '-'}"
                 f"  ${c.cost_usd:.4f}"
             )
         usage = self.rt.repo.spent_by_channel()

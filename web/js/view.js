@@ -1409,6 +1409,11 @@ export function castPanel(sv, prefix) {
     if (planner.length) {
       h += `<h4>规划员</h4><div class="ros"><div class="ro"><div class="av coord">规</div><b>规划员 <span class="ai">· ${esc(planner[0].model_id || '')}</span></b><p>估计答案长度</p><div class="calls">${callLines((c) => c.role === 'planner')}</div></div></div>`;
     }
+    // 办公室模式·项目分工：另一位经理验收项目组的成果（不在桌上）
+    const reviewer = calls.filter((c) => c.role === 'reviewer');
+    if (reviewer.length) {
+      h += `<h4>复核经理</h4><div class="ros"><div class="ro"><div class="av coord">复</div><b>复核经理 <span class="ai">· ${esc(reviewer[0].model_id || '')}</span></b><p>验收项目组的成果</p><div class="calls">${callLines((c) => c.role === 'reviewer')}</div></div></div>`;
+    }
   }
   return h;
 }

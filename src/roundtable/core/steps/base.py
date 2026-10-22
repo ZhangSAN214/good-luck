@@ -463,7 +463,7 @@ async def call_once(
             prompt=prompt,
             failure=exc,
         )
-        ctx.emit("call_failed", step, code)
+        ctx.emit("call_failed", step, code, role=role)
         return CallOutcome(None, call_id, "调用失败")
     call_id = ctx.repo.record_call(
         ctx.session_id,
@@ -476,7 +476,14 @@ async def call_once(
         prompt=prompt,
         completion=completion,
     )
-    ctx.emit("call_done", step, code, tokens=completion.output_tokens, cost=completion.cost_usd)
+    ctx.emit(
+        "call_done",
+        step,
+        code,
+        role=role,
+        tokens=completion.output_tokens,
+        cost=completion.cost_usd,
+    )
     if completion.truncated:
         ctx.truncated_calls.add(call_id)
     guard = ctx.config.roundtable.length_guard
