@@ -109,3 +109,19 @@ def test_office_project_shows_team_table_and_review(serve, page):
         else page.locator(".final").all_inner_texts()
     )
     assert any("按验收意见修改" in f and "修改后的项目成果" in f for f in finals)
+
+
+def test_staff_panel_shows_performance_and_two_step_reset(serve, page):
+    srv = serve(confirm_threshold_usd=100.0)
+    _office_page(srv, page)
+    ask(page, MEDIUM)
+    wait_done(page)
+    page.click('#tabs button[data-t="office"]')
+    perf = page.wait_for_selector("#office-perf")
+    assert "单人办 1 件" in perf.inner_text() and "通过 100%" in perf.inner_text()
+    page.click("#perf-reset")
+    page.wait_for_selector("#perf-reset:has-text('再点一次确认清零')")
+    assert page.query_selector("#office-perf")  # 第一次点只是确认，还没清零
+    page.click("#perf-reset")
+    page.wait_for_selector("#pbody :text('还没有记录')")
+    assert not page.query_selector("#office-perf")

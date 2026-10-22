@@ -76,6 +76,7 @@ class OfficeState:
     fixed: str | None = None  # 退回后改的版本
     speeches: dict[str, str] = field(default_factory=dict)  # 开会：代号 → 发言（按发言顺序）
     decision: dict[str, Any] | None = None  # 开会：经理拍板（text、degraded）
+    performance: Any = None  # 绩效（O5，派活参考；不存库，每题第一次用到时统计）
 
     @property
     def meeting(self) -> bool:
@@ -144,18 +145,42 @@ def _required_tags(ctx: TableContext) -> set[str]:
     return {"vision"} if any(a.kind == "image" for a in ctx.attachments) else set()
 
 
+def performance(ctx: TableContext):
+    """绩效（O5）：办公室模式历史会话的统计；关闭时为 None。同一题只统计一次。"""
+    rules = ctx.config.roundtable.office.performance
+    if not rules.enabled:
+        return None
+    o = _office(ctx)
+    if o.performance is None:
+        from roundtable.core.office.performance import collect
+
+        o.performance = collect(ctx.repo)
+    return o.performance
+
+
 def staff_block(ctx: TableContext) -> str:
-    """在岗员工名单（每人一行）：称呼、擅长、档位、工资标准。只看配置，同一题所有经理看到的相同。"""
+    """在岗员工名单（每人一行）：称呼、擅长、档位、工资标准，有记录时附绩效。
+
+    只看配置和历史记录，同一题所有经理看到的相同。
+    """
+    from roundtable.core.office.performance import brief
+
     labels = ctx.config.personas.tier_labels
+    perf = performance(ctx)
+    min_jobs = ctx.config.roundtable.office.performance.min_jobs
     lines = []
     for code in ctx.active:
         spec = ctx.models_by_id[ctx.members[code]]
         tags = "、".join(spec.tags) or "通用"
         tier = labels.get(spec.tier, spec.tier or "")
-        lines.append(
+        line = (
             f"- {ctx.label(code)}｜擅长：{tags}｜档位：{tier}"
             f"｜工资：${spec.price.input:g} / ${spec.price.output:g}"
         )
+        record = brief(perf, spec.id, min_jobs) if perf is not None else ""
+        if record:
+            line += f"｜绩效：{record}"
+        lines.append(line)
     return neutralize("\n".join(lines), TAGS)
 
 
@@ -169,13 +194,45 @@ def pick_by_rule(ctx: TableContext, exclude: set[str] = frozenset()) -> str:
     need = _required_tags(ctx)
     tagged = [m for m in models if need <= set(m.tags)]
     spec = ctx.config.routing.planner
+    pool_models = _best_performers(ctx, tagged or models)
     chosen = cheapest(
-        tagged or models,
+        pool_models,
         ctx.rng,
         input_tokens=spec.expected_input_tokens,
         output_tokens=spec.expected_output_tokens,
     )
     return specs[chosen.id]
+
+
+def _best_performers(ctx: TableContext, models: list) -> list:
+    """工资（预计成本）最低的几位里，有足够验收记录的按通过率取最高的；都没有记录时原样返回。
+
+    只在工资相同时起作用（同等条件下优先表现好的），不会因为绩效派给更贵的员工。
+    """
+    perf = performance(ctx)
+    if perf is None or len(models) < 2:
+        return models
+    spec = ctx.config.routing.planner
+
+    def cost(m) -> float:
+        return (
+            m.price.input * spec.expected_input_tokens
+            + m.price.output * spec.expected_output_tokens
+        )
+
+    lowest = min(cost(m) for m in models)
+    ties = [m for m in models if cost(m) == lowest]
+    min_jobs = ctx.config.roundtable.office.performance.min_jobs
+    rates = {}
+    for m in ties:
+        total = perf.total(m.id)
+        if total.checked >= min_jobs:
+            rates[m.id] = total.pass_rate
+    if not rates:
+        return models
+    best = max(rates.values())
+    # 有记录且通过率最高的，加上没有记录的（不因为没有记录就不用）
+    return [m for m in ties if rates.get(m.id, best) == best]
 
 
 def _caps_text(ctx: TableContext) -> str:

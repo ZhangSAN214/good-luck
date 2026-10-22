@@ -1166,7 +1166,29 @@ export function payslipBlock(slip, rice) {
 const ROLE_LABELS = { manager: '经理', staff: '员工' };
 
 /** 员工名册（办公室模式）：经理与员工、工资标准（每百万 token 的美元价格）、本月已领工资。 */
-export function officePanel(office, rice, talent = null) {
+const PERF_KINDS = [['single', '单人办'], ['meeting', '开会'], ['project', '项目分工']];
+
+/** 绩效：每位员工按活的类型统计的件数、被退回、验收通过率、平均工资与用时（只展示有记录的）。 */
+export function performanceBlock(office, armed = false) {
+  const minJobs = office.performance_min_jobs || 1;
+  const rows = (office.staff || []).filter((e) => e.performance && e.performance.total && e.performance.total.jobs > 0);
+  const since = office.performance_since ? `（从 ${esc(new Date(office.performance_since).toLocaleString())} 起）` : '';
+  let h = `<h4>绩效${since} <button type="button" class="btn" id="perf-reset"${rows.length ? '' : ' disabled'}>${armed ? '再点一次确认清零' : '清零'}</button></h4>`;
+  if (!rows.length) return `${h}<p class="empty">还没有记录：办公室模式办完事后，这里显示每位员工办了几件、被退回几次、验收通过率、平均工资和用时。</p>`;
+  h += '<table id="office-perf" class="roster"><tbody>';
+  for (const e of rows) {
+    const parts = PERF_KINDS.filter(([k]) => e.performance[k]).map(([k, label]) => {
+      const s = e.performance[k];
+      const rate = s.pass_rate === null || s.pass_rate === undefined ? '' : ` · 通过 ${Math.round(s.pass_rate * 100)}%${s.returned ? ` · 退回 ${s.returned}` : ''}`;
+      return `<div class="rm"><span>${label} ${s.jobs} 件${rate}</span><span>平均 ${money(s.avg_cost_usd)} · ${Math.round(s.avg_seconds)} 秒</span></div>`;
+    });
+    const few = e.performance.total.jobs < minJobs ? ' <span class="pill">记录少</span>' : '';
+    h += `<tr data-model="${esc(e.model_id)}"><td><div class="rn"><b>${esc(e.name)}</b>${few}</div>${parts.join('')}</td></tr>`;
+  }
+  return `${h}</tbody></table><p class="hint">按办公室模式的记录推算：经理过目 / 验收过的算一次验收，退回修改算被退回；开会不验收。办过 ${minJobs} 件以上才给经理参考：工资相同的员工优先通过率高的。清零只重新开始统计，不删除任何记录。</p>`;
+}
+
+export function officePanel(office, rice, talent = null, perfArmed = false) {
   if (!office) return '<p class="empty">加载中…</p>';
   const caps = office.task_caps_usd || {};
   // 右栏窄：每人两行，首行姓名与岗位，次行模型与工资标准；本月已领靠右
@@ -1177,11 +1199,12 @@ export function officePanel(office, rice, talent = null) {
     h += `<tr data-role="${esc(e.role)}"><td><div class="rn"><b>${esc(e.name)}</b><span class="pill${e.role === 'manager' ? ' wait' : ''}">${esc(ROLE_LABELS[e.role] || e.role)}</span>${off}</div><div class="rm"><span>${esc(e.model_id)}</span><span>$${e.wage_input} / $${e.wage_output}</span></div></td><td class="num" title="${t} token · ${e.month_calls} 次调用">${money(e.month_paid_usd)}<div class="hint">${esc(riceText(t, rice))}</div></td></tr>`;
   }
   h += '</tbody></table><p class="hint">工资标准是每百万 token 的价格；已领工资按本月（UTC）的调用记录合计。缺勤 = 没有可用渠道。</p>';
+  h += performanceBlock(office, perfArmed);
   h += '<h4>每件事的工资上限</h4><table><tbody>';
   for (const [k, label] of [['single', '单人办'], ['meeting', '开会'], ['project', '项目分工']]) {
     if (caps[k] !== undefined) h += `<tr><td>${label}</td><td class="num">${money(caps[k])}</td></tr>`;
   }
-  h += '</tbody></table><p class="hint">办公室模式按这些上限派活，预计超出时先问你（办公室模式的派活在后续步骤上线）。</p>';
+  h += '</tbody></table><p class="hint">经理分诊后按办事方式对照这些上限，预计超出时先问你（开会、项目分工可以改为单人办）。</p>';
   if (office.month) h += budgetBlock('本月工资预算', office.month);
   return h + talentBlock(talent);
 }

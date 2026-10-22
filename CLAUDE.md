@@ -1,6 +1,6 @@
 # CLAUDE.md — Roundtable（圆桌）
 
-多个 AI 协作完成作业。长期目标见 `docs/REQUIREMENTS_v3.md`；当前范围以本文件和 `docs/PLAN.md` 为准（v1 已完成，v2 改版阶段 11–20 全部完成（19 媒体生成、20 收尾：限速与并发、README、CI），v2.1 阶段 21 协同流水线 + 昵称 / 塔罗牌代号 / 大米、22 参考图风格与图生图均已完成）。R17 办公室模式（AI 是员工、token 是工资，见 `docs/OFFICE.md`）O1 名册与工资单、O2 经理分诊 + 单人办（默认方式）、O3 开会、O4 项目分工已完成，O5 绩效待做。夜间轮（2026-10-20）新增人才市场（只提示）、公寓楼（只读）、群聊核心（阶段 32 最小版本），见 `docs/PROGRESS.md`。
+多个 AI 协作完成作业。长期目标见 `docs/REQUIREMENTS_v3.md`；当前范围以本文件和 `docs/PLAN.md` 为准（v1 已完成，v2 改版阶段 11–20 全部完成（19 媒体生成、20 收尾：限速与并发、README、CI），v2.1 阶段 21 协同流水线 + 昵称 / 塔罗牌代号 / 大米、22 参考图风格与图生图均已完成）。R17 办公室模式（AI 是员工、token 是工资，见 `docs/OFFICE.md`）O1 名册与工资单、O2 经理分诊 + 单人办（默认方式）、O3 开会、O4 项目分工、O5 绩效已全部完成。夜间轮（2026-10-20）新增人才市场（只提示）、公寓楼（只读）、群聊核心（阶段 32 最小版本），见 `docs/PROGRESS.md`。
 界面样板：`docs/mockup.html`（v1 只实现其中文字圆桌相关部分）。
 按 `docs/PLAN.md` 的阶段推进，不要跳阶段，不要提前实现"后续扩展"里的功能。
 
@@ -98,6 +98,7 @@ roundtable estimate '题目'           # 提交前预估：各模式 × 各档�
 roundtable models                   # 查看模型、档位、可用渠道与预算
 roundtable models --check-updates   # 人才市场：价格变动、下架、同系列新模型（只提示，不改配置）
 roundtable stats                    # 各模型的历史贡献
+roundtable performance [--reset]    # 办公室模式的员工绩效（--reset 清零）
 roundtable bench --max-usd 2          # 对比实验：个人 / 讨论 / 协同各跑同一批题，比正确率、花费、耗时
 roundtable show <id> --costs        # 每步预估与实际花费、每次调用的 token
 roundtable export <id> [-o 文件]     # 导出完整记录（UTF-8 带 BOM，含花费明细）

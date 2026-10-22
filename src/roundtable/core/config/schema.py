@@ -641,12 +641,20 @@ class OfficeProject(_Strict):
         return self
 
 
+class OfficePerformance(_Strict):
+    """办公室模式的绩效（O5）：名单附绩效给经理参考；规则派活时工资相同的优先通过率高的。"""
+
+    enabled: bool = True
+    min_jobs: int = Field(default=3, ge=1)
+
+
 class OfficeRules(_Strict):
     """办公室模式（O1～O5，见 docs/OFFICE.md）。经理在 models.yaml 的 office_role 里指定。"""
 
     task_caps_usd: OfficeTaskCaps = OfficeTaskCaps()
     meeting: OfficeMeeting = OfficeMeeting()
     project: OfficeProject = OfficeProject()
+    performance: OfficePerformance = OfficePerformance()
     # 两位以上经理时怎么分：rotate = 每件事轮流当主办经理，项目级任务由另一位复核
     manager_strategy: Literal["rotate"] = "rotate"
 

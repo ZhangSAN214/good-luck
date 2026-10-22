@@ -1097,6 +1097,42 @@ class Repository:
             for r in rows
         }
 
+    # --- 办公室模式：绩效 ---------------------------------------------------------
+
+    def setting(self, key: str) -> str | None:
+        row = self._exec("SELECT value FROM app_settings WHERE key = ?", (key,)).fetchone()
+        return row["value"] if row else None
+
+    def set_setting(self, key: str, value: str) -> None:
+        self._exec(
+            "INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, ?)"
+            " ON CONFLICT(key) DO UPDATE SET value = excluded.value,"
+            " updated_at = excluded.updated_at",
+            (key, value, self.clock()),
+        )
+
+    def office_sessions(self, since: str | None = None, limit: int = 500) -> list[str]:
+        """办公室模式的会话 id（新的在前）：创建于 since 之后；匿名未揭晓的不算（不暴露身份）。"""
+        visible = "anonymous = 0 OR revealed_at IS NOT NULL"
+        sql = f"SELECT id FROM sessions WHERE workflow = 'office' AND ({visible})"
+        params: list[Any] = []
+        if since:
+            sql += " AND created_at >= ?"
+            params.append(since)
+        sql += " ORDER BY created_at DESC, id DESC LIMIT ?"
+        params.append(limit)
+        return [r["id"] for r in self._exec(sql, params).fetchall()]
+
+    def member_call_totals(self, session_id: str, table_no: int) -> dict[str, tuple[float, float]]:
+        """某张桌子上每位组员（代号）的调用花费与用时合计（秒）。"""
+        rows = self._exec(
+            "SELECT code, COALESCE(SUM(cost_usd), 0) AS cost, COALESCE(SUM(latency_s), 0) AS secs"
+            " FROM calls WHERE session_id = ? AND table_no = ? AND role = 'member'"
+            " AND code IS NOT NULL GROUP BY code",
+            (session_id, table_no),
+        ).fetchall()
+        return {r["code"]: (float(r["cost"]), float(r["secs"])) for r in rows}
+
     def spent_by_channel(self) -> dict[str, ChannelUsage]:
         usage: dict[str, ChannelUsage] = {}
         for r in self._exec(

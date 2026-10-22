@@ -30,6 +30,9 @@ office:
     pipeline: [decompose, volunteer, assign, work, cross_review, rework, accept, merge, office_review, reveal]
     step_params:
       merge: {reasoning: {effort: medium}}
+  # 绩效（O5）：员工名单附上绩效给经理参考；规则派活时工资相同的员工优先通过率高的。
+  # min_jobs：某类活至少办过几件才显示 / 参考（太少不说明问题）
+  performance: {enabled: true, min_jobs: 3}
 
 # 群聊：成员只回应你，不主动发消息；没有 @ 人时随机一两位回应
 chat:
@@ -92,7 +95,7 @@ prompts:
   media_brief: v1        # 媒体输出：把题目改写成「写生成提示词」的任务
   media_review: v2       # 评审生成结果（图片 / 视频截帧）；v2：对照风格清单逐条判定
   style_extract: v1      # 风格规范提取：成员各自看参考图
-  office_intake: v3      # 办公室：经理分诊派活（v2：开会时点名参会员工；v3：项目分工时点名项目组）
+  office_intake: v4      # 办公室：经理分诊派活（v2：开会点名；v3：项目组点名；v4：名单附绩效）
   office_speak: v1       # 办公室·开会：员工依次发言
   office_decide: v1      # 办公室·开会：经理拍板，写结论和会议纪要
   office_review: v1      # 办公室·项目：复核经理最终验收

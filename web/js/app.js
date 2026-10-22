@@ -238,7 +238,7 @@ function renderPanel() {
   if (S.tab === 'tools') h = toolsPanel(S.session, prefix());
   if (S.tab === 'media') h = mediaPanel(S.session, prefix());
   if (S.tab === 'usage') h = usagePanel(S.session, S.budget, S.status?.rice, S.payslip?.sid === S.sid ? S.payslip.data : null);
-  if (S.tab === 'office') h = officePanel(S.office, S.status?.rice, S.talent);
+  if (S.tab === 'office') h = officePanel(S.office, S.status?.rice, S.talent, S.perfArmed);
   if (S.tab === 'channels') h = channelsPanel(S.status);
   if (S.tab === 'history') h = historyPanel(S.history, S.sid);
   if (S.tab === 'cast') h = castPanel(S.session, prefix());
@@ -716,6 +716,28 @@ async function loadOffice() {
 }
 
 /** 人才市场：重新查询聚合渠道的模型列表。 */
+/** 绩效清零：两步确认（第一次点只是武装，5 秒内再点一次才清零）。 */
+async function resetPerformance() {
+  if (!S.perfArmed) {
+    S.perfArmed = true;
+    renderPanel();
+    setTimeout(() => {
+      if (S.perfArmed) {
+        S.perfArmed = false;
+        if (S.tab === 'office') renderPanel();
+      }
+    }, 5000);
+    return;
+  }
+  S.perfArmed = false;
+  try {
+    S.office = await API.resetPerformance();
+  } catch (e) {
+    formError(e.message || '清零失败');
+  }
+  if (S.tab === 'office') renderPanel();
+}
+
 async function refreshTalent() {
   if (!S.talent || S.talent.loading) return;
   S.talent = { ...S.talent, loading: true, error: null };
@@ -925,6 +947,7 @@ function bind() {
   });
   document.addEventListener('click', (e) => {
     if (e.target.closest('#talent-refresh')) refreshTalent();
+    if (e.target.closest('#perf-reset')) resetPerformance();
     const pv = e.target.closest('[data-preview]');
     if (pv && S.sid) showPreview(pv.dataset.preview);
     if (e.target.closest('[data-close]')) $('#viewer').close();

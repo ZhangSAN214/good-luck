@@ -11,6 +11,7 @@
     roundtable models --check-updates             # 人才市场：价格变动、下架、新模型（只提示）
     roundtable history                            # 最近的讨论
     roundtable stats                              # 各模型的历史贡献
+    roundtable performance [--reset]              # 办公室模式的员工绩效（--reset 清零）
     roundtable resume <会话 id>                   # 中断后继续
     roundtable show <会话 id>                     # 查看结果（--costs 显示花费明细）
     roundtable export <会话 id> [-o 文件]         # 导出完整记录（UTF-8 文本文件，含花费明细）
@@ -1191,6 +1192,36 @@ class CLI:
             self.p(f"  {name:<28} {sessions[model]} 场  " + "，".join(parts))
         return 0
 
+    def cmd_performance(self, do_reset: bool) -> int:
+        """办公室模式的员工绩效：按活的类型统计件数、被退回、验收通过率、平均工资与用时。"""
+        from roundtable.core.office import collect, reset
+        from roundtable.core.office.performance import KIND_LABELS, KINDS
+
+        if do_reset:
+            reset(self.rt.repo, self.rt.repo.clock())
+            self.p("绩效已清零：之后只统计从现在起的办公室会话（不删除任何记录）。")
+            return 0
+        perf = collect(self.rt.repo)
+        if not perf.by_model:
+            self.p("还没有绩效记录：办公室模式办完事后再来看。")
+            return 0
+        if perf.since:
+            self.p(f"从 {perf.since[:19]} 起统计")
+        for model, kinds in perf.by_model.items():
+            self.p(f"  {display_name(model, self.rt.config)}（{model}）")
+            for kind in KINDS:
+                st = kinds.get(kind)
+                if st is None:
+                    continue
+                d = st.to_dict()
+                rate = "" if st.pass_rate is None else f"，通过率 {st.pass_rate:.0%}"
+                back = f"，退回 {st.returned}" if st.returned else ""
+                self.p(
+                    f"    {KIND_LABELS[kind]} {st.jobs} 件{rate}{back}，"
+                    f"平均 ${d['avg_cost_usd']:.4f} / {d['avg_seconds']:.0f} 秒"
+                )
+        return 0
+
     def cmd_note(self, session_id: str, text: str) -> int:
         """讨论进行中补充意见（可在另一个终端运行）：下一个步骤开始时被带上。"""
         repo = self.rt.repo
@@ -1305,6 +1336,8 @@ def build_parser() -> argparse.ArgumentParser:
     bench.add_argument("--report", metavar="BATCH", help="只查看某次实验的汇总")
     bench.add_argument("-o", "--output", help="导出 CSV 或 JSON（按后缀）")
     sub.add_parser("stats", help="各模型的历史贡献（被采纳、有效问题、敷衍次数等）")
+    perf = sub.add_parser("performance", help="办公室模式的员工绩效（件数、退回、通过率等）")
+    perf.add_argument("--reset", action="store_true", help="清零：之后只统计从现在起的会话")
     history = sub.add_parser("history", help="最近的讨论")
     history.add_argument("--limit", type=int, default=20)
     note = sub.add_parser("note", help="讨论进行中补充意见（下一个步骤开始时带上）")
@@ -1407,6 +1440,8 @@ async def run(
             return cli.cmd_models()
         if args.command == "stats":
             return cli.cmd_stats()
+        if args.command == "performance":
+            return cli.cmd_performance(args.reset)
         if args.command == "note":
             return cli.cmd_note(args.session_id, args.text)
         if args.command == "history":

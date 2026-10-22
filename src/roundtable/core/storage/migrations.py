@@ -385,4 +385,16 @@ CREATE TABLE chat_messages (
 CREATE INDEX idx_chat_messages_room ON chat_messages(room, id);
 """,
     ),
+    (
+        14,
+        "本地设置",
+        """
+-- 少量本地设置（键值），如办公室模式绩效的统计起点（老板一键清零后从此刻重新统计）
+CREATE TABLE app_settings (
+    key         TEXT PRIMARY KEY,
+    value       TEXT NOT NULL,
+    updated_at  TEXT NOT NULL
+);
+""",
+    ),
 ]

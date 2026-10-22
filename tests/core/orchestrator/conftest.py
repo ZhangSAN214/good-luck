@@ -49,6 +49,7 @@ class Env:
             "single"  # 办公室经理分诊时建议的办事方式（meeting / project：点名前两位）
         )
         self.office_review = "pass"  # 项目分工：复核经理验收的结论
+        self.office_check = "pass"  # 单人办：经理过目的结论（revise 时退回一次）
         self.config = app_config(
             **({"pool": pool} if pool else {}),
             with_media=with_media,
@@ -117,7 +118,11 @@ class Env:
         if "你在一个群聊里" in system:  # 群聊：回一句短话
             return f"收到，我是 {model} 的模型，我们聊聊。"
         if "办公室的经理" in system and "过目" in system:
-            return json.dumps({"verdict": "pass", "issues": [], "note": "核对了结论"})
+            issues = ["补上端点的函数值"] if self.office_check == "revise" else []
+            return json.dumps(
+                {"verdict": self.office_check, "issues": issues, "note": "核对了结论"},
+                ensure_ascii=False,
+            )
         return default_reply(model, messages)
 
     def models_called(self, step_marker: str) -> list[str]:

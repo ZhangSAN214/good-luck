@@ -121,6 +121,9 @@ def test_office_and_payslip_endpoints():
         office = c.get("/api/office").json()
         assert office["staff"] and {"single", "meeting", "project"} == set(office["task_caps_usd"])
         assert c.get("/api/sessions/nope/payslip").status_code == 404
+        assert office["performance_since"] is None
+        reset = c.post("/api/office/performance/reset").json()
+        assert reset["performance_since"] and reset["staff"]
 
 
 def test_responses_never_contain_keys(tmp_path):

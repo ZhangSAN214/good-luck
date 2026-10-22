@@ -26,6 +26,8 @@ from roundtable.core.media import KIND_LABELS, KINDS, MediaService
 from roundtable.core.members_art import MEMBERS_FILE, load_members, mime_of, resolve_file
 from roundtable.core.notes import NoteError, check_can_add, clean_note
 from roundtable.core.office import building, payslip, roster
+from roundtable.core.office import collect as collect_performance
+from roundtable.core.office import reset as reset_performance
 from roundtable.core.orchestrator import Orchestrator, OrchestratorError, RunResult
 from roundtable.core.preview import render_preview
 from roundtable.core.routing import (
@@ -285,12 +287,23 @@ class RoundtableService:
             (m.id for m in self.rt.router.available_models()),
             self.rt.repo.spent_by_model(start, end),
         )
+        perf = collect_performance(self.rt.repo).to_dict()
         return {
-            "staff": [asdict(e) for e in entries],
+            "staff": [
+                {**asdict(e), "performance": perf["by_model"].get(e.model_id)} for e in entries
+            ],
+            # 绩效统计起点（清零时刻，没清零过为 None）与显示 / 参考所需的最少件数
+            "performance_since": perf["since"],
+            "performance_min_jobs": cfg.roundtable.office.performance.min_jobs,
             "task_caps_usd": cfg.roundtable.office.task_caps_usd.model_dump(),
             "manager_strategy": cfg.roundtable.office.manager_strategy,
             "month": self.budget()["month"],
         }
+
+    def reset_performance(self) -> dict[str, Any]:
+        """绩效一键清零：之后只统计此刻以后的办公室会话（不删除任何会话或调用记录）。"""
+        reset_performance(self.rt.repo, self.rt.repo.clock())
+        return self.office()
 
     def apartment(self, hour: int, weekday: int) -> dict[str, Any]:
         """公寓楼：住户按作息在各房间活动，正在办事的在办公室 / 会议室。

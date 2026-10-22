@@ -635,3 +635,16 @@ async def test_ask_office_project_shows_team_and_review():
     assert "【经理分诊】项目分工，项目组：" in text and "—— 项目组 ——" in text
     assert "【复核经理验收】退回修改一次" in text
     assert "修改后的项目成果" in text.split("【交付（按验收意见修改后）】")[1]
+
+
+async def test_performance_command_lists_and_resets():
+    env = Env(confirm_threshold_usd=100.0)
+    code, text = await cli(env, "performance")
+    assert code == 0 and "还没有绩效记录" in text
+    await run(["ask", SHORT, "--seed", "3"], runtime=env.rt, out=io.StringIO(), ask=Answers("n"))
+    code, text = await cli(env, "performance")
+    assert code == 0 and "单人办 1 件，通过率 100%" in text
+    code, text = await cli(env, "performance", "--reset")
+    assert code == 0 and "已清零" in text
+    code, text = await cli(env, "performance")
+    assert "还没有绩效记录" in text

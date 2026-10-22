@@ -153,6 +153,10 @@ def create_app(service: RoundtableService | None = None) -> FastAPI:
     async def office(request: Request) -> dict[str, Any]:
         return svc(request).office()
 
+    @app.post("/api/office/performance/reset")
+    async def office_performance_reset(request: Request) -> dict[str, Any]:
+        return svc(request).reset_performance()
+
     @app.get("/api/chat")
     async def chat(request: Request, after: int = 0, q: str | None = None) -> dict[str, Any]:
         return svc(request).chat_view(after, q)
