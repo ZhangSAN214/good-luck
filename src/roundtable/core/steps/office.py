@@ -6,6 +6,10 @@
   vision）的员工里按预计成本选最便宜的一位。
   开会时经理点名 2～3 位参会员工（office.meeting）；点名不够或点了名单外的人时按同样的规则补齐。
   预计开会花费超过「开会」工资上限时先弹卡片（开会 / 改单人办 / 停止）。
+  项目分工时（O4）经理点名 2～4 人的项目组（office.project）；预计花费超过「项目分工」上限时
+  同样先弹卡片（开工 / 改单人办 / 停止）。确认后本桌的 handle、check 跳过，由编排引擎另开一张
+  「项目组」桌子：只有项目组成员上桌，主办经理统筹，走 office.project.pipeline（协同流水线，
+  交叉审查只找 1 位，合并用中等思考强度），最后 office_review 由另一位经理验收（退回改一次）。
 - handle：单人办时被派到的员工按工作说明办理；只有经理判断需要查资料时才提供 search / fetch。
   调用失败时按同样的规则改派一次。
   开会时（step=speak）参会员工按随机顺序各发言一次，后发言的看得到前面的发言（像真实会议）；
@@ -78,7 +82,13 @@ class OfficeState:
         return bool(self.intake and self.intake.get("mode") == "meeting")
 
     @property
+    def project(self) -> bool:
+        return bool(self.intake and self.intake.get("mode") == "project")
+
+    @property
     def final(self) -> str | None:
+        if self.project:  # 成果在项目组那张桌子上
+            return None
         if self.meeting:
             return self.decision["text"] if self.decision else None
         return self.fixed or self.work
@@ -98,6 +108,10 @@ def restore_office(state: Any, kind: str, code: str | None, data: dict[str, Any]
     elif kind == "office_check":
         o.check = data
     elif kind == "office_fix":
+        o.fixed = data["text"]
+    elif kind == "office_review":
+        o.check = data
+    elif kind == "office_revised":
         o.fixed = data["text"]
     elif kind == "office_approval":
         o.intake = {**(o.intake or {}), **data}
@@ -174,18 +188,30 @@ def _usable(ctx: TableContext, code: str) -> bool:
     return _required_tags(ctx) <= set(ctx.models_by_id[ctx.members[code]].tags)
 
 
-def pick_attendees(ctx: TableContext, named: list[str]) -> tuple[list[str], bool]:
-    """开会的参会员工：经理点名的（在名单上、能接这件事、不重复，最多 max_attendees 位），
-    不够 min_attendees 时按规则补齐。返回 (代号列表, 是否由代码补过)。"""
-    rules = ctx.config.roundtable.office.meeting
+GROUP_MODES = ("meeting", "project")
+
+
+def group_size(ctx: TableContext, mode: str) -> tuple[int, int]:
+    """开会的参会人数 / 项目组人数（最少、最多）。"""
+    office = ctx.config.roundtable.office
+    if mode == "meeting":
+        return office.meeting.min_attendees, office.meeting.max_attendees
+    return office.project.min_members, office.project.max_members
+
+
+def pick_attendees(
+    ctx: TableContext, named: list[str], low: int, high: int
+) -> tuple[list[str], bool]:
+    """开会的参会员工 / 项目组：经理点名的（在名单上、能接这件事、不重复，最多 high 位），
+    不够 low 位时按规则补齐。返回 (代号列表, 是否由代码补过)。"""
     chosen: list[str] = []
     for name in named:
         code = ctx.to_code(name)
         if code in ctx.active and code not in chosen and _usable(ctx, code):
             chosen.append(code)
-    chosen = chosen[: rules.max_attendees]
+    chosen = chosen[:high]
     filled = False
-    while len(chosen) < rules.min_attendees:
+    while len(chosen) < low:
         try:
             extra = pick_by_rule(ctx, exclude=set(chosen))
         except NotEnoughModels:
@@ -225,8 +251,46 @@ def meeting_estimate(ctx: TableContext, attendees: list[str]) -> float:
     return total + cost(ctx.coordinator, "decide", tin, params.minutes_tokens)
 
 
-def meeting_key(ctx: TableContext) -> str:
-    return f"office_meeting:{ctx.table_no}"
+def group_key(ctx: TableContext) -> str:
+    return f"office_group:{ctx.table_no}"
+
+
+def project_lineup(config, members: list[str], coordinator: str):
+    """项目组桌子的阵容：只有项目组成员上桌，主办经理统筹，走 office.project.pipeline。"""
+    from roundtable.core.routing import Lineup
+
+    return Lineup(tuple(members), coordinator, tuple(config.roundtable.office.project.pipeline))
+
+
+def project_config(config):
+    """项目组桌子上生效的配置：每份成果的审查人数、覆盖的步骤参数（用于预估，与实际执行一致）。"""
+    project = config.roundtable.office.project
+    params = dict(config.roundtable.step_params)
+    for step, override in project.step_params.items():
+        params[step] = {**params.get(step, {}), **override}
+    rt = config.roundtable.model_copy(
+        update={"reviews_per_answer": project.reviews_per_item, "step_params": params}
+    )
+    return config.model_copy(update={"roundtable": rt})
+
+
+def estimate_project(config, router, question, members: list[str], coordinator: str):
+    """项目组桌子的预计花费（CostEstimate），按默认难度估。"""
+    from roundtable.core.routing import Assessment, estimate_lineup
+
+    return estimate_lineup(
+        project_lineup(config, members, coordinator),
+        question,
+        Assessment(difficulty=None, source="default"),
+        config=project_config(config),
+        router=router,
+    )
+
+
+def project_estimate(ctx: TableContext, team: list[str]):
+    assert ctx.coordinator is not None
+    members = [ctx.members[c] for c in team]
+    return estimate_project(ctx.config, ctx.router, ctx.question, members, ctx.coordinator)
 
 
 class IntakeStep:
@@ -239,8 +303,8 @@ class IntakeStep:
         degraded: tuple[str, ...] = ()
         if o.intake is None:
             calls, notes, degraded = await self._triage(ctx)
-        if o.meeting and not o.intake.get("approved"):
-            notes += self._meeting_gate(ctx)
+        if o.intake["mode"] in GROUP_MODES and not o.intake.get("approved"):
+            notes += self._group_gate(ctx)
         return StepResult(self.name, calls=calls, degraded=degraded, notes=tuple(notes))
 
     async def _triage(self, ctx: TableContext) -> tuple[int, list[str], tuple[str, ...]]:
@@ -249,18 +313,18 @@ class IntakeStep:
             raise StepFailed("办公室模式需要经理")
         if not ctx.active:
             raise StepFailed("没有在岗的员工")
-        rules = ctx.config.roundtable.office.meeting
-        attendees = (
-            str(rules.min_attendees)
-            if rules.min_attendees == rules.max_attendees
-            else f"{rules.min_attendees}～{rules.max_attendees}"
-        )
+
+        def span(mode: str) -> str:
+            low, high = group_size(ctx, mode)
+            return str(low) if low == high else f"{low}～{high}"
+
         prompt = ctx.render(
             "office_intake",
             question=ctx.question.text,
             staff=staff_block(ctx),
             caps=_caps_text(ctx),
-            attendees=attendees,
+            attendees=span("meeting"),
+            team=span("project"),
         )
 
         def parse(text: str) -> IntakeOutput | None:
@@ -301,18 +365,19 @@ class IntakeStep:
             }
             notes.append(intake["rule_reason"])
         intake["attendees"] = []
-        if intake["mode"] == "meeting":
-            chosen, filled = pick_attendees(ctx, (result.value.attendees if result.value else []))
-            if len(chosen) < rules.min_attendees:
+        if intake["mode"] in GROUP_MODES:
+            low, high = group_size(ctx, intake["mode"])
+            named = result.value.attendees if result.value else []
+            chosen, filled = pick_attendees(ctx, named, low, high)
+            what = MODE_LABELS[intake["mode"]]
+            if len(chosen) < low:
+                notes.append(f"在岗员工不够 {low} 位，没法{what}，这次按单人办处理")
                 intake["mode"] = "single"
-                notes.append(f"在岗员工不够 {rules.min_attendees} 位，开不了会，这次按单人办处理")
             else:
                 intake["attendees"] = chosen
                 if filled:
                     intake["attendees_by_rule"] = True
-                    notes.append("经理点名的参会员工不够，按规则补齐")
-        if intake["mode"] == "project":
-            notes.append("经理建议项目分工；项目分工还没上线，这次按单人办处理")
+                    notes.append(f"经理点名的人不够{what}，按规则补齐")
         o.intake = intake
         _save(ctx, self.name, "office_intake", intake, call_id=result.call_id)
         ctx.emit(
@@ -325,42 +390,53 @@ class IntakeStep:
         degraded = ("coordinator",) if intake["by_rule"] and result.value is None else ()
         return 1, notes, degraded
 
-    def _meeting_gate(self, ctx: TableContext) -> list[str]:
-        """预计开会花费：预算不够时弹预算卡片；超过开会工资上限时问老板开会还是改单人办。"""
+    def _group_gate(self, ctx: TableContext) -> list[str]:
+        """开会 / 项目分工的预计花费：预算不够时弹预算卡片；超过该方式的工资上限时问老板
+        是照办还是改单人办。"""
         o = _office(ctx)
         assert o.intake is not None
-        attendees = o.intake["attendees"]
-        cost = meeting_estimate(ctx, attendees)
+        mode, attendees = o.intake["mode"], o.intake["attendees"]
+        caps = ctx.config.roundtable.office.task_caps_usd
+        if mode == "meeting":
+            cost, cap = meeting_estimate(ctx, attendees), caps.meeting
+        else:
+            cost, cap = project_estimate(ctx, attendees).total_usd, caps.project
         budget_card = ctx.budget_gate(cost)
         if budget_card is not None:
             raise NeedsApproval(budget_card)
-        cap = ctx.config.roundtable.office.task_caps_usd.meeting
-        answer = ctx.approval(meeting_key(ctx)) if cost > cap else "meeting"
-        if answer in ("meeting", "single"):
+        answer = ctx.approval(group_key(ctx)) if cost > cap else mode
+        if answer in (mode, "single"):
             # 结果单独存一条（office_approval），恢复时叠加到分诊结果上
-            patch: dict[str, Any] = {"approved": True, "meeting_estimate_usd": cost}
+            patch: dict[str, Any] = {"approved": True, f"{mode}_estimate_usd": cost}
             if answer == "single":
-                patch.update(mode="single", attendees=[], declined_meeting=True)
+                patch.update(mode="single", attendees=[], declined=mode)
             o.intake = {**o.intake, **patch}
             _save(ctx, self.name, "office_approval", patch)
-            return ["老板选择不开会，改为单人办"] if answer == "single" else []
+            if answer == "single":
+                return [f"老板选择不{MODE_LABELS[mode]}，改为单人办"]
+            return []
         names = "、".join(ctx.label(c) for c in attendees)
         single = ctx.label(o.intake["assignee"])
+        if mode == "meeting":
+            plan = f"经理建议开会：{names} 依次发言，经理拍板"
+            go = CardOption("meeting", "开会", cost, "按预估计费，实际以渠道返回为准")
+        else:
+            plan = f"经理建议项目分工：{names} 组成项目组，经理拆分、合并，另一位经理验收"
+            go = CardOption("project", "开工", cost, "按预估计费，实际以渠道返回为准")
         card = ConfirmationCard(
             kind="office",
             situation=(
-                f"经理建议开会：{names} 依次发言，经理拍板，预计 {money(cost)}，"
-                f"超过开会的工资上限 {money(cap)}。"
+                f"{plan}，预计 {money(cost)}，超过{MODE_LABELS[mode]}的工资上限 {money(cap)}。"
             ),
             options=(
-                CardOption("meeting", "开会", cost, "按预估计费，实际以渠道返回为准"),
+                go,
                 CardOption("single", "改单人办", 0.0, f"只请 {single} 办理，经理过目"),
                 CardOption("stop", "停止", 0.0, "不再继续"),
             ),
-            recommendation="meeting",
-            reason=o.intake.get("reason") or "经理判断这件事需要几个角度一起讨论",
+            recommendation=mode,
+            reason=o.intake.get("reason") or "经理判断这件事需要几个人一起做",
         )
-        raise NeedsApproval(card, meeting_key(ctx))
+        raise NeedsApproval(card, group_key(ctx))
 
 
 async def _member_call(ctx: TableContext, step: str, code: str, prompt) -> tuple[str, int]:
@@ -396,6 +472,8 @@ class HandleStep:
             raise StepFailed("还没有分诊")
         if o.meeting:
             return await run_meeting(ctx, self.name)
+        if o.project:  # 项目分工：交给另开的项目组桌子
+            return StepResult(self.name)
         code = o.intake["assignee"]
         tried: set[str] = set()
         notes: list[str] = []
@@ -427,7 +505,7 @@ class CheckStep:
 
     async def run(self, ctx: TableContext) -> StepResult:
         o = _office(ctx)
-        if o.meeting:  # 开会的结论是经理自己拍板的，不再过目
+        if o.meeting or o.project:  # 开会的结论是经理自己拍板的；项目由另一位经理验收
             return StepResult(self.name)
         if o.work is None or o.worker is None:
             raise StepFailed("还没有成果可以过目")
@@ -555,6 +633,92 @@ async def run_meeting(ctx: TableContext, step: str) -> StepResult:
     return StepResult(step, calls=calls, notes=tuple(notes))
 
 
+def pick_reviewer(ctx: TableContext) -> str | None:
+    """复核经理：主办经理以外、当前能用的另一位经理（office_role: manager）；多位时按 seed 随机。"""
+    others = [
+        m.id
+        for m in ctx.router.available_models()
+        if m.office_role == "manager" and m.seat and m.id != ctx.coordinator
+    ]
+    return ctx.rng.choice(sorted(others)) if others else None
+
+
+class OfficeReviewStep:
+    """项目组桌子的最后一步：另一位经理验收主办经理合并好的成果，退回时主办经理改一次。"""
+
+    name = "office_review"
+
+    async def run(self, ctx: TableContext) -> StepResult:
+        o = _office(ctx)
+        merge = ctx.state.collab.merge
+        if merge is None:
+            raise StepFailed("还没有合并好的成果可以验收")
+        result_text = merge.output.result
+        calls = 0
+        notes: list[str] = []
+        if o.check is None:
+            reviewer = pick_reviewer(ctx)
+            if reviewer is None:
+                o.check = {"verdict": "pass", "issues": [], "note": "", "skipped": True}
+                _save(ctx, self.name, "office_review", o.check)
+                return StepResult(self.name, notes=("没有第二位经理可以复核，直接交付合并的成果",))
+            prompt = ctx.render(
+                "office_review",
+                question=ctx.question.text,
+                result=neutralize(ctx.scrub(result_text), TAGS + ("result",)),
+            )
+            parsed = await call_and_parse(
+                ctx,
+                step=self.name,
+                role="reviewer",
+                model_id=reviewer,
+                prompt=prompt,
+                parse=lambda text: CheckOutput.model_validate(extract_json_object(text)),
+            )
+            calls += 1
+            if parsed.value is None:
+                check = {
+                    "verdict": "pass",
+                    "issues": [],
+                    "note": "",
+                    "degraded": True,
+                    "error": parsed.error or "调用失败",
+                }
+            else:
+                check = {**parsed.value.model_dump(), "degraded": False}
+                if check["verdict"] == "revise" and not check["issues"]:
+                    check["verdict"] = "pass"
+            o.check = check
+            _save(ctx, self.name, "office_review", check, call_id=parsed.call_id)
+        if o.check.get("degraded"):
+            notes.append(f"复核经理验收没有完成（{o.check.get('error')}），直接交付合并的成果")
+        if o.check["verdict"] == "revise" and o.fixed is None:
+            assert ctx.coordinator is not None
+            issues = "\n".join(f"{i}. {x}" for i, x in enumerate(o.check["issues"], 1))
+            prompt = ctx.render(
+                "office_revise",
+                question=ctx.question.text,
+                result=neutralize(result_text, TAGS + ("result",)),
+                issues=neutralize(ctx.scrub(issues), TAGS),
+            )
+            out = await call_model(
+                ctx,
+                step="office_revise",
+                role="coordinator",
+                model_id=ctx.coordinator,
+                prompt=prompt,
+            )
+            calls += 1
+            text = out.completion.text.strip() if out.completion else ""
+            if text:
+                o.fixed = text
+                _save(ctx, "office_revise", "office_revised", {"text": text}, call_id=out.call_id)
+            else:
+                notes.append("主办经理修改时调用失败，交付修改前的版本")
+        return StepResult(self.name, calls=calls, notes=tuple(notes))
+
+
 register_step(IntakeStep())
 register_step(HandleStep())
 register_step(CheckStep())
+register_step(OfficeReviewStep())

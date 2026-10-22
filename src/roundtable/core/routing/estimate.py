@@ -225,6 +225,8 @@ def estimate_pipeline(
         "intake": (coord, o + q + n * params.roster_tokens_per_staff, brief),
         "handle": (priciest, o + q + brief, a),
         "check": (coord, o + q + brief + a, params.check_tokens),
+        # 办公室模式·项目分工：复核经理验收合并好的成果
+        "office_review": (coord, o + q + params.merge_tokens, params.check_tokens),
         # 头脑风暴：每人 ideate_tokens 的想法；拓展时看别人的想法；统筹整合全部
         "ideate": (members, o + q, params.ideate_tokens),
         "expand": (members, o + q + (n - 1) * params.ideate_tokens, params.expand_tokens),

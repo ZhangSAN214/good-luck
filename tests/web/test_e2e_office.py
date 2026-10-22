@@ -91,3 +91,21 @@ def test_office_meeting_card_can_switch_to_single(serve, page):
     chat = page.inner_text("#chat")
     assert "不开会，改为单人办" in chat and "经理过目" in chat
     assert "经理已过目" in page.inner_text(".final")
+
+
+def test_office_project_shows_team_table_and_review(serve, page):
+    srv = serve(confirm_threshold_usd=100.0)
+    srv.env.office_mode = "project"
+    srv.env.office_review = "revise"
+    _office_page(srv, page)
+    ask(page, MEDIUM)
+    wait_done(page)
+    chat = page.inner_text("#chat")
+    assert "决定项目分工" in chat and "项目组" in chat
+    assert "复核经理" in chat and "退回修改一次" in chat
+    finals = (
+        page.inner_text("#chat .final:last-of-type")
+        if False
+        else page.locator(".final").all_inner_texts()
+    )
+    assert any("按验收意见修改" in f and "修改后的项目成果" in f for f in finals)

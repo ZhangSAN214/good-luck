@@ -97,7 +97,7 @@ async def test_one_staff_cannot_hold_a_meeting():
     (res,) = await run(t, "intake")
     o = t.ctx.state.office
     assert o.intake["mode"] == "single" and not o.meeting
-    assert any("开不了会" in n for n in res.notes)
+    assert any("没法开会" in n for n in res.notes)
 
 
 async def test_meeting_over_cap_asks_the_boss():
@@ -107,7 +107,7 @@ async def test_meeting_over_cap_asks_the_boss():
     with pytest.raises(NeedsApproval) as info:
         await run(t, "intake")
     card: ConfirmationCard = info.value.card
-    assert card.kind == "office" and info.value.key == "office_meeting:0"
+    assert card.kind == "office" and info.value.key == "office_group:0"
     assert card.option_keys() == ["meeting", "single", "stop"]
     assert "组员甲" in card.situation and "组员丙" in card.situation
     # 分诊已经存下：回复后重新执行不再调用经理
@@ -135,7 +135,7 @@ async def test_boss_can_turn_the_meeting_into_single():
     assert final_answer(t.ctx.state) == o.work
     # 恢复后仍是单人办
     restored = restore_state(t.repo, t.session, 0).office
-    assert restored.intake["mode"] == "single" and restored.intake["declined_meeting"]
+    assert restored.intake["mode"] == "single" and restored.intake["declined"] == "meeting"
 
 
 async def test_budget_card_comes_first_when_budget_is_short():

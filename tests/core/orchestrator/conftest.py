@@ -45,7 +45,10 @@ class Env:
     ):
         self.difficulty = difficulty
         self.resolved = resolved
-        self.office_mode = "single"  # 办公室经理分诊时建议的办事方式（meeting：点名前两位开会）
+        self.office_mode = (
+            "single"  # 办公室经理分诊时建议的办事方式（meeting / project：点名前两位）
+        )
+        self.office_review = "pass"  # 项目分工：复核经理验收的结论
         self.config = app_config(
             **({"pool": pool} if pool else {}),
             with_media=with_media,
@@ -96,11 +99,19 @@ class Env:
                 {
                     "mode": self.office_mode,
                     "assignee": names[0],
-                    "attendees": names[:2] if self.office_mode == "meeting" else [],
+                    "attendees": names[:2] if self.office_mode != "single" else [],
                     "brief": "写清推导",
                 },
                 ensure_ascii=False,
             )
+        if "复核经理" in system and "最终验收" in system:
+            issues = ["补上单调区间的说明"] if self.office_review == "revise" else []
+            return json.dumps(
+                {"verdict": self.office_review, "issues": issues, "note": "核对了结论"},
+                ensure_ascii=False,
+            )
+        if "主办了一个项目" in system and "验收意见" in system:
+            return "修改后的项目成果：最大值 2，最小值 -2；已补上单调区间的说明。"
         if "办公室的经理" in system and "拍板" in system and "会议纪要" in system:
             return "## 结论\n最大值 2，最小值 -2。\n\n## 会议纪要\n两位意见一致。"
         if "你在一个群聊里" in system:  # 群聊：回一句短话

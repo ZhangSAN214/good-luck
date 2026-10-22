@@ -31,6 +31,8 @@ export const STEP_LABELS = {
   fix: '按意见修改',
   speak: '发言',
   decide: '经理拍板',
+  office_review: '复核经理验收',
+  office_revise: '按验收意见修改',
 };
 export const MEDIA_LABELS = { image: '图片', speech: '语音', video: '视频' };
 const JOB_STATE = {
@@ -341,13 +343,14 @@ export function feedItems(sv, ctx) {
   const fileRows = (sv.files || []).filter((f) => f.latest);
   const MAIN = new Set(['answer', 'revision', 'work', 'rework', 'merge', 'office_work', 'office_fix', 'office_speech']);
   // 办公室模式：退回后的修改（step=fix）显示在「经理过目」之下；开会的发言和拍板（speak / decide）显示在「办理」之下
-  const inStep = (x, step) => x.step === step || (step === 'check' && x.step === 'fix') || (step === 'handle' && (x.step === 'speak' || x.step === 'decide'));
+  const inStep = (x, step) => x.step === step || (step === 'check' && x.step === 'fix') || (step === 'handle' && (x.step === 'speak' || x.step === 'decide')) || (step === 'office_review' && x.step === 'office_revise');
   for (const t of tables) {
     cpAt((d, cp) => cp.kind === 'escalation' && d.table_no === t.table_no);
     if (t.table_no === 0) cpAt((d, cp) => cp.kind === 'cost' && d.table_no === 0);
     if (t.status === 'pending' && !outputs.some((o) => o.table_no === t.table_no)) continue;
-    const label = tables.length > 1 ? `第 ${t.table_no + 1} 桌 · ${t.plan_label}` : t.plan_label;
-    push(`t${t.table_no}`, `<div class="phase">${esc(label)} · ${t.codes.length} 位组员</div>`);
+    const projectTable = (t.pipeline || []).includes('office_review'); // 办公室模式的项目组桌子
+    const label = projectTable ? '项目组' : tables.length > 1 ? `第 ${t.table_no + 1} 桌 · ${t.plan_label}` : t.plan_label;
+    push(`t${t.table_no}`, `<div class="phase">${esc(label)} · ${t.codes.length} 位${projectTable ? '员工' : '组员'}</div>`);
     if (t.table_no > 0 && t.escalation_reason) {
       push(`esc${t.table_no}`, sys('统筹', `升级到「${esc(t.plan_label)}」：${esc(t.escalation_reason)}`, 'bad'));
     }
@@ -611,6 +614,13 @@ function officeOutput(o, sp, data, names, sources = null) {
   if (o.kind === 'office_intake') {
     const how = OFFICE_MODES[data.mode] || data.mode;
     const search = data.needs_search ? ' · 需要查资料' : '';
+    if (data.mode === 'project' && (data.attendees || []).length) {
+      const who = data.attendees.map((c) => names.member(c)).join('、');
+      const why = data.reason ? `<div class="meta">理由：${md(data.reason)}</div>` : '';
+      const filled = data.attendees_by_rule ? '<div class="meta">经理点名的人不够，按规则补齐</div>' : '';
+      const brief = data.brief ? `<details class="more"><summary>项目目标</summary><div>${md(data.brief)}</div></details>` : '';
+      return msg(sp, '分诊派活', `<div class="bubble">决定<b>项目分工</b>，项目组：<b>${esc(who)}</b>（经理拆分、合并，另一位经理验收）${why}${filled}</div>${brief}`);
+    }
     if (data.mode === 'meeting' && (data.attendees || []).length) {
       const who = data.attendees.map((c) => names.member(c)).join('、');
       const why = data.reason ? `<div class="meta">理由：${md(data.reason)}</div>` : '';
@@ -635,7 +645,18 @@ function officeOutput(o, sp, data, names, sources = null) {
   if (o.kind === 'office_fix') return msg(sp, '按意见修改', `<div class="bubble">${cite(md(data.text), sources)}</div>`);
   if (o.kind === 'office_speech') return msg(sp, '发言', `<div class="bubble">${cite(md(data.text), sources)}</div>`);
   if (o.kind === 'office_decision') return data.degraded ? sys('经理', '拍板时调用失败，直接交付各位员工的发言', 'bad') : '';
-  if (o.kind === 'office_approval') return data.declined_meeting ? sys('老板', '不开会，改为单人办') : '';
+  if (o.kind === 'office_review') {
+    if (data.skipped) return sys('复核经理', '没有第二位经理可以复核，直接交付合并的成果');
+    if (data.degraded) return sys('复核经理', '验收没有完成，直接交付合并的成果', 'bad');
+    const pass = data.verdict === 'pass';
+    const issues = (data.issues || []).length ? `<ol>${data.issues.map((x) => `<li>${md(x)}</li>`).join('')}</ol>` : '';
+    return sys('复核经理', `${tag(pass ? '验收通过' : '退回修改一次', pass ? 'ok' : 'bad')}${data.note ? ` ${md(data.note)}` : ''}${issues}`, pass ? '' : 'bad');
+  }
+  if (o.kind === 'office_revised') {
+    return `<div class="final"><h3>交付<small>主办经理按验收意见修改后的版本</small></h3>
+<div class="answer">${md(data.text || '')}</div></div>`;
+  }
+  if (o.kind === 'office_approval') return data.declined ? sys('老板', `不${OFFICE_MODES[data.declined] || ''}，改为单人办`) : '';
   return null;
 }
 
@@ -1038,13 +1059,14 @@ export function flowPanel(sv, live, ctx) {
   let h = '';
   for (const t of sv.tables || []) {
     const pill = t.status === 'done' ? 'okp' : t.status === 'running' ? 'run' : 'wait';
-    h += `<div class="tbl-hd"><b>${esc(`第 ${t.table_no + 1} 桌 · ${t.plan_label}`)}</b><span class="pill ${pill}">${esc(TABLE_STATUS[t.status] || t.status)}</span></div>`;
+    const projectTable = (t.pipeline || []).includes('office_review');
+    h += `<div class="tbl-hd"><b>${esc(projectTable ? `项目组 · ${t.plan_label}` : `第 ${t.table_no + 1} 桌 · ${t.plan_label}`)}</b><span class="pill ${pill}">${esc(TABLE_STATUS[t.status] || t.status)}</span></div>`;
     h += '<div class="pipe">';
     for (const step of t.pipeline) {
       const done = t.steps_done.includes(step);
       const now = !done && live.table === t.table_no && live.step === step;
       const cls = done ? 'done' : now ? 'now' : '';
-      const who = step === 'media' ? '评审者与统筹' : COORD_STEPS.has(step) ? '统筹' : step === 'reveal' ? (sv.anonymous ? '讨论结束后由你点「揭晓身份」' : '匿名关闭，身份一直公开') : t.codes.join(' · ');
+      const who = step === 'media' ? '评审者与统筹' : step === 'office_review' ? '另一位经理' : COORD_STEPS.has(step) ? (sv.workflow === 'office' ? '经理' : '统筹') : step === 'handle' && sv.workflow === 'office' ? '经理派的员工' : step === 'reveal' ? (sv.anonymous ? '讨论结束后由你点「揭晓身份」' : '匿名关闭，身份一直公开') : t.codes.join(' · ');
       const label = step === 'reveal' ? (sv.anonymous ? '可揭晓' : '结束') : STEP_LABELS[step] || step;
       h += `<div class="pn ${cls}" data-step="${esc(step)}"><span class="dot"></span><span class="t">${esc(label)}<small>${esc(who)}</small></span><span class="pill ${done ? 'okp' : now ? 'run' : ''}">${done ? '完成' : now ? '进行中' : '待开始'}</span></div>`;
     }

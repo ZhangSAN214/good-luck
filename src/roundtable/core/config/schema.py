@@ -603,11 +603,50 @@ class OfficeMeeting(_Strict):
         return self
 
 
+class OfficeProject(_Strict):
+    """办公室模式的项目分工（O4）：经理点名一个项目组，沿用协同流水线，但只派需要的人。
+
+    pipeline：项目组那张桌子的步骤（协同流水线 + 复核经理验收 office_review）；
+    reviews_per_item：交叉审查时每份成果几位审查者（只审关键，默认 1）；
+    step_params：项目组桌子上覆盖的步骤参数（如合并由主办经理以中等思考强度完成），
+    同一步骤所有人相同。
+    """
+
+    min_members: int = Field(default=2, ge=2)
+    max_members: int = Field(default=4, ge=2)
+    pipeline: list[str] = Field(
+        default_factory=lambda: [
+            "decompose",
+            "volunteer",
+            "assign",
+            "work",
+            "cross_review",
+            "rework",
+            "accept",
+            "merge",
+            "office_review",
+            "reveal",
+        ],
+        min_length=1,
+    )
+    reviews_per_item: int = Field(default=1, ge=1)
+    step_params: dict[str, dict[str, Any]] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def _range(self) -> OfficeProject:
+        if self.max_members < self.min_members:
+            raise ValueError("max_members 不能小于 min_members")
+        if len(self.pipeline) != len(set(self.pipeline)):
+            raise ValueError(f"pipeline 中的步骤不能重复：{self.pipeline}")
+        return self
+
+
 class OfficeRules(_Strict):
     """办公室模式（O1～O5，见 docs/OFFICE.md）。经理在 models.yaml 的 office_role 里指定。"""
 
     task_caps_usd: OfficeTaskCaps = OfficeTaskCaps()
     meeting: OfficeMeeting = OfficeMeeting()
+    project: OfficeProject = OfficeProject()
     # 两位以上经理时怎么分：rotate = 每件事轮流当主办经理，项目级任务由另一位复核
     manager_strategy: Literal["rotate"] = "rotate"
 

@@ -1049,7 +1049,8 @@ def cross_review_plan(ctx: TableContext, reviewers: Sequence[str]) -> dict[str, 
     """每份成果由 reviews_per_answer 位非作者审查（尽量避开同一子任务的其他负责人），
     负担均衡、随机打破平局。返回 评审者 → 成果编号（顺序随机）。"""
     c = _c(ctx)
-    k = ctx.config.roundtable.reviews_per_answer
+    # 办公室模式的项目组只审关键：每份成果的审查人数由 office.project.reviews_per_item 决定
+    k = ctx.reviews_per_item or ctx.config.roundtable.reviews_per_answer
     short = ctx.config.roundtable.collab.cross_review
     owners_of = {sid: set(codes) for sid, codes in c.assignment.owners.items()}
     items = [(i, key) for i, key in c.items().items() if key in c.works]

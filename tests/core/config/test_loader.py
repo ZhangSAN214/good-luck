@@ -72,6 +72,8 @@ def test_repo_config_loads_with_defaults():
         "office_fix",
         "office_speak",
         "office_decide",
+        "office_review",
+        "office_revise",
         "style_merge",
         "user_notes",
         "style_guide",

@@ -621,3 +621,17 @@ async def test_ask_office_meeting_shows_attendees_speeches_and_decision():
     assert "## 结论" in text.split("【交付】")[1]
     assert "【经理过目】" not in text
     assert len(env.models_called("参会人之一")) == 2
+
+
+async def test_ask_office_project_shows_team_and_review():
+    """经理决定项目分工：命令行列出项目组，项目组桌子走协同，最后是复核经理的验收。"""
+    env = Env(confirm_threshold_usd=100.0)
+    env.office_mode = "project"
+    env.office_review = "revise"
+    out = io.StringIO()
+    code = await run(["ask", SHORT, "--seed", "3"], runtime=env.rt, out=out, ask=Answers("n"))
+    text = out.getvalue()
+    assert code == 0, text
+    assert "【经理分诊】项目分工，项目组：" in text and "—— 项目组 ——" in text
+    assert "【复核经理验收】退回修改一次" in text
+    assert "修改后的项目成果" in text.split("【交付（按验收意见修改后）】")[1]

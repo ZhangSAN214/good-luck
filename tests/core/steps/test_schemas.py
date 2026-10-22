@@ -152,6 +152,7 @@ def test_registry():
             "intake",
             "handle",
             "check",
+            "office_review",
         ]
     )
     with pytest.raises(ValueError):

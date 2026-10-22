@@ -68,7 +68,7 @@ async def test_boss_turns_meeting_into_single():
     kinds = [o["kind"] for o in data["outputs"]]
     assert "office_work" in kinds and "office_check" in kinds
     office = restore_state(env.rt.repo, sid, 0).office
-    assert office.intake["mode"] == "single" and office.intake["declined_meeting"]
+    assert office.intake["mode"] == "single" and office.intake["declined"] == "meeting"
 
 
 async def test_stop_on_the_meeting_card_stops():

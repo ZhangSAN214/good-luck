@@ -58,6 +58,7 @@ from roundtable.core.steps import (
     restore_state,
     table_contributions,
 )
+from roundtable.core.steps.office import estimate_project
 from roundtable.core.storage import CheckpointView, NotFound
 from roundtable.core.tools import ToolBox
 
@@ -527,9 +528,65 @@ class Orchestrator:
                 outcome = await self._run_table(sid, current)
                 if outcome != DONE:
                     return self._result(sid)
-                await self._maybe_escalate(sid, current)
+                if not self._maybe_project(sid, current):
+                    await self._maybe_escalate(sid, current)
                 continue
             return self._complete(sid, tables)
+
+    def _maybe_project(self, sid: str, table: dict[str, Any]) -> bool:
+        """办公室模式：经理决定项目分工（老板已同意或在上限内）时，另开一张「项目组」桌子。
+
+        只有经理点名的项目组成员上桌，主办经理统筹，走 office.project.pipeline；
+        预估按项目组的阵容重新计算（与分诊时弹卡片用的预估相同）。
+        """
+        repo, cfg = self.rt.repo, self.rt.config
+        table_no = table["table_no"]
+        if any(t["table_no"] == table_no + 1 for t in repo.tables(sid)):
+            return False
+        office = restore_state(repo, sid, table_no).office
+        if not office.project or not (office.intake or {}).get("approved"):
+            return False
+        members = dict(table["members"])
+        team = [members[c] for c in office.intake["attendees"]]
+        estimate = estimate_project(
+            cfg,
+            self.rt.router,
+            self._table_question(repo.session_row(sid)),
+            team,
+            table["coordinator"],
+        )
+        row = repo.session_row(sid)
+        codes = member_codes(
+            team,
+            cfg,
+            random.Random(f"{row['seed']}:codes:{table_no + 1}"),
+            anonymous=bool(row["anonymous"]),
+        )
+        repo.create_table(
+            sid,
+            table_no + 1,
+            plan=table["plan"],
+            pipeline=tuple(cfg.roundtable.office.project.pipeline),
+            members=codes,
+            coordinator=table["coordinator"],
+            escalate_to=None,
+            estimate={
+                "total": estimate.total_usd,
+                "max": estimate.max_usd,
+                "calibrated": estimate.calibrated,
+                "steps": {s.step: s.cost_usd for s in estimate.steps},
+            },
+            status="approved",
+            escalation_reason=None,
+        )
+        self._emit(
+            sid,
+            "office_project",
+            table_no=table_no + 1,
+            members=len(team),
+            estimate_usd=estimate.total_usd,
+        )
+        return True
 
     async def _maybe_escalate(self, sid: str, table: dict[str, Any]) -> bool:
         """本桌完成后判断是否需要升级；需要时新建下一张桌子并询问用户（从不自动升级）。"""
@@ -612,6 +669,10 @@ class Orchestrator:
             ),
         )
         ctx.file_store = self.rt.files
+        if "office_review" in table["pipeline"]:  # 办公室模式的项目组桌子
+            project = cfg.roundtable.office.project
+            ctx.step_overrides = {k: dict(v) for k, v in project.step_params.items()}
+            ctx.reviews_per_item = project.reviews_per_item
         # 匿名关闭：生成提示词、工具描述都不做身份遮蔽；匿名开启时题目和附件里本来就有的名称保留
         table_scrubber = self.rt.scrubber.bound(
             "\n".join([ctx.question.text, *(a.text or "" for a in ctx.attachments)]),
@@ -935,8 +996,10 @@ class Orchestrator:
         if stored is None:
             return
         record = RoutingRecord.from_dict(stored)
-        escalated = [t for t in tables if t["table_no"] > 0 and t["status"] == DONE]
-        offered = [t for t in tables if t["table_no"] > 0]
+        # 办公室模式的项目组桌子不是升级
+        upgrades = [t for t in tables if t["table_no"] > 0 and "office_review" not in t["pipeline"]]
+        escalated = [t for t in upgrades if t["status"] == DONE]
+        offered = upgrades
         confirmed = [
             c for c in repo.session_view(sid).checkpoints if c.kind == "cost" and c.response
         ]

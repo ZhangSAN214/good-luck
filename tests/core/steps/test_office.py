@@ -153,14 +153,6 @@ async def test_image_question_goes_to_a_vision_staff():
     assert o.intake["assignee"] == "乙" and o.intake["by_rule"]
 
 
-async def test_project_suggestion_is_handled_as_single_with_a_note():
-    t = office_table()
-    t.fake.queue(MANAGER, intake(mode="project"))
-    (res,) = await run(t, "intake")
-    assert t.ctx.state.office.intake["mode"] == "project"
-    assert any("按单人办处理" in n for n in res.notes)
-
-
 async def test_failed_staff_is_reassigned_once():
     t = office_table()
     t.fake.queue(MANAGER, intake(assignee="组员丙"))

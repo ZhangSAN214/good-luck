@@ -329,11 +329,14 @@ class CLI:
         tables = sorted({o.table_no for o in view.outputs})
         for table_no in tables:
             outputs = [o for o in view.outputs if o.table_no == table_no]
-            if len(tables) > 1:
+            if any(o.kind == "office_review" for o in outputs):
+                self.p("\n—— 项目组 ——")
+            elif len(tables) > 1:
                 self.p(f"\n—— 第 {table_no + 1} 张桌子 ——")
             self.print_style(outputs, table_no, details)
             if any(o.kind == "subtasks" for o in outputs):
                 self.print_collab(outputs, table_no, details)
+                self.print_office_review(outputs)
                 continue
             if any(o.kind in ("ideas", "mindmap") for o in outputs):
                 self.print_brainstorm(outputs, table_no, details)
@@ -742,11 +745,17 @@ class CLI:
         if intake["mode"] == "meeting":
             self.print_meeting(outputs, intake, table_no, details)
             return
+        if intake["mode"] == "project":
+            who = "、".join(self.label(c, table_no) for c in intake["attendees"])
+            self.p(f"\n【经理分诊】项目分工，项目组：{who}（经理拆分、合并，另一位经理验收）")
+            if intake.get("reason"):
+                self.p(f"  理由：{self.t(intake['reason'])}")
+            return
         who = self.label(intake["assignee"], table_no)
         how = MODE_LABELS.get(intake["mode"], intake["mode"])
         search = "，需要查资料" if intake.get("needs_search") else ""
-        if intake.get("declined_meeting"):
-            how = "开会（你选择改为单人办）"
+        if intake.get("declined"):
+            how = f"{MODE_LABELS.get(intake['declined'], '')}（你选择改为单人办）"
         self.p(f"\n【经理分诊】经理建议{how}，派给 {who}{search}")
         if intake.get("by_rule"):
             self.p(f"  （{intake.get('rule_reason') or '按规则派活'}）")
@@ -771,6 +780,26 @@ class CLI:
         final = fix or work
         if final:
             self.p(f"\n【交付】\n{self.t(json.loads(final.content)['text'])}")
+
+    def print_office_review(self, outputs) -> None:
+        """办公室模式的项目组：复核经理的验收意见；退回改过的版本作为交付。"""
+        review = next((o for o in outputs if o.kind == "office_review"), None)
+        if review is None:
+            return
+        r = json.loads(review.content)
+        if r.get("skipped"):
+            self.p("\n【复核经理验收】没有第二位经理可以复核，直接交付合并的成果")
+        elif r.get("degraded"):
+            self.p("\n【复核经理验收】没有完成，直接交付合并的成果")
+        else:
+            verdict = "通过" if r["verdict"] == "pass" else "退回修改一次"
+            note = f"：{self.t(r['note'])}" if r.get("note") else ""
+            self.p(f"\n【复核经理验收】{verdict}{note}")
+            for i, issue in enumerate(r.get("issues") or [], 1):
+                self.p(f"  {i}. {self.t(issue)}")
+        revised = next((o for o in outputs if o.kind == "office_revised"), None)
+        if revised:
+            self.p(f"\n【交付（按验收意见修改后）】\n{self.t(json.loads(revised.content)['text'])}")
 
     def print_meeting(self, outputs, intake, table_no: int, details: bool) -> None:
         """办公室模式·开会：谁参会、各人发言（详情里）、经理拍板的结论与纪要。"""

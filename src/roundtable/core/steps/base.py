@@ -129,6 +129,9 @@ class TableContext:
     truncated_calls: set[int] = field(default_factory=set)
     # 用户中途补充的意见（按时间顺序，已被带上的）；之后每一步的每次调用都附上，同一步骤所有成员相同
     user_notes: tuple[str, ...] = ()
+    # 办公室模式的项目组桌子（O4）：覆盖的步骤参数（同一步骤所有人相同）、每份成果的审查人数
+    step_overrides: dict[str, dict[str, Any]] = field(default_factory=dict)
+    reviews_per_item: int | None = None
 
     @property
     def effort_rule(self):
@@ -353,7 +356,8 @@ class TableContext:
         return template.render(**{k: v for k, v in values.items() if k in template.variables})
 
     def step_params(self, step: str) -> dict[str, Any]:
-        return dict(self.config.roundtable.step_params.get(step, {}))
+        params = dict(self.config.roundtable.step_params.get(step, {}))
+        return {**params, **self.step_overrides.get(step, {})}
 
     def drop(self, code: str, step: str, reason: str) -> None:
         if code in self.state.dropped:
@@ -687,6 +691,7 @@ def check_pipelines(config: AppConfig) -> None:
         "roundtable.solo_pipeline": config.roundtable.solo_pipeline,
         "roundtable.brainstorm_pipeline": config.roundtable.brainstorm_pipeline,
         "roundtable.office_pipeline": config.roundtable.office_pipeline,
+        "roundtable.office.project.pipeline": config.roundtable.office.project.pipeline,
     }
     for name, plan in config.routing.plans.items():
         if plan.pipeline is not None:
