@@ -44,7 +44,7 @@ from roundtable.core.routing import (
     preview_estimates,
 )
 from roundtable.core.runtime import Runtime
-from roundtable.core.steps import Event
+from roundtable.core.steps import Event, restore_state
 from roundtable.core.storage import NotFound
 
 log = logging.getLogger(__name__)
@@ -314,18 +314,37 @@ class RoundtableService:
             raise ServiceError("hour 应为 0～23，weekday 应为 0～6")
         now = self.rt.budget.now()
         start, end = month_window(now)
+        working = self.rt.repo.working_seats(now - timedelta(hours=WORKING_WINDOW_H))
         b = building(
             self.rt.config,
             hour=hour,
             weekday=weekday,
-            working=self.rt.repo.working_seats(now - timedelta(hours=WORKING_WINDOW_H)),
+            working=working,
             month_usage=self.rt.repo.spent_by_model(start, end),
+            meetings=self._office_meetings(working),
         )
         return {
             "floors": b.floors,
             "residents": [asdict(r) for r in b.residents],
             "hidden_meetings": b.hidden_meetings,
         }
+
+    def _office_meetings(self, working: Sequence[dict[str, Any]]) -> dict[str, dict[int, Any]]:
+        """办公室模式里在会议室的桌子：开会的参会者，项目分工的整个项目组（匿名未揭晓的不看）。"""
+        out: dict[str, dict[int, Any]] = {}
+        sids = {
+            s["session_id"] for s in working if s.get("workflow") == "office" and not s["hidden"]
+        }
+        for sid in sids:
+            for table in self.rt.repo.tables(sid):
+                no = table["table_no"]
+                if "intake" not in table["pipeline"]:
+                    out.setdefault(sid, {})[no] = None  # 项目组
+                    continue
+                intake = restore_state(self.rt.repo, sid, no).office.intake or {}
+                if intake.get("mode") == "meeting":
+                    out.setdefault(sid, {})[no] = list(intake.get("attendees") or [])
+        return out
 
     # --- 群聊 ----------------------------------------------------------------------
 

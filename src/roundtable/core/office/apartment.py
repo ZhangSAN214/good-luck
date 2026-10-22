@@ -10,7 +10,7 @@
 from __future__ import annotations
 
 import hashlib
-from collections.abc import Iterable, Mapping
+from collections.abc import Collection, Iterable, Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -26,6 +26,9 @@ PUBLIC_ROOMS = {
     "gym": "健身房",
 }
 DORMS_PER_FLOOR = 3
+
+# 会话 → 桌号 → 在会议室的代号（None 为整桌）；经理（统筹）随桌进会议室
+Meetings = Mapping[str, Mapping[int, Collection[str] | None]]
 
 # 活动：id → 显示文字。前端按 id 选动画。
 ACTIVITIES = {
@@ -103,6 +106,24 @@ def _floors(dorms: list[str]) -> list[list[dict[str, str]]]:
     return floors
 
 
+def seat_room(seat: Mapping[str, Any], meetings: Meetings) -> str:
+    """进行中会话的一个座位在哪个房间：讨论类在会议室，单人和办公室模式在办公室；
+    办公室模式开会的参会者与主持的经理、项目分工的项目组在会议室。"""
+    workflow = seat.get("workflow")
+    if workflow == "solo":
+        return "office"
+    if workflow != "office":
+        return "meeting"
+    tables = meetings.get(str(seat["session_id"]), {})
+    table_no = seat.get("table_no")
+    if table_no not in tables:
+        return "office"
+    codes = tables[table_no]
+    if codes is None or seat.get("role") == "coordinator" or seat.get("code") in codes:
+        return "meeting"
+    return "office"
+
+
 def building(
     config: AppConfig,
     *,
@@ -110,9 +131,13 @@ def building(
     weekday: int,
     working: Iterable[Mapping[str, Any]] = (),
     month_usage: Mapping[str, Mapping[str, Any]] | None = None,
+    meetings: Meetings | None = None,
 ) -> Building:
-    """working：进行中会话的座位 {session_id, model_id, status, hidden, workflow}；
-    hidden 为真（匿名未揭晓）的只计数，不对应到住户。"""
+    """working：进行中会话的座位 {session_id, model_id, status, hidden, workflow,
+    table_no, role, code}；hidden 为真（匿名未揭晓）的只计数，不对应到住户。
+
+    meetings：办公室模式里在会议室的桌子，会话 → 桌号 → 参会员工的代号（None 为整桌，
+    如项目组）。参会员工和主持的经理在会议室；其余办公室模式的座位在办公室。"""
     groups: dict[str, list[Any]] = {}
     for m in config.models.enabled:
         if m.seat and m.tier is not None:
@@ -128,15 +153,21 @@ def building(
             hidden.add(sid)
             continue
         activity = "wait" if seat.get("status") == "awaiting_confirmation" else "work"
-        room = "office" if seat.get("workflow") in ("office", "solo") else "meeting"
-        busy.setdefault(str(seat["model_id"]), (room, activity, sid))
+        room = seat_room(seat, meetings or {})
+        model_id = str(seat["model_id"])
+        prev = busy.get(model_id)
+        # 同一会话里既在办公室又在会议室的（经理主持会议、项目组成员），算在会议室
+        if prev is None or (prev[2] == sid and room == "meeting"):
+            busy[model_id] = (room, activity, sid)
 
     usage = month_usage or {}
     residents = []
     for vendor, dorm in zip(vendors, dorms, strict=True):
         models = groups[vendor]
         ids = tuple(m.id for m in models)
-        found = next((busy[i] for i in ids if i in busy), None)
+        hits = [busy[i] for i in ids if i in busy]
+        found = next((h for h in hits if h[0] == "meeting" and h[2] == hits[0][2]), None)
+        found = found or (hits[0] if hits else None)
         if found:
             room, activity, sid = found
         else:

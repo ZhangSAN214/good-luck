@@ -415,6 +415,7 @@ class Repository:
         """
         rows = self._exec(
             "SELECT s.id AS session_id, s.status, s.workflow, st.model_id,"
+            " st.table_no, st.role, st.code,"
             " (s.anonymous = 1 AND s.revealed_at IS NULL) AS hidden"
             " FROM sessions s JOIN seats st ON st.session_id = s.id"
             " WHERE s.status IN ('running', 'awaiting_confirmation') AND s.updated_at >= ?"
