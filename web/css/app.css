@@ -377,6 +377,8 @@ ul.gate{margin:6px 0 0;padding-left:18px}
 ul.gate li{margin:2px 0}
 
 /* Markdown 表格 */
+strong.mdh{display:inline-block;margin-top:4px;font-weight:650}
+strong.mdh.h1,strong.mdh.h2{font-size:1.08em}
 table.mdt{border-collapse:collapse;margin:6px 0;font-size:13px;max-width:100%}
 table.mdt th,table.mdt td{border:1px solid var(--line);padding:4px 8px;text-align:left;vertical-align:top;white-space:normal}
 table.mdt th{background:var(--bg-soft,rgba(127,127,127,.12));font-weight:600}

@@ -119,7 +119,7 @@ export function esc(t) {
   );
 }
 
-// 模型输出是 Markdown：支持 **加粗** 和表格（单元格里的 <br> 变成换行），其余原样保留（换行由 CSS 保留）
+// 模型输出是 Markdown：支持 **加粗**、标题行（# ～ ####）和表格（单元格里的 <br> 变成换行），其余原样保留（换行由 CSS 保留）
 const BR = /&lt;br\s*\/?&gt;/gi;
 const bold = (h) => h.replace(/(^|[^*\w])\*\*(?=\S)(.+?)(?<=\S)\*\*(?![*\w])/g, '$1<b>$2</b>');
 const splitRow = (line) => {
@@ -147,7 +147,10 @@ export function md(t) {
       out.push(`<table class="mdt"><thead><tr>${th}</tr></thead><tbody>${tr}</tbody></table>`);
       i = j - 1;
     } else {
-      out.push(bold(esc(lines[i])).replace(BR, '\n'));
+      // 标题行（如经理拍板的「## 结论」）：去掉井号，加粗显示
+      const head = /^\s{0,3}(#{1,4})\s+(.+?)\s*#*\s*$/.exec(lines[i]);
+      const line = head ? `<strong class="mdh h${head[1].length}">${bold(esc(head[2]))}</strong>` : bold(esc(lines[i]));
+      out.push(line.replace(BR, '\n'));
     }
   }
   // 表格是块级元素，前后的换行不再重复显示
