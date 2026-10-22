@@ -51,7 +51,9 @@ async def test_request_shape_and_parse():
 
     def handler(request: httpx2.Request):
         seen["url"] = str(request.url)
-        seen["key"] = request.headers.get("x-api-key")
+        # SDK 1.x 用 x-api-key 头，2.x 改用 Authorization: Bearer；两种都接受
+        bearer = request.headers.get("authorization", "").removeprefix("Bearer ")
+        seen["key"] = request.headers.get("x-api-key") or bearer or None
         seen["body"] = json.loads(request.content)
         return httpx2.Response(200, json=ok_body())
 
