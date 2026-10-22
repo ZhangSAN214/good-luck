@@ -64,8 +64,8 @@ from roundtable.core.routing import (
     preview_estimates,
 )
 from roundtable.core.runtime import PROJECT_ROOT, Runtime
-from roundtable.core.steps import Event
-from roundtable.core.steps.office import group_estimates
+from roundtable.core.steps import Event, restore_state
+from roundtable.core.steps.office import GROUP_MODES, group_estimates
 from roundtable.core.storage import NotFound
 from roundtable.plaintext import to_terminal
 
@@ -223,6 +223,13 @@ class CLI:
 
     # --- 实时进度（事件只含代号，不含模型身份） --------------------------------------
 
+    def office_mode(self, sid: str, table_no: int | None) -> str | None:
+        """办公室模式第 1 桌经理定下的办法（含老板改成单人办）；其他情况为 None。"""
+        if not self.office or table_no != 0:
+            return None
+        intake = restore_state(self.rt.repo, sid, 0).office.intake or {}
+        return intake.get("mode")
+
     def step_name(self, step: str) -> str:
         """步骤的中文名；办公室模式里统筹就是经理、成员就是员工。"""
         name = STEP_NAMES.get(step, step)
@@ -258,7 +265,10 @@ class CLI:
                 self.p(f"  其他档位预计：{'；'.join(others)}")
         elif e.type == "table_started":
             self.load_names(sid)
-            if e.table_no > 0:
+            if e.table_no > 0 and "office_review" in (d.get("pipeline") or ()):
+                team = len(d["members"])
+                self.p(f"\n=== 项目组：{team} 位员工，经理拆分、合并，另一位经理验收 ===")
+            elif e.table_no > 0:
                 self.p(
                     f"\n=== 第 {e.table_no + 1} 张桌子：{self.plan_labels.get(d['plan'], '')} ==="
                 )
@@ -267,7 +277,11 @@ class CLI:
             members = "、".join(self.label(c, e.table_no) for c in d["members"])
             self.p(f"上桌：{members} + {self.label(None, e.table_no)}")
         elif e.type == "step_started" and e.step != "reveal":
-            self.p(f"\n▶ {self.step_name(e.step)}")
+            mode = self.office_mode(sid, e.table_no) if e.step in ("handle", "check") else None
+            if mode == "meeting" and e.step == "handle":
+                self.p("\n▶ 开会（参会员工依次发言，经理拍板）")
+            elif mode not in GROUP_MODES:  # 开会不再过目；项目分工的办理、过目交给项目组桌子
+                self.p(f"\n▶ {self.step_name(e.step)}")
         elif e.type == "call_done":
             who = self.who(d.get("role"), e.code, e.table_no)
             self.p(f"  {who} 完成（${d.get('cost', 0):.4f}）")

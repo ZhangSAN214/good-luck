@@ -644,6 +644,7 @@ class Orchestrator:
             table_no=table_no,
             plan=table["plan"],
             members=list(table["members"]),
+            pipeline=list(table["pipeline"]),
         )
 
         ctx = TableContext(

@@ -622,6 +622,9 @@ async def test_ask_office_meeting_shows_attendees_speeches_and_decision():
     text = out.getvalue()
     assert code == 0, text
     assert "【经理分诊】开会，参会：" in text and "发言】" in text
+    # 实时进度：办理这一步显示为开会，开会不再过目
+    assert "▶ 开会（参会员工依次发言，经理拍板）" in text
+    assert "▶ 经理过目" not in text and "▶ 员工办理" not in text
     assert "## 结论" in text.split("【交付】")[1]
     assert "【经理过目】" not in text
     assert len(env.models_called("参会人之一")) == 2
@@ -637,6 +640,8 @@ async def test_ask_office_project_shows_team_and_review():
     text = out.getvalue()
     assert code == 0, text
     assert "【经理分诊】项目分工，项目组：" in text and "—— 项目组 ——" in text
+    assert "=== 项目组：2 位员工" in text and "第 2 张桌子" not in text
+    assert "▶ 经理过目" not in text and "▶ 员工办理" not in text
     assert "【复核经理验收】退回修改一次" in text
     assert "修改后的项目成果" in text.split("【交付（按验收意见修改后）】")[1]
 
