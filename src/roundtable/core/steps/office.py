@@ -583,7 +583,12 @@ class IntakeStep:
             ),
             options=(
                 go,
-                CardOption("single", "改单人办", 0.0, f"只请 {single} 办理，经理过目"),
+                CardOption(
+                    "single",
+                    "改单人办",
+                    single_estimate(ctx, o.intake["assignee"]),
+                    f"只请 {single} 办理，经理过目",
+                ),
                 CardOption("stop", "停止", 0.0, "不再继续"),
             ),
             recommendation=mode,

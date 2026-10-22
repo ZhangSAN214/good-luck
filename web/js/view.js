@@ -99,7 +99,7 @@ const CARD_TITLES = {
   members: '组员不足',
   overrun: '花费超出预估',
   media: '媒体生成',
-  office: '要不要开会',
+  office: '开会 / 项目分工要不要照办',
 };
 export const STATUS_LABELS = {
   created: '准备中',
@@ -1391,7 +1391,8 @@ export function castPanel(sv, prefix) {
       })
       .join('');
   for (const t of sv.tables || []) {
-    h += `<h4>${esc(`第 ${t.table_no + 1} 桌 · ${t.plan_label}`)}</h4><div class="ros">`;
+    const projectTable = (t.pipeline || []).includes('office_review'); // 办公室模式的项目组桌子
+    h += `<h4>${esc(projectTable ? `项目组 · ${t.plan_label}` : `第 ${t.table_no + 1} 桌 · ${t.plan_label}`)}</h4><div class="ros">`;
     const seats = sv.seats.filter((s) => s.table_no === t.table_no);
     for (const s of seats) {
       const sp = names.speaker(t.table_no, s.role === 'member' ? s.code : null);

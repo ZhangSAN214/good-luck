@@ -92,7 +92,7 @@ def test_office_meeting_card_can_switch_to_single(serve, page):
     ask(page, MEDIUM)
     card = page.wait_for_selector(".card[data-kind='office']:not(.resolved)", timeout=15000)
     text = card.inner_text()
-    assert "要不要开会" in text and "超过开会的工资上限" in text
+    assert "开会 / 项目分工要不要照办" in text and "超过开会的工资上限" in text
     page.click(".card:not(.resolved) .opt[data-opt='single']")
     wait_done(page)
     chat = page.inner_text("#chat")
@@ -119,7 +119,10 @@ def test_office_project_shows_team_table_and_review(serve, page):
     # 「上桌」页：复核经理不在桌上，单独列出它的调用
     page.click('#tabs button[data-t="cast"]')
     cast = page.inner_text("#pbody")
-    assert "复核经理 · f2" in cast and "复核经理验收" in cast
+    sid = srv.env.rt.repo.list_sessions()[0].id
+    calls = srv.env.rt.repo.session_view(sid).calls
+    [reviewer] = {c.model_id for c in calls if c.role == "reviewer"}
+    assert f"复核经理 · {reviewer}" in cast and "复核经理验收" in cast and "项目组 · " in cast
 
 
 def test_staff_panel_shows_performance_and_two_step_reset(serve, page):

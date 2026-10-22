@@ -110,6 +110,9 @@ async def test_meeting_over_cap_asks_the_boss():
     assert card.kind == "office" and info.value.key == "office_group:0"
     assert card.option_keys() == ["meeting", "single", "stop"]
     assert "组员甲" in card.situation and "组员丙" in card.situation
+    # 改单人办也标出预计花费（派到的员工办理 + 经理过目）
+    single = card.options[1]
+    assert single.cost_usd == office_mod.single_estimate(t.ctx, "甲") and single.cost_usd > 0
     # 分诊已经存下：回复后重新执行不再调用经理
     calls = len(t.fake.calls)
     t.ctx.state = restore_state(t.repo, t.session, 0)

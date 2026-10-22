@@ -79,3 +79,35 @@ def test_night_sleepers_lie_in_bed_and_nobody_leaves_the_building(serve, page):
     for el in page.locator("#home .tenant").all():
         b = el.bounding_box()
         assert box["x"] - 1 <= b["x"] and b["x"] + b["width"] <= box["x"] + box["width"] + 1
+
+
+def test_office_meeting_attendees_are_drawn_in_the_meeting_room(serve, page):
+    """办公室模式开会时：经理和参会的员工在会议室，没参会的员工在办公室。"""
+    srv = serve(confirm_threshold_usd=100.0)
+    repo = srv.env.rt.repo
+    sid = repo.create_session("q", seed=1, anonymous=False, workflow="office")
+    members = {"甲": "b2", "乙": "b3"}
+    repo.create_table(
+        sid,
+        0,
+        plan=None,
+        pipeline=["intake", "handle", "check", "reveal"],
+        members=members,
+        coordinator="f1",
+        escalate_to=None,
+        estimate={},
+        status="approved",
+    )
+    repo.add_seats(sid, 0, members, "f1")
+    repo.save_output(
+        sid,
+        table_no=0,
+        step="intake",
+        kind="office_intake",
+        content={"mode": "meeting", "attendees": ["甲"]},
+    )
+    repo.set_status(sid, "running")
+    page.goto(srv.url + "#m=home")
+    page.wait_for_selector("#home .k-meeting .tenant.act-work")
+    assert page.locator("#home .k-meeting .tenant.act-work").count() == 2  # 经理 + 甲
+    assert page.locator("#home .k-office .tenant.act-work").count() == 1  # 乙
