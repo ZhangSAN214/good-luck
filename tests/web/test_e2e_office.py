@@ -17,6 +17,11 @@ def test_office_is_default_and_shows_assignment_check_and_delivery(serve, page):
     page.wait_for_selector("#workflow button[data-v='office'][aria-pressed='true']")
     assert "经理分诊后派一位员工办理" in page.inner_text("#mode-hint")
     assert "办公室模式先只出文字" in page.inner_text("#media")
+    # 空闲时的用词也是经理 / 员工
+    assert page.inner_text(".panel .phd h2") == "经理面板"
+    legend = page.inner_text("#legend")
+    assert "经理：分诊派活" in legend and "组员" not in legend
+    assert "经理怎么安排" in page.inner_text("#pbody")
     ask(page, MEDIUM)
     wait_done(page)
     chat = page.inner_text("#chat")

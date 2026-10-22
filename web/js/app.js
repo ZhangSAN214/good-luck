@@ -146,6 +146,8 @@ function renderHeader() {
   rv.hidden = !!sv && !sv.anonymous; // 匿名关闭时身份一直公开，没有揭晓步骤
   rv.disabled = !(sv && sv.can_reveal);
   rv.textContent = sv && sv.anonymous && sv.revealed ? '已揭晓' : '揭晓身份';
+  // 办公室模式：统筹就是经理
+  $('.panel .phd h2').textContent = (sv ? sv.workflow : S.workflow) === 'office' ? '经理面板' : '统筹面板';
   $('#pstate').textContent = sv
     ? sv.running && sv.status !== 'awaiting_confirmation'
       ? '进行中'
@@ -229,7 +231,9 @@ function renderPanel() {
   const ctx = {
     plans: plans(),
     threshold: S.status?.confirm_threshold_usd,
+    officeThreshold: S.status?.office_threshold_usd ?? S.status?.confirm_threshold_usd,
     maxMembers: S.status?.max_members,
+    workflow: S.workflow,
   };
   let h = '';
   if (S.tab === 'flow') h = flowPanel(S.session, S.live, ctx);

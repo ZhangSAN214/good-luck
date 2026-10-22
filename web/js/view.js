@@ -1039,11 +1039,16 @@ export function stageHTML(sv, live, prefix) {
 /** 左下角说明：随匿名开关与模式变化（会话打开时按会话本身的设置，否则按提问区的选择）。 */
 export function legendHTML({ anonymous = false, workflow = 'discussion' } = {}) {
   const collab = workflow === 'collab';
+  const office = workflow === 'office';
   const swap = anonymous ? '匿名' : '';
-  const line = collab
+  const line = office
+    ? `开会时员工依次发言，后发言的看得到前面的${swap}发言；项目分工时项目组成员互相审查对方的成果`
+    : collab
     ? `交叉审查时成员互相审查对方的${swap}成果（不审自己的）；合并时各份成果交给统筹`
     : `互评时组员两两交换${swap}答案；汇总时修订稿交给统筹`;
-  const coord = collab ? '统筹：拆分子任务、分配并合并成果，不兼任组员' : '统筹：只读修订稿并汇总，不兼任组员';
+  const coord = office
+    ? '经理：分诊派活、过目把关，不亲自办理（经理自己写的结论或成果由另一位经理复核）'
+    : collab ? '统筹：拆分子任务、分配并合并成果，不兼任组员' : '统筹：只读修订稿并汇总，不兼任组员';
   const codes = anonymous
     ? '每题随机分配；已开启匿名，界面只显示代号，结束后可揭晓身份'
     : '每题随机分配，模型之间只用代号称呼；未开启匿名，界面在代号旁显示真实模型';
@@ -1055,6 +1060,13 @@ export function legendHTML({ anonymous = false, workflow = 'discussion' } = {}) 
 // --- 右侧面板 -----------------------------------------------------------------------
 
 export function flowPanel(sv, live, ctx) {
+  if (!sv && ctx.workflow === 'office') {
+    return `<p class="empty">提交题目后，这里显示经理怎么安排（单人办 / 开会 / 项目分工）、各步骤进度和花费预估。</p>
+<h4>规则</h4><table><tbody>
+<tr><td>单题确认门槛</td><td class="num">${money(ctx.officeThreshold)}</td></tr>
+<tr><td>单件上限</td><td class="num">见「员工」页</td></tr>
+</tbody></table>`;
+  }
   if (!sv) {
     return `<p class="empty">提交题目后，这里显示档位、各步骤进度和花费预估。</p>
 <h4>规则</h4><table><tbody>
@@ -1645,7 +1657,8 @@ export function estimateHTML(est, { workflow, anonymous, plans, customLabel }) {
   const opts = (est.options || []).filter((o) => o.workflow === workflow);
   if (!opts.length) return '';
   let h = adviceHTML(est, workflow);
-  h += '<table><thead><tr><th>档位</th><th class="num">上桌</th><th class="num">预计</th><th class="num">最多约</th><th></th></tr></thead><tbody>';
+  h += `<table><thead><tr><th>档位</th><th class="num">${workflow === 'office' ? '在岗' : '上桌'}</th>`;
+  h += '<th class="num">预计</th><th class="num">最多约</th><th></th></tr></thead><tbody>';
   for (const o of opts) {
     const label = o.plan === 'custom' ? customLabel : plans[o.plan] || o.label;
     if (!o.available) {
