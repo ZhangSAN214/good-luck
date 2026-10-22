@@ -563,6 +563,23 @@ async function refresh(all = false) {
   render();
 }
 
+/** 办公室模式第 1 桌的安排（单人办 / 开会 / 项目分工）：实时事件里有就用，否则从已保存的分诊结果读。 */
+function officePlan(tableNo) {
+  if (tableNo !== 0 || S.session?.workflow !== 'office') return null;
+  let plan = null;
+  for (const o of S.session.outputs || []) {
+    if (o.table_no !== 0 || (o.kind !== 'office_intake' && o.kind !== 'office_approval')) continue;
+    let d = null;
+    try {
+      d = JSON.parse(o.content);
+    } catch {
+      continue;
+    }
+    plan = { ...(plan || {}), ...d };
+  }
+  return plan || S.live.office || null;
+}
+
 function onEvent(sid, e) {
   if (sid !== S.sid) return;
   pet.report(e);
@@ -585,11 +602,23 @@ function onEvent(sid, e) {
         (S.session?.outputs || []).filter((o) => o.kind === 'dropout' && o.table_no === e.table_no).map((o) => o.code),
       );
       L.speaking = new Set();
+      const plan = e.step === 'handle' ? officePlan(e.table_no) : null;
       if (COORD_STEPS.has(e.step)) L.speaking.add('统');
-      else if (e.step !== 'reveal') (t?.codes || []).filter((c) => !dropped.has(c)).forEach((c) => L.speaking.add(c));
-      L.act = `${STEP_LABELS[e.step] || e.step}中`;
+      else if (plan) {
+        // 办公室模式：只有派到的员工（开会时是参会的员工）在干活
+        const busy = plan.mode === 'meeting' ? plan.attendees || [] : plan.mode === 'project' ? [] : [plan.assignee];
+        busy.filter((c) => c && !dropped.has(c)).forEach((c) => L.speaking.add(c));
+      } else if (e.step !== 'reveal') (t?.codes || []).filter((c) => !dropped.has(c)).forEach((c) => L.speaking.add(c));
+      L.act = plan && plan.mode === 'meeting' ? '开会中' : `${STEP_LABELS[e.step] || e.step}中`;
       break;
     }
+    case 'office_assigned':
+      L.office = { mode: e.data.mode, attendees: e.data.attendees || [], assignee: e.code };
+      L.act = e.data.mode === 'meeting' ? `经理决定开会（${(e.data.attendees || []).length} 位参会）` : e.data.mode === 'project' ? `经理决定项目分工（${(e.data.attendees || []).length} 人）` : '经理已派活';
+      break;
+    case 'office_project':
+      L.act = `另开项目组桌子：${e.data.members} 人，预计 ${money(e.data.estimate_usd)}`;
+      break;
     case 'call_done':
     case 'call_failed':
       L.speaking.delete(e.code || '统');

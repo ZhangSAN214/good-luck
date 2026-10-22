@@ -157,3 +157,16 @@ def test_estimate_lists_meeting_and_project_costs(serve, page):
     page.wait_for_selector("#estimate #est-groups")
     text = page.inner_text("#estimate #est-groups")
     assert "以上按单人办估" in text and "开会（2～3 人）约 $" in text and "项目分工（2～" in text
+
+
+def test_live_progress_only_highlights_the_assigned_staff(serve, page):
+    """办理时只有派到的员工在干活，其他在岗员工不亮。"""
+    srv = serve(delay=1.5, confirm_threshold_usd=100.0)
+    _office_page(srv, page)
+    ask(page, MEDIUM)
+    page.wait_for_function(
+        "document.querySelector('#plate-step')?.textContent === '办理'", timeout=20000
+    )
+    page.wait_for_selector("#stage .seat.speaking")
+    assert page.locator("#stage .seat.speaking").count() == 1
+    wait_done(page)
