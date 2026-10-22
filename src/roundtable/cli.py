@@ -1304,7 +1304,7 @@ def build_parser() -> argparse.ArgumentParser:
         choices=["office", "discussion", "collab", "solo", "brainstorm", "auto"],
         default="office",
         help=(
-            "office 办公室（经理分诊后派给一位员工办理，经理过目；必要时开会；默认）"
+            "office 办公室（经理分诊：单人办、开会或项目分工，经理把关；默认）"
             "/ discussion 讨论（全员各自作答再互评汇总）/ collab 协同（拆分子任务分工完成）"
             "/ solo 个人作答（档位内挑最便宜的一位直接回答）"
             "/ brainstorm 头脑风暴（发散、拓展、整合成思维导图）"
