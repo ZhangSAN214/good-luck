@@ -614,26 +614,28 @@ function officeOutput(o, sp, data, names, sources = null) {
   if (o.kind === 'office_intake') {
     const how = OFFICE_MODES[data.mode] || data.mode;
     const search = data.needs_search ? ' · 需要查资料' : '';
+    // 预算单：经理分诊后按选定的方式和人选估计还要花多少
+    const budget = typeof data.budget_usd === 'number' ? `<div class="meta">预算单：${esc(how)}预计 ${money(data.budget_usd)}</div>` : '';
     if (data.mode === 'project' && (data.attendees || []).length) {
       const who = data.attendees.map((c) => names.member(c)).join('、');
       const why = data.reason ? `<div class="meta">理由：${md(data.reason)}</div>` : '';
       const filled = data.attendees_by_rule ? '<div class="meta">经理点名的人不够，按规则补齐</div>' : '';
       const brief = data.brief ? `<details class="more"><summary>项目目标</summary><div>${md(data.brief)}</div></details>` : '';
-      return msg(sp, '分诊派活', `<div class="bubble">决定<b>项目分工</b>，项目组：<b>${esc(who)}</b>（经理拆分、合并，另一位经理验收）${why}${filled}</div>${brief}`);
+      return msg(sp, '分诊派活', `<div class="bubble">决定<b>项目分工</b>，项目组：<b>${esc(who)}</b>（经理拆分、合并，另一位经理验收）${why}${filled}${budget}</div>${brief}`);
     }
     if (data.mode === 'meeting' && (data.attendees || []).length) {
       const who = data.attendees.map((c) => names.member(c)).join('、');
       const why = data.reason ? `<div class="meta">理由：${md(data.reason)}</div>` : '';
       const filled = data.attendees_by_rule ? '<div class="meta">经理点名的人不够，按规则补齐</div>' : '';
       const brief = data.brief ? `<details class="more"><summary>会议议题</summary><div>${md(data.brief)}</div></details>` : '';
-      return msg(sp, '分诊派活', `<div class="bubble">决定<b>开会</b>，参会：<b>${esc(who)}</b>（依次发言，经理拍板）${why}${filled}</div>${brief}`);
+      return msg(sp, '分诊派活', `<div class="bubble">决定<b>开会</b>，参会：<b>${esc(who)}</b>（依次发言，经理拍板）${why}${filled}${budget}</div>${brief}`);
     }
     const who = names.member(data.assignee);
     const why = data.by_rule
       ? `<div class="meta">${esc(data.rule_reason || '按规则派活')}</div>`
       : data.reason ? `<div class="meta">理由：${md(data.reason)}</div>` : '';
     const brief = data.brief ? `<details class="more"><summary>工作说明</summary><div>${md(data.brief)}</div></details>` : '';
-    return msg(sp, '分诊派活', `<div class="bubble">建议<b>${esc(how)}</b>，派给 <b>${esc(who)}</b>${esc(search)}${why}</div>${brief}`);
+    return msg(sp, '分诊派活', `<div class="bubble">建议<b>${esc(how)}</b>，派给 <b>${esc(who)}</b>${esc(search)}${why}${budget}</div>${brief}`);
   }
   if (o.kind === 'office_work') return msg(sp, '办理', `<div class="bubble">${cite(md(data.text), sources)}</div>`);
   if (o.kind === 'office_check') {

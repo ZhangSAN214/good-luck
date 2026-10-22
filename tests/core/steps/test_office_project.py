@@ -103,3 +103,21 @@ async def test_office_review_skips_without_a_second_manager(monkeypatch):
     assert t.ctx.state.office.check["skipped"]
     assert "没有第二位经理" in res.notes[0]
     assert not t.fake.calls
+
+
+async def test_budget_sheet_for_every_mode():
+    """经理分诊后附预算单：按选定的方式和人选估计；开会、项目分工比单人办贵。"""
+    from .test_office_meeting import meeting
+
+    budgets = {}
+    for mode, reply in (
+        ("single", intake()),
+        ("meeting", meeting("组员甲", "组员丙")),
+        ("project", project("组员甲", "组员丙")),
+    ):
+        t = office_table()
+        t.fake.queue(MANAGER, reply)
+        await run(t, "intake")
+        budgets[mode] = t.ctx.state.office.intake["budget_usd"]
+    assert all(v > 0 for v in budgets.values())
+    assert budgets["project"] > budgets["single"]

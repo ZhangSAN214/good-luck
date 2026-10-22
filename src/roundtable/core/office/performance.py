@@ -86,7 +86,7 @@ def reset(repo: Repository, now: str) -> None:
     repo.set_setting(RESET_KEY, now)
 
 
-def collect(repo: Repository, limit: int = 500) -> Performance:
+def collect(repo: Repository, limit: int = 200) -> Performance:
     """统计最近 limit 场办公室模式会话（清零之后的）。"""
     from roundtable.core.steps import restore_state
 

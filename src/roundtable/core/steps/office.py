@@ -1,7 +1,8 @@
-"""办公室模式（R17 O2、O3）：经理分诊派活 → 员工办理 → 经理过目（不合格退回改一次）；或者开会。
+"""办公室模式（R17 O2～O5）：经理分诊派活 → 员工办理 → 经理过目（不合格退回改一次）；
+或者开会、项目分工。
 
 - intake：主办经理看题目和在岗员工名单（称呼、擅长、档位、工资标准），决定办事方式、派给谁、
-  要不要查资料，并写工作说明。项目分工（O4）上线前，经理建议项目分工时照单人办处理并注明。
+  要不要查资料，并写工作说明。名单附绩效（O5，办过几件、通过率），工资相同时规则派活优先通过率高的。
   经理的输出无法使用或派给了不在名单上的人时，由代码按规则派：能力标签对口（带图片的题需要
   vision）的员工里按预计成本选最便宜的一位。
   开会时经理点名 2～3 位参会员工（office.meeting）；点名不够或点了名单外的人时按同样的规则补齐。
@@ -344,6 +345,30 @@ def estimate_project(config, router, question, members: list[str], coordinator: 
     )
 
 
+def single_estimate(ctx: TableContext, assignee: str) -> float:
+    """单人办的预计花费：派到的员工办理 + 经理过目（按配置价格公式，默认难度）。"""
+    from roundtable.core.routing import Assessment, Lineup, estimate_lineup
+
+    assert ctx.coordinator is not None
+    lineup = Lineup((ctx.members[assignee],), ctx.coordinator, ("handle", "check"))
+    return estimate_lineup(
+        lineup,
+        ctx.question,
+        Assessment(difficulty=None, source="default"),
+        config=ctx.config,
+        router=ctx.router,
+    ).total_usd
+
+
+def budget_estimate(ctx: TableContext, intake: dict[str, Any]) -> float:
+    """经理分诊后的预算单：按选定的办事方式和人选估计这件事还要花多少（不含已花的分诊）。"""
+    if intake["mode"] == "meeting":
+        return meeting_estimate(ctx, intake["attendees"])
+    if intake["mode"] == "project":
+        return project_estimate(ctx, intake["attendees"]).total_usd
+    return single_estimate(ctx, intake["assignee"])
+
+
 def project_estimate(ctx: TableContext, team: list[str]):
     assert ctx.coordinator is not None
     members = [ctx.members[c] for c in team]
@@ -435,6 +460,8 @@ class IntakeStep:
                 if filled:
                     intake["attendees_by_rule"] = True
                     notes.append(f"经理点名的人不够{what}，按规则补齐")
+        # 预算单：按选定的方式和人选估计还要花多少（网页和命令行显示；开会、项目分工据此对照上限）
+        intake["budget_usd"] = budget_estimate(ctx, intake)
         o.intake = intake
         _save(ctx, self.name, "office_intake", intake, call_id=result.call_id)
         ctx.emit(
@@ -454,10 +481,10 @@ class IntakeStep:
         assert o.intake is not None
         mode, attendees = o.intake["mode"], o.intake["attendees"]
         caps = ctx.config.roundtable.office.task_caps_usd
-        if mode == "meeting":
-            cost, cap = meeting_estimate(ctx, attendees), caps.meeting
-        else:
-            cost, cap = project_estimate(ctx, attendees).total_usd, caps.project
+        cost = o.intake.get("budget_usd")
+        if cost is None:  # 旧记录没有预算单
+            cost = budget_estimate(ctx, o.intake)
+        cap = caps.meeting if mode == "meeting" else caps.project
         budget_card = ctx.budget_gate(cost)
         if budget_card is not None:
             raise NeedsApproval(budget_card)

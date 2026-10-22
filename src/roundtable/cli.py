@@ -754,6 +754,7 @@ class CLI:
         if intake["mode"] == "project":
             who = "、".join(self.label(c, table_no) for c in intake["attendees"])
             self.p(f"\n【经理分诊】项目分工，项目组：{who}（经理拆分、合并，另一位经理验收）")
+            self.print_budget(intake)
             if intake.get("reason"):
                 self.p(f"  理由：{self.t(intake['reason'])}")
             return
@@ -763,6 +764,7 @@ class CLI:
         if intake.get("declined"):
             how = f"{MODE_LABELS.get(intake['declined'], '')}（你选择改为单人办）"
         self.p(f"\n【经理分诊】经理建议{how}，派给 {who}{search}")
+        self.print_budget(intake)
         if intake.get("by_rule"):
             self.p(f"  （{intake.get('rule_reason') or '按规则派活'}）")
         elif intake.get("reason"):
@@ -807,10 +809,17 @@ class CLI:
         if revised:
             self.p(f"\n【交付（按验收意见修改后）】\n{self.t(json.loads(revised.content)['text'])}")
 
+    def print_budget(self, intake) -> None:
+        """预算单：经理分诊后按选定的方式和人选估计还要花多少。"""
+        if intake.get("budget_usd") is not None:
+            how = MODE_LABELS.get(intake["mode"], intake["mode"])
+            self.p(f"  预算单：{how}预计 ${intake['budget_usd']:.4f}")
+
     def print_meeting(self, outputs, intake, table_no: int, details: bool) -> None:
         """办公室模式·开会：谁参会、各人发言（详情里）、经理拍板的结论与纪要。"""
         who = "、".join(self.label(c, table_no) for c in intake["attendees"])
         self.p(f"\n【经理分诊】开会，参会：{who}（依次发言，经理拍板）")
+        self.print_budget(intake)
         if intake.get("attendees_by_rule"):
             self.p("  （经理点名的人不够，按规则补齐）")
         elif intake.get("reason"):

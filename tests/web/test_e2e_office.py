@@ -19,6 +19,7 @@ def test_office_is_default_and_shows_assignment_check_and_delivery(serve, page):
     wait_done(page)
     chat = page.inner_text("#chat")
     assert "分诊派活" in chat and "派给" in chat and "单人办" in chat
+    assert "预算单：单人办预计 $" in chat
     assert "办理" in chat and "过目" in chat and "通过" in chat
     final = page.inner_text(".final")
     assert "交付" in final and "经理已过目" in final and "最大值 2，最小值 -2" in final
