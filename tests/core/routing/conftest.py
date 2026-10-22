@@ -39,7 +39,7 @@ MEDIA_MODELS = [
 ]
 
 
-def models_config(pool=POOL, disabled=(), with_media=False) -> ModelsConfig:
+def models_config(pool=POOL, disabled=(), with_media=False, managers=MANAGERS) -> ModelsConfig:
     media = (
         [
             {
@@ -72,7 +72,7 @@ def models_config(pool=POOL, disabled=(), with_media=False) -> ModelsConfig:
                     "price": {"input": pin, "output": pout},
                     "enabled": mid not in disabled,
                     "seat": tier is not None,  # 没有档位的是工具模型（如图像生成），不上桌
-                    "office_role": "manager" if mid in MANAGERS else "staff",
+                    "office_role": "manager" if mid in managers else "staff",
                     "routes": [{"channel": "c", "model": mid}],
                 }
                 for mid, vendor, tier, tags, pin, pout in pool
@@ -99,13 +99,14 @@ def app_config(
     with_media=False,
     pipeline=False,
     rt_update=None,
+    managers=MANAGERS,
     **routing_overrides,
 ) -> AppConfig:
     routing = (
         REPO.routing.model_copy(update=routing_overrides) if routing_overrides else REPO.routing
     )
     return AppConfig(
-        models=models_config(pool, disabled, with_media),
+        models=models_config(pool, disabled, with_media, managers),
         roundtable=with_pipeline(REPO.roundtable, pipeline).model_copy(update=rt_update or {}),
         # 步骤测试用 "组员甲" 式代号：前缀放回去（真实配置里前缀为空，代号本身就是称呼）
         personas=REPO.personas.model_copy(

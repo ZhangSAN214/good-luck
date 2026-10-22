@@ -718,13 +718,15 @@ async def run_meeting(ctx: TableContext, step: str) -> StepResult:
 
 
 def pick_reviewer(ctx: TableContext) -> str | None:
-    """复核经理：主办经理以外、当前能用的另一位经理（office_role: manager）；多位时按 seed 随机。"""
+    """复核经理：主办经理以外、当前能用的另一位经理（office_role: manager）；多位时按 seed 随机。
+
+    候选按配置顺序排列，不按 id 排序：换名后同一 seed 选到的位置不变（无品牌偏好）。"""
     others = [
         m.id
         for m in ctx.router.available_models()
         if m.office_role == "manager" and m.seat and m.id != ctx.coordinator
     ]
-    return ctx.rng.choice(sorted(others)) if others else None
+    return ctx.rng.choice(others) if others else None
 
 
 class OfficeReviewStep:
