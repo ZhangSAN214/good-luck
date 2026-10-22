@@ -397,8 +397,12 @@ class RoundtableService:
         self._require(session_id)
         view = self.rt.repo.session_view(session_id)
 
+        office = view.workflow == "office"  # 办公室模式里统筹就是经理
+
         def coordinator_label(model_id: str | None) -> str:
-            return coordinator_name(model_id, self.rt.config) if model_id else "统筹"
+            if model_id:
+                return coordinator_name(model_id, self.rt.config, office=office)
+            return "经理" if office else "统筹"
 
         slip = payslip(view.calls, view.seats, coordinator_label=coordinator_label)
         return {"lines": [asdict(line) for line in slip.lines], "total_usd": slip.total_usd}

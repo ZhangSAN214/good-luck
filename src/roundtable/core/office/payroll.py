@@ -72,7 +72,8 @@ def payslip(
         else:
             who = OUTSOURCED.get(name, f"外包：{name}")
             role = name
-            model_id = None
+            # 复核经理是另一位经理：揭晓后（CallView 带模型 id）也列出是谁；其他外包不列
+            model_id = group[0].model_id if name == "reviewer" else None
         lines.append(
             PayslipLine(
                 who=who,

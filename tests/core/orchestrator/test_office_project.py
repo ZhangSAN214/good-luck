@@ -112,5 +112,10 @@ async def test_payslip_has_a_reviewer_line():
     sid = svc.create(MEDIUM, workflow="office", seed=3)
     await svc.wait(sid)
     slip = svc.payslip(sid)
-    assert any(line["who"] == "复核经理" for line in slip["lines"])
+    [reviewer] = [line for line in slip["lines"] if line["who"] == "复核经理"]
+    # 匿名关闭：复核经理也列出是哪位经理；主办经理称「（经理）」
+    view = env.rt.repo.session_view(sid)
+    assert reviewer["model_id"] == next(c.model_id for c in view.calls if c.role == "reviewer")
+    assert all("统筹" not in line["who"] for line in slip["lines"])
+    assert any(line["who"].endswith("（经理）") for line in slip["lines"])
     assert abs(slip["total_usd"] - svc.session(sid)["cost_usd"]) < 1e-9
