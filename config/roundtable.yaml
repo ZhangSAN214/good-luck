@@ -126,7 +126,7 @@ step_params:
   chat: {max_tokens: 1500, reasoning: {effort: low}}   # 群聊：一两句话，少想多说（思考会挤占输出，之前 500 上限时有人回复为空）
   review: {max_tokens: 3000, reasoning: {max_tokens: 800}}
   revise: {max_tokens: 5000, reasoning: {max_tokens: 2000}}
-  synthesize: {max_tokens: 5000, reasoning: {effort: low}}
+  synthesize: {max_tokens: 5000, reasoning: {effort: medium}}   # 最终答案由统筹写：认真想（2026-10-22 起 medium）
   ideate: {max_tokens: 2000, reasoning: {effort: low}}
   expand: {max_tokens: 1500, reasoning: {effort: low}}
   organize: {max_tokens: 4000, reasoning: {effort: low}}
@@ -140,7 +140,7 @@ step_params:
   rework: {max_tokens: 6000, reasoning: {max_tokens: 2000}}
   accept: {max_tokens: 2000, reasoning: {effort: low}}
   accept_fix: {max_tokens: 6000, reasoning: {max_tokens: 2000}}
-  merge: {max_tokens: 10000, reasoning: {effort: low}}
+  merge: {max_tokens: 10000, reasoning: {effort: medium}}   # 同上：合并即最终成果
   style: {max_tokens: 1500, reasoning: {effort: low}}
   style_gate: {max_tokens: 1500, reasoning: {effort: low}}
   # 办公室模式：经理的判断和把关要认真想（中等强度），员工办理同作答
@@ -558,11 +558,13 @@ tools:
   max_rounds: 6               # 每次作答最多几轮工具调用
   by_step:
     answer: [python, write_file, generate_image, search, fetch]
-    revise: [python, write_file, generate_image, search, fetch]
+    # 修订、互评、交叉审查不再联网（2026-10-22，见项目资料「超预算与慢笨原因」）：查资料在作答 / 子任务时做，
+    # 之后的步骤用 python 核算即可；原来每人每步都按搜索计费，占讨论模式预估的大头，也是慢的主要原因
+    revise: [python, write_file, generate_image]
     work: [python, write_file, generate_image, search, fetch]
     rework: [python, write_file, generate_image, search, fetch]
-    review: [python, search, fetch]   # 互评 / 交叉审查：用来核算、核对来源
-    cross_review: [python, search, fetch]
+    review: [python]   # 互评 / 交叉审查：用来核算
+    cross_review: [python]
     merge: [python, write_file]   # 统筹整理交付文件
     # 办公室模式：员工办理与修改；search / fetch 只在经理判断需要查资料时提供
     handle: [python, write_file, generate_image, search, fetch]

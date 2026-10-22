@@ -581,13 +581,18 @@ class CLI:
                 else ""
             )
             absent = f"，缺席 {len(o.lineup.absent)}" if o.lineup.absent else ""
-            coord = " + 统筹" if o.lineup.coordinator else ""
+            office = o.workflow == "office"
+            member, lead = ("员工", "经理") if office else ("组员", "统筹")
+            coord = f" + {lead}" if o.lineup.coordinator else ""
             self.p(
-                f"{head}：{len(o.lineup.members)} 位组员{coord}{absent}，"
+                f"{head}：{len(o.lineup.members)} 位{member}{coord}{absent}，"
                 f"预计 ${e.total_usd:.4f}（最多约 ${e.max_usd:.4f}）{over}"
             )
             if not anonymous and not brief:
-                self.p(f"      上桌：{'、'.join(o.lineup.members)}；统筹 {o.lineup.coordinator}")
+                seated = "在岗" if office else "上桌"
+                self.p(
+                    f"      {seated}：{'、'.join(o.lineup.members)}；{lead} {o.lineup.coordinator}"
+                )
             if not brief:
                 steps = "，".join(
                     f"{STEP_NAMES.get(st.step, st.step)} ${st.cost_usd:.4f}"

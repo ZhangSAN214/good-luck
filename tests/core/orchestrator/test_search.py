@@ -95,9 +95,7 @@ async def test_search_fetch_cite_and_bill():
     assert all(
         '<source id="S1" url="https://example.test/' in last_user(c.messages) for c in reviews
     )
-    assert all(
-        "[S1]" in c.messages[0].content or "search" in c.messages[0].content for c in reviews
-    )
+    # 互评不再联网（只在作答 / 子任务时查资料），评审者靠被评答案附带的来源列表核对
     # 没有打回重做
     assert not [e for _, e in env.events if e.type == "effort_redo"]
 
