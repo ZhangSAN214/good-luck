@@ -1383,7 +1383,7 @@ def build_parser() -> argparse.ArgumentParser:
     bench.add_argument(
         "--modes",
         default="solo:budget,discussion:budget,collab:budget",
-        help="模式:档位，逗号分隔，如 solo:budget,collab:flagship",
+        help="模式:档位，逗号分隔，如 solo:budget,collab:flagship；办公室模式写 office:budget",
     )
     bench.add_argument("--category", action="append", help="只跑这些类别（可重复）")
     bench.add_argument("--limit", type=int, help="只跑前 N 题")
