@@ -285,28 +285,97 @@ def pick_attendees(
 
 def meeting_estimate(ctx: TableContext, attendees: list[str]) -> float:
     """开会的预计花费：每位员工发言一次（输入含前面的发言）+ 经理拍板一次。按配置价格公式估计。"""
+    assert ctx.coordinator is not None
+    return estimate_meeting(
+        ctx.config,
+        ctx.router,
+        ctx.question,
+        [ctx.members[c] for c in attendees],
+        ctx.coordinator,
+        images=sum(1 for a in ctx.attachments if a.kind == "image"),
+        caps={s: ctx.step_params(s).get("max_tokens") for s in ("speak", "decide")},
+    )
+
+
+def estimate_meeting(
+    config,
+    router,
+    question,
+    staff: list[str],
+    manager: str,
+    *,
+    images: int = 0,
+    caps: dict[str, int | None] | None = None,
+) -> float:
+    """开会的预计花费（模型 id）：staff 依次发言一次，manager 拍板一次。"""
     from roundtable.core.routing.estimate import text_tokens
 
-    params = ctx.config.routing.estimate
+    params = config.routing.estimate
     o = params.prompt_overhead_tokens + params.intake_tokens
-    q = text_tokens(ctx.question.text, params)
-    q += sum(params.image_tokens for a in ctx.attachments if a.kind == "image")
-    caps = {s: ctx.step_params(s).get("max_tokens") for s in ("speak", "decide")}
+    q = text_tokens(question.text, params) + images * params.image_tokens
+    if caps is None:
+        step_params = config.roundtable.step_params
+        caps = {s: step_params.get(s, {}).get("max_tokens") for s in ("speak", "decide")}
+    models = {m.id: m for m in config.models.models}
 
     def cost(model_id: str, step: str, tin: int, tout: int) -> float:
-        spec = ctx.models_by_id[model_id]
-        usable = ctx.router.plan(model_id).usable
+        spec = models[model_id]
+        usable = router.plan(model_id).usable
         price = spec.price_for(usable[0]) if usable else spec.price
         tout = round(tout * params.output_multiplier.get(spec.tier or "", 1.0))
         return estimate_cost(price, tin, min(tout, caps[step] or tout))
 
     total = sum(
-        cost(ctx.members[c], "speak", o + q + i * params.speech_tokens, params.speech_tokens)
-        for i, c in enumerate(attendees)
+        cost(m, "speak", o + q + i * params.speech_tokens, params.speech_tokens)
+        for i, m in enumerate(staff)
     )
-    assert ctx.coordinator is not None
-    tin = o + q + len(attendees) * params.speech_tokens
-    return total + cost(ctx.coordinator, "decide", tin, params.minutes_tokens)
+    tin = o + q + len(staff) * params.speech_tokens
+    return total + cost(manager, "decide", tin, params.minutes_tokens)
+
+
+def group_estimates(config, router, question, lineup) -> dict[str, dict[str, Any]]:
+    """提交前：经理如果决定开会 / 项目分工，大约花多少（最少到最多人数，按工资最低的员工估）。
+
+    返回 方式 → {"people": [最少, 最多], "usd": [最少人数时, 最多人数时]}。
+    只看价格，不看是哪个模型；同价按名单顺序。没有经理或员工不够时为空。
+    """
+    if lineup.coordinator is None:
+        return {}
+    spec = config.routing.planner
+    models = {m.id: m for m in config.models.models}
+
+    def wage(model_id: str) -> float:
+        usable = router.plan(model_id).usable
+        m = models[model_id]
+        price = m.price_for(usable[0]) if usable else m.price
+        return price.input * spec.expected_input_tokens + price.output * spec.expected_output_tokens
+
+    staff = sorted(lineup.members, key=lambda m: (wage(m), lineup.members.index(m)))
+    images = sum(1 for k in question.attachments if k == "image")
+    office = config.roundtable.office
+    out: dict[str, dict[str, Any]] = {}
+    sizes = {
+        "meeting": (office.meeting.min_attendees, office.meeting.max_attendees),
+        "project": (office.project.min_members, office.project.max_members),
+    }
+    for mode, (low, high) in sizes.items():
+        high = min(high, len(staff))
+        if high < low:
+            continue
+        if mode == "meeting":
+            costs = [
+                estimate_meeting(
+                    config, router, question, staff[:n], lineup.coordinator, images=images
+                )
+                for n in (low, high)
+            ]
+        else:
+            costs = [
+                estimate_project(config, router, question, staff[:n], lineup.coordinator).total_usd
+                for n in (low, high)
+            ]
+        out[mode] = {"people": [low, high], "usd": costs}
+    return out
 
 
 def group_key(ctx: TableContext) -> str:

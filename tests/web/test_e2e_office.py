@@ -136,3 +136,12 @@ def test_staff_panel_shows_performance_and_two_step_reset(serve, page):
     page.click("#perf-reset")
     page.wait_for_selector("#pbody :text('还没有记录')")
     assert not page.query_selector("#office-perf")
+
+
+def test_estimate_lists_meeting_and_project_costs(serve, page):
+    srv = serve(confirm_threshold_usd=100.0)
+    _office_page(srv, page)
+    page.fill("#ask", MEDIUM)
+    page.wait_for_selector("#estimate #est-groups")
+    text = page.inner_text("#estimate #est-groups")
+    assert "以上按单人办估" in text and "开会（2～3 人）约 $" in text and "项目分工（2～" in text

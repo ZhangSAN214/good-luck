@@ -345,6 +345,8 @@ async def test_estimate_command_and_ask_preview():
     assert code == 0 and env.fake.calls == []
     assert "提交前预估" in text and "▶ 讨论 · 节电模式" in text and "协同 · 全力模式" in text
     assert "上桌：" in text and "随机种子：5" in text
+    # 办公室模式另列经理如果决定开会 / 项目分工的大概花费
+    assert "经理如果决定开会（2～3 人）约 $" in text and "项目分工（2～" in text
     code, text = await cli(env, "estimate", MEDIUM, "--anonymous")
     assert "上桌：" not in text
     for term in identity_terms(env):

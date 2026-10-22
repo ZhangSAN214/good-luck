@@ -1659,6 +1659,14 @@ export function estimateHTML(est, { workflow, anonymous, plans, customLabel }) {
   const sel = opts.find((o) => o.selected && o.steps);
   if (sel) {
     h += `<details><summary>步骤明细</summary>${sel.steps.map((s) => `${esc(STEP_LABELS[s.step] || s.step)} ${money(s.cost_usd)}`).join(' · ')}</details>`;
+    // 办公室模式：上面是单人办的预估；经理如果决定开会 / 项目分工，另列大概花费（按工资最低的员工估）
+    const groups = Object.entries(sel.groups || {}).map(([mode, g]) => {
+      const [lo, hi] = g.people;
+      const people = lo === hi ? `${lo}` : `${lo}～${hi}`;
+      const usd = lo === hi ? money(g.usd[0]) : `${money(g.usd[0])}～${money(g.usd[1])}`;
+      return `${mode === 'meeting' ? '开会' : '项目分工'}（${people} 人）约 ${usd}`;
+    });
+    if (groups.length) h += `<div class="hint" id="est-groups">以上按单人办估；经理如果决定${esc(groups.join('；'))}</div>`;
     if (!anonymous && sel.lineup) h += `<div>上桌：${esc([...sel.lineup.members, sel.lineup.coordinator].filter(Boolean).join('、'))}${sel.lineup.absent.length ? `；缺席：${esc(sel.lineup.absent.join('、'))}` : ''}</div>`;
     if (anonymous) h += '<div>匿名已开启：不显示上桌名单。</div>';
   }

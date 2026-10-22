@@ -65,6 +65,7 @@ from roundtable.core.routing import (
 )
 from roundtable.core.runtime import PROJECT_ROOT, Runtime
 from roundtable.core.steps import Event
+from roundtable.core.steps.office import group_estimates
 from roundtable.core.storage import NotFound
 from roundtable.plaintext import to_terminal
 
@@ -101,6 +102,16 @@ STEP_NAMES = {
     "office_revise": "按复核修改",
 }
 MODE_LABELS = {"single": "单人办", "meeting": "开会", "project": "项目分工"}
+
+
+def _group_line(mode: str, group: dict[str, Any]) -> str:
+    """提交前预估里的一段：开会（2～3 人）约 $a～$b。"""
+    (low_n, high_n), (low, high) = group["people"], group["usd"]
+    people = f"{low_n}" if low_n == high_n else f"{low_n}～{high_n}"
+    span = f"${low:.4f}" if low_n == high_n else f"${low:.4f}～${high:.4f}"
+    return f"{MODE_LABELS[mode]}（{people} 人）约 {span}"
+
+
 MEDIA_NAMES = {"image": "图片", "speech": "语音", "video": "视频"}
 JOB_STATE = {
     "submitted": "已提交",
@@ -542,18 +553,20 @@ class CLI:
 
     # --- 提交前预估 -------------------------------------------------------------------
 
-    def preview(self, question: str, choice: UserChoice, ids: Sequence[str], *, seed: int):
+    def question(self, question: str, choice: UserChoice, ids: Sequence[str]) -> Question:
         rows = [self.rt.repo.attachment(i) for i in ids]
         params = self.rt.config.routing.estimate
-        q = Question(
+        return Question(
             question,
             tuple(r["kind"] for r in rows),
             attachment_tokens(rows, params),
             choice.media,
             choice.media_tier,
         )
+
+    def preview(self, question: str, choice: UserChoice, ids: Sequence[str], *, seed: int):
         return preview_estimates(
-            q,
+            self.question(question, choice, ids),
             config=self.rt.config,
             router=self.rt.router,
             seed=seed,
@@ -610,6 +623,15 @@ class CLI:
                 f"{head}：{len(o.lineup.members)} 位{member}{coord}{absent}，"
                 f"预计 ${e.total_usd:.4f}（最多约 ${e.max_usd:.4f}）{over}"
             )
+            if office:
+                groups = group_estimates(
+                    self.rt.config, self.rt.router, self.question(question, choice, ids), o.lineup
+                )
+                if groups:
+                    self.p(
+                        "      经理如果决定"
+                        + "；".join(_group_line(m, g) for m, g in groups.items())
+                    )
             if not anonymous and not brief:
                 seated = "在岗" if office else "上桌"
                 self.p(

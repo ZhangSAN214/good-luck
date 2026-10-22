@@ -45,6 +45,7 @@ from roundtable.core.routing import (
 )
 from roundtable.core.runtime import Runtime
 from roundtable.core.steps import Event, restore_state
+from roundtable.core.steps.office import group_estimates
 from roundtable.core.storage import NotFound
 
 log = logging.getLogger(__name__)
@@ -568,6 +569,8 @@ class RoundtableService:
                     members=len(o.lineup.members),
                     absent=len(o.lineup.absent),
                 )
+                if o.workflow == "office":  # 经理如果决定开会 / 项目分工，大约花多少
+                    item["groups"] = group_estimates(cfg, self.rt.router, question_obj, o.lineup)
                 if not anonymous:
                     item["lineup"] = {
                         "members": list(o.lineup.members),

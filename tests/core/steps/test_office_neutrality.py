@@ -74,3 +74,20 @@ def test_reviewer_choice_does_not_depend_on_names():
         assert x is not None and RENAME[x] == y
         seen.add(x)
     assert seen == {"f2", "f3"}  # 主办经理以外的经理都有机会
+
+
+def test_group_estimates_pick_the_cheapest_staff_and_ignore_names():
+    from roundtable.core.routing import Lineup, Question
+    from roundtable.core.steps.office import estimate_meeting, group_estimates
+
+    a, b = tables(0)
+    staff = ["b3", "b2", "b1"]  # 工资从高到低
+    lineup = Lineup(tuple(staff), MANAGER, ())
+    renamed = Lineup(tuple(RENAME[m] for m in staff), RENAME[MANAGER], ())
+    q = Question("写一篇关于秋天的短文")
+    x = group_estimates(a.config, a.router, q, lineup)
+    y = group_estimates(b.config, b.router, q, renamed)
+    assert x == y
+    # 最少人数时按工资最低的两位估
+    assert x["meeting"]["usd"][0] == estimate_meeting(a.config, a.router, q, ["b1", "b2"], MANAGER)
+    assert x["meeting"]["people"] == [2, 3] and x["project"]["people"] == [2, 3]
