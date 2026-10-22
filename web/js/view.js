@@ -833,7 +833,7 @@ function mediaOutput(o, sp) {
 export function mediaJobCard(j, sv, names) {
   const [st, sc] = JOB_STATE[j.state] || [j.state, ''];
   const file = j.file_id ? (sv.files || []).find((f) => f.id === j.file_id) : null;
-  const who = j.code ? names.member(j.code) : '统筹';
+  const who = j.code ? names.member(j.code) : names.office ? '经理' : '统筹';
   const where = j.subtask ? `${who} · ${j.subtask}` : STEP_LABELS[j.step] || j.step;
   const model = j.model_id ? `<span class="ai">${esc(j.model_id)}${j.channel ? ` · ${esc(j.channel)}` : ''}</span>` : '';
   const players = file ? mediaPlayer(file, sv.id) : '';
@@ -858,7 +858,7 @@ function merged(tableNo, d, names) {
     })
     .join('');
   const ai = sp.ai ? ` · ${esc(sp.ai)}` : '';
-  return `<div class="final"><h3>合并成果<small>统筹${ai} · 把握程度 ${tag(ct, cc)}</small></h3>
+  return `<div class="final"><h3>合并成果<small>${names.office ? '经理' : '统筹'}${ai} · 把握程度 ${tag(ct, cc)}</small></h3>
 <div class="answer">${md(d.result || '')}</div>
 ${adoption ? `<div class="sec">采纳情况</div><ul>${adoption}</ul>` : ''}
 ${d.gaps && d.gaps.length ? `<div class="sec">缺失</div>${list(d.gaps)}` : ''}
@@ -1075,6 +1075,17 @@ export function flowPanel(sv, live, ctx) {
 </tbody></table>`;
   }
   let h = '';
+  // 办公室模式：经理决定开会时不再过目；项目分工时办理、过目交给项目组桌子
+  const officeMode = (() => {
+    let mode = null;
+    for (const o of sv.outputs || []) {
+      if (o.table_no !== 0 || (o.kind !== 'office_intake' && o.kind !== 'office_approval')) continue;
+      const d = parse(o.content) || {};
+      if (d.mode) mode = d.mode;
+    }
+    return mode;
+  })();
+  const SKIPPED = { meeting: { check: '经理自己拍板，不再过目' }, project: { handle: '交给项目组', check: '由另一位经理验收' } };
   for (const t of sv.tables || []) {
     const pill = t.status === 'done' ? 'okp' : t.status === 'running' ? 'run' : 'wait';
     const projectTable = (t.pipeline || []).includes('office_review');
@@ -1085,8 +1096,12 @@ export function flowPanel(sv, live, ctx) {
       const now = !done && live.table === t.table_no && live.step === step;
       const cls = done ? 'done' : now ? 'now' : '';
       const who = step === 'media' ? '评审者与统筹' : step === 'office_review' ? '另一位经理' : COORD_STEPS.has(step) ? (sv.workflow === 'office' ? '经理' : '统筹') : step === 'handle' && sv.workflow === 'office' ? '经理派的员工' : step === 'reveal' ? (sv.anonymous ? '讨论结束后由你点「揭晓身份」' : '匿名关闭，身份一直公开') : t.codes.join(' · ');
-      const label = step === 'reveal' ? (sv.anonymous ? '可揭晓' : '结束') : STEP_LABELS[step] || step;
-      h += `<div class="pn ${cls}" data-step="${esc(step)}"><span class="dot"></span><span class="t">${esc(label)}<small>${esc(who)}</small></span><span class="pill ${done ? 'okp' : now ? 'run' : ''}">${done ? '完成' : now ? '进行中' : '待开始'}</span></div>`;
+      const skip = t.table_no === 0 && (SKIPPED[officeMode] || {})[step];
+      const meeting = t.table_no === 0 && officeMode === 'meeting' && step === 'handle';
+      const label = step === 'reveal' ? (sv.anonymous ? '可揭晓' : '结束') : meeting ? '开会' : STEP_LABELS[step] || step;
+      const note = skip || (meeting ? '参会员工依次发言，经理拍板' : who);
+      const state = skip ? (done ? '跳过' : '不需要') : done ? '完成' : now ? '进行中' : '待开始';
+      h += `<div class="pn ${skip ? '' : cls}" data-step="${esc(step)}"><span class="dot"></span><span class="t">${esc(label)}<small>${esc(note)}</small></span><span class="pill ${skip ? '' : done ? 'okp' : now ? 'run' : ''}">${state}</span></div>`;
     }
     h += '</div>';
   }

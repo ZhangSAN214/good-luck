@@ -115,6 +115,10 @@ def test_office_project_shows_team_table_and_review(serve, page):
     chat = page.inner_text("#chat")
     assert "决定项目分工" in chat and "项目组" in chat
     assert "复核经理" in chat and "退回修改一次" in chat
+    assert "统筹" not in chat  # 办公室模式：项目组里统筹就是经理
+    # 流程面板：第 1 桌的办理、过目交给项目组（跳过），不显示成完成
+    flow = page.inner_text("#pbody")
+    assert "交给项目组" in flow and "跳过" in flow
     finals = (
         page.inner_text("#chat .final:last-of-type")
         if False
