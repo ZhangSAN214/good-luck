@@ -51,6 +51,7 @@ from roundtable.core.bench import (
 from roundtable.core.config import ConfigError
 from roundtable.core.display import format_rice
 from roundtable.core.notes import NoteError, check_can_add, clean_note
+from roundtable.core.office import payslip
 from roundtable.core.orchestrator import Orchestrator, OrchestratorError, RunResult
 from roundtable.core.routing import (
     CUSTOM,
@@ -475,6 +476,30 @@ class CLI:
                 + (f"，{c.latency_s:.1f}s" if c.latency_s is not None else "")
                 + error
             )
+        if view.workflow == "office":
+            self.print_payslip(view)
+
+    def print_payslip(self, view) -> None:
+        """办公室模式的工资单：每位员工 / 经理这件事各领多少（token 就是工资），外包另列。"""
+        revealed = bool(self.names)
+
+        def lead(model_id: str | None) -> str:
+            return coordinator_name(model_id, self.rt.config, office=True) if model_id else "经理"
+
+        def member(code: str) -> str:
+            return f"{self.prefix}{code}"
+
+        slip = payslip(view.calls, view.seats, label=member, coordinator_label=lead)
+        self.p("\n【工资单】")
+        for line in slip.lines:
+            model = f"（{line.model_id}）" if revealed and line.model_id else ""
+            failed = f"，失败 {line.failed_calls}" if line.failed_calls else ""
+            self.p(
+                f"  {line.who}{model}：{line.calls} 次{failed}，"
+                f"输入 {self.rice(line.input_tokens)} / 输出 {self.rice(line.output_tokens)}，"
+                f"${line.cost_usd:.4f}"
+            )
+        self.p(f"  合计 ${slip.total_usd:.4f}")
 
     def export(self, sid: str, path: str | None) -> Path:
         """把完整记录（含每位成员的产出和花费明细）写成 UTF-8 文本文件，不经过终端编码。"""

@@ -652,7 +652,13 @@ async def test_export_covers_office_meeting_and_project(tmp_path):
         ("meeting", ("【经理分诊】开会，参会：", "发言】", "## 结论", "员工发言", "经理拍板")),
         (
             "project",
-            ("—— 项目组 ——", "【子任务与分工】", "【复核经理验收】", "复核经理验收 复核经理（f2）"),
+            (
+                "—— 项目组 ——",
+                "【子任务与分工】",
+                "【复核经理验收】",
+                "复核经理验收 复核经理（f2）",
+                "复核经理（f2）：1 次",
+            ),
         ),
     ):
         env = Env(confirm_threshold_usd=100.0)
@@ -665,6 +671,9 @@ async def test_export_covers_office_meeting_and_project(tmp_path):
         code, _ = await cli(env, "export", sid, "-o", str(target))
         text = target.read_text(encoding="utf-8-sig")
         assert code == 0 and "【花费明细】" in text and "统筹" not in text
+        # 工资单：每位员工 / 经理各一行（同一位经理在两张桌子上合成一行），最后是合计
+        slip = text.split("【工资单】", 1)[1]
+        assert "合计 $" in slip and slip.count("（经理）") == 1, slip
         for part in expected:
             assert part in text, (mode, part)
 

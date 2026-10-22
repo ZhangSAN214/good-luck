@@ -48,7 +48,7 @@ def payslip(
     """calls / seats 来自 session_view()。
 
     label 把组员代号转成显示用的称呼；coordinator_label 按统筹的模型 id（揭晓前为 None）给出称呼。
-    统筹的座位没有代号，按桌区分（升级重做后每桌一位统筹）。
+    统筹的座位没有代号：同一个模型在几张桌子上当统筹时合成一行；揭晓前按桌区分。
     """
     member_model = {s.code: s.model_id for s in seats if s.code}
     coordinators = {s.table_no: s.model_id for s in seats if s.role == "coordinator"}
@@ -57,7 +57,9 @@ def payslip(
         if c.role == "member" and c.code:
             key = ("member", c.code)
         elif c.role == "coordinator":
-            key = ("coordinator", str(c.table_no))
+            # 同一位经理（如办公室模式里主办项目组的经理）在几张桌子上的工资合成一行；
+            # 身份未公开时按桌区分
+            key = ("coordinator", coordinators.get(c.table_no) or f"table:{c.table_no}")
         else:
             key = ("outsourced", c.role)
         groups.setdefault(key, []).append(c)
