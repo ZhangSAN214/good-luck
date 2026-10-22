@@ -230,6 +230,7 @@ export class Names {
     this.sid = session?.id;
     this.revealed = !!session?.revealed;
     this.seats = session?.seats || [];
+    this.office = session?.workflow === 'office'; // 办公室模式：统筹就是经理
     // 协同模式：每桌的子任务标题与成果编号（W1… → [子任务, 代号]），与服务端的编号规则一致
     this.subtasks = {};
     this.items = {};
@@ -267,7 +268,7 @@ export class Names {
   // 匿名关闭时服务端给统筹的称呼（昵称·模式（统筹））；匿名时没有，只叫「统筹」
   coordinatorName(tableNo) {
     const s = this.seats.find((x) => x.table_no === tableNo && x.role === 'coordinator');
-    return (s && s.label) || '统筹';
+    return (s && s.label) || (this.office ? '经理' : '统筹');
   }
   // 发言者：头像字、名称、揭晓后的模型
   // 只有显示模型时（匿名关闭或已揭晓）才按模型查成员头像
@@ -277,7 +278,7 @@ export class Names {
       return { ch: [...String(code)][0] || '?', name: this.member(code), ai, art: memberArt(ai) };
     }
     const ai = this.model(tableNo, 'coordinator');
-    return { ch: '统', name: this.coordinatorName(tableNo), ai, art: memberArt(ai), coord: true };
+    return { ch: this.office ? '经' : '统', name: this.coordinatorName(tableNo), ai, art: memberArt(ai), coord: true };
   }
 }
 
@@ -331,7 +332,7 @@ export function feedItems(sv, ctx) {
       .map(([k, v]) => `${label(k)} ${money(v)}`)
       .join(' · ');
     const t0 = (sv.tables || [])[0];
-    const people = t0 ? ` · ${t0.codes.length} 位组员 + 统筹` : '';
+    const people = t0 ? (sv.workflow === 'office' ? ` · 经理 + ${t0.codes.length} 位在岗员工` : ` · ${t0.codes.length} 位组员 + 统筹`) : '';
     const absent = r.absent && r.absent.length ? ` · ${r.absent.length} 个模型缺席（无可用渠道）` : '';
     push('route', sys('规划', `档位：<b>${esc(label(r.plan))}</b>${esc(people)}${esc(absent)} · 预计 ${money(r.estimated_cost_usd)}${opts ? `<br>各档位预估：${esc(opts)}` : ''}`));
   }
@@ -350,7 +351,7 @@ export function feedItems(sv, ctx) {
     if (t.status === 'pending' && !outputs.some((o) => o.table_no === t.table_no)) continue;
     const projectTable = (t.pipeline || []).includes('office_review'); // 办公室模式的项目组桌子
     const label = projectTable ? '项目组' : tables.length > 1 ? `第 ${t.table_no + 1} 桌 · ${t.plan_label}` : t.plan_label;
-    push(`t${t.table_no}`, `<div class="phase">${esc(label)} · ${t.codes.length} 位${projectTable ? '员工' : '组员'}</div>`);
+    push(`t${t.table_no}`, `<div class="phase">${esc(label)} · ${t.codes.length} 位${sv.workflow === 'office' ? '员工' : '组员'}</div>`);
     if (t.table_no > 0 && t.escalation_reason) {
       push(`esc${t.table_no}`, sys('统筹', `升级到「${esc(t.plan_label)}」：${esc(t.escalation_reason)}`, 'bad'));
     }
@@ -940,15 +941,18 @@ ${c.reason ? `<div class="reason">推荐理由：${esc(c.reason)}</div>` : ''}${
 function ending(sv, ctx) {
   if (sv.running) return '';
   const cost = money(sv.cost_usd);
+  const office = sv.workflow === 'office';
+  const boss = office ? '经理' : '统筹';
   if (sv.status === 'completed') {
-    if (!sv.anonymous) return sys('统筹', `讨论完成 · 本场花费 ${cost}`, 'ok');
+    const done = office ? '办完了' : '讨论完成';
+    if (!sv.anonymous) return sys(boss, `${done} · 本场花费 ${cost}`, 'ok');
     const tail = sv.revealed ? '身份已揭晓' : '可以点「揭晓身份」查看各代号对应的模型';
-    return sys('统筹', `讨论完成 · 本场花费 ${cost} · ${tail}`, 'ok');
+    return sys(boss, `${done} · 本场花费 ${cost} · ${tail}`, 'ok');
   }
-  if (sv.status === 'stopped') return sys('统筹', `已停止 · 本场花费 ${cost}`, 'bad');
-  if (sv.status === 'failed') return sys('统筹', `失败：${esc(sv.error || '未知错误')}`, 'bad');
+  if (sv.status === 'stopped') return sys(boss, `已停止 · 本场花费 ${cost}`, 'bad');
+  if (sv.status === 'failed') return sys(boss, `失败：${esc(sv.error || '未知错误')}`, 'bad');
   if (sv.status === 'paused') {
-    return sys('统筹', `已暂停：${esc(sv.error || '')}`, 'bad', '<button class="btn sm" type="button" data-act="resume">继续</button>');
+    return sys(boss, `已暂停：${esc(sv.error || '')}`, 'bad', '<button class="btn sm" type="button" data-act="resume">继续</button>');
   }
   return '';
 }
@@ -990,7 +994,7 @@ export function stageHTML(sv, live, prefix) {
   let act = '提交题目后入座';
   if (sv) {
     ph = live.step ? STEP_LABELS[live.step] || live.step : STATUS_LABELS[sv.status] || sv.status;
-    act = live.act || (table ? `${table.plan_label} · ${codes.length} 位组员` : '');
+    act = live.act || (table ? `${table.plan_label} · ${codes.length} 位${sv.workflow === 'office' ? '员工' : '组员'}` : '');
   }
   let h = '<div class="table"></div>';
   h += `<div class="plate"><div><div class="ph" id="plate-step">${esc(ph)}</div><div class="act">${esc(act)}</div></div></div>`;
@@ -1020,12 +1024,12 @@ export function stageHTML(sv, live, prefix) {
   if (hasCoord) {
     const sp = names.speaker(tableNo, null);
     const speaking = live.speaking.has('统') ? 'speaking' : '';
-    h += seat(COORD_POS, `inner ${speaking}`, avatar(sp), sp.name, sp.ai || '汇总 · 不作答');
+    h += seat(COORD_POS, `inner ${speaking}`, avatar(sp), sp.name, sp.ai || (sv.workflow === 'office' ? '派活 · 把关' : '汇总 · 不作答'));
   }
   codes.forEach((c, i) => {
     const sp = names.speaker(tableNo, c);
     const cls = [live.speaking.has(c) ? 'speaking' : '', dropped.has(c) ? 'dropped' : '', lazyCodes.has(c) ? 'lazy' : ''].join(' ');
-    const role = dropped.has(c) ? '已退出' : lazyCodes.has(c) ? '敷衍' : '组员';
+    const role = dropped.has(c) ? '已退出' : lazyCodes.has(c) ? '敷衍' : sv.workflow === 'office' ? '员工' : '组员';
     h += seat(pos[i], cls, avatar(sp), sp.name, sp.ai ? `${sp.ai}${lazyCodes.has(c) ? ' · 敷衍' : ''}` : role);
   });
   h += seat(ME_POS, '', '<div class="av me">你</div>', '你', '提问');
@@ -1391,7 +1395,8 @@ export function castPanel(sv, prefix) {
     const seats = sv.seats.filter((s) => s.table_no === t.table_no);
     for (const s of seats) {
       const sp = names.speaker(t.table_no, s.role === 'member' ? s.code : null);
-      const role = s.role === 'member' ? '组员' : '统筹';
+      const office = sv.workflow === 'office';
+      const role = s.role === 'member' ? (office ? '员工' : '组员') : office ? '经理' : '统筹';
       const body = sv.revealed
         ? `<p>${esc(role)}</p><div class="calls">${callLines((c) => c.table_no === t.table_no && c.role === s.role && (s.role !== 'member' || c.code === s.code))}</div>`
         : `<p>${esc(role)} · 身份隐藏</p>`;

@@ -787,6 +787,7 @@ class PersonasConfig(_Strict):
     tier_labels: dict[Tier, str] = Field(default_factory=dict)
     nickname_separator: str = "·"
     coordinator_suffix: str = "（统筹）"
+    manager_suffix: str = "（经理）"  # 办公室模式里统筹就是经理
     personas: dict[str, Persona] = Field(default_factory=dict)
 
     @field_validator("codes")

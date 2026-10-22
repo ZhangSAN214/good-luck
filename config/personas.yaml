@@ -47,6 +47,7 @@ tier_labels:
 
 nickname_separator: "·"
 coordinator_suffix: "（统筹）"
+manager_suffix: "（经理）"   # 办公室模式：统筹就是经理
 
 # 人设模式（后续扩展）：按模型 id 配置昵称、性格、口头禅、专长。
 # 示例：

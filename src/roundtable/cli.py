@@ -173,6 +173,7 @@ class CLI:
         self.plan_labels["custom"] = routing.custom.label
         # 匿名关闭时：代号 → 模型 id（按桌）；匿名开启且未揭晓时为空
         self.names: dict[tuple[int, str | None], str] = {}
+        self.office = False  # 当前会话是办公室模式（统筹称为经理）
 
     def p(self, text: str = "") -> None:
         print(text, file=self.out, flush=True)
@@ -185,10 +186,10 @@ class CLI:
         model = self.names.get((table_no, code))
         if code:
             base = f"{self.prefix}{code}"
-        elif model:  # 匿名关闭 / 已揭晓：统筹显示为"昵称·模式（统筹）"
-            base = coordinator_name(model, self.rt.config)
+        elif model:  # 匿名关闭 / 已揭晓：统筹显示为"昵称·模式（统筹）"，办公室模式为"（经理）"
+            base = coordinator_name(model, self.rt.config, office=self.office)
         else:
-            base = "统筹"
+            base = "经理" if self.office else "统筹"
         return f"{base}（{model}）" if model else base
 
     def rice(self, tokens: int) -> str:
@@ -198,6 +199,7 @@ class CLI:
     def load_names(self, sid: str) -> None:
         """身份可以显示时（匿名关闭，或已揭晓）记下各座位对应的模型。"""
         self.names = {}
+        self.office = self.rt.repo.session_row(sid)["workflow"] == "office"
         if not self.rt.repo.is_revealed(sid):
             return
         for seat in self.rt.repo.seats(sid):
@@ -206,13 +208,18 @@ class CLI:
 
     # --- 实时进度（事件只含代号，不含模型身份） --------------------------------------
 
+    def _people(self, sid: str, members: int) -> str:
+        if self.rt.repo.session_row(sid)["workflow"] == "office":
+            return f"经理 + {members} 位在岗员工"
+        return f"{members} 位组员 + 统筹"
+
     def on_event(self, sid: str, e: Event) -> None:
         d = e.data
         if e.type == "routed":
             plan = self.plan_labels.get(d["plan"], d["plan"])
             absent = f"，{d['absent']} 个模型缺席（无可用渠道）" if d.get("absent") else ""
             self.p(
-                f"档位：{plan}（{d['members']} 位组员 + 统筹{absent}）"
+                f"档位：{plan}（{self._people(sid, d['members'])}{absent}）"
                 f"  预计 ${d['estimate_usd']:.4f}"
                 f"  答案长度：{LENGTH_NAMES.get(d['difficulty'], d['difficulty'])}"
                 f"（{SOURCE_NAMES.get(d['source'], d['source'])}）"
@@ -645,7 +652,8 @@ class CLI:
         scrub = (lambda t: t) if revealed else self.rt.scrubber.scrub
         self.p("\n【媒体生成】")
         for j in jobs:
-            who = self.label(j["code"], j["table_no"]) if j["code"] else "统筹"
+            lead = "经理" if self.office else "统筹"
+            who = self.label(j["code"], j["table_no"]) if j["code"] else lead
             where = (
                 f"{who} · {j['subtask']}" if j["subtask"] else STEP_NAMES.get(j["step"], j["step"])
             )
@@ -900,9 +908,10 @@ class CLI:
     def print_identities(self, sid: str, title: str) -> None:
         view = self.rt.repo.session_view(sid)
         self.names = {}  # 这里单独列出模型，代号后不再重复
+        lead = "经理" if view.workflow == "office" else "统筹"
         self.p("\n" + "═" * 40 + "\n" + title)
         for seat in view.seats:
-            who = self.label(seat.code) if seat.role == "member" else "统筹"
+            who = self.label(seat.code) if seat.role == "member" else lead
             table = f"第 {seat.table_no + 1} 桌 " if any(s.table_no for s in view.seats) else ""
             self.p(f"  {table}{who} = {seat.model_id}")
         planner = view.routing.get("planner_model") if view.routing else None
@@ -917,7 +926,7 @@ class CLI:
             who = (
                 self.label(c.code)
                 if c.role == "member"
-                else {"planner": "规划员"}.get(c.role, "统筹")
+                else {"planner": "规划员", "reviewer": "复核经理"}.get(c.role, lead)
             )
             self.p(
                 f"  {STEP_NAMES.get(c.step, c.step):<6} {who:<6} {c.model_id}  渠道：{trail or '-'}"

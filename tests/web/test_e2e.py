@@ -33,7 +33,7 @@ def ask(page, question: str) -> None:
 
 
 def wait_done(page) -> None:
-    page.wait_for_selector(f".sys.ok:has-text('{DONE}')", timeout=15000)
+    page.wait_for_selector(f".sys.ok:has-text('{DONE}'), .sys.ok:has-text('办完了')", timeout=15000)
 
 
 def test_anonymous_budget_tier_then_reveal(serve, page):

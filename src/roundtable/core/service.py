@@ -676,7 +676,9 @@ class RoundtableService:
         if not view.anonymous:  # 匿名关闭：统筹显示为"昵称·模式（统筹）"（成员的代号本身就是昵称）
             for seat in data["seats"]:
                 if seat["role"] == "coordinator" and seat["model_id"]:
-                    seat["label"] = coordinator_name(seat["model_id"], self.rt.config)
+                    seat["label"] = coordinator_name(
+                        seat["model_id"], self.rt.config, office=view.workflow == "office"
+                    )
         data["can_reveal"] = view.anonymous and view.status in REVEALABLE and not view.revealed
         data["tables"] = self._tables(session_id)
         data["notes"] = self.rt.repo.notes(session_id)

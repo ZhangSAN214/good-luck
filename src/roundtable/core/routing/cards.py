@@ -19,7 +19,7 @@ WORKFLOW_NAMES = {
 def _people(decision: RoutingDecision) -> str:
     lineup = decision.lineup
     if "intake" in lineup.pipeline:  # 办公室模式：经理分诊后只派一位员工
-        text = f"经理 + {len(lineup.members)} 位在岗员工（派一位办理）"
+        text = f"经理 + {len(lineup.members)} 位在岗员工（经理分诊后派人办理或开会）"
     else:
         text = f"{len(lineup.members)} 位组员 + 1 位统筹"
     if lineup.absent:

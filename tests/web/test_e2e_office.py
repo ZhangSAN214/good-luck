@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 from ..core.orchestrator.conftest import MEDIUM
 from .test_e2e import ask, wait_done
 
@@ -20,6 +22,10 @@ def test_office_is_default_and_shows_assignment_check_and_delivery(serve, page):
     chat = page.inner_text("#chat")
     assert "分诊派活" in chat and "派给" in chat and "单人办" in chat
     assert "预算单：单人办预计 $" in chat
+    # 办公室模式的称呼是经理、员工，不说统筹、组员
+    assert "经理 + 3 位在岗员工" in chat and "（经理）" in chat
+    assert not re.search(r"\d 位组员|统筹|讨论完成", chat) and "办完了" in chat
+    assert "3 位员工" in page.inner_text(".plate")
     assert "办理" in chat and "过目" in chat and "通过" in chat
     final = page.inner_text(".final")
     assert "交付" in final and "经理已过目" in final and "最大值 2，最小值 -2" in final

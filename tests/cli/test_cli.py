@@ -575,6 +575,7 @@ async def test_ask_defaults_to_office_mode():
     assert code == 0, text
     assert "【经理分诊】" in text and "【经理过目】通过" in text and "【交付】" in text
     assert "预算单：单人办预计 $" in text
+    assert "经理 + 3 位在岗员工" in text and "（经理）" in text and "统筹" not in text
     assert "最大值 2，最小值 -2" in text.split("【交付】")[1]
     assert "按规则派活" not in text  # 经理的分诊可用
     # 经理两次（分诊、过目），只有一位员工办理
