@@ -48,3 +48,46 @@ def test_talent_market_lists_changes_and_refreshes(serve, page):
     page.click("#talent-refresh")
     page.wait_for_function("() => !document.querySelector('#talent-refresh').disabled")
     assert srv.catalog_calls == 2
+
+
+def _office_page(srv, page):
+    page.goto(srv.url)
+    page.add_init_script("localStorage.setItem('roundtable.workflow', 'office')")
+    page.reload()
+    page.wait_for_selector("#workflow button[data-v='office'][aria-pressed='true']")
+
+
+def test_office_meeting_shows_attendees_speeches_and_decision(serve, page):
+    srv = serve(confirm_threshold_usd=100.0)
+    srv.env.office_mode = "meeting"
+    _office_page(srv, page)
+    ask(page, MEDIUM)
+    wait_done(page)
+    chat = page.inner_text("#chat")
+    assert "决定开会" in chat and "参会" in chat
+    assert "开会" in chat and chat.count("发言") >= 2
+    assert "经理过目" not in chat and "退回修改" not in chat
+    final = page.inner_text(".final")
+    assert "2 位员工开会" in final and "经理拍板" in final and "会议纪要" in final
+
+
+def test_office_meeting_card_can_switch_to_single(serve, page):
+    from roundtable.core.config.schema import OfficeTaskCaps
+
+    from ..core.orchestrator.conftest import Env
+
+    office = Env().config.roundtable.office.model_copy(
+        update={"task_caps_usd": OfficeTaskCaps(single=100.0, meeting=0.000001)}
+    )
+    srv = serve(confirm_threshold_usd=100.0, rt_update={"office": office})
+    srv.env.office_mode = "meeting"
+    _office_page(srv, page)
+    ask(page, MEDIUM)
+    card = page.wait_for_selector(".card[data-kind='office']:not(.resolved)", timeout=15000)
+    text = card.inner_text()
+    assert "要不要开会" in text and "超过开会的工资上限" in text
+    page.click(".card:not(.resolved) .opt[data-opt='single']")
+    wait_done(page)
+    chat = page.inner_text("#chat")
+    assert "不开会，改为单人办" in chat and "经理过目" in chat
+    assert "经理已过目" in page.inner_text(".final")

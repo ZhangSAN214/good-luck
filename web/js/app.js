@@ -258,14 +258,14 @@ function renderComposer() {
   $('#anonymous').checked = S.anonymous;
   const workflows = S.status?.workflows || { office: '办公室', discussion: '讨论模式', collab: '协同模式', solo: '个人作答', brainstorm: '头脑风暴', auto: '自动' };
   $('#workflow').innerHTML = Object.entries(workflows)
-    .map(([k, label]) => `<button type="button" data-v="${esc(k)}" aria-pressed="${k === S.workflow}" title="${{ office: '经理看题后派一位合适的员工办理，经理过目，不合格退回改一次；只有需要时才查资料', brainstorm: '让大家各自发散想法、互相拓展，统筹整合成思维导图，帮你拓展思路并选择方向', auto: '开始时由几位最便宜的模型给出建议（用哪种方式、难度），你确认后再开始；简单题不调用它们', collab: '统筹拆分子任务，成员自荐、分工完成、交叉审查，最后合并', solo: '只请一位成员直接回答：在所选档位里挑最便宜的，不互评、不汇总' }[k] || '全员各自作答，互评、修订后由统筹汇总'}">${esc(label)}</button>`)
+    .map(([k, label]) => `<button type="button" data-v="${esc(k)}" aria-pressed="${k === S.workflow}" title="${{ office: '经理看题后派一位合适的员工办理，经理过目，不合格退回改一次；有争议或重要的事，经理点名两三位员工开会、依次发言后拍板；只有需要时才查资料', brainstorm: '让大家各自发散想法、互相拓展，统筹整合成思维导图，帮你拓展思路并选择方向', auto: '开始时由几位最便宜的模型给出建议（用哪种方式、难度），你确认后再开始；简单题不调用它们', collab: '统筹拆分子任务，成员自荐、分工完成、交叉审查，最后合并', solo: '只请一位成员直接回答：在所选档位里挑最便宜的，不互评、不汇总' }[k] || '全员各自作答，互评、修订后由统筹汇总'}">${esc(label)}</button>`)
     .join('');
   renderMediaChoice();
   $('#manual').hidden = S.tier !== 'custom';
   const min = (S.status?.min_members ?? 2) + 1;
   $('#mode-hint').textContent =
     S.workflow === 'office'
-      ? `经理分诊后派一位员工办理并过目；预计超过 ${money(S.status?.office_threshold_usd ?? 0.05)} 先问你`
+      ? `经理分诊后派一位员工办理并过目，必要时开会；预计超过 ${money(S.status?.office_threshold_usd ?? 0.05)} 先问你`
       : S.tier === 'custom'
       ? `勾选至少 ${min} 个模型，全部上桌（其中一个当统筹）`
       : `该档位所有可用模型上桌；预计超过 ${money(S.status?.confirm_threshold_usd ?? 0.3)} 先问你`;

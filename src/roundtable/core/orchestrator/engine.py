@@ -61,6 +61,9 @@ from roundtable.core.steps import (
 from roundtable.core.storage import CheckpointView, NotFound
 from roundtable.core.tools import ToolBox
 
+# 步骤内部弹出、回复后重新执行该步骤的确认点：媒体生成确认、办公室模式的开会确认
+STEP_CARD_KINDS = ("media", "office")
+
 log = logging.getLogger(__name__)
 
 # 至少需要两名组员才有意义的步骤
@@ -674,7 +677,9 @@ class Orchestrator:
             midstep = self._answered_midstep(sid, table_no, step)
             if not midstep and not self._budget_ok(sid, table, step):
                 return "paused"
-            if not midstep and not self._overrun_ok(sid, table, step, done):
+            if not midstep and not self._overrun_ok(
+                sid, table, step, done, ctx.state.extra_estimate_usd()
+            ):
                 return "paused"
             if step in PEER_STEPS and len(ctx.active) < cfg.roundtable.min_members:
                 if not ctx.active:
@@ -771,8 +776,12 @@ class Orchestrator:
         self._checkpoint(sid, verdict.card(), table_no=table["table_no"], step=step)
         return False
 
-    def _overrun_ok(self, sid: str, table: dict[str, Any], step: str, done: set[str]) -> bool:
+    def _overrun_ok(
+        self, sid: str, table: dict[str, Any], step: str, done: set[str], extra: float = 0.0
+    ) -> bool:
         """本桌实际花费 + 下一步预估超过"本桌预估 × overrun_factor"时暂停询问，防止花费失控。
+
+        extra：步骤运行中才确定、已经确认的追加预估（如办公室模式决定开会），计入本桌预估。
 
         用户选择继续后，上限提高到"已花费 + 剩余步骤预估"再乘以倍数；之后再超出会再次询问。
         """
@@ -782,7 +791,7 @@ class Orchestrator:
         # 媒体生成有自己的确认（视频每次问、超过门槛问）和预算检查，不计入超支保护：
         # 协同模式的媒体子任务在预估时还不知道，否则每次确认之后都会再弹一张超支卡片
         media_estimate = estimate["steps"].get("media", 0.0)
-        total = (estimate.get("total") or 0.0) - media_estimate
+        total = (estimate.get("total") or 0.0) - media_estimate + extra
         if step == "media" or factor is None or total <= 0:
             return True
         table_no = table["table_no"]
@@ -822,7 +831,7 @@ class Orchestrator:
 
     def _answered_midstep(self, sid: str, table_no: int, step: str) -> bool:
         return any(
-            c.kind == "media"
+            c.kind in STEP_CARD_KINDS
             and c.response is not None
             and c.card.get("details", {}).get("table_no") == table_no
             and c.card.get("details", {}).get("step") == step
@@ -834,7 +843,11 @@ class Orchestrator:
 
         def lookup(key: str) -> str | None:
             for c in self.rt.repo.session_view(sid).checkpoints:
-                if c.kind == "media" and c.card.get("details", {}).get("key") == key and c.response:
+                if (
+                    c.kind in STEP_CARD_KINDS
+                    and c.card.get("details", {}).get("key") == key
+                    and c.response
+                ):
                     return c.response
             return None
 

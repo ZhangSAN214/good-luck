@@ -25,11 +25,14 @@ async def run(t: Table, *steps: str):
     return [await get_step(s).run(t.ctx) for s in steps]
 
 
-def intake(assignee="组员乙", mode="single", needs_search=False, brief="写清推导和结论") -> str:
+def intake(
+    assignee="组员乙", mode="single", needs_search=False, brief="写清推导和结论", attendees=()
+) -> str:
     return json.dumps(
         {
             "mode": mode,
             "assignee": assignee,
+            "attendees": list(attendees),
             "needs_search": needs_search,
             "brief": brief,
             "reason": "对口且便宜",
@@ -150,11 +153,11 @@ async def test_image_question_goes_to_a_vision_staff():
     assert o.intake["assignee"] == "乙" and o.intake["by_rule"]
 
 
-async def test_meeting_suggestion_is_handled_as_single_with_a_note():
+async def test_project_suggestion_is_handled_as_single_with_a_note():
     t = office_table()
-    t.fake.queue(MANAGER, intake(mode="meeting"))
+    t.fake.queue(MANAGER, intake(mode="project"))
     (res,) = await run(t, "intake")
-    assert t.ctx.state.office.intake["mode"] == "meeting"
+    assert t.ctx.state.office.intake["mode"] == "project"
     assert any("按单人办处理" in n for n in res.notes)
 
 

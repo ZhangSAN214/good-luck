@@ -19,6 +19,8 @@ budget:
 office:
   task_caps_usd: {single: 0.05, meeting: 0.15, project: 0.80}
   manager_strategy: rotate   # 两位以上经理：每件事轮流主办，项目级任务由另一位复核
+  # 开会（O3）：经理点名几位员工依次发言（后发言的看得到前面的），经理拍板写结论和纪要
+  meeting: {min_attendees: 2, max_attendees: 3}
 
 # 群聊：成员只回应你，不主动发消息；没有 @ 人时随机一两位回应
 chat:
@@ -81,7 +83,9 @@ prompts:
   media_brief: v1        # 媒体输出：把题目改写成「写生成提示词」的任务
   media_review: v2       # 评审生成结果（图片 / 视频截帧）；v2：对照风格清单逐条判定
   style_extract: v1      # 风格规范提取：成员各自看参考图
-  office_intake: v1      # 办公室：经理分诊派活
+  office_intake: v2      # 办公室：经理分诊派活（v2：开会时点名参会员工）
+  office_speak: v1       # 办公室·开会：员工依次发言
+  office_decide: v1      # 办公室·开会：经理拍板，写结论和会议纪要
   office_handle: v2      # 办公室：员工办理（v2：带字画面用代码画、数字须核实）
   chat: v1               # 群聊：口语、短句，坦诚自己是 AI
   office_check: v1       # 办公室：经理过目
@@ -130,6 +134,9 @@ step_params:
   handle: {max_tokens: 6000, reasoning: {max_tokens: 2000}}
   check: {max_tokens: 2000, reasoning: {effort: medium}}
   fix: {max_tokens: 6000, reasoning: {max_tokens: 2000}}
+  # 开会：发言短而有用；经理拍板要认真想
+  speak: {max_tokens: 2500, reasoning: {max_tokens: 1000}}
+  decide: {max_tokens: 5000, reasoning: {effort: medium}}
 
 # 长度保护：输出被长度上限截断（finish_reason=length）而可见文字很少 = 思考 token 挤占了正文。
 # 此时不原样重试：降低思考强度、提高输出上限（×factor，不超过 cap）再调用一次（单独记录、单独计费）。
@@ -168,8 +175,9 @@ pipeline: [answer, review, revise, synthesize, reveal]
 solo_pipeline: [answer, reveal]
 # 头脑风暴：每人独立发散 → 看别人的想法做拓展 → 统筹整合成思维导图
 brainstorm_pipeline: [ideate, expand, organize, reveal]
-# 办公室模式（O2：单人办）：经理分诊派活 → 员工办理 → 经理过目（不合格退回改一次）。
-# 经理建议开会 / 项目分工时，O2 先按单人办处理并注明（开会、分工在 O3、O4 上线）
+# 办公室模式：经理分诊派活 → 员工办理 → 经理过目（不合格退回改一次）。
+# 经理决定开会时（O3），handle 改为开会：点名的员工依次发言 → 经理拍板写结论和纪要（不再过目，check 跳过）。
+# 经理建议项目分工时，O4 上线前先按单人办处理并注明
 office_pipeline: [intake, handle, check, reveal]
 brainstorm: {max_ideas: 4, max_expansions: 3, max_branches: 6, max_ideas_per_branch: 6, max_next_steps: 5}
 collab_pipeline: [decompose, volunteer, assign, discuss, work, cross_review, rework, accept, merge, reveal]

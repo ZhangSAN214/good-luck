@@ -45,6 +45,7 @@ class Env:
     ):
         self.difficulty = difficulty
         self.resolved = resolved
+        self.office_mode = "single"  # 办公室经理分诊时建议的办事方式（meeting：点名前两位开会）
         self.config = app_config(
             **({"pool": pool} if pool else {}),
             with_media=with_media,
@@ -89,9 +90,19 @@ class Env:
         if "合并成一份完整成果" in system:
             return merge_reply("high" if self.resolved else "low")(model, messages)
         if "办公室的经理" in system and "派给合适的员工" in system:  # 办公室：派给名单第一位
-            first = messages[-1].content.split("<staff>")[1].strip().splitlines()[0]
-            who = first.removeprefix("- ").split("｜")[0]
-            return json.dumps({"mode": "single", "assignee": who, "brief": "写清推导"})
+            staff = messages[-1].content.split("<staff>")[1].split("</staff>")[0]
+            names = [x.removeprefix("- ").split("｜")[0] for x in staff.strip().splitlines()]
+            return json.dumps(
+                {
+                    "mode": self.office_mode,
+                    "assignee": names[0],
+                    "attendees": names[:2] if self.office_mode == "meeting" else [],
+                    "brief": "写清推导",
+                },
+                ensure_ascii=False,
+            )
+        if "办公室的经理" in system and "拍板" in system and "会议纪要" in system:
+            return "## 结论\n最大值 2，最小值 -2。\n\n## 会议纪要\n两位意见一致。"
         if "你在一个群聊里" in system:  # 群聊：回一句短话
             return f"收到，我是 {model} 的模型，我们聊聊。"
         if "办公室的经理" in system and "过目" in system:

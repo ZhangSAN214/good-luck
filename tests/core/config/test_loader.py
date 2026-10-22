@@ -70,6 +70,8 @@ def test_repo_config_loads_with_defaults():
         "office_check",
         "chat",
         "office_fix",
+        "office_speak",
+        "office_decide",
         "style_merge",
         "user_notes",
         "style_guide",

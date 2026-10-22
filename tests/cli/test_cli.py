@@ -605,3 +605,19 @@ async def test_models_check_updates_only_reports():
     env.rt.catalog.fetch = broken
     code, text = await cli(env, "models", "--check-updates")
     assert code == 1 and "OSError" in text and "secret-ish" not in text
+
+
+async def test_ask_office_meeting_shows_attendees_speeches_and_decision():
+    """经理决定开会：命令行列出参会员工、（详情里的）发言，交付经理拍板的结论和纪要。"""
+    env = Env(confirm_threshold_usd=100.0)
+    env.office_mode = "meeting"
+    out = io.StringIO()
+    code = await run(
+        ["ask", SHORT, "--seed", "3", "--details"], runtime=env.rt, out=out, ask=Answers("n")
+    )
+    text = out.getvalue()
+    assert code == 0, text
+    assert "【经理分诊】开会，参会：" in text and "发言】" in text
+    assert "## 结论" in text.split("【交付】")[1]
+    assert "【经理过目】" not in text
+    assert len(env.models_called("参会人之一")) == 2

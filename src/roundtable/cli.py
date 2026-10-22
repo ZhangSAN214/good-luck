@@ -737,9 +737,16 @@ class CLI:
         """办公室模式：经理怎么派的活、员工的成果、经理过目的意见，最后是交付的版本。"""
         by_kind = {o.kind: o for o in outputs}
         intake = json.loads(by_kind["office_intake"].content)
+        if "office_approval" in by_kind:
+            intake.update(json.loads(by_kind["office_approval"].content))
+        if intake["mode"] == "meeting":
+            self.print_meeting(outputs, intake, table_no, details)
+            return
         who = self.label(intake["assignee"], table_no)
         how = MODE_LABELS.get(intake["mode"], intake["mode"])
         search = "，需要查资料" if intake.get("needs_search") else ""
+        if intake.get("declined_meeting"):
+            how = "开会（你选择改为单人办）"
         self.p(f"\n【经理分诊】经理建议{how}，派给 {who}{search}")
         if intake.get("by_rule"):
             self.p(f"  （{intake.get('rule_reason') or '按规则派活'}）")
@@ -764,6 +771,29 @@ class CLI:
         final = fix or work
         if final:
             self.p(f"\n【交付】\n{self.t(json.loads(final.content)['text'])}")
+
+    def print_meeting(self, outputs, intake, table_no: int, details: bool) -> None:
+        """办公室模式·开会：谁参会、各人发言（详情里）、经理拍板的结论与纪要。"""
+        who = "、".join(self.label(c, table_no) for c in intake["attendees"])
+        self.p(f"\n【经理分诊】开会，参会：{who}（依次发言，经理拍板）")
+        if intake.get("attendees_by_rule"):
+            self.p("  （经理点名的人不够，按规则补齐）")
+        elif intake.get("reason"):
+            self.p(f"  理由：{self.t(intake['reason'])}")
+        if details and intake.get("brief"):
+            self.p(f"  会议议题：{self.t(intake['brief'])}")
+        if details:
+            for o in outputs:
+                if o.kind == "office_speech":
+                    text = json.loads(o.content)["text"]
+                    self.p(f"\n【{self.label(o.code, table_no)} 发言】\n{self.t(text)}")
+        decision = next((o for o in outputs if o.kind == "office_decision"), None)
+        if decision:
+            d = json.loads(decision.content)
+            title = "【交付】"
+            if d.get("degraded"):
+                title = "【交付（经理没能拍板，以下是各位的发言）】"
+            self.p(f"\n{title}\n{self.t(d['text'])}")
 
     def print_brainstorm(self, outputs, table_no: int, details: bool) -> None:
         """头脑风暴：详情里列出每人的想法与拓展；最后给出整合后的大纲。"""
@@ -1191,7 +1221,7 @@ def build_parser() -> argparse.ArgumentParser:
         choices=["office", "discussion", "collab", "solo", "brainstorm", "auto"],
         default="office",
         help=(
-            "office 办公室（经理分诊后派给一位员工办理，经理过目，默认）"
+            "office 办公室（经理分诊后派给一位员工办理，经理过目；必要时开会；默认）"
             "/ discussion 讨论（全员各自作答再互评汇总）/ collab 协同（拆分子任务分工完成）"
             "/ solo 个人作答（档位内挑最便宜的一位直接回答）"
             "/ brainstorm 头脑风暴（发散、拓展、整合成思维导图）"

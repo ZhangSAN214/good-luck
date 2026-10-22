@@ -29,6 +29,8 @@ export const STEP_LABELS = {
   handle: '办理',
   check: '经理过目',
   fix: '按意见修改',
+  speak: '发言',
+  decide: '经理拍板',
 };
 export const MEDIA_LABELS = { image: '图片', speech: '语音', video: '视频' };
 const JOB_STATE = {
@@ -95,6 +97,7 @@ const CARD_TITLES = {
   members: '组员不足',
   overrun: '花费超出预估',
   media: '媒体生成',
+  office: '要不要开会',
 };
 export const STATUS_LABELS = {
   created: '准备中',
@@ -336,9 +339,9 @@ export function feedItems(sv, ctx) {
   const sources = sourceIndex(sv);
   const toolRows = sv.tool_calls || [];
   const fileRows = (sv.files || []).filter((f) => f.latest);
-  const MAIN = new Set(['answer', 'revision', 'work', 'rework', 'merge', 'office_work', 'office_fix']);
-  // 办公室模式：退回后的修改（step=fix）显示在「经理过目」之下
-  const inStep = (x, step) => x.step === step || (step === 'check' && x.step === 'fix');
+  const MAIN = new Set(['answer', 'revision', 'work', 'rework', 'merge', 'office_work', 'office_fix', 'office_speech']);
+  // 办公室模式：退回后的修改（step=fix）显示在「经理过目」之下；开会的发言和拍板（speak / decide）显示在「办理」之下
+  const inStep = (x, step) => x.step === step || (step === 'check' && x.step === 'fix') || (step === 'handle' && (x.step === 'speak' || x.step === 'decide'));
   for (const t of tables) {
     cpAt((d, cp) => cp.kind === 'escalation' && d.table_no === t.table_no);
     if (t.table_no === 0) cpAt((d, cp) => cp.kind === 'cost' && d.table_no === 0);
@@ -361,7 +364,8 @@ export function feedItems(sv, ctx) {
       const mediaCards = step === 'media' ? cps.filter((c) => c.card.details?.key?.startsWith(`media:${t.table_no}:`)) : [];
       if (!outs.length && !live && !mediaJobs.length && !mediaCards.length) continue;
       if (step === 'reveal') continue;
-      push(`s${t.table_no}:${step}`, `<div class="phase">${esc(STEP_LABELS[step] || step)}</div>`);
+      const meeting = step === 'handle' && outs.some((o) => o.kind === 'office_speech' || o.kind === 'office_decision');
+      push(`s${t.table_no}:${step}`, `<div class="phase">${esc(meeting ? '开会' : STEP_LABELS[step] || step)}</div>`);
       if (step === 'media') {
         const roundOf = (o) => parse(o.content)?.round ?? 0;
         const rounds = [...new Set([...mediaJobs.map((j) => j.round), ...outs.map(roundOf), ...mediaCards.map((c) => Number(c.card.details.key.split(':')[2]))])].sort((a, b) => a - b);
@@ -396,7 +400,7 @@ export function feedItems(sv, ctx) {
         }
       });
       for (const x of toolRows) if (x.table_no === t.table_no && inStep(x, step)) showTools(x.code);
-      if (step === 'check') {
+      if (step === 'check' || meeting) {
         const html = officeDelivery(outputs.filter((o) => o.table_no === t.table_no), names, sources);
         if (html) push(`od${t.table_no}:${outs.length}`, html);
       }
@@ -605,9 +609,16 @@ const OFFICE_MODES = { single: '单人办', meeting: '开会', project: '项目�
 
 function officeOutput(o, sp, data, names, sources = null) {
   if (o.kind === 'office_intake') {
-    const who = names.member(data.assignee);
     const how = OFFICE_MODES[data.mode] || data.mode;
     const search = data.needs_search ? ' · 需要查资料' : '';
+    if (data.mode === 'meeting' && (data.attendees || []).length) {
+      const who = data.attendees.map((c) => names.member(c)).join('、');
+      const why = data.reason ? `<div class="meta">理由：${md(data.reason)}</div>` : '';
+      const filled = data.attendees_by_rule ? '<div class="meta">经理点名的人不够，按规则补齐</div>' : '';
+      const brief = data.brief ? `<details class="more"><summary>会议议题</summary><div>${md(data.brief)}</div></details>` : '';
+      return msg(sp, '分诊派活', `<div class="bubble">决定<b>开会</b>，参会：<b>${esc(who)}</b>（依次发言，经理拍板）${why}${filled}</div>${brief}`);
+    }
+    const who = names.member(data.assignee);
     const why = data.by_rule
       ? `<div class="meta">${esc(data.rule_reason || '按规则派活')}</div>`
       : data.reason ? `<div class="meta">理由：${md(data.reason)}</div>` : '';
@@ -622,11 +633,21 @@ function officeOutput(o, sp, data, names, sources = null) {
     return msg(sp, '过目', `<div class="bubble">${tag(pass ? '通过' : '退回修改一次', pass ? 'ok' : 'bad')}${data.note ? ` ${md(data.note)}` : ''}${issues}</div>`);
   }
   if (o.kind === 'office_fix') return msg(sp, '按意见修改', `<div class="bubble">${cite(md(data.text), sources)}</div>`);
+  if (o.kind === 'office_speech') return msg(sp, '发言', `<div class="bubble">${cite(md(data.text), sources)}</div>`);
+  if (o.kind === 'office_decision') return data.degraded ? sys('经理', '拍板时调用失败，直接交付各位员工的发言', 'bad') : '';
+  if (o.kind === 'office_approval') return data.declined_meeting ? sys('老板', '不开会，改为单人办') : '';
   return null;
 }
 
 /** 办公室模式的交付：经理过目后交给你的版本（退回改过的用修改版）。 */
 function officeDelivery(outs, names, sources) {
+  const decision = outs.find((o) => o.kind === 'office_decision');
+  if (decision) {
+    const d = parse(decision.content) || {};
+    const n = outs.filter((o) => o.kind === 'office_speech').length;
+    return `<div class="final"><h3>交付<small>${n} 位员工开会 · 经理${d.degraded ? '没能拍板' : '拍板'}</small></h3>
+<div class="answer">${md(d.text || '')}</div></div>`;
+  }
   const check = outs.find((o) => o.kind === 'office_check');
   const final = outs.find((o) => o.kind === 'office_fix') || outs.find((o) => o.kind === 'office_work');
   if (!check || !final) return '';

@@ -590,10 +590,24 @@ class OfficeTaskCaps(_Strict):
     project: float = Field(default=0.80, gt=0)  # 项目分工
 
 
+class OfficeMeeting(_Strict):
+    """办公室模式的开会（O3）：经理点名几位员工依次发言，再拍板写纪要。"""
+
+    min_attendees: int = Field(default=2, ge=2)
+    max_attendees: int = Field(default=3, ge=2)
+
+    @model_validator(mode="after")
+    def _range(self) -> OfficeMeeting:
+        if self.max_attendees < self.min_attendees:
+            raise ValueError("max_attendees 不能小于 min_attendees")
+        return self
+
+
 class OfficeRules(_Strict):
     """办公室模式（O1～O5，见 docs/OFFICE.md）。经理在 models.yaml 的 office_role 里指定。"""
 
     task_caps_usd: OfficeTaskCaps = OfficeTaskCaps()
+    meeting: OfficeMeeting = OfficeMeeting()
     # 两位以上经理时怎么分：rotate = 每件事轮流当主办经理，项目级任务由另一位复核
     manager_strategy: Literal["rotate"] = "rotate"
 
@@ -877,6 +891,9 @@ class EstimateParams(_Strict):
     intake_tokens: int = Field(default=400, ge=0)
     check_tokens: int = Field(default=300, ge=0)
     roster_tokens_per_staff: int = Field(default=40, ge=0)
+    # 开会（O3）：每位员工发言、经理拍板（结论 + 纪要）的输出长度
+    speech_tokens: int = Field(default=600, ge=0)
+    minutes_tokens: int = Field(default=1500, ge=0)
     # 没有历史记录时，输出 token 按档位放大（推理模型的思考 token 也按输出计费）
     output_multiplier: dict[str, float] = Field(default_factory=dict)
     # 某个模型在某个步骤至少有这么多次成功调用，才用它的历史中位数代替公式
