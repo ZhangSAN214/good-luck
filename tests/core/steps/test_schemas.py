@@ -149,6 +149,10 @@ def test_registry():
             "ideate",
             "expand",
             "organize",
+            "intake",
+            "handle",
+            "check",
+            "office_review",
         ]
     )
     with pytest.raises(ValueError):

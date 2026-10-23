@@ -44,7 +44,12 @@ roundtable ask '求函数 f(x)=x^3-3x 在 [-2,2] 上的最大值和最小值'
 - **题目请用单引号**。PowerShell 会把双引号里的 `$x` 当成变量，数学题里的 `$` 会被吞掉。
 - 题目很长或有多行时，写进 UTF-8 文本文件：`roundtable ask --file 题目.txt`
 - 直接运行 `roundtable ask` 会提示你输入题目。
-- 默认**节电模式（便宜档全员）上桌**（一个当统筹，其余作答），开始前会显示预计花费和其他档位的预估。
+- 默认是**办公室模式**、节电档位：经理（`office_role: manager` 的模型）先分诊，决定怎么办，开始前会显示预计花费和其他档位的预估。
+  - **单人办**：派一位员工办理，经理过目，不合格退回改一次。
+  - **开会**：经理点名 2～3 位员工按随机顺序依次发言，经理拍板写结论和会议纪要。
+  - **项目分工**：经理点名 2～4 位员工组成项目组，另开一张「项目组」桌子走协同流水线（拆分 → 分工 → 交叉审查 → 合并），最后由另一位经理复核。
+  - 分诊后打印**预算单**（按选定的方式和人数估价）；开会或项目分工超过单件上限时先问你：照办 / 改成单人办 / 停止。
+  - 想用原来的全员讨论，加 `--mode discussion`。
 
 常用选项：
 
@@ -53,9 +58,10 @@ roundtable ask '求函数 f(x)=x^3-3x 在 [-2,2] 上的最大值和最小值'
 | `--tier flagship` | 全力模式（旗舰档全员）上桌（默认 `budget` 节电模式） |
 | `--models gpt-6-luna,qwen3.8-flash,deepseek-v4.1-flash --coordinator deepseek-v4.1-flash` | 自选上桌的模型（至少 3 个），可指定其中一个当统筹（id 见 `roundtable models`） |
 | `--attach 文件` | 附件，可重复使用：图片（png / jpg / webp / gif）、PDF、Word `.docx`、文本（txt / md / csv）、mp3 / wav 音频。图片会给能看图的模型发原图、给其他模型发文字版；音频先转写成文字 |
+| `--mode office` | 办公室模式（默认）：经理分诊后单人办、开会或项目分工，见上 |
 | `--mode collab` | 协同模式：统筹拆分子任务 → 成员自荐 → 分配（每人至少一块）→ 分工完成 → 交叉审查 → 修改 → 合并成完整成果（默认 `discussion` 讨论模式：全员各自作答再互评汇总） |
 | `--anonymous` | 匿名：结束前成员只显示塔罗牌代号（愚者、魔术师…），结束后可揭晓（默认不匿名：成员叫"昵称·模式"，如 鲸鱼娘·全力，同时显示模型名）；token 用量显示为"大米"（粒 / 勺 / 碗），金额仍是美元 |
-| `--details` | 显示每位组员的答案、评审和修订稿 |
+| `--details` | 显示每位组员的答案、评审和修订稿（办公室模式：开会时每位员工的发言） |
 | `--yes` | 单题花费 / 升级确认自动选"继续"（预算确认仍会询问） |
 | `--reveal` / `--no-reveal` | 匿名讨论结束后直接揭晓 / 不揭晓（默认结束时询问） |
 | `--seed 42` | 固定随机种子，便于复现 |
@@ -70,9 +76,11 @@ roundtable ask '求函数 f(x)=x^3-3x 在 [-2,2] 上的最大值和最小值'
 ```powershell
 roundtable estimate '题目'      # 提交前预估：讨论 / 协同 × 各档位的上桌人数、预计与最多花费、步骤明细（不调用模型、不花钱）
 roundtable history              # 最近的讨论（含会话 id）
+roundtable performance          # 办公室模式的员工绩效：单人办 / 开会 / 项目分工的件数、被退回、通过率、平均工资与用时
+roundtable performance --reset  # 绩效清零：之后只统计从现在起的会话（不删除任何记录）
 roundtable stats                # 各模型的历史贡献：被采纳的要点、有效问题、敷衍次数等（匿名讨论揭晓后才计入）
 roundtable mindmap <会话 id> -o 导图.svg   # 保存头脑风暴的思维导图（.svg 图 / .md 大纲 / .mmd Mermaid）
-roundtable bench [--modes solo:budget,discussion:budget,collab:budget] [--max-usd 2] [-o 结果.csv]   # 对比实验；--list 列历次，--report 批次名 看汇总
+roundtable bench [--modes office:budget,solo:budget,discussion:budget,collab:budget] [--max-usd 2] [-o 结果.csv]   # 对比实验；--list 列历次，--report 批次名 看汇总
 roundtable show <会话id> --details
 roundtable show <会话id> --costs      # 每桌每步的预估与实际花费、每次调用的 token
 roundtable files <会话id>            # 把成员生成的文件（代码、图表、文档等）保存到本地目录

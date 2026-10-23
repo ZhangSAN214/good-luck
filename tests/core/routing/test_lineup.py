@@ -147,3 +147,44 @@ def test_solo_custom_needs_exactly_one_model():
     assert b.build_custom(["b3"], None, "solo").members == ("b3",)
     with pytest.raises(NotEnoughModels):
         b.build_custom(["b1", "b2"], None, "solo")
+
+
+# --- 办公室模式（R17 O2）-----------------------------------------------------------
+
+
+@pytest.mark.parametrize("plan", ["budget", "flagship"])
+def test_office_manager_from_config_and_staff_from_tier(plan):
+    managers = Counter()
+    for seed in SEEDS:
+        cfg, b = builder(seed=seed)
+        lineup = b.build(cfg.routing.plans[plan], "office")
+        assert lineup.coordinator in {"f1", "f2"}  # 经理只来自 office_role: manager
+        managers[lineup.coordinator] += 1
+        staff = ids_of_tier(cfg, plan) - {"f1", "f2"}
+        assert set(lineup.members) == staff  # 经理不兼任员工
+        assert lineup.pipeline == tuple(cfg.roundtable.office_pipeline)
+    assert set(managers) == {"f1", "f2"}  # 两位经理都会主办
+
+
+def test_office_without_manager_is_rejected():
+    cfg = app_config()
+    cfg = cfg.model_copy(
+        update={
+            "models": cfg.models.model_copy(
+                update={
+                    "models": [
+                        m.model_copy(update={"office_role": "staff"}) for m in cfg.models.models
+                    ]
+                }
+            )
+        }
+    )
+    _, b = builder(cfg)
+    with pytest.raises(NotEnoughModels, match="经理"):
+        b.build(cfg.routing.plans["budget"], "office")
+
+
+def test_office_custom_uses_picked_staff_and_config_managers():
+    cfg, b = builder()
+    lineup = b.build_custom(["b2", "b3"], None, "office")
+    assert set(lineup.members) == {"b2", "b3"} and lineup.coordinator in {"f1", "f2"}

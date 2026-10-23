@@ -1,6 +1,6 @@
 # CLAUDE.md — Roundtable（圆桌）
 
-多个 AI 协作完成作业。长期目标见 `docs/REQUIREMENTS_v3.md`；当前范围以本文件和 `docs/PLAN.md` 为准（v1 已完成，v2 改版阶段 11–20 全部完成（19 媒体生成、20 收尾：限速与并发、README、CI），v2.1 阶段 21 协同流水线 + 昵称 / 塔罗牌代号 / 大米、22 参考图风格与图生图均已完成）。
+多个 AI 协作完成作业。长期目标见 `docs/REQUIREMENTS_v3.md`；当前范围以本文件和 `docs/PLAN.md` 为准（v1 已完成，v2 改版阶段 11–20 全部完成（19 媒体生成、20 收尾：限速与并发、README、CI），v2.1 阶段 21 协同流水线 + 昵称 / 塔罗牌代号 / 大米、22 参考图风格与图生图均已完成）。R17 办公室模式（AI 是员工、token 是工资，见 `docs/OFFICE.md`）O1 名册与工资单、O2 经理分诊 + 单人办（默认方式）、O3 开会、O4 项目分工、O5 绩效已全部完成。夜间轮（2026-10-20）新增人才市场（只提示）、公寓楼（只读）、群聊核心（阶段 32 最小版本），见 `docs/PROGRESS.md`。
 界面样板：`docs/mockup.html`（v1 只实现其中文字圆桌相关部分）。
 按 `docs/PLAN.md` 的阶段推进，不要跳阶段，不要提前实现"后续扩展"里的功能。
 
@@ -51,6 +51,7 @@
 7. **匿名开启时**，发给任何模型的内容不含模型 id、厂商名、昵称；**匿名关闭时**不遮蔽（`IdentityScrubber.bound(context, enabled=)`，引擎按会话的匿名开关给 `TableContext`、媒体服务、工具箱、附件预处理分别绑定）。**匿名开启时揭晓前**，界面和 API 响应也不含模型、渠道、昵称（有测试覆盖事件、会话详情、贡献、发给模型的每条消息）。**渠道名同样会暴露厂商**（如 `anthropic`），因此揭晓前单次调用不显示渠道；用量面板可以显示按渠道汇总的花费。揭晓后每次调用都显示所走渠道和切换记录。
 8. 抽座位、选统筹、分配代号、排序全部用可注入的 `random.Random(seed)`，seed 存库，可复现。
 9. **无品牌偏好**：路由与分配只看档位、能力标签和价格（规划员按预计调用成本选最便宜的）；所选档位全员上桌（个人作答模式例外：档位内按价格挑一位，无统筹），统筹在场内均匀随机（轮换）。测试验证：把所有厂商和 id 换名后同一 seed 的结果完全一致；`allocation` / `routing` / `prompts` / `budget` 的源码中不得出现模型名或厂商名。
+   **办公室模式例外**（R17，用户 2026-10-19 确认，O2 起生效）：经理由用户在 `models.yaml` 的 `office_role: manager` 指定（代码不写模型名分支），员工按需派活、不全员上桌，派活可参考绩效；规则 1、4、6 照常保留（同类活提示词与参数相同、不自审、经理亲自干的活由另一位经理复核）。旧的讨论 / 协同 / 头脑风暴仍守本条。
 10. 匿名开启时，组员输出转给其他模型前遮蔽配置中所有模型 id、厂商名、别称、昵称和渠道上的模型名；题目和附件本身出现的名称保留。匿名关闭时不遮蔽。
 11. **工具对所有成员相同**：同一步骤可用的工具、限额、工具说明完全一样（只看配置和当前可用性，不看是哪个模型）；工具模型（`seat: false`，如图像生成）从不上桌。
 
@@ -95,11 +96,13 @@ pytest
 python scripts/lock_prompts.py      # 新增提示词版本后登记
 roundtable estimate '题目'           # 提交前预估：各模式 × 各档位的上桌人数与花费（不调用模型）
 roundtable models                   # 查看模型、档位、可用渠道与预算
+roundtable models --check-updates   # 人才市场：价格变动、下架、同系列新模型（只提示，不改配置）
 roundtable stats                    # 各模型的历史贡献
+roundtable performance [--reset]    # 办公室模式的员工绩效（--reset 清零）
 roundtable bench --max-usd 2          # 对比实验：个人 / 讨论 / 协同各跑同一批题，比正确率、花费、耗时
 roundtable show <id> --costs        # 每步预估与实际花费、每次调用的 token
 roundtable export <id> [-o 文件]     # 导出完整记录（UTF-8 带 BOM，含花费明细）
-roundtable ask '题目'                # 节电模式（便宜档全员）上桌（PowerShell 中题目用单引号）
+roundtable ask '题目'                # 默认办公室模式（节电档）：经理派一位员工办理、过目；--mode discussion 为全员讨论（PowerShell 中题目用单引号）
 roundtable ask --tier flagship --anonymous '题目'   # 全力模式（旗舰档全员）、匿名
 roundtable ask --mode collab '题目'  # 协同模式：拆分子任务、分工完成、合并
 roundtable ask --mode solo|brainstorm|auto '题目'   # 个人作答 / 头脑风暴（思维导图）/ 自动（分诊小组先给建议）

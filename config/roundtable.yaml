@@ -14,6 +14,34 @@ budget:
   daily_usd: 3.0       # 每日上限；填 null 表示不设
   warn_ratio: 0.8
 
+# 办公室模式（O1 起，见 docs/OFFICE.md）：AI 是员工，token 是工资。经理在 models.yaml 用 office_role: manager 指定。
+# task_caps_usd：每件事的工资上限，按办事方式（单人办 / 开会 / 项目分工）分别设；预计超出时先问你。
+office:
+  task_caps_usd: {single: 0.05, meeting: 0.15, project: 0.80}
+  manager_strategy: rotate   # 两位以上经理：每件事轮流主办，项目级任务由另一位复核
+  # 开会（O3）：经理点名几位员工依次发言（后发言的看得到前面的），经理拍板写结论和纪要
+  meeting: {min_attendees: 2, max_attendees: 3}
+  # 项目分工（O4）：经理点名 2～4 人的项目组，另开一张桌子走协同流水线（只派需要的人），
+  # 交叉审查每份成果只找 1 位（只审关键），主办经理以中等思考强度合并，另一位经理最后验收（退回改一次）
+  project:
+    min_members: 2
+    max_members: 4
+    reviews_per_item: 1
+    pipeline: [decompose, volunteer, assign, work, cross_review, rework, accept, merge, office_review, reveal]
+    step_params:
+      merge: {reasoning: {effort: medium}}
+  # 绩效（O5）：员工名单附上绩效给经理参考；规则派活时工资相同的员工优先通过率高的。
+  # min_jobs：某类活至少办过几件才显示 / 参考（太少不说明问题）
+  performance: {enabled: true, min_jobs: 3}
+
+# 群聊：成员只回应你，不主动发消息；没有 @ 人时随机一两位回应
+chat:
+  tier: budget
+  max_repliers: 2
+  max_mentioned: 8                 # 「@全员」「所有人」「大家」时最多几位依次回应
+  history_messages: 30
+  max_tokens: 1500
+
 # 单步预估 token 超过此值时询问用户
 token_threshold: 20000
 
@@ -70,6 +98,15 @@ prompts:
   media_brief: v1        # 媒体输出：把题目改写成「写生成提示词」的任务
   media_review: v2       # 评审生成结果（图片 / 视频截帧）；v2：对照风格清单逐条判定
   style_extract: v1      # 风格规范提取：成员各自看参考图
+  office_intake: v4      # 办公室：经理分诊派活（v2：开会点名；v3：项目组点名；v4：名单附绩效）
+  office_speak: v1       # 办公室·开会：员工依次发言
+  office_decide: v1      # 办公室·开会：经理拍板，写结论和会议纪要
+  office_review: v1      # 办公室·项目：复核经理最终验收
+  office_revise: v1      # 办公室·项目：主办经理按验收意见改一次
+  office_handle: v2      # 办公室：员工办理（v2：带字画面用代码画、数字须核实）
+  chat: v1               # 群聊：口语、短句，坦诚自己是 AI
+  office_check: v1       # 办公室：经理过目
+  office_fix: v2         # 办公室：退回后员工改一次（v2：改程序必须重跑出图）
   style_merge: v1        # 统筹合并成规范 + 清单
   style_guide: v1        # 风格规范，接在之后的每次调用上
   user_notes: v1         # 用户中途补充的意见，接在之后的每次调用上
@@ -89,9 +126,10 @@ step_params:
   #   原则：作答 / 修订 / 完成子任务要认真想，但封顶，保证正文有足够空间；
   #   评审、汇总、拆分、分配、自荐、风格校验等用低强度。
   answer: {max_tokens: 5000, reasoning: {max_tokens: 2000}}
+  chat: {max_tokens: 1500, reasoning: {effort: low}}   # 群聊：一两句话，少想多说（思考会挤占输出，之前 500 上限时有人回复为空）
   review: {max_tokens: 3000, reasoning: {max_tokens: 800}}
   revise: {max_tokens: 5000, reasoning: {max_tokens: 2000}}
-  synthesize: {max_tokens: 5000, reasoning: {effort: low}}
+  synthesize: {max_tokens: 5000, reasoning: {effort: medium}}   # 最终答案由统筹写：认真想（2026-10-22 起 medium）
   ideate: {max_tokens: 2000, reasoning: {effort: low}}
   expand: {max_tokens: 1500, reasoning: {effort: low}}
   organize: {max_tokens: 4000, reasoning: {effort: low}}
@@ -106,9 +144,20 @@ step_params:
   rework: {max_tokens: 6000, reasoning: {max_tokens: 2000}}
   accept: {max_tokens: 2000, reasoning: {effort: low}}
   accept_fix: {max_tokens: 6000, reasoning: {max_tokens: 2000}}
-  merge: {max_tokens: 10000, reasoning: {effort: low}}
+  merge: {max_tokens: 10000, reasoning: {effort: medium}}   # 同上：合并即最终成果
   style: {max_tokens: 1500, reasoning: {effort: low}}
   style_gate: {max_tokens: 1500, reasoning: {effort: low}}
+  # 办公室模式：经理的判断和把关要认真想（中等强度），员工办理同作答
+  intake: {max_tokens: 1500, reasoning: {effort: medium}}
+  handle: {max_tokens: 6000, reasoning: {max_tokens: 2000}}
+  check: {max_tokens: 2000, reasoning: {effort: medium}}
+  fix: {max_tokens: 6000, reasoning: {max_tokens: 2000}}
+  # 开会：发言短而有用；经理拍板要认真想
+  speak: {max_tokens: 2500, reasoning: {max_tokens: 1000}}
+  decide: {max_tokens: 5000, reasoning: {effort: medium}}
+  # 项目分工：复核经理验收、主办经理按意见改一次
+  office_review: {max_tokens: 2000, reasoning: {effort: medium}}
+  office_revise: {max_tokens: 10000, reasoning: {effort: medium}}
 
 # 长度保护：输出被长度上限截断（finish_reason=length）而可见文字很少 = 思考 token 挤占了正文。
 # 此时不原样重试：降低思考强度、提高输出上限（×factor，不超过 cap）再调用一次（单独记录、单独计费）。
@@ -147,6 +196,10 @@ pipeline: [answer, review, revise, synthesize, reveal]
 solo_pipeline: [answer, reveal]
 # 头脑风暴：每人独立发散 → 看别人的想法做拓展 → 统筹整合成思维导图
 brainstorm_pipeline: [ideate, expand, organize, reveal]
+# 办公室模式：经理分诊派活 → 员工办理 → 经理过目（不合格退回改一次）。
+# 经理决定开会时（O3），handle 改为开会：点名的员工依次发言 → 经理拍板写结论和纪要（不再过目，check 跳过）。
+# 经理决定项目分工时（O4），本桌到此为止，另开一张「项目组」桌子走 office.project.pipeline
+office_pipeline: [intake, handle, check, reveal]
 brainstorm: {max_ideas: 4, max_expansions: 3, max_branches: 6, max_ideas_per_branch: 6, max_next_steps: 5}
 collab_pipeline: [decompose, volunteer, assign, discuss, work, cross_review, rework, accept, merge, reveal]
 collab:
@@ -515,17 +568,23 @@ tools:
   max_rounds: 6               # 每次作答最多几轮工具调用
   by_step:
     answer: [python, write_file, generate_image, search, fetch]
-    revise: [python, write_file, generate_image, search, fetch]
+    # 修订、互评、交叉审查不再联网（2026-10-22，见项目资料「超预算与慢笨原因」）：查资料在作答 / 子任务时做，
+    # 之后的步骤用 python 核算即可；原来每人每步都按搜索计费，占讨论模式预估的大头，也是慢的主要原因
+    revise: [python, write_file, generate_image]
     work: [python, write_file, generate_image, search, fetch]
     rework: [python, write_file, generate_image, search, fetch]
-    review: [python, search, fetch]   # 互评 / 交叉审查：用来核算、核对来源
-    cross_review: [python, search, fetch]
+    review: [python]   # 互评 / 交叉审查：用来核算
+    cross_review: [python]
     merge: [python, write_file]   # 统筹整理交付文件
+    # 办公室模式：员工办理与修改；search / fetch 只在经理判断需要查资料时提供
+    handle: [python, write_file, generate_image, search, fetch]
+    fix: [python, write_file, generate_image, search, fetch]
   python:
     backend: auto             # wasm（Deno + Pyodide，python scripts/setup_sandbox.py 安装）/ docker / auto / off
     timeout_s: 60             # 每次运行的时限（含加载 numpy 等包）
     memory_mb: 1024
     max_runs: 3               # 每位成员每步最多运行几次（出错重跑也算）
+    max_runs_by_step: {handle: 5, fix: 4}   # 办公室模式一个人办完全部（算、画图、改完重跑），多给几次
     max_output_chars: 8000    # 回传给成员的输出最多多少字
   files:
     max_file_mb: 10

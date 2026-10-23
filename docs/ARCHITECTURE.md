@@ -12,6 +12,7 @@
 **自动模式 / 分诊小组**（R15，`UserChoice.workflow = auto`）：路由前，几位最便宜的模型（`routing.panel`，只看档位和价格）各用同一份提示词 `panel/v1` 给一条极短的 JSON（难度、作答方式、一句理由），代码汇总：作答方式多数票（票数相同取更便宜的）、难度取中位数、档位按 `tier_by_difficulty`；规则已判断为简单题时不调用小组。**只推荐不执行**：弹出 `triage` 确认卡片（采用建议 / 改用其他方式与档位，附各自预计花费 / 停止），用户回复后会话的 `workflow` 与档位改成具体值，再走普通路由。小组的调用记为 `step=triage` 计入本题花费与预算；卡片里不出现模型名。
 **对比实验**（R14，`roundtable bench`）：`benchmarks/*.yaml` 题库（题目文字发给模型，判分方式和标准答案不发；判分只用规则：数字 / 精确 / 关键词，不调用模型）；`core/bench.py` 逐题逐模式（个人 / 讨论 / 协同 × 档位）运行并自动回答确认卡片（继续、不升级），结果存 `bench_runs`（迁移 12），累计花费到 `--max-usd`（默认 $2）就停。输出各模式 × 类别的正确率、平均花费、平均耗时和“每答对一题花费”，可导出 CSV / JSON。
 **附件**（阶段 14，网页上传按钮与拖放在阶段 18）：图片、PDF、Word .docx、文本、mp3 / wav 音频，见下方 §2.8。
+**办公室模式**（R17，`docs/OFFICE.md`，O1 已完成）：AI 是员工、token 是工资；`models.yaml` 的 `office_role: manager` 指定经理（用户选择），其余为员工。O1 只做展示：`core/office/` 的名册（工资标准 = 价格，本月已领工资按调用记录）与工资单（按 `session_view()` 汇总，揭晓前不含模型 id），网页「员工」页与「用量」页的工资单。O2（已完成，默认方式）：`office_pipeline` = 分诊（经理）→ 办理（一位员工，search / fetch 只在经理判断需要时提供，`call_model(exclude_tools=)`）→ 过目（经理，退回改一次 `fix`），步骤在 `core/steps/office.py`，阵容 `LineupBuilder.build_office`，确认门槛 `routing.confirm_threshold()` 按方式取单人办上限。O3（已完成）开会：分诊结果 `mode: meeting` 时，`handle` 改为开会（`speak`：点名的 2～3 位员工按随机顺序各发言一次，后发言的看得到前面的发言；`decide`：经理拍板写结论与纪要，即交付），`check` 跳过；预计超过开会上限时步骤抛 `NeedsApproval`（卡片 kind `office`，引擎的 `STEP_CARD_KINDS`），确认后的开会预估经 `TableState.extra_estimate_usd()` 计入超支保护。O4（已完成）项目分工：分诊结果 `mode: project` 时本桌 `handle` / `check` 跳过，引擎 `_maybe_project` 另开一张桌子（只有项目组成员，主办经理统筹，`office.project.pipeline`，状态直接为 approved，不算升级）；项目组桌子上 `TableContext.step_overrides`（`office.project.step_params`）与 `reviews_per_item` 生效；最后 `office_review` 由另一位经理（`role: reviewer`）验收，退回时主办经理改一次（`office_revise`）。O5（已完成）绩效：`core/office/performance.py` 从办公室会话的产出与调用记录推算（不另存），`office.performance`（`enabled`、`min_jobs`）；分诊名单附绩效，`pick_by_rule` 只在工资相同时参考通过率；清零时刻存 `app_settings`（迁移 14）。
 **防偷懒**：每位成员的作答、互评、修订都做实质内容检查，空泛的打回重做一次，仍不合格标记"敷衍"；每位成员的**贡献**（被采纳的要点、有效评审与问题、被作者采纳的问题、重做与敷衍次数）按桌记录，界面显示本场与历史。
 
 | 角色 | 由谁担任 | 做什么 |
@@ -43,8 +44,10 @@
 - `config/models.yaml`：
   - `channels`：调用渠道。每个渠道有 `adapter`（`openai_compat` / `anthropic` / `gemini`）、`kind`（`aggregator` 聚合平台 / `direct` 官方直连 / `local` 本地）、`base_url`、`key_env`（**只写环境变量名**）、可选 `extra_body`、`param_aliases`（该渠道的参数改名，如 OpenAI 直连把 `max_tokens` 改为 `max_completion_tokens`）。
   - `models`：`id`、`vendor`、`tier`（`flagship` 旗舰 / `budget` 便宜档，启用的模型必填）、可选 `aliases`（别称，用于身份遮蔽）、`price`（输入/输出每百万 token，可选 `cached_input`）、`tags`、`enabled`、可选 `params`、画图模型的 `image_api`（`chat` 对话接口返回图片，如 Gemini 图像模型；`images` 走 OpenRouter 的 `/api/v1/images`，gpt-image 系列只能走这个；路由上也可覆盖），以及按优先顺序排列的 `routes`（每条：`channel`、该渠道上的 `model` ID、可选 `price` / `params` 覆盖）。
+  - `office_role`（R17）：`manager` 经理 / `staff` 员工（默认）；经理必须 `seat: true`。只在办公室模式生效。
   - 标签词表含媒体类：`vision`、`transcribe`、`image_gen`、`image_edit`、`tts`、`stt`、`video_gen`、`music_gen`（后两个预留）。媒体模型 `seat: false`（不上桌、不占座位），可有 `tier`；视频 / 转写 / 语音按秒 / 分钟 / 字符计价，用 `media_price: {unit, usd}`（`price` 写 0），可被路由覆盖；**图像模型在 OpenRouter 上按 token 计价**：`price.output` 填图像输出价格，`image_tokens` 填一张图的典型输出 token 数（只用于预估和渠道没返回用量时的记账，`providers/cost.py` 的 `image_cost`），实际费用一律以渠道返回的 `usage.cost` 为准。
 - `config/roundtable.yaml`：座位数（一张桌最多的组员数）、`min_members`、`reviews_per_answer`、`collab.max_subtasks`、预算（每月、每日、提醒比例）、步骤参数、互评质量规则、token 阈值、统筹轮换规则、提示词版本、步骤顺序 `pipeline:`（讨论模式）与 `collab_pipeline:`（协同模式）、**渠道模式 `channel_mode`**（`openrouter` / `direct` / `auto`，默认 `auto`）、请求策略（超时、切换轮数、退避、冷却）。
+- `roundtable.yaml` 的 `office`（R17）：`task_caps_usd`（每件事的工资上限：`single` 单人办 / `meeting` 开会 / `project` 项目分工）、`manager_strategy`（`rotate`：轮流主办，项目级由另一位复核）、`meeting`（`min_attendees` / `max_attendees`，开会点名人数）、`project`（项目组人数、项目组桌子的 `pipeline`、`reviews_per_item`、`step_params`）。
 - `config/personas.yaml`：匿名代号池（塔罗牌 22 张大阿卡纳，不少于 `seats`）、厂商昵称 `nicknames`（厂商 → 昵称）、档位显示名 `tier_labels`（flagship = 全力，budget = 节电）、`nickname_separator`、`coordinator_suffix`、`code_prefix`（默认空：代号 / 昵称本身就是称呼）；同一桌里厂商和档位都相同的模型自动加序号（鲸鱼娘·全力2）；人设字段的 schema 预留但可为空。称呼生成在 `allocation/names.py`（`member_codes()`）。
 - `roundtable.yaml` 的 `display.rice`：token 用量显示为"大米"（1 粒 = 1000 token，1 勺 = 100 粒，1 碗 = 30 勺，比例与单位名在配置里），自动换算（`core/display/rice.py`，前端用 `/api/status` 的 `rice` 同一套比例）；**只替换 token 数量的显示，所有金额仍是美元**。
 - `config/routing.yaml`：确认门槛、`default_plan`、默认难度（只影响预估的答案长度）、规划员档位、规则判断（triage）、成员档位 `plans`（`label`、`tiers`、可选 `pipeline`、`escalate_to`、`prompt_roles`）、自选 `custom`、升级条件、花费预估参数。**只能引用档位和能力标签**，不得出现模型名或厂商名（有测试）。`custom` 是保留名。
@@ -124,7 +127,7 @@
 - **截断不算敷衍**：成员的作答 / 修订 / 子任务成果来自被长度上限截断的调用（`ctx.truncated_calls`）时，由截断造成的「内容过短」「没有回应审阅意见」不判敷衍（`forgive_truncation()`）：登记 `status="truncated"` 的检查记录（不重做、不计重做 / 敷衍次数，界面显示「输出被长度上限截断，未判为敷衍」）；别的真问题照常处理。判定原因带实测数值（字数 / 门槛及依据、与题目 / 别人答案的相似度及门槛），网页在「敷衍」标记旁直接显示原因（悬停显示全文）。
 - 协同模式中，自荐、子任务成果、交叉审查、修改也做检查（`EffortRecord.item` 记录成果编号，同一成员可负责多块）；被标记的成果在合并时带 `flagged` 属性。
 - 贡献由 `table_contributions(state, codes)` 按桌计算，类别：`answered`（协同：完成的成果份数）、`adopted`（协同：合并时全部或部分采用的成果份数）、`volunteer_accepted`（协同：分到了自己想做的子任务）、`valid_review`、`valid_issue`、`issue_accepted`（只认作者确实收到的有效评审中的问题）、`redo`、`lazy`、`dropped`。编排引擎在讨论结束 / 停止 / 失败时整桌重写 `contributions` 表（可重复）。
-- 历史统计（`contribution_history()`、`GET /api/contributions`、`roundtable stats`）**只计入身份已公开的会话**（匿名关闭，或已揭晓），避免反推未揭晓会话的身份；目前只积累和展示，不参与分工。
+- 历史统计（`contribution_history()`、`GET /api/contributions`、`GET /api/office`（员工名册、单件上限、本月工资预算）、`GET /api/sessions/{id}/payslip`（工资单）、`roundtable stats`）**只计入身份已公开的会话**（匿名关闭，或已揭晓），避免反推未揭晓会话的身份；目前只积累和展示，不参与分工。
 
 ### 2.6 持久化：SQLite
 - 存：会话（题目、seed、成员档位、匿名开关、工作模式）、**路由记录**（答案长度判断、档位与阵容、缺席、预估与实际花费、升级）、座位与代号映射、统筹、每次调用（步骤、提示词版本 + 哈希、输入输出、**实际渠道与切换记录**、token、费用及来源、耗时、错误）、互评结果、修订稿、汇总、确认点与用户回复、累计费用（总计与按渠道）。
@@ -226,6 +229,7 @@ src/roundtable/
     search/        联网搜索服务（注册、OpenRouter 搜索（默认）、Tavily、按顺序切换的 SearchService）
     preview.py     成员生成的文件的预览
     budget/        用量统计（按渠道/模型）、预算守卫（每月 + 每日，UTC）
+    office/        办公室模式（R17）：名册（roster.py）、工资单（payroll.py）
     cards.py       确认卡片的统一格式
     steps/         answer / review / revise / synthesize / reveal 插件、输出解析与质量检查、防偷懒（effort）、贡献统计、状态恢复
     orchestrator/  编排引擎、确认点、暂停/恢复、失败处理
@@ -237,7 +241,7 @@ src/roundtable/
   api/           FastAPI 应用、路由、SSE
 web/             index.html、css/（app.css、agent.css 小人）、js/（api.js 通信、view.js 渲染、app.js 状态与交互、agent/ 网页小人）
 tests/
-docs/            REQUIREMENTS_v3.md  PLAN.md  CLI.md  mockup.html
+docs/            REQUIREMENTS_v3.md  PLAN.md  CLI.md  OFFICE.md（办公室模式）  mockup.html
 scripts/         check_models.py（核对 OpenRouter 渠道的模型 ID 与价格；带 vision / image_edit 标签的模型还核对远端 input_modalities 含 image）  lock_prompts.py（登记提示词版本）
                  setup_sandbox.py（安装代码运行沙箱）  try_image.py（真实调用一次画图模型，核对接口格式）
 sandbox/         Dockerfile（可选的 docker 沙箱）、README.md

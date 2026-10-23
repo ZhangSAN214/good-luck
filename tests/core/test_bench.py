@@ -132,6 +132,21 @@ async def test_stops_at_max_usd_and_keeps_finished_results():
         await run(env, many, parse_modes("solo:budget"), max_usd=0)
 
 
+async def test_office_mode_follows_the_managers_plan_even_over_the_cap():
+    """办公室模式也能对比：经理决定开会、超过开会上限时照办（测的是这个模式本身）。"""
+    from roundtable.core.config.schema import OfficeTaskCaps
+
+    office = Env().config.roundtable.office.model_copy(
+        update={"task_caps_usd": OfficeTaskCaps(single=100.0, meeting=1e-9)}
+    )
+    env = Env(confirm_threshold_usd=100.0, rt_update={"office": office})
+    env.office_mode = "meeting"
+    [r] = await run(env, [q()], parse_modes("office:budget"))
+    assert r.status == "completed" and r.correct is True
+    kinds = [c.kind for c in env.rt.repo.session_view(r.session_id).checkpoints]
+    assert "office" in kinds
+
+
 async def test_unknown_mode_is_recorded_as_error_not_crash():
     env = Env(confirm_threshold_usd=100.0)
     results = await run(env, [q()], [BenchMode("solo", "nope")])

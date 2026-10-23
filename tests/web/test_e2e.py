@@ -33,7 +33,7 @@ def ask(page, question: str) -> None:
 
 
 def wait_done(page) -> None:
-    page.wait_for_selector(f".sys.ok:has-text('{DONE}')", timeout=15000)
+    page.wait_for_selector(f".sys.ok:has-text('{DONE}'), .sys.ok:has-text('办完了')", timeout=15000)
 
 
 def test_anonymous_budget_tier_then_reveal(serve, page):
@@ -195,6 +195,22 @@ def test_usage_and_channels_panels(serve, page):
     page.click('#tabs button[data-t="channels"]')
     assert "可用" in page.inner_text("#pbody")
     assert "本月" in page.inner_text("#meter")
+
+
+def test_payslip_and_office_roster(serve, page):
+    srv = serve(confirm_threshold_usd=100.0)
+    page.goto(srv.url)
+    ask(page, MEDIUM)
+    wait_done(page)
+    page.click('#tabs button[data-t="usage"]')
+    page.wait_for_selector("#payslip")
+    slip = page.inner_text("#payslip")
+    assert "工资" in slip and "统筹" in slip
+    page.click('#tabs button[data-t="office"]')
+    page.wait_for_selector("#office-roster")
+    roster = page.inner_text("#pbody")
+    assert "员工名册" in roster and "单人办" in roster and "本月工资预算" in roster
+    assert page.locator('#office-roster tr[data-role="staff"]').count() >= 1
 
 
 def test_narrow_screen_stacks(serve, browser):

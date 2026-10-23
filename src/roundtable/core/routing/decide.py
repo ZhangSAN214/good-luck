@@ -16,7 +16,7 @@ from typing import Any, Literal
 from roundtable.core.allocation import NotEnoughModels
 from roundtable.core.config import AppConfig, ModelSpec, Price
 from roundtable.core.config.schema import Confidence, Difficulty, EscalationRule
-from roundtable.core.media import KINDS
+from roundtable.core.media import KINDS, estimate_generation, media_group
 from roundtable.core.prompts import PromptLibrary
 from roundtable.core.providers import ChannelRouter
 
@@ -27,7 +27,13 @@ from .planner import PlannerResult, run_planner
 from .triage import Question, triage
 
 CUSTOM = "custom"
-WORKFLOWS = ("discussion", "collab", "solo", "brainstorm")  # 讨论 / 协同 / 个人作答 / 头脑风暴
+WORKFLOWS = (
+    "office",
+    "discussion",
+    "collab",
+    "solo",
+    "brainstorm",
+)  # 办公室 / 讨论 / 协同 / 个人作答 / 头脑风暴
 AUTO = "auto"  # 自动：先请分诊小组给建议，用户确认后改成上面三种之一
 MEDIA_KINDS = KINDS
 Source = Literal["rule", "model", "default"]
@@ -57,9 +63,9 @@ class UserChoice:
             raise RoutingError(
                 "协同模式不需要选择输出类型：拆分子任务时统筹会决定哪些子任务要生成图片、语音或视频"
             )
-        if self.media is not None and self.workflow in ("solo", "brainstorm"):
+        if self.media is not None and self.workflow in ("solo", "brainstorm", "office"):
             raise RoutingError(
-                "个人作答和头脑风暴不支持选择输出类型，请用讨论模式生成图片、语音或视频"
+                "个人作答、头脑风暴和办公室模式不支持选择输出类型，请用讨论模式生成图片、语音或视频"
             )
         if self.media_tier not in (None, "budget", "flagship"):
             raise RoutingError(f"未知的媒体档位 {self.media_tier!r}，可选：budget / flagship")
@@ -263,6 +269,13 @@ def _route_price(router: ChannelRouter, model: ModelSpec) -> Price:
     return model.price_for(usable[0]) if usable else model.price
 
 
+def confirm_threshold(config: AppConfig, workflow: str) -> float:
+    """执行前确认的门槛：办公室模式用"单人办"的工资上限（O2 只有单人办），其余用单题确认门槛。"""
+    if workflow == "office":
+        return config.roundtable.office.task_caps_usd.single
+    return config.routing.confirm_threshold_usd
+
+
 def answer_tokens(config: AppConfig, a: Assessment) -> int:
     """预估的答案长度（token）：规划员的估计（限制在范围内），否则按难度取默认值。"""
     params = config.routing.estimate
@@ -309,7 +322,7 @@ def _estimate(
         history=history,
         caps=caps,
         extra_calls=_tool_rounds(config),
-        extra_usd=_tool_costs(config),
+        extra_usd=_tool_costs(config, router, lineup, question),
     )
     if question.media:
         estimate = with_media_step(
@@ -352,15 +365,52 @@ def _tool_rounds(config: AppConfig) -> dict[str, float]:
     return {step: rounds for step, names in tools.by_step.items() if names}
 
 
-def _tool_costs(config: AppConfig) -> dict[str, float]:
-    """能搜索的步骤：每个座位按 estimate.searches / fetches 次数和第一家搜索服务的单价估计。"""
+def _tool_costs(
+    config: AppConfig,
+    router: ChannelRouter | None = None,
+    lineup: Lineup | None = None,
+    question: Question | None = None,
+) -> dict[str, float]:
+    """工具服务的费用（每个座位）：
+
+    - 能搜索的步骤：按 estimate.searches / fetches 次数和第一家搜索服务的单价估计。
+    - 办公室模式的办理（handle）：题目提到图、海报等（routing.yaml 的 multi_media.nouns）时，
+      按便宜档图像模型画一张图计入（员工可以用画图工具，单人办上限很低，不算会漏掉一大块）。
+    """
     tools = config.roundtable.tools
-    provider = next((p for p in config.models.search_providers.values() if p.enabled), None)
-    if not tools.enabled or provider is None:
+    if not tools.enabled:
         return {}
-    est = config.routing.estimate
-    per_seat = est.searches * provider.price.per_search + est.fetches * provider.price.per_fetch
-    return {step: per_seat for step, names in tools.by_step.items() if "search" in names}
+    costs: dict[str, float] = {}
+    provider = next((p for p in config.models.search_providers.values() if p.enabled), None)
+    if provider is not None:
+        est = config.routing.estimate
+        per_seat = est.searches * provider.price.per_search + est.fetches * provider.price.per_fetch
+        costs = {step: per_seat for step, names in tools.by_step.items() if "search" in names}
+    if router is not None and lineup is not None and question is not None:
+        image = _office_image_cost(config, router, lineup, question)
+        if image:
+            costs["handle"] = costs.get("handle", 0.0) + image
+    return costs
+
+
+def _office_image_cost(
+    config: AppConfig, router: ChannelRouter, lineup: Lineup, question: Question
+) -> float:
+    if (
+        "handle" not in lineup.pipeline
+        or "generate_image" not in config.roundtable.tools.by_step.get("handle", [])
+    ):
+        return 0.0
+    rule = config.routing.multi_media
+    text = question.text.lower()
+    if rule is None or not any(n.lower() in text for n in rule.nouns):
+        return 0.0
+    group = media_group(router, "image", config.roundtable.media.default_tier)
+    if not group:
+        return 0.0
+    typical = [m for m in group if m.default] or group
+    rules = config.roundtable.media
+    return sum(estimate_generation(m, "image", rules, chars=0) for m in typical) / len(typical)
 
 
 def estimate_lineup(
@@ -416,6 +466,7 @@ async def _assess(
     prompts: PromptLibrary,
     available: Sequence[ModelSpec],
     rng: random.Random,
+    workflow: str = "discussion",
 ) -> Assessment:
     rules = triage(question, config.routing.triage)
     base = Assessment(
@@ -428,6 +479,15 @@ async def _assess(
     )
     if rules.difficulty is not None:
         return base
+    if workflow == "office":
+        # 办公室模式由经理分诊，不再先请规划员判断难度（省一次调用和几秒等待）；
+        # 难度只用于花费预估的答案长度，按默认难度估
+        return replace(
+            base,
+            difficulty=config.routing.default_difficulty,
+            source="default",
+            reason="办公室模式由经理分诊，按默认难度预估",
+        )
 
     planner = await run_planner(
         question.text,
@@ -644,6 +704,7 @@ async def route_question(
         prompts=prompts,
         available=available,
         rng=random.Random(seed),
+        workflow=choice.workflow,
     )
     options = _options(
         question,
@@ -693,7 +754,7 @@ async def route_question(
         estimate=estimate,
         options=options,
         escalate_to=escalate_to,
-        confirm_threshold_usd=routing.confirm_threshold_usd,
+        confirm_threshold_usd=confirm_threshold(config, choice.workflow),
     )
 
 
@@ -790,7 +851,7 @@ def escalate(
         estimate=estimate,
         options={escalate_to: PlanOption(plan.label, True, estimate)},
         escalate_to=plan.escalate_to,
-        confirm_threshold_usd=config.routing.confirm_threshold_usd,
+        confirm_threshold_usd=confirm_threshold(config, choice.workflow),
         escalated_from=from_plan,
         escalation_reason=reason,
     )

@@ -264,6 +264,7 @@ async def test_collab_session_over_service():
     assert data["tables"][0]["pipeline"][0] == "decompose"
     assert leaks(env, data) == [] and leaks(env, events) == []
     assert svc.status()["workflows"] == {
+        "office": "办公室",
         "discussion": "讨论模式",
         "collab": "协同模式",
         "solo": "个人作答",
@@ -354,4 +355,49 @@ def test_status_lists_auto_and_estimate_accepts_it_as_all_modes():
     env, svc = make()
     assert "auto" in svc.status()["workflows"]
     est = svc.estimate("求导数 f(x)=x^2", workflow="auto", seed=1)
-    assert {o["workflow"] for o in est["options"]} == {"discussion", "collab", "solo", "brainstorm"}
+    assert {o["workflow"] for o in est["options"]} == {
+        "office",
+        "discussion",
+        "collab",
+        "solo",
+        "brainstorm",
+    }
+
+
+# --- 办公室：名册与工资单 -----------------------------------------------------------
+
+
+async def test_office_roster_counts_this_month():
+    env, svc = make(confirm_threshold_usd=100.0)
+    before = svc.office()
+    assert before["staff"] and all(e["month_paid_usd"] == 0 for e in before["staff"])
+    assert set(before["task_caps_usd"]) == {"single", "meeting", "project"}
+    sid = svc.create(MEDIUM, seed=2)
+    await svc.wait(sid)
+    after = svc.office()
+    paid = sum(e["month_paid_usd"] for e in after["staff"])
+    assert paid > 0 and abs(paid - svc.session(sid)["cost_usd"]) < 1e-9
+
+
+async def test_payslip_matches_session_cost_and_stays_anonymous():
+    env, svc = make(confirm_threshold_usd=100.0)
+    sid = svc.create(MEDIUM, seed=2, anonymous=True)
+    await svc.wait(sid)
+    slip = svc.payslip(sid)
+    assert abs(slip["total_usd"] - svc.session(sid)["cost_usd"]) < 1e-9
+    roles = {line["role"] for line in slip["lines"]}
+    assert {"member", "coordinator"} <= roles
+    assert all(line["model_id"] is None for line in slip["lines"])
+    assert leaks(env, slip) == []
+    svc.reveal_identities(sid)
+    revealed = svc.payslip(sid)
+    assert all(
+        line["model_id"] for line in revealed["lines"] if line["role"] in ("member", "coordinator")
+    )
+
+
+def test_payslip_unknown_session():
+    _, svc = make()
+    with pytest.raises(ServiceError) as info:
+        svc.payslip("nope")
+    assert info.value.status == 404

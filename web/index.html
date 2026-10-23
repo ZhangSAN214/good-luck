@@ -3,24 +3,33 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>圆桌 Roundtable</title>
+<title>圆桌</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Noto+Sans+SC:wght@400;500;700&family=ZCOOL+XiaoWei&display=swap">
 <link rel="stylesheet" href="css/app.css">
 <link rel="stylesheet" href="css/agent.css">
+<link rel="stylesheet" href="css/home.css">
 </head>
 <body>
 <div class="app">
   <header class="top">
-    <div class="brand"><h1>圆桌</h1><span class="sim">全员上桌 · 文字圆桌</span></div>
-    <div class="ctrls">
+    <div class="brand"><h1>圆桌</h1></div>
+    <nav class="seg entries" id="entries" aria-label="入口（Alt+1 / 2 / 3）">
+      <button type="button" data-m="work" aria-pressed="true">办公室</button>
+      <button type="button" data-m="home" aria-pressed="false">公寓楼</button>
+      <button type="button" data-m="chat" aria-pressed="false">群聊</button>
+    </nav>
+    <div class="ctrls" id="workctrls">
       <button class="btn" id="new" type="button">新题目</button>
       <button class="btn gold" id="reveal" type="button" disabled title="讨论结束后可以揭晓">揭晓身份</button>
       <button class="btn" id="toggle" type="button" aria-expanded="true">收起面板</button>
     </div>
     <span class="meter" id="meter">本场 $0.0000</span>
   </header>
+
+  <section class="home view" id="home" hidden aria-label="公寓楼"></section>
+  <section class="gchat view" id="gchat" hidden aria-label="群聊"></section>
 
   <div class="main" id="main">
     <div class="stagecol">
@@ -55,7 +64,7 @@
           </label>
         </div>
         <div class="row">
-          <textarea id="ask" placeholder="输入题目，Ctrl+Enter 提交；可以把文件拖到这里" aria-label="题目"></textarea>
+          <textarea id="ask" placeholder="输入题目：Enter 提交，Shift+Enter 换行；可以把文件拖到这里（按 / 随时回到这里）" aria-label="题目"></textarea>
           <div class="side">
             <button class="btn" type="button" id="attach" title="上传图片、PDF、Word、文本或音频">添加附件</button>
             <button class="btn primary" type="submit" id="submit">提交</button>
@@ -81,6 +90,7 @@
         <button role="tab" data-t="channels" aria-selected="false">渠道</button>
         <button role="tab" data-t="history" aria-selected="false">历史</button>
         <button role="tab" data-t="cast" aria-selected="false">名册</button>
+        <button role="tab" data-t="office" aria-selected="false">员工</button>
       </div>
       <div class="pbody" id="pbody"></div>
     </aside>

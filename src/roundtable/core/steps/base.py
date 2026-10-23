@@ -24,7 +24,7 @@ from roundtable.core.attachments import (
 from roundtable.core.cards import ConfirmationCard
 from roundtable.core.config import AppConfig
 from roundtable.core.jsonout import JSONOutputError
-from roundtable.core.media import FramesUnavailable, MediaService, extract_frames
+from roundtable.core.media import FramesUnavailable, MediaService, extract_frames, shrink_image
 from roundtable.core.prompts import PromptLibrary, RenderedPrompt
 from roundtable.core.providers import (
     AllChannelsFailed,
@@ -129,6 +129,9 @@ class TableContext:
     truncated_calls: set[int] = field(default_factory=set)
     # 用户中途补充的意见（按时间顺序，已被带上的）；之后每一步的每次调用都附上，同一步骤所有成员相同
     user_notes: tuple[str, ...] = ()
+    # 办公室模式的项目组桌子（O4）：覆盖的步骤参数（同一步骤所有人相同）、每份成果的审查人数
+    step_overrides: dict[str, dict[str, Any]] = field(default_factory=dict)
+    reviews_per_item: int | None = None
 
     @property
     def effort_rule(self):
@@ -234,8 +237,10 @@ class TableContext:
                 return match.group(0)
             if self.file_store is None:
                 return match.group(0)
-            data = self.file_store.load(row["storage_key"])
-            media.append(Media("image", row["mime"], data, row["path"]))
+            data, mime = shrink_image(
+                self.file_store.load(row["storage_key"]), row["mime"], rules.share_image_max_side
+            )
+            media.append(Media("image", mime, data, row["path"]))
             return match.group(0)[:-2] + f' attached="随附图片 {len(media)}"/>'
 
         content = _IMAGE_FILE.sub(attach, content)
@@ -351,7 +356,8 @@ class TableContext:
         return template.render(**{k: v for k, v in values.items() if k in template.variables})
 
     def step_params(self, step: str) -> dict[str, Any]:
-        return dict(self.config.roundtable.step_params.get(step, {}))
+        params = dict(self.config.roundtable.step_params.get(step, {}))
+        return {**params, **self.step_overrides.get(step, {})}
 
     def drop(self, code: str, step: str, reason: str) -> None:
         if code in self.state.dropped:
@@ -389,6 +395,7 @@ async def call_model(
     followup: Sequence[Message] = (),
     extra_params: dict[str, Any] | None = None,
     base_params: dict[str, Any] | None = None,
+    exclude_tools: Sequence[str] = (),
 ) -> CallOutcome:
     """调用一次并记录（成功或失败都记录）。渠道层已经负责重试和切换。
 
@@ -397,6 +404,8 @@ async def call_model(
     """
     messages = [*ctx.messages_for(prompt, model_id), *followup]
     tools = ctx.toolbox.tools_for(step) if ctx.toolbox else []
+    # exclude_tools：这次调用不提供的工具（如办公室模式中经理判断不需要查资料时去掉 search / fetch）
+    tools = [t for t in tools if t not in exclude_tools]
     if tools:
         from .tooluse import call_with_tools
 
@@ -454,7 +463,7 @@ async def call_once(
             prompt=prompt,
             failure=exc,
         )
-        ctx.emit("call_failed", step, code)
+        ctx.emit("call_failed", step, code, role=role)
         return CallOutcome(None, call_id, "调用失败")
     call_id = ctx.repo.record_call(
         ctx.session_id,
@@ -467,7 +476,14 @@ async def call_once(
         prompt=prompt,
         completion=completion,
     )
-    ctx.emit("call_done", step, code, tokens=completion.output_tokens, cost=completion.cost_usd)
+    ctx.emit(
+        "call_done",
+        step,
+        code,
+        role=role,
+        tokens=completion.output_tokens,
+        cost=completion.cost_usd,
+    )
     if completion.truncated:
         ctx.truncated_calls.add(call_id)
     guard = ctx.config.roundtable.length_guard
@@ -681,6 +697,8 @@ def check_pipelines(config: AppConfig) -> None:
         "roundtable.collab_pipeline": config.roundtable.collab_pipeline,
         "roundtable.solo_pipeline": config.roundtable.solo_pipeline,
         "roundtable.brainstorm_pipeline": config.roundtable.brainstorm_pipeline,
+        "roundtable.office_pipeline": config.roundtable.office_pipeline,
+        "roundtable.office.project.pipeline": config.roundtable.office.project.pipeline,
     }
     for name, plan in config.routing.plans.items():
         if plan.pipeline is not None:
@@ -700,6 +718,8 @@ def check_pipelines(config: AppConfig) -> None:
 
 def restore_state(repo: Repository, session_id: str, table_no: int) -> TableState:
     """根据已保存的产出重建单桌状态（暂停后恢复时使用）。"""
+    from .office import restore_office
+
     state = TableState()
     for o in repo.outputs(session_id, table_no=table_no):
         kind, code = o["kind"], o["code"]
@@ -719,6 +739,8 @@ def restore_state(repo: Repository, session_id: str, table_no: int) -> TableStat
             state.effort[record.key] = record
         elif kind == "style_spec":
             state.style = StyleSpec.from_dict(json.loads(o["content"]))
+        elif restore_office(state, kind, code, json.loads(o["content"])):
+            pass
         elif not restore_brain(state.brain, kind, code, json.loads(o["content"])):
             restore_collab(state, kind, code, json.loads(o["content"]))
     return state

@@ -495,6 +495,15 @@ class TableState:
     collab: Any = field(default_factory=lambda: _new_collab())
     # 头脑风暴的数据
     brain: Any = field(default_factory=lambda: _new_brain())
+    # 办公室模式的数据
+    office: Any = field(default_factory=lambda: _new_office())
+
+    def extra_estimate_usd(self) -> float:
+        """步骤运行中才确定、已经确认的追加预估（办公室模式决定开会）；超支保护把它计入本桌预估。"""
+        intake = self.office.intake or {}
+        if intake.get("mode") != "meeting":
+            return 0.0
+        return float(intake.get("meeting_estimate_usd") or 0.0)
 
     def flagged(self, code: str, item: str | None = None) -> bool:
         """该组员（的某份成果）是否有产出被标记为敷衍。"""
@@ -502,6 +511,12 @@ class TableState:
             r.lazy and r.code == code and (item is None or r.item in (None, item))
             for r in self.effort.values()
         )
+
+
+def _new_office():
+    from .office import new_office_state
+
+    return new_office_state()
 
 
 def _new_brain():

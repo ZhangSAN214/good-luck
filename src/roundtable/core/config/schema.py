@@ -12,6 +12,7 @@ ChannelMode = Literal["openrouter", "direct", "auto"]
 # 档位：flagship 旗舰（高价高能力）/ budget 便宜档。成本优先路由只看档位和能力标签
 Tier = Literal["flagship", "budget"]
 ImageApi = Literal["chat", "images"]
+OfficeRole = Literal["manager", "staff"]
 
 _ENV_NAME = re.compile(r"^[A-Z][A-Z0-9_]*$")
 _PROMPT_VERSION = re.compile(r"^v\d+$")
@@ -112,6 +113,9 @@ class ModelSpec(_Strict):
     routes: list[Route] = Field(min_length=1)
     # False：只作为工具使用（如图像生成模型），不上桌、不需要档位
     seat: bool = True
+    # 办公室模式的岗位：manager = 经理（收活、分诊、派活、拍板、写最终交付，由用户指定），
+    # staff = 员工（默认）。只在办公室模式生效；讨论 / 协同等旧模式不看它
+    office_role: OfficeRole = "staff"
 
     @field_validator("routes")
     @classmethod
@@ -176,7 +180,14 @@ class ModelsConfig(_Strict):
             for r in m.routes:
                 if r.channel not in self.channels:
                     raise ValueError(f"模型 {m.id} 引用了未定义的渠道 {r.channel!r}")
+            if m.office_role == "manager" and not m.seat:
+                raise ValueError(f"模型 {m.id} 是经理，必须能上桌（seat: true）")
         return self
+
+    @property
+    def managers(self) -> list[ModelSpec]:
+        """办公室模式的经理（启用的、office_role 为 manager 的模型，按配置顺序）。"""
+        return [m for m in self.enabled if m.office_role == "manager"]
 
     def get(self, model_id: str) -> ModelSpec:
         for m in self.models:
@@ -432,6 +443,8 @@ class PythonTool(_Strict):
     timeout_s: float = Field(default=60, gt=0)  # 含加载 numpy 等包的时间
     memory_mb: int = Field(default=1024, ge=64)
     max_runs: int = Field(default=3, ge=1)  # 每位成员每个步骤最多运行几次（出错重跑也算）
+    # 按步骤覆盖 max_runs（同一步骤所有成员相同），如办公室模式一个人办完全部、改的时候要重跑出图
+    max_runs_by_step: dict[str, int] = Field(default_factory=dict)
     max_output_chars: int = Field(default=8000, ge=200)
     # wasm 后端的运行时目录（Deno 与 Pyodide）；为空时用 ROUNDTABLE_SANDBOX_DIR 或用户缓存目录
     runtime_dir: str | None = None
@@ -460,6 +473,9 @@ class PythonTool(_Strict):
         ]
     )
 
+    def runs_for(self, step: str) -> int:
+        return self.max_runs_by_step.get(step, self.max_runs)
+
 
 class FileRules(_Strict):
     """成员生成的文件：扩展名白名单、大小上限（单个、每场合计）。"""
@@ -478,6 +494,9 @@ class FileRules(_Strict):
     # 生成的图片随答案转交给带 vision 标签的模型：每次调用最多几张、每张大小上限
     share_images: int = Field(default=6, ge=0)
     share_image_mb: float = Field(default=4, gt=0)
+    # 转交前把图片缩小到长边不超过这么多像素（上传更快、看图 token 更少）；0 = 原图转交。
+    # 需要 Pillow（pip install 'roundtable[media]'），没有安装时原图转交
+    share_image_max_side: int = Field(default=1280, ge=0)
 
 
 class ImageTool(_Strict):
@@ -579,6 +598,95 @@ class RiceRules(_Strict):
     bowl_spoons: int = Field(default=30, ge=2)  # 1 碗 = 多少勺
 
 
+class OfficeTaskCaps(_Strict):
+    """办公室模式：每件事的工资上限（美元），按办事方式分别设；预计超出时先问老板。"""
+
+    single: float = Field(default=0.05, gt=0)  # 单人办
+    meeting: float = Field(default=0.15, gt=0)  # 开会
+    project: float = Field(default=0.80, gt=0)  # 项目分工
+
+
+class OfficeMeeting(_Strict):
+    """办公室模式的开会（O3）：经理点名几位员工依次发言，再拍板写纪要。"""
+
+    min_attendees: int = Field(default=2, ge=2)
+    max_attendees: int = Field(default=3, ge=2)
+
+    @model_validator(mode="after")
+    def _range(self) -> OfficeMeeting:
+        if self.max_attendees < self.min_attendees:
+            raise ValueError("max_attendees 不能小于 min_attendees")
+        return self
+
+
+class OfficeProject(_Strict):
+    """办公室模式的项目分工（O4）：经理点名一个项目组，沿用协同流水线，但只派需要的人。
+
+    pipeline：项目组那张桌子的步骤（协同流水线 + 复核经理验收 office_review）；
+    reviews_per_item：交叉审查时每份成果几位审查者（只审关键，默认 1）；
+    step_params：项目组桌子上覆盖的步骤参数（如合并由主办经理以中等思考强度完成），
+    同一步骤所有人相同。
+    """
+
+    min_members: int = Field(default=2, ge=2)
+    max_members: int = Field(default=4, ge=2)
+    pipeline: list[str] = Field(
+        default_factory=lambda: [
+            "decompose",
+            "volunteer",
+            "assign",
+            "work",
+            "cross_review",
+            "rework",
+            "accept",
+            "merge",
+            "office_review",
+            "reveal",
+        ],
+        min_length=1,
+    )
+    reviews_per_item: int = Field(default=1, ge=1)
+    step_params: dict[str, dict[str, Any]] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def _range(self) -> OfficeProject:
+        if self.max_members < self.min_members:
+            raise ValueError("max_members 不能小于 min_members")
+        if len(self.pipeline) != len(set(self.pipeline)):
+            raise ValueError(f"pipeline 中的步骤不能重复：{self.pipeline}")
+        return self
+
+
+class OfficePerformance(_Strict):
+    """办公室模式的绩效（O5）：名单附绩效给经理参考；规则派活时工资相同的优先通过率高的。"""
+
+    enabled: bool = True
+    min_jobs: int = Field(default=3, ge=1)
+
+
+class OfficeRules(_Strict):
+    """办公室模式（O1～O5，见 docs/OFFICE.md）。经理在 models.yaml 的 office_role 里指定。"""
+
+    task_caps_usd: OfficeTaskCaps = OfficeTaskCaps()
+    meeting: OfficeMeeting = OfficeMeeting()
+    project: OfficeProject = OfficeProject()
+    performance: OfficePerformance = OfficePerformance()
+    # 两位以上经理时怎么分：rotate = 每件事轮流当主办经理，项目级任务由另一位复核
+    manager_strategy: Literal["rotate"] = "rotate"
+
+
+class ChatRules(_Strict):
+    """群聊：像微信群一样聊天。成员不主动发消息，只回应用户。"""
+
+    tier: Tier = "budget"  # 每位成员用这个档位的模型发言（没有就用该成员最便宜的）
+    max_repliers: int = Field(default=2, ge=1, le=6)  # 没有 @ 人时，一条消息最多几位回应
+    max_mentioned: int = Field(default=8, ge=1, le=12)  # @全员 / 所有人 / @多人 时最多几位回应
+    history_messages: int = Field(default=30, ge=4, le=200)  # 发给模型的最近聊天条数
+    max_tokens: int = Field(default=500, ge=64)
+    max_chars: int = Field(default=800, ge=50)  # 一条消息最多保留的字数
+    estimate_usd: float = Field(default=0.002, ge=0)  # 每条回应的预估花费（预算检查用）
+
+
 class DisplayConfig(_Strict):
     rice: RiceRules = RiceRules()
 
@@ -628,6 +736,10 @@ class RoundtableConfig(_Strict):
     brainstorm_pipeline: list[str] = Field(
         default_factory=lambda: ["ideate", "expand", "organize", "reveal"], min_length=1
     )
+    # 办公室模式（R17）：经理分诊 → 员工办理 → 经理过目
+    office_pipeline: list[str] = Field(
+        default_factory=lambda: ["intake", "handle", "check", "reveal"], min_length=1
+    )
     brainstorm: BrainstormRules = BrainstormRules()
     collab: CollabRules = CollabRules()
     channel_mode: ChannelMode = "auto"
@@ -642,6 +754,8 @@ class RoundtableConfig(_Strict):
     limits: Limits = Limits()
     display: DisplayConfig = DisplayConfig()
     style: StyleRules = StyleRules()
+    office: OfficeRules = OfficeRules()
+    chat: ChatRules = ChatRules()
 
     @field_validator("prompts")
     @classmethod
@@ -651,7 +765,9 @@ class RoundtableConfig(_Strict):
             raise ValueError(f"提示词版本必须形如 v1、v2：{bad}")
         return prompts
 
-    @field_validator("pipeline", "collab_pipeline", "solo_pipeline", "brainstorm_pipeline")
+    @field_validator(
+        "pipeline", "collab_pipeline", "solo_pipeline", "brainstorm_pipeline", "office_pipeline"
+    )
     @classmethod
     def _unique_steps(cls, steps: list[str]) -> list[str]:
         if len(steps) != len(set(steps)):
@@ -687,6 +803,7 @@ class PersonasConfig(_Strict):
     tier_labels: dict[Tier, str] = Field(default_factory=dict)
     nickname_separator: str = "·"
     coordinator_suffix: str = "（统筹）"
+    manager_suffix: str = "（经理）"  # 办公室模式里统筹就是经理
     personas: dict[str, Persona] = Field(default_factory=dict)
 
     @field_validator("codes")
@@ -834,6 +951,13 @@ class EstimateParams(_Strict):
     ideate_tokens: int = Field(default=500, ge=0)
     expand_tokens: int = Field(default=400, ge=0)
     organize_tokens: int = Field(default=1500, ge=0)
+    # 办公室模式：经理分诊（JSON + 工作说明）、经理过目（JSON）的输出长度；每位员工在名单里占的长度
+    intake_tokens: int = Field(default=400, ge=0)
+    check_tokens: int = Field(default=300, ge=0)
+    roster_tokens_per_staff: int = Field(default=40, ge=0)
+    # 开会（O3）：每位员工发言、经理拍板（结论 + 纪要）的输出长度
+    speech_tokens: int = Field(default=600, ge=0)
+    minutes_tokens: int = Field(default=1500, ge=0)
     # 没有历史记录时，输出 token 按档位放大（推理模型的思考 token 也按输出计费）
     output_multiplier: dict[str, float] = Field(default_factory=dict)
     # 某个模型在某个步骤至少有这么多次成功调用，才用它的历史中位数代替公式

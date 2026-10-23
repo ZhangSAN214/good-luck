@@ -408,6 +408,22 @@ class Repository:
             params.append(table_no)
         return [dict(r) for r in self._exec(sql + " ORDER BY table_no, id", params).fetchall()]
 
+    def working_seats(self, since: datetime) -> list[dict[str, Any]]:
+        """进行中（running / awaiting_confirmation）且 since 之后还有更新的会话的座位（内部使用）。
+
+        hidden 为真表示匿名开启且未揭晓：调用方不得把这些座位对应到具体模型展示。
+        """
+        rows = self._exec(
+            "SELECT s.id AS session_id, s.status, s.workflow, st.model_id,"
+            " st.table_no, st.role, st.code,"
+            " (s.anonymous = 1 AND s.revealed_at IS NULL) AS hidden"
+            " FROM sessions s JOIN seats st ON st.session_id = s.id"
+            " WHERE s.status IN ('running', 'awaiting_confirmation') AND s.updated_at >= ?"
+            " ORDER BY s.updated_at DESC, st.id",
+            (iso(since),),
+        ).fetchall()
+        return [{**dict(r), "hidden": bool(r["hidden"])} for r in rows]
+
     def recent_coordinators(self, limit: int = 5) -> list[str]:
         """最近担任统筹的模型，最近的在前（供轮换）。"""
         rows = self._exec(
@@ -1009,6 +1025,115 @@ class Repository:
         ).fetchall()
         return [dict(r) for r in rows]
 
+    # --- 群聊 ------------------------------------------------------------------
+
+    def chat_session(self, room: str) -> str:
+        """群聊对应的隐藏会话（workflow = 'chat'）：成员发言的调用挂在这里，计入预算和工资。"""
+        question = f"群聊：{room}"
+        row = self._exec(
+            "SELECT id FROM sessions WHERE workflow = 'chat' AND question = ? LIMIT 1", (question,)
+        ).fetchone()
+        if row:
+            return row["id"]
+        return self.create_session(question, seed=0, anonymous=False, workflow="chat")
+
+    def add_chat_message(
+        self,
+        room: str,
+        author: str,
+        text: str,
+        *,
+        model_id: str | None = None,
+        reply_to: int | None = None,
+        cost_usd: float = 0.0,
+    ) -> dict[str, Any]:
+        cur = self._exec(
+            "INSERT INTO chat_messages (room, author, model_id, text, reply_to, cost_usd,"
+            " created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (room, author, model_id, text, reply_to, cost_usd, self.clock()),
+        )
+        row = self._exec("SELECT * FROM chat_messages WHERE id = ?", (cur.lastrowid,)).fetchone()
+        return dict(row)
+
+    def chat_messages(
+        self, room: str, *, after: int = 0, limit: int = 200, query: str | None = None
+    ) -> list[dict[str, Any]]:
+        """id 大于 after 的消息（按时间先后）；有 query 时只返回包含它的消息（最近的 limit 条）。"""
+        sql = "SELECT * FROM chat_messages WHERE room = ? AND id > ?"
+        params: list[Any] = [room, after]
+        if query:
+            sql += " AND instr(text, ?) > 0"
+            params.append(query)
+        rows = self._exec(
+            f"SELECT * FROM ({sql} ORDER BY id DESC LIMIT ?) ORDER BY id", (*params, limit)
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def clear_chat(self, room: str) -> int:
+        """一键清空：删掉聊天记录，并抹掉对应调用里存的消息原文（花费记录保留，预算照算）。"""
+        session_id = self.chat_session(room)
+        with self._tx():
+            n = self.conn.execute("DELETE FROM chat_messages WHERE room = ?", (room,)).rowcount
+            self.conn.execute(
+                "UPDATE calls SET input = '[]', output = NULL WHERE session_id = ?", (session_id,)
+            )
+        return n
+
+    def spent_by_model(self, start: datetime, end: datetime) -> dict[str, dict[str, float]]:
+        """[start, end) 内按模型汇总的调用次数、token 与花费（办公室模式的"已领工资"）。"""
+        rows = self._exec(
+            "SELECT model_id, COUNT(*) AS calls, COALESCE(SUM(input_tokens), 0) AS tin,"
+            " COALESCE(SUM(output_tokens), 0) AS tout, COALESCE(SUM(cost_usd), 0) AS cost"
+            " FROM calls WHERE model_id IS NOT NULL AND created_at >= ? AND created_at < ?"
+            " GROUP BY model_id",
+            (iso(start), iso(end)),
+        ).fetchall()
+        return {
+            r["model_id"]: {
+                "calls": r["calls"],
+                "input_tokens": r["tin"],
+                "output_tokens": r["tout"],
+                "cost_usd": r["cost"],
+            }
+            for r in rows
+        }
+
+    # --- 办公室模式：绩效 ---------------------------------------------------------
+
+    def setting(self, key: str) -> str | None:
+        row = self._exec("SELECT value FROM app_settings WHERE key = ?", (key,)).fetchone()
+        return row["value"] if row else None
+
+    def set_setting(self, key: str, value: str) -> None:
+        self._exec(
+            "INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, ?)"
+            " ON CONFLICT(key) DO UPDATE SET value = excluded.value,"
+            " updated_at = excluded.updated_at",
+            (key, value, self.clock()),
+        )
+
+    def office_sessions(self, since: str | None = None, limit: int = 500) -> list[str]:
+        """办公室模式的会话 id（新的在前）：创建于 since 之后；匿名未揭晓的不算（不暴露身份）。"""
+        visible = "anonymous = 0 OR revealed_at IS NOT NULL"
+        sql = f"SELECT id FROM sessions WHERE workflow = 'office' AND ({visible})"
+        params: list[Any] = []
+        if since:
+            sql += " AND created_at >= ?"
+            params.append(since)
+        sql += " ORDER BY created_at DESC, id DESC LIMIT ?"
+        params.append(limit)
+        return [r["id"] for r in self._exec(sql, params).fetchall()]
+
+    def member_call_totals(self, session_id: str, table_no: int) -> dict[str, tuple[float, float]]:
+        """某张桌子上每位组员（代号）的调用花费与用时合计（秒）。"""
+        rows = self._exec(
+            "SELECT code, COALESCE(SUM(cost_usd), 0) AS cost, COALESCE(SUM(latency_s), 0) AS secs"
+            " FROM calls WHERE session_id = ? AND table_no = ? AND role = 'member'"
+            " AND code IS NOT NULL GROUP BY code",
+            (session_id, table_no),
+        ).fetchall()
+        return {r["code"]: (float(r["cost"]), float(r["secs"])) for r in rows}
+
     def spent_by_channel(self) -> dict[str, ChannelUsage]:
         usage: dict[str, ChannelUsage] = {}
         for r in self._exec(
@@ -1079,6 +1204,7 @@ class Repository:
             " r.difficulty, r.plan,"
             " (SELECT COALESCE(SUM(cost_usd), 0) FROM calls c WHERE c.session_id = s.id) AS cost"
             " FROM sessions s LEFT JOIN routing_records r ON r.session_id = s.id"
+            " WHERE s.workflow != 'chat'"
             " ORDER BY s.created_at DESC LIMIT ?",
             (limit,),
         ).fetchall()

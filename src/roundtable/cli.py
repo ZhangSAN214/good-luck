@@ -8,8 +8,10 @@
     roundtable ask --attach 图.png --attach 讲义.pdf "题目"   # 带附件
     roundtable estimate "题目"                     # 提交前预估：各模式 × 各档位的花费
     roundtable models                             # 查看模型、档位、哪些渠道有 key
+    roundtable models --check-updates             # 人才市场：价格变动、下架、新模型（只提示）
     roundtable history                            # 最近的讨论
     roundtable stats                              # 各模型的历史贡献
+    roundtable performance [--reset]              # 办公室模式的员工绩效（--reset 清零）
     roundtable resume <会话 id>                   # 中断后继续
     roundtable show <会话 id>                     # 查看结果（--costs 显示花费明细）
     roundtable export <会话 id> [-o 文件]         # 导出完整记录（UTF-8 文本文件，含花费明细）
@@ -49,6 +51,7 @@ from roundtable.core.bench import (
 from roundtable.core.config import ConfigError
 from roundtable.core.display import format_rice
 from roundtable.core.notes import NoteError, check_can_add, clean_note
+from roundtable.core.office import payslip
 from roundtable.core.orchestrator import Orchestrator, OrchestratorError, RunResult
 from roundtable.core.routing import (
     CUSTOM,
@@ -57,11 +60,13 @@ from roundtable.core.routing import (
     UserChoice,
     attachment_tokens,
     collab_advice,
+    confirm_threshold,
     detect_multi_media,
     preview_estimates,
 )
 from roundtable.core.runtime import PROJECT_ROOT, Runtime
-from roundtable.core.steps import Event
+from roundtable.core.steps import Event, restore_state
+from roundtable.core.steps.office import GROUP_MODES, group_estimates
 from roundtable.core.storage import NotFound
 from roundtable.plaintext import to_terminal
 
@@ -88,7 +93,26 @@ STEP_NAMES = {
     "media": "生成媒体",
     "style": "提取风格规范",
     "style_gate": "风格校验",
+    "intake": "经理分诊",
+    "handle": "员工办理",
+    "check": "经理过目",
+    "fix": "员工修改",
+    "speak": "员工发言",
+    "decide": "经理拍板",
+    "office_review": "复核经理验收",
+    "office_revise": "按复核修改",
 }
+MODE_LABELS = {"single": "单人办", "meeting": "开会", "project": "项目分工"}
+
+
+def _group_line(mode: str, group: dict[str, Any]) -> str:
+    """提交前预估里的一段：开会（2～3 人）约 $a～$b。"""
+    (low_n, high_n), (low, high) = group["people"], group["usd"]
+    people = f"{low_n}" if low_n == high_n else f"{low_n}～{high_n}"
+    span = f"${low:.4f}" if low_n == high_n else f"${low:.4f}～${high:.4f}"
+    return f"{MODE_LABELS[mode]}（{people} 人）约 {span}"
+
+
 MEDIA_NAMES = {"image": "图片", "speech": "语音", "video": "视频"}
 JOB_STATE = {
     "submitted": "已提交",
@@ -165,6 +189,7 @@ class CLI:
         self.plan_labels["custom"] = routing.custom.label
         # 匿名关闭时：代号 → 模型 id（按桌）；匿名开启且未揭晓时为空
         self.names: dict[tuple[int, str | None], str] = {}
+        self.office = False  # 当前会话是办公室模式（统筹称为经理）
 
     def p(self, text: str = "") -> None:
         print(text, file=self.out, flush=True)
@@ -177,10 +202,10 @@ class CLI:
         model = self.names.get((table_no, code))
         if code:
             base = f"{self.prefix}{code}"
-        elif model:  # 匿名关闭 / 已揭晓：统筹显示为"昵称·模式（统筹）"
-            base = coordinator_name(model, self.rt.config)
+        elif model:  # 匿名关闭 / 已揭晓：统筹显示为"昵称·模式（统筹）"，办公室模式为"（经理）"
+            base = coordinator_name(model, self.rt.config, office=self.office)
         else:
-            base = "统筹"
+            base = "经理" if self.office else "统筹"
         return f"{base}（{model}）" if model else base
 
     def rice(self, tokens: int) -> str:
@@ -190,6 +215,7 @@ class CLI:
     def load_names(self, sid: str) -> None:
         """身份可以显示时（匿名关闭，或已揭晓）记下各座位对应的模型。"""
         self.names = {}
+        self.office = self.rt.repo.session_row(sid)["workflow"] == "office"
         if not self.rt.repo.is_revealed(sid):
             return
         for seat in self.rt.repo.seats(sid):
@@ -198,13 +224,35 @@ class CLI:
 
     # --- 实时进度（事件只含代号，不含模型身份） --------------------------------------
 
+    def office_mode(self, sid: str, table_no: int | None) -> str | None:
+        """办公室模式第 1 桌经理定下的办法（含老板改成单人办）；其他情况为 None。"""
+        if not self.office or table_no != 0:
+            return None
+        intake = restore_state(self.rt.repo, sid, 0).office.intake or {}
+        return intake.get("mode")
+
+    def step_name(self, step: str) -> str:
+        """步骤的中文名；办公室模式里统筹就是经理、成员就是员工。"""
+        name = STEP_NAMES.get(step, step)
+        return name.replace("统筹", "经理").replace("成员", "员工") if self.office else name
+
+    def who(self, role: str | None, code: str | None, table_no: int = 0) -> str:
+        """一次调用是谁：规划员、附件预处理、复核经理（另一位经理）或桌上的成员 / 统筹。"""
+        extra = {"planner": "规划员", "preprocess": "附件预处理", "reviewer": "复核经理"}
+        return extra.get(role or "") or self.label(code, table_no)
+
+    def _people(self, sid: str, members: int) -> str:
+        if self.rt.repo.session_row(sid)["workflow"] == "office":
+            return f"经理 + {members} 位在岗员工"
+        return f"{members} 位组员 + 统筹"
+
     def on_event(self, sid: str, e: Event) -> None:
         d = e.data
         if e.type == "routed":
             plan = self.plan_labels.get(d["plan"], d["plan"])
             absent = f"，{d['absent']} 个模型缺席（无可用渠道）" if d.get("absent") else ""
             self.p(
-                f"档位：{plan}（{d['members']} 位组员 + 统筹{absent}）"
+                f"档位：{plan}（{self._people(sid, d['members'])}{absent}）"
                 f"  预计 ${d['estimate_usd']:.4f}"
                 f"  答案长度：{LENGTH_NAMES.get(d['difficulty'], d['difficulty'])}"
                 f"（{SOURCE_NAMES.get(d['source'], d['source'])}）"
@@ -218,7 +266,10 @@ class CLI:
                 self.p(f"  其他档位预计：{'；'.join(others)}")
         elif e.type == "table_started":
             self.load_names(sid)
-            if e.table_no > 0:
+            if e.table_no > 0 and "office_review" in (d.get("pipeline") or ()):
+                team = len(d["members"])
+                self.p(f"\n=== 项目组：{team} 位员工，经理拆分、合并，另一位经理验收 ===")
+            elif e.table_no > 0:
                 self.p(
                     f"\n=== 第 {e.table_no + 1} 张桌子：{self.plan_labels.get(d['plan'], '')} ==="
                 )
@@ -227,11 +278,16 @@ class CLI:
             members = "、".join(self.label(c, e.table_no) for c in d["members"])
             self.p(f"上桌：{members} + {self.label(None, e.table_no)}")
         elif e.type == "step_started" and e.step != "reveal":
-            self.p(f"\n▶ {STEP_NAMES.get(e.step, e.step)}")
+            mode = self.office_mode(sid, e.table_no) if e.step in ("handle", "check") else None
+            if mode == "meeting" and e.step == "handle":
+                self.p("\n▶ 开会（参会员工依次发言，经理拍板）")
+            elif mode not in GROUP_MODES:  # 开会不再过目；项目分工的办理、过目交给项目组桌子
+                self.p(f"\n▶ {self.step_name(e.step)}")
         elif e.type == "call_done":
-            self.p(f"  {self.label(e.code, e.table_no)} 完成（${d.get('cost', 0):.4f}）")
+            who = self.who(d.get("role"), e.code, e.table_no)
+            self.p(f"  {who} 完成（${d.get('cost', 0):.4f}）")
         elif e.type == "call_failed":
-            self.p(f"  {self.label(e.code, e.table_no)} 调用失败")
+            self.p(f"  {self.who(d.get('role'), e.code, e.table_no)} 调用失败")
         elif e.type == "member_dropped":
             self.p(f"  {self.label(e.code, e.table_no)} 退出本轮（已有内容保留）")
         elif e.type == "step_finished" and d.get("degraded"):
@@ -322,14 +378,20 @@ class CLI:
         tables = sorted({o.table_no for o in view.outputs})
         for table_no in tables:
             outputs = [o for o in view.outputs if o.table_no == table_no]
-            if len(tables) > 1:
+            if any(o.kind == "office_review" for o in outputs):
+                self.p("\n—— 项目组 ——")
+            elif len(tables) > 1:
                 self.p(f"\n—— 第 {table_no + 1} 张桌子 ——")
             self.print_style(outputs, table_no, details)
             if any(o.kind == "subtasks" for o in outputs):
                 self.print_collab(outputs, table_no, details)
+                self.print_office_review(outputs)
                 continue
             if any(o.kind in ("ideas", "mindmap") for o in outputs):
                 self.print_brainstorm(outputs, table_no, details)
+                continue
+            if any(o.kind == "office_intake" for o in outputs):
+                self.print_office(outputs, table_no, details)
                 continue
             if details:
                 for o in outputs:
@@ -395,25 +457,49 @@ class CLI:
                 fail = f"，失败 {failed}" if failed else ""
                 planned = est.get("steps", {}).get(step, 0)
                 self.p(
-                    f"    {STEP_NAMES.get(step, step)}：预估 ${planned:.4f}"
+                    f"    {self.step_name(step)}：预估 ${planned:.4f}"
                     f"，实际 ${sum(c.cost_usd for c in cs):.4f}"
                     f"（{len(cs)} 次调用{fail}，输入 {self.rice(tin)} / 输出 {self.rice(tout)}）"
                 )
         self.p("\n【每次调用】")
         for c in view.calls:
             where = "准备" if c.table_no is None else f"第 {c.table_no + 1} 桌"
-            who = {"planner": "规划员", "preprocess": "附件预处理"}.get(c.role) or self.label(
-                c.code, c.table_no or 0
-            )
+            who = self.who(c.role, c.code, c.table_no or 0)
+            if c.role == "reviewer" and self.names:  # 身份可以显示时，复核经理也带上模型
+                who += f"（{c.model_id}）"
             channel = f" · {c.channel}" if c.channel else ""
             error = f" · 失败：{c.error}" if c.error else ""
             self.p(
-                f"  #{c.id} {where} {STEP_NAMES.get(c.step, c.step)} {who}{channel}："
+                f"  #{c.id} {where} {self.step_name(c.step)} {who}{channel}："
                 f"输入 {self.rice(c.input_tokens)} / 输出 {self.rice(c.output_tokens)}，"
                 f"${c.cost_usd:.4f}"
                 + (f"，{c.latency_s:.1f}s" if c.latency_s is not None else "")
                 + error
             )
+        if view.workflow == "office":
+            self.print_payslip(view)
+
+    def print_payslip(self, view) -> None:
+        """办公室模式的工资单：每位员工 / 经理这件事各领多少（token 就是工资），外包另列。"""
+        revealed = bool(self.names)
+
+        def lead(model_id: str | None) -> str:
+            return coordinator_name(model_id, self.rt.config, office=True) if model_id else "经理"
+
+        def member(code: str) -> str:
+            return f"{self.prefix}{code}"
+
+        slip = payslip(view.calls, view.seats, label=member, coordinator_label=lead)
+        self.p("\n【工资单】")
+        for line in slip.lines:
+            model = f"（{line.model_id}）" if revealed and line.model_id else ""
+            failed = f"，失败 {line.failed_calls}" if line.failed_calls else ""
+            self.p(
+                f"  {line.who}{model}：{line.calls} 次{failed}，"
+                f"输入 {self.rice(line.input_tokens)} / 输出 {self.rice(line.output_tokens)}，"
+                f"${line.cost_usd:.4f}"
+            )
+        self.p(f"  合计 ${slip.total_usd:.4f}")
 
     def export(self, sid: str, path: str | None) -> Path:
         """把完整记录（含每位成员的产出和花费明细）写成 UTF-8 文本文件，不经过终端编码。"""
@@ -514,18 +600,20 @@ class CLI:
 
     # --- 提交前预估 -------------------------------------------------------------------
 
-    def preview(self, question: str, choice: UserChoice, ids: Sequence[str], *, seed: int):
+    def question(self, question: str, choice: UserChoice, ids: Sequence[str]) -> Question:
         rows = [self.rt.repo.attachment(i) for i in ids]
         params = self.rt.config.routing.estimate
-        q = Question(
+        return Question(
             question,
             tuple(r["kind"] for r in rows),
             attachment_tokens(rows, params),
             choice.media,
             choice.media_tier,
         )
+
+    def preview(self, question: str, choice: UserChoice, ids: Sequence[str], *, seed: int):
         return preview_estimates(
-            q,
+            self.question(question, choice, ids),
             config=self.rt.config,
             router=self.rt.router,
             seed=seed,
@@ -548,8 +636,8 @@ class CLI:
         assessment, options = self.preview(question, choice, ids, seed=seed)
         cfg = self.rt.config.routing
         plan = choice.tier or cfg.default_plan
-        threshold = cfg.confirm_threshold_usd
         mode_names = {
+            "office": "办公室",
             "discussion": "讨论",
             "collab": "协同",
             "solo": "个人",
@@ -569,18 +657,36 @@ class CLI:
                 self.p(f"{head}：不可用（{reason}）")
                 continue
             e = o.estimate
-            over = "  超过确认门槛" if e.total_usd > threshold else ""
+            over = (
+                "  超过确认门槛"
+                if e.total_usd > confirm_threshold(self.rt.config, o.workflow)
+                else ""
+            )
             absent = f"，缺席 {len(o.lineup.absent)}" if o.lineup.absent else ""
-            coord = " + 统筹" if o.lineup.coordinator else ""
+            office = o.workflow == "office"
+            member, lead = ("员工", "经理") if office else ("组员", "统筹")
+            coord = f" + {lead}" if o.lineup.coordinator else ""
             self.p(
-                f"{head}：{len(o.lineup.members)} 位组员{coord}{absent}，"
+                f"{head}：{len(o.lineup.members)} 位{member}{coord}{absent}，"
                 f"预计 ${e.total_usd:.4f}（最多约 ${e.max_usd:.4f}）{over}"
             )
+            if office:
+                groups = group_estimates(
+                    self.rt.config, self.rt.router, self.question(question, choice, ids), o.lineup
+                )
+                if groups:
+                    self.p(
+                        "      经理如果决定"
+                        + "；".join(_group_line(m, g) for m, g in groups.items())
+                    )
             if not anonymous and not brief:
-                self.p(f"      上桌：{'、'.join(o.lineup.members)}；统筹 {o.lineup.coordinator}")
+                seated = "在岗" if office else "上桌"
+                self.p(
+                    f"      {seated}：{'、'.join(o.lineup.members)}；{lead} {o.lineup.coordinator}"
+                )
             if not brief:
                 steps = "，".join(
-                    f"{STEP_NAMES.get(st.step, st.step)} ${st.cost_usd:.4f}"
+                    f"{self.step_name(st.step)} ${st.cost_usd:.4f}"
                     for st in e.steps
                     if st.step != "reveal"
                 )
@@ -630,10 +736,9 @@ class CLI:
         scrub = (lambda t: t) if revealed else self.rt.scrubber.scrub
         self.p("\n【媒体生成】")
         for j in jobs:
-            who = self.label(j["code"], j["table_no"]) if j["code"] else "统筹"
-            where = (
-                f"{who} · {j['subtask']}" if j["subtask"] else STEP_NAMES.get(j["step"], j["step"])
-            )
+            lead = "经理" if self.office else "统筹"
+            who = self.label(j["code"], j["table_no"]) if j["code"] else lead
+            where = f"{who} · {j['subtask']}" if j["subtask"] else self.step_name(j["step"])
             model = f" · {j['model_id']}（{j['channel']}）" if revealed and j["channel"] else ""
             self.p(
                 f"  {MEDIA_NAMES.get(j['kind'], j['kind'])} · {where} · 第 {j['round']} 轮"
@@ -660,7 +765,7 @@ class CLI:
                 status = TOOL_STATUS.get(c["status"], c["status"])
                 took = f"，{c['duration_s']:.1f}s" if c["duration_s"] else ""
                 self.p(
-                    f"\n· {who} · {STEP_NAMES.get(c['step'], c['step'])} · 第 {c['round']} 轮"
+                    f"\n· {who} · {self.step_name(c['step'])} · 第 {c['round']} 轮"
                     f" · {tool}：{status}{took}"
                 )
                 if c["tool"] == "python" and c["input"].get("code"):
@@ -727,6 +832,103 @@ class CLI:
                 where, what, fix = (self.t(i[k]) for k in ("location", "problem", "suggestion"))
                 self.p(f"     · [{i['severity']}] {where}：{what} → {fix}")
 
+    def print_office(self, outputs, table_no: int, details: bool) -> None:
+        """办公室模式：经理怎么派的活、员工的成果、经理过目的意见，最后是交付的版本。"""
+        by_kind = {o.kind: o for o in outputs}
+        intake = json.loads(by_kind["office_intake"].content)
+        if "office_approval" in by_kind:
+            intake.update(json.loads(by_kind["office_approval"].content))
+        if intake["mode"] == "meeting":
+            self.print_meeting(outputs, intake, table_no, details)
+            return
+        if intake["mode"] == "project":
+            who = "、".join(self.label(c, table_no) for c in intake["attendees"])
+            self.p(f"\n【经理分诊】项目分工，项目组：{who}（经理拆分、合并，另一位经理验收）")
+            self.print_budget(intake)
+            if intake.get("reason"):
+                self.p(f"  理由：{self.t(intake['reason'])}")
+            return
+        who = self.label(intake["assignee"], table_no)
+        how = MODE_LABELS.get(intake["mode"], intake["mode"])
+        search = "，需要查资料" if intake.get("needs_search") else ""
+        if intake.get("declined"):
+            how = f"{MODE_LABELS.get(intake['declined'], '')}（你选择改为单人办）"
+        self.p(f"\n【经理分诊】经理建议{how}，派给 {who}{search}")
+        self.print_budget(intake)
+        if intake.get("by_rule"):
+            self.p(f"  （{intake.get('rule_reason') or '按规则派活'}）")
+        elif intake.get("reason"):
+            self.p(f"  理由：{self.t(intake['reason'])}")
+        if details and intake.get("brief"):
+            self.p(f"  工作说明：{self.t(intake['brief'])}")
+        work = by_kind.get("office_work")
+        fix = by_kind.get("office_fix")
+        check = by_kind.get("office_check")
+        if details and work and fix:
+            draft = json.loads(work.content)["text"]
+            self.p(f"\n【{self.label(work.code, table_no)} 的初稿】\n{self.t(draft)}")
+        if check:
+            c = json.loads(check.content)
+            verdict = "通过" if c["verdict"] == "pass" else "退回修改一次"
+            if c.get("degraded"):
+                verdict = "没有完成，直接交付"
+            self.p(f"\n【经理过目】{verdict}" + (f"：{self.t(c['note'])}" if c.get("note") else ""))
+            for i, issue in enumerate(c.get("issues") or [], 1):
+                self.p(f"  {i}. {self.t(issue)}")
+        final = fix or work
+        if final:
+            self.p(f"\n【交付】\n{self.t(json.loads(final.content)['text'])}")
+
+    def print_office_review(self, outputs) -> None:
+        """办公室模式的项目组：复核经理的验收意见；退回改过的版本作为交付。"""
+        review = next((o for o in outputs if o.kind == "office_review"), None)
+        if review is None:
+            return
+        r = json.loads(review.content)
+        if r.get("skipped"):
+            self.p("\n【复核经理验收】没有第二位经理可以复核，直接交付合并的成果")
+        elif r.get("degraded"):
+            self.p("\n【复核经理验收】没有完成，直接交付合并的成果")
+        else:
+            verdict = "通过" if r["verdict"] == "pass" else "退回修改一次"
+            note = f"：{self.t(r['note'])}" if r.get("note") else ""
+            self.p(f"\n【复核经理验收】{verdict}{note}")
+            for i, issue in enumerate(r.get("issues") or [], 1):
+                self.p(f"  {i}. {self.t(issue)}")
+        revised = next((o for o in outputs if o.kind == "office_revised"), None)
+        if revised:
+            self.p(f"\n【交付（按验收意见修改后）】\n{self.t(json.loads(revised.content)['text'])}")
+
+    def print_budget(self, intake) -> None:
+        """预算单：经理分诊后按选定的方式和人选估计还要花多少。"""
+        if intake.get("budget_usd") is not None:
+            how = MODE_LABELS.get(intake["mode"], intake["mode"])
+            self.p(f"  预算单：{how}预计 ${intake['budget_usd']:.4f}")
+
+    def print_meeting(self, outputs, intake, table_no: int, details: bool) -> None:
+        """办公室模式·开会：谁参会、各人发言（详情里）、经理拍板的结论与纪要。"""
+        who = "、".join(self.label(c, table_no) for c in intake["attendees"])
+        self.p(f"\n【经理分诊】开会，参会：{who}（依次发言，经理拍板）")
+        self.print_budget(intake)
+        if intake.get("attendees_by_rule"):
+            self.p("  （经理点名的人不够，按规则补齐）")
+        elif intake.get("reason"):
+            self.p(f"  理由：{self.t(intake['reason'])}")
+        if details and intake.get("brief"):
+            self.p(f"  会议议题：{self.t(intake['brief'])}")
+        if details:
+            for o in outputs:
+                if o.kind == "office_speech":
+                    text = json.loads(o.content)["text"]
+                    self.p(f"\n【{self.label(o.code, table_no)} 发言】\n{self.t(text)}")
+        decision = next((o for o in outputs if o.kind == "office_decision"), None)
+        if decision:
+            d = json.loads(decision.content)
+            title = "【交付】"
+            if d.get("degraded"):
+                title = "【交付（经理没能拍板，以下是各位的发言）】"
+            self.p(f"\n{title}\n{self.t(d['text'])}")
+
     def print_brainstorm(self, outputs, table_no: int, details: bool) -> None:
         """头脑风暴：详情里列出每人的想法与拓展；最后给出整合后的大纲。"""
         if details:
@@ -788,9 +990,10 @@ class CLI:
     def print_identities(self, sid: str, title: str) -> None:
         view = self.rt.repo.session_view(sid)
         self.names = {}  # 这里单独列出模型，代号后不再重复
+        lead = "经理" if view.workflow == "office" else "统筹"
         self.p("\n" + "═" * 40 + "\n" + title)
         for seat in view.seats:
-            who = self.label(seat.code) if seat.role == "member" else "统筹"
+            who = self.label(seat.code) if seat.role == "member" else lead
             table = f"第 {seat.table_no + 1} 桌 " if any(s.table_no for s in view.seats) else ""
             self.p(f"  {table}{who} = {seat.model_id}")
         planner = view.routing.get("planner_model") if view.routing else None
@@ -805,10 +1008,10 @@ class CLI:
             who = (
                 self.label(c.code)
                 if c.role == "member"
-                else {"planner": "规划员"}.get(c.role, "统筹")
+                else {"planner": "规划员", "reviewer": "复核经理"}.get(c.role, lead)
             )
             self.p(
-                f"  {STEP_NAMES.get(c.step, c.step):<6} {who:<6} {c.model_id}  渠道：{trail or '-'}"
+                f"  {self.step_name(c.step):<6} {who:<6} {c.model_id}  渠道：{trail or '-'}"
                 f"  ${c.cost_usd:.4f}"
             )
         usage = self.rt.repo.spent_by_channel()
@@ -1040,6 +1243,43 @@ class CLI:
         self.p(month.describe() + (f"；{day.describe()}" if day else ""))
         return 0
 
+    async def cmd_model_updates(self) -> int:
+        catalog = self.rt.catalog
+        if catalog is None:
+            self.p("没有可用的模型列表来源。")
+            return 1
+        try:
+            data = await catalog.refresh()
+        except LookupError as e:
+            self.p(str(e))
+            return 1
+        except Exception as e:  # noqa: BLE001 - 网络错误只报类型
+            self.p(f"查询模型列表失败（{type(e).__name__}）。")
+            return 1
+        self.p(f"来源：{data['source']}（只提示，不会自动修改 config/models.yaml）")
+        changes, missing, fresh = data["price_changes"], data["missing"], data["candidates"]
+        if changes:
+            self.p("价格变动（每百万 token，输入 / 输出）：")
+            for c in changes:
+                (ci, co), (ai, ao) = c["configured"], c["actual"]
+                self.p(f"  {c['model_id']:<22} 配置 ${ci:g}/${co:g} → 实际 ${ai:g}/${ao:g}")
+        if missing:
+            self.p("找不到（可能已下架或改名）：")
+            for m in missing:
+                self.p(f"  {m['model_id']:<22} {m['route']}")
+        if fresh:
+            self.p("可能更合适的新模型：")
+            for c in fresh:
+                i, o = c["price"]
+                tier = c["tier"] or "不在现有档位价格区间"
+                swap = f"，可替换 {'、'.join(c['replaces'])}" if c["replaces"] else ""
+                self.p(f"  {c['route']:<36} ${i:g}/${o:g}  建议档位：{tier}{swap}")
+        if not (changes or missing or fresh):
+            self.p("配置的模型都是最新的，价格也一致。")
+        else:
+            self.p("要采纳请改 config/models.yaml（或告诉我，确认后再改）。")
+        return 0
+
     def cmd_stats(self) -> int:
         """跨会话按模型统计贡献（只统计身份已公开的会话）。"""
         rows = self.rt.repo.contribution_history()
@@ -1055,6 +1295,36 @@ class CLI:
             parts = [f"{KIND_NAMES[k]} {counts[k]}" for k in KIND_NAMES if k in counts]
             name = f"{display_name(model, self.rt.config)}（{model}）"
             self.p(f"  {name:<28} {sessions[model]} 场  " + "，".join(parts))
+        return 0
+
+    def cmd_performance(self, do_reset: bool) -> int:
+        """办公室模式的员工绩效：按活的类型统计件数、被退回、验收通过率、平均工资与用时。"""
+        from roundtable.core.office import collect, reset
+        from roundtable.core.office.performance import KIND_LABELS, KINDS
+
+        if do_reset:
+            reset(self.rt.repo, self.rt.repo.clock())
+            self.p("绩效已清零：之后只统计从现在起的办公室会话（不删除任何记录）。")
+            return 0
+        perf = collect(self.rt.repo)
+        if not perf.by_model:
+            self.p("还没有绩效记录：办公室模式办完事后再来看。")
+            return 0
+        if perf.since:
+            self.p(f"从 {perf.since[:19]} 起统计")
+        for model, kinds in perf.by_model.items():
+            self.p(f"  {display_name(model, self.rt.config)}（{model}）")
+            for kind in KINDS:
+                st = kinds.get(kind)
+                if st is None:
+                    continue
+                d = st.to_dict()
+                rate = "" if st.pass_rate is None else f"，通过率 {st.pass_rate:.0%}"
+                back = f"，退回 {st.returned}" if st.returned else ""
+                self.p(
+                    f"    {KIND_LABELS[kind]} {st.jobs} 件{rate}{back}，"
+                    f"平均 ${d['avg_cost_usd']:.4f} / {d['avg_seconds']:.0f} 秒"
+                )
         return 0
 
     def cmd_note(self, session_id: str, text: str) -> int:
@@ -1113,10 +1383,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     ask.add_argument(
         "--mode",
-        choices=["discussion", "collab", "solo", "brainstorm", "auto"],
-        default="discussion",
+        choices=["office", "discussion", "collab", "solo", "brainstorm", "auto"],
+        default="office",
         help=(
-            "discussion 讨论（全员各自作答再互评汇总，默认）/ collab 协同（拆分子任务分工完成）"
+            "office 办公室（经理分诊：单人办、开会或项目分工，经理把关；默认）"
+            "/ discussion 讨论（全员各自作答再互评汇总）/ collab 协同（拆分子任务分工完成）"
             "/ solo 个人作答（档位内挑最便宜的一位直接回答）"
             "/ brainstorm 头脑风暴（发散、拓展、整合成思维导图）"
             "/ auto 自动（先请分诊小组给建议，你确认后再开始）"
@@ -1144,7 +1415,12 @@ def build_parser() -> argparse.ArgumentParser:
     reveal.add_argument("--reveal", action="store_true", default=None, help="结束后直接揭晓")
     reveal.add_argument("--no-reveal", dest="reveal", action="store_false", help="结束后不揭晓")
 
-    sub.add_parser("models", help="查看模型、档位与可用渠道")
+    models = sub.add_parser("models", help="查看模型、档位与可用渠道")
+    models.add_argument(
+        "--check-updates",
+        action="store_true",
+        help="查询聚合渠道的模型列表：价格变动、下架、可能更合适的新模型（只提示，不改配置）",
+    )
     bench = sub.add_parser(
         "bench", help="对比实验：同一批题用个人 / 讨论 / 协同各跑一遍，比较正确率、花费、耗时"
     )
@@ -1154,7 +1430,7 @@ def build_parser() -> argparse.ArgumentParser:
     bench.add_argument(
         "--modes",
         default="solo:budget,discussion:budget,collab:budget",
-        help="模式:档位，逗号分隔，如 solo:budget,collab:flagship",
+        help="模式:档位，逗号分隔，如 solo:budget,collab:flagship；办公室模式写 office:budget",
     )
     bench.add_argument("--category", action="append", help="只跑这些类别（可重复）")
     bench.add_argument("--limit", type=int, help="只跑前 N 题")
@@ -1165,6 +1441,8 @@ def build_parser() -> argparse.ArgumentParser:
     bench.add_argument("--report", metavar="BATCH", help="只查看某次实验的汇总")
     bench.add_argument("-o", "--output", help="导出 CSV 或 JSON（按后缀）")
     sub.add_parser("stats", help="各模型的历史贡献（被采纳、有效问题、敷衍次数等）")
+    perf = sub.add_parser("performance", help="办公室模式的员工绩效（件数、退回、通过率等）")
+    perf.add_argument("--reset", action="store_true", help="清零：之后只统计从现在起的会话")
     history = sub.add_parser("history", help="最近的讨论")
     history.add_argument("--limit", type=int, default=20)
     note = sub.add_parser("note", help="讨论进行中补充意见（下一个步骤开始时带上）")
@@ -1262,9 +1540,13 @@ async def run(
         if args.command == "bench":
             return await cli.cmd_bench(args)
         if args.command == "models":
+            if args.check_updates:
+                return await cli.cmd_model_updates()
             return cli.cmd_models()
         if args.command == "stats":
             return cli.cmd_stats()
+        if args.command == "performance":
+            return cli.cmd_performance(args.reset)
         if args.command == "note":
             return cli.cmd_note(args.session_id, args.text)
         if args.command == "history":

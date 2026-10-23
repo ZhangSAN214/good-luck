@@ -49,3 +49,10 @@ def test_table_cells_are_escaped_and_bold_still_works():
 
 def test_plain_text_with_pipes_is_not_a_table():
     assert "<table" not in render("a | b | c\n| 只有一行 |")
+
+
+def test_heading_lines_lose_their_hashes_and_are_bold():
+    html = render("## 结论\n最大值 2\n\n### 会议纪要 ##\n#没有空格不算标题\n<h1>不是标题</h1>")
+    assert '<strong class="mdh h2">结论</strong>' in html
+    assert '<strong class="mdh h3">会议纪要</strong>' in html
+    assert "#没有空格不算标题" in html and "&lt;h1&gt;" in html and "##" not in html

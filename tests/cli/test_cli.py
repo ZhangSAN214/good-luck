@@ -29,8 +29,12 @@ class Answers:
 
 
 async def cli(env: Env, *argv: str, answers: Answers | None = None) -> tuple[int, str]:
+    """命令行默认是办公室模式；这些测试针对讨论模式，没写 --mode 时按讨论模式运行。"""
+    args = list(argv)
+    if args and args[0] == "ask" and "--mode" not in args:
+        args[1:1] = ["--mode", "discussion"]
     out = io.StringIO()
-    code = await run(list(argv), runtime=env.rt, out=out, ask=answers or Answers())
+    code = await run(args, runtime=env.rt, out=out, ask=answers or Answers())
     return code, out.getvalue()
 
 
@@ -341,6 +345,8 @@ async def test_estimate_command_and_ask_preview():
     assert code == 0 and env.fake.calls == []
     assert "提交前预估" in text and "▶ 讨论 · 节电模式" in text and "协同 · 全力模式" in text
     assert "上桌：" in text and "随机种子：5" in text
+    # 办公室模式另列经理如果决定开会 / 项目分工的大概花费
+    assert "经理如果决定开会（2～3 人）约 $" in text and "项目分工（2～" in text
     code, text = await cli(env, "estimate", MEDIUM, "--anonymous")
     assert "上桌：" not in text
     for term in identity_terms(env):
@@ -589,3 +595,126 @@ async def test_mindmap_command_without_mindmap_explains():
     sid = re.search(r"会话：(\w+)", (await cli(env, "history"))[1])
     code, text = await cli(env, "mindmap", sid.group(1) if sid else "x")
     assert code == 2 or "没有思维导图" in text
+
+
+async def test_ask_defaults_to_office_mode():
+    """不写 --mode 时是办公室模式：经理派一位员工办理，经理过目后交付。"""
+    env = Env(confirm_threshold_usd=100.0)
+    out = io.StringIO()
+    code = await run(["ask", SHORT, "--seed", "3"], runtime=env.rt, out=out, ask=Answers("n"))
+    text = out.getvalue()
+    assert code == 0, text
+    assert "【经理分诊】" in text and "【经理过目】通过" in text and "【交付】" in text
+    assert "预算单：单人办预计 $" in text
+    assert "经理 + 3 位在岗员工" in text and "（经理）" in text and "统筹" not in text
+    assert "最大值 2，最小值 -2" in text.split("【交付】")[1]
+    assert "按规则派活" not in text  # 经理的分诊可用
+    # 经理两次（分诊、过目），只有一位员工办理
+    assert len(env.models_called("办公室的经理")) == 2
+    assert len(env.models_called("办公室的员工")) == 1
+
+
+async def test_models_check_updates_only_reports():
+    env = Env()
+
+    async def fetch(url):
+        data = [
+            {"id": m.id, "created": 1, "pricing": {"prompt": "0", "completion": "0"}}
+            for m in env.config.models.models
+            if m.id != "f5"
+        ]
+        return {"data": data}
+
+    env.rt.catalog.fetch = fetch
+    before = env.config.model_dump()
+    code, text = await cli(env, "models", "--check-updates")
+    assert code == 0 and "价格变动" in text and "b1" in text
+    assert "找不到" in text and "f5" in text and "只提示" in text
+    assert env.rt.config.model_dump() == before  # 不改配置
+
+    async def broken(url):
+        raise OSError("secret-ish detail")
+
+    env.rt.catalog.fetch = broken
+    code, text = await cli(env, "models", "--check-updates")
+    assert code == 1 and "OSError" in text and "secret-ish" not in text
+
+
+async def test_ask_office_meeting_shows_attendees_speeches_and_decision():
+    """经理决定开会：命令行列出参会员工、（详情里的）发言，交付经理拍板的结论和纪要。"""
+    env = Env(confirm_threshold_usd=100.0)
+    env.office_mode = "meeting"
+    out = io.StringIO()
+    code = await run(
+        ["ask", SHORT, "--seed", "3", "--details"], runtime=env.rt, out=out, ask=Answers("n")
+    )
+    text = out.getvalue()
+    assert code == 0, text
+    assert "【经理分诊】开会，参会：" in text and "发言】" in text
+    # 实时进度：办理这一步显示为开会，开会不再过目
+    assert "▶ 开会（参会员工依次发言，经理拍板）" in text
+    assert "▶ 经理过目" not in text and "▶ 员工办理" not in text
+    assert "## 结论" in text.split("【交付】")[1]
+    assert "【经理过目】" not in text
+    assert len(env.models_called("参会人之一")) == 2
+
+
+async def test_ask_office_project_shows_team_and_review():
+    """经理决定项目分工：命令行列出项目组，项目组桌子走协同，最后是复核经理的验收。"""
+    env = Env(confirm_threshold_usd=100.0)
+    env.office_mode = "project"
+    env.office_review = "revise"
+    out = io.StringIO()
+    code = await run(["ask", SHORT, "--seed", "3"], runtime=env.rt, out=out, ask=Answers("n"))
+    text = out.getvalue()
+    assert code == 0, text
+    assert "【经理分诊】项目分工，项目组：" in text and "—— 项目组 ——" in text
+    assert "=== 项目组：2 位员工" in text and "第 2 张桌子" not in text
+    assert "▶ 经理过目" not in text and "▶ 员工办理" not in text
+    assert "【复核经理验收】退回修改一次" in text
+    assert "修改后的项目成果" in text.split("【交付（按验收意见修改后）】")[1]
+
+
+async def test_export_covers_office_meeting_and_project(tmp_path):
+    """导出的完整记录里有开会的发言和拍板、项目组的分工和复核，以及每步花费。"""
+    for mode, expected in (
+        ("meeting", ("【经理分诊】开会，参会：", "发言】", "## 结论", "员工发言", "经理拍板")),
+        (
+            "project",
+            (
+                "—— 项目组 ——",
+                "【子任务与分工】",
+                "【复核经理验收】",
+                "复核经理验收 复核经理（f2）",
+                "复核经理（f2）：1 次",
+            ),
+        ),
+    ):
+        env = Env(confirm_threshold_usd=100.0)
+        env.office_mode = mode
+        await run(
+            ["ask", SHORT, "--seed", "3"], runtime=env.rt, out=io.StringIO(), ask=Answers("n")
+        )
+        sid = env.rt.repo.list_sessions()[0].id
+        target = tmp_path / f"{mode}.txt"
+        code, _ = await cli(env, "export", sid, "-o", str(target))
+        text = target.read_text(encoding="utf-8-sig")
+        assert code == 0 and "【花费明细】" in text and "统筹" not in text
+        # 工资单：每位员工 / 经理各一行（同一位经理在两张桌子上合成一行），最后是合计
+        slip = text.split("【工资单】", 1)[1]
+        assert "合计 $" in slip and slip.count("（经理）") == 1, slip
+        for part in expected:
+            assert part in text, (mode, part)
+
+
+async def test_performance_command_lists_and_resets():
+    env = Env(confirm_threshold_usd=100.0)
+    code, text = await cli(env, "performance")
+    assert code == 0 and "还没有绩效记录" in text
+    await run(["ask", SHORT, "--seed", "3"], runtime=env.rt, out=io.StringIO(), ask=Answers("n"))
+    code, text = await cli(env, "performance")
+    assert code == 0 and "单人办 1 件，通过率 100%" in text
+    code, text = await cli(env, "performance", "--reset")
+    assert code == 0 and "已清零" in text
+    code, text = await cli(env, "performance")
+    assert "还没有绩效记录" in text

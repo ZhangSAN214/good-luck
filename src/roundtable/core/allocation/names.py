@@ -26,8 +26,9 @@ def display_name(model_id: str, config: AppConfig) -> str:
     return f"{nick}{personas.nickname_separator}{personas.tier_labels.get(spec.tier, spec.tier)}"
 
 
-def coordinator_name(model_id: str, config: AppConfig) -> str:
-    return display_name(model_id, config) + config.personas.coordinator_suffix
+def coordinator_name(model_id: str, config: AppConfig, *, office: bool = False) -> str:
+    suffix = config.personas.manager_suffix if office else config.personas.coordinator_suffix
+    return display_name(model_id, config) + suffix
 
 
 def tarot_codes(

@@ -12,6 +12,7 @@ import asyncio
 import logging
 import random
 import secrets
+import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
 from typing import Any
@@ -32,6 +33,7 @@ from roundtable.core.routing import (
     UserChoice,
     answer_tokens,
     attachment_tokens,
+    confirm_threshold,
     cost_card,
     escalate,
     escalation_card,
@@ -56,8 +58,12 @@ from roundtable.core.steps import (
     restore_state,
     table_contributions,
 )
+from roundtable.core.steps.office import estimate_project
 from roundtable.core.storage import CheckpointView, NotFound
 from roundtable.core.tools import ToolBox
+
+# 步骤内部弹出、回复后重新执行该步骤的确认点：媒体生成确认、办公室模式的开会确认
+STEP_CARD_KINDS = ("media", "office")
 
 log = logging.getLogger(__name__)
 
@@ -488,7 +494,7 @@ class Orchestrator:
             estimate=estimate,
             options={},
             escalate_to=cfg.routing.plans[plan_name].escalate_to,
-            confirm_threshold_usd=cfg.routing.confirm_threshold_usd,
+            confirm_threshold_usd=confirm_threshold(cfg, row["workflow"]),
         )
         self._create_table(sid, table_no, decision, status="approved", replace_existing=True)
         repo.save_routing(
@@ -522,9 +528,65 @@ class Orchestrator:
                 outcome = await self._run_table(sid, current)
                 if outcome != DONE:
                     return self._result(sid)
-                await self._maybe_escalate(sid, current)
+                if not self._maybe_project(sid, current):
+                    await self._maybe_escalate(sid, current)
                 continue
             return self._complete(sid, tables)
+
+    def _maybe_project(self, sid: str, table: dict[str, Any]) -> bool:
+        """办公室模式：经理决定项目分工（老板已同意或在上限内）时，另开一张「项目组」桌子。
+
+        只有经理点名的项目组成员上桌，主办经理统筹，走 office.project.pipeline；
+        预估按项目组的阵容重新计算（与分诊时弹卡片用的预估相同）。
+        """
+        repo, cfg = self.rt.repo, self.rt.config
+        table_no = table["table_no"]
+        if any(t["table_no"] == table_no + 1 for t in repo.tables(sid)):
+            return False
+        office = restore_state(repo, sid, table_no).office
+        if not office.project or not (office.intake or {}).get("approved"):
+            return False
+        members = dict(table["members"])
+        team = [members[c] for c in office.intake["attendees"]]
+        estimate = estimate_project(
+            cfg,
+            self.rt.router,
+            self._table_question(repo.session_row(sid)),
+            team,
+            table["coordinator"],
+        )
+        row = repo.session_row(sid)
+        codes = member_codes(
+            team,
+            cfg,
+            random.Random(f"{row['seed']}:codes:{table_no + 1}"),
+            anonymous=bool(row["anonymous"]),
+        )
+        repo.create_table(
+            sid,
+            table_no + 1,
+            plan=table["plan"],
+            pipeline=tuple(cfg.roundtable.office.project.pipeline),
+            members=codes,
+            coordinator=table["coordinator"],
+            escalate_to=None,
+            estimate={
+                "total": estimate.total_usd,
+                "max": estimate.max_usd,
+                "calibrated": estimate.calibrated,
+                "steps": {s.step: s.cost_usd for s in estimate.steps},
+            },
+            status="approved",
+            escalation_reason=None,
+        )
+        self._emit(
+            sid,
+            "office_project",
+            table_no=table_no + 1,
+            members=len(team),
+            estimate_usd=estimate.total_usd,
+        )
+        return True
 
     async def _maybe_escalate(self, sid: str, table: dict[str, Any]) -> bool:
         """本桌完成后判断是否需要升级；需要时新建下一张桌子并询问用户（从不自动升级）。"""
@@ -582,6 +644,7 @@ class Orchestrator:
             table_no=table_no,
             plan=table["plan"],
             members=list(table["members"]),
+            pipeline=list(table["pipeline"]),
         )
 
         ctx = TableContext(
@@ -607,6 +670,10 @@ class Orchestrator:
             ),
         )
         ctx.file_store = self.rt.files
+        if "office_review" in table["pipeline"]:  # 办公室模式的项目组桌子
+            project = cfg.roundtable.office.project
+            ctx.step_overrides = {k: dict(v) for k, v in project.step_params.items()}
+            ctx.reviews_per_item = project.reviews_per_item
         # 匿名关闭：生成提示词、工具描述都不做身份遮蔽；匿名开启时题目和附件里本来就有的名称保留
         table_scrubber = self.rt.scrubber.bound(
             "\n".join([ctx.question.text, *(a.text or "" for a in ctx.attachments)]),
@@ -672,7 +739,9 @@ class Orchestrator:
             midstep = self._answered_midstep(sid, table_no, step)
             if not midstep and not self._budget_ok(sid, table, step):
                 return "paused"
-            if not midstep and not self._overrun_ok(sid, table, step, done):
+            if not midstep and not self._overrun_ok(
+                sid, table, step, done, ctx.state.extra_estimate_usd()
+            ):
                 return "paused"
             if step in PEER_STEPS and len(ctx.active) < cfg.roundtable.min_members:
                 if not ctx.active:
@@ -684,6 +753,7 @@ class Orchestrator:
             # 每个步骤使用由 seed 派生的独立随机数：中途恢复也与不中断时结果一致
             ctx.rng = random.Random(f"{row['seed']}:{table_no}:{step}")
             self._emit(sid, "step_started", step=step, table_no=table_no)
+            began = time.monotonic()
             try:
                 result = await get_step(step).run(ctx)
             except NeedsApproval as need:
@@ -691,6 +761,15 @@ class Orchestrator:
             except StepFailed as exc:
                 return self._fail(sid, f"步骤 {step} 失败：{exc}")
             repo.mark_step_done(sid, table_no, step)
+            # 每步用时写进日志（排查"慢"：哪一步、几次调用）
+            log.info(
+                "会话 %s 第 %d 桌 %s：%.1f 秒，%d 次调用",
+                sid,
+                table_no,
+                step,
+                time.monotonic() - began,
+                result.calls,
+            )
             self._warn(sid, *result.notes)
             self._emit(
                 sid,
@@ -759,8 +838,12 @@ class Orchestrator:
         self._checkpoint(sid, verdict.card(), table_no=table["table_no"], step=step)
         return False
 
-    def _overrun_ok(self, sid: str, table: dict[str, Any], step: str, done: set[str]) -> bool:
+    def _overrun_ok(
+        self, sid: str, table: dict[str, Any], step: str, done: set[str], extra: float = 0.0
+    ) -> bool:
         """本桌实际花费 + 下一步预估超过"本桌预估 × overrun_factor"时暂停询问，防止花费失控。
+
+        extra：步骤运行中才确定、已经确认的追加预估（如办公室模式决定开会），计入本桌预估。
 
         用户选择继续后，上限提高到"已花费 + 剩余步骤预估"再乘以倍数；之后再超出会再次询问。
         """
@@ -770,7 +853,7 @@ class Orchestrator:
         # 媒体生成有自己的确认（视频每次问、超过门槛问）和预算检查，不计入超支保护：
         # 协同模式的媒体子任务在预估时还不知道，否则每次确认之后都会再弹一张超支卡片
         media_estimate = estimate["steps"].get("media", 0.0)
-        total = (estimate.get("total") or 0.0) - media_estimate
+        total = (estimate.get("total") or 0.0) - media_estimate + extra
         if step == "media" or factor is None or total <= 0:
             return True
         table_no = table["table_no"]
@@ -810,7 +893,7 @@ class Orchestrator:
 
     def _answered_midstep(self, sid: str, table_no: int, step: str) -> bool:
         return any(
-            c.kind == "media"
+            c.kind in STEP_CARD_KINDS
             and c.response is not None
             and c.card.get("details", {}).get("table_no") == table_no
             and c.card.get("details", {}).get("step") == step
@@ -822,7 +905,11 @@ class Orchestrator:
 
         def lookup(key: str) -> str | None:
             for c in self.rt.repo.session_view(sid).checkpoints:
-                if c.kind == "media" and c.card.get("details", {}).get("key") == key and c.response:
+                if (
+                    c.kind in STEP_CARD_KINDS
+                    and c.card.get("details", {}).get("key") == key
+                    and c.response
+                ):
                     return c.response
             return None
 
@@ -910,8 +997,10 @@ class Orchestrator:
         if stored is None:
             return
         record = RoutingRecord.from_dict(stored)
-        escalated = [t for t in tables if t["table_no"] > 0 and t["status"] == DONE]
-        offered = [t for t in tables if t["table_no"] > 0]
+        # 办公室模式的项目组桌子不是升级
+        upgrades = [t for t in tables if t["table_no"] > 0 and "office_review" not in t["pipeline"]]
+        escalated = [t for t in upgrades if t["status"] == DONE]
+        offered = upgrades
         confirmed = [
             c for c in repo.session_view(sid).checkpoints if c.kind == "cost" and c.response
         ]

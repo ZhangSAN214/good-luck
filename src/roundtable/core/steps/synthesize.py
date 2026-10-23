@@ -86,7 +86,10 @@ def outcome_signals(state: TableState) -> OutcomeSignals | None:
 
 
 def final_answer(state: TableState) -> str | None:
-    """本桌的最终答案：协同模式用合并成果；有汇总用汇总；只有一个组员时用他的最终稿。"""
+    """本桌的最终答案：办公室模式用员工（经理过目后）交付的版本；协同模式用合并成果；
+    有汇总用汇总；只有一个组员时用他的最终稿。"""
+    if state.office.final is not None:
+        return state.office.final
     if state.brain.mindmap is not None:
         m = state.brain.mindmap
         return f"{to_markdown(m)}\n```mermaid\n{to_mermaid(m)}```\n"

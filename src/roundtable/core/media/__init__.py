@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from .frames import FramesUnavailable, extract_frames
+from .frames import FramesUnavailable, extract_frames, shrink_image
 from .pricing import KIND_LABELS, KIND_TAGS, KINDS, estimate_generation, unit_cost
 from .select import media_group, pick_media_model, pick_stt_model
 
@@ -24,6 +24,7 @@ __all__ = [
     "Placement",
     "estimate_generation",
     "extract_frames",
+    "shrink_image",
     "media_group",
     "pick_media_model",
     "pick_stt_model",

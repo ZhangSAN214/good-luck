@@ -13,15 +13,21 @@ import logging
 import secrets
 from collections.abc import AsyncIterator, Sequence
 from dataclasses import asdict
+from datetime import timedelta
 from typing import Any
 from urllib.parse import quote
 
 from roundtable.core.allocation import coordinator_name, display_name
 from roundtable.core.attachments import Attachment, UploadError, ingest
 from roundtable.core.attachments.detect import TYPES as UPLOAD_TYPES
+from roundtable.core.budget.guard import month_window
+from roundtable.core.chat import GroupChat
 from roundtable.core.media import KIND_LABELS, KINDS, MediaService
-from roundtable.core.members_art import load_members, mime_of, resolve_file
+from roundtable.core.members_art import MEMBERS_FILE, load_members, mime_of, resolve_file
 from roundtable.core.notes import NoteError, check_can_add, clean_note
+from roundtable.core.office import building, payslip, roster
+from roundtable.core.office import collect as collect_performance
+from roundtable.core.office import reset as reset_performance
 from roundtable.core.orchestrator import Orchestrator, OrchestratorError, RunResult
 from roundtable.core.preview import render_preview
 from roundtable.core.routing import (
@@ -33,11 +39,13 @@ from roundtable.core.routing import (
     UserChoice,
     attachment_tokens,
     collab_advice,
+    confirm_threshold,
     detect_multi_media,
     preview_estimates,
 )
 from roundtable.core.runtime import Runtime
-from roundtable.core.steps import Event
+from roundtable.core.steps import Event, restore_state
+from roundtable.core.steps.office import group_estimates
 from roundtable.core.storage import NotFound
 
 log = logging.getLogger(__name__)
@@ -46,6 +54,9 @@ log = logging.getLogger(__name__)
 RESTING = frozenset({"completed", "stopped", "failed", "awaiting_confirmation", "paused"})
 REVEALABLE = frozenset({"completed", "stopped", "failed"})
 MAX_QUESTION_CHARS = 20_000
+MAX_CHAT_CHARS = 2000
+# 公寓楼：进行中的会话这么久没有更新就不算在上班（服务意外退出后留下的 running）
+WORKING_WINDOW_H = 3
 
 __all__ = [
     "MAX_QUESTION_CHARS",
@@ -69,9 +80,12 @@ class RoundtableService:
         self.orc = Orchestrator(runtime, on_event=self._publish)
         self._subscribers: dict[str, set[asyncio.Queue[dict[str, Any]]]] = {}
         self._tasks: dict[str, asyncio.Task[None]] = {}
+        self._art_names_cache: tuple[int | None, dict[str, str]] | None = None
+        self.chat = GroupChat(runtime, names=self._art_names)
+        self._chat_tasks: set[asyncio.Task[Any]] = set()
 
     async def aclose(self) -> None:
-        for task in list(self._tasks.values()):
+        for task in [*self._tasks.values(), *self._chat_tasks]:
             task.cancel()
             with contextlib.suppress(asyncio.CancelledError, Exception):
                 await task
@@ -110,6 +124,7 @@ class RoundtableService:
             "default_plan": cfg.routing.default_plan,
             "custom_label": cfg.routing.custom.label,
             "workflows": {
+                "office": "办公室",
                 "discussion": "讨论模式",
                 "collab": "协同模式",
                 "solo": "个人作答",
@@ -125,12 +140,28 @@ class RoundtableService:
             "media": self._media_status(),
             "min_members": cfg.roundtable.min_members,
             "confirm_threshold_usd": cfg.routing.confirm_threshold_usd,
+            # 办公室模式单人办的确认门槛（每件事的工资上限）
+            "office_threshold_usd": cfg.roundtable.office.task_caps_usd.single,
             "max_members": cfg.roundtable.seats,
             "code_prefix": cfg.personas.code_prefix,
             "rice": cfg.roundtable.display.rice.model_dump(),
             "collab_kinds": {name: k.label for name, k in cfg.roundtable.collab.kinds.items()},
             "budget": self.budget(),
         }
+
+    def _art_names(self) -> dict[str, str]:
+        """成员形象里的称呼（小写厂商名 → 称呼），给群聊里没有昵称的成员用。"""
+        root = self.rt.members_dir
+        try:
+            stamp = (root / MEMBERS_FILE).stat().st_mtime_ns if root else None
+        except OSError:
+            stamp = None
+        if self._art_names_cache is None or self._art_names_cache[0] != stamp:
+            out: dict[str, str] = {}
+            for m in load_members(root).members:
+                out.setdefault(m.vendor.strip().lower(), m.display)
+            self._art_names_cache = (stamp, out)
+        return self._art_names_cache[1]
 
     def members(self) -> dict[str, Any]:
         """成员形象（头像、小人）与「模型 id → 成员 id」。不涉及具体会话。
@@ -228,6 +259,153 @@ class RoundtableService:
             },
             "total_usd": self.rt.repo.total_spent(),
         }
+
+    # --- 办公室：名册与工资单 ------------------------------------------------------
+
+    def model_candidates(self) -> dict[str, Any]:
+        """模型人才市场的最近结果：价格变动、下架、可能更合适的新模型。只提示，不改配置。"""
+        if self.rt.catalog is None:
+            return {"fetched_at": None, "stale": False, "available": False}
+        return self.rt.catalog.view()
+
+    async def refresh_model_candidates(self) -> dict[str, Any]:
+        """重新查询聚合渠道的公开模型列表（不需要 key）。"""
+        if self.rt.catalog is None:
+            raise ServiceError("没有可用的模型列表来源", 404)
+        try:
+            return await self.rt.catalog.refresh()
+        except LookupError as e:
+            raise ServiceError(str(e), 404) from None
+        except Exception as e:  # noqa: BLE001 - 网络错误只报类型，不带外部文本
+            raise ServiceError(f"查询模型列表失败（{type(e).__name__}）", 502) from None
+
+    def office(self) -> dict[str, Any]:
+        """名册：经理与员工、工资标准（每百万 token 的美元价格）、本月已领工资。不涉及具体会话。"""
+        cfg = self.rt.config
+        start, end = month_window(self.rt.budget.now())
+        entries = roster(
+            cfg,
+            (m.id for m in self.rt.router.available_models()),
+            self.rt.repo.spent_by_model(start, end),
+        )
+        perf = collect_performance(self.rt.repo).to_dict()
+        return {
+            "staff": [
+                {**asdict(e), "performance": perf["by_model"].get(e.model_id)} for e in entries
+            ],
+            # 绩效统计起点（清零时刻，没清零过为 None）与显示 / 参考所需的最少件数
+            "performance_since": perf["since"],
+            "performance_min_jobs": cfg.roundtable.office.performance.min_jobs,
+            "task_caps_usd": cfg.roundtable.office.task_caps_usd.model_dump(),
+            "manager_strategy": cfg.roundtable.office.manager_strategy,
+            "month": self.budget()["month"],
+        }
+
+    def reset_performance(self) -> dict[str, Any]:
+        """绩效一键清零：之后只统计此刻以后的办公室会话（不删除任何会话或调用记录）。"""
+        reset_performance(self.rt.repo, self.rt.repo.clock())
+        return self.office()
+
+    def apartment(self, hour: int, weekday: int) -> dict[str, Any]:
+        """公寓楼：住户按作息在各房间活动，正在办事的在办公室 / 会议室。
+
+        hour / weekday 用浏览器的本地时间。匿名未揭晓的会话只计数，不说是谁。
+        """
+        if not (0 <= hour < 24 and 0 <= weekday < 7):
+            raise ServiceError("hour 应为 0～23，weekday 应为 0～6")
+        now = self.rt.budget.now()
+        start, end = month_window(now)
+        working = self.rt.repo.working_seats(now - timedelta(hours=WORKING_WINDOW_H))
+        b = building(
+            self.rt.config,
+            hour=hour,
+            weekday=weekday,
+            working=working,
+            month_usage=self.rt.repo.spent_by_model(start, end),
+            meetings=self._office_meetings(working),
+        )
+        return {
+            "floors": b.floors,
+            "residents": [asdict(r) for r in b.residents],
+            "hidden_meetings": b.hidden_meetings,
+        }
+
+    def _office_meetings(self, working: Sequence[dict[str, Any]]) -> dict[str, dict[int, Any]]:
+        """办公室模式里在会议室的桌子：开会的参会者，项目分工的整个项目组（匿名未揭晓的不看）。"""
+        out: dict[str, dict[int, Any]] = {}
+        sids = {
+            s["session_id"] for s in working if s.get("workflow") == "office" and not s["hidden"]
+        }
+        for sid in sids:
+            for table in self.rt.repo.tables(sid):
+                no = table["table_no"]
+                if "intake" not in table["pipeline"]:
+                    out.setdefault(sid, {})[no] = None  # 项目组
+                    continue
+                intake = restore_state(self.rt.repo, sid, no).office.intake or {}
+                if intake.get("mode") == "meeting":
+                    out.setdefault(sid, {})[no] = list(intake.get("attendees") or [])
+        return out
+
+    # --- 群聊 ----------------------------------------------------------------------
+
+    def chat_view(self, after: int = 0, query: str | None = None) -> dict[str, Any]:
+        """群成员、消息（id 大于 after 的；有 query 时为搜索结果）与正在输入的成员。"""
+        members = self.chat.members()
+        names = {m.id: m.name for m in members} | {"user": "我", "system": "系统"}
+        rows = self.rt.repo.chat_messages(self.chat.room, after=after, query=query or None)
+        return {
+            "members": [asdict(m) for m in members],
+            "messages": [
+                {
+                    "id": r["id"],
+                    "author": r["author"],
+                    "name": names.get(r["author"], r["author"]),
+                    "text": r["text"],
+                    "reply_to": r["reply_to"],
+                    "cost_usd": r["cost_usd"],
+                    "created_at": r["created_at"],
+                }
+                for r in rows
+            ],
+            "typing": list(self.chat.typing),
+        }
+
+    async def chat_post(self, text: str) -> dict[str, Any]:
+        """用户发一条消息；被选中的成员在后台依次回应（前端轮询 chat_view 拿到）。"""
+        text = (text or "").strip()
+        if not text:
+            raise ServiceError("消息不能为空")
+        if len(text) > MAX_CHAT_CHARS:
+            raise ServiceError(f"消息太长（最多 {MAX_CHAT_CHARS} 字）")
+        msg, speakers = self.chat.post(text)
+        if speakers:
+            task = asyncio.get_running_loop().create_task(self.chat.replies(msg["id"], speakers))
+            self._chat_tasks.add(task)
+            task.add_done_callback(self._chat_tasks.discard)
+        return {"id": msg["id"], "speakers": [m.name for m in speakers]}
+
+    def chat_clear(self) -> dict[str, Any]:
+        """一键清空聊天记录（花费记录保留，预算照算）。"""
+        return {"deleted": self.rt.repo.clear_chat(self.chat.room)}
+
+    def payslip(self, session_id: str) -> dict[str, Any]:
+        """一件事的工资单：每位组员 / 统筹各领多少，外包（搜索、媒体、规划员等）另列。
+
+        按会话视图汇总：匿名会话揭晓前只列代号和"统筹"，不含模型 id。
+        """
+        self._require(session_id)
+        view = self.rt.repo.session_view(session_id)
+
+        office = view.workflow == "office"  # 办公室模式里统筹就是经理
+
+        def coordinator_label(model_id: str | None) -> str:
+            if model_id:
+                return coordinator_name(model_id, self.rt.config, office=office)
+            return "经理" if office else "统筹"
+
+        slip = payslip(view.calls, view.seats, coordinator_label=coordinator_label)
+        return {"lines": [asdict(line) for line in slip.lines], "total_usd": slip.total_usd}
 
     # --- 会话 ----------------------------------------------------------------------
 
@@ -365,7 +543,7 @@ class RoundtableService:
             workflows=(workflow,) if workflow else WORKFLOWS,
             custom=custom,
         )
-        threshold = cfg.routing.confirm_threshold_usd
+        threshold = confirm_threshold(cfg, workflow or "discussion")
         selected_plan = tier or cfg.routing.default_plan
         scrub = self.rt.scrubber.scrub if anonymous else (lambda t: t)
         out = []
@@ -385,7 +563,8 @@ class RoundtableService:
                     estimate_usd=e.total_usd,
                     max_usd=e.max_usd,
                     calibrated=e.calibrated,
-                    over_threshold=e.total_usd > threshold,
+                    over_threshold=e.total_usd > confirm_threshold(cfg, o.workflow),
+                    threshold_usd=confirm_threshold(cfg, o.workflow),
                     steps=[
                         {"step": st.step, "cost_usd": st.cost_usd, "max_usd": st.max_usd}
                         for st in e.steps
@@ -394,6 +573,8 @@ class RoundtableService:
                     members=len(o.lineup.members),
                     absent=len(o.lineup.absent),
                 )
+                if o.workflow == "office":  # 经理如果决定开会 / 项目分工，大约花多少
+                    item["groups"] = group_estimates(cfg, self.rt.router, question_obj, o.lineup)
                 if not anonymous:
                     item["lineup"] = {
                         "members": list(o.lineup.members),
@@ -502,7 +683,9 @@ class RoundtableService:
         if not view.anonymous:  # 匿名关闭：统筹显示为"昵称·模式（统筹）"（成员的代号本身就是昵称）
             for seat in data["seats"]:
                 if seat["role"] == "coordinator" and seat["model_id"]:
-                    seat["label"] = coordinator_name(seat["model_id"], self.rt.config)
+                    seat["label"] = coordinator_name(
+                        seat["model_id"], self.rt.config, office=view.workflow == "office"
+                    )
         data["can_reveal"] = view.anonymous and view.status in REVEALABLE and not view.revealed
         data["tables"] = self._tables(session_id)
         data["notes"] = self.rt.repo.notes(session_id)

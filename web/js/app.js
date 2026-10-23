@@ -12,6 +12,7 @@ import {
   COORD_STEPS,
   castPanel,
   contributionsPanel,
+  officePanel,
   channelsPanel,
   esc,
   feedItems,
@@ -27,20 +28,35 @@ import {
   usagePanel,
 } from './view.js';
 import { Pet } from './agent/pet.js';
+import { Apartment } from './apartment.js';
+import { GroupChat } from './groupchat.js';
 
 const $ = (q) => document.querySelector(q);
 const RESTING = new Set(['completed', 'stopped', 'failed', 'awaiting_confirmation', 'paused']);
+
+// 作答方式：每位使用者在本机记住上次的选择（只是便利，读不到就用默认的办公室模式）
+const WORKFLOW_KEY = 'roundtable.workflow';
+function savedWorkflow() {
+  try {
+    return localStorage.getItem(WORKFLOW_KEY);
+  } catch {
+    return null;
+  }
+}
 
 const S = {
   status: null, // /api/status
   budget: null,
   history: null,
   contribHistory: null,
+  office: null, // 员工名册（/api/office）
+  talent: null, // 人才市场（/api/models/candidates）：只提示，不改配置
+  payslip: null, // { sid, data }：当前会话的工资单
   sid: null,
   session: null,
   tab: 'flow',
   tier: null, // 档位名或 custom
-  workflow: 'discussion', // discussion 讨论 / collab 协同 / solo 个人作答 / auto 自动（分诊小组先给建议）
+  workflow: savedWorkflow() || 'office', // 记住上次选的方式；office 办公室（经理派一位员工办理，默认）/ discussion 讨论 / collab 协同 / solo 个人作答 / auto 自动（分诊小组先给建议）
   anonymous: false,
   media: null, // 输出类型：null 文字 / image / speech / video（仅讨论模式）
   mediaTier: 'budget', // 媒体模型档位
@@ -60,6 +76,18 @@ function freshLive() {
 
 // 网页小人：匿名且未揭晓的会话里不出现（启动时先不显示，确定当前会话后再决定）
 const pet = new Pet({ labels: STEP_LABELS, goto: gotoDiscussion });
+const gchat = new GroupChat($('#gchat'), { api: { get: API.getChat, post: API.postChat, clear: API.clearChat } });
+const home = new Apartment($('#home'), {
+  api: API.getApartment,
+  openSession: async (sid) => {
+    setEntry('work');
+    await open(sid);
+  },
+  chatWith: (name) => {
+    setEntry('chat');
+    gchat.insertMention(name);
+  },
+});
 // 点气泡 / 菜单「跳到讨论」：滚到最新的讨论内容
 function gotoDiscussion() {
   const feed = document.getElementById('feed');
@@ -69,7 +97,8 @@ function gotoDiscussion() {
 let petReady = false;
 function syncPet() {
   const sv = S.session;
-  if (petReady) pet.setAllowed(!(sv && sv.anonymous && !sv.revealed));
+  // 公寓楼和群聊里有自己的小人：网页小人只在办公室出现
+  if (petReady) pet.setAllowed(entry === 'work' && !(sv && sv.anonymous && !sv.revealed));
 }
 
 const prefix = () => S.status?.code_prefix || '组员';
@@ -104,11 +133,12 @@ function renderHeader() {
   syncPet();
   const sv = S.session;
   const b = S.budget;
-  const parts = [`本场 ${money(sv ? sv.cost_usd : 0)}`];
-  if (b?.month) parts.push(`本月 ${money(b.month.spent_usd)} / ${money(b.month.limit_usd)}`);
-  if (b?.day) parts.push(`今日 ${money(b.day.spent_usd)} / ${money(b.day.limit_usd)}`);
+  const part = (k, v, cap) => `<span>${k}<b>${esc(v)}</b>${cap ? `<small>/ ${esc(cap)}</small>` : ''}</span>`;
+  const parts = [part('本场', money(sv ? sv.cost_usd : 0))];
+  if (b?.month) parts.push(part('本月', money(b.month.spent_usd), money(b.month.limit_usd)));
+  if (b?.day) parts.push(part('今日', money(b.day.spent_usd), money(b.day.limit_usd)));
   const meter = $('#meter');
-  meter.textContent = parts.join(' · ');
+  meter.innerHTML = parts.join('');
   const warn = !!(b && ((b.month && b.month.warn) || (b.day && b.day.warn)));
   meter.classList.toggle('warn', warn);
   meter.title = warn ? '预算已用超过提醒比例' : '';
@@ -116,6 +146,8 @@ function renderHeader() {
   rv.hidden = !!sv && !sv.anonymous; // 匿名关闭时身份一直公开，没有揭晓步骤
   rv.disabled = !(sv && sv.can_reveal);
   rv.textContent = sv && sv.anonymous && sv.revealed ? '已揭晓' : '揭晓身份';
+  // 办公室模式：统筹就是经理
+  $('.panel .phd h2').textContent = (sv ? sv.workflow : S.workflow) === 'office' ? '经理面板' : '统筹面板';
   $('#pstate').textContent = sv
     ? sv.running && sv.status !== 'awaiting_confirmation'
       ? '进行中'
@@ -162,7 +194,9 @@ function renderFeed() {
       els.push(r.el);
     }
     for (const k of [...rendered.keys()]) if (!keep.has(k)) rendered.delete(k);
-    list.replaceChildren(...els);
+    // 只有内容或顺序变了才动 DOM：长讨论里每个事件都整体重排会卡顿、打断选中的文字
+    const same = list.children.length === els.length && els.every((el, i) => list.children[i] === el);
+    if (!same) list.replaceChildren(...els);
   }
   renderTyping();
   if (atBottom) feed.scrollTop = feed.scrollHeight;
@@ -181,13 +215,13 @@ function renderTyping() {
 
 function welcomeHTML() {
   const th = money(S.status?.confirm_threshold_usd ?? 0.3);
-  return `<div class="welcome"><h2>把题目交给圆桌</h2>
-<ol><li>所选档位的每个模型都上桌：一位当统筹，其余是组员。省钱靠选档位，不靠减人。</li>
-<li>组员独立作答 → 互相评审 → 根据评审修订 → 统筹汇总共识与分歧。</li>
-<li>节电模式汇总仍有分歧或把握低时，会问你要不要用全力模式重做；预计花费超过 ${th} 也先问你。</li>
-<li>可以添加图片、PDF、Word、文本或音频附件（点「添加附件」或把文件拖进来）；成员还能运行代码、写文件、生成图片、联网搜索，生成的文件可在过程区和「工具」标签里预览、下载。</li>
-<li>提交前，输入框下方会列出各档位的预计花费。</li>
-<li>勾选「匿名」时，成员用塔罗牌代号（愚者、魔术师…），讨论结束后点「揭晓身份」；不匿名时用「昵称·模式」（如 鲸鱼娘·全力）。发给模型的内容不含模型 id 和厂商名。</li></ol></div>`;
+  return `<div class="welcome"><h2>新题目</h2>
+<p class="lead">在下面写题目，选好办理方式后按 <kbd>Enter</kbd> 提交。提交前会列出预计花费，超过 ${th} 会先问你。</p>
+<dl><dt>办公室</dt><dd>经理分诊，派一位员工办理，经理过目后交付。花费最少，默认用这个。</dd>
+<dt>讨论</dt><dd>所选档位的成员都上桌：各自作答、互相评审、修订，最后由统筹汇总共识与分歧。</dd>
+<dt>协同</dt><dd>把题目拆成子任务分给不同成员，做完再合并。适合篇幅长、分工明确的作业。</dd>
+<dt>附件</dt><dd>图片、PDF、Word、文本、音频，拖进输入框即可。成员可以运行代码、写文件、画图和联网搜索，生成的文件在过程区和「工具」里预览、下载。</dd>
+<dt>匿名</dt><dd>成员用塔罗牌代号（愚者、魔术师…），结束后再揭晓身份；不匿名时用「昵称·模式」，如 鲸鱼娘·全力。发给模型的内容不含模型 id 和厂商名。</dd></dl></div>`;
 }
 
 function renderPanel() {
@@ -197,7 +231,9 @@ function renderPanel() {
   const ctx = {
     plans: plans(),
     threshold: S.status?.confirm_threshold_usd,
+    officeThreshold: S.status?.office_threshold_usd ?? S.status?.confirm_threshold_usd,
     maxMembers: S.status?.max_members,
+    workflow: S.workflow,
   };
   let h = '';
   if (S.tab === 'flow') h = flowPanel(S.session, S.live, ctx);
@@ -205,7 +241,8 @@ function renderPanel() {
   if (S.tab === 'split') h = splitPanel(S.session, prefix());
   if (S.tab === 'tools') h = toolsPanel(S.session, prefix());
   if (S.tab === 'media') h = mediaPanel(S.session, prefix());
-  if (S.tab === 'usage') h = usagePanel(S.session, S.budget, S.status?.rice);
+  if (S.tab === 'usage') h = usagePanel(S.session, S.budget, S.status?.rice, S.payslip?.sid === S.sid ? S.payslip.data : null);
+  if (S.tab === 'office') h = officePanel(S.office, S.status?.rice, S.talent, S.perfArmed);
   if (S.tab === 'channels') h = channelsPanel(S.status);
   if (S.tab === 'history') h = historyPanel(S.history, S.sid);
   if (S.tab === 'cast') h = castPanel(S.session, prefix());
@@ -223,15 +260,17 @@ function renderComposer() {
     .map(([k, label]) => `<button type="button" data-v="${esc(k)}" aria-pressed="${k === S.tier}">${esc(label)}</button>`)
     .join('');
   $('#anonymous').checked = S.anonymous;
-  const workflows = S.status?.workflows || { discussion: '讨论模式', collab: '协同模式', solo: '个人作答', brainstorm: '头脑风暴', auto: '自动' };
+  const workflows = S.status?.workflows || { office: '办公室', discussion: '讨论模式', collab: '协同模式', solo: '个人作答', brainstorm: '头脑风暴', auto: '自动' };
   $('#workflow').innerHTML = Object.entries(workflows)
-    .map(([k, label]) => `<button type="button" data-v="${esc(k)}" aria-pressed="${k === S.workflow}" title="${{ brainstorm: '让大家各自发散想法、互相拓展，统筹整合成思维导图，帮你拓展思路并选择方向', auto: '开始时由几位最便宜的模型给出建议（用哪种方式、难度），你确认后再开始；简单题不调用它们', collab: '统筹拆分子任务，成员自荐、分工完成、交叉审查，最后合并', solo: '只请一位成员直接回答：在所选档位里挑最便宜的，不互评、不汇总' }[k] || '全员各自作答，互评、修订后由统筹汇总'}">${esc(label)}</button>`)
+    .map(([k, label]) => `<button type="button" data-v="${esc(k)}" aria-pressed="${k === S.workflow}" title="${{ office: '经理看题后派一位合适的员工办理，经理过目，不合格退回改一次；有争议或重要的事，经理点名两三位员工开会、依次发言后拍板；大件的活组项目组分工完成，另一位经理验收；只有需要时才查资料', brainstorm: '让大家各自发散想法、互相拓展，统筹整合成思维导图，帮你拓展思路并选择方向', auto: '开始时由几位最便宜的模型给出建议（用哪种方式、难度），你确认后再开始；简单题不调用它们', collab: '统筹拆分子任务，成员自荐、分工完成、交叉审查，最后合并', solo: '只请一位成员直接回答：在所选档位里挑最便宜的，不互评、不汇总' }[k] || '全员各自作答，互评、修订后由统筹汇总'}">${esc(label)}</button>`)
     .join('');
   renderMediaChoice();
   $('#manual').hidden = S.tier !== 'custom';
   const min = (S.status?.min_members ?? 2) + 1;
   $('#mode-hint').textContent =
-    S.tier === 'custom'
+    S.workflow === 'office'
+      ? `经理分诊后派一位员工办理并过目，必要时开会或组项目组；预计超过 ${money(S.status?.office_threshold_usd ?? 0.05)} 先问你`
+      : S.tier === 'custom'
       ? `勾选至少 ${min} 个模型，全部上桌（其中一个当统筹）`
       : `该档位所有可用模型上桌；预计超过 ${money(S.status?.confirm_threshold_usd ?? 0.3)} 先问你`;
 }
@@ -240,10 +279,10 @@ function renderMediaChoice() {
   const info = S.status?.media;
   const kinds = info?.kinds || {};
   const collab = S.workflow === 'collab';
-  if (collab || ['solo', 'auto', 'brainstorm'].includes(S.workflow)) S.media = null; // 协同模式由统筹决定哪些子任务生成媒体；个人作答只出文字
+  if (collab || ['office', 'solo', 'auto', 'brainstorm'].includes(S.workflow)) S.media = null; // 协同模式由统筹决定哪些子任务生成媒体；个人作答只出文字
   const outputs = [[null, '文字'], ...Object.entries(kinds).map(([k, v]) => [k, v.label])];
-  if (['solo', 'auto', 'brainstorm'].includes(S.workflow)) {
-    const why = { auto: '自动模式先出建议，输出类型请在选定作答方式后再选', brainstorm: '头脑风暴输出思维导图和大纲' }[S.workflow] || '个人作答只输出文字';
+  if (['office', 'solo', 'auto', 'brainstorm'].includes(S.workflow)) {
+    const why = { office: '办公室模式先只出文字（员工可以用画图工具）', auto: '自动模式先出建议，输出类型请在选定作答方式后再选', brainstorm: '头脑风暴输出思维导图和大纲' }[S.workflow] || '个人作答只输出文字';
     $('#media').innerHTML = `<span class="hint" id="media-auto">${why}</span>`;
   } else if (collab) {
     // 协同模式不选输出类型：不显示一排灰按钮（容易误以为不能画图），直接说明
@@ -394,6 +433,7 @@ function formError(text) {
 
 async function submit(ev) {
   ev.preventDefault();
+  if ($('#submit').disabled) return; // 正在提交：连按 Enter 不会重复提交
   const question = $('#ask').value.trim();
   if (!question) {
     formError('请先输入题目');
@@ -523,6 +563,23 @@ async function refresh(all = false) {
   render();
 }
 
+/** 办公室模式第 1 桌的安排（单人办 / 开会 / 项目分工）：实时事件里有就用，否则从已保存的分诊结果读。 */
+function officePlan(tableNo) {
+  if (tableNo !== 0 || S.session?.workflow !== 'office') return null;
+  let plan = null;
+  for (const o of S.session.outputs || []) {
+    if (o.table_no !== 0 || (o.kind !== 'office_intake' && o.kind !== 'office_approval')) continue;
+    let d = null;
+    try {
+      d = JSON.parse(o.content);
+    } catch {
+      continue;
+    }
+    plan = { ...(plan || {}), ...d };
+  }
+  return plan || S.live.office || null;
+}
+
 function onEvent(sid, e) {
   if (sid !== S.sid) return;
   pet.report(e);
@@ -545,11 +602,23 @@ function onEvent(sid, e) {
         (S.session?.outputs || []).filter((o) => o.kind === 'dropout' && o.table_no === e.table_no).map((o) => o.code),
       );
       L.speaking = new Set();
+      const plan = e.step === 'handle' ? officePlan(e.table_no) : null;
       if (COORD_STEPS.has(e.step)) L.speaking.add('统');
-      else if (e.step !== 'reveal') (t?.codes || []).filter((c) => !dropped.has(c)).forEach((c) => L.speaking.add(c));
-      L.act = `${STEP_LABELS[e.step] || e.step}中`;
+      else if (plan) {
+        // 办公室模式：只有派到的员工（开会时是参会的员工）在干活
+        const busy = plan.mode === 'meeting' ? plan.attendees || [] : plan.mode === 'project' ? [] : [plan.assignee];
+        busy.filter((c) => c && !dropped.has(c)).forEach((c) => L.speaking.add(c));
+      } else if (e.step !== 'reveal') (t?.codes || []).filter((c) => !dropped.has(c)).forEach((c) => L.speaking.add(c));
+      L.act = plan && plan.mode === 'meeting' ? '开会中' : `${STEP_LABELS[e.step] || e.step}中`;
       break;
     }
+    case 'office_assigned':
+      L.office = { mode: e.data.mode, attendees: e.data.attendees || [], assignee: e.code };
+      L.act = e.data.mode === 'meeting' ? `经理决定开会（${(e.data.attendees || []).length} 位参会）` : e.data.mode === 'project' ? `经理决定项目分工（${(e.data.attendees || []).length} 人）` : '经理已派活';
+      break;
+    case 'office_project':
+      L.act = `另开项目组桌子：${e.data.members} 人，预计 ${money(e.data.estimate_usd)}`;
+      break;
     case 'call_done':
     case 'call_failed':
       L.speaking.delete(e.code || '统');
@@ -645,7 +714,73 @@ async function loadBudget() {
     /* 下次再试 */
   }
   renderHeader();
+  if (S.tab === 'usage') {
+    renderPanel();
+    loadPayslip();
+  }
+}
+
+async function loadPayslip() {
+  if (!S.sid) return;
+  const sid = S.sid;
+  try {
+    S.payslip = { sid, data: await API.getPayslip(sid) };
+  } catch {
+    /* 下次再试 */
+  }
   if (S.tab === 'usage') renderPanel();
+}
+
+async function loadOffice() {
+  try {
+    S.office = await API.getOffice();
+  } catch {
+    /* 下次再试 */
+  }
+  if (S.tab === 'office') renderPanel();
+  if (S.talent) return;
+  try {
+    S.talent = await API.getCandidates();
+  } catch {
+    return;
+  }
+  if (S.tab === 'office') renderPanel();
+  if (S.talent.available && S.talent.stale) refreshTalent(); // 超过一天没查：自动查一次（只提示，不改配置）
+}
+
+/** 绩效清零：两步确认（第一次点只是武装，5 秒内再点一次才清零）。 */
+async function resetPerformance() {
+  if (!S.perfArmed) {
+    S.perfArmed = true;
+    renderPanel();
+    setTimeout(() => {
+      if (S.perfArmed) {
+        S.perfArmed = false;
+        if (S.tab === 'office') renderPanel();
+      }
+    }, 5000);
+    return;
+  }
+  S.perfArmed = false;
+  try {
+    S.office = await API.resetPerformance();
+  } catch (e) {
+    formError(e.message || '清零失败');
+  }
+  if (S.tab === 'office') renderPanel();
+}
+
+/** 人才市场：重新查询聚合渠道的模型列表。 */
+async function refreshTalent() {
+  if (!S.talent || S.talent.loading) return;
+  S.talent = { ...S.talent, loading: true, error: null };
+  if (S.tab === 'office') renderPanel();
+  try {
+    S.talent = await API.refreshCandidates();
+  } catch (e) {
+    S.talent = { ...S.talent, loading: false, error: e.message || '查询失败' };
+  }
+  if (S.tab === 'office') renderPanel();
 }
 
 async function loadContributions() {
@@ -681,12 +816,112 @@ function newQuestion() {
   $('#ask').focus();
 }
 
+// --- 键盘 -----------------------------------------------------------------------
+
+// 输入法组合输入（中文选字）中按下的键：keyCode 229 兼容旧浏览器
+function composing(e) {
+  return e.isComposing || e.keyCode === 229;
+}
+
+function typing(el) {
+  return !!el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName));
+}
+
+// --- 入口：办公室 / 公寓楼 / 群聊 ------------------------------------------------------------
+
+const ENTRIES = ['work', 'home', 'chat'];
+let entry = 'work';
+
+/** 切换入口。办公室是原来的界面；公寓楼是只读的像素剖面图；群聊和成员聊天。地址栏 #m=home / #m=chat 刷新后回到原入口。 */
+function setEntry(m) {
+  if (!ENTRIES.includes(m)) m = 'work';
+  entry = m;
+  for (const b of document.querySelectorAll('#entries button')) b.setAttribute('aria-pressed', String(b.dataset.m === m));
+  $('#main').hidden = m !== 'work';
+  $('#workctrls').hidden = m !== 'work';
+  $('#meter').hidden = m !== 'work';
+  if (m === 'home') home.show();
+  else home.hide();
+  if (m === 'chat') gchat.show();
+  else gchat.hide();
+  syncPet();
+  if (m !== 'work') history.replaceState(null, '', `#m=${m}`);
+  else if (location.hash.startsWith('#m=')) history.replaceState(null, '', S.sid ? `#s=${S.sid}` : location.pathname);
+}
+
+/**
+ * 全局快捷键（不在输入框里时）：
+ * / 或 Ctrl+K 聚焦题目输入框；Esc 离开输入框；1～9 选择等待确认卡片的对应选项；
+ * N 新题目；Alt+1 / 2 / 3 切换办公室 / 公寓楼 / 群聊。输入框里只处理 Esc、Ctrl+K 与 Alt+数字。
+ */
+function shortcut(e) {
+  if (composing(e) || e.defaultPrevented) return;
+  const el = document.activeElement;
+  // Alt+1 / 2 / 3：切换入口（按物理键位判断，Mac 上 Option+数字会打出特殊字符）
+  const digit = /^Digit([1-9])$/.exec(e.code || '');
+  if (e.altKey && !e.ctrlKey && !e.metaKey && digit && ENTRIES[Number(digit[1]) - 1]) {
+    e.preventDefault();
+    setEntry(ENTRIES[Number(digit[1]) - 1]);
+    return;
+  }
+  if (entry !== 'work') return; // 其余快捷键只在办公室里用
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+    e.preventDefault();
+    $('#ask').focus();
+    return;
+  }
+  if (e.key === 'Escape') {
+    if ($('#viewer').open) return; // 预览框自己处理 Esc
+    if (typing(el)) el.blur();
+    return;
+  }
+  if (typing(el) || e.ctrlKey || e.metaKey || e.altKey) return;
+  if (e.key === '/') {
+    e.preventDefault();
+    $('#ask').focus();
+    return;
+  }
+  if (/^[1-9]$/.test(e.key)) {
+    const opts = [...document.querySelectorAll('#feed .opt[data-opt]:not([disabled])')];
+    const b = opts[Number(e.key) - 1];
+    if (b) {
+      e.preventDefault();
+      b.click();
+    }
+    return;
+  }
+  if (e.key === 'n' || e.key === 'N') {
+    e.preventDefault();
+    $('#new').click();
+  }
+}
+
 // --- 启动 -----------------------------------------------------------------------
 
 function bind() {
   $('#composer').addEventListener('submit', submit);
+  $('#entries').addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-m]');
+    if (b) setEntry(b.dataset.m);
+  });
   $('#ask').addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) $('#composer').requestSubmit();
+    if (e.key !== 'Enter' || composing(e)) return; // 输入法选字时的 Enter 只确认候选词
+    if (e.shiftKey || e.altKey) return; // Shift+Enter / Alt+Enter 换行
+    e.preventDefault();
+    $('#composer').requestSubmit();
+  });
+  document.addEventListener('keydown', shortcut);
+  $('#tabs').addEventListener('keydown', (e) => {
+    // 面板标签页：← → 切换（Home / End 到头尾）
+    const tabs = [...$('#tabs').querySelectorAll('button')];
+    const i = tabs.indexOf(document.activeElement);
+    if (i < 0) return;
+    const next = { ArrowRight: i + 1, ArrowLeft: i - 1, Home: 0, End: tabs.length - 1 }[e.key];
+    if (next === undefined) return;
+    e.preventDefault();
+    const b = tabs[(next + tabs.length) % tabs.length];
+    b.focus();
+    b.click();
   });
   $('#tier').addEventListener('click', (e) => {
     const b = e.target.closest('button');
@@ -744,6 +979,8 @@ function bind() {
     addFiles([...(e.dataTransfer?.files || [])]);
   });
   document.addEventListener('click', (e) => {
+    if (e.target.closest('#talent-refresh')) refreshTalent();
+    if (e.target.closest('#perf-reset')) resetPerformance();
     const pv = e.target.closest('[data-preview]');
     if (pv && S.sid) showPreview(pv.dataset.preview);
     if (e.target.closest('[data-close]')) $('#viewer').close();
@@ -767,6 +1004,11 @@ function bind() {
     const b = e.target.closest('button');
     if (!b) return;
     S.workflow = b.dataset.v;
+    try {
+      localStorage.setItem(WORKFLOW_KEY, S.workflow);
+    } catch {
+      // 隐私模式等存不了：只是下次回到默认
+    }
     renderComposer();
     renderLegend();
     scheduleEstimate();
@@ -797,6 +1039,7 @@ function bind() {
     if (S.tab === 'history') loadHistory();
     if (S.tab === 'contrib') loadContributions();
     if (S.tab === 'usage') loadBudget();
+    if (S.tab === 'office') loadOffice();
     renderPanel();
   });
   $('#pbody').addEventListener('click', (e) => {
@@ -832,12 +1075,16 @@ async function init() {
   setMemberArt(art);
   pet.setAllowed(false);
   pet.setMembers(art);
+  home.setArt(art);
+  gchat.setArt(art);
   renderComposer();
   renderPicks();
   render();
   loadHistory();
   const m = location.hash.match(/s=([0-9a-f]+)/);
   if (m) await open(m[1]);
+  const where = location.hash.match(/m=(\w+)/);
+  if (where) setEntry(where[1]);
   petReady = true;
   syncPet();
 }

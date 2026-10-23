@@ -69,6 +69,12 @@ class Note(BaseModel):
     text: str
 
 
+class ChatBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    text: str
+
+
 class Respond(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -142,6 +148,42 @@ def create_app(service: RoundtableService | None = None) -> FastAPI:
         data, mime = svc(request).member_file(path)
         headers = {"X-Content-Type-Options": "nosniff", "Cache-Control": "private, max-age=3600"}
         return Response(content=data, media_type=mime, headers=headers)
+
+    @app.get("/api/office")
+    async def office(request: Request) -> dict[str, Any]:
+        return svc(request).office()
+
+    @app.post("/api/office/performance/reset")
+    async def office_performance_reset(request: Request) -> dict[str, Any]:
+        return svc(request).reset_performance()
+
+    @app.get("/api/chat")
+    async def chat(request: Request, after: int = 0, q: str | None = None) -> dict[str, Any]:
+        return svc(request).chat_view(after, q)
+
+    @app.post("/api/chat", status_code=202)
+    async def chat_post(request: Request, body: ChatBody) -> dict[str, Any]:
+        return await svc(request).chat_post(body.text)
+
+    @app.delete("/api/chat")
+    async def chat_clear(request: Request) -> dict[str, Any]:
+        return svc(request).chat_clear()
+
+    @app.get("/api/apartment")
+    async def apartment(request: Request, hour: int, weekday: int) -> dict[str, Any]:
+        return svc(request).apartment(hour, weekday)
+
+    @app.get("/api/models/candidates")
+    async def model_candidates(request: Request) -> dict[str, Any]:
+        return svc(request).model_candidates()
+
+    @app.post("/api/models/candidates/refresh")
+    async def refresh_model_candidates(request: Request) -> dict[str, Any]:
+        return await svc(request).refresh_model_candidates()
+
+    @app.get("/api/sessions/{session_id}/payslip")
+    async def payslip(request: Request, session_id: str) -> dict[str, Any]:
+        return svc(request).payslip(session_id)
 
     @app.get("/api/contributions")
     async def contributions(request: Request) -> list[dict[str, Any]]:

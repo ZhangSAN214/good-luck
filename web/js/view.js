@@ -25,6 +25,14 @@ export const STEP_LABELS = {
   ideate: '发散',
   expand: '拓展',
   organize: '整合成导图',
+  intake: '分诊派活',
+  handle: '办理',
+  check: '经理过目',
+  fix: '按意见修改',
+  speak: '发言',
+  decide: '经理拍板',
+  office_review: '复核经理验收',
+  office_revise: '按验收意见修改',
 };
 export const MEDIA_LABELS = { image: '图片', speech: '语音', video: '视频' };
 const JOB_STATE = {
@@ -36,7 +44,7 @@ const JOB_STATE = {
   timeout: ['超时', 'bad'],
 };
 // 由统筹执行的步骤
-export const COORD_STEPS = new Set(['synthesize', 'decompose', 'assign', 'accept', 'merge', 'organize']);
+export const COORD_STEPS = new Set(['synthesize', 'decompose', 'assign', 'accept', 'merge', 'organize', 'intake', 'check']);
 // 协同流水线的子任务类型名（来自 /api/status 的 collab_kinds，不写死在前端）
 let KIND_LABELS_CFG = {};
 export function setKindLabels(map) {
@@ -91,6 +99,7 @@ const CARD_TITLES = {
   members: '组员不足',
   overrun: '花费超出预估',
   media: '媒体生成',
+  office: '开会 / 项目分工要不要照办',
 };
 export const STATUS_LABELS = {
   created: '准备中',
@@ -110,7 +119,7 @@ export function esc(t) {
   );
 }
 
-// 模型输出是 Markdown：支持 **加粗** 和表格（单元格里的 <br> 变成换行），其余原样保留（换行由 CSS 保留）
+// 模型输出是 Markdown：支持 **加粗**、标题行（# ～ ####）和表格（单元格里的 <br> 变成换行），其余原样保留（换行由 CSS 保留）
 const BR = /&lt;br\s*\/?&gt;/gi;
 const bold = (h) => h.replace(/(^|[^*\w])\*\*(?=\S)(.+?)(?<=\S)\*\*(?![*\w])/g, '$1<b>$2</b>');
 const splitRow = (line) => {
@@ -138,7 +147,10 @@ export function md(t) {
       out.push(`<table class="mdt"><thead><tr>${th}</tr></thead><tbody>${tr}</tbody></table>`);
       i = j - 1;
     } else {
-      out.push(bold(esc(lines[i])).replace(BR, '\n'));
+      // 标题行（如经理拍板的「## 结论」）：去掉井号，加粗显示
+      const head = /^\s{0,3}(#{1,4})\s+(.+?)\s*#*\s*$/.exec(lines[i]);
+      const line = head ? `<strong class="mdh h${head[1].length}">${bold(esc(head[2]))}</strong>` : bold(esc(lines[i]));
+      out.push(line.replace(BR, '\n'));
     }
   }
   // 表格是块级元素，前后的换行不再重复显示
@@ -221,6 +233,7 @@ export class Names {
     this.sid = session?.id;
     this.revealed = !!session?.revealed;
     this.seats = session?.seats || [];
+    this.office = session?.workflow === 'office'; // 办公室模式：统筹就是经理
     // 协同模式：每桌的子任务标题与成果编号（W1… → [子任务, 代号]），与服务端的编号规则一致
     this.subtasks = {};
     this.items = {};
@@ -258,7 +271,7 @@ export class Names {
   // 匿名关闭时服务端给统筹的称呼（昵称·模式（统筹））；匿名时没有，只叫「统筹」
   coordinatorName(tableNo) {
     const s = this.seats.find((x) => x.table_no === tableNo && x.role === 'coordinator');
-    return (s && s.label) || '统筹';
+    return (s && s.label) || (this.office ? '经理' : '统筹');
   }
   // 发言者：头像字、名称、揭晓后的模型
   // 只有显示模型时（匿名关闭或已揭晓）才按模型查成员头像
@@ -268,7 +281,7 @@ export class Names {
       return { ch: [...String(code)][0] || '?', name: this.member(code), ai, art: memberArt(ai) };
     }
     const ai = this.model(tableNo, 'coordinator');
-    return { ch: '统', name: this.coordinatorName(tableNo), ai, art: memberArt(ai), coord: true };
+    return { ch: this.office ? '经' : '统', name: this.coordinatorName(tableNo), ai, art: memberArt(ai), coord: true };
   }
 }
 
@@ -322,7 +335,7 @@ export function feedItems(sv, ctx) {
       .map(([k, v]) => `${label(k)} ${money(v)}`)
       .join(' · ');
     const t0 = (sv.tables || [])[0];
-    const people = t0 ? ` · ${t0.codes.length} 位组员 + 统筹` : '';
+    const people = t0 ? (sv.workflow === 'office' ? ` · 经理 + ${t0.codes.length} 位在岗员工` : ` · ${t0.codes.length} 位组员 + 统筹`) : '';
     const absent = r.absent && r.absent.length ? ` · ${r.absent.length} 个模型缺席（无可用渠道）` : '';
     push('route', sys('规划', `档位：<b>${esc(label(r.plan))}</b>${esc(people)}${esc(absent)} · 预计 ${money(r.estimated_cost_usd)}${opts ? `<br>各档位预估：${esc(opts)}` : ''}`));
   }
@@ -332,13 +345,16 @@ export function feedItems(sv, ctx) {
   const sources = sourceIndex(sv);
   const toolRows = sv.tool_calls || [];
   const fileRows = (sv.files || []).filter((f) => f.latest);
-  const MAIN = new Set(['answer', 'revision', 'work', 'rework', 'merge']);
+  const MAIN = new Set(['answer', 'revision', 'work', 'rework', 'merge', 'office_work', 'office_fix', 'office_speech']);
+  // 办公室模式：退回后的修改（step=fix）显示在「经理过目」之下；开会的发言和拍板（speak / decide）显示在「办理」之下
+  const inStep = (x, step) => x.step === step || (step === 'check' && x.step === 'fix') || (step === 'handle' && (x.step === 'speak' || x.step === 'decide')) || (step === 'office_review' && x.step === 'office_revise');
   for (const t of tables) {
     cpAt((d, cp) => cp.kind === 'escalation' && d.table_no === t.table_no);
     if (t.table_no === 0) cpAt((d, cp) => cp.kind === 'cost' && d.table_no === 0);
     if (t.status === 'pending' && !outputs.some((o) => o.table_no === t.table_no)) continue;
-    const label = tables.length > 1 ? `第 ${t.table_no + 1} 桌 · ${t.plan_label}` : t.plan_label;
-    push(`t${t.table_no}`, `<div class="phase">${esc(label)} · ${t.codes.length} 位组员</div>`);
+    const projectTable = (t.pipeline || []).includes('office_review'); // 办公室模式的项目组桌子
+    const label = projectTable ? '项目组' : tables.length > 1 ? `第 ${t.table_no + 1} 桌 · ${t.plan_label}` : t.plan_label;
+    push(`t${t.table_no}`, `<div class="phase">${esc(label)} · ${t.codes.length} 位${sv.workflow === 'office' ? '员工' : '组员'}</div>`);
     if (t.table_no > 0 && t.escalation_reason) {
       push(`esc${t.table_no}`, sys('统筹', `升级到「${esc(t.plan_label)}」：${esc(t.escalation_reason)}`, 'bad'));
     }
@@ -348,14 +364,15 @@ export function feedItems(sv, ctx) {
         if (o.step !== 'style_gate') return null;
         return (parse(o.content)?.phase ?? 1) === 2 ? 'rework' : 'work';
       };
-      const outs = outputs.filter((o) => o.table_no === t.table_no && (o.step === step || gateStep(o) === step));
+      const outs = outputs.filter((o) => o.table_no === t.table_no && (inStep(o, step) || gateStep(o) === step));
       const live = ctx.live.table === t.table_no && ctx.live.step === step;
       cpAt((d) => d.table_no === t.table_no && d.step === step && !(step === 'media' && d.key));
       const mediaJobs = step === 'media' ? (sv.media || []).filter((j) => j.table_no === t.table_no && j.step === 'media') : [];
       const mediaCards = step === 'media' ? cps.filter((c) => c.card.details?.key?.startsWith(`media:${t.table_no}:`)) : [];
       if (!outs.length && !live && !mediaJobs.length && !mediaCards.length) continue;
       if (step === 'reveal') continue;
-      push(`s${t.table_no}:${step}`, `<div class="phase">${esc(STEP_LABELS[step] || step)}</div>`);
+      const meeting = step === 'handle' && outs.some((o) => o.kind === 'office_speech' || o.kind === 'office_decision');
+      push(`s${t.table_no}:${step}`, `<div class="phase">${esc(meeting ? '开会' : STEP_LABELS[step] || step)}</div>`);
       if (step === 'media') {
         const roundOf = (o) => parse(o.content)?.round ?? 0;
         const rounds = [...new Set([...mediaJobs.map((j) => j.round), ...outs.map(roundOf), ...mediaCards.map((c) => Number(c.card.details.key.split(':')[2]))])].sort((a, b) => a - b);
@@ -377,7 +394,7 @@ export function feedItems(sv, ctx) {
         const k = code || '';
         if (shown.has(k)) return;
         shown.add(k);
-        const mine = toolRows.filter((x) => x.table_no === t.table_no && x.step === step && (x.code || '') === k);
+        const mine = toolRows.filter((x) => x.table_no === t.table_no && inStep(x, step) && (x.code || '') === k);
         for (const x of mine) push(`tc${x.id}`, toolItem(x, names, sv.id));
       };
       outs.forEach((o, i) => {
@@ -385,11 +402,15 @@ export function feedItems(sv, ctx) {
         const html = output(o, names, lazy, sources[`${t.table_no}:${o.code}`]);
         if (html) push(`o${t.table_no}:${step}:${o.kind}:${o.code || ''}:${i}`, html);
         if (MAIN.has(o.kind)) {
-          const mine = fileRows.filter((f) => f.table_no === t.table_no && f.step === step && (f.code || '') === (o.code || ''));
+          const mine = fileRows.filter((f) => f.table_no === t.table_no && inStep(f, step) && (f.code || '') === (o.code || ''));
           if (mine.length) push(`f${t.table_no}:${step}:${o.code || ''}:${mine.map((f) => f.id).join()}`, fileBar(mine, sv.id));
         }
       });
-      for (const x of toolRows) if (x.table_no === t.table_no && x.step === step) showTools(x.code);
+      for (const x of toolRows) if (x.table_no === t.table_no && inStep(x, step)) showTools(x.code);
+      if (step === 'check' || meeting) {
+        const html = officeDelivery(outputs.filter((o) => o.table_no === t.table_no), names, sources);
+        if (html) push(`od${t.table_no}:${outs.length}`, html);
+      }
     }
   }
   cpAt(() => true);
@@ -403,7 +424,7 @@ export function feedItems(sv, ctx) {
 
 function modeText(sv, ctx) {
   const tier = sv.tier === 'custom' ? ctx.customLabel : ctx.plans[sv.tier] || sv.tier;
-  const parts = [({ collab: '协同', solo: '个人', auto: '自动', brainstorm: '头脑风暴' }[sv.workflow] || '讨论'), tier];
+  const parts = [({ office: '办公室', collab: '协同', solo: '个人', auto: '自动', brainstorm: '头脑风暴' }[sv.workflow] || '讨论'), tier];
   if (sv.media_kind) parts.push(`输出${MEDIA_LABELS[sv.media_kind] || sv.media_kind}`);
   if (sv.anonymous) parts.push('匿名');
   return parts.join(' · ');
@@ -491,6 +512,8 @@ function output(o, names, lazy = new Map(), sources = null) {
   if (o.kind === 'review') return msg(sp, '互评', review(data, names, o.table_no));
   const collab = collabOutput(o, sp, data, names, sources);
   if (collab !== null) return collab;
+  const office = officeOutput(o, sp, data, names, sources);
+  if (office !== null) return office;
   if (o.kind === 'revision') {
     if (data.skipped) return sys('统筹', `${esc(sp.name)} 没有收到有效评审，沿用原答案`);
     const resp = data.responses
@@ -593,6 +616,82 @@ function collabOutput(o, sp, data, names, sources = null) {
   }
   if (o.kind === 'merge') return merged(t, data, names);
   return null;
+}
+
+const OFFICE_MODES = { single: '单人办', meeting: '开会', project: '项目分工' };
+
+function officeOutput(o, sp, data, names, sources = null) {
+  if (o.kind === 'office_intake') {
+    const how = OFFICE_MODES[data.mode] || data.mode;
+    const search = data.needs_search ? ' · 需要查资料' : '';
+    // 预算单：经理分诊后按选定的方式和人选估计还要花多少
+    const budget = typeof data.budget_usd === 'number' ? `<div class="meta">预算单：${esc(how)}预计 ${money(data.budget_usd)}</div>` : '';
+    if (data.mode === 'project' && (data.attendees || []).length) {
+      const who = data.attendees.map((c) => names.member(c)).join('、');
+      const why = data.reason ? `<div class="meta">理由：${md(data.reason)}</div>` : '';
+      const filled = data.attendees_by_rule ? '<div class="meta">经理点名的人不够，按规则补齐</div>' : '';
+      const brief = data.brief ? `<details class="more"><summary>项目目标</summary><div>${md(data.brief)}</div></details>` : '';
+      return msg(sp, '分诊派活', `<div class="bubble">决定<b>项目分工</b>，项目组：<b>${esc(who)}</b>（经理拆分、合并，另一位经理验收）${why}${filled}${budget}</div>${brief}`);
+    }
+    if (data.mode === 'meeting' && (data.attendees || []).length) {
+      const who = data.attendees.map((c) => names.member(c)).join('、');
+      const why = data.reason ? `<div class="meta">理由：${md(data.reason)}</div>` : '';
+      const filled = data.attendees_by_rule ? '<div class="meta">经理点名的人不够，按规则补齐</div>' : '';
+      const brief = data.brief ? `<details class="more"><summary>会议议题</summary><div>${md(data.brief)}</div></details>` : '';
+      return msg(sp, '分诊派活', `<div class="bubble">决定<b>开会</b>，参会：<b>${esc(who)}</b>（依次发言，经理拍板）${why}${filled}${budget}</div>${brief}`);
+    }
+    const who = names.member(data.assignee);
+    const why = data.by_rule
+      ? `<div class="meta">${esc(data.rule_reason || '按规则派活')}</div>`
+      : data.reason ? `<div class="meta">理由：${md(data.reason)}</div>` : '';
+    const brief = data.brief ? `<details class="more"><summary>工作说明</summary><div>${md(data.brief)}</div></details>` : '';
+    return msg(sp, '分诊派活', `<div class="bubble">建议<b>${esc(how)}</b>，派给 <b>${esc(who)}</b>${esc(search)}${why}${budget}</div>${brief}`);
+  }
+  if (o.kind === 'office_work') return msg(sp, '办理', `<div class="bubble">${cite(md(data.text), sources)}</div>`);
+  if (o.kind === 'office_check') {
+    if (data.degraded) return sys('经理', '过目没有完成，直接交付员工的成果', 'bad');
+    const pass = data.verdict === 'pass';
+    const issues = (data.issues || []).length ? `<ol>${data.issues.map((x) => `<li>${md(x)}</li>`).join('')}</ol>` : '';
+    return msg(sp, '过目', `<div class="bubble">${tag(pass ? '通过' : '退回修改一次', pass ? 'ok' : 'bad')}${data.note ? ` ${md(data.note)}` : ''}${issues}</div>`);
+  }
+  if (o.kind === 'office_fix') return msg(sp, '按意见修改', `<div class="bubble">${cite(md(data.text), sources)}</div>`);
+  if (o.kind === 'office_speech') return msg(sp, '发言', `<div class="bubble">${cite(md(data.text), sources)}</div>`);
+  if (o.kind === 'office_decision') return data.degraded ? sys('经理', '拍板时调用失败，直接交付各位员工的发言', 'bad') : '';
+  if (o.kind === 'office_review') {
+    if (data.skipped) return sys('复核经理', '没有第二位经理可以复核，直接交付合并的成果');
+    if (data.degraded) return sys('复核经理', '验收没有完成，直接交付合并的成果', 'bad');
+    const pass = data.verdict === 'pass';
+    const issues = (data.issues || []).length ? `<ol>${data.issues.map((x) => `<li>${md(x)}</li>`).join('')}</ol>` : '';
+    return sys('复核经理', `${tag(pass ? '验收通过' : '退回修改一次', pass ? 'ok' : 'bad')}${data.note ? ` ${md(data.note)}` : ''}${issues}`, pass ? '' : 'bad');
+  }
+  if (o.kind === 'office_revised') {
+    return `<div class="final"><h3>交付<small>主办经理按验收意见修改后的版本</small></h3>
+<div class="answer">${md(data.text || '')}</div></div>`;
+  }
+  if (o.kind === 'office_approval') return data.declined ? sys('老板', `不${OFFICE_MODES[data.declined] || ''}，改为单人办`) : '';
+  return null;
+}
+
+/** 办公室模式的交付：经理过目后交给你的版本（退回改过的用修改版）。 */
+function officeDelivery(outs, names, sources) {
+  const decision = outs.find((o) => o.kind === 'office_decision');
+  if (decision) {
+    const d = parse(decision.content) || {};
+    const n = outs.filter((o) => o.kind === 'office_speech').length;
+    return `<div class="final"><h3>交付<small>${n} 位员工开会 · 经理${d.degraded ? '没能拍板' : '拍板'}</small></h3>
+<div class="answer">${md(d.text || '')}</div></div>`;
+  }
+  const check = outs.find((o) => o.kind === 'office_check');
+  const final = outs.find((o) => o.kind === 'office_fix') || outs.find((o) => o.kind === 'office_work');
+  if (!check || !final) return '';
+  const c = parse(check.content) || {};
+  if (c.verdict === 'revise' && final.kind !== 'office_fix' && !c.degraded) return ''; // 还在改
+  const d = parse(final.content) || {};
+  const who = names.member(final.code);
+  const sp = names.speaker(final.table_no, final.code);
+  const ai = sp.ai ? ` · ${esc(sp.ai)}` : '';
+  return `<div class="final"><h3>交付<small>${esc(who)} 办理${ai} · 经理${c.degraded ? '没有过目' : '已过目'}</small></h3>
+<div class="answer">${cite(md(d.text || ''), sources[`${final.table_no}:${final.code}`])}</div></div>`;
 }
 
 function toolSummary(x) {
@@ -743,7 +842,7 @@ function mediaOutput(o, sp) {
 export function mediaJobCard(j, sv, names) {
   const [st, sc] = JOB_STATE[j.state] || [j.state, ''];
   const file = j.file_id ? (sv.files || []).find((f) => f.id === j.file_id) : null;
-  const who = j.code ? names.member(j.code) : '统筹';
+  const who = j.code ? names.member(j.code) : names.office ? '经理' : '统筹';
   const where = j.subtask ? `${who} · ${j.subtask}` : STEP_LABELS[j.step] || j.step;
   const model = j.model_id ? `<span class="ai">${esc(j.model_id)}${j.channel ? ` · ${esc(j.channel)}` : ''}</span>` : '';
   const players = file ? mediaPlayer(file, sv.id) : '';
@@ -768,7 +867,7 @@ function merged(tableNo, d, names) {
     })
     .join('');
   const ai = sp.ai ? ` · ${esc(sp.ai)}` : '';
-  return `<div class="final"><h3>合并成果<small>统筹${ai} · 把握程度 ${tag(ct, cc)}</small></h3>
+  return `<div class="final"><h3>合并成果<small>${names.office ? '经理' : '统筹'}${ai} · 把握程度 ${tag(ct, cc)}</small></h3>
 <div class="answer">${md(d.result || '')}</div>
 ${adoption ? `<div class="sec">采纳情况</div><ul>${adoption}</ul>` : ''}
 ${d.gaps && d.gaps.length ? `<div class="sec">缺失</div>${list(d.gaps)}` : ''}
@@ -851,15 +950,18 @@ ${c.reason ? `<div class="reason">推荐理由：${esc(c.reason)}</div>` : ''}${
 function ending(sv, ctx) {
   if (sv.running) return '';
   const cost = money(sv.cost_usd);
+  const office = sv.workflow === 'office';
+  const boss = office ? '经理' : '统筹';
   if (sv.status === 'completed') {
-    if (!sv.anonymous) return sys('统筹', `讨论完成 · 本场花费 ${cost}`, 'ok');
+    const done = office ? '办完了' : '讨论完成';
+    if (!sv.anonymous) return sys(boss, `${done} · 本场花费 ${cost}`, 'ok');
     const tail = sv.revealed ? '身份已揭晓' : '可以点「揭晓身份」查看各代号对应的模型';
-    return sys('统筹', `讨论完成 · 本场花费 ${cost} · ${tail}`, 'ok');
+    return sys(boss, `${done} · 本场花费 ${cost} · ${tail}`, 'ok');
   }
-  if (sv.status === 'stopped') return sys('统筹', `已停止 · 本场花费 ${cost}`, 'bad');
-  if (sv.status === 'failed') return sys('统筹', `失败：${esc(sv.error || '未知错误')}`, 'bad');
+  if (sv.status === 'stopped') return sys(boss, `已停止 · 本场花费 ${cost}`, 'bad');
+  if (sv.status === 'failed') return sys(boss, `失败：${esc(sv.error || '未知错误')}`, 'bad');
   if (sv.status === 'paused') {
-    return sys('统筹', `已暂停：${esc(sv.error || '')}`, 'bad', '<button class="btn sm" type="button" data-act="resume">继续</button>');
+    return sys(boss, `已暂停：${esc(sv.error || '')}`, 'bad', '<button class="btn sm" type="button" data-act="resume">继续</button>');
   }
   return '';
 }
@@ -870,7 +972,7 @@ function seatPositions(n) {
   const right = Math.ceil(n / 2);
   const left = n - right;
   const pos = [];
-  const R = 40;
+  const R = 41;
   const at = (deg) => [50 + R * Math.cos((deg * Math.PI) / 180), 50 + R * Math.sin((deg * Math.PI) / 180)];
   for (let j = 0; j < right; j++) pos.push(at(-90 + (180 * (j + 1)) / (right + 1)));
   for (let j = 0; j < left; j++) pos.push(at(90 + (180 * (j + 1)) / (left + 1)));
@@ -901,7 +1003,7 @@ export function stageHTML(sv, live, prefix) {
   let act = '提交题目后入座';
   if (sv) {
     ph = live.step ? STEP_LABELS[live.step] || live.step : STATUS_LABELS[sv.status] || sv.status;
-    act = live.act || (table ? `${table.plan_label} · ${codes.length} 位组员` : '');
+    act = live.act || (table ? `${table.plan_label} · ${codes.length} 位${sv.workflow === 'office' ? '员工' : '组员'}` : '');
   }
   let h = '<div class="table"></div>';
   h += `<div class="plate"><div><div class="ph" id="plate-step">${esc(ph)}</div><div class="act">${esc(act)}</div></div></div>`;
@@ -927,16 +1029,16 @@ export function stageHTML(sv, live, prefix) {
   h += sv2 + '</svg>';
 
   const seat = ([x, y], cls, av, nm, rl) =>
-    `<div class="seat ${cls}" style="left:${x}%;top:${y}%">${av}<div class="nm">${esc(nm)}</div><div class="rl">${esc(rl)}</div></div>`;
+    `<div class="seat ${cls}" style="left:${x}%;top:${y}%" title="${esc(nm)}${rl ? ` · ${esc(rl)}` : ''}">${av}<div class="nm">${esc(nm)}</div><div class="rl">${esc(rl)}</div></div>`;
   if (hasCoord) {
     const sp = names.speaker(tableNo, null);
     const speaking = live.speaking.has('统') ? 'speaking' : '';
-    h += seat(COORD_POS, `inner ${speaking}`, avatar(sp), sp.name, sp.ai || '汇总 · 不作答');
+    h += seat(COORD_POS, `inner ${speaking}`, avatar(sp), sp.name, sp.ai || (sv.workflow === 'office' ? '派活 · 把关' : '汇总 · 不作答'));
   }
   codes.forEach((c, i) => {
     const sp = names.speaker(tableNo, c);
     const cls = [live.speaking.has(c) ? 'speaking' : '', dropped.has(c) ? 'dropped' : '', lazyCodes.has(c) ? 'lazy' : ''].join(' ');
-    const role = dropped.has(c) ? '已退出' : lazyCodes.has(c) ? '敷衍' : '组员';
+    const role = dropped.has(c) ? '已退出' : lazyCodes.has(c) ? '敷衍' : sv.workflow === 'office' ? '员工' : '组员';
     h += seat(pos[i], cls, avatar(sp), sp.name, sp.ai ? `${sp.ai}${lazyCodes.has(c) ? ' · 敷衍' : ''}` : role);
   });
   h += seat(ME_POS, '', '<div class="av me">你</div>', '你', '提问');
@@ -946,11 +1048,16 @@ export function stageHTML(sv, live, prefix) {
 /** 左下角说明：随匿名开关与模式变化（会话打开时按会话本身的设置，否则按提问区的选择）。 */
 export function legendHTML({ anonymous = false, workflow = 'discussion' } = {}) {
   const collab = workflow === 'collab';
+  const office = workflow === 'office';
   const swap = anonymous ? '匿名' : '';
-  const line = collab
+  const line = office
+    ? `开会时员工依次发言，后发言的看得到前面的${swap}发言；项目分工时项目组成员互相审查对方的成果`
+    : collab
     ? `交叉审查时成员互相审查对方的${swap}成果（不审自己的）；合并时各份成果交给统筹`
     : `互评时组员两两交换${swap}答案；汇总时修订稿交给统筹`;
-  const coord = collab ? '统筹：拆分子任务、分配并合并成果，不兼任组员' : '统筹：只读修订稿并汇总，不兼任组员';
+  const coord = office
+    ? '经理：分诊派活、过目把关，不亲自办理（经理自己写的结论或成果由另一位经理复核）'
+    : collab ? '统筹：拆分子任务、分配并合并成果，不兼任组员' : '统筹：只读修订稿并汇总，不兼任组员';
   const codes = anonymous
     ? '每题随机分配；已开启匿名，界面只显示代号，结束后可揭晓身份'
     : '每题随机分配，模型之间只用代号称呼；未开启匿名，界面在代号旁显示真实模型';
@@ -962,6 +1069,13 @@ export function legendHTML({ anonymous = false, workflow = 'discussion' } = {}) 
 // --- 右侧面板 -----------------------------------------------------------------------
 
 export function flowPanel(sv, live, ctx) {
+  if (!sv && ctx.workflow === 'office') {
+    return `<p class="empty">提交题目后，这里显示经理怎么安排（单人办 / 开会 / 项目分工）、各步骤进度和花费预估。</p>
+<h4>规则</h4><table><tbody>
+<tr><td>单题确认门槛</td><td class="num">${money(ctx.officeThreshold)}</td></tr>
+<tr><td>单件上限</td><td class="num">见「员工」页</td></tr>
+</tbody></table>`;
+  }
   if (!sv) {
     return `<p class="empty">提交题目后，这里显示档位、各步骤进度和花费预估。</p>
 <h4>规则</h4><table><tbody>
@@ -970,17 +1084,33 @@ export function flowPanel(sv, live, ctx) {
 </tbody></table>`;
   }
   let h = '';
+  // 办公室模式：经理决定开会时不再过目；项目分工时办理、过目交给项目组桌子
+  const officeMode = (() => {
+    let mode = null;
+    for (const o of sv.outputs || []) {
+      if (o.table_no !== 0 || (o.kind !== 'office_intake' && o.kind !== 'office_approval')) continue;
+      const d = parse(o.content) || {};
+      if (d.mode) mode = d.mode;
+    }
+    return mode;
+  })();
+  const SKIPPED = { meeting: { check: '经理自己拍板，不再过目' }, project: { handle: '交给项目组', check: '由另一位经理验收' } };
   for (const t of sv.tables || []) {
     const pill = t.status === 'done' ? 'okp' : t.status === 'running' ? 'run' : 'wait';
-    h += `<div class="tbl-hd"><b>${esc(`第 ${t.table_no + 1} 桌 · ${t.plan_label}`)}</b><span class="pill ${pill}">${esc(TABLE_STATUS[t.status] || t.status)}</span></div>`;
+    const projectTable = (t.pipeline || []).includes('office_review');
+    h += `<div class="tbl-hd"><b>${esc(projectTable ? `项目组 · ${t.plan_label}` : `第 ${t.table_no + 1} 桌 · ${t.plan_label}`)}</b><span class="pill ${pill}">${esc(TABLE_STATUS[t.status] || t.status)}</span></div>`;
     h += '<div class="pipe">';
     for (const step of t.pipeline) {
       const done = t.steps_done.includes(step);
       const now = !done && live.table === t.table_no && live.step === step;
       const cls = done ? 'done' : now ? 'now' : '';
-      const who = step === 'media' ? '评审者与统筹' : COORD_STEPS.has(step) ? '统筹' : step === 'reveal' ? (sv.anonymous ? '讨论结束后由你点「揭晓身份」' : '匿名关闭，身份一直公开') : t.codes.join(' · ');
-      const label = step === 'reveal' ? (sv.anonymous ? '可揭晓' : '结束') : STEP_LABELS[step] || step;
-      h += `<div class="pn ${cls}" data-step="${esc(step)}"><span class="dot"></span><span class="t">${esc(label)}<small>${esc(who)}</small></span><span class="pill ${done ? 'okp' : now ? 'run' : ''}">${done ? '完成' : now ? '进行中' : '待开始'}</span></div>`;
+      const who = step === 'media' ? '评审者与统筹' : step === 'office_review' ? '另一位经理' : COORD_STEPS.has(step) ? (sv.workflow === 'office' ? '经理' : '统筹') : step === 'handle' && sv.workflow === 'office' ? '经理派的员工' : step === 'reveal' ? (sv.anonymous ? '讨论结束后由你点「揭晓身份」' : '匿名关闭，身份一直公开') : t.codes.join(' · ');
+      const skip = t.table_no === 0 && (SKIPPED[officeMode] || {})[step];
+      const meeting = t.table_no === 0 && officeMode === 'meeting' && step === 'handle';
+      const label = step === 'reveal' ? (sv.anonymous ? '可揭晓' : '结束') : meeting ? '开会' : STEP_LABELS[step] || step;
+      const note = skip || (meeting ? '参会员工依次发言，经理拍板' : who);
+      const state = skip ? (done ? '跳过' : '不需要') : done ? '完成' : now ? '进行中' : '待开始';
+      h += `<div class="pn ${skip ? '' : cls}" data-step="${esc(step)}"><span class="dot"></span><span class="t">${esc(label)}<small>${esc(note)}</small></span><span class="pill ${skip ? '' : done ? 'okp' : now ? 'run' : ''}">${state}</span></div>`;
     }
     h += '</div>';
   }
@@ -1064,10 +1194,104 @@ export function riceText(tokens, rice) {
   return `${bowls} ${r.bowl_name}${restSpoons ? ` ${restSpoons} ${r.spoon_name}` : ''}`;
 }
 
-export function usagePanel(sv, budget, rice) {
+/** 工资单：一件事里每个人（组员、统筹）领了多少，外包（搜索、媒体、规划员等）另列。 */
+export function payslipBlock(slip, rice) {
+  if (!slip || !(slip.lines || []).length) return '';
+  let h = '<h4>工资单</h4><table id="payslip"><thead><tr><th>谁</th><th class="num">调用</th><th class="num">大米</th><th class="num">工资</th></tr></thead><tbody>';
+  for (const l of slip.lines) {
+    const t = (l.input_tokens || 0) + (l.output_tokens || 0);
+    h += `<tr><td>${esc(l.who)}${l.failed_calls ? ` <span class="pill badp">失败 ${l.failed_calls}</span>` : ''}</td><td class="num">${l.calls}</td><td class="num" title="${t} token">${esc(riceText(t, rice))}</td><td class="num">${money(l.cost_usd)}</td></tr>`;
+  }
+  return `${h}</tbody></table>`;
+}
+
+const ROLE_LABELS = { manager: '经理', staff: '员工' };
+
+/** 员工名册（办公室模式）：经理与员工、工资标准（每百万 token 的美元价格）、本月已领工资。 */
+const PERF_KINDS = [['single', '单人办'], ['meeting', '开会'], ['project', '项目分工']];
+
+/** 绩效：每位员工按活的类型统计的件数、被退回、验收通过率、平均工资与用时（只展示有记录的）。 */
+export function performanceBlock(office, armed = false) {
+  const minJobs = office.performance_min_jobs || 1;
+  const rows = (office.staff || []).filter((e) => e.performance && e.performance.total && e.performance.total.jobs > 0);
+  const since = office.performance_since ? `（从 ${esc(new Date(office.performance_since).toLocaleString())} 起）` : '';
+  let h = `<h4>绩效${since} <button type="button" class="btn" id="perf-reset"${rows.length ? '' : ' disabled'}>${armed ? '再点一次确认清零' : '清零'}</button></h4>`;
+  if (!rows.length) return `${h}<p class="empty">还没有记录：办公室模式办完事后，这里显示每位员工办了几件、被退回几次、验收通过率、平均工资和用时。</p>`;
+  h += '<table id="office-perf" class="roster"><tbody>';
+  for (const e of rows) {
+    const parts = PERF_KINDS.filter(([k]) => e.performance[k]).map(([k, label]) => {
+      const s = e.performance[k];
+      const rate = s.pass_rate === null || s.pass_rate === undefined ? '' : ` · 通过 ${Math.round(s.pass_rate * 100)}%${s.returned ? ` · 退回 ${s.returned}` : ''}`;
+      return `<div class="rm"><span>${label} ${s.jobs} 件${rate}</span><span>平均 ${money(s.avg_cost_usd)} · ${Math.round(s.avg_seconds)} 秒</span></div>`;
+    });
+    const few = e.performance.total.jobs < minJobs ? ' <span class="pill">记录少</span>' : '';
+    h += `<tr data-model="${esc(e.model_id)}"><td><div class="rn"><b>${esc(e.name)}</b>${few}</div>${parts.join('')}</td></tr>`;
+  }
+  return `${h}</tbody></table><p class="hint">按办公室模式的记录推算：经理过目 / 验收过的算一次验收，退回修改算被退回；开会不验收。办过 ${minJobs} 件以上才给经理参考：工资相同的员工优先通过率高的。清零只重新开始统计，不删除任何记录。</p>`;
+}
+
+export function officePanel(office, rice, talent = null, perfArmed = false) {
+  if (!office) return '<p class="empty">加载中…</p>';
+  const caps = office.task_caps_usd || {};
+  // 右栏窄：每人两行，首行姓名与岗位，次行模型与工资标准；本月已领靠右
+  let h = '<h4>员工名册</h4><table id="office-roster" class="roster"><thead><tr><th>谁 · 工资标准（输入 / 输出）</th><th class="num">本月已领</th></tr></thead><tbody>';
+  for (const e of office.staff || []) {
+    const t = (e.month_input_tokens || 0) + (e.month_output_tokens || 0);
+    const off = e.available ? '' : ' <span class="pill badp">缺勤</span>';
+    h += `<tr data-role="${esc(e.role)}"><td><div class="rn"><b>${esc(e.name)}</b><span class="pill${e.role === 'manager' ? ' wait' : ''}">${esc(ROLE_LABELS[e.role] || e.role)}</span>${off}</div><div class="rm"><span>${esc(e.model_id)}</span><span>$${e.wage_input} / $${e.wage_output}</span></div></td><td class="num" title="${t} token · ${e.month_calls} 次调用">${money(e.month_paid_usd)}<div class="hint">${esc(riceText(t, rice))}</div></td></tr>`;
+  }
+  h += '</tbody></table><p class="hint">工资标准是每百万 token 的价格；已领工资按本月（UTC）的调用记录合计。缺勤 = 没有可用渠道。</p>';
+  h += performanceBlock(office, perfArmed);
+  h += '<h4>每件事的工资上限</h4><table><tbody>';
+  for (const [k, label] of [['single', '单人办'], ['meeting', '开会'], ['project', '项目分工']]) {
+    if (caps[k] !== undefined) h += `<tr><td>${label}</td><td class="num">${money(caps[k])}</td></tr>`;
+  }
+  h += '</tbody></table><p class="hint">经理分诊后按办事方式对照这些上限，预计超出时先问你（开会、项目分工可以改为单人办）。</p>';
+  if (office.month) h += budgetBlock('本月工资预算', office.month);
+  return h + talentBlock(talent);
+}
+
+/** 人才市场：聚合渠道上价格变了、下架了、或可能更合适的新模型。只提示，换人由用户决定。 */
+export function talentBlock(t) {
+  if (!t || t.available === false) return '';
+  const when = t.fetched_at ? new Date(t.fetched_at * 1000).toLocaleString() : '';
+  let h = `<h4>人才市场 <button type="button" class="btn" id="talent-refresh"${t.loading ? ' disabled' : ''}>${t.loading ? '查询中…' : '刷新'}</button></h4>`;
+  if (t.error) h += `<p class="hint badp">${esc(t.error)}</p>`;
+  if (!t.fetched_at) return `${h}<p class="empty">${t.loading ? '正在查询模型列表…' : '还没有查询过。'}</p>`;
+  const price = (p) => `$${p[0]} / $${p[1]}`;
+  const changes = t.price_changes || [];
+  const missing = t.missing || [];
+  const fresh = t.candidates || [];
+  h += '<div id="talent">';
+  if (changes.length) {
+    h += '<p>工资标准变了：</p><table><tbody>';
+    for (const c of changes) h += `<tr data-kind="price"><td>${esc(c.model_id)}</td><td class="num">${price(c.configured)} → ${price(c.actual)}</td></tr>`;
+    h += '</tbody></table>';
+  }
+  if (missing.length) {
+    h += '<p>找不到（可能离职或改名）：</p><table><tbody>';
+    for (const m of missing) h += `<tr data-kind="missing"><td>${esc(m.model_id)}</td><td class="hint">${esc(m.route)}</td></tr>`;
+    h += '</tbody></table>';
+  }
+  if (fresh.length) {
+    h += '<p>可能更合适的新人：</p><table><thead><tr><th>模型</th><th class="num">工资标准</th><th>建议</th></tr></thead><tbody>';
+    for (const c of fresh) {
+      const tier = c.tier ? ({ flagship: '全力档', budget: '节电档' }[c.tier] || c.tier) : '价格不在现有档位';
+      const swap = (c.replaces || []).length ? `，可替换 ${c.replaces.map(esc).join('、')}` : '';
+      h += `<tr data-kind="candidate"><td>${esc(c.name)}${c.vision ? ' <span class="pill">看图</span>' : ''}<div class="hint">${esc(c.route)}</div></td><td class="num">${price(c.price)}</td><td>${esc(tier)}${swap}</td></tr>`;
+    }
+    h += '</tbody></table>';
+  }
+  if (!changes.length && !missing.length && !fresh.length) h += '<p class="empty">名册上的都是最新的，工资标准也一致。</p>';
+  h += `</div><p class="hint">${esc(when)} 查询自 ${esc(t.source || '')}。只是提示：改工资标准或换人要改 config/models.yaml，不会自动生效。</p>`;
+  return h;
+}
+
+export function usagePanel(sv, budget, rice, slip = null) {
   let h = '';
   if (sv) {
     h += `<h4>本场累计</h4><div class="big" id="session-cost">${money(sv.cost_usd)}</div>`;
+    h += payslipBlock(slip, rice);
     const groups = new Map();
     for (const c of sv.calls || []) {
       const key = `${c.table_no ?? '-'}:${c.step}`;
@@ -1203,11 +1427,13 @@ export function castPanel(sv, prefix) {
       })
       .join('');
   for (const t of sv.tables || []) {
-    h += `<h4>${esc(`第 ${t.table_no + 1} 桌 · ${t.plan_label}`)}</h4><div class="ros">`;
+    const projectTable = (t.pipeline || []).includes('office_review'); // 办公室模式的项目组桌子
+    h += `<h4>${esc(projectTable ? `项目组 · ${t.plan_label}` : `第 ${t.table_no + 1} 桌 · ${t.plan_label}`)}</h4><div class="ros">`;
     const seats = sv.seats.filter((s) => s.table_no === t.table_no);
     for (const s of seats) {
       const sp = names.speaker(t.table_no, s.role === 'member' ? s.code : null);
-      const role = s.role === 'member' ? '组员' : '统筹';
+      const office = sv.workflow === 'office';
+      const role = s.role === 'member' ? (office ? '员工' : '组员') : office ? '经理' : '统筹';
       const body = sv.revealed
         ? `<p>${esc(role)}</p><div class="calls">${callLines((c) => c.table_no === t.table_no && c.role === s.role && (s.role !== 'member' || c.code === s.code))}</div>`
         : `<p>${esc(role)} · 身份隐藏</p>`;
@@ -1219,6 +1445,11 @@ export function castPanel(sv, prefix) {
     const planner = calls.filter((c) => c.role === 'planner');
     if (planner.length) {
       h += `<h4>规划员</h4><div class="ros"><div class="ro"><div class="av coord">规</div><b>规划员 <span class="ai">· ${esc(planner[0].model_id || '')}</span></b><p>估计答案长度</p><div class="calls">${callLines((c) => c.role === 'planner')}</div></div></div>`;
+    }
+    // 办公室模式·项目分工：另一位经理验收项目组的成果（不在桌上）
+    const reviewer = calls.filter((c) => c.role === 'reviewer');
+    if (reviewer.length) {
+      h += `<h4>复核经理</h4><div class="ros"><div class="ro"><div class="av coord">复</div><b>复核经理 <span class="ai">· ${esc(reviewer[0].model_id || '')}</span></b><p>验收项目组的成果</p><div class="calls">${callLines((c) => c.role === 'reviewer')}</div></div></div>`;
     }
   }
   return h;
@@ -1450,7 +1681,8 @@ export function estimateHTML(est, { workflow, anonymous, plans, customLabel }) {
   const opts = (est.options || []).filter((o) => o.workflow === workflow);
   if (!opts.length) return '';
   let h = adviceHTML(est, workflow);
-  h += '<table><thead><tr><th>档位</th><th class="num">上桌</th><th class="num">预计</th><th class="num">最多约</th><th></th></tr></thead><tbody>';
+  h += `<table><thead><tr><th>档位</th><th class="num">${workflow === 'office' ? '在岗' : '上桌'}</th>`;
+  h += '<th class="num">预计</th><th class="num">最多约</th><th></th></tr></thead><tbody>';
   for (const o of opts) {
     const label = o.plan === 'custom' ? customLabel : plans[o.plan] || o.label;
     if (!o.available) {
@@ -1465,6 +1697,14 @@ export function estimateHTML(est, { workflow, anonymous, plans, customLabel }) {
   const sel = opts.find((o) => o.selected && o.steps);
   if (sel) {
     h += `<details><summary>步骤明细</summary>${sel.steps.map((s) => `${esc(STEP_LABELS[s.step] || s.step)} ${money(s.cost_usd)}`).join(' · ')}</details>`;
+    // 办公室模式：上面是单人办的预估；经理如果决定开会 / 项目分工，另列大概花费（按工资最低的员工估）
+    const groups = Object.entries(sel.groups || {}).map(([mode, g]) => {
+      const [lo, hi] = g.people;
+      const people = lo === hi ? `${lo}` : `${lo}～${hi}`;
+      const usd = lo === hi ? money(g.usd[0]) : `${money(g.usd[0])}～${money(g.usd[1])}`;
+      return `${mode === 'meeting' ? '开会' : '项目分工'}（${people} 人）约 ${usd}`;
+    });
+    if (groups.length) h += `<div class="hint" id="est-groups">以上按单人办估；经理如果决定${esc(groups.join('；'))}</div>`;
     if (!anonymous && sel.lineup) h += `<div>上桌：${esc([...sel.lineup.members, sel.lineup.coordinator].filter(Boolean).join('、'))}${sel.lineup.absent.length ? `；缺席：${esc(sel.lineup.absent.join('、'))}` : ''}</div>`;
     if (anonymous) h += '<div>匿名已开启：不显示上桌名单。</div>';
   }

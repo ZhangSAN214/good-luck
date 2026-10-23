@@ -154,8 +154,15 @@ class BenchResult:
     seconds: float
 
 
-# 实验中自动回答确认卡片：继续、不升级（要测的是该模式本身），其余一律停止
+# 实验中自动回答确认卡片：继续、不升级（要测的是该模式本身）；办公室模式照经理的安排办
+# （开会 / 项目分工超过上限也照办），其余一律停止
 AUTO_RESPONSE = {"cost": "continue", "members": "continue", "escalation": "accept"}
+
+
+def auto_response(card: dict) -> str:
+    if card["kind"] == "office":
+        return str(card["recommendation"])
+    return AUTO_RESPONSE.get(card["kind"], "stop")
 
 
 class BenchRunner:
@@ -168,9 +175,7 @@ class BenchRunner:
             result = await self.orc.start(Question(q.text), choice, seed=seed, anonymous=False)
             while result.checkpoint is not None:
                 card = result.checkpoint.card
-                result = await self.orc.respond(
-                    result.session_id, AUTO_RESPONSE.get(card["kind"], "stop")
-                )
+                result = await self.orc.respond(result.session_id, auto_response(card))
             return result
         except (RoutingError, OrchestratorError):
             return None

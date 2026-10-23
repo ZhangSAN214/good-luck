@@ -366,4 +366,35 @@ CREATE TABLE bench_runs (
 CREATE INDEX idx_bench_runs_batch ON bench_runs(batch, id);
 """,
     ),
+    (
+        13,
+        "群聊",
+        """
+-- 群聊消息。author 为 user 或成员 id（厂商）；成员发言的模型调用照常记在 calls 表
+-- （挂在群聊对应的隐藏会话上，workflow = 'chat'，不出现在历史列表），所以计入预算和工资。
+CREATE TABLE chat_messages (
+    id          INTEGER PRIMARY KEY,
+    room        TEXT NOT NULL,
+    author      TEXT NOT NULL,
+    model_id    TEXT,
+    text        TEXT NOT NULL,
+    reply_to    INTEGER,
+    cost_usd    REAL NOT NULL DEFAULT 0,
+    created_at  TEXT NOT NULL
+);
+CREATE INDEX idx_chat_messages_room ON chat_messages(room, id);
+""",
+    ),
+    (
+        14,
+        "本地设置",
+        """
+-- 少量本地设置（键值），如办公室模式绩效的统计起点（老板一键清零后从此刻重新统计）
+CREATE TABLE app_settings (
+    key         TEXT PRIMARY KEY,
+    value       TEXT NOT NULL,
+    updated_at  TEXT NOT NULL
+);
+""",
+    ),
 ]

@@ -12,6 +12,7 @@ from typing import Any
 from roundtable.core.allocation import IdentityScrubber
 from roundtable.core.attachments import FileStore
 from roundtable.core.budget import BudgetGuard
+from roundtable.core.catalog import Fetch, ModelCatalog
 from roundtable.core.config import AppConfig, load_config
 from roundtable.core.config.loader import DEFAULT_CONFIG_DIR
 from roundtable.core.prompts import PromptLibrary
@@ -27,6 +28,8 @@ DB_ENV = "ROUNDTABLE_DB_PATH"
 # 成员形象素材（头像、小人）目录：在用户本机，不进 git
 DEFAULT_MEMBERS_DIR = PROJECT_ROOT / "data" / "avatars" / "roundtable_assets"
 MEMBERS_ENV = "ROUNDTABLE_ASSETS_DIR"
+# 人才市场的最近结果（放在数据库旁边，不进 git）
+CATALOG_FILE = "model_candidates.json"
 
 
 @dataclass
@@ -48,6 +51,8 @@ class Runtime:
     frame_extractor: Callable[..., list[Any]] | None = None
     # 成员形象素材目录（members.json 所在目录）；为空表示没有素材
     members_dir: Path | None = None
+    # 模型人才市场（只提示，不改配置）；为空时不提供
+    catalog: ModelCatalog | None = None
 
     @classmethod
     def build(
@@ -64,6 +69,7 @@ class Runtime:
         uploads_dir: str | Path | None = None,
         search: SearchService | None = None,
         members_dir: str | Path | None = None,
+        catalog_fetch: Fetch | None = None,
     ) -> Runtime:
         """providers 为空时从 .env / 环境变量读取 key 并构建真实渠道（测试中传入 Fake）。"""
         config = config or load_config()
@@ -130,6 +136,11 @@ class Runtime:
             search=search or SearchService({}),
             unavailable_channels=dict(unavailable or {}),
             members_dir=Path(members_dir),
+            catalog=ModelCatalog(
+                config,
+                None if str(db_path) == ":memory:" else Path(db_path).parent / CATALOG_FILE,
+                catalog_fetch,
+            ),
         )
 
     def sandbox(self) -> tuple[Sandbox | None, str | None]:

@@ -19,11 +19,12 @@ def test_estimate_all_modes_and_tiers_without_calls():
         keys = {(o["workflow"], o["plan"]) for o in data["options"]}
         assert keys == {
             (w, p)
-            for w in ("discussion", "collab", "solo", "brainstorm")
+            for w in ("office", "discussion", "collab", "solo", "brainstorm")
             for p in ("budget", "flagship")
         }
         selected = [o for o in data["options"] if o["selected"]]
         assert {(o["workflow"], o["plan"]) for o in selected} == {
+            ("office", "budget"),
             ("discussion", "budget"),
             ("collab", "budget"),
             ("solo", "budget"),
@@ -33,7 +34,7 @@ def test_estimate_all_modes_and_tiers_without_calls():
             assert o["available"] and o["estimate_usd"] > 0 and o["max_usd"] >= o["estimate_usd"]
             assert {s["step"] for s in o["steps"]}
             assert o["members"] >= (1 if o["workflow"] == "solo" else 2)
-            assert o["over_threshold"] == (o["estimate_usd"] > data["confirm_threshold_usd"])
+            assert o["over_threshold"] == (o["estimate_usd"] > o["threshold_usd"])
             assert "lineup" in o  # 匿名关闭：显示模型
         collab = next(o for o in data["options"] if o["workflow"] == "collab")
         assert "decompose" in {s["step"] for s in collab["steps"]}
@@ -124,3 +125,21 @@ def test_discussion_estimate_advises_collab_when_many_media_files_are_needed():
             == []
         )
         assert c.post("/api/estimate", json={"question": MEDIUM}).json()["advice"] == []
+
+
+def test_office_estimate_lists_meeting_and_project_costs():
+    """办公室模式：除了单人办的预估，另列经理如果决定开会 / 项目分工的大概花费。"""
+    env, c = client()
+    with c:
+        data = c.post("/api/estimate", json={"question": MEDIUM, "seed": 7}).json()
+    office = env.rt.config.roundtable.office
+    for o in data["options"]:
+        if o["workflow"] != "office":
+            assert "groups" not in o
+            continue
+        meeting, project = o["groups"]["meeting"], o["groups"]["project"]
+        assert meeting["people"][0] == office.meeting.min_attendees
+        assert project["people"][0] == office.project.min_members
+        assert project["people"][1] <= office.project.max_members
+        assert 0 < meeting["usd"][0] <= meeting["usd"][1]
+        assert 0 < project["usd"][0] <= project["usd"][1]

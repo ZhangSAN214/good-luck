@@ -50,7 +50,8 @@ triage:
   - name: very_short
     when:
       max_chars: 30
-      no_keywords: [证明, 推导, 为什么, 分析, 比较, 论述, prove, derive, why, explain, compare]
+      # 写作类（「写一篇约 1500 字的报告」）题目短但答案长，不算简单
+      no_keywords: [证明, 推导, 为什么, 分析, 比较, 论述, 写, 作文, 报告, 文章, 字, prove, derive, why, explain, compare, write, essay, report]
     then: {difficulty: simple}
 
 # 讨论模式下题目需要生成多个媒体文件时，提交前提示"建议切换到协同模式"（只提示，不自动切换）。

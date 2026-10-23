@@ -52,7 +52,7 @@ async def call_with_tools(
         values = dict(
             available="、".join(tools),
             max_rounds=str(rules.max_rounds),
-            max_runs=str(rules.python.max_runs),
+            max_runs=str(rules.python.runs_for(step)),
             timeout_s=f"{rules.python.timeout_s:g}",
             max_images=str(rules.image.max_per_step),
             max_searches=str(rules.search.max_per_step),

@@ -201,6 +201,9 @@ def estimate_pipeline(
     revised = a + params.revise_overhead_tokens
     d = params.decompose_tokens
     coord = [coordinator] if coordinator else []
+    # 办公室模式只派一位员工办理：事先不知道派给谁，按在岗员工里工资最高的一位估（偏保守）
+    priciest = [max(members, key=lambda p: (p.price.output, p.price.input))] if members else []
+    brief = params.intake_tokens
     rounds = {"review": revise_rounds, "revise": revise_rounds}
     # 步骤 → (参与者, 单次输入, 单次输出)
     shapes = {
@@ -218,6 +221,12 @@ def estimate_pipeline(
         "rework": (members, o + q + d + a + k * r, revised),
         "accept": (coord, o + q + d + n * revised, params.accept_tokens),
         "merge": (coord, o + q + d + n * revised, params.merge_tokens),
+        # 办公室模式：经理看名单分诊 → 一位员工按工作说明办理 → 经理过目
+        "intake": (coord, o + q + n * params.roster_tokens_per_staff, brief),
+        "handle": (priciest, o + q + brief, a),
+        "check": (coord, o + q + brief + a, params.check_tokens),
+        # 办公室模式·项目分工：复核经理验收合并好的成果
+        "office_review": (coord, o + q + params.merge_tokens, params.check_tokens),
         # 头脑风暴：每人 ideate_tokens 的想法；拓展时看别人的想法；统筹整合全部
         "ideate": (members, o + q, params.ideate_tokens),
         "expand": (members, o + q + (n - 1) * params.ideate_tokens, params.expand_tokens),

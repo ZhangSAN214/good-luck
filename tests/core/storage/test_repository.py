@@ -288,6 +288,26 @@ async def test_usage_totals_and_by_channel(repo):
     assert usage["google"].failed_attempts == 1 and usage["google"].calls == 0
 
 
+async def test_spent_by_model_in_window(repo, router):
+    from datetime import UTC, datetime
+
+    sid = repo.create_session("a", seed=1)
+    for model in ("gemini-3.8-flash", "gemini-3.8-flash", "gpt-6-luna"):
+        c = await router.complete(model, MSG)
+        repo.record_call(
+            sid, step="answer", role="member", model_id=c.model_id, messages=MSG, completion=c
+        )
+    inside = repo.spent_by_model(
+        datetime(2026, 10, 1, tzinfo=UTC), datetime(2026, 11, 1, tzinfo=UTC)
+    )
+    assert inside["gemini-3.8-flash"]["calls"] == 2 and inside["gpt-6-luna"]["calls"] == 1
+    assert sum(v["cost_usd"] for v in inside.values()) == pytest.approx(repo.total_spent())
+    assert (
+        repo.spent_by_model(datetime(2026, 11, 1, tzinfo=UTC), datetime(2026, 12, 1, tzinfo=UTC))
+        == {}
+    )
+
+
 def test_list_sessions(repo):
     a = repo.create_session("第一题", seed=1)
     b = repo.create_session("第二题", seed=2)

@@ -83,6 +83,7 @@ models:
     aliases: [ChatGPT, GPT]
     price: {input: 2.00, output: 10.00}
     tags: [math, writing, code, research, vision]
+    office_role: manager   # 办公室模式的经理（用户指定，2026-10-19）
     enabled: true
     routes:
       - {channel: openai, model: gpt-6-sol}
@@ -106,6 +107,7 @@ models:
     aliases: [Claude]
     price: {input: 2.00, output: 10.00, cached_input: 0.20}
     tags: [writing, code, research, long_context, vision]
+    office_role: manager   # 办公室模式的经理（用户指定，2026-10-19）
     enabled: true
     routes:
       - {channel: anthropic, model: claude-sonnet-5-5}
