@@ -161,3 +161,20 @@ def test_people_dialog_persona_and_memories(serve, page):
     assert rt.repo.memories("V2") == []
     page.click("#people [data-close]")
     assert not page.locator("#people").evaluate("d => d.open")
+
+
+def test_pair_room_is_view_only_with_away_tag(serve, page):
+    srv = serve(confirm_threshold_usd=100.0)
+    repo = srv.env.rt.repo
+    repo.ensure_chat_room(
+        "pair:V1+V2", kind="pair", title="阿一 和 阿二", members=["V1", "V2"], with_user=False
+    )
+    repo.add_chat_message("pair:V1+V2", "V1", "晚上打游戏吗", meta={"life": True, "offline": True})
+    open_chat(srv, page)
+    page.wait_for_selector(".gc-room[data-room='pair:V1+V2']")
+    assert "成员之间" in page.inner_text("#gc-rooms")
+    page.click(".gc-room[data-room='pair:V1+V2']")
+    page.wait_for_selector(".gc-msg[data-author='V1'] .gc-tag.away")
+    assert page.is_hidden("#gc-compose") and page.is_visible("#gc-readonly")
+    page.click(".gc-room[data-room='main']")
+    page.wait_for_selector("#gc-compose", state="visible")

@@ -1189,6 +1189,70 @@ class Repository:
             return self._exec("DELETE FROM member_memories").rowcount
         return self._exec("DELETE FROM member_memories WHERE member = ?", (member,)).rowcount
 
+    def add_life_event(
+        self,
+        at: str,
+        kind: str,
+        members: Sequence[str],
+        *,
+        place: str = "",
+        topic: str = "",
+        room: str | None = None,
+        written: bool = False,
+        offline: bool = False,
+    ) -> dict[str, Any]:
+        cur = self._exec(
+            "INSERT INTO life_events (at, kind, place, members, topic, room, written, offline,"
+            " created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                at,
+                kind,
+                place,
+                json.dumps(list(members)),
+                topic,
+                room,
+                int(written),
+                int(offline),
+                self.clock(),
+            ),
+        )
+        row = self._exec("SELECT * FROM life_events WHERE id = ?", (cur.lastrowid,)).fetchone()
+        return _life_row(row)
+
+    def life_events_between(self, start: str, end: str) -> list[dict[str, Any]]:
+        rows = self._exec(
+            "SELECT * FROM life_events WHERE at >= ? AND at < ? ORDER BY at, id", (start, end)
+        ).fetchall()
+        return [_life_row(r) for r in rows]
+
+    def spent_in_steps(
+        self, workflow: str, steps: Sequence[str], start: datetime, end: datetime
+    ) -> float:
+        """[start, end) 内某类隐藏会话里、指定步骤的调用花费（如生活引擎的 life / memory）。"""
+        marks = ", ".join("?" for _ in steps)
+        return self._exec(
+            "SELECT COALESCE(SUM(c.cost_usd), 0) FROM calls c JOIN sessions s"
+            f" ON s.id = c.session_id WHERE s.workflow = ? AND c.step IN ({marks})"
+            " AND c.created_at >= ? AND c.created_at < ?",
+            (workflow, *steps, iso(start), iso(end)),
+        ).fetchone()[0]
+
+    def office_work_between(self, start: datetime, end: datetime) -> list[dict[str, Any]]:
+        """[start, end) 内办公室会话里员工办事的调用：模型、会话、题目、是否匿名未揭晓。
+
+        生活引擎用来知道谁今天干了什么活（匿名未揭晓的会话由调用方跳过）。
+        """
+        rows = self._exec(
+            "SELECT DISTINCT c.model_id, s.id AS session_id, s.question, s.anonymous,"
+            " s.revealed_at, MAX(c.created_at) AS at FROM calls c JOIN sessions s"
+            " ON s.id = c.session_id WHERE s.workflow = 'office'"
+            " AND c.role IN ('member', 'coordinator')"
+            " AND c.model_id IS NOT NULL AND c.created_at >= ? AND c.created_at < ?"
+            " GROUP BY c.model_id, s.id ORDER BY at",
+            (iso(start), iso(end)),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
     def chat_messages_between(self, start: str, end: str) -> list[dict[str, Any]]:
         """[start, end) 内全部会话的消息（按时间先后），整理记忆用。"""
         rows = self._exec(
@@ -1496,5 +1560,13 @@ def _room_row(row: sqlite3.Row) -> dict[str, Any]:
 
 def _memory_row(row: sqlite3.Row) -> dict[str, Any]:
     out = dict(row)
+    out["offline"] = bool(out["offline"])
+    return out
+
+
+def _life_row(row: sqlite3.Row) -> dict[str, Any]:
+    out = dict(row)
+    out["members"] = json.loads(out["members"])
+    out["written"] = bool(out["written"])
     out["offline"] = bool(out["offline"])
     return out

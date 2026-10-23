@@ -693,6 +693,21 @@ class MemoryRules(_Strict):
     estimate_usd: float = Field(default=0.001, ge=0)  # 每次整理的预估花费（预算检查用）
 
 
+class LifeRules(_Strict):
+    """生活引擎（docs/CHAT.md G4）：成员在用户不在时按作息过日子、彼此聊天。"""
+
+    enabled: bool = True
+    daily_usd: float = Field(default=0.10, ge=0)  # 生活（含记忆整理）每天最多花多少（UTC 日）
+    tick_minutes: int = Field(default=30, ge=5, le=360)  # 电脑开着时多久推进一次
+    max_written_per_tick: int = Field(default=2, ge=0, le=10)  # 每次推进最多几件事写成聊天
+    max_written_catch_up: int = Field(default=6, ge=0, le=30)  # 开机补算时最多写几件
+    catch_up_hours: int = Field(default=24, ge=1, le=24 * 14)  # 补算最多往回看多少小时
+    turns: int = Field(default=3, ge=1, le=6)  # 一段成员之间的对话最多几句
+    pair_chance: float = Field(default=0.15, ge=0, le=1)  # 每小时有人私下聊天的概率
+    estimate_usd: float = Field(default=0.002, ge=0)  # 每句的预估花费（预算检查用）
+    max_tokens: int = Field(default=800, ge=64)
+
+
 class ChatRules(_Strict):
     """聊天：生活群、工作群、私聊。成员不主动找用户，只回应用户。"""
 
@@ -700,6 +715,7 @@ class ChatRules(_Strict):
     work_title: str = "工作群"
     budget: ChatBudgetRules = ChatBudgetRules()
     memory: MemoryRules = MemoryRules()
+    life: LifeRules = LifeRules()
     tier: Tier = "budget"  # 每位成员用这个档位的模型发言（没有就用该成员最便宜的）
     max_repliers: int = Field(default=2, ge=1, le=6)  # 没有 @ 人时，一条消息最多几位回应
     max_mentioned: int = Field(default=8, ge=1, le=12)  # @全员 / 所有人 / @多人 时最多几位回应

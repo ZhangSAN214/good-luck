@@ -77,6 +77,7 @@ def test_repo_config_loads_with_defaults():
         "memory_day",
         "memory_roll",
         "memory_profile",
+        "life_chat",
         "office_fix",
         "office_speak",
         "office_decide",

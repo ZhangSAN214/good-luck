@@ -23,6 +23,7 @@ from roundtable.core.attachments.detect import TYPES as UPLOAD_TYPES
 from roundtable.core.budget.guard import month_window
 from roundtable.core.chat import ROOM, WORK, ChatHub, chat_budget
 from roundtable.core.chat_work import WORK_EVENTS, post_handoff, post_office_event
+from roundtable.core.life import LifeEngine
 from roundtable.core.media import KIND_LABELS, KINDS, MediaService
 from roundtable.core.members_art import MEMBERS_FILE, load_members, mime_of, resolve_file
 from roundtable.core.memory import LAYERS, MemoryKeeper, clean_memory
@@ -86,10 +87,30 @@ class RoundtableService:
         self._art_names_cache: tuple[int | None, dict[str, str]] | None = None
         self.chats = ChatHub(runtime, names=self._art_names)
         self.memory = MemoryKeeper(runtime, self.chats.everyone)
+        self.life = LifeEngine(runtime, self.chats, self.memory)
         self._chat_tasks: set[asyncio.Task[Any]] = set()
+        self._life_task: asyncio.Task[None] | None = None
+
+    def start_life(self) -> None:
+        """后台推进成员的生活（只在正式启动的服务里调用；测试直接调 life_tick）。"""
+        if self._life_task is None and self.rt.config.roundtable.chat.life.enabled:
+            self._life_task = asyncio.get_running_loop().create_task(self._life_loop())
+
+    async def _life_loop(self) -> None:
+        while True:
+            with contextlib.suppress(Exception):  # 生活出错不影响其他功能，下次再试
+                await self.life_tick()
+            await asyncio.sleep(self.rt.config.roundtable.chat.life.tick_minutes * 60)
+
+    async def life_tick(self) -> dict[str, int]:
+        """推进一次生活（开机后第一次会补上关机期间的时间）。"""
+        return await self.life.tick(self.rt.budget.now().astimezone())
 
     async def aclose(self) -> None:
-        for task in [*self._tasks.values(), *self._chat_tasks]:
+        tasks = [*self._tasks.values(), *self._chat_tasks]
+        if self._life_task is not None:
+            tasks.append(self._life_task)
+        for task in tasks:
             task.cancel()
             with contextlib.suppress(asyncio.CancelledError, Exception):
                 await task
@@ -367,6 +388,11 @@ class RoundtableService:
             "members": [asdict(m) for m in self.chats.everyone()],
             "typing": self.chats.typing(),
             "budget": {"spent_usd": budget.spent_usd, "limit_usd": budget.limit_usd},
+            "life": {
+                "enabled": self.rt.config.roundtable.chat.life.enabled,
+                "spent_today_usd": self.life.spent_today(),
+                "daily_usd": self.rt.config.roundtable.chat.life.daily_usd,
+            },
         }
 
     def chat_view(
@@ -404,6 +430,8 @@ class RoundtableService:
     async def chat_post(self, text: str, room: str = ROOM) -> dict[str, Any]:
         """用户发一条消息；被选中的成员在后台依次回应（前端轮询 chat_view 拿到）。"""
         chat = self._chat_room(room)
+        if chat.kind == "pair":
+            raise ServiceError("这是成员之间的私聊，你只能看，不能发言")
         text = (text or "").strip()
         if not text:
             raise ServiceError("消息不能为空")

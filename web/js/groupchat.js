@@ -108,6 +108,7 @@ export class GroupChat {
           <button class="btn" type="button" id="gc-handoff" hidden title="把输入框里的事按办公室模式交办（经理分诊派活），进度会发到工作群">交给办公室</button>
           <button class="btn primary" type="submit" id="gc-send">发送</button>
         </form>
+        <p class="hint gc-readonly" id="gc-readonly" hidden>这是成员之间的私聊，你只能看，不能发言。成员不会因为你看了而来找你。</p>
         <p class="hint gc-err" id="gc-err" role="alert" hidden></p>
       </section>
       <aside class="gc-members" id="gc-aside" aria-label="群成员"><h3>成员 <span id="gc-online"></span></h3><ul id="gc-members"></ul>
@@ -177,6 +178,7 @@ export class GroupChat {
         this.rooms = rooms.rooms || [];
         this.everyone = rooms.members || [];
         this.budget = rooms.budget || null;
+        this.life = rooms.life || null;
         this.renderRooms();
       }
       if (data.room && (!this.roomInfo || this.roomInfo.id !== data.room.id)) {
@@ -215,7 +217,7 @@ export class GroupChat {
     if (!id || id === this.room) return;
     this.room = id;
     storage.set(id);
-    this.roomInfo = this.rooms.find((r) => r.id === id) || { id, kind: id.startsWith('dm:') ? 'dm' : 'group', title: '' };
+    this.roomInfo = this.rooms.find((r) => r.id === id) || { id, kind: this.kind(id), title: '' };
     this.messages = [];
     this.lastId = 0;
     this.search = null;
@@ -427,7 +429,8 @@ export class GroupChat {
     const tag = msg.meta?.event === 'handoff' ? `<span class="gc-tag">已交给办公室${look}</span>` : '';
     if (msg.author === 'user') return `<div class="${cls}" data-id="${msg.id}"><div class="gc-body"><div class="gc-meta">${tag}${stamp}</div><div class="gc-bub">${text}</div></div></div>`;
     const member = this.members.find((m) => m.id === msg.author);
-    return `<div class="${cls}" data-id="${msg.id}" data-author="${esc(msg.author)}">${this.avatar(member, msg.name)}<div class="gc-body"><div class="gc-meta"><span class="gc-name">${esc(msg.name)}</span>${stamp}</div><div class="gc-bub">${text}</div></div></div>`;
+    const away = msg.meta?.offline ? '<span class="gc-tag away" title="你不在的时候发生的">你不在时</span>' : '';
+    return `<div class="${cls}" data-id="${msg.id}" data-author="${esc(msg.author)}">${this.avatar(member, msg.name)}<div class="gc-body"><div class="gc-meta"><span class="gc-name">${esc(msg.name)}</span>${away}${stamp}</div><div class="gc-bub">${text}</div></div></div>`;
   }
 
   renderFeed() {
@@ -440,15 +443,23 @@ export class GroupChat {
     const near = feed.scrollHeight - feed.scrollTop - feed.clientHeight < 80;
     feed.innerHTML = this.messages.length
       ? this.messages.map((m, i) => this.bubble(m, this.messages[i - 1])).join('')
-      : this.isDm()
+      : this.kind() === 'pair'
+        ? '<div class="gc-empty"><b>还没有消息</b><p>成员私下聊过的话会出现在这里。</p></div>'
+        : this.isDm()
         ? '<div class="gc-empty"><b>还没有消息</b><p>打个招呼吧。对方是 AI，被问到时会直说；只在你发消息后回复。</p></div>'
         : '<div class="gc-empty"><b>还没有消息</b><p>打个招呼，或者写「大家自我介绍一下」。成员都是 AI，被问到时会直说。</p></div>';
     if (near || this.stick !== false) feed.scrollTop = feed.scrollHeight;
     this.stick = near;
   }
 
+  kind(id = null) {
+    if (!id && this.roomInfo?.kind) return this.roomInfo.kind;
+    const room = id || this.room;
+    return room.startsWith('dm:') ? 'dm' : room.startsWith('pair:') ? 'pair' : 'group';
+  }
+
   isDm() {
-    return (this.roomInfo?.kind || (this.room.startsWith('dm:') ? 'dm' : 'group')) === 'dm';
+    return this.kind() === 'dm';
   }
 
   roomTitle(r) {
@@ -461,7 +472,10 @@ export class GroupChat {
     this.$('#gc-title').textContent = this.roomTitle(r) || '聊天';
     const dm = this.isDm();
     this.root.classList.toggle('dm', dm);
-    this.$('#gc-aside').hidden = dm;
+    const pair = r?.kind === 'pair';
+    this.$('#gc-aside').hidden = dm || pair;
+    this.$('#gc-compose').hidden = pair;
+    this.$('#gc-readonly').hidden = !pair;
     this.$('#gc-handoff').hidden = !(r?.kind === 'work' && this.api.handoff);
     this.$('#chat-input').placeholder = dm ? '说点什么：Enter 发送，Shift+Enter 换行' : '说点什么：Enter 发送，Shift+Enter 换行；输入 @ 点名';
   }
@@ -471,17 +485,19 @@ export class GroupChat {
     if (!el) return;
     const item = (r) => {
       const member = r.kind === 'dm' ? (this.everyone || []).find((m) => m.id === r.members?.[0]) || { model_id: null } : null;
-      const icon = r.kind === 'dm' ? this.avatar(member, r.title) : `<span class="gc-av ini grp">${r.kind === 'work' ? '工' : '群'}</span>`;
+      const icon = r.kind === 'dm' ? this.avatar(member, r.title) : `<span class="gc-av ini grp">${{ work: '工', pair: '聊' }[r.kind] || '群'}</span>`;
       const last = r.last ? `${r.kind === 'dm' ? '' : `${esc(r.last.name)}：`}${esc(r.last.text)}` : r.kind === 'dm' ? '还没聊过' : '';
       const badge = r.unread ? `<i class="gc-unread" aria-label="${r.unread} 条未读">${r.unread > 99 ? '99+' : r.unread}</i>` : '';
       const cur = r.id === this.room;
       return `<button type="button" class="gc-room${cur ? ' cur' : ''}" data-room="${esc(r.id)}"${cur ? ' aria-current="true"' : ''}>${icon}<span class="gc-rt"><b>${esc(r.title)}</b><small>${last}</small></span>${badge}</button>`;
     };
-    const groups = this.rooms.filter((r) => r.kind !== 'dm');
+    const groups = this.rooms.filter((r) => r.kind === 'group' || r.kind === 'work');
     const dms = this.rooms.filter((r) => r.kind === 'dm');
-    el.innerHTML = `<h3>群聊</h3>${groups.map(item).join('')}<h3>私聊</h3>${dms.map(item).join('')}`;
+    const pairs = this.rooms.filter((r) => r.kind === 'pair');
+    el.innerHTML = `<h3>群聊</h3>${groups.map(item).join('')}<h3>私聊</h3>${dms.map(item).join('')}${pairs.length ? `<h3 title="成员私下的聊天，你只能看">成员之间</h3>${pairs.map(item).join('')}` : ''}`;
     const b = this.budget;
-    this.$('#gc-budget').textContent = b ? `本月聊天 $${b.spent_usd.toFixed(2)} / $${b.limit_usd.toFixed(2)}` : '';
+    const life = this.life?.enabled ? `；今天生活 $${this.life.spent_today_usd.toFixed(3)} / $${this.life.daily_usd.toFixed(2)}` : '';
+    this.$('#gc-budget').textContent = b ? `本月聊天 $${b.spent_usd.toFixed(2)} / $${b.limit_usd.toFixed(2)}${life}` : '';
   }
 
   renderMembers() {

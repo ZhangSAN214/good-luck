@@ -130,3 +130,21 @@ def test_personas_and_memories_api():
         c.post("/api/chat/memories", json={"member": "V2", "text": "b"})
         assert c.delete("/api/chat/memories", params={"member": "V1"}).json() == {"deleted": 1}
         assert c.delete("/api/chat/memories").json() == {"deleted": 1}
+
+
+def test_pair_room_is_listed_and_read_only():
+    env = Env()
+    env.rt.repo.ensure_chat_room(
+        "pair:V1+V2", kind="pair", title="阿一 和 阿二", members=["V1", "V2"], with_user=False
+    )
+    env.rt.repo.add_chat_message(
+        "pair:V1+V2", "V1", "晚上打游戏吗", meta={"life": True, "offline": True}
+    )
+    with TestClient(create_app(RoundtableService(env.rt))) as c:
+        rooms = c.get("/api/chat/rooms").json()
+        assert any(r["id"] == "pair:V1+V2" and r["kind"] == "pair" for r in rooms["rooms"])
+        assert rooms["life"]["daily_usd"] > 0
+        data = c.get("/api/chat", params={"room": "pair:V1+V2"}).json()
+        assert data["room"]["kind"] == "pair" and data["messages"][0]["meta"]["offline"]
+        r = c.post("/api/chat", json={"text": "我也来", "room": "pair:V1+V2"})
+        assert r.status_code == 400

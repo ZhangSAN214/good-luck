@@ -181,6 +181,8 @@
 .gc-sys::before,.gc-sys::after{content:"";width:24px;height:1px;background:var(--line)}
 .gc-sys.work{color:var(--ink)}
 .gc-tag{font-size:11px;color:var(--muted)}
+.gc-tag.away{border:1px solid var(--line,#ccc);border-radius:8px;padding:0 6px;margin:0 6px}
+.gc-readonly{text-align:center;margin:8px 0}
 .gc-tag .link,.gc-sys .link{border:0;background:none;color:var(--brass-ink);padding:0;text-decoration:underline;text-underline-offset:2px}
 .gc-empty{margin:auto;text-align:center;color:var(--muted);max-width:340px}
 .gc-empty b{display:block;color:var(--ink);font-weight:500;margin-bottom:4px}

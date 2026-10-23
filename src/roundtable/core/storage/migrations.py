@@ -446,4 +446,27 @@ CREATE TABLE member_memories (
 CREATE INDEX idx_member_memories ON member_memories(member, layer, period);
 """,
     ),
+    (
+        17,
+        "成员生活事件",
+        """
+-- 生活引擎生成的事件（docs/CHAT.md G4）：作息、真实工作记录按规则 + 随机种子生成。
+-- kind：gather 几个人碰到一起 / pair 两人私聊 / solo 一个人的日常。members 为成员 id 的 JSON 数组。
+-- written：是否交给模型写成了聊天（没写的只作为一行记录，整理记忆时用）。
+-- offline：用户不在时（开机补算）生成的。
+CREATE TABLE life_events (
+    id          INTEGER PRIMARY KEY,
+    at          TEXT NOT NULL,
+    kind        TEXT NOT NULL,
+    place       TEXT NOT NULL DEFAULT '',
+    members     TEXT NOT NULL,
+    topic       TEXT NOT NULL DEFAULT '',
+    room        TEXT,
+    written     INTEGER NOT NULL DEFAULT 0,
+    offline     INTEGER NOT NULL DEFAULT 0,
+    created_at  TEXT NOT NULL
+);
+CREATE INDEX idx_life_events_at ON life_events(at);
+""",
+    ),
 ]

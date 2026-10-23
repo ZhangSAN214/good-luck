@@ -76,6 +76,8 @@ class MemoryKeeper:
         """members：返回全部聊天成员（ChatMember 列表）的函数。"""
         self.rt = rt
         self.members = members
+        # 额外的花费闸门（生活引擎接上每日上限）：返回 False 时不调用
+        self.allow: Any = lambda estimate_usd: True
 
     @property
     def rules(self) -> Any:
@@ -88,6 +90,8 @@ class MemoryKeeper:
 
     async def _write(self, member: ChatMember, role: str, **variables: str) -> str | None:
         rt = self.rt
+        if not self.allow(self.rules.estimate_usd):
+            return None
         prompt = rt.prompts.render(role, rt.config.roundtable.prompts[role], **variables)
         completion = await call_member(
             rt,
@@ -103,7 +107,10 @@ class MemoryKeeper:
         return clean_memory(completion.text, self.rules.entry_chars) or None
 
     def day_log(self, member: ChatMember, day: date, tz: tzinfo | None) -> str:
-        """这一天成员在场的会话里的聊天（群、TA 的私聊），每行「时:分 会话 名字：内容」。"""
+        """这一天成员在场的会话里的聊天（群、TA 的私聊）和没写成聊天的生活小事。
+
+        每行「时:分 会话 名字：内容」或「时:分 （地点）做什么」，按时间排序。
+        """
         start, end = day_window(day, tz)
         rooms = {r["id"]: r for r in self.rt.repo.chat_rooms()}
         names = {m.id: m.name for m in self.members()} | {USER: USER_LABEL}
@@ -117,8 +124,14 @@ class MemoryKeeper:
             at = datetime.fromisoformat(msg["created_at"]).astimezone(tz)
             title = "私聊" if room["kind"] == "dm" else room["title"]
             who = names.get(msg["author"], msg["author"])
-            lines.append(f"{at:%H:%M} {title} {who}：{msg['text']}")
-        log = "\n".join(lines)
+            lines.append((at, f"{at:%H:%M} {title} {who}：{msg['text']}"))
+        for ev in self.rt.repo.life_events_between(start, end):
+            if ev["written"] or member.id not in ev["members"]:
+                continue
+            at = datetime.fromisoformat(ev["at"]).astimezone(tz)
+            lines.append((at, f"{at:%H:%M} （{life_line(ev)}）"))
+        lines.sort(key=lambda x: x[0])
+        log = "\n".join(text for _, text in lines)
         limit = self.rules.log_chars
         return log if len(log) <= limit else log[-limit:]
 
@@ -217,6 +230,14 @@ class MemoryKeeper:
                 if mo and mo < this_month and await self.roll(member, "month", mo, f"{mo} 这个月"):
                     written += 1
         return written
+
+
+def life_line(event: dict[str, Any]) -> str:
+    """生活小事在记忆材料里的一句：场景里的「地点：…」那一行。"""
+    for line in (event.get("topic") or "").splitlines():
+        if line.startswith("地点："):
+            return line.removeprefix("地点：")
+    return event.get("kind") or ""
 
 
 def _period_in(period: str, layer: str, belongs: Any) -> str:
