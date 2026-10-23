@@ -148,3 +148,18 @@ def test_pair_room_is_listed_and_read_only():
         assert data["room"]["kind"] == "pair" and data["messages"][0]["meta"]["offline"]
         r = c.post("/api/chat", json={"text": "我也来", "room": "pair:V1+V2"})
         assert r.status_code == 400
+
+
+def test_feeds_settings_round_trip():
+    env = Env()
+    with TestClient(create_app(RoundtableService(env.rt))) as c:
+        data = c.get("/api/chat/feeds").json()
+        assert data["source"] == "config" and data["feeds"] and data["search_per_day"] == 5
+        mine = [{"name": "星空", "url": "https://news.test/rss", "topics": ["天文"]}]
+        data = c.put("/api/chat/feeds", json={"feeds": mine}).json()
+        assert data["source"] == "local" and data["feeds"][0]["kind"] == "news"
+        bad = [{"name": "x", "url": "ftp://x"}]
+        assert c.put("/api/chat/feeds", json={"feeds": bad}).status_code == 400
+        r = c.post("/api/chat/feeds/refresh").json()  # 测试里抓取一律失败
+        assert r["added"] == 0 and r["failed"] == 1 and r["last_refresh"]
+        assert c.put("/api/chat/feeds", json={"feeds": None}).json()["source"] == "config"

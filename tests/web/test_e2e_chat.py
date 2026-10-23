@@ -178,3 +178,37 @@ def test_pair_room_is_view_only_with_away_tag(serve, page):
     assert page.is_hidden("#gc-compose") and page.is_visible("#gc-readonly")
     page.click(".gc-room[data-room='main']")
     page.wait_for_selector("#gc-compose", state="visible")
+
+
+def test_shared_link_card_and_feeds_dialog(serve, page):
+    srv = serve(confirm_threshold_usd=100.0)
+    share = {
+        "title": "新望远镜",
+        "url": "https://news.test/a",
+        "feed": "星空新闻",
+        "published": "2026-10-22T08:00:00.000+00:00",
+        "unverified": True,
+    }
+    srv.env.rt.repo.add_chat_message(
+        "main", "V1", "看到一条消息", meta={"life": True, "share": share}
+    )
+    bad = {**share, "url": "javascript:alert(1)", "title": "坏链接"}
+    srv.env.rt.repo.add_chat_message("main", "V2", "另一条", meta={"life": True, "share": bad})
+    open_chat(srv, page)
+    page.wait_for_selector(".gc-msg[data-author='V1'] a.gc-src")
+    link = page.locator(".gc-msg[data-author='V1'] a.gc-src")
+    assert link.get_attribute("href") == "https://news.test/a"
+    assert "noopener" in link.get_attribute("rel") and link.get_attribute("target") == "_blank"
+    assert "未核实" in page.inner_text(".gc-msg[data-author='V1'] .gc-srcm")
+    assert page.locator(".gc-msg[data-author='V2'] a.gc-src").count() == 0  # 只接受 http(s)
+    page.click("#gc-feeds")
+    page.wait_for_selector("#feeds .fd-list li")
+    page.fill("#fd-add input[name=name]", "我的源")
+    page.fill("#fd-add input[name=url]", "https://mine.test/rss")
+    page.fill("#fd-add input[name=topics]", "美食，旅行")
+    page.click("#fd-add button[type=submit]")
+    page.wait_for_selector("#feeds .fd-list li:has-text('我的源')")
+    assert "你改过的清单" in page.inner_text("#feeds")
+    page.click("#feeds [data-reset]")
+    page.wait_for_selector("#feeds :text('默认清单')")
+    assert "我的源" not in page.inner_text("#feeds")

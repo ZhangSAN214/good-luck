@@ -20,6 +20,7 @@ from urllib.parse import quote
 from roundtable.core.allocation import coordinator_name, display_name
 from roundtable.core.attachments import Attachment, UploadError, ingest
 from roundtable.core.attachments.detect import TYPES as UPLOAD_TYPES
+from roundtable.core.browse import REFRESH_KEY, feeds_of, set_feeds
 from roundtable.core.budget.guard import month_window
 from roundtable.core.chat import ROOM, WORK, ChatHub, chat_budget
 from roundtable.core.chat_work import WORK_EVENTS, post_handoff, post_office_event
@@ -528,6 +529,34 @@ class RoundtableService:
         """马上整理一次记忆（到昨天为止还没整理的日子）。"""
         now = self.rt.budget.now().astimezone()
         return {"written": await self.memory.catch_up(now)}
+
+    # --- 上网（订阅源） ------------------------------------------------------------
+
+    def chat_feeds(self) -> dict[str, Any]:
+        """订阅源清单（网页改过的优先）、上次抓取时间、今天联网搜索次数与上限。"""
+        rules = self.rt.config.roundtable.chat.browse
+        feeds, source = feeds_of(self.rt)
+        return {
+            "enabled": rules.enabled,
+            "feeds": [f.model_dump() for f in feeds],
+            "source": source,
+            "last_refresh": self.rt.repo.setting(REFRESH_KEY) or None,
+            "search_used_today": self.life.browse.searches_today(),
+            "search_per_day": rules.search_per_day,
+            "items": len(self.rt.repo.web_items(limit=1000)),
+        }
+
+    def chat_set_feeds(self, feeds: list[dict[str, Any]] | None) -> dict[str, Any]:
+        try:
+            set_feeds(self.rt, feeds)
+        except ValueError as exc:  # pydantic 的 ValidationError 也是 ValueError
+            raise ServiceError(f"订阅源不合法：{exc}") from None
+        return self.chat_feeds()
+
+    async def chat_refresh_feeds(self) -> dict[str, Any]:
+        """马上抓一遍订阅源（不调用模型、不花钱）。"""
+        result = await self.life.browse.refresh(self.rt.budget.now().astimezone(), force=True)
+        return {**result, **self.chat_feeds()}
 
     def chat_clear(self, room: str = ROOM) -> dict[str, Any]:
         """一键清空这个会话的聊天记录（花费记录保留，预算照算）。"""

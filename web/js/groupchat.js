@@ -38,11 +38,12 @@ export function atQuery(text, caret) {
 }
 
 export class GroupChat {
-  constructor(root, { api, now = () => Date.now(), openSession = null, openPeople = null } = {}) {
+  constructor(root, { api, now = () => Date.now(), openSession = null, openPeople = null, openFeeds = null } = {}) {
     this.root = root;
     this.api = api; // {get(after, q, room), post(text, room), clear(room), rooms(), handoff(text)}
     this.openSession = openSession; // 工作群里点「查看」：回到办公室里的这件事
     this.openPeople = openPeople; // 成员设定与记忆
+    this.openFeeds = openFeeds; // 上网：订阅源
     this.now = now;
     this.art = null;
     this.room = storage.get();
@@ -95,6 +96,7 @@ export class GroupChat {
     this.root.innerHTML = `
       <nav class="gc-rooms" aria-label="会话"><div id="gc-rooms"></div>
         <button type="button" class="btn gc-people" id="gc-people">成员设定与记忆</button>
+        <button type="button" class="btn gc-people" id="gc-feeds">上网：看哪些内容</button>
         <p class="hint" id="gc-budget"></p></nav>
       <section class="gc-main" aria-label="聊天">
         <header class="gc-head"><b id="gc-title">大家庭</b><span class="gc-count" id="gc-count"></span>
@@ -152,6 +154,8 @@ export class GroupChat {
     });
     this.$('#gc-handoff').addEventListener('click', () => this.handoff());
     this.$('#gc-people').hidden = !this.openPeople;
+    this.$('#gc-feeds').hidden = !this.openFeeds;
+    this.$('#gc-feeds').addEventListener('click', () => this.openFeeds?.());
     this.$('#gc-people').addEventListener('click', () => {
       const dm = this.isDm() ? this.room.slice(3) : null; // 私聊里打开时直接看对方
       this.openPeople?.(dm);
@@ -430,7 +434,15 @@ export class GroupChat {
     if (msg.author === 'user') return `<div class="${cls}" data-id="${msg.id}"><div class="gc-body"><div class="gc-meta">${tag}${stamp}</div><div class="gc-bub">${text}</div></div></div>`;
     const member = this.members.find((m) => m.id === msg.author);
     const away = msg.meta?.offline ? '<span class="gc-tag away" title="你不在的时候发生的">你不在时</span>' : '';
-    return `<div class="${cls}" data-id="${msg.id}" data-author="${esc(msg.author)}">${this.avatar(member, msg.name)}<div class="gc-body"><div class="gc-meta"><span class="gc-name">${esc(msg.name)}</span>${away}${stamp}</div><div class="gc-bub">${text}</div></div></div>`;
+    return `<div class="${cls}" data-id="${msg.id}" data-author="${esc(msg.author)}">${this.avatar(member, msg.name)}<div class="gc-body"><div class="gc-meta"><span class="gc-name">${esc(msg.name)}</span>${away}${stamp}</div><div class="gc-bub">${text}${this.source(msg.meta?.share)}</div></div></div>`;
+  }
+
+  /** 上网分享的来源：标题链接、来源名、发布时间、未核实。只接受 http(s) 网址。 */
+  source(share) {
+    if (!share || !/^https?:\/\//i.test(share.url || '')) return '';
+    const when = share.published ? new Date(share.published).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }) : '';
+    const flag = share.unverified ? '<span class="gc-tag away">未核实</span>' : '';
+    return `<a class="gc-src" href="${esc(share.url)}" target="_blank" rel="noopener noreferrer nofollow">${esc(share.title)}</a><small class="gc-srcm">${esc(share.feed)}${when ? ` · ${esc(when)}` : ''}${flag}</small>`;
   }
 
   renderFeed() {

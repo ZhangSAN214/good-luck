@@ -73,6 +73,9 @@ export const editChatMemory = (mid, text) => api(`/api/chat/memories/${mid}`, { 
 export const delChatMemory = (mid) => api(`/api/chat/memories/${mid}`, { method: 'DELETE' });
 export const clearChatMemories = (id) => api(`/api/chat/memories${id ? `?member=${encodeURIComponent(id)}` : ''}`, { method: 'DELETE' });
 export const tidyChatMemories = () => api('/api/chat/memories/tidy', { method: 'POST' });
+export const chatFeeds = () => api('/api/chat/feeds');
+export const setChatFeeds = (feeds) => api('/api/chat/feeds', { method: 'PUT', body: { feeds } });
+export const refreshChatFeeds = () => api('/api/chat/feeds/refresh', { method: 'POST' });
 export const chatHandoff = (text) => api('/api/chat/handoff', { method: 'POST', body: { text } });
 export const getApartment = (hour, weekday) => api(`/api/apartment?hour=${hour}&weekday=${weekday}`);
 export const getCandidates = () => api('/api/models/candidates');

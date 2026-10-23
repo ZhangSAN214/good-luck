@@ -708,6 +708,35 @@ class LifeRules(_Strict):
     max_tokens: int = Field(default=800, ge=64)
 
 
+class FeedSpec(_Strict):
+    """一个公开订阅源（RSS / Atom）。kind 为 news 的条目分享时不标「未核实」，其余都标。"""
+
+    name: str = Field(min_length=1, max_length=40)
+    url: str = Field(pattern=r"^https?://", max_length=500)
+    topics: list[str] = Field(default_factory=list, max_length=8)
+    kind: Literal["news", "forum", "blog"] = "news"
+    enabled: bool = True
+
+
+class BrowseRules(_Strict):
+    """成员上网（docs/CHAT.md G7）：只读公开订阅源；搜索有每日次数上限；花费计入生活每日上限。"""
+
+    enabled: bool = True
+    feeds: list[FeedSpec] = Field(default_factory=list, max_length=30)
+    refresh_hours: float = Field(default=3, ge=0.5, le=48)  # 多久重新抓一次订阅源
+    shares_per_member: int = Field(default=1, ge=0, le=5)  # 每位成员每天最多分享几条
+    shares_per_tick: int = Field(default=1, ge=0, le=5)  # 每次推进最多分享几条
+    article_chars: int = Field(default=1500, ge=200, le=6000)  # 交给成员读的摘要最多多少字
+    max_items_per_feed: int = Field(default=20, ge=1, le=100)
+    keep_days: int = Field(default=7, ge=1, le=60)  # 没分享过的条目保留几天
+    search_per_day: int = Field(default=5, ge=0, le=20)  # 每天最多联网搜索几次（全体合计）
+    search_estimate_usd: float = Field(default=0.01, ge=0)
+    estimate_usd: float = Field(default=0.002, ge=0)  # 每条分享的预估花费
+    max_tokens: int = Field(default=800, ge=64)
+    timeout_s: float = Field(default=10, gt=0, le=60)
+    max_feed_kb: int = Field(default=1024, ge=16, le=8192)
+
+
 class ChatRules(_Strict):
     """聊天：生活群、工作群、私聊。成员不主动找用户，只回应用户。"""
 
@@ -716,6 +745,7 @@ class ChatRules(_Strict):
     budget: ChatBudgetRules = ChatBudgetRules()
     memory: MemoryRules = MemoryRules()
     life: LifeRules = LifeRules()
+    browse: BrowseRules = BrowseRules()
     tier: Tier = "budget"  # 每位成员用这个档位的模型发言（没有就用该成员最便宜的）
     max_repliers: int = Field(default=2, ge=1, le=6)  # 没有 @ 人时，一条消息最多几位回应
     max_mentioned: int = Field(default=8, ge=1, le=12)  # @全员 / 所有人 / @多人 时最多几位回应

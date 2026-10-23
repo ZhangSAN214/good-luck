@@ -469,4 +469,27 @@ CREATE TABLE life_events (
 CREATE INDEX idx_life_events_at ON life_events(at);
 """,
     ),
+    (
+        18,
+        "成员上网看到的内容",
+        """
+-- 生活引擎从公开订阅源（RSS / Atom）或联网搜索拿到的条目（docs/CHAT.md G7）。只存标题和摘要。
+-- feed：来源名称；topics：来源的话题标签（JSON 数组）；unverified：分享时标「未核实」。
+-- shared_by / shared_at：哪位成员在什么时候分享过（每条只分享一次）。
+CREATE TABLE web_items (
+    id          INTEGER PRIMARY KEY,
+    feed        TEXT NOT NULL,
+    url         TEXT NOT NULL UNIQUE,
+    title       TEXT NOT NULL,
+    summary     TEXT NOT NULL DEFAULT '',
+    published   TEXT,
+    topics      TEXT NOT NULL DEFAULT '[]',
+    unverified  INTEGER NOT NULL DEFAULT 1,
+    fetched_at  TEXT NOT NULL,
+    shared_by   TEXT,
+    shared_at   TEXT
+);
+CREATE INDEX idx_web_items_fetched ON web_items(fetched_at);
+""",
+    ),
 ]

@@ -19,6 +19,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Any
 
+from roundtable.core.browse import SEARCH_STEP, SHARE_STEP, Browser
 from roundtable.core.budget.guard import day_window as utc_day_window
 from roundtable.core.chat import ROOM, ChatHub, ChatMember, call_member, clean_reply, member_memory
 from roundtable.core.chat_work import short_title
@@ -31,7 +32,7 @@ LAST_TICK_KEY = "life.last_tick"
 PAIR_PREFIX = "pair:"
 GATHER = frozenset({"eat", "exercise", "chat", "game", "stargaze"})
 WEEKDAYS = "一二三四五六日"
-LIFE_STEPS = ("life", "memory")
+LIFE_STEPS = ("life", "memory", SHARE_STEP, SEARCH_STEP)
 
 
 def pair_room(a: str, b: str) -> str:
@@ -57,6 +58,7 @@ class LifeEngine:
         self.hub = hub
         self.memory = memory
         memory.allow = self.allowed  # 记忆整理也算进生活的每日上限
+        self.browse = Browser(rt, hub, self.allowed)
 
     @property
     def rules(self) -> Any:
@@ -169,8 +171,8 @@ class LifeEngine:
     # --- 推进 --------------------------------------------------------------------
 
     async def tick(self, now: datetime) -> dict[str, int]:
-        """推进到 now（带时区）。返回 {events, written, messages, memories}。"""
-        out = {"events": 0, "written": 0, "messages": 0, "memories": 0}
+        """推进到 now（带时区）。返回 {events, written, messages, memories, shares}。"""
+        out = {"events": 0, "written": 0, "messages": 0, "memories": 0, "shares": 0}
         if not self.rules.enabled:
             return out
         repo = self.rt.repo
@@ -207,6 +209,7 @@ class LifeEngine:
             out["messages"] += written
         repo.set_setting(LAST_TICK_KEY, now.isoformat())
         out["memories"] = await self.memory.catch_up(now, offline=offline)
+        out["shares"] = await self.browse.tick(now)
         return out
 
     async def write(self, p: Plan, *, offline: bool, now: datetime) -> int:

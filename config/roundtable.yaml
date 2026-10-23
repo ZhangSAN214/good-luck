@@ -52,6 +52,21 @@ chat:
     max_written_catch_up: 6        # 开机补算时最多写几件
     catch_up_hours: 24             # 补算最多往回看多少小时（更早的只整理成记忆）
     turns: 3                       # 一段成员之间的对话最多几句
+  browse:                          # 上网：只读公开订阅源（$0），成员按兴趣挑一条分享到生活群
+    enabled: true
+    refresh_hours: 3               # 多久重新抓一次订阅源
+    shares_per_member: 1           # 每位成员每天最多分享几条
+    search_per_day: 5              # 订阅源里没有感兴趣的内容时联网搜索，全体每天最多几次
+    feeds:                         # 网页「上网」里可以增删；改过之后以网页里的为准
+      - {name: BBC 中文, url: "https://feeds.bbci.co.uk/zhongwen/simp/rss.xml", topics: [新闻, 国际], kind: news}
+      - {name: BBC World, url: "https://feeds.bbci.co.uk/news/world/rss.xml", topics: [新闻, 国际], kind: news}
+      - {name: 36氪, url: "https://36kr.com/feed", topics: [科技, 商业], kind: news}
+      - {name: 少数派, url: "https://sspai.com/feed", topics: [科技, 数码, 效率], kind: blog}
+      - {name: Ars Technica, url: "https://feeds.arstechnica.com/arstechnica/index", topics: [科技, 科学], kind: news}
+      - {name: Hacker News, url: "https://news.ycombinator.com/rss", topics: [科技, 编程], kind: forum}
+      - {name: NASA, url: "https://www.nasa.gov/news-release/feed/", topics: [天文, 科学], kind: news}
+      - {name: ScienceDaily, url: "https://www.sciencedaily.com/rss/top/science.xml", topics: [科学], kind: news}
+      - {name: Polygon, url: "https://www.polygon.com/rss/index.xml", topics: [游戏], kind: news}
   tier: budget
   max_repliers: 2
   max_mentioned: 8                 # 「@全员」「所有人」「大家」时最多几位依次回应
@@ -127,6 +142,7 @@ prompts:
   memory_roll: v1        # 记忆：日 → 周、周 → 月
   memory_profile: v1     # 记忆：更新长期档案
   life_chat: v1          # 生活：成员之间聊天（公寓楼里的模拟生活）
+  life_share: v1         # 生活：成员把上网看到的一条内容分享到生活群
   office_check: v1       # 办公室：经理过目
   office_fix: v2         # 办公室：退回后员工改一次（v2：改程序必须重跑出图）
   style_merge: v1        # 统筹合并成规范 + 清单

@@ -131,7 +131,7 @@ async def test_daily_limit_stops_calls_but_keeps_events():
 async def test_disabled_does_nothing():
     env = life_env(enabled=False)
     out = await engine(env).tick(NOW)
-    assert out == {"events": 0, "written": 0, "messages": 0, "memories": 0}
+    assert out == {"events": 0, "written": 0, "messages": 0, "memories": 0, "shares": 0}
     assert env.rt.repo.setting(LAST_TICK_KEY) is None
 
 

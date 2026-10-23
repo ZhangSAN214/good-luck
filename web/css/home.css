@@ -183,6 +183,15 @@
 .gc-tag{font-size:11px;color:var(--muted)}
 .gc-tag.away{border:1px solid var(--line,#ccc);border-radius:8px;padding:0 6px;margin:0 6px}
 .gc-readonly{text-align:center;margin:8px 0}
+.gc-src{display:block;margin-top:6px;padding:6px 8px;border-left:3px solid var(--brass-ink,#a77);background:rgba(0,0,0,.04);color:inherit;text-decoration:underline;text-underline-offset:2px;overflow-wrap:anywhere}
+.gc-srcm{display:block;font-size:11px;color:var(--muted);margin-top:2px}
+.fd-list{list-style:none;padding:0;margin:8px 0;display:grid;gap:6px}
+.fd-list li{display:flex;gap:8px;align-items:flex-start}
+.fd-name{flex:1;min-width:0;display:flex;flex-direction:column}
+.fd-name small{color:var(--muted)}
+.fd-url{overflow-wrap:anywhere}
+.fd-add{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}
+.fd-add input{flex:1 1 140px;min-width:0}
 .gc-tag .link,.gc-sys .link{border:0;background:none;color:var(--brass-ink);padding:0;text-decoration:underline;text-underline-offset:2px}
 .gc-empty{margin:auto;text-align:center;color:var(--muted);max-width:340px}
 .gc-empty b{display:block;color:var(--ink);font-weight:500;margin-bottom:4px}

@@ -1237,6 +1237,75 @@ class Repository:
             (workflow, *steps, iso(start), iso(end)),
         ).fetchone()[0]
 
+    def count_in_steps(
+        self, workflow: str, steps: Sequence[str], start: datetime, end: datetime
+    ) -> int:
+        """[start, end) 内某类隐藏会话里、指定步骤的调用次数（如每天的联网搜索次数）。"""
+        marks = ", ".join("?" for _ in steps)
+        return self._exec(
+            "SELECT COUNT(*) FROM calls c JOIN sessions s ON s.id = c.session_id"
+            f" WHERE s.workflow = ? AND c.step IN ({marks})"
+            " AND c.created_at >= ? AND c.created_at < ?",
+            (workflow, *steps, iso(start), iso(end)),
+        ).fetchone()[0]
+
+    # --- 上网看到的内容（docs/CHAT.md G7） ----------------------------------------------
+
+    def add_web_item(
+        self,
+        feed: str,
+        url: str,
+        title: str,
+        *,
+        summary: str = "",
+        published: str | None = None,
+        topics: Sequence[str] = (),
+        unverified: bool = True,
+    ) -> bool:
+        """存一条；同一网址已有时不改，返回 False。"""
+        cur = self._exec(
+            "INSERT OR IGNORE INTO web_items (feed, url, title, summary, published, topics,"
+            " unverified, fetched_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                feed,
+                url,
+                title,
+                summary,
+                published,
+                json.dumps(list(topics), ensure_ascii=False),
+                int(unverified),
+                self.clock(),
+            ),
+        )
+        return cur.rowcount > 0
+
+    def web_items(self, *, unshared: bool = False, limit: int = 500) -> list[dict[str, Any]]:
+        """新的在前。"""
+        sql = "SELECT * FROM web_items"
+        if unshared:
+            sql += " WHERE shared_by IS NULL"
+        sql += " ORDER BY fetched_at DESC, id DESC LIMIT ?"
+        return [_web_row(r) for r in self._exec(sql, (limit,)).fetchall()]
+
+    def web_shared_by(self, member: str, since: str) -> int:
+        return self._exec(
+            "SELECT COUNT(*) FROM web_items WHERE shared_by = ? AND shared_at >= ?",
+            (member, since),
+        ).fetchone()[0]
+
+    def mark_web_shared(self, item_id: int, member: str) -> None:
+        self._exec(
+            "UPDATE web_items SET shared_by = ?, shared_at = ? WHERE id = ?",
+            (member, self.clock(), item_id),
+        )
+
+    def prune_web_items(self, before: str) -> int:
+        """删掉 before 之前抓到、没分享过的条目。"""
+        cur = self._exec(
+            "DELETE FROM web_items WHERE shared_by IS NULL AND fetched_at < ?", (before,)
+        )
+        return cur.rowcount
+
     def office_work_between(self, start: datetime, end: datetime) -> list[dict[str, Any]]:
         """[start, end) 内办公室会话里员工办事的调用：模型、会话、题目、是否匿名未揭晓。
 
@@ -1561,6 +1630,13 @@ def _room_row(row: sqlite3.Row) -> dict[str, Any]:
 def _memory_row(row: sqlite3.Row) -> dict[str, Any]:
     out = dict(row)
     out["offline"] = bool(out["offline"])
+    return out
+
+
+def _web_row(row: sqlite3.Row) -> dict[str, Any]:
+    out = dict(row)
+    out["topics"] = json.loads(out["topics"])
+    out["unverified"] = bool(out["unverified"])
     return out
 
 

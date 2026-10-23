@@ -88,6 +88,12 @@ class PersonaBody(BaseModel):
     persona: dict[str, Any] | None = None  # None：恢复为配置文件里的
 
 
+class FeedsBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    feeds: list[dict[str, Any]] | None = None  # None：恢复为配置文件里的
+
+
 class MemoryBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -231,6 +237,18 @@ def create_app(service: RoundtableService | None = None) -> FastAPI:
     @app.delete("/api/chat/memories")
     async def chat_clear_memories(request: Request, member: str | None = None) -> dict[str, Any]:
         return svc(request).chat_clear_memories(member)
+
+    @app.get("/api/chat/feeds")
+    async def chat_feeds(request: Request) -> dict[str, Any]:
+        return svc(request).chat_feeds()
+
+    @app.put("/api/chat/feeds")
+    async def chat_set_feeds(request: Request, body: FeedsBody) -> dict[str, Any]:
+        return svc(request).chat_set_feeds(body.feeds)
+
+    @app.post("/api/chat/feeds/refresh")
+    async def chat_refresh_feeds(request: Request) -> dict[str, Any]:
+        return await svc(request).chat_refresh_feeds()
 
     @app.delete("/api/chat")
     async def chat_clear(request: Request, room: str = "main") -> dict[str, Any]:

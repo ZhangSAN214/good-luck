@@ -31,6 +31,7 @@ import { Pet } from './agent/pet.js';
 import { Apartment } from './apartment.js';
 import { GroupChat } from './groupchat.js';
 import { People } from './people.js';
+import { Feeds } from './feeds.js';
 
 const $ = (q) => document.querySelector(q);
 const RESTING = new Set(['completed', 'stopped', 'failed', 'awaiting_confirmation', 'paused']);
@@ -89,8 +90,10 @@ const people = new People($('#people'), {
     tidy: API.tidyChatMemories,
   },
 });
+const feeds = new Feeds($('#feeds'), { api: { get: API.chatFeeds, set: API.setChatFeeds, refresh: API.refreshChatFeeds } });
 const gchat = new GroupChat($('#gchat'), {
   openPeople: (member) => people.open(member),
+  openFeeds: () => feeds.open(),
   api: { get: API.getChat, post: API.postChat, clear: API.clearChat, rooms: API.getChatRooms, handoff: API.chatHandoff },
   openSession: async (sid) => {
     setEntry('work');
