@@ -57,6 +57,10 @@ def test_anonymous_budget_tier_then_reveal(serve, page):
     assert sum(card in text for card in TAROT) >= 2
     assert leaks(srv.anonymous_terms(), text) == []
 
+    # 讨论模式的招牌：汇总后面跟着纠错记录（互评挑出的问题与作者的处理）
+    fixes = page.inner_text("#chat .fixes")
+    assert "纠错记录" in fixes and "重要" in fixes and "已采纳" in fixes
+
     # 互评面板有结论表格
     page.click('#tabs button[data-t="reviews"]')
     assert page.locator("#pbody table tbody tr").count() >= 2

@@ -262,17 +262,26 @@ function renderComposer() {
   $('#anonymous').checked = S.anonymous;
   const workflows = S.status?.workflows || { office: '办公室', discussion: '讨论模式', collab: '协同模式', solo: '个人作答', brainstorm: '头脑风暴', auto: '自动' };
   $('#workflow').innerHTML = Object.entries(workflows)
-    .map(([k, label]) => `<button type="button" data-v="${esc(k)}" aria-pressed="${k === S.workflow}" title="${{ office: '经理看题后派一位合适的员工办理，经理过目，不合格退回改一次；有争议或重要的事，经理点名两三位员工开会、依次发言后拍板；大件的活组项目组分工完成，另一位经理验收；只有需要时才查资料', brainstorm: '让大家各自发散想法、互相拓展，统筹整合成思维导图，帮你拓展思路并选择方向', auto: '开始时由几位最便宜的模型给出建议（用哪种方式、难度），你确认后再开始；简单题不调用它们', collab: '统筹拆分子任务，成员自荐、分工完成、交叉审查，最后合并', solo: '只请一位成员直接回答：在所选档位里挑最便宜的，不互评、不汇总' }[k] || '全员各自作答，互评、修订后由统筹汇总'}">${esc(label)}</button>`)
+    .map(([k, label]) => `<button type="button" data-v="${esc(k)}" aria-pressed="${k === S.workflow}" title="${{ office: '经理看题后派一位合适的员工办理，经理过目，不合格退回改一次；有争议或重要的事，经理点名两三位员工开会、依次发言后拍板；大件的活组项目组分工完成，另一位经理验收；只有需要时才查资料', brainstorm: '每人抽一种发散手法出点子，再互相杂交、匿名投票，统筹整合成点子榜、导图、对比表、场景故事和行动方案', auto: '开始时由几位最便宜的模型给出建议（用哪种方式、难度），你确认后再开始；简单题不调用它们', collab: '统筹拆分子任务，成员自荐、分工完成、交叉审查，最后合并', solo: '只请一位成员直接回答：在所选档位里挑最便宜的，不互评、不汇总' }[k] || '全员各自作答，互评、修订后由统筹汇总'}">${esc(label)}</button>`)
     .join('');
   renderMediaChoice();
   $('#manual').hidden = S.tier !== 'custom';
   const min = (S.status?.min_members ?? 2) + 1;
-  $('#mode-hint').textContent =
+  // 每种方式只回答一类需求：适合什么、会得到什么
+  const fit = {
+    solo: '适合简单题，最快最省；得到一份答案。',
+    discussion: '适合要“对”的题；得到最终答案、共识与分歧、纠错记录。',
+    collab: '适合要完整成果的大活；得到合并成品和分工看板。',
+    brainstorm: '适合找点子、想方向；得到点子榜、导图、对比表、场景故事和行动方案。',
+    office: '适合日常交办；',
+    auto: '不知道选哪种时用：先给建议，你确认后再开始。',
+  }[S.workflow] || '';
+  $('#mode-hint').textContent = fit + (
     S.workflow === 'office'
       ? `经理分诊后派一位员工办理并过目，必要时开会或组项目组；预计超过 ${money(S.status?.office_threshold_usd ?? 0.05)} 先问你`
       : S.tier === 'custom'
       ? `勾选至少 ${min} 个模型，全部上桌（其中一个当统筹）`
-      : `该档位所有可用模型上桌；预计超过 ${money(S.status?.confirm_threshold_usd ?? 0.3)} 先问你`;
+      : `该档位所有可用模型上桌；预计超过 ${money(S.status?.confirm_threshold_usd ?? 0.3)} 先问你`);
 }
 
 function renderMediaChoice() {
@@ -282,7 +291,7 @@ function renderMediaChoice() {
   if (collab || ['office', 'solo', 'auto', 'brainstorm'].includes(S.workflow)) S.media = null; // 协同模式由统筹决定哪些子任务生成媒体；个人作答只出文字
   const outputs = [[null, '文字'], ...Object.entries(kinds).map(([k, v]) => [k, v.label])];
   if (['office', 'solo', 'auto', 'brainstorm'].includes(S.workflow)) {
-    const why = { office: '办公室模式先只出文字（员工可以用画图工具）', auto: '自动模式先出建议，输出类型请在选定作答方式后再选', brainstorm: '头脑风暴输出思维导图和大纲' }[S.workflow] || '个人作答只输出文字';
+    const why = { office: '办公室模式先只出文字（员工可以用画图工具）', auto: '自动模式先出建议，输出类型请在选定作答方式后再选', brainstorm: '头脑风暴输出点子榜、导图和行动方案' }[S.workflow] || '个人作答只输出文字';
     $('#media').innerHTML = `<span class="hint" id="media-auto">${why}</span>`;
   } else if (collab) {
     // 协同模式不选输出类型：不显示一排灰按钮（容易误以为不能画图），直接说明

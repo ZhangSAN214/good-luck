@@ -38,6 +38,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, TextIO
 
+from roundtable.core import ideaboard
 from roundtable.core.allocation import coordinator_name, display_name
 from roundtable.core.attachments import UploadError, ingest
 from roundtable.core.bench import (
@@ -88,7 +89,9 @@ STEP_NAMES = {
     "merge": "统筹合并",
     "ideate": "成员发散",
     "expand": "互相拓展",
-    "organize": "统筹整合导图",
+    "crossbreed": "碰撞杂交",
+    "vote": "匿名投票",
+    "organize": "统筹整合",
     "attachments": "处理附件",
     "media": "生成媒体",
     "style": "提取风格规范",
@@ -930,27 +933,50 @@ class CLI:
             self.p(f"\n{title}\n{self.t(d['text'])}")
 
     def print_brainstorm(self, outputs, table_no: int, details: bool) -> None:
-        """头脑风暴：详情里列出每人的想法与拓展；最后给出整合后的大纲。"""
+        """头脑风暴：详情里列出每人的点子、拓展 / 碰撞杂交与投票；最后给出点子榜和整合后的大纲。"""
+        kinds = {
+            "build": "深化",
+            "combine": "组合",
+            "challenge": "质疑改进",
+            "new": "全新想法",
+            "hybrid": "杂交",
+            "flip": "反转放大",
+            "fix": "挑刺补救",
+        }
         if details:
             for o in outputs:
                 who = self.label(o.code, table_no)
                 if o.kind == "ideas":
-                    items = json.loads(o.content)["ideas"]
-                    self.p(f"\n【{who} 的想法】")
+                    data = json.loads(o.content)
+                    items = data["ideas"]
+                    lens = f"（抽到「{data['lens']}」）" if data.get("lens") else ""
+                    self.p(f"\n【{who} 的想法{lens}】")
                     for i in items:
                         detail = f"：{self.t(i['detail'])}" if i["detail"] else ""
                         self.p(f"  {i['id']} {self.t(i['title'])}{detail}")
                 elif o.kind == "expansions":
                     items = json.loads(o.content)["items"]
                     if items:
-                        self.p(f"\n【{who} 的拓展】")
+                        what = "碰撞杂交" if o.step == "crossbreed" else "拓展"
+                        self.p(f"\n【{who} 的{what}】")
                     for x in items:
-                        on = f"（针对 {x['on']}）" if x["on"] else ""
-                        self.p(f"  [{x['kind']}]{on} {self.t(x['text'])}")
+                        pair = f"{x['on']} × {x['also']}" if x.get("also") else x["on"]
+                        on = f"（针对 {pair}）" if x["on"] else ""
+                        self.p(f"  [{kinds.get(x['kind'], x['kind'])}]{on} {self.t(x['text'])}")
+                elif o.kind == "votes":
+                    d = json.loads(o.content)
+                    picks = "、".join(
+                        f"{p['id']}（{p['novelty'] + p['feasibility'] + p['value']}）"
+                        for p in d["picks"]
+                    )
+                    dark = f"；黑马 {d['dark_horse']}" if d.get("dark_horse") else ""
+                    self.p(f"\n【{who} 投票】{picks or '没有有效的票'}{dark}")
         mm = next((o for o in outputs if o.kind == "mindmap"), None)
         if mm is None:
             return
         data = json.loads(mm.content)
+        if data.get("board"):
+            self.p("\n" + self.t(ideaboard.to_markdown(ideaboard.Board.from_dict(data["board"]))))
         if data["map"].get("degraded"):
             self.p("\n（统筹没能整合出导图，以下按成员分别列出各自的想法）")
         self.p("\n【思维导图（大纲）】\n" + self.t(data["markdown"]))
@@ -1212,14 +1238,17 @@ class CLI:
         return 0
 
     def cmd_mindmap(self, session_id: str, output: str | None) -> int:
-        """保存头脑风暴的思维导图：按后缀 .svg（图）/ .md（大纲）/ .mmd（Mermaid）。"""
+        """保存头脑风暴的思维导图：按后缀 .svg（图）/ .md（点子榜 + 大纲）/ .mmd（Mermaid）。"""
         rows = self.rt.repo.outputs(session_id, kind="mindmap")
         if not rows:
             self.p("这场讨论没有思维导图（只有头脑风暴模式会生成）。")
             return 2
         data = json.loads(rows[-1]["content"])
         target = Path(output or f"roundtable-{session_id[:8]}-mindmap.svg")
-        text = {".md": data["markdown"], ".mmd": data["mermaid"]}.get(
+        board = ""
+        if data.get("board"):
+            board = ideaboard.to_markdown(ideaboard.Board.from_dict(data["board"]))
+        text = {".md": board + data["markdown"], ".mmd": data["mermaid"]}.get(
             target.suffix.lower(), data["svg"]
         )
         target.write_text(text, encoding="utf-8")
@@ -1389,7 +1418,7 @@ def build_parser() -> argparse.ArgumentParser:
             "office 办公室（经理分诊：单人办、开会或项目分工，经理把关；默认）"
             "/ discussion 讨论（全员各自作答再互评汇总）/ collab 协同（拆分子任务分工完成）"
             "/ solo 个人作答（档位内挑最便宜的一位直接回答）"
-            "/ brainstorm 头脑风暴（发散、拓展、整合成思维导图）"
+            "/ brainstorm 头脑风暴（抽签发散、碰撞杂交、匿名投票，整合成点子榜和思维导图）"
             "/ auto 自动（先请分诊小组给建议，你确认后再开始）"
         ),
     )

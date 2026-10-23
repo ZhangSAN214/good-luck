@@ -148,6 +148,8 @@ def test_registry():
             "media",
             "ideate",
             "expand",
+            "crossbreed",
+            "vote",
             "organize",
             "intake",
             "handle",

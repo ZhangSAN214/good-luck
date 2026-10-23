@@ -227,12 +227,21 @@ def estimate_pipeline(
         "check": (coord, o + q + brief + a, params.check_tokens),
         # 办公室模式·项目分工：复核经理验收合并好的成果
         "office_review": (coord, o + q + params.merge_tokens, params.check_tokens),
-        # 头脑风暴：每人 ideate_tokens 的想法；拓展时看别人的想法；统筹整合全部
+        # 头脑风暴：每人 ideate_tokens 的点子；拓展时看别人的全部点子（旧流程），碰撞杂交只看
+        # 随机分到的几个（按一人份的点子估）；投票看别人的点子和杂交；统筹整合全部
         "ideate": (members, o + q, params.ideate_tokens),
         "expand": (members, o + q + (n - 1) * params.ideate_tokens, params.expand_tokens),
+        "crossbreed": (members, o + q + params.ideate_tokens, params.crossbreed_tokens),
+        "vote": (
+            members,
+            o + q + (n - 1) * (params.ideate_tokens + params.crossbreed_tokens),
+            params.vote_tokens,
+        ),
         "organize": (
             coord,
-            o + q + n * (params.ideate_tokens + params.expand_tokens),
+            o
+            + q
+            + n * (params.ideate_tokens + max(params.expand_tokens, params.crossbreed_tokens)),
             params.organize_tokens,
         ),
     }
