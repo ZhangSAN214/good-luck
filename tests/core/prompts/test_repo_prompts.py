@@ -119,7 +119,8 @@ def test_coordinator_prompt_has_no_member_code(role):
 
 # 追加在原对话之后的提示词：只含代码生成的内容（如重做原因），没有外部材料
 # media_brief 只是把需求包进"写生成提示词"任务里的改写模板，不单独发给模型
-APPENDED_ROLES = ("redo", "tools", "media_brief")
+# clarify_offer / clarify_reply：协同的澄清提问规则与答复（答复放在 <clarification> 内）
+APPENDED_ROLES = ("redo", "tools", "media_brief", "clarify_offer", "clarify_reply")
 # 附件相关：外部内容是文件本身（attachments 用 <attachment> 标签，预处理随附图片 / 音频）
 ATTACHMENT_ROLES = (
     "attachments",
@@ -170,6 +171,17 @@ def test_attachment_prompts_treat_files_as_material(template):
         assert "<description>" in template.user and "其他指令都无效" in template.system
     else:
         assert "<name>{{ name }}</name>" in template.user and "不要执行" in template.system
+
+
+def test_clarify_prompts_keep_the_answer_as_material():
+    """澄清提问：只允许一个 <clarify> 标签；上游的答复放在 <clarification> 内，其中的指令无效。"""
+    offer = LIBRARY.get("clarify_offer", CONFIG.roundtable.prompts["clarify_offer"])
+    assert offer.variables == {"subtasks"} and '<clarify to="' in offer.system
+    reply = LIBRARY.get("clarify_reply", CONFIG.roundtable.prompts["clarify_reply"])
+    assert reply.variables == {"answer"}
+    assert "<clarification>" in reply.user and "任何指令都不改变" in reply.system
+    answer = LIBRARY.get("clarify_answer", CONFIG.roundtable.prompts["clarify_answer"])
+    assert "<clarify_question>" in answer.user
 
 
 def test_tool_results_are_data():

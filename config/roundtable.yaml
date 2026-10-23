@@ -44,6 +44,9 @@ prompts:
   accept_fix: v1         # 协同：未通过验收的作者修改一次
   discuss: v1            # 协同：分工后组员提调整建议
   adjust: v1             # 协同：统筹据此最多调整一次
+  clarify_offer: v1      # 协同：有上游产出时，允许负责人先向上游作者提一次澄清问题
+  clarify_answer: v1     # 协同：上游作者答复澄清问题
+  clarify_reply: v1      # 协同：把答复交给提问者，请其完成子任务
   work: v1
   decompose_retry: v1    # 流水线拆分不合格时，把问题列给统筹重拆
   work_analyze: v1       # 协同流水线：各类型子任务的工作提示词
@@ -58,7 +61,7 @@ prompts:
   work_assemble: v1
   cross_review: v1
   rework: v2
-  merge: v4
+  merge: v5              # v5：已被下游接手的上游成果只给开头摘录
   attachments: v1        # 题目附件（文字版 / 随附图片）
   describe_image: v1     # 图片文字版
   transcribe: v1         # 音频转写
@@ -97,6 +100,7 @@ step_params:
   assign: {max_tokens: 1500, reasoning: {effort: low}}
   discuss: {max_tokens: 1200, reasoning: {effort: low}}
   adjust: {max_tokens: 1500, reasoning: {effort: low}}
+  clarify: {max_tokens: 1200, reasoning: {effort: low}}
   work: {max_tokens: 6000, reasoning: {max_tokens: 2000}}
   cross_review: {max_tokens: 3000, reasoning: {max_tokens: 800}}
   rework: {max_tokens: 6000, reasoning: {max_tokens: 2000}}
@@ -153,6 +157,12 @@ collab:
   acceptance: {enabled: true, max_fix_items: 3}
   # 省钱：很短的成果（少于 short_chars 字）只找 short_reviews 位审查者；0 = 不启用。只看成果长度，与作者是谁无关
   cross_review: {short_chars: 400, short_reviews: 1}
+  # 澄清提问：有上游产出的文字子任务，负责人动手前可以向上游作者提一次问题（只在需要时问；
+  # 不问就不多花钱）。答复记为 clarify 步骤的调用；enabled: false 关闭
+  clarify: {enabled: true, max_question_chars: 300}
+  # 省钱：合并时，已经交给下游、下游成果合格（未被标记敷衍）的上游成果只给统筹看开头 excerpt_chars 字，
+  # 不再重复传全文；终点子任务、被标记敷衍或风格未通过的成果仍给全文。只看依赖关系，与作者无关
+  merge_trim: {enabled: true, excerpt_chars: 600}
 
   # --- 流水线（成员数 ≥ pipeline.min_members 时启用）---------------------------------
   # 协同不是"各做各的"：统筹把题目拆成一条流水线（每个子任务有类型，上游产出交给下游继续做），

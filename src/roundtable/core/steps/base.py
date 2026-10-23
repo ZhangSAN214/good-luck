@@ -736,6 +736,8 @@ def restore_collab(state: TableState, kind: str, code: str | None, data: dict[st
         c.pipeline_info = dict(data.get("info") or {})
     elif kind == "handoff":
         c.handoffs.append(data)
+    elif kind == "clarify":
+        c.clarifications[(data["subtask"], code)] = dict(data)
     elif kind == "style_gate" and data.get("final"):
         key = (data["subtask"], code)
         if data.get("passed"):
