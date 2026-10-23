@@ -3,12 +3,15 @@
 用法（在项目根目录）：
     python scripts/check_models.py            # 读取 .env 中的 OPENROUTER_API_KEY（可选）
     python scripts/check_models.py --tolerance 0.05
+    python scripts/check_models.py --strict   # 价格不一致、图片输入不符也算失败
 
 按 token 计价的图像模型（配置了 image_tokens）的输出价格对照远端的 image_output。
-发现模型不存在或价格偏差超出容差时，退出码为 1。本脚本只读，不修改任何文件。
+模型 ID 在远端不存在（调不通）时退出码为 1；价格偏差超出容差（price_mismatch）只提醒，
+不影响退出码（--strict 时为 1），这样一键启动不会因为价格变动停下。本脚本只读，不修改任何文件。
 
 带 vision / image_edit 标签的模型（要看图 / 以参考图为输入）还会核对远端的 input_modalities
-必须含 image：标了标签但远端不支持图片输入，状态为 modality_mismatch，退出码为 1；
+必须含 image：标了标签但远端不支持图片输入，状态为 modality_mismatch，
+同样只提醒（--strict 时退出码为 1）；
 远端没有给出这个字段时标为 unverified（不影响退出码）。
 
 媒体模型（seat: false）：先查 ID 是否存在（图片 / 语音走 /models 的 output_modalities 筛选，视频走
@@ -214,6 +217,9 @@ def check_modalities(local: list[dict[str, Any]], remote: dict[str, Any]) -> lis
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--tolerance", type=float, default=0.01, help="价格相对偏差容差")
+    parser.add_argument(
+        "--strict", action="store_true", help="价格不一致、图片输入不符也算失败（退出码 1）"
+    )
     args = parser.parse_args(argv)
 
     load_dotenv(ROOT / ".env")
@@ -241,7 +247,14 @@ def main(argv: list[str] | None = None) -> int:
     findings += check_modalities(entries, merged)
     for f in findings:
         print(f"[{f.status:>17}] {f.model_id:<22} {f.model:<34} {f.detail}")
-    bad = ("missing", "price_mismatch", "modality_mismatch")
+    warn = [f for f in findings if f.status in ("price_mismatch", "modality_mismatch")]
+    if warn:
+        names = "、".join(f.model_id for f in warn)
+        print(
+            f"提醒：{names} 与远端不一致（见上）。"
+            "价格以 config/models.yaml 为准，预算数字可能偏差；不影响启动。"
+        )
+    bad = ("missing", "price_mismatch", "modality_mismatch") if args.strict else ("missing",)
     return 1 if any(f.status in bad for f in findings) else 0
 
 
