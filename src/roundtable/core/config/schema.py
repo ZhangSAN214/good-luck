@@ -361,6 +361,20 @@ class CrossReviewRules(_Strict):
     short_reviews: int = Field(default=1, ge=1)  # 很短的成果找几位审查者
 
 
+class ClarifyRules(_Strict):
+    """下游向上游提澄清问题：有上游产出的文字子任务，负责人动手前最多问一次（所有人同一规则）。"""
+
+    enabled: bool = True
+    max_question_chars: int = Field(default=300, ge=20)  # 问题超长时截断
+
+
+class MergeTrimRules(_Strict):
+    """合并时省钱：已经交给下游、且下游成果合格的上游成果只给统筹看开头摘录（只看依赖关系）。"""
+
+    enabled: bool = True
+    excerpt_chars: int = Field(default=600, ge=100)  # 摘录长度；不超过这么多字的成果仍给全文
+
+
 class CollabRules(_Strict):
     """协同模式：拆分子任务的数量范围，以及流水线（子任务类型、校验、模板）。"""
 
@@ -368,6 +382,8 @@ class CollabRules(_Strict):
     discussion: DiscussionRules = DiscussionRules()
     acceptance: AcceptanceRules = AcceptanceRules()
     cross_review: CrossReviewRules = CrossReviewRules()
+    clarify: ClarifyRules = ClarifyRules()
+    merge_trim: MergeTrimRules = MergeTrimRules()
     pipeline: PipelineRules = PipelineRules()
     kinds: dict[str, KindRule] = Field(default_factory=dict)
     templates: list[PipelineTemplate] = Field(default_factory=list)

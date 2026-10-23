@@ -65,7 +65,9 @@
 
 ## R6 协同分工讨论与进度看板（2026-10-13）
 
-`discuss` 步骤（成员提建议、统筹最多调整一次、不合规则保持原分工）、提示词 `discuss/v1`、`adjust/v1`、网页进度看板与讨论记录、测试已完成；澄清提问未做。
+`discuss` 步骤（成员提建议、统筹最多调整一次、不合规则保持原分工）、提示词 `discuss/v1`、`adjust/v1`、网页进度看板与讨论记录、测试已完成。
+
+2026-10-14 补上**澄清提问**：有上游成果的文字子任务，负责人动手前可以向上游作者问一次（`clarify_offer/v1`、`clarify_answer/v1`、`clarify_reply/v1`，配置 `collab.clarify`）；不问不多花钱；问答存库、网页过程区和 `show` 显示；测试 `tests/core/steps/test_collab_clarify.py`。
 
 ## R7 协同逐条验收与新模板（2026-10-13）
 
@@ -73,7 +75,9 @@
 
 ## R8 协同降低花费（2026-10-13）
 
-花费分析写入 `docs/COST_ANALYSIS.md`；新增 `collab.cross_review`（短成果少找审查者）与测试。合并不传上游全文、按类型设 `max_tokens` 已做（`collab.kinds.<类型>.step_params`）。
+花费分析写入 `docs/COST_ANALYSIS.md`；新增 `collab.cross_review`（短成果少找审查者）与测试；按类型设 `max_tokens`（`collab.kinds.<类型>.step_params`）。
+
+2026-10-14 补上**合并不重复传上游全文**：`collab.merge_trim` + `merge/v5`，已被下游接手的上游成果只给统筹看开头摘录；推算全力模式统筹合并约省 41%、协同合计约省 7%（见 `docs/COST_ANALYSIS.md`）；测试 `tests/core/steps/test_collab_merge_trim.py`。
 
 ## R13 个人作答（2026-10-13）
 

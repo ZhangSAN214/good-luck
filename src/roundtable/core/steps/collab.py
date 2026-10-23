@@ -11,12 +11,17 @@
 from __future__ import annotations
 
 import asyncio
+import re
 from collections.abc import Sequence
 from dataclasses import replace
+from typing import Any
 
 from roundtable.core.allocation import shuffled
+from roundtable.core.attachments import append_to_messages
 from roundtable.core.config.schema import KindRule
 from roundtable.core.media import KIND_LABELS, KINDS, Placement
+from roundtable.core.prompts import RenderedPrompt
+from roundtable.core.providers import Message
 
 from .base import (
     StepFailed,
@@ -74,7 +79,19 @@ from .schemas import (
 )
 from .style import retag_failed, style_gate
 
-TAGS = ("question", "subtask", "your_subtask", "dependency", "work", "plan", "volunteer")
+TAGS = (
+    "question",
+    "subtask",
+    "your_subtask",
+    "dependency",
+    "work",
+    "plan",
+    "volunteer",
+    "clarify",
+    "clarification",
+    "clarify_question",
+    "downstream_subtask",
+)
 
 
 def _c(ctx: TableContext) -> CollabState:
@@ -825,6 +842,119 @@ def record_handoffs(ctx: TableContext, subtask: Subtask, code: str, inputs: dict
             )
 
 
+# --- 澄清提问（R6）：下游动手前可以向上游作者问一次 ---------------------------------------
+
+_CLARIFY = re.compile(r"<clarify\s+to\s*=\s*[\"']?([^\"'>\s]+)[\"']?\s*>(.*?)</clarify>", re.DOTALL)
+
+
+def clarify_targets(ctx: TableContext, subtask: Subtask, medium: str | None) -> list[str]:
+    """可以提澄清问题的上游子任务：已有成果、作者还在场。只看依赖关系，所有负责人同一规则；
+    媒体子任务（写生成提示词）不提问。"""
+    if not ctx.config.roundtable.collab.clarify.enabled or medium:
+        return []
+    have = {sid for sid, author in _c(ctx).works if author in ctx.active}
+    return [d for d in subtask.depends_on if d in have]
+
+
+def parse_clarify(text: str, allowed: Sequence[str], max_chars: int) -> tuple[str, str] | None:
+    """整条输出只有一个 <clarify> 标签时才算提问，返回 (上游子任务, 问题)。
+
+    编号不对时取第一个上游。"""
+    m = _CLARIFY.fullmatch(text.strip())
+    if m is None or not allowed:
+        return None
+    question = " ".join(m.group(2).split())[:max_chars]
+    if not question:
+        return None
+    return (m.group(1) if m.group(1) in allowed else allowed[0]), question
+
+
+def strip_clarify(text: str) -> str:
+    """成果里夹带的 <clarify> 标签去掉（只剩标签时保留原文，交给实质内容检查）。"""
+    return _CLARIFY.sub("", text).strip() or text
+
+
+async def ask_upstream(
+    ctx: TableContext, subtask: Subtask, code: str, item: str, to: str, question: str
+) -> tuple[dict[str, Any], int]:
+    """把澄清问题交给上游子任务的作者（只用称呼、问题先遮蔽身份），存为 clarify 产出。
+
+    返回 (记录, 调用次数)。作者答不上来时答复为空，下游按自己的理解完成。"""
+    c = _c(ctx)
+    by_id = {s.id: s for s in c.subtasks}
+    author = next(
+        (
+            a
+            for sid, a in c.items().values()
+            if sid == to and a in ctx.active and (sid, a) in c.works
+        ),
+        None,
+    )
+    answer, call_id, calls = "", None, 0
+    if author is not None:
+        prompt = ctx.render(
+            "clarify_answer",
+            code=ctx.label(author),
+            question=ctx.question.text,
+            subtask=subtask_block(by_id[to], "your_subtask", ctx),
+            work=neutralize(c.works[(to, author)], TAGS),
+            downstream=subtask_block(subtask, "downstream_subtask", ctx),
+            clarify=neutralize(ctx.scrub(question), TAGS),
+        )
+        out = await call_model(
+            ctx,
+            step="clarify",
+            role="member",
+            model_id=ctx.members[author],
+            prompt=prompt,
+            code=author,
+        )
+        calls, call_id = 1, out.call_id
+        answer = out.completion.text.strip() if out.completion else ""
+    record = {
+        "subtask": subtask.id,
+        "item": item,
+        "to_subtask": to,
+        "to_code": author,
+        "question": question,
+        "answer": answer,
+    }
+    c.clarifications[(subtask.id, code)] = record
+    _save(ctx, "work", "clarify", record, code=code, call_id=call_id)
+    ctx.emit(
+        "clarify",
+        "work",
+        code,
+        subtask=subtask.id,
+        to_subtask=to,
+        to_code=author,
+        answered=bool(answer),
+    )
+    return record, calls
+
+
+def with_clarification(
+    ctx: TableContext, prompt: RenderedPrompt, record: dict[str, Any]
+) -> RenderedPrompt:
+    """同一对话追加"自己的提问 + 上游的答复"，再请提问者完成子任务（答复先遮蔽身份）。"""
+    reply = ctx.prompts.get("clarify_reply", ctx.prompt_version("clarify_reply"))
+    answer = record["answer"] or "（上游作者没有答复）"
+    filled = reply.render(answer=neutralize(ctx.scrub(answer), TAGS))
+    extra_system = next(m.content for m in filled.messages if m.role == "system")
+    asked = f'<clarify to="{record["to_subtask"]}">{record["question"]}</clarify>'
+    messages = (
+        *(
+            Message("system", f"{m.content}\n\n{extra_system}", m.media)
+            if m.role == "system"
+            else m
+            for m in prompt.messages
+        ),
+        Message("assistant", asked),
+        *(m for m in filled.messages if m.role != "system"),
+    )
+    return RenderedPrompt(filled.role, filled.version, filled.sha256, messages)
+
+
 class WorkStep:
     name = "work"
 
@@ -883,18 +1013,52 @@ class WorkStep:
                 prompt = media_prompt(ctx, "work_media", medium, **values)
             else:
                 prompt = ctx.render(self.name, **values)
+            # 有上游成果时，负责人可以先向上游作者提一次澄清问题（不问就不多花钱）
+            targets = clarify_targets(ctx, subtask, medium)
+            if targets:
+                offer = ctx.prompts.get("clarify_offer", ctx.prompt_version("clarify_offer"))
+                prompt = replace(
+                    prompt,
+                    messages=append_to_messages(
+                        prompt.messages, offer, subtasks="、".join(targets)
+                    ),
+                )
             model_id = ctx.members[code]
-            out = await call_model(
-                ctx,
-                step=self.name,
-                role="member",
-                model_id=model_id,
-                prompt=prompt,
-                code=code,
-                base_params=dict(krule.step_params) if krule and krule.step_params else None,
-            )
-            calls += 1
-            text = out.completion.text.strip() if out.completion else ""
+            base = dict(krule.step_params) if krule and krule.step_params else None
+            asked = c.clarifications.get((sid, code))  # 恢复时已问过：不再重复提问
+            out = None
+            if asked is None:
+                out = await call_model(
+                    ctx,
+                    step=self.name,
+                    role="member",
+                    model_id=model_id,
+                    prompt=prompt,
+                    code=code,
+                    base_params=base,
+                )
+                calls += 1
+                raw = out.completion.text if out.completion else ""
+                request = parse_clarify(
+                    raw, targets, ctx.config.roundtable.collab.clarify.max_question_chars
+                )
+                if request:
+                    asked, n = await ask_upstream(ctx, subtask, code, item, *request)
+                    calls += n
+            if asked is not None:
+                prompt = with_clarification(ctx, prompt, asked)
+                out = await call_model(
+                    ctx,
+                    step=self.name,
+                    role="member",
+                    model_id=model_id,
+                    prompt=prompt,
+                    code=code,
+                    base_params=base,
+                )
+                calls += 1
+            assert out is not None
+            text = strip_clarify(out.completion.text.strip()) if out.completion else ""
             if not text:
                 ctx.drop(code, self.name, "调用失败" if out.completion is None else "回答为空")
                 return
@@ -1425,11 +1589,42 @@ class ReworkStep:
 # --- 合并 ---------------------------------------------------------------------
 
 
-def works_block(ctx: TableContext, only: set[str] | None = None) -> str:
-    """按子任务分组的各份最终成果（同一子任务内顺序随机，作者只以代号标注）。"""
+def consumed_by(ctx: TableContext) -> dict[str, list[str]]:
+    """合并时可以只给摘录的上游子任务 → 接手它的下游子任务。
+
+    下游至少有一份成果、且没有任何一份被标记敷衍时才算接手（只看依赖关系与检查结果）。"""
     c = _c(ctx)
     latest = c.latest()
     ids_by_key = {v: k for k, v in c.items().items()}
+
+    def good(sid: str) -> bool:
+        keys = [k for k in latest if k[0] == sid]
+        return bool(keys) and not any(ctx.state.flagged(k[1], ids_by_key.get(k, "")) for k in keys)
+
+    found: dict[str, list[str]] = {}
+    for s in c.subtasks:
+        if good(s.id):
+            for dep in s.depends_on:
+                found.setdefault(dep, []).append(s.id)
+    return found
+
+
+def excerpt(text: str, limit: int) -> str:
+    """开头 limit 字左右（尽量在换行处断开）。"""
+    head = text[:limit]
+    cut = head.rfind("\n")
+    return (head[:cut] if cut > limit // 2 else head).rstrip() + "\n……"
+
+
+def works_block(ctx: TableContext, only: set[str] | None = None, trim: bool = False) -> str:
+    """按子任务分组的各份最终成果（同一子任务内顺序随机，作者只以代号标注）。
+
+    trim：合并时，已被下游接手的上游成果只给开头摘录（collab.merge_trim）。"""
+    c = _c(ctx)
+    latest = c.latest()
+    ids_by_key = {v: k for k, v in c.items().items()}
+    rule = ctx.config.roundtable.collab.merge_trim
+    used = consumed_by(ctx) if trim and rule.enabled else {}
     parts = []
     for s in c.subtasks:
         if only is not None and s.id not in only:
@@ -1441,7 +1636,20 @@ def works_block(ctx: TableContext, only: set[str] | None = None) -> str:
             attr = ' flagged="未通过实质内容检查"' if flagged else ""
             if key in c.style_failed:
                 attr += ' style="重画后仍未通过参考图风格清单"'
-            body = neutralize(ctx.scrub(latest[key] + ctx.member_notes(key[1])), TAGS)
+            text = latest[key]
+            short = (
+                s.id in used
+                and not flagged
+                and key not in c.style_failed
+                and len(text) > rule.excerpt_chars
+            )
+            if short:
+                text = excerpt(text, rule.excerpt_chars)
+                attr += f' excerpt="完整内容已交给 {"、".join(used[s.id])} 继续使用"'
+                # 生成的文件已经随交接交给下游；来源列表很短，保留供核对引用
+                body = neutralize(ctx.scrub(text + ctx.sources_note(key[1])), TAGS)
+            else:
+                body = neutralize(ctx.scrub(text + ctx.member_notes(key[1])), TAGS)
             parts.append(
                 f'<work id="{item}" subtask="{s.id}" from="{ctx.label(key[1])}"{attr}>\n'
                 f"{body}\n</work>"
@@ -1568,7 +1776,7 @@ class MergeStep:
             self.name,
             question=ctx.question.text,
             subtasks=subtasks_block(c.subtasks, ctx),
-            works=works_block(ctx),
+            works=works_block(ctx, trim=True),
         )
         result = await call_and_parse(
             ctx,

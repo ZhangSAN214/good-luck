@@ -550,6 +550,14 @@ class CLI:
                 src = f"{h['from_subtask']} {self.label(h['from_code'], table_no)}"
                 dst = f"{h['to_subtask']} {self.label(h['to_code'], table_no)}"
                 self.p(f"  {src} 把〈{h['gives']}〉交给 {dst}{tail}")
+        if by_kind.get("clarify"):
+            self.p("\n【澄清提问】")
+            for o in by_kind["clarify"]:
+                q = json.loads(o.content)
+                asker = f"{q['subtask']} {self.label(o.code, table_no)}"
+                to = self.label(q["to_code"], table_no) if q.get("to_code") else "上游"
+                self.p(f"  {asker} 问 {q['to_subtask']} {to}：{q['question']}")
+                self.p(f"    答：{q['answer'] or '（没有答复，按自己的理解完成）'}")
         if details:
             for o in by_kind.get("volunteer", []):
                 v = json.loads(o.content)

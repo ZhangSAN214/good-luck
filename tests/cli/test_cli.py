@@ -439,6 +439,35 @@ async def test_collab_pipeline_shows_kinds_and_handoff_chain():
     assert "$" in costs  # 金额仍是美元
 
 
+async def test_collab_show_lists_clarifying_questions():
+    """下游向上游提的澄清问题和答复出现在 show 里。"""
+    from ..core.orchestrator.test_media import script
+    from ..core.orchestrator.test_pipeline import WHOLE
+
+    env = Env(confirm_threshold_usd=100.0, pipeline=True)
+
+    def offered(model, msgs):
+        if "你的澄清问题的答复在" in msgs[0].content:
+            return env.reply(model, msgs)
+        return '<clarify to="?">上游的要点按什么顺序写？</clarify>'
+
+    script(
+        env,
+        **{
+            "把任务拆成子任务": lambda m, msgs: WHOLE,
+            "没有通过代码检查": lambda m, msgs: WHOLE,
+            "向你提了一个澄清问题": lambda m, msgs: "按时间顺序写。",
+            "补充规则（澄清提问）": offered,
+        },
+    )
+    code, text = await cli(env, "ask", MEDIUM, "--mode", "collab", "--details", "--seed", "5")
+    assert code == 0
+    sid = env.rt.repo.list_sessions(1)[0].id
+    code, shown = await cli(env, "show", sid)
+    assert code == 0 and "【澄清提问】" in shown
+    assert "上游的要点按什么顺序写？" in shown and "答：按时间顺序写。" in shown
+
+
 async def test_style_reference_flow_in_the_cli(tmp_path):
     """图片附件默认是风格参考：show 里有风格规范、媒体任务显示参考图张数；--no-style-ref 则没有。"""
     from ..core.attachments.samples import PNG
