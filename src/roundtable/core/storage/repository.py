@@ -1089,11 +1089,14 @@ class Repository:
         return _room_row(row) if row else None
 
     def chat_rooms(self) -> list[dict[str, Any]]:
-        """全部会话，带未读数（last_read 之后别人发的消息）和最后一条消息。"""
+        """全部会话，带未读数和最后一条消息。
+
+        未读 = last_read 之后成员发的消息，以及带 meta 的系统消息（如工作群里的交付通知）。
+        """
         rows = self._exec(
             "SELECT r.*,"
             " (SELECT COUNT(*) FROM chat_messages m WHERE m.room = r.id AND m.id > r.last_read"
-            "  AND m.author NOT IN ('user', 'system')) AS unread,"
+            "  AND m.author != 'user' AND (m.author != 'system' OR m.meta IS NOT NULL)) AS unread,"
             " (SELECT MAX(id) FROM chat_messages m WHERE m.room = r.id) AS last_id"
             " FROM chat_rooms r ORDER BY r.created_at, r.id"
         ).fetchall()

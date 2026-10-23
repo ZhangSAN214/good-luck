@@ -100,3 +100,25 @@ def test_apartment_resident_dm(serve, page):
     page.click("#resident-card [data-dm]")
     page.wait_for_selector("#gchat:not([hidden])")
     page.wait_for_function("document.querySelector('#gc-title').textContent.startsWith('与 ')")
+
+
+def test_work_group_handoff_and_open_in_office(serve, page):
+    srv = serve(confirm_threshold_usd=100.0)
+    open_chat(srv, page)
+    page.click(".gc-room[data-room='work']")
+    page.wait_for_selector("#gc-handoff:not([hidden])")
+    page.fill("#chat-input", "求函数 f(x)=x^3-3x 在区间 [-2, 2] 上的最大值与最小值")
+    page.click("#gc-handoff")
+    page.wait_for_selector(".gc-msg.me .gc-tag")
+    page.wait_for_function(
+        "document.querySelector('#gc-feed').textContent.includes('交付了')", timeout=20000
+    )
+    assert "派给了" in page.inner_text("#gc-feed")
+    page.locator(".gc-sys [data-session]").last.click()
+    page.wait_for_function("location.hash.includes('s=')")
+    assert page.locator("#gchat").is_hidden()
+    # 私聊和生活群里没有这个按钮
+    page.keyboard.press("Alt+Digit3")  # 回到聊天
+    page.click(".gc-room[data-room='main']")
+    page.wait_for_function("document.querySelector('#gc-title').textContent === '大家庭'")
+    assert page.locator("#gc-handoff").is_hidden()

@@ -85,3 +85,13 @@ def test_unknown_room_is_404():
         assert c.get("/api/chat", params={"room": "nope"}).status_code == 404
         assert c.post("/api/chat", json={"text": "hi", "room": "dm:X"}).status_code == 404
         assert c.delete("/api/chat", params={"room": "nope"}).status_code == 404
+
+
+def test_handoff_endpoint():
+    env = Env(confirm_threshold_usd=100.0)
+    with TestClient(create_app(RoundtableService(env.rt))) as c:
+        r = c.post("/api/chat/handoff", json={"text": "写一份周报"})
+        assert r.status_code == 202 and r.json()["session_id"]
+        assert c.get(f"/api/sessions/{r.json()['session_id']}").json()["workflow"] == "office"
+        assert c.post("/api/chat/handoff", json={"text": " "}).status_code == 400
+        assert c.post("/api/chat/handoff", json={"text": "x", "y": 1}).status_code == 422

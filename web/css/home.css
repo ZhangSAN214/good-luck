@@ -178,7 +178,9 @@
 .gc-msg.me .gc-bub .at{color:#f1d59c}
 .gc-sys{align-self:center;font-size:12px;color:var(--muted);padding:0 10px;display:flex;gap:6px;align-items:center}
 .gc-sys::before,.gc-sys::after{content:"";width:24px;height:1px;background:var(--line)}
-.gc-sys .link{border:0;background:none;color:var(--brass-ink);padding:0;text-decoration:underline;text-underline-offset:2px}
+.gc-sys.work{color:var(--ink)}
+.gc-tag{font-size:11px;color:var(--muted)}
+.gc-tag .link,.gc-sys .link{border:0;background:none;color:var(--brass-ink);padding:0;text-decoration:underline;text-underline-offset:2px}
 .gc-empty{margin:auto;text-align:center;color:var(--muted);max-width:340px}
 .gc-empty b{display:block;color:var(--ink);font-weight:500;margin-bottom:4px}
 .gc-empty p{margin:0;font-size:13px}

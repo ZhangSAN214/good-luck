@@ -21,7 +21,8 @@ from roundtable.core.allocation import coordinator_name, display_name
 from roundtable.core.attachments import Attachment, UploadError, ingest
 from roundtable.core.attachments.detect import TYPES as UPLOAD_TYPES
 from roundtable.core.budget.guard import month_window
-from roundtable.core.chat import ROOM, ChatHub, chat_budget
+from roundtable.core.chat import ROOM, WORK, ChatHub, chat_budget
+from roundtable.core.chat_work import WORK_EVENTS, post_handoff, post_office_event
 from roundtable.core.media import KIND_LABELS, KINDS, MediaService
 from roundtable.core.members_art import MEMBERS_FILE, load_members, mime_of, resolve_file
 from roundtable.core.notes import NoteError, check_can_add, clean_note
@@ -412,6 +413,16 @@ class RoundtableService:
             self._chat_tasks.add(task)
             task.add_done_callback(self._chat_tasks.discard)
         return {"id": msg["id"], "speakers": [m.name for m in speakers]}
+
+    def chat_handoff(self, text: str) -> dict[str, Any]:
+        """在工作群里交办：按办公室模式（默认档位）开一件事，工作群里记下这条交办。"""
+        text = (text or "").strip()
+        if not text:
+            raise ServiceError("要交办的事不能为空")
+        sid = self.create(text, workflow="office")
+        msg = post_handoff(self.rt, sid, text)
+        self.rt.repo.mark_chat_read(WORK, msg["id"])
+        return {"id": msg["id"], "session_id": sid}
 
     def chat_clear(self, room: str = ROOM) -> dict[str, Any]:
         """一键清空这个会话的聊天记录（花费记录保留，预算照算）。"""
@@ -964,6 +975,11 @@ class RoundtableService:
             self._subscribers.get(session_id, set()).discard(queue)
 
     def _publish(self, session_id: str, event: Event) -> None:
+        if event.type in WORK_EVENTS:
+            try:  # 工作群消息只是旁路记录，出错不能影响办公室里的事
+                post_office_event(self.rt, session_id, event.type, event.data, event.code)
+            except Exception:  # noqa: BLE001
+                log.exception("会话 %s：写工作群消息失败", session_id)
         payload = {
             "type": event.type,
             "step": event.step or None,

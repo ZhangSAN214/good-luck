@@ -76,6 +76,12 @@ class ChatBody(BaseModel):
     room: str = "main"
 
 
+class HandoffBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    text: str
+
+
 class Respond(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -171,6 +177,10 @@ def create_app(service: RoundtableService | None = None) -> FastAPI:
     @app.post("/api/chat", status_code=202)
     async def chat_post(request: Request, body: ChatBody) -> dict[str, Any]:
         return await svc(request).chat_post(body.text, body.room)
+
+    @app.post("/api/chat/handoff", status_code=202)
+    async def chat_handoff(request: Request, body: HandoffBody) -> dict[str, Any]:
+        return svc(request).chat_handoff(body.text)
 
     @app.delete("/api/chat")
     async def chat_clear(request: Request, room: str = "main") -> dict[str, Any]:

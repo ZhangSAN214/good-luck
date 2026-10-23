@@ -38,9 +38,10 @@ export function atQuery(text, caret) {
 }
 
 export class GroupChat {
-  constructor(root, { api, now = () => Date.now() } = {}) {
+  constructor(root, { api, now = () => Date.now(), openSession = null } = {}) {
     this.root = root;
-    this.api = api; // {get(after, q, room), post(text, room), clear(room), rooms()}
+    this.api = api; // {get(after, q, room), post(text, room), clear(room), rooms(), handoff(text)}
+    this.openSession = openSession; // 工作群里点「查看」：回到办公室里的这件事
     this.now = now;
     this.art = null;
     this.room = storage.get();
@@ -102,6 +103,7 @@ export class GroupChat {
         <form class="gc-compose" id="gc-compose" autocomplete="off">
           <div class="gc-suggest" id="gc-suggest" role="listbox" hidden></div>
           <textarea id="chat-input" rows="2" maxlength="2000" placeholder="说点什么：Enter 发送，Shift+Enter 换行；输入 @ 点名" aria-label="聊天消息"></textarea>
+          <button class="btn" type="button" id="gc-handoff" hidden title="把输入框里的事按办公室模式交办（经理分诊派活），进度会发到工作群">交给办公室</button>
           <button class="btn primary" type="submit" id="gc-send">发送</button>
         </form>
         <p class="hint gc-err" id="gc-err" role="alert" hidden></p>
@@ -142,7 +144,10 @@ export class GroupChat {
     });
     this.$('#gc-feed').addEventListener('click', (e) => {
       if (e.target.closest('#gc-exit-search')) this.runSearch('');
+      const open = e.target.closest('[data-session]');
+      if (open && this.openSession) this.openSession(open.dataset.session);
     });
+    this.$('#gc-handoff').addEventListener('click', () => this.handoff());
     this.$('#gc-clear').addEventListener('click', () => this.clear());
     this.renderAll();
   }
@@ -236,6 +241,27 @@ export class GroupChat {
     }
     this.sending = false;
     this.$('#gc-send').disabled = false;
+    this.renderError();
+    await this.poll();
+  }
+
+  /** 工作群：把输入框里的事交给办公室。 */
+  async handoff() {
+    const input = this.$('#chat-input');
+    const text = input.value.trim();
+    if (!text || this.sending || !this.api.handoff) return;
+    this.sending = true;
+    this.$('#gc-handoff').disabled = true;
+    try {
+      await this.api.handoff(text);
+      input.value = '';
+      this.fastUntil = this.now() + FAST_FOR_MS;
+      this.error = '';
+    } catch (e) {
+      this.error = e.message || '交办失败';
+    }
+    this.sending = false;
+    this.$('#gc-handoff').disabled = false;
     this.renderError();
     await this.poll();
   }
@@ -382,14 +408,17 @@ export class GroupChat {
 
   /** prev：上一条消息。同一个人三分钟内连续发言时不再重复头像和名字。 */
   bubble(msg, prev) {
-    if (msg.author === 'system') return `<div class="gc-sys" data-id="${msg.id}">${esc(msg.text)}</div>`;
+    const sid = msg.meta?.session_id;
+    const look = sid && this.openSession ? ` <button type="button" class="link" data-session="${esc(sid)}">查看</button>` : '';
+    if (msg.author === 'system') return `<div class="gc-sys${sid ? ' work' : ''}" data-id="${msg.id}"><span>${esc(msg.text)}</span>${look}</div>`;
     const at = new Date(msg.created_at);
     const time = at.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false });
     const text = esc(msg.text).replace(/@(\S{1,12})/g, '<b class="at">@$1</b>').replace(/\n/g, '<br>');
     const follow = prev && prev.author === msg.author && at - new Date(prev.created_at) < 180000;
     const cls = `gc-msg${msg.author === 'user' ? ' me' : ''}${follow ? ' follow' : ''}`;
     const stamp = `<time datetime="${esc(msg.created_at)}">${esc(time)}</time>`;
-    if (msg.author === 'user') return `<div class="${cls}" data-id="${msg.id}"><div class="gc-body"><div class="gc-meta">${stamp}</div><div class="gc-bub">${text}</div></div></div>`;
+    const tag = msg.meta?.event === 'handoff' ? `<span class="gc-tag">已交给办公室${look}</span>` : '';
+    if (msg.author === 'user') return `<div class="${cls}" data-id="${msg.id}"><div class="gc-body"><div class="gc-meta">${tag}${stamp}</div><div class="gc-bub">${text}</div></div></div>`;
     const member = this.members.find((m) => m.id === msg.author);
     return `<div class="${cls}" data-id="${msg.id}" data-author="${esc(msg.author)}">${this.avatar(member, msg.name)}<div class="gc-body"><div class="gc-meta"><span class="gc-name">${esc(msg.name)}</span>${stamp}</div><div class="gc-bub">${text}</div></div></div>`;
   }
@@ -426,6 +455,7 @@ export class GroupChat {
     const dm = this.isDm();
     this.root.classList.toggle('dm', dm);
     this.$('#gc-aside').hidden = dm;
+    this.$('#gc-handoff').hidden = !(r?.kind === 'work' && this.api.handoff);
     this.$('#chat-input').placeholder = dm ? '说点什么：Enter 发送，Shift+Enter 换行' : '说点什么：Enter 发送，Shift+Enter 换行；输入 @ 点名';
   }
 
