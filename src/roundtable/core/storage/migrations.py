@@ -492,4 +492,38 @@ CREATE TABLE web_items (
 CREATE INDEX idx_web_items_fetched ON web_items(fetched_at);
 """,
     ),
+    (
+        19,
+        "朋友圈",
+        """
+-- 朋友圈（docs/CHAT.md G5）：成员和用户发的动态、点赞、评论。只存本地。
+-- author：成员 id 或 'user'；meta：JSON（生活事件 id、上网分享的来源等）；offline：用户不在时发的。
+CREATE TABLE moments (
+    id          INTEGER PRIMARY KEY,
+    author      TEXT NOT NULL,
+    text        TEXT NOT NULL,
+    meta        TEXT,
+    offline     INTEGER NOT NULL DEFAULT 0,
+    created_at  TEXT NOT NULL
+);
+CREATE INDEX idx_moments_author ON moments(author, id);
+CREATE TABLE moment_likes (
+    moment_id   INTEGER NOT NULL REFERENCES moments(id) ON DELETE CASCADE,
+    who         TEXT NOT NULL,
+    created_at  TEXT NOT NULL,
+    PRIMARY KEY (moment_id, who)
+);
+-- reply_to：回复的是哪条评论（为空时直接评论动态）
+CREATE TABLE moment_comments (
+    id          INTEGER PRIMARY KEY,
+    moment_id   INTEGER NOT NULL REFERENCES moments(id) ON DELETE CASCADE,
+    author      TEXT NOT NULL,
+    text        TEXT NOT NULL,
+    reply_to    INTEGER,
+    offline     INTEGER NOT NULL DEFAULT 0,
+    created_at  TEXT NOT NULL
+);
+CREATE INDEX idx_moment_comments ON moment_comments(moment_id, id);
+""",
+    ),
 ]

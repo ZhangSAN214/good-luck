@@ -32,6 +32,7 @@ import { Apartment } from './apartment.js';
 import { GroupChat } from './groupchat.js';
 import { People } from './people.js';
 import { Feeds } from './feeds.js';
+import { Moments } from './moments.js';
 
 const $ = (q) => document.querySelector(q);
 const RESTING = new Set(['completed', 'stopped', 'failed', 'awaiting_confirmation', 'paused']);
@@ -91,9 +92,14 @@ const people = new People($('#people'), {
   },
 });
 const feeds = new Feeds($('#feeds'), { api: { get: API.chatFeeds, set: API.setChatFeeds, refresh: API.refreshChatFeeds } });
+const moments = new Moments($('#moments'), {
+  api: { list: API.getMoments, post: API.postMoment, like: API.likeMoment, comment: API.commentMoment, del: API.delMoment, delComment: API.delMomentComment },
+  onSeen: () => gchat.markMomentsSeen(),
+});
 const gchat = new GroupChat($('#gchat'), {
   openPeople: (member) => people.open(member),
   openFeeds: () => feeds.open(),
+  openMoments: (author) => moments.open(author),
   api: { get: API.getChat, post: API.postChat, clear: API.clearChat, rooms: API.getChatRooms, handoff: API.chatHandoff },
   openSession: async (sid) => {
     setEntry('work');
@@ -114,6 +120,7 @@ const home = new Apartment($('#home'), {
     setEntry('chat');
     gchat.openRoom(`dm:${id}`);
   },
+  momentsOf: (id) => moments.open(id),
 });
 // 点气泡 / 菜单「跳到讨论」：滚到最新的讨论内容
 function gotoDiscussion() {

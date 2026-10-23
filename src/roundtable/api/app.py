@@ -88,6 +88,19 @@ class PersonaBody(BaseModel):
     persona: dict[str, Any] | None = None  # None：恢复为配置文件里的
 
 
+class MomentBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    text: str
+
+
+class MomentCommentBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    text: str
+    reply_to: int | None = None
+
+
 class FeedsBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -237,6 +250,34 @@ def create_app(service: RoundtableService | None = None) -> FastAPI:
     @app.delete("/api/chat/memories")
     async def chat_clear_memories(request: Request, member: str | None = None) -> dict[str, Any]:
         return svc(request).chat_clear_memories(member)
+
+    @app.get("/api/moments")
+    async def moments(
+        request: Request, author: str | None = None, before: int | None = None
+    ) -> dict[str, Any]:
+        return svc(request).moments_view(author, before)
+
+    @app.post("/api/moments", status_code=201)
+    async def moments_post(request: Request, body: MomentBody) -> dict[str, Any]:
+        return await svc(request).moments_post(body.text)
+
+    @app.post("/api/moments/{moment_id}/like")
+    async def moments_like(request: Request, moment_id: int) -> dict[str, Any]:
+        return svc(request).moments_like(moment_id)
+
+    @app.post("/api/moments/{moment_id}/comments", status_code=201)
+    async def moments_comment(
+        request: Request, moment_id: int, body: MomentCommentBody
+    ) -> dict[str, Any]:
+        return await svc(request).moments_comment(moment_id, body.text, body.reply_to)
+
+    @app.delete("/api/moments/{moment_id}")
+    async def moments_delete(request: Request, moment_id: int) -> dict[str, Any]:
+        return svc(request).moments_delete(moment_id)
+
+    @app.delete("/api/moments/comments/{comment_id}")
+    async def moments_delete_comment(request: Request, comment_id: int) -> dict[str, Any]:
+        return svc(request).moments_delete_comment(comment_id)
 
     @app.get("/api/chat/feeds")
     async def chat_feeds(request: Request) -> dict[str, Any]:

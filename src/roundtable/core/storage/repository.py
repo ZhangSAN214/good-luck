@@ -1306,6 +1306,139 @@ class Repository:
         )
         return cur.rowcount
 
+    # --- 朋友圈（docs/CHAT.md G5） --------------------------------------------------
+
+    def add_moment(
+        self,
+        author: str,
+        text: str,
+        *,
+        meta: dict[str, Any] | None = None,
+        offline: bool = False,
+        created_at: str | None = None,
+    ) -> dict[str, Any]:
+        cur = self._exec(
+            "INSERT INTO moments (author, text, meta, offline, created_at) VALUES (?, ?, ?, ?, ?)",
+            (
+                author,
+                text,
+                json.dumps(meta, ensure_ascii=False) if meta else None,
+                int(offline),
+                created_at or self.clock(),
+            ),
+        )
+        return self.moment(cur.lastrowid) or {}
+
+    def moment(self, moment_id: int) -> dict[str, Any] | None:
+        row = self._exec("SELECT * FROM moments WHERE id = ?", (moment_id,)).fetchone()
+        return self._with_reactions([_moment_row(row)])[0] if row else None
+
+    def moments(
+        self,
+        *,
+        author: str | None = None,
+        before: int | None = None,
+        since: str | None = None,
+        limit: int = 20,
+    ) -> list[dict[str, Any]]:
+        """新的在前，带点赞（who 列表）和评论（按先后）。before：只要 id 更小的（翻页）。"""
+        sql, params = "SELECT * FROM moments WHERE 1 = 1", []
+        if author:
+            sql += " AND author = ?"
+            params.append(author)
+        if before:
+            sql += " AND id < ?"
+            params.append(before)
+        if since:
+            sql += " AND created_at >= ?"
+            params.append(since)
+        sql += " ORDER BY id DESC LIMIT ?"
+        params.append(limit)
+        rows = [_moment_row(r) for r in self._exec(sql, params).fetchall()]
+        return self._with_reactions(rows)
+
+    def _with_reactions(self, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        if not rows:
+            return rows
+        ids = [r["id"] for r in rows]
+        marks = ", ".join("?" for _ in ids)
+        likes: dict[int, list[str]] = {}
+        for r in self._exec(
+            f"SELECT moment_id, who FROM moment_likes WHERE moment_id IN ({marks})"
+            " ORDER BY created_at",
+            ids,
+        ).fetchall():
+            likes.setdefault(r["moment_id"], []).append(r["who"])
+        comments: dict[int, list[dict[str, Any]]] = {}
+        for r in self._exec(
+            f"SELECT * FROM moment_comments WHERE moment_id IN ({marks}) ORDER BY id", ids
+        ).fetchall():
+            c = dict(r)
+            c["offline"] = bool(c["offline"])
+            comments.setdefault(r["moment_id"], []).append(c)
+        for row in rows:
+            row["likes"] = likes.get(row["id"], [])
+            row["comments"] = comments.get(row["id"], [])
+        return rows
+
+    def moments_by(self, author: str, since: str) -> int:
+        return self._exec(
+            "SELECT COUNT(*) FROM moments WHERE author = ? AND created_at >= ?", (author, since)
+        ).fetchone()[0]
+
+    def latest_moment_id(self) -> int:
+        return self._exec("SELECT COALESCE(MAX(id), 0) FROM moments").fetchone()[0]
+
+    def unseen_moments(self, after: int) -> int:
+        """id 大于 after 的成员动态条数（用户自己发的不算）。"""
+        return self._exec(
+            "SELECT COUNT(*) FROM moments WHERE id > ? AND author != 'user'", (after,)
+        ).fetchone()[0]
+
+    def like_moment(self, moment_id: int, who: str) -> bool:
+        cur = self._exec(
+            "INSERT OR IGNORE INTO moment_likes (moment_id, who, created_at) VALUES (?, ?, ?)",
+            (moment_id, who, self.clock()),
+        )
+        return cur.rowcount > 0
+
+    def unlike_moment(self, moment_id: int, who: str) -> bool:
+        cur = self._exec(
+            "DELETE FROM moment_likes WHERE moment_id = ? AND who = ?", (moment_id, who)
+        )
+        return cur.rowcount > 0
+
+    def add_moment_comment(
+        self,
+        moment_id: int,
+        author: str,
+        text: str,
+        *,
+        reply_to: int | None = None,
+        offline: bool = False,
+        created_at: str | None = None,
+    ) -> dict[str, Any]:
+        cur = self._exec(
+            "INSERT INTO moment_comments (moment_id, author, text, reply_to, offline, created_at)"
+            " VALUES (?, ?, ?, ?, ?, ?)",
+            (moment_id, author, text, reply_to, int(offline), created_at or self.clock()),
+        )
+        row = self._exec("SELECT * FROM moment_comments WHERE id = ?", (cur.lastrowid,)).fetchone()
+        out = dict(row)
+        out["offline"] = bool(out["offline"])
+        return out
+
+    def moment_comment(self, comment_id: int) -> dict[str, Any] | None:
+        row = self._exec("SELECT * FROM moment_comments WHERE id = ?", (comment_id,)).fetchone()
+        return dict(row) if row else None
+
+    def delete_moment(self, moment_id: int) -> bool:
+        return self._exec("DELETE FROM moments WHERE id = ?", (moment_id,)).rowcount > 0
+
+    def delete_moment_comment(self, comment_id: int) -> bool:
+        cur = self._exec("DELETE FROM moment_comments WHERE id = ?", (comment_id,))
+        return cur.rowcount > 0
+
     def office_work_between(self, start: datetime, end: datetime) -> list[dict[str, Any]]:
         """[start, end) 内办公室会话里员工办事的调用：模型、会话、题目、是否匿名未揭晓。
 
@@ -1629,6 +1762,13 @@ def _room_row(row: sqlite3.Row) -> dict[str, Any]:
 
 def _memory_row(row: sqlite3.Row) -> dict[str, Any]:
     out = dict(row)
+    out["offline"] = bool(out["offline"])
+    return out
+
+
+def _moment_row(row: sqlite3.Row) -> dict[str, Any]:
+    out = dict(row)
+    out["meta"] = json.loads(out["meta"]) if out["meta"] else None
     out["offline"] = bool(out["offline"])
     return out
 

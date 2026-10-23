@@ -185,6 +185,16 @@
 .gc-readonly{text-align:center;margin:8px 0}
 .gc-src{display:block;margin-top:6px;padding:6px 8px;border-left:3px solid var(--brass-ink,#a77);background:rgba(0,0,0,.04);color:inherit;text-decoration:underline;text-underline-offset:2px;overflow-wrap:anywhere}
 .gc-srcm{display:block;font-size:11px;color:var(--muted);margin-top:2px}
+.mo{border-bottom:1px solid var(--line,#ddd);padding:10px 0}
+.mo header{display:flex;gap:8px;align-items:baseline}
+.mo header time{font-size:11px;color:var(--muted)}
+.mo-text{margin:6px 0;overflow-wrap:anywhere}
+.mo-act{display:flex;gap:12px}
+.mo-act .link,.mo-comments .link{border:0;background:none;color:var(--brass-ink);padding:0 4px;text-decoration:underline;text-underline-offset:2px}
+.mo-likes{font-size:12px;color:var(--muted);margin:4px 0}
+.mo-comments{list-style:none;margin:4px 0;padding:6px 8px;background:rgba(0,0,0,.04);font-size:13px;display:grid;gap:4px;overflow-wrap:anywhere}
+.mo-cf{display:flex;gap:6px;margin-top:6px}
+.mo-cf input{flex:1;min-width:0}
 .fd-list{list-style:none;padding:0;margin:8px 0;display:grid;gap:6px}
 .fd-list li{display:flex;gap:8px;align-items:flex-start}
 .fd-name{flex:1;min-width:0;display:flex;flex-direction:column}

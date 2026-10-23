@@ -79,6 +79,8 @@ def test_repo_config_loads_with_defaults():
         "memory_profile",
         "life_chat",
         "life_share",
+        "moment_post",
+        "moment_comment",
         "office_fix",
         "office_speak",
         "office_decide",

@@ -163,3 +163,37 @@ def test_feeds_settings_round_trip():
         r = c.post("/api/chat/feeds/refresh").json()  # 测试里抓取一律失败
         assert r["added"] == 0 and r["failed"] == 1 and r["last_refresh"]
         assert c.put("/api/chat/feeds", json={"feeds": None}).json()["source"] == "config"
+
+
+def test_moments_round_trip():
+    env = Env()
+    env.rt.repo.add_moment("V1", "今天在天台看星星")
+    with TestClient(create_app(RoundtableService(env.rt))) as c:
+        assert c.get("/api/chat/rooms").json()["moments_unseen"] == 1
+        data = c.get("/api/moments").json()
+        (m,) = data["moments"]
+        assert m["name"] == "阿一" and m["likes"] == [] and not m["liked"]
+        assert c.get("/api/chat/rooms").json()["moments_unseen"] == 0  # 看过了
+        assert c.post(f"/api/moments/{m['id']}/like").json() == {"liked": True}
+        assert c.get("/api/moments").json()["moments"][0]["likes"] == [{"id": "user", "name": "我"}]
+        assert c.post(f"/api/moments/{m['id']}/like").json() == {"liked": False}
+        r = c.post(f"/api/moments/{m['id']}/comments", json={"text": "好美"})
+        assert r.status_code == 201
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            comments = c.get("/api/moments").json()["moments"][0]["comments"]
+            if len(comments) == 2:
+                break
+            time.sleep(0.02)
+        mine, reply = comments
+        assert (mine["name"], reply["author"], reply["reply_to"]) == ("我", "V1", mine["id"])
+        assert reply["reply_name"] == "我"
+        assert c.post("/api/moments", json={"text": " "}).status_code == 400
+        assert c.post("/api/moments/999/like").status_code == 404
+        bad = {"text": "x", "reply_to": 999}
+        assert c.post(f"/api/moments/{m['id']}/comments", json=bad).status_code == 400
+        assert c.get("/api/moments", params={"author": "V1"}).json()["moments"]
+        assert c.get("/api/moments", params={"author": "nobody"}).status_code == 404
+        assert c.delete(f"/api/moments/comments/{reply['id']}").json() == {"deleted": 1}
+        assert c.delete(f"/api/moments/{m['id']}").json() == {"deleted": 1}
+        assert c.get("/api/moments").json()["moments"] == []

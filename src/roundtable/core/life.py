@@ -24,6 +24,7 @@ from roundtable.core.budget.guard import day_window as utc_day_window
 from roundtable.core.chat import ROOM, ChatHub, ChatMember, call_member, clean_reply, member_memory
 from roundtable.core.chat_work import short_title
 from roundtable.core.memory import MemoryKeeper
+from roundtable.core.moments import MOMENT_STEP, Moments
 from roundtable.core.office.apartment import ACTIVITIES, PUBLIC_ROOMS, schedule
 from roundtable.core.persona import persona_of, persona_text
 from roundtable.core.storage.repository import iso
@@ -32,7 +33,7 @@ LAST_TICK_KEY = "life.last_tick"
 PAIR_PREFIX = "pair:"
 GATHER = frozenset({"eat", "exercise", "chat", "game", "stargaze"})
 WEEKDAYS = "一二三四五六日"
-LIFE_STEPS = ("life", "memory", SHARE_STEP, SEARCH_STEP)
+LIFE_STEPS = ("life", "memory", SHARE_STEP, SEARCH_STEP, MOMENT_STEP)
 
 
 def pair_room(a: str, b: str) -> str:
@@ -59,6 +60,7 @@ class LifeEngine:
         self.memory = memory
         memory.allow = self.allowed  # 记忆整理也算进生活的每日上限
         self.browse = Browser(rt, hub, self.allowed)
+        self.moments = Moments(rt, hub, self.allowed)
 
     @property
     def rules(self) -> Any:
@@ -171,8 +173,8 @@ class LifeEngine:
     # --- 推进 --------------------------------------------------------------------
 
     async def tick(self, now: datetime) -> dict[str, int]:
-        """推进到 now（带时区）。返回 {events, written, messages, memories, shares}。"""
-        out = {"events": 0, "written": 0, "messages": 0, "memories": 0, "shares": 0}
+        """推进到 now（带时区）。返回各项数量（事件、写成聊天的、消息、记忆、分享、朋友圈）。"""
+        out = {"events": 0, "written": 0, "messages": 0, "memories": 0, "shares": 0, "moments": 0}
         if not self.rules.enabled:
             return out
         repo = self.rt.repo
@@ -210,6 +212,8 @@ class LifeEngine:
         repo.set_setting(LAST_TICK_KEY, now.isoformat())
         out["memories"] = await self.memory.catch_up(now, offline=offline)
         out["shares"] = await self.browse.tick(now)
+        m = await self.moments.tick(now, offline=offline)
+        out["moments"] = m["posts"] + m["comments"]
         return out
 
     async def write(self, p: Plan, *, offline: bool, now: datetime) -> int:

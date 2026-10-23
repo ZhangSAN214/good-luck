@@ -28,6 +28,7 @@ from roundtable.core.life import LifeEngine
 from roundtable.core.media import KIND_LABELS, KINDS, MediaService
 from roundtable.core.members_art import MEMBERS_FILE, load_members, mime_of, resolve_file
 from roundtable.core.memory import LAYERS, MemoryKeeper, clean_memory
+from roundtable.core.moments import SEEN_KEY as MOMENTS_SEEN
 from roundtable.core.notes import NoteError, check_can_add, clean_note
 from roundtable.core.office import building, payslip, roster
 from roundtable.core.office import collect as collect_performance
@@ -60,6 +61,7 @@ RESTING = frozenset({"completed", "stopped", "failed", "awaiting_confirmation", 
 REVEALABLE = frozenset({"completed", "stopped", "failed"})
 MAX_QUESTION_CHARS = 20_000
 MAX_CHAT_CHARS = 2000
+MAX_MOMENT_CHARS = 500
 # 公寓楼：进行中的会话这么久没有更新就不算在上班（服务意外退出后留下的 running）
 WORKING_WINDOW_H = 3
 
@@ -389,6 +391,9 @@ class RoundtableService:
             "members": [asdict(m) for m in self.chats.everyone()],
             "typing": self.chats.typing(),
             "budget": {"spent_usd": budget.spent_usd, "limit_usd": budget.limit_usd},
+            "moments_unseen": self.rt.repo.unseen_moments(
+                int(self.rt.repo.setting(MOMENTS_SEEN) or 0)
+            ),
             "life": {
                 "enabled": self.rt.config.roundtable.chat.life.enabled,
                 "spent_today_usd": self.life.spent_today(),
@@ -529,6 +534,115 @@ class RoundtableService:
         """马上整理一次记忆（到昨天为止还没整理的日子）。"""
         now = self.rt.budget.now().astimezone()
         return {"written": await self.memory.catch_up(now)}
+
+    # --- 朋友圈 --------------------------------------------------------------------
+
+    def _background(self, coro: Any) -> None:
+        task = asyncio.get_running_loop().create_task(coro)
+        self._chat_tasks.add(task)
+        task.add_done_callback(self._chat_tasks.discard)
+
+    def _moment_out(self, row: dict[str, Any], names: dict[str, str]) -> dict[str, Any]:
+        def who(author: str) -> str:
+            return names.get(author, author)
+
+        by_id = {c["id"]: c for c in row["comments"]}
+        return {
+            "id": row["id"],
+            "author": row["author"],
+            "name": who(row["author"]),
+            "text": row["text"],
+            "meta": row["meta"],
+            "offline": row["offline"],
+            "created_at": row["created_at"],
+            "likes": [{"id": w, "name": who(w)} for w in row["likes"]],
+            "liked": "user" in row["likes"],
+            "comments": [
+                {
+                    "id": c["id"],
+                    "author": c["author"],
+                    "name": who(c["author"]),
+                    "text": c["text"],
+                    "reply_to": c["reply_to"],
+                    "reply_name": who(by_id[c["reply_to"]]["author"])
+                    if c["reply_to"] in by_id
+                    else None,
+                    "offline": c["offline"],
+                    "created_at": c["created_at"],
+                }
+                for c in row["comments"]
+            ],
+        }
+
+    def _moment(self, moment_id: int) -> dict[str, Any]:
+        row = self.rt.repo.moment(moment_id)
+        if row is None:
+            raise ServiceError("没有这条动态", 404)
+        return row
+
+    def moments_view(self, author: str | None = None, before: int | None = None) -> dict[str, Any]:
+        """朋友圈（新的在前，每页 20 条）；author 只看某位成员（或 user）。看第一页时标为已读。"""
+        if author and author != "user":
+            self._chat_member(author)
+        everyone = self.chats.everyone()
+        names = {m.id: m.name for m in everyone} | {"user": "我"}
+        rows = self.rt.repo.moments(author=author or None, before=before, limit=20)
+        if not before and not author:
+            self.rt.repo.set_setting(MOMENTS_SEEN, str(self.rt.repo.latest_moment_id()))
+        return {
+            "moments": [self._moment_out(r, names) for r in rows],
+            "members": [asdict(m) for m in everyone],
+            "enabled": self.rt.config.roundtable.chat.moments.enabled,
+        }
+
+    def _moment_text(self, text: str) -> str:
+        text = (text or "").strip()
+        if not text:
+            raise ServiceError("内容不能为空")
+        if len(text) > MAX_MOMENT_CHARS:
+            raise ServiceError(f"内容太长（最多 {MAX_MOMENT_CHARS} 字）")
+        return text
+
+    async def moments_post(self, text: str) -> dict[str, Any]:
+        """用户发一条动态；一两位成员在后台评论。"""
+        row = self.rt.repo.add_moment("user", self._moment_text(text))
+        if self.rt.config.roundtable.chat.moments.enabled:
+            self._background(self.life.moments.react_to_user_post(row["id"]))
+        return {"id": row["id"]}
+
+    def moments_like(self, moment_id: int) -> dict[str, Any]:
+        """用户点赞 / 取消点赞。"""
+        self._moment(moment_id)
+        if not self.rt.repo.like_moment(moment_id, "user"):
+            self.rt.repo.unlike_moment(moment_id, "user")
+            return {"liked": False}
+        return {"liked": True}
+
+    async def moments_comment(
+        self, moment_id: int, text: str, reply_to: int | None = None
+    ) -> dict[str, Any]:
+        """用户评论（或回复某条评论）；被评论 / 被回复的成员在后台回一句。"""
+        self._moment(moment_id)
+        text = self._moment_text(text)
+        if reply_to is not None:
+            parent = self.rt.repo.moment_comment(reply_to)
+            if parent is None or parent["moment_id"] != moment_id:
+                raise ServiceError("要回复的评论不在这条动态下")
+        row = self.rt.repo.add_moment_comment(moment_id, "user", text, reply_to=reply_to)
+        if self.rt.config.roundtable.chat.moments.enabled:
+            self._background(self.life.moments.reply_to_user_comment(row["id"]))
+        return {"id": row["id"]}
+
+    def moments_delete(self, moment_id: int) -> dict[str, Any]:
+        """删掉一条动态（连同点赞、评论）。都是本地数据，成员的也能删。"""
+        if not self.rt.repo.delete_moment(moment_id):
+            raise ServiceError("没有这条动态", 404)
+        return {"deleted": 1}
+
+    def moments_delete_comment(self, comment_id: int) -> dict[str, Any]:
+        if not self.rt.repo.delete_moment_comment(comment_id):
+            raise ServiceError("没有这条评论", 404)
+        return {"deleted": 1}
 
     # --- 上网（订阅源） ------------------------------------------------------------
 

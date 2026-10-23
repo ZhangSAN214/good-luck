@@ -52,6 +52,10 @@ chat:
     max_written_catch_up: 6        # 开机补算时最多写几件
     catch_up_hours: 24             # 补算最多往回看多少小时（更早的只整理成记忆）
     turns: 3                       # 一段成员之间的对话最多几句
+  moments:                         # 朋友圈：成员每天最多发 1 条，互相点赞（免费）、评论
+    enabled: true
+    posts_per_member: 1
+    comments_per_tick: 2           # 每次推进最多写几条评论
   browse:                          # 上网：只读公开订阅源（$0），成员按兴趣挑一条分享到生活群
     enabled: true
     refresh_hours: 3               # 多久重新抓一次订阅源
@@ -143,6 +147,8 @@ prompts:
   memory_profile: v1     # 记忆：更新长期档案
   life_chat: v1          # 生活：成员之间聊天（公寓楼里的模拟生活）
   life_share: v1         # 生活：成员把上网看到的一条内容分享到生活群
+  moment_post: v1        # 朋友圈：成员发一条动态
+  moment_comment: v1     # 朋友圈：成员评论一条动态（或回复评论）
   office_check: v1       # 办公室：经理过目
   office_fix: v2         # 办公室：退回后员工改一次（v2：改程序必须重跑出图）
   style_merge: v1        # 统筹合并成规范 + 清单

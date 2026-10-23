@@ -38,12 +38,14 @@ export function atQuery(text, caret) {
 }
 
 export class GroupChat {
-  constructor(root, { api, now = () => Date.now(), openSession = null, openPeople = null, openFeeds = null } = {}) {
+  constructor(root, { api, now = () => Date.now(), openSession = null, openPeople = null, openFeeds = null, openMoments = null } = {}) {
     this.root = root;
     this.api = api; // {get(after, q, room), post(text, room), clear(room), rooms(), handoff(text)}
     this.openSession = openSession; // 工作群里点「查看」：回到办公室里的这件事
     this.openPeople = openPeople; // 成员设定与记忆
     this.openFeeds = openFeeds; // 上网：订阅源
+    this.openMoments = openMoments; // 朋友圈
+    this.momentsUnseen = 0;
     this.now = now;
     this.art = null;
     this.room = storage.get();
@@ -116,6 +118,7 @@ export class GroupChat {
       <aside class="gc-members" id="gc-aside" aria-label="群成员"><h3>成员 <span id="gc-online"></span></h3><ul id="gc-members"></ul>
         <p class="hint">成员都是 AI，只在你发言后回应。点名字可以 @ 对方；写「大家」或「所有人」时每位在线成员都会回。</p></aside>`;
     this.$('#gc-rooms').addEventListener('click', (e) => {
+      if (e.target.closest('#gc-moments')) return this.openMoments?.(null);
       const b = e.target.closest('[data-room]');
       if (b) this.openRoom(b.dataset.room);
     });
@@ -183,6 +186,7 @@ export class GroupChat {
         this.everyone = rooms.members || [];
         this.budget = rooms.budget || null;
         this.life = rooms.life || null;
+        this.momentsUnseen = rooms.moments_unseen || 0;
         this.renderRooms();
       }
       if (data.room && (!this.roomInfo || this.roomInfo.id !== data.room.id)) {
@@ -506,10 +510,17 @@ export class GroupChat {
     const groups = this.rooms.filter((r) => r.kind === 'group' || r.kind === 'work');
     const dms = this.rooms.filter((r) => r.kind === 'dm');
     const pairs = this.rooms.filter((r) => r.kind === 'pair');
-    el.innerHTML = `<h3>群聊</h3>${groups.map(item).join('')}<h3>私聊</h3>${dms.map(item).join('')}${pairs.length ? `<h3 title="成员私下的聊天，你只能看">成员之间</h3>${pairs.map(item).join('')}` : ''}`;
+    const unseen = this.momentsUnseen ? `<i class="gc-unread" aria-label="${this.momentsUnseen} 条新动态">${this.momentsUnseen > 99 ? '99+' : this.momentsUnseen}</i>` : '';
+    const mo = this.openMoments ? `<button type="button" class="gc-room" id="gc-moments"><span class="gc-av ini grp">圈</span><span class="gc-rt"><b>朋友圈</b><small>成员的动态</small></span>${unseen}</button>` : '';
+    el.innerHTML = `${mo}<h3>群聊</h3>${groups.map(item).join('')}<h3>私聊</h3>${dms.map(item).join('')}${pairs.length ? `<h3 title="成员私下的聊天，你只能看">成员之间</h3>${pairs.map(item).join('')}` : ''}`;
     const b = this.budget;
     const life = this.life?.enabled ? `；今天生活 $${this.life.spent_today_usd.toFixed(3)} / $${this.life.daily_usd.toFixed(2)}` : '';
     this.$('#gc-budget').textContent = b ? `本月聊天 $${b.spent_usd.toFixed(2)} / $${b.limit_usd.toFixed(2)}${life}` : '';
+  }
+
+  markMomentsSeen() {
+    this.momentsUnseen = 0;
+    this.renderRooms();
   }
 
   renderMembers() {

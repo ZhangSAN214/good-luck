@@ -115,6 +115,10 @@ class Env:
             return "修改后的项目成果：最大值 2，最小值 -2；已补上单调区间的说明。"
         if "办公室的经理" in system and "拍板" in system and "会议纪要" in system:
             return "## 结论\n最大值 2，最小值 -2。\n\n## 会议纪要\n两位意见一致。"
+        if "想发一条朋友圈" in system:  # 朋友圈：发动态
+            return "今天在天台看星星，挺安静的。"
+        if "想在下面留一条评论" in system:  # 朋友圈：评论
+            return "看起来不错！"
         if "上网看看新闻" in system:  # 生活：分享上网看到的内容
             return "看到一条消息，只看到了摘要，挺有意思。"
         if "虚拟的公寓楼" in system:  # 生活：成员之间聊天

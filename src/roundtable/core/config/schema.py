@@ -737,6 +737,21 @@ class BrowseRules(_Strict):
     max_feed_kb: int = Field(default=1024, ge=16, le=8192)
 
 
+class MomentsRules(_Strict):
+    """朋友圈（docs/CHAT.md G5）。成员发动态、互相点赞评论；花费计入生活每日上限。"""
+
+    enabled: bool = True
+    posts_per_member: int = Field(default=1, ge=0, le=5)  # 每位成员每天最多发几条
+    posts_per_tick: int = Field(default=1, ge=0, le=5)  # 每次推进最多发几条
+    comments_per_tick: int = Field(default=2, ge=0, le=10)  # 每次推进最多写几条评论
+    max_comments: int = Field(default=3, ge=0, le=10)  # 成员在一条动态下最多评论几条
+    like_chance: float = Field(default=0.4, ge=0, le=1)  # 每位成员给一条动态点赞的概率（不花钱）
+    react_hours: int = Field(default=24, ge=1, le=168)  # 只对这么多小时内的动态点赞评论
+    max_chars: int = Field(default=300, ge=50, le=2000)
+    max_tokens: int = Field(default=800, ge=64)
+    estimate_usd: float = Field(default=0.002, ge=0)
+
+
 class ChatRules(_Strict):
     """聊天：生活群、工作群、私聊。成员不主动找用户，只回应用户。"""
 
@@ -746,6 +761,7 @@ class ChatRules(_Strict):
     memory: MemoryRules = MemoryRules()
     life: LifeRules = LifeRules()
     browse: BrowseRules = BrowseRules()
+    moments: MomentsRules = MomentsRules()
     tier: Tier = "budget"  # 每位成员用这个档位的模型发言（没有就用该成员最便宜的）
     max_repliers: int = Field(default=2, ge=1, le=6)  # 没有 @ 人时，一条消息最多几位回应
     max_mentioned: int = Field(default=8, ge=1, le=12)  # @全员 / 所有人 / @多人 时最多几位回应

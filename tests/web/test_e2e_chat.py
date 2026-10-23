@@ -212,3 +212,27 @@ def test_shared_link_card_and_feeds_dialog(serve, page):
     page.click("#feeds [data-reset]")
     page.wait_for_selector("#feeds :text('默认清单')")
     assert "我的源" not in page.inner_text("#feeds")
+
+
+def test_moments_dialog_post_like_comment(serve, page):
+    srv = serve(confirm_threshold_usd=100.0)
+    srv.env.rt.repo.add_moment("V2", "今天在健身房", offline=True)
+    open_chat(srv, page)
+    page.wait_for_selector("#gc-moments .gc-unread")
+    page.click("#gc-moments")
+    page.wait_for_selector("#moments .mo")
+    assert "你不在时" in page.inner_text("#moments .mo")
+    page.click("#moments [data-like]")
+    page.wait_for_selector("#moments .mo-likes:has-text('我')")
+    page.click("#moments .mo-act [data-reply]")
+    page.fill("#moments .mo-cf input", "加油")
+    page.click("#moments .mo-cf button")
+    page.wait_for_selector("#moments .mo-comments li:has-text('阿二')")  # 作者回了一句
+    page.fill("#mo-new textarea", "周末去爬山")
+    page.click("#mo-new button")
+    page.wait_for_selector("#moments .mo:has-text('周末去爬山') .mo-comments li")  # 成员来评论
+    page.click("#moments [data-author='V2']")
+    page.wait_for_selector("#moments .vh:has-text('阿二')")
+    assert "周末去爬山" not in page.inner_text("#moments .mo-wrap")
+    page.click("#moments [data-close]")
+    assert page.locator("#gc-moments .gc-unread").count() == 0

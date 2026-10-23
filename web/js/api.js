@@ -73,6 +73,17 @@ export const editChatMemory = (mid, text) => api(`/api/chat/memories/${mid}`, { 
 export const delChatMemory = (mid) => api(`/api/chat/memories/${mid}`, { method: 'DELETE' });
 export const clearChatMemories = (id) => api(`/api/chat/memories${id ? `?member=${encodeURIComponent(id)}` : ''}`, { method: 'DELETE' });
 export const tidyChatMemories = () => api('/api/chat/memories/tidy', { method: 'POST' });
+export const getMoments = (author, before) => {
+  const q = new URLSearchParams();
+  if (author) q.set('author', author);
+  if (before) q.set('before', before);
+  return api(`/api/moments${q.toString() ? `?${q}` : ''}`);
+};
+export const postMoment = (text) => api('/api/moments', { method: 'POST', body: { text } });
+export const likeMoment = (id) => api(`/api/moments/${id}/like`, { method: 'POST' });
+export const commentMoment = (id, text, reply_to) => api(`/api/moments/${id}/comments`, { method: 'POST', body: { text, reply_to } });
+export const delMoment = (id) => api(`/api/moments/${id}`, { method: 'DELETE' });
+export const delMomentComment = (cid) => api(`/api/moments/comments/${cid}`, { method: 'DELETE' });
 export const chatFeeds = () => api('/api/chat/feeds');
 export const setChatFeeds = (feeds) => api('/api/chat/feeds', { method: 'PUT', body: { feeds } });
 export const refreshChatFeeds = () => api('/api/chat/feeds/refresh', { method: 'POST' });
