@@ -20,6 +20,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from roundtable.core.budget.guard import EPS, month_window
+from roundtable.core.persona import persona_of, persona_text
 from roundtable.core.providers import AllChannelsFailed, NoChannelAvailable, ProviderError
 
 ROOM = "main"  # 生活群
@@ -43,6 +44,16 @@ EVERYONE_WORDS = (
 USER_LABEL = "用户"
 # 会话类型 → 提示词角色（roundtable.yaml 的 prompts）
 PROMPT_ROLES = {"group": "chat", "work": "chat_work", "dm": "chat_dm"}
+
+
+def member_memory(rt: Any, member: str) -> str:
+    """聊天提示词里的记忆（关闭记忆时为「暂无」）。"""
+    from roundtable.core.memory import NONE, memory_context  # memory 依赖本模块
+
+    rules = rt.config.roundtable.chat.memory
+    if not rules.enabled or rules.context_chars == 0:
+        return NONE
+    return memory_context(rt, member, rules.context_chars)
 
 
 def dm_room(member_id: str) -> str:
@@ -143,6 +154,49 @@ def clean_reply(text: str, name: str, max_chars: int) -> str:
     if len(t) > max_chars:
         t = t[:max_chars].rstrip() + "…"
     return t
+
+
+async def call_member(
+    rt: Any,
+    *,
+    room: str,
+    model_id: str,
+    prompt: Any,
+    step: str,
+    params: dict[str, Any],
+    estimate_usd: float,
+) -> Any | None:
+    """以某位成员的模型调用一次（记忆整理、生活事件等后台用途）。
+
+    记在 ``room`` 对应的隐藏聊天会话上（计入聊天预算和总预算）。总预算或聊天月预算不够、
+    或调用失败时返回 None，不抛异常。
+    """
+    if not rt.budget.check(estimate_usd).allowed or chat_budget(rt).would_exceed(estimate_usd):
+        return None
+    session = rt.repo.chat_session(room)
+    try:
+        completion = await rt.router.complete(model_id, prompt.messages, params)
+    except (AllChannelsFailed, NoChannelAvailable, ProviderError) as e:
+        rt.repo.record_call(
+            session,
+            step=step,
+            role="member",
+            model_id=model_id,
+            messages=prompt.messages,
+            prompt=prompt,
+            failure=e,
+        )
+        return None
+    rt.repo.record_call(
+        session,
+        step=step,
+        role="member",
+        model_id=model_id,
+        messages=prompt.messages,
+        prompt=prompt,
+        completion=completion,
+    )
+    return completion
 
 
 class GroupChat:
@@ -252,7 +306,12 @@ class GroupChat:
         everyone = self.everyone()
         names = {m.id: m.name for m in everyone}
         role = PROMPT_ROLES[self.kind]
-        variables: dict[str, str] = {"name": member.name, "history": self.history(names)}
+        variables: dict[str, str] = {
+            "name": member.name,
+            "persona": persona_text(persona_of(rt, member.id)),
+            "memory": member_memory(rt, member.id),
+            "history": self.history(names),
+        }
         if self.kind != "dm":
             variables["members"] = (
                 "、".join(m.name for m in self.members() if m.id != member.id) or "（没有别人）"

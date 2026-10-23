@@ -122,3 +122,42 @@ def test_work_group_handoff_and_open_in_office(serve, page):
     page.click(".gc-room[data-room='main']")
     page.wait_for_function("document.querySelector('#gc-title').textContent === '大家庭'")
     assert page.locator("#gc-handoff").is_hidden()
+
+
+def test_people_dialog_persona_and_memories(serve, page):
+    from roundtable.core.persona import persona_of
+
+    srv = serve(confirm_threshold_usd=100.0)
+    rt = srv.env.rt
+    rt.repo.add_memory("V2", "day", "和用户聊了爬山", period="2026-10-21")
+    open_chat(srv, page)
+    page.click(".gc-room[data-room='dm:V2']")
+    page.wait_for_function("document.querySelector('#gc-title').textContent === '与 阿二 私聊'")
+    page.click("#gc-people")  # 私聊里打开：直接是对方
+    page.wait_for_selector("#people[open] .pp-who.cur[data-member='V2']")
+    assert "和用户聊了爬山" in page.inner_text("#people .pp-list")
+    page.fill("#people input[name=personality]", "爱较真")
+    page.fill("#people input[name=interests]", "天文，数学")
+    page.click("#people #pp-persona button[type=submit]")
+    page.wait_for_selector("#people .pp-msg:has-text('人设已保存')")
+    p = persona_of(rt, "V2")
+    assert p.personality == "爱较真" and p.interests == ["天文", "数学"]
+    # 记一条、改、删
+    page.fill("#people #pp-add input", "我下周三考试")
+    page.click("#people #pp-add button")
+    page.wait_for_selector("#people .pp-list li:has-text('我下周三考试')")
+    page.locator("#people .pp-list li:has-text('我下周三考试') [data-edit]").click()
+    page.fill("#people .pp-editf textarea", "我下周四考试")
+    page.click("#people .pp-editf button")
+    page.wait_for_selector("#people .pp-list li:has-text('我下周四考试')")
+    page.locator("#people .pp-list li:has-text('我下周四考试') [data-del]").click()
+    page.wait_for_selector("#people .pp-list li:has-text('我下周四考试')", state="detached")
+    # 两步清空
+    page.click("#pp-clear-one")
+    assert "再点一次" in page.inner_text("#pp-clear-one")
+    assert rt.repo.memories("V2")
+    page.click("#pp-clear-one")
+    page.wait_for_selector("#people .pp-msg:has-text('已清空')")
+    assert rt.repo.memories("V2") == []
+    page.click("#people [data-close]")
+    assert not page.locator("#people").evaluate("d => d.open")

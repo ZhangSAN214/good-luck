@@ -95,3 +95,38 @@ def test_handoff_endpoint():
         assert c.get(f"/api/sessions/{r.json()['session_id']}").json()["workflow"] == "office"
         assert c.post("/api/chat/handoff", json={"text": " "}).status_code == 400
         assert c.post("/api/chat/handoff", json={"text": "x", "y": 1}).status_code == 422
+
+
+def test_personas_and_memories_api():
+    env = Env()
+    with TestClient(create_app(RoundtableService(env.rt))) as c:
+        members = c.get("/api/chat/personas").json()["members"]
+        assert members[0]["id"] == "V1" and members[0]["source"] == "empty"
+        r = c.put("/api/chat/personas/V1", json={"persona": {"personality": "爱较真"}})
+        assert r.status_code == 200 and r.json()["persona"]["personality"] == "爱较真"
+        assert c.get("/api/chat/personas").json()["members"][0]["source"] == "local"
+        assert c.put("/api/chat/personas/V1", json={"persona": None}).status_code == 200
+        assert c.get("/api/chat/personas").json()["members"][0]["source"] == "empty"
+        bad = {"persona": {"personality": "x" * 400}}
+        assert c.put("/api/chat/personas/V1", json=bad).status_code == 400
+        assert c.put("/api/chat/personas/X", json={"persona": None}).status_code == 404
+
+        r = c.post("/api/chat/memories", json={"member": "V2", "text": "用户下周考试"})
+        assert r.status_code == 201
+        mid = r.json()["id"]
+        assert r.json()["layer"] == "note" and r.json()["source"] == "user"
+        sens = {"member": "V2", "text": "密码 123"}
+        assert c.post("/api/chat/memories", json=sens).status_code == 400
+        assert c.post("/api/chat/memories", json={"text": "x"}).status_code == 400
+        data = c.get("/api/chat/memories", params={"member": "V2"}).json()
+        assert [m["text"] for m in data["memories"]] == ["用户下周考试"]
+        assert data["memories"][0]["name"] == "阿二"
+        assert c.patch(f"/api/chat/memories/{mid}", json={"text": "改过"}).json()["text"] == "改过"
+        assert c.patch("/api/chat/memories/999", json={"text": "x"}).status_code == 404
+        assert c.post("/api/chat/memories/tidy").json() == {"written": 0}
+        assert c.delete(f"/api/chat/memories/{mid}").json() == {"deleted": 1}
+        assert c.delete(f"/api/chat/memories/{mid}").status_code == 404
+        c.post("/api/chat/memories", json={"member": "V1", "text": "a"})
+        c.post("/api/chat/memories", json={"member": "V2", "text": "b"})
+        assert c.delete("/api/chat/memories", params={"member": "V1"}).json() == {"deleted": 1}
+        assert c.delete("/api/chat/memories").json() == {"deleted": 1}

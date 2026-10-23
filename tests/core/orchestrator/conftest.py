@@ -115,6 +115,12 @@ class Env:
             return "修改后的项目成果：最大值 2，最小值 -2；已补上单调区间的说明。"
         if "办公室的经理" in system and "拍板" in system and "会议纪要" in system:
             return "## 结论\n最大值 2，最小值 -2。\n\n## 会议纪要\n两位意见一致。"
+        if "写一段给自己看的记忆" in system:  # 记忆：一天
+            return "今天和用户聊了周末去爬山的计划。\n用户的密码是 123456"
+        if "压成一段小结" in system:
+            return "这段时间常和用户聊户外活动。"
+        if "更新你的长期档案" in system:
+            return "用户喜欢户外活动，周末常去爬山。"
         if "你在一个群聊里" in system or "你在一个私聊里" in system or "工作群聊" in system:
             return f"收到，我是 {model} 的模型，我们聊聊。"
         if "办公室的经理" in system and "过目" in system:

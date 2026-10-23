@@ -30,6 +30,7 @@ import {
 import { Pet } from './agent/pet.js';
 import { Apartment } from './apartment.js';
 import { GroupChat } from './groupchat.js';
+import { People } from './people.js';
 
 const $ = (q) => document.querySelector(q);
 const RESTING = new Set(['completed', 'stopped', 'failed', 'awaiting_confirmation', 'paused']);
@@ -76,7 +77,20 @@ function freshLive() {
 
 // 网页小人：匿名且未揭晓的会话里不出现（启动时先不显示，确定当前会话后再决定）
 const pet = new Pet({ labels: STEP_LABELS, goto: gotoDiscussion });
+const people = new People($('#people'), {
+  api: {
+    personas: API.chatPersonas,
+    setPersona: API.setChatPersona,
+    memories: API.chatMemories,
+    addMemory: API.addChatMemory,
+    editMemory: API.editChatMemory,
+    delMemory: API.delChatMemory,
+    clearMemories: API.clearChatMemories,
+    tidy: API.tidyChatMemories,
+  },
+});
 const gchat = new GroupChat($('#gchat'), {
+  openPeople: (member) => people.open(member),
   api: { get: API.getChat, post: API.postChat, clear: API.clearChat, rooms: API.getChatRooms, handoff: API.chatHandoff },
   openSession: async (sid) => {
     setEntry('work');

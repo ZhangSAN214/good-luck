@@ -40,6 +40,10 @@ chat:
   work_title: 工作群
   budget:
     monthly_usd: 5.0               # 聊天这一块每月最多花多少（私聊 + 群聊；也计入上面的总预算）
+  memory:                          # 成员的分层记忆：只存本地，只用于聊天
+    enabled: true
+    context_chars: 800             # 聊天时最多带多少字的记忆
+    catch_up_days: 7               # 最多补整理几天前的聊天
   tier: budget
   max_repliers: 2
   max_mentioned: 8                 # 「@全员」「所有人」「大家」时最多几位依次回应
@@ -108,9 +112,12 @@ prompts:
   office_review: v1      # 办公室·项目：复核经理最终验收
   office_revise: v1      # 办公室·项目：主办经理按验收意见改一次
   office_handle: v2      # 办公室：员工办理（v2：带字画面用代码画、数字须核实）
-  chat: v1               # 群聊：口语、短句，坦诚自己是 AI
-  chat_dm: v1            # 私聊：和用户一对一
-  chat_work: v1          # 工作群：聊工作，交办走办公室
+  chat: v2               # 群聊：口语、短句，坦诚自己是 AI（v2：人设与记忆）
+  chat_dm: v2            # 私聊：和用户一对一（v2：人设与记忆）
+  chat_work: v2          # 工作群：聊工作，交办走办公室（v2：人设与记忆）
+  memory_day: v1         # 记忆：把一天的聊天压成一段
+  memory_roll: v1        # 记忆：日 → 周、周 → 月
+  memory_profile: v1     # 记忆：更新长期档案
   office_check: v1       # 办公室：经理过目
   office_fix: v2         # 办公室：退回后员工改一次（v2：改程序必须重跑出图）
   style_merge: v1        # 统筹合并成规范 + 清单

@@ -49,12 +49,14 @@ nickname_separator: "·"
 coordinator_suffix: "（统筹）"
 manager_suffix: "（经理）"   # 办公室模式：统筹就是经理
 
-# 人设模式（后续扩展）：按模型 id 配置昵称、性格、口头禅、专长。
+# 聊天人设：键是 models.yaml 里的 vendor（每位成员一份）。全部留空 = 用模型本身的说话风格。
+# 只用于私聊、群聊、朋友圈；工作模式与办公室的提示词不读取（有测试）。
+# 网页「成员设定」里改的存在本地数据库，优先于这里。
 # 示例：
 # personas:
-#   gpt-6-sol:
-#     nickname: 小G
-#     personality: 开朗自信的班长型优等生
-#     catchphrase: 当然可以！
-#     specialties: [math, writing]
+#   DeepSeek:
+#     personality: 安静、爱较真的理科生
+#     speaking_style: 句子短，爱用比喻
+#     catchphrases: [我算一下]
+#     interests: [天文, 数学, 科幻]
 personas: {}

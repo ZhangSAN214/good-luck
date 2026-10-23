@@ -1115,6 +1115,88 @@ class Repository:
     def mark_chat_read(self, room: str, upto: int) -> None:
         self._exec("UPDATE chat_rooms SET last_read = MAX(last_read, ?) WHERE id = ?", (upto, room))
 
+    # --- 成员人设与记忆（聊天用，只存本地） ---------------------------------------
+
+    def member_persona(self, member: str) -> dict[str, Any] | None:
+        row = self._exec(
+            "SELECT persona FROM member_personas WHERE member = ?", (member,)
+        ).fetchone()
+        return json.loads(row["persona"]) if row else None
+
+    def set_member_persona(self, member: str, persona: Mapping[str, Any] | None) -> None:
+        """persona 为 None 时删掉本地设定（回到配置文件里的）。"""
+        if persona is None:
+            self._exec("DELETE FROM member_personas WHERE member = ?", (member,))
+            return
+        self._exec(
+            "INSERT INTO member_personas (member, persona, updated_at) VALUES (?, ?, ?)"
+            " ON CONFLICT(member) DO UPDATE SET persona = excluded.persona,"
+            " updated_at = excluded.updated_at",
+            (member, json.dumps(dict(persona), ensure_ascii=False), self.clock()),
+        )
+
+    def add_memory(
+        self,
+        member: str,
+        layer: str,
+        text: str,
+        *,
+        period: str = "",
+        source: str = "auto",
+        offline: bool = False,
+    ) -> dict[str, Any]:
+        now = self.clock()
+        cur = self._exec(
+            "INSERT INTO member_memories (member, layer, period, text, source, offline,"
+            " created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (member, layer, period, text, source, int(offline), now, now),
+        )
+        return self.memory(cur.lastrowid) or {}
+
+    def memory(self, memory_id: int) -> dict[str, Any] | None:
+        row = self._exec("SELECT * FROM member_memories WHERE id = ?", (memory_id,)).fetchone()
+        return _memory_row(row) if row else None
+
+    def memories(
+        self, member: str | None = None, *, layer: str | None = None, limit: int = 500
+    ) -> list[dict[str, Any]]:
+        """最新的在前。"""
+        sql = "SELECT * FROM member_memories WHERE 1 = 1"
+        params: list[Any] = []
+        if member is not None:
+            sql += " AND member = ?"
+            params.append(member)
+        if layer is not None:
+            sql += " AND layer = ?"
+            params.append(layer)
+        sql += " ORDER BY period DESC, id DESC LIMIT ?"
+        rows = self._exec(sql, (*params, limit)).fetchall()
+        return [_memory_row(r) for r in rows]
+
+    def update_memory(self, memory_id: int, text: str) -> dict[str, Any] | None:
+        """用户改过的记忆标为 user，之后自动整理不会覆盖。"""
+        self._exec(
+            "UPDATE member_memories SET text = ?, source = 'user', updated_at = ? WHERE id = ?",
+            (text, self.clock(), memory_id),
+        )
+        return self.memory(memory_id)
+
+    def delete_memory(self, memory_id: int) -> bool:
+        return self._exec("DELETE FROM member_memories WHERE id = ?", (memory_id,)).rowcount > 0
+
+    def clear_memories(self, member: str | None = None) -> int:
+        if member is None:
+            return self._exec("DELETE FROM member_memories").rowcount
+        return self._exec("DELETE FROM member_memories WHERE member = ?", (member,)).rowcount
+
+    def chat_messages_between(self, start: str, end: str) -> list[dict[str, Any]]:
+        """[start, end) 内全部会话的消息（按时间先后），整理记忆用。"""
+        rows = self._exec(
+            "SELECT * FROM chat_messages WHERE created_at >= ? AND created_at < ? ORDER BY id",
+            (start, end),
+        ).fetchall()
+        return [_chat_row(r) for r in rows]
+
     def spent_in_workflow(self, workflow: str, start: datetime, end: datetime) -> float:
         """[start, end) 内挂在某类隐藏会话（如 workflow = 'chat'）上的调用花费。"""
         return self._exec(
@@ -1409,4 +1491,10 @@ def _room_row(row: sqlite3.Row) -> dict[str, Any]:
     out = {k: row[k] for k in keys}
     out["members"] = json.loads(out["members"] or "[]")
     out["with_user"] = bool(out["with_user"])
+    return out
+
+
+def _memory_row(row: sqlite3.Row) -> dict[str, Any]:
+    out = dict(row)
+    out["offline"] = bool(out["offline"])
     return out

@@ -419,4 +419,31 @@ CREATE TABLE chat_rooms (
 ALTER TABLE chat_messages ADD COLUMN meta TEXT;
 """,
     ),
+    (
+        16,
+        "成员人设与记忆",
+        """
+-- 网页「成员设定」里改的人设（JSON，字段同 personas.yaml 的 Persona），优先于配置文件
+CREATE TABLE member_personas (
+    member      TEXT PRIMARY KEY,
+    persona     TEXT NOT NULL,
+    updated_at  TEXT NOT NULL
+);
+-- 成员的分层记忆，只存本地。layer：note 随手记 / day 日 / week 周 / month 月 / profile 长期档案；
+-- period：2026-10-23 / 2026-W43 / 2026-10，随手记和档案为空串。
+-- source：auto 自动整理 / user 用户写的（自动整理不会覆盖用户写的）。offline：用户不在时补算的。
+CREATE TABLE member_memories (
+    id          INTEGER PRIMARY KEY,
+    member      TEXT NOT NULL,
+    layer       TEXT NOT NULL,
+    period      TEXT NOT NULL DEFAULT '',
+    text        TEXT NOT NULL,
+    source      TEXT NOT NULL DEFAULT 'auto',
+    offline     INTEGER NOT NULL DEFAULT 0,
+    created_at  TEXT NOT NULL,
+    updated_at  TEXT NOT NULL
+);
+CREATE INDEX idx_member_memories ON member_memories(member, layer, period);
+""",
+    ),
 ]

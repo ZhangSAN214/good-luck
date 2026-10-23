@@ -681,12 +681,25 @@ class ChatBudgetRules(_Strict):
     monthly_usd: float = Field(default=5.0, gt=0)
 
 
+class MemoryRules(_Strict):
+    """成员的分层记忆（docs/CHAT.md G3）。只存本地；只用于聊天。"""
+
+    enabled: bool = True
+    context_chars: int = Field(default=800, ge=0)  # 聊天提示词里最多放多少字的记忆
+    entry_chars: int = Field(default=300, ge=50)  # 每条记忆最多多少字
+    log_chars: int = Field(default=6000, ge=500)  # 整理一天时最多读多少字的聊天记录
+    catch_up_days: int = Field(default=7, ge=1, le=60)  # 最多补整理几天前的
+    max_tokens: int = Field(default=600, ge=64)
+    estimate_usd: float = Field(default=0.001, ge=0)  # 每次整理的预估花费（预算检查用）
+
+
 class ChatRules(_Strict):
     """聊天：生活群、工作群、私聊。成员不主动找用户，只回应用户。"""
 
     life_title: str = "大家庭"  # 生活群的名字
     work_title: str = "工作群"
     budget: ChatBudgetRules = ChatBudgetRules()
+    memory: MemoryRules = MemoryRules()
     tier: Tier = "budget"  # 每位成员用这个档位的模型发言（没有就用该成员最便宜的）
     max_repliers: int = Field(default=2, ge=1, le=6)  # 没有 @ 人时，一条消息最多几位回应
     max_mentioned: int = Field(default=8, ge=1, le=12)  # @全员 / 所有人 / @多人 时最多几位回应
@@ -794,12 +807,16 @@ class RoundtableConfig(_Strict):
 
 
 class Persona(_Strict):
-    """人设模式（后续扩展）使用；v1 不读取。"""
+    """聊天里的人设（只用于私聊、群聊、朋友圈；工作模式与办公室的提示词不读取）。
 
-    nickname: str | None = None
-    personality: str | None = None
-    catchphrase: str | None = None
-    specialties: list[str] = Field(default_factory=list)
+    全部可空：为空时用模型本身的说话风格。网页「成员设定」里改的存在本地数据库，优先于这里。
+    """
+
+    personality: str = Field(default="", max_length=300)  # 性格
+    speaking_style: str = Field(default="", max_length=300)  # 说话风格
+    catchphrases: list[str] = Field(default_factory=list, max_length=5)  # 口头禅
+    interests: list[str] = Field(default_factory=list, max_length=8)  # 兴趣（上网看什么、聊什么）
+    voice: str = Field(default="", max_length=60)  # 语音音色（预留）
 
 
 class PersonasConfig(_Strict):
@@ -813,7 +830,7 @@ class PersonasConfig(_Strict):
     nickname_separator: str = "·"
     coordinator_suffix: str = "（统筹）"
     manager_suffix: str = "（经理）"  # 办公室模式里统筹就是经理
-    personas: dict[str, Persona] = Field(default_factory=dict)
+    personas: dict[str, Persona] = Field(default_factory=dict)  # 厂商 → 人设
 
     @field_validator("codes")
     @classmethod

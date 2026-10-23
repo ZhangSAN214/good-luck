@@ -25,11 +25,13 @@ from roundtable.core.chat import ROOM, WORK, ChatHub, chat_budget
 from roundtable.core.chat_work import WORK_EVENTS, post_handoff, post_office_event
 from roundtable.core.media import KIND_LABELS, KINDS, MediaService
 from roundtable.core.members_art import MEMBERS_FILE, load_members, mime_of, resolve_file
+from roundtable.core.memory import LAYERS, MemoryKeeper, clean_memory
 from roundtable.core.notes import NoteError, check_can_add, clean_note
 from roundtable.core.office import building, payslip, roster
 from roundtable.core.office import collect as collect_performance
 from roundtable.core.office import reset as reset_performance
 from roundtable.core.orchestrator import Orchestrator, OrchestratorError, RunResult
+from roundtable.core.persona import is_empty, persona_of, set_persona
 from roundtable.core.preview import render_preview
 from roundtable.core.routing import (
     AUTO,
@@ -83,6 +85,7 @@ class RoundtableService:
         self._tasks: dict[str, asyncio.Task[None]] = {}
         self._art_names_cache: tuple[int | None, dict[str, str]] | None = None
         self.chats = ChatHub(runtime, names=self._art_names)
+        self.memory = MemoryKeeper(runtime, self.chats.everyone)
         self._chat_tasks: set[asyncio.Task[Any]] = set()
 
     async def aclose(self) -> None:
@@ -423,6 +426,80 @@ class RoundtableService:
         msg = post_handoff(self.rt, sid, text)
         self.rt.repo.mark_chat_read(WORK, msg["id"])
         return {"id": msg["id"], "session_id": sid}
+
+    # --- 成员设定与记忆（只用于聊天） ------------------------------------------------
+
+    def _chat_member(self, member: str) -> Any:
+        found = next((m for m in self.chats.everyone() if m.id == member), None)
+        if found is None:
+            raise ServiceError(f"没有这位成员：{member}", 404)
+        return found
+
+    def chat_personas(self) -> dict[str, Any]:
+        """每位成员的聊天人设；source：local 网页里改过 / config 配置文件 / empty 没有设定。"""
+        out = []
+        for m in self.chats.everyone():
+            persona = persona_of(self.rt, m.id)
+            if self.rt.repo.member_persona(m.id) is not None:
+                source = "local"
+            elif not is_empty(persona):
+                source = "config"
+            else:
+                source = "empty"
+            out.append(
+                {"id": m.id, "name": m.name, "persona": persona.model_dump(), "source": source}
+            )
+        return {"members": out}
+
+    def chat_set_persona(self, member: str, data: dict[str, Any] | None) -> dict[str, Any]:
+        self._chat_member(member)
+        try:
+            persona = set_persona(self.rt, member, data)
+        except ValueError as exc:
+            raise ServiceError(f"人设不合法：{exc}") from None
+        return {"id": member, "persona": persona.model_dump()}
+
+    def chat_memories(self, member: str | None = None) -> dict[str, Any]:
+        names = {m.id: m.name for m in self.chats.everyone()}
+        if member is not None:
+            self._chat_member(member)
+        rows = self.rt.repo.memories(member)
+        return {
+            "memories": [{**r, "name": names.get(r["member"], r["member"])} for r in rows],
+            "layers": list(LAYERS),
+        }
+
+    def _memory_text(self, text: str) -> str:
+        limit = self.rt.config.roundtable.chat.memory.entry_chars
+        clean = clean_memory(text, limit)
+        if not clean:
+            raise ServiceError("记忆不能为空（含密码、证件号、银行卡等敏感内容的行不会保存）")
+        return clean
+
+    def chat_add_memory(self, member: str, text: str) -> dict[str, Any]:
+        """用户替成员记一条（随手记，source = user）。"""
+        self._chat_member(member)
+        return self.rt.repo.add_memory(member, "note", self._memory_text(text), source="user")
+
+    def chat_update_memory(self, memory_id: int, text: str) -> dict[str, Any]:
+        if self.rt.repo.memory(memory_id) is None:
+            raise ServiceError("没有这条记忆", 404)
+        return self.rt.repo.update_memory(memory_id, self._memory_text(text)) or {}
+
+    def chat_delete_memory(self, memory_id: int) -> dict[str, Any]:
+        if not self.rt.repo.delete_memory(memory_id):
+            raise ServiceError("没有这条记忆", 404)
+        return {"deleted": 1}
+
+    def chat_clear_memories(self, member: str | None = None) -> dict[str, Any]:
+        if member is not None:
+            self._chat_member(member)
+        return {"deleted": self.rt.repo.clear_memories(member)}
+
+    async def chat_tidy_memories(self) -> dict[str, Any]:
+        """马上整理一次记忆（到昨天为止还没整理的日子）。"""
+        now = self.rt.budget.now().astimezone()
+        return {"written": await self.memory.catch_up(now)}
 
     def chat_clear(self, room: str = ROOM) -> dict[str, Any]:
         """一键清空这个会话的聊天记录（花费记录保留，预算照算）。"""

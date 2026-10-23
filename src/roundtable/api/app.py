@@ -82,6 +82,19 @@ class HandoffBody(BaseModel):
     text: str
 
 
+class PersonaBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    persona: dict[str, Any] | None = None  # None：恢复为配置文件里的
+
+
+class MemoryBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    text: str
+    member: str | None = None  # 新建时必填
+
+
 class Respond(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -181,6 +194,42 @@ def create_app(service: RoundtableService | None = None) -> FastAPI:
     @app.post("/api/chat/handoff", status_code=202)
     async def chat_handoff(request: Request, body: HandoffBody) -> dict[str, Any]:
         return svc(request).chat_handoff(body.text)
+
+    @app.get("/api/chat/personas")
+    async def chat_personas(request: Request) -> dict[str, Any]:
+        return svc(request).chat_personas()
+
+    @app.put("/api/chat/personas/{member}")
+    async def chat_set_persona(request: Request, member: str, body: PersonaBody) -> dict[str, Any]:
+        return svc(request).chat_set_persona(member, body.persona)
+
+    @app.get("/api/chat/memories")
+    async def chat_memories(request: Request, member: str | None = None) -> dict[str, Any]:
+        return svc(request).chat_memories(member)
+
+    @app.post("/api/chat/memories", status_code=201)
+    async def chat_add_memory(request: Request, body: MemoryBody) -> dict[str, Any]:
+        if not body.member:
+            raise ServiceError("要写明是哪位成员的记忆")
+        return svc(request).chat_add_memory(body.member, body.text)
+
+    @app.post("/api/chat/memories/tidy")
+    async def chat_tidy_memories(request: Request) -> dict[str, Any]:
+        return await svc(request).chat_tidy_memories()
+
+    @app.patch("/api/chat/memories/{memory_id}")
+    async def chat_update_memory(
+        request: Request, memory_id: int, body: MemoryBody
+    ) -> dict[str, Any]:
+        return svc(request).chat_update_memory(memory_id, body.text)
+
+    @app.delete("/api/chat/memories/{memory_id}")
+    async def chat_delete_memory(request: Request, memory_id: int) -> dict[str, Any]:
+        return svc(request).chat_delete_memory(memory_id)
+
+    @app.delete("/api/chat/memories")
+    async def chat_clear_memories(request: Request, member: str | None = None) -> dict[str, Any]:
+        return svc(request).chat_clear_memories(member)
 
     @app.delete("/api/chat")
     async def chat_clear(request: Request, room: str = "main") -> dict[str, Any]:

@@ -65,6 +65,14 @@ export const getChat = (after = 0, q = '', room = 'main') =>
 export const postChat = (text, room = 'main') => api('/api/chat', { method: 'POST', body: { text, room } });
 export const clearChat = (room = 'main') => api(`/api/chat?room=${encodeURIComponent(room)}`, { method: 'DELETE' });
 export const getChatRooms = () => api('/api/chat/rooms');
+export const chatPersonas = () => api('/api/chat/personas');
+export const setChatPersona = (id, persona) => api(`/api/chat/personas/${encodeURIComponent(id)}`, { method: 'PUT', body: { persona } });
+export const chatMemories = (id) => api(`/api/chat/memories${id ? `?member=${encodeURIComponent(id)}` : ''}`);
+export const addChatMemory = (member, text) => api('/api/chat/memories', { method: 'POST', body: { member, text } });
+export const editChatMemory = (mid, text) => api(`/api/chat/memories/${mid}`, { method: 'PATCH', body: { text } });
+export const delChatMemory = (mid) => api(`/api/chat/memories/${mid}`, { method: 'DELETE' });
+export const clearChatMemories = (id) => api(`/api/chat/memories${id ? `?member=${encodeURIComponent(id)}` : ''}`, { method: 'DELETE' });
+export const tidyChatMemories = () => api('/api/chat/memories/tidy', { method: 'POST' });
 export const chatHandoff = (text) => api('/api/chat/handoff', { method: 'POST', body: { text } });
 export const getApartment = (hour, weekday) => api(`/api/apartment?hour=${hour}&weekday=${weekday}`);
 export const getCandidates = () => api('/api/models/candidates');

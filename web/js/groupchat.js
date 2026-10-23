@@ -38,10 +38,11 @@ export function atQuery(text, caret) {
 }
 
 export class GroupChat {
-  constructor(root, { api, now = () => Date.now(), openSession = null } = {}) {
+  constructor(root, { api, now = () => Date.now(), openSession = null, openPeople = null } = {}) {
     this.root = root;
     this.api = api; // {get(after, q, room), post(text, room), clear(room), rooms(), handoff(text)}
     this.openSession = openSession; // 工作群里点「查看」：回到办公室里的这件事
+    this.openPeople = openPeople; // 成员设定与记忆
     this.now = now;
     this.art = null;
     this.room = storage.get();
@@ -93,6 +94,7 @@ export class GroupChat {
     this.built = true;
     this.root.innerHTML = `
       <nav class="gc-rooms" aria-label="会话"><div id="gc-rooms"></div>
+        <button type="button" class="btn gc-people" id="gc-people">成员设定与记忆</button>
         <p class="hint" id="gc-budget"></p></nav>
       <section class="gc-main" aria-label="聊天">
         <header class="gc-head"><b id="gc-title">大家庭</b><span class="gc-count" id="gc-count"></span>
@@ -148,6 +150,11 @@ export class GroupChat {
       if (open && this.openSession) this.openSession(open.dataset.session);
     });
     this.$('#gc-handoff').addEventListener('click', () => this.handoff());
+    this.$('#gc-people').hidden = !this.openPeople;
+    this.$('#gc-people').addEventListener('click', () => {
+      const dm = this.isDm() ? this.room.slice(3) : null; // 私聊里打开时直接看对方
+      this.openPeople?.(dm);
+    });
     this.$('#gc-clear').addEventListener('click', () => this.clear());
     this.renderAll();
   }
