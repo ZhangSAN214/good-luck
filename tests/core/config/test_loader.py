@@ -49,6 +49,8 @@ def test_repo_config_loads_with_defaults():
         "panel",
         "ideate",
         "expand",
+        "crossbreed",
+        "vote",
         "organize",
         "answer",
         "review",

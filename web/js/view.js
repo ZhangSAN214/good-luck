@@ -24,7 +24,9 @@ export const STEP_LABELS = {
   style_gate: '风格校验',
   ideate: '发散',
   expand: '拓展',
-  organize: '整合成导图',
+  crossbreed: '碰撞杂交',
+  vote: '匿名投票',
+  organize: '整合',
   intake: '分诊派活',
   handle: '办理',
   check: '经理过目',
@@ -407,6 +409,10 @@ export function feedItems(sv, ctx) {
         }
       });
       for (const x of toolRows) if (x.table_no === t.table_no && inStep(x, step)) showTools(x.code);
+      if (step === 'synthesize') {
+        const html = correctionsHTML(outputs.filter((o) => o.table_no === t.table_no), names, t.table_no);
+        if (html) push(`fx${t.table_no}:${outs.length}`, html);
+      }
       if (step === 'check' || meeting) {
         const html = officeDelivery(outputs.filter((o) => o.table_no === t.table_no), names, sources);
         if (html) push(`od${t.table_no}:${outs.length}`, html);
@@ -464,7 +470,7 @@ function effort(o, sp, data) {
   return sys('检查', `${esc(sp.name)} 的${esc(what)}没有实质内容（${esc(first)}），已打回重做，重做后合格`);
 }
 
-const EXPAND_NAMES = { build: '深化', combine: '组合', challenge: '质疑改进', new: '全新想法' };
+const EXPAND_NAMES = { build: '深化', combine: '组合', challenge: '质疑改进', new: '全新想法', hybrid: '杂交', flip: '反转放大', fix: '挑刺补救' };
 
 function ideaList(ideas) {
   const rows = (ideas || []).map((i) => `<li><b>${esc(i.id)} ${esc(i.title)}</b>${i.detail ? `：${esc(i.detail)}` : ''}</li>`);
@@ -472,8 +478,95 @@ function ideaList(ideas) {
 }
 
 function expansionList(items) {
-  const rows = items.map((x) => `<li><b>${esc(EXPAND_NAMES[x.kind] || x.kind)}${x.on ? ` · ${esc(x.on)}` : ''}</b>：${esc(x.text)}</li>`);
+  const rows = items.map((x) => `<li><b>${esc(EXPAND_NAMES[x.kind] || x.kind)}${x.on ? ` · ${esc(x.on)}${x.also ? ` × ${esc(x.also)}` : ''}` : ''}</b>：${esc(x.text)}</li>`);
   return `<div class="bubble"><ul>${rows.join('')}</ul></div>`;
+}
+
+function ballotLine(sp, d) {
+  if (d.degraded || !(d.picks || []).length) return sys('投票', `${esc(sp.name)} 没有投出有效的票`);
+  const picks = d.picks.map((p) => `${esc(p.id)}（${p.novelty + p.feasibility + p.value}）`).join('、');
+  return sys('投票', `${esc(sp.name)} 投给 ${picks}${d.dark_horse ? `；黑马 ${esc(d.dark_horse)}` : ''}`);
+}
+
+const BOARD_KINDS = { idea: '', hybrid: '杂交', flip: '反转放大', new: '全新', combine: '组合' };
+
+/** 灵感结果页：点子榜 / 导图 / 对比表 / 场景故事 / 行动方案 / 黑马，用单选按钮切换页签（不需要脚本）。 */
+// 页签名只由桌号决定：同一份结果重绘时 HTML 不变，不会把用户选的页签重置
+function boardCard(data, tableNo) {
+  const b = data.board;
+  const n = tableNo;
+  const find = (id) => (b.ranking || []).find((r) => r.id === id);
+  const name = (id) => {
+    const r = find(id);
+    return `<b>${esc(id)}</b>${r ? ` ${esc(r.text)}` : ''}`;
+  };
+  const panes = [];
+  const rank = (b.ranking || []).slice(0, Math.max(10, (b.top || 5) * 2));
+  if (rank.length) {
+    const max = Math.max(...rank.map((r) => r.score), 1);
+    const rows = rank.map((r, i) => {
+      const kind = BOARD_KINDS[r.kind] ? tag(BOARD_KINDS[r.kind]) + ' ' : '';
+      const from = r.refs && r.refs.length ? `<span class="meta">由 ${esc(r.refs.join(' × '))} 而来</span>` : '';
+      const dark = r.id === b.dark_horse ? ' ' + tag('黑马', 'wait') : '';
+      return `<li class="${i < (b.top || 5) ? 'top' : ''}"><div class="sbar" style="width:${Math.round((r.score / max) * 100)}%"></div><div class="row"><span class="no">${i + 1}</span><div>${kind}<b>${esc(r.id)}</b> ${esc(r.text)}${dark}<div class="meta">${r.score} 分 · ${r.votes} 票 · ${esc((r.authors || []).join('、'))} ${from}</div></div></div></li>`;
+    });
+    panes.push(['点子榜', `<ol class="rank">${rows.join('')}</ol><p class="meta">组员匿名投票（不能投自己），按 新颖 + 可行 + 价值 总分排名。</p>`]);
+  }
+  panes.push(['导图', mindmapCard(data)]);
+  if ((b.compare || []).length) {
+    const rows = b.compare.map((c) => `<tr><td>${name(c.id)}</td><td>${esc(c.novelty)}</td><td>${esc(c.feasibility)}</td><td>${esc(c.cost)}</td><td>${esc(c.risk)}</td></tr>`);
+    panes.push(['对比表', `<div class="tbl"><table><thead><tr><th>点子</th><th>新颖</th><th>可行</th><th>投入</th><th>风险</th></tr></thead><tbody>${rows.join('')}</tbody></table></div>`]);
+  }
+  if ((b.stories || []).length) {
+    panes.push(['场景故事', b.stories.map((x) => `<div class="story"><div>${name(x.id)}</div><p>${md(x.story)}</p></div>`).join('')]);
+  }
+  if (b.plan) {
+    const steps = (b.plan.steps || []).map((x) => `<li>${md(x)}</li>`).join('');
+    panes.push(['行动方案', `<div>${name(b.plan.id)}</div>${b.plan.experiment ? `<div class="sec">最小试验</div><div>${md(b.plan.experiment)}</div>` : ''}${steps ? `<div class="sec">三步走</div><ol>${steps}</ol>` : ''}`]);
+  }
+  if (b.dark_horse) {
+    panes.push(['黑马', `<div>${name(b.dark_horse)}</div>${b.dark_horse_why ? `<p>${md(b.dark_horse_why)}</p>` : ''}<p class="meta">得分不在前列，但被组员点名“最大胆、值得一试”。</p>`]);
+  }
+  const lenses = Object.entries(b.lenses || {});
+  const lensLine = lenses.length ? `<div class="meta lenses">本场抽签：${lenses.map(([who, l]) => `${esc(who)}「${esc(l)}」`).join('　')}</div>` : '';
+  const id = (i) => `bt${n}-${i}`;
+  const radios = panes.map((_, i) => `<input type="radio" name="bt${n}" id="${id(i)}"${i === 0 ? ' checked' : ''}>`).join('');
+  const labels = panes.map(([t], i) => `<label for="${id(i)}">${esc(t)}</label>`).join('');
+  const bodies = panes.map(([, h]) => `<div class="pane">${h}</div>`).join('');
+  return `<div class="final ideas"><h3>灵感结果<small>${panes.length} 种形式</small></h3>${lensLine}${radios}<div class="btabs">${labels}</div><div class="panes">${bodies}</div></div>`;
+}
+
+const DECISION = { accepted: ['已采纳', 'ok'], partial: ['部分采纳', 'wait'], rejected: ['未采纳', ''] };
+
+/** 讨论模式的「纠错记录」：互评挑出的问题（有效评审），以及作者修订时是否采纳。只用已有数据，不调用模型。 */
+export function correctionsHTML(outs, names, tableNo) {
+  const decisions = new Map(); // `${作者}:${评审者}:${序号}` → 决定
+  for (const o of outs) {
+    if (o.kind !== 'revision') continue;
+    const d = parse(o.content);
+    for (const x of d?.decisions || []) decisions.set(`${o.code}:${x.reviewer}:${x.issue ?? ''}`, x.decision);
+  }
+  const rows = [];
+  for (const o of outs) {
+    if (o.kind !== 'review') continue;
+    for (const rv of parse(o.content)?.reviews || []) {
+      if (rv.invalid_reasons && rv.invalid_reasons.length) continue;
+      (rv.issues || []).forEach((i, n) => {
+        const dec = decisions.get(`${rv.target}:${rv.reviewer}:${n + 1}`) || decisions.get(`${rv.target}:${rv.reviewer}:`);
+        rows.push({ rv, i, dec });
+      });
+    }
+  }
+  if (!rows.length) return '';
+  const major = rows.filter((r) => r.i.severity === 'major').length;
+  const taken = rows.filter((r) => r.dec === 'accepted' || r.dec === 'partial').length;
+  rows.sort((a, b) => (b.i.severity === 'major') - (a.i.severity === 'major'));
+  const shown = rows.slice(0, 8).map(({ rv, i, dec }) => {
+    const [dt, dc] = DECISION[dec] || ['未回应', ''];
+    return `<li>${i.severity === 'major' ? tag('重要', 'bad') + ' ' : ''}${esc(names.member(rv.reviewer))} → ${esc(names.target(tableNo, rv.target))}：${md(i.problem)} ${tag(dt, dc)}</li>`;
+  });
+  const more = rows.length > 8 ? `<div class="note">另有 ${rows.length - 8} 条，见「互评」与右侧互评面板。</div>` : '';
+  return `<div class="fixes"><h3>纠错记录<small>互评挑出 ${rows.length} 个问题（重要 ${major} 个），修订时采纳 ${taken} 个</small></h3><ul>${shown.join('')}</ul>${more}</div>`;
 }
 
 /** 思维导图：服务端生成的 SVG 放进 <img>（图片里的脚本不会执行），附 Markdown 大纲和 Mermaid 供复制。 */
@@ -501,9 +594,10 @@ function output(o, names, lazy = new Map(), sources = null) {
   }
   const data = parse(o.content);
   if (!data) return msg(sp, o.kind, `<div class="bubble">${md(o.content)}</div>`);
-  if (o.kind === 'ideas') return msg(sp, '想法', ideaList(data.ideas));
-  if (o.kind === 'expansions') return data.items.length ? msg(sp, '拓展', expansionList(data.items)) : '';
-  if (o.kind === 'mindmap') return msg(sp, '思维导图', mindmapCard(data));
+  if (o.kind === 'ideas') return msg(sp, data.lens ? `点子 · 抽到「${data.lens}」` : '想法', ideaList(data.ideas));
+  if (o.kind === 'expansions') return data.items.length ? msg(sp, o.step === 'crossbreed' ? '碰撞杂交' : '拓展', expansionList(data.items)) : '';
+  if (o.kind === 'votes') return ballotLine(sp, data);
+  if (o.kind === 'mindmap') return data.board ? boardCard(data, o.table_no) : msg(sp, '思维导图', mindmapCard(data));
   if (o.kind === 'style_spec') return styleCard(o, data);
   if (o.kind === 'style_gate') return styleGateLine(sp, data, names);
   if (o.kind === 'style_redraw') {

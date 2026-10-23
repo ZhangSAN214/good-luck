@@ -337,11 +337,24 @@ class DiscussionRules(_Strict):
     max_suggestions: int = Field(default=3, ge=1)  # 每位组员最多提几条
 
 
+class Lens(_Strict):
+    """头脑风暴的一种发散手法：名称 + 一句做法提示。"""
+
+    name: str = Field(min_length=1, max_length=20)
+    hint: str = Field(min_length=1, max_length=200)
+
+
 class BrainstormRules(_Strict):
-    """头脑风暴：每人最多提几个想法、拓展几条，导图的分支与条目上限。"""
+    """头脑风暴：每人最多提几个想法、拓展几条，投票与结果页的条数，导图的分支与条目上限。"""
 
     max_ideas: int = Field(default=4, ge=1)
     max_expansions: int = Field(default=3, ge=0)
+    crossbreed_sample: int = Field(default=4, ge=2)
+    vote_picks: int = Field(default=5, ge=1)
+    top: int = Field(default=5, ge=1)
+    stories: int = Field(default=3, ge=0)
+    # 发散手法：按随机种子分给组员（与成员是谁无关）；为空时不分手法
+    lenses: list[Lens] = Field(default_factory=list)
     max_branches: int = Field(default=6, ge=1)
     max_ideas_per_branch: int = Field(default=6, ge=1)
     max_next_steps: int = Field(default=5, ge=0)
@@ -818,7 +831,8 @@ class RoundtableConfig(_Strict):
     collab_pipeline: list[str] = Field(min_length=1)  # 协同模式
     solo_pipeline: list[str] = Field(default_factory=lambda: ["answer", "reveal"], min_length=1)
     brainstorm_pipeline: list[str] = Field(
-        default_factory=lambda: ["ideate", "expand", "organize", "reveal"], min_length=1
+        default_factory=lambda: ["ideate", "crossbreed", "vote", "organize", "reveal"],
+        min_length=1,
     )
     # 办公室模式（R17）：经理分诊 → 员工办理 → 经理过目
     office_pipeline: list[str] = Field(
@@ -1038,6 +1052,8 @@ class EstimateParams(_Strict):
     merge_tokens: int = Field(default=3000, ge=0)
     ideate_tokens: int = Field(default=500, ge=0)
     expand_tokens: int = Field(default=400, ge=0)
+    crossbreed_tokens: int = Field(default=450, ge=0)
+    vote_tokens: int = Field(default=300, ge=0)
     organize_tokens: int = Field(default=1500, ge=0)
     # 办公室模式：经理分诊（JSON + 工作说明）、经理过目（JSON）的输出长度；每位员工在名单里占的长度
     intake_tokens: int = Field(default=400, ge=0)

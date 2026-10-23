@@ -575,15 +575,19 @@ async def test_brainstorm_cli_and_mindmap_export(tmp_path):
     from ..core.orchestrator.test_brainstorm import make
 
     env = make()
-    code, text = await cli(env, "ask", "怎样拓展思路", "--mode", "brainstorm", "--seed", "3")
-    assert code == 0 and "降低开裂" in text
+    code, text = await cli(
+        env, "ask", "怎样拓展思路", "--mode", "brainstorm", "--details", "--seed", "3"
+    )
+    assert code == 0 and "降低开裂" in text and "点子榜" in text and "行动方案" in text
+    assert "抽到「" in text and "的碰撞杂交" in text and "[杂交]" in text and "投票】" in text
     sid = re.search(r"会话：(\w+)", text).group(1)
     svg = tmp_path / "m.svg"
     code, text = await cli(env, "mindmap", sid, "-o", str(svg))
     assert code == 0 and svg.read_text(encoding="utf-8").startswith("<svg")
     md = tmp_path / "m.md"
     assert (await cli(env, "mindmap", sid, "-o", str(md)))[0] == 0
-    assert md.read_text(encoding="utf-8").startswith("# 降低开裂")
+    exported = md.read_text(encoding="utf-8")
+    assert exported.startswith("## 点子榜") and "# 降低开裂" in exported
     mmd = tmp_path / "m.mmd"
     await cli(env, "mindmap", sid, "-o", str(mmd))
     assert mmd.read_text(encoding="utf-8").startswith("mindmap")
