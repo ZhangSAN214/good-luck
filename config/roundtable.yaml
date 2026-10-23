@@ -36,6 +36,41 @@ office:
 
 # 群聊：成员只回应你，不主动发消息；没有 @ 人时随机一两位回应
 chat:
+  life_title: 大家庭               # 生活群
+  work_title: 工作群
+  budget:
+    monthly_usd: 5.0               # 聊天这一块每月最多花多少（私聊 + 群聊；也计入上面的总预算）
+  memory:                          # 成员的分层记忆：只存本地，只用于聊天
+    enabled: true
+    context_chars: 800             # 聊天时最多带多少字的记忆
+    catch_up_days: 7               # 最多补整理几天前的聊天
+  life:                            # 生活引擎：你不在时成员按作息过日子、彼此聊天（不主动找你）
+    enabled: true
+    daily_usd: 0.10                # 生活（含记忆整理）每天最多花多少；约 $3 / 月
+    tick_minutes: 30               # 电脑开着时多久推进一次
+    max_written_per_tick: 2        # 每次推进最多几件事写成聊天，其余只记一行
+    max_written_catch_up: 6        # 开机补算时最多写几件
+    catch_up_hours: 24             # 补算最多往回看多少小时（更早的只整理成记忆）
+    turns: 3                       # 一段成员之间的对话最多几句
+  moments:                         # 朋友圈：成员每天最多发 1 条，互相点赞（免费）、评论
+    enabled: true
+    posts_per_member: 1
+    comments_per_tick: 2           # 每次推进最多写几条评论
+  browse:                          # 上网：只读公开订阅源（$0），成员按兴趣挑一条分享到生活群
+    enabled: true
+    refresh_hours: 3               # 多久重新抓一次订阅源
+    shares_per_member: 1           # 每位成员每天最多分享几条
+    search_per_day: 5              # 订阅源里没有感兴趣的内容时联网搜索，全体每天最多几次
+    feeds:                         # 网页「上网」里可以增删；改过之后以网页里的为准
+      - {name: BBC 中文, url: "https://feeds.bbci.co.uk/zhongwen/simp/rss.xml", topics: [新闻, 国际], kind: news}
+      - {name: BBC World, url: "https://feeds.bbci.co.uk/news/world/rss.xml", topics: [新闻, 国际], kind: news}
+      - {name: 36氪, url: "https://36kr.com/feed", topics: [科技, 商业], kind: news}
+      - {name: 少数派, url: "https://sspai.com/feed", topics: [科技, 数码, 效率], kind: blog}
+      - {name: Ars Technica, url: "https://feeds.arstechnica.com/arstechnica/index", topics: [科技, 科学], kind: news}
+      - {name: Hacker News, url: "https://news.ycombinator.com/rss", topics: [科技, 编程], kind: forum}
+      - {name: NASA, url: "https://www.nasa.gov/news-release/feed/", topics: [天文, 科学], kind: news}
+      - {name: ScienceDaily, url: "https://www.sciencedaily.com/rss/top/science.xml", topics: [科学], kind: news}
+      - {name: Polygon, url: "https://www.polygon.com/rss/index.xml", topics: [游戏], kind: news}
   tier: budget
   max_repliers: 2
   max_mentioned: 8                 # 「@全员」「所有人」「大家」时最多几位依次回应
@@ -106,7 +141,16 @@ prompts:
   office_review: v1      # 办公室·项目：复核经理最终验收
   office_revise: v1      # 办公室·项目：主办经理按验收意见改一次
   office_handle: v2      # 办公室：员工办理（v2：带字画面用代码画、数字须核实）
-  chat: v1               # 群聊：口语、短句，坦诚自己是 AI
+  chat: v2               # 群聊：口语、短句，坦诚自己是 AI（v2：人设与记忆）
+  chat_dm: v2            # 私聊：和用户一对一（v2：人设与记忆）
+  chat_work: v2          # 工作群：聊工作，交办走办公室（v2：人设与记忆）
+  memory_day: v1         # 记忆：把一天的聊天压成一段
+  memory_roll: v1        # 记忆：日 → 周、周 → 月
+  memory_profile: v1     # 记忆：更新长期档案
+  life_chat: v1          # 生活：成员之间聊天（公寓楼里的模拟生活）
+  life_share: v1         # 生活：成员把上网看到的一条内容分享到生活群
+  moment_post: v1        # 朋友圈：成员发一条动态
+  moment_comment: v1     # 朋友圈：成员评论一条动态（或回复评论）
   office_check: v1       # 办公室：经理过目
   office_fix: v2         # 办公室：退回后员工改一次（v2：改程序必须重跑出图）
   style_merge: v1        # 统筹合并成规范 + 清单

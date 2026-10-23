@@ -20,15 +20,21 @@ from urllib.parse import quote
 from roundtable.core.allocation import coordinator_name, display_name
 from roundtable.core.attachments import Attachment, UploadError, ingest
 from roundtable.core.attachments.detect import TYPES as UPLOAD_TYPES
+from roundtable.core.browse import REFRESH_KEY, feeds_of, set_feeds
 from roundtable.core.budget.guard import month_window
-from roundtable.core.chat import GroupChat
+from roundtable.core.chat import ROOM, WORK, ChatHub, chat_budget
+from roundtable.core.chat_work import WORK_EVENTS, post_handoff, post_office_event
+from roundtable.core.life import LifeEngine
 from roundtable.core.media import KIND_LABELS, KINDS, MediaService
 from roundtable.core.members_art import MEMBERS_FILE, load_members, mime_of, resolve_file
+from roundtable.core.memory import LAYERS, MemoryKeeper, clean_memory
+from roundtable.core.moments import SEEN_KEY as MOMENTS_SEEN
 from roundtable.core.notes import NoteError, check_can_add, clean_note
 from roundtable.core.office import building, payslip, roster
 from roundtable.core.office import collect as collect_performance
 from roundtable.core.office import reset as reset_performance
 from roundtable.core.orchestrator import Orchestrator, OrchestratorError, RunResult
+from roundtable.core.persona import is_empty, persona_of, set_persona
 from roundtable.core.preview import render_preview
 from roundtable.core.routing import (
     AUTO,
@@ -55,6 +61,7 @@ RESTING = frozenset({"completed", "stopped", "failed", "awaiting_confirmation", 
 REVEALABLE = frozenset({"completed", "stopped", "failed"})
 MAX_QUESTION_CHARS = 20_000
 MAX_CHAT_CHARS = 2000
+MAX_MOMENT_CHARS = 500
 # 公寓楼：进行中的会话这么久没有更新就不算在上班（服务意外退出后留下的 running）
 WORKING_WINDOW_H = 3
 
@@ -81,11 +88,32 @@ class RoundtableService:
         self._subscribers: dict[str, set[asyncio.Queue[dict[str, Any]]]] = {}
         self._tasks: dict[str, asyncio.Task[None]] = {}
         self._art_names_cache: tuple[int | None, dict[str, str]] | None = None
-        self.chat = GroupChat(runtime, names=self._art_names)
+        self.chats = ChatHub(runtime, names=self._art_names)
+        self.memory = MemoryKeeper(runtime, self.chats.everyone)
+        self.life = LifeEngine(runtime, self.chats, self.memory)
         self._chat_tasks: set[asyncio.Task[Any]] = set()
+        self._life_task: asyncio.Task[None] | None = None
+
+    def start_life(self) -> None:
+        """后台推进成员的生活（只在正式启动的服务里调用；测试直接调 life_tick）。"""
+        if self._life_task is None and self.rt.config.roundtable.chat.life.enabled:
+            self._life_task = asyncio.get_running_loop().create_task(self._life_loop())
+
+    async def _life_loop(self) -> None:
+        while True:
+            with contextlib.suppress(Exception):  # 生活出错不影响其他功能，下次再试
+                await self.life_tick()
+            await asyncio.sleep(self.rt.config.roundtable.chat.life.tick_minutes * 60)
+
+    async def life_tick(self) -> dict[str, int]:
+        """推进一次生活（开机后第一次会补上关机期间的时间）。"""
+        return await self.life.tick(self.rt.budget.now().astimezone())
 
     async def aclose(self) -> None:
-        for task in [*self._tasks.values(), *self._chat_tasks]:
+        tasks = [*self._tasks.values(), *self._chat_tasks]
+        if self._life_task is not None:
+            tasks.append(self._life_task)
+        for task in tasks:
             task.cancel()
             with contextlib.suppress(asyncio.CancelledError, Exception):
                 await task
@@ -349,13 +377,46 @@ class RoundtableService:
 
     # --- 群聊 ----------------------------------------------------------------------
 
-    def chat_view(self, after: int = 0, query: str | None = None) -> dict[str, Any]:
-        """群成员、消息（id 大于 after 的；有 query 时为搜索结果）与正在输入的成员。"""
-        members = self.chat.members()
-        names = {m.id: m.name for m in members} | {"user": "我", "system": "系统"}
-        rows = self.rt.repo.chat_messages(self.chat.room, after=after, query=query or None)
+    def _chat_room(self, room: str) -> Any:
+        try:
+            return self.chats.room(room or ROOM)
+        except KeyError:
+            raise ServiceError(f"没有这个聊天：{room}", 404) from None
+
+    def chat_rooms(self) -> dict[str, Any]:
+        """会话列表（群、私聊，带未读数和最后一条消息）与聊天本月预算。"""
+        budget = chat_budget(self.rt)
         return {
-            "members": [asdict(m) for m in members],
+            "rooms": self.chats.rooms(),
+            "members": [asdict(m) for m in self.chats.everyone()],
+            "typing": self.chats.typing(),
+            "budget": {"spent_usd": budget.spent_usd, "limit_usd": budget.limit_usd},
+            "moments_unseen": self.rt.repo.unseen_moments(
+                int(self.rt.repo.setting(MOMENTS_SEEN) or 0)
+            ),
+            "life": {
+                "enabled": self.rt.config.roundtable.chat.life.enabled,
+                "spent_today_usd": self.life.spent_today(),
+                "daily_usd": self.rt.config.roundtable.chat.life.daily_usd,
+            },
+        }
+
+    def chat_view(
+        self, after: int = 0, query: str | None = None, room: str = ROOM
+    ) -> dict[str, Any]:
+        """会话成员、消息（id 大于 after 的；有 query 时为搜索结果）与正在输入的成员。
+
+        不是搜索时把会话标为已读。
+        """
+        chat = self._chat_room(room)
+        everyone = chat.everyone()
+        names = {m.id: m.name for m in everyone} | {"user": "我", "system": "系统"}
+        rows = self.rt.repo.chat_messages(chat.room, after=after, query=query or None)
+        if rows and not query:
+            self.rt.repo.mark_chat_read(chat.room, rows[-1]["id"])
+        return {
+            "room": {"id": chat.room, "kind": chat.kind, "title": chat.title},
+            "members": [asdict(m) for m in chat.members()],
             "messages": [
                 {
                     "id": r["id"],
@@ -364,30 +425,257 @@ class RoundtableService:
                     "text": r["text"],
                     "reply_to": r["reply_to"],
                     "cost_usd": r["cost_usd"],
+                    "meta": r["meta"],
                     "created_at": r["created_at"],
                 }
                 for r in rows
             ],
-            "typing": list(self.chat.typing),
+            "typing": list(chat.typing),
         }
 
-    async def chat_post(self, text: str) -> dict[str, Any]:
+    async def chat_post(self, text: str, room: str = ROOM) -> dict[str, Any]:
         """用户发一条消息；被选中的成员在后台依次回应（前端轮询 chat_view 拿到）。"""
+        chat = self._chat_room(room)
+        if chat.kind == "pair":
+            raise ServiceError("这是成员之间的私聊，你只能看，不能发言")
         text = (text or "").strip()
         if not text:
             raise ServiceError("消息不能为空")
         if len(text) > MAX_CHAT_CHARS:
             raise ServiceError(f"消息太长（最多 {MAX_CHAT_CHARS} 字）")
-        msg, speakers = self.chat.post(text)
+        msg, speakers = chat.post(text)
+        self.rt.repo.mark_chat_read(chat.room, msg["id"])
         if speakers:
-            task = asyncio.get_running_loop().create_task(self.chat.replies(msg["id"], speakers))
+            task = asyncio.get_running_loop().create_task(chat.replies(msg["id"], speakers))
             self._chat_tasks.add(task)
             task.add_done_callback(self._chat_tasks.discard)
         return {"id": msg["id"], "speakers": [m.name for m in speakers]}
 
-    def chat_clear(self) -> dict[str, Any]:
-        """一键清空聊天记录（花费记录保留，预算照算）。"""
-        return {"deleted": self.rt.repo.clear_chat(self.chat.room)}
+    def chat_handoff(self, text: str) -> dict[str, Any]:
+        """在工作群里交办：按办公室模式（默认档位）开一件事，工作群里记下这条交办。"""
+        text = (text or "").strip()
+        if not text:
+            raise ServiceError("要交办的事不能为空")
+        sid = self.create(text, workflow="office")
+        msg = post_handoff(self.rt, sid, text)
+        self.rt.repo.mark_chat_read(WORK, msg["id"])
+        return {"id": msg["id"], "session_id": sid}
+
+    # --- 成员设定与记忆（只用于聊天） ------------------------------------------------
+
+    def _chat_member(self, member: str) -> Any:
+        found = next((m for m in self.chats.everyone() if m.id == member), None)
+        if found is None:
+            raise ServiceError(f"没有这位成员：{member}", 404)
+        return found
+
+    def chat_personas(self) -> dict[str, Any]:
+        """每位成员的聊天人设；source：local 网页里改过 / config 配置文件 / empty 没有设定。"""
+        out = []
+        for m in self.chats.everyone():
+            persona = persona_of(self.rt, m.id)
+            if self.rt.repo.member_persona(m.id) is not None:
+                source = "local"
+            elif not is_empty(persona):
+                source = "config"
+            else:
+                source = "empty"
+            out.append(
+                {"id": m.id, "name": m.name, "persona": persona.model_dump(), "source": source}
+            )
+        return {"members": out}
+
+    def chat_set_persona(self, member: str, data: dict[str, Any] | None) -> dict[str, Any]:
+        self._chat_member(member)
+        try:
+            persona = set_persona(self.rt, member, data)
+        except ValueError as exc:
+            raise ServiceError(f"人设不合法：{exc}") from None
+        return {"id": member, "persona": persona.model_dump()}
+
+    def chat_memories(self, member: str | None = None) -> dict[str, Any]:
+        names = {m.id: m.name for m in self.chats.everyone()}
+        if member is not None:
+            self._chat_member(member)
+        rows = self.rt.repo.memories(member)
+        return {
+            "memories": [{**r, "name": names.get(r["member"], r["member"])} for r in rows],
+            "layers": list(LAYERS),
+        }
+
+    def _memory_text(self, text: str) -> str:
+        limit = self.rt.config.roundtable.chat.memory.entry_chars
+        clean = clean_memory(text, limit)
+        if not clean:
+            raise ServiceError("记忆不能为空（含密码、证件号、银行卡等敏感内容的行不会保存）")
+        return clean
+
+    def chat_add_memory(self, member: str, text: str) -> dict[str, Any]:
+        """用户替成员记一条（随手记，source = user）。"""
+        self._chat_member(member)
+        return self.rt.repo.add_memory(member, "note", self._memory_text(text), source="user")
+
+    def chat_update_memory(self, memory_id: int, text: str) -> dict[str, Any]:
+        if self.rt.repo.memory(memory_id) is None:
+            raise ServiceError("没有这条记忆", 404)
+        return self.rt.repo.update_memory(memory_id, self._memory_text(text)) or {}
+
+    def chat_delete_memory(self, memory_id: int) -> dict[str, Any]:
+        if not self.rt.repo.delete_memory(memory_id):
+            raise ServiceError("没有这条记忆", 404)
+        return {"deleted": 1}
+
+    def chat_clear_memories(self, member: str | None = None) -> dict[str, Any]:
+        if member is not None:
+            self._chat_member(member)
+        return {"deleted": self.rt.repo.clear_memories(member)}
+
+    async def chat_tidy_memories(self) -> dict[str, Any]:
+        """马上整理一次记忆（到昨天为止还没整理的日子）。"""
+        now = self.rt.budget.now().astimezone()
+        return {"written": await self.memory.catch_up(now)}
+
+    # --- 朋友圈 --------------------------------------------------------------------
+
+    def _background(self, coro: Any) -> None:
+        task = asyncio.get_running_loop().create_task(coro)
+        self._chat_tasks.add(task)
+        task.add_done_callback(self._chat_tasks.discard)
+
+    def _moment_out(self, row: dict[str, Any], names: dict[str, str]) -> dict[str, Any]:
+        def who(author: str) -> str:
+            return names.get(author, author)
+
+        by_id = {c["id"]: c for c in row["comments"]}
+        return {
+            "id": row["id"],
+            "author": row["author"],
+            "name": who(row["author"]),
+            "text": row["text"],
+            "meta": row["meta"],
+            "offline": row["offline"],
+            "created_at": row["created_at"],
+            "likes": [{"id": w, "name": who(w)} for w in row["likes"]],
+            "liked": "user" in row["likes"],
+            "comments": [
+                {
+                    "id": c["id"],
+                    "author": c["author"],
+                    "name": who(c["author"]),
+                    "text": c["text"],
+                    "reply_to": c["reply_to"],
+                    "reply_name": who(by_id[c["reply_to"]]["author"])
+                    if c["reply_to"] in by_id
+                    else None,
+                    "offline": c["offline"],
+                    "created_at": c["created_at"],
+                }
+                for c in row["comments"]
+            ],
+        }
+
+    def _moment(self, moment_id: int) -> dict[str, Any]:
+        row = self.rt.repo.moment(moment_id)
+        if row is None:
+            raise ServiceError("没有这条动态", 404)
+        return row
+
+    def moments_view(self, author: str | None = None, before: int | None = None) -> dict[str, Any]:
+        """朋友圈（新的在前，每页 20 条）；author 只看某位成员（或 user）。看第一页时标为已读。"""
+        if author and author != "user":
+            self._chat_member(author)
+        everyone = self.chats.everyone()
+        names = {m.id: m.name for m in everyone} | {"user": "我"}
+        rows = self.rt.repo.moments(author=author or None, before=before, limit=20)
+        if not before and not author:
+            self.rt.repo.set_setting(MOMENTS_SEEN, str(self.rt.repo.latest_moment_id()))
+        return {
+            "moments": [self._moment_out(r, names) for r in rows],
+            "members": [asdict(m) for m in everyone],
+            "enabled": self.rt.config.roundtable.chat.moments.enabled,
+        }
+
+    def _moment_text(self, text: str) -> str:
+        text = (text or "").strip()
+        if not text:
+            raise ServiceError("内容不能为空")
+        if len(text) > MAX_MOMENT_CHARS:
+            raise ServiceError(f"内容太长（最多 {MAX_MOMENT_CHARS} 字）")
+        return text
+
+    async def moments_post(self, text: str) -> dict[str, Any]:
+        """用户发一条动态；一两位成员在后台评论。"""
+        row = self.rt.repo.add_moment("user", self._moment_text(text))
+        if self.rt.config.roundtable.chat.moments.enabled:
+            self._background(self.life.moments.react_to_user_post(row["id"]))
+        return {"id": row["id"]}
+
+    def moments_like(self, moment_id: int) -> dict[str, Any]:
+        """用户点赞 / 取消点赞。"""
+        self._moment(moment_id)
+        if not self.rt.repo.like_moment(moment_id, "user"):
+            self.rt.repo.unlike_moment(moment_id, "user")
+            return {"liked": False}
+        return {"liked": True}
+
+    async def moments_comment(
+        self, moment_id: int, text: str, reply_to: int | None = None
+    ) -> dict[str, Any]:
+        """用户评论（或回复某条评论）；被评论 / 被回复的成员在后台回一句。"""
+        self._moment(moment_id)
+        text = self._moment_text(text)
+        if reply_to is not None:
+            parent = self.rt.repo.moment_comment(reply_to)
+            if parent is None or parent["moment_id"] != moment_id:
+                raise ServiceError("要回复的评论不在这条动态下")
+        row = self.rt.repo.add_moment_comment(moment_id, "user", text, reply_to=reply_to)
+        if self.rt.config.roundtable.chat.moments.enabled:
+            self._background(self.life.moments.reply_to_user_comment(row["id"]))
+        return {"id": row["id"]}
+
+    def moments_delete(self, moment_id: int) -> dict[str, Any]:
+        """删掉一条动态（连同点赞、评论）。都是本地数据，成员的也能删。"""
+        if not self.rt.repo.delete_moment(moment_id):
+            raise ServiceError("没有这条动态", 404)
+        return {"deleted": 1}
+
+    def moments_delete_comment(self, comment_id: int) -> dict[str, Any]:
+        if not self.rt.repo.delete_moment_comment(comment_id):
+            raise ServiceError("没有这条评论", 404)
+        return {"deleted": 1}
+
+    # --- 上网（订阅源） ------------------------------------------------------------
+
+    def chat_feeds(self) -> dict[str, Any]:
+        """订阅源清单（网页改过的优先）、上次抓取时间、今天联网搜索次数与上限。"""
+        rules = self.rt.config.roundtable.chat.browse
+        feeds, source = feeds_of(self.rt)
+        return {
+            "enabled": rules.enabled,
+            "feeds": [f.model_dump() for f in feeds],
+            "source": source,
+            "last_refresh": self.rt.repo.setting(REFRESH_KEY) or None,
+            "search_used_today": self.life.browse.searches_today(),
+            "search_per_day": rules.search_per_day,
+            "items": len(self.rt.repo.web_items(limit=1000)),
+        }
+
+    def chat_set_feeds(self, feeds: list[dict[str, Any]] | None) -> dict[str, Any]:
+        try:
+            set_feeds(self.rt, feeds)
+        except ValueError as exc:  # pydantic 的 ValidationError 也是 ValueError
+            raise ServiceError(f"订阅源不合法：{exc}") from None
+        return self.chat_feeds()
+
+    async def chat_refresh_feeds(self) -> dict[str, Any]:
+        """马上抓一遍订阅源（不调用模型、不花钱）。"""
+        result = await self.life.browse.refresh(self.rt.budget.now().astimezone(), force=True)
+        return {**result, **self.chat_feeds()}
+
+    def chat_clear(self, room: str = ROOM) -> dict[str, Any]:
+        """一键清空这个会话的聊天记录（花费记录保留，预算照算）。"""
+        chat = self._chat_room(room)
+        return {"deleted": self.rt.repo.clear_chat(chat.room)}
 
     def payslip(self, session_id: str) -> dict[str, Any]:
         """一件事的工资单：每位组员 / 统筹各领多少，外包（搜索、媒体、规划员等）另列。
@@ -935,6 +1223,11 @@ class RoundtableService:
             self._subscribers.get(session_id, set()).discard(queue)
 
     def _publish(self, session_id: str, event: Event) -> None:
+        if event.type in WORK_EVENTS:
+            try:  # 工作群消息只是旁路记录，出错不能影响办公室里的事
+                post_office_event(self.rt, session_id, event.type, event.data, event.code)
+            except Exception:  # noqa: BLE001
+                log.exception("会话 %s：写工作群消息失败", session_id)
         payload = {
             "type": event.type,
             "step": event.step or None,

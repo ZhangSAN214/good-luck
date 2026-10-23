@@ -1046,14 +1046,431 @@ class Repository:
         model_id: str | None = None,
         reply_to: int | None = None,
         cost_usd: float = 0.0,
+        meta: dict[str, Any] | None = None,
+        created_at: str | None = None,
     ) -> dict[str, Any]:
+        """created_at 为空时用当前时间（补算「你不在时」的消息时按事件时刻写入）。"""
         cur = self._exec(
             "INSERT INTO chat_messages (room, author, model_id, text, reply_to, cost_usd,"
-            " created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (room, author, model_id, text, reply_to, cost_usd, self.clock()),
+            " meta, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                room,
+                author,
+                model_id,
+                text,
+                reply_to,
+                cost_usd,
+                json.dumps(meta, ensure_ascii=False) if meta else None,
+                created_at or self.clock(),
+            ),
         )
         row = self._exec("SELECT * FROM chat_messages WHERE id = ?", (cur.lastrowid,)).fetchone()
-        return dict(row)
+        return _chat_row(row)
+
+    def ensure_chat_room(
+        self,
+        room: str,
+        *,
+        kind: str,
+        title: str,
+        members: Sequence[str] = (),
+        with_user: bool = True,
+    ) -> dict[str, Any]:
+        """没有就建；已有的不改（标题等以第一次建立时为准）。"""
+        self._exec(
+            "INSERT OR IGNORE INTO chat_rooms (id, kind, title, members, with_user, created_at)"
+            " VALUES (?, ?, ?, ?, ?, ?)",
+            (room, kind, title, json.dumps(list(members)), int(with_user), self.clock()),
+        )
+        return self.chat_room(room) or {}
+
+    def chat_room(self, room: str) -> dict[str, Any] | None:
+        row = self._exec("SELECT * FROM chat_rooms WHERE id = ?", (room,)).fetchone()
+        return _room_row(row) if row else None
+
+    def chat_rooms(self) -> list[dict[str, Any]]:
+        """全部会话，带未读数和最后一条消息。
+
+        未读 = last_read 之后成员发的消息，以及带 meta 的系统消息（如工作群里的交付通知）。
+        """
+        rows = self._exec(
+            "SELECT r.*,"
+            " (SELECT COUNT(*) FROM chat_messages m WHERE m.room = r.id AND m.id > r.last_read"
+            "  AND m.author != 'user' AND (m.author != 'system' OR m.meta IS NOT NULL)) AS unread,"
+            " (SELECT MAX(id) FROM chat_messages m WHERE m.room = r.id) AS last_id"
+            " FROM chat_rooms r ORDER BY r.created_at, r.id"
+        ).fetchall()
+        out = []
+        for r in rows:
+            room = _room_row(r)
+            room["unread"] = r["unread"]
+            last = None
+            if r["last_id"]:
+                row = self._exec("SELECT * FROM chat_messages WHERE id = ?", (r["last_id"],))
+                last = _chat_row(row.fetchone())
+            room["last"] = last
+            out.append(room)
+        return out
+
+    def mark_chat_read(self, room: str, upto: int) -> None:
+        self._exec("UPDATE chat_rooms SET last_read = MAX(last_read, ?) WHERE id = ?", (upto, room))
+
+    # --- 成员人设与记忆（聊天用，只存本地） ---------------------------------------
+
+    def member_persona(self, member: str) -> dict[str, Any] | None:
+        row = self._exec(
+            "SELECT persona FROM member_personas WHERE member = ?", (member,)
+        ).fetchone()
+        return json.loads(row["persona"]) if row else None
+
+    def set_member_persona(self, member: str, persona: Mapping[str, Any] | None) -> None:
+        """persona 为 None 时删掉本地设定（回到配置文件里的）。"""
+        if persona is None:
+            self._exec("DELETE FROM member_personas WHERE member = ?", (member,))
+            return
+        self._exec(
+            "INSERT INTO member_personas (member, persona, updated_at) VALUES (?, ?, ?)"
+            " ON CONFLICT(member) DO UPDATE SET persona = excluded.persona,"
+            " updated_at = excluded.updated_at",
+            (member, json.dumps(dict(persona), ensure_ascii=False), self.clock()),
+        )
+
+    def add_memory(
+        self,
+        member: str,
+        layer: str,
+        text: str,
+        *,
+        period: str = "",
+        source: str = "auto",
+        offline: bool = False,
+    ) -> dict[str, Any]:
+        now = self.clock()
+        cur = self._exec(
+            "INSERT INTO member_memories (member, layer, period, text, source, offline,"
+            " created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (member, layer, period, text, source, int(offline), now, now),
+        )
+        return self.memory(cur.lastrowid) or {}
+
+    def memory(self, memory_id: int) -> dict[str, Any] | None:
+        row = self._exec("SELECT * FROM member_memories WHERE id = ?", (memory_id,)).fetchone()
+        return _memory_row(row) if row else None
+
+    def memories(
+        self, member: str | None = None, *, layer: str | None = None, limit: int = 500
+    ) -> list[dict[str, Any]]:
+        """最新的在前。"""
+        sql = "SELECT * FROM member_memories WHERE 1 = 1"
+        params: list[Any] = []
+        if member is not None:
+            sql += " AND member = ?"
+            params.append(member)
+        if layer is not None:
+            sql += " AND layer = ?"
+            params.append(layer)
+        sql += " ORDER BY period DESC, id DESC LIMIT ?"
+        rows = self._exec(sql, (*params, limit)).fetchall()
+        return [_memory_row(r) for r in rows]
+
+    def update_memory(self, memory_id: int, text: str) -> dict[str, Any] | None:
+        """用户改过的记忆标为 user，之后自动整理不会覆盖。"""
+        self._exec(
+            "UPDATE member_memories SET text = ?, source = 'user', updated_at = ? WHERE id = ?",
+            (text, self.clock(), memory_id),
+        )
+        return self.memory(memory_id)
+
+    def delete_memory(self, memory_id: int) -> bool:
+        return self._exec("DELETE FROM member_memories WHERE id = ?", (memory_id,)).rowcount > 0
+
+    def clear_memories(self, member: str | None = None) -> int:
+        if member is None:
+            return self._exec("DELETE FROM member_memories").rowcount
+        return self._exec("DELETE FROM member_memories WHERE member = ?", (member,)).rowcount
+
+    def add_life_event(
+        self,
+        at: str,
+        kind: str,
+        members: Sequence[str],
+        *,
+        place: str = "",
+        topic: str = "",
+        room: str | None = None,
+        written: bool = False,
+        offline: bool = False,
+    ) -> dict[str, Any]:
+        cur = self._exec(
+            "INSERT INTO life_events (at, kind, place, members, topic, room, written, offline,"
+            " created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                at,
+                kind,
+                place,
+                json.dumps(list(members)),
+                topic,
+                room,
+                int(written),
+                int(offline),
+                self.clock(),
+            ),
+        )
+        row = self._exec("SELECT * FROM life_events WHERE id = ?", (cur.lastrowid,)).fetchone()
+        return _life_row(row)
+
+    def life_events_between(self, start: str, end: str) -> list[dict[str, Any]]:
+        rows = self._exec(
+            "SELECT * FROM life_events WHERE at >= ? AND at < ? ORDER BY at, id", (start, end)
+        ).fetchall()
+        return [_life_row(r) for r in rows]
+
+    def spent_in_steps(
+        self, workflow: str, steps: Sequence[str], start: datetime, end: datetime
+    ) -> float:
+        """[start, end) 内某类隐藏会话里、指定步骤的调用花费（如生活引擎的 life / memory）。"""
+        marks = ", ".join("?" for _ in steps)
+        return self._exec(
+            "SELECT COALESCE(SUM(c.cost_usd), 0) FROM calls c JOIN sessions s"
+            f" ON s.id = c.session_id WHERE s.workflow = ? AND c.step IN ({marks})"
+            " AND c.created_at >= ? AND c.created_at < ?",
+            (workflow, *steps, iso(start), iso(end)),
+        ).fetchone()[0]
+
+    def count_in_steps(
+        self, workflow: str, steps: Sequence[str], start: datetime, end: datetime
+    ) -> int:
+        """[start, end) 内某类隐藏会话里、指定步骤的调用次数（如每天的联网搜索次数）。"""
+        marks = ", ".join("?" for _ in steps)
+        return self._exec(
+            "SELECT COUNT(*) FROM calls c JOIN sessions s ON s.id = c.session_id"
+            f" WHERE s.workflow = ? AND c.step IN ({marks})"
+            " AND c.created_at >= ? AND c.created_at < ?",
+            (workflow, *steps, iso(start), iso(end)),
+        ).fetchone()[0]
+
+    # --- 上网看到的内容（docs/CHAT.md G7） ----------------------------------------------
+
+    def add_web_item(
+        self,
+        feed: str,
+        url: str,
+        title: str,
+        *,
+        summary: str = "",
+        published: str | None = None,
+        topics: Sequence[str] = (),
+        unverified: bool = True,
+    ) -> bool:
+        """存一条；同一网址已有时不改，返回 False。"""
+        cur = self._exec(
+            "INSERT OR IGNORE INTO web_items (feed, url, title, summary, published, topics,"
+            " unverified, fetched_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                feed,
+                url,
+                title,
+                summary,
+                published,
+                json.dumps(list(topics), ensure_ascii=False),
+                int(unverified),
+                self.clock(),
+            ),
+        )
+        return cur.rowcount > 0
+
+    def web_items(self, *, unshared: bool = False, limit: int = 500) -> list[dict[str, Any]]:
+        """新的在前。"""
+        sql = "SELECT * FROM web_items"
+        if unshared:
+            sql += " WHERE shared_by IS NULL"
+        sql += " ORDER BY fetched_at DESC, id DESC LIMIT ?"
+        return [_web_row(r) for r in self._exec(sql, (limit,)).fetchall()]
+
+    def web_shared_by(self, member: str, since: str) -> int:
+        return self._exec(
+            "SELECT COUNT(*) FROM web_items WHERE shared_by = ? AND shared_at >= ?",
+            (member, since),
+        ).fetchone()[0]
+
+    def mark_web_shared(self, item_id: int, member: str) -> None:
+        self._exec(
+            "UPDATE web_items SET shared_by = ?, shared_at = ? WHERE id = ?",
+            (member, self.clock(), item_id),
+        )
+
+    def prune_web_items(self, before: str) -> int:
+        """删掉 before 之前抓到、没分享过的条目。"""
+        cur = self._exec(
+            "DELETE FROM web_items WHERE shared_by IS NULL AND fetched_at < ?", (before,)
+        )
+        return cur.rowcount
+
+    # --- 朋友圈（docs/CHAT.md G5） --------------------------------------------------
+
+    def add_moment(
+        self,
+        author: str,
+        text: str,
+        *,
+        meta: dict[str, Any] | None = None,
+        offline: bool = False,
+        created_at: str | None = None,
+    ) -> dict[str, Any]:
+        cur = self._exec(
+            "INSERT INTO moments (author, text, meta, offline, created_at) VALUES (?, ?, ?, ?, ?)",
+            (
+                author,
+                text,
+                json.dumps(meta, ensure_ascii=False) if meta else None,
+                int(offline),
+                created_at or self.clock(),
+            ),
+        )
+        return self.moment(cur.lastrowid) or {}
+
+    def moment(self, moment_id: int) -> dict[str, Any] | None:
+        row = self._exec("SELECT * FROM moments WHERE id = ?", (moment_id,)).fetchone()
+        return self._with_reactions([_moment_row(row)])[0] if row else None
+
+    def moments(
+        self,
+        *,
+        author: str | None = None,
+        before: int | None = None,
+        since: str | None = None,
+        limit: int = 20,
+    ) -> list[dict[str, Any]]:
+        """新的在前，带点赞（who 列表）和评论（按先后）。before：只要 id 更小的（翻页）。"""
+        sql, params = "SELECT * FROM moments WHERE 1 = 1", []
+        if author:
+            sql += " AND author = ?"
+            params.append(author)
+        if before:
+            sql += " AND id < ?"
+            params.append(before)
+        if since:
+            sql += " AND created_at >= ?"
+            params.append(since)
+        sql += " ORDER BY id DESC LIMIT ?"
+        params.append(limit)
+        rows = [_moment_row(r) for r in self._exec(sql, params).fetchall()]
+        return self._with_reactions(rows)
+
+    def _with_reactions(self, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        if not rows:
+            return rows
+        ids = [r["id"] for r in rows]
+        marks = ", ".join("?" for _ in ids)
+        likes: dict[int, list[str]] = {}
+        for r in self._exec(
+            f"SELECT moment_id, who FROM moment_likes WHERE moment_id IN ({marks})"
+            " ORDER BY created_at",
+            ids,
+        ).fetchall():
+            likes.setdefault(r["moment_id"], []).append(r["who"])
+        comments: dict[int, list[dict[str, Any]]] = {}
+        for r in self._exec(
+            f"SELECT * FROM moment_comments WHERE moment_id IN ({marks}) ORDER BY id", ids
+        ).fetchall():
+            c = dict(r)
+            c["offline"] = bool(c["offline"])
+            comments.setdefault(r["moment_id"], []).append(c)
+        for row in rows:
+            row["likes"] = likes.get(row["id"], [])
+            row["comments"] = comments.get(row["id"], [])
+        return rows
+
+    def moments_by(self, author: str, since: str) -> int:
+        return self._exec(
+            "SELECT COUNT(*) FROM moments WHERE author = ? AND created_at >= ?", (author, since)
+        ).fetchone()[0]
+
+    def latest_moment_id(self) -> int:
+        return self._exec("SELECT COALESCE(MAX(id), 0) FROM moments").fetchone()[0]
+
+    def unseen_moments(self, after: int) -> int:
+        """id 大于 after 的成员动态条数（用户自己发的不算）。"""
+        return self._exec(
+            "SELECT COUNT(*) FROM moments WHERE id > ? AND author != 'user'", (after,)
+        ).fetchone()[0]
+
+    def like_moment(self, moment_id: int, who: str) -> bool:
+        cur = self._exec(
+            "INSERT OR IGNORE INTO moment_likes (moment_id, who, created_at) VALUES (?, ?, ?)",
+            (moment_id, who, self.clock()),
+        )
+        return cur.rowcount > 0
+
+    def unlike_moment(self, moment_id: int, who: str) -> bool:
+        cur = self._exec(
+            "DELETE FROM moment_likes WHERE moment_id = ? AND who = ?", (moment_id, who)
+        )
+        return cur.rowcount > 0
+
+    def add_moment_comment(
+        self,
+        moment_id: int,
+        author: str,
+        text: str,
+        *,
+        reply_to: int | None = None,
+        offline: bool = False,
+        created_at: str | None = None,
+    ) -> dict[str, Any]:
+        cur = self._exec(
+            "INSERT INTO moment_comments (moment_id, author, text, reply_to, offline, created_at)"
+            " VALUES (?, ?, ?, ?, ?, ?)",
+            (moment_id, author, text, reply_to, int(offline), created_at or self.clock()),
+        )
+        row = self._exec("SELECT * FROM moment_comments WHERE id = ?", (cur.lastrowid,)).fetchone()
+        out = dict(row)
+        out["offline"] = bool(out["offline"])
+        return out
+
+    def moment_comment(self, comment_id: int) -> dict[str, Any] | None:
+        row = self._exec("SELECT * FROM moment_comments WHERE id = ?", (comment_id,)).fetchone()
+        return dict(row) if row else None
+
+    def delete_moment(self, moment_id: int) -> bool:
+        return self._exec("DELETE FROM moments WHERE id = ?", (moment_id,)).rowcount > 0
+
+    def delete_moment_comment(self, comment_id: int) -> bool:
+        cur = self._exec("DELETE FROM moment_comments WHERE id = ?", (comment_id,))
+        return cur.rowcount > 0
+
+    def office_work_between(self, start: datetime, end: datetime) -> list[dict[str, Any]]:
+        """[start, end) 内办公室会话里员工办事的调用：模型、会话、题目、是否匿名未揭晓。
+
+        生活引擎用来知道谁今天干了什么活（匿名未揭晓的会话由调用方跳过）。
+        """
+        rows = self._exec(
+            "SELECT DISTINCT c.model_id, s.id AS session_id, s.question, s.anonymous,"
+            " s.revealed_at, MAX(c.created_at) AS at FROM calls c JOIN sessions s"
+            " ON s.id = c.session_id WHERE s.workflow = 'office'"
+            " AND c.role IN ('member', 'coordinator')"
+            " AND c.model_id IS NOT NULL AND c.created_at >= ? AND c.created_at < ?"
+            " GROUP BY c.model_id, s.id ORDER BY at",
+            (iso(start), iso(end)),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def chat_messages_between(self, start: str, end: str) -> list[dict[str, Any]]:
+        """[start, end) 内全部会话的消息（按时间先后），整理记忆用。"""
+        rows = self._exec(
+            "SELECT * FROM chat_messages WHERE created_at >= ? AND created_at < ? ORDER BY id",
+            (start, end),
+        ).fetchall()
+        return [_chat_row(r) for r in rows]
+
+    def spent_in_workflow(self, workflow: str, start: datetime, end: datetime) -> float:
+        """[start, end) 内挂在某类隐藏会话（如 workflow = 'chat'）上的调用花费。"""
+        return self._exec(
+            "SELECT COALESCE(SUM(c.cost_usd), 0) FROM calls c JOIN sessions s"
+            " ON s.id = c.session_id WHERE s.workflow = ? AND c.created_at >= ?"
+            " AND c.created_at < ?",
+            (workflow, iso(start), iso(end)),
+        ).fetchone()[0]
 
     def chat_messages(
         self, room: str, *, after: int = 0, limit: int = 200, query: str | None = None
@@ -1067,7 +1484,7 @@ class Repository:
         rows = self._exec(
             f"SELECT * FROM ({sql} ORDER BY id DESC LIMIT ?) ORDER BY id", (*params, limit)
         ).fetchall()
-        return [dict(r) for r in rows]
+        return [_chat_row(r) for r in rows]
 
     def clear_chat(self, room: str) -> int:
         """一键清空：删掉聊天记录，并抹掉对应调用里存的消息原文（花费记录保留，预算照算）。"""
@@ -1327,3 +1744,45 @@ def _checkpoint(row: sqlite3.Row) -> CheckpointView:
     return CheckpointView(
         row["id"], row["kind"], json.loads(row["card"]), row["status"], row["response"], row["note"]
     )
+
+
+def _chat_row(row: sqlite3.Row) -> dict[str, Any]:
+    out = dict(row)
+    out["meta"] = json.loads(out["meta"]) if out.get("meta") else {}
+    return out
+
+
+def _room_row(row: sqlite3.Row) -> dict[str, Any]:
+    keys = ("id", "kind", "title", "members", "with_user", "last_read", "created_at")
+    out = {k: row[k] for k in keys}
+    out["members"] = json.loads(out["members"] or "[]")
+    out["with_user"] = bool(out["with_user"])
+    return out
+
+
+def _memory_row(row: sqlite3.Row) -> dict[str, Any]:
+    out = dict(row)
+    out["offline"] = bool(out["offline"])
+    return out
+
+
+def _moment_row(row: sqlite3.Row) -> dict[str, Any]:
+    out = dict(row)
+    out["meta"] = json.loads(out["meta"]) if out["meta"] else None
+    out["offline"] = bool(out["offline"])
+    return out
+
+
+def _web_row(row: sqlite3.Row) -> dict[str, Any]:
+    out = dict(row)
+    out["topics"] = json.loads(out["topics"])
+    out["unverified"] = bool(out["unverified"])
+    return out
+
+
+def _life_row(row: sqlite3.Row) -> dict[str, Any]:
+    out = dict(row)
+    out["members"] = json.loads(out["members"])
+    out["written"] = bool(out["written"])
+    out["offline"] = bool(out["offline"])
+    return out

@@ -397,4 +397,133 @@ CREATE TABLE app_settings (
 );
 """,
     ),
+    (
+        15,
+        "聊天会话",
+        """
+-- 聊天会话：私聊、群聊（生活群、工作群）。chat_messages.room 对应这里的 id。
+-- kind：group 群 / work 工作群 / dm 私聊。
+-- members 为成员 id（厂商）的 JSON 数组，群的空数组表示全体成员。
+-- with_user：用户在不在这个会话里（成员之间的私聊为 0，用户只能旁观）。
+-- last_read：用户读到的最后一条消息 id（未读数 = 之后别人发的消息条数）。
+CREATE TABLE chat_rooms (
+    id          TEXT PRIMARY KEY,
+    kind        TEXT NOT NULL,
+    title       TEXT NOT NULL,
+    members     TEXT NOT NULL DEFAULT '[]',
+    with_user   INTEGER NOT NULL DEFAULT 1,
+    last_read   INTEGER NOT NULL DEFAULT 0,
+    created_at  TEXT NOT NULL
+);
+-- 消息的附加信息（JSON），如来源链接、「你不在时」标记、对应的办公室会话
+ALTER TABLE chat_messages ADD COLUMN meta TEXT;
+""",
+    ),
+    (
+        16,
+        "成员人设与记忆",
+        """
+-- 网页「成员设定」里改的人设（JSON，字段同 personas.yaml 的 Persona），优先于配置文件
+CREATE TABLE member_personas (
+    member      TEXT PRIMARY KEY,
+    persona     TEXT NOT NULL,
+    updated_at  TEXT NOT NULL
+);
+-- 成员的分层记忆，只存本地。layer：note 随手记 / day 日 / week 周 / month 月 / profile 长期档案；
+-- period：2026-10-23 / 2026-W43 / 2026-10，随手记和档案为空串。
+-- source：auto 自动整理 / user 用户写的（自动整理不会覆盖用户写的）。offline：用户不在时补算的。
+CREATE TABLE member_memories (
+    id          INTEGER PRIMARY KEY,
+    member      TEXT NOT NULL,
+    layer       TEXT NOT NULL,
+    period      TEXT NOT NULL DEFAULT '',
+    text        TEXT NOT NULL,
+    source      TEXT NOT NULL DEFAULT 'auto',
+    offline     INTEGER NOT NULL DEFAULT 0,
+    created_at  TEXT NOT NULL,
+    updated_at  TEXT NOT NULL
+);
+CREATE INDEX idx_member_memories ON member_memories(member, layer, period);
+""",
+    ),
+    (
+        17,
+        "成员生活事件",
+        """
+-- 生活引擎生成的事件（docs/CHAT.md G4）：作息、真实工作记录按规则 + 随机种子生成。
+-- kind：gather 几个人碰到一起 / pair 两人私聊 / solo 一个人的日常。members 为成员 id 的 JSON 数组。
+-- written：是否交给模型写成了聊天（没写的只作为一行记录，整理记忆时用）。
+-- offline：用户不在时（开机补算）生成的。
+CREATE TABLE life_events (
+    id          INTEGER PRIMARY KEY,
+    at          TEXT NOT NULL,
+    kind        TEXT NOT NULL,
+    place       TEXT NOT NULL DEFAULT '',
+    members     TEXT NOT NULL,
+    topic       TEXT NOT NULL DEFAULT '',
+    room        TEXT,
+    written     INTEGER NOT NULL DEFAULT 0,
+    offline     INTEGER NOT NULL DEFAULT 0,
+    created_at  TEXT NOT NULL
+);
+CREATE INDEX idx_life_events_at ON life_events(at);
+""",
+    ),
+    (
+        18,
+        "成员上网看到的内容",
+        """
+-- 生活引擎从公开订阅源（RSS / Atom）或联网搜索拿到的条目（docs/CHAT.md G7）。只存标题和摘要。
+-- feed：来源名称；topics：来源的话题标签（JSON 数组）；unverified：分享时标「未核实」。
+-- shared_by / shared_at：哪位成员在什么时候分享过（每条只分享一次）。
+CREATE TABLE web_items (
+    id          INTEGER PRIMARY KEY,
+    feed        TEXT NOT NULL,
+    url         TEXT NOT NULL UNIQUE,
+    title       TEXT NOT NULL,
+    summary     TEXT NOT NULL DEFAULT '',
+    published   TEXT,
+    topics      TEXT NOT NULL DEFAULT '[]',
+    unverified  INTEGER NOT NULL DEFAULT 1,
+    fetched_at  TEXT NOT NULL,
+    shared_by   TEXT,
+    shared_at   TEXT
+);
+CREATE INDEX idx_web_items_fetched ON web_items(fetched_at);
+""",
+    ),
+    (
+        19,
+        "朋友圈",
+        """
+-- 朋友圈（docs/CHAT.md G5）：成员和用户发的动态、点赞、评论。只存本地。
+-- author：成员 id 或 'user'；meta：JSON（生活事件 id、上网分享的来源等）；offline：用户不在时发的。
+CREATE TABLE moments (
+    id          INTEGER PRIMARY KEY,
+    author      TEXT NOT NULL,
+    text        TEXT NOT NULL,
+    meta        TEXT,
+    offline     INTEGER NOT NULL DEFAULT 0,
+    created_at  TEXT NOT NULL
+);
+CREATE INDEX idx_moments_author ON moments(author, id);
+CREATE TABLE moment_likes (
+    moment_id   INTEGER NOT NULL REFERENCES moments(id) ON DELETE CASCADE,
+    who         TEXT NOT NULL,
+    created_at  TEXT NOT NULL,
+    PRIMARY KEY (moment_id, who)
+);
+-- reply_to：回复的是哪条评论（为空时直接评论动态）
+CREATE TABLE moment_comments (
+    id          INTEGER PRIMARY KEY,
+    moment_id   INTEGER NOT NULL REFERENCES moments(id) ON DELETE CASCADE,
+    author      TEXT NOT NULL,
+    text        TEXT NOT NULL,
+    reply_to    INTEGER,
+    offline     INTEGER NOT NULL DEFAULT 0,
+    created_at  TEXT NOT NULL
+);
+CREATE INDEX idx_moment_comments ON moment_comments(moment_id, id);
+""",
+    ),
 ]

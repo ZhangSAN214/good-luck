@@ -73,6 +73,45 @@ class ChatBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     text: str
+    room: str = "main"
+
+
+class HandoffBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    text: str
+
+
+class PersonaBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    persona: dict[str, Any] | None = None  # None：恢复为配置文件里的
+
+
+class MomentBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    text: str
+
+
+class MomentCommentBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    text: str
+    reply_to: int | None = None
+
+
+class FeedsBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    feeds: list[dict[str, Any]] | None = None  # None：恢复为配置文件里的
+
+
+class MemoryBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    text: str
+    member: str | None = None  # 新建时必填
 
 
 class Respond(BaseModel):
@@ -117,6 +156,7 @@ def create_app(service: RoundtableService | None = None) -> FastAPI:
         from roundtable.core.runtime import Runtime
 
         app.state.service = RoundtableService(Runtime.build())
+        app.state.service.start_life()
         try:
             yield
         finally:
@@ -157,17 +197,103 @@ def create_app(service: RoundtableService | None = None) -> FastAPI:
     async def office_performance_reset(request: Request) -> dict[str, Any]:
         return svc(request).reset_performance()
 
+    @app.get("/api/chat/rooms")
+    async def chat_rooms(request: Request) -> dict[str, Any]:
+        return svc(request).chat_rooms()
+
     @app.get("/api/chat")
-    async def chat(request: Request, after: int = 0, q: str | None = None) -> dict[str, Any]:
-        return svc(request).chat_view(after, q)
+    async def chat(
+        request: Request, after: int = 0, q: str | None = None, room: str = "main"
+    ) -> dict[str, Any]:
+        return svc(request).chat_view(after, q, room)
 
     @app.post("/api/chat", status_code=202)
     async def chat_post(request: Request, body: ChatBody) -> dict[str, Any]:
-        return await svc(request).chat_post(body.text)
+        return await svc(request).chat_post(body.text, body.room)
+
+    @app.post("/api/chat/handoff", status_code=202)
+    async def chat_handoff(request: Request, body: HandoffBody) -> dict[str, Any]:
+        return svc(request).chat_handoff(body.text)
+
+    @app.get("/api/chat/personas")
+    async def chat_personas(request: Request) -> dict[str, Any]:
+        return svc(request).chat_personas()
+
+    @app.put("/api/chat/personas/{member}")
+    async def chat_set_persona(request: Request, member: str, body: PersonaBody) -> dict[str, Any]:
+        return svc(request).chat_set_persona(member, body.persona)
+
+    @app.get("/api/chat/memories")
+    async def chat_memories(request: Request, member: str | None = None) -> dict[str, Any]:
+        return svc(request).chat_memories(member)
+
+    @app.post("/api/chat/memories", status_code=201)
+    async def chat_add_memory(request: Request, body: MemoryBody) -> dict[str, Any]:
+        if not body.member:
+            raise ServiceError("要写明是哪位成员的记忆")
+        return svc(request).chat_add_memory(body.member, body.text)
+
+    @app.post("/api/chat/memories/tidy")
+    async def chat_tidy_memories(request: Request) -> dict[str, Any]:
+        return await svc(request).chat_tidy_memories()
+
+    @app.patch("/api/chat/memories/{memory_id}")
+    async def chat_update_memory(
+        request: Request, memory_id: int, body: MemoryBody
+    ) -> dict[str, Any]:
+        return svc(request).chat_update_memory(memory_id, body.text)
+
+    @app.delete("/api/chat/memories/{memory_id}")
+    async def chat_delete_memory(request: Request, memory_id: int) -> dict[str, Any]:
+        return svc(request).chat_delete_memory(memory_id)
+
+    @app.delete("/api/chat/memories")
+    async def chat_clear_memories(request: Request, member: str | None = None) -> dict[str, Any]:
+        return svc(request).chat_clear_memories(member)
+
+    @app.get("/api/moments")
+    async def moments(
+        request: Request, author: str | None = None, before: int | None = None
+    ) -> dict[str, Any]:
+        return svc(request).moments_view(author, before)
+
+    @app.post("/api/moments", status_code=201)
+    async def moments_post(request: Request, body: MomentBody) -> dict[str, Any]:
+        return await svc(request).moments_post(body.text)
+
+    @app.post("/api/moments/{moment_id}/like")
+    async def moments_like(request: Request, moment_id: int) -> dict[str, Any]:
+        return svc(request).moments_like(moment_id)
+
+    @app.post("/api/moments/{moment_id}/comments", status_code=201)
+    async def moments_comment(
+        request: Request, moment_id: int, body: MomentCommentBody
+    ) -> dict[str, Any]:
+        return await svc(request).moments_comment(moment_id, body.text, body.reply_to)
+
+    @app.delete("/api/moments/{moment_id}")
+    async def moments_delete(request: Request, moment_id: int) -> dict[str, Any]:
+        return svc(request).moments_delete(moment_id)
+
+    @app.delete("/api/moments/comments/{comment_id}")
+    async def moments_delete_comment(request: Request, comment_id: int) -> dict[str, Any]:
+        return svc(request).moments_delete_comment(comment_id)
+
+    @app.get("/api/chat/feeds")
+    async def chat_feeds(request: Request) -> dict[str, Any]:
+        return svc(request).chat_feeds()
+
+    @app.put("/api/chat/feeds")
+    async def chat_set_feeds(request: Request, body: FeedsBody) -> dict[str, Any]:
+        return svc(request).chat_set_feeds(body.feeds)
+
+    @app.post("/api/chat/feeds/refresh")
+    async def chat_refresh_feeds(request: Request) -> dict[str, Any]:
+        return await svc(request).chat_refresh_feeds()
 
     @app.delete("/api/chat")
-    async def chat_clear(request: Request) -> dict[str, Any]:
-        return svc(request).chat_clear()
+    async def chat_clear(request: Request, room: str = "main") -> dict[str, Any]:
+        return svc(request).chat_clear(room)
 
     @app.get("/api/apartment")
     async def apartment(request: Request, hour: int, weekday: int) -> dict[str, Any]:
