@@ -12,10 +12,10 @@ from roundtable.core.service import RoundtableService
 from ..core.orchestrator.conftest import Env
 
 
-def wait_for(c, after, n, timeout=5.0):
+def wait_for(c, after, n, timeout=5.0, room="main"):
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        data = c.get("/api/chat", params={"after": after}).json()
+        data = c.get("/api/chat", params={"after": after, "room": room}).json()
         if len(data["messages"]) >= n and not data["typing"]:
             return data
         time.sleep(0.02)
@@ -46,3 +46,42 @@ def test_chat_round_trip():
         # 一键清空
         assert c.delete("/api/chat").json() == {"deleted": 2}
         assert c.get("/api/chat").json()["messages"] == []
+
+
+def test_rooms_dm_and_unread():
+    env = Env()
+    with TestClient(create_app(RoundtableService(env.rt))) as c:
+        data = c.get("/api/chat/rooms").json()
+        ids = [r["id"] for r in data["rooms"]]
+        assert ids[:2] == ["main", "work"] and "dm:V1" in ids
+        assert data["budget"] == {"spent_usd": 0, "limit_usd": 5.0}
+        # 私聊：只有对方回应
+        r = c.post("/api/chat", json={"text": "大家好", "room": "dm:V1"})
+        assert r.status_code == 202 and r.json()["speakers"] == ["阿一"]
+        # 还没打开私聊时，回应算未读
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            rooms = {x["id"]: x for x in c.get("/api/chat/rooms").json()["rooms"]}
+            if rooms["dm:V1"]["unread"] == 1:
+                break
+            time.sleep(0.02)
+        assert rooms["dm:V1"]["unread"] == 1 and rooms["dm:V1"]["last"]["name"] == "阿一"
+        view = wait_for(c, 0, 2, room="dm:V1")
+        assert view["room"] == {"id": "dm:V1", "kind": "dm", "title": "阿一"}
+        assert [m["id"] for m in view["members"]] == ["V1"]
+        # 打开（拉取）之后已读
+        rooms = {x["id"]: x for x in c.get("/api/chat/rooms").json()["rooms"]}
+        assert rooms["dm:V1"]["unread"] == 0
+        assert c.get("/api/chat/rooms").json()["budget"]["spent_usd"] > 0
+        # 群里没有私聊的消息
+        assert c.get("/api/chat").json()["messages"] == []
+        # 清空只清这个会话
+        assert c.delete("/api/chat", params={"room": "dm:V1"}).json() == {"deleted": 2}
+
+
+def test_unknown_room_is_404():
+    env = Env()
+    with TestClient(create_app(RoundtableService(env.rt))) as c:
+        assert c.get("/api/chat", params={"room": "nope"}).status_code == 404
+        assert c.post("/api/chat", json={"text": "hi", "room": "dm:X"}).status_code == 404
+        assert c.delete("/api/chat", params={"room": "nope"}).status_code == 404

@@ -675,9 +675,18 @@ class OfficeRules(_Strict):
     manager_strategy: Literal["rotate"] = "rotate"
 
 
-class ChatRules(_Strict):
-    """群聊：像微信群一样聊天。成员不主动发消息，只回应用户。"""
+class ChatBudgetRules(_Strict):
+    """聊天这一块（私聊、群聊，以后的生活与上网）每月最多花多少（UTC 自然月）；也计入总预算。"""
 
+    monthly_usd: float = Field(default=5.0, gt=0)
+
+
+class ChatRules(_Strict):
+    """聊天：生活群、工作群、私聊。成员不主动找用户，只回应用户。"""
+
+    life_title: str = "大家庭"  # 生活群的名字
+    work_title: str = "工作群"
+    budget: ChatBudgetRules = ChatBudgetRules()
     tier: Tier = "budget"  # 每位成员用这个档位的模型发言（没有就用该成员最便宜的）
     max_repliers: int = Field(default=2, ge=1, le=6)  # 没有 @ 人时，一条消息最多几位回应
     max_mentioned: int = Field(default=8, ge=1, le=12)  # @全员 / 所有人 / @多人 时最多几位回应

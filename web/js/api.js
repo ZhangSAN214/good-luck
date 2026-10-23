@@ -60,9 +60,11 @@ export const listSessions = () => api('/api/sessions?limit=50');
 export const getContributions = () => api('/api/contributions');
 export const getOffice = () => api('/api/office');
 export const resetPerformance = () => api('/api/office/performance/reset', { method: 'POST' });
-export const getChat = (after = 0, q = '') => api(`/api/chat?after=${after}${q ? `&q=${encodeURIComponent(q)}` : ''}`);
-export const postChat = (text) => api('/api/chat', { method: 'POST', body: { text } });
-export const clearChat = () => api('/api/chat', { method: 'DELETE' });
+export const getChat = (after = 0, q = '', room = 'main') =>
+  api(`/api/chat?room=${encodeURIComponent(room)}&after=${after}${q ? `&q=${encodeURIComponent(q)}` : ''}`);
+export const postChat = (text, room = 'main') => api('/api/chat', { method: 'POST', body: { text, room } });
+export const clearChat = (room = 'main') => api(`/api/chat?room=${encodeURIComponent(room)}`, { method: 'DELETE' });
+export const getChatRooms = () => api('/api/chat/rooms');
 export const getApartment = (hour, weekday) => api(`/api/apartment?hour=${hour}&weekday=${weekday}`);
 export const getCandidates = () => api('/api/models/candidates');
 export const refreshCandidates = () => api('/api/models/candidates/refresh', { method: 'POST' });

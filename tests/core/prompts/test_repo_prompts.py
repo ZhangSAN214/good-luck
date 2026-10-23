@@ -134,7 +134,7 @@ ATTACHMENT_ROLES = (
 )
 
 # 群聊：外部内容是聊天记录，放在 <chat> 标签里
-CHAT_ROLES = ("chat",)
+CHAT_ROLES = ("chat", "chat_dm", "chat_work")
 
 
 @pytest.mark.parametrize(

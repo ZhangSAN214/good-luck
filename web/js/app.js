@@ -76,7 +76,7 @@ function freshLive() {
 
 // 网页小人：匿名且未揭晓的会话里不出现（启动时先不显示，确定当前会话后再决定）
 const pet = new Pet({ labels: STEP_LABELS, goto: gotoDiscussion });
-const gchat = new GroupChat($('#gchat'), { api: { get: API.getChat, post: API.postChat, clear: API.clearChat } });
+const gchat = new GroupChat($('#gchat'), { api: { get: API.getChat, post: API.postChat, clear: API.clearChat, rooms: API.getChatRooms } });
 const home = new Apartment($('#home'), {
   api: API.getApartment,
   openSession: async (sid) => {
@@ -85,7 +85,11 @@ const home = new Apartment($('#home'), {
   },
   chatWith: (name) => {
     setEntry('chat');
-    gchat.insertMention(name);
+    gchat.mentionInGroup(name);
+  },
+  dmWith: (id) => {
+    setEntry('chat');
+    gchat.openRoom(`dm:${id}`);
   },
 });
 // 点气泡 / 菜单「跳到讨论」：滚到最新的讨论内容

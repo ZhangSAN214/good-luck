@@ -73,6 +73,7 @@ class ChatBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     text: str
+    room: str = "main"
 
 
 class Respond(BaseModel):
@@ -157,17 +158,23 @@ def create_app(service: RoundtableService | None = None) -> FastAPI:
     async def office_performance_reset(request: Request) -> dict[str, Any]:
         return svc(request).reset_performance()
 
+    @app.get("/api/chat/rooms")
+    async def chat_rooms(request: Request) -> dict[str, Any]:
+        return svc(request).chat_rooms()
+
     @app.get("/api/chat")
-    async def chat(request: Request, after: int = 0, q: str | None = None) -> dict[str, Any]:
-        return svc(request).chat_view(after, q)
+    async def chat(
+        request: Request, after: int = 0, q: str | None = None, room: str = "main"
+    ) -> dict[str, Any]:
+        return svc(request).chat_view(after, q, room)
 
     @app.post("/api/chat", status_code=202)
     async def chat_post(request: Request, body: ChatBody) -> dict[str, Any]:
-        return await svc(request).chat_post(body.text)
+        return await svc(request).chat_post(body.text, body.room)
 
     @app.delete("/api/chat")
-    async def chat_clear(request: Request) -> dict[str, Any]:
-        return svc(request).chat_clear()
+    async def chat_clear(request: Request, room: str = "main") -> dict[str, Any]:
+        return svc(request).chat_clear(room)
 
     @app.get("/api/apartment")
     async def apartment(request: Request, hour: int, weekday: int) -> dict[str, Any]:

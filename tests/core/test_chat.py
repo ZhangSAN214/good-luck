@@ -1,11 +1,22 @@
-"""群聊：谁来回应、@ 人、调用记账、预算、掉线、一键清空。"""
+"""聊天：谁来回应、@ 人、调用记账、预算、掉线、一键清空；多个会话（生活群、工作群、私聊）。"""
 
 from __future__ import annotations
 
 import random
 from types import SimpleNamespace
 
-from roundtable.core.chat import GroupChat, chat_members, clean_reply, mentioned
+import pytest
+
+from roundtable.core.chat import (
+    ChatHub,
+    GroupChat,
+    chat_budget,
+    chat_members,
+    clean_reply,
+    dm_room,
+    mentioned,
+)
+from roundtable.core.config.schema import ChatBudgetRules
 from roundtable.core.providers import ErrorKind
 
 from .orchestrator.conftest import Env
@@ -162,3 +173,109 @@ def test_members_without_nickname_use_the_art_name_then_the_vendor():
     # GroupChat 每次取成员时都问一次称呼来源
     gc = GroupChat(env.rt, names=lambda: {"v1": "别名"})
     assert {m.id: m.name for m in gc.members()}["V1"] == "阿一"
+
+
+def test_default_rooms_and_dm_list():
+    env = Env()
+    hub = ChatHub(env.rt)
+    rooms = hub.rooms()
+    assert [(r["id"], r["kind"], r["title"]) for r in rooms[:2]] == [
+        ("main", "group", "大家庭"),
+        ("work", "work", "工作群"),
+    ]
+    # 每位成员都有一个私聊入口（还没聊过的也列出），标题是昵称
+    dms = [r for r in rooms if r["kind"] == "dm"]
+    assert [r["id"] for r in dms] == [dm_room(m.id) for m in hub.everyone()]
+    assert dms[0]["title"] == "阿一" and dms[0]["unread"] == 0 and dms[0]["last"] is None
+
+
+def test_unknown_rooms_are_rejected():
+    env = Env()
+    hub = ChatHub(env.rt)
+    with pytest.raises(KeyError):
+        hub.room("nope")
+    with pytest.raises(KeyError):
+        hub.room(dm_room("没有这个人"))
+
+
+async def test_dm_only_the_member_replies_with_the_dm_prompt():
+    env = Env()
+    hub = ChatHub(env.rt, rng=random.Random(0))
+    dm = hub.room(dm_room("V2"))
+    assert dm.kind == "dm" and [m.id for m in dm.members()] == ["V2"]
+    # 写「大家」或 @ 别人，私聊里也只有对方回应
+    for text in ("大家好", "@阿一 在吗", "@全员 早"):
+        assert [m.id for m in dm.pick(text)] == ["V2"]
+    msg, speakers = dm.post("最近怎么样")
+    out = await dm.replies(msg["id"], speakers)
+    assert [m["author"] for m in out] == ["V2"]
+    system = env.fake.calls[-1].messages[0].content
+    assert "私聊" in system and "阿二" in system
+    # 调用挂在私聊自己的隐藏会话上，计入聊天预算；不进历史列表
+    session = env.rt.repo.chat_session(dm_room("V2"))
+    rows = env.rt.repo.conn.execute(
+        "SELECT step FROM calls WHERE session_id = ?", (session,)
+    ).fetchall()
+    assert [r[0] for r in rows] == ["chat"]
+    assert all(s.id != session for s in env.rt.repo.list_sessions())
+    # 私聊的消息不会出现在群里
+    assert [r["text"] for r in env.rt.repo.chat_messages("main")] == []
+
+
+async def test_work_group_uses_its_own_prompt():
+    env = Env()
+    work = ChatHub(env.rt).room("work")
+    msg, _ = work.post("@阿三 进度怎么样")
+    await work.replies(msg["id"], work.pick("@阿三 进度怎么样"))
+    system = env.fake.calls[-1].messages[0].content
+    assert "工作群聊" in system and "交给办公室" in system
+
+
+async def test_unread_counts_and_last_message():
+    env = Env()
+    hub = ChatHub(env.rt)
+    repo = env.rt.repo
+    repo.add_chat_message("main", "user", "我说一句")
+    a = repo.add_chat_message("main", "V1", "回你一句")
+    repo.add_chat_message("main", "system", "系统消息不算未读")
+    main = next(r for r in hub.rooms() if r["id"] == "main")
+    assert main["unread"] == 1
+    assert main["last"]["name"] == "系统" and main["last"]["text"] == "系统消息不算未读"
+    repo.mark_chat_read("main", a["id"])
+    assert next(r for r in hub.rooms() if r["id"] == "main")["unread"] == 0
+
+
+async def test_monthly_chat_budget_stops_replies():
+    env = Env()
+    hub = ChatHub(env.rt)
+    dm = hub.room(dm_room("V1"))
+    msg, speakers = dm.post("你好")
+    await dm.replies(msg["id"], speakers)
+    assert chat_budget(env.rt).spent_usd > 0  # 私聊的花费计入聊天预算
+
+    # 上限比一条回应的预估还低：不再调用，在会话里说明
+    rules = env.config.roundtable.chat
+    tight = rules.model_copy(update={"budget": ChatBudgetRules(monthly_usd=0.001)})
+    env = Env(rt_update={"chat": tight})
+    dm = ChatHub(env.rt).room(dm_room("V1"))
+    msg, speakers = dm.post("还在吗")
+    assert await dm.replies(msg["id"], speakers) == []
+    assert not env.fake.calls
+    last = env.rt.repo.chat_messages(dm_room("V1"))[-1]
+    assert last["author"] == "system" and "本月聊天预算（$0.00）" in last["text"]
+
+
+def test_chat_budget_only_counts_chat_sessions():
+    env = Env()
+    repo = env.rt.repo
+    hub = ChatHub(env.rt)
+    hub.room("main")
+    assert chat_budget(env.rt).spent_usd == 0
+    assert chat_budget(env.rt).limit_usd == 5.0
+    assert repo.spent_in_workflow("discussion", *_month(env)) == 0
+
+
+def _month(env):
+    from roundtable.core.budget.guard import month_window
+
+    return month_window(env.rt.budget.now())

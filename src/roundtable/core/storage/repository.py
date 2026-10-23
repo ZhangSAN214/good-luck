@@ -1046,14 +1046,80 @@ class Repository:
         model_id: str | None = None,
         reply_to: int | None = None,
         cost_usd: float = 0.0,
+        meta: dict[str, Any] | None = None,
+        created_at: str | None = None,
     ) -> dict[str, Any]:
+        """created_at 为空时用当前时间（补算「你不在时」的消息时按事件时刻写入）。"""
         cur = self._exec(
             "INSERT INTO chat_messages (room, author, model_id, text, reply_to, cost_usd,"
-            " created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (room, author, model_id, text, reply_to, cost_usd, self.clock()),
+            " meta, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                room,
+                author,
+                model_id,
+                text,
+                reply_to,
+                cost_usd,
+                json.dumps(meta, ensure_ascii=False) if meta else None,
+                created_at or self.clock(),
+            ),
         )
         row = self._exec("SELECT * FROM chat_messages WHERE id = ?", (cur.lastrowid,)).fetchone()
-        return dict(row)
+        return _chat_row(row)
+
+    def ensure_chat_room(
+        self,
+        room: str,
+        *,
+        kind: str,
+        title: str,
+        members: Sequence[str] = (),
+        with_user: bool = True,
+    ) -> dict[str, Any]:
+        """没有就建；已有的不改（标题等以第一次建立时为准）。"""
+        self._exec(
+            "INSERT OR IGNORE INTO chat_rooms (id, kind, title, members, with_user, created_at)"
+            " VALUES (?, ?, ?, ?, ?, ?)",
+            (room, kind, title, json.dumps(list(members)), int(with_user), self.clock()),
+        )
+        return self.chat_room(room) or {}
+
+    def chat_room(self, room: str) -> dict[str, Any] | None:
+        row = self._exec("SELECT * FROM chat_rooms WHERE id = ?", (room,)).fetchone()
+        return _room_row(row) if row else None
+
+    def chat_rooms(self) -> list[dict[str, Any]]:
+        """全部会话，带未读数（last_read 之后别人发的消息）和最后一条消息。"""
+        rows = self._exec(
+            "SELECT r.*,"
+            " (SELECT COUNT(*) FROM chat_messages m WHERE m.room = r.id AND m.id > r.last_read"
+            "  AND m.author NOT IN ('user', 'system')) AS unread,"
+            " (SELECT MAX(id) FROM chat_messages m WHERE m.room = r.id) AS last_id"
+            " FROM chat_rooms r ORDER BY r.created_at, r.id"
+        ).fetchall()
+        out = []
+        for r in rows:
+            room = _room_row(r)
+            room["unread"] = r["unread"]
+            last = None
+            if r["last_id"]:
+                row = self._exec("SELECT * FROM chat_messages WHERE id = ?", (r["last_id"],))
+                last = _chat_row(row.fetchone())
+            room["last"] = last
+            out.append(room)
+        return out
+
+    def mark_chat_read(self, room: str, upto: int) -> None:
+        self._exec("UPDATE chat_rooms SET last_read = MAX(last_read, ?) WHERE id = ?", (upto, room))
+
+    def spent_in_workflow(self, workflow: str, start: datetime, end: datetime) -> float:
+        """[start, end) 内挂在某类隐藏会话（如 workflow = 'chat'）上的调用花费。"""
+        return self._exec(
+            "SELECT COALESCE(SUM(c.cost_usd), 0) FROM calls c JOIN sessions s"
+            " ON s.id = c.session_id WHERE s.workflow = ? AND c.created_at >= ?"
+            " AND c.created_at < ?",
+            (workflow, iso(start), iso(end)),
+        ).fetchone()[0]
 
     def chat_messages(
         self, room: str, *, after: int = 0, limit: int = 200, query: str | None = None
@@ -1067,7 +1133,7 @@ class Repository:
         rows = self._exec(
             f"SELECT * FROM ({sql} ORDER BY id DESC LIMIT ?) ORDER BY id", (*params, limit)
         ).fetchall()
-        return [dict(r) for r in rows]
+        return [_chat_row(r) for r in rows]
 
     def clear_chat(self, room: str) -> int:
         """一键清空：删掉聊天记录，并抹掉对应调用里存的消息原文（花费记录保留，预算照算）。"""
@@ -1327,3 +1393,17 @@ def _checkpoint(row: sqlite3.Row) -> CheckpointView:
     return CheckpointView(
         row["id"], row["kind"], json.loads(row["card"]), row["status"], row["response"], row["note"]
     )
+
+
+def _chat_row(row: sqlite3.Row) -> dict[str, Any]:
+    out = dict(row)
+    out["meta"] = json.loads(out["meta"]) if out.get("meta") else {}
+    return out
+
+
+def _room_row(row: sqlite3.Row) -> dict[str, Any]:
+    keys = ("id", "kind", "title", "members", "with_user", "last_read", "created_at")
+    out = {k: row[k] for k in keys}
+    out["members"] = json.loads(out["members"] or "[]")
+    out["with_user"] = bool(out["with_user"])
+    return out

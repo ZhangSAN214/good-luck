@@ -21,7 +21,7 @@ from roundtable.core.allocation import coordinator_name, display_name
 from roundtable.core.attachments import Attachment, UploadError, ingest
 from roundtable.core.attachments.detect import TYPES as UPLOAD_TYPES
 from roundtable.core.budget.guard import month_window
-from roundtable.core.chat import GroupChat
+from roundtable.core.chat import ROOM, ChatHub, chat_budget
 from roundtable.core.media import KIND_LABELS, KINDS, MediaService
 from roundtable.core.members_art import MEMBERS_FILE, load_members, mime_of, resolve_file
 from roundtable.core.notes import NoteError, check_can_add, clean_note
@@ -81,7 +81,7 @@ class RoundtableService:
         self._subscribers: dict[str, set[asyncio.Queue[dict[str, Any]]]] = {}
         self._tasks: dict[str, asyncio.Task[None]] = {}
         self._art_names_cache: tuple[int | None, dict[str, str]] | None = None
-        self.chat = GroupChat(runtime, names=self._art_names)
+        self.chats = ChatHub(runtime, names=self._art_names)
         self._chat_tasks: set[asyncio.Task[Any]] = set()
 
     async def aclose(self) -> None:
@@ -349,13 +349,38 @@ class RoundtableService:
 
     # --- 群聊 ----------------------------------------------------------------------
 
-    def chat_view(self, after: int = 0, query: str | None = None) -> dict[str, Any]:
-        """群成员、消息（id 大于 after 的；有 query 时为搜索结果）与正在输入的成员。"""
-        members = self.chat.members()
-        names = {m.id: m.name for m in members} | {"user": "我", "system": "系统"}
-        rows = self.rt.repo.chat_messages(self.chat.room, after=after, query=query or None)
+    def _chat_room(self, room: str) -> Any:
+        try:
+            return self.chats.room(room or ROOM)
+        except KeyError:
+            raise ServiceError(f"没有这个聊天：{room}", 404) from None
+
+    def chat_rooms(self) -> dict[str, Any]:
+        """会话列表（群、私聊，带未读数和最后一条消息）与聊天本月预算。"""
+        budget = chat_budget(self.rt)
         return {
-            "members": [asdict(m) for m in members],
+            "rooms": self.chats.rooms(),
+            "members": [asdict(m) for m in self.chats.everyone()],
+            "typing": self.chats.typing(),
+            "budget": {"spent_usd": budget.spent_usd, "limit_usd": budget.limit_usd},
+        }
+
+    def chat_view(
+        self, after: int = 0, query: str | None = None, room: str = ROOM
+    ) -> dict[str, Any]:
+        """会话成员、消息（id 大于 after 的；有 query 时为搜索结果）与正在输入的成员。
+
+        不是搜索时把会话标为已读。
+        """
+        chat = self._chat_room(room)
+        everyone = chat.everyone()
+        names = {m.id: m.name for m in everyone} | {"user": "我", "system": "系统"}
+        rows = self.rt.repo.chat_messages(chat.room, after=after, query=query or None)
+        if rows and not query:
+            self.rt.repo.mark_chat_read(chat.room, rows[-1]["id"])
+        return {
+            "room": {"id": chat.room, "kind": chat.kind, "title": chat.title},
+            "members": [asdict(m) for m in chat.members()],
             "messages": [
                 {
                     "id": r["id"],
@@ -364,30 +389,34 @@ class RoundtableService:
                     "text": r["text"],
                     "reply_to": r["reply_to"],
                     "cost_usd": r["cost_usd"],
+                    "meta": r["meta"],
                     "created_at": r["created_at"],
                 }
                 for r in rows
             ],
-            "typing": list(self.chat.typing),
+            "typing": list(chat.typing),
         }
 
-    async def chat_post(self, text: str) -> dict[str, Any]:
+    async def chat_post(self, text: str, room: str = ROOM) -> dict[str, Any]:
         """用户发一条消息；被选中的成员在后台依次回应（前端轮询 chat_view 拿到）。"""
+        chat = self._chat_room(room)
         text = (text or "").strip()
         if not text:
             raise ServiceError("消息不能为空")
         if len(text) > MAX_CHAT_CHARS:
             raise ServiceError(f"消息太长（最多 {MAX_CHAT_CHARS} 字）")
-        msg, speakers = self.chat.post(text)
+        msg, speakers = chat.post(text)
+        self.rt.repo.mark_chat_read(chat.room, msg["id"])
         if speakers:
-            task = asyncio.get_running_loop().create_task(self.chat.replies(msg["id"], speakers))
+            task = asyncio.get_running_loop().create_task(chat.replies(msg["id"], speakers))
             self._chat_tasks.add(task)
             task.add_done_callback(self._chat_tasks.discard)
         return {"id": msg["id"], "speakers": [m.name for m in speakers]}
 
-    def chat_clear(self) -> dict[str, Any]:
-        """一键清空聊天记录（花费记录保留，预算照算）。"""
-        return {"deleted": self.rt.repo.clear_chat(self.chat.room)}
+    def chat_clear(self, room: str = ROOM) -> dict[str, Any]:
+        """一键清空这个会话的聊天记录（花费记录保留，预算照算）。"""
+        chat = self._chat_room(room)
+        return {"deleted": self.rt.repo.clear_chat(chat.room)}
 
     def payslip(self, session_id: str) -> dict[str, Any]:
         """一件事的工资单：每位组员 / 统筹各领多少，外包（搜索、媒体、规划员等）另列。

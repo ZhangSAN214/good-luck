@@ -111,12 +111,13 @@ export function whereText(r, dormName) {
 }
 
 export class Apartment {
-  constructor(root, { api, now = () => new Date(), openSession = null, chatWith = null } = {}) {
+  constructor(root, { api, now = () => new Date(), openSession = null, chatWith = null, dmWith = null } = {}) {
     this.root = root;
     this.api = api;
     this.now = now;
     this.openSession = openSession;
     this.chatWith = chatWith;
+    this.dmWith = dmWith;
     this.art = null;
     this.data = null;
     this.selected = null;
@@ -236,6 +237,7 @@ export class Apartment {
       h += `<p>${esc(whereText(sel, dorms[sel.dorm]))}</p>`;
       h += `<p class="hint">本月工资 $${Number(sel.month_paid_usd || 0).toFixed(4)} · ${sel.model_ids.length} 种工作模式</p>`;
       if (sel.session_id) h += `<button type="button" class="btn" data-open="${esc(sel.session_id)}">去看 TA 在办的事</button> `;
+      if (this.dmWith) h += `<button type="button" class="btn" data-dm="${esc(sel.id)}">私聊</button> `;
       if (this.chatWith) h += `<button type="button" class="btn" data-chat="${esc(sel.name)}">在群聊里 @ TA</button>`;
       h += '</div>';
     }
@@ -277,6 +279,8 @@ export class Apartment {
   onClick(e) {
     const open = e.target.closest('[data-open]');
     if (open && this.openSession) return this.openSession(open.dataset.open);
+    const dm = e.target.closest('[data-dm]');
+    if (dm && this.dmWith) return this.dmWith(dm.dataset.dm);
     const talk = e.target.closest('[data-chat]');
     if (talk && this.chatWith) return this.chatWith(talk.dataset.chat);
     const r = e.target.closest('[data-r]');

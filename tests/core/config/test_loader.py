@@ -72,6 +72,8 @@ def test_repo_config_loads_with_defaults():
         "office_handle",
         "office_check",
         "chat",
+        "chat_dm",
+        "chat_work",
         "office_fix",
         "office_speak",
         "office_decide",

@@ -1,5 +1,6 @@
-// 群聊：像微信群一样和成员聊天。成员只回应你，不主动发消息；@昵称 指定谁回应，@全员 大家都说。
-// 发出后成员在后台依次回应，这里轮询 /api/chat?after=… 拿新消息和「正在输入」。
+// 聊天：像微信一样和成员聊天。左边是会话列表（生活群、工作群、每位成员的私聊，带未读数）。
+// 成员只回应你，不主动找你；群里 @昵称 指定谁回应，@全员 大家都说；私聊里只有对方回应。
+// 发出后成员在后台依次回应，这里轮询 /api/chat?room=…&after=… 拿新消息和「正在输入」，并刷新会话列表。
 // 键盘：Enter 发送、Shift+Enter 换行（输入法选字时不发送）；输入 @ 弹出成员候选，↑↓ 选择、Enter / Tab 确认、Esc 关闭。
 
 const esc = (s) =>
@@ -9,6 +10,24 @@ const FAST_MS = 900; // 有人正在输入或刚发出消息时
 const SLOW_MS = 8000;
 const FAST_FOR_MS = 25_000; // 发出消息后这么久内保持快速轮询
 const EVERYONE = '全员';
+const ROOM_KEY = 'roundtable.chat.room';
+
+const storage = {
+  get() {
+    try {
+      return localStorage.getItem(ROOM_KEY) || 'main';
+    } catch {
+      return 'main';
+    }
+  },
+  set(v) {
+    try {
+      localStorage.setItem(ROOM_KEY, v);
+    } catch {
+      /* 存不了就算了 */
+    }
+  },
+};
 
 export const composing = (e) => e.isComposing || e.keyCode === 229;
 
@@ -21,9 +40,13 @@ export function atQuery(text, caret) {
 export class GroupChat {
   constructor(root, { api, now = () => Date.now() } = {}) {
     this.root = root;
-    this.api = api; // {get(after, q), post(text), clear()}
+    this.api = api; // {get(after, q, room), post(text, room), clear(room), rooms()}
     this.now = now;
     this.art = null;
+    this.room = storage.get();
+    this.roomInfo = null; // {id, kind, title}
+    this.rooms = [];
+    this.budget = null;
     this.members = [];
     this.messages = [];
     this.typing = [];
@@ -68,21 +91,27 @@ export class GroupChat {
   build() {
     this.built = true;
     this.root.innerHTML = `
-      <aside class="gc-members" aria-label="群成员"><h3>成员 <span id="gc-online"></span></h3><ul id="gc-members"></ul>
-        <p class="hint">成员都是 AI，只在你发言后回应。点名字可以 @ 对方；写「大家」或「所有人」时每位在线成员都会回。</p></aside>
-      <section class="gc-main" aria-label="群聊">
+      <nav class="gc-rooms" aria-label="会话"><div id="gc-rooms"></div>
+        <p class="hint" id="gc-budget"></p></nav>
+      <section class="gc-main" aria-label="聊天">
         <header class="gc-head"><b id="gc-title">大家庭</b><span class="gc-count" id="gc-count"></span>
           <form id="gc-search" role="search"><input type="search" id="gc-q" placeholder="搜索聊天记录" aria-label="搜索聊天记录"></form>
-          <button type="button" class="btn" id="gc-clear" title="删除全部聊天记录（花费记录保留）">清空记录</button></header>
+          <button type="button" class="btn" id="gc-clear" title="删除这个会话的全部聊天记录（花费记录保留）">清空记录</button></header>
         <div class="gc-feed" id="gc-feed" aria-live="polite"></div>
         <div class="gc-typing" id="gc-typing" hidden></div>
         <form class="gc-compose" id="gc-compose" autocomplete="off">
           <div class="gc-suggest" id="gc-suggest" role="listbox" hidden></div>
-          <textarea id="chat-input" rows="2" maxlength="2000" placeholder="说点什么：Enter 发送，Shift+Enter 换行；输入 @ 点名" aria-label="群聊消息"></textarea>
+          <textarea id="chat-input" rows="2" maxlength="2000" placeholder="说点什么：Enter 发送，Shift+Enter 换行；输入 @ 点名" aria-label="聊天消息"></textarea>
           <button class="btn primary" type="submit" id="gc-send">发送</button>
         </form>
         <p class="hint gc-err" id="gc-err" role="alert" hidden></p>
-      </section>`;
+      </section>
+      <aside class="gc-members" id="gc-aside" aria-label="群成员"><h3>成员 <span id="gc-online"></span></h3><ul id="gc-members"></ul>
+        <p class="hint">成员都是 AI，只在你发言后回应。点名字可以 @ 对方；写「大家」或「所有人」时每位在线成员都会回。</p></aside>`;
+    this.$('#gc-rooms').addEventListener('click', (e) => {
+      const b = e.target.closest('[data-room]');
+      if (b) this.openRoom(b.dataset.room);
+    });
     this.$('#gc-compose').addEventListener('submit', (e) => {
       e.preventDefault();
       this.send();
@@ -129,7 +158,19 @@ export class GroupChat {
 
   async poll() {
     try {
-      const data = await this.api.get(this.lastId);
+      const room = this.room;
+      const [data, rooms] = await Promise.all([this.api.get(this.lastId, '', room), this.api.rooms ? this.api.rooms() : null]);
+      if (room !== this.room) throw new Error(''); // 拉取期间换了会话：丢掉这次结果
+      if (rooms) {
+        this.rooms = rooms.rooms || [];
+        this.everyone = rooms.members || [];
+        this.budget = rooms.budget || null;
+        this.renderRooms();
+      }
+      if (data.room && (!this.roomInfo || this.roomInfo.id !== data.room.id)) {
+        this.roomInfo = data.room;
+        this.renderHead();
+      }
       this.error = '';
       const roster = JSON.stringify(data.members || []);
       const newMembers = roster !== this.roster;
@@ -149,10 +190,31 @@ export class GroupChat {
       this.typing = data.typing || [];
       if (changed) this.renderAll();
     } catch (e) {
-      this.error = e.message || '连接失败';
-      this.renderError();
+      if (e.message) {
+        this.error = e.message;
+        this.renderError();
+      }
     }
     this.schedule();
+  }
+
+  /** 换到另一个会话（群或私聊）：清掉当前消息，从头拉取。 */
+  async openRoom(id) {
+    if (!id || id === this.room) return;
+    this.room = id;
+    storage.set(id);
+    this.roomInfo = this.rooms.find((r) => r.id === id) || { id, kind: id.startsWith('dm:') ? 'dm' : 'group', title: '' };
+    this.messages = [];
+    this.lastId = 0;
+    this.search = null;
+    this.pending = [];
+    this.typing = [];
+    this.$('#gc-q').value = '';
+    this.closeSuggest();
+    this.renderAll();
+    clearTimeout(this.timer);
+    await this.poll();
+    this.$('#chat-input').focus({ preventScroll: true });
   }
 
   async send() {
@@ -162,7 +224,7 @@ export class GroupChat {
     this.sending = true;
     this.$('#gc-send').disabled = true;
     try {
-      const res = await this.api.post(text);
+      const res = await this.api.post(text, this.room);
       // 排队等着回应的人：收到 TA 的消息（或系统说明 TA 为什么没回）后划掉
       this.pending = [...(this.pending || []), ...((res && res.speakers) || [])];
       input.value = '';
@@ -185,7 +247,7 @@ export class GroupChat {
       return;
     }
     try {
-      const data = await this.api.get(0, q);
+      const data = await this.api.get(0, q, this.room);
       this.search = { q, results: data.messages || [] };
     } catch (e) {
       this.error = e.message || '搜索失败';
@@ -213,7 +275,7 @@ export class GroupChat {
     b.textContent = '清空记录';
     b.classList.remove('gold');
     try {
-      await this.api.clear();
+      await this.api.clear(this.room);
       this.messages = [];
       this.search = null;
       this.renderFeed();
@@ -226,6 +288,7 @@ export class GroupChat {
   // --- @ 候选 ----------------------------------------------------------------
 
   names() {
+    if (this.isDm()) return [];
     return [...this.members.filter((m) => m.available).map((m) => m.name), EVERYONE];
   }
 
@@ -267,6 +330,12 @@ export class GroupChat {
     input.setSelectionRange(pos, pos);
     this.closeSuggest();
     input.focus();
+  }
+
+  /** 在生活群里 @ 某人（公寓楼里点住户「找 TA 聊天」）。 */
+  async mentionInGroup(name) {
+    if (this.room !== 'main') await this.openRoom('main');
+    this.insertMention(name);
   }
 
   insertMention(name) {
@@ -335,9 +404,47 @@ export class GroupChat {
     const near = feed.scrollHeight - feed.scrollTop - feed.clientHeight < 80;
     feed.innerHTML = this.messages.length
       ? this.messages.map((m, i) => this.bubble(m, this.messages[i - 1])).join('')
-      : '<div class="gc-empty"><b>还没有消息</b><p>打个招呼，或者写「大家自我介绍一下」。成员都是 AI，被问到时会直说。</p></div>';
+      : this.isDm()
+        ? '<div class="gc-empty"><b>还没有消息</b><p>打个招呼吧。对方是 AI，被问到时会直说；只在你发消息后回复。</p></div>'
+        : '<div class="gc-empty"><b>还没有消息</b><p>打个招呼，或者写「大家自我介绍一下」。成员都是 AI，被问到时会直说。</p></div>';
     if (near || this.stick !== false) feed.scrollTop = feed.scrollHeight;
     this.stick = near;
+  }
+
+  isDm() {
+    return (this.roomInfo?.kind || (this.room.startsWith('dm:') ? 'dm' : 'group')) === 'dm';
+  }
+
+  roomTitle(r) {
+    if (!r) return '';
+    return r.kind === 'dm' ? `与 ${r.title} 私聊` : r.title;
+  }
+
+  renderHead() {
+    const r = this.roomInfo;
+    this.$('#gc-title').textContent = this.roomTitle(r) || '聊天';
+    const dm = this.isDm();
+    this.root.classList.toggle('dm', dm);
+    this.$('#gc-aside').hidden = dm;
+    this.$('#chat-input').placeholder = dm ? '说点什么：Enter 发送，Shift+Enter 换行' : '说点什么：Enter 发送，Shift+Enter 换行；输入 @ 点名';
+  }
+
+  renderRooms() {
+    const el = this.$('#gc-rooms');
+    if (!el) return;
+    const item = (r) => {
+      const member = r.kind === 'dm' ? (this.everyone || []).find((m) => m.id === r.members?.[0]) || { model_id: null } : null;
+      const icon = r.kind === 'dm' ? this.avatar(member, r.title) : `<span class="gc-av ini grp">${r.kind === 'work' ? '工' : '群'}</span>`;
+      const last = r.last ? `${r.kind === 'dm' ? '' : `${esc(r.last.name)}：`}${esc(r.last.text)}` : r.kind === 'dm' ? '还没聊过' : '';
+      const badge = r.unread ? `<i class="gc-unread" aria-label="${r.unread} 条未读">${r.unread > 99 ? '99+' : r.unread}</i>` : '';
+      const cur = r.id === this.room;
+      return `<button type="button" class="gc-room${cur ? ' cur' : ''}" data-room="${esc(r.id)}"${cur ? ' aria-current="true"' : ''}>${icon}<span class="gc-rt"><b>${esc(r.title)}</b><small>${last}</small></span>${badge}</button>`;
+    };
+    const groups = this.rooms.filter((r) => r.kind !== 'dm');
+    const dms = this.rooms.filter((r) => r.kind === 'dm');
+    el.innerHTML = `<h3>群聊</h3>${groups.map(item).join('')}<h3>私聊</h3>${dms.map(item).join('')}`;
+    const b = this.budget;
+    this.$('#gc-budget').textContent = b ? `本月聊天 $${b.spent_usd.toFixed(2)} / $${b.limit_usd.toFixed(2)}` : '';
   }
 
   renderMembers() {
@@ -367,6 +474,8 @@ export class GroupChat {
   }
 
   renderAll() {
+    this.renderHead();
+    this.renderRooms();
     this.renderMembers();
     this.renderFeed();
     this.renderTyping();

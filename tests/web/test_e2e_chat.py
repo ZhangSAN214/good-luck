@@ -63,3 +63,40 @@ def test_apartment_resident_can_be_mentioned_in_chat(serve, page):
     assert page.input_value("#chat-input").startswith("@")
     page.keyboard.press("Alt+Digit3")  # 已在群聊
     assert page.url.endswith("#m=chat")
+
+
+def test_rooms_dm_and_unread_badge(serve, page):
+    srv = serve(confirm_threshold_usd=100.0)
+    repo = srv.env.rt.repo
+    open_chat(srv, page)
+    page.wait_for_selector(".gc-room[data-room='work']")
+    assert page.locator(".gc-room[data-room='main']").get_attribute("aria-current") == "true"
+    # 工作群里有一条别人的消息：显示未读数
+    repo.add_chat_message("work", "V1", "报告写完了")
+    page.wait_for_selector(".gc-room[data-room='work'] .gc-unread", timeout=15000)
+    # 打开和阿二的私聊：没有成员栏，发消息只有对方回
+    page.click(".gc-room[data-room='dm:V2']")
+    page.wait_for_function("document.querySelector('#gc-title').textContent === '与 阿二 私聊'")
+    assert page.locator("#gc-aside").is_hidden()
+    page.fill("#chat-input", "大家好")
+    page.keyboard.press("Enter")
+    page.wait_for_selector(".gc-msg[data-author='V2']")
+    assert page.locator(".gc-msg:not(.me)").count() == 1
+    assert [r["author"] for r in repo.chat_messages("dm:V2")] == ["user", "V2"]
+    assert repo.chat_messages("main") == []
+    # 打开工作群后未读清零；刷新后回到上次的会话
+    page.click(".gc-room[data-room='work']")
+    page.wait_for_selector(".gc-msg[data-author='V1']")
+    page.wait_for_selector(".gc-room[data-room='work'] .gc-unread", state="detached")
+    page.reload()
+    page.wait_for_function("document.querySelector('#gc-title').textContent === '工作群'")
+    assert "本月聊天 $" in page.inner_text("#gc-budget")
+
+
+def test_apartment_resident_dm(serve, page):
+    srv = serve(confirm_threshold_usd=100.0)
+    page.goto(srv.url + "/#m=home")
+    page.locator("#home .tenant:not(.sleeper), #home .sleeper rect").first.click()
+    page.click("#resident-card [data-dm]")
+    page.wait_for_selector("#gchat:not([hidden])")
+    page.wait_for_function("document.querySelector('#gc-title').textContent.startsWith('与 ')")

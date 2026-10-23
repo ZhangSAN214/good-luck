@@ -397,4 +397,26 @@ CREATE TABLE app_settings (
 );
 """,
     ),
+    (
+        15,
+        "聊天会话",
+        """
+-- 聊天会话：私聊、群聊（生活群、工作群）。chat_messages.room 对应这里的 id。
+-- kind：group 群 / work 工作群 / dm 私聊。
+-- members 为成员 id（厂商）的 JSON 数组，群的空数组表示全体成员。
+-- with_user：用户在不在这个会话里（成员之间的私聊为 0，用户只能旁观）。
+-- last_read：用户读到的最后一条消息 id（未读数 = 之后别人发的消息条数）。
+CREATE TABLE chat_rooms (
+    id          TEXT PRIMARY KEY,
+    kind        TEXT NOT NULL,
+    title       TEXT NOT NULL,
+    members     TEXT NOT NULL DEFAULT '[]',
+    with_user   INTEGER NOT NULL DEFAULT 1,
+    last_read   INTEGER NOT NULL DEFAULT 0,
+    created_at  TEXT NOT NULL
+);
+-- 消息的附加信息（JSON），如来源链接、「你不在时」标记、对应的办公室会话
+ALTER TABLE chat_messages ADD COLUMN meta TEXT;
+""",
+    ),
 ]
