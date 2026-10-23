@@ -16,6 +16,7 @@ from xml.sax.saxutils import escape
 class Node:
     text: str
     sources: tuple[str, ...] = ()  # 提出或补充这个想法的成员（称呼）
+    refs: tuple[str, ...] = ()  # 来源的点子编号（I3、E1……），网页据此关联投票和杂交
 
 
 @dataclass(frozen=True)
@@ -37,7 +38,10 @@ class MindMap:
             "branches": [
                 {
                     "name": b.name,
-                    "ideas": [{"text": n.text, "sources": list(n.sources)} for n in b.ideas],
+                    "ideas": [
+                        {"text": n.text, "sources": list(n.sources), "refs": list(n.refs)}
+                        for n in b.ideas
+                    ],
                 }
                 for b in self.branches
             ],
@@ -52,7 +56,10 @@ class MindMap:
             tuple(
                 Branch(
                     b["name"],
-                    tuple(Node(n["text"], tuple(n.get("sources", ()))) for n in b["ideas"]),
+                    tuple(
+                        Node(n["text"], tuple(n.get("sources", ())), tuple(n.get("refs", ())))
+                        for n in b["ideas"]
+                    ),
                 )
                 for b in d["branches"]
             ),

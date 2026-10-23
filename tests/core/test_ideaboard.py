@@ -88,3 +88,20 @@ def test_board_round_trips_and_renders_markdown_sections():
         assert part in md, part
     assert "由 I2 × I3 而来" in md
     assert to_markdown(Board()) == ""
+
+
+def test_rank_keeps_unvoted_ideas_last_with_average_scores():
+    cands = [*CANDS, Candidate("I4", "b", "没人投的点子")]
+    ballots = {
+        "a": Ballot((Pick("I2", 4, 2, 5),)),
+        "c": Ballot((Pick("I2", 2, 4, 3),)),
+    }
+    got = rank(cands, ballots, label)
+    assert [r.id for r in got] == ["I2", "I1", "I3", "E1", "I4"]  # 没票的按编号顺序
+    top = got[0]
+    assert (top.novelty, top.feasibility, top.value) == (3.0, 3.0, 4.0) and top.voted
+    assert not got[-1].voted and got[-1].feasibility == 0.0
+    md = to_markdown(Board(tuple(got)))
+    assert "I2" in md and "没人投的点子" not in md  # 点子榜只列得票的
+    # 没人投的点子不会被当成前几名或黑马
+    assert pick_dark_horse(got, 1) is None

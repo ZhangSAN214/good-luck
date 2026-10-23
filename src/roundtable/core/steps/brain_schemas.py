@@ -252,11 +252,15 @@ def parse_mindmap(
             if not i.text.strip():
                 continue
             authors: list[str] = []
+            refs: list[str] = []
             for ref in i.refs:
-                code = idea_authors.get(ref.strip().upper())
+                rid = ref.strip().upper()
+                code = idea_authors.get(rid)
+                if code and rid not in refs:
+                    refs.append(rid)
                 if code and label(code) not in authors:
                     authors.append(label(code))
-            nodes.append(Node(i.text.strip(), tuple(authors)))
+            nodes.append(Node(i.text.strip(), tuple(authors), tuple(refs)))
         if b.name.strip() and nodes:
             branches.append(Branch(b.name.strip(), tuple(nodes[:max_ideas_per_branch])))
     if not branches:
@@ -275,7 +279,10 @@ def fallback_mindmap(
 ) -> MindMap:
     """统筹整合失败：按成员分组列出每个人的想法（降级，仍然可用）。"""
     branches = [
-        Branch(f"{label(code)} 的想法", tuple(Node(i.title) for i in items[:max_ideas_per_branch]))
+        Branch(
+            f"{label(code)} 的想法",
+            tuple(Node(i.title, (label(code),), (i.id,)) for i in items[:max_ideas_per_branch]),
+        )
         for code, items in sorted(ideas.items())
         if items
     ]

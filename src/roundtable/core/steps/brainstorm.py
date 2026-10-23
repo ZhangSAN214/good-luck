@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 
+from roundtable.core import ideaboard
 from roundtable.core.allocation import shuffled
 from roundtable.core.ideaboard import Ballot, Board, pick_dark_horse, rank
 from roundtable.core.mindmap import MindMap, to_markdown, to_mermaid, to_svg
@@ -330,14 +331,17 @@ def render_all(m: MindMap, board: Board | None = None) -> dict:
     }
     if board is not None:
         out["board"] = board.to_dict()
+        # 完整文档（点子榜各部分 + 导图大纲），网页一键导出
+        out["document"] = ideaboard.to_markdown(board) + out["markdown"]
     return out
 
 
 def ranking_text(board: Board) -> str:
     """统筹看到的排名（只有编号与得分，点子内容在 <idea> 里）。"""
-    if not board.ranking:
+    if not any(r.voted for r in board.ranking):
         return "没有投票结果"
-    rows = [f"{n}. {r.id}：{r.score} 分，{r.votes} 票" for n, r in enumerate(board.ranking, 1)]
+    voted = [r for r in board.ranking if r.voted]
+    rows = [f"{n}. {r.id}：{r.score} 分，{r.votes} 票" for n, r in enumerate(voted, 1)]
     return "\n".join(rows)
 
 
@@ -358,7 +362,7 @@ class OrganizeStep:
         block, authors = organize_block(ctx)
         cands = b.candidates()
         ranking = tuple(rank(cands, b.votes, ctx.label)) if b.votes else ()
-        top = [r.id for r in ranking[: rule.top]]
+        top = [r.id for r in ranking if r.votes][: rule.top]
         dark = pick_dark_horse(ranking, rule.top)
         board = Board(
             ranking,

@@ -3,6 +3,8 @@
 // 匿名关闭时代号就是「昵称·模式」（鲸鱼娘·全力），统筹显示为「昵称·模式（统筹）」；
 // 匿名关闭时服务端直接给出模型，界面在代号旁显示。
 
+import { ideasCard } from './ideas.js';
+
 export const STEP_LABELS = {
   plan: '规划',
   answer: '作答',
@@ -488,54 +490,6 @@ function ballotLine(sp, d) {
   return sys('投票', `${esc(sp.name)} 投给 ${picks}${d.dark_horse ? `；黑马 ${esc(d.dark_horse)}` : ''}`);
 }
 
-const BOARD_KINDS = { idea: '', hybrid: '杂交', flip: '反转放大', new: '全新', combine: '组合' };
-
-/** 灵感结果页：点子榜 / 导图 / 对比表 / 场景故事 / 行动方案 / 黑马，用单选按钮切换页签（不需要脚本）。 */
-// 页签名只由桌号决定：同一份结果重绘时 HTML 不变，不会把用户选的页签重置
-function boardCard(data, tableNo) {
-  const b = data.board;
-  const n = tableNo;
-  const find = (id) => (b.ranking || []).find((r) => r.id === id);
-  const name = (id) => {
-    const r = find(id);
-    return `<b>${esc(id)}</b>${r ? ` ${esc(r.text)}` : ''}`;
-  };
-  const panes = [];
-  const rank = (b.ranking || []).slice(0, Math.max(10, (b.top || 5) * 2));
-  if (rank.length) {
-    const max = Math.max(...rank.map((r) => r.score), 1);
-    const rows = rank.map((r, i) => {
-      const kind = BOARD_KINDS[r.kind] ? tag(BOARD_KINDS[r.kind]) + ' ' : '';
-      const from = r.refs && r.refs.length ? `<span class="meta">由 ${esc(r.refs.join(' × '))} 而来</span>` : '';
-      const dark = r.id === b.dark_horse ? ' ' + tag('黑马', 'wait') : '';
-      return `<li class="${i < (b.top || 5) ? 'top' : ''}"><div class="sbar" style="width:${Math.round((r.score / max) * 100)}%"></div><div class="row"><span class="no">${i + 1}</span><div>${kind}<b>${esc(r.id)}</b> ${esc(r.text)}${dark}<div class="meta">${r.score} 分 · ${r.votes} 票 · ${esc((r.authors || []).join('、'))} ${from}</div></div></div></li>`;
-    });
-    panes.push(['点子榜', `<ol class="rank">${rows.join('')}</ol><p class="meta">组员匿名投票（不能投自己），按 新颖 + 可行 + 价值 总分排名。</p>`]);
-  }
-  panes.push(['导图', mindmapCard(data)]);
-  if ((b.compare || []).length) {
-    const rows = b.compare.map((c) => `<tr><td>${name(c.id)}</td><td>${esc(c.novelty)}</td><td>${esc(c.feasibility)}</td><td>${esc(c.cost)}</td><td>${esc(c.risk)}</td></tr>`);
-    panes.push(['对比表', `<div class="tbl"><table><thead><tr><th>点子</th><th>新颖</th><th>可行</th><th>投入</th><th>风险</th></tr></thead><tbody>${rows.join('')}</tbody></table></div>`]);
-  }
-  if ((b.stories || []).length) {
-    panes.push(['场景故事', b.stories.map((x) => `<div class="story"><div>${name(x.id)}</div><p>${md(x.story)}</p></div>`).join('')]);
-  }
-  if (b.plan) {
-    const steps = (b.plan.steps || []).map((x) => `<li>${md(x)}</li>`).join('');
-    panes.push(['行动方案', `<div>${name(b.plan.id)}</div>${b.plan.experiment ? `<div class="sec">最小试验</div><div>${md(b.plan.experiment)}</div>` : ''}${steps ? `<div class="sec">三步走</div><ol>${steps}</ol>` : ''}`]);
-  }
-  if (b.dark_horse) {
-    panes.push(['黑马', `<div>${name(b.dark_horse)}</div>${b.dark_horse_why ? `<p>${md(b.dark_horse_why)}</p>` : ''}<p class="meta">得分不在前列，但被组员点名“最大胆、值得一试”。</p>`]);
-  }
-  const lenses = Object.entries(b.lenses || {});
-  const lensLine = lenses.length ? `<div class="meta lenses">本场抽签：${lenses.map(([who, l]) => `${esc(who)}「${esc(l)}」`).join('　')}</div>` : '';
-  const id = (i) => `bt${n}-${i}`;
-  const radios = panes.map((_, i) => `<input type="radio" name="bt${n}" id="${id(i)}"${i === 0 ? ' checked' : ''}>`).join('');
-  const labels = panes.map(([t], i) => `<label for="${id(i)}">${esc(t)}</label>`).join('');
-  const bodies = panes.map(([, h]) => `<div class="pane">${h}</div>`).join('');
-  return `<div class="final ideas"><h3>灵感结果<small>${panes.length} 种形式</small></h3>${lensLine}${radios}<div class="btabs">${labels}</div><div class="panes">${bodies}</div></div>`;
-}
-
 const DECISION = { accepted: ['已采纳', 'ok'], partial: ['部分采纳', 'wait'], rejected: ['未采纳', ''] };
 
 /** 讨论模式的「纠错记录」：互评挑出的问题（有效评审），以及作者修订时是否采纳。只用已有数据，不调用模型。 */
@@ -597,7 +551,7 @@ function output(o, names, lazy = new Map(), sources = null) {
   if (o.kind === 'ideas') return msg(sp, data.lens ? `点子 · 抽到「${data.lens}」` : '想法', ideaList(data.ideas));
   if (o.kind === 'expansions') return data.items.length ? msg(sp, o.step === 'crossbreed' ? '碰撞杂交' : '拓展', expansionList(data.items)) : '';
   if (o.kind === 'votes') return ballotLine(sp, data);
-  if (o.kind === 'mindmap') return data.board ? boardCard(data, o.table_no) : msg(sp, '思维导图', mindmapCard(data));
+  if (o.kind === 'mindmap') return data.board ? ideasCard(data, o.table_no) : msg(sp, '思维导图', mindmapCard(data));
   if (o.kind === 'style_spec') return styleCard(o, data);
   if (o.kind === 'style_gate') return styleGateLine(sp, data, names);
   if (o.kind === 'style_redraw') {

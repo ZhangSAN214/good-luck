@@ -1,4 +1,4 @@
-"""前端：头脑风暴显示抽到的手法、碰撞杂交、投票和灵感结果页（点子榜、导图、对比表等页签）。"""
+"""前端：头脑风暴显示抽到的手法、碰撞杂交、投票和灵感结果页（灵感墙、象限图、谱系、路线图等页签）。"""
 
 from __future__ import annotations
 
@@ -35,20 +35,28 @@ def test_brainstorm_shows_board_tabs_and_mindmap(serve, page):
         assert part in chat, part
     board = page.locator("#chat .final.ideas")
     assert board.count() == 1
-    # 默认显示点子榜；切到导图页签后图片真的渲染出来了（有尺寸），而不是坏图
-    assert board.locator(".rank li").count() >= 3
-    assert board.locator(".rank").is_visible()
-    board.locator(".btabs label", has_text="导图").click()
-    img = board.locator(".mindmap img")
-    assert img.is_visible() and not board.locator(".rank").is_visible()
-    src = img.get_attribute("src")
+    tabs = board.locator(".btabs label").all_inner_texts()
+    for t in ("灵感墙", "象限图", "点子榜", "杂交谱系", "路线图", "故事板", "对比矩阵", "导图"):
+        assert t in tabs, t
+    # 默认是灵感墙：按主题分组的便利贴
+    assert board.locator(".wall .note").count() >= 1 and board.locator(".wall").is_visible()
+    assert board.locator("a[download='头脑风暴.md']").count() == 1
+
+    def show(tab):
+        board.locator(".btabs label", has_text=tab).click()
+        return board.locator(f".pane[data-view='{tab}']")
+
+    assert show("象限图").locator("svg.quad circle").count() >= 2
+    assert show("点子榜").locator(".rank li").count() >= 3
+    assert show("杂交谱系").locator(".lrow").count() >= 1
+    assert show("路线图").locator(".road li").count() >= 3 and "做一次小试" in board.inner_text()
+    assert "的故事" in show("故事板").inner_text()
+    assert show("对比矩阵").locator(".mbar").count() >= 3
+    pane = show("导图")
+    assert pane.locator(".mbranch").count() >= 1 and not board.locator(".wall").is_visible()
+    src = pane.locator("a[download='mindmap.svg']").get_attribute("href")
     assert src.startswith("data:image/svg+xml") and "%3Csvg" in src
-    assert img.evaluate("e => e.complete && e.naturalWidth > 100")
-    assert board.locator(".mindmap a[download='mindmap.svg']").count() == 1
     # 页面重绘（如改变窗口大小）后，选中的页签不被重置
     page.set_viewport_size({"width": 1100, "height": 900})
     page.wait_for_timeout(300)
-    assert board.locator(".mindmap img").is_visible()
-    for tab, text in (("对比表", "投入"), ("场景故事", "的故事"), ("行动方案", "做一次小试")):
-        board.locator(".btabs label", has_text=tab).click()
-        assert text in board.locator(".pane:visible").inner_text(), tab
+    assert pane.locator(".mbranch").first.is_visible()

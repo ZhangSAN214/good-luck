@@ -253,7 +253,12 @@ async def test_full_brainstorm_run_produces_board_mindmap_and_final_answer():
     assert len(outputs(env, r.session_id, "expansions")) == len(members)
     assert len(outputs(env, r.session_id, "votes")) == len(members)
     saved = json.loads(outputs(env, r.session_id, "mindmap")[0]["content"])
-    assert {"map", "markdown", "mermaid", "svg", "board"} <= set(saved)
+    assert {"map", "markdown", "mermaid", "svg", "board", "document"} <= set(saved)
+    assert saved["document"].startswith("## 点子榜") and "# 降低开裂" in saved["document"]
+    # 导图条目带来源编号（网页的灵感墙据此关联投票）
+    assert saved["map"]["branches"][0]["ideas"][0]["refs"] == ["I1", "I3"]
+    # 点子榜包含全部点子：2 人 × 2 个点子 + 每人 1 个杂交
+    assert len(saved["board"]["ranking"]) == 6
     board = saved["board"]
     assert board["ranking"] and board["compare"] and board["stories"]
     assert board["plan"]["id"] == board["ranking"][0]["id"]
