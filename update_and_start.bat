@@ -22,10 +22,13 @@ echo [4/5] check_models.py ^(saved to check_result.txt^) ...
 python scripts\check_models.py > check_result.txt 2>&1
 set CHECK_RC=%errorlevel%
 type check_result.txt
-if not "%CHECK_RC%"=="0" (
-    echo [error] check_models.py failed ^(exit code %CHECK_RC%^), see check_result.txt
+rem 1 = a model ID does not exist (calls would fail): stop. 2 = could not reach the model list: warn only.
+rem Price changes are only warnings inside check_models.py and do not stop the start.
+if "%CHECK_RC%"=="1" (
+    echo [error] check_models.py: a model ID was not found ^(exit code 1^), see check_result.txt
     goto :error
 )
+if not "%CHECK_RC%"=="0" echo [warn] check_models.py could not check the models ^(exit code %CHECK_RC%^), starting anyway.
 
 echo [5/5] Starting server at http://127.0.0.1:8000  (Ctrl+C to stop)
 start "" /b cmd /c "timeout /t 3 /nobreak >nul & start "" http://127.0.0.1:8000"

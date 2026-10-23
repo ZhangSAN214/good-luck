@@ -100,6 +100,21 @@ def test_main_sends_key_and_exit_codes(monkeypatch, capsys):
 
 
 @respx.mock
+def test_price_mismatch_only_warns_unless_strict(monkeypatch, capsys):
+    """价格变动不挡一键启动：默认只提醒（退出码 0），--strict 时才算失败。"""
+    monkeypatch.setattr(check_models, "load_dotenv", lambda *_: None)
+    monkeypatch.setattr(check_models, "load_local_models", lambda: [local()])
+    mock_media_lists()
+    respx.get(check_models.MODELS_URL.split("?")[0]).mock(
+        return_value=httpx.Response(200, json=remote(("v/a", 1.5, 3.0)))
+    )
+    assert check_models.main([]) == 0
+    out = capsys.readouterr().out
+    assert "price_mismatch" in out and "提醒：" in out and "不影响启动" in out
+    assert check_models.main(["--strict"]) == 1
+
+
+@respx.mock
 @pytest.mark.parametrize(
     "response",
     [httpx.Response(401, json={"error": "bad key"}), httpx.ConnectError("boom")],
@@ -246,7 +261,7 @@ def test_vision_and_image_edit_models_must_accept_image_input():
 
 
 @respx.mock
-def test_main_fails_when_a_tagged_model_has_no_image_input(monkeypatch, capsys):
+def test_main_flags_a_tagged_model_without_image_input(monkeypatch, capsys):
     monkeypatch.setattr(check_models, "load_dotenv", lambda *_: None)
     monkeypatch.setattr(
         check_models, "load_local_models", lambda: [tagged("blind", "v/blind", "vision")]
@@ -255,8 +270,9 @@ def test_main_fails_when_a_tagged_model_has_no_image_input(monkeypatch, capsys):
     route = respx.get(check_models.MODELS_URL.split("?")[0]).mock(
         return_value=httpx.Response(200, json={"data": [with_modalities("v/blind", ["text"])]})
     )
-    assert check_models.main([]) == 1
+    assert check_models.main([]) == 0  # 默认只提醒
     assert "modality_mismatch" in capsys.readouterr().out
+    assert check_models.main(["--strict"]) == 1
     route.mock(
         return_value=httpx.Response(
             200, json={"data": [with_modalities("v/blind", ["text", "image"])]}
