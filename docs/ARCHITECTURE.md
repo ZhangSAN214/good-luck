@@ -7,7 +7,8 @@
 提问时选择四种模式之一（讨论 / 协同 / 个人作答 / 头脑风暴），或选「自动」让分诊小组先给建议（`UserChoice.workflow`，存于 `sessions.workflow`）：
 - **讨论模式**（`discussion`，默认）：所选档位全员上桌 → 独立作答 → 互评 → 修订 → 汇总 →（分歧时询问是否升级）→ 结束
 - **个人作答**（`solo`，R13）：在所选档位里按预计调用成本挑最便宜的一位（题目需要的能力标签如 vision 先作硬条件，无人满足时放宽），流程 `solo_pipeline: [answer, reveal]`，没有统筹、互评和汇总；自选时只能勾一个模型；不支持媒体输出。这是中立性规则 9「所选档位全员上桌」的唯一例外，选人仍只看档位、标签和价格
-- **头脑风暴**（`brainstorm`，R16）：所选档位全员上桌（统筹不提想法）。`ideate`（每人独立发散，每人最多 `brainstorm.max_ideas` 个想法）→ `expand`（每人看别人的想法随机顺序、不看自己的，做深化 / 组合 / 质疑改进 / 全新想法）→ `organize`（统筹整合成思维导图，refs 标注来源）→ 揭晓。导图数据 `core/mindmap.py` 同一份渲染成 Markdown 大纲、Mermaid mindmap 和 SVG（文字全部转义；网页放进 `<img>`，命令行 `roundtable mindmap <id> -o 文件.svg|.md|.mmd` 保存）。统筹整合失败时降级为按成员分组的导图。最终答案 = 大纲 + Mermaid 代码块。不支持媒体输出；不触发升级询问。
+- **头脑风暴**（`brainstorm`，R16，2026-10-23 升级为“灵感爆发”）：所选档位全员上桌（统筹不提点子）。`ideate`（按随机种子给每位组员抽一种发散手法 `brainstorm.lenses`（与成员是谁无关，人多于手法时循环），提示词 `ideate/v2` 只多一句“你抽到的是 X”；每人最多 `max_ideas` 个点子，最后一个自由发挥）→ `crossbreed`（每人随机拿到 `crossbreed_sample` 个别人的点子，永远不含自己的：杂交 / 反转放大 / 挑刺补救）→ `vote`（每人看别人的点子与杂交出的新点子，随机顺序、不含自己的，选最多 `vote_picks` 个按 新颖 / 可行 / 价值 打 1～5 分，另投一个黑马；排名由代码 `core/ideaboard.py` 算：总分 → 票数 → 编号）→ `organize`（`organize/v2`：统筹整合成思维导图，并为投票前 `top` 名写对比表、前 `stories` 名写场景故事、第 1 名写行动方案（最小试验 + 三步走）、黑马写理由；不改排名）→ 揭晓。导图数据 `core/mindmap.py` 同一份渲染成 Markdown 大纲、Mermaid mindmap 和 SVG（文字全部转义；网页放进 `<img>`，命令行 `roundtable mindmap <id> -o 文件.svg|.md|.mmd` 保存，.md 含点子榜）。网页「灵感结果」用页签切换 点子榜 / 导图 / 对比表 / 场景故事 / 行动方案 / 黑马。统筹整合失败时导图降级为按成员分组，点子榜（投票排名）仍保留。最终答案 = 点子榜各部分 + 大纲 + Mermaid 代码块。不支持媒体输出；不触发升级询问。旧流程 `[ideate, expand, organize, reveal]`（配 `ideate/v1`、`organize/v1`）仍可用，旧会话按存下的流程恢复。分诊小组（`panel/v2`）可以推荐头脑风暴（票数相同时排在个人作答之后、讨论之前）。
+- **各方式的招牌结果**（避免雷同）：个人作答 = 一份答案；讨论 = 最终答案 + 共识 / 分歧 + **纠错记录**（网页在汇总后列出互评挑出的问题与作者是否采纳，只用已有数据）；协同 = 合并成品 + 分工看板与采纳情况；头脑风暴 = 灵感结果页；办公室 = 交付 + 工资单 / 绩效。网页选方式时提示“适合什么、会得到什么”。
 - **协同模式**（`collab`）：统筹拆分子任务 → 成员自荐（擅长什么、为什么）→ 统筹按自荐和能力标签分配（每人至少一块）→ 按依赖分批并行完成 → 交叉审查（不审自己的）→ 作者按审查修改 → 统筹合并成完整成果（标注每份成果的采纳情况）→（把握低时询问是否升级）→ 结束
 **自动模式 / 分诊小组**（R15，`UserChoice.workflow = auto`）：路由前，几位最便宜的模型（`routing.panel`，只看档位和价格）各用同一份提示词 `panel/v1` 给一条极短的 JSON（难度、作答方式、一句理由），代码汇总：作答方式多数票（票数相同取更便宜的）、难度取中位数、档位按 `tier_by_difficulty`；规则已判断为简单题时不调用小组。**只推荐不执行**：弹出 `triage` 确认卡片（采用建议 / 改用其他方式与档位，附各自预计花费 / 停止），用户回复后会话的 `workflow` 与档位改成具体值，再走普通路由。小组的调用记为 `step=triage` 计入本题花费与预算；卡片里不出现模型名。
 **对比实验**（R14，`roundtable bench`）：`benchmarks/*.yaml` 题库（题目文字发给模型，判分方式和标准答案不发；判分只用规则：数字 / 精确 / 关键词，不调用模型）；`core/bench.py` 逐题逐模式（个人 / 讨论 / 协同 × 档位）运行并自动回答确认卡片（继续、不升级），结果存 `bench_runs`（迁移 12），累计花费到 `--max-usd`（默认 $2）就停。输出各模式 × 类别的正确率、平均花费、平均耗时和“每答对一题花费”，可导出 CSV / JSON。
@@ -214,6 +215,7 @@ config/        models.yaml  roundtable.yaml  personas.yaml  routing.yaml
 prompts/       planner/ answer/ answer_quick/ review/ revise/ synthesize/ redo/
                attachments/ describe_image/ transcribe/ tools/（v4） image_gen/ web_search/ web_fetch/
                decompose/（v4） decompose_retry/ volunteer/ assign/（v3） work/ work_<类型>/ cross_review/ rework/ merge/
+               panel/（v2） ideate/（v2） expand/ crossbreed/ vote/ organize/（v2）
                media_brief/ media_review/ media_refine/ work_media/ rework_media/  versions.lock
 src/roundtable/
   core/
@@ -228,6 +230,8 @@ src/roundtable/
     tools/         工具协议、沙箱（wasm / docker，runner.mjs）、工作目录与文件收集、ToolBox（执行与额度）
     search/        联网搜索服务（注册、OpenRouter 搜索（默认）、Tavily、按顺序切换的 SearchService）
     preview.py     成员生成的文件的预览
+    mindmap.py     思维导图数据与渲染（Markdown / Mermaid / SVG）
+    ideaboard.py   头脑风暴的点子榜：投票排名、黑马、对比表 / 场景故事 / 行动方案的数据与 Markdown
     budget/        用量统计（按渠道/模型）、预算守卫（每月 + 每日，UTC）
     office/        办公室模式（R17）：名册（roster.py）、工资单（payroll.py）
     cards.py       确认卡片的统一格式

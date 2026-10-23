@@ -56,10 +56,12 @@ revise_rounds: 1
 # 各步骤使用的提示词版本（prompts/<role>/<version>.md）
 prompts:
   planner: v1
-  panel: v1
-  ideate: v1
+  panel: v2             # 分诊小组：v2 起可以推荐头脑风暴
+  ideate: v2            # 头脑风暴：按抽到的发散手法出点子（v1 不带手法）
   expand: v1
-  organize: v1
+  crossbreed: v1        # 头脑风暴：碰撞杂交
+  vote: v1              # 头脑风暴：匿名投票
+  organize: v2          # 头脑风暴：整合成导图 + 对比表 / 场景故事 / 行动方案 / 黑马
   answer: v1
   review: v3
   revise: v3
@@ -132,7 +134,9 @@ step_params:
   synthesize: {max_tokens: 5000, reasoning: {effort: medium}}   # 最终答案由统筹写：认真想（2026-10-22 起 medium）
   ideate: {max_tokens: 2000, reasoning: {effort: low}}
   expand: {max_tokens: 1500, reasoning: {effort: low}}
-  organize: {max_tokens: 4000, reasoning: {effort: low}}
+  crossbreed: {max_tokens: 1500, reasoning: {effort: low}}
+  vote: {max_tokens: 1200, reasoning: {effort: low}}
+  organize: {max_tokens: 7000, reasoning: {effort: low}}
   decompose: {max_tokens: 2500, reasoning: {effort: low}}
   volunteer: {max_tokens: 1500, reasoning: {effort: low}}
   assign: {max_tokens: 1500, reasoning: {effort: low}}
@@ -194,13 +198,35 @@ pipeline: [answer, review, revise, synthesize, reveal]
 #          → 作者按审查修改 → 统筹合并成完整成果
 # 个人作答：只请一位成员直接回答，没有统筹、互评和汇总
 solo_pipeline: [answer, reveal]
-# 头脑风暴：每人独立发散 → 看别人的想法做拓展 → 统筹整合成思维导图
-brainstorm_pipeline: [ideate, expand, organize, reveal]
+# 头脑风暴（灵感爆发）：每人按抽到的发散手法独立出点子 → 碰撞杂交（随机拿到几个别人的点子）
+#   → 匿名投票（不投自己，代码算分排名）→ 统筹整合（导图 + 点子榜 + 对比表 + 场景故事 + 行动方案 + 黑马）
+# 旧流程 [ideate, expand, organize, reveal] 仍可用（ideate/organize 用 v1 提示词时）
+brainstorm_pipeline: [ideate, crossbreed, vote, organize, reveal]
 # 办公室模式：经理分诊派活 → 员工办理 → 经理过目（不合格退回改一次）。
 # 经理决定开会时（O3），handle 改为开会：点名的员工依次发言 → 经理拍板写结论和纪要（不再过目，check 跳过）。
 # 经理决定项目分工时（O4），本桌到此为止，另开一张「项目组」桌子走 office.project.pipeline
 office_pipeline: [intake, handle, check, reveal]
-brainstorm: {max_ideas: 4, max_expansions: 3, max_branches: 6, max_ideas_per_branch: 6, max_next_steps: 5}
+brainstorm:
+  max_ideas: 5              # 每人最多几个点子（含 1 个自由点子）
+  max_expansions: 3         # 拓展 / 碰撞杂交：每人最多几条
+  crossbreed_sample: 4      # 碰撞杂交：每人随机拿到几个别人的点子（永远不含自己的）
+  vote_picks: 5             # 投票：每人最多选几个（不能投自己）
+  top: 5                    # 点子榜前几名进对比表
+  stories: 3                # 前几名写场景故事
+  max_branches: 6
+  max_ideas_per_branch: 6
+  max_next_steps: 5
+  # 发散手法：按随机种子给每位组员抽一种（人数多于手法时循环），与成员是谁无关；
+  # 同一步骤提示词模板与参数对所有人相同，只有这一句不同（中立性规则 1 的例外，2026-10-23 用户确认）
+  lenses:
+    - {name: 反着来, hint: 把常规做法倒过来，或者先想怎样会彻底失败，再反推出点子}
+    - {name: 推到极端, hint: 把某个条件放大十倍或缩小到零（预算、时间、规模、人数），看会冒出什么做法}
+    - {name: 跨界类比, hint: 借用一个完全不同的行业或领域里的成熟做法，搬过来改造}
+    - {name: 换个人看, hint: 站在一类平时被忽略的人（新手、老人、孩子、对手、旁观者）的立场想}
+    - {name: 零预算, hint: 假设一分钱都没有，只能靠现有的人、物、关系和时间}
+    - {name: 十年以后, hint: 设想技术和习惯已经大变的未来，倒推现在可以先做什么}
+    - {name: 拆开重组, hint: 把问题拆成几个部分，替换、合并、删掉或重新排列其中一部分}
+    - {name: 外行发问, hint: 像完全不懂行的人一样问“为什么一定要这样”，挑战默认前提}
 collab_pipeline: [decompose, volunteer, assign, discuss, work, cross_review, rework, accept, merge, reveal]
 collab:
   max_subtasks: 12        # 拆分的子任务上限

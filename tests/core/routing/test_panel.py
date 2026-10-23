@@ -98,3 +98,11 @@ async def test_unparsable_votes_are_ignored_and_all_bad_falls_back_to_default():
     result = await run(cfg, env)
     assert (result.source, result.workflow) == ("default", "discussion")
     assert "没有给出有效建议" in result.note and result.cost_usd > 0
+
+
+def test_aggregate_can_recommend_brainstorm_and_it_ranks_below_solo():
+    cfg = app_config()
+    votes = [vote("brainstorm"), vote("brainstorm"), vote("discussion")]
+    assert aggregate(votes, cfg)[0] == "brainstorm"
+    assert aggregate([vote("brainstorm"), vote("discussion")], cfg)[0] == "brainstorm"
+    assert aggregate([vote("brainstorm"), vote("solo")], cfg)[0] == "solo"

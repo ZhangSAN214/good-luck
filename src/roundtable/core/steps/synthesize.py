@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from roundtable.core import ideaboard
 from roundtable.core.allocation import shuffled
 from roundtable.core.mindmap import to_markdown, to_mermaid
 from roundtable.core.routing import OutcomeSignals
@@ -92,7 +93,8 @@ def final_answer(state: TableState) -> str | None:
         return state.office.final
     if state.brain.mindmap is not None:
         m = state.brain.mindmap
-        return f"{to_markdown(m)}\n```mermaid\n{to_mermaid(m)}```\n"
+        board = ideaboard.to_markdown(state.brain.board) if state.brain.board else ""
+        return f"{board}{to_markdown(m)}\n```mermaid\n{to_mermaid(m)}```\n"
     if state.collab.merge is not None:
         return state.collab.merge.output.result
     if state.synthesis is not None:

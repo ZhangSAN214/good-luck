@@ -79,7 +79,7 @@ roundtable history              # 最近的讨论（含会话 id）
 roundtable performance          # 办公室模式的员工绩效：单人办 / 开会 / 项目分工的件数、被退回、通过率、平均工资与用时
 roundtable performance --reset  # 绩效清零：之后只统计从现在起的会话（不删除任何记录）
 roundtable stats                # 各模型的历史贡献：被采纳的要点、有效问题、敷衍次数等（匿名讨论揭晓后才计入）
-roundtable mindmap <会话 id> -o 导图.svg   # 保存头脑风暴的思维导图（.svg 图 / .md 大纲 / .mmd Mermaid）
+roundtable mindmap <会话 id> -o 导图.svg   # 保存头脑风暴的思维导图（.svg 图 / .md 点子榜 + 大纲 / .mmd Mermaid）
 roundtable bench [--modes office:budget,solo:budget,discussion:budget,collab:budget] [--max-usd 2] [-o 结果.csv]   # 对比实验；--list 列历次，--report 批次名 看汇总
 roundtable show <会话id> --details
 roundtable show <会话id> --costs      # 每桌每步的预估与实际花费、每次调用的 token

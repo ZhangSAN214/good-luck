@@ -35,9 +35,10 @@ from .triage import Question, triage
 
 log = logging.getLogger(__name__)
 
-PANEL_WORKFLOWS = ("solo", "discussion", "collab")  # 由便宜到贵：票数相同时取靠前的
+# 由便宜到贵：票数相同时取靠前的（头脑风暴·节电约 $0.07，比讨论便宜）
+PANEL_WORKFLOWS = ("solo", "brainstorm", "discussion", "collab")
 DIFFICULTIES = ("simple", "medium", "hard")
-PanelWorkflow = Literal["solo", "discussion", "collab"]
+PanelWorkflow = Literal["solo", "brainstorm", "discussion", "collab"]
 
 
 class PanelVote(BaseModel):
