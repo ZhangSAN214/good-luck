@@ -77,6 +77,12 @@ class Ranked:
     votes: int
     novelty: float  # 平均新颖分（没有票时为 0）
     dark_votes: int = 0
+    feasibility: float = 0.0  # 平均可行分（没有票时为 0）
+    value: float = 0.0  # 平均价值分（没有票时为 0）
+
+    @property
+    def voted(self) -> bool:
+        return self.votes > 0 or self.dark_votes > 0
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -89,6 +95,8 @@ class Ranked:
             "votes": self.votes,
             "novelty": round(self.novelty, 2),
             "dark_votes": self.dark_votes,
+            "feasibility": round(self.feasibility, 2),
+            "value": round(self.value, 2),
         }
 
     @classmethod
@@ -103,6 +111,8 @@ class Ranked:
             int(d.get("votes", 0)),
             float(d.get("novelty", 0)),
             int(d.get("dark_votes", 0)),
+            float(d.get("feasibility", 0)),
+            float(d.get("value", 0)),
         )
 
 
@@ -119,12 +129,15 @@ def rank(
     ballots: Mapping[str, Ballot],
     label,
 ) -> list[Ranked]:
-    """按投票排名；只列出至少得到一票（含黑马票）的点子。投票人不能投自己的点子（这里再过滤一次）。"""
+    """按投票排名：得票（含黑马票）的点子在前，没人投的按编号顺序排在最后（灵感墙、谱系要用到全部点子）。
+    投票人不能投自己的点子（这里再过滤一次）。"""
     by_id = {c.id: c for c in candidates}
     order = {c.id: i for i, c in enumerate(candidates)}
     score: dict[str, int] = {}
     votes: dict[str, int] = {}
     novelty: dict[str, int] = {}
+    feasible: dict[str, int] = {}
+    worth: dict[str, int] = {}
     dark: dict[str, int] = {}
     for voter, ballot in sorted(ballots.items()):
         for p in ballot.picks:
@@ -134,12 +147,18 @@ def rank(
             score[p.id] = score.get(p.id, 0) + p.total
             votes[p.id] = votes.get(p.id, 0) + 1
             novelty[p.id] = novelty.get(p.id, 0) + p.novelty
+            feasible[p.id] = feasible.get(p.id, 0) + p.feasibility
+            worth[p.id] = worth.get(p.id, 0) + p.value
         c = by_id.get(ballot.dark_horse)
         if c is not None and c.code != voter:
             dark[c.id] = dark.get(c.id, 0) + 1
     ids = sorted(
-        set(score) | set(dark), key=lambda i: (-score.get(i, 0), -votes.get(i, 0), order[i])
+        by_id, key=lambda i: (-score.get(i, 0), -votes.get(i, 0), -dark.get(i, 0), order[i])
     )
+
+    def avg(total: dict[str, int], i: str) -> float:
+        return total.get(i, 0) / votes[i] if votes.get(i) else 0.0
+
     return [
         Ranked(
             i,
@@ -149,8 +168,10 @@ def rank(
             by_id[i].refs,
             score.get(i, 0),
             votes.get(i, 0),
-            novelty.get(i, 0) / votes[i] if votes.get(i) else 0.0,
+            avg(novelty, i),
             dark.get(i, 0),
+            avg(feasible, i),
+            avg(worth, i),
         )
         for i in ids
     ]
@@ -158,7 +179,8 @@ def rank(
 
 def pick_dark_horse(ranking: Sequence[Ranked], top: int) -> Ranked | None:
     """黑马：不在前 top 名里、黑马票最多的点子（同票看平均新颖分，再看排名）；没人投黑马时没有。"""
-    rest = [(i, r) for i, r in enumerate(ranking[top:]) if r.dark_votes > 0]
+    best = {r.id for r in [r for r in ranking if r.votes][:top]}
+    rest = [(i, r) for i, r in enumerate(ranking) if r.dark_votes > 0 and r.id not in best]
     if not rest:
         return None
     return max(rest, key=lambda x: (x[1].dark_votes, x[1].novelty, -x[0]))[1]
@@ -250,9 +272,9 @@ def _short(t: str, n: int = 40) -> str:
 def to_markdown(b: Board) -> str:
     """点子榜的 Markdown（放在思维导图大纲之前，作为最终答案的一部分）。"""
     lines: list[str] = []
-    if b.ranking:
+    if any(r.voted for r in b.ranking):
         lines += ["## 点子榜（组员匿名投票）", ""]
-        for n, r in enumerate(b.ranking[: max(b.top * 2, 10)], 1):
+        for n, r in enumerate([r for r in b.ranking if r.voted][: max(b.top * 2, 10)], 1):
             by = "、".join(r.authors)
             src = f"，由 {' × '.join(r.refs)} 而来" if r.refs else ""
             lines.append(f"{n}. **{r.id}** {r.text}（{r.score} 分 · {r.votes} 票 · {by}{src}）")

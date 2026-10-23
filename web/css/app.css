@@ -401,40 +401,6 @@ table.mdt th{background:var(--bg-soft,rgba(127,127,127,.12));font-weight:600}
 /* 分段按钮位置上只有一句说明时（如办公室模式的输出类型），不画按钮槽 */
 .seg:has(> .hint:only-child){background:none;border:0;padding:0}
 
-/* 头脑风暴的灵感结果：单选按钮切换页签（不需要脚本） */
-.final.ideas > input{position:absolute;opacity:0;pointer-events:none}
-.final.ideas .lenses{margin:-2px 0 8px}
-.final.ideas .btabs{display:flex;gap:2px;flex-wrap:wrap;border-bottom:1px solid var(--line);margin-bottom:10px}
-.final.ideas .btabs label{cursor:pointer;padding:6px 10px;font-size:13px;color:var(--muted);border-bottom:2px solid transparent}
-.final.ideas .btabs label:hover{color:var(--ink)}
-.final.ideas .pane{display:none;font-size:14px}
-.final.ideas > input:nth-of-type(1):checked ~ .panes > .pane:nth-child(1),
-.final.ideas > input:nth-of-type(2):checked ~ .panes > .pane:nth-child(2),
-.final.ideas > input:nth-of-type(3):checked ~ .panes > .pane:nth-child(3),
-.final.ideas > input:nth-of-type(4):checked ~ .panes > .pane:nth-child(4),
-.final.ideas > input:nth-of-type(5):checked ~ .panes > .pane:nth-child(5),
-.final.ideas > input:nth-of-type(6):checked ~ .panes > .pane:nth-child(6){display:block}
-.final.ideas > input:nth-of-type(1):checked ~ .btabs label:nth-child(1),
-.final.ideas > input:nth-of-type(2):checked ~ .btabs label:nth-child(2),
-.final.ideas > input:nth-of-type(3):checked ~ .btabs label:nth-child(3),
-.final.ideas > input:nth-of-type(4):checked ~ .btabs label:nth-child(4),
-.final.ideas > input:nth-of-type(5):checked ~ .btabs label:nth-child(5),
-.final.ideas > input:nth-of-type(6):checked ~ .btabs label:nth-child(6){color:var(--ink);border-bottom-color:var(--brass)}
-.final.ideas > input:focus-visible ~ .btabs{outline:2px solid var(--brass);outline-offset:2px}
-.final.ideas .rank{list-style:none;margin:0;padding:0;display:grid;gap:4px}
-.final.ideas .rank li{position:relative;border:1px solid var(--line);border-radius:var(--r);padding:6px 8px;overflow:hidden}
-.final.ideas .rank li.top{border-color:color-mix(in srgb,var(--brass) 55%,var(--line))}
-.final.ideas .rank .sbar{position:absolute;inset:0 auto 0 0;background:color-mix(in srgb,var(--brass) 12%,transparent);pointer-events:none}
-.final.ideas .rank .row{position:relative;display:flex;gap:8px;align-items:baseline}
-.final.ideas .rank .no{font-weight:600;min-width:1.4em;text-align:right;color:var(--brass-ink)}
-.final.ideas table{border-collapse:collapse;width:100%;font-size:13px}
-.final.ideas th,.final.ideas td{border:1px solid var(--line);padding:4px 6px;text-align:left;vertical-align:top}
-.final.ideas .tbl{overflow-x:auto}
-.final.ideas .story{margin-bottom:10px}
-.final.ideas .story p{margin:4px 0 0;white-space:pre-wrap}
-.final.ideas .mindmap{margin:0}
-.final.ideas{position:relative}
-
 /* 讨论模式的纠错记录：跟在统筹汇总后面 */
 .fixes{margin-left:44px;margin-top:8px;background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);padding:10px 16px;font-size:13px}
 .fixes h3{font-weight:600;margin:0 0 6px;font-size:15px;display:flex;gap:8px;align-items:baseline;flex-wrap:wrap}
