@@ -210,7 +210,7 @@ def test_shared_link_card_and_feeds_dialog(serve, page):
     page.wait_for_selector("#feeds .fd-list li:has-text('我的源')")
     assert "你改过的清单" in page.inner_text("#feeds")
     page.click("#feeds [data-reset]")
-    page.wait_for_selector("#feeds :text('默认清单')")
+    page.wait_for_selector("#feeds .pp-msg:has-text('已恢复默认清单')")  # 等保存完再看列表
     assert "我的源" not in page.inner_text("#feeds")
 
 
