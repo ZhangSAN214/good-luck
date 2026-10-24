@@ -1023,6 +1023,7 @@ var barsSettleAt = 0
     const fit = board.width * 0.86
     if (textWidth > fit) bctx2.font = fontOf(Math.floor((base * fit) / textWidth))
     bctx2.fillText(FINALE_TEXT, board.width / 2, board.height / 2)
+    solidText = buildSolidText(bctx2.font)
     const data = bctx2.getImageData(0, 0, board.width, board.height).data
     const alphaAt = (x, y) => {
       if (x < 0 || y < 0 || x >= board.width || y >= board.height) return 0
@@ -1057,6 +1058,41 @@ var barsSettleAt = 0
     const wanted = 1500
     const stride = Math.max(1, Math.round(hits.length / wanted))
     textTargets = hits.filter((_, index) => index % stride === 0).slice(0, wanted)
+  }
+
+  /* 粒子拼好字之后叠上一层实体字：往右下压出几层深蓝"厚度"，正面亮白渐变 + 细描边 + 淡辉光，
+     让字有一点立体感又足够清晰。只在建落点时画一次，逐帧只是 drawImage。 */
+  let solidText = null
+  function buildSolidText(font) {
+    const layer = document.createElement('canvas')
+    layer.width = board.width
+    layer.height = board.height
+    const g = layer.getContext('2d')
+    g.font = font
+    g.textAlign = 'center'
+    g.textBaseline = 'middle'
+    const x = layer.width / 2
+    const y = layer.height / 2
+    const size = parseFloat(font.split(' ')[1]) || 120
+    const depth = Math.max(4, Math.round(size * 0.07))
+    for (let d = depth; d >= 1; d -= 1) {
+      const k = d / depth
+      g.fillStyle = `rgb(${Math.round(14 + 22 * (1 - k))},${Math.round(34 + 44 * (1 - k))},${Math.round(70 + 70 * (1 - k))})`
+      g.fillText(FINALE_TEXT, x + d * 0.8, y + d)
+    }
+    const face = g.createLinearGradient(0, y - size / 2, 0, y + size / 2)
+    face.addColorStop(0, '#ffffff')
+    face.addColorStop(0.55, '#e4efff')
+    face.addColorStop(1, '#9fc3f0')
+    g.shadowColor = 'rgba(90,170,255,.55)'
+    g.shadowBlur = Math.round(size * 0.12)
+    g.fillStyle = face
+    g.fillText(FINALE_TEXT, x, y)
+    g.shadowBlur = 0
+    g.lineWidth = Math.max(1, size * 0.012)
+    g.strokeStyle = 'rgba(150,205,255,.9)'
+    g.strokeText(FINALE_TEXT, x, y)
+    return layer
   }
 
   function startFinale() {
@@ -1148,6 +1184,8 @@ var barsSettleAt = 0
     const form = ease((t - FINALE.move) / FINALE.form)
     // 第四段：字拼好、停一会儿之后，粒子朝各自方向散开并淡出（比直接淡出画面有收束感）
     const scatter = ease((t - FINALE.move - FINALE.form - FINALE.hold) / FINALE.scatter)
+    // 实体字：粒子快落定时淡入，散开时跟着淡出；它出现后粒子退成背景里的微光
+    const solid = ease((t - FINALE.move - FINALE.form * 0.8) / 520) * (1 - scatter)
     const theta = (Math.max(0, now - clock0 - GLOBE_START) * DEG_PER_MS * Math.PI) / 180
     for (const seed of finaleSeeds) {
       // 额外粒子：等球开始化开后才淡入，避免交接瞬间球面突然变密
@@ -1172,7 +1210,8 @@ var barsSettleAt = 0
       const half = glyphSize / 2
       // 呼吸用全局同一相位：整行一起明灭，比每颗各自闪更稳、更流畅
       const breathe = form >= 1 ? 0.94 + 0.06 * Math.sin(now * 0.0016) : 1
-      const alpha = (0.24 + 0.72 * Math.max(move, form)) * breathe * born * (1 - scatter)
+      const alpha =
+        (0.24 + 0.72 * Math.max(move, form)) * breathe * born * (1 - scatter) * (1 - 0.7 * solid)
       if (alpha <= 0.01) continue
       const sx = (cell % GLYPH_COLS) * CELL
       const sy = Math.floor(cell / GLYPH_COLS) * CELL
@@ -1180,6 +1219,14 @@ var barsSettleAt = 0
       bctx.drawImage(atlasGlow, sx, sy, CELL, CELL, x - half, y - half, glyphSize, glyphSize)
       bctx.globalAlpha = alpha
       bctx.drawImage(atlas, sx, sy, CELL, CELL, x - half, y - half, glyphSize, glyphSize)
+    }
+    if (solid > 0.01 && solidText !== null) {
+      // 淡入时从略大缩回原位，像"落"到画面上
+      const zoom = 1 + 0.04 * (1 - solid)
+      const dw = solidText.width * zoom
+      const dh = solidText.height * zoom
+      bctx.globalAlpha = solid
+      bctx.drawImage(solidText, (w - dw) / 2, (h - dh) / 2, dw, dh)
     }
     bctx.globalAlpha = 1
   }
