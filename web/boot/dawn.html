@@ -90,23 +90,25 @@ body{font-variant-numeric:tabular-nums;cursor:default}
 @media(max-width:899px){.cols{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}.cols .pnl:first-child{display:none}.bar{gap:10px;flex-wrap:wrap;white-space:normal;font-size:9px}.bar .sp{display:none}.foot .stage{min-width:0}.win{width:min(340px,70vw)}.ph{font-size:9px;padding:8px}.pb{padding:8px}.term{font-size:10px}}
 @media(prefers-reduced-motion:reduce){*,*:before,*:after{animation-duration:.01ms!important;animation-delay:0ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}.cut,.grain{display:none}.ring{filter:none;transform:none}.suntrack{bottom:6vh}}
 .dawn.depart,.hello.depart{opacity:0;transform:translate3d(0,-8vh,0);filter:brightness(.25);transition:opacity .55s,transform .65s cubic-bezier(.4,0,.2,1),filter .55s}
-.tarot{position:fixed;inset:0;z-index:33;background:#05080bf5;opacity:0;visibility:hidden;pointer-events:none;perspective:1100px;transition:opacity .45s;--card-w:clamp(38px,11vw,112px)}
-.tarot.on{opacity:1;visibility:visible}.tarot.out{opacity:0}
-.tarot-header{position:absolute;top:12%;width:100%;text-align:center;font-size:10px;letter-spacing:.22em;color:var(--dim)}
-.tarot-header b{display:block;margin-top:8px;color:var(--cyan);font:700 16px var(--sans);letter-spacing:.25em}
-.tarot-card{position:absolute;left:50%;top:53%;width:var(--card-w);aspect-ratio:3/5;will-change:transform,opacity;transform-style:preserve-3d}
+.tarot{position:fixed;inset:0;z-index:45;background:#05080b;opacity:0;visibility:hidden;pointer-events:none;perspective:1400px;transition:opacity .45s;--card-h:min(42vh,380px)}
+.tarot.on{opacity:1;visibility:visible}
+.tarot-background{position:absolute;inset:0;background:radial-gradient(120% 90% at 50% 48%,#0b1730 0%,#040914 64%);opacity:0}
+.tarot-camera,#deck{position:absolute;inset:0;transform-style:preserve-3d;will-change:transform}
+.tarot-camera{transform:rotateX(55deg) rotateY(-12deg) rotateZ(-12deg)}
+.tarot-card{position:absolute;left:50%;top:50%;height:var(--card-h);aspect-ratio:3/5;will-change:transform;transform-style:preserve-3d}
 .card-turn{position:absolute;inset:0;transform-style:preserve-3d;will-change:transform}
 .card-side{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:space-between;padding:12% 6%;border:1px solid var(--cyan);background:#09151f;backface-visibility:hidden;-webkit-backface-visibility:hidden;box-shadow:inset 0 0 0 3px #09151f,inset 0 0 0 4px #375a6b}
 .card-side:before,.card-side:after{position:absolute;color:var(--dim);font:7px var(--mono);content:attr(data-code)}
 .card-side:before{top:5px;left:6px}.card-side:after{bottom:5px;right:6px;transform:rotate(180deg)}
 .card-front{transform:rotateY(180deg)}
 .card-side svg{width:80%;height:58%;fill:none;stroke:var(--cyan);stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
-.card-back svg{height:72%;margin:auto}.card-back small{font:700 clamp(6px,1vw,10px) var(--sans);letter-spacing:.22em;color:var(--dim)}
-.card-front b{font:700 clamp(8px,1.4vw,15px) var(--mono);color:var(--amber)}
-.card-front span{font:700 clamp(5px,.8vw,9px) var(--sans);letter-spacing:.06em;text-align:center;color:var(--ink)}
-.screen-fade{position:fixed;inset:0;background:#05080b;z-index:50;opacity:0;pointer-events:none;transition:opacity .4s}.screen-fade.on{opacity:1}
-@media(prefers-reduced-motion:reduce){.dawn.depart,.hello.depart{transform:none}.tarot.on{animation:cardsFade .18s linear!important;transition:opacity .18s!important}.tarot-card,.card-turn{will-change:auto}}
-@keyframes cardsFade{from{opacity:0}to{opacity:1}}
+.card-back svg{height:72%;margin:auto}
+.card-front b{font:700 clamp(12px,2vh,20px) var(--mono);color:var(--amber)}
+.card-front span{font:700 clamp(8px,1.4vh,13px) var(--sans);letter-spacing:.06em;text-align:center;color:var(--ink)}
+.seal-bridge,.ring-trace{position:absolute;left:50%;top:50%;width:min(52vh,480px);height:min(52vh,480px);transform:translate(-50%,-50%);opacity:0;will-change:opacity,transform}
+.seal-bridge{object-fit:contain;filter:brightness(0) invert(1)}
+.ring-trace{border:1px solid rgba(232,242,255,.55);border-radius:50%}
+@media(prefers-reduced-motion:reduce){.dawn.depart,.hello.depart{transform:none}.tarot{transition:none}.tarot-camera{transform:none}.tarot-card,.card-turn,.tarot-camera,#deck{will-change:auto}}
 </style>
 </head>
 <body>
@@ -135,8 +137,7 @@ body{font-variant-numeric:tabular-nums;cursor:default}
 <div class="dawn" id="dawn"><div class="feed">AERIAL OBSERVATION / <b>LIVE</b><br>GMU · OPTICAL FEED<br>ALT 120 M / SIMULATED</div><div class="glow"></div><div class="suntrack"><div class="sun"></div><div class="lock"><span>TARGET ACQUIRED / SUN</span></div></div><div class="horizon"></div><div class="bearing"><span>060</span><span>075</span><span>090 / E</span><span>105</span><span>120</span></div></div>
 <div class="hello" id="hello"><b>早上好</b><i>GOOD MORNING</i><em id="helloCaption">圆桌已就位</em><small>MISSION START // READY TOGETHER</small></div>
 <canvas class="grain" id="grain" aria-hidden="true"></canvas><div class="scan"></div><div class="vignette"></div><div class="cut" id="cut"></div>
-<section class="tarot" id="tarot" aria-label="今日七席塔罗牌" aria-hidden="true"><div class="tarot-header">GMU / ARCANA 22<b id="tarotStage">今日七席 · PREPARING</b></div><div id="deck"></div></section>
-<div class="screen-fade" id="screenFade"></div>
+<section class="tarot" id="tarot" aria-label="塔罗牌圆环过场" aria-hidden="true"><div class="tarot-background" id="tarotBackground"></div><div class="tarot-camera" id="tarotCamera"><div id="deck"></div></div><div class="ring-trace" id="ringTrace" aria-hidden="true"></div><img class="seal-bridge" id="sealBridge" src="assets/gmu-seal.svg" alt="GMU 徽记"></section>
 <script>
 (() => {
  'use strict';
@@ -261,89 +262,116 @@ body{font-variant-numeric:tabular-nums;cursor:default}
   ['XXI','THE WORLD','<ellipse cx="40" cy="50" rx="25" ry="34"/><ellipse cx="40" cy="50" rx="12" ry="34"/><path d="M15 50h50M20 32h40M20 68h40"/>']
  ];
  const order = arcana.map((_,i)=>i);
- // Fisher–Yates：每次从全部 22 张中不重复抽取七张。
+ // Fisher–Yates：每次随机排列全部 22 张，不重复创建牌。
  for (let i=order.length-1;i>0;i--) { const j=Math.floor(Math.random()*(i+1)); [order[i],order[j]]=[order[j],order[i]]; }
  const cards = order.map((index,i)=>{
   const [roman,label,symbol]=arcana[index], card=document.createElement('div');
   card.className='tarot-card'; card.setAttribute('data-arcana',index);
-  card.innerHTML=`<div class="card-turn"><div class="card-side card-back" data-code="${String(i+1).padStart(2,'0')}"><svg viewBox="0 0 80 100" aria-hidden="true"><path d="M40 12 68 50 40 88 12 50zM40 24 58 50 40 76 22 50zM12 50h56M40 12v76"/><circle cx="40" cy="50" r="14"/></svg><small>GMU / 22</small></div><div class="card-side card-front" data-code="${roman}"><b>${roman}</b><svg viewBox="0 0 80 100" aria-hidden="true">${symbol}</svg><span>${label}</span></div></div>`;
+  card.innerHTML=`<div class="card-turn"><div class="card-side card-back"><svg viewBox="0 0 80 100" aria-hidden="true"><path d="M40 12 68 50 40 88 12 50zM40 24 58 50 40 76 22 50zM12 50h56M40 12v76"/><circle cx="40" cy="50" r="14"/></svg></div><div class="card-side card-front" data-code="${roman}"><b>${roman}</b><svg viewBox="0 0 80 100" aria-hidden="true">${symbol}</svg><span>${label}</span></div></div>`;
   $('#deck').appendChild(card);
   return {el:card,turn:card.querySelector('.card-turn'),label};
  });
- function pose(x=0,y=0,angle=0,scale=1) { return `translate(-50%,-50%) translate3d(${x}px,${y}px,0) rotate(${angle}deg) scale(${scale})`; }
- function stack(i) { return pose((i-10.5)*.38,(i-10.5)*-.65); }
- cards.forEach((card,i)=>{card.el.style.transform=stack(i);card.el.style.zIndex=i+1;});
- function motion(el,frames,duration,easing='cubic-bezier(.22,.75,.25,1)') {
+ function pose(x=0,y=0,z=0,rx=0,ry=0,rz=0,sx=1,sy=sx) {
+  return `translate(-50%,-50%) translate3d(${x}px,${y}px,${z}px) rotateX(${rx}deg) rotateY(${ry}deg) rotateZ(${rz}deg) scale3d(${sx},${sy},1)`;
+ }
+ function stack(i) { return pose((i-10.5)*.25,0,(i-10.5)*.65); }
+ cards.forEach((card,i)=>{card.el.style.transform=stack(i);});
+ function motion(el,frames,duration,easing='cubic-bezier(.2,.8,.2,1)') {
   const end=frames[frames.length-1];
   const animation=el.animate(frames,{duration,easing,fill:'forwards'});
   motions.add(animation);
   animation.onfinish=()=>{Object.assign(el.style,Object.fromEntries(Object.entries(end).filter(([k])=>k!=='offset'&&k!=='easing')));animation.cancel();motions.delete(animation);};
  }
- function sevenReady() {
-  $('#tarotStage').textContent='今日七席 · READY';
-  sfx('confirm'); say('今日七席，已经就位。','Seven cards. Seven seats.');
- }
  function tarotTransition() {
   $('#hello').classList.add('depart'); $('#dawn').classList.add('depart');
   $('#tarot').classList.add('on'); $('#tarot').setAttribute('aria-hidden','false');
-  const width=Math.min(112,Math.max(38,innerWidth*.11));
-  const spacing=Math.min(width*1.12,(innerWidth-width*1.6)/6);
-  const fan=i=>pose((i-3)*spacing,Math.abs(i-3)**2*width*.055-width*.25,(i-3)*6);
-  const selected=cards.slice(15);
-  if (reduced) {
-   cards.slice(0,15).forEach(c=>c.el.style.opacity=0);
-   selected.forEach((card,i)=>{card.el.style.transform=fan(i);card.turn.style.transform='rotateY(180deg)';card.el.setAttribute('aria-label',card.label);});
-   sevenReady(); return;
+  const h=Math.min(innerHeight*.42,380), w=h*.6;
+  const radius=Math.min(innerWidth*.36,innerHeight*.32);
+  const cardScale=radius*.32/h, sealSize=Math.min(innerHeight*.52,480);
+  const angle=i=>i*360/22;
+  const circle=(i,r=radius,sx=cardScale,sy=sx)=>{
+   const a=angle(i)*Math.PI/180;
+   return pose(Math.sin(a)*r,-Math.cos(a)*r,0,0,0,angle(i),sx,sy);
+  };
+  const camera=$('#tarotCamera'), deck=$('#deck');
+  const cam=(x,y,z,depth)=>`translateZ(${depth}px) rotateX(${x}deg) rotateY(${y}deg) rotateZ(${z}deg)`;
+  function bridge(duration) {
+   sfx('lock');
+   motion($('#tarotBackground'),[{opacity:0},{opacity:1}],duration);
+   cards.forEach((card,i)=>{
+    // 半圈后角度由 deck 保留；半径、牌边及细圆线同时匹配最终徽记。
+    motion(card.el,[{transform:circle(i),opacity:1},{transform:circle(i,sealSize*.5-2,.018,4/h),opacity:0}],duration,'cubic-bezier(.65,0,.35,1)');
+   });
+   const diameter=(radius+cardScale*h*.5)*2;
+   motion($('#ringTrace'),[{transform:`translate(-50%,-50%) scale(${diameter/sealSize})`,opacity:0,offset:0},{transform:'translate(-50%,-50%) scale(1)',opacity:.5,offset:.65},{transform:'translate(-50%,-50%) scale(1)',opacity:0,offset:1}],duration);
+   motion($('#sealBridge'),[{opacity:0,offset:0},{opacity:0,offset:.35},{opacity:.55,offset:1}],duration);
   }
-  $('#tarotStage').textContent='洗牌 · SHUFFLE / 22';
-  // 左右各 11 张，交替释放；落牌声与落位关键帧同一时间点。
-  later(400,()=>cards.forEach((card,i)=>{
-   const side=i%2?-1:1,level=Math.floor(i/2);
-   motion(card.el,[{transform:stack(i)},{transform:pose(side*width*.66,-level*.9,side*9)}],360);
-  }));
-  cards.forEach((card,i)=>later(850+i*40,()=>{
-   const side=i%2?-1:1,level=Math.floor(i/2);
-   card.el.style.zIndex=30+i;
-   motion(card.el,[{transform:pose(side*width*.66,-level*.9,side*9),offset:0},{transform:pose(0,9-i*.65,0,.98),offset:.68},{transform:pose(0,-5-i*.65,0,1.01),offset:.84},{transform:stack(i),offset:1}],320);
-   later(218,()=>sfx('tick'));
-  }));
-  let stackOrder=cards.slice();
-  [2050,2750].forEach(delay=>later(delay,()=>{
-   $('#tarotStage').textContent='切牌 · CUT'; sfx('whoosh');
-   const lower=stackOrder.slice(0,11),upper=stackOrder.slice(11);
-   upper.forEach((card,i)=>{
-    motion(card.el,[{transform:stack(i+11),offset:0},{transform:pose(width*1.4,-width*.38,-12),offset:.38},{transform:pose(width*.8,width*.38,7),offset:.68},{transform:stack(i),offset:1}],600);
-    later(390,()=>card.el.style.zIndex=i+1);
+  if (reduced) {
+   camera.style.transform='none';
+   cards.forEach((card,i)=>{card.el.style.transform=circle(i);card.turn.style.transform='rotateY(180deg)';});
+   // 只做淡入淡出，不缩放、转动或运镜。
+   later(600,()=>{
+    sfx('lock');
+    cards.forEach(card=>motion(card.el,[{opacity:1},{opacity:0}],400));
+    motion($('#tarotBackground'),[{opacity:0},{opacity:1}],400);
+    motion($('#sealBridge'),[{opacity:0},{opacity:.55}],400);
    });
-   lower.forEach((card,i)=>{
-    card.el.style.zIndex=i+12;
-    motion(card.el,[{transform:stack(i)},{transform:stack(i+11)}],600);
-   });
-   stackOrder=[...upper,...lower];
+   return;
+  }
+  sfx('whoosh');
+  // 镜头比牌先启动；Y 轴共环绕 26 度，关键动作错拍推近。
+  motion(camera,[
+   {transform:cam(55,-12,-12,-80),offset:0},
+   {transform:cam(49,-9,-10,70),offset:.18},
+   {transform:cam(43,-4,-8,30),offset:.31},
+   {transform:cam(39,0,-5,115),offset:.43},
+   {transform:cam(43,4,-3,15),offset:.57},
+   {transform:cam(35,9,3,100),offset:.73},
+   {transform:cam(40,14,6,0),offset:1}
+  ],3400,'cubic-bezier(.65,0,.35,1)');
+  // 0.30–1.10：Charlier，下半叠倾起穿过上半叠，再翻上归位。
+  later(300,()=>cards.forEach((card,i)=>{
+   const lower=i<11,local=i%11,base=lower?local+11:local;
+   motion(card.el,[{transform:stack(i),offset:0},
+    {transform:pose(lower?-w*.34:w*.42,lower?h*.16:-h*.12,lower?45:85,lower?-100:24,0,lower?-8:8),offset:.46},
+    {transform:pose(lower?w*.16:-w*.12,0,lower?100:-20,lower?-24:8,0,0),offset:.76},
+    {transform:stack(base),offset:1}],800,'cubic-bezier(.65,0,.35,1)');
   }));
-  // 两次切牌后顺序复原，从顶端发出七张；弧线中点和回弹点避免匀速平移。
-  selected.forEach((card,i)=>later(3500+i*100,()=>{
-   $('#tarotStage').textContent='发牌 · SEVEN SEATS'; sfx('link',i); card.el.style.zIndex=60+i;
-   motion(card.el,[{transform:stack(i+15),offset:0},{transform:pose((i-3)*spacing*.45,-width*1.15,(i-3)*9),offset:.46},{transform:pose((i-3)*spacing,Math.abs(i-3)**2*width*.055-width*.25+8,(i-3)*6,1.025),offset:.83},{transform:fan(i),offset:1}],560);
+  later(1100,()=>sfx('snap'));
+  // 1.16–1.94：整叠甩开成扇，略停后沿原弧收回。
+  const fan=i=>{const a=(i-10.5)*5.4;return pose(Math.sin(a*Math.PI/180)*w*.58,(1-Math.cos(a*Math.PI/180))*h*.34,i*.65,0,0,a);};
+  later(1160,()=>{
+   sfx('riffle',22);
+   cards.forEach((card,i)=>motion(card.el,[{transform:stack(i<11?i+11:i-11)},{transform:fan(i)}],340));
+  });
+  later(1560,()=>cards.forEach((card,i)=>motion(card.el,[{transform:fan(i)},{transform:stack(i)}],380,'cubic-bezier(.65,0,.35,1)')));
+  later(1940,()=>sfx('snap'));
+  // 2.00–3.30：四小叠在不同深度交错换位，远叠轻微虚焦。
+  later(2000,()=>cards.forEach((card,i)=>{
+   const packet=Math.min(3,Math.floor(i/6)),local=i%6;
+   const a=(packet*90-45)*Math.PI/180;
+   const b=a+Math.PI*.8;
+   motion(card.el,[{transform:stack(i),offset:0},
+    {transform:pose(Math.cos(a)*w*.78,Math.sin(a)*h*.27,(packet%2?90:-100)+local,packet%2?22:-28,packet*10-15,packet*22-30),offset:.32},
+    {transform:pose(Math.cos(b)*w*.72,Math.sin(b)*h*.25,(packet%2?-80:100)+local,packet%2?-22:28,15-packet*10,110-packet*25),offset:.67},
+    {transform:stack(i),offset:1}],1300,'cubic-bezier(.65,0,.35,1)');
+   // filter 放在牌面层，避免压平摄像机和牌组的 3D 空间。
+   motion(card.turn,[{filter:'blur(0px) brightness(1)',offset:0},{filter:packet%2?'blur(0px) brightness(1)':'blur(1.2px) brightness(.6)',offset:.32},{filter:packet%2?'blur(1px) brightness(.65)':'blur(0px) brightness(1)',offset:.67},{filter:'none',offset:1}],1300);
   }));
-  later(4300,()=>cards.slice(0,15).forEach(card=>motion(card.el,[{opacity:1},{opacity:0}],240)));
-  selected.forEach((card,i)=>later(4700+i*130,()=>{
-   $('#tarotStage').textContent='翻牌 · IDENTIFY'; sfx('chime',i); card.el.setAttribute('aria-label',card.label);
-   motion(card.turn,[{transform:'rotateY(0deg)'},{transform:'rotateY(180deg)'}],420,'cubic-bezier(.4,0,.2,1)');
+  [2200,2380,2560,2740].forEach(t=>later(t,()=>sfx('flip')));
+  later(3300,()=>sfx('snap'));
+  // 3.40–4.40：镜头回正，22 张牌沿弧线依次飞向同半径圆环。
+  later(3400,()=>motion(camera,[{transform:cam(40,14,6,0)},{transform:cam(0,0,0,0)}],850,'cubic-bezier(.65,0,.35,1)'));
+  cards.forEach((card,i)=>later(3420+i*25,()=>{
+   const a=angle(i)*Math.PI/180;
+   sfx('tick');
+   motion(card.el,[{transform:stack(i),offset:0},{transform:pose(Math.sin(a)*radius*.6,-Math.cos(a)*radius*.6,90,0,0,angle(i)-25,cardScale*1.4),offset:.58},{transform:circle(i),offset:1}],455);
+   motion(card.turn,[{transform:'rotateY(0deg)'},{transform:'rotateY(180deg)'}],400);
   }));
-  later(5950,sevenReady);
-  later(6500,()=>{
-   $('#tarotStage').textContent='七席就位 · COMPLETE';
-   selected.forEach(card=>motion(card.turn,[{transform:'rotateY(180deg)'},{transform:'rotateY(0deg)'}],300));
-  });
-  later(6850,()=>{
-   sfx('chord');
-   selected.forEach((card,i)=>motion(card.el,[{transform:fan(i)},{transform:stack(i)}],450));
-  });
-  later(7350,()=>{
-   selected.forEach((card,i)=>motion(card.el,[{transform:stack(i),opacity:1},{transform:pose(0,0,0,.3),opacity:0}],350));
-   $('#tarot').classList.add('out'); $('#screenFade').classList.add('on');
-  });
+  // 4.40–5.50：只有圆环保持匀速，严格转过半圈。
+  later(4400,()=>{sfx('ring');motion(deck,[{transform:'rotateZ(0deg)'},{transform:'rotateZ(180deg)'}],1100,'linear');});
+  // 5.50–6.30：牌化作细线，徽记和目标背景淡入；随后原位停留 0.30 秒。
+  later(5500,()=>bridge(800));
  }
  let closeCheck = () => {}, closeArchive = () => {}, closeAgenda = () => {};
  // 绝对时间点独立调度，逐字日志不会拖长全片。
@@ -377,7 +405,7 @@ body{font-variant-numeric:tabular-nums;cursor:default}
  at(13500,()=>{ $('#hello').classList.add('on'); sfx('chord'); say('早上好，圆桌已就位。','Good morning.'); });
  at(15000,()=>$('#dawn').classList.add('locked'));
  at(15500,tarotTransition);
- at(reduced ? 16500 : 23300,done);
+ at(reduced ? 16800 : 22100,done);
 })();
 </script>
 </body>
