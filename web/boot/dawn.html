@@ -63,12 +63,30 @@ body{font-variant-numeric:tabular-nums;cursor:default}
 .core circle{fill:#0e1a23;stroke:var(--accent);stroke-width:1.4}.core.on circle{stroke:var(--cyan);stroke-width:2}
 .core text{fill:var(--ink);font:700 15px var(--mono);text-anchor:middle;dominant-baseline:central}.core .sub{font-size:8px;fill:var(--dim);letter-spacing:.1em}
 .foot{gap:14px;padding:8px 12px;font-size:10.5px}.foot .stage{color:var(--cyan);min-width:200px}.foot .track{flex:1;height:4px}.foot b{min-width:44px;text-align:right}
-.win{position:fixed;width:min(340px,40vw);border:1px solid var(--cyan);background:#0b121af5;box-shadow:0 18px 50px #0009;clip-path:polygon(0 0,calc(100% - 12px) 0,100% 12px,100% 100%,0 100%);z-index:20;opacity:0;transform:translateY(5px);transition:opacity .12s,transform .12s}
-.win.on{opacity:1;transform:none}.win.off{opacity:0;transform:translateY(-4px)}
-.wh{display:flex;gap:8px;padding:8px 12px;background:#162733;border-bottom:1px solid var(--line);color:var(--cyan);font-size:11px;letter-spacing:.12em}.wh span{margin-left:auto;color:var(--dim)}
-.wb{padding:10px 12px;line-height:1.8}.row{display:flex;justify-content:space-between;gap:12px;color:var(--dim)}.row b{color:var(--ink)}
-.note{margin-top:8px;border-left:2px solid var(--amber);padding:6px 10px;background:#d7a06409;color:var(--ink);font-family:var(--sans)}
-.objectives{list-style:none}.objectives li{padding:4px 0;border-bottom:1px solid var(--line);font-family:var(--sans);font-weight:700}.objectives li:before{content:"☑";color:var(--cyan);margin-right:9px}.objectives small{float:right;color:var(--dim);font-family:var(--mono);font-weight:400}
+.win{position:fixed;width:min(500px,42vw);border:1px solid #71d5ef8c;background:#081018f2;box-shadow:0 24px 70px #000c,0 0 0 1px #000,0 0 40px #71d5ef1a;clip-path:polygon(0 0,calc(100% - 14px) 0,100% 14px,100% 100%,0 100%);z-index:20;opacity:0;transform:scale(.94) translateY(-6px);transition:opacity .18s,transform .22s cubic-bezier(.2,1.05,.4,1)}
+.win.on{opacity:1;transform:none}.win.off{opacity:0;transform:scale(.96) translateY(-4px)}
+.win.alert{border-color:#d7a064c0;box-shadow:0 24px 70px #000c,0 0 0 1px #000,0 0 44px #d7a06424}
+.wh{display:flex;align-items:center;gap:9px;padding:7px 10px 7px 12px;background:linear-gradient(180deg,#14283a,#0b1824);border-bottom:1px solid #71d5ef66;color:var(--cyan);font-size:11px;letter-spacing:.16em;text-transform:uppercase}
+.win.alert .wh{background:linear-gradient(180deg,#2a1d0e,#150f07);border-bottom-color:#d7a06499;color:var(--amber)}
+.wh i{font-style:normal;width:14px;text-align:center}.wh b{flex:1;font-weight:600;white-space:nowrap;overflow:hidden}
+.wh u{text-decoration:none;display:flex;gap:2px}.wh u span{width:18px;height:16px;display:grid;place-items:center;color:var(--dim);border:1px solid #34434e;font-size:9px}
+.strip{height:2px;background:repeating-linear-gradient(90deg,var(--amber) 0 10px,transparent 10px 20px);animation:strip 1s linear infinite}
+@keyframes strip{to{background-position:20px 0}}
+.wb{padding:12px 14px 10px;line-height:1.55;font-size:11.5px}
+.row{display:grid;grid-template-columns:auto 1fr;gap:4px 18px;padding:4px 0;border-bottom:1px dotted #71d5ef1f;color:var(--dim)}
+.row span{font-size:10.5px;letter-spacing:.08em;text-transform:uppercase}.row b{color:var(--ink);text-align:right;font-weight:600}
+.row b.ok{color:#7fd8a8}.row b.warn{color:var(--amber)}.row b.hl{color:var(--cyan)}
+.wdiv{height:1px;margin:9px 0;background:linear-gradient(90deg,transparent,#71d5ef55,transparent)}
+.meter{display:flex;align-items:baseline;gap:10px;padding:2px 0}.meter b{font:600 32px var(--mono);color:var(--cyan);text-shadow:0 0 14px #71d5ef66}.meter span{color:var(--dim);font-size:10.5px;letter-spacing:.12em;text-transform:uppercase}
+.win.alert .meter b{color:var(--amber);text-shadow:0 0 14px #d7a06466}
+.wprog{height:6px;margin:6px 0 2px;background:#03070a;border:1px solid #34434e;overflow:hidden}.wprog i{display:block;height:100%;width:0;background:linear-gradient(90deg,#338eaf,var(--cyan));box-shadow:0 0 8px #71d5ef80;transition:width .18s linear}
+.mlog{margin-top:6px;padding:7px 9px;background:#03070a;border:1px solid #34434e;font-size:10.5px;line-height:1.6;color:var(--dim)}.mlog div{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.mlog .ok{color:#7fd8a8}.mlog .warn{color:var(--amber)}.mlog .hl{color:var(--cyan)}
+.wave{display:flex;align-items:flex-end;gap:2px;height:34px;padding:3px;margin-top:6px;background:#03070a;border:1px solid #34434e}.wave i{flex:1;height:20%;background:linear-gradient(180deg,var(--cyan),#338eaf);transition:height .09s linear}
+.note{margin-top:9px;border-left:2px solid var(--amber);padding:6px 10px;background:#d7a0640d;color:var(--ink);font-family:var(--sans);font-size:12px}
+.wbtns{display:flex;justify-content:flex-end;gap:8px;margin-top:10px}.wbtns span{padding:4px 14px;border:1px solid #338eaf;color:var(--cyan);font-size:10.5px;letter-spacing:.16em}.wbtns span.p{background:#71d5ef1a;border-color:var(--cyan)}
+.ws{display:flex;gap:10px;padding:5px 12px;border-top:1px solid #71d5ef40;background:#060d14;color:var(--dim);font-size:9.5px;letter-spacing:.16em;text-transform:uppercase}.ws em{flex:1;font-style:normal}.ws .spin:before{content:"◐";display:inline-block;margin-right:6px;color:var(--cyan);animation:spin .8s steps(4) infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.objectives{list-style:none}.objectives li{display:flex;gap:10px;padding:5px 0;border-bottom:1px dotted #71d5ef1f;font-family:var(--sans);font-weight:700}.objectives li:before{content:"☑";color:var(--cyan)}.objectives small{margin-left:auto;color:var(--dim);font-family:var(--mono);font-weight:400}
 .dawn{position:fixed;inset:0;opacity:0;pointer-events:none;z-index:30;background:linear-gradient(#05080b,#0b1720 72%,#13212a 86%,#05080b)}.dawn.on{opacity:1;transition:opacity .3s}
 .glow{position:absolute;left:50%;bottom:-78vh;width:150vh;height:150vh;transform:translateX(-50%);border-radius:50%;background:radial-gradient(circle,#b8dbe860,#4d8da033 20%,transparent 56%);opacity:0}.dawn.on .glow{animation:light 3s both}
 @keyframes light{from{opacity:0}to{opacity:1}}
@@ -87,7 +105,7 @@ body{font-variant-numeric:tabular-nums;cursor:default}
 .hello small{display:block;margin-top:20px;font-size:10px;letter-spacing:.35em;color:var(--cyan)}
 .hello.on b,.hello.on i,.hello.on em,.hello.on small{animation:reveal .25s both}.hello.on i{animation-delay:.15s}.hello.on em{animation-delay:.3s}.hello.on small{animation-delay:.45s}
 .hud.noise{animation:glitch 90ms steps(1)}@keyframes glitch{0%{transform:translateX(2px);filter:contrast(1.7)}35%{transform:translateX(-2px)}70%,100%{transform:none;filter:none}}
-@media(max-width:899px){.cols{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}.cols .pnl:first-child{display:none}.bar{gap:10px;flex-wrap:wrap;white-space:normal;font-size:9px}.bar .sp{display:none}.foot .stage{min-width:0}.win{width:min(340px,70vw)}.ph{font-size:9px;padding:8px}.pb{padding:8px}.term{font-size:10px}}
+@media(max-width:899px){.cols{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}.cols .pnl:first-child{display:none}.bar{gap:10px;flex-wrap:wrap;white-space:normal;font-size:9px}.bar .sp{display:none}.foot .stage{min-width:0}.win{width:min(420px,86vw)}.ph{font-size:9px;padding:8px}.pb{padding:8px}.term{font-size:10px}}
 @media(prefers-reduced-motion:reduce){*,*:before,*:after{animation-duration:.01ms!important;animation-delay:0ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}.cut,.grain{display:none}.ring{filter:none;transform:none}.suntrack{bottom:6vh}}
 .dawn.depart,.hello.depart{opacity:0;transform:translate3d(0,-8vh,0);filter:brightness(.25);transition:opacity .55s,transform .65s cubic-bezier(.4,0,.2,1),filter .55s}
 .tarot{position:fixed;inset:0;z-index:45;background:#05080b;opacity:0;visibility:hidden;pointer-events:none;perspective:1400px;transition:opacity .45s;--card-h:min(42vh,380px)}
@@ -228,13 +246,30 @@ body{font-variant-numeric:tabular-nums;cursor:default}
  function telemetry(k) {
   const e = -6+8.4*k; $('#elev').textContent = (e>=0?'+':'')+e.toFixed(1)+'°'; $('#kelvin').textContent = Math.round(2200+3400*k)+' K'; $('#phase').textContent = e<0?'晨光观测':'日出锁定'; bar('#bSky',8+92*k,'#mSky');
  }
- const field = (key,value) => `<div class="row"><span>${key}</span><b>${value}</b></div>`;
- function popup(title, html, position) {
-  const el = document.createElement('div'); el.className = 'win';
-  el.innerHTML = `<div class="wh"><b></b><span>EYES ONLY</span></div><div class="wb">${html}</div>`;
-  Object.assign(el.style,position); document.body.appendChild(el); later(16,()=>el.classList.add('on'));
-  decrypt(el.querySelector('.wh b'),title); sfx('pop');
-  return () => { el.classList.add('off'); later(150,()=>el.remove()); };
+ const field = (key,value,cls='') => `<div class="row"><span>${key}</span><b class="${cls}">${value}</b></div>`;
+ const kv = rows => rows.map(r=>field(...r)).join('');
+ const mlog = lines => `<div class="mlog">${lines.map(([t,c=''])=>`<div class="${c}">[${clock()}] ${t}</div>`).join('')}</div>`;
+ const clock = () => new Date().toTimeString().slice(0,8);
+ // 弹窗：标题栏（图标 + 解密标题 + 窗口按钮）→ 可选警示条 → 正文 → 状态栏（状态 + 时钟）。
+ function popup({name, icon='▣', kind='', status='READY', body='', pos={}, mount=null}) {
+  const el = document.createElement('div'); el.className = 'win '+kind;
+  el.innerHTML = `<div class="wh"><i>${icon}</i><b></b><u><span>─</span><span>□</span><span>✕</span></u></div>${kind==='alert'?'<div class="strip"></div>':''}<div class="wb">${body}</div><div class="ws"><em class="spin">${status}</em><span class="wclock">${clock()}</span><span>EYES ONLY</span></div>`;
+  Object.assign(el.style,pos); document.body.appendChild(el); later(16,()=>el.classList.add('on'));
+  decrypt(el.querySelector('.wh b'),name); sfx('pop');
+  const tick = setInterval(()=>{ const c=el.querySelector('.wclock'); if (c) c.textContent=clock(); },1000);
+  if (mount) mount(el);
+  return () => { clearInterval(tick); el.classList.add('off'); later(200,()=>el.remove()); };
+ }
+ // 波形条：每 90ms 换一次高度
+ function wave(el, n=40) {
+  const box = el.querySelector('.wave'); if (!box) return;
+  box.innerHTML = '<i></i>'.repeat(n); const bars=[...box.children];
+  const t = setInterval(()=>{ if (!el.isConnected) return clearInterval(t); bars.forEach((b,i)=>b.style.height=(18+Math.abs(Math.sin(performance.now()/180+i*.5))*60+Math.random()*22)+'%'); },90);
+ }
+ // 大数字与进度条一起从 0 数到 total
+ function count(el, total, ms) {
+  const big=el.querySelector('.meter b'), bar=el.querySelector('.wprog i'); let n=0;
+  const t=setInterval(()=>{ n=Math.min(total,n+1); if (big) big.textContent=String(n).padStart(2,'0'); if (bar) bar.style.width=(n/total*100)+'%'; if (n>=total) clearInterval(t); }, ms/total);
  }
  // 自绘大阿卡纳：编号、英文名及独立的几何线稿。
  const arcana = [
@@ -274,7 +309,8 @@ body{font-variant-numeric:tabular-nums;cursor:default}
  function pose(x=0,y=0,z=0,rx=0,ry=0,rz=0,sx=1,sy=sx) {
   return `translate(-50%,-50%) translate3d(${x}px,${y}px,${z}px) rotateX(${rx}deg) rotateY(${ry}deg) rotateZ(${rz}deg) scale3d(${sx},${sy},1)`;
  }
- function stack(i) { return pose((i-10.5)*.25,0,(i-10.5)*.65); }
+ // 牌与牌之间留 1.6px 的深度，倾斜镜头下也不会互相穿插
+ function stack(i) { return pose((i-10.5)*.3,0,(i-10.5)*1.6); }
  cards.forEach((card,i)=>{card.el.style.transform=stack(i);});
  function motion(el,frames,duration,easing='cubic-bezier(.2,.8,.2,1)') {
   const end=frames[frames.length-1];
@@ -304,7 +340,7 @@ body{font-variant-numeric:tabular-nums;cursor:default}
    });
    const diameter=(radius+cardScale*h*.5)*2;
    motion($('#ringTrace'),[{transform:`translate(-50%,-50%) scale(${diameter/sealSize})`,opacity:0,offset:0},{transform:'translate(-50%,-50%) scale(1)',opacity:.5,offset:.65},{transform:'translate(-50%,-50%) scale(1)',opacity:0,offset:1}],duration);
-   motion($('#sealBridge'),[{opacity:0,offset:0},{opacity:0,offset:.35},{opacity:.55,offset:1}],duration);
+   motion($('#sealBridge'),[{opacity:0,offset:0},{opacity:0,offset:.35},{opacity:1,offset:1}],duration);
   }
   if (reduced) {
    camera.style.transform='none';
@@ -314,7 +350,7 @@ body{font-variant-numeric:tabular-nums;cursor:default}
     sfx('lock');
     cards.forEach(card=>motion(card.el,[{opacity:1},{opacity:0}],400));
     motion($('#tarotBackground'),[{opacity:0},{opacity:1}],400);
-    motion($('#sealBridge'),[{opacity:0},{opacity:.55}],400);
+    motion($('#sealBridge'),[{opacity:0},{opacity:1}],400);
    });
    return;
   }
@@ -332,14 +368,16 @@ body{font-variant-numeric:tabular-nums;cursor:default}
   // 0.30–1.10：Charlier，下半叠倾起穿过上半叠，再翻上归位。
   later(300,()=>cards.forEach((card,i)=>{
    const lower=i<11,local=i%11,base=lower?local+11:local;
+   // 先左右拉开超过一张牌宽，再让下半叠从上方越过；转角不超过 18°，两叠始终不在同一深度
+   const z=local*1.6;
    motion(card.el,[{transform:stack(i),offset:0},
-    {transform:pose(lower?-w*.34:w*.42,lower?h*.16:-h*.12,lower?45:85,lower?-100:24,0,lower?-8:8),offset:.46},
-    {transform:pose(lower?w*.16:-w*.12,0,lower?100:-20,lower?-24:8,0,0),offset:.76},
+    {transform:pose(lower?-w*.62:w*.62,lower?h*.05:-h*.05,lower?z-30:z+10,0,lower?-14:14,lower?-6:6),offset:.4},
+    {transform:pose(lower?-w*.2:w*.38,lower?-h*.04:h*.02,lower?z+120:z-30,lower?-10:0,lower?18:6,lower?-3:2),offset:.72},
     {transform:stack(base),offset:1}],800,'cubic-bezier(.65,0,.35,1)');
   }));
   later(1100,()=>sfx('snap'));
   // 1.16–1.94：整叠甩开成扇，略停后沿原弧收回。
-  const fan=i=>{const a=(i-10.5)*5.4;return pose(Math.sin(a*Math.PI/180)*w*.58,(1-Math.cos(a*Math.PI/180))*h*.34,i*.65,0,0,a);};
+  const fan=i=>{const a=(i-10.5)*5.4;return pose(Math.sin(a*Math.PI/180)*w*.58,(1-Math.cos(a*Math.PI/180))*h*.34,(i-10.5)*1.6,0,0,a);};
   later(1160,()=>{
    sfx('riffle',22);
    cards.forEach((card,i)=>motion(card.el,[{transform:stack(i<11?i+11:i-11)},{transform:fan(i)}],340));
@@ -349,14 +387,17 @@ body{font-variant-numeric:tabular-nums;cursor:default}
   // 2.00–3.30：四小叠在不同深度交错换位，远叠轻微虚焦。
   later(2000,()=>cards.forEach((card,i)=>{
    const packet=Math.min(3,Math.floor(i/6)),local=i%6;
-   const a=(packet*90-45)*Math.PI/180;
-   const b=a+Math.PI*.8;
+   // 四小叠各占一个固定深度（相差 ≥ 70px），横向拉开到一张牌宽以上再交换位置；
+   // 交叉时深度不同、转角小，所以不会穿模
+   const depth=[150,-70,70,-150][packet], z=depth+local*1.6;
+   const x1=(packet-1.5)*w*1.2, x2=(1.5-packet)*w*1.2;
    motion(card.el,[{transform:stack(i),offset:0},
-    {transform:pose(Math.cos(a)*w*.78,Math.sin(a)*h*.27,(packet%2?90:-100)+local,packet%2?22:-28,packet*10-15,packet*22-30),offset:.32},
-    {transform:pose(Math.cos(b)*w*.72,Math.sin(b)*h*.25,(packet%2?-80:100)+local,packet%2?-22:28,15-packet*10,110-packet*25),offset:.67},
+    {transform:pose(x1,(packet%2?-1:1)*h*.1,z,packet%2?8:-8,(packet-1.5)*6,(packet-1.5)*5),offset:.32},
+    {transform:pose(x2,(packet%2?1:-1)*h*.1,z,packet%2?-8:8,(1.5-packet)*6,(1.5-packet)*5),offset:.67},
     {transform:stack(i),offset:1}],1300,'cubic-bezier(.65,0,.35,1)');
    // filter 放在牌面层，避免压平摄像机和牌组的 3D 空间。
-   motion(card.turn,[{filter:'blur(0px) brightness(1)',offset:0},{filter:packet%2?'blur(0px) brightness(1)':'blur(1.2px) brightness(.6)',offset:.32},{filter:packet%2?'blur(1px) brightness(.65)':'blur(0px) brightness(1)',offset:.67},{filter:'none',offset:1}],1300);
+   const far=depth<0, look=far?'blur(1.2px) brightness(.6)':'blur(0px) brightness(1)';
+   motion(card.turn,[{filter:'blur(0px) brightness(1)',offset:0},{filter:look,offset:.32},{filter:look,offset:.67},{filter:'blur(0px) brightness(1)',offset:1}],1300);
   }));
   [2200,2380,2560,2740].forEach(t=>later(t,()=>sfx('flip')));
   later(3300,()=>sfx('snap'));
@@ -365,7 +406,7 @@ body{font-variant-numeric:tabular-nums;cursor:default}
   cards.forEach((card,i)=>later(3420+i*25,()=>{
    const a=angle(i)*Math.PI/180;
    sfx('tick');
-   motion(card.el,[{transform:stack(i),offset:0},{transform:pose(Math.sin(a)*radius*.6,-Math.cos(a)*radius*.6,90,0,0,angle(i)-25,cardScale*1.4),offset:.58},{transform:circle(i),offset:1}],455);
+   motion(card.el,[{transform:stack(i),offset:0},{transform:pose(Math.sin(a)*radius*.6,-Math.cos(a)*radius*.6,90+i*7,0,0,angle(i)-25,cardScale*1.4),offset:.58},{transform:circle(i),offset:1}],455);
    motion(card.turn,[{transform:'rotateY(0deg)'},{transform:'rotateY(180deg)'}],400);
   }));
   // 4.40–5.50：只有圆环保持匀速，严格转过半圈。
@@ -373,7 +414,7 @@ body{font-variant-numeric:tabular-nums;cursor:default}
   // 5.50–6.30：牌化作细线，徽记和目标背景淡入；随后原位停留 0.30 秒。
   later(5500,()=>bridge(800));
  }
- let closeCheck = () => {}, closeArchive = () => {}, closeAgenda = () => {};
+ let closeCheck = () => {}, closeArchive = () => {}, closeAgenda = () => {}, closeUplink = () => {}, closeIntercept = () => {}, closeSync = () => {};
  // 绝对时间点独立调度，逐字日志不会拖长全片。
  const start = performance.now();
  const at = (ms,fn) => later(Math.max(0,ms-(performance.now()-start)),fn);
@@ -389,16 +430,27 @@ body{font-variant-numeric:tabular-nums;cursor:default}
   $('#seatsLbl').textContent = `${i+1} / 7 ONLINE`; $('#coreN').textContent = `${i+1}/7`; $('#online').textContent = `${i+1} / 7`;
   telemetry((i+1)/7*.75); bar('#bLink',(i+1)/7*100,'#mLink'); bar('#bReady',(i+1)/7*100,'#mReady');
   progress(12+(i+1)*8.5,`03 / 唤醒席位 0${i+1} / 07`); log(calls[i],'ONLINE · 协作席位已接入');
-  if (i===2) closeCheck = popup('席位晨检 / PERSONNEL',field('呼号','CHARLIE / 03')+field('角色','协作成员')+field('准备状态','READY')+field('档案编号','█████')+'<div class="note">人员档案已确认。今天一起把事情办好。</div>',{left:'36vw',bottom:'14vh'});
-  if (i===5) closeArchive = popup('梦境归档 / FIELD LOG',field('01 / 昨夜记忆','已整理')+field('02 / 未完事项','待接续')+field('03 / 灵感片段','已归档')+'<div class="note">行动日志：保留灵感，接续昨日思路。</div>',{left:'3vw',bottom:'12vh'});
+  if (i===1) closeUplink = popup({name:'SECURE UPLINK · GMU-07',icon:'◆',status:'ENCRYPTED · LIVE',pos:{left:'2.5vw',top:'12vh'},
+   body:kv([['CHANNEL','GMU-07 / MAN-BJS','hl'],['CIPHER','AES-256-GCM'],['HANDSHAKE','3 / 3','ok'],['LATENCY','38 MS'],['CARRIER','7.31 MHZ']])+'<div class="wave"></div>',mount:el=>wave(el)});
+  if (i===2) closeCheck = popup({name:'PERSONNEL · CHARLIE / 03',icon:'◈',status:'PROFILE VERIFIED',pos:{left:'35vw',bottom:'11vh'},
+   body:kv([['CALLSIGN','CHARLIE / 03','hl'],['ROLE','协作成员'],['READINESS','READY','ok'],['FILE NO.','█████'],['CLEARANCE','LEVEL 3','warn']])+'<div class="wdiv"></div><div class="meter"><b>00</b><span>% READINESS</span></div><div class="wprog"><i></i></div><div class="note">人员档案已确认。今天一起把事情办好。</div>',mount:el=>count(el,86,900)});
+  if (i===4) closeIntercept = popup({name:'SIGNAL INTERCEPT · RELAY 04',icon:'⚠',kind:'alert',status:'DECODING',pos:{left:'17vw',top:'34vh'},
+   body:kv([['SOURCE','GMU RELAY · MAN-04','warn'],['BAND','HF · 7.31 MHZ'],['MODE','CW / MORSE'],['CLASS','ROUTINE','ok']])+mlog([['carrier lock acquired','hl'],['decode: --. -- ..-  (G M U)'],['payload: morning assembly · 7 seats','warn'],['origin verified · relay 04','ok']])+'<div class="note">截获晨间广播：七席集合，准备接入。</div>'});
+  if (i===5) closeArchive = popup({name:'FIELD LOG · 梦境归档',icon:'▤',status:'ARCHIVED · LOCAL ONLY',pos:{left:'2.5vw',bottom:'9vh'},
+   body:kv([['01 / 昨夜记忆','已整理','ok'],['02 / 未完事项','待接续','warn'],['03 / 灵感片段','已归档','ok'],['04 / 情绪基线','稳定','hl']])+mlog([['index rebuilt · 214 entries'],['compress: 3.2 MB → 0.9 MB','ok'],['stored on this device only','hl']])});
  });
  at(7200,()=>{ if (!reduced) $('#hud').classList.add('noise'); });
- at(8200,()=>{ closeCheck(); log('SYNC','同步昨夜记忆 · 七席交叉校验'); progress(76,'04 / 同步昨夜记忆'); });
+ at(7600,()=>closeUplink());
+ at(8600,()=>closeIntercept());
+ at(8200,()=>{ closeCheck();
+  closeSync = popup({name:'MEMORY SYNC · CROSS-CHECK',icon:'⟳',status:'SYNCING · 7 NODES',pos:{left:'36vw',top:'14vh'},
+   body:'<div class="meter"><b>00</b><span>/ 07 SEATS IN SYNC</span></div><div class="wprog"><i></i></div>'+kv([['HASH A','3f9a…c210  ✔','ok'],['HASH B','88be…41d7  ✔','ok'],['HASH C','0c72…9af3  ✔','ok'],['ELAPSED','T-00:00:01']]),mount:el=>count(el,7,900)}); log('SYNC','同步昨夜记忆 · 七席交叉校验'); progress(76,'04 / 同步昨夜记忆'); });
  for (let i = 0; i < 7; i++) at(8500+i*90,()=>{ spokes[i].classList.add('on'); sfx('link',i); bar('#bMem',(i+1)/7*100,'#mMem'); });
  at(9400,()=>{
   $('#core').classList.add('on'); closeArchive(); sfx('confirm'); say('全员到位，同步完成。','All seven. In sync.');
   progress(92,'05 / 确认今日目标'); log('CORE','7 名成员到位 · 今日目标已确认');
-  closeAgenda = popup('今日议程 / OBJECTIVES','<ol class="objectives"><li>早安问候<small>01</small></li><li>确认今天想做的事<small>02</small></li><li>一起把事情办好<small>03</small></li></ol>',{left:'50%',top:'22vh',translate:'-50% 0'});
+  closeSync(); closeAgenda = popup({name:'OBJECTIVES · 今日议程',icon:'✓',status:'AWAITING SUNRISE',pos:{left:'50%',top:'20vh',translate:'-50% 0'},
+   body:'<div class="meter"><b>07</b><span>/ 07 SEATS PRESENT</span></div><div class="wdiv"></div><ol class="objectives"><li>早安问候<small>01 · 09:00</small></li><li>确认今天想做的事<small>02 · ANY</small></li><li>一起把事情办好<small>03 · ALL DAY</small></li></ol><div class="wbtns"><span>VIEW LOG</span><span class="p">PROCEED</span></div>'});
  });
  at(11200,()=>{ telemetry(1); log('DAWN','观测窗口就绪 · 等待日出'); });
  at(12000,()=>{ closeAgenda(); progress(100,'06 / 行动开始'); $('#hud').classList.add('out'); $('#hud').setAttribute('aria-hidden','true'); $('#dawn').classList.add('on'); sfx('sunrise'); });

@@ -171,3 +171,14 @@ def test_no_wandering_earth_or_550c_left():
         for word in banned:
             assert word not in text, (path, word)
     assert not (BOOT / "550c.html").exists()
+
+
+def test_permit_page_takes_over_the_seal_from_the_intro(serve, page):
+    """片头以徽记收尾；授权页带 handoff=1 时徽记一开始就在，不再从中心擦出一次。"""
+    srv = serve(confirm_threshold_usd=100.0)
+    page.goto(srv.url + "/boot/gmu.html?handoff=1&audio=0&auto=0")
+    assert "handoff" in page.get_attribute("#stage", "class")
+    opacity = page.eval_on_selector("#sealWrap .seal", "e => getComputedStyle(e).opacity")
+    assert float(opacity) > 0.9
+    page.goto(srv.url + "/boot/gmu.html?audio=0&auto=0")
+    assert "handoff" not in page.get_attribute("#stage", "class")

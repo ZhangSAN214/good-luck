@@ -133,6 +133,11 @@
   /* 注意：这里不能带 both —— 填充会在它的延迟期（0–500ms）就套用 from{opacity:0}，
      把整个徽记藏起来。无填充时延迟期内保持自然状态，抖动只在 500ms 那两帧生效。 */
   .stage.play .sealWrap.glitch{animation:l-gx 92ms steps(2,end) 500ms 2}
+  /* 从片头接过来（?handoff=1）：片头最后一帧就是这枚徽记，所以这里不再从中心擦出、不闪角标，
+     徽记一开始就在、再按原节拍淡出，两页之间看不出接缝。 */
+  .stage.handoff .seal{opacity:1;clip-path:none}
+  .stage.handoff.play .seal{animation:l-sealout 280ms cubic-bezier(.4,0,.2,1) 620ms both}
+  .stage.handoff.play .sealWrap.glitch,.stage.handoff.play .settleLine,.stage.handoff.play .sweep{animation:none}
   /* 1500–1850 快速渐缩小 → 1850 起待机循环 → 1980 起按钮淡出
      （循环态的 transform 直接写成缩小后的 0.76，否则会跳回原尺寸）*/
   .stage.play .lockWrap{animation:l-appear 1ms linear 900ms both,
@@ -533,6 +538,7 @@
 </head>
 <body>
 <div class="stage" id="stage">
+<script>if (new URLSearchParams(location.search).get('handoff') === '1') document.getElementById('stage').classList.add('handoff')</script>
   <div class="grid"></div>
   <div class="scan"></div>
   <div class="vignette"></div>
