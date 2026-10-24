@@ -7,6 +7,7 @@ import re
 from roundtable.core.config import load_config
 
 from ..core.orchestrator.conftest import MEDIUM
+from .conftest import quiet_boot
 
 TAROT = set(load_config().personas.codes)
 DONE = "讨论完成"
@@ -220,6 +221,7 @@ def test_payslip_and_office_roster(serve, page):
 def test_narrow_screen_stacks(serve, browser):
     srv = serve(confirm_threshold_usd=100.0)
     ctx = browser.new_context(viewport={"width": 420, "height": 860})
+    quiet_boot(ctx)
     pg = ctx.new_page()
     pg.route("https://fonts.*/**", lambda r: r.abort())
     pg.goto(srv.url)

@@ -33,6 +33,7 @@ import { GroupChat } from './groupchat.js';
 import { People } from './people.js';
 import { Feeds } from './feeds.js';
 import { Moments } from './moments.js';
+import { BootSettings } from './bootcfg.js';
 
 const $ = (q) => document.querySelector(q);
 const RESTING = new Set(['completed', 'stopped', 'failed', 'awaiting_confirmation', 'paused']);
@@ -92,6 +93,8 @@ const people = new People($('#people'), {
   },
 });
 const feeds = new Feeds($('#feeds'), { api: { get: API.chatFeeds, set: API.setChatFeeds, refresh: API.refreshChatFeeds } });
+const bootcfg = new BootSettings($('#bootdlg'));
+$('#bootcfg').addEventListener('click', () => bootcfg.open());
 const moments = new Moments($('#moments'), {
   api: { list: API.getMoments, post: API.postMoment, like: API.likeMoment, comment: API.commentMoment, del: API.delMoment, delComment: API.delMomentComment },
   onSeen: () => gchat.markMomentsSeen(),

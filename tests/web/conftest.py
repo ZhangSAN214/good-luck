@@ -136,6 +136,14 @@ def serve():
         s.stop()
 
 
+def quiet_boot(ctx) -> None:
+    """不放开机动画（它会盖住首页）；测片头本身的测试先把模式设成别的再刷新。"""
+    ctx.add_init_script(
+        "try { if (!localStorage.getItem('roundtable.boot.mode'))"
+        " localStorage.setItem('roundtable.boot.mode', 'off') } catch {}"
+    )
+
+
 @pytest.fixture
 def page(browser):
     ctx = browser.new_context(viewport={"width": 1400, "height": 900})
@@ -144,6 +152,7 @@ def page(browser):
         "try { if (!localStorage.getItem('roundtable.workflow'))"
         " localStorage.setItem('roundtable.workflow', 'discussion') } catch {}"
     )
+    quiet_boot(ctx)
     pg = ctx.new_page()
     pg.route("https://fonts.googleapis.com/**", lambda r: r.abort())
     pg.route("https://fonts.gstatic.com/**", lambda r: r.abort())
