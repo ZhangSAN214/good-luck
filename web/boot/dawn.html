@@ -3,457 +3,250 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>GMU · 晨会协议</title>
+<title>GMU · 破晓行动</title>
 <style>
-  /* 圆桌开机片头「晨会协议」（圆桌原创）：深蓝夜色 → 七个席位依次醒来 → 记忆同步 → 日出 → 早上好。
-     时间线由脚本决定「什么时候」，动画全写在 CSS 里决定「怎么动」。
-     音效和播报不在这一页放：通过 postMessage 交给外层页面（外层有用户的那一下点击，浏览器才肯出声）。 */
-  :root{
-    --bg:#030814; --deep:#061228; --panel:rgba(10,26,54,.62); --win:rgba(8,22,48,.9);
-    --ink:#d6e8ff; --dim:#6f8db3; --faint:#2a4468; --line:rgba(120,180,255,.22); --line-soft:rgba(120,180,255,.08);
-    --accent:#4da3ff; --cyan:#5ee0ff; --glow:rgba(77,163,255,.55); --gold:#ffd58c; --ok:#7ef0c0;
-    --mono:"JetBrains Mono","Cascadia Mono","SF Mono",Consolas,monospace;
-    --sans:"Inter","Noto Sans SC","Microsoft YaHei","PingFang SC",system-ui,sans-serif;
-  }
-  *{box-sizing:border-box;margin:0;padding:0}
-  html,body{height:100%;background:var(--bg);color:var(--ink);font-family:var(--mono);font-size:12px;overflow:hidden;-webkit-font-smoothing:antialiased}
-  body{cursor:default}
-  .sky{position:fixed;inset:0;background:radial-gradient(130% 90% at 50% 120%,#0b2350 0%,#061228 45%,var(--bg) 80%)}
-  canvas.stars{position:fixed;inset:0;width:100%;height:100%}
-  .grid{position:fixed;inset:0;pointer-events:none;opacity:.5;background-image:
-      linear-gradient(var(--line-soft) 1px,transparent 1px),linear-gradient(90deg,var(--line-soft) 1px,transparent 1px);
-    background-size:44px 44px;mask-image:radial-gradient(80% 70% at 50% 50%,#000 30%,transparent 100%)}
-  .scan{position:fixed;inset:0;pointer-events:none;background:repeating-linear-gradient(to bottom,rgba(120,180,255,.035) 0,rgba(120,180,255,.035) 1px,transparent 1px,transparent 3px)}
-  .vignette{position:fixed;inset:0;pointer-events:none;background:radial-gradient(120% 100% at 50% 50%,transparent 55%,rgba(0,0,0,.65) 100%)}
-
-  /* ── 第 0 幕：开机徽环 ── */
-  .act0{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:22px;transition:opacity .6s ease,transform .8s cubic-bezier(.2,.8,.2,1)}
-  .act0.gone{opacity:0;transform:scale(1.08);pointer-events:none}
-  .ring{width:min(30vh,240px);aspect-ratio:1;position:relative}
-  .ring svg{width:100%;height:100%;overflow:visible}
-  .ring .c{fill:none;stroke:var(--cyan);stroke-width:1.6;stroke-dasharray:760;stroke-dashoffset:760;filter:drop-shadow(0 0 6px var(--glow))}
-  .ring .c2{stroke:var(--accent);stroke-width:1;stroke-dasharray:4 7;opacity:0}
-  .ring .seal{position:absolute;inset:16%;width:68%;opacity:0;filter:drop-shadow(0 0 14px rgba(94,224,255,.35)) brightness(1.05)}
-  .play .ring .c{animation:draw 1.3s cubic-bezier(.6,0,.2,1) .15s forwards}
-  .play .ring .c2{animation:spinIn 1.6s ease .6s forwards}
-  .play .ring .seal{animation:fadeUp .9s ease 1s forwards}
-  .title0{text-align:center;opacity:0}
-  .title0 b{display:block;font-family:var(--sans);font-size:clamp(20px,3.2vw,34px);font-weight:600;letter-spacing:.6em;color:#eaf4ff;text-shadow:0 0 18px rgba(94,224,255,.45)}
-  .title0 i{display:block;font-style:normal;margin-top:8px;letter-spacing:.42em;color:var(--dim);font-size:11px}
-  .play .title0{animation:track 1.2s cubic-bezier(.2,.8,.2,1) 1.2s forwards}
-  @keyframes draw{to{stroke-dashoffset:0}}
-  @keyframes spinIn{from{opacity:0;transform:rotate(-60deg)}to{opacity:.9;transform:rotate(0)}}
-  @keyframes fadeUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
-  @keyframes track{from{opacity:0;letter-spacing:1.4em;filter:blur(6px)}to{opacity:1;filter:none}}
-
-  /* ── 第 1 幕：控制台 ── */
-  .hud{position:fixed;inset:0;display:grid;grid-template-rows:auto 1fr auto;gap:12px;padding:14px 16px;opacity:0;pointer-events:none}
-  .hud.on{opacity:1;transition:opacity .5s ease}
-  .hud.out{opacity:0;transition:opacity .7s ease}
-  .bar{display:flex;align-items:center;gap:18px;border:1px solid var(--line);background:rgba(6,18,40,.55);padding:7px 12px;letter-spacing:.14em;color:var(--dim);font-size:11px;white-space:nowrap;overflow:hidden}
-  .bar b{color:var(--ink);font-weight:500}
-  .bar .brand{color:var(--cyan)}
-  .bar .sp{flex:1}
-  .bar .live{color:var(--ok)}
-  .bar .live::before{content:"●";margin-right:6px;animation:blink 1.2s steps(2) infinite}
-  @keyframes blink{50%{opacity:.2}}
-  .cols{display:grid;grid-template-columns:minmax(220px,1fr) minmax(320px,1.55fr) minmax(300px,1.3fr);gap:12px;min-height:0}
-  .pnl{position:relative;border:1px solid var(--line);background:var(--panel);backdrop-filter:blur(2px);display:flex;flex-direction:column;min-height:0;overflow:hidden;
-    clip-path:inset(0 0 100% 0)}
-  .hud.on .pnl{animation:wipe .7s cubic-bezier(.35,.05,.2,1) forwards}
-  .hud.on .pnl:nth-child(2){animation-delay:.12s}
-  .hud.on .pnl:nth-child(3){animation-delay:.24s}
-  @keyframes wipe{to{clip-path:inset(0 0 0 0)}}
-  .pnl::before,.pnl::after{content:"";position:absolute;width:10px;height:10px;border:1px solid var(--cyan);opacity:.7}
-  .pnl::before{left:-1px;top:-1px;border-right:0;border-bottom:0}
-  .pnl::after{right:-1px;bottom:-1px;border-left:0;border-top:0}
-  .ph{padding:8px 12px;border-bottom:1px solid var(--line);letter-spacing:.2em;color:var(--dim);font-size:10.5px;display:flex;gap:8px}
-  .ph b{color:var(--cyan);font-weight:500}
-  .ph span{margin-left:auto}
-  .pb{padding:10px 12px;flex:1;min-height:0;overflow:hidden}
-
-  /* 晨光遥测 */
-  .kv{display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px dashed var(--line-soft);color:var(--dim);letter-spacing:.06em}
-  .kv b{color:var(--ink);font-weight:500;font-variant-numeric:tabular-nums}
-  .kv b.up{color:var(--gold)}
-  .meter{margin:8px 0 2px;color:var(--dim);letter-spacing:.12em;font-size:10.5px;display:flex;justify-content:space-between}
-  .track{height:5px;background:rgba(120,180,255,.1);position:relative;overflow:hidden}
-  .track i{position:absolute;inset:0 auto 0 0;width:0;background:linear-gradient(90deg,var(--accent),var(--cyan));box-shadow:0 0 10px var(--glow);transition:width .6s ease}
-  .track.warm i{background:linear-gradient(90deg,#3f7bd9,var(--gold))}
-  .sec{margin-top:12px;color:var(--faint);letter-spacing:.3em;font-size:10px}
-
-  /* 中枢终端 */
-  .term{font-size:12px;line-height:1.72;white-space:pre-wrap;word-break:break-all}
-  .term .l{opacity:.95}
-  .term .t{color:var(--faint)}
-  .term .k{color:var(--cyan)}
-  .term .ok{color:var(--ok)}
-  .term .g{color:var(--gold)}
-  .term .d{color:var(--dim)}
-  .cur{display:inline-block;width:7px;height:13px;background:var(--cyan);vertical-align:-2px;animation:blink .9s steps(2) infinite}
-
-  /* 圆桌 */
-  .table{position:relative;width:100%;height:100%;display:flex;align-items:center;justify-content:center}
-  .table svg{width:min(100%,46vh);height:auto;overflow:visible}
-  .rim{fill:none;stroke:var(--line);stroke-width:1}
-  .rim2{fill:rgba(77,163,255,.04);stroke:var(--accent);stroke-width:1.2;stroke-dasharray:2 6;transform-origin:150px 150px;animation:rot 30s linear infinite}
-  @keyframes rot{to{transform:rotate(360deg)}}
-  .spoke{stroke:var(--cyan);stroke-width:1.2;stroke-dasharray:120;stroke-dashoffset:120;opacity:.85;filter:drop-shadow(0 0 4px var(--glow))}
-  .spoke.on{transition:stroke-dashoffset .7s ease;stroke-dashoffset:0}
-  .seat circle{fill:#071630;stroke:var(--faint);stroke-width:1.4;transition:all .45s ease}
-  .seat text{fill:var(--faint);font:600 11px var(--mono);dominant-baseline:central;transition:fill .45s ease}
-  .seat text.lab{font:9px var(--mono);letter-spacing:.1em}
-  .seat.on circle{fill:#0d2d5c;stroke:var(--cyan);filter:drop-shadow(0 0 8px var(--glow))}
-  .seat.on text{fill:#eaf6ff}
-  .seat.on .lab{fill:var(--cyan)}
-  .seat .halo{fill:none;stroke:var(--cyan);stroke-width:1;opacity:0}
-  .seat.on .halo{animation:halo 1s ease-out}
-  @keyframes halo{from{opacity:.9;r:16}to{opacity:0;r:40}}
-  .core circle{fill:#081c3d;stroke:var(--accent);stroke-width:1.4}
-  .core.on circle{animation:pulse 1.6s ease-in-out infinite;stroke:var(--cyan)}
-  @keyframes pulse{50%{filter:drop-shadow(0 0 16px rgba(94,224,255,.8))}}
-  .core text{fill:var(--ink);font:600 15px var(--mono);text-anchor:middle;dominant-baseline:central}
-  .core .sub{font:9px var(--mono);fill:var(--dim);letter-spacing:.2em}
-
-  .foot{display:flex;align-items:center;gap:14px;border:1px solid var(--line);background:rgba(6,18,40,.55);padding:8px 12px;letter-spacing:.16em;color:var(--dim);font-size:10.5px}
-  .foot .track{flex:1;height:4px}
-  .foot b{color:var(--ink);font-weight:500;min-width:44px;text-align:right}
-  .foot .stage{color:var(--cyan);min-width:200px}
-
-  /* 浮窗 */
-  .win{position:fixed;width:min(340px,40vw);background:var(--win);border:1px solid rgba(94,224,255,.45);box-shadow:0 18px 50px rgba(0,0,0,.5),0 0 0 1px rgba(94,224,255,.08) inset,0 0 30px rgba(77,163,255,.15);
-    opacity:0;transform:translateY(14px) scale(.97);transition:opacity .35s ease,transform .45s cubic-bezier(.2,.8,.2,1);z-index:20}
-  .win.on{opacity:1;transform:none}
-  .win.off{opacity:0;transform:translateY(-8px) scale(.98)}
-  .win .wh{display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid rgba(94,224,255,.25);color:var(--cyan);letter-spacing:.18em;font-size:11px;
-    background:linear-gradient(90deg,rgba(77,163,255,.18),transparent)}
-  .win .wh span{margin-left:auto;color:var(--dim);letter-spacing:.1em}
-  .win .wb{padding:10px 12px;line-height:1.7}
-  .win .row{display:flex;justify-content:space-between;color:var(--dim)}
-  .win .row b{color:var(--ink);font-weight:500}
-  .win .row b.g{color:var(--gold)}
-  .win .row b.ok{color:var(--ok)}
-  .win .note{margin-top:8px;padding:6px 10px;border-left:2px solid var(--cyan);background:rgba(94,224,255,.07);color:#cfeaff;font-family:var(--sans);font-size:12.5px}
-  .win ol{padding-left:18px;color:var(--ink)}
-  .win ol li{margin:2px 0;font-family:var(--sans);font-size:12.5px}
-  .win ol li small{color:var(--dim);font-family:var(--mono);margin-left:6px}
-
-  /* ── 第 2 幕：日出 ── */
-  .dawn{position:fixed;inset:0;pointer-events:none;opacity:0;z-index:30}
-  .dawn.on{opacity:1;transition:opacity .8s ease}
-  .dawn .glow{position:absolute;left:50%;bottom:-62vh;width:150vh;height:150vh;transform:translateX(-50%);border-radius:50%;
-    background:radial-gradient(circle,rgba(255,226,170,.95) 0%,rgba(255,196,120,.55) 9%,rgba(120,170,255,.35) 26%,rgba(40,90,190,.18) 44%,transparent 62%)}
-  .dawn.on .glow{animation:rise 3.6s cubic-bezier(.22,.7,.2,1) forwards}
-  @keyframes rise{from{bottom:-120vh;opacity:.4}to{bottom:-78vh;opacity:1}}
-  .dawn .sun{position:absolute;left:50%;bottom:-20vh;width:16vh;height:16vh;transform:translateX(-50%);border-radius:50%;
-    background:radial-gradient(circle,#fff9ea 0%,#ffe3a6 55%,rgba(255,210,140,0) 72%);filter:blur(.5px)}
-  .dawn.on .sun{animation:sunUp 3.6s cubic-bezier(.22,.7,.2,1) forwards}
-  @keyframes sunUp{to{bottom:6vh}}
-  .dawn .horizon{position:absolute;left:0;right:0;bottom:14vh;height:1px;background:linear-gradient(90deg,transparent,rgba(255,232,190,.9),transparent);box-shadow:0 0 18px rgba(255,220,160,.8);transform:scaleX(0)}
-  .dawn.on .horizon{animation:lineX 1.2s cubic-bezier(.6,0,.2,1) forwards}
-  @keyframes lineX{to{transform:scaleX(1)}}
-  .dawn .rays{position:absolute;left:50%;bottom:6vh;width:200vh;height:200vh;transform:translate(-50%,50%);opacity:0;
-    background:repeating-conic-gradient(from 0deg,rgba(255,230,180,.10) 0deg 3deg,transparent 3deg 12deg);mask-image:radial-gradient(circle,#000 0%,transparent 55%)}
-  .dawn.on .rays{animation:rays 4s ease 1.2s forwards}
-  @keyframes rays{to{opacity:1;transform:translate(-50%,50%) rotate(8deg)}}
-  .hello{position:fixed;left:0;right:0;top:30%;text-align:center;z-index:31;pointer-events:none}
-  .hello b{display:block;font-family:var(--sans);font-weight:700;font-size:clamp(46px,8vw,104px);letter-spacing:.32em;color:#fffaf0;opacity:0;
-    text-shadow:0 0 30px rgba(255,214,150,.65),0 0 2px #fff}
-  .hello i{display:block;font-style:normal;margin-top:14px;font-family:var(--sans);font-size:clamp(14px,1.9vw,22px);letter-spacing:.9em;color:#fff3d8;opacity:0}
-  .hello em{display:block;font-style:normal;margin-top:22px;font-family:var(--sans);font-size:clamp(13px,1.4vw,16px);letter-spacing:.3em;color:rgba(255,246,226,.85);opacity:0}
-  .hello.on b{animation:track 1.4s cubic-bezier(.2,.8,.2,1) forwards}
-  .hello.on i{animation:track 1.4s cubic-bezier(.2,.8,.2,1) .45s forwards}
-  .hello.on em{animation:fadeUp .9s ease 1.3s forwards}
-  .end{position:fixed;inset:0;background:#f6efe2;opacity:0;pointer-events:none;z-index:40}
-  .end.on{opacity:.0;animation:flash 1.1s ease forwards}
-  @keyframes flash{40%{opacity:.35}100%{opacity:0}}
-
-  @media (max-width: 900px){
-    .cols{grid-template-columns:1fr 1fr}
-    .cols .pnl:first-child{display:none}
-  }
-  @media (prefers-reduced-motion: reduce){
-    *{animation-duration:.01ms !important;transition-duration:.01ms !important}
-  }
+:root{--bg:#05080b;--panel:#0b1117ed;--ink:#dce3e7;--dim:#84949f;--line:#34434e;--cyan:#71d5ef;--accent:#338eaf;--amber:#d7a064;--mono:Consolas,"Cascadia Mono",monospace;--sans:"Bahnschrift","DIN Alternate","Arial Narrow","Microsoft YaHei","PingFang SC",sans-serif}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--ink);font:12px var(--mono);-webkit-font-smoothing:antialiased}
+body{font-variant-numeric:tabular-nums;cursor:default}
+.sky,.grid,.scan,.vignette,.grain,.cut{position:fixed;inset:0;pointer-events:none}
+.sky{background:radial-gradient(ellipse at 50% 110%,#172834,transparent 65%)}
+.grid{background-image:linear-gradient(#71d5ef08 1px,transparent 1px),linear-gradient(90deg,#71d5ef08 1px,transparent 1px);background-size:44px 44px}
+.scan{z-index:35;background:repeating-linear-gradient(0deg,#0002 0 1px,transparent 1px 4px)}
+.vignette{z-index:36;background:radial-gradient(ellipse,transparent 45%,#0008)}
+.grain{width:100%;height:100%;z-index:34;opacity:.055}
+.cut{z-index:40;opacity:0;background:#dce3e7}
+.cut.fire{animation:cut 90ms steps(1) both}
+@keyframes cut{0%{opacity:.65}22%{opacity:0}45%{opacity:.12}65%,100%{opacity:0}}
+.act0{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:22px}
+.act0.gone{visibility:hidden}
+.ring{position:relative;width:min(30vh,240px);aspect-ratio:1;animation:focus 1.4s cubic-bezier(.2,.7,.2,1) both}
+.ring svg{width:100%;height:100%;overflow:visible}
+.ring circle{fill:none;stroke:var(--cyan);stroke-width:1;stroke-dasharray:3 9;opacity:.6}
+.ring .seal{position:absolute;inset:16%;width:68%;height:68%;filter:grayscale(1) brightness(1.25)}
+.ring:before,.ring:after{content:"";position:absolute;inset:-12px;border:1px solid var(--cyan);clip-path:polygon(0 0,25% 0,25% 1%,1% 1%,1% 25%,0 25%,0 0,100% 0,100% 25%,99% 25%,99% 1%,75% 1%,75% 0,100% 0,100% 100%,75% 100%,75% 99%,99% 99%,99% 75%,100% 75%,100% 100%,0 100%,0 75%,1% 75%,1% 99%,25% 99%,25% 100%,0 100%)}
+.ring:after{inset:8px;opacity:.3;transform:rotate(90deg)}
+@keyframes focus{0%{filter:blur(10px);transform:scale(1.18);opacity:.2}45%{filter:blur(2px);transform:scale(.98)}100%{filter:none;transform:none;opacity:1}}
+.title0{text-align:center;animation:reveal .2s .7s both}
+.title0 b{display:block;font:800 clamp(20px,3.2vw,34px) var(--sans);letter-spacing:.4em}
+.title0 i{display:block;font-style:normal;letter-spacing:.24em;color:var(--cyan);margin-top:10px}
+.stamp{display:inline-block;color:var(--amber);border:1px solid currentColor;padding:4px 8px;font-size:10px;font-weight:700;letter-spacing:.18em}
+.title0 .stamp{margin-top:20px}
+.focuslabel{position:absolute;bottom:-32px;width:100%;text-align:center;color:var(--dim);font-size:9px;letter-spacing:.12em}
+@keyframes reveal{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+.hud{position:fixed;inset:0;display:grid;grid-template-rows:auto 1fr auto;gap:12px;padding:14px 16px;opacity:0;pointer-events:none}
+.hud.on{opacity:1}.hud.out{opacity:0}
+.bar,.foot{display:flex;align-items:center;gap:18px;border:1px solid var(--line);background:#0a1016;padding:7px 12px;color:var(--dim);font-size:11px;letter-spacing:.1em;white-space:nowrap;overflow:hidden}
+.bar b,.foot b{color:var(--ink);font-weight:700}.brand,.live{color:var(--cyan)}.sp{flex:1}
+.live:before{content:"";display:inline-block;width:5px;height:5px;margin-right:7px;background:var(--cyan)}
+.cols{display:grid;grid-template-columns:minmax(220px,1fr) minmax(320px,1.55fr) minmax(300px,1.3fr);gap:12px;min-height:0}
+.pnl{position:relative;display:flex;flex-direction:column;min-width:0;min-height:0;overflow:hidden;border:1px solid var(--line);background:var(--panel);clip-path:polygon(0 0,calc(100% - 12px) 0,100% 12px,100% 100%,12px 100%,0 calc(100% - 12px))}
+.pnl:before,.pnl:after{content:"";position:absolute;width:12px;height:12px;border:2px solid var(--cyan);pointer-events:none}
+.pnl:before{left:0;top:0;border-right:0;border-bottom:0}.pnl:after{right:0;bottom:0;border-left:0;border-top:0}
+.ph{padding:8px 12px;border-bottom:1px solid var(--line);font-size:10.5px;letter-spacing:.13em;display:flex;gap:8px;color:var(--dim)}
+.ph b{color:var(--cyan)}.ph span{margin-left:auto}.pb{padding:10px 12px;flex:1;min-height:0;overflow:hidden}
+.kv{display:flex;justify-content:space-between;gap:8px;padding:5px 0;border-bottom:1px dashed #34434e70;color:var(--dim)}
+.kv b{color:var(--ink);font-weight:700}.kv .up{color:var(--amber)}
+.sec{margin-top:12px;color:var(--dim);letter-spacing:.22em;font-size:10px}
+.meter{display:flex;justify-content:space-between;margin:8px 0 3px;font-size:10.5px;color:var(--dim)}
+.track{height:5px;background:#27323a;overflow:hidden}.track i{display:block;width:0;height:100%;background:var(--cyan);transition:width .25s linear}
+.redacted{margin-top:18px;border-top:1px solid var(--line);padding-top:12px;color:var(--dim);line-height:2;font-size:10px;letter-spacing:.1em}
+.redacted strong{color:#a1adb3;letter-spacing:.16em}
+.term{font-size:12px;line-height:1.8;white-space:pre-wrap;overflow-wrap:anywhere}.term .t{color:#687c8a}.term .k{color:var(--cyan)}
+.cur{display:inline-block;width:6px;height:12px;background:var(--cyan);vertical-align:-2px}
+.table{position:relative;width:100%;height:100%;display:flex;align-items:center;justify-content:center}
+.table svg{width:min(100%,46vh);height:auto;overflow:visible}.rim{fill:none;stroke:var(--line);stroke-width:1}.rim2{fill:#71d5ef04;stroke:var(--accent);stroke-width:1;stroke-dasharray:2 6}
+.cross{fill:none;stroke:#597180;stroke-width:.7}.spoke{stroke:var(--cyan);stroke-width:1;stroke-dasharray:120;stroke-dashoffset:120}.spoke.on{stroke-dashoffset:0;transition:stroke-dashoffset .24s linear}
+.seat circle{fill:#0d141b;stroke:#586771;stroke-width:1.3}.seat text{fill:#87969f;font:700 10px var(--mono);text-anchor:middle;dominant-baseline:central}
+.seat .lab{font-size:7px;letter-spacing:.04em}.seat .status{font-size:6px;fill:#657781}
+.seat.on circle{fill:#12303b;stroke:var(--cyan)}.seat.on text{fill:var(--ink)}.seat.on .status{fill:var(--cyan)}
+.core circle{fill:#0e1a23;stroke:var(--accent);stroke-width:1.4}.core.on circle{stroke:var(--cyan);stroke-width:2}
+.core text{fill:var(--ink);font:700 15px var(--mono);text-anchor:middle;dominant-baseline:central}.core .sub{font-size:8px;fill:var(--dim);letter-spacing:.1em}
+.foot{gap:14px;padding:8px 12px;font-size:10.5px}.foot .stage{color:var(--cyan);min-width:200px}.foot .track{flex:1;height:4px}.foot b{min-width:44px;text-align:right}
+.win{position:fixed;width:min(340px,40vw);border:1px solid var(--cyan);background:#0b121af5;box-shadow:0 18px 50px #0009;clip-path:polygon(0 0,calc(100% - 12px) 0,100% 12px,100% 100%,0 100%);z-index:20;opacity:0;transform:translateY(5px);transition:opacity .12s,transform .12s}
+.win.on{opacity:1;transform:none}.win.off{opacity:0;transform:translateY(-4px)}
+.wh{display:flex;gap:8px;padding:8px 12px;background:#162733;border-bottom:1px solid var(--line);color:var(--cyan);font-size:11px;letter-spacing:.12em}.wh span{margin-left:auto;color:var(--dim)}
+.wb{padding:10px 12px;line-height:1.8}.row{display:flex;justify-content:space-between;gap:12px;color:var(--dim)}.row b{color:var(--ink)}
+.note{margin-top:8px;border-left:2px solid var(--amber);padding:6px 10px;background:#d7a06409;color:var(--ink);font-family:var(--sans)}
+.objectives{list-style:none}.objectives li{padding:4px 0;border-bottom:1px solid var(--line);font-family:var(--sans);font-weight:700}.objectives li:before{content:"☑";color:var(--cyan);margin-right:9px}.objectives small{float:right;color:var(--dim);font-family:var(--mono);font-weight:400}
+.dawn{position:fixed;inset:0;opacity:0;pointer-events:none;z-index:30;background:linear-gradient(#05080b,#0b1720 72%,#13212a 86%,#05080b)}.dawn.on{opacity:1;transition:opacity .3s}
+.glow{position:absolute;left:50%;bottom:-78vh;width:150vh;height:150vh;transform:translateX(-50%);border-radius:50%;background:radial-gradient(circle,#b8dbe860,#4d8da033 20%,transparent 56%);opacity:0}.dawn.on .glow{animation:light 3s both}
+@keyframes light{from{opacity:0}to{opacity:1}}
+.suntrack{position:absolute;left:50%;bottom:-20vh;width:16vh;height:16vh;transform:translateX(-50%)}.dawn.on .suntrack{animation:sunrise 3s cubic-bezier(.22,.7,.2,1) forwards}
+@keyframes sunrise{to{bottom:6vh}}
+.sun{position:absolute;inset:0;border-radius:50%;background:radial-gradient(circle,#edf4f5 0%,#cedee5 48%,#88b6c480 60%,transparent 72%)}
+.lock{position:absolute;inset:-10px;opacity:0;background:linear-gradient(var(--amber),var(--amber)) left top/16px 1px no-repeat,linear-gradient(var(--amber),var(--amber)) left top/1px 16px no-repeat,linear-gradient(var(--amber),var(--amber)) right top/16px 1px no-repeat,linear-gradient(var(--amber),var(--amber)) right top/1px 16px no-repeat,linear-gradient(var(--amber),var(--amber)) left bottom/16px 1px no-repeat,linear-gradient(var(--amber),var(--amber)) left bottom/1px 16px no-repeat,linear-gradient(var(--amber),var(--amber)) right bottom/16px 1px no-repeat,linear-gradient(var(--amber),var(--amber)) right bottom/1px 16px no-repeat}
+.dawn.locked .lock{opacity:1}.lock span{position:absolute;left:50%;top:-22px;transform:translateX(-50%);white-space:nowrap;color:var(--amber);font-size:9px;letter-spacing:.15em}
+.horizon{position:absolute;bottom:14vh;width:100%;height:1px;background:#a8d6e37a}.horizon:before{content:"";position:absolute;bottom:0;left:0;right:0;height:9px;background:repeating-linear-gradient(90deg,#8eafbb 0 1px,transparent 1px 40px)}
+.bearing{position:absolute;left:5%;right:5%;bottom:calc(14vh + 15px);display:flex;justify-content:space-between;color:var(--dim);font-size:9px;letter-spacing:.1em}
+.feed{position:absolute;left:24px;top:22px;color:var(--dim);font-size:10px;line-height:2;letter-spacing:.14em}.feed b{color:var(--cyan)}
+.hello{position:fixed;left:0;right:0;top:30%;text-align:center;z-index:31;pointer-events:none;visibility:hidden}.hello.on{visibility:visible}
+.hello b{display:block;font:800 clamp(46px,8vw,104px) var(--sans);letter-spacing:.32em;text-indent:.32em;color:#e5edf0}
+.hello i{display:block;margin-top:14px;font:800 clamp(14px,1.9vw,22px) var(--sans);letter-spacing:.65em;text-indent:.65em;color:#bcd1db}
+.hello em{display:block;margin:22px 24px 0;font:700 clamp(13px,1.4vw,16px) var(--sans);letter-spacing:.2em;overflow-wrap:anywhere;color:#bac8cf}
+.hello small{display:block;margin-top:20px;font-size:10px;letter-spacing:.35em;color:var(--cyan)}
+.hello.on b,.hello.on i,.hello.on em,.hello.on small{animation:reveal .25s both}.hello.on i{animation-delay:.15s}.hello.on em{animation-delay:.3s}.hello.on small{animation-delay:.45s}
+.hud.noise{animation:glitch 90ms steps(1)}@keyframes glitch{0%{transform:translateX(2px);filter:contrast(1.7)}35%{transform:translateX(-2px)}70%,100%{transform:none;filter:none}}
+@media(max-width:899px){.cols{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}.cols .pnl:first-child{display:none}.bar{gap:10px;flex-wrap:wrap;white-space:normal;font-size:9px}.bar .sp{display:none}.foot .stage{min-width:0}.win{width:min(340px,70vw)}.ph{font-size:9px;padding:8px}.pb{padding:8px}.term{font-size:10px}}
+@media(prefers-reduced-motion:reduce){*,*:before,*:after{animation-duration:.01ms!important;animation-delay:0ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}.cut,.grain{display:none}.ring{filter:none;transform:none}.suntrack{bottom:6vh}}
 </style>
 </head>
 <body>
-<div class="sky"></div>
-<canvas class="stars" id="stars" aria-hidden="true"></canvas>
-<div class="grid"></div>
-
+<div class="sky"></div><div class="grid"></div>
 <section class="act0" id="act0">
-  <div class="ring">
-    <svg viewBox="0 0 240 240" aria-hidden="true">
-      <circle class="c" cx="120" cy="120" r="116"/>
-      <circle class="c c2" cx="120" cy="120" r="104"/>
-    </svg>
-    <img class="seal" src="assets/gmu-seal.svg" alt="GMU 徽记">
-  </div>
-  <div class="title0"><b>晨会协议</b><i>MORNING ASSEMBLY PROTOCOL · GMU</i></div>
+ <div class="ring"><svg viewBox="0 0 240 240" aria-hidden="true"><circle cx="120" cy="120" r="116"/><circle cx="120" cy="120" r="104"/><path class="cross" d="M120 0v16m0 208v16M0 120h16m208 0h16"/></svg><img class="seal" src="assets/gmu-seal.svg" alt="GMU 徽记"><span class="focuslabel">OPTICAL FIX // 053.48 N</span></div>
+ <div class="title0"><b id="title">破晓行动</b><i>OPERATION DAYBREAK · GMU</i><span class="stamp">CLASSIFIED / EYES ONLY</span></div>
 </section>
-
 <section class="hud" id="hud" aria-hidden="true">
-  <div class="bar">
-    <span class="brand">◆ GMU // 早上好联合</span>
-    <span>PROTOCOL <b>MORNING-ASSEMBLY v7</b></span>
-    <span>SESSION <b id="sid">—</b></span>
-    <span class="sp"></span>
-    <span>MAN <b id="tMan">--:--:--</b></span>
-    <span>BJS <b id="tBjs">--:--:--</b></span>
-    <span class="live">LIVE</span>
-  </div>
-  <div class="cols">
-    <div class="pnl">
-      <div class="ph"><b>◢</b> 晨光遥测 · DAWN TELEMETRY</div>
-      <div class="pb">
-        <div class="kv">太阳高度角<b id="elev" class="up">-6.0°</b></div>
-        <div class="kv">天空色温<b id="kelvin">2200 K</b></div>
-        <div class="kv">晨光阶段<b id="phase">民用晨光</b></div>
-        <div class="kv">驻地<b>MANCHESTER · 53.48°N</b></div>
-        <div class="kv">在线席位<b id="online">0 / 7</b></div>
-        <div class="sec">CONDITION</div>
-        <div class="meter">天光<span id="mSky">8%</span></div><div class="track warm"><i id="bSky"></i></div>
-        <div class="meter">咖啡浓度<span id="mCof">0%</span></div><div class="track"><i id="bCof"></i></div>
-        <div class="meter">全员心情<span id="mMood">—</span></div><div class="track"><i id="bMood"></i></div>
-        <div class="meter">记忆同步<span id="mMem">0%</span></div><div class="track"><i id="bMem"></i></div>
-      </div>
-    </div>
-    <div class="pnl">
-      <div class="ph"><b>◢</b> 中枢终端 · CORE TERMINAL<span id="lines">000</span></div>
-      <div class="pb"><div class="term" id="term"></div></div>
-    </div>
-    <div class="pnl">
-      <div class="ph"><b>◢</b> 圆桌 · THE ROUND TABLE<span id="seatsLbl">0 / 7 AWAKE</span></div>
-      <div class="pb"><div class="table">
-        <svg viewBox="0 0 300 300" id="tbl" aria-hidden="true">
-          <circle class="rim" cx="150" cy="150" r="128"/>
-          <circle class="rim2" cx="150" cy="150" r="98"/>
-          <g id="spokes"></g>
-          <g class="core" id="core"><circle cx="150" cy="150" r="30"/><text x="150" y="146" id="coreN">0/7</text><text class="sub" x="150" y="164">CORE</text></g>
-          <g id="seats"></g>
-        </svg>
-      </div></div>
-    </div>
-  </div>
-  <div class="foot">
-    <span class="stage" id="stage">◇ 待机</span>
-    <div class="track"><i id="prog"></i></div>
-    <b id="pct">0%</b>
-  </div>
+ <div class="bar"><span class="brand">GMU // 早上好联合</span><span>PROTOCOL <b>DAYBREAK / 07</b></span><span>SESSION <b id="sid">—</b></span><span class="sp"></span><span>MAN <b id="tMan">--:--:--</b></span><span>BJS <b id="tBjs">--:--:--</b></span><span class="live">LIVE</span></div>
+ <div class="cols">
+  <div class="pnl"><div class="ph"><b>01</b> 行动遥测 · TELEMETRY</div><div class="pb">
+   <div class="kv">太阳高度角<b id="elev" class="up">-6.0°</b></div><div class="kv">天空色温<b id="kelvin">2200 K</b></div><div class="kv">观测阶段<b id="phase">晨光观测</b></div><div class="kv">观测点<b>MAN · 53.48°N</b></div><div class="kv">在线席位<b id="online">0 / 7</b></div>
+   <div class="sec">READINESS // SIMULATED</div>
+   <div class="meter">天光观测<span id="mSky">8%</span></div><div class="track"><i id="bSky"></i></div>
+   <div class="meter">链路校验<span id="mLink">0%</span></div><div class="track"><i id="bLink"></i></div>
+   <div class="meter">协作准备<span id="mReady">0%</span></div><div class="track"><i id="bReady"></i></div>
+   <div class="meter">记忆同步<span id="mMem">0%</span></div><div class="track"><i id="bMem"></i></div>
+   <div class="redacted">ACCESS / <strong>█████</strong><br>BRIEF / LOCAL DISPLAY<br><span class="stamp">EYES ONLY</span></div>
+  </div></div>
+  <div class="pnl"><div class="ph"><b>02</b> 通讯日志 · COMMS<span id="lines">000</span></div><div class="pb"><div class="term" id="term"></div></div></div>
+  <div class="pnl"><div class="ph"><b>03</b> 圆桌 · ROUND TABLE<span id="seatsLbl">0 / 7 ONLINE</span></div><div class="pb"><div class="table"><svg viewBox="0 0 300 300" aria-hidden="true"><circle class="rim" cx="150" cy="150" r="128"/><circle class="rim2" cx="150" cy="150" r="98"/><path class="cross" d="M150 10v18m0 244v18M10 150h18m244 0h18M75 150h10m130 0h10M150 75v10m0 130v10"/><g id="spokes"></g><g class="core" id="core"><circle cx="150" cy="150" r="30"/><text x="150" y="146" id="coreN">0/7</text><text class="sub" x="150" y="164">SYNC</text></g><g id="seats"></g></svg></div></div></div>
+ </div>
+ <div class="foot"><span class="stage" id="stage">00 / 待机</span><div class="track"><i id="prog"></i></div><b id="pct">0%</b></div>
 </section>
-
-<div class="dawn" id="dawn"><div class="rays"></div><div class="glow"></div><div class="sun"></div><div class="horizon"></div></div>
-<div class="hello" id="hello"><b>早上好</b><i>GOOD MORNING</i><em id="helloName">圆桌已就位</em></div>
-<div class="end" id="end"></div>
-
+<div class="dawn" id="dawn"><div class="feed">AERIAL OBSERVATION / <b>LIVE</b><br>DAYBREAK · OPTICAL FEED<br>ALT 120 M / SIMULATED</div><div class="glow"></div><div class="suntrack"><div class="sun"></div><div class="lock"><span>TARGET ACQUIRED / SUN</span></div></div><div class="horizon"></div><div class="bearing"><span>060</span><span>075</span><span>090 / E</span><span>105</span><span>120</span></div></div>
+<div class="hello" id="hello"><b>早上好</b><i>GOOD MORNING</i><em id="helloName">圆桌已就位</em><small>MISSION START // READY TOGETHER</small></div>
+<canvas class="grain" id="grain" aria-hidden="true"></canvas><div class="scan"></div><div class="vignette"></div><div class="cut" id="cut"></div>
 <script>
 (() => {
-  'use strict';
-  const $ = (s) => document.querySelector(s);
-  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-  const inFrame = window.parent !== window;
-  let finished = false;
-
-  /* 音效与播报交给外层页面；独立打开时安静播放 */
-  const sfx = (name, arg) => { if (inFrame) try { parent.postMessage({ type: 'boot:sfx', name, arg }, '*'); } catch (_) {} };
-  const say = (zh, en) => { if (inFrame) try { parent.postMessage({ type: 'boot:say', zh, en }, '*'); } catch (_) {} };
-  function done() {
-    if (finished) return;
-    finished = true;
-    if (inFrame) try { parent.postMessage('boot:done', '*'); } catch (_) {}
+ 'use strict';
+ const $ = s => document.querySelector(s);
+ const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+ const inFrame = window.parent !== window;
+ let finished = false;
+ const timers = new Set();
+ let frame = 0, clockTimer = 0;
+ const sfx = (name, arg) => { if (!finished && inFrame) try { parent.postMessage({type:'boot:sfx', name, arg}, '*'); } catch (_) {} };
+ const say = (zh, en) => { if (!finished && inFrame) try { parent.postMessage({type:'boot:say', zh, en}, '*'); } catch (_) {} };
+ function done() {
+  if (finished) return;
+  finished = true;
+  for (const timer of timers) clearTimeout(timer);
+  timers.clear(); clearInterval(clockTimer); cancelAnimationFrame(frame);
+  if (inFrame) try { parent.postMessage('boot:done', '*'); } catch (_) {}
+ }
+ document.addEventListener('keydown', e => { if (e.key === 'Escape' || e.key === 'Enter') { e.preventDefault(); done(); } });
+ document.addEventListener('click', done);
+ function later(ms, fn) {
+  if (finished) return;
+  const id = setTimeout(() => { timers.delete(id); if (!finished) fn(); }, ms);
+  timers.add(id);
+ }
+ let name = '';
+ try { const card = JSON.parse(localStorage.getItem('roundtable.boot.card') || '{}'); if (typeof card?.name === 'string') name = card.name.trim(); } catch (_) {}
+ $('#helloName').textContent = name ? `${name}，圆桌已就位` : '圆桌已就位';
+ const fmt = zone => new Intl.DateTimeFormat('en-GB',{timeZone:zone,hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false});
+ const man = fmt('Europe/London'), bjs = fmt('Asia/Shanghai');
+ function clocks() { const now = new Date(); $('#tMan').textContent = man.format(now); $('#tBjs').textContent = bjs.format(now); }
+ clocks(); clockTimer = setInterval(clocks, 1000);
+ $('#sid').textContent = 'DB-' + Math.random().toString(16).slice(2,8).toUpperCase();
+ // 低分辨率颗粒缓冲区复用；每帧不创建 DOM。
+ const canvas = $('#grain'), ctx = canvas.getContext('2d');
+ canvas.width = 160; canvas.height = 90;
+ if (ctx && !reduced) {
+  const pixels = ctx.createImageData(160,90); let previous = -100;
+  function grain(t) {
+   if (finished) return;
+   if (t - previous >= 85) {
+    previous = t;
+    for (let i = 0; i < pixels.data.length; i += 4) { const v = Math.random() * 255; pixels.data[i] = pixels.data[i+1] = pixels.data[i+2] = v; pixels.data[i+3] = 255; }
+    ctx.putImageData(pixels,0,0);
+   }
+   frame = requestAnimationFrame(grain);
   }
-  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' || e.key === 'Enter') { e.preventDefault(); done(); } });
-  document.addEventListener('click', () => { if (started) done(); });
-
-  let name = '';
-  try { name = (JSON.parse(localStorage.getItem('roundtable.boot.card') || '{}') || {}).name || ''; } catch (_) { name = ''; }
-
-  /* ── 星空：缓慢闪烁，日出时渐隐 ── */
-  const cv = $('#stars'), cx = cv.getContext('2d');
-  let stars = [], starFade = 1;
-  function sizeStars() {
-    cv.width = innerWidth; cv.height = innerHeight;
-    stars = Array.from({ length: Math.round(innerWidth * innerHeight / 5200) }, () => ({
-      x: Math.random() * cv.width, y: Math.random() * cv.height * 0.85, r: Math.random() * 1.2 + 0.2, p: Math.random() * 6.28, s: 0.6 + Math.random() * 1.6,
-    }));
+  frame = requestAnimationFrame(grain);
+ }
+ const calls = ['ALPHA','BRAVO','CHARLIE','DELTA','ECHO','FOXTROT','GOLF'];
+ const NS = 'http://www.w3.org/2000/svg';
+ const seats = [], spokes = [];
+ for (let i = 0; i < 7; i++) {
+  const a = -Math.PI/2 + i*2*Math.PI/7, x = 150+112*Math.cos(a), y = 150+112*Math.sin(a);
+  const line = document.createElementNS(NS,'line'); line.setAttribute('class','spoke');
+  for (const [key,value] of Object.entries({x1:150+30*Math.cos(a),y1:150+30*Math.sin(a),x2:150+94*Math.cos(a),y2:150+94*Math.sin(a)})) line.setAttribute(key,value);
+  $('#spokes').appendChild(line); spokes.push(line);
+  const seat = document.createElementNS(NS,'g'); seat.setAttribute('class','seat');
+  seat.innerHTML = `<circle cx="${x}" cy="${y}" r="16"/><text x="${x}" y="${y}">0${i+1}</text><text class="lab" x="${x}" y="${y+24}">${calls[i]}</text><text class="status" x="${x}" y="${y+33}">OFFLINE</text>`;
+  $('#seats').appendChild(seat); seats.push(seat);
+ }
+ function decrypt(el, text, duration = 240) {
+  if (reduced) { el.textContent = text; return; }
+  const chars = Array.from(text), glyphs = '01/+#'; const steps = 8;
+  for (let step = 0; step <= steps; step++) later(duration*step/steps, () => {
+   const count = Math.floor(chars.length*step/steps);
+   el.textContent = chars.map((ch,i) => i<count || ch===' ' ? ch : glyphs[(i+step)%glyphs.length]).join('');
+  });
+ }
+ let lineCount = 0, typed = 0;
+ function log(tag, text) {
+  const row = document.createElement('div'), stamp = document.createElement('span'), label = document.createElement('span'), content = document.createElement('span');
+  stamp.className = 't'; stamp.textContent = man.format(new Date())+' ';
+  label.className = 'k'; label.textContent = '['+tag+'] ';
+  row.append(stamp,label,content); $('#term').appendChild(row);
+  while ($('#term').children.length > 14) $('#term').firstChild.remove();
+  $('#lines').textContent = String(++lineCount).padStart(3,'0');
+  const chars = Array.from(text); let index = 0;
+  function type() {
+   content.textContent = chars.slice(0,++index).join('');
+   if (++typed%3 === 0) sfx('tick');
+   if (index < chars.length) later(11,type);
   }
-  sizeStars(); addEventListener('resize', sizeStars);
-  (function tick(t) {
-    cx.clearRect(0, 0, cv.width, cv.height);
-    for (const s of stars) {
-      cx.globalAlpha = starFade * (0.25 + 0.55 * (0.5 + 0.5 * Math.sin(t / 1000 * s.s + s.p)));
-      cx.fillStyle = '#cfe4ff';
-      cx.fillRect(s.x, s.y, s.r, s.r);
-    }
-    requestAnimationFrame(tick);
-  })(0);
-
-  /* ── 时钟：曼彻斯特与北京 ── */
-  const fmt = (tz) => new Intl.DateTimeFormat('en-GB', { timeZone: tz, hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
-  let fMan, fBjs;
-  try { fMan = fmt('Europe/London'); fBjs = fmt('Asia/Shanghai'); } catch (_) { fMan = fBjs = null; }
-  function clocks() { const d = new Date(); $('#tMan').textContent = fMan ? fMan.format(d) : d.toTimeString().slice(0, 8); $('#tBjs').textContent = fBjs ? fBjs.format(d) : '—'; }
-  clocks(); setInterval(clocks, 1000);
-  $('#sid').textContent = 'GM-' + Math.random().toString(16).slice(2, 8).toUpperCase();
-
-  /* ── 圆桌七席 ── */
-  const ROMAN = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII'];
-  const seatsG = $('#seats'), spokesG = $('#spokes');
-  const NS = 'http://www.w3.org/2000/svg';
-  const seatEls = [], spokeEls = [];
-  for (let i = 0; i < 7; i += 1) {
-    const a = -Math.PI / 2 + (i * 2 * Math.PI) / 7;
-    const x = 150 + 112 * Math.cos(a), y = 150 + 112 * Math.sin(a);
-    const sp = document.createElementNS(NS, 'line');
-    sp.setAttribute('class', 'spoke');
-    sp.setAttribute('x1', 150 + 30 * Math.cos(a)); sp.setAttribute('y1', 150 + 30 * Math.sin(a));
-    sp.setAttribute('x2', 150 + 94 * Math.cos(a)); sp.setAttribute('y2', 150 + 94 * Math.sin(a));
-    spokesG.appendChild(sp); spokeEls.push(sp);
-    const g = document.createElementNS(NS, 'g');
-    g.setAttribute('class', 'seat');
-    g.innerHTML = `<circle class="halo" cx="${x}" cy="${y}" r="16"/><circle cx="${x}" cy="${y}" r="16"/>` +
-      `<text x="${x}" y="${y}" text-anchor="middle">${ROMAN[i]}</text>` +
-      `<text class="lab" x="${150 + 134 * Math.cos(a)}" y="${150 + 134 * Math.sin(a)}" text-anchor="${Math.cos(a) > 0.3 ? 'start' : Math.cos(a) < -0.3 ? 'end' : 'middle'}">SEAT 0${i + 1}</text>`;
-    seatsG.appendChild(g); seatEls.push(g);
-  }
-
-  /* ── 终端 ── */
-  const term = $('#term');
-  let lineNo = 0;
-  const cursor = document.createElement('span'); cursor.className = 'cur';
-  function stamp() { const d = new Date(); return [d.getHours(), d.getMinutes(), d.getSeconds()].map((n) => String(n).padStart(2, '0')).join(':'); }
-  async function line(parts, speed = 14) {
-    // parts: [[文字, 样式], ...]；逐字打出，每隔几个字响一下键盘声
-    const row = document.createElement('div'); row.className = 'l';
-    const t = document.createElement('span'); t.className = 't'; t.textContent = stamp() + '  ';
-    row.appendChild(t); term.appendChild(row); row.appendChild(cursor);
-    let n = 0;
-    for (const [text, cls] of parts) {
-      const span = document.createElement('span'); if (cls) span.className = cls;
-      row.insertBefore(span, cursor);
-      for (const ch of text) {
-        span.textContent += ch;
-        if (++n % 3 === 0) sfx('tick');
-        if (speed) await sleep(speed);
-      }
-    }
-    lineNo += 1; $('#lines').textContent = String(lineNo).padStart(3, '0');
-    while (term.children.length > 15) term.removeChild(term.firstChild);
-  }
-
-  /* ── 遥测与进度 ── */
-  const setBar = (id, pct, lbl, text) => { $(id).style.width = pct + '%'; if (lbl) $(lbl).textContent = text ?? (Math.round(pct) + '%'); };
-  function progress(p, stageText) { setBar('#prog', p); $('#pct').textContent = Math.round(p) + '%'; if (stageText) $('#stage').textContent = '◆ ' + stageText; }
-  function telemetry(k) { // k: 0..1
-    const elev = -6 + 8.4 * k;
-    $('#elev').textContent = (elev >= 0 ? '+' : '') + elev.toFixed(1) + '°';
-    $('#kelvin').textContent = Math.round(2200 + 3400 * k) + ' K';
-    $('#phase').textContent = elev < -4 ? '民用晨光' : elev < 0 ? '蓝调时刻' : '日出';
-    setBar('#bSky', 8 + 88 * k, '#mSky');
-  }
-
-  /* ── 浮窗 ── */
-  function popup(html, pos) {
-    const w = document.createElement('div');
-    w.className = 'win'; w.innerHTML = html;
-    Object.assign(w.style, pos);
-    document.body.appendChild(w);
-    requestAnimationFrame(() => requestAnimationFrame(() => w.classList.add('on')));
-    sfx('pop');
-    return () => { w.classList.add('off'); setTimeout(() => w.remove(), 500); };
-  }
-  const row = (k, v, cls = '') => `<div class="row">${k}<b class="${cls}">${v}</b></div>`;
-
-  const MOODS = ['晴朗', '元气', '平静', '微困', '期待', '专注', '愉快'];
-  const DREAMS = ['梦见在曼城的雨里找一家开着的咖啡馆', '梦见圆桌变成了一艘船', '梦见把昨天的会议纪要读成了诗', '没做梦，睡得很好', '梦见在图书馆迷路', '梦见下雪了', '梦见和大家一起看日出'];
-
-  let started = false;
-  async function run() {
-    started = true;
-    document.body.classList.add('play');
-    sfx('power');
-    say('早上好联合，晨会协议启动。', 'Good Morning Union. Morning assembly protocol online.');
-    await sleep(2500);
-
-    // 第 1 幕：控制台
-    $('#act0').classList.add('gone');
-    $('#hud').classList.add('on');
-    sfx('whoosh');
-    await sleep(500);
-    progress(4, '校准时钟');
-    await line([['[晨曦] ', 'k'], ['唤醒协议 MORNING-ASSEMBLY v7 启动', '']]);
-    await line([['[时钟] ', 'k'], ['校准钟楼 · 曼彻斯特 / 北京 双时区同步 ', ''], ['OK', 'ok']]);
-    await line([['[天光] ', 'k'], ['太阳高度角 -6.0° · 进入民用晨光', 'd']]);
-    progress(12, '点亮圆桌');
-    say('正在唤醒七位成员。', 'Waking all seven members.');
-    await line([['[圆桌] ', 'k'], ['点亮七个席位 · 准备唤醒', '']]);
-
-    const close = [];
-    for (let i = 0; i < 7; i += 1) {
-      seatEls[i].classList.add('on');
-      sfx('chime', i);
-      const k = (i + 1) / 7;
-      $('#seatsLbl').textContent = `${i + 1} / 7 AWAKE`;
-      $('#coreN').textContent = `${i + 1}/7`;
-      $('#online').textContent = `${i + 1} / 7`;
-      telemetry(k * 0.75);
-      setBar('#bCof', Math.min(100, 14 * (i + 1)), '#mCof');
-      setBar('#bMood', 40 + 8 * (i + 1), '#mMood', MOODS[i]);
-      progress(12 + 8.5 * (i + 1), `唤醒席位 0${i + 1} / 07`);
-      await line([['[席位] ', 'k'], [`0${i + 1} · ${ROMAN[i]} 已醒来 · 心情 `, ''], [MOODS[i], 'g']], 9);
-      if (i === 2) {
-        close.push(popup(`<div class="wh">◈ SEAT 03 · 晨检<span>CHECK</span></div><div class="wb">${row('精力', '86%', 'ok')}${row('心情', '元气', 'g')}${row('昨夜', '睡了 7.5 小时')}${row('今日想做', '读完那本小说')}<div class="note">“早！咖啡我已经泡好了。”</div></div>`,
-          { left: '36vw', bottom: '14vh' }));
-      }
-      if (i === 5) {
-        close.push(popup(`<div class="wh">◈ DREAM ARCHIVE · 梦境归档<span>${String(7).padStart(2, '0')} 条</span></div><div class="wb">${DREAMS.slice(0, 4).map((d, j) => row('0' + (j + 1), d.length > 14 ? d.slice(0, 14) + '…' : d)).join('')}<div class="note">梦只存在这台电脑里，不上传。</div></div>`,
-          { left: '3vw', bottom: '12vh' }));
-      }
-      await sleep(320);
-    }
-    close.shift()?.();
-
-    // 同步
-    progress(76, '同步记忆');
-    await line([['[记忆] ', 'k'], ['同步昨夜记忆 · 整理梦境 7 条 · 本地存储 ', ''], ['OK', 'ok']]);
-    for (const [j, sp] of spokeEls.entries()) { setTimeout(() => { sp.classList.add('on'); sfx('link', j); }, j * 90); }
-    let mem = 0;
-    const memT = setInterval(() => { mem = Math.min(100, mem + 9); setBar('#bMem', mem, '#mMem'); if (mem >= 100) clearInterval(memT); }, 60);
-    await sleep(800);
-    $('#core').classList.add('on');
-    sfx('confirm');
-    say('七席就位，记忆同步完成。', 'All seven seats present. Memory in sync.');
-    close.shift()?.();
-    const agenda = popup(`<div class="wh">◈ AGENDA · 今日议程<span>${new Date().toLocaleDateString('zh-CN')}</span></div><div class="wb"><ol><li>早安问候<small>09:00</small></li><li>看看你今天想做什么<small>随时</small></li><li>一起把事情办好<small>全天</small></li></ol></div>`,
-      { left: '50%', top: '22vh', transform: 'translateX(-50%)' });
-    await line([['[中枢] ', 'k'], ['七席就位 · 议程已发布 · 欢迎 ', ''], [name || '操作员', 'g']]);
-    progress(92, '迎接日出');
-    telemetry(1);
-    await sleep(1400);
-    agenda();
-
-    // 第 2 幕：日出
-    progress(100, '日出');
-    await line([['[天光] ', 'k'], ['太阳高度角 +2.4° · ', ''], ['日出', 'g']], 6);
-    await sleep(250);
-    $('#hud').classList.add('out');
-    $('#dawn').classList.add('on');
-    sfx('sunrise');
-    const fade = setInterval(() => { starFade = Math.max(0, starFade - 0.04); if (!starFade) clearInterval(fade); }, 60);
-    await sleep(1500);
-    $('#helloName').textContent = name ? `${name}，圆桌已就位` : '圆桌已就位';
-    $('#hello').classList.add('on');
-    sfx('chord');
-    say(name ? `早上好，${name}。` : '早上好。', 'Good morning.');
-    await sleep(3600);
-    $('#end').classList.add('on');
-    await sleep(600);
-    done();
-  }
-
-  if (document.readyState === 'complete') setTimeout(run, 200);
-  else addEventListener('load', () => setTimeout(run, 200));
+  type(); $('#term').parentElement.scrollTop = $('#term').parentElement.scrollHeight;
+ }
+ function bar(id, amount, label) { $(id).style.width = amount+'%'; if (label) $(label).textContent = Math.round(amount)+'%'; }
+ function progress(value, text) { bar('#prog',value); $('#pct').textContent = Math.round(value)+'%'; $('#stage').textContent = text; }
+ function telemetry(k) {
+  const e = -6+8.4*k; $('#elev').textContent = (e>=0?'+':'')+e.toFixed(1)+'°'; $('#kelvin').textContent = Math.round(2200+3400*k)+' K'; $('#phase').textContent = e<0?'晨光观测':'日出锁定'; bar('#bSky',8+92*k,'#mSky');
+ }
+ const field = (key,value) => `<div class="row"><span>${key}</span><b>${value}</b></div>`;
+ function popup(title, html, position) {
+  const el = document.createElement('div'); el.className = 'win';
+  el.innerHTML = `<div class="wh"><b></b><span>EYES ONLY</span></div><div class="wb">${html}</div>`;
+  Object.assign(el.style,position); document.body.appendChild(el); later(16,()=>el.classList.add('on'));
+  decrypt(el.querySelector('.wh b'),title); sfx('pop');
+  return () => { el.classList.add('off'); later(150,()=>el.remove()); };
+ }
+ let closeCheck = () => {}, closeArchive = () => {}, closeAgenda = () => {};
+ // 绝对时间点独立调度，逐字日志不会拖长全片。
+ const start = performance.now();
+ const at = (ms,fn) => later(Math.max(0,ms-(performance.now()-start)),fn);
+ sfx('power'); say('破晓行动，简报开始。','Daybreak. Briefing.'); decrypt($('#title'),'破晓行动',600);
+ at(2500,()=>{
+  $('#act0').classList.add('gone'); $('#hud').classList.add('on'); $('#hud').setAttribute('aria-hidden','false'); $('#cut').classList.add('fire');
+  sfx('whoosh'); progress(4,'01 / 建立加密链路'); log('LINK','建立加密链路 · ACCESS █████');
+ });
+ at(3000,()=>{ log('TIME','校准双时区 · MAN / BJS · OK'); progress(10,'02 / 双时区校准'); });
+ at(3500,()=>{ log('BRIEF','七位协作成员 · 等待接入'); say('开始唤醒，七席接入。','Seven. Check in.'); });
+ for (let i = 0; i < 7; i++) at(4000+i*650,()=>{
+  seats[i].classList.add('on'); seats[i].querySelector('.status').textContent = 'ONLINE'; sfx('chime',i);
+  $('#seatsLbl').textContent = `${i+1} / 7 ONLINE`; $('#coreN').textContent = `${i+1}/7`; $('#online').textContent = `${i+1} / 7`;
+  telemetry((i+1)/7*.75); bar('#bLink',(i+1)/7*100,'#mLink'); bar('#bReady',(i+1)/7*100,'#mReady');
+  progress(12+(i+1)*8.5,`03 / 唤醒席位 0${i+1} / 07`); log(calls[i],'ONLINE · 协作席位已接入');
+  if (i===2) closeCheck = popup('席位晨检 / PERSONNEL',field('呼号','CHARLIE / 03')+field('角色','协作成员')+field('准备状态','READY')+field('档案编号','█████')+'<div class="note">人员档案已确认。今天一起把事情办好。</div>',{left:'36vw',bottom:'14vh'});
+  if (i===5) closeArchive = popup('梦境归档 / FIELD LOG',field('01 / 昨夜记忆','已整理')+field('02 / 未完事项','待接续')+field('03 / 灵感片段','已归档')+'<div class="note">行动日志：保留灵感，接续昨日思路。</div>',{left:'3vw',bottom:'12vh'});
+ });
+ at(7200,()=>{ if (!reduced) $('#hud').classList.add('noise'); });
+ at(8200,()=>{ closeCheck(); log('SYNC','同步昨夜记忆 · 七席交叉校验'); progress(76,'04 / 同步昨夜记忆'); });
+ for (let i = 0; i < 7; i++) at(8500+i*90,()=>{ spokes[i].classList.add('on'); sfx('link',i); bar('#bMem',(i+1)/7*100,'#mMem'); });
+ at(9400,()=>{
+  $('#core').classList.add('on'); closeArchive(); sfx('confirm'); say('全员到位，同步完成。','All seven. In sync.');
+  progress(92,'05 / 确认今日目标'); log('CORE','7 名成员到位 · 今日目标已确认');
+  closeAgenda = popup('今日议程 / OBJECTIVES','<ol class="objectives"><li>早安问候<small>01</small></li><li>确认今天想做的事<small>02</small></li><li>一起把事情办好<small>03</small></li></ol>',{left:'50%',top:'22vh',translate:'-50% 0'});
+ });
+ at(11200,()=>{ telemetry(1); log('DAWN','观测窗口就绪 · 等待日出'); });
+ at(12000,()=>{ closeAgenda(); progress(100,'06 / 行动开始'); $('#hud').classList.add('out'); $('#hud').setAttribute('aria-hidden','true'); $('#dawn').classList.add('on'); sfx('sunrise'); });
+ at(13500,()=>{ $('#hello').classList.add('on'); sfx('chord'); say('早上好，圆桌已就位。','Good morning.'); });
+ at(15000,()=>$('#dawn').classList.add('locked'));
+ at(17000,done);
 })();
 </script>
 </body>
