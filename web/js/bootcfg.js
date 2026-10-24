@@ -7,10 +7,15 @@ const esc = (s) =>
 const PREFIX = 'roundtable.boot.';
 const MODE = [
   ['full', '片头 + 授权'],
-  ['intro', '只放 550C 片头'],
+  ['intro', '只放晨会片头'],
   ['permit', '只放授权'],
   ['off', '关闭'],
 ];
+const LANG = [
+  ['zh', '中文'],
+  ['en', 'English'],
+];
+const SAMPLE = { zh: '早上好，圆桌七席已经就位。', en: 'Good morning. All seven seats are ready.' };
 const WHEN = [
   ['session', '每个浏览器标签只放一次'],
   ['always', '每次打开都放'],
@@ -23,9 +28,9 @@ const CARD = [
   ['post', '职务 / 单位', ''],
   ['serial', '证件编号', '留空则每次随机'],
   ['issuer', '签发机构', '早上好联合 · 身份管理局'],
-  ['level', '授权等级', 'LEVEL 3 · 生活区通行'],
+  ['level', '授权等级', 'LEVEL 3 · 全楼通行'],
   ['valid', '有效期', '本次会话 · 随登出失效'],
-  ['scope', '许可范围', '550C 终端 · 只读查询'],
+  ['scope', '许可范围', '圆桌终端 · 只读查询'],
   ['bio', '生物特征', '虹膜 · 指纹'],
 ];
 const PHOTO_PX = 256;
@@ -109,6 +114,11 @@ export class BootSettings {
     this.dlg.addEventListener('click', (e) => this.onClick(e));
     this.dlg.addEventListener('change', (e) => this.onChange(e));
     this.dlg.addEventListener('submit', (e) => this.onSubmit(e));
+    try {
+      window.speechSynthesis?.addEventListener('voiceschanged', () => this.dlg.open && this.fillVoices());
+    } catch {
+      /* 没有朗读 */
+    }
   }
 
   open() {
@@ -127,6 +137,7 @@ export class BootSettings {
     const card = readCard();
     const photo = get('photo');
     const qrText = get('qrText');
+    const lang = get('lang', 'zh');
     const radios = (name, list, cur) =>
       list
         .map(([v, label]) => `<label><input type="radio" name="${name}" value="${v}"${v === cur ? ' checked' : ''}> ${label}</label>`)
@@ -138,13 +149,23 @@ export class BootSettings {
     this.dlg.innerHTML = `
       <div class="vh"><b>片头：开机动画</b><button type="button" class="btn" data-preview>预览</button><button type="button" class="btn" data-close>关闭</button></div>
       <div class="vb bt">
-        <p class="hint">打开圆桌时先放 550C 片头，再接一段「早上好联合（GMU）」访问授权，然后进首页。点「跳过」或按 Esc 随时跳过；网址加 <code>?boot=0</code> 这一次不放。设置和头像只存在这台电脑的浏览器里。</p>
+        <p class="hint">打开圆桌时先放「晨会协议」片头（七个席位醒来、日出、早上好），再接一段「早上好联合（GMU）」访问授权，然后进首页。点「跳过」或按 Esc 随时跳过；网址加 <code>?boot=0</code> 这一次不放。设置和头像只存在这台电脑的浏览器里。</p>
         <div class="bt-row" role="radiogroup" aria-label="播放">${radios('mode', MODE, mode)}</div>
         <div class="bt-row" role="radiogroup" aria-label="什么时候放">${radios('when', WHEN, when)}</div>
         <div class="bt-row">
           <label><input type="checkbox" name="auto"${get('auto', 'on') !== 'off' ? ' checked' : ''}> 授权页自动往下走（不勾就要点「申请访问许可」）</label>
-          <label><input type="checkbox" name="voice"${get('voice', 'on') !== 'off' ? ' checked' : ''}> 英文配音（浏览器自带朗读）</label>
         </div>
+        <h3>声音</h3>
+        <div class="bt-row">
+          <label><input type="checkbox" name="sound"${get('sound', 'on') !== 'off' ? ' checked' : ''}> 开场音效（现场合成）</label>
+          <label><input type="checkbox" name="voice"${get('voice', 'on') !== 'off' ? ' checked' : ''}> 女声播报（系统自带朗读）</label>
+        </div>
+        <div class="bt-row">
+          <label>播报语言 <select name="lang">${LANG.map(([v, l]) => `<option value="${v}"${v === lang ? ' selected' : ''}>${l}</option>`).join('')}</select></label>
+          <label>声音 <select name="voiceName" data-voices><option value="">自动挑清脆的女声</option></select></label>
+          <button type="button" class="btn" data-listen>试听</button>
+        </div>
+        <p class="hint">Windows 上的 Edge 自带「晓晓」「Aria」等自然女声，最清脆；其他浏览器用系统里现有的女声。</p>
         <h3>访问许可卡</h3>
         <div class="bt-card">
           <div class="bt-photo">
@@ -166,11 +187,26 @@ export class BootSettings {
         <p class="hint">${get('qr') ? `已设置：${esc(qrText || '（从图片识别）')}` : '未设置：用证件编号生成装饰点阵'}</p>
         <p class="hint pp-msg" role="status">${esc(this.msg)}</p>
       </div>`;
+    this.fillVoices();
   }
 
   say(msg) {
     this.msg = msg;
     this.render();
+  }
+
+  /** 声音下拉框：只列当前语言的声音，女声排前面；浏览器的声音列表常常晚到，到了再补。 */
+  fillVoices() {
+    const box = this.dlg.querySelector('[data-voices]');
+    const boot = window.RoundtableBoot;
+    if (!box || !boot) return;
+    const lang = get('lang', 'zh') === 'en' ? 'en' : 'zh';
+    const want = get('voiceName');
+    const auto = boot.pickVoice(lang);
+    const list = (boot.voices() || []).filter((v) => (v.lang || '').toLowerCase().startsWith(lang));
+    box.innerHTML =
+      `<option value="">自动挑清脆的女声${auto && !want ? `（${esc(auto.name)}）` : ''}</option>` +
+      list.map((v) => `<option value="${esc(v.name)}"${v.name === want ? ' selected' : ''}>${esc(v.name)}</option>`).join('');
   }
 
   async onClick(e) {
@@ -180,6 +216,13 @@ export class BootSettings {
       this.close();
       window.RoundtableBoot?.play(get('mode', 'full') === 'off' ? 'full' : get('mode', 'full'));
       return;
+    }
+    if (t.closest('[data-listen]')) {
+      const boot = window.RoundtableBoot;
+      if (!boot || !(boot.voices() || []).length) return this.say('这个浏览器没有可用的朗读声音');
+      const v = boot.pickVoice(get('lang', 'zh'));
+      boot.say(SAMPLE);
+      return this.say(get('voice', 'on') === 'off' ? '女声播报已关闭，先勾上再试听' : `正在试听：${v ? v.name : '默认声音'}`);
     }
     if (t.closest('[data-photo-clear]')) {
       set('photo', '');
@@ -198,7 +241,16 @@ export class BootSettings {
       set(t.name, t.value);
       return this.say('已保存');
     }
-    if (t.name === 'auto' || t.name === 'voice') {
+    if (t.name === 'lang') {
+      set('lang', t.value);
+      set('voiceName', '');
+      return this.say('已保存');
+    }
+    if (t.name === 'voiceName') {
+      set('voiceName', t.value);
+      return this.say('已保存');
+    }
+    if (t.name === 'auto' || t.name === 'voice' || t.name === 'sound') {
       set(t.name, t.checked ? 'on' : 'off');
       return this.say('已保存');
     }

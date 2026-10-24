@@ -12,7 +12,7 @@
      参考图只取白字与图形：mix-blend-mode:screen 让黑底消失，外层再裁掉左右白边
      —— 结果就是"纯 logo + 字体，不要背景"。                              */
   :root{
-    --bg:#06070a; --ink:#eef3f8; --dim:#79848f;
+    --bg:#040914; --ink:#e8f2ff; --dim:#7a90ad;
     --line:rgba(238,243,248,.16); --line-soft:rgba(238,243,248,.07);
     --glow:rgba(238,243,248,.4);
     --font:"Inter","Noto Sans SC","Segoe UI",system-ui,sans-serif;
@@ -23,7 +23,7 @@
   body{display:flex;align-items:center;justify-content:center}
 
   .stage{position:fixed;inset:0;overflow:hidden;background:
-      radial-gradient(120% 90% at 50% 48%, #0c0f15 0%, var(--bg) 64%), var(--bg)}
+      radial-gradient(120% 90% at 50% 48%, #0b1730 0%, var(--bg) 64%), var(--bg)}
 
   /* 底子：网格 + 扫描线 + 暗角（压淡，别抢 logo） */
   .grid{position:absolute;inset:0;pointer-events:none;opacity:.42;background-image:
@@ -175,8 +175,8 @@
     .corner{opacity:.8}
   }
 
-  /* ═══ 第二幕：550C 核验 ═══════════════════════════════════════════════
-     拍序：极快淡出 → 550C 正在核验身份 → 右侧拼装身份许可卡 →
+  /* ═══ 第二幕：圆桌 核验 ═══════════════════════════════════════════════
+     拍序：极快淡出 → 圆桌 正在核验身份 → 右侧拼装身份许可卡 →
            右侧地球 + GMU + 正在检查登录环境(进度条) → 淡出 → logo 重回中央 → 淡出。
      卡片的姓名与照片走 ?name= / ?photo=，方便 DIY。                        */
   .act2{position:absolute;inset:0;display:none;z-index:5}
@@ -186,7 +186,7 @@
   /* 整体淡入淡出由 .veil 承担，方便"极快淡出"只改一个时长 */
   .veil{position:absolute;inset:0;background:var(--bg);opacity:0;pointer-events:none;z-index:9}
 
-  /* 场景一：550C 正在核验身份（左半） */
+  /* 场景一：圆桌 正在核验身份（左半） */
   .verify{left:6.5vw;top:50%;transform:translateY(-50%);width:34vw;min-width:340px;opacity:0}
   /* 父层也要出现，否则 li 动画再漂亮也看不到（之前就是漏了这一条） */
   .stage.play .verify{animation:l-line 420ms ease-out .2s both}
@@ -269,7 +269,7 @@
   }
 
   /* ═══ 第二幕 v2：布局重做（覆盖上面的初版规则）══════════════════════════
-     左上：550C 大字 + 正在核验身份；其下：服务器员工数据读取/比对面板（逐行滚出）
+     左上：圆桌 大字 + 正在核验身份；其下：服务器员工数据读取/比对面板（逐行滚出）
      右侧：放大的身份许可卡（全息扫描 + 流光 + 照片位扫描 + 核验通过盖章）
      卡片下方：旋转地球 + GMU + 正在检查登录环境(进度条)                      */
   .act2 .layout2{position:absolute;inset:0;display:grid;grid-template-columns:minmax(360px,44%) 1fr;
@@ -277,10 +277,10 @@
   .colL{min-width:0}
   .colR{display:flex;flex-direction:column;align-items:flex-end;gap:22px;min-width:0}
 
-  .brand550{font-size:clamp(44px,5vw,88px);font-weight:800;letter-spacing:.01em;line-height:.92;
+  .brandMark{font-size:clamp(44px,5vw,88px);font-weight:800;letter-spacing:.01em;line-height:.92;
     opacity:0;transform:translateY(10px)}
-  .stage.play .brand550{animation:l-line 520ms cubic-bezier(.16,1,.3,1) .25s both}
-  .brand550 small{display:block;font-family:var(--mono);font-size:clamp(11px,.95vw,13px);font-weight:400;
+  .stage.play .brandMark{animation:l-line 520ms cubic-bezier(.16,1,.3,1) .25s both}
+  .brandMark small{display:block;font-family:var(--mono);font-size:clamp(11px,.95vw,13px);font-weight:400;
     letter-spacing:.3em;color:var(--dim);margin-top:14px;text-transform:uppercase}
 
   /* 服务器数据读取 / 比对面板 */
@@ -385,13 +385,13 @@
   .globePos2 .pct{font-family:var(--mono);font-size:10px;letter-spacing:.16em;color:var(--dim);margin-top:6px}
 
   @media (prefers-reduced-motion: reduce){
-    .brand550,.readPanel,.idcard2,.idPhoto2,.idMeta2 .name,.idMeta2 .en,.idRow2,.idFoot2,.globePos2{opacity:1 !important;animation:none !important}
+    .brandMark,.readPanel,.idcard2,.idPhoto2,.idMeta2 .name,.idMeta2 .en,.idRow2,.idFoot2,.globePos2{opacity:1 !important;animation:none !important}
     .idcard2{clip-path:none !important}
     .idcard2::before,.idcard2 .scan,.idPhoto2::after{animation:none !important;display:none !important}
   }
 
   /* ═══ 第二幕 v3：左 1/4 终端 · 中 1/2 员工卡 · 右 1/4 地球 ═══════════════
-     终端参考皮肤里对话框那个 550C：点阵字形 + 流式输出的代码加载动画。
+     终端参考皮肤里的对话框：点阵字形 GMU + 流式输出的代码加载动画。
      注意类名别再跟已有的撞（.bar/.grid 都撞过一次，这次用 .titleBar）。      */
   .act2 .layout2{grid-template-columns:24% 1fr 21%;gap:0 2.2vw;padding:0 3vw}
   .colL{min-width:0;display:flex;flex-direction:column;justify-content:center;height:100%}
@@ -406,12 +406,12 @@
   .term .titleBar span{margin-left:6px;font-family:var(--mono);font-size:9.5px;letter-spacing:.22em;
     color:rgba(238,243,248,.62)}
 
-  /* 点阵 550C：每个字形是 4x5 的方块矩阵，跟皮肤里那个一致 */
-  .pixel550{display:flex;gap:7px;padding:14px 14px 12px;border-bottom:1px solid rgba(238,243,248,.1)}
-  .pixel550 .glyph{display:grid;grid-template-columns:repeat(4,7px);grid-auto-rows:7px;gap:2px}
-  .pixel550 .glyph i{background:transparent;display:block}
-  .pixel550 .glyph i.on{background:#eef3f8;box-shadow:0 0 7px rgba(238,243,248,.4)}
-  .pixel550 .glyph i.on.ghost{background:rgba(238,243,248,.22);box-shadow:none}
+  /* 点阵 GMU：每个字形是 4x5 的方块矩阵，跟皮肤里那个一致 */
+  .pixelMark{display:flex;gap:7px;padding:14px 14px 12px;border-bottom:1px solid rgba(238,243,248,.1)}
+  .pixelMark .glyph{display:grid;grid-template-columns:repeat(4,7px);grid-auto-rows:7px;gap:2px}
+  .pixelMark .glyph i{background:transparent;display:block}
+  .pixelMark .glyph i.on{background:#eef3f8;box-shadow:0 0 7px rgba(238,243,248,.4)}
+  .pixelMark .glyph i.on.ghost{background:rgba(238,243,248,.22);box-shadow:none}
 
   /* 流式输出区 */
   .termBody{flex:1;min-height:0;overflow:hidden;font-family:var(--mono);font-size:10.5px;
@@ -486,7 +486,7 @@
   .idPhoto2 span{color:rgba(238,243,248,.6)}
   .idFoot2 em{color:rgba(238,243,248,.6)}
   .globePos2 .env,.globePos2 .pct{color:rgba(238,243,248,.66)}
-  .brand550 small{color:rgba(238,243,248,.6)}
+  .brandMark small{color:rgba(238,243,248,.6)}
 
   /* ── 开头那一次点击 ───────────────────────────────────────────────────
      浏览器不允许无交互自动播放音频，所以整段起始要有一次用户手势；
@@ -542,7 +542,7 @@
 
   <div class="readout tl">GMU // 早上好联合<br><b>ACCESS TERMINAL</b></div>
   <div class="readout tr">SYS <b>READY</b><br><span id="clock">--:--:--</span></div>
-  <div class="readout bl">FOR ALL MANKIND</div>
+  <div class="readout bl">EVERY MORNING · TOGETHER</div>
   <div class="readout br">REV <b>1.3</b> · LOCAL</div>
 
   <div class="settleLine"></div>
@@ -579,18 +579,18 @@
 <!-- 代码汇聚成地球：全屏一层，压在遮罩之上 -->
 <canvas class="burst" id="burst" aria-hidden="true"></canvas>
 
-<!-- ═══ 第二幕：550C 核验身份 ═══════════════════════════════════════════
-     左：550C 正在核验身份 + 逐条状态；右靠中间：身份许可卡（姓名/照片可 DIY）；
+<!-- ═══ 第二幕：圆桌 核验身份 ═══════════════════════════════════════════
+     左：圆桌 正在核验身份 + 逐条状态；右靠中间：身份许可卡（姓名/照片可 DIY）；
      最右：旋转地球 + GMU + 正在检查登录环境(进度条)；收尾：logo 重回中央。 -->
 <section class="act2 stage play" id="act2">
   <div class="veil" id="veil"></div>
 
   <div class="layout2">
-    <!-- 左 1/4：550C 终端（点阵字形 + 流式输出） -->
+    <!-- 左 1/4：圆桌 终端（点阵字形 + 流式输出） -->
     <div class="colL">
       <div class="term">
-        <div class="titleBar"><u></u><u></u><u></u><span>550C · TERMINAL</span></div>
-        <div class="pixel550" id="pixel550"></div>
+        <div class="titleBar"><u></u><u></u><u></u><span>ROUNDTABLE · TERMINAL</span></div>
+        <div class="pixelMark" id="pixelMark"></div>
         <div class="termBody" id="termBody"></div>
         <div class="cmp">
           <span>比对进度</span>
@@ -613,9 +613,9 @@
             <div class="fields">
               <div><span>证件编号</span><b id="idSerial">—</b></div>
               <div><span>签发机构</span><b id="idIssuer">早上好联合 · 身份管理局</b></div>
-              <div><span>授权等级</span><b id="idLevel">LEVEL 3 · 生活区通行</b></div>
+              <div><span>授权等级</span><b id="idLevel">LEVEL 3 · 全楼通行</b></div>
               <div><span>有效期</span><b id="idValid">本次会话 · 随登出失效</b></div>
-              <div><span>许可范围</span><b id="idScope">550C 终端 · 只读查询</b></div>
+              <div><span>许可范围</span><b id="idScope">圆桌终端 · 只读查询</b></div>
               <div><span>生物特征</span><b id="idBio">虹膜 · 指纹</b></div>
               <div><span>核验状态</span><b id="idState">比对中…</b></div>
             </div>
@@ -624,7 +624,7 @@
         </div>
         <div class="idFoot2">
           <div class="idBars2" id="idBars"></div>
-          <em>ISSUED BY GMU · VERIFIED BY 550C</em>
+          <em>ISSUED BY GMU · VERIFIED BY ROUNDTABLE</em>
         </div>
         <div class="readbar" id="readbar" aria-hidden="true"></div>
 <div class="stamp" id="stamp" aria-label="核验通过"><span class="stampText" id="stampText"></span><span class="stampTag">ACCESS GRANTED</span></div>
@@ -989,11 +989,11 @@ var barsSettleAt = 0
     requestAnimationFrame(() => burst.classList.remove('on'))
   }
 
-  /* ── 终幕：地球移到屏幕中央 → 化成代码 → 拼出 WELCOME BACK ──────────────
+  /* ── 终幕：地球移到屏幕中央 → 化成代码 → 拼出 GOOD MORNING ──────────────
      做法：离屏画一遍文字、读像素拿到字形，再降采样成落点；
      起点复用地球表面的字符点（与 canvas 地球同一套取字规则），
      所以"球变字"的过程是同一批字符在飞行，没有换主体。 */
-  const FINALE_TEXT = 'WELCOME BACK'
+  const FINALE_TEXT = 'GOOD MORNING'
   let textTargets = null
   let finaleSeeds = null
   let finaleStart = 0
@@ -1211,7 +1211,7 @@ var barsSettleAt = 0
   const LINES = [
     '',
     'Good Morning Union. Access permission required.',
-    'Five-five-zero-C is verifying your identity.',
+    'The Roundtable is verifying your identity.',
     'Access permit issued.',
     'Verification complete. Identity confirmed.',
     'Good morning. Welcome to the Good Morning Union.',
@@ -1222,7 +1222,13 @@ var barsSettleAt = 0
   const speech = window.speechSynthesis ?? null
 
   /** 第 n 句：交给浏览器朗读。从不 await，也不打断画面。 */
+  const LINES_ZH = ['', '早上好联合，请申请访问许可。', '圆桌正在核验你的身份。', '访问许可已签发。', '核验完成，身份确认。', '早上好，欢迎来到早上好联合。']
   function playLine(n) {
+    // 嵌在圆桌里时交给外层念：外层有开机那一下点击，浏览器才肯出声，声音和语言也在外层设置里选
+    if (window.parent !== window && n > 0) {
+      try { window.parent.postMessage({ type: 'boot:say', zh: LINES_ZH[n], en: LINES[n] }, '*') } catch { /* 跨域就算了 */ }
+      return
+    }
     if (!AUDIO_ON || n <= 0 || speech === null || typeof window.SpeechSynthesisUtterance !== 'function') return
     try {
       speech.cancel()
@@ -1311,8 +1317,8 @@ var barsSettleAt = 0
     }
   }, 4660)
 
-  /* ── 第二幕：550C 核验 ───────────────────────────────────────────────────
-     点「申请访问许可」之后：① 极快淡出（没有"已受理"）② 550C 正在核验身份
+  /* ── 第二幕：圆桌 核验 ───────────────────────────────────────────────────
+     点「申请访问许可」之后：① 极快淡出（没有"已受理"）② 圆桌 正在核验身份
      ③ 右侧靠中间拼装身份许可卡 ④ 右侧地球 + GMU + 正在检查登录环境(进度条)
      ⑤ 淡出 → logo 重回屏幕中央 → 停留 → ⑥ 淡出，派发 gmu:done。
      卡片的姓名/照片走 ?name= / ?photo=，换参数即可 DIY。                  */
@@ -1355,7 +1361,7 @@ var barsSettleAt = 0
       if (photoValue === '') photoValue = null
     }
     if (photoValue !== null) document.getElementById('idPhoto').style.backgroundImage = `url("${photoValue.replace(/"/g, '%22')}")`
-    const serial = field('serial') ?? `GMU-550C-${Math.random().toString(16).slice(2, 10).toUpperCase()}`
+    const serial = field('serial') ?? `GMU-RT-${Math.random().toString(16).slice(2, 10).toUpperCase()}`
     document.getElementById('idSerial').textContent = serial
     const setIfGiven = (ident, key) => {
       const value = field(key)
@@ -1507,15 +1513,15 @@ function resetBars() {
     }
   }
 
-  /* ── 550C 点阵字形：4x5 方块矩阵，跟皮肤里对话框那个一致 ─────────────── */
+  /* ── GMU 点阵字形：4x5 方块矩阵，跟皮肤里对话框那个一致 ─────────────── */
   const GLYPHS = {
-    5: ['1110', '1000', '1110', '0001', '1110'],
-    0: ['1111', '1001', '1001', '1001', '1111'],
-    C: ['0111', '1000', '1000', '1000', '0111'],
+    G: ['0111', '1000', '1011', '1001', '0111'],
+    M: ['1001', '1111', '1111', '1001', '1001'],
+    U: ['1001', '1001', '1001', '1001', '0110'],
   }
   {
-    const pixel = document.getElementById('pixel550')
-    for (const char of ['5', '5', '0', 'C']) {
+    const pixel = document.getElementById('pixelMark')
+    for (const char of ['G', 'M', 'U']) {
       const glyph = document.createElement('div')
       glyph.className = 'glyph'
       for (const row of GLYPHS[char]) {
@@ -1531,11 +1537,11 @@ function resetBars() {
 
   /* ── 终端流式输出：边读员工数据边比对，逐行吐出来 ─────────────────────── */
   const SURNAMES = ['刘', '王', '张', '李', '陈', '周', '吴', '徐', '孙', '马', '朱', '胡', '林', '郭', '何', '高']
-  const GIVEN = ['培强', '启航', '子昂', '沐阳', '明远', '思远', '云舟', '星禾', '云帆', '远航', '若水', '知远', '长安', '望舒', '和一', '清越']
+  const GIVEN = ['晨曦', '知秋', '子昂', '沐阳', '明远', '思远', '云舟', '星禾', '云帆', '远航', '若水', '知远', '长安', '望舒', '和一', '清越']
   const GRADES = ['LEVEL 1', 'LEVEL 2', 'LEVEL 3', 'LEVEL 3', 'LEVEL 4', 'LEVEL 2']
   const BOOT = [
     '> mount /dev/gmu/roster --ro',
-    '> auth 550C --token ****',
+    '> auth roundtable --seat 7 --token ****',
     'INFO  安全通道已建立 · TLS 1.3',
     'INFO  读取早上好联合员工库 (46 条)',
   ]
@@ -1564,7 +1570,7 @@ function resetBars() {
     act2.classList.add('on')
     veil.style.transition = 'opacity 260ms ease'
     veil.style.opacity = '0'
-    playLine(2)   // 第 2 句：Five-five-zero-C is verifying your identity.（与终端同时起）
+    playLine(2)   // 第 2 句：The Roundtable is verifying your identity.（与终端同时起）
     //    同一颗 canvas 搬家，自转相位连续，看起来就是同一颗地球飞过去。
     const layer = document.getElementById('globeLayer')
     const first = layer.getBoundingClientRect()

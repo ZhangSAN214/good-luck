@@ -1,4 +1,4 @@
-"""前端：开机动画（550C 片头 → GMU 访问授权 → 首页）与「片头」设置。"""
+"""前端：开机动画（「按下开机」→ 晨会协议片头 → GMU 访问授权 → 首页）与「片头」设置。"""
 
 from __future__ import annotations
 
@@ -25,9 +25,15 @@ def test_intro_then_permit_then_home(serve, page):
     assert page.locator(".rt-boot").count() == 0  # 测试默认关着
     page.evaluate("localStorage.setItem('roundtable.boot.mode', 'full')")
     page.reload()
-    page.wait_for_selector(".rt-boot iframe[src='boot/550c.html']")
+    # 浏览器还不让出声：先是「按下开机」，点了才开始放
+    page.wait_for_selector(".rt-boot .rt-boot-gate")
+    assert page.locator(".rt-boot iframe[src]").count() == 0
+    page.click(".rt-boot-gate")
+    page.wait_for_selector(".rt-boot iframe[src='boot/dawn.html']")
+    intro = child(page, "dawn.html")
+    intro.wait_for_selector(".seat.on", timeout=15000)  # 七个席位依次醒来
     # 片头放完 → 换成授权页
-    child(page, "550c.html").evaluate("parent.postMessage('boot:done', '*')")
+    intro.evaluate("parent.postMessage('boot:done', '*')")
     page.wait_for_selector(".rt-boot iframe[src^='boot/gmu.html']")
     page.wait_for_timeout(300)
     child(page, "gmu.html").evaluate("parent.postMessage('gmu:done', '*')")
@@ -48,11 +54,12 @@ def test_skip_button_and_escape(serve, page):
         "localStorage.setItem('roundtable.boot.when', 'always')"
     )
     page.reload()
+    page.keyboard.press("Enter")  # 回车也能开机
     page.wait_for_selector(".rt-boot iframe[src^='boot/gmu.html']")
     page.click(".rt-boot-skip")
     page.wait_for_selector(".rt-boot", state="detached")
     page.reload()
-    page.wait_for_selector(".rt-boot")
+    page.wait_for_selector(".rt-boot .rt-boot-gate")
     page.keyboard.press("Escape")
     page.wait_for_selector(".rt-boot", state="detached")
     page.goto(srv.url + "/?boot=0")
@@ -112,3 +119,55 @@ def test_no_ueg_left_in_boot_pages():
             assert "UEG" not in text and "ueg" not in text.lower(), path
             assert "联合政府" not in text and "UNITED EARTH" not in text, path
     assert not list(BOOT.rglob("*.png")) and not list(BOOT.rglob("*.wav"))
+
+
+def test_sound_cues_and_silent_mode(serve, page):
+    """动画页只发音效名和台词，外层收下；音效和播报都关掉时不用「按下开机」。"""
+    srv = serve(confirm_threshold_usd=100.0)
+    page.goto(srv.url)
+    page.evaluate(
+        "localStorage.setItem('roundtable.boot.mode', 'intro');"
+        "localStorage.setItem('roundtable.boot.when', 'always');"
+        "localStorage.setItem('roundtable.boot.sound', 'off');"
+        "localStorage.setItem('roundtable.boot.voice', 'off')"
+    )
+    page.reload()
+    page.wait_for_selector(".rt-boot iframe[src='boot/dawn.html']")
+    assert page.locator(".rt-boot-gate").count() == 0
+    intro = child(page, "dawn.html")
+    intro.wait_for_selector(".hello.on", timeout=30000)  # 一路放到「早上好」
+    page.wait_for_selector(".rt-boot", state="detached", timeout=15000)
+
+
+def test_voice_settings_and_preview(serve, page):
+    srv = serve(confirm_threshold_usd=100.0)
+    page.goto(srv.url)
+    page.click("#bootcfg")
+    page.wait_for_selector("#bootdlg[open] [data-voices]")
+    page.select_option("#bootdlg select[name='lang']", "en")
+    page.wait_for_selector("#bootdlg .pp-msg:has-text('已保存')")
+    page.uncheck("#bootdlg input[name='sound']")
+    saved = page.evaluate(
+        "() => ['lang', 'sound'].map(k => localStorage.getItem('roundtable.boot.' + k))"
+    )
+    assert saved == ["en", "off"]
+    page.click("#bootdlg [data-listen]")
+    msg = "#bootdlg .pp-msg"
+    page.wait_for_selector(f"{msg}:has-text('试听'), {msg}:has-text('没有可用')")
+
+
+def test_no_wandering_earth_or_550c_left():
+    """片头是圆桌原创；授权页里 550C 和那部电影的元素都换掉了。"""
+    web = BOOT.parent
+    pages = [
+        *BOOT.rglob("*.html"),
+        *BOOT.rglob("*.svg"),
+        web / "js" / "boot.js",
+        web / "js" / "bootcfg.js",
+    ]
+    banned = ("550C", "550c", "流浪地球", "MOSS", "FOR ALL MANKIND", "培强", "启航", "生活区通行")
+    for path in pages:
+        text = path.read_text(encoding="utf-8")
+        for word in banned:
+            assert word not in text, (path, word)
+    assert not (BOOT / "550c.html").exists()
