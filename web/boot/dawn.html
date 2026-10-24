@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>GMU · 破晓行动</title>
+<title>GMU · 早上好联合</title>
 <style>
 :root{--bg:#05080b;--panel:#0b1117ed;--ink:#dce3e7;--dim:#84949f;--line:#34434e;--cyan:#71d5ef;--accent:#338eaf;--amber:#d7a064;--mono:Consolas,"Cascadia Mono",monospace;--sans:"Bahnschrift","DIN Alternate","Arial Narrow","Microsoft YaHei","PingFang SC",sans-serif}
 *{box-sizing:border-box;margin:0;padding:0}
@@ -89,16 +89,34 @@ body{font-variant-numeric:tabular-nums;cursor:default}
 .hud.noise{animation:glitch 90ms steps(1)}@keyframes glitch{0%{transform:translateX(2px);filter:contrast(1.7)}35%{transform:translateX(-2px)}70%,100%{transform:none;filter:none}}
 @media(max-width:899px){.cols{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}.cols .pnl:first-child{display:none}.bar{gap:10px;flex-wrap:wrap;white-space:normal;font-size:9px}.bar .sp{display:none}.foot .stage{min-width:0}.win{width:min(340px,70vw)}.ph{font-size:9px;padding:8px}.pb{padding:8px}.term{font-size:10px}}
 @media(prefers-reduced-motion:reduce){*,*:before,*:after{animation-duration:.01ms!important;animation-delay:0ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}.cut,.grain{display:none}.ring{filter:none;transform:none}.suntrack{bottom:6vh}}
+.dawn.depart,.hello.depart{opacity:0;transform:translate3d(0,-8vh,0);filter:brightness(.25);transition:opacity .55s,transform .65s cubic-bezier(.4,0,.2,1),filter .55s}
+.tarot{position:fixed;inset:0;z-index:33;background:#05080bf5;opacity:0;visibility:hidden;pointer-events:none;perspective:1100px;transition:opacity .45s;--card-w:clamp(38px,11vw,112px)}
+.tarot.on{opacity:1;visibility:visible}.tarot.out{opacity:0}
+.tarot-header{position:absolute;top:12%;width:100%;text-align:center;font-size:10px;letter-spacing:.22em;color:var(--dim)}
+.tarot-header b{display:block;margin-top:8px;color:var(--cyan);font:700 16px var(--sans);letter-spacing:.25em}
+.tarot-card{position:absolute;left:50%;top:53%;width:var(--card-w);aspect-ratio:3/5;will-change:transform,opacity;transform-style:preserve-3d}
+.card-turn{position:absolute;inset:0;transform-style:preserve-3d;will-change:transform}
+.card-side{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:space-between;padding:12% 6%;border:1px solid var(--cyan);background:#09151f;backface-visibility:hidden;-webkit-backface-visibility:hidden;box-shadow:inset 0 0 0 3px #09151f,inset 0 0 0 4px #375a6b}
+.card-side:before,.card-side:after{position:absolute;color:var(--dim);font:7px var(--mono);content:attr(data-code)}
+.card-side:before{top:5px;left:6px}.card-side:after{bottom:5px;right:6px;transform:rotate(180deg)}
+.card-front{transform:rotateY(180deg)}
+.card-side svg{width:80%;height:58%;fill:none;stroke:var(--cyan);stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
+.card-back svg{height:72%;margin:auto}.card-back small{font:700 clamp(6px,1vw,10px) var(--sans);letter-spacing:.22em;color:var(--dim)}
+.card-front b{font:700 clamp(8px,1.4vw,15px) var(--mono);color:var(--amber)}
+.card-front span{font:700 clamp(5px,.8vw,9px) var(--sans);letter-spacing:.06em;text-align:center;color:var(--ink)}
+.screen-fade{position:fixed;inset:0;background:#05080b;z-index:50;opacity:0;pointer-events:none;transition:opacity .4s}.screen-fade.on{opacity:1}
+@media(prefers-reduced-motion:reduce){.dawn.depart,.hello.depart{transform:none}.tarot.on{animation:cardsFade .18s linear!important;transition:opacity .18s!important}.tarot-card,.card-turn{will-change:auto}}
+@keyframes cardsFade{from{opacity:0}to{opacity:1}}
 </style>
 </head>
 <body>
 <div class="sky"></div><div class="grid"></div>
 <section class="act0" id="act0">
  <div class="ring"><svg viewBox="0 0 240 240" aria-hidden="true"><circle cx="120" cy="120" r="116"/><circle cx="120" cy="120" r="104"/><path class="cross" d="M120 0v16m0 208v16M0 120h16m208 0h16"/></svg><img class="seal" src="assets/gmu-seal.svg" alt="GMU 徽记"><span class="focuslabel">OPTICAL FIX // 053.48 N</span></div>
- <div class="title0"><b id="title">破晓行动</b><i>OPERATION DAYBREAK · GMU</i><span class="stamp">CLASSIFIED / EYES ONLY</span></div>
+ <div class="title0"><b id="title">早上好联合</b><i>GOOD MORNING UNION · GMU</i><span class="stamp">CLASSIFIED / EYES ONLY</span></div>
 </section>
 <section class="hud" id="hud" aria-hidden="true">
- <div class="bar"><span class="brand">GMU // 早上好联合</span><span>PROTOCOL <b>DAYBREAK / 07</b></span><span>SESSION <b id="sid">—</b></span><span class="sp"></span><span>MAN <b id="tMan">--:--:--</b></span><span>BJS <b id="tBjs">--:--:--</b></span><span class="live">LIVE</span></div>
+ <div class="bar"><span class="brand">GMU // 早上好联合</span><span>PROTOCOL <b>GMU-07</b></span><span>SESSION <b id="sid">—</b></span><span class="sp"></span><span>MAN <b id="tMan">--:--:--</b></span><span>BJS <b id="tBjs">--:--:--</b></span><span class="live">LIVE</span></div>
  <div class="cols">
   <div class="pnl"><div class="ph"><b>01</b> 行动遥测 · TELEMETRY</div><div class="pb">
    <div class="kv">太阳高度角<b id="elev" class="up">-6.0°</b></div><div class="kv">天空色温<b id="kelvin">2200 K</b></div><div class="kv">观测阶段<b id="phase">晨光观测</b></div><div class="kv">观测点<b>MAN · 53.48°N</b></div><div class="kv">在线席位<b id="online">0 / 7</b></div>
@@ -114,9 +132,11 @@ body{font-variant-numeric:tabular-nums;cursor:default}
  </div>
  <div class="foot"><span class="stage" id="stage">00 / 待机</span><div class="track"><i id="prog"></i></div><b id="pct">0%</b></div>
 </section>
-<div class="dawn" id="dawn"><div class="feed">AERIAL OBSERVATION / <b>LIVE</b><br>DAYBREAK · OPTICAL FEED<br>ALT 120 M / SIMULATED</div><div class="glow"></div><div class="suntrack"><div class="sun"></div><div class="lock"><span>TARGET ACQUIRED / SUN</span></div></div><div class="horizon"></div><div class="bearing"><span>060</span><span>075</span><span>090 / E</span><span>105</span><span>120</span></div></div>
-<div class="hello" id="hello"><b>早上好</b><i>GOOD MORNING</i><em id="helloName">圆桌已就位</em><small>MISSION START // READY TOGETHER</small></div>
+<div class="dawn" id="dawn"><div class="feed">AERIAL OBSERVATION / <b>LIVE</b><br>GMU · OPTICAL FEED<br>ALT 120 M / SIMULATED</div><div class="glow"></div><div class="suntrack"><div class="sun"></div><div class="lock"><span>TARGET ACQUIRED / SUN</span></div></div><div class="horizon"></div><div class="bearing"><span>060</span><span>075</span><span>090 / E</span><span>105</span><span>120</span></div></div>
+<div class="hello" id="hello"><b>早上好</b><i>GOOD MORNING</i><em id="helloCaption">圆桌已就位</em><small>MISSION START // READY TOGETHER</small></div>
 <canvas class="grain" id="grain" aria-hidden="true"></canvas><div class="scan"></div><div class="vignette"></div><div class="cut" id="cut"></div>
+<section class="tarot" id="tarot" aria-label="今日七席塔罗牌" aria-hidden="true"><div class="tarot-header">GMU / ARCANA 22<b id="tarotStage">今日七席 · PREPARING</b></div><div id="deck"></div></section>
+<div class="screen-fade" id="screenFade"></div>
 <script>
 (() => {
  'use strict';
@@ -125,6 +145,7 @@ body{font-variant-numeric:tabular-nums;cursor:default}
  const inFrame = window.parent !== window;
  let finished = false;
  const timers = new Set();
+ const motions = new Set();
  let frame = 0, clockTimer = 0;
  const sfx = (name, arg) => { if (!finished && inFrame) try { parent.postMessage({type:'boot:sfx', name, arg}, '*'); } catch (_) {} };
  const say = (zh, en) => { if (!finished && inFrame) try { parent.postMessage({type:'boot:say', zh, en}, '*'); } catch (_) {} };
@@ -133,6 +154,8 @@ body{font-variant-numeric:tabular-nums;cursor:default}
   finished = true;
   for (const timer of timers) clearTimeout(timer);
   timers.clear(); clearInterval(clockTimer); cancelAnimationFrame(frame);
+  for (const motion of motions) motion.cancel();
+  motions.clear();
   if (inFrame) try { parent.postMessage('boot:done', '*'); } catch (_) {}
  }
  document.addEventListener('keydown', e => { if (e.key === 'Escape' || e.key === 'Enter') { e.preventDefault(); done(); } });
@@ -142,14 +165,11 @@ body{font-variant-numeric:tabular-nums;cursor:default}
   const id = setTimeout(() => { timers.delete(id); if (!finished) fn(); }, ms);
   timers.add(id);
  }
- let name = '';
- try { const card = JSON.parse(localStorage.getItem('roundtable.boot.card') || '{}'); if (typeof card?.name === 'string') name = card.name.trim(); } catch (_) {}
- $('#helloName').textContent = name ? `${name}，圆桌已就位` : '圆桌已就位';
  const fmt = zone => new Intl.DateTimeFormat('en-GB',{timeZone:zone,hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false});
  const man = fmt('Europe/London'), bjs = fmt('Asia/Shanghai');
  function clocks() { const now = new Date(); $('#tMan').textContent = man.format(now); $('#tBjs').textContent = bjs.format(now); }
  clocks(); clockTimer = setInterval(clocks, 1000);
- $('#sid').textContent = 'DB-' + Math.random().toString(16).slice(2,8).toUpperCase();
+ $('#sid').textContent = 'GM-' + Math.random().toString(16).slice(2,8).toUpperCase();
  // 低分辨率颗粒缓冲区复用；每帧不创建 DOM。
  const canvas = $('#grain'), ctx = canvas.getContext('2d');
  canvas.width = 160; canvas.height = 90;
@@ -215,11 +235,121 @@ body{font-variant-numeric:tabular-nums;cursor:default}
   decrypt(el.querySelector('.wh b'),title); sfx('pop');
   return () => { el.classList.add('off'); later(150,()=>el.remove()); };
  }
+ // 自绘大阿卡纳：编号、英文名及独立的几何线稿。
+ const arcana = [
+  ['0','THE FOOL','<circle cx="40" cy="32" r="12"/><path d="M22 64l18-16 18 16M40 48v24M18 78h44"/>'],
+  ['I','THE MAGICIAN','<path d="M19 30c0-16 21-16 21 0s21 16 21 0-21-16-21 0-21 16-21 0M40 48v32M25 64h30"/>'],
+  ['II','THE HIGH PRIESTESS','<path d="M22 20v60M58 20v60M48 30a18 18 0 1 0 0 36 23 23 0 0 1 0-36"/>'],
+  ['III','THE EMPRESS','<path d="M18 34l6 22h32l6-22-15 10-7-20-7 20zM24 66h32M40 66v16"/>'],
+  ['IV','THE EMPEROR','<rect x="22" y="28" width="36" height="44"/><path d="M22 42h36M40 28v44M16 80h48"/>'],
+  ['V','THE HIEROPHANT','<path d="M40 18v64M26 32h28M22 48h36M18 64h44"/><circle cx="40" cy="18" r="4"/>'],
+  ['VI','THE LOVERS','<path d="M40 76L18 45l22-25 22 25zM18 45h44M40 20v56"/>'],
+  ['VII','THE CHARIOT','<path d="M18 38h44l-6 28H24zM40 38V18m-9 10 9-10 9 10"/><circle cx="26" cy="75" r="5"/><circle cx="54" cy="75" r="5"/>'],
+  ['VIII','STRENGTH','<circle cx="40" cy="50" r="26"/><path d="M26 60l14-30 14 30M30 52h20"/>'],
+  ['IX','THE HERMIT','<path d="M28 32h24l4 40H24zM34 32V22h12v10M40 42v20M32 52h16M24 78h32"/>'],
+  ['X','WHEEL OF FORTUNE','<circle cx="40" cy="50" r="26"/><circle cx="40" cy="50" r="8"/><path d="M40 24v18m0 16v18M14 50h18m16 0h18M22 32l12 12m12 12 12 12M58 32 46 44M34 56 22 68"/>'],
+  ['XI','JUSTICE','<path d="M40 20v60M20 35h40M24 35l-12 24h24zM56 35 44 59h24zM26 80h28"/>'],
+  ['XII','THE HANGED MAN','<path d="M18 20h44M40 20v22l16 14M40 42 26 56M40 42v25"/><circle cx="40" cy="76" r="9"/>'],
+  ['XIII','DEATH','<path d="M22 22h36L22 78h36zM22 22l36 56M30 22h20M30 78h20"/>'],
+  ['XIV','TEMPERANCE','<path d="M18 24h22l-4 20H22zM40 58h22l-4 20H44zM32 46c0 10 16 2 16 10M48 24v22"/>'],
+  ['XV','THE DEVIL','<path d="M40 20l24 50H16zM26 30l28 40M54 30 26 70"/><circle cx="40" cy="56" r="10"/>'],
+  ['XVI','THE TOWER','<path d="M26 80V38h28v42M20 80h40M26 38l-5-13 19 8 19-8-5 13M40 42v30M48 12 36 26h12L36 40"/>'],
+  ['XVII','THE STAR','<path d="M40 16l7 23 25 1-20 15 7 25-19-15-19 15 7-25L8 40l25-1z"/>'],
+  ['XVIII','THE MOON','<path d="M53 20a30 30 0 1 0 0 60 35 35 0 0 1 0-60z"/><path d="M60 27v10m-5-5h10"/>'],
+  ['XIX','THE SUN','<circle cx="40" cy="50" r="18"/><path d="M40 18v9m0 46v9M8 50h9m46 0h9M17 27l7 7m32 32 7 7M63 27l-7 7M24 66l-7 7"/>'],
+  ['XX','JUDGEMENT','<path d="M20 58l20-30 20 30zM40 28V16M20 70h40M28 80h24"/><circle cx="40" cy="50" r="6"/>'],
+  ['XXI','THE WORLD','<ellipse cx="40" cy="50" rx="25" ry="34"/><ellipse cx="40" cy="50" rx="12" ry="34"/><path d="M15 50h50M20 32h40M20 68h40"/>']
+ ];
+ const order = arcana.map((_,i)=>i);
+ // Fisher–Yates：每次从全部 22 张中不重复抽取七张。
+ for (let i=order.length-1;i>0;i--) { const j=Math.floor(Math.random()*(i+1)); [order[i],order[j]]=[order[j],order[i]]; }
+ const cards = order.map((index,i)=>{
+  const [roman,label,symbol]=arcana[index], card=document.createElement('div');
+  card.className='tarot-card'; card.setAttribute('data-arcana',index);
+  card.innerHTML=`<div class="card-turn"><div class="card-side card-back" data-code="${String(i+1).padStart(2,'0')}"><svg viewBox="0 0 80 100" aria-hidden="true"><path d="M40 12 68 50 40 88 12 50zM40 24 58 50 40 76 22 50zM12 50h56M40 12v76"/><circle cx="40" cy="50" r="14"/></svg><small>GMU / 22</small></div><div class="card-side card-front" data-code="${roman}"><b>${roman}</b><svg viewBox="0 0 80 100" aria-hidden="true">${symbol}</svg><span>${label}</span></div></div>`;
+  $('#deck').appendChild(card);
+  return {el:card,turn:card.querySelector('.card-turn'),label};
+ });
+ function pose(x=0,y=0,angle=0,scale=1) { return `translate(-50%,-50%) translate3d(${x}px,${y}px,0) rotate(${angle}deg) scale(${scale})`; }
+ function stack(i) { return pose((i-10.5)*.38,(i-10.5)*-.65); }
+ cards.forEach((card,i)=>{card.el.style.transform=stack(i);card.el.style.zIndex=i+1;});
+ function motion(el,frames,duration,easing='cubic-bezier(.22,.75,.25,1)') {
+  const end=frames[frames.length-1];
+  const animation=el.animate(frames,{duration,easing,fill:'forwards'});
+  motions.add(animation);
+  animation.onfinish=()=>{Object.assign(el.style,Object.fromEntries(Object.entries(end).filter(([k])=>k!=='offset'&&k!=='easing')));animation.cancel();motions.delete(animation);};
+ }
+ function sevenReady() {
+  $('#tarotStage').textContent='今日七席 · READY';
+  sfx('confirm'); say('今日七席，已经就位。','Seven cards. Seven seats.');
+ }
+ function tarotTransition() {
+  $('#hello').classList.add('depart'); $('#dawn').classList.add('depart');
+  $('#tarot').classList.add('on'); $('#tarot').setAttribute('aria-hidden','false');
+  const width=Math.min(112,Math.max(38,innerWidth*.11));
+  const spacing=Math.min(width*1.12,(innerWidth-width*1.6)/6);
+  const fan=i=>pose((i-3)*spacing,Math.abs(i-3)**2*width*.055-width*.25,(i-3)*6);
+  const selected=cards.slice(15);
+  if (reduced) {
+   cards.slice(0,15).forEach(c=>c.el.style.opacity=0);
+   selected.forEach((card,i)=>{card.el.style.transform=fan(i);card.turn.style.transform='rotateY(180deg)';card.el.setAttribute('aria-label',card.label);});
+   sevenReady(); return;
+  }
+  $('#tarotStage').textContent='洗牌 · SHUFFLE / 22';
+  // 左右各 11 张，交替释放；落牌声与落位关键帧同一时间点。
+  later(400,()=>cards.forEach((card,i)=>{
+   const side=i%2?-1:1,level=Math.floor(i/2);
+   motion(card.el,[{transform:stack(i)},{transform:pose(side*width*.66,-level*.9,side*9)}],360);
+  }));
+  cards.forEach((card,i)=>later(850+i*40,()=>{
+   const side=i%2?-1:1,level=Math.floor(i/2);
+   card.el.style.zIndex=30+i;
+   motion(card.el,[{transform:pose(side*width*.66,-level*.9,side*9),offset:0},{transform:pose(0,9-i*.65,0,.98),offset:.68},{transform:pose(0,-5-i*.65,0,1.01),offset:.84},{transform:stack(i),offset:1}],320);
+   later(218,()=>sfx('tick'));
+  }));
+  let stackOrder=cards.slice();
+  [2050,2750].forEach(delay=>later(delay,()=>{
+   $('#tarotStage').textContent='切牌 · CUT'; sfx('whoosh');
+   const lower=stackOrder.slice(0,11),upper=stackOrder.slice(11);
+   upper.forEach((card,i)=>{
+    motion(card.el,[{transform:stack(i+11),offset:0},{transform:pose(width*1.4,-width*.38,-12),offset:.38},{transform:pose(width*.8,width*.38,7),offset:.68},{transform:stack(i),offset:1}],600);
+    later(390,()=>card.el.style.zIndex=i+1);
+   });
+   lower.forEach((card,i)=>{
+    card.el.style.zIndex=i+12;
+    motion(card.el,[{transform:stack(i)},{transform:stack(i+11)}],600);
+   });
+   stackOrder=[...upper,...lower];
+  }));
+  // 两次切牌后顺序复原，从顶端发出七张；弧线中点和回弹点避免匀速平移。
+  selected.forEach((card,i)=>later(3500+i*100,()=>{
+   $('#tarotStage').textContent='发牌 · SEVEN SEATS'; sfx('link',i); card.el.style.zIndex=60+i;
+   motion(card.el,[{transform:stack(i+15),offset:0},{transform:pose((i-3)*spacing*.45,-width*1.15,(i-3)*9),offset:.46},{transform:pose((i-3)*spacing,Math.abs(i-3)**2*width*.055-width*.25+8,(i-3)*6,1.025),offset:.83},{transform:fan(i),offset:1}],560);
+  }));
+  later(4300,()=>cards.slice(0,15).forEach(card=>motion(card.el,[{opacity:1},{opacity:0}],240)));
+  selected.forEach((card,i)=>later(4700+i*130,()=>{
+   $('#tarotStage').textContent='翻牌 · IDENTIFY'; sfx('chime',i); card.el.setAttribute('aria-label',card.label);
+   motion(card.turn,[{transform:'rotateY(0deg)'},{transform:'rotateY(180deg)'}],420,'cubic-bezier(.4,0,.2,1)');
+  }));
+  later(5950,sevenReady);
+  later(6500,()=>{
+   $('#tarotStage').textContent='七席就位 · COMPLETE';
+   selected.forEach(card=>motion(card.turn,[{transform:'rotateY(180deg)'},{transform:'rotateY(0deg)'}],300));
+  });
+  later(6850,()=>{
+   sfx('chord');
+   selected.forEach((card,i)=>motion(card.el,[{transform:fan(i)},{transform:stack(i)}],450));
+  });
+  later(7350,()=>{
+   selected.forEach((card,i)=>motion(card.el,[{transform:stack(i),opacity:1},{transform:pose(0,0,0,.3),opacity:0}],350));
+   $('#tarot').classList.add('out'); $('#screenFade').classList.add('on');
+  });
+ }
  let closeCheck = () => {}, closeArchive = () => {}, closeAgenda = () => {};
  // 绝对时间点独立调度，逐字日志不会拖长全片。
  const start = performance.now();
  const at = (ms,fn) => later(Math.max(0,ms-(performance.now()-start)),fn);
- sfx('power'); say('破晓行动，简报开始。','Daybreak. Briefing.'); decrypt($('#title'),'破晓行动',600);
+ sfx('power'); say('早上好联合，简报开始。','Good Morning Union. Briefing.'); decrypt($('#title'),'早上好联合',600);
  at(2500,()=>{
   $('#act0').classList.add('gone'); $('#hud').classList.add('on'); $('#hud').setAttribute('aria-hidden','false'); $('#cut').classList.add('fire');
   sfx('whoosh'); progress(4,'01 / 建立加密链路'); log('LINK','建立加密链路 · ACCESS █████');
@@ -246,7 +376,8 @@ body{font-variant-numeric:tabular-nums;cursor:default}
  at(12000,()=>{ closeAgenda(); progress(100,'06 / 行动开始'); $('#hud').classList.add('out'); $('#hud').setAttribute('aria-hidden','true'); $('#dawn').classList.add('on'); sfx('sunrise'); });
  at(13500,()=>{ $('#hello').classList.add('on'); sfx('chord'); say('早上好，圆桌已就位。','Good morning.'); });
  at(15000,()=>$('#dawn').classList.add('locked'));
- at(17000,done);
+ at(15500,tarotTransition);
+ at(reduced ? 16500 : 23300,done);
 })();
 </script>
 </body>

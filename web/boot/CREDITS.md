@@ -2,7 +2,7 @@
 
 | 文件 | 来源 | 圆桌改了什么 |
 |---|---|---|
-| `dawn.html` | 圆桌原创：「破晓行动」片头（战术简报风，圆桌七席依次接入、日出、早上好） | — |
+| `dawn.html` | 圆桌原创：战术简报风片头（圆桌七席依次接入、日出、早上好、塔罗牌洗牌发牌转场；牌面为自绘线条） | — |
 | `gmu.html` | 改编自 **dsh-550c-boot**（https://github.com/yannicksong0106/dsh-550c-boot，作者 Ziyang Song，MIT，见同目录 `LICENSE`）的 `preview/ueg.html`（访问授权三幕） | 机构换成 GMU（早上好联合 / GOOD MORNING UNION）；配色改成蓝色系；终端、台词、证件编号、终幕文字等原作里的影视元素全部换成圆桌自己的内容；卡片字段、头像、二维码从「片头」设置读取（只存本机）；去掉录音文件，台词交给外层页面用系统女声朗读 |
 | `assets/gmu-seal.svg`、`assets/gmu-lockup.svg` | 圆桌自绘 | 替换原来的徽记和横版标志图片 |
 | `assets/land.js` | 同上项目的 `preview/assets/ueg-land.js`（由 Natural Earth 110m 陆地数据烘出，公有领域） | 全局变量改名 `GMU_LAND` |
