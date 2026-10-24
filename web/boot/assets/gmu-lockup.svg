@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 622 138">
+  <!-- GMU 早上好联合 横版标志（圆桌自绘）：徽记 + 竖线 + 中文名 + 英文名 -->
+  <g transform="translate(14 14) scale(0.24775)" fill="none" stroke="#fff">
+  
+  <defs><path id="lockarc" d="M 42 222 A 180 180 0 0 0 402 222"/></defs>
+  <circle cx="222" cy="222" r="212" stroke-width="6"/>
+  <circle cx="222" cy="222" r="196" stroke-width="2"/>
+  <g stroke-width="5" stroke-linecap="round">
+    <line x1="222" y1="60" x2="222" y2="34"/>
+    <line x1="162" y1="72" x2="150" y2="48"/><line x1="282" y1="72" x2="294" y2="48"/>
+    <line x1="111" y1="104" x2="93" y2="85"/><line x1="333" y1="104" x2="351" y2="85"/>
+    <line x1="76" y1="152" x2="53" y2="140"/><line x1="368" y1="152" x2="391" y2="140"/>
+  </g>
+  <g stroke-width="5">
+    <circle cx="222" cy="196" r="108"/>
+    <ellipse cx="222" cy="196" rx="44" ry="108"/>
+    <ellipse cx="222" cy="196" rx="84" ry="108"/>
+    <line x1="222" y1="88" x2="222" y2="304"/>
+    <line x1="114" y1="196" x2="330" y2="196"/>
+    <path d="M 130 140 Q 222 158 314 140"/>
+    <path d="M 130 252 Q 222 234 314 252"/>
+  </g>
+  <line x1="96" y1="318" x2="348" y2="318" stroke-width="6" stroke-linecap="round"/>
+  <line x1="140" y1="332" x2="304" y2="332" stroke-width="3" stroke-linecap="round"/>
+  <text fill="#fff" stroke="none" font-family="Inter,'Segoe UI',Arial,sans-serif" font-size="22" font-weight="700" letter-spacing="4" text-anchor="middle">
+    <textPath href="#lockarc" startOffset="50%">GOOD MORNING UNION</textPath>
+  </text>
+</g>
+  <line x1="146" y1="22" x2="146" y2="116" stroke="#fff" stroke-width="2"/>
+  <text x="168" y="80" fill="#fff" font-family="Inter,'Segoe UI',Arial,sans-serif" font-size="62" font-weight="600" letter-spacing="2">GMU</text>
+  <text x="330" y="78" fill="#fff" font-family="'Noto Sans SC','Microsoft YaHei','PingFang SC',sans-serif" font-size="50" font-weight="700" letter-spacing="2">早上好联合</text>
+  <text x="170" y="118" fill="#fff" font-family="Inter,'Segoe UI',Arial,sans-serif" font-size="25" letter-spacing="3.2">GOOD MORNING UNION</text>
+</svg>

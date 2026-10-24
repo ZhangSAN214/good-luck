@@ -254,3 +254,21 @@
   .pp-members{grid-row:auto;flex-direction:row;flex-wrap:wrap;position:static}
   .pp-msg{grid-column:1}
 }
+
+/* 片头：开机动画设置 */
+.bt-open{border:0;background:none;color:var(--muted);font-size:12px;padding:0;cursor:pointer;text-decoration:underline;text-underline-offset:2px}
+.bt h3{font-size:14px;margin:14px 0 6px}
+.bt-row{display:flex;flex-wrap:wrap;gap:6px 16px;margin:6px 0;font-size:13px}
+.bt-card{display:grid;grid-template-columns:120px minmax(0,1fr);gap:12px;align-items:start}
+.bt-photo{display:flex;flex-direction:column;gap:6px;align-items:stretch}
+.bt-thumb{width:120px;height:120px;border:1px solid var(--line);border-radius:6px;background:var(--surface-2) center/cover no-repeat;display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:12px}
+.bt-photo .btn{text-align:center;cursor:pointer}
+.bt-fields{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:6px 10px}
+.bt-f{display:flex;flex-direction:column;gap:2px;font-size:12px;color:var(--muted)}
+.bt-f input{min-width:0}
+.bt-save{grid-column:1/-1}
+.bt-qr{display:flex;flex-wrap:wrap;gap:6px}
+.bt-qr input{flex:1 1 220px;min-width:0}
+.bt-qr .btn{cursor:pointer}
+@media (max-width: 600px){.bt-card{grid-template-columns:1fr}}
+.bt label.btn{display:inline-block}

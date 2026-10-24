@@ -7,6 +7,7 @@ from __future__ import annotations
 from roundtable.core.providers import RawCompletion
 
 from ..core.orchestrator.conftest import MEDIUM
+from .conftest import quiet_boot
 from .test_e2e import ask, wait_done
 
 MULTI = "画四张不同风格的插画，然后拼成一张长图"
@@ -118,6 +119,7 @@ def test_markdown_table_with_br_renders_in_answer(serve, page):
 def test_budget_reset_time_shows_utc_and_local(serve, browser):
     srv = serve(confirm_threshold_usd=100.0)
     ctx = browser.new_context(viewport={"width": 1400, "height": 900}, timezone_id="Asia/Shanghai")
+    quiet_boot(ctx)
     try:
         pg = ctx.new_page()
         pg.route("https://fonts.googleapis.com/**", lambda r: r.abort())

@@ -243,7 +243,7 @@ src/roundtable/
   cli.py         命令行试用（`roundtable` 命令，见 docs/CLI.md）
   plaintext.py   命令行显示用：LaTeX 数学式转纯文本、去掉 Markdown 加粗符号（不改动存储的原文）
   api/           FastAPI 应用、路由、SSE
-web/             index.html、css/（app.css、agent.css 小人、ideas.css 头脑风暴结果页）、js/（api.js 通信、view.js 渲染、ideas.js 头脑风暴结果页、app.js 状态与交互、agent/ 网页小人）
+web/             index.html、css/（app.css、agent.css 小人、ideas.css 头脑风暴结果页）、js/（api.js 通信、view.js 渲染、ideas.js 头脑风暴结果页、app.js 状态与交互、agent/ 网页小人、boot.js 开机动画、bootcfg.js 片头设置）、boot/（开机动画页：550c.html 片头、gmu.html 早上好联合访问授权、assets/ 徽记与二维码库；来自 dsh-550c-boot，MIT，见 boot/CREDITS.md）
 tests/
 docs/            REQUIREMENTS_v3.md  PLAN.md  CLI.md  OFFICE.md（办公室模式）  mockup.html
 scripts/         check_models.py（核对 OpenRouter 渠道的模型 ID 与价格；带 vision / image_edit 标签的模型还核对远端 input_modalities 含 image）  lock_prompts.py（登记提示词版本）

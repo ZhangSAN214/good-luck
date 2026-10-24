@@ -8,6 +8,7 @@ from ..core.attachments.samples import PNG
 from ..core.orchestrator.conftest import MEDIUM, Env
 from ..core.orchestrator.test_search import FINAL, member_script, with_search
 from ..core.orchestrator.test_tools import ANSWER
+from .conftest import quiet_boot
 from .test_e2e import anonymous_text, ask, leaks, wait_done
 
 NOTE_HTML = "<h1>标题</h1><script>window.__pwn = 1</script>"
@@ -258,6 +259,7 @@ def test_twelve_seats_do_not_overlap(serve, browser):
     pool = [(f"m{i}", f"V{i}", "budget", ["math"], 0.1, 0.4) for i in range(13)]
     srv = serve(pool=pool, confirm_threshold_usd=100.0)
     ctx = browser.new_context(viewport={"width": 1400, "height": 900})
+    quiet_boot(ctx)
     page = ctx.new_page()
     page.route("https://fonts.googleapis.com/**", lambda r: r.abort())
     page.route("https://fonts.gstatic.com/**", lambda r: r.abort())
