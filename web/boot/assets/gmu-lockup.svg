@@ -1,33 +1,87 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 622 138">
-  <!-- GMU 早上好联合 横版标志（圆桌自绘）：徽记 + 竖线 + 中文名 + 英文名 -->
-  <g transform="translate(14 14) scale(0.24775)" fill="none" stroke="#fff">
-  
-  <defs><path id="lockarc" d="M 42 222 A 180 180 0 0 0 402 222"/></defs>
-  <circle cx="222" cy="222" r="212" stroke-width="6"/>
-  <circle cx="222" cy="222" r="196" stroke-width="2"/>
-  <g stroke-width="5" stroke-linecap="round">
-    <line x1="222" y1="60" x2="222" y2="34"/>
-    <line x1="162" y1="72" x2="150" y2="48"/><line x1="282" y1="72" x2="294" y2="48"/>
-    <line x1="111" y1="104" x2="93" y2="85"/><line x1="333" y1="104" x2="351" y2="85"/>
-    <line x1="76" y1="152" x2="53" y2="140"/><line x1="368" y1="152" x2="391" y2="140"/>
+  <!-- GMU 早上好联合 横版标志（圆桌自绘）：徽记 | 竖线 | 两行字左右对齐、同宽 -->
+  <g transform="translate(12 12) scale(0.2568)" fill="none" stroke="#fff">
+  <circle cx="222" cy="222" r="214" stroke-width="5"/>
+  <circle cx="222" cy="222" r="202" stroke-width="1.6"/>
+  <circle cx="222" cy="222" r="170" stroke-width="1.6"/>
+  <circle cx="222" cy="222" r="96" stroke-width="4"/>
+  <ellipse cx="222" cy="222" rx="40.3" ry="96" stroke-width="2.6"/>
+  <ellipse cx="222" cy="222" rx="74.9" ry="96" stroke-width="2.6"/>
+  <line x1="222" y1="126" x2="222" y2="318" stroke-width="2.6"/>
+  <line x1="146.7" y1="162.5" x2="297.3" y2="162.5" stroke-width="2.6"/>
+  <line x1="130.4" y1="193.2" x2="313.6" y2="193.2" stroke-width="2.6"/>
+  <line x1="126.0" y1="222.0" x2="318.0" y2="222.0" stroke-width="2.6"/>
+  <line x1="130.4" y1="250.8" x2="313.6" y2="250.8" stroke-width="2.6"/>
+  <line x1="146.7" y1="281.5" x2="297.3" y2="281.5" stroke-width="2.6"/>
+  <line x1="122.4" y1="185.7" x2="81.0" y2="170.7" stroke-width="3.2" stroke-linecap="round"/>
+  <line x1="125.6" y1="169.1" x2="102.8" y2="156.6" stroke-width="2" stroke-linecap="round"/>
+  <line x1="137.9" y1="157.5" x2="103.0" y2="130.7" stroke-width="3.2" stroke-linecap="round"/>
+  <line x1="145.9" y1="142.5" x2="128.0" y2="123.8" stroke-width="2" stroke-linecap="round"/>
+  <line x1="161.2" y1="135.2" x2="136.0" y2="99.1" stroke-width="3.2" stroke-linecap="round"/>
+  <line x1="173.3" y1="123.3" x2="161.8" y2="100.0" stroke-width="2" stroke-linecap="round"/>
+  <line x1="190.1" y1="120.9" x2="176.9" y2="78.9" stroke-width="3.2" stroke-linecap="round"/>
+  <line x1="205.3" y1="113.3" x2="201.3" y2="87.6" stroke-width="2" stroke-linecap="round"/>
+  <line x1="222.0" y1="116.0" x2="222.0" y2="72.0" stroke-width="3.2" stroke-linecap="round"/>
+  <line x1="238.7" y1="113.3" x2="242.7" y2="87.6" stroke-width="2" stroke-linecap="round"/>
+  <line x1="253.9" y1="120.9" x2="267.1" y2="78.9" stroke-width="3.2" stroke-linecap="round"/>
+  <line x1="270.7" y1="123.3" x2="282.2" y2="100.0" stroke-width="2" stroke-linecap="round"/>
+  <line x1="282.8" y1="135.2" x2="308.0" y2="99.1" stroke-width="3.2" stroke-linecap="round"/>
+  <line x1="298.1" y1="142.5" x2="316.0" y2="123.8" stroke-width="2" stroke-linecap="round"/>
+  <line x1="306.1" y1="157.5" x2="341.0" y2="130.7" stroke-width="3.2" stroke-linecap="round"/>
+  <line x1="318.4" y1="169.1" x2="341.2" y2="156.6" stroke-width="2" stroke-linecap="round"/>
+  <line x1="321.6" y1="185.7" x2="363.0" y2="170.7" stroke-width="3.2" stroke-linecap="round"/>
+  <path d="M 199.3 351.0 L 184.6 347.5 L 170.4 342.4 L 156.9 335.7 L 144.3 327.4 L 132.7 317.8 L 122.2 306.9 L 113.1 294.9 L 105.5 281.9 L 99.4 268.1 L 94.9 253.7 L 92.1 238.9" stroke-width="2.4" fill="none"/>
+  <ellipse cx="188.0" cy="336.0" rx="11.1" ry="4.7" transform="rotate(168.6 188.0 336.0)" fill="#fff" stroke="none"/>
+  <ellipse cx="181.1" cy="359.0" rx="11.1" ry="4.7" transform="rotate(224.6 181.1 359.0)" fill="#fff" stroke="none"/>
+  <ellipse cx="175.1" cy="331.4" rx="10.7" ry="4.5" transform="rotate(175.2 175.1 331.4)" fill="#fff" stroke="none"/>
+  <ellipse cx="165.7" cy="353.4" rx="10.7" ry="4.5" transform="rotate(231.2 165.7 353.4)" fill="#fff" stroke="none"/>
+  <ellipse cx="162.9" cy="325.3" rx="10.3" ry="4.3" transform="rotate(181.8 162.9 325.3)" fill="#fff" stroke="none"/>
+  <ellipse cx="150.9" cy="346.1" rx="10.3" ry="4.3" transform="rotate(237.8 150.9 346.1)" fill="#fff" stroke="none"/>
+  <ellipse cx="151.4" cy="317.8" rx="9.9" ry="4.2" transform="rotate(188.4 151.4 317.8)" fill="#fff" stroke="none"/>
+  <ellipse cx="137.1" cy="337.1" rx="9.9" ry="4.2" transform="rotate(244.4 137.1 337.1)" fill="#fff" stroke="none"/>
+  <ellipse cx="140.8" cy="309.0" rx="9.5" ry="4.0" transform="rotate(195.0 140.8 309.0)" fill="#fff" stroke="none"/>
+  <ellipse cx="124.5" cy="326.6" rx="9.5" ry="4.0" transform="rotate(251.0 124.5 326.6)" fill="#fff" stroke="none"/>
+  <ellipse cx="131.4" cy="299.1" rx="9.1" ry="3.8" transform="rotate(201.6 131.4 299.1)" fill="#fff" stroke="none"/>
+  <ellipse cx="113.1" cy="314.7" rx="9.1" ry="3.8" transform="rotate(257.6 113.1 314.7)" fill="#fff" stroke="none"/>
+  <ellipse cx="123.1" cy="288.2" rx="8.7" ry="3.7" transform="rotate(208.2 123.1 288.2)" fill="#fff" stroke="none"/>
+  <ellipse cx="103.2" cy="301.6" rx="8.7" ry="3.7" transform="rotate(264.2 103.2 301.6)" fill="#fff" stroke="none"/>
+  <ellipse cx="116.2" cy="276.4" rx="8.3" ry="3.5" transform="rotate(214.8 116.2 276.4)" fill="#fff" stroke="none"/>
+  <ellipse cx="94.8" cy="287.4" rx="8.3" ry="3.5" transform="rotate(270.8 94.8 287.4)" fill="#fff" stroke="none"/>
+  <ellipse cx="110.6" cy="263.9" rx="7.9" ry="3.3" transform="rotate(221.4 110.6 263.9)" fill="#fff" stroke="none"/>
+  <ellipse cx="88.1" cy="272.3" rx="7.9" ry="3.3" transform="rotate(277.4 88.1 272.3)" fill="#fff" stroke="none"/>
+  <ellipse cx="106.5" cy="250.8" rx="7.5" ry="3.1" transform="rotate(228.0 106.5 250.8)" fill="#fff" stroke="none"/>
+  <ellipse cx="83.2" cy="256.6" rx="7.5" ry="3.1" transform="rotate(284.0 83.2 256.6)" fill="#fff" stroke="none"/>
+  <ellipse cx="104.0" cy="237.3" rx="7.1" ry="3.0" transform="rotate(234.6 104.0 237.3)" fill="#fff" stroke="none"/>
+  <ellipse cx="80.2" cy="240.4" rx="7.1" ry="3.0" transform="rotate(290.6 80.2 240.4)" fill="#fff" stroke="none"/>
+  <path d="M 244.7 351.0 L 259.4 347.5 L 273.6 342.4 L 287.1 335.7 L 299.7 327.4 L 311.3 317.8 L 321.8 306.9 L 330.9 294.9 L 338.5 281.9 L 344.6 268.1 L 349.1 253.7 L 351.9 238.9" stroke-width="2.4" fill="none"/>
+  <ellipse cx="256.0" cy="336.0" rx="11.1" ry="4.7" transform="rotate(11.4 256.0 336.0)" fill="#fff" stroke="none"/>
+  <ellipse cx="262.9" cy="359.0" rx="11.1" ry="4.7" transform="rotate(-44.6 262.9 359.0)" fill="#fff" stroke="none"/>
+  <ellipse cx="268.9" cy="331.4" rx="10.7" ry="4.5" transform="rotate(4.8 268.9 331.4)" fill="#fff" stroke="none"/>
+  <ellipse cx="278.3" cy="353.4" rx="10.7" ry="4.5" transform="rotate(-51.2 278.3 353.4)" fill="#fff" stroke="none"/>
+  <ellipse cx="281.1" cy="325.3" rx="10.3" ry="4.3" transform="rotate(-1.8 281.1 325.3)" fill="#fff" stroke="none"/>
+  <ellipse cx="293.1" cy="346.1" rx="10.3" ry="4.3" transform="rotate(-57.8 293.1 346.1)" fill="#fff" stroke="none"/>
+  <ellipse cx="292.6" cy="317.8" rx="9.9" ry="4.2" transform="rotate(-8.4 292.6 317.8)" fill="#fff" stroke="none"/>
+  <ellipse cx="306.9" cy="337.1" rx="9.9" ry="4.2" transform="rotate(-64.4 306.9 337.1)" fill="#fff" stroke="none"/>
+  <ellipse cx="303.2" cy="309.0" rx="9.5" ry="4.0" transform="rotate(-15.0 303.2 309.0)" fill="#fff" stroke="none"/>
+  <ellipse cx="319.5" cy="326.6" rx="9.5" ry="4.0" transform="rotate(-71.0 319.5 326.6)" fill="#fff" stroke="none"/>
+  <ellipse cx="312.6" cy="299.1" rx="9.1" ry="3.8" transform="rotate(-21.6 312.6 299.1)" fill="#fff" stroke="none"/>
+  <ellipse cx="330.9" cy="314.7" rx="9.1" ry="3.8" transform="rotate(-77.6 330.9 314.7)" fill="#fff" stroke="none"/>
+  <ellipse cx="320.9" cy="288.2" rx="8.7" ry="3.7" transform="rotate(-28.2 320.9 288.2)" fill="#fff" stroke="none"/>
+  <ellipse cx="340.8" cy="301.6" rx="8.7" ry="3.7" transform="rotate(-84.2 340.8 301.6)" fill="#fff" stroke="none"/>
+  <ellipse cx="327.8" cy="276.4" rx="8.3" ry="3.5" transform="rotate(-34.8 327.8 276.4)" fill="#fff" stroke="none"/>
+  <ellipse cx="349.2" cy="287.4" rx="8.3" ry="3.5" transform="rotate(-90.8 349.2 287.4)" fill="#fff" stroke="none"/>
+  <ellipse cx="333.4" cy="263.9" rx="7.9" ry="3.3" transform="rotate(-41.4 333.4 263.9)" fill="#fff" stroke="none"/>
+  <ellipse cx="355.9" cy="272.3" rx="7.9" ry="3.3" transform="rotate(-97.4 355.9 272.3)" fill="#fff" stroke="none"/>
+  <ellipse cx="337.5" cy="250.8" rx="7.5" ry="3.1" transform="rotate(-48.0 337.5 250.8)" fill="#fff" stroke="none"/>
+  <ellipse cx="360.8" cy="256.6" rx="7.5" ry="3.1" transform="rotate(-104.0 360.8 256.6)" fill="#fff" stroke="none"/>
+  <ellipse cx="340.0" cy="237.3" rx="7.1" ry="3.0" transform="rotate(-54.6 340.0 237.3)" fill="#fff" stroke="none"/>
+  <ellipse cx="363.8" cy="240.4" rx="7.1" ry="3.0" transform="rotate(-110.6 363.8 240.4)" fill="#fff" stroke="none"/>
+  <path d="M 208 358 L 222 350 L 236 358" stroke-width="2.4"/>
   </g>
-  <g stroke-width="5">
-    <circle cx="222" cy="196" r="108"/>
-    <ellipse cx="222" cy="196" rx="44" ry="108"/>
-    <ellipse cx="222" cy="196" rx="84" ry="108"/>
-    <line x1="222" y1="88" x2="222" y2="304"/>
-    <line x1="114" y1="196" x2="330" y2="196"/>
-    <path d="M 130 140 Q 222 158 314 140"/>
-    <path d="M 130 252 Q 222 234 314 252"/>
-  </g>
-  <line x1="96" y1="318" x2="348" y2="318" stroke-width="6" stroke-linecap="round"/>
-  <line x1="140" y1="332" x2="304" y2="332" stroke-width="3" stroke-linecap="round"/>
-  <text fill="#fff" stroke="none" font-family="Inter,'Segoe UI',Arial,sans-serif" font-size="22" font-weight="700" letter-spacing="4" text-anchor="middle">
-    <textPath href="#lockarc" startOffset="50%">GOOD MORNING UNION</textPath>
+  <line x1="148" y1="16" x2="148" y2="122" stroke="#fff" stroke-width="1.6"/>
+  <text x="172" y="76" fill="#fff" textLength="436" lengthAdjust="spacing">
+    <tspan font-family="'Cinzel','Trajan Pro','Times New Roman',serif" font-size="60" font-weight="700">GMU</tspan><tspan dx="22" font-family="'Noto Serif SC','Source Han Serif SC','STZhongsong','Songti SC','SimSun',serif" font-size="54" font-weight="900">早上好联合</tspan>
   </text>
-</g>
-  <line x1="146" y1="22" x2="146" y2="116" stroke="#fff" stroke-width="2"/>
-  <text x="168" y="80" fill="#fff" font-family="Inter,'Segoe UI',Arial,sans-serif" font-size="62" font-weight="600" letter-spacing="2">GMU</text>
-  <text x="330" y="78" fill="#fff" font-family="'Noto Sans SC','Microsoft YaHei','PingFang SC',sans-serif" font-size="50" font-weight="700" letter-spacing="2">早上好联合</text>
-  <text x="170" y="118" fill="#fff" font-family="Inter,'Segoe UI',Arial,sans-serif" font-size="25" letter-spacing="3.2">GOOD MORNING UNION</text>
+  <line x1="172" y1="92" x2="608" y2="92" stroke="#fff" stroke-width="1"/>
+  <text x="172" y="120" fill="#fff" textLength="428" lengthAdjust="spacing" font-family="'Cinzel','Trajan Pro','Times New Roman',serif" font-size="20" font-weight="600">GOOD MORNING UNION</text>
 </svg>
