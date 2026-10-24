@@ -18,7 +18,9 @@
   const FADE_MS = 600;
   const MAX_MS = 90_000; // 兜底：动画页出错没通知时，最多盖这么久
 
-  /* ── 音效：全部现场合成，不带任何音频文件 ── */
+  /* ── 音效：全部现场合成，不带任何音频文件 ──
+     军事科幻、严肃：低频冲击、锯齿铜管般的轰鸣、继电器咔哒、雷达与声呐脉冲、电台底噪。
+     总线：各声部 → 压缩器（压住峰值、让低频更"实"）→ 总音量。 */
   let ctx = null;
   let master = null;
   function audio() {
@@ -27,86 +29,163 @@
     if (!AC) return null;
     try {
       ctx = new AC();
+      const comp = ctx.createDynamicsCompressor();
+      comp.threshold.value = -18;
+      comp.knee.value = 8;
+      comp.ratio.value = 4;
+      comp.attack.value = 0.004;
+      comp.release.value = 0.25;
       master = ctx.createGain();
-      master.gain.value = 0.32;
-      master.connect(ctx.destination);
+      master.gain.value = 0.42;
+      master.connect(comp).connect(ctx.destination);
     } catch {
       ctx = null;
     }
     return ctx;
   }
-  // 晨会的调子：D 大调五声音阶，七个席位各一个音
-  const SEAT_HZ = [587.33, 659.25, 739.99, 880, 987.77, 1174.66, 1318.51];
-  function tone(hz, at, dur, { type = 'sine', gain = 0.3, attack = 0.01, to = null } = {}) {
+  // D 小调：七个席位的声呐音，低沉不甜
+  const SEAT_HZ = [293.66, 349.23, 392, 440, 523.25, 587.33, 698.46];
+  function env(g, at, dur, peak, attack) {
+    g.gain.setValueAtTime(0.0001, at);
+    g.gain.exponentialRampToValueAtTime(peak, at + attack);
+    g.gain.exponentialRampToValueAtTime(0.0001, at + dur);
+  }
+  /** 单个振荡器，可选低通滤波（扫频）。 */
+  function tone(hz, at, dur, { type = 'sine', gain = 0.3, attack = 0.01, to = null, lp = 0, lpTo = 0, detune = 0 } = {}) {
     const o = ctx.createOscillator();
     const g = ctx.createGain();
     o.type = type;
+    o.detune.value = detune;
     o.frequency.setValueAtTime(hz, at);
     if (to) o.frequency.exponentialRampToValueAtTime(to, at + dur);
-    g.gain.setValueAtTime(0.0001, at);
-    g.gain.exponentialRampToValueAtTime(gain, at + attack);
-    g.gain.exponentialRampToValueAtTime(0.0001, at + dur);
-    o.connect(g).connect(master);
+    env(g, at, dur, gain, attack);
+    let node = o;
+    if (lp) {
+      const f = ctx.createBiquadFilter();
+      f.type = 'lowpass';
+      f.Q.value = 2;
+      f.frequency.setValueAtTime(lp, at);
+      if (lpTo) f.frequency.exponentialRampToValueAtTime(lpTo, at + dur * 0.6);
+      node = node.connect(f);
+    }
+    node.connect(g).connect(master);
     o.start(at);
     o.stop(at + dur + 0.05);
   }
-  function noise(at, dur, { gain = 0.12, from = 400, to = 4000, q = 0.8 } = {}) {
-    const len = Math.max(1, Math.floor(ctx.sampleRate * dur));
-    const buf = ctx.createBuffer(1, len, ctx.sampleRate);
-    const d = buf.getChannelData(0);
-    for (let i = 0; i < len; i += 1) d[i] = Math.random() * 2 - 1;
+  let noiseBuf = null;
+  function noise(at, dur, { gain = 0.12, from = 400, to = 4000, q = 0.8, type = 'bandpass', attack = null } = {}) {
+    if (!noiseBuf) {
+      const len = ctx.sampleRate * 2;
+      noiseBuf = ctx.createBuffer(1, len, ctx.sampleRate);
+      const d = noiseBuf.getChannelData(0);
+      for (let i = 0; i < len; i += 1) d[i] = Math.random() * 2 - 1;
+    }
     const src = ctx.createBufferSource();
-    src.buffer = buf;
+    src.buffer = noiseBuf;
+    src.loop = true;
     const f = ctx.createBiquadFilter();
-    f.type = 'bandpass';
+    f.type = type;
     f.Q.value = q;
     f.frequency.setValueAtTime(from, at);
     f.frequency.exponentialRampToValueAtTime(to, at + dur);
     const g = ctx.createGain();
-    g.gain.setValueAtTime(0.0001, at);
-    g.gain.exponentialRampToValueAtTime(gain, at + dur * 0.4);
-    g.gain.exponentialRampToValueAtTime(0.0001, at + dur);
+    env(g, at, dur, gain, attack ?? dur * 0.4);
     src.connect(f).connect(g).connect(master);
-    src.start(at);
+    src.start(at, Math.random());
+    src.stop(at + dur + 0.05);
+  }
+  /** 低频冲击：正弦从高处急坠，像远处的重物落地。 */
+  const thump = (at, { gain = 0.5, from = 120, to = 38, dur = 0.7 } = {}) =>
+    tone(from, at, dur, { gain, attack: 0.004, to });
+  /** 继电器 / 机械咔哒：极短的高通噪声。 */
+  const click = (at, gain = 0.09, hz = 3200) => noise(at, 0.018, { gain, from: hz, to: hz * 1.4, q: 3, attack: 0.001 });
+  /** 锯齿铜管轰鸣：几层失谐锯齿 + 低通慢开。 */
+  function braam(at, root, dur, gain = 0.12) {
+    for (const [mul, det] of [[1, -9], [1, 9], [2, 0], [1.5, 4]]) {
+      tone(root * mul, at, dur, { type: 'sawtooth', gain: gain / (mul > 1 ? 2.2 : 1), attack: 0.08, lp: 180, lpTo: 1400, detune: det });
+    }
   }
   const SFX = {
     power(t) {
-      // 低频起振 + 上扬的光，像晨光从地平线下涌上来
-      tone(55, t, 2.2, { type: 'sawtooth', gain: 0.07, attack: 0.6, to: 110 });
-      tone(110, t, 2.4, { gain: 0.18, attack: 0.5 });
-      noise(t, 1.8, { gain: 0.06, from: 200, to: 3000 });
-      [587.33, 880, 1174.66].forEach((hz, i) => tone(hz, t + 1.1 + i * 0.12, 1.6, { type: 'triangle', gain: 0.09 }));
+      // 系统通电：继电器连响 → 低频冲击 + 铜管轰鸣 → 电台底噪
+      for (let i = 0; i < 4; i += 1) click(t + i * 0.06, 0.12, 2200 + i * 500);
+      thump(t + 0.28, { gain: 0.6 });
+      braam(t + 0.3, 73.42, 2.6, 0.11);
+      noise(t + 0.3, 2.2, { gain: 0.03, from: 1800, to: 900, q: 0.5 });
+      tone(1760, t + 1.4, 0.09, { type: 'square', gain: 0.03, lp: 3000 });
+      tone(1760, t + 1.55, 0.09, { type: 'square', gain: 0.03, lp: 3000 });
     },
     whoosh(t) {
-      noise(t, 0.55, { gain: 0.14, from: 300, to: 6000, q: 0.6 });
+      // 硬切：低通扫下的气流 + 底部一记闷击
+      noise(t, 0.45, { gain: 0.2, from: 5000, to: 300, q: 0.7, type: 'lowpass', attack: 0.03 });
+      thump(t + 0.02, { gain: 0.35, from: 90, to: 40, dur: 0.4 });
     },
     tick(t) {
-      tone(2400 + Math.random() * 600, t, 0.025, { type: 'square', gain: 0.018, attack: 0.002 });
+      click(t, 0.05, 2600 + Math.random() * 1400);
     },
     pop(t) {
-      tone(660, t, 0.12, { type: 'triangle', gain: 0.12, to: 990 });
-      tone(1320, t + 0.06, 0.18, { gain: 0.06 });
+      // 浮窗：雷达双短音 + 咔哒
+      click(t, 0.08);
+      tone(1318.5, t, 0.06, { type: 'square', gain: 0.035, lp: 2600 });
+      tone(987.77, t + 0.075, 0.08, { type: 'square', gain: 0.035, lp: 2600 });
     },
     chime(t, i = 0) {
+      // 席位接入：声呐脉冲（正弦 + 轻微失谐的长尾）+ 低频点
       const hz = SEAT_HZ[i % SEAT_HZ.length];
-      tone(hz, t, 1.2, { gain: 0.16, attack: 0.005 });
-      tone(hz * 2, t, 0.6, { gain: 0.05, attack: 0.005 });
-      tone(hz * 3.01, t, 0.3, { gain: 0.02, attack: 0.003 });
+      tone(hz, t, 1.4, { gain: 0.16, attack: 0.004 });
+      tone(hz, t, 1.1, { gain: 0.05, attack: 0.004, detune: 14 });
+      thump(t, { gain: 0.18, from: 70, to: 45, dur: 0.25 });
     },
     link(t, i = 0) {
-      tone(1200 + i * 90, t, 0.09, { type: 'sine', gain: 0.05, to: 1800 + i * 90 });
+      // 数据链：方波快速上扫
+      tone(600 + i * 70, t, 0.07, { type: 'square', gain: 0.025, to: 2400 + i * 70, lp: 3500 });
     },
     confirm(t) {
-      [880, 1108.73, 1318.51].forEach((hz, i) => tone(hz, t + i * 0.09, 0.7, { type: 'triangle', gain: 0.1 }));
+      // 锁定确认：两声电子音 + 冲击
+      tone(1046.5, t, 0.09, { type: 'square', gain: 0.04, lp: 3000 });
+      tone(1046.5, t + 0.13, 0.22, { type: 'square', gain: 0.04, lp: 3000 });
+      thump(t + 0.13, { gain: 0.4, from: 100, to: 40, dur: 0.6 });
     },
     sunrise(t) {
-      noise(t, 3.2, { gain: 0.05, from: 120, to: 2400, q: 0.4 });
-      [146.83, 220, 293.66, 369.99].forEach((hz) => tone(hz, t, 4.2, { gain: 0.07, attack: 1.6 }));
+      // 长线升起：低音铜管慢开 + 噪声上扫
+      braam(t, 73.42, 4.5, 0.08);
+      noise(t, 3.5, { gain: 0.04, from: 200, to: 3000, q: 0.4 });
     },
     chord(t) {
-      // 「早上好」：D 大调上行琶音收在明亮的大三和弦上
-      [587.33, 739.99, 880, 1174.66, 1479.98].forEach((hz, i) => tone(hz, t + i * 0.08, 2.4, { type: 'triangle', gain: 0.09 }));
-      tone(293.66, t, 2.8, { gain: 0.12, attack: 0.05 });
+      // 落定：冲击 + D 小调铜管和弦（根 + 五度 + 小三度高八度）
+      thump(t, { gain: 0.6, from: 140, to: 35, dur: 1.2 });
+      braam(t, 73.42, 3.2, 0.1);
+      tone(349.23, t + 0.05, 2.6, { type: 'sawtooth', gain: 0.025, lp: 900, attack: 0.3 });
+    },
+    // 以下是给过场（花切、发牌、圆环）用的
+    riffle(t, n = 16) {
+      // 洗牌：一串越来越密的咔哒
+      const count = Math.max(4, Math.min(40, Number(n) || 16));
+      let at = t;
+      for (let i = 0; i < count; i += 1) {
+        click(at, 0.06 + Math.random() * 0.03, 2400 + Math.random() * 2400);
+        at += 0.034 - (i / count) * 0.018;
+      }
+    },
+    snap(t) {
+      // 花切的一记脆响
+      noise(t, 0.05, { gain: 0.22, from: 4500, to: 2500, q: 1.2, attack: 0.002 });
+      thump(t, { gain: 0.15, from: 160, to: 70, dur: 0.12 });
+    },
+    flip(t) {
+      // 翻牌 / 甩牌：短促的气流
+      noise(t, 0.16, { gain: 0.1, from: 1200, to: 6000, q: 0.9, attack: 0.02 });
+    },
+    ring(t) {
+      // 牌排成圆环：上升的合成音 + 金属泛音
+      tone(146.83, t, 1.6, { type: 'sawtooth', gain: 0.06, to: 293.66, lp: 300, lpTo: 2400, attack: 0.2 });
+      tone(1174.66, t + 0.9, 1.2, { gain: 0.03, attack: 0.05, detune: 6 });
+    },
+    lock(t) {
+      // 圆环锁定、化成徽记：重冲击 + 短铜管
+      thump(t, { gain: 0.65, from: 150, to: 32, dur: 1.4 });
+      braam(t, 73.42, 1.6, 0.1);
+      click(t, 0.12, 2000);
     },
   };
   function sfx(name, arg) {
