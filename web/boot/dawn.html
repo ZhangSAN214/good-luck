@@ -1,0 +1,460 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>GMU · 晨会协议</title>
+<style>
+  /* 圆桌开机片头「晨会协议」（圆桌原创）：深蓝夜色 → 七个席位依次醒来 → 记忆同步 → 日出 → 早上好。
+     时间线由脚本决定「什么时候」，动画全写在 CSS 里决定「怎么动」。
+     音效和播报不在这一页放：通过 postMessage 交给外层页面（外层有用户的那一下点击，浏览器才肯出声）。 */
+  :root{
+    --bg:#030814; --deep:#061228; --panel:rgba(10,26,54,.62); --win:rgba(8,22,48,.9);
+    --ink:#d6e8ff; --dim:#6f8db3; --faint:#2a4468; --line:rgba(120,180,255,.22); --line-soft:rgba(120,180,255,.08);
+    --accent:#4da3ff; --cyan:#5ee0ff; --glow:rgba(77,163,255,.55); --gold:#ffd58c; --ok:#7ef0c0;
+    --mono:"JetBrains Mono","Cascadia Mono","SF Mono",Consolas,monospace;
+    --sans:"Inter","Noto Sans SC","Microsoft YaHei","PingFang SC",system-ui,sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%;background:var(--bg);color:var(--ink);font-family:var(--mono);font-size:12px;overflow:hidden;-webkit-font-smoothing:antialiased}
+  body{cursor:default}
+  .sky{position:fixed;inset:0;background:radial-gradient(130% 90% at 50% 120%,#0b2350 0%,#061228 45%,var(--bg) 80%)}
+  canvas.stars{position:fixed;inset:0;width:100%;height:100%}
+  .grid{position:fixed;inset:0;pointer-events:none;opacity:.5;background-image:
+      linear-gradient(var(--line-soft) 1px,transparent 1px),linear-gradient(90deg,var(--line-soft) 1px,transparent 1px);
+    background-size:44px 44px;mask-image:radial-gradient(80% 70% at 50% 50%,#000 30%,transparent 100%)}
+  .scan{position:fixed;inset:0;pointer-events:none;background:repeating-linear-gradient(to bottom,rgba(120,180,255,.035) 0,rgba(120,180,255,.035) 1px,transparent 1px,transparent 3px)}
+  .vignette{position:fixed;inset:0;pointer-events:none;background:radial-gradient(120% 100% at 50% 50%,transparent 55%,rgba(0,0,0,.65) 100%)}
+
+  /* ── 第 0 幕：开机徽环 ── */
+  .act0{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:22px;transition:opacity .6s ease,transform .8s cubic-bezier(.2,.8,.2,1)}
+  .act0.gone{opacity:0;transform:scale(1.08);pointer-events:none}
+  .ring{width:min(30vh,240px);aspect-ratio:1;position:relative}
+  .ring svg{width:100%;height:100%;overflow:visible}
+  .ring .c{fill:none;stroke:var(--cyan);stroke-width:1.6;stroke-dasharray:760;stroke-dashoffset:760;filter:drop-shadow(0 0 6px var(--glow))}
+  .ring .c2{stroke:var(--accent);stroke-width:1;stroke-dasharray:4 7;opacity:0}
+  .ring .seal{position:absolute;inset:16%;width:68%;opacity:0;filter:drop-shadow(0 0 14px rgba(94,224,255,.35)) brightness(1.05)}
+  .play .ring .c{animation:draw 1.3s cubic-bezier(.6,0,.2,1) .15s forwards}
+  .play .ring .c2{animation:spinIn 1.6s ease .6s forwards}
+  .play .ring .seal{animation:fadeUp .9s ease 1s forwards}
+  .title0{text-align:center;opacity:0}
+  .title0 b{display:block;font-family:var(--sans);font-size:clamp(20px,3.2vw,34px);font-weight:600;letter-spacing:.6em;color:#eaf4ff;text-shadow:0 0 18px rgba(94,224,255,.45)}
+  .title0 i{display:block;font-style:normal;margin-top:8px;letter-spacing:.42em;color:var(--dim);font-size:11px}
+  .play .title0{animation:track 1.2s cubic-bezier(.2,.8,.2,1) 1.2s forwards}
+  @keyframes draw{to{stroke-dashoffset:0}}
+  @keyframes spinIn{from{opacity:0;transform:rotate(-60deg)}to{opacity:.9;transform:rotate(0)}}
+  @keyframes fadeUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+  @keyframes track{from{opacity:0;letter-spacing:1.4em;filter:blur(6px)}to{opacity:1;filter:none}}
+
+  /* ── 第 1 幕：控制台 ── */
+  .hud{position:fixed;inset:0;display:grid;grid-template-rows:auto 1fr auto;gap:12px;padding:14px 16px;opacity:0;pointer-events:none}
+  .hud.on{opacity:1;transition:opacity .5s ease}
+  .hud.out{opacity:0;transition:opacity .7s ease}
+  .bar{display:flex;align-items:center;gap:18px;border:1px solid var(--line);background:rgba(6,18,40,.55);padding:7px 12px;letter-spacing:.14em;color:var(--dim);font-size:11px;white-space:nowrap;overflow:hidden}
+  .bar b{color:var(--ink);font-weight:500}
+  .bar .brand{color:var(--cyan)}
+  .bar .sp{flex:1}
+  .bar .live{color:var(--ok)}
+  .bar .live::before{content:"●";margin-right:6px;animation:blink 1.2s steps(2) infinite}
+  @keyframes blink{50%{opacity:.2}}
+  .cols{display:grid;grid-template-columns:minmax(220px,1fr) minmax(320px,1.55fr) minmax(300px,1.3fr);gap:12px;min-height:0}
+  .pnl{position:relative;border:1px solid var(--line);background:var(--panel);backdrop-filter:blur(2px);display:flex;flex-direction:column;min-height:0;overflow:hidden;
+    clip-path:inset(0 0 100% 0)}
+  .hud.on .pnl{animation:wipe .7s cubic-bezier(.35,.05,.2,1) forwards}
+  .hud.on .pnl:nth-child(2){animation-delay:.12s}
+  .hud.on .pnl:nth-child(3){animation-delay:.24s}
+  @keyframes wipe{to{clip-path:inset(0 0 0 0)}}
+  .pnl::before,.pnl::after{content:"";position:absolute;width:10px;height:10px;border:1px solid var(--cyan);opacity:.7}
+  .pnl::before{left:-1px;top:-1px;border-right:0;border-bottom:0}
+  .pnl::after{right:-1px;bottom:-1px;border-left:0;border-top:0}
+  .ph{padding:8px 12px;border-bottom:1px solid var(--line);letter-spacing:.2em;color:var(--dim);font-size:10.5px;display:flex;gap:8px}
+  .ph b{color:var(--cyan);font-weight:500}
+  .ph span{margin-left:auto}
+  .pb{padding:10px 12px;flex:1;min-height:0;overflow:hidden}
+
+  /* 晨光遥测 */
+  .kv{display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px dashed var(--line-soft);color:var(--dim);letter-spacing:.06em}
+  .kv b{color:var(--ink);font-weight:500;font-variant-numeric:tabular-nums}
+  .kv b.up{color:var(--gold)}
+  .meter{margin:8px 0 2px;color:var(--dim);letter-spacing:.12em;font-size:10.5px;display:flex;justify-content:space-between}
+  .track{height:5px;background:rgba(120,180,255,.1);position:relative;overflow:hidden}
+  .track i{position:absolute;inset:0 auto 0 0;width:0;background:linear-gradient(90deg,var(--accent),var(--cyan));box-shadow:0 0 10px var(--glow);transition:width .6s ease}
+  .track.warm i{background:linear-gradient(90deg,#3f7bd9,var(--gold))}
+  .sec{margin-top:12px;color:var(--faint);letter-spacing:.3em;font-size:10px}
+
+  /* 中枢终端 */
+  .term{font-size:12px;line-height:1.72;white-space:pre-wrap;word-break:break-all}
+  .term .l{opacity:.95}
+  .term .t{color:var(--faint)}
+  .term .k{color:var(--cyan)}
+  .term .ok{color:var(--ok)}
+  .term .g{color:var(--gold)}
+  .term .d{color:var(--dim)}
+  .cur{display:inline-block;width:7px;height:13px;background:var(--cyan);vertical-align:-2px;animation:blink .9s steps(2) infinite}
+
+  /* 圆桌 */
+  .table{position:relative;width:100%;height:100%;display:flex;align-items:center;justify-content:center}
+  .table svg{width:min(100%,46vh);height:auto;overflow:visible}
+  .rim{fill:none;stroke:var(--line);stroke-width:1}
+  .rim2{fill:rgba(77,163,255,.04);stroke:var(--accent);stroke-width:1.2;stroke-dasharray:2 6;transform-origin:150px 150px;animation:rot 30s linear infinite}
+  @keyframes rot{to{transform:rotate(360deg)}}
+  .spoke{stroke:var(--cyan);stroke-width:1.2;stroke-dasharray:120;stroke-dashoffset:120;opacity:.85;filter:drop-shadow(0 0 4px var(--glow))}
+  .spoke.on{transition:stroke-dashoffset .7s ease;stroke-dashoffset:0}
+  .seat circle{fill:#071630;stroke:var(--faint);stroke-width:1.4;transition:all .45s ease}
+  .seat text{fill:var(--faint);font:600 11px var(--mono);dominant-baseline:central;transition:fill .45s ease}
+  .seat text.lab{font:9px var(--mono);letter-spacing:.1em}
+  .seat.on circle{fill:#0d2d5c;stroke:var(--cyan);filter:drop-shadow(0 0 8px var(--glow))}
+  .seat.on text{fill:#eaf6ff}
+  .seat.on .lab{fill:var(--cyan)}
+  .seat .halo{fill:none;stroke:var(--cyan);stroke-width:1;opacity:0}
+  .seat.on .halo{animation:halo 1s ease-out}
+  @keyframes halo{from{opacity:.9;r:16}to{opacity:0;r:40}}
+  .core circle{fill:#081c3d;stroke:var(--accent);stroke-width:1.4}
+  .core.on circle{animation:pulse 1.6s ease-in-out infinite;stroke:var(--cyan)}
+  @keyframes pulse{50%{filter:drop-shadow(0 0 16px rgba(94,224,255,.8))}}
+  .core text{fill:var(--ink);font:600 15px var(--mono);text-anchor:middle;dominant-baseline:central}
+  .core .sub{font:9px var(--mono);fill:var(--dim);letter-spacing:.2em}
+
+  .foot{display:flex;align-items:center;gap:14px;border:1px solid var(--line);background:rgba(6,18,40,.55);padding:8px 12px;letter-spacing:.16em;color:var(--dim);font-size:10.5px}
+  .foot .track{flex:1;height:4px}
+  .foot b{color:var(--ink);font-weight:500;min-width:44px;text-align:right}
+  .foot .stage{color:var(--cyan);min-width:200px}
+
+  /* 浮窗 */
+  .win{position:fixed;width:min(340px,40vw);background:var(--win);border:1px solid rgba(94,224,255,.45);box-shadow:0 18px 50px rgba(0,0,0,.5),0 0 0 1px rgba(94,224,255,.08) inset,0 0 30px rgba(77,163,255,.15);
+    opacity:0;transform:translateY(14px) scale(.97);transition:opacity .35s ease,transform .45s cubic-bezier(.2,.8,.2,1);z-index:20}
+  .win.on{opacity:1;transform:none}
+  .win.off{opacity:0;transform:translateY(-8px) scale(.98)}
+  .win .wh{display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid rgba(94,224,255,.25);color:var(--cyan);letter-spacing:.18em;font-size:11px;
+    background:linear-gradient(90deg,rgba(77,163,255,.18),transparent)}
+  .win .wh span{margin-left:auto;color:var(--dim);letter-spacing:.1em}
+  .win .wb{padding:10px 12px;line-height:1.7}
+  .win .row{display:flex;justify-content:space-between;color:var(--dim)}
+  .win .row b{color:var(--ink);font-weight:500}
+  .win .row b.g{color:var(--gold)}
+  .win .row b.ok{color:var(--ok)}
+  .win .note{margin-top:8px;padding:6px 10px;border-left:2px solid var(--cyan);background:rgba(94,224,255,.07);color:#cfeaff;font-family:var(--sans);font-size:12.5px}
+  .win ol{padding-left:18px;color:var(--ink)}
+  .win ol li{margin:2px 0;font-family:var(--sans);font-size:12.5px}
+  .win ol li small{color:var(--dim);font-family:var(--mono);margin-left:6px}
+
+  /* ── 第 2 幕：日出 ── */
+  .dawn{position:fixed;inset:0;pointer-events:none;opacity:0;z-index:30}
+  .dawn.on{opacity:1;transition:opacity .8s ease}
+  .dawn .glow{position:absolute;left:50%;bottom:-62vh;width:150vh;height:150vh;transform:translateX(-50%);border-radius:50%;
+    background:radial-gradient(circle,rgba(255,226,170,.95) 0%,rgba(255,196,120,.55) 9%,rgba(120,170,255,.35) 26%,rgba(40,90,190,.18) 44%,transparent 62%)}
+  .dawn.on .glow{animation:rise 3.6s cubic-bezier(.22,.7,.2,1) forwards}
+  @keyframes rise{from{bottom:-120vh;opacity:.4}to{bottom:-78vh;opacity:1}}
+  .dawn .sun{position:absolute;left:50%;bottom:-20vh;width:16vh;height:16vh;transform:translateX(-50%);border-radius:50%;
+    background:radial-gradient(circle,#fff9ea 0%,#ffe3a6 55%,rgba(255,210,140,0) 72%);filter:blur(.5px)}
+  .dawn.on .sun{animation:sunUp 3.6s cubic-bezier(.22,.7,.2,1) forwards}
+  @keyframes sunUp{to{bottom:6vh}}
+  .dawn .horizon{position:absolute;left:0;right:0;bottom:14vh;height:1px;background:linear-gradient(90deg,transparent,rgba(255,232,190,.9),transparent);box-shadow:0 0 18px rgba(255,220,160,.8);transform:scaleX(0)}
+  .dawn.on .horizon{animation:lineX 1.2s cubic-bezier(.6,0,.2,1) forwards}
+  @keyframes lineX{to{transform:scaleX(1)}}
+  .dawn .rays{position:absolute;left:50%;bottom:6vh;width:200vh;height:200vh;transform:translate(-50%,50%);opacity:0;
+    background:repeating-conic-gradient(from 0deg,rgba(255,230,180,.10) 0deg 3deg,transparent 3deg 12deg);mask-image:radial-gradient(circle,#000 0%,transparent 55%)}
+  .dawn.on .rays{animation:rays 4s ease 1.2s forwards}
+  @keyframes rays{to{opacity:1;transform:translate(-50%,50%) rotate(8deg)}}
+  .hello{position:fixed;left:0;right:0;top:30%;text-align:center;z-index:31;pointer-events:none}
+  .hello b{display:block;font-family:var(--sans);font-weight:700;font-size:clamp(46px,8vw,104px);letter-spacing:.32em;color:#fffaf0;opacity:0;
+    text-shadow:0 0 30px rgba(255,214,150,.65),0 0 2px #fff}
+  .hello i{display:block;font-style:normal;margin-top:14px;font-family:var(--sans);font-size:clamp(14px,1.9vw,22px);letter-spacing:.9em;color:#fff3d8;opacity:0}
+  .hello em{display:block;font-style:normal;margin-top:22px;font-family:var(--sans);font-size:clamp(13px,1.4vw,16px);letter-spacing:.3em;color:rgba(255,246,226,.85);opacity:0}
+  .hello.on b{animation:track 1.4s cubic-bezier(.2,.8,.2,1) forwards}
+  .hello.on i{animation:track 1.4s cubic-bezier(.2,.8,.2,1) .45s forwards}
+  .hello.on em{animation:fadeUp .9s ease 1.3s forwards}
+  .end{position:fixed;inset:0;background:#f6efe2;opacity:0;pointer-events:none;z-index:40}
+  .end.on{opacity:.0;animation:flash 1.1s ease forwards}
+  @keyframes flash{40%{opacity:.35}100%{opacity:0}}
+
+  @media (max-width: 900px){
+    .cols{grid-template-columns:1fr 1fr}
+    .cols .pnl:first-child{display:none}
+  }
+  @media (prefers-reduced-motion: reduce){
+    *{animation-duration:.01ms !important;transition-duration:.01ms !important}
+  }
+</style>
+</head>
+<body>
+<div class="sky"></div>
+<canvas class="stars" id="stars" aria-hidden="true"></canvas>
+<div class="grid"></div>
+
+<section class="act0" id="act0">
+  <div class="ring">
+    <svg viewBox="0 0 240 240" aria-hidden="true">
+      <circle class="c" cx="120" cy="120" r="116"/>
+      <circle class="c c2" cx="120" cy="120" r="104"/>
+    </svg>
+    <img class="seal" src="assets/gmu-seal.svg" alt="GMU 徽记">
+  </div>
+  <div class="title0"><b>晨会协议</b><i>MORNING ASSEMBLY PROTOCOL · GMU</i></div>
+</section>
+
+<section class="hud" id="hud" aria-hidden="true">
+  <div class="bar">
+    <span class="brand">◆ GMU // 早上好联合</span>
+    <span>PROTOCOL <b>MORNING-ASSEMBLY v7</b></span>
+    <span>SESSION <b id="sid">—</b></span>
+    <span class="sp"></span>
+    <span>MAN <b id="tMan">--:--:--</b></span>
+    <span>BJS <b id="tBjs">--:--:--</b></span>
+    <span class="live">LIVE</span>
+  </div>
+  <div class="cols">
+    <div class="pnl">
+      <div class="ph"><b>◢</b> 晨光遥测 · DAWN TELEMETRY</div>
+      <div class="pb">
+        <div class="kv">太阳高度角<b id="elev" class="up">-6.0°</b></div>
+        <div class="kv">天空色温<b id="kelvin">2200 K</b></div>
+        <div class="kv">晨光阶段<b id="phase">民用晨光</b></div>
+        <div class="kv">驻地<b>MANCHESTER · 53.48°N</b></div>
+        <div class="kv">在线席位<b id="online">0 / 7</b></div>
+        <div class="sec">CONDITION</div>
+        <div class="meter">天光<span id="mSky">8%</span></div><div class="track warm"><i id="bSky"></i></div>
+        <div class="meter">咖啡浓度<span id="mCof">0%</span></div><div class="track"><i id="bCof"></i></div>
+        <div class="meter">全员心情<span id="mMood">—</span></div><div class="track"><i id="bMood"></i></div>
+        <div class="meter">记忆同步<span id="mMem">0%</span></div><div class="track"><i id="bMem"></i></div>
+      </div>
+    </div>
+    <div class="pnl">
+      <div class="ph"><b>◢</b> 中枢终端 · CORE TERMINAL<span id="lines">000</span></div>
+      <div class="pb"><div class="term" id="term"></div></div>
+    </div>
+    <div class="pnl">
+      <div class="ph"><b>◢</b> 圆桌 · THE ROUND TABLE<span id="seatsLbl">0 / 7 AWAKE</span></div>
+      <div class="pb"><div class="table">
+        <svg viewBox="0 0 300 300" id="tbl" aria-hidden="true">
+          <circle class="rim" cx="150" cy="150" r="128"/>
+          <circle class="rim2" cx="150" cy="150" r="98"/>
+          <g id="spokes"></g>
+          <g class="core" id="core"><circle cx="150" cy="150" r="30"/><text x="150" y="146" id="coreN">0/7</text><text class="sub" x="150" y="164">CORE</text></g>
+          <g id="seats"></g>
+        </svg>
+      </div></div>
+    </div>
+  </div>
+  <div class="foot">
+    <span class="stage" id="stage">◇ 待机</span>
+    <div class="track"><i id="prog"></i></div>
+    <b id="pct">0%</b>
+  </div>
+</section>
+
+<div class="dawn" id="dawn"><div class="rays"></div><div class="glow"></div><div class="sun"></div><div class="horizon"></div></div>
+<div class="hello" id="hello"><b>早上好</b><i>GOOD MORNING</i><em id="helloName">圆桌已就位</em></div>
+<div class="end" id="end"></div>
+
+<script>
+(() => {
+  'use strict';
+  const $ = (s) => document.querySelector(s);
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const inFrame = window.parent !== window;
+  let finished = false;
+
+  /* 音效与播报交给外层页面；独立打开时安静播放 */
+  const sfx = (name, arg) => { if (inFrame) try { parent.postMessage({ type: 'boot:sfx', name, arg }, '*'); } catch (_) {} };
+  const say = (zh, en) => { if (inFrame) try { parent.postMessage({ type: 'boot:say', zh, en }, '*'); } catch (_) {} };
+  function done() {
+    if (finished) return;
+    finished = true;
+    if (inFrame) try { parent.postMessage('boot:done', '*'); } catch (_) {}
+  }
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' || e.key === 'Enter') { e.preventDefault(); done(); } });
+  document.addEventListener('click', () => { if (started) done(); });
+
+  let name = '';
+  try { name = (JSON.parse(localStorage.getItem('roundtable.boot.card') || '{}') || {}).name || ''; } catch (_) { name = ''; }
+
+  /* ── 星空：缓慢闪烁，日出时渐隐 ── */
+  const cv = $('#stars'), cx = cv.getContext('2d');
+  let stars = [], starFade = 1;
+  function sizeStars() {
+    cv.width = innerWidth; cv.height = innerHeight;
+    stars = Array.from({ length: Math.round(innerWidth * innerHeight / 5200) }, () => ({
+      x: Math.random() * cv.width, y: Math.random() * cv.height * 0.85, r: Math.random() * 1.2 + 0.2, p: Math.random() * 6.28, s: 0.6 + Math.random() * 1.6,
+    }));
+  }
+  sizeStars(); addEventListener('resize', sizeStars);
+  (function tick(t) {
+    cx.clearRect(0, 0, cv.width, cv.height);
+    for (const s of stars) {
+      cx.globalAlpha = starFade * (0.25 + 0.55 * (0.5 + 0.5 * Math.sin(t / 1000 * s.s + s.p)));
+      cx.fillStyle = '#cfe4ff';
+      cx.fillRect(s.x, s.y, s.r, s.r);
+    }
+    requestAnimationFrame(tick);
+  })(0);
+
+  /* ── 时钟：曼彻斯特与北京 ── */
+  const fmt = (tz) => new Intl.DateTimeFormat('en-GB', { timeZone: tz, hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+  let fMan, fBjs;
+  try { fMan = fmt('Europe/London'); fBjs = fmt('Asia/Shanghai'); } catch (_) { fMan = fBjs = null; }
+  function clocks() { const d = new Date(); $('#tMan').textContent = fMan ? fMan.format(d) : d.toTimeString().slice(0, 8); $('#tBjs').textContent = fBjs ? fBjs.format(d) : '—'; }
+  clocks(); setInterval(clocks, 1000);
+  $('#sid').textContent = 'GM-' + Math.random().toString(16).slice(2, 8).toUpperCase();
+
+  /* ── 圆桌七席 ── */
+  const ROMAN = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII'];
+  const seatsG = $('#seats'), spokesG = $('#spokes');
+  const NS = 'http://www.w3.org/2000/svg';
+  const seatEls = [], spokeEls = [];
+  for (let i = 0; i < 7; i += 1) {
+    const a = -Math.PI / 2 + (i * 2 * Math.PI) / 7;
+    const x = 150 + 112 * Math.cos(a), y = 150 + 112 * Math.sin(a);
+    const sp = document.createElementNS(NS, 'line');
+    sp.setAttribute('class', 'spoke');
+    sp.setAttribute('x1', 150 + 30 * Math.cos(a)); sp.setAttribute('y1', 150 + 30 * Math.sin(a));
+    sp.setAttribute('x2', 150 + 94 * Math.cos(a)); sp.setAttribute('y2', 150 + 94 * Math.sin(a));
+    spokesG.appendChild(sp); spokeEls.push(sp);
+    const g = document.createElementNS(NS, 'g');
+    g.setAttribute('class', 'seat');
+    g.innerHTML = `<circle class="halo" cx="${x}" cy="${y}" r="16"/><circle cx="${x}" cy="${y}" r="16"/>` +
+      `<text x="${x}" y="${y}" text-anchor="middle">${ROMAN[i]}</text>` +
+      `<text class="lab" x="${150 + 134 * Math.cos(a)}" y="${150 + 134 * Math.sin(a)}" text-anchor="${Math.cos(a) > 0.3 ? 'start' : Math.cos(a) < -0.3 ? 'end' : 'middle'}">SEAT 0${i + 1}</text>`;
+    seatsG.appendChild(g); seatEls.push(g);
+  }
+
+  /* ── 终端 ── */
+  const term = $('#term');
+  let lineNo = 0;
+  const cursor = document.createElement('span'); cursor.className = 'cur';
+  function stamp() { const d = new Date(); return [d.getHours(), d.getMinutes(), d.getSeconds()].map((n) => String(n).padStart(2, '0')).join(':'); }
+  async function line(parts, speed = 14) {
+    // parts: [[文字, 样式], ...]；逐字打出，每隔几个字响一下键盘声
+    const row = document.createElement('div'); row.className = 'l';
+    const t = document.createElement('span'); t.className = 't'; t.textContent = stamp() + '  ';
+    row.appendChild(t); term.appendChild(row); row.appendChild(cursor);
+    let n = 0;
+    for (const [text, cls] of parts) {
+      const span = document.createElement('span'); if (cls) span.className = cls;
+      row.insertBefore(span, cursor);
+      for (const ch of text) {
+        span.textContent += ch;
+        if (++n % 3 === 0) sfx('tick');
+        if (speed) await sleep(speed);
+      }
+    }
+    lineNo += 1; $('#lines').textContent = String(lineNo).padStart(3, '0');
+    while (term.children.length > 15) term.removeChild(term.firstChild);
+  }
+
+  /* ── 遥测与进度 ── */
+  const setBar = (id, pct, lbl, text) => { $(id).style.width = pct + '%'; if (lbl) $(lbl).textContent = text ?? (Math.round(pct) + '%'); };
+  function progress(p, stageText) { setBar('#prog', p); $('#pct').textContent = Math.round(p) + '%'; if (stageText) $('#stage').textContent = '◆ ' + stageText; }
+  function telemetry(k) { // k: 0..1
+    const elev = -6 + 8.4 * k;
+    $('#elev').textContent = (elev >= 0 ? '+' : '') + elev.toFixed(1) + '°';
+    $('#kelvin').textContent = Math.round(2200 + 3400 * k) + ' K';
+    $('#phase').textContent = elev < -4 ? '民用晨光' : elev < 0 ? '蓝调时刻' : '日出';
+    setBar('#bSky', 8 + 88 * k, '#mSky');
+  }
+
+  /* ── 浮窗 ── */
+  function popup(html, pos) {
+    const w = document.createElement('div');
+    w.className = 'win'; w.innerHTML = html;
+    Object.assign(w.style, pos);
+    document.body.appendChild(w);
+    requestAnimationFrame(() => requestAnimationFrame(() => w.classList.add('on')));
+    sfx('pop');
+    return () => { w.classList.add('off'); setTimeout(() => w.remove(), 500); };
+  }
+  const row = (k, v, cls = '') => `<div class="row">${k}<b class="${cls}">${v}</b></div>`;
+
+  const MOODS = ['晴朗', '元气', '平静', '微困', '期待', '专注', '愉快'];
+  const DREAMS = ['梦见在曼城的雨里找一家开着的咖啡馆', '梦见圆桌变成了一艘船', '梦见把昨天的会议纪要读成了诗', '没做梦，睡得很好', '梦见在图书馆迷路', '梦见下雪了', '梦见和大家一起看日出'];
+
+  let started = false;
+  async function run() {
+    started = true;
+    document.body.classList.add('play');
+    sfx('power');
+    say('早上好联合，晨会协议启动。', 'Good Morning Union. Morning assembly protocol online.');
+    await sleep(2500);
+
+    // 第 1 幕：控制台
+    $('#act0').classList.add('gone');
+    $('#hud').classList.add('on');
+    sfx('whoosh');
+    await sleep(500);
+    progress(4, '校准时钟');
+    await line([['[晨曦] ', 'k'], ['唤醒协议 MORNING-ASSEMBLY v7 启动', '']]);
+    await line([['[时钟] ', 'k'], ['校准钟楼 · 曼彻斯特 / 北京 双时区同步 ', ''], ['OK', 'ok']]);
+    await line([['[天光] ', 'k'], ['太阳高度角 -6.0° · 进入民用晨光', 'd']]);
+    progress(12, '点亮圆桌');
+    say('正在唤醒七位成员。', 'Waking all seven members.');
+    await line([['[圆桌] ', 'k'], ['点亮七个席位 · 准备唤醒', '']]);
+
+    const close = [];
+    for (let i = 0; i < 7; i += 1) {
+      seatEls[i].classList.add('on');
+      sfx('chime', i);
+      const k = (i + 1) / 7;
+      $('#seatsLbl').textContent = `${i + 1} / 7 AWAKE`;
+      $('#coreN').textContent = `${i + 1}/7`;
+      $('#online').textContent = `${i + 1} / 7`;
+      telemetry(k * 0.75);
+      setBar('#bCof', Math.min(100, 14 * (i + 1)), '#mCof');
+      setBar('#bMood', 40 + 8 * (i + 1), '#mMood', MOODS[i]);
+      progress(12 + 8.5 * (i + 1), `唤醒席位 0${i + 1} / 07`);
+      await line([['[席位] ', 'k'], [`0${i + 1} · ${ROMAN[i]} 已醒来 · 心情 `, ''], [MOODS[i], 'g']], 9);
+      if (i === 2) {
+        close.push(popup(`<div class="wh">◈ SEAT 03 · 晨检<span>CHECK</span></div><div class="wb">${row('精力', '86%', 'ok')}${row('心情', '元气', 'g')}${row('昨夜', '睡了 7.5 小时')}${row('今日想做', '读完那本小说')}<div class="note">“早！咖啡我已经泡好了。”</div></div>`,
+          { left: '36vw', bottom: '14vh' }));
+      }
+      if (i === 5) {
+        close.push(popup(`<div class="wh">◈ DREAM ARCHIVE · 梦境归档<span>${String(7).padStart(2, '0')} 条</span></div><div class="wb">${DREAMS.slice(0, 4).map((d, j) => row('0' + (j + 1), d.length > 14 ? d.slice(0, 14) + '…' : d)).join('')}<div class="note">梦只存在这台电脑里，不上传。</div></div>`,
+          { left: '3vw', bottom: '12vh' }));
+      }
+      await sleep(320);
+    }
+    close.shift()?.();
+
+    // 同步
+    progress(76, '同步记忆');
+    await line([['[记忆] ', 'k'], ['同步昨夜记忆 · 整理梦境 7 条 · 本地存储 ', ''], ['OK', 'ok']]);
+    for (const [j, sp] of spokeEls.entries()) { setTimeout(() => { sp.classList.add('on'); sfx('link', j); }, j * 90); }
+    let mem = 0;
+    const memT = setInterval(() => { mem = Math.min(100, mem + 9); setBar('#bMem', mem, '#mMem'); if (mem >= 100) clearInterval(memT); }, 60);
+    await sleep(800);
+    $('#core').classList.add('on');
+    sfx('confirm');
+    say('七席就位，记忆同步完成。', 'All seven seats present. Memory in sync.');
+    close.shift()?.();
+    const agenda = popup(`<div class="wh">◈ AGENDA · 今日议程<span>${new Date().toLocaleDateString('zh-CN')}</span></div><div class="wb"><ol><li>早安问候<small>09:00</small></li><li>看看你今天想做什么<small>随时</small></li><li>一起把事情办好<small>全天</small></li></ol></div>`,
+      { left: '50%', top: '22vh', transform: 'translateX(-50%)' });
+    await line([['[中枢] ', 'k'], ['七席就位 · 议程已发布 · 欢迎 ', ''], [name || '操作员', 'g']]);
+    progress(92, '迎接日出');
+    telemetry(1);
+    await sleep(1400);
+    agenda();
+
+    // 第 2 幕：日出
+    progress(100, '日出');
+    await line([['[天光] ', 'k'], ['太阳高度角 +2.4° · ', ''], ['日出', 'g']], 6);
+    await sleep(250);
+    $('#hud').classList.add('out');
+    $('#dawn').classList.add('on');
+    sfx('sunrise');
+    const fade = setInterval(() => { starFade = Math.max(0, starFade - 0.04); if (!starFade) clearInterval(fade); }, 60);
+    await sleep(1500);
+    $('#helloName').textContent = name ? `${name}，圆桌已就位` : '圆桌已就位';
+    $('#hello').classList.add('on');
+    sfx('chord');
+    say(name ? `早上好，${name}。` : '早上好。', 'Good morning.');
+    await sleep(3600);
+    $('#end').classList.add('on');
+    await sleep(600);
+    done();
+  }
+
+  if (document.readyState === 'complete') setTimeout(run, 200);
+  else addEventListener('load', () => setTimeout(run, 200));
+})();
+</script>
+</body>
+</html>
