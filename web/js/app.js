@@ -34,6 +34,7 @@ import { People } from './people.js';
 import { Feeds } from './feeds.js';
 import { Moments } from './moments.js';
 import { BootSettings } from './bootcfg.js';
+import { Hub } from './hub.js';
 
 const $ = (q) => document.querySelector(q);
 const RESTING = new Set(['completed', 'stopped', 'failed', 'awaiting_confirmation', 'paused']);
@@ -95,6 +96,15 @@ const people = new People($('#people'), {
 const feeds = new Feeds($('#feeds'), { api: { get: API.chatFeeds, set: API.setChatFeeds, refresh: API.refreshChatFeeds } });
 const bootcfg = new BootSettings($('#bootdlg'));
 $('#bootcfg').addEventListener('click', () => bootcfg.open());
+$('#skin').addEventListener('click', () => {
+  const next = document.documentElement.dataset.skin === 'ark' ? 'classic' : 'ark';
+  document.documentElement.dataset.skin = next;
+  try {
+    localStorage.setItem('roundtable.skin', next);
+  } catch {
+    /* 存不了就只在这次生效 */
+  }
+});
 const moments = new Moments($('#moments'), {
   api: { list: API.getMoments, post: API.postMoment, like: API.likeMoment, comment: API.commentMoment, del: API.delMoment, delComment: API.delMomentComment },
   onSeen: () => gchat.markMomentsSeen(),
@@ -124,6 +134,17 @@ const home = new Apartment($('#home'), {
     gchat.openRoom(`dm:${id}`);
   },
   momentsOf: (id) => moments.open(id),
+});
+const hub = new Hub($('#hub'), {
+  sessions: API.listSessions,
+  rooms: API.getChatRooms,
+  status: () => S.status,
+  go: (m) => setEntry(m),
+  openPeople: () => people.open(),
+  openHistory: () => {
+    setEntry('work');
+    $('#tabs button[data-t="history"]').click();
+  },
 });
 // 点气泡 / 菜单「跳到讨论」：滚到最新的讨论内容
 function gotoDiscussion() {
@@ -875,10 +896,19 @@ function typing(el) {
 
 // --- 入口：办公室 / 公寓楼 / 群聊 ------------------------------------------------------------
 
-const ENTRIES = ['work', 'home', 'chat'];
+const ENTRIES = ['work', 'home', 'chat', 'hub'];
 let entry = 'work';
 
-/** 切换入口。办公室是原来的界面；公寓楼是只读的像素剖面图；群聊和成员聊天。地址栏 #m=home / #m=chat 刷新后回到原入口。 */
+/** 打开网页时进哪个入口：默认终端首页；终端里可以勾选直接进办公室（存在本机）。本机存储不能用时进办公室。 */
+function landing() {
+  try {
+    return localStorage.getItem('roundtable.landing') === 'work' ? 'work' : 'hub';
+  } catch {
+    return 'work';
+  }
+}
+
+/** 切换入口。终端是首页；办公室是原来的界面；公寓楼是只读的像素剖面图；群聊和成员聊天。地址栏 #m=hub / #m=home / #m=chat 刷新后回到原入口。 */
 function setEntry(m) {
   if (!ENTRIES.includes(m)) m = 'work';
   entry = m;
@@ -890,6 +920,9 @@ function setEntry(m) {
   else home.hide();
   if (m === 'chat') gchat.show();
   else gchat.hide();
+  if (m === 'hub') hub.show();
+  else hub.hide();
+  document.documentElement.dataset.entry = m;
   syncPet();
   if (m !== 'work') history.replaceState(null, '', `#m=${m}`);
   else if (location.hash.startsWith('#m=')) history.replaceState(null, '', S.sid ? `#s=${S.sid}` : location.pathname);
@@ -898,12 +931,12 @@ function setEntry(m) {
 /**
  * 全局快捷键（不在输入框里时）：
  * / 或 Ctrl+K 聚焦题目输入框；Esc 离开输入框；1～9 选择等待确认卡片的对应选项；
- * N 新题目；Alt+1 / 2 / 3 切换办公室 / 公寓楼 / 群聊。输入框里只处理 Esc、Ctrl+K 与 Alt+数字。
+ * N 新题目；Alt+1 / 2 / 3 / 4 切换办公室 / 公寓楼 / 群聊 / 终端。输入框里只处理 Esc、Ctrl+K 与 Alt+数字。
  */
 function shortcut(e) {
   if (composing(e) || e.defaultPrevented) return;
   const el = document.activeElement;
-  // Alt+1 / 2 / 3：切换入口（按物理键位判断，Mac 上 Option+数字会打出特殊字符）
+  // Alt+1 / 2 / 3 / 4：切换入口（按物理键位判断，Mac 上 Option+数字会打出特殊字符）
   const digit = /^Digit([1-9])$/.exec(e.code || '');
   if (e.altKey && !e.ctrlKey && !e.metaKey && digit && ENTRIES[Number(digit[1]) - 1]) {
     e.preventDefault();
@@ -1123,6 +1156,7 @@ async function init() {
   pet.setMembers(art);
   home.setArt(art);
   gchat.setArt(art);
+  hub.setArt(art);
   renderComposer();
   renderPicks();
   render();
@@ -1131,6 +1165,7 @@ async function init() {
   if (m) await open(m[1]);
   const where = location.hash.match(/m=(\w+)/);
   if (where) setEntry(where[1]);
+  else if (!m && landing() === 'hub') setEntry('hub');
   petReady = true;
   syncPet();
 }
