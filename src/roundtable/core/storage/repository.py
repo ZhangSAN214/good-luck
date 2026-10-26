@@ -1018,6 +1018,19 @@ class Repository:
             (iso(start), iso(end)),
         ).fetchone()[0]
 
+    def spent_in_sessions(
+        self, session_ids: Sequence[str], start: datetime, end: datetime
+    ) -> float:
+        """[start, end) 内指定几场会话的调用花费（如革新例会的每月上限）。"""
+        if not session_ids:
+            return 0.0
+        marks = ", ".join("?" for _ in session_ids)
+        return self._exec(
+            "SELECT COALESCE(SUM(cost_usd), 0) FROM calls"
+            f" WHERE session_id IN ({marks}) AND created_at >= ? AND created_at < ?",
+            (*session_ids, iso(start), iso(end)),
+        ).fetchone()[0]
+
     def session_cost(self, session_id: str) -> float:
         return self._exec(
             "SELECT COALESCE(SUM(cost_usd), 0) FROM calls WHERE session_id = ?", (session_id,)

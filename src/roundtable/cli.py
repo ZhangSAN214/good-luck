@@ -66,6 +66,7 @@ from roundtable.core.routing import (
     preview_estimates,
 )
 from roundtable.core.runtime import PROJECT_ROOT, Runtime
+from roundtable.core.service import RoundtableService, ServiceError
 from roundtable.core.steps import Event, restore_state
 from roundtable.core.steps.office import GROUP_MODES, group_estimates
 from roundtable.core.storage import NotFound
@@ -1326,6 +1327,64 @@ class CLI:
             self.p(f"  {name:<28} {sessions[model]} 场  " + "，".join(parts))
         return 0
 
+    async def cmd_evolve(self, action: str, session_id: str | None) -> int:
+        """革新例会：status 看概况；meet 开一场、等它开完并导出采纳单；export 导出某场的采纳单。"""
+        svc = RoundtableService(self.rt)
+        try:
+            if action == "meet":
+                started = svc.evolution_meet()
+                session_id = started["session_id"]
+                for note in started["notes"]:
+                    self.p(f"  提示：{note}")
+                self.p(
+                    f"革新例会 {started['week']} 开始：{len(started['cards'])} 张资料卡，"
+                    f"预计 ${started['estimate_usd']:.4f}（会话 {session_id}）"
+                )
+                await svc.wait(session_id)
+                status = self.rt.repo.session_row(session_id)["status"]
+                if status != "completed":
+                    self.p(
+                        f"例会停在「{status}」。可以用 roundtable resume {session_id} 继续，"
+                        f"开完后 roundtable evolve export {session_id} 导出采纳单。"
+                    )
+                    return 1
+                action = "export"
+            if action == "export":
+                if not session_id:
+                    self.p("请给出例会的会话 id：roundtable evolve export <id>")
+                    return 2
+                saved = svc.evolution_export(session_id)
+                self.p(f"采纳单已保存到 {saved['path']}")
+                return 0
+        except ServiceError as exc:
+            self.p(str(exc))
+            return 2
+        info = svc.evolution()
+        state = "开启" if info["enabled"] else "关闭（config/roundtable.yaml 的 evolution.enabled）"
+        self.p(f"革新例会：{state}")
+        if info["enabled"] and info["auto"]:
+            sch = info["schedule"]
+            day = "一二三四五六日"[sch["weekday"] - 1]
+            self.p(f"  自动开会：每周{day} {sch['hour']} 点之后（服务开着时）")
+        self.p(f"  档位：{info['plan_label']}全员上桌，{'匿名' if info['anonymous'] else '不匿名'}")
+        self.p(
+            f"  本月已花 ${info['month_spent_usd']:.4f} / 上限 ${info['monthly_usd']:.2f}"
+            f"（每场 ≤ ${info['meeting_usd']:.2f}）"
+        )
+        self.p(f"  收件箱：{info['inbox'] or '（没有数据目录）'}")
+        for n, card in enumerate(info["cards"], 1):
+            self.p(f"    {n}. {card['title']}（{card['file']}，{card['chars']} 字）")
+        if not info["cards"]:
+            self.p("    （没有资料卡）")
+        for note in info["notes"]:
+            self.p(f"    提示：{note}")
+        for m in info["meetings"]:
+            adopted = f"，采纳单 {m['adopted']}" if m["adopted"] else ""
+            self.p(
+                f"  {m['week']}  {m['session_id']}  {m['status']}  ${m['cost_usd']:.4f}{adopted}"
+            )
+        return 0
+
     def cmd_performance(self, do_reset: bool) -> int:
         """办公室模式的员工绩效：按活的类型统计件数、被退回、验收通过率、平均工资与用时。"""
         from roundtable.core.office import collect, reset
@@ -1472,6 +1531,9 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("stats", help="各模型的历史贡献（被采纳、有效问题、敷衍次数等）")
     perf = sub.add_parser("performance", help="办公室模式的员工绩效（件数、退回、通过率等）")
     perf.add_argument("--reset", action="store_true", help="清零：之后只统计从现在起的会话")
+    evolve = sub.add_parser("evolve", help="革新例会：成员读资料卡提建议、投票，导出采纳单")
+    evolve.add_argument("action", nargs="?", default="status", choices=["status", "meet", "export"])
+    evolve.add_argument("session_id", nargs="?", help="export 时：例会的会话 id")
     history = sub.add_parser("history", help="最近的讨论")
     history.add_argument("--limit", type=int, default=20)
     note = sub.add_parser("note", help="讨论进行中补充意见（下一个步骤开始时带上）")
@@ -1576,6 +1638,8 @@ async def run(
             return cli.cmd_stats()
         if args.command == "performance":
             return cli.cmd_performance(args.reset)
+        if args.command == "evolve":
+            return await cli.cmd_evolve(args.action, args.session_id)
         if args.command == "note":
             return cli.cmd_note(args.session_id, args.text)
         if args.command == "history":
