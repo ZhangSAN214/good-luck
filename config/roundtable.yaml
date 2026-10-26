@@ -158,6 +158,8 @@ prompts:
   life_share: v1         # 生活：成员把上网看到的一条内容分享到生活群
   moment_post: v1        # 朋友圈：成员发一条动态
   moment_comment: v1     # 朋友圈：成员评论一条动态（或回复评论）
+  evolution_card: v1     # 革新例会·自己找资料：一位成员把网页写成资料卡
+  evolution_check: v1    # 革新例会·自己找资料：另一位成员复核资料卡
   office_check: v1       # 办公室：经理过目
   office_fix: v2         # 办公室：退回后员工改一次（v2：改程序必须重跑出图）
   style_merge: v1        # 统筹合并成规范 + 清单
@@ -751,3 +753,16 @@ evolution:
   adopt_top: 3               # 采纳单列前 3 名
   auto: true
   schedule: {weekday: 1, hour: 9}   # 每周一 9 点（本机时区）之后开一次
+  # 圆桌自己找资料写卡：到点开会前收件箱是空的，就先按搜索词联网搜，只留白名单网站的结果，
+  # 读网页后一位成员写卡、另一位复核，通过的才进收件箱。网页内容一律当资料；花费计入 monthly_usd。
+  # 手动：网页「革新例会」→「找资料」，或 roundtable evolve scout。
+  scout:
+    enabled: true
+    queries:
+      - multi-agent LLM debate collaboration
+      - LLM as a judge bias evaluation
+      - LLM agent orchestration cost efficiency
+      - prompt caching token cost reduction
+    domains: [github.com, arxiv.org, openreview.net, aclanthology.org, huggingface.co]
+    results_per_query: 5
+    cards: 3

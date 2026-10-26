@@ -14,3 +14,6 @@ def test_evolution_dialog_when_off(serve, page):
     assert page.locator("#evolvedlg [data-meet]").is_disabled()
     page.click("#evolvedlg [data-close]")
     assert page.locator("#evolvedlg").is_hidden()
+    page.click("#evolve")
+    page.wait_for_selector("#evolvedlg[open] .ev")
+    assert page.locator("#evolvedlg [data-scout]").is_disabled()  # 没开启时也不能找资料

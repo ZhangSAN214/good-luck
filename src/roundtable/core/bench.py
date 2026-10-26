@@ -119,25 +119,80 @@ def judge(answer: str | None, spec: Judge) -> bool:
 # --- 运行 ------------------------------------------------------------------------
 
 
+VOTE = "vote"  # 自洽投票：个人作答跑 samples 次，取多数答案（对照基线，不是正式模式）
+VOTE_SAMPLES = 5
+VOTE_MAX_SAMPLES = 9
+
+
 @dataclass(frozen=True)
 class BenchMode:
     workflow: str
     tier: str
+    samples: int = 1  # 大于 1 时是自洽投票：个人作答跑 samples 次取多数
+
+    @property
+    def name(self) -> str:
+        """记录和报告里的模式名：自洽投票写成 vote5，其余就是流程名。"""
+        return f"{VOTE}{self.samples}" if self.samples > 1 else self.workflow
 
     @property
     def label(self) -> str:
-        return f"{self.workflow}/{self.tier}"
+        return f"{self.name}/{self.tier}"
 
 
 def parse_modes(spec: str) -> list[BenchMode]:
-    """ "solo:budget,discussion:budget,collab:flagship" → 模式列表。"""
+    """ "solo:budget,discussion:budget,vote:budget:5" → 模式列表。
+
+    vote:档位[:次数] 是自洽投票基线：同一题用个人作答跑几次（默认 5），取出现最多的答案。
+    """
     modes = []
     for part in (s.strip() for s in spec.split(",") if s.strip()):
-        workflow, _, tier = part.partition(":")
-        modes.append(BenchMode(workflow, tier or "budget"))
+        workflow, _, rest = part.partition(":")
+        tier, _, samples = rest.partition(":")
+        if workflow != VOTE:
+            if samples:
+                raise BenchError(f"「{part}」：只有 vote 可以写次数")
+            modes.append(BenchMode(workflow, tier or "budget"))
+            continue
+        try:
+            n = int(samples) if samples else VOTE_SAMPLES
+        except ValueError:
+            raise BenchError(f"「{part}」：次数要是整数") from None
+        if not 2 <= n <= VOTE_MAX_SAMPLES:
+            raise BenchError(f"「{part}」：投票次数要在 2～{VOTE_MAX_SAMPLES} 之间")
+        modes.append(BenchMode("solo", tier or "budget", n))
     if not modes:
         raise BenchError("至少要有一个模式")
     return modes
+
+
+def _vote_key(answer: str, spec: Judge) -> str | None:
+    """投票时怎样算「同一个答案」：只按题型（数字 / 精确）取出答案本身，不看标准答案。"""
+    if spec.type == "number":
+        got = last_number(answer)
+        return None if got is None else f"{got:.6g}"
+    if spec.type == "exact":
+        return _PUNCT.sub("", answer).lower() or None
+    return None  # 开放题没法按答案计票
+
+
+def majority(answers: Sequence[str | None], spec: Judge) -> str | None:
+    """自洽投票：出现次数最多的答案（并列取先出现的）；开放题或都取不出答案时用第一份。"""
+    valid = [a for a in answers if a and a.strip()]
+    if not valid:
+        return None
+    counts: dict[str, int] = {}
+    first: dict[str, str] = {}
+    for a in valid:
+        key = _vote_key(a, spec)
+        if key is None:
+            continue
+        counts[key] = counts.get(key, 0) + 1
+        first.setdefault(key, a)
+    if not counts:
+        return valid[0]
+    best = max(counts, key=lambda k: counts[k])  # max 在并列时保留最先插入的
+    return first[best]
 
 
 @dataclass(frozen=True)
@@ -180,6 +235,43 @@ class BenchRunner:
         except (RoutingError, OrchestratorError):
             return None
 
+    async def _run_single(
+        self, q: BenchQuestion, mode: BenchMode, seed: int
+    ) -> tuple[str | None, str, bool | None, float]:
+        run = await self._run_one(q, mode, seed)
+        if run is None:
+            return None, "error", None, 0.0
+        done = run.status == "completed"
+        correct = judge(run.final_answer, q.judge) if done else None
+        return run.session_id, run.status, correct, run.cost_usd
+
+    async def _run_vote(
+        self, q: BenchQuestion, mode: BenchMode, seed: int, budget_left: float
+    ) -> tuple[str | None, str, bool | None, float]:
+        """自洽投票：个人作答跑 mode.samples 次（种子依次加 1），取多数答案判分。
+
+        花到 budget_left 就不再多跑，用已有的几份投票。返回 (首个会话 id, 状态, 对错, 花费)。
+        """
+        answers: list[str | None] = []
+        first_id: str | None = None
+        status, cost = "error", 0.0
+        for i in range(mode.samples):
+            if i and cost >= budget_left:
+                break
+            run = await self._run_one(q, mode, seed + i)
+            if run is None:
+                continue
+            first_id = first_id or run.session_id
+            cost += run.cost_usd
+            if run.status == "completed":
+                status = "completed"
+                answers.append(run.final_answer)
+            elif status != "completed":
+                status = run.status
+        if status != "completed":
+            return first_id, status, None, cost
+        return first_id, status, judge(majority(answers, q.judge), q.judge), cost
+
     async def run(
         self,
         questions: Sequence[BenchQuestion],
@@ -200,20 +292,16 @@ class BenchRunner:
                 if spent >= max_usd:
                     return results
                 started = self.clock()
-                run = await self._run_one(q, mode, seed)
-                seconds = self.clock() - started
-                if run is None:
-                    r = BenchResult(
-                        batch, q.id, q.category, mode.workflow, mode.tier, None, "error",
-                        None, 0.0, seconds,
-                    )  # fmt: skip
+                if mode.samples > 1:
+                    sid, status, correct, cost = await self._run_vote(
+                        q, mode, seed, max_usd - spent
+                    )
                 else:
-                    done = run.status == "completed"
-                    r = BenchResult(
-                        batch, q.id, q.category, mode.workflow, mode.tier, run.session_id,
-                        run.status, judge(run.final_answer, q.judge) if done else None,
-                        run.cost_usd, seconds,
-                    )  # fmt: skip
+                    sid, status, correct, cost = await self._run_single(q, mode, seed)
+                r = BenchResult(
+                    batch, q.id, q.category, mode.name, mode.tier, sid, status, correct,
+                    cost, self.clock() - started,
+                )  # fmt: skip
                 spent += r.cost_usd
                 self.repo.add_bench_run(**r.__dict__)
                 results.append(r)

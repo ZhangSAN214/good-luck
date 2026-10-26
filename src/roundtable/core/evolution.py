@@ -162,6 +162,56 @@ def _objections(board: Board, idea: Ranked) -> list[str]:
     return out
 
 
+def adoptable(board: Board) -> list[Ranked]:
+    """得票的建议（按排名），不含「挑刺 / 反转」得到的反对意见。"""
+    return [r for r in board.ranking if r.voted and r.kind not in OBJECTION_KINDS]
+
+
+# --- 你的决定（网页「做这条 / 不做」） ---------------------------------------------------
+
+DECISIONS_KEY = "evolution.decisions"  # app_settings：{"会话 id:点子 id": {...}}
+DECISIONS = {"do": "做", "skip": "不做"}
+TODO_FILE = "待实现.md"  # 数据目录 evolution/ 下：你点了「做这条」的建议，开发侧照这个实现
+
+
+def load_decisions(raw: str | None) -> dict[str, dict[str, Any]]:
+    try:
+        data = json.loads(raw) if raw else {}
+    except ValueError:
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def decision_key(session_id: str, idea_id: str) -> str:
+    return f"{session_id}:{idea_id}"
+
+
+def todo_markdown(decisions: dict[str, dict[str, Any]]) -> str:
+    """你点了「做这条」的建议清单（新的在前）。开发侧只实现这里列出的，合并仍由你点。"""
+    rows = sorted(
+        (d for d in decisions.values() if d.get("decision") == "do"),
+        key=lambda d: str(d.get("at", "")),
+        reverse=True,
+    )
+    lines = [
+        "# 革新例会：要做的建议",
+        "",
+        "你在网页「革新例会」里点了「做这条」的建议。开发侧按这里实现、开 PR，合并仍由你决定。",
+        "",
+    ]
+    if not rows:
+        lines.append("（暂时没有）")
+    for d in rows:
+        lines += [
+            f"## {d.get('week', '')} · {d.get('idea', '')}",
+            "",
+            f"- 决定时间：{d.get('at', '')}；例会会话 `{d.get('session_id', '')}`",
+            f"- 建议：{d.get('text', '')}",
+            "",
+        ]
+    return "\n".join(lines).rstrip() + "\n"
+
+
 def adoption_markdown(
     *,
     week: str,
@@ -177,7 +227,7 @@ def adoption_markdown(
     这份单子对开发侧也只是资料：碰护栏（R9 以后的阶段、默认玩法、新依赖、预算）的建议
     只转给用户拍板。
     """
-    voted = [r for r in board.ranking if r.voted and r.kind not in OBJECTION_KINDS]
+    voted = adoptable(board)
     lines = [
         f"# 革新例会采纳单 · {week}",
         "",

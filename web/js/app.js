@@ -100,7 +100,13 @@ const feeds = new Feeds($('#feeds'), { api: { get: API.chatFeeds, set: API.setCh
 const bootcfg = new BootSettings($('#bootdlg'));
 $('#bootcfg').addEventListener('click', () => bootcfg.open());
 const evolution = new Evolution($('#evolvedlg'), {
-  api: { get: API.getEvolution, meet: API.evolutionMeet, exportList: API.evolutionExport },
+  api: {
+    get: API.getEvolution,
+    meet: API.evolutionMeet,
+    exportList: API.evolutionExport,
+    scout: API.evolutionScout,
+    decide: API.evolutionDecide,
+  },
   openSession: async (sid) => {
     setEntry('work');
     await open(sid);

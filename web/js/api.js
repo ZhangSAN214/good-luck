@@ -90,6 +90,9 @@ export const refreshChatFeeds = () => api('/api/chat/feeds/refresh', { method: '
 export const getEvolution = () => api('/api/evolution');
 export const evolutionMeet = () => api('/api/evolution/meetings', { method: 'POST' });
 export const evolutionExport = (sid) => api(`/api/evolution/meetings/${encodeURIComponent(sid)}/export`, { method: 'POST' });
+export const evolutionScout = () => api('/api/evolution/scout', { method: 'POST' });
+export const evolutionDecide = (sid, idea, decision) =>
+  api(`/api/evolution/meetings/${encodeURIComponent(sid)}/ideas/${encodeURIComponent(idea)}`, { method: 'POST', body: { decision } });
 export const chatHandoff = (text) => api('/api/chat/handoff', { method: 'POST', body: { text } });
 export const getApartment = (hour, weekday) => api(`/api/apartment?hour=${hour}&weekday=${weekday}`);
 export const getCandidates = () => api('/api/models/candidates');

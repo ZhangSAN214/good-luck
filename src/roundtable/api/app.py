@@ -63,6 +63,14 @@ class EstimateRequest(BaseModel):
     media_tier: str | None = None
 
 
+class DecisionBody(BaseModel):
+    """革新例会：你对一条建议的决定（do = 做这条，skip = 不做）。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    decision: str = Field(pattern="^(do|skip)$")
+
+
 class Note(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -308,6 +316,16 @@ def create_app(service: RoundtableService | None = None) -> FastAPI:
     @app.post("/api/evolution/meetings/{session_id}/export")
     async def evolution_export(request: Request, session_id: str) -> dict[str, Any]:
         return svc(request).evolution_export(session_id)
+
+    @app.post("/api/evolution/scout")
+    async def evolution_scout(request: Request) -> dict[str, Any]:
+        return await svc(request).evolution_scout()
+
+    @app.post("/api/evolution/meetings/{session_id}/ideas/{idea_id}")
+    async def evolution_decide(
+        request: Request, session_id: str, idea_id: str, body: DecisionBody
+    ) -> dict[str, Any]:
+        return svc(request).evolution_decide(session_id, idea_id, body.decision)
 
     @app.get("/api/apartment")
     async def apartment(request: Request, hour: int, weekday: int) -> dict[str, Any]:

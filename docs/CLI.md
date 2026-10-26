@@ -81,9 +81,10 @@ roundtable performance --reset  # 绩效清零：之后只统计从现在起的�
 roundtable stats                # 各模型的历史贡献：被采纳的要点、有效问题、敷衍次数等（匿名讨论揭晓后才计入）
 roundtable mindmap <会话 id> -o 导图.svg   # 保存头脑风暴的思维导图（.svg 图 / .md 点子榜 + 大纲 / .mmd Mermaid）
 roundtable evolve                       # 革新例会：开关、资料卡、本月花费、最近的例会（见 docs/evolution/README.md）
+roundtable evolve scout                 # 圆桌自己找资料写卡（白名单网站，一位成员写、另一位复核）
 roundtable evolve meet                  # 开一场革新例会，开完导出采纳单（要先在 roundtable.yaml 开启）
 roundtable evolve export <会话 id>      # 导出某场例会的采纳单
-roundtable bench [--modes office:budget,solo:budget,discussion:budget,collab:budget] [--max-usd 2] [-o 结果.csv]   # 对比实验；--list 列历次，--report 批次名 看汇总
+roundtable bench [--modes office:budget,solo:budget,discussion:budget,collab:budget] [--max-usd 2] [-o 结果.csv]   # 对比实验；--list 列历次，--report 批次名 看汇总；vote:budget[:次数] 是自洽投票基线（个人作答跑几次取多数）
 roundtable show <会话id> --details
 roundtable show <会话id> --costs      # 每桌每步的预估与实际花费、每次调用的 token
 roundtable files <会话id>            # 把成员生成的文件（代码、图表、文档等）保存到本地目录

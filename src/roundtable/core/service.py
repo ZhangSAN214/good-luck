@@ -28,17 +28,25 @@ from roundtable.core.chat import ROOM, WORK, ChatHub, chat_budget
 from roundtable.core.chat_work import WORK_EVENTS, post_handoff, post_office_event
 from roundtable.core.config.loader import ConfigError
 from roundtable.core.evolution import (
+    DECISIONS,
+    DECISIONS_KEY,
     MEETINGS_KEY,
+    TODO_FILE,
     Meeting,
+    adoptable,
     adoption_markdown,
     adoption_path,
+    decision_key,
     dump_meetings,
     load_cards,
+    load_decisions,
     load_meetings,
     meeting_question,
+    todo_markdown,
     week_key,
     week_slot,
 )
+from roundtable.core.evolution_scout import SCOUT_WEEK_KEY, Scout, ScoutError
 from roundtable.core.ideaboard import Board
 from roundtable.core.life import LifeEngine
 from roundtable.core.media import KIND_LABELS, KINDS, MediaService
@@ -145,6 +153,7 @@ class RoundtableService:
     async def _evolution_loop(self) -> None:
         while True:
             try:
+                await self.evolution_scout_tick()
                 self.evolution_tick()
             except Exception:  # noqa: BLE001 - 例会出错不影响其他功能，下次再试
                 log.exception("革新例会：自动检查出错")
@@ -1323,8 +1332,72 @@ class RoundtableService:
         self.rt.repo.set_setting(MEETINGS_KEY, dump_meetings(meetings))
 
     def _evolution_spent(self, meetings: Sequence[Meeting]) -> float:
+        """本月革新例会已花：开过的例会 + 自己找资料（隐藏会话）。"""
         start, end = month_window(self.rt.budget.now())
-        return self.rt.repo.spent_in_sessions([m.session_id for m in meetings], start, end)
+        return self.rt.repo.spent_in_sessions(
+            [m.session_id for m in meetings], start, end
+        ) + self.rt.repo.spent_in_workflow("evolution_scout", start, end)
+
+    def _archive_cards(self, inbox: Path, files: Sequence[str], week: str) -> None:
+        """开过会的资料卡移到 已用/<周>/，下周不会再读；同名的加序号，不覆盖。"""
+        base = self.rt.evolution_dir
+        if base is None:
+            return
+        folder = base / self.rt.config.roundtable.evolution.used_dir / week
+        folder.mkdir(parents=True, exist_ok=True)
+        for name in files:
+            src, dst, n = inbox / name, folder / name, 2
+            while dst.exists():
+                dst = folder / f"{Path(name).stem}-{n}{Path(name).suffix}"
+                n += 1
+            with contextlib.suppress(OSError):
+                src.replace(dst)
+
+    async def evolution_scout(self, *, now: datetime | None = None) -> dict[str, Any]:
+        """圆桌自己找资料写卡：搜白名单网站、读网页、一位成员写卡、另一位复核，通过的进收件箱。
+
+        花费上限：本月革新例会还剩的额度（monthly_usd − 已花）。
+        """
+        rules = self.rt.config.roundtable.evolution
+        if not rules.enabled:
+            raise ServiceError(
+                "革新例会没有开启：在 config/roundtable.yaml 里把 evolution.enabled 改成 true", 409
+            )
+        inbox, _ = self._evolution_dirs()
+        if inbox is None:
+            raise ServiceError("没有数据目录，放不了资料卡", 409)
+        week = week_key((now or self._local_now()).astimezone())
+        left = rules.monthly_usd - self._evolution_spent(self._meetings())
+        try:
+            report = await Scout(self.rt).run(inbox, week, left)
+        except ScoutError as exc:
+            raise ServiceError(str(exc), 409) from None
+        self.rt.repo.set_setting(SCOUT_WEEK_KEY, week)
+        return {"week": week, **report.public()}
+
+    async def evolution_scout_tick(self, now: datetime | None = None) -> dict[str, Any] | None:
+        """自动部分：到了本周开会时间、本周还没开会、收件箱是空的、本周还没找过，就先找一次资料。"""
+        rules = self.rt.config.roundtable.evolution
+        if not (rules.enabled and rules.auto and rules.scout.enabled):
+            return None
+        now = (now or self._local_now()).astimezone()
+        week = week_key(now)
+        if now < week_slot(now, rules.schedule.weekday, rules.schedule.hour):
+            return None
+        if any(m.week == week for m in self._meetings()):
+            return None
+        if self.rt.repo.setting(SCOUT_WEEK_KEY) == week:
+            return None
+        inbox, _ = self._evolution_dirs()
+        cards, _ = load_cards(inbox, max_cards=rules.max_cards, card_chars=rules.card_chars)
+        if cards:
+            return None
+        try:
+            return await self.evolution_scout(now=now)
+        except ServiceError as exc:
+            self.rt.repo.set_setting(SCOUT_WEEK_KEY, week)  # 本周不再重试，免得反复花钱
+            log.info("革新例会：本次没有找资料（%s）", exc)
+            return {"week": week, "skipped": str(exc)}
 
     def _local_now(self) -> datetime:
         return self.rt.budget.now().astimezone()
@@ -1347,6 +1420,8 @@ class RoundtableService:
                     **asdict(m),
                     "status": row["status"],
                     "cost_usd": self.rt.repo.session_cost(m.session_id),
+                    # 最近 3 场开完的附上得票前几名，网页上可以点「做这条 / 不做」
+                    "ideas": self._meeting_ideas(m.session_id) if len(recent) < 3 else [],
                 }
             )
         return {
@@ -1368,6 +1443,12 @@ class RoundtableService:
             "monthly_usd": rules.monthly_usd,
             "month_spent_usd": self._evolution_spent(meetings),
             "meetings": recent,
+            "scout": {
+                "enabled": rules.scout.enabled,
+                "domains": rules.scout.domains,
+                "last_week": self.rt.repo.setting(SCOUT_WEEK_KEY),
+                "can_search": self.rt.search.available and self.rt.search.can_fetch,
+            },
         }
 
     def evolution_meet(self, *, auto: bool = False, now: datetime | None = None) -> dict[str, Any]:
@@ -1385,14 +1466,14 @@ class RoundtableService:
         inbox, _ = self._evolution_dirs()
         if inbox is None:
             raise ServiceError("没有数据目录，读不到资料卡", 409)
-        cards, notes = load_cards(inbox, max_cards=rules.max_cards, card_chars=rules.card_chars)
-        if not cards:
-            raise ServiceError(f"收件箱里没有资料卡（.md / .txt）：{inbox}", 409)
         now = (now or self._local_now()).astimezone()
         week = week_key(now)
         meetings = self._meetings()
         if auto and any(m.week == week for m in meetings):
             raise ServiceError(f"{week} 已经开过革新例会", 409)
+        cards, notes = load_cards(inbox, max_cards=rules.max_cards, card_chars=rules.card_chars)
+        if not cards:
+            raise ServiceError(f"收件箱里没有资料卡（.md / .txt）：{inbox}", 409)
         attachments = [self.upload(c.file, c.attachment_bytes())["id"] for c in cards]
         question = meeting_question(rules.topic, cards)
         est = self.estimate(
@@ -1437,6 +1518,7 @@ class RoundtableService:
         )
         meetings.append(Meeting(sid, week, now.isoformat(timespec="seconds"), auto))
         self._save_meetings(meetings)
+        self._archive_cards(inbox, [c.file for c in cards], week)
         return {
             "session_id": sid,
             "week": week,
@@ -1458,9 +1540,7 @@ class RoundtableService:
         _, folder = self._evolution_dirs()
         if folder is None:
             raise ServiceError("没有数据目录，无法保存采纳单", 409)
-        maps = [o for o in view.outputs if o.kind == "mindmap"]
-        data = json.loads(maps[-1].content) if maps else {}
-        board = Board.from_dict(data["board"]) if data.get("board") else Board()
+        board = self._meeting_board(view)
         text = adoption_markdown(
             week=meeting.week,
             session_id=session_id,
@@ -1476,6 +1556,61 @@ class RoundtableService:
         meeting.adopted = path.name
         self._save_meetings(meetings)
         return {"file": path.name, "path": str(path), "markdown": text}
+
+    @staticmethod
+    def _meeting_board(view: Any) -> Board:
+        maps = [o for o in view.outputs if o.kind == "mindmap"]
+        data = json.loads(maps[-1].content) if maps else {}
+        return Board.from_dict(data["board"]) if data.get("board") else Board()
+
+    def _meeting_ideas(self, session_id: str) -> list[dict[str, Any]]:
+        """开完的例会得票前几名，附上你的决定（做 / 不做 / 还没定）。揭晓前用匿名视图。"""
+        view = self.rt.repo.session_view(session_id, scrub=self.rt.scrubber.scrub)
+        if view.status != "completed":
+            return []
+        decisions = load_decisions(self.rt.repo.setting(DECISIONS_KEY))
+        top = self.rt.config.roundtable.evolution.adopt_top
+        return [
+            {
+                "id": r.id,
+                "text": r.text,
+                "score": r.score,
+                "votes": r.votes,
+                "decision": decisions.get(decision_key(session_id, r.id), {}).get("decision"),
+            }
+            for r in adoptable(self._meeting_board(view))[:top]
+        ]
+
+    def evolution_decide(self, session_id: str, idea_id: str, decision: str) -> dict[str, Any]:
+        """你对采纳单里某条建议的决定：do（做这条）/ skip（不做）。
+
+        「做这条」的写进 evolution/待实现.md，开发侧按它实现、开 PR；合并仍由你点。
+        """
+        if decision not in DECISIONS:
+            raise ServiceError(f"决定只能是 {'、'.join(DECISIONS)}", 400)
+        meeting = next((m for m in self._meetings() if m.session_id == session_id), None)
+        if meeting is None:
+            raise ServiceError("这场不是革新例会", 404)
+        self._require(session_id)
+        idea = next((i for i in self._meeting_ideas(session_id) if i["id"] == idea_id), None)
+        if idea is None:
+            raise ServiceError("采纳单的前几名里没有这条建议（或例会还没开完）", 404)
+        decisions = load_decisions(self.rt.repo.setting(DECISIONS_KEY))
+        decisions[decision_key(session_id, idea_id)] = {
+            "decision": decision,
+            "session_id": session_id,
+            "week": meeting.week,
+            "idea": idea_id,
+            "text": idea["text"],
+            "at": self._local_now().isoformat(timespec="seconds"),
+        }
+        self.rt.repo.set_setting(DECISIONS_KEY, json.dumps(decisions, ensure_ascii=False))
+        todo = None
+        if self.rt.evolution_dir is not None:
+            self.rt.evolution_dir.mkdir(parents=True, exist_ok=True)
+            todo = self.rt.evolution_dir / TODO_FILE
+            todo.write_text(todo_markdown(decisions), encoding="utf-8")
+        return {"idea": idea_id, "decision": decision, "todo": str(todo) if todo else None}
 
     def evolution_tick(self, now: datetime | None = None) -> dict[str, Any]:
         """自动部分：开完的例会导出采纳单；到了本周开会时间、本周还没开过就开一场。"""
