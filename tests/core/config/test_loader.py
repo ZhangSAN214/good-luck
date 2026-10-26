@@ -117,6 +117,7 @@ def test_repo_config_loads_with_defaults():
         "media_rewrite",
         "work_media",
         "rework_media",
+        "evolve_review",
     }
     assert rt.collab_pipeline == [
         "decompose",

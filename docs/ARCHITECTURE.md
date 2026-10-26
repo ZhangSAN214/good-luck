@@ -49,6 +49,7 @@
   - 标签词表含媒体类：`vision`、`transcribe`、`image_gen`、`image_edit`、`tts`、`stt`、`video_gen`、`music_gen`（后两个预留）。媒体模型 `seat: false`（不上桌、不占座位），可有 `tier`；视频 / 转写 / 语音按秒 / 分钟 / 字符计价，用 `media_price: {unit, usd}`（`price` 写 0），可被路由覆盖；**图像模型在 OpenRouter 上按 token 计价**：`price.output` 填图像输出价格，`image_tokens` 填一张图的典型输出 token 数（只用于预估和渠道没返回用量时的记账，`providers/cost.py` 的 `image_cost`），实际费用一律以渠道返回的 `usage.cost` 为准。
 - `config/roundtable.yaml`：座位数（一张桌最多的组员数）、`min_members`、`reviews_per_answer`、`collab.max_subtasks`、预算（每月、每日、提醒比例）、步骤参数、互评质量规则、token 阈值、统筹轮换规则、提示词版本、步骤顺序 `pipeline:`（讨论模式）与 `collab_pipeline:`（协同模式）、**渠道模式 `channel_mode`**（`openrouter` / `direct` / `auto`，默认 `auto`）、请求策略（超时、切换轮数、退避、冷却）。
 - `roundtable.yaml` 的 `office`（R17）：`task_caps_usd`（每件事的工资上限：`single` 单人办 / `meeting` 开会 / `project` 项目分工）、`manager_strategy`（`rotate`：轮流主办，项目级由另一位复核）、`meeting`（`min_attendees` / `max_attendees`，开会点名人数）、`project`（项目组人数、项目组桌子的 `pipeline`、`reviews_per_item`、`step_params`）。
+- `roundtable.yaml` 的 `evolution`（革新例会，docs/evolution/README.md）：默认关闭；`plan`（档位，全员上桌）、`anonymous`、`topic`（例会题目）、收件箱 / 采纳单文件夹名（在数据库旁的 `evolution/` 下）、`max_cards` / `card_chars`、每场 `meeting_usd` 与每月 `monthly_usd` 上限（开会前按预估检查，超出不开）、`adopt_top`、`auto` + `schedule`（每周自动开一次）。资料卡作为附件、复用头脑风暴流水线；例会记录存 `app_settings` 的 `evolution.meetings`。
 - `config/personas.yaml`：匿名代号池（塔罗牌 22 张大阿卡纳，不少于 `seats`）、厂商昵称 `nicknames`（厂商 → 昵称）、档位显示名 `tier_labels`（flagship = 全力，budget = 节电）、`nickname_separator`、`coordinator_suffix`、`code_prefix`（默认空：代号 / 昵称本身就是称呼）；同一桌里厂商和档位都相同的模型自动加序号（鲸鱼娘·全力2）；`personas`（厂商 → 聊天人设：性格、说话风格、口头禅、兴趣，全部可空，只用于聊天，见 docs/CHAT.md G3）。称呼生成在 `allocation/names.py`（`member_codes()`）。
 - `roundtable.yaml` 的 `display.rice`：token 用量显示为"大米"（1 粒 = 1000 token，1 勺 = 100 粒，1 碗 = 30 勺，比例与单位名在配置里），自动换算（`core/display/rice.py`，前端用 `/api/status` 的 `rice` 同一套比例）；**只替换 token 数量的显示，所有金额仍是美元**。
 - `config/routing.yaml`：确认门槛、`default_plan`、默认难度（只影响预估的答案长度）、规划员档位、规则判断（triage）、成员档位 `plans`（`label`、`tiers`、可选 `pipeline`、`escalate_to`、`prompt_roles`）、自选 `custom`、升级条件、花费预估参数。**只能引用档位和能力标签**，不得出现模型名或厂商名（有测试）。`custom` 是保留名。
@@ -141,7 +142,7 @@
 - `core/`：纯业务逻辑，**禁止 import fastapi / starlette / uvicorn / streamlit**（测试守卫）。
 - `api/`：FastAPI 路由 + SSE，只调用 `core/service.py`（启动时用 `core/runtime.py` 组装；有测试检查导入）。
 - **服务 facade**（`core/service.py`，`RoundtableService`）：返回值都是可 JSON 化的 dict；匿名会话揭晓前全部匿名。`create(question, tier=, models=, coordinator=, anonymous=False, workflow="discussion")`；揭晓只用于匿名会话。提交题目后立即返回会话 id，讨论在后台任务中执行；意外错误把会话标为 `paused`（可 `resume`）。揭晓只允许在讨论结束（完成 / 停止 / 失败）后。
-- **HTTP 接口**：`GET /api/status`、`GET /api/budget`、`GET /api/contributions`、`POST /api/estimate`（提交前预估：各模式 × 各档位 / 自选的上桌人数、缺席、预计与最多花费、步骤明细；不调用任何模型，答案长度只用规则判断；返回 `seed`，提交时带上它，阵容与预估一致；匿名时不含模型名单）、`POST /api/uploads?name=`（请求体是文件原始字节，返回附件 id；`POST /api/sessions` 的 `attachments` 带上这些 id）、`GET/POST /api/sessions`（`media` / `media_tier`）、`GET /api/sessions/{id}`、`GET …/files/{fid}`（下载；`?inline=1` 可内联播放 png / jpg / gif / webp 与 mp3 / wav / ogg / mp4 / webm，后者支持 Range）与 `…/files/{fid}/preview`、`POST …/respond`、`POST …/notes`（中途补充）、`POST …/resume`、`POST …/reveal`、`GET …/events`（SSE）。
+- **HTTP 接口**：`GET /api/status`、`GET /api/budget`、`GET /api/contributions`、`POST /api/estimate`（提交前预估：各模式 × 各档位 / 自选的上桌人数、缺席、预计与最多花费、步骤明细；不调用任何模型，答案长度只用规则判断；返回 `seed`，提交时带上它，阵容与预估一致；匿名时不含模型名单）、`POST /api/uploads?name=`（请求体是文件原始字节，返回附件 id；`POST /api/sessions` 的 `attachments` 带上这些 id）、`GET/POST /api/sessions`（`media` / `media_tier`）、`GET /api/sessions/{id}`、`GET …/files/{fid}`（下载；`?inline=1` 可内联播放 png / jpg / gif / webp 与 mp3 / wav / ogg / mp4 / webm，后者支持 Range）与 `…/files/{fid}/preview`、`POST …/respond`、`POST …/notes`（中途补充）、`POST …/resume`、`POST …/reveal`、`GET …/events`（SSE）；革新例会 `GET /api/evolution`、`POST /api/evolution/meetings`（开会，超出上限 409）、`POST /api/evolution/meetings/{id}/export`（导出采纳单）。
 - **SSE 协议**：第一条 `snapshot`（当前状态），之后是实时事件（只含代号），每当讨论停下来（完成 / 失败 / 停止 / 等待确认 / 暂停）发一条 `state` 并关闭；前端回复确认后重新连接。
 - `web/`：静态前端（`index.html`、`css/app.css`、`js/api.js` 通信、`js/view.js` 渲染、`js/app.js` 状态与交互；ES 模块，无构建步骤），只通过 HTTP/SSE 与后端通信，由 FastAPI 挂在 `/`。
   - 事件流用 `fetch` 读取（不用会自动重连的 `EventSource`）：收到停下来的 `state` 后关闭，回复确认卡片或恢复后重新订阅；事件触发重新拉取会话详情再渲染。
@@ -216,7 +217,7 @@ prompts/       planner/ answer/ answer_quick/ review/ revise/ synthesize/ redo/
                attachments/ describe_image/ transcribe/ tools/（v4） image_gen/ web_search/ web_fetch/
                decompose/（v4） decompose_retry/ volunteer/ assign/（v3） work/ work_<类型>/ cross_review/ rework/ merge/
                panel/（v2） ideate/（v2） expand/ crossbreed/ vote/ organize/（v2）
-               media_brief/ media_review/ media_refine/ work_media/ rework_media/  versions.lock
+               media_brief/ media_review/ media_refine/ work_media/ rework_media/  evolve_review/（开发侧复审）  versions.lock
 src/roundtable/
   core/
     config/        配置加载与校验
@@ -232,6 +233,7 @@ src/roundtable/
     preview.py     成员生成的文件的预览
     mindmap.py     思维导图数据与渲染（Markdown / Mermaid / SVG）
     ideaboard.py   头脑风暴的点子榜：投票排名、黑马、对比表 / 场景故事 / 行动方案的数据与 Markdown
+    evolution.py   革新例会：资料卡读取、例会题目、例会记录、采纳单 Markdown
     budget/        用量统计（按渠道/模型）、预算守卫（每月 + 每日，UTC）
     office/        办公室模式（R17）：名册（roster.py）、工资单（payroll.py）
     cards.py       确认卡片的统一格式
@@ -245,8 +247,8 @@ src/roundtable/
   api/           FastAPI 应用、路由、SSE
 web/             index.html、css/（app.css、agent.css 小人、ideas.css 头脑风暴结果页）、js/（api.js 通信、view.js 渲染、ideas.js 头脑风暴结果页、app.js 状态与交互、agent/ 网页小人、boot.js 开机动画、bootcfg.js 片头设置）、boot/（开机动画页：dawn.html「晨会协议」片头（原创）、gmu.html 早上好联合访问授权（改编自 MIT 开源项目）、assets/ 徽记与二维码库；音效与朗读由 boot.js 统一负责；出处见 boot/CREDITS.md）
 tests/
-docs/            REQUIREMENTS_v3.md  PLAN.md  CLI.md  OFFICE.md（办公室模式）  mockup.html
-scripts/         check_models.py（核对 OpenRouter 渠道的模型 ID 与价格；带 vision / image_edit 标签的模型还核对远端 input_modalities 含 image）  lock_prompts.py（登记提示词版本）
+docs/            REQUIREMENTS_v3.md  PLAN.md  CLI.md  OFFICE.md（办公室模式）  mockup.html  evolution/（革新例会说明、周报与资料卡模板、每周周报）
+scripts/         evolve_review.py（革新 PR 的可选复审，没有 key 时跳过）  check_models.py（核对 OpenRouter 渠道的模型 ID 与价格；带 vision / image_edit 标签的模型还核对远端 input_modalities 含 image）  lock_prompts.py（登记提示词版本）
                  setup_sandbox.py（安装代码运行沙箱）  try_image.py（真实调用一次画图模型，核对接口格式）
 sandbox/         Dockerfile（可选的 docker 沙箱）、README.md
 .env.example

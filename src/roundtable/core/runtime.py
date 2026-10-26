@@ -30,6 +30,8 @@ DEFAULT_MEMBERS_DIR = PROJECT_ROOT / "data" / "avatars" / "roundtable_assets"
 MEMBERS_ENV = "ROUNDTABLE_ASSETS_DIR"
 # 人才市场的最近结果（放在数据库旁边，不进 git）
 CATALOG_FILE = "model_candidates.json"
+# 革新例会的资料卡与采纳单（放在数据库旁边，不进 git）
+EVOLUTION_DIR = "evolution"
 
 
 @dataclass
@@ -53,6 +55,8 @@ class Runtime:
     members_dir: Path | None = None
     # 模型人才市场（只提示，不改配置）；为空时不提供
     catalog: ModelCatalog | None = None
+    # 革新例会的资料卡收件箱与采纳单所在目录（数据库旁边的 evolution/）；为空表示不可用
+    evolution_dir: Path | None = None
 
     @classmethod
     def build(
@@ -70,6 +74,7 @@ class Runtime:
         search: SearchService | None = None,
         members_dir: str | Path | None = None,
         catalog_fetch: Fetch | None = None,
+        evolution_dir: str | Path | None = None,
     ) -> Runtime:
         """providers 为空时从 .env / 环境变量读取 key 并构建真实渠道（测试中传入 Fake）。"""
         config = config or load_config()
@@ -121,6 +126,8 @@ class Runtime:
         if members_dir is None:
             configured = env.get(MEMBERS_ENV)
             members_dir = PROJECT_ROOT / configured if configured else DEFAULT_MEMBERS_DIR
+        if evolution_dir is None and str(db_path) != ":memory:":
+            evolution_dir = Path(db_path).parent / EVOLUTION_DIR
         repo = Repository(connect(db_path))
         guard = BudgetGuard(config.roundtable.budget, repo, **({"now": now} if now else {}))
         return cls(
@@ -141,6 +148,7 @@ class Runtime:
                 None if str(db_path) == ":memory:" else Path(db_path).parent / CATALOG_FILE,
                 catalog_fetch,
             ),
+            evolution_dir=Path(evolution_dir) if evolution_dir is not None else None,
         )
 
     def sandbox(self) -> tuple[Sandbox | None, str | None]:

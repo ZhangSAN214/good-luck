@@ -784,6 +784,50 @@ class ChatRules(_Strict):
     estimate_usd: float = Field(default=0.002, ge=0)  # 每条回应的预估花费（预算检查用）
 
 
+class EvolutionSchedule(_Strict):
+    """革新例会自动开会的时间（本机时区）：每周 weekday（ISO：1 = 周一）的 hour 点之后开一次。"""
+
+    weekday: int = Field(default=1, ge=1, le=7)
+    hour: int = Field(default=9, ge=0, le=23)
+
+
+class EvolutionRules(_Strict):
+    """革新例会（docs/evolution/README.md）：成员读同一叠资料卡，复用头脑风暴提建议、匿名互评、投票，
+    导出采纳单。默认关闭；花费有每场和每月硬上限（也计入总预算）。"""
+
+    enabled: bool = False
+    plan: str = Field(default="budget", min_length=1)  # 成员档位（routing.yaml 的 plans）：全员上桌
+    anonymous: bool = True  # 匿名：塔罗牌代号
+    topic: str = Field(default="", max_length=2000)  # 例会的话题（作为题目，资料卡作为附件）
+    inbox_dir: str = "收件箱"  # 资料卡放这里（数据目录下的 evolution/ 里）
+    adopted_dir: str = "采纳单"  # 导出的采纳单放这里
+    max_cards: int = Field(default=5, ge=1, le=10)  # 每场最多几张资料卡（多的不读）
+    card_chars: int = Field(default=3000, ge=200, le=20000)  # 每张卡最多多少字（多的截掉）
+    meeting_usd: float = Field(default=0.40, gt=0)  # 每场预计花费上限：超出就不开
+    monthly_usd: float = Field(
+        default=1.5, gt=0
+    )  # 每月（UTC 自然月）上限：已花 + 本场预计超出就不开
+    adopt_top: int = Field(default=3, ge=1, le=10)  # 采纳单列前几名
+    auto: bool = True  # 开启后每周按 schedule 自动开一次（服务开着才会开）
+    schedule: EvolutionSchedule = EvolutionSchedule()
+    tick_minutes: int = Field(default=30, ge=5, le=360)  # 服务开着时多久检查一次
+
+    @field_validator("inbox_dir", "adopted_dir")
+    @classmethod
+    def _plain_dir(cls, name: str) -> str:
+        if not name.strip() or any(c in name for c in "/\\:") or name.strip(".") == "":
+            raise ValueError(f"只能是一个文件夹名（不含路径）：{name!r}")
+        return name
+
+    @model_validator(mode="after")
+    def _limits(self) -> EvolutionRules:
+        if self.meeting_usd > self.monthly_usd:
+            raise ValueError("meeting_usd 不能大于 monthly_usd")
+        if self.enabled and not self.topic.strip():
+            raise ValueError("开启革新例会时必须填写 topic")
+        return self
+
+
 class DisplayConfig(_Strict):
     rice: RiceRules = RiceRules()
 
@@ -854,6 +898,7 @@ class RoundtableConfig(_Strict):
     style: StyleRules = StyleRules()
     office: OfficeRules = OfficeRules()
     chat: ChatRules = ChatRules()
+    evolution: EvolutionRules = EvolutionRules()
 
     @field_validator("prompts")
     @classmethod

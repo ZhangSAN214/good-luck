@@ -192,6 +192,16 @@
 - 第四轮（用户试用反馈）：①花切穿模——牌与牌之间留深度、各小叠固定在不同深度并横向拉开、转角减小；②弹窗按第一版的密度重做（标题栏与窗口按钮、键值表、大数字计数、进度条、迷你日志、波形、状态栏时钟），新增「安全上行」「信号截获」「记忆同步」三个窗口；③过渡自查：换页时 iframe 空白一瞬、授权页又从中心擦出一次徽记且亮度跳变——外层在换页时盖一枚同位同尺寸的徽记和同色背景，授权页带 `?handoff=1` 时徽记直接在场再按原节拍淡出；④声音：全程加背景（50Hz 电流嗡声、电台底噪、静电噼啪、远处的电报码、很轻的贝斯八分律动），音效去掉清脆高音、加空间回声，开机 / 日出 / 落定 / 切牌 / 锁定融入失真电吉他强力和弦与贝斯；女声放慢、音调略高、音量略轻并垫一层气声，更空灵。
 - 不调用模型，不花钱。测试：`tests/web/test_e2e_boot.py` 增加按下开机、静音模式一路放完、声音设置与试听、没有 550C 与电影元素残留。
 
+## 革新例会（2026-10-26）
+
+用户同意先把自我革新机制做出来（方案 v3，key 以后再说）。成员读同一叠资料卡、提建议、匿名互评、投票，开发侧从采纳单里挑一条实现。
+- 配置 `roundtable.yaml` 的 `evolution`：**默认关闭**；节电档全员上桌、匿名；每场预计 ≤ $0.40、每月 ≤ $1.5，超出就不开会（也计入总预算）。
+- 资料卡放 `data/evolution/收件箱/`（.md / .txt，最多 5 张、每张 3000 字），作为附件发给全员（同一份，沿用附件的防注入）；题目是配置里的 `topic` + 卡片清单。复用头脑风暴流水线，不新增步骤、不改已有提示词。
+- 采纳单导出到 `data/evolution/采纳单/YYYY-Www.md`：前 3 名、得分票数、代号、反对意见（挑刺 / 反转得到的点子与统筹写的风险）+ 完整点子榜；揭晓前用匿名视图。
+- 入口：网页右上角「革新例会」、命令行 `roundtable evolve [meet|export <id>]`、接口 `GET /api/evolution`、`POST /api/evolution/meetings`、`POST /api/evolution/meetings/{id}/export`；开启后服务开着时每周一 9 点之后自动开一次并在开完后导出。
+- 开发侧可选的对抗式复审 `scripts/evolve_review.py`（提示词 `evolve_review/v1`）：只读云端环境变量 `EVOLVE_LLM_API_KEY` / `EVOLVE_REVIEW_MODEL`，没有就跳过。周报与资料卡模板在 `docs/evolution/`。
+- 测试：`tests/core/test_evolution.py`、`tests/core/service/test_evolution_service.py`、`tests/api/test_evolution_api.py`、`tests/cli/test_cli_evolve.py`、`tests/scripts/test_evolve_review.py`、`tests/web/test_e2e_evolution.py`。
+
 ## 下一步
 
 0. 你本机试用办公室模式（单人办、开会、项目分工、预算单、绩效）、公寓楼和群聊；看看「员工」页底部的人才市场，决定要不要换人 / 改价格。合并 PR #6 / #7 / #8 需要你点头。
