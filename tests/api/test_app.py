@@ -198,6 +198,9 @@ def test_frontend_is_served():
             assert r.status_code == 200, path
             # 每次都要向服务器确认新版本，改完界面刷新就能看到
             assert r.headers["cache-control"] == "no-cache", path
+        # 第一次打开页面让浏览器清掉旧缓存一次，之后不再清
+        assert index.headers["clear-site-data"] == '"cache"'
+        assert "clear-site-data" not in c.get("/").headers
         # API 路由不被静态文件覆盖
         assert c.get("/api/status").status_code == 200
 
