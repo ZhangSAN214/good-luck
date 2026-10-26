@@ -915,9 +915,14 @@ const VIEW_OF = { work: '#main', home: '#home', chat: '#gchat', hub: '#hub' };
 /**
  * 切换入口，带过渡（仿 iPhone 打开 App，不回弹）：背景和顶栏不动，只有页面在动。
  * 旧页往前推远淡出，新页从略小处浮上来；从首页卡片点进去时，卡片本身放大成新页面。
+ * 为了起止都顺：新页先把数据取回、排好版（最多等 MOTION_HOLD_MS）再开始动，动的过程中不再重排；
+ * 卡片放大只用 transform（不动宽高），全程只改 transform 和 opacity。
  * 不支持视图过渡或系统开了「减少动态」时直接切换。from 是被点的卡片（可选）。
  * 返回的 Promise 在页面真正切过去后完成，接着要操作新页面的调用方先 await 它。
  */
+const MOTION_MS = 560;
+const MOTION_HOLD_MS = 350;
+const MOTION_EASE = 'cubic-bezier(.32,.72,0,1)';
 function setEntry(m, from = null) {
   if (!ENTRIES.includes(m)) m = 'work';
   const still = matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -930,14 +935,23 @@ function setEntry(m, from = null) {
   const name = (el, n) => {
     if (el) el.style.viewTransitionName = n;
   };
+  const start = from?.getBoundingClientRect();
   name(leave, 'rt-from');
   name(from, 'rt-zoom');
-  const t = document.startViewTransition(() => {
+  const t = document.startViewTransition(async () => {
     name(leave, '');
     name(from, '');
-    applyEntry(m);
+    const shown = applyEntry(m);
     name(dest, from ? 'rt-zoom' : 'rt-to');
+    // 等数据画好、新页要用的字下载完（排一次版才会开始下载），免得动到一半换字体重排
+    const settled = (async () => {
+      await shown;
+      dest?.getBoundingClientRect();
+      await document.fonts.ready;
+    })();
+    await Promise.race([settled, new Promise((r) => setTimeout(r, MOTION_HOLD_MS))]).catch(() => {});
   });
+  if (from && dest) t.ready.then(() => zoomFrom(start, dest.getBoundingClientRect())).catch(() => {});
   t.finished.finally(() => {
     name(leave, '');
     name(from, '');
@@ -946,22 +960,68 @@ function setEntry(m, from = null) {
   return t.updateCallbackDone.catch(() => {});
 }
 
+/** 空闲时先把各页面用到的字下载好，第一次切过去时等得更短。 */
+function warmFonts() {
+  const text = Object.values(VIEW_OF).map((sel) => $(sel)?.textContent || '').join('');
+  const css = getComputedStyle(document.documentElement);
+  for (const v of ['--f-body', '--f-display'])
+    for (const w of [400, 500]) document.fonts.load(`${w} 16px ${css.getPropertyValue(v)}`, text).catch(() => {});
+}
+
+/**
+ * 停在终端首页时，空闲里把办公室和公寓楼几乎透明地画一遍再藏起来：第一次画大页面时显卡要多花约 0.1 秒，
+ * 预先画过，第一次点进去的放大动画就不会在中途卡一下。
+ */
+async function warmViews() {
+  const frames = () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(r, 50))));
+  const ghost = 'position:fixed;inset:64px 0 0;opacity:.002;pointer-events:none;z-index:-1';
+  for (const [key, el, show, hide] of [
+    ['work', $('#main'), () => ($('#main').hidden = false), () => ($('#main').hidden = entry !== 'work')],
+    ['home', $('#home'), () => home.show(), () => entry !== 'home' && home.hide()],
+  ]) {
+    if (entry !== 'hub' || !el) return;
+    el.style.cssText += `;${ghost}`;
+    try {
+      await show();
+      await frames();
+    } catch {
+      /* 预热失败不影响使用 */
+    }
+    el.style.position = el.style.inset = el.style.opacity = el.style.pointerEvents = el.style.zIndex = '';
+    if (entry !== key) hide();
+  }
+}
+
+/** 卡片 → 整页：从卡片的位置和大小（a）放大到新页（b），只动 transform。 */
+function zoomFrom(a, b) {
+  if (!a || !b.width || !b.height) return;
+  const at = (r, sx = 1, sy = 1) => `translate(${r.left}px, ${r.top}px) scale(${sx}, ${sy})`;
+  document.documentElement.animate(
+    { transform: [at(a, a.width / b.width, a.height / b.height), at(b)] },
+    { duration: MOTION_MS, easing: MOTION_EASE, fill: 'both', pseudoElement: '::view-transition-group(rt-zoom)' },
+  );
+}
+
+/** 切到入口 m；返回新页面数据取回、画好的 Promise（过渡等它再开始动）。 */
 function applyEntry(m) {
   entry = m;
   for (const b of document.querySelectorAll('#entries button')) b.setAttribute('aria-pressed', String(b.dataset.m === m));
   $('#main').hidden = m !== 'work';
   $('#workctrls').hidden = m !== 'work';
   $('#meter').hidden = m !== 'work';
-  if (m === 'home') home.show();
+  let shown = Promise.resolve();
+  if (m === 'home') shown = home.show();
   else home.hide();
-  if (m === 'chat') gchat.show();
+  // 群聊画过一次后，再进来先用现有内容开始动，新消息在后台拉（增量，很小）
+  if (m === 'chat') shown = gchat.built ? (gchat.show(), Promise.resolve()) : gchat.show();
   else gchat.hide();
-  if (m === 'hub') hub.show();
+  if (m === 'hub') shown = hub.show();
   else hub.hide();
   document.documentElement.dataset.entry = m;
   syncPet();
   if (m !== 'work') history.replaceState(null, '', `#m=${m}`);
   else if (location.hash.startsWith('#m=')) history.replaceState(null, '', S.sid ? `#s=${S.sid}` : location.pathname);
+  return shown;
 }
 
 /**
@@ -1204,6 +1264,10 @@ async function init() {
   else if (!m && landing() === 'hub') setEntry('hub');
   petReady = true;
   syncPet();
+  (window.requestIdleCallback || setTimeout)(() => {
+    warmFonts();
+    warmViews();
+  });
 }
 
 init();

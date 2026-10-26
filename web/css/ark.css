@@ -181,13 +181,16 @@
 /* ---------- 过渡：仿 iPhone 打开 App（不回弹），系统开了「减少动态」时全部关掉 ---------- */
 /* 名字由 app.js 临时挂上：rt-from 旧页、rt-to 新页、rt-zoom 被点的卡片→新页。背景和顶栏（root）不参与，原地不动 */
 ::view-transition-old(root),::view-transition-new(root){animation:none}
-::view-transition-group(rt-zoom){animation-duration:.56s;animation-timing-function:cubic-bezier(.32,.72,0,1);border-radius:32px;overflow:hidden}
-::view-transition-old(rt-zoom){animation:rt-fade-out .22s ease both;height:100%;object-fit:cover}
-::view-transition-new(rt-zoom){animation:rt-fade-in .34s .08s ease both;height:100%;object-fit:cover}
-::view-transition-old(rt-from){animation:rt-push .5s cubic-bezier(.32,.72,0,1) both}
+/* 卡片放大：组的位置和大小由 app.js 用 transform 动（不动宽高，不触发重排）；里面两张图都铺满组，新旧交叉淡入淡出 */
+::view-transition-group(rt-zoom){animation:none;transform-origin:0 0}
+::view-transition-old(rt-zoom),::view-transition-new(rt-zoom){height:100%;object-fit:fill}
+::view-transition-old(rt-zoom){animation:rt-fade-out .26s cubic-bezier(.4,0,.6,1) both}
+::view-transition-new(rt-zoom){animation:rt-fade-in .3s .06s cubic-bezier(.4,0,.6,1) both}
+::view-transition-old(rt-from){animation:rt-push .56s cubic-bezier(.32,.72,0,1) both}
 ::view-transition-new(rt-to){animation:rt-pull .56s cubic-bezier(.32,.72,0,1) both}
-@keyframes rt-push{to{opacity:0;transform:scale(1.08);filter:blur(6px)}}
-@keyframes rt-pull{from{opacity:0;transform:scale(.9);filter:blur(4px)}}
+/* 只动 transform 和 opacity（不加模糊：整屏模糊每帧都要重算，是之前卡顿的来源之一） */
+@keyframes rt-push{to{opacity:0;transform:scale(1.06)}}
+@keyframes rt-pull{from{opacity:0;transform:scale(.94)}}
 @keyframes rt-fade-out{to{opacity:0}}
 @keyframes rt-fade-in{from{opacity:0}}
 /* 首页卡片依次浮上来 */
