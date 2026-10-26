@@ -56,6 +56,8 @@ chat:
     enabled: true
     posts_per_member: 1
     comments_per_tick: 2           # 每次推进最多写几条评论
+    dedupe_hours: 48               # 去重：别人 48 小时内发过的同一件事不再发
+    similarity_max: 0.3            # 去重：正文和近期动态相似度达到这个值就不发（0～1）
   browse:                          # 上网：只读公开订阅源（$0），成员按兴趣挑一条分享到生活群
     enabled: true
     refresh_hours: 3               # 多久重新抓一次订阅源
