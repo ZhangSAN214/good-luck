@@ -21,7 +21,8 @@ def test_apartment_entry_and_residents(serve, page):
     assert page.locator("#home .tenant.act-work").count() == 0
     # 点一位住户：右侧出现卡片；Esc 收起
     # 夜里住户睡在床上（SVG），点被子；白天点人
-    page.locator("#home .tenant:not(.sleeper), #home .sleeper rect").first.click()
+    # 白天住户在原地来回走（动画），等不到「静止」，直接点
+    page.locator("#home .tenant:not(.sleeper), #home .sleeper rect").first.click(force=True)
     page.wait_for_selector("#resident-card")
     page.keyboard.press("Escape")
     page.wait_for_selector("#resident-card", state="detached")
@@ -43,7 +44,7 @@ def test_working_resident_links_to_the_session(serve, page):
     repo.set_status(sid, "running")
     page.goto(srv.url + "/#m=home")
     page.wait_for_selector("#home .k-meeting .tenant.act-work")
-    page.click("#home .k-meeting .tenant.act-work")
+    page.click("#home .k-meeting .tenant.act-work", force=True)
     page.click("#resident-card [data-open]")
     page.wait_for_selector("#main", state="visible")
     page.wait_for_function(f"() => location.hash === '#s={sid}'")

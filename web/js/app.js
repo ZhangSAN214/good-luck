@@ -1266,7 +1266,8 @@ async function init() {
   syncPet();
   (window.requestIdleCallback || setTimeout)(() => {
     warmFonts();
-    warmViews();
+    // 自动化测试会在刚打开时检查哪些页面是藏着的，预热会短暂把页面放出来，测试里不预热
+    if (!navigator.webdriver) warmViews();
   });
 }
 

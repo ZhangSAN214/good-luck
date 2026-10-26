@@ -57,7 +57,8 @@ def test_apartment_resident_can_be_mentioned_in_chat(serve, page):
     srv = serve(confirm_threshold_usd=100.0)
     page.goto(srv.url + "/#m=home")
     # 夜里住户睡在床上（SVG），点被子；白天点人
-    page.locator("#home .tenant:not(.sleeper), #home .sleeper rect").first.click()
+    # 白天住户在原地来回走（动画），等不到「静止」，直接点
+    page.locator("#home .tenant:not(.sleeper), #home .sleeper rect").first.click(force=True)
     page.click("#resident-card [data-chat]")
     page.wait_for_selector("#gchat:not([hidden])")
     assert page.input_value("#chat-input").startswith("@")
@@ -76,7 +77,7 @@ def test_rooms_dm_and_unread_badge(serve, page):
     page.wait_for_selector(".gc-room[data-room='work'] .gc-unread", timeout=15000)
     # 打开和阿二的私聊：没有成员栏，发消息只有对方回
     page.click(".gc-room[data-room='dm:V2']")
-    page.wait_for_function("document.querySelector('#gc-title').textContent === '与 阿二 私聊'")
+    page.wait_for_function("document.querySelector('#gc-title')?.textContent === '与 阿二 私聊'")
     assert page.locator("#gc-aside").is_hidden()
     page.fill("#chat-input", "大家好")
     page.keyboard.press("Enter")
@@ -89,17 +90,18 @@ def test_rooms_dm_and_unread_badge(serve, page):
     page.wait_for_selector(".gc-msg[data-author='V1']")
     page.wait_for_selector(".gc-room[data-room='work'] .gc-unread", state="detached")
     page.reload()
-    page.wait_for_function("document.querySelector('#gc-title').textContent === '工作群'")
+    page.wait_for_function("document.querySelector('#gc-title')?.textContent === '工作群'")
     assert "本月聊天 $" in page.inner_text("#gc-budget")
 
 
 def test_apartment_resident_dm(serve, page):
     srv = serve(confirm_threshold_usd=100.0)
     page.goto(srv.url + "/#m=home")
-    page.locator("#home .tenant:not(.sleeper), #home .sleeper rect").first.click()
+    # 白天住户在原地来回走（动画），等不到「静止」，直接点
+    page.locator("#home .tenant:not(.sleeper), #home .sleeper rect").first.click(force=True)
     page.click("#resident-card [data-dm]")
     page.wait_for_selector("#gchat:not([hidden])")
-    page.wait_for_function("document.querySelector('#gc-title').textContent.startsWith('与 ')")
+    page.wait_for_function("document.querySelector('#gc-title')?.textContent.startsWith('与 ')")
 
 
 def test_work_group_handoff_and_open_in_office(serve, page):
@@ -120,7 +122,7 @@ def test_work_group_handoff_and_open_in_office(serve, page):
     # 私聊和生活群里没有这个按钮
     page.keyboard.press("Alt+Digit3")  # 回到聊天
     page.click(".gc-room[data-room='main']")
-    page.wait_for_function("document.querySelector('#gc-title').textContent === '大家庭'")
+    page.wait_for_function("document.querySelector('#gc-title')?.textContent === '大家庭'")
     assert page.locator("#gc-handoff").is_hidden()
 
 
@@ -132,7 +134,7 @@ def test_people_dialog_persona_and_memories(serve, page):
     rt.repo.add_memory("V2", "day", "和用户聊了爬山", period="2026-10-21")
     open_chat(srv, page)
     page.click(".gc-room[data-room='dm:V2']")
-    page.wait_for_function("document.querySelector('#gc-title').textContent === '与 阿二 私聊'")
+    page.wait_for_function("document.querySelector('#gc-title')?.textContent === '与 阿二 私聊'")
     page.click("#gc-people")  # 私聊里打开：直接是对方
     page.wait_for_selector("#people[open] .pp-who.cur[data-member='V2']")
     assert "和用户聊了爬山" in page.inner_text("#people .pp-list")
