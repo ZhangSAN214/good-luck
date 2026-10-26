@@ -15,6 +15,26 @@ const STATUS = {
 };
 const DAYS = '一二三四五六日';
 const DECIDED = { do: '要做', skip: '不做' };
+const JOB = {
+  running: '开发侧在做…',
+  done: 'PR 开好了',
+  failed: '开发侧没做成',
+  timeout: '开发侧超时了',
+  interrupted: '服务重启过，没做完',
+};
+
+// 开发侧的进度：PR 链接、「合并」按钮（只有你点才合并）
+function job(m, i, off) {
+  const j = i.job;
+  if (!j) return '';
+  const pr = j.pr && /^https:\/\/github\.com\//.test(j.pr) ? `<a href="${esc(j.pr)}" target="_blank" rel="noopener">看 PR</a>` : '';
+  const merge =
+    j.status === 'done' && j.pr && !j.merged
+      ? `<button type="button" class="link" data-merge data-sid="${esc(m.session_id)}" data-idea="${esc(i.id)}"${off}>合并</button>`
+      : '';
+  const state = j.merged ? '已合并' : JOB[j.status] || j.status;
+  return `<small class="ev-job">${esc(state)}${j.error ? `（${esc(j.error)}）` : ''}</small>${pr}${merge}`;
+}
 
 // 开完的例会：得票前几名，每条可以点「做这条 / 不做」（已定的显示结果，还能改）
 function ideas(m, busy) {
@@ -26,7 +46,7 @@ function ideas(m, busy) {
         `<button type="button" class="link" data-decide="${kind}" data-sid="${esc(m.session_id)}" data-idea="${esc(i.id)}"${off}>${label}</button>`;
       const state = i.decision ? `<b class="ev-decided">${DECIDED[i.decision]}</b>` : '';
       return `<li><span>${n + 1}. ${esc(i.text)}</span><small>${i.score} 分 · ${i.votes} 票</small>
-        <span class="ev-act">${state}${i.decision === 'do' ? '' : btn('do', '做这条')}${i.decision === 'skip' ? '' : btn('skip', '不做')}</span></li>`;
+        <span class="ev-act">${state}${i.decision === 'do' ? '' : btn('do', '做这条')}${i.decision === 'skip' ? '' : btn('skip', '不做')}${job(m, i, off)}</span></li>`;
     })
     .join('');
   return `<ol class="ev-ideas">${rows}</ol>`;
@@ -36,7 +56,7 @@ const usd = (n) => `$${Number(n || 0).toFixed(n >= 1 ? 2 : 4)}`;
 export class Evolution {
   constructor(dialog, { api, openSession = null } = {}) {
     this.dlg = dialog;
-    this.api = api; // {get(), meet(), exportList(sid), scout(), decide(sid, idea, decision)}
+    this.api = api; // {get(), meet(), exportList(sid), scout(), decide(sid, idea, decision), merge(sid, idea)}
     this.openSession = openSession;
     this.data = null;
     this.msg = '';
@@ -142,8 +162,19 @@ export class Evolution {
       const { sid, idea, decide } = dec.dataset;
       return this.act(
         () => this.api.decide(sid, idea, decide),
-        () => (decide === 'do' ? `记下了：${idea} 要做，开发侧会照着实现、开 PR` : `记下了：${idea} 不做`),
+        (r) =>
+          decide !== 'do'
+            ? `记下了：${idea} 不做`
+            : r.dev_started
+              ? `记下了：${idea} 要做，开发侧已经开始实现，做完会在这里出现 PR 链接和「合并」`
+              : `记下了：${idea} 要做，开发侧会照着实现、开 PR`,
       );
+    }
+    const mg = t.closest('[data-merge]');
+    if (mg) {
+      const { sid, idea } = mg.dataset;
+      if (!window.confirm(`确定合并 ${idea} 的 PR 吗？合并后会进入开发分支。`)) return;
+      return this.act(() => this.api.merge(sid, idea), (r) => `已合并：${r.pr}`);
     }
     if (t.closest('[data-meet]')) {
       return this.act(this.api.meet, (r) => `开始了：预计 ${usd(r.estimate_usd)}，开完后在这里导出采纳单`);

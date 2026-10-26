@@ -46,6 +46,8 @@ from roundtable.core.evolution import (
     week_key,
     week_slot,
 )
+from roundtable.core.evolution_dev import DevAgent, DevError, run_process
+from roundtable.core.evolution_dev import Run as DevRun
 from roundtable.core.evolution_scout import SCOUT_WEEK_KEY, Scout, ScoutError
 from roundtable.core.ideaboard import Board
 from roundtable.core.life import LifeEngine
@@ -74,7 +76,7 @@ from roundtable.core.routing import (
     detect_multi_media,
     preview_estimates,
 )
-from roundtable.core.runtime import Runtime
+from roundtable.core.runtime import PROJECT_ROOT, Runtime
 from roundtable.core.steps import Event, restore_state
 from roundtable.core.steps.office import group_estimates
 from roundtable.core.storage import NotFound
@@ -120,6 +122,8 @@ class RoundtableService:
         self._chat_tasks: set[asyncio.Task[Any]] = set()
         self._life_task: asyncio.Task[None] | None = None
         self._evolution_task: asyncio.Task[None] | None = None
+        self._dev_tasks: dict[str, asyncio.Task[None]] = {}  # 「做这条」后正在实现的建议
+        self.dev_run: DevRun = run_process  # 叫外部命令（测试换成假的）
 
     def reconcile(self) -> list[str]:
         """开机对账：上次服务意外退出（或被关掉）时还在跑的讨论，数据库里会一直留着「进行中」。
@@ -1570,16 +1574,82 @@ class RoundtableService:
             return []
         decisions = load_decisions(self.rt.repo.setting(DECISIONS_KEY))
         top = self.rt.config.roundtable.evolution.adopt_top
-        return [
-            {
-                "id": r.id,
-                "text": r.text,
-                "score": r.score,
-                "votes": r.votes,
-                "decision": decisions.get(decision_key(session_id, r.id), {}).get("decision"),
-            }
-            for r in adoptable(self._meeting_board(view))[:top]
-        ]
+        out = []
+        for r in adoptable(self._meeting_board(view))[:top]:
+            key = decision_key(session_id, r.id)
+            entry = decisions.get(key, {})
+            job = dict(entry.get("job") or {})
+            if job.get("status") == "running" and key not in self._dev_tasks:
+                job["status"] = "interrupted"  # 服务中途重启过，开发侧没跑完
+            out.append(
+                {
+                    "id": r.id,
+                    "text": r.text,
+                    "score": r.score,
+                    "votes": r.votes,
+                    "decision": entry.get("decision"),
+                    "job": job or None,
+                }
+            )
+        return out
+
+    def _save_job(self, key: str, **job: Any) -> None:
+        decisions = load_decisions(self.rt.repo.setting(DECISIONS_KEY))
+        if key in decisions:
+            decisions[key]["job"] = {**(decisions[key].get("job") or {}), **job}
+            self.rt.repo.set_setting(DECISIONS_KEY, json.dumps(decisions, ensure_ascii=False))
+
+    def _dev(self) -> DevAgent:
+        if self.rt.evolution_dir is None:
+            raise ServiceError("没有数据目录，放不了开发副本", 409)
+        rules = self.rt.config.roundtable.evolution.implement
+        return DevAgent(rules, self.rt.evolution_dir, PROJECT_ROOT, self.dev_run)
+
+    async def _dev_implement(self, key: str, entry: dict[str, Any]) -> None:
+        try:
+            status, pr, log_file = await self._dev().implement(
+                week=entry["week"], session_id=entry["session_id"], idea=entry["idea"],
+                text=entry["text"],
+            )  # fmt: skip
+            self._save_job(key, status=status, pr=pr, log=log_file)
+        except (DevError, ServiceError, OSError) as exc:
+            self._save_job(key, status="failed", error=str(exc)[:300])
+        finally:
+            self._dev_tasks.pop(key, None)
+
+    def _start_dev(self, key: str, entry: dict[str, Any]) -> bool:
+        """「做这条」后交给开发侧（开启 implement 时）；已经在做或做完的不重复叫。"""
+        if not self.rt.config.roundtable.evolution.implement.enabled:
+            return False
+        job = entry.get("job") or {}
+        if key in self._dev_tasks or job.get("status") == "done":
+            return False
+        self._save_job(
+            key, status="running", started=self._local_now().isoformat(timespec="seconds")
+        )
+        self._dev_tasks[key] = asyncio.get_running_loop().create_task(
+            self._dev_implement(key, entry)
+        )
+        return True
+
+    async def evolution_merge(self, session_id: str, idea_id: str) -> dict[str, Any]:
+        """你点了「合并」：把开发侧为这条建议开的 PR 合并（gh pr merge）。只有你点才会合并。"""
+        key = decision_key(session_id, idea_id)
+        entry = load_decisions(self.rt.repo.setting(DECISIONS_KEY)).get(key)
+        job = (entry or {}).get("job") or {}
+        if not job.get("pr") or job.get("status") != "done":
+            raise ServiceError("这条建议还没有开好的 PR", 409)
+        if job.get("merged"):
+            raise ServiceError("已经合并过了", 409)
+        dev = self._dev()
+        try:
+            ok = await dev.merge(job["pr"], dev.log_path(entry["week"], idea_id))
+        except DevError as exc:
+            raise ServiceError(str(exc), 409) from None
+        if not ok:
+            raise ServiceError("合并没有成功（可能有冲突或检查没通过），详见开发记录", 409)
+        self._save_job(key, merged=self._local_now().isoformat(timespec="seconds"))
+        return {"idea": idea_id, "pr": job["pr"], "merged": True}
 
     def evolution_decide(self, session_id: str, idea_id: str, decision: str) -> dict[str, Any]:
         """你对采纳单里某条建议的决定：do（做这条）/ skip（不做）。
@@ -1596,21 +1666,30 @@ class RoundtableService:
         if idea is None:
             raise ServiceError("采纳单的前几名里没有这条建议（或例会还没开完）", 404)
         decisions = load_decisions(self.rt.repo.setting(DECISIONS_KEY))
-        decisions[decision_key(session_id, idea_id)] = {
+        key = decision_key(session_id, idea_id)
+        entry = {
             "decision": decision,
             "session_id": session_id,
             "week": meeting.week,
             "idea": idea_id,
             "text": idea["text"],
             "at": self._local_now().isoformat(timespec="seconds"),
+            **({"job": decisions[key]["job"]} if decisions.get(key, {}).get("job") else {}),
         }
+        decisions[key] = entry
         self.rt.repo.set_setting(DECISIONS_KEY, json.dumps(decisions, ensure_ascii=False))
         todo = None
         if self.rt.evolution_dir is not None:
             self.rt.evolution_dir.mkdir(parents=True, exist_ok=True)
             todo = self.rt.evolution_dir / TODO_FILE
             todo.write_text(todo_markdown(decisions), encoding="utf-8")
-        return {"idea": idea_id, "decision": decision, "todo": str(todo) if todo else None}
+        started = decision == "do" and self._start_dev(key, entry)
+        return {
+            "idea": idea_id,
+            "decision": decision,
+            "todo": str(todo) if todo else None,
+            "dev_started": started,
+        }
 
     def evolution_tick(self, now: datetime | None = None) -> dict[str, Any]:
         """自动部分：开完的例会导出采纳单；到了本周开会时间、本周还没开过就开一场。"""

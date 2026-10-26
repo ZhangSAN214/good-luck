@@ -106,6 +106,7 @@ const evolution = new Evolution($('#evolvedlg'), {
     exportList: API.evolutionExport,
     scout: API.evolutionScout,
     decide: API.evolutionDecide,
+    merge: API.evolutionMerge,
   },
   openSession: async (sid) => {
     setEntry('work');

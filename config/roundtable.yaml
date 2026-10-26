@@ -766,3 +766,10 @@ evolution:
     domains: [github.com, arxiv.org, openreview.net, aclanthology.org, huggingface.co]
     results_per_query: 5
     cards: 3
+  # 「做这条」之后交给开发侧：在数据目录 evolution/工作区/ 的专用副本里叫起开发侧命令行（默认 Claude Code），
+  # 按 docs/evolution/开发任务模板.md 实现、测试、开 PR 到 base_branch。从不自动合并：网页上点「合并」才合并。
+  # 需要本机装好并登录 claude 和 gh。默认关闭。
+  implement:
+    enabled: false
+    base_branch: ccr-86975127-sv4cvy
+    timeout_minutes: 120

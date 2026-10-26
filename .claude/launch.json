@@ -1,0 +1,12 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "rt-demo",
+      "runtimeExecutable": "E:\good-luck\.venv\Scripts\python.exe",
+      "runtimeArgs": ["-m", "uvicorn", "roundtable.api.app:app", "--host", "127.0.0.1", "--port", "8001", "--app-dir", "E:\rt-evolve\src"],
+      "port": 8001,
+      "env": {"PYTHONPATH": "E:\rt-evolve\src", "ROUNDTABLE_DB_PATH": "C:\Users\ASUS\AppData\Local\Temp\claude\E--good-luck\861640ed-ca58-46fb-b28d-7f1073a94a58\scratchpad\demo\roundtable.db"}
+    }
+  ]
+}

@@ -327,6 +327,10 @@ def create_app(service: RoundtableService | None = None) -> FastAPI:
     ) -> dict[str, Any]:
         return svc(request).evolution_decide(session_id, idea_id, body.decision)
 
+    @app.post("/api/evolution/meetings/{session_id}/ideas/{idea_id}/merge")
+    async def evolution_merge(request: Request, session_id: str, idea_id: str) -> dict[str, Any]:
+        return await svc(request).evolution_merge(session_id, idea_id)
+
     @app.get("/api/apartment")
     async def apartment(request: Request, hour: int, weekday: int) -> dict[str, Any]:
         return svc(request).apartment(hour, weekday)

@@ -826,6 +826,37 @@ class EvolutionScoutRules(_Strict):
         return out
 
 
+class EvolutionImplementRules(_Strict):
+    """「做这条」之后交给开发侧（docs/evolution/README.md）：在数据目录的专用工作副本里叫起开发侧
+    命令行实现、开 PR；从不自动合并，用户在网页上点「合并」才合并。默认关闭。"""
+
+    enabled: bool = False
+    # 开发侧命令（任务说明从标准输入给）；第一个词找不到时也查用户安装位置
+    agent: list[str] = Field(
+        default_factory=lambda: [
+            "claude",
+            "-p",
+            "--permission-mode",
+            "acceptEdits",
+            "--allowedTools",
+            "Bash,Read,Edit,Write,Glob,Grep",
+        ]
+    )
+    gh: list[str] = Field(default_factory=lambda: ["gh"])  # 合并 PR 用
+    base_branch: str = Field(default="main", min_length=1)  # PR 合到哪个分支
+    merge_method: Literal["merge", "squash", "rebase"] = "merge"
+    brief: str = "docs/evolution/开发任务模板.md"  # 任务说明模板（相对项目根目录）
+    workspace_dir: str = "工作区"  # 数据目录 evolution/ 下的专用工作副本
+    timeout_minutes: int = Field(default=120, ge=5, le=600)
+
+    @field_validator("workspace_dir")
+    @classmethod
+    def _plain(cls, name: str) -> str:
+        if not name.strip() or any(c in name for c in "/\\:") or name.strip(".") == "":
+            raise ValueError(f"只能是一个文件夹名（不含路径）：{name!r}")
+        return name
+
+
 class EvolutionRules(_Strict):
     """革新例会（docs/evolution/README.md）：成员读同一叠资料卡，复用头脑风暴提建议、匿名互评、投票，
     导出采纳单。默认关闭；花费有每场和每月硬上限（也计入总预算）。"""
@@ -848,6 +879,7 @@ class EvolutionRules(_Strict):
     tick_minutes: int = Field(default=30, ge=5, le=360)  # 服务开着时多久检查一次
     used_dir: str = "已用"  # 开过会的资料卡移到这里（按周分文件夹），下周不会再读
     scout: EvolutionScoutRules = EvolutionScoutRules()
+    implement: EvolutionImplementRules = EvolutionImplementRules()
 
     @field_validator("inbox_dir", "adopted_dir", "used_dir")
     @classmethod

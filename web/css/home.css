@@ -212,6 +212,8 @@
 .ev-ideas li{display:flex;flex-wrap:wrap;gap:2px 10px;align-items:baseline}
 .ev-ideas li > span:first-child{flex:1 1 260px}
 .ev-decided{color:var(--brass-ink)}
+.ev-job{color:var(--muted)}
+.ev-act a{color:var(--brass-ink)}
 .fd-add{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}
 .fd-add input{flex:1 1 140px;min-width:0}
 .gc-tag .link,.gc-sys .link{border:0;background:none;color:var(--brass-ink);padding:0;text-decoration:underline;text-underline-offset:2px}
