@@ -55,3 +55,17 @@ def test_skin_toggle_switches_and_is_remembered(serve, page):
     page.reload()
     page.wait_for_selector("#skin")
     assert page.evaluate("document.documentElement.dataset.skin") == "classic"
+
+
+def test_hub_background_can_be_switched_and_is_remembered(serve, page):
+    srv = serve(confirm_threshold_usd=100.0)
+    page.add_init_script(LAND_HUB)
+    page.goto(srv.url)
+    page.wait_for_selector("#hub .hb-hero")
+    assert page.get_attribute("#hub", "data-bgkey") == "default"
+    page.click("#hub [data-act='bg']")
+    page.click("#hub .hb-bgpick [data-bg='night']")
+    assert page.get_attribute("#hub", "data-bgkey") == "night"
+    page.reload()
+    page.wait_for_selector("#hub .hb-hero")
+    assert page.get_attribute("#hub", "data-bgkey") == "night"
