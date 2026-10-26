@@ -36,6 +36,7 @@ import { Feeds } from './feeds.js';
 import { Moments } from './moments.js';
 import { BootSettings } from './bootcfg.js';
 import { Hub } from './hub.js';
+import { Music } from './music.js';
 import { Evolution } from './evolution.js';
 
 const $ = (q) => document.querySelector(q);
@@ -161,6 +162,7 @@ const home = new Apartment($('#home'), {
   momentsOf: (id) => moments.open(id),
 });
 const hub = new Hub($('#hub'), {
+  music: new Music(),
   sessions: API.listSessions,
   rooms: API.getChatRooms,
   status: () => S.status,

@@ -1,0 +1,59 @@
+/* ---------- 终端首页的背景音乐（music.js）：顶栏一颗小胶囊，点开是一块液态玻璃面板 ----------
+   跟首页同一套：墨蓝有色玻璃、无光晕、大圆角、极细线性图标。变量来自 ark.css 的 .hub。 */
+.mu{position:relative;display:flex}
+.mu-btn{display:flex;align-items:center;gap:6px;max-width:220px;border:0;border-radius:999px;padding:5px 14px;background:var(--hb-glass);box-shadow:var(--hb-edge);color:#eceff3;font:inherit;font-size:13px;cursor:pointer}
+.mu.on .mu-btn{background:var(--hb-ink)}
+.mu-label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mu-i{width:16px;height:16px;flex:none;stroke:currentColor;fill:none;stroke-width:1.25;stroke-linecap:round;stroke-linejoin:round}
+.mu-btn:focus-visible,.mu-ib:focus-visible,.mu-name:focus-visible,.mu input:focus-visible{outline:2px solid rgba(160,185,230,.85);outline-offset:3px}
+
+/* 正在放：三根细柱轻轻起伏（「减少动态」时静止） */
+.mu-eq{display:inline-flex;align-items:flex-end;gap:2px;width:14px;height:12px;flex:none}
+.mu-eq i{flex:1;background:currentColor;border-radius:1px;height:40%;animation:mu-eq 1s ease-in-out infinite}
+.mu-eq i:nth-child(2){animation-delay:-.35s}
+.mu-eq i:nth-child(3){animation-delay:-.7s}
+@keyframes mu-eq{0%,100%{height:30%}50%{height:100%}}
+
+.mu-panel{position:absolute;right:0;top:calc(100% + 10px);z-index:5;width:340px;max-width:calc(100vw - 32px);border-radius:24px;padding:16px 18px;display:flex;flex-direction:column;gap:10px;background:rgba(18,22,32,.78);color:#eceff3;text-align:left;font-variant-numeric:tabular-nums}
+.mu-title{font-family:var(--hb-serif);font-weight:400;font-size:18px;letter-spacing:.06em}
+.mu-now{font-family:var(--hb-serif);font-size:15px;line-height:1.4;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mu-prog{display:flex;align-items:center;gap:10px}
+.mu-time{font-size:12px;color:var(--hb-muted);white-space:nowrap}
+.mu-ctl{display:flex;align-items:center;gap:6px}
+.mu-mode{margin-left:auto;font-size:12px;color:var(--hb-muted)}
+.mu-ib{display:grid;place-items:center;width:32px;height:32px;flex:none;border:0;border-radius:999px;background:none;color:#eceff3;cursor:pointer}
+.mu-ib:hover:not(:disabled){background:rgba(255,255,255,.08)}
+.mu-ib:disabled{opacity:.35;cursor:default}
+.mu-ib .mu-i{width:18px;height:18px}
+.mu-play{width:42px;height:42px;background:var(--hb-ink);box-shadow:inset 0 .5px 0 rgba(255,255,255,.12)}
+.mu-play:hover:not(:disabled){background:var(--hb-ink-hi)}
+.mu-vol{display:flex;align-items:center;gap:10px;font-size:12px;color:var(--hb-muted)}
+.mu-vol span{width:2.2em;text-align:right}
+
+/* 细滑条：墨蓝轨道，小圆点 */
+.mu input[type=range]{flex:1;min-width:0;height:18px;margin:0;background:none;-webkit-appearance:none;appearance:none;cursor:pointer}
+.mu input[type=range]::-webkit-slider-runnable-track{height:3px;border-radius:999px;background:rgba(255,255,255,.16)}
+.mu input[type=range]::-moz-range-track{height:3px;border-radius:999px;background:rgba(255,255,255,.16)}
+.mu input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:12px;height:12px;margin-top:-4.5px;border-radius:50%;background:#dfe6f2;border:0}
+.mu input[type=range]::-moz-range-thumb{width:12px;height:12px;border-radius:50%;background:#dfe6f2;border:0}
+.mu input[type=range]:disabled{opacity:.4;cursor:default}
+
+.mu-list{list-style:none;margin:0;padding:0;max-height:220px;overflow:auto;display:flex;flex-direction:column;gap:2px}
+.mu-row{display:flex;align-items:center;gap:2px;border-radius:14px}
+.mu-row.cur{background:var(--hb-ink)}
+.mu-row .mu-ib{width:28px;height:28px}
+.mu-row .mu-ib .mu-i{width:15px;height:15px}
+.mu-name{flex:1;min-width:0;display:flex;align-items:center;gap:10px;border:0;background:none;color:#eceff3;font:inherit;font-size:13px;text-align:left;padding:6px 10px;border-radius:14px;cursor:pointer}
+.mu-name span:last-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mu-no{width:14px;flex:none;text-align:center;font-size:12px;color:var(--hb-muted)}
+.mu-acts{display:flex;align-items:center;gap:10px}
+.mu-count{font-size:12px;color:var(--hb-muted)}
+.mu-keep{display:flex;gap:6px;align-items:center;font-size:13px;cursor:pointer}
+
+/* 窄屏：面板铺满顶栏宽度，不从左边溢出 */
+@media (max-width:860px){
+  .mu{position:static}
+  .mu-btn{max-width:140px}
+  .mu-panel{left:0;right:0;width:auto;max-width:none;top:calc(100% + 8px)}
+}
+@media (prefers-reduced-motion: reduce){.mu-eq i{animation:none;height:70%}}

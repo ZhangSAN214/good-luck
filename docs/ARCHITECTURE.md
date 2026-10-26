@@ -246,7 +246,7 @@ src/roundtable/
   cli.py         命令行试用（`roundtable` 命令，见 docs/CLI.md）
   plaintext.py   命令行显示用：LaTeX 数学式转纯文本、去掉 Markdown 加粗符号（不改动存储的原文）
   api/           FastAPI 应用、路由、SSE
-web/             index.html、css/（app.css、agent.css 小人、ideas.css 头脑风暴结果页）、js/（api.js 通信、view.js 渲染、ideas.js 头脑风暴结果页、app.js 状态与交互、agent/ 网页小人、boot.js 开机动画、bootcfg.js 片头设置）、boot/（开机动画页：dawn.html「晨会协议」片头（原创）、gmu.html 早上好联合访问授权（改编自 MIT 开源项目）、assets/ 徽记与二维码库；音效与朗读由 boot.js 统一负责；出处见 boot/CREDITS.md）
+web/             index.html、css/（app.css、agent.css 小人、ideas.css 头脑风暴结果页）、js/（api.js 通信、view.js 渲染、ideas.js 头脑风暴结果页、app.js 状态与交互、hub.js 终端首页、music.js 终端背景音乐（用户自选音频只存本机浏览器 IndexedDB，不经服务器）、agent/ 网页小人、boot.js 开机动画、bootcfg.js 片头设置）、boot/（开机动画页：dawn.html「晨会协议」片头（原创）、gmu.html 早上好联合访问授权（改编自 MIT 开源项目）、assets/ 徽记与二维码库；音效与朗读由 boot.js 统一负责；出处见 boot/CREDITS.md）
 tests/
 docs/            REQUIREMENTS_v3.md  PLAN.md  CLI.md  OFFICE.md（办公室模式）  EVOLUTION.md（自我学习革新：候选池与更新日志）  evolution/（革新例会说明、周报与资料卡模板、每周周报）  mockup.html
 scripts/         evolve_review.py（革新 PR 的可选复审，没有 key 时跳过）  check_models.py（核对 OpenRouter 渠道的模型 ID 与价格；带 vision / image_edit 标签的模型还核对远端 input_modalities 含 image）  lock_prompts.py（登记提示词版本）
