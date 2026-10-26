@@ -57,6 +57,7 @@ def test_apartment_resident_can_be_mentioned_in_chat(serve, page):
     srv = serve(confirm_threshold_usd=100.0)
     page.goto(srv.url + "/#m=home")
     # 夜里住户睡在床上（SVG），点被子；白天点人
+    page.emulate_media(reduced_motion="reduce")  # 白天住户一直在走动（wander），不停下就点不中
     page.locator("#home .tenant:not(.sleeper), #home .sleeper rect").first.click()
     page.click("#resident-card [data-chat]")
     page.wait_for_selector("#gchat:not([hidden])")
@@ -96,6 +97,7 @@ def test_rooms_dm_and_unread_badge(serve, page):
 def test_apartment_resident_dm(serve, page):
     srv = serve(confirm_threshold_usd=100.0)
     page.goto(srv.url + "/#m=home")
+    page.emulate_media(reduced_motion="reduce")  # 白天住户一直在走动（wander），不停下就点不中
     page.locator("#home .tenant:not(.sleeper), #home .sleeper rect").first.click()
     page.click("#resident-card [data-dm]")
     page.wait_for_selector("#gchat:not([hidden])")
