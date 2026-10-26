@@ -140,7 +140,7 @@
 ### 2.7 分层
 - `core/`：纯业务逻辑，**禁止 import fastapi / starlette / uvicorn / streamlit**（测试守卫）。
 - `api/`：FastAPI 路由 + SSE，只调用 `core/service.py`（启动时用 `core/runtime.py` 组装；有测试检查导入）。
-- **服务 facade**（`core/service.py`，`RoundtableService`）：返回值都是可 JSON 化的 dict；匿名会话揭晓前全部匿名。`create(question, tier=, models=, coordinator=, anonymous=False, workflow="discussion")`；揭晓只用于匿名会话。提交题目后立即返回会话 id，讨论在后台任务中执行；意外错误把会话标为 `paused`（可 `resume`）。揭晓只允许在讨论结束（完成 / 停止 / 失败）后。
+- **服务 facade**（`core/service.py`，`RoundtableService`）：返回值都是可 JSON 化的 dict；匿名会话揭晓前全部匿名。`create(question, tier=, models=, coordinator=, anonymous=False, workflow="discussion")`；揭晓只用于匿名会话。提交题目后立即返回会话 id，讨论在后台任务中执行；意外错误把会话标为 `paused`（可 `resume`）。**开机对账**（`reconcile()`，2026-10-26 借鉴 dsh-eteams）：服务启动、接受请求前把上次进程退出时仍为 `running` 的会话（进程被杀或关掉时来不及改状态）统一改成 `paused`，错误说明写"服务上次意外退出……可以点「继续」"，网页点「继续」走现有的 `resume`，已完成的步骤不重复；等待确认、已结束的会话不动。只在正式启动时调用（测试传入服务时不调用）。揭晓只允许在讨论结束（完成 / 停止 / 失败）后。
 - **HTTP 接口**：`GET /api/status`、`GET /api/budget`、`GET /api/contributions`、`POST /api/estimate`（提交前预估：各模式 × 各档位 / 自选的上桌人数、缺席、预计与最多花费、步骤明细；不调用任何模型，答案长度只用规则判断；返回 `seed`，提交时带上它，阵容与预估一致；匿名时不含模型名单）、`POST /api/uploads?name=`（请求体是文件原始字节，返回附件 id；`POST /api/sessions` 的 `attachments` 带上这些 id）、`GET/POST /api/sessions`（`media` / `media_tier`）、`GET /api/sessions/{id}`、`GET …/files/{fid}`（下载；`?inline=1` 可内联播放 png / jpg / gif / webp 与 mp3 / wav / ogg / mp4 / webm，后者支持 Range）与 `…/files/{fid}/preview`、`POST …/respond`、`POST …/notes`（中途补充）、`POST …/resume`、`POST …/reveal`、`GET …/events`（SSE）。
 - **SSE 协议**：第一条 `snapshot`（当前状态），之后是实时事件（只含代号），每当讨论停下来（完成 / 失败 / 停止 / 等待确认 / 暂停）发一条 `state` 并关闭；前端回复确认后重新连接。
 - `web/`：静态前端（`index.html`、`css/app.css`、`js/api.js` 通信、`js/view.js` 渲染、`js/app.js` 状态与交互；ES 模块，无构建步骤），只通过 HTTP/SSE 与后端通信，由 FastAPI 挂在 `/`。
@@ -245,7 +245,7 @@ src/roundtable/
   api/           FastAPI 应用、路由、SSE
 web/             index.html、css/（app.css、agent.css 小人、ideas.css 头脑风暴结果页）、js/（api.js 通信、view.js 渲染、ideas.js 头脑风暴结果页、app.js 状态与交互、agent/ 网页小人、boot.js 开机动画、bootcfg.js 片头设置）、boot/（开机动画页：dawn.html「晨会协议」片头（原创）、gmu.html 早上好联合访问授权（改编自 MIT 开源项目）、assets/ 徽记与二维码库；音效与朗读由 boot.js 统一负责；出处见 boot/CREDITS.md）
 tests/
-docs/            REQUIREMENTS_v3.md  PLAN.md  CLI.md  OFFICE.md（办公室模式）  mockup.html
+docs/            REQUIREMENTS_v3.md  PLAN.md  CLI.md  OFFICE.md（办公室模式）  EVOLUTION.md（自我学习革新：候选池与更新日志）  evolution/（每周周报）  mockup.html
 scripts/         check_models.py（核对 OpenRouter 渠道的模型 ID 与价格；带 vision / image_edit 标签的模型还核对远端 input_modalities 含 image）  lock_prompts.py（登记提示词版本）
                  setup_sandbox.py（安装代码运行沙箱）  try_image.py（真实调用一次画图模型，核对接口格式）
 sandbox/         Dockerfile（可选的 docker 沙箱）、README.md

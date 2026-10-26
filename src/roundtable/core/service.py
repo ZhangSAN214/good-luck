@@ -59,6 +59,7 @@ log = logging.getLogger(__name__)
 # 讨论停下来（结束或等待用户）的状态：此时推送流会关闭
 RESTING = frozenset({"completed", "stopped", "failed", "awaiting_confirmation", "paused"})
 REVEALABLE = frozenset({"completed", "stopped", "failed"})
+ORPHANED_ERROR = "服务上次意外退出，做到一半中断了，可以点「继续」接着做"
 MAX_QUESTION_CHARS = 20_000
 MAX_CHAT_CHARS = 2000
 MAX_MOMENT_CHARS = 500
@@ -93,6 +94,18 @@ class RoundtableService:
         self.life = LifeEngine(runtime, self.chats, self.memory)
         self._chat_tasks: set[asyncio.Task[Any]] = set()
         self._life_task: asyncio.Task[None] | None = None
+
+    def reconcile(self) -> list[str]:
+        """开机对账：上次服务意外退出（或被关掉）时还在跑的讨论，数据库里会一直留着「进行中」。
+
+        启动时把它们改成「已暂停」，界面上点「继续」就用 resume 从中断处接着做
+        （已完成的步骤不重复）。
+        只在正式启动的服务里、开始接受请求前调用一次。
+        """
+        ids = self.rt.repo.pause_orphaned(ORPHANED_ERROR)
+        if ids:
+            log.info("开机对账：%d 场讨论在上次退出时中断，已改为暂停", len(ids))
+        return ids
 
     def start_life(self) -> None:
         """后台推进成员的生活（只在正式启动的服务里调用；测试直接调 life_tick）。"""

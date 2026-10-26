@@ -156,6 +156,7 @@ def create_app(service: RoundtableService | None = None) -> FastAPI:
         from roundtable.core.runtime import Runtime
 
         app.state.service = RoundtableService(Runtime.build())
+        app.state.service.reconcile()
         app.state.service.start_life()
         try:
             yield
