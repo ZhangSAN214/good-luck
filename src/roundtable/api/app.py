@@ -156,6 +156,7 @@ def create_app(service: RoundtableService | None = None) -> FastAPI:
         from roundtable.core.runtime import Runtime
 
         app.state.service = RoundtableService(Runtime.build())
+        app.state.service.reconcile()
         app.state.service.start_life()
         app.state.service.start_evolution()
         try:
@@ -311,6 +312,10 @@ def create_app(service: RoundtableService | None = None) -> FastAPI:
     @app.get("/api/apartment")
     async def apartment(request: Request, hour: int, weekday: int) -> dict[str, Any]:
         return svc(request).apartment(hour, weekday)
+
+    @app.get("/api/plugins/board")
+    async def plugin_board(request: Request) -> dict[str, Any]:
+        return svc(request).plugin_board()
 
     @app.get("/api/models/candidates")
     async def model_candidates(request: Request) -> dict[str, Any]:

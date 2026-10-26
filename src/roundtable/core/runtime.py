@@ -15,6 +15,7 @@ from roundtable.core.budget import BudgetGuard
 from roundtable.core.catalog import Fetch, ModelCatalog
 from roundtable.core.config import AppConfig, load_config
 from roundtable.core.config.loader import DEFAULT_CONFIG_DIR
+from roundtable.core.plugin_board import BOARD_FILE
 from roundtable.core.prompts import PromptLibrary
 from roundtable.core.providers import ChannelRouter, KeyRing, Provider, build_providers
 from roundtable.core.search import SearchService
@@ -57,6 +58,8 @@ class Runtime:
     catalog: ModelCatalog | None = None
     # 革新例会的资料卡收件箱与采纳单所在目录（数据库旁边的 evolution/）；为空表示不可用
     evolution_dir: Path | None = None
+    # 插件榜数据文件（自我学习革新调研过的插件，只读展示）；测试中可换成临时文件
+    plugin_board: Path = DEFAULT_CONFIG_DIR / BOARD_FILE
 
     @classmethod
     def build(

@@ -93,6 +93,7 @@ export const evolutionExport = (sid) => api(`/api/evolution/meetings/${encodeURI
 export const chatHandoff = (text) => api('/api/chat/handoff', { method: 'POST', body: { text } });
 export const getApartment = (hour, weekday) => api(`/api/apartment?hour=${hour}&weekday=${weekday}`);
 export const getCandidates = () => api('/api/models/candidates');
+export const getPluginBoard = () => api('/api/plugins/board');
 export const refreshCandidates = () => api('/api/models/candidates/refresh', { method: 'POST' });
 export const getPayslip = (id) => api(`/api/sessions/${id}/payslip`);
 export const getSession = (id) => api(`/api/sessions/${id}`);
