@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.web.conftest import wait_until
+
 
 def open_chat(srv, page):
     page.goto(srv.url + "/#m=chat")
@@ -240,6 +242,7 @@ def test_moments_dialog_post_like_comment(serve, page):
     page.click("#moments [data-pick]")
     page.click("#moments [data-author='V2']")
     page.wait_for_selector("#moments .vh:has-text('阿二')")
-    assert "周末去爬山" not in page.inner_text("#moments .mo-wrap")
+    # 标题先换，列表随后才按作者重新拉：等列表换好再判断
+    wait_until(lambda: "周末去爬山" not in page.inner_text("#moments .mo-wrap"))
     page.click("#moments [data-close]")
     assert page.locator("#gc-moments .gc-unread").count() == 0
