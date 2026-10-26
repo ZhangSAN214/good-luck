@@ -31,17 +31,20 @@ from roundtable.core.evolution import (
     DECISIONS,
     DECISIONS_KEY,
     MEETINGS_KEY,
+    NEXT_THEME_KEY,
     TODO_FILE,
     Meeting,
     adoptable,
     adoption_markdown,
     adoption_path,
+    choose_theme,
     decision_key,
     dump_meetings,
     load_cards,
     load_decisions,
     load_meetings,
     meeting_question,
+    plan_meeting,
     todo_markdown,
     week_key,
     week_slot,
@@ -1400,7 +1403,7 @@ class RoundtableService:
         week = week_key(now)
         if now < week_slot(now, rules.schedule.weekday, rules.schedule.hour):
             return None
-        if self._minor_met(week):
+        if self._slot_met(week):
             return None
         if self.rt.repo.setting(SCOUT_WEEK_KEY) == week:
             return None
@@ -1461,7 +1464,7 @@ class RoundtableService:
             "cards": [c.public() for c in cards],
             "notes": notes,
             "week": week,
-            "met_this_week": self._minor_met(week),
+            "met_this_week": self._slot_met(week),
             "meeting_usd": rules.meeting_usd,
             "monthly_usd": rules.monthly_usd,
             "month_spent_usd": self._evolution_spent(meetings),
@@ -1470,6 +1473,8 @@ class RoundtableService:
             },
             "themes": rules.major_themes,
             "theme_chars": rules.theme_chars,
+            "next": self.evolution_plan(),  # 下一场：自动判断开哪种、为什么、主题
+            "next_theme": self._next_theme(),  # 你定的下次大版本主题（没定 = 轮换）
             "plugins": {
                 "enabled": rules.plugins.enabled,
                 "count": rules.plugins.count,
@@ -1489,22 +1494,61 @@ class RoundtableService:
         rules = self.rt.config.roundtable.evolution
         return rules.major_top if kind == "major" else rules.minor_top
 
-    def _minor_met(self, week: str) -> bool:
-        """本周开过小版本没有（每周自动开的是小版本；大版本你随时手动开，不占这个名额）。"""
-        return any(m.week == week and m.kind == "minor" for m in self._meetings())
+    def _slot_met(self, week: str) -> bool:
+        """本周的例会开过没有：按自动判断开的会（不管大小版本）和小版本都算；
+        你手动改成大版本另开的一场不占每周的名额。"""
+        return any(
+            m.week == week and (m.kind == "minor" or (m.reason is not None and not m.override))
+            for m in self._meetings()
+        )
+
+    def _next_theme(self) -> str | None:
+        return (self.rt.repo.setting(NEXT_THEME_KEY) or "").strip() or None
+
+    def _plan(self, now: datetime | None = None, meetings: Sequence[Meeting] | None = None):
+        rules = self.rt.config.roundtable.evolution
+        return plan_meeting(
+            (now or self._local_now()).astimezone(),
+            self._meetings() if meetings is None else meetings,
+            gap_days=rules.major_gap_days,
+            themes=rules.major_themes,
+            user_theme=self._next_theme(),
+        )
+
+    def evolution_plan(self) -> dict[str, Any]:
+        """下一场自动判断的结果：开哪种、为什么、大版本的主题（你定的还是轮换的）。"""
+        plan = self._plan()
+        rules = self.rt.config.roundtable.evolution
+        major_theme, _ = choose_theme(rules.major_themes, self._meetings(), self._next_theme())
+        return {
+            **asdict(plan),
+            "label": MEETING_KINDS[plan.kind],
+            "top": self._top(plan.kind),
+            "major_theme": major_theme,  # 手动改成大版本时会用的主题
+        }
+
+    def evolution_set_theme(self, theme: str | None) -> dict[str, Any]:
+        """定下一次大版本的主题（空 = 交给自动轮换）。开完那场大版本后自动清掉。"""
+        theme = (theme or "").strip()
+        limit = self.rt.config.roundtable.evolution.theme_chars
+        if len(theme) > limit:
+            raise ServiceError(f"主题太长了，最多 {limit} 字")
+        self.rt.repo.set_setting(NEXT_THEME_KEY, theme)
+        return self.evolution_plan()
 
     def evolution_meet(
         self,
         *,
         auto: bool = False,
         now: datetime | None = None,
-        kind: str = "minor",
+        kind: str | None = None,
         theme: str | None = None,
     ) -> dict[str, Any]:
         """开一场革新例会：资料卡作为附件（全员同一份），走头脑风暴，所选档位全员上桌。
 
-        kind：minor 小版本（主题不限，列前 minor_top 名）/
-        major 大版本（必须给主题，列前 major_top 名）。
+        kind 不给 = 按时间自动判断（evolution.plan_kind）；给了且和自动判断不同 = 你手动改的。
+        minor 小版本主题不限，列前 minor_top 名；major 大版本围绕主题，列前 major_top 名，
+        主题依次取：这次给的 → 你定的下次主题 → 现成主题轮换。
 
         开会前预估花费（不调用模型）：超过每场上限，或本月已花 + 本场预计超过每月上限，就不开。
         """
@@ -1515,22 +1559,30 @@ class RoundtableService:
             )
         if rules.plan not in self.rt.config.routing.plans:
             raise ServiceError(f"evolution.plan 不是已有的档位：{rules.plan!r}")
-        if kind not in MEETING_KINDS:
+        if kind is not None and kind not in MEETING_KINDS:
             raise ServiceError(f"例会类型只能是 {'、'.join(MEETING_KINDS)}：{kind!r}")
+        now = (now or self._local_now()).astimezone()
+        meetings = self._meetings()
+        plan = self._plan(now, meetings)
+        override = kind is not None and kind != plan.kind
+        kind = kind or plan.kind
+        reason = f"你手动改成了{MEETING_KINDS[kind]}" if override else plan.reason
         theme = (theme or "").strip() or None
-        if kind == "major" and theme is None:
-            raise ServiceError("大版本要先定一个主题（例如「群聊更自然」）")
+        from_setting = False
         if kind == "minor":
             theme = None  # 小版本主题不限
+        elif theme is None:
+            theme, source = choose_theme(rules.major_themes, meetings, self._next_theme())
+            from_setting = source == "user"
+        if kind == "major" and theme is None:
+            raise ServiceError("大版本要先定一个主题（例如「群聊更自然」）")
         if theme and len(theme) > rules.theme_chars:
             raise ServiceError(f"主题太长了，最多 {rules.theme_chars} 字")
         inbox, _ = self._evolution_dirs()
         if inbox is None:
             raise ServiceError("没有数据目录，读不到资料卡", 409)
-        now = (now or self._local_now()).astimezone()
         week = week_key(now)
-        meetings = self._meetings()
-        if auto and self._minor_met(week):
+        if auto and self._slot_met(week):
             raise ServiceError(f"{week} 已经开过革新例会", 409)
         cards, notes = load_cards(inbox, max_cards=rules.max_cards, card_chars=rules.card_chars)
         if not cards:
@@ -1579,15 +1631,28 @@ class RoundtableService:
             attachments=attachments,
         )
         meetings.append(
-            Meeting(sid, week, now.isoformat(timespec="seconds"), auto, kind=kind, theme=theme)
+            Meeting(
+                sid,
+                week,
+                now.isoformat(timespec="seconds"),
+                auto,
+                kind=kind,
+                theme=theme,
+                reason=reason,
+                override=override,
+            )
         )
         self._save_meetings(meetings)
+        if from_setting:
+            self.rt.repo.set_setting(NEXT_THEME_KEY, "")  # 你定的主题用过了，下次回到轮换
         self._archive_cards(inbox, [c.file for c in cards], week)
         return {
             "session_id": sid,
             "week": week,
             "kind": kind,
             "theme": theme,
+            "reason": reason,
+            "override": override,
             "estimate_usd": cost,
             "cards": [c.public() for c in cards],
             "notes": notes,
@@ -1871,7 +1936,7 @@ class RoundtableService:
                     out["exported"].append(self.evolution_export(m.session_id)["file"])
         now = (now or self._local_now()).astimezone()
         week = week_key(now)
-        if now < week_slot(now, rules.schedule.weekday, rules.schedule.hour) or self._minor_met(
+        if now < week_slot(now, rules.schedule.weekday, rules.schedule.hour) or self._slot_met(
             week
         ):
             return out

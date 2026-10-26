@@ -12,10 +12,13 @@ from roundtable.core.evolution import (
     Meeting,
     adoption_markdown,
     adoption_path,
+    choose_theme,
     dump_meetings,
     load_cards,
     load_meetings,
     meeting_question,
+    plan_kind,
+    plan_meeting,
     week_key,
     week_slot,
 )
@@ -135,3 +138,75 @@ def test_repo_config_defaults():
     rules = cfg.roundtable.evolution
     assert not rules.enabled and rules.meeting_usd <= 0.40 and rules.monthly_usd <= 1.5
     assert rules.plan in cfg.routing.plans and rules.topic.strip()
+
+
+# --- 自动判断大 / 小版本 ------------------------------------------------------------
+
+
+def _m(started: str, kind: str = "minor", theme: str | None = None) -> Meeting:
+    return Meeting("s", "2026-W01", started, kind=kind, theme=theme)
+
+
+NOV_2 = datetime(2026, 11, 2, 9, 30, tzinfo=UTC)  # 11 月第一个周一
+
+
+def test_first_meeting_ever_is_major():
+    assert plan_kind(NOV_2, [], gap_days=21)[0] == "major"
+    assert plan_kind(NOV_2, [_m("2026-10-26T09:00:00+00:00")], gap_days=21)[0] == "major"
+
+
+def test_first_meeting_of_month_is_major_rest_are_minor():
+    history = [_m("2026-10-05T09:00:00+00:00", "major"), _m("2026-10-26T09:00:00+00:00")]
+    kind, reason = plan_kind(NOV_2, history, gap_days=21)
+    assert kind == "major" and "11 月的第一场" in reason and "28 天" in reason
+    history.append(_m("2026-11-02T09:30:00+00:00", "major"))
+    nov_9 = datetime(2026, 11, 9, 9, 30, tzinfo=UTC)
+    kind, reason = plan_kind(nov_9, history, gap_days=21)
+    assert kind == "minor" and "本月 2 日已开过大版本" in reason
+
+
+def test_major_waits_until_gap_days_have_passed():
+    late = [_m("2026-10-26T09:00:00+00:00", "major")]  # 上个月月底刚开过大版本
+    kind, reason = plan_kind(NOV_2, late, gap_days=21)
+    assert kind == "minor" and "才 7 天" in reason
+    assert plan_kind(datetime(2026, 11, 16, 9, tzinfo=UTC), late, gap_days=21)[0] == "major"
+
+
+def test_plan_handles_naive_and_aware_times_and_bad_records():
+    history = [_m("2026-11-01T09:00:00", "major"), _m("坏数据", "major")]
+    assert plan_kind(NOV_2, history, gap_days=21)[0] == "minor"
+    naive = datetime(2026, 11, 2, 9, 30)
+    assert plan_kind(naive, [_m("2026-11-01T09:00:00+00:00", "major")], gap_days=21)[0] == "minor"
+
+
+def test_theme_user_first_then_least_recently_used():
+    themes = ["群聊更自然", "更省钱更快", "界面更好懂"]
+    assert choose_theme(themes, [], "  我自己的主题 ") == ("我自己的主题", "user")
+    assert choose_theme(themes, [], None) == ("群聊更自然", "auto")
+    used = [_m("2026-09-01T09:00:00", "major", "群聊更自然")]
+    assert choose_theme(themes, used, "") == ("更省钱更快", "auto")
+    used += [
+        _m("2026-10-01T09:00:00", "major", "更省钱更快"),
+        _m("2026-10-02T09:00:00", "major", "界面更好懂"),
+    ]
+    assert choose_theme(themes, used)[0] == "群聊更自然"  # 都用过：轮回最久没用的
+    assert choose_theme([], used) == (None, None)
+
+
+def test_plan_meeting_falls_back_to_minor_without_any_theme():
+    plan = plan_meeting(NOV_2, [], gap_days=21, themes=[])
+    assert plan.kind == "minor" and "还没有主题" in plan.reason
+    plan = plan_meeting(NOV_2, [], gap_days=21, themes=[], user_theme="群聊更自然")
+    assert (plan.kind, plan.theme, plan.theme_source) == ("major", "群聊更自然", "user")
+    plan = plan_meeting(
+        NOV_2, [_m("2026-11-01T00:00:00+00:00", "major")], gap_days=21, themes=["a"]
+    )
+    assert plan.kind == "minor" and plan.theme is None
+
+
+def test_meeting_record_keeps_reason_and_override():
+    m = Meeting("s", "2026-W45", "2026-11-02T09:30:00", kind="major", theme="t", reason="r")
+    [back] = load_meetings(dump_meetings([m]))
+    assert back.reason == "r" and back.override is False
+    [old] = load_meetings('[{"session_id": "s", "week": "2026-W44"}]')  # 旧记录没有这两项
+    assert old.reason is None and old.override is False
