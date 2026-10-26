@@ -47,8 +47,11 @@ export class Moments {
   }
 
   async load(keep = false) {
+    // 切换作者时，之前发出的请求可能后回来：只认最后一次，免得标题是新作者、列表还是旧的
+    const seq = (this.seq = (this.seq || 0) + 1);
     try {
       const d = await this.api.list(this.author, null);
+      if (seq !== this.seq) return;
       this.rows = d.moments || [];
       this.members = d.members || [];
       this.more = this.rows.length >= 20;
