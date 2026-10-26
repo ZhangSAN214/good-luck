@@ -20,16 +20,19 @@
   color-scheme:dark;
 }
 
-/* 背景：和首页同一张（默认图不在仓库里就落到夜景）；自定义图片由首页写进 --rt-bg-img */
-[data-skin="ark"] body{background:#05070c;color:var(--ink)}
-[data-skin="ark"] body::before{content:"";position:fixed;inset:0;z-index:-2;background-color:#070a12;background-position:center;background-size:cover;
-  background-image:var(--rt-bg-img,url("../img/ark/default_bg.jpg")),url("../img/ark/hub_night.jpg")}
-[data-skin="ark"][data-rtbg="night"] body::before{background-image:url("../img/ark/hub_night.jpg")}
-[data-skin="ark"][data-rtbg="day"] body::before{background-image:url("../img/ark/hub_day.jpg")}
-[data-skin="ark"] body::after{content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;background:rgba(4,6,12,.5)}
-/* 首页自己有可视差的背景层，不叠这层压暗 */
-[data-skin="ark"][data-entry="hub"] body::after{background:rgba(4,6,12,.15)}
-
+/* 背景：整站一张图铺满整屏（玻璃外观的每一页、以及任何外观下的首页），顶栏和面板都直接浮在上面，不切块。
+   默认图不在仓库里就落到夜景；自定义图片由首页写进 --rt-bg-img；首页时跟着鼠标微移（--rt-bx / --rt-by）。 */
+:root:is([data-skin="ark"],[data-entry="hub"]) body{background:#05070c}
+:root:is([data-skin="ark"],[data-entry="hub"]) body::before{content:"";position:fixed;inset:-3%;z-index:-2;background-color:#070a12;background-position:center;background-size:cover;
+  background-image:var(--rt-bg-img,url("../img/ark/default_bg.jpg")),url("../img/ark/hub_night.jpg");will-change:transform}
+:root[data-rtbg="night"]:is([data-skin="ark"],[data-entry="hub"]) body::before{background-image:url("../img/ark/hub_night.jpg")}
+:root[data-rtbg="day"]:is([data-skin="ark"],[data-entry="hub"]) body::before{background-image:url("../img/ark/hub_day.jpg")}
+:root[data-entry="hub"] body::before{transform:translate3d(var(--rt-bx,0px),var(--rt-by,0px),0) scale(1.04)}
+:root:is([data-skin="ark"],[data-entry="hub"]) body::after{content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;background:rgba(4,6,12,.5)}
+/* 首页只压暗右侧放卡片的地方，左边让背景完整透出来 */
+:root[data-entry="hub"] body::after{background:linear-gradient(90deg,rgba(4,6,12,.05) 30%,rgba(4,6,12,.45) 100%),linear-gradient(180deg,rgba(4,6,12,.35),rgba(4,6,12,0) 18%)}
+[data-skin="ark"] body{color:var(--ink)}
+:root[data-entry="hub"] .top{color:#eceff3}
 /* 所有面板：液态玻璃，没有描边和光晕 */
 [data-skin="ark"] .chat,[data-skin="ark"] .panel,[data-skin="ark"] .stagecol,[data-skin="ark"] .gc-rooms,[data-skin="ark"] .gc-main,[data-skin="ark"] .gc-members,
 [data-skin="ark"] .home-side,[data-skin="ark"] dialog.viewer{background:var(--surface);backdrop-filter:var(--glass-blur);-webkit-backdrop-filter:var(--glass-blur);
@@ -43,7 +46,7 @@
 [data-skin="ark"] ::selection{background:rgba(70,100,150,.5)}
 
 /* 顶栏：安静的一条，入口是胶囊分段，选中项是暗墨蓝 */
-[data-skin="ark"] .top{border-bottom:0;padding:8px 6px}
+[data-skin="ark"] .top,:root[data-entry="hub"] .top{border-bottom:0;padding:8px 6px;position:relative;z-index:5;background:transparent}
 [data-skin="ark"] .brand h1{font-family:var(--f-display);font-weight:400;letter-spacing:.12em;color:#fff}
 [data-skin="ark"] .bt-open{color:var(--muted)}
 [data-skin="ark"] .seg{background:rgba(255,255,255,.06);border:0;border-radius:999px;padding:3px;box-shadow:var(--glass-edge)}
@@ -115,19 +118,12 @@
 
 /* ---------- 终端首页（两种外观共用）：背景可自定义，上面悬浮液态玻璃卡片 ----------
    规范（圆桌设计规范草稿）：无光晕、墨蓝有色玻璃、优雅衬线、大圆角、悬浮式、极细线性图标。 */
-.hub{position:relative;flex:1;min-height:0;overflow:hidden;isolation:isolate;color:#eceff3;border-radius:20px;perspective:1400px;
+.hub{position:relative;flex:1;min-height:0;overflow:hidden;isolation:isolate;color:#eceff3;
   --hb-glass:rgba(255,255,255,.055); --hb-edge:inset 0 .5px 0 rgba(255,255,255,.14);
   --hb-ink:rgba(24,44,78,.82); --hb-ink-hi:rgba(32,58,100,.88); --hb-num:rgba(70,92,128,.78);
   --hb-muted:rgba(236,239,243,.62); --hb-badge:#7d3631;
   --hb-serif:"Noto Serif SC","Songti SC","STSong",serif;
   --hb-sx:30%; --hb-sy:-20%}
-/* 背景：自定义图片写在内联样式里；预设由 data-bgkey 选（默认图不在仓库里，缺了就落到夜景） */
-.hb-bg{position:absolute;inset:-4%;z-index:-2;background-color:#070a12;background-position:center;background-size:cover;background-repeat:no-repeat;will-change:transform;
-  background-image:url("../img/ark/default_bg.jpg"),url("../img/ark/hub_night.jpg")}
-.hub[data-bgkey="night"] .hb-bg{background-image:url("../img/ark/hub_night.jpg")}
-.hub[data-bgkey="day"] .hb-bg{background-image:url("../img/ark/hub_day.jpg")}
-.hb-shade{position:absolute;inset:0;z-index:-1;pointer-events:none;
-  background:linear-gradient(90deg,rgba(4,6,12,0) 30%,rgba(4,6,12,.45) 100%),linear-gradient(180deg,rgba(4,6,12,.3),rgba(4,6,12,0) 22%,rgba(4,6,12,.35))}
 
 .hb-glass{position:relative;background:var(--hb-glass);backdrop-filter:blur(22px) saturate(1.1);-webkit-backdrop-filter:blur(22px) saturate(1.1);
   box-shadow:var(--hb-edge),0 24px 50px -30px rgba(0,0,0,.7);overflow:hidden}
@@ -147,8 +143,8 @@
 .hb-hint{margin:0;font-size:12px;color:var(--hb-muted);line-height:1.6}
 .hb-err{display:block;color:#e4a59b}
 
-.hb-col{position:absolute;right:28px;top:64px;bottom:24px;width:min(500px,44%);z-index:2;display:flex;flex-direction:column;gap:22px;transform-style:preserve-3d}
-.hb-layer{will-change:transform;transform-style:preserve-3d}
+.hb-col{position:absolute;right:28px;top:64px;bottom:24px;width:min(500px,44%);z-index:2;display:flex;flex-direction:column;gap:22px}
+.hb-layer{will-change:transform}
 .hb-row2{display:grid;grid-template-columns:1fr 1fr;gap:18px}
 .hb-row3{display:grid;grid-template-columns:repeat(3,1fr);gap:18px}
 .hb-t{border:0;color:#eceff3;font:inherit;text-align:left;cursor:pointer;border-radius:24px;padding:16px 18px;display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:2px 14px;min-width:0}
@@ -180,4 +176,38 @@
   .hb-row3{grid-template-columns:1fr 1fr}
   .hb-voice{position:relative;left:auto;bottom:auto;max-width:none;margin:0 16px 16px}
 }
-@media (prefers-reduced-motion: reduce){.hb-layer,.hb-bg{transform:none!important}}
+@media (prefers-reduced-motion: reduce){.hb-layer,body::before{transform:none!important}}
+
+/* ---------- 过渡：仿 iPhone 打开 App（不回弹），系统开了「减少动态」时全部关掉 ---------- */
+/* 从首页卡片进入：卡片放大成整页（视图过渡，名字 rt-zoom 由 app.js 临时挂上） */
+::view-transition-group(rt-zoom){animation-duration:.42s;animation-timing-function:cubic-bezier(.2,.8,.2,1)}
+::view-transition-old(rt-zoom),::view-transition-new(rt-zoom){animation-duration:.32s;animation-timing-function:cubic-bezier(.2,.8,.2,1);height:100%;object-fit:cover}
+/* 其他切换：旧页轻轻推远淡出，新页从略小处浮上来 */
+::view-transition-old(root){animation:rt-out .28s cubic-bezier(.4,0,1,1) both}
+::view-transition-new(root){animation:rt-in .38s cubic-bezier(.2,.8,.2,1) both}
+@keyframes rt-out{to{opacity:0;transform:scale(1.03)}}
+@keyframes rt-in{from{opacity:0;transform:scale(.97)}}
+/* 首页卡片依次浮上来 */
+.hub.hb-enter .hb-layer,.hub.hb-enter .hb-voice{animation:rt-rise .55s cubic-bezier(.2,.8,.2,1) both}
+.hub.hb-enter .hb-layer:nth-child(2){animation-delay:.05s}
+.hub.hb-enter .hb-layer:nth-child(3){animation-delay:.1s}
+.hub.hb-enter .hb-voice{animation-delay:.15s}
+@keyframes rt-rise{from{opacity:0;translate:0 14px;scale:.98}to{opacity:1;translate:0 0;scale:1}}
+/* 弹窗打开：从中间略小处放大淡入 */
+dialog[open]{animation:rt-dlg .32s cubic-bezier(.2,.8,.2,1) both}
+dialog[open]::backdrop{animation:rt-fade .32s ease both}
+@keyframes rt-dlg{from{opacity:0;transform:scale(.96)}}
+@keyframes rt-fade{from{opacity:0}}
+@media (prefers-reduced-motion: reduce){
+  ::view-transition-group(*),::view-transition-old(*),::view-transition-new(*){animation:none!important}
+  .hub.hb-enter .hb-layer,.hub.hb-enter .hb-voice,dialog[open],dialog[open]::backdrop{animation:none!important}
+}
+
+/* ---------- 朋友圈：左边成员名单和右边动态各占一栏，名单不再压在动态上 ---------- */
+.mo-wrap{display:grid;grid-template-columns:140px minmax(0,1fr);gap:16px 20px;align-items:start}
+.mo-wrap .pp-members{grid-row:auto;position:sticky;top:0;align-self:start;max-height:100%;overflow:auto}
+.mo-main{min-width:0;display:flex;flex-direction:column;gap:8px}
+@media (max-width:640px){
+  .mo-wrap{grid-template-columns:1fr}
+  .mo-wrap .pp-members{position:static;flex-direction:row;overflow-x:auto}
+}

@@ -115,22 +115,22 @@ const gchat = new GroupChat($('#gchat'), {
   openMoments: (author) => moments.open(author),
   api: { get: API.getChat, post: API.postChat, clear: API.clearChat, rooms: API.getChatRooms, handoff: API.chatHandoff },
   openSession: async (sid) => {
-    setEntry('work');
+    await setEntry('work');
     await open(sid);
   },
 });
 const home = new Apartment($('#home'), {
   api: API.getApartment,
   openSession: async (sid) => {
-    setEntry('work');
+    await setEntry('work');
     await open(sid);
   },
-  chatWith: (name) => {
-    setEntry('chat');
+  chatWith: async (name) => {
+    await setEntry('chat');
     gchat.mentionInGroup(name);
   },
-  dmWith: (id) => {
-    setEntry('chat');
+  dmWith: async (id) => {
+    await setEntry('chat');
     gchat.openRoom(`dm:${id}`);
   },
   momentsOf: (id) => moments.open(id),
@@ -139,10 +139,10 @@ const hub = new Hub($('#hub'), {
   sessions: API.listSessions,
   rooms: API.getChatRooms,
   status: () => S.status,
-  go: (m) => setEntry(m),
+  go: (m, from) => setEntry(m, from),
   openPeople: () => people.open(),
-  openHistory: () => {
-    setEntry('work');
+  openHistory: async () => {
+    await setEntry('work');
     $('#tabs button[data-t="history"]').click();
   },
 });
@@ -909,8 +909,34 @@ function landing() {
 }
 
 /** 切换入口。终端是首页；办公室是原来的界面；公寓楼是只读的像素剖面图；群聊和成员聊天。地址栏 #m=hub / #m=home / #m=chat 刷新后回到原入口。 */
-function setEntry(m) {
+const VIEW_OF = { work: '#main', home: '#home', chat: '#gchat', hub: '#hub' };
+
+/**
+ * 切换入口，带过渡：浏览器支持视图过渡时，从首页卡片点进去会像 iPhone 打开 App 那样从卡片放大成整页，
+ * 其他切换是轻微缩放淡入；不支持或系统开了「减少动态」时直接切换。from 是被点的卡片（可选）。
+ * 返回的 Promise 在页面真正切过去后完成，接着要操作新页面的调用方先 await 它。
+ */
+function setEntry(m, from = null) {
   if (!ENTRIES.includes(m)) m = 'work';
+  const still = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (!document.startViewTransition || still || m === entry || !document.documentElement.dataset.entry) {
+    applyEntry(m);
+    return Promise.resolve();
+  }
+  if (from) from.style.viewTransitionName = 'rt-zoom';
+  const dest = $(VIEW_OF[m]);
+  const t = document.startViewTransition(() => {
+    if (from) from.style.viewTransitionName = '';
+    applyEntry(m);
+    if (from && dest) dest.style.viewTransitionName = 'rt-zoom';
+  });
+  t.finished.finally(() => {
+    if (dest) dest.style.viewTransitionName = '';
+  });
+  return t.updateCallbackDone.catch(() => {});
+}
+
+function applyEntry(m) {
   entry = m;
   for (const b of document.querySelectorAll('#entries button')) b.setAttribute('aria-pressed', String(b.dataset.m === m));
   $('#main').hidden = m !== 'work';

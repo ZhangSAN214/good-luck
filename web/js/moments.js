@@ -96,11 +96,13 @@ export class Moments {
       <div class="vh"><b>朋友圈${this.author ? ` · ${esc(this.author === 'user' ? '我' : this.nameOf(this.author))}` : ''}</b><button type="button" class="btn" data-close>关闭</button></div>
       <div class="vb mo-wrap">
         <nav class="pp-members" aria-label="看谁的朋友圈">${tabs}</nav>
+        <div class="mo-main">
         <form id="mo-new" class="pp-row"><textarea name="text" rows="2" maxlength="500" placeholder="发一条动态（成员会来评论）" aria-label="发动态"></textarea><button class="btn primary" type="submit">发表</button></form>
         <p class="hint">成员每天最多发一条，写的是公寓楼里当天真实发生的事；点赞不花钱，评论计入每天的生活花费上限。</p>
         ${this.rows.length ? this.rows.map((m) => this.item(m)).join('') : '<p class="hint">还没有动态。</p>'}
         ${this.more ? '<button type="button" class="btn" data-more>更早的</button>' : ''}
         <p class="hint pp-msg" role="status">${esc(this.msg)}</p>
+        </div>
       </div>`;
   }
 

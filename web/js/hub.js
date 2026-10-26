@@ -113,6 +113,11 @@ export class Hub {
       this.pointer = { x: ((e.clientX - r.left) / r.width) * 2 - 1, y: ((e.clientY - r.top) / r.height) * 2 - 1 };
     });
     root.addEventListener('pointerleave', () => (this.pointer = { x: 0, y: 0 }));
+    // 点背景面板以外的地方就收起，免得它一直盖着卡片
+    document.addEventListener('pointerdown', (e) => {
+      const pick = this.root.querySelector('.hb-bgpick:not([hidden])');
+      if (pick && !pick.contains(e.target) && !e.target.closest('[data-act="bg"]')) this.togglePicker(false, false);
+    });
     root.addEventListener('keydown', (e) => {
       if (e.key === 'Escape' && this.root.querySelector('.hb-bgpick:not([hidden])')) this.togglePicker(false);
     });
@@ -130,6 +135,10 @@ export class Hub {
   async show() {
     this.root.hidden = false;
     this.render();
+    // 卡片依次浮上来（只在进入首页时播一次，每分钟的刷新不重播）
+    this.root.classList.add('hb-enter');
+    clearTimeout(this.enterTimer);
+    this.enterTimer = setTimeout(() => this.root.classList.remove('hb-enter'), 900);
     this.animate();
     await this.load();
     clearInterval(this.timer);
@@ -138,6 +147,8 @@ export class Hub {
 
   hide() {
     this.root.hidden = true;
+    document.documentElement.style.removeProperty('--rt-bx');
+    document.documentElement.style.removeProperty('--rt-by');
     clearInterval(this.timer);
     this.timer = null;
     cancelAnimationFrame(this.raf);
@@ -181,8 +192,6 @@ export class Hub {
     ).join('');
     this.root.dataset.bgkey = bg.key;
     this.root.innerHTML = `
-      <div class="hb-bg" aria-hidden="true"${bg.data ? ` style="background-image:url('${esc(bg.data)}')"` : ''}></div>
-      <div class="hb-shade" aria-hidden="true"></div>
       <div class="hb-top">
         <span class="hb-date">${t.getFullYear()}.${pad(t.getMonth() + 1)}.${pad(t.getDate())} 周${WEEK[t.getDay()]} ${pad(t.getHours())}:${pad(t.getMinutes())}</span>
         ${month ? `<span class="hb-res" title="本月已用 / 本月上限">本月已用 $${Number(month.spent_usd).toFixed(2)} / $${Number(month.limit_usd).toFixed(0)}</span>` : ''}
@@ -235,12 +244,14 @@ export class Hub {
       this.follow.y += (this.pointer.y - this.follow.y) * k;
       const { x, y } = this.follow;
       const s = now / 1000;
-      const bgEl = this.root.querySelector('.hb-bg');
-      if (bgEl) bgEl.style.transform = `translate3d(${(-x * 14).toFixed(2)}px,${(-y * 9 + Math.sin(s * 0.15) * 3).toFixed(2)}px,0) scale(1.04)`;
+      // 背景就是整站那一张（body::before），只在首页时跟着微移，画面不被切开
+      const doc = document.documentElement.style;
+      doc.setProperty('--rt-bx', `${(-x * 14).toFixed(2)}px`);
+      doc.setProperty('--rt-by', `${(-y * 9 + Math.sin(s * 0.15) * 3).toFixed(2)}px`);
       this.root.querySelectorAll('.hb-layer').forEach((el, i) => {
         const d = Number(el.dataset.depth) || 1;
         const breathe = Math.sin(s * 0.9 + i * 0.8) * 2.2 * d;
-        el.style.transform = `translate3d(${(x * 10 * d).toFixed(2)}px,${(y * 7 * d + breathe).toFixed(2)}px,0) rotateX(${(-y * 1.8 * d).toFixed(2)}deg) rotateY(${(x * 2.4 * d).toFixed(2)}deg)`;
+        el.style.transform = `perspective(1400px) translate3d(${(x * 10 * d).toFixed(2)}px,${(y * 7 * d + breathe).toFixed(2)}px,0) rotateX(${(-y * 1.8 * d).toFixed(2)}deg) rotateY(${(x * 2.4 * d).toFixed(2)}deg)`;
       });
       this.root.style.setProperty('--hb-sx', `${(50 + x * 40 + Math.sin(s * 0.25) * 18).toFixed(1)}%`);
       this.root.style.setProperty('--hb-sy', `${(-20 + y * 30 + Math.cos(s * 0.2) * 12).toFixed(1)}%`);
@@ -249,14 +260,14 @@ export class Hub {
     this.raf = requestAnimationFrame(step);
   }
 
-  togglePicker(open) {
+  togglePicker(open, refocus = true) {
     const pick = this.root.querySelector('.hb-bgpick');
     const btn = this.root.querySelector('[data-act="bg"]');
     if (!pick) return;
     pick.hidden = !open;
     btn?.setAttribute('aria-expanded', String(open));
     if (open) pick.querySelector('.hb-chip')?.focus();
-    else btn?.focus();
+    else if (refocus) btn?.focus();
   }
 
   setBackground(key, data = null) {
@@ -291,7 +302,7 @@ export class Hub {
 
   onClick(e) {
     const go = e.target.closest('[data-go]');
-    if (go) return this.go(go.dataset.go);
+    if (go) return this.go(go.dataset.go, go);
     const preset = e.target.closest('[data-bg]');
     if (preset) return this.setBackground(preset.dataset.bg);
     const act = e.target.closest('[data-act]');
