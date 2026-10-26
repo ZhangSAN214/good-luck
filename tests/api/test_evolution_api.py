@@ -32,3 +32,20 @@ def test_meet_and_export_over_http(tmp_path):
         assert r.status_code == 200 and r.json()["file"].endswith(".md")
         assert leaks(env, r.text) == []
         assert c.post("/api/evolution/meetings/nope/export").status_code == 404
+
+
+def test_major_meeting_and_plugins_over_http(tmp_path):
+    env, svc = make(tmp_path)
+    with TestClient(create_app(svc)) as c:
+        r = c.post("/api/evolution/meetings", json={"kind": "major"})
+        assert r.status_code == 400 and "主题" in r.json()["detail"]
+        assert c.post("/api/evolution/meetings", json={"kind": "x"}).status_code == 422
+        r = c.post("/api/evolution/meetings", json={"kind": "major", "theme": "群聊更自然"})
+        assert r.status_code == 202 and r.json()["kind"] == "major"
+        sid = r.json()["session_id"]
+        assert sse_events(c, sid)[-1]["status"] == "completed"
+        info = c.get("/api/evolution").json()
+        assert info["kinds"]["major"]["top"] == 10 and info["kinds"]["minor"]["top"] == 3
+        assert info["meetings"][0]["theme"] == "群聊更自然" and info["themes"] == []
+        r = c.post("/api/evolution/meetings/nope/plugins")
+        assert r.status_code == 404

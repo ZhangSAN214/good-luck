@@ -71,6 +71,15 @@ class DecisionBody(BaseModel):
     decision: str = Field(pattern="^(do|skip)$")
 
 
+class MeetBody(BaseModel):
+    """革新例会：开哪种会（minor 小版本，主题不限 / major 大版本，要给主题）。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: str = Field(default="minor", pattern="^(minor|major)$")
+    theme: str | None = None
+
+
 class Note(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -334,12 +343,17 @@ def create_app(service: RoundtableService | None = None) -> FastAPI:
         return svc(request).evolution()
 
     @app.post("/api/evolution/meetings", status_code=202)
-    async def evolution_meet(request: Request) -> dict[str, Any]:
-        return svc(request).evolution_meet()
+    async def evolution_meet(request: Request, body: MeetBody | None = None) -> dict[str, Any]:
+        body = body or MeetBody()
+        return svc(request).evolution_meet(kind=body.kind, theme=body.theme)
 
     @app.post("/api/evolution/meetings/{session_id}/export")
     async def evolution_export(request: Request, session_id: str) -> dict[str, Any]:
         return svc(request).evolution_export(session_id)
+
+    @app.post("/api/evolution/meetings/{session_id}/plugins")
+    async def evolution_plugins(request: Request, session_id: str) -> dict[str, Any]:
+        return await svc(request).evolution_plugins(session_id)
 
     @app.post("/api/evolution/scout")
     async def evolution_scout(request: Request) -> dict[str, Any]:

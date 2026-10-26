@@ -19,6 +19,7 @@ from roundtable.core.ideaboard import Board, Ranked, to_markdown
 MEETINGS_KEY = "evolution.meetings"  # app_settings：开过的例会（会话 id、周、是否已导出）
 CARD_SUFFIXES = (".md", ".txt")
 KEEP_MEETINGS = 60
+KINDS = {"minor": "小版本", "major": "大版本"}
 # 碰撞杂交里「挑刺 / 反转」得到的点子，作为原点子的反对意见列出
 OBJECTION_KINDS = frozenset({"fix", "flip"})
 
@@ -49,6 +50,8 @@ class Meeting:
     started_at: str  # ISO 时间
     auto: bool = False
     adopted: str | None = None  # 导出的采纳单文件名
+    kind: str = "minor"  # minor 小版本（主题不限）/ major 大版本（你定的主题）
+    theme: str | None = None  # 大版本的主题
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> Meeting:
@@ -58,6 +61,8 @@ class Meeting:
             str(d.get("started_at", "")),
             bool(d.get("auto", False)),
             d.get("adopted"),
+            d["kind"] if d.get("kind") in KINDS else "minor",
+            d.get("theme"),
         )
 
 
@@ -125,9 +130,21 @@ def load_cards(
     return cards, notes
 
 
-def meeting_question(topic: str, cards: Sequence[SourceCard]) -> str:
-    """例会的题目：配置里的话题 + 资料卡清单（卡的正文作为附件，全员同一份）。"""
-    lines = [topic.strip(), ""]
+def meeting_question(
+    topic: str, cards: Sequence[SourceCard], *, kind: str = "minor", theme: str | None = None
+) -> str:
+    """例会的题目：配置里的话题 + 本场类型（大版本带你定的主题）+ 资料卡清单。
+
+    卡的正文作为附件，全员同一份；题目对所有成员也完全相同。
+    """
+    if kind == "major":
+        scope = (
+            f"本场是大版本更新，用户定的主题是：「{(theme or '').strip()}」。"
+            "所有建议都围绕这个主题，可以是较大的改动，但要说清分几步做。"
+        )
+    else:
+        scope = "本场是小版本更新，主题不限，自由发挥；挑小而实用、一周内能做完的改进。"
+    lines = [topic.strip(), "", scope, ""]
     lines += [f"- 资料卡 {n}：{c.title}（附件 {c.file}）" for n, c in enumerate(cards, 1)]
     return "\n".join(lines).strip()
 
@@ -221,6 +238,8 @@ def adoption_markdown(
     top: int,
     cost_usd: float,
     created_at: str,
+    kind: str = "minor",
+    theme: str | None = None,
 ) -> str:
     """采纳单：前 top 名建议（得分、票数、提出者代号、反对意见）+ 黑马 + 完整点子榜。
 
@@ -232,6 +251,7 @@ def adoption_markdown(
         f"# 革新例会采纳单 · {week}",
         "",
         f"- 例会：会话 `{session_id}`，{created_at}，花费 ${cost_usd:.4f}",
+        f"- 类型：{KINDS.get(kind, kind)}" + (f"，主题「{theme}」" if theme else "（主题不限）"),
         "- 成员匿名投票（不能投自己，看到的顺序随机），排名由代码按 总分 → 票数 计算。",
         "- 这份单子只是建议：开发侧从中挑一条不碰护栏的实现并开 PR，合并由用户决定；"
         "碰护栏（R9 以后、默认玩法、新依赖、预算）的只转给用户拍板。",

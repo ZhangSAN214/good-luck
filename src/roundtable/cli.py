@@ -1327,8 +1327,18 @@ class CLI:
             self.p(f"  {name:<28} {sessions[model]} 场  " + "，".join(parts))
         return 0
 
-    async def cmd_evolve(self, action: str, session_id: str | None) -> int:
-        """革新例会：status 看概况；meet 开一场、等它开完并导出采纳单；export 导出某场的采纳单。"""
+    async def _evolve_plugins(self, svc: RoundtableService, session_id: str) -> None:
+        out = await svc.evolution_plugins(session_id)
+        where = f"，保存为 插件清单/{out['file']}" if out["file"] else ""
+        self.p(f"插件清单：{len(out['plugins'])} 个，花费 ${out['cost_usd']:.4f}{where}")
+        for n, p in enumerate(out["plugins"], 1):
+            self.p(f"  {n}. [{p['scene']}] {p['name']}：{p['what']}")
+
+    async def cmd_evolve(
+        self, action: str, session_id: str | None, major: bool = False, theme: str | None = None
+    ) -> int:
+        """革新例会：status 看概况；meet 开一场、等它开完、写插件清单并导出采纳单；
+        export 导出某场的采纳单；plugins 给某场写插件清单。"""
         svc = RoundtableService(self.rt)
         try:
             if action == "scout":
@@ -1343,12 +1353,13 @@ class CLI:
                     self.p(f"  没写：{r['url']}（{r['reason']}）")
                 return 0
             if action == "meet":
-                started = svc.evolution_meet()
+                started = svc.evolution_meet(kind="major" if major else "minor", theme=theme)
                 session_id = started["session_id"]
                 for note in started["notes"]:
                     self.p(f"  提示：{note}")
+                label = f"大版本「{started['theme']}」" if major else "小版本（主题不限）"
                 self.p(
-                    f"革新例会 {started['week']} 开始：{len(started['cards'])} 张资料卡，"
+                    f"革新例会 {started['week']} {label} 开始：{len(started['cards'])} 张资料卡，"
                     f"预计 ${started['estimate_usd']:.4f}（会话 {session_id}）"
                 )
                 await svc.wait(session_id)
@@ -1359,7 +1370,18 @@ class CLI:
                         f"开完后 roundtable evolve export {session_id} 导出采纳单。"
                     )
                     return 1
+                if self.rt.config.roundtable.evolution.plugins.enabled:
+                    try:
+                        await self._evolve_plugins(svc, session_id)
+                    except ServiceError as exc:
+                        self.p(f"插件清单没有写成：{exc}")
                 action = "export"
+            if action == "plugins":
+                if not session_id:
+                    self.p("请给出例会的会话 id：roundtable evolve plugins <id>")
+                    return 2
+                await self._evolve_plugins(svc, session_id)
+                return 0
             if action == "export":
                 if not session_id:
                     self.p("请给出例会的会话 id：roundtable evolve export <id>")
@@ -1548,9 +1570,16 @@ def build_parser() -> argparse.ArgumentParser:
     perf.add_argument("--reset", action="store_true", help="清零：之后只统计从现在起的会话")
     evolve = sub.add_parser("evolve", help="革新例会：成员读资料卡提建议、投票，导出采纳单")
     evolve.add_argument(
-        "action", nargs="?", default="status", choices=["status", "scout", "meet", "export"]
+        "action",
+        nargs="?",
+        default="status",
+        choices=["status", "scout", "meet", "export", "plugins"],
     )
-    evolve.add_argument("session_id", nargs="?", help="export 时：例会的会话 id")
+    evolve.add_argument("session_id", nargs="?", help="export / plugins 时：例会的会话 id")
+    evolve.add_argument(
+        "--major", action="store_true", help="meet 时开大版本（要配 --theme，列前 10 个选项）"
+    )
+    evolve.add_argument("--theme", help="大版本的主题，例如 '群聊更自然'")
     history = sub.add_parser("history", help="最近的讨论")
     history.add_argument("--limit", type=int, default=20)
     note = sub.add_parser("note", help="讨论进行中补充意见（下一个步骤开始时带上）")
@@ -1656,7 +1685,7 @@ async def run(
         if args.command == "performance":
             return cli.cmd_performance(args.reset)
         if args.command == "evolve":
-            return await cli.cmd_evolve(args.action, args.session_id)
+            return await cli.cmd_evolve(args.action, args.session_id, args.major, args.theme)
         if args.command == "note":
             return cli.cmd_note(args.session_id, args.text)
         if args.command == "history":
