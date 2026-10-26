@@ -24,6 +24,7 @@ from roundtable.core.browse import REFRESH_KEY, feeds_of, set_feeds
 from roundtable.core.budget.guard import month_window
 from roundtable.core.chat import ROOM, WORK, ChatHub, chat_budget
 from roundtable.core.chat_work import WORK_EVENTS, post_handoff, post_office_event
+from roundtable.core.config.loader import ConfigError
 from roundtable.core.life import LifeEngine
 from roundtable.core.media import KIND_LABELS, KINDS, MediaService
 from roundtable.core.members_art import MEMBERS_FILE, load_members, mime_of, resolve_file
@@ -35,6 +36,7 @@ from roundtable.core.office import collect as collect_performance
 from roundtable.core.office import reset as reset_performance
 from roundtable.core.orchestrator import Orchestrator, OrchestratorError, RunResult
 from roundtable.core.persona import is_empty, persona_of, set_persona
+from roundtable.core.plugin_board import board_view, load_board
 from roundtable.core.preview import render_preview
 from roundtable.core.routing import (
     AUTO,
@@ -59,6 +61,7 @@ log = logging.getLogger(__name__)
 # 讨论停下来（结束或等待用户）的状态：此时推送流会关闭
 RESTING = frozenset({"completed", "stopped", "failed", "awaiting_confirmation", "paused"})
 REVEALABLE = frozenset({"completed", "stopped", "failed"})
+ORPHANED_ERROR = "服务上次意外退出，做到一半中断了，可以点「继续」接着做"
 MAX_QUESTION_CHARS = 20_000
 MAX_CHAT_CHARS = 2000
 MAX_MOMENT_CHARS = 500
@@ -93,6 +96,18 @@ class RoundtableService:
         self.life = LifeEngine(runtime, self.chats, self.memory)
         self._chat_tasks: set[asyncio.Task[Any]] = set()
         self._life_task: asyncio.Task[None] | None = None
+
+    def reconcile(self) -> list[str]:
+        """开机对账：上次服务意外退出（或被关掉）时还在跑的讨论，数据库里会一直留着「进行中」。
+
+        启动时把它们改成「已暂停」，界面上点「继续」就用 resume 从中断处接着做
+        （已完成的步骤不重复）。
+        只在正式启动的服务里、开始接受请求前调用一次。
+        """
+        ids = self.rt.repo.pause_orphaned(ORPHANED_ERROR)
+        if ids:
+            log.info("开机对账：%d 场讨论在上次退出时中断，已改为暂停", len(ids))
+        return ids
 
     def start_life(self) -> None:
         """后台推进成员的生活（只在正式启动的服务里调用；测试直接调 life_tick）。"""
@@ -287,6 +302,16 @@ class RoundtableService:
             },
             "total_usd": self.rt.repo.total_spent(),
         }
+
+    # --- 插件榜 ------------------------------------------------------------------
+
+    def plugin_board(self) -> dict[str, Any]:
+        """自我学习革新调研过的插件 / 项目榜单（只读；每次重新读 config/plugin_board.yaml）。"""
+        try:
+            board = load_board(self.rt.plugin_board)
+        except ConfigError as exc:
+            raise ServiceError(str(exc), 500) from None
+        return board_view(board)
 
     # --- 办公室：名册与工资单 ------------------------------------------------------
 

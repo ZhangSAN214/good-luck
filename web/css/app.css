@@ -407,3 +407,12 @@ table.mdt th{background:var(--bg-soft,rgba(127,127,127,.12));font-weight:600}
 .fixes h3 small{font-family:var(--f-body);font-size:12px;color:var(--muted)}
 .fixes ul{margin:2px 0;padding-left:18px}
 .fixes .note{margin-top:6px;font-size:12px;color:var(--muted)}
+/* 插件榜（自我学习革新调研过的插件，只读） */
+#board-filter{flex-wrap:wrap;background:rgba(255,255,255,.04);border-color:var(--inner-line)}
+#board-filter button{color:var(--inner-muted)}
+#board-filter button[aria-pressed="true"]{color:var(--inner-ink);background:rgba(255,255,255,.12)}
+.board{list-style:none;padding:0;margin:8px 0}
+.board li{padding:8px 0;border-top:1px solid var(--inner-line)}
+.board a{color:inherit;text-decoration:underline;text-decoration-color:var(--inner-muted);text-underline-offset:2px}
+.board li:first-child{border-top:0}
+.board p{margin:4px 0}
