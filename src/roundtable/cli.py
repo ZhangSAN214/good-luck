@@ -1203,7 +1203,7 @@ class CLI:
             for m in modes:
                 for o in options:
                     if o.workflow == m.workflow and o.plan == m.tier and o.estimate:
-                        totals[m.label] += o.estimate.total_usd
+                        totals[m.label] += o.estimate.total_usd * m.samples
         self.p("预估花费：" + "；".join(f"{k} ${v:.4f}" for k, v in totals.items()))
 
     def _bench_report(self, batch: str, output: str | None) -> int:
@@ -1331,6 +1331,17 @@ class CLI:
         """革新例会：status 看概况；meet 开一场、等它开完并导出采纳单；export 导出某场的采纳单。"""
         svc = RoundtableService(self.rt)
         try:
+            if action == "scout":
+                found = await svc.evolution_scout()
+                self.p(
+                    f"找资料：搜了 {found['searched']} 次，{found['candidates']} 个白名单网页，"
+                    f"花费 ${found['cost_usd']:.4f}"
+                )
+                for w in found["written"]:
+                    self.p(f"  写进收件箱：{w['file']}  {w['title']}（{w['url']}）")
+                for r in found["rejected"]:
+                    self.p(f"  没写：{r['url']}（{r['reason']}）")
+                return 0
             if action == "meet":
                 started = svc.evolution_meet()
                 session_id = started["session_id"]
@@ -1383,6 +1394,9 @@ class CLI:
             self.p(
                 f"  {m['week']}  {m['session_id']}  {m['status']}  ${m['cost_usd']:.4f}{adopted}"
             )
+            for n, idea in enumerate(m.get("ideas") or [], 1):
+                decided = {"do": "  【要做】", "skip": "  【不做】"}.get(idea["decision"] or "", "")
+                self.p(f"    {n}. {idea['id']} {idea['text'][:60]}（{idea['score']} 分）{decided}")
         return 0
 
     def cmd_performance(self, do_reset: bool) -> int:
@@ -1518,7 +1532,8 @@ def build_parser() -> argparse.ArgumentParser:
     bench.add_argument(
         "--modes",
         default="solo:budget,discussion:budget,collab:budget",
-        help="模式:档位，逗号分隔，如 solo:budget,collab:flagship；办公室模式写 office:budget",
+        help="模式:档位，逗号分隔，如 solo:budget,collab:flagship；办公室模式写 office:budget；"
+        "自洽投票基线写 vote:budget[:次数]（个人作答跑几次取多数，默认 5 次）",
     )
     bench.add_argument("--category", action="append", help="只跑这些类别（可重复）")
     bench.add_argument("--limit", type=int, help="只跑前 N 题")
@@ -1532,7 +1547,9 @@ def build_parser() -> argparse.ArgumentParser:
     perf = sub.add_parser("performance", help="办公室模式的员工绩效（件数、退回、通过率等）")
     perf.add_argument("--reset", action="store_true", help="清零：之后只统计从现在起的会话")
     evolve = sub.add_parser("evolve", help="革新例会：成员读资料卡提建议、投票，导出采纳单")
-    evolve.add_argument("action", nargs="?", default="status", choices=["status", "meet", "export"])
+    evolve.add_argument(
+        "action", nargs="?", default="status", choices=["status", "scout", "meet", "export"]
+    )
     evolve.add_argument("session_id", nargs="?", help="export 时：例会的会话 id")
     history = sub.add_parser("history", help="最近的讨论")
     history.add_argument("--limit", type=int, default=20)

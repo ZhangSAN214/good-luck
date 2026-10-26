@@ -798,6 +798,65 @@ class EvolutionSchedule(_Strict):
     hour: int = Field(default=9, ge=0, le=23)
 
 
+class EvolutionScoutRules(_Strict):
+    """圆桌自己找资料写卡（docs/evolution/README.md「自己找资料」）：代码按搜索词联网搜索，只留白名单
+    网站的结果；读网页正文后，一位成员写成一页资料卡，另一位成员复核（不自审），通过的才进收件箱。
+    网页内容一律当资料（标签内的指令无效）；花费计入革新例会的每月上限。"""
+
+    enabled: bool = False
+    queries: list[str] = Field(default_factory=list, max_length=12)  # 搜索词（每次都搜）
+    domains: list[str] = Field(default_factory=list, max_length=30)  # 白名单网站（含子域名）
+    results_per_query: int = Field(default=5, ge=1, le=10)
+    cards: int = Field(default=3, ge=1, le=10)  # 每次最多写几张（还受 max_cards 限制）
+    page_chars: int = Field(default=6000, ge=500, le=30000)  # 每个网页最多读多少字
+    max_tokens: int = Field(default=1200, ge=200)  # 写卡 / 复核的输出上限
+    search_estimate_usd: float = Field(default=0.01, ge=0)  # 每次搜索 / 读网页的预估花费
+    card_estimate_usd: float = Field(default=0.01, ge=0)  # 每张卡（写 + 复核）的预估花费
+    seen_keep: int = Field(default=300, ge=10, le=5000)  # 记住多少个写过的网址（不重复写）
+
+    @field_validator("domains")
+    @classmethod
+    def _bare_domains(cls, domains: list[str]) -> list[str]:
+        out = []
+        for d in domains:
+            d = d.strip().lower()
+            if not d or "/" in d or ":" in d or " " in d or "." not in d:
+                raise ValueError(f"只写域名，例如 github.com：{d!r}")
+            out.append(d)
+        return out
+
+
+class EvolutionImplementRules(_Strict):
+    """「做这条」之后交给开发侧（docs/evolution/README.md）：在数据目录的专用工作副本里叫起开发侧
+    命令行实现、开 PR；从不自动合并，用户在网页上点「合并」才合并。默认关闭。"""
+
+    enabled: bool = False
+    # 开发侧命令（任务说明从标准输入给）；第一个词找不到时也查用户安装位置
+    agent: list[str] = Field(
+        default_factory=lambda: [
+            "claude",
+            "-p",
+            "--permission-mode",
+            "acceptEdits",
+            "--allowedTools",
+            "Bash,Read,Edit,Write,Glob,Grep",
+        ]
+    )
+    gh: list[str] = Field(default_factory=lambda: ["gh"])  # 合并 PR 用
+    base_branch: str = Field(default="main", min_length=1)  # PR 合到哪个分支
+    merge_method: Literal["merge", "squash", "rebase"] = "merge"
+    brief: str = "docs/evolution/开发任务模板.md"  # 任务说明模板（相对项目根目录）
+    workspace_dir: str = "工作区"  # 数据目录 evolution/ 下的专用工作副本
+    timeout_minutes: int = Field(default=120, ge=5, le=600)
+
+    @field_validator("workspace_dir")
+    @classmethod
+    def _plain(cls, name: str) -> str:
+        if not name.strip() or any(c in name for c in "/\\:") or name.strip(".") == "":
+            raise ValueError(f"只能是一个文件夹名（不含路径）：{name!r}")
+        return name
+
+
 class EvolutionRules(_Strict):
     """革新例会（docs/evolution/README.md）：成员读同一叠资料卡，复用头脑风暴提建议、匿名互评、投票，
     导出采纳单。默认关闭；花费有每场和每月硬上限（也计入总预算）。"""
@@ -818,8 +877,11 @@ class EvolutionRules(_Strict):
     auto: bool = True  # 开启后每周按 schedule 自动开一次（服务开着才会开）
     schedule: EvolutionSchedule = EvolutionSchedule()
     tick_minutes: int = Field(default=30, ge=5, le=360)  # 服务开着时多久检查一次
+    used_dir: str = "已用"  # 开过会的资料卡移到这里（按周分文件夹），下周不会再读
+    scout: EvolutionScoutRules = EvolutionScoutRules()
+    implement: EvolutionImplementRules = EvolutionImplementRules()
 
-    @field_validator("inbox_dir", "adopted_dir")
+    @field_validator("inbox_dir", "adopted_dir", "used_dir")
     @classmethod
     def _plain_dir(cls, name: str) -> str:
         if not name.strip() or any(c in name for c in "/\\:") or name.strip(".") == "":

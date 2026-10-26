@@ -14,6 +14,7 @@ from roundtable.core.bench import (
     judge,
     last_number,
     load_questions,
+    majority,
     parse_modes,
     summarize,
 )
@@ -176,6 +177,46 @@ def test_summarize_ignores_unfinished_and_computes_cost_per_correct():
     per = cost_per_correct(rows)
     assert per[("solo", "budget")] == pytest.approx(0.04)
     assert per[("collab", "budget")] is None
+
+
+async def test_vote_runs_solo_several_times_and_records_one_row():
+    env = Env(confirm_threshold_usd=100.0)
+    [solo] = await run(env, [q()], parse_modes("solo:budget"))
+    env2 = Env(confirm_threshold_usd=100.0)
+    [vote] = await run(env2, [q()], parse_modes("vote:budget:3"))
+    assert vote.workflow == "vote3" and vote.status == "completed" and vote.correct is True
+    assert len(env2.rt.repo.list_sessions()) == 3
+    assert vote.cost_usd == pytest.approx(solo.cost_usd * 3)
+    [row] = env2.rt.repo.bench_runs("b1")
+    assert row["workflow"] == "vote3" and row["session_id"] == vote.session_id
+
+
+async def test_vote_stops_sampling_at_max_usd():
+    env = Env(confirm_threshold_usd=100.0)
+    [vote] = await run(env, [q()], parse_modes("vote:budget:5"), max_usd=1e-9)
+    assert len(env.rt.repo.list_sessions()) == 1  # 第一次就超了，不再多跑
+    assert vote.status == "completed"
+
+
+def test_majority_counts_answers_without_looking_at_the_key():
+    num = Judge(type="number", answer=7)
+    assert majority(["是 3", "答案 7", "= 3.0", None], num) == "是 3"
+    assert majority(["甲", "乙。", " 乙"], Judge(type="exact", answer="甲")) == "乙。"
+    assert majority(["5", "6"], num) == "5"  # 并列取先出现的
+    kw = Judge(type="keywords", all=["x"])
+    assert majority(["", "第一份", "第二份"], kw) == "第一份"  # 开放题用第一份
+    assert majority([None, " "], num) is None
+
+
+def test_parse_modes_vote():
+    assert parse_modes("vote:budget, vote:flagship:3") == [
+        BenchMode("solo", "budget", 5),
+        BenchMode("solo", "flagship", 3),
+    ]
+    assert BenchMode("solo", "budget", 5).label == "vote5/budget"
+    for bad in ("vote:budget:1", "vote:budget:10", "vote:budget:x", "solo:budget:3"):
+        with pytest.raises(BenchError):
+            parse_modes(bad)
 
 
 def test_parse_modes_defaults_tier():

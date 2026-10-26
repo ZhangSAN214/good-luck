@@ -1065,6 +1065,17 @@ class Repository:
             return row["id"]
         return self.create_session(question, seed=0, anonymous=False, workflow="chat")
 
+    def scout_session(self) -> str:
+        """革新例会自己找资料的隐藏会话（workflow = 'evolution_scout'）：搜索、写卡、复核的调用
+        挂在这里，计入总预算和革新例会的每月上限；不出现在会话列表里。"""
+        question = "革新例会：自己找资料"
+        row = self._exec(
+            "SELECT id FROM sessions WHERE workflow = 'evolution_scout' LIMIT 1"
+        ).fetchone()
+        if row:
+            return row["id"]
+        return self.create_session(question, seed=0, anonymous=False, workflow="evolution_scout")
+
     def add_chat_message(
         self,
         room: str,
@@ -1658,7 +1669,7 @@ class Repository:
             " r.difficulty, r.plan,"
             " (SELECT COALESCE(SUM(cost_usd), 0) FROM calls c WHERE c.session_id = s.id) AS cost"
             " FROM sessions s LEFT JOIN routing_records r ON r.session_id = s.id"
-            " WHERE s.workflow != 'chat'"
+            " WHERE s.workflow NOT IN ('chat', 'evolution_scout')"
             " ORDER BY s.created_at DESC LIMIT ?",
             (limit,),
         ).fetchall()

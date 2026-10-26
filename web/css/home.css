@@ -248,6 +248,12 @@ dialog#moments[open]{display:flex}
 .ev-week{font-family:'IBM Plex Mono',monospace}
 .ev-act{display:flex;gap:8px;margin-left:auto}
 .ev-act .link{border:0;background:none;color:var(--brass-ink);padding:0;text-decoration:underline;text-underline-offset:2px;cursor:pointer}
+.ev-ideas{flex-basis:100%;margin:2px 0 0;padding-left:18px;display:grid;gap:4px}
+.ev-ideas li{display:flex;flex-wrap:wrap;gap:2px 10px;align-items:baseline}
+.ev-ideas li > span:first-child{flex:1 1 260px}
+.ev-decided{color:var(--brass-ink)}
+.ev-job{color:var(--muted)}
+.ev-act a{color:var(--brass-ink)}
 .gc-tag .link,.gc-sys .link{border:0;background:none;color:var(--brass-ink);padding:0;text-decoration:underline;text-underline-offset:2px}
 .gc-empty{margin:auto;text-align:center;color:var(--muted);max-width:340px}
 .gc-empty b{display:block;color:var(--ink);font-weight:500;margin-bottom:4px}

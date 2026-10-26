@@ -203,6 +203,16 @@
 - 开发侧可选的对抗式复审 `scripts/evolve_review.py`（提示词 `evolve_review/v1`）：只读云端环境变量 `EVOLVE_LLM_API_KEY` / `EVOLVE_REVIEW_MODEL`，没有就跳过。周报与资料卡模板在 `docs/evolution/`。
 - 测试：`tests/core/test_evolution.py`、`tests/core/service/test_evolution_service.py`、`tests/api/test_evolution_api.py`、`tests/cli/test_cli_evolve.py`、`tests/scripts/test_evolve_review.py`、`tests/web/test_e2e_evolution.py`。
 
+### 第一场例会之后（2026-10-27，预估 4～7 小时，实际约 2.5 小时）
+
+用户电脑上开了第一场（2026-W44，7 位成员匿名，$0.18），用户要求「每次只给结论、由我拍板」，于是：
+- **采纳单第 1 名：bench 自洽投票基线**：`--modes vote:budget[:次数]`，个人作答跑几次取多数答案判分，记为 `vote5`，花费合计，受 `--max-usd` 限制（`core/bench.py`）。
+- **圆桌自己找资料**（`evolution.scout`，`core/evolution_scout.py`）：白名单网站搜索 → 读网页 → 一位成员写卡（`evolution_card/v1`）→ 另一位复核（`evolution_check/v1`）→ 通过的进收件箱；隐藏会话 `evolution_scout` 记账，计入每月上限；自动开会前收件箱空就先找一次（每周最多一次）。`roundtable evolve scout`、`POST /api/evolution/scout`、网页「找资料」。
+- **你拍板**：网页里开完的例会下列出得票前几名，「做这条 / 不做」写进 `data/evolution/待实现.md`（`POST /api/evolution/meetings/{id}/ideas/{idea}`）；命令行概况也列出前几名与决定。
+- 开过会的卡移到 `data/evolution/已用/<周>/`，下周不再读。
+- 还没做、等用户点头：在用户电脑装 Claude Code 命令行 / gh，让「做这条」自动叫起开发侧；或建每周定时任务。
+- 测试：`tests/core/test_bench.py`、`tests/core/test_evolution_scout.py`、`tests/core/service/test_evolution_service.py`、`tests/cli/test_cli_evolve.py`、`tests/web/test_e2e_evolution.py`。
+
 ## 下一步
 
 0. 你本机试用办公室模式（单人办、开会、项目分工、预算单、绩效）、公寓楼和群聊；看看「员工」页底部的人才市场，决定要不要换人 / 改价格。合并 PR #6 / #7 / #8 需要你点头。

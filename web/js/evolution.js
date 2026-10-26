@@ -14,12 +14,49 @@ const STATUS = {
   failed: '失败了',
 };
 const DAYS = '一二三四五六日';
+const DECIDED = { do: '要做', skip: '不做' };
+const JOB = {
+  running: '开发侧在做…',
+  done: 'PR 开好了',
+  failed: '开发侧没做成',
+  timeout: '开发侧超时了',
+  interrupted: '服务重启过，没做完',
+};
+
+// 开发侧的进度：PR 链接、「合并」按钮（只有你点才合并）
+function job(m, i, off) {
+  const j = i.job;
+  if (!j) return '';
+  const pr = j.pr && /^https:\/\/github\.com\//.test(j.pr) ? `<a href="${esc(j.pr)}" target="_blank" rel="noopener">看 PR</a>` : '';
+  const merge =
+    j.status === 'done' && j.pr && !j.merged
+      ? `<button type="button" class="link" data-merge data-sid="${esc(m.session_id)}" data-idea="${esc(i.id)}"${off}>合并</button>`
+      : '';
+  const state = j.merged ? '已合并' : JOB[j.status] || j.status;
+  return `<small class="ev-job">${esc(state)}${j.error ? `（${esc(j.error)}）` : ''}</small>${pr}${merge}`;
+}
+
+// 开完的例会：得票前几名，每条可以点「做这条 / 不做」（已定的显示结果，还能改）
+function ideas(m, busy) {
+  if (!m.ideas || !m.ideas.length) return '';
+  const off = busy ? ' disabled' : '';
+  const rows = m.ideas
+    .map((i, n) => {
+      const btn = (kind, label) =>
+        `<button type="button" class="link" data-decide="${kind}" data-sid="${esc(m.session_id)}" data-idea="${esc(i.id)}"${off}>${label}</button>`;
+      const state = i.decision ? `<b class="ev-decided">${DECIDED[i.decision]}</b>` : '';
+      return `<li><span>${n + 1}. ${esc(i.text)}</span><small>${i.score} 分 · ${i.votes} 票</small>
+        <span class="ev-act">${state}${i.decision === 'do' ? '' : btn('do', '做这条')}${i.decision === 'skip' ? '' : btn('skip', '不做')}${job(m, i, off)}</span></li>`;
+    })
+    .join('');
+  return `<ol class="ev-ideas">${rows}</ol>`;
+}
 const usd = (n) => `$${Number(n || 0).toFixed(n >= 1 ? 2 : 4)}`;
 
 export class Evolution {
   constructor(dialog, { api, openSession = null } = {}) {
     this.dlg = dialog;
-    this.api = api; // {get(), meet(), exportList(sid)}
+    this.api = api; // {get(), meet(), exportList(sid), scout(), decide(sid, idea, decision), merge(sid, idea)}
     this.openSession = openSession;
     this.data = null;
     this.msg = '';
@@ -66,10 +103,16 @@ export class Evolution {
                   : m.status === 'completed'
                     ? `<button type="button" class="link" data-export="${esc(m.session_id)}">导出采纳单</button>`
                     : ''
-              }</span></li>`,
+              }</span>${ideas(m, this.busy)}</li>`,
           )
           .join('')
       : '<li class="hint">还没开过。</li>';
+    const scout = d.scout || {};
+    const scoutHint = !scout.enabled
+      ? '自己找资料没有开启（evolution.scout.enabled）。'
+      : scout.can_search
+        ? `只搜 ${esc((scout.domains || []).join('、'))}；一位成员写卡、另一位复核，通过的才放进收件箱。`
+        : '没有能用的联网搜索 / 读网页服务，暂时找不了资料。';
     this.dlg.innerHTML = `
       <div class="vh"><b>革新例会</b><button type="button" class="btn" data-close>关闭</button></div>
       <div class="vb ev">
@@ -79,9 +122,14 @@ export class Evolution {
         <h3>资料卡</h3>
         <p class="hint ev-path">${d.inbox ? `放在 ${esc(d.inbox)}` : '没有数据目录'}</p>
         <ul class="ev-list">${cards}${notes}</ul>
+        <p class="hint">${scoutHint}</p>
         <h3>最近的例会</h3>
+        <p class="hint">得票前几名下面可以点「做这条」：开发侧照着实现、开 PR，合并仍由你点；「不做」就记下不做。</p>
         <ul class="ev-list">${meetings}</ul>
-        <div class="pp-row"><button type="button" class="btn primary" data-meet${d.enabled && d.cards.length && !this.busy ? '' : ' disabled'}>现在开一场</button></div>
+        <div class="pp-row">
+          <button type="button" class="btn" data-scout${d.enabled && scout.enabled && scout.can_search && !this.busy ? '' : ' disabled'}>找资料</button>
+          <button type="button" class="btn primary" data-meet${d.enabled && d.cards.length && !this.busy ? '' : ' disabled'}>现在开一场</button>
+        </div>
         <p class="hint pp-msg" role="status">${esc(this.msg)}</p>
       </div>`;
   }
@@ -102,6 +150,32 @@ export class Evolution {
   async onClick(e) {
     const t = e.target;
     if (t.closest('[data-close]')) return this.close();
+    if (t.closest('[data-scout]')) {
+      return this.act(this.api.scout, (r) =>
+        r.written.length
+          ? `写好 ${r.written.length} 张资料卡，花费 ${usd(r.cost_usd)}`
+          : `这次没有写出资料卡（${r.rejected.length} 个网页没通过），花费 ${usd(r.cost_usd)}`,
+      );
+    }
+    const dec = t.closest('[data-decide]');
+    if (dec) {
+      const { sid, idea, decide } = dec.dataset;
+      return this.act(
+        () => this.api.decide(sid, idea, decide),
+        (r) =>
+          decide !== 'do'
+            ? `记下了：${idea} 不做`
+            : r.dev_started
+              ? `记下了：${idea} 要做，开发侧已经开始实现，做完会在这里出现 PR 链接和「合并」`
+              : `记下了：${idea} 要做，开发侧会照着实现、开 PR`,
+      );
+    }
+    const mg = t.closest('[data-merge]');
+    if (mg) {
+      const { sid, idea } = mg.dataset;
+      if (!window.confirm(`确定合并 ${idea} 的 PR 吗？合并后会进入开发分支。`)) return;
+      return this.act(() => this.api.merge(sid, idea), (r) => `已合并：${r.pr}`);
+    }
     if (t.closest('[data-meet]')) {
       return this.act(this.api.meet, (r) => `开始了：预计 ${usd(r.estimate_usd)}，开完后在这里导出采纳单`);
     }

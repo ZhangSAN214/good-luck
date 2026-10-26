@@ -114,7 +114,14 @@ $('#skin').addEventListener('click', () => {
   }
 });
 const evolution = new Evolution($('#evolvedlg'), {
-  api: { get: API.getEvolution, meet: API.evolutionMeet, exportList: API.evolutionExport },
+  api: {
+    get: API.getEvolution,
+    meet: API.evolutionMeet,
+    exportList: API.evolutionExport,
+    scout: API.evolutionScout,
+    decide: API.evolutionDecide,
+    merge: API.evolutionMerge,
+  },
   openSession: async (sid) => {
     await setEntry('work');
     await open(sid);
