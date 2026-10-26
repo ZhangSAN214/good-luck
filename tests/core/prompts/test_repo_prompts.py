@@ -136,7 +136,7 @@ ATTACHMENT_ROLES = (
 # 群聊：外部内容是聊天记录，放在 <chat> 标签里
 CHAT_ROLES = ("chat", "chat_dm", "chat_work")
 # 成员记忆：外部内容是聊天记录或旧记忆，放在 <log> / <memories> / <profile> 标签里
-MEMORY_ROLES = ("memory_day", "memory_roll", "memory_profile")
+MEMORY_ROLES = ("memory_day", "memory_roll", "memory_profile", "memory_items")
 # 生活：成员之间聊天，外部内容是场景、人设、记忆和聊天记录
 LIFE_ROLES = ("life_chat", "life_share", "moment_post", "moment_comment")
 # 开发侧脚本用的提示词（不发给圆桌成员）：材料是项目规则与改动

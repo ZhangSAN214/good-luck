@@ -249,7 +249,7 @@ class LifeEngine:
                 others=others,
                 scene=p.topic,
                 persona=persona_text(persona_of(rt, member.id)),
-                memory=member_memory(rt, member.id),
+                memory=member_memory(rt, member.id, f"{p.topic}\n{chat.history(names)}"),
                 history=chat.history(names),
             )
             completion = await call_member(

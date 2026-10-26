@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 from roundtable.core.chat import ChatHub
-from roundtable.core.moments import Moments
+from roundtable.core.moments import SKIPPED_KEY, Moments, similarity
 from roundtable.core.storage.repository import iso
 
 from .orchestrator.conftest import Env
@@ -40,7 +40,7 @@ async def test_tick_posts_from_todays_events_likes_and_comments():
     rules = env.config.roundtable.chat.moments
     assert out["posts"] == rules.posts_per_tick == 1
     (post,) = env.rt.repo.moments()
-    assert post["text"] == "今天在天台看星星，挺安静的。" and post["meta"] == {"life": True}
+    assert post["text"] == "今天在天台看星星，挺安静的。" and post["meta"]["life"] is True
     (call,) = calls(env, "想发一条朋友圈")
     assert "<scene>\n时间：星期五 18 点" in call.messages[-1].content
     assert out["comments"] <= rules.comments_per_tick
@@ -94,3 +94,75 @@ async def test_members_respond_to_user_post_and_comments():
     # 成员的评论不会触发「回应用户」
     member_c = env.rt.repo.add_moment_comment(theirs["id"], "V1", "加油")
     assert await mo.reply_to_user_comment(member_c["id"]) is None
+
+
+FAKE_POST = "今天在天台看星星，挺安静的。"
+
+
+def test_similarity_ignores_punctuation_and_catches_near_duplicates():
+    assert similarity("今天在天台看星星，挺安静的。", "今天在天台看星星挺安静的") == 1
+    near = similarity("今天在天台看星星，挺安静的。", "今晚在天台看星星，好安静啊！")
+    limit = Env().config.roundtable.chat.moments.similarity_max
+    assert near >= limit
+    assert similarity("今天在天台看星星，挺安静的。", "下午去超市买了菜，晚上做红烧肉") < limit
+    assert similarity("", "随便") == 0 and similarity("！！", "随便") == 0
+
+
+def one_awake(env: Env, mo: Moments, n: int = 1) -> list:
+    awake = sorted(mo.awake(NOW), key=lambda m: m.id)
+    assert len(awake) >= n
+    return awake[:n]
+
+
+async def test_shared_event_is_posted_once_then_others_pick_another_or_skip():
+    env = Env()
+    mo = moments(env)
+    a, b = one_awake(env, mo, 2)
+    repo = env.rt.repo
+    pair = repo.add_life_event(
+        iso(NOW - timedelta(hours=1)), "pair", [a.id, b.id], topic="地点：天台\n在场：两人"
+    )
+    first = await mo.post(a, pair, mo.recent_posts(NOW))
+    assert first["meta"] == {"life": True, "event": pair["id"]}
+    # 同一件事别人已经发过：b 没有别的事就跳过，一分钱不花
+    before = len(calls(env, "想发一条朋友圈"))
+    assert mo.event_for(b, NOW) is None
+    out = await mo.tick(NOW)
+    assert out["posts"] == 0 and len(calls(env, "想发一条朋友圈")) == before
+    # b 当天还有另一件事：改发那件
+    solo = repo.add_life_event(
+        iso(NOW - timedelta(hours=3)), "solo", [b.id], topic="地点：超市\n在场：一人"
+    )
+    assert mo.event_for(b, NOW)["id"] == solo["id"]
+
+
+async def test_text_too_similar_to_recent_post_is_dropped_and_not_retried():
+    env = Env()
+    mo = moments(env)
+    (a, b) = one_awake(env, mo, 2)
+    repo = env.rt.repo
+    repo.add_moment(b.id, FAKE_POST)  # 别人刚发过几乎一样的话
+    event = repo.add_life_event(
+        iso(NOW - timedelta(hours=1)), "solo", [a.id], topic="地点：天台\n在场：一人"
+    )
+    out = await mo.tick(NOW)
+    assert out == out | {"posts": 0, "skipped": 1}
+    assert [p["author"] for p in repo.moments()] == [b.id]
+    assert repo.setting(SKIPPED_KEY) == f'["{a.id}:{event["id"]}"]'
+    # 下次推进不再为这件事花钱
+    before = len(calls(env, "想发一条朋友圈"))
+    await mo.tick(NOW + timedelta(minutes=30))
+    assert len(calls(env, "想发一条朋友圈")) == before
+
+
+async def test_old_posts_outside_window_do_not_block():
+    env = Env()
+    mo = moments(env)
+    (a,) = one_awake(env, mo)
+    repo = env.rt.repo
+    hours = env.config.roundtable.chat.moments.dedupe_hours
+    old = iso(NOW - timedelta(hours=hours + 1))
+    repo.add_moment("user", FAKE_POST, created_at=old)
+    repo.add_life_event(iso(NOW - timedelta(hours=1)), "solo", [a.id], topic="地点：天台")
+    out = await mo.tick(NOW)
+    assert out["posts"] == 1 and out["skipped"] == 0
