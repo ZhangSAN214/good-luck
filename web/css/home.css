@@ -240,13 +240,6 @@ dialog#moments[open]{display:flex}
 .mo-empty{padding:48px 20px;text-align:center}
 .mo-older{display:block;margin:16px auto}
 .mo-wrap>.pp-msg{padding:0 20px}
-.fd-list{list-style:none;padding:0;margin:8px 0;display:grid;gap:6px}
-.fd-list li{display:flex;gap:8px;align-items:flex-start}
-.fd-name{flex:1;min-width:0;display:flex;flex-direction:column}
-.fd-name small{color:var(--muted)}
-.fd-url{overflow-wrap:anywhere}
-.fd-add{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}
-.fd-add input{flex:1 1 140px;min-width:0}
 .gc-tag .link,.gc-sys .link{border:0;background:none;color:var(--brass-ink);padding:0;text-decoration:underline;text-underline-offset:2px}
 .gc-empty{margin:auto;text-align:center;color:var(--muted);max-width:340px}
 .gc-empty b{display:block;color:var(--ink);font-weight:500;margin-bottom:4px}
@@ -273,32 +266,74 @@ dialog#moments[open]{display:flex}
 }
 
 /* 成员设定与记忆 */
-.pp{display:grid;grid-template-columns:150px minmax(0,1fr);gap:8px 16px;align-items:start}
-.pp-members{grid-row:span 3;display:flex;flex-direction:column;gap:2px;position:sticky;top:0}
-.pp-who{border:0;background:none;text-align:left;padding:6px 8px;border-radius:var(--r);color:var(--ink)}
-.pp-who:hover{background:var(--hover)}
-.pp-who.cur{background:var(--surface-2);box-shadow:inset 2px 0 0 var(--brass)}
-.pp h4{margin:0 0 4px;font-size:14px;font-weight:600}
-.pp h4 small{font-weight:400;color:var(--muted);font-size:12px;margin-left:6px}
-.pp-form{display:flex;flex-direction:column;gap:8px}
-.pp-form label{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--muted)}
-.pp-form input{height:32px;padding:0 10px;color:var(--ink)}
 .pp-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .pp-row input,.pp-row textarea{flex:1;min-width:0;padding:6px 10px}
-.pp-mem{display:flex;flex-direction:column;gap:8px;border-top:1px solid var(--line);padding-top:12px}
-.pp-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px;max-height:40vh;overflow:auto}
-.pp-list li{border:1px solid var(--line);border-radius:var(--r);padding:8px 10px;background:var(--surface-2)}
-.pp-list p{margin:4px 0 0;line-height:1.6}
+.pp-msg{margin:0;min-height:1em}
+.pp-who{border:0;background:none;color:var(--ink);font:inherit;cursor:pointer}
+
+/* 设置类弹窗（成员设定、上网）：照 iPhone「设置」的分组列表。顶栏左边返回、标题居中；内容是一组组圆角卡片，组标题和说明是小号灰字 */
+dialog.sheet{width:min(620px,94vw);height:min(880px,92vh);max-height:92vh;display:none;flex-direction:column;overflow:hidden}
+dialog.sheet[open]{display:flex}
+.sheet .vb{flex:1;max-height:none;overflow:auto;padding:12px 20px 28px}
+.viewer .vh.sheet-bar{display:grid;grid-template-columns:40px minmax(0,1fr) 40px;align-items:center;padding:8px 10px}
+.viewer .sheet-bar b{margin:0;text-align:center;font-size:16px}
+.sheet-icon{width:36px;height:36px;display:grid;place-items:center;border:0;background:none;border-radius:999px;color:var(--ink);cursor:pointer}
+.sheet-icon:hover{background:var(--hover)}
+.sheet-icon svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.4;stroke-linecap:round;stroke-linejoin:round}
+.grp{display:block;margin:0 0 24px}
+.grp-h{display:flex;gap:8px;align-items:baseline;margin:0 16px 8px;font-size:13px;font-weight:500;color:var(--muted)}
+.grp-h small{font-weight:400;font-size:12px}
+.grp-box{display:block;list-style:none;margin:0;padding:0;border-radius:14px;overflow:hidden;background:var(--grp-bg,var(--surface-2))}
+.grp-box+.grp-box{margin-top:12px}
+.grp-row{display:flex;align-items:center;gap:12px;min-height:48px;padding:6px 16px;border-top:1px solid var(--line)}
+.grp-box>.grp-row:first-child,.grp-box>li:first-child{border-top:0}
+.grp-row>span:first-child:not(.fd-name){flex:none;width:72px;color:var(--ink)}
+.grp-row input,.grp-row select{flex:1;min-width:0;height:36px;padding:0;border:0;background:none;box-shadow:none;color:var(--ink);font:inherit}
+.grp-row input:focus,.grp-row select:focus{outline:0;box-shadow:none}
+.grp-row:focus-within{background:var(--hover)}
+.grp-foot{margin:8px 16px 0;font-size:12px;line-height:1.6;color:var(--muted)}
+.grp-end{justify-content:flex-end;margin-top:12px}
+.grp-acts{display:flex;flex-direction:column}
+.grp-btn{display:block;width:100%;min-height:48px;padding:0 16px;border:0;border-top:1px solid var(--line);background:none;text-align:left;font:inherit;color:var(--mo-name,#576b95);cursor:pointer}
+.grp-btn:first-child{border-top:0}
+.grp-btn:hover{background:var(--hover)}
+.grp-btn.danger{color:var(--bad,#c0392b)}
+.grp-btn.gold{font-weight:600}
+.sheet .pp-msg{margin:0 16px;min-height:1em}
+
+/* 成员设定：顶上一排成员头像（横向滚动），点谁看谁 */
+.pp{display:block}
+.pp-strip{display:flex;gap:12px;overflow-x:auto;padding:4px 4px 16px;margin:0 0 8px;scrollbar-width:thin}
+.pp-strip .pp-who{flex:none;width:64px;display:flex;flex-direction:column;align-items:center;gap:6px;padding:4px 0;border:0;border-radius:12px;background:none;box-shadow:none;color:var(--muted);cursor:pointer}
+.pp-strip .pp-who.cur{color:var(--ink)}
+.pp-face{width:52px;height:52px;border-radius:14px;overflow:hidden;display:grid;place-items:center;background:var(--c-coord,#ccc);color:var(--ink);font-size:20px;font-weight:600;transition:box-shadow .2s}
+.pp-face>*{width:100%;height:100%;border-radius:0}
+.pp-strip .pp-who.cur .pp-face{box-shadow:0 0 0 2px var(--surface),0 0 0 4px var(--accent,var(--brass-ink))}
+.pp-nm{max-width:100%;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pp-list{max-height:none}
+.pp-list li{padding:12px 16px;border-top:1px solid var(--line)}
+.pp-list li.hint{color:var(--muted)}
+.pp-list p{margin:4px 0 0;line-height:1.6;overflow-wrap:anywhere}
 .pp-mh{display:flex;gap:8px;align-items:baseline;font-size:12px;color:var(--muted)}
 .pp-mh b{color:var(--ink);font-weight:500}
 .pp-mh .link:first-of-type{margin-left:auto}
-.pp-mh .link{border:0;background:none;color:var(--brass-ink);padding:0;text-decoration:underline;text-underline-offset:2px}
-.pp-msg{grid-column:2;margin:0;min-height:1em}
-@media (max-width: 760px){
-  .pp{grid-template-columns:1fr}
-  .pp-members{grid-row:auto;flex-direction:row;flex-wrap:wrap;position:static}
-  .pp-msg{grid-column:1}
-}
+.pp-mh .link{border:0;background:none;color:var(--mo-name,#576b95);padding:0;cursor:pointer}
+.pp-editf{margin-top:6px}
+.pp-editf textarea{flex:1;min-width:0}
+#pp-add .grp-row input{height:40px}
+
+/* 上网：订阅源一行一个，右边是 iPhone 式开关 */
+.fd-list .grp-row{align-items:center;padding:10px 16px}
+.fd-name{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.fd-name small{color:var(--muted);font-size:12px}
+.fd-url{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fd-list .link{border:0;background:none;padding:0;color:var(--muted);font-size:12px;cursor:pointer}
+.fd-on{display:flex}
+input.switch{appearance:none;-webkit-appearance:none;flex:none;width:44px;height:26px;margin:0;border-radius:999px;background:var(--line);position:relative;cursor:pointer;transition:background .2s}
+input.switch::after{content:"";position:absolute;top:2px;left:2px;width:22px;height:22px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.25);transition:transform .25s cubic-bezier(.32,.72,0,1)}
+input.switch:checked{background:var(--accent,#34c759)}
+input.switch:checked::after{transform:translateX(18px)}
+@media (prefers-reduced-motion: reduce){input.switch,input.switch::after,.pp-face{transition:none}}
 
 /* 片头：开机动画设置 */
 .bt-open{border:0;background:none;color:var(--muted);font-size:12px;padding:0;cursor:pointer;text-decoration:underline;text-underline-offset:2px}

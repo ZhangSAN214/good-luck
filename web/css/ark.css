@@ -221,3 +221,15 @@ dialog[open]::backdrop{animation:rt-fade .32s ease both}
 [data-skin="ark"] .mo-pick .pp-who.cur{background:var(--ink-glass);color:var(--ink)}
 [data-skin="ark"] .mo-more{background:rgba(255,255,255,.08)}
 [data-skin="ark"] .mo-act{background:var(--ink-glass-hi)}
+
+/* ---------- 设置类弹窗（成员设定、上网）和文件预览：同一套玻璃 ---------- */
+[data-skin="ark"] dialog.viewer{--mo-name:#a9bde3;--grp-bg:rgba(255,255,255,.06)}
+[data-skin="ark"] .viewer .vh b{font-family:var(--f-display);font-weight:400;letter-spacing:.08em}
+[data-skin="ark"] .viewer .vh{border-bottom-color:var(--line)}
+[data-skin="ark"] .grp-row input,[data-skin="ark"] .grp-row select{background:none;box-shadow:none;border-radius:0}
+[data-skin="ark"] .grp-row select option{background:#121620}
+[data-skin="ark"] .grp-btn.danger{color:#e3a197}
+[data-skin="ark"] .pp-face{background:rgba(255,255,255,.1)}
+[data-skin="ark"] .pp-strip .pp-who.cur .pp-face{box-shadow:0 0 0 2px rgba(18,22,32,.9),0 0 0 3.5px rgba(110,140,195,.95)}
+[data-skin="ark"] input.switch{background:rgba(255,255,255,.14)}
+[data-skin="ark"] input.switch:checked{background:var(--ink-glass-hi)}

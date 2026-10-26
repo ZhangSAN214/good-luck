@@ -82,6 +82,10 @@ function freshLive() {
 // 网页小人：匿名且未揭晓的会话里不出现（启动时先不显示，确定当前会话后再决定）
 const pet = new Pet({ labels: STEP_LABELS, goto: gotoDiscussion });
 const people = new People($('#people'), {
+  avatar: (id, name) => {
+    const m = gchat.everyone?.find((x) => x.id === id);
+    return m ? gchat.avatar(m, name) : '';
+  },
   api: {
     personas: API.chatPersonas,
     setPersona: API.setChatPersona,
@@ -918,7 +922,7 @@ const VIEW_OF = { work: '#main', home: '#home', chat: '#gchat', hub: '#hub' };
  * 为了起止都顺：新页先把数据取回、排好版（最多等 MOTION_HOLD_MS）再开始动，动的过程中不再重排；
  * 卡片放大只用 transform（不动宽高），全程只改 transform 和 opacity。
  * 不支持视图过渡或系统开了「减少动态」时直接切换。from 是被点的卡片（可选）。
- * 返回的 Promise 在页面真正切过去后完成，接着要操作新页面的调用方先 await 它。
+ * 返回的 Promise 在页面切过去（新页已显示、旧页已藏起）后完成，接着要操作新页面的调用方先 await 它。
  */
 const MOTION_MS = 560;
 const MOTION_HOLD_MS = 350;
@@ -936,6 +940,8 @@ function setEntry(m, from = null) {
     if (el) el.style.viewTransitionName = n;
   };
   const start = from?.getBoundingClientRect();
+  let switched;
+  const done = new Promise((r) => (switched = r));
   name(leave, 'rt-from');
   name(from, 'rt-zoom');
   const t = document.startViewTransition(async () => {
@@ -943,6 +949,7 @@ function setEntry(m, from = null) {
     name(from, '');
     const shown = applyEntry(m);
     name(dest, from ? 'rt-zoom' : 'rt-to');
+    switched();
     // 等数据画好、新页要用的字下载完（排一次版才会开始下载），免得动到一半换字体重排
     const settled = (async () => {
       await shown;
@@ -951,13 +958,17 @@ function setEntry(m, from = null) {
     })();
     await Promise.race([settled, new Promise((r) => setTimeout(r, MOTION_HOLD_MS))]).catch(() => {});
   });
-  if (from && dest) t.ready.then(() => zoomFrom(start, dest.getBoundingClientRect())).catch(() => {});
-  t.finished.finally(() => {
-    name(leave, '');
-    name(from, '');
-    name(dest, '');
-  });
-  return t.updateCallbackDone.catch(() => {});
+  // 连点时上一个过渡会被跳过（ready 被拒绝），这里接住，不当成错误
+  t.ready.then(() => from && dest && zoomFrom(start, dest.getBoundingClientRect())).catch(() => {});
+  t.finished
+    .finally(() => {
+      name(leave, '');
+      name(from, '');
+      name(dest, '');
+    })
+    .catch(() => {});
+  t.updateCallbackDone.catch(() => {}).finally(switched);
+  return done;
 }
 
 /** 空闲时先把各页面用到的字下载好，第一次切过去时等得更短。 */

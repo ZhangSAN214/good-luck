@@ -4,6 +4,7 @@ const esc = (s) =>
   String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 
 const KIND = { news: '新闻', forum: '论坛', blog: '博客' };
+const BACK = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>';
 const list = (s) =>
   String(s || '')
     .split(/[,，、\n]/)
@@ -50,26 +51,33 @@ export class Feeds {
     const rows = d.feeds.length
       ? d.feeds
           .map(
-            (f, i) => `<li data-i="${i}"><label class="fd-on"><input type="checkbox" data-toggle="${i}"${f.enabled ? ' checked' : ''} aria-label="启用 ${esc(f.name)}"></label>
-              <span class="fd-name"><b>${esc(f.name)}</b><small>${esc(KIND[f.kind] || f.kind)}${f.topics?.length ? ` · ${esc(f.topics.join('、'))}` : ''}</small><small class="fd-url">${esc(f.url)}</small></span>
-              <button type="button" class="link" data-del="${i}">删</button></li>`,
+            (f, i) => `<li data-i="${i}" class="grp-row"><span class="fd-name"><b>${esc(f.name)}</b><small>${esc(KIND[f.kind] || f.kind)}${f.topics?.length ? ` · ${esc(f.topics.join('、'))}` : ''}</small><small class="fd-url">${esc(f.url)}</small></span>
+              <button type="button" class="link" data-del="${i}">删除</button><label class="fd-on"><input type="checkbox" class="switch" data-toggle="${i}"${f.enabled ? ' checked' : ''} aria-label="启用 ${esc(f.name)}"></label></li>`,
           )
           .join('')
-      : '<li class="hint">没有订阅源。成员就不上网了（订阅源里没有合兴趣的内容时也可能联网搜索，每天有次数上限）。</li>';
+      : '<li class="hint grp-row">没有订阅源。成员就不上网了（订阅源里没有合兴趣的内容时也可能联网搜索，每天有次数上限）。</li>';
     this.dlg.innerHTML = `
-      <div class="vh"><b>上网：成员看哪些内容</b><button type="button" class="btn" data-close>关闭</button></div>
+      <div class="vh sheet-bar"><button type="button" class="sheet-icon" data-close aria-label="关闭">${BACK}</button><b>上网</b><span></span></div>
       <div class="vb fd">
-        <p class="hint">成员闲下来时从这些公开订阅源里按兴趣（在「成员设定」里改）挑一条，分享到生活群，附来源和发布时间；论坛、博客和搜索来的标「未核实」。只读：不登录、不发帖、不往外发送你的任何信息。${d.enabled === false ? '<b>现在已在配置里关闭。</b>' : ''}</p>
-        <p class="hint">${d.source === 'local' ? '你改过的清单' : '默认清单'} · 上次抓取：${esc(when)} · 存着 ${d.items ?? 0} 条 · 今天搜索 ${d.search_used_today ?? 0} / ${d.search_per_day ?? 0} 次</p>
-        <ul class="fd-list">${rows}</ul>
-        <form id="fd-add" class="fd-add">
-          <input name="name" maxlength="40" placeholder="名称" aria-label="名称" required>
-          <input name="url" type="url" maxlength="500" placeholder="订阅源网址（RSS / Atom）" aria-label="订阅源网址" required>
-          <input name="topics" placeholder="话题，逗号分隔（如 科技，游戏）" aria-label="话题">
-          <select name="kind" aria-label="类型"><option value="news">新闻</option><option value="forum">论坛</option><option value="blog">博客</option></select>
-          <button class="btn" type="submit">添加</button>
+        <section class="grp">
+          <h4 class="grp-h">成员看的订阅源 <small>${d.source === 'local' ? '你改过的清单' : '默认清单'}</small></h4>
+          <ul class="fd-list grp-box">${rows}</ul>
+          <p class="grp-foot">上次抓取：${esc(when)} · 存着 ${d.items ?? 0} 条 · 今天搜索 ${d.search_used_today ?? 0} / ${d.search_per_day ?? 0} 次${d.enabled === false ? ' · <b>现在已在配置里关闭</b>' : ''}</p>
+        </section>
+        <form id="fd-add" class="fd-add grp">
+          <h4 class="grp-h">添加订阅源</h4>
+          <div class="grp-box">
+            <label class="grp-row"><span>名称</span><input name="name" maxlength="40" placeholder="比如：科技日报" aria-label="名称" required></label>
+            <label class="grp-row"><span>网址</span><input name="url" type="url" maxlength="500" placeholder="RSS / Atom 订阅地址" aria-label="订阅源网址" required></label>
+            <label class="grp-row"><span>话题</span><input name="topics" placeholder="逗号分隔，如 科技，游戏" aria-label="话题"></label>
+            <label class="grp-row"><span>类型</span><select name="kind" aria-label="类型"><option value="news">新闻</option><option value="forum">论坛</option><option value="blog">博客</option></select></label>
+          </div>
+          <div class="pp-row grp-end"><button class="btn primary" type="submit">添加</button></div>
         </form>
-        <div class="pp-row"><button type="button" class="btn" data-refresh>现在抓一次</button><button type="button" class="btn" data-reset>恢复默认清单</button></div>
+        <section class="grp">
+          <div class="grp-box grp-acts"><button type="button" class="grp-btn" data-refresh>现在抓一次</button><button type="button" class="grp-btn" data-reset>恢复默认清单</button></div>
+          <p class="grp-foot">成员闲下来时从这些公开订阅源里按兴趣（在「成员设定」里改）挑一条，分享到生活群，附来源和发布时间；论坛、博客和搜索来的标「未核实」。只读：不登录、不发帖、不往外发送你的任何信息。</p>
+        </section>
         <p class="hint pp-msg" role="status">${esc(this.msg)}</p>
       </div>`;
   }

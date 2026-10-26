@@ -61,7 +61,7 @@ def test_apartment_resident_can_be_mentioned_in_chat(serve, page):
     page.locator("#home .tenant:not(.sleeper), #home .sleeper rect").first.click(force=True)
     page.click("#resident-card [data-chat]")
     page.wait_for_selector("#gchat:not([hidden])")
-    assert page.input_value("#chat-input").startswith("@")
+    page.wait_for_function("document.querySelector('#chat-input').value.startsWith('@')")
     page.keyboard.press("Alt+Digit3")  # 已在群聊
     assert page.url.endswith("#m=chat")
 
