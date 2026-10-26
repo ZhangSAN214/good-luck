@@ -46,14 +46,14 @@ USER_LABEL = "用户"
 PROMPT_ROLES = {"group": "chat", "work": "chat_work", "dm": "chat_dm"}
 
 
-def member_memory(rt: Any, member: str) -> str:
-    """聊天提示词里的记忆（关闭记忆时为「暂无」）。"""
+def member_memory(rt: Any, member: str, query: str = "") -> str:
+    """聊天提示词里的记忆（关闭记忆时为「暂无」）。query：当前对话或场景，半衰期召回按它挑相关的。"""
     from roundtable.core.memory import NONE, memory_context  # memory 依赖本模块
 
     rules = rt.config.roundtable.chat.memory
     if not rules.enabled or rules.context_chars == 0:
         return NONE
-    return memory_context(rt, member, rules.context_chars)
+    return memory_context(rt, member, rules.context_chars, query)
 
 
 def dm_room(member_id: str) -> str:
@@ -306,11 +306,12 @@ class GroupChat:
         everyone = self.everyone()
         names = {m.id: m.name for m in everyone}
         role = PROMPT_ROLES[self.kind]
+        history = self.history(names)
         variables: dict[str, str] = {
             "name": member.name,
             "persona": persona_text(persona_of(rt, member.id)),
-            "memory": member_memory(rt, member.id),
-            "history": self.history(names),
+            "memory": member_memory(rt, member.id, history),
+            "history": history,
         }
         if self.kind != "dm":
             variables["members"] = (

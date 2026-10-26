@@ -704,6 +704,11 @@ class MemoryRules(_Strict):
     catch_up_days: int = Field(default=7, ge=1, le=60)  # 最多补整理几天前的
     max_tokens: int = Field(default=600, ge=64)
     estimate_usd: float = Field(default=0.001, ge=0)  # 每次整理的预估花费（预算检查用）
+    # 召回方式：layers 按时间固定带几层（默认）；half_life 半衰期记忆，按相关 × 鲜活 × 重要挑几件
+    recall: Literal["layers", "half_life"] = "layers"
+    half_life_days: float = Field(default=30, ge=1, le=3650)  # 发生过的事过多少天鲜活度减半
+    inject_max: int = Field(default=6, ge=1, le=30)  # 半衰期召回每次最多带几件
+    daily_quota: int = Field(default=8, ge=1, le=30)  # 半衰期记忆每人每天最多记几件事
 
 
 class LifeRules(_Strict):
@@ -760,6 +765,8 @@ class MomentsRules(_Strict):
     max_comments: int = Field(default=3, ge=0, le=10)  # 成员在一条动态下最多评论几条
     like_chance: float = Field(default=0.4, ge=0, le=1)  # 每位成员给一条动态点赞的概率（不花钱）
     react_hours: int = Field(default=24, ge=1, le=168)  # 只对这么多小时内的动态点赞评论
+    dedupe_hours: int = Field(default=48, ge=1, le=336)  # 和这么多小时内所有人的动态比对去重
+    similarity_max: float = Field(default=0.3, gt=0, le=1)  # 正文相似度达到这个值就不发
     max_chars: int = Field(default=300, ge=50, le=2000)
     max_tokens: int = Field(default=800, ge=64)
     estimate_usd: float = Field(default=0.002, ge=0)

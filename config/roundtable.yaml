@@ -44,6 +44,10 @@ chat:
     enabled: true
     context_chars: 800             # 聊天时最多带多少字的记忆
     catch_up_days: 7               # 最多补整理几天前的聊天
+    recall: layers                 # 召回方式：layers 按时间固定带几层；half_life 半衰期记忆（按相关 × 鲜活 × 重要挑）
+    half_life_days: 30             # 半衰期记忆：发生过的事过 30 天鲜活度减半（不删，只排后）
+    inject_max: 6                  # 半衰期记忆：每次聊天最多带几件
+    daily_quota: 8                 # 半衰期记忆：每人每天最多记几件事
   life:                            # 生活引擎：你不在时成员按作息过日子、彼此聊天（不主动找你）
     enabled: true
     daily_usd: 0.10                # 生活（含记忆整理）每天最多花多少；约 $3 / 月
@@ -56,6 +60,8 @@ chat:
     enabled: true
     posts_per_member: 1
     comments_per_tick: 2           # 每次推进最多写几条评论
+    dedupe_hours: 48               # 去重：别人 48 小时内发过的同一件事不再发
+    similarity_max: 0.3            # 去重：正文和近期动态相似度达到这个值就不发（0～1）
   browse:                          # 上网：只读公开订阅源（$0），成员按兴趣挑一条分享到生活群
     enabled: true
     refresh_hours: 3               # 多久重新抓一次订阅源
@@ -147,6 +153,7 @@ prompts:
   memory_day: v1         # 记忆：把一天的聊天压成一段
   memory_roll: v1        # 记忆：日 → 周、周 → 月
   memory_profile: v1     # 记忆：更新长期档案
+  memory_items: v1       # 记忆（半衰期，recall: half_life 时用）：一天的聊天拆成几件事，重要的标 ★
   life_chat: v1          # 生活：成员之间聊天（公寓楼里的模拟生活）
   life_share: v1         # 生活：成员把上网看到的一条内容分享到生活群
   moment_post: v1        # 朋友圈：成员发一条动态

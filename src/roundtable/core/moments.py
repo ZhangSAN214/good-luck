@@ -8,12 +8,17 @@
 - 回应用户：用户发动态后马上有一两位成员评论；用户评论某位成员的动态（或回复成员的评论）时，
   那位成员回一句。这些都是对用户动作的回应，成员不会主动去找用户。
 - 花费计入生活每日上限、聊天月预算和总预算；调用记在「朋友圈」隐藏聊天会话（step = moment）。
+- 去重（不花钱）：别人 ``dedupe_hours`` 小时内已经发过的同一件事（同一条生活事件）不再发，改挑
+  当天另一件事，没有就跳过；写出来的正文和近期任何人的动态太像（字符二元组 Jaccard ≥
+  ``similarity_max``）也不发，并记下这位成员的这件事，之后不再为它花钱。
 - 配图暂不做（默认关闭的选项留到以后）。
 """
 
 from __future__ import annotations
 
+import json
 import random
+import re
 from collections.abc import Callable
 from datetime import datetime, timedelta
 from typing import Any
@@ -35,8 +40,25 @@ from roundtable.core.storage.repository import iso
 MOMENT_ROOM = "moments"
 MOMENT_STEP = "moment"
 SEEN_KEY = "moments.seen"
+SKIPPED_KEY = "moments.skipped"  # 写出来太像而放弃的「成员:事件」，之后不再为它花钱
+SKIPPED_KEEP = 200
 NONE = "（暂无）"
 _RANK = {"pair": 3, "gather": 2, "solo": 1}
+_NOISE = re.compile(r"[\W_]+")
+
+
+def shingles(text: str) -> set[str]:
+    """去掉标点空白后的字符二元组（中文按字，不需要分词）。"""
+    t = _NOISE.sub("", text.lower())
+    return {t[i : i + 2] for i in range(len(t) - 1)} or ({t} if t else set())
+
+
+def similarity(a: str, b: str) -> float:
+    """两段话的字符二元组 Jaccard 相似度，0～1。"""
+    x, y = shingles(a), shingles(b)
+    if not x or not y:
+        return 0.0
+    return len(x & y) / len(x | y)
 
 
 class Moments:
@@ -54,18 +76,41 @@ class Moments:
 
     # --- 素材 --------------------------------------------------------------------
 
-    def scene_for(self, member: ChatMember, now: datetime) -> str | None:
-        """成员今天（本地日）最值得说的一件事的场景；没有事件时为 None。"""
+    def recent_posts(self, now: datetime) -> list[dict[str, Any]]:
+        """去重要比对的近期动态（所有人的）。"""
+        since = iso(now - timedelta(hours=self.rules.dedupe_hours))
+        return self.rt.repo.moments(since=since, limit=100)
+
+    def skipped(self) -> list[str]:
+        raw = self.rt.repo.setting(SKIPPED_KEY)
+        return json.loads(raw) if raw else []
+
+    def skip(self, member: ChatMember, event_id: int) -> None:
+        keep = [*self.skipped(), f"{member.id}:{event_id}"][-SKIPPED_KEEP:]
+        self.rt.repo.set_setting(SKIPPED_KEY, json.dumps(keep))
+
+    def event_for(
+        self, member: ChatMember, now: datetime, recent: list[dict[str, Any]] | None = None
+    ) -> dict[str, Any] | None:
+        """成员今天（本地日）最值得说、且还没人发过的一件事；没有时为 None。"""
         day_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        recent = self.recent_posts(now) if recent is None else recent
+        posted = {(p["meta"] or {}).get("event") for p in recent}
+        skipped = set(self.skipped())
         events = [
             e
             for e in self.rt.repo.life_events_between(iso(day_start), iso(now + timedelta(hours=1)))
-            if member.id in e["members"] and e["topic"]
+            if member.id in e["members"]
+            and e["topic"]
+            and e["id"] not in posted
+            and f"{member.id}:{e['id']}" not in skipped
         ]
         if not events:
             return None
-        best = max(events, key=lambda e: (e["written"], _RANK.get(e["kind"], 0), e["at"]))
-        return best["topic"]
+        return max(events, key=lambda e: (e["written"], _RANK.get(e["kind"], 0), e["at"]))
+
+    def too_similar(self, text: str, recent: list[dict[str, Any]]) -> bool:
+        return any(similarity(text, p["text"]) >= self.rules.similarity_max for p in recent)
 
     def recent_text(self, member: ChatMember) -> str:
         rows = self.rt.repo.moments(author=member.id, limit=3)
@@ -87,7 +132,7 @@ class Moments:
             rt.config.roundtable.prompts[role],
             name=member.name,
             persona=persona_text(persona_of(rt, member.id)),
-            memory=member_memory(rt, member.id),
+            memory=member_memory(rt, member.id, "\n".join(variables.values())),
             **variables,
         )
         params = dict(rt.config.roundtable.step_params.get("chat", {}))
@@ -106,14 +151,24 @@ class Moments:
         return clean_reply(completion.text, member.name, rules.max_chars) or None
 
     async def post(
-        self, member: ChatMember, scene: str, *, offline: bool = False
+        self,
+        member: ChatMember,
+        event: dict[str, Any],
+        recent: list[dict[str, Any]],
+        *,
+        offline: bool = False,
     ) -> dict[str, Any] | None:
+        """发一条；调用失败为 None，写出来和近期动态太像时不发、返回 {}。"""
         text = await self._write(
-            member, "moment_post", scene=scene, recent=self.recent_text(member)
+            member, "moment_post", scene=event["topic"], recent=self.recent_text(member)
         )
         if not text:
             return None
-        return self.rt.repo.add_moment(member.id, text, meta={"life": True}, offline=offline)
+        if self.too_similar(text, recent):
+            self.skip(member, event["id"])
+            return {}
+        meta = {"life": True, "event": event["id"]}
+        return self.rt.repo.add_moment(member.id, text, meta=meta, offline=offline)
 
     async def comment(
         self,
@@ -160,7 +215,7 @@ class Moments:
         ]
 
     async def tick(self, now: datetime, *, offline: bool = False) -> dict[str, int]:
-        out = {"posts": 0, "comments": 0, "likes": 0}
+        out = {"posts": 0, "comments": 0, "likes": 0, "skipped": 0}
         rules = self.rules
         if not rules.enabled:
             return out
@@ -174,11 +229,16 @@ class Moments:
                 break
             if repo.moments_by(member.id, day_start) >= rules.posts_per_member:
                 continue
-            scene = self.scene_for(member, now)
-            if scene is None:
+            recent = self.recent_posts(now)
+            event = self.event_for(member, now, recent)
+            if event is None:
                 continue
-            if await self.post(member, scene, offline=offline) is None:
+            posted = await self.post(member, event, recent, offline=offline)
+            if posted is None:
                 return out  # 预算不够或调用失败：这次不再试
+            if not posted:
+                out["skipped"] += 1  # 和近期动态太像：不发，也不再换人重写（省钱）
+                break
             out["posts"] += 1
         recent = repo.moments(since=iso(now - timedelta(hours=rules.react_hours)), limit=50)
         out["likes"] = self.like_round(recent, awake)

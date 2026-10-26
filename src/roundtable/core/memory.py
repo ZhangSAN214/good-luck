@@ -6,6 +6,10 @@
   ``chat.memory.catch_up_days`` 天），过完的周、月再往上压一层；当天没有聊天的成员
   不调用模型。调用记在「记忆」隐藏聊天会话上，计入聊天月预算。
 - 用到哪：聊天提示词里放一小段（``memory_context``，有字数上限）。**工作模式与办公室不读取**。
+- 召回方式 ``chat.memory.recall``：``layers``（默认）按时间固定带几层；``half_life`` 按和
+  当前对话的相关度 × 鲜活度 × 重要度挑最多 ``inject_max`` 件（``core/recall.py``，不调用
+  模型），整理一天时改用 ``memory_items`` 提示词，每行一件事、最多 ``daily_quota`` 行，
+  重要的行首标「★」。
 - 敏感内容（密码、证件号、银行卡、验证码、长串数字）整理时丢弃；提示词也要求不记。
 """
 
@@ -16,6 +20,7 @@ from datetime import date, datetime, time, timedelta, tzinfo
 from typing import Any
 
 from roundtable.core.chat import SYSTEM, USER, USER_LABEL, ChatMember, call_member
+from roundtable.core.recall import recall, recall_notes, render
 from roundtable.core.storage.repository import iso
 
 MEMORY_ROOM = "memory"
@@ -50,9 +55,30 @@ def day_window(day: date, tz: tzinfo | None) -> tuple[str, str]:
     return iso(start), iso(start + timedelta(days=1))
 
 
-def memory_context(rt: Any, member: str, max_chars: int) -> str:
-    """聊天提示词里的记忆：长期档案、最近一月 / 一周 / 三天、最近几条随手记。"""
+def _cut(text: str, max_chars: int) -> str:
+    return text if len(text) <= max_chars else text[:max_chars].rstrip() + "…"
+
+
+def memory_context(rt: Any, member: str, max_chars: int, query: str = "") -> str:
+    """聊天提示词里的记忆。
+
+    ``layers``：长期档案、最近一月 / 一周 / 三天、最近几条随手记。
+    ``half_life``：按 query（当前对话、场景）召回最多 inject_max 件，并记下这次想起了什么、为什么。
+    """
     repo = rt.repo
+    rules = rt.config.roundtable.chat.memory
+    if rules.recall == "half_life":
+        chosen = recall(
+            repo.memories(member),
+            query,
+            rt.budget.now().astimezone().date(),
+            half_life_days=rules.half_life_days,
+            inject_max=rules.inject_max,
+        )
+        if not chosen:
+            return NONE
+        repo.mark_recalled(recall_notes(chosen))
+        return _cut(render(chosen), max_chars)
     parts: list[str] = []
 
     def take(layer: str, n: int, label: str) -> None:
@@ -66,9 +92,7 @@ def memory_context(rt: Any, member: str, max_chars: int) -> str:
     take("day", 3, "那天")
     take("note", 5, "记下的")
     text = "\n".join(parts)
-    if not text:
-        return NONE
-    return text if len(text) <= max_chars else text[:max_chars].rstrip() + "…"
+    return _cut(text, max_chars) if text else NONE
 
 
 class MemoryKeeper:
@@ -145,7 +169,14 @@ class MemoryKeeper:
         log = self.day_log(member, day, tz)
         if not log:
             return None
-        text = await self._write(member, "memory_day", name=member.name, day=period, log=log)
+        if self.rules.recall == "half_life":
+            quota = self.rules.daily_quota
+            text = await self._write(
+                member, "memory_items", name=member.name, day=period, log=log, quota=str(quota)
+            )
+            text = "\n".join((text or "").splitlines()[:quota])
+        else:
+            text = await self._write(member, "memory_day", name=member.name, day=period, log=log)
         if not text:
             return None
         return repo.add_memory(member.id, "day", text, period=period, offline=offline)

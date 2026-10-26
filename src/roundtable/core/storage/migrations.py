@@ -526,4 +526,13 @@ CREATE TABLE moment_comments (
 CREATE INDEX idx_moment_comments ON moment_comments(moment_id, id);
 """,
     ),
+    (
+        20,
+        "记忆召回记录",
+        """
+-- 半衰期记忆（docs/CHAT.md G3.1）：每条记忆最近一次被聊天想起的时间和原因（命中了哪些词）。
+ALTER TABLE member_memories ADD COLUMN recalled_at TEXT;
+ALTER TABLE member_memories ADD COLUMN recall_note TEXT NOT NULL DEFAULT '';
+""",
+    ),
 ]

@@ -28,6 +28,7 @@ PUBLISHED = {
     17: "d269dcf37e7a8f6065ffb77009eb0a4dfeec6bfb7410b958819cafc7889ac51a",
     18: "914adbf0d7e5b7ecc3c6cbc8e530f67841615b9e6f126985cf61d1de5dac83f2",
     19: "3e65d880bbd40dd7e1a0883c7be74aaeb2d208b15fcccb80ea9e8bca748d38d7",
+    20: "dc8b989a2a0bcdae0171d3c1f28027d289aaa07a6af738bf962f0001c478b98e",
 }
 
 

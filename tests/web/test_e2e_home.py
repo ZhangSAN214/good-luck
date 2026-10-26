@@ -21,7 +21,7 @@ def test_apartment_entry_and_residents(serve, page):
     assert page.locator("#home .tenant.act-work").count() == 0
     # 点一位住户：右侧出现卡片；Esc 收起
     # 夜里住户睡在床上（SVG），点被子；白天点人
-    # 白天住户在原地来回走（动画），等不到「静止」，直接点
+    page.emulate_media(reduced_motion="reduce")  # 白天住户一直在走动（wander），不停下就点不中
     page.locator("#home .tenant:not(.sleeper), #home .sleeper rect").first.click(force=True)
     page.wait_for_selector("#resident-card")
     page.keyboard.press("Escape")
