@@ -1,49 +1,117 @@
-/* 方舟式外观（html[data-skin="ark"]，默认）：黑白灰、硬边、粗方中文标题，只留一个黄色当「进行中 / 当前」。
-   只换颜色、字体、圆角和少量边框，不改布局和功能；「外观」按钮可切回原来的样子（data-skin="classic"）。
-   终端首页（#hub）的版式两种外观共用，写在后半段。 */
+/* 玻璃外观（html[data-skin="ark"]，默认）：整站铺在可自定义的背景上，面板是不发光的液态玻璃，
+   唯一强调色是暗墨蓝有色玻璃，标题用衬线；只换样式不改布局和功能。「外观」按钮可切回原来的样子（data-skin="classic"）。
+   规范（圆桌设计规范草稿）：无光晕、无亮白描边、大圆角、相邻栏等高对齐、极细线性图标。 */
 
 :root[data-skin="ark"]{
-  --bg:#dfe1e2; --surface:#f4f5f5; --surface-2:#e8eaeb; --ink:#16181a; --muted:#5f666c; --line:#c4c9cd;
-  --brass:#16181a; --brass-ink:#16181a; --brass-bg:#f2c200; --brass-line:#16181a;
-  --inner:#1c1f22; --inner-2:#25292d; --inner-ink:#eceeef; --inner-muted:#a3aab0; --inner-line:#3a3f44;
-  --accent:#16181a; --accent-ink:#ffffff;
-  --live:#f2c200; --badge:#e4502c; --warm:#8b6a49;
-  --f-display:"ZCOOL QingKe HuangYou","Noto Sans SC",sans-serif;
-  --f-en:"Barlow Condensed","Arial Narrow",sans-serif;
-  --r-sm:0px; --r:0px; --r-lg:0px;
-  --shadow-1:none;
-  --shadow-2:0 8px 24px rgba(0,0,0,.14);
-  --ring:0 0 0 1px var(--ink);
+  --bg:transparent; --surface:rgba(255,255,255,.055); --surface-2:rgba(255,255,255,.08); --ink:#eceff3; --muted:rgba(236,239,243,.62); --line:rgba(255,255,255,.1);
+  --felt:#1f4a42; --felt-2:#163631; --brass:rgba(236,239,243,.55); --brass-ink:#c9d3e2; --brass-bg:rgba(24,44,78,.82); --brass-line:rgba(255,255,255,.18);
+  --inner:rgba(255,255,255,.055); --inner-2:rgba(255,255,255,.08); --inner-ink:#eceff3; --inner-muted:rgba(236,239,243,.6); --inner-line:rgba(255,255,255,.1);
+  --accent:rgba(24,44,78,.86); --accent-ink:#eceff3;
+  --ok:#9cc8ad; --ok-bg:rgba(60,110,85,.35); --bad:#d99a8f; --bad-bg:rgba(125,54,49,.4); --warn:#d8c08c;
+  --c-me:rgba(24,44,78,.9); --c-me-ink:#eceff3; --c-anon:rgba(255,255,255,.1); --c-coord:rgba(255,255,255,.12);
+  --ink-glass:rgba(24,44,78,.82); --ink-glass-hi:rgba(32,58,100,.88); --badge:#7d3631;
+  --f-display:"Noto Serif SC","Songti SC","STSong",serif;
+  --r-sm:10px; --r:14px; --r-lg:24px;
+  --shadow-1:none; --shadow-2:0 24px 50px -30px rgba(0,0,0,.7);
+  --hover:rgba(255,255,255,.06);
+  --ring:0 0 0 1px rgba(160,185,230,.6);
+  --glass-blur:blur(22px) saturate(1.1);
+  --glass-edge:inset 0 .5px 0 rgba(255,255,255,.14);
+  color-scheme:dark;
 }
-@media (prefers-color-scheme: dark){:root[data-skin="ark"]:not([data-theme="light"]){
-  --bg:#121416; --surface:#1d2023; --surface-2:#25292d; --ink:#eceeef; --muted:#9aa1a7; --line:#363b40;
-  --brass:#eceeef; --brass-ink:#eceeef; --brass-bg:#5c4a00; --brass-line:#eceeef;
-  --accent:#eceeef; --accent-ink:#121416; color-scheme:dark}}
-:root[data-skin="ark"][data-theme="dark"]{
-  --bg:#121416; --surface:#1d2023; --surface-2:#25292d; --ink:#eceeef; --muted:#9aa1a7; --line:#363b40;
-  --brass:#eceeef; --brass-ink:#eceeef; --brass-bg:#5c4a00; --brass-line:#eceeef;
-  --accent:#eceeef; --accent-ink:#121416; color-scheme:dark}
 
-/* 顶栏：品牌字用粗方字，入口按钮是贴在一起的硬边块，选中项黑底白字 */
-[data-skin="ark"] .brand h1{font-size:28px;letter-spacing:.06em}
-[data-skin="ark"] .seg{padding:0;gap:0;border:1px solid var(--line);background:var(--surface-2)}
-[data-skin="ark"] .seg button{border-radius:0;height:28px;line-height:28px}
-[data-skin="ark"] .seg button[aria-pressed="true"]{background:var(--ink);color:var(--surface);box-shadow:none}
-[data-skin="ark"] .entries button{font-family:var(--f-display);font-size:16px;letter-spacing:.06em;padding:0 14px}
-[data-skin="ark"] .btn{border-radius:0}
-[data-skin="ark"] .btn.primary{background:var(--ink);color:var(--surface);border-color:var(--ink)}
-[data-skin="ark"] .btn.gold{background:var(--live);color:#16181a;border-color:var(--live)}
-[data-skin="ark"] :focus-visible{outline-color:var(--live)}
-[data-skin="ark"] ::selection{background:color-mix(in srgb,var(--live) 45%,transparent)}
-[data-skin="ark"] .panel .phd h2,[data-skin="ark"] .gc-head h2{font-family:var(--f-display);font-weight:400;letter-spacing:.06em}
-[data-skin="ark"] .tabs [aria-selected="true"]{box-shadow:inset 0 -2px 0 var(--live)}
+/* 背景：和首页同一张（默认图不在仓库里就落到夜景）；自定义图片由首页写进 --rt-bg-img */
+[data-skin="ark"] body{background:#05070c;color:var(--ink)}
+[data-skin="ark"] body::before{content:"";position:fixed;inset:0;z-index:-2;background-color:#070a12;background-position:center;background-size:cover;
+  background-image:var(--rt-bg-img,url("../img/ark/default_bg.jpg")),url("../img/ark/hub_night.jpg")}
+[data-skin="ark"][data-rtbg="night"] body::before{background-image:url("../img/ark/hub_night.jpg")}
+[data-skin="ark"][data-rtbg="day"] body::before{background-image:url("../img/ark/hub_day.jpg")}
+[data-skin="ark"] body::after{content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;background:rgba(4,6,12,.5)}
+/* 首页自己有可视差的背景层，不叠这层压暗 */
+[data-skin="ark"][data-entry="hub"] body::after{background:rgba(4,6,12,.15)}
 
-/* 公寓楼：像素画本身不动，只换外框和名牌 */
-[data-skin="ark"] .home .sky{clip-path:polygon(16px 0,100% 0,100% 100%,0 100%,0 16px)}
-[data-skin="ark"] .home .rname{background:rgba(22,24,26,.8);color:#fff}
-[data-skin="ark"] .home-side .clock .big{font-family:var(--f-en);font-weight:700;font-size:40px}
-[data-skin="ark"] .home-side .roster button.on{box-shadow:inset 3px 0 0 var(--live)}
-[data-skin="ark"] .home-side .roster .av{border-radius:0}
+/* 所有面板：液态玻璃，没有描边和光晕 */
+[data-skin="ark"] .chat,[data-skin="ark"] .panel,[data-skin="ark"] .stagecol,[data-skin="ark"] .gc-rooms,[data-skin="ark"] .gc-main,[data-skin="ark"] .gc-members,
+[data-skin="ark"] .home-side,[data-skin="ark"] dialog.viewer{background:var(--surface);backdrop-filter:var(--glass-blur);-webkit-backdrop-filter:var(--glass-blur);
+  border:0;border-radius:32px;box-shadow:var(--glass-edge),var(--shadow-2);color:var(--ink)}
+[data-skin="ark"] dialog.viewer{background:rgba(18,22,32,.86)}
+[data-skin="ark"] dialog.viewer::backdrop{background:rgba(4,6,12,.55)}
+[data-skin="ark"] textarea,[data-skin="ark"] select,[data-skin="ark"] input[type="text"],[data-skin="ark"] input[type="search"],[data-skin="ark"] input[type="number"]{
+  background:rgba(0,0,0,.18);border:0;box-shadow:inset 0 0 0 1px rgba(255,255,255,.08);border-radius:16px;color:var(--ink)}
+[data-skin="ark"] textarea:focus,[data-skin="ark"] select:focus,[data-skin="ark"] input:focus{box-shadow:inset 0 0 0 1px rgba(160,185,230,.45)}
+[data-skin="ark"] :focus-visible{outline:2px solid rgba(160,185,230,.8);outline-offset:2px}
+[data-skin="ark"] ::selection{background:rgba(70,100,150,.5)}
+
+/* 顶栏：安静的一条，入口是胶囊分段，选中项是暗墨蓝 */
+[data-skin="ark"] .top{border-bottom:0;padding:8px 6px}
+[data-skin="ark"] .brand h1{font-family:var(--f-display);font-weight:400;letter-spacing:.12em;color:#fff}
+[data-skin="ark"] .bt-open{color:var(--muted)}
+[data-skin="ark"] .seg{background:rgba(255,255,255,.06);border:0;border-radius:999px;padding:3px;box-shadow:var(--glass-edge)}
+[data-skin="ark"] .seg button{border-radius:999px;color:var(--muted);height:28px;line-height:28px;padding:0 14px}
+[data-skin="ark"] .seg button:hover:not([aria-pressed="true"]):not(:disabled){color:var(--ink);background:var(--hover)}
+[data-skin="ark"] .seg button[aria-pressed="true"]{background:var(--ink-glass);color:var(--ink);box-shadow:inset 0 .5px 0 rgba(255,255,255,.12);font-weight:500}
+[data-skin="ark"] .entries button{font-family:var(--f-display)}
+[data-skin="ark"] .btn{border-radius:999px;background:rgba(255,255,255,.07);border:0;box-shadow:var(--glass-edge);color:var(--ink)}
+[data-skin="ark"] .btn:hover:not(:disabled){background:rgba(255,255,255,.11)}
+[data-skin="ark"] .btn.primary,[data-skin="ark"] .btn.gold{background:var(--ink-glass);color:var(--ink)}
+[data-skin="ark"] .btn.primary:hover:not(:disabled),[data-skin="ark"] .btn.gold:hover:not(:disabled){background:var(--ink-glass-hi)}
+[data-skin="ark"] .btn:disabled{opacity:.45}
+[data-skin="ark"] .meter{color:var(--muted)}
+[data-skin="ark"] .meter b{color:var(--ink)}
+
+/* ---------- 办公室：三栏等高对齐，统一 24px 间距 ---------- */
+[data-skin="ark"] .main{gap:24px;align-items:stretch}
+[data-skin="ark"] .stagecol{padding:24px;gap:16px}
+[data-skin="ark"] .stagecol::before{content:"办公室";font-family:var(--f-display);font-size:24px;letter-spacing:.08em;color:var(--ink)}
+[data-skin="ark"] .table{box-shadow:0 0 0 2px rgba(255,255,255,.08),0 18px 36px -16px rgba(0,0,0,.6)}
+[data-skin="ark"] .table::after{border-color:rgba(255,255,255,.08)}
+[data-skin="ark"] .seat .av{background:rgba(255,255,255,.08);color:var(--ink);border:0;box-shadow:inset 0 0 0 1px rgba(255,255,255,.12)}
+[data-skin="ark"] .seat .nm{background:transparent;color:var(--ink);font-family:var(--f-display);font-weight:400;letter-spacing:.04em}
+[data-skin="ark"] .seat .rl{color:var(--muted)}
+/* 正在发言：一圈不发光的暗墨蓝细环 */
+[data-skin="ark"] .seat.speaking .av{box-shadow:0 0 0 2px rgba(10,14,24,.6),0 0 0 3.5px rgba(70,100,150,.9);animation:none}
+/* 匿名代号的塔罗牌简笔画（两种外观都用） */
+.av.drawn{display:grid;place-items:center}
+.av.drawn svg.tarot{width:62%;height:62%;stroke:currentColor;fill:none;stroke-width:1.25;stroke-linecap:round;stroke-linejoin:round}
+[data-skin="ark"] .av.drawn{background:rgba(255,255,255,.06)}
+[data-skin="ark"] .legend{background:transparent;border:0;border-top:1px solid var(--line);border-radius:0;padding:12px 0 0;color:var(--muted)}
+[data-skin="ark"] .legend b{color:var(--ink)}
+[data-skin="ark"] .q{background:rgba(255,255,255,.04);border-bottom:1px solid var(--line);padding:18px 24px;font-family:var(--f-display);font-size:18px;color:var(--ink)}
+[data-skin="ark"] .q .tag{color:var(--muted);font-family:var(--f-body)}
+[data-skin="ark"] .feed{padding:20px 24px;gap:14px}
+[data-skin="ark"] .welcome{max-width:520px;margin:48px auto 0;color:var(--muted)}
+[data-skin="ark"] .welcome h2{font-family:var(--f-display);font-weight:400;font-size:32px;letter-spacing:.06em;color:var(--ink)}
+[data-skin="ark"] .welcome dl{border-top:1px solid var(--line)}
+[data-skin="ark"] .welcome dt{font-family:var(--f-display);font-weight:400;color:var(--ink)}
+[data-skin="ark"] .welcome dt,[data-skin="ark"] .welcome dd{border-bottom-color:var(--line)}
+[data-skin="ark"] .welcome kbd{background:rgba(255,255,255,.06);border-color:var(--line);color:var(--ink)}
+[data-skin="ark"] .composer{background:transparent;border-top:1px solid var(--line);padding:16px 24px 24px}
+[data-skin="ark"] .composer .btn.primary{height:40px;font-family:var(--f-display);font-size:16px;letter-spacing:.12em}
+[data-skin="ark"] .phd{padding:24px 24px 0}
+[data-skin="ark"] .phd h2{font-family:var(--f-display);font-weight:400;font-size:24px;letter-spacing:.08em}
+[data-skin="ark"] .tabs{padding:12px 20px 0;gap:4px}
+[data-skin="ark"] .tabs [role="tab"]{border-radius:999px;color:var(--muted);border:0;box-shadow:none}
+[data-skin="ark"] .tabs [role="tab"][aria-selected="true"]{background:var(--ink-glass);color:var(--ink)}
+[data-skin="ark"] .pbody{padding:16px 24px 24px}
+
+/* ---------- 公寓楼：像素画本身不动，只换外框和住户栏 ---------- */
+[data-skin="ark"] .home{gap:24px}
+[data-skin="ark"] .home .sky{border-radius:32px}
+[data-skin="ark"] .home .rname{background:rgba(10,14,24,.72);color:#eceff3;border-radius:999px}
+[data-skin="ark"] .home-side .clock .big{font-family:var(--f-display);font-weight:300}
+[data-skin="ark"] .home-side .roster button.on{background:var(--ink-glass);box-shadow:none}
+[data-skin="ark"] .home-side .roster .role{background:var(--ink-glass);color:var(--ink)}
+
+/* ---------- 群聊 ---------- */
+[data-skin="ark"] .gchat{gap:24px}
+[data-skin="ark"] .gc-room{border-radius:16px}
+[data-skin="ark"] .gc-room.cur{background:var(--ink-glass);box-shadow:none}
+[data-skin="ark"] .gc-unread{background:var(--badge)}
+[data-skin="ark"] .gc-head b{font-family:var(--f-display);font-weight:400;font-size:20px;letter-spacing:.06em}
+[data-skin="ark"] .gc-feed{background:transparent}
+[data-skin="ark"] .gc-bub{background:rgba(255,255,255,.07);border:0;border-radius:6px 16px 16px 16px;color:var(--ink)}
+[data-skin="ark"] .gc-msg.me .gc-bub{background:var(--ink-glass)}
+[data-skin="ark"] .gc-compose{background:transparent;border-top:1px solid var(--line)}
 
 /* ---------- 终端首页（两种外观共用）：背景可自定义，上面悬浮液态玻璃卡片 ----------
    规范（圆桌设计规范草稿）：无光晕、墨蓝有色玻璃、优雅衬线、大圆角、悬浮式、极细线性图标。 */

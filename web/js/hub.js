@@ -83,6 +83,14 @@ async function shrink(file) {
   }
 }
 
+/** 整站背景跟首页一致：预设写进 html 的 data-rtbg，自定义图片写进 --rt-bg-img（CSS 在 ark.css）。 */
+function applyPageBackground(bg) {
+  const root = document.documentElement;
+  root.dataset.rtbg = bg.key;
+  if (bg.data) root.style.setProperty('--rt-bg-img', `url("${bg.data}")`);
+  else root.style.removeProperty('--rt-bg-img');
+}
+
 export class Hub {
   /**
    * @param {HTMLElement} root
@@ -97,6 +105,7 @@ export class Hub {
     this.pointer = { x: 0, y: 0 };
     this.follow = { x: 0, y: 0 };
     this.bgError = '';
+    applyPageBackground(this.background());
     root.addEventListener('click', (e) => this.onClick(e));
     root.addEventListener('change', (e) => this.onChange(e));
     root.addEventListener('pointermove', (e) => {
@@ -165,6 +174,7 @@ export class Hub {
     const pad = (n) => String(n).padStart(2, '0');
     const big = c.waiting || c.running;
     const bg = this.background();
+    applyPageBackground(bg);
     const pickerOpen = this.root.querySelector('.hb-bgpick:not([hidden])') != null;
     const preset = PRESETS.map(
       ([k, label]) => `<button type="button" class="hb-chip" data-bg="${k}" aria-pressed="${bg.key === k}">${label}</button>`,
