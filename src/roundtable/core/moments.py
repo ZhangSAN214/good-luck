@@ -132,7 +132,7 @@ class Moments:
             rt.config.roundtable.prompts[role],
             name=member.name,
             persona=persona_text(persona_of(rt, member.id)),
-            memory=member_memory(rt, member.id),
+            memory=member_memory(rt, member.id, "\n".join(variables.values())),
             **variables,
         )
         params = dict(rt.config.roundtable.step_params.get("chat", {}))

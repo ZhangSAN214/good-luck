@@ -354,7 +354,7 @@ class Browser:
             source=source,
             article=article,
             persona=persona_text(persona_of(rt, member.id)),
-            memory=member_memory(rt, member.id),
+            memory=member_memory(rt, member.id, f"{interest}\n{article}"),
             history=chat.history(everyone),
         )
         params = dict(rt.config.roundtable.step_params.get("chat", {}))

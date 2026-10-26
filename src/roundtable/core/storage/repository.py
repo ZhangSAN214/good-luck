@@ -1209,6 +1209,15 @@ class Repository:
         )
         return self.memory(memory_id)
 
+    def mark_recalled(self, notes: dict[int, str]) -> None:
+        """记下这些记忆这次被想起了、因为什么（不改 updated_at 和 source）。"""
+        now = self.clock()
+        for memory_id, note in notes.items():
+            self._exec(
+                "UPDATE member_memories SET recalled_at = ?, recall_note = ? WHERE id = ?",
+                (now, note, memory_id),
+            )
+
     def delete_memory(self, memory_id: int) -> bool:
         return self._exec("DELETE FROM member_memories WHERE id = ?", (memory_id,)).rowcount > 0
 

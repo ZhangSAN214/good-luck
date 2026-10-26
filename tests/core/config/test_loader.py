@@ -79,6 +79,7 @@ def test_repo_config_loads_with_defaults():
         "memory_day",
         "memory_roll",
         "memory_profile",
+        "memory_items",
         "life_chat",
         "life_share",
         "moment_post",

@@ -152,3 +152,54 @@ async def test_memory_off_and_budget_block():
     env = Env(rt_update={"chat": tight})
     say(env, "main", "user", "hi", datetime(2026, 10, 21, 9, tzinfo=UTC))
     assert await keeper(env).catch_up(NOW) == 0 and not env.fake.calls
+
+
+def half_life_env() -> Env:
+    rules = Env().config.roundtable.chat
+    hl = rules.model_copy(
+        update={"memory": rules.memory.model_copy(update={"recall": "half_life"})}
+    )
+    return Env(rt_update={"chat": hl})
+
+
+async def test_half_life_day_items_quota_and_star():
+    env = half_life_env()
+    ChatHub(env.rt).room(dm_room("V1"))
+    say(env, dm_room("V1"), "user", "周末去爬山吗", datetime(2026, 10, 21, 9, 30, tzinfo=UTC))
+    assert await keeper(env).catch_up(NOW) == 1
+    (mem,) = env.rt.repo.memories("V1", layer="day")
+    lines = mem["text"].splitlines()
+    quota = env.config.roundtable.chat.memory.daily_quota
+    assert len(lines) == quota and lines[0].startswith("★")
+    assert "密码" not in mem["text"]
+    (call,) = [c for c in env.fake.calls if "挑出值得以后记得的事" in c.messages[0].content]
+    assert f"最多 {quota} 行" in call.messages[0].content
+
+
+async def test_half_life_recall_uses_conversation_and_records_why():
+    env = half_life_env()
+    repo = env.rt.repo
+    star = repo.add_memory("V1", "day", "★用户说话喜欢简短", period="2026-08-01")
+    noodle = repo.add_memory("V1", "day", "和用户去了一兰拉面店", period="2026-09-01")
+    for i in range(8):
+        repo.add_memory("V1", "day", f"整理了第{i}份文件", period=f"2026-10-1{i}")
+    text = memory_context(env.rt, "V1", 800, "上次那家拉面店叫什么")
+    assert "【长期】用户说话喜欢简短" in text and "一兰拉面店" in text
+    assert len(text.splitlines()) == env.config.roundtable.chat.memory.inject_max
+    assert repo.memory(star["id"])["recall_note"] == "标了重要，总是记得"
+    got = repo.memory(noodle["id"])
+    assert "『拉面店』" in got["recall_note"] and got["recalled_at"]
+    # 聊天时用当前对话召回
+    dm = ChatHub(env.rt).room(dm_room("V1"))
+    msg, speakers = dm.post("还记得那家拉面店吗")
+    await dm.replies(msg["id"], speakers)
+    prompt = env.fake.calls[-1].messages[-1].content
+    assert "一兰拉面店" in prompt
+
+
+def test_layers_mode_is_default_and_does_not_record_recall():
+    env = Env()
+    assert env.config.roundtable.chat.memory.recall == "layers"
+    m = env.rt.repo.add_memory("V1", "day", "昨天", period="2026-10-22")
+    memory_context(env.rt, "V1", 800, "昨天")
+    assert env.rt.repo.memory(m["id"])["recalled_at"] is None
