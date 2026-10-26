@@ -35,6 +35,7 @@ import { People } from './people.js';
 import { Feeds } from './feeds.js';
 import { Moments } from './moments.js';
 import { BootSettings } from './bootcfg.js';
+import { Hub } from './hub.js';
 import { Evolution } from './evolution.js';
 
 const $ = (q) => document.querySelector(q);
@@ -85,6 +86,10 @@ function freshLive() {
 // 网页小人：匿名且未揭晓的会话里不出现（启动时先不显示，确定当前会话后再决定）
 const pet = new Pet({ labels: STEP_LABELS, goto: gotoDiscussion });
 const people = new People($('#people'), {
+  avatar: (id, name) => {
+    const m = gchat.everyone?.find((x) => x.id === id);
+    return m ? gchat.avatar(m, name) : '';
+  },
   api: {
     personas: API.chatPersonas,
     setPersona: API.setChatPersona,
@@ -99,6 +104,15 @@ const people = new People($('#people'), {
 const feeds = new Feeds($('#feeds'), { api: { get: API.chatFeeds, set: API.setChatFeeds, refresh: API.refreshChatFeeds } });
 const bootcfg = new BootSettings($('#bootdlg'));
 $('#bootcfg').addEventListener('click', () => bootcfg.open());
+$('#skin').addEventListener('click', () => {
+  const next = document.documentElement.dataset.skin === 'ark' ? 'classic' : 'ark';
+  document.documentElement.dataset.skin = next;
+  try {
+    localStorage.setItem('roundtable.skin', next);
+  } catch {
+    /* 存不了就只在这次生效 */
+  }
+});
 const evolution = new Evolution($('#evolvedlg'), {
   api: {
     get: API.getEvolution,
@@ -109,7 +123,7 @@ const evolution = new Evolution($('#evolvedlg'), {
     merge: API.evolutionMerge,
   },
   openSession: async (sid) => {
-    setEntry('work');
+    await setEntry('work');
     await open(sid);
   },
 });
@@ -117,6 +131,7 @@ $('#evolve').addEventListener('click', () => evolution.open());
 const moments = new Moments($('#moments'), {
   api: { list: API.getMoments, post: API.postMoment, like: API.likeMoment, comment: API.commentMoment, del: API.delMoment, delComment: API.delMomentComment },
   onSeen: () => gchat.markMomentsSeen(),
+  avatar: (member, name) => (member ? gchat.avatar(member, name) : ''),
 });
 const gchat = new GroupChat($('#gchat'), {
   openPeople: (member) => people.open(member),
@@ -124,25 +139,36 @@ const gchat = new GroupChat($('#gchat'), {
   openMoments: (author) => moments.open(author),
   api: { get: API.getChat, post: API.postChat, clear: API.clearChat, rooms: API.getChatRooms, handoff: API.chatHandoff },
   openSession: async (sid) => {
-    setEntry('work');
+    await setEntry('work');
     await open(sid);
   },
 });
 const home = new Apartment($('#home'), {
   api: API.getApartment,
   openSession: async (sid) => {
-    setEntry('work');
+    await setEntry('work');
     await open(sid);
   },
-  chatWith: (name) => {
-    setEntry('chat');
+  chatWith: async (name) => {
+    await setEntry('chat');
     gchat.mentionInGroup(name);
   },
-  dmWith: (id) => {
-    setEntry('chat');
+  dmWith: async (id) => {
+    await setEntry('chat');
     gchat.openRoom(`dm:${id}`);
   },
   momentsOf: (id) => moments.open(id),
+});
+const hub = new Hub($('#hub'), {
+  sessions: API.listSessions,
+  rooms: API.getChatRooms,
+  status: () => S.status,
+  go: (m, from) => setEntry(m, from),
+  openPeople: () => people.open(),
+  openHistory: async () => {
+    await setEntry('work');
+    $('#tabs button[data-t="history"]').click();
+  },
 });
 // 点气泡 / 菜单「跳到讨论」：滚到最新的讨论内容
 function gotoDiscussion() {
@@ -905,35 +931,149 @@ function typing(el) {
 
 // --- 入口：办公室 / 公寓楼 / 群聊 ------------------------------------------------------------
 
-const ENTRIES = ['work', 'home', 'chat'];
+const ENTRIES = ['work', 'home', 'chat', 'hub'];
 let entry = 'work';
 
-/** 切换入口。办公室是原来的界面；公寓楼是只读的像素剖面图；群聊和成员聊天。地址栏 #m=home / #m=chat 刷新后回到原入口。 */
-function setEntry(m) {
+/** 打开网页时进哪个入口：默认终端首页；终端里可以勾选直接进办公室（存在本机）。本机存储不能用时进办公室。 */
+function landing() {
+  try {
+    return localStorage.getItem('roundtable.landing') === 'work' ? 'work' : 'hub';
+  } catch {
+    return 'work';
+  }
+}
+
+/** 切换入口。终端是首页；办公室是原来的界面；公寓楼是只读的像素剖面图；群聊和成员聊天。地址栏 #m=hub / #m=home / #m=chat 刷新后回到原入口。 */
+const VIEW_OF = { work: '#main', home: '#home', chat: '#gchat', hub: '#hub' };
+
+/**
+ * 切换入口，带过渡（仿 iPhone 打开 App，不回弹）：背景和顶栏不动，只有页面在动。
+ * 旧页往前推远淡出，新页从略小处浮上来；从首页卡片点进去时，卡片本身放大成新页面。
+ * 为了起止都顺：新页先把数据取回、排好版（最多等 MOTION_HOLD_MS）再开始动，动的过程中不再重排；
+ * 卡片放大只用 transform（不动宽高），全程只改 transform 和 opacity。
+ * 不支持视图过渡或系统开了「减少动态」时直接切换。from 是被点的卡片（可选）。
+ * 返回的 Promise 在页面切过去（新页已显示、旧页已藏起）后完成，接着要操作新页面的调用方先 await 它。
+ */
+const MOTION_MS = 560;
+const MOTION_HOLD_MS = 350;
+const MOTION_EASE = 'cubic-bezier(.32,.72,0,1)';
+function setEntry(m, from = null) {
   if (!ENTRIES.includes(m)) m = 'work';
+  const still = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (!document.startViewTransition || still || m === entry || !document.documentElement.dataset.entry) {
+    applyEntry(m);
+    return Promise.resolve();
+  }
+  const leave = $(VIEW_OF[entry]);
+  const dest = $(VIEW_OF[m]);
+  const name = (el, n) => {
+    if (el) el.style.viewTransitionName = n;
+  };
+  const start = from?.getBoundingClientRect();
+  let switched;
+  const done = new Promise((r) => (switched = r));
+  name(leave, 'rt-from');
+  name(from, 'rt-zoom');
+  const t = document.startViewTransition(async () => {
+    name(leave, '');
+    name(from, '');
+    const shown = applyEntry(m);
+    name(dest, from ? 'rt-zoom' : 'rt-to');
+    switched();
+    // 等数据画好、新页要用的字下载完（排一次版才会开始下载），免得动到一半换字体重排
+    const settled = (async () => {
+      await shown;
+      dest?.getBoundingClientRect();
+      await document.fonts.ready;
+    })();
+    await Promise.race([settled, new Promise((r) => setTimeout(r, MOTION_HOLD_MS))]).catch(() => {});
+  });
+  // 连点时上一个过渡会被跳过（ready 被拒绝），这里接住，不当成错误
+  t.ready.then(() => from && dest && zoomFrom(start, dest.getBoundingClientRect())).catch(() => {});
+  t.finished
+    .finally(() => {
+      name(leave, '');
+      name(from, '');
+      name(dest, '');
+    })
+    .catch(() => {});
+  t.updateCallbackDone.catch(() => {}).finally(switched);
+  return done;
+}
+
+/** 空闲时先把各页面用到的字下载好，第一次切过去时等得更短。 */
+function warmFonts() {
+  const text = Object.values(VIEW_OF).map((sel) => $(sel)?.textContent || '').join('');
+  const css = getComputedStyle(document.documentElement);
+  for (const v of ['--f-body', '--f-display'])
+    for (const w of [400, 500]) document.fonts.load(`${w} 16px ${css.getPropertyValue(v)}`, text).catch(() => {});
+}
+
+/**
+ * 停在终端首页时，空闲里把办公室和公寓楼几乎透明地画一遍再藏起来：第一次画大页面时显卡要多花约 0.1 秒，
+ * 预先画过，第一次点进去的放大动画就不会在中途卡一下。
+ */
+async function warmViews() {
+  const frames = () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(r, 50))));
+  const ghost = 'position:fixed;inset:64px 0 0;opacity:.002;pointer-events:none;z-index:-1';
+  for (const [key, el, show, hide] of [
+    ['work', $('#main'), () => ($('#main').hidden = false), () => ($('#main').hidden = entry !== 'work')],
+    ['home', $('#home'), () => home.show(), () => entry !== 'home' && home.hide()],
+  ]) {
+    if (entry !== 'hub' || !el) return;
+    el.style.cssText += `;${ghost}`;
+    try {
+      await show();
+      await frames();
+    } catch {
+      /* 预热失败不影响使用 */
+    }
+    el.style.position = el.style.inset = el.style.opacity = el.style.pointerEvents = el.style.zIndex = '';
+    if (entry !== key) hide();
+  }
+}
+
+/** 卡片 → 整页：从卡片的位置和大小（a）放大到新页（b），只动 transform。 */
+function zoomFrom(a, b) {
+  if (!a || !b.width || !b.height) return;
+  const at = (r, sx = 1, sy = 1) => `translate(${r.left}px, ${r.top}px) scale(${sx}, ${sy})`;
+  document.documentElement.animate(
+    { transform: [at(a, a.width / b.width, a.height / b.height), at(b)] },
+    { duration: MOTION_MS, easing: MOTION_EASE, fill: 'both', pseudoElement: '::view-transition-group(rt-zoom)' },
+  );
+}
+
+/** 切到入口 m；返回新页面数据取回、画好的 Promise（过渡等它再开始动）。 */
+function applyEntry(m) {
   entry = m;
   for (const b of document.querySelectorAll('#entries button')) b.setAttribute('aria-pressed', String(b.dataset.m === m));
   $('#main').hidden = m !== 'work';
   $('#workctrls').hidden = m !== 'work';
   $('#meter').hidden = m !== 'work';
-  if (m === 'home') home.show();
+  let shown = Promise.resolve();
+  if (m === 'home') shown = home.show();
   else home.hide();
-  if (m === 'chat') gchat.show();
+  // 群聊画过一次后，再进来先用现有内容开始动，新消息在后台拉（增量，很小）
+  if (m === 'chat') shown = gchat.built ? (gchat.show(), Promise.resolve()) : gchat.show();
   else gchat.hide();
+  if (m === 'hub') shown = hub.show();
+  else hub.hide();
+  document.documentElement.dataset.entry = m;
   syncPet();
   if (m !== 'work') history.replaceState(null, '', `#m=${m}`);
   else if (location.hash.startsWith('#m=')) history.replaceState(null, '', S.sid ? `#s=${S.sid}` : location.pathname);
+  return shown;
 }
 
 /**
  * 全局快捷键（不在输入框里时）：
  * / 或 Ctrl+K 聚焦题目输入框；Esc 离开输入框；1～9 选择等待确认卡片的对应选项；
- * N 新题目；Alt+1 / 2 / 3 切换办公室 / 公寓楼 / 群聊。输入框里只处理 Esc、Ctrl+K 与 Alt+数字。
+ * N 新题目；Alt+1 / 2 / 3 / 4 切换办公室 / 公寓楼 / 群聊 / 终端。输入框里只处理 Esc、Ctrl+K 与 Alt+数字。
  */
 function shortcut(e) {
   if (composing(e) || e.defaultPrevented) return;
   const el = document.activeElement;
-  // Alt+1 / 2 / 3：切换入口（按物理键位判断，Mac 上 Option+数字会打出特殊字符）
+  // Alt+1 / 2 / 3 / 4：切换入口（按物理键位判断，Mac 上 Option+数字会打出特殊字符）
   const digit = /^Digit([1-9])$/.exec(e.code || '');
   if (e.altKey && !e.ctrlKey && !e.metaKey && digit && ENTRIES[Number(digit[1]) - 1]) {
     e.preventDefault();
@@ -1159,6 +1299,7 @@ async function init() {
   pet.setMembers(art);
   home.setArt(art);
   gchat.setArt(art);
+  hub.setArt(art);
   renderComposer();
   renderPicks();
   render();
@@ -1167,8 +1308,14 @@ async function init() {
   if (m) await open(m[1]);
   const where = location.hash.match(/m=(\w+)/);
   if (where) setEntry(where[1]);
+  else if (!m && landing() === 'hub') setEntry('hub');
   petReady = true;
   syncPet();
+  (window.requestIdleCallback || setTimeout)(() => {
+    warmFonts();
+    // 自动化测试会在刚打开时检查哪些页面是藏着的，预热会短暂把页面放出来，测试里不预热
+    if (!navigator.webdriver) warmViews();
+  });
 }
 
 init();

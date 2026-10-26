@@ -152,6 +152,30 @@ def sse(event: dict[str, Any]) -> str:
     return f"event: {event['type']}\ndata: {data}\n\n"
 
 
+# 浏览器里可能还存着加 no-cache 之前缓存的旧脚本：
+# 打开页面时如果没见过这个版本号，就让浏览器清掉本站缓存一次
+WEB_CACHE_EPOCH = "2"
+WEB_CACHE_COOKIE = "rt_web"
+
+
+class WebFiles(StaticFiles):
+    """前端静态文件：每次打开都向服务器确认是否有新版本（ETag 未变时只回 304），
+    否则浏览器会按修改时间自行缓存旧脚本，改完界面刷新后看到的还是旧的。"""
+
+    def file_response(
+        self, full_path: Any, stat_result: Any, scope: Any, *args: Any, **kwargs: Any
+    ) -> Response:
+        resp = super().file_response(full_path, stat_result, scope, *args, **kwargs)
+        resp.headers["Cache-Control"] = "no-cache"
+        if (
+            str(full_path).endswith(".html")
+            and Request(scope).cookies.get(WEB_CACHE_COOKIE) != WEB_CACHE_EPOCH
+        ):
+            resp.headers["Clear-Site-Data"] = '"cache"'
+            resp.set_cookie(WEB_CACHE_COOKIE, WEB_CACHE_EPOCH, max_age=365 * 86400, samesite="lax")
+        return resp
+
+
 def create_app(service: RoundtableService | None = None) -> FastAPI:
     """service 为空时在启动时根据 .env 与配置构建（测试中传入使用 Fake 模型的服务）。"""
 
@@ -485,7 +509,7 @@ def create_app(service: RoundtableService | None = None) -> FastAPI:
         )
 
     if WEB_DIR.is_dir():  # 静态前端（web/）
-        app.mount("/", StaticFiles(directory=WEB_DIR, html=True), name="web")
+        app.mount("/", WebFiles(directory=WEB_DIR, html=True), name="web")
     return app
 
 

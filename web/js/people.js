@@ -6,6 +6,7 @@ const esc = (s) =>
 
 const LAYER = { note: '记下的', day: '一天', week: '一周', month: '一个月', profile: '长期档案' };
 const SOURCE = { local: '你改过的设定', config: '配置文件里的设定', empty: '没有设定（用模型本身的风格）' };
+const BACK = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>';
 const list = (s) =>
   String(s || '')
     .split(/[,，、\n]/)
@@ -13,10 +14,11 @@ const list = (s) =>
     .filter(Boolean);
 
 export class People {
-  constructor(dialog, { api, now = () => Date.now() } = {}) {
+  constructor(dialog, { api, now = () => Date.now(), avatar = null } = {}) {
     this.dlg = dialog;
     this.api = api; // {personas(), setPersona(id, p), memories(id), addMemory(id, text), editMemory(mid, text), delMemory(mid), clearMemories(id?), tidy()}
     this.now = now;
+    this.avatarOf = avatar; // (成员 id, 名字) → 头像 HTML；没有就用名字首字
     this.members = [];
     this.member = null;
     this.memories = [];
@@ -60,41 +62,50 @@ export class People {
     return this.members.find((m) => m.id === this.member) || null;
   }
 
+  face(m) {
+    const art = this.avatarOf ? this.avatarOf(m.id, m.name) : '';
+    return `<span class="pp-face${art ? '' : ' ini'}">${art || esc((m.name || '?').slice(0, 1))}</span>`;
+  }
+
   render() {
     const m = this.current();
     const p = m?.persona || {};
     const tabs = this.members
-      .map((x) => `<button type="button" class="pp-who${x.id === this.member ? ' cur' : ''}" data-member="${esc(x.id)}"${x.id === this.member ? ' aria-current="true"' : ''}>${esc(x.name)}</button>`)
+      .map((x) => `<button type="button" class="pp-who${x.id === this.member ? ' cur' : ''}" data-member="${esc(x.id)}"${x.id === this.member ? ' aria-current="true"' : ''}>${this.face(x)}<span class="pp-nm">${esc(x.name)}</span></button>`)
       .join('');
     const mems = this.memories.length
       ? this.memories
           .map(
             (r) => `<li data-mid="${r.id}"><div class="pp-mh"><b>${esc(LAYER[r.layer] || r.layer)}</b>${r.period ? `<span>${esc(r.period)}</span>` : ''}${r.source === 'user' ? '<span>你写的</span>' : ''}${r.offline ? '<span>你不在时</span>' : ''}
-              <button type="button" class="link" data-edit="${r.id}">改</button><button type="button" class="link" data-del="${r.id}">删</button></div>
+              <button type="button" class="link" data-edit="${r.id}">改</button><button type="button" class="link" data-del="${r.id}">删除</button></div>
               <p>${esc(r.text).replace(/\n/g, '<br>')}</p></li>`,
           )
           .join('')
       : '<li class="hint">还没有记忆。每天聊过天之后会自动整理一段；你也可以替 TA 记一条。</li>';
+    const row = (name, label, value, ph = '') =>
+      `<label class="grp-row"><span>${label}</span><input name="${name}" value="${esc(value)}"${ph ? ` placeholder="${esc(ph)}"` : ''}${name === 'personality' || name === 'speaking_style' ? ' maxlength="300"' : ''}></label>`;
     this.dlg.innerHTML = `
-      <div class="vh"><b>成员设定与记忆</b><button type="button" class="btn" data-close>关闭</button></div>
+      <div class="vh sheet-bar"><button type="button" class="sheet-icon" data-close aria-label="关闭">${BACK}</button><b>成员设定与记忆</b><span></span></div>
       <div class="vb pp">
-        <nav class="pp-members" aria-label="成员">${tabs}</nav>
+        <nav class="pp-members pp-strip" aria-label="成员">${tabs}</nav>
         ${
           m
-            ? `<form id="pp-persona" class="pp-form">
-          <h4>${esc(m.name)} 的人设 <small>${esc(SOURCE[m.source] || '')}</small></h4>
-          <p class="hint">只用于私聊、群聊和朋友圈；工作和办公室不受影响。空着就用模型本身的说话风格。</p>
-          <label>性格<input name="personality" maxlength="300" value="${esc(p.personality)}" placeholder="比如：安静、爱较真"></label>
-          <label>说话风格<input name="speaking_style" maxlength="300" value="${esc(p.speaking_style)}" placeholder="比如：句子短，爱用比喻"></label>
-          <label>口头禅（逗号分隔，最多 5 个）<input name="catchphrases" value="${esc((p.catchphrases || []).join('，'))}"></label>
-          <label>兴趣（逗号分隔，最多 8 个；上网时按兴趣看新闻）<input name="interests" value="${esc((p.interests || []).join('，'))}"></label>
-          <div class="pp-row"><button class="btn primary" type="submit">保存人设</button><button type="button" class="btn" data-reset>恢复默认</button></div>
+            ? `<form id="pp-persona" class="pp-form grp">
+          <h4 class="grp-h">${esc(m.name)} 的人设 <small>${esc(SOURCE[m.source] || '')}</small></h4>
+          <div class="grp-box">
+            ${row('personality', '性格', p.personality, '比如：安静、爱较真')}
+            ${row('speaking_style', '说话风格', p.speaking_style, '比如：句子短，爱用比喻')}
+            ${row('catchphrases', '口头禅', (p.catchphrases || []).join('，'), '逗号分隔，最多 5 个')}
+            ${row('interests', '兴趣', (p.interests || []).join('，'), '逗号分隔，最多 8 个；上网时按兴趣看新闻')}
+          </div>
+          <p class="grp-foot">只用于私聊、群聊和朋友圈；工作和办公室不受影响。空着就用模型本身的说话风格。</p>
+          <div class="pp-row grp-end"><button type="button" class="btn" data-reset>恢复默认</button><button class="btn primary" type="submit">保存人设</button></div>
         </form>
-        <section class="pp-mem" aria-label="记忆">
-          <h4>${esc(m.name)} 的记忆 <small>只存在你电脑上</small></h4>
-          <form id="pp-add" class="pp-row"><input name="text" maxlength="300" placeholder="替 TA 记一条，比如：我下周三考试" aria-label="记一条"><button class="btn" type="submit">记下</button></form>
-          <ul class="pp-list">${mems}</ul>
-          <div class="pp-row"><button type="button" class="btn" data-tidy>现在整理</button><button type="button" class="btn" id="pp-clear-one" data-clear="one">清空 TA 的记忆</button><button type="button" class="btn" id="pp-clear-all" data-clear="all">清空全部成员的记忆</button></div>
+        <section class="pp-mem grp" aria-label="记忆">
+          <h4 class="grp-h">${esc(m.name)} 的记忆 <small>只存在你电脑上</small></h4>
+          <form id="pp-add" class="grp-box"><div class="grp-row"><input name="text" maxlength="300" placeholder="替 TA 记一条，比如：我下周三考试" aria-label="记一条"><button class="btn" type="submit">记下</button></div></form>
+          <ul class="pp-list grp-box">${mems}</ul>
+          <div class="grp-box grp-acts"><button type="button" class="grp-btn" data-tidy>现在整理</button><button type="button" class="grp-btn danger" id="pp-clear-one" data-clear="one">清空 TA 的记忆</button><button type="button" class="grp-btn danger" id="pp-clear-all" data-clear="all">清空全部成员的记忆</button></div>
         </section>`
             : '<p class="hint">没有成员。</p>'
         }

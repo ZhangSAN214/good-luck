@@ -58,10 +58,10 @@ def test_apartment_resident_can_be_mentioned_in_chat(serve, page):
     page.goto(srv.url + "/#m=home")
     # 夜里住户睡在床上（SVG），点被子；白天点人
     page.emulate_media(reduced_motion="reduce")  # 白天住户一直在走动（wander），不停下就点不中
-    page.locator("#home .tenant:not(.sleeper), #home .sleeper rect").first.click()
+    page.locator("#home .tenant:not(.sleeper), #home .sleeper rect").first.click(force=True)
     page.click("#resident-card [data-chat]")
     page.wait_for_selector("#gchat:not([hidden])")
-    assert page.input_value("#chat-input").startswith("@")
+    page.wait_for_function("document.querySelector('#chat-input').value.startsWith('@')")
     page.keyboard.press("Alt+Digit3")  # 已在群聊
     assert page.url.endswith("#m=chat")
 
@@ -77,7 +77,7 @@ def test_rooms_dm_and_unread_badge(serve, page):
     page.wait_for_selector(".gc-room[data-room='work'] .gc-unread", timeout=15000)
     # 打开和阿二的私聊：没有成员栏，发消息只有对方回
     page.click(".gc-room[data-room='dm:V2']")
-    page.wait_for_function("document.querySelector('#gc-title').textContent === '与 阿二 私聊'")
+    page.wait_for_function("document.querySelector('#gc-title')?.textContent === '与 阿二 私聊'")
     assert page.locator("#gc-aside").is_hidden()
     page.fill("#chat-input", "大家好")
     page.keyboard.press("Enter")
@@ -90,7 +90,7 @@ def test_rooms_dm_and_unread_badge(serve, page):
     page.wait_for_selector(".gc-msg[data-author='V1']")
     page.wait_for_selector(".gc-room[data-room='work'] .gc-unread", state="detached")
     page.reload()
-    page.wait_for_function("document.querySelector('#gc-title').textContent === '工作群'")
+    page.wait_for_function("document.querySelector('#gc-title')?.textContent === '工作群'")
     assert "本月聊天 $" in page.inner_text("#gc-budget")
 
 
@@ -98,10 +98,10 @@ def test_apartment_resident_dm(serve, page):
     srv = serve(confirm_threshold_usd=100.0)
     page.goto(srv.url + "/#m=home")
     page.emulate_media(reduced_motion="reduce")  # 白天住户一直在走动（wander），不停下就点不中
-    page.locator("#home .tenant:not(.sleeper), #home .sleeper rect").first.click()
+    page.locator("#home .tenant:not(.sleeper), #home .sleeper rect").first.click(force=True)
     page.click("#resident-card [data-dm]")
     page.wait_for_selector("#gchat:not([hidden])")
-    page.wait_for_function("document.querySelector('#gc-title').textContent.startsWith('与 ')")
+    page.wait_for_function("document.querySelector('#gc-title')?.textContent.startsWith('与 ')")
 
 
 def test_work_group_handoff_and_open_in_office(serve, page):
@@ -122,7 +122,7 @@ def test_work_group_handoff_and_open_in_office(serve, page):
     # 私聊和生活群里没有这个按钮
     page.keyboard.press("Alt+Digit3")  # 回到聊天
     page.click(".gc-room[data-room='main']")
-    page.wait_for_function("document.querySelector('#gc-title').textContent === '大家庭'")
+    page.wait_for_function("document.querySelector('#gc-title')?.textContent === '大家庭'")
     assert page.locator("#gc-handoff").is_hidden()
 
 
@@ -134,7 +134,7 @@ def test_people_dialog_persona_and_memories(serve, page):
     rt.repo.add_memory("V2", "day", "和用户聊了爬山", period="2026-10-21")
     open_chat(srv, page)
     page.click(".gc-room[data-room='dm:V2']")
-    page.wait_for_function("document.querySelector('#gc-title').textContent === '与 阿二 私聊'")
+    page.wait_for_function("document.querySelector('#gc-title')?.textContent === '与 阿二 私聊'")
     page.click("#gc-people")  # 私聊里打开：直接是对方
     page.wait_for_selector("#people[open] .pp-who.cur[data-member='V2']")
     assert "和用户聊了爬山" in page.inner_text("#people .pp-list")
@@ -224,15 +224,20 @@ def test_moments_dialog_post_like_comment(serve, page):
     page.click("#gc-moments")
     page.wait_for_selector("#moments .mo")
     assert "你不在时" in page.inner_text("#moments .mo")
+    # 赞和评论收在每条右下角的「··」里
+    page.click("#moments .mo-more")
     page.click("#moments [data-like]")
     page.wait_for_selector("#moments .mo-likes:has-text('我')")
+    page.click("#moments .mo-more")
     page.click("#moments .mo-act [data-reply]")
     page.fill("#moments .mo-cf input", "加油")
     page.click("#moments .mo-cf button")
     page.wait_for_selector("#moments .mo-comments li:has-text('阿二')")  # 作者回了一句
+    page.click("#moments [data-compose]")
     page.fill("#mo-new textarea", "周末去爬山")
     page.click("#mo-new button")
     page.wait_for_selector("#moments .mo:has-text('周末去爬山') .mo-comments li")  # 成员来评论
+    page.click("#moments [data-pick]")
     page.click("#moments [data-author='V2']")
     page.wait_for_selector("#moments .vh:has-text('阿二')")
     assert "周末去爬山" not in page.inner_text("#moments .mo-wrap")
