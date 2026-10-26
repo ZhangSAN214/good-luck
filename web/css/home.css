@@ -240,6 +240,14 @@ dialog#moments[open]{display:flex}
 .mo-empty{padding:48px 20px;text-align:center}
 .mo-older{display:block;margin:16px auto}
 .mo-wrap>.pp-msg{padding:0 20px}
+.ev h3{font-size:14px;margin:12px 0 4px}
+.ev-path{overflow-wrap:anywhere}
+.ev-list{list-style:none;padding:0;margin:6px 0;display:grid;gap:6px}
+.ev-list li{display:flex;flex-wrap:wrap;gap:4px 10px;align-items:baseline}
+.ev-list small{color:var(--muted)}
+.ev-week{font-family:'IBM Plex Mono',monospace}
+.ev-act{display:flex;gap:8px;margin-left:auto}
+.ev-act .link{border:0;background:none;color:var(--brass-ink);padding:0;text-decoration:underline;text-underline-offset:2px;cursor:pointer}
 .gc-tag .link,.gc-sys .link{border:0;background:none;color:var(--brass-ink);padding:0;text-decoration:underline;text-underline-offset:2px}
 .gc-empty{margin:auto;text-align:center;color:var(--muted);max-width:340px}
 .gc-empty b{display:block;color:var(--ink);font-weight:500;margin-bottom:4px}

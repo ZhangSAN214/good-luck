@@ -8,11 +8,13 @@ import re
 import pytest
 
 from roundtable.core.config import load_config
+from roundtable.core.routing import Question
 from roundtable.core.service import RoundtableService, ServiceError
 
 from ..orchestrator.conftest import MEDIUM, SHORT, Env
 
 TAROT = set(load_config().personas.codes)
+ANSWER = "独立完成同一道题"  # 圆桌作答提示词中的片段，用于统计调用
 
 
 def make(**kw) -> tuple[Env, RoundtableService]:
@@ -129,6 +131,52 @@ async def test_crash_marks_paused_and_resume_continues():
     assert events[-1]["status"] == "completed"
 
 
+async def test_reconcile_pauses_sessions_left_running_by_a_dead_process():
+    """开机对账：上次进程死在半路（数据库里还是 running），启动时改成可继续的暂停。
+
+    继续后不重复已完成的步骤。
+    """
+    env, svc = make(confirm_threshold_usd=100.0)
+    original = env.reply
+    crashed = {"done": False}
+
+    class Killed(BaseException):  # 模拟进程被杀：引擎和服务都来不及把状态改掉
+        pass
+
+    def flaky(model, messages):
+        if "根据审阅意见修订" in messages[0].content and not crashed["done"]:
+            crashed["done"] = True
+            raise Killed
+        return original(model, messages)
+
+    env.fake._default = flaky
+    with pytest.raises(Killed):
+        await env.orc.start(Question(MEDIUM), seed=10)
+    [summary] = env.rt.repo.list_sessions()
+    sid = summary.id
+    assert env.rt.repo.session_row(sid)["status"] == "running"
+    answers_before = len(env.models_called(ANSWER))
+
+    restarted = RoundtableService(env.rt)  # 重新启动的服务
+    assert restarted.reconcile() == [sid]
+    data = restarted.session(sid)
+    assert data["status"] == "paused" and "继续" in data["error"]
+    assert restarted.reconcile() == []
+    restarted.resume(sid)
+    events = await collect(restarted, sid)
+    assert events[-1]["status"] == "completed"
+    assert len(env.models_called(ANSWER)) == answers_before  # 作答没有重复
+
+
+async def test_reconcile_leaves_waiting_and_finished_sessions_alone():
+    env, svc = make(confirm_threshold_usd=0.0)  # 门槛为 0：一开始就停在确认卡片
+    waiting = svc.create(MEDIUM, seed=2)
+    await collect(svc, waiting)
+    assert svc.session(waiting)["status"] == "awaiting_confirmation"
+    assert RoundtableService(env.rt).reconcile() == []
+    assert svc.session(waiting)["status"] == "awaiting_confirmation"
+
+
 async def test_invalid_requests():
     env, svc = make()
     for kwargs in (
@@ -181,7 +229,7 @@ async def test_status_and_budget():
 async def test_unrouted_session_resumes_with_routing():
     """进程在路由之前中断：恢复时从路由开始，而不是误判为已完成。"""
     env, svc = make(confirm_threshold_usd=100.0)
-    from roundtable.core.routing import Question, UserChoice
+    from roundtable.core.routing import UserChoice
 
     sid = svc.orc.open(Question(SHORT), UserChoice("custom", ("b1", "b2", "f1"), "f1"), seed=3)
     svc.resume(sid)
