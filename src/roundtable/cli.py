@@ -1327,8 +1327,16 @@ class CLI:
             self.p(f"  {name:<28} {sessions[model]} 场  " + "，".join(parts))
         return 0
 
+    async def _evolve_plugins(self, svc: RoundtableService, session_id: str) -> None:
+        out = await svc.evolution_plugins(session_id)
+        where = f"，保存为 插件清单/{out['file']}" if out["file"] else ""
+        self.p(f"插件清单：{len(out['plugins'])} 个，花费 ${out['cost_usd']:.4f}{where}")
+        for n, p in enumerate(out["plugins"], 1):
+            self.p(f"  {n}. [{p['scene']}] {p['name']}：{p['what']}")
+
     async def cmd_evolve(self, action: str, session_id: str | None) -> int:
-        """革新例会：status 看概况；meet 开一场、等它开完并导出采纳单；export 导出某场的采纳单。"""
+        """革新例会：status 看概况；meet 开一场、等它开完、写插件清单并导出采纳单；
+        export 导出某场的采纳单；plugins 给某场写插件清单。"""
         svc = RoundtableService(self.rt)
         try:
             if action == "scout":
@@ -1359,7 +1367,18 @@ class CLI:
                         f"开完后 roundtable evolve export {session_id} 导出采纳单。"
                     )
                     return 1
+                if self.rt.config.roundtable.evolution.plugins.enabled:
+                    try:
+                        await self._evolve_plugins(svc, session_id)
+                    except ServiceError as exc:
+                        self.p(f"插件清单没有写成：{exc}")
                 action = "export"
+            if action == "plugins":
+                if not session_id:
+                    self.p("请给出例会的会话 id：roundtable evolve plugins <id>")
+                    return 2
+                await self._evolve_plugins(svc, session_id)
+                return 0
             if action == "export":
                 if not session_id:
                     self.p("请给出例会的会话 id：roundtable evolve export <id>")
@@ -1548,9 +1567,12 @@ def build_parser() -> argparse.ArgumentParser:
     perf.add_argument("--reset", action="store_true", help="清零：之后只统计从现在起的会话")
     evolve = sub.add_parser("evolve", help="革新例会：成员读资料卡提建议、投票，导出采纳单")
     evolve.add_argument(
-        "action", nargs="?", default="status", choices=["status", "scout", "meet", "export"]
+        "action",
+        nargs="?",
+        default="status",
+        choices=["status", "scout", "meet", "export", "plugins"],
     )
-    evolve.add_argument("session_id", nargs="?", help="export 时：例会的会话 id")
+    evolve.add_argument("session_id", nargs="?", help="export / plugins 时：例会的会话 id")
     history = sub.add_parser("history", help="最近的讨论")
     history.add_argument("--limit", type=int, default=20)
     note = sub.add_parser("note", help="讨论进行中补充意见（下一个步骤开始时带上）")

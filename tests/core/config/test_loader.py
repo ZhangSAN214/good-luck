@@ -121,6 +121,7 @@ def test_repo_config_loads_with_defaults():
         "evolve_review",
         "evolution_card",
         "evolution_check",
+        "evolution_plugins",
     }
     assert rt.collab_pipeline == [
         "decompose",

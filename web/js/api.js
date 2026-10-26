@@ -92,6 +92,7 @@ export const evolutionMeet = () => api('/api/evolution/meetings', { method: 'POS
 export const evolutionExport = (sid) => api(`/api/evolution/meetings/${encodeURIComponent(sid)}/export`, { method: 'POST' });
 export const evolutionMerge = (sid, idea) =>
   api(`/api/evolution/meetings/${encodeURIComponent(sid)}/ideas/${encodeURIComponent(idea)}/merge`, { method: 'POST' });
+export const evolutionPlugins = (sid) => api(`/api/evolution/meetings/${encodeURIComponent(sid)}/plugins`, { method: 'POST' });
 export const evolutionScout =() => api('/api/evolution/scout', { method: 'POST' });
 export const evolutionDecide = (sid, idea, decision) =>
   api(`/api/evolution/meetings/${encodeURIComponent(sid)}/ideas/${encodeURIComponent(idea)}`, { method: 'POST', body: { decision } });

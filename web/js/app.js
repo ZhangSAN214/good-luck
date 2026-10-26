@@ -119,6 +119,7 @@ const evolution = new Evolution($('#evolvedlg'), {
     meet: API.evolutionMeet,
     exportList: API.evolutionExport,
     scout: API.evolutionScout,
+    plugins: API.evolutionPlugins,
     decide: API.evolutionDecide,
     merge: API.evolutionMerge,
   },

@@ -857,6 +857,40 @@ class EvolutionImplementRules(_Strict):
         return name
 
 
+class EvolutionPluginRules(_Strict):
+    """革新例会·插件清单（docs/evolution/README.md「插件清单」）：例会开完后，在所选档位里按预计价格
+    挑最便宜的一位成员，根据本场资料卡和点子榜写给用户看的插件清单（做什么、有什么用、优缺点、
+    为什么做、用在哪个场景）。只是给用户看的资料，不改代码；花费计入革新例会的每月上限。"""
+
+    enabled: bool = True
+    count: int = Field(default=20, ge=5, le=40)  # 每场至少写几个
+    scenes: list[str] = Field(
+        default_factory=lambda: ["办公室工作", "公寓生活", "群聊", "朋友圈", "头脑风暴", "通用"],
+        min_length=1,
+        max_length=12,
+    )  # 场景标签（最后一个兜底：成员写了不在清单里的场景时归到它）
+    max_tokens: int = Field(default=8000, ge=1000)  # 每次调用的输出上限
+    rounds: int = Field(default=2, ge=1, le=3)  # 不够 count 个时最多再补写几次（每次内容不同）
+    estimate_usd: float = Field(default=0.04, ge=0)  # 每次调用的预估花费
+    dir: str = "插件清单"  # 数据目录 evolution/ 下：每场一份 Markdown
+    field_chars: int = Field(default=200, ge=40, le=1000)  # 每个字段最多多少字（多的截掉）
+
+    @field_validator("dir")
+    @classmethod
+    def _plain(cls, name: str) -> str:
+        if not name.strip() or any(c in name for c in "/\\:") or name.strip(".") == "":
+            raise ValueError(f"只能是一个文件夹名（不含路径）：{name!r}")
+        return name
+
+    @field_validator("scenes")
+    @classmethod
+    def _scenes(cls, scenes: list[str]) -> list[str]:
+        out = [s.strip() for s in scenes]
+        if any(not s for s in out) or len(set(out)) != len(out):
+            raise ValueError("场景不能为空，也不能重复")
+        return out
+
+
 class EvolutionRules(_Strict):
     """革新例会（docs/evolution/README.md）：成员读同一叠资料卡，复用头脑风暴提建议、匿名互评、投票，
     导出采纳单。默认关闭；花费有每场和每月硬上限（也计入总预算）。"""
@@ -873,13 +907,14 @@ class EvolutionRules(_Strict):
     monthly_usd: float = Field(
         default=1.5, gt=0
     )  # 每月（UTC 自然月）上限：已花 + 本场预计超出就不开
-    adopt_top: int = Field(default=3, ge=1, le=10)  # 采纳单列前几名
+    adopt_top: int = Field(default=10, ge=1, le=30)  # 采纳单和网页列前几名
     auto: bool = True  # 开启后每周按 schedule 自动开一次（服务开着才会开）
     schedule: EvolutionSchedule = EvolutionSchedule()
     tick_minutes: int = Field(default=30, ge=5, le=360)  # 服务开着时多久检查一次
     used_dir: str = "已用"  # 开过会的资料卡移到这里（按周分文件夹），下周不会再读
     scout: EvolutionScoutRules = EvolutionScoutRules()
     implement: EvolutionImplementRules = EvolutionImplementRules()
+    plugins: EvolutionPluginRules = EvolutionPluginRules()
 
     @field_validator("inbox_dir", "adopted_dir", "used_dir")
     @classmethod

@@ -160,6 +160,7 @@ prompts:
   moment_comment: v1     # 朋友圈：成员评论一条动态（或回复评论）
   evolution_card: v1     # 革新例会·自己找资料：一位成员把网页写成资料卡
   evolution_check: v1    # 革新例会·自己找资料：另一位成员复核资料卡
+  evolution_plugins: v1  # 革新例会·插件清单：一位成员根据资料卡和点子榜写给用户看的插件清单
   office_check: v1       # 办公室：经理过目
   office_fix: v2         # 办公室：退回后员工改一次（v2：改程序必须重跑出图）
   style_merge: v1        # 统筹合并成规范 + 清单
@@ -750,7 +751,7 @@ evolution:
   card_chars: 3000
   meeting_usd: 0.40          # 每场预计花费上限
   monthly_usd: 1.5           # 每月上限（UTC 自然月，也计入上面的总预算）
-  adopt_top: 3               # 采纳单列前 3 名
+  adopt_top: 10              # 采纳单和网页列前 10 名（得票的建议不够 10 条就全列）
   auto: true
   schedule: {weekday: 1, hour: 9}   # 每周一 9 点（本机时区）之后开一次
   # 圆桌自己找资料写卡：到点开会前收件箱是空的，就先按搜索词联网搜，只留白名单网站的结果，
@@ -773,3 +774,13 @@ evolution:
     enabled: false
     base_branch: ccr-86975127-sv4cvy
     timeout_minutes: 120
+  # 插件清单：例会开完后，所选档位里预计最便宜的一位成员根据本场资料卡和点子榜写给你看的插件清单
+  # （每个写做什么、有什么用、优缺点、为什么做、用在哪个场景），网页「革新例会」里按场景看，
+  # 也存到数据目录 evolution/插件清单/。只是资料，不改代码；花费计入上面的每场 / 每月上限。
+  plugins:
+    enabled: true
+    count: 20                # 每场至少 20 个
+    scenes: [办公室工作, 公寓生活, 群聊, 朋友圈, 头脑风暴, 记忆, 通用]
+    max_tokens: 8000
+    rounds: 2                # 第一次不够 20 个就再补写一次（只要缺的那几个）
+    estimate_usd: 0.04       # 每次调用预估（节电档实际约 $0.005～0.04）

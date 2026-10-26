@@ -341,6 +341,10 @@ def create_app(service: RoundtableService | None = None) -> FastAPI:
     async def evolution_export(request: Request, session_id: str) -> dict[str, Any]:
         return svc(request).evolution_export(session_id)
 
+    @app.post("/api/evolution/meetings/{session_id}/plugins")
+    async def evolution_plugins(request: Request, session_id: str) -> dict[str, Any]:
+        return await svc(request).evolution_plugins(session_id)
+
     @app.post("/api/evolution/scout")
     async def evolution_scout(request: Request) -> dict[str, Any]:
         return await svc(request).evolution_scout()

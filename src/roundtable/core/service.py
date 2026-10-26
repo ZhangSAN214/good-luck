@@ -48,6 +48,16 @@ from roundtable.core.evolution import (
 )
 from roundtable.core.evolution_dev import DevAgent, DevError, run_process
 from roundtable.core.evolution_dev import Run as DevRun
+from roundtable.core.evolution_plugins import (
+    PLUGINS_KEY,
+    PluginError,
+    PluginWriter,
+    by_scene,
+    dump_lists,
+    load_lists,
+    plugins_from,
+    plugins_markdown,
+)
 from roundtable.core.evolution_scout import SCOUT_WEEK_KEY, Scout, ScoutError
 from roundtable.core.ideaboard import Board
 from roundtable.core.life import LifeEngine
@@ -158,6 +168,7 @@ class RoundtableService:
         while True:
             try:
                 await self.evolution_scout_tick()
+                await self.evolution_plugins_tick()
                 self.evolution_tick()
             except Exception:  # noqa: BLE001 - 例会出错不影响其他功能，下次再试
                 log.exception("革新例会：自动检查出错")
@@ -1413,6 +1424,7 @@ class RoundtableService:
         cards, notes = load_cards(inbox, max_cards=rules.max_cards, card_chars=rules.card_chars)
         meetings = self._meetings()
         week = week_key(self._local_now())
+        lists = load_lists(self.rt.repo.setting(PLUGINS_KEY))
         recent = []
         for m in reversed(meetings[-10:]):
             try:
@@ -1426,6 +1438,10 @@ class RoundtableService:
                     "cost_usd": self.rt.repo.session_cost(m.session_id),
                     # 最近 3 场开完的附上得票前几名，网页上可以点「做这条 / 不做」
                     "ideas": self._meeting_ideas(m.session_id) if len(recent) < 3 else [],
+                    # 插件清单（写过的才有）：做什么、有什么用、优缺点、为什么做、场景
+                    "plugins": self._meeting_plugins(m.session_id, lists)
+                    if len(recent) < 3
+                    else None,
                 }
             )
         return {
@@ -1446,6 +1462,13 @@ class RoundtableService:
             "meeting_usd": rules.meeting_usd,
             "monthly_usd": rules.monthly_usd,
             "month_spent_usd": self._evolution_spent(meetings),
+            "adopt_top": rules.adopt_top,
+            "plugins": {
+                "enabled": rules.plugins.enabled,
+                "count": rules.plugins.count,
+                "scenes": rules.plugins.scenes,
+                "estimate_usd": self._plugins_estimate(),
+            },
             "meetings": recent,
             "scout": {
                 "enabled": rules.scout.enabled,
@@ -1498,11 +1521,12 @@ class RoundtableService:
         if option is None or "estimate_usd" not in option:
             reason = option["reason"] if option else "没有这个档位"
             raise ServiceError(f"现在开不了革新例会：{reason}", 409)
-        cost = option["estimate_usd"]
+        # 开完后还要写插件清单：一起算进每场 / 每月上限
+        cost = option["estimate_usd"] + self._plugins_estimate()
         if cost > rules.meeting_usd:
             raise ServiceError(
-                f"本场预计 ${cost:.2f}，超过每场上限 ${rules.meeting_usd:.2f}，没有开会"
-                "（可以少放几张资料卡）",
+                f"本场预计 ${cost:.2f}（含插件清单），超过每场上限 ${rules.meeting_usd:.2f}，"
+                "没有开会（可以少放几张资料卡）",
                 409,
             )
         spent = self._evolution_spent(meetings)
@@ -1554,6 +1578,10 @@ class RoundtableService:
             cost_usd=view.cost_usd,
             created_at=view.created_at,
         )
+        entry = load_lists(self.rt.repo.setting(PLUGINS_KEY)).get(session_id)
+        if entry and entry.get("file"):
+            count = len(entry.get("plugins") or [])
+            text += f"\n插件清单（{count} 个）另存为 插件清单/{entry['file']}。\n"
         folder.mkdir(parents=True, exist_ok=True)
         path = adoption_path(folder, meeting.week)
         path.write_text(text, encoding="utf-8")
@@ -1592,6 +1620,106 @@ class RoundtableService:
                 }
             )
         return out
+
+    # --- 插件清单 ----------------------------------------------------------------------
+
+    def _plugins_estimate(self) -> float:
+        rules = self.rt.config.roundtable.evolution.plugins
+        return rules.estimate_usd if rules.enabled else 0.0
+
+    def _meeting_plugins(
+        self, session_id: str, lists: dict[str, dict[str, Any]]
+    ) -> dict[str, Any] | None:
+        entry = lists.get(session_id)
+        if entry is None:
+            return None
+        plugins = plugins_from(entry)
+        return {
+            "items": [asdict(p) for p in plugins],
+            "scenes": by_scene(plugins, self.rt.config.roundtable.evolution.plugins.scenes),
+            "cost_usd": entry.get("cost_usd", 0.0),
+            "file": entry.get("file"),
+            "error": entry.get("error"),
+            "at": entry.get("at"),
+        }
+
+    async def evolution_plugins(self, session_id: str) -> dict[str, Any]:
+        """给开完的例会写插件清单（至少 count 个）：所选档位里预计最便宜的一位成员，根据本场资料卡
+        和点子榜写；存到 app_settings 和数据目录 evolution/插件清单/<周>.md。再点一次会重写。
+
+        花费上限：本月革新例会还剩的额度（monthly_usd − 已花）。
+        """
+        rules = self.rt.config.roundtable.evolution
+        if not rules.enabled:
+            raise ServiceError(
+                "革新例会没有开启：在 config/roundtable.yaml 里把 evolution.enabled 改成 true", 409
+            )
+        meetings = self._meetings()
+        meeting = next((m for m in meetings if m.session_id == session_id), None)
+        if meeting is None:
+            raise ServiceError("这场不是革新例会", 404)
+        self._require(session_id)
+        view = self.rt.repo.session_view(session_id, scrub=self.rt.scrubber.scrub)
+        if view.status != "completed":
+            raise ServiceError("例会还没开完，开完才能写插件清单", 409)
+        cards = [
+            (a.name, a.text or "")
+            for a in (Attachment.from_row(r) for r in self.rt.repo.session_attachments(session_id))
+        ]
+        left = rules.monthly_usd - self._evolution_spent(meetings)
+        lists = load_lists(self.rt.repo.setting(PLUGINS_KEY))
+        at = self.rt.budget.now().isoformat(timespec="seconds")
+        try:
+            report = await PluginWriter(self.rt).run(cards, self._meeting_board(view), left)
+        except PluginError as exc:
+            lists[session_id] = {**lists.get(session_id, {}), "error": str(exc), "at": at}
+            self.rt.repo.set_setting(PLUGINS_KEY, dump_lists(lists))
+            raise ServiceError(str(exc), 409) from None
+        text = plugins_markdown(
+            week=meeting.week,
+            session_id=session_id,
+            plugins=report.plugins,
+            cost_usd=report.cost_usd,
+            scenes=rules.plugins.scenes,
+        )
+        file = None
+        if self.rt.evolution_dir is not None:
+            folder = self.rt.evolution_dir / rules.plugins.dir
+            folder.mkdir(parents=True, exist_ok=True)
+            path = adoption_path(folder, meeting.week)
+            path.write_text(text, encoding="utf-8")
+            file = path.name
+        lists[session_id] = {
+            **report.public(),
+            "file": file,
+            "at": at,
+            "short": len(report.plugins) < rules.plugins.count,
+        }
+        self.rt.repo.set_setting(PLUGINS_KEY, dump_lists(lists))
+        return {"session_id": session_id, "file": file, "markdown": text, **report.public()}
+
+    async def evolution_plugins_tick(self) -> list[str]:
+        """自动部分：开完、还没写过插件清单（也没失败过）的例会各写一次。"""
+        rules = self.rt.config.roundtable.evolution
+        if not (rules.enabled and rules.auto and rules.plugins.enabled):
+            return []
+        done = []
+        lists = load_lists(self.rt.repo.setting(PLUGINS_KEY))
+        for m in self._meetings()[-3:]:
+            if m.session_id in lists or self.running(m.session_id):
+                continue
+            try:
+                row = self.rt.repo.session_row(m.session_id)
+            except NotFound:
+                continue
+            if row["status"] != "completed":
+                continue
+            try:
+                await self.evolution_plugins(m.session_id)
+                done.append(m.session_id)
+            except ServiceError as exc:  # 失败已记下，不反复花钱；网页上可以手动再写
+                log.info("革新例会：插件清单没有写成（%s）", exc)
+        return done
 
     def _save_job(self, key: str, **job: Any) -> None:
         decisions = load_decisions(self.rt.repo.setting(DECISIONS_KEY))

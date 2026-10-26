@@ -53,14 +53,53 @@ function ideas(m, busy) {
 }
 const usd = (n) => `$${Number(n || 0).toFixed(n >= 1 ? 2 : 4)}`;
 
+// 插件清单：每个插件写做什么、有什么用、优缺点、为什么做、参考；可以按场景筛
+const FIELDS = [
+  ['what', '做什么'],
+  ['use', '有什么用'],
+  ['pros', '优点'],
+  ['cons', '缺点'],
+  ['why', '为什么做'],
+  ['source', '参考'],
+];
+function plugins(m, cfg, scene, busy) {
+  if (m.status !== 'completed' || !cfg.enabled) return '';
+  const off = busy ? ' disabled' : '';
+  const p = m.plugins;
+  const write = (label) =>
+    `<button type="button" class="link" data-plugins="${esc(m.session_id)}"${off}>${label}</button>`;
+  if (!p || !p.items || !p.items.length) {
+    const err = p && p.error ? `<small class="hint">上次没写成：${esc(p.error)}</small>` : '';
+    return `<div class="ev-plugins"><span class="hint">还没有插件清单（每场至少 ${cfg.count} 个，预计约 ${usd(cfg.estimate_usd)}）</span>${write(p && p.error ? '再写一次' : '写插件清单')}${err}</div>`;
+  }
+  const chips = [['', `全部 ${p.items.length}`], ...Object.entries(p.scenes || {}).map(([s, n]) => [s, `${s} ${n}`])]
+    .map(
+      ([s, label]) =>
+        `<button type="button" class="ev-chip${s === (scene || '') ? ' on' : ''}" data-scene="${esc(s)}" data-sid="${esc(m.session_id)}">${esc(label)}</button>`,
+    )
+    .join('');
+  const items = p.items
+    .map((it, n) => [it, n])
+    .filter(([it]) => !scene || it.scene === scene)
+    .map(
+      ([it, n]) => `<li class="ev-plugin"><div class="ev-ph"><b>${n + 1}. ${esc(it.name)}</b><span class="ev-tag">${esc(it.scene)}</span></div>
+        <dl>${FIELDS.map(([k, label]) => `<dt>${label}</dt><dd>${esc(it[k])}</dd>`).join('')}</dl></li>`,
+    )
+    .join('');
+  return `<details class="ev-plugins" open><summary>插件清单 · ${p.items.length} 个 · 写清单花 ${usd(p.cost_usd)}${p.file ? ` · 存为 插件清单/${esc(p.file)}` : ''}</summary>
+    <div class="ev-chips">${chips}<span class="ev-act">${write('重写')}</span></div>
+    <ol class="ev-plist">${items}</ol></details>`;
+}
+
 export class Evolution {
   constructor(dialog, { api, openSession = null } = {}) {
     this.dlg = dialog;
-    this.api = api; // {get(), meet(), exportList(sid), scout(), decide(sid, idea, decision), merge(sid, idea)}
+    this.api = api; // {get(), meet(), exportList(sid), scout(), plugins(sid), decide(sid, idea, decision), merge(sid, idea)}
     this.openSession = openSession;
     this.data = null;
     this.msg = '';
     this.busy = false;
+    this.scene = {}; // 会话 id → 插件清单正在看的场景
     this.dlg.addEventListener('click', (e) => this.onClick(e));
   }
 
@@ -103,7 +142,7 @@ export class Evolution {
                   : m.status === 'completed'
                     ? `<button type="button" class="link" data-export="${esc(m.session_id)}">导出采纳单</button>`
                     : ''
-              }</span>${ideas(m, this.busy)}</li>`,
+              }</span>${ideas(m, this.busy)}${plugins(m, d.plugins || {}, this.scene[m.session_id], this.busy)}</li>`,
           )
           .join('')
       : '<li class="hint">还没开过。</li>';
@@ -124,7 +163,7 @@ export class Evolution {
         <ul class="ev-list">${cards}${notes}</ul>
         <p class="hint">${scoutHint}</p>
         <h3>最近的例会</h3>
-        <p class="hint">得票前几名下面可以点「做这条」：开发侧照着实现、开 PR，合并仍由你点；「不做」就记下不做。</p>
+        <p class="hint">每场列得票前 ${d.adopt_top || 10} 名，可以点「做这条」：开发侧照着实现、开 PR，合并仍由你点；「不做」就记下不做。下面的插件清单是一位成员根据本场资料卡和点子整理给你看的（做什么、有什么用、优缺点、为什么做、用在哪个场景），开完会自动写，花费算进例会上限。</p>
         <ul class="ev-list">${meetings}</ul>
         <div class="pp-row">
           <button type="button" class="btn" data-scout${d.enabled && scout.enabled && scout.can_search && !this.busy ? '' : ' disabled'}>找资料</button>
@@ -155,6 +194,18 @@ export class Evolution {
         r.written.length
           ? `写好 ${r.written.length} 张资料卡，花费 ${usd(r.cost_usd)}`
           : `这次没有写出资料卡（${r.rejected.length} 个网页没通过），花费 ${usd(r.cost_usd)}`,
+      );
+    }
+    const sc = t.closest('[data-scene]');
+    if (sc) {
+      this.scene[sc.dataset.sid] = sc.dataset.scene;
+      return this.render();
+    }
+    const pl = t.closest('[data-plugins]');
+    if (pl) {
+      return this.act(
+        () => this.api.plugins(pl.dataset.plugins),
+        (r) => `插件清单写好了：${r.plugins.length} 个，花费 ${usd(r.cost_usd)}`,
       );
     }
     const dec = t.closest('[data-decide]');
