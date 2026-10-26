@@ -97,13 +97,10 @@
 [data-skin="ark"] .tabs [role="tab"][aria-selected="true"]{background:var(--ink-glass);color:var(--ink)}
 [data-skin="ark"] .pbody{padding:16px 24px 24px}
 
-/* ---------- 公寓楼：像素画本身不动，只换外框和住户栏 ---------- */
+/* ---------- 公寓楼：基建式深色场景，自带配色（见 home.css）；这里只把外框换成大圆角、进驻总览用深色玻璃 ---------- */
 [data-skin="ark"] .home{gap:24px}
-[data-skin="ark"] .home .sky{border-radius:32px}
-[data-skin="ark"] .home .rname{background:rgba(10,14,24,.72);color:#eceff3;border-radius:999px}
-[data-skin="ark"] .home-side .clock .big{font-family:var(--f-display);font-weight:300}
-[data-skin="ark"] .home-side .roster button.on{background:var(--ink-glass);box-shadow:none}
-[data-skin="ark"] .home-side .roster .role{background:var(--ink-glass);color:var(--ink)}
+[data-skin="ark"] .home .base{border-radius:32px}
+[data-skin="ark"] .home-side{background:rgba(13,16,21,.84);color:var(--bx-ink)}
 
 /* ---------- 群聊 ---------- */
 [data-skin="ark"] .gchat{gap:24px}

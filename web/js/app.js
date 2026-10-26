@@ -146,6 +146,7 @@ const gchat = new GroupChat($('#gchat'), {
 });
 const home = new Apartment($('#home'), {
   api: API.getApartment,
+  budget: API.getBudget,
   openSession: async (sid) => {
     await setEntry('work');
     await open(sid);
@@ -944,7 +945,7 @@ function landing() {
   }
 }
 
-/** 切换入口。终端是首页；办公室是原来的界面；公寓楼是只读的像素剖面图；群聊和成员聊天。地址栏 #m=hub / #m=home / #m=chat 刷新后回到原入口。 */
+/** 切换入口。终端是首页；办公室是原来的界面；公寓楼是只读的基建式剖面图；群聊和成员聊天。地址栏 #m=hub / #m=home / #m=chat 刷新后回到原入口。 */
 const VIEW_OF = { work: '#main', home: '#home', chat: '#gchat', hub: '#hub' };
 
 /**
