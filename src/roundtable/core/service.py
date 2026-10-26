@@ -24,6 +24,7 @@ from roundtable.core.browse import REFRESH_KEY, feeds_of, set_feeds
 from roundtable.core.budget.guard import month_window
 from roundtable.core.chat import ROOM, WORK, ChatHub, chat_budget
 from roundtable.core.chat_work import WORK_EVENTS, post_handoff, post_office_event
+from roundtable.core.config.loader import ConfigError
 from roundtable.core.life import LifeEngine
 from roundtable.core.media import KIND_LABELS, KINDS, MediaService
 from roundtable.core.members_art import MEMBERS_FILE, load_members, mime_of, resolve_file
@@ -35,6 +36,7 @@ from roundtable.core.office import collect as collect_performance
 from roundtable.core.office import reset as reset_performance
 from roundtable.core.orchestrator import Orchestrator, OrchestratorError, RunResult
 from roundtable.core.persona import is_empty, persona_of, set_persona
+from roundtable.core.plugin_board import board_view, load_board
 from roundtable.core.preview import render_preview
 from roundtable.core.routing import (
     AUTO,
@@ -300,6 +302,16 @@ class RoundtableService:
             },
             "total_usd": self.rt.repo.total_spent(),
         }
+
+    # --- 插件榜 ------------------------------------------------------------------
+
+    def plugin_board(self) -> dict[str, Any]:
+        """自我学习革新调研过的插件 / 项目榜单（只读；每次重新读 config/plugin_board.yaml）。"""
+        try:
+            board = load_board(self.rt.plugin_board)
+        except ConfigError as exc:
+            raise ServiceError(str(exc), 500) from None
+        return board_view(board)
 
     # --- 办公室：名册与工资单 ------------------------------------------------------
 

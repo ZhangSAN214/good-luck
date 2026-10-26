@@ -141,7 +141,7 @@
 - `core/`：纯业务逻辑，**禁止 import fastapi / starlette / uvicorn / streamlit**（测试守卫）。
 - `api/`：FastAPI 路由 + SSE，只调用 `core/service.py`（启动时用 `core/runtime.py` 组装；有测试检查导入）。
 - **服务 facade**（`core/service.py`，`RoundtableService`）：返回值都是可 JSON 化的 dict；匿名会话揭晓前全部匿名。`create(question, tier=, models=, coordinator=, anonymous=False, workflow="discussion")`；揭晓只用于匿名会话。提交题目后立即返回会话 id，讨论在后台任务中执行；意外错误把会话标为 `paused`（可 `resume`）。**开机对账**（`reconcile()`，2026-10-26 借鉴 dsh-eteams）：服务启动、接受请求前把上次进程退出时仍为 `running` 的会话（进程被杀或关掉时来不及改状态）统一改成 `paused`，错误说明写"服务上次意外退出……可以点「继续」"，网页点「继续」走现有的 `resume`，已完成的步骤不重复；等待确认、已结束的会话不动。只在正式启动时调用（测试传入服务时不调用）。揭晓只允许在讨论结束（完成 / 停止 / 失败）后。
-- **HTTP 接口**：`GET /api/status`、`GET /api/budget`、`GET /api/contributions`、`POST /api/estimate`（提交前预估：各模式 × 各档位 / 自选的上桌人数、缺席、预计与最多花费、步骤明细；不调用任何模型，答案长度只用规则判断；返回 `seed`，提交时带上它，阵容与预估一致；匿名时不含模型名单）、`POST /api/uploads?name=`（请求体是文件原始字节，返回附件 id；`POST /api/sessions` 的 `attachments` 带上这些 id）、`GET/POST /api/sessions`（`media` / `media_tier`）、`GET /api/sessions/{id}`、`GET …/files/{fid}`（下载；`?inline=1` 可内联播放 png / jpg / gif / webp 与 mp3 / wav / ogg / mp4 / webm，后者支持 Range）与 `…/files/{fid}/preview`、`POST …/respond`、`POST …/notes`（中途补充）、`POST …/resume`、`POST …/reveal`、`GET …/events`（SSE）。
+- **HTTP 接口**：`GET /api/status`、`GET /api/budget`、`GET /api/contributions`、`POST /api/estimate`（提交前预估：各模式 × 各档位 / 自选的上桌人数、缺席、预计与最多花费、步骤明细；不调用任何模型，答案长度只用规则判断；返回 `seed`，提交时带上它，阵容与预估一致；匿名时不含模型名单）、`POST /api/uploads?name=`（请求体是文件原始字节，返回附件 id；`POST /api/sessions` 的 `attachments` 带上这些 id）、`GET/POST /api/sessions`（`media` / `media_tier`）、`GET /api/sessions/{id}`、`GET …/files/{fid}`（下载；`?inline=1` 可内联播放 png / jpg / gif / webp 与 mp3 / wav / ogg / mp4 / webm，后者支持 Range）与 `…/files/{fid}/preview`、`POST …/respond`、`POST …/notes`（中途补充）、`POST …/resume`、`POST …/reveal`、`GET …/events`（SSE）、`GET /api/plugins/board`（插件榜，每次请求重新读 `config/plugin_board.yaml`，文件有错返回 500 和带文件名、字段路径的说明；网页「插件榜」页签只读展示，可按状态筛选）。
 - **SSE 协议**：第一条 `snapshot`（当前状态），之后是实时事件（只含代号），每当讨论停下来（完成 / 失败 / 停止 / 等待确认 / 暂停）发一条 `state` 并关闭；前端回复确认后重新连接。
 - `web/`：静态前端（`index.html`、`css/app.css`、`js/api.js` 通信、`js/view.js` 渲染、`js/app.js` 状态与交互；ES 模块，无构建步骤），只通过 HTTP/SSE 与后端通信，由 FastAPI 挂在 `/`。
   - 事件流用 `fetch` 读取（不用会自动重连的 `EventSource`）：收到停下来的 `state` 后关闭，回复确认卡片或恢复后重新订阅；事件触发重新拉取会话详情再渲染。
@@ -211,7 +211,7 @@
 ```
 README.md      安装、.env、加模型 / 步骤 / 提示词版本、上传、沙箱、搜索与隐私
 .github/workflows/ci.yml   ruff + pytest（含 Playwright 端到端）
-config/        models.yaml  roundtable.yaml  personas.yaml  routing.yaml
+config/        models.yaml  roundtable.yaml  personas.yaml  routing.yaml  plugin_board.yaml（插件榜数据，不属于运行配置）
 prompts/       planner/ answer/ answer_quick/ review/ revise/ synthesize/ redo/
                attachments/ describe_image/ transcribe/ tools/（v4） image_gen/ web_search/ web_fetch/
                decompose/（v4） decompose_retry/ volunteer/ assign/（v3） work/ work_<类型>/ cross_review/ rework/ merge/
@@ -231,6 +231,7 @@ src/roundtable/
     search/        联网搜索服务（注册、OpenRouter 搜索（默认）、Tavily、按顺序切换的 SearchService）
     preview.py     成员生成的文件的预览
     mindmap.py     思维导图数据与渲染（Markdown / Mermaid / SVG）
+    plugin_board.py 插件榜：自我学习革新调研过的插件 / 项目（读 config/plugin_board.yaml，按价值排名、判断借思路 / 搬代码门槛；只读）
     ideaboard.py   头脑风暴的点子榜：投票排名、黑马、对比表 / 场景故事 / 行动方案的数据与 Markdown
     budget/        用量统计（按渠道/模型）、预算守卫（每月 + 每日，UTC）
     office/        办公室模式（R17）：名册（roster.py）、工资单（payroll.py）

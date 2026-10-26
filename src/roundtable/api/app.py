@@ -300,6 +300,10 @@ def create_app(service: RoundtableService | None = None) -> FastAPI:
     async def apartment(request: Request, hour: int, weekday: int) -> dict[str, Any]:
         return svc(request).apartment(hour, weekday)
 
+    @app.get("/api/plugins/board")
+    async def plugin_board(request: Request) -> dict[str, Any]:
+        return svc(request).plugin_board()
+
     @app.get("/api/models/candidates")
     async def model_candidates(request: Request) -> dict[str, Any]:
         return svc(request).model_candidates()

@@ -14,6 +14,7 @@ import {
   contributionsPanel,
   officePanel,
   channelsPanel,
+  pluginBoardPanel,
   esc,
   feedItems,
   flowPanel,
@@ -54,6 +55,8 @@ const S = {
   history: null,
   contribHistory: null,
   office: null, // 员工名册（/api/office）
+  board: null, // 插件榜（/api/plugins/board）：只读
+  boardFilter: 'all',
   talent: null, // 人才市场（/api/models/candidates）：只提示，不改配置
   payslip: null, // { sid, data }：当前会话的工资单
   sid: null,
@@ -281,6 +284,7 @@ function renderPanel() {
   if (S.tab === 'usage') h = usagePanel(S.session, S.budget, S.status?.rice, S.payslip?.sid === S.sid ? S.payslip.data : null);
   if (S.tab === 'office') h = officePanel(S.office, S.status?.rice, S.talent, S.perfArmed);
   if (S.tab === 'channels') h = channelsPanel(S.status);
+  if (S.tab === 'plugins') h = pluginBoardPanel(S.board, S.boardFilter);
   if (S.tab === 'history') h = historyPanel(S.history, S.sid);
   if (S.tab === 'cast') h = castPanel(S.session, prefix());
   if (S.tab === 'contrib') h = contributionsPanel(S.session, S.contribHistory, prefix());
@@ -794,6 +798,16 @@ async function loadOffice() {
   if (S.talent.available && S.talent.stale) refreshTalent(); // 超过一天没查：自动查一次（只提示，不改配置）
 }
 
+/** 插件榜：每次切到页签都重新拉取（数据文件每周更新，不用重启）。 */
+async function loadBoard() {
+  try {
+    S.board = await API.getPluginBoard();
+  } catch (e) {
+    S.board = { error: e.message || '加载失败' };
+  }
+  if (S.tab === 'plugins') renderPanel();
+}
+
 /** 绩效清零：两步确认（第一次点只是武装，5 秒内再点一次才清零）。 */
 async function resetPerformance() {
   if (!S.perfArmed) {
@@ -1026,6 +1040,11 @@ function bind() {
   });
   document.addEventListener('click', (e) => {
     if (e.target.closest('#talent-refresh')) refreshTalent();
+    const f = e.target.closest('#board-filter [data-f]');
+    if (f) {
+      S.boardFilter = f.dataset.f;
+      renderPanel();
+    }
     if (e.target.closest('#perf-reset')) resetPerformance();
     const pv = e.target.closest('[data-preview]');
     if (pv && S.sid) showPreview(pv.dataset.preview);
@@ -1086,6 +1105,7 @@ function bind() {
     if (S.tab === 'contrib') loadContributions();
     if (S.tab === 'usage') loadBudget();
     if (S.tab === 'office') loadOffice();
+    if (S.tab === 'plugins') loadBoard();
     renderPanel();
   });
   $('#pbody').addEventListener('click', (e) => {
