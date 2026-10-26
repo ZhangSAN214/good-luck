@@ -137,10 +137,16 @@ def serve():
 
 
 def quiet_boot(ctx) -> None:
-    """不放开机动画（它会盖住首页）；测片头本身的测试先把模式设成别的再刷新。"""
+    """不放开机动画（它会盖住首页）；测片头本身的测试先把模式设成别的再刷新。
+
+    默认首页是终端；这些测试多数直接从办公室开始（测终端的测试自己改回终端）。"""
     ctx.add_init_script(
         "try { if (!localStorage.getItem('roundtable.boot.mode'))"
         " localStorage.setItem('roundtable.boot.mode', 'off') } catch {}"
+    )
+    ctx.add_init_script(
+        "try { if (!localStorage.getItem('roundtable.landing'))"
+        " localStorage.setItem('roundtable.landing', 'work') } catch {}"
     )
 
 

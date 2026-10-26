@@ -6,18 +6,24 @@
 <title>圆桌</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Noto+Sans+SC:wght@400;500;700&family=ZCOOL+XiaoWei&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Noto+Sans+SC:wght@400;500;700&family=ZCOOL+XiaoWei&family=ZCOOL+QingKe+HuangYou&family=Noto+Serif+SC:wght@300;400;500&family=Barlow+Condensed:wght@500;700&display=swap">
 <link rel="stylesheet" href="css/app.css">
 <link rel="stylesheet" href="css/agent.css">
 <link rel="stylesheet" href="css/home.css">
 <link rel="stylesheet" href="css/ideas.css">
+<link rel="stylesheet" href="css/ark.css">
+<script>
+  // 外观：默认方舟式（ark），「外观」按钮可切回原来的样子；存在本机，先设好再画页面，避免闪一下
+  try { document.documentElement.dataset.skin = localStorage.getItem('roundtable.skin') === 'classic' ? 'classic' : 'ark'; } catch { document.documentElement.dataset.skin = 'ark'; }
+</script>
 </head>
 <body>
 <script src="js/boot.js"></script>
 <div class="app">
   <header class="top">
-    <div class="brand"><h1>圆桌</h1><button type="button" class="link bt-open" id="bootcfg" title="开机动画设置">片头</button></div>
-    <nav class="seg entries" id="entries" aria-label="入口（Alt+1 / 2 / 3）">
+    <div class="brand"><h1>圆桌</h1><button type="button" class="link bt-open" id="bootcfg" title="开机动画设置">片头</button><button type="button" class="link bt-open" id="skin" title="在方舟式外观和原来的外观之间切换">外观</button></div>
+    <nav class="seg entries" id="entries" aria-label="入口（Alt+4 / 1 / 2 / 3）">
+      <button type="button" data-m="hub" aria-pressed="false">终端</button>
       <button type="button" data-m="work" aria-pressed="true">办公室</button>
       <button type="button" data-m="home" aria-pressed="false">公寓楼</button>
       <button type="button" data-m="chat" aria-pressed="false">群聊</button>
@@ -31,6 +37,7 @@
     <span class="meter" id="meter">本场 $0.0000</span>
   </header>
 
+  <section class="hub view" id="hub" hidden aria-label="终端首页"></section>
   <section class="home view" id="home" hidden aria-label="公寓楼"></section>
   <section class="gchat view" id="gchat" hidden aria-label="群聊"></section>
 
@@ -101,8 +108,8 @@
   </div>
 </div>
 <dialog class="viewer" id="viewer" aria-label="文件预览"></dialog>
-<dialog class="viewer" id="people" aria-label="成员设定与记忆"></dialog>
-<dialog class="viewer" id="feeds" aria-label="上网"></dialog>
+<dialog class="viewer sheet" id="people" aria-label="成员设定与记忆"></dialog>
+<dialog class="viewer sheet" id="feeds" aria-label="上网"></dialog>
 <dialog class="viewer" id="moments" aria-label="朋友圈"></dialog>
 <dialog class="viewer" id="bootdlg" aria-label="开机动画"></dialog>
 <dialog class="viewer" id="evolvedlg" aria-label="革新例会"></dialog>

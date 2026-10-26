@@ -4,6 +4,7 @@
 // 匿名关闭时服务端直接给出模型，界面在代号旁显示。
 
 import { ideasCard } from './ideas.js';
+import { tarotIcon, tarotNumeral } from './tarot.js';
 
 export const STEP_LABELS = {
   plan: '规划',
@@ -282,7 +283,7 @@ export class Names {
   speaker(tableNo, code) {
     if (code) {
       const ai = this.model(tableNo, 'member', code);
-      return { ch: [...String(code)][0] || '?', name: this.member(code), ai, art: memberArt(ai) };
+      return { ch: [...String(code)][0] || '?', name: this.member(code), ai, art: memberArt(ai), code };
     }
     const ai = this.model(tableNo, 'coordinator');
     return { ch: this.office ? '经' : '统', name: this.coordinatorName(tableNo), ai, art: memberArt(ai), coord: true };
@@ -292,7 +293,11 @@ export class Names {
 function avatar(sp, extra = '') {
   const cls = `av ${sp.coord ? 'coord' : ''} ${extra}`;
   const src = sp.art && sp.art.images && sp.art.images.avatar_128;
-  if (!src || ART_FAILED.has(src)) return `<div class="${cls}">${esc(sp.ch)}</div>`;
+  if (!src || ART_FAILED.has(src)) {
+    // 匿名代号用塔罗牌简笔画；其余（统筹、没有素材）还是头像字
+    const drawn = sp.code ? tarotIcon(sp.code) : '';
+    return drawn ? `<div class="${cls} drawn" data-ch="${esc(sp.ch)}">${drawn}</div>` : `<div class="${cls}">${esc(sp.ch)}</div>`;
+  }
   const border = sp.art.theme_color ? ` style="border-color:${esc(sp.art.theme_color)}"` : '';
   const alt = sp.art.display || sp.art.name || '';
   return `<div class="${cls}" data-ch="${esc(sp.ch)}"${border}><img src="${esc(src)}" alt="${esc(alt)}" loading="lazy"></div>`;
@@ -1087,7 +1092,8 @@ export function stageHTML(sv, live, prefix) {
     const sp = names.speaker(tableNo, c);
     const cls = [live.speaking.has(c) ? 'speaking' : '', dropped.has(c) ? 'dropped' : '', lazyCodes.has(c) ? 'lazy' : ''].join(' ');
     const role = dropped.has(c) ? '已退出' : lazyCodes.has(c) ? '敷衍' : sv.workflow === 'office' ? '员工' : '组员';
-    h += seat(pos[i], cls, avatar(sp), sp.name, sp.ai ? `${sp.ai}${lazyCodes.has(c) ? ' · 敷衍' : ''}` : role);
+    const num = tarotNumeral(c);
+    h += seat(pos[i], cls, avatar(sp), num ? `${num} ${sp.name}` : sp.name, sp.ai ? `${sp.ai}${lazyCodes.has(c) ? ' · 敷衍' : ''}` : role);
   });
   h += seat(ME_POS, '', '<div class="av me">你</div>', '你', '提问');
   return h;
