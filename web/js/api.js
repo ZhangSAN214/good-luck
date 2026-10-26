@@ -88,7 +88,8 @@ export const chatFeeds = () => api('/api/chat/feeds');
 export const setChatFeeds = (feeds) => api('/api/chat/feeds', { method: 'PUT', body: { feeds } });
 export const refreshChatFeeds = () => api('/api/chat/feeds/refresh', { method: 'POST' });
 export const getEvolution = () => api('/api/evolution');
-export const evolutionMeet = () => api('/api/evolution/meetings', { method: 'POST' });
+export const evolutionMeet = (kind = 'minor', theme = null) =>
+  api('/api/evolution/meetings', { method: 'POST', body: { kind, theme } });
 export const evolutionExport = (sid) => api(`/api/evolution/meetings/${encodeURIComponent(sid)}/export`, { method: 'POST' });
 export const evolutionMerge = (sid, idea) =>
   api(`/api/evolution/meetings/${encodeURIComponent(sid)}/ideas/${encodeURIComponent(idea)}/merge`, { method: 'POST' });

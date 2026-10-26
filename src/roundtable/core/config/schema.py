@@ -907,7 +907,12 @@ class EvolutionRules(_Strict):
     monthly_usd: float = Field(
         default=1.5, gt=0
     )  # 每月（UTC 自然月）上限：已花 + 本场预计超出就不开
-    adopt_top: int = Field(default=10, ge=1, le=30)  # 采纳单和网页列前几名
+    # 两种例会：小版本（每周自动开，主题不限）列前 minor_top 名；
+    # 大版本（你先定主题再手动开）列前 major_top 名
+    minor_top: int = Field(default=3, ge=1, le=30)
+    major_top: int = Field(default=10, ge=1, le=30)
+    major_themes: list[str] = Field(default_factory=list, max_length=20)  # 大版本主题的现成选项
+    theme_chars: int = Field(default=200, ge=10, le=1000)  # 大版本主题最多多少字
     auto: bool = True  # 开启后每周按 schedule 自动开一次（服务开着才会开）
     schedule: EvolutionSchedule = EvolutionSchedule()
     tick_minutes: int = Field(default=30, ge=5, le=360)  # 服务开着时多久检查一次

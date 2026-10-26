@@ -145,3 +145,34 @@ async def test_decide_do_or_skip_writes_the_todo_list(tmp_path):
     await svc.wait(other)
     with pytest.raises(ServiceError, match="不是革新例会"):
         svc.evolution_decide(other, first["id"], "do")
+
+
+async def test_minor_and_major_meetings(tmp_path):
+    env, svc = make(tmp_path, minor_top=1, major_top=2)
+    with pytest.raises(ServiceError, match="主题"):
+        svc.evolution_meet(kind="major")
+    with pytest.raises(ServiceError, match="类型"):
+        svc.evolution_meet(kind="huge")
+    with pytest.raises(ServiceError, match="太长"):
+        svc.evolution_meet(kind="major", theme="长" * 500)
+    started = svc.evolution_meet(kind="major", theme="群聊更自然", now=MONDAY_10)
+    assert started["kind"] == "major" and started["theme"] == "群聊更自然"
+    await svc.wait(started["session_id"])
+    # 主题写进题目，每位成员看到的一样
+    ideate = [c for c in env.fake.calls if "其他人这一轮看不到你的点子" in c.messages[0].content]
+    assert ideate and all("「群聊更自然」" in c.messages[1].content for c in ideate)
+    [m] = svc.evolution()["meetings"]
+    assert m["kind"] == "major" and m["kind_label"] == "大版本" and m["top"] == 2
+    assert 0 < len(m["ideas"]) <= 2
+    saved = svc.evolution_export(started["session_id"])["markdown"]
+    assert "大版本，主题「群聊更自然」" in saved
+    # 大版本不占每周自动小版本的名额
+    assert not svc.evolution()["met_this_week"]
+    (tmp_path / "收件箱" / "2.md").write_text(CARD, encoding="utf-8")
+    auto = svc.evolution_tick(MONDAY_10)["started"]
+    assert auto
+    await svc.wait(auto)
+    minor = svc.evolution()["meetings"][0]
+    assert minor["kind"] == "minor" and minor["theme"] is None and len(minor["ideas"]) <= 1
+    calls = [c for c in env.fake.calls if "其他人这一轮看不到你的点子" in c.messages[0].content]
+    assert any("主题不限" in c.messages[1].content for c in calls)

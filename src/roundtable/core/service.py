@@ -46,6 +46,7 @@ from roundtable.core.evolution import (
     week_key,
     week_slot,
 )
+from roundtable.core.evolution import KINDS as MEETING_KINDS
 from roundtable.core.evolution_dev import DevAgent, DevError, run_process
 from roundtable.core.evolution_dev import Run as DevRun
 from roundtable.core.evolution_plugins import (
@@ -1399,7 +1400,7 @@ class RoundtableService:
         week = week_key(now)
         if now < week_slot(now, rules.schedule.weekday, rules.schedule.hour):
             return None
-        if any(m.week == week for m in self._meetings()):
+        if self._minor_met(week):
             return None
         if self.rt.repo.setting(SCOUT_WEEK_KEY) == week:
             return None
@@ -1437,7 +1438,9 @@ class RoundtableService:
                     "status": row["status"],
                     "cost_usd": self.rt.repo.session_cost(m.session_id),
                     # 最近 3 场开完的附上得票前几名，网页上可以点「做这条 / 不做」
-                    "ideas": self._meeting_ideas(m.session_id) if len(recent) < 3 else [],
+                    "ideas": self._meeting_ideas(m.session_id, m.kind) if len(recent) < 3 else [],
+                    "kind_label": MEETING_KINDS.get(m.kind, m.kind),
+                    "top": self._top(m.kind),
                     # 插件清单（写过的才有）：做什么、有什么用、优缺点、为什么做、场景
                     "plugins": self._meeting_plugins(m.session_id, lists)
                     if len(recent) < 3
@@ -1458,11 +1461,15 @@ class RoundtableService:
             "cards": [c.public() for c in cards],
             "notes": notes,
             "week": week,
-            "met_this_week": any(m.week == week for m in meetings),
+            "met_this_week": self._minor_met(week),
             "meeting_usd": rules.meeting_usd,
             "monthly_usd": rules.monthly_usd,
             "month_spent_usd": self._evolution_spent(meetings),
-            "adopt_top": rules.adopt_top,
+            "kinds": {
+                k: {"label": label, "top": self._top(k)} for k, label in MEETING_KINDS.items()
+            },
+            "themes": rules.major_themes,
+            "theme_chars": rules.theme_chars,
             "plugins": {
                 "enabled": rules.plugins.enabled,
                 "count": rules.plugins.count,
@@ -1478,8 +1485,26 @@ class RoundtableService:
             },
         }
 
-    def evolution_meet(self, *, auto: bool = False, now: datetime | None = None) -> dict[str, Any]:
+    def _top(self, kind: str) -> int:
+        rules = self.rt.config.roundtable.evolution
+        return rules.major_top if kind == "major" else rules.minor_top
+
+    def _minor_met(self, week: str) -> bool:
+        """本周开过小版本没有（每周自动开的是小版本；大版本你随时手动开，不占这个名额）。"""
+        return any(m.week == week and m.kind == "minor" for m in self._meetings())
+
+    def evolution_meet(
+        self,
+        *,
+        auto: bool = False,
+        now: datetime | None = None,
+        kind: str = "minor",
+        theme: str | None = None,
+    ) -> dict[str, Any]:
         """开一场革新例会：资料卡作为附件（全员同一份），走头脑风暴，所选档位全员上桌。
+
+        kind：minor 小版本（主题不限，列前 minor_top 名）/
+        major 大版本（必须给主题，列前 major_top 名）。
 
         开会前预估花费（不调用模型）：超过每场上限，或本月已花 + 本场预计超过每月上限，就不开。
         """
@@ -1490,19 +1515,28 @@ class RoundtableService:
             )
         if rules.plan not in self.rt.config.routing.plans:
             raise ServiceError(f"evolution.plan 不是已有的档位：{rules.plan!r}")
+        if kind not in MEETING_KINDS:
+            raise ServiceError(f"例会类型只能是 {'、'.join(MEETING_KINDS)}：{kind!r}")
+        theme = (theme or "").strip() or None
+        if kind == "major" and theme is None:
+            raise ServiceError("大版本要先定一个主题（例如「群聊更自然」）")
+        if kind == "minor":
+            theme = None  # 小版本主题不限
+        if theme and len(theme) > rules.theme_chars:
+            raise ServiceError(f"主题太长了，最多 {rules.theme_chars} 字")
         inbox, _ = self._evolution_dirs()
         if inbox is None:
             raise ServiceError("没有数据目录，读不到资料卡", 409)
         now = (now or self._local_now()).astimezone()
         week = week_key(now)
         meetings = self._meetings()
-        if auto and any(m.week == week for m in meetings):
+        if auto and self._minor_met(week):
             raise ServiceError(f"{week} 已经开过革新例会", 409)
         cards, notes = load_cards(inbox, max_cards=rules.max_cards, card_chars=rules.card_chars)
         if not cards:
             raise ServiceError(f"收件箱里没有资料卡（.md / .txt）：{inbox}", 409)
         attachments = [self.upload(c.file, c.attachment_bytes())["id"] for c in cards]
-        question = meeting_question(rules.topic, cards)
+        question = meeting_question(rules.topic, cards, kind=kind, theme=theme)
         est = self.estimate(
             question,
             tier=rules.plan,
@@ -1544,12 +1578,16 @@ class RoundtableService:
             seed=est["seed"],
             attachments=attachments,
         )
-        meetings.append(Meeting(sid, week, now.isoformat(timespec="seconds"), auto))
+        meetings.append(
+            Meeting(sid, week, now.isoformat(timespec="seconds"), auto, kind=kind, theme=theme)
+        )
         self._save_meetings(meetings)
         self._archive_cards(inbox, [c.file for c in cards], week)
         return {
             "session_id": sid,
             "week": week,
+            "kind": kind,
+            "theme": theme,
             "estimate_usd": cost,
             "cards": [c.public() for c in cards],
             "notes": notes,
@@ -1574,7 +1612,9 @@ class RoundtableService:
             session_id=session_id,
             board=board,
             cards=[a["name"] for a in self._attachments(session_id)],
-            top=self.rt.config.roundtable.evolution.adopt_top,
+            top=self._top(meeting.kind),
+            kind=meeting.kind,
+            theme=meeting.theme,
             cost_usd=view.cost_usd,
             created_at=view.created_at,
         )
@@ -1595,13 +1635,13 @@ class RoundtableService:
         data = json.loads(maps[-1].content) if maps else {}
         return Board.from_dict(data["board"]) if data.get("board") else Board()
 
-    def _meeting_ideas(self, session_id: str) -> list[dict[str, Any]]:
+    def _meeting_ideas(self, session_id: str, kind: str = "minor") -> list[dict[str, Any]]:
         """开完的例会得票前几名，附上你的决定（做 / 不做 / 还没定）。揭晓前用匿名视图。"""
         view = self.rt.repo.session_view(session_id, scrub=self.rt.scrubber.scrub)
         if view.status != "completed":
             return []
         decisions = load_decisions(self.rt.repo.setting(DECISIONS_KEY))
-        top = self.rt.config.roundtable.evolution.adopt_top
+        top = self._top(kind)
         out = []
         for r in adoptable(self._meeting_board(view))[:top]:
             key = decision_key(session_id, r.id)
@@ -1831,8 +1871,8 @@ class RoundtableService:
                     out["exported"].append(self.evolution_export(m.session_id)["file"])
         now = (now or self._local_now()).astimezone()
         week = week_key(now)
-        if now < week_slot(now, rules.schedule.weekday, rules.schedule.hour) or any(
-            m.week == week for m in self._meetings()
+        if now < week_slot(now, rules.schedule.weekday, rules.schedule.hour) or self._minor_met(
+            week
         ):
             return out
         try:

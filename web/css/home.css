@@ -268,6 +268,18 @@ details.ev-plugins{display:block}
 .ev-plugin dl{margin:0;display:grid;grid-template-columns:auto 1fr;gap:2px 8px;font-size:12.5px;line-height:1.5}
 .ev-plugin dt{color:var(--muted);white-space:nowrap}
 .ev-plugin dd{margin:0}
+.ev-guide{border:1px solid var(--line);background:var(--surface-2);border-radius:var(--r-lg);padding:10px 14px;margin:4px 0 10px;font-size:13px;line-height:1.65}
+.ev-guide summary{cursor:pointer;font-weight:600;color:var(--brass-ink)}
+.ev-guide ol{margin:6px 0;padding-left:20px;display:grid;gap:4px}
+.ev-guide p{margin:6px 0}
+.ev-tip{font-size:12px;margin:2px 0 6px}
+.ev-keys{margin:4px 0 8px;padding-left:18px;font-size:12.5px;line-height:1.6;color:var(--muted)}
+.ev-keys b{color:var(--ink);font-weight:600}
+.ev-kind{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;align-items:baseline;margin:4px 0 8px}
+.ev-kind label{cursor:pointer;white-space:nowrap}
+.ev-kind small{margin:0}
+.ev-theme{margin:0 0 8px}
+.ev-theme-input{width:100%;box-sizing:border-box;padding:6px 10px;border:1px solid var(--line);border-radius:var(--r-sm);background:var(--surface-2);color:var(--ink);font:inherit}
 .gc-tag .link,.gc-sys .link{border:0;background:none;color:var(--brass-ink);padding:0;text-decoration:underline;text-underline-offset:2px}
 .gc-empty{margin:auto;text-align:center;color:var(--muted);max-width:340px}
 .gc-empty b{display:block;color:var(--ink);font-weight:500;margin-bottom:4px}

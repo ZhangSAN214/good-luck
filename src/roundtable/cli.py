@@ -1334,7 +1334,9 @@ class CLI:
         for n, p in enumerate(out["plugins"], 1):
             self.p(f"  {n}. [{p['scene']}] {p['name']}：{p['what']}")
 
-    async def cmd_evolve(self, action: str, session_id: str | None) -> int:
+    async def cmd_evolve(
+        self, action: str, session_id: str | None, major: bool = False, theme: str | None = None
+    ) -> int:
         """革新例会：status 看概况；meet 开一场、等它开完、写插件清单并导出采纳单；
         export 导出某场的采纳单；plugins 给某场写插件清单。"""
         svc = RoundtableService(self.rt)
@@ -1351,12 +1353,13 @@ class CLI:
                     self.p(f"  没写：{r['url']}（{r['reason']}）")
                 return 0
             if action == "meet":
-                started = svc.evolution_meet()
+                started = svc.evolution_meet(kind="major" if major else "minor", theme=theme)
                 session_id = started["session_id"]
                 for note in started["notes"]:
                     self.p(f"  提示：{note}")
+                label = f"大版本「{started['theme']}」" if major else "小版本（主题不限）"
                 self.p(
-                    f"革新例会 {started['week']} 开始：{len(started['cards'])} 张资料卡，"
+                    f"革新例会 {started['week']} {label} 开始：{len(started['cards'])} 张资料卡，"
                     f"预计 ${started['estimate_usd']:.4f}（会话 {session_id}）"
                 )
                 await svc.wait(session_id)
@@ -1573,6 +1576,10 @@ def build_parser() -> argparse.ArgumentParser:
         choices=["status", "scout", "meet", "export", "plugins"],
     )
     evolve.add_argument("session_id", nargs="?", help="export / plugins 时：例会的会话 id")
+    evolve.add_argument(
+        "--major", action="store_true", help="meet 时开大版本（要配 --theme，列前 10 个选项）"
+    )
+    evolve.add_argument("--theme", help="大版本的主题，例如 '群聊更自然'")
     history = sub.add_parser("history", help="最近的讨论")
     history.add_argument("--limit", type=int, default=20)
     note = sub.add_parser("note", help="讨论进行中补充意见（下一个步骤开始时带上）")
@@ -1678,7 +1685,7 @@ async def run(
         if args.command == "performance":
             return cli.cmd_performance(args.reset)
         if args.command == "evolve":
-            return await cli.cmd_evolve(args.action, args.session_id)
+            return await cli.cmd_evolve(args.action, args.session_id, args.major, args.theme)
         if args.command == "note":
             return cli.cmd_note(args.session_id, args.text)
         if args.command == "history":

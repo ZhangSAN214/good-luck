@@ -58,11 +58,19 @@ def test_meeting_question_lists_cards(tmp_path):
     q = meeting_question("  请提建议。 ", cards)
     assert q.startswith("请提建议。") and "资料卡 1：记忆衰减（附件 a.md）" in q
     assert "正文" not in q  # 正文只作为附件
+    assert "小版本" in q and "主题不限" in q
+    major = meeting_question("请提建议。", cards, kind="major", theme="记忆更好")
+    assert "大版本" in major and "「记忆更好」" in major
 
 
 def test_meetings_roundtrip_and_bad_data():
-    ms = [Meeting("s1", "2026-W44", "2026-10-26T09:00:00", True)]
+    ms = [
+        Meeting("s1", "2026-W44", "2026-10-26T09:00:00", True),
+        Meeting("s2", "2026-W44", "", kind="major", theme="群聊"),
+    ]
     assert load_meetings(dump_meetings(ms)) == ms
+    # 旧记录没有 kind：当小版本
+    assert load_meetings('[{"session_id": "a", "week": "w"}]')[0].kind == "minor"
     assert load_meetings("not json") == [] and load_meetings(None) == []
 
 

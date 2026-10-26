@@ -55,6 +55,10 @@ def _info_with_plugins(n=22):
         "status": "completed",
         "cost_usd": 0.18,
         "ideas": ideas,
+        "kind": "major",
+        "kind_label": "大版本",
+        "theme": "群聊更自然",
+        "top": 10,
         "plugins": {"items": items, "scenes": counts, "cost_usd": 0.012, "file": "2026-W44.md"},
     }
     return {
@@ -65,7 +69,9 @@ def _info_with_plugins(n=22):
         "cards": [],
         "notes": [],
         "meetings": [meeting],
-        "adopt_top": 10,
+        "kinds": {"minor": {"label": "小版本", "top": 3}, "major": {"label": "大版本", "top": 10}},
+        "themes": ["群聊更自然", "更省钱更快"],
+        "theme_chars": 200,
         "plugins": {"enabled": True, "count": 20, "scenes": scenes, "estimate_usd": 0.04},
         "scout": {},
     }
@@ -92,6 +98,59 @@ def test_meeting_shows_top_ideas_and_plugin_list_with_scene_filter(serve, page):
         assert label in card
     page.click("#evolvedlg .ev-chip[data-scene='公寓生活']")
     assert page.locator("#evolvedlg .ev-plugin").count() == 3
-    assert all("公寓生活" in t for t in page.locator("#evolvedlg .ev-tag").all_inner_texts())
+    assert all(
+        "公寓生活" in t for t in page.locator("#evolvedlg .ev-plugin .ev-tag").all_inner_texts()
+    )
     page.click("#evolvedlg .ev-chip[data-scene='']")
     assert page.locator("#evolvedlg .ev-plugin").count() == 22
+
+
+def test_guide_and_choosing_major_theme(serve, page):
+    import json
+
+    srv = serve()
+    info = _info_with_plugins()
+    info["cards"] = [{"file": "a.md", "title": "卡", "chars": 10}]
+    sent = []
+
+    def meet(route):
+        sent.append(route.request.post_data_json)
+        route.fulfill(
+            status=202,
+            content_type="application/json",
+            body=json.dumps({"session_id": "s2", "estimate_usd": 0.2, "kind": "major"}),
+        )
+
+    page.route(
+        "**/api/evolution",
+        lambda route: route.fulfill(
+            status=200, content_type="application/json", body=json.dumps(info)
+        ),
+    )
+    page.route("**/api/evolution/meetings", meet)
+    page.goto(srv.url)
+    page.click("#evolve")
+    page.wait_for_selector("#evolvedlg[open] .ev-guide")
+    # 新手说明：大白话讲流程；每个按钮都有说明
+    page.click("#evolvedlg .ev-guide summary")
+    guide = page.inner_text("#evolvedlg .ev-guide")
+    for word in ("小版本", "大版本", "做这条", "合并", "花钱吗"):
+        assert word in guide
+    for sel in ("[data-meet]", "[data-scout]", "[data-open]", "[data-decide]", "[data-scene]"):
+        assert page.locator(f"#evolvedlg {sel}").first.get_attribute("title")
+    row = page.inner_text("#evolvedlg .ev-list >> nth=1")
+    assert "大版本" in row and "「群聊更自然」" in row
+    # 默认小版本，没有主题框；选大版本后出现主题，不填主题不能开
+    assert page.locator("#evolvedlg [data-theme-input]").count() == 0
+    page.check("#evolvedlg input[name=evkind][value=major]")
+    page.wait_for_selector("#evolvedlg [data-theme-input]")
+    page.click("#evolvedlg [data-meet]")
+    assert "先选或填一个主题" in page.inner_text("#evolvedlg .pp-msg") and sent == []
+    page.click("#evolvedlg .ev-chip[data-theme='更省钱更快']")
+    assert page.input_value("#evolvedlg [data-theme-input]") == "更省钱更快"
+    page.fill("#evolvedlg [data-theme-input]", "让成员记性更好")
+    page.click("#evolvedlg [data-meet]")
+    page.wait_for_function(
+        "document.querySelector('#evolvedlg .pp-msg').textContent.includes('开始了')"
+    )
+    assert sent == [{"kind": "major", "theme": "让成员记性更好"}]
