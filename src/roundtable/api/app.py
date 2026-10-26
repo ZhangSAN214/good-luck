@@ -156,7 +156,9 @@ def create_app(service: RoundtableService | None = None) -> FastAPI:
         from roundtable.core.runtime import Runtime
 
         app.state.service = RoundtableService(Runtime.build())
+        app.state.service.reconcile()
         app.state.service.start_life()
+        app.state.service.start_evolution()
         try:
             yield
         finally:
@@ -295,9 +297,25 @@ def create_app(service: RoundtableService | None = None) -> FastAPI:
     async def chat_clear(request: Request, room: str = "main") -> dict[str, Any]:
         return svc(request).chat_clear(room)
 
+    @app.get("/api/evolution")
+    async def evolution(request: Request) -> dict[str, Any]:
+        return svc(request).evolution()
+
+    @app.post("/api/evolution/meetings", status_code=202)
+    async def evolution_meet(request: Request) -> dict[str, Any]:
+        return svc(request).evolution_meet()
+
+    @app.post("/api/evolution/meetings/{session_id}/export")
+    async def evolution_export(request: Request, session_id: str) -> dict[str, Any]:
+        return svc(request).evolution_export(session_id)
+
     @app.get("/api/apartment")
     async def apartment(request: Request, hour: int, weekday: int) -> dict[str, Any]:
         return svc(request).apartment(hour, weekday)
+
+    @app.get("/api/plugins/board")
+    async def plugin_board(request: Request) -> dict[str, Any]:
+        return svc(request).plugin_board()
 
     @app.get("/api/models/candidates")
     async def model_candidates(request: Request) -> dict[str, Any]:

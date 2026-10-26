@@ -38,6 +38,24 @@ def test_session_lifecycle(repo):
     assert repo.is_revealed(sid) and repo.session_row(sid)["revealed_at"] == first
 
 
+def test_pause_orphaned_only_touches_running(repo):
+    """开机对账：只把停在 running 的会话改成 paused，其他状态原样保留。"""
+    ids = {}
+    for status in ("created", "running", "awaiting_confirmation", "paused", "completed"):
+        ids[status] = repo.create_session(status, seed=1)
+        if status != "created":
+            repo.set_status(ids[status], status)
+    second = repo.create_session("又一场", seed=2)
+    repo.set_status(second, "running")
+    assert sorted(repo.pause_orphaned("中断了")) == sorted([ids["running"], second])
+    for status, sid in ids.items():
+        expected = "paused" if status == "running" else status
+        assert repo.session_row(sid)["status"] == expected
+    assert repo.session_row(second)["error"] == "中断了"
+    assert repo.session_row(ids["paused"])["error"] is None
+    assert repo.pause_orphaned("中断了") == []  # 再对一次账没有可改的
+
+
 def test_unknown_session(repo):
     with pytest.raises(NotFound):
         repo.set_status("nope", "running")

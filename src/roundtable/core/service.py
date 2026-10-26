@@ -9,11 +9,13 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import json
 import logging
 import secrets
 from collections.abc import AsyncIterator, Sequence
 from dataclasses import asdict
-from datetime import timedelta
+from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Any
 from urllib.parse import quote
 
@@ -24,6 +26,20 @@ from roundtable.core.browse import REFRESH_KEY, feeds_of, set_feeds
 from roundtable.core.budget.guard import month_window
 from roundtable.core.chat import ROOM, WORK, ChatHub, chat_budget
 from roundtable.core.chat_work import WORK_EVENTS, post_handoff, post_office_event
+from roundtable.core.config.loader import ConfigError
+from roundtable.core.evolution import (
+    MEETINGS_KEY,
+    Meeting,
+    adoption_markdown,
+    adoption_path,
+    dump_meetings,
+    load_cards,
+    load_meetings,
+    meeting_question,
+    week_key,
+    week_slot,
+)
+from roundtable.core.ideaboard import Board
 from roundtable.core.life import LifeEngine
 from roundtable.core.media import KIND_LABELS, KINDS, MediaService
 from roundtable.core.members_art import MEMBERS_FILE, load_members, mime_of, resolve_file
@@ -35,6 +51,7 @@ from roundtable.core.office import collect as collect_performance
 from roundtable.core.office import reset as reset_performance
 from roundtable.core.orchestrator import Orchestrator, OrchestratorError, RunResult
 from roundtable.core.persona import is_empty, persona_of, set_persona
+from roundtable.core.plugin_board import board_view, load_board
 from roundtable.core.preview import render_preview
 from roundtable.core.routing import (
     AUTO,
@@ -59,6 +76,7 @@ log = logging.getLogger(__name__)
 # 讨论停下来（结束或等待用户）的状态：此时推送流会关闭
 RESTING = frozenset({"completed", "stopped", "failed", "awaiting_confirmation", "paused"})
 REVEALABLE = frozenset({"completed", "stopped", "failed"})
+ORPHANED_ERROR = "服务上次意外退出，做到一半中断了，可以点「继续」接着做"
 MAX_QUESTION_CHARS = 20_000
 MAX_CHAT_CHARS = 2000
 MAX_MOMENT_CHARS = 500
@@ -93,6 +111,19 @@ class RoundtableService:
         self.life = LifeEngine(runtime, self.chats, self.memory)
         self._chat_tasks: set[asyncio.Task[Any]] = set()
         self._life_task: asyncio.Task[None] | None = None
+        self._evolution_task: asyncio.Task[None] | None = None
+
+    def reconcile(self) -> list[str]:
+        """开机对账：上次服务意外退出（或被关掉）时还在跑的讨论，数据库里会一直留着「进行中」。
+
+        启动时把它们改成「已暂停」，界面上点「继续」就用 resume 从中断处接着做
+        （已完成的步骤不重复）。
+        只在正式启动的服务里、开始接受请求前调用一次。
+        """
+        ids = self.rt.repo.pause_orphaned(ORPHANED_ERROR)
+        if ids:
+            log.info("开机对账：%d 场讨论在上次退出时中断，已改为暂停", len(ids))
+        return ids
 
     def start_life(self) -> None:
         """后台推进成员的生活（只在正式启动的服务里调用；测试直接调 life_tick）。"""
@@ -105,14 +136,27 @@ class RoundtableService:
                 await self.life_tick()
             await asyncio.sleep(self.rt.config.roundtable.chat.life.tick_minutes * 60)
 
+    def start_evolution(self) -> None:
+        """后台按时开革新例会（只在正式启动的服务里调用；测试直接调 evolution_tick）。"""
+        rules = self.rt.config.roundtable.evolution
+        if self._evolution_task is None and rules.enabled and rules.auto:
+            self._evolution_task = asyncio.get_running_loop().create_task(self._evolution_loop())
+
+    async def _evolution_loop(self) -> None:
+        while True:
+            try:
+                self.evolution_tick()
+            except Exception:  # noqa: BLE001 - 例会出错不影响其他功能，下次再试
+                log.exception("革新例会：自动检查出错")
+            await asyncio.sleep(self.rt.config.roundtable.evolution.tick_minutes * 60)
+
     async def life_tick(self) -> dict[str, int]:
         """推进一次生活（开机后第一次会补上关机期间的时间）。"""
         return await self.life.tick(self.rt.budget.now().astimezone())
 
     async def aclose(self) -> None:
         tasks = [*self._tasks.values(), *self._chat_tasks]
-        if self._life_task is not None:
-            tasks.append(self._life_task)
+        tasks += [t for t in (self._life_task, self._evolution_task) if t is not None]
         for task in tasks:
             task.cancel()
             with contextlib.suppress(asyncio.CancelledError, Exception):
@@ -287,6 +331,16 @@ class RoundtableService:
             },
             "total_usd": self.rt.repo.total_spent(),
         }
+
+    # --- 插件榜 ------------------------------------------------------------------
+
+    def plugin_board(self) -> dict[str, Any]:
+        """自我学习革新调研过的插件 / 项目榜单（只读；每次重新读 config/plugin_board.yaml）。"""
+        try:
+            board = load_board(self.rt.plugin_board)
+        except ConfigError as exc:
+            raise ServiceError(str(exc), 500) from None
+        return board_view(board)
 
     # --- 办公室：名册与工资单 ------------------------------------------------------
 
@@ -1252,6 +1306,199 @@ class RoundtableService:
             "checkpoint": asdict(checkpoint) if checkpoint else None,
             "cost_usd": self.rt.repo.session_cost(session_id),
         }
+
+    # --- 革新例会（docs/evolution/README.md） -------------------------------------------
+
+    def _evolution_dirs(self) -> tuple[Path | None, Path | None]:
+        base = self.rt.evolution_dir
+        if base is None:
+            return None, None
+        rules = self.rt.config.roundtable.evolution
+        return base / rules.inbox_dir, base / rules.adopted_dir
+
+    def _meetings(self) -> list[Meeting]:
+        return load_meetings(self.rt.repo.setting(MEETINGS_KEY))
+
+    def _save_meetings(self, meetings: Sequence[Meeting]) -> None:
+        self.rt.repo.set_setting(MEETINGS_KEY, dump_meetings(meetings))
+
+    def _evolution_spent(self, meetings: Sequence[Meeting]) -> float:
+        start, end = month_window(self.rt.budget.now())
+        return self.rt.repo.spent_in_sessions([m.session_id for m in meetings], start, end)
+
+    def _local_now(self) -> datetime:
+        return self.rt.budget.now().astimezone()
+
+    def evolution(self) -> dict[str, Any]:
+        """革新例会概况：开关、收件箱里的资料卡、本月花费与上限、最近的例会。"""
+        rules = self.rt.config.roundtable.evolution
+        inbox, adopted = self._evolution_dirs()
+        cards, notes = load_cards(inbox, max_cards=rules.max_cards, card_chars=rules.card_chars)
+        meetings = self._meetings()
+        week = week_key(self._local_now())
+        recent = []
+        for m in reversed(meetings[-10:]):
+            try:
+                row = self.rt.repo.session_row(m.session_id)
+            except NotFound:
+                continue
+            recent.append(
+                {
+                    **asdict(m),
+                    "status": row["status"],
+                    "cost_usd": self.rt.repo.session_cost(m.session_id),
+                }
+            )
+        return {
+            "enabled": rules.enabled,
+            "auto": rules.auto,
+            "schedule": rules.schedule.model_dump(),
+            "plan": rules.plan,
+            "plan_label": getattr(
+                self.rt.config.routing.plans.get(rules.plan), "label", rules.plan
+            ),
+            "anonymous": rules.anonymous,
+            "inbox": str(inbox) if inbox else None,
+            "adopted_dir": str(adopted) if adopted else None,
+            "cards": [c.public() for c in cards],
+            "notes": notes,
+            "week": week,
+            "met_this_week": any(m.week == week for m in meetings),
+            "meeting_usd": rules.meeting_usd,
+            "monthly_usd": rules.monthly_usd,
+            "month_spent_usd": self._evolution_spent(meetings),
+            "meetings": recent,
+        }
+
+    def evolution_meet(self, *, auto: bool = False, now: datetime | None = None) -> dict[str, Any]:
+        """开一场革新例会：资料卡作为附件（全员同一份），走头脑风暴，所选档位全员上桌。
+
+        开会前预估花费（不调用模型）：超过每场上限，或本月已花 + 本场预计超过每月上限，就不开。
+        """
+        rules = self.rt.config.roundtable.evolution
+        if not rules.enabled:
+            raise ServiceError(
+                "革新例会没有开启：在 config/roundtable.yaml 里把 evolution.enabled 改成 true", 409
+            )
+        if rules.plan not in self.rt.config.routing.plans:
+            raise ServiceError(f"evolution.plan 不是已有的档位：{rules.plan!r}")
+        inbox, _ = self._evolution_dirs()
+        if inbox is None:
+            raise ServiceError("没有数据目录，读不到资料卡", 409)
+        cards, notes = load_cards(inbox, max_cards=rules.max_cards, card_chars=rules.card_chars)
+        if not cards:
+            raise ServiceError(f"收件箱里没有资料卡（.md / .txt）：{inbox}", 409)
+        now = (now or self._local_now()).astimezone()
+        week = week_key(now)
+        meetings = self._meetings()
+        if auto and any(m.week == week for m in meetings):
+            raise ServiceError(f"{week} 已经开过革新例会", 409)
+        attachments = [self.upload(c.file, c.attachment_bytes())["id"] for c in cards]
+        question = meeting_question(rules.topic, cards)
+        est = self.estimate(
+            question,
+            tier=rules.plan,
+            workflow="brainstorm",
+            anonymous=rules.anonymous,
+            attachments=attachments,
+        )
+        option = next(
+            (
+                o
+                for o in est["options"]
+                if o["workflow"] == "brainstorm" and o["plan"] == rules.plan
+            ),
+            None,
+        )
+        if option is None or "estimate_usd" not in option:
+            reason = option["reason"] if option else "没有这个档位"
+            raise ServiceError(f"现在开不了革新例会：{reason}", 409)
+        cost = option["estimate_usd"]
+        if cost > rules.meeting_usd:
+            raise ServiceError(
+                f"本场预计 ${cost:.2f}，超过每场上限 ${rules.meeting_usd:.2f}，没有开会"
+                "（可以少放几张资料卡）",
+                409,
+            )
+        spent = self._evolution_spent(meetings)
+        if spent + cost > rules.monthly_usd + 1e-9:
+            raise ServiceError(
+                f"本月革新例会已花 ${spent:.2f}，加上本场预计 ${cost:.2f} 会超过每月上限"
+                f" ${rules.monthly_usd:.2f}，没有开会",
+                409,
+            )
+        sid = self.create(
+            question,
+            tier=rules.plan,
+            workflow="brainstorm",
+            anonymous=rules.anonymous,
+            seed=est["seed"],
+            attachments=attachments,
+        )
+        meetings.append(Meeting(sid, week, now.isoformat(timespec="seconds"), auto))
+        self._save_meetings(meetings)
+        return {
+            "session_id": sid,
+            "week": week,
+            "estimate_usd": cost,
+            "cards": [c.public() for c in cards],
+            "notes": notes,
+        }
+
+    def evolution_export(self, session_id: str) -> dict[str, Any]:
+        """导出采纳单（Markdown）到 evolution/采纳单/。揭晓前用匿名视图，提出者只写代号。"""
+        meetings = self._meetings()
+        meeting = next((m for m in meetings if m.session_id == session_id), None)
+        if meeting is None:
+            raise ServiceError("这场不是革新例会", 404)
+        self._require(session_id)
+        view = self.rt.repo.session_view(session_id, scrub=self.rt.scrubber.scrub)
+        if view.status != "completed":
+            raise ServiceError("例会还没开完，开完才能导出采纳单", 409)
+        _, folder = self._evolution_dirs()
+        if folder is None:
+            raise ServiceError("没有数据目录，无法保存采纳单", 409)
+        maps = [o for o in view.outputs if o.kind == "mindmap"]
+        data = json.loads(maps[-1].content) if maps else {}
+        board = Board.from_dict(data["board"]) if data.get("board") else Board()
+        text = adoption_markdown(
+            week=meeting.week,
+            session_id=session_id,
+            board=board,
+            cards=[a["name"] for a in self._attachments(session_id)],
+            top=self.rt.config.roundtable.evolution.adopt_top,
+            cost_usd=view.cost_usd,
+            created_at=view.created_at,
+        )
+        folder.mkdir(parents=True, exist_ok=True)
+        path = adoption_path(folder, meeting.week)
+        path.write_text(text, encoding="utf-8")
+        meeting.adopted = path.name
+        self._save_meetings(meetings)
+        return {"file": path.name, "path": str(path), "markdown": text}
+
+    def evolution_tick(self, now: datetime | None = None) -> dict[str, Any]:
+        """自动部分：开完的例会导出采纳单；到了本周开会时间、本周还没开过就开一场。"""
+        rules = self.rt.config.roundtable.evolution
+        out: dict[str, Any] = {"started": None, "exported": [], "skipped": None}
+        if not (rules.enabled and rules.auto):
+            return out
+        for m in self._meetings():
+            if m.adopted is None and not self.running(m.session_id):
+                with contextlib.suppress(ServiceError, NotFound):
+                    out["exported"].append(self.evolution_export(m.session_id)["file"])
+        now = (now or self._local_now()).astimezone()
+        week = week_key(now)
+        if now < week_slot(now, rules.schedule.weekday, rules.schedule.hour) or any(
+            m.week == week for m in self._meetings()
+        ):
+            return out
+        try:
+            out["started"] = self.evolution_meet(auto=True, now=now)["session_id"]
+        except ServiceError as exc:
+            out["skipped"] = str(exc)
+            log.info("革新例会：本次没有开会（%s）", exc)
+        return out
 
     # --- 后台任务 --------------------------------------------------------------------
 

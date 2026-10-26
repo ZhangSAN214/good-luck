@@ -237,6 +237,21 @@ class Repository:
             (status, error, self.clock(), session_id),
         )
 
+    def pause_orphaned(self, error: str) -> list[str]:
+        """开机对账：把上次进程退出时还停在 running 的会话改成 paused，返回这些会话的 id。
+
+        只在服务启动、还没有任何后台任务时调用；等待确认的会话本来就在等用户，不动。
+        """
+        rows = self._exec("SELECT id FROM sessions WHERE status = 'running' ORDER BY id").fetchall()
+        ids = [r["id"] for r in rows]
+        if ids:
+            self._exec(
+                "UPDATE sessions SET status = 'paused', error = ?, updated_at = ?"
+                f" WHERE status = 'running' AND id IN ({', '.join('?' * len(ids))})",
+                (error, self.clock(), *ids),
+            )
+        return ids
+
     def session_row(self, session_id: str) -> dict[str, Any]:
         """内部使用的完整记录（含 seed），不用于对外展示。"""
         row = dict(self._require_session(session_id))
@@ -1001,6 +1016,19 @@ class Repository:
         return self._exec(
             "SELECT COALESCE(SUM(cost_usd), 0) FROM calls WHERE created_at >= ? AND created_at < ?",
             (iso(start), iso(end)),
+        ).fetchone()[0]
+
+    def spent_in_sessions(
+        self, session_ids: Sequence[str], start: datetime, end: datetime
+    ) -> float:
+        """[start, end) 内指定几场会话的调用花费（如革新例会的每月上限）。"""
+        if not session_ids:
+            return 0.0
+        marks = ", ".join("?" for _ in session_ids)
+        return self._exec(
+            "SELECT COALESCE(SUM(cost_usd), 0) FROM calls"
+            f" WHERE session_id IN ({marks}) AND created_at >= ? AND created_at < ?",
+            (*session_ids, iso(start), iso(end)),
         ).fetchone()[0]
 
     def session_cost(self, session_id: str) -> float:

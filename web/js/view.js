@@ -1377,6 +1377,37 @@ export function usagePanel(sv, budget, rice, slip = null) {
   return h || '<p class="empty">加载中…</p>';
 }
 
+/** 插件榜：自我学习革新调研过的插件 / 项目，按对圆桌的价值排序（只读，不安装任何插件）。 */
+export function pluginBoardPanel(b, filter = 'all') {
+  if (!b) return '<p class="empty">加载中…</p>';
+  if (b.error) return `<p class="hint badp">${esc(b.error)}</p>`;
+  const labels = b.status_labels || {};
+  const pillOf = { borrowed: 'okp', candidate: 'run', watch: 'wait', rejected: 'badp' };
+  const total = (b.entries || []).length;
+  let h = `<h4>插件榜 <span class="hint">更新于 ${esc(b.updated)}</span></h4><div class="seg" id="board-filter">`;
+  h += `<button type="button" data-f="all" aria-pressed="${filter === 'all'}">全部 ${total}</button>`;
+  for (const [k, label] of Object.entries(labels)) {
+    h += `<button type="button" data-f="${esc(k)}" aria-pressed="${filter === k}">${esc(label)} ${b.counts?.[k] ?? 0}</button>`;
+  }
+  h += '</div><ol class="board" id="board">';
+  for (const e of b.entries || []) {
+    if (filter !== 'all' && e.status !== filter) continue;
+    const name = e.url ? `<a href="${esc(e.url)}" target="_blank" rel="noopener noreferrer">${esc(e.name)}</a>` : esc(e.name);
+    const stars = e.verified ? `★ ${esc(e.stars)}` : '★ 待核实';
+    const gate = e.meets_code ? '可搬代码' : e.meets_idea ? '可借思路' : '未达门槛';
+    h += `<li data-status="${esc(e.status)}"><div><b>${esc(e.rank)}. ${name}</b> <span class="pill ${pillOf[e.status] || ''}">${esc(e.status_label)}</span></div>`;
+    h += `<div class="hint">${esc(e.category)} · 价值 ${'●'.repeat(e.rating)}${'○'.repeat(5 - e.rating)} · ${stars} · ${esc(e.license || '许可证待核实')} · ${gate}</div>`;
+    h += `<p>${esc(e.summary)}</p><p><b>对圆桌：</b>${esc(e.value)}</p>`;
+    if (e.borrowed_in) h += `<p class="hint">借到：${esc(e.borrowed_in)}</p>`;
+    if (e.note) h += `<p class="hint">${esc(e.note)}</p>`;
+    h += '</li>';
+  }
+  h += '</ol>';
+  const c = b.criteria || {};
+  h += `<p class="hint">门槛：借思路 ≥ ${esc(c.idea_min_stars)} star；搬代码 ≥ ${esc(c.code_min_stars)} star 且许可证为 ${esc((c.code_licenses || []).join(' / '))}。star 是核实那天的快照。每周小改时更新，数据在 config/plugin_board.yaml。</p>`;
+  return h;
+}
+
 export function channelsPanel(status) {
   if (!status) return '<p class="empty">加载中…</p>';
   // 渠道模式：auto / direct / 只用聚合平台（前端不写死任何渠道名）

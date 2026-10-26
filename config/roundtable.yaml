@@ -162,6 +162,7 @@ prompts:
   media_rewrite: v1      # 汇总失败时，由一位成员根据修订稿重写生成提示词
   work_media: v1         # 协同：媒体子任务，成员写生成提示词
   rework_media: v2       # 协同：按审查意见修改生成提示词
+  evolve_review: v1      # 革新 PR 的对抗式复审（开发侧脚本 scripts/evolve_review.py，可选）
   web_search: v1         # 借助聚合平台联网搜索时发给搜索用模型的指令
   web_fetch: v1          # 借助聚合平台读取网页时发给读取用模型的指令
 
@@ -728,3 +729,20 @@ display:
     grain_tokens: 1000
     spoon_grains: 100
     bowl_spoons: 30
+
+# 革新例会（docs/evolution/README.md）：成员读同一叠资料卡（Claude 整理，成员看不到原文），
+# 走头脑风暴提建议、匿名互评、投票，导出采纳单；Claude 只从采纳单里挑一条实现、开 PR，合并永远由你点。
+# 资料卡放在数据目录的 evolution/收件箱/，采纳单导出到 evolution/采纳单/（都只在你电脑上，不进 git）。
+# 默认关闭。开启后服务开着时每周按 schedule 自动开一次；花费超出 meeting_usd / monthly_usd 就不开。
+evolution:
+  enabled: false
+  plan: budget               # 节电档全员上桌
+  anonymous: true            # 塔罗牌代号
+  topic: 下面的资料卡是本周从开源项目、论文和官方文档里整理的新做法。请结合圆桌（多 AI 协作平台：讨论、协同、头脑风暴、办公室、群聊）的现状，提出可以借鉴到圆桌里的具体改进，说清改哪里、为什么值得做、可能的风险；每个点子注明参考了哪张资料卡。不改动项目规则（中立性、全员上桌、预算、隐私）。
+  max_cards: 5
+  card_chars: 3000
+  meeting_usd: 0.40          # 每场预计花费上限
+  monthly_usd: 1.5           # 每月上限（UTC 自然月，也计入上面的总预算）
+  adopt_top: 3               # 采纳单列前 3 名
+  auto: true
+  schedule: {weekday: 1, hour: 9}   # 每周一 9 点（本机时区）之后开一次
