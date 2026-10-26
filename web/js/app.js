@@ -108,6 +108,7 @@ $('#skin').addEventListener('click', () => {
 const moments = new Moments($('#moments'), {
   api: { list: API.getMoments, post: API.postMoment, like: API.likeMoment, comment: API.commentMoment, del: API.delMoment, delComment: API.delMomentComment },
   onSeen: () => gchat.markMomentsSeen(),
+  avatar: (member, name) => (member ? gchat.avatar(member, name) : ''),
 });
 const gchat = new GroupChat($('#gchat'), {
   openPeople: (member) => people.open(member),
@@ -912,8 +913,9 @@ function landing() {
 const VIEW_OF = { work: '#main', home: '#home', chat: '#gchat', hub: '#hub' };
 
 /**
- * 切换入口，带过渡：浏览器支持视图过渡时，从首页卡片点进去会像 iPhone 打开 App 那样从卡片放大成整页，
- * 其他切换是轻微缩放淡入；不支持或系统开了「减少动态」时直接切换。from 是被点的卡片（可选）。
+ * 切换入口，带过渡（仿 iPhone 打开 App，不回弹）：背景和顶栏不动，只有页面在动。
+ * 旧页往前推远淡出，新页从略小处浮上来；从首页卡片点进去时，卡片本身放大成新页面。
+ * 不支持视图过渡或系统开了「减少动态」时直接切换。from 是被点的卡片（可选）。
  * 返回的 Promise 在页面真正切过去后完成，接着要操作新页面的调用方先 await 它。
  */
 function setEntry(m, from = null) {
@@ -923,15 +925,23 @@ function setEntry(m, from = null) {
     applyEntry(m);
     return Promise.resolve();
   }
-  if (from) from.style.viewTransitionName = 'rt-zoom';
+  const leave = $(VIEW_OF[entry]);
   const dest = $(VIEW_OF[m]);
+  const name = (el, n) => {
+    if (el) el.style.viewTransitionName = n;
+  };
+  name(leave, 'rt-from');
+  name(from, 'rt-zoom');
   const t = document.startViewTransition(() => {
-    if (from) from.style.viewTransitionName = '';
+    name(leave, '');
+    name(from, '');
     applyEntry(m);
-    if (from && dest) dest.style.viewTransitionName = 'rt-zoom';
+    name(dest, from ? 'rt-zoom' : 'rt-to');
   });
   t.finished.finally(() => {
-    if (dest) dest.style.viewTransitionName = '';
+    name(leave, '');
+    name(from, '');
+    name(dest, '');
   });
   return t.updateCallbackDone.catch(() => {});
 }

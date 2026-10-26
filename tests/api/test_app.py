@@ -194,7 +194,10 @@ def test_frontend_is_served():
         index = c.get("/")
         assert index.status_code == 200 and "圆桌" in index.text
         for path in ("/css/app.css", "/js/app.js", "/js/api.js", "/js/view.js"):
-            assert c.get(path).status_code == 200, path
+            r = c.get(path)
+            assert r.status_code == 200, path
+            # 每次都要向服务器确认新版本，改完界面刷新就能看到
+            assert r.headers["cache-control"] == "no-cache", path
         # API 路由不被静态文件覆盖
         assert c.get("/api/status").status_code == 200
 

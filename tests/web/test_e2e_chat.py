@@ -222,15 +222,20 @@ def test_moments_dialog_post_like_comment(serve, page):
     page.click("#gc-moments")
     page.wait_for_selector("#moments .mo")
     assert "你不在时" in page.inner_text("#moments .mo")
+    # 赞和评论收在每条右下角的「··」里
+    page.click("#moments .mo-more")
     page.click("#moments [data-like]")
     page.wait_for_selector("#moments .mo-likes:has-text('我')")
+    page.click("#moments .mo-more")
     page.click("#moments .mo-act [data-reply]")
     page.fill("#moments .mo-cf input", "加油")
     page.click("#moments .mo-cf button")
     page.wait_for_selector("#moments .mo-comments li:has-text('阿二')")  # 作者回了一句
+    page.click("#moments [data-compose]")
     page.fill("#mo-new textarea", "周末去爬山")
     page.click("#mo-new button")
     page.wait_for_selector("#moments .mo:has-text('周末去爬山') .mo-comments li")  # 成员来评论
+    page.click("#moments [data-pick]")
     page.click("#moments [data-author='V2']")
     page.wait_for_selector("#moments .vh:has-text('阿二')")
     assert "周末去爬山" not in page.inner_text("#moments .mo-wrap")

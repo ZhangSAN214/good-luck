@@ -179,14 +179,17 @@
 @media (prefers-reduced-motion: reduce){.hb-layer,body::before{transform:none!important}}
 
 /* ---------- 过渡：仿 iPhone 打开 App（不回弹），系统开了「减少动态」时全部关掉 ---------- */
-/* 从首页卡片进入：卡片放大成整页（视图过渡，名字 rt-zoom 由 app.js 临时挂上） */
-::view-transition-group(rt-zoom){animation-duration:.42s;animation-timing-function:cubic-bezier(.2,.8,.2,1)}
-::view-transition-old(rt-zoom),::view-transition-new(rt-zoom){animation-duration:.32s;animation-timing-function:cubic-bezier(.2,.8,.2,1);height:100%;object-fit:cover}
-/* 其他切换：旧页轻轻推远淡出，新页从略小处浮上来 */
-::view-transition-old(root){animation:rt-out .28s cubic-bezier(.4,0,1,1) both}
-::view-transition-new(root){animation:rt-in .38s cubic-bezier(.2,.8,.2,1) both}
-@keyframes rt-out{to{opacity:0;transform:scale(1.03)}}
-@keyframes rt-in{from{opacity:0;transform:scale(.97)}}
+/* 名字由 app.js 临时挂上：rt-from 旧页、rt-to 新页、rt-zoom 被点的卡片→新页。背景和顶栏（root）不参与，原地不动 */
+::view-transition-old(root),::view-transition-new(root){animation:none}
+::view-transition-group(rt-zoom){animation-duration:.56s;animation-timing-function:cubic-bezier(.32,.72,0,1);border-radius:32px;overflow:hidden}
+::view-transition-old(rt-zoom){animation:rt-fade-out .22s ease both;height:100%;object-fit:cover}
+::view-transition-new(rt-zoom){animation:rt-fade-in .34s .08s ease both;height:100%;object-fit:cover}
+::view-transition-old(rt-from){animation:rt-push .5s cubic-bezier(.32,.72,0,1) both}
+::view-transition-new(rt-to){animation:rt-pull .56s cubic-bezier(.32,.72,0,1) both}
+@keyframes rt-push{to{opacity:0;transform:scale(1.08);filter:blur(6px)}}
+@keyframes rt-pull{from{opacity:0;transform:scale(.9);filter:blur(4px)}}
+@keyframes rt-fade-out{to{opacity:0}}
+@keyframes rt-fade-in{from{opacity:0}}
 /* 首页卡片依次浮上来 */
 .hub.hb-enter .hb-layer,.hub.hb-enter .hb-voice{animation:rt-rise .55s cubic-bezier(.2,.8,.2,1) both}
 .hub.hb-enter .hb-layer:nth-child(2){animation-delay:.05s}
@@ -203,11 +206,15 @@ dialog[open]::backdrop{animation:rt-fade .32s ease both}
   .hub.hb-enter .hb-layer,.hub.hb-enter .hb-voice,dialog[open],dialog[open]::backdrop{animation:none!important}
 }
 
-/* ---------- 朋友圈：左边成员名单和右边动态各占一栏，名单不再压在动态上 ---------- */
-.mo-wrap{display:grid;grid-template-columns:140px minmax(0,1fr);gap:16px 20px;align-items:start}
-.mo-wrap .pp-members{grid-row:auto;position:sticky;top:0;align-self:start;max-height:100%;overflow:auto}
-.mo-main{min-width:0;display:flex;flex-direction:column;gap:8px}
-@media (max-width:640px){
-  .mo-wrap{grid-template-columns:1fr}
-  .mo-wrap .pp-members{position:static;flex-direction:row;overflow-x:auto}
-}
+/* ---------- 朋友圈：版式在 home.css，这里只换玻璃配色 ---------- */
+[data-skin="ark"] dialog#moments{--mo-name:#a9bde3;--mo-fb:rgba(255,255,255,.06)}
+[data-skin="ark"] .mo-av{background:rgba(255,255,255,.1)}
+[data-skin="ark"] .mo-av.big{box-shadow:0 0 0 2px rgba(18,22,32,.9)}
+[data-skin="ark"] .mo-av.big.ini{background:var(--ink-glass);font-family:var(--f-display);font-weight:400}
+[data-skin="ark"] .mo-bar b{font-family:var(--f-display);font-weight:400;letter-spacing:.08em}
+[data-skin="ark"] .mo-me{font-family:var(--f-display);font-weight:400;letter-spacing:.06em}
+[data-skin="ark"] .mo-pick{background:rgba(18,22,32,.92);backdrop-filter:var(--glass-blur);-webkit-backdrop-filter:var(--glass-blur)}
+[data-skin="ark"] .mo-pick .pp-who{background:rgba(255,255,255,.07)}
+[data-skin="ark"] .mo-pick .pp-who.cur{background:var(--ink-glass);color:var(--ink)}
+[data-skin="ark"] .mo-more{background:rgba(255,255,255,.08)}
+[data-skin="ark"] .mo-act{background:var(--ink-glass-hi)}

@@ -185,16 +185,61 @@
 .gc-readonly{text-align:center;margin:8px 0}
 .gc-src{display:block;margin-top:6px;padding:6px 8px;border-left:3px solid var(--brass-ink,#a77);background:rgba(0,0,0,.04);color:inherit;text-decoration:underline;text-underline-offset:2px;overflow-wrap:anywhere}
 .gc-srcm{display:block;font-size:11px;color:var(--muted);margin-top:2px}
-.mo{border-bottom:1px solid var(--line,#ddd);padding:10px 0}
-.mo header{display:flex;gap:8px;align-items:baseline}
-.mo header time{font-size:11px;color:var(--muted)}
-.mo-text{margin:6px 0;overflow-wrap:anywhere}
-.mo-act{display:flex;gap:12px}
-.mo-act .link,.mo-comments .link{border:0;background:none;color:var(--brass-ink);padding:0 4px;text-decoration:underline;text-underline-offset:2px}
-.mo-likes{font-size:12px;color:var(--muted);margin:4px 0}
-.mo-comments{list-style:none;margin:4px 0;padding:6px 8px;background:rgba(0,0,0,.04);font-size:13px;display:grid;gap:4px;overflow-wrap:anywhere}
-.mo-cf{display:flex;gap:6px;margin-top:6px}
+/* 朋友圈：照真实朋友圈的版式。顶部封面 + 右下角头像，下面一列动态（头像 / 名字 / 正文 / 时间 / 「··」/ 赞和评论） */
+dialog#moments{width:min(620px,94vw);height:min(900px,92vh);max-height:92vh;display:none;flex-direction:column;overflow:hidden}
+dialog#moments[open]{display:flex}
+.mo-bar{position:relative;gap:4px;padding:8px 10px}
+.mo-bar b{text-align:center;font-size:16px}
+.mo-icon{width:36px;height:36px;display:grid;place-items:center;border:0;background:none;border-radius:999px;color:var(--ink);cursor:pointer}
+.mo-icon:hover,.mo-icon[aria-expanded="true"]{background:var(--hover)}
+.mo-icon svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.4;stroke-linecap:round;stroke-linejoin:round}
+.mo-pick{position:absolute;top:calc(100% + 6px);right:12px;z-index:3;display:flex;flex-wrap:wrap;gap:6px;max-width:min(380px,80vw);padding:10px;border-radius:16px;background:var(--surface);box-shadow:var(--shadow-2)}
+.mo-pick[hidden]{display:none}
+.mo-pick .pp-who{border-radius:999px;padding:4px 12px;background:var(--surface-2)}
+.mo-pick .pp-who.cur{background:var(--accent,var(--brass-ink));color:var(--accent-ink,#fff);box-shadow:none}
+.viewer .vb.mo-wrap{padding:0;max-height:none;flex:1;overflow:auto;display:block}
+.mo-cover{position:relative;height:250px;margin-bottom:48px;background:#0b0f18 center/cover no-repeat;background-image:var(--rt-bg-img,url("../img/ark/default_bg.jpg")),url("../img/ark/hub_night.jpg")}
+:root[data-rtbg="night"] .mo-cover{background-image:url("../img/ark/hub_night.jpg")}
+:root[data-rtbg="day"] .mo-cover{background-image:url("../img/ark/hub_day.jpg")}
+.mo-me{position:absolute;right:112px;bottom:10px;color:#fff;font-size:18px;font-weight:600;text-shadow:0 1px 6px rgba(0,0,0,.6)}
+.mo-av{width:44px;height:44px;flex:none;border-radius:8px;overflow:hidden;display:grid;place-items:center;background:var(--c-coord,#ccc);color:var(--ink);font-weight:600}
+.mo-av>*{width:100%;height:100%;border-radius:0;font-size:inherit}
+.mo-av.big{position:absolute;right:20px;bottom:-34px;width:76px;height:76px;border-radius:14px;font-size:28px;box-shadow:0 0 0 2px var(--surface)}
+.mo-feed{display:block}
+.mo{display:grid;grid-template-columns:44px minmax(0,1fr);gap:12px;padding:16px 20px;border-bottom:1px solid var(--line,#ddd)}
+.mo-body{min-width:0}
+.mo header{display:block}
+.mo-name{color:var(--mo-name,#576b95);font-weight:600}
+.mo-text{margin:4px 0 8px;line-height:1.65;overflow-wrap:anywhere}
+.mo-foot{display:flex;align-items:center;gap:10px;font-size:12px;color:var(--muted);min-height:24px}
+.mo-foot .link{border:0;background:none;padding:0;color:var(--mo-name,#576b95);font-size:12px;cursor:pointer}
+.mo-menu{margin-left:auto;position:relative;display:flex;align-items:center}
+.mo-more{width:34px;height:22px;border:0;border-radius:4px;background:var(--surface-2);color:var(--mo-name,#576b95);font-weight:700;letter-spacing:1px;line-height:1;cursor:pointer}
+.mo-act{position:absolute;right:42px;top:50%;transform:translateY(-50%);display:flex;border-radius:6px;overflow:hidden;background:rgba(40,44,52,.94);animation:mo-slide .18s cubic-bezier(.32,.72,0,1) both}
+.mo-act[hidden]{display:none}
+.mo-act button{border:0;background:none;color:#fff;padding:8px 18px;white-space:nowrap;font-size:13px;cursor:pointer}
+.mo-act button+button{border-left:1px solid rgba(255,255,255,.12)}
+.mo-act button:hover{background:rgba(255,255,255,.08)}
+@keyframes mo-slide{from{opacity:0;transform:translate(10px,-50%)}}
+.mo-fb{position:relative;margin-top:8px;padding:6px 10px;border-radius:4px;background:var(--mo-fb,rgba(0,0,0,.05));font-size:13px}
+.mo-fb::before{content:"";position:absolute;top:-6px;left:12px;border:6px solid transparent;border-top:0;border-bottom-color:var(--mo-fb,rgba(0,0,0,.05))}
+.mo-likes{margin:0;padding:2px 0;color:var(--muted)}
+.mo-likes b,.mo-comments b{color:var(--mo-name,#576b95);font-weight:500}
+.mo-heart{color:var(--mo-name,#576b95)}
+.mo-likes+.mo-comments{border-top:1px solid var(--line,#ddd);margin-top:4px;padding-top:4px}
+.mo-comments{list-style:none;margin:0;padding:2px 0;display:grid;gap:3px;overflow-wrap:anywhere}
+.mo-comments .link{border:0;background:none;padding:0 0 0 6px;color:var(--muted);font-size:12px;opacity:.7;cursor:pointer}
+.mo-comments li:hover .link{opacity:1}
+.mo-cf{display:flex;gap:6px;margin-top:8px}
 .mo-cf input{flex:1;min-width:0}
+.mo-new{padding:16px 20px;border-bottom:1px solid var(--line,#ddd);display:flex;flex-direction:column;gap:8px}
+.mo-new[hidden]{display:none}
+.mo-new textarea{width:100%;resize:vertical}
+.mo-newbar{display:flex;gap:12px;align-items:center}
+.mo-newbar .hint{flex:1;margin:0;font-size:12px}
+.mo-empty{padding:48px 20px;text-align:center}
+.mo-older{display:block;margin:16px auto}
+.mo-wrap>.pp-msg{padding:0 20px}
 .fd-list{list-style:none;padding:0;margin:8px 0;display:grid;gap:6px}
 .fd-list li{display:flex;gap:8px;align-items:flex-start}
 .fd-name{flex:1;min-width:0;display:flex;flex-direction:column}
