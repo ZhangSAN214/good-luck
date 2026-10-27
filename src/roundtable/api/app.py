@@ -139,6 +139,30 @@ class MemoryBody(BaseModel):
     member: str | None = None  # 新建时必填
 
 
+class MailSettingsBody(BaseModel):
+    """邮件栏设置：只改给了的字段。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool | None = None
+    rules: dict[str, Any] | None = None
+    days: int | None = None
+    show_window: bool | None = None
+    extra_hosts: list[str] | None = None
+
+
+class MailRefreshBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    manual: bool = True
+
+
+class MailReminderBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    action: str = Field(pattern="^(accept|dismiss|undo)$")
+
+
 class Respond(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -410,6 +434,40 @@ def create_app(service: RoundtableService | None = None) -> FastAPI:
     @app.get("/api/changelog")
     async def changelog(request: Request) -> dict[str, Any]:
         return svc(request).changelog()
+
+    @app.get("/api/mail")
+    async def mail(request: Request) -> dict[str, Any]:
+        return svc(request).mail_view()
+
+    @app.put("/api/mail/settings")
+    async def mail_settings(request: Request, body: MailSettingsBody) -> dict[str, Any]:
+        return svc(request).mail_settings(**body.model_dump())
+
+    @app.post("/api/mail/login")
+    async def mail_login(request: Request) -> dict[str, Any]:
+        return svc(request).mail_login()
+
+    @app.post("/api/mail/refresh")
+    async def mail_refresh(request: Request, body: MailRefreshBody) -> dict[str, Any]:
+        return svc(request).mail_refresh(manual=body.manual)
+
+    @app.get("/api/mail/messages/{message_id:path}")
+    async def mail_message(request: Request, message_id: str) -> dict[str, Any]:
+        return svc(request).mail_message(message_id)
+
+    @app.post("/api/mail/reminders/{reminder_id}")
+    async def mail_reminder(
+        request: Request, reminder_id: int, body: MailReminderBody
+    ) -> dict[str, Any]:
+        return svc(request).mail_reminder(reminder_id, body.action)
+
+    @app.post("/api/mail/logout")
+    async def mail_logout(request: Request) -> dict[str, Any]:
+        return svc(request).mail_logout()
+
+    @app.delete("/api/mail/cache")
+    async def mail_clear(request: Request) -> dict[str, Any]:
+        return svc(request).mail_clear()
 
     @app.get("/api/models/candidates")
     async def model_candidates(request: Request) -> dict[str, Any]:

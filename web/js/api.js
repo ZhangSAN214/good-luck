@@ -104,6 +104,14 @@ export const getApartment = (hour, weekday) => api(`/api/apartment?hour=${hour}&
 export const getCandidates = () => api('/api/models/candidates');
 export const getPluginBoard = () => api('/api/plugins/board');
 export const getChangelog = () => api('/api/changelog');
+export const mailView = () => api('/api/mail');
+export const mailSettings = (body) => api('/api/mail/settings', { method: 'PUT', body });
+export const mailLogin = () => api('/api/mail/login', { method: 'POST' });
+export const mailRefresh = (manual = true) => api('/api/mail/refresh', { method: 'POST', body: { manual } });
+export const mailMessage = (id) => api(`/api/mail/messages/${encodeURIComponent(id)}`);
+export const mailReminder = (id, action) => api(`/api/mail/reminders/${id}`, { method: 'POST', body: { action } });
+export const mailLogout = () => api('/api/mail/logout', { method: 'POST' });
+export const mailClear = () => api('/api/mail/cache', { method: 'DELETE' });
 export const refreshCandidates = () => api('/api/models/candidates/refresh', { method: 'POST' });
 export const getPayslip = (id) => api(`/api/sessions/${id}/payslip`);
 export const getSession = (id) => api(`/api/sessions/${id}`);

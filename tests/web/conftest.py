@@ -32,8 +32,10 @@ def _free_port() -> int:
 class Server:
     """在后台线程里运行服务。Env（含 SQLite 连接）在服务线程中创建。"""
 
-    def __init__(self, delay: float = 0.0, **env_kw) -> None:
+    def __init__(self, delay: float = 0.0, setup=None, **env_kw) -> None:
+        """setup(env)：在创建服务之前改运行时（比如注入假的邮箱来源）。"""
         self.delay = delay
+        self.setup = setup
         self.port = _free_port()
         self.url = f"http://127.0.0.1:{self.port}"
         self.env: Env | None = None
@@ -47,6 +49,8 @@ class Server:
             self.env.rt.catalog.fetch = self._catalog  # 人才市场：不联网
             if self.delay:
                 self._slow_down(self.env.fake)
+            if self.setup:
+                self.setup(self.env)
             app = create_app(RoundtableService(self.env.rt))
             config = uvicorn.Config(app, port=self.port, log_level="warning", lifespan="on")
             self._server = uvicorn.Server(config)

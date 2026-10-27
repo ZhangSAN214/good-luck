@@ -535,4 +535,46 @@ ALTER TABLE member_memories ADD COLUMN recalled_at TEXT;
 ALTER TABLE member_memories ADD COLUMN recall_note TEXT NOT NULL DEFAULT '';
 """,
     ),
+    (
+        21,
+        "终端邮件栏",
+        """
+-- 终端邮件栏（docs/MAIL.md）：用户本人学校邮箱的只读缓存。
+-- 只存本地，不进 git，不给成员看、不发给模型。
+-- id：邮箱里的邮件 id；body：纯文本正文（还没读到时为空）；high：发件人标了「重要」。
+CREATE TABLE mail_messages (
+    id           TEXT PRIMARY KEY,
+    received_at  TEXT NOT NULL,
+    sender_name  TEXT NOT NULL DEFAULT '',
+    sender_addr  TEXT NOT NULL DEFAULT '',
+    subject      TEXT NOT NULL DEFAULT '',
+    preview      TEXT NOT NULL DEFAULT '',
+    body         TEXT,
+    is_read      INTEGER NOT NULL DEFAULT 0,
+    flagged      INTEGER NOT NULL DEFAULT 0,
+    high         INTEGER NOT NULL DEFAULT 0,
+    attachments  INTEGER NOT NULL DEFAULT 0,
+    fetched_at   TEXT NOT NULL
+);
+CREATE INDEX idx_mail_received ON mail_messages(received_at);
+-- 从重要邮件里找到的日期：pending 待确认 / accepted 已加入 / dismissed 不要
+CREATE TABLE mail_reminders (
+    id          INTEGER PRIMARY KEY,
+    message_id  TEXT NOT NULL REFERENCES mail_messages(id) ON DELETE CASCADE,
+    due         TEXT NOT NULL,
+    snippet     TEXT NOT NULL,
+    status      TEXT NOT NULL DEFAULT 'pending',
+    created_at  TEXT NOT NULL,
+    UNIQUE (message_id, due)
+);
+-- 每次登录 / 刷新 / 读正文 / 退出 / 拦截的记录（只增不改）
+CREATE TABLE mail_audit (
+    id      INTEGER PRIMARY KEY,
+    at      TEXT NOT NULL,
+    action  TEXT NOT NULL,
+    ok      INTEGER NOT NULL,
+    detail  TEXT NOT NULL DEFAULT ''
+);
+""",
+    ),
 ]

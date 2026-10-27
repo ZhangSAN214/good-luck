@@ -2,7 +2,7 @@
 // 只读：数字来自 /api/sessions、/api/chat/rooms 与 /api/status，不调用模型、不花钱。
 // 卡片随鼠标轻微视差、静止时轻轻浮动（Live2D 式的「活着」），系统开了「减少动态」时不动。
 // 自定义背景只存在本机浏览器（localStorage），不上传。顶栏有背景音乐播放条（music.js，音乐同样只存本机浏览器）、
-// 多时区时钟（clock.js）和公告栏（notice.js，版本更新说明）。
+// 多时区时钟（clock.js）、公告栏（notice.js，版本更新说明）和邮件栏（mail.js，学校邮箱只读）。
 // 左侧是大立绘（standee.js，伪 Live2D）：有立绘时首页那句提示改由她在对话框里说；没有立绘时照旧。
 
 const esc = (s) =>
@@ -97,10 +97,10 @@ function applyPageBackground(bg) {
 export class Hub {
   /**
    * @param {HTMLElement} root
-   * @param {{sessions:Function, rooms:Function, go:Function, openPeople:Function, openUsage?:Function, openHistory:Function, status:Function, music?:import('./music.js').Music, clock?:import('./clock.js').Clock, notice?:import('./notice.js').Notice, standee?:import('./standee.js').Standee}} opts
+   * @param {{sessions:Function, rooms:Function, go:Function, openPeople:Function, openUsage?:Function, openHistory:Function, status:Function, music?:import('./music.js').Music, clock?:import('./clock.js').Clock, notice?:import('./notice.js').Notice, mail?:import('./mail.js').Mail, standee?:import('./standee.js').Standee}} opts
    */
-  constructor(root, { sessions, rooms, go, openPeople, openUsage = null, openHistory, status, music = null, clock = null, notice = null, standee = null }) {
-    Object.assign(this, { root, sessions, rooms, go, openPeople, openUsage, openHistory, status, music, clock, notice, standee });
+  constructor(root, { sessions, rooms, go, openPeople, openUsage = null, openHistory, status, music = null, clock = null, notice = null, mail = null, standee = null }) {
+    Object.assign(this, { root, sessions, rooms, go, openPeople, openUsage, openHistory, status, music, clock, notice, mail, standee });
     if (standee) standee.onToggle = () => this.render();
     this.art = null;
     this.counts = { waiting: 0, running: 0, unread: 0 };
@@ -207,6 +207,7 @@ export class Hub {
         ${month ? `<button type="button" class="hb-res" data-act="usage" title="本月已用 / 本月上限（点开看余额与用量）">本月已用 $${Number(month.spent_usd).toFixed(2)} / $${Number(month.limit_usd).toFixed(0)}</button>` : ''}
         <label class="hb-land"><input type="checkbox" data-land${this.landWork() ? ' checked' : ''}> 打开网页时直接进办公室</label>
         <span data-notice-slot></span>
+        <span data-mail-slot></span>
         <span data-music-slot></span>
         ${this.standee ? `<button type="button" class="hb-bgbtn" data-act="standee" aria-expanded="${Boolean(this.standee.editing)}" title="立绘：显示、换一套、调位置大小">${icon('standee', 'hb-i')}立绘</button>` : ''}
         <button type="button" class="hb-bgbtn" data-act="bg" aria-expanded="${pickerOpen}">${icon('image', 'hb-i')}背景</button>
@@ -245,6 +246,7 @@ export class Hub {
     this.music?.mount(this.root.querySelector('[data-music-slot]'));
     this.clock?.mount(this.root.querySelector('[data-clock-slot]'));
     this.notice?.mount(this.root.querySelector('[data-notice-slot]'));
+    this.mail?.mount(this.root.querySelector('[data-mail-slot]'));
     if (this.standee) {
       this.standee.mount(this.root.querySelector('[data-standee-slot]'));
       this.standee.setLine(dutyLine(c));
