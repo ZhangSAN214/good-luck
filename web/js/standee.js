@@ -1,18 +1,24 @@
-// 终端首页的大立绘（伪 Live2D）：一张立绘 + 表情差分，用代码让它「活着」。
+// 终端首页的大立绘：一张立绘 + 表情差分，用代码让它「活着」。
 // - 纯色底在浏览器里柔边抠掉（已经是透明底就跳过），结果只在内存里，不上传。
-// - 画法：把立绘按行切成细条逐条画到 canvas 上，每条有自己的位移和伸缩，近似网格形变：
+// - 清单里这一套写了 rig（scripts/standee_rig.py 生成的瞳孔层和全身权重图）且浏览器支持 WebGL2 时，
+//   用显卡逐像素做全身形变（standee_gl.js）：转头带五官视差、眼球跟随、呼吸、手臂和书、左右长发、
+//   前发、裙摆和饰品的弹簧摆动，外加点头、歪头、张望、翻书、伸懒腰等动作（standee_motion.js）。
+// - 没有 rig 或不支持 WebGL2 时退回旧画法：把立绘按行切成细条逐条画到 canvas 上，近似网格形变：
 //   呼吸（胸口起伏、肩膀上抬）、头部跟随鼠标、裙摆和发梢的波动、点击时的弹动和摸头晃动。
 // - 眨眼用「闭眼」差分，说话时在「说话」和当前表情之间切换；没有差分时用动作代替。
 // - 台词来自本机的 standee.json（和成员人设里的口头禅），不调用模型、不花钱。
 // - 位置、大小、翻转、透明度、动态幅度、显示与否、用哪一套：只存在本机浏览器（localStorage）。
 // - 系统开了「减少动态」时不呼吸不摆动，只换表情。
 
+import { RigRenderer, glSupported } from './standee_gl.js';
+import { IDLE_MOTIONS, Motion } from './standee_motion.js';
+
 const esc = (s) =>
   String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 
 const KEY = 'roundtable.hub.standee';
 const STRIPS = 96; // 切成多少条：越多越平滑，96 条在 4K 屏上也看不出台阶
-const PAD = { x: 0.04, y: 0.025 }; // 画布四周留白（形变时不被裁掉）
+const PAD = { x: 0.06, y: 0.03 }; // 画布四周留白（形变、头发摆动时不被裁掉）
 const SNAP_PX = 14;
 // 第一次显示时的位置：x 为水平中心、y 为底边（相对首页宽高，>1 表示底部被画框裁掉，像二游主界面），h 为高度
 const DEFAULTS = { x: 0.29, y: 1.12, h: 1.08, flip: false, opacity: 1, motion: 1 };
@@ -186,6 +192,16 @@ function feather(img) {
   return c;
 }
 
+/** 所有表情差分都是脸部贴片时，它们合起来的像素范围（换表情只需重传这一块）；有整张差分时 null。 */
+function patchRect(list, W, H) {
+  if (!list.length || list.some((o) => !o.box)) return null;
+  const x0 = Math.floor(Math.min(...list.map((o) => o.box[0])) * W);
+  const y0 = Math.floor(Math.min(...list.map((o) => o.box[1])) * H);
+  const x1 = Math.ceil(Math.max(...list.map((o) => o.box[0] + o.box[2])) * W);
+  const y1 = Math.ceil(Math.max(...list.map((o) => o.box[1] + o.box[3])) * H);
+  return [x0, y0, Math.min(x1, W) - x0, Math.min(y1, H) - y0];
+}
+
 export class Standee {
   /**
    * @param {{load:Function, pointer?:Function, now?:Function, rand?:Function}} opts
@@ -205,6 +221,9 @@ export class Standee {
     this.blinkUntil = 0;
     this.talk = { until: 0, open: false, next: 0 };
     this.fx = { hop: 0, hopV: 0, shake: 0, shakeT: 0, think: 0 };
+    this.motion = new Motion(rand);
+    this.nextMotion = 0; // 下一次待机小动作的时间
+    this.srcVer = 0; // 立绘本体（含表情差分）每重画一次加一，网格形变据此决定要不要重新上传
     this.line = { base: '', text: '', shown: '', typedAt: 0, until: 0 };
     this.lastTap = 0;
     this.idleAt = 0;
@@ -247,9 +266,21 @@ export class Standee {
     await this.use(want.id);
   }
 
+  /** 网格形变素材：瞳孔层和三张权重图；任何一张读不出来或不支持 WebGL2 就返回 null（用旧画法）。 */
+  async prepareRig(v) {
+    if (!v.rig || this.noGl || !glSupported()) return null;
+    try {
+      const [iris, w1, w2, w3] = await Promise.all([v.rig.iris, ...v.rig.weights].map(loadImage));
+      return new RigRenderer(v.rig, { iris, w1, w2, w3 });
+    } catch {
+      return null;
+    }
+  }
+
   async prepare(v) {
     if (this.ready.has(v.id)) return this.ready.get(v.id);
-    const img = await loadImage(v.image);
+    const gl = await this.prepareRig(v);
+    const img = await loadImage(gl ? v.rig.base : v.image);
     const { canvas, mask } = v.cutout ? keyOut(img) : { canvas: img, mask: null };
     const W = canvas.width || img.naturalWidth;
     const H = canvas.height || img.naturalHeight;
@@ -266,7 +297,8 @@ export class Standee {
         }
       }),
     );
-    const prep = { v, canvas, mask, overlays, W, H, aspect: W / H, head: v.head || [0.47, W / H > 0.85 ? 0.2 : 0.17] };
+    const prep = { v, canvas, mask, overlays, W, H, aspect: W / H, head: v.head || [0.47, W / H > 0.85 ? 0.2 : 0.17], gl };
+    prep.patchRect = patchRect(Object.values(overlays), W, H);
     this.ready.set(v.id, prep);
     return prep;
   }
@@ -283,6 +315,7 @@ export class Standee {
     }
     this.store.variant = id;
     writeStore(this.store);
+    this.stage.dataset.render = this.cur?.gl ? 'mesh' : 'strips';
     this.src = null;
     this.expr = 'default';
     this.shown = { key: 'default', from: 'default', t0: 0, dur: 1 };
@@ -370,6 +403,7 @@ export class Standee {
     const t = performance.now();
     this.blinkAt = t + 1500 + this.rand() * 2500;
     this.idleAt = t + 40_000;
+    this.nextMotion = t + 6000 + this.rand() * 4000;
     const step = (now) => {
       if (!this.running) return;
       this.tick(now);
@@ -448,12 +482,20 @@ export class Standee {
     if (head) {
       this.fx.shake = 1;
       this.fx.shakeT = now;
+      this.motion.play(this.rand() < 0.5 ? 'shake' : 'tilt', now);
       const text = pick(lines.head, this.rand) || pick(lines.tap, this.rand);
       const expr = this.rand() < 0.35 ? 'surprise' : 'smile';
       if (text) this.say(text, { expr });
       else this.setExpr(expr);
     } else {
       this.fx.hopV = -1.4;
+      // 点到书和手：翻书；点别处：小跳一下再点个头
+      const book = this.cur.gl && u < this.cur.head[0] - 0.1 && v > this.cur.head[1] + 0.1 && v < this.cur.head[1] + 0.35;
+      if (book) this.motion.play('read', now);
+      else {
+        this.motion.bounce(-1.2);
+        this.motion.play('nod', now);
+      }
       const expr = EXPRS[Math.floor(this.rand() * EXPRS.length)];
       const text = pick(lines.tap, this.rand);
       if (text) this.say(text, { expr });
@@ -468,6 +510,8 @@ export class Standee {
     const special = h >= 5 && h < 10 ? lines.morning : h >= 23 || h < 5 ? lines.night : null;
     const text = pick(special, this.rand) || pick(lines.greet, this.rand);
     this.fx.hopV = -0.8;
+    this.motion.bounce(-0.8);
+    this.motion.play('nod', performance.now());
     if (text) {
       this.say(text, { expr: 'smile' });
     } else if (this.line.base) this.say(this.line.base, { keep: true, expr: 'smile' });
@@ -500,6 +544,11 @@ export class Standee {
       this.idleAt = now + 60_000 + this.rand() * 60_000;
       const text = pick(this.info.lines?.idle, this.rand);
       if (text && !this.editing && !document.hidden) this.say(text, { expr: this.rand() < 0.5 ? 'think' : null });
+    }
+    // 待机小动作（网格形变时）：8～16 秒一个，说话和调设置时不做
+    if (this.cur.gl && now > this.nextMotion) {
+      this.nextMotion = now + 8000 + this.rand() * 8000;
+      if (!this.editing && now > this.talk.until) this.motion.play(pick(IDLE_MOTIONS, this.rand), now);
     }
     // 弹动：阻尼弹簧
     const f = this.fx;
@@ -551,6 +600,9 @@ export class Standee {
     ctx.globalAlpha = 1;
     this.src = b;
     this.srcAlpha = a;
+    this.srcVer++;
+    // 表情差分里自带眼睛：差分显示多少，单独的瞳孔层就隐去多少
+    this.irisOn = (this.shown.key === 'default' ? a : 0) + (this.shown.from === 'default' ? 1 - a : 0);
     return b;
   }
 
@@ -558,6 +610,7 @@ export class Standee {
   draw(now) {
     if (!this.cur || !this.box || this.stage.hidden) return;
     const src = this.compose(now);
+    if (this.cur.gl) return this.drawGl(now, src);
     const { W, H, head } = this.cur;
     const cw = this.cv.width;
     const ch = this.cv.height;
@@ -620,6 +673,44 @@ export class Standee {
       ctx.fillStyle = g;
       ctx.fillRect(0, y0, cw, ch - y0);
       ctx.globalCompositeOperation = 'source-over';
+    }
+  }
+
+  /** 网格形变画一帧：显卡算好后整张贴到页面上的画布里（点击判定、截图都照旧）。 */
+  drawGl(now, src) {
+    const r = this.cur.gl;
+    if (r.ver !== this.srcVer) {
+      r.setBase(src, this.cur.patchRect);
+      r.ver = this.srcVer;
+    }
+    const s = this.settings();
+    const dt = Math.min((now - (this.glLast || now)) / 1000, 0.05);
+    this.glLast = now;
+    const p = this.reduce || this.editing ? { x: 0, y: 0 } : this.pointer();
+    const pose = this.motion.update(dt, now, {
+      pointer: { x: (s.flip ? -1 : 1) * p.x, y: p.y },
+      motion: this.reduce ? 0 : s.motion,
+      think: this.fx.think,
+      talk: this.talk.open && !this.cur.overlays.talk,
+      irisOn: this.irisOn ?? 1,
+    });
+    const cw = this.cv.width;
+    const ch = this.cv.height;
+    try {
+      const out = r.render(cw, ch, pose, {
+        pad: PAD,
+        flip: s.flip,
+        fadeAt: this.fadeAt ?? 1,
+        fadePx: 70 * (ch / this.cv.clientHeight || 1),
+      });
+      this.ctx.setTransform(1, 0, 0, 1, 0, 0);
+      this.ctx.clearRect(0, 0, cw, ch);
+      this.ctx.drawImage(out, 0, 0);
+    } catch {
+      // 显卡上下文丢了之类：这一套改用旧画法
+      this.cur.gl = null;
+      this.noGl = true;
+      this.stage.dataset.render = 'strips';
     }
   }
 
@@ -785,7 +876,8 @@ export class Standee {
       <label class="sd-row"><input type="checkbox" data-sd="snap"${this.store.snap === false ? '' : ' checked'}> 拖动时吸附对齐</label>
       <div class="sd-btns"><button type="button" class="hb-chip" data-sd="reset">恢复默认</button><button type="button" class="hb-chip sd-done" data-sd="done">完成</button></div>
       <p class="hb-hint">${narrow ? '手机宽度下立绘自动居中，只能调大小、透明度和翻转。' : '直接拖动立绘移动位置；拖右下角或滚轮缩放；选中立绘后方向键微调（Shift 一次 10 像素）。'}设置只存在这台电脑的浏览器里。</p>
-      <p class="hb-hint">${esc(diff)}${this.reduce ? '；系统开了「减少动态」，立绘不呼吸不摆动' : ''}</p>`;
+      <p class="hb-hint">${esc(diff)}${this.reduce ? '；系统开了「减少动态」，立绘不呼吸不摆动' : ''}</p>
+      <p class="hb-hint">${this.cur.gl ? '动态：全身网格形变（显卡），点头发以外的地方会有不同动作，点书会翻书。' : cur?.rig ? '动态：这台电脑的浏览器不支持 WebGL2，用简化动态。' : '动态：简化动态（清单里加上 rig 素材可换成全身网格形变）。'}</p>`;
   }
 
   onPanel(e) {

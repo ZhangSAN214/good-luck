@@ -96,3 +96,57 @@ def test_files_stay_inside_the_manifest_folder(tmp_path):
     assert standee_file(st, "s/a.png") == (PNG_1PX, "image/png")
     for bad in ("../secret.png", "s/note.txt", "/etc/passwd", "s/none.png", ""):
         assert standee_file(st, bad) is None
+
+
+RIG = {
+    "base": "r/base.png",
+    "iris": "r/iris.png",
+    "weights": ["r/w1.png", "r/w2.png", "r/w3.png"],
+    "size": [1024, 1536],
+    "pivots": {
+        "neck": [505, 335],
+        "face": [492, 222],
+        "elbow": [265, 790],
+        "waist": [500, 840],
+        "feet": [520, 1900],
+    },
+    "skirt": [830, 1536],
+}
+RIG_FILES = ("r/base.png", "r/iris.png", "r/w1.png", "r/w2.png", "r/w3.png")
+
+
+def with_rig(rig):
+    return {**SAMPLE, "variants": [{**SAMPLE["variants"][0], "rig": rig}]}
+
+
+def test_rig_loads_when_all_files_exist(tmp_path):
+    st = load_standee(write(tmp_path, with_rig(RIG), "s/a.png", *RIG_FILES))
+    (a,) = st.variants
+    assert a.rig == {
+        "base": "r/base.png",
+        "iris": "r/iris.png",
+        "weights": ["r/w1.png", "r/w2.png", "r/w3.png"],
+        "size": [1024, 1536],
+        "pivots": {k: list(v) for k, v in RIG["pivots"].items()},
+        "skirt": [830, 1536],
+    }
+    assert "rig" not in a.missing
+
+
+def test_rig_with_missing_file_falls_back_to_plain_image(tmp_path):
+    st = load_standee(write(tmp_path, with_rig(RIG), "s/a.png", *RIG_FILES[:-1]))
+    (a,) = st.variants
+    assert st.available and a.rig is None and "rig" in a.missing
+
+
+def test_rig_is_validated(tmp_path):
+    for bad in (
+        {**RIG, "extra": 1},
+        {**RIG, "weights": ["r/w1.png"]},
+        {**RIG, "size": [0, 10]},
+        {**RIG, "skirt": [900, 800]},
+        {**RIG, "pivots": {"neck": [1, 2]}},
+        {**RIG, "pivots": {**RIG["pivots"], "tail": [1, 2]}},
+    ):
+        st = load_standee(write(tmp_path / "b", with_rig(bad), "s/a.png", *RIG_FILES))
+        assert not st.available and "rig" in st.reason
