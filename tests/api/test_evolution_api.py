@@ -49,3 +49,18 @@ def test_major_meeting_and_plugins_over_http(tmp_path):
         assert info["meetings"][0]["theme"] == "群聊更自然" and info["themes"] == []
         r = c.post("/api/evolution/meetings/nope/plugins")
         assert r.status_code == 404
+
+
+def test_next_theme_over_http(tmp_path):
+    env, svc = make(tmp_path)
+    with TestClient(create_app(svc)) as c:
+        info = c.get("/api/evolution").json()
+        assert info["next"]["kind"] == "minor" and "还没有主题" in info["next"]["reason"]
+        r = c.put("/api/evolution/next-theme", json={"theme": "群聊更自然"})
+        assert r.status_code == 200 and r.json()["kind"] == "major"
+        assert r.json()["theme"] == "群聊更自然" and r.json()["label"] == "大版本"
+        r = c.put("/api/evolution/next-theme", json={"theme": "长" * 500})
+        assert r.status_code == 400
+        r = c.post("/api/evolution/meetings", json={})
+        assert r.status_code == 202 and r.json()["kind"] == "major"
+        assert r.json()["theme"] == "群聊更自然" and not r.json()["override"]

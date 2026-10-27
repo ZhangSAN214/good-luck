@@ -176,3 +176,66 @@ async def test_minor_and_major_meetings(tmp_path):
     assert minor["kind"] == "minor" and minor["theme"] is None and len(minor["ideas"]) <= 1
     calls = [c for c in env.fake.calls if "其他人这一轮看不到你的点子" in c.messages[0].content]
     assert any("主题不限" in c.messages[1].content for c in calls)
+
+
+NOV_2 = datetime(2026, 11, 2, 10, 0).astimezone()  # 11 月第一个周一
+NOV_9 = datetime(2026, 11, 9, 10, 0).astimezone()
+
+
+async def test_auto_picks_major_first_then_minor_by_time(tmp_path):
+    env, svc = make(tmp_path, major_themes=["群聊更自然", "更省钱更快"])
+    nxt = svc.evolution()["next"]
+    assert nxt["kind"] == "major" and nxt["theme"] == "群聊更自然" and nxt["top"] == 10
+    assert nxt["theme_source"] == "auto" and nxt["reason"]
+    # 每周自动开：本月第一场是大版本，主题自动轮换
+    first = svc.evolution_tick(NOV_2)["started"]
+    await svc.wait(first)
+    [m] = svc.evolution()["meetings"]
+    assert m["kind"] == "major" and m["theme"] == "群聊更自然" and m["auto"]
+    assert m["reason"] and not m["override"]
+    assert svc.evolution_tick(NOV_2)["started"] is None  # 本周已开过（大版本也占每周的名额）
+    # 下一周：本月已开过大版本 → 小版本
+    (tmp_path / "收件箱" / "2.md").write_text(CARD, encoding="utf-8")
+    second = svc.evolution_tick(NOV_9)["started"]
+    await svc.wait(second)
+    latest = svc.evolution()["meetings"][0]
+    assert (
+        latest["kind"] == "minor" and latest["theme"] is None and "已开过大版本" in latest["reason"]
+    )
+
+
+async def test_user_theme_wins_and_manual_override(tmp_path):
+    env, svc = make(tmp_path, major_themes=["群聊更自然"])
+    with pytest.raises(ServiceError, match="太长"):
+        svc.evolution_set_theme("长" * 500)
+    plan = svc.evolution_set_theme("  让朋友圈更有意思 ")
+    assert plan["theme"] == "让朋友圈更有意思" and plan["theme_source"] == "user"
+    assert svc.evolution()["next_theme"] == "让朋友圈更有意思"
+    # 你手动改成小版本：记为手动，不占用你定的主题
+    small = svc.evolution_meet(kind="minor", now=NOV_2)
+    assert small["kind"] == "minor" and small["override"] and "手动" in small["reason"]
+    await svc.wait(small["session_id"])
+    assert svc.evolution()["next_theme"] == "让朋友圈更有意思"
+    # 按自动判断开：大版本用你定的主题，用过后回到轮换
+    (tmp_path / "收件箱" / "2.md").write_text(CARD, encoding="utf-8")
+    big = svc.evolution_meet(now=NOV_2)
+    assert big["kind"] == "major" and big["theme"] == "让朋友圈更有意思" and not big["override"]
+    await svc.wait(big["session_id"])
+    info = svc.evolution()
+    assert info["next_theme"] is None and info["next"]["kind"] == "minor"
+    assert svc.evolution_set_theme("")["theme"] is None
+
+
+async def test_only_manual_major_skips_weekly_slot(tmp_path):
+    cards = tuple((f"{n}.md", CARD) for n in range(3))
+    env, svc = make(tmp_path, cards=cards, max_cards=1, major_themes=["群聊更自然"])
+    first = svc.evolution_meet(now=NOV_2)  # 自动判断：大版本，占本周名额
+    await svc.wait(first["session_id"])
+    assert first["kind"] == "major" and svc._slot_met("2026-W45")
+    # 下周自动判断是小版本；你手动改成大版本另开一场，不占每周的名额
+    extra = svc.evolution_meet(kind="major", now=NOV_9)
+    await svc.wait(extra["session_id"])
+    assert extra["override"] and not svc._slot_met("2026-W46")
+    weekly = svc.evolution_tick(NOV_9)["started"]
+    await svc.wait(weekly)
+    assert svc.evolution()["meetings"][0]["kind"] == "minor" and svc._slot_met("2026-W46")
