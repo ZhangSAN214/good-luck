@@ -56,6 +56,7 @@ export async function upload(file) {
 export const getStatus = () => api('/api/status');
 export const getBudget = () => api('/api/budget');
 export const members = () => api('/api/members');
+export const standee = () => api('/api/standee');
 export const listSessions = () => api('/api/sessions?limit=50');
 export const getContributions = () => api('/api/contributions');
 export const getOffice = () => api('/api/office');
@@ -141,3 +142,6 @@ export async function streamEvents(id, onEvent, signal) {
     }
   }
 }
+// 余额与用量：本机账本汇总（range = day / week / month / all）与渠道账户余额（只读）
+export const getUsage = (range = 'month') => api(`/api/usage?range=${encodeURIComponent(range)}`);
+export const getUsageBalance = (refresh = false) => api(`/api/usage/balance${refresh ? '?refresh=1' : ''}`);

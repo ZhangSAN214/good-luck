@@ -4,6 +4,7 @@
 from . import anthropic_adapter, fake, gemini, openai_compat  # noqa: F401
 from .base import (
     VIDEO_FINAL,
+    AccountBalance,
     Completion,
     ImageOutput,
     Media,
@@ -29,6 +30,7 @@ from .router import ChannelRouter, Invocation, RoutePlan
 from .secrets import KeyRing, Secret, redact
 
 __all__ = [
+    "AccountBalance",
     "AllChannelsFailed",
     "Attempt",
     "ChannelRouter",

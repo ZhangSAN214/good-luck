@@ -23,7 +23,8 @@ from roundtable.core.allocation import coordinator_name, display_name
 from roundtable.core.attachments import Attachment, UploadError, ingest
 from roundtable.core.attachments.detect import TYPES as UPLOAD_TYPES
 from roundtable.core.browse import REFRESH_KEY, feeds_of, set_feeds
-from roundtable.core.budget.guard import month_window
+from roundtable.core.budget import report as usage_report
+from roundtable.core.budget.guard import day_window, month_window
 from roundtable.core.changelog import changelog_view, load_changelog
 from roundtable.core.chat import ROOM, WORK, ChatHub, chat_budget
 from roundtable.core.chat_work import WORK_EVENTS, post_handoff, post_office_event
@@ -65,7 +66,7 @@ from roundtable.core.evolution_plugins import (
 )
 from roundtable.core.evolution_scout import SCOUT_WEEK_KEY, Scout, ScoutError
 from roundtable.core.ideaboard import Board
-from roundtable.core.life import LifeEngine
+from roundtable.core.life import LIFE_STEPS, LifeEngine
 from roundtable.core.media import KIND_LABELS, KINDS, MediaService
 from roundtable.core.members_art import MEMBERS_FILE, load_members, mime_of, resolve_file
 from roundtable.core.memory import LAYERS, MemoryKeeper, clean_memory
@@ -78,6 +79,7 @@ from roundtable.core.orchestrator import Orchestrator, OrchestratorError, RunRes
 from roundtable.core.persona import is_empty, persona_of, set_persona
 from roundtable.core.plugin_board import board_view, load_board
 from roundtable.core.preview import render_preview
+from roundtable.core.providers import ProviderError, UnsupportedCapability, redact
 from roundtable.core.routing import (
     AUTO,
     CUSTOM,
@@ -92,6 +94,8 @@ from roundtable.core.routing import (
     preview_estimates,
 )
 from roundtable.core.runtime import PROJECT_ROOT, Runtime
+from roundtable.core.standee import load_standee
+from roundtable.core.standee import standee_file as read_standee_file
 from roundtable.core.steps import Event, restore_state
 from roundtable.core.steps.office import group_estimates
 from roundtable.core.storage import NotFound
@@ -334,6 +338,53 @@ class RoundtableService:
         except OSError:
             raise ServiceError("文件不存在", 404) from None
 
+    def standee(self) -> dict[str, Any]:
+        """终端首页大立绘：各套立绘与表情差分的地址、台词。只读本机文件，不调用模型。
+
+        清单写了 persona 时，这位成员人设里的口头禅也加进点击台词（网页里改过的优先）。
+        """
+        st = load_standee(self.rt.standee_file)
+        if not st.available:
+            return {"available": False, "reason": st.reason}
+
+        def url(rel: str) -> str:
+            return f"/api/standee/files/{quote(rel)}"
+
+        lines = {k: list(v) for k, v in st.lines.items()}
+        if st.persona:
+            tap = lines.get("tap", [])
+            extra = [c.strip() for c in persona_of(self.rt, st.persona).catchphrases if c.strip()]
+            lines["tap"] = tap + [c for c in extra if c not in tap]
+        return {
+            "available": True,
+            "reason": None,
+            "name": st.name,
+            "variants": [
+                {
+                    "id": v.id,
+                    "label": v.label,
+                    "image": url(v.image),
+                    "head": list(v.head) if v.head else None,
+                    "cutout": v.cutout,
+                    "expressions": {
+                        k: {"image": url(e["image"]), "box": e["box"]}
+                        for k, e in v.expressions.items()
+                    },
+                    "missing": list(v.missing),
+                }
+                for v in st.variants
+            ],
+            "lines": lines,
+        }
+
+    def standee_file(self, path: str) -> tuple[bytes, str]:
+        """立绘图片：只允许清单所在目录内的 png / jpg / webp。返回 (内容, MIME)。"""
+        st = load_standee(self.rt.standee_file)
+        found = read_standee_file(st, path) if st.root is not None else None
+        if found is None:
+            raise ServiceError("文件不存在", 404)
+        return found
+
     def budget(self) -> dict[str, Any]:
         month, day = self.rt.budget.status()
 
@@ -360,6 +411,142 @@ class RoundtableService:
             },
             "total_usd": self.rt.repo.total_spent(),
         }
+
+    # --- 余额与用量（只读：本机账本 + 渠道账户余额，不改预算、不上传） -----------------------
+
+    USAGE_RANGES = ("day", "week", "month", "all")
+    USAGE_DAYS = 30  # 按天图表的天数
+    BALANCE_TTL_S = 60  # 账户余额缓存：面板反复打开不会一直去查
+
+    def _usage_window(self, span: str) -> tuple[datetime | None, datetime | None]:
+        now = self.rt.budget.now()
+        if span == "day":
+            return day_window(now)
+        if span == "week":  # 本周：UTC 周一 0 点起
+            start, _ = day_window(now)
+            start -= timedelta(days=start.weekday())
+            return start, start + timedelta(days=7)
+        if span == "month":
+            return month_window(now)
+        return None, None
+
+    def _prices(self) -> list[usage_report.PriceRow]:
+        cfg = self.rt.config
+        return [
+            usage_report.PriceRow(
+                m.id, display_name(m.id, cfg), m.tier, m.price.input, m.price.output
+            )
+            for m in cfg.models.enabled
+            if m.seat and m.media_price is None and (m.price.input or m.price.output)
+        ]
+
+    def _tier_label(self, tier: str) -> str:
+        cfg = self.rt.config
+        plan = next((p for p in cfg.routing.plans.values() if p.tiers == [tier]), None)
+        return plan.label if plan else cfg.personas.tier_labels.get(tier, tier)
+
+    def usage(self, span: str = "month") -> dict[str, Any]:
+        """本机账本的详细用量：总数、按天、按功能、按成员、按渠道，以及钱折算成 token 的对照。
+
+        匿名开启且未揭晓的会话只计入总数 / 按天 / 按功能，按成员时归入「匿名进行中」。
+        """
+        if span not in self.USAGE_RANGES:
+            raise ServiceError(f"range 应为 {' / '.join(self.USAGE_RANGES)}")
+        cfg = self.rt.config
+        meetings = [m.session_id for m in self._meetings()]
+        start, end = self._usage_window(span)
+        report = usage_report.summarize(self.rt.repo.usage_rows(start, end, meetings), LIFE_STEPS)
+        today, _ = day_window(self.rt.budget.now())
+        first = today - timedelta(days=self.USAGE_DAYS - 1)
+        days = usage_report.daily(
+            self.rt.repo.usage_rows(first, today + timedelta(days=1), meetings),
+            today.date(),
+            self.USAGE_DAYS,
+            LIFE_STEPS,
+        )
+        everything = usage_report.summarize(self.rt.repo.usage_rows(None, None), LIFE_STEPS)
+        share = usage_report.output_share(everything.totals)
+        budget = self.budget()
+        month = budget["month"]
+        remaining = max(0.0, month["limit_usd"] - month["spent_usd"]) if month else 0.0
+        prices = self._prices()
+        tiers = usage_report.tier_averages(prices, self._tier_label)
+        specs = {m.id: m for m in cfg.models.models}
+        return {
+            "range": span,
+            "start": start.isoformat() if start else None,
+            "end": end.isoformat() if end else None,
+            "budget": budget,
+            "totals": report.totals.to_dict(),
+            "by_feature": [
+                {"key": k, "label": usage_report.FEATURES[k], **t.to_dict()}
+                for k, t in report.by_feature.items()
+            ],
+            "by_member": [
+                {
+                    "model_id": mid,
+                    "name": display_name(mid, cfg),
+                    "tier": specs[mid].tier if mid in specs else None,
+                    **t.to_dict(),
+                }
+                for mid, t in report.by_model.items()
+            ],
+            "hidden": report.hidden.to_dict() if report.hidden.calls else None,
+            "by_channel": {k: t.to_dict() for k, t in report.by_channel.items()},
+            "daily": days,
+            "features": usage_report.FEATURES,
+            # 钱 → token：按本月预算剩余折算（有账户余额时前端可换成余额，用同一组价格）
+            "output_share": share,
+            "prices": [p.__dict__ for p in (*tiers, *prices)],
+            "equivalents": {
+                "basis": "budget_remaining",
+                "amount_usd": remaining,
+                "rows": usage_report.token_equivalents(remaining, (*tiers, *prices), share),
+            },
+            "outside": "「做这条」的自动开发用的是你电脑上的编程助手，不经过圆桌账本，不计入这里。",
+        }
+
+    async def account_balance(self, *, refresh: bool = False) -> dict[str, Any]:
+        """配置了 balance 的渠道：账户余额与 key 的已用（实时查，缓存一分钟），并和本机账本对账。
+
+        只返回金额；key 永远不出现在结果里。查不到时 ok 为假，附脱敏后的原因，面板改用本机估算。
+        """
+        now = self.rt.budget.now()
+        cached = getattr(self, "_balance_cache", None)
+        if cached and not refresh and (now - cached[0]).total_seconds() < self.BALANCE_TTL_S:
+            return cached[1]
+        start, end = month_window(now)
+        ledger = usage_report.summarize(self.rt.repo.usage_rows(start, end), LIFE_STEPS)
+        today = usage_report.summarize(self.rt.repo.usage_rows(*day_window(now)), LIFE_STEPS)
+        out = []
+        for name, spec in self.rt.config.models.channels.items():
+            if spec.balance is None:
+                continue
+            row: dict[str, Any] = {"channel": name, "kind": spec.kind, "ok": False}
+            ledger_month = ledger.by_channel.get(name, usage_report.Totals()).cost_usd
+            ledger_day = today.by_channel.get(name, usage_report.Totals()).cost_usd
+            row["ledger_month_usd"] = round(ledger_month, 6)
+            row["ledger_day_usd"] = round(ledger_day, 6)
+            if name in self.rt.unavailable_channels:
+                row["error"] = self.rt.unavailable_channels[name]
+                out.append(row)
+                continue
+            try:
+                bal = await self.rt.router.provider(name).account_balance()
+            except (ProviderError, UnsupportedCapability, KeyError) as exc:
+                row["error"] = "渠道未启用" if isinstance(exc, KeyError) else redact(str(exc))
+                out.append(row)
+                continue
+            row.update(ok=True, **{k: v for k, v in asdict(bal).items() if k != "notes"})
+            row["remaining"] = bal.remaining
+            row["notes"] = list(bal.notes)
+            if bal.usage_monthly is not None:
+                # 渠道报的本月已用 − 本机账本记的本月已用：正数多半是别的程序也在用这个 key
+                row["diff_month_usd"] = round(bal.usage_monthly - ledger_month, 6)
+            out.append(row)
+        result = {"fetched_at": now.isoformat(), "channels": out}
+        self._balance_cache = (now, result)
+        return result
 
     # --- 插件榜 ------------------------------------------------------------------
 

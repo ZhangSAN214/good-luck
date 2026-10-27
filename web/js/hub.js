@@ -1,8 +1,9 @@
-// 终端首页：背景（可自定义）上悬浮几张液态玻璃卡片：工作（等你拍板的件数）、日常、群聊、公寓、成员、档案。
+// 终端首页：背景（可自定义）上悬浮几张液态玻璃卡片：工作（等你拍板的件数）、日常、群聊、余额、公寓、成员、档案。
 // 只读：数字来自 /api/sessions、/api/chat/rooms 与 /api/status，不调用模型、不花钱。
 // 卡片随鼠标轻微视差、静止时轻轻浮动（Live2D 式的「活着」），系统开了「减少动态」时不动。
 // 自定义背景只存在本机浏览器（localStorage），不上传。顶栏有背景音乐播放条（music.js，音乐同样只存本机浏览器）、
 // 多时区时钟（clock.js）和公告栏（notice.js，版本更新说明）。
+// 左侧是大立绘（standee.js，伪 Live2D）：有立绘时首页那句提示改由她在对话框里说；没有立绘时照旧。
 
 const esc = (s) =>
   String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -44,6 +45,8 @@ const ICON = {
   archive: '<path d="M6 3h9l4 4v14H6zM14 3v5h5M9 13h7M9 17h5"/>',
   more: '<path d="m9 6 6 6-6 6"/>',
   image: '<path d="M4 5h16v14H4zM4 16l5-5 4 4 3-3 4 4"/><circle cx="15" cy="9" r="1.5"/>',
+  wallet: '<path d="M4 7h14a2 2 0 0 1 2 2v9H4zM4 7l11-3v3M16 13h1.5"/>',
+  standee: '<circle cx="12" cy="6" r="3"/><path d="M7 21l1.5-8.5L12 10l3.5 2.5L17 21M9 14l-2 3M15 14l2 3"/>',
 };
 const icon = (k, cls = 'hb-i') => `<svg class="${cls}" viewBox="0 0 24 24" aria-hidden="true">${ICON[k]}</svg>`;
 
@@ -94,10 +97,11 @@ function applyPageBackground(bg) {
 export class Hub {
   /**
    * @param {HTMLElement} root
-   * @param {{sessions:Function, rooms:Function, go:Function, openPeople:Function, openHistory:Function, status:Function, music?:import('./music.js').Music, clock?:import('./clock.js').Clock, notice?:import('./notice.js').Notice}} opts
+   * @param {{sessions:Function, rooms:Function, go:Function, openPeople:Function, openUsage?:Function, openHistory:Function, status:Function, music?:import('./music.js').Music, clock?:import('./clock.js').Clock, notice?:import('./notice.js').Notice, standee?:import('./standee.js').Standee}} opts
    */
-  constructor(root, { sessions, rooms, go, openPeople, openHistory, status, music = null, clock = null, notice = null }) {
-    Object.assign(this, { root, sessions, rooms, go, openPeople, openHistory, status, music, clock, notice });
+  constructor(root, { sessions, rooms, go, openPeople, openUsage = null, openHistory, status, music = null, clock = null, notice = null, standee = null }) {
+    Object.assign(this, { root, sessions, rooms, go, openPeople, openUsage, openHistory, status, music, clock, notice, standee });
+    if (standee) standee.onToggle = () => this.render();
     this.art = null;
     this.counts = { waiting: 0, running: 0, unread: 0 };
     this.timer = null;
@@ -141,6 +145,10 @@ export class Hub {
     this.enterTimer = setTimeout(() => this.root.classList.remove('hb-enter'), 900);
     this.animate();
     this.music?.enter();
+    if (this.standee) {
+      this.standee.start();
+      this.standee.greet();
+    }
     await this.load();
     clearInterval(this.timer);
     this.timer = setInterval(() => this.load(), REFRESH_MS);
@@ -149,6 +157,7 @@ export class Hub {
   hide() {
     if (!this.root.hidden) this.music?.leave();
     this.root.hidden = true;
+    this.standee?.stop();
     document.documentElement.style.removeProperty('--rt-bx');
     document.documentElement.style.removeProperty('--rt-by');
     clearInterval(this.timer);
@@ -195,10 +204,11 @@ export class Hub {
     this.root.innerHTML = `
       <div class="hb-top">
         <span data-clock-slot></span>
-        ${month ? `<span class="hb-res" title="本月已用 / 本月上限">本月已用 $${Number(month.spent_usd).toFixed(2)} / $${Number(month.limit_usd).toFixed(0)}</span>` : ''}
+        ${month ? `<button type="button" class="hb-res" data-act="usage" title="本月已用 / 本月上限（点开看余额与用量）">本月已用 $${Number(month.spent_usd).toFixed(2)} / $${Number(month.limit_usd).toFixed(0)}</button>` : ''}
         <label class="hb-land"><input type="checkbox" data-land${this.landWork() ? ' checked' : ''}> 打开网页时直接进办公室</label>
         <span data-notice-slot></span>
         <span data-music-slot></span>
+        ${this.standee ? `<button type="button" class="hb-bgbtn" data-act="standee" aria-expanded="${Boolean(this.standee.editing)}" title="立绘：显示、换一套、调位置大小">${icon('standee', 'hb-i')}立绘</button>` : ''}
         <button type="button" class="hb-bgbtn" data-act="bg" aria-expanded="${pickerOpen}">${icon('image', 'hb-i')}背景</button>
       </div>
       <div class="hb-bgpick hb-glass" role="dialog" aria-label="更换背景"${pickerOpen ? '' : ' hidden'}>
@@ -207,6 +217,7 @@ export class Hub {
         <input type="file" accept="image/*" data-upload hidden>
         <p class="hb-hint">图片只存在这台电脑的浏览器里，不上传。${this.bgError ? `<span class="hb-err" role="alert">${esc(this.bgError)}</span>` : ''}</p>
       </div>
+      <span data-standee-slot></span>
       <div class="hb-col">
         <div class="hb-layer" data-depth="1">
           <button type="button" class="hb-glass hb-t hb-hero" data-go="work" aria-label="进入工作：${c.waiting ? `${c.waiting} 件等你拍板` : c.running ? `${c.running} 件正在办` : '提一个新题目'}">
@@ -222,6 +233,7 @@ export class Hub {
         <div class="hb-layer hb-row2" data-depth="0.7">
           <button type="button" class="hb-glass hb-t hb-daily" disabled title="日常模式还没开放">${icon('daily')}<span class="hb-zh">日常</span><span class="hb-en">未开放</span></button>
           <button type="button" class="hb-glass hb-t hb-chat" data-go="chat">${icon('chat')}<span class="hb-zh">群聊</span><span class="hb-en">${c.unread ? `${c.unread > 99 ? '99+' : c.unread} 条未读` : '没有未读'}</span>${c.unread ? `<span class="hb-dot" aria-hidden="true">${c.unread > 99 ? '99+' : c.unread}</span>` : ''}${icon('more', 'hb-ar')}</button>
+          ${this.openUsage ? `<button type="button" class="hb-glass hb-t hb-bal" data-act="usage">${icon('wallet')}<span class="hb-zh">余额</span><span class="hb-en">${month ? `剩 $${Math.max(0, month.limit_usd - month.spent_usd).toFixed(2)}` : '用量与花费'}</span></button>` : ''}
         </div>
         <div class="hb-layer hb-row3" data-depth="0.5">
           <button type="button" class="hb-glass hb-t hb-home" data-go="home">${icon('home')}<span class="hb-zh">公寓</span><span class="hb-en">看看大家</span>${icon('more', 'hb-ar')}</button>
@@ -229,10 +241,14 @@ export class Hub {
           <button type="button" class="hb-glass hb-t hb-arc" data-act="history">${icon('archive')}<span class="hb-zh">档案</span><span class="hb-en">历史</span>${icon('more', 'hb-ar')}</button>
         </div>
       </div>
-      <p class="hb-voice hb-glass">${esc(dutyLine(c))}</p>`;
+      <p class="hb-voice hb-glass"${this.standee?.active ? ' hidden' : ''}>${esc(dutyLine(c))}</p>`;
     this.music?.mount(this.root.querySelector('[data-music-slot]'));
     this.clock?.mount(this.root.querySelector('[data-clock-slot]'));
     this.notice?.mount(this.root.querySelector('[data-notice-slot]'));
+    if (this.standee) {
+      this.standee.mount(this.root.querySelector('[data-standee-slot]'));
+      this.standee.setLine(dutyLine(c));
+    }
   }
 
   /** Live2D 式的「活着」：图层按深度跟随鼠标、静止时轻轻浮动；背景反向微移。只在首页可见时跑。 */
@@ -314,7 +330,12 @@ export class Hub {
     const act = e.target.closest('[data-act]');
     if (!act) return;
     if (act.dataset.act === 'people') return this.openPeople();
+    if (act.dataset.act === 'usage') return this.openUsage?.();
     if (act.dataset.act === 'history') return this.openHistory();
+    if (act.dataset.act === 'standee') {
+      this.togglePicker(false, false);
+      return this.standee?.edit();
+    }
     if (act.dataset.act === 'bg') return this.togglePicker(this.root.querySelector('.hb-bgpick')?.hidden);
     if (act.dataset.act === 'upload') return this.root.querySelector('[data-upload]')?.click();
   }

@@ -37,6 +37,7 @@ channels:
     key_env: OPENROUTER_API_KEY
     extra_body:
       usage: {include: true}   # 让 OpenRouter 返回实际费用
+    balance: credits           # 余额与用量面板：查账户余额与这个 key 的已用（只读）
   openai:
     adapter: openai_compat
     kind: direct

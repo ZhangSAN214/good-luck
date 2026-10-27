@@ -1599,6 +1599,59 @@ class Repository:
         ).fetchall()
         return {r["code"]: (float(r["cost"]), float(r["secs"])) for r in rows}
 
+    def usage_rows(
+        self,
+        start: datetime | None,
+        end: datetime | None,
+        meeting_ids: Sequence[str] = (),
+    ) -> list[dict[str, Any]]:
+        """[start, end) 内的调用按（UTC 日期、会话类型、步骤、模型、渠道）汇总（余额与用量面板）。
+
+        start / end 为空表示不限。hidden 为真表示匿名开启且未揭晓：调用方不得按模型展示这些行。
+        meeting 为真表示调用属于 meeting_ids 里的会话（革新例会）。
+        """
+        marks = ", ".join("?" for _ in meeting_ids) or "NULL"
+        where, params = [], []
+        if start is not None:
+            where.append("c.created_at >= ?")
+            params.append(iso(start))
+        if end is not None:
+            where.append("c.created_at < ?")
+            params.append(iso(end))
+        rows = self._exec(
+            "SELECT substr(c.created_at, 1, 10) AS day, s.workflow, c.step, c.model_id,"
+            " c.channel, (s.anonymous = 1 AND s.revealed_at IS NULL) AS hidden,"
+            f" (c.session_id IN ({marks})) AS meeting, COUNT(*) AS calls,"
+            " SUM(c.error IS NOT NULL) AS failed, COALESCE(SUM(c.input_tokens), 0) AS tin,"
+            " COALESCE(SUM(c.output_tokens), 0) AS tout,"
+            " COALESCE(SUM(c.cached_tokens), 0) AS tcached,"
+            " COALESCE(SUM(c.reasoning_tokens), 0) AS treason,"
+            " COALESCE(SUM(c.cost_usd), 0) AS cost"
+            " FROM calls c JOIN sessions s ON s.id = c.session_id"
+            + (f" WHERE {' AND '.join(where)}" if where else "")
+            + " GROUP BY day, s.workflow, c.step, c.model_id, c.channel, hidden, meeting",
+            (*meeting_ids, *params),
+        ).fetchall()
+        return [
+            {
+                "day": r["day"],
+                "workflow": r["workflow"],
+                "step": r["step"],
+                "model_id": r["model_id"],
+                "channel": r["channel"],
+                "hidden": bool(r["hidden"]),
+                "meeting": bool(r["meeting"]),
+                "calls": r["calls"],
+                "failed": r["failed"] or 0,
+                "input_tokens": r["tin"],
+                "output_tokens": r["tout"],
+                "cached_tokens": r["tcached"],
+                "reasoning_tokens": r["treason"],
+                "cost_usd": r["cost"],
+            }
+            for r in rows
+        ]
+
     def spent_by_channel(self) -> dict[str, ChannelUsage]:
         usage: dict[str, ChannelUsage] = {}
         for r in self._exec(
