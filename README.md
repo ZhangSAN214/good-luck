@@ -134,6 +134,29 @@ python scripts/setup_sandbox.py --check  # 只检查
 
 **协同流水线**：协同模式不是各做各的——统筹把题目拆成带类型的流水线（分析 / 搜索调研 / 撰写 / 写提示词 / 执行生成 / 写代码 / 运行验证 / 审查 / 事实核查 / 整合），上游产出（文本和文件）交给下游，每位成员分到一块不同的内容，成员比步骤多时按内容拆成平行子任务。拆得不合格会让统筹重拆一次，仍不行按模板（带参考图的创作、创作、调研、数据 / 代码、文档）自动生成。类型、规则和模板都在 `roundtable.yaml` 的 `collab`。
 
+## 终端大立绘（伪 Live2D）
+
+终端首页左侧可以放一张角色大立绘，会呼吸、眨眼、跟着鼠标微微转头，裙摆和发梢轻轻摆动，点一下会换表情说一句话（台词写在清单里，不调用模型、不花钱）。立绘是你电脑上的图片，**不进 git**：在 `data/avatars/standee.json` 写清单（位置可用 `ROUNDTABLE_STANDEE_FILE` 改），图片路径相对清单所在目录：
+
+```json
+{
+  "name": "克劳德",
+  "persona": "Anthropic",
+  "variants": [
+    {"id": "regular", "label": "常规", "image": "standee/regular.png", "head": [0.45, 0.17],
+     "expressions": {"blink": {"image": "standee/regular_blink.png"},
+                     "smile": {"image": "standee/smile_face.png", "box": [0.38, 0.08, 0.2, 0.13]}}},
+    {"id": "special", "label": "特殊", "image": "standee/special.png"}
+  ],
+  "lines": {"greet": ["欢迎回来。"], "tap": ["嗯？"], "head": ["头发会乱的。"], "idle": [], "morning": [], "night": []}
+}
+```
+
+- 纯色底的图会在浏览器里自动柔边抠掉（已经是透明底就不动）。
+- 表情差分可选：`smile`（微笑）、`think`（思考）、`surprise`（惊讶）、`blink`（闭眼，眨眼用）、`talk`（说话）。可以是整张同尺寸图（只改了脸），也可以是脸部贴片（`box` 为贴片在原图里的左、上、宽、高比例）。没有差分时用动作代替。
+- `head` 是头部中心（比例），用于摸头判定和头部跟随；`persona` 写 `personas.yaml` 里的键时，这位成员人设里的口头禅也会加进点击台词。
+- 首页顶栏「立绘」：显示 / 隐藏、换一套、大小、不透明度、动态幅度、水平翻转、吸附对齐、恢复默认；打开时可以直接拖动立绘、拖右下角或滚轮缩放、方向键微调。这些设置只存在本机浏览器里。
+
 ## 测试
 
 ```bash

@@ -248,6 +248,16 @@ def create_app(service: RoundtableService | None = None) -> FastAPI:
         headers = {"X-Content-Type-Options": "nosniff", "Cache-Control": "private, max-age=3600"}
         return Response(content=data, media_type=mime, headers=headers)
 
+    @app.get("/api/standee")
+    async def standee(request: Request) -> dict[str, Any]:
+        return svc(request).standee()
+
+    @app.get("/api/standee/files/{path:path}")
+    async def standee_file(request: Request, path: str) -> Response:
+        data, mime = svc(request).standee_file(path)
+        headers = {"X-Content-Type-Options": "nosniff", "Cache-Control": "private, max-age=3600"}
+        return Response(content=data, media_type=mime, headers=headers)
+
     @app.get("/api/office")
     async def office(request: Request) -> dict[str, Any]:
         return svc(request).office()

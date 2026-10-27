@@ -29,6 +29,9 @@ DB_ENV = "ROUNDTABLE_DB_PATH"
 # 成员形象素材（头像、小人）目录：在用户本机，不进 git
 DEFAULT_MEMBERS_DIR = PROJECT_ROOT / "data" / "avatars" / "roundtable_assets"
 MEMBERS_ENV = "ROUNDTABLE_ASSETS_DIR"
+# 终端首页大立绘的清单（图片路径相对它所在目录）：在用户本机，不进 git
+DEFAULT_STANDEE_FILE = PROJECT_ROOT / "data" / "avatars" / "standee.json"
+STANDEE_ENV = "ROUNDTABLE_STANDEE_FILE"
 # 人才市场的最近结果（放在数据库旁边，不进 git）
 CATALOG_FILE = "model_candidates.json"
 # 革新例会的资料卡与采纳单（放在数据库旁边，不进 git）
@@ -54,6 +57,8 @@ class Runtime:
     frame_extractor: Callable[..., list[Any]] | None = None
     # 成员形象素材目录（members.json 所在目录）；为空表示没有素材
     members_dir: Path | None = None
+    # 终端首页大立绘清单（standee.json）；为空表示没有立绘
+    standee_file: Path | None = None
     # 模型人才市场（只提示，不改配置）；为空时不提供
     catalog: ModelCatalog | None = None
     # 革新例会的资料卡收件箱与采纳单所在目录（数据库旁边的 evolution/）；为空表示不可用
@@ -76,6 +81,7 @@ class Runtime:
         uploads_dir: str | Path | None = None,
         search: SearchService | None = None,
         members_dir: str | Path | None = None,
+        standee_file: str | Path | None = None,
         catalog_fetch: Fetch | None = None,
         evolution_dir: str | Path | None = None,
     ) -> Runtime:
@@ -129,6 +135,9 @@ class Runtime:
         if members_dir is None:
             configured = env.get(MEMBERS_ENV)
             members_dir = PROJECT_ROOT / configured if configured else DEFAULT_MEMBERS_DIR
+        if standee_file is None:
+            configured = env.get(STANDEE_ENV)
+            standee_file = PROJECT_ROOT / configured if configured else DEFAULT_STANDEE_FILE
         if evolution_dir is None and str(db_path) != ":memory:":
             evolution_dir = Path(db_path).parent / EVOLUTION_DIR
         repo = Repository(connect(db_path))
@@ -146,6 +155,7 @@ class Runtime:
             search=search or SearchService({}),
             unavailable_channels=dict(unavailable or {}),
             members_dir=Path(members_dir),
+            standee_file=Path(standee_file),
             catalog=ModelCatalog(
                 config,
                 None if str(db_path) == ":memory:" else Path(db_path).parent / CATALOG_FILE,
