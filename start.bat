@@ -8,6 +8,8 @@ rem Never wait for a password prompt (a hidden credential window looked like a h
 set GIT_TERMINAL_PROMPT=0
 set GCM_INTERACTIVE=never
 set PYTHONIOENCODING=utf-8
+rem stop.bat leaves this flag so the window it stopped closes quietly instead of reporting a failure
+set "STOP_FLAG=%TEMP%\roundtable-stopped.flag"
 
 if not exist ".venv\Scripts\activate.bat" (
     echo [setup] Creating virtual environment .venv ...
@@ -36,7 +38,9 @@ call :stop_old || goto :error
 echo [4/4] Starting server at http://127.0.0.1:8000  (Ctrl+C or close this window to stop)
 rem Open the browser a few seconds later, once the server is up
 start "" /b cmd /c "timeout /t 3 /nobreak >nul & start "" http://127.0.0.1:8000"
+del "%STOP_FLAG%" >nul 2>&1
 python -m uvicorn roundtable.api.app:app --host 127.0.0.1 --port 8000
+if exist "%STOP_FLAG%" exit /b 0
 if errorlevel 1 goto :error
 exit /b 0
 
@@ -52,6 +56,7 @@ if errorlevel 1 (
     exit /b 1
 )
 echo [info] Stopping the old Roundtable server ^(PID %OLD%^) ...
+type nul > "%STOP_FLAG%"
 taskkill /pid %OLD% /t /f >nul
 timeout /t 2 /nobreak >nul
 exit /b 0

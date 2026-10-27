@@ -4,6 +4,8 @@ setlocal
 chcp 65001 >nul
 cd /d "%~dp0" || goto :error
 set PYTHONIOENCODING=utf-8
+rem stop.bat leaves this flag so the window it stopped closes quietly instead of reporting a failure
+set "STOP_FLAG=%TEMP%\roundtable-stopped.flag"
 rem Never wait for a hidden password prompt
 set GIT_TERMINAL_PROMPT=0
 set GCM_INTERACTIVE=never
@@ -42,12 +44,15 @@ if defined OLD (
         goto :error
     )
     echo [info] Stopping the old Roundtable server ^(PID %OLD%^) ...
+    type nul > "%STOP_FLAG%"
     taskkill /pid %OLD% /t /f >nul
     timeout /t 2 /nobreak >nul
 )
 echo Starting server at http://127.0.0.1:8000  (Ctrl+C to stop)
 start "" /b cmd /c "timeout /t 3 /nobreak >nul & start "" http://127.0.0.1:8000"
+del "%STOP_FLAG%" >nul 2>&1
 python -m uvicorn roundtable.api.app:app --host 127.0.0.1 --port 8000
+if exist "%STOP_FLAG%" exit /b 0
 if errorlevel 1 goto :error
 echo.
 echo Server stopped.

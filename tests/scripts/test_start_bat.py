@@ -52,3 +52,16 @@ def test_bat_files_use_crlf():
     for name in ("start.bat", "update_and_start.bat", "stop.bat"):
         data = (BAT.parent / name).read_bytes()
         assert b"\n" not in data.replace(b"\r\n", b""), name
+
+
+def test_stopped_window_closes_quietly():
+    # stop.bat（或新启动替换旧服务）停掉的窗口不该报「启动失败」再等按键
+    for name in ("start.bat", "update_and_start.bat", "stop.bat"):
+        text = (BAT.parent / name).read_text(encoding="ascii")
+        assert text.index('type nul > "%STOP_FLAG%"') < text.index("taskkill"), name
+    for name in ("start.bat", "update_and_start.bat"):
+        text = (BAT.parent / name).read_text(encoding="ascii")
+        run = text.index("uvicorn roundtable.api.app:app")
+        quiet = text.index('if exist "%STOP_FLAG%" exit /b 0')
+        assert text.index('del "%STOP_FLAG%"') < run < quiet
+        assert quiet < text.index("if errorlevel 1 goto :error", run)
