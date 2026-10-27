@@ -292,6 +292,24 @@ def test_room_hotspots_are_validated_and_clamped(tmp_path):
     room = {m.id: m.room for m in art.members}
     assert room["m1"] is None and room["m3"] is None
     assert room["m2"]["bed"] is None
+    ok = load_members(
+        write_assets(
+            tmp_path / "b",
+            "v1",
+            extra=[
+                {
+                    "id": "m4",
+                    "name": "四",
+                    "vendor": "v4",
+                    "room": {"bed": {"x": 9, "y": 57, "w": 99, "h": 0}},
+                }
+            ],
+        )
+    )
+    assert {m.id: m.room for m in ok.members}["m4"] == {
+        "bed": {"x": 9.0, "y": 57.0, "w": 60.0},
+        "hots": [],
+    }
     desk, tv = room["m2"]["hots"]
     assert desk == {
         "id": "desk",

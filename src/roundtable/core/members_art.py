@@ -306,8 +306,10 @@ def _room(raw: Any) -> dict[str, Any] | None:
     """宿舍场景图的互动点位。床：枕头上头的位置；家具：可点区域、叫小人做的事、站的位置。"""
     if not isinstance(raw, dict):
         return None
-    bed = raw.get("bed")
-    bx, by = (_pct(bed.get("x")), _pct(bed.get("y"))) if isinstance(bed, dict) else (None, None)
+    bed = raw.get("bed") if isinstance(raw.get("bed"), dict) else {}
+    bx, by = _pct(bed.get("x")), _pct(bed.get("y"))
+    # 被子的长和宽（图上的百分比），没写用网页的默认值
+    bw, bh = _pct(bed.get("w")), _pct(bed.get("h"))
     hots: list[dict[str, Any]] = []
     seen: set[str] = set()
     for h in raw.get("hots", [])[:32] if isinstance(raw.get("hots"), list) else []:
@@ -345,7 +347,10 @@ def _room(raw: Any) -> dict[str, Any] | None:
         )
     if bx is None and not hots:
         return None
-    return {"bed": {"x": bx, "y": by} if bx is not None and by is not None else None, "hots": hots}
+    if bx is None or by is None:
+        return {"bed": None, "hots": hots}
+    size = {k: min(v, 60.0) for k, v in (("w", bw), ("h", bh)) if v}
+    return {"bed": {"x": bx, "y": by, **size}, "hots": hots}
 
 
 def _sky(root: Path) -> dict[str, str]:

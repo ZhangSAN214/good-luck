@@ -473,15 +473,13 @@ const ART_HEAD = [30, 64.5];
 function artBed(o) {
   const b = o.art.room?.bed;
   const [hx, hy] = b ? [b.x * 3, b.y * 1.2] : ART_HEAD;
-  const [dx, dy] = [hx - ART_HEAD[0], hy - ART_HEAD[1]];
-  return {
-    hx,
-    hy,
-    hr: 8.5,
-    // 被子顺着床面和床沿盖下来；用正片叠底染上房主的颜色，保留原图的布纹和光影
-    quilt: [`M${37 + dx} ${71.5 + dy}q1.5-3.6 7-3.8l20-1.6q6 3 12 .4l30-.6q6 .4 8.5 4.2l-1 3.6 .8 15.5q-36 3.4-74 2.2z`],
-    hot: { x: hx - 24, y: hy - 16, w: 112, h: 54 },
-  };
+  // 被子从枕头右边铺到床尾（w：图宽的百分比），从床面盖到床沿（h：图高的百分比）
+  const w = (b?.w || 28) * 3 - 7;
+  const h = (b?.h || 20) * 1.2;
+  const [x0, y0] = [hx + 7, hy + 2.5];
+  // 被子顺着床面和床沿盖下来；用正片叠底染上房主的颜色，保留原图的布纹和光影
+  const quilt = `M${x0} ${y0 + 3}q1.5-3.6 6-3.6h${(w * 0.3).toFixed(1)}q${(w * 0.08).toFixed(1)} 2.6 ${(w * 0.16).toFixed(1)} 0h${(w * 0.46 - 10).toFixed(1)}q4 .3 4 3.6v${(h - 3).toFixed(1)}q${(-w / 2).toFixed(1)} 2 ${(-w).toFixed(1)} 0z`;
+  return { hx, hy, hr: 8.5, quilt: [quilt], hot: { x: hx - 18, y: hy - 14, w: w + 30, h: h + 18 } };
 }
 const bedOf = (o) => (o.art ? artBed(o) : bedAnchor());
 // 场景图的家具点位（百分比）换成 viewBox 坐标；stand：小人站的横向位置，lift：站高一点（坐在沙发上、站在榻榻米上）
@@ -579,7 +577,7 @@ function sleeper(r, m, label, pressed, deep = null) {
   const hy = at ? at.hy : FY - 32;
   const hr = at ? at.hr : 12;
   const quilt = at
-    ? at.quilt.map((d, i) => (d.startsWith('M') ? `<path d="${d}" fill="${esc(color)}" opacity=".78" style="mix-blend-mode:multiply"/><path d="${d}" fill="${esc(color)}" opacity=".35"/><ellipse cx="72" cy="69.5" rx="22" ry="2.6" fill="#fff" opacity=".16"/>` : `<polygon points="${d}" fill="${esc(color)}"${i ? ' style="filter:brightness(.82)"' : ''}/>`)).join('')
+    ? at.quilt.map((d, i) => (d.startsWith('M') ? `<path d="${d}" fill="${esc(color)}" opacity=".78" style="mix-blend-mode:multiply"/><path d="${d}" fill="${esc(color)}" opacity=".35"/>` : `<polygon points="${d}" fill="${esc(color)}"${i ? ' style="filter:brightness(.82)"' : ''}/>`)).join('')
     : `<rect x="${BED_X + 30}" y="${FY - 28}" width="80" height="14" rx="3" fill="${esc(color)}"/><rect x="${BED_X + 30}" y="${FY - 28}" width="80" height="2.5" rx="1" fill="#fff" opacity=".3"/>`;
   const face = head
     ? `<clipPath id="hc-${esc(r.id)}"><circle cx="${hx}" cy="${hy}" r="${hr}"/></clipPath><image href="${esc(head)}" x="${hx - hr}" y="${hy - hr}" width="${hr * 2}" height="${hr * 2}" clip-path="url(#hc-${esc(r.id)})" preserveAspectRatio="xMidYMid slice"/>`
