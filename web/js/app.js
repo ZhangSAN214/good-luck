@@ -162,6 +162,8 @@ const home = new Apartment($('#home'), {
     gchat.openRoom(`dm:${id}`);
   },
   momentsOf: (id) => moments.open(id),
+  personas: API.chatPersonas,
+  setupOf: (id) => people.open(id),
 });
 const hub = new Hub($('#hub'), {
   music: new Music(),

@@ -3,6 +3,8 @@
 // 数据来自 /api/apartment（按浏览器本地时间）；小人用 /api/members 的 chibi，没有素材时用昵称首字。
 // 匿名未揭晓的会话：服务端只给数量，这里只在会议室门上挂牌，不显示是谁。
 // 所有图形都在这里用 SVG / CSS 自绘，不用外部美术素材。
+// 互动：拖小人到别的房间（落地弹跳、按房间换动作、串门打招呼）、点小人（摸头 / 聊一句 / 看状态）、放大后点家具。
+// 这些都只在浏览器里：不调用模型、不花钱、不改真实作息，几分钟后小人自己回到按作息的位置。
 
 import { cutout } from './cutout.js';
 
@@ -21,6 +23,44 @@ const ROLE = { manager: '经理', staff: '员工' };
 const ROOM_EN = { dorm: 'DORMITORY', office: 'OFFICE', meeting: 'MEETING ROOM', canteen: 'CANTEEN', lounge: 'LOUNGE', gym: 'GYM', rooftop: 'ROOFTOP' };
 // 剖面图里各类房间的宽度比例
 const FLEX = { office: 1.5, meeting: 1, canteen: 1.3, lounge: 1, gym: 1 };
+
+// --- 互动台词与规则 ----------------------------------------------------------------------------
+const PLACE_MS = 3 * 60_000; // 拖过去 / 叫去用家具的小人，过这么久自己回到按作息的位置
+const SAY_MS = 3200; // 头顶对话气泡显示多久
+const pick = (a) => a[Math.floor(Math.random() * a.length)];
+const calm = () => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+const clampPct = (v) => Math.min(94, Math.max(6, v));
+// 放进各类房间后做什么；{o} 换成房主的称呼。label 前面会自动加上「在食堂」这类地点（whereText）
+const DROP = {
+  office: { act: 'work', label: '被你拎来帮忙', say: ['好，我看看手头的活。', '工位就位！', '先把屏幕打开。'] },
+  meeting: { act: 'chat', label: '开小会', say: ['要开会吗？我带本子了。', '白板借我用用。'] },
+  canteen: { act: 'eat', label: '吃点东西', say: ['正好有点饿了。', '今天的菜单看着不错！'] },
+  lounge: { act: 'game', label: '看电视', say: ['沙发好软……', '遥控器在谁那儿？'] },
+  gym: { act: 'exercise', label: '锻炼', say: ['好吧，动一动！', '再来一组！'] },
+  rooftop: { act: 'stargaze', label: '看风景', say: ['风好舒服。', '从这儿能看好远。'] },
+  home: { act: 'read', label: '歇着', say: ['还是自己屋里自在。', '回家啦。'] },
+  visit: { act: 'chat', label: '去{o}屋里串门', say: ['嗨 {o}，我来串门啦！', '{o}，打扰一下～'] },
+  away: { act: 'idle', label: '在{o}屋里等 TA 回来', say: ['{o}不在家，我在这儿等等。'] },
+  hush: { act: 'idle', label: '在{o}屋里（{o}在睡觉）', say: ['嘘……{o}睡着了，我轻点。'] },
+};
+const LIFT = ['哇！', '飞起来了！', '要带我去哪？'];
+const WOKEN = ['唔……我刚睡着呢。', '（揉眼睛）去哪儿？'];
+const PAT = ['嘿嘿～', '（眯起眼睛）', '再摸要长不高了！', '被摸头了，开心。'];
+const PAT_SLEEP = ['呼……（翻了个身）', 'zzz……'];
+const BACK = ['我回原来的地方啦～', '该回去了。'];
+// 聊一句：按正在做的事；成员设定里有口头禅时一半概率说口头禅
+const TALK = {
+  work: ['这个问题有点意思。', '等我把这段弄完。'],
+  wait: ['在等结果出来。', '马上就好。'],
+  sleep: ['zzz……'],
+  eat: ['这个好吃！', '吃饱了才有力气。'],
+  exercise: ['呼——再坚持一下。', '今天也要动起来！'],
+  read: ['这本书讲得真好。', '再看一章就睡。'],
+  chat: ['我们刚聊到哪了？', '你也来坐坐？'],
+  game: ['这局我能赢！', '这集好看。'],
+  stargaze: ['从这儿能看到好远。', '风好舒服。'],
+  idle: ['今天过得怎么样？', '要不要去天台吹吹风？', '今天也记得和朋友、家人聊聊天哦。'],
+};
 
 // --- SVG 小工具 -------------------------------------------------------------------------------
 // 每个房间一张 SVG：地板线在 y=FY；墙和地板画得比 viewBox 宽得多（overflow 可见），房间多宽都铺满。
@@ -389,6 +429,35 @@ const ROOMS = {
   },
 };
 
+// 放大房间时可以点的家具：viewBox 里的范围、叫人去做什么、头上冒的小符号；owner：只有房主能用（床）
+const HOTS = {
+  dorm: [{ id: 'bed', x: BED_X, y: FY - 42, w: 114, h: 42, name: '床', act: 'sleep', label: '睡觉', say: ['晚安～', '先眯一会儿。'], fx: 'z', owner: true }],
+  office: [{ id: 'screen', x: 170, y: 10, w: 220, h: 58, name: '屏幕墙', act: 'work', label: '盯着大屏看数据', say: ['曲线又涨了。', '这个图有意思。'], fx: '!' }],
+  meeting: [{ id: 'board', x: 44, y: 11, w: 112, h: 62, name: '投影幕', act: 'chat', label: '对着投影讲方案', say: ['看下一页！', '我来讲两句。'], fx: '!' }],
+  canteen: [
+    { id: 'stove', x: 14, y: FY - 46, w: 120, h: 46, name: '灶台', act: 'eat', label: '炒菜', say: ['火候正好。', '香不香？'], fx: '~' },
+    { id: 'fridge', x: 222, y: FY - 72, w: 34, h: 72, name: '冰箱', act: 'eat', label: '翻冰箱找吃的', say: ['还剩一盒酸奶！', '冰箱里有什么呢……'], fx: '*' },
+  ],
+  lounge: [
+    { id: 'tv', x: 234, y: 22, w: 50, h: 30, name: '电视', act: 'game', label: '看电视', say: ['这集好看！', '换个台吧。'], fx: '♪' },
+    { id: 'fire', x: 30, y: FY - 60, w: 78, h: 60, name: '壁炉', act: 'idle', label: '烤火', say: ['好暖和～'], fx: '~' },
+    { id: 'sofa', x: 114, y: FY - 36, w: 98, h: 36, name: '沙发', act: 'read', label: '窝在沙发上', say: ['不想动了……'], fx: '♥' },
+  ],
+  gym: [
+    { id: 'run', x: 20, y: FY - 56, w: 82, h: 56, name: '跑步机', act: 'exercise', label: '跑步', say: ['再跑一公里！'], fx: '!' },
+    { id: 'bar', x: 166, y: FY - 56, w: 64, h: 56, name: '杠铃', act: 'exercise', label: '举杠铃', say: ['嘿——咻！'], fx: '!' },
+    { id: 'bag', x: 280, y: 6, w: 32, h: 70, name: '沙袋', act: 'exercise', label: '打沙袋', say: ['看我组合拳！'], fx: '!' },
+  ],
+  rooftop: [
+    { id: 'scope', x: 814, y: 18, w: 36, h: 32, name: '望远镜', act: 'stargaze', label: '用望远镜看远处', say: ['那边的楼也亮灯了。', '看到星星了！'], fx: '*' },
+    { id: 'bench', x: 516, y: 28, w: 68, h: 22, name: '长椅', act: 'idle', label: '坐在长椅上发呆', say: ['坐一会儿。'], fx: '~' },
+  ],
+};
+const hotSvg = (kind) =>
+  (HOTS[kind] || [])
+    .map((h) => `<rect class="hot" data-hot="${h.id}" x="${h.x}" y="${h.y}" width="${h.w}" height="${h.h}" rx="3" fill="transparent" role="button" tabindex="0" aria-label="${h.name}"><title>${h.name}</title></rect>`)
+    .join('');
+
 function sceneSvg(kind, o, extra = '') {
   const w = VB[kind] || 300;
   const h = kind === 'rooftop' ? 70 : H;
@@ -487,7 +556,7 @@ const store = {
 };
 
 export class Apartment {
-  constructor(root, { api, budget = null, now = () => new Date(), openSession = null, chatWith = null, dmWith = null, momentsOf = null } = {}) {
+  constructor(root, { api, budget = null, now = () => new Date(), openSession = null, chatWith = null, dmWith = null, momentsOf = null, personas = null, setupOf = null } = {}) {
     this.root = root;
     this.api = api;
     this.budgetApi = budget; // 顶部资源栏的今日 / 本月花费（可选）
@@ -496,6 +565,13 @@ export class Apartment {
     this.chatWith = chatWith;
     this.dmWith = dmWith;
     this.momentsOf = momentsOf; // 看 TA 的朋友圈
+    this.personasApi = personas; // 聊一句时用成员设定里的口头禅（可选）
+    this.setupOf = setupOf; // 打开成员设定（可选）
+    this.moved = new Map(); // 临时摆放：住户 id → { patch, until }，只盖在显示上
+    this.says = new Map(); // 头顶气泡：住户 id → { text, until }
+    this.popOpen = false; // 点小人弹出的互动菜单
+    this.drag = null;
+    this.eatClick = false; // 拖完松手时浏览器紧接着补的那个 click 不算点击
     this.art = null;
     this.data = null;
     this.budget = null;
@@ -507,6 +583,11 @@ export class Apartment {
     this.error = '';
     root.addEventListener('click', (e) => this.onClick(e));
     root.addEventListener('keydown', (e) => this.onKey(e));
+    root.addEventListener('pointerdown', (e) => this.onDown(e));
+    root.addEventListener('scroll', () => this.placePop(), true);
+    window.addEventListener('resize', () => this.placePop());
+    this._move = (e) => this.onMove(e);
+    this._up = (e) => this.onUp(e);
   }
 
   setArt(art) {
@@ -534,6 +615,7 @@ export class Apartment {
   }
 
   hide() {
+    if (this.drag) this.onUp({ type: 'pointercancel', pointerId: this.drag.pid });
     this.root.hidden = true;
     clearInterval(this.timer);
     this.timer = null;
@@ -571,11 +653,22 @@ export class Apartment {
       ? `<img src="${esc(this.cut?.get(m.images.chibi) || m.images.chibi)}" alt="" loading="lazy" draggable="false">`
       : `<span class="ini" style="background:${esc(color)}">${esc(name.slice(0, 1))}</span>`;
     const label = this.label(r);
-    const x = n <= 1 ? 50 : 12 + (76 * i) / (n - 1);
-    const k = (this.data?.residents || []).indexOf(r);
+    // 被拖过去 / 叫去用家具的站在放下的位置
+    const x = r._x ?? (n <= 1 ? 50 : 12 + (76 * i) / (n - 1));
+    const k = (this.data?.residents || []).findIndex((p) => p.id === r.id);
     const pressed = this.selected === r.id;
     const mark = BUBBLES[r.activity] ? `<i class="bub mk">${BUBBLES[r.activity]}</i>` : '';
-    return `<button type="button" class="tenant act-${esc(r.activity)}${pressed ? ' on' : ''}" data-r="${esc(r.id)}" aria-pressed="${pressed}" aria-label="${esc(label)}" title="${esc(label)}" style="--x:${x.toFixed(1)}%;--d:${6 + (k % 4) * 1.7}s;--c:${esc(color)}">${img}${mark}<b class="tag">${esc(name)}</b></button>`;
+    const s = this.says.get(r.id);
+    const say = s && s.until > Date.now() ? `<span class="say" aria-hidden="true" data-until="${s.until}">${esc(s.text)}</span>` : '';
+    const placed = this.moved.has(r.id) ? ' placed' : '';
+    return `<button type="button" class="tenant act-${esc(r.activity)}${pressed ? ' on' : ''}${placed}" data-r="${esc(r.id)}" aria-pressed="${pressed}" aria-label="${esc(label)}" title="${esc(label)}" style="--x:${x.toFixed(1)}%;--d:${6 + (k % 4) * 1.7}s;--c:${esc(color)}">${img}${mark}${say}<b class="tag">${esc(name)}</b></button>`;
+  }
+
+  // 小人的形象（拖起来时跟着手走的那个）
+  figure(r) {
+    const m = this.look(r);
+    const src = m?.images?.chibi ? this.cut?.get(m.images.chibi) || m.images.chibi : m?.images?.avatar_128;
+    return src ? `<img src="${esc(src)}" alt="" draggable="false">` : `<span class="ini" style="background:${esc(m?.theme_color || '#c9733f')}">${esc((m?.display || r.name).slice(0, 1))}</span>`;
   }
 
   dormNames() {
@@ -627,7 +720,7 @@ export class Apartment {
     const head = `<span class="rname"><i class="rbar"></i><b>${esc(info.title)}</b><small>${esc(info.state)}${people.length ? ` · ${people.length} 人` : ''}</small></span>`;
     const zbtn = big ? '' : `<button type="button" class="zbtn" data-zoom="${esc(room.id)}" aria-label="放大看${esc(info.title)}" title="放大看">${icon('zoom')}</button>`;
     const ar = ((VB[room.kind] || 300) / (room.kind === 'rooftop' ? 70 : H)).toFixed(3);
-    return `<div class="${cls}" data-room="${esc(room.id)}" style="--tc:${esc(info.tc)};--fx:${flex};--ar:${ar}">${sceneSvg(room.kind, o, beds)}<div class="people${awake.length >= 5 ? ' crowd' : ''}">${tenants}</div>${head}${sign}${zbtn}</div>`;
+    return `<div class="${cls}" data-room="${esc(room.id)}" style="--tc:${esc(info.tc)};--fx:${flex};--ar:${ar}">${sceneSvg(room.kind, o, (big ? hotSvg(room.kind) : '') + beds)}<div class="people${awake.length >= 5 ? ' crowd' : ''}">${tenants}</div>${head}${sign}${zbtn}</div>`;
   }
 
   // 空房：暗色空槽，顶上一盏射灯
@@ -636,7 +729,33 @@ export class Apartment {
   }
 
   residentsIn(id) {
-    return (this.data?.residents || []).filter((r) => r.room === id);
+    return this.people().filter((r) => r.room === id);
+  }
+
+  // 显示用的住户：临时摆放的盖在作息上（只在这个页面里，不回写）
+  people() {
+    return this.res || this.data?.residents || [];
+  }
+
+  // 过期的摆放撤掉；返回刚回去的住户 id
+  applyMoves() {
+    const now = Date.now();
+    const back = [];
+    for (const [id, m] of this.moved)
+      if (m.until <= now) {
+        this.moved.delete(id);
+        back.push(id);
+      }
+    this.res = (this.data?.residents || []).map((r) => (this.moved.has(r.id) ? { ...r, ...this.moved.get(r.id).patch } : r));
+    return back;
+  }
+
+  move(id, patch) {
+    const cur = this.moved.get(id)?.patch || {};
+    this.moved.set(id, { patch: { ...cur, ...patch }, until: Date.now() + PLACE_MS });
+    const next = Math.min(...[...this.moved.values()].map((m) => m.until));
+    clearTimeout(this.backTimer);
+    this.backTimer = setTimeout(() => this.data && !this.root.hidden && this.render(), Math.max(0, next - Date.now()) + 50);
   }
 
   section() {
@@ -699,12 +818,14 @@ export class Apartment {
   side() {
     const d = this.data;
     const dorms = this.dormNames();
-    const sel = (d.residents || []).find((r) => r.id === this.selected);
+    const sel = this.people().find((r) => r.id === this.selected);
     let h = `<div class="sh"><b>进驻总览</b><span>RESIDENTS · ${(d.residents || []).length}</span></div><div class="clock"><span class="big">${esc(this.clock)}</span><span class="day">${esc(this.day || '')}</span><span class="hint">按你电脑的时间作息，30 秒刷新一次</span></div>`;
     if (sel) {
       const m = this.look(sel);
       h += `<div class="card" id="resident-card"><div class="who">${m?.images?.avatar_128 ? `<img src="${esc(m.images.avatar_128)}" alt="">` : ''}<div><b>${esc(m?.display || sel.name)}</b><div class="hint">${esc(ROLE[sel.role] || sel.role)} · 住 ${esc(dorms[sel.dorm] || '')}</div></div></div>`;
       h += `<p>${esc(whereText(sel, dorms[sel.dorm]))}</p>`;
+      const mv = this.moved.get(sel.id);
+      if (mv) h += `<p class="hint placed-note">这是你临时摆放的，约 ${Math.max(1, Math.ceil((mv.until - Date.now()) / 60_000))} 分钟后自己回去 <button type="button" class="back" data-back="${esc(sel.id)}">现在就回去</button></p>`;
       h += `<p class="hint">本月工资 $${Number(sel.month_paid_usd || 0).toFixed(4)} · ${sel.model_ids.length} 种工作模式</p><div class="acts">`;
       if (sel.session_id) h += `<button type="button" class="btn" data-open="${esc(sel.session_id)}">去看 TA 在办的事</button>`;
       if (this.dmWith) h += `<button type="button" class="btn" data-dm="${esc(sel.id)}">私聊</button>`;
@@ -713,7 +834,7 @@ export class Apartment {
       h += '</div></div>';
     }
     h += '<ul class="roster">';
-    for (const r of d.residents || []) {
+    for (const r of this.people()) {
       const m = this.look(r);
       const av = m?.images?.avatar_64
         ? `<img class="av" src="${esc(m.images.avatar_64)}" alt="">`
@@ -721,7 +842,7 @@ export class Apartment {
       const st = r.activity === 'work' || r.activity === 'wait' ? 'w' : r.activity === 'sleep' ? 's' : 'i';
       h += `<li><button type="button" class="link${this.selected === r.id ? ' on' : ''}" data-r="${esc(r.id)}" style="--c:${esc(m?.theme_color || '#c9733f')}">${av}<span class="tx"><span class="nm"><b>${esc(m?.display || r.name)}</b>${r.role === 'manager' ? '<span class="role">经理</span>' : ''}</span><span class="hint">${esc(whereText(r, dorms[r.dorm]))}</span></span><i class="st st-${st}" aria-hidden="true"></i></button></li>`;
     }
-    h += '</ul><p class="hint foot">住户就是办公室的员工，同一位的全力和节电两种模式住一间。这里只是看看，不调用模型，也不花钱。</p>';
+    h += '</ul><p class="hint foot">住户就是办公室的员工，同一位的全力和节电两种模式住一间。拖动小人可以带 TA 去别的房间，放大房间后家具也能点；这些只是逗着玩，几分钟后各回各处，不调用模型，也不花钱。</p>';
     return h;
   }
 
@@ -741,7 +862,7 @@ export class Apartment {
           })
           .join('')
       : `<li class="none">${room.kind === 'meeting' && this.data.hidden_meetings ? `匿名会议进行中 ×${this.data.hidden_meetings}，不显示是谁` : '现在没有人'}</li>`;
-    return `<div class="zoom" data-zclose><div class="zbox" role="dialog" aria-modal="true" aria-label="${esc(info.title)}"><header><i class="rbar"></i><div><b>${esc(info.title)}</b><span>${ROOM_EN[room.kind] || ''} · ${esc(info.state)}</span></div><button type="button" class="zx" data-zclose aria-label="关闭">${icon('close')}</button></header><div class="zstage">${this.room(room, people, { big: true })}</div><ul class="zlist">${list}</ul></div></div>`;
+    return `<div class="zoom" data-zclose><div class="zbox" role="dialog" aria-modal="true" aria-label="${esc(info.title)}"><header><i class="rbar"></i><div><b>${esc(info.title)}</b><span>${ROOM_EN[room.kind] || ''} · ${esc(info.state)}</span><em class="ztip">拖动小人换位置 · 点家具试试</em></div><button type="button" class="zx" data-zclose aria-label="关闭">${icon('close')}</button></header><div class="zstage">${this.room(room, people, { big: true })}</div><ul class="zlist">${list}</ul></div></div>`;
   }
 
   render() {
@@ -749,14 +870,39 @@ export class Apartment {
       this.root.innerHTML = `<p class="empty">${esc(this.error || '加载中…')}</p>`;
       return;
     }
+    // 正在拖：等放下再重画，不然手里的小人会被换掉
+    if (this.drag?.on) {
+      this.stale = true;
+      return;
+    }
+    const back = this.applyMoves();
     this.phase = phase(this.hour ?? 12);
     const err = this.error ? `<p class="hint badp" role="alert">${esc(this.error)}</p>` : '';
     const body = this.view === 'map' ? this.map() : this.section();
     this.root.classList.toggle('noside', !this.sideOpen);
-    this.root.innerHTML = `<div class="base ph-${this.phase} v-${this.view}">${this.topbar()}<div class="bstage">${body}</div>${this.zoom ? this.zoomed() : ''}</div><aside class="home-side" id="home-side" aria-label="住户"${this.sideOpen ? '' : ' hidden'}>${err}${this.side()}</aside>`;
+    this.root.innerHTML = `<div class="base ph-${this.phase} v-${this.view}">${this.topbar()}<div class="bstage">${body}</div>${this.zoom ? this.zoomed() : ''}${this.pop()}</div><aside class="home-side" id="home-side" aria-label="住户"${this.sideOpen ? '' : ' hidden'}>${err}${this.side()}</aside>`;
+    for (const s of this.root.querySelectorAll('.say[data-until]')) {
+      this.fit(s);
+      setTimeout(() => s.remove(), Number(s.dataset.until) - Date.now());
+    }
+    this.placePop();
+    for (const id of back) this.say(id, pick(BACK));
   }
 
   onClick(e) {
+    if (this.eatClick) return;
+    const act = e.target.closest('[data-act]');
+    if (act) return this.interact(act.dataset.act);
+    const setup = e.target.closest('[data-setup]');
+    if (setup && this.setupOf) return this.setupOf(setup.dataset.setup);
+    const back = e.target.closest('[data-back]');
+    if (back) {
+      this.moved.delete(back.dataset.back);
+      this.render();
+      return this.say(back.dataset.back, pick(BACK));
+    }
+    const hot = e.target.closest('[data-hot]');
+    if (hot) return this.useHot(hot);
     const open = e.target.closest('[data-open]');
     if (open && this.openSession) return this.openSession(open.dataset.open);
     const dm = e.target.closest('[data-dm]');
@@ -779,6 +925,8 @@ export class Apartment {
     const r = e.target.closest('[data-r]');
     if (r) {
       this.selected = this.selected === r.dataset.r ? null : r.dataset.r;
+      // 点楼里的小人（或放大房间下面的名单）弹出互动菜单；点右侧名单只选中
+      this.popOpen = !!this.selected && !!r.closest('.tenant, .zlist');
       // 选中住户时总览收起着就打开，好看到卡片
       if (this.selected && !this.sideOpen) this.sideOpen = true;
       this.render();
@@ -803,7 +951,7 @@ export class Apartment {
 
   onKey(e) {
     // 床上的住户是 SVG 元素，不是按钮：Enter / 空格当作点击
-    const g = e.target.closest?.('g[data-r]');
+    const g = e.target.closest?.('g[data-r], rect[data-hot]');
     if (g && (e.key === 'Enter' || e.key === ' ')) {
       e.preventDefault();
       g.dispatchEvent(new MouseEvent('click', { bubbles: true }));
@@ -817,5 +965,320 @@ export class Apartment {
       this.selected = null;
       this.render();
     }
+  }
+  // --- 互动 -------------------------------------------------------------------------------------
+
+  tenantEl(id) {
+    if (!id) return null;
+    const q = `.tenant[data-r="${CSS.escape(id)}"]`;
+    return this.root.querySelector(`.zstage ${q}`) || (this.zoom ? null : this.root.querySelector(`.bstage ${q}`));
+  }
+
+  // 头顶冒一句话：站着的小人放在按钮里（跟着走动），床上的放在房间的住户层
+  say(id, text) {
+    const until = Date.now() + SAY_MS;
+    this.says.set(id, { text, until });
+    const el = this.tenantEl(id);
+    if (!el) return;
+    if (el.tagName === 'BUTTON') {
+      el.querySelector(':scope > .say')?.remove();
+      const s = document.createElement('span');
+      s.className = 'say';
+      s.setAttribute('aria-hidden', 'true');
+      s.textContent = text;
+      el.append(s);
+      this.fit(s);
+      setTimeout(() => s.remove(), SAY_MS);
+    } else this.floatAt(el, 'say free', text, SAY_MS);
+  }
+
+  // 在某个东西头顶的住户层里放一个元素（气泡 / 小符号），过一会儿自己消失
+  floatAt(anchor, cls, text, ms, dx = 0.5, delay = 0) {
+    const layer = anchor.closest('.room')?.querySelector('.people');
+    if (!layer) return;
+    const a = anchor.getBoundingClientRect();
+    const l = layer.getBoundingClientRect();
+    const s = document.createElement(cls.startsWith('say') ? 'span' : 'i');
+    s.className = cls;
+    s.setAttribute('aria-hidden', 'true');
+    s.textContent = text;
+    s.style.left = `${a.left + a.width * dx - l.left}px`;
+    s.style.top = `${a.top - l.top + (cls === 'hfx' ? a.height * 0.2 : 0)}px`;
+    if (delay) s.style.animationDelay = `${delay}ms`;
+    layer.append(s);
+    if (cls !== 'hfx') this.fit(s);
+    setTimeout(() => s.remove(), ms + delay);
+  }
+
+  // 气泡别被房间左右边裁掉：超出时往里挪。按布局位置算（不受走动和弹出动画的变形影响）
+  fit(s) {
+    const t = s.closest('.tenant');
+    const layer = s.closest('.people');
+    if (!layer) return;
+    const c = t ? t.offsetLeft + t.offsetWidth / 2 : s.offsetLeft;
+    const half = s.offsetWidth / 2;
+    const pad = t ? 18 : 4; // 站着的小人会左右走动 ±14px，多留点
+    const w = layer.clientWidth;
+    const dx = c - half < pad ? pad - (c - half) : c + half > w - pad ? w - pad - (c + half) : 0;
+    if (dx) s.style.marginLeft = `${dx}px`;
+  }
+
+  burst(anchor, glyph, n = 1) {
+    for (let i = 0; i < n; i++) this.floatAt(anchor, 'hfx', glyph, 1300, 0.3 + Math.random() * 0.4, i * 140);
+  }
+
+  // 互动菜单：浮在小人头顶（放在 .base 里，不被房间裁掉）
+  pop() {
+    if (!this.popOpen || !this.selected) return '';
+    const r = this.people().find((p) => p.id === this.selected);
+    if (!r) return '';
+    const name = this.look(r)?.display || r.name;
+    const b = (attr, label) => `<button type="button" ${attr}>${label}</button>`;
+    let acts = b('data-act="pat"', '摸摸头') + b('data-act="talk"', '聊一句') + b('data-act="status"', '看状态');
+    if (this.dmWith) acts += b(`data-dm="${esc(r.id)}"`, '私聊');
+    if (this.setupOf) acts += b(`data-setup="${esc(r.id)}"`, '设定');
+    return `<div class="tpop" role="group" aria-label="和 ${esc(name)} 互动" style="visibility:hidden"><b>${esc(name)}</b><div class="tacts">${acts}</div></div>`;
+  }
+
+  placePop() {
+    const pop = this.root.querySelector('.tpop');
+    if (!pop) return;
+    const el = this.tenantEl(this.selected);
+    const base = this.root.querySelector('.base');
+    if (!el || !base) {
+      pop.style.visibility = 'hidden';
+      return;
+    }
+    const a = el.getBoundingClientRect();
+    const b = base.getBoundingClientRect();
+    const w = pop.offsetWidth;
+    const h = pop.offsetHeight;
+    const left = Math.min(b.width - w - 8, Math.max(8, a.left + a.width / 2 - b.left - w / 2));
+    // 默认放在脚下，头顶留给对话气泡；下面放不下时放头顶
+    let top = a.bottom - b.top + 6;
+    if (top + h > b.height - 8) top = Math.max(8, a.top - b.top - h - 10);
+    pop.style.left = `${left}px`;
+    pop.style.top = `${top}px`;
+    pop.style.visibility = 'visible';
+  }
+
+  async interact(kind) {
+    const r = this.people().find((p) => p.id === this.selected);
+    if (!r) return;
+    const el = this.tenantEl(r.id);
+    if (kind === 'pat') {
+      const body = el?.querySelector('img, .ini');
+      if (body && !calm())
+        body.animate(
+          [{ transform: 'none' }, { transform: 'scale(1.1, .86)', offset: 0.3 }, { transform: 'scale(.95, 1.06)', offset: 0.6 }, { transform: 'none' }],
+          { duration: 520, easing: 'ease-out' },
+        );
+      if (el) this.burst(el, '♥', 3);
+      this.say(r.id, pick(r.activity === 'sleep' ? PAT_SLEEP : PAT));
+    } else if (kind === 'talk') this.say(r.id, await this.line(r));
+    else if (kind === 'status') {
+      const where = whereText(r, this.dormNames()[r.dorm]);
+      this.say(r.id, `${where}${this.moved.has(r.id) ? '（你摆的）' : ''} · 本月工资 $${Number(r.month_paid_usd || 0).toFixed(2)}`);
+    }
+  }
+
+  async line(r) {
+    if (this.personasApi && !this.catches) {
+      try {
+        const res = await this.personasApi();
+        this.catches = Object.fromEntries((res.members || []).map((m) => [m.id, (m.persona?.catchphrases || []).filter(Boolean)]));
+      } catch {
+        this.catches = {};
+      }
+    }
+    const own = this.catches?.[r.id] || [];
+    if (own.length && Math.random() < 0.5) return pick(own);
+    const h = this.hour ?? 12;
+    if (Math.random() < 0.3 && (h >= 23 || h < 5)) return '这么晚了，早点休息呀。';
+    if (Math.random() < 0.3 && h >= 5 && h < 10) return '早上好！';
+    return pick(TALK[r.activity] || TALK.idle);
+  }
+
+  // 在一张 img 上播成员逐帧素材里的某个动作；没有这个动作时什么也不做。返回停止的函数（停下时换回原图）
+  frames(img, r, action, loop) {
+    const clip = this.look(r)?.pet?.actions?.[action];
+    if (!img || !clip?.frames?.length || calm()) return null;
+    const orig = img.src;
+    let i = 0;
+    img.src = clip.frames[0];
+    const timer = setInterval(() => {
+      i += 1;
+      if (i >= clip.frames.length && !loop) return stop();
+      img.src = clip.frames[i % clip.frames.length];
+    }, 1000 / (clip.fps || 8));
+    const stop = () => {
+      clearInterval(timer);
+      if (img.isConnected) img.src = orig;
+    };
+    return stop;
+  }
+
+  // --- 拖拽：按住小人拖到别的房间，松手落地 -------------------------------------------------------
+
+  onDown(e) {
+    if (e.button !== 0 || !this.data) return;
+    const t = e.target.closest('.tenant[data-r]');
+    if (!t) return;
+    this.drag = { id: t.dataset.r, el: t, x0: e.clientX, y0: e.clientY, pid: e.pointerId, on: false };
+    window.addEventListener('pointermove', this._move);
+    window.addEventListener('pointerup', this._up);
+    window.addEventListener('pointercancel', this._up);
+  }
+
+  onMove(e) {
+    const d = this.drag;
+    if (!d || e.pointerId !== d.pid) return;
+    if (!d.on) {
+      if (Math.hypot(e.clientX - d.x0, e.clientY - d.y0) < 6) return; // 手抖不算拖
+      this.lift(d);
+    }
+    e.preventDefault();
+    d.ghost.style.transform = `translate(${e.clientX}px, ${e.clientY}px)`;
+    const room = this.dropTarget(e.clientX, e.clientY);
+    if (room !== d.over) {
+      d.over?.classList.remove('drop-on');
+      room?.classList.add('drop-on');
+      d.over = room;
+    }
+  }
+
+  lift(d) {
+    const r = this.people().find((p) => p.id === d.id);
+    if (!r) return;
+    d.on = true;
+    const box = d.el.getBoundingClientRect();
+    const size = d.el.tagName === 'BUTTON' ? Math.max(48, box.width) : 64;
+    const g = document.createElement('div');
+    g.className = 'drag-ghost';
+    g.setAttribute('aria-hidden', 'true');
+    g.style.setProperty('--gs', `${size}px`);
+    g.innerHTML = `<div class="gb">${this.figure(r)}</div><span class="say">${esc(pick(r.activity === 'sleep' ? WOKEN : LIFT))}</span>`;
+    document.body.append(g);
+    d.ghost = g;
+    // 有逐帧素材的成员：拎起来时播「被拎起」的帧
+    d.stop = this.frames(g.querySelector('img'), r, 'drag', true);
+    d.el.classList.add('lifted');
+    this.root.classList.add('dragging');
+    this.popOpen = false;
+    this.root.querySelector('.tpop')?.remove();
+  }
+
+  // 松手处的房间；放大查看时只能在放大的房间里挪
+  dropTarget(x, y) {
+    const room = document.elementFromPoint(x, y)?.closest?.('.room[data-room]');
+    if (!room || !this.root.contains(room)) return null;
+    if (this.zoom && !room.closest('.zstage')) return null;
+    return room;
+  }
+
+  onUp(e) {
+    const d = this.drag;
+    if (!d || e.pointerId !== d.pid) return;
+    window.removeEventListener('pointermove', this._move);
+    window.removeEventListener('pointerup', this._up);
+    window.removeEventListener('pointercancel', this._up);
+    this.drag = null;
+    if (!d.on) return;
+    this.eatClick = true;
+    setTimeout(() => (this.eatClick = false), 0);
+    d.stop?.();
+    d.ghost?.remove();
+    d.over?.classList.remove('drop-on');
+    d.el.classList.remove('lifted');
+    this.root.classList.remove('dragging');
+    const room = e.type === 'pointerup' ? this.dropTarget(e.clientX, e.clientY) : null;
+    if (room) this.place(d.id, room, e.clientX, e.clientY);
+    else if (this.stale) this.render();
+    this.stale = false;
+  }
+
+  // 放进房间：按房间换动作（只盖在显示上），落地弹一下，房主 / 同屋的打招呼
+  place(id, roomEl, cx, cy) {
+    const room = (this.data.floors || []).flat().find((x) => x.id === roomEl.dataset.room);
+    const r = this.people().find((p) => p.id === id);
+    if (!room || !r) return;
+    const name = (p) => this.look(p)?.display || p.name;
+    const box = roomEl.querySelector('.people').getBoundingClientRect();
+    const x = clampPct(((cx - box.left) / box.width) * 100);
+    const owner = this.ownerOf(room);
+    const host = owner && owner.id !== r.id ? this.people().find((p) => p.id === owner.id) : null;
+    let spec = DROP[room.kind] || DROP.lounge;
+    if (room.kind === 'dorm') spec = !host ? DROP.home : host.room !== room.id ? DROP.away : host.activity === 'sleep' ? DROP.hush : DROP.visit;
+    const fill = (t) => t.replaceAll('{o}', host ? name(host) : '');
+    const others = this.people().filter((p) => p.room === room.id && p.id !== id && p.activity !== 'sleep');
+    this.move(id, { room: room.id, activity: spec.act, activity_label: fill(spec.label), _x: x });
+    // 串门：醒着的房主放下手里的事陪聊（正在办事的不打扰）
+    const greeter = spec === DROP.visit ? host : others[0];
+    if (spec === DROP.visit && greeter === host && host.activity !== 'work' && host.activity !== 'wait') this.move(host.id, { activity: 'chat', activity_label: `和 ${name(r)} 聊天` });
+    this.render();
+    const el = this.tenantEl(id);
+    if (el && !calm()) {
+      const b = el.getBoundingClientRect();
+      const dx = cx - (b.left + b.width / 2);
+      const dy = cy - (b.top + b.height * 0.3);
+      el.animate(
+        [
+          { transform: `translate(${dx}px, ${dy}px) rotate(-6deg)` },
+          { transform: 'translate(0, 0) scale(1.14, .82)', offset: 0.62 },
+          { transform: 'translate(0, -7px) scale(.95, 1.07)', offset: 0.8 },
+          { transform: 'none' },
+        ],
+        { duration: 600, easing: 'ease-in' },
+      );
+      this.burst(el, '✦', 2);
+      this.frames(el.querySelector('img'), r, 'land', false);
+    }
+    const lit = this.root.querySelector(`${this.zoom ? '.zstage' : '.bstage'} .room[data-room="${CSS.escape(room.id)}"]`);
+    lit?.classList.add('drop-glow');
+    setTimeout(() => lit?.classList.remove('drop-glow'), 900);
+    this.say(id, fill(pick(spec.say)));
+    if (greeter) setTimeout(() => this.say(greeter.id, spec === DROP.visit && greeter === host ? `欢迎欢迎，${name(r)}！` : `嗨，${name(r)}！`), 900);
+  }
+
+  // 放大房间里点家具：在场的人（优先选中的那位）走过去用；床只有房主能睡；没人时家具自己冒个符号
+  useHot(hotEl) {
+    const roomEl = hotEl.closest('.room[data-room]');
+    const room = (this.data.floors || []).flat().find((x) => x.id === roomEl?.dataset.room);
+    const h = room && (HOTS[room.kind] || []).find((x) => x.id === hotEl.dataset.hot);
+    if (!h) return;
+    const name = (p) => this.look(p)?.display || p.name;
+    const here = this.people().filter((p) => p.room === room.id);
+    const awake = here.filter((p) => p.activity !== 'sleep');
+    let who = awake.find((p) => p.id === this.selected) || awake.find((p) => p.activity !== 'work' && p.activity !== 'wait') || awake[0];
+    if (h.owner) {
+      const owner = this.ownerOf(room);
+      const mine = owner && here.find((p) => p.id === owner.id);
+      if (mine?.activity === 'sleep') return this.say(mine.id, pick(PAT_SLEEP));
+      if (!mine) {
+        this.burst(hotEl, h.fx);
+        return this.floatAt(hotEl, 'say free', owner ? `这是 ${name(owner)} 的床。` : `${h.name}空着。`, SAY_MS);
+      }
+      who = mine;
+    }
+    if (!who) {
+      this.burst(hotEl, h.fx);
+      return this.floatAt(hotEl, 'say free', `${h.name}空着，没人用。`, SAY_MS);
+    }
+    const before = this.tenantEl(who.id)?.getBoundingClientRect();
+    const l = roomEl.querySelector('.people').getBoundingClientRect();
+    const hb = hotEl.getBoundingClientRect();
+    this.move(who.id, { room: room.id, activity: h.act, activity_label: h.label, _x: clampPct(((hb.left + hb.width / 2 - l.left) / l.width) * 100) });
+    this.render();
+    const el = this.tenantEl(who.id);
+    if (el?.tagName === 'BUTTON' && before && !calm()) {
+      const dx = before.left - el.getBoundingClientRect().left;
+      const ms = Math.min(1200, Math.max(300, Math.abs(dx) * 2.5));
+      el.classList.add('walking');
+      el.animate([{ transform: `translateX(${dx}px)` }, { transform: 'none' }], { duration: ms, easing: 'ease-in-out' });
+      setTimeout(() => el.classList.remove('walking'), ms);
+    }
+    const spot = this.root.querySelector(`.zstage [data-hot="${h.id}"]`);
+    if (spot) this.burst(spot, h.fx, 2);
+    this.say(who.id, pick(h.say));
   }
 }

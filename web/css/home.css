@@ -117,6 +117,7 @@
 /* 住户：小人站在地板上，头顶橙色标记 */
 .home .people{position:absolute;inset:0;pointer-events:none;z-index:3}
 .home .people .tenant,.home .people .bub{pointer-events:auto}
+.home .people:has(.say,.hfx){z-index:6} /* 气泡盖过房间名牌 */
 .home .tenant{position:absolute;bottom:calc(var(--rh) * .045);left:clamp(34px,var(--x),calc(100% - 34px));--ts:clamp(46px,calc(var(--rh) * .52),104px);width:var(--ts);height:calc(var(--ts) + 14px);
   margin-left:calc(var(--ts) / -2);padding:0;border:0;background:none;z-index:3;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;cursor:pointer}
 .home .crowd .tenant{--ts:clamp(40px,calc(var(--rh) * .4),78px)}
@@ -214,7 +215,43 @@
 .home .zlist span{font-size:12px;color:var(--bx-mute)}
 .home .zlist .none{color:var(--bx-mute);font-size:13px;padding:6px 4px}
 
-@media (prefers-reduced-motion: reduce){.home .tenant,.home .tenant img,.home .mk,.home .mk-s,.home .shaft .car,.home .scene *,.home .zoom{animation:none!important}}
+/* 互动：拖拽、对话气泡、互动菜单、家具 */
+.home .tenant,.home .sleeper{touch-action:none;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+.home .tenant{cursor:grab}
+.home.dragging,.home.dragging *{cursor:grabbing!important}
+.home .tenant.lifted{opacity:.22;filter:grayscale(1)}
+.home.dragging .bstage .room,.home.dragging .zstage .room{outline:1px dashed rgba(255,255,255,.14);outline-offset:-3px}
+.home .room.drop-on{outline:2px solid var(--kc)!important;outline-offset:-2px!important;box-shadow:0 0 0 1px var(--kc),0 0 26px -2px var(--kc)}
+.home .room.drop-on .rname{background:color-mix(in srgb,var(--kc) 70%,#0b0d11)}
+.home .room.drop-glow{animation:dropglow .9s ease-out}
+@keyframes dropglow{0%{box-shadow:0 0 0 2px var(--kc),0 0 36px var(--kc)}100%{box-shadow:0 0 0 0 transparent}}
+.drag-ghost{position:fixed;left:0;top:0;z-index:1000;pointer-events:none;width:0;height:0}
+.drag-ghost .gb{position:absolute;left:calc(var(--gs) / -2);top:calc(var(--gs) * -.18);width:var(--gs);height:var(--gs);transform-origin:50% 8%;animation:dangle .9s ease-in-out infinite alternate;display:grid;place-items:center}
+.drag-ghost img{width:100%;height:100%;object-fit:contain;filter:drop-shadow(0 14px 10px rgba(0,0,0,.45))}
+.drag-ghost .ini{width:40px;height:40px;border-radius:50%;color:#fff;display:grid;place-items:center;font-weight:700;box-shadow:0 0 0 2px rgba(255,255,255,.5)}
+.drag-ghost .say{position:absolute;left:0;bottom:calc(var(--gs) * .2 + 6px);transform:translateX(-50%)}
+@keyframes dangle{from{transform:rotate(-9deg)}to{transform:rotate(9deg)}}
+.home .say,.drag-ghost .say{z-index:6;width:max-content;max-width:13em;padding:4px 10px;border-radius:12px;background:#fbf7ef;color:#1d2229;font-size:12px;font-weight:500;line-height:1.4;font-style:normal;text-align:center;
+  box-shadow:0 4px 12px rgba(0,0,0,.35);pointer-events:none;animation:sayin .22s cubic-bezier(.3,1.5,.5,1)}
+.home .say::after,.drag-ghost .say::after{content:"";position:absolute;left:50%;bottom:-5px;margin-left:-5px;border:5px solid transparent;border-bottom:0;border-top-color:#fbf7ef}
+.home .tenant .say{position:absolute;left:50%;bottom:calc(100% + 10px);transform:translateX(-50%)}
+.home .say.free{position:absolute;transform:translate(-50%,calc(-100% - 8px))}
+@keyframes sayin{from{opacity:0;scale:.6}to{opacity:1;scale:1}}
+.home .hfx{position:absolute;z-index:6;font-style:normal;font-weight:700;font-size:16px;color:#ffb15c;text-shadow:0 0 6px rgba(0,0,0,.6);pointer-events:none;opacity:0;animation:hfx 1.2s ease-out forwards}
+@keyframes hfx{0%{opacity:0;transform:translate(-50%,0) scale(.6)}20%{opacity:1}100%{opacity:0;transform:translate(-50%,-34px) scale(1.15)}}
+.home .tenant.walking img{animation:jog .22s steps(2) infinite}
+.home .tpop{position:absolute;z-index:30;display:flex;flex-direction:column;gap:6px;padding:8px 10px 10px;border-radius:16px;background:rgba(14,17,22,.92);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);
+  box-shadow:0 12px 30px rgba(0,0,0,.5),inset 0 0 0 1px rgba(255,255,255,.08);animation:sayin .2s ease-out}
+.home .tpop b{font-family:var(--f-display,serif);font-weight:500;font-size:13px;letter-spacing:.04em;padding:0 2px}
+.home .tacts{display:flex;flex-wrap:wrap;gap:6px}
+.home .tacts button{border:0;border-radius:11px;padding:6px 11px;font-size:12.5px;color:var(--bx-ink);background:rgba(255,255,255,.08);cursor:pointer;transition:background .15s,transform .15s}
+.home .tacts button:hover,.home .tacts button:focus-visible{background:color-mix(in srgb,var(--bx-or) 55%,transparent);outline:none}
+.home .tacts button:active{transform:scale(.94)}
+.home .scene .hot{fill:transparent;cursor:pointer;pointer-events:all;outline:none;transition:fill .15s}
+.home .scene .hot:hover,.home .scene .hot:focus-visible{fill:rgba(255,236,190,.12);stroke:rgba(255,236,190,.55);stroke-width:.8;stroke-dasharray:3 2}
+.home .ztip{font-style:normal;font-size:12px;color:var(--bx-mute)}
+.home .placed-note .back{border:0;background:none;padding:0;color:var(--bx-or);font:inherit;cursor:pointer;text-decoration:underline}
+@media (prefers-reduced-motion: reduce){.drag-ghost .gb,.home .say,.home .tpop,.home .tenant,.home .tenant img,.home .mk,.home .mk-s,.home .shaft .car,.home .scene *,.home .zoom{animation:none!important}}
 
 /* 右侧：进驻总览（时钟、选中的住户、住户列表） */
 .home-side{background:var(--bx-1);color:var(--bx-ink);border-radius:var(--r-lg);padding:16px 10px;overflow:auto;min-height:0;display:flex;flex-direction:column;box-shadow:inset 0 0 0 1px rgba(255,255,255,.05)}
