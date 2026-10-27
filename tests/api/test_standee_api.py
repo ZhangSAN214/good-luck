@@ -53,6 +53,7 @@ def test_standee_manifest_files_and_persona_lines(tmp_path):
                         "blink": {"image": "/api/standee/files/s/a_blink.png", "box": None}
                     },
                     "missing": [],
+                    "rig": None,
                 }
             ],
             # 人设口头禅加进点击台词，不重复
@@ -71,3 +72,30 @@ def test_without_standee_reports_reason():
         data = c.get("/api/standee").json()
         assert data["available"] is False and "还没有立绘" in data["reason"]
         assert c.get("/api/standee/files/a.png").status_code == 404
+
+
+def test_standee_rig_files_become_urls(tmp_path):
+    root = tmp_path / "avatars"
+    (root / "r").mkdir(parents=True)
+    for name in ("a.png", "r/base.png", "r/iris.png", "r/w1.png", "r/w2.png", "r/w3.png"):
+        (root / name).write_bytes(PNG_1PX)
+    rig = {
+        "base": "r/base.png",
+        "iris": "r/iris.png",
+        "weights": ["r/w1.png", "r/w2.png", "r/w3.png"],
+        "size": [100, 150],
+        "pivots": {k: [1, 2] for k in ("neck", "face", "elbow", "waist", "feet")},
+        "skirt": [80, 150],
+    }
+    manifest = {
+        "name": "立绘一",
+        "variants": [{"id": "a", "label": "常规", "image": "a.png", "rig": rig}],
+    }
+    (root / "standee.json").write_text(json.dumps(manifest, ensure_ascii=False), encoding="utf-8")
+    env = Env(standee_file=root / "standee.json")
+    with TestClient(create_app(RoundtableService(env.rt))) as c:
+        got = c.get("/api/standee").json()["variants"][0]["rig"]
+        assert got["base"] == "/api/standee/files/r/base.png"
+        assert got["weights"] == [f"/api/standee/files/r/w{i}.png" for i in (1, 2, 3)]
+        assert got["size"] == [100, 150] and got["skirt"] == [80, 150]
+        assert c.get(got["iris"]).status_code == 200

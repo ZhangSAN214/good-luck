@@ -371,6 +371,16 @@ class RoundtableService:
                         for k, e in v.expressions.items()
                     },
                     "missing": list(v.missing),
+                    "rig": (
+                        {
+                            **v.rig,
+                            "base": url(v.rig["base"]),
+                            "iris": url(v.rig["iris"]),
+                            "weights": [url(w) for w in v.rig["weights"]],
+                        }
+                        if v.rig
+                        else None
+                    ),
                 }
                 for v in st.variants
             ],
