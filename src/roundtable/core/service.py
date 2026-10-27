@@ -25,6 +25,7 @@ from roundtable.core.attachments.detect import TYPES as UPLOAD_TYPES
 from roundtable.core.browse import REFRESH_KEY, feeds_of, set_feeds
 from roundtable.core.budget import report as usage_report
 from roundtable.core.budget.guard import day_window, month_window
+from roundtable.core.changelog import changelog_view, load_changelog
 from roundtable.core.chat import ROOM, WORK, ChatHub, chat_budget
 from roundtable.core.chat_work import WORK_EVENTS, post_handoff, post_office_event
 from roundtable.core.config.loader import ConfigError
@@ -556,6 +557,16 @@ class RoundtableService:
         except ConfigError as exc:
             raise ServiceError(str(exc), 500) from None
         return board_view(board)
+
+    # --- 公告栏 ------------------------------------------------------------------
+
+    def changelog(self) -> dict[str, Any]:
+        """版本更新说明（只读；每次重新读 config/changelog.yaml）。"""
+        try:
+            log = load_changelog(self.rt.changelog)
+        except ConfigError as exc:
+            raise ServiceError(str(exc), 500) from None
+        return changelog_view(log)
 
     # --- 办公室：名册与工资单 ------------------------------------------------------
 

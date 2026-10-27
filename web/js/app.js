@@ -38,6 +38,8 @@ import { BootSettings } from './bootcfg.js';
 import { Hub } from './hub.js';
 import { Standee } from './standee.js';
 import { Music } from './music.js';
+import { Clock } from './clock.js';
+import { Notice } from './notice.js';
 import { Evolution } from './evolution.js';
 import { Usage } from './usage.js';
 
@@ -169,6 +171,8 @@ const home = new Apartment($('#home'), {
 const standee = new Standee({ load: API.standee, pointer: () => hub.follow });
 const hub = new Hub($('#hub'), {
   music: new Music(),
+  clock: new Clock(),
+  notice: new Notice({ load: API.getChangelog }),
   standee,
   sessions: API.listSessions,
   rooms: API.getChatRooms,

@@ -1,0 +1,38 @@
+/* ---------- 终端首页的公告栏（notice.js）：顶栏一颗小胶囊，点开是版本更新说明 ----------
+   跟首页同一套：墨蓝有色玻璃、无光晕、大圆角、优雅衬线、极细线性图标。变量来自 ark.css 的 .hub。 */
+.nt{position:relative;display:flex}
+.nt-btn{position:relative;display:flex;align-items:center;gap:6px;border:0;border-radius:999px;padding:5px 14px;background:var(--hb-glass);box-shadow:var(--hb-edge);color:#eceff3;font:inherit;font-size:13px;cursor:pointer}
+.nt-btn[aria-expanded="true"]{background:var(--hb-ink)}
+.nt-i{width:16px;height:16px;flex:none;stroke:currentColor;fill:none;stroke-width:1.25;stroke-linecap:round;stroke-linejoin:round}
+.nt-dot{min-width:18px;height:18px;padding:0 5px;border-radius:999px;background:var(--hb-badge);color:#fff;font-size:11px;line-height:18px;text-align:center}
+
+.nt-panel{position:absolute;right:0;top:calc(100% + 10px);z-index:5;width:400px;max-width:calc(100vw - 32px);max-height:min(70vh,620px);overflow:auto;border-radius:24px;padding:16px 18px;display:flex;flex-direction:column;gap:10px;
+  background:rgba(18,22,32,.84);backdrop-filter:blur(22px) saturate(1.1);-webkit-backdrop-filter:blur(22px) saturate(1.1);box-shadow:var(--hb-edge),0 24px 50px -30px rgba(0,0,0,.7);color:#eceff3;text-align:left}
+.nt-head{display:flex;align-items:baseline;gap:10px}
+.nt-title{font-family:var(--hb-serif);font-weight:400;font-size:18px;letter-spacing:.06em}
+.nt-sub{font-size:12px;color:var(--hb-muted)}
+.nt-head .hb-chip{margin-left:auto;font-size:12px;padding:4px 12px}
+.nt-head .hb-chip:disabled{opacity:.4;cursor:default}
+.nt-list{display:flex;flex-direction:column;gap:6px}
+.nt-rel{border-radius:16px;background:rgba(255,255,255,.04)}
+.nt-rel[open]{background:rgba(255,255,255,.07)}
+.nt-rel summary{display:flex;align-items:baseline;gap:8px;padding:10px 12px;cursor:pointer;list-style:none;border-radius:16px}
+.nt-rel summary::-webkit-details-marker{display:none}
+.nt-rel summary:focus-visible{outline:2px solid rgba(160,185,230,.85);outline-offset:2px}
+.nt-ver{flex:none;font-size:11px;padding:1px 8px;border-radius:999px;background:var(--hb-ink);font-variant-numeric:tabular-nums}
+.nt-ttl{flex:1;min-width:0;font-family:var(--hb-serif);font-size:15px;line-height:1.45}
+.nt-new{flex:none;font-size:11px;padding:1px 7px;border-radius:999px;background:var(--hb-badge);color:#fff}
+.nt-date{flex:none;font-size:11px;color:var(--hb-muted);font-variant-numeric:tabular-nums}
+.nt-body{padding:0 14px 12px;font-size:13px;line-height:1.7}
+.nt-body ul{margin:0 0 4px;padding-left:1.2em}
+.nt-k{margin:6px 0 2px;font-size:12px;color:var(--hb-muted);letter-spacing:.08em}
+.nt-how{margin:0}
+.nt-pr{margin:6px 0 0;font-size:11px;color:var(--hb-muted)}
+.nt-more{align-self:center;font-size:12px}
+.nt-btn:focus-visible{outline:2px solid rgba(160,185,230,.85);outline-offset:3px}
+
+@media (max-width:860px){
+  .nt{position:static}
+  .nt-panel{left:0;right:0;width:auto;max-width:none;top:calc(100% + 8px)}
+}
+@media (max-width:480px){.nt-date{display:none}}

@@ -13,6 +13,7 @@ from roundtable.core.allocation import IdentityScrubber
 from roundtable.core.attachments import FileStore
 from roundtable.core.budget import BudgetGuard
 from roundtable.core.catalog import Fetch, ModelCatalog
+from roundtable.core.changelog import CHANGELOG_FILE
 from roundtable.core.config import AppConfig, load_config
 from roundtable.core.config.loader import DEFAULT_CONFIG_DIR
 from roundtable.core.plugin_board import BOARD_FILE
@@ -65,6 +66,8 @@ class Runtime:
     evolution_dir: Path | None = None
     # 插件榜数据文件（自我学习革新调研过的插件，只读展示）；测试中可换成临时文件
     plugin_board: Path = DEFAULT_CONFIG_DIR / BOARD_FILE
+    # 公告栏的版本更新说明（只读展示）；测试中可换成临时文件
+    changelog: Path = DEFAULT_CONFIG_DIR / CHANGELOG_FILE
 
     @classmethod
     def build(

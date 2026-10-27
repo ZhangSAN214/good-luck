@@ -142,7 +142,7 @@
 - `core/`：纯业务逻辑，**禁止 import fastapi / starlette / uvicorn / streamlit**（测试守卫）。
 - `api/`：FastAPI 路由 + SSE，只调用 `core/service.py`（启动时用 `core/runtime.py` 组装；有测试检查导入）。
 - **服务 facade**（`core/service.py`，`RoundtableService`）：返回值都是可 JSON 化的 dict；匿名会话揭晓前全部匿名。`create(question, tier=, models=, coordinator=, anonymous=False, workflow="discussion")`；揭晓只用于匿名会话。提交题目后立即返回会话 id，讨论在后台任务中执行；意外错误把会话标为 `paused`（可 `resume`）。**开机对账**（`reconcile()`，2026-10-26 借鉴 dsh-eteams）：服务启动、接受请求前把上次进程退出时仍为 `running` 的会话（进程被杀或关掉时来不及改状态）统一改成 `paused`，错误说明写"服务上次意外退出……可以点「继续」"，网页点「继续」走现有的 `resume`，已完成的步骤不重复；等待确认、已结束的会话不动。只在正式启动时调用（测试传入服务时不调用）。揭晓只允许在讨论结束（完成 / 停止 / 失败）后。
-- **HTTP 接口**：`GET /api/status`、`GET /api/budget`、`GET /api/contributions`、`POST /api/estimate`（提交前预估：各模式 × 各档位 / 自选的上桌人数、缺席、预计与最多花费、步骤明细；不调用任何模型，答案长度只用规则判断；返回 `seed`，提交时带上它，阵容与预估一致；匿名时不含模型名单）、`POST /api/uploads?name=`（请求体是文件原始字节，返回附件 id；`POST /api/sessions` 的 `attachments` 带上这些 id）、`GET/POST /api/sessions`（`media` / `media_tier`）、`GET /api/sessions/{id}`、`GET …/files/{fid}`（下载；`?inline=1` 可内联播放 png / jpg / gif / webp 与 mp3 / wav / ogg / mp4 / webm，后者支持 Range）与 `…/files/{fid}/preview`、`POST …/respond`、`POST …/notes`（中途补充）、`POST …/resume`、`POST …/reveal`、`GET …/events`（SSE）、`GET /api/plugins/board`（插件榜，每次请求重新读 `config/plugin_board.yaml`，文件有错返回 500 和带文件名、字段路径的说明；网页「插件榜」页签只读展示，可按状态筛选）；革新例会 `GET /api/evolution`、`POST /api/evolution/meetings`（开会，超出上限 409）、`POST /api/evolution/meetings/{id}/export`（导出采纳单）。
+- **HTTP 接口**：`GET /api/status`、`GET /api/budget`、`GET /api/contributions`、`POST /api/estimate`（提交前预估：各模式 × 各档位 / 自选的上桌人数、缺席、预计与最多花费、步骤明细；不调用任何模型，答案长度只用规则判断；返回 `seed`，提交时带上它，阵容与预估一致；匿名时不含模型名单）、`POST /api/uploads?name=`（请求体是文件原始字节，返回附件 id；`POST /api/sessions` 的 `attachments` 带上这些 id）、`GET/POST /api/sessions`（`media` / `media_tier`）、`GET /api/sessions/{id}`、`GET …/files/{fid}`（下载；`?inline=1` 可内联播放 png / jpg / gif / webp 与 mp3 / wav / ogg / mp4 / webm，后者支持 Range）与 `…/files/{fid}/preview`、`POST …/respond`、`POST …/notes`（中途补充）、`POST …/resume`、`POST …/reveal`、`GET …/events`（SSE）、`GET /api/plugins/board`（插件榜，每次请求重新读 `config/plugin_board.yaml`，文件有错返回 500 和带文件名、字段路径的说明；网页「插件榜」页签只读展示，可按状态筛选）；`GET /api/changelog`（公告栏：版本更新说明，每次请求重新读 `config/changelog.yaml`，新的在前；文件有错返回 500 和带文件名、字段路径的说明）；革新例会 `GET /api/evolution`、`POST /api/evolution/meetings`（开会，超出上限 409）、`POST /api/evolution/meetings/{id}/export`（导出采纳单）。
 - **SSE 协议**：第一条 `snapshot`（当前状态），之后是实时事件（只含代号），每当讨论停下来（完成 / 失败 / 停止 / 等待确认 / 暂停）发一条 `state` 并关闭；前端回复确认后重新连接。
 - `web/`：静态前端（`index.html`、`css/app.css`、`js/api.js` 通信、`js/view.js` 渲染、`js/app.js` 状态与交互；ES 模块，无构建步骤），只通过 HTTP/SSE 与后端通信，由 FastAPI 挂在 `/`。
   - 事件流用 `fetch` 读取（不用会自动重连的 `EventSource`）：收到停下来的 `state` 后关闭，回复确认卡片或恢复后重新订阅；事件触发重新拉取会话详情再渲染。
@@ -212,7 +212,7 @@
 ```
 README.md      安装、.env、加模型 / 步骤 / 提示词版本、上传、沙箱、搜索与隐私
 .github/workflows/ci.yml   ruff + pytest（含 Playwright 端到端）
-config/        models.yaml  roundtable.yaml  personas.yaml  routing.yaml  plugin_board.yaml（插件榜数据，不属于运行配置）
+config/        models.yaml  roundtable.yaml  personas.yaml  routing.yaml  plugin_board.yaml（插件榜数据，不属于运行配置）  changelog.yaml（公告栏的版本更新说明，每合并一个 PR 在最上面追加一条）
 prompts/       planner/ answer/ answer_quick/ review/ revise/ synthesize/ redo/
                attachments/ describe_image/ transcribe/ tools/（v4） image_gen/ web_search/ web_fetch/
                decompose/（v4） decompose_retry/ volunteer/ assign/（v3） work/ work_<类型>/ cross_review/ rework/ merge/
@@ -232,6 +232,7 @@ src/roundtable/
     search/        联网搜索服务（注册、OpenRouter 搜索（默认）、Tavily、按顺序切换的 SearchService）
     preview.py     成员生成的文件的预览
     mindmap.py     思维导图数据与渲染（Markdown / Mermaid / SVG）
+    changelog.py   公告栏：版本更新说明（读 config/changelog.yaml，校验、按日期排序；只读）
     standee.py     终端首页大立绘清单（用户本机 data/avatars/standee.json，可用 ROUNDTABLE_STANDEE_FILE 改；图片与表情差分不进 git，缺失时优雅降级）
     plugin_board.py 插件榜：自我学习革新调研过的插件 / 项目（读 config/plugin_board.yaml，按价值排名、判断借思路 / 搬代码门槛；只读）
     ideaboard.py   头脑风暴的点子榜：投票排名、黑马、对比表 / 场景故事 / 行动方案的数据与 Markdown
@@ -247,7 +248,7 @@ src/roundtable/
   cli.py         命令行试用（`roundtable` 命令，见 docs/CLI.md）
   plaintext.py   命令行显示用：LaTeX 数学式转纯文本、去掉 Markdown 加粗符号（不改动存储的原文）
   api/           FastAPI 应用、路由、SSE
-web/             index.html、css/（app.css、agent.css 小人、ideas.css 头脑风暴结果页）、js/（api.js 通信、view.js 渲染、ideas.js 头脑风暴结果页、app.js 状态与交互、hub.js 终端首页、standee.js 终端大立绘（伪 Live2D：浏览器里柔边抠底、按行切条形变做呼吸 / 跟随 / 摆动，表情差分眨眼说话，点击台词；位置大小等设置只存本机浏览器）、music.js 终端背景音乐（用户自选音频只存本机浏览器 IndexedDB，不经服务器）、agent/ 网页小人、boot.js 开机动画、bootcfg.js 片头设置）、boot/（开机动画页：dawn.html「晨会协议」片头（原创）、gmu.html 早上好联合访问授权（改编自 MIT 开源项目）、assets/ 徽记与二维码库；音效与朗读由 boot.js 统一负责；出处见 boot/CREDITS.md）
+web/             index.html、css/（app.css、agent.css 小人、ideas.css 头脑风暴结果页）、js/（api.js 通信、view.js 渲染、ideas.js 头脑风暴结果页、app.js 状态与交互、hub.js 终端首页、standee.js 终端大立绘（伪 Live2D：浏览器里柔边抠底、按行切条形变做呼吸 / 跟随 / 摆动，表情差分眨眼说话，点击台词；位置大小等设置只存本机浏览器）、usage.js 余额与用量（账户余额、预算、对账、钱折算 token、详细用量；只读）、music.js 终端背景音乐（用户自选音频只存本机浏览器 IndexedDB，不经服务器）、clock.js 终端多时区时钟（最多 3 个，Intl 时区表处理夏令时，设置只存本机）、notice.js 终端公告栏（版本更新说明，已读只存本机）、agent/ 网页小人、boot.js 开机动画、bootcfg.js 片头设置）、boot/（开机动画页：dawn.html「晨会协议」片头（原创）、gmu.html 早上好联合访问授权（改编自 MIT 开源项目）、assets/ 徽记与二维码库；音效与朗读由 boot.js 统一负责；出处见 boot/CREDITS.md）
 tests/
 docs/            REQUIREMENTS_v3.md  PLAN.md  CLI.md  OFFICE.md（办公室模式）  EVOLUTION.md（自我学习革新：候选池与更新日志）  evolution/（革新例会说明、周报与资料卡模板、每周周报）  mockup.html
 scripts/         evolve_review.py（革新 PR 的可选复审，没有 key 时跳过）  check_models.py（核对 OpenRouter 渠道的模型 ID 与价格；带 vision / image_edit 标签的模型还核对远端 input_modalities 含 image）  lock_prompts.py（登记提示词版本）

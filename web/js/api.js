@@ -103,6 +103,7 @@ export const chatHandoff = (text) => api('/api/chat/handoff', { method: 'POST', 
 export const getApartment = (hour, weekday) => api(`/api/apartment?hour=${hour}&weekday=${weekday}`);
 export const getCandidates = () => api('/api/models/candidates');
 export const getPluginBoard = () => api('/api/plugins/board');
+export const getChangelog = () => api('/api/changelog');
 export const refreshCandidates = () => api('/api/models/candidates/refresh', { method: 'POST' });
 export const getPayslip = (id) => api(`/api/sessions/${id}/payslip`);
 export const getSession = (id) => api(`/api/sessions/${id}`);
