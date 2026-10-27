@@ -36,6 +36,7 @@ import { Feeds } from './feeds.js';
 import { Moments } from './moments.js';
 import { BootSettings } from './bootcfg.js';
 import { Hub } from './hub.js';
+import { Standee } from './standee.js';
 import { Music } from './music.js';
 import { Evolution } from './evolution.js';
 
@@ -163,8 +164,10 @@ const home = new Apartment($('#home'), {
   },
   momentsOf: (id) => moments.open(id),
 });
+const standee = new Standee({ load: API.standee, pointer: () => hub.follow });
 const hub = new Hub($('#hub'), {
   music: new Music(),
+  standee,
   sessions: API.listSessions,
   rooms: API.getChatRooms,
   status: () => S.status,
@@ -1305,6 +1308,11 @@ async function init() {
   home.setArt(art);
   gchat.setArt(art);
   hub.setArt(art);
+  // 大立绘：读本机的立绘清单并抠好底（不阻塞其他页面），好了就让首页换成她说话
+  standee.load().then(() => {
+    hub.render();
+    if (!$('#hub').hidden) standee.greet();
+  });
   renderComposer();
   renderPicks();
   render();
