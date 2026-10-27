@@ -23,7 +23,7 @@ pip install -e ".[dev]"            # 只运行不开发可用 pip install -e .
 
 可选依赖：`pip install -e ".[media]"`（视频截帧，评审者才能看到视频画面）。
 
-Windows 可以直接双击 `start.bat`：它会创建 `.venv`、`git pull`、安装依赖、安装代码沙箱、启动服务并打开浏览器。
+Windows 可以直接双击 `start.bat`：它会创建 `.venv`、`git pull`、安装依赖、安装代码沙箱、停掉 8000 端口上旧的圆桌服务（旧窗口或后台启动的），再启动服务并打开浏览器。关闭窗口或按 Ctrl+C 停止；没有窗口的旧服务可以双击 `stop.bat` 停掉。
 
 ## 填写 key
 
