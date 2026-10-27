@@ -4,6 +4,9 @@ setlocal
 chcp 65001 >nul
 cd /d "%~dp0" || goto :error
 set PYTHONIOENCODING=utf-8
+rem Never wait for a hidden password prompt
+set GIT_TERMINAL_PROMPT=0
+set GCM_INTERACTIVE=never
 
 echo [1/5] Activating .venv ...
 if not exist ".venv\Scripts\activate.bat" (
@@ -30,7 +33,19 @@ if "%CHECK_RC%"=="1" (
 )
 if not "%CHECK_RC%"=="0" echo [warn] check_models.py could not check the models ^(exit code %CHECK_RC%^), starting anyway.
 
-echo [5/5] Starting server at http://127.0.0.1:8000  (Ctrl+C to stop)
+echo [5/5] Stopping an old server on port 8000, if any ...
+set "OLD="
+for /f "tokens=5" %%p in ('netstat -ano -p tcp ^| findstr /r /c:":8000 .*LISTENING"') do set "OLD=%%p"
+if defined OLD (
+    tasklist /fi "pid eq %OLD%" /nh | findstr /i "python" >nul || (
+        echo [error] Port 8000 is used by another program ^(PID %OLD%^), not by Roundtable.
+        goto :error
+    )
+    echo [info] Stopping the old Roundtable server ^(PID %OLD%^) ...
+    taskkill /pid %OLD% /t /f >nul
+    timeout /t 2 /nobreak >nul
+)
+echo Starting server at http://127.0.0.1:8000  (Ctrl+C to stop)
 start "" /b cmd /c "timeout /t 3 /nobreak >nul & start "" http://127.0.0.1:8000"
 python -m uvicorn roundtable.api.app:app --host 127.0.0.1 --port 8000
 if errorlevel 1 goto :error

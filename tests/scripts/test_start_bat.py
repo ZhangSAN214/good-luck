@@ -29,3 +29,26 @@ def test_start_bat_has_no_secrets():
 def test_start_bat_installs_sandbox_before_server():
     text = BAT.read_text(encoding="ascii")
     assert text.index("setup_sandbox.py --check") < text.index("uvicorn")
+
+
+def test_start_bat_never_waits_for_git_credentials():
+    # 隐藏的凭据窗口会让启动看起来卡住：拉取失败就用本地代码启动
+    text = BAT.read_text(encoding="ascii")
+    assert text.index("GIT_TERMINAL_PROMPT=0") < text.index("git pull")
+    assert "GCM_INTERACTIVE=never" in text
+
+
+def test_start_bat_replaces_an_old_server_and_only_stops_python():
+    # 8000 端口上已有圆桌服务（旧窗口或后台启动的）时先停掉再启动；别的程序不动
+    for name in ("start.bat", "update_and_start.bat", "stop.bat"):
+        text = (BAT.parent / name).read_text(encoding="ascii")
+        assert ":8000 .*LISTENING" in text, name
+        assert text.index('findstr /i "python"') < text.index("taskkill"), name
+    text = BAT.read_text(encoding="ascii")
+    assert text.index("call :stop_old") < text.index("uvicorn roundtable.api.app:app")
+
+
+def test_bat_files_use_crlf():
+    for name in ("start.bat", "update_and_start.bat", "stop.bat"):
+        data = (BAT.parent / name).read_bytes()
+        assert b"\n" not in data.replace(b"\r\n", b""), name

@@ -13,7 +13,7 @@ python -m venv .venv
 pip install -e .
 ```
 
-**网页版一键启动**：双击项目根目录的 `start.bat`。它会进入项目目录、激活 `.venv`（没有时自动创建）、`git pull`、`pip install -e ".[dev]"`、启动服务，并自动打开 http://127.0.0.1:8000 。关闭窗口或按 Ctrl+C 停止。
+**网页版一键启动**：双击项目根目录的 `start.bat`。它会进入项目目录、激活 `.venv`（没有时自动创建）、`git pull`、`pip install -e ".[dev]"`、停掉 8000 端口上旧的圆桌服务（只停 python 进程，别的程序占用时报错退出）、启动服务，并自动打开 http://127.0.0.1:8000 。拉取代码时不会等密码窗口（失败就用本地代码启动）。关闭窗口或按 Ctrl+C 停止；后台启动、没有窗口的服务用 `stop.bat` 停掉。
 
 **代码运行环境**（让成员能运行 Python、画图、生成 Word / Excel / PPT / PDF）：`python scripts/setup_sandbox.py` 一次性安装（`start.bat` 会自动安装）。没装时成员仍可写文本文件、生成图片，只是不能运行代码。详见 `sandbox/README.md`。
 
