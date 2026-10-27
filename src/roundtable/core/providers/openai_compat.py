@@ -12,6 +12,7 @@ from roundtable.core.config.schema import ChannelSpec
 
 from ._http import error_fields, kind_for_status, retry_after, safe_detail
 from .base import (
+    AccountBalance,
     ImageOutput,
     Media,
     MediaOutput,
@@ -22,7 +23,7 @@ from .base import (
     VideoJob,
     media_from_data_uri,
 )
-from .errors import ErrorKind, ProviderError
+from .errors import ErrorKind, ProviderError, UnsupportedCapability
 from .registry import register_adapter
 from .secrets import Secret
 
@@ -48,6 +49,7 @@ class OpenAICompatProvider(Provider):
         self._extra_body = dict(spec.extra_body)
         self._aliases = dict(spec.param_aliases)
         self._reasoning = spec.reasoning_style
+        self._balance = spec.balance
         self._client = httpx.AsyncClient(
             base_url=spec.base_url, headers=headers, timeout=timeout_s, transport=transport
         )
@@ -162,6 +164,50 @@ class OpenAICompatProvider(Provider):
         if not isinstance(data, dict):
             raise self._error(ErrorKind.INVALID_RESPONSE, "无法解析返回内容")
         return data
+
+    # --- 账户余额（只读，「余额与用量」面板）--------------------------------------------
+
+    async def account_balance(self) -> AccountBalance:
+        """credits 风格：GET credits（账户充值与已用）+ GET key（这个 key 的额度与已用）。
+
+        两个接口各自失败时只记一条脱敏说明；都失败才抛 ProviderError。credits 接口在有的账户上
+        需要管理用 key，普通 key 查不到时仍能用 key 接口的剩余额度。
+        """
+        if self._balance != "credits":
+            raise UnsupportedCapability(f"{self.channel} 不支持查询余额")
+        fields: dict[str, float | None] = {}
+        notes: list[str] = []
+        errors: list[ProviderError] = []
+        for path, mapping in (
+            ("credits", {"total_credits": "total_credits", "total_usage": "total_usage"}),
+            (
+                "key",
+                {
+                    "key_limit": "limit",
+                    "key_remaining": "limit_remaining",
+                    "key_usage": "usage",
+                    "usage_daily": "usage_daily",
+                    "usage_weekly": "usage_weekly",
+                    "usage_monthly": "usage_monthly",
+                },
+            ),
+        ):
+            try:
+                data = self._json(await self._send("GET", path)).get("data")
+            except ProviderError as exc:
+                errors.append(exc)
+                notes.append(f"{path}：{exc.kind.value}{f' {exc.status}' if exc.status else ''}")
+                continue
+            if not isinstance(data, dict):
+                notes.append(f"{path}：无法解析返回内容")
+                continue
+            for name, key in mapping.items():
+                fields[name] = _money(data.get(key))
+        if not fields:
+            if errors:
+                raise errors[0]
+            raise self._error(ErrorKind.INVALID_RESPONSE, "无法解析返回内容")
+        return AccountBalance(**fields, notes=tuple(notes))
 
     async def generate_image(
         self,
@@ -332,3 +378,10 @@ def _float_or_none(value: Any) -> float | None:
         return float(value) if value is not None else None
     except (TypeError, ValueError):
         return None
+
+
+def _money(value: Any) -> float | None:
+    """渠道报的金额；不是数字（含 null、布尔）就当查不到。"""
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return None
+    return float(value)

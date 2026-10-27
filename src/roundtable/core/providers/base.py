@@ -146,6 +146,28 @@ class Completion:
         return len(self.attempts) > 1
 
 
+@dataclass(frozen=True)
+class AccountBalance:
+    """渠道账户的余额与已用（美元，渠道自己报的数；查不到的项为 None）。只读，不含任何密钥。"""
+
+    total_credits: float | None = None  # 账户累计充值
+    total_usage: float | None = None  # 账户累计已用
+    key_limit: float | None = None  # 这个 key 的额度上限（没设为 None）
+    key_remaining: float | None = None  # 这个 key 还剩的额度
+    key_usage: float | None = None  # 这个 key 累计已用
+    usage_daily: float | None = None  # 这个 key 今天 / 本周 / 本月已用（渠道按 UTC 算）
+    usage_weekly: float | None = None
+    usage_monthly: float | None = None
+    notes: tuple[str, ...] = ()  # 部分查询失败的说明（已脱敏）
+
+    @property
+    def remaining(self) -> float | None:
+        """还能花多少：账户余额优先，查不到时用 key 剩余额度。"""
+        if self.total_credits is not None and self.total_usage is not None:
+            return max(0.0, self.total_credits - self.total_usage)
+        return self.key_remaining
+
+
 class Provider(ABC):
     """一个渠道的适配器。不做重试 —— 重试与切换由 ChannelRouter 负责。"""
 
@@ -196,6 +218,10 @@ class Provider(ABC):
 
     async def fetch_video(self, model: str, job: VideoJob, index: int = 0) -> Media:
         raise UnsupportedCapability(f"{self.channel} 不支持视频生成")
+
+    async def account_balance(self) -> AccountBalance:
+        """账户余额与已用（只读）。默认不支持。"""
+        raise UnsupportedCapability(f"{self.channel} 不支持查询余额")
 
     async def aclose(self) -> None:  # noqa: B027 - 可选覆盖
         """释放连接。"""

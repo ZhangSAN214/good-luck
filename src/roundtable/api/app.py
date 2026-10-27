@@ -230,6 +230,14 @@ def create_app(service: RoundtableService | None = None) -> FastAPI:
     async def budget(request: Request) -> dict[str, Any]:
         return svc(request).budget()
 
+    @app.get("/api/usage")
+    async def usage(request: Request, range: str = "month") -> dict[str, Any]:  # noqa: A002
+        return svc(request).usage(range)
+
+    @app.get("/api/usage/balance")
+    async def usage_balance(request: Request, refresh: int = 0) -> dict[str, Any]:
+        return await svc(request).account_balance(refresh=bool(refresh))
+
     @app.get("/api/members")
     async def members(request: Request) -> dict[str, Any]:
         return svc(request).members()
