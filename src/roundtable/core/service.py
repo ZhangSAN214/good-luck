@@ -67,6 +67,7 @@ from roundtable.core.evolution_plugins import (
 from roundtable.core.evolution_scout import SCOUT_WEEK_KEY, Scout, ScoutError
 from roundtable.core.ideaboard import Board
 from roundtable.core.life import LIFE_STEPS, LifeEngine
+from roundtable.core.mail import MailBox, MailBusy, OwaBrowser
 from roundtable.core.media import KIND_LABELS, KINDS, MediaService
 from roundtable.core.members_art import MEMBERS_FILE, load_members, mime_of, resolve_file
 from roundtable.core.memory import LAYERS, MemoryKeeper, clean_memory
@@ -138,6 +139,15 @@ class RoundtableService:
         self.chats = ChatHub(runtime, names=self._art_names)
         self.memory = MemoryKeeper(runtime, self.chats.everyone)
         self.life = LifeEngine(runtime, self.chats, self.memory)
+        self.mail = MailBox(runtime.repo)
+        if runtime.mail_source is not None:
+            self.mail.source = runtime.mail_source
+        elif runtime.mail_dir is not None:
+            self.mail.source = OwaBrowser(
+                runtime.mail_dir,
+                extra_hosts=self.mail.extra_hosts,
+                show_window=self.mail.show_window,
+            )
         self._chat_tasks: set[asyncio.Task[Any]] = set()
         self._life_task: asyncio.Task[None] | None = None
         self._evolution_task: asyncio.Task[None] | None = None
@@ -567,6 +577,54 @@ class RoundtableService:
         except ConfigError as exc:
             raise ServiceError(str(exc), 500) from None
         return changelog_view(log)
+
+    # --- 终端邮件栏（用户本人学校邮箱，只读；docs/MAIL.md） --------------------------------
+
+    def mail_view(self) -> dict[str, Any]:
+        return self.mail.view()
+
+    def mail_settings(self, **changes: Any) -> dict[str, Any]:
+        try:
+            self.mail.set_settings(**{k: v for k, v in changes.items() if v is not None})
+        except ValueError as exc:
+            raise ServiceError(str(exc)) from None
+        return self.mail.view()
+
+    def _mail_do(self, fn: Any, *args: Any, **kw: Any) -> Any:
+        try:
+            return fn(*args, **kw)
+        except MailBusy as exc:
+            raise ServiceError(str(exc), 409) from None
+        except ValueError as exc:
+            raise ServiceError(str(exc)) from None
+
+    def mail_login(self) -> dict[str, Any]:
+        """弹出专用窗口，由用户本人登录（圆桌不代填、不保存密码）。"""
+        self._mail_do(self.mail.login)
+        return self.mail.view()
+
+    def mail_refresh(self, *, manual: bool) -> dict[str, Any]:
+        started = self._mail_do(self.mail.refresh, manual=manual)
+        return {**self.mail.view(), "started": started}
+
+    def mail_message(self, message_id: str) -> dict[str, Any]:
+        m = self.mail.message(message_id)
+        if m is None:
+            raise ServiceError("没有这封邮件（可能已超出保留天数）", 404)
+        return m
+
+    def mail_reminder(self, reminder_id: int, action: str) -> dict[str, Any]:
+        if not self._mail_do(self.mail.set_reminder, reminder_id, action):
+            raise ServiceError("没有这条提醒", 404)
+        return self.mail.view()
+
+    def mail_logout(self) -> dict[str, Any]:
+        self._mail_do(self.mail.logout)
+        return self.mail.view()
+
+    def mail_clear(self) -> dict[str, Any]:
+        self.mail.clear_cache()
+        return self.mail.view()
 
     # --- 办公室：名册与工资单 ------------------------------------------------------
 

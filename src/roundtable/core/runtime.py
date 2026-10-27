@@ -37,6 +37,8 @@ STANDEE_ENV = "ROUNDTABLE_STANDEE_FILE"
 CATALOG_FILE = "model_candidates.json"
 # 革新例会的资料卡与采纳单（放在数据库旁边，不进 git）
 EVOLUTION_DIR = "evolution"
+# 邮件栏专用浏览器的配置目录（登录状态在里面；放在数据库旁边，不进 git）
+MAIL_DIR = "mail_browser"
 
 
 @dataclass
@@ -68,6 +70,10 @@ class Runtime:
     plugin_board: Path = DEFAULT_CONFIG_DIR / BOARD_FILE
     # 公告栏的版本更新说明（只读展示）；测试中可换成临时文件
     changelog: Path = DEFAULT_CONFIG_DIR / CHANGELOG_FILE
+    # 邮件栏专用浏览器的配置目录；为空表示不可用（内存数据库）
+    mail_dir: Path | None = None
+    # 邮件栏的数据来源（测试中注入假的；为空时用 mail_dir 上的专用浏览器）
+    mail_source: Any | None = None
 
     @classmethod
     def build(
@@ -165,6 +171,7 @@ class Runtime:
                 catalog_fetch,
             ),
             evolution_dir=Path(evolution_dir) if evolution_dir is not None else None,
+            mail_dir=None if str(db_path) == ":memory:" else Path(db_path).parent / MAIL_DIR,
         )
 
     def sandbox(self) -> tuple[Sandbox | None, str | None]:
