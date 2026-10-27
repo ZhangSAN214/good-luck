@@ -2,11 +2,12 @@
 // 住户按作息在各房间活动，正在办事的在办公室 / 会议室；另有俯视「布局图」，点房间放大看详情。
 // 数据来自 /api/apartment（按浏览器本地时间）；小人用 /api/members 的 chibi，没有素材时用昵称首字。
 // 匿名未揭晓的会话：服务端只给数量，这里只在会议室门上挂牌，不显示是谁。
-// 所有图形都在这里用 SVG / CSS 自绘，不用外部美术素材。
+// 所有图形都在这里（宿舍的伪 3D 场景在 rooms3d.js）用 SVG / CSS 自绘，不用外部美术素材。
 // 互动：拖小人到别的房间（落地弹跳、按房间换动作、串门打招呼）、点小人（摸头 / 聊一句 / 看状态）、放大后点家具。
 // 这些都只在浏览器里：不调用模型、不花钱、不改真实作息，几分钟后小人自己回到按作息的位置。
 
 import { cutout } from './cutout.js';
+import { THEMES, bedAnchor, dormScene } from './rooms3d.js';
 
 const esc = (s) =>
   String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -453,12 +454,17 @@ const HOTS = {
     { id: 'bench', x: 516, y: 28, w: 68, h: 22, name: '长椅', act: 'idle', label: '坐在长椅上发呆', say: ['坐一会儿。'], fx: '~' },
   ],
 };
-const hotSvg = (kind) =>
-  (HOTS[kind] || [])
+// 宿舍有伪 3D 场景（rooms3d.js）的房号；其余还是平面剖面
+const is3d = (kind, o) => kind === 'dorm' && o.style < THEMES.length;
+const hotsOf = (kind, o) => (is3d(kind, o) ? HOTS.dorm.map((h) => ({ ...h, ...bedAnchor().hot })) : HOTS[kind] || []);
+const hotSvg = (kind, o) =>
+  hotsOf(kind, o)
     .map((h) => `<rect class="hot" data-hot="${h.id}" x="${h.x}" y="${h.y}" width="${h.w}" height="${h.h}" rx="3" fill="transparent" role="button" tabindex="0" aria-label="${h.name}"><title>${h.name}</title></rect>`)
     .join('');
 
 function sceneSvg(kind, o, extra = '') {
+  // 伪 3D 房间盒按比例铺满（多出的部分裁掉天花板），不能像平面墙那样往两边无限延伸
+  if (is3d(kind, o)) return `<svg class="scene s3d" viewBox="0 0 ${VB.dorm} ${H}" preserveAspectRatio="xMidYMax slice" aria-hidden="${extra ? 'false' : 'true'}">${dormScene(o, o.uid)}${extra}</svg>`;
   const w = VB[kind] || 300;
   const h = kind === 'rooftop' ? 70 : H;
   return `<svg class="scene" viewBox="0 0 ${w} ${h}" preserveAspectRatio="xMidYMax meet" aria-hidden="${extra ? 'false' : 'true'}">${(ROOMS[kind] || (() => ''))(o)}${extra}</svg>`;
@@ -485,19 +491,23 @@ const ICONS = {
 const icon = (k, cls = 'ic') => `<svg class="${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[k] || ''}</svg>`;
 
 // 睡觉：头靠在宿舍床的枕头上，盖着被子（画在 SVG 里，和床对齐）；可以点击 / 用键盘选中
-function sleeper(r, m, label, pressed) {
+function sleeper(r, m, label, pressed, deep = false) {
   const color = m?.theme_color || '#c9733f';
   const name = m?.display || r.name;
   const head = m?.images?.avatar_64 || m?.images?.avatar_128;
-  const hx = BED_X + 22;
-  const hy = FY - 32;
-  const hr = 12;
+  const at = deep ? bedAnchor() : null;
+  const hx = at ? at.hx : BED_X + 22;
+  const hy = at ? at.hy : FY - 32;
+  const hr = at ? at.hr : 12;
+  const quilt = at
+    ? at.quilt.map((d, i) => `<polygon points="${d}" fill="${esc(color)}"${i ? ' style="filter:brightness(.82)"' : ''}/>`).join('')
+    : `<rect x="${BED_X + 30}" y="${FY - 28}" width="80" height="14" rx="3" fill="${esc(color)}"/><rect x="${BED_X + 30}" y="${FY - 28}" width="80" height="2.5" rx="1" fill="#fff" opacity=".3"/>`;
   const face = head
     ? `<clipPath id="hc-${esc(r.id)}"><circle cx="${hx}" cy="${hy}" r="${hr}"/></clipPath><image href="${esc(head)}" x="${hx - hr}" y="${hy - hr}" width="${hr * 2}" height="${hr * 2}" clip-path="url(#hc-${esc(r.id)})" preserveAspectRatio="xMidYMid slice"/>`
     : `<circle cx="${hx}" cy="${hy}" r="${hr}" fill="${esc(color)}"/><text x="${hx}" y="${hy + 4}" font-size="11" text-anchor="middle" fill="#fff" font-weight="700">${esc(name.slice(0, 1))}</text>`;
   return (
     `<g class="tenant sleeper act-sleep${pressed ? ' on' : ''}" data-r="${esc(r.id)}" role="button" tabindex="0" aria-pressed="${pressed}" aria-label="${esc(label)}"><title>${esc(label)}</title>${face}` +
-    `<rect x="${BED_X + 30}" y="${FY - 28}" width="80" height="14" rx="3" fill="${esc(color)}"/><rect x="${BED_X + 30}" y="${FY - 28}" width="80" height="2.5" rx="1" fill="#fff" opacity=".3"/></g>` +
+    `${quilt}</g>` +
     // 头顶的 z 标记放在可点的组外面：它在上下浮动，放在组里会让整组的位置一直变
     `<g class="mk-s" aria-hidden="true"><circle cx="${hx + 16}" cy="${hy - 20}" r="8" fill="#e8762b" stroke="#fff" stroke-opacity=".85" stroke-width="1.6"/><text x="${hx + 16}" y="${hy - 16.6}" font-size="9.5" text-anchor="middle" fill="#fff" font-weight="700">z</text></g>`
   );
@@ -712,15 +722,15 @@ export class Apartment {
     if (room.kind === 'meeting' && d.hidden_meetings) sign = `<span class="sign" title="匿名会议不显示是谁">匿名会议进行中 ×${d.hidden_meetings}</span>`;
     // 在自己宿舍睡觉的画在床上，其余的小人站在地板上
     const awake = people.filter((p) => !info.asleep.includes(p));
-    const beds = info.asleep.map((p) => sleeper(p, this.look(p), this.label(p), this.selected === p.id)).join('');
+    const o = { ph: this.phase, night: info.night, on: info.on, tc: esc(info.tc), style: info.style, uid: room.id + (big ? 'z' : '') };
+    const beds = info.asleep.map((p) => sleeper(p, this.look(p), this.label(p), this.selected === p.id, is3d(room.kind, o))).join('');
     const tenants = awake.map((p, i) => this.tenant(p, i, awake.length)).join('');
-    const o = { ph: this.phase, night: info.night, on: info.on, tc: esc(info.tc), style: info.style };
     const cls = `room k-${esc(room.kind)}${info.busy ? ' busy' : ''}${info.dark ? ' dark' : ''}${info.asleep.length && !awake.length ? ' asleep' : ''}${info.on ? ' lit' : ''}${big ? ' big' : ''}`;
     const flex = room.kind === 'dorm' ? 1 : FLEX[room.kind] || 1;
     const head = `<span class="rname"><i class="rbar"></i><b>${esc(info.title)}</b><small>${esc(info.state)}${people.length ? ` · ${people.length} 人` : ''}</small></span>`;
     const zbtn = big ? '' : `<button type="button" class="zbtn" data-zoom="${esc(room.id)}" aria-label="放大看${esc(info.title)}" title="放大看">${icon('zoom')}</button>`;
     const ar = ((VB[room.kind] || 300) / (room.kind === 'rooftop' ? 70 : H)).toFixed(3);
-    return `<div class="${cls}" data-room="${esc(room.id)}" style="--tc:${esc(info.tc)};--fx:${flex};--ar:${ar}">${sceneSvg(room.kind, o, (big ? hotSvg(room.kind) : '') + beds)}<div class="people${awake.length >= 5 ? ' crowd' : ''}">${tenants}</div>${head}${sign}${zbtn}</div>`;
+    return `<div class="${cls}" data-room="${esc(room.id)}" style="--tc:${esc(info.tc)};--fx:${flex};--ar:${ar}">${sceneSvg(room.kind, o, (big ? hotSvg(room.kind, o) : '') + beds)}<div class="people${awake.length >= 5 ? ' crowd' : ''}">${tenants}</div>${head}${sign}${zbtn}</div>`;
   }
 
   // 空房：暗色空槽，顶上一盏射灯
