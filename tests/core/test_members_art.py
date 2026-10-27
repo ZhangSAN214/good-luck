@@ -254,3 +254,73 @@ def test_special_idle_and_eggs_need_real_clips_and_clamp(tmp_path):
     )
     (m,) = load_members(root).members
     assert m.pet["special_idle"]["after_s"] == 7200
+
+
+def test_room_hotspots_are_validated_and_clamped(tmp_path):
+    hots = [
+        {
+            "id": "desk",
+            "name": "书桌",
+            "act": "read",
+            "label": "看书",
+            "say": ["嗯。", 3],
+            "x": 40,
+            "y": 50,
+            "w": 20,
+            "h": 30,
+            "stand": 52,
+            "lift": 90,
+            "fx": "!!",
+        },
+        {"id": "desk", "name": "重复", "act": "read", "x": 1, "y": 1, "w": 1, "h": 1},
+        {"id": "Bad Id", "name": "坏", "act": "read", "x": 1, "y": 1, "w": 1, "h": 1},
+        {"id": "bed", "name": "床", "act": "sleep", "x": 1, "y": 1, "w": 1, "h": 1},
+        {"id": "tank", "name": "水族箱", "act": "fly", "x": 1, "y": 1, "w": 1, "h": 1},
+        {"id": "win", "name": "窗", "act": "stargaze", "x": -5, "y": 150, "w": 0, "h": 9},
+        {"id": "tv", "name": "电视", "act": "game", "x": -5, "y": 150, "w": 10, "h": 9},
+    ]
+    extra = [
+        {
+            "id": "m2",
+            "name": "二",
+            "vendor": "v2",
+            "room": {"bed": {"x": 12, "y": "x"}, "hots": hots},
+        },
+        {"id": "m3", "name": "三", "vendor": "v3", "room": "坏"},
+    ]
+    art = load_members(write_assets(tmp_path, "v1", extra=extra))
+    room = {m.id: m.room for m in art.members}
+    assert room["m1"] is None and room["m3"] is None
+    assert room["m2"]["bed"] is None
+    desk, tv = room["m2"]["hots"]
+    assert desk == {
+        "id": "desk",
+        "name": "书桌",
+        "act": "read",
+        "label": "看书",
+        "say": ["嗯。"],
+        "fx": "!",
+        "x": 40.0,
+        "y": 50.0,
+        "w": 20.0,
+        "h": 30.0,
+        "stand": 52.0,
+        "lift": 60.0,
+    }
+    assert (tv["x"], tv["y"], tv["label"], tv["stand"], tv["lift"]) == (
+        0.0,
+        100.0,
+        "电视",
+        None,
+        None,
+    )
+
+
+def test_sky_images_are_listed_when_present(tmp_path):
+    root = write_assets(tmp_path, "v1")
+    (root / "sky").mkdir()
+    (root / "sky" / "day_clear.webp").write_bytes(PNG_1PX)
+    (root / "sky" / "night_rain.png").write_bytes(PNG_1PX)
+    (root / "sky" / "noon_fog.webp").write_bytes(PNG_1PX)
+    art = load_members(root)
+    assert art.sky == {"day_clear": "sky/day_clear.webp", "night_rain": "sky/night_rain.png"}

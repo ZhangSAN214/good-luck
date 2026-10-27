@@ -15,6 +15,15 @@ const esc = (s) =>
 const REFRESH_MS = 30_000;
 const VIEW_KEY = 'roundtable.apartment.view';
 const SIDE_KEY = 'roundtable.apartment.side';
+const WEATHER_KEY = 'roundtable.apartment.weather';
+// 窗外天气：不联网，由用户手选；「自动」= 晴（以后接真实天气时再改）
+const WEATHERS = [
+  ['auto', '自动', '晴'],
+  ['clear', '晴', '晴'],
+  ['cloudy', '阴', '阴'],
+  ['rain', '雨', '雨'],
+  ['snow', '雪', '雪'],
+];
 
 // 活动 → 头顶的橙色标记（一个字，闲着时不显示）
 const BUBBLES = { sleep: 'z', eat: '吃', work: '忙', wait: '等', exercise: '练', chat: '聊', read: '读', stargaze: '望', game: '玩' };
@@ -455,8 +464,78 @@ const HOTS = {
   ],
 };
 // 宿舍有伪 3D 场景（rooms3d.js）的房号；其余还是平面剖面
-const is3d = (kind, o) => kind === 'dorm' && o.style < THEMES.length;
-const hotsOf = (kind, o) => (is3d(kind, o) ? HOTS.dorm.map((h) => ({ ...h, ...bedAnchor().hot })) : HOTS[kind] || []);
+// 宿舍场景三选一：房主有美术出的场景图（members.json 的 room_day / room_night）就用图；
+// 否则前两间用代码画的伪 3D（rooms3d.js），其余是平面剖面
+const is3d = (kind, o) => kind === 'dorm' && (Boolean(o.art) || o.style < THEMES.length);
+// 场景图都按同一规格出：5:2、床在左侧、枕头在最左端（见共享文件夹里的房间出图提示词）
+// 房主的 members.json 里可以给出枕头上头的位置（room.bed，图上的百分比）；被子跟着平移
+const ART_HEAD = [30, 64.5];
+function artBed(o) {
+  const b = o.art.room?.bed;
+  const [hx, hy] = b ? [b.x * 3, b.y * 1.2] : ART_HEAD;
+  const [dx, dy] = [hx - ART_HEAD[0], hy - ART_HEAD[1]];
+  return {
+    hx,
+    hy,
+    hr: 8.5,
+    // 被子顺着床面和床沿盖下来；用正片叠底染上房主的颜色，保留原图的布纹和光影
+    quilt: [`M${37 + dx} ${71.5 + dy}q1.5-3.6 7-3.8l20-1.6q6 3 12 .4l30-.6q6 .4 8.5 4.2l-1 3.6 .8 15.5q-36 3.4-74 2.2z`],
+    hot: { x: hx - 24, y: hy - 16, w: 112, h: 54 },
+  };
+}
+const bedOf = (o) => (o.art ? artBed(o) : bedAnchor());
+// 场景图的家具点位（百分比）换成 viewBox 坐标；stand：小人站的横向位置，lift：站高一点（坐在沙发上、站在榻榻米上）
+const artHots = (o) => (o.art.room?.hots || []).map((h) => ({ ...h, x: h.x * 3, y: h.y * 1.2, w: h.w * 3, h: h.h * 1.2, say: h.say?.length ? h.say : [`去${h.label}。`] }));
+const hotsOf = (kind, o) => (is3d(kind, o) ? [...HOTS.dorm.map((h) => ({ ...h, ...bedOf(o).hot })), ...(o.art ? artHots(o) : [])] : HOTS[kind] || []);
+
+// 窗外：场景图的窗玻璃抠成透明（scripts/room_art.py），后面垫一层按时段和天气画的天空。
+// 素材目录里有 sky/<时段>_<天气> 图时盖在上面（/api/members 的 sky；没有就只看到代码画的天）
+const SKY_ART = { day: 'day', dawn: 'dusk', dusk: 'dusk', night: 'night' };
+function windowSky(o, u) {
+  const w = o.weather === 'auto' ? 'clear' : o.weather || 'clear';
+  const [s0, s1, far] = SKY[o.ph] || SKY.day;
+  const grey = w === 'cloudy' || w === 'rain' || w === 'snow';
+  const r = (n) => ((Math.sin(n * 12.9898) * 43758.5453) % 1 + 1) % 1;
+  let s = `<defs><linearGradient id="ws${u}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${s0}"/><stop offset="1" stop-color="${s1}"/></linearGradient></defs>`;
+  s += `<rect width="${VB.dorm}" height="${H}" fill="url(#ws${u})"/>`;
+  if (grey) s += `<rect width="${VB.dorm}" height="${H}" fill="${o.night ? '#1a1f2c' : '#9aa3ad'}" opacity="${w === 'cloudy' ? 0.55 : 0.68}"/>`;
+  if (o.night && !grey) for (let i = 0; i < 40; i++) s += circ((r(i) * VB.dorm).toFixed(1), (r(i + 99) * 50).toFixed(1), (0.25 + r(i + 7) * 0.35).toFixed(2), '#fff', { opacity: 0.8, class: i % 3 ? '' : 'twinkle' });
+  if (o.night && !grey) s += circ(206, 22, 4.5, '#f6eab0') + circ(206, 22, 11, '#f6eab0', { opacity: 0.12 });
+  else if (!o.night && !grey) s += circ(96, 20, 7, '#fff7d6', { opacity: 0.9 }) + circ(96, 20, 18, '#fff7d6', { opacity: 0.18 });
+  // 云
+  const cloud = grey ? (o.night ? '#2a3040' : '#c3c9d1') : '#fff';
+  for (let i = 0; i < (grey ? 9 : 4); i++) {
+    const cx = r(i + 3) * VB.dorm;
+    const cy = 8 + r(i + 5) * 30;
+    s += `<g class="drift" opacity="${grey ? 0.9 : o.night ? 0.12 : 0.75}">${ell(cx, cy, 16 + r(i) * 14, 4.5, cloud)}${ell(cx + 8, cy - 3, 9, 4.5, cloud)}${ell(cx - 8, cy - 2, 7, 3.5, cloud)}</g>`;
+  }
+  // 远处楼群（夜里亮着窗灯）
+  for (let x = 0, i = 0; x < VB.dorm; i++) {
+    const bw = 8 + r(i + 40) * 14;
+    const bh = 18 + r(i + 60) * 40;
+    s += rect(x.toFixed(1), (H - 30 - bh).toFixed(1), bw.toFixed(1), (bh + 30).toFixed(1), far, { opacity: 0.92 });
+    if (o.night) for (let k = 0; k < 4; k++) if (r(i * 7 + k) > 0.45) s += rect((x + 2 + r(i + k) * (bw - 4)).toFixed(1), (H - 28 - bh + r(i * 3 + k) * bh).toFixed(1), 1.2, 1.2, '#ffd774');
+    x += bw + 1;
+  }
+  if (w === 'rain') s += `<g class="rain" stroke="#dfe8f5" stroke-width=".4" opacity=".55">${Array.from({ length: 70 }, (_, i) => line((r(i) * VB.dorm).toFixed(1), (r(i + 300) * H).toFixed(1), (r(i) * VB.dorm - 2).toFixed(1), (r(i + 300) * H + 6).toFixed(1), '#dfe8f5', 0.4)).join('')}</g>`;
+  if (w === 'snow') s += `<g class="snow">${Array.from({ length: 60 }, (_, i) => circ((r(i) * VB.dorm).toFixed(1), (r(i + 200) * H).toFixed(1), (0.5 + r(i + 9) * 0.6).toFixed(2), '#fff', { opacity: 0.85 })).join('')}</g>`;
+  const art = o.sky?.[`${SKY_ART[o.ph] || 'day'}_${w}`];
+  if (art) s += `<image href="${esc(art)}" width="${VB.dorm}" height="${H}" preserveAspectRatio="xMidYMid slice"/>`;
+  return s;
+}
+
+/** 美术场景图：白天原图；夜里有夜景图就换，没有就压暗、留一点灯光；黄昏加一层暖色 */
+function artScene(o) {
+  const u = String(o.uid).replace(/[^\w-]/g, '');
+  const night = o.night && o.art.night;
+  let s = windowSky(o, u) + `<image href="${esc(night ? o.art.night : o.art.day)}" x="0" y="0" width="${VB.dorm}" height="${H}" preserveAspectRatio="xMidYMid slice"/>`;
+  if (o.night && !night) {
+    s += `<defs><radialGradient id="ag${u}" cx=".5" cy=".42" r=".6"><stop offset="0" stop-color="#ffcf8a" stop-opacity="${o.on ? 0.32 : 0.06}"/><stop offset="1" stop-color="#ffcf8a" stop-opacity="0"/></radialGradient></defs>`;
+    s += `<rect width="${VB.dorm}" height="${H}" fill="#0a1033" opacity="${o.on ? 0.36 : 0.48}" style="mix-blend-mode:multiply"/>`;
+    s += `<rect width="${VB.dorm}" height="${H}" fill="url(#ag${u})" style="mix-blend-mode:screen"/>`;
+  } else if (o.ph === 'dusk' || o.ph === 'dawn') s += `<rect width="${VB.dorm}" height="${H}" fill="${o.ph === 'dusk' ? '#ff8a4c' : '#8a7cff'}" opacity=".18" style="mix-blend-mode:soft-light"/>`;
+  return s;
+}
 const hotSvg = (kind, o) =>
   hotsOf(kind, o)
     .map((h) => `<rect class="hot" data-hot="${h.id}" x="${h.x}" y="${h.y}" width="${h.w}" height="${h.h}" rx="3" fill="transparent" role="button" tabindex="0" aria-label="${h.name}"><title>${h.name}</title></rect>`)
@@ -464,7 +543,7 @@ const hotSvg = (kind, o) =>
 
 function sceneSvg(kind, o, extra = '') {
   // 伪 3D 房间盒按比例铺满（多出的部分裁掉天花板），不能像平面墙那样往两边无限延伸
-  if (is3d(kind, o)) return `<svg class="scene s3d" viewBox="0 0 ${VB.dorm} ${H}" preserveAspectRatio="xMidYMax slice" aria-hidden="${extra ? 'false' : 'true'}">${dormScene(o, o.uid)}${extra}</svg>`;
+  if (is3d(kind, o)) return `<svg class="scene s3d" viewBox="0 0 ${VB.dorm} ${H}" preserveAspectRatio="xMidYMax slice" aria-hidden="${extra ? 'false' : 'true'}">${o.art ? artScene(o) : dormScene(o, o.uid)}${extra}</svg>`;
   const w = VB[kind] || 300;
   const h = kind === 'rooftop' ? 70 : H;
   return `<svg class="scene" viewBox="0 0 ${w} ${h}" preserveAspectRatio="xMidYMax meet" aria-hidden="${extra ? 'false' : 'true'}">${(ROOMS[kind] || (() => ''))(o)}${extra}</svg>`;
@@ -491,16 +570,16 @@ const ICONS = {
 const icon = (k, cls = 'ic') => `<svg class="${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[k] || ''}</svg>`;
 
 // 睡觉：头靠在宿舍床的枕头上，盖着被子（画在 SVG 里，和床对齐）；可以点击 / 用键盘选中
-function sleeper(r, m, label, pressed, deep = false) {
+function sleeper(r, m, label, pressed, deep = null) {
   const color = m?.theme_color || '#c9733f';
   const name = m?.display || r.name;
   const head = m?.images?.avatar_64 || m?.images?.avatar_128;
-  const at = deep ? bedAnchor() : null;
+  const at = deep ? bedOf(deep) : null;
   const hx = at ? at.hx : BED_X + 22;
   const hy = at ? at.hy : FY - 32;
   const hr = at ? at.hr : 12;
   const quilt = at
-    ? at.quilt.map((d, i) => `<polygon points="${d}" fill="${esc(color)}"${i ? ' style="filter:brightness(.82)"' : ''}/>`).join('')
+    ? at.quilt.map((d, i) => (d.startsWith('M') ? `<path d="${d}" fill="${esc(color)}" opacity=".78" style="mix-blend-mode:multiply"/><path d="${d}" fill="${esc(color)}" opacity=".35"/><ellipse cx="72" cy="69.5" rx="22" ry="2.6" fill="#fff" opacity=".16"/>` : `<polygon points="${d}" fill="${esc(color)}"${i ? ' style="filter:brightness(.82)"' : ''}/>`)).join('')
     : `<rect x="${BED_X + 30}" y="${FY - 28}" width="80" height="14" rx="3" fill="${esc(color)}"/><rect x="${BED_X + 30}" y="${FY - 28}" width="80" height="2.5" rx="1" fill="#fff" opacity=".3"/>`;
   const face = head
     ? `<clipPath id="hc-${esc(r.id)}"><circle cx="${hx}" cy="${hy}" r="${hr}"/></clipPath><image href="${esc(head)}" x="${hx - hr}" y="${hy - hr}" width="${hr * 2}" height="${hr * 2}" clip-path="url(#hc-${esc(r.id)})" preserveAspectRatio="xMidYMid slice"/>`
@@ -589,6 +668,7 @@ export class Apartment {
     this.zoom = null; // 放大查看的房间 id
     this.view = store.get(VIEW_KEY) === 'map' ? 'map' : 'section';
     this.sideOpen = store.get(SIDE_KEY) !== 'off';
+    this.weather = WEATHERS.some(([k]) => k === store.get(WEATHER_KEY)) ? store.get(WEATHER_KEY) : 'auto';
     this.timer = null;
     this.error = '';
     root.addEventListener('click', (e) => this.onClick(e));
@@ -671,7 +751,7 @@ export class Apartment {
     const s = this.says.get(r.id);
     const say = s && s.until > Date.now() ? `<span class="say" aria-hidden="true" data-until="${s.until}">${esc(s.text)}</span>` : '';
     const placed = this.moved.has(r.id) ? ' placed' : '';
-    return `<button type="button" class="tenant act-${esc(r.activity)}${pressed ? ' on' : ''}${placed}" data-r="${esc(r.id)}" aria-pressed="${pressed}" aria-label="${esc(label)}" title="${esc(label)}" style="--x:${x.toFixed(1)}%;--d:${6 + (k % 4) * 1.7}s;--c:${esc(color)}">${img}${mark}${say}<b class="tag">${esc(name)}</b></button>`;
+    return `<button type="button" class="tenant act-${esc(r.activity)}${pressed ? ' on' : ''}${placed}" data-r="${esc(r.id)}" aria-pressed="${pressed}" aria-label="${esc(label)}" title="${esc(label)}" style="--x:${x.toFixed(1)}%;${r._y ? `--y:${(r._y / 100).toFixed(3)};` : ''}--d:${6 + (k % 4) * 1.7}s;--c:${esc(color)}">${img}${mark}${say}<b class="tag">${esc(name)}</b></button>`;
   }
 
   // 小人的形象（拖起来时跟着手走的那个）
@@ -711,8 +791,9 @@ export class Apartment {
     const dark = night && !people.length && room.kind !== 'rooftop';
     const on = (lit && people.length > asleep.length) || busy || (!night && room.kind === 'office' && people.length > 0);
     const tc = om?.theme_color || '#c9733f';
+    const art = om?.images?.room_day ? { day: om.images.room_day, night: om.images.room_night, room: om.room || null } : null;
     const dorms = Object.keys(this.dormNames());
-    return { owner, title, night, asleep, busy, dark, on, tc, style: Math.max(0, dorms.indexOf(room.id)), state: roomState(room.kind, people, dark) };
+    return { owner, title, night, asleep, busy, dark, on, tc, art, style: Math.max(0, dorms.indexOf(room.id)), state: roomState(room.kind, people, dark) };
   }
 
   room(room, people, { big = false } = {}) {
@@ -722,8 +803,8 @@ export class Apartment {
     if (room.kind === 'meeting' && d.hidden_meetings) sign = `<span class="sign" title="匿名会议不显示是谁">匿名会议进行中 ×${d.hidden_meetings}</span>`;
     // 在自己宿舍睡觉的画在床上，其余的小人站在地板上
     const awake = people.filter((p) => !info.asleep.includes(p));
-    const o = { ph: this.phase, night: info.night, on: info.on, tc: esc(info.tc), style: info.style, uid: room.id + (big ? 'z' : '') };
-    const beds = info.asleep.map((p) => sleeper(p, this.look(p), this.label(p), this.selected === p.id, is3d(room.kind, o))).join('');
+    const o = { ph: this.phase, night: info.night, on: info.on, tc: esc(info.tc), style: info.style, art: room.kind === 'dorm' ? info.art : null, weather: this.weather, sky: this.art?.sky, uid: room.id + (big ? 'z' : '') };
+    const beds = info.asleep.map((p) => sleeper(p, this.look(p), this.label(p), this.selected === p.id, is3d(room.kind, o) ? o : null)).join('');
     const tenants = awake.map((p, i) => this.tenant(p, i, awake.length)).join('');
     const cls = `room k-${esc(room.kind)}${info.busy ? ' busy' : ''}${info.dark ? ' dark' : ''}${info.asleep.length && !awake.length ? ' asleep' : ''}${info.on ? ' lit' : ''}${big ? ' big' : ''}`;
     const flex = room.kind === 'dorm' ? 1 : FLEX[room.kind] || 1;
@@ -743,6 +824,11 @@ export class Apartment {
   }
 
   // 显示用的住户：临时摆放的盖在作息上（只在这个页面里，不回写）
+  weatherName() {
+    const w = WEATHERS.find(([k]) => k === this.weather) || WEATHERS[0];
+    return w[0] === 'auto' ? `自动（${w[2]}）` : w[1];
+  }
+
   people() {
     return this.res || this.data?.residents || [];
   }
@@ -822,7 +908,7 @@ export class Apartment {
     chips += chip('badge', '在岗', String(working), String(res.length), 'c3');
     chips += chip('clock', '', this.clock || '--:--', '', 'c4');
     const seg = (v, label) => `<button type="button" data-view="${v}" aria-pressed="${this.view === v}">${label}</button>`;
-    return `<header class="base-top"><button type="button" class="ovw" data-ovw aria-pressed="${this.sideOpen}" aria-controls="home-side"><span>进驻总览</span>${icon('people')}</button><div class="vseg" role="group" aria-label="视图">${seg('section', '剖面')}${seg('map', '布局')}</div><div class="res" aria-label="资源">${chips}</div></header>`;
+    return `<header class="base-top"><button type="button" class="ovw" data-ovw aria-pressed="${this.sideOpen}" aria-controls="home-side"><span>进驻总览</span>${icon('people')}</button><div class="vseg" role="group" aria-label="视图">${seg('section', '剖面')}${seg('map', '布局')}</div><button type="button" class="wbtn" data-weather title="窗外天气（不联网，点一下换）" aria-label="窗外天气：${esc(this.weatherName())}">窗外 · ${esc(this.weatherName())}</button><div class="res" aria-label="资源">${chips}</div></header>`;
   }
 
   side() {
@@ -925,6 +1011,12 @@ export class Apartment {
     if (view) {
       this.view = view.dataset.view === 'map' ? 'map' : 'section';
       store.set(VIEW_KEY, this.view);
+      return this.render();
+    }
+    if (e.target.closest('[data-weather]')) {
+      const i = WEATHERS.findIndex(([k]) => k === this.weather);
+      this.weather = WEATHERS[(i + 1) % WEATHERS.length][0];
+      store.set(WEATHER_KEY, this.weather);
       return this.render();
     }
     if (e.target.closest('[data-ovw]')) {
@@ -1221,7 +1313,7 @@ export class Apartment {
     if (room.kind === 'dorm') spec = !host ? DROP.home : host.room !== room.id ? DROP.away : host.activity === 'sleep' ? DROP.hush : DROP.visit;
     const fill = (t) => t.replaceAll('{o}', host ? name(host) : '');
     const others = this.people().filter((p) => p.room === room.id && p.id !== id && p.activity !== 'sleep');
-    this.move(id, { room: room.id, activity: spec.act, activity_label: fill(spec.label), _x: x });
+    this.move(id, { room: room.id, activity: spec.act, activity_label: fill(spec.label), _x: x, _y: null });
     // 串门：醒着的房主放下手里的事陪聊（正在办事的不打扰）
     const greeter = spec === DROP.visit ? host : others[0];
     if (spec === DROP.visit && greeter === host && host.activity !== 'work' && host.activity !== 'wait') this.move(host.id, { activity: 'chat', activity_label: `和 ${name(r)} 聊天` });
@@ -1254,7 +1346,9 @@ export class Apartment {
   useHot(hotEl) {
     const roomEl = hotEl.closest('.room[data-room]');
     const room = (this.data.floors || []).flat().find((x) => x.id === roomEl?.dataset.room);
-    const h = room && (HOTS[room.kind] || []).find((x) => x.id === hotEl.dataset.hot);
+    const info = room && this.roomInfo(room, this.people().filter((p) => p.room === room.id));
+    const o = info && { style: info.style, art: room.kind === 'dorm' ? info.art : null };
+    const h = room && hotsOf(room.kind, o).find((x) => x.id === hotEl.dataset.hot);
     if (!h) return;
     const name = (p) => this.look(p)?.display || p.name;
     const here = this.people().filter((p) => p.room === room.id);
@@ -1277,7 +1371,8 @@ export class Apartment {
     const before = this.tenantEl(who.id)?.getBoundingClientRect();
     const l = roomEl.querySelector('.people').getBoundingClientRect();
     const hb = hotEl.getBoundingClientRect();
-    this.move(who.id, { room: room.id, activity: h.act, activity_label: h.label, _x: clampPct(((hb.left + hb.width / 2 - l.left) / l.width) * 100) });
+    const at = h.stand ?? ((hb.left + hb.width / 2 - l.left) / l.width) * 100;
+    this.move(who.id, { room: room.id, activity: h.act, activity_label: h.label, _x: clampPct(at), _y: h.lift ?? null });
     this.render();
     const el = this.tenantEl(who.id);
     if (el?.tagName === 'BUTTON' && before && !calm()) {

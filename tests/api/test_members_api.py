@@ -42,8 +42,11 @@ def test_members_and_files(tmp_path):
                 "avatar_128": "/api/members/files/m1/c128.png",
                 "avatar_256": None,
                 "chibi": "/api/members/files/m1/chibi.png",
+                "room_day": "/api/members/files/m1/room_day.webp",
+                "room_night": None,
             },
             "pet": None,
+            "room": None,
         }
         same_vendor = {x.id for x in env.config.models.models if x.vendor == model.vendor}
         assert {k for k, v in data["models"].items() if v == "m1"} == same_vendor

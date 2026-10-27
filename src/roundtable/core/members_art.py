@@ -4,6 +4,8 @@
 绝不抛错。图片路径相对 members.json，必须落在素材目录内；文件不存在的图片记为 None。
 成员按 vendor 对应到配置里的模型（不写死任何厂商或模型名）。
 小人的逐帧素材（可选）在 pet.json：缺失或损坏时当作没有，不影响其他图片。
+公寓宿舍的场景图（images.room_day / room_night）可以带互动点位（room）：床头位置和可点的家具，
+坐标是图上的百分比，逐项限制范围，不合格的项丢掉。
 """
 
 from __future__ import annotations
@@ -70,6 +72,14 @@ PET_HOLD_LAST_S = (0.0, 10.0)
 PET_MAX_FRAMES = 64
 PET_FPS = (1, 30)
 PET_MAX_BYTES = 256 * 1024
+# 宿舍场景的互动点位：家具能叫小人做的事（与 web/js/apartment.js 的活动一致）
+ROOM_ACTS = ("idle", "read", "eat", "work", "chat", "game", "exercise", "stargaze", "sleep")
+ROOM_MAX_HOTS = 8
+ROOM_ID = re.compile(r"[a-z][a-z0-9_]{0,23}")
+# 宿舍窗外的天空图（可选）：素材目录 sky/<时段>_<天气>.<扩展名>
+SKY_DIR = "sky"
+SKY_PHASES = ("day", "dusk", "night")
+SKY_WEATHERS = ("clear", "cloudy", "rain", "snow")
 # 只接受 #rgb / #rrggbb / #rrggbbaa，防止把任意文字写进页面样式
 COLOR = re.compile(r"#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})")
 
@@ -85,6 +95,7 @@ class _Entry(BaseModel):
     order: int = 0
     status: str | None = None
     images: dict[str, Any] = Field(default_factory=dict)
+    room: Any = None
 
 
 class _File(BaseModel):
@@ -107,6 +118,8 @@ class Member:
     images: dict[str, Any] = field(default_factory=dict)
     # 逐帧素材：{"fps", "actions": {名: {"frames": [相对路径], "fps", "loop"}}, "expressions"}
     pet: dict[str, Any] | None = None
+    # 宿舍场景的互动点位：{"bed": {"x", "y"} | None, "hots": [...]}，坐标是场景图上的百分比
+    room: dict[str, Any] | None = None
 
     @property
     def display(self) -> str:
@@ -118,6 +131,8 @@ class MembersArt:
     available: bool
     reason: str | None = None
     members: tuple[Member, ...] = ()
+    # 窗外天空图：{"day_clear": 相对路径, …}，只列确实存在的
+    sky: dict[str, str] = field(default_factory=dict)
 
     def model_map(self, models: Iterable[tuple[str, str]]) -> dict[str, str]:
         """(模型 id, vendor) → {模型 id: 成员 id}。
@@ -277,6 +292,74 @@ def _pet(root: Path, member_id: str, value: Any) -> dict[str, Any] | None:
     return pet
 
 
+def _pct(value: Any) -> float | None:
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return None
+    return round(min(max(float(value), 0.0), 100.0), 2)
+
+
+def _text(value: Any, limit: int) -> str:
+    return value.strip()[:limit] if isinstance(value, str) else ""
+
+
+def _room(raw: Any) -> dict[str, Any] | None:
+    """宿舍场景图的互动点位。床：枕头上头的位置；家具：可点区域、叫小人做的事、站的位置。"""
+    if not isinstance(raw, dict):
+        return None
+    bed = raw.get("bed")
+    bx, by = (_pct(bed.get("x")), _pct(bed.get("y"))) if isinstance(bed, dict) else (None, None)
+    hots: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for h in raw.get("hots", [])[:32] if isinstance(raw.get("hots"), list) else []:
+        if len(hots) >= ROOM_MAX_HOTS:
+            break
+        if not isinstance(h, dict) or not isinstance(h.get("id"), str):
+            continue
+        box = [_pct(h.get(k)) for k in ("x", "y", "w", "h")]
+        name = _text(h.get("name"), 12)
+        if not ROOM_ID.fullmatch(h["id"]) or h["id"] == "bed" or h["id"] in seen:
+            continue
+        if None in box or not box[2] or not box[3] or not name or h.get("act") not in ROOM_ACTS:
+            continue
+        seen.add(h["id"])
+        say = h.get("say")
+        lines = [_text(x, 30) for x in say[:3]] if isinstance(say, list) else []
+        stand = _pct(h.get("stand"))
+        lift = _pct(h.get("lift"))
+        fx = _text(h.get("fx"), 1)
+        hots.append(
+            {
+                "id": h["id"],
+                "name": name,
+                "act": h["act"],
+                "label": _text(h.get("label"), 20) or name,
+                "say": [x for x in lines if x],
+                "fx": fx or "*",
+                "x": box[0],
+                "y": box[1],
+                "w": box[2],
+                "h": box[3],
+                "stand": stand,
+                "lift": min(lift, 60.0) if lift is not None else None,
+            }
+        )
+    if bx is None and not hots:
+        return None
+    return {"bed": {"x": bx, "y": by} if bx is not None and by is not None else None, "hots": hots}
+
+
+def _sky(root: Path) -> dict[str, str]:
+    out: dict[str, str] = {}
+    for phase in SKY_PHASES:
+        for weather in SKY_WEATHERS:
+            for ext in IMAGE_TYPES:
+                rel = _image(root, f"{SKY_DIR}/{phase}_{weather}{ext}")
+                if rel:
+                    out[f"{phase}_{weather}"] = rel
+                    break
+    return out
+
+
 def load_members(root: Path | None) -> MembersArt:
     if root is None:
         return MembersArt(False, "没有设置素材目录")
@@ -306,6 +389,7 @@ def load_members(root: Path | None) -> MembersArt:
                 status=e.status,
                 images=_images(root, {k: v for k, v in e.images.items() if k != "pet"}),
                 pet=_pet(root, e.id, e.images.get("pet")),
+                room=_room(e.room),
             )
         )
-    return MembersArt(True, None, tuple(members))
+    return MembersArt(True, None, tuple(members), _sky(root))
