@@ -1,7 +1,7 @@
 // 终端首页：背景（可自定义）上悬浮几张液态玻璃卡片：工作（等你拍板的件数）、日常、群聊、公寓、成员、档案。
 // 只读：数字来自 /api/sessions、/api/chat/rooms 与 /api/status，不调用模型、不花钱。
 // 卡片随鼠标轻微视差、静止时轻轻浮动（Live2D 式的「活着」），系统开了「减少动态」时不动。
-// 自定义背景只存在本机浏览器（localStorage），不上传。
+// 自定义背景只存在本机浏览器（localStorage），不上传。顶栏有背景音乐播放条（music.js，音乐同样只存本机浏览器）。
 
 const esc = (s) =>
   String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -94,10 +94,10 @@ function applyPageBackground(bg) {
 export class Hub {
   /**
    * @param {HTMLElement} root
-   * @param {{sessions:Function, rooms:Function, go:Function, openPeople:Function, openHistory:Function, status:Function, now?:Function}} opts
+   * @param {{sessions:Function, rooms:Function, go:Function, openPeople:Function, openHistory:Function, status:Function, music?:import('./music.js').Music, now?:Function}} opts
    */
-  constructor(root, { sessions, rooms, go, openPeople, openHistory, status, now = () => new Date() }) {
-    Object.assign(this, { root, sessions, rooms, go, openPeople, openHistory, status, now });
+  constructor(root, { sessions, rooms, go, openPeople, openHistory, status, music = null, now = () => new Date() }) {
+    Object.assign(this, { root, sessions, rooms, go, openPeople, openHistory, status, music, now });
     this.art = null;
     this.counts = { waiting: 0, running: 0, unread: 0 };
     this.timer = null;
@@ -140,12 +140,14 @@ export class Hub {
     clearTimeout(this.enterTimer);
     this.enterTimer = setTimeout(() => this.root.classList.remove('hb-enter'), 900);
     this.animate();
+    this.music?.enter();
     await this.load();
     clearInterval(this.timer);
     this.timer = setInterval(() => this.load(), REFRESH_MS);
   }
 
   hide() {
+    if (!this.root.hidden) this.music?.leave();
     this.root.hidden = true;
     document.documentElement.style.removeProperty('--rt-bx');
     document.documentElement.style.removeProperty('--rt-by');
@@ -196,6 +198,7 @@ export class Hub {
         <span class="hb-date">${t.getFullYear()}.${pad(t.getMonth() + 1)}.${pad(t.getDate())} 周${WEEK[t.getDay()]} ${pad(t.getHours())}:${pad(t.getMinutes())}</span>
         ${month ? `<span class="hb-res" title="本月已用 / 本月上限">本月已用 $${Number(month.spent_usd).toFixed(2)} / $${Number(month.limit_usd).toFixed(0)}</span>` : ''}
         <label class="hb-land"><input type="checkbox" data-land${this.landWork() ? ' checked' : ''}> 打开网页时直接进办公室</label>
+        <span data-music-slot></span>
         <button type="button" class="hb-bgbtn" data-act="bg" aria-expanded="${pickerOpen}">${icon('image', 'hb-i')}背景</button>
       </div>
       <div class="hb-bgpick hb-glass" role="dialog" aria-label="更换背景"${pickerOpen ? '' : ' hidden'}>
@@ -227,6 +230,7 @@ export class Hub {
         </div>
       </div>
       <p class="hb-voice hb-glass">${esc(dutyLine(c))}</p>`;
+    this.music?.mount(this.root.querySelector('[data-music-slot]'));
   }
 
   /** Live2D 式的「活着」：图层按深度跟随鼠标、静止时轻轻浮动；背景反向微移。只在首页可见时跑。 */
