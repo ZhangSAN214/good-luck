@@ -129,3 +129,46 @@ def test_without_standee_the_panel_explains_why(serve, page):
     assert "还没有立绘" in page.inner_text("#hub .sd-panel")
     page.keyboard.press("Escape")
     assert page.is_hidden("#hub .sd-panel")
+
+
+def test_standee_with_rig_renders_mesh_or_falls_back(serve, page, tmp_path):
+    """有 rig 素材时用网格形变（浏览器支持 WebGL2 时），不支持就退回切条画法。
+
+    两种都要画得出来、点得动。"""
+    pytest.importorskip("numpy")
+    from tests.scripts.test_standee_rig import load, make
+
+    root = tmp_path / "sd"
+    root.mkdir()
+    out = load().build(make(root))
+    rig = json.loads((out / "rig.json").read_text(encoding="utf-8"))
+    manifest = {
+        "name": "立绘一",
+        "variants": [
+            {"id": "regular", "label": "常规", "image": "a.png", "head": [0.5, 0.25], "rig": rig}
+        ],
+        "lines": {"tap": ["点到我了。"], "head": ["头发会乱的。"]},
+    }
+    (root / "standee.json").write_text(json.dumps(manifest, ensure_ascii=False), encoding="utf-8")
+    errors = []
+    page.on("pageerror", lambda e: errors.append(str(e)))
+    srv = serve(confirm_threshold_usd=100.0, standee_file=root / "standee.json")
+    page.add_init_script(LAND_HUB)
+    page.goto(srv.url)
+    page.wait_for_selector("#hub .sd-stage[data-render]:not([hidden])")
+    mode = page.get_attribute("#hub .sd-stage", "data-render")
+    gl = page.evaluate("() => !!document.createElement('canvas').getContext('webgl2')")
+    assert mode == ("mesh" if gl else "strips")
+    page.wait_for_timeout(500)
+    alpha = page.evaluate(
+        """() => { const c = document.querySelector('#hub .sd-cv'); const x = c.getContext('2d');
+        return [x.getImageData(2, 2, 1, 1).data[3],
+                x.getImageData(c.width / 2, c.height * 0.6, 1, 1).data[3]]; }"""
+    )
+    assert alpha[0] == 0 and alpha[1] > 200
+    box = page.locator("#hub .sd-cv").bounding_box()
+    page.mouse.click(box["x"] + box["width"] * 0.5, box["y"] + box["height"] * 0.6)
+    page.wait_for_function("document.querySelector('#hub .sd-text').textContent === '点到我了。'")
+    page.click("#hub [data-act='standee']")
+    assert "动态：" in page.inner_text("#hub .sd-panel")
+    assert not errors

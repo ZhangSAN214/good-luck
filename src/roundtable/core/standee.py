@@ -23,6 +23,9 @@
 
 表情差分可以是整张同尺寸图（只改了脸），也可以是一小块脸部贴片（box 为贴片在原图中的
 左、上、宽、高，取值 0～1 的比例）。前端把贴片叠在原图上，换表情时淡入淡出。
+
+一套立绘还可以写 rig（scripts/standee_rig.py 生成的 rig.json 原样抄进来）：瞳孔层和全身形变权重图，
+前端支持 WebGL2 时用它做全身网格形变；rig 里的图缺了就当没有 rig，照旧用整张图。
 """
 
 from __future__ import annotations
@@ -65,6 +68,43 @@ class _Expression(BaseModel):
         return v
 
 
+RIG_PIVOTS = ("neck", "face", "elbow", "waist", "feet")
+
+
+class _Rig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    base: str = Field(min_length=1)
+    iris: str = Field(min_length=1)
+    weights: tuple[str, str, str]
+    size: tuple[int, int]
+    pivots: dict[str, tuple[float, float]]
+    skirt: tuple[float, float]
+
+    @field_validator("size")
+    @classmethod
+    def _size(cls, v: tuple[int, int]):
+        if not all(16 <= c <= 8192 for c in v):
+            raise ValueError("size 是 [宽, 高] 像素，16～8192")
+        return v
+
+    @field_validator("pivots")
+    @classmethod
+    def _pivots(cls, v: dict[str, tuple[float, float]]):
+        missing = [k for k in RIG_PIVOTS if k not in v]
+        unknown = sorted(set(v) - set(RIG_PIVOTS))
+        if missing or unknown:
+            raise ValueError(f"pivots 要有且只有 {list(RIG_PIVOTS)}")
+        return v
+
+    @field_validator("skirt")
+    @classmethod
+    def _skirt(cls, v: tuple[float, float]):
+        if not v[0] < v[1]:
+            raise ValueError("skirt 是 [上沿, 下沿]，上沿要小于下沿")
+        return v
+
+
 class _Variant(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -76,6 +116,7 @@ class _Variant(BaseModel):
     head: tuple[float, float] | None = None
     # 底色是否需要去掉（纯色底的图默认去掉；已经是透明底时前端自动跳过）
     cutout: bool = True
+    rig: _Rig | None = None
 
     @field_validator("expressions")
     @classmethod
@@ -124,6 +165,7 @@ class Variant:
     head: tuple[float, float] | None = None
     cutout: bool = True
     missing: tuple[str, ...] = ()  # 清单里写了但找不到文件的表情
+    rig: dict[str, Any] | None = None  # 网格形变素材（文件都在时才有）
 
 
 @dataclass(frozen=True)
@@ -140,6 +182,21 @@ class Standee:
 def _rel(root: Path, value: str) -> str | None:
     path = resolve_file(root, value)
     return path.relative_to(root.resolve()).as_posix() if path else None
+
+
+def _rig(root: Path, rig: _Rig) -> dict[str, Any] | None:
+    """rig 的图片都在才用；缺任何一张返回 None。"""
+    files = [_rel(root, rig.base), _rel(root, rig.iris), *(_rel(root, w) for w in rig.weights)]
+    if any(f is None for f in files):
+        return None
+    return {
+        "base": files[0],
+        "iris": files[1],
+        "weights": files[2:],
+        "size": list(rig.size),
+        "pivots": {k: list(p) for k, p in rig.pivots.items()},
+        "skirt": list(rig.skirt),
+    }
 
 
 def load_standee(manifest: Path | None) -> Standee:
@@ -174,7 +231,10 @@ def load_standee(manifest: Path | None) -> Standee:
                 missing.append(name)
                 continue
             exprs[name] = {"image": rel, "box": list(e.box) if e.box else None}
-        variants.append(Variant(v.id, v.label, image, exprs, v.head, v.cutout, tuple(missing)))
+        rig = _rig(root, v.rig) if v.rig else None
+        if v.rig and rig is None:
+            missing.append("rig")
+        variants.append(Variant(v.id, v.label, image, exprs, v.head, v.cutout, tuple(missing), rig))
     if not variants:
         return Standee(False, "清单里的立绘图片都找不到", name=data.name, root=root)
     if len({v.id for v in variants}) != len(variants):
