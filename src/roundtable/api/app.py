@@ -389,6 +389,10 @@ def create_app(service: RoundtableService | None = None) -> FastAPI:
     async def plugin_board(request: Request) -> dict[str, Any]:
         return svc(request).plugin_board()
 
+    @app.get("/api/changelog")
+    async def changelog(request: Request) -> dict[str, Any]:
+        return svc(request).changelog()
+
     @app.get("/api/models/candidates")
     async def model_candidates(request: Request) -> dict[str, Any]:
         return svc(request).model_candidates()

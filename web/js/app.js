@@ -37,6 +37,8 @@ import { Moments } from './moments.js';
 import { BootSettings } from './bootcfg.js';
 import { Hub } from './hub.js';
 import { Music } from './music.js';
+import { Clock } from './clock.js';
+import { Notice } from './notice.js';
 import { Evolution } from './evolution.js';
 
 const $ = (q) => document.querySelector(q);
@@ -165,6 +167,8 @@ const home = new Apartment($('#home'), {
 });
 const hub = new Hub($('#hub'), {
   music: new Music(),
+  clock: new Clock(),
+  notice: new Notice({ load: API.getChangelog }),
   sessions: API.listSessions,
   rooms: API.getChatRooms,
   status: () => S.status,

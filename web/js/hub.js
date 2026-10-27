@@ -1,12 +1,12 @@
 // 终端首页：背景（可自定义）上悬浮几张液态玻璃卡片：工作（等你拍板的件数）、日常、群聊、公寓、成员、档案。
 // 只读：数字来自 /api/sessions、/api/chat/rooms 与 /api/status，不调用模型、不花钱。
 // 卡片随鼠标轻微视差、静止时轻轻浮动（Live2D 式的「活着」），系统开了「减少动态」时不动。
-// 自定义背景只存在本机浏览器（localStorage），不上传。顶栏有背景音乐播放条（music.js，音乐同样只存本机浏览器）。
+// 自定义背景只存在本机浏览器（localStorage），不上传。顶栏有背景音乐播放条（music.js，音乐同样只存本机浏览器）、
+// 多时区时钟（clock.js）和公告栏（notice.js，版本更新说明）。
 
 const esc = (s) =>
   String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 
-const WEEK = '日一二三四五六';
 const REFRESH_MS = 60_000;
 const BG_KEY = 'roundtable.hub.bg'; // default | night | day | custom
 const BG_DATA = 'roundtable.hub.bgData'; // 自定义背景（压缩后的 data URL）
@@ -94,10 +94,10 @@ function applyPageBackground(bg) {
 export class Hub {
   /**
    * @param {HTMLElement} root
-   * @param {{sessions:Function, rooms:Function, go:Function, openPeople:Function, openHistory:Function, status:Function, music?:import('./music.js').Music, now?:Function}} opts
+   * @param {{sessions:Function, rooms:Function, go:Function, openPeople:Function, openHistory:Function, status:Function, music?:import('./music.js').Music, clock?:import('./clock.js').Clock, notice?:import('./notice.js').Notice}} opts
    */
-  constructor(root, { sessions, rooms, go, openPeople, openHistory, status, music = null, now = () => new Date() }) {
-    Object.assign(this, { root, sessions, rooms, go, openPeople, openHistory, status, music, now });
+  constructor(root, { sessions, rooms, go, openPeople, openHistory, status, music = null, clock = null, notice = null }) {
+    Object.assign(this, { root, sessions, rooms, go, openPeople, openHistory, status, music, clock, notice });
     this.art = null;
     this.counts = { waiting: 0, running: 0, unread: 0 };
     this.timer = null;
@@ -180,7 +180,6 @@ export class Hub {
   }
 
   render() {
-    const t = this.now();
     const c = this.counts;
     const st = this.status?.() || null;
     const month = st?.budget?.month;
@@ -195,9 +194,10 @@ export class Hub {
     this.root.dataset.bgkey = bg.key;
     this.root.innerHTML = `
       <div class="hb-top">
-        <span class="hb-date">${t.getFullYear()}.${pad(t.getMonth() + 1)}.${pad(t.getDate())} 周${WEEK[t.getDay()]} ${pad(t.getHours())}:${pad(t.getMinutes())}</span>
+        <span data-clock-slot></span>
         ${month ? `<span class="hb-res" title="本月已用 / 本月上限">本月已用 $${Number(month.spent_usd).toFixed(2)} / $${Number(month.limit_usd).toFixed(0)}</span>` : ''}
         <label class="hb-land"><input type="checkbox" data-land${this.landWork() ? ' checked' : ''}> 打开网页时直接进办公室</label>
+        <span data-notice-slot></span>
         <span data-music-slot></span>
         <button type="button" class="hb-bgbtn" data-act="bg" aria-expanded="${pickerOpen}">${icon('image', 'hb-i')}背景</button>
       </div>
@@ -231,6 +231,8 @@ export class Hub {
       </div>
       <p class="hb-voice hb-glass">${esc(dutyLine(c))}</p>`;
     this.music?.mount(this.root.querySelector('[data-music-slot]'));
+    this.clock?.mount(this.root.querySelector('[data-clock-slot]'));
+    this.notice?.mount(this.root.querySelector('[data-notice-slot]'));
   }
 
   /** Live2D 式的「活着」：图层按深度跟随鼠标、静止时轻轻浮动；背景反向微移。只在首页可见时跑。 */
