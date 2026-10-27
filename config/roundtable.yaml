@@ -751,10 +751,13 @@ evolution:
   card_chars: 3000
   meeting_usd: 0.40          # 每场预计花费上限
   monthly_usd: 1.5           # 每月上限（UTC 自然月，也计入上面的总预算）
-  # 两种例会：小版本 = 每周自动开、主题不限、列前 3 个选项；大版本 = 你先选定主题再手动开、
-  # 围绕主题列前 10 个选项（网页「革新例会」里选，或 roundtable evolve meet --major --theme '主题'）。
+  # 两种例会：小版本 = 主题不限、列前 3 个选项；大版本 = 围绕一个主题、列前 10 个选项。
+  # 开哪种由代码按时间自动判断：每月第一场开大版本（两次大版本至少隔 major_gap_days 天），其余开小版本。
+  # 大版本主题：你在网页上定了就用你的，否则在 major_themes 里轮换。网页上可以手动改成另一种
+  # （命令行 roundtable evolve meet --major / --minor --theme '主题'）。
   minor_top: 3
   major_top: 10
+  major_gap_days: 21
   major_themes: [办公室工作更顺手, 公寓生活更像真的, 群聊更自然, 朋友圈更有意思, 成员记性更好, 更省钱更快, 界面更好懂]
   theme_chars: 200
   auto: true

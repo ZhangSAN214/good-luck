@@ -17,6 +17,7 @@ from typing import Any
 from roundtable.core.ideaboard import Board, Ranked, to_markdown
 
 MEETINGS_KEY = "evolution.meetings"  # app_settings：开过的例会（会话 id、周、是否已导出）
+NEXT_THEME_KEY = "evolution.next_theme"  # app_settings：你定的下次大版本主题（空 = 轮换）
 CARD_SUFFIXES = (".md", ".txt")
 KEEP_MEETINGS = 60
 KINDS = {"minor": "小版本", "major": "大版本"}
@@ -50,8 +51,10 @@ class Meeting:
     started_at: str  # ISO 时间
     auto: bool = False
     adopted: str | None = None  # 导出的采纳单文件名
-    kind: str = "minor"  # minor 小版本（主题不限）/ major 大版本（你定的主题）
+    kind: str = "minor"  # minor 小版本（主题不限）/ major 大版本（围绕一个主题）
     theme: str | None = None  # 大版本的主题
+    reason: str | None = None  # 为什么开这种（自动判断的原因，或「你手动改成…」）
+    override: bool = False  # 你手动改了自动判断的结果
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> Meeting:
@@ -63,6 +66,8 @@ class Meeting:
             d.get("adopted"),
             d["kind"] if d.get("kind") in KINDS else "minor",
             d.get("theme"),
+            d.get("reason"),
+            bool(d.get("override", False)),
         )
 
 
@@ -81,6 +86,79 @@ def week_slot(now: datetime, weekday: int, hour: int) -> datetime:
         hour=0, minute=0, second=0, microsecond=0
     )
     return monday + timedelta(days=weekday - 1, hours=hour)
+
+
+# --- 自动判断：这场开小版本还是大版本 ------------------------------------------------
+
+
+@dataclass(frozen=True)
+class Plan:
+    kind: str  # minor / major
+    reason: str  # 一句话原因（网页上显示）
+    theme: str | None = None  # 大版本的主题
+    theme_source: str | None = None  # user 你定的 / auto 按主题轮换
+
+
+def _started(m: Meeting, now: datetime) -> datetime | None:
+    """开会时间，换到 now 的时区（新旧记录有没有时区都能比）。"""
+    try:
+        t = datetime.fromisoformat(m.started_at)
+    except ValueError:
+        return None
+    if now.tzinfo is None:
+        return t.replace(tzinfo=None)
+    return t.astimezone(now.tzinfo) if t.tzinfo else t.replace(tzinfo=now.tzinfo)
+
+
+def plan_kind(now: datetime, meetings: Sequence[Meeting], *, gap_days: int) -> tuple[str, str]:
+    """按时间自动判断：每个自然月的第一场开大版本，其余开小版本。
+
+    两次大版本至少隔 gap_days 天（上个月月底刚开过大版本，这个月月初就先开小版本，等满了再开），
+    所以大约每四周一次大改。只看时间和开过的会，不调用模型。
+    """
+    majors = [t for m in meetings if m.kind == "major" and (t := _started(m, now)) is not None]
+    if not majors:
+        return "major", "还没开过大版本，先来一次围绕主题的大改"
+    last = max(majors)
+    if (last.year, last.month) == (now.year, now.month):
+        return "minor", f"本月 {last.day} 日已开过大版本，这次做小改"
+    days = (now - last).days
+    if days < gap_days:
+        return "minor", f"距上次大版本才 {days} 天（不满 {gap_days} 天），这次先做小改"
+    return "major", f"{now.month} 月的第一场，距上次大版本 {days} 天，到了每月一次的大改"
+
+
+def choose_theme(
+    themes: Sequence[str], meetings: Sequence[Meeting], user_theme: str | None = None
+) -> tuple[str | None, str | None]:
+    """大版本的主题：你定了就用你的；否则在现成主题里轮换（没用过的优先，其次最久没用的）。"""
+    if user_theme and user_theme.strip():
+        return user_theme.strip(), "user"
+    if not themes:
+        return None, None
+    used: dict[str, int] = {}
+    for n, m in enumerate(meetings):
+        if m.kind == "major" and m.theme:
+            used[m.theme] = n
+    pick = min(themes, key=lambda t: (used.get(t, -1), themes.index(t)))
+    return pick, "auto"
+
+
+def plan_meeting(
+    now: datetime,
+    meetings: Sequence[Meeting],
+    *,
+    gap_days: int,
+    themes: Sequence[str],
+    user_theme: str | None = None,
+) -> Plan:
+    kind, reason = plan_kind(now, meetings, gap_days=gap_days)
+    if kind != "major":
+        return Plan(kind, reason)
+    theme, source = choose_theme(themes, meetings, user_theme)
+    if theme is None:  # 没有现成主题、你也没定：先开小版本，不卡住每周的例会
+        return Plan("minor", "该开大版本了，但还没有主题（定一个就会开大版本），这次先做小改")
+    return Plan(kind, reason, theme, source)
 
 
 # --- 资料卡 -----------------------------------------------------------------------

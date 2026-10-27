@@ -123,6 +123,7 @@ const evolution = new Evolution($('#evolvedlg'), {
     plugins: API.evolutionPlugins,
     decide: API.evolutionDecide,
     merge: API.evolutionMerge,
+    setTheme: API.evolutionTheme,
   },
   openSession: async (sid) => {
     await setEntry('work');

@@ -907,10 +907,12 @@ class EvolutionRules(_Strict):
     monthly_usd: float = Field(
         default=1.5, gt=0
     )  # 每月（UTC 自然月）上限：已花 + 本场预计超出就不开
-    # 两种例会：小版本（每周自动开，主题不限）列前 minor_top 名；
-    # 大版本（你先定主题再手动开）列前 major_top 名
+    # 两种例会：小版本（主题不限）列前 minor_top 名；大版本（围绕一个主题）列前 major_top 名。
+    # 开哪种由代码按时间自动判断：每个自然月的第一场开大版本（两次大版本至少隔 major_gap_days 天），
+    # 其余开小版本；你可以手动改。大版本的主题：你定了就用你的，否则在 major_themes 里轮换。
     minor_top: int = Field(default=3, ge=1, le=30)
     major_top: int = Field(default=10, ge=1, le=30)
+    major_gap_days: int = Field(default=21, ge=7, le=90)
     major_themes: list[str] = Field(default_factory=list, max_length=20)  # 大版本主题的现成选项
     theme_chars: int = Field(default=200, ge=10, le=1000)  # 大版本主题最多多少字
     auto: bool = True  # 开启后每周按 schedule 自动开一次（服务开着才会开）

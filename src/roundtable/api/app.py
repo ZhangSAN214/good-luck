@@ -72,11 +72,19 @@ class DecisionBody(BaseModel):
 
 
 class MeetBody(BaseModel):
-    """革新例会：开哪种会（minor 小版本，主题不限 / major 大版本，要给主题）。"""
+    """革新例会：开哪种会。kind 不给 = 按时间自动判断；给了 = 你手动改成 minor / major。"""
 
     model_config = ConfigDict(extra="forbid")
 
-    kind: str = Field(default="minor", pattern="^(minor|major)$")
+    kind: str | None = Field(default=None, pattern="^(minor|major)$")
+    theme: str | None = None
+
+
+class ThemeBody(BaseModel):
+    """革新例会：下一次大版本的主题（空 = 交给自动轮换）。"""
+
+    model_config = ConfigDict(extra="forbid")
+
     theme: str | None = None
 
 
@@ -346,6 +354,10 @@ def create_app(service: RoundtableService | None = None) -> FastAPI:
     async def evolution_meet(request: Request, body: MeetBody | None = None) -> dict[str, Any]:
         body = body or MeetBody()
         return svc(request).evolution_meet(kind=body.kind, theme=body.theme)
+
+    @app.put("/api/evolution/next-theme")
+    async def evolution_theme(request: Request, body: ThemeBody) -> dict[str, Any]:
+        return svc(request).evolution_set_theme(body.theme)
 
     @app.post("/api/evolution/meetings/{session_id}/export")
     async def evolution_export(request: Request, session_id: str) -> dict[str, Any]:
