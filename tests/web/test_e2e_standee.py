@@ -87,6 +87,8 @@ def test_standee_settings_are_saved_and_can_be_reset(serve, page, tmp_path):
     page.dispatch_event("#hub [data-sd='opacity']", "input")
     # 拖动立绘本身改变位置（先关掉吸附，免得吸到参考线上）
     page.uncheck("#hub [data-sd='snap']")
+    # 进入首页时立绘有一段从左滑入的动画（会改变外框位置），等它播完再量
+    page.wait_for_function("!document.querySelector('#hub').classList.contains('hb-enter')")
     box = page.locator("#hub .sd-cv").bounding_box()
     x0 = box["x"]
     page.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
