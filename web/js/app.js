@@ -167,6 +167,8 @@ const home = new Apartment($('#home'), {
     gchat.openRoom(`dm:${id}`);
   },
   momentsOf: (id) => moments.open(id),
+  personas: API.chatPersonas,
+  setupOf: (id) => people.open(id),
 });
 const standee = new Standee({ load: API.standee, pointer: () => hub.follow });
 const hub = new Hub($('#hub'), {
