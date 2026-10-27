@@ -38,6 +38,7 @@ import { BootSettings } from './bootcfg.js';
 import { Hub } from './hub.js';
 import { Music } from './music.js';
 import { Evolution } from './evolution.js';
+import { Usage } from './usage.js';
 
 const $ = (q) => document.querySelector(q);
 const RESTING = new Set(['completed', 'stopped', 'failed', 'awaiting_confirmation', 'paused']);
@@ -131,6 +132,7 @@ const evolution = new Evolution($('#evolvedlg'), {
   },
 });
 $('#evolve').addEventListener('click', () => evolution.open());
+const usage = new Usage($('#usagedlg'), { api: { usage: API.getUsage, balance: API.getUsageBalance } });
 const moments = new Moments($('#moments'), {
   api: { list: API.getMoments, post: API.postMoment, like: API.likeMoment, comment: API.commentMoment, del: API.delMoment, delComment: API.delMomentComment },
   onSeen: () => gchat.markMomentsSeen(),
@@ -170,6 +172,7 @@ const hub = new Hub($('#hub'), {
   status: () => S.status,
   go: (m, from) => setEntry(m, from),
   openPeople: () => people.open(),
+  openUsage: () => usage.open(),
   openHistory: async () => {
     await setEntry('work');
     $('#tabs button[data-t="history"]').click();

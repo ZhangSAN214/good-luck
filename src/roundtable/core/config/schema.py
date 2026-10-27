@@ -60,6 +60,9 @@ class ChannelSpec(_Strict):
     # object = {"reasoning": {...}}（OpenRouter）；effort = {"reasoning_effort": "low"}；
     # none = 不发送（渠道不支持时忽略，不报错）。不填：聚合平台 object，其余 none
     reasoning: Literal["object", "effort", "none"] | None = None
+    # 账户余额查询（只读，供「余额与用量」面板）：credits = GET {base_url}/credits（账户充值与已用）
+    # 加 GET {base_url}/key（这个 key 的额度与今天 / 本周 / 本月已用）。不填表示该渠道不查余额
+    balance: Literal["credits"] | None = None
 
     @property
     def reasoning_style(self) -> str:

@@ -247,3 +247,72 @@ async def test_neutral_reasoning_param_translated_per_channel(spec_kw, expected)
     await make(handler, **spec_kw).complete("m", MESSAGES, params)
     body = seen["body"]
     assert {k: body[k] for k in ("reasoning", "reasoning_effort") if k in body} == expected
+
+
+# --- 账户余额（余额与用量面板）---------------------------------------------------
+
+
+def balance_handler(seen, credits=200, key=200):
+    def handler(request: httpx.Request):
+        seen.append((request.method, request.url.path, request.headers.get("authorization")))
+        if request.url.path.endswith("/credits"):
+            if credits != 200:
+                return httpx.Response(credits, json={"error": {"message": f"denied {KEY}"}})
+            return httpx.Response(200, json={"data": {"total_credits": 20, "total_usage": 4.5}})
+        if key != 200:
+            return httpx.Response(key, json={"error": {"message": "nope"}})
+        return httpx.Response(
+            200,
+            json={
+                "data": {
+                    "limit": None,
+                    "limit_remaining": None,
+                    "usage": 4.5,
+                    "usage_daily": 0.25,
+                    "usage_weekly": 1.0,
+                    "usage_monthly": 3.0,
+                    "label": "secret-label",
+                }
+            },
+        )
+
+    return handler
+
+
+async def test_balance_reads_credits_and_key():
+    seen = []
+    provider = make(balance_handler(seen), balance="credits")
+    bal = await provider.account_balance()
+    assert [s[:2] for s in seen] == [("GET", "/v1/credits"), ("GET", "/v1/key")]
+    assert seen[0][2] == f"Bearer {KEY}"
+    assert (bal.total_credits, bal.total_usage, bal.remaining) == (20.0, 4.5, 15.5)
+    assert (bal.usage_daily, bal.usage_weekly, bal.usage_monthly) == (0.25, 1.0, 3.0)
+    assert bal.key_limit is None and bal.notes == ()
+    assert "secret-label" not in repr(bal)
+    await provider.aclose()
+
+
+async def test_balance_partial_failure_keeps_key_info_and_redacts():
+    provider = make(balance_handler([], credits=403), balance="credits")
+    bal = await provider.account_balance()
+    assert bal.total_credits is None and bal.usage_monthly == 3.0
+    assert bal.remaining is None  # 没有账户余额、key 也没设额度
+    assert bal.notes and KEY not in " ".join(bal.notes)
+    await provider.aclose()
+
+
+async def test_balance_all_failed_raises_redacted():
+    provider = make(balance_handler([], credits=401, key=401), balance="credits")
+    with pytest.raises(ProviderError) as info:
+        await provider.account_balance()
+    assert info.value.kind == ErrorKind.AUTH and KEY not in str(info.value)
+    await provider.aclose()
+
+
+async def test_balance_not_configured_is_unsupported():
+    from roundtable.core.providers import UnsupportedCapability
+
+    provider = make(balance_handler([]))
+    with pytest.raises(UnsupportedCapability):
+        await provider.account_balance()
+    await provider.aclose()
