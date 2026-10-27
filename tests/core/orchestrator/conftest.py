@@ -13,6 +13,7 @@ from ..routing.conftest import app_config
 from ..steps.conftest import default_reply, merge_reply, synthesis_reply
 
 NO_MEMBERS = Path(__file__).parent / "_no_members"
+NO_STANDEE = NO_MEMBERS / "standee.json"
 SHORT = "1+1=?"
 MEDIUM = "求函数 f(x)=x^3-3x 在区间 [-2, 2] 上的最大值与最小值，并写出完整过程。"
 
@@ -41,6 +42,7 @@ class Env:
         pipeline=False,
         rt_update=None,
         members_dir=None,
+        standee_file=None,
         **routing_overrides,
     ):
         self.difficulty = difficulty
@@ -67,6 +69,7 @@ class Env:
             providers={"c": self.fake},
             db_path=":memory:",
             members_dir=members_dir or NO_MEMBERS,
+            standee_file=standee_file or NO_STANDEE,
         )
         # 默认没有代码运行环境（不依赖本机是否装了沙箱）；工具测试中注入假沙箱
         self.rt.tools_sandbox = (None, "测试环境")

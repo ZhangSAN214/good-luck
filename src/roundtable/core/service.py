@@ -88,6 +88,8 @@ from roundtable.core.routing import (
     preview_estimates,
 )
 from roundtable.core.runtime import PROJECT_ROOT, Runtime
+from roundtable.core.standee import load_standee
+from roundtable.core.standee import standee_file as read_standee_file
 from roundtable.core.steps import Event, restore_state
 from roundtable.core.steps.office import group_estimates
 from roundtable.core.storage import NotFound
@@ -329,6 +331,53 @@ class RoundtableService:
             return found.read_bytes(), mime_of(found)
         except OSError:
             raise ServiceError("文件不存在", 404) from None
+
+    def standee(self) -> dict[str, Any]:
+        """终端首页大立绘：各套立绘与表情差分的地址、台词。只读本机文件，不调用模型。
+
+        清单写了 persona 时，这位成员人设里的口头禅也加进点击台词（网页里改过的优先）。
+        """
+        st = load_standee(self.rt.standee_file)
+        if not st.available:
+            return {"available": False, "reason": st.reason}
+
+        def url(rel: str) -> str:
+            return f"/api/standee/files/{quote(rel)}"
+
+        lines = {k: list(v) for k, v in st.lines.items()}
+        if st.persona:
+            tap = lines.get("tap", [])
+            extra = [c.strip() for c in persona_of(self.rt, st.persona).catchphrases if c.strip()]
+            lines["tap"] = tap + [c for c in extra if c not in tap]
+        return {
+            "available": True,
+            "reason": None,
+            "name": st.name,
+            "variants": [
+                {
+                    "id": v.id,
+                    "label": v.label,
+                    "image": url(v.image),
+                    "head": list(v.head) if v.head else None,
+                    "cutout": v.cutout,
+                    "expressions": {
+                        k: {"image": url(e["image"]), "box": e["box"]}
+                        for k, e in v.expressions.items()
+                    },
+                    "missing": list(v.missing),
+                }
+                for v in st.variants
+            ],
+            "lines": lines,
+        }
+
+    def standee_file(self, path: str) -> tuple[bytes, str]:
+        """立绘图片：只允许清单所在目录内的 png / jpg / webp。返回 (内容, MIME)。"""
+        st = load_standee(self.rt.standee_file)
+        found = read_standee_file(st, path) if st.root is not None else None
+        if found is None:
+            raise ServiceError("文件不存在", 404)
+        return found
 
     def budget(self) -> dict[str, Any]:
         month, day = self.rt.budget.status()
