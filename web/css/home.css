@@ -158,6 +158,20 @@
 .home .act-work img{animation:type .35s steps(2) infinite}
 .home .act-wait img{animation:nod 2.4s ease-in-out infinite}
 @keyframes wander{from{transform:translateX(-14px)}to{transform:translateX(14px)}}
+/* 用家具：不再来回走；坐着压低一点、躺着横过来；手里的道具轻轻晃，杯子和饭菜冒热气 */
+.home .tenant.using{animation:none}
+.home .pose-sit :is(img,.ini){scale:1 .9;transform-origin:50% 100%}
+.home .pose-lie :is(img,.ini){rotate:-78deg;translate:6% 26%;transform-origin:50% 62%;animation:breathe 3.2s ease-in-out infinite}
+.home .pose-lie::before{left:4%;right:4%}
+.home .tenant .prop{position:absolute;right:4%;bottom:30%;width:32%;height:32%;z-index:1;pointer-events:none;filter:drop-shadow(0 1px 1.5px rgba(0,0,0,.4));animation:pbob 1.9s ease-in-out infinite;transform-origin:30% 90%}
+.home .tenant .prop svg{width:100%;height:100%;display:block}
+.home .pose-sit .prop{bottom:26%}
+.home .pose-lie .prop{display:none}
+.home .tenant .prop .pst{animation:steam 2.2s ease-in-out infinite}
+.home .act-game .prop{animation:pnote 1.2s ease-in-out infinite alternate}
+@keyframes breathe{0%,100%{transform:scaleY(1)}50%{transform:scaleY(1.035)}}
+@keyframes pbob{0%,100%{transform:rotate(0)}50%{transform:translateY(-6%) rotate(-6deg)}}
+@keyframes pnote{from{transform:translate(0,0) rotate(-8deg)}to{transform:translate(8%,-14%) rotate(8deg)}}
 @keyframes jog{from{transform:translateY(0)}to{transform:translateY(-4px)}}
 @keyframes nod{0%,100%{transform:rotate(0)}50%{transform:rotate(4deg)}}
 @keyframes type{from{transform:translateY(0)}to{transform:translateY(-1px) rotate(-1deg)}}
@@ -260,7 +274,7 @@
 .home .scene .hot:hover,.home .scene .hot:focus-visible{fill:rgba(255,236,190,.12);stroke:rgba(255,236,190,.55);stroke-width:.8;stroke-dasharray:3 2}
 .home .ztip{font-style:normal;font-size:12px;color:var(--bx-mute)}
 .home .placed-note .back{border:0;background:none;padding:0;color:var(--bx-or);font:inherit;cursor:pointer;text-decoration:underline}
-@media (prefers-reduced-motion: reduce){.drag-ghost .gb,.home .say,.home .tpop,.home .tenant,.home .tenant img,.home .mk,.home .mk-s,.home .shaft .car,.home .scene *,.home .zoom{animation:none!important}}
+@media (prefers-reduced-motion: reduce){.drag-ghost .gb,.home .say,.home .tpop,.home .tenant,.home .tenant img,.home .tenant .prop,.home .tenant .prop *,.home .mk,.home .mk-s,.home .shaft .car,.home .scene *,.home .zoom{animation:none!important}}
 
 /* 右侧：进驻总览（时钟、选中的住户、住户列表） */
 .home-side{background:var(--bx-1);color:var(--bx-ink);border-radius:var(--r-lg);padding:16px 10px;overflow:auto;min-height:0;display:flex;flex-direction:column;box-shadow:inset 0 0 0 1px rgba(255,255,255,.05)}

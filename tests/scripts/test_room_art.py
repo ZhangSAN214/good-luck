@@ -53,6 +53,8 @@ def test_night_sky_and_bad_names(tmp_path, capsys):
     sky = Image.open(d / "sky" / "night_rain.webp")
     assert sky.mode == "RGB"  # 天空图不抠绿
     assert room_art.main([str(src), "--dir", str(d), "--sky", "noon_fog"]) == 1
+    assert room_art.main([str(src), "--dir", str(d), "--room", "gym"]) == 0
+    assert Image.open(d / "rooms" / "gym_day.webp").mode == "RGBA"  # 公共房间同样抠绿窗
     assert room_art.main([str(tmp_path / "nope.png"), "--member", "m1"]) == 1
 
 
@@ -92,8 +94,12 @@ def test_install_pack_into_members_json(tmp_path, capsys):
     (pack / "rooms.json").write_text(json.dumps(rooms, ensure_ascii=False), encoding="utf-8")
     (pack / "sky").mkdir()
     (pack / "sky" / "day_clear.webp").write_bytes(b"sky")
+    (pack / "rooms").mkdir()
+    (pack / "rooms" / "office_day.webp").write_bytes(b"office")
+    (pack / "rooms" / "rooms.json").write_text("{}", encoding="utf-8")
     assert room_art.main(["--install", str(pack), "--dir", str(root)]) == 0
     assert (root / "sky" / "day_clear.webp").read_bytes() == b"sky"
+    assert (root / "rooms" / "office_day.webp").read_bytes() == b"office"
     data = json.loads((root / "members.json").read_text(encoding="utf-8"))
     c, w = data["members"]
     assert c["images"]["room_day"] == "members/c/room_day.webp" and c["room"] == room
@@ -102,4 +108,5 @@ def test_install_pack_into_members_json(tmp_path, capsys):
     assert (root / "members.json.bak").is_file()
     out = capsys.readouterr().out
     assert "谁：members.json 里没有这位成员" in out and "天空图：1 张" in out
+    assert "公共房间：2 个文件" in out
     assert room_art.main(["--install", str(tmp_path), "--dir", str(root)]) == 1
