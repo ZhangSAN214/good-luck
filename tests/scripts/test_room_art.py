@@ -90,12 +90,16 @@ def test_install_pack_into_members_json(tmp_path, capsys):
         "谁": {"day": "x.webp"},
     }
     (pack / "rooms.json").write_text(json.dumps(rooms, ensure_ascii=False), encoding="utf-8")
+    (pack / "sky").mkdir()
+    (pack / "sky" / "day_clear.webp").write_bytes(b"sky")
     assert room_art.main(["--install", str(pack), "--dir", str(root)]) == 0
+    assert (root / "sky" / "day_clear.webp").read_bytes() == b"sky"
     data = json.loads((root / "members.json").read_text(encoding="utf-8"))
     c, w = data["members"]
     assert c["images"]["room_day"] == "members/c/room_day.webp" and c["room"] == room
     assert (root / "members" / "c" / "room_day.webp").read_bytes() == b"day"
     assert w["images"]["room_day"] == "members/w/room_day.webp" and "room" not in w
     assert (root / "members.json.bak").is_file()
-    assert "谁：members.json 里没有这位成员" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "谁：members.json 里没有这位成员" in out and "天空图：1 张" in out
     assert room_art.main(["--install", str(tmp_path), "--dir", str(root)]) == 1

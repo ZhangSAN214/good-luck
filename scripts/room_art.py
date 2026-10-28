@@ -14,7 +14,7 @@
 
 房间包：一个目录里放处理好的 webp 和 rooms.json，--install 把图复制到每位成员的素材文件夹，
 并把 images.room_day / room_night 和 room（床、家具点位）写进 members.json
-（先备份成 members.json.bak）。rooms.json 的样子：
+（先备份成 members.json.bak）；包里 sky/ 下的天空图一并装到素材目录的 sky/。rooms.json 的样子：
     {"克劳德": {"day": "克劳德.webp", "night": "克劳德_夜.webp",
                 "room": {"bed": {...}, "hots": [...]}}, …}
 键可以是成员的 id、name 或 nickname。
@@ -134,6 +134,12 @@ def install(pack: Path, root: Path) -> list[str]:
         if "room" in spec:
             entry["room"] = spec["room"]
         out.append(f"{key}：装到 {folder}")
+    skies = sorted((pack / "sky").glob("*.webp")) if (pack / "sky").is_dir() else []
+    for f in skies:
+        (root / "sky").mkdir(exist_ok=True)
+        shutil.copyfile(f, root / "sky" / f.name)
+    if skies:
+        out.append(f"窗外天空图：{len(skies)} 张装到 sky/")
     shutil.copyfile(path, path.with_name("members.json.bak"))
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
     return out
