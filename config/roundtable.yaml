@@ -97,6 +97,9 @@ revise_rounds: 1
 # 各步骤使用的提示词版本（prompts/<role>/<version>.md）
 prompts:
   planner: v1
+  mail_summary: v1     # 邮件栏：一封邮件的要点总结（点了才调用）
+  mail_translate: v1   # 邮件栏：把一封邮件翻译成中文（点了才调用）
+  mail_digest: v1      # 邮件栏：几封重要邮件的汇总（点了才调用）
   panel: v2             # 分诊小组：v2 起可以推荐头脑风暴
   ideate: v2            # 头脑风暴：按抽到的发散手法出点子（v1 不带手法）
   expand: v1
@@ -792,3 +795,17 @@ evolution:
     max_tokens: 8000
     rounds: 2                # 第一次不够 20 个就再补写一次（只要缺的那几个）
     estimate_usd: 0.04       # 每次调用预估（节电档实际约 $0.005～0.04）
+
+# 终端邮件栏（docs/MAIL.md）：你本人的学校邮箱，只读，邮件只存本机。
+# AI 总结 / 翻译只在你点按钮时才调用，第一次会先问你是否同意把这封邮件发给模型；
+# 所选档位里预计最便宜的一位来做，花费计入总预算，另有每月上限和每天次数上限。
+mail:
+  ai:
+    plan: budget
+    monthly_usd: 0.30
+    daily_calls: 20
+    max_chars: 6000          # 每封最多发多少字
+    max_tokens: 900
+    estimate_usd: 0.005      # 每次调用预估（节电档实际约 $0.0005～0.003）
+    digest_mails: 10
+    language: 简体中文

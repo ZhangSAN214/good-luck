@@ -9,7 +9,20 @@
 3. **你本人**在那个窗口里输入学校账号密码、完成多重验证；看到「保持登录状态？」可以选「是」。登录好以后窗口自动关掉，邮件栏显示收件箱最近 14 天的邮件。
 4. 之后打开终端时、以及每 15 分钟（后端限制最短 10 分钟）在后台不弹窗刷新一次；也可以点「刷新」。登录过期时显示「需要重新登录」，再点一次登录即可。
 5. 点开一封看纯文本正文；正文里找到的截止日期在「在邮件里找到的日期」里，点「加入提醒」才算。
-6. 设置里可以改「重要」规则、保留天数、清空缓存、**退出登录并清除全部**。
+6. 列表上面是**速览**：今天收到几封、重要未读几封、最近的截止日期（本机算，不花钱）；下面按**分类**筛选（考试成绩、作业截止、费用财务、课程教学、活动讲座、学校通知、系统通知、个人往来、其他，按本机关键词和发件人规则分）。
+7. 打开一封，上面一排按钮：
+   - **标为重要 / 取消**：你标的优先于规则；再点一次交回规则判断。分类下拉框可以改分类。都只记在本机，不写回邮箱。
+   - **显示图片**：去取这封的图文版（含邮件自带的图片），洗干净后在沙箱框里显示；外部网站的图片默认拦着，点「加载外部图片」才放行（加载会让发件人知道你打开了）。
+   - **AI 总结 / 翻译**：见下面「AI 总结与翻译」。速览卡上还有「AI 汇总重要邮件」。
+8. 设置里可以改「重要」规则、保留天数、是否允许 AI 总结 / 翻译、清空缓存、**退出登录并清除全部**。
+
+## AI 总结与翻译（点了才调用）
+
+- 默认不用。第一次点「AI 总结」「翻译」或「AI 汇总重要邮件」时先问你是否同意；同意后才把**这一封**（汇总时是最多 10 封重要邮件的开头）的标题、发件人和正文发给模型，单封最多 6000 字。设置里随时可以关掉；退出登录时同意也一并撤销。
+- 谁来做：`config/roundtable.yaml` 的 `mail.ai.plan`（默认节电档）里按预计价格挑最便宜的一位。
+- 花费：计入总预算；另有每月上限 `mail.ai.monthly_usd`（默认 $0.30）和每天次数上限 `mail.ai.daily_calls`（默认 20 次），到了就不调用并说明原因。节电档一次约 $0.0005～0.003。
+- 结果存在本机（同一封再看不再花钱，「重新总结 / 重新翻译」才会再调用），界面注明「只供参考，以原邮件为准」。提示词（`prompts/mail_summary`、`mail_translate`、`mail_digest`）把邮件放在标签里并声明其中的指令无效。
+- 调用记录挂在隐藏会话（`workflow = 'mail'`）上，不出现在会话列表；清空缓存 / 退出登录时，发出去的内容和回来的文字一并抹掉，只留花费（计预算用）。
 
 电脑上找不到 Edge / Chrome 时，在项目目录运行 `python -m playwright install chromium`（约 150 MB）后再试。
 
@@ -19,16 +32,19 @@
 - **登录状态只在本机**：cookie 由浏览器自己保存在 `data/mail_browser/`（Windows 上浏览器用系统 DPAPI 加密，只有当前 Windows 账户能解开），不进 git。「退出登录」删掉整个目录。
 - **只读**：专用窗口里装了只读守卫（`core/mail/owa.py` 的 `block_reason`）——只放行微软登录、多重验证、网页版邮箱和它的静态资源这些网站（学校若把登录转到自己的统一认证页，可在设置里加网站）；邮箱网站上的写入类请求（发送、删除、移动、标已读、改设置、GraphQL mutation、PUT / PATCH / DELETE）在浏览器里直接拦掉。读取只用 FindItem / GetItem 这类读操作，GetItem 不会把邮件标成已读。
 - **借用的请求头只在内存里**：读取时借网页版那一次请求用的头补发只读请求，用完即丢，不落盘、不进日志。
-- **只给你看**：邮件缓存在本机数据库（迁移 21：`mail_messages`、`mail_reminders`、`mail_audit`），只保留最近 N 天；成员（群聊、生活）读不到，也不发给任何模型。「重要」和日期都按本机规则算，不花钱。
+- **只给你看**：邮件缓存在本机数据库（迁移 21：`mail_messages`、`mail_reminders`、`mail_audit`；迁移 22 加手动标记、分类、AI 总结 / 翻译、图文版），只保留最近 N 天；成员（群聊、生活）读不到。「重要」、分类和日期都按本机规则算，不花钱；只有你点了 AI 按钮并同意后，那一封才会发给模型。
+- **图文版的安全**：取回的 HTML 先按白名单清洗（`core/mail/html.py`：去掉脚本、表单、内嵌框架、事件属性、javascript: 链接、样式里的 @import 和外部 url()），再放进不能跑脚本的沙箱框（`sandbox` 不含 `allow-scripts` / `allow-same-origin`，框内 CSP `default-src 'none'`）；外部图片只有你点了才在 CSP 里放行 https 图片。邮件自带的图片（cid:）单张最大 1.5 MB、每封合计 4 MB，换成 data: 嵌入。
 - **审计**：每次登录 / 刷新 / 读正文 / 清空 / 退出都记进 `mail_audit`；设置里能看到上次读取时拦下了哪些请求。
 - **出错信息**：先去掉网址参数（可能带登录码）、脱敏、截断再显示。
 
 ## 代码位置
 
-- `core/mail/rules.py`：「重要」规则（`MailRules`、`judge`）与截止日期提取（`extract_dates`）。
+- `core/mail/rules.py`：「重要」规则（`MailRules`、`judge`，你手动标的优先）、分类（`CATEGORIES`、`classify`）与截止日期提取（`extract_dates`）。
+- `core/mail/html.py`：图文版正文清洗（`sanitize`）。
+- `core/mail/ai.py`：AI 总结 / 翻译 / 汇总（`MailAI`：同意、每天次数和每月花费上限、挑最便宜的一位、结果缓存）。
 - `core/mail/owa.py`：专用浏览器（`OwaBrowser`，Playwright 同步接口，在后台线程里跑）、只读守卫、网页版数据解析（大小写不敏感，兼容旧接口 `Subject` 与新接口 `subject` 两种形状）。
 - `core/mail/box.py`：开关、设置（存 `app_settings` 的 `mail.*`）、后台任务（同一时间只跑一件）、提醒、审计。
-- 服务：`RoundtableService.mail_*`；接口：`GET /api/mail`、`PUT /api/mail/settings`、`POST /api/mail/login`、`POST /api/mail/refresh`（`manual`）、`GET /api/mail/messages/{id}`、`POST /api/mail/reminders/{id}`（accept / dismiss / undo）、`POST /api/mail/logout`、`DELETE /api/mail/cache`。
+- 服务：`RoundtableService.mail_*`；接口：`GET /api/mail`、`PUT /api/mail/settings`、`POST /api/mail/login`、`POST /api/mail/refresh`（`manual`）、`GET /api/mail/messages/{id}`、`POST /api/mail/reminders/{id}`（accept / dismiss / undo）、`POST /api/mail/mark`、`POST /api/mail/category`、`POST /api/mail/images`、`POST /api/mail/ai/{summary|translate|digest}`、`POST /api/mail/logout`、`DELETE /api/mail/cache`。设置 `PUT /api/mail/settings` 的 `ai_ok` 是「同意发给 AI」。
 - 前端：`web/js/mail.js`、`web/css/mail.css`。
 - 测试：`tests/core/mail/`（含本机假邮箱 + 真 Chromium 的流程测试）、`tests/api/test_mail_api.py`、`tests/web/test_e2e_mail.py`。
 
@@ -36,5 +52,6 @@
 
 - 还没在真实的曼大邮箱上实测：微软网页版的内部接口没有公开文档，读取用的请求格式和字段名按常见格式写，并且准备了退路（补发的列表请求失败时，用网页版自己加载到的数据）。第一次实测时可能要调。
 - 学校如果设置了「只允许受管设备」或频繁重新验证，会更常要求重新登录。
-- 正文只显示文字；附件、图片、回信请到网页版邮箱里操作。
-- AI 摘要没有做（方案里默认关，要开需另外确认上限）。
+- 图文版、自带图片用的是网页版的 GetItem（HTML）与 GetAttachment 读接口，同样按常见格式写，第一次实测时可能要调；取不到时仍可看纯文字。
+- 附件下载、回信请到网页版邮箱里操作。
+- 分类是关键词和发件人规则，难免分错；分错了在邮件里改，改过的以你为准。

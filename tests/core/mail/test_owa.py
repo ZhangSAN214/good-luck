@@ -9,14 +9,24 @@ import pytest
 from roundtable.core.mail.owa import (
     block_reason,
     clean_error,
+    extract_attachments,
     extract_bodies,
+    extract_html,
     extract_items,
     find_items_request,
+    get_attachments_request,
     get_items_request,
     html_to_text,
 )
 
-from .samples import ews_item, find_response, get_response
+from .samples import (
+    attachments_response,
+    ews_item,
+    find_response,
+    get_response,
+    html_response,
+    inline_attachment,
+)
 
 OWA = "https://outlook.office.com"
 
@@ -124,3 +134,30 @@ def test_clean_error_drops_url_params_and_truncates():
     text = clean_error("failed https://login.microsoftonline.com/x?code=SECRETCODE&state=1 now")
     assert "SECRETCODE" not in text and "https://login.microsoftonline.com/x" in text
     assert len(clean_error("x" * 500)) == 200
+
+
+def test_html_bodies_with_inline_image_list():
+    data = html_response(
+        "AAMk/1+=",
+        '<p>Hi</p><img src="cid:image001.png@01DA">',
+        [
+            inline_attachment("att-1", "image001.png@01DA"),
+            inline_attachment("att-2", "doc@x", kind="application/pdf"),
+            {"AttachmentId": {"Id": "att-3"}, "ContentType": "image/png"},  # 没有 cid：普通附件
+        ],
+    )
+    [(item_id, (html, images))] = extract_html(data).items()
+    assert item_id == "AAMk/1+=" and html.startswith("<p>Hi")
+    assert images == [{"id": "att-1", "cid": "image001.png@01DA", "type": "image/png", "size": 10}]
+    text = get_response({"m2": "a < b"})  # 只有纯文本的邮件：包成 <pre>
+    assert extract_html(text) == {"m2": ("<pre>a &lt; b</pre>", [])}
+
+
+def test_attachments_and_html_requests_are_read_only_shapes():
+    req = get_items_request(["a"], html=True)
+    shape = req["Body"]["ItemShape"]
+    assert shape["BodyType"] == "HTML"
+    assert [p["FieldURI"] for p in shape["AdditionalProperties"]] == ["Body", "Attachments"]
+    att = get_attachments_request(["x"])
+    assert att["Body"]["__type"] == "GetAttachmentRequest:#Exchange"
+    assert extract_attachments(attachments_response({"x": "AAAA"})) == {"x": ("image/png", "AAAA")}

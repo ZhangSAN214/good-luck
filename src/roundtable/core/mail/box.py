@@ -2,8 +2,10 @@
 
 - 默认关；打开后用户点「登录学校邮箱」，弹出专用窗口由用户本人登录（owa.py）。
 - 只读：不发、不删、不移动、不标已读。邮件缓存只存本机数据库，只保留最近 N 天（默认 14）。
-- 「重要」和日期都按本机规则算（rules.py），不调用模型、不花钱；成员看不到这些邮件。
-- 同一时间只跑一件事（登录 / 刷新 / 读正文），在后台线程里跑，界面轮询状态。
+- 「重要」、分类和日期都按本机规则算（rules.py），不调用模型、不花钱；你可以逐封标重要、改分类
+  （只记在本机，不写回邮箱）。成员看不到这些邮件。AI 总结 / 翻译在 ai.py，点了才调用。
+- 图文版正文（含邮件自带的图片）点「显示图片」才去取，洗干净后才存（html.py）。
+- 同一时间只跑一件事（登录 / 刷新 / 读正文 / 取图文版），在后台线程里跑，界面轮询状态。
 - 自动刷新由网页端按间隔发起；这里限制最短间隔，防止频繁打开浏览器。
 """
 
@@ -19,6 +21,7 @@ from typing import Any
 
 from pydantic import ValidationError
 
+from roundtable.core.mail.html import MAX_HTML, sanitize
 from roundtable.core.mail.owa import (
     LoginCancelled,
     MailError,
@@ -27,7 +30,7 @@ from roundtable.core.mail.owa import (
     SessionExpired,
     clean_error,
 )
-from roundtable.core.mail.rules import MailRules, extract_dates, judge
+from roundtable.core.mail.rules import CATEGORIES, MailRules, classify, extract_dates, judge
 from roundtable.core.storage import Repository
 
 ENABLED_KEY = "mail.enabled"
@@ -36,6 +39,7 @@ DAYS_KEY = "mail.days"
 WINDOW_KEY = "mail.show_window"
 HOSTS_KEY = "mail.extra_hosts"
 STATE_KEY = "mail.state"
+DIGEST_KEY = "mail.digest"  # AI 汇总的结果（ai.py 写）
 
 DEFAULT_DAYS = 14
 MAX_DAYS = 60
@@ -45,7 +49,13 @@ AUTO_MIN_S = 10 * 60  # 自动刷新的最短间隔
 MANUAL_MIN_S = 20  # 手动刷新的最短间隔
 MAX_HOSTS = 10
 STATES = ("never", "connected", "expired", "error")
-JOBS = {"login": "等你在弹出的窗口里登录", "refresh": "刷新收件箱", "body": "读取正文"}
+JOBS = {
+    "login": "等你在弹出的窗口里登录",
+    "refresh": "刷新收件箱",
+    "body": "读取正文",
+    "images": "读取图文版正文",
+}
+MARKS = ("important", "normal")
 
 
 class MailBusy(RuntimeError):
@@ -166,11 +176,13 @@ class MailBox:
         reminders: list[dict[str, Any]] = []
         if enabled:
             for m in self.repo.mail_messages(self._cutoff()):
-                reasons = judge(m, rules)
-                messages.append({**m, "important": bool(reasons), "reasons": reasons})
+                messages.append(self._decorate(m, rules))
             today = self.now().date().isoformat()
             reminders = [r for r in self.repo.mail_reminders() if r["due"][:10] >= today]
         unread = [m for m in messages if not m["is_read"]]
+        by_cat = {k: 0 for k in CATEGORIES}
+        for m in messages:
+            by_cat[m["category"]] += 1
         if not enabled:
             status = "off"
         elif self.busy:
@@ -195,10 +207,45 @@ class MailBox:
                 "unread": len(unread),
                 "important": sum(1 for m in unread if m["important"]),
             },
+            "categories": [
+                {"key": k, "label": label, "count": by_cat[k]} for k, label in CATEGORIES.items()
+            ],
+            "digest": self._digest(messages, reminders),
             "messages": messages,
             "reminders": reminders,
             "blocked": list(self.blocked),
             "auto_min_s": AUTO_MIN_S,
+        }
+
+    @staticmethod
+    def _decorate(m: dict[str, Any], rules: MailRules) -> dict[str, Any]:
+        reasons = judge(m, rules)
+        return {
+            **m,
+            "important": bool(reasons),
+            "reasons": reasons,
+            "category": classify(m, rules),
+            "category_set": m.get("category") in CATEGORIES,  # 你手动改过分类
+        }
+
+    def _digest(
+        self, messages: list[dict[str, Any]], reminders: list[dict[str, Any]]
+    ) -> dict[str, Any]:
+        """本机速览（不花钱）：今天收到几封、重要未读几封、最近的截止日期。"""
+        today = self.now().astimezone(UTC).date().isoformat()
+        important = [m for m in messages if m["important"] and not m["is_read"]]
+        soon = sorted(reminders, key=lambda r: r["due"])[:3]
+        return {
+            "today": sum(1 for m in messages if m["received_at"][:10] == today),
+            "important_unread": len(important),
+            "top": [
+                {"id": m["id"], "subject": m["subject"], "sender": m["sender_name"]}
+                for m in important[:3]
+            ],
+            "due": [
+                {"due": r["due"], "snippet": r["snippet"], "message_id": r["message_id"]}
+                for r in soon
+            ],
         }
 
     def message(self, message_id: str) -> dict[str, Any] | None:
@@ -206,7 +253,6 @@ class MailBox:
         m = self.repo.mail_message(message_id)
         if m is None or not self.enabled():
             return None
-        reasons = judge(m, self.rules())
         loading = False
         if m.get("body") is None and self.state()["status"] == "connected" and not self.busy:
             try:
@@ -219,11 +265,15 @@ class MailBox:
             for r in self.repo.mail_reminders(("pending", "accepted", "dismissed"))
             if r["message_id"] == message_id
         ]
+        html = None
+        if m.get("html"):
+            with contextlib.suppress(ValueError):
+                html = json.loads(m["html"])
         return {
-            **m,
-            "important": bool(reasons),
-            "reasons": reasons,
+            **self._decorate(m, self.rules()),
+            "html": html,
             "loading": loading or self.busy == "body",
+            "loading_html": self.busy == "images",
             "reminders": reminders,
         }
 
@@ -276,14 +326,37 @@ class MailBox:
         if self.source is not None:
             self.source.clear()
         removed = self.repo.clear_mail()
+        self.repo.set_setting(DIGEST_KEY, "{}")
         self.repo.set_setting(STATE_KEY, json.dumps({"status": "never"}))
         self.blocked = []
         self.repo.add_mail_audit("logout", True, f"清除登录状态，删掉缓存 {removed} 封")
 
     def clear_cache(self) -> int:
         removed = self.repo.clear_mail()
+        self.repo.set_setting(DIGEST_KEY, "{}")
         self.repo.add_mail_audit("clear", True, f"删掉缓存 {removed} 封")
         return removed
+
+    def set_mark(self, message_id: str, mark: str | None) -> bool:
+        """手动标「重要」/「不重要」，None 是交回规则判断。只记在本机，不写回邮箱。"""
+        if mark is not None and mark not in MARKS:
+            raise ValueError("只能标 important / normal，或交回规则（null）")
+        return self.repo.set_mail_fields(message_id, mark=mark)
+
+    def set_category(self, message_id: str, category: str | None) -> bool:
+        """手动改分类，None 是交回规则判断。只记在本机。"""
+        if category is not None and category not in CATEGORIES:
+            raise ValueError("没有这个分类")
+        return self.repo.set_mail_fields(message_id, category=category)
+
+    def load_images(self, message_id: str) -> None:
+        """在后台取这封信的图文版正文（含邮件自带的图片），洗干净后存本机。"""
+        self._need()
+        if self.repo.mail_message(message_id) is None:
+            raise ValueError("没有这封邮件（可能已超出保留天数）")
+        if self.state()["status"] != "connected":
+            raise ValueError("还没登录，或登录过期了：先点「登录学校邮箱」")
+        self._start("images", lambda: self._fetch_html(message_id))
 
     def set_reminder(self, reminder_id: int, action: str) -> bool:
         status = {"accept": "accepted", "dismiss": "dismissed", "undo": "pending"}.get(action)
@@ -358,3 +431,25 @@ class MailBox:
             text = clean_error(exc)
             self._set_state(message=f"正文没读到：{text}")
             self.repo.add_mail_audit("body", False, text)
+
+    def _fetch_html(self, message_id: str) -> None:
+        try:
+            assert self.source is not None
+            with self.source.open(interactive=False) as session:
+                got = session.html([message_id])
+            if message_id not in got:
+                raise MailError("邮箱没给图文版正文")
+            raw, inline = got[message_id]
+            clean = sanitize(raw, inline)
+            if len(clean["html"]) > MAX_HTML:
+                raise MailError("这封信的图文版太大了，请到网页版邮箱看")
+            self.repo.set_mail_fields(message_id, html=json.dumps(clean, ensure_ascii=False))
+            note = f"取了 1 封的图文版（自带图片 {clean['embedded']} 张）"
+            self.repo.add_mail_audit("images", True, note)
+        except SessionExpired as exc:
+            self._set_state(status="expired", message=str(exc))
+            self.repo.add_mail_audit("images", False, str(exc))
+        except Exception as exc:  # noqa: BLE001
+            text = str(exc) if isinstance(exc, MailError) else clean_error(exc)
+            self._set_state(message=f"图文版没取到：{text}")
+            self.repo.add_mail_audit("images", False, text)
