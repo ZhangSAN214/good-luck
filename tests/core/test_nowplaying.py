@@ -99,3 +99,21 @@ def test_local_covers_stay_inside_their_folder(tmp_path):
     assert read_cover(d, "cover_claude.png") == (PNG, "image/png")
     for bad in ("../secret.png", "notes.txt", "..\\secret.png", ".hidden.png", ""):
         assert read_cover(d, bad) is None
+
+
+def test_cover_effects_come_from_effects_json(tmp_path):
+    d = tmp_path / "music_covers"
+    d.mkdir()
+    for n in ("claude", "glm", "kimi"):
+        (d / f"cover_{n}.png").write_bytes(PNG)
+    (d / "effects.json").write_text(
+        '{"claude": {"fx": "petals", "color": "#F2B98A"}, "glm": {"fx": "leaves", "color": "red"},'
+        ' "kimi": {"fx": "fireworks"}, "x": 3}',
+        encoding="utf-8",
+    )
+    got = {c["name"]: c for c in list_covers(d)}
+    assert got["claude"]["fx"] == "petals" and got["claude"]["color"] == "#f2b98a"
+    assert got["glm"] == {"name": "glm", "url": "/api/music/covers/cover_glm.png", "fx": "leaves"}
+    assert "fx" not in got["kimi"]  # 不认识的特效忽略
+    (d / "effects.json").write_text("{坏的", encoding="utf-8")
+    assert all("fx" not in c for c in list_covers(d))
