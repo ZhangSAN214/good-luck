@@ -14,14 +14,20 @@ from typing import Any
 from urllib.parse import quote
 
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse, Response, StreamingResponse
+from fastapi.responses import JSONResponse, RedirectResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
 
 from roundtable.core.service import (
+    LAN_COOKIE,
     MAX_QUESTION_CHARS,
+    LanAccess,
     RoundtableService,
     ServiceError,
+    data_dir,
+    is_local,
+    is_remote,
+    qr_svg,
 )
 
 WEB_DIR = Path(__file__).resolve().parents[3] / "web"
@@ -163,6 +169,18 @@ class MailReminderBody(BaseModel):
     action: str = Field(pattern="^(accept|dismiss|undo)$")
 
 
+class LanPassword(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    password: str = Field(max_length=256)
+
+
+class LanPair(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    base: str  # 平板要打开的地址，必须是 GET /api/lan 给出的其中一个
+
+
 class Respond(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -217,8 +235,83 @@ class WebFiles(StaticFiles):
         return resp
 
 
-def create_app(service: RoundtableService | None = None) -> FastAPI:
-    """service 为空时在启动时根据 .env 与配置构建（测试中传入使用 Fake 模型的服务）。"""
+# 局域网开放时，没登录的设备也能打开的地址：登录页、配对链接、添加到主屏幕用的清单和图标
+LAN_PUBLIC = frozenset(
+    {"/login.html", "/api/lan/login", "/lan/pair", "/manifest.webmanifest", "/favicon.ico"}
+)
+LAN_PUBLIC_PREFIX = ("/img/app/",)
+
+
+def _client(scope: dict[str, Any]) -> str | None:
+    client = scope.get("client")
+    return client[0] if client else None
+
+
+def _host_is_literal(scope: dict[str, Any]) -> bool:
+    """Host 头是 IP 或 localhost（挡住 DNS 重绑定：别的网站把自己的域名解析到这台电脑）。"""
+    host = ""
+    for key, value in scope.get("headers", []):
+        if key == b"host":
+            host = value.decode("latin-1")
+            break
+    name = host.rsplit(":", 1)[0] if not host.startswith("[") else host[1 : host.find("]")]
+    return name == "localhost" or is_local(name) or is_remote(name)
+
+
+class LanGate:
+    """局域网访问守门（纯 ASGI 中间件，不缓冲 SSE）。
+
+    没开放（默认）：别的设备的请求一律 403（就算有人手动用 --host 0.0.0.0 启动）。
+    开放后：本机照常；别的设备要先登录，没登录时页面跳到登录页、接口回 401。
+    """
+
+    def __init__(self, app: Any, lan: LanAccess) -> None:
+        self.app = app
+        self.lan = lan
+
+    async def __call__(self, scope: dict[str, Any], receive: Any, send: Any) -> None:
+        if scope["type"] not in ("http", "websocket"):
+            await self.app(scope, receive, send)
+            return
+        client, path = _client(scope), scope.get("path", "")
+        if not self.lan.enabled:
+            if is_remote(client):
+                await _deny(scope, receive, send, 403, "圆桌没有对局域网开放")
+                return
+        elif not _host_is_literal(scope):
+            await _deny(scope, receive, send, 403, "请用 IP 地址打开圆桌")
+            return
+        elif not is_local(client) and not (
+            path in LAN_PUBLIC
+            or path.startswith(LAN_PUBLIC_PREFIX)
+            or self.lan.verify(Request(scope).cookies.get(LAN_COOKIE))
+        ):
+            if path.startswith("/api/") or scope["type"] != "http":
+                await _deny(scope, receive, send, 401, "请先登录")
+            else:
+                await RedirectResponse("/login.html", status_code=303)(scope, receive, send)
+            return
+        await self.app(scope, receive, send)
+
+
+async def _deny(scope: dict[str, Any], receive: Any, send: Any, status: int, text: str) -> None:
+    if scope["type"] == "websocket":
+        await send({"type": "websocket.close", "code": 1008})
+        return
+    await JSONResponse({"detail": text}, status_code=status)(scope, receive, send)
+
+
+def _lan_cookie(resp: Response, token: str) -> None:
+    resp.set_cookie(LAN_COOKIE, token, max_age=30 * 86400, httponly=True, samesite="lax", path="/")
+
+
+def create_app(service: RoundtableService | None = None, lan: LanAccess | None = None) -> FastAPI:
+    """service 为空时在启动时根据 .env 与配置构建（测试中传入使用 Fake 模型的服务）。
+
+    lan 为空时：正式启动按环境变量 ROUNDTABLE_LAN 决定是否对局域网开放；测试中默认不开放。
+    """
+    if lan is None:
+        lan = LanAccess.from_env(data_dir()) if service is None else LanAccess(None)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -238,6 +331,8 @@ def create_app(service: RoundtableService | None = None) -> FastAPI:
             await app.state.service.aclose()
 
     app = FastAPI(title="Roundtable", lifespan=lifespan)
+    app.state.lan = lan
+    app.add_middleware(LanGate, lan=lan)
 
     def svc(request: Request) -> RoundtableService:
         return request.app.state.service
@@ -613,6 +708,77 @@ def create_app(service: RoundtableService | None = None) -> FastAPI:
             media_type="text/event-stream",
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
         )
+
+    # ---- 局域网访问（平板 / 手机）：设置只能在电脑本机上做 ----
+
+    def local_only(request: Request) -> None:
+        if is_remote(_client(request.scope)):
+            raise ServiceError("只能在电脑上设置", 403)
+
+    @app.get("/api/lan")
+    async def lan_status(request: Request) -> dict[str, Any]:
+        local_only(request)
+        port = (request.scope.get("server") or ("", 8000))[1] or 8000
+        return lan.status(int(port))
+
+    @app.post("/api/lan/password")
+    async def lan_password(request: Request, body: LanPassword) -> dict[str, Any]:
+        local_only(request)
+        try:
+            lan.set_password(body.password)
+        except ValueError as exc:
+            raise ServiceError(str(exc)) from None
+        return {"ok": True}
+
+    @app.post("/api/lan/signout")
+    async def lan_signout(request: Request) -> dict[str, Any]:
+        local_only(request)
+        lan.sign_out_all()
+        return {"ok": True}
+
+    @app.post("/api/lan/pair")
+    async def lan_pair(request: Request, body: LanPair) -> dict[str, Any]:
+        local_only(request)
+        port = (request.scope.get("server") or ("", 8000))[1] or 8000
+        info = lan.status(int(port))
+        if body.base not in info["urls"]:
+            raise ServiceError("地址不是这台电脑的局域网地址")
+        try:
+            code = lan.new_pair_code()
+        except ValueError as exc:
+            raise ServiceError(str(exc)) from None
+        link = f"{body.base}/lan/pair?c={quote(code)}"
+        return {"url": link, "qr": qr_svg(link), "minutes": info["pair_minutes"]}
+
+    @app.post("/api/lan/login")
+    async def lan_login(request: Request, body: LanPassword) -> Response:
+        result = lan.login(body.password, _client(request.scope) or "")
+        if not result.ok:
+            if result.reason == "locked":
+                msg = f"输错次数太多，请 {result.retry_after} 秒后再试"
+                headers = {"Retry-After": str(result.retry_after)}
+                return JSONResponse({"detail": msg}, status_code=429, headers=headers)
+            if result.reason == "no_password":
+                return JSONResponse({"detail": "电脑上还没设访问口令"}, status_code=403)
+            return JSONResponse({"detail": "口令不对"}, status_code=401)
+        resp = JSONResponse({"ok": True})
+        _lan_cookie(resp, result.token or "")
+        return resp
+
+    @app.post("/api/lan/logout")
+    async def lan_logout() -> Response:
+        resp = JSONResponse({"ok": True})
+        resp.delete_cookie(LAN_COOKIE, path="/")
+        return resp
+
+    @app.get("/lan/pair")
+    async def lan_pair_open(c: str = "") -> Response:
+        token = lan.redeem_pair_code(c)
+        if token is None:
+            return RedirectResponse("/login.html?expired=1", status_code=303)
+        resp = RedirectResponse("/", status_code=303)
+        _lan_cookie(resp, token)
+        return resp
 
     if WEB_DIR.is_dir():  # 静态前端（web/）
         app.mount("/", WebFiles(directory=WEB_DIR, html=True), name="web")

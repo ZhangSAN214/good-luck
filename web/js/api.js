@@ -20,6 +20,8 @@ export async function api(path, { method = 'GET', body } = {}) {
   } catch {
     data = null;
   }
+  // 平板上登录过期（或电脑上点了「让所有平板退出」）：回到登录页
+  if (r.status === 401 && location.pathname !== '/login.html') location.assign('/login.html');
   if (!r.ok) throw new ApiError(errorText(data, r.status), r.status);
   return data;
 }
@@ -153,3 +155,10 @@ export async function streamEvents(id, onEvent, signal) {
 // 余额与用量：本机账本汇总（range = day / week / month / all）与渠道账户余额（只读）
 export const getUsage = (range = 'month') => api(`/api/usage?range=${encodeURIComponent(range)}`);
 export const getUsageBalance = (refresh = false) => api(`/api/usage/balance${refresh ? '?refresh=1' : ''}`);
+
+// 局域网访问（平板）：只能在电脑本机上调用
+export const lanStatus = () => api('/api/lan');
+export const lanSetPassword = (password) => api('/api/lan/password', { method: 'POST', body: { password } });
+export const lanPair = (base) => api('/api/lan/pair', { method: 'POST', body: { base } });
+export const lanSignOut = () => api('/api/lan/signout', { method: 'POST' });
+export const lanLogout = () => api('/api/lan/logout', { method: 'POST' });
