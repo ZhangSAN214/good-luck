@@ -1,7 +1,10 @@
 // 聊天：像微信一样和成员聊天。左边是会话列表（生活群、工作群、每位成员的私聊，带未读数）。
 // 成员只回应你，不主动找你；群里 @昵称 指定谁回应，@全员 大家都说；私聊里只有对方回应。
 // 发出后成员在后台依次回应，这里轮询 /api/chat?room=…&after=… 拿新消息和「正在输入」，并刷新会话列表。
+// 表情包、图片、视频、语音：输入框上方的工具条（chatmedia.js）；表情包和语音点完直接发出。
 // 键盘：Enter 发送、Shift+Enter 换行（输入法选字时不发送）；输入 @ 弹出成员候选，↑↓ 选择、Enter / Tab 确认、Esc 关闭。
+
+import { MediaComposer, bindMedia, mediaHTML, richText, soloSticker, stickerSVG, visibleText } from './chatmedia.js';
 
 const esc = (s) =>
   String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -108,6 +111,8 @@ export class GroupChat {
         <div class="gc-typing" id="gc-typing" hidden></div>
         <form class="gc-compose" id="gc-compose" autocomplete="off">
           <div class="gc-suggest" id="gc-suggest" role="listbox" hidden></div>
+          <div id="gc-tools"></div>
+          <div id="gc-tray" hidden></div>
           <textarea id="chat-input" rows="2" maxlength="2000" placeholder="说点什么：Enter 发送，Shift+Enter 换行；输入 @ 点名" aria-label="聊天消息"></textarea>
           <button class="btn" type="button" id="gc-handoff" hidden title="把输入框里的事按办公室模式交办（经理分诊派活），进度会发到工作群">交给办公室</button>
           <button class="btn primary" type="submit" id="gc-send">发送</button>
@@ -164,6 +169,19 @@ export class GroupChat {
       this.openPeople?.(dm);
     });
     this.$('#gc-clear').addEventListener('click', () => this.clear());
+    this.composer = new MediaComposer({
+      input,
+      bar: this.$('#gc-tools'),
+      tray: this.$('#gc-tray'),
+      onSticker: (tok) => this.send({ text: tok, media: [] }),
+      onVoice: (item) => this.send({ text: '', media: [item] }),
+      onChange: () => this.syncSend(),
+      onError: (msg) => {
+        this.error = msg;
+        this.renderError();
+      },
+    });
+    bindMedia(this.$('#gc-feed'));
     this.renderAll();
   }
 
@@ -239,17 +257,35 @@ export class GroupChat {
     this.$('#chat-input').focus({ preventScroll: true });
   }
 
-  async send() {
+  /** 附件还在上传时不能发。 */
+  syncSend() {
+    const b = this.$('#gc-send');
+    if (!b) return;
+    const busy = this.composer?.busy();
+    b.disabled = this.sending || busy;
+    b.textContent = busy ? '上传中…' : '发送';
+  }
+
+  /** direct：直接发出的表情包 / 语音（不动输入框）；省略时发输入框里的文字和待发附件。 */
+  async send(direct = null) {
     const input = this.$('#chat-input');
-    const text = input.value.trim();
-    if (!text || this.sending) return;
+    const text = direct ? direct.text : input.value.trim();
+    const media = direct ? direct.media : this.composer?.ready() || [];
+    if ((!text && !media.length) || this.sending) return;
+    if (!direct && this.composer?.busy()) {
+      this.error = '附件还在上传，稍等一下';
+      return this.renderError();
+    }
     this.sending = true;
     this.$('#gc-send').disabled = true;
     try {
-      const res = await this.api.post(text, this.room);
+      const res = await this.api.post(text, this.room, media);
       // 排队等着回应的人：收到 TA 的消息（或系统说明 TA 为什么没回）后划掉
       this.pending = [...(this.pending || []), ...((res && res.speakers) || [])];
-      input.value = '';
+      if (!direct) {
+        input.value = '';
+        this.composer?.clear();
+      }
       this.closeSuggest();
       this.fastUntil = this.now() + FAST_FOR_MS;
       this.error = '';
@@ -257,7 +293,7 @@ export class GroupChat {
       this.error = e.message || '发送失败';
     }
     this.sending = false;
-    this.$('#gc-send').disabled = false;
+    this.syncSend();
     this.renderError();
     await this.poll();
   }
@@ -430,15 +466,20 @@ export class GroupChat {
     if (msg.author === 'system') return `<div class="gc-sys${sid ? ' work' : ''}" data-id="${msg.id}"><span>${esc(msg.text)}</span>${look}</div>`;
     const at = new Date(msg.created_at);
     const time = at.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false });
-    const text = esc(msg.text).replace(/@(\S{1,12})/g, '<b class="at">@$1</b>').replace(/\n/g, '<br>');
+    const shown = visibleText(msg.text, msg.meta);
+    const solo = !msg.meta?.media?.length && soloSticker(msg.text);
+    const media = mediaHTML(msg.meta?.media, { group: `m${msg.id}`, mine: msg.author === 'user' });
+    const words = shown ? `<div class="gc-words">${richText(shown, { mentions: true })}</div>` : '';
+    const text = solo ? stickerSVG(solo.pack, solo.name, { big: true }) : `${words}${media}`;
+    const kindCls = solo ? ' stk-only' : msg.meta?.media?.length ? (shown ? ' has-media' : ' media-only') : '';
     const follow = prev && prev.author === msg.author && at - new Date(prev.created_at) < 180000;
     const cls = `gc-msg${msg.author === 'user' ? ' me' : ''}${follow ? ' follow' : ''}`;
     const stamp = `<time datetime="${esc(msg.created_at)}">${esc(time)}</time>`;
     const tag = msg.meta?.event === 'handoff' ? `<span class="gc-tag">已交给办公室${look}</span>` : '';
-    if (msg.author === 'user') return `<div class="${cls}" data-id="${msg.id}"><div class="gc-body"><div class="gc-meta">${tag}${stamp}</div><div class="gc-bub">${text}</div></div></div>`;
+    if (msg.author === 'user') return `<div class="${cls}" data-id="${msg.id}"><div class="gc-body"><div class="gc-meta">${tag}${stamp}</div><div class="gc-bub${kindCls}">${text}</div></div></div>`;
     const member = this.members.find((m) => m.id === msg.author);
     const away = msg.meta?.offline ? '<span class="gc-tag away" title="你不在的时候发生的">你不在时</span>' : '';
-    return `<div class="${cls}" data-id="${msg.id}" data-author="${esc(msg.author)}">${this.avatar(member, msg.name)}<div class="gc-body"><div class="gc-meta"><span class="gc-name">${esc(msg.name)}</span>${away}${stamp}</div><div class="gc-bub">${text}${this.source(msg.meta?.share)}</div></div></div>`;
+    return `<div class="${cls}" data-id="${msg.id}" data-author="${esc(msg.author)}">${this.avatar(member, msg.name)}<div class="gc-body"><div class="gc-meta"><span class="gc-name">${esc(msg.name)}</span>${away}${stamp}</div><div class="gc-bub${kindCls}">${text}${this.source(msg.meta?.share)}</div></div></div>`;
   }
 
   /** 上网分享的来源：标题链接、来源名、发布时间、未核实。只接受 http(s) 网址。 */
@@ -502,7 +543,8 @@ export class GroupChat {
     const item = (r) => {
       const member = r.kind === 'dm' ? (this.everyone || []).find((m) => m.id === r.members?.[0]) || { model_id: null } : null;
       const icon = r.kind === 'dm' ? this.avatar(member, r.title) : `<span class="gc-av ini grp">${{ work: '工', pair: '聊' }[r.kind] || '群'}</span>`;
-      const last = r.last ? `${r.kind === 'dm' ? '' : `${esc(r.last.name)}：`}${esc(r.last.text)}` : r.kind === 'dm' ? '还没聊过' : '';
+      const lastText = (r.last?.text || '').replace(/\[表情:[^\]·]{1,6}·([^\]]{1,6})\]/g, '[$1]');
+      const last = r.last ? `${r.kind === 'dm' ? '' : `${esc(r.last.name)}：`}${esc(lastText)}` : r.kind === 'dm' ? '还没聊过' : '';
       const badge = r.unread ? `<i class="gc-unread" aria-label="${r.unread} 条未读">${r.unread > 99 ? '99+' : r.unread}</i>` : '';
       const cur = r.id === this.room;
       return `<button type="button" class="gc-room${cur ? ' cur' : ''}" data-room="${esc(r.id)}"${cur ? ' aria-current="true"' : ''}>${icon}<span class="gc-rt"><b>${esc(r.title)}</b><small>${last}</small></span>${badge}</button>`;

@@ -272,9 +272,14 @@ class GroupChat:
             lines.append(f"{who}：{r['text']}")
         return "\n".join(lines)
 
-    def post(self, text: str) -> tuple[dict[str, Any], list[ChatMember]]:
-        """存下用户的消息并选出回应的成员（回应由 replies() 生成）。"""
-        msg = self.rt.repo.add_chat_message(self.room, USER, text)
+    def post(
+        self, text: str, meta: dict[str, Any] | None = None
+    ) -> tuple[dict[str, Any], list[ChatMember]]:
+        """存下用户的消息并选出回应的成员（回应由 replies() 生成）。
+
+        meta 里可带图片 / 视频 / 语音清单（media）；成员只看到 text 里的文字占位。
+        """
+        msg = self.rt.repo.add_chat_message(self.room, USER, text, meta=meta)
         return msg, self.pick(text)
 
     async def replies(self, reply_to: int, speakers: list[ChatMember]) -> list[dict[str, Any]]:

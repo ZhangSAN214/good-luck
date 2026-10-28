@@ -63,7 +63,7 @@ export const getOffice = () => api('/api/office');
 export const resetPerformance = () => api('/api/office/performance/reset', { method: 'POST' });
 export const getChat = (after = 0, q = '', room = 'main') =>
   api(`/api/chat?room=${encodeURIComponent(room)}&after=${after}${q ? `&q=${encodeURIComponent(q)}` : ''}`);
-export const postChat = (text, room = 'main') => api('/api/chat', { method: 'POST', body: { text, room } });
+export const postChat = (text, room = 'main', media = []) => api('/api/chat', { method: 'POST', body: { text, room, media } });
 export const clearChat = (room = 'main') => api(`/api/chat?room=${encodeURIComponent(room)}`, { method: 'DELETE' });
 export const getChatRooms = () => api('/api/chat/rooms');
 export const chatPersonas = () => api('/api/chat/personas');
@@ -80,7 +80,7 @@ export const getMoments = (author, before) => {
   if (before) q.set('before', before);
   return api(`/api/moments${q.toString() ? `?${q}` : ''}`);
 };
-export const postMoment = (text) => api('/api/moments', { method: 'POST', body: { text } });
+export const postMoment = (text, media = []) => api('/api/moments', { method: 'POST', body: { text, media } });
 export const likeMoment = (id) => api(`/api/moments/${id}/like`, { method: 'POST' });
 export const commentMoment = (id, text, reply_to) => api(`/api/moments/${id}/comments`, { method: 'POST', body: { text, reply_to } });
 export const delMoment = (id) => api(`/api/moments/${id}`, { method: 'DELETE' });
