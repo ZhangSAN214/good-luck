@@ -280,6 +280,7 @@ export class Music {
     this.pollT = 0;
     this.fx = new CoverFx();
     window.addEventListener('resize', () => this.fit());
+    document.fonts?.ready.then(() => this.fit()); // 字体晚到会改变文字高度
     this.audio.volume = this.set.volume;
     this.audio.addEventListener('ended', () => this.onEnded());
     this.audio.addEventListener('play', () => this.paint());
@@ -496,6 +497,11 @@ export class Music {
       p.style.maxHeight = '';
       if (art) art.style.width = '';
       return;
+    }
+    if (!p.fitHooked) {
+      // 打开时卡片有一段上下浮动的动画，量的位置会差几像素：动画放完再量一次
+      p.fitHooked = true;
+      p.addEventListener('animationend', () => this.fit());
     }
     const room = Math.max(240, window.innerHeight - p.getBoundingClientRect().top - 16);
     p.style.maxHeight = `${room}px`;

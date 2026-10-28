@@ -300,7 +300,13 @@ def test_music_card_fits_the_window_and_follows_resizes(serve, page):
         page.wait_for_selector("#hub .mu-mini")
         page.click("#hub .mu-mini .mu-btn")
         page.wait_for_selector("#hub .mu-panel", state="visible")
-        page.wait_for_timeout(450)
+        # 等展开动画放完（慢机器上 450ms 不一定够）
+        wait_until(
+            lambda: page.evaluate(
+                "document.querySelector('#hub .mu-panel').getAnimations().length === 0"
+            )
+        )
+        page.wait_for_timeout(100)
         box = page.locator("#hub .mu-panel").bounding_box()
         assert box["y"] + box["height"] <= h  # 不超出窗口底部
         # 整张卡片放得下，不出滚动条
