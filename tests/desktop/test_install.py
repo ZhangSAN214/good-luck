@@ -1,3 +1,4 @@
+import os
 import plistlib
 from pathlib import Path
 
@@ -15,7 +16,8 @@ def test_mac_app_bundle(tmp_path, monkeypatch):
     assert app.name == "圆桌（平板可连）.app"
     exe = app / "Contents" / "MacOS" / "roundtable"
     script = exe.read_text(encoding="utf-8")
-    assert exe.stat().st_mode & 0o111
+    if os.name != "nt":  # Windows 的文件系统没有可执行位
+        assert exe.stat().st_mode & 0o111
     assert 'cd "/Users/me/good luck"' in script
     assert '"/Users/me/good luck/.venv/bin/python" -m roundtable.desktop --lan "$@"' in script
     info = plistlib.loads((app / "Contents" / "Info.plist").read_bytes())
