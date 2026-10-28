@@ -31,7 +31,10 @@ def test_deck_loops_while_thinking_and_reveals_after(serve, page):
 
     wait_done(page)
     page.wait_for_selector("#stage .deck.reveal", timeout=5000)
-    page.wait_for_selector("#stage .deck:not(.on):not(.reveal)", timeout=6000)
+    # 揭牌结束后整副牌隐藏
+    page.wait_for_function(
+        "document.querySelector('#stage .deck').className === 'deck'", timeout=6000
+    )
     assert "shuffling" not in page.get_attribute("#stage", "class")
     assert page.inner_text("#st-state") == "已完成"
     assert page.inner_text("#plate-step") == "已完成"
