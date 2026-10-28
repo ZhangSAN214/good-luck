@@ -91,6 +91,7 @@ roundtable files <会话id>            # 把成员生成的文件（代码、图
 roundtable export <会话id>           # 完整记录（含每位成员的产出和花费明细）导出成 UTF-8 文本文件
 roundtable export <会话id> -o 记录.txt
 roundtable export <会话id> --format docx   # 只导出最终成果：md / docx / pptx / pdf / html（本地转换，不调用模型、不花钱）
+roundtable export <会话id> --format pptx --theme serif --size large --ratio 4:3 --process -o D:\圆桌导出   # 配色 / 字号 / PPT 比例 / 附过程；-o 给文件夹时用默认文件名存进去（--no-question 不附题目）
 roundtable reveal <会话id>      # 匿名讨论：揭晓身份、每次调用走的渠道和花费
 roundtable resume <会话id>      # 中断（Ctrl+C、断网）后继续，已完成的步骤不会重复
 ```

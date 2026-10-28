@@ -11,6 +11,7 @@ from dataclasses import dataclass
 
 from roundtable.core.export import docx, html, pdf, pptx
 from roundtable.core.export.deliverable import Document, deliverable
+from roundtable.core.export.style import Style, options
 
 
 @dataclass(frozen=True)
@@ -18,28 +19,28 @@ class Format:
     ext: str
     mime: str
     label: str
-    render: Callable[[Document], bytes]
+    render: Callable[[Document, Style], bytes]
 
 
 FORMATS: dict[str, Format] = {
-    "md": Format(
-        "md", "text/markdown; charset=utf-8", "Markdown", lambda d: d.markdown.encode("utf-8")
-    ),
     "docx": Format(
         "docx",
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         "Word",
-        lambda d: docx.render(d.markdown),
+        lambda d, s: docx.render(d.markdown, s),
     ),
     "pptx": Format(
         "pptx",
         "application/vnd.openxmlformats-officedocument.presentationml.presentation",
         "PPT",
-        lambda d: pptx.render(d.markdown),
+        lambda d, s: pptx.render(d.markdown, s),
     ),
-    "pdf": Format("pdf", "application/pdf", "PDF", lambda d: pdf.render(d.markdown, d.title)),
+    "pdf": Format("pdf", "application/pdf", "PDF", lambda d, s: pdf.render(d.markdown, d.title, s)),
+    "md": Format(
+        "md", "text/markdown; charset=utf-8", "Markdown", lambda d, s: d.markdown.encode("utf-8")
+    ),
     "html": Format(
-        "html", "text/html; charset=utf-8", "网页", lambda d: html.render(d.markdown, d.title)
+        "html", "text/html; charset=utf-8", "网页", lambda d, s: html.render(d.markdown, d.title, s)
     ),
 }
 
@@ -51,4 +52,4 @@ def filename(doc: Document, session_id: str, ext: str) -> str:
     return f"圆桌-{stem}-{session_id[:8]}.{ext}"
 
 
-__all__ = ["FORMATS", "Document", "Format", "deliverable", "filename"]
+__all__ = ["FORMATS", "Document", "Format", "Style", "deliverable", "filename", "options"]

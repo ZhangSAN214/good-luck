@@ -9,7 +9,7 @@ from xml.etree import ElementTree
 
 from docx import Document as Docx
 
-from roundtable.core.export import FORMATS, filename, pdf, pptx
+from roundtable.core.export import FORMATS, Style, filename, pdf, pptx
 from roundtable.core.export.deliverable import Document
 
 MD = """# 复习计划
@@ -37,7 +37,7 @@ DOC = Document("复习计划", "怎么复习？", MD)
 
 
 def test_docx_reads_back():
-    d = Docx(io.BytesIO(FORMATS["docx"].render(DOC)))
+    d = Docx(io.BytesIO(FORMATS["docx"].render(DOC, Style())))
     texts = [p.text for p in d.paragraphs]
     assert "复习计划" in texts and "列科目" in texts and "第二周 <script>" in texts
     assert any(p.style.name.startswith("List Number") for p in d.paragraphs)
@@ -45,7 +45,7 @@ def test_docx_reads_back():
 
 
 def test_pptx_is_a_valid_package_with_one_slide_per_section():
-    data = FORMATS["pptx"].render(DOC)
+    data = FORMATS["pptx"].render(DOC, Style())
     z = zipfile.ZipFile(io.BytesIO(data))
     for name in z.namelist():
         if name.endswith((".xml", ".rels")):
@@ -66,7 +66,7 @@ def test_pptx_long_sections_continue_on_new_slides():
 
 
 def test_pdf_structure_and_pagination():
-    data = FORMATS["pdf"].render(DOC)
+    data = FORMATS["pdf"].render(DOC, Style())
     assert data.startswith(b"%PDF-1.4") and data.rstrip().endswith(b"%%EOF")
     xref = int(data.rsplit(b"startxref\n", 1)[1].split(b"\n")[0])
     assert data[xref:].startswith(b"xref")
@@ -84,10 +84,10 @@ def test_pdf_structure_and_pagination():
 
 
 def test_html_escapes_and_markdown_is_utf8():
-    page = FORMATS["html"].render(DOC).decode()
+    page = FORMATS["html"].render(DOC, Style()).decode()
     assert "<script>" not in page and "&lt;script&gt;" in page
     assert "<ol>" in page and "<table>" in page and "<strong>早</strong>" in page
-    assert FORMATS["md"].render(DOC).decode() == MD
+    assert FORMATS["md"].render(DOC, Style()).decode() == MD
 
 
 def test_filename_drops_unsafe_characters():

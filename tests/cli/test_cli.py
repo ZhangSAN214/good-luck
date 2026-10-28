@@ -738,3 +738,14 @@ async def test_export_document_formats(tmp_path):
     assert len(env.rt.repo.session_view(sid).calls) == calls
     code, text = await cli(env, "export", "nope", "--format", "docx")
     assert code == 1 and text.strip()
+
+
+async def test_export_document_into_a_folder_with_style(tmp_path):
+    env = Env(confirm_threshold_usd=100.0)
+    await run(["ask", SHORT, "--seed", "3"], runtime=env.rt, out=io.StringIO(), ask=Answers("n"))
+    sid = env.rt.repo.list_sessions()[0].id
+    args = ["--format", "html", "--theme", "green", "--size", "small", "--no-question"]
+    code, text = await cli(env, "export", sid, *args, "-o", str(tmp_path))
+    files = list(tmp_path.iterdir())
+    assert code == 0 and len(files) == 1 and files[0].suffix == ".html"
+    assert "--accent:#2E7D32" in files[0].read_text(encoding="utf-8")

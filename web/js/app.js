@@ -34,6 +34,7 @@ import { GroupChat } from './groupchat.js';
 import { People } from './people.js';
 import { Feeds } from './feeds.js';
 import { Clipper } from './clipper.js';
+import { Exporter, exportHref } from './exporter.js';
 import { Moments } from './moments.js';
 import { BootSettings } from './bootcfg.js';
 import { LanPanel } from './lan.js';
@@ -113,6 +114,7 @@ const people = new People($('#people'), {
   },
 });
 const feeds = new Feeds($('#feeds'), { api: { get: API.chatFeeds, set: API.setChatFeeds, refresh: API.refreshChatFeeds } });
+const exporter = new Exporter($('#exportdlg'), { api: { options: API.exportOptions, save: API.exportSave } });
 const clipper = new Clipper($('#clipdlg'), {
   api: {
     list: API.listClips,
@@ -1421,6 +1423,9 @@ function bind() {
     if (e.target.closest('[data-act="resume"]')) doResume();
     const relay = e.target.closest('[data-carry]');
     if (relay) startCarry(relay.dataset.carry);
+    if (e.target.closest('[data-act="export"]') && S.sid) exporter.open(S.sid);
+    const quick = e.target.closest('.exports a[data-fmt]');
+    if (quick) quick.href = exportHref(quick.dataset.sid, quick.dataset.fmt); // 用最新记住的样式
   });
   $('#tabs').addEventListener('click', (e) => {
     const b = e.target.closest('button');
