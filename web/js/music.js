@@ -279,6 +279,7 @@ export class Music {
     this.sysBusy = false;
     this.pollT = 0;
     this.fx = new CoverFx();
+    window.addEventListener('resize', () => this.fit());
     this.audio.volume = this.set.volume;
     this.audio.addEventListener('ended', () => this.onEnded());
     this.audio.addEventListener('play', () => this.paint());
@@ -483,6 +484,26 @@ export class Music {
     if (isFx(m)) return [m, ''];
     const c = this.covers?.find((x) => x.url === cover);
     return isFx(c?.fx) ? [c.fx, c.color || ''] : ['', ''];
+  }
+
+  /** 卡片跟着窗口大小走：整张卡片放得下就不出滚动条，封面画框按剩下的高度缩放（4:5，最小 150px 高）。 */
+  fit() {
+    const p = this.el.querySelector('.mu-panel');
+    if (!this.open || !p || p.hidden) return;
+    const art = p.querySelector('.mu-art');
+    if (getComputedStyle(p).position !== 'absolute') {
+      // 窄屏（平板竖着、手机）卡片排在页面里跟着滚动，不用限高
+      p.style.maxHeight = '';
+      if (art) art.style.width = '';
+      return;
+    }
+    const room = Math.max(240, window.innerHeight - p.getBoundingClientRect().top - 16);
+    p.style.maxHeight = `${room}px`;
+    if (!art) return;
+    art.style.width = '';
+    const rest = p.scrollHeight - art.offsetHeight;
+    const pad = parseFloat(getComputedStyle(p).paddingLeft) * 2;
+    art.style.width = `${Math.round(Math.min(p.clientWidth - pad, Math.max(150, room - rest) * 0.8))}px`;
   }
 
   /** 卡片开着、在播放器页时让封面动起来，否则停下。 */
@@ -952,6 +973,7 @@ export class Music {
       </div>`;
     if (refocus) this.el.querySelector(refocus)?.focus();
     this.tick();
+    this.fit();
     this.syncFx();
     this.mediaMeta(t, on);
   }
