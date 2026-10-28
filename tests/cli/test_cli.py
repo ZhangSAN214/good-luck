@@ -722,3 +722,19 @@ async def test_performance_command_lists_and_resets():
     assert code == 0 and "已清零" in text
     code, text = await cli(env, "performance")
     assert "还没有绩效记录" in text
+
+
+async def test_export_document_formats(tmp_path):
+    """--format 只导出最终成果（本地转换，不再调用模型）；没有这场时给出提示。"""
+    env = Env(confirm_threshold_usd=100.0)
+    await run(["ask", SHORT, "--seed", "3"], runtime=env.rt, out=io.StringIO(), ask=Answers("n"))
+    sid = env.rt.repo.list_sessions()[0].id
+    calls = len(env.rt.repo.session_view(sid).calls)
+    for fmt in ("md", "docx", "pptx", "pdf", "html"):
+        target = tmp_path / f"out.{fmt}"
+        code, _ = await cli(env, "export", sid, "--format", fmt, "-o", str(target))
+        assert code == 0 and target.stat().st_size > 0
+    assert target.read_bytes().startswith(b"<!doctype html>")
+    assert len(env.rt.repo.session_view(sid).calls) == calls
+    code, text = await cli(env, "export", "nope", "--format", "docx")
+    assert code == 1 and text.strip()

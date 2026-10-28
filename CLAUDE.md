@@ -102,6 +102,7 @@ roundtable performance [--reset]    # 办公室模式的员工绩效（--reset �
 roundtable bench --max-usd 2          # 对比实验：个人 / 讨论 / 协同各跑同一批题，比正确率、花费、耗时
 roundtable show <id> --costs        # 每步预估与实际花费、每次调用的 token
 roundtable export <id> [-o 文件]     # 导出完整记录（UTF-8 带 BOM，含花费明细）
+roundtable export <id> --format docx  # 只导出成果：md / docx / pptx / pdf / html（本地转换，不调用模型）
 roundtable ask '题目'                # 默认办公室模式（节电档）：经理派一位员工办理、过目；--mode discussion 为全员讨论（PowerShell 中题目用单引号）
 roundtable ask --tier flagship --anonymous '题目'   # 全力模式（旗舰档全员）、匿名
 roundtable ask --mode collab '题目'  # 协同模式：拆分子任务、分工完成、合并

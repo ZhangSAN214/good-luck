@@ -87,6 +87,19 @@ def test_not_anonymous_shows_models_from_the_start(serve, page):
     assert "作答 · c · $" in page.inner_text("#pbody")  # 每次调用的渠道直接显示
 
 
+def test_export_buttons_download_the_result(serve, page):
+    """讨论完成后可以把成果导出成 Word / PPT / PDF 等（本地转换）。"""
+    srv = serve(confirm_threshold_usd=100.0)
+    page.goto(srv.url)
+    ask(page, MEDIUM)
+    wait_done(page)
+    links = page.locator(".sys.ok .exports a")
+    assert links.count() == 5 and "Word" in page.inner_text(".sys.ok .exports")
+    with page.expect_download() as info:
+        page.click(".sys.ok .exports a:has-text('Word')")
+    assert info.value.suggested_filename.endswith(".docx")
+
+
 def test_flagship_tier(serve, page):
     srv = serve(confirm_threshold_usd=100.0)
     page.goto(srv.url)

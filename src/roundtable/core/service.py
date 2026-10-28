@@ -67,6 +67,9 @@ from roundtable.core.evolution_plugins import (
     plugins_markdown,
 )
 from roundtable.core.evolution_scout import SCOUT_WEEK_KEY, Scout, ScoutError
+from roundtable.core.export import FORMATS as EXPORT_FORMATS
+from roundtable.core.export import deliverable
+from roundtable.core.export import filename as export_filename
 from roundtable.core.ideaboard import Board
 from roundtable.core.lan import COOKIE as LAN_COOKIE
 from roundtable.core.lan import LanAccess, is_local, is_remote, qr_svg
@@ -1589,6 +1592,18 @@ class RoundtableService:
                 }
             )
         return out
+
+    def export_document(self, session_id: str, fmt: str) -> tuple[bytes, str, str]:
+        """导出最终成果（内容、文件名、类型）。本地转换存库的成果，不调用模型、不花 token。"""
+        self._require(session_id)
+        spec = EXPORT_FORMATS.get(fmt)
+        if spec is None:
+            raise ServiceError(f"不支持的导出格式：{fmt}（可选 {'、'.join(EXPORT_FORMATS)}）")
+        view = self.rt.repo.session_view(session_id, scrub=self.rt.scrubber.scrub)
+        doc = deliverable(view)
+        if doc is None:
+            raise ServiceError("这一场还没有可以导出的成果", 409)
+        return spec.render(doc), export_filename(doc, session_id, spec.ext), spec.mime
 
     def file_content(self, session_id: str, file_id: str) -> tuple[bytes, dict[str, Any]]:
         """下载：文件内容与元数据（文件名只取路径最后一段）。"""

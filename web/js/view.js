@@ -1000,6 +1000,14 @@ function card(cp, ctx, names) {
 ${c.reason ? `<div class="reason">推荐理由：${esc(c.reason)}</div>` : ''}${tail}</div>`;
 }
 
+/** 导出成果：服务端把存库的成果本地转换成各种格式，不调用模型、不花 token。 */
+const EXPORTS = [['docx', 'Word'], ['pptx', 'PPT'], ['pdf', 'PDF'], ['md', 'Markdown'], ['html', '网页（可打印）']];
+
+function exportBar(sv) {
+  const links = EXPORTS.map(([f, label]) => `<a class="btn sm" href="/api/sessions/${esc(sv.id)}/export?format=${f}" download>${label}</a>`).join('');
+  return `<span class="exports" title="把最终成果导出成文件（本地转换，不再调用模型，不花钱）">导出：${links}</span>`;
+}
+
 function ending(sv, ctx) {
   if (sv.running) return '';
   const cost = money(sv.cost_usd);
@@ -1007,9 +1015,9 @@ function ending(sv, ctx) {
   const boss = office ? '经理' : '统筹';
   if (sv.status === 'completed') {
     const done = office ? '办完了' : '讨论完成';
-    if (!sv.anonymous) return sys(boss, `${done} · 本场花费 ${cost}`, 'ok');
+    if (!sv.anonymous) return sys(boss, `${done} · 本场花费 ${cost}`, 'ok', exportBar(sv));
     const tail = sv.revealed ? '身份已揭晓' : '可以点「揭晓身份」查看各代号对应的模型';
-    return sys(boss, `${done} · 本场花费 ${cost} · ${tail}`, 'ok');
+    return sys(boss, `${done} · 本场花费 ${cost} · ${tail}`, 'ok', exportBar(sv));
   }
   if (sv.status === 'stopped') return sys(boss, `已停止 · 本场花费 ${cost}`, 'bad');
   if (sv.status === 'failed') return sys(boss, `失败：${esc(sv.error || '未知错误')}`, 'bad');
