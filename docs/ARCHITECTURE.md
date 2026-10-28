@@ -236,6 +236,7 @@ src/roundtable/
     search/        联网搜索服务（注册、OpenRouter 搜索（默认）、Tavily、按顺序切换的 SearchService）
     preview.py     成员生成的文件的预览
     mindmap.py     思维导图数据与渲染（Markdown / Mermaid / SVG）
+    export/        导出成果：从存库的产出取最终成果（deliverable.py）→ Markdown / Word（python-docx）/ PPT（手写 OOXML，按标题分页）/ PDF（手写，阅读器自带中文字体）/ 网页；不调用模型、不加依赖
     lan.py         局域网访问：口令加盐哈希（data/lan_access.json，不进 git）、登录 cookie 签名与过期、输错限速、一次性配对码、本机局域网地址、二维码（docs/LAN.md）
     changelog.py   公告栏：版本更新说明（读 config/changelog.yaml，校验、按日期排序；只读）
     mail/          终端邮件栏：用户本人学校邮箱只读接入（专用浏览器窗口由用户本人登录、只读守卫、本机「重要」与分类规则、截止日期提取；图文版正文清洗（html.py）；点了才调用的 AI 总结 / 翻译（ai.py，每月上限 mail.ai）；登录状态在 data/mail_browser/，不进 git；见 docs/MAIL.md）

@@ -90,6 +90,7 @@ roundtable show <会话id> --costs      # 每桌每步的预估与实际花费�
 roundtable files <会话id>            # 把成员生成的文件（代码、图表、文档等）保存到本地目录
 roundtable export <会话id>           # 完整记录（含每位成员的产出和花费明细）导出成 UTF-8 文本文件
 roundtable export <会话id> -o 记录.txt
+roundtable export <会话id> --format docx   # 只导出最终成果：md / docx / pptx / pdf / html（本地转换，不调用模型、不花钱）
 roundtable reveal <会话id>      # 匿名讨论：揭晓身份、每次调用走的渠道和花费
 roundtable resume <会话id>      # 中断（Ctrl+C、断网）后继续，已完成的步骤不会重复
 ```
