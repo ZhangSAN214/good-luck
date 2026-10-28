@@ -53,6 +53,9 @@ from roundtable.core.bench import (
 from roundtable.core.config import ConfigError
 from roundtable.core.display import format_rice
 from roundtable.core.export import FORMATS as EXPORT_FORMATS
+from roundtable.core.export.style import RATIOS as EXPORT_RATIOS
+from roundtable.core.export.style import SIZES as EXPORT_SIZES
+from roundtable.core.export.style import THEMES as EXPORT_THEMES
 from roundtable.core.notes import NoteError, check_can_add, clean_note
 from roundtable.core.office import payslip
 from roundtable.core.orchestrator import Orchestrator, OrchestratorError, RunResult
@@ -521,10 +524,16 @@ class CLI:
         target.write_text(buffer.getvalue(), encoding="utf-8-sig")
         return target
 
-    def export_document(self, sid: str, fmt: str, path: str | None) -> Path:
-        """只导出最终成果（Word / PPT / PDF 等），由本地转换，不调用模型。"""
-        data, name, _ = RoundtableService(self.rt).export_document(sid, fmt)
+    def export_document(
+        self, sid: str, fmt: str, path: str | None, options: dict | None = None
+    ) -> Path:
+        """只导出最终成果（Word / PPT / PDF 等），由本地转换，不调用模型。
+
+        path 是已有的文件夹时，用默认文件名存进去。"""
+        data, name, _ = RoundtableService(self.rt).export_document(sid, fmt, options)
         target = Path(path or name)
+        if target.is_dir():
+            target = target / name
         target.write_bytes(data)
         return target
 
@@ -1647,6 +1656,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="txt 为完整记录（默认）；md / docx / pptx / pdf / html 只导出最终成果"
         "（本地转换，不调用模型）",
     )
+    export.add_argument("--size", choices=list(EXPORT_SIZES), help="字号：small / medium / large")
+    export.add_argument("--theme", choices=list(EXPORT_THEMES), help="配色模板")
+    export.add_argument("--ratio", choices=list(EXPORT_RATIOS), help="PPT 页面比例")
+    export.add_argument("--no-question", action="store_true", help="开头不附题目")
+    export.add_argument("--process", action="store_true", help="文末附上过程（各人的初稿与修订）")
     return parser
 
 
@@ -1762,7 +1776,14 @@ async def run(
         if args.command == "export":
             if args.format != "txt":
                 try:
-                    target = cli.export_document(args.session_id, args.format, args.output)
+                    options = {
+                        "size": args.size,
+                        "theme": args.theme,
+                        "ratio": args.ratio,
+                        "question": not args.no_question,
+                        "process": args.process,
+                    }
+                    target = cli.export_document(args.session_id, args.format, args.output, options)
                 except ServiceError as exc:
                     print(str(exc), file=out)
                     return 1

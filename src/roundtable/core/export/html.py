@@ -5,15 +5,18 @@ from __future__ import annotations
 from html import escape
 
 from roundtable.core.export.markdown import Block, parse, runs
+from roundtable.core.export.style import Style
 
 _CSS = """
-body{font-family:"Microsoft YaHei","PingFang SC","Noto Sans CJK SC",sans-serif;color:#1f2328;
-background:#fff;max-width:820px;margin:40px auto;padding:0 16px;line-height:1.75;font-size:16px}
-h1{font-size:28px;border-bottom:2px solid #2f5597;padding-bottom:8px}
-h2{font-size:22px;border-bottom:1px solid #d0d7de;padding-bottom:4px;margin-top:32px}
-h3{font-size:18px}
+body{font-family:var(--font);color:#1f2328;
+background:#fff;max-width:820px;margin:40px auto;padding:0 16px;line-height:1.75;
+font-size:var(--base)}
+h1,h2,h3,h4{color:var(--accent)}
+h1{font-size:1.75em;border-bottom:2px solid var(--accent);padding-bottom:8px}
+h2{font-size:1.375em;border-bottom:1px solid #d0d7de;padding-bottom:4px;margin-top:32px}
+h3{font-size:1.125em}
 blockquote{margin:0;padding:4px 14px;border-left:4px solid #d0d7de;color:#57606a}
-pre{background:#f6f8fa;padding:12px;border-radius:6px;overflow-x:auto;font-size:13.5px}
+pre{background:#f6f8fa;padding:12px;border-radius:6px;overflow-x:auto;font-size:.85em}
 code{font-family:Consolas,"Courier New",monospace;background:#f6f8fa;padding:0 3px;
 border-radius:3px}
 pre code{background:none;padding:0}
@@ -80,11 +83,21 @@ def _body(blocks: list[Block]) -> str:
     return "\n".join(out)
 
 
-def render(md: str, title: str = "") -> bytes:
+_SANS = '"Microsoft YaHei","PingFang SC","Noto Sans CJK SC",sans-serif'
+_SERIF = '"Times New Roman",SimSun,"Songti SC","Noto Serif CJK SC",serif'
+
+
+def render(md: str, title: str = "", style: Style | None = None) -> bytes:
+    style = style or Style()
+    font = _SERIF if style.look.serif else _SANS
+    root = (
+        f":root{{--accent:#{style.look.accent};--font:{font};"
+        f"--base:{round(16 * style.scale, 1)}px}}"
+    )
     page = (
         '<!doctype html>\n<html lang="zh-CN"><head><meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width, initial-scale=1">'
-        f"<title>{escape(title or '圆桌成果')}</title><style>{_CSS}</style></head>"
+        f"<title>{escape(title or '圆桌成果')}</title><style>{root}{_CSS}</style></head>"
         f"<body>\n{_body(parse(md))}\n</body></html>\n"
     )
     return page.encode("utf-8")

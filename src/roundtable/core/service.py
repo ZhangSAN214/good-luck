@@ -70,8 +70,10 @@ from roundtable.core.evolution_plugins import (
 )
 from roundtable.core.evolution_scout import SCOUT_WEEK_KEY, Scout, ScoutError
 from roundtable.core.export import FORMATS as EXPORT_FORMATS
+from roundtable.core.export import Style as ExportStyle
 from roundtable.core.export import deliverable
 from roundtable.core.export import filename as export_filename
+from roundtable.core.export import options as export_choices
 from roundtable.core.ideaboard import Board
 from roundtable.core.lan import COOKIE as LAN_COOKIE
 from roundtable.core.lan import LanAccess, is_local, is_remote, qr_svg
@@ -144,6 +146,9 @@ __all__ = [
     "RoundtableService",
     "ServiceError",
 ]
+
+
+EXPORT_FOLDER_KEY = "export.folder"  # 导出时「存到固定文件夹」记住的文件夹
 
 
 class ServiceError(ValueError):
@@ -1781,17 +1786,58 @@ class RoundtableService:
             )
         return out
 
-    def export_document(self, session_id: str, fmt: str) -> tuple[bytes, str, str]:
-        """导出最终成果（内容、文件名、类型）。本地转换存库的成果，不调用模型、不花 token。"""
+    def export_document(
+        self, session_id: str, fmt: str, options: dict[str, Any] | None = None
+    ) -> tuple[bytes, str, str]:
+        """导出最终成果（内容、文件名、类型）。本地转换存库的成果，不调用模型、不花 token。
+
+        options：size / theme / ratio / question / process（见 core/export/style.py），
+        缺省用默认样式。
+        """
         self._require(session_id)
         spec = EXPORT_FORMATS.get(fmt)
         if spec is None:
             raise ServiceError(f"不支持的导出格式：{fmt}（可选 {'、'.join(EXPORT_FORMATS)}）")
+        try:
+            style = ExportStyle(**{k: v for k, v in (options or {}).items() if v is not None})
+        except (TypeError, ValueError) as exc:
+            raise ServiceError(f"导出选项不对：{exc}") from None
         view = self.rt.repo.session_view(session_id, scrub=self.rt.scrubber.scrub)
-        doc = deliverable(view)
+        doc = deliverable(view, question=style.question, process=style.process)
         if doc is None:
             raise ServiceError("这一场还没有可以导出的成果", 409)
-        return spec.render(doc), export_filename(doc, session_id, spec.ext), spec.mime
+        return spec.render(doc, style), export_filename(doc, session_id, spec.ext), spec.mime
+
+    def export_options(self) -> dict[str, Any]:
+        """导出面板的可选项，以及记住的保存文件夹（没设过时给一个建议值）。"""
+        saved = self.rt.repo.setting(EXPORT_FOLDER_KEY)
+        return {
+            "formats": [{"value": k, "label": f.label} for k, f in EXPORT_FORMATS.items()],
+            **export_choices(),
+            "folder": saved or "",
+            "suggested_folder": str(Path.home() / "Documents" / "圆桌导出"),
+        }
+
+    def export_save(
+        self, session_id: str, fmt: str, folder: str, options: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
+        """把导出的文件直接存进电脑上的文件夹（只允许本机调用，由接口层把关），并记住这个文件夹。"""
+        target_dir = Path(folder.strip()).expanduser() if folder and folder.strip() else None
+        if target_dir is None or not target_dir.is_absolute():
+            raise ServiceError("请填写完整的文件夹路径，例如 D:\\圆桌导出")
+        data, name, _ = self.export_document(session_id, fmt, options)
+        try:
+            target_dir.mkdir(parents=True, exist_ok=True)
+            target = target_dir / name
+            stem, n = target.stem, 2
+            while target.exists():  # 不覆盖已有文件：加 (2)、(3)……
+                target = target_dir / f"{stem} ({n}){target.suffix}"
+                n += 1
+            target.write_bytes(data)
+        except OSError as exc:
+            raise ServiceError(f"保存失败：{exc.strerror or '无法写入这个文件夹'}") from None
+        self.rt.repo.set_setting(EXPORT_FOLDER_KEY, str(target_dir))
+        return {"path": str(target), "name": target.name, "folder": str(target_dir)}
 
     def file_content(self, session_id: str, file_id: str) -> tuple[bytes, dict[str, Any]]:
         """下载：文件内容与元数据（文件名只取路径最后一段）。"""

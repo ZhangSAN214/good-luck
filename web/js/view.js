@@ -3,6 +3,7 @@
 // 匿名关闭时代号就是「昵称·模式」（鲸鱼娘·全力），统筹显示为「昵称·模式（统筹）」；
 // 匿名关闭时服务端直接给出模型，界面在代号旁显示。
 
+import { exportHref } from './exporter.js';
 import { ideasCard } from './ideas.js';
 import { tarotIcon, tarotNumeral } from './tarot.js';
 
@@ -1004,8 +1005,9 @@ ${c.reason ? `<div class="reason">推荐理由：${esc(c.reason)}</div>` : ''}${
 const EXPORTS = [['docx', 'Word'], ['pptx', 'PPT'], ['pdf', 'PDF'], ['md', 'Markdown'], ['html', '网页（可打印）']];
 
 function exportBar(sv) {
-  const links = EXPORTS.map(([f, label]) => `<a class="btn sm" href="/api/sessions/${esc(sv.id)}/export?format=${f}" download>${label}</a>`).join('');
-  return `<span class="exports" title="把最终成果导出成文件（本地转换，不再调用模型，不花钱）">导出：${links}</span>`;
+  const links = EXPORTS.map(([f, label]) => `<a class="btn sm" href="${esc(exportHref(sv.id, f))}" data-sid="${esc(sv.id)}" data-fmt="${f}" download>${label}</a>`).join('');
+  const more = '<button class="btn sm" type="button" data-act="export" title="选格式、字号、配色，以及存到哪里">更多选项…</button>';
+  return `<span class="exports" title="把最终成果导出成文件（本地转换，不再调用模型，不花钱）">导出：${links}${more}</span>`;
 }
 
 function ending(sv, ctx) {

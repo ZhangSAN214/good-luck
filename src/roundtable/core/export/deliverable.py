@@ -103,8 +103,39 @@ def title_of(question: str) -> str:
     return first if len(first) <= 40 else first[:39] + "…"
 
 
-def deliverable(view: SessionView) -> Document | None:
-    """整理一场的最终成果；还没有任何成果时返回 None。"""
+_PROCESS = {  # 过程里收录的产出：类型 → 小标题后缀
+    "answer": "初稿",
+    "revision": "修订后",
+    "work": "成果",
+    "office_work": "初稿",
+    "office_fix": "修改稿",
+    "office_speech": "发言",
+}
+
+
+def _process(outputs: list[OutputView]) -> str:
+    """附录：各成员的初稿、修订、分工成果与发言（不含互评），按产生顺序。"""
+    parts: list[str] = []
+    for o in outputs:
+        if o.kind not in _PROCESS:
+            continue
+        data = _load(o) if o.kind != "answer" else {}
+        text = o.content if o.kind == "answer" else data.get("answer") or data.get("text") or ""
+        if not text.strip():
+            continue
+        who = o.code or "成员"
+        if o.kind == "work" and data.get("subtask"):
+            who = f"{data['subtask']} · {who}"
+        parts.append(f"### {who} {_PROCESS[o.kind]}\n\n{shift_headings(text.strip(), 4)}")
+    return "\n\n".join(parts)
+
+
+def deliverable(
+    view: SessionView, *, question: bool = True, process: bool = False
+) -> Document | None:
+    """整理一场的最终成果；还没有任何成果时返回 None。
+
+    question：开头附上题目原文；process：文末附上过程（各人的初稿、修订、发言）。"""
     tables = sorted({o.table_no for o in view.outputs})
     parts: list[str] = []
     for table_no in tables:
@@ -120,9 +151,13 @@ def deliverable(view: SessionView) -> Document | None:
             parts += extras
     if not parts:
         return None
+    if process:
+        steps = [_process([o for o in view.outputs if o.table_no == t]) for t in tables]
+        if any(steps):
+            parts.append("## 附：过程\n\n" + "\n\n".join(s for s in steps if s))
     title = title_of(view.question)
     head = f"# {title}\n\n"
-    if view.question.strip() != title:
+    if question and view.question.strip() != title:
         quoted = "\n".join(
             f"> {s}" if s.strip() else ">" for s in view.question.strip().split("\n")
         )

@@ -79,3 +79,19 @@ def test_long_question_is_quoted_and_headings_are_shifted():
     assert "\n## 深\n" in doc.markdown and "\n### 更深" in doc.markdown
     assert title_of("x" * 50).endswith("…") and len(title_of("x" * 50)) == 40
     assert shift_headings("```\n# 代码\n```\n### 标题", 2) == "```\n# 代码\n```\n## 标题"
+
+
+def test_question_can_be_left_out_and_process_appended():
+    outs = [
+        (0, "answer", "甲的初稿"),
+        (0, "review", {"x": 1}),
+        (0, "revision", {"answer": "甲改过", "skipped": False}),
+        (0, "synthesis", {"final_answer": "定稿", "consensus": [], "disagreements": []}),
+    ]
+    q = "第一行\n第二行"
+    plain = deliverable(view(outs, question=q), question=False)
+    assert "> 第一行" not in plain.markdown and "附：过程" not in plain.markdown
+    full = deliverable(view(outs, question=q), process=True).markdown
+    appendix = full.split("## 附：过程", 1)[1]
+    assert "### 甲 初稿\n\n甲的初稿" in appendix and "### 甲 修订后\n\n甲改过" in appendix
+    assert "定稿" in full.split("## 附：过程")[0] and "x" not in appendix

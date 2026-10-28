@@ -235,6 +235,18 @@ class MailReminderBody(BaseModel):
     action: str = Field(pattern="^(accept|dismiss|undo)$")
 
 
+class ExportSave(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    format: str = Field(default="docx", max_length=16)
+    folder: str = Field(max_length=1024)
+    size: str | None = Field(default=None, max_length=16)
+    theme: str | None = Field(default=None, max_length=16)
+    ratio: str | None = Field(default=None, max_length=8)
+    question: bool | None = None
+    process: bool | None = None
+
+
 class LanPassword(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -822,10 +834,33 @@ def create_app(service: RoundtableService | None = None, lan: LanAccess | None =
                 )
         return Response(content=data, media_type=media, headers=headers)
 
+    @app.get("/api/export/options")
+    async def export_options(request: Request) -> dict[str, Any]:
+        """导出面板的可选项；保存文件夹只告诉本机（平板看不到电脑上的路径）。"""
+        data = svc(request).export_options()
+        data["can_save_to_folder"] = not is_remote(_client(request.scope))
+        if not data["can_save_to_folder"]:
+            data["folder"] = data["suggested_folder"] = ""
+        return data
+
     @app.get("/api/sessions/{session_id}/export")
-    async def export_document(request: Request, session_id: str, format: str = "docx") -> Response:
-        """导出最终成果：md / docx / pptx / pdf / html（本地转换，不调用模型）。"""
-        data, name, mime = svc(request).export_document(session_id, format)
+    async def export_document(
+        request: Request,
+        session_id: str,
+        format: str = "docx",
+        size: str | None = None,
+        theme: str | None = None,
+        ratio: str | None = None,
+        question: bool | None = None,
+        process: bool | None = None,
+    ) -> Response:
+        """导出最终成果：md / docx / pptx / pdf / html，可选字号、配色、PPT 比例、附题目 / 过程。
+
+        本地转换，不调用模型。"""
+        options = {
+            "size": size, "theme": theme, "ratio": ratio, "question": question, "process": process
+        }  # fmt: skip
+        data, name, mime = svc(request).export_document(session_id, format, options)
         headers = {
             "Content-Disposition": f"attachment; filename*=UTF-8''{quote(name)}",
             "X-Content-Type-Options": "nosniff",
@@ -833,6 +868,14 @@ def create_app(service: RoundtableService | None = None, lan: LanAccess | None =
             "Cache-Control": "no-store",
         }
         return Response(content=data, media_type=mime, headers=headers)
+
+    @app.post("/api/sessions/{session_id}/export/save")
+    async def export_save(request: Request, session_id: str, body: ExportSave) -> dict[str, Any]:
+        """直接存进电脑上的文件夹。只允许在电脑本机上用，平板 / 手机不能往电脑里写文件。"""
+        if is_remote(_client(request.scope)):
+            raise ServiceError("只能在电脑上直接存到文件夹；平板上请用下载", 403)
+        options = body.model_dump(exclude={"format", "folder"})
+        return svc(request).export_save(session_id, body.format, body.folder, options)
 
     @app.get("/api/sessions/{session_id}/files/{file_id}/preview")
     async def file_preview(request: Request, session_id: str, file_id: str) -> dict[str, Any]:

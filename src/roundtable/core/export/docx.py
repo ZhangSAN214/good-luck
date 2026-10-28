@@ -9,8 +9,8 @@ from docx.oxml.ns import qn
 from docx.shared import Pt, RGBColor
 
 from roundtable.core.export.markdown import Block, parse, runs
+from roundtable.core.export.style import Style
 
-FONT = "Microsoft YaHei"
 MONO = "Consolas"
 
 
@@ -35,16 +35,24 @@ def _fill(paragraph, text: str, size: float | None = None) -> None:
             run.font.size = Pt(size)
 
 
-def render(md: str) -> bytes:
+# Word 自带标题样式的字号（磅），按导出字号缩放
+_HEADINGS = {"Title": 26, "Heading 1": 16, "Heading 2": 13, "Heading 3": 12, "Heading 4": 11}
+
+
+def render(md: str, look: Style | None = None) -> bytes:
+    look = look or Style()
+    theme, scale = look.look, look.scale
     doc = DocxDocument()
     normal = doc.styles["Normal"]
-    normal.font.name = FONT
-    normal.font.size = Pt(11)
-    _east_asian(normal, FONT)
-    for name in ("Title", "Heading 1", "Heading 2", "Heading 3", "Heading 4"):
+    normal.font.name = theme.latin
+    normal.font.size = Pt(round(11 * scale * 2) / 2)
+    _east_asian(normal, theme.font)
+    for name, size in _HEADINGS.items():
         style = doc.styles[name]
-        style.font.name = FONT
-        _east_asian(style, FONT)
+        style.font.name = theme.latin
+        style.font.size = Pt(round(size * scale * 2) / 2)
+        style.font.color.rgb = RGBColor.from_string(theme.accent)
+        _east_asian(style, theme.font)
     blocks: list[Block] = parse(md)
     for b in blocks:
         if b.kind == "heading":
@@ -60,7 +68,7 @@ def render(md: str) -> bytes:
             p = doc.add_paragraph()
             run = p.add_run(b.text)
             run.font.name = MONO
-            run.font.size = Pt(9.5)
+            run.font.size = Pt(round(9.5 * scale * 2) / 2)
         elif b.kind == "quote":
             p = doc.add_paragraph(style="Quote")
             _fill(p, b.text)

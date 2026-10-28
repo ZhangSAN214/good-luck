@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 from roundtable.core.export.markdown import Block, parse, runs
+from roundtable.core.export.style import Style
 
 PAGE_W, PAGE_H = 595.28, 841.89  # A4，单位磅
 MARGIN = 56.0
@@ -73,7 +74,10 @@ def _wrap(
 
 
 class _Writer:
-    def __init__(self) -> None:
+    def __init__(self, style: Style) -> None:
+        self.scale = style.scale
+        accent = bytes.fromhex(style.look.accent)
+        self.accent = " ".join(f"{c / 255:.3f}" for c in accent)
         self.pages: list[list[str]] = []
         self.y = 0.0
         self._new_page()
@@ -94,14 +98,17 @@ class _Writer:
         lead: float = 1.55,
         first: str = "",
         keep: bool = False,
+        accent: bool = False,
     ) -> None:
+        size = round(size * self.scale, 2)
         x = MARGIN + indent
         lines = _wrap(tokens, PAGE_W - MARGIN - x, size, keep) or [[]]
         for n, line in enumerate(lines):
             if self.y - size * lead < BOTTOM:
                 self._new_page()
             self.y -= size * lead
-            ops = [f"BT {gray:.2f} g {gray:.2f} G /F1 {size:.1f} Tf"]
+            color = f"{self.accent} rg {self.accent} RG" if accent else f"{gray:.2f} g {gray:.2f} G"
+            ops = [f"BT {color} /F1 {size:.2f} Tf"]
             if n == 0 and first:
                 start = x - sum(_w(c) for c in first) * size
                 ops.append(f"1 0 0 1 {start:.2f} {self.y:.2f} Tm {_hex(first)} Tj")
@@ -125,9 +132,9 @@ class _Writer:
         self.y -= 4
 
 
-def layout(md: str) -> list[list[str]]:
+def layout(md: str, style: Style | None = None) -> list[list[str]]:
     """每页的绘图指令（测试也用它数页数）。"""
-    w = _Writer()
+    w = _Writer(style or Style())
     for b in parse(md):
         _block(w, b)
     return w.pages
@@ -136,8 +143,8 @@ def layout(md: str) -> list[list[str]]:
 def _block(w: _Writer, b: Block) -> None:
     if b.kind == "heading":
         size = _SIZES.get(b.level, 12.0)
-        w.space(size * 0.6)
-        w.text(_tokens(b.text, bold=True), size, lead=1.4)
+        w.space(size * 0.6 * w.scale)
+        w.text(_tokens(b.text, bold=True), size, lead=1.4, accent=True)
         if b.level <= 2:
             w.rule()
         w.space(2)
@@ -165,8 +172,8 @@ def _block(w: _Writer, b: Block) -> None:
         w.space(4)
 
 
-def render(md: str, title: str = "") -> bytes:
-    pages = layout(md)
+def render(md: str, title: str = "", style: Style | None = None) -> bytes:
+    pages = layout(md, style)
     total = len(pages)
     objects: list[str] = [
         "<< /Type /Catalog /Pages 2 0 R >>",
