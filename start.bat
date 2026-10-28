@@ -10,6 +10,8 @@ set GCM_INTERACTIVE=never
 set PYTHONIOENCODING=utf-8
 rem stop.bat leaves this flag so the window it stopped closes quietly instead of reporting a failure
 set "STOP_FLAG=%TEMP%\roundtable-stopped.flag"
+rem Listen only on this computer by default; start_lan.bat sets RT_HOST=0.0.0.0 for tablets on the home Wi-Fi
+if not defined RT_HOST set "RT_HOST=127.0.0.1"
 
 if not exist ".venv\Scripts\activate.bat" (
     echo [setup] Creating virtual environment .venv ...
@@ -36,10 +38,11 @@ echo [3/4] Stopping an old server on port 8000, if any ...
 call :stop_old || goto :error
 
 echo [4/4] Starting server at http://127.0.0.1:8000  (Ctrl+C or close this window to stop)
+if not "%RT_HOST%"=="127.0.0.1" echo [lan] Open to tablets on this Wi-Fi: click the Tablet button on the page for the address and QR code.
 rem Open the browser a few seconds later, once the server is up
 start "" /b cmd /c "timeout /t 3 /nobreak >nul & start "" http://127.0.0.1:8000"
 del "%STOP_FLAG%" >nul 2>&1
-python -m uvicorn roundtable.api.app:app --host 127.0.0.1 --port 8000
+python -m uvicorn roundtable.api.app:app --host %RT_HOST% --port 8000
 if exist "%STOP_FLAG%" exit /b 0
 if errorlevel 1 goto :error
 exit /b 0

@@ -35,6 +35,7 @@ import { People } from './people.js';
 import { Feeds } from './feeds.js';
 import { Moments } from './moments.js';
 import { BootSettings } from './bootcfg.js';
+import { LanPanel } from './lan.js';
 import { Hub } from './hub.js';
 import { Standee } from './standee.js';
 import { Music } from './music.js';
@@ -112,6 +113,15 @@ const people = new People($('#people'), {
 const feeds = new Feeds($('#feeds'), { api: { get: API.chatFeeds, set: API.setChatFeeds, refresh: API.refreshChatFeeds } });
 const bootcfg = new BootSettings($('#bootdlg'));
 $('#bootcfg').addEventListener('click', () => bootcfg.open());
+new LanPanel($('#landlg'), $('#lanbtn'), {
+  api: {
+    status: API.lanStatus,
+    setPassword: API.lanSetPassword,
+    pair: API.lanPair,
+    signOut: API.lanSignOut,
+    logout: API.lanLogout,
+  },
+});
 $('#skin').addEventListener('click', () => {
   const next = document.documentElement.dataset.skin === 'ark' ? 'classic' : 'ark';
   document.documentElement.dataset.skin = next;

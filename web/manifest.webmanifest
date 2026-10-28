@@ -1,0 +1,16 @@
+{
+  "name": "圆桌 Roundtable",
+  "short_name": "圆桌",
+  "description": "多个 AI 一起讨论、分工完成作业（打开的是你电脑上的圆桌，数据只存在电脑上）",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0f1724",
+  "theme_color": "#0f1724",
+  "lang": "zh-CN",
+  "icons": [
+    { "src": "img/app/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "img/app/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}

@@ -22,6 +22,8 @@ dependencies = [
     # 成员生成的表格预览；代码运行时监视子进程内存
     "openpyxl>=3.1",
     "psutil>=5.9",
+    # 局域网访问：在电脑上显示给平板扫的二维码（纯 Python，无其他依赖）
+    "segno>=1.5",
 ]
 
 [project.scripts]

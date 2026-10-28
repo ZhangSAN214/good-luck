@@ -43,6 +43,14 @@ MAIL_DIR = "mail_browser"
 CHAT_MEDIA_DIR = "chat_media"
 
 
+def data_dir(environ: Mapping[str, str] | None = None) -> Path:
+    """数据库所在目录（本机数据都放这里，不进 git）。"""
+    configured = (os.environ if environ is None else environ).get(DB_ENV)
+    if not configured or configured == ":memory:":
+        return DEFAULT_DB.parent
+    return (PROJECT_ROOT / configured).parent
+
+
 @dataclass
 class Runtime:
     config: AppConfig
