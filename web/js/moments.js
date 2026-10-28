@@ -1,6 +1,9 @@
 // 朋友圈：成员根据当天真实发生的事发动态，互相点赞、评论；你也可以发、赞、评。
 // 只存在你电脑上；成员只在你发动态或评论后回应你，不会主动来找你。
+// 发动态可带图片（最多 9 张）、视频、语音和表情；评论可用 Emoji 和表情包。
 // 版式照真实朋友圈：顶部封面 + 头像，下面一列动态；赞和评论收在每条右下角的「··」里，看谁的动态从右上角的小入口选。
+
+import { MediaComposer, bindMedia, mediaHTML, richText, visibleText } from './chatmedia.js';
 
 const esc = (s) =>
   String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -30,6 +33,38 @@ export class Moments {
     this.dlg.addEventListener('click', (e) => this.onClick(e));
     this.dlg.addEventListener('submit', (e) => this.onSubmit(e));
     this.dlg.addEventListener('close', () => clearTimeout(this.timer));
+    bindMedia(this.dlg);
+    this.buildNew();
+  }
+
+  /** 发动态的表单只建一次：重画列表时搬回原位，写到一半的字和已选的图片都还在。 */
+  buildNew() {
+    const f = document.createElement('form');
+    f.id = 'mo-new';
+    f.className = 'mo-new';
+    f.innerHTML = `<textarea name="text" rows="3" maxlength="500" placeholder="这一刻的想法…（成员会来评论）" aria-label="发动态"></textarea>
+      <div class="mo-newbar"><p class="hint">成员每天最多发一条，写的是公寓楼里当天真实发生的事；点赞不花钱，评论计入每天的生活花费上限。成员看不到图片和视频本身，只知道你发了。</p><button class="btn primary" type="submit">发表</button></div>
+      <div class="mo-tools"></div><div class="mo-tray" hidden></div>`;
+    this.newForm = f;
+    this.newMedia = new MediaComposer({
+      input: f.querySelector('textarea'),
+      bar: f.querySelector('.mo-tools'),
+      tray: f.querySelector('.mo-tray'),
+      down: true,
+      onChange: () => {
+        const busy = this.newMedia.busy();
+        const b = f.querySelector('[type="submit"]');
+        b.disabled = busy;
+        b.textContent = busy ? '上传中…' : '发表';
+      },
+      onError: (msg) => this.say(msg),
+    });
+  }
+
+  say(msg) {
+    this.msg = msg;
+    const el = this.dlg.querySelector('.pp-msg');
+    if (el) el.textContent = msg;
   }
 
   async open(author = null) {
@@ -59,7 +94,8 @@ export class Moments {
     } catch (e) {
       this.msg = e.message;
     }
-    if (!keep || !this.dlg.querySelector('textarea:focus, input:focus')) this.render();
+    // 正在写字或挑表情时不重画（不然面板和写到一半的评论会消失）
+    if (!keep || !this.dlg.querySelector('textarea:focus, input:focus, .mo-cf .cm-panel:not([hidden])')) this.render();
   }
 
   /** 发完动态 / 评论后，成员在后台回应：过几秒再拉一次。 */
@@ -88,7 +124,7 @@ export class Moments {
     const likes = m.likes.length ? `<p class="mo-likes"><span class="mo-heart" aria-hidden="true">♡</span> ${m.likes.map((l) => `<b>${esc(l.name)}</b>`).join('，')}</p>` : '';
     const comments = m.comments
       .map(
-        (c) => `<li><b>${esc(c.name)}</b>${c.reply_name ? `回复<b>${esc(c.reply_name)}</b>` : ''}：${esc(c.text)}${c.offline ? ' <span class="gc-tag away">你不在时</span>' : ''}
+        (c) => `<li><b>${esc(c.name)}</b>${c.reply_name ? `回复<b>${esc(c.reply_name)}</b>` : ''}：${richText(c.text)}${c.offline ? ' <span class="gc-tag away">你不在时</span>' : ''}
           ${c.author !== 'user' ? `<button type="button" class="link" data-reply="${m.id}:${c.id}" data-name="${esc(c.name)}">回复</button>` : ''}<button type="button" class="link" data-delc="${c.id}">删除</button></li>`,
       )
       .join('');
@@ -98,12 +134,13 @@ export class Moments {
       ${this.face(m.author, m.name)}
       <div class="mo-body">
         <header><b class="mo-name">${esc(m.name)}</b></header>
-        <p class="mo-text">${esc(m.text).replace(/\n/g, '<br>')}</p>
+        ${visibleText(m.text, m.meta) ? `<p class="mo-text">${richText(visibleText(m.text, m.meta))}</p>` : ''}
+        ${m.meta?.media?.length ? `<div class="mo-media">${mediaHTML(m.meta.media, { group: `mo${m.id}`, layout: 'moment', mine: m.author === 'user' })}</div>` : ''}
         <div class="mo-foot"><time datetime="${esc(m.created_at)}">${esc(when(m.created_at))}</time>${m.offline ? '<span class="gc-tag away">你不在时</span>' : ''}<button type="button" class="link mo-del" data-del="${m.id}">删除</button>
           <span class="mo-menu"><span class="mo-act"${open ? '' : ' hidden'}><button type="button" data-like="${m.id}" aria-pressed="${m.liked}">♡ ${m.liked ? '取消' : '赞'}</button><button type="button" data-reply="${m.id}:">评论</button></span>
           <button type="button" class="mo-more" data-menu="${m.id}" aria-expanded="${open}" aria-label="赞或评论">··</button></span></div>
         ${likes || comments ? `<div class="mo-fb">${likes}${comments ? `<ul class="mo-comments">${comments}</ul>` : ''}</div>` : ''}
-        ${reply ? `<form class="mo-cf" data-mid="${m.id}"><input name="text" maxlength="500" placeholder="${this.replying.comment ? `回复 ${esc(this.replying.name)}` : '评论'}" aria-label="评论" required><button class="btn primary" type="submit">发送</button></form>` : ''}
+        ${reply ? `<form class="mo-cf" data-mid="${m.id}"><input name="text" maxlength="500" placeholder="${this.replying.comment ? `回复 ${esc(this.replying.name)}` : '评论'}" aria-label="评论" required><button class="btn primary" type="submit">发送</button><span class="mo-cf-tools"></span></form>` : ''}
       </div>
     </article>`;
   }
@@ -122,12 +159,17 @@ export class Moments {
         <nav class="mo-pick" aria-label="看谁的朋友圈"${this.picking ? '' : ' hidden'}>${chips}</nav></div>
       <div class="vb mo-wrap">
         <div class="mo-cover"><span class="mo-me">${esc(who)}</span>${this.face(this.author || 'user', who, 'mo-av big')}</div>
-        <form id="mo-new" class="mo-new"${this.composing ? '' : ' hidden'}><textarea name="text" rows="3" maxlength="500" placeholder="这一刻的想法…（成员会来评论）" aria-label="发动态"></textarea>
-          <div class="mo-newbar"><p class="hint">成员每天最多发一条，写的是公寓楼里当天真实发生的事；点赞不花钱，评论计入每天的生活花费上限。</p><button class="btn primary" type="submit">发表</button></div></form>
+        <div id="mo-new-slot"></div>
         <div class="mo-feed">${this.rows.length ? this.rows.map((m) => this.item(m)).join('') : '<p class="hint mo-empty">还没有动态。</p>'}</div>
         ${this.more ? '<button type="button" class="btn mo-older" data-more>更早的</button>' : ''}
         <p class="hint pp-msg" role="status">${esc(this.msg)}</p>
       </div>`;
+    this.newForm.hidden = !this.composing;
+    this.dlg.querySelector('#mo-new-slot')?.replaceWith(this.newForm);
+    this.cfMedia?.destroy();
+    this.cfMedia = null;
+    const cf = this.dlg.querySelector('.mo-cf');
+    if (cf) this.cfMedia = new MediaComposer({ input: cf.querySelector('input'), bar: cf.querySelector('.mo-cf-tools'), kinds: [], compact: true });
   }
 
   async act(fn, done = '') {
@@ -199,12 +241,23 @@ export class Moments {
     e.preventDefault();
     const f = e.target;
     const text = String(new FormData(f).get('text') || '').trim();
-    if (!text) return;
     if (f.id === 'mo-new') {
+      const media = this.newMedia.ready();
+      if (!text && !media.length) return;
+      if (this.newMedia.busy()) return this.say('附件还在上传，稍等一下');
       this.composing = false;
-      await this.act(() => this.api.post(text), '发好了');
+      let ok = false;
+      await this.act(async () => {
+        await this.api.post(text, media);
+        ok = true;
+      }, '发好了');
+      if (ok) {
+        f.querySelector('textarea').value = '';
+        this.newMedia.clear();
+      }
       return this.later();
     }
+    if (!text) return;
     if (f.classList.contains('mo-cf')) {
       const r = this.replying;
       this.replying = null;

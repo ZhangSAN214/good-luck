@@ -39,6 +39,8 @@ CATALOG_FILE = "model_candidates.json"
 EVOLUTION_DIR = "evolution"
 # 邮件栏专用浏览器的配置目录（登录状态在里面；放在数据库旁边，不进 git）
 MAIL_DIR = "mail_browser"
+# 聊天 / 朋友圈里用户发的图片、视频、语音（放在数据库旁边，不进 git）
+CHAT_MEDIA_DIR = "chat_media"
 
 
 @dataclass
@@ -76,6 +78,8 @@ class Runtime:
     mail_source: Any | None = None
     # 音乐卡片的「电脑上正在放的歌」（测试中注入假的；为空时用 Windows 系统媒体控制）
     nowplaying_source: Any | None = None
+    # 聊天 / 朋友圈的图片、视频、语音所在目录；为空表示不能存（内存数据库）
+    chat_media_dir: Path | None = None
 
     @classmethod
     def build(
@@ -174,6 +178,9 @@ class Runtime:
             ),
             evolution_dir=Path(evolution_dir) if evolution_dir is not None else None,
             mail_dir=None if str(db_path) == ":memory:" else Path(db_path).parent / MAIL_DIR,
+            chat_media_dir=None
+            if str(db_path) == ":memory:"
+            else Path(db_path).parent / CHAT_MEDIA_DIR,
         )
 
     def sandbox(self) -> tuple[Sandbox | None, str | None]:
