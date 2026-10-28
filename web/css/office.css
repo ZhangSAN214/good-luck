@@ -1,0 +1,121 @@
+/* 办公室左栏：标题、圆桌、图例，以及成员思考时圆桌中央的塔罗「花切」转场（web/js/deck.js）。
+   玻璃外观（默认）下整栏按设计规范重排：衬线标题、墨蓝玻璃桌面配极细刻度圈、图例改成带细线图标的说明列表；
+   原来的外观只多一个转场动画，其余不变。 */
+
+/* ---------- 标题 ---------- */
+.st-head{display:none}
+[data-skin="ark"] .stagecol::before{content:none}
+[data-skin="ark"] .st-head{display:grid;align-self:stretch;grid-template-columns:1fr auto;align-items:center;row-gap:4px}
+.st-head h2{margin:0;font-family:var(--f-display);font-weight:400;font-size:26px;line-height:1.2;letter-spacing:.16em;color:var(--ink)}
+.st-sub{grid-column:1/-1;font-family:var(--f-display);font-size:10.5px;letter-spacing:.34em;text-transform:uppercase;color:var(--muted);opacity:.75}
+.st-state{justify-self:end;display:inline-flex;align-items:center;gap:7px;height:24px;padding:0 11px;border-radius:999px;
+  background:rgba(255,255,255,.06);box-shadow:var(--glass-edge);font-size:11.5px;letter-spacing:.06em;color:var(--muted);white-space:nowrap;max-width:15em;overflow:hidden;text-overflow:ellipsis}
+.st-state::before{content:"";width:5px;height:5px;border-radius:50%;background:currentColor;opacity:.5;flex:none}
+.stagecol:has(.stage.shuffling) .st-state{background:var(--ink-glass);color:var(--ink)}
+.stagecol:has(.stage.shuffling) .st-state::before{opacity:1;animation:st-dot 1.6s ease-in-out infinite}
+@keyframes st-dot{50%{opacity:.25}}
+
+/* ---------- 圆桌 ---------- */
+[data-skin="ark"] .stage{margin:auto;max-width:300px}
+.table .bezel{display:none}
+[data-skin="ark"] .table{inset:24%;
+  background:radial-gradient(120% 110% at 50% 14%,rgba(46,70,116,.94) 0%,rgba(22,35,62,.95) 48%,rgba(9,14,27,.97) 100%);
+  box-shadow:inset 0 .5px 0 rgba(255,255,255,.18),inset 0 -16px 28px -20px rgba(0,0,0,.85),0 30px 44px -26px rgba(0,0,0,.9)}
+[data-skin="ark"] .table::after{content:none}
+[data-skin="ark"] .table .bezel{display:block;position:absolute;inset:0;width:100%;height:100%;fill:none;stroke:rgba(236,239,243,.24);stroke-width:.32;stroke-linecap:round}
+[data-skin="ark"] .table .bezel .faint{stroke:rgba(236,239,243,.1);stroke-dasharray:.5 1.6}
+.plate{transition:opacity .5s ease}
+.stage.shuffling .plate{opacity:0}
+[data-skin="ark"] .plate{inset:30.5%;color:var(--ink)}
+[data-skin="ark"] .plate .ph{font-size:17px;letter-spacing:.14em;font-weight:400}
+[data-skin="ark"] .plate .act{display:inline-block;margin-top:6px;padding-top:5px;border-top:1px solid rgba(255,255,255,.14);
+  font-size:10.5px;letter-spacing:.02em;color:var(--muted);white-space:nowrap;max-width:100%;overflow:hidden;text-overflow:ellipsis}
+[data-skin="ark"] svg.flows .flowline{stroke:rgba(200,214,240,.45);stroke-width:.45}
+
+/* 座位：极细描边的玻璃头像，名字衬线、角色小字 */
+[data-skin="ark"] .seat .av{background:rgba(255,255,255,.07);box-shadow:inset 0 0 0 .5px rgba(255,255,255,.22),0 10px 18px -12px rgba(0,0,0,.8);font-weight:400}
+[data-skin="ark"] .seat .av.me{background:var(--ink-glass)}
+[data-skin="ark"] .seat .nm{margin-top:4px;font-size:12.5px;letter-spacing:.08em}
+[data-skin="ark"] .seat .rl{font-family:var(--f-body);font-size:10px;letter-spacing:.14em;opacity:.8}
+[data-skin="ark"] .seat.speaking .av{box-shadow:inset 0 0 0 .5px rgba(255,255,255,.22),0 0 0 2px rgba(10,14,24,.6),0 0 0 3px rgba(110,140,196,.85)}
+
+/* ---------- 图例 ---------- */
+.legend .row .ic{flex:none;width:22px;display:grid;place-items:center;align-self:flex-start;padding-top:2px}
+.legend .ic svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.1;stroke-linecap:round;stroke-linejoin:round}
+.legend .ic svg .ln{stroke:var(--brass);stroke-width:1.6}
+.legend .tx b{margin-right:4px}
+[data-skin="ark"] .legend{padding:14px 0 0;gap:0}
+[data-skin="ark"] .legend::before{content:"图例";font-family:var(--f-display);font-size:11px;letter-spacing:.42em;color:var(--muted);opacity:.8;margin-bottom:4px}
+[data-skin="ark"] .legend .row{align-items:flex-start;gap:12px;padding:10px 0;border-bottom:1px solid rgba(255,255,255,.06)}
+[data-skin="ark"] .legend .row:last-child{border-bottom:0;padding-bottom:0}
+[data-skin="ark"] .legend .ic{color:rgba(236,239,243,.7)}
+[data-skin="ark"] .legend .ic svg{stroke-width:1}
+[data-skin="ark"] .legend .ic svg .ln{stroke:currentColor;stroke-width:1.2}
+[data-skin="ark"] .legend .tx{display:block;min-width:0}
+[data-skin="ark"] .legend .tx b{display:block;margin:0 0 2px;font-family:var(--f-display);font-weight:400;font-size:13.5px;letter-spacing:.1em;color:var(--ink)}
+[data-skin="ark"] .legend .tx span{display:block;font-size:12px;line-height:1.75;letter-spacing:.02em;color:var(--muted);text-wrap:pretty}
+
+/* 窄屏时左栏变成横排：标题单独占一行，圆桌和图例并排在下面 */
+@media (max-width:1280px){
+  [data-skin="ark"] .stagecol{flex-wrap:wrap;align-items:center}
+  [data-skin="ark"] .st-head{flex:1 0 100%}
+  [data-skin="ark"] .stage{margin:0}
+  [data-skin="ark"] .legend{border-top:0;padding-top:0}
+}
+@media (max-width:900px){
+  [data-skin="ark"] .stage{margin:0 auto}
+}
+
+/* ---------- 塔罗花切 ---------- */
+/* 一副 6 张牌叠在桌心；.on 循环：两叠切牌对调 → 开扇翻面 → 合拢；.reveal 结束时翻开「世界」再淡出 */
+.deck{position:absolute;left:50%;top:50%;width:18.5%;aspect-ratio:3/5;transform:translate(-50%,-58%);pointer-events:none;z-index:2;
+  opacity:0;visibility:hidden;transition:opacity .45s ease,visibility 0s linear .45s}
+.deck.on,.deck.reveal{opacity:1;visibility:visible;transition:opacity .45s ease}
+.dk-card{position:absolute;inset:0;transform-origin:50% 118%;transform:translateY(calc(var(--j) * -1.2px));z-index:var(--j);will-change:transform}
+.dk-in{position:absolute;inset:0;transform-style:preserve-3d}
+.dk-in svg{position:absolute;inset:0;width:100%;height:100%;display:block;backface-visibility:hidden;-webkit-backface-visibility:hidden;border-radius:7% / 4.2%;
+  box-shadow:0 8px 14px -8px rgba(0,0,0,.85),0 0 0 .5px rgba(0,0,0,.4);fill:none;stroke-linecap:round;stroke-linejoin:round}
+.dk-back{background:linear-gradient(155deg,#26406f 0%,#15254a 55%,#0d1830 100%);stroke:rgba(222,230,246,.62);stroke-width:.7}
+.dk-face{transform:rotateY(180deg);background:linear-gradient(170deg,#161f33 0%,#0c1222 100%);stroke:rgba(238,230,210,.92);stroke-width:.72}
+.dk-in .hair{stroke-width:.42;opacity:.85}
+.dk-face text{fill:rgba(238,230,210,.88);stroke:none;font-family:"Noto Serif SC","Songti SC",serif;font-size:5.4px;text-anchor:middle;letter-spacing:.5px}
+.dk-face text.t{font-size:4.5px;letter-spacing:1px}
+.dk-hero{display:none}
+
+.deck.on{animation:dk-float 5.6s ease-in-out infinite}
+.deck.on .dk-card{animation:dk-cut 5.6s cubic-bezier(.65,0,.35,1) infinite}
+.deck.on .dk-in{animation:dk-flip 5.6s cubic-bezier(.65,0,.35,1) infinite;animation-delay:calc(var(--j) * 70ms)}
+@keyframes dk-float{0%,100%{transform:translate(-50%,-58%)}50%{transform:translate(-50%,-61%)}}
+@keyframes dk-cut{
+  0%,6%{transform:translate(0,calc(var(--i) * -1.2px)) rotate(0deg);z-index:var(--i)}
+  18%{transform:translate(calc(var(--s) * 64%),calc(var(--i) * -1.2px)) rotate(calc(var(--s) * 7deg));z-index:var(--i)}
+  28%{transform:translate(calc(var(--s) * 58%),calc(var(--i) * -1.2px + (var(--s) - 1) * 8%)) rotate(calc(var(--s) * 3deg));z-index:var(--i)}
+  31%{z-index:var(--j)}
+  40%,47%{transform:translate(0,calc(var(--j) * -1.2px)) rotate(0deg);z-index:var(--j)}
+  60%,79%{transform:translate(0,-5%) rotate(calc(var(--f) * 15deg));z-index:var(--j)}
+  91%,100%{transform:translate(0,calc(var(--j) * -1.2px)) rotate(0deg);z-index:var(--j)}
+}
+@keyframes dk-flip{
+  0%,52%{transform:perspective(320px) rotateY(0deg)}
+  63%,79%{transform:perspective(320px) rotateY(180deg)}
+  90%,100%{transform:perspective(320px) rotateY(0deg)}
+}
+
+.deck.reveal .dk-card:not(.dk-hero){animation:dk-rv 2.8s cubic-bezier(.2,.7,.2,1) forwards}
+.deck.reveal .dk-hero{display:block;z-index:20;animation:dk-hero 2.8s cubic-bezier(.2,.7,.2,1) forwards}
+.deck.reveal .dk-hero .dk-in{animation:dk-hero-flip 2.8s cubic-bezier(.3,.1,.2,1) forwards}
+@keyframes dk-rv{
+  0%{transform:translate(0,calc(var(--j) * -1.2px)) rotate(0deg);opacity:1}
+  30%,58%{transform:translate(0,-4%) rotate(calc(var(--f) * 17deg));opacity:.9}
+  80%,100%{transform:translate(0,-4%) rotate(calc(var(--f) * 17deg));opacity:0}
+}
+@keyframes dk-hero{
+  0%{transform:translateY(-7px) scale(1);opacity:1}
+  28%{transform:translateY(-10%) scale(1.08)}
+  72%{transform:translateY(-10%) scale(1.12);opacity:1}
+  100%{transform:translateY(-12%) scale(1.12);opacity:0}
+}
+@keyframes dk-hero-flip{
+  0%,20%{transform:perspective(320px) rotateY(0deg)}
+  46%,100%{transform:perspective(320px) rotateY(180deg)}
+}
