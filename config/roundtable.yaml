@@ -809,3 +809,16 @@ mail:
     estimate_usd: 0.005      # 每次调用预估（节电档实际约 $0.0005～0.003）
     digest_mails: 10
     language: 简体中文
+
+# 办公室的资料浏览器（docs/CLIPPER.md）：打开网页由圆桌直接抓取正文（不调用模型、不花钱），
+# 不能打开本机和内网地址；搜索走联网搜索（有花费，计入总预算）。
+# 存下来的资料只在本机，提问时勾选附上（和附件一样）。
+clipper:
+  enabled: true
+  timeout_s: 15
+  max_page_kb: 3072          # 网页原始大小上限
+  max_page_chars: 60000      # 提取后的正文最多显示多少字
+  max_clip_chars: 20000      # 一份资料最多存多少字（省 token）
+  max_clips: 200             # 资料夹最多存几份，超出时删最旧的
+  search_results: 8
+  search_estimate_usd: 0.01

@@ -33,6 +33,7 @@ import { Apartment } from './apartment.js';
 import { GroupChat } from './groupchat.js';
 import { People } from './people.js';
 import { Feeds } from './feeds.js';
+import { Clipper } from './clipper.js';
 import { Moments } from './moments.js';
 import { BootSettings } from './bootcfg.js';
 import { LanPanel } from './lan.js';
@@ -112,6 +113,18 @@ const people = new People($('#people'), {
   },
 });
 const feeds = new Feeds($('#feeds'), { api: { get: API.chatFeeds, set: API.setChatFeeds, refresh: API.refreshChatFeeds } });
+const clipper = new Clipper($('#clipdlg'), {
+  api: {
+    list: API.listClips,
+    open: API.openClipPage,
+    search: API.searchClips,
+    save: API.saveClip,
+    text: API.clipText,
+    del: API.delClip,
+    attach: API.attachClip,
+  },
+  attach: (att) => addClip(att),
+});
 const bootcfg = new BootSettings($('#bootdlg'));
 $('#bootcfg').addEventListener('click', () => bootcfg.open());
 new LanPanel($('#landlg'), $('#lanbtn'), {
@@ -568,6 +581,15 @@ async function addFiles(files) {
     }
     renderAttachments();
   }
+  scheduleEstimate();
+}
+
+// 资料浏览器里点「附上」：资料已经变成一个附件，直接放进提问区
+function addClip(att) {
+  const max = S.status?.uploads?.max_files ?? 5;
+  if (S.attachments.filter((a) => !a.error).length >= max) throw new Error(`最多添加 ${max} 个附件`);
+  S.attachments.push({ ...att, pending: false });
+  renderAttachments();
   scheduleEstimate();
 }
 
@@ -1295,6 +1317,7 @@ function bind() {
   });
   $('#coordinator').addEventListener('change', scheduleEstimate);
   $('#attach').addEventListener('click', () => $('#file').click());
+  $('#clipbtn').addEventListener('click', () => clipper.open());
   $('#file').addEventListener('change', (e) => {
     const files = [...e.target.files];
     e.target.value = '';

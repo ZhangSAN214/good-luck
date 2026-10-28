@@ -1,0 +1,38 @@
+/* 资料浏览器（办公室）：地址栏 + 搜索结果 + 阅读视图 + 资料夹 */
+#clipdlg{width:min(860px,calc(100vw - 32px))}
+.cl{display:flex;flex-direction:column;gap:10px}
+.cl-tabs{align-self:center}
+.cl-bar{display:flex;gap:8px;align-items:center}
+.cl-bar input{flex:1;min-width:0;height:36px;padding:0 12px;border:1px solid var(--line);border-radius:var(--r);background:var(--surface);color:var(--ink);font:inherit}
+.cl-bar .btn{flex:none}
+.cl-sub,.cl-empty{margin:0}
+.cl-hits{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
+.cl-hit{display:flex;flex-direction:column;gap:2px;width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:var(--r);background:var(--surface);color:var(--ink);font:inherit;text-align:left;cursor:pointer}
+.cl-hit:hover{background:var(--hover)}
+.cl-hit small{color:var(--muted);font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cl-hit span{color:var(--muted);font-size:13px}
+.cl-page{display:flex;flex-direction:column;gap:8px;min-width:0}
+.cl-head{display:flex;flex-direction:column;gap:2px}
+.cl-title{font-size:17px;line-height:1.4}
+.cl-head small{color:var(--muted);font-size:12px}
+.cl-head a{color:inherit}
+.cl-acts{display:flex;gap:8px;flex-wrap:wrap;position:sticky;top:0;z-index:1;padding:4px 0;background:var(--surface)}
+.cl-read{padding:12px 14px;border:1px solid var(--line);border-radius:var(--r);background:var(--surface);color:var(--ink);line-height:1.75;font-size:15px;max-height:60vh;overflow:auto;overflow-wrap:anywhere;user-select:text;-webkit-user-select:text}
+.cl-read p{margin:0 0 .8em}
+.cl-read h4{margin:1em 0 .4em;font-size:15px}
+.cl-raw{white-space:pre-wrap;font:inherit;margin:0}
+.cl-links summary{cursor:pointer;color:var(--muted);font-size:13px}
+.cl-links ul{margin:6px 0 0;padding-left:18px;display:flex;flex-direction:column;gap:4px}
+.cl-links .link,.cl-list .link{border:0;background:none;padding:0;color:var(--muted);font:inherit;font-size:13px;cursor:pointer;text-align:left}
+.cl-list{list-style:none;margin:0;padding:0}
+.cl-list .grp-row{align-items:center;gap:10px;padding:10px 16px}
+.cl-ex{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.cl-row-acts{display:flex;align-items:center;gap:10px;flex:none}
+@media (max-width:600px){
+  .cl-list .grp-row{flex-wrap:wrap}
+  .cl-row-acts{width:100%;justify-content:flex-end}
+  .cl-read{max-height:none}
+}
+/* 提问区：「添加附件」和「资料」并排，不把输入框撑高 */
+.composer .side .pair{display:flex;gap:6px}
+.composer .side .pair .btn{width:auto;flex:1 1 auto;white-space:nowrap;padding-left:8px;padding-right:8px}

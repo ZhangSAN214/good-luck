@@ -57,6 +57,13 @@ export async function upload(file) {
 }
 
 export const getStatus = () => api('/api/status');
+export const listClips = () => api('/api/clips');
+export const openClipPage = (url) => api('/api/clips/open', { method: 'POST', body: { url } });
+export const searchClips = (query) => api('/api/clips/search', { method: 'POST', body: { query } });
+export const saveClip = (clip) => api('/api/clips', { method: 'POST', body: clip });
+export const clipText = (id) => api(`/api/clips/${encodeURIComponent(id)}`);
+export const delClip = (id) => api(`/api/clips/${encodeURIComponent(id)}`, { method: 'DELETE' });
+export const attachClip = (id) => api(`/api/clips/${encodeURIComponent(id)}/attach`, { method: 'POST' });
 export const getBudget = () => api('/api/budget');
 export const members = () => api('/api/members');
 export const standee = () => api('/api/standee');
