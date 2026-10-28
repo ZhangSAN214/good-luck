@@ -148,6 +148,10 @@ class Orchestrator:
         repo.attach_to_session(sid, attachments, style_refs)
         return sid
 
+    def final_answer(self, session_id: str) -> str | None:
+        """已完成会话的最终成果（未完成或没有成果时为 None）。"""
+        return self._result(session_id).final_answer
+
     async def run(self, session_id: str) -> RunResult:
         """执行已创建的会话，直到完成或需要用户确认。"""
         async with self._lock(session_id):
