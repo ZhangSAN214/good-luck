@@ -148,8 +148,15 @@ _PS_FOLDER = "[Environment]::GetFolderPath($env:RT_FOLDER)"
 def _powershell(script: str, env: dict[str, str]) -> str:
     cmd = ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script]
     out = subprocess.run(
-        cmd, env={**os.environ, **env}, check=True, capture_output=True, text=True, encoding="utf-8"
+        cmd,
+        env={**os.environ, **env},
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
     )
+    if out.returncode != 0:
+        raise RuntimeError(f"PowerShell 出错：{out.stderr.strip()[-800:]}")
     return out.stdout.strip()
 
 
@@ -173,9 +180,12 @@ def build_windows_shortcuts(root: Path, folders: list[Path], icon: Path | None) 
     made = []
     for folder in folders:
         folder.mkdir(parents=True, exist_ok=True)
-        for entry in ENTRIES:
+        for i, entry in enumerate(ENTRIES):
+            # WScript.Shell 按系统代码页处理文件名，中文名可能存不了：先存英文名，再由 Python 改名
+            tmp = folder / f"roundtable-{i}.lnk"
             lnk = folder / f"{entry.name}.lnk"
-            _powershell(_PS_SHORTCUT, shortcut_env(root, lnk, entry, icon))
+            _powershell(_PS_SHORTCUT, shortcut_env(root, tmp, entry, icon))
+            os.replace(tmp, lnk)
             made.append(lnk)
     return made
 
