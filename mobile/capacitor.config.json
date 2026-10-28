@@ -1,0 +1,20 @@
+{
+  "appId": "local.roundtable.remote",
+  "appName": "圆桌",
+  "webDir": "www",
+  "server": {
+    "androidScheme": "http",
+    "cleartext": true,
+    "allowNavigation": [
+      "192.168.*.*",
+      "10.*.*.*",
+      "172.*.*.*",
+      "100.*.*.*",
+      "*.local",
+      "*.ts.net"
+    ]
+  },
+  "android": {
+    "allowMixedContent": true
+  }
+}

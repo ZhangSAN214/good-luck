@@ -1,0 +1,72 @@
+name: Desktop
+
+# 桌面版（docs/DESKTOP.md）在真的 Windows / macOS 上冒烟：安装、起服务、生成图标入口。
+# 只在桌面版相关文件变动时跑（macOS 机器的计费分钟数较贵）。
+on:
+  pull_request:
+    paths:
+      - "src/roundtable/desktop/**"
+      - "scripts/install_desktop.py"
+      - "install_desktop.*"
+      - "tests/desktop/**"
+      - "pyproject.toml"
+      - ".github/workflows/desktop.yml"
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+      - run: python -m venv .venv
+      - name: Install (same as install_desktop)
+        run: |
+          PY=.venv/bin/python; [ -x "$PY" ] || PY=.venv/Scripts/python.exe
+          "$PY" -m pip install -e ".[dev,windows,desktop]"
+          "$PY" -c "import webview; print('pywebview', webview.__version__ if hasattr(webview, '__version__') else 'ok')"
+      - name: Unit tests
+        run: |
+          PY=.venv/bin/python; [ -x "$PY" ] || PY=.venv/Scripts/python.exe
+          "$PY" -m pytest -q tests/desktop
+      - name: Start the server without a window and stop it
+        run: |
+          PY=.venv/bin/python; [ -x "$PY" ] || PY=.venv/Scripts/python.exe
+          "$PY" -m roundtable.desktop --check
+          "$PY" -m roundtable.desktop --check --lan
+      - name: Create the icons (shortcuts / .app) in a temp folder
+        run: |
+          PY=.venv/bin/python; [ -x "$PY" ] || PY=.venv/Scripts/python.exe
+          "$PY" scripts/install_desktop.py --dest "$RUNNER_TEMP/rt-apps"
+          ls -la "$RUNNER_TEMP/rt-apps"
+      - name: Check the macOS app bundle
+        if: runner.os == 'macOS'
+        run: |
+          APP="$RUNNER_TEMP/rt-apps/圆桌.app"
+          plutil -lint "$APP/Contents/Info.plist"
+          test -x "$APP/Contents/MacOS/roundtable"
+          test -f "$APP/Contents/Resources/roundtable.icns"
+          cat "$APP/Contents/MacOS/roundtable"
+      - name: Check the Windows shortcut
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $files = Get-ChildItem "$env:RUNNER_TEMP\rt-apps" -Filter *.lnk
+          if ($files.Count -ne 2) { exit 1 }
+          # WScript.Shell 读不了中文文件名：复制成英文名再读
+          Copy-Item -LiteralPath $files[0].FullName "$env:RUNNER_TEMP\check.lnk"
+          $lnk = (New-Object -ComObject WScript.Shell).CreateShortcut("$env:RUNNER_TEMP\check.lnk")
+          "$($lnk.TargetPath) $($lnk.Arguments)"
+          if (-not $lnk.TargetPath.EndsWith('pythonw.exe')) { exit 1 }
+          if (-not (Test-Path $lnk.TargetPath)) { exit 1 }
