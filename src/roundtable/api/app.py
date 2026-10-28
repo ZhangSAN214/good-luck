@@ -136,6 +136,28 @@ class MomentCommentBody(BaseModel):
     reply_to: int | None = None
 
 
+class ClipOpenBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    url: str = Field(max_length=2000)
+
+
+class ClipSearchBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    query: str = Field(max_length=200)
+
+
+class ClipSaveBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    url: str = Field(max_length=2000)
+    title: str = Field(default="", max_length=300)
+    text: str = Field(max_length=200000)
+    partial: bool = False  # 只存了选中的段落
+    note: str = Field(default="", max_length=300)
+
+
 class FeedsBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -587,6 +609,37 @@ def create_app(service: RoundtableService | None = None, lan: LanAccess | None =
     @app.post("/api/chat/feeds/refresh")
     async def chat_refresh_feeds(request: Request) -> dict[str, Any]:
         return await svc(request).chat_refresh_feeds()
+
+    # 办公室的资料浏览器：打开网页（只读抓取正文）、搜索、存资料、提问时附上
+    @app.get("/api/clips")
+    async def clips(request: Request) -> dict[str, Any]:
+        return svc(request).clips()
+
+    @app.post("/api/clips/open")
+    async def clip_open(request: Request, body: ClipOpenBody) -> dict[str, Any]:
+        return await svc(request).clip_open(body.url)
+
+    @app.post("/api/clips/search")
+    async def clip_search(request: Request, body: ClipSearchBody) -> dict[str, Any]:
+        return await svc(request).clip_search(body.query)
+
+    @app.post("/api/clips", status_code=201)
+    async def clip_save(request: Request, body: ClipSaveBody) -> dict[str, Any]:
+        return svc(request).clip_save(
+            body.url, body.title, body.text, partial=body.partial, note=body.note
+        )
+
+    @app.get("/api/clips/{clip_id}")
+    async def clip_text(request: Request, clip_id: str) -> dict[str, Any]:
+        return svc(request).clip_text(clip_id)
+
+    @app.delete("/api/clips/{clip_id}")
+    async def clip_delete(request: Request, clip_id: str) -> dict[str, Any]:
+        return svc(request).clip_delete(clip_id)
+
+    @app.post("/api/clips/{clip_id}/attach", status_code=201)
+    async def clip_attach(request: Request, clip_id: str) -> dict[str, Any]:
+        return svc(request).clip_attach(clip_id)
 
     @app.delete("/api/chat")
     async def chat_clear(request: Request, room: str = "main") -> dict[str, Any]:

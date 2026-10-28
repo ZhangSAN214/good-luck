@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import quote
 
+from roundtable.core import clipper
 from roundtable.core.allocation import coordinator_name, display_name
 from roundtable.core.attachments import Attachment, UploadError, ingest
 from roundtable.core.attachments.detect import TYPES as UPLOAD_TYPES
@@ -85,7 +86,13 @@ from roundtable.core.orchestrator import Orchestrator, OrchestratorError, RunRes
 from roundtable.core.persona import is_empty, persona_of, set_persona
 from roundtable.core.plugin_board import board_view, load_board
 from roundtable.core.preview import render_preview
-from roundtable.core.providers import ProviderError, UnsupportedCapability, redact
+from roundtable.core.providers import (
+    Completion,
+    Message,
+    ProviderError,
+    UnsupportedCapability,
+    redact,
+)
 from roundtable.core.routing import (
     AUTO,
     CUSTOM,
@@ -100,6 +107,7 @@ from roundtable.core.routing import (
     preview_estimates,
 )
 from roundtable.core.runtime import PROJECT_ROOT, Runtime, data_dir
+from roundtable.core.search import SearchUnavailable
 from roundtable.core.standee import load_standee
 from roundtable.core.standee import standee_file as read_standee_file
 from roundtable.core.steps import Event, restore_state
@@ -1141,6 +1149,151 @@ class RoundtableService:
         if not self.rt.repo.delete_moment_comment(comment_id):
             raise ServiceError("没有这条评论", 404)
         return {"deleted": 1}
+
+    # --- 资料浏览器（办公室） --------------------------------------------------------
+
+    def _clip_rules(self):
+        rules = self.rt.config.roundtable.clipper
+        if not rules.enabled:
+            raise ServiceError("资料浏览器已在配置里关闭", 403)
+        return rules
+
+    def clips(self) -> dict[str, Any]:
+        rules = self.rt.config.roundtable.clipper
+        return {
+            "enabled": rules.enabled,
+            "search": self.rt.search.available,
+            "search_estimate_usd": rules.search_estimate_usd,
+            "max_clip_chars": rules.max_clip_chars,
+            "clips": [clipper.public_clip(c) for c in clipper.clips_of(self.rt.repo)],
+        }
+
+    async def clip_open(self, url: str) -> dict[str, Any]:
+        """打开网页：直接抓取并提取正文（不调用模型、不花钱）。"""
+        rules = self._clip_rules()
+        try:
+            url = clipper.normalize_url(url)
+            fetched = await clipper.http_fetch(url, rules.timeout_s, rules.max_page_kb * 1024)
+            page = clipper.parse_fetched(fetched, max_chars=rules.max_page_chars)
+        except clipper.ClipError as exc:
+            raise ServiceError(str(exc), 422) from None
+        out = page.public()
+        if not page.blocks:
+            out["hint"] = "没提取到正文：这个网页可能要登录，或者内容是用脚本加载的"
+        return out
+
+    async def clip_search(self, query: str) -> dict[str, Any]:
+        """联网搜索（有花费，计入总预算）。只返回标题、网址和摘要。"""
+        rules = self._clip_rules()
+        query = (query or "").strip()[:200]
+        if not query:
+            raise ServiceError("请输入要搜索的内容")
+        rt = self.rt
+        if not rt.search.available:
+            raise ServiceError(f"联网搜索不可用：{rt.search.reason()}", 409)
+        if not rt.budget.check(rules.search_estimate_usd).allowed:
+            raise ServiceError("本月或今天的预算已用完，不能搜索", 409)
+        try:
+            result, call = await rt.search.search(query, rules.search_results)
+        except SearchUnavailable as exc:
+            raise ServiceError(str(exc), 502) from None
+        completion = Completion(
+            text="",
+            model_id=f"search:{call.provider}",
+            channel=call.provider,
+            channel_kind="search",
+            route_model="search",
+            input_tokens=0,
+            output_tokens=0,
+            cached_tokens=0,
+            cost_usd=call.cost_usd,
+            cost_source=call.cost_source,  # type: ignore[arg-type]
+            latency_s=call.latency_s,
+            attempts=call.attempts,
+        )
+        rt.repo.record_call(
+            rt.repo.chat_session(clipper.SEARCH_ROOM),
+            step=clipper.SEARCH_STEP,
+            role="tool",
+            model_id=completion.model_id,
+            messages=[Message("user", f"search: {query}")],
+            completion=completion,
+        )
+        hits = [
+            {
+                "title": clipper.strip_tags(h.title)[:300] or h.url,
+                "url": h.url,
+                "snippet": clipper.strip_tags(h.snippet)[:400],
+            }
+            for h in result.hits
+            if h.url.startswith(("http://", "https://"))
+        ]
+        return {"query": query, "hits": hits, "cost_usd": call.cost_usd}
+
+    def clip_save(
+        self, url: str, title: str, text: str, *, partial: bool = False, note: str = ""
+    ) -> dict[str, Any]:
+        """把正文或选中的段落存进资料夹（只存本机）。"""
+        rules = self._clip_rules()
+        try:
+            url = clipper.normalize_url(url)
+        except clipper.ClipError as exc:
+            raise ServiceError(str(exc)) from None
+        text = (text or "").strip()
+        if not text:
+            raise ServiceError("没有可保存的内容")
+        cut = len(text) > rules.max_clip_chars
+        text = text[: rules.max_clip_chars]
+        chars = len(text)
+        if cut:
+            text += "\n\n（后面还有内容，超过资料字数上限没有保存）"
+        title = " ".join((title or "").split())[:200] or clipper.site_of(url)
+        saved_at = self.rt.budget.now().astimezone().strftime("%Y-%m-%d %H:%M")
+        body = clipper.clip_markdown(title, url, text, saved_at, " ".join(note.split())[:300])
+        key = self.rt.files.save(body.encode("utf-8"), "md")
+        clip = {
+            "id": clipper.new_clip_id(),
+            "title": title,
+            "url": url,
+            "site": clipper.site_of(url),
+            "chars": chars,
+            "excerpt": " ".join(text.replace("## ", "").split())[:160],
+            "partial": partial,
+            "saved_at": self.rt.budget.now().isoformat(),
+            "key": key,
+        }
+        clips = [clip, *clipper.clips_of(self.rt.repo)][: rules.max_clips]
+        clipper.save_clips(self.rt.repo, clips)
+        return {**clipper.public_clip(clip), "truncated": cut}
+
+    def _clip(self, clip_id: str) -> dict[str, Any]:
+        for clip in clipper.clips_of(self.rt.repo):
+            if clip["id"] == clip_id:
+                return clip
+        raise ServiceError("资料不存在", 404)
+
+    def clip_text(self, clip_id: str) -> dict[str, Any]:
+        clip = self._clip(clip_id)
+        try:
+            text = self.rt.files.load(clip["key"]).decode("utf-8")
+        except (OSError, KeyError, ValueError):
+            raise ServiceError("资料文件找不到了", 404) from None
+        return {**clipper.public_clip(clip), "text": text}
+
+    def clip_delete(self, clip_id: str) -> dict[str, Any]:
+        self._clip(clip_id)
+        rest = [c for c in clipper.clips_of(self.rt.repo) if c["id"] != clip_id]
+        clipper.save_clips(self.rt.repo, rest)
+        return self.clips()
+
+    def clip_attach(self, clip_id: str) -> dict[str, Any]:
+        """提问时附上：用这份资料新建一个 Markdown 附件（附件只能用一次，所以每次新建）。"""
+        clip = self._clip(clip_id)
+        try:
+            data = self.rt.files.load(clip["key"])
+        except (OSError, KeyError, ValueError):
+            raise ServiceError("资料文件找不到了", 404) from None
+        return self.upload(clipper.safe_name(clip["title"]), data)
 
     # --- 上网（订阅源） ------------------------------------------------------------
 

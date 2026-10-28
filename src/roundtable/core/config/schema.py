@@ -758,6 +758,19 @@ class BrowseRules(_Strict):
     max_feed_kb: int = Field(default=1024, ge=16, le=8192)
 
 
+class ClipperRules(_Strict):
+    """办公室的资料浏览器（docs/CLIPPER.md）：打开网页只读抓取（不花钱），搜索走联网搜索。"""
+
+    enabled: bool = True
+    timeout_s: float = Field(default=15, gt=0, le=60)
+    max_page_kb: int = Field(default=3072, ge=64, le=16384)  # 网页原始大小上限
+    max_page_chars: int = Field(default=60000, ge=2000, le=200000)  # 提取后的正文最多显示多少字
+    max_clip_chars: int = Field(default=20000, ge=500, le=60000)  # 一份资料最多存多少字（省 token）
+    max_clips: int = Field(default=200, ge=1, le=1000)  # 资料夹最多存几份，超出时删最旧的
+    search_results: int = Field(default=8, ge=1, le=20)
+    search_estimate_usd: float = Field(default=0.01, ge=0)
+
+
 class MomentsRules(_Strict):
     """朋友圈（docs/CHAT.md G5）。成员发动态、互相点赞评论；花费计入生活每日上限。"""
 
@@ -1033,6 +1046,7 @@ class RoundtableConfig(_Strict):
     chat: ChatRules = ChatRules()
     evolution: EvolutionRules = EvolutionRules()
     mail: MailConfig = MailConfig()
+    clipper: ClipperRules = ClipperRules()
 
     @field_validator("prompts")
     @classmethod

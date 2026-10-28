@@ -238,6 +238,7 @@ src/roundtable/
     mindmap.py     思维导图数据与渲染（Markdown / Mermaid / SVG）
     lan.py         局域网访问：口令加盐哈希（data/lan_access.json，不进 git）、登录 cookie 签名与过期、输错限速、一次性配对码、本机局域网地址、二维码（docs/LAN.md）
     changelog.py   公告栏：版本更新说明（读 config/changelog.yaml，校验、按日期排序；只读）
+    clipper.py     办公室的资料浏览器：只读抓取网页（拒绝本机 / 内网地址，重定向逐跳检查）、提取正文、资料夹清单；存资料与「附上」= 新建 Markdown 附件（docs/CLIPPER.md）
     mail/          终端邮件栏：用户本人学校邮箱只读接入（专用浏览器窗口由用户本人登录、只读守卫、本机「重要」与分类规则、截止日期提取；图文版正文清洗（html.py）；点了才调用的 AI 总结 / 翻译（ai.py，每月上限 mail.ai）；登录状态在 data/mail_browser/，不进 git；见 docs/MAIL.md）
     nowplaying.py  音乐卡片的「电脑上正在放的歌」：读 Windows 系统媒体控制（pywinrt，可选依赖 .[windows]），默认只跟 QQ 音乐（按应用 id 关键字），发送播放 / 暂停 / 切歌 / 跳转；不登录、不抓音频、不存库；本机 data/avatars/music_covers/ 的封面列表（不进 git；同目录 effects.json 写每张封面的动态特效）
     standee.py     终端首页大立绘清单（用户本机 data/avatars/standee.json，可用 ROUNDTABLE_STANDEE_FILE 改；图片、表情差分和网格形变素材 rig 不进 git，缺失时优雅降级）
