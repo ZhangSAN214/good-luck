@@ -169,7 +169,9 @@
 
 @media (max-width:860px){
   .hub{overflow:auto}
-  .hb-col{position:relative;right:auto;top:auto;bottom:auto;width:auto;margin:64px 16px 16px}
+  /* 顶栏（时钟、音乐小卡、按钮）放回文档流，下面的卡片排在它后面，不再互相盖住 */
+  .hb-top{position:relative;left:auto;right:auto;top:auto;margin:16px 16px 0;justify-content:flex-start}
+  .hb-col{position:relative;right:auto;top:auto;bottom:auto;width:auto;margin:20px 16px 16px}
   .hb-row3{grid-template-columns:1fr 1fr}
   .hb-voice{position:relative;left:auto;bottom:auto;max-width:none;margin:0 16px 16px}
 }

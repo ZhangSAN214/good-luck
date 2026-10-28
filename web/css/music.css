@@ -118,10 +118,44 @@
 .mu-thumb img{display:block;width:100%;height:100%;object-fit:cover}
 .mu-thumb[aria-pressed="true"]{border-color:var(--mu-accent)}
 
+/* 首页时钟下面的悬浮小卡（hub.js 的 .hb-lead）：不占顶栏高度，播放器卡片从小卡下面展开 */
+.hb-lead{position:relative;margin-right:auto;display:flex}
+.hb-lead .ck{margin-right:0}
+.hb-lead .mu{position:absolute;left:0;top:calc(100% + 12px);z-index:4;align-items:center;gap:6px}
+.hb-lead .mu-panel{left:0;right:auto}
+.mu-pin{width:28px;height:28px;color:var(--mu-sub,var(--hb-muted))}
+.mu-pin .mu-i{width:15px;height:15px}
+.mu:not(.docked) .mu-pin{background:var(--hb-glass);box-shadow:var(--hb-edge);color:#eceff3}
+.mu-mini{--mu-sub:color-mix(in srgb,var(--mu-text) 60%,transparent);--mu-line:color-mix(in srgb,var(--mu-accent) 24%,transparent);--mu-soft:color-mix(in srgb,var(--mu-accent) 12%,transparent);
+  position:relative;display:flex;align-items:center;gap:2px;width:330px;max-width:calc(100vw - 48px);padding:8px 8px 10px;border-radius:22px;overflow:hidden;
+  background:var(--mu-bg);color:var(--mu-text);backdrop-filter:blur(24px) saturate(1.15);-webkit-backdrop-filter:blur(24px) saturate(1.15);
+  box-shadow:inset 0 .5px 0 rgba(255,255,255,.45),0 0 0 .5px color-mix(in srgb,var(--mu-text) 10%,transparent),0 22px 44px -26px rgba(0,0,0,.6);
+  transition:transform .3s cubic-bezier(.3,1.5,.5,1)}
+.mu-mini:hover{transform:translateY(-1px)}
+.mu-mini .mu-btn{flex:1;min-width:0;max-width:none;gap:10px;padding:0 4px 0 0;border-radius:14px;background:none;box-shadow:none;color:inherit;text-align:left}
+.mu.on .mu-mini .mu-btn{background:none}
+.mu-mthumb{display:grid;place-items:center;width:46px;height:50px;flex:none;border:2px solid var(--mu-accent);border-radius:11px;overflow:hidden;background:var(--mu-soft);color:var(--mu-accent)}
+.mu-mthumb img{width:100%;height:100%;object-fit:cover;display:block}
+.mu-mtxt{display:flex;flex-direction:column;gap:2px;min-width:0}
+.mu-mini .mu-label{font-family:var(--hb-serif);font-size:15px;font-weight:500;letter-spacing:.03em}
+.mu-msub{display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--mu-accent);letter-spacing:.06em;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.mu-msub .mu-eq{width:11px;height:9px}
+.mu-mini .mu-ib{width:32px;height:32px}
+.mu-mini .mu-ib .mu-i{width:18px;height:18px}
+.mu-mini .mu-mplay{width:40px;height:40px;background:var(--mu-accent);color:var(--mu-on)}
+.mu-mini .mu-mplay .mu-i{width:18px;height:18px}
+.mu-mini .mu-pin{width:26px;height:26px;margin-left:2px}
+.mu-mbar{position:absolute;left:14px;right:14px;bottom:4px;height:2px;border-radius:2px;background:var(--mu-line);overflow:hidden}
+.mu-mbar i{display:block;height:100%;width:0;background:var(--mu-accent);transition:width .5s linear}
+
 /* 窄屏：卡片铺满顶栏宽度，不从左边溢出 */
 @media (max-width:860px){
   .mu{position:static}
+  .hb-lead{flex-direction:column;align-items:flex-start;gap:10px;width:100%}
+  .hb-lead .mu{position:relative;top:auto;flex-direction:column;align-items:stretch;width:100%;max-width:380px}
+  .hb-lead .mu:not(.docked){flex-direction:row;width:auto}
+  .mu-mini{width:auto;max-width:none}
   .mu-btn{max-width:140px}
-  .mu-panel{left:0;right:0;width:auto;max-width:380px;margin:0 auto;top:calc(100% + 8px)}
+  .mu-panel,.hb-lead .mu-panel{position:relative;left:auto;right:auto;top:auto;width:auto;max-width:none;max-height:none;margin-top:10px}
 }
 @media (prefers-reduced-motion: reduce){.mu-eq i{animation:none;height:70%}.mu-panel,.mu-art img{animation:none}}

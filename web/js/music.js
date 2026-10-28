@@ -169,12 +169,14 @@ const ICON = {
   list: '<path d="M4 6h11M4 12h11M4 18h7M18 15v-9l3 1.5"/><circle cx="16.5" cy="17" r="2"/>',
   skin: '<circle cx="12" cy="12" r="8.5"/><circle cx="8.5" cy="10" r="1.2"/><circle cx="12" cy="7.5" r="1.2"/><circle cx="15.5" cy="10" r="1.2"/><path d="M12 20.5c-1.5 0-2-1-2-2s1-2 2.5-2H15"/>',
   back: '<path d="M15 5l-7 7 7 7"/>',
+  collapse: '<path d="M5 12h14"/>',
+  expand: '<path d="M8 4H4v4M16 4h4v4M8 20H4v-4M16 20h4v-4"/>',
   link: '<path d="M10 14a4 4 0 0 0 5.66 0l3-3a4 4 0 0 0-5.66-5.66l-1 1M14 10a4 4 0 0 0-5.66 0l-3 3a4 4 0 0 0 5.66 5.66l1-1"/>',
 };
 const icon = (k) => `<svg class="mu-i" viewBox="0 0 24 24" aria-hidden="true">${ICON[k]}</svg>`;
 
 function loadSettings() {
-  const d = { order: [], volume: 0.5, mode: 'all', keep: false, cur: null, src: 'local', player: 'qqmusic', skin: cleanSkin(null), cover: { mode: 'song', pick: null } };
+  const d = { order: [], volume: 0.5, mode: 'all', keep: false, cur: null, src: 'local', player: 'qqmusic', skin: cleanSkin(null), cover: { mode: 'song', pick: null }, dock: true };
   try {
     const v = JSON.parse(localStorage.getItem(KEY) || '{}');
     return {
@@ -186,6 +188,7 @@ function loadSettings() {
       src: SOURCES.some(([k]) => k === v.src) ? v.src : d.src,
       player: typeof v.player === 'string' && /^[a-z]{1,20}$/.test(v.player) ? v.player : d.player,
       skin: cleanSkin(v.skin),
+      dock: v.dock !== false,
       cover: {
         mode: COVER_MODES.some(([k]) => k === v.cover?.mode) ? v.cover.mode : 'song',
         pick: typeof v.cover?.pick === 'string' && (v.cover.pick === MY_COVER || v.cover.pick.startsWith('/api/music/covers/')) ? v.cover.pick : null,
@@ -317,6 +320,7 @@ export class Music {
     this.save();
     this.paint();
     this.loadArt(this.cur);
+    this.loadCovers();
     this.schedule(0);
   }
 
@@ -720,11 +724,13 @@ export class Music {
       const m = Number(seek.max);
       seek.style.setProperty('--p', `${m > 0 ? Math.min(100, (v / m) * 100) : 0}%`);
     }
+    const bar = this.el.querySelector('.mu-mbar i');
+    if (bar) bar.style.width = `${Number.isFinite(cur) && dur > 0 ? Math.min(100, (cur / dur) * 100) : 0}%`;
     const c = this.el.querySelector('.mu-cur');
     const d = this.el.querySelector('.mu-dur');
     if (c) c.textContent = clock(this.seeking ? Number(seek?.value) : cur);
     if (d) d.textContent = clock(dur);
-    if (sys && this.sysNow()?.status === 'playing' && this.open) {
+    if (sys && this.sysNow()?.status === 'playing' && (this.open || this.set.dock)) {
       clearTimeout(this.tickT);
       this.tickT = setTimeout(() => this.tick(), 500);
     }
@@ -843,6 +849,34 @@ export class Music {
       <button type="button" class="mu-chip" data-mu="reset">恢复默认外观</button>`;
   }
 
+  /** 首页上的入口：展开时是时钟下面的一张小卡（封面、歌名、播放键、细进度），收起时是一颗小胶囊。 */
+  capsuleHtml(on, name) {
+    const label = `<span class="mu-label">${on && name ? esc(name) : this.set.dock && name ? esc(name) : '音乐'}</span>`;
+    const aria = `背景音乐${on && name ? `：正在放 ${esc(name)}` : ''}（点开播放器）`;
+    if (!this.set.dock) {
+      return `<button type="button" class="mu-btn" data-mu="panel" aria-expanded="${this.open}" aria-label="${aria}">${on ? '<span class="mu-eq" aria-hidden="true"><i></i><i></i><i></i></span>' : icon('note')}${label}</button>
+        <button type="button" class="mu-ib mu-pin" data-mu="dock" aria-label="在首页展开音乐小卡" title="展开成小卡">${icon('expand')}</button>`;
+    }
+    const sys = this.system();
+    const n = this.sysNow();
+    const t = this.tracks[this.cur];
+    const cover = this.coverUrl();
+    const sub = sys ? (n ? n.artist || n.source : this.sys?.available === false ? '还没连上 QQ 音乐' : 'QQ 音乐') : t ? '本地音乐' : this.tracks.length ? '点播放开始' : '点开添加音乐';
+    const can = (k) => (sys ? !!n?.can?.includes(k) : this.tracks.length > 0);
+    const playOk = sys ? !!n && (on ? can('pause') : can('play')) : true;
+    return `<div class="mu-mini" style="${this.skinStyle()}">
+        <button type="button" class="mu-btn" data-mu="panel" aria-expanded="${this.open}" aria-label="${aria}">
+          <span class="mu-mthumb">${cover ? `<img src="${esc(cover)}" alt="" draggable="false">` : icon('note')}</span>
+          <span class="mu-mtxt">${label}<span class="mu-msub">${on ? '<span class="mu-eq" aria-hidden="true"><i></i><i></i><i></i></span>' : ''}${esc(this.set.skin.tag || sub)}</span></span>
+        </button>
+        <button type="button" class="mu-ib" data-mu="prev" aria-label="上一首"${can('prev') ? '' : ' disabled'}>${icon('prev')}</button>
+        <button type="button" class="mu-ib mu-mplay" data-mu="play" aria-label="${on ? '暂停' : '播放'}"${playOk ? '' : ' disabled'}>${icon(on ? 'pause' : 'play')}</button>
+        <button type="button" class="mu-ib" data-mu="next" aria-label="下一首"${can('next') ? '' : ' disabled'}>${icon('next')}</button>
+        <button type="button" class="mu-ib mu-pin" data-mu="dock" aria-label="收起成小按钮" title="收起">${icon('collapse')}</button>
+        <span class="mu-mbar" aria-hidden="true"><i></i></span>
+      </div>`;
+  }
+
   paint() {
     const sys = this.system();
     const n = this.sysNow();
@@ -855,10 +889,11 @@ export class Music {
       ? `${had.closest('[data-mu-row]') ? `[data-mu-row="${had.closest('[data-mu-row]').dataset.muRow}"] ` : ''}[data-mu="${had.dataset.mu}"]${had.dataset.v ? `[data-v="${had.dataset.v}"]` : ''}`
       : null;
     this.el.classList.toggle('on', !!on);
+    this.el.classList.toggle('docked', this.set.dock);
     const body = { player: () => this.playerHtml(), list: () => this.listHtml(), skin: () => this.skinHtml() }[this.view]();
     const tab = (v, ic, label) => `<button type="button" class="mu-ib mu-sm" data-mu="view" data-v="${v}" aria-pressed="${this.view === v}" aria-label="${label}" title="${label}">${icon(ic)}</button>`;
     this.el.innerHTML = `
-      <button type="button" class="mu-btn" data-mu="panel" aria-expanded="${this.open}" aria-label="背景音乐${on && name ? `：正在放 ${esc(name)}` : ''}">${on ? '<span class="mu-eq" aria-hidden="true"><i></i><i></i><i></i></span>' : icon('note')}<span class="mu-label">${on && name ? esc(name) : '音乐'}</span></button>
+      ${this.capsuleHtml(on, name)}
       <div class="mu-panel mu-${this.view}" role="dialog" aria-label="背景音乐" style="${this.skinStyle()}"${this.open ? '' : ' hidden'}>
         <div class="mu-head">
           ${this.view === 'player' ? '' : `<button type="button" class="mu-ib mu-sm" data-mu="view" data-v="player" aria-label="回到播放器">${icon('back')}</button>`}
@@ -906,6 +941,11 @@ export class Music {
         this.save();
         return this.paint();
       }
+      case 'dock':
+        this.set.dock = !this.set.dock;
+        this.save();
+        this.paint();
+        return this.el.querySelector('[data-mu="dock"]')?.focus();
       case 'view':
         this.view = this.view === v ? 'player' : v;
         return this.paint();
@@ -957,13 +997,13 @@ export class Music {
     // 外观：改颜色时只换卡片的变量，不重画（取色器不会被关掉）
     if (el.matches('[data-mu-color]')) {
       this.set.skin = cleanSkin({ ...this.set.skin, [el.dataset.muColor]: el.value });
-      this.el.querySelector('.mu-panel')?.setAttribute('style', this.skinStyle());
+      this.el.querySelectorAll('.mu-panel, .mu-mini').forEach((x) => x.setAttribute('style', this.skinStyle()));
       return;
     }
     if (el.matches('[data-mu-alpha]')) {
       this.set.skin = cleanSkin({ ...this.set.skin, alpha: Number(el.value) / 100 });
       el.style.setProperty('--p', `${((this.set.skin.alpha - 0.35) / 0.65) * 100}%`);
-      this.el.querySelector('.mu-panel')?.setAttribute('style', this.skinStyle());
+      this.el.querySelectorAll('.mu-panel, .mu-mini').forEach((x) => x.setAttribute('style', this.skinStyle()));
       return;
     }
     if (el.matches('[data-mu-tag]')) {
