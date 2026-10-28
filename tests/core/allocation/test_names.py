@@ -25,18 +25,20 @@ def test_code_pool_is_the_22_major_arcana():
 def test_vendor_nicknames_and_tier_names_from_config():
     p = CFG.personas
     assert p.nicknames == {
-        "OpenAI": "小白龙",
-        "Anthropic": "克劳德",
-        "xAI": "歌若柯",
-        "DeepSeek": "鲸鱼娘",
-        "Google": "双子星",
-        "Alibaba": "千问",
+        "OpenAI": "ChatGPT",
+        "Anthropic": "Claude",
+        "xAI": "Grok",
+        "DeepSeek": "DeepSeek",
+        "Google": "Gemini",
+        "Alibaba": "Qwen",
+        "Moonshot AI": "Kimi",
+        "Zhipu AI": "GLM",
     }
     assert p.tier_labels == {"flagship": "全力", "budget": "节电"}
-    assert display_name("deepseek-v4-pro", CFG) == "鲸鱼娘·全力"
-    assert display_name("deepseek-v4.1-flash", CFG) == "鲸鱼娘·节电"
-    assert display_name("gpt-6-sol", CFG) == "小白龙·全力"
-    assert coordinator_name("claude-haiku-4.5", CFG) == "克劳德·节电（统筹）"
+    assert display_name("deepseek-v4-pro", CFG) == "DeepSeek·全力"
+    assert display_name("deepseek-v4.1-flash", CFG) == "DeepSeek·节电"
+    assert display_name("gpt-6-sol", CFG) == "ChatGPT·全力"
+    assert coordinator_name("claude-haiku-4.5", CFG) == "Claude·节电（统筹）"
 
 
 def test_every_seated_model_has_a_distinct_display_name():
@@ -88,7 +90,7 @@ def test_duplicate_vendor_and_tier_get_a_number():
     codes = member_codes(
         ["deepseek-v4-pro", "deepseek-v4-pro-b"], cfg, random.Random(0), anonymous=False
     )
-    assert set(codes) == {"鲸鱼娘·全力", "鲸鱼娘·全力2"}
+    assert set(codes) == {"DeepSeek·全力", "DeepSeek·全力2"}
 
 
 def test_unknown_vendor_falls_back_to_vendor_name():

@@ -32,13 +32,16 @@ codes:
   - 世界
 
 # 厂商昵称：键是 models.yaml 里的 vendor。没有昵称的厂商直接用厂商名。
+# 2026-10-28 用户决定：成员一律用英文原名（原中文昵称：小白龙、克劳德、歌若柯、鲸鱼娘、双子星、千问）。
 nicknames:
-  OpenAI: 小白龙       # GPT
-  Anthropic: 克劳德    # Claude
-  xAI: 歌若柯          # Grok
-  DeepSeek: 鲸鱼娘
-  Google: 双子星       # Gemini
-  Alibaba: 千问        # Qwen
+  OpenAI: ChatGPT
+  Anthropic: Claude
+  xAI: Grok
+  DeepSeek: DeepSeek
+  Google: Gemini
+  Alibaba: Qwen
+  Moonshot AI: Kimi
+  Zhipu AI: GLM
 
 # 档位的显示名：flagship = 全力模式，budget = 节电模式
 tier_labels:
