@@ -140,7 +140,13 @@ def _has_word(text: str, word: str) -> bool:
 
 
 def judge(mail: dict[str, Any], rules: MailRules) -> list[str]:
-    """返回判为重要的原因（空列表 = 不重要）。mail 是邮件栏里一封信的 dict。"""
+    """返回判为重要的原因（空列表 = 不重要）。mail 是邮件栏里一封信的 dict。
+
+    你手动标过的优先：标「重要」就算重要，标「不重要」就不算（规则不再管它）。"""
+    if mail.get("mark") == "important":
+        return ["你标为重要"]
+    if mail.get("mark") == "normal":
+        return []
     reasons: list[str] = []
     addr = str(mail.get("sender_addr") or "").lower()
     if addr and addr in rules.senders:
@@ -230,3 +236,148 @@ def extract_dates(text: str, received: datetime) -> list[dict[str, str]]:
                 if len(got) >= MAX_DATES_PER_MAIL:
                     return got
     return got
+
+
+# --- 分类（只在本机按规则分，你可以逐封改） ---------------------------------------------
+
+# 按先后判断：先认安全类系统通知，再按内容，最后按发件人
+CATEGORIES: dict[str, str] = {
+    "exam": "考试成绩",
+    "deadline": "作业截止",
+    "money": "费用财务",
+    "course": "课程教学",
+    "event": "活动讲座",
+    "notice": "学校通知",
+    "system": "系统通知",
+    "personal": "个人往来",
+    "other": "其他",
+}
+_SECURITY = (
+    "verification code",
+    "security code",
+    "one-time",
+    "password",
+    "sign-in",
+    "sign in",
+    "security alert",
+    "multi-factor",
+    "mfa",
+    "验证码",
+    "密码",
+    "登录提醒",
+)
+_CONTENT: tuple[tuple[str, tuple[str, ...]], ...] = (
+    (
+        "exam",
+        (
+            "exam",
+            "exams",
+            "examination",
+            "results",
+            "grade",
+            "grades",
+            "marks",
+            "transcript",
+            "resit",
+            "invigilat",
+            "考试",
+            "成绩",
+            "补考",
+        ),
+    ),
+    (
+        "deadline",
+        (
+            "coursework",
+            "assignment",
+            "submission",
+            "submit",
+            "deadline",
+            "due",
+            "extension",
+            "turnitin",
+            "作业",
+            "截止",
+            "提交",
+            "延期",
+        ),
+    ),
+    (
+        "money",
+        (
+            "tuition",
+            "fee",
+            "fees",
+            "payment",
+            "invoice",
+            "refund",
+            "scholarship",
+            "bursary",
+            "rent",
+            "学费",
+            "账单",
+            "退款",
+            "奖学金",
+        ),
+    ),
+    (
+        "course",
+        (
+            "lecture",
+            "lectures",
+            "seminar",
+            "tutorial",
+            "lab",
+            "module",
+            "unit",
+            "course",
+            "timetable",
+            "blackboard",
+            "canvas",
+            "reading list",
+            "课程",
+            "课表",
+            "上课",
+        ),
+    ),
+    (
+        "event",
+        (
+            "event",
+            "workshop",
+            "talk",
+            "webinar",
+            "careers",
+            "society",
+            "fair",
+            "invitation",
+            "invite",
+            "register now",
+            "活动",
+            "讲座",
+            "邀请",
+        ),
+    ),
+)
+_NOREPLY = re.compile(r"(^|[._-])(no-?reply|do-?not-?reply|notifications?|alerts?|mailer)([._-]|@)")
+
+
+def classify(mail: dict[str, Any], rules: MailRules | None = None) -> str:
+    """一封邮件的分类键（CATEGORIES 里的一个）。你手动改过的优先。"""
+    if mail.get("category") in CATEGORIES:
+        return mail["category"]
+    text = f"{mail.get('subject') or ''}\n{mail.get('preview') or ''}".lower()
+    if any(_has_word(text, w) for w in _SECURITY):
+        return "system"
+    for key, words in _CONTENT:
+        if any(_has_word(text, w) for w in words):
+            return key
+    addr = str(mail.get("sender_addr") or "").lower()
+    if _NOREPLY.search(addr):
+        return "system"
+    rules = rules or MailRules()
+    if _domain_match(addr, rules.ignore_domains):
+        return "personal"
+    if _domain_match(addr, rules.domains):
+        return "notice"
+    return "personal" if addr else "other"

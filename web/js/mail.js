@@ -2,8 +2,10 @@
 // 顶栏一颗「邮件」胶囊，数字是没读的重要邮件；点开是面板：重要 / 全部、正文、截止日期提醒、设置。
 // 登录：点「登录学校邮箱」后，电脑上会弹出一个单独的浏览器窗口，由你本人在微软登录页输入账号密码、
 // 完成验证；这个页面不收、不传任何密码。读取只读：不发、不删、不移动、不标已读。
-// 邮件只存在你电脑的数据库里，不给成员看、不发给模型。打开首页时和之后每 15 分钟顺便刷新一次
-// （后端限制最短间隔），后台任务进行中每 2 秒问一次进度。
+// 邮件只存在你电脑的数据库里，不给成员看。分类和「重要」按本机规则算，你可以逐封改（只记在本机）。
+// AI 总结 / 翻译只在你点了按钮、并同意把这封发给模型后才调用（每月有上限）。
+// 「显示图片」才去取图文版：在不能跑脚本的沙箱框里显示，外部图片默认拦着，你点了才加载。
+// 打开首页时和之后每 15 分钟顺便刷新一次（后端限制最短间隔），后台任务进行中每 1.5 秒问一次进度。
 
 const esc = (s) =>
   String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -17,6 +19,7 @@ const pad = (n) => String(n).padStart(2, '0');
 const ICON = {
   mail: '<rect x="3.5" y="5.5" width="17" height="13" rx="2.5"/><path d="M4 7l8 6 8-6"/>',
   back: '<path d="M14.5 6l-6 6 6 6"/>',
+  star: '<path d="M12 4.5l2.3 4.7 5.2.8-3.8 3.6.9 5.1L12 16.3l-4.6 2.4.9-5.1-3.8-3.6 5.2-.8z"/>',
   gear: '<circle cx="12" cy="12" r="3"/><path d="M12 3.5v2.2M12 18.3v2.2M3.5 12h2.2M18.3 12h2.2M6 6l1.6 1.6M16.4 16.4L18 18M6 18l1.6-1.6M16.4 7.6L18 6"/>',
 };
 const icon = (k) => `<svg class="ml-i" viewBox="0 0 24 24" aria-hidden="true">${ICON[k]}</svg>`;
@@ -40,6 +43,15 @@ export function dueText(due) {
   return `${m}月${day}日 周${wd}${hm ? ` ${hm}` : ''}`;
 }
 
+/** 图文版正文放进沙箱框：不能跑脚本；外部图片只有 remote=true 时才放行（CSP）。 */
+export function frameDoc(html, remote = false) {
+  const csp = `default-src 'none'; img-src data:${remote ? ' https:' : ''}; style-src 'unsafe-inline'; font-src data:`;
+  return `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${csp}"><base target="_blank">
+<style>html,body{margin:0;background:#fff;color:#1f2430}body{padding:14px 16px;font:14px/1.6 system-ui,sans-serif;overflow-wrap:anywhere}img{max-width:100%;height:auto}table{max-width:100%}</style></head><body>${html}</body></html>`;
+}
+
+const money = (x) => `$${Number(x || 0).toFixed(2)}`;
+
 const lines = (s) =>
   String(s || '')
     .split(/[\n,，]+/)
@@ -48,7 +60,7 @@ const lines = (s) =>
 
 export class Mail {
   /**
-   * @param {{load:Function, settings:Function, login:Function, refresh:Function, message:Function, reminder:Function, logout:Function, clear:Function}} api
+   * @param {{load:Function, settings:Function, login:Function, refresh:Function, message:Function, reminder:Function, logout:Function, clear:Function, mark:Function, category:Function, images:Function, ai:Function}} api
    */
   constructor(api) {
     this.api = api;
@@ -59,10 +71,15 @@ export class Mail {
     this.open = false;
     this.view = 'list'; // list / detail / settings
     this.filter = 'important';
+    this.cat = ''; // 分类筛选（空 = 不限）
     this.detail = null;
+    this.remote = new Set(); // 这次打开里已同意加载外部图片的邮件
+    this.consent = null; // 等你点「同意」后要做的 AI 操作
+    this.aiBusy = '';
     this.timer = null;
     this.el.addEventListener('click', (e) => this.onClick(e));
     this.el.addEventListener('submit', (e) => this.onSubmit(e));
+    this.el.addEventListener('change', (e) => this.onChange(e));
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape' && this.open) {
         e.stopPropagation();
@@ -109,7 +126,16 @@ export class Mail {
 
   async poll() {
     await this.reload();
-    if (this.view === 'detail' && this.detail?.loading && !this.data?.busy) this.showDetail(this.detail.id);
+    const m = this.detail;
+    if (this.view === 'detail' && (m?.loading || m?.loading_html) && !this.data?.busy) this.showDetail(m.id);
+  }
+
+  watchDetail() {
+    this.paint();
+    if (this.detail?.loading || this.detail?.loading_html) {
+      clearTimeout(this.timer);
+      this.timer = setTimeout(() => this.poll(), POLL_MS);
+    }
   }
 
   /** 打开首页时和每 15 分钟：已登录就让后端刷新一次（离上次太近后端会跳过）。 */
@@ -156,7 +182,8 @@ export class Mail {
       <ul>
         <li>登录时弹出一个单独的浏览器窗口，<b>由你本人</b>在微软登录页输入账号密码、完成验证；圆桌不代填、不保存密码。</li>
         <li>只读：不发信、不删信、不移动、不标已读；那个窗口里的写入操作也会被拦下。</li>
-        <li>邮件只存在这台电脑上，不给成员看、不发给模型；「重要」按本机规则判断，不花钱。</li>
+        <li>邮件只存在这台电脑上，不给成员看；「重要」和分类按本机规则判断，不花钱，你也可以逐封改。</li>
+        <li>AI 总结 / 翻译默认不用：你点了按钮、并同意后才把那一封发给模型，每月花费有上限。</li>
       </ul>
       <button type="button" class="ml-main" data-enable>打开邮件栏</button>
     </div>`;
@@ -172,14 +199,20 @@ export class Mail {
     </div>`;
   }
 
+  catLabel(key) {
+    return (this.data?.categories || []).find((c) => c.key === key)?.label || '';
+  }
+
   row(m) {
-    const chips = (m.reasons || []).map((r) => `<span class="ml-why">${esc(r)}</span>`).join('');
+    const chips = [`<span class="ml-cat">${esc(this.catLabel(m.category))}</span>`]
+      .concat((m.reasons || []).map((r) => `<span class="ml-why">${esc(r)}</span>`))
+      .join('');
     return `<li><button type="button" class="ml-row${m.is_read ? '' : ' unread'}${m.important ? ' imp' : ''}" data-open="${esc(m.id)}">
       <span class="ml-from">${esc(m.sender_name || m.sender_addr || '（没有发件人）')}</span>
-      <span class="ml-time">${esc(when(m.received_at))}</span>
+      <span class="ml-time">${m.mark === 'important' ? `<span class="ml-star" title="你标为重要">${icon('star')}</span>` : ''}${m.has_summary ? '<span class="ml-tag">已总结</span>' : ''}${esc(when(m.received_at))}</span>
       <span class="ml-subj">${esc(m.subject || '（无标题）')}</span>
       <span class="ml-prev">${esc(m.preview)}</span>
-      ${chips ? `<span class="ml-whys">${chips}</span>` : ''}
+      <span class="ml-whys">${chips}</span>
     </button></li>`;
   }
 
@@ -195,35 +228,106 @@ export class Mail {
       <span class="ml-acts">${acts}</span></li>`;
   }
 
+  digestCard() {
+    const d = this.data;
+    const g = d.digest || {};
+    const ai = d.ai || {};
+    if (!(d.messages || []).length) return '';
+    const due = (g.due || [])[0];
+    const stats = [`今天 ${g.today || 0} 封`, `重要未读 ${g.important_unread || 0} 封`];
+    if (due) stats.push(`最近截止 ${dueText(due.due)}`);
+    const saved = ai.digest;
+    return `<section class="ml-digest" aria-label="速览">
+      <p class="ml-dstats">${stats.map((x) => `<span>${esc(x)}</span>`).join('')}</p>
+      ${saved ? `<div class="ml-ai-text">${esc(saved.text)}</div><p class="hb-hint ml-ai-meta">AI 汇总 · ${esc(when(saved.at))}（只供参考，以原邮件为准）</p>` : ''}
+      <div class="ml-btns"><button type="button" class="hb-chip" data-ai="digest"${this.aiBusy ? ' disabled' : ''}>${this.aiBusy === 'digest' ? '正在汇总…' : saved ? '重新汇总重要邮件' : 'AI 汇总重要邮件'}</button>
+      <span class="hb-hint ml-usage">${this.usage()}</span></div>
+      ${this.consent?.kind === 'digest' ? this.consentBox() : ''}
+    </section>`;
+  }
+
+  usage() {
+    const ai = this.data?.ai;
+    if (!ai) return '';
+    return `本月 AI ${money(ai.month_spent)} / ${money(ai.monthly_usd)} · 今天 ${ai.today_calls}/${ai.daily_calls} 次`;
+  }
+
+  consentBox() {
+    return `<div class="ml-consent" role="alertdialog" aria-label="同意发给 AI">
+      <p>AI 总结 / 翻译要把<b>这封邮件的标题、发件人和正文</b>（汇总时是几封重要邮件的开头）发给一位模型（节电档里最便宜的一位）。只在你点按钮时发，结果只存在这台电脑上；每月花费不超过 ${money(this.data?.ai?.monthly_usd)}。</p>
+      <p class="hb-hint">含验证码、密码或很私密的邮件，建议别用。以后可以在设置里关掉。</p>
+      <div class="ml-btns"><button type="button" class="ml-main" data-consent>同意并继续</button><button type="button" class="hb-chip" data-consent-no>不用了</button></div>
+    </div>`;
+  }
+
   listView() {
     const d = this.data;
     const all = d.messages || [];
-    const shown = this.filter === 'important' ? all.filter((m) => m.important) : all;
+    const base = this.filter === 'important' ? all.filter((m) => m.important) : all;
+    const shown = this.cat ? base.filter((m) => m.category === this.cat) : base;
+    const cats = (d.categories || []).filter((c) => c.count || c.key === this.cat);
     const pending = (d.reminders || []).filter((r) => r.status === 'pending');
     const accepted = (d.reminders || []).filter((r) => r.status === 'accepted');
     const needLogin = d.status === 'never' || d.status === 'expired';
     return `
       ${needLogin && !d.busy ? this.loginBox() : ''}
+      ${this.digestCard()}
       ${pending.length ? `<section class="ml-sec"><p class="nt-k">在邮件里找到的日期（确认后才算）</p><ul class="ml-rems">${pending.map((r) => this.reminderRow(r)).join('')}</ul></section>` : ''}
       ${accepted.length ? `<section class="ml-sec"><p class="nt-k">即将到来</p><ul class="ml-rems">${accepted.map((r) => this.reminderRow(r)).join('')}</ul></section>` : ''}
       ${all.length || !needLogin ? `<div class="ml-tabs" role="group" aria-label="筛选">
         <button type="button" class="hb-chip" data-filter="important" aria-pressed="${this.filter === 'important'}">重要 ${all.filter((m) => m.important).length}</button>
         <button type="button" class="hb-chip" data-filter="all" aria-pressed="${this.filter === 'all'}">全部 ${all.length}</button>
         <span class="ml-days">最近 ${d.days} 天</span></div>
-      <ul class="ml-list">${shown.map((m) => this.row(m)).join('') || `<li class="hb-hint ml-empty">${this.filter === 'important' ? '没有重要邮件' : '没有邮件'}</li>`}</ul>` : ''}`;
+      ${cats.length ? `<div class="ml-cats" role="group" aria-label="分类">${cats.map((c) => `<button type="button" class="ml-catchip" data-cat="${esc(c.key)}" aria-pressed="${this.cat === c.key}">${esc(c.label)} ${c.count}</button>`).join('')}</div>` : ''}
+      <ul class="ml-list">${shown.map((m) => this.row(m)).join('') || `<li class="hb-hint ml-empty">${this.filter === 'important' ? '没有重要邮件' : '没有邮件'}${this.cat ? '（这个分类下）' : ''}</li>`}</ul>` : ''}`;
+  }
+
+  aiBlock(m, kind) {
+    const text = kind === 'summary' ? m.summary : m.translation;
+    const title = kind === 'summary' ? 'AI 总结' : 'AI 翻译';
+    if (this.aiBusy === `${kind}:${m.id}`) return `<p class="hb-hint ml-busy"><span class="ml-spin" aria-hidden="true"></span>正在${kind === 'summary' ? '总结' : '翻译'}…</p>`;
+    if (!text) return '';
+    return `<section class="ml-ai" aria-label="${title}"><p class="nt-k">${title}<button type="button" class="ml-link" data-ai="${kind}" data-again>重新${kind === 'summary' ? '总结' : '翻译'}</button></p>
+      <div class="ml-ai-text">${esc(text)}</div><p class="hb-hint ml-ai-meta">只供参考，以原邮件为准</p></section>`;
+  }
+
+  htmlBlock(m) {
+    if (m.loading_html) return '<p class="hb-hint ml-busy"><span class="ml-spin" aria-hidden="true"></span>正在读取图文版…</p>';
+    if (!m.html) return '';
+    const remote = this.remote.has(m.id);
+    const blocked = m.html.remote && !remote;
+    return `<div class="ml-html">
+      ${blocked ? `<p class="ml-imgnote">已拦下 ${m.html.remote} 张外部图片（加载会让发件人知道你打开了这封信）<button type="button" class="hb-chip" data-remote>加载外部图片</button></p>` : ''}
+      <iframe class="ml-frame" title="邮件图文版" sandbox="allow-popups allow-popups-to-escape-sandbox" referrerpolicy="no-referrer" srcdoc="${esc(frameDoc(m.html.html, remote))}"></iframe>
+    </div>`;
   }
 
   detailView() {
     const m = this.detail;
     if (!m) return '<p class="hb-hint">正在打开…</p>';
     const body = m.body ?? null;
+    const cats = this.data?.categories || [];
+    const busy = !!this.aiBusy;
+    const showHtml = !!(m.html || m.loading_html);
+    const tools = `<div class="ml-dtools" role="toolbar" aria-label="这封邮件">
+      <button type="button" class="hb-chip ml-mark" data-mark aria-pressed="${!!m.important}" title="${m.mark ? '再点交回规则判断' : ''}">${icon('star')}${m.important ? '重要' : '标为重要'}</button>
+      <label class="ml-catsel"><select data-category aria-label="分类">${cats.map((c) => `<option value="${esc(c.key)}"${c.key === m.category ? ' selected' : ''}>${esc(c.label)}</option>`).join('')}</select></label>
+      <button type="button" class="hb-chip" data-ai="summary"${busy || m.summary ? ' disabled' : ''}>AI 总结</button>
+      <button type="button" class="hb-chip" data-ai="translate"${busy || m.translation ? ' disabled' : ''}>翻译</button>
+      <button type="button" class="hb-chip" data-images${showHtml || this.data?.busy ? ' disabled' : ''}>显示图片</button>
+    </div>
+    ${this.consent && this.consent.kind !== 'digest' ? this.consentBox() : ''}`;
     return `<article class="ml-detail">
       <h3 class="ml-dsubj">${esc(m.subject || '（无标题）')}</h3>
       <p class="ml-dfrom">${esc(m.sender_name)}${m.sender_addr ? ` &lt;${esc(m.sender_addr)}&gt;` : ''} · ${esc(when(m.received_at))}${m.attachments ? ' · 有附件' : ''}</p>
       ${(m.reasons || []).length ? `<p class="ml-whys">${m.reasons.map((r) => `<span class="ml-why">${esc(r)}</span>`).join('')}</p>` : ''}
+      ${tools}
+      ${this.aiBlock(m, 'summary')}
+      ${this.aiBlock(m, 'translate')}
       ${(m.reminders || []).length ? `<ul class="ml-rems">${m.reminders.map((r) => this.reminderRow(r, false)).join('')}</ul>` : ''}
-      <div class="ml-body">${body !== null ? esc(body) : `${esc(m.preview)}${m.loading ? '<p class="hb-hint ml-busy"><span class="ml-spin" aria-hidden="true"></span>正在读取正文…</p>' : '<p class="hb-hint">（正文还没读到，下次刷新时会再试）</p>'}`}</div>
-      <p class="hb-hint">这里只显示文字，不加载图片、不打开链接。要回信或看附件，请到 <a href="${WEB_URL}" target="_blank" rel="noopener noreferrer">网页版邮箱</a> 里操作。</p>
+      ${this.htmlBlock(m)}
+      <div class="ml-body"${showHtml ? ' hidden' : ''}>${body !== null ? esc(body) : `${esc(m.preview)}${m.loading ? '<p class="hb-hint ml-busy"><span class="ml-spin" aria-hidden="true"></span>正在读取正文…</p>' : '<p class="hb-hint">（正文还没读到，下次刷新时会再试）</p>'}`}</div>
+      <p class="hb-hint">${showHtml ? '图文版在沙箱里显示，脚本不会运行；链接在新窗口打开。' : '这里先只显示文字；点「显示图片」看带图片和排版的原样。'}要回信或看附件，请到 <a href="${WEB_URL}" target="_blank" rel="noopener noreferrer">网页版邮箱</a> 里操作。</p>
     </article>`;
   }
 
@@ -240,6 +344,9 @@ export class Mail {
       ${area('senders', '我关心的发件人', '一行一个邮箱地址', r.senders)}
       ${area('keywords', '关键词', '标题或摘要里出现就算；英文按整词匹配', r.keywords)}
       <label class="ml-check"><input type="checkbox" name="use_flags"${r.use_flags !== false ? ' checked' : ''}> 我在邮箱里插了旗标、或发件人标了「重要」的也算</label>
+      <p class="nt-k">AI 总结 / 翻译</p>
+      <label class="ml-check"><input type="checkbox" name="ai_ok"${d.ai?.ok ? ' checked' : ''}> 允许把我点了「AI 总结 / 翻译 / 汇总」的那几封邮件发给模型（节电档里最便宜的一位）</label>
+      <p class="hb-hint">${this.usage()}。翻译成：${esc(d.ai?.language || '')}。</p>
       <p class="nt-k">读取</p>
       <label class="ml-field ml-inline"><span>保留最近</span><input type="number" name="days" min="1" max="60" value="${esc(d.days)}"><span>天的邮件</span></label>
       <label class="ml-check"><input type="checkbox" name="show_window"${d.show_window ? ' checked' : ''}> 后台刷新时也显示浏览器窗口（学校总要求重新登录时可以试试）</label>
@@ -299,11 +406,7 @@ export class Mail {
     const m = await this.call(this.api.message, id);
     if (!m) return;
     this.detail = m;
-    this.paint();
-    if (m.loading) {
-      clearTimeout(this.timer);
-      this.timer = setTimeout(() => this.poll(), POLL_MS);
-    }
+    this.watchDetail();
   }
 
   async act(fn, ...args) {
@@ -318,6 +421,7 @@ export class Mail {
     if (t.closest('[data-back]')) {
       this.view = 'list';
       this.detail = null;
+      this.consent = null;
       return this.paint();
     }
     if (t.closest('[data-settings-open]')) {
@@ -327,6 +431,43 @@ export class Mail {
     const f = t.closest('[data-filter]');
     if (f) {
       this.filter = f.dataset.filter;
+      return this.paint();
+    }
+    const cat = t.closest('[data-cat]');
+    if (cat) {
+      this.cat = this.cat === cat.dataset.cat ? '' : cat.dataset.cat;
+      return this.paint();
+    }
+    const ai = t.closest('[data-ai]');
+    if (ai) return this.runAI(ai.dataset.ai, ai.hasAttribute('data-again'));
+    if (t.closest('[data-consent]')) {
+      const next = this.consent;
+      this.consent = null;
+      if (await this.act(this.api.settings, { ai_ok: true })) return this.runAI(next.kind, next.again);
+      return;
+    }
+    if (t.closest('[data-consent-no]')) {
+      this.consent = null;
+      return this.paint();
+    }
+    if (t.closest('[data-mark]') && this.detail) {
+      const m = this.detail;
+      // 规则判断的 → 反着标；手动标过的 → 交回规则
+      const mark = m.mark ? null : m.important ? 'normal' : 'important';
+      if (await this.act(this.api.mark, m.id, mark)) this.showDetail(m.id);
+      return;
+    }
+    if (t.closest('[data-images]') && this.detail) {
+      const m = await this.call(this.api.images, this.detail.id);
+      if (m) {
+        this.detail = m;
+        await this.reload();
+        this.watchDetail();
+      }
+      return;
+    }
+    if (t.closest('[data-remote]') && this.detail) {
+      this.remote.add(this.detail.id);
       return this.paint();
     }
     const open = t.closest('[data-open]');
@@ -354,12 +495,41 @@ export class Mail {
     }
   }
 
+  async onChange(e) {
+    const sel = e.target.closest('[data-category]');
+    if (!sel || !this.detail) return;
+    const m = this.detail;
+    if (await this.act(this.api.category, m.id, sel.value)) this.showDetail(m.id);
+  }
+
+  /** AI 总结 / 翻译 / 汇总：没同意过先问；同一时间只跑一个。 */
+  async runAI(kind, again = false) {
+    if (this.aiBusy) return;
+    if (!this.data?.ai?.ok) {
+      this.consent = { kind, again };
+      return this.paint();
+    }
+    const id = kind === 'digest' ? null : this.detail?.id;
+    if (kind !== 'digest' && !id) return;
+    this.aiBusy = kind === 'digest' ? 'digest' : `${kind}:${id}`;
+    this.paint();
+    const got = await this.call(this.api.ai, kind, id, again);
+    this.aiBusy = '';
+    if (!got) return this.paint();
+    if (kind === 'digest') return this.take(got);
+    if (this.detail?.id === id) this.detail = got;
+    this.data = { ...this.data, ai: got.ai };
+    this.paint();
+    this.reload();
+  }
+
   async onSubmit(e) {
     if (!e.target.matches('[data-settings]')) return;
     e.preventDefault();
     const f = new FormData(e.target);
     const body = {
       enabled: f.get('enabled') === 'on',
+      ai_ok: f.get('ai_ok') === 'on',
       days: Number(f.get('days')) || 14,
       show_window: f.get('show_window') === 'on',
       extra_hosts: lines(f.get('extra_hosts')),

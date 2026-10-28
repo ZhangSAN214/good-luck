@@ -67,7 +67,7 @@ from roundtable.core.evolution_plugins import (
 from roundtable.core.evolution_scout import SCOUT_WEEK_KEY, Scout, ScoutError
 from roundtable.core.ideaboard import Board
 from roundtable.core.life import LIFE_STEPS, LifeEngine
-from roundtable.core.mail import MailBox, MailBusy, OwaBrowser
+from roundtable.core.mail import MailAI, MailAIError, MailBox, MailBusy, OwaBrowser
 from roundtable.core.media import KIND_LABELS, KINDS, MediaService
 from roundtable.core.members_art import MEMBERS_FILE, load_members, mime_of, resolve_file
 from roundtable.core.memory import LAYERS, MemoryKeeper, clean_memory
@@ -140,6 +140,7 @@ class RoundtableService:
         self.memory = MemoryKeeper(runtime, self.chats.everyone)
         self.life = LifeEngine(runtime, self.chats, self.memory)
         self.mail = MailBox(runtime.repo)
+        self.mail_ai = MailAI(runtime, self.mail)
         if runtime.mail_source is not None:
             self.mail.source = runtime.mail_source
         elif runtime.mail_dir is not None:
@@ -595,15 +596,20 @@ class RoundtableService:
 
     # --- 终端邮件栏（用户本人学校邮箱，只读；docs/MAIL.md） --------------------------------
 
-    def mail_view(self) -> dict[str, Any]:
-        return self.mail.view()
+    def _mail_view(self) -> dict[str, Any]:
+        return {**self.mail.view(), "ai": self.mail_ai.status()}
 
-    def mail_settings(self, **changes: Any) -> dict[str, Any]:
+    def mail_view(self) -> dict[str, Any]:
+        return self._mail_view()
+
+    def mail_settings(self, *, ai_ok: bool | None = None, **changes: Any) -> dict[str, Any]:
         try:
             self.mail.set_settings(**{k: v for k, v in changes.items() if v is not None})
         except ValueError as exc:
             raise ServiceError(str(exc)) from None
-        return self.mail.view()
+        if ai_ok is not None:
+            self.mail_ai.set_consent(ai_ok)
+        return self._mail_view()
 
     def _mail_do(self, fn: Any, *args: Any, **kw: Any) -> Any:
         try:
@@ -616,11 +622,11 @@ class RoundtableService:
     def mail_login(self) -> dict[str, Any]:
         """弹出专用窗口，由用户本人登录（圆桌不代填、不保存密码）。"""
         self._mail_do(self.mail.login)
-        return self.mail.view()
+        return self._mail_view()
 
     def mail_refresh(self, *, manual: bool) -> dict[str, Any]:
         started = self._mail_do(self.mail.refresh, manual=manual)
-        return {**self.mail.view(), "started": started}
+        return {**self._mail_view(), "started": started}
 
     def mail_message(self, message_id: str) -> dict[str, Any]:
         m = self.mail.message(message_id)
@@ -631,15 +637,46 @@ class RoundtableService:
     def mail_reminder(self, reminder_id: int, action: str) -> dict[str, Any]:
         if not self._mail_do(self.mail.set_reminder, reminder_id, action):
             raise ServiceError("没有这条提醒", 404)
-        return self.mail.view()
+        return self._mail_view()
 
     def mail_logout(self) -> dict[str, Any]:
         self._mail_do(self.mail.logout)
-        return self.mail.view()
+        self.mail_ai.set_consent(False)  # 退出 = 清除全部，包括「同意发给 AI」
+        return self._mail_view()
 
     def mail_clear(self) -> dict[str, Any]:
         self.mail.clear_cache()
-        return self.mail.view()
+        return self._mail_view()
+
+    def mail_mark(self, message_id: str, mark: str | None) -> dict[str, Any]:
+        """手动标重要 / 不重要（None 交回规则）。只记在本机，不写回邮箱。"""
+        if not self._mail_do(self.mail.set_mark, message_id, mark):
+            raise ServiceError("没有这封邮件（可能已超出保留天数）", 404)
+        return self._mail_view()
+
+    def mail_category(self, message_id: str, category: str | None) -> dict[str, Any]:
+        if not self._mail_do(self.mail.set_category, message_id, category):
+            raise ServiceError("没有这封邮件（可能已超出保留天数）", 404)
+        return self._mail_view()
+
+    def mail_images(self, message_id: str) -> dict[str, Any]:
+        """在后台取这封信的图文版正文（含邮件自带的图片）。"""
+        self._mail_do(self.mail.load_images, message_id)
+        return self.mail_message(message_id)
+
+    async def mail_ai_do(self, kind: str, message_id: str | None, *, again: bool) -> dict:
+        """AI 总结 / 翻译 / 重要邮件汇总：只在用户点了以后调用，有每月和每天上限。"""
+        try:
+            if kind == "digest":
+                await self.mail_ai.digest()
+                return self._mail_view()
+            if not message_id:
+                raise ServiceError("缺少邮件 id")
+            fn = self.mail_ai.summarize if kind == "summary" else self.mail_ai.translate
+            await fn(message_id, again=again)
+        except MailAIError as exc:
+            raise ServiceError(str(exc), 409) from None
+        return {**self.mail_message(message_id), "ai": self.mail_ai.status()}
 
     # --- 办公室：名册与工资单 ------------------------------------------------------
 
