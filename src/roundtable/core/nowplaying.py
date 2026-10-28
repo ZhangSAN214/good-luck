@@ -19,6 +19,8 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import hashlib
+import json
+import re
 import threading
 import time
 from collections.abc import Callable
@@ -48,6 +50,11 @@ COVER_TYPES = {
     ".webp": "image/webp",
 }
 MAX_COVERS = 60
+# 封面上的动态特效（画在网页里）；每张封面配哪种写在封面目录的 effects.json：
+# {"<名字>": {"fx": "snow", "color": "#rrggbb"}}
+FX = ("rain", "snow", "leaves", "petals", "stars", "bubbles")
+EFFECTS_FILE = "effects.json"
+_HEX = re.compile(r"^#[0-9a-fA-F]{6}$")
 
 
 @dataclass(frozen=True)
@@ -382,14 +389,35 @@ def list_covers(folder: Path | None) -> list[dict[str, str]]:
     """封面目录里的图片：[{name, url}]，按文件名排序；目录不存在时为空。"""
     if folder is None or not folder.is_dir():
         return []
+    fx = cover_effects(folder)
     out = []
     for p in sorted(folder.iterdir(), key=lambda x: x.name):
         if p.is_file() and p.suffix.lower() in COVER_TYPES:
-            out.append(
-                {"name": p.stem.removeprefix("cover_"), "url": f"/api/music/covers/{quote(p.name)}"}
-            )
+            name = p.stem.removeprefix("cover_")
+            url = f"/api/music/covers/{quote(p.name)}"
+            out.append({"name": name, "url": url, **fx.get(name, {})})
         if len(out) >= MAX_COVERS:
             break
+    return out
+
+
+def cover_effects(folder: Path) -> dict[str, dict[str, str]]:
+    """封面目录里 effects.json 写的特效；文件没有、读不了或写错的条目一律忽略。"""
+    p = folder / EFFECTS_FILE
+    try:
+        if not p.is_file() or p.stat().st_size > 64 * 1024:
+            return {}
+        raw = json.loads(p.read_text(encoding="utf-8-sig"))
+    except (OSError, ValueError):
+        return {}
+    out: dict[str, dict[str, str]] = {}
+    for name, v in raw.items() if isinstance(raw, dict) else ():
+        if not isinstance(v, dict) or v.get("fx") not in FX:
+            continue
+        item = {"fx": v["fx"]}
+        if isinstance(v.get("color"), str) and _HEX.match(v["color"]):
+            item["color"] = v["color"].lower()
+        out[str(name)[:40]] = item
     return out
 
 

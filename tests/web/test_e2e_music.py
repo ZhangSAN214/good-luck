@@ -211,6 +211,7 @@ def test_music_card_colors_text_and_cover_are_customizable(serve, page, tmp_path
     covers = tmp_path / "music_covers"
     covers.mkdir()
     (covers / "cover_claude.png").write_bytes(_png())
+    (covers / "effects.json").write_text('{"claude": {"fx": "petals"}}', encoding="utf-8")
     srv = serve(
         confirm_threshold_usd=100.0,
         setup=lambda env: setattr(env.rt, "standee_file", tmp_path / "standee.json"),
@@ -233,6 +234,14 @@ def test_music_card_colors_text_and_cover_are_customizable(serve, page, tmp_path
     assert page.inner_text("#hub .mu-tag") == "晚安电台"
     assert "/api/music/covers/cover_claude.png" in page.get_attribute("#hub .mu-art img", "src")
     assert "--mu-accent:#c0392b" in page.get_attribute("#hub .mu-panel", "style")
+    # 成员封面按 effects.json 飘花瓣、头发那层会摆；外观里可以关掉
+    assert page.locator("#hub .mu-art .mu-fx").count() == 1
+    assert page.locator("#hub .mu-art .mu-hair").count() == 1
+    wait_until(lambda: page.evaluate("document.querySelector('#hub .mu-fx').width") > 0)
+    _view(page, "skin")
+    page.select_option("#hub [data-mu-fx]", "off")
+    _view(page, "skin")
+    assert page.locator("#hub .mu-art .mu-hair").count() == 0
     assert posts == []  # 外观只存本机浏览器
     page.reload()
     page.wait_for_selector("#hub .mu-btn")
@@ -250,6 +259,9 @@ def test_music_mini_card_sits_under_the_clock_and_can_collapse(serve, page):
     mini = page.locator("#hub .mu-mini").bounding_box()
     assert mini["y"] >= clock["y"] + clock["height"]  # 在时钟下面
     assert abs(mini["x"] - clock["x"]) < 2
+    assert abs(mini["width"] - clock["width"]) < 2  # 同宽、右边也对齐
+    # 默认墨蓝：跟首页卡片同一层玻璃
+    assert "--mu-bg:var(--hb-glass" in page.get_attribute("#hub .mu-mini", "style")
     # 小卡上的播放键直接放
     page.set_input_files("#hub [data-mu-file]", [_song("晚风.wav")])
     wait_until(lambda: page.inner_text("#hub .mu-label") == "晚风")
@@ -266,3 +278,7 @@ def test_music_mini_card_sits_under_the_clock_and_can_collapse(serve, page):
     # 点小卡打开完整播放器
     page.click("#hub .mu-mini .mu-btn")
     page.wait_for_selector("#hub .mu-panel", state="visible")
+    page.wait_for_timeout(450)  # 等展开动画放完再量
+    panel = page.locator("#hub .mu-panel").bounding_box()
+    mini = page.locator("#hub .mu-mini").bounding_box()
+    assert abs(panel["x"] - mini["x"]) < 2 and abs(panel["width"] - mini["width"]) < 2
