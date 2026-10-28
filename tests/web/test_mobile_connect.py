@@ -98,8 +98,11 @@ def test_saved_settings_survive_bad_storage():
 
 @pytest.fixture
 def www():
-    handler = functools.partial(SimpleHTTPRequestHandler, directory=str(WWW))
-    handler.log_message = lambda *a: None  # type: ignore[method-assign]
+    class Quiet(SimpleHTTPRequestHandler):
+        def log_message(self, *a):
+            pass
+
+    handler = functools.partial(Quiet, directory=str(WWW))
     httpd = ThreadingHTTPServer(("127.0.0.1", 0), handler)
     threading.Thread(target=httpd.serve_forever, daemon=True).start()
     yield f"http://127.0.0.1:{httpd.server_port}"
@@ -122,7 +125,8 @@ def test_page_connects_and_back_does_not_loop(browser, www):
         # 家里地址填这台测试服务器：跳过去（这里就是同一个页面，带上返回标记后不再自动连）
         pg.fill("#home", www.removeprefix("http://"))
         pg.click("#go")
-        wait_until(lambda: pg.url == f"{www}/")
+        # pg.url 本身不推进事件循环，要用 wait_for_url 等跳转完成
+        pg.wait_for_url(f"{www}/", timeout=10_000)
         wait_until(lambda: "改一下" in pg.locator("#msg").inner_text())
         saved = pg.evaluate("localStorage.getItem('roundtable.remote.v1')")
         assert json.loads(saved) == {"home": www, "away": ""}
