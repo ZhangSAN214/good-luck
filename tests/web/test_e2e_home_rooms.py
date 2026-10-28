@@ -51,7 +51,7 @@ def test_art_room_hotspot_and_window_weather(serve, page, tmp_path):
     art.first.wait_for()
     assert art.count() == 1
     assert "/api/members/files/m1/room_day.webp" in art.first.inner_html()
-    art.first.locator(".zbtn").click(force=True)
+    art.first.locator(".zbtn").click()  # 不加 force：渲染中途换掉按钮时会自动重试
     page.wait_for_selector(".zstage [data-hot='chair']")
     assert page.locator(".zstage [data-hot='bed']").count() == 1
     page.locator(".zstage [data-hot='chair']").click(force=True)
