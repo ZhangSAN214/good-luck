@@ -95,7 +95,7 @@ def test_local_covers_stay_inside_their_folder(tmp_path):
     (d / "cover_claude.png").write_bytes(PNG)
     (d / "notes.txt").write_text("x")
     (tmp_path / "secret.png").write_bytes(PNG)
-    assert list_covers(d) == [{"name": "cover_claude", "url": "/api/music/covers/cover_claude.png"}]
+    assert list_covers(d) == [{"name": "claude", "url": "/api/music/covers/cover_claude.png"}]
     assert read_cover(d, "cover_claude.png") == (PNG, "image/png")
     for bad in ("../secret.png", "notes.txt", "..\\secret.png", ".hidden.png", ""):
         assert read_cover(d, bad) is None

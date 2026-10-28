@@ -40,7 +40,7 @@
 .mu-sm[aria-pressed="true"]{background:var(--mu-soft)}
 
 /* 画框封面：主色描边、大圆角，图片铺满；切歌时淡入 */
-.mu-art{margin:2px 0 0;aspect-ratio:1/1.08;border:3px solid var(--mu-accent);border-radius:18px;overflow:hidden;background:color-mix(in srgb,var(--mu-text) 5%,var(--mu-solid))}
+.mu-art{margin:2px 0 0;aspect-ratio:4/5;border:3px solid var(--mu-accent);border-radius:18px;overflow:hidden;background:color-mix(in srgb,var(--mu-text) 5%,var(--mu-solid))}
 .mu-art img{display:block;width:100%;height:100%;object-fit:cover;animation:mu-fade .5s ease}
 .mu-art.empty{display:grid;place-items:center;background:radial-gradient(120% 90% at 30% 20%,var(--mu-soft),transparent 70%),color-mix(in srgb,var(--mu-text) 4%,var(--mu-solid))}
 .mu-art-ph{color:var(--mu-line)}
@@ -114,7 +114,7 @@
 .mu-colors input::-webkit-color-swatch{border:0;border-radius:50%;box-shadow:0 0 0 .5px rgba(0,0,0,.2)}
 .mu-colors input::-moz-color-swatch{border:0;border-radius:50%}
 .mu-thumbs{display:grid;grid-template-columns:repeat(5,1fr);gap:6px}
-.mu-thumb{aspect-ratio:1/1.08;padding:0;border:2px solid transparent;border-radius:10px;overflow:hidden;background:var(--mu-soft);color:var(--mu-accent);font-size:20px;cursor:pointer}
+.mu-thumb{aspect-ratio:4/5;padding:0;border:2px solid transparent;border-radius:10px;overflow:hidden;background:var(--mu-soft);color:var(--mu-accent);font-size:20px;cursor:pointer}
 .mu-thumb img{display:block;width:100%;height:100%;object-fit:cover}
 .mu-thumb[aria-pressed="true"]{border-color:var(--mu-accent)}
 
@@ -134,7 +134,7 @@
 .mu-mini:hover{transform:translateY(-1px)}
 .mu-mini .mu-btn{flex:1;min-width:0;max-width:none;gap:10px;padding:0 4px 0 0;border-radius:14px;background:none;box-shadow:none;color:inherit;text-align:left}
 .mu.on .mu-mini .mu-btn{background:none}
-.mu-mthumb{display:grid;place-items:center;width:46px;height:50px;flex:none;border:2px solid var(--mu-accent);border-radius:11px;overflow:hidden;background:var(--mu-soft);color:var(--mu-accent)}
+.mu-mthumb{display:grid;place-items:center;width:44px;height:55px;flex:none;border:2px solid var(--mu-accent);border-radius:11px;overflow:hidden;background:var(--mu-soft);color:var(--mu-accent)}
 .mu-mthumb img{width:100%;height:100%;object-fit:cover;display:block}
 .mu-mtxt{display:flex;flex-direction:column;gap:2px;min-width:0}
 .mu-mini .mu-label{font-family:var(--hb-serif);font-size:15px;font-weight:500;letter-spacing:.03em}

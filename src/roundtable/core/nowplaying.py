@@ -385,7 +385,9 @@ def list_covers(folder: Path | None) -> list[dict[str, str]]:
     out = []
     for p in sorted(folder.iterdir(), key=lambda x: x.name):
         if p.is_file() and p.suffix.lower() in COVER_TYPES:
-            out.append({"name": p.stem, "url": f"/api/music/covers/{quote(p.name)}"})
+            out.append(
+                {"name": p.stem.removeprefix("cover_"), "url": f"/api/music/covers/{quote(p.name)}"}
+            )
         if len(out) >= MAX_COVERS:
             break
     return out

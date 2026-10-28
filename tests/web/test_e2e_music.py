@@ -228,7 +228,7 @@ def test_music_card_colors_text_and_cover_are_customizable(serve, page, tmp_path
     page.fill("#hub [data-mu-color='accent']", "#c0392b")
     page.dispatch_event("#hub [data-mu-color='accent']", "change")
     page.fill("#hub [data-mu-tag]", "晚安电台")
-    page.click("#hub .mu-thumb[title='cover_claude']")
+    page.click("#hub .mu-thumb[title='claude']")
     _view(page, "skin")  # 回到播放器
     assert page.inner_text("#hub .mu-tag") == "晚安电台"
     assert "/api/music/covers/cover_claude.png" in page.get_attribute("#hub .mu-art img", "src")

@@ -61,7 +61,7 @@ def _covers(c, tmp_path):
     (tmp_path / "music_covers").mkdir()
     (tmp_path / "music_covers" / "cover_whale.png").write_bytes(PNG)
     covers = c.get("/api/music/covers").json()["covers"]
-    assert covers == [{"name": "cover_whale", "url": "/api/music/covers/cover_whale.png"}]
+    assert covers == [{"name": "whale", "url": "/api/music/covers/cover_whale.png"}]
     assert c.get(covers[0]["url"]).content == PNG
     assert c.get("/api/music/covers/..%2Fstandee.json").status_code == 404
     assert c.get("/api/music/covers/nope.png").status_code == 404
