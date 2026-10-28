@@ -157,6 +157,8 @@ details.more div{white-space:pre-wrap;margin-top:4px;color:var(--ink)}
 .sys .role{flex:none;background:var(--inner);color:var(--inner-ink);padding:0 6px;border-radius:4px;font-size:11px;font-family:var(--f-body)}
 .sys span{min-width:0;overflow-wrap:anywhere}
 .sys.ok{color:var(--ok)} .sys.bad{color:var(--bad)}
+.sys .exports{display:inline-flex;gap:6px;align-items:center;flex-wrap:wrap;color:var(--muted)}
+.sys .exports .btn{text-decoration:none}
 .phase{display:flex;align-items:center;gap:10px;font-size:12px;font-weight:500;color:var(--brass-ink);letter-spacing:.04em}
 .phase::before,.phase::after{content:"";flex:1;height:1px;background:var(--brass-line)}
 .seen{animation:none!important}

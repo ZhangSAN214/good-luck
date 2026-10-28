@@ -822,6 +822,18 @@ def create_app(service: RoundtableService | None = None, lan: LanAccess | None =
                 )
         return Response(content=data, media_type=media, headers=headers)
 
+    @app.get("/api/sessions/{session_id}/export")
+    async def export_document(request: Request, session_id: str, format: str = "docx") -> Response:
+        """导出最终成果：md / docx / pptx / pdf / html（本地转换，不调用模型）。"""
+        data, name, mime = svc(request).export_document(session_id, format)
+        headers = {
+            "Content-Disposition": f"attachment; filename*=UTF-8''{quote(name)}",
+            "X-Content-Type-Options": "nosniff",
+            "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+            "Cache-Control": "no-store",
+        }
+        return Response(content=data, media_type=mime, headers=headers)
+
     @app.get("/api/sessions/{session_id}/files/{file_id}/preview")
     async def file_preview(request: Request, session_id: str, file_id: str) -> dict[str, Any]:
         return svc(request).file_preview(session_id, file_id)
