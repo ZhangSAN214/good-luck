@@ -1,0 +1,4 @@
+node_modules/
+# 由 scripts/build-android.mjs 从 Capacitor 模板生成
+android/
+ios/

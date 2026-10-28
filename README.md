@@ -25,6 +25,8 @@ pip install -e ".[dev]"            # 只运行不开发可用 pip install -e .
 
 Windows 可以直接双击 `start.bat`：它会创建 `.venv`、`git pull`、安装依赖、安装代码沙箱、停掉 8000 端口上旧的圆桌服务（旧窗口或后台启动的），再启动服务并打开浏览器。关闭窗口或按 Ctrl+C 停止；没有窗口的旧服务可以双击 `stop.bat` 停掉。
 
+想像普通软件一样双击图标打开（没有黑色窗口，Windows 和 macOS 都行）：双击一次 `install_desktop.bat`（Mac 上是 `install_desktop.command`），桌面上会出现「圆桌」图标，见 [docs/DESKTOP.md](docs/DESKTOP.md)。
+
 ## 填写 key
 
 ```bash

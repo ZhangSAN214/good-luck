@@ -28,6 +28,18 @@ releases:
     added:
       - 封面会动：头发轻轻飘，画面上飘细雨、雪、落叶、花瓣、星屑或气泡，每位成员一种
     howto: 播放器右上角调色盘 →「动态」里可以换特效或选「不要动」；电脑开了「减少动态」时自动静止。
+
+  - version: "1.45"
+    date: 2026-10-28
+    title: 圆桌有了电脑和手机 App
+    pr: [45]
+    added:
+      - Windows 和 Mac 上可以像普通软件一样双击「圆桌」图标打开：自带窗口，不再有黑色窗口，关掉窗口就停止
+      - 「圆桌（平板可连）」图标：同时让家里 Wi-Fi 下的平板 / 手机连进来，不用再双击 start_lan.bat
+      - 安卓手机 / 平板可以装圆桌 App：记住电脑地址，打开就自动连上；离家地址（Tailscale）也能预先填好
+      - iPhone / iPad 继续用 Safari「添加到主屏幕」，说明写进了文档
+    howto: 关掉黑色窗口，双击一次 install_desktop.bat（Mac 上是 install_desktop.command），之后用桌面上的「圆桌」图标。安卓 App 的安装步骤见 docs/MOBILE.md。
+
   - version: "1.44"
     date: 2026-10-28
     title: 音乐换成竖版播放器卡片，还能跟着电脑上的 QQ 音乐

@@ -43,6 +43,10 @@ windows = [
     "winrt-Windows.Media.Control>=2.0; sys_platform == 'win32'",
     "winrt-Windows.Storage.Streams>=2.0; sys_platform == 'win32'",
 ]
+# 桌面版的应用窗口（Windows 用 Edge WebView2，macOS 用系统 WebKit）；没装时改用 Edge / Chrome 应用窗口
+desktop = [
+    "pywebview>=5.3",
+]
 dev = [
     "av>=12",
     "pillow>=10",

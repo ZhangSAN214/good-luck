@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>圆桌</title>
+<meta name="theme-color" content="#0f1724">
+<style>
+  :root{--bg:#0f1724;--card:rgba(28,40,60,.72);--ink:#eef2f8;--mute:#9aa8bb;--gold:#e2be78;--bad:#f09a86;--line:rgba(255,255,255,.12)}
+  *{box-sizing:border-box}
+  html,body{min-height:100%;margin:0}
+  body{background:radial-gradient(120% 90% at 50% 0%,#1d2b44,var(--bg) 70%);color:var(--ink);
+    font-family:"Noto Sans SC","PingFang SC","Microsoft YaHei",system-ui,sans-serif;font-size:16px;line-height:1.6;
+    display:grid;place-items:center;padding:max(16px,env(safe-area-inset-top)) 16px max(16px,env(safe-area-inset-bottom))}
+  main{width:min(440px,100%);background:var(--card);border-radius:28px;padding:28px 24px;
+    box-shadow:0 30px 80px -20px rgba(0,0,0,.6),inset 0 1px 0 rgba(255,255,255,.08)}
+  .logo{display:block;width:72px;height:72px;border-radius:18px;margin:0 auto 10px}
+  h1{margin:0 0 4px;text-align:center;font-family:"Noto Serif SC","Songti SC",serif;font-weight:500;font-size:26px;letter-spacing:.2em}
+  .sub{margin:0 0 20px;text-align:center;color:var(--mute);font-size:14px}
+  label{display:block;font-size:14px;color:var(--mute);margin:14px 0 6px}
+  input{width:100%;font:inherit;font-size:17px;color:var(--ink);background:rgba(0,0,0,.28);border:1px solid var(--line);
+    border-radius:14px;padding:12px 14px;outline:none}
+  input:focus{border-color:var(--gold)}
+  button{width:100%;margin-top:18px;font:inherit;font-size:17px;letter-spacing:.2em;border:0;border-radius:14px;
+    padding:13px;background:var(--gold);color:#1a1408;min-height:48px}
+  button:disabled{opacity:.6}
+  .msg{min-height:1.6em;margin:12px 0 0;font-size:14px;color:var(--mute);text-align:center}
+  .msg.bad{color:var(--bad)}
+  .note{margin:18px 0 0;color:var(--mute);font-size:13px}
+  .note ol{margin:6px 0 0;padding-left:1.3em}
+</style>
+</head>
+<body>
+<main>
+  <img class="logo" src="icon.png" alt="">
+  <h1>圆桌</h1>
+  <p class="sub">连到你电脑上的圆桌（数据只在电脑上）</p>
+  <form id="f" novalidate>
+    <label for="home">家里 Wi-Fi 的地址</label>
+    <input id="home" inputmode="url" autocapitalize="off" autocomplete="off" spellcheck="false" placeholder="例如 192.168.1.23:8000">
+    <label for="away">离家时的地址（装了 Tailscale 才填，可不填）</label>
+    <input id="away" inputmode="url" autocapitalize="off" autocomplete="off" spellcheck="false" placeholder="例如 100.64.1.2:8000">
+    <button id="go" type="submit">连接</button>
+    <p class="msg" id="msg" role="status"></p>
+  </form>
+  <div class="note">第一次怎么填：
+    <ol>
+      <li>电脑上用「圆桌（平板可连）」图标（或 start_lan.bat）启动圆桌。</li>
+      <li>电脑上点圆桌顶部「平板」：设访问口令，下面列出的地址填到上面。也可以粘贴二维码里的链接。</li>
+      <li>点「连接」，输入口令。之后打开 App 会自动连上，登录保持 30 天。</li>
+    </ol>
+    在圆桌里按手机的「返回」可以回到这页改地址。
+  </div>
+</main>
+<script type="module" src="connect.js"></script>
+</body>
+</html>
