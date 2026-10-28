@@ -212,6 +212,8 @@
 ```
 README.md      安装、.env、加模型 / 步骤 / 提示词版本、上传、沙箱、搜索与隐私
 .github/workflows/ci.yml   ruff + pytest（含 Playwright 端到端）
+.github/workflows/desktop.yml   桌面版在 Windows / macOS 上冒烟（只在桌面版相关文件变动的 PR 上跑）
+install_desktop.bat / install_desktop.command   安装并生成桌面版图标（docs/DESKTOP.md）
 config/        models.yaml  roundtable.yaml  personas.yaml  routing.yaml  plugin_board.yaml（插件榜数据，不属于运行配置）  changelog.yaml（公告栏的版本更新说明，每合并一个 PR 在最上面追加一条）
 prompts/       planner/ answer/ answer_quick/ review/ revise/ synthesize/ redo/
                attachments/ describe_image/ transcribe/ tools/（v4） image_gen/ web_search/ web_fetch/
@@ -251,10 +253,11 @@ src/roundtable/
   cli.py         命令行试用（`roundtable` 命令，见 docs/CLI.md）
   plaintext.py   命令行显示用：LaTeX 数学式转纯文本、去掉 Markdown 加粗符号（不改动存储的原文）
   api/           FastAPI 应用、路由、SSE
+  desktop/       桌面版（docs/DESKTOP.md）：launcher.py 在本进程起服务并打开应用窗口（pywebview → Edge / Chrome 应用窗口 → 默认浏览器），关窗即停；install.py 生成 Windows 快捷方式 / macOS .app
 web/             index.html、css/（app.css、agent.css 小人、ideas.css 头脑风暴结果页）、js/（api.js 通信、view.js 渲染、ideas.js 头脑风暴结果页、app.js 状态与交互、hub.js 终端首页、standee.js 终端大立绘（浏览器里柔边抠底，表情差分眨眼说话，点击台词；位置大小等设置只存本机浏览器；有 rig 素材且支持 WebGL2 时由 standee_gl.js 在显卡上逐像素做全身网格形变、standee_motion.js 算动作和弹簧物理，否则按行切条形变做呼吸 / 跟随 / 摆动）、usage.js 余额与用量（账户余额、预算、对账、钱折算 token、详细用量；只读）、music.js 终端背景音乐（首页时钟下的悬浮小卡，可收起成小按钮；点开是竖版播放器卡片：画框封面、粗进度条、大按钮；底色 / 主色 / 文字颜色、小字、封面可自定义，只存本机浏览器；本地音乐是用户自选音频，只存本机浏览器 IndexedDB，不经服务器，mp3 内嵌封面在浏览器里读；「QQ 音乐」来源经 /api/nowplaying 跟随电脑上的播放器）、clock.js 终端多时区时钟（最多 3 个，Intl 时区表处理夏令时，设置只存本机）、notice.js 终端公告栏（版本更新说明，已读只存本机）、mail.js 终端邮件栏（学校邮箱只读：重要邮件与手动标记、分类筛选、速览卡、正文、沙箱里的图文版、点了才调用的 AI 总结 / 翻译、截止日期提醒、规则设置；不收密码）、agent/ 网页小人、boot.js 开机动画、bootcfg.js 片头设置）、boot/（开机动画页：dawn.html「晨会协议」片头（原创）、gmu.html 早上好联合访问授权（改编自 MIT 开源项目）、assets/ 徽记与二维码库；音效与朗读由 boot.js 统一负责；出处见 boot/CREDITS.md）
 tests/
 docs/            REQUIREMENTS_v3.md  PLAN.md  CLI.md  OFFICE.md（办公室模式）  EVOLUTION.md（自我学习革新：候选池与更新日志）  evolution/（革新例会说明、周报与资料卡模板、每周周报）  mockup.html
-scripts/         evolve_review.py（革新 PR 的可选复审，没有 key 时跳过）  standee_rig.py（把大立绘做成全身网格形变素材：瞳孔层、补眼白、权重图；本机处理、不调用模型）  check_models.py（核对 OpenRouter 渠道的模型 ID 与价格；带 vision / image_edit 标签的模型还核对远端 input_modalities 含 image）  lock_prompts.py（登记提示词版本）
+scripts/         evolve_review.py（革新 PR 的可选复审，没有 key 时跳过）  standee_rig.py（把大立绘做成全身网格形变素材：瞳孔层、补眼白、权重图；本机处理、不调用模型）  check_models.py（核对 OpenRouter 渠道的模型 ID 与价格；带 vision / image_edit 标签的模型还核对远端 input_modalities 含 image）  lock_prompts.py（登记提示词版本）  install_desktop.py（生成桌面版图标）
                  setup_sandbox.py（安装代码运行沙箱）  try_image.py（真实调用一次画图模型，核对接口格式）
 sandbox/         Dockerfile（可选的 docker 沙箱）、README.md
 .env.example
