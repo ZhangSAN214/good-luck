@@ -1,5 +1,5 @@
 // 大立绘的网格形变渲染（WebGL）：一张立绘 + 瞳孔层 + 三张权重图，在显卡上逐像素算形变。
-// 权重图由 scripts/standee_rig.py 生成（头、脸部纵深、胸口、拿书手臂、左右长发、前发、裙摆、饰品、
+// 表情差分各自一张纹理，换表情只改混合比例。权重图由 scripts/standee_rig.py 生成（头、脸部纵深、胸口、拿书手臂、左右长发、前发、裙摆、饰品、
 // 沿发丝的位置、眼眶开口）。每一帧只改几个 uniform，CPU 几乎不干活，所以能稳定跑满屏幕刷新率。
 // 做法是「反向映射」：屏幕上每个像素问「我该显示原图哪一点」，形变量小而平滑，迭代两次就够准。
 
@@ -9,7 +9,9 @@ void main() { gl_Position = vec4(aPos, 0.0, 1.0); }`;
 
 const FS = `#version 300 es
 precision highp float;
-uniform sampler2D uBase, uIris, uW1, uW2, uW3;
+uniform sampler2D uBase, uIris, uW1, uW2, uW3, uPatchA, uPatchB;
+uniform vec4 uBoxA, uBoxB;
+uniform float uAlphaA, uAlphaB;
 uniform vec2 uSize, uCanvas, uPad;
 uniform float uFlip, uFadeAt, uFadePx, uTime, uIrisOn;
 uniform vec2 uNeck, uFace, uElbow, uWaist, uFeet, uSkirt;
@@ -58,6 +60,17 @@ void main() {
   if (open > 0.0) {
     vec4 iris = texture(uIris, (q - uGaze) / uSize) * open;
     col = iris + col * (1.0 - iris.a);
+  }
+  // 表情差分（脸部贴片）：切换时两张按比例叠上去
+  vec2 ua = (q - uBoxA.xy) / uBoxA.zw;
+  if (uAlphaA > 0.0 && all(greaterThanEqual(ua, vec2(0.0))) && all(lessThanEqual(ua, vec2(1.0)))) {
+    vec4 pa = texture(uPatchA, ua) * uAlphaA;
+    col = pa + col * (1.0 - pa.a);
+  }
+  vec2 ub = (q - uBoxB.xy) / uBoxB.zw;
+  if (uAlphaB > 0.0 && all(greaterThanEqual(ub, vec2(0.0))) && all(lessThanEqual(ub, vec2(1.0)))) {
+    vec4 pb = texture(uPatchB, ub) * uAlphaB;
+    col = pb + col * (1.0 - pb.a);
   }
   // 首页底边：渐隐进去，不留直边
   float y = gl_FragCoord.y;
@@ -111,7 +124,7 @@ export class RigRenderer {
       this.u[name] = gl.getUniformLocation(prog, name);
     }
     this.tex = {};
-    ['uBase', 'uIris', 'uW1', 'uW2', 'uW3'].forEach((name, unit) => {
+    ['uBase', 'uIris', 'uW1', 'uW2', 'uW3', 'uPatchA', 'uPatchB'].forEach((name, unit) => {
       const t = gl.createTexture();
       gl.activeTexture(gl.TEXTURE0 + unit);
       gl.bindTexture(gl.TEXTURE_2D, t);
@@ -149,36 +162,47 @@ export class RigRenderer {
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, src);
   }
 
-  /**
-   * 立绘本体（抠好底、叠好表情差分的画布）变了才重新上传。rect（像素 [x, y, w, h]）给出时只传这一块
-   * （眨眼、说话只改脸部贴片那一小块，不用每次传整张大图，避免掉帧）。
-   */
-  setBase(canvas, rect = null) {
-    if (!rect || !this.hasBase) {
-      this.upload('uBase', canvas, true);
-      this.hasBase = true;
-      return;
-    }
-    const [x, y, w, h] = rect;
-    if (!this.patch) this.patch = document.createElement('canvas');
-    const p = this.patch;
-    if (p.width !== w || p.height !== h) {
-      p.width = w;
-      p.height = h;
-    }
-    const ctx = p.getContext('2d');
-    ctx.clearRect(0, 0, w, h);
-    ctx.drawImage(canvas, x, y, w, h, 0, 0, w, h);
-    const gl = this.gl;
-    const { t, unit } = this.tex.uBase;
-    gl.activeTexture(gl.TEXTURE0 + unit);
-    gl.bindTexture(gl.TEXTURE_2D, t);
-    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
-    gl.pixelStorei(gl.UNPACK_COLORSPACE_CONVERSION_WEBGL, gl.BROWSER_DEFAULT_WEBGL);
-    gl.texSubImage2D(gl.TEXTURE_2D, 0, x, y, gl.RGBA, gl.UNSIGNED_BYTE, p);
+  /** 立绘本体（抠好底的画布）：开始时传一次。 */
+  setBase(canvas) {
+    this.upload('uBase', canvas, true);
   }
 
-  /** 画一帧到自己的画布上（尺寸 w×h），返回画布，调用方再贴到页面上的 2D 画布里。 */
+  /** 表情差分：每张开始时传一次，各自一张纹理；box 为原图像素 [x, y, w, h]。 */
+  setPatches(overlays, W, H) {
+    const gl = this.gl;
+    this.patches = {};
+    for (const [key, o] of Object.entries(overlays)) {
+      const t = gl.createTexture();
+      gl.activeTexture(gl.TEXTURE0 + this.tex.uPatchA.unit);
+      gl.bindTexture(gl.TEXTURE_2D, t);
+      for (const [k, v] of [
+        [gl.TEXTURE_MIN_FILTER, gl.LINEAR],
+        [gl.TEXTURE_MAG_FILTER, gl.LINEAR],
+        [gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE],
+        [gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE],
+      ])
+        gl.texParameteri(gl.TEXTURE_2D, k, v);
+      gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
+      gl.pixelStorei(gl.UNPACK_COLORSPACE_CONVERSION_WEBGL, gl.BROWSER_DEFAULT_WEBGL);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, o.img);
+      const box = o.box ? [o.box[0] * W, o.box[1] * H, o.box[2] * W, o.box[3] * H] : [0, 0, W, H];
+      this.patches[key] = { t, box };
+    }
+  }
+
+  /** 把一张差分接到 A / B 槽上（只换绑定，不传数据）；没有这张差分时这一槽不画。 */
+  bindPatch(slot, key, alpha) {
+    const gl = this.gl;
+    const p = this.patches?.[key];
+    const u = this.u;
+    gl.uniform1f(u[`uAlpha${slot}`], p ? alpha : 0);
+    if (!p) return;
+    gl.activeTexture(gl.TEXTURE0 + this.tex[`uPatch${slot}`].unit);
+    gl.bindTexture(gl.TEXTURE_2D, p.t);
+    gl.uniform4f(u[`uBox${slot}`], ...p.box);
+  }
+
+  /** 画一帧到自己的画布上（尺寸 w×h）。pose.patches：[[表情, 比例], [表情, 比例]]。 */
   render(w, h, pose, view) {
     const gl = this.gl;
     if (this.canvas.width !== w || this.canvas.height !== h) {
@@ -199,6 +223,12 @@ export class RigRenderer {
     for (const k of ['headT', 'faceT', 'armT', 'gaze', 'hop', 'hairL', 'hairR', 'front', 'skirtD', 'acc']) {
       gl.uniform2f(u[`u${k[0].toUpperCase()}${k.slice(1)}`], pose[k][0], pose[k][1]);
     }
+    const [[ka, aa], [kb, ab]] = pose.patches || [
+      ['default', 0],
+      ['default', 0],
+    ];
+    this.bindPatch('A', ka, aa);
+    this.bindPatch('B', kb, ab);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
     return this.canvas;
   }
