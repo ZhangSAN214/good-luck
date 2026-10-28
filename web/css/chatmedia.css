@@ -1,0 +1,254 @@
+/* 聊天 / 私聊 / 朋友圈的富媒体：工具条、表情面板、待发附件、录音条、图片九宫格、视频、语音条、大图。
+   两种外观共用：颜色都取自 app.css / ark.css 的变量。 */
+
+.cm-bar{position:relative;display:flex;align-items:center;gap:2px;flex-basis:100%;min-height:30px}
+.cm-tool{display:inline-flex;align-items:center;gap:5px;height:30px;padding:0 10px 0 7px;border:0;border-radius:999px;background:none;color:var(--muted);font-size:12px;cursor:pointer;transition:background .18s,color .18s,transform .18s cubic-bezier(.3,1.6,.5,1)}
+.cm-tool:hover,.cm-tool[aria-expanded="true"]{background:var(--hover,rgba(127,127,127,.12));color:var(--ink)}
+.cm-tool:active{transform:scale(.92)}
+.cm-tool svg,.cm-recbtn svg,.cm-rm svg,.cm-lb-btn svg,.cm-tab svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.3;stroke-linecap:round;stroke-linejoin:round}
+.cm-bar svg .f,.cm-voice svg .f,.cm-cell svg .f,.cm-thumb svg .f{fill:currentColor;stroke:none}
+.cm-bar.compact .cm-tool span{display:none}
+.cm-bar.compact .cm-tool{padding:0 7px}
+.cm-bar.recording .cm-tool{opacity:0;pointer-events:none}
+
+/* 表情面板 */
+.cm-panel{position:absolute;left:0;bottom:calc(100% + 10px);z-index:20;width:min(420px,calc(100vw - 40px));display:flex;flex-direction:column;
+  border-radius:22px;overflow:hidden;background:var(--cm-panel,var(--surface));backdrop-filter:blur(24px) saturate(1.2);-webkit-backdrop-filter:blur(24px) saturate(1.2);
+  box-shadow:0 0 0 .5px color-mix(in srgb,var(--ink) 14%,transparent),0 24px 60px -18px rgba(0,0,0,.55);transform-origin:12% 100%;animation:cm-pop .32s cubic-bezier(.2,1.4,.4,1) both}
+.cm-panel[hidden]{display:none}
+[data-skin="ark"] .cm-panel,:root[data-theme="dark"] .cm-panel{--cm-panel:rgba(20,24,33,.97)}
+.cm-bar.down .cm-panel{bottom:auto;top:calc(100% + 8px);transform-origin:12% 0}
+@keyframes cm-pop{from{opacity:0;transform:translateY(8px) scale(.94)}}
+.cm-ptitle{padding:12px 16px 4px;font-size:12px;color:var(--muted);letter-spacing:.04em}
+.cm-pbody{height:236px;overflow:auto;padding:4px 10px 10px;animation:cm-fade .22s ease-out both}
+@keyframes cm-fade{from{opacity:0;transform:translateY(4px)}}
+.cm-grid-emo{display:grid;grid-template-columns:repeat(auto-fill,minmax(38px,1fr));gap:2px}
+.cm-emo{height:38px;border:0;background:none;border-radius:10px;font-size:23px;line-height:1;cursor:pointer;transition:transform .16s cubic-bezier(.3,1.8,.5,1),background .16s}
+.cm-emo:hover{background:var(--hover,rgba(127,127,127,.12));transform:scale(1.28)}
+.cm-grid-stk{display:grid;grid-template-columns:repeat(auto-fill,minmax(84px,1fr));gap:6px}
+.cm-stk{display:flex;flex-direction:column;align-items:center;gap:0;padding:6px 2px 4px;border:0;border-radius:14px;background:none;color:var(--muted);font-size:11px;cursor:pointer;transition:background .16s,transform .2s cubic-bezier(.3,1.6,.5,1)}
+.cm-stk:hover{background:var(--hover,rgba(127,127,127,.12));transform:translateY(-2px)}
+.cm-stk:active{transform:scale(.94)}
+.cm-stk .stk{width:62px;height:62px}
+.cm-stk small{font-size:11px;line-height:16px}
+.cm-grid-emo.mixed{grid-template-columns:repeat(auto-fill,minmax(46px,1fr))}
+.cm-stk.sm{padding:2px}
+.cm-stk.sm .stk{width:40px;height:40px}
+.cm-empty{margin:60px 0;text-align:center;color:var(--muted);font-size:13px}
+.cm-tabs{display:flex;gap:2px;padding:6px 8px;border-top:1px solid color-mix(in srgb,var(--ink) 9%,transparent);overflow-x:auto;scrollbar-width:none}
+.cm-tab{flex:none;width:38px;height:34px;display:grid;place-items:center;border:0;border-radius:10px;background:none;color:var(--muted);cursor:pointer;transition:background .16s}
+.cm-tab:hover{background:var(--hover,rgba(127,127,127,.12))}
+.cm-tab.cur{background:color-mix(in srgb,var(--ink) 12%,transparent);color:var(--ink)}
+.cm-tab.pack{margin-left:0}
+.cm-tab.pack:first-of-type,.cm-tab:not(.pack)+.cm-tab.pack{margin-left:8px;position:relative}
+.cm-tab:not(.pack)+.cm-tab.pack::before{content:"";position:absolute;left:-5px;top:8px;bottom:8px;width:1px;background:color-mix(in srgb,var(--ink) 14%,transparent)}
+.cm-tabemo{font-size:19px;line-height:1}
+.cm-tabstk .stk{width:28px;height:28px}
+
+/* 待发附件 */
+.cm-tray{display:flex;flex-wrap:wrap;gap:8px;flex-basis:100%;padding:2px 0 4px}
+.cm-tray[hidden]{display:none}
+.cm-thumb{position:relative;width:64px;height:64px;border-radius:14px;overflow:hidden;background:color-mix(in srgb,var(--ink) 10%,transparent);animation:cm-pop .3s cubic-bezier(.2,1.4,.4,1) both}
+.cm-thumb img,.cm-thumb video{width:100%;height:100%;object-fit:cover;display:block}
+.cm-thumb.up img,.cm-thumb.up video{filter:saturate(.4) brightness(.7)}
+.cm-thumb.err{box-shadow:inset 0 0 0 2px var(--bad,#c44)}
+.cm-ring{position:absolute;inset:0;margin:auto;width:28px;height:28px;border-radius:50%;background:conic-gradient(#fff calc(var(--up,0)*360deg),rgba(255,255,255,.25) 0);
+  -webkit-mask:radial-gradient(circle,transparent 9px,#000 10px);mask:radial-gradient(circle,transparent 9px,#000 10px);transition:opacity .3s}
+.cm-thumb.done .cm-ring,.cm-thumb.err .cm-ring{opacity:0}
+.cm-rm{position:absolute;top:3px;right:3px;width:20px;height:20px;padding:0;display:grid;place-items:center;border:0;border-radius:50%;background:rgba(0,0,0,.55);color:#fff;cursor:pointer;opacity:.85}
+.cm-rm svg{width:12px;height:12px;stroke-width:2}
+.cm-tbadge{position:absolute;left:5px;bottom:4px;width:16px;height:16px;color:#fff;filter:drop-shadow(0 1px 2px rgba(0,0,0,.6))}
+.cm-tvoice{width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;color:var(--ink);font-size:12px}
+.cm-tvoice svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.3}
+.cm-drop{outline:2px dashed color-mix(in srgb,var(--brass) 70%,transparent);outline-offset:-6px}
+
+/* 录音条 */
+.cm-rec{position:absolute;inset:0 0 auto 0;display:flex;align-items:center;gap:10px;height:30px;padding:0 4px 0 10px;border-radius:999px;
+  background:color-mix(in srgb,#e5484d 14%,transparent);color:var(--ink);animation:cm-fade .2s ease-out both}
+.cm-rec[hidden]{display:none}
+.cm-recdot{width:9px;height:9px;border-radius:50%;background:#e5484d;box-shadow:0 0 0 0 rgba(229,72,77,.6);animation:cm-rec 1.2s ease-out infinite}
+@keyframes cm-rec{70%{box-shadow:0 0 0 8px rgba(229,72,77,0)}100%{box-shadow:0 0 0 0 rgba(229,72,77,0)}}
+.cm-rectime{font-family:var(--f-mono);font-size:12px;font-variant-numeric:tabular-nums;min-width:34px}
+.cm-reclv{display:flex;align-items:center;gap:2px;height:22px;flex:1;max-width:220px}
+.cm-reclv i{flex:1;max-width:4px;height:var(--h,12%);min-height:2px;border-radius:2px;background:#e5484d;transition:height .08s linear}
+.cm-rechint{font-size:12px;color:var(--muted);margin-right:auto;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cm-recbtn{width:28px;height:24px;display:grid;place-items:center;border:0;border-radius:999px;background:none;color:var(--muted);cursor:pointer}
+.cm-recbtn:hover{background:var(--hover,rgba(127,127,127,.15));color:var(--ink)}
+.cm-recbtn.ok{background:#e5484d;color:#fff;width:40px}
+.cm-recbtn.ok:hover{background:#d13a40;color:#fff}
+
+/* 消息里的图片 / 视频 */
+.cm-grid{display:grid;gap:4px;margin-top:2px}
+.cm-grid.chat{grid-template-columns:repeat(var(--cols,3),minmax(0,1fr));width:var(--gw,300px);max-width:100%}
+.cm-grid.chat.n1{--cols:1;--gw:260px}
+.cm-grid.chat.n2,.cm-grid.chat.four{--cols:2;--gw:240px}
+.cm-grid.moment{grid-template-columns:repeat(3,minmax(0,1fr));width:330px;max-width:100%}
+.cm-grid.moment.n1{grid-template-columns:1fr;width:280px}
+.cm-grid.moment.n2,.cm-grid.moment.four{grid-template-columns:repeat(2,minmax(0,1fr));width:222px}
+.cm-grid:not(.n1) .cm-cell{border-radius:6px}
+.cm-cell{position:relative;display:block;padding:0;border:0;border-radius:10px;overflow:hidden;aspect-ratio:1;background:color-mix(in srgb,var(--ink) 10%,transparent);cursor:zoom-in;transition:transform .25s cubic-bezier(.3,1.4,.5,1),filter .2s}
+.cm-cell:hover{transform:scale(1.015);filter:brightness(1.06)}
+.cm-grid.n1 .cm-cell{aspect-ratio:var(--ar,1.333);max-height:320px;border-radius:14px}
+.cm-cell img,.cm-cell video{width:100%;height:100%;object-fit:cover;display:block;pointer-events:none}
+.cm-cell.vid{cursor:pointer}
+.cm-vbadge{position:absolute;inset:0;margin:auto;width:46px;height:46px;display:grid;place-items:center;border-radius:50%;color:#fff;
+  background:rgba(0,0,0,.32);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);box-shadow:inset 0 0 0 1.5px rgba(255,255,255,.85);transition:transform .25s cubic-bezier(.3,1.6,.5,1)}
+.cm-cell.vid:hover .cm-vbadge{transform:scale(1.1)}
+.cm-vbadge svg{width:20px;height:20px;margin-left:2px}
+.cm-vtime{position:absolute;right:8px;bottom:6px;color:#fff;font-size:11px;font-family:var(--f-mono);text-shadow:0 1px 3px rgba(0,0,0,.8)}
+
+/* 语音条：像一句话的波形，播放时从左往右点亮 */
+.cm-voice{--p:0;display:flex;align-items:center;gap:10px;width:var(--w,160px);max-width:100%;height:40px;margin:2px 0;padding:0 14px 0 6px;border:0;border-radius:999px;
+  background:color-mix(in srgb,var(--ink) 9%,transparent);color:var(--ink);cursor:pointer;position:relative;transition:background .2s}
+.cm-voice:hover{background:color-mix(in srgb,var(--ink) 14%,transparent)}
+.cm-vplay{flex:none;width:28px;height:28px;display:grid;place-items:center;border-radius:50%;background:var(--ink);color:var(--surface)}
+.cm-vplay svg{width:14px;height:14px;grid-area:1/1;color:var(--ink);filter:invert(1)}
+.cm-vplay svg:last-child,.cm-voice.playing .cm-vplay svg:first-child{display:none}
+.cm-voice.playing .cm-vplay svg:last-child{display:block}
+.cm-wave{flex:1;display:flex;align-items:center;gap:2px;height:24px;min-width:0}
+.cm-wave i{flex:1;max-width:3px;height:var(--h);min-height:3px;border-radius:2px;background:currentColor;opacity:.35;transition:opacity .15s}
+.cm-voice.playing .cm-wave i{animation:cm-bar .9s ease-in-out infinite alternate;animation-delay:calc(var(--k)*-73ms)}
+.cm-voice.playing .cm-wave i:nth-child(n){opacity:calc(.35 + .65*clamp(0,(var(--p)*var(--n) - var(--k))*1,1))}
+@keyframes cm-bar{to{transform:scaleY(.62)}}
+.cm-vdur{flex:none;font-size:12px;font-family:var(--f-mono);font-variant-numeric:tabular-nums;color:var(--muted)}
+.cm-voice:not(.mine):not(.heard)::after{content:"";position:absolute;right:-12px;top:50%;width:7px;height:7px;margin-top:-3.5px;border-radius:50%;background:#e5484d}
+.gc-msg.me .cm-voice{flex-direction:row-reverse;padding:0 6px 0 14px;background:color-mix(in srgb,var(--c-me-ink,#fff) 16%,transparent);color:var(--c-me-ink,#fff)}
+.gc-msg.me .cm-voice .cm-vplay{background:var(--c-me-ink,#fff)}
+.gc-msg.me .cm-voice .cm-vplay svg{color:var(--c-me-ink,#fff)}
+.gc-msg.me .cm-voice .cm-vdur{color:inherit;opacity:.75}
+.gc-msg.me .cm-wave{flex-direction:row-reverse}
+
+/* 气泡：只发图片 / 视频 / 语音时不要气泡底色；单独发表情包时更大、没有气泡 */
+.gc-bub.media-only,.gc-bub.stk-only{background:none!important;border:0!important;padding:0!important;box-shadow:none!important}
+.gc-bub.has-media .gc-words{margin-bottom:6px}
+.gc-bub .stk{width:1.6em;height:1.6em;vertical-align:-.45em;margin:0 1px}
+.stk.big{width:118px!important;height:118px!important;display:block;filter:var(--stk-cut) drop-shadow(0 6px 10px rgba(0,0,0,.22));animation:stk-in .5s cubic-bezier(.2,1.6,.4,1) both}
+@keyframes stk-in{from{opacity:0;transform:scale(.4) rotate(-8deg)}}
+.mo-text .stk,.mo-comments .stk{width:1.7em;height:1.7em;vertical-align:-.5em}
+.mo-media{margin:4px 0 8px}
+.mo-media .cm-voice{margin-top:6px}
+
+/* 表情包画法与动效（stickers.js） */
+.stk{overflow:visible;--stk-cut:drop-shadow(1.6px 0 0 #fff) drop-shadow(-1.6px 0 0 #fff) drop-shadow(0 1.6px 0 #fff) drop-shadow(0 -1.6px 0 #fff)}
+/* 像贴纸一样描一圈白边（面板里和单独发出的大号表情） */
+.cm-stk .stk{filter:var(--stk-cut)}
+.stk .ln:not([fill]){fill:none}
+.stk .ln{stroke:#3b2a22;stroke-width:3.4;stroke-linecap:round;stroke-linejoin:round}
+.stk .ln.th{stroke-width:2.4}
+.stk path.ln[fill],.stk circle.ln[fill],.stk ellipse.ln[fill],.stk rect.ln[fill]{stroke:#3b2a22}
+.stk .face circle:not(.ln),.stk .face ellipse:not([fill]){fill:#3b2a22}
+.stk g[class^="fx-"] circle:not([fill]),.stk g[class^="fx-"] ellipse:not([fill]){fill:#3b2a22}
+.stk .stk-body,.stk g[class^="fx-"],.stk .fx-sweat,.stk .shadow,.stk .wd-ch{transform-box:fill-box;transform-origin:50% 100%}
+.stk .wd-ch{transform-origin:50% 70%}
+.stk.word text{font-family:"ZCOOL QingKe HuangYou","ZCOOL XiaoWei",var(--f-sans,system-ui),sans-serif;paint-order:stroke;stroke:#fff;stroke-width:4px;stroke-linejoin:round}
+/* 小号（行内、面板里）安静一些：鼠标移上去才动；大号一直动 */
+.stk:not(.big) *{animation-play-state:paused}
+.cm-stk:hover .stk *,.cm-tab:hover .stk *,.gc-bub:hover .stk *,.mo-text:hover .stk *,.stk.big *{animation-play-state:running}
+.stk[data-anim="bounce"] .stk-body{animation:k-bounce 1.1s cubic-bezier(.3,1.5,.5,1) infinite}
+.stk[data-anim="sob"] .stk-body{animation:k-sob .5s ease-in-out infinite alternate}
+.stk[data-anim="shake"] .stk-body{animation:k-shake .32s linear infinite}
+.stk[data-anim="sway"] .stk-body{animation:k-sway 1.6s ease-in-out infinite alternate;transform-origin:50% 100%}
+.stk[data-anim="pop"] .stk-body{animation:k-pop 1.4s cubic-bezier(.2,1.8,.4,1) infinite}
+.stk[data-anim="breathe"] .stk-body{animation:k-breathe 2.6s ease-in-out infinite}
+.stk[data-anim="jelly"] .stk-body{animation:k-jelly 1.3s ease-in-out infinite}
+.stk[data-anim="tilt"] .stk-body{animation:k-tilt 1.8s ease-in-out infinite alternate}
+.stk[data-anim="nod"] .stk-body{animation:k-nod .9s ease-in-out infinite}
+.stk[data-anim="dash"] .stk-body{animation:k-dash .9s cubic-bezier(.5,0,.3,1) infinite}
+.stk[data-anim="spin"] .face{transform-box:fill-box;transform-origin:50% 50%;animation:k-spin 2s linear infinite}
+.stk[data-anim="rub"] .stk-body{animation:k-rub .7s ease-in-out infinite alternate}
+.stk[data-anim="shiver"] .stk-body{animation:k-shake .5s linear infinite}
+.stk[data-anim="peek"] .stk-body{animation:k-peek 2.4s ease-in-out infinite}
+.stk[data-anim="melt"] .stk-body{animation:k-melt 2.6s ease-in-out infinite alternate}
+.stk[data-anim="stamp"] .stk-body{animation:k-stamp 1.8s cubic-bezier(.2,1.6,.4,1) infinite;transform-origin:50% 50%}
+.stk[data-anim="jump"] .wd-ch,.stk[data-anim="wave"] .wd-ch{animation:k-jump .9s cubic-bezier(.3,1.6,.5,1) infinite;animation-delay:calc(var(--i)*.12s)}
+.stk[data-anim="wave"] .wd-ch{animation-name:k-wave;animation-duration:1.2s}
+.stk[data-anim="blink"] .stk-body{animation:k-blink 1.6s steps(1) infinite}
+.stk[data-anim="glow"] .stk-body{animation:k-glow 2.4s ease-in-out infinite}
+.stk[data-anim="neon"] .stk-body{animation:k-neon 2s linear infinite}
+.stk[data-anim="float"] .stk-body{animation:k-float 2s ease-in-out infinite}
+.stk[data-anim="beat"] .stk-body{animation:k-beat 1s ease-in-out infinite;transform-origin:50% 50%}
+.stk.word[data-anim="spin"] .stk-body{transform-origin:50% 50%;animation:k-flip 2.4s cubic-bezier(.5,0,.3,1) infinite}
+.stk.word[data-anim="shake"] .stk-body{transform-origin:50% 50%}
+.stk.word[data-anim="tilt"] .stk-body,.stk.word[data-anim="dash"] .stk-body{transform-origin:50% 50%}
+.stk .fx-tear{animation:k-drop 1.1s ease-in infinite}
+.stk .fx-river{animation:k-river .5s linear infinite alternate}
+.stk .fx-sweat{animation:k-drop 1.6s ease-in infinite}
+.stk .fx-heart,.stk .fx-hearts{animation:k-rise 1.6s ease-out infinite}
+.stk .fx-zzz{animation:k-zzz 2.4s ease-in-out infinite}
+.stk .fx-ask,.stk .fx-bang{animation:k-tilt 1s ease-in-out infinite alternate;transform-origin:50% 100%}
+.stk .fx-anger{animation:k-beat .5s ease-in-out infinite;transform-origin:50% 50%}
+.stk .fx-spark,.stk .fx-shine{animation:k-twinkle 1.2s ease-in-out infinite}
+.stk .fx-thumb,.stk .fx-ok,.stk .fx-flag{animation:k-pop 1.4s cubic-bezier(.2,1.8,.4,1) infinite}
+.stk .fx-melon,.stk .fx-boba,.stk .fx-fish{animation:k-nod 1.2s ease-in-out infinite}
+.stk .fx-note{animation:k-rise 1.8s ease-out infinite}
+.stk .fx-blush{animation:k-blush 1.6s ease-in-out infinite}
+@keyframes k-bounce{0%,100%{transform:translateY(0) scale(1,1)}30%{transform:translateY(-14px) scale(.96,1.05)}55%{transform:translateY(0) scale(1.08,.92)}70%{transform:translateY(-3px)}}
+@keyframes k-sob{to{transform:translateY(2px) scale(1.03,.97)}}
+@keyframes k-shake{0%,100%{transform:translateX(0)}25%{transform:translateX(-3px) rotate(-2deg)}75%{transform:translateX(3px) rotate(2deg)}}
+@keyframes k-sway{from{transform:rotate(-6deg)}to{transform:rotate(6deg)}}
+@keyframes k-pop{0%,60%,100%{transform:scale(1)}10%{transform:scale(1.18)}25%{transform:scale(.94)}}
+@keyframes k-breathe{0%,100%{transform:scale(1,1)}50%{transform:scale(1.04,.96)}}
+@keyframes k-jelly{0%,100%{transform:scale(1,1)}20%{transform:scale(1.12,.88)}40%{transform:scale(.9,1.1)}60%{transform:scale(1.05,.95)}80%{transform:scale(.98,1.02)}}
+@keyframes k-tilt{from{transform:rotate(-8deg)}to{transform:rotate(8deg)}}
+@keyframes k-nod{0%,100%{transform:translateY(0)}50%{transform:translateY(4px)}}
+@keyframes k-dash{0%{transform:translateX(-8px) skewX(8deg)}50%{transform:translateX(8px) skewX(-6deg)}100%{transform:translateX(-8px) skewX(8deg)}}
+@keyframes k-spin{to{transform:rotate(360deg)}}
+@keyframes k-rub{from{transform:rotate(-10deg) translateX(-4px)}to{transform:rotate(10deg) translateX(4px)}}
+@keyframes k-peek{0%,100%{transform:translateX(-30px) rotate(-12deg)}35%,65%{transform:translateX(0) rotate(0)}}
+@keyframes k-melt{from{transform:scale(1,1)}to{transform:scale(1.18,.72)}}
+@keyframes k-stamp{0%{transform:scale(1.8) rotate(-14deg);opacity:0}18%{transform:scale(.92) rotate(-6deg);opacity:1}26%,80%{transform:scale(1) rotate(-6deg);opacity:1}100%{transform:scale(1) rotate(-6deg);opacity:0}}
+@keyframes k-jump{0%,60%,100%{transform:translateY(0)}20%{transform:translateY(-12px) scale(1.1)}}
+@keyframes k-wave{0%,100%{transform:translateY(0) rotate(0)}25%{transform:translateY(-8px) rotate(-8deg)}75%{transform:translateY(4px) rotate(8deg)}}
+@keyframes k-blink{0%,100%{opacity:1}50%{opacity:.35}}
+@keyframes k-glow{0%,100%{filter:drop-shadow(0 0 0 #a99cff)}50%{filter:drop-shadow(0 0 8px #a99cff)}}
+@keyframes k-neon{0%,18%,22%,62%,64%,100%{opacity:1;filter:drop-shadow(0 0 6px #2ee6d6)}20%,63%{opacity:.4;filter:none}}
+@keyframes k-float{0%,100%{transform:translateY(0) rotate(-2deg)}50%{transform:translateY(-8px) rotate(2deg)}}
+@keyframes k-beat{0%,100%{transform:scale(1)}15%{transform:scale(1.14)}30%{transform:scale(1)}45%{transform:scale(1.08)}}
+@keyframes k-flip{0%,40%{transform:rotateY(0)}60%,100%{transform:rotateY(360deg)}}
+@keyframes k-drop{0%{transform:translateY(0);opacity:0}20%{opacity:1}100%{transform:translateY(16px);opacity:0}}
+@keyframes k-river{to{transform:scaleY(1.12)}}
+@keyframes k-rise{0%{transform:translateY(8px) scale(.6);opacity:0}30%{opacity:1}100%{transform:translateY(-16px) scale(1.1);opacity:0}}
+@keyframes k-zzz{0%{transform:translate(0,6px);opacity:0}40%{opacity:1}100%{transform:translate(8px,-10px);opacity:0}}
+@keyframes k-twinkle{0%,100%{opacity:.25;transform:scale(.8)}50%{opacity:1;transform:scale(1.15)}}
+@keyframes k-blush{0%,100%{opacity:.7}50%{opacity:1}}
+
+/* 大图 / 视频 */
+dialog.cm-lightbox{position:fixed;inset:0;width:100vw;height:100vh;max-width:none;max-height:none;margin:0;padding:0;border:0;background:rgba(5,7,12,.9);color:#fff;overflow:hidden}
+dialog.cm-lightbox::backdrop{background:rgba(0,0,0,.35);backdrop-filter:blur(6px)}
+dialog.cm-lightbox[open]{display:block;animation:cm-fade .22s ease-out both}
+.cm-lb-stage{position:absolute;inset:56px 72px;display:grid;place-items:center}
+.cm-lb-item{max-width:100%;max-height:100%;border-radius:12px;box-shadow:0 30px 80px -20px rgba(0,0,0,.8);animation:cm-lbin .35s cubic-bezier(.2,1.2,.4,1) both;cursor:zoom-in}
+.cm-lb-stage img.zoom{max-width:none;max-height:none;transform:scale(1.6);cursor:zoom-out;transition:transform .3s}
+video.cm-lb-item{cursor:auto;background:#000}
+@keyframes cm-lbin{from{opacity:0;transform:translateX(var(--from,0)) scale(.96)}}
+.cm-lb-btn{position:absolute;width:44px;height:44px;display:grid;place-items:center;border:0;border-radius:50%;background:rgba(255,255,255,.1);color:#fff;cursor:pointer;backdrop-filter:blur(10px)}
+.cm-lb-btn:hover{background:rgba(255,255,255,.2)}
+.cm-lb-btn[hidden]{display:none}
+.cm-lb-btn svg{width:22px;height:22px}
+.cm-lb-btn.close{top:14px;right:16px}
+.cm-lb-btn.prev{left:16px;top:50%;margin-top:-22px}
+.cm-lb-btn.next{right:16px;top:50%;margin-top:-22px}
+.cm-lb-dots{position:absolute;left:0;right:0;bottom:22px;display:flex;justify-content:center;gap:6px}
+.cm-lb-dots i{width:6px;height:6px;border-radius:50%;background:rgba(255,255,255,.35);transition:width .25s,background .25s}
+.cm-lb-dots i.on{width:18px;border-radius:3px;background:#fff}
+
+/* 群聊编辑区：工具条和待发附件各占一行，下面是输入框 + 按钮 */
+.gc-compose{flex-wrap:wrap;row-gap:6px}
+#gc-tools,#gc-tray{flex-basis:100%}
+/* 朋友圈：发动态区的工具条、评论框的表情按钮 */
+/* DOM 里工具条在「发表」后面（按钮顺序不变），显示时排到输入框下面 */
+.mo-new textarea{order:0}.mo-new .mo-tools{order:1}.mo-new .mo-tray{order:2}.mo-new .mo-newbar{order:3}
+.mo-new .cm-bar{margin:-2px 0 0 -6px}
+.mo-cf input{order:0}.mo-cf .mo-cf-tools{order:1}.mo-cf [type="submit"]{order:2}
+.mo-cf{position:relative;align-items:center}
+.mo-cf .cm-bar{flex-basis:auto;flex:none;min-height:0}
+.mo-cf .cm-panel{width:min(360px,72vw)}
+
+@media (prefers-reduced-motion: reduce){
+  .stk *,.stk.big,.cm-panel,.cm-thumb,.cm-voice.playing .cm-wave i,.cm-lb-item,.cm-pbody{animation:none!important}
+}
+@media (max-width: 760px){
+  .cm-tool span{display:none}
+  .cm-tool{padding:0 8px}
+  .cm-lb-stage{inset:56px 8px}
+}

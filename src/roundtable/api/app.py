@@ -19,6 +19,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
 
 from roundtable.core.service import (
+    CHAT_MEDIA_MAX,
     MAX_QUESTION_CHARS,
     RoundtableService,
     ServiceError,
@@ -97,8 +98,9 @@ class Note(BaseModel):
 class ChatBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    text: str
+    text: str = ""
     room: str = "main"
+    media: list[dict[str, Any]] = Field(default_factory=list)  # POST /api/chat/media 返回的 id
 
 
 class HandoffBody(BaseModel):
@@ -116,7 +118,8 @@ class PersonaBody(BaseModel):
 class MomentBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    text: str
+    text: str = ""
+    media: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class MomentCommentBody(BaseModel):
@@ -302,7 +305,42 @@ def create_app(service: RoundtableService | None = None) -> FastAPI:
 
     @app.post("/api/chat", status_code=202)
     async def chat_post(request: Request, body: ChatBody) -> dict[str, Any]:
-        return await svc(request).chat_post(body.text, body.room)
+        return await svc(request).chat_post(body.text, body.room, body.media)
+
+    @app.post("/api/chat/media", status_code=201)
+    async def chat_media_upload(request: Request) -> dict[str, Any]:
+        """聊天 / 朋友圈的图片、视频、语音：请求体是原始字节，Content-Type 是文件类型。"""
+        declared = request.headers.get("content-length")
+        if declared and declared.isdigit() and int(declared) > CHAT_MEDIA_MAX:
+            raise ServiceError("文件太大", 413)
+        chunks, size = [], 0
+        async for chunk in request.stream():
+            size += len(chunk)
+            if size > CHAT_MEDIA_MAX:
+                raise ServiceError("文件太大", 413)
+            chunks.append(chunk)
+        mime = request.headers.get("content-type", "")
+        return svc(request).chat_media_save(b"".join(chunks), mime)
+
+    @app.get("/api/chat/media/{name}")
+    async def chat_media_file(request: Request, name: str) -> Response:
+        data, mime = svc(request).chat_media_file(name)
+        headers = {
+            "X-Content-Type-Options": "nosniff",
+            "Content-Security-Policy": "default-src 'none'; sandbox",
+            "Cache-Control": "private, max-age=86400, immutable",
+            "Accept-Ranges": "bytes",
+        }
+        span = _byte_range(request.headers.get("range"), len(data))
+        if span == "invalid":
+            return Response(status_code=416, headers={"Content-Range": f"bytes */{len(data)}"})
+        if span is not None:
+            start, end = span
+            headers["Content-Range"] = f"bytes {start}-{end}/{len(data)}"
+            return Response(
+                content=data[start : end + 1], status_code=206, media_type=mime, headers=headers
+            )
+        return Response(content=data, media_type=mime, headers=headers)
 
     @app.post("/api/chat/handoff", status_code=202)
     async def chat_handoff(request: Request, body: HandoffBody) -> dict[str, Any]:
@@ -352,7 +390,7 @@ def create_app(service: RoundtableService | None = None) -> FastAPI:
 
     @app.post("/api/moments", status_code=201)
     async def moments_post(request: Request, body: MomentBody) -> dict[str, Any]:
-        return await svc(request).moments_post(body.text)
+        return await svc(request).moments_post(body.text, body.media)
 
     @app.post("/api/moments/{moment_id}/like")
     async def moments_like(request: Request, moment_id: int) -> dict[str, Any]:

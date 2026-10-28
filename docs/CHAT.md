@@ -14,7 +14,8 @@
 | G3 | 人设与成员设定页；成员的分层记忆 | 已完成 |
 | G4 | 生活引擎：作息 + 真实工作记录 → 事件；开机补算；后台推进；成员之间聊天；每日生活预算 | 已完成 |
 | G7 | 上网：公开订阅源、兴趣、分享带来源、每日搜索上限 | 已完成 |
-| G5 | 朋友圈 | 已完成（配图未做） |
+| G5 | 朋友圈 | 已完成（用户发动态可带图片 / 视频 / 语音；成员配图未做） |
+| G8 | 表情包、图片、视频、语音（群聊、私聊、朋友圈；先做用户侧） | 已完成 |
 
 ## G1 多会话（2026-10-23）
 
@@ -88,4 +89,14 @@
 - 接口：`GET /api/moments`（`author` 只看某人，`before` 翻页，每页 20 条；看第一页全部时标为已读）、`POST /api/moments`（用户发，最多 500 字）、`POST /api/moments/{id}/like`（点赞 / 取消）、`POST /api/moments/{id}/comments`（`reply_to` 可选，必须是这条动态下的评论）、`DELETE /api/moments/{id}`、`DELETE /api/moments/comments/{id}`。`GET /api/chat/rooms` 多了 `moments_unseen`（成员的新动态条数）。
 - 网页：聊天左栏最上面「朋友圈」（新动态红点），弹窗里按人筛选、发动态、赞、评论、回复、删除；公寓楼住户卡片多了「朋友圈」按钮。
 - 没做：配图（原方案里默认关闭、每张约 $0.012 的选项），留到以后。
+
+## G8 表情包、图片、视频、语音（2026-10-28）
+
+用户要求群聊、朋友圈、私聊都能发表情包、视频、图片、语音，「先做出来即可」，不要单调。只做用户侧：成员暂不会发这些。
+
+- **存储**：`core/chat_media.py` 的 `ChatMediaStore`，文件放数据库旁边的 `chat_media/`（默认 `data/chat_media/`，不进 git），文件名 = 内容哈希前 32 位 + 扩展名，同一文件只存一份。只认 png / jpg / gif / webp、mp4 / webm / mov、webm / ogg / mp3 / m4a / wav 语音，并检查文件开头的特征字节；上限图片 10 MB、视频 60 MB、语音 8 MB，一条最多 9 个。**不上传、不发给模型、不花钱**，不加数据库迁移（清单放在已有的 `meta` 里）。
+- **成员看到什么**：消息 / 动态的 `text` 里是文字占位（「[图片]」「[语音 5 秒]」；有说明文字时是「说明\n[图片]」），`meta.media` 存附件清单（id、种类、宽高、时长），`meta.caption` / `meta.auto_text` 告诉前端显示哪段文字。表情包写成文字记号「[表情:团子·开心]」，成员读得懂，前端画成动态表情。
+- **接口**：`POST /api/chat/media`（请求体是原始字节，`Content-Type` 是文件类型）→ `{id, kind, mime, size}`；`GET /api/chat/media/{id}`（支持 Range，`nosniff` + 沙箱 CSP）；`POST /api/chat` 与 `POST /api/moments` 加 `media: [{id, w?, h?, duration?}]`，有附件时文字可以为空。
+- **网页**（`web/js/chatmedia.js`、`web/js/stickers.js`、`web/css/chatmedia.css`）：输入框上方工具条「表情 / 图片 / 视频 / 语音」；表情面板分「最近使用 + Emoji 6 类 + 团子 / 猫猫 / 文字 三套自绘动态表情包（共 40 个，内联 SVG + CSS 动画，不用外部图片）」；聊天里点表情包直接发出（大号、没有气泡），朋友圈和评论里插进文字。图片可多选、粘贴、拖进来，发送前在输入框上方预览（上传进度圈）；消息里按张数排成九宫格，点开大图（左右翻、点击放大）；视频显示首帧 + 时长，点开播放；语音点一下开始录（实时音量条，最长 60 秒），聊天里录完直接发出，消息里是按内容生成的波形条，播放时从左往右点亮，没听过的有红点。减少动态效果的系统设置下不播动画。
+- 测试：`tests/core/test_chat_media.py`、`tests/api/test_chat_api.py::test_chat_and_moments_media`、`tests/web/test_e2e_chat_media.py`。
 

@@ -197,3 +197,45 @@ def test_moments_round_trip():
         assert c.delete(f"/api/moments/comments/{reply['id']}").json() == {"deleted": 1}
         assert c.delete(f"/api/moments/{m['id']}").json() == {"deleted": 1}
         assert c.get("/api/moments").json()["moments"] == []
+
+
+def test_chat_and_moments_media(tmp_path):
+    env = Env()
+    env.rt.chat_media_dir = tmp_path / "chat_media"
+    png = b"\x89PNG\r\n\x1a\n" + b"\x00" * 40
+    with TestClient(create_app(RoundtableService(env.rt))) as c:
+        r = c.post("/api/chat/media", content=png, headers={"Content-Type": "image/png"})
+        assert r.status_code == 201
+        up = r.json()
+        assert up["kind"] == "image" and up["size"] == len(png)
+        got = c.get(f"/api/chat/media/{up['id']}")
+        assert got.content == png and got.headers["content-type"] == "image/png"
+        assert got.headers["x-content-type-options"] == "nosniff"
+        part = c.get(f"/api/chat/media/{up['id']}", headers={"Range": "bytes=0-7"})
+        assert part.status_code == 206 and part.content == png[:8]
+        assert c.get("/api/chat/media/" + "0" * 32 + ".png").status_code == 404
+        bad = c.post(
+            "/api/chat/media", content=b"<svg/>", headers={"Content-Type": "image/svg+xml"}
+        )
+        assert bad.status_code == 400
+        # 只发图片：成员看到占位文字，前端按 meta 显示图片
+        r = c.post("/api/chat", json={"room": "dm:V1", "media": [{"id": up["id"], "w": 2, "h": 1}]})
+        assert r.status_code == 202
+        msg = wait_for(c, 0, 2, room="dm:V1")["messages"][0]
+        assert msg["text"] == "[图片]"
+        assert msg["meta"] == {
+            "media": [{"id": up["id"], "kind": "image", "w": 2.0, "h": 1.0}],
+            "auto_text": True,
+        }
+        # 文字 + 图片
+        c.post("/api/chat", json={"room": "dm:V2", "text": "看", "media": [{"id": up["id"]}]})
+        msg = wait_for(c, 0, 2, room="dm:V2")["messages"][0]
+        assert msg["text"] == "看\n[图片]" and msg["meta"]["caption"] == "看"
+        missing = c.post("/api/chat", json={"text": "x", "media": [{"id": "0" * 32 + ".png"}]})
+        assert missing.status_code == 400
+        # 朋友圈带图
+        r = c.post("/api/moments", json={"text": "今天", "media": [{"id": up["id"]}]})
+        assert r.status_code == 201
+        mo = c.get("/api/moments").json()["moments"][0]
+        assert mo["meta"]["media"][0]["id"] == up["id"] and mo["meta"]["caption"] == "今天"
+        assert c.post("/api/moments", json={}).status_code == 400
