@@ -2,6 +2,8 @@ import os
 import plistlib
 from pathlib import Path
 
+import pytest
+
 from roundtable.desktop import install
 
 
@@ -9,6 +11,8 @@ def test_two_entries_and_only_the_second_opens_lan():
     assert [e.args for e in install.ENTRIES] == [(), ("--lan",)]
 
 
+# .app 里是 POSIX 路径和可执行位，Windows 上生成不出来（也不需要）
+@pytest.mark.skipif(os.name == "nt", reason="只在 macOS / Linux 上有意义")
 def test_mac_app_bundle(tmp_path, monkeypatch):
     monkeypatch.setattr(install.sys, "platform", "darwin")
     root = Path("/Users/me/good luck")
@@ -16,8 +20,7 @@ def test_mac_app_bundle(tmp_path, monkeypatch):
     assert app.name == "圆桌（平板可连）.app"
     exe = app / "Contents" / "MacOS" / "roundtable"
     script = exe.read_text(encoding="utf-8")
-    if os.name != "nt":  # Windows 的文件系统没有可执行位
-        assert exe.stat().st_mode & 0o111
+    assert exe.stat().st_mode & 0o111
     assert 'cd "/Users/me/good luck"' in script
     assert '"/Users/me/good luck/.venv/bin/python" -m roundtable.desktop --lan "$@"' in script
     info = plistlib.loads((app / "Contents" / "Info.plist").read_bytes())
