@@ -61,6 +61,7 @@ function savedWorkflow() {
 }
 
 const S = {
+  carry: null, // 接力：{ sid, question, summary, workflow, model }，提交时带上上一场的成果摘要
   status: null, // /api/status
   budget: null,
   history: null,
@@ -428,6 +429,7 @@ function renderComposer() {
       : S.tier === 'custom'
       ? `勾选至少 ${min} 个模型，全部上桌（其中一个当统筹）`
       : `该档位所有可用模型上桌；预计超过 ${money(S.status?.confirm_threshold_usd ?? 0.3)} 先问你`);
+  renderCarry();
 }
 
 function renderMediaChoice() {
@@ -457,6 +459,71 @@ function renderMediaChoice() {
   $('#mediatier').innerHTML = [['budget', '普通'], ['flagship', '高质量']]
     .map(([k, label]) => `<button type="button" data-v="${k}" aria-pressed="${k === S.mediaTier}" title="媒体模型的档位：${k === 'budget' ? '便宜' : '更贵、质量更高'}">${label}</button>`)
     .join('');
+}
+
+// --- 接力 ------------------------------------------------------------------------
+
+const CARRY_ASK = {
+  discussion: '在上一场成果的基础上继续讨论：找出不足、补充完善，给出更好的结论。',
+  collab: '按上一场的结论分工动手，做出完整成果。',
+  brainstorm: '围绕上一场的结论继续发散，找更多点子和方向。',
+  solo: '在上一场成果的基础上单独完成，给出最终版。',
+  office: '按上一场的结论把这件事办好。',
+};
+const ASK_PLACEHOLDER = $('#ask')?.getAttribute('placeholder') || '';
+
+async function startCarry(workflow) {
+  const sid = S.sid;
+  if (!sid) return;
+  try {
+    const info = await API.carry(sid);
+    S.carry = { sid, question: info.question, summary: info.summary, workflow, model: '' };
+    S.anonymous = info.anonymous;
+  } catch (e) {
+    formError(e.message);
+    return;
+  }
+  S.workflow = workflow;
+  renderComposer();
+  renderLegend();
+  $('#ask').focus();
+  scheduleEstimate();
+}
+
+function renderCarry() {
+  const box = $('#carry');
+  const c = S.carry;
+  box.hidden = !c;
+  $('#ask').setAttribute('placeholder', c ? `这一场要做什么（可留空：${CARRY_ASK[S.workflow] || CARRY_ASK.discussion}）` : ASK_PLACEHOLDER);
+  if (!c) {
+    box.innerHTML = '';
+    return;
+  }
+  const short = (t, n) => (t.length > n ? `${t.slice(0, n)}…` : t);
+  let who = '';
+  if (S.workflow === 'solo') {
+    const opts = (S.status?.models || []).filter((m) => m.available)
+      .map((m) => `<option value="${esc(m.id)}"${m.id === c.model ? ' selected' : ''}>${esc(m.id)}</option>`).join('');
+    who = `<label class="hint">交给 <select id="carry-who" aria-label="交给谁"><option value="">所选档位里最便宜的一位</option>${opts}</select></label>`;
+  }
+  box.innerHTML = `<div class="carry-head"><span class="tag">接着上一场</span><b>${esc(short(c.question, 60))}</b>${who}<button class="btn sm" type="button" data-act="carry-off" title="不带上一场的成果">取消接力</button></div>
+<details><summary class="hint">将带入的成果摘要（约 ${c.summary.length} 字，不带过程）</summary><div class="carry-sum">${esc(c.summary)}</div></details>`;
+}
+
+function carryFields(body) {
+  if (!S.carry) return body;
+  body.carry_from = S.carry.sid;
+  if (!body.question) body.question = CARRY_ASK[S.workflow] || CARRY_ASK.discussion;
+  if (S.workflow === 'solo' && S.carry.model) {
+    body.tier = 'custom';
+    body.models = [S.carry.model];
+    delete body.coordinator;
+  }
+  return body;
+}
+
+function soloPick() {
+  return !!(S.carry && S.workflow === 'solo' && S.carry.model);
 }
 
 function renderPicks() {
@@ -506,7 +573,7 @@ async function addFiles(files) {
 
 function estimateRequest() {
   const question = $('#ask').value.trim();
-  if (!question) return null;
+  if (!question && !S.carry) return null;
   const req = {
     question,
     tier: S.tier,
@@ -517,13 +584,13 @@ function estimateRequest() {
   if (S.workflow === 'auto') delete req.workflow; // 预估区列出全部方式，供对比
   if (S.media) req.media = S.media;
   if (S.media) req.media_tier = S.mediaTier;
-  if (S.tier === 'custom') {
+  if (S.tier === 'custom' && !soloPick()) {
     req.models = [...document.querySelectorAll('#picks input:checked')].map((i) => i.value);
     if (req.models.length < (S.status?.min_members ?? 2) + 1) return null;
     const coord = $('#coordinator').value;
     if (coord && req.models.includes(coord)) req.coordinator = coord;
   }
-  return req;
+  return carryFields(req);
 }
 
 let estTimer = null;
@@ -590,7 +657,7 @@ async function submit(ev) {
   ev.preventDefault();
   if ($('#submit').disabled) return; // 正在提交：连按 Enter 不会重复提交
   const question = $('#ask').value.trim();
-  if (!question) {
+  if (!question && !S.carry) {
     formError('请先输入题目');
     return;
   }
@@ -610,7 +677,7 @@ async function submit(ev) {
   // 取消勾选"风格参考"的图片只是普通附件：只有存在取消时才传 style_refs（省略 = 全部图片）
   const images = S.attachments.filter((a) => a.id && a.kind === 'image');
   if (images.some((a) => a.style_ref === false)) body.style_refs = images.filter((a) => a.style_ref !== false).map((a) => a.id);
-  if (S.tier === 'custom') {
+  if (S.tier === 'custom' && !soloPick()) {
     body.models = [...document.querySelectorAll('#picks input:checked')].map((i) => i.value);
     const min = (S.status?.min_members ?? 2) + 1;
     if (body.models.length < min) {
@@ -626,12 +693,15 @@ async function submit(ev) {
       body.coordinator = coord;
     }
   }
+  carryFields(body);
   formError('');
   if (S.estimate && S.estKey === JSON.stringify(estimateRequest())) body.seed = S.estimate.seed;
   $('#submit').disabled = true;
   try {
     const { session_id } = await API.createSession(body);
     $('#ask').value = '';
+    S.carry = null;
+    renderCarry();
     S.attachments = [];
     S.estimate = null;
     S.estSeed = null;
@@ -1212,6 +1282,17 @@ function bind() {
   });
   $('#ask').addEventListener('input', scheduleEstimate);
   $('#picks').addEventListener('change', scheduleEstimate);
+  $('#carry').addEventListener('change', (e) => {
+    if (e.target.id !== 'carry-who' || !S.carry) return;
+    S.carry.model = e.target.value;
+    scheduleEstimate();
+  });
+  $('#carry').addEventListener('click', (e) => {
+    if (!e.target.closest('[data-act="carry-off"]')) return;
+    S.carry = null;
+    renderCarry();
+    scheduleEstimate();
+  });
   $('#coordinator').addEventListener('change', scheduleEstimate);
   $('#attach').addEventListener('click', () => $('#file').click());
   $('#file').addEventListener('change', (e) => {
@@ -1315,6 +1396,8 @@ function bind() {
     const opt = e.target.closest('[data-opt]');
     if (opt && !opt.disabled) answer(Number(opt.dataset.cp), opt.dataset.opt);
     if (e.target.closest('[data-act="resume"]')) doResume();
+    const relay = e.target.closest('[data-carry]');
+    if (relay) startCarry(relay.dataset.carry);
   });
   $('#tabs').addEventListener('click', (e) => {
     const b = e.target.closest('button');
