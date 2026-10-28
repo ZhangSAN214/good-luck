@@ -48,6 +48,7 @@ def test_members_and_files(tmp_path):
             "pet": None,
             "room": None,
         }
+        assert data["sky"] == {} and data["rooms"] == {}
         same_vendor = {x.id for x in env.config.models.models if x.vendor == model.vendor}
         assert {k for k, v in data["models"].items() if v == "m1"} == same_vendor
 

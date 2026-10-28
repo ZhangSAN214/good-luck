@@ -7,6 +7,7 @@
     python scripts/room_art.py 出图.png --member claude  # → room_day.webp
     python scripts/room_art.py 夜景.png --member claude --night  # → room_night.webp
     python scripts/room_art.py 天空.png --sky night_rain  # 天空图，不抠绿
+    python scripts/room_art.py 办公室.png --room office  # 公共房间 → rooms/office_day.webp
     python scripts/room_art.py 出图.png --out 某处/房间.webp --dir D:/素材
     python scripts/room_art.py --install 房间包目录                    # 一次装好整包（见下）
 
@@ -14,7 +15,8 @@
 
 房间包：一个目录里放处理好的 webp 和 rooms.json，--install 把图复制到每位成员的素材文件夹，
 并把 images.room_day / room_night 和 room（床、家具点位）写进 members.json
-（先备份成 members.json.bak）；包里 sky/ 下的天空图一并装到素材目录的 sky/。rooms.json 的样子：
+（先备份成 members.json.bak）；包里 sky/ 下的天空图一并装到素材目录的 sky/，
+rooms/ 下的公共房间图和 rooms.json（点位）一并装到素材目录的 rooms/。rooms.json 的样子：
     {"克劳德": {"day": "克劳德.webp", "night": "克劳德_夜.webp",
                 "room": {"bed": {...}, "hots": [...]}}, …}
 键可以是成员的 id、name 或 nickname。
@@ -30,7 +32,7 @@ from pathlib import Path
 
 from PIL import Image, ImageFilter
 
-from roundtable.core.members_art import SKY_PHASES, SKY_WEATHERS
+from roundtable.core.members_art import PUBLIC_ROOMS, ROOMS_DIR, SKY_PHASES, SKY_WEATHERS
 
 DEFAULT_DIR = "data/avatars/roundtable_assets"
 MAX_WIDTH = 2400
@@ -140,6 +142,13 @@ def install(pack: Path, root: Path) -> list[str]:
         shutil.copyfile(f, root / "sky" / f.name)
     if skies:
         out.append(f"窗外天空图：{len(skies)} 张装到 sky/")
+    public = pack / ROOMS_DIR
+    files = sorted(f for f in public.iterdir() if f.is_file()) if public.is_dir() else []
+    for f in files:
+        (root / ROOMS_DIR).mkdir(exist_ok=True)
+        shutil.copyfile(f, root / ROOMS_DIR / f.name)
+    if files:
+        out.append(f"公共房间：{len(files)} 个文件装到 {ROOMS_DIR}/")
     shutil.copyfile(path, path.with_name("members.json.bak"))
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
     return out
@@ -153,6 +162,7 @@ def main(argv: list[str] | None = None) -> int:
     group.add_argument("--install", type=Path, help="房间包目录（含 rooms.json）")
     group.add_argument("--member", help="成员 id：写到 members/<id>/room_day.webp")
     group.add_argument("--sky", help="天空图：<时段>_<天气>，如 day_clear")
+    group.add_argument("--room", choices=PUBLIC_ROOMS, help="公共房间：写到 rooms/<房间>_day.webp")
     group.add_argument("--out", type=Path, help="直接指定输出文件")
     ap.add_argument("--night", action="store_true", help="夜景版（room_night.webp）")
     a = ap.parse_args(argv)
@@ -173,6 +183,10 @@ def main(argv: list[str] | None = None) -> int:
             )
             return 1
         print(process(a.src, a.dir / "sky" / f"{a.sky}.webp", key=False))
+        return 0
+    if a.room:
+        name = f"{a.room}_{'night' if a.night else 'day'}.webp"
+        print(process(a.src, a.dir / ROOMS_DIR / name))
         return 0
     out = a.out or a.dir / "members" / a.member / (
         "room_night.webp" if a.night else "room_day.webp"

@@ -44,9 +44,11 @@ import { Notice } from './notice.js';
 import { Mail } from './mail.js';
 import { Evolution } from './evolution.js';
 import { Usage } from './usage.js';
+import { Deck } from './deck.js';
 
 const $ = (q) => document.querySelector(q);
 const RESTING = new Set(['completed', 'stopped', 'failed', 'awaiting_confirmation', 'paused']);
+const deck = new Deck(); // 圆桌中央的花切转场
 
 // 作答方式：每位使用者在本机记住上次的选择（只是便利，读不到就用默认的办公室模式）
 const WORKFLOW_KEY = 'roundtable.workflow';
@@ -238,7 +240,24 @@ function renderStage() {
   const seats = Math.max(0, ...tables.map((t) => t.codes.length));
   $('#stage').classList.toggle('many', seats > 6); // 人多时座位缩小
   $('#stage').classList.toggle('dense', seats > 9);
-  $('#stage').innerHTML = stageHTML(S.session, S.live, prefix());
+  const stage = $('#stage');
+  // 座位图整块重画，但花切动画留在原处，不然每个事件都会让循环从头开始
+  for (const n of [...stage.children]) if (n !== deck.el) n.remove();
+  stage.insertAdjacentHTML('afterbegin', stageHTML(S.session, S.live, prefix()));
+  deck.mount(stage);
+  const sv = S.session;
+  deck.set(!!sv && sv.running && !RESTING.has(sv.status), () => S.session?.status);
+  $('#st-state').textContent = stageState(sv);
+}
+
+/** 办公室标题旁的状态：空闲 / 第几桌 · 当前步骤 / 结束状态。 */
+function stageState(sv) {
+  if (!sv) return '空闲';
+  if (S.live.step) {
+    const no = S.live.table ?? 0;
+    return `第 ${no + 1} 桌 · ${STEP_LABELS[S.live.step] || S.live.step}`;
+  }
+  return sv.running && !RESTING.has(sv.status) ? '进行中' : STATUS_LABELS[sv.status] || sv.status;
 }
 
 function renderLegend() {

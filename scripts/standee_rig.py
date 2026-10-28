@@ -13,6 +13,7 @@
 - regions：各部位的范围（多边形 poly / 椭圆 ellipse / 高斯 gauss，feather 为羽化像素）。
   头发和饰品写 root、tip（发根、发梢），越靠发梢摆得越多；hair=true 时只让头发和背景跟着摆，
   压在衣服上的部分摆得少，免得把衣服一起扭歪；smooth 为抹平半径（默认 14 像素）。
+  hand（可选）：贴着脸的手（如托腮），整只手按 follow（默认 0.5）的比例跟着头走，不被拉扯变形。
   裙摆写 top、bottom（上下沿），从 top 往下 ramp 像素（默认 220）逐渐放开摆动。
 
 输出（都在 out 目录里，前端按 rig.json 读取）：
@@ -179,6 +180,10 @@ def build(config_path: Path) -> Path:
         return m.astype(np.float32)
 
     head = region(reg["head"])
+    if "hand" in reg:
+        # 托腮的手：整只手按同一个比例跟着头走（像一块整体移动），不在手指和手腕之间被拉扯变形
+        hand = region(reg["hand"])
+        head = head * (1 - hand) + reg["hand"].get("follow", 0.5) * hand
     face = region(reg["face"]) * head
     chest = region(reg["chest"])
     arm = region(reg["arm"])

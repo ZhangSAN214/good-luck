@@ -5,7 +5,8 @@
 成员按 vendor 对应到配置里的模型（不写死任何厂商或模型名）。
 小人的逐帧素材（可选）在 pet.json：缺失或损坏时当作没有，不影响其他图片。
 公寓宿舍的场景图（images.room_day / room_night）可以带互动点位（room）：床头位置和可点的家具，
-坐标是图上的百分比，逐项限制范围，不合格的项丢掉。
+坐标是图上的百分比，逐项限制范围，不合格的项丢掉。家具可以写小人用它时的姿势（pose）和手里的道具（prop）。
+公共房间（办公室、食堂等）的场景图放在素材目录 rooms/，点位写在 rooms/rooms.json，规则同上。
 """
 
 from __future__ import annotations
@@ -76,6 +77,12 @@ PET_MAX_BYTES = 256 * 1024
 ROOM_ACTS = ("idle", "read", "eat", "work", "chat", "game", "exercise", "stargaze", "sleep")
 ROOM_MAX_HOTS = 8
 ROOM_ID = re.compile(r"[a-z][a-z0-9_]{0,23}")
+# 小人用家具时的姿势、手里拿的道具（与 web/js/apartment.js 一致）；不认识的当作没写
+ROOM_POSES = ("stand", "sit", "lie")
+ROOM_PROPS = ("book", "cup", "note", "pad", "ball", "star", "brush", "food")
+# 公共房间的场景图（可选）：素材目录 rooms/<文件>，rooms/rooms.json 写每间的图和家具点位
+ROOMS_DIR = "rooms"
+PUBLIC_ROOMS = ("office", "meeting", "canteen", "lounge", "gym", "rooftop")
 # 宿舍窗外的天空图（可选）：素材目录 sky/<时段>_<天气>.<扩展名>
 SKY_DIR = "sky"
 SKY_PHASES = ("day", "dusk", "night")
@@ -133,6 +140,8 @@ class MembersArt:
     members: tuple[Member, ...] = ()
     # 窗外天空图：{"day_clear": 相对路径, …}，只列确实存在的
     sky: dict[str, str] = field(default_factory=dict)
+    # 公共房间的场景图：{"office": {"day": 相对路径, "night": 相对路径或 None, "room": 点位}}
+    rooms: dict[str, dict[str, Any]] = field(default_factory=dict)
 
     def model_map(self, models: Iterable[tuple[str, str]]) -> dict[str, str]:
         """(模型 id, vendor) → {模型 id: 成员 id}。
@@ -329,6 +338,8 @@ def _room(raw: Any) -> dict[str, Any] | None:
         stand = _pct(h.get("stand"))
         lift = _pct(h.get("lift"))
         fx = _text(h.get("fx"), 1)
+        pose = h.get("pose") if h.get("pose") in ROOM_POSES else None
+        prop = h.get("prop") if h.get("prop") in ROOM_PROPS else None
         hots.append(
             {
                 "id": h["id"],
@@ -343,6 +354,8 @@ def _room(raw: Any) -> dict[str, Any] | None:
                 "h": box[3],
                 "stand": stand,
                 "lift": min(lift, 60.0) if lift is not None else None,
+                "pose": pose,
+                "prop": prop,
             }
         )
     if bx is None and not hots:
@@ -362,6 +375,30 @@ def _sky(root: Path) -> dict[str, str]:
                 if rel:
                     out[f"{phase}_{weather}"] = rel
                     break
+    return out
+
+
+def _public(root: Path) -> dict[str, dict[str, Any]]:
+    """公共房间的场景图与点位；rooms.json 缺失或损坏时当作没有。"""
+    try:
+        raw = json.loads((root / ROOMS_DIR / "rooms.json").read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return {}
+    out: dict[str, dict[str, Any]] = {}
+    for kind in PUBLIC_ROOMS:
+        spec = raw.get(kind) if isinstance(raw, dict) else None
+        if not isinstance(spec, dict):
+            continue
+        day, night = spec.get("day"), spec.get("night")
+        day = _image(root, f"{ROOMS_DIR}/{day}") if isinstance(day, str) else None
+        if not day:
+            continue
+        room = _room({"hots": spec.get("hots")})
+        out[kind] = {
+            "day": day,
+            "night": _image(root, f"{ROOMS_DIR}/{night}") if isinstance(night, str) else None,
+            "room": {"hots": room["hots"]} if room else None,
+        }
     return out
 
 
@@ -397,4 +434,4 @@ def load_members(root: Path | None) -> MembersArt:
                 room=_room(e.room),
             )
         )
-    return MembersArt(True, None, tuple(members), _sky(root))
+    return MembersArt(True, None, tuple(members), _sky(root), _public(root))

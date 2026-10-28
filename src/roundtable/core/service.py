@@ -350,6 +350,11 @@ class RoundtableService:
             ],
             "models": art.model_map(models),
             "sky": {k: url(v) for k, v in art.sky.items()},
+            # 公共房间的场景图（美术出图）与家具点位，没有的房间网页用自绘场景
+            "rooms": {
+                k: {"day": url(v["day"]), "night": url(v["night"]), "room": v["room"]}
+                for k, v in art.rooms.items()
+            },
         }
 
     def member_file(self, path: str) -> tuple[bytes, str]:

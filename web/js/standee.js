@@ -192,16 +192,6 @@ function feather(img) {
   return c;
 }
 
-/** 所有表情差分都是脸部贴片时，它们合起来的像素范围（换表情只需重传这一块）；有整张差分时 null。 */
-function patchRect(list, W, H) {
-  if (!list.length || list.some((o) => !o.box)) return null;
-  const x0 = Math.floor(Math.min(...list.map((o) => o.box[0])) * W);
-  const y0 = Math.floor(Math.min(...list.map((o) => o.box[1])) * H);
-  const x1 = Math.ceil(Math.max(...list.map((o) => o.box[0] + o.box[2])) * W);
-  const y1 = Math.ceil(Math.max(...list.map((o) => o.box[1] + o.box[3])) * H);
-  return [x0, y0, Math.min(x1, W) - x0, Math.min(y1, H) - y0];
-}
-
 export class Standee {
   /**
    * @param {{load:Function, pointer?:Function, now?:Function, rand?:Function}} opts
@@ -223,7 +213,6 @@ export class Standee {
     this.fx = { hop: 0, hopV: 0, shake: 0, shakeT: 0, think: 0 };
     this.motion = new Motion(rand);
     this.nextMotion = 0; // 下一次待机小动作的时间
-    this.srcVer = 0; // 立绘本体（含表情差分）每重画一次加一，网格形变据此决定要不要重新上传
     this.line = { base: '', text: '', shown: '', typedAt: 0, until: 0 };
     this.lastTap = 0;
     this.idleAt = 0;
@@ -298,7 +287,12 @@ export class Standee {
       }),
     );
     const prep = { v, canvas, mask, overlays, W, H, aspect: W / H, head: v.head || [0.47, W / H > 0.85 ? 0.2 : 0.17], gl };
-    prep.patchRect = patchRect(Object.values(overlays), W, H);
+    if (gl) {
+      gl.setBase(canvas);
+      gl.setPatches(overlays, W, H);
+      gl.canvas.className = 'sd-gl';
+      gl.canvas.setAttribute('aria-hidden', 'true');
+    }
     this.ready.set(v.id, prep);
     return prep;
   }
@@ -316,6 +310,12 @@ export class Standee {
     this.store.variant = id;
     writeStore(this.store);
     this.stage.dataset.render = this.cur?.gl ? 'mesh' : 'strips';
+    // 网格形变直接显示在显卡画布上（叠在原画布上面、不接鼠标）；原画布留空，只负责点击和拖动
+    this.stage.querySelectorAll('.sd-gl').forEach((c) => c.remove());
+    if (this.cur?.gl) {
+      this.cv.after(this.cur.gl.canvas);
+      this.ctx.clearRect(0, 0, this.cv.width, this.cv.height);
+    }
     this.src = null;
     this.expr = 'default';
     this.shown = { key: 'default', from: 'default', t0: 0, dur: 1 };
@@ -567,7 +567,8 @@ export class Standee {
     return o[this.expr] ? this.expr : 'default';
   }
 
-  compose(now) {
+  /** 推进表情切换：返回当前这一帧新表情的淡入比例（0～1），并算好瞳孔层该显示多少。 */
+  shownAlpha(now) {
     const key = this.wanted(now);
     const s = this.shown;
     if (key !== s.key) {
@@ -576,6 +577,13 @@ export class Standee {
       this.src = null;
     }
     const a = clamp((now - this.shown.t0) / this.shown.dur, 0, 1);
+    // 表情差分里自带眼睛：差分显示多少，单独的瞳孔层就隐去多少
+    this.irisOn = (this.shown.key === 'default' ? a : 0) + (this.shown.from === 'default' ? 1 - a : 0);
+    return a;
+  }
+
+  compose(now) {
+    const a = this.shownAlpha(now);
     if (this.src && this.srcAlpha === a) return this.src;
     const { canvas, W, H, overlays } = this.cur;
     if (!this.buf) this.buf = document.createElement('canvas');
@@ -600,17 +608,14 @@ export class Standee {
     ctx.globalAlpha = 1;
     this.src = b;
     this.srcAlpha = a;
-    this.srcVer++;
-    // 表情差分里自带眼睛：差分显示多少，单独的瞳孔层就隐去多少
-    this.irisOn = (this.shown.key === 'default' ? a : 0) + (this.shown.from === 'default' ? 1 - a : 0);
     return b;
   }
 
   /** 画一帧：按行切条，每条单独位移 / 伸缩，近似 Live2D 的网格形变。 */
   draw(now) {
     if (!this.cur || !this.box || this.stage.hidden) return;
+    if (this.cur.gl) return this.drawGl(now);
     const src = this.compose(now);
-    if (this.cur.gl) return this.drawGl(now, src);
     const { W, H, head } = this.cur;
     const cw = this.cv.width;
     const ch = this.cv.height;
@@ -682,13 +687,13 @@ export class Standee {
     return h > 0 ? this.cv.height / h : 1;
   }
 
-  /** 网格形变画一帧：显卡算好后整张贴到页面上的画布里（点击判定、截图都照旧）。 */
-  drawGl(now, src) {
+  /**
+   * 网格形变画一帧。立绘和表情差分开始时各传给显卡一次，换表情、眨眼、说话只改两个混合比例，
+   * 不再重画、重传整张图（以前眨眼和说话时掉帧就是因为这个）；画面直接显示在显卡画布上。
+   */
+  drawGl(now) {
     const r = this.cur.gl;
-    if (r.ver !== this.srcVer) {
-      r.setBase(src, this.cur.patchRect);
-      r.ver = this.srcVer;
-    }
+    const a = this.shownAlpha(now);
     const s = this.settings();
     const dt = Math.min((now - (this.glLast || now)) / 1000, 0.05);
     this.glLast = now;
@@ -700,20 +705,22 @@ export class Standee {
       talk: this.talk.open && !this.cur.overlays.talk,
       irisOn: this.irisOn ?? 1,
     });
+    pose.patches = [
+      [this.shown.from, 1 - a],
+      [this.shown.key, a],
+    ];
     const cw = this.cv.width;
     const ch = this.cv.height;
     try {
-      const out = r.render(cw, ch, pose, {
+      r.render(cw, ch, pose, {
         pad: PAD,
         flip: s.flip,
         fadeAt: this.fadeAt ?? 1,
         fadePx: 70 * this.dprY(),
       });
-      this.ctx.setTransform(1, 0, 0, 1, 0, 0);
-      this.ctx.clearRect(0, 0, cw, ch);
-      this.ctx.drawImage(out, 0, 0);
     } catch {
       // 显卡上下文丢了之类：这一套改用旧画法
+      r.canvas.remove();
       this.cur.gl = null;
       this.noGl = true;
       this.stage.dataset.render = 'strips';
