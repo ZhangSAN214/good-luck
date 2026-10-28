@@ -394,7 +394,9 @@ def list_covers(folder: Path | None) -> list[dict[str, str]]:
     for p in sorted(folder.iterdir(), key=lambda x: x.name):
         if p.is_file() and p.suffix.lower() in COVER_TYPES:
             name = p.stem.removeprefix("cover_")
-            url = f"/api/music/covers/{quote(p.name)}"
+            st = p.stat()
+            ver = hashlib.sha1(f"{st.st_mtime_ns}:{st.st_size}".encode()).hexdigest()[:10]
+            url = f"/api/music/covers/{quote(p.name)}?v={ver}"  # 换了图地址就变，不读旧缓存
             out.append({"name": name, "url": url, **fx.get(name, {})})
         if len(out) >= MAX_COVERS:
             break

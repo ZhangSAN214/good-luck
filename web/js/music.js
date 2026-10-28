@@ -26,6 +26,8 @@ const FADE_MS = 600;
 const ACCEPT = 'audio/*,.mp3,.ogg,.oga,.wav,.flac,.m4a,.aac,.opus,.webm';
 const MAX_ART_BYTES = 8 * 1024 * 1024;
 export const FX_MODES = [['auto', '跟着封面'], ['off', '不要动'], ...FX];
+// 成员封面地址带 ?v=版本（换了图就变），记住的选择只比路径，换图后照样选中、不读旧缓存
+const coverPath = (u) => String(u || '').split('?')[0];
 const cleanFx = (v) => (v === 'auto' || v === 'off' || isFx(v) ? v : 'auto');
 
 export const MODES = [
@@ -495,7 +497,8 @@ export class Music {
     const sys = this.system();
     const n = this.sysNow();
     const song = sys ? n?.cover || '' : this.art.get(this.tracks[this.cur]?.id) || '';
-    const pick = this.set.cover.pick === MY_COVER ? this.myCover : this.covers?.some((c) => c.url === this.set.cover.pick) ? this.set.cover.pick : '';
+    const mine = this.covers?.find((c) => coverPath(c.url) === coverPath(this.set.cover.pick));
+    const pick = this.set.cover.pick === MY_COVER ? this.myCover : mine?.url || '';
     const list = this.covers || [];
     let k = sys ? [...String(n?.title || '')].reduce((a, ch) => a + ch.charCodeAt(0), 0) : this.cur;
     k = Math.max(0, k);
@@ -868,9 +871,9 @@ export class Music {
   skinHtml() {
     const s = this.set.skin;
     const covers = this.covers || [];
-    const pick = this.set.cover.pick;
+    const pick = coverPath(this.set.cover.pick);
     const thumb = (url, label, val) =>
-      `<button type="button" class="mu-thumb" data-mu="cover" data-v="${esc(val)}" aria-pressed="${pick === val}" title="${esc(label)}"><img src="${esc(url)}" alt="${esc(label)}" loading="lazy"></button>`;
+      `<button type="button" class="mu-thumb" data-mu="cover" data-v="${esc(val)}" aria-pressed="${pick === coverPath(val)}" title="${esc(label)}"><img src="${esc(url)}" alt="${esc(label)}" loading="lazy"></button>`;
     return `
       <b class="mu-h">外观</b>
       <div class="mu-presets" role="group" aria-label="配色">${Object.entries(SKINS)
@@ -1016,7 +1019,7 @@ export class Music {
         this.save();
         return this.paint();
       case 'cover':
-        this.set.cover.pick = this.set.cover.pick === v ? null : v;
+        this.set.cover.pick = coverPath(this.set.cover.pick) === coverPath(v) ? null : coverPath(v);
         this.save();
         return this.paint();
       case 'mycover':
