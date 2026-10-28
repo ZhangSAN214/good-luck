@@ -271,13 +271,25 @@ def test_room_hotspots_are_validated_and_clamped(tmp_path):
             "stand": 52,
             "lift": 90,
             "fx": "!!",
+            "pose": "sit",
+            "prop": "book",
         },
         {"id": "desk", "name": "重复", "act": "read", "x": 1, "y": 1, "w": 1, "h": 1},
         {"id": "Bad Id", "name": "坏", "act": "read", "x": 1, "y": 1, "w": 1, "h": 1},
         {"id": "bed", "name": "床", "act": "sleep", "x": 1, "y": 1, "w": 1, "h": 1},
         {"id": "tank", "name": "水族箱", "act": "fly", "x": 1, "y": 1, "w": 1, "h": 1},
         {"id": "win", "name": "窗", "act": "stargaze", "x": -5, "y": 150, "w": 0, "h": 9},
-        {"id": "tv", "name": "电视", "act": "game", "x": -5, "y": 150, "w": 10, "h": 9},
+        {
+            "id": "tv",
+            "name": "电视",
+            "act": "game",
+            "x": -5,
+            "y": 150,
+            "w": 10,
+            "h": 9,
+            "pose": "fly",
+            "prop": "sword",
+        },
     ]
     extra = [
         {
@@ -324,11 +336,15 @@ def test_room_hotspots_are_validated_and_clamped(tmp_path):
         "h": 30.0,
         "stand": 52.0,
         "lift": 60.0,
+        "pose": "sit",
+        "prop": "book",
     }
-    assert (tv["x"], tv["y"], tv["label"], tv["stand"], tv["lift"]) == (
+    assert (tv["x"], tv["y"], tv["label"], tv["stand"], tv["lift"], tv["pose"], tv["prop"]) == (
         0.0,
         100.0,
         "电视",
+        None,
+        None,
         None,
         None,
     )
@@ -342,3 +358,27 @@ def test_sky_images_are_listed_when_present(tmp_path):
     (root / "sky" / "noon_fog.webp").write_bytes(PNG_1PX)
     art = load_members(root)
     assert art.sky == {"day_clear": "sky/day_clear.webp", "night_rain": "sky/night_rain.png"}
+
+
+def test_public_room_scenes_are_listed_when_present(tmp_path):
+    root = write_assets(tmp_path, "v1")
+    (root / "rooms").mkdir()
+    (root / "rooms" / "office_day.webp").write_bytes(PNG_1PX)
+    (root / "rooms" / "gym_day.webp").write_bytes(PNG_1PX)
+    hot = {"id": "desk", "name": "工位", "act": "work", "x": 40, "y": 50, "w": 20, "h": 30}
+    spec = {
+        "office": {"day": "office_day.webp", "night": "nope.webp", "hots": [hot]},
+        "gym": {"day": "gym_day.webp", "hots": "坏"},
+        "canteen": {"day": "missing.webp"},
+        "dorm": {"day": "office_day.webp"},
+        "meeting": "坏",
+    }
+    (root / "rooms" / "rooms.json").write_text(json.dumps(spec), encoding="utf-8")
+    art = load_members(root)
+    assert set(art.rooms) == {"office", "gym"}
+    assert art.rooms["office"]["day"] == "rooms/office_day.webp"
+    assert art.rooms["office"]["night"] is None
+    assert [h["id"] for h in art.rooms["office"]["room"]["hots"]] == ["desk"]
+    assert art.rooms["gym"]["room"] is None
+    (root / "rooms" / "rooms.json").write_text("{坏", encoding="utf-8")
+    assert load_members(root).rooms == {}

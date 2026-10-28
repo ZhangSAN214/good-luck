@@ -36,6 +36,8 @@ const FLEX = { office: 1.5, meeting: 1, canteen: 1.3, lounge: 1, gym: 1 };
 
 // --- 互动台词与规则 ----------------------------------------------------------------------------
 const PLACE_MS = 3 * 60_000; // 拖过去 / 叫去用家具的小人，过这么久自己回到按作息的位置
+const AUTO_EVERY = 12_000; // 没人管时，隔这么久挑一位醒着的住户自己去用家具（只在页面里演，不调用模型）
+const AUTO_MS = 90_000; // 自己去用家具的，用这么久回到按作息的位置
 const SAY_MS = 3200; // 头顶对话气泡显示多久
 const pick = (a) => a[Math.floor(Math.random() * a.length)];
 const calm = () => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
@@ -58,6 +60,19 @@ const WOKEN = ['唔……我刚睡着呢。', '（揉眼睛）去哪儿？'];
 const PAT = ['嘿嘿～', '（眯起眼睛）', '再摸要长不高了！', '被摸头了，开心。'];
 const PAT_SLEEP = ['呼……（翻了个身）', 'zzz……'];
 const BACK = ['我回原来的地方啦～', '该回去了。'];
+// 用家具时冒的话：家具自己写的台词之外，按做的事再备一些，免得每次都一样
+const ACT_LINES = {
+  read: ['这段写得真好。', '再看一章就去干活。', '嗯……原来如此。', '这本借我看看。'],
+  eat: ['好香！', '要不要来一口？', '吃饱了才有力气。', '这个味道不错。'],
+  work: ['这个我来处理。', '马上就好。', '数据对上了。', '再检查一遍。'],
+  game: ['这首我会！', '再来一局！', '♪～', '手感不错。'],
+  exercise: ['再坚持一下！', '呼……出汗了。', '今天状态好。'],
+  stargaze: ['今天看得好清楚。', '那颗星好亮。', '远处的灯也亮了。'],
+  idle: ['发会儿呆。', '这里好舒服。', '嗯～', '歇一下。'],
+  chat: ['我有个想法！', '你们觉得呢？', '我们来对一下。'],
+};
+const TOGETHER = ['一起吗？', '给我挪个位置～', '你也在这儿呀。'];
+const WELCOME = ['来呀～', '好呀！', '坐这儿吧。'];
 // 聊一句：按正在做的事；成员设定里有口头禅时一半概率说口头禅
 const TALK = {
   work: ['这个问题有点意思。', '等我把这段弄完。'],
@@ -442,31 +457,64 @@ const ROOMS = {
 // 放大房间时可以点的家具：viewBox 里的范围、叫人去做什么、头上冒的小符号；owner：只有房主能用（床）
 const HOTS = {
   dorm: [{ id: 'bed', x: BED_X, y: FY - 42, w: 114, h: 42, name: '床', act: 'sleep', label: '睡觉', say: ['晚安～', '先眯一会儿。'], fx: 'z', owner: true }],
-  office: [{ id: 'screen', x: 170, y: 10, w: 220, h: 58, name: '屏幕墙', act: 'work', label: '盯着大屏看数据', say: ['曲线又涨了。', '这个图有意思。'], fx: '!' }],
-  meeting: [{ id: 'board', x: 44, y: 11, w: 112, h: 62, name: '投影幕', act: 'chat', label: '对着投影讲方案', say: ['看下一页！', '我来讲两句。'], fx: '!' }],
+  office: [
+    { id: 'screen', x: 170, y: 10, w: 220, h: 58, name: '屏幕墙', act: 'work', label: '盯着大屏看数据', say: ['曲线又涨了。', '这个图有意思。'], fx: '!' },
+    { id: 'desk1', x: 136, y: FY - 46, w: 70, h: 46, name: '工位', act: 'work', label: '在工位上敲代码', say: ['这个函数写完了。'], fx: '!', pose: 'sit', lift: 3 },
+    { id: 'desk2', x: 266, y: FY - 46, w: 70, h: 46, name: '工位', act: 'work', label: '在工位上写报告', say: ['还差最后一段。'], fx: '!', pose: 'sit', lift: 3 },
+    { id: 'desk3', x: 396, y: FY - 46, w: 70, h: 46, name: '工位', act: 'work', label: '在工位上查资料', say: ['找到出处了。'], fx: '?', pose: 'sit', lift: 3 },
+    { id: 'rack', x: 16, y: FY - 74, w: 66, h: 74, name: '服务器', act: 'work', label: '检查服务器', say: ['灯都是绿的。'], fx: '!', prop: 'pad' },
+  ],
+  meeting: [
+    { id: 'board', x: 44, y: 11, w: 112, h: 62, name: '投影幕', act: 'chat', label: '对着投影讲方案', say: ['看下一页！', '我来讲两句。'], fx: '!' },
+    { id: 'table', x: 120, y: FY - 46, w: 190, h: 46, name: '会议桌', act: 'chat', label: '坐下开会', say: ['人到齐了吗？'], fx: '…', pose: 'sit', lift: 4, prop: 'pad' },
+    { id: 'window', x: 296, y: 16, w: 64, h: 48, name: '窗', act: 'idle', label: '看窗外', say: ['外面天气不错。'], fx: '~' },
+    { id: 'plant', x: 348, y: FY - 40, w: 30, h: 40, name: '绿植', act: 'idle', label: '给绿植浇水', say: ['多喝点水。'], fx: '♥', prop: 'cup' },
+  ],
   canteen: [
-    { id: 'stove', x: 14, y: FY - 46, w: 120, h: 46, name: '灶台', act: 'eat', label: '炒菜', say: ['火候正好。', '香不香？'], fx: '~' },
+    { id: 'stove', x: 14, y: FY - 46, w: 120, h: 46, name: '灶台', act: 'eat', label: '炒菜', say: ['火候正好。', '香不香？'], fx: '~', prop: 'food' },
     { id: 'fridge', x: 222, y: FY - 72, w: 34, h: 72, name: '冰箱', act: 'eat', label: '翻冰箱找吃的', say: ['还剩一盒酸奶！', '冰箱里有什么呢……'], fx: '*' },
+    { id: 'menu', x: 150, y: 14, w: 64, h: 40, name: '菜单', act: 'read', label: '看今天的菜单', say: ['今天有红烧肉！'], fx: '!', prop: 'none' },
+    { id: 'table1', x: 270, y: FY - 28, w: 86, h: 28, name: '餐桌', act: 'eat', label: '坐下吃饭', say: ['开动啦！'], fx: '~', pose: 'sit', lift: 2, prop: 'food' },
+    { id: 'table2', x: 360, y: FY - 28, w: 86, h: 28, name: '餐桌', act: 'eat', label: '喝杯热茶', say: ['歇口气。'], fx: '~', pose: 'sit', lift: 2 },
   ],
   lounge: [
     { id: 'tv', x: 234, y: 22, w: 50, h: 30, name: '电视', act: 'game', label: '看电视', say: ['这集好看！', '换个台吧。'], fx: '♪' },
     { id: 'fire', x: 30, y: FY - 60, w: 78, h: 60, name: '壁炉', act: 'idle', label: '烤火', say: ['好暖和～'], fx: '~' },
-    { id: 'sofa', x: 114, y: FY - 36, w: 98, h: 36, name: '沙发', act: 'read', label: '窝在沙发上', say: ['不想动了……'], fx: '♥' },
+    { id: 'sofa', x: 114, y: FY - 36, w: 98, h: 36, name: '沙发', act: 'idle', label: '躺在沙发上', say: ['不想动了……'], fx: '♥', pose: 'lie', lift: 14 },
+    { id: 'shelf', x: 296, y: 30, w: 38, h: 70, name: '书架', act: 'read', label: '从书架上拿本书', say: ['这本还没看完。'], fx: '?' },
   ],
   gym: [
     { id: 'run', x: 20, y: FY - 56, w: 82, h: 56, name: '跑步机', act: 'exercise', label: '跑步', say: ['再跑一公里！'], fx: '!' },
-    { id: 'bar', x: 166, y: FY - 56, w: 64, h: 56, name: '杠铃', act: 'exercise', label: '举杠铃', say: ['嘿——咻！'], fx: '!' },
+    { id: 'bar', x: 166, y: FY - 56, w: 64, h: 56, name: '卧推凳', act: 'exercise', label: '躺着卧推', say: ['嘿——咻！'], fx: '!', pose: 'lie', lift: 8 },
     { id: 'bag', x: 280, y: 6, w: 32, h: 70, name: '沙袋', act: 'exercise', label: '打沙袋', say: ['看我组合拳！'], fx: '!' },
+    { id: 'mirror', x: 210, y: 10, w: 64, h: 56, name: '镜子', act: 'idle', label: '对着镜子摆姿势', say: ['肌肉出来了吗？'], fx: '♥' },
   ],
   rooftop: [
     { id: 'scope', x: 814, y: 18, w: 36, h: 32, name: '望远镜', act: 'stargaze', label: '用望远镜看远处', say: ['那边的楼也亮灯了。', '看到星星了！'], fx: '*' },
-    { id: 'bench', x: 516, y: 28, w: 68, h: 22, name: '长椅', act: 'idle', label: '坐在长椅上发呆', say: ['坐一会儿。'], fx: '~' },
+    { id: 'bench', x: 516, y: 28, w: 68, h: 22, name: '长椅', act: 'idle', label: '坐在长椅上发呆', say: ['坐一会儿。'], fx: '~', pose: 'sit', lift: 4 },
+    { id: 'flowers', x: 636, y: 30, w: 96, h: 20, name: '花箱', act: 'idle', label: '给花浇水', say: ['开得真好。'], fx: '♥', prop: 'cup' },
+    { id: 'lights', x: 420, y: 10, w: 360, h: 18, name: '串灯', act: 'stargaze', label: '看串灯', say: ['亮起来真好看。'], fx: '*' },
   ],
+};
+// 小人用家具时的姿势和手里的道具：家具没写就按做的事推（坐高一点的算坐着）；prop: 'none' 表示空手
+const PROP_OF = { read: 'book', eat: 'cup', work: 'pad', game: 'note', stargaze: 'star' };
+const poseOf = (h) => h.pose || (h.lift ? 'sit' : 'stand');
+const propOf = (h) => h.prop || PROP_OF[h.act] || null;
+const PROPS = {
+  book: '<path d="M3 6.5l9 2 9-2v12l-9 2-9-2z" fill="#f4e6c8" stroke="#5a3a22" stroke-width="1.2"/><path d="M12 8.5v12" stroke="#5a3a22" stroke-width="1.2"/><path d="M5 9l5 1M5 12l5 1M14 10l5-1M14 13l5-1" stroke="#b08a5a" stroke-width=".8"/>',
+  cup: '<path d="M5.5 9h11v6a4.5 4.5 0 0 1-4.5 4.5h-2A4.5 4.5 0 0 1 5.5 15z" fill="#fff" stroke="#5a3a22" stroke-width="1.2"/><path d="M16.5 11h1.8a2.2 2.2 0 0 1 0 4.4h-1.8" fill="none" stroke="#5a3a22" stroke-width="1.2"/><path class="pst" d="M9 7.5c-1-1.6 1-2.4 0-4.5M13 7.5c-1-1.6 1-2.4 0-4.5" fill="none" stroke="#dfe6ee" stroke-width="1.1" stroke-linecap="round"/>',
+  note: '<path d="M9 17V6l10-2.4v11" fill="none" stroke="#3a3f8a" stroke-width="1.7"/><circle cx="6.8" cy="17" r="2.6" fill="#3a3f8a"/><circle cx="16.8" cy="14.6" r="2.6" fill="#3a3f8a"/>',
+  pad: '<rect x="4.5" y="4.5" width="15" height="10.5" rx="1.5" fill="#2b3442" stroke="#11151b" stroke-width="1.1"/><rect x="6.5" y="6.5" width="11" height="6.5" fill="#7fe3ff"/><path d="M6.5 10.5l3-2 2.5 1.5 3-3" fill="none" stroke="#fff" stroke-width=".9"/><path d="M2.5 16.5h19l-2 2.5h-15z" fill="#9aa1a8" stroke="#5d6874" stroke-width=".8"/>',
+  ball: '<circle cx="12" cy="13" r="7" fill="#e87a9a" stroke="#7a3a4a" stroke-width="1.2"/><path d="M6 10c4 2 8 2 12 0M7 16c3-2 7-2 10 0" fill="none" stroke="#fff" stroke-width=".9"/>',
+  star: '<path d="M12 3l2.6 5.6 6.1.6-4.6 4 1.3 6.1L12 16.2l-5.4 3.1 1.3-6.1-4.6-4 6.1-.6z" fill="#ffd774" stroke="#b07a1a" stroke-width="1.1"/>',
+  brush: '<path d="M5 19.5l8.5-8.5" stroke="#7a5236" stroke-width="2.4" stroke-linecap="round"/><path d="M12.5 11.5l4-6.5 3.5 3.5-6.5 4z" fill="#e87a9a" stroke="#7a3a4a" stroke-width="1.1"/>',
+  food: '<ellipse cx="12" cy="15.5" rx="8.5" ry="3" fill="#fff" stroke="#9aa1a8" stroke-width="1.1"/><path d="M6.5 14.5c1-4.5 10-4.5 11 0z" fill="#e8a24a" stroke="#9a5a1a" stroke-width="1.1"/><path class="pst" d="M10 9c-1-1.4 1-2 0-3.8M14 9c-1-1.4 1-2 0-3.8" fill="none" stroke="#dfe6ee" stroke-width="1" stroke-linecap="round"/>',
 };
 // 宿舍有伪 3D 场景（rooms3d.js）的房号；其余还是平面剖面
 // 宿舍场景三选一：房主有美术出的场景图（members.json 的 room_day / room_night）就用图；
 // 否则前两间用代码画的伪 3D（rooms3d.js），其余是平面剖面
-const is3d = (kind, o) => kind === 'dorm' && (Boolean(o.art) || o.style < THEMES.length);
+// 公共房间有美术场景图时（素材目录 rooms/）同样按 5:2 的场景图画
+const is3d = (kind, o) => Boolean(o.art) || (kind === 'dorm' && o.style < THEMES.length);
 // 场景图都按同一规格出：5:2、床在左侧、枕头在最左端（见共享文件夹里的房间出图提示词）
 // 房主的 members.json 里可以给出枕头上头的位置（room.bed，图上的百分比）；被子跟着平移
 const ART_HEAD = [30, 64.5];
@@ -484,7 +532,12 @@ function artBed(o) {
 const bedOf = (o) => (o.art ? artBed(o) : bedAnchor());
 // 场景图的家具点位（百分比）换成 viewBox 坐标；stand：小人站的横向位置，lift：站高一点（坐在沙发上、站在榻榻米上）
 const artHots = (o) => (o.art.room?.hots || []).map((h) => ({ ...h, x: h.x * 3, y: h.y * 1.2, w: h.w * 3, h: h.h * 1.2, say: h.say?.length ? h.say : [`去${h.label}。`] }));
-const hotsOf = (kind, o) => (is3d(kind, o) ? [...HOTS.dorm.map((h) => ({ ...h, ...bedOf(o).hot })), ...(o.art ? artHots(o) : [])] : HOTS[kind] || []);
+const hotsOf = (kind, o) => {
+  if (kind !== 'dorm') return o.art ? artHots(o) : HOTS[kind] || [];
+  return is3d(kind, o) ? [...HOTS.dorm.map((h) => ({ ...h, ...bedOf(o).hot })), ...(o.art ? artHots(o) : [])] : HOTS.dorm;
+};
+// 场景的 viewBox 宽：场景图都是 300（5:2），自绘的按房间
+const vbOf = (kind, o) => (is3d(kind, o) ? VB.dorm : VB[kind] || 300);
 
 // 窗外：场景图的窗玻璃抠成透明（scripts/room_art.py），后面垫一层按时段和天气画的天空。
 // 素材目录里有 sky/<时段>_<天气> 图时盖在上面（/api/members 的 sky；没有就只看到代码画的天）
@@ -700,6 +753,8 @@ export class Apartment {
     await this.load();
     clearInterval(this.timer);
     this.timer = setInterval(() => this.load(), REFRESH_MS);
+    clearInterval(this.autoTimer);
+    this.autoTimer = setInterval(() => this.autoUse(), AUTO_EVERY);
   }
 
   hide() {
@@ -707,6 +762,8 @@ export class Apartment {
     this.root.hidden = true;
     clearInterval(this.timer);
     this.timer = null;
+    clearInterval(this.autoTimer);
+    this.autoTimer = null;
   }
 
   async load() {
@@ -748,8 +805,11 @@ export class Apartment {
     const mark = BUBBLES[r.activity] ? `<i class="bub mk">${BUBBLES[r.activity]}</i>` : '';
     const s = this.says.get(r.id);
     const say = s && s.until > Date.now() ? `<span class="say" aria-hidden="true" data-until="${s.until}">${esc(s.text)}</span>` : '';
-    const placed = this.moved.has(r.id) ? ' placed' : '';
-    return `<button type="button" class="tenant act-${esc(r.activity)}${pressed ? ' on' : ''}${placed}" data-r="${esc(r.id)}" aria-pressed="${pressed}" aria-label="${esc(label)}" title="${esc(label)}" style="--x:${x.toFixed(1)}%;${r._y ? `--y:${(r._y / 100).toFixed(3)};` : ''}--d:${6 + (k % 4) * 1.7}s;--c:${esc(color)}">${img}${mark}${say}<b class="tag">${esc(name)}</b></button>`;
+    const placed = this.moved.has(r.id) && !r._auto ? ' placed' : '';
+    // 正在用家具：不再来回走，按家具换姿势（站 / 坐 / 躺），手里拿着道具
+    const using = r._hot ? ` using pose-${esc(r._pose || 'stand')}` : '';
+    const prop = r._hot && PROPS[r._prop] ? `<i class="prop p-${esc(r._prop)}" aria-hidden="true"><svg viewBox="0 0 24 24">${PROPS[r._prop]}</svg></i>` : '';
+    return `<button type="button" class="tenant act-${esc(r.activity)}${pressed ? ' on' : ''}${placed}${using}" data-r="${esc(r.id)}" aria-pressed="${pressed}" aria-label="${esc(label)}" title="${esc(label)}" style="--x:${x.toFixed(1)}%;${r._y ? `--y:${(r._y / 100).toFixed(3)};` : ''}--d:${6 + (k % 4) * 1.7}s;--c:${esc(color)}">${img}${prop}${mark}${say}<b class="tag">${esc(name)}</b></button>`;
   }
 
   // 小人的形象（拖起来时跟着手走的那个）
@@ -789,7 +849,8 @@ export class Apartment {
     const dark = night && !people.length && room.kind !== 'rooftop';
     const on = (lit && people.length > asleep.length) || busy || (!night && room.kind === 'office' && people.length > 0);
     const tc = om?.theme_color || '#c9733f';
-    const art = om?.images?.room_day ? { day: om.images.room_day, night: om.images.room_night, room: om.room || null } : null;
+    const pub = room.kind !== 'dorm' ? this.art?.rooms?.[room.kind] : null;
+    const art = om?.images?.room_day ? { day: om.images.room_day, night: om.images.room_night, room: om.room || null } : pub?.day ? pub : null;
     const dorms = Object.keys(this.dormNames());
     return { owner, title, night, asleep, busy, dark, on, tc, art, style: Math.max(0, dorms.indexOf(room.id)), state: roomState(room.kind, people, dark) };
   }
@@ -801,14 +862,14 @@ export class Apartment {
     if (room.kind === 'meeting' && d.hidden_meetings) sign = `<span class="sign" title="匿名会议不显示是谁">匿名会议进行中 ×${d.hidden_meetings}</span>`;
     // 在自己宿舍睡觉的画在床上，其余的小人站在地板上
     const awake = people.filter((p) => !info.asleep.includes(p));
-    const o = { ph: this.phase, night: info.night, on: info.on, tc: esc(info.tc), style: info.style, art: room.kind === 'dorm' ? info.art : null, weather: this.weather, sky: this.art?.sky, uid: room.id + (big ? 'z' : '') };
+    const o = { ph: this.phase, night: info.night, on: info.on, tc: esc(info.tc), style: info.style, art: info.art, weather: this.weather, sky: this.art?.sky, uid: room.id + (big ? 'z' : '') };
     const beds = info.asleep.map((p) => sleeper(p, this.look(p), this.label(p), this.selected === p.id, is3d(room.kind, o) ? o : null)).join('');
     const tenants = awake.map((p, i) => this.tenant(p, i, awake.length)).join('');
     const cls = `room k-${esc(room.kind)}${info.busy ? ' busy' : ''}${info.dark ? ' dark' : ''}${info.asleep.length && !awake.length ? ' asleep' : ''}${info.on ? ' lit' : ''}${big ? ' big' : ''}`;
     const flex = room.kind === 'dorm' ? 1 : FLEX[room.kind] || 1;
     const head = `<span class="rname"><i class="rbar"></i><b>${esc(info.title)}</b><small>${esc(info.state)}${people.length ? ` · ${people.length} 人` : ''}</small></span>`;
     const zbtn = big ? '' : `<button type="button" class="zbtn" data-zoom="${esc(room.id)}" aria-label="放大看${esc(info.title)}" title="放大看">${icon('zoom')}</button>`;
-    const ar = ((VB[room.kind] || 300) / (room.kind === 'rooftop' ? 70 : H)).toFixed(3);
+    const ar = (info.art ? 2.5 : (VB[room.kind] || 300) / (room.kind === 'rooftop' ? 70 : H)).toFixed(3);
     return `<div class="${cls}" data-room="${esc(room.id)}" style="--tc:${esc(info.tc)};--fx:${flex};--ar:${ar}">${sceneSvg(room.kind, o, (big ? hotSvg(room.kind, o) : '') + beds)}<div class="people${awake.length >= 5 ? ' crowd' : ''}">${tenants}</div>${head}${sign}${zbtn}</div>`;
   }
 
@@ -844,9 +905,11 @@ export class Apartment {
     return back;
   }
 
-  move(id, patch) {
+  move(id, patch, ms = PLACE_MS) {
     const cur = this.moved.get(id)?.patch || {};
-    this.moved.set(id, { patch: { ...cur, ...patch }, until: Date.now() + PLACE_MS });
+    // 不是去用家具的（拖过去、被叫去聊天）就放下手里的家具
+    const use = '_hot' in patch ? {} : { _hot: null, _pose: null, _prop: null };
+    this.moved.set(id, { patch: { ...cur, _auto: false, ...use, ...patch }, until: Date.now() + ms });
     const next = Math.min(...[...this.moved.values()].map((m) => m.until));
     clearTimeout(this.backTimer);
     this.backTimer = setTimeout(() => this.data && !this.root.hidden && this.render(), Math.max(0, next - Date.now()) + 50);
@@ -919,7 +982,7 @@ export class Apartment {
       h += `<div class="card" id="resident-card"><div class="who">${m?.images?.avatar_128 ? `<img src="${esc(m.images.avatar_128)}" alt="">` : ''}<div><b>${esc(m?.display || sel.name)}</b><div class="hint">${esc(ROLE[sel.role] || sel.role)} · 住 ${esc(dorms[sel.dorm] || '')}</div></div></div>`;
       h += `<p>${esc(whereText(sel, dorms[sel.dorm]))}</p>`;
       const mv = this.moved.get(sel.id);
-      if (mv) h += `<p class="hint placed-note">这是你临时摆放的，约 ${Math.max(1, Math.ceil((mv.until - Date.now()) / 60_000))} 分钟后自己回去 <button type="button" class="back" data-back="${esc(sel.id)}">现在就回去</button></p>`;
+      if (mv && !mv.patch._auto) h += `<p class="hint placed-note">这是你临时摆放的，约 ${Math.max(1, Math.ceil((mv.until - Date.now()) / 60_000))} 分钟后自己回去 <button type="button" class="back" data-back="${esc(sel.id)}">现在就回去</button></p>`;
       h += `<p class="hint">本月工资 $${Number(sel.month_paid_usd || 0).toFixed(4)} · ${sel.model_ids.length} 种工作模式</p><div class="acts">`;
       if (sel.session_id) h += `<button type="button" class="btn" data-open="${esc(sel.session_id)}">去看 TA 在办的事</button>`;
       if (this.dmWith) h += `<button type="button" class="btn" data-dm="${esc(sel.id)}">私聊</button>`;
@@ -1345,7 +1408,7 @@ export class Apartment {
     const roomEl = hotEl.closest('.room[data-room]');
     const room = (this.data.floors || []).flat().find((x) => x.id === roomEl?.dataset.room);
     const info = room && this.roomInfo(room, this.people().filter((p) => p.room === room.id));
-    const o = info && { style: info.style, art: room.kind === 'dorm' ? info.art : null };
+    const o = info && { style: info.style, art: info.art };
     const h = room && hotsOf(room.kind, o).find((x) => x.id === hotEl.dataset.hot);
     if (!h) return;
     const name = (p) => this.look(p)?.display || p.name;
@@ -1366,11 +1429,19 @@ export class Apartment {
       this.burst(hotEl, h.fx);
       return this.floatAt(hotEl, 'say free', `${h.name}空着，没人用。`, SAY_MS);
     }
-    const before = this.tenantEl(who.id)?.getBoundingClientRect();
     const l = roomEl.querySelector('.people').getBoundingClientRect();
     const hb = hotEl.getBoundingClientRect();
-    const at = h.stand ?? ((hb.left + hb.width / 2 - l.left) / l.width) * 100;
-    this.move(who.id, { room: room.id, activity: h.act, activity_label: h.label, _x: clampPct(at), _y: h.lift ?? null });
+    this.goUse(who, room, h, { at: h.stand ?? ((hb.left + hb.width / 2 - l.left) / l.width) * 100 });
+  }
+
+  // 叫某位走到家具边用它：换上家具的姿势和道具；已经有人在用就挨着坐下、两人打个招呼
+  goUse(who, room, h, { at = null, auto = false } = {}) {
+    let x = at ?? h.stand ?? this.spotX(room, h);
+    const mate = this.people().find((p) => p.id !== who.id && p.room === room.id && p._hot === h.id);
+    if (mate) x += x > 50 ? -8 : 8;
+    const before = this.tenantEl(who.id)?.getBoundingClientRect();
+    const patch = { room: room.id, activity: h.act, activity_label: h.label, _x: clampPct(x), _y: h.lift ?? null, _hot: h.id, _pose: poseOf(h), _prop: propOf(h), _auto: auto };
+    this.move(who.id, patch, auto ? AUTO_MS : PLACE_MS);
     this.render();
     const el = this.tenantEl(who.id);
     if (el?.tagName === 'BUTTON' && before && !calm()) {
@@ -1380,8 +1451,37 @@ export class Apartment {
       el.animate([{ transform: `translateX(${dx}px)` }, { transform: 'none' }], { duration: ms, easing: 'ease-in-out' });
       setTimeout(() => el.classList.remove('walking'), ms);
     }
-    const spot = this.root.querySelector(`.zstage [data-hot="${h.id}"]`);
+    const spot = this.root.querySelector(`.zstage .room[data-room="${CSS.escape(room.id)}"] [data-hot="${h.id}"]`);
     if (spot) this.burst(spot, h.fx, 2);
-    this.say(who.id, pick(h.say));
+    // 自己去用的不每次都说话，免得满屏气泡
+    if (auto && Math.random() < 0.5) return;
+    const own = h.say?.length && Math.random() < 0.6 ? h.say : ACT_LINES[h.act] || h.say || [];
+    this.say(who.id, mate && Math.random() < 0.6 ? pick(TOGETHER) : pick(own));
+    if (mate && mate.activity !== 'sleep') setTimeout(() => this.say(mate.id, pick(WELCOME)), 900);
+  }
+
+  // 家具中心换成房间里的横向百分比：场景按比例缩放、裁边，直接用 viewBox 的比例会偏，按画出来的位置算
+  spotX(room, h) {
+    const info = this.roomInfo(room, this.residentsIn(room.id));
+    const cx = h.x + h.w / 2;
+    const el = this.root.querySelector(`${this.zoom ? '.zstage' : '.bstage'} .room[data-room="${CSS.escape(room.id)}"]`);
+    const ctm = el?.querySelector('svg.scene')?.getScreenCTM?.();
+    const l = el?.querySelector('.people')?.getBoundingClientRect();
+    if (!ctm || !l?.width) return (cx / vbOf(room.kind, { style: info.style, art: info.art })) * 100;
+    return ((ctm.a * cx + ctm.e - l.left) / l.width) * 100;
+  }
+
+  // 没人管的时候，挑一位醒着的住户自己去用所在房间的家具；正在办事的只用办公的家具。
+  // 你摆放的、选中的不动；减少动态效果时不演
+  autoUse() {
+    if (!this.data || this.root.hidden || document.hidden || this.drag || calm()) return;
+    const pool = this.people().filter((p) => p.activity !== 'sleep' && p.activity !== 'wait' && p.id !== this.selected && !(this.moved.has(p.id) && !p._auto));
+    const who = pool.length ? pick(pool) : null;
+    const room = who && (this.data.floors || []).flat().find((x) => x.id === who.room);
+    if (!room) return;
+    const info = this.roomInfo(room, this.residentsIn(room.id));
+    const busy = who.activity === 'work';
+    const hots = hotsOf(room.kind, { style: info.style, art: info.art }).filter((h) => !h.owner && h.id !== who._hot && (!busy || h.act === 'work'));
+    if (hots.length) this.goUse(who, room, pick(hots), { auto: true });
   }
 }
