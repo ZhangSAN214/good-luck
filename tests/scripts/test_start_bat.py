@@ -13,7 +13,7 @@ def test_start_bat_steps_in_order():
         'cd /d "%~dp0"',
         r".venv\Scripts\activate.bat",
         "git pull",
-        'pip install -e ".[dev]"',
+        'pip install -e ".[dev,windows]"',
         "http://127.0.0.1:8000",
         "uvicorn roundtable.api.app:app",
     ]

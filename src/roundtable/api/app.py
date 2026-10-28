@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 from collections.abc import AsyncIterator
@@ -165,6 +166,14 @@ class MailRefreshBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     manual: bool = True
+
+
+class NowPlayingControlBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    player: str = Field(default="qqmusic", max_length=40)
+    action: str = Field(pattern="^(play|pause|toggle|next|prev|seek)$")
+    position: float | None = Field(default=None, ge=0, le=86400)
 
 
 class MailMarkBody(BaseModel):
@@ -407,6 +416,32 @@ def create_app(service: RoundtableService | None = None, lan: LanAccess | None =
     @app.get("/api/standee/files/{path:path}")
     async def standee_file(request: Request, path: str) -> Response:
         data, mime = svc(request).standee_file(path)
+        headers = {"X-Content-Type-Options": "nosniff", "Cache-Control": "private, max-age=3600"}
+        return Response(content=data, media_type=mime, headers=headers)
+
+    @app.get("/api/nowplaying")
+    async def nowplaying(request: Request, player: str = "qqmusic") -> dict[str, Any]:
+        return await asyncio.to_thread(svc(request).nowplaying, player)
+
+    @app.get("/api/nowplaying/cover")
+    async def nowplaying_cover(request: Request, player: str = "qqmusic") -> Response:
+        data, mime = await asyncio.to_thread(svc(request).nowplaying_cover, player)
+        headers = {"X-Content-Type-Options": "nosniff", "Cache-Control": "private, max-age=600"}
+        return Response(content=data, media_type=mime, headers=headers)
+
+    @app.post("/api/nowplaying/control")
+    async def nowplaying_control(request: Request, body: NowPlayingControlBody) -> dict[str, Any]:
+        return await asyncio.to_thread(
+            svc(request).nowplaying_control, body.player, body.action, body.position
+        )
+
+    @app.get("/api/music/covers")
+    async def music_covers(request: Request) -> dict[str, Any]:
+        return svc(request).music_covers()
+
+    @app.get("/api/music/covers/{name}")
+    async def music_cover(request: Request, name: str) -> Response:
+        data, mime = svc(request).music_cover(name)
         headers = {"X-Content-Type-Options": "nosniff", "Cache-Control": "private, max-age=3600"}
         return Response(content=data, media_type=mime, headers=headers)
 

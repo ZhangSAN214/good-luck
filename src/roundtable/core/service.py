@@ -77,6 +77,7 @@ from roundtable.core.members_art import MEMBERS_FILE, load_members, mime_of, res
 from roundtable.core.memory import LAYERS, MemoryKeeper, clean_memory
 from roundtable.core.moments import SEEN_KEY as MOMENTS_SEEN
 from roundtable.core.notes import NoteError, check_can_add, clean_note
+from roundtable.core.nowplaying import COVERS_DIR, NowPlaying, SmtcSource, list_covers, read_cover
 from roundtable.core.office import building, payslip, roster
 from roundtable.core.office import collect as collect_performance
 from roundtable.core.office import reset as reset_performance
@@ -161,6 +162,7 @@ class RoundtableService:
                 extra_hosts=self.mail.extra_hosts,
                 show_window=self.mail.show_window,
             )
+        self._nowplaying: NowPlaying | None = None
         self._chat_tasks: set[asyncio.Task[Any]] = set()
         self._life_task: asyncio.Task[None] | None = None
         self._evolution_task: asyncio.Task[None] | None = None
@@ -370,6 +372,53 @@ class RoundtableService:
             return found.read_bytes(), mime_of(found)
         except OSError:
             raise ServiceError("文件不存在", 404) from None
+
+    # ---------- 音乐卡片：电脑上正在放的歌（QQ 音乐等，经系统媒体控制）与本地封面 ----------
+
+    def _np(self) -> NowPlaying:
+        if self._nowplaying is None:
+            source = self.rt.nowplaying_source
+            self._nowplaying = NowPlaying(source if source is not None else SmtcSource())
+        return self._nowplaying
+
+    def nowplaying(self, player: str = "qqmusic") -> dict[str, Any]:
+        """只读：歌名、歌手、专辑、进度、能不能控制、封面地址。不存库、不调用模型。"""
+        return self._np().view(player)
+
+    def nowplaying_cover(self, player: str = "qqmusic") -> tuple[bytes, str]:
+        found = self._np().cover(player)
+        if found is None:
+            raise ServiceError("没有封面", 404)
+        return found
+
+    def nowplaying_control(
+        self, player: str, action: str, position: float | None = None
+    ) -> dict[str, Any]:
+        """播放 / 暂停 / 上一首 / 下一首 / 跳到某处：经系统媒体控制转给播放器。
+
+        播放器不响应时 409。
+        """
+        try:
+            ok = self._np().control(player, action, position)
+        except ValueError as exc:
+            raise ServiceError(str(exc)) from None
+        if not ok:
+            raise ServiceError("播放器没有响应（可能没打开，或不支持这个操作）", 409)
+        return self._np().view(player)
+
+    def _covers_dir(self) -> Path | None:
+        sf = self.rt.standee_file
+        return sf.parent / COVERS_DIR if sf is not None else None
+
+    def music_covers(self) -> dict[str, Any]:
+        """本机 data/avatars/music_covers/ 里可选作封面的图片（成员侧脸等，不进 git）。"""
+        return {"covers": list_covers(self._covers_dir())}
+
+    def music_cover(self, name: str) -> tuple[bytes, str]:
+        found = read_cover(self._covers_dir(), name)
+        if found is None:
+            raise ServiceError("文件不存在", 404)
+        return found
 
     def standee(self) -> dict[str, Any]:
         """终端首页大立绘：各套立绘与表情差分的地址、台词。只读本机文件，不调用模型。

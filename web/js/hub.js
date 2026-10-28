@@ -203,12 +203,11 @@ export class Hub {
     this.root.dataset.bgkey = bg.key;
     this.root.innerHTML = `
       <div class="hb-top">
-        <span data-clock-slot></span>
+        <div class="hb-lead"><span data-clock-slot></span><span data-music-slot></span></div>
         ${month ? `<button type="button" class="hb-res" data-act="usage" title="本月已用 / 本月上限（点开看余额与用量）">本月已用 $${Number(month.spent_usd).toFixed(2)} / $${Number(month.limit_usd).toFixed(0)}</button>` : ''}
         <label class="hb-land"><input type="checkbox" data-land${this.landWork() ? ' checked' : ''}> 打开网页时直接进办公室</label>
         <span data-notice-slot></span>
         <span data-mail-slot></span>
-        <span data-music-slot></span>
         ${this.standee ? `<button type="button" class="hb-bgbtn" data-act="standee" aria-expanded="${Boolean(this.standee.editing)}" title="立绘：显示、换一套、调位置大小">${icon('standee', 'hb-i')}立绘</button>` : ''}
         <button type="button" class="hb-bgbtn" data-act="bg" aria-expanded="${pickerOpen}">${icon('image', 'hb-i')}背景</button>
       </div>

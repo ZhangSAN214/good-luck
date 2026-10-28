@@ -84,6 +84,8 @@ class Runtime:
     mail_dir: Path | None = None
     # 邮件栏的数据来源（测试中注入假的；为空时用 mail_dir 上的专用浏览器）
     mail_source: Any | None = None
+    # 音乐卡片的「电脑上正在放的歌」（测试中注入假的；为空时用 Windows 系统媒体控制）
+    nowplaying_source: Any | None = None
     # 聊天 / 朋友圈的图片、视频、语音所在目录；为空表示不能存（内存数据库）
     chat_media_dir: Path | None = None
 

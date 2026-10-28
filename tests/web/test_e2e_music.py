@@ -43,6 +43,11 @@ def _open(page) -> None:
     page.wait_for_selector("#hub .mu-panel", state="visible")
 
 
+def _view(page, v: str) -> None:
+    """卡片里切到播放列表 / 外观；再点同一个回到播放器。"""
+    page.click(f"#hub .mu-panel [data-mu='view'][data-v='{v}']")
+
+
 def test_music_playlist_is_chosen_by_hand_and_remembered_locally(serve, page):
     srv = serve(confirm_threshold_usd=100.0)
     posts: list[str] = []
@@ -50,7 +55,7 @@ def test_music_playlist_is_chosen_by_hand_and_remembered_locally(serve, page):
     page.add_init_script(LAND_HUB)
     page.goto(srv.url)
     page.wait_for_selector("#hub .mu-btn")
-    assert page.inner_text("#hub .mu-btn") == "音乐"
+    assert page.inner_text("#hub .mu-label") == "音乐"
     _open(page)
     assert "还没有音乐" in page.inner_text("#hub .mu-now")
     # 一次选好几首；不是音频的文件不收
@@ -62,6 +67,7 @@ def test_music_playlist_is_chosen_by_hand_and_remembered_locally(serve, page):
             {"name": "笔记.txt", "mimeType": "text/plain", "buffer": b"hi"},
         ],
     )
+    _view(page, "list")
     wait_until(lambda: len(_names(page)) == 2)
     assert _names(page) == ["晚风", "夜航"]
     assert "不是这台电脑的浏览器能放的音频" in page.inner_text("#hub .mu-panel .hb-err")
@@ -73,22 +79,24 @@ def test_music_playlist_is_chosen_by_hand_and_remembered_locally(serve, page):
     assert _names(page) == ["雨夜", "晚风", "夜航"]
     page.click("#hub [data-mu-row='2'] [data-mu='del']")
     wait_until(lambda: _names(page) == ["雨夜", "晚风"])
+    page.check("#hub [data-mu-keep]")
     # 循环方式：列表循环 → 单曲循环 → 随机；音量
+    _view(page, "player")
     page.click("#hub [data-mu='mode']")
     page.click("#hub [data-mu='mode']")
     assert page.inner_text("#hub .mu-mode") == "随机"
     page.fill("#hub [data-mu-vol]", "30")
     page.dispatch_event("#hub [data-mu-vol]", "change")
-    page.check("#hub [data-mu-keep]")
     # 音乐不经服务器：添加、排序、删除都没有发任何写请求
     assert posts == []
     # 刷新后列表、顺序、设置都还在（本机浏览器里）
     page.reload()
     page.wait_for_selector("#hub .mu-btn")
     _open(page)
-    wait_until(lambda: _names(page) == ["雨夜", "晚风"])
     assert page.inner_text("#hub .mu-mode") == "随机"
     assert page.input_value("#hub [data-mu-vol]") == "30"
+    _view(page, "list")
+    wait_until(lambda: _names(page) == ["雨夜", "晚风"])
     assert page.is_checked("#hub [data-mu-keep]")
     # Esc 收起面板
     page.keyboard.press("Escape")
@@ -104,12 +112,12 @@ def test_music_plays_on_click_and_fades_out_when_leaving_the_hub(serve, page):
     assert page.locator("#hub .mu.on").count() == 0  # 默认不自动播放
     _open(page)
     page.set_input_files("#hub [data-mu-file]", [_song("晚风.wav"), _song("夜航.wav", 523.0)])
-    wait_until(lambda: len(_names(page)) == 2)
+    wait_until(lambda: page.inner_text("#hub .mu-now") in ("点播放开始", "晚风"))
     page.click("#hub .mu-panel [data-mu='play']")
     wait_until(lambda: page.locator("#hub .mu.on").count() == 1)
-    assert page.inner_text("#hub .mu-btn") == "晚风"
+    assert page.inner_text("#hub .mu-label") == "晚风"
     page.click("#hub [data-mu='next']")
-    wait_until(lambda: page.inner_text("#hub .mu-btn") == "夜航")
+    wait_until(lambda: page.inner_text("#hub .mu-label") == "夜航")
     # 切到办公室：淡出暂停；回到终端：接着放
     page.click("#entries button[data-m='work']")
     page.wait_for_selector("#main", state="visible")
@@ -117,9 +125,10 @@ def test_music_plays_on_click_and_fades_out_when_leaving_the_hub(serve, page):
     page.click("#entries button[data-m='hub']")
     page.wait_for_selector("#hub .mu-btn")
     wait_until(lambda: page.locator("#hub .mu.on").count() == 1)
-    assert page.inner_text("#hub .mu-btn") == "夜航"
+    assert page.inner_text("#hub .mu-label") == "夜航"
     # 勾上「切到其他页面时继续播放」后，离开终端不停
     _open(page)
+    _view(page, "list")
     page.check("#hub [data-mu-keep]")
     page.click("#entries button[data-m='work']")
     page.wait_for_selector("#main", state="visible")
@@ -130,3 +139,130 @@ def test_music_plays_on_click_and_fades_out_when_leaving_the_hub(serve, page):
     _open(page)
     page.click("#hub .mu-panel [data-mu='play']")
     wait_until(lambda: page.locator("#hub .mu.on").count() == 0)
+
+
+def _png() -> bytes:
+    """一张 1×1 的 png。"""
+    import base64
+
+    return base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+    )
+
+
+def test_music_follows_qq_music_on_this_computer(serve, page, tmp_path):
+    """QQ 音乐：显示电脑上正在放的歌、封面、进度；按钮经系统媒体控制发给播放器。"""
+    from roundtable.core.nowplaying import FakeMediaSource, Playing
+
+    src = FakeMediaSource(
+        [
+            Playing(app_id="Chrome", title="浏览器里的视频", status="playing"),
+            Playing(
+                app_id="QQMusic.exe",
+                title="夜航星",
+                artist="不才",
+                album="夜航星",
+                status="paused",
+                position=61.0,
+                duration=240.0,
+                can=frozenset({"play", "pause", "next", "prev", "seek"}),
+                cover=_png(),
+            ),
+        ]
+    )
+    covers = tmp_path / "music_covers"
+    covers.mkdir()
+    (covers / "cover_claude.png").write_bytes(_png())
+
+    def setup(env):
+        env.rt.nowplaying_source = src
+        env.rt.standee_file = tmp_path / "standee.json"
+
+    srv = serve(confirm_threshold_usd=100.0, setup=setup)
+    page.add_init_script(LAND_HUB)
+    page.goto(srv.url)
+    page.wait_for_selector("#hub .mu-btn")
+    _open(page)
+    page.click("#hub .mu-seg [data-v='system']")
+    wait_until(lambda: page.inner_text("#hub .mu-now") == "夜航星")
+    assert "不才" in page.inner_text("#hub .mu-sub")
+    assert page.inner_text("#hub .mu-cur") == "1:01"
+    assert page.inner_text("#hub .mu-dur") == "4:00"
+    assert "/api/nowplaying/cover" in page.get_attribute("#hub .mu-art img", "src")
+    # 默认只跟 QQ 音乐：浏览器里在放什么不显示
+    assert "浏览器里的视频" not in page.inner_text("#hub .mu-panel")
+    page.click("#hub .mu-panel [data-mu='play']")
+    wait_until(lambda: ("QQMusic.exe", "play", None) in src.calls)
+    wait_until(lambda: page.locator("#hub .mu.on").count() == 1)
+    assert page.inner_text("#hub .mu-label") == "夜航星"
+    page.click("#hub .mu-panel [data-mu='next']")
+    wait_until(lambda: ("QQMusic.exe", "next", None) in src.calls)
+    # 连接设置里说明要做什么
+    _view(page, "list")
+    assert "QQ 音乐桌面版" in page.inner_text("#hub .mu-panel")
+    assert "检测到：QQ 音乐" in page.inner_text("#hub .mu-panel")
+    # 刷新后还是 QQ 音乐
+    page.reload()
+    page.wait_for_selector("#hub .mu-btn")
+    wait_until(lambda: page.inner_text("#hub .mu-label") == "夜航星")
+
+
+def test_music_card_colors_text_and_cover_are_customizable(serve, page, tmp_path):
+    covers = tmp_path / "music_covers"
+    covers.mkdir()
+    (covers / "cover_claude.png").write_bytes(_png())
+    srv = serve(
+        confirm_threshold_usd=100.0,
+        setup=lambda env: setattr(env.rt, "standee_file", tmp_path / "standee.json"),
+    )
+    posts: list[str] = []
+    page.on("request", lambda r: r.method != "GET" and posts.append(r.url))
+    page.add_init_script(LAND_HUB)
+    page.goto(srv.url)
+    page.wait_for_selector("#hub .mu-btn")
+    _open(page)
+    _view(page, "skin")
+    page.click("#hub .mu-preset[data-v='night']")
+    style = page.get_attribute("#hub .mu-panel", "style")
+    assert "--mu-accent:#8eb0e4" in style
+    page.fill("#hub [data-mu-color='accent']", "#c0392b")
+    page.dispatch_event("#hub [data-mu-color='accent']", "change")
+    page.fill("#hub [data-mu-tag]", "晚安电台")
+    page.click("#hub .mu-thumb[title='claude']")
+    _view(page, "skin")  # 回到播放器
+    assert page.inner_text("#hub .mu-tag") == "晚安电台"
+    assert "/api/music/covers/cover_claude.png" in page.get_attribute("#hub .mu-art img", "src")
+    assert "--mu-accent:#c0392b" in page.get_attribute("#hub .mu-panel", "style")
+    assert posts == []  # 外观只存本机浏览器
+    page.reload()
+    page.wait_for_selector("#hub .mu-btn")
+    _open(page)
+    assert "--mu-accent:#c0392b" in page.get_attribute("#hub .mu-panel", "style")
+    assert page.inner_text("#hub .mu-tag") == "晚安电台"
+
+
+def test_music_mini_card_sits_under_the_clock_and_can_collapse(serve, page):
+    srv = serve(confirm_threshold_usd=100.0)
+    page.add_init_script(LAND_HUB)
+    page.goto(srv.url)
+    page.wait_for_selector("#hub .hb-lead .mu-mini")
+    clock = page.locator("#hub .hb-lead .ck").bounding_box()
+    mini = page.locator("#hub .mu-mini").bounding_box()
+    assert mini["y"] >= clock["y"] + clock["height"]  # 在时钟下面
+    assert abs(mini["x"] - clock["x"]) < 2
+    # 小卡上的播放键直接放
+    page.set_input_files("#hub [data-mu-file]", [_song("晚风.wav")])
+    wait_until(lambda: page.inner_text("#hub .mu-label") == "晚风")
+    page.click("#hub .mu-mini [data-mu='play']")
+    wait_until(lambda: page.locator("#hub .mu.on").count() == 1)
+    # 收起成小按钮，刷新后还记得；再展开
+    page.click("#hub .mu-mini [data-mu='dock']")
+    assert page.locator("#hub .mu-mini").count() == 0
+    page.reload()
+    page.wait_for_selector("#hub .mu-btn")
+    assert page.locator("#hub .mu-mini").count() == 0
+    page.click("#hub .mu [data-mu='dock']")
+    page.wait_for_selector("#hub .mu-mini")
+    # 点小卡打开完整播放器
+    page.click("#hub .mu-mini .mu-btn")
+    page.wait_for_selector("#hub .mu-panel", state="visible")
