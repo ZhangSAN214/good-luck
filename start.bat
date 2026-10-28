@@ -20,8 +20,8 @@ call ".venv\Scripts\activate.bat" || goto :error
 echo [1/4] git pull ...
 git pull --ff-only || echo [warn] git pull failed, starting with the local code.
 
-echo [2/4] pip install -e ".[dev]" ...
-python -m pip install -e ".[dev]" || goto :error
+echo [2/4] pip install -e ".[dev,windows]" ...
+python -m pip install -e ".[dev,windows]" || goto :error
 
 rem Code sandbox for the python tool (one-time download, then offline)
 python scripts\setup_sandbox.py --check >nul 2>&1

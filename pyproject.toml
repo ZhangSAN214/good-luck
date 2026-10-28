@@ -33,6 +33,14 @@ media = [
     "av>=12",
     "pillow>=10",
 ]
+# 音乐卡片连 QQ 音乐等桌面播放器：读 Windows 系统媒体控制（只在 Windows 上装）
+windows = [
+    "winrt-runtime>=2.0; sys_platform == 'win32'",
+    "winrt-Windows.Foundation>=2.0; sys_platform == 'win32'",
+    "winrt-Windows.Foundation.Collections>=2.0; sys_platform == 'win32'",
+    "winrt-Windows.Media.Control>=2.0; sys_platform == 'win32'",
+    "winrt-Windows.Storage.Streams>=2.0; sys_platform == 'win32'",
+]
 dev = [
     "av>=12",
     "pillow>=10",
