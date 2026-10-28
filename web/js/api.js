@@ -33,6 +33,7 @@ function errorText(data, status) {
   return `请求失败（${status}）`;
 }
 
+export const carry = (sid) => api(`/api/sessions/${sid}/carry`);
 export const estimate = (body) => api('/api/estimate', { method: 'POST', body });
 export const filePreview = (sid, fid) => api(`/api/sessions/${sid}/files/${fid}/preview`);
 export const fileUrl = (sid, fid, inline = false) =>

@@ -1007,9 +1007,10 @@ function ending(sv, ctx) {
   const boss = office ? '经理' : '统筹';
   if (sv.status === 'completed') {
     const done = office ? '办完了' : '讨论完成';
-    if (!sv.anonymous) return sys(boss, `${done} · 本场花费 ${cost}`, 'ok');
+    const relay = carryBar();
+    if (!sv.anonymous) return sys(boss, `${done} · 本场花费 ${cost}`, 'ok', relay);
     const tail = sv.revealed ? '身份已揭晓' : '可以点「揭晓身份」查看各代号对应的模型';
-    return sys(boss, `${done} · 本场花费 ${cost} · ${tail}`, 'ok');
+    return sys(boss, `${done} · 本场花费 ${cost} · ${tail}`, 'ok', relay);
   }
   if (sv.status === 'stopped') return sys(boss, `已停止 · 本场花费 ${cost}`, 'bad');
   if (sv.status === 'failed') return sys(boss, `失败：${esc(sv.error || '未知错误')}`, 'bad');
@@ -1017,6 +1018,20 @@ function ending(sv, ctx) {
     return sys(boss, `已暂停：${esc(sv.error || '')}`, 'bad', '<button class="btn sm" type="button" data-act="resume">继续</button>');
   }
   return '';
+}
+
+// 接力：这一场的成果交给下一场（只带成果摘要，不带过程）
+export const CARRY_TARGETS = [
+  ['discussion', '继续讨论'],
+  ['collab', '转协同作业'],
+  ['brainstorm', '再头脑风暴'],
+  ['solo', '交给一个人单独做'],
+  ['office', '交给办公室'],
+];
+
+function carryBar() {
+  const btns = CARRY_TARGETS.map(([k, label]) => `<button class="btn sm" type="button" data-carry="${k}">${label}</button>`).join('');
+  return `<div class="carry-bar" role="group" aria-label="接着做"><span class="hint">接着做（只带这一场的成果摘要）：</span>${btns}</div>`;
 }
 
 // --- 圆桌 ------------------------------------------------------------------------

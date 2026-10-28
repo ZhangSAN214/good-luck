@@ -26,6 +26,7 @@ from roundtable.core.attachments.detect import TYPES as UPLOAD_TYPES
 from roundtable.core.browse import REFRESH_KEY, feeds_of, set_feeds
 from roundtable.core.budget import report as usage_report
 from roundtable.core.budget.guard import day_window, month_window
+from roundtable.core.carry import carry_question, compact
 from roundtable.core.changelog import changelog_view, load_changelog
 from roundtable.core.chat import ROOM, WORK, ChatHub, chat_budget
 from roundtable.core.chat_media import MAX_BYTES as CHAT_MEDIA_MAX
@@ -1362,6 +1363,7 @@ class RoundtableService:
         media: str | None = None,
         media_tier: str | None = None,
         style_refs: Sequence[str] | None = None,
+        carry_from: str | None = None,
     ) -> str:
         """创建会话并在后台开始执行，立即返回会话 id。
 
@@ -1370,11 +1372,10 @@ class RoundtableService:
         attachments：先用 upload() 上传得到的附件 id；
         style_refs：其中作为风格参考的图片附件 id（None = 全部图片；传空表示都不是）；
         media：讨论模式的输出类型（image / speech / video，默认文字）；
-        media_tier：媒体模型的档位（budget / flagship）。
+        media_tier：媒体模型的档位（budget / flagship）；
+        carry_from：接力的上一场会话 id，question 是这一场的要求，上一场的成果摘要附在后面。
         """
-        text = question.strip()
-        if not text:
-            raise ServiceError("题目不能为空")
+        text = self._carried(question, carry_from, anonymous)
         if len(text) > MAX_QUESTION_CHARS:
             raise ServiceError(f"题目过长（超过 {MAX_QUESTION_CHARS} 字）")
         try:
@@ -1400,6 +1401,41 @@ class RoundtableService:
             raise ServiceError(str(exc)) from None
         self._spawn(sid, self.orc.run(sid))
         return sid
+
+    def carry(self, session_id: str) -> dict[str, Any]:
+        """接力用：上一场的题目和将带入下一场的成果摘要（揭晓前为匿名视图）。"""
+        row, result = self._carry_source(session_id)
+        return {
+            "session_id": session_id,
+            "question": row["question"],
+            "workflow": row["workflow"],
+            "anonymous": bool(row["anonymous"]),
+            "summary": compact(
+                self.rt.scrubber.scrub(result, row["question"]) if row["anonymous"] else result
+            ),
+        }
+
+    def _carry_source(self, session_id: str) -> tuple[dict[str, Any], str]:
+        row = self._require(session_id)
+        if row["status"] != "completed":
+            raise ServiceError("上一场还没完成，完成后才能接着做")
+        result = self.orc.final_answer(session_id)
+        if not result:
+            raise ServiceError("上一场没有可以接着用的成果")
+        return row, result
+
+    def _carried(self, question: str, carry_from: str | None, anonymous: bool) -> str:
+        """这一场的题目；接力时附上上一场的题目和成果摘要（只带成果，不带过程）。"""
+        text = question.strip()
+        if not text:
+            raise ServiceError("题目不能为空")
+        if carry_from is None:
+            return text
+        row, result = self._carry_source(carry_from)
+        prev = row["question"]
+        if anonymous or row["anonymous"]:  # 匿名的一方：成员名称一律遮蔽（原题里的名称保留）
+            result = self.rt.scrubber.scrub(result, prev)
+        return carry_question(prev, result, text)
 
     def _check_media(self, media: str | None, media_tier: str | None) -> None:
         if media is None:
@@ -1433,15 +1469,14 @@ class RoundtableService:
         seed: int | None = None,
         media: str | None = None,
         media_tier: str | None = None,
+        carry_from: str | None = None,
     ) -> dict[str, Any]:
         """提交前预估：各模式 × 各档位（及自选）的上桌人数、缺席、预计花费与步骤明细。
 
         不调用任何模型（答案长度只用规则判断，判断不出时用默认值）。返回的 seed 在提交时
         一并传给 create()，上桌名单就与预估一致。匿名开启时不返回模型名单。
         """
-        text = question.strip()
-        if not text:
-            raise ServiceError("题目不能为空")
+        text = self._carried(question, carry_from, anonymous)
         if workflow == AUTO:
             workflow = None  # 自动模式：预估列出全部方式，供对比
         if workflow is not None and workflow not in WORKFLOWS:

@@ -225,6 +225,15 @@
 - 花费上限不变（每场 $0.40、每月 $1.5）；不改提示词，例会题目对所有成员仍完全相同。
 - 测试：`tests/core/test_evolution.py`、`tests/core/service/test_evolution_service.py`、`tests/api/test_evolution_api.py`、`tests/web/test_e2e_evolution.py`。
 
+### 成果接力（2026-10-28，预估 1.5～3 小时，实际约 1 小时）
+
+一场结束后接着做，不用重新抄题：
+- 结束条下出「接着做」按钮：继续讨论 / 转协同作业 / 再头脑风暴 / 交给一个人单独做（可选人）/ 交给办公室。点了只切换输入框并挂「接着上一场」卡片（可展开看将带入的摘要、可取消），补一句要求或留空（用默认要求），看过预估再提交。
+- **只带成果不带过程**（`core/carry.py`）：上一场的最终成果（汇总 / 合并稿 / 办公室交付 / 点子榜和导图文字版），去掉导图代码块、超过 1500 字截断，和原题一起放进 `<previous_question>` / `<previous_result>` 标签附在新题目后面。不调用模型，接力本身零花费；不新增提示词、不改表结构。
+- 匿名：上一场或这一场匿名时，带入的成果先遮蔽成员名称。
+- 接口：`GET /api/sessions/{id}/carry`（预览摘要）；`POST /api/sessions`、`POST /api/estimate` 多一个 `carry_from`。
+- 测试：`tests/core/test_carry.py`、`tests/api/test_carry_api.py`、`tests/web/test_e2e_carry.py`。
+
 ## 下一步
 
 0. 你本机试用办公室模式（单人办、开会、项目分工、预算单、绩效）、公寓楼和群聊；看看「员工」页底部的人才市场，决定要不要换人 / 改价格。合并 PR #6 / #7 / #8 需要你点头。
