@@ -6,6 +6,10 @@
   访问口令只存加盐哈希（scrypt），登录后发带过期时间的签名 cookie；连续输错按设备限速。
 - 也可以在电脑上生成一次性配对链接（二维码），平板扫码即登录，10 分钟内有效、用一次作废。
 - 口令文件在数据库旁边（data/lan_access.json，不进 git）；改口令会让所有已登录的设备退出。
+- 离家用：Tailscale 私有组网（WireGuard）。电脑的 100.x 地址也列给平板；Tailscale 不是公网，
+  只有用户账号里的设备能连。ROUNDTABLE_LAN=tailscale 时只接受 Tailscale 里的设备
+  （家里 Wi-Fi 也不行）。
+  不用 Tailscale 的 Funnel（公网暴露）和 Serve（经本机反代，请求都像来自本机，会绕过登录）。
 
 纯逻辑，不依赖 Web 框架；时钟可注入，便于测试过期与限速。
 """
@@ -36,13 +40,31 @@ PAIR_SECONDS = 600
 FREE_TRIES = 5
 LOCK_BASE_S = 60
 LOCK_MAX_S = 900
+# Tailscale 给设备分的地址段（CGNAT 段与它固定的 IPv6 前缀）
+TAILNET_V4 = ipaddress.ip_network("100.64.0.0/10")
+TAILNET_V6 = ipaddress.ip_network("fd7a:115c:a1e0::/48")
 # scrypt 参数（约 16 MB 内存）：登录本来就限速，这里只防口令文件被拿走后被快速爆破
 _SCRYPT = {"n": 2**14, "r": 8, "p": 1, "dklen": 32}
 
 
+def lan_mode(env: dict[str, str] | None = None) -> str:
+    """返回 off（默认，只有本机）、lan（家里局域网 + Tailscale）或 tailscale（只许 Tailscale）。"""
+    value = (env if env is not None else os.environ).get(LAN_ENV, "").strip().lower()
+    if value == "tailscale":
+        return "tailscale"
+    return "lan" if value in {"1", "true", "yes", "on"} else "off"
+
+
 def lan_enabled(env: dict[str, str] | None = None) -> bool:
-    value = (env if env is not None else os.environ).get(LAN_ENV, "")
-    return value.strip().lower() in {"1", "true", "yes", "on"}
+    return lan_mode(env) != "off"
+
+
+def is_tailnet(host: str | None) -> bool:
+    """Tailscale 里的设备地址（100.64.0.0/10 或 fd7a:115c:a1e0::/48）。"""
+    ip = _ip(host)
+    if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped is not None:
+        ip = ip.ipv4_mapped
+    return ip is not None and (ip in TAILNET_V4 or ip in TAILNET_V6)
 
 
 def is_local(host: str | None) -> bool:
@@ -80,6 +102,16 @@ def lan_addresses(probe: Callable[[], list[str]] | None = None) -> list[str]:
     return sorted(found, key=lambda a: (not a.startswith("192.168."), not a.startswith("10."), a))
 
 
+def tailscale_addresses(probe: Callable[[], list[str]] | None = None) -> list[str]:
+    """这台电脑在 Tailscale 里的 IPv4 地址（装了 Tailscale 并登录后才有）。只查本机网卡。"""
+    found: list[str] = []
+    for raw in (probe or _probe_addresses)():
+        ip = _ip(raw)
+        if isinstance(ip, ipaddress.IPv4Address) and is_tailnet(raw) and raw not in found:
+            found.append(raw)
+    return found
+
+
 def _probe_addresses() -> list[str]:
     out: list[str] = []
     try:
@@ -93,6 +125,13 @@ def _probe_addresses() -> list[str]:
         for info in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET):
             out.append(str(info[4][0]))
     except OSError:
+        pass
+    try:
+        import psutil  # 各网卡的地址（Tailscale 的虚拟网卡不一定出现在上面两种查法里）
+
+        for addrs in psutil.net_if_addrs().values():
+            out.extend(a.address for a in addrs if a.family == socket.AF_INET)
+    except Exception:  # noqa: BLE001 —— 查不到就少列一个地址，不影响使用
         pass
     return out
 
@@ -117,6 +156,7 @@ class LanAccess:
 
     path: Path | None
     enabled: bool = False
+    tailscale_only: bool = False  # 只接受 Tailscale 里的设备（ROUNDTABLE_LAN=tailscale）
     clock: Callable[[], float] = time.time
     _state: dict[str, Any] = field(default_factory=dict)
     _tries: dict[str, _Tries] = field(default_factory=dict)
@@ -127,7 +167,14 @@ class LanAccess:
 
     @classmethod
     def from_env(cls, data_dir: Path, env: dict[str, str] | None = None) -> LanAccess:
-        return cls(path=data_dir / LAN_FILE, enabled=lan_enabled(env))
+        mode = lan_mode(env)
+        return cls(
+            path=data_dir / LAN_FILE, enabled=mode != "off", tailscale_only=mode == "tailscale"
+        )
+
+    def allows(self, client: str | None) -> bool:
+        """这台设备能不能连进来（还要登录）：只许 Tailscale 时，家里局域网的设备也不行。"""
+        return not self.tailscale_only or is_tailnet(client)
 
     # ---- 口令 ----
 
@@ -195,15 +242,29 @@ class LanAccess:
         key = bytes.fromhex(self._state["secret"])
         return hmac.new(key, payload.encode(), hashlib.sha256).hexdigest()
 
-    def status(self, port: int, addresses: list[str] | None = None) -> dict[str, Any]:
-        """给电脑上的「平板」面板看：是否开放、有没有口令、平板该打开的地址、防火墙命令。"""
-        ips = lan_addresses() if addresses is None else addresses
+    def status(
+        self, port: int, addresses: list[str] | None = None, tailnet: list[str] | None = None
+    ) -> dict[str, Any]:
+        """给电脑上的「平板」面板看：是否开放、有没有口令、平板该打开的地址、防火墙命令。
+
+        urls 是能生成二维码的全部地址（家里局域网在前，Tailscale 在后）；
+        tailscale_urls 是其中的 Tailscale 部分。
+        """
+        if addresses is None or tailnet is None:
+            probed = _probe_addresses()
+            addresses = lan_addresses(lambda: probed) if addresses is None else addresses
+            tailnet = tailscale_addresses(lambda: probed) if tailnet is None else tailnet
+        home = [] if self.tailscale_only else [f"http://{ip}:{port}" for ip in addresses]
+        ts = [f"http://{ip}:{port}" for ip in tailnet]
         return {
             "enabled": self.enabled,
+            "tailscale_only": self.tailscale_only,
             "has_password": self.has_password,
             "port": port,
-            "urls": [f"http://{ip}:{port}" for ip in ips],
+            "urls": home + ts,
+            "tailscale_urls": ts,
             "firewall": firewall_command(port),
+            "tailscale_firewall": tailscale_firewall_command(port),
             "session_days": SESSION_DAYS,
             "pair_minutes": PAIR_SECONDS // 60,
         }
@@ -254,6 +315,14 @@ def firewall_command(port: int) -> str:
     return (
         f'New-NetFirewallRule -DisplayName "Roundtable LAN {port}" -Direction Inbound '
         f"-Protocol TCP -LocalPort {port} -Action Allow -Profile Private"
+    )
+
+
+def tailscale_firewall_command(port: int) -> str:
+    """只放行 Tailscale 地址段来的连接（Tailscale 的虚拟网卡在 Windows 里不一定是「专用网络」）。"""
+    return (
+        f'New-NetFirewallRule -DisplayName "Roundtable Tailscale {port}" -Direction Inbound '
+        f"-Protocol TCP -LocalPort {port} -RemoteAddress {TAILNET_V4} -Action Allow"
     )
 
 

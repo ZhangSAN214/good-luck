@@ -342,7 +342,9 @@ function renderFeed() {
     if (!same) list.replaceChildren(...els);
   }
   renderTyping();
-  if (atBottom) feed.scrollTop = feed.scrollHeight;
+  // 欢迎页从头看；有讨论时跟到最新（平板、手机上欢迎页常常比可视区高）
+  if (!S.session) feed.scrollTop = 0;
+  else if (atBottom) feed.scrollTop = feed.scrollHeight;
 }
 
 function renderTyping() {

@@ -109,3 +109,4 @@ def test_app_browser_uses_own_profile(monkeypatch, tmp_path):
 def test_lan_flag_is_opt_in():
     assert launcher.parse_args([]).lan is False
     assert launcher.parse_args(["--lan"]).lan is True
+    assert launcher.parse_args(["--tailscale-only"]).tailscale_only is True

@@ -50,3 +50,32 @@
 }
 /* 公寓顶部的花费小牌：「$0.00 / $3.00」不要从中间折行 */
 @media (max-width:1024px){.home .rchip{white-space:nowrap}}
+
+/* ---------- 刘海屏 / 底部横条（iPhone 添加到主屏幕后全屏显示，viewport-fit=cover）---------- */
+/* 没有刘海的设备 env() 为 0，max() 取原来的边距，不受影响 */
+.app{
+  padding-top:max(12px,env(safe-area-inset-top));
+  padding-bottom:max(12px,env(safe-area-inset-bottom));
+  padding-left:max(16px,env(safe-area-inset-left));
+  padding-right:max(16px,env(safe-area-inset-right));
+}
+.pet-call{bottom:calc(96px + env(safe-area-inset-bottom))}
+dialog{max-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 24px)}
+
+/* ---------- 平板竖屏（OPPO Pad、iPad 竖拿，约 760～1100 宽） ---------- */
+@media (min-width:761px) and (max-width:1100px) and (orientation:portrait){
+  /* 终端首页：卡片列放到下半屏、占满宽度，不再挤在右边一字一行 */
+  .hb-col{left:28px;right:28px;width:auto;top:auto;bottom:96px}
+  .hb-row3 .hb-t{grid-template-columns:auto minmax(0,1fr) auto}
+  .hb-row3 .hb-ar{display:revert}
+  /* 办公室：圆桌、讨论、经理面板上下排（和手机一样），模式按钮不再折成两行 */
+  :root[data-entry="work"],:root[data-entry="work"] body,:root[data-entry="work"] .app{height:auto}
+  .main{display:flex;flex-direction:column}
+  /* 讨论区高度让输入框在第一屏露出来 */
+  .chat{height:max(520px,calc(100vh - 520px));height:max(520px,calc(100dvh - 520px))}.panel{min-height:50vh}
+}
+/* 模式、档位按钮：放不下时整行左右滑，不把「讨论模式」折成两行 */
+@media (max-width:1100px){
+  .composer .seg{max-width:100%;overflow-x:auto;scrollbar-width:none}
+  .composer .seg button{white-space:nowrap;flex:none}
+}

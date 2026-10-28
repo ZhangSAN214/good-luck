@@ -9,7 +9,16 @@ import pytest
 from .conftest import quiet_boot
 
 AFTERNOON = dt.datetime(2026, 10, 27, 15, 0)
-TABLETS = {"iPad 竖屏": (810, 1080), "iPad 横屏": (1080, 810), "iPad mini 竖屏": (744, 1133)}
+TABLETS = {
+    "iPad 竖屏": (810, 1080),
+    "iPad 横屏": (1080, 810),
+    "iPad mini 竖屏": (744, 1133),
+    # 用户的设备：OPPO Pad 4 Pro（13.2 英寸 3392×2400）横竖屏、一加 13、iPhone 13 Pro Max
+    "OPPO Pad 4 Pro 横屏": (1280, 905),
+    "OPPO Pad 4 Pro 竖屏": (905, 1280),
+    "一加 13": (412, 915),
+    "iPhone 13 Pro Max": (428, 926),
+}
 
 
 def tablet(browser, size):
@@ -68,6 +77,47 @@ def test_landscape_hub_top_bar_does_not_cover_cards(serve, browser):
     assert errors == []
 
 
+def test_portrait_pad_uses_full_width(serve, browser):
+    """OPPO Pad 竖屏：首页卡片占满宽度（不一字一行）；办公室模式按钮不折行、输入框在第一屏。"""
+    srv = serve(confirm_threshold_usd=100.0)
+    w, h = TABLETS["OPPO Pad 4 Pro 竖屏"]
+    ctx, pg, errors = tablet(browser, (w, h))
+    try:
+        pg.add_init_script("try { localStorage.setItem('roundtable.landing', 'hub') } catch {}")
+        pg.goto(srv.url)
+        pg.wait_for_selector("#hub .hb-hero")
+        hero = pg.locator("#hub .hb-hero").bounding_box()
+        assert hero["width"] > w * 0.8
+        heights = pg.eval_on_selector_all(
+            "#hub .hb-row3 .hb-zh, #hub .hb-row2 .hb-zh",
+            "els => els.map(e => e.getBoundingClientRect().height)",
+        )
+        assert heights and max(heights) < 40
+        pg.tap("#entries button[data-m=work]")
+        pg.wait_for_timeout(300)
+        rows = pg.eval_on_selector_all(
+            "#workflow button, #tier button",
+            "els => els.map(e => e.getBoundingClientRect().height)",
+        )
+        assert rows and max(rows) < 40
+        box = pg.locator("#composer textarea").first.bounding_box()
+        assert box and box["y"] + box["height"] <= h
+    finally:
+        ctx.close()
+    assert errors == []
+
+
+def test_notch_safe_area():
+    """iPhone 添加到主屏幕后全屏（viewport-fit=cover + 半透明状态栏）：内容要让开刘海和底部横条。"""
+    from pathlib import Path
+
+    web = Path(__file__).resolve().parents[2] / "web"
+    assert "viewport-fit=cover" in (web / "index.html").read_text(encoding="utf-8")
+    css = (web / "css" / "touch.css").read_text(encoding="utf-8")
+    for side in ("top", "bottom", "left", "right"):
+        assert f"env(safe-area-inset-{side})" in css
+
+
 def touch_drag(pg, src, dst):
     """用真正的触摸事件（不是鼠标）拖动：按下、慢慢移动、松开。"""
     cdp = pg.context.new_cdp_session(pg)
@@ -112,7 +162,11 @@ def test_pc_lan_panel_sets_password(serve, page):
     page.click("#lanbtn")
     page.wait_for_selector("#landlg[open] .lan-state.off")
     assert "start_lan.bat" in page.inner_text("#landlg")
-    assert "New-NetFirewallRule" in page.inner_text("#landlg .lan-cmd")
+    cmds = page.locator("#landlg .lan-cmd").all_inner_texts()
+    assert "New-NetFirewallRule" in cmds[0]
+    # 离家用的 Tailscale：只放行 100.64.0.0/10
+    assert "Tailscale" in page.inner_text("#landlg")
+    assert "-RemoteAddress 100.64.0.0/10" in cmds[1]
     page.fill("#landlg input[name=pw]", "home-" + "pass")
     page.click("#landlg .lan-pw button")
     page.wait_for_function(

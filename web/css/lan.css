@@ -17,3 +17,4 @@
 .lan-cmd{background:var(--surface-2);padding:8px 10px;border-radius:var(--r);user-select:all}
 .lan-warn{margin:12px 0 6px;color:var(--warn);font-size:13px}
 .lan-msg{min-height:1.4em;margin:6px 0 0;color:var(--brass-ink)}
+.lan-tag{font-size:12px;padding:2px 8px;border-radius:999px;background:var(--glass-2, rgba(255,255,255,.08));opacity:.85}

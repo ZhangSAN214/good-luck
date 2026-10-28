@@ -290,14 +290,17 @@ def _client(scope: dict[str, Any]) -> str | None:
 
 
 def _host_is_literal(scope: dict[str, Any]) -> bool:
-    """Host 头是 IP 或 localhost（挡住 DNS 重绑定：别的网站把自己的域名解析到这台电脑）。"""
+    """Host 头是 IP、localhost 或 Tailscale 的 MagicDNS 名字（*.ts.net）。
+
+    挡住 DNS 重绑定：别的网站把自己的域名解析到这台电脑。ts.net 的名字只有 Tailscale 能分配。"""
     host = ""
     for key, value in scope.get("headers", []):
         if key == b"host":
             host = value.decode("latin-1")
             break
     name = host.rsplit(":", 1)[0] if not host.startswith("[") else host[1 : host.find("]")]
-    return name == "localhost" or is_local(name) or is_remote(name)
+    name = name.lower().rstrip(".")
+    return name in ("localhost",) or name.endswith(".ts.net") or is_local(name) or is_remote(name)
 
 
 class LanGate:
@@ -320,6 +323,9 @@ class LanGate:
             if is_remote(client):
                 await _deny(scope, receive, send, 403, "圆桌没有对局域网开放")
                 return
+        elif is_remote(client) and not self.lan.allows(client):
+            await _deny(scope, receive, send, 403, "圆桌现在只对 Tailscale 里的设备开放")
+            return
         elif not _host_is_literal(scope):
             await _deny(scope, receive, send, 403, "请用 IP 地址打开圆桌")
             return
