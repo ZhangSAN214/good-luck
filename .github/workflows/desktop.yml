@@ -62,7 +62,11 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $lnk = (New-Object -ComObject WScript.Shell).CreateShortcut("$env:RUNNER_TEMP\rt-apps\圆桌.lnk")
+          $files = Get-ChildItem "$env:RUNNER_TEMP\rt-apps" -Filter *.lnk
+          if ($files.Count -ne 2) { exit 1 }
+          # WScript.Shell 读不了中文文件名：复制成英文名再读
+          Copy-Item -LiteralPath $files[0].FullName "$env:RUNNER_TEMP\check.lnk"
+          $lnk = (New-Object -ComObject WScript.Shell).CreateShortcut("$env:RUNNER_TEMP\check.lnk")
           "$($lnk.TargetPath) $($lnk.Arguments)"
           if (-not $lnk.TargetPath.EndsWith('pythonw.exe')) { exit 1 }
           if (-not (Test-Path $lnk.TargetPath)) { exit 1 }
