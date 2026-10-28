@@ -9,8 +9,11 @@
 // 卡片的底色、主色、文字颜色、顶部小字和封面都可以自己改，设置只存本机浏览器。
 // 封面：歌曲自带的（mp3 内嵌封面 / QQ 音乐的专辑图）、本机 data/avatars/music_covers/ 里的成员侧脸、
 // 自己上传的一张图，或者终端大立绘；都没有时是一块素净的画框。
+// 封面会动：头发那一侧轻轻摆（music.css 的 .mu-hair，脸不动），上面飘一层雨、雪、落叶、花瓣、星屑或气泡（coverfx.js）；
+// 成员封面配哪种写在封面目录的 effects.json，外观里可以换或关掉，系统开了「减少动态」时不动。
 
 import { api } from './api.js';
+import { CoverFx, FX, isFx } from './coverfx.js';
 
 const esc = (s) =>
   String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -22,6 +25,9 @@ const MY_COVER = '__cover'; // 自己上传的封面也放在曲库里（不算�
 const FADE_MS = 600;
 const ACCEPT = 'audio/*,.mp3,.ogg,.oga,.wav,.flac,.m4a,.aac,.opus,.webm';
 const MAX_ART_BYTES = 8 * 1024 * 1024;
+export const FX_MODES = [['auto', '跟着封面'], ['off', '不要动'], ...FX];
+const cleanFx = (v) => (v === 'auto' || v === 'off' || isFx(v) ? v : 'auto');
+
 export const MODES = [
   ['all', '列表循环'],
   ['one', '单曲循环'],
@@ -36,8 +42,10 @@ export const COVER_MODES = [
   ['fixed', '固定用我选的'],
   ['rotate', '每首轮换成员'],
 ];
-// 外观预设：底色、主色（画框描边、进度条、按钮）、文字色、底色不透明度
+// 外观预设：底色、主色（画框描边、进度条、按钮）、文字色、底色不透明度。
+// 「墨蓝」是默认：底色和通透没改时直接用首页那层液态玻璃（ark.css 的 --hb-glass），跟时钟、右边的卡片同一种材质。
 export const SKINS = {
+  ink: { label: '墨蓝', bg: '#182c4e', accent: '#b4c6e6', text: '#eceff3', alpha: 0.82, glass: true },
   mist: { label: '雾青', bg: '#eef2f2', accent: '#5e8e91', text: '#1f3236', alpha: 0.86 },
   night: { label: '夜蓝', bg: '#121620', accent: '#8eb0e4', text: '#eceff3', alpha: 0.8 },
   sakura: { label: '樱灰', bg: '#f3eef0', accent: '#a9788a', text: '#3a2a30', alpha: 0.86 },
@@ -67,9 +75,9 @@ export function trackName(fileName) {
   return String(fileName || '未命名').replace(/\.[^.]{1,5}$/, '') || '未命名';
 }
 
-/** 外观设置清理：预设名或自定义颜色（#rrggbb），不认识的回到默认「雾青」。 */
+/** 外观设置清理：预设名或自定义颜色（#rrggbb），不认识的回到默认「墨蓝」。 */
 export function cleanSkin(v) {
-  const base = SKINS[v?.preset] ? v.preset : 'mist';
+  const base = SKINS[v?.preset] ? v.preset : 'ink';
   const p = SKINS[base];
   const pick = (k) => (typeof v?.[k] === 'string' && HEX.test(v[k]) ? v[k].toLowerCase() : p[k]);
   const alpha = Number(v?.alpha);
@@ -81,6 +89,20 @@ export function cleanSkin(v) {
     alpha: Number.isFinite(alpha) ? Math.min(1, Math.max(0.35, alpha)) : p.alpha,
     tag: typeof v?.tag === 'string' ? v.tag.slice(0, 40) : '',
   };
+}
+
+/** 用首页的玻璃材质吗：玻璃预设，且底色和通透都没改过。 */
+export function isGlass(s) {
+  const p = SKINS[s?.preset];
+  return !!p?.glass && s.bg === p.bg && s.alpha === p.alpha;
+}
+
+/** 旧版存下的外观（没有 skinV）：没自己调过颜色的换成新默认「墨蓝」，调过的原样保留。 */
+export function upgradeSkin(v, ver) {
+  const s = cleanSkin(v);
+  if (ver >= 2) return s;
+  const p = SKINS[s.preset];
+  return s.bg === p.bg && s.accent === p.accent && s.text === p.text ? { ...cleanSkin(null), tag: s.tag } : s;
 }
 
 /** #rrggbb + 不透明度 → rgba()。 */
@@ -176,7 +198,7 @@ const ICON = {
 const icon = (k) => `<svg class="mu-i" viewBox="0 0 24 24" aria-hidden="true">${ICON[k]}</svg>`;
 
 function loadSettings() {
-  const d = { order: [], volume: 0.5, mode: 'all', keep: false, cur: null, src: 'local', player: 'qqmusic', skin: cleanSkin(null), cover: { mode: 'song', pick: null }, dock: true };
+  const d = { order: [], volume: 0.5, mode: 'all', keep: false, cur: null, src: 'local', player: 'qqmusic', skin: cleanSkin(null), cover: { mode: 'song', pick: null }, dock: true, skinV: 2, fx: 'auto' };
   try {
     const v = JSON.parse(localStorage.getItem(KEY) || '{}');
     return {
@@ -187,7 +209,9 @@ function loadSettings() {
       cur: typeof v.cur === 'string' ? v.cur : null,
       src: SOURCES.some(([k]) => k === v.src) ? v.src : d.src,
       player: typeof v.player === 'string' && /^[a-z]{1,20}$/.test(v.player) ? v.player : d.player,
-      skin: cleanSkin(v.skin),
+      skin: upgradeSkin(v.skin, v.skinV),
+      skinV: 2,
+      fx: cleanFx(v.fx),
       dock: v.dock !== false,
       cover: {
         mode: COVER_MODES.some(([k]) => k === v.cover?.mode) ? v.cover.mode : 'song',
@@ -252,6 +276,7 @@ export class Music {
     this.sysKey = '';
     this.sysBusy = false;
     this.pollT = 0;
+    this.fx = new CoverFx();
     this.audio.volume = this.set.volume;
     this.audio.addEventListener('ended', () => this.onEnded());
     this.audio.addEventListener('play', () => this.paint());
@@ -447,6 +472,22 @@ export class Music {
     this.covers = Array.isArray(c?.covers) ? c.covers : [];
     this.standeeArt = s?.available ? s.variants?.[0]?.image || null : null;
     this.paint();
+  }
+
+  /** 封面上飘什么：[特效, 颜色]；「跟着封面」时看这张成员封面在 effects.json 里配的。 */
+  fxOf(cover = this.coverUrl()) {
+    const m = this.set.fx;
+    if (m === 'off') return ['', ''];
+    if (isFx(m)) return [m, ''];
+    const c = this.covers?.find((x) => x.url === cover);
+    return isFx(c?.fx) ? [c.fx, c.color || ''] : ['', ''];
+  }
+
+  /** 卡片开着、在播放器页时让封面动起来，否则停下。 */
+  syncFx() {
+    const c = this.open && this.view === 'player' ? this.el.querySelector('.mu-panel .mu-fx') : null;
+    const [k, color] = c ? this.fxOf() : ['', ''];
+    this.fx.set(c, k, color);
   }
 
   /** 这一首用哪张封面（按「封面」设置的优先顺序）。 */
@@ -738,7 +779,8 @@ export class Music {
 
   skinStyle() {
     const s = this.set.skin;
-    return `--mu-bg:${rgba(s.bg, s.alpha)};--mu-solid:${s.bg};--mu-accent:${s.accent};--mu-text:${s.text};--mu-on:${onColor(s.accent)}`;
+    const bg = isGlass(s) ? 'var(--hb-glass,rgba(255,255,255,.055))' : rgba(s.bg, s.alpha);
+    return `--mu-bg:${bg};--mu-solid:${s.bg};--mu-accent:${s.accent};--mu-text:${s.text};--mu-on:${onColor(s.accent)}`;
   }
 
   /** 卡片主体：画框封面、歌名、进度、大按钮。 */
@@ -764,7 +806,7 @@ export class Music {
     const seekOk = sys ? can('seek') && Number.isFinite(n?.duration) : !!t;
     const tag = this.set.skin.tag || (sys ? (n?.source ? `${n.source} · 电脑上正在放` : 'QQ 音乐') : '本地音乐');
     return `
-      <figure class="mu-art${cover ? '' : ' empty'}">${cover ? `<img src="${esc(cover)}" alt="" draggable="false">` : `<span class="mu-art-ph">${icon('note')}</span>`}</figure>
+      <figure class="mu-art${cover ? '' : ' empty'}">${cover ? `<img src="${esc(cover)}" alt="" draggable="false">${this.set.fx === 'off' ? '' : `<img class="mu-hair" src="${esc(cover)}" alt="" draggable="false" aria-hidden="true">`}<canvas class="mu-fx" aria-hidden="true"></canvas>` : `<span class="mu-art-ph">${icon('note')}</span>`}</figure>
       <div class="mu-meta">
         <span class="mu-tag">${esc(tag)}</span>
         <b class="mu-now" title="${esc(title)}">${esc(title)}</b>
@@ -842,6 +884,7 @@ export class Music {
       <label class="mu-field">通透<input type="range" data-mu-alpha min="35" max="100" step="1" value="${Math.round(s.alpha * 100)}" aria-label="底色不透明度" style="--p:${((s.alpha - 0.35) / 0.65) * 100}%"></label>
       <label class="mu-field">小字<input type="text" data-mu-tag maxlength="40" value="${esc(s.tag)}" placeholder="封面下方那行小字，留空用默认"></label>
       <b class="mu-h">封面</b>
+      <label class="mu-field">动态<select data-mu-fx>${FX_MODES.map(([k, l]) => `<option value="${k}"${this.set.fx === k ? ' selected' : ''}>${l}</option>`).join('')}</select></label>
       <label class="mu-field">优先<select data-mu-covermode>${COVER_MODES.map(([k, l]) => `<option value="${k}"${this.set.cover.mode === k ? ' selected' : ''}>${l}</option>`).join('')}</select></label>
       <div class="mu-thumbs">${covers.map((c) => thumb(c.url, c.name, c.url)).join('')}${this.myCover ? thumb(this.myCover, '我上传的', MY_COVER) : ''}<button type="button" class="mu-thumb add" data-mu="mycover" aria-label="上传一张封面">＋</button></div>
       <input type="file" accept="image/png,image/jpeg,image/webp" data-mu-coverfile hidden>
@@ -906,6 +949,7 @@ export class Music {
       </div>`;
     if (refocus) this.el.querySelector(refocus)?.focus();
     this.tick();
+    this.syncFx();
     this.mediaMeta(t, on);
   }
 
@@ -968,6 +1012,7 @@ export class Music {
       case 'reset':
         this.set.skin = cleanSkin(null);
         this.set.cover = { mode: 'song', pick: null };
+        this.set.fx = 'auto';
         this.save();
         return this.paint();
       case 'cover':
@@ -1036,6 +1081,11 @@ export class Music {
       this.save();
       this.paint();
       return this.schedule(0);
+    }
+    if (el.matches('[data-mu-fx]')) {
+      this.set.fx = cleanFx(el.value);
+      this.save();
+      return this.paint();
     }
     if (el.matches('[data-mu-covermode]')) {
       this.set.cover.mode = el.value;

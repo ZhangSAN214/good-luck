@@ -239,7 +239,7 @@ src/roundtable/
     lan.py         局域网访问：口令加盐哈希（data/lan_access.json，不进 git）、登录 cookie 签名与过期、输错限速、一次性配对码、本机局域网地址、二维码（docs/LAN.md）
     changelog.py   公告栏：版本更新说明（读 config/changelog.yaml，校验、按日期排序；只读）
     mail/          终端邮件栏：用户本人学校邮箱只读接入（专用浏览器窗口由用户本人登录、只读守卫、本机「重要」与分类规则、截止日期提取；图文版正文清洗（html.py）；点了才调用的 AI 总结 / 翻译（ai.py，每月上限 mail.ai）；登录状态在 data/mail_browser/，不进 git；见 docs/MAIL.md）
-    nowplaying.py  音乐卡片的「电脑上正在放的歌」：读 Windows 系统媒体控制（pywinrt，可选依赖 .[windows]），默认只跟 QQ 音乐（按应用 id 关键字），发送播放 / 暂停 / 切歌 / 跳转；不登录、不抓音频、不存库；本机 data/avatars/music_covers/ 的封面列表（不进 git）
+    nowplaying.py  音乐卡片的「电脑上正在放的歌」：读 Windows 系统媒体控制（pywinrt，可选依赖 .[windows]），默认只跟 QQ 音乐（按应用 id 关键字），发送播放 / 暂停 / 切歌 / 跳转；不登录、不抓音频、不存库；本机 data/avatars/music_covers/ 的封面列表（不进 git；同目录 effects.json 写每张封面的动态特效）
     standee.py     终端首页大立绘清单（用户本机 data/avatars/standee.json，可用 ROUNDTABLE_STANDEE_FILE 改；图片、表情差分和网格形变素材 rig 不进 git，缺失时优雅降级）
     plugin_board.py 插件榜：自我学习革新调研过的插件 / 项目（读 config/plugin_board.yaml，按价值排名、判断借思路 / 搬代码门槛；只读）
     ideaboard.py   头脑风暴的点子榜：投票排名、黑马、对比表 / 场景故事 / 行动方案的数据与 Markdown
@@ -256,7 +256,7 @@ src/roundtable/
   plaintext.py   命令行显示用：LaTeX 数学式转纯文本、去掉 Markdown 加粗符号（不改动存储的原文）
   api/           FastAPI 应用、路由、SSE
   desktop/       桌面版（docs/DESKTOP.md）：launcher.py 在本进程起服务并打开应用窗口（pywebview → Edge / Chrome 应用窗口 → 默认浏览器），关窗即停；install.py 生成 Windows 快捷方式 / macOS .app
-web/             index.html、css/（app.css、agent.css 小人、ideas.css 头脑风暴结果页）、js/（api.js 通信、view.js 渲染、ideas.js 头脑风暴结果页、app.js 状态与交互、hub.js 终端首页、standee.js 终端大立绘（浏览器里柔边抠底，表情差分眨眼说话，点击台词；位置大小等设置只存本机浏览器；有 rig 素材且支持 WebGL2 时由 standee_gl.js 在显卡上逐像素做全身网格形变、standee_motion.js 算动作和弹簧物理，否则按行切条形变做呼吸 / 跟随 / 摆动）、usage.js 余额与用量（账户余额、预算、对账、钱折算 token、详细用量；只读）、music.js 终端背景音乐（首页时钟下的悬浮小卡，可收起成小按钮；点开是竖版播放器卡片：画框封面、粗进度条、大按钮；底色 / 主色 / 文字颜色、小字、封面可自定义，只存本机浏览器；本地音乐是用户自选音频，只存本机浏览器 IndexedDB，不经服务器，mp3 内嵌封面在浏览器里读；「QQ 音乐」来源经 /api/nowplaying 跟随电脑上的播放器）、clock.js 终端多时区时钟（最多 3 个，Intl 时区表处理夏令时，设置只存本机）、notice.js 终端公告栏（版本更新说明，已读只存本机）、mail.js 终端邮件栏（学校邮箱只读：重要邮件与手动标记、分类筛选、速览卡、正文、沙箱里的图文版、点了才调用的 AI 总结 / 翻译、截止日期提醒、规则设置；不收密码）、agent/ 网页小人、boot.js 开机动画、bootcfg.js 片头设置）、boot/（开机动画页：dawn.html「晨会协议」片头（原创）、gmu.html 早上好联合访问授权（改编自 MIT 开源项目）、assets/ 徽记与二维码库；音效与朗读由 boot.js 统一负责；出处见 boot/CREDITS.md）
+web/             index.html、css/（app.css、agent.css 小人、ideas.css 头脑风暴结果页）、js/（api.js 通信、view.js 渲染、ideas.js 头脑风暴结果页、app.js 状态与交互、hub.js 终端首页、standee.js 终端大立绘（浏览器里柔边抠底，表情差分眨眼说话，点击台词；位置大小等设置只存本机浏览器；有 rig 素材且支持 WebGL2 时由 standee_gl.js 在显卡上逐像素做全身网格形变、standee_motion.js 算动作和弹簧物理，否则按行切条形变做呼吸 / 跟随 / 摆动）、usage.js 余额与用量（账户余额、预算、对账、钱折算 token、详细用量；只读）、music.js 终端背景音乐（首页时钟下的悬浮小卡，可收起成小按钮；点开是竖版播放器卡片：画框封面、粗进度条、大按钮；默认「墨蓝」用首页同一层液态玻璃，与时钟条同宽对齐；底色 / 主色 / 文字颜色、小字、封面可自定义，只存本机浏览器；封面会动：头发一侧轻摆，coverfx.js 在画框上飘雨 / 雪 / 落叶 / 花瓣 / 星屑 / 气泡，可关，「减少动态」时静止；本地音乐是用户自选音频，只存本机浏览器 IndexedDB，不经服务器，mp3 内嵌封面在浏览器里读；「QQ 音乐」来源经 /api/nowplaying 跟随电脑上的播放器）、clock.js 终端多时区时钟（最多 3 个，Intl 时区表处理夏令时，设置只存本机）、notice.js 终端公告栏（版本更新说明，已读只存本机）、mail.js 终端邮件栏（学校邮箱只读：重要邮件与手动标记、分类筛选、速览卡、正文、沙箱里的图文版、点了才调用的 AI 总结 / 翻译、截止日期提醒、规则设置；不收密码）、agent/ 网页小人、boot.js 开机动画、bootcfg.js 片头设置）、boot/（开机动画页：dawn.html「晨会协议」片头（原创）、gmu.html 早上好联合访问授权（改编自 MIT 开源项目）、assets/ 徽记与二维码库；音效与朗读由 boot.js 统一负责；出处见 boot/CREDITS.md）
 tests/
 docs/            REQUIREMENTS_v3.md  PLAN.md  CLI.md  OFFICE.md（办公室模式）  EVOLUTION.md（自我学习革新：候选池与更新日志）  evolution/（革新例会说明、周报与资料卡模板、每周周报）  mockup.html
 scripts/         evolve_review.py（革新 PR 的可选复审，没有 key 时跳过）  standee_rig.py（把大立绘做成全身网格形变素材：瞳孔层、补眼白、权重图；本机处理、不调用模型）  check_models.py（核对 OpenRouter 渠道的模型 ID 与价格；带 vision / image_edit 标签的模型还核对远端 input_modalities 含 image）  lock_prompts.py（登记提示词版本）  install_desktop.py（生成桌面版图标）

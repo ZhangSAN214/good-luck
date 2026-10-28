@@ -71,9 +71,25 @@ def test_skin_settings_are_cleaned():
         " M.onColor('#5e8e91'), M.onColor('#eef2f2')]"
     )
     default, night, rgba, dark_on, light_on = out
-    assert default["preset"] == "mist" and default["tag"] == ""
+    assert default["preset"] == "ink" and default["tag"] == ""
     assert night["accent"] == "#c0392b"  # 自定义颜色保留
     assert night["text"] == "#eceff3"  # 不合法的颜色回到预设
     assert night["alpha"] == 1 and len(night["tag"]) == 40
     assert rgba == "rgba(16,32,48,0.5)"
     assert (dark_on, light_on) == ("#ffffff", "#14181f")
+
+
+def test_glass_skin_and_upgrade_from_old_saves():
+    out = run(
+        "const d = M.cleanSkin(null);"
+        "return [M.isGlass(d), M.isGlass({...d, alpha: 0.5}), M.isGlass({...d, bg: '#000000'}),"
+        " M.isGlass(M.cleanSkin({preset: 'night'})),"
+        " M.upgradeSkin({preset: 'mist', tag: 'hi'}).preset,"
+        " M.upgradeSkin({preset: 'mist', tag: 'hi'}).tag,"
+        " M.upgradeSkin({preset: 'night', accent: '#123456'}).preset,"
+        " M.upgradeSkin({preset: 'mist'}, 2).preset]"
+    )
+    # 默认墨蓝用首页玻璃；改了底色或通透就用自己的颜色
+    assert out[:4] == [True, False, False, False]
+    # 旧版没调过颜色的换成墨蓝（小字保留），调过的不动，新版存的不动
+    assert out[4:] == ["ink", "hi", "night", "mist"]
