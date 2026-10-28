@@ -18,7 +18,7 @@ def write_assets(
     """生成一个成员（vendor 由调用方从配置里取）的完整素材，返回素材目录。"""
     root.mkdir(parents=True, exist_ok=True)
     (root / member_id).mkdir(exist_ok=True)
-    for name in ("c128.png", "c64.png", "chibi.png"):
+    for name in ("c128.png", "c64.png", "chibi.png", "room_day.webp"):
         (root / member_id / name).write_bytes(PNG_1PX)
     members = [
         {
@@ -37,6 +37,8 @@ def write_assets(
                     "64": f"{member_id}/c64.png",
                 },
                 "chibi_transparent": f"{member_id}/chibi.png",
+                "room_day": f"{member_id}/room_day.webp",
+                "room_night": f"{member_id}/room_night.webp",
                 "avatar": f"{member_id}/nope.png",
             },
         },

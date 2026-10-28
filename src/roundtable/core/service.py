@@ -330,12 +330,17 @@ class RoundtableService:
                         "avatar_128": avatar(m.images, "128"),
                         "avatar_256": avatar(m.images, "256"),
                         "chibi": url(m.images.get("chibi_transparent")),
+                        # 公寓宿舍的场景图（美术出图，白天 / 夜里），没有时网页用自绘场景
+                        "room_day": url(m.images.get("room_day")),
+                        "room_night": url(m.images.get("room_night")),
                     },
                     "pet": pet(m.pet),
+                    "room": m.room,
                 }
                 for m in art.members
             ],
             "models": art.model_map(models),
+            "sky": {k: url(v) for k, v in art.sky.items()},
         }
 
     def member_file(self, path: str) -> tuple[bytes, str]:
