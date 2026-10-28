@@ -862,14 +862,15 @@ export class Apartment {
     if (room.kind === 'meeting' && d.hidden_meetings) sign = `<span class="sign" title="匿名会议不显示是谁">匿名会议进行中 ×${d.hidden_meetings}</span>`;
     // 在自己宿舍睡觉的画在床上，其余的小人站在地板上
     const awake = people.filter((p) => !info.asleep.includes(p));
-    const o = { ph: this.phase, night: info.night, on: info.on, tc: esc(info.tc), style: info.style, art: info.art, weather: this.weather, sky: this.art?.sky, uid: room.id + (big ? 'z' : '') };
+    const o = { ph: this.phase, night: info.night, on: info.on, tc: esc(info.tc), style: info.style, art: room.kind === 'rooftop' && !big ? null : info.art, weather: this.weather, sky: this.art?.sky, uid: room.id + (big ? 'z' : '') };
     const beds = info.asleep.map((p) => sleeper(p, this.look(p), this.label(p), this.selected === p.id, is3d(room.kind, o) ? o : null)).join('');
     const tenants = awake.map((p, i) => this.tenant(p, i, awake.length)).join('');
     const cls = `room k-${esc(room.kind)}${info.busy ? ' busy' : ''}${info.dark ? ' dark' : ''}${info.asleep.length && !awake.length ? ' asleep' : ''}${info.on ? ' lit' : ''}${big ? ' big' : ''}`;
     const flex = room.kind === 'dorm' ? 1 : FLEX[room.kind] || 1;
     const head = `<span class="rname"><i class="rbar"></i><b>${esc(info.title)}</b><small>${esc(info.state)}${people.length ? ` · ${people.length} 人` : ''}</small></span>`;
     const zbtn = big ? '' : `<button type="button" class="zbtn" data-zoom="${esc(room.id)}" aria-label="放大看${esc(info.title)}" title="放大看">${icon('zoom')}</button>`;
-    const ar = (info.art ? 2.5 : (VB[room.kind] || 300) / (room.kind === 'rooftop' ? 70 : H)).toFixed(3);
+    // 天台在剖面里是一长条，5:2 的场景图塞不下：剖面里仍画自绘的天台，放大后才用图
+    const ar = (o.art ? 2.5 : (VB[room.kind] || 300) / (room.kind === 'rooftop' ? 70 : H)).toFixed(3);
     return `<div class="${cls}" data-room="${esc(room.id)}" style="--tc:${esc(info.tc)};--fx:${flex};--ar:${ar}">${sceneSvg(room.kind, o, (big ? hotSvg(room.kind, o) : '') + beds)}<div class="people${awake.length >= 5 ? ' crowd' : ''}">${tenants}</div>${head}${sign}${zbtn}</div>`;
   }
 
