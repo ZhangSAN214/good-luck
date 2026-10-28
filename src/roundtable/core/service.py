@@ -27,6 +27,8 @@ from roundtable.core.budget import report as usage_report
 from roundtable.core.budget.guard import day_window, month_window
 from roundtable.core.changelog import changelog_view, load_changelog
 from roundtable.core.chat import ROOM, WORK, ChatHub, chat_budget
+from roundtable.core.chat_media import MAX_BYTES as CHAT_MEDIA_MAX
+from roundtable.core.chat_media import ChatMediaStore, MediaError, clean_items, placeholder
 from roundtable.core.chat_work import WORK_EVENTS, post_handoff, post_office_event
 from roundtable.core.config.loader import ConfigError
 from roundtable.core.evolution import (
@@ -123,6 +125,7 @@ __all__ = [
     "is_local",
     "is_remote",
     "qr_svg",
+    "CHAT_MEDIA_MAX",
     "MAX_QUESTION_CHARS",
     "NotFound",
     "RoundtableService",
@@ -837,17 +840,55 @@ class RoundtableService:
             "typing": list(chat.typing),
         }
 
-    async def chat_post(self, text: str, room: str = ROOM) -> dict[str, Any]:
-        """用户发一条消息；被选中的成员在后台依次回应（前端轮询 chat_view 拿到）。"""
+    # --- 聊天 / 朋友圈里的图片、视频、语音（只存本机） ------------------------------
+
+    @property
+    def chat_media(self) -> ChatMediaStore:
+        return ChatMediaStore(self.rt.chat_media_dir)
+
+    def chat_media_save(self, data: bytes, mime: str) -> dict[str, Any]:
+        """存一个用户发的图片 / 视频 / 语音，返回 id 和种类；发消息时把 id 带上。"""
+        try:
+            saved = self.chat_media.save(data, mime)
+        except MediaError as exc:
+            raise ServiceError(str(exc), 413 if "太大" in str(exc) else 400) from None
+        return {"id": saved.id, "kind": saved.kind, "mime": saved.mime, "size": saved.size}
+
+    def chat_media_file(self, name: str) -> tuple[bytes, str]:
+        found = self.chat_media.load(name)
+        if found is None:
+            raise ServiceError("文件不存在", 404)
+        return found
+
+    def _media_meta(self, text: str, media: list[dict] | None) -> tuple[str, dict | None]:
+        """检查附件；没有文字时用「[图片]」之类的占位当作给成员看的内容。"""
+        try:
+            items = clean_items(self.chat_media, media)
+        except MediaError as exc:
+            raise ServiceError(str(exc)) from None
+        if not items:
+            return text, None
+        meta: dict[str, Any] = {"media": items}
+        tag = placeholder(items)
+        if not text:
+            meta["auto_text"] = True
+            return tag, meta
+        return f"{text}\n{tag}", meta | {"caption": text}
+
+    async def chat_post(
+        self, text: str, room: str = ROOM, media: list[dict] | None = None
+    ) -> dict[str, Any]:
+        """用户发一条消息（可带图片 / 视频 / 语音）；被选中的成员在后台依次回应。"""
         chat = self._chat_room(room)
         if chat.kind == "pair":
             raise ServiceError("这是成员之间的私聊，你只能看，不能发言")
         text = (text or "").strip()
-        if not text:
-            raise ServiceError("消息不能为空")
         if len(text) > MAX_CHAT_CHARS:
             raise ServiceError(f"消息太长（最多 {MAX_CHAT_CHARS} 字）")
-        msg, speakers = chat.post(text)
+        text, meta = self._media_meta(text, media)
+        if not text:
+            raise ServiceError("消息不能为空")
+        msg, speakers = chat.post(text, meta)
         self.rt.repo.mark_chat_read(chat.room, msg["id"])
         if speakers:
             task = asyncio.get_running_loop().create_task(chat.replies(msg["id"], speakers))
@@ -1007,9 +1048,13 @@ class RoundtableService:
             raise ServiceError(f"内容太长（最多 {MAX_MOMENT_CHARS} 字）")
         return text
 
-    async def moments_post(self, text: str) -> dict[str, Any]:
-        """用户发一条动态；一两位成员在后台评论。"""
-        row = self.rt.repo.add_moment("user", self._moment_text(text))
+    async def moments_post(self, text: str, media: list[dict] | None = None) -> dict[str, Any]:
+        """用户发一条动态（可带图片 / 视频 / 语音）；一两位成员在后台评论。"""
+        text = (text or "").strip()
+        if len(text) > MAX_MOMENT_CHARS:
+            raise ServiceError(f"内容太长（最多 {MAX_MOMENT_CHARS} 字）")
+        text, meta = self._media_meta(text, media)
+        row = self.rt.repo.add_moment("user", self._moment_text(text), meta=meta)
         if self.rt.config.roundtable.chat.moments.enabled:
             self._background(self.life.moments.react_to_user_post(row["id"]))
         return {"id": row["id"]}
