@@ -232,6 +232,11 @@ def parse_args(argv: list[str] | None) -> argparse.Namespace:
     p.add_argument(
         "--lan", action="store_true", help="同时对家里 Wi-Fi 开放（平板 / 手机，见 LAN.md）"
     )
+    p.add_argument(
+        "--tailscale-only",
+        action="store_true",
+        help="只对 Tailscale 里的设备开放（家里 Wi-Fi 的其他设备连不上，见 LAN.md）",
+    )
     p.add_argument("--port", type=int, default=PREFERRED_PORT, help="首选端口（默认 8000）")
     p.add_argument("--check", action="store_true", help="只起服务、确认就绪后退出（不开窗口）")
     return p.parse_args(argv)
@@ -241,10 +246,13 @@ def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     os.chdir(project_root())
     os.environ.setdefault("PYTHONIOENCODING", "utf-8")
-    if args.lan:
-        # 必须在导入 roundtable.api.app 之前设置：应用在导入时决定是否开放局域网
+    # 必须在导入 roundtable.api.app 之前设置：应用在导入时决定是否开放局域网
+    if args.tailscale_only:
+        os.environ["ROUNDTABLE_LAN"] = "tailscale"
+    elif args.lan:
         os.environ["ROUNDTABLE_LAN"] = "1"
-    host = "0.0.0.0" if args.lan else "127.0.0.1"
+    shared = args.lan or args.tailscale_only
+    host = "0.0.0.0" if shared else "127.0.0.1"
     log_file = _setup_logging()
     storage = desktop_dir()
 
@@ -259,7 +267,7 @@ def main(argv: list[str] | None = None) -> int:
     if running:
         log.info("复用已在运行的圆桌：%s", url)
     else:
-        log.info("启动服务 %s:%s（局域网 %s）", host, port, "开" if args.lan else "关")
+        log.info("启动服务 %s:%s（局域网 %s）", host, port, os.environ.get("ROUNDTABLE_LAN", "关"))
         server = Server(host, port)
         server.start()
         if not wait_ready(url, server.alive):

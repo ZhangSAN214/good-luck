@@ -57,15 +57,18 @@ export class LanPanel {
     const i = this.info || {};
     const urls = i.urls || [];
     const state = !i.enabled
-      ? '<p class="lan-state off">现在<b>只有这台电脑</b>能打开圆桌。要让平板用，请关掉当前的黑色服务窗口，改为双击项目里的 <code>start_lan.bat</code> 启动。</p>'
+      ? '<p class="lan-state off">现在<b>只有这台电脑</b>能打开圆桌。要让平板 / 手机用，请关掉圆桌，改用桌面上的「圆桌（平板可连）」图标（或 <code>start_lan.bat</code>）启动。</p>'
       : i.has_password
-        ? '<p class="lan-state on">已对家里的局域网开放：平板在同一个 Wi-Fi 里打开下面的地址，输入口令或扫二维码即可。</p>'
+        ? i.tailscale_only
+          ? '<p class="lan-state on">只对 Tailscale 里的设备开放：手机 / 平板开着 Tailscale 打开下面的地址，输入口令或扫二维码即可。</p>'
+          : '<p class="lan-state on">已对家里的局域网开放：平板在同一个 Wi-Fi 里打开下面的地址，输入口令或扫二维码即可。</p>'
         : '<p class="lan-state warn">已对局域网开放，但<b>还没设访问口令</b>：设好之前平板进不来。</p>';
+    const ts = new Set(i.tailscale_urls || []);
     const addr = urls.length
       ? `<ul class="lan-urls">${urls
           .map(
             (u) =>
-              `<li><code>${esc(u)}</code> <button type="button" class="btn" data-pair="${esc(u)}" ${i.has_password ? '' : 'disabled'}>生成二维码</button></li>`,
+              `<li><span class="lan-tag">${ts.has(u) ? 'Tailscale（离家也能用）' : '家里 Wi-Fi'}</span><code>${esc(u)}</code> <button type="button" class="btn" data-pair="${esc(u)}" ${i.has_password ? '' : 'disabled'}>生成二维码</button></li>`,
           )
           .join('')}</ul>`
       : '<p class="lan-hint">没找到这台电脑的局域网地址：确认电脑连着 Wi-Fi 或网线。</p>';
@@ -91,6 +94,13 @@ export class LanPanel {
         <p class="lan-hint">第一次用 <code>start_lan.bat</code> 启动时，Windows 会弹窗问是否允许 Python 访问网络：勾「专用网络」并允许。如果之前点了拒绝，在<b>管理员 PowerShell</b> 里运行下面这一条（只放行专用网络的这个端口）：</p>
         <pre class="lan-cmd">${esc(i.firewall || '')}</pre>
         <p class="lan-hint">另外家里的 Wi-Fi 在 Windows 里要是「专用网络」（设置 → 网络和 Internet → Wi-Fi → 网络配置文件类型）。学校 eduroam 等公共网络一般会隔离设备，平板连不到电脑。</p>
+        <h4>5. 离开家也想用：Tailscale</h4>
+        <p class="lan-hint">${
+          ts.size
+            ? '这台电脑已经在 Tailscale 里（上面标着 Tailscale 的地址）。手机 / 平板装 Tailscale、登录同一个账号，打开那个地址即可，在学校、外面都能用。'
+            : '电脑和手机 / 平板都装 Tailscale 并登录<b>同一个账号</b>，回到这里就会多出一个 100.x 开头的地址。不用 Tailscale 的 Funnel 和 Serve。'
+        } 连不上时，在<b>管理员 PowerShell</b> 里运行下面这一条（只放行 Tailscale 里的设备）：</p>
+        <pre class="lan-cmd">${esc(i.tailscale_firewall || '')}</pre>
         <p class="lan-warn">家里局域网内是明文 HTTP：只在自己家等可信网络里用，不要在公共 Wi-Fi 下开放。</p>
         <p><button type="button" class="btn" data-signout ${i.has_password ? '' : 'disabled'}>让所有平板退出登录</button></p>
         <p class="lan-msg" role="status">${esc(this.msg)}</p>

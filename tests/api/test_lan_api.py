@@ -15,14 +15,16 @@ PAD = ("192.168.1.20", 50001)
 BASE = "http://192.168.1.5:8000"
 
 
-def app_with(tmp_path, enabled: bool):
-    lan = LanAccess(tmp_path / "lan_access.json", enabled=enabled)
+def app_with(tmp_path, enabled: bool, tailscale_only: bool = False):
+    lan = LanAccess(tmp_path / "lan_access.json", enabled=enabled, tailscale_only=tailscale_only)
     lan.status = _fixed_status(lan.status)  # 不读真实网卡
     return create_app(RoundtableService(Env().rt), lan=lan), lan
 
 
 def _fixed_status(original):
-    return lambda port, addresses=None: original(port, ["192.168.1.5"])
+    return lambda port, addresses=None, tailnet=None: original(
+        port, ["192.168.1.5"], ["100.101.102.103"]
+    )
 
 
 def clients(app):
@@ -61,7 +63,7 @@ def test_lan_requires_login_and_settings_stay_on_pc(tmp_path):
         assert pc.post("/api/lan/password", json={"password": "123"}).status_code == 400
         assert pc.post("/api/lan/password", json={"password": PW}).status_code == 200
         st = pc.get("/api/lan").json()
-        assert st["enabled"] and st["has_password"] and st["urls"] == [BASE]
+        assert st["enabled"] and st["has_password"] and st["urls"][0] == BASE
 
         assert pad.post("/api/lan/login", json={"password": "nope-nope"}).status_code == 401
         ok = pad.post("/api/lan/login", json={"password": PW})
@@ -121,3 +123,33 @@ def test_dns_rebinding_host_refused_when_open(tmp_path):
     ok = TestClient(app, client=PC, base_url="http://localhost:8000")
     with ok:
         assert ok.get("/api/status").status_code == 200
+
+
+def test_tailscale_phone_logs_in_and_pairs(tmp_path):
+    app, _ = app_with(tmp_path, enabled=True)
+    pc = TestClient(app, client=PC, base_url="http://127.0.0.1:8000")
+    phone = TestClient(app, client=("100.90.1.2", 50002), base_url="http://100.101.102.103:8000")
+    magic = TestClient(app, client=("100.90.1.2", 50003), base_url="http://pc.tail1234.ts.net:8000")
+    with pc, phone, magic:
+        assert pc.post("/api/lan/password", json={"password": PW}).status_code == 200
+        st = pc.get("/api/lan").json()
+        assert st["tailscale_urls"] == ["http://100.101.102.103:8000"]
+        r = pc.post("/api/lan/pair", json={"base": "http://100.101.102.103:8000"})
+        assert r.status_code == 200 and r.json()["url"].startswith("http://100.101.102.103:8000/")
+        assert phone.post("/api/lan/login", json={"password": PW}).status_code == 200
+        assert phone.get("/api/status").status_code == 200
+        # MagicDNS 的名字也能打开（还是要登录）
+        assert magic.get("/api/status").status_code == 401
+
+
+def test_tailscale_only_refuses_home_wifi(tmp_path):
+    app, _ = app_with(tmp_path, enabled=True, tailscale_only=True)
+    pc, pad = clients(app)
+    phone = TestClient(app, client=("100.90.1.2", 50002), base_url="http://100.101.102.103:8000")
+    with pc, pad, phone:
+        assert pc.post("/api/lan/password", json={"password": PW}).status_code == 200
+        assert pad.post("/api/lan/login", json={"password": PW}).status_code == 403
+        assert pad.get("/login.html").status_code == 403
+        assert phone.post("/api/lan/login", json={"password": PW}).status_code == 200
+        assert pc.get("/api/lan").json()["urls"] == ["http://100.101.102.103:8000"]
+        assert pc.get("/api/status").status_code == 200

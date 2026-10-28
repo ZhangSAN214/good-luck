@@ -15,9 +15,13 @@ from roundtable.core.lan import (
     firewall_command,
     is_local,
     is_remote,
+    is_tailnet,
     lan_addresses,
     lan_enabled,
+    lan_mode,
     qr_svg,
+    tailscale_addresses,
+    tailscale_firewall_command,
 )
 
 PW = "home-" + "pass"
@@ -134,9 +138,9 @@ def test_enabled_flag_and_status(tmp_path):
     assert not lan_enabled({}) and not lan_enabled({"ROUNDTABLE_LAN": "0"})
     assert lan_enabled({"ROUNDTABLE_LAN": "1"}) and lan_enabled({"ROUNDTABLE_LAN": " On "})
     lan = LanAccess.from_env(tmp_path, {"ROUNDTABLE_LAN": "1"})
-    st = lan.status(8000, ["192.168.1.5"])
-    assert st["enabled"] and not st["has_password"]
-    assert st["urls"] == ["http://192.168.1.5:8000"]
+    st = lan.status(8000, ["192.168.1.5"], [])
+    assert st["enabled"] and not st["has_password"] and not st["tailscale_only"]
+    assert st["urls"] == ["http://192.168.1.5:8000"] and st["tailscale_urls"] == []
     assert "-LocalPort 8000" in st["firewall"] and "-Profile Private" in st["firewall"]
     assert firewall_command(8799).count("8799") == 2
 
@@ -144,3 +148,34 @@ def test_enabled_flag_and_status(tmp_path):
 def test_qr_svg_scales():
     svg = qr_svg("http://192.168.1.5:8000/lan/pair?c=abc")
     assert svg.startswith("<svg") and "viewBox" in svg and "width=" not in svg.split(">", 1)[0]
+
+
+def test_tailscale_addresses_and_mode(tmp_path):
+    probe = lambda: ["192.168.1.5", "100.101.102.103", "100.128.0.1", "100.63.255.255"]  # noqa: E731
+    assert tailscale_addresses(probe) == ["100.101.102.103"]
+    # 100.64.0.0/10 不是「私有」网段，家里局域网的地址里不列它
+    assert lan_addresses(probe) == ["192.168.1.5"]
+    assert (
+        is_tailnet("100.64.0.1") and is_tailnet("fd7a:115c:a1e0::5") and not is_tailnet("10.0.0.1")
+    )
+    assert is_tailnet("::ffff:100.100.1.1") and not is_tailnet(None) and not is_tailnet("x")
+    assert lan_mode({}) == "off" and lan_mode({"ROUNDTABLE_LAN": "1"}) == "lan"
+    assert lan_mode({"ROUNDTABLE_LAN": " Tailscale "}) == "tailscale"
+    assert lan_enabled({"ROUNDTABLE_LAN": "tailscale"})
+
+    both = LanAccess.from_env(tmp_path, {"ROUNDTABLE_LAN": "1"})
+    st = both.status(8000, ["192.168.1.5"], ["100.101.102.103"])
+    assert st["urls"] == ["http://192.168.1.5:8000", "http://100.101.102.103:8000"]
+    assert st["tailscale_urls"] == ["http://100.101.102.103:8000"]
+    assert both.allows("192.168.1.20") and both.allows("100.101.1.1")
+
+    only = LanAccess.from_env(tmp_path, {"ROUNDTABLE_LAN": "tailscale"})
+    st = only.status(8000, ["192.168.1.5"], ["100.101.102.103"])
+    assert st["tailscale_only"] and st["urls"] == ["http://100.101.102.103:8000"]
+    assert only.allows("100.101.1.1") and not only.allows("192.168.1.20")
+
+
+def test_tailscale_firewall_only_opens_tailnet_range():
+    cmd = tailscale_firewall_command(8000)
+    assert "-RemoteAddress 100.64.0.0/10" in cmd and "-LocalPort 8000" in cmd
+    assert "-Profile" not in cmd
