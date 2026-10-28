@@ -1,0 +1,19 @@
+/* 「平板」面板（js/lan.js） */
+.viewer .lan h4{margin:16px 0 6px;font-size:14px}
+.viewer .lan h4:first-of-type{margin-top:8px}
+.lan-state{margin:0;padding:10px 12px;border-radius:var(--r);background:var(--surface-2)}
+.lan-state.on{background:var(--ok-bg)}
+.lan-state.warn{background:var(--bad-bg)}
+.lan-pw{display:flex;gap:8px;flex-wrap:wrap}
+.lan-pw input{flex:1 1 220px;min-width:0;padding:6px 10px;border:1px solid var(--line);border-radius:var(--r);background:var(--surface)}
+.lan-hint{margin:6px 0;color:var(--muted);font-size:13px}
+.lan-urls{margin:0;padding:0;list-style:none;display:grid;gap:6px}
+.lan-urls li{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.lan-urls code,.lan-qr code{font-family:var(--f-mono);font-size:14px;overflow-wrap:anywhere}
+.lan-qr{display:flex;gap:16px;align-items:center;flex-wrap:wrap;margin-top:10px}
+.lan-qr .code{background:#fff;border-radius:12px;padding:6px;line-height:0}
+.lan-qr .code svg{width:200px;height:200px}
+.lan-qr p{flex:1 1 200px;margin:0;font-size:13px}
+.lan-cmd{background:var(--surface-2);padding:8px 10px;border-radius:var(--r);user-select:all}
+.lan-warn{margin:12px 0 6px;color:var(--warn);font-size:13px}
+.lan-msg{min-height:1.4em;margin:6px 0 0;color:var(--brass-ink)}

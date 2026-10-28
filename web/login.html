@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>圆桌 · 登录</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" href="img/app/icon-192.png">
+<link rel="apple-touch-icon" href="img/app/apple-touch-icon.png">
+<meta name="theme-color" content="#0f1724">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="圆桌">
+<style>
+  /* 只在局域网里的平板 / 手机上出现；自带样式，不依赖登录后才能取的文件 */
+  :root{--bg:#0f1724;--card:rgba(28,40,60,.72);--ink:#eef2f8;--mute:#9aa8bb;--gold:#e2be78;--bad:#f09a86;--line:rgba(255,255,255,.12)}
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0}
+  body{background:radial-gradient(120% 90% at 50% 0%,#1d2b44,var(--bg) 70%);color:var(--ink);
+    font-family:"Noto Sans SC","PingFang SC","Microsoft YaHei",system-ui,sans-serif;font-size:16px;line-height:1.6;
+    display:grid;place-items:center;padding:max(16px,env(safe-area-inset-top)) 16px max(16px,env(safe-area-inset-bottom))}
+  main{width:min(420px,100%);background:var(--card);border-radius:28px;padding:32px 28px;
+    box-shadow:0 30px 80px -20px rgba(0,0,0,.6),inset 0 1px 0 rgba(255,255,255,.08);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px)}
+  .logo{display:block;width:72px;height:72px;border-radius:18px;margin:0 auto 12px}
+  h1{margin:0 0 4px;text-align:center;font-family:"Noto Serif SC","Songti SC",serif;font-weight:500;font-size:26px;letter-spacing:.2em}
+  .sub{margin:0 0 24px;text-align:center;color:var(--mute);font-size:14px}
+  label{display:block;font-size:14px;color:var(--mute);margin-bottom:6px}
+  input{width:100%;font:inherit;font-size:18px;color:var(--ink);background:rgba(0,0,0,.28);border:1px solid var(--line);
+    border-radius:14px;padding:12px 14px;outline:none}
+  input:focus{border-color:var(--gold)}
+  button{width:100%;margin-top:16px;font:inherit;font-size:17px;letter-spacing:.2em;border:0;border-radius:14px;
+    padding:13px;background:var(--gold);color:#1a1408;cursor:pointer;min-height:48px}
+  button:disabled{opacity:.6}
+  .msg{min-height:1.6em;margin:12px 0 0;font-size:14px;color:var(--bad);text-align:center}
+  .note{margin:20px 0 0;color:var(--mute);font-size:13px}
+  .note b{color:var(--ink);font-weight:500}
+</style>
+</head>
+<body>
+<main>
+  <img class="logo" src="img/app/icon-192.png" alt="">
+  <h1>圆桌</h1>
+  <p class="sub">这是你电脑上的圆桌，在同一个 Wi-Fi 里打开</p>
+  <form id="f">
+    <label for="pw">访问口令（在电脑上的「平板」里设置）</label>
+    <input id="pw" type="password" autocomplete="current-password" required autofocus>
+    <button id="go" type="submit">进入</button>
+    <p class="msg" id="msg" role="alert"></p>
+  </form>
+  <p class="note">也可以在电脑上点「平板」→「生成二维码」，用平板相机扫一下直接进入。<br>
+    登录一次保持 30 天。数据只存在电脑上；家里的 Wi-Fi 是明文传输，<b>只在自己家等可信网络里用</b>。</p>
+</main>
+<script>
+  const msg = document.getElementById('msg');
+  if (new URLSearchParams(location.search).has('expired')) msg.textContent = '二维码已过期或用过了，请在电脑上重新生成，或输入口令。';
+  document.getElementById('f').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const go = document.getElementById('go');
+    go.disabled = true;
+    msg.textContent = '';
+    try {
+      const r = await fetch('/api/lan/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: document.getElementById('pw').value }),
+      });
+      if (r.ok) { location.replace('/'); return; }
+      const d = await r.json().catch(() => ({}));
+      msg.textContent = d.detail || '登录失败';
+    } catch {
+      msg.textContent = '连不上电脑：确认电脑上的圆桌开着，并且两台设备在同一个 Wi-Fi。';
+    } finally {
+      go.disabled = false;
+    }
+  });
+</script>
+</body>
+</html>

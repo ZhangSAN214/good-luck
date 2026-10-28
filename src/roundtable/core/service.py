@@ -68,6 +68,8 @@ from roundtable.core.evolution_plugins import (
 )
 from roundtable.core.evolution_scout import SCOUT_WEEK_KEY, Scout, ScoutError
 from roundtable.core.ideaboard import Board
+from roundtable.core.lan import COOKIE as LAN_COOKIE
+from roundtable.core.lan import LanAccess, is_local, is_remote, qr_svg
 from roundtable.core.life import LIFE_STEPS, LifeEngine
 from roundtable.core.mail import MailAI, MailAIError, MailBox, MailBusy, OwaBrowser
 from roundtable.core.media import KIND_LABELS, KINDS, MediaService
@@ -96,7 +98,7 @@ from roundtable.core.routing import (
     detect_multi_media,
     preview_estimates,
 )
-from roundtable.core.runtime import PROJECT_ROOT, Runtime
+from roundtable.core.runtime import PROJECT_ROOT, Runtime, data_dir
 from roundtable.core.standee import load_standee
 from roundtable.core.standee import standee_file as read_standee_file
 from roundtable.core.steps import Event, restore_state
@@ -116,6 +118,13 @@ MAX_MOMENT_CHARS = 500
 WORKING_WINDOW_H = 3
 
 __all__ = [
+    # 局域网访问（api 层经 service 使用，见 core/lan.py）
+    "LAN_COOKIE",
+    "LanAccess",
+    "data_dir",
+    "is_local",
+    "is_remote",
+    "qr_svg",
     "CHAT_MEDIA_MAX",
     "MAX_QUESTION_CHARS",
     "NotFound",
