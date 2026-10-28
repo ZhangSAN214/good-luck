@@ -664,7 +664,7 @@ export class Standee {
     // 首页底边：立绘渐隐进去，不在页面底部留一道直边
     if (this.fadeAt < 1) {
       const y1 = this.fadeAt * ch;
-      const y0 = y1 - 70 * (ch / this.cv.clientHeight || 1);
+      const y0 = y1 - 70 * this.dprY();
       ctx.setTransform(1, 0, 0, 1, 0, 0);
       ctx.globalCompositeOperation = 'destination-out';
       const g = ctx.createLinearGradient(0, y0, 0, y1);
@@ -674,6 +674,12 @@ export class Standee {
       ctx.fillRect(0, y0, cw, ch - y0);
       ctx.globalCompositeOperation = 'source-over';
     }
+  }
+
+  /** 画布像素 / 页面像素（纵向）；画布还没布局好（高度 0，比如开场动画盖着时）按 1 算。 */
+  dprY() {
+    const h = this.cv.clientHeight;
+    return h > 0 ? this.cv.height / h : 1;
   }
 
   /** 网格形变画一帧：显卡算好后整张贴到页面上的画布里（点击判定、截图都照旧）。 */
@@ -701,7 +707,7 @@ export class Standee {
         pad: PAD,
         flip: s.flip,
         fadeAt: this.fadeAt ?? 1,
-        fadePx: 70 * (ch / this.cv.clientHeight || 1),
+        fadePx: 70 * this.dprY(),
       });
       this.ctx.setTransform(1, 0, 0, 1, 0, 0);
       this.ctx.clearRect(0, 0, cw, ch);
