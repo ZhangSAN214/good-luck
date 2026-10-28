@@ -10,7 +10,7 @@ import re
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 from urllib.parse import quote
 
 from fastapi import FastAPI, Request
@@ -149,12 +149,42 @@ class MailSettingsBody(BaseModel):
     days: int | None = None
     show_window: bool | None = None
     extra_hosts: list[str] | None = None
+    ai_ok: bool | None = None  # 同意 / 不再同意把点了的邮件发给 AI 总结、翻译
 
 
 class MailRefreshBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     manual: bool = True
+
+
+class MailMarkBody(BaseModel):
+    """邮件 id 里有斜杠，放在请求体里。mark 为空 = 交回规则判断。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(min_length=1, max_length=1000)
+    mark: str | None = Field(default=None, pattern="^(important|normal)$")
+
+
+class MailCategoryBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(min_length=1, max_length=1000)
+    category: str | None = Field(default=None, max_length=40)
+
+
+class MailIdBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(min_length=1, max_length=1000)
+
+
+class MailAIBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str | None = Field(default=None, max_length=1000)  # 汇总不需要
+    again: bool = False  # 重新生成（再花一次钱）
 
 
 class MailReminderBody(BaseModel):
@@ -460,6 +490,24 @@ def create_app(service: RoundtableService | None = None) -> FastAPI:
         request: Request, reminder_id: int, body: MailReminderBody
     ) -> dict[str, Any]:
         return svc(request).mail_reminder(reminder_id, body.action)
+
+    @app.post("/api/mail/mark")
+    async def mail_mark(request: Request, body: MailMarkBody) -> dict[str, Any]:
+        return svc(request).mail_mark(body.id, body.mark)
+
+    @app.post("/api/mail/category")
+    async def mail_category(request: Request, body: MailCategoryBody) -> dict[str, Any]:
+        return svc(request).mail_category(body.id, body.category)
+
+    @app.post("/api/mail/images")
+    async def mail_images(request: Request, body: MailIdBody) -> dict[str, Any]:
+        return svc(request).mail_images(body.id)
+
+    @app.post("/api/mail/ai/{kind}")
+    async def mail_ai(
+        request: Request, kind: Literal["summary", "translate", "digest"], body: MailAIBody
+    ) -> dict[str, Any]:
+        return await svc(request).mail_ai_do(kind, body.id, again=body.again)
 
     @app.post("/api/mail/logout")
     async def mail_logout(request: Request) -> dict[str, Any]:

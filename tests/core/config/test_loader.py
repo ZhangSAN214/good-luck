@@ -122,6 +122,9 @@ def test_repo_config_loads_with_defaults():
         "evolution_card",
         "evolution_check",
         "evolution_plugins",
+        "mail_summary",
+        "mail_translate",
+        "mail_digest",
     }
     assert rt.collab_pipeline == [
         "decompose",

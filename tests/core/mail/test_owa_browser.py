@@ -16,7 +16,16 @@ import pytest
 
 from roundtable.core.mail.owa import OwaBrowser, SessionExpired
 
-from .samples import ews_item, find_response, get_response
+from .samples import (
+    attachments_response,
+    ews_item,
+    find_response,
+    get_response,
+    html_response,
+    inline_attachment,
+)
+
+PNG_B64 = "iVBORw0KGgo="
 
 pytest.importorskip("playwright.sync_api")
 
@@ -86,6 +95,13 @@ class FakeOwa:
                         ews_item(2, when="2026-10-25T08:00:00Z"),
                     ]
                     return self._send(200, json.dumps(find_response(items[:limit])))
+                if action == "GetItem" and b'"HTML"' in body:
+                    [i] = [x["Id"] for x in json.loads(body)["Body"]["ItemIds"]]
+                    html = f'<p onclick="x()">图文 {i}</p><img src="cid:logo@x"><script>1</script>'
+                    atts = [inline_attachment("att-1", "logo@x")]
+                    return self._send(200, json.dumps(html_response(i, html, atts)))
+                if action == "GetAttachment":
+                    return self._send(200, json.dumps(attachments_response({"att-1": PNG_B64})))
                 if action == "GetItem":
                     ids = [x["Id"] for x in json.loads(body)["Body"]["ItemIds"]]
                     return self._send(
@@ -143,6 +159,20 @@ def test_reads_inbox_and_bodies_through_the_guard(tmp_path, owa):
     assert b.has_login()
     b.clear()
     assert not (tmp_path / "mail_browser").exists()
+
+
+def test_reads_html_body_with_inline_images(tmp_path, owa):
+    b = browser(tmp_path, owa)
+
+    def run():
+        with b.open(interactive=False) as s:
+            return s.html(["AAMk/1+="])
+
+    got = _launch_or_skip(run)
+    html, inline = got["AAMk/1+="]
+    assert "图文 AAMk/1+=" in html  # 原样带回，清洗在 box 里做
+    assert inline == {"logo@x": f"data:image/png;base64,{PNG_B64}"}
+    assert "POST GetAttachment" in owa.hits
 
 
 def test_falls_back_to_what_the_page_loaded(tmp_path, owa, monkeypatch):

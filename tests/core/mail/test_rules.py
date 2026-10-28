@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 
 import pytest
 
-from roundtable.core.mail.rules import MailRules, extract_dates, judge
+from roundtable.core.mail.rules import CATEGORIES, MailRules, classify, extract_dates, judge
 
 RECEIVED = datetime(2026, 10, 27, 9, 0, tzinfo=UTC)
 
@@ -73,3 +73,38 @@ def test_ignores_dates_without_trigger_past_dates_and_bad_numbers():
     many = "Due 1 Nov. Due 2 Nov. Due 3 Nov. Due 4 Nov."
     assert len(extract_dates(many, RECEIVED)) == 3
     assert extract_dates("Due 5 Nov 2026 and also due 5 Nov 2026", RECEIVED)[0]["snippet"]
+
+
+def test_manual_mark_overrides_rules():
+    rules = MailRules()
+    school = mail(sender_addr="tutor@manchester.ac.uk")
+    assert judge({**school, "mark": "normal"}, rules) == []
+    assert judge(mail(mark="important"), rules) == ["你标为重要"]
+
+
+@pytest.mark.parametrize(
+    ("kw", "category"),
+    [
+        ({"subject": "Your verification code", "sender_addr": "tutor@manchester.ac.uk"}, "system"),
+        ({"subject": "Exam results released"}, "exam"),
+        ({"subject": "Coursework 2 deadline", "preview": "results later"}, "exam"),
+        ({"subject": "Coursework 2 submission"}, "deadline"),
+        ({"preview": "请在周五前提交作业"}, "deadline"),
+        ({"subject": "Tuition fee payment"}, "money"),
+        ({"subject": "COMP101 lecture moved"}, "course"),
+        ({"subject": "Careers fair next week"}, "event"),
+        ({"subject": "Library update", "sender_addr": "news@manchester.ac.uk"}, "notice"),
+        ({"subject": "Weekly digest", "sender_addr": "no-reply@service.example"}, "system"),
+        ({"subject": "Lunch?", "sender_addr": "mate@student.manchester.ac.uk"}, "personal"),
+        ({"subject": "Hi", "sender_addr": "mum@home.example"}, "personal"),
+        ({"subject": "Hi", "sender_addr": ""}, "other"),
+    ],
+)
+def test_classify_by_local_rules(kw, category):
+    assert classify(mail(**kw)) == category
+    assert category in CATEGORIES
+
+
+def test_manual_category_wins_and_unknown_is_ignored():
+    assert classify(mail(subject="Exam", category="event")) == "event"
+    assert classify(mail(subject="Exam", category="nonsense")) == "exam"

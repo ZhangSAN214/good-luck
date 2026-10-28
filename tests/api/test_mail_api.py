@@ -71,3 +71,42 @@ def test_mail_unavailable_without_data_dir():
         c.put("/api/mail/settings", json={"enabled": True})
         r = c.post("/api/mail/login")
         assert r.status_code == 400 and "用不了" in r.json()["detail"]
+
+
+def test_mail_marks_categories_images_and_ai():
+    c, src, service = client()
+    with c:
+        c.put("/api/mail/settings", json={"enabled": True})
+        src.items = [replace(item(1, subject="Exam timetable"), id="AAMk/1+="), item(2)]
+        src.bodies = {"AAMk/1+=": "Exam on 2026-11-10 09:00 in the hall."}
+        src.html = {
+            "AAMk/1+=": ('<p onclick="x()">Exam</p><img src="https://t.example/a.png">', {})
+        }
+        data = c.post("/api/mail/login").json()
+        assert data["ai"]["ok"] is False and data["ai"]["monthly_usd"] == 0.30
+        assert {x["key"] for x in data["categories"]} >= {"exam", "other"}
+        assert data["digest"]["important_unread"] == 2
+
+        r = c.post("/api/mail/mark", json={"id": "m2", "mark": "normal"})
+        assert [m["important"] for m in r.json()["messages"]] == [True, False]
+        assert c.post("/api/mail/mark", json={"id": "m2", "mark": "x"}).status_code == 422
+        assert c.post("/api/mail/mark", json={"id": "nope", "mark": None}).status_code == 404
+        r = c.post("/api/mail/category", json={"id": "AAMk/1+=", "category": "event"})
+        assert r.json()["messages"][0]["category"] == "event"
+        assert c.post("/api/mail/category", json={"id": "m2", "category": "x"}).status_code == 400
+
+        got = c.post("/api/mail/images", json={"id": "AAMk/1+="}).json()
+        assert got["html"]["remote"] == 1 and "onclick" not in got["html"]["html"]
+
+        no = c.post("/api/mail/ai/summary", json={"id": "AAMk/1+="})
+        assert no.status_code == 409 and "同意" in no.json()["detail"]
+        assert c.put("/api/mail/settings", json={"ai_ok": True}).json()["ai"]["ok"] is True
+        got = c.post("/api/mail/ai/summary", json={"id": "AAMk/1+="}).json()
+        assert got["summary"] and got["ai"]["today_calls"] == 1
+        got = c.post("/api/mail/ai/translate", json={"id": "AAMk/1+="}).json()
+        assert got["translation"] and got["ai"]["today_calls"] == 2
+        assert c.post("/api/mail/ai/digest", json={}).json()["ai"]["digest"]["text"]
+        assert c.post("/api/mail/ai/explode", json={}).status_code == 422
+        assert c.post("/api/mail/ai/summary", json={}).status_code == 400
+
+        assert c.post("/api/mail/logout").json()["ai"]["ok"] is False
