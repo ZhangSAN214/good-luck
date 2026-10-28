@@ -54,6 +54,7 @@ class CreateSession(BaseModel):
     media_tier: str | None = None  # 媒体模型的档位：budget / flagship
     # 作为风格参考的图片附件 id；省略 = 全部图片都是风格参考，[] = 都不是
     style_refs: list[str] | None = None
+    carry_from: str | None = None  # 接力：上一场的会话 id（带上它的成果摘要）
 
 
 class EstimateRequest(BaseModel):
@@ -69,6 +70,7 @@ class EstimateRequest(BaseModel):
     seed: int | None = None
     media: str | None = None
     media_tier: str | None = None
+    carry_from: str | None = None
 
 
 class DecisionBody(BaseModel):
@@ -725,8 +727,14 @@ def create_app(service: RoundtableService | None = None, lan: LanAccess | None =
             media=body.media,
             media_tier=body.media_tier,
             style_refs=body.style_refs,
+            carry_from=body.carry_from,
         )
         return {"session_id": sid}
+
+    @app.get("/api/sessions/{session_id}/carry")
+    async def carry(request: Request, session_id: str) -> dict[str, Any]:
+        """接力用：上一场的题目和将带入下一场的成果摘要。"""
+        return svc(request).carry(session_id)
 
     @app.get("/api/sessions/{session_id}/files/{file_id}")
     async def file_download(request: Request, session_id: str, file_id: str) -> Response:
@@ -779,6 +787,7 @@ def create_app(service: RoundtableService | None = None, lan: LanAccess | None =
             seed=body.seed,
             media=body.media,
             media_tier=body.media_tier,
+            carry_from=body.carry_from,
         )
 
     @app.post("/api/uploads", status_code=201)
