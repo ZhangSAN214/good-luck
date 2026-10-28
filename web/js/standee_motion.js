@@ -21,7 +21,8 @@ export const MOTIONS = {
     dur: 3.2,
     f: (u) => {
       const e = env(u);
-      return { arm: -0.035 * e, armY: -7 * e, pitch: 0.7 * e, gazeX: -3 * e, gazeY: 2.4 * e, roll: -0.02 * e };
+      // 手只把书微微抬起一点、略向里收，主要靠低头和视线落到书上来表现「在看书」
+      return { arm: -0.012 * e, armY: -3.2 * e, pitch: 0.55 * e, gazeX: -3 * e, gazeY: 2.4 * e, roll: -0.015 * e };
     },
   },
   shake: { dur: 1.3, f: (u) => ({ roll: 0.045 * Math.sin(u * 26) * (1 - u) ** 1.5, pitch: 0.4 * (1 - u) }) },
@@ -68,6 +69,8 @@ export class Motion {
     this.acc = new Spring(30, 2.6);
     this.skirt = new Spring(6, 1.6);
     this.hop = new Spring(90, 11);
+    // 拿书的手：有重量的慢弹簧（追目标时有滞后，不会像贴图一样硬转）
+    this.arm = new Spring(7, 4.2);
     this.saccade = { x: 0, y: 0, at: 0 };
     this.prevRoll = 0;
     this.prevSway = 0;
@@ -128,18 +131,21 @@ export class Motion {
     const acc = this.acc.step(dt, drive * 0.9 - rollV * 5 - swayV * 200, 0);
     const skirt = this.skirt.step(dt, -sway * 900 - swayV * 600, 0);
     const [, hop] = this.hop.step(dt, 0, 0);
+    // 手随呼吸稍晚一点起伏（比胸口慢半拍），再加上动作目标
+    const lag = ((1 - Math.cos(((t - 0.6) * 2 * Math.PI) / 4.2)) / 2) * 0.004;
+    const [armA, armY] = this.arm.step(dt, -lag + add.arm, -breath * 0.35 + add.armY);
     const k = m;
     return {
       time: t,
       irisOn: input.irisOn,
       roll: roll * k,
       sway: sway * k,
-      arm: (Math.sin(t * 0.6) * 0.004 + add.arm) * k,
+      arm: armA * k,
       breath: breath * k,
       wind: 2.6 * k,
-      headT: [yaw * 5 * k, pitch * 3.2 * k],
-      faceT: [yaw * 6 * k, pitch * 3 * k],
-      armT: [0, add.armY * k],
+      headT: [yaw * 4 * k, pitch * 2.8 * k],
+      faceT: [yaw * 5 * k, pitch * 2.6 * k],
+      armT: [0, armY * k],
       gaze: [clamp(gx, -4, 4) * Math.min(k, 1), clamp(gy, -3, 3) * Math.min(k, 1)],
       hop: [0, hop * Math.min(k, 1)],
       hairL: [hairL[0] * k, hairL[1] * k],
