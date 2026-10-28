@@ -43,6 +43,13 @@ def _open(page) -> None:
     page.wait_for_selector("#hub .mu-panel", state="visible")
 
 
+def _accent(page) -> str:
+    return page.evaluate(
+        "getComputedStyle(document.querySelector('#hub .mu-panel'))"
+        ".getPropertyValue('--mu-accent').trim()"
+    )
+
+
 def _view(page, v: str) -> None:
     """卡片里切到播放列表 / 外观；再点同一个回到播放器。"""
     page.click(f"#hub .mu-panel [data-mu='view'][data-v='{v}']")
@@ -224,8 +231,8 @@ def test_music_card_colors_text_and_cover_are_customizable(serve, page, tmp_path
     _open(page)
     _view(page, "skin")
     page.click("#hub .mu-preset[data-v='night']")
-    style = page.get_attribute("#hub .mu-panel", "style")
-    assert "--mu-accent:#8eb0e4" in style
+    style = _accent(page)
+    assert style == "#8eb0e4"
     page.fill("#hub [data-mu-color='accent']", "#c0392b")
     page.dispatch_event("#hub [data-mu-color='accent']", "change")
     page.fill("#hub [data-mu-tag]", "晚安电台")
@@ -233,7 +240,7 @@ def test_music_card_colors_text_and_cover_are_customizable(serve, page, tmp_path
     _view(page, "skin")  # 回到播放器
     assert page.inner_text("#hub .mu-tag") == "晚安电台"
     assert "/api/music/covers/cover_claude.png" in page.get_attribute("#hub .mu-art img", "src")
-    assert "--mu-accent:#c0392b" in page.get_attribute("#hub .mu-panel", "style")
+    assert _accent(page) == "#c0392b"
     # 成员封面按 effects.json 飘花瓣、头发那层会摆；外观里可以关掉
     assert page.locator("#hub .mu-art .mu-fx").count() == 1
     assert page.locator("#hub .mu-art .mu-hair").count() == 1
@@ -246,7 +253,7 @@ def test_music_card_colors_text_and_cover_are_customizable(serve, page, tmp_path
     page.reload()
     page.wait_for_selector("#hub .mu-btn")
     _open(page)
-    assert "--mu-accent:#c0392b" in page.get_attribute("#hub .mu-panel", "style")
+    assert _accent(page) == "#c0392b"
     assert page.inner_text("#hub .mu-tag") == "晚安电台"
 
 
@@ -282,3 +289,34 @@ def test_music_mini_card_sits_under_the_clock_and_can_collapse(serve, page):
     panel = page.locator("#hub .mu-panel").bounding_box()
     mini = page.locator("#hub .mu-mini").bounding_box()
     assert abs(panel["x"] - mini["x"]) < 2 and abs(panel["width"] - mini["width"]) < 2
+
+
+def test_music_card_fits_the_window_and_follows_resizes(serve, page):
+    srv = serve(confirm_threshold_usd=100.0)
+    page.add_init_script(LAND_HUB)
+    for w, h in ((1400, 900), (1280, 720), (1920, 1080)):
+        page.set_viewport_size({"width": w, "height": h})
+        page.goto(srv.url)
+        page.wait_for_selector("#hub .mu-mini")
+        page.click("#hub .mu-mini .mu-btn")
+        page.wait_for_selector("#hub .mu-panel", state="visible")
+        # 等展开动画放完（慢机器上 450ms 不一定够）
+        wait_until(
+            lambda: page.evaluate(
+                "document.querySelector('#hub .mu-panel').getAnimations().length === 0"
+            )
+        )
+        page.wait_for_timeout(100)
+        box = page.locator("#hub .mu-panel").bounding_box()
+        assert box["y"] + box["height"] <= h  # 不超出窗口底部
+        # 整张卡片放得下，不出滚动条
+        assert page.evaluate(
+            "(e => e.scrollHeight <= e.clientHeight + 1)(document.querySelector('#hub .mu-panel'))"
+        )
+        clock = page.locator("#hub .hb-lead .ck").bounding_box()
+        assert abs(box["x"] - clock["x"]) < 2 and abs(box["width"] - clock["width"]) < 2
+    # 窗口变矮，封面跟着变小
+    art = page.locator("#hub .mu-art").bounding_box()["height"]
+    page.set_viewport_size({"width": 1920, "height": 760})
+    page.wait_for_timeout(200)
+    assert page.locator("#hub .mu-art").bounding_box()["height"] < art - 50

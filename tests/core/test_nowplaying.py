@@ -95,10 +95,15 @@ def test_local_covers_stay_inside_their_folder(tmp_path):
     (d / "cover_claude.png").write_bytes(PNG)
     (d / "notes.txt").write_text("x")
     (tmp_path / "secret.png").write_bytes(PNG)
-    assert list_covers(d) == [{"name": "claude", "url": "/api/music/covers/cover_claude.png"}]
+    (got,) = list_covers(d)
+    assert got["name"] == "claude"
+    assert got["url"].startswith("/api/music/covers/cover_claude.png?v=")
     assert read_cover(d, "cover_claude.png") == (PNG, "image/png")
     for bad in ("../secret.png", "notes.txt", "..\\secret.png", ".hidden.png", ""):
         assert read_cover(d, bad) is None
+    # 换了图地址就变（浏览器不会用旧缓存）
+    (d / "cover_claude.png").write_bytes(PNG + b"new")
+    assert list_covers(d)[0]["url"] != got["url"]
 
 
 def test_cover_effects_come_from_effects_json(tmp_path):
@@ -113,7 +118,7 @@ def test_cover_effects_come_from_effects_json(tmp_path):
     )
     got = {c["name"]: c for c in list_covers(d)}
     assert got["claude"]["fx"] == "petals" and got["claude"]["color"] == "#f2b98a"
-    assert got["glm"] == {"name": "glm", "url": "/api/music/covers/cover_glm.png", "fx": "leaves"}
+    assert got["glm"]["fx"] == "leaves" and "color" not in got["glm"]
     assert "fx" not in got["kimi"]  # 不认识的特效忽略
     (d / "effects.json").write_text("{坏的", encoding="utf-8")
     assert all("fx" not in c for c in list_covers(d))

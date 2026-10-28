@@ -26,6 +26,8 @@ const FADE_MS = 600;
 const ACCEPT = 'audio/*,.mp3,.ogg,.oga,.wav,.flac,.m4a,.aac,.opus,.webm';
 const MAX_ART_BYTES = 8 * 1024 * 1024;
 export const FX_MODES = [['auto', '跟着封面'], ['off', '不要动'], ...FX];
+// 成员封面地址带 ?v=版本（换了图就变），记住的选择只比路径，换图后照样选中、不读旧缓存
+const coverPath = (u) => String(u || '').split('?')[0];
 const cleanFx = (v) => (v === 'auto' || v === 'off' || isFx(v) ? v : 'auto');
 
 export const MODES = [
@@ -277,6 +279,8 @@ export class Music {
     this.sysBusy = false;
     this.pollT = 0;
     this.fx = new CoverFx();
+    window.addEventListener('resize', () => this.fit());
+    document.fonts?.ready.then(() => this.fit()); // 字体晚到会改变文字高度
     this.audio.volume = this.set.volume;
     this.audio.addEventListener('ended', () => this.onEnded());
     this.audio.addEventListener('play', () => this.paint());
@@ -483,6 +487,31 @@ export class Music {
     return isFx(c?.fx) ? [c.fx, c.color || ''] : ['', ''];
   }
 
+  /** 卡片跟着窗口大小走：整张卡片放得下就不出滚动条，封面画框按剩下的高度缩放（4:5，最小 150px 高）。 */
+  fit() {
+    const p = this.el.querySelector('.mu-panel');
+    if (!this.open || !p || p.hidden) return;
+    const art = p.querySelector('.mu-art');
+    if (getComputedStyle(p).position !== 'absolute') {
+      // 窄屏（平板竖着、手机）卡片排在页面里跟着滚动，不用限高
+      p.style.maxHeight = '';
+      if (art) art.style.width = '';
+      return;
+    }
+    if (!p.fitHooked) {
+      // 打开时卡片有一段上下浮动的动画，量的位置会差几像素：动画放完再量一次
+      p.fitHooked = true;
+      p.addEventListener('animationend', () => this.fit());
+    }
+    const room = Math.max(240, window.innerHeight - p.getBoundingClientRect().top - 16);
+    p.style.maxHeight = `${room}px`;
+    if (!art) return;
+    art.style.width = '';
+    const rest = p.scrollHeight - art.offsetHeight;
+    const pad = parseFloat(getComputedStyle(p).paddingLeft) * 2;
+    art.style.width = `${Math.round(Math.min(p.clientWidth - pad, Math.max(150, room - rest) * 0.8))}px`;
+  }
+
   /** 卡片开着、在播放器页时让封面动起来，否则停下。 */
   syncFx() {
     const c = this.open && this.view === 'player' ? this.el.querySelector('.mu-panel .mu-fx') : null;
@@ -495,7 +524,8 @@ export class Music {
     const sys = this.system();
     const n = this.sysNow();
     const song = sys ? n?.cover || '' : this.art.get(this.tracks[this.cur]?.id) || '';
-    const pick = this.set.cover.pick === MY_COVER ? this.myCover : this.covers?.some((c) => c.url === this.set.cover.pick) ? this.set.cover.pick : '';
+    const mine = this.covers?.find((c) => coverPath(c.url) === coverPath(this.set.cover.pick));
+    const pick = this.set.cover.pick === MY_COVER ? this.myCover : mine?.url || '';
     const list = this.covers || [];
     let k = sys ? [...String(n?.title || '')].reduce((a, ch) => a + ch.charCodeAt(0), 0) : this.cur;
     k = Math.max(0, k);
@@ -868,9 +898,9 @@ export class Music {
   skinHtml() {
     const s = this.set.skin;
     const covers = this.covers || [];
-    const pick = this.set.cover.pick;
+    const pick = coverPath(this.set.cover.pick);
     const thumb = (url, label, val) =>
-      `<button type="button" class="mu-thumb" data-mu="cover" data-v="${esc(val)}" aria-pressed="${pick === val}" title="${esc(label)}"><img src="${esc(url)}" alt="${esc(label)}" loading="lazy"></button>`;
+      `<button type="button" class="mu-thumb" data-mu="cover" data-v="${esc(val)}" aria-pressed="${pick === coverPath(val)}" title="${esc(label)}"><img src="${esc(url)}" alt="${esc(label)}" loading="lazy"></button>`;
     return `
       <b class="mu-h">外观</b>
       <div class="mu-presets" role="group" aria-label="配色">${Object.entries(SKINS)
@@ -949,6 +979,7 @@ export class Music {
       </div>`;
     if (refocus) this.el.querySelector(refocus)?.focus();
     this.tick();
+    this.fit();
     this.syncFx();
     this.mediaMeta(t, on);
   }
@@ -1016,7 +1047,7 @@ export class Music {
         this.save();
         return this.paint();
       case 'cover':
-        this.set.cover.pick = this.set.cover.pick === v ? null : v;
+        this.set.cover.pick = coverPath(this.set.cover.pick) === coverPath(v) ? null : coverPath(v);
         this.save();
         return this.paint();
       case 'mycover':
