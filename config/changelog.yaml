@@ -11,6 +11,16 @@
 # 已读状态只存在这台电脑的浏览器里。
 
 releases:
+  - version: "1.50"
+    date: 2026-10-28
+    title: 讨论和工作的成果可以导出成 Word、PPT、PDF
+    pr: [50]
+    added:
+      - 一场完成后，结束那一行旁边有「导出」按钮：Word、PPT、PDF、Markdown、网页
+      - PPT 自动排好：第一页是标题和题目，之后每个小标题一页，内容太多自动续页
+      - 导出是电脑本地转换，不再找 AI，不花钱
+    howto: 题目做完后，点结束行旁边的「Word」「PPT」或「PDF」就会下载文件。
+
   - version: "1.48"
     date: 2026-10-28
     title: 离开家也能用手机、平板连圆桌（Tailscale），手机和平板排版更合身
