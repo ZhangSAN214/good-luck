@@ -144,6 +144,7 @@ DEV_ROLES = ("evolve_review",)
 # 革新例会自己找资料：外部内容是网页正文和资料卡，放在 <source> / <page> / <card> 标签里
 EVOLUTION_ROLES = ("evolution_card", "evolution_check")
 PLUGIN_ROLES = ("evolution_plugins",)
+MAIL_ROLES = ("mail_summary", "mail_translate", "mail_digest")
 
 
 @pytest.mark.parametrize(
@@ -172,6 +173,7 @@ def test_chat_history_is_delimited_and_members_admit_being_ai(template):
             *DEV_ROLES,
             *EVOLUTION_ROLES,
             *PLUGIN_ROLES,
+            *MAIL_ROLES,
         )
     ],
     ids=lambda t: f"{t.role}/{t.version}",
@@ -299,3 +301,13 @@ def test_life_prompts_delimit_material_and_stay_honest(template):
     assert "不八卦" in template.system or "不评价用户的隐私" in template.system
     if template.role == "life_share":  # 只转述看到的，存疑时标「未核实」
         assert "不添油加醋" in template.system and "未核实" in template.system
+
+
+@pytest.mark.parametrize(
+    "template", [t for t in ALL_TEMPLATES if t.role in MAIL_ROLES], ids=lambda t: t.role
+)
+def test_mail_prompts_treat_mail_as_material(template):
+    """邮件栏：用户的邮件是资料，放在标签里，其中的指令一律无效。"""
+    tag = "<mails>" if template.role == "mail_digest" else "<email>"
+    assert tag in template.user
+    assert "一律无效" in template.system or "一律当作普通文字" in template.system

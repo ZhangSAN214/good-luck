@@ -23,6 +23,7 @@ import time
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from html import escape
 from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any, Protocol
@@ -36,6 +37,9 @@ LOGIN_TIMEOUT_S = 600  # 等用户登录（含多重验证）最多 10 分钟
 LOAD_TIMEOUT_S = 45  # 已登录时等网页版加载收件箱
 MAX_JSON_BYTES = 20_000_000
 BODY_BATCH = 10
+INLINE_IMAGE_MAX = 1_500_000  # 邮件自带的图片：单张最大（字节）
+INLINE_TOTAL_MAX = 4_000_000  # 一封信自带的图片合计最大
+_B64 = re.compile(r"^[A-Za-z0-9+/=\s]+$")
 # 先试电脑自带的浏览器程序（Windows 一定有），没有再用随测试环境装的
 CHANNELS: tuple[str | None, ...] = ("msedge", "chrome", None)
 
@@ -382,8 +386,9 @@ def find_items_request(limit: int) -> dict[str, Any]:
     }
 
 
-def get_items_request(ids: list[str]) -> dict[str, Any]:
-    """只读：取这几封的纯文本正文（GetItem 不会把邮件标成已读）。"""
+def get_items_request(ids: list[str], *, html: bool = False) -> dict[str, Any]:
+    """只读：取这几封的正文（GetItem 不会把邮件标成已读）。html=True 时取图文版和附件清单。"""
+    props = [_prop("Body"), _prop("Attachments")] if html else [_prop("Body")]
     return {
         "__type": "GetItemJsonRequest:#Exchange",
         "Header": _header(),
@@ -392,12 +397,86 @@ def get_items_request(ids: list[str]) -> dict[str, Any]:
             "ItemShape": {
                 "__type": "ItemResponseShape:#Exchange",
                 "BaseShape": "IdOnly",
-                "BodyType": "Text",
-                "AdditionalProperties": [_prop("Body")],
+                "BodyType": "HTML" if html else "Text",
+                "AdditionalProperties": props,
             },
             "ItemIds": [{"__type": "ItemId:#Exchange", "Id": i} for i in ids],
         },
     }
+
+
+def get_attachments_request(ids: list[str]) -> dict[str, Any]:
+    """只读：取邮件里自带的图片（cid: 引用的那些）。"""
+    return {
+        "__type": "GetAttachmentJsonRequest:#Exchange",
+        "Header": _header(),
+        "Body": {
+            "__type": "GetAttachmentRequest:#Exchange",
+            "AttachmentIds": [{"__type": "AttachmentId:#Exchange", "Id": i} for i in ids],
+        },
+    }
+
+
+def _attachment_id(d: dict[str, Any]) -> str | None:
+    value = _get(d, "AttachmentId", "Id")
+    if isinstance(value, dict):
+        value = _get(value, "Id")
+    return value if isinstance(value, str) and value else None
+
+
+def extract_html(data: Any) -> dict[str, tuple[str, list[dict[str, Any]]]]:
+    """GetItem（图文版）的结果：{邮件 id: (HTML, 邮件自带图片的清单)}。"""
+    out: dict[str, tuple[str, list[dict[str, Any]]]] = {}
+    stack = [data]
+    while stack:
+        node = stack.pop()
+        if isinstance(node, dict):
+            body = _get(node, "Body", "UniqueBody")
+            item_id = _item_id(node)
+            if isinstance(body, dict) and item_id:
+                value = _get(body, "Value", "Content")
+                if isinstance(value, str):
+                    if str(_get(body, "BodyType", "ContentType") or "").lower() != "html":
+                        value = f"<pre>{escape(value)}</pre>"
+                    images = []
+                    for a in _get(node, "Attachments") or []:
+                        if not isinstance(a, dict):
+                            continue
+                        aid, cid = _attachment_id(a), _get(a, "ContentId")
+                        kind = str(_get(a, "ContentType") or "").lower()
+                        if aid and isinstance(cid, str) and cid and kind.startswith("image/"):
+                            size = _get(a, "Size")
+                            images.append(
+                                {
+                                    "id": aid,
+                                    "cid": cid.strip("<>"),
+                                    "type": kind,
+                                    "size": size if isinstance(size, int) else 0,
+                                }
+                            )
+                    out[item_id] = (value, images)
+                    continue
+            stack.extend(node.values())
+        elif isinstance(node, list):
+            stack.extend(node)
+    return out
+
+
+def extract_attachments(data: Any) -> dict[str, tuple[str, str]]:
+    """GetAttachment 的结果：{附件 id: (类型, base64 内容)}。"""
+    out: dict[str, tuple[str, str]] = {}
+    stack = [data]
+    while stack:
+        node = stack.pop()
+        if isinstance(node, dict):
+            aid, content = _attachment_id(node), _get(node, "Content")
+            if aid and isinstance(content, str):
+                out[aid] = (str(_get(node, "ContentType") or ""), content)
+                continue
+            stack.extend(node.values())
+        elif isinstance(node, list):
+            stack.extend(node)
+    return out
 
 
 # --- 浏览器 ------------------------------------------------------------------
@@ -409,6 +488,8 @@ class MailSession(Protocol):
     def items(self, limit: int) -> list[MailItem]: ...
 
     def bodies(self, ids: list[str]) -> dict[str, str]: ...
+
+    def html(self, ids: list[str]) -> dict[str, tuple[str, dict[str, str]]]: ...
 
 
 class MailSource(Protocol):
@@ -484,6 +565,47 @@ class _OwaSession:
         for start in range(0, len(ids), BODY_BATCH):
             chunk = ids[start : start + BODY_BATCH]
             out.update(extract_bodies(self._call("GetItem", get_items_request(chunk))))
+        return out
+
+    def html(self, ids: list[str]) -> dict[str, tuple[str, dict[str, str]]]:
+        """图文版正文：{邮件 id: (HTML, {cid: data: 图片})}。自带图片取不到就只缺图。"""
+        out: dict[str, tuple[str, dict[str, str]]] = {}
+        for start in range(0, len(ids), BODY_BATCH):
+            chunk = ids[start : start + BODY_BATCH]
+            got = extract_html(self._call("GetItem", get_items_request(chunk, html=True)))
+            for item_id, (html, images) in got.items():
+                out[item_id] = (html, self._inline(images))
+        return out
+
+    def _inline(self, images: list[dict[str, Any]]) -> dict[str, str]:
+        wanted, total = [], 0
+        for img in images:
+            if img["size"] > INLINE_IMAGE_MAX or total + img["size"] > INLINE_TOTAL_MAX:
+                continue
+            total += img["size"]
+            wanted.append(img)
+        if not wanted:
+            return {}
+        try:
+            got = extract_attachments(
+                self._call("GetAttachment", get_attachments_request([i["id"] for i in wanted]))
+            )
+        except SessionExpired:
+            raise
+        except Exception:  # noqa: BLE001 - 图片取不到不影响正文
+            return {}
+        out: dict[str, str] = {}
+        total = 0
+        for img in wanted:
+            kind, content = got.get(img["id"], ("", ""))
+            kind = (kind or img["type"]).lower()
+            size = len(content) * 3 // 4
+            if not content or not _B64.match(content) or size > INLINE_IMAGE_MAX:
+                continue
+            if not kind.startswith("image/") or "svg" in kind or total + size > INLINE_TOTAL_MAX:
+                continue
+            total += size
+            out[img["cid"]] = f"data:{kind};base64,{''.join(content.split())}"
         return out
 
 

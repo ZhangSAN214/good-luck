@@ -112,6 +112,11 @@ export const mailMessage = (id) => api(`/api/mail/messages/${encodeURIComponent(
 export const mailReminder = (id, action) => api(`/api/mail/reminders/${id}`, { method: 'POST', body: { action } });
 export const mailLogout = () => api('/api/mail/logout', { method: 'POST' });
 export const mailClear = () => api('/api/mail/cache', { method: 'DELETE' });
+// 邮件 id 里有斜杠，放在请求体里
+export const mailMark = (id, mark) => api('/api/mail/mark', { method: 'POST', body: { id, mark } });
+export const mailCategory = (id, category) => api('/api/mail/category', { method: 'POST', body: { id, category } });
+export const mailImages = (id) => api('/api/mail/images', { method: 'POST', body: { id } });
+export const mailAI = (kind, id = null, again = false) => api(`/api/mail/ai/${kind}`, { method: 'POST', body: { id, again } });
 export const refreshCandidates = () => api('/api/models/candidates/refresh', { method: 'POST' });
 export const getPayslip = (id) => api(`/api/sessions/${id}/payslip`);
 export const getSession = (id) => api(`/api/sessions/${id}`);

@@ -577,4 +577,19 @@ CREATE TABLE mail_audit (
 );
 """,
     ),
+    (
+        22,
+        "邮件栏标记、分类、总结、翻译、图片",
+        """
+-- 终端邮件栏 v2（docs/MAIL.md）：都只存本机，不写回邮箱。
+-- mark：你标的 important（重要）/ normal（不重要），为空时按规则判断；
+-- category：你改的分类，为空时按规则自动分；summary / translation：点了 AI 才有；
+-- html：点「显示图片」后取回、清理过的原样排版（内嵌图片已换成 data: 地址）。
+ALTER TABLE mail_messages ADD COLUMN mark TEXT;
+ALTER TABLE mail_messages ADD COLUMN category TEXT;
+ALTER TABLE mail_messages ADD COLUMN summary TEXT;
+ALTER TABLE mail_messages ADD COLUMN translation TEXT;
+ALTER TABLE mail_messages ADD COLUMN html TEXT;
+""",
+    ),
 ]

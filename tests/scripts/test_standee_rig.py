@@ -123,3 +123,14 @@ def test_main_reports_output(tmp_path, capsys):
     mod = load()
     assert mod.main([str(make(tmp_path))]) == 0
     assert "rig.json" in capsys.readouterr().out
+
+
+def test_hand_follows_head_as_one_piece(tmp_path):
+    mod = load()
+    cfg_path = make(tmp_path)
+    cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
+    cfg["regions"]["hand"] = {"poly": [[80, 85], [120, 85], [120, 115], [80, 115]], "follow": 0.5}
+    cfg_path.write_text(json.dumps(cfg), encoding="utf-8")
+    w1 = np.asarray(Image.open(mod.build(cfg_path) / "w1.png")).astype(int)
+    # 手的上下两端跟头的比例一样（整只手一起动，不被拉扯）
+    assert abs(w1[88, 100, 0] - 128) < 4 and abs(w1[112, 100, 0] - 128) < 4

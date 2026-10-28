@@ -59,3 +59,58 @@ def get_response(bodies: dict[str, str], kind: str = "Text") -> dict:
             }
         }
     }
+
+
+def html_response(item_id: str, html: str, attachments: list[dict] | None = None) -> dict:
+    return {
+        "Body": {
+            "ResponseMessages": {
+                "Items": [
+                    {
+                        "Items": [
+                            {
+                                "__type": "Message:#Exchange",
+                                "ItemId": {"Id": item_id},
+                                "Body": {"BodyType": "HTML", "Value": html},
+                                "Attachments": attachments or [],
+                            }
+                        ]
+                    }
+                ]
+            }
+        }
+    }
+
+
+def inline_attachment(aid: str, cid: str, kind: str = "image/png", size: int = 10) -> dict:
+    return {
+        "__type": "FileAttachment:#Exchange",
+        "AttachmentId": {"__type": "AttachmentId:#Exchange", "Id": aid},
+        "Name": "image001.png",
+        "ContentType": kind,
+        "ContentId": f"<{cid}>",
+        "IsInline": True,
+        "Size": size,
+    }
+
+
+def attachments_response(contents: dict[str, str], kind: str = "image/png") -> dict:
+    return {
+        "Body": {
+            "ResponseMessages": {
+                "Items": [
+                    {
+                        "Attachments": [
+                            {
+                                "__type": "FileAttachment:#Exchange",
+                                "AttachmentId": {"Id": aid},
+                                "ContentType": kind,
+                                "Content": content,
+                            }
+                            for aid, content in contents.items()
+                        ]
+                    }
+                ]
+            }
+        }
+    }

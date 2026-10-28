@@ -1076,6 +1076,14 @@ class Repository:
             return row["id"]
         return self.create_session(question, seed=0, anonymous=False, workflow="evolution_scout")
 
+    def mail_session(self) -> str:
+        """邮件栏 AI 总结 / 翻译的隐藏会话（workflow = 'mail'）：调用挂在这里，计入总预算和
+        邮件栏的每月上限；不出现在会话列表里。发给模型的邮件内容只存在 calls 表里（本机）。"""
+        row = self._exec("SELECT id FROM sessions WHERE workflow = 'mail' LIMIT 1").fetchone()
+        if row:
+            return row["id"]
+        return self.create_session("邮件栏：总结与翻译", seed=0, anonymous=False, workflow="mail")
+
     def add_chat_message(
         self,
         room: str,
@@ -1520,6 +1528,14 @@ class Repository:
             (workflow, iso(start), iso(end)),
         ).fetchone()[0]
 
+    def calls_in_workflow(self, workflow: str, start: datetime, end: datetime) -> int:
+        """[start, end) 内挂在某类隐藏会话上的调用次数。"""
+        return self._exec(
+            "SELECT COUNT(*) FROM calls c JOIN sessions s ON s.id = c.session_id"
+            " WHERE s.workflow = ? AND c.created_at >= ? AND c.created_at < ?",
+            (workflow, iso(start), iso(end)),
+        ).fetchone()[0]
+
     def chat_messages(
         self, room: str, *, after: int = 0, limit: int = 200, query: str | None = None
     ) -> list[dict[str, Any]]:
@@ -1606,7 +1622,9 @@ class Repository:
         """since 之后收到的，新的在前（不含正文）。"""
         rows = self._exec(
             "SELECT id, received_at, sender_name, sender_addr, subject, preview, is_read,"
-            " flagged, high, attachments, body IS NOT NULL AS has_body FROM mail_messages"
+            " flagged, high, attachments, mark, category, body IS NOT NULL AS has_body,"
+            " summary IS NOT NULL AS has_summary, translation IS NOT NULL AS has_translation,"
+            " html IS NOT NULL AS has_html FROM mail_messages"
             " WHERE received_at >= ? ORDER BY received_at DESC, id LIMIT ?",
             (since, limit),
         ).fetchall()
@@ -1623,6 +1641,19 @@ class Repository:
                     "UPDATE mail_messages SET body = ? WHERE id = ?", (body, message_id)
                 )
 
+    MAIL_FIELDS = frozenset({"mark", "category", "summary", "translation", "html"})
+
+    def set_mail_fields(self, message_id: str, **fields: str | None) -> bool:
+        """改一封邮件的本机字段（标记、分类、总结、翻译、图片版正文）；不写回邮箱。"""
+        bad = set(fields) - self.MAIL_FIELDS
+        if bad or not fields:
+            raise ValueError(f"不能改这些字段：{sorted(bad)}")
+        cols = ", ".join(f"{k} = ?" for k in fields)
+        cur = self._exec(
+            f"UPDATE mail_messages SET {cols} WHERE id = ?", (*fields.values(), message_id)
+        )
+        return cur.rowcount > 0
+
     def mail_without_body(self, ids: Sequence[str]) -> list[str]:
         if not ids:
             return []
@@ -1637,8 +1668,14 @@ class Repository:
         return self._exec("DELETE FROM mail_messages WHERE received_at < ?", (before,)).rowcount
 
     def clear_mail(self) -> int:
-        """清空邮件缓存与提醒（审计记录保留，便于查看做过什么）。"""
+        """清空邮件缓存与提醒（审计记录保留，便于查看做过什么）。
+
+        AI 总结 / 翻译的调用记录只留花费（计预算用），发出去的邮件内容和回来的文字一并抹掉。"""
         with self._tx():
+            self.conn.execute(
+                "UPDATE calls SET input = '[]', output = NULL WHERE session_id IN"
+                " (SELECT id FROM sessions WHERE workflow = 'mail')"
+            )
             self.conn.execute("DELETE FROM mail_reminders")
             return self.conn.execute("DELETE FROM mail_messages").rowcount
 
@@ -1833,7 +1870,7 @@ class Repository:
             " r.difficulty, r.plan,"
             " (SELECT COALESCE(SUM(cost_usd), 0) FROM calls c WHERE c.session_id = s.id) AS cost"
             " FROM sessions s LEFT JOIN routing_records r ON r.session_id = s.id"
-            " WHERE s.workflow NOT IN ('chat', 'evolution_scout')"
+            " WHERE s.workflow NOT IN ('chat', 'evolution_scout', 'mail')"
             " ORDER BY s.created_at DESC LIMIT ?",
             (limit,),
         ).fetchall()
@@ -2002,7 +2039,16 @@ def _life_row(row: sqlite3.Row) -> dict[str, Any]:
 
 def _mail_row(row: sqlite3.Row) -> dict[str, Any]:
     out = dict(row)
-    for key in ("is_read", "flagged", "high", "attachments", "has_body"):
+    for key in (
+        "is_read",
+        "flagged",
+        "high",
+        "attachments",
+        "has_body",
+        "has_summary",
+        "has_translation",
+        "has_html",
+    ):
         if key in out:
             out[key] = bool(out[key])
     return out

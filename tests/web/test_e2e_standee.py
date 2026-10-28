@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import io
 import json
 
 import pytest
@@ -160,13 +161,25 @@ def test_standee_with_rig_renders_mesh_or_falls_back(serve, page, tmp_path):
     gl = page.evaluate("() => !!document.createElement('canvas').getContext('webgl2')")
     assert mode == ("mesh" if gl else "strips")
     page.wait_for_timeout(500)
-    alpha = page.evaluate(
-        """() => { const c = document.querySelector('#hub .sd-cv'); const x = c.getContext('2d');
-        return [x.getImageData(2, 2, 1, 1).data[3],
-                x.getImageData(c.width / 2, c.height * 0.6, 1, 1).data[3]]; }"""
-    )
-    assert alpha[0] == 0 and alpha[1] > 200
     box = page.locator("#hub .sd-cv").bounding_box()
+    if mode == "mesh":
+        # 网格形变直接画在显卡画布上（叠在原画布上、不接鼠标）：截图看身体的颜色画出来了
+        assert page.locator("#hub .sd-gl").count() == 1
+        assert (
+            page.evaluate("getComputedStyle(document.querySelector('#hub .sd-gl')).pointerEvents")
+            == "none"
+        )
+        shot = PIL.open(io.BytesIO(page.screenshot(clip={**box, "height": box["height"]})))
+        r, g, b = shot.convert("RGB").getpixel((int(box["width"] / 2), int(box["height"] * 0.6)))
+        assert abs(r - 240) < 20 and abs(g - 225) < 20 and abs(b - 215) < 20
+    else:
+        alpha = page.evaluate(
+            """() => { const c = document.querySelector('#hub .sd-cv');
+            const x = c.getContext('2d');
+            return [x.getImageData(2, 2, 1, 1).data[3],
+                    x.getImageData(c.width / 2, c.height * 0.6, 1, 1).data[3]]; }"""
+        )
+        assert alpha[0] == 0 and alpha[1] > 200
     page.mouse.click(box["x"] + box["width"] * 0.5, box["y"] + box["height"] * 0.6)
     page.wait_for_function("document.querySelector('#hub .sd-text').textContent === '点到我了。'")
     page.click("#hub [data-act='standee']")

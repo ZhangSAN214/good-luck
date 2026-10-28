@@ -1033,6 +1033,16 @@ function seatPositions(n) {
 }
 
 const COORD_POS = [50, 8];
+// 桌沿的刻度圈（玻璃外观用）：22 格对应 22 张大阿卡纳，四个正方位稍长
+const BEZEL = (() => {
+  let d = '';
+  for (let k = 0; k < 44; k++) {
+    const a = (k / 44) * Math.PI * 2;
+    const r2 = k % 11 === 0 ? 41.5 : k % 2 ? 45 : 43.5;
+    d += `M${(50 + 47 * Math.cos(a)).toFixed(2)} ${(50 + 47 * Math.sin(a)).toFixed(2)}L${(50 + r2 * Math.cos(a)).toFixed(2)} ${(50 + r2 * Math.sin(a)).toFixed(2)}`;
+  }
+  return `<svg class="bezel" viewBox="0 0 100 100" aria-hidden="true"><circle cx="50" cy="50" r="48.6"/><circle cx="50" cy="50" r="39"/><circle class="faint" cx="50" cy="50" r="30"/><path d="${d}"/></svg>`;
+})();
 const ME_POS = [50, 92];
 
 export function stageHTML(sv, live, prefix) {
@@ -1058,7 +1068,7 @@ export function stageHTML(sv, live, prefix) {
     ph = live.step ? STEP_LABELS[live.step] || live.step : STATUS_LABELS[sv.status] || sv.status;
     act = live.act || (table ? `${table.plan_label} · ${codes.length} 位${sv.workflow === 'office' ? '员工' : '组员'}` : '');
   }
-  let h = '<div class="table"></div>';
+  let h = `<div class="table">${BEZEL}</div>`;
   h += `<div class="plate"><div><div class="ph" id="plate-step">${esc(ph)}</div><div class="act">${esc(act)}</div></div></div>`;
 
   let sv2 = '<svg class="flows" viewBox="0 0 100 100" aria-hidden="true"><defs><marker id="ah" viewBox="0 0 6 6" refX="5" refY="3" markerWidth="4" markerHeight="4" orient="auto"><path d="M0 0L6 3L0 6z" fill="var(--brass)"/></marker></defs>';
@@ -1115,9 +1125,11 @@ export function legendHTML({ anonymous = false, workflow = 'discussion' } = {}) 
   const codes = anonymous
     ? '每题随机分配；已开启匿名，界面只显示代号，结束后可揭晓身份'
     : '每题随机分配，模型之间只用代号称呼；未开启匿名，界面在代号旁显示真实模型';
-  return `<div class="row"><svg width="22" height="8"><line x1="1" y1="4" x2="21" y2="4" stroke="var(--brass)" stroke-width="2" stroke-dasharray="3 3"/></svg><span><b>金色虚线</b> ${line}</span></div>
-<div class="row"><span style="width:22px;display:inline-grid;place-items:center"><span style="width:12px;height:12px;border-radius:30%;background:var(--c-coord);display:inline-block"></span></span><span><b>方形头像</b> ${coord}</span></div>
-<div class="row"><span style="width:22px;text-align:center">甲</span><span><b>代号</b> ${codes}</span></div>`;
+  const row = (icon, term, text) => `<div class="row"><span class="ic">${icon}</span><span class="tx"><b>${term}</b><span>${text}</span></span></div>`;
+  const dash = '<svg viewBox="0 0 24 24" aria-hidden="true"><path class="ln" d="M2 12h20" stroke-dasharray="3 3"/></svg>';
+  const square = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="3.6"/></svg>';
+  const cardIc = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="3.5" width="10" height="17" rx="1.6"/><path d="M12 8.6l1 2.2 2.3.2-1.8 1.5.6 2.3-2.1-1.3-2.1 1.3.6-2.3-1.8-1.5 2.3-.2z"/></svg>';
+  return row(dash, '虚线', line) + row(square, '方形头像', coord) + row(cardIc, '代号', codes);
 }
 
 // --- 右侧面板 -----------------------------------------------------------------------

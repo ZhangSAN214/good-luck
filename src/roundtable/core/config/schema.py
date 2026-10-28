@@ -942,6 +942,25 @@ class EvolutionRules(_Strict):
         return self
 
 
+class MailAIRules(_Strict):
+    """终端邮件栏的 AI 总结 / 翻译（docs/MAIL.md）：只在用户点了按钮、
+    并同意把这封邮件发给模型后才调用；所选档位里按预计价格挑最便宜的一位；
+    花费计入总预算和这里的每月上限，每天次数也有上限。"""
+
+    plan: str = "budget"
+    monthly_usd: float = Field(default=0.30, ge=0)
+    daily_calls: int = Field(default=20, ge=0, le=500)
+    max_chars: int = Field(default=6000, ge=500, le=40000)  # 每封邮件最多发多少字
+    max_tokens: int = Field(default=900, ge=100, le=8000)
+    estimate_usd: float = Field(default=0.005, ge=0)  # 每次调用预估
+    digest_mails: int = Field(default=10, ge=1, le=30)  # 「总结重要邮件」最多带几封
+    language: str = Field(default="简体中文", min_length=1, max_length=20)  # 翻译成什么语言
+
+
+class MailConfig(_Strict):
+    ai: MailAIRules = MailAIRules()
+
+
 class DisplayConfig(_Strict):
     rice: RiceRules = RiceRules()
 
@@ -1013,6 +1032,7 @@ class RoundtableConfig(_Strict):
     office: OfficeRules = OfficeRules()
     chat: ChatRules = ChatRules()
     evolution: EvolutionRules = EvolutionRules()
+    mail: MailConfig = MailConfig()
 
     @field_validator("prompts")
     @classmethod

@@ -38,11 +38,15 @@ class FakeSession:
         self.src.body_calls.append(list(ids))
         return {i: self.src.bodies[i] for i in ids if i in self.src.bodies}
 
+    def html(self, ids: list[str]) -> dict[str, tuple[str, dict[str, str]]]:
+        return {i: self.src.html[i] for i in ids if i in self.src.html}
+
 
 class FakeSource:
     def __init__(self) -> None:
         self.items: list[MailItem] = []
         self.bodies: dict[str, str] = {}
+        self.html: dict[str, tuple[str, dict[str, str]]] = {}
         self.fail: Exception | None = None
         self.opened: list[bool] = []
         self.body_calls: list[list[str]] = []
@@ -238,3 +242,92 @@ def test_disabled_box_hides_everything(env):
     box.login()
     box.set_settings(enabled=False)
     assert box.view()["messages"] == [] and box.message("m1") is None
+
+
+def test_marks_and_categories_are_local_and_reversible(env):
+    box, src, _, _ = env
+    box.set_settings(enabled=True)
+    src.items = [
+        item(1, subject="Exam timetable"),
+        item(2, addr="mate@student.manchester.ac.uk", subject="Lunch?"),
+    ]
+    box.login()
+    view = box.view()
+    assert [m["category"] for m in view["messages"]] == ["exam", "personal"]
+    counts = {c["key"]: c["count"] for c in view["categories"]}
+    assert counts["exam"] == 1 and counts["personal"] == 1 and counts["other"] == 0
+    assert box.set_mark("m2", "important") and box.set_category("m1", "event")
+    view = box.view()
+    m1, m2 = view["messages"]
+    assert m2["important"] and m2["reasons"] == ["你标为重要"]
+    assert (m1["category"], m1["category_set"]) == ("event", True)
+    assert box.set_mark("m1", "normal")
+    assert not box.view()["messages"][0]["important"]
+    # 刷新后手动标记和分类仍在
+    src.items = [item(1, subject="Exam timetable", is_read=True)]
+    box.refresh(manual=False) or box._fetch(interactive=False)
+    assert box.message("m1")["mark"] == "normal" and box.message("m1")["category"] == "event"
+    assert box.set_mark("m1", None) and box.set_category("m1", None)
+    assert box.message("m1")["category"] == "exam" and box.message("m1")["important"]
+    with pytest.raises(ValueError):
+        box.set_mark("m1", "urgent")
+    with pytest.raises(ValueError):
+        box.set_category("m1", "nope")
+    assert box.set_mark("nope", "important") is False
+
+
+def test_local_digest_counts_today_important_and_due(env):
+    box, src, clock, _ = env
+    box.set_settings(enabled=True)
+    src.items = [
+        item(1, days_ago=0.1, subject="Coursework deadline"),
+        item(2, days_ago=2, subject="Exam", is_read=True),
+        item(3, days_ago=0.2, addr="mate@gmail.example", subject="Hi"),
+    ]
+    src.bodies = {"m1": "Submit by 2026-11-05 12:00."}
+    box.login()
+    digest = box.view()["digest"]
+    assert digest["today"] == 2 and digest["important_unread"] == 1
+    assert [t["id"] for t in digest["top"]] == ["m1"]
+    assert digest["due"] == [
+        {"due": "2026-11-05T12:00", "snippet": digest["due"][0]["snippet"], "message_id": "m1"}
+    ]
+
+
+def test_load_images_stores_cleaned_html(env):
+    box, src, _, repo = env
+    box.set_settings(enabled=True)
+    src.items = [item(1)]
+    box.login()
+    src.html = {
+        "m1": (
+            '<p onclick="x()">Hi</p><script>bad()</script><img src="cid:a@b">'
+            '<img src="https://t.example/p.gif">',
+            {"a@b": "data:image/png;base64,AAAA"},
+        )
+    }
+    box.load_images("m1")
+    got = box.message("m1")["html"]
+    assert got["embedded"] == 1 and got["remote"] == 1
+    assert "script" not in got["html"] and "onclick" not in got["html"]
+    assert 'src="data:image/png;base64,AAAA"' in got["html"]
+    assert any(a["action"] == "images" and a["ok"] for a in repo.mail_audit())
+    assert box.view()["messages"][0]["has_html"]
+    with pytest.raises(ValueError, match="没有这封"):
+        box.load_images("nope")
+
+
+def test_load_images_failures_and_preconditions(env):
+    box, src, _, repo = env
+    box.set_settings(enabled=True)
+    src.items = [item(1)]
+    with pytest.raises(ValueError):
+        box.load_images("m1")  # 还没登录、也没这封
+    box.login()
+    box.load_images("m1")  # 邮箱没给图文版
+    assert "图文版没取到" in box.view()["message"] and box.message("m1")["html"] is None
+    src.fail = SessionExpired("登录状态过期了")
+    box.load_images("m1")
+    assert box.view()["status"] == "expired"
+    with pytest.raises(ValueError, match="还没登录"):
+        box.load_images("m1")
