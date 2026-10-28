@@ -1,0 +1,39 @@
+name: Android
+
+# 打包圆桌安卓外壳 APK（mobile/，见 mobile/README.md）。不上架应用商店：在「Actions → 这次运行 → Artifacts」下载后侧载。
+# 签名用仓库里的 mobile/debug.keystore（固定的调试签名，口令是公开的 android），这样新版能直接覆盖安装旧版。
+on:
+  pull_request:
+    paths:
+      - "mobile/**"
+      - ".github/workflows/android.yml"
+  workflow_dispatch:
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - run: npm ci
+      - name: Fixed debug signing key
+        run: mkdir -p ~/.android && cp debug.keystore ~/.android/debug.keystore
+      - run: node scripts/build-android.mjs
+      - run: cp android/app/build/outputs/apk/debug/app-debug.apk roundtable-android.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: roundtable-android
+          path: mobile/roundtable-android.apk
+          retention-days: 30

@@ -214,6 +214,8 @@ README.md      安装、.env、加模型 / 步骤 / 提示词版本、上传、�
 .github/workflows/ci.yml   ruff + pytest（含 Playwright 端到端）
 .github/workflows/desktop.yml   桌面版在 Windows / macOS 上冒烟（只在桌面版相关文件变动的 PR 上跑）
 install_desktop.bat / install_desktop.command   安装并生成桌面版图标（docs/DESKTOP.md）
+.github/workflows/android.yml   打包安卓外壳 APK（只在改了 mobile/ 的 PR 上跑）
+mobile/        安卓外壳（Capacitor）：www/ 连接页（记住电脑地址、依次试家里 / 离家地址）、build-android.mjs；android/ 不进 git（docs/MOBILE.md）
 config/        models.yaml  roundtable.yaml  personas.yaml  routing.yaml  plugin_board.yaml（插件榜数据，不属于运行配置）  changelog.yaml（公告栏的版本更新说明，每合并一个 PR 在最上面追加一条）
 prompts/       planner/ answer/ answer_quick/ review/ revise/ synthesize/ redo/
                attachments/ describe_image/ transcribe/ tools/（v4） image_gen/ web_search/ web_fetch/
