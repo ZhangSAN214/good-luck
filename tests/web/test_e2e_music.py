@@ -58,7 +58,11 @@ def _view(page, v: str) -> None:
 def test_music_playlist_is_chosen_by_hand_and_remembered_locally(serve, page):
     srv = serve(confirm_threshold_usd=100.0)
     posts: list[str] = []
-    page.on("request", lambda r: r.method != "GET" and posts.append(r.url))
+    # 时钟第一次打开会把主时区报给服务器（/api/home-tz），与音乐卡片无关
+    page.on(
+        "request",
+        lambda r: r.method != "GET" and "/api/home-tz" not in r.url and posts.append(r.url),
+    )
     page.add_init_script(LAND_HUB)
     page.goto(srv.url)
     page.wait_for_selector("#hub .mu-btn")
@@ -224,7 +228,11 @@ def test_music_card_colors_text_and_cover_are_customizable(serve, page, tmp_path
         setup=lambda env: setattr(env.rt, "standee_file", tmp_path / "standee.json"),
     )
     posts: list[str] = []
-    page.on("request", lambda r: r.method != "GET" and posts.append(r.url))
+    # 时钟第一次打开会把主时区报给服务器（/api/home-tz），与音乐卡片无关
+    page.on(
+        "request",
+        lambda r: r.method != "GET" and "/api/home-tz" not in r.url and posts.append(r.url),
+    )
     page.add_init_script(LAND_HUB)
     page.goto(srv.url)
     page.wait_for_selector("#hub .mu-btn")

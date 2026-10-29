@@ -24,6 +24,8 @@ dependencies = [
     "psutil>=5.9",
     # 局域网访问：在电脑上显示给平板扫的二维码（纯 Python，无其他依赖）
     "segno>=1.5",
+    # 主时区（zoneinfo）：Windows 自带没有时区数据库
+    "tzdata>=2024.1; sys_platform == 'win32'",
 ]
 
 [project.scripts]
