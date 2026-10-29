@@ -612,6 +612,10 @@ def create_app(service: RoundtableService | None = None, lan: LanAccess | None =
     async def moments_delete_comment(request: Request, comment_id: int) -> dict[str, Any]:
         return svc(request).moments_delete_comment(comment_id)
 
+    @app.get("/api/life/reports")
+    async def life_reports(request: Request) -> dict[str, Any]:
+        return svc(request).life_reports()
+
     @app.get("/api/chat/feeds")
     async def chat_feeds(request: Request) -> dict[str, Any]:
         return svc(request).chat_feeds()

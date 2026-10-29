@@ -31,6 +31,21 @@ def life_env(**life) -> Env:
     )
 
 
+def chatty(env: Env) -> Env:
+    """生活聊天每句都不一样（默认的假模型回显提示词，句句很像，会被「收得住」收尾）。"""
+    count = iter(range(10**6))
+    default = env.fake._default
+
+    def reply(model, messages):
+        if "现在你正和" not in messages[0].content:
+            return default(model, messages)
+        i = next(count)
+        return "".join(chr(0x4E00 + (i * 389 + k * 53) % 20000) for k in range(12))
+
+    env.fake._default = reply
+    return env
+
+
 def life_calls(env: Env) -> list:
     return [c for c in env.fake.calls if "现在你正和" in c.messages[0].content]
 
@@ -80,7 +95,7 @@ async def test_first_tick_does_not_backfill_and_records_last_tick():
 
 
 async def test_catch_up_after_being_away_marks_offline_and_caps_written():
-    env = Env()
+    env = chatty(Env())
     life = engine(env)
     env.rt.repo.set_setting(LAST_TICK_KEY, (NOW - timedelta(hours=10)).isoformat())
     out = await life.tick(NOW)
@@ -138,12 +153,13 @@ async def test_disabled_does_nothing():
         "memories": 0,
         "shares": 0,
         "moments": 0,
+        "reports": 0,
     }
     assert env.rt.repo.setting(LAST_TICK_KEY) is None
 
 
 async def test_pair_room_is_view_only_for_user():
-    env = Env()
+    env = chatty(Env())
     life = engine(env)
     room = pair_room("V2", "V1")
     assert room == "pair:V1+V2"

@@ -714,6 +714,20 @@ class MemoryRules(_Strict):
     daily_quota: int = Field(default=8, ge=1, le=30)  # 半衰期记忆每人每天最多记几件事
 
 
+class LifeGuardRules(_Strict):
+    """收得住（docs/CHAT.md G9）：互聊收尾、每日条数上限、熔断与每周自检。由代码判断，不花钱。"""
+
+    enabled: bool = True
+    daily_messages: int = Field(default=40, ge=0, le=500)  # 成员之间每天最多几句（含分享，UTC 日）
+    max_chars: int = Field(default=200, ge=20, le=2000)  # 互聊每句最多保留多少字
+    stale_similarity: float = Field(default=0.5, gt=0, le=1)  # 和前面的话太像（二元组相似度）就收尾
+    recent_messages: int = Field(default=20, ge=0, le=200)  # 比对最近多少句互聊
+    max_failures: int = Field(default=3, ge=1, le=20)  # 连续几次调用出错，当天停掉生活
+    budget_alarm: float = Field(default=0.9, gt=0, le=1)  # 生活日上限或聊天月预算用到此比例就当天停
+    report_weekday: int = Field(default=1, ge=1, le=7)  # 每周几（ISO，1 = 周一）写上一周的自检
+    report_examples: int = Field(default=3, ge=0, le=10)  # 自检报告里最多举几个重复的例子
+
+
 class LifeRules(_Strict):
     """生活引擎（docs/CHAT.md G4）：成员在用户不在时按作息过日子、彼此聊天。"""
 
@@ -727,6 +741,7 @@ class LifeRules(_Strict):
     pair_chance: float = Field(default=0.15, ge=0, le=1)  # 每小时有人私下聊天的概率
     estimate_usd: float = Field(default=0.002, ge=0)  # 每句的预估花费（预算检查用）
     max_tokens: int = Field(default=800, ge=64)
+    guard: LifeGuardRules = LifeGuardRules()
 
 
 class FeedSpec(_Strict):
