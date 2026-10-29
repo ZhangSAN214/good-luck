@@ -2,6 +2,7 @@
 // 人设和记忆只用于私聊、群聊、朋友圈，工作模式与办公室不读取；记忆只存在你电脑上，可以改、删、清空。
 
 import { AboutPanel } from './about.js';
+import { GrowthPanel } from './growth.js';
 import { ProfilePanel } from './profile.js';
 
 const esc = (s) =>
@@ -56,6 +57,9 @@ export class People {
               }
             : null,
         })
+      : null;
+    this.growth = api?.growth
+      ? new GrowthPanel({ now, api: { get: api.growth, run: api.growthRun, revert: api.growthRevert, clear: api.growthClear } })
       : null;
     this.dlg.addEventListener('click', (e) => this.onClick(e));
     this.dlg.addEventListener('submit', (e) => this.onSubmit(e));
@@ -234,7 +238,8 @@ export class People {
           <ul class="pp-list grp-box">${mems}</ul>
           ${this.mindHtml()}
           <div class="grp-box grp-acts"><button type="button" class="grp-btn" data-tidy>现在整理</button><button type="button" class="grp-btn danger" id="pp-clear-one" data-clear="one">清空 TA 的记忆</button><button type="button" class="grp-btn danger" id="pp-clear-all" data-clear="all">清空全部成员的记忆</button></div>
-        </section>`
+        </section>
+        ${this.growth ? '<section class="pp-grow grp" id="pp-grow" aria-label="成长"></section>' : ''}`
             : '<p class="hint">没有成员。</p>'
         }
         <p class="hint pp-msg" role="status">${esc(this.msg)}</p>
@@ -243,6 +248,8 @@ export class People {
     if (prof && m) this.profile.mount(prof, m.id);
     const about = this.dlg.querySelector('#pp-about');
     if (about) this.about.mount(about);
+    const grow = this.dlg.querySelector('#pp-grow');
+    if (grow && m) this.growth.mount(grow, m.id);
   }
 
   async listen() {
@@ -294,7 +301,7 @@ export class People {
 
   async onClick(e) {
     const t = e.target;
-    if (t.closest('#pp-prof') || t.closest('#pp-about')) return; // 自我档案、关于你自己处理
+    if (t.closest('#pp-prof') || t.closest('#pp-about') || t.closest('#pp-grow')) return; // 自我档案、关于你、成长自己处理
     if (t.closest('[data-close]')) return this.close();
     const who = t.closest('[data-member]');
     if (who) {

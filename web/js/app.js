@@ -155,6 +155,10 @@ const people = new People($('#people'), {
       clear: API.aboutClear,
       exportUrl: API.aboutExportUrl,
     },
+    growth: API.memberGrowth,
+    growthRun: API.runMemberGrowth,
+    growthRevert: API.revertMemberGrowth,
+    growthClear: API.clearMemberGrowth,
   },
 });
 const feeds = new Feeds($('#feeds'), { api: { get: API.chatFeeds, set: API.setChatFeeds, refresh: API.refreshChatFeeds } });

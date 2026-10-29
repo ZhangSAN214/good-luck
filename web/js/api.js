@@ -124,6 +124,10 @@ export const memberProfile = (id) => api(`/api/chat/profiles/${encodeURIComponen
 export const changeMemberProfile = (id, patch, reason = '') => api(`/api/chat/profiles/${encodeURIComponent(id)}`, { method: 'PATCH', body: { patch, reason } });
 export const lockMemberProfile = (id, path, locked = true) => api(`/api/chat/profiles/${encodeURIComponent(id)}/lock`, { method: 'POST', body: { path, locked } });
 export const revertMemberProfile = (id, version) => api(`/api/chat/profiles/${encodeURIComponent(id)}/revert`, { method: 'POST', body: { version } });
+export const memberGrowth = (id) => api(`/api/chat/growth/${encodeURIComponent(id)}`);
+export const runMemberGrowth = (id) => api(`/api/chat/growth/${encodeURIComponent(id)}/run`, { method: 'POST' });
+export const revertMemberGrowth = (id, entry) => api(`/api/chat/growth/${encodeURIComponent(id)}/revert`, { method: 'POST', body: { id: entry } });
+export const clearMemberGrowth = (id) => api(`/api/chat/growth/${encodeURIComponent(id)}`, { method: 'DELETE' });
 export const clearMemberProfile = (id) => api(`/api/chat/profiles/${encodeURIComponent(id)}`, { method: 'DELETE' });
 export const importMemberCards = (text, mapping = null, dry_run = false) => api('/api/chat/profiles/import', { method: 'POST', body: { text, mapping, dry_run } });
 export const chatMemories = (id) => api(`/api/chat/memories${id ? `?member=${encodeURIComponent(id)}` : ''}`);

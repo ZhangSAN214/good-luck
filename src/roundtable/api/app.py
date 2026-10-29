@@ -247,6 +247,12 @@ class ProfileRevertBody(BaseModel):
     version: int = Field(ge=1)
 
 
+class GrowthRevertBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: int = Field(ge=1)
+
+
 class FeedsBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -1040,6 +1046,25 @@ def create_app(service: RoundtableService | None = None, lan: LanAccess | None =
     @app.delete("/api/chat/profiles/{member}")
     async def member_profile_clear(request: Request, member: str) -> dict[str, Any]:
         return svc(request).member_profile_clear(member)
+
+    # 成员成长（P6）：时间线、马上反思上一周、撤回一条、清空时间线
+    @app.get("/api/chat/growth/{member}")
+    async def member_growth(request: Request, member: str) -> dict[str, Any]:
+        return svc(request).member_growth(member)
+
+    @app.post("/api/chat/growth/{member}/run")
+    async def member_growth_run(request: Request, member: str) -> dict[str, Any]:
+        return await svc(request).member_growth_run(member)
+
+    @app.post("/api/chat/growth/{member}/revert")
+    async def member_growth_revert(
+        request: Request, member: str, body: GrowthRevertBody
+    ) -> dict[str, Any]:
+        return svc(request).member_growth_revert(member, body.id)
+
+    @app.delete("/api/chat/growth/{member}")
+    async def member_growth_clear(request: Request, member: str) -> dict[str, Any]:
+        return svc(request).member_growth_clear(member)
 
     @app.get("/api/chat/engine/state")
     async def member_states(request: Request) -> dict[str, Any]:

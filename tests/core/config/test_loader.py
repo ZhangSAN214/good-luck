@@ -134,6 +134,8 @@ def test_repo_config_loads_with_defaults():
         "perceive_fast",
         "perceive_fine",
         "member_eval",
+        "growth_reflect",
+        "growth_review",
         "plain_talk",
         "plain_rewrite",
         "voice_rewrite",
