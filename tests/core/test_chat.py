@@ -279,3 +279,28 @@ def _month(env):
     from roundtable.core.budget.guard import month_window
 
     return month_window(env.rt.budget.now())
+
+
+async def test_work_group_never_carries_the_pocket_card():
+    """工作群不带人物卡和人设（2026-10-29 用户：工作与生活分开）；生活群照常带。"""
+    from roundtable.core.persona import set_persona
+    from roundtable.core.service import RoundtableService
+
+    from .member.test_card import CARDS
+
+    env = Env()
+    svc = RoundtableService(env.rt)
+    svc.member_profile_import(CARDS, {"甲": "V1", "乙": ""})
+    set_persona(env.rt, "V1", {"personality": "旧人设标记"})
+    for name in ("work", "main"):
+        room = ChatHub(env.rt).room(name)
+        env.fake.queue("b1", "收到")
+        msg, _ = room.post("@阿一 在吗")
+        await room.replies(msg["id"], room.pick("@阿一 在吗"))
+    work, life = (json_text(c) for c in env.fake.calls[-2:])
+    assert "阿甲" not in work and "旧人设标记" not in work
+    assert "阿甲" in life
+
+
+def json_text(call) -> str:
+    return "\n".join(m.content for m in call.messages)

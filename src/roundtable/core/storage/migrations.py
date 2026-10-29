@@ -614,4 +614,32 @@ CREATE TABLE life_reports (
 );
 """,
     ),
+    (
+        24,
+        "成员引擎：自我档案与事件",
+        """
+-- 成员引擎（docs/MEMBER_ENGINE.md）：只存本地，只用于聊天、朋友圈、生活。
+-- 自我档案：每次修改一个新版本（旧版本不改不删）；data 是整份档案（JSON），
+-- changes 是这次改了哪几项（[{path, old, new}]），author 是谁改的（user / growth / program …）。
+CREATE TABLE member_profiles (
+    member      TEXT NOT NULL,
+    version     INTEGER NOT NULL,
+    data        TEXT NOT NULL,
+    author      TEXT NOT NULL,
+    reason      TEXT NOT NULL DEFAULT '',
+    changes     TEXT NOT NULL DEFAULT '[]',
+    created_at  TEXT NOT NULL,
+    PRIMARY KEY (member, version)
+);
+-- 事件总线：生活、聊天等产生的事件（保留若干天，开机补算用）
+CREATE TABLE member_events (
+    id      INTEGER PRIMARY KEY,
+    at      TEXT NOT NULL,
+    kind    TEXT NOT NULL,
+    member  TEXT,
+    data    TEXT NOT NULL DEFAULT '{}'
+);
+CREATE INDEX idx_member_events_at ON member_events(at);
+""",
+    ),
 ]

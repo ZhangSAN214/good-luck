@@ -160,6 +160,34 @@ class ClipSaveBody(BaseModel):
     note: str = Field(default="", max_length=300)
 
 
+class ProfilePatchBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    patch: dict[str, dict[str, Any]]
+    reason: str = Field(default="", max_length=200)
+
+
+class ProfileLockBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    path: str = Field(min_length=3, max_length=100)
+    locked: bool = True
+
+
+class ProfileImportBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    text: str = Field(min_length=1, max_length=500_000)  # 人物卡 Markdown
+    mapping: dict[str, str] | None = None  # 卡名 → 成员 id（空串 = 跳过）
+    dry_run: bool = False
+
+
+class ProfileRevertBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    version: int = Field(ge=1)
+
+
 class FeedsBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -611,6 +639,41 @@ def create_app(service: RoundtableService | None = None, lan: LanAccess | None =
     @app.delete("/api/moments/comments/{comment_id}")
     async def moments_delete_comment(request: Request, comment_id: int) -> dict[str, Any]:
         return svc(request).moments_delete_comment(comment_id)
+
+    # 成员引擎：自我档案（docs/MEMBER_ENGINE.md）
+    @app.get("/api/chat/profiles")
+    async def member_profiles(request: Request) -> dict[str, Any]:
+        return svc(request).member_profiles()
+
+    @app.post("/api/chat/profiles/import")
+    async def member_profile_import(request: Request, body: ProfileImportBody) -> dict[str, Any]:
+        return svc(request).member_profile_import(body.text, body.mapping, body.dry_run)
+
+    @app.get("/api/chat/profiles/{member}")
+    async def member_profile(request: Request, member: str) -> dict[str, Any]:
+        return svc(request).member_profile(member)
+
+    @app.patch("/api/chat/profiles/{member}")
+    async def member_profile_change(
+        request: Request, member: str, body: ProfilePatchBody
+    ) -> dict[str, Any]:
+        return svc(request).member_profile_change(member, body.patch, body.reason)
+
+    @app.post("/api/chat/profiles/{member}/lock")
+    async def member_profile_lock(
+        request: Request, member: str, body: ProfileLockBody
+    ) -> dict[str, Any]:
+        return svc(request).member_profile_lock(member, body.path, body.locked)
+
+    @app.post("/api/chat/profiles/{member}/revert")
+    async def member_profile_revert(
+        request: Request, member: str, body: ProfileRevertBody
+    ) -> dict[str, Any]:
+        return svc(request).member_profile_revert(member, body.version)
+
+    @app.delete("/api/chat/profiles/{member}")
+    async def member_profile_clear(request: Request, member: str) -> dict[str, Any]:
+        return svc(request).member_profile_clear(member)
 
     @app.get("/api/life/reports")
     async def life_reports(request: Request) -> dict[str, Any]:
