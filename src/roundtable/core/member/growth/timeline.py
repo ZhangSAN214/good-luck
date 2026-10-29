@@ -14,10 +14,12 @@ from __future__ import annotations
 
 import copy
 import json
+from collections.abc import Callable
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
+from roundtable.core.member.growth import habits
 from roundtable.core.member.growth.gate import ADD, CORE, REMOVE, SCORE, Ledger, Verdict
 from roundtable.core.member.profile import USER, ProfileError, ProfileStore
 
@@ -25,7 +27,16 @@ CHANGE, REJECTED, SKIP, REVERT = "change", "rejected", "skip", "revert"
 
 
 def empty() -> dict[str, Any]:
-    return {"timeline": [], "next_id": 1, "week": None}
+    # counts / cursor：习惯计数和读到哪个事件；reports：月度报告；skills_at：上份报告时的熟练度
+    return {
+        "timeline": [],
+        "next_id": 1,
+        "week": None,
+        "counts": {},
+        "cursor": None,
+        "reports": {},
+        "skills_at": {},
+    }
 
 
 class GrowthLog:
@@ -38,7 +49,7 @@ class GrowthLog:
         return self.rt.config.roundtable.chat.engine.growth
 
     def load(self, member: str) -> dict[str, Any]:
-        return self.rt.repo.growth_data(member) or empty()
+        return empty() | (self.rt.repo.growth_data(member) or {})
 
     def save(self, member: str, data: dict[str, Any]) -> None:
         data["timeline"] = data["timeline"][-self.rules.timeline_keep :]
@@ -148,6 +159,34 @@ class GrowthLog:
         if e["op"] == REMOVE and e["value"] not in items:
             return {sec: {key: [*items, e["value"]]}}
         return {}
+
+    def count(
+        self,
+        member: str,
+        events: list[dict[str, Any]],
+        until: str,
+        tz: Any,
+        place_name: Callable[[str], str] = str,
+    ) -> int:
+        """把游标以后、until 以前这位成员的事件累加进习惯计数，游标移到 until。"""
+        data = self.load(member)
+        cursor = data.get("cursor") or ""
+        mine = [e for e in events if e["member"] == member and cursor <= e["at"] < until]
+        n = habits.count(data, mine, tz, place_name)
+        data["cursor"] = until
+        self.save(member, data)
+        return n
+
+    def save_report(
+        self, member: str, report: dict[str, Any], skills: list[dict[str, Any]]
+    ) -> None:
+        """存一份月度报告，并记下这时的熟练度（下个月比升了几级）。"""
+        data = self.load(member)
+        data["reports"][report["month"]] = report
+        for old in sorted(data["reports"])[: -self.rules.report.keep]:
+            data["reports"].pop(old)
+        data["skills_at"] = {s["domain"]: s["level"] for s in skills}
+        self.save(member, data)
 
     def clear(self, member: str | None = None) -> int:
         return self.rt.repo.clear_growth_data(member)

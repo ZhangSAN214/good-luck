@@ -48,7 +48,7 @@ async def test_weekly_tick_reflects_reviews_and_writes_profile(tmp_path):
     fake_growth(env)
     k = keeper(env, tmp_path)
     got = await k.tick(NOW)
-    assert got == {"members": 6, "changes": 2, "rejected": 0, "skipped": 5}
+    assert got == {"members": 6, "changes": 2, "rejected": 0, "skipped": 5, "reports": 0}
     (reflect,) = calls(env, is_reflect)  # 只有阿一经历够；其余 5 位跳过，不调用
     assert reflect.model == "b1" and "阿一" in reflect.messages[0].content
     assert "personality.五项：外向 3、较真 4、好奇 3" in reflect.messages[-1].content
@@ -266,3 +266,40 @@ async def test_growth_never_reaches_work_prompts():
 def test_good_fixture_is_valid():
     assert len(GOOD) == 2 and callable(proposal)
     assert datetime(2026, 10, 26).isoweekday() == 1
+
+
+async def test_tick_counts_habits_from_all_events_and_writes_monthly_report():
+    from roundtable.core.member.bus import Event, EventBus
+
+    env = Env()
+    setup(env)
+    fake_growth(env)
+    bus = EventBus(env.rt)
+    for w in range(4):  # 9 月到 10 月，每周都有两次深夜说话
+        for d in (0, 1):
+            at = datetime(2026, 9, 28, 23, tzinfo=UTC) + timedelta(weeks=w, days=d)
+            bus.publish(Event("chat.message", at, "V1", {"from_user": False}))
+    k = keeper(env)
+    got = await k.tick(datetime(2026, 11, 2, 12, tzinfo=UTC))
+    assert got["reports"] == 1  # 只有阿一 10 月有经历
+    (h,) = k.habits("V1")
+    assert h["label"] == "常在深夜说话" and h["n"] == 8 and h["weeks"] == 4
+    report = k.log.load("V1")["reports"]["2026-10"]
+    assert report["diary_days"] == 4 and report["items"] == 2 and report["habits"] == [h["label"]]
+    assert "表现得像" in report["note"]
+    assert k.log.load("V1")["skills_at"]["娱乐"] == 1
+    # 习惯和熟练度进了每周反思的材料
+    await k.run(ChatHub(env.rt).everyone()[0], MONDAY, UTC)
+    reflect = calls(env, is_reflect)
+    assert reflect and "常在深夜说话（8 次，4 周）" in reflect[-1].messages[-1].content
+    again = await k.tick(datetime(2026, 11, 3, 12, tzinfo=UTC))
+    assert again["reports"] == 0 and k.habits("V1")[0]["n"] == 8  # 不重复计数
+
+
+def test_service_exposes_habits_skills_and_reports():
+    env = Env()
+    setup(env)
+    svc = RoundtableService(env.rt)
+    got = svc.member_growth("V1")
+    assert got["habits"] == [] and got["reports"] == []
+    assert {s["domain"] for s in got["skills"]} == set(env.config.roundtable.chat.memory.domains)

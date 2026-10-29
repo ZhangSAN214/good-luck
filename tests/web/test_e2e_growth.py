@@ -19,6 +19,7 @@ def test_people_dialog_shows_growth_timeline_and_reverts(serve, page):
     page.click("#gc-people")
     page.wait_for_selector("#people[open] #pp-grow [data-grun]")
     assert "还没有成长记录" in page.inner_text("#pp-grow")
+    assert "熟练度：" in page.inner_text("#pp-grow") and "娱乐 1 级" in page.inner_text("#pp-grow")
     page.click("#pp-grow [data-grun]")
     page.wait_for_selector("#pp-grow li.gr-change")
     text = page.inner_text("#pp-grow")

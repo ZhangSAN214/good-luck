@@ -1163,6 +1163,21 @@ class GrowthReviewRules(_Strict):
     max_retries: int = Field(default=1, ge=0, le=1)
 
 
+class GrowthHabitRules(_Strict):
+    """习惯计数（M17）：从全部经历累加；次数和跨的周数都够才算习惯（所有成员相同）。"""
+
+    min_count: int = Field(default=5, ge=1, le=1000)
+    min_weeks: int = Field(default=3, ge=1, le=52)
+    top: int = Field(default=8, ge=1, le=30)  # 最多列几项
+
+
+class GrowthReportRules(_Strict):
+    """月度「这个月的我」报告：程序按记录数出来，不调用模型。"""
+
+    enabled: bool = True
+    keep: int = Field(default=24, ge=1, le=120)  # 每人最多留几份
+
+
 class GrowthRules(_Strict):
     """P6 成长（docs/MEMBER_ENGINE.md「P6 成长」）：每周用成员自己的模型读一遍上周的经历，
     最多提几条对自我档案的改动，每条必须引用真实经历；程序把关后才写进档案（author = growth）。
@@ -1198,6 +1213,8 @@ class GrowthRules(_Strict):
     share_window_weeks: int = Field(default=8, ge=1, le=52)  # 按最近几周的改动算占比
     share_floor: int = Field(default=10, ge=1, le=100)  # 改动不到这么多条时按这么多条算（起步时）
     review: GrowthReviewRules = GrowthReviewRules()
+    habits: GrowthHabitRules = GrowthHabitRules()
+    report: GrowthReportRules = GrowthReportRules()
     backups: int = Field(default=8, ge=1, le=52)  # 每周本地备份留几份
     timeline_keep: int = Field(default=500, ge=10, le=5000)  # 成长时间线每人最多留几条
     max_tokens: int = Field(default=900, ge=64)
