@@ -92,7 +92,7 @@ chat:
       daily_usd: 0.25              # 聊天这一块每天的额度；你直接找她不受它限制
       shares: {proactive: 0.85, group: 0.7, life: 0.5}   # 其余三类最多用到额度的几成，超了只记一行
     heartbeat: {enabled: true, max_actions: 3}
-    bus: {keep_days: 14}           # 事件保留几天
+    bus: {keep_days: null, catch_up_days: 14}   # 事件一直保留（只存本机，攒经历数据）；开机最多补算 14 天
   tier: budget
   max_repliers: 2
   max_mentioned: 8                 # 「@全员」「所有人」「大家」时最多几位依次回应

@@ -1441,6 +1441,12 @@ class Repository:
         ).fetchall()
         return [{**dict(r), "data": json.loads(r["data"])} for r in rows]
 
+    def clear_member_events(self) -> int:
+        return self._exec("DELETE FROM member_events").rowcount
+
+    def count_member_events(self) -> int:
+        return self._exec("SELECT COUNT(*) FROM member_events").fetchone()[0]
+
     def prune_member_events(self, before: str) -> int:
         return self._exec("DELETE FROM member_events WHERE at < ?", (before,)).rowcount
 
