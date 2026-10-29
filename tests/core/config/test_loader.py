@@ -45,6 +45,8 @@ def test_repo_config_loads_with_defaults():
     assert rt.channel_mode == "auto"
     assert rt.pipeline == ["answer", "review", "revise", "synthesize", "reveal"]
     assert set(rt.prompts) == {
+        "sticker_draw",
+        "sticker_check",
         "planner",
         "panel",
         "ideate",

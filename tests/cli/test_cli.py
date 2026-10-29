@@ -749,3 +749,13 @@ async def test_export_document_into_a_folder_with_style(tmp_path):
     files = list(tmp_path.iterdir())
     assert code == 0 and len(files) == 1 and files[0].suffix == ".html"
     assert "--accent:#2E7D32" in files[0].read_text(encoding="utf-8")
+
+
+async def test_stickers_command_lists_and_reports_missing_models(tmp_path):
+    env = Env(confirm_threshold_usd=100.0)
+    code, text = await cli(env, "stickers", "OpenAI")
+    assert code == 0 and "快夸我「快夸我」 还没画" in text and "本月表情包花费 $0.0000" in text
+    code, text = await cli(env, "stickers", "Nobody")
+    assert code == 1 and "还没有形象卡" in text
+    code, text = await cli(env, "stickers", "OpenAI", "--draw", "晚安", "-o", str(tmp_path))
+    assert code == 1 and "OpenAI·晚安：" in text and "已保存 0 张" in text

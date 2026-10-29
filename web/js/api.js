@@ -84,6 +84,11 @@ export const getChatRooms = () => api('/api/chat/rooms');
 export const chatPersonas = () => api('/api/chat/personas');
 export const setChatPersona = (id, persona) => api(`/api/chat/personas/${encodeURIComponent(id)}`, { method: 'PUT', body: { persona } });
 export const memberVoices = () => api('/api/chat/voices');
+// 成员专属表情包：列表、画一张（新画的待审）、审（approved / rejected / pending）
+export const memberStickers = () => api('/api/stickers');
+export const drawSticker = (id, name) => api(`/api/stickers/${encodeURIComponent(id)}/${encodeURIComponent(name)}/draw`, { method: 'POST' });
+export const reviewSticker = (id, name, status) =>
+  api(`/api/stickers/${encodeURIComponent(id)}/${encodeURIComponent(name)}/review`, { method: 'POST', body: { status } });
 // 用成员的固定音色念一句（text 省略时念试听句）：返回音频 Blob
 export async function memberVoice(id, text = null) {
   const r = await fetch(`/api/chat/voices/${encodeURIComponent(id)}`, {

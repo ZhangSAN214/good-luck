@@ -144,6 +144,12 @@ class VoiceBody(BaseModel):
     text: str | None = Field(default=None, max_length=2000)  # 省略：念一句试听
 
 
+class StickerReviewBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    status: Literal["pending", "approved", "rejected"]
+
+
 class PersonaBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -849,6 +855,27 @@ def create_app(service: RoundtableService | None = None, lan: LanAccess | None =
         if clip.seconds is not None:
             headers["X-Voice-Seconds"] = f"{clip.seconds:.2f}"
         return Response(content=clip.data, media_type=clip.mime, headers=headers)
+
+    @app.get("/api/stickers")
+    async def stickers(request: Request) -> dict[str, Any]:
+        return svc(request).member_stickers()
+
+    @app.post("/api/stickers/{member}/{name}/draw")
+    async def sticker_draw(request: Request, member: str, name: str) -> dict[str, Any]:
+        """画（或重画）一张专属表情；新画的是「待审」。花费计入表情包与创作输出的月上限。"""
+        return await svc(request).draw_sticker(member, name)
+
+    @app.post("/api/stickers/{member}/{name}/review")
+    async def sticker_review(
+        request: Request, member: str, name: str, body: StickerReviewBody
+    ) -> dict[str, Any]:
+        return svc(request).review_sticker(member, name, body.status)
+
+    @app.get("/api/stickers/{member}/{name}/image")
+    async def sticker_image(request: Request, member: str, name: str) -> Response:
+        data = svc(request).sticker_file(member, name)
+        headers = {"X-Content-Type-Options": "nosniff", "Cache-Control": "private, max-age=86400"}
+        return Response(content=data, media_type="image/png", headers=headers)
 
     @app.get("/api/chat/personas")
     async def chat_personas(request: Request) -> dict[str, Any]:

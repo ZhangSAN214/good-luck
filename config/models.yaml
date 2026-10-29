@@ -446,12 +446,12 @@ models:
         model: openai/gpt-5.4-image-2
         params: {modalities: [image, text]}
   - id: hy-image-3.5
-    # 预览版，每张约 $0.007（图像输出 $1.6 / 百万 token）；一次最多 20 张参考图，可出 4K
+    # 预览版，2026-10-29 实测每张约 $0.024（按图像输出 $5.75 / 百万 token 折算）；一次最多 20 张参考图，可出 4K
     vendor: Tencent
     aliases: [混元, Hunyuan, 腾讯混元, Hy Image]
     seat: false
     tier: budget
-    price: {input: 0, output: 1.6}
+    price: {input: 0, output: 5.75}
     image_tokens: 4175
     tags: [image_gen, image_edit, vision, zh]
     image_api: images

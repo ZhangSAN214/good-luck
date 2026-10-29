@@ -99,6 +99,12 @@ from roundtable.core.member.card import (
 from roundtable.core.member.memory import DiaryTool
 from roundtable.core.member.memory.store import query_terms
 from roundtable.core.member.voice import VoicePolicy
+from roundtable.core.member_stickers import (
+    MemberStickers,
+    StickerBudgetExceeded,
+    StickerError,
+    StickerUnavailable,
+)
 from roundtable.core.member_voice import MAX_CHARS as VOICE_MAX_CHARS
 from roundtable.core.member_voice import (
     SAMPLE_TEXT,
@@ -211,6 +217,7 @@ class RoundtableService:
         if runtime.config.roundtable.chat.engine.voice.enabled:  # P5 表达：照人物卡说话风格
             self.chats.policy = VoicePolicy(runtime)
         self.voices = MemberVoices(runtime, runtime.voice_cache_dir)
+        self.stickers = MemberStickers(runtime, runtime.sticker_dir)
         self.memory = MemoryKeeper(runtime, self.chats.everyone)
         self.life = LifeEngine(runtime, self.chats, self.memory)
         self.perceiver = Perceiver(runtime, PerceptionCache(runtime.perception_dir))
@@ -1519,6 +1526,49 @@ class RoundtableService:
             raise ServiceError(str(exc), 402) from None
         except VoiceUnavailable as exc:
             raise ServiceError(str(exc), 503) from None
+
+    def member_stickers(self) -> dict[str, Any]:
+        """每位有形象卡的成员的专属表情：画了没有、待审还是可以用（不含模型名）。"""
+        names = {m.id: m.name for m in self.chats.everyone()}
+        rules = self.rt.config.roundtable.media.stickers
+        members = [
+            {
+                "id": member,
+                "name": names.get(member, member),
+                "stickers": self.stickers.listing(member),
+            }
+            for member in self.rt.config.personas.sticker_cards
+        ]
+        return {
+            "members": members,
+            "available": bool(self.stickers.draw_models()),
+            "review": rules.review,
+            "month_spent_usd": round(self.stickers.month_spent(), 4),
+            "monthly_usd": rules.monthly_usd,
+        }
+
+    async def draw_sticker(self, member: str, name: str) -> dict[str, Any]:
+        """画（或重画）成员的一个专属表情；花费计入表情包和创作输出的每月上限。"""
+        try:
+            return await self.stickers.draw(member, name)
+        except StickerError as exc:
+            raise ServiceError(str(exc), 404) from None
+        except StickerBudgetExceeded as exc:
+            raise ServiceError(str(exc), 402) from None
+        except StickerUnavailable as exc:
+            raise ServiceError(str(exc), 503) from None
+
+    def review_sticker(self, member: str, name: str, status: str) -> dict[str, Any]:
+        try:
+            return self.stickers.review(member, name, status)
+        except StickerError as exc:
+            raise ServiceError(str(exc)) from None
+
+    def sticker_file(self, member: str, name: str) -> bytes:
+        data = self.stickers.file(member, name)
+        if data is None:
+            raise ServiceError("这个表情还没画", 404)
+        return data
 
     def chat_personas(self) -> dict[str, Any]:
         """每位成员的聊天人设；source：local 网页里改过 / config 配置文件 / empty 没有设定。"""
