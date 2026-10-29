@@ -316,16 +316,17 @@ models:
       - channel: openrouter
         model: openai/gpt-image-2
   # --- 2026-10-29 用户要求：OpenRouter 上的绘图模型全部加入（每个配一句说明）---
-  # ID 与价格来自 OpenRouter 公开页面（2026-10-29），云端连不上模型列表、尚未用 check_models.py 实测；
-  # image_api 按「输出里带不带文字」推断（带文字 → chat，只出图 → images），实测不通时改这一项即可。
+  # 2026-10-29 已在用户电脑上用 check_models.py 核对：10 个 ID 都存在、都支持参考图输入、都在 /images 接口列表里。
+  # 只出图的模型远端按图像 token 计价（image_output），1K 一张约 4175 token（按公布的每张单价反推）。
   # 节电档只放每张 ≤ $0.02 的；其余放旗舰档。同档内随机选，实际费用以渠道返回为准。
   - id: muse-image
-    # 每张 $0.01，全场最便宜；支持参考图、局部修改和多图合成，排行前 10
+    # 每张约 $0.01，很便宜；支持参考图、局部修改和多图合成，排行前 10
     vendor: Meta Platforms
     aliases: [Muse Image, Meta AI]
     seat: false
     tier: budget
-    media_price: {unit: image, usd: 0.01}
+    price: {input: 0, output: 2.395}
+    image_tokens: 4175
     tags: [image_gen, image_edit]
     image_api: images
     enabled: true
@@ -337,7 +338,8 @@ models:
     aliases: [Seedream, 豆包, 即梦, 字节跳动]
     seat: false
     tier: budget
-    media_price: {unit: image, usd: 0.018}
+    price: {input: 0, output: 4.311}
+    image_tokens: 4175
     tags: [image_gen, image_edit, zh]
     image_api: images
     enabled: true
@@ -349,7 +351,8 @@ models:
     aliases: [Seedream, 豆包, 即梦, 字节跳动]
     seat: false
     tier: flagship
-    media_price: {unit: image, usd: 0.04}
+    price: {input: 0, output: 9.581}
+    image_tokens: 4175
     tags: [image_gen, image_edit, zh]
     image_api: images
     enabled: true
@@ -442,13 +445,13 @@ models:
         model: openai/gpt-5.4-image-2
         params: {modalities: [image, text]}
   - id: hy-image-3.5
-    # 预览版，$1.6 / 百万 token（每张的 token 数待实测，先按 4096 估约 $0.007）；一次最多 20 张参考图，可出 4K
+    # 预览版，每张约 $0.007（图像输出 $1.6 / 百万 token）；一次最多 20 张参考图，可出 4K
     vendor: Tencent
     aliases: [混元, Hunyuan, 腾讯混元, Hy Image]
     seat: false
-    tier: flagship
-    price: {input: 1.6, output: 1.6}
-    image_tokens: 4096
+    tier: budget
+    price: {input: 0, output: 1.6}
+    image_tokens: 4175
     tags: [image_gen, image_edit, vision, zh]
     image_api: images
     enabled: true
