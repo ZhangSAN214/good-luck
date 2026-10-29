@@ -34,7 +34,7 @@ from roundtable.core.chat import (
     member_memory,
 )
 from roundtable.core.office.apartment import schedule
-from roundtable.core.persona import persona_of, persona_text
+from roundtable.core.persona import chat_persona
 from roundtable.core.plain_talk import before_speaking, plain_prompt
 from roundtable.core.storage.repository import iso
 
@@ -132,7 +132,7 @@ class Moments:
             role,
             rt.config.roundtable.prompts[role],
             name=member.name,
-            persona=persona_text(persona_of(rt, member.id)),
+            persona=chat_persona(rt, member.id),
             memory=member_memory(rt, member.id, "\n".join(variables.values())),
             **variables,
         )

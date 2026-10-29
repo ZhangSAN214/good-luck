@@ -714,6 +714,20 @@ class MemoryRules(_Strict):
     daily_quota: int = Field(default=8, ge=1, le=30)  # 半衰期记忆每人每天最多记几件事
 
 
+class LifeGuardRules(_Strict):
+    """收得住（docs/CHAT.md G9）：互聊收尾、每日条数上限、熔断与每周自检。由代码判断，不花钱。"""
+
+    enabled: bool = True
+    daily_messages: int = Field(default=40, ge=0, le=500)  # 成员之间每天最多几句（含分享，UTC 日）
+    max_chars: int = Field(default=200, ge=20, le=2000)  # 互聊每句最多保留多少字
+    stale_similarity: float = Field(default=0.5, gt=0, le=1)  # 和前面的话太像（二元组相似度）就收尾
+    recent_messages: int = Field(default=20, ge=0, le=200)  # 比对最近多少句互聊
+    max_failures: int = Field(default=3, ge=1, le=20)  # 连续几次调用出错，当天停掉生活
+    budget_alarm: float = Field(default=0.9, gt=0, le=1)  # 生活日上限或聊天月预算用到此比例就当天停
+    report_weekday: int = Field(default=1, ge=1, le=7)  # 每周几（ISO，1 = 周一）写上一周的自检
+    report_examples: int = Field(default=3, ge=0, le=10)  # 自检报告里最多举几个重复的例子
+
+
 class LifeRules(_Strict):
     """生活引擎（docs/CHAT.md G4）：成员在用户不在时按作息过日子、彼此聊天。"""
 
@@ -727,6 +741,7 @@ class LifeRules(_Strict):
     pair_chance: float = Field(default=0.15, ge=0, le=1)  # 每小时有人私下聊天的概率
     estimate_usd: float = Field(default=0.002, ge=0)  # 每句的预估花费（预算检查用）
     max_tokens: int = Field(default=800, ge=64)
+    guard: LifeGuardRules = LifeGuardRules()
 
 
 class FeedSpec(_Strict):
@@ -788,6 +803,80 @@ class MomentsRules(_Strict):
     estimate_usd: float = Field(default=0.002, ge=0)
 
 
+class ProfileRules(_Strict):
+    """自我档案（docs/MEMBER_ENGINE.md）：分区 → 谁能改（user / growth 成长 / program 程序）。"""
+
+    sections: dict[str, list[str]] = Field(
+        default_factory=lambda: {
+            "identity": ["user"],
+            "personality": ["user", "growth"],
+            "values": ["user", "growth"],
+            "style": ["user", "growth"],
+            "likes": ["user", "growth"],
+            "state": ["user", "program"],
+        }
+    )
+
+
+class ContextRules(_Strict):
+    """上下文组装器：总长预算、每个来源最多几段、截断后最少保留几个字。"""
+
+    budget_chars: int = Field(default=600, ge=100, le=8000)
+    per_source: int = Field(default=2, ge=1, le=10)
+    min_piece_chars: int = Field(default=20, ge=1, le=200)
+
+
+class SchedulerShares(_Strict):
+    """各优先级最多能用到每日额度的几成（用户直接找她不设每日额度）。"""
+
+    proactive: float = Field(default=0.85, gt=0, le=1)
+    group: float = Field(default=0.7, gt=0, le=1)
+    life: float = Field(default=0.5, gt=0, le=1)
+
+
+class SchedulerRules(_Strict):
+    """预算调度器：聊天这一块每天的额度，按优先级分份额。"""
+
+    daily_usd: float = Field(default=0.25, ge=0)
+    shares: SchedulerShares = SchedulerShares()
+
+
+class HeartbeatRules(_Strict):
+    enabled: bool = True
+    max_actions: int = Field(default=3, ge=0, le=20)  # 每次心跳最多做几件事
+
+
+class BusRules(_Strict):
+    persist: bool = True  # 事件存进 member_events
+    keep_days: int = Field(default=14, ge=1, le=365)
+
+
+class EvalRules(_Strict):
+    """评测集：所有成员相同的参数；同一题两位回复的相似度达到 clash_similarity 算撞型。"""
+
+    max_tokens: int = Field(default=600, ge=64)
+    clash_similarity: float = Field(default=0.6, gt=0, le=1)
+
+
+class CardRules(_Strict):
+    """随身卡（M1 自我认知）：每次调模型都带的那一小段，放在上下文组装器的固定前缀里。"""
+
+    budget_chars: int = Field(default=400, ge=50, le=4000)
+
+
+class EngineRules(_Strict):
+    """成员引擎（docs/MEMBER_ENGINE.md）：只用于聊天、朋友圈、生活；工作模式不读取。"""
+
+    enabled: bool = True
+    profile: ProfileRules = ProfileRules()
+    card: CardRules = CardRules()
+    context: ContextRules = ContextRules()
+    scheduler: SchedulerRules = SchedulerRules()
+    heartbeat: HeartbeatRules = HeartbeatRules()
+    bus: BusRules = BusRules()
+    eval: EvalRules = EvalRules()
+
+
 class ChatRules(_Strict):
     """聊天：生活群、工作群、私聊。成员不主动找用户，只回应用户。"""
 
@@ -798,6 +887,7 @@ class ChatRules(_Strict):
     life: LifeRules = LifeRules()
     browse: BrowseRules = BrowseRules()
     moments: MomentsRules = MomentsRules()
+    engine: EngineRules = EngineRules()
     tier: Tier = "budget"  # 每位成员用这个档位的模型发言（没有就用该成员最便宜的）
     max_repliers: int = Field(default=2, ge=1, le=6)  # 没有 @ 人时，一条消息最多几位回应
     max_mentioned: int = Field(default=8, ge=1, le=12)  # @全员 / 所有人 / @多人 时最多几位回应

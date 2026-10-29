@@ -40,7 +40,7 @@ from roundtable.core.chat import (
 )
 from roundtable.core.config.schema import FeedSpec
 from roundtable.core.office.apartment import schedule
-from roundtable.core.persona import persona_of, persona_text
+from roundtable.core.persona import chat_persona, persona_of
 from roundtable.core.plain_talk import before_speaking, plain_prompt
 from roundtable.core.providers import Completion, Message
 from roundtable.core.search import SearchUnavailable
@@ -354,7 +354,7 @@ class Browser:
             interest=interest,
             source=source,
             article=article,
-            persona=persona_text(persona_of(rt, member.id)),
+            persona=chat_persona(rt, member.id),
             memory=member_memory(rt, member.id, f"{interest}\n{article}"),
             history=chat.history(everyone),
         )

@@ -246,3 +246,62 @@ def test_moments_dialog_post_like_comment(serve, page):
     wait_until(lambda: "周末去爬山" not in page.inner_text("#moments .mo-wrap"))
     page.click("#moments [data-close]")
     assert page.locator("#gc-moments .gc-unread").count() == 0
+
+
+def test_life_self_check_dialog(serve, page):
+    srv = serve(confirm_threshold_usd=100.0)
+    repo = srv.env.rt.repo
+    repo.add_chat_message("main", "V1", "今天食堂的面不错", meta={"life": True})
+    repo.add_chat_message("main", "V2", "今天食堂的面不错啊", meta={"life": True})
+    open_chat(srv, page)
+    assert "互聊 2/40 句" in page.inner_text("#gc-budget")
+    page.click("#gc-selfcheck")
+    page.wait_for_selector("#gc-selfcheck-dlg h3")
+    text = page.inner_text("#gc-selfcheck-dlg")
+    assert "最近 7 天" in text and "谁说得多" in text and "阿一" in text
+    assert "重复：1 句" in text
+    page.click("#gc-selfcheck-dlg [data-close]")
+    page.wait_for_selector("#gc-selfcheck-dlg", state="hidden")
+
+
+def test_people_dialog_self_profile_import_edit_revert(serve, page, tmp_path):
+    from tests.core.member.test_card import CARDS
+
+    srv = serve(confirm_threshold_usd=100.0)
+    card_file = tmp_path / "人物卡.md"
+    card_file.write_text(CARDS, encoding="utf-8")
+    open_chat(srv, page)
+    page.click(".gc-room[data-room='dm:V2']")
+    page.wait_for_function("document.querySelector('#gc-title')?.textContent === '与 阿二 私聊'")
+    page.click("#gc-people")
+    page.wait_for_selector("#people #pp-prof .pf-empty")
+    # 导入：先预览，卡名对不上成员时手动选
+    page.set_input_files("#people #pp-prof [data-file]", str(card_file))
+    page.wait_for_selector("#people .pf-import select")
+    page.select_option("#people .pf-import select[name='甲']", "V2")
+    page.click("#people .pf-import button[type=submit]")
+    page.wait_for_selector("#people .pp-msg:has-text('导入了 1 位成员')")
+    page.wait_for_selector("#people .pf-card:has-text('甲，小名阿甲')")
+    assert "第 1 版" in page.inner_text("#people #pp-prof .grp-h")
+    # 改一项，再撤回
+    page.click("#people .pf-sec[data-sec='identity'] > summary")
+    page.locator("#people .pf-item[data-key='identity.小名'] [data-edit]").click()
+    page.fill("#people .pf-edit textarea", "甲甲")
+    page.click("#people .pf-edit button[type=submit]")
+    page.wait_for_selector("#people .pf-card:has-text('小名甲甲')")
+    assert srv.env.rt.repo.member_profile("V2")["data"]["identity"]["小名"] == "甲甲"
+    page.click("#people .pf-sec:has-text('修改记录') > summary")
+    page.click("#people [data-revert='1']")
+    page.wait_for_selector("#people .pf-card:has-text('小名阿甲')")
+    # 手写随身卡，再改回自动生成
+    page.locator("#people .pf-cardbox [data-edit='card']").click()
+    page.fill("#people .pf-cardbox textarea", "我自己写的卡")
+    page.click("#people .pf-cardbox button[type=submit]")
+    page.wait_for_selector("#people .pf-card:has-text('我自己写的卡')")
+    page.click("#people [data-card-auto]")
+    page.wait_for_selector("#people .pf-card:has-text('甲，小名阿甲')")
+    # 两步清空
+    page.click("#people #pf-clear")
+    page.click("#people #pf-clear")
+    page.wait_for_selector("#people #pp-prof .pf-empty")
+    assert srv.env.rt.repo.member_profile("V2") is None

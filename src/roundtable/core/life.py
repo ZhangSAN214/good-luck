@@ -10,6 +10,8 @@
 - 开机补算：记下上次推进的时刻，启动后补上中间的时间（最多往回 ``catch_up_hours`` 小时），
   补出来的消息标「你不在时」（meta.offline），时间按事件发生的时刻。
 - 成员不主动找用户：生活只发生在生活群和成员之间的私聊里，不进用户的私聊，不推送。
+- 收得住（``core/life_guard.py``）：没新内容就收尾、成员之间每天的条数上限、连续出错或预算告急
+  当天停掉、每周自检。
 """
 
 from __future__ import annotations
@@ -23,10 +25,11 @@ from roundtable.core.browse import SEARCH_STEP, SHARE_STEP, Browser
 from roundtable.core.budget.guard import day_window as utc_day_window
 from roundtable.core.chat import ROOM, ChatHub, ChatMember, call_member, clean_reply, member_memory
 from roundtable.core.chat_work import short_title
+from roundtable.core.life_guard import LifeGuard
 from roundtable.core.memory import MemoryKeeper
 from roundtable.core.moments import MOMENT_STEP, Moments
 from roundtable.core.office.apartment import ACTIVITIES, PUBLIC_ROOMS, schedule
-from roundtable.core.persona import persona_of, persona_text
+from roundtable.core.persona import chat_persona
 from roundtable.core.plain_talk import before_speaking, plain_prompt
 from roundtable.core.storage.repository import iso
 
@@ -59,6 +62,7 @@ class LifeEngine:
         self.rt = rt
         self.hub = hub
         self.memory = memory
+        self.guard = LifeGuard(rt, LIFE_STEPS)
         memory.allow = self.allowed  # 记忆整理也算进生活的每日上限
         self.browse = Browser(rt, hub, self.allowed)
         self.moments = Moments(rt, hub, self.allowed)
@@ -74,6 +78,8 @@ class LifeEngine:
         return self.rt.repo.spent_in_steps("chat", LIFE_STEPS, start, end)
 
     def allowed(self, estimate_usd: float) -> bool:
+        if self.guard.halted():
+            return False
         return self.spent_today() + estimate_usd <= self.rules.daily_usd + 1e-9
 
     # --- 事件 --------------------------------------------------------------------
@@ -174,8 +180,9 @@ class LifeEngine:
     # --- 推进 --------------------------------------------------------------------
 
     async def tick(self, now: datetime) -> dict[str, int]:
-        """推进到 now（带时区）。返回各项数量（事件、写成聊天的、消息、记忆、分享、朋友圈）。"""
+        """推进到 now（带时区）。返回各项数量（事件、聊天、消息、记忆、分享、朋友圈、自检）。"""
         out = {"events": 0, "written": 0, "messages": 0, "memories": 0, "shares": 0, "moments": 0}
+        out["reports"] = 0
         if not self.rules.enabled:
             return out
         repo = self.rt.repo
@@ -191,11 +198,16 @@ class LifeEngine:
         offline = now - start > tick * 2
         plans = self.plan(start, now)
         limit = self.rules.max_written_catch_up if offline else self.rules.max_written_per_tick
+        if self.guard.check(self.spent_today()):
+            limit = 0  # 熔断：当天只记一行
+        elif self.guard.room_left() == 0:
+            self.guard.note_cap()
+            limit = 0
         talk = sorted((p for p in plans if p.kind != "solo"), key=lambda p: -p.score)[:limit]
         chosen = {id(p) for p in talk}
         for p in sorted(plans, key=lambda p: p.at):
             written = 0
-            if id(p) in chosen:
+            if id(p) in chosen and not self.guard.check(self.spent_today()):
                 written = await self.write(p, offline=offline, now=now)
             repo.add_life_event(
                 iso(p.at),
@@ -212,9 +224,12 @@ class LifeEngine:
             out["messages"] += written
         repo.set_setting(LAST_TICK_KEY, now.isoformat())
         out["memories"] = await self.memory.catch_up(now, offline=offline)
-        out["shares"] = await self.browse.tick(now)
+        if self.guard.room_left() > 0:
+            out["shares"] = await self.browse.tick(now)
         m = await self.moments.tick(now, offline=offline)
         out["moments"] = m["posts"] + m["comments"]
+        names = {m.id: m.name for m in self.hub.everyone()}
+        out["reports"] = int(self.guard.weekly(self.rt.budget.now(), names) is not None)
         return out
 
     async def write(self, p: Plan, *, offline: bool, now: datetime) -> int:
@@ -238,9 +253,13 @@ class LifeEngine:
         params = dict(rt.config.roundtable.step_params.get("chat", {}))
         params["max_tokens"] = rules.max_tokens
         said = 0
+        earlier = self.guard.recent_lines(chat.room)
         for turn in range(rules.turns):
             member: ChatMember = speakers[turn % len(speakers)]
             if not self.allowed(rules.estimate_usd):
+                break
+            if self.guard.room_left() == 0:
+                self.guard.note_cap()
                 break
             others = "、".join(s.name for s in speakers if s.id != member.id)
             prompt = rt.prompts.render(
@@ -249,7 +268,7 @@ class LifeEngine:
                 name=member.name,
                 others=others,
                 scene=p.topic,
-                persona=persona_text(persona_of(rt, member.id)),
+                persona=chat_persona(rt, member.id),
                 memory=member_memory(rt, member.id, f"{p.topic}\n{chat.history(names)}"),
                 history=chat.history(names),
             )
@@ -266,11 +285,16 @@ class LifeEngine:
             if completion is None:
                 break
             text = clean_reply(completion.text, member.name, rt.config.roundtable.chat.max_chars)
+            text = self.guard.clip(text)
             if not text:
+                break
+            if self.guard.is_stale(text, earlier):
+                self.guard.note_stale(member.id, text)  # 没有新内容：这句不发，这段收尾
                 break
             text = await before_speaking(
                 rt, text, room=chat.room, name=member.name, model_id=member.model_id
             )
+            earlier.append(text)
             when = p.at + timedelta(minutes=turn) if offline else now
             rt.repo.add_chat_message(
                 chat.room,

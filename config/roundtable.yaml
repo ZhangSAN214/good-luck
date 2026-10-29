@@ -56,6 +56,13 @@ chat:
     max_written_catch_up: 6        # 开机补算时最多写几件
     catch_up_hours: 24             # 补算最多往回看多少小时（更早的只整理成记忆）
     turns: 3                       # 一段成员之间的对话最多几句
+    guard:                         # 收得住：全部由代码判断，不花钱
+      daily_messages: 40           # 成员之间每天最多说几句（含分享）
+      max_chars: 200               # 互聊每句最多多少字
+      stale_similarity: 0.5        # 和这段前面的话或最近的互聊太像就收尾（0～1）
+      max_failures: 3              # 连续出错几次，当天停掉生活
+      budget_alarm: 0.9            # 生活日上限或聊天月预算用到 90%，当天停掉
+      report_weekday: 1            # 每周一生成上一周的自检报告（花费、谁说得多、重复、异常）
   moments:                         # 朋友圈：成员每天最多发 1 条，互相点赞（免费）、评论
     enabled: true
     posts_per_member: 1
@@ -77,6 +84,15 @@ chat:
       - {name: NASA, url: "https://www.nasa.gov/news-release/feed/", topics: [天文, 科学], kind: news}
       - {name: ScienceDaily, url: "https://www.sciencedaily.com/rss/top/science.xml", topics: [科学], kind: news}
       - {name: Polygon, url: "https://www.polygon.com/rss/index.xml", topics: [游戏], kind: news}
+  engine:                          # 成员引擎（docs/MEMBER_ENGINE.md）：只用于聊天、朋友圈、生活
+    enabled: true
+    context: {budget_chars: 600}   # 调模型时带的资料最多多少字（固定部分放最前，利于缓存）
+    card: {budget_chars: 400}      # 随身卡（人物卡的精简版，每次都带）最多多少字，算在上面的 600 字里
+    scheduler:                     # 预算调度：你直接找她 > 主动找你 > 群聊 > 生活
+      daily_usd: 0.25              # 聊天这一块每天的额度；你直接找她不受它限制
+      shares: {proactive: 0.85, group: 0.7, life: 0.5}   # 其余三类最多用到额度的几成，超了只记一行
+    heartbeat: {enabled: true, max_actions: 3}
+    bus: {keep_days: 14}           # 事件保留几天
   tier: budget
   max_repliers: 2
   max_mentioned: 8                 # 「@全员」「所有人」「大家」时最多几位依次回应
@@ -195,17 +211,18 @@ prompts:
   office_review: v1      # 办公室·项目：复核经理最终验收
   office_revise: v1      # 办公室·项目：主办经理按验收意见改一次
   office_handle: v2      # 办公室：员工办理（v2：带字画面用代码画、数字须核实）
-  chat: v2               # 群聊：口语、短句，坦诚自己是 AI（v2：人设与记忆）
-  chat_dm: v2            # 私聊：和用户一对一（v2：人设与记忆）
-  chat_work: v2          # 工作群：聊工作，交办走办公室（v2：人设与记忆）
+  chat: v3               # 群聊：口语、短句（v2：人设与记忆；v3：人物卡随身卡，AI 身份平时不刻意提、被认真问如实承认）
+  chat_dm: v3            # 私聊：和用户一对一（v2：人设与记忆；v3：人物卡随身卡）
+  chat_work: v3          # 工作群：聊工作，交办走办公室（v2：人设与记忆；v3：人物卡随身卡）
   memory_day: v1         # 记忆：把一天的聊天压成一段
   memory_roll: v1        # 记忆：日 → 周、周 → 月
   memory_profile: v1     # 记忆：更新长期档案
   memory_items: v1       # 记忆（半衰期，recall: half_life 时用）：一天的聊天拆成几件事，重要的标 ★
-  life_chat: v1          # 生活：成员之间聊天（公寓楼里的模拟生活）
-  life_share: v1         # 生活：成员把上网看到的一条内容分享到生活群
-  moment_post: v1        # 朋友圈：成员发一条动态
-  moment_comment: v1     # 朋友圈：成员评论一条动态（或回复评论）
+  member_eval: v1       # 成员评测集：情境题（规则判分，离线用假模型）
+  life_chat: v2          # 生活：成员之间聊天（公寓楼里的模拟生活）
+  life_share: v2         # 生活：成员把上网看到的一条内容分享到生活群
+  moment_post: v2        # 朋友圈：成员发一条动态
+  moment_comment: v2     # 朋友圈：成员评论一条动态（或回复评论）
   evolution_card: v1     # 革新例会·自己找资料：一位成员把网页写成资料卡
   evolution_check: v1    # 革新例会·自己找资料：另一位成员复核资料卡
   evolution_plugins: v1  # 革新例会·插件清单：一位成员根据资料卡和点子榜写给用户看的插件清单
