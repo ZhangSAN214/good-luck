@@ -337,6 +337,8 @@ prompts:
   super_split: v1        # 超级电脑：把一件活拆成能并行的小活
   super_work: v1         # 超级电脑：一位助手在共享工作文件夹里干一件小活
   super_merge: v1        # 超级电脑：合并各件小活的成果并写交付说明
+  sticker_draw: v1       # 成员专属表情包：画一张 Q 版贴纸的提示词
+  sticker_check: v1      # 成员专属表情包：核对配文和形象
   describe_screen: v1    # 投屏陪伴：把一张截图写成给成员看的文字（隐私信息打码）
   chat: v6               # 群聊：口语、短句（v2：人设与记忆；v3：人物卡随身卡，AI 身份平时不刻意提、被认真问如实承认；v4：表情包、颜文字、引用、分条、不接话；v5：知道现在几点和自己在干什么；v6：照人物卡说话风格，各人不同）
   chat_dm: v6            # 私聊：和用户一对一（v2：人设与记忆；v3：人物卡随身卡；v4：表情包、颜文字、引用、分条；v5：知道现在几点；v6：照人物卡说话风格）
@@ -897,6 +899,15 @@ media:
   monthly_usd: 5.0           # 创作输出（图片 / 语音 / 视频 / 音乐）每月合计上限；本月快超时先问你，0 = 不限
   speech: {voice: alloy, format: mp3, max_chars: 4000}
   music: {format: mp3, max_chars: 1500}   # 音乐：按「风格、情绪、乐器、时长、有无人声 / 歌词」描述生成一段，不评审
+  stickers:                  # 成员专属表情包（形象卡和表情清单在 personas.yaml 的 sticker_cards）
+    enabled: true
+    tier: budget             # 节电档带 image_edit 的绘图模型，按参考图画
+    prefer_tags: [zh, vision]  # 带这些标签越多越先试：中文配文写得准、看参考图更像（样张实测）
+    monthly_usd: 3.0         # 表情包单独的每月上限，同时算在上面的 monthly_usd 里
+    size: 360                # 存下来的边长（像素）
+    check: true              # 画完用最便宜的识图模型核对配文和形象
+    max_attempts: 2          # 核对不合格时换一个模型重画一次
+    review: true             # 新画的先进「待审」，你点「可以」后成员才会用
   video:
     audio: true              # 视频同时生成声音（环境声、对白；模型不支持时忽略）
     duration_s: 5

@@ -122,6 +122,7 @@ def _group_line(mode: str, group: dict[str, Any]) -> str:
     return f"{MODE_LABELS[mode]}（{people} 人）约 {span}"
 
 
+STICKER_LABELS = {"missing": "还没画", "pending": "待审", "approved": "可以用", "rejected": "不要"}
 MEDIA_NAMES = {"image": "图片", "speech": "语音", "video": "视频", "music": "音乐"}
 JOB_STATE = {
     "submitted": "已提交",
@@ -1478,6 +1479,66 @@ class CLI:
                 )
         return 0
 
+    async def cmd_stickers(
+        self, member: str | None, draw: list[str], draw_all: bool, output: str | None
+    ) -> int:
+        """成员专属表情包：列出状态；--draw / --all 画（新画的待审，到网页成员设定里审）。"""
+        from roundtable.core.member_stickers import (
+            MemberStickers,
+            StickerBudgetExceeded,
+            StickerError,
+            StickerUnavailable,
+        )
+
+        stickers = MemberStickers(self.rt, self.rt.sticker_dir)
+        cards = self.rt.config.personas.sticker_cards
+        members = [member] if member else list(cards)
+        if member and member not in cards:
+            self.p(f"{member} 还没有形象卡和表情清单（personas.yaml 的 sticker_cards）")
+            return 1
+        names = (
+            {
+                m: draw or [r["name"] for r in stickers.listing(m) if r["status"] == "missing"]
+                for m in members
+            }
+            if (draw or draw_all)
+            else {}
+        )
+        failed = 0
+        for m, todo in names.items():
+            for name in todo:
+                try:
+                    row = await stickers.draw(m, name)
+                except StickerBudgetExceeded as exc:
+                    self.p(str(exc))
+                    return 1
+                except (StickerError, StickerUnavailable) as exc:
+                    self.p(f"  {m}·{name}：{exc}")
+                    failed += 1
+                    continue
+                note = f"（{row['problems']}）" if row.get("problems") else ""
+                self.p(f"  {m}·{name} 画好了，{STICKER_LABELS[row['status']]}{note}")
+        for m in members:
+            self.p(f"{m}")
+            for row in stickers.listing(m):
+                stale = "，形象卡改过，建议重画" if row.get("stale") else ""
+                self.p(
+                    f"  {row['name']}「{row['caption']}」 {STICKER_LABELS[row['status']]}{stale}"
+                )
+        self.p(f"本月表情包花费 ${stickers.month_spent():.4f}")
+        if output:
+            folder = Path(output)
+            folder.mkdir(parents=True, exist_ok=True)
+            saved = 0
+            for m in members:
+                for row in stickers.listing(m):
+                    data = stickers.file(m, row["name"])
+                    if data:
+                        (folder / f"{m}_{row['name']}.png").write_bytes(data)
+                        saved += 1
+            self.p(f"已保存 {saved} 张到 {folder}")
+        return 1 if failed else 0
+
     def cmd_note(self, session_id: str, text: str) -> int:
         """讨论进行中补充意见（可在另一个终端运行）：下一个步骤开始时被带上。"""
         repo = self.rt.repo
@@ -1593,6 +1654,13 @@ def build_parser() -> argparse.ArgumentParser:
     bench.add_argument("--report", metavar="BATCH", help="只查看某次实验的汇总")
     bench.add_argument("-o", "--output", help="导出 CSV 或 JSON（按后缀）")
     sub.add_parser("stats", help="各模型的历史贡献（被采纳、有效问题、敷衍次数等）")
+    stickers = sub.add_parser("stickers", help="成员专属表情包：查看状态、画（新画的待审）")
+    stickers.add_argument("member", nargs="?", help="成员（personas.yaml 里的键，如 OpenAI）")
+    stickers.add_argument(
+        "--draw", action="append", default=[], metavar="表情名", help="画这一张（可重复）"
+    )
+    stickers.add_argument("--all", action="store_true", help="画所有还没画的")
+    stickers.add_argument("-o", "--output", help="把画好的图保存到这个目录")
     perf = sub.add_parser("performance", help="办公室模式的员工绩效（件数、退回、通过率等）")
     perf.add_argument("--reset", action="store_true", help="清零：之后只统计从现在起的会话")
     evolve = sub.add_parser("evolve", help="革新例会：成员读资料卡提建议、投票，导出采纳单")
@@ -1729,6 +1797,8 @@ async def run(
             return cli.cmd_models()
         if args.command == "stats":
             return cli.cmd_stats()
+        if args.command == "stickers":
+            return await cli.cmd_stickers(args.member, args.draw, args.all, args.output)
         if args.command == "performance":
             return cli.cmd_performance(args.reset)
         if args.command == "evolve":

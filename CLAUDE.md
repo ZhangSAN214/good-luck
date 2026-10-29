@@ -111,6 +111,7 @@ roundtable mindmap <id> -o 导图.svg  # 保存头脑风暴的导图（.svg / .m
 roundtable evolve [meet|export <id>] # 革新例会：成员读资料卡提建议、投票，导出采纳单（默认关，docs/evolution/）
 roundtable ask --attach 图.png --attach 讲义.pdf '题目'   # 带附件
 roundtable files <id> [-o 目录]      # 保存成员生成的文件（含图片 / 音频 / 视频）
+roundtable stickers OpenAI --all -o 目录   # 成员专属表情包：画还没画的（新画的待审，到「成员设定」里审）
 roundtable ask --media image '画一只猫'   # 输出图片（--media speech / video；--media-tier flagship 用高质量档）
 python scripts/setup_sandbox.py     # 一次性安装代码运行沙箱（--check 只检查）
 python scripts/setup_dsh.py         # 在电脑上安装 dsh 工作台（需要 Node 22+ 和 pnpm；--check 只检查，见 docs/DSH.md）

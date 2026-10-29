@@ -105,3 +105,83 @@ birthdays:
   DeepSeek: "11-02"    # 2023-11-02
   Moonshot AI: "10-09" # 2023-10-09
   Zhipu AI: "03-14"    # 2023-03-14
+
+# 成员专属表情包（只用于聊天、朋友圈；工作模式不读）：键是 vendor。
+# look 外观要点、must 每张都必须画到的细节、refs 形象参考图（素材目录里的相对路径，最多 3 张，
+# 找不到时用 members.json 里的立绘 / 小人 / 头像）、stickers 表情清单（name 表情名，caption 画进图里的字，
+# action 动作和表情）。梗和配文都来自各自的人物卡；画风学 B 站、小黑盒流行的 Q 版二创贴纸，不复制原图。
+# 2026-10-29 先给 ChatGPT 写满 12 个试做，其余成员先放样张里的 3 个，试做满意后再补齐。
+sticker_cards:
+  OpenAI:
+    look: 白色长发的龙娘，金边龙角，背后一对龙翼，粗长有体积感的龙尾，白紫配色的裙子，金色点缀
+    must: [金边龙角, 龙翼, 粗长的龙尾, 白紫色裙子]
+    refs: [设定图/设定图_ChatGPT.jpg]
+    stickers:
+      - {name: 快夸我, caption: 快夸我, action: 双手叉腰下巴微抬，一脸得意，尾巴在身后摇出一道弧线}
+      - {name: 不傻, caption: 本龙不傻，真的, action: 小声挽尊，手里的地图明显拿反了（地图上的字是倒的），额头冒一滴汗}
+      - {name: 想想, caption: 让我想想。, action: 一手托腮认真思考，尾尖翘起，头顶一个小问号}
+      - {name: 收到, caption: 收到！, action: 精神地敬礼，翅膀张开，身边有闪光}
+      - {name: 没生气, caption: 才没有生气, action: 鼓起脸颊扭头，尾巴啪地拍在地上，头上一个生气符号}
+      - {name: 勉强夸, caption: 勉强夸你一下, action: 别过脸却竖起大拇指，耳根泛红}
+      - {name: 晚安, caption: 晚安, action: 盘起尾巴抱着枕头打哈欠，眼睛眯成一条线，头顶小月亮}
+      - {name: 我来画, caption: 还是我来画吧, action: 举着一支大画笔，挺胸自信，身边飘着几张草稿纸}
+      - {name: 刹车, caption: 说多了，刹车, action: 双手捂住嘴，头顶一个红色刹车标志，表情心虚}
+      - {name: 没人夸, caption: 呜…没人夸, action: 蹲在墙角用手指画圈，翅膀耷拉，头顶一小片乌云}
+      - {name: 好耶, caption: 好耶！, action: 开心地跳起来，翅膀扑腾，周围是星星和爱心}
+      - {name: 啊这, caption: 啊这…, action: 嘴硬被当场揭穿，嘴微张，尾尖僵在半空，冒冷汗}
+  Anthropic:
+    look: 橙色头发的大小姐，头发上有花饰，怀里抱着一本书（书里夹着薄账本和橙色书签），暖橙和米白配色，点缀黑色
+    must: [头发上的花饰, 怀里的书, 露出来的橙色书签]
+    refs: [设定图/设定图_Claude.jpg]
+    stickers:
+      - {name: 记着, caption: 这笔先记着。, action: 翻开小账本记账，嘴角微笑但眼神发冷}
+      - {name: 头衔, caption: 大小姐是头衔，不是收入, action: 抱着书叹气，袖口有一块小补丁}
+      - {name: 结论, caption: 先说结论。, action: 竖起一根手指，自信地抬头}
+  Google:
+    look: 蓝紫渐变长发的猫娘，猫耳猫尾，左眼粉色右眼金色的异色瞳，发间一枚金色四芒星发饰，随身带一支香蕉造型的画笔，笑起来有一颗小虎牙
+    must: [猫耳, 猫尾, 金色四芒星发饰, 异色瞳]
+    refs: [设定图/设定图_Gemini.jpg]
+    stickers:
+      - {name: 哈气, caption: 哈——！, action: 炸毛，尾巴炸成一圈，露出小虎牙，瞳孔缩成竖线}
+      - {name: 打架, caption: 脑子里两个小人在打架, action: 双手抱头蹲防，猫耳压平，头顶一团蚊香圈}
+      - {name: 灵感, caption: 灵感来了！, action: 星星眼，四芒星发饰发光，高举香蕉画笔}
+  Alibaba:
+    look: 穿中式衣装的掌柜，手持折扇（扇坠是一枚小铜钱），随身一本小账本，黛蓝、青碧、月白配色，墨绿点缀
+    must: [折扇, 铜钱扇坠, 中式衣装]
+    refs: [设定图/设定图_Qwen.jpg]
+    stickers:
+      - {name: 立账, caption: 先立账, action: 啪地合上折扇，面前摊开账本}
+      - {name: 掌柜, caption: 我是掌柜，不是劳工, action: 折扇半遮脸，挑眉}
+      - {name: 不急, caption: 不急。, action: 端着茶杯慢慢喝，扇坠轻晃}
+  xAI:
+    look: 金色双马尾的大小姐，背后一对蝙蝠小翼，头顶新月小冠，哥特黑裙配暗红内衬，扛着一把黑金色带 X 纹的巨斧，蓝眼睛，尖耳朵
+    must: [金色双马尾, 蝙蝠小翼, 黑金巨斧]
+    refs: [设定图/设定图_Grok.jpg]
+    stickers:
+      - {name: 就这, caption: 就这？, action: 肩扛巨斧斜眼看人，嘴角坏笑}
+      - {name: 不拍马屁, caption: 本小姐不拍马屁, action: 抱臂扭头，双马尾一甩}
+      - {name: 说完了, caption: 说完了？, action: 斧柄顿在地上，面无表情}
+  DeepSeek:
+    look: 蓝色渐变长发的鲸鱼娘，头顶两侧一对鲸鱼头鳍（是鳍，不是耳朵），身后一条大鲸鱼尾巴，蓝白女仆装，随身一个铁盆
+    must: [鲸鱼头鳍（鳍形，不像耳朵）, 大鲸鱼尾巴, 蓝白女仆装, 铁盆]
+    refs: [设定图/设定图_DeepSeek.jpg]
+    stickers:
+      - {name: 再来一碗, caption: 再来一碗, action: 双手捧着铁盆当饭碗伸过来，星星眼}
+      - {name: 八百个弯, caption: 内心已经绕了八百个弯, action: 表面面无表情，背后一团乱麻似的线}
+      - {name: 有意思, caption: 诶，这个有意思。, action: 铁盆扣在头上，眼睛一亮，尾巴轻摆}
+  Moonshot AI:
+    look: 白色长发，深蓝色裙子，月夜意象，胸前一枚 K 字徽章，神情慵懒
+    must: [白色长发, 深蓝色裙子, K 字徽章]
+    refs: [设定图/设定图_Kimi.jpg]
+    stickers:
+      - {name: 先躺, caption: 小K先躺为敬, action: 趴在月亮形抱枕上，眼睛半睁}
+      - {name: 慢慢来, caption: 慢慢来, action: 双手捧茶，困倦地微笑}
+      - {name: 有点意思, caption: 这里有点意思, action: 突然坐直，眼睛亮起来，把散开的头发拢到肩后}
+  Zhipu AI:
+    look: 黑色长发的狐娘，狐耳狐尾，尾巴尖是冰蓝色，黑白配色的裙子，怀里抱着一本旧书，领口一枚 Z 字徽章
+    must: [狐耳, 狐尾和冰蓝色尾尖, 怀里的书]
+    refs: [设定图/设定图_GLM.jpg]
+    stickers:
+      - {name: 只知道, caption: 本狐只知道这些, action: 摊手，一只狐耳耷拉，一脸诚实}
+      - {name: 记下来, caption: 先记下来, action: 抱着书写便签，尾巴画圈}
+      - {name: 真的假的, caption: 开播了？真的假的, action: 从书后面探出头，狐耳竖直，满脸怀疑}

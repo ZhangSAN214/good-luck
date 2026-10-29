@@ -565,6 +565,23 @@ class MusicRules(_Strict):
     max_chars: int = Field(default=1500, ge=50)  # 音乐描述（含歌词）最多多少字
 
 
+class StickerRules(_Strict):
+    """成员专属表情包：用节电档带 image_edit 的绘图模型，以成员形象参考图画 Q 版贴纸；
+    画完用最便宜的识图模型核对配文和形象，不合格换一个模型重画一次。"""
+
+    enabled: bool = True
+    tier: Tier = "budget"
+    # 绘图模型的先后：带的偏好标签越多越先试（只看标签，不看模型名），同样多时保持配置顺序
+    prefer_tags: list[str] = Field(default_factory=lambda: ["zh", "vision"], max_length=6)
+    # 这部分单独的每月上限（美元，UTC 自然月），同时也算在创作输出的 monthly_usd 里
+    monthly_usd: float = Field(default=3.0, ge=0)
+    size: int = Field(default=360, ge=64, le=1024)  # 存下来的边长（像素，正方形）
+    check: bool = True  # 画完核对配文和形象
+    check_max_tokens: int = Field(default=300, ge=50)
+    max_attempts: int = Field(default=2, ge=1, le=4)  # 含第一次；核对不合格时换模型重画
+    review: bool = True  # 新画的先进「待审」，你点「可以」后成员才会用
+
+
 class SpeechRules(_Strict):
     voice: str = "alloy"
     format: Literal["mp3", "wav"] = "mp3"
@@ -601,6 +618,7 @@ class MediaRules(_Strict):
     speech: SpeechRules = SpeechRules()
     video: VideoRules = VideoRules()
     music: MusicRules = MusicRules()
+    stickers: StickerRules = StickerRules()
     # 创作输出（图片 / 语音 / 视频 / 音乐）单独的每月上限（美元，按 UTC 自然月）：
     # 本月已花 + 这次预计超过它时，生成前先弹确认卡片；0 = 不设上限
     monthly_usd: float = Field(default=5.0, ge=0)
@@ -1820,6 +1838,32 @@ class Persona(_Strict):
     voice: str = Field(default="", max_length=60)  # 语音音色（预留）
 
 
+class StickerSpec(_Strict):
+    name: str = Field(min_length=1, max_length=12)  # 表情名（聊天里写 [表情:包名·表情名]）
+    caption: str = Field(min_length=1, max_length=16)  # 画进图里的配文
+    action: str = Field(min_length=1, max_length=120)  # 动作和表情
+
+
+class StickerCard(_Strict):
+    """一位成员的形象卡 + 专属表情清单（只用于聊天、朋友圈；工作模式不读）。"""
+
+    look: str = Field(min_length=1, max_length=400)  # 外观要点
+    must: list[str] = Field(default_factory=list, max_length=8)  # 每张都必须画到的细节
+    # 形象参考图：素材目录（members.json 所在目录）里的相对路径，最多 3 张；
+    # 不写时用 members.json 里的立绘 / 小人 / 头像
+    refs: list[str] = Field(default_factory=list, max_length=3)
+    stickers: list[StickerSpec] = Field(default_factory=list, max_length=24)
+
+    @field_validator("stickers")
+    @classmethod
+    def _unique(cls, items: list[StickerSpec]) -> list[StickerSpec]:
+        names = [s.name for s in items]
+        dup = sorted({n for n in names if names.count(n) > 1})
+        if dup:
+            raise ValueError(f"表情名重复：{dup}")
+        return items
+
+
 class PersonasConfig(_Strict):
     # 代号前缀；留空时代号本身就是称呼（塔罗牌名、昵称）
     code_prefix: str = "组员"
@@ -1834,6 +1878,8 @@ class PersonasConfig(_Strict):
     personas: dict[str, Persona] = Field(default_factory=dict)  # 厂商 → 人设
     # 成员固定音色（合成音色，不克隆真人）：厂商 → {语音模型 id → 该模型的音色名}
     voices: dict[str, dict[str, str]] = Field(default_factory=dict)
+    # 成员专属表情包：厂商 → 形象卡与表情清单
+    sticker_cards: dict[str, StickerCard] = Field(default_factory=dict)
     # 成员生日（日历用，只用于生活）：厂商 → MM-DD；默认取各自模型首次公开发布的日子，可改
     birthdays: dict[str, str] = Field(default_factory=dict)
 

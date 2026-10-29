@@ -50,6 +50,7 @@ WANDER_DIR = "wander"
 PERCEPTION_DIR = "perception"
 # 成员音色念过的语音缓存（放在数据库旁边，不进 git）
 VOICE_CACHE_DIR = "voice_cache"
+STICKER_DIR = "stickers"
 
 
 def data_dir(environ: Mapping[str, str] | None = None) -> Path:
@@ -107,6 +108,8 @@ class Runtime:
     perception_dir: Path | None = None
     # 成员音色念过的语音缓存；为空时只缓存在内存里（内存数据库）
     voice_cache_dir: Path | None = None
+    # 成员表情包的图片与索引（数据库旁边的 stickers/）；为空时只存在内存里
+    sticker_dir: Path | None = None
 
     @classmethod
     def build(
@@ -219,6 +222,7 @@ class Runtime:
             voice_cache_dir=None
             if str(db_path) == ":memory:"
             else Path(db_path).parent / VOICE_CACHE_DIR,
+            sticker_dir=None if str(db_path) == ":memory:" else Path(db_path).parent / STICKER_DIR,
         )
 
     def sandbox(self) -> tuple[Sandbox | None, str | None]:

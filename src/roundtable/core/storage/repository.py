@@ -1095,6 +1095,14 @@ class Repository:
             return row["id"]
         return self.create_session("成员音色：念给你听", seed=0, anonymous=False, workflow="voice")
 
+    def sticker_session(self) -> str:
+        """成员表情包的隐藏会话（workflow = 'sticker'）：画表情和核对配文的调用挂在这里，
+        计入总预算、创作输出的每月上限和表情包的每月小上限（role = media）；不出现在会话列表里。"""
+        row = self._exec("SELECT id FROM sessions WHERE workflow = 'sticker' LIMIT 1").fetchone()
+        if row:
+            return row["id"]
+        return self.create_session("成员表情包", seed=0, anonymous=False, workflow="sticker")
+
     def watch_session(self) -> str:
         """投屏陪伴的隐藏会话（workflow = 'watch'）：画面转文字和成员陪看发言的调用挂在这里，
         计入总预算和「一起看」的每月上限；不出现在会话列表里。截图本身不存，只存描述的哈希。"""
@@ -2584,7 +2592,8 @@ class Repository:
             " r.difficulty, r.plan,"
             " (SELECT COALESCE(SUM(cost_usd), 0) FROM calls c WHERE c.session_id = s.id) AS cost"
             " FROM sessions s LEFT JOIN routing_records r ON r.session_id = s.id"
-            " WHERE s.workflow NOT IN ('chat', 'evolution_scout', 'mail', 'watch', 'voice')"
+            " WHERE s.workflow NOT IN"
+            " ('chat', 'evolution_scout', 'mail', 'watch', 'voice', 'sticker')"
             " ORDER BY s.created_at DESC LIMIT ?",
             (limit,),
         ).fetchall()
