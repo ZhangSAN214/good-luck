@@ -10,6 +10,7 @@ from roundtable.core.memory import (
     LAST_DAY_KEY,
     MemoryKeeper,
     clean_memory,
+    clean_old_items,
     memory_context,
     month_id,
     week_id,
@@ -222,7 +223,8 @@ def test_half_life_is_default_and_old_memories_are_imported_once():
     repo.add_memory("V1", "day", "★用户不吃香菜\n昨天去了图书馆", period="2026-10-22")
     repo.add_memory("V1", "note", "用户下周考试", source="user")
     text = memory_context(env.rt, "V1", 800, "图书馆")
-    assert "用户不吃香菜" in text and "图书馆" in text
+    # 日记里的普通行不再逐行抄成记忆件（日记本身还在，翻日记能找到），★ 行和用户记的导入
+    assert "用户不吃香菜" in text and "图书馆" not in text
     facts = {r["text"]: r for r in repo.memory_items("V1", kind="fact")}
     assert facts["用户不吃香菜"]["importance"] == 3 and facts["用户下周考试"]["source"] == "user"
     n = repo.count_memory_items("V1")
@@ -236,3 +238,44 @@ def test_layers_mode_does_not_record_recall():
     m = env.rt.repo.add_memory("V1", "day", "昨天", period="2026-10-22")
     memory_context(env.rt, "V1", 800, "昨天")
     assert env.rt.repo.memory(m["id"])["recalled_at"] is None
+
+
+def test_old_duplicate_and_empty_items_are_cleaned_once():
+    """旧版导入把日记逐行抄成了记忆件（和日记重复），还有只有标题的件：清理一次，日记不动。"""
+    env = Env()
+    repo = env.rt.repo
+    diary = repo.add_memory(
+        "V1", "day", "10月24日回忆录：\n用户在群聊里请所有人自我介绍", period="2026-10-24"
+    )
+    common = {"member": "V1", "day": "2026-10-24", "source": "import"}
+    repo.add_memory_items_bulk(
+        [
+            {**common, "text": "10月24日回忆录：", "kind": "episode", "source_key": "import:1:0"},
+            {
+                **common,
+                "text": "用户在群聊里请所有人自我介绍",
+                "kind": "episode",
+                "source_key": "import:1:1",
+            },
+            {**common, "text": "用户常去图书馆", "kind": "episode", "source_key": "import:1:2"},
+            {
+                **common,
+                "text": "用户不吃香菜",
+                "kind": "fact",
+                "importance": 3,
+                "source_key": "import:1:3",
+            },
+            {**common, "text": "今天的事：", "kind": "episode", "source": "night"},
+            {**common, "text": "备忘：", "kind": "fact", "source": "user"},
+        ]
+    )
+    kept = repo.memory_item_by_key("V1", "import:1:2")
+    repo.bump_memory_item(kept["id"], "2026-10-25T00:00:00Z")  # 后来又发生过：保留
+    assert clean_old_items(env.rt) == 3
+    left = {r["text"] for r in repo.memory_items("V1", current=False)}
+    assert left == {"用户常去图书馆", "用户不吃香菜", "备忘："}
+    assert repo.memory(diary["id"])["text"].endswith("自我介绍")  # 日记原文不动
+    repo.add_memory_items_bulk(
+        [{**common, "text": "又一件：", "kind": "episode", "source": "night"}]
+    )
+    assert clean_old_items(env.rt) == 0  # 只做一次

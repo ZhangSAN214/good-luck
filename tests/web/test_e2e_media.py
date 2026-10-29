@@ -72,7 +72,12 @@ def test_image_round_is_shown_with_prompt_review_and_media_panel(serve, page):
     assert "图片" in job.inner_text() and "第 1 轮" in job.inner_text()
     img = job.locator("img.thumb")
     assert img.count() == 1
-    assert img.evaluate("e => e.complete && e.naturalWidth > 0")  # 图片真的加载了
+    # 图片真的加载了（等它加载完，CI 慢时立刻查会偶尔失败）
+    page.wait_for_function(
+        "() => { const e = document.querySelector(\".mediajob[data-state='completed'] img.thumb\");"
+        " return e && e.complete && e.naturalWidth > 0; }",
+        timeout=10_000,
+    )
     assert "mi1" in job.inner_text()  # 匿名关闭：显示模型
     page.click(".mediajob details summary")
     assert "最大值 2，最小值 -2" in page.inner_text(".mediajob")  # 生成提示词

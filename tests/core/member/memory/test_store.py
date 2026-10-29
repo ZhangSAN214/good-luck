@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from roundtable.core.member.memory import MemoryStore
 from roundtable.core.member.memory.domains import classify, tag
-from roundtable.core.member.memory.store import MERGE, NEW, UPDATE, similarity
+from roundtable.core.member.memory.store import MERGE, NEW, UPDATE, headless, similarity
 
 from ...orchestrator.conftest import Env
 
@@ -92,3 +92,13 @@ def test_digest_uses_whole_history_not_just_recent():
     assert "周日早上去公园跑步（12 次）" in text  # 两年前的习惯照样在
     assert len(text) <= env.config.roundtable.chat.memory.digest_chars
     assert env.rt.repo.memory_digest("V1")["text"] == text
+
+
+def test_heading_only_text_is_not_written():
+    for text in ("10月24日回忆录：", "# 今天", "**小结**", "  ", "10-24 日记:\n## 早上"):
+        assert headless(text), text
+    for text in ("用户说周末去爬山", "10月24日回忆录：今天去了图书馆", "今天：去了图书馆。"):
+        assert not headless(text), text
+    store = MemoryStore(Env().rt)
+    assert store.write("V1", "10月24日回忆录：", day="2026-10-24").route == "skip"
+    assert store.write("V1", "和用户去了拉面店", day="2026-10-24").route == NEW
