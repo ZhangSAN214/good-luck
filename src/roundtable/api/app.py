@@ -270,6 +270,21 @@ class WatchSayBody(BaseModel):
     text: str = Field(min_length=1, max_length=1000)
 
 
+class AdbPairBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    host: str = Field(min_length=1, max_length=100)
+    port: int = Field(ge=1, le=65535)
+    code: str = Field(min_length=6, max_length=6)
+
+
+class AdbConnectBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    host: str = Field(default="", max_length=100)  # 空 = 自动找已配对的设备
+    port: int = Field(default=0, ge=0, le=65535)
+
+
 class WatchScrcpyBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -619,6 +634,16 @@ def create_app(service: RoundtableService | None = None, lan: LanAccess | None =
         if frame is None:
             return Response(status_code=204, headers=headers)
         return Response(content=frame, media_type="image/jpeg", headers=headers)
+
+    @app.post("/api/watch/adb/pair")
+    async def watch_adb_pair(request: Request, body: AdbPairBody) -> dict[str, Any]:
+        watch_local(request)
+        return await asyncio.to_thread(svc(request).watch_adb_pair, body.host, body.port, body.code)
+
+    @app.post("/api/watch/adb/connect")
+    async def watch_adb_connect(request: Request, body: AdbConnectBody) -> dict[str, Any]:
+        watch_local(request)
+        return await asyncio.to_thread(svc(request).watch_adb_connect, body.host, body.port)
 
     @app.post("/api/watch/scrcpy")
     async def watch_scrcpy(request: Request, body: WatchScrcpyBody) -> dict[str, Any]:

@@ -299,6 +299,9 @@ def _win_foreground() -> str:
 _FOCUS = re.compile(r"mCurrentFocus=Window\{[^}]*\s([A-Za-z0-9_.]+)/")
 _FOCUS_APP = re.compile(r"mFocusedApp=.*?\s([A-Za-z0-9_.]+)/")
 _SERIAL = re.compile(r"^[A-Za-z0-9._:\-]{1,64}$")
+_HOST = re.compile(r"^[A-Za-z0-9.\-]{1,100}$")
+_CODE = re.compile(r"^\d{6}$")
+_MDNS_CONNECT = re.compile(r"_adb-tls-connect\._tcp\.?\s+([A-Za-z0-9.\-]+:\d{1,5})")
 
 
 class AdbSource:
@@ -333,6 +336,61 @@ class AdbSource:
             title = model.replace("_", " ") or parts[0]
             found.append(SourceInfo(f"android:{parts[0]}", "android", title))
         return found
+
+    # --- 无线调试：配对 / 连接（只建立 adb 连接，不读写手机上的任何东西） ---------------------
+
+    @staticmethod
+    def _addr(host: str, port: int) -> str:
+        host = (host or "").strip()
+        if not _HOST.match(host) or not 1 <= int(port) <= 65535:
+            raise ScreenUnavailable("IP 地址或端口不对")
+        return f"{host}:{int(port)}"
+
+    def _text(self, cmd: list[str]) -> str:
+        return self.run(cmd).decode("utf-8", "replace").strip()
+
+    def pair(self, host: str, port: int, code: str) -> str:
+        """手机「无线调试 → 使用配对码配对设备」里显示的 IP:端口 和 6 位配对码。"""
+        exe = self._exe()
+        if exe is None:
+            raise ScreenUnavailable(self.available() or "没有 adb")
+        if not _CODE.match((code or "").strip()):
+            raise ScreenUnavailable("配对码是 6 位数字")
+        out = self._text([exe, "pair", self._addr(host, port), code.strip()])
+        if "Successfully paired" not in out:
+            raise ScreenUnavailable("配对没成功：检查配对码和端口（配对码弹窗关掉后会失效）")
+        return "配对成功"
+
+    def discover(self) -> list[str]:
+        """同一个 Wi-Fi 里已配对、开着无线调试的设备（adb mdns）。"""
+        exe = self._exe()
+        if exe is None:
+            return []
+        try:
+            out = self._text([exe, "mdns", "services"])
+        except ScreenUnavailable:
+            return []
+        return sorted(set(_MDNS_CONNECT.findall(out)))
+
+    def connect(self, host: str = "", port: int = 0) -> list[str]:
+        """连上设备。不填地址时自动找已配对的设备。返回连上的地址。"""
+        exe = self._exe()
+        if exe is None:
+            raise ScreenUnavailable(self.available() or "没有 adb")
+        targets = [self._addr(host, port)] if host else self.discover()
+        if not targets:
+            raise ScreenUnavailable(
+                "没找到设备：确认手机和电脑在同一个 Wi-Fi、无线调试开着；"
+                "也可以填无线调试页面上「IP 地址和端口」那一行"
+            )
+        done = []
+        for addr in targets:
+            out = self._text([exe, "connect", addr])
+            if "connected to" in out and "cannot" not in out and "failed" not in out:
+                done.append(addr)
+        if not done:
+            raise ScreenUnavailable("连接没成功：确认无线调试开着、地址和端口是主页面那一行")
+        return done
 
     def _serial(self, source_id: str) -> str:
         serial = source_id.removeprefix("android:")

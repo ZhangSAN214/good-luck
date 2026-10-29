@@ -208,6 +208,10 @@ export const watchMessages = (after = 0) => api(`/api/watch/messages?after=${aft
 export const watchSay = (text) => api('/api/watch/say', { method: 'POST', body: { text } });
 export const watchScrcpy = (source) => api('/api/watch/scrcpy', { method: 'POST', body: { source } });
 export const watchFrameUrl = () => `/api/watch/frame?t=${Date.now()}`;
+export const watchAdbPair = (host, port, code) =>
+  api('/api/watch/adb/pair', { method: 'POST', body: { host, port, code } });
+export const watchAdbConnect = (host, port) =>
+  api('/api/watch/adb/connect', { method: 'POST', body: { host, port } });
 export const wanderStatus = () => api('/api/wander');
 export const wanderStart = (member, site) => api('/api/wander/start', { method: 'POST', body: { member, site } });
 export const wanderStop = () => api('/api/wander/stop', { method: 'POST' });

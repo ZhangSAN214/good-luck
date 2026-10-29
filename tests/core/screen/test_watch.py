@@ -278,3 +278,65 @@ def test_window_list_drops_background_and_overlay_windows():
     assert not keep_window("另存为", **normal | {"owned": True})
     assert not keep_window("小窗", **normal | {"width": 60, "height": 20})
     assert not keep_window("Some Helper", **normal, ignore=["helper"])  # 配置里加的
+
+
+# ---------- 安卓无线调试 ----------
+
+
+class WirelessAdb:
+    def __init__(self, paired_ok=True, mdns=True) -> None:
+        self.paired_ok = paired_ok
+        self.mdns = mdns
+        self.cmds: list[list[str]] = []
+
+    def __call__(self, cmd: list[str]) -> bytes:
+        self.cmds.append(cmd)
+        if cmd[1] == "pair":
+            if self.paired_ok:
+                return b"Successfully paired to 192.168.1.5:41234 [guid=adb-abc]\n"
+            return b"Failed: Wrong password or connection was dropped.\n"
+        if cmd[1:] == ["mdns", "services"]:
+            if not self.mdns:
+                return b"List of discovered mdns services\n"
+            return (
+                b"List of discovered mdns services\n"
+                b"adb-abc-1\t_adb-tls-pairing._tcp.\t192.168.1.5:41234\n"
+                b"adb-abc-2\t_adb-tls-connect._tcp.\t192.168.1.5:37000\n"
+            )
+        if cmd[1] == "connect":
+            if cmd[2] == "192.168.1.9:5555":
+                return b"failed to connect to 192.168.1.9:5555\n"
+            return f"connected to {cmd[2]}\n".encode()
+        raise AssertionError(cmd)
+
+
+def test_adb_wireless_pair_and_connect(monkeypatch):
+    fake = WirelessAdb()
+    src = AdbSource("adb", runner=fake)
+    monkeypatch.setattr(src, "_exe", lambda: "/usr/bin/adb")
+    assert src.pair("192.168.1.5", 41234, "123456") == "配对成功"
+    assert fake.cmds[-1] == ["/usr/bin/adb", "pair", "192.168.1.5:41234", "123456"]
+    assert src.discover() == ["192.168.1.5:37000"]  # 只要连接用的那一项
+    assert src.connect() == ["192.168.1.5:37000"]
+    assert src.connect("192.168.1.5", 37001) == ["192.168.1.5:37001"]
+    with pytest.raises(ScreenUnavailable, match="连接没成功"):
+        src.connect("192.168.1.9", 5555)
+    with pytest.raises(ScreenUnavailable, match="6 位数字"):
+        src.pair("192.168.1.5", 41234, "12ab")
+    with pytest.raises(ScreenUnavailable, match="IP 地址或端口"):
+        src.pair("1.2.3.4; rm -rf", 41234, "123456")
+    with pytest.raises(ScreenUnavailable, match="IP 地址或端口"):
+        src.connect("192.168.1.5", 70000)
+    # 只建立连接：没有任何 shell / input 命令
+    assert not any("shell" in c or "input" in c for c in fake.cmds)
+
+
+def test_adb_wireless_failures(monkeypatch):
+    src = AdbSource("adb", runner=WirelessAdb(paired_ok=False, mdns=False))
+    monkeypatch.setattr(src, "_exe", lambda: "/usr/bin/adb")
+    with pytest.raises(ScreenUnavailable, match="配对没成功"):
+        src.pair("192.168.1.5", 41234, "123456")
+    with pytest.raises(ScreenUnavailable, match="没找到设备"):
+        src.connect()
+    with pytest.raises(ScreenUnavailable, match="adb"):
+        AdbSource("adb-not-installed").pair("192.168.1.5", 1, "123456")

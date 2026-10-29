@@ -165,6 +165,8 @@ new Watch($('#watchdlg'), $('#watchbtn'), {
     messages: API.watchMessages,
     say: API.watchSay,
     scrcpy: API.watchScrcpy,
+    adbPair: API.watchAdbPair,
+    adbConnect: API.watchAdbConnect,
     frameUrl: API.watchFrameUrl,
     members: () => API.api('/api/chat?after=2147483647'),
   },
