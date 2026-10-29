@@ -20,6 +20,7 @@ from roundtable.core.member.heartbeat import Heartbeat
 from roundtable.core.member.mode import Mode, require_life
 from roundtable.core.member.profile import ProfileStore
 from roundtable.core.member.scheduler import BudgetScheduler
+from roundtable.core.member.state import StatePlugin
 from roundtable.core.storage.repository import iso
 
 LAST_KEY = "engine.last_tick"
@@ -27,13 +28,20 @@ PRUNED_KEY = "engine.pruned_day"
 
 
 class MemberEngine:
-    def __init__(self, rt: Any, members: Callable[[], list[str]]) -> None:
+    def __init__(
+        self,
+        rt: Any,
+        members: Callable[[], list[str]],
+        names: Callable[[], dict[str, str]] | None = None,
+    ) -> None:
         self.rt = rt
         self.members = members  # 现在有哪些成员（id）
         self.profiles = ProfileStore(rt)
         self.bus = EventBus(rt)
         self.scheduler = BudgetScheduler(rt)
         self.heartbeat = Heartbeat(rt, self.bus, self.scheduler)
+        # P3 状态：订阅总线，按事件算心情和精力（names：成员 id → 称呼，认 @ 用）
+        self.state = StatePlugin(rt, self.bus, names or (lambda: {m: m for m in self.members()}))
 
     @property
     def rules(self) -> Any:
@@ -78,6 +86,22 @@ class MemberEngine:
             data = {"session_id": row["session_id"], "question": row["question"][:200]}
             self.bus.publish(Event("work.done", datetime.fromisoformat(row["at"]), member, data))
             n += 1
+        return n
+
+    def observe(self, now: datetime) -> int:
+        """只把上次以来的事件发到总线（不心跳、不花钱）。用户发了消息、成员回应前调一次，
+        这样被 @、被批评的反射马上算进状态。返回发了几个事件。"""
+        if not self.rules.enabled:
+            return 0
+        repo = self.rt.repo
+        end = now + timedelta(milliseconds=1)  # 含 now 这一刻的消息
+        last = repo.setting(LAST_KEY)
+        start = datetime.fromisoformat(last) if last else now - timedelta(hours=1)
+        start = max(start, end - timedelta(days=self.rules.bus.catch_up_days))
+        if start >= end:
+            return 0
+        n = self.bridge(start, end)
+        repo.set_setting(LAST_KEY, end.isoformat())
         return n
 
     async def tick(self, now: datetime) -> dict[str, int]:

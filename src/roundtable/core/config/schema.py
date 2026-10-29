@@ -975,10 +975,89 @@ class CardRules(_Strict):
     budget_chars: int = Field(default=400, ge=50, le=4000)
 
 
+class StateLayerRules(_Strict):
+    """心情或精力的快慢两层：每次冲击 slow_share 落到慢层，其余落到快层；两层各自按半衰期回到 0。"""
+
+    fast_half_life_hours: float = Field(default=2.0, gt=0, le=72)
+    slow_half_life_hours: float = Field(default=48.0, gt=0, le=24 * 30)
+    slow_share: float = Field(default=0.2, ge=0, le=1)
+    fast_cap: float = Field(default=0.8, gt=0, le=2)  # 快层最多偏离多少
+    slow_cap: float = Field(default=0.4, gt=0, le=2)  # 慢层最多偏离多少
+
+
+class CircadianRules(_Strict):
+    """精力的作息基线（0～1）：醒来后爬升到高点，午后小低谷，睡前回落，睡着时最低。"""
+
+    asleep: float = Field(default=0.15, ge=0, le=1)
+    waking: float = Field(default=0.45, ge=0, le=1)  # 刚醒
+    peak: float = Field(default=0.85, ge=0, le=1)
+    bedtime: float = Field(default=0.35, ge=0, le=1)  # 快睡时
+    ramp_hours: float = Field(default=1.5, gt=0, le=6)  # 醒来后几小时到高点（夜猫子加倍）
+    wind_down_hours: float = Field(default=2.0, gt=0, le=6)  # 睡前几小时开始回落（夜猫子减半）
+    dip: float = Field(default=0.1, ge=0, le=0.5)  # 午后低谷
+    dip_hours: tuple[int, int] = (13, 15)
+
+
+class BaselineRules(_Strict):
+    """从自我档案读基线（人物卡第 5 章「情绪」、第 8 章「日常」、五项性格分）；只看这些词。"""
+
+    bright_words: list[str] = ["乐观", "开朗", "想得开", "没心没肺", "很快就忘", "很快就好"]
+    dark_words: list[str] = ["内耗", "焦虑", "敏感", "多想", "钻牛角尖", "想太多"]
+    calm_words: list[str] = ["很少生气", "不太生气", "平静", "淡定", "不会大吼", "不容易生气"]
+    wake_words: list[str] = ["起床", "醒", "闹钟", "起来", "睡到"]
+    sleep_words: list[str] = ["睡觉", "入睡", "上床", "睡前", "熄灯", "前睡", "不晚于", "洗漱"]
+    night_words: list[str] = ["夜猫", "熬夜", "晚上反而", "容易精神", "越晚越精神", "深夜才睡"]
+
+
+class ReflexRule(_Strict):
+    """本能反射规则表的一行：刺激带齐 tags 里的标签且满足条件时，改心情 / 精力，给出动作和说明。
+
+    标签：spoke 自己说话 / from_user 你发的 / from_member 别的成员发的 / dm 私聊 / mentioned 被 @ /
+    everyone 叫所有人 / criticized 被直接批评 / group_criticized 大家一起被批评 / praised 被夸 /
+    life、life.gather、life.pair、life.solo 生活里的事 / work 在办公室干完活 / perceive 看过听过的。
+    """
+
+    name: str
+    tags: list[str] = Field(min_length=1)
+    night: bool | None = None  # true：她本该在睡觉时才触发；false：醒着时才触发
+    energy_below: float | None = Field(default=None, ge=0, le=1)
+    mood_below: float | None = Field(default=None, ge=-1, le=1)
+    mood: float = Field(default=0.0, ge=-1, le=1)  # 乘以这位成员的情绪敏感度
+    energy: float = Field(default=0.0, ge=-1, le=1)
+    act: str = ""  # 给之后的「决定与表达」：reply_now 秒回 / sleepy 犯困 / flustered 害羞 …
+    note: str = ""  # 记成「刚才…」放进状态那一行
+
+
+class StateRules(_Strict):
+    """状态（P3，docs/MEMBER_ENGINE.md）：心情和精力全由程序按事件算，快慢两层、会回到基线。"""
+
+    enabled: bool = True
+    mood: StateLayerRules = StateLayerRules()
+    energy: StateLayerRules = StateLayerRules(
+        fast_half_life_hours=1.0, slow_half_life_hours=10.0, slow_share=0.5, slow_cap=0.5
+    )
+    circadian: CircadianRules = CircadianRules()
+    baseline: BaselineRules = BaselineRules()
+    criticism_words: list[str] = []
+    praise_words: list[str] = []
+    reflexes: list[ReflexRule] = []
+    recent_keep: int = Field(default=5, ge=0, le=50)  # 记最近几次反射
+    recent_hours: float = Field(
+        default=2.0, ge=0, le=48
+    )  # 多久以内的反射写进状态那一行（默认 2 小时）
+    # 状态那一行：{mood} {energy} 换成下面的标签，{recent} 换成 recent_format；总长 ≤ context_chars
+    mood_labels: list[tuple[float, str]] = []  # (下限, 标签)，从高到低，取第一个 ≥ 下限的
+    energy_labels: list[tuple[float, str]] = []
+    line_format: str = "{mood}，{energy}{recent}"
+    recent_format: str = "；{note}"
+    context_chars: int = Field(default=80, ge=0, le=300)
+
+
 class EngineRules(_Strict):
     """成员引擎（docs/MEMBER_ENGINE.md）：只用于聊天、朋友圈、生活；工作模式不读取。"""
 
     enabled: bool = True
+    state: StateRules = StateRules()
     profile: ProfileRules = ProfileRules()
     card: CardRules = CardRules()
     context: ContextRules = ContextRules()
