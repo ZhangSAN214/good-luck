@@ -1,28 +1,30 @@
-// 「工作台」页（分段栏第五个入口）：超级电脑和 dsh 两块，风格跟终端首页一致（液态玻璃、衬线标题）。
-// 两块的内容分别由 SuperPanel 和 Workbench 画；这里只管页面骨架、标签切换和「现在看得见吗」。
+// 「工作台」页（分段栏第五个入口）：生成器、超级电脑和 dsh 三块，风格跟终端首页一致（液态玻璃、衬线标题）。
+// 三块的内容分别由 BenchGenPanel、SuperPanel 和 Workbench 画；这里只管页面骨架、标签切换和「现在看得见吗」。
 
-const TABS = ['super', 'dsh'];
+const TABS = ['gen', 'super', 'dsh'];
 const KEY = 'roundtable.bench.tab';
 
 export class Bench {
   /** @param {HTMLElement} root 分段栏对应的 section */
   constructor(root) {
     this.root = root;
-    let saved = 'super';
+    let saved = 'gen';
     try {
-      saved = localStorage.getItem(KEY) || 'super';
+      saved = localStorage.getItem(KEY) || 'gen';
     } catch {
-      /* 本机存储不能用时默认超级电脑 */
+      /* 本机存储不能用时默认生成器 */
     }
-    this.tab = TABS.includes(saved) ? saved : 'super';
+    this.tab = TABS.includes(saved) ? saved : 'gen';
     root.innerHTML = `<div class="bn-wrap">
       <div class="bn-head">
         <div class="bn-title"><span class="bn-zh">工作台</span><span class="bn-en">WORKBENCH</span></div>
         <div class="bn-tabs hb-glass" role="tablist" aria-label="工作台">
+          <button type="button" role="tab" data-tab="gen">生成器</button>
           <button type="button" role="tab" data-tab="super">超级电脑</button>
           <button type="button" role="tab" data-tab="dsh" hidden>dsh</button>
         </div>
       </div>
+      <div class="bn-card hb-glass" data-pane="gen" role="tabpanel"></div>
       <div class="bn-card hb-glass" data-pane="super" role="tabpanel"></div>
       <div class="bn-card hb-glass" data-pane="dsh" role="tabpanel"></div>
     </div>`;
@@ -68,8 +70,8 @@ export class Bench {
 
   show() {
     this.root.hidden = false;
-    // dsh 标签被藏起来（这份圆桌没带 dsh）时回到超级电脑
-    if (this.tab === 'dsh' && this.tabButton('dsh').hidden) this.select('super');
+    // dsh 标签被藏起来（这份圆桌没带 dsh）时回到生成器
+    if (this.tab === 'dsh' && this.tabButton('dsh').hidden) this.select('gen');
     this.onSelect?.(this.tab);
     return Promise.resolve();
   }

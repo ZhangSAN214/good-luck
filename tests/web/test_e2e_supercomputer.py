@@ -32,6 +32,7 @@ def test_supercomputer_flow(serve, page, monkeypatch, tmp_path):
     srv = serve(confirm_threshold_usd=100.0)
     page.goto(srv.url)
     page.locator('#entries [data-m="bench"]').click()
+    page.locator('#bench [data-tab="super"]').click()  # 默认标签是生成器
     dlg = page.locator('#bench [data-pane="super"]')
     dlg.locator(".sc-worker", has_text="K").wait_for()
     assert dlg.locator(".sc-worker").count() == 3

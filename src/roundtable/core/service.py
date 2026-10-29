@@ -913,6 +913,14 @@ class RoundtableService:
             raise ServiceError("没有这个工作台", 404)
         return b
 
+    async def bench_ask(self, bench_id: str, question: str) -> dict[str, Any]:
+        try:
+            return {"text": await self.bench.ask(bench_id, question)}
+        except LookupError as exc:
+            raise ServiceError(str(exc), 404) from None
+        except ValueError as exc:
+            raise ServiceError(str(exc), 400) from None
+
     def bench_file(self, bench_id: str, path: str) -> Path:
         """生成的工作台里的一个文件（只读；不许跳出它自己的文件夹）。"""
         if self.bench.root is None or self.bench.get(bench_id) is None:

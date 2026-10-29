@@ -144,6 +144,7 @@ class BenchBuilder:
             "enabled": self.rules.enabled,
             "unavailable": self.unavailable_reason(),
             "busy": self.busy,
+            "max_rounds": self.rules.max_rounds,
             "current": self.build,
             "recent": self.recent(),
             "library": {
@@ -349,6 +350,47 @@ class BenchBuilder:
                     f"- 只借思路：{s['url']}（{s['why']}）为「{s['need']}」：{s['summary']}"
                 )
         return "\n".join(lines) or "（这次没找插件，全部用零件库自己写）"
+
+    async def ask(self, bid: str, question: str) -> str:
+        """成品里的对话窗：用户的问题连同这个台的规格和示例数据，交给一位助手回答。
+        在 ``ask/`` 子文件夹里跑，不碰台本身的文件。"""
+        q = question.strip()
+        if not q:
+            raise ValueError("问题是空的")
+        if len(q) > self.rules.ask_max_chars:
+            raise ValueError(f"问题太长了（最多 {self.rules.ask_max_chars} 字）")
+        b = self.get(bid)
+        if b is None or self.root is None:
+            raise LookupError("没有这个工作台")
+        folder = self.folder(bid)
+        spec = (
+            (folder / "spec.json").read_text(encoding="utf-8")
+            if (folder / "spec.json").is_file()
+            else "{}"
+        )
+        data = []
+        for p in sorted((folder / "data").glob("*.json"))[: self.rules.max_windows]:
+            with contextlib.suppress(OSError, UnicodeDecodeError):
+                data.append(f"## {p.stem}\n{p.read_text(encoding='utf-8')[:3000]}")
+        prompt = self.render(
+            "bench_ask",
+            request=b["request"],
+            spec=spec[:6000],
+            data="\n\n".join(data) or "（没有数据）",
+            question=q,
+        )
+        chosen, result = await self.sc.step(
+            self.rules.ask_kind,
+            prompt,
+            folder=folder / "ask",
+            rng=random.Random(),
+            record={},
+        )
+        if chosen is None or result is None:
+            return "现在没有助手能回答（都没装、在冷却或今天次数用完了）。"
+        if not result.ok:
+            return "这次没答上来，稍后再试。"
+        return result.output.strip()[:4000] or "（没有回答）"
 
     def _grow(self, b: dict[str, Any], spec: Spec) -> None:
         """过线以后：新零件收进本机零件库，整个台存成配方（自行拓展）。"""

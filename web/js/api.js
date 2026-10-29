@@ -285,6 +285,12 @@ export const dshStop = () => api('/api/dsh/stop', { method: 'POST' });
 export const dshCheck = () => api('/api/dsh/check', { method: 'POST' });
 
 // 超级电脑：几位编程助手平级、按分数派活（docs/SUPERCOMPUTER.md）
+export const benchStatus = () => api('/api/bench');
+export const benchSubmit = (request) => api('/api/bench', { method: 'POST', body: { request } });
+export const benchCancel = () => api('/api/bench/cancel', { method: 'POST' });
+export const benchGet = (id) => api(`/api/bench/${encodeURIComponent(id)}`);
+export const benchAsk = (id, question) =>
+  api(`/api/bench/${encodeURIComponent(id)}/ask`, { method: 'POST', body: { question } });
 export const superStatus = () => api('/api/super');
 export const superSubmit = (text) => api('/api/super/tasks', { method: 'POST', body: { text } });
 export const superCancel = () => api('/api/super/cancel', { method: 'POST' });

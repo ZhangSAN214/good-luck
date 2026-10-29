@@ -47,6 +47,7 @@ import { Wander } from './wander.js';
 import { Workbench } from './workbench.js';
 import { SuperPanel } from './supercomputer.js';
 import { Bench } from './bench.js';
+import { BenchGenPanel } from './benchgen.js';
 import { Hub } from './hub.js';
 import { Standee } from './standee.js';
 import { Music } from './music.js';
@@ -224,7 +225,7 @@ new Wander($('#wanderdlg'), $('#wanderbtn'), {
     frameUrl: API.wanderFrameUrl,
   },
 });
-// 「工作台」页（分段栏第五个入口）：超级电脑 + dsh
+// 「工作台」页（分段栏第五个入口）：生成器 + 超级电脑 + dsh
 const bench = new Bench($('#bench'));
 const workbench = new Workbench(bench.pane('dsh'), bench.tabButton('dsh'), {
   api: { status: API.dshStatus, start: API.dshStart, stop: API.dshStop, check: API.dshCheck },
@@ -241,7 +242,19 @@ const superPanel = new SuperPanel(bench.pane('super'), document.querySelector('#
   },
   isOpen: () => bench.visible('super'),
 });
-bench.onSelect = (name) => (name === 'dsh' ? workbench.open() : superPanel.open());
+const benchGen = new BenchGenPanel(bench.pane('gen'), {
+  api: {
+    status: API.benchStatus,
+    submit: API.benchSubmit,
+    cancel: API.benchCancel,
+    get: API.benchGet,
+    ask: API.benchAsk,
+  },
+  isOpen: () => bench.visible('gen'),
+  label: (id) => superPanel.label(id),
+});
+bench.onSelect = (name) =>
+  name === 'dsh' ? workbench.open() : name === 'gen' ? benchGen.open() : superPanel.open();
 $('#skin').addEventListener('click', () => {
   const next = document.documentElement.dataset.skin === 'ark' ? 'classic' : 'ark';
   document.documentElement.dataset.skin = next;

@@ -59,3 +59,15 @@ def test_round_trip_and_sandboxed_files(tmp_path):
         kit = c.get("/kit/kit.js")
         assert kit.status_code == 200 and kit.headers["access-control-allow-origin"] == "*"
         assert "access-control-allow-origin" not in c.get("/index.html").headers
+
+
+def test_ask_inside_bench(tmp_path):
+    with TestClient(create_app(service_with(tmp_path))) as c:
+        c.post("/api/bench", json={"request": "东京旅行台"})
+        wait_done(c)
+        bid = c.get("/api/bench").json()["current"]["id"]
+        r = c.post(f"/api/bench/{bid}/ask", json={"question": "第一天去哪"})
+        assert r.status_code == 200 and r.json()["text"] == "回答：第一天去哪"
+        assert c.post(f"/api/bench/{bid}/ask", json={"question": "   "}).status_code == 400
+        assert c.post("/api/bench/nope/ask", json={"question": "在吗"}).status_code == 404
+        assert c.post(f"/api/bench/{bid}/ask", json={}).status_code == 422

@@ -303,6 +303,13 @@
 - 测试：`tests/core/benchkit/test_builder.py`、`test_scout.py`、`tests/api/test_bench_api.py`、`tests/web/test_kit.py`（生成的外壳过质检、坏窗口被抓）。
 - 下一段 W3：圆桌里的工作台外壳和控制室。
 
+### 工作台生成器 · W3 控制室（2026-10-29，预估 8～12 小时，实际约 1.5 小时）
+
+- 「工作台」页新增「生成器」标签（`web/js/benchgen.js`，默认标签）：一句话输入、进度条、窗口分工、插件清单、每轮分数条和截图、评审意见、新零件、打开成品（沙箱 iframe）。
+- 成品里的对话窗接上后端：`POST /api/bench/<编号>/ask`、提示词 `bench_ask/v1`、`bench.ask_kind` / `ask_max_chars`。
+- 测试：`tests/web/test_e2e_benchgen.py`（假助手跑完一台、截图能显示、成品里提问拿到回答），`test_builder.py`、`test_bench_api.py` 补了提问。
+- 下一段 W4：用户给 3 句话，生成器真跑，不合格的改逻辑。
+
 ## 下一步
 
 0. 你本机试用办公室模式（单人办、开会、项目分工、预算单、绩效）、公寓楼和群聊；看看「员工」页底部的人才市场，决定要不要换人 / 改价格。合并 PR #6 / #7 / #8 需要你点头。
