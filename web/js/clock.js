@@ -1,5 +1,5 @@
 // 终端时钟：最多同时显示三个地方的时间（默认曼彻斯特和中国），点开可以增删城市、改显示名、
-// 挑一个当「主时区」（排在最前面、字最大，其他钟的时差都按它算；也可以选「跟随这台电脑」，出门换了时区自动跟着变），
+// 挑一个当「主时区」（排在最前面、加粗，其他钟的时差都按它算；也可以选「跟随这台电脑」，出门换了时区自动跟着变），
 // 选 12 / 24 小时、显示日期和时差；面板里还有秒表（可计次）和倒计时（常用时长一键开始、到点响三声）。
 // 时间全靠浏览器自带的 IANA 时区表（Intl）算，夏令时自动切换（曼彻斯特 10 月最后一个周日回冬令时）；
 // 不联网、不花钱，设置和正在走的秒表 / 倒计时只存在这台电脑的浏览器里（localStorage），刷新页面不丢。
@@ -450,7 +450,7 @@ export class Clock {
       .join('');
     return `
       <ul class="ck-list">${rows}</ul>
-      <p class="hb-hint ck-mainhint">点星星设主时区：它排最前面、字最大，其他钟的时差按它算。时区选「跟随这台电脑」，出门换了时区会自己跟着变。</p>
+      <p class="hb-hint ck-mainhint">点星星设主时区：它排最前面、加粗显示，其他钟的时差按它算。时区选「跟随这台电脑」，出门换了时区会自己跟着变。</p>
       <button type="button" class="hb-chip ck-add" data-add${full ? ' disabled' : ''}>${icon('add')}${full ? `最多 ${MAX_ZONES} 个` : '添加城市'}</button>
       <div class="hb-chips" role="group" aria-label="小时制">
         <button type="button" class="hb-chip" data-h12="0" aria-pressed="${!s.h12}">24 小时</button>
