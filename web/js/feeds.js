@@ -71,7 +71,7 @@ export class Feeds {
             <label class="grp-row"><span>名称</span><input name="name" maxlength="40" placeholder="比如：科技日报" aria-label="名称" required></label>
             <label class="grp-row"><span>网址</span><input name="url" type="url" maxlength="500" placeholder="RSS / Atom 订阅地址" aria-label="订阅源网址" required></label>
             <label class="grp-row"><span>话题</span><input name="topics" placeholder="逗号分隔，如 科技，游戏" aria-label="话题"></label>
-            <label class="grp-row"><span>类型</span><select name="kind" aria-label="类型"><option value="news">新闻</option><option value="forum">论坛</option><option value="blog">博客</option></select></label>
+            <label class="grp-row"><span>类型</span><select name="kind" aria-label="类型"><option value="news">新闻</option><option value="forum">论坛</option><option value="blog">博客</option><option value="video">视频</option></select></label>
           </div>
           <div class="pp-row grp-end"><button class="btn primary" type="submit">添加</button></div>
         </form>
