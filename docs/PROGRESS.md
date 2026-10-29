@@ -265,6 +265,15 @@
 - 顶栏「上网」面板；接口 `/api/wander/*`。见 `docs/WANDER.md`。
 - 测试：`tests/core/wander/`（含本机真浏览器冒烟测试）、`tests/api/test_wander_api.py`、`tests/web/test_e2e_wander.py`。
 
+### dsh 工作台 · A1（2026-10-29，预估 8～12 小时，实际约 6 小时）
+
+用户要「直接接入一个 dsh」，圆桌是主体、dsh 是可拔掉的外设（方案：Claude Doc「圆桌接入 dsh 插件 · 架构方案」）：
+- `core/dsh/`：白名单与安装包哈希（`config/dsh_plugins.yaml`，运行时钉死 0.2.1-rc.3，首个插件 worktable）、叠加配置层（关会话上传、插件清单上报、遥测；中立身份 `dsh_workbench/v1`）、key 与余额、进程管理（只监听 127.0.0.1）、一次性安装 `scripts/setup_dsh.py`。
+- 花费：dsh 直接用 DeepSeek 官方 key，圆桌按余额差额估算，每月软上限 $3（`dsh.monthly_usd`），超了停掉 dsh。
+- 只有 `service.py` 可选导入；CI 新任务 `unplug-dsh` 删掉 dsh 后跑测试。dsh 数据只在 `data/dsh/`。
+- 顶栏「工作台」面板；接口 `/api/dsh/*`，网页地址只给电脑本机。见 `docs/DSH.md`。
+- 测试：`tests/core/dsh/`、`tests/api/test_dsh_api.py`、`tests/test_architecture.py`（只有 service 导入 dsh）。
+
 ## 下一步
 
 0. 你本机试用办公室模式（单人办、开会、项目分工、预算单、绩效）、公寓楼和群聊；看看「员工」页底部的人才市场，决定要不要换人 / 改价格。合并 PR #6 / #7 / #8 需要你点头。

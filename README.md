@@ -120,6 +120,7 @@ roundtable performance                        # 办公室模式的员工绩效�
 ```bash
 python scripts/setup_sandbox.py          # 一次性安装 Deno + Pyodide + 常用包 + 中文字体，之后完全离线
 python scripts/setup_sandbox.py --check  # 只检查
+python scripts/setup_dsh.py              # 可选：在电脑上安装 dsh 工作台（Node 22+、pnpm；见 docs/DSH.md）
 ```
 
 默认的 `wasm` 后端不需要 Docker：Deno 只能读运行时目录和本次的工作目录、只能写 `out/`，没有网络、环境变量和子进程权限。也可以改用 Docker 后端（`sandbox/Dockerfile`，`--network none`、只读根目录、非 root），见 `sandbox/README.md`。

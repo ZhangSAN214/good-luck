@@ -2149,6 +2149,18 @@ class Repository:
             (workflow, iso(start), iso(end)),
         ).fetchone()[0]
 
+    def spent_on_channels(self, channels: Sequence[str], start: datetime, end: datetime) -> float:
+        """[start, end) 内走这些渠道的调用花费（dsh 工作台从余额差值里扣掉圆桌自己用掉的）。"""
+        names = list(channels)
+        if not names:
+            return 0.0
+        marks = ",".join("?" * len(names))
+        return self._exec(
+            f"SELECT COALESCE(SUM(cost_usd), 0) FROM calls WHERE channel IN ({marks})"
+            " AND created_at >= ? AND created_at < ?",
+            (*names, iso(start), iso(end)),
+        ).fetchone()[0]
+
     def spent_in_role(self, role: str, start: datetime, end: datetime) -> float:
         """[start, end) 内某种调用角色（calls.role，如 'media'）的花费：创作输出的每月上限。"""
         return self._exec(

@@ -135,6 +135,7 @@ def test_repo_config_loads_with_defaults():
         "plain_rewrite",
         "watch",
         "wander",
+        "dsh_workbench",
         "describe_screen",
     }
     assert rt.collab_pipeline == [

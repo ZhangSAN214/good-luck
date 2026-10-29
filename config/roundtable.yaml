@@ -255,6 +255,7 @@ prompts:
   office_handle: v2      # 办公室：员工办理（v2：带字画面用代码画、数字须核实）
   watch: v1              # 投屏陪伴：成员陪用户看屏幕，吐槽、接话
   wander: v1             # 成员自己上网：每看一页说一句感想、决定下一步（只看不互动）
+  dsh_workbench: v1      # dsh 工作台助手的身份说明：中立、不带人格（接在 dsh 系统提示前面）
   describe_screen: v1    # 投屏陪伴：把一张截图写成给成员看的文字（隐私信息打码）
   chat: v4               # 群聊：口语、短句（v2：人设与记忆；v3：人物卡随身卡，AI 身份平时不刻意提、被认真问如实承认；v4：表情包、颜文字、引用、分条、不接话）
   chat_dm: v4            # 私聊：和用户一对一（v2：人设与记忆；v3：人物卡随身卡；v4：表情包、颜文字、引用、分条）
@@ -956,3 +957,15 @@ perception:
   max_audio_s: 600           # 语音 / 视频声音最多转写多长（秒）
   native_max_mb: 20          # 整段视频交给模型的大小上限
   card_chars: 800            # 每张感知卡最多保留多少字
+
+dsh:                             # dsh 工作台（docs/DSH.md）：圆桌在本机管一个 dsh 进程当边车，dsh 插件在里面跑
+  enabled: true
+  autostart: false               # 圆桌启动时不顺带启动 dsh，用时在「工作台」里点启动
+  port: 3080                     # dsh 网页只监听本机 127.0.0.1
+  key_env: DEEPSEEK_API_KEY      # dsh 调模型用的 key（只放 .env；用户在官网充值，不经过 OpenRouter）
+  balance_url: https://api.deepseek.com/user/balance   # 查余额，用差值估算工作台花了多少
+  shared_channels: []            # 圆桌自己也用这个 key 的渠道名（models.yaml），这部分花费从差值里扣掉
+  monthly_usd: 3.0               # 工作台每月花费上限：超过就提醒并停掉 dsh（查余额有间隔，可能多花几毛）
+  balance_check_minutes: 5
+  usd_rates: {CNY: 7.2}          # 余额是人民币时按这个汇率折成美元
+  permission_mode: read-only     # dsh 默认只读；要让它改文件改成 workspace-write（只能改 data/dsh/work/）

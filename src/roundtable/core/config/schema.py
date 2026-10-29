@@ -1404,6 +1404,40 @@ class LengthGuard(_Strict):
         return out
 
 
+class DshRules(_Strict):
+    """dsh 工作台（docs/DSH.md）：圆桌在本机启动、管理一个 dsh 进程当「边车」，dsh 插件在里面运行。
+
+    硬性原则：圆桌是主人，dsh 是随时能拔掉的外设。核心功能不依赖它；它自己的数据只放在
+    ``data/dsh/``；不带任何人格。dsh 直接用 ``key_env`` 指向的 key 调模型
+    （用户在模型服务官网充值），
+    花费靠余额接口的差值估算，超过 ``monthly_usd`` 就提醒并停掉 dsh（软上限，查余额有间隔）。
+    """
+
+    enabled: bool = True  # 关掉后工作台入口隐藏，dsh 不会被启动
+    autostart: bool = False  # 圆桌启动时是否顺带启动 dsh（默认不启动，用时再开）
+    port: int = Field(default=3080, ge=1024, le=65535)  # dsh 网页只监听本机 127.0.0.1
+    start_timeout_s: float = Field(default=120, gt=0, le=600)
+    # dsh 调模型用的 key 的环境变量名（只放在项目根目录 .env，启动 dsh 时才交给它）
+    key_env: str | None = None
+    # 查余额的接口（返回 balance_infos）；为空表示不查，用量面板只显示「无法统计」
+    balance_url: str | None = None
+    # 圆桌自己也用同一个 key 的渠道（models.yaml 里的渠道名）：这部分花费从余额差值里扣掉
+    shared_channels: list[str] = Field(default_factory=list)
+    monthly_usd: float = Field(default=3.0, ge=0)  # 工作台每月花费上限（UTC 自然月，软上限）
+    balance_check_minutes: float = Field(default=5, ge=1, le=120)
+    # 余额币种换算成美元：{币种: 1 美元合多少}，美元本身不用写
+    usd_rates: dict[str, float] = Field(default_factory=lambda: {"CNY": 7.2})
+    # dsh 的文件权限：read-only 只读（默认）/ workspace-write 只能写工作区 / danger-full-access
+    permission_mode: Literal["read-only", "workspace-write", "danger-full-access"] = "read-only"
+
+    @field_validator("key_env")
+    @classmethod
+    def _env_name(cls, v: str | None) -> str | None:
+        if v is not None and not _ENV_NAME.match(v):
+            raise ValueError("key_env 只能写环境变量名（大写字母、数字、下划线），不能写 key 本身")
+        return v
+
+
 class RoundtableConfig(_Strict):
     seats: int = Field(ge=2)
     min_members: int = Field(default=2, ge=2)
@@ -1446,6 +1480,7 @@ class RoundtableConfig(_Strict):
     mail: MailConfig = MailConfig()
     clipper: ClipperRules = ClipperRules()
     perception: PerceptionRules = PerceptionRules()
+    dsh: DshRules = DshRules()
 
     @field_validator("prompts")
     @classmethod
@@ -1763,6 +1798,9 @@ class AppConfig(_Strict):
         unknown = sorted(set(personas.personas) - ids)
         if unknown:
             raise ValueError(f"personas 中有未知模型 id：{unknown}")
+        unknown_channels = sorted(set(rt.dsh.shared_channels) - set(self.models.channels))
+        if unknown_channels:
+            raise ValueError(f"dsh.shared_channels 里有未知渠道：{unknown_channels}")
         self._check_routing()
         self._check_collab()
         return self

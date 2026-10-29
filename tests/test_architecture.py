@@ -20,6 +20,8 @@ REVEAL_ALLOWED = {
     "src/roundtable/core/providers/anthropic_adapter.py",
     "src/roundtable/core/search/tavily.py",
     "src/roundtable/core/search/openrouter.py",
+    # dsh 工作台：启动时把模型 key 放进 dsh 子进程的环境变量、查余额时放进请求头（docs/DSH.md）
+    "src/roundtable/core/dsh/channel.py",
 }
 
 SECRET_PATTERNS = [
@@ -237,3 +239,59 @@ def test_env_is_gitignored_and_example_is_tracked():
         ["git", "check-ignore", "-q", ".env.example"], cwd=ROOT, check=False
     ).returncode
     assert example != 0, ".env.example 不应被忽略"
+
+
+# --- dsh 工作台是可拔掉的外设（docs/DSH.md 硬性原则 1） -------------------------------
+
+DSH_PACKAGE = "roundtable.core.dsh"
+# 只有服务层可以引用 dsh（而且是可选导入）；dsh 包自己内部随便引用
+DSH_IMPORT_ALLOWED = {"src/roundtable/core/service.py"}
+
+
+def imports_module(source: str, module: str) -> bool:
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.Import):
+            if any(a.name == module or a.name.startswith(module + ".") for a in node.names):
+                return True
+        elif (
+            isinstance(node, ast.ImportFrom)
+            and node.module
+            and node.level == 0
+            and (node.module == module or node.module.startswith(module + "."))
+        ):
+            return True
+    return False
+
+
+def test_only_service_imports_dsh():
+    """核心功能不依赖 dsh：圆桌里只有 service.py 能引用 core/dsh。"""
+    offenders = []
+    for path in (ROOT / "src").rglob("*.py"):
+        rel = path.relative_to(ROOT).as_posix()
+        if rel.startswith("src/roundtable/core/dsh/") or rel in DSH_IMPORT_ALLOWED:
+            continue
+        if imports_module(path.read_text(encoding="utf-8"), DSH_PACKAGE):
+            offenders.append(rel)
+    assert offenders == []
+
+
+def test_service_imports_dsh_optionally():
+    """service.py 对 dsh 的导入包在 try / except ImportError 里：删掉 core/dsh 也能启动。"""
+    tree = ast.parse((ROOT / "src/roundtable/core/service.py").read_text(encoding="utf-8"))
+    guarded = top_level = 0
+    for node in tree.body:
+        if isinstance(node, ast.Try):
+            inner = ast.Module(body=node.body, type_ignores=[])
+            if imports_module(ast.unparse(inner), DSH_PACKAGE):
+                handlers = {ast.unparse(h.type) for h in node.handlers if h.type is not None}
+                assert "ImportError" in handlers
+                guarded += 1
+        elif imports_module(ast.unparse(node), DSH_PACKAGE):
+            top_level += 1
+    assert guarded == 1 and top_level == 0
+
+
+def test_imports_module_detection():
+    assert imports_module("from roundtable.core.dsh import X", DSH_PACKAGE)
+    assert imports_module("import roundtable.core.dsh.manager", DSH_PACKAGE)
+    assert not imports_module("from roundtable.core.dshx import X", DSH_PACKAGE)
