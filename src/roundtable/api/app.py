@@ -228,6 +228,32 @@ class NowPlayingControlBody(BaseModel):
     position: float | None = Field(default=None, ge=0, le=86400)
 
 
+class WatchStartBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    source: str = Field(min_length=1, max_length=100)  # pc / pc:<窗口> / android:<序列号>
+    watchers: list[str] = Field(min_length=1, max_length=6)
+    consent: bool = False  # 用户点了「同意把截图发给识图模型」
+
+
+class WatchQuietBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    quiet: bool
+
+
+class WatchSayBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    text: str = Field(min_length=1, max_length=1000)
+
+
+class WatchScrcpyBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    source: str = Field(min_length=1, max_length=100)
+
+
 class MailMarkBody(BaseModel):
     """邮件 id 里有斜杠，放在请求体里。mark 为空 = 交回规则判断。"""
 
@@ -504,6 +530,54 @@ def create_app(service: RoundtableService | None = None, lan: LanAccess | None =
         return await asyncio.to_thread(
             svc(request).nowplaying_control, body.player, body.action, body.position
         )
+
+    # ---- 投屏陪伴（docs/WATCH.md）：开始投屏、看预览、开 scrcpy 只能在电脑本机上；
+    # 平板 / 手机上能看状态和聊天、能随时停止 ----
+
+    def watch_local(request: Request) -> None:
+        if is_remote(_client(request.scope)):
+            raise ServiceError("投屏只能在电脑上开始和预览；平板上可以聊天和停止", 403)
+
+    @app.get("/api/watch")
+    async def watch_status(request: Request, devices: bool = False) -> dict[str, Any]:
+        if devices:
+            watch_local(request)
+            return await asyncio.to_thread(svc(request).watch_status, True)
+        return svc(request).watch_status()
+
+    @app.post("/api/watch/start")
+    async def watch_start(request: Request, body: WatchStartBody) -> dict[str, Any]:
+        watch_local(request)
+        return await svc(request).watch_start(body.source, body.watchers, body.consent)
+
+    @app.post("/api/watch/stop")
+    async def watch_stop(request: Request) -> dict[str, Any]:
+        return svc(request).watch_stop()
+
+    @app.post("/api/watch/quiet")
+    async def watch_quiet(request: Request, body: WatchQuietBody) -> dict[str, Any]:
+        return svc(request).watch_quiet(body.quiet)
+
+    @app.get("/api/watch/frame")
+    async def watch_frame(request: Request) -> Response:
+        watch_local(request)
+        headers = {"X-Content-Type-Options": "nosniff", "Cache-Control": "no-store"}
+        return Response(
+            content=svc(request).watch_frame(), media_type="image/jpeg", headers=headers
+        )
+
+    @app.get("/api/watch/messages")
+    async def watch_messages(request: Request, after: int = 0) -> dict[str, Any]:
+        return svc(request).watch_messages(after)
+
+    @app.post("/api/watch/say", status_code=202)
+    async def watch_say(request: Request, body: WatchSayBody) -> dict[str, Any]:
+        return await svc(request).watch_say(body.text)
+
+    @app.post("/api/watch/scrcpy")
+    async def watch_scrcpy(request: Request, body: WatchScrcpyBody) -> dict[str, Any]:
+        watch_local(request)
+        return await asyncio.to_thread(svc(request).watch_scrcpy, body.source)
 
     @app.get("/api/music/covers")
     async def music_covers(request: Request) -> dict[str, Any]:

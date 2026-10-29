@@ -93,6 +93,15 @@ chat:
       shares: {proactive: 0.85, group: 0.7, life: 0.5}   # 其余三类最多用到额度的几成，超了只记一行
     heartbeat: {enabled: true, max_actions: 3}
     bus: {keep_days: 14}           # 事件保留几天
+  watch:                           # 投屏陪伴（docs/WATCH.md）：你投屏，选 1～3 位陪你一起看
+    enabled: true
+    monthly_usd: 1.5               # 一起看每月最多花多少（不占聊天月预算）；用完只陪聊、不看画面
+    max_watchers: 3
+    grab_seconds: 3                # 多久截一张（只在内存里，不存盘）
+    describe_gap_seconds: 20       # 画面明显变了、且离上次至少这么久，才交给识图模型看一次
+    describes_per_hour: 90
+    react_gap_seconds: 90          # 没人说话时，同一位最多每 90 秒主动说一句
+    max_minutes: 240               # 一次投屏最长 4 小时，到时自动停
   tier: budget
   max_repliers: 2
   max_mentioned: 8                 # 「@全员」「所有人」「大家」时最多几位依次回应
@@ -168,6 +177,8 @@ prompts:
   office_handle: v2      # 办公室：员工办理（v2：带字画面用代码画、数字须核实）
   chat: v3               # 群聊：口语、短句（v2：人设与记忆；v3：人物卡随身卡，AI 身份平时不刻意提、被认真问如实承认）
   chat_dm: v3            # 私聊：和用户一对一（v2：人设与记忆；v3：人物卡随身卡）
+  watch: v1              # 投屏陪伴：成员陪用户看屏幕，吐槽、接话
+  describe_screen: v1    # 投屏陪伴：把一张截图写成给成员看的文字（隐私信息打码）
   chat_work: v3          # 工作群：聊工作，交办走办公室（v2：人设与记忆；v3：人物卡随身卡）
   memory_day: v1         # 记忆：把一天的聊天压成一段
   memory_roll: v1        # 记忆：日 → 周、周 → 月
@@ -203,6 +214,7 @@ step_params:
   #   原则：作答 / 修订 / 完成子任务要认真想，但封顶，保证正文有足够空间；
   #   评审、汇总、拆分、分配、自荐、风格校验等用低强度。
   answer: {max_tokens: 5000, reasoning: {max_tokens: 2000}}
+  watch: {max_tokens: 1200, reasoning: {effort: low}}  # 投屏陪伴：一两句
   chat: {max_tokens: 1500, reasoning: {effort: low}}   # 群聊：一两句话，少想多说（思考会挤占输出，之前 500 上限时有人回复为空）
   review: {max_tokens: 3000, reasoning: {max_tokens: 800}}
   revise: {max_tokens: 5000, reasoning: {max_tokens: 2000}}

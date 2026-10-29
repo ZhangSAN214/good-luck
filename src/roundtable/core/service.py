@@ -11,7 +11,10 @@ import asyncio
 import contextlib
 import json
 import logging
+import re
 import secrets
+import shutil
+import subprocess
 from collections.abc import AsyncIterator, Sequence
 from dataclasses import asdict
 from datetime import datetime, timedelta
@@ -121,6 +124,7 @@ from roundtable.core.routing import (
     preview_estimates,
 )
 from roundtable.core.runtime import PROJECT_ROOT, Runtime, data_dir
+from roundtable.core.screen import AdbSource, PcSource, ScreenWatch
 from roundtable.core.search import SearchUnavailable
 from roundtable.core.standee import load_standee
 from roundtable.core.standee import standee_file as read_standee_file
@@ -189,6 +193,15 @@ class RoundtableService:
                 show_window=self.mail.show_window,
             )
         self._nowplaying: NowPlaying | None = None
+        watch_rules = runtime.config.roundtable.chat.watch
+        self.watch = ScreenWatch(
+            runtime,
+            self.chats.everyone,
+            runtime.screen_sources
+            if runtime.screen_sources is not None
+            else {"pc": PcSource(), "android": AdbSource(watch_rules.adb)},
+            publish=self.engine.bus.publish,
+        )
         self._chat_tasks: set[asyncio.Task[Any]] = set()
         self._life_task: asyncio.Task[None] | None = None
         self._evolution_task: asyncio.Task[None] | None = None
@@ -243,6 +256,7 @@ class RoundtableService:
         return out
 
     async def aclose(self) -> None:
+        self.watch.stop("服务关闭，投屏停了")
         tasks = [*self._tasks.values(), *self._chat_tasks]
         tasks += [t for t in (self._life_task, self._evolution_task) if t is not None]
         for task in tasks:
@@ -435,6 +449,72 @@ class RoundtableService:
         if not ok:
             raise ServiceError("播放器没有响应（可能没打开，或不支持这个操作）", 409)
         return self._np().view(player)
+
+    # ---------- 投屏陪伴（docs/WATCH.md） ----------
+
+    def watch_status(self, devices: bool = False) -> dict[str, Any]:
+        """一起看的状态；devices=True 时另列可投的来源（会调 adb / 系统接口，较慢）。"""
+        out = self.watch.status()
+        if devices:
+            out["devices"] = self.watch.devices()
+            out["scrcpy"] = shutil.which(self.rt.config.roundtable.chat.watch.scrcpy) is not None
+        return out
+
+    async def watch_start(self, source: str, watchers: list[str], consent: bool) -> dict[str, Any]:
+        devices = await asyncio.to_thread(self.watch.devices)
+        infos = {s["id"]: s for d in devices.values() for s in d["sources"]}
+        if source not in infos:
+            raise ServiceError("找不到这个画面来源（刷新一下列表）")
+        try:
+            self.watch.start(source, infos[source]["title"], watchers, consent=consent)
+        except ValueError as exc:
+            raise ServiceError(str(exc)) from None
+        task = asyncio.get_running_loop().create_task(self.watch.run())
+        self.watch.attach(task)
+        self._chat_tasks.add(task)
+        task.add_done_callback(self._chat_tasks.discard)
+        return self.watch.status()
+
+    def watch_stop(self) -> dict[str, Any]:
+        self.watch.stop()
+        return self.watch.status()
+
+    def watch_quiet(self, quiet: bool) -> dict[str, Any]:
+        self.watch.set_quiet(quiet)
+        return self.watch.status()
+
+    def watch_frame(self) -> bytes:
+        data = self.watch.preview()
+        if data is None:
+            raise ServiceError("现在没有画面", 404)
+        return data
+
+    def watch_messages(self, after: int = 0) -> dict[str, Any]:
+        return {"messages": self.watch.messages(after), "typing": list(self.watch.typing)}
+
+    async def watch_say(self, text: str) -> dict[str, Any]:
+        try:
+            msg, speakers = self.watch.post(text)
+        except ValueError as exc:
+            raise ServiceError(str(exc)) from None
+        if speakers:
+            self._background(self.watch.replies(msg["id"], speakers))
+        return {"id": msg["id"], "speakers": [m.name for m in speakers]}
+
+    def watch_scrcpy(self, source: str) -> dict[str, Any]:
+        """用 scrcpy 打开安卓设备的流畅投屏窗口（用户自己的工具，圆桌不读它的画面）。"""
+        exe = shutil.which(self.rt.config.roundtable.chat.watch.scrcpy)
+        if exe is None:
+            raise ServiceError("没有找到 scrcpy（可选：装好并加入 PATH 后才能开流畅窗口）")
+        serial = source.removeprefix("android:")
+        if not source.startswith("android:") or not re.fullmatch(r"[A-Za-z0-9._:\-]{1,64}", serial):
+            raise ServiceError("只有安卓设备能开 scrcpy 窗口")
+        flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        try:
+            subprocess.Popen([exe, "-s", serial], creationflags=flags)  # noqa: S603
+        except OSError:
+            raise ServiceError("scrcpy 启动失败") from None
+        return {"started": True}
 
     def _covers_dir(self) -> Path | None:
         sf = self.rt.standee_file
