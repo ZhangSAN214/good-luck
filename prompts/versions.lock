@@ -36,6 +36,7 @@
   "describe_image/v1": "893662b0825d519d58ad3bdd6c21c43d671ac80e2e555ee623bef3c95271b58c",
   "describe_screen/v1": "e6a0253722c14b15823c9e8016105fffaf4be5030923b27d10d87a609a576dff",
   "discuss/v1": "1bb484c782b0493c3d542dddbaf4bdf4140202c79c7f0f5a52feadf324de0247",
+  "dsh_workbench/v1": "bd75c03ad8dc911914816bb593ec3d1acc23db1b72d9ad7d247522ea524e49dd",
   "evolution_card/v1": "cbe656ecf908dd7dc337869aeff72f82e9bc28bf13e1dd7b44d70549dae36e92",
   "evolution_check/v1": "13bc50fcad9591f814b49ffd052bf1593dc24b0a4da7da47cca80f6a4e6613c9",
   "evolution_plugins/v1": "54fc9e9d5138dbd92b4d85eba53bc6276446454dffdb3061e39c6888e068d54e",

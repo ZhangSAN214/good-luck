@@ -44,6 +44,7 @@ import { BootSettings } from './bootcfg.js';
 import { LanPanel } from './lan.js';
 import { Watch } from './watch.js';
 import { Wander } from './wander.js';
+import { Workbench } from './workbench.js';
 import { Hub } from './hub.js';
 import { Standee } from './standee.js';
 import { Music } from './music.js';
@@ -182,6 +183,9 @@ new Wander($('#wanderdlg'), $('#wanderbtn'), {
     log: API.wanderLog,
     frameUrl: API.wanderFrameUrl,
   },
+});
+new Workbench($('#workbenchdlg'), $('#workbenchbtn'), {
+  api: { status: API.dshStatus, start: API.dshStart, stop: API.dshStop, check: API.dshCheck },
 });
 $('#skin').addEventListener('click', () => {
   const next = document.documentElement.dataset.skin === 'ark' ? 'classic' : 'ark';

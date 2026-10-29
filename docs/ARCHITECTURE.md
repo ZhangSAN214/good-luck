@@ -219,12 +219,12 @@
 
 ```
 README.md      安装、.env、加模型 / 步骤 / 提示词版本、上传、沙箱、搜索与隐私
-.github/workflows/ci.yml   ruff + pytest（含 Playwright 端到端）
+.github/workflows/ci.yml   ruff + pytest（含 Playwright 端到端）；unplug-dsh 任务删掉 dsh 后再跑测试
 .github/workflows/desktop.yml   桌面版在 Windows / macOS 上冒烟（只在桌面版相关文件变动的 PR 上跑）
 install_desktop.bat / install_desktop.command   安装并生成桌面版图标（docs/DESKTOP.md）
 .github/workflows/android.yml   打包安卓外壳 APK（只在改了 mobile/ 的 PR 上跑）
 mobile/        安卓外壳（Capacitor）：www/ 连接页（记住电脑地址、依次试家里 / 离家地址）、build-android.mjs；android/ 不进 git（docs/MOBILE.md）
-config/        models.yaml  roundtable.yaml  personas.yaml  routing.yaml  plugin_board.yaml（插件榜数据，不属于运行配置）  changelog.yaml（公告栏的版本更新说明，每合并一个 PR 在最上面追加一条）
+config/        models.yaml  roundtable.yaml  personas.yaml  routing.yaml  plugin_board.yaml（插件榜数据，不属于运行配置）  dsh_plugins.yaml（dsh 工作台的运行时版本与插件白名单）  changelog.yaml（公告栏的版本更新说明，每合并一个 PR 在最上面追加一条）
 prompts/       planner/ answer/ answer_quick/ review/ revise/ synthesize/ redo/
                attachments/ describe_image/ transcribe/ tools/（v4） image_gen/ web_search/ web_fetch/
                decompose/（v4） decompose_retry/ volunteer/ assign/（v3） work/ work_<类型>/ cross_review/ rework/ merge/
@@ -257,6 +257,7 @@ src/roundtable/
     ideaboard.py   头脑风暴的点子榜：投票排名、黑马、对比表 / 场景故事 / 行动方案的数据与 Markdown
     member/        成员引擎（docs/MEMBER_ENGINE.md；只用于聊天、朋友圈、生活）：自我档案（profile.py，版本 + 修改记录 + 锁定 + 撤回）、人物卡与随身卡（card.py：人物卡 Markdown → 档案分区，档案 → ≤400 字随身卡）、事件总线（bus.py）、心跳（heartbeat.py）、上下文组装器（context.py，约 600 字）、预算调度器（scheduler.py）、评测集（evalset.py，题库 benchmarks/members/scenarios.yaml）
     screen/        投屏陪伴「一起看」（docs/WATCH.md）：画面来源（capture.py：电脑整屏 / 窗口用 Pillow ImageGrab + ctypes，安卓用 adb 截屏，只读；画面变化判断、敏感窗口暂停）、一起看（watch.py：画面变了才交最便宜的识图模型写成文字、陪看成员吐槽和回话、安静看、每月上限 chat.watch.monthly_usd、感知事件 perceive.screen）；截图只在内存里
+    dsh/           dsh 工作台（docs/DSH.md）：可拔掉的外设，只有 service.py 可选导入（拔掉 core/dsh 圆桌照常，CI「unplug-dsh」任务）；白名单与安装包哈希（catalog.py，读 config/dsh_plugins.yaml）、叠加配置层（overlay.py：关上传和遥测、中立身份）、key 与余额（channel.py）、按余额差额估花费与每月软上限（usage.py）、进程管理（sidecar.py，只监听 127.0.0.1）、一次性安装（install.py）；数据都在 data/dsh/，不进 git
     wander/        成员自己上网（docs/WANDER.md）：隔离浏览器（web.py：Playwright 驱动电脑上的 Edge / Chrome，每位成员一个资料夹，只按链接打开白名单网站、读文字和链接、截小图，跳去外站拦下）、逛网站循环（wander.py：每页交成员说一句感想并决定下一步，浏览记录在隐藏会话 wander:<成员>，小结发感知事件 perceive.web，花费计入生活每日上限，心跳上登记自动出门）
     almanac/       日历底座（docs/CALENDAR.md；只影响生活）：今天是什么日子（各国法定假日用开源库 holidays 离线算、农历与节气查预生成的表 lunar_table.json、节日规则、成员生日与入职纪念日、你加的纪念日），每天发 calendar.day / calendar.upcoming 到成员事件总线；不调模型、不联网
     life_guard.py  生活「收得住」：互聊收尾、每日条数上限、熔断、每周自检（docs/CHAT.md G9；不调模型）
@@ -277,7 +278,7 @@ web/             index.html、css/（app.css、agent.css 小人、ideas.css 头�
 tests/
 docs/            REQUIREMENTS_v3.md  PLAN.md  CLI.md  OFFICE.md（办公室模式）  EVOLUTION.md（自我学习革新：候选池与更新日志）  evolution/（革新例会说明、周报与资料卡模板、每周周报）  mockup.html
 scripts/         evolve_review.py（革新 PR 的可选复审，没有 key 时跳过）  standee_rig.py（把大立绘做成全身网格形变素材：瞳孔层、补眼白、权重图；本机处理、不调用模型）  check_models.py（核对 OpenRouter 渠道的模型 ID 与价格；带 vision / image_edit 标签的模型还核对远端 input_modalities 含 image）  lock_prompts.py（登记提示词版本）  install_desktop.py（生成桌面版图标）  build_lunar_table.py（生成日历的农历与节气表，开发时临时装 lunar_python）
-                 setup_sandbox.py（安装代码运行沙箱）  try_image.py（真实调用一次画图模型，核对接口格式）
+                 setup_sandbox.py（安装代码运行沙箱）  setup_dsh.py（在电脑上安装 dsh 工作台：运行时 + 白名单插件）  try_image.py（真实调用一次画图模型，核对接口格式）
 sandbox/         Dockerfile（可选的 docker 沙箱）、README.md
 .env.example
 ```

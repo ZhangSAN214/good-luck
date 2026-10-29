@@ -38,7 +38,7 @@ from roundtable.core.chat_actions import card_text as chat_card_text
 from roundtable.core.chat_media import MAX_BYTES as CHAT_MEDIA_MAX
 from roundtable.core.chat_media import ChatMediaStore, MediaError, clean_items, placeholder
 from roundtable.core.chat_work import WORK_EVENTS, post_handoff, post_office_event
-from roundtable.core.config.loader import ConfigError
+from roundtable.core.config.loader import DEFAULT_CONFIG_DIR, ConfigError
 from roundtable.core.evolution import (
     DECISIONS,
     DECISIONS_KEY,
@@ -150,6 +150,11 @@ from roundtable.core.steps.office import group_estimates
 from roundtable.core.storage import NotFound
 from roundtable.core.wander import Wanderer
 
+try:  # dsh 工作台是可拔掉的外设：删掉整个 core/dsh/ 圆桌照常运行（docs/DSH.md，CI「拔掉 dsh」任务）
+    from roundtable.core.dsh import DshManager
+except ImportError:  # pragma: no cover - 只在拔掉 dsh 时走到
+    DshManager = None  # type: ignore[assignment,misc]
+
 log = logging.getLogger(__name__)
 
 # 讨论停下来（结束或等待用户）的状态：此时推送流会关闭
@@ -248,11 +253,33 @@ class RoundtableService:
             publish=self.engine.bus.publish,
         )
         self.engine.heartbeat.register("wander", self.wander.want)
+        self.dsh = self._build_dsh(runtime, base if runtime.mail_dir is not None else None)
         self._chat_tasks: set[asyncio.Task[Any]] = set()
         self._life_task: asyncio.Task[None] | None = None
         self._evolution_task: asyncio.Task[None] | None = None
         self._dev_tasks: dict[str, asyncio.Task[None]] = {}  # 「做这条」后正在实现的建议
         self.dev_run: DevRun = run_process  # 叫外部命令（测试换成假的）
+
+    @staticmethod
+    def _build_dsh(runtime: Runtime, base: Path | None) -> Any:
+        """dsh 工作台（可选）：core/dsh 不在时为 None，其余功能不受影响。"""
+        if DshManager is None:
+            return None
+        version = runtime.config.roundtable.prompts.get("dsh_workbench")
+
+        def persona() -> str:
+            if version is None:
+                return ""
+            return runtime.prompts.render("dsh_workbench", version).messages[0].content
+
+        return DshManager(
+            runtime.config.roundtable.dsh,
+            catalog_path=DEFAULT_CONFIG_DIR / "dsh_plugins.yaml",
+            root=base / "dsh" if base is not None else None,
+            persona=persona,
+            shared_spend=runtime.repo.spent_on_channels,
+            dotenv_path=PROJECT_ROOT / ".env",
+        )
 
     def reconcile(self) -> list[str]:
         """开机对账：上次服务意外退出（或被关掉）时还在跑的讨论，数据库里会一直留着「进行中」。
@@ -305,6 +332,9 @@ class RoundtableService:
 
     async def aclose(self) -> None:
         self.watch.stop("服务关闭，投屏停了")
+        if self.dsh is not None:
+            with contextlib.suppress(Exception):
+                await self.dsh.aclose()
         await self.wander.aclose()
         tasks = [*self._tasks.values(), *self._chat_tasks]
         tasks += [t for t in (self._life_task, self._evolution_task) if t is not None]
@@ -613,6 +643,51 @@ class RoundtableService:
 
     def wander_frame(self) -> bytes | None:
         return self.wander.frame()
+
+    # --- dsh 工作台（docs/DSH.md）：可拔掉的外设 ---------------------------------------
+
+    NO_DSH = "这份圆桌没有带 dsh 工作台（core/dsh 不在），其他功能不受影响"
+
+    def dsh_status(self) -> dict[str, Any]:
+        if self.dsh is None:
+            return {
+                "enabled": False,
+                "installed": False,
+                "unavailable": self.NO_DSH,
+                "state": "stopped",
+            }
+        return self.dsh.status()
+
+    async def dsh_start(self) -> dict[str, Any]:
+        if self.dsh is None:
+            raise ServiceError(self.NO_DSH, 409)
+        try:
+            return await self.dsh.start()
+        except ValueError as exc:
+            raise ServiceError(str(exc), 409) from None
+
+    async def dsh_stop(self) -> dict[str, Any]:
+        if self.dsh is None:
+            return self.dsh_status()
+        return await self.dsh.stop()
+
+    async def dsh_check(self) -> dict[str, Any]:
+        if self.dsh is None:
+            return self.dsh_status()
+        return await self.dsh.check_now()
+
+    def start_dsh(self) -> None:
+        """服务启动时：配置了 autostart 才顺带启动 dsh（默认不启动）。失败只记日志。"""
+        if self.dsh is None or not self.rt.config.roundtable.dsh.autostart:
+            return
+
+        async def boot() -> None:
+            try:
+                await self.dsh.start()
+            except Exception as exc:  # noqa: BLE001 - dsh 起不来不影响圆桌
+                log.warning("dsh 工作台自动启动失败：%s", exc)
+
+        self._background(boot())
 
     def _covers_dir(self) -> Path | None:
         sf = self.rt.standee_file

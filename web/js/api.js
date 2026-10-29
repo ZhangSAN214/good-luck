@@ -242,3 +242,8 @@ export const wanderStop = () => api('/api/wander/stop', { method: 'POST' });
 export const wanderLog = (member, after = 0) =>
   api(`/api/wander/log?member=${encodeURIComponent(member)}&after=${after}`);
 export const wanderFrameUrl = () => `/api/wander/frame?t=${Date.now()}`;
+// 工作台（dsh 边车，docs/DSH.md）
+export const dshStatus = () => api('/api/dsh');
+export const dshStart = () => api('/api/dsh/start', { method: 'POST' });
+export const dshStop = () => api('/api/dsh/stop', { method: 'POST' });
+export const dshCheck = () => api('/api/dsh/check', { method: 'POST' });

@@ -529,6 +529,7 @@ def create_app(service: RoundtableService | None = None, lan: LanAccess | None =
         app.state.service.reconcile()
         app.state.service.start_life()
         app.state.service.start_evolution()
+        app.state.service.start_dsh()
         try:
             yield
         finally:
@@ -639,6 +640,28 @@ def create_app(service: RoundtableService | None = None, lan: LanAccess | None =
     @app.post("/api/watch/say", status_code=202)
     async def watch_say(request: Request, body: WatchSayBody) -> dict[str, Any]:
         return await svc(request).watch_say(body.text)
+
+    # dsh 工作台：网页地址带一次性口令，只给电脑本机（dsh 只监听 127.0.0.1，平板也打不开）
+    def dsh_out(request: Request, out: dict[str, Any]) -> dict[str, Any]:
+        if out.get("url") and not is_local(_client(request.scope)):
+            out = {**out, "url": None, "local_only": True}
+        return out
+
+    @app.get("/api/dsh")
+    async def dsh_status(request: Request) -> dict[str, Any]:
+        return dsh_out(request, svc(request).dsh_status())
+
+    @app.post("/api/dsh/start")
+    async def dsh_start(request: Request) -> dict[str, Any]:
+        return dsh_out(request, await svc(request).dsh_start())
+
+    @app.post("/api/dsh/stop")
+    async def dsh_stop(request: Request) -> dict[str, Any]:
+        return dsh_out(request, await svc(request).dsh_stop())
+
+    @app.post("/api/dsh/check")
+    async def dsh_check(request: Request) -> dict[str, Any]:
+        return dsh_out(request, await svc(request).dsh_check())
 
     @app.get("/api/wander")
     async def wander_status(request: Request) -> dict[str, Any]:
