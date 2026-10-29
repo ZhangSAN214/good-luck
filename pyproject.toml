@@ -26,6 +26,8 @@ dependencies = [
     "segno>=1.5",
     # 主时区（zoneinfo）：Windows 自带没有时区数据库
     "tzdata>=2024.1; sys_platform == 'win32'",
+    # 日历：各国法定假日（离线计算，纯 Python）
+    "holidays>=0.60",
 ]
 
 [project.scripts]
@@ -68,6 +70,8 @@ where = ["src"]
 [tool.setuptools.package-data]
 # 沙箱的 Deno 启动脚本
 "roundtable.core.tools" = ["runner.mjs"]
+# 日历的农历与节气表（scripts/build_lunar_table.py 生成）
+"roundtable.core.almanac" = ["lunar_table.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

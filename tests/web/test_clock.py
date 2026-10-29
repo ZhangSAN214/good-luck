@@ -173,3 +173,29 @@ def test_home_zone_parts_follow_the_chosen_zone():
     assert out["bad"] is False and out["zone"] == "America/New_York"
     assert out["opt"] == {"hour": "2-digit", "timeZone": "America/New_York"}
     assert out["same"] is True
+
+
+def test_calendar_item_notes_and_day_labels():
+    out = run(
+        "return ["
+        "N.itemNote({name: '圣诞节', rest: true, off: ['英国', '美国']}),"
+        "N.itemNote({name: '国庆节', kind: 'holiday', off: ['中国']}),"
+        "N.itemNote({name: '日本文化之日', kind: 'holiday', off: ['日本']}),"
+        "N.itemNote({name: '调休上班', kind: 'workday', places: ['中国']}),"
+        "N.itemNote({name: '篝火夜', kind: 'observance', places: ['英国']}),"
+        "N.itemNote({name: '情人节', kind: 'observance', places: ['国际']}),"
+        "N.dayLabel({date: '2026-11-05', weekday: '周四'}, 0),"
+        "N.dayLabel({date: '2026-11-05', weekday: '周四'}, 1),"
+        "N.dayLabel({date: '2026-11-05', weekday: '周四'}, 3)];"
+    )
+    assert out == [
+        "成员放假",
+        "中国放假",
+        "",
+        "中国调休上班",
+        "英国",
+        "",
+        "今天",
+        "明天",
+        "11月5日 周四",
+    ]

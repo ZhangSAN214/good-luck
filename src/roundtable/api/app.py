@@ -235,6 +235,16 @@ class HomeTzBody(BaseModel):
     zone: str = Field(max_length=64)
 
 
+class CalendarDateBody(BaseModel):
+    """你自己加的纪念日：date 写 YYYY-MM-DD（会算第几周年）或 MM-DD；lunar 为农历。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str
+    date: str
+    lunar: bool = False
+
+
 class MailSettingsBody(BaseModel):
     """邮件栏设置：只改给了的字段。"""
 
@@ -1020,6 +1030,20 @@ def create_app(service: RoundtableService | None = None, lan: LanAccess | None =
     @app.put("/api/home-tz")
     async def set_home_tz(request: Request, body: HomeTzBody) -> dict[str, Any]:
         return svc(request).set_home_tz(body.zone)
+
+    @app.get("/api/calendar")
+    async def calendar(
+        request: Request, days: int | None = None, start: str | None = None
+    ) -> dict[str, Any]:
+        return svc(request).calendar_view(days, start)
+
+    @app.post("/api/calendar/dates")
+    async def calendar_add_date(request: Request, body: CalendarDateBody) -> dict[str, Any]:
+        return svc(request).calendar_add_date(body.name, body.date, body.lunar)
+
+    @app.delete("/api/calendar/dates/{date_id}")
+    async def calendar_remove_date(request: Request, date_id: str) -> dict[str, Any]:
+        return svc(request).calendar_remove_date(date_id)
 
     @app.get("/api/mail")
     async def mail(request: Request) -> dict[str, Any]:
