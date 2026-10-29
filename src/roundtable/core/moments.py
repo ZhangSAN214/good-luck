@@ -40,12 +40,14 @@ from roundtable.core.chat_actions import (
     clean_stickers,
     sticker_list,
 )
+from roundtable.core.member.voice import Said, before_voice, recent_words
 from roundtable.core.office.apartment import schedule
 from roundtable.core.persona import chat_persona
 from roundtable.core.plain_talk import before_speaking, plain_prompt
 from roundtable.core.storage.repository import iso
 
 MOMENT_ROOM = "moments"
+NOTHING = "没有特别的事"  # 生活场景里「今天的事」为空时的写法（life.scene）
 MOMENT_STEP = "moment"
 SEEN_KEY = "moments.seen"
 SKIPPED_KEY = "moments.skipped"  # 写出来太像而放弃的「成员:事件」，之后不再为它花钱
@@ -123,10 +125,19 @@ class Moments:
             and e["topic"]
             and e["id"] not in posted
             and f"{member.id}:{e['id']}" not in skipped
+            and self.worth_posting(e)
         ]
         if not events:
             return None
         return max(events, key=lambda e: (e["written"], _RANK.get(e["kind"], 0), e["at"]))
+
+    def worth_posting(self, event: dict[str, Any]) -> bool:
+        """有事可说：碰到了人、聊过天、或者今天办了活。一个人待着、什么也没发生的日子不发
+        （``chat.engine.voice.check.moments_need_event``，成员系统 P5）。"""
+        engine = self.rt.config.roundtable.chat.engine
+        if not (engine.enabled and engine.voice.enabled and engine.voice.check.moments_need_event):
+            return True
+        return bool(event["written"]) or event["kind"] != "solo" or NOTHING not in event["topic"]
 
     def too_similar(self, text: str, recent: list[dict[str, Any]]) -> bool:
         return any(similarity(text, p["text"]) >= self.rules.similarity_max for p in recent)
@@ -218,7 +229,9 @@ class Moments:
         )
         if not text:
             return None
-        if self.too_similar(text, recent):
+        if self.too_similar(text, recent) or not await self._self_check(
+            member, text, "moment", own=self._own_posts(member), others=self._others(member, recent)
+        ):
             self.skip(member, event["id"])
             return {}
         meta: dict[str, Any] = {"life": True, "event": event["id"]}
@@ -294,8 +307,81 @@ class Moments:
         )
         if not text:
             return None
+        text = await self._self_check(
+            member,
+            text,
+            "comment",
+            own=self._own_comments(member),
+            others=self._recent_comments(member, moment),
+            named=reply_to is not None or moment["author"] == USER,
+        )
+        if not text:
+            return {}  # 自查：和别人的评论差不多（「挺治愈」）——不评了
         return self.rt.repo.add_moment_comment(
             moment["id"], member.id, text, reply_to=reply_to, offline=offline
+        )
+
+    # --- 说出口前自查（成员系统 P5，core/member/voice）--------------------------------
+
+    def _own_posts(self, member: ChatMember) -> tuple[str, ...]:
+        return tuple(r["text"] for r in reversed(self.rt.repo.moments(author=member.id, limit=7)))
+
+    def _others(self, member: ChatMember, recent: list[dict[str, Any]]) -> tuple:
+        names = self.names()
+        return tuple(
+            (names.get(p["author"], p["author"]), p["text"])
+            for p in recent
+            if p["author"] not in (member.id, USER)
+        )
+
+    def _comment_rows(self) -> list[dict[str, Any]]:
+        rows = [c for m in self.rt.repo.moments(limit=20) for c in m["comments"]]
+        return sorted(rows, key=lambda c: c["id"])[-40:]
+
+    def _own_comments(self, member: ChatMember) -> tuple[str, ...]:
+        return tuple(c["text"] for c in self._comment_rows() if c["author"] == member.id)[-10:]
+
+    def _recent_comments(self, member: ChatMember, moment: dict[str, Any]) -> tuple:
+        names = self.names()
+        rows = {c["id"]: c for c in [*self._comment_rows(), *moment["comments"]]}
+        return tuple(
+            (names.get(c["author"], c["author"]), c["text"])
+            for c in sorted(rows.values(), key=lambda c: c["id"])
+            if c["author"] not in (member.id, USER)
+        )[-20:]
+
+    async def _self_check(
+        self,
+        member: ChatMember,
+        text: str,
+        kind: str,
+        *,
+        own: tuple[str, ...],
+        others: tuple,
+        named: bool = False,
+    ) -> str:
+        """返回要发的话；空串表示不发（和自己最近的动态 / 别人的评论太像、套同一个开头……）。"""
+        rt = self.rt
+        said = Said(
+            own=own,
+            others=others,
+            long=recent_words(rt, member.id, rt.budget.now()),
+            repeat_similarity=(
+                rt.config.roundtable.chat.engine.voice.check.post_repeat_similarity
+                if kind == "moment"
+                else None
+            ),
+        )
+        return await before_voice(
+            rt,
+            text,
+            said,
+            member=member.id,
+            room=MOMENT_ROOM,
+            room_kind=kind,
+            named=named,
+            name=member.name,
+            model_id=member.model_id,
         )
 
     # --- 推进 --------------------------------------------------------------------
@@ -358,9 +444,10 @@ class Moments:
             fresh = repo.moment(moment["id"])
             if fresh is None:
                 continue
-            if await self.comment(member, fresh, offline=offline) is None:
+            done = await self.comment(member, fresh, offline=offline)
+            if done is None:
                 break
-            out["comments"] += 1
+            out["comments"] += bool(done)
         return out
 
     # --- 回应用户 ------------------------------------------------------------------
@@ -376,9 +463,10 @@ class Moments:
         n = 0
         for member in online[: min(2, self.rules.max_comments)]:
             fresh = self.rt.repo.moment(moment_id)
-            if fresh is None or await self.comment(member, fresh) is None:
+            done = None if fresh is None else await self.comment(member, fresh)
+            if done is None:
                 break
-            n += 1
+            n += bool(done)
         return n
 
     async def reply_to_user_comment(self, comment_id: int) -> dict[str, Any] | None:

@@ -771,7 +771,11 @@ class GroupChat:
     ) -> str:
         """说出口前自查（成员系统 P5，``core/member/voice``）：和自己最近说的、别人这一轮说的比；
         返回要发的话，空串表示这条不发。工作群和关闭时原样返回。"""
-        from roundtable.core.member.voice import Said, before_voice  # voice 依赖本模块
+        from roundtable.core.member.voice import (  # voice 依赖本模块
+            Said,
+            before_voice,
+            recent_words,
+        )
         from roundtable.core.memory import NONE  # memory 依赖本模块
 
         names = {m.id: m.name for m in self.everyone()}
@@ -787,7 +791,13 @@ class GroupChat:
             for r in rows
             if r["id"] > reply_to and r["author"] not in (member.id, USER, SYSTEM)
         )
-        said = Said(own=own, others=others, has_memory=memory.strip() not in ("", NONE))
+        said = Said(
+            own=own,
+            others=others,
+            has_memory=memory.strip() not in ("", NONE),
+            long=recent_words(self.rt, member.id, self.rt.budget.now()) + tuple(posted),
+            asked=next((r["text"] for r in rows if r["id"] == reply_to), ""),
+        )
         return await before_voice(
             self.rt,
             text,
