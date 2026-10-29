@@ -155,6 +155,19 @@ chat:
       backups: 8                   # 每周本地备份留 8 份
       habits: {min_count: 5, min_weeks: 3}   # 习惯：从全部经历累加，至少 5 次、跨 3 周才算
       report: {enabled: true, keep: 24}       # 每月 1 号起写上个月的「这个月的我」（程序算，不花钱）
+    relation:                      # P4 关系：和你的阶段、同事之间的亲近度，全由程序按一起经历的事累积（不花钱）；只影响生活里谁和谁聊，不影响工作派活
+      enabled: true
+      half_life_days: 60           # 亲近度两个月不来往淡一半；阶段（新邻居 → 熟悉 → 老朋友）只升不降
+      reply_window_minutes: 30     # 你说话后 30 分钟内她接了才算一来一回（工作群不算）
+      user_daily_cap: 6            # 和你每天最多记 6 分：一天刷几百句也成不了老朋友
+      peer_daily_cap: 4
+      weights: {dm: 1.0, group: 0.5, gather: 1.0, pair: 2.0, chat: 0.3, work: 0.5}
+      stages:
+        - {name: 新邻居}
+        - {name: 熟悉, min_days: 3, min_exchanges: 15}
+        - {name: 老朋友, min_days: 20, min_exchanges: 150, min_weeks: 6}
+      pair_bias: 2.0               # 生活里挑谁和谁聊：权重 = 1 + 2 × 亲近度（生人也照样碰到）
+      context_chars: 60            # 「和你」那一行最多几个字（8 位相同，算在 600 字里）
   watch:                           # 投屏陪伴（docs/WATCH.md）：你投屏，选 1～3 位陪你一起看
     enabled: true
     monthly_usd: 1.5               # 一起看每月最多花多少（不占聊天月预算）；用完只陪聊、不看画面

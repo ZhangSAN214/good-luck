@@ -117,6 +117,8 @@ export const memberGrowth = (id) => api(`/api/chat/growth/${encodeURIComponent(i
 export const runMemberGrowth = (id) => api(`/api/chat/growth/${encodeURIComponent(id)}/run`, { method: 'POST' });
 export const revertMemberGrowth = (id, entry) => api(`/api/chat/growth/${encodeURIComponent(id)}/revert`, { method: 'POST', body: { id: entry } });
 export const clearMemberGrowth = (id) => api(`/api/chat/growth/${encodeURIComponent(id)}`, { method: 'DELETE' });
+export const memberRelation = (id) => api(`/api/chat/relation/${encodeURIComponent(id)}`);
+export const clearMemberRelation = (id) => api(`/api/chat/relation?member=${encodeURIComponent(id)}`, { method: 'DELETE' });
 export const clearMemberProfile = (id) => api(`/api/chat/profiles/${encodeURIComponent(id)}`, { method: 'DELETE' });
 export const importMemberCards = (text, mapping = null, dry_run = false) => api('/api/chat/profiles/import', { method: 'POST', body: { text, mapping, dry_run } });
 export const chatMemories = (id) => api(`/api/chat/memories${id ? `?member=${encodeURIComponent(id)}` : ''}`);

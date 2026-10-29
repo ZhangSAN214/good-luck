@@ -2217,6 +2217,25 @@ class RoundtableService:
         """清空状态（全部或某一位），回到基线。"""
         return {"deleted": self.engine.state.clear(member)}
 
+    # --- 成员关系（P4，docs/MEMBER_ENGINE.md「P4 关系」） ------------------------------
+
+    def member_relation(self, member: str) -> dict[str, Any]:
+        """和你的阶段、亲近度，和每位同事的亲近度与看法（程序按共同经历算，只读）。"""
+        member = self._profile_member(member)
+        rel = self.engine.relation
+        rules = self.rt.config.roundtable.chat.engine.relation
+        return {
+            **rel.summary(member),
+            "enabled": rel.enabled(),
+            "stages": [s.model_dump() for s in rules.stages],
+        }
+
+    def member_relation_clear(self, member: str | None = None) -> dict[str, Any]:
+        """清空关系（全部或某一位），从头再按经历累积。"""
+        if member is not None:
+            member = self._profile_member(member)
+        return {"deleted": self.engine.relation.clear(member)}
+
     # --- 成员成长（P6，docs/MEMBER_ENGINE.md「P6 成长」） ------------------------------
 
     def member_growth(self, member: str) -> dict[str, Any]:

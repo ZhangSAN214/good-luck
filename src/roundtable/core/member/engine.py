@@ -19,6 +19,7 @@ from roundtable.core.member.context import Context, Piece, assemble
 from roundtable.core.member.heartbeat import Heartbeat
 from roundtable.core.member.mode import Mode, require_life
 from roundtable.core.member.profile import ProfileStore
+from roundtable.core.member.relation import RelationPlugin
 from roundtable.core.member.scheduler import BudgetScheduler
 from roundtable.core.member.state import StatePlugin
 from roundtable.core.storage.repository import iso
@@ -42,6 +43,8 @@ class MemberEngine:
         self.heartbeat = Heartbeat(rt, self.bus, self.scheduler)
         # P3 状态：订阅总线，按事件算心情和精力（names：成员 id → 称呼，认 @ 用）
         self.state = StatePlugin(rt, self.bus, names or (lambda: {m: m for m in self.members()}))
+        # P4 关系：订阅总线，按共同经历累积和你的阶段、同事之间的亲近度
+        self.relation = RelationPlugin(rt, self.bus, names)
 
     @property
     def rules(self) -> Any:
