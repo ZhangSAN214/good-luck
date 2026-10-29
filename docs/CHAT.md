@@ -112,3 +112,21 @@
 - 网页：聊天左栏「生活自检」按钮打开报告；左下角显示「互聊 x/40 句」，停掉时写原因。
 - 关掉：`chat.life.guard.enabled: false`（回到原来的行为）。
 
+## G10 微信式动作：成员能发什么（2026-10-29，聊天真人化第一批）
+
+用户要求群聊、私聊更像真人微信。按职能分工：这里只做「能发什么」和显示；**什么时候发、发不发、怎么说、节奏和延迟归成员系统**（M7 行为决策、M8 说话风格、心跳），本节只留接口和简单默认值。
+
+- **格式**（`core/chat_actions.py`，解析模型输出，不调模型、不加迁移，全部存在 `chat_messages.meta`）：
+  - 表情包：`[表情:套装·名字]`（G8 的同一个记号），只认 `chat.actions.stickers` 里的（与 `web/js/stickers.js` 同名，有测试），不认识的删掉；颜文字和 emoji 就是普通文字，`chat.actions.kaomoji` 是给模型的示例。
+  - 引用：一段开头写 `[引用#12]`，12 是聊天记录行首的消息编号（只认最近 `history_messages` 条里有的）；存成 `meta.quote = {id, author, text: 开头 60 字}`。用户引用走 `POST /api/chat` 的 `quote`。
+  - 拆条：空行隔开的几段 = 几条气泡，最多 `max_segments`（默认 3）条，多的并进最后一条；花费记在第一条上。气泡之间停 `segment_gap_seconds`（默认 1.2 秒），期间显示「正在输入」。
+  - 不接话：只输出 `[不回]`。默认只在群里、没被点名（@、叫大家、被拍）时生效；不生效时去掉记号照常处理。
+- **拍一拍**：`POST /api/chat/pat {member, room}`。存成系统消息「你拍了拍 阿二」（`meta.pat = {actor, target, suffix}`），聊天记录里给模型看是「（用户拍了拍 阿二）」；发 `chat.pat` 事件到成员引擎总线；默认被拍的人回一句（`pat_reply`）。成员之间互拍用 `GroupChat.pat(target, actor=成员)`，什么时候拍由成员系统决定（默认不拍）。后缀（「的肩膀」）由策略的 `pat_suffix` 给，默认空。
+- **撤回**：`POST /api/chat/recall {id, room}`，只能撤回自己发的、`recall_seconds`（默认 120）秒内的。文字和附件清单清空、`meta.recalled = true`，之后成员的聊天记录里看不到；成员不撤回。
+- **作废旧回合**：用户补发新消息、拍一拍或撤回时（`drop_stale`，默认开），上一轮还没发出的气泡和还没开口的人不再说（已经花了的调用照记）。`GET /api/chat` 多了 `queued`（这一轮还没开口的人）和 `recall_seconds`。
+- **可替换的策略**：`chat_actions.ActionPolicy`（`max_segments`、`segment_gap`、`allow_no_reply`、`reply_to_pat`、`drop_stale`、`pat_suffix`），成员系统实现后赋给 `ChatHub.policy` 即接管；默认 `DefaultPolicy` 按配置，所有成员相同（中立）。
+- **提示词**：`chat` / `chat_dm` v4 多了 `stickers`、`kaomoji`、`segments`、`skip` 四个变量和编号的聊天记录；工作群（`chat_work`）不变，不拆条、不发表情。成员之间的生活互聊暂不变。
+- **网页**（`web/js/groupchat.js`）：右键 / 长按消息 → 引用、复制、撤回（自己的、时限内）；输入框上方显示引用条；气泡下方灰色引用框，点了跳到原消息；双击聊天里的成员头像拍一拍；私聊顶部「对方正在输入…」。
+- 花费：能力本身不花钱；拍一拍默认回一句（一次普通回复）；提示词多约 300 字。
+- 测试：`tests/core/test_chat_actions.py`、`tests/web/test_e2e_chat_actions.py`。
+
