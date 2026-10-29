@@ -126,6 +126,8 @@ def test_repo_config_loads_with_defaults():
         "mail_translate",
         "mail_digest",
         "member_eval",
+        "plain_talk",
+        "plain_rewrite",
     }
     assert rt.collab_pipeline == [
         "decompose",

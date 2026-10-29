@@ -41,6 +41,7 @@ from roundtable.core.chat import (
 from roundtable.core.config.schema import FeedSpec
 from roundtable.core.office.apartment import schedule
 from roundtable.core.persona import chat_persona, persona_of
+from roundtable.core.plain_talk import before_speaking, plain_prompt
 from roundtable.core.providers import Completion, Message
 from roundtable.core.search import SearchUnavailable
 from roundtable.core.storage.repository import iso
@@ -357,6 +358,7 @@ class Browser:
             memory=member_memory(rt, member.id, f"{interest}\n{article}"),
             history=chat.history(everyone),
         )
+        prompt = plain_prompt(rt.prompts, rt.config, prompt)
         params = dict(rt.config.roundtable.step_params.get("chat", {}))
         params["max_tokens"] = rules.max_tokens
         completion = await call_member(
@@ -373,6 +375,9 @@ class Browser:
         text = clean_reply(completion.text, member.name, rt.config.roundtable.chat.max_chars)
         if not text:
             return None
+        text = await before_speaking(
+            rt, text, room=ROOM, name=member.name, model_id=member.model_id
+        )
         rt.repo.mark_web_shared(item["id"], member.id)
         return rt.repo.add_chat_message(
             ROOM,
