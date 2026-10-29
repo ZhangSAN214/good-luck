@@ -80,6 +80,9 @@ def test_repo_config_loads_with_defaults():
         "memory_roll",
         "memory_profile",
         "memory_items",
+        "memory_night",
+        "memory_diary",
+        "memory_diary_result",
         "life_chat",
         "life_share",
         "moment_post",
@@ -125,9 +128,14 @@ def test_repo_config_loads_with_defaults():
         "mail_summary",
         "mail_translate",
         "mail_digest",
+        "perceive_fast",
+        "perceive_fine",
         "member_eval",
         "plain_talk",
         "plain_rewrite",
+        "watch",
+        "wander",
+        "describe_screen",
     }
     assert rt.collab_pipeline == [
         "decompose",
@@ -142,9 +150,9 @@ def test_repo_config_loads_with_defaults():
         "reveal",
     ]
     assert rt.effort_check.enabled and rt.effort_check.redo
-    # 每个档位的全部模型都能坐下（一个当统筹）
+    # 每个档位的全部上桌模型都能坐下（一个当统筹）；媒体模型（seat: false）不占座位
     for plan in cfg.routing.plans.values():
-        tier_models = [m for m in cfg.models.enabled if m.tier in plan.tiers]
+        tier_models = [m for m in cfg.models.enabled if m.seat and m.tier in plan.tiers]
         assert rt.min_members + 1 <= len(tier_models) <= rt.seats + 1
     assert len(cfg.personas.codes) >= rt.seats
 

@@ -47,6 +47,7 @@ class Server:
         async def main() -> None:
             self.env = Env(**env_kw)
             self.env.rt.catalog.fetch = self._catalog  # 人才市场：不联网
+            self.env.rt.directory.fetch = self._directory  # 模型图鉴：不联网
             if self.delay:
                 self._slow_down(self.env.fake)
             if self.setup:
@@ -77,6 +78,52 @@ class Server:
                     "pricing": {"prompt": str(m.price.input / 1e6), "completion": str(out / 1e6)},
                 }
             )
+        return {"data": data}
+
+    async def _directory(self, url: str) -> dict:
+        """全部模型的列表：配置里的模型 + 一个新文字模型、一个画图模型、一个向量模型。"""
+        self.directory_calls = getattr(self, "directory_calls", 0) + 1
+        data = [
+            {
+                "id": m.routes[0].model,
+                "name": m.id,
+                "created": 1,
+                "pricing": {
+                    "prompt": str(m.price.input / 1e6),
+                    "completion": str(m.price.output / 1e6),
+                },
+            }
+            for m in self.env.config.models.models
+        ]
+        data += [
+            {
+                "id": "zz/brand-new-chat",
+                "name": "ZZ: Brand New Chat",
+                "created": 9,
+                "context_length": 1_000_000,
+                "description": "A fresh long-context model.",
+                "supported_parameters": ["tools", "reasoning"],
+                "pricing": {"prompt": "0.0000002", "completion": "0.0000008"},
+                "architecture": {
+                    "input_modalities": ["text", "image"],
+                    "output_modalities": ["text"],
+                },
+            },
+            {
+                "id": "zz/painter",
+                "name": "ZZ: Painter",
+                "created": 8,
+                "pricing": {"prompt": "0", "completion": "0", "image_output": "0.02"},
+                "architecture": {"input_modalities": ["text"], "output_modalities": ["image"]},
+            },
+            {
+                "id": "zz/vectors",
+                "name": "ZZ: Vectors",
+                "created": 7,
+                "pricing": {"prompt": "0.00000002", "completion": "0"},
+                "architecture": {"input_modalities": ["text"], "output_modalities": ["embeddings"]},
+            },
+        ]
         return {"data": data}
 
     def _slow_down(self, fake) -> None:

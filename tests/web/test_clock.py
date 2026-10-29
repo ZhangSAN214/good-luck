@@ -80,3 +80,96 @@ def test_unread_versions_keep_newest_first():
         "return N.unreadVersions(rels, ['1.2']);"
     )
     assert out == ["1.3", "1.1"]
+
+
+def test_main_zone_order_and_local_follow():
+    out = run(
+        "const zs = [{ tz: 'Europe/London', name: 'a' }, { tz: 'local', name: '' }, { tz: 'UTC' }];"
+        "const s = C.cleanSettings({ zones: zs, main: 2 });"
+        "const t = new Date('2026-01-15T12:00:00Z');"
+        "return [s.main, s.zones.map((z) => z.name), C.faceOrder(s.zones, s.main).map((z) => z.tz),"
+        " C.cleanSettings({ zones: zs, main: 7 }).main, C.realZone('local', 'Asia/Tokyo'),"
+        " C.realZone('UTC', 'Asia/Tokyo'), C.mainDiffLabel(t, 'Europe/London', 'UTC'),"
+        " C.mainDiffLabel(t, 'Asia/Shanghai', 'Europe/London')];"
+    )
+    assert out == [
+        2,
+        ["a", "本机", "协调世界时"],
+        ["UTC", "Europe/London", "local"],
+        0,
+        "Asia/Tokyo",
+        "UTC",
+        "同主时区",
+        "+8 小时",
+    ]
+
+
+def test_durations_and_timer_state():
+    out = run(
+        "const sw = { start: 1000, acc: 500, laps: [] };"
+        "const cd = { dur: 60000, end: 61000, left: null, done: false };"
+        "return [C.fmtDuration(0), C.fmtDuration(65432, true), C.fmtDuration(3723000),"
+        " C.fmtDuration(-5), C.fmtLeft(299200), C.fmtLeft(0),"
+        " C.swElapsed(sw, 3000), C.swElapsed({ start: null, acc: 700 }, 9e9),"
+        " C.cdLeft(cd, 31000), C.cdLeft(cd, 99000), C.cdLeft({ ...cd, end: null, left: 4000 }, 0),"
+        " C.cdLeft({ ...cd, end: null }, 0), C.cdLeft({ ...cd, done: true }, 0)];"
+    )
+    assert out == [
+        "00:00",
+        "01:05.43",
+        "1:02:03",
+        "00:00",
+        "05:00",
+        "00:00",
+        2500,
+        700,
+        30000,
+        0,
+        4000,
+        60000,
+        0,
+    ]
+
+
+def test_timer_state_is_cleaned():
+    out = run(
+        "const bad = { sw: { start: 'x', acc: -3, laps: [1, 'a', 2] },"
+        " cd: { dur: 0, end: 5, done: 'yes' } };"
+        "return [C.cleanTimers(null), C.cleanTimers(bad)];"
+    )
+    empty, messy = out
+    assert empty["sw"] == {"start": None, "acc": 0, "laps": []}
+    assert empty["cd"] == {"dur": 300000, "end": None, "left": None, "done": False}
+    assert messy["sw"] == {"start": None, "acc": 0, "laps": [1, 2]}
+    assert messy["cd"] == {"dur": 300000, "end": 5, "left": None, "done": False}
+
+
+def test_home_zone_parts_follow_the_chosen_zone():
+    # hometz.js：主时区的墙上时间（星期 0 = 周一，和后端一致）；离线时设置也先在本页生效
+    script = (
+        f"const H = await import({json.dumps((WEB / 'hometz.js').as_uri())});"
+        "const d = new Date('2026-01-15T00:30:00Z');"
+        "const before = H.homeZone();"
+        "await H.setHomeZone('Asia/Shanghai');"
+        "const sh = H.homeParts(d);"
+        "await H.setHomeZone('America/New_York');"
+        "const ny = H.homeParts(d);"
+        "const bad = await H.setHomeZone('Mars/Base');"
+        "process.stdout.write(JSON.stringify({before, sh, ny, bad, zone: H.homeZone(),"
+        " opt: H.tzOpt({hour: '2-digit'}),"
+        " same: H.homeDay(d) === H.homeDay(new Date('2026-01-14T23:00:00Z'))}));"
+    )
+    res = subprocess.run(
+        ["node", "--input-type=module", "-e", script],
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=True,
+    )
+    out = json.loads(res.stdout)
+    assert out["before"] == "local"
+    assert out["sh"] == {"y": 2026, "m": 1, "d": 15, "h": 8, "mi": 30, "wd": 3}
+    assert out["ny"] == {"y": 2026, "m": 1, "d": 14, "h": 19, "mi": 30, "wd": 2}
+    assert out["bad"] is False and out["zone"] == "America/New_York"
+    assert out["opt"] == {"hour": "2-digit", "timeZone": "America/New_York"}
+    assert out["same"] is True

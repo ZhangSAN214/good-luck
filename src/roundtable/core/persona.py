@@ -81,13 +81,27 @@ def card_text(rt: Any, member: str) -> str:
     return pocket_card(row["data"], engine.card.budget_chars)
 
 
+def habit_text(rt: Any, member: str) -> str:
+    """记忆插件由全部经历（不只最近）算出的「常做的事」（每晚重算）；没有时为空串。"""
+    memory = rt.config.roundtable.chat.memory
+    if not memory.enabled or memory.digest_chars == 0:
+        return ""
+    row = rt.repo.memory_digest(member)
+    return row["text"] if row else ""
+
+
 def chat_persona(rt: Any, member: str) -> str:
-    """私聊、群聊、朋友圈、生活提示词里 <persona> 的内容：有随身卡用随身卡，否则用简单人设。"""
+    """私聊、群聊、朋友圈、生活提示词里 <persona> 的内容：有随身卡用随身卡，否则用简单人设；
+    后面接全量经历的习惯（固定前缀，每晚才变，利于缓存）。"""
     card = card_text(rt, member)
+    habit = habit_text(rt, member)
     if not card:
-        return persona_text(persona_of(rt, member))
+        base = persona_text(persona_of(rt, member))
+        return f"{base}\n{habit}" if habit else base
     r = rt.config.roundtable.chat.engine.context
     pieces = [Piece("card", card, fixed=True)]
+    if habit:
+        pieces.append(Piece("habit", habit, fixed=True))
     state = StatePlugin(rt).line(member)  # P3：程序算出的此刻心情和精力（放在随身卡后面）
     if state:
         pieces.append(Piece(STATE, state, score=1.0))

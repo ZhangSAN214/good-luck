@@ -327,3 +327,14 @@ def test_engine_wires_state_plugin():
     engine = MemberEngine(env.rt, lambda: ["V1"])
     assert isinstance(engine.state, StatePlugin)
     assert engine.state.mood_of("V1", NOON) == 0
+
+
+def test_hours_follow_home_zone():
+    from roundtable.core.hometz import home_zone
+
+    env = Env()
+    st = StatePlugin(env.rt)  # 不传 tz：跟终端时钟选的主时区
+    home_zone(env.rt).set("Asia/Shanghai")
+    assert st.hour(NOON) == 20  # 北京时间晚上八点
+    home_zone(env.rt).set("Europe/London")
+    assert st.hour(NOON) == 12

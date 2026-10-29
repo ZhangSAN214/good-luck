@@ -6,7 +6,7 @@ import { ProfilePanel } from './profile.js';
 const esc = (s) =>
   String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 
-const LAYER = { note: '记下的', day: '一天', week: '一周', month: '一个月', profile: '长期档案' };
+const LAYER = { note: '记下的', day: '日记', week: '一周', month: '一个月', profile: '长期档案' };
 const SOURCE = { local: '你改过的设定', config: '配置文件里的设定', empty: '没有设定（用模型本身的风格）' };
 const BACK = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>';
 const list = (s) =>
@@ -24,6 +24,9 @@ export class People {
     this.members = [];
     this.member = null;
     this.memories = [];
+    this.mind = null; // 记忆件、挂着的事、习惯（P2）
+    this.itemQuery = '';
+    this.diary = null; // 翻日记的结果
     this.armed = {}; // 两步确认：按钮 id → 截止时间
     this.msg = '';
     this.profile = api?.profile
@@ -68,9 +71,37 @@ export class People {
     if (!this.member) return;
     try {
       this.memories = (await this.api.memories(this.member)).memories || [];
+      this.mind = this.api.items ? await this.api.items(this.member, this.itemQuery) : null;
     } catch (e) {
       this.msg = e.message;
     }
+  }
+
+  mindHtml() {
+    const d = this.mind;
+    if (!d) return '';
+    const hang = d.hanging.length
+      ? d.hanging.map((h) => `<li data-hid="${h.id}"><div class="pp-mh"><b>挂着</b><span>${esc(h.since)}</span><button type="button" class="link" data-drop="${h.id}">放下</button></div><p>${esc(h.text)}</p></li>`).join('')
+      : '<li class="hint">现在没有挂心上的事。</li>';
+    const items = d.items.length
+      ? d.items
+          .map(
+            (r) => `<li data-iid="${r.id}"><div class="pp-mh"><b>${esc(r.domain)}</b><span>${esc(r.day)}</span>${r.kind === 'fact' ? '<span>长期</span>' : ''}${r.hits > 1 ? `<span>${r.hits} 次</span>` : ''}${'★'.repeat(Math.max(0, r.importance - 1))}${r.superseded_by ? '<span>已更新</span>' : ''}
+              <button type="button" class="link" data-iedit="${r.id}">改</button><button type="button" class="link" data-idel="${r.id}">删除</button></div>
+              <p>${esc(r.text)}${r.tone ? `<br><small>现在想起来：${esc(r.tone)}</small>` : ''}</p></li>`,
+          )
+          .join('')
+      : '<li class="hint">还没有记忆件。每晚整理时会从当天的事里挑几件记下。</li>';
+    const found = this.diary
+      ? `<ul class="pp-list grp-box">${this.diary.length ? this.diary.map((t) => `<li><p>${esc(t)}</p></li>`).join('') : '<li class="hint">没翻到。</li>'}</ul>`
+      : '';
+    return `<h4 class="grp-h">记忆件与联想 <small>共 ${d.count} 件${d.links != null ? ` · 联想 ${d.links} 条` : ''} · TA 今天还能翻 ${d.diary_reads_left} 次日记</small></h4>
+          ${d.habits ? `<p class="grp-foot">${esc(d.habits)}</p>` : ''}
+          <ul class="pp-list grp-box">${hang}</ul>
+          <form id="pp-isearch" class="grp-box"><div class="grp-row"><input name="q" value="${esc(this.itemQuery)}" placeholder="找记忆件（关键词）" aria-label="找记忆件"><button class="btn" type="submit">找</button></div></form>
+          <ul class="pp-list grp-box">${items}</ul>
+          <form id="pp-diary" class="grp-box"><div class="grp-row"><input name="q" placeholder="翻日记：日期（10-21）或关键词" aria-label="翻日记"><button class="btn" type="submit">翻</button></div></form>
+          ${found}`;
   }
 
   current() {
@@ -121,6 +152,7 @@ export class People {
           <h4 class="grp-h">${esc(m.name)} 的记忆 <small>只存在你电脑上</small></h4>
           <form id="pp-add" class="grp-box"><div class="grp-row"><input name="text" maxlength="300" placeholder="替 TA 记一条，比如：我下周三考试" aria-label="记一条"><button class="btn" type="submit">记下</button></div></form>
           <ul class="pp-list grp-box">${mems}</ul>
+          ${this.mindHtml()}
           <div class="grp-box grp-acts"><button type="button" class="grp-btn" data-tidy>现在整理</button><button type="button" class="grp-btn danger" id="pp-clear-one" data-clear="one">清空 TA 的记忆</button><button type="button" class="grp-btn danger" id="pp-clear-all" data-clear="all">清空全部成员的记忆</button></div>
         </section>`
             : '<p class="hint">没有成员。</p>'
@@ -171,6 +203,8 @@ export class People {
     if (who) {
       this.member = who.dataset.member;
       this.msg = '';
+      this.itemQuery = '';
+      this.diary = null;
       await this.loadMemories();
       return this.render();
     }
@@ -182,6 +216,18 @@ export class People {
         const r = await this.api.tidy();
         this.msg = `整理好了，新写了 ${r.written} 条`;
       }, null);
+    }
+    const drop = t.closest('[data-drop]');
+    if (drop) return this.act(() => this.api.dropHanging(Number(drop.dataset.drop)), '放下了');
+    const idel = t.closest('[data-idel]');
+    if (idel) return this.act(() => this.api.delItem(Number(idel.dataset.idel)), '删掉了');
+    const iedit = t.closest('[data-iedit]');
+    if (iedit) {
+      const li = iedit.closest('li');
+      const old = this.mind.items.find((r) => r.id === Number(iedit.dataset.iedit));
+      li.querySelector('p').outerHTML = `<form class="pp-row pp-ieditf" data-iid="${old.id}"><textarea name="text" rows="2" maxlength="300">${esc(old.text)}</textarea><button class="btn primary" type="submit">保存</button></form>`;
+      li.querySelector('textarea').focus();
+      return;
     }
     const del = t.closest('[data-del]');
     if (del) return this.act(() => this.api.delMemory(Number(del.dataset.del)), '删掉了');
@@ -220,6 +266,20 @@ export class People {
       const text = String(data.get('text') || '').trim();
       if (!text) return;
       return this.act(() => this.api.addMemory(this.member, text), '记下了');
+    }
+    if (f.id === 'pp-isearch') {
+      this.itemQuery = String(data.get('q') || '').trim();
+      return this.act(async () => {}, null);
+    }
+    if (f.id === 'pp-diary') {
+      const q = String(data.get('q') || '').trim();
+      if (!q) return;
+      return this.act(async () => {
+        this.diary = (await this.api.readDiary(this.member, q)).found || [];
+      }, null);
+    }
+    if (f.classList.contains('pp-ieditf')) {
+      return this.act(() => this.api.editItem(Number(f.dataset.iid), String(data.get('text') || '')), '改好了（旧的留着）');
     }
     if (f.classList.contains('pp-editf')) {
       return this.act(() => this.api.editMemory(Number(f.dataset.mid), String(data.get('text') || '')), '改好了');

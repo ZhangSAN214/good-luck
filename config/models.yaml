@@ -16,13 +16,14 @@ tag_vocabulary:
   - zh              # 擅长中文（语音合成按脚本语言选择时使用）
   # 媒体类
   - vision          # 能看图（图片、视频截帧）
+  - video_in        # 能直接看整段视频（画面连声音，作为消息附件发送）
   - transcribe      # 能直接接收音频的对话模型（旧的转写方式；有 stt 模型时优先用 stt）
   - image_gen       # 图像生成
   - image_edit      # 支持以参考图为输入的图像生成 / 编辑（风格参考图用）
   - tts             # 文字转语音
   - stt             # 语音转文字（Whisper 系列）
   - video_gen       # 视频生成（异步）
-  - music_gen       # 音乐 / 音效生成（预留，暂不启用）
+  - music_gen       # 音乐生成（配乐、片头、整首歌；同步返回音频）
 
 # 调用渠道。key 只从 .env 读取，这里只写环境变量名。
 #   adapter: 适配器实现（openai_compat / anthropic / gemini）
@@ -131,7 +132,7 @@ models:
     tier: flagship
     # 搜索结果中最新的 Pro 为 3.1 Pro Preview（未找到 3.8 Pro）；待核对
     price: {input: 2.00, output: 12.00, cached_input: 0.20}
-    tags: [math, derivation, science, research, long_context, vision]
+    tags: [math, derivation, science, research, long_context, vision, video_in]
     enabled: true
     routes:
       - {channel: google, model: gemini-3.1-pro-preview}
@@ -143,7 +144,7 @@ models:
     tier: budget
     price: {input: 0.75, output: 3.75}
     # transcribe：能直接接收音频，用于把上传的音频转写成文字（普通对话调用）
-    tags: [design, research, long_context, vision, transcribe]
+    tags: [design, research, long_context, vision, transcribe, video_in]
     enabled: true
     routes:
       - {channel: google, model: gemini-3.8-flash}
@@ -272,10 +273,11 @@ models:
   # 典型 token 数：Gemini 1K×1K ≈ 1290；OpenAI 图像模型 1024×1024 中等质量 ≈ 1056（mini 按其公布的
   # 每张 $0.011 反推为 1375）。输入价格已由用户核对。
   - id: gemini-3.1-flash-image
+    # Nano Banana 2：每张约 $0.067，改图和多轮修改稳定
     vendor: Google
     aliases: [Gemini, Nano Banana]
     seat: false
-    # 实测约 $0.067 / 张，比 gpt-image-2 还贵，所以放在旗舰档（节电模式默认只用 gpt-image-1-mini）
+    # 实测约 $0.067 / 张，比 gpt-image-2 还贵，所以放在旗舰档（节电档只放每张 ≤ $0.02 的）
     tier: flagship
     price: {input: 0.50, output: 60.0}
     image_tokens: 1290
@@ -287,6 +289,7 @@ models:
         model: google/gemini-3.1-flash-image
         params: {modalities: [image, text]}
   - id: gpt-image-1-mini
+    # 每张约 $0.011；便宜、出图快，质量够日常插图
     vendor: OpenAI
     aliases: [GPT Image 1 Mini]
     seat: false
@@ -300,6 +303,7 @@ models:
       - channel: openrouter
         model: openai/gpt-image-1-mini
   - id: gpt-image-2
+    # 中等质量每张约 $0.03；构图和文字渲染好
     vendor: OpenAI
     aliases: [GPT Image 2]
     seat: false
@@ -312,6 +316,148 @@ models:
     routes:
       - channel: openrouter
         model: openai/gpt-image-2
+  # --- 2026-10-29 用户要求：OpenRouter 上的绘图模型全部加入（每个配一句说明）---
+  # 2026-10-29 已在用户电脑上用 check_models.py 核对：10 个 ID 都存在、都支持参考图输入、都在 /images 接口列表里。
+  # 只出图的模型远端按图像 token 计价（image_output），1K 一张约 4175 token（按公布的每张单价反推）。
+  # 节电档只放每张 ≤ $0.02 的；其余放旗舰档。同档内随机选，实际费用以渠道返回为准。
+  - id: muse-image
+    # 每张约 $0.01，很便宜；支持参考图、局部修改和多图合成，排行前 10
+    vendor: Meta Platforms
+    aliases: [Muse Image, Meta AI]
+    seat: false
+    tier: budget
+    price: {input: 0, output: 2.395}
+    image_tokens: 4175
+    tags: [image_gen, image_edit]
+    image_api: images
+    enabled: true
+    routes:
+      - {channel: openrouter, model: meta/muse-image}
+  - id: seedream-5.0-flash
+    # 每张约 $0.018；中文提示词理解好，可编辑
+    vendor: ByteDance
+    aliases: [Seedream, 豆包, 即梦, 字节跳动]
+    seat: false
+    tier: budget
+    price: {input: 0, output: 4.311}
+    image_tokens: 4175
+    tags: [image_gen, image_edit, zh]
+    image_api: images
+    enabled: true
+    routes:
+      - {channel: openrouter, model: bytedance-seed/seedream-5-0-flash}
+  - id: seedream-4.5
+    # 每张 $0.04（不论尺寸）；上一代，多图合成与编辑一致性好
+    vendor: ByteDance
+    aliases: [Seedream, 豆包, 即梦, 字节跳动]
+    seat: false
+    tier: flagship
+    price: {input: 0, output: 9.581}
+    image_tokens: 4175
+    tags: [image_gen, image_edit, zh]
+    image_api: images
+    enabled: true
+    routes:
+      - {channel: openrouter, model: bytedance-seed/seedream-4.5}
+  - id: gemini-nano-banana-2.1
+    # 1K 每张约 $0.034；局部改图（蒙版 / 涂抹）、人物前后一致，可出 2K / 4K
+    vendor: Google
+    aliases: [Gemini, Nano Banana]
+    seat: false
+    tier: flagship
+    price: {input: 1.5, output: 30.0}
+    image_tokens: 1120
+    tags: [image_gen, image_edit, vision]
+    image_api: chat
+    enabled: true
+    routes:
+      - channel: openrouter
+        model: google/gemini-nano-banana-2.1
+        params: {modalities: [image, text]}
+  - id: gemini-3.1-flash-lite-image
+    # 1K 每张约 $0.034；Nano Banana 2 的轻量版，14 种画幅，支持多图合成
+    vendor: Google
+    aliases: [Gemini, Nano Banana]
+    seat: false
+    tier: flagship
+    price: {input: 0.25, output: 30.0}
+    image_tokens: 1120
+    tags: [image_gen, image_edit, vision]
+    image_api: chat
+    enabled: true
+    routes:
+      - channel: openrouter
+        model: google/gemini-3.1-flash-lite-image
+        params: {modalities: [image, text]}
+  - id: gemini-2.5-flash-image
+    # 每张约 $0.039；初代 Nano Banana，多轮对话式改图，稳定
+    vendor: Google
+    aliases: [Gemini, Nano Banana]
+    seat: false
+    tier: flagship
+    price: {input: 0.30, output: 30.0}
+    image_tokens: 1290
+    tags: [image_gen, image_edit, vision]
+    image_api: chat
+    enabled: true
+    routes:
+      - channel: openrouter
+        model: google/gemini-2.5-flash-image
+        params: {modalities: [image, text]}
+  - id: gpt-image-2.5-sunburst
+    # 中等质量每张约 $0.03（高质量约 $0.21）；当前绘图排行第一，图中文字最清楚
+    vendor: OpenAI
+    aliases: [GPT Image 2.5, Sunburst]
+    seat: false
+    tier: flagship
+    price: {input: 8.0, output: 30.0}
+    image_tokens: 1056
+    tags: [image_gen, image_edit]
+    image_api: images
+    enabled: true
+    routes:
+      - {channel: openrouter, model: openai/gpt-image-2.5-sunburst}
+  - id: gpt-image-2.5-flare
+    # 中等质量每张约 $0.03；GPT Image 2.5 的另一版本，风格更鲜艳（以实测为准）
+    vendor: OpenAI
+    aliases: [GPT Image 2.5, Flare]
+    seat: false
+    tier: flagship
+    price: {input: 8.0, output: 30.0}
+    image_tokens: 1056
+    tags: [image_gen, image_edit]
+    image_api: images
+    enabled: true
+    routes:
+      - {channel: openrouter, model: openai/gpt-image-2.5-flare}
+  - id: gpt-5.4-image-2
+    # 每张约 $0.03 起（会先思考，token 多时更贵）；对话模型直接出图，适合复杂构图说明
+    vendor: OpenAI
+    aliases: [GPT-5.4 Image, GPT]
+    seat: false
+    tier: flagship
+    price: {input: 8.0, output: 30.0}
+    image_tokens: 1056
+    tags: [image_gen, image_edit, vision]
+    image_api: chat
+    enabled: true
+    routes:
+      - channel: openrouter
+        model: openai/gpt-5.4-image-2
+        params: {modalities: [image, text]}
+  - id: hy-image-3.5
+    # 预览版，每张约 $0.007（图像输出 $1.6 / 百万 token）；一次最多 20 张参考图，可出 4K
+    vendor: Tencent
+    aliases: [混元, Hunyuan, 腾讯混元, Hy Image]
+    seat: false
+    tier: budget
+    price: {input: 0, output: 1.6}
+    image_tokens: 4175
+    tags: [image_gen, image_edit, vision, zh]
+    image_api: images
+    enabled: true
+    routes:
+      - {channel: openrouter, model: tencent/hy-image-v3.5-preview}
   # --- 语音转文字（上传音频的转写；优先于带 transcribe 标签的对话模型）---
   - id: whisper-large-v3-turbo
     vendor: OpenAI
@@ -346,9 +492,31 @@ models:
     media_price: {unit: char, usd: 0.000015}   # $15 / 百万字符
     tags: [tts, zh]                            # zh：擅长中文，脚本主要是中文时优先
     params: {voice: loongjohn}                 # 默认音色
-    enabled: true
+    enabled: false                             # 2026-10-29 换成 Plus（中文更自然），留作备用
     routes:
       - {channel: openrouter, model: qwen/qwen-audio-3.0-tts-flash}
+  - id: qwen-audio-3.0-tts-plus
+    # 千问语音 Plus：中文朗读更自然、语气更稳，节电档中文默认
+    vendor: Alibaba
+    aliases: [Qwen, 通义千问, 千问, 通义]
+    seat: false
+    tier: budget
+    media_price: {unit: char, usd: 0.000020}   # $20 / 百万字符
+    tags: [tts, zh]
+    params: {voice: loongjohn}
+    enabled: true
+    routes:
+      - {channel: openrouter, model: qwen/qwen-audio-3.0-tts-plus}
+  - id: minimax-speech-2.8-hd
+    # MiniMax 语音 HD：情绪和停顿最像真人，中英都好；高质量档（旗舰），贵（$100 / 百万字符）
+    vendor: MiniMax
+    seat: false
+    tier: flagship
+    media_price: {unit: char, usd: 0.000100}
+    tags: [tts, zh]
+    enabled: true
+    routes:
+      - {channel: openrouter, model: minimax/speech-2.8-hd}
   # --- 视频（异步任务：提交 → 轮询 → 下载）---
   - id: alibaba-wan-video
     vendor: Alibaba
@@ -357,7 +525,7 @@ models:
     tier: budget
     media_price: {unit: second, usd: 0.10}
     tags: [video_gen]
-    enabled: true
+    enabled: false                         # 2026-10-29 节电档换成更便宜的 Grok Lite / Veo Lite，留作备用
     routes:
       - {channel: openrouter, model: alibaba/wan-2.6}
   - id: veo-3.1
@@ -366,10 +534,69 @@ models:
     seat: false
     tier: flagship
     media_price: {unit: second, usd: 0.40}
-    tags: [video_gen]
-    enabled: true
+    tags: [video_gen, image_edit]
+    enabled: false                         # 2026-10-29 旗舰档换成 Veo 3.1 Fast（便宜四分之三），留作备用
     routes:
       - {channel: openrouter, model: google/veo-3.1}
+  # image_edit：能拿一张图当首帧（图生视频）
+  - id: grok-imagine-video-1.5-lite
+    # Grok 视频 Lite：最便宜（720p 约 $0.15 / 5 秒；480p 每秒 2 美分），适合草稿、表情动图、日常小片段
+    vendor: SpaceXAI
+    seat: false
+    tier: budget
+    default: true
+    media_price: {unit: second, usd: 0.03}     # 720p（roundtable.yaml 的 media.video.resolution）；2026-10-29 用户电脑核对
+    tags: [video_gen, image_edit]
+    enabled: true
+    routes:
+      - {channel: openrouter, model: x-ai/grok-imagine-video-1.5-lite}
+  - id: veo-3.1-lite
+    # Veo 3.1 Lite：画面更稳、自带同步声音（环境声 / 对白），约 $0.25 / 5 秒
+    vendor: Google
+    aliases: [Veo]
+    seat: false
+    tier: budget
+    media_price: {unit: second, usd: 0.05}
+    tags: [video_gen, image_edit]
+    enabled: true
+    routes:
+      - {channel: openrouter, model: google/veo-3.1-lite}
+  - id: veo-3.1-fast
+    # Veo 3.1 Fast：高质量档默认，接近完整版画质、带声音，约 $0.50 / 5 秒
+    vendor: Google
+    aliases: [Veo]
+    seat: false
+    tier: flagship
+    default: true
+    media_price: {unit: second, usd: 0.10}
+    tags: [video_gen, image_edit]
+    enabled: true
+    routes:
+      - {channel: openrouter, model: google/veo-3.1-fast}
+  # --- 音乐（对话接口 + 流式音频，同步返回；生成一次、不评审）---
+  - id: lyria-3-clip
+    # Lyria 3 Clip：30 秒片段 / 循环 / 片头，$0.04 一段；节电档默认
+    vendor: Google
+    aliases: [Lyria]
+    seat: false
+    tier: budget
+    default: true
+    media_price: {unit: song, usd: 0.04}
+    tags: [music_gen]
+    enabled: true
+    routes:
+      - {channel: openrouter, model: google/lyria-3-clip-preview}
+  - id: lyria-3-pro
+    # Lyria 3 Pro：整首歌（可带人声和歌词），$0.08 一首；高质量档
+    vendor: Google
+    aliases: [Lyria]
+    seat: false
+    tier: flagship
+    media_price: {unit: song, usd: 0.08}
+    tags: [music_gen]
+    enabled: true
+    routes:
+      - {channel: openrouter, model: google/lyria-3-pro-preview}
 
 # 联网搜索服务（成员的 search / fetch 工具），按顺序优先使用；没有 key 的自动跳过
 search_providers:

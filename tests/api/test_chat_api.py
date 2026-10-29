@@ -128,8 +128,8 @@ def test_personas_and_memories_api():
         assert c.delete(f"/api/chat/memories/{mid}").status_code == 404
         c.post("/api/chat/memories", json={"member": "V1", "text": "a"})
         c.post("/api/chat/memories", json={"member": "V2", "text": "b"})
-        assert c.delete("/api/chat/memories", params={"member": "V1"}).json() == {"deleted": 1}
-        assert c.delete("/api/chat/memories").json() == {"deleted": 1}
+        assert c.delete("/api/chat/memories", params={"member": "V1"}).json()["deleted"] == 1
+        assert c.delete("/api/chat/memories").json()["deleted"] == 1
 
 
 def test_pair_room_is_listed_and_read_only():
@@ -230,15 +230,27 @@ def test_chat_and_moments_media(tmp_path):
             "/api/chat/media", content=b"<svg/>", headers={"Content-Type": "image/svg+xml"}
         )
         assert bad.status_code == 400
-        # 只发图片：成员看到占位文字，前端按 meta 显示图片
+        # 只发图片：成员看到占位文字和感官整理出的感知卡，前端按 meta 显示图片
         r = c.post("/api/chat", json={"room": "dm:V1", "media": [{"id": up["id"], "w": 2, "h": 1}]})
-        assert r.status_code == 202
+        assert r.status_code == 202 and r.json()["look"] == "fast"
         msg = wait_for(c, 0, 2, room="dm:V1")["messages"][0]
         assert msg["text"] == "[图片]"
+        perception = msg["meta"].pop("perception")
         assert msg["meta"] == {
             "media": [{"id": up["id"], "kind": "image", "w": 2.0, "h": 1.0}],
             "auto_text": True,
         }
+        assert perception == [
+            {
+                "id": up["id"],
+                "kind": "image",
+                "mode": "fast",
+                "text": "画面 1：一只橘猫趴在窗台上晒太阳。",
+            }
+        ]
+        # 成员回应时，聊天记录里带着感知卡
+        dm = next(x for x in env.fake.calls if "你在一个私聊里" in x.messages[0].content)
+        assert '<media from="用户" kind="图片">画面 1：一只橘猫' in dm.messages[-1].content
         # 文字 + 图片
         c.post("/api/chat", json={"room": "dm:V2", "text": "看", "media": [{"id": up["id"]}]})
         msg = wait_for(c, 0, 2, room="dm:V2")["messages"][0]
@@ -250,4 +262,114 @@ def test_chat_and_moments_media(tmp_path):
         assert r.status_code == 201
         mo = c.get("/api/moments").json()["moments"][0]
         assert mo["meta"]["media"][0]["id"] == up["id"] and mo["meta"]["caption"] == "今天"
+        deadline = time.monotonic() + 5
+        while (
+            time.monotonic() < deadline
+            and not c.get("/api/moments").json()["moments"][0]["comments"]
+        ):
+            time.sleep(0.02)
+        mo = c.get("/api/moments").json()["moments"][0]
+        assert mo["meta"]["perception"][0]["text"].startswith("画面 1")  # 同一张图：用缓存
+        comment = next(x for x in env.fake.calls if "想在下面留一条评论" in x.messages[0].content)
+        assert '<media from="用户" kind="图片">' in comment.messages[-1].content
         assert c.post("/api/moments", json={}).status_code == 400
+
+
+def test_look_closer_uses_fine_mode_and_one_member_replies(tmp_path):
+    env = Env()
+    env.rt.chat_media_dir = tmp_path / "chat_media"
+    env.rt.perception_dir = tmp_path / "perception"
+    png = b"\x89PNG\r\n\x1a\n" + b"\x00" * 40
+    with TestClient(create_app(RoundtableService(env.rt))) as c:
+        up = c.post("/api/chat/media", content=png, headers={"Content-Type": "image/png"}).json()
+        c.post("/api/chat", json={"room": "dm:V1", "media": [{"id": up["id"]}]})
+        first = wait_for(c, 0, 2, room="dm:V1")["messages"]
+        user_id = first[0]["id"]
+        assert first[0]["meta"]["perception"][0]["mode"] == "fast"
+        r = c.post(f"/api/chat/messages/{user_id}/look", params={"room": "dm:V1"})
+        assert r.status_code == 202 and r.json()["speakers"] == ["阿一"]
+        data = wait_for(c, 0, 3, room="dm:V1")["messages"]
+        assert data[0]["meta"]["perception"][0]["mode"] == "fine"
+        assert data[-1]["reply_to"] == user_id and data[-1]["author"] == "V1"
+        fine = [x for x in env.fake.calls if "仔细看看" in x.messages[0].content]
+        assert len(fine) == 1 and fine[0].params["max_tokens"] == 2000
+        # 再细看一次：缓存里已有精细的卡，不再调用看图模型
+        c.post(f"/api/chat/messages/{user_id}/look", params={"room": "dm:V1"})
+        wait_for(c, 0, 4, room="dm:V1")
+        assert len([x for x in env.fake.calls if "仔细看看" in x.messages[0].content]) == 1
+        # 缓存存在本机，可一键清空
+        assert len(list((tmp_path / "perception").glob("*.json"))) == 2
+        assert c.delete("/api/perception").json() == {"deleted": 2}
+        # 校验
+        assert c.post("/api/chat/messages/99999/look", params={"room": "dm:V1"}).status_code == 404
+        reply_id = data[1]["id"]
+        assert (
+            c.post(f"/api/chat/messages/{reply_id}/look", params={"room": "dm:V1"}).status_code
+            == 404
+        )
+        c.post("/api/chat", json={"room": "dm:V2", "text": "只有字"})
+        plain = wait_for(c, 0, 2, room="dm:V2")["messages"][0]["id"]
+        assert (
+            c.post(f"/api/chat/messages/{plain}/look", params={"room": "dm:V2"}).status_code == 400
+        )
+
+
+def test_fine_words_in_the_message_go_straight_to_fine(tmp_path):
+    env = Env()
+    env.rt.chat_media_dir = tmp_path / "chat_media"
+    png = b"\x89PNG\r\n\x1a\n" + b"\x00" * 40
+    with TestClient(create_app(RoundtableService(env.rt))) as c:
+        up = c.post("/api/chat/media", content=png, headers={"Content-Type": "image/png"}).json()
+        r = c.post(
+            "/api/chat", json={"room": "dm:V1", "text": "仔细看看这个", "media": [{"id": up["id"]}]}
+        )
+        assert r.json()["look"] == "fine"
+        msg = wait_for(c, 0, 2, room="dm:V1")["messages"][0]
+        assert msg["meta"]["perception"][0]["mode"] == "fine"
+
+
+def test_memory_items_api():
+    """记忆与联想（P2）：记忆件可查、可搜、可改（留旧版）、可删；挂着的事可放下；网页翻日记不占次数。"""
+    env = Env()
+    repo = env.rt.repo
+    with TestClient(create_app(RoundtableService(env.rt))) as c:
+        r = c.post("/api/chat/memories", json={"member": "V1", "text": "用户下周三考试"})
+        note = r.json()["id"]
+        data = c.get("/api/chat/memory/V1/items").json()
+        (item,) = data["items"]
+        assert item["text"] == "用户下周三考试" and item["kind"] == "fact"
+        assert item["source"] == "user" and item["domain"] == "学术"
+        assert data["count"] == 1 and data["diary_reads_left"] == 3 and data["hanging"] == []
+        assert "身心" in data["domains"]
+        # 改随手记也改对应的记忆件（留旧版）
+        c.patch(f"/api/chat/memories/{note}", json={"text": "用户下周四考试"})
+        hist = c.get(f"/api/chat/memory/items/{item['id']}/history").json()
+        assert hist["item"]["text"] == "用户下周四考试"
+        assert [(x["old"], x["new"]) for x in hist["revisions"] if x["field"] == "text"] == [
+            ("用户下周三考试", "用户下周四考试")
+        ]
+        other = repo.add_memory_item("V1", "和用户去了一兰拉面店", day="2026-10-21")
+        found = c.get("/api/chat/memory/V1/items", params={"q": "一兰拉面"}).json()["items"]
+        assert [x["id"] for x in found] == [other["id"]]
+        r = c.patch(f"/api/chat/memory/items/{other['id']}", json={"text": "去了拉面店"})
+        assert r.json()["text"] == "去了拉面店"
+        assert (
+            c.patch(f"/api/chat/memory/items/{other['id']}", json={"text": "密码 1"}).status_code
+            == 400
+        )
+        assert c.delete(f"/api/chat/memory/items/{other['id']}").json() == {"deleted": 1}
+        assert c.delete(f"/api/chat/memory/items/{other['id']}").status_code == 404
+        hid = repo.add_memory_hanging("V1", "周末爬山要带水", "日常", "2026-10-28")
+        assert c.get("/api/chat/memory/V1/items").json()["hanging"][0]["text"] == "周末爬山要带水"
+        assert c.delete(f"/api/chat/memory/hanging/{hid}").json() == {"dropped": 1}
+        repo.add_memory("V1", "day", "今天去了图书馆。", period="2026-10-21")
+        got = c.get("/api/chat/memory/V1/diary", params={"q": "图书馆"}).json()
+        assert got["found"] == ["【2026-10-21 的日记】今天去了图书馆。"]
+        assert c.get("/api/chat/memory/V1/items").json()["diary_reads_left"] == 3
+        assert c.get("/api/chat/memory/X/items").status_code == 404
+        # 删随手记也删对应的件；一键清空连记忆件一起清
+        c.delete(f"/api/chat/memories/{note}")
+        assert c.get("/api/chat/memory/V1/items").json()["count"] == 0
+        c.post("/api/chat/memories", json={"member": "V1", "text": "a 记一条"})
+        assert c.delete("/api/chat/memories").json()["cleared"] >= 1
+        assert repo.count_memory_items() == 0

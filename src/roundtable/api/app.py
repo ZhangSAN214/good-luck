@@ -50,7 +50,7 @@ class CreateSession(BaseModel):
     workflow: str = "discussion"  # discussion 讨论 / collab 协同
     seed: int | None = None
     attachments: list[str] = Field(default_factory=list)  # POST /api/uploads 返回的附件 id
-    media: str | None = None  # 讨论模式的输出类型：image / speech / video
+    media: str | None = None  # 讨论模式的输出类型：image / speech / video / music
     media_tier: str | None = None  # 媒体模型的档位：budget / flagship
     # 作为风格参考的图片附件 id；省略 = 全部图片都是风格参考，[] = 都不是
     style_refs: list[str] | None = None
@@ -118,6 +118,13 @@ class PatBody(BaseModel):
 
     member: str
     room: str = "main"
+
+
+class ForwardBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: int
+    room: str
 
 
 class RecallBody(BaseModel):
@@ -216,6 +223,14 @@ class MemoryBody(BaseModel):
     member: str | None = None  # 新建时必填
 
 
+class HomeTzBody(BaseModel):
+    """主时区：IANA 名字（如 Europe/London）或 local（跟随电脑）。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    zone: str = Field(max_length=64)
+
+
 class MailSettingsBody(BaseModel):
     """邮件栏设置：只改给了的字段。"""
 
@@ -241,6 +256,39 @@ class NowPlayingControlBody(BaseModel):
     player: str = Field(default="qqmusic", max_length=40)
     action: str = Field(pattern="^(play|pause|toggle|next|prev|seek)$")
     position: float | None = Field(default=None, ge=0, le=86400)
+
+
+class WatchStartBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    source: str = Field(min_length=1, max_length=100)  # pc / pc:<窗口> / android:<序列号>
+    watchers: list[str] = Field(min_length=1, max_length=6)
+    consent: bool = False  # 用户点了「同意把截图发给识图模型」
+
+
+class WanderStartBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    member: str = Field(min_length=1, max_length=60)
+    site: str | None = Field(default=None, max_length=20)  # 空 = 随她挑
+
+
+class WatchQuietBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    quiet: bool
+
+
+class WatchSayBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    text: str = Field(min_length=1, max_length=1000)
+
+
+class WatchScrcpyBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    source: str = Field(min_length=1, max_length=100)
 
 
 class MailMarkBody(BaseModel):
@@ -520,6 +568,78 @@ def create_app(service: RoundtableService | None = None, lan: LanAccess | None =
             svc(request).nowplaying_control, body.player, body.action, body.position
         )
 
+    # ---- 投屏陪伴（docs/WATCH.md）：开始投屏、看预览、开 scrcpy 只能在电脑本机上；
+    # 平板 / 手机上能看状态和聊天、能随时停止 ----
+
+    def watch_local(request: Request) -> None:
+        if is_remote(_client(request.scope)):
+            raise ServiceError("投屏只能在电脑上开始和预览；平板上可以聊天和停止", 403)
+
+    @app.get("/api/watch")
+    async def watch_status(request: Request, devices: bool = False) -> dict[str, Any]:
+        if devices:
+            watch_local(request)
+            return await asyncio.to_thread(svc(request).watch_status, True)
+        return svc(request).watch_status()
+
+    @app.post("/api/watch/start")
+    async def watch_start(request: Request, body: WatchStartBody) -> dict[str, Any]:
+        watch_local(request)
+        return await svc(request).watch_start(body.source, body.watchers, body.consent)
+
+    @app.post("/api/watch/stop")
+    async def watch_stop(request: Request) -> dict[str, Any]:
+        return svc(request).watch_stop()
+
+    @app.post("/api/watch/quiet")
+    async def watch_quiet(request: Request, body: WatchQuietBody) -> dict[str, Any]:
+        return svc(request).watch_quiet(body.quiet)
+
+    @app.get("/api/watch/frame")
+    async def watch_frame(request: Request) -> Response:
+        watch_local(request)
+        headers = {"X-Content-Type-Options": "nosniff", "Cache-Control": "no-store"}
+        return Response(
+            content=svc(request).watch_frame(), media_type="image/jpeg", headers=headers
+        )
+
+    @app.get("/api/watch/messages")
+    async def watch_messages(request: Request, after: int = 0) -> dict[str, Any]:
+        return svc(request).watch_messages(after)
+
+    @app.post("/api/watch/say", status_code=202)
+    async def watch_say(request: Request, body: WatchSayBody) -> dict[str, Any]:
+        return await svc(request).watch_say(body.text)
+
+    @app.get("/api/wander")
+    async def wander_status(request: Request) -> dict[str, Any]:
+        return svc(request).wander_status()
+
+    @app.post("/api/wander/start")
+    async def wander_start(request: Request, body: WanderStartBody) -> dict[str, Any]:
+        return svc(request).wander_start(body.member, body.site)
+
+    @app.post("/api/wander/stop")
+    async def wander_stop(request: Request) -> dict[str, Any]:
+        return svc(request).wander_stop()
+
+    @app.get("/api/wander/log")
+    async def wander_log(request: Request, member: str, after: int = 0) -> dict[str, Any]:
+        return {"messages": svc(request).wander_log(member, after)}
+
+    @app.get("/api/wander/frame")
+    async def wander_frame(request: Request) -> Response:
+        frame = svc(request).wander_frame()
+        headers = {"X-Content-Type-Options": "nosniff", "Cache-Control": "no-store"}
+        if frame is None:
+            return Response(status_code=204, headers=headers)
+        return Response(content=frame, media_type="image/jpeg", headers=headers)
+
+    @app.post("/api/watch/scrcpy")
+    async def watch_scrcpy(request: Request, body: WatchScrcpyBody) -> dict[str, Any]:
+        watch_local(request)
+        return await asyncio.to_thread(svc(request).watch_scrcpy, body.source)
+
     @app.get("/api/music/covers")
     async def music_covers(request: Request) -> dict[str, Any]:
         return svc(request).music_covers()
@@ -555,6 +675,10 @@ def create_app(service: RoundtableService | None = None, lan: LanAccess | None =
     @app.post("/api/chat/pat", status_code=202)
     async def chat_pat(request: Request, body: PatBody) -> dict[str, Any]:
         return await svc(request).chat_pat(body.member, body.room)
+
+    @app.post("/api/chat/forward", status_code=202)
+    async def chat_forward(request: Request, body: ForwardBody) -> dict[str, Any]:
+        return await svc(request).chat_forward(body.id, body.room)
 
     @app.post("/api/chat/recall")
     async def chat_recall(request: Request, body: RecallBody) -> dict[str, Any]:
@@ -595,6 +719,16 @@ def create_app(service: RoundtableService | None = None, lan: LanAccess | None =
             )
         return Response(content=data, media_type=mime, headers=headers)
 
+    @app.post("/api/chat/messages/{message_id}/look", status_code=202)
+    async def chat_look(request: Request, message_id: int, room: str = "main") -> dict[str, Any]:
+        """「细看」：按精细模式重新整理这条消息里的图片 / 视频 / 语音，再请一位成员回应。"""
+        return await svc(request).chat_look(room, message_id)
+
+    @app.delete("/api/perception")
+    async def perception_clear(request: Request) -> dict[str, Any]:
+        """一键清空感官缓存（本机 data/perception/）。"""
+        return svc(request).perception_clear()
+
     @app.post("/api/chat/handoff", status_code=202)
     async def chat_handoff(request: Request, body: HandoffBody) -> dict[str, Any]:
         return svc(request).chat_handoff(body.text)
@@ -634,6 +768,34 @@ def create_app(service: RoundtableService | None = None, lan: LanAccess | None =
     @app.delete("/api/chat/memories")
     async def chat_clear_memories(request: Request, member: str | None = None) -> dict[str, Any]:
         return svc(request).chat_clear_memories(member)
+
+    @app.get("/api/chat/memory/{member}/items")
+    async def chat_memory_items(
+        request: Request, member: str, q: str | None = None, limit: int = 50
+    ) -> dict[str, Any]:
+        return svc(request).chat_memory_items(member, q, limit)
+
+    @app.get("/api/chat/memory/{member}/diary")
+    async def chat_read_diary(request: Request, member: str, q: str = "") -> dict[str, Any]:
+        return svc(request).chat_read_diary(member, q)
+
+    @app.get("/api/chat/memory/items/{item_id}/history")
+    async def chat_memory_item_history(request: Request, item_id: int) -> dict[str, Any]:
+        return svc(request).chat_memory_item_history(item_id)
+
+    @app.patch("/api/chat/memory/items/{item_id}")
+    async def chat_update_memory_item(
+        request: Request, item_id: int, body: MemoryBody
+    ) -> dict[str, Any]:
+        return svc(request).chat_update_memory_item(item_id, body.text)
+
+    @app.delete("/api/chat/memory/items/{item_id}")
+    async def chat_delete_memory_item(request: Request, item_id: int) -> dict[str, Any]:
+        return svc(request).chat_delete_memory_item(item_id)
+
+    @app.delete("/api/chat/memory/hanging/{hanging_id}")
+    async def chat_drop_hanging(request: Request, hanging_id: int) -> dict[str, Any]:
+        return svc(request).chat_drop_hanging(hanging_id)
 
     @app.get("/api/moments")
     async def moments(
@@ -812,6 +974,14 @@ def create_app(service: RoundtableService | None = None, lan: LanAccess | None =
     async def changelog(request: Request) -> dict[str, Any]:
         return svc(request).changelog()
 
+    @app.get("/api/home-tz")
+    async def home_tz(request: Request) -> dict[str, Any]:
+        return svc(request).home_tz()
+
+    @app.put("/api/home-tz")
+    async def set_home_tz(request: Request, body: HomeTzBody) -> dict[str, Any]:
+        return svc(request).set_home_tz(body.zone)
+
     @app.get("/api/mail")
     async def mail(request: Request) -> dict[str, Any]:
         return svc(request).mail_view()
@@ -871,6 +1041,14 @@ def create_app(service: RoundtableService | None = None, lan: LanAccess | None =
     @app.post("/api/models/candidates/refresh")
     async def refresh_model_candidates(request: Request) -> dict[str, Any]:
         return await svc(request).refresh_model_candidates()
+
+    @app.get("/api/models/directory")
+    async def model_directory(request: Request) -> dict[str, Any]:
+        return svc(request).model_directory()
+
+    @app.post("/api/models/directory/refresh")
+    async def refresh_model_directory(request: Request) -> dict[str, Any]:
+        return await svc(request).refresh_model_directory()
 
     @app.get("/api/sessions/{session_id}/payslip")
     async def payslip(request: Request, session_id: str) -> dict[str, Any]:

@@ -33,6 +33,13 @@ from roundtable.core.chat import (
     clean_reply,
     member_memory,
 )
+from roundtable.core.chat_actions import (
+    card_from_item,
+    card_text,
+    clean_card,
+    clean_stickers,
+    sticker_list,
+)
 from roundtable.core.office.apartment import schedule
 from roundtable.core.persona import chat_persona
 from roundtable.core.plain_talk import before_speaking, plain_prompt
@@ -60,6 +67,17 @@ def similarity(a: str, b: str) -> float:
     if not x or not y:
         return 0.0
     return len(x & y) / len(x | y)
+
+
+def post_with_media(moment: dict[str, Any], names: dict[str, str]) -> str:
+    """动态正文；感官整理过图片 / 视频 / 语音时，后面附上感知卡（成员「看到」的内容）。"""
+    cards = (moment.get("meta") or {}).get("perception")
+    if not cards:
+        return moment["text"]
+    from roundtable.core.perception import media_block  # perception 依赖 chat
+
+    who = "用户" if moment["author"] == "user" else names.get(moment["author"], moment["author"])
+    return f"{moment['text']}\n{media_block(who, cards)}"
 
 
 class Moments:
@@ -117,6 +135,15 @@ class Moments:
         rows = self.rt.repo.moments(author=member.id, limit=3)
         return "\n".join(f"- {r['text']}" for r in rows) or NONE
 
+    @staticmethod
+    def post_text(moment: dict[str, Any]) -> str:
+        """给成员看的动态正文：转发的卡片写成「[链接] 标题」。"""
+        card = (moment.get("meta") or {}).get("card")
+        text = moment["text"]
+        return (
+            f"{text}\n{card_text(card)}".strip() if card and card_text(card) not in text else text
+        )
+
     def comments_text(self, moment: dict[str, Any]) -> str:
         names = self.names()
         lines = [f"{names.get(c['author'], c['author'])}：{c['text']}" for c in moment["comments"]]
@@ -128,9 +155,17 @@ class Moments:
         rt, rules = self.rt, self.rules
         if not self.allow(rules.estimate_usd):
             return None
+        version = rt.config.roundtable.prompts[role]
+        wants = rt.prompts.get(role, version).variables
+        acts = rt.config.roundtable.chat.actions
+        if "stickers" in wants:  # v3 起：能用表情包
+            variables["stickers"] = (
+                sticker_list(acts.stickers) if acts.enabled else "（不用表情包）"
+            )
+        variables = {k: v for k, v in variables.items() if k in wants}
         prompt = rt.prompts.render(
             role,
-            rt.config.roundtable.prompts[role],
+            version,
             name=member.name,
             persona=chat_persona(rt, member.id),
             memory=member_memory(rt, member.id, "\n".join(variables.values())),
@@ -151,6 +186,7 @@ class Moments:
         if completion is None:
             return None
         text = clean_reply(completion.text, member.name, rules.max_chars)
+        text = clean_stickers(text, acts.stickers if acts.enabled else {}).strip()
         if not text:
             return None
         return await before_speaking(
@@ -165,17 +201,78 @@ class Moments:
         *,
         offline: bool = False,
     ) -> dict[str, Any] | None:
-        """发一条；调用失败为 None，写出来和近期动态太像时不发、返回 {}。"""
+        """发一条；调用失败为 None，写出来和近期动态太像时不发、返回 {}。
+
+        今天上网分享过东西、且策略同意时（默认一半），发成「一句话 + 转发卡片」。"""
+        card = self.forward_card(member, event)
+        forward = NONE
+        if card:
+            summary = card["summary"] or "（没有）"
+            forward = f"{card_text(card)}\n来源：{card['source']}\n摘要：{summary}"
         text = await self._write(
-            member, "moment_post", scene=event["topic"], recent=self.recent_text(member)
+            member,
+            "moment_post",
+            scene=event["topic"],
+            recent=self.recent_text(member),
+            forward=forward,
         )
         if not text:
             return None
         if self.too_similar(text, recent):
             self.skip(member, event["id"])
             return {}
-        meta = {"life": True, "event": event["id"]}
+        meta: dict[str, Any] = {"life": True, "event": event["id"]}
+        if (
+            card
+            and "forward"
+            in self.rt.prompts.get(
+                "moment_post", self.rt.config.roundtable.prompts["moment_post"]
+            ).variables
+        ):
+            meta["card"] = card
         return self.rt.repo.add_moment(member.id, text, meta=meta, offline=offline)
+
+    def forward_card(self, member: ChatMember, event: dict[str, Any]) -> dict[str, Any] | None:
+        rt = self.rt
+        since = iso(utc_day_window(rt.budget.now())[0])
+        shared = rt.repo.web_items_shared_by(member.id, since)
+        if not shared or not self.hub.policy.moment_forward(member.id, str(event["id"])):
+            return None
+        from roundtable.core.browse import feeds_of  # browse 依赖本模块
+
+        kinds = {f.name: f.kind for f in feeds_of(rt)[0]}
+        item = shared[0]
+        acts = rt.config.roundtable.chat.actions
+        return card_from_item(item, kinds.get(item["feed"], "blog"), acts.video_hosts)
+
+    def publish(
+        self,
+        member: str,
+        text: str = "",
+        *,
+        media: list[dict[str, Any]] | None = None,
+        card: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """接入口：以成员身份发一条朋友圈（生成的配图 / 动图、转发卡片）。不调用模型、不花钱；
+        什么时候发由成员系统决定。media 用 ``chat_actions.generated_item`` 生成。"""
+        if member not in {m.id for m in self.hub.everyone()}:
+            raise ValueError("没有这位成员")
+        meta: dict[str, Any] = {"life": True}
+        words = text.strip()
+        if card is not None:
+            checked = clean_card(card)
+            if checked is None:
+                raise ValueError("卡片的网址不对")
+            meta["card"] = checked
+        if media:
+            meta["media"] = list(media)
+            meta["caption" if words else "auto_text"] = words or True
+        shown = words or ("[图片]" if media else card_text(meta["card"]) if card else "")
+        if not shown:
+            raise ValueError("没有要发的内容")
+        if media and words:
+            shown = f"{words}\n[图片]"
+        return self.rt.repo.add_moment(member, shown, meta=meta)
 
     async def comment(
         self,
@@ -191,7 +288,7 @@ class Moments:
             member,
             "moment_comment",
             author=names.get(moment["author"], moment["author"]),
-            post=moment["text"],
+            post=post_with_media({**moment, "text": self.post_text(moment)}, names),
             comments=self.comments_text(moment),
             task=task,
         )

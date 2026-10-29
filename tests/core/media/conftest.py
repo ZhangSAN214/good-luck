@@ -7,12 +7,44 @@ from roundtable.core.media import MediaService
 from roundtable.core.providers import ErrorKind, FakeProvider
 from roundtable.core.runtime import Runtime
 
+# 下面的用例按这三个画图模型写（一个走对话接口、两个走 /images 接口，分在两档）；
+# 配置里其余画图模型默认去掉，让断言不随上桌名单变化。整份名单的检查见 test_repo_image_models.py
+CORE_IMAGE_MODELS = {"gpt-image-1-mini", "gpt-image-2", "gemini-3.1-flash-image"}
+
+
+# 视频、语音、音乐同理：按最初的这几个写（视频、语音的原阵容 2026-10-29 已换成新模型并停用，
+# 这里重新打开），整份名单另测
+CORE_MEDIA_MODELS = {
+    "alibaba-wan-video",
+    "veo-3.1",
+    "gemini-3.8-flash-tts",
+    "qwen-audio-3.0-tts-flash",
+    "lyria-3-clip",
+    "lyria-3-pro",
+}
+OTHER_MEDIA_TAGS = {"video_gen", "tts", "music_gen"}
+
+
+def core_images_only(config):
+    models = []
+    for m in config.models.models:
+        if "image_gen" in m.tags and m.id not in CORE_IMAGE_MODELS:
+            continue
+        if OTHER_MEDIA_TAGS & set(m.tags):
+            if m.id not in CORE_MEDIA_MODELS:
+                continue
+            m = m.model_copy(update={"enabled": True})
+        models.append(m)
+    return config.model_copy(update={"models": config.models.model_copy(update={"models": models})})
+
 
 class Rig:
     """真实配置（含媒体模型）+ 假渠道：媒体模型都只走 openrouter 渠道。"""
 
-    def __init__(self, no_image_edit=False, **media_updates):
+    def __init__(self, no_image_edit=False, all_images=False, **media_updates):
         config = load_config()
+        if not all_images:
+            config = core_images_only(config)
         if no_image_edit:  # 所有画图模型都不支持参考图
             models = [
                 m.model_copy(update={"tags": [t for t in m.tags if t != "image_edit"]})
@@ -64,7 +96,15 @@ class Rig:
         return [c for c in self.fake.media_calls if c[0] == kind]
 
 
-VIDEO_KEYS = {"duration_s", "poll_interval_s", "timeout_s", "submit_retries", "frames", "max_mb"}
+VIDEO_KEYS = {
+    "audio",
+    "duration_s",
+    "poll_interval_s",
+    "timeout_s",
+    "submit_retries",
+    "frames",
+    "max_mb",
+}
 
 
 @pytest.fixture

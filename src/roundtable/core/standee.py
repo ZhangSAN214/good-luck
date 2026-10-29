@@ -7,7 +7,7 @@
 清单示例（字段多余会报错，方便发现写错的名字）：
 
     {
-      "name": "克劳德",
+      "name": "Claude",
       "persona": "<personas.yaml 里的键，可选：口头禅也会加进点击台词>",
       "variants": [
         {"id": "regular", "label": "常规", "image": "standee/regular.png",

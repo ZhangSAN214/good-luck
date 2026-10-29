@@ -77,6 +77,7 @@ export const getChat = (after = 0, q = '', room = 'main') =>
   api(`/api/chat?room=${encodeURIComponent(room)}&after=${after}${q ? `&q=${encodeURIComponent(q)}` : ''}`);
 export const postChat = (text, room = 'main', media = [], quote = null) => api('/api/chat', { method: 'POST', body: { text, room, media, quote } });
 export const patChat = (member, room = 'main') => api('/api/chat/pat', { method: 'POST', body: { member, room } });
+export const forwardChat = (id, room = 'main') => api('/api/chat/forward', { method: 'POST', body: { id, room } });
 export const recallChat = (id, room = 'main') => api('/api/chat/recall', { method: 'POST', body: { id, room } });
 export const clearChat = (room = 'main') => api(`/api/chat?room=${encodeURIComponent(room)}`, { method: 'DELETE' });
 export const getChatRooms = () => api('/api/chat/rooms');
@@ -95,6 +96,12 @@ export const editChatMemory = (mid, text) => api(`/api/chat/memories/${mid}`, { 
 export const delChatMemory = (mid) => api(`/api/chat/memories/${mid}`, { method: 'DELETE' });
 export const clearChatMemories = (id) => api(`/api/chat/memories${id ? `?member=${encodeURIComponent(id)}` : ''}`, { method: 'DELETE' });
 export const tidyChatMemories = () => api('/api/chat/memories/tidy', { method: 'POST' });
+// 记忆与联想（P2）：记忆件、挂着的事、习惯、翻日记
+export const memoryItems = (id, q = '') => api(`/api/chat/memory/${encodeURIComponent(id)}/items${q ? `?q=${encodeURIComponent(q)}` : ''}`);
+export const editMemoryItem = (iid, text) => api(`/api/chat/memory/items/${iid}`, { method: 'PATCH', body: { text } });
+export const delMemoryItem = (iid) => api(`/api/chat/memory/items/${iid}`, { method: 'DELETE' });
+export const dropHanging = (hid) => api(`/api/chat/memory/hanging/${hid}`, { method: 'DELETE' });
+export const readDiary = (id, q) => api(`/api/chat/memory/${encodeURIComponent(id)}/diary?q=${encodeURIComponent(q)}`);
 export const getMoments = (author, before) => {
   const q = new URLSearchParams();
   if (author) q.set('author', author);
@@ -122,8 +129,12 @@ export const evolutionScout =() => api('/api/evolution/scout', { method: 'POST' 
 export const evolutionDecide = (sid, idea, decision) =>
   api(`/api/evolution/meetings/${encodeURIComponent(sid)}/ideas/${encodeURIComponent(idea)}`, { method: 'POST', body: { decision } });
 export const chatHandoff = (text) => api('/api/chat/handoff', { method: 'POST', body: { text } });
+// 「细看」：按精细模式重新看这条消息里的图片 / 视频 / 语音，再请一位成员回应
+export const chatLook = (id, room = 'main') => api(`/api/chat/messages/${id}/look?room=${encodeURIComponent(room)}`, { method: 'POST' });
 export const getApartment = (hour, weekday) => api(`/api/apartment?hour=${hour}&weekday=${weekday}`);
 export const getCandidates = () => api('/api/models/candidates');
+export const getDirectory = () => api('/api/models/directory');
+export const refreshDirectory = () => api('/api/models/directory/refresh', { method: 'POST' });
 export const getPluginBoard = () => api('/api/plugins/board');
 export const getChangelog = () => api('/api/changelog');
 export const mailView = () => api('/api/mail');
@@ -187,3 +198,20 @@ export const lanSetPassword = (password) => api('/api/lan/password', { method: '
 export const lanPair = (base) => api('/api/lan/pair', { method: 'POST', body: { base } });
 export const lanSignOut = () => api('/api/lan/signout', { method: 'POST' });
 export const lanLogout = () => api('/api/lan/logout', { method: 'POST' });
+
+// 投屏陪伴（docs/WATCH.md）：开始 / 预览只能在电脑本机上；平板上能聊天和停止
+export const watchStatus = (devices = false) => api(`/api/watch${devices ? '?devices=true' : ''}`);
+export const watchStart = (source, watchers, consent) =>
+  api('/api/watch/start', { method: 'POST', body: { source, watchers, consent } });
+export const watchStop = () => api('/api/watch/stop', { method: 'POST' });
+export const watchQuiet = (quiet) => api('/api/watch/quiet', { method: 'POST', body: { quiet } });
+export const watchMessages = (after = 0) => api(`/api/watch/messages?after=${after}`);
+export const watchSay = (text) => api('/api/watch/say', { method: 'POST', body: { text } });
+export const watchScrcpy = (source) => api('/api/watch/scrcpy', { method: 'POST', body: { source } });
+export const watchFrameUrl = () => `/api/watch/frame?t=${Date.now()}`;
+export const wanderStatus = () => api('/api/wander');
+export const wanderStart = (member, site) => api('/api/wander/start', { method: 'POST', body: { member, site } });
+export const wanderStop = () => api('/api/wander/stop', { method: 'POST' });
+export const wanderLog = (member, after = 0) =>
+  api(`/api/wander/log?member=${encodeURIComponent(member)}&after=${after}`);
+export const wanderFrameUrl = () => `/api/wander/frame?t=${Date.now()}`;

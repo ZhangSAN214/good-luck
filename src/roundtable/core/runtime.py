@@ -16,6 +16,7 @@ from roundtable.core.catalog import Fetch, ModelCatalog
 from roundtable.core.changelog import CHANGELOG_FILE
 from roundtable.core.config import AppConfig, load_config
 from roundtable.core.config.loader import DEFAULT_CONFIG_DIR
+from roundtable.core.model_directory import ModelDirectory
 from roundtable.core.plugin_board import BOARD_FILE
 from roundtable.core.prompts import PromptLibrary
 from roundtable.core.providers import ChannelRouter, KeyRing, Provider, build_providers
@@ -35,12 +36,18 @@ DEFAULT_STANDEE_FILE = PROJECT_ROOT / "data" / "avatars" / "standee.json"
 STANDEE_ENV = "ROUNDTABLE_STANDEE_FILE"
 # 人才市场的最近结果（放在数据库旁边，不进 git）
 CATALOG_FILE = "model_candidates.json"
+# 模型图鉴（聚合渠道上的全部模型，分类展示；放在数据库旁边，不进 git）
+DIRECTORY_FILE = "model_directory.json"
 # 革新例会的资料卡与采纳单（放在数据库旁边，不进 git）
 EVOLUTION_DIR = "evolution"
 # 邮件栏专用浏览器的配置目录（登录状态在里面；放在数据库旁边，不进 git）
 MAIL_DIR = "mail_browser"
 # 聊天 / 朋友圈里用户发的图片、视频、语音（放在数据库旁边，不进 git）
 CHAT_MEDIA_DIR = "chat_media"
+# 成员自己上网的隔离浏览器资料夹，每位成员一个（登录状态在里面；放在数据库旁边，不进 git）
+WANDER_DIR = "wander"
+# 感官整理出的感知卡和转写稿缓存（放在数据库旁边，不进 git）
+PERCEPTION_DIR = "perception"
 
 
 def data_dir(environ: Mapping[str, str] | None = None) -> Path:
@@ -74,6 +81,8 @@ class Runtime:
     standee_file: Path | None = None
     # 模型人才市场（只提示，不改配置）；为空时不提供
     catalog: ModelCatalog | None = None
+    # 模型图鉴（只浏览，不上桌、不改配置）；为空时不提供
+    directory: ModelDirectory | None = None
     # 革新例会的资料卡收件箱与采纳单所在目录（数据库旁边的 evolution/）；为空表示不可用
     evolution_dir: Path | None = None
     # 插件榜数据文件（自我学习革新调研过的插件，只读展示）；测试中可换成临时文件
@@ -86,8 +95,14 @@ class Runtime:
     mail_source: Any | None = None
     # 音乐卡片的「电脑上正在放的歌」（测试中注入假的；为空时用 Windows 系统媒体控制）
     nowplaying_source: Any | None = None
+    # 投屏陪伴的画面来源 {"pc": ..., "android": ...}（测试中注入假的；为空时用电脑截屏和 adb）
+    screen_sources: dict[str, Any] | None = None
+    # 成员自己上网的浏览器（测试中注入一个返回假浏览器的函数；为空时用电脑上的 Edge / Chrome）
+    wander_web: Any | None = None
     # 聊天 / 朋友圈的图片、视频、语音所在目录；为空表示不能存（内存数据库）
     chat_media_dir: Path | None = None
+    # 感官的感知卡与转写稿缓存（docs/PERCEPTION.md）；为空时只缓存在内存里（内存数据库）
+    perception_dir: Path | None = None
 
     @classmethod
     def build(
@@ -184,11 +199,19 @@ class Runtime:
                 None if str(db_path) == ":memory:" else Path(db_path).parent / CATALOG_FILE,
                 catalog_fetch,
             ),
+            directory=ModelDirectory(
+                config,
+                None if str(db_path) == ":memory:" else Path(db_path).parent / DIRECTORY_FILE,
+                catalog_fetch,
+            ),
             evolution_dir=Path(evolution_dir) if evolution_dir is not None else None,
             mail_dir=None if str(db_path) == ":memory:" else Path(db_path).parent / MAIL_DIR,
             chat_media_dir=None
             if str(db_path) == ":memory:"
             else Path(db_path).parent / CHAT_MEDIA_DIR,
+            perception_dir=None
+            if str(db_path) == ":memory:"
+            else Path(db_path).parent / PERCEPTION_DIR,
         )
 
     def sandbox(self) -> tuple[Sandbox | None, str | None]:

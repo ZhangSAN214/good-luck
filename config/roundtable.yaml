@@ -44,13 +44,19 @@ chat:
     enabled: true
     context_chars: 800             # 聊天时最多带多少字的记忆
     catch_up_days: 7               # 最多补整理几天前的聊天
-    recall: layers                 # 召回方式：layers 按时间固定带几层；half_life 半衰期记忆（按相关 × 鲜活 × 重要挑）
+    recall: half_life              # 召回方式：half_life 半衰期记忆（默认，按相关 × 鲜活 × 重要挑）；layers 按时间固定带几层（旧）
     half_life_days: 30             # 半衰期记忆：发生过的事过 30 天鲜活度减半（不删，只排后）
     inject_max: 6                  # 半衰期记忆：每次聊天最多带几件
     daily_quota: 8                 # 半衰期记忆：每人每天最多记几件事
+    freshness_floor: 0.5           # 鲜活度保底：再久的事也不低于一半（只排后，不删）
+    night: true                    # 每晚整理合并成一次调用：第一人称日记 + 记忆件 + 挂着的事（心情只改回忆语气和重要度，留旧版）
+    domains: [学术, 日常, 工作, 娱乐, 社交, 身心]   # 领域标签
+    hanging_max: 5                 # 脑子里挂着的事最多几件
+    links: {enabled: true, assoc_max: 1}         # 联想网：一起出现就连得更紧，想起一件顺带想到一件；夜里随便走几步
+    diary: {enabled: true, daily_reads: 3}       # 翻日记：只在生活模式，每位成员每天最多翻 3 次
   life:                            # 生活引擎：你不在时成员按作息过日子、彼此聊天（不主动找你）
     enabled: true
-    daily_usd: 0.10                # 生活（含记忆整理）每天最多花多少；约 $3 / 月
+    daily_usd: 0.15                # 生活（含记忆整理、自己上网）每天最多花多少；约 $4.5 / 月
     tick_minutes: 30               # 电脑开着时多久推进一次
     max_written_per_tick: 2        # 每次推进最多几件事写成聊天，其余只记一行
     max_written_catch_up: 6        # 开机补算时最多写几件
@@ -84,6 +90,7 @@ chat:
       - {name: NASA, url: "https://www.nasa.gov/news-release/feed/", topics: [天文, 科学], kind: news}
       - {name: ScienceDaily, url: "https://www.sciencedaily.com/rss/top/science.xml", topics: [科学], kind: news}
       - {name: Polygon, url: "https://www.polygon.com/rss/index.xml", topics: [游戏], kind: news}
+      - {name: NASA 视频, url: "https://www.youtube.com/feeds/videos.xml?channel_id=UCLA_DiR1FfKNvjuUpBHmylQ", topics: [天文, 科学, 视频], kind: video}
   engine:                          # 成员引擎（docs/MEMBER_ENGINE.md）：只用于聊天、朋友圈、生活
     enabled: true
     context: {budget_chars: 600}   # 调模型时带的资料最多多少字（固定部分放最前，利于缓存）
@@ -117,6 +124,26 @@ chat:
       energy_labels: [[0.7, 精神很好], [0.45, 精力还行], [0.25, 有点累], [0, 很困]]
       line_format: "此刻（程序按经历算出的状态，自然地带出来，别直接念）：{mood}，{energy}{recent}"
       context_chars: 80             # 状态那一行最多几个字，算在上面的 600 字里（8 位相同）
+  watch:                           # 投屏陪伴（docs/WATCH.md）：你投屏，选 1～3 位陪你一起看
+    enabled: true
+    monthly_usd: 1.5               # 一起看每月最多花多少（不占聊天月预算）；用完只陪聊、不看画面
+    max_watchers: 3
+    grab_seconds: 3                # 多久截一张（只在内存里，不存盘）
+    describe_gap_seconds: 20       # 画面明显变了、且离上次至少这么久，才交给识图模型看一次
+    describes_per_hour: 90
+    react_gap_seconds: 90          # 没人说话时，同一位最多每 90 秒主动说一句
+    max_minutes: 240               # 一次投屏最长 4 小时，到时自动停
+  wander:                          # 成员自己上网（docs/WANDER.md）：在隔离浏览器里逛下面这些网站，第一期只看不互动
+    enabled: true
+    auto: true                     # 按作息自动安排（每人每天最多 1 次，每次最多 10 分钟）；关掉后只能手动让她去
+    headless: true                 # 在后台逛，不弹窗口；用电脑自带的 Edge（没有就用 Chrome）
+    trips_per_member_per_day: 1
+    max_steps: 12                  # 一次最多看 12 个页面
+    max_minutes: 10
+    sites:                         # 只能打开这些网站（域名后缀匹配）；花费算在生活每天的上限里
+      - {id: bilibili, name: B站, home: "https://www.bilibili.com/", search: "https://search.bilibili.com/all?keyword={q}", hosts: [bilibili.com]}
+      - {id: xiaoheihe, name: 小黑盒, home: "https://www.xiaoheihe.cn/", hosts: [xiaoheihe.cn]}
+      - {id: taobao, name: 淘宝, home: "https://www.taobao.com/", search: "https://s.taobao.com/search?q={q}", hosts: [taobao.com, tmall.com]}
   actions:                         # 聊天里能发什么（docs/CHAT.md「微信式动作」）；何时发、节奏归成员系统，这里是默认值
     enabled: true
     stickers:                      # 成员能用的表情包（名字与网页表情面板一致）
@@ -130,6 +157,8 @@ chat:
     pat_reply: true                # 被拍一拍后回一句
     no_reply_in_group: true        # 群里没被点名时可以不接话
     drop_stale: true               # 你补发新消息或撤回时，上一轮还没发出的气泡和还没开口的人作废
+    moment_forward: 0.5            # 今天上网分享过的成员发朋友圈时，一半发成「一句话 + 转发卡片」
+    video_hosts: [youtube.com, youtu.be, vimeo.com, bilibili.com]   # 这些网站的链接显示成视频卡片（只看网址）
   tier: budget
   max_repliers: 2
   max_mentioned: 8                 # 「@全员」「所有人」「大家」时最多几位依次回应
@@ -209,7 +238,7 @@ prompts:
   revise: v3
   synthesize: v4
   redo: v1
-  decompose: v4
+  decompose: v5
   volunteer: v1
   assign: v3
   accept: v1             # 协同：合并前统筹按验收标准逐条验收
@@ -239,7 +268,7 @@ prompts:
   transcribe: v1         # 音频转写
   tools: v5              # 工具说明与工具结果（v2：联网搜索；v3：图表中文；v4：转述的网页正文；v5：in/ 上游文件与参考图）
   image_gen: v1          # 图像生成工具
-  media_brief: v1        # 媒体输出：把题目改写成「写生成提示词」的任务
+  media_brief: v2        # 媒体输出：把题目改写成「写生成提示词」的任务
   media_review: v2       # 评审生成结果（图片 / 视频截帧）；v2：对照风格清单逐条判定
   style_extract: v1      # 风格规范提取：成员各自看参考图
   office_intake: v4      # 办公室：经理分诊派活（v2：开会点名；v3：项目组点名；v4：名单附绩效）
@@ -248,18 +277,24 @@ prompts:
   office_review: v1      # 办公室·项目：复核经理最终验收
   office_revise: v1      # 办公室·项目：主办经理按验收意见改一次
   office_handle: v2      # 办公室：员工办理（v2：带字画面用代码画、数字须核实）
-  chat: v4               # 群聊：口语、短句（v2：人设与记忆；v3：人物卡随身卡，AI 身份平时不刻意提、被认真问如实承认；v4：表情包、颜文字、引用、分条、不接话）
-  chat_dm: v4            # 私聊：和用户一对一（v2：人设与记忆；v3：人物卡随身卡；v4：表情包、颜文字、引用、分条）
+  watch: v1              # 投屏陪伴：成员陪用户看屏幕，吐槽、接话
+  wander: v1             # 成员自己上网：每看一页说一句感想、决定下一步（只看不互动）
+  describe_screen: v1    # 投屏陪伴：把一张截图写成给成员看的文字（隐私信息打码）
+  chat: v5               # 群聊：口语、短句（v2：人设与记忆；v3：人物卡随身卡，AI 身份平时不刻意提、被认真问如实承认；v4：表情包、颜文字、引用、分条、不接话；v5：知道现在几点和自己在干什么）
+  chat_dm: v5            # 私聊：和用户一对一（v2：人设与记忆；v3：人物卡随身卡；v4：表情包、颜文字、引用、分条；v5：知道现在几点）
   chat_work: v3          # 工作群：聊工作，交办走办公室（v2：人设与记忆；v3：人物卡随身卡）
   memory_day: v1         # 记忆：把一天的聊天压成一段
   memory_roll: v1        # 记忆：日 → 周、周 → 月
   memory_profile: v1     # 记忆：更新长期档案
-  memory_items: v1       # 记忆（半衰期，recall: half_life 时用）：一天的聊天拆成几件事，重要的标 ★
+  memory_items: v1       # 记忆（半衰期，night: false 时用）：一天的聊天拆成几件事，重要的标 ★
+  memory_night: v1       # 记忆（P2）：每晚一次调用整理一天，写第一人称日记 + 记忆件 + 挂着的事
+  memory_diary: v1       # 记忆（P2）：翻日记工具的说明（生活模式的私聊、生活群）
+  memory_diary_result: v1  # 记忆（P2）：把翻到的日记交回给成员
   member_eval: v1       # 成员评测集：情境题（规则判分，离线用假模型）
   life_chat: v2          # 生活：成员之间聊天（公寓楼里的模拟生活）
   life_share: v2         # 生活：成员把上网看到的一条内容分享到生活群
-  moment_post: v2        # 朋友圈：成员发一条动态
-  moment_comment: v2     # 朋友圈：成员评论一条动态（或回复评论）
+  moment_post: v3        # 朋友圈：成员发一条动态（v3：转发卡片、表情包）
+  moment_comment: v3     # 朋友圈：成员评论一条动态（或回复评论）（v3：表情包）
   evolution_card: v1     # 革新例会·自己找资料：一位成员把网页写成资料卡
   evolution_check: v1    # 革新例会·自己找资料：另一位成员复核资料卡
   evolution_plugins: v1  # 革新例会·插件清单：一位成员根据资料卡和点子榜写给用户看的插件清单
@@ -269,12 +304,14 @@ prompts:
   style_guide: v1        # 风格规范，接在之后的每次调用上
   user_notes: v1         # 用户中途补充的意见，接在之后的每次调用上
   media_refine: v1       # 统筹根据评审决定是否改提示词重新生成
-  media_rewrite: v1      # 汇总失败时，由一位成员根据修订稿重写生成提示词
-  work_media: v1         # 协同：媒体子任务，成员写生成提示词
+  media_rewrite: v2      # 汇总失败时，由一位成员根据修订稿重写生成提示词
+  work_media: v2         # 协同：媒体子任务，成员写生成提示词
   rework_media: v2       # 协同：按审查意见修改生成提示词
   evolve_review: v1      # 革新 PR 的对抗式复审（开发侧脚本 scripts/evolve_review.py，可选）
   web_search: v1         # 借助聚合平台联网搜索时发给搜索用模型的指令
   web_fetch: v1          # 借助聚合平台读取网页时发给读取用模型的指令
+  perceive_fast: v1      # 感官·快速：把用户发的图片 / 视频画面 / 语音转写整理成简短的感知卡
+  perceive_fine: v1      # 感官·精细：同上，写得更细，图里的字逐字抄下
   plain_talk: v1         # 说话底线（去八股化）：接在 plain_talk.roles 的每次调用上，所有成员相同
   plain_rewrite: v1      # 说话底线·改写：发言查出八股腔时成员自己用节电档改一次
 
@@ -287,6 +324,8 @@ step_params:
   #   原则：作答 / 修订 / 完成子任务要认真想，但封顶，保证正文有足够空间；
   #   评审、汇总、拆分、分配、自荐、风格校验等用低强度。
   answer: {max_tokens: 5000, reasoning: {max_tokens: 2000}}
+  watch: {max_tokens: 1200, reasoning: {effort: low}}  # 投屏陪伴：一两句
+  wander: {max_tokens: 1200, reasoning: {effort: low}}  # 自己上网：每页一小段 JSON
   chat: {max_tokens: 1500, reasoning: {effort: low}}   # 群聊：一两句话，少想多说（思考会挤占输出，之前 500 上限时有人回复为空）
   review: {max_tokens: 3000, reasoning: {max_tokens: 800}}
   revise: {max_tokens: 5000, reasoning: {max_tokens: 2000}}
@@ -794,10 +833,13 @@ media:
   default_tier: budget       # 提问时可改选 flagship（高质量档）
   max_rounds: 3              # 生成 → 评审 → 重新生成，最多几轮（含第一次生成）
   reviewers: 3               # 每轮最多几位评审者（需带 vision 标签）
-  confirm_video: true        # 视频每次生成前都先问你；图片、语音只在超过单题门槛时才问
+  confirm_video: true        # 视频每次生成前都先问你；图片、语音、音乐只在超过单题门槛或创作月上限时才问
   images_per_round: 1
+  monthly_usd: 5.0           # 创作输出（图片 / 语音 / 视频 / 音乐）每月合计上限；本月快超时先问你，0 = 不限
   speech: {voice: alloy, format: mp3, max_chars: 4000}
+  music: {format: mp3, max_chars: 1500}   # 音乐：按「风格、情绪、乐器、时长、有无人声 / 歌词」描述生成一段，不评审
   video:
+    audio: true              # 视频同时生成声音（环境声、对白；模型不支持时忽略）
     duration_s: 5
     resolution: 720p
     aspect_ratio: "16:9"
@@ -923,3 +965,18 @@ clipper:
   max_clips: 200             # 资料夹最多存几份，超出时删最旧的
   search_results: 8
   search_estimate_usd: 0.01
+
+# 成员感官（docs/PERCEPTION.md）：聊天 / 私聊里你发的图片、语音、视频，先整理成「感知卡」，成员读卡回应。
+# 快速（默认）：图缩小、视频取 8 帧拼成 2 张宫格图、声音转写；你在消息里写「仔细看」等词时用精细：
+# 图更大、卡更长；有带 video_in 标签的模型时整段视频连声音交给它，否则多取帧不拼图。
+# 转写稿和感知卡按文件内容缓存，同一个文件不重复花钱；精细直接复用快速时的转写稿。
+# 模型只按标签和价格挑最便宜的。花费计入聊天月预算和总预算，另有感官自己的月上限。
+perception:
+  enabled: true
+  monthly_usd: 1.5
+  fast:  {image_side: 768,  video_frames: 8,  frame_side: 512, grid: true,  max_tokens: 600,  estimate_usd: 0.002}
+  fine:  {image_side: 1536, video_frames: 24, frame_side: 768, native_video: true, max_tokens: 2000, estimate_usd: 0.03}
+  fine_words: [仔细看, 细看, 看清楚, 看仔细, 仔细听, 听清楚]
+  max_audio_s: 600           # 语音 / 视频声音最多转写多长（秒）
+  native_max_mb: 20          # 整段视频交给模型的大小上限
+  card_chars: 800            # 每张感知卡最多保留多少字

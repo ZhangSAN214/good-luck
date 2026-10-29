@@ -2,6 +2,7 @@
 import * as API from './api.js';
 import {
   STATUS_LABELS,
+  MAKE_TARGETS,
   MEDIA_LABELS,
   STEP_LABELS,
   attachmentsHTML,
@@ -15,6 +16,9 @@ import {
   officePanel,
   channelsPanel,
   pluginBoardPanel,
+  directoryPanel,
+  directoryList,
+  directorySnippet,
   esc,
   feedItems,
   flowPanel,
@@ -38,6 +42,8 @@ import { Exporter, exportHref } from './exporter.js';
 import { Moments } from './moments.js';
 import { BootSettings } from './bootcfg.js';
 import { LanPanel } from './lan.js';
+import { Watch } from './watch.js';
+import { Wander } from './wander.js';
 import { Hub } from './hub.js';
 import { Standee } from './standee.js';
 import { Music } from './music.js';
@@ -72,6 +78,8 @@ const S = {
   board: null, // 插件榜（/api/plugins/board）：只读
   boardFilter: 'all',
   talent: null, // 人才市场（/api/models/candidates）：只提示，不改配置
+  directory: null, // 模型图鉴（/api/models/directory）：只浏览，不上桌、不改配置
+  dirFilter: { cat: 'text', tag: '', q: '', sort: 'new', limit: 80 },
   payslip: null, // { sid, data }：当前会话的工资单
   sid: null,
   session: null,
@@ -79,7 +87,7 @@ const S = {
   tier: null, // 档位名或 custom
   workflow: savedWorkflow() || 'office', // 记住上次选的方式；office 办公室（经理派一位员工办理，默认）/ discussion 讨论 / collab 协同 / solo 个人作答 / auto 自动（分诊小组先给建议）
   anonymous: false,
-  media: null, // 输出类型：null 文字 / image / speech / video（仅讨论模式）
+  media: null, // 输出类型：null 文字 / image / speech / video / music（仅讨论模式）
   mediaTier: 'budget', // 媒体模型档位
   live: freshLive(),
   stream: null, // AbortController
@@ -111,6 +119,11 @@ const people = new People($('#people'), {
     delMemory: API.delChatMemory,
     clearMemories: API.clearChatMemories,
     tidy: API.tidyChatMemories,
+    items: API.memoryItems,
+    editItem: API.editMemoryItem,
+    delItem: API.delMemoryItem,
+    dropHanging: API.dropHanging,
+    readDiary: API.readDiary,
     profile: API.memberProfile,
     change: API.changeMemberProfile,
     lock: API.lockMemberProfile,
@@ -142,6 +155,28 @@ new LanPanel($('#landlg'), $('#lanbtn'), {
     pair: API.lanPair,
     signOut: API.lanSignOut,
     logout: API.lanLogout,
+  },
+});
+new Watch($('#watchdlg'), $('#watchbtn'), {
+  api: {
+    status: API.watchStatus,
+    start: API.watchStart,
+    stop: API.watchStop,
+    quiet: API.watchQuiet,
+    messages: API.watchMessages,
+    say: API.watchSay,
+    scrcpy: API.watchScrcpy,
+    frameUrl: API.watchFrameUrl,
+    members: () => API.api('/api/chat?after=2147483647'),
+  },
+});
+new Wander($('#wanderdlg'), $('#wanderbtn'), {
+  api: {
+    status: API.wanderStatus,
+    start: API.wanderStart,
+    stop: API.wanderStop,
+    log: API.wanderLog,
+    frameUrl: API.wanderFrameUrl,
   },
 });
 $('#skin').addEventListener('click', () => {
@@ -180,7 +215,7 @@ const gchat = new GroupChat($('#gchat'), {
   openPeople: (member) => people.open(member),
   openFeeds: () => feeds.open(),
   openMoments: (author) => moments.open(author),
-  api: { get: API.getChat, post: API.postChat, pat: API.patChat, recall: API.recallChat, clear: API.clearChat, rooms: API.getChatRooms, handoff: API.chatHandoff, lifeReports: API.lifeReports },
+  api: { get: API.getChat, post: API.postChat, pat: API.patChat, recall: API.recallChat, forward: API.forwardChat, clear: API.clearChat, rooms: API.getChatRooms, handoff: API.chatHandoff, lifeReports: API.lifeReports, look: API.chatLook },
   openSession: async (sid) => {
     await setEntry('work');
     await open(sid);
@@ -388,7 +423,7 @@ function welcomeHTML() {
 <dt>讨论</dt><dd>所选档位的成员都上桌：各自作答、互相评审、修订，最后由统筹汇总共识与分歧。</dd>
 <dt>协同</dt><dd>把题目拆成子任务分给不同成员，做完再合并。适合篇幅长、分工明确的作业。</dd>
 <dt>附件</dt><dd>图片、PDF、Word、文本、音频，拖进输入框即可。成员可以运行代码、写文件、画图和联网搜索，生成的文件在过程区和「工具」里预览、下载。</dd>
-<dt>匿名</dt><dd>成员用塔罗牌代号（愚者、魔术师…），结束后再揭晓身份；不匿名时用「昵称·模式」，如 鲸鱼娘·全力。发给模型的内容不含模型 id 和厂商名。</dd></dl></div>`;
+<dt>匿名</dt><dd>成员用塔罗牌代号（愚者、魔术师…），结束后再揭晓身份；不匿名时用「昵称·模式」，如「昵称·全力」。发给模型的内容不含模型 id 和厂商名。</dd></dl></div>`;
 }
 
 function renderPanel() {
@@ -412,6 +447,7 @@ function renderPanel() {
   if (S.tab === 'office') h = officePanel(S.office, S.status?.rice, S.talent, S.perfArmed);
   if (S.tab === 'channels') h = channelsPanel(S.status);
   if (S.tab === 'plugins') h = pluginBoardPanel(S.board, S.boardFilter);
+  if (S.tab === 'models') h = directoryPanel(S.directory, S.dirFilter);
   if (S.tab === 'history') h = historyPanel(S.history, S.sid);
   if (S.tab === 'cast') h = castPanel(S.session, prefix());
   if (S.tab === 'contrib') h = contributionsPanel(S.session, S.contribHistory, prefix());
@@ -493,29 +529,43 @@ const CARRY_ASK = {
 };
 const ASK_PLACEHOLDER = $('#ask')?.getAttribute('placeholder') || '';
 
-async function startCarry(workflow) {
+async function startCarry(workflow, make = null) {
   const sid = S.sid;
   if (!sid) return;
   try {
     const info = await API.carry(sid);
-    S.carry = { sid, question: info.question, summary: info.summary, workflow, model: '' };
+    S.carry = { sid, question: info.question, summary: info.summary, workflow, model: '', ask: make?.ask || '', make: make?.label || '' };
     S.anonymous = info.anonymous;
   } catch (e) {
     formError(e.message);
     return;
   }
   S.workflow = workflow;
+  if (make) S.media = make.kind;
   renderComposer();
   renderLegend();
   $('#ask').focus();
   scheduleEstimate();
 }
 
+/** 转成作品：讨论模式 + 选好的输出类型，带上这一场的成果摘要；用户看过预估再提交。 */
+function startMake(key) {
+  const target = MAKE_TARGETS.find(([k]) => k === key);
+  if (!target) return;
+  const [, kind, label, ask] = target;
+  const info = S.status?.media?.kinds?.[kind];
+  if (!info?.available) {
+    formError(info?.reason || `现在没有可用的${label}生成模型`);
+    return;
+  }
+  startCarry('discussion', { kind, label, ask });
+}
+
 function renderCarry() {
   const box = $('#carry');
   const c = S.carry;
   box.hidden = !c;
-  $('#ask').setAttribute('placeholder', c ? `这一场要做什么（可留空：${CARRY_ASK[S.workflow] || CARRY_ASK.discussion}）` : ASK_PLACEHOLDER);
+  $('#ask').setAttribute('placeholder', c ? `这一场要做什么（可留空：${c.ask || CARRY_ASK[S.workflow] || CARRY_ASK.discussion}）` : ASK_PLACEHOLDER);
   if (!c) {
     box.innerHTML = '';
     return;
@@ -527,14 +577,14 @@ function renderCarry() {
       .map((m) => `<option value="${esc(m.id)}"${m.id === c.model ? ' selected' : ''}>${esc(m.id)}</option>`).join('');
     who = `<label class="hint">交给 <select id="carry-who" aria-label="交给谁"><option value="">所选档位里最便宜的一位</option>${opts}</select></label>`;
   }
-  box.innerHTML = `<div class="carry-head"><span class="tag">接着上一场</span><b>${esc(short(c.question, 60))}</b>${who}<button class="btn sm" type="button" data-act="carry-off" title="不带上一场的成果">取消接力</button></div>
+  box.innerHTML = `<div class="carry-head"><span class="tag">${c.make ? `转成作品 · ${esc(c.make)}` : '接着上一场'}</span><b>${esc(short(c.question, 60))}</b>${who}<button class="btn sm" type="button" data-act="carry-off" title="不带上一场的成果">取消接力</button></div>
 <details><summary class="hint">将带入的成果摘要（约 ${c.summary.length} 字，不带过程）</summary><div class="carry-sum">${esc(c.summary)}</div></details>`;
 }
 
 function carryFields(body) {
   if (!S.carry) return body;
   body.carry_from = S.carry.sid;
-  if (!body.question) body.question = CARRY_ASK[S.workflow] || CARRY_ASK.discussion;
+  if (!body.question) body.question = S.carry.ask || CARRY_ASK[S.workflow] || CARRY_ASK.discussion;
   if (S.workflow === 'solo' && S.carry.model) {
     body.tier = 'custom';
     body.models = [S.carry.model];
@@ -1003,6 +1053,35 @@ async function loadOffice() {
   if (S.talent.available && S.talent.stale) refreshTalent(); // 超过一天没查：自动查一次（只提示，不改配置）
 }
 
+/** 模型图鉴：第一次打开时读缓存；超过一天没查就自动重新拉取（只浏览，不改配置）。 */
+async function loadDirectory() {
+  if (S.directory && !S.directory.error) return;
+  try {
+    S.directory = await API.getDirectory();
+  } catch (e) {
+    S.directory = { error: e.message || '加载失败', available: true };
+  }
+  if (S.tab === 'models') renderPanel();
+  if (S.directory.available && S.directory.stale) refreshDirectory();
+}
+
+async function refreshDirectory() {
+  if (!S.directory || S.directory.loading) return;
+  S.directory = { ...S.directory, loading: true, error: null };
+  if (S.tab === 'models') renderPanel();
+  try {
+    S.directory = await API.refreshDirectory();
+  } catch (e) {
+    S.directory = { ...S.directory, loading: false, error: e.message || '查询失败' };
+  }
+  if (S.tab === 'models') renderPanel();
+}
+
+function renderDirectoryList() {
+  const list = $('#mdir-list');
+  if (list && S.directory) list.innerHTML = directoryList(S.directory, S.dirFilter);
+}
+
 /** 插件榜：每次切到页签都重新拉取（数据文件每周更新，不用重启）。 */
 async function loadBoard() {
   try {
@@ -1371,6 +1450,31 @@ function bind() {
   });
   document.addEventListener('click', (e) => {
     if (e.target.closest('#talent-refresh')) refreshTalent();
+    if (e.target.closest('#mdir-refresh')) refreshDirectory();
+    const mc = e.target.closest('#mdir-cat [data-c]');
+    if (mc) {
+      S.dirFilter = { ...S.dirFilter, cat: mc.dataset.c, tag: '', limit: 80 };
+      renderPanel();
+    }
+    const mt = e.target.closest('#mdir-tag [data-g]');
+    if (mt) {
+      S.dirFilter = { ...S.dirFilter, tag: S.dirFilter.tag === mt.dataset.g ? '' : mt.dataset.g, limit: 80 };
+      renderPanel();
+    }
+    if (e.target.closest('#mdir-more')) {
+      S.dirFilter = { ...S.dirFilter, limit: S.dirFilter.limit + 80 };
+      renderDirectoryList();
+    }
+    const cp = e.target.closest('[data-copy-route]');
+    if (cp && S.directory) {
+      const entry = (S.directory.entries || []).find((x) => x.route === cp.dataset.copyRoute);
+      if (entry) {
+        navigator.clipboard?.writeText(directorySnippet(entry, S.directory.source)).then(
+          () => (cp.textContent = '已复制'),
+          () => (cp.textContent = '复制失败，请手动选中'),
+        );
+      }
+    }
     const f = e.target.closest('#board-filter [data-f]');
     if (f) {
       S.boardFilter = f.dataset.f;
@@ -1429,9 +1533,21 @@ function bind() {
     if (e.target.closest('[data-act="resume"]')) doResume();
     const relay = e.target.closest('[data-carry]');
     if (relay) startCarry(relay.dataset.carry);
+    const make = e.target.closest('[data-make]');
+    if (make) startMake(make.dataset.make);
     if (e.target.closest('[data-act="export"]') && S.sid) exporter.open(S.sid);
     const quick = e.target.closest('.exports a[data-fmt]');
     if (quick) quick.href = exportHref(quick.dataset.sid, quick.dataset.fmt); // 用最新记住的样式
+  });
+  document.addEventListener('input', (e) => {
+    if (e.target.id !== 'mdir-q') return;
+    S.dirFilter = { ...S.dirFilter, q: e.target.value, limit: 80 };
+    renderDirectoryList(); // 只重画列表，输入框不丢焦点
+  });
+  document.addEventListener('change', (e) => {
+    if (e.target.id !== 'mdir-sort') return;
+    S.dirFilter = { ...S.dirFilter, sort: e.target.value };
+    renderDirectoryList();
   });
   $('#tabs').addEventListener('click', (e) => {
     const b = e.target.closest('button');
@@ -1442,6 +1558,7 @@ function bind() {
     if (S.tab === 'usage') loadBudget();
     if (S.tab === 'office') loadOffice();
     if (S.tab === 'plugins') loadBoard();
+    if (S.tab === 'models') loadDirectory();
     renderPanel();
   });
   $('#pbody').addEventListener('click', (e) => {

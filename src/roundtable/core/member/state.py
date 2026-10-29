@@ -24,6 +24,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime, tzinfo
 from typing import Any
 
+from roundtable.core.hometz import home_zone
 from roundtable.core.member.bus import PERCEIVE, Event, EventBus
 from roundtable.core.member.instinct import Instinct, Reflex, RuleInstinct, Stimulus
 from roundtable.core.member.mode import Mode, require_life
@@ -230,7 +231,7 @@ class StatePlugin:
         self.bus = bus
         self.names = names or (lambda: {})  # 成员 id → 称呼（认 @ 用）
         self.instinct: Instinct = instinct or RuleInstinct(lambda: self.rules.reflexes)
-        self.tz = tz  # 作息按这个时区的钟点算；None 为本机时区
+        self.tz = tz  # 作息按这个时区的钟点算；None 为主时区（终端时钟里选的，core/hometz.py）
         self.profiles = ProfileStore(rt)
         if bus is not None:
             for kind in WATCH:
@@ -250,7 +251,7 @@ class StatePlugin:
         return derive_baseline(self.profiles.current(member).data, member, self.rules.baseline)
 
     def hour(self, at: datetime) -> float:
-        local = at.astimezone(self.tz)
+        local = at.astimezone(self.tz if self.tz is not None else home_zone(self.rt).tz())
         return local.hour + local.minute / 60
 
     def _snapshot(self, member: str, at: datetime) -> Snapshot:
@@ -372,7 +373,7 @@ class StatePlugin:
         from roundtable.core.chat import EVERYONE_WORDS  # chat 间接依赖本模块（人设）
 
         data, author = event.data, event.member
-        msg = self.rt.repo.chat_message_by_id(int(data.get("id", 0)))
+        msg = self.rt.repo.chat_message(int(data.get("id", 0)))
         text = (msg or {}).get("text") or ""
         room = str(data.get("room", ""))
         sender = "from_user" if data.get("from_user") else ("from_member" if author else "")

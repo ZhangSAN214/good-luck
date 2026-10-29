@@ -34,11 +34,11 @@ class Price(_Strict):
 
 
 # 媒体模型的计价单位：张、秒、分钟、字符；按 token 计价的模型沿用 Price
-MediaUnit = Literal["image", "second", "minute", "char"]
+MediaUnit = Literal["image", "second", "minute", "char", "song"]  # song：每生成一首 / 一段
 
 
 class MediaPrice(_Strict):
-    """媒体模型每个单位的价格（美元）：图片每张、视频每秒、转写每分钟、语音合成每字符。"""
+    """媒体模型每个单位的价格（美元）：图片每张、视频每秒、转写每分钟、语音合成每字符、音乐每首。"""
 
     unit: MediaUnit
     usd: float = Field(ge=0)
@@ -554,6 +554,15 @@ class VideoRules(_Strict):
     submit_retries: int = Field(default=1, ge=0)  # 提交失败或任务失败后再试几次
     frames: int = Field(default=4, ge=1, le=12)  # 发给评审者的截帧数
     max_mb: float = Field(default=100, gt=0)
+    # 支持声音的视频模型同时生成配音和音效（渠道参数 generate_audio）；关掉则只要画面
+    audio: bool = True
+
+
+class MusicRules(_Strict):
+    """音乐生成（配乐、片头、整首歌）：渠道按段 / 首计价，生成一次，不评审（没有可看的画面）。"""
+
+    format: Literal["mp3", "wav"] = "mp3"
+    max_chars: int = Field(default=1500, ge=50)  # 音乐描述（含歌词）最多多少字
 
 
 class SpeechRules(_Strict):
@@ -579,7 +588,7 @@ class StyleRules(_Strict):
 
 
 class MediaRules(_Strict):
-    """媒体生成（图片、语音、视频）：由 seat: false 的媒体模型完成，按标签和档位选择。"""
+    """媒体生成（图片、语音、视频、音乐）：由 seat: false 的媒体模型完成，按标签和档位选择。"""
 
     enabled: bool = True
     default_tier: Tier = "budget"
@@ -591,6 +600,10 @@ class MediaRules(_Strict):
     images_per_round: int = Field(default=1, ge=1, le=4)
     speech: SpeechRules = SpeechRules()
     video: VideoRules = VideoRules()
+    music: MusicRules = MusicRules()
+    # 创作输出（图片 / 语音 / 视频 / 音乐）单独的每月上限（美元，按 UTC 自然月）：
+    # 本月已花 + 这次预计超过它时，生成前先弹确认卡片；0 = 不设上限
+    monthly_usd: float = Field(default=5.0, ge=0)
     # 花费预估：平均生成几轮；评审与改写提示词每次的 token 数
     expected_rounds: float = Field(default=1.5, ge=1)
     review_tokens: int = Field(default=500, ge=0)
@@ -697,21 +710,70 @@ class ChatBudgetRules(_Strict):
     monthly_usd: float = Field(default=5.0, gt=0)
 
 
-class MemoryRules(_Strict):
-    """成员的分层记忆（docs/CHAT.md G3）。只存本地；只用于聊天。"""
+class MemoryLinkRules(_Strict):
+    """联想网（P2，M22 档 1 的记忆部分）：一起出现 / 一起被想起的记忆连得更紧（赫布学习），
+    想起一件时顺着连接想到别的（扩散激活），夜里顺着连接随便走几步（随机游走）。程序算，不调用模型。"""
 
     enabled: bool = True
-    context_chars: int = Field(default=800, ge=0)  # 聊天提示词里最多放多少字的记忆
+    learn_rate: float = Field(default=0.2, gt=0, le=1)  # 每次一起出现，强度向 1 靠近的比例
+    nightly_decay: float = Field(default=0.02, ge=0, lt=1)  # 每晚所有连接衰减的比例
+    min_weight: float = Field(default=0.05, ge=0, lt=1)  # 低于它的连接删掉
+    max_links: int = Field(default=20, ge=1, le=200)  # 每件记忆最多留几条最强的连接
+    hops: int = Field(default=2, ge=1, le=3)  # 扩散几步
+    spread: float = Field(default=0.5, gt=0, le=1)  # 每走一步激活乘以 强度 × spread
+    seeds: int = Field(default=4, ge=1, le=20)  # 从分数最高的几件开始扩散
+    assoc_max: int = Field(default=1, ge=0, le=5)  # 每次最多多带几件「联想到的」
+    walks: int = Field(default=2, ge=0, le=10)  # 每晚随机游走几次
+    walk_steps: int = Field(default=3, ge=1, le=20)  # 每次走几步
+
+
+class DiaryToolRules(_Strict):
+    """翻日记（P2）：生活模式里成员自己翻以前的日记和记忆，每位成员每天有次数上限（所有成员相同）。"""
+
+    enabled: bool = True
+    daily_reads: int = Field(default=3, ge=0, le=20)  # 每位成员每天最多翻几次（本地日）
+    max_hits: int = Field(default=3, ge=1, le=10)  # 每次最多翻出几段
+    result_chars: int = Field(default=300, ge=50, le=2000)  # 每次翻出的内容最多多少字
+
+
+class MemoryRules(_Strict):
+    """成员的记忆（docs/CHAT.md G3、docs/MEMBER_ENGINE.md「P2 记忆与联想」）。
+
+    只存本地；只用于生活模式。
+    """
+
+    enabled: bool = True
+    context_chars: int = Field(default=800, ge=0)  # 聊天提示词里最多放多少字的记忆（所有成员相同）
     entry_chars: int = Field(default=300, ge=50)  # 每条记忆最多多少字
     log_chars: int = Field(default=6000, ge=500)  # 整理一天时最多读多少字的聊天记录
     catch_up_days: int = Field(default=7, ge=1, le=60)  # 最多补整理几天前的
     max_tokens: int = Field(default=600, ge=64)
     estimate_usd: float = Field(default=0.001, ge=0)  # 每次整理的预估花费（预算检查用）
-    # 召回方式：layers 按时间固定带几层（默认）；half_life 半衰期记忆，按相关 × 鲜活 × 重要挑几件
-    recall: Literal["layers", "half_life"] = "layers"
+    # 召回方式：half_life 半衰期记忆（默认），按相关 × 鲜活 × 重要挑几件；
+    # layers 按时间固定带几层（旧）
+    recall: Literal["layers", "half_life"] = "half_life"
     half_life_days: float = Field(default=30, ge=1, le=3650)  # 发生过的事过多少天鲜活度减半
+    freshness_floor: float = Field(default=0.5, ge=0, le=1)  # 鲜活度保底：再久的事也不低于它
     inject_max: int = Field(default=6, ge=1, le=30)  # 半衰期召回每次最多带几件
     daily_quota: int = Field(default=8, ge=1, le=30)  # 半衰期记忆每人每天最多记几件事
+    # --- P2 记忆与联想 ---
+    night: bool = True  # 每晚整理合并成一次调用：第一人称日记 + 记忆件 + 挂着的事（+ 心情改写）
+    diary_chars: int = Field(default=300, ge=50, le=2000)  # 日记最多多少字
+    domains: list[str] = Field(
+        default_factory=lambda: ["学术", "日常", "工作", "娱乐", "社交", "身心"], min_length=1
+    )
+    hanging_max: int = Field(default=5, ge=0, le=10)  # 脑子里挂着的事最多几件
+    candidates: int = Field(default=200, ge=10, le=5000)  # 召回时全文索引最多取几件候选
+    recent: int = Field(default=30, ge=0, le=500)  # 另外带上最近的几件当候选
+    merge_similarity: float = Field(default=0.6, gt=0, le=1)  # 和已有的一件这么像就合并计数
+    update_similarity: float = Field(default=0.3, gt=0, le=1)  # 事实这么像（但不到合并）就算更新
+    repeat_gap_minutes: int = Field(default=60, ge=1, le=24 * 60)  # 同一次对话：间隔不超过这么久
+    digest_chars: int = Field(default=120, ge=0, le=1000)  # 全量经历的习惯摘要多少字（随身卡用）
+    work_lookback_days: int = Field(default=14, ge=1, le=90)  # 读自己的工作记录往回看几天
+    mood_threshold: float = Field(default=0.3, ge=0, le=1)  # 心情偏离中性这么多才改回忆语气
+    retell_max: int = Field(default=3, ge=0, le=10)  # 每晚最多改几件旧记忆的语气和重要度
+    links: MemoryLinkRules = MemoryLinkRules()
+    diary: DiaryToolRules = DiaryToolRules()
 
 
 class LifeGuardRules(_Strict):
@@ -750,7 +812,7 @@ class FeedSpec(_Strict):
     name: str = Field(min_length=1, max_length=40)
     url: str = Field(pattern=r"^https?://", max_length=500)
     topics: list[str] = Field(default_factory=list, max_length=8)
-    kind: Literal["news", "forum", "blog"] = "news"
+    kind: Literal["news", "forum", "blog", "video"] = "news"
     enabled: bool = True
 
 
@@ -771,6 +833,53 @@ class BrowseRules(_Strict):
     max_tokens: int = Field(default=800, ge=64)
     timeout_s: float = Field(default=10, gt=0, le=60)
     max_feed_kb: int = Field(default=1024, ge=16, le=8192)
+
+
+class PerceptionMode(_Strict):
+    """感官的一种精细程度（docs/PERCEPTION.md）：图片缩到多大、视频取几帧、感知卡写多长。"""
+
+    image_side: int = Field(ge=256, le=4096)  # 图片缩到长边不超过这么多像素
+    video_frames: int = Field(ge=1, le=64)  # 视频均匀取几帧（整段交给模型时不用）
+    frame_side: int = Field(ge=128, le=2048)  # 每帧缩到长边不超过这么多像素
+    grid: bool = False  # 每 4 帧拼成一张 2×2 宫格图（看图 token 约为原来的 1/4）
+    native_video: bool = False  # 有带 video_in 标签的模型时，整段视频连声音直接交给它
+    max_tokens: int = Field(ge=64, le=8000)  # 感知卡（一条消息的全部内容合计）的输出上限
+    estimate_usd: float = Field(ge=0)  # 一条消息的预估花费（预算检查用）
+
+
+class PerceptionRules(_Strict):
+    """成员感官（M11 感知，docs/PERCEPTION.md）：把用户发的图片、语音、视频整理成感知卡给成员读。
+
+    快速（默认）先看；用户要求细看时才补精细，转写稿和缓存都复用。花费计入聊天月预算和总预算，
+    另有感官自己的月上限。
+    """
+
+    enabled: bool = True
+    monthly_usd: float = Field(default=1.5, ge=0)  # 感官每月最多花多少（UTC 自然月）
+    fast: PerceptionMode = PerceptionMode(
+        image_side=768,
+        video_frames=8,
+        frame_side=512,
+        grid=True,
+        max_tokens=600,
+        estimate_usd=0.002,
+    )
+    fine: PerceptionMode = PerceptionMode(
+        image_side=1536,
+        video_frames=24,
+        frame_side=768,
+        native_video=True,
+        max_tokens=2000,
+        estimate_usd=0.03,
+    )
+    # 用户在消息里写了这些词时直接用精细模式
+    fine_words: list[str] = Field(
+        default_factory=lambda: ["仔细看", "细看", "看清楚", "看仔细", "仔细听", "听清楚"],
+        max_length=30,
+    )
+    max_audio_s: int = Field(default=600, ge=10, le=3600)  # 语音 / 视频声音最多转写多长
+    native_max_mb: float = Field(default=20, gt=0, le=60)  # 整段视频交给模型的大小上限
+    card_chars: int = Field(default=800, ge=100, le=4000)  # 每张感知卡最多保留多少字
 
 
 class ClipperRules(_Strict):
@@ -956,6 +1065,100 @@ class EngineRules(_Strict):
     eval: EvalRules = EvalRules()
 
 
+class WanderSite(_Strict):
+    """成员自己逛的一个网站：首页、搜索地址（{q} 换成搜索词）、允许打开的域名（后缀匹配）。"""
+
+    id: str = Field(pattern=r"^[a-z0-9_]{1,20}$")
+    name: str = Field(min_length=1, max_length=20)
+    home: str = Field(pattern=r"^https://", max_length=300)
+    search: str = Field(default="", max_length=300)
+    hosts: list[str] = Field(min_length=1, max_length=10)
+    enabled: bool = True
+
+
+class WanderRules(_Strict):
+    """成员自己上网（docs/WANDER.md）：隔离浏览器里逛白名单网站，第一期只看不互动。
+
+    花费计入生活每日上限（``chat.life.daily_usd``）、聊天月预算和总预算。
+    """
+
+    enabled: bool = True
+    auto: bool = True  # 由心跳按作息自动安排；关掉后只能在网页里手动让她去逛
+    sites: list[WanderSite] = Field(default_factory=list, max_length=10)
+    # 浏览器程序：依次试这些（msedge / chrome；空字符串 = Playwright 自带的 Chromium）
+    channels: list[str] = Field(default_factory=lambda: ["msedge", "chrome", ""], max_length=4)
+    headless: bool = True  # 不弹窗口，在后台逛
+    trips_per_member_per_day: int = Field(default=1, ge=0, le=5)
+    trip_chance: float = Field(default=0.3, ge=0, le=1)  # 每次心跳醒着且闲着时出门的概率
+    start_hour: int = Field(default=10, ge=0, le=23)  # 自动逛只在这几个小时里（本地时间）
+    end_hour: int = Field(default=23, ge=1, le=24)
+    max_steps: int = Field(default=12, ge=1, le=40)  # 一次最多看几个页面（每页一次模型调用）
+    max_minutes: float = Field(default=10, gt=0, le=60)
+    step_wait_seconds: float = Field(default=4, ge=0, le=60)  # 每看完一页停一会儿，像人一样慢慢逛
+    load_wait_seconds: float = Field(default=2.5, ge=0, le=20)  # 打开页面后等网页加载内容
+    timeout_s: float = Field(default=25, gt=0, le=120)
+    page_chars: int = Field(default=2500, ge=300, le=12000)  # 交给成员读的页面文字最多多少字
+    max_links: int = Field(default=30, ge=5, le=80)
+    estimate_usd: float = Field(default=0.002, ge=0)  # 每看一页的预估花费
+    max_tokens: int = Field(default=600, ge=64)
+
+
+class WatchRules(_Strict):
+    """投屏陪伴（docs/WATCH.md）：用户投屏给成员看，选几位陪着一起看。
+
+    画面只在明显变化、且离上次够久时才交给最便宜的识图模型转成文字；成员看的是文字。
+    花费计入总预算和这里的每月上限（不占聊天月预算）；用完就只陪聊、不看画面。
+    """
+
+    enabled: bool = True
+    monthly_usd: float = Field(default=1.5, ge=0)  # 一起看每月最多花多少（UTC 自然月）
+    max_watchers: int = Field(default=3, ge=1, le=6)  # 最多几位一起看
+    grab_seconds: float = Field(default=3, ge=1, le=60)  # 多久截一张（只在内存里）
+    change_threshold: float = Field(default=0.06, gt=0, le=1)  # 画面变化超过这个比例才算变了
+    describe_gap_seconds: float = Field(default=20, ge=5, le=600)  # 两次看画面至少隔多久
+    describes_per_hour: int = Field(default=90, ge=1, le=720)  # 每小时最多看几次画面
+    max_side: int = Field(default=1024, ge=320, le=2048)  # 交给模型的画面最长边（像素）
+    jpeg_quality: int = Field(default=70, ge=30, le=95)
+    describe_max_tokens: int = Field(default=300, ge=64, le=2000)
+    describe_estimate_usd: float = Field(default=0.002, ge=0)
+    recent_screens: int = Field(default=3, ge=1, le=10)  # 发给成员的最近几段画面描述
+    react_gap_seconds: float = Field(default=90, ge=10, le=3600)  # 同一位成员主动说话至少隔多久
+    room_gap_seconds: float = Field(default=40, ge=5, le=3600)  # 没人说话时，大家主动说话至少隔多久
+    history_messages: int = Field(default=16, ge=2, le=100)
+    max_tokens: int = Field(default=400, ge=64)
+    max_chars: int = Field(default=200, ge=20, le=2000)  # 陪看时每句最多保留多少字
+    estimate_usd: float = Field(default=0.002, ge=0)  # 每句的预估花费
+    max_minutes: int = Field(default=240, ge=5, le=24 * 60)  # 一次投屏最长多久，到时自动停
+    max_failures: int = Field(default=5, ge=1, le=100)  # 连续几次截不到画面就停
+    # 前台窗口标题 / 进程名、安卓前台包名含这些字时暂停（不截、不看），不分大小写
+    sensitive: list[str] = Field(
+        default_factory=lambda: [
+            "支付宝",
+            "alipay",
+            "银行",
+            "bank",
+            "paypal",
+            "wallet",
+            "钱包",
+            "密码",
+            "password",
+            "1password",
+            "bitwarden",
+            "keepass",
+            "lastpass",
+            "验证码",
+            "com.chinamworld",
+            "com.icbc",
+            "cmb.pb",
+            "com.unionpay",
+        ],
+        max_length=100,
+    )
+    # adb 可执行文件（PATH 里的名字或完整路径）
+    adb: str = Field(default="adb", min_length=1, max_length=300)
+    scrcpy: str = Field(default="scrcpy", min_length=1, max_length=300)  # 流畅投屏窗口（可选）
+
+
 class ChatActionRules(_Strict):
     """聊天里能发什么（docs/CHAT.md「微信式动作」）：表情包、颜文字、引用、拆条、拍一拍、撤回。
 
@@ -973,6 +1176,13 @@ class ChatActionRules(_Strict):
     pat_reply: bool = True  # 被拍一拍后回一句（默认值）
     no_reply_in_group: bool = True  # 群里没被点名时允许不接话（默认值）
     drop_stale: bool = True  # 你补发新消息或撤回时，上一轮还没发出的气泡和还没开口的人作废
+    # 今天上网分享过的成员发朋友圈时，有几成发成「一句话 + 转发卡片」（默认值）
+    moment_forward: float = Field(default=0.5, ge=0, le=1)
+    # 这些网站上的链接显示成视频卡片（只看网址，不联网）
+    video_hosts: list[str] = Field(
+        default_factory=lambda: ["youtube.com", "youtu.be", "vimeo.com", "bilibili.com"],
+        max_length=20,
+    )
 
 
 class ChatRules(_Strict):
@@ -986,6 +1196,9 @@ class ChatRules(_Strict):
     browse: BrowseRules = BrowseRules()
     moments: MomentsRules = MomentsRules()
     engine: EngineRules = EngineRules()
+    watch: WatchRules = WatchRules()
+    wander: WanderRules = WanderRules()
+
     actions: ChatActionRules = ChatActionRules()
     tier: Tier = "budget"  # 每位成员用这个档位的模型发言（没有就用该成员最便宜的）
     max_repliers: int = Field(default=2, ge=1, le=6)  # 没有 @ 人时，一条消息最多几位回应
@@ -1309,6 +1522,7 @@ class RoundtableConfig(_Strict):
     evolution: EvolutionRules = EvolutionRules()
     mail: MailConfig = MailConfig()
     clipper: ClipperRules = ClipperRules()
+    perception: PerceptionRules = PerceptionRules()
 
     @field_validator("prompts")
     @classmethod
@@ -1643,7 +1857,7 @@ class AppConfig(_Strict):
                 raise ValueError(f"collab.kinds.{name}.tags 含未知标签 {unknown}")
         for template in rt.collab.templates:
             for step in template.steps:
-                if step.media not in (None, "image", "speech", "video"):
+                if step.media not in (None, "image", "speech", "video", "music"):
                     raise ValueError(f"模板 {template.name} 的步骤 {step.id} 的 media 无效")
 
     def _check_routing(self) -> None:

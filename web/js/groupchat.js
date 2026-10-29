@@ -6,7 +6,8 @@
 // 微信式动作：右键 / 长按消息 → 引用、复制、撤回（自己的、几分钟内）；双击成员头像 → 拍一拍。
 // 成员一次回复可能拆成几条气泡陆续出现；私聊顶部显示「对方正在输入…」。
 
-import { MediaComposer, bindMedia, mediaHTML, richText, soloSticker, stickerSVG, visibleText } from './chatmedia.js';
+import { tzOpt } from './hometz.js';
+import { MediaComposer, bindMedia, cardHTML, mediaHTML, richText, soloSticker, stickerSVG, visibleText } from './chatmedia.js';
 
 const esc = (s) =>
   String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -21,6 +22,7 @@ const SLOW_MS = 8000;
 const FAST_FOR_MS = 25_000; // 发出消息后这么久内保持快速轮询
 const EVERYONE = '全员';
 const ROOM_KEY = 'roundtable.chat.room';
+const SENSES = '感官'; // 「正在输入」里的这一项表示感官正在看 / 听你发的内容
 
 const storage = {
   get() {
@@ -50,7 +52,7 @@ export function atQuery(text, caret) {
 export class GroupChat {
   constructor(root, { api, now = () => Date.now(), openSession = null, openPeople = null, openFeeds = null, openMoments = null } = {}) {
     this.root = root;
-    this.api = api; // {get(after, q, room), post(text, room, media, quote), pat(member, room), recall(id, room), clear(room), rooms(), handoff(text)}
+    this.api = api; // {get(after, q, room), post(text, room, media, quote), pat(member, room), recall(id, room), clear(room), rooms(), handoff(text), look(id, room)}
     this.openSession = openSession; // 工作群里点「查看」：回到办公室里的这件事
     this.openPeople = openPeople; // 成员设定与记忆
     this.openFeeds = openFeeds; // 上网：订阅源
@@ -203,6 +205,8 @@ export class GroupChat {
       if (e.target.closest('#gc-exit-search')) this.runSearch('');
       const open = e.target.closest('[data-session]');
       if (open && this.openSession) this.openSession(open.dataset.session);
+      const look = e.target.closest('[data-look]');
+      if (look) this.lookCloser(Number(look.dataset.look), look);
     });
     this.$('#gc-handoff').addEventListener('click', () => this.handoff());
     this.$('#gc-people').hidden = !this.openPeople;
@@ -239,7 +243,7 @@ export class GroupChat {
   schedule() {
     clearTimeout(this.timer);
     if (this.root.hidden) return;
-    const fast = this.typing.length || this.now() < this.fastUntil;
+    const fast = this.typing.length || this.watchSeen || this.now() < this.fastUntil;
     this.timer = setTimeout(() => this.poll(), fast ? FAST_MS : SLOW_MS);
   }
 
@@ -281,8 +285,22 @@ export class GroupChat {
         this.pending = (this.pending || []).filter((n) => queued.has(n) || this.typing.includes(n) || (data.typing || []).includes(n));
       }
       if ((this.pending || []).length) this.fastUntil = Math.max(this.fastUntil, this.now() + FAST_MS * 3);
-      const changed = newMembers || (data.messages || []).length || String(data.typing) !== String(this.typing);
+      let changed = newMembers || (data.messages || []).length || String(data.typing) !== String(this.typing);
       this.typing = data.typing || [];
+      // 感官看完（发图后或点了「细看」）：那条消息的「已看过」标记变了，整页重拉，直到标记出现（最多等 60 秒）
+      const want = this.watchSeen;
+      if (want && !this.typing.includes(SENSES)) {
+        const all = await this.api.get(0, '', room);
+        if (room === this.room && (all.messages || []).length) {
+          this.messages = all.messages;
+          this.lastId = this.messages[this.messages.length - 1].id;
+          changed = true;
+          const msg = this.messages.find((m) => m.id === want.id);
+          const cards = msg?.meta?.perception || [];
+          const done = cards.length && (want.mode !== 'fine' || cards.every((c) => c.mode === 'fine'));
+          if (done || this.now() > want.until) this.watchSeen = null;
+        }
+      }
       if (changed) this.renderAll();
     } catch (e) {
       if (e.message) {
@@ -304,6 +322,7 @@ export class GroupChat {
     this.search = null;
     this.pending = [];
     this.typing = [];
+    this.watchSeen = null;
     this.$('#gc-q').value = '';
     this.closeSuggest();
     this.quote = null;
@@ -339,6 +358,7 @@ export class GroupChat {
       const quote = this.quote?.id ?? null;
       const res = await this.api.post(text, this.room, media, quote);
       this.setQuote(null);
+      if (res && res.look) this.watchSeen = { id: res.id, mode: res.look, until: this.now() + 60_000 };
       // 排队等着回应的人：收到 TA 的消息（或系统说明 TA 为什么没回）后划掉
       this.pending = [...(this.pending || []), ...((res && res.speakers) || [])];
       if (!direct) {
@@ -440,6 +460,7 @@ export class GroupChat {
     const items = [];
     if (this.kind() !== 'pair') items.push(['quote', '引用']);
     items.push(['copy', '复制']);
+    if (this.api.forward && this.forwardable(msg)) items.push(['forward', '转发']);
     if (this.canRecall(msg)) items.push(['recall', '撤回']);
     const menu = this.$('#gc-menu');
     menu.innerHTML = items.map(([act, label]) => `<button type="button" role="menuitem" data-act="${act}" data-id="${id}">${label}</button>`).join('');
@@ -473,6 +494,44 @@ export class GroupChat {
       }
     } else if (act === 'recall') {
       await this.recall(msg);
+    } else if (act === 'forward') {
+      this.forwardMenu(msg);
+    } else if (act.startsWith('to:')) {
+      await this.forward(msg, act.slice(3));
+    }
+  }
+
+  /** 能转发的：图片 / 视频 / 语音 / 表情包、链接卡片，或有文字的消息。 */
+  forwardable(msg) {
+    return Boolean(msg.meta?.media?.length || msg.meta?.card || msg.meta?.share || visibleText(msg.text, msg.meta));
+  }
+
+  /** 第二步：选转发到哪个群或私聊（成员之间的聊天只能看，不能转进去）。 */
+  forwardMenu(msg) {
+    const targets = this.rooms.filter((r) => r.kind === 'group' || r.kind === 'dm');
+    const menu = this.$('#gc-menu');
+    const head = '<small class="gc-menu-h">转发给</small>';
+    menu.innerHTML = head + targets.map((r) => `<button type="button" role="menuitem" data-act="to:${esc(r.id)}" data-id="${msg.id}">${esc(r.title)}</button>`).join('');
+    menu.hidden = false;
+    this.menuAt = this.now();
+    menu.querySelector('button')?.focus({ preventScroll: true });
+  }
+
+  async forward(msg, room) {
+    try {
+      const res = await this.api.forward(msg.id, room);
+      this.error = '';
+      if (room === this.room) {
+        this.pending = [...(this.pending || []), ...((res && res.speakers) || [])];
+        this.fastUntil = this.now() + FAST_FOR_MS;
+        this.renderError();
+      } else {
+        this.notice(`已转发到「${this.rooms.find((r) => r.id === room)?.title || '聊天'}」`);
+      }
+      this.poll();
+    } catch (e) {
+      this.error = e.message || '转发失败';
+      this.renderError();
     }
   }
 
@@ -637,22 +696,26 @@ export class GroupChat {
     if (msg.author === 'system') return `<div class="gc-sys${sid ? ' work' : ''}${msg.meta?.pat ? ' pat' : ''}" data-id="${msg.id}"><span>${esc(msg.text)}</span>${look}</div>`;
     if (msg.meta?.recalled) return `<div class="gc-sys recalled" data-id="${msg.id}"><span>${msg.author === 'user' ? '你' : esc(msg.name)}撤回了一条消息</span></div>`;
     const at = new Date(msg.created_at);
-    const time = at.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false });
+    const time = at.toLocaleTimeString('zh-CN', tzOpt({ hour: '2-digit', minute: '2-digit', hour12: false }));
     const shown = visibleText(msg.text, msg.meta);
-    const solo = !msg.meta?.media?.length && soloSticker(msg.text);
+    const solo = !msg.meta?.media?.length && !msg.meta?.card && soloSticker(msg.text);
     const media = mediaHTML(msg.meta?.media, { group: `m${msg.id}`, mine: msg.author === 'user' });
     const words = shown ? `<div class="gc-words">${richText(shown, { mentions: true })}</div>` : '';
-    const text = solo ? stickerSVG(solo.pack, solo.name, { big: true }) : `${words}${media}`;
-    const kindCls = solo ? ' stk-only' : msg.meta?.media?.length ? (shown ? ' has-media' : ' media-only') : '';
+    const card = cardHTML(msg.meta?.card);
+    const fwd = msg.meta?.forwarded ? '<small class="gc-fwd">转发</small>' : '';
+    const text = solo ? stickerSVG(solo.pack, solo.name, { big: true }) : `${fwd}${words}${media}${card}`;
+    const stkOnly = msg.meta?.media?.length && msg.meta.media.every((m) => m.sticker) && !shown;
+    const kindCls = solo || stkOnly ? ' stk-only' : msg.meta?.media?.length ? (shown ? ' has-media' : ' media-only') : card && !shown ? ' card-only' : '';
     const follow = prev && prev.author === msg.author && at - new Date(prev.created_at) < 180000;
     const cls = `gc-msg${msg.author === 'user' ? ' me' : ''}${follow ? ' follow' : ''}`;
     const stamp = `<time datetime="${esc(msg.created_at)}">${esc(time)}</time>`;
     const tag = msg.meta?.event === 'handoff' ? `<span class="gc-tag">已交给办公室${look}</span>` : '';
+    const seen = this.seenTag(msg);
     const quote = this.quoteHTML(msg.meta?.quote);
-    if (msg.author === 'user') return `<div class="${cls}" data-id="${msg.id}"><div class="gc-body"><div class="gc-meta">${tag}${stamp}</div><div class="gc-bub${kindCls}">${text}</div>${quote}</div></div>`;
+    if (msg.author === 'user') return `<div class="${cls}" data-id="${msg.id}"><div class="gc-body"><div class="gc-meta">${tag}${seen}${stamp}</div><div class="gc-bub${kindCls}">${text}</div>${quote}</div></div>`;
     const member = this.members.find((m) => m.id === msg.author);
     const away = msg.meta?.offline ? '<span class="gc-tag away" title="你不在的时候发生的">你不在时</span>' : '';
-    return `<div class="${cls}" data-id="${msg.id}" data-author="${esc(msg.author)}">${this.avatar(member, msg.name)}<div class="gc-body"><div class="gc-meta"><span class="gc-name">${esc(msg.name)}</span>${away}${stamp}</div><div class="gc-bub${kindCls}">${text}${this.source(msg.meta?.share)}</div>${quote}</div></div>`;
+    return `<div class="${cls}" data-id="${msg.id}" data-author="${esc(msg.author)}">${this.avatar(member, msg.name)}<div class="gc-body"><div class="gc-meta"><span class="gc-name">${esc(msg.name)}</span>${away}${stamp}</div><div class="gc-bub${kindCls}">${text}${card ? '' : this.source(msg.meta?.share)}</div>${quote}</div></div>`;
   }
 
   /** 微信式引用框：放在气泡下面，灰底一行「名字：开头一段」；原消息已撤回时说明。点击跳到原消息。 */
@@ -663,10 +726,39 @@ export class GroupChat {
     return `<button type="button" class="gc-quote" data-goto="${Number(q.id)}" title="查看原消息">${body}</button>`;
   }
 
+  /** 你发的图片 / 视频 / 语音：感官看过后标「已看过 · 快速 / 精细」，并给一个「细看」按钮（精细模式重看一次）。 */
+  seenTag(msg) {
+    if (msg.author !== 'user' || !msg.meta?.media?.length || !this.api.look) return '';
+    const cards = msg.meta.perception || [];
+    const fine = cards.length && cards.every((c) => c.mode === 'fine');
+    const state = cards.length ? `<span class="gc-tag seen" title="成员读的是感官整理出的内容">已看过 · ${fine ? '精细' : '快速'}</span>` : '';
+    const btn = fine ? '' : `<button type="button" class="link gc-look" data-look="${msg.id}" title="用精细模式重新看一遍，再请一位成员回应">细看</button>`;
+    return `${state}${btn}`;
+  }
+
+  async lookCloser(id, btn) {
+    if (!id || btn.disabled) return;
+    btn.disabled = true;
+    btn.textContent = '细看中…';
+    try {
+      const res = await this.api.look(id, this.room);
+      this.pending = [...(this.pending || []), ...((res && res.speakers) || [])];
+      this.fastUntil = this.now() + FAST_FOR_MS;
+      this.watchSeen = { id, mode: 'fine', until: this.now() + 60_000 };
+      this.error = '';
+    } catch (e) {
+      this.error = e.message || '细看失败';
+      btn.disabled = false;
+      btn.textContent = '细看';
+    }
+    this.renderError();
+    await this.poll();
+  }
+
   /** 上网分享的来源：标题链接、来源名、发布时间、未核实。只接受 http(s) 网址。 */
   source(share) {
     if (!share || !/^https?:\/\//i.test(share.url || '')) return '';
-    const when = share.published ? new Date(share.published).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }) : '';
+    const when = share.published ? new Date(share.published).toLocaleString('zh-CN', tzOpt({ month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false })) : '';
     const flag = share.unverified ? '<span class="gc-tag away">未核实</span>' : '';
     return `<a class="gc-src" href="${esc(share.url)}" target="_blank" rel="noopener noreferrer nofollow">${esc(share.title)}</a><small class="gc-srcm">${esc(share.feed)}${when ? ` · ${esc(when)}` : ''}${flag}</small>`;
   }
@@ -774,15 +866,34 @@ export class GroupChat {
     const t = this.$('#gc-typing');
     const waiting = (this.pending || []).filter((n) => !this.typing.includes(n));
     const parts = [];
-    if (this.typing.length) parts.push(`${this.typing.join('、')} 正在输入…`);
+    const looking = this.typing.includes(SENSES);
+    const typing = this.typing.filter((n) => n !== SENSES);
+    if (looking) parts.push('正在看你发的图片 / 视频 / 语音…');
+    if (typing.length) parts.push(`${typing.join('、')} 正在输入…`);
     if (waiting.length) parts.push(`接下来：${waiting.join('、')}`);
     t.hidden = !parts.length;
     t.innerHTML = `${this.typing.length ? '<i></i><i></i><i></i>' : ''}<span>${esc(parts.join('　'))}</span>`;
   }
 
+  /** 一句提示（不是错误），几秒后消失。 */
+  notice(text) {
+    const el = this.$('#gc-err');
+    if (!el) return;
+    el.hidden = false;
+    el.textContent = text;
+    el.classList.add('ok');
+    clearTimeout(this.noticeTimer);
+    this.noticeTimer = setTimeout(() => {
+      el.classList.remove('ok');
+      this.renderError();
+    }, 2500);
+  }
+
   renderError() {
     const el = this.$('#gc-err');
     if (!el) return;
+    if (el.classList.contains('ok') && !this.error) return;
+    el.classList.remove('ok');
     el.hidden = !this.error;
     el.textContent = this.error;
   }

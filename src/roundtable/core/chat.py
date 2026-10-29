@@ -18,21 +18,28 @@ import asyncio
 import random
 import re
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
+from roundtable.core.attachments.model import append_to_messages
 from roundtable.core.budget.guard import EPS, month_window
 from roundtable.core.chat_actions import (
     ActionPolicy,
     DefaultPolicy,
+    card_text,
+    clean_card,
     is_recalled,
     parse,
     quote_meta,
     sticker_list,
 )
+from roundtable.core.hometz import home_zone
+from roundtable.core.member.memory.diary import TOOL, DiaryTool
+from roundtable.core.office.apartment import ACTIVITIES, PUBLIC_ROOMS, schedule
 from roundtable.core.persona import EMPTY, chat_persona
 from roundtable.core.plain_talk import before_speaking, plain_prompt
-from roundtable.core.providers import AllChannelsFailed, NoChannelAvailable, ProviderError
+from roundtable.core.providers import AllChannelsFailed, Message, NoChannelAvailable, ProviderError
+from roundtable.core.tools.protocol import parse_calls, strip_calls
 
 ROOM = "main"  # 生活群
 WORK = "work"  # 工作群
@@ -53,18 +60,50 @@ EVERYONE_WORDS = (
     "你们每",
 )
 USER_LABEL = "用户"
+# 不在群聊列表里、不能从群聊发言的会话（投屏陪伴「一起看」有自己的面板，docs/WATCH.md）
+HIDDEN_KINDS = frozenset({"watch", "wander"})
 # 会话类型 → 提示词角色（roundtable.yaml 的 prompts）
 PROMPT_ROLES = {"group": "chat", "work": "chat_work", "dm": "chat_dm"}
+# 能翻日记的会话（生活模式的私聊和生活群；工作群不带）
+DIARY_KINDS = frozenset({"group", "dm"})
+_WEEK = "一二三四五六日"
 
 
-def member_memory(rt: Any, member: str, query: str = "") -> str:
-    """聊天提示词里的记忆（关闭记忆时为「暂无」）。query：当前对话或场景，半衰期召回按它挑相关的。"""
+def life_clock(rt: Any, member_id: str) -> str:
+    """按主时区说现在几点、这位成员这会儿通常在干什么（公寓作息，不调用模型）。"""
+    now = home_zone(rt).local(rt.budget.now())
+    room, act = schedule(member_id, now.hour, now.weekday())
+    where = "自己房间" if room == "dorm" else PUBLIC_ROOMS.get(room, room)
+    return (
+        f"{now.month}月{now.day}日 周{_WEEK[now.weekday()]} {now:%H:%M}，"
+        f"你这会儿一般在{where}{ACTIVITIES.get(act, act)}"
+    )
+
+
+def with_diary_tool(rt: Any, prompt: Any, remaining: int) -> Any:
+    """接上翻日记工具的说明（所有成员同一段，只说今天还能翻几次）。"""
+    template = rt.prompts.get("memory_diary", rt.config.roundtable.prompts["memory_diary"])
+    messages = append_to_messages(prompt.messages, template, remaining=str(remaining))
+    return replace(prompt, messages=messages)
+
+
+def diary_followup(rt: Any, messages: Any, said: str, found: str) -> tuple[Message, ...]:
+    """把翻到的内容交回（<diary> 标签里），让她接着回复。"""
+    role = "memory_diary_result"
+    filled = rt.prompts.render(role, rt.config.roundtable.prompts[role], result=found)
+    extra = next(m.content for m in filled.messages if m.role == "user")
+    return (*messages, Message("assistant", said), Message("user", extra))
+
+
+def member_memory(rt: Any, member: str, query: str = "", conversation: str | None = None) -> str:
+    """聊天提示词里的记忆（关闭记忆时为「暂无」）。query：当前对话或场景，半衰期召回按它挑相关的；
+    conversation：会话，同一次对话里带过的记忆不再带。"""
     from roundtable.core.memory import NONE, memory_context  # memory 依赖本模块
 
     rules = rt.config.roundtable.chat.memory
     if not rules.enabled or rules.context_chars == 0:
         return NONE
-    return memory_context(rt, member, rules.context_chars, query)
+    return memory_context(rt, member, rules.context_chars, query, conversation)
 
 
 def dm_room(member_id: str) -> str:
@@ -240,8 +279,13 @@ class GroupChat:
         if info is None:
             raise KeyError(room)
         self.kind: str = info["kind"]
-        self.title: str = info["title"]
+        self._title: str = info["title"]
         self.member_ids: list[str] = info["members"]
+
+    @property
+    def title(self) -> str:
+        names = {m.id: m.name for m in self.everyone()}
+        return live_title(self.kind, self.member_ids, self._title, names)
 
     @property
     def rules(self) -> Any:
@@ -299,10 +343,19 @@ class GroupChat:
             who = USER_LABEL if r["author"] == USER else names.get(r["author"], r["author"])
             if not numbered:
                 lines.append(f"{who}：{r['text']}")
-                continue
-            quote = meta.get("quote")
-            reply = f"（回复 #{quote['id']}）" if quote else ""
-            lines.append(f"#{r['id']} {who}{reply}：{r['text']}")
+            else:
+                quote = meta.get("quote")
+                reply = f"（回复 #{quote['id']}）" if quote else ""
+                text = r["text"]
+                card = meta.get("card")
+                if card and card_text(card) not in text:
+                    text = f"{text} {card_text(card)}".strip()
+                lines.append(f"#{r['id']} {who}{reply}：{text}")
+            cards = meta.get("perception")
+            if cards:  # 感官整理出的感知卡：成员「看到 / 听到」的内容
+                from roundtable.core.perception import media_block  # perception 依赖本模块
+
+                lines.append(media_block(who, cards))
         return "\n".join(lines)
 
     def pat_words(self, pat: dict[str, Any], names: dict[str, str], for_model: bool = False) -> str:
@@ -325,7 +378,8 @@ class GroupChat:
     ) -> tuple[dict[str, Any], list[ChatMember]]:
         """存下用户的消息并选出回应的成员（回应由 replies() 生成）。
 
-        meta 里可带图片 / 视频 / 语音清单（media）；成员只看到 text 里的文字占位。
+        meta 里可带图片 / 视频 / 语音清单（media）；成员看到 text 里的文字占位，感官整理出感知卡后
+        （meta 的 perception），聊天记录里在这条消息后面附上感知卡。
         quote：引用的消息 id（必须是这个会话里的、没撤回的），不对时抛 ValueError。
         """
         meta = dict(meta or {})
@@ -337,6 +391,48 @@ class GroupChat:
         self.round += 1
         msg = self.rt.repo.add_chat_message(self.room, USER, text, meta=meta or None)
         return msg, self.pick(text)
+
+    def send_as(
+        self,
+        member: str,
+        text: str = "",
+        *,
+        media: list[dict[str, Any]] | None = None,
+        card: dict[str, Any] | None = None,
+        meta: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """接入口：以成员身份发一条（转发卡片、生成的图片 / 动图 / 自制表情包）。
+
+        什么时候发由成员系统决定；这里只负责存成和别的消息一样的格式。media 用
+        ``chat_actions.generated_item`` 生成；card 用 ``chat_actions.card_from_item`` 等生成。
+        成员不在这个会话里、或什么都没有时抛 ValueError。不调用模型、不花钱。
+        """
+        if member not in {m.id for m in self.members()}:
+            raise ValueError("这位成员不在这个会话里")
+        meta = dict(meta or {})
+        words = text.strip()
+        if card is not None:
+            checked = clean_card(card)
+            if checked is None:
+                raise ValueError("卡片的网址不对")
+            meta["card"] = checked
+        if media:
+            meta["media"] = list(media)
+            if not words:
+                meta["auto_text"] = True
+            else:
+                meta["caption"] = words
+        shown = words
+        if media:
+            tag = " ".join("[表情]" if it.get("sticker") else "[图片]" for it in media)
+            shown = f"{words}\n{tag}".strip()
+        if not shown and "card" in meta:
+            shown = card_text(meta["card"])
+        if not shown:
+            raise ValueError("没有要发的内容")
+        msg = self.rt.repo.add_chat_message(self.room, member, shown, meta=meta or None)
+        self.on_change()
+        return msg
 
     def stale(self, round_no: int) -> bool:
         return self.round != round_no and self.policy().drop_stale(self.kind)
@@ -451,13 +547,15 @@ class GroupChat:
             "name": member.name,
             # 工作群不带人物卡和人设（2026-10-29 用户：工作与生活分开）
             "persona": EMPTY if self.kind == "work" else chat_persona(rt, member.id),
-            "memory": member_memory(rt, member.id, history),
+            "memory": member_memory(rt, member.id, history, self.room),
             "history": history,
         }
         if self.kind != "dm":
             variables["members"] = (
                 "、".join(m.name for m in self.members() if m.id != member.id) or "（没有别人）"
             )
+        if "clock" in wants:
+            variables["clock"] = life_clock(rt, member.id)
         if numbered:
             variables |= {
                 "stickers": sticker_list(acts.stickers) if acts.enabled else "（这里不用表情包）",
@@ -467,11 +565,30 @@ class GroupChat:
             }
         prompt = rt.prompts.render(role, version, **variables)
         prompt = plain_prompt(rt.prompts, rt.config, prompt)
+        diary = DiaryTool(rt) if self.kind in DIARY_KINDS else None
+        reads = diary.remaining(member.id) if diary else 0
+        if reads:
+            prompt = with_diary_tool(rt, prompt, reads)
         session = rt.repo.chat_session(self.room)
         self.typing.append(member.name)
         self.on_change()
         try:
             completion = await rt.router.complete(member.model_id, prompt.messages, self.params())
+            call = next((c for c in parse_calls(completion.text) if c.name == TOOL), None)
+            found = diary.read(member.id, call.body) if diary and call else None
+            if found is not None:
+                rt.repo.record_call(
+                    session,
+                    step="chat",
+                    role="member",
+                    model_id=member.model_id,
+                    messages=prompt.messages,
+                    prompt=prompt,
+                    completion=completion,
+                )
+                messages = diary_followup(rt, prompt.messages, completion.text, found)
+                prompt = replace(prompt, messages=messages)
+                completion = await rt.router.complete(member.model_id, messages, self.params())
         except (AllChannelsFailed, NoChannelAvailable, ProviderError) as e:
             rt.repo.record_call(
                 session,
@@ -496,7 +613,7 @@ class GroupChat:
             prompt=prompt,
             completion=completion,
         )
-        text = clean_reply(completion.text, member.name, rules.max_chars)
+        text = clean_reply(strip_calls(completion.text), member.name, rules.max_chars)
         parsed = parse(
             text,
             stickers=acts.stickers if acts.enabled else {},
@@ -548,6 +665,13 @@ class GroupChat:
         return first
 
 
+def live_title(kind: str, members: list[str], stored: str, names: dict[str, str]) -> str:
+    """双人房的标题按成员现在的名字拼（改名后跟着变）；其他会话用建房时存的标题。"""
+    if kind == "pair" and members and all(m in names for m in members):
+        return " 和 ".join(names[m] for m in members)
+    return stored
+
+
 class ChatHub:
     """全部会话：默认的生活群、工作群，以及按需建立的私聊。每个会话一个 GroupChat。"""
 
@@ -575,7 +699,10 @@ class ChatHub:
         """取一个会话；私聊（dm:<成员>）第一次打开时建立。不存在时抛 KeyError。"""
         if room in self._rooms:
             return self._rooms[room]
-        if self.rt.repo.chat_room(room) is None and room.startswith(DM_PREFIX):
+        info = self.rt.repo.chat_room(room)
+        if info is not None and info["kind"] in HIDDEN_KINDS:
+            raise KeyError(room)
+        if info is None and room.startswith(DM_PREFIX):
             member = next((m for m in self.everyone() if dm_room(m.id) == room), None)
             if member is None:
                 raise KeyError(room)
@@ -603,9 +730,11 @@ class ChatHub:
         names = {m.id: m.name for m in self.everyone()} | {USER: "我", SYSTEM: "系统"}
         stored = {r["id"]: r for r in self.rt.repo.chat_rooms()}
         out = []
+        member_names = {m.id: m.name for m in self.everyone()}
         for r in stored.values():
-            if r["kind"] != "dm":
-                out.append(r)
+            if r["kind"] != "dm" and r["kind"] not in HIDDEN_KINDS:
+                title = live_title(r["kind"], r["members"], r["title"], member_names)
+                out.append({**r, "title": title})
         for m in self.everyone():
             rid = dm_room(m.id)
             r = stored.get(rid) or {

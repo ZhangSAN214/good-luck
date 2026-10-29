@@ -40,7 +40,7 @@ export const STEP_LABELS = {
   office_review: '复核经理验收',
   office_revise: '按验收意见修改',
 };
-export const MEDIA_LABELS = { image: '图片', speech: '语音', video: '视频' };
+export const MEDIA_LABELS = { image: '图片', speech: '语音', video: '视频', music: '音乐' };
 const JOB_STATE = {
   submitted: ['已提交', ''],
   pending: ['排队中', 'wait'],
@@ -1039,9 +1039,20 @@ export const CARRY_TARGETS = [
   ['office', '交给办公室'],
 ];
 
+// 转成作品：把这一场的成果交给讨论模式，商定生成提示词后生成图片 / 视频 / 语音 / 音乐（走原有的媒体流程）
+export const MAKE_TARGETS = [
+  ['illustration', 'image', '插图', '把上一场的成果画成一张插图：抓住最核心的内容，画面清楚、一眼能看懂；不要在图里写大段文字。'],
+  ['poster', 'image', '海报', '把上一场的成果做成一张海报：一个醒目的标题和最多三条要点，图中的文字要逐字写出，版式简洁。'],
+  ['video', 'video', '短视频', '把上一场的成果做成一段 5 秒左右的短视频：按 2～3 个镜头写分镜，写明画面、动作和需要的声音。'],
+  ['speech', 'speech', '配音朗读', '把上一场的成果改写成一段适合朗读的口播稿（一两分钟能读完，口语化），并写明语气和语速。'],
+  ['music', 'music', '配乐', '为上一场的成果配一段契合主题和情绪的音乐（约 30 秒），写明风格、节奏、乐器和有无人声。'],
+];
+
 function carryBar() {
   const btns = CARRY_TARGETS.map(([k, label]) => `<button class="btn sm" type="button" data-carry="${k}">${label}</button>`).join('');
-  return `<div class="carry-bar" role="group" aria-label="接着做"><span class="hint">接着做（只带这一场的成果摘要）：</span>${btns}</div>`;
+  const make = MAKE_TARGETS.map(([k, kind, label]) => `<button class="btn sm" type="button" data-make="${k}" data-kind="${kind}">${label}</button>`).join('');
+  return `<div class="carry-bar" role="group" aria-label="接着做"><span class="hint">接着做（只带这一场的成果摘要）：</span>${btns}</div>
+<div class="carry-bar make-bar" role="group" aria-label="转成作品"><span class="hint">转成作品（讨论模式商定提示词后生成，提交前显示预估花费）：</span>${make}</div>`;
 }
 
 // --- 圆桌 ------------------------------------------------------------------------
@@ -1418,6 +1429,119 @@ export function usagePanel(sv, budget, rice, slip = null) {
     }
   }
   return h || '<p class="empty">加载中…</p>';
+}
+
+/** 模型图鉴：聚合渠道上的全部模型，按类别、标签筛选（只浏览；不会上桌，也不改配置）。 */
+export function directoryPanel(d, f) {
+  if (!d) return '<p class="empty">加载中…</p>';
+  if (d.available === false) return '<p class="empty">没有配置聚合渠道，无法查询模型列表。</p>';
+  let h = `<h4>模型图鉴 <button type="button" class="btn" id="mdir-refresh"${d.loading ? ' disabled' : ''}>${d.loading ? '查询中…' : '刷新'}</button></h4>`;
+  if (d.error) h += `<p class="hint badp">${esc(d.error)}</p>`;
+  if (!d.fetched_at) return `${h}<p class="empty">${d.loading ? '正在拉取全部模型…' : '还没有查询过。'}</p>`;
+  h += `<p class="hint">共 ${d.total} 个模型，${esc(new Date(d.fetched_at * 1000).toLocaleString())} 查询自 ${esc(d.source)}。图鉴里的模型不会上桌；要加入圆桌，展开「配置片段」复制到 config/models.yaml（默认停用，核对后再启用）。</p>`;
+  h += '<div class="seg mdir-seg" id="mdir-cat">';
+  for (const c of d.categories || []) {
+    if (!c.count) continue;
+    h += `<button type="button" data-c="${esc(c.key)}" aria-pressed="${f.cat === c.key}" title="${esc(c.about)}">${esc(c.label)} ${c.count}</button>`;
+  }
+  h += '</div>';
+  const cat = (d.categories || []).find((c) => c.key === f.cat);
+  if (cat) h += `<p class="mdir-about">${esc(cat.about)}</p>`;
+  h += '<div class="mdir-tools">';
+  h += `<input type="search" id="mdir-q" placeholder="搜索名称、id、简介" value="${esc(f.q)}" aria-label="搜索模型">`;
+  h += '<select id="mdir-sort" aria-label="排序">';
+  for (const [k, label] of [['new', '最新'], ['cheap', '最便宜'], ['context', '上下文最长'], ['mine', '圆桌里的在前']]) {
+    h += `<option value="${k}"${f.sort === k ? ' selected' : ''}>${label}</option>`;
+  }
+  h += '</select></div><div class="mdir-tags" id="mdir-tag">';
+  for (const t of d.tags || []) {
+    if (!t.count) continue;
+    h += `<button type="button" class="pill${f.tag === t.key ? ' on' : ''}" data-g="${esc(t.key)}" title="${esc(t.about)}">${esc(t.label)}</button>`;
+  }
+  h += '</div>';
+  return `${h}<div id="mdir-list">${directoryList(d, f)}</div>`;
+}
+
+const TIER_NAMES = { flagship: '全力档', budget: '节电档' };
+const KIND_TAGS = { image: ['image_gen'], video: ['video_gen'], speech: ['tts'], music: ['music_gen'], transcription: ['stt'] };
+
+function shortPrice(n) {
+  if (n === null || n === undefined) return '—';
+  return `$${Number(n.toPrecision(3))}`;
+}
+
+function priceText(e, fields) {
+  const parts = [];
+  const [pin, pout] = e.price || [];
+  if (pin || pout) parts.push(`${shortPrice(pin)} / ${shortPrice(pout)} 每百万 token`);
+  for (const [k, v] of Object.entries(e.extra_prices || {})) {
+    const meta = fields[k] || { label: k, unit: '' };
+    parts.push(`${meta.label} ${shortPrice(v)}${meta.unit === 'token' ? ' 每百万' : ''}`);
+  }
+  return parts.length ? parts.join(' · ') : '免费';
+}
+
+/** 一段默认停用的 models.yaml 配置，从图鉴数据生成（不写死任何模型或厂商）。 */
+export function directorySnippet(e, source) {
+  const id = e.route.split('/').pop().replace(/[^0-9A-Za-z.]+/g, '-');
+  const vendor = (e.name.includes(':') ? e.name.split(':')[0] : e.author || id).trim();
+  const lines = ['  # 从模型图鉴复制：默认停用，核对价格与接口后再启用', `  - id: ${id}`, `    vendor: ${JSON.stringify(vendor)}`];
+  const tags = [...(KIND_TAGS[e.category] || [])];
+  if (e.tags.includes('vision')) tags.push(e.category === 'image' ? 'image_edit' : 'vision');
+  if (e.tags.includes('long_context')) tags.push('long_context');
+  if (e.category !== 'text') lines.push('    seat: false');
+  lines.push(`    tier: ${e.suggested_tier || 'budget'}`);
+  const [pin, pout] = e.price || [];
+  const perImage = (e.extra_prices || {}).image_output;
+  if (e.category === 'image' && perImage) lines.push(`    media_price: {unit: image, usd: ${perImage}}`);
+  else lines.push(`    price: {input: ${pin || 0}, output: ${pout || 0}}`);
+  if (tags.length) lines.push(`    tags: [${tags.join(', ')}]`);
+  // 画图模型：输出里带文字的走对话接口，只出图的走 /images 接口（以实测为准）
+  if (e.category === 'image') lines.push(`    image_api: ${(e.output_modalities || []).includes('text') ? 'chat' : 'images'}`);
+  lines.push('    enabled: false', '    routes:', `      - {channel: ${source}, model: ${e.route}}`);
+  return lines.join('\n');
+}
+
+export function directoryList(d, f) {
+  const q = (f.q || '').trim().toLowerCase();
+  let rows = (d.entries || []).filter((e) => e.category === f.cat);
+  if (f.tag) rows = rows.filter((e) => e.tags.includes(f.tag));
+  if (q) rows = rows.filter((e) => `${e.name} ${e.route} ${e.description}`.toLowerCase().includes(q));
+  const out = (e) => (e.price && e.price[1] !== null ? e.price[1] : Infinity);
+  const sorters = {
+    new: (a, b) => b.created - a.created,
+    cheap: (a, b) => out(a) - out(b),
+    context: (a, b) => (b.context_length || 0) - (a.context_length || 0),
+    mine: (a, b) => (b.in_roundtable ? 1 : 0) - (a.in_roundtable ? 1 : 0) || b.created - a.created,
+  };
+  rows = [...rows].sort(sorters[f.sort] || sorters.new);
+  if (!rows.length) return '<p class="empty">没有符合条件的模型。</p>';
+  const tagLabel = Object.fromEntries((d.tags || []).map((t) => [t.key, t.label]));
+  const band = Object.fromEntries((d.price_bands || []).map((b) => [b.key, b.label]));
+  let h = `<p class="hint">${rows.length} 个</p><ol class="board mdir">`;
+  for (const e of rows.slice(0, f.limit)) {
+    const mine = e.in_roundtable
+      ? ` <span class="pill okp" title="${esc(e.in_roundtable.model_id)}">${e.in_roundtable.enabled ? '已在圆桌' : '圆桌里已停用'}</span>`
+      : '';
+    const tags = e.tags.map((t) => `<span class="pill">${esc(tagLabel[t] || t)}</span>`).join(' ');
+    const ctx = e.context_length ? ` · 上下文 ${e.context_length >= 1e6 ? `${e.context_length / 1e6}M` : `${Math.round(e.context_length / 1000)}K`}` : '';
+    const extra = [e.price_band ? band[e.price_band] : '', e.suggested_tier ? `价格相当于圆桌${TIER_NAMES[e.suggested_tier] || e.suggested_tier}` : '']
+      .filter(Boolean)
+      .join(' · ');
+    h += `<li data-route="${esc(e.route)}"><div><b>${esc(e.name)}</b>${mine}</div>`;
+    h += `<div class="hint">${esc(e.route)}${ctx}</div>`;
+    h += `<div class="hint">${esc(priceText(e, d.price_fields || {}))}${extra ? ` · ${esc(extra)}` : ''}</div>`;
+    if (tags) h += `<div class="mdir-pills">${tags}</div>`;
+    if (e.description) h += `<p>${esc(e.description)}</p>`;
+    if (!e.in_roundtable) {
+      h += `<details><summary>配置片段</summary><pre>${esc(directorySnippet(e, d.source))}</pre><button type="button" class="btn" data-copy-route="${esc(e.route)}">复制</button></details>`;
+    }
+    h += '</li>';
+  }
+  h += '</ol>';
+  if (rows.length > f.limit) h += `<button type="button" class="btn" id="mdir-more">再显示 ${Math.min(80, rows.length - f.limit)} 个</button>`;
+  h += '<p class="hint">简介是渠道提供的英文原文；中文说明在类别和标签上（鼠标停留可看）。价格以渠道实际收费为准。</p>';
+  return h;
 }
 
 /** 插件榜：自我学习革新调研过的插件 / 项目，按对圆桌的价值排序（只读，不安装任何插件）。 */
@@ -1836,7 +1960,7 @@ export function estimateHTML(est, { workflow, anonymous, plans, customLabel }) {
 // --- 媒体面板 ----------------------------------------------------------------------------
 
 export function mediaPanel(sv, prefix) {
-  if (!sv) return '<p class="empty">提交题目时可以选择输出图片、语音或视频；协同模式由统筹决定哪些子任务要生成媒体。</p>';
+  if (!sv) return '<p class="empty">提交题目时可以选择输出图片、语音、视频或音乐；协同模式由统筹决定哪些子任务要生成媒体。</p>';
   const names = new Names(sv, prefix);
   const jobs = sv.media || [];
   const total = jobs.reduce((a, j) => a + (j.cost_usd || 0), 0);
@@ -1849,7 +1973,7 @@ export function mediaPanel(sv, prefix) {
     const pill = { ok: 'okp', wait: 'wait', bad: 'badp' }[sc] || '';
     const who = j.code ? names.member(j.code) : '统筹';
     const model = j.model_id ? `<div class="hint">${esc(j.model_id)}${j.channel ? ` · ${esc(j.channel)}` : ''}</div>` : '';
-    h += `<tr><td>第 ${j.round} 轮${j.attempt > 1 ? `<div class="hint">第 ${j.attempt} 次尝试</div>` : ''}</td><td>${esc(MEDIA_LABELS[j.kind] || j.kind)} · ${esc(who)}${j.subtask ? ` · ${esc(j.subtask)}` : ''}${j.reference_count ? `<div class="hint">参考图 ${esc(j.reference_count)} 张</div>` : ''}${j.warning ? `<div class="hint bad">${esc(j.warning)}</div>` : ''}${model}<details class="more"><summary>提示词</summary><div>${esc(j.prompt)}</div></details></td><td><span class="pill ${pill}">${esc(st)}</span></td><td class="num">${money(j.cost_usd)}</td></tr>`;
+    h += `<tr><td>第 ${j.round} 轮${j.attempt > 1 ? `<div class="hint">第 ${j.attempt} 次尝试</div>` : ''}</td><td>${esc(MEDIA_LABELS[j.kind] || j.kind)} · ${esc(who)}${j.subtask ? ` · ${esc(j.subtask)}` : ''}${j.reference_count ? `<div class="hint">参考图 ${esc(j.reference_count)} 张</div>` : ''}${j.warning ? `<div class="hint bad">${esc(j.warning)}</div>` : ''}${model}<details class="more"><summary>提示词</summary><div>${esc(j.prompt)}</div></details>${j.lyrics ? `<details class="more"><summary>歌词 / 说明</summary><div>${esc(j.lyrics)}</div></details>` : ''}</td><td><span class="pill ${pill}">${esc(st)}</span></td><td class="num">${money(j.cost_usd)}</td></tr>`;
   }
   h += '</tbody></table><h4>成果</h4><div class="filebar" style="flex-direction:column;align-items:stretch">';
   for (const j of jobs) {

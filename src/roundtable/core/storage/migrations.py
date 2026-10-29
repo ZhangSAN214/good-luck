@@ -642,4 +642,98 @@ CREATE TABLE member_events (
 CREATE INDEX idx_member_events_at ON member_events(at);
 """,
     ),
+    (
+        25,
+        "记忆与联想：记忆件、挂着的事、联想网、翻日记、训练数据",
+        """
+-- 记忆与联想（docs/MEMBER_ENGINE.md「P2 记忆与联想」）：只存本机，只用于聊天、朋友圈、生活。
+-- 记忆件：一件事一行。text 是原文（写入后程序不改）；tone 是心情改写的回忆语气（空 = 用原文）；
+-- importance 1～3 和 tone 的每次改动都留在 memory_revisions。
+-- kind：fact 事实（不变淡）/ episode 经历。
+-- domain：学术 / 日常 / 工作 / 娱乐 / 社交 / 身心。hits：相似的事合并到这一件的次数。
+-- source：night 夜间整理 / user 用户写的 / work 工作经历 / import 旧记忆导入；
+-- source_key：去重键（如同一场工作只记一次），可空。superseded_by：被哪一件更新了（旧件保留）。
+CREATE TABLE memory_items (
+    id              INTEGER PRIMARY KEY,
+    member          TEXT NOT NULL,
+    text            TEXT NOT NULL,
+    kind            TEXT NOT NULL DEFAULT 'episode',
+    domain          TEXT NOT NULL DEFAULT '日常',
+    importance      INTEGER NOT NULL DEFAULT 1,
+    tone            TEXT NOT NULL DEFAULT '',
+    day             TEXT NOT NULL,
+    source          TEXT NOT NULL DEFAULT 'night',
+    source_key      TEXT,
+    hits            INTEGER NOT NULL DEFAULT 1,
+    superseded_by   INTEGER,
+    first_at        TEXT NOT NULL,
+    last_at         TEXT NOT NULL,
+    recalled_at     TEXT,
+    recall_note     TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX idx_memory_items_member ON memory_items(member, day);
+CREATE INDEX idx_memory_items_kind ON memory_items(member, kind, importance);
+CREATE UNIQUE INDEX idx_memory_items_key ON memory_items(member, source_key)
+    WHERE source_key IS NOT NULL;
+-- 全文索引（三字片段），rowid = memory_items.id；召回只查候选，记忆再多每次也只看几百件
+CREATE VIRTUAL TABLE memory_items_fts USING fts5(text, member UNINDEXED, tokenize = 'trigram');
+-- 改动留旧版：field 是 importance / tone / text（只有用户能改 text），old / new 是改前改后
+CREATE TABLE memory_revisions (
+    id          INTEGER PRIMARY KEY,
+    item_id     INTEGER NOT NULL,
+    at          TEXT NOT NULL,
+    field       TEXT NOT NULL,
+    old         TEXT NOT NULL,
+    new         TEXT NOT NULL,
+    reason      TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX idx_memory_revisions_item ON memory_revisions(item_id);
+-- 脑子里挂着的事（短期，最多 5 件开着）：open 挂着 / done 了结 / dropped 放下
+CREATE TABLE memory_hanging (
+    id          INTEGER PRIMARY KEY,
+    member      TEXT NOT NULL,
+    text        TEXT NOT NULL,
+    domain      TEXT NOT NULL DEFAULT '日常',
+    status      TEXT NOT NULL DEFAULT 'open',
+    since       TEXT NOT NULL,
+    updated_at  TEXT NOT NULL
+);
+CREATE INDEX idx_memory_hanging ON memory_hanging(member, status);
+-- 联想网：两件记忆之间的连接强度（a < b），一起出现 / 一起被想起就加强（赫布），每晚衰减
+CREATE TABLE memory_links (
+    member      TEXT NOT NULL,
+    a           INTEGER NOT NULL,
+    b           INTEGER NOT NULL,
+    weight      REAL NOT NULL,
+    updated_at  TEXT NOT NULL,
+    PRIMARY KEY (member, a, b)
+);
+CREATE INDEX idx_memory_links_b ON memory_links(member, b);
+-- 由全部经历（不只最近）算出的习惯与常做的事，每晚由程序重算，随身卡用
+CREATE TABLE memory_digest (
+    member      TEXT PRIMARY KEY,
+    text        TEXT NOT NULL,
+    stats       TEXT NOT NULL DEFAULT '{}',
+    updated_at  TEXT NOT NULL
+);
+-- 翻日记：每次翻的记录（按天限次数）
+CREATE TABLE memory_diary_reads (
+    id      INTEGER PRIMARY KEY,
+    member  TEXT NOT NULL,
+    at      TEXT NOT NULL,
+    query   TEXT NOT NULL,
+    found   INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX idx_memory_diary_reads ON memory_diary_reads(member, at);
+-- 训练数据：召回、联想、夜间整理的输入输出（只存本机、不过期，以后训练本地小模型用；可一键清空）
+CREATE TABLE memory_train (
+    id      INTEGER PRIMARY KEY,
+    at      TEXT NOT NULL,
+    member  TEXT NOT NULL,
+    kind    TEXT NOT NULL,
+    data    TEXT NOT NULL DEFAULT '{}'
+);
+CREATE INDEX idx_memory_train ON memory_train(member, at);
+""",
+    ),
 ]

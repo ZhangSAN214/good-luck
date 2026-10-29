@@ -59,7 +59,7 @@ def test_not_anonymous_shows_avatars(serve, page, tmp_path):
     img = page.locator("#chat .msg .av img").first
     assert img.get_attribute("src").startswith(ART_URL)
     assert img.get_attribute("loading") == "lazy"
-    assert img.get_attribute("alt").startswith(("小一", "昵称"))
+    assert img.get_attribute("alt").startswith(("成员", "昵称"))
     # 图片真的加载出来了（1×1 png）
     page.wait_for_function(
         "() => [...document.querySelectorAll('#stage .av img')]"

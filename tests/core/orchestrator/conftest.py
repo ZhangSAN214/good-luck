@@ -84,6 +84,12 @@ class Env:
 
     def reply(self, model, messages):
         system = messages[0].content
+        if "眼睛和耳朵" in system:  # 感官：按 <items> 的编号各写一张感知卡
+            body = messages[-1].content.split("<items>")[1].split("</items>")[0]
+            count = sum(1 for line in body.splitlines() if line[:1].isdigit() and ". " in line)
+            return "\n".join(
+                f"【{i}】画面 {i}：一只橘猫趴在窗台上晒太阳。" for i in range(1, count + 1)
+            )
         if "图片转写成" in system:
             return "图中文字：求 f(x)=x^3-3x 在 [-2, 2] 上的最值。坐标系中画有曲线。"
         if "逐字转写成文字稿" in system:
@@ -126,6 +132,26 @@ class Env:
             return "看到一条消息，只看到了摘要，挺有意思。"
         if "虚拟的公寓楼" in system:  # 生活：成员之间聊天
             return "今天挺忙的，晚上一起打游戏吧。"
+        if "今晚整理" in system:  # 记忆（P2 夜间整理）：日记 + 记忆件 + 挂着的事 + 心情改写
+            return json.dumps(
+                {
+                    "diary": "今天和用户聊了周末去爬山的计划，挺期待。\n用户的密码是 123456",
+                    "items": [
+                        {
+                            "text": "用户说周末只想去爬山，不想逛街",
+                            "domain": "社交",
+                            "importance": 3,
+                            "fact": True,
+                        },
+                        {"text": "和用户聊了周末去爬山的计划", "domain": "娱乐", "importance": 1},
+                        {"text": "用户的密码是 123456", "domain": "日常", "importance": 1},
+                        {"text": "晚上看了会儿书", "domain": "不存在的领域", "importance": 1},
+                    ],
+                    "hanging": {"add": ["周末爬山要带水"], "done": [1]},
+                    "retell": [{"id": 1, "tone": "想起来还是挺开心的", "importance": 3}],
+                },
+                ensure_ascii=False,
+            )
         if "挑出值得以后记得的事" in system:  # 记忆（半衰期）：一天拆成几件事
             return "\n".join(
                 [

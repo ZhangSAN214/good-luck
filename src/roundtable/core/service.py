@@ -11,10 +11,13 @@ import asyncio
 import contextlib
 import json
 import logging
+import re
 import secrets
+import shutil
+import subprocess
 from collections.abc import AsyncIterator, Sequence
 from dataclasses import asdict
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, tzinfo
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
@@ -29,6 +32,8 @@ from roundtable.core.budget.guard import day_window, month_window
 from roundtable.core.carry import carry_question, compact
 from roundtable.core.changelog import changelog_view, load_changelog
 from roundtable.core.chat import ROOM, WORK, ChatHub, chat_budget
+from roundtable.core.chat_actions import card_from_url, is_bare_url
+from roundtable.core.chat_actions import card_text as chat_card_text
 from roundtable.core.chat_media import MAX_BYTES as CHAT_MEDIA_MAX
 from roundtable.core.chat_media import ChatMediaStore, MediaError, clean_items, placeholder
 from roundtable.core.chat_work import WORK_EVENTS, post_handoff, post_office_event
@@ -74,6 +79,7 @@ from roundtable.core.export import Style as ExportStyle
 from roundtable.core.export import deliverable
 from roundtable.core.export import filename as export_filename
 from roundtable.core.export import options as export_choices
+from roundtable.core.hometz import home_zone
 from roundtable.core.ideaboard import Board
 from roundtable.core.lan import COOKIE as LAN_COOKIE
 from roundtable.core.lan import LanAccess, is_local, is_remote, qr_svg
@@ -89,6 +95,8 @@ from roundtable.core.member.card import (
     source_title,
     without_locked,
 )
+from roundtable.core.member.memory import DiaryTool
+from roundtable.core.member.memory.store import query_terms
 from roundtable.core.members_art import MEMBERS_FILE, load_members, mime_of, resolve_file
 from roundtable.core.memory import LAYERS, MemoryKeeper, clean_memory
 from roundtable.core.moments import SEEN_KEY as MOMENTS_SEEN
@@ -98,6 +106,7 @@ from roundtable.core.office import building, payslip, roster
 from roundtable.core.office import collect as collect_performance
 from roundtable.core.office import reset as reset_performance
 from roundtable.core.orchestrator import Orchestrator, OrchestratorError, RunResult
+from roundtable.core.perception import Perceiver, PerceptionCache, SenseItem
 from roundtable.core.persona import card_text, is_empty, persona_of, set_persona
 from roundtable.core.plugin_board import board_view, load_board
 from roundtable.core.preview import render_preview
@@ -121,13 +130,15 @@ from roundtable.core.routing import (
     detect_multi_media,
     preview_estimates,
 )
-from roundtable.core.runtime import PROJECT_ROOT, Runtime, data_dir
+from roundtable.core.runtime import PROJECT_ROOT, WANDER_DIR, Runtime, data_dir
+from roundtable.core.screen import AdbSource, PcSource, ScreenWatch
 from roundtable.core.search import SearchUnavailable
 from roundtable.core.standee import load_standee
 from roundtable.core.standee import standee_file as read_standee_file
 from roundtable.core.steps import Event, restore_state
 from roundtable.core.steps.office import group_estimates
 from roundtable.core.storage import NotFound
+from roundtable.core.wander import Wanderer
 
 log = logging.getLogger(__name__)
 
@@ -168,6 +179,10 @@ class ServiceError(ValueError):
         self.status = status
 
 
+# 转发时带过去的附加信息（图片、卡片、表情包说明文字）
+FORWARD_KEYS = ("media", "caption", "auto_text", "card", "perception")
+
+
 class RoundtableService:
     def __init__(self, runtime: Runtime) -> None:
         self.rt = runtime
@@ -178,11 +193,15 @@ class RoundtableService:
         self.chats = ChatHub(runtime, names=self._art_names)
         self.memory = MemoryKeeper(runtime, self.chats.everyone)
         self.life = LifeEngine(runtime, self.chats, self.memory)
+        self.perceiver = Perceiver(runtime, PerceptionCache(runtime.perception_dir))
         self.engine = MemberEngine(
             runtime,
             lambda: [m.id for m in self.chats.everyone()],
             lambda: {m.id: m.name for m in self.chats.everyone()},
         )
+        state = getattr(self.engine, "state", None)  # 状态插件（心情）装上后，夜间整理按心情改语气
+        if state is not None:
+            self.memory.mood_of = state.mood_of
         self.mail = MailBox(runtime.repo)
         self.mail_ai = MailAI(runtime, self.mail)
         if runtime.mail_source is not None:
@@ -194,6 +213,24 @@ class RoundtableService:
                 show_window=self.mail.show_window,
             )
         self._nowplaying: NowPlaying | None = None
+        watch_rules = runtime.config.roundtable.chat.watch
+        self.watch = ScreenWatch(
+            runtime,
+            self.chats.everyone,
+            runtime.screen_sources
+            if runtime.screen_sources is not None
+            else {"pc": PcSource(), "android": AdbSource(watch_rules.adb)},
+            publish=self.engine.bus.publish,
+        )
+        base = runtime.mail_dir.parent if runtime.mail_dir is not None else data_dir()
+        self.wander = Wanderer(
+            runtime,
+            self.chats,
+            self.life.allowed,
+            profiles=base / WANDER_DIR,
+            publish=self.engine.bus.publish,
+        )
+        self.engine.heartbeat.register("wander", self.wander.want)
         self._chat_tasks: set[asyncio.Task[Any]] = set()
         self._life_task: asyncio.Task[None] | None = None
         self._evolution_task: asyncio.Task[None] | None = None
@@ -241,13 +278,15 @@ class RoundtableService:
 
     async def life_tick(self) -> dict[str, int]:
         """推进一次生活（开机后第一次会补上关机期间的时间），再推进一次成员引擎（不花钱）。"""
-        now = self.rt.budget.now().astimezone()
+        now = self._local_now()
         out = await self.life.tick(now)
         with contextlib.suppress(Exception):  # 引擎出错不影响生活
             await self.engine.tick(now)
         return out
 
     async def aclose(self) -> None:
+        self.watch.stop("服务关闭，投屏停了")
+        await self.wander.aclose()
         tasks = [*self._tasks.values(), *self._chat_tasks]
         tasks += [t for t in (self._life_task, self._evolution_task) if t is not None]
         for task in tasks:
@@ -440,6 +479,96 @@ class RoundtableService:
         if not ok:
             raise ServiceError("播放器没有响应（可能没打开，或不支持这个操作）", 409)
         return self._np().view(player)
+
+    # ---------- 投屏陪伴（docs/WATCH.md） ----------
+
+    def watch_status(self, devices: bool = False) -> dict[str, Any]:
+        """一起看的状态；devices=True 时另列可投的来源（会调 adb / 系统接口，较慢）。"""
+        out = self.watch.status()
+        if devices:
+            out["devices"] = self.watch.devices()
+            out["scrcpy"] = shutil.which(self.rt.config.roundtable.chat.watch.scrcpy) is not None
+        return out
+
+    async def watch_start(self, source: str, watchers: list[str], consent: bool) -> dict[str, Any]:
+        devices = await asyncio.to_thread(self.watch.devices)
+        infos = {s["id"]: s for d in devices.values() for s in d["sources"]}
+        if source not in infos:
+            raise ServiceError("找不到这个画面来源（刷新一下列表）")
+        try:
+            self.watch.start(source, infos[source]["title"], watchers, consent=consent)
+        except ValueError as exc:
+            raise ServiceError(str(exc)) from None
+        task = asyncio.get_running_loop().create_task(self.watch.run())
+        self.watch.attach(task)
+        self._chat_tasks.add(task)
+        task.add_done_callback(self._chat_tasks.discard)
+        return self.watch.status()
+
+    def watch_stop(self) -> dict[str, Any]:
+        self.watch.stop()
+        return self.watch.status()
+
+    def watch_quiet(self, quiet: bool) -> dict[str, Any]:
+        self.watch.set_quiet(quiet)
+        return self.watch.status()
+
+    def watch_frame(self) -> bytes:
+        data = self.watch.preview()
+        if data is None:
+            raise ServiceError("现在没有画面", 404)
+        return data
+
+    def watch_messages(self, after: int = 0) -> dict[str, Any]:
+        return {"messages": self.watch.messages(after), "typing": list(self.watch.typing)}
+
+    async def watch_say(self, text: str) -> dict[str, Any]:
+        try:
+            msg, speakers = self.watch.post(text)
+        except ValueError as exc:
+            raise ServiceError(str(exc)) from None
+        if speakers:
+            self._background(self.watch.replies(msg["id"], speakers))
+        return {"id": msg["id"], "speakers": [m.name for m in speakers]}
+
+    def watch_scrcpy(self, source: str) -> dict[str, Any]:
+        """用 scrcpy 打开安卓设备的流畅投屏窗口（用户自己的工具，圆桌不读它的画面）。"""
+        exe = shutil.which(self.rt.config.roundtable.chat.watch.scrcpy)
+        if exe is None:
+            raise ServiceError("没有找到 scrcpy（可选：装好并加入 PATH 后才能开流畅窗口）")
+        serial = source.removeprefix("android:")
+        if not source.startswith("android:") or not re.fullmatch(r"[A-Za-z0-9._:\-]{1,64}", serial):
+            raise ServiceError("只有安卓设备能开 scrcpy 窗口")
+        flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        try:
+            subprocess.Popen([exe, "-s", serial], creationflags=flags)  # noqa: S603
+        except OSError:
+            raise ServiceError("scrcpy 启动失败") from None
+        return {"started": True}
+
+    # --- 成员自己上网 ---------------------------------------------------------------------
+
+    def wander_status(self) -> dict[str, Any]:
+        return self.wander.status()
+
+    def wander_start(self, member: str, site: str | None = None) -> dict[str, Any]:
+        try:
+            self.wander.start(member, site or None)
+        except ValueError as e:
+            raise ServiceError(str(e)) from None
+        return self.wander.status()
+
+    def wander_stop(self) -> dict[str, Any]:
+        self.wander.stop()
+        return self.wander.status()
+
+    def wander_log(self, member: str, after: int = 0) -> list[dict[str, Any]]:
+        if member not in {m.id for m in self.chats.everyone()}:
+            raise ServiceError("没有这位成员")
+        return self.wander.log(member, after)
+
+    def wander_frame(self) -> bytes | None:
+        return self.wander.frame()
 
     def _covers_dir(self) -> Path | None:
         sf = self.rt.standee_file
@@ -703,6 +832,19 @@ class RoundtableService:
     def mail_view(self) -> dict[str, Any]:
         return self._mail_view()
 
+    # --- 主时区 ----------------------------------------------------------------------
+
+    def home_tz(self) -> dict[str, Any]:
+        """整个圆桌按哪个时区过日子（公寓、群聊、成员作息、日记）；``local`` = 跟随电脑。"""
+        return home_zone(self.rt).view(self.rt.budget.now())
+
+    def set_home_tz(self, zone: str) -> dict[str, Any]:
+        try:
+            home_zone(self.rt).set(zone)
+        except ValueError as exc:
+            raise ServiceError(str(exc)) from None
+        return self.home_tz()
+
     def mail_settings(self, *, ai_ok: bool | None = None, **changes: Any) -> dict[str, Any]:
         try:
             self.mail.set_settings(**{k: v for k, v in changes.items() if v is not None})
@@ -793,6 +935,23 @@ class RoundtableService:
             raise ServiceError("没有可用的模型列表来源", 404)
         try:
             return await self.rt.catalog.refresh()
+        except LookupError as e:
+            raise ServiceError(str(e), 404) from None
+        except Exception as e:  # noqa: BLE001 - 网络错误只报类型，不带外部文本
+            raise ServiceError(f"查询模型列表失败（{type(e).__name__}）", 502) from None
+
+    def model_directory(self) -> dict[str, Any]:
+        """模型图鉴的最近结果：聚合渠道上的全部模型，分类、打标签、标出已在圆桌里的。只浏览。"""
+        if self.rt.directory is None:
+            return {"fetched_at": None, "stale": False, "available": False}
+        return self.rt.directory.view()
+
+    async def refresh_model_directory(self) -> dict[str, Any]:
+        """重新拉取聚合渠道的全部模型（公开列表，不需要 key）。"""
+        if self.rt.directory is None:
+            raise ServiceError("没有可用的模型列表来源", 404)
+        try:
+            return await self.rt.directory.refresh()
         except LookupError as e:
             raise ServiceError(str(e), 404) from None
         except Exception as e:  # noqa: BLE001 - 网络错误只报类型，不带外部文本
@@ -982,6 +1141,10 @@ class RoundtableService:
         text, meta = self._media_meta(text, media)
         if not text:
             raise ServiceError("消息不能为空")
+        if meta is None and is_bare_url(text):  # 只发了一个链接：显示成卡片
+            hosts = self.rt.config.roundtable.chat.actions.video_hosts
+            card = card_from_url(text, hosts, self.rt.repo.web_item_by_url(text))
+            text, meta = chat_card_text(card), {"card": card}
         try:
             msg, speakers = chat.post(text, meta, quote)
         except ValueError as exc:
@@ -989,8 +1152,79 @@ class RoundtableService:
         self.rt.repo.mark_chat_read(chat.room, msg["id"])
         with contextlib.suppress(Exception):  # 状态出错不影响聊天
             self.engine.observe(self.rt.budget.now())  # 被 @、被批评的反射在回应前算进状态
-        self._chat_replies(chat, msg["id"], speakers)
-        return {"id": msg["id"], "speakers": [m.name for m in speakers]}
+        mode = self.perceiver.mode_for(text) if meta else None
+        if mode:
+            self._background(self._look_and_reply(chat, msg["id"], speakers, mode, chat.round))
+        else:
+            self._chat_replies(chat, msg["id"], speakers)
+        return {"id": msg["id"], "speakers": [m.name for m in speakers], "look": mode}
+
+    async def _look_and_reply(
+        self, chat: Any, message_id: int, speakers: list[Any], mode: str, round_no: int
+    ) -> None:
+        """消息带图片 / 视频 / 语音时，先由感官整理成感知卡（成员读卡），再依次回应。"""
+        with contextlib.suppress(Exception):  # 没看成也照常回应，成员只看到占位
+            await self._perceive_message(chat.room, message_id, mode)
+        if speakers:  # 用户在感官看的时候又发了消息或撤回：按策略作废这一轮
+            await chat.replies(message_id, speakers, round_no)
+
+    def _sense_items(self, meta: dict[str, Any]) -> list[SenseItem]:
+        items = []
+        for it in meta.get("media") or []:
+            found = self.chat_media.load(it["id"])
+            if found is not None:
+                items.append(SenseItem(it["id"], it["kind"], found[0], found[1]))
+        return items
+
+    async def _perceive_message(self, room: str, message_id: int, mode: str) -> list[dict]:
+        row = self.rt.repo.chat_message(message_id)
+        if row is None or row["room"] != room:
+            return []
+        meta = dict(row["meta"] or {})
+        items = self._sense_items(meta)
+        if not items:
+            return []
+        chat = self._chat_room(room)
+        chat.typing.append("感官")
+        chat.on_change()
+        try:
+            cards = await self.perceiver.perceive(room, items, mode)
+        finally:
+            chat.typing.remove("感官")
+            chat.on_change()
+        if cards:
+            meta["perception"] = [
+                {"id": c.id, "kind": c.kind, "mode": c.mode, "text": c.text} for c in cards
+            ]
+            self.rt.repo.set_chat_message_meta(message_id, meta)
+            chat.on_change()
+        return meta.get("perception", [])
+
+    async def chat_look(self, room: str, message_id: int) -> dict[str, Any]:
+        """「细看」：把一条带图片 / 视频 / 语音的消息按精细模式重新整理，再请一位成员看过后回应。
+
+        转写稿和缓存复用；已经是精细的直接用缓存（不花钱）。
+        """
+        chat = self._chat_room(room)
+        row = self.rt.repo.chat_message(message_id)
+        if row is None or row["room"] != chat.room or row["author"] != "user":
+            raise ServiceError("消息不存在", 404)
+        if not (row["meta"] or {}).get("media"):
+            raise ServiceError("这条消息没有图片、视频或语音")
+        if not self.rt.config.roundtable.perception.enabled:
+            raise ServiceError("感官已关闭（perception.enabled）")
+        cards = await self._perceive_message(chat.room, message_id, "fine")
+        if not any(c["mode"] == "fine" for c in cards):
+            raise ServiceError("这次没能细看（没有可用的看图模型，或本月感官额度已用完）")
+        replied = [
+            r["author"]
+            for r in self.rt.repo.chat_messages(chat.room, after=message_id, limit=50)
+            if r["reply_to"] == message_id and r["author"] not in ("user", "system")
+        ]
+        online = [m for m in chat.members() if m.available]
+        speakers = [m for m in online if m.id in replied][:1] or chat.pick(row["text"])[:1]
+        self._chat_replies(chat, message_id, speakers)
+        return {"id": message_id, "speakers": [m.name for m in speakers]}
 
     def _chat_replies(self, chat: Any, reply_to: int, speakers: list[Any]) -> None:
         if not speakers:
@@ -1023,6 +1257,24 @@ class RoundtableService:
             chat.round += 1  # 拍一拍也算新的一轮：上一轮还没发出的按策略作废
         self._chat_replies(chat, msg["id"], speakers)
         return {"id": msg["id"], "text": msg["text"], "speakers": [m.name for m in speakers]}
+
+    async def chat_forward(self, message_id: int, room: str) -> dict[str, Any]:
+        """把一条消息（文字、图片、表情包、卡片）原样转发到另一个会话，以你的身份发出；
+        那边的成员照常回应。"""
+        row = self.rt.repo.chat_message(message_id)
+        if row is None or row["author"] == "system" or (row["meta"] or {}).get("recalled"):
+            raise ServiceError("这条消息不能转发")
+        src = self._chat_room(row["room"])
+        chat = self._chat_room(room)
+        if chat.kind == "pair":
+            raise ServiceError("这是成员之间的私聊，你只能看")
+        meta = {k: v for k, v in (row["meta"] or {}).items() if k in FORWARD_KEYS}
+        names = {m.id: m.name for m in src.everyone()} | {"user": "我"}
+        meta["forwarded"] = {"from": names.get(row["author"], row["author"]), "room": src.title}
+        msg, speakers = chat.post(row["text"], meta)
+        self.rt.repo.mark_chat_read(chat.room, msg["id"])
+        self._chat_replies(chat, msg["id"], speakers)
+        return {"id": msg["id"], "speakers": [m.name for m in speakers]}
 
     def chat_recall(self, message_id: int, room: str = ROOM) -> dict[str, Any]:
         """撤回你自己发的一条消息（发出后几分钟内）。"""
@@ -1093,28 +1345,100 @@ class RoundtableService:
         return clean
 
     def chat_add_memory(self, member: str, text: str) -> dict[str, Any]:
-        """用户替成员记一条（随手记，source = user）。"""
+        """用户替成员记一条（随手记，source = user）；也记成一件事实（不变淡）。"""
         self._chat_member(member)
-        return self.rt.repo.add_memory(member, "note", self._memory_text(text), source="user")
+        row = self.rt.repo.add_memory(member, "note", self._memory_text(text), source="user")
+        self.memory.store.write(
+            member,
+            row["text"],
+            day=self._local_now().date(),
+            fact=True,
+            importance=2,
+            source="user",
+            source_key=f"note:{row['id']}",
+        )
+        return row
 
     def chat_update_memory(self, memory_id: int, text: str) -> dict[str, Any]:
-        if self.rt.repo.memory(memory_id) is None:
+        old = self.rt.repo.memory(memory_id)
+        if old is None:
             raise ServiceError("没有这条记忆", 404)
-        return self.rt.repo.update_memory(memory_id, self._memory_text(text)) or {}
+        row = self.rt.repo.update_memory(memory_id, self._memory_text(text)) or {}
+        item = self.rt.repo.memory_item_by_key(old["member"], f"note:{memory_id}")
+        if item is not None and row:
+            self.memory.store.user_edit(item["id"], row["text"])
+        return row
 
     def chat_delete_memory(self, memory_id: int) -> dict[str, Any]:
-        if not self.rt.repo.delete_memory(memory_id):
+        old = self.rt.repo.memory(memory_id)
+        if old is None or not self.rt.repo.delete_memory(memory_id):
             raise ServiceError("没有这条记忆", 404)
+        item = self.rt.repo.memory_item_by_key(old["member"], f"note:{memory_id}")
+        if item is not None:
+            self.rt.repo.delete_memory_item(item["id"])
         return {"deleted": 1}
 
     def chat_clear_memories(self, member: str | None = None) -> dict[str, Any]:
+        """一键清空：日记和分层记忆，加上记忆件、挂着的事、联想网、习惯、翻日记记录和训练数据。"""
         if member is not None:
             self._chat_member(member)
-        return {"deleted": self.rt.repo.clear_memories(member)}
+        n = self.rt.repo.clear_memories(member)
+        return {"deleted": n, "cleared": self.rt.repo.clear_memory_p2(member)}
+
+    # --- 记忆与联想（P2）：记忆件、挂着的事、习惯、翻日记 ----------------------------
+
+    def chat_memory_items(
+        self, member: str, q: str | None = None, limit: int = 50
+    ) -> dict[str, Any]:
+        """一位成员的记忆件（q 为空时最近的在前，否则按全文索引找）、挂着的事、习惯、统计。"""
+        self._chat_member(member)
+        repo = self.rt.repo
+        limit = min(max(limit, 1), 500)
+        if q:
+            ids = repo.search_memory_items(member, query_terms(q), limit)
+            items = sorted(repo.memory_items_by_ids(ids), key=lambda r: r["last_at"], reverse=True)
+        else:
+            items = repo.memory_items(member, current=False, limit=limit)
+        digest = repo.memory_digest(member)
+        return {
+            "items": items,
+            "hanging": repo.memory_hanging(member),
+            "habits": digest["text"] if digest else "",
+            "count": repo.count_memory_items(member),
+            "links": repo.count_memory_links(member),
+            "diary_reads_left": DiaryTool(self.rt).remaining(member),
+            "domains": list(self.rt.config.roundtable.chat.memory.domains),
+        }
+
+    def chat_memory_item_history(self, item_id: int) -> dict[str, Any]:
+        item = self.rt.repo.memory_item(item_id)
+        if item is None:
+            raise ServiceError("没有这件记忆", 404)
+        return {"item": item, "revisions": self.rt.repo.memory_revisions(item_id)}
+
+    def chat_update_memory_item(self, item_id: int, text: str) -> dict[str, Any]:
+        if self.rt.repo.memory_item(item_id) is None:
+            raise ServiceError("没有这件记忆", 404)
+        return self.memory.store.user_edit(item_id, self._memory_text(text)) or {}
+
+    def chat_delete_memory_item(self, item_id: int) -> dict[str, Any]:
+        if not self.rt.repo.delete_memory_item(item_id):
+            raise ServiceError("没有这件记忆", 404)
+        return {"deleted": 1}
+
+    def chat_drop_hanging(self, hanging_id: int) -> dict[str, Any]:
+        if not self.rt.repo.close_memory_hanging(hanging_id, "dropped"):
+            raise ServiceError("没有这件挂着的事", 404)
+        return {"dropped": 1}
+
+    def chat_read_diary(self, member: str, q: str) -> dict[str, Any]:
+        """你在网页上翻成员的日记（不占成员每天翻日记的次数）。"""
+        self._chat_member(member)
+        return {"found": DiaryTool(self.rt).find(member, q)}
 
     async def chat_tidy_memories(self) -> dict[str, Any]:
         """马上整理一次记忆（到昨天为止还没整理的日子）。"""
-        now = self.rt.budget.now().astimezone()
+        now = self._local_now()
         return {"written": await self.memory.catch_up(now)}
 
     # --- 朋友圈 --------------------------------------------------------------------
@@ -1191,10 +1515,38 @@ class RoundtableService:
         if len(text) > MAX_MOMENT_CHARS:
             raise ServiceError(f"内容太长（最多 {MAX_MOMENT_CHARS} 字）")
         text, meta = self._media_meta(text, media)
+        if meta is None and is_bare_url(text):  # 只发了一个链接：显示成转发卡片
+            hosts = self.rt.config.roundtable.chat.actions.video_hosts
+            card = card_from_url(text, hosts, self.rt.repo.web_item_by_url(text))
+            text, meta = chat_card_text(card), {"card": card}
         row = self.rt.repo.add_moment("user", self._moment_text(text), meta=meta)
+        mode = self.perceiver.mode_for(text) if meta else None
+        if self.rt.config.roundtable.chat.moments.enabled or mode:
+            self._background(self._look_and_comment(row["id"], mode))
+        return {"id": row["id"], "look": mode}
+
+    async def _look_and_comment(self, moment_id: int, mode: str | None) -> None:
+        """动态带图片 / 视频 / 语音时，先由感官整理成感知卡，再请成员评论。"""
+        if mode is not None:
+            with contextlib.suppress(Exception):  # 没看成也照常评论，成员只看到占位
+                await self._perceive_moment(moment_id, mode)
         if self.rt.config.roundtable.chat.moments.enabled:
-            self._background(self.life.moments.react_to_user_post(row["id"]))
-        return {"id": row["id"]}
+            await self.life.moments.react_to_user_post(moment_id)
+
+    async def _perceive_moment(self, moment_id: int, mode: str) -> None:
+        row = self.rt.repo.moment(moment_id)
+        if row is None:
+            return
+        meta = dict(row["meta"] or {})
+        items = self._sense_items(meta)
+        if not items:
+            return
+        cards = await self.perceiver.perceive(ROOM, items, mode)
+        if cards:
+            meta["perception"] = [
+                {"id": c.id, "kind": c.kind, "mode": c.mode, "text": c.text} for c in cards
+            ]
+            self.rt.repo.set_moment_meta(moment_id, meta)
 
     def moments_like(self, moment_id: int) -> dict[str, Any]:
         """用户点赞 / 取消点赞。"""
@@ -1328,7 +1680,7 @@ class RoundtableService:
         if cut:
             text += "\n\n（后面还有内容，超过资料字数上限没有保存）"
         title = " ".join((title or "").split())[:200] or clipper.site_of(url)
-        saved_at = self.rt.budget.now().astimezone().strftime("%Y-%m-%d %H:%M")
+        saved_at = self._local_now().strftime("%Y-%m-%d %H:%M")
         body = clipper.clip_markdown(title, url, text, saved_at, " ".join(note.split())[:300])
         key = self.rt.files.save(body.encode("utf-8"), "md")
         clip = {
@@ -1570,13 +1922,17 @@ class RoundtableService:
 
     async def chat_refresh_feeds(self) -> dict[str, Any]:
         """马上抓一遍订阅源（不调用模型、不花钱）。"""
-        result = await self.life.browse.refresh(self.rt.budget.now().astimezone(), force=True)
+        result = await self.life.browse.refresh(self._local_now(), force=True)
         return {**result, **self.chat_feeds()}
 
     def chat_clear(self, room: str = ROOM) -> dict[str, Any]:
         """一键清空这个会话的聊天记录（花费记录保留，预算照算）。"""
         chat = self._chat_room(room)
         return {"deleted": self.rt.repo.clear_chat(chat.room)}
+
+    def perception_clear(self) -> dict[str, Any]:
+        """一键清空感官缓存（data/perception/ 里的感知卡和转写稿；聊天记录里的卡不动）。"""
+        return {"deleted": self.perceiver.cache.clear()}
 
     def payslip(self, session_id: str) -> dict[str, Any]:
         """一件事的工资单：每位组员 / 统筹各领多少，外包（搜索、媒体、规划员等）另列。
@@ -1620,7 +1976,7 @@ class RoundtableService:
         workflow：discussion（讨论模式）或 collab（协同模式）；
         attachments：先用 upload() 上传得到的附件 id；
         style_refs：其中作为风格参考的图片附件 id（None = 全部图片；传空表示都不是）；
-        media：讨论模式的输出类型（image / speech / video，默认文字）；
+        media：讨论模式的输出类型（image / speech / video / music，默认文字）；
         media_tier：媒体模型的档位（budget / flagship）；
         carry_from：接力的上一场会话 id，question 是这一场的要求，上一场的成果摘要附在后面。
         """
@@ -1981,6 +2337,7 @@ class RoundtableService:
                 "extra_files": j["params"].get("extra_files", []),
                 "reference_count": j["reference_count"],
                 "warning": j["params"].get("warning"),
+                "lyrics": scrub(j["params"]["lyrics"]) if j["params"].get("lyrics") else None,
                 "model_id": j["model_id"] if revealed else None,
                 "channel": j["channel"] if revealed else None,
             }
@@ -2291,7 +2648,7 @@ class RoundtableService:
         inbox, _ = self._evolution_dirs()
         if inbox is None:
             raise ServiceError("没有数据目录，放不了资料卡", 409)
-        week = week_key((now or self._local_now()).astimezone())
+        week = week_key((now or self._local_now()).astimezone(self._tz()))
         left = rules.monthly_usd - self._evolution_spent(self._meetings())
         try:
             report = await Scout(self.rt).run(inbox, week, left)
@@ -2305,7 +2662,7 @@ class RoundtableService:
         rules = self.rt.config.roundtable.evolution
         if not (rules.enabled and rules.auto and rules.scout.enabled):
             return None
-        now = (now or self._local_now()).astimezone()
+        now = (now or self._local_now()).astimezone(self._tz())
         week = week_key(now)
         if now < week_slot(now, rules.schedule.weekday, rules.schedule.hour):
             return None
@@ -2324,8 +2681,12 @@ class RoundtableService:
             log.info("革新例会：本次没有找资料（%s）", exc)
             return {"week": week, "skipped": str(exc)}
 
+    def _tz(self) -> tzinfo | None:
+        """主时区（None = 本机），见 core/hometz.py。"""
+        return home_zone(self.rt).tz()
+
     def _local_now(self) -> datetime:
-        return self.rt.budget.now().astimezone()
+        return self.rt.budget.now().astimezone(self._tz())
 
     def evolution(self) -> dict[str, Any]:
         """革新例会概况：开关、收件箱里的资料卡、本月花费与上限、最近的例会。"""
@@ -2414,7 +2775,7 @@ class RoundtableService:
     def _plan(self, now: datetime | None = None, meetings: Sequence[Meeting] | None = None):
         rules = self.rt.config.roundtable.evolution
         return plan_meeting(
-            (now or self._local_now()).astimezone(),
+            (now or self._local_now()).astimezone(self._tz()),
             self._meetings() if meetings is None else meetings,
             gap_days=rules.major_gap_days,
             themes=rules.major_themes,
@@ -2467,7 +2828,7 @@ class RoundtableService:
             raise ServiceError(f"evolution.plan 不是已有的档位：{rules.plan!r}")
         if kind is not None and kind not in MEETING_KINDS:
             raise ServiceError(f"例会类型只能是 {'、'.join(MEETING_KINDS)}：{kind!r}")
-        now = (now or self._local_now()).astimezone()
+        now = (now or self._local_now()).astimezone(self._tz())
         meetings = self._meetings()
         plan = self._plan(now, meetings)
         override = kind is not None and kind != plan.kind
@@ -2840,7 +3201,7 @@ class RoundtableService:
             if m.adopted is None and not self.running(m.session_id):
                 with contextlib.suppress(ServiceError, NotFound):
                     out["exported"].append(self.evolution_export(m.session_id)["file"])
-        now = (now or self._local_now()).astimezone()
+        now = (now or self._local_now()).astimezone(self._tz())
         week = week_key(now)
         if now < week_slot(now, rules.schedule.weekday, rules.schedule.hour) or self._slot_met(
             week

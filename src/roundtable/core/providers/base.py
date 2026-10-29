@@ -15,7 +15,7 @@ from .errors import Attempt, UnsupportedCapability
 Role = Literal["system", "user", "assistant"]
 
 
-MediaKind = Literal["image", "audio"]
+MediaKind = Literal["image", "audio", "video"]
 
 
 @dataclass(frozen=True)
@@ -87,10 +87,11 @@ class ImageOutput:
 
 @dataclass(frozen=True)
 class MediaOutput:
-    """语音合成等一次性产出的音频 / 视频。"""
+    """语音合成、音乐生成等一次性产出的音频 / 视频。text：随音频返回的文字（如歌词）。"""
 
     media: Media
     cost_usd: float | None = None
+    text: str = ""
 
 
 @dataclass(frozen=True)
@@ -207,6 +208,9 @@ class Provider(ABC):
 
     async def transcribe(self, model: str, audio: Media, params: dict[str, Any]) -> Transcription:
         raise UnsupportedCapability(f"{self.channel} 不支持语音转写")
+
+    async def generate_music(self, model: str, prompt: str, params: dict[str, Any]) -> MediaOutput:
+        raise UnsupportedCapability(f"{self.channel} 不支持音乐生成")
 
     async def submit_video(
         self, model: str, prompt: str, params: dict[str, Any], images: Sequence[Media] = ()
