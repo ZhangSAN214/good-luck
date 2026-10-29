@@ -165,3 +165,28 @@ def test_notice_board_marks_read(serve, page):
         "document.querySelector('#hub .nt-btn').getAttribute('aria-label').startsWith('公告：版本')"
     )
     assert page.is_hidden("#hub .nt-dot")
+
+
+def test_notice_board_calendar_and_user_dates(serve, page):
+    srv = serve(confirm_threshold_usd=100.0)
+    page.add_init_script(LAND_HUB)
+    page.goto(srv.url)
+    page.click("#hub .nt-btn")
+    page.wait_for_selector("#hub .nt-cal .nt-cal-day.is-today")
+    assert "今天" in page.inner_text("#hub .nt-cal-day.is-today .nt-cal-when")
+
+    page.click("#hub [data-cal-form]")
+    page.fill("#hub .nt-cal-add [name='name']", "来曼城的日子")
+    page.fill("#hub .nt-cal-add [name='date']", "2025-09-20")
+    page.click("#hub .nt-cal-add [type='submit']")
+    page.wait_for_selector("#hub .nt-cal-mine [data-del-date]")
+    assert "来曼城的日子" in page.inner_text("#hub .nt-cal-mine")
+    assert srv.env.rt.repo.setting("calendar.user_dates")  # 只存在本机数据库
+
+    page.fill("#hub .nt-cal-add [name='name']", "坏日期")
+    page.fill("#hub .nt-cal-add [name='date']", "9/20")
+    page.click("#hub .nt-cal-add [type='submit']")
+    page.wait_for_selector("#hub .nt-cal-mine .hb-err")
+
+    page.click("#hub .nt-cal-mine [data-del-date]")
+    page.wait_for_selector("#hub .nt-cal-mine [data-del-date]", state="detached")
