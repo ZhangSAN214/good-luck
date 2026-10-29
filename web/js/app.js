@@ -41,6 +41,7 @@ import { Exporter, exportHref } from './exporter.js';
 import { Moments } from './moments.js';
 import { BootSettings } from './bootcfg.js';
 import { LanPanel } from './lan.js';
+import { Watch } from './watch.js';
 import { Hub } from './hub.js';
 import { Standee } from './standee.js';
 import { Music } from './music.js';
@@ -152,6 +153,19 @@ new LanPanel($('#landlg'), $('#lanbtn'), {
     pair: API.lanPair,
     signOut: API.lanSignOut,
     logout: API.lanLogout,
+  },
+});
+new Watch($('#watchdlg'), $('#watchbtn'), {
+  api: {
+    status: API.watchStatus,
+    start: API.watchStart,
+    stop: API.watchStop,
+    quiet: API.watchQuiet,
+    messages: API.watchMessages,
+    say: API.watchSay,
+    scrcpy: API.watchScrcpy,
+    frameUrl: API.watchFrameUrl,
+    members: () => API.api('/api/chat?after=2147483647'),
   },
 });
 $('#skin').addEventListener('click', () => {

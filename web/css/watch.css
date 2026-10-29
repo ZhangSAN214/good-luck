@@ -1,0 +1,35 @@
+/* 「一起看」投屏陪伴（js/watch.js）：顶栏按钮投屏时变红点；面板左边预览、右边聊天 */
+#watchbtn.wt-live{color:var(--bad);font-weight:500}
+.wt-money{margin-left:auto;margin-right:10px;font-size:12px;color:var(--muted)}
+.viewer .wt h4{margin:14px 0 6px;font-size:14px;display:flex;align-items:baseline;gap:10px}
+.viewer .wt h4:first-of-type{margin-top:4px}
+.wt-list{display:grid;gap:4px;max-height:220px;overflow:auto}
+.wt-people{grid-template-columns:repeat(auto-fill,minmax(120px,1fr));max-height:none}
+.wt-opt{display:flex;align-items:center;gap:6px;padding:5px 8px;border-radius:var(--r);background:var(--surface-2);cursor:pointer;min-width:0;overflow-wrap:anywhere}
+.wt-k{font-size:11px;padding:1px 6px;border-radius:999px;background:var(--surface);color:var(--muted);flex:none}
+.wt-consent{display:flex;gap:8px;align-items:flex-start;margin:14px 0 4px;font-size:13px;line-height:1.5}
+.wt-consent input{margin-top:3px;flex:none}
+.wt-ctrls{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:10px}
+.wt-stop{border-color:var(--bad);color:var(--bad);margin-left:auto}
+.wt-hint{margin:4px 0;color:var(--muted);font-size:13px}
+.wt-warn{margin:8px 0;padding:8px 10px;border-radius:var(--r);background:var(--bad-bg);font-size:13px}
+.wt-on{display:grid;grid-template-columns:minmax(0,3fr) minmax(260px,2fr);gap:16px;min-height:420px}
+.wt-left,.wt-right{display:flex;flex-direction:column;min-width:0}
+.wt-frame{width:100%;max-height:52vh;object-fit:contain;border-radius:var(--r);background:#000}
+.wt-bar{display:flex;align-items:center;gap:8px;margin:8px 0 4px;font-size:13px}
+.wt-dot{width:9px;height:9px;border-radius:50%;background:var(--bad);flex:none;animation:wt-pulse 1.6s ease-in-out infinite}
+@keyframes wt-pulse{50%{opacity:.35}}
+@media (prefers-reduced-motion: reduce){.wt-dot{animation:none}}
+.wt-seen{margin-top:6px;font-size:13px}
+.wt-seen summary{cursor:pointer;color:var(--muted)}
+.wt-seen p{margin:6px 0;line-height:1.5}
+.wt-seen p span{display:inline-block;margin-right:6px;font-size:11px;color:var(--muted)}
+.wt-chat{flex:1;min-height:240px;max-height:58vh;overflow:auto;display:flex;flex-direction:column;gap:6px;padding:8px;border-radius:var(--r);background:var(--surface-2)}
+.wt-past{max-height:240px}
+.wt-msg{margin:0;max-width:92%;padding:6px 10px;border-radius:14px;background:var(--surface);line-height:1.5;overflow-wrap:anywhere}
+.wt-msg b{display:block;font-size:11px;font-weight:500;color:var(--muted)}
+.wt-msg.me{align-self:flex-end;background:var(--brass-bg)}
+.wt-sys{margin:2px 0;align-self:center;font-size:12px;color:var(--muted);text-align:center}
+.wt-say{display:flex;gap:8px;margin-top:8px}
+.wt-say input{flex:1;min-width:0;padding:6px 10px;border:1px solid var(--line);border-radius:var(--r);background:var(--surface);color:inherit;font:inherit}
+@media (max-width: 760px){.wt-on{grid-template-columns:1fr}.wt-chat{max-height:40vh}}

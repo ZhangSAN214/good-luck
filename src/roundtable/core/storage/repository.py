@@ -1084,6 +1084,14 @@ class Repository:
             return row["id"]
         return self.create_session("邮件栏：总结与翻译", seed=0, anonymous=False, workflow="mail")
 
+    def watch_session(self) -> str:
+        """投屏陪伴的隐藏会话（workflow = 'watch'）：画面转文字和成员陪看发言的调用挂在这里，
+        计入总预算和「一起看」的每月上限；不出现在会话列表里。截图本身不存，只存描述的哈希。"""
+        row = self._exec("SELECT id FROM sessions WHERE workflow = 'watch' LIMIT 1").fetchone()
+        if row:
+            return row["id"]
+        return self.create_session("投屏陪伴：一起看", seed=0, anonymous=False, workflow="watch")
+
     def add_chat_message(
         self,
         room: str,
@@ -2429,7 +2437,7 @@ class Repository:
             " r.difficulty, r.plan,"
             " (SELECT COALESCE(SUM(cost_usd), 0) FROM calls c WHERE c.session_id = s.id) AS cost"
             " FROM sessions s LEFT JOIN routing_records r ON r.session_id = s.id"
-            " WHERE s.workflow NOT IN ('chat', 'evolution_scout', 'mail')"
+            " WHERE s.workflow NOT IN ('chat', 'evolution_scout', 'mail', 'watch')"
             " ORDER BY s.created_at DESC LIMIT ?",
             (limit,),
         ).fetchall()

@@ -196,3 +196,14 @@ export const lanSetPassword = (password) => api('/api/lan/password', { method: '
 export const lanPair = (base) => api('/api/lan/pair', { method: 'POST', body: { base } });
 export const lanSignOut = () => api('/api/lan/signout', { method: 'POST' });
 export const lanLogout = () => api('/api/lan/logout', { method: 'POST' });
+
+// 投屏陪伴（docs/WATCH.md）：开始 / 预览只能在电脑本机上；平板上能聊天和停止
+export const watchStatus = (devices = false) => api(`/api/watch${devices ? '?devices=true' : ''}`);
+export const watchStart = (source, watchers, consent) =>
+  api('/api/watch/start', { method: 'POST', body: { source, watchers, consent } });
+export const watchStop = () => api('/api/watch/stop', { method: 'POST' });
+export const watchQuiet = (quiet) => api('/api/watch/quiet', { method: 'POST', body: { quiet } });
+export const watchMessages = (after = 0) => api(`/api/watch/messages?after=${after}`);
+export const watchSay = (text) => api('/api/watch/say', { method: 'POST', body: { text } });
+export const watchScrcpy = (source) => api('/api/watch/scrcpy', { method: 'POST', body: { source } });
+export const watchFrameUrl = () => `/api/watch/frame?t=${Date.now()}`;

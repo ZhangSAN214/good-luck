@@ -239,6 +239,14 @@
 - 接口：`GET /api/sessions/{id}/carry`（预览摘要）；`POST /api/sessions`、`POST /api/estimate` 多一个 `carry_from`。
 - 测试：`tests/core/test_carry.py`、`tests/api/test_carry_api.py`、`tests/web/test_e2e_carry.py`。
 
+### 一起看（投屏陪伴，2026-10-29，预估 5～7 小时，实际约 1.5 小时）
+
+用户要「投屏给她们看，有她们陪着我的感觉」（方案：计划/成员虚拟手机电脑与投屏_方案.md 功能二）：
+- 顶栏「一起看」：选电脑整屏 / 窗口或安卓设备（adb），选 1～3 位陪看，勾同意后开始；投屏时顶栏红点，平板上能聊天和停止。
+- 截图只在内存里；画面明显变了、隔够 20 秒才交给最便宜的识图模型写成文字（`describe_screen/v1`），成员读文字后想说才说（`watch/v1`），你说话一定回；安静看；支付 / 银行 / 密码窗口自动暂停。
+- 每月上限 $1.5（`chat.watch`，不占聊天 $5），隐藏会话 `watch`；感知事件 `perceive.screen`。见 `docs/WATCH.md`。
+- 测试：`tests/core/screen/test_watch.py`、`tests/api/test_watch_api.py`、`tests/web/test_e2e_watch.py`。
+
 ## 下一步
 
 0. 你本机试用办公室模式（单人办、开会、项目分工、预算单、绩效）、公寓楼和群聊；看看「员工」页底部的人才市场，决定要不要换人 / 改价格。合并 PR #6 / #7 / #8 需要你点头。
