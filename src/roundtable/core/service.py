@@ -89,6 +89,8 @@ from roundtable.core.member.card import (
     source_title,
     without_locked,
 )
+from roundtable.core.member.memory import DiaryTool
+from roundtable.core.member.memory.store import query_terms
 from roundtable.core.members_art import MEMBERS_FILE, load_members, mime_of, resolve_file
 from roundtable.core.memory import LAYERS, MemoryKeeper, clean_memory
 from roundtable.core.moments import SEEN_KEY as MOMENTS_SEEN
@@ -179,6 +181,9 @@ class RoundtableService:
         self.memory = MemoryKeeper(runtime, self.chats.everyone)
         self.life = LifeEngine(runtime, self.chats, self.memory)
         self.engine = MemberEngine(runtime, lambda: [m.id for m in self.chats.everyone()])
+        state = getattr(self.engine, "state", None)  # 状态插件（心情）装上后，夜间整理按心情改语气
+        if state is not None:
+            self.memory.mood_of = state.mood_of
         self.mail = MailBox(runtime.repo)
         self.mail_ai = MailAI(runtime, self.mail)
         if runtime.mail_source is not None:
@@ -1104,24 +1109,95 @@ class RoundtableService:
         return clean
 
     def chat_add_memory(self, member: str, text: str) -> dict[str, Any]:
-        """用户替成员记一条（随手记，source = user）。"""
+        """用户替成员记一条（随手记，source = user）；也记成一件事实（不变淡）。"""
         self._chat_member(member)
-        return self.rt.repo.add_memory(member, "note", self._memory_text(text), source="user")
+        row = self.rt.repo.add_memory(member, "note", self._memory_text(text), source="user")
+        self.memory.store.write(
+            member,
+            row["text"],
+            day=self.rt.budget.now().astimezone().date(),
+            fact=True,
+            importance=2,
+            source="user",
+            source_key=f"note:{row['id']}",
+        )
+        return row
 
     def chat_update_memory(self, memory_id: int, text: str) -> dict[str, Any]:
-        if self.rt.repo.memory(memory_id) is None:
+        old = self.rt.repo.memory(memory_id)
+        if old is None:
             raise ServiceError("没有这条记忆", 404)
-        return self.rt.repo.update_memory(memory_id, self._memory_text(text)) or {}
+        row = self.rt.repo.update_memory(memory_id, self._memory_text(text)) or {}
+        item = self.rt.repo.memory_item_by_key(old["member"], f"note:{memory_id}")
+        if item is not None and row:
+            self.memory.store.user_edit(item["id"], row["text"])
+        return row
 
     def chat_delete_memory(self, memory_id: int) -> dict[str, Any]:
-        if not self.rt.repo.delete_memory(memory_id):
+        old = self.rt.repo.memory(memory_id)
+        if old is None or not self.rt.repo.delete_memory(memory_id):
             raise ServiceError("没有这条记忆", 404)
+        item = self.rt.repo.memory_item_by_key(old["member"], f"note:{memory_id}")
+        if item is not None:
+            self.rt.repo.delete_memory_item(item["id"])
         return {"deleted": 1}
 
     def chat_clear_memories(self, member: str | None = None) -> dict[str, Any]:
+        """一键清空：日记和分层记忆，加上记忆件、挂着的事、联想网、习惯、翻日记记录和训练数据。"""
         if member is not None:
             self._chat_member(member)
-        return {"deleted": self.rt.repo.clear_memories(member)}
+        n = self.rt.repo.clear_memories(member)
+        return {"deleted": n, "cleared": self.rt.repo.clear_memory_p2(member)}
+
+    # --- 记忆与联想（P2）：记忆件、挂着的事、习惯、翻日记 ----------------------------
+
+    def chat_memory_items(
+        self, member: str, q: str | None = None, limit: int = 50
+    ) -> dict[str, Any]:
+        """一位成员的记忆件（q 为空时最近的在前，否则按全文索引找）、挂着的事、习惯、统计。"""
+        self._chat_member(member)
+        repo = self.rt.repo
+        limit = min(max(limit, 1), 500)
+        if q:
+            ids = repo.search_memory_items(member, query_terms(q), limit)
+            items = sorted(repo.memory_items_by_ids(ids), key=lambda r: r["last_at"], reverse=True)
+        else:
+            items = repo.memory_items(member, current=False, limit=limit)
+        digest = repo.memory_digest(member)
+        return {
+            "items": items,
+            "hanging": repo.memory_hanging(member),
+            "habits": digest["text"] if digest else "",
+            "count": repo.count_memory_items(member),
+            "diary_reads_left": DiaryTool(self.rt).remaining(member),
+            "domains": list(self.rt.config.roundtable.chat.memory.domains),
+        }
+
+    def chat_memory_item_history(self, item_id: int) -> dict[str, Any]:
+        item = self.rt.repo.memory_item(item_id)
+        if item is None:
+            raise ServiceError("没有这件记忆", 404)
+        return {"item": item, "revisions": self.rt.repo.memory_revisions(item_id)}
+
+    def chat_update_memory_item(self, item_id: int, text: str) -> dict[str, Any]:
+        if self.rt.repo.memory_item(item_id) is None:
+            raise ServiceError("没有这件记忆", 404)
+        return self.memory.store.user_edit(item_id, self._memory_text(text)) or {}
+
+    def chat_delete_memory_item(self, item_id: int) -> dict[str, Any]:
+        if not self.rt.repo.delete_memory_item(item_id):
+            raise ServiceError("没有这件记忆", 404)
+        return {"deleted": 1}
+
+    def chat_drop_hanging(self, hanging_id: int) -> dict[str, Any]:
+        if not self.rt.repo.close_memory_hanging(hanging_id, "dropped"):
+            raise ServiceError("没有这件挂着的事", 404)
+        return {"dropped": 1}
+
+    def chat_read_diary(self, member: str, q: str) -> dict[str, Any]:
+        """你在网页上翻成员的日记（不占成员每天翻日记的次数）。"""
+        self._chat_member(member)
+        return {"found": DiaryTool(self.rt).find(member, q)}
 
     async def chat_tidy_memories(self) -> dict[str, Any]:
         """马上整理一次记忆（到昨天为止还没整理的日子）。"""
