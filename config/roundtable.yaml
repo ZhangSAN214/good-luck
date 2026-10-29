@@ -52,6 +52,7 @@ chat:
     night: true                    # 每晚整理合并成一次调用：第一人称日记 + 记忆件 + 挂着的事（心情只改回忆语气和重要度，留旧版）
     domains: [学术, 日常, 工作, 娱乐, 社交, 身心]   # 领域标签
     hanging_max: 5                 # 脑子里挂着的事最多几件
+    links: {enabled: true, assoc_max: 1}         # 联想网：一起出现就连得更紧，想起一件顺带想到一件；夜里随便走几步
     diary: {enabled: true, daily_reads: 3}       # 翻日记：只在生活模式，每位成员每天最多翻 3 次
   life:                            # 生活引擎：你不在时成员按作息过日子、彼此聊天（不主动找你）
     enabled: true

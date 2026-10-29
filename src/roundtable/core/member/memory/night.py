@@ -6,12 +6,12 @@
 
 - 材料：当天的聊天和生活记录（``<log>``）、自己当天在工作模式里做过的事
   （``<work>``，只读，匿名未揭晓的不读）、挂着的事（``<hanging>``，带编号）、今天被想起过的旧记忆（``<recalled>``，带编号）、
-  夜里随机想到的旧事（``<drift>``，联想网装上后才有）、现在的心情（一句话）。
+  夜里随机游走想到的旧事（``<drift>``）、现在的心情（一句话）。
 - 输出 JSON：``diary``（日记）、``items``（每件 text / domain / importance / fact）、
   ``hanging``（``add`` 新挂上的、``done`` 了结的编号）、
   ``retell``（编号、语气、重要度；心情平静时为空）。
 - 日记存进 ``member_memories`` 的 ``day`` 层（原始记录：聊天、生活事件、日记都一直保留）；
-  记忆件经三路分流写入，再重算习惯摘要。
+  记忆件经三路分流写入；当天的件互相加强（联想网），再每晚衰减一次、随机游走几步、重算习惯摘要。
 """
 
 from __future__ import annotations
@@ -20,6 +20,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from roundtable.core.jsonout import JSONOutputError, extract_json_object
+from roundtable.core.member.memory.links import LinkNet
 from roundtable.core.member.memory.store import MemoryStore
 
 NONE = "（没有）"
@@ -144,7 +145,7 @@ def apply(
 ) -> dict[str, int]:
     """把整理结果写回。clean：敏感内容过滤（``core.memory.clean_memory``）。返回各项数量。"""
     rules = rt.config.roundtable.chat.memory
-    store = MemoryStore(rt)
+    store, links = MemoryStore(rt), LinkNet(rt)
     out = {"diary": 0, "new": 0, "merge": 0, "update": 0, "hang": 0, "done": 0, "retell": 0}
     diary = clean(result.diary, rules.diary_chars)
     if diary:
@@ -189,6 +190,7 @@ def apply(
             imp = int(imp) if isinstance(imp, int | float | str) and str(imp).isdigit() else None
             if store.retell(item_id, tone=tone, importance=imp, why=f"{day} 夜里带着心情想起"):
                 out["retell"] += 1
+    links.strengthen(member, today_ids + mats.drift)
     store.train(
         member,
         "night",
@@ -202,3 +204,19 @@ def apply(
         },
     )
     return out
+
+
+def nightly_links(rt: Any, member: str, day: str) -> list[int]:
+    """整理前：联想网衰减一次，再从近几天的件出发随机游走。返回走到的旧件（不含起点）。"""
+    links = LinkNet(rt)
+    links.decay(member)
+    starts = [r["id"] for r in rt.repo.memory_items(member, limit=20)]
+    paths = links.walk(member, starts, f"walk:{member}:{day}")
+    reached = []
+    for path in paths:
+        for i in path[1:]:
+            if i not in reached and i not in starts:
+                reached.append(i)
+    if paths:
+        MemoryStore(rt).train(member, "walk", {"day": day, "paths": paths})
+    return reached[:3]

@@ -1,4 +1,4 @@
-"""召回：半衰期带保底、同一次对话不重复、挂着的事；
+"""召回：半衰期带保底、同一次对话不重复、联想、挂着的事；
 记忆 100 → 10 万条注入字数不变；8 位同一预算。"""
 
 from __future__ import annotations
@@ -10,7 +10,7 @@ from datetime import UTC, date, datetime, timedelta
 import pytest
 
 from roundtable.core.chat import ChatHub, dm_room
-from roundtable.core.member.memory import MemoryStore, Recaller
+from roundtable.core.member.memory import LinkNet, MemoryStore, Recaller
 from roundtable.core.member.memory.retrieve import freshness
 from roundtable.core.memory import memory_context
 
@@ -82,6 +82,20 @@ def test_same_conversation_does_not_repeat_but_another_room_does():
     assert "一兰拉面店" in later.text  # 隔了很久算新的一次对话
 
 
+def test_association_brings_in_a_linked_memory():
+    env = Env()
+    repo = env.rt.repo
+    noodle = repo.add_memory_item("V1", "和用户去了一兰拉面店", day="2026-10-01")
+    rain = repo.add_memory_item("V1", "那天突然下大雨没带伞", day="2026-10-01")
+    for i in range(40):
+        repo.add_memory_item("V1", f"整理文件{i}", day="2026-10-28")
+    for _ in range(5):
+        LinkNet(env.rt).strengthen("V1", [noodle["id"], rain["id"]])
+    got = recall(env, "V1", "拉面店")
+    assert "【想起】那天突然下大雨没带伞" in got.text.splitlines()
+    assert repo.memory_item(rain["id"])["recall_note"] == "顺着联想想起"
+
+
 def fill(env: Env, member: str, n: int, seed: int = 1) -> None:
     rng = random.Random(seed)
     env.rt.repo.add_memory_items_bulk(
@@ -127,7 +141,7 @@ async def test_eight_members_share_the_same_memory_budget():
     assert all(n <= budget for n in lengths)
     # 预算按配置统一取，和成员是谁无关；每位都按同样的件数上限挑
     rules = env.config.roundtable.chat.memory
-    counts = [len(recall(env, m.id, query).chosen) for m in members]
+    counts = [sum(not c.assoc for c in recall(env, m.id, query).chosen) for m in members]
     assert counts == [rules.inject_max] * len(members)
     # 私聊时提示词里的记忆也在同一预算内
     dm = ChatHub(env.rt).room(dm_room(members[0].id))
