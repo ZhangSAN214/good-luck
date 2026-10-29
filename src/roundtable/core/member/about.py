@@ -22,7 +22,8 @@
 from __future__ import annotations
 
 import json
-from datetime import date, datetime
+import re
+from datetime import date, datetime, timedelta
 from typing import Any
 
 from roundtable.core.hometz import home_zone
@@ -32,6 +33,18 @@ from roundtable.core.recall import _NOISE, grams
 
 PROFILE = "profile"
 SWITCHES = "switches"
+SCHEDULE = "schedule"
+# 第二块：用户状态，每项默认关（只有你在画像页打开的才进聊天）
+STATUS_KINDS = {
+    "music": "正在放的歌",
+    "idle": "电脑空闲",
+    "game": "在玩游戏",
+    "timetable": "课表和 DDL",
+    "mail": "邮件栏",
+}
+MUSIC_PLAYERS = ("qqmusic", "cloudmusic", "spotify", "any")
+WEEKDAYS = "一二三四五六日"
+HHMM = re.compile(r"^([01]?\d|2[0-3]):([0-5]\d)$")
 USER, SAID, INFERRED = "user", "said", "inferred"
 SOURCES = {USER: "你写的", SAID: "你说过", INFERRED: "推测"}
 USER_AUTHOR = "user"
@@ -97,6 +110,11 @@ class AboutYou:
     def switches(self) -> dict[str, Any]:
         data = self.rt.repo.about_you(SWITCHES) or {}
         data.setdefault("domains_off", [])
+        status = data.setdefault("status", {})
+        for k in STATUS_KINDS:
+            status.setdefault(k, False)  # 默认全关
+        data.setdefault("music_player", "qqmusic")
+        data.setdefault("games", {})
         return data
 
     def _save_switches(self, data: dict[str, Any]) -> None:
@@ -455,6 +473,132 @@ class AboutYou:
             data["rejected"] = []
         self._save(data)
         return n
+
+    # --- 第二块：你的状态的开关、课表和 DDL -------------------------------------------------
+
+    def set_status(self, kind: str, on: bool) -> dict[str, bool]:
+        if kind not in STATUS_KINDS:
+            raise AboutError(f"只能是：{'、'.join(STATUS_KINDS.values())}")
+        sw = self.switches()
+        sw["status"][kind] = bool(on)
+        self._save_switches(sw)
+        return sw["status"]
+
+    def status_on(self, kind: str) -> bool:
+        return bool(self.switches()["status"].get(kind))
+
+    def set_music_player(self, player: str) -> str:
+        if player not in MUSIC_PLAYERS:
+            raise AboutError("播放器只能是 QQ 音乐、网易云音乐、Spotify 或任意播放器")
+        sw = self.switches()
+        sw["music_player"] = player
+        self._save_switches(sw)
+        return player
+
+    def games(self) -> dict[str, str]:
+        """游戏表：配置里的 + 你自己加的（你加的优先）。"""
+        return {**self.rules.games, **self.switches()["games"]}
+
+    def add_game(self, exe: str, name: str) -> dict[str, str]:
+        exe, name = one_line(exe, 80), one_line(name, 30)
+        if not exe or not name or not exe.lower().endswith(".exe") or re.search(r"[\\/]", exe):
+            raise AboutError("写程序文件名（比如 Game.exe）和游戏名")
+        sw = self.switches()
+        sw["games"][exe] = name
+        self._save_switches(sw)
+        return sw["games"]
+
+    def del_game(self, exe: str) -> dict[str, str]:
+        sw = self.switches()
+        if sw["games"].pop(exe, None) is None:
+            raise AboutMissing("没有这个游戏（配置文件里的要在配置里删）")
+        self._save_switches(sw)
+        return sw["games"]
+
+    def schedule(self) -> dict[str, Any]:
+        data = self.rt.repo.about_you(SCHEDULE) or {}
+        data.setdefault("next", 1)
+        data.setdefault("classes", [])
+        data.setdefault("ddls", [])
+        return data
+
+    def add_class(self, weekday: int, start: str, end: str, name: str) -> dict[str, Any]:
+        """加一节课（每周固定）：weekday 0 = 周一。"""
+        name = one_line(name, 30)
+        if not 0 <= int(weekday) <= 6:
+            raise AboutError("星期要在周一到周日之间")
+        if not HHMM.match(start or "") or not HHMM.match(end or ""):
+            raise AboutError("时间写成 08:30 这样")
+        start, end = (f"{int(t.split(':')[0]):02d}:{t.split(':')[1]}" for t in (start, end))
+        if end <= start or not name:
+            raise AboutError("要有课名，下课时间要晚于上课时间")
+        data = self.schedule()
+        row = {"id": data["next"], "weekday": int(weekday), "start": start, "end": end}
+        data["classes"].append(row | {"name": name})
+        data["classes"].sort(key=lambda c: (c["weekday"], c["start"]))
+        data["next"] += 1
+        self.rt.repo.save_about_you(SCHEDULE, data)
+        return data
+
+    def add_ddl(self, name: str, due: str) -> dict[str, Any]:
+        """加一个 DDL：due 写 YYYY-MM-DD 或 YYYY-MM-DDTHH:MM。"""
+        name = one_line(name, 30)
+        try:
+            when = datetime.fromisoformat(due)
+        except (TypeError, ValueError):
+            raise AboutError("截止时间写成 2026-11-03 或 2026-11-03T23:59") from None
+        if not name:
+            raise AboutError("要写是什么 DDL")
+        data = self.schedule()
+        fmt = "%Y-%m-%dT%H:%M" if "T" in due else "%Y-%m-%d"
+        data["ddls"].append({"id": data["next"], "name": name, "due": when.strftime(fmt)})
+        data["ddls"].sort(key=lambda d: d["due"])
+        data["next"] += 1
+        self.rt.repo.save_about_you(SCHEDULE, data)
+        return data
+
+    def del_schedule(self, kind: str, item_id: int) -> dict[str, Any]:
+        data = self.schedule()
+        key = {"class": "classes", "ddl": "ddls"}.get(kind)
+        if key is None:
+            raise AboutError("只能删课或 DDL")
+        rows = [r for r in data[key] if r["id"] != item_id]
+        if len(rows) == len(data[key]):
+            raise AboutMissing("没有这一条")
+        data[key] = rows
+        self.rt.repo.save_about_you(SCHEDULE, data)
+        return data
+
+    def clear_schedule(self) -> int:
+        data = self.schedule()
+        n = len(data["classes"]) + len(data["ddls"])
+        self.rt.repo.clear_about_you(SCHEDULE)
+        return n
+
+    def timetable_line(self, now: datetime) -> str:
+        """此刻的课和最近的 DDL（now 是你的本地时间）。没有就空串。程序算，不调模型。"""
+        data = self.schedule()
+        parts = []
+        hm = now.strftime("%H:%M")
+        today = [c for c in data["classes"] if c["weekday"] == now.weekday()]
+        cur = next((c for c in today if c["start"] <= hm < c["end"]), None)
+        nxt = next((c for c in today if c["start"] > hm), None)
+        if cur:
+            parts.append(f"用户正在上「{cur['name']}」（{cur['end']} 下课）")
+        elif nxt:
+            parts.append(f"用户今天 {nxt['start']} 还有「{nxt['name']}」")
+        horizon = now + timedelta(days=self.rules.ddl_days)
+        for d in data["ddls"]:
+            due = datetime.fromisoformat(d["due"])
+            if "T" not in d["due"]:
+                due = due.replace(hour=23, minute=59)
+            if not now.replace(tzinfo=None) <= due <= horizon.replace(tzinfo=None):
+                continue
+            days = (due.date() - now.date()).days
+            when = "今天" if days == 0 else "明天" if days == 1 else f"还有 {days} 天"
+            parts.append(f"「{d['name']}」DDL {when}")
+            break
+        return "；".join(parts)
 
     # --- 看和导出 ---------------------------------------------------------------------
 

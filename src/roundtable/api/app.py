@@ -56,6 +56,37 @@ class AboutDomainBody(BaseModel):
     on: bool
 
 
+class AboutStatusBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    kind: str = Field(max_length=20)
+    on: bool
+
+
+class AboutPlayerBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    player: str = Field(max_length=20)
+
+
+class AboutGameBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    exe: str = Field(max_length=80)
+    name: str = Field(max_length=30)
+
+
+class AboutClassBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    weekday: int = Field(ge=0, le=6)
+    start: str = Field(max_length=5)
+    end: str = Field(max_length=5)
+    name: str = Field(max_length=30)
+
+
+class AboutDdlBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: str = Field(max_length=30)
+    due: str = Field(max_length=16)
+
+
 class CreateSession(BaseModel):
     model_config = ConfigDict(extra="forbid")  # 旧字段（mode / preset）直接报错，不悄悄忽略
 
@@ -1128,6 +1159,43 @@ def create_app(service: RoundtableService | None = None, lan: LanAccess | None =
             media_type=media,
             headers={"Content-Disposition": f'attachment; filename="{name}"'},
         )
+
+    # 关于你 · 你的状态（P8 第二块；每项默认关）
+    @app.get("/api/chat/about/status")
+    async def about_status(request: Request) -> dict[str, Any]:
+        return svc(request).about_status()
+
+    @app.post("/api/chat/about/status")
+    async def about_status_set(request: Request, body: AboutStatusBody) -> dict[str, Any]:
+        return svc(request).about_status_set(body.kind, body.on)
+
+    @app.post("/api/chat/about/status/player")
+    async def about_music_player(request: Request, body: AboutPlayerBody) -> dict[str, Any]:
+        return svc(request).about_music_player(body.player)
+
+    @app.post("/api/chat/about/games")
+    async def about_game_add(request: Request, body: AboutGameBody) -> dict[str, Any]:
+        return svc(request).about_game_add(body.exe, body.name)
+
+    @app.delete("/api/chat/about/games")
+    async def about_game_del(request: Request, exe: str) -> dict[str, Any]:
+        return svc(request).about_game_del(exe)
+
+    @app.post("/api/chat/about/schedule/classes")
+    async def about_class_add(request: Request, body: AboutClassBody) -> dict[str, Any]:
+        return svc(request).about_class_add(body.weekday, body.start, body.end, body.name)
+
+    @app.post("/api/chat/about/schedule/ddls")
+    async def about_ddl_add(request: Request, body: AboutDdlBody) -> dict[str, Any]:
+        return svc(request).about_ddl_add(body.name, body.due)
+
+    @app.delete("/api/chat/about/schedule/{kind}/{item_id}")
+    async def about_schedule_del(request: Request, kind: str, item_id: int) -> dict[str, Any]:
+        return svc(request).about_schedule_del(kind, item_id)
+
+    @app.delete("/api/chat/about/schedule")
+    async def about_schedule_clear(request: Request) -> dict[str, Any]:
+        return svc(request).about_schedule_clear()
 
     @app.get("/api/chat/engine/events")
     async def member_events_count(request: Request) -> dict[str, Any]:

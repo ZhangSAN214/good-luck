@@ -1194,6 +1194,12 @@ class AboutRules(_Strict):
     min_relevance: float = Field(default=0.1, ge=0, le=1)
     header: str = "【关于用户（大家共知的事实，用得上再提）】"
     maybe_below: float = Field(default=0.6, ge=0, le=1)  # 把握度低于这个的在聊天里标「可能」
+    # 第二块：用户状态（正在放的歌、电脑空闲、在玩游戏、课表 DDL、邮件栏），每项默认关
+    status_header: str = "【用户此刻（用户自己打开的，自然带出，别直接念）】"
+    status_chars: int = Field(default=80, ge=0, le=300)  # 8 位相同
+    idle_minutes: float = Field(default=10.0, gt=0)  # 电脑多久没人动算「走开了」
+    ddl_days: int = Field(default=7, ge=0, le=60)  # 多少天内的 DDL 才提
+    games: dict[str, str] = {}  # 程序文件名 → 游戏名（Steam / Epic 装的不用写）
 
 
 class GrowthReviewRules(_Strict):

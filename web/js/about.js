@@ -15,7 +15,9 @@ const when = (iso) => {
 
 export class AboutPanel {
   constructor({ api, now = () => Date.now(), goto = null } = {}) {
-    this.api = api; // {get(), add(text, domain), edit(id, text), del(id), reject(id), lock(id, locked), domain(name, on), forget(i), clear(rejected), exportUrl(fmt)}
+    this.api = api; // {get(), add(text, domain), edit(id, text), del(id), reject(id), lock(id, locked), domain(name, on), forget(i), clear(rejected), exportUrl(fmt),
+    //  status(), setStatus(kind, on), player(p), addGame(exe, name), delGame(exe), addClass(w, start, end, name), addDdl(name, due), delSchedule(kind, id), clearSchedule()}
+    this.st = null; // 你的状态（第二块）
     this.now = now;
     this.goto = goto; // (会话 id, 消息 id) → 去看原话
     this.v = null;
@@ -36,6 +38,10 @@ export class AboutPanel {
       e.stopPropagation();
       this.onSubmit(e);
     });
+    el.addEventListener('change', (e) => {
+      const p = e.target.closest('[data-player]');
+      if (p) this.act(() => this.api.player(p.value), '换好了');
+    });
     this.render();
     await this.load();
   }
@@ -43,6 +49,7 @@ export class AboutPanel {
   async load() {
     try {
       this.v = await this.api.get();
+      if (this.api.status) this.st = await this.api.status();
     } catch (e) {
       this.msg = e.message;
     }
@@ -53,6 +60,7 @@ export class AboutPanel {
     try {
       const v = await fn();
       if (v && v.facts) this.v = v;
+      else if (v && v.items) this.st = v;
       else await this.load();
       this.msg = done;
     } catch (e) {
@@ -91,6 +99,39 @@ export class AboutPanel {
     return `<li class="${f.faded || f.off ? 'ab-dim' : ''}" data-fid="${f.id}"><div class="pp-mh">${tags.join('')}${btns}</div>${text}${hist}${ev}</li>`;
   }
 
+  statusHtml() {
+    const st = this.st;
+    if (!st) return '';
+    const PLAYERS = { qqmusic: 'QQ 音乐', cloudmusic: '网易云音乐', spotify: 'Spotify', any: '任意播放器' };
+    const WD = '一二三四五六日';
+    const item = (i) => {
+      const extra = [];
+      if (i.kind === 'music' && i.on)
+        extra.push(`<label class="grp-row"><span>看哪个播放器</span><select data-player aria-label="播放器">${Object.entries(PLAYERS).map(([k, l]) => `<option value="${k}"${k === st.music_player ? ' selected' : ''}>${l}</option>`).join('')}</select></label>`);
+      if (i.kind === 'game' && i.on) {
+        const mine = Object.entries(st.games || {});
+        extra.push(`<p class="ab-meta">认得的游戏：${esc(Object.values(st.config_games || {}).filter((x, k, a) => a.indexOf(x) === k).join('、'))}，以及 Steam / Epic 装的游戏。别的程序叫什么一律不说。</p>
+          ${mine.length ? `<ul class="ab-mini">${mine.map(([exe, name]) => `<li>${esc(name)} <small>${esc(exe)}</small><button type="button" class="link" data-delgame="${esc(exe)}">删</button></li>`).join('')}</ul>` : ''}
+          <form id="ab-game" class="grp-row"><input name="exe" maxlength="80" placeholder="程序文件名，如 Game.exe" aria-label="程序文件名"><input name="name" maxlength="30" placeholder="游戏名" aria-label="游戏名"><button class="btn" type="submit">加</button></form>`);
+      }
+      if (i.kind === 'timetable' && i.on) {
+        const sc = st.schedule;
+        const cls = sc.classes.map((c) => `<li>周${WD[c.weekday]} ${esc(c.start)}–${esc(c.end)} ${esc(c.name)}<button type="button" class="link" data-delsch="class" data-sid="${c.id}">删</button></li>`).join('');
+        const ddl = sc.ddls.map((d) => `<li>${esc(d.due.replace('T', ' '))} ${esc(d.name)}<button type="button" class="link" data-delsch="ddl" data-sid="${d.id}">删</button></li>`).join('');
+        extra.push(`<ul class="ab-mini">${cls || '<li class="hint">还没有课。</li>'}</ul>
+          <form id="ab-class" class="grp-row"><select name="weekday" aria-label="星期">${[...WD].map((w, k) => `<option value="${k}">周${w}</option>`).join('')}</select><input name="start" type="time" required aria-label="上课"><input name="end" type="time" required aria-label="下课"><input name="name" maxlength="30" placeholder="课名" required aria-label="课名"><button class="btn" type="submit">加课</button></form>
+          <ul class="ab-mini">${ddl || '<li class="hint">还没有 DDL。</li>'}</ul>
+          <form id="ab-ddl" class="grp-row"><input name="name" maxlength="30" placeholder="什么 DDL" required aria-label="DDL"><input name="due" type="datetime-local" required aria-label="截止时间"><button class="btn" type="submit">加 DDL</button></form>
+          ${cls || ddl ? '<button type="button" class="link danger" id="ab-sch-clear" data-schclear>清空课表和 DDL</button>' : ''}`);
+      }
+      const note = i.reason ? `<span class="ab-meta">${esc(i.reason)}</span>` : i.on ? `<span class="ab-meta">${i.preview ? `成员看到：${esc(i.preview)}` : '现在没什么可说的'}</span>` : '';
+      return `<li data-kind="${i.kind}"><div class="ab-st"><button type="button" class="ab-tog${i.on ? ' on' : ''}" role="switch" aria-checked="${i.on}" data-st="${i.kind}"><i></i></button><b>${esc(i.label)}</b>${note}</div>${extra.join('')}</li>`;
+    };
+    return `<h4 class="grp-h">你的状态 <small>每项默认关 · 打开了成员聊天时才知道 · 读到的不存</small></h4>
+      <ul class="pp-list grp-box ab-status">${st.items.map(item).join('')}</ul>
+      ${st.line ? `<p class="grp-foot">成员现在会看到：${esc(st.line.split('\n').slice(1).join(' '))}</p>` : ''}`;
+  }
+
   render() {
     if (!this.el) return;
     const v = this.v;
@@ -121,6 +162,7 @@ export class AboutPanel {
       <form id="ab-add" class="grp-box"><div class="grp-row"><input name="text" maxlength="120" placeholder="自己写一条，比如：我在读大三，学计算机" aria-label="写一条"><select name="domain" aria-label="领域">${opts}</select><button class="btn" type="submit">记下</button></div></form>
       ${groups || '<p class="hint grp-box">还没有。每晚成员整理时会从你聊天里亲口说的话里找线索（要对得上你的原话才记）；你也可以自己写。</p>'}
       ${rej}
+      ${this.statusHtml()}
       <div class="grp-box grp-acts">
         <a class="grp-btn" href="${esc(this.api.exportUrl('md'))}" download>导出（Markdown）</a>
         <a class="grp-btn" href="${esc(this.api.exportUrl('json'))}" download>导出（JSON）</a>
@@ -176,6 +218,19 @@ export class AboutPanel {
       const on = dom.getAttribute('aria-pressed') !== 'true';
       return this.act(() => this.api.domain(dom.dataset.dom, on), on ? `「${dom.dataset.dom}」打开了` : `「${dom.dataset.dom}」关了：不再记，聊天也不带`);
     }
+    const tog = t.closest('[data-st]');
+    if (tog) {
+      const on = tog.getAttribute('aria-checked') !== 'true';
+      return this.act(() => this.api.setStatus(tog.dataset.st, on), on ? '打开了：成员聊天时会知道' : '关了');
+    }
+    const dg = t.closest('[data-delgame]');
+    if (dg) return this.act(() => this.api.delGame(dg.dataset.delgame), '删掉了');
+    const ds = t.closest('[data-delsch]');
+    if (ds) return this.act(() => this.api.delSchedule(ds.dataset.delsch, Number(ds.dataset.sid)), '删掉了');
+    if (t.closest('[data-schclear]')) {
+      if (!this.armedOk('ab-sch-clear', '清空课表和 DDL')) return;
+      return this.act(() => this.api.clearSchedule(), '课表和 DDL 清空了');
+    }
     const go = t.closest('[data-go]');
     if (go && this.goto) return this.goto(go.dataset.go, Number(go.dataset.msg));
     const clear = t.closest('[data-clear]');
@@ -191,7 +246,11 @@ export class AboutPanel {
     e.preventDefault();
     const f = e.target;
     const data = new FormData(f);
-    const text = String(data.get('text') || '').trim();
+    const val = (k) => String(data.get(k) || '').trim();
+    if (f.id === 'ab-game') return this.act(() => this.api.addGame(val('exe'), val('name')), '加好了');
+    if (f.id === 'ab-class') return this.act(() => this.api.addClass(Number(val('weekday')), val('start'), val('end'), val('name')), '加好了');
+    if (f.id === 'ab-ddl') return this.act(() => this.api.addDdl(val('name'), val('due')), '加好了');
+    const text = val('text');
     if (!text) return;
     if (f.id === 'ab-add') return this.act(() => this.api.add(text, String(data.get('domain') || '')), '记下了');
     if (f.classList.contains('ab-editf')) {
