@@ -62,7 +62,7 @@ def test_clean_reply():
     assert clean_reply("x" * 20, "阿二", 10) == "x" * 10 + "…"
 
 
-async def test_replies_are_recorded_and_see_each_other():
+async def test_replies_are_recorded_and_think_independently():
     env = Env()
     room = chat(env)
     env.fake.queue("b1", "阿一：我先说")
@@ -76,7 +76,8 @@ async def test_replies_are_recorded_and_see_each_other():
     ]
     first, second = env.fake.calls[-2:]
     assert "用户：@阿一 @阿二 大家好" in first.messages[-1].content
-    assert "阿一：我先说" in second.messages[-1].content  # 后发言的人看得到前面的回应
+    # 大家同时独立想：后发言的人看不到别人还没发出的回复
+    assert "我先说" not in second.messages[-1].content
     assert "<chat>" in second.messages[-1].content and "阿二" in second.messages[0].content
     assert first.params["max_tokens"] == env.config.roundtable.chat.max_tokens
     session = env.rt.repo.chat_session("main")
