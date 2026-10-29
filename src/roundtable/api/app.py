@@ -110,6 +110,21 @@ class ChatBody(BaseModel):
     text: str = ""
     room: str = "main"
     media: list[dict[str, Any]] = Field(default_factory=list)  # POST /api/chat/media 返回的 id
+    quote: int | None = None  # 引用的消息 id
+
+
+class PatBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    member: str
+    room: str = "main"
+
+
+class RecallBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: int
+    room: str = "main"
 
 
 class HandoffBody(BaseModel):
@@ -609,7 +624,15 @@ def create_app(service: RoundtableService | None = None, lan: LanAccess | None =
 
     @app.post("/api/chat", status_code=202)
     async def chat_post(request: Request, body: ChatBody) -> dict[str, Any]:
-        return await svc(request).chat_post(body.text, body.room, body.media)
+        return await svc(request).chat_post(body.text, body.room, body.media, body.quote)
+
+    @app.post("/api/chat/pat", status_code=202)
+    async def chat_pat(request: Request, body: PatBody) -> dict[str, Any]:
+        return await svc(request).chat_pat(body.member, body.room)
+
+    @app.post("/api/chat/recall")
+    async def chat_recall(request: Request, body: RecallBody) -> dict[str, Any]:
+        return svc(request).chat_recall(body.id, body.room)
 
     @app.post("/api/chat/media", status_code=201)
     async def chat_media_upload(request: Request) -> dict[str, Any]:

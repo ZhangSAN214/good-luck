@@ -1122,6 +1122,25 @@ class Repository:
         row = self._exec("SELECT * FROM chat_messages WHERE id = ?", (cur.lastrowid,)).fetchone()
         return _chat_row(row)
 
+    def chat_message(self, message_id: int) -> dict[str, Any] | None:
+        row = self._exec("SELECT * FROM chat_messages WHERE id = ?", (message_id,)).fetchone()
+        return _chat_row(row) if row else None
+
+    def recall_chat_message(self, message_id: int) -> dict[str, Any] | None:
+        """撤回：清掉文字和附件清单，只留「已撤回」标记（时间、作者不变）。"""
+        row = self.chat_message(message_id)
+        if row is None:
+            return None
+        meta = {
+            k: v for k, v in (row["meta"] or {}).items() if k not in ("media", "caption", "quote")
+        }
+        meta["recalled"] = True
+        self._exec(
+            "UPDATE chat_messages SET text = '', meta = ? WHERE id = ?",
+            (json.dumps(meta, ensure_ascii=False), message_id),
+        )
+        return self.chat_message(message_id)
+
     def ensure_chat_room(
         self,
         room: str,
