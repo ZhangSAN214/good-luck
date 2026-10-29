@@ -67,6 +67,7 @@
   3. 遇到 429、额度用尽、key 无效、模型不存在、网络错误、超时、5xx 时**切换到下一个渠道**；请求本身有问题（400）或模型拒答时不切换。
   4. 所有渠道都失败后按 `failover_rounds` 退避重试；额度用尽 / key 无效的渠道本次不再重试。
   5. 出错的渠道进入冷却期（限流短、额度长，参考 `retry-after`），冷却中排到最后。
+  6. **渠道优先顺序**（`providers/priority.py`，`roundtable.yaml` 的 `channel_priority`，界面「余额与用量 → 走哪条路」可改，存 `app_settings` 的 `channels.priority`）：`auto` 按 `routes` 顺序，`custom` 按用户列的渠道先后；渠道填了每月附送额度（`models.yaml` 渠道的 `monthly_credit_usd` 或界面填写）时，本月按本机账本没用完排最前、用完排最后（`budget/channels.py` 的 `MonthSpend`，缓存 30 秒）。只决定走哪条路，不影响谁上桌。
 - **限速与并发**（`request.max_concurrent` / `request.requests_per_minute`，按渠道分别计，在 `ChannelRouter.invoke` 里）：同时在途的请求数超过上限时排队；每分钟请求数达到上限时等待而不是报错。Web 服务另有 `limits.max_running_sessions`（同时在后台执行的讨论数，超过时 HTTP 429；等待确认的不占名额）。
 - 适配器本身不重试（SDK 的 `max_retries=0`），重试和切换只由路由负责。
 - 每次调用返回 `Completion`：实际走的渠道、渠道类型、各次尝试（渠道 + 错误类型）、token、费用及来源。
