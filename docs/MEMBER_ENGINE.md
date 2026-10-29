@@ -44,6 +44,12 @@
 - `member_profiles`：`(member, version)` 主键，整份档案（JSON）、`author`（user / growth / program …）、`reason`、`changes`（改了哪几项）、时间。
 - `member_events`：时间、种类、成员、数据（JSON）。
 
+## 工作与生活（用户 2026-10-29 硬性要求）
+
+- `core/member/mode.py`：`mode_of(workflow)`，只有 `chat`（聊天、朋友圈、生活）是生活模式，其余（讨论、协同、办公室、个人作答、头脑风暴……）都是工作模式。
+- **工作模式不挂载成员引擎**：`MemberEngine.context(..., mode="work")` 直接报错；编排引擎、步骤、路由、分配、提示词、办公室的代码不得 import `core.member`（测试守卫）；跑讨论 / 办公室 / 个人作答 / 协同时，发给模型的每条消息都不含档案、事件等成员模块的内容（测试守卫，`tests/core/member/test_mode.py`）。
+- **生活模式只读工作**：引擎每次推进把成员在办公室办过的活转成 `work.done` 事件（成员、场次、题目），之后由记忆订阅成经历；不反写工作；匿名开启且未揭晓的场次不读。
+
 ## 扩展：感知事件（预留接口）
 
 感官方案（看视频、听声音、读图文、天气、地图）以后把感知结果作为事件发到总线：`kind = "perceive.<种类>"`（如 `perceive.video`），`member` 是感知者，`at` 是时间，`data = {card: 感知卡文本, source: 出处}`，用 `bus.perception(...)` 构造。情绪、喜好、记忆、行为决策用 `subscribe("perceive.*", …)` 订阅；「一个事件最多触发 1 次模型调用」由订阅模块经心跳 / 预算调度器保证。现在只留接口，没有发这类事件的代码。

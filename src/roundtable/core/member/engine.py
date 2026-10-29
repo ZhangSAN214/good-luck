@@ -17,6 +17,7 @@ from typing import Any
 from roundtable.core.member.bus import Event, EventBus
 from roundtable.core.member.context import Context, Piece, assemble
 from roundtable.core.member.heartbeat import Heartbeat
+from roundtable.core.member.mode import Mode, require_life
 from roundtable.core.member.profile import ProfileStore
 from roundtable.core.member.scheduler import BudgetScheduler
 from roundtable.core.storage.repository import iso
@@ -38,7 +39,9 @@ class MemberEngine:
     def rules(self) -> Any:
         return self.rt.config.roundtable.chat.engine
 
-    def context(self, pieces: list[Piece]) -> Context:
+    def context(self, pieces: list[Piece], mode: Mode | str = Mode.LIFE) -> Context:
+        """组装上下文；只在生活模式用，工作模式调用会报错（工作与生活分开）。"""
+        require_life(mode)
         r = self.rules.context
         return assemble(pieces, r.budget_chars, r.per_source, r.min_piece_chars)
 
@@ -50,12 +53,30 @@ class MemberEngine:
             for member in e["members"]:
                 self.bus.publish(Event("life.event", datetime.fromisoformat(e["at"]), member, data))
                 n += 1
+        n += self.bridge_work(start, end)
         for m in repo.chat_messages_between(iso(start), iso(end)):
             data = {"room": m["room"], "id": m["id"], "life": bool((m["meta"] or {}).get("life"))}
             author = None if m["author"] in ("user", "system") else m["author"]
             data["from_user"] = m["author"] == "user"
             at = datetime.fromisoformat(m["created_at"])
             self.bus.publish(Event("chat.message", at, author, data))
+            n += 1
+        return n
+
+    def bridge_work(self, start: datetime, end: datetime) -> int:
+        """生活模式只读工作：[start, end) 内成员在办公室办过的活 → ``work.done`` 经历事件。
+
+        只读、不反写工作；匿名开启且未揭晓的场次不读。"""
+        vendor = {m.id: m.vendor for m in self.rt.config.models.models}
+        n = 0
+        for row in self.rt.repo.office_work_between(start, end):
+            if row["anonymous"] and not row["revealed_at"]:
+                continue
+            member = vendor.get(row["model_id"])
+            if member is None:
+                continue
+            data = {"session_id": row["session_id"], "question": row["question"][:200]}
+            self.bus.publish(Event("work.done", datetime.fromisoformat(row["at"]), member, data))
             n += 1
         return n
 
