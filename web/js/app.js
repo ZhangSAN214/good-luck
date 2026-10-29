@@ -85,7 +85,7 @@ const S = {
   tier: null, // 档位名或 custom
   workflow: savedWorkflow() || 'office', // 记住上次选的方式；office 办公室（经理派一位员工办理，默认）/ discussion 讨论 / collab 协同 / solo 个人作答 / auto 自动（分诊小组先给建议）
   anonymous: false,
-  media: null, // 输出类型：null 文字 / image / speech / video（仅讨论模式）
+  media: null, // 输出类型：null 文字 / image / speech / video / music（仅讨论模式）
   mediaTier: 'budget', // 媒体模型档位
   live: freshLive(),
   stream: null, // AbortController

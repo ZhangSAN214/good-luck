@@ -50,7 +50,7 @@ class CreateSession(BaseModel):
     workflow: str = "discussion"  # discussion 讨论 / collab 协同
     seed: int | None = None
     attachments: list[str] = Field(default_factory=list)  # POST /api/uploads 返回的附件 id
-    media: str | None = None  # 讨论模式的输出类型：image / speech / video
+    media: str | None = None  # 讨论模式的输出类型：image / speech / video / music
     media_tier: str | None = None  # 媒体模型的档位：budget / flagship
     # 作为风格参考的图片附件 id；省略 = 全部图片都是风格参考，[] = 都不是
     style_refs: list[str] | None = None

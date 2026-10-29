@@ -122,7 +122,7 @@ def _group_line(mode: str, group: dict[str, Any]) -> str:
     return f"{MODE_LABELS[mode]}（{people} 人）约 {span}"
 
 
-MEDIA_NAMES = {"image": "图片", "speech": "语音", "video": "视频"}
+MEDIA_NAMES = {"image": "图片", "speech": "语音", "video": "视频", "music": "音乐"}
 JOB_STATE = {
     "submitted": "已提交",
     "pending": "排队中",
@@ -1546,8 +1546,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     ask.add_argument(
         "--media",
-        choices=["image", "speech", "video"],
-        help="输出类型（仅讨论模式）：商定提示词 → 生成图片 / 语音 / 视频 → 评审 → 重新生成",
+        choices=["image", "speech", "video", "music"],
+        help="输出类型（仅讨论模式）：商定提示词 → 生成图片 / 语音 / 视频 / 音乐 → 评审 → 重新生成",
     )
     ask.add_argument(
         "--media-tier",
@@ -1634,7 +1634,7 @@ def build_parser() -> argparse.ArgumentParser:
     estimate.add_argument("--models", help="自选：逗号分隔的模型 id")
     estimate.add_argument("--coordinator", help="自选时指定统筹")
     estimate.add_argument("--anonymous", action="store_true", help="不显示上桌的模型名")
-    estimate.add_argument("--media", choices=["image", "speech", "video"], help="输出类型")
+    estimate.add_argument("--media", choices=["image", "speech", "video", "music"], help="输出类型")
     estimate.add_argument("--media-tier", choices=["budget", "flagship"], help="媒体模型的档位")
     estimate.add_argument("--seed", type=int, help="随机种子（与 ask --seed 相同时阵容一致）")
     files = sub.add_parser("files", help="把成员生成的文件保存到本地目录")

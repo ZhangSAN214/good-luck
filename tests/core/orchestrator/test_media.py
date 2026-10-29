@@ -507,3 +507,39 @@ async def test_rewritten_prompt_is_persisted_and_not_regenerated_on_resume():
     before = len([c for c in env.fake.calls if REWRITE in c.messages[0].content])
     saved = env.rt.repo.outputs(r.session_id, kind="media_prompt")
     assert before == 1 and [json.loads(o["content"])["prompt"] for o in saved] == [GOOD_PROMPT]
+
+
+async def test_music_is_generated_once_without_review():
+    env = make_env()
+    r = await start(env, "music")
+    assert r.status == "completed"
+    done = jobs(env, r.session_id)
+    assert [(j["kind"], j["round"], j["state"]) for j in done] == [("music", 1, "completed")]
+    assert len(media_calls(env, "music")) == 1
+    assert not [c for c in env.fake.calls if REVIEW in c.messages[0].content]  # 听不了，不评审
+    answers = [c for c in env.fake.calls if "独立完成同一道题" in c.messages[0].content]
+    assert "这次要生成的成果是「音乐」" in answers[0].messages[1].content
+
+
+def limit_creative(env: Env, usd: float) -> None:
+    rules = env.rt.config.roundtable.media.model_copy(update={"monthly_usd": usd})
+    rt_cfg = env.rt.config.roundtable.model_copy(update={"media": rules})
+    env.rt.config = env.rt.config.model_copy(update={"roundtable": rt_cfg})
+
+
+async def test_creative_monthly_cap_asks_before_generating():
+    env = make_env()
+    limit_creative(env, 0.01)  # 一张图 $0.04 就会超过
+    r = await start(env)
+    assert r.status == "awaiting_confirmation" and r.checkpoint.kind == "media"
+    assert "创作每月上限" in r.checkpoint.card["situation"]
+    assert not media_calls(env, "image")
+    r = await env.orc.respond(r.session_id, "generate")
+    assert r.status == "completed" and len(media_calls(env, "image")) == 1
+
+
+async def test_creative_monthly_cap_zero_means_no_limit():
+    env = make_env()
+    limit_creative(env, 0)
+    r = await start(env)
+    assert r.status == "completed" and len(media_calls(env, "image")) == 1

@@ -400,3 +400,48 @@ async def test_prompt_masking_follows_the_anonymity_switch(rig: Rig):
         "image", text, Placement(0, "media", 3), tier="budget"
     )
     assert rig.calls("image")[-1][2] == text
+
+
+# --- 音乐、视频带声音与首帧、创作月花费 ---------------------------------------------------
+
+
+async def test_music_generated_once_billed_per_song_with_lyrics(rig: Rig):
+    svc = rig.service()
+    assert svc.model_for("music", "budget").id == "lyria-3-clip"
+    assert svc.model_for("music", "flagship").id == "lyria-3-pro"
+    res = await svc.generate("music", "轻快的钢琴片头，30 秒，纯音乐", WHERE)
+    assert res.ok and res.cost_usd == pytest.approx(0.04)  # 按段计价
+    row = rig.rt.repo.file(rig.sid, res.file_id)
+    assert (row["kind"], row["mime"], row["path"]) == ("audio", "audio/mpeg", "music_r1.mp3")
+    job = rig.rt.repo.media_jobs(rig.sid)[0]
+    assert job["kind"] == "music" and job["params"]["lyrics"] == "[Verse] fake lyrics"
+    assert rig.calls("music")[0][3]["format"] == "mp3"
+    assert svc.estimate("music", "flagship") == pytest.approx(0.08)
+
+
+async def test_music_prompt_limited_to_music_max_chars(rig: Rig):
+    limit = rig.config.roundtable.media.music.max_chars
+    await rig.service().generate("music", "旋律" * limit, WHERE)
+    assert len(rig.calls("music")[0][2]) == limit
+
+
+async def test_video_asks_for_sound_and_sends_first_frame_only_to_capable_models(rig: Rig):
+    svc = rig.service()
+    await svc.generate("video", "海浪", WHERE, tier="budget", references=[REF, REF])
+    assert rig.calls("video")[0][3]["generate_audio"] is True
+    assert rig.fake.video_frames[0] == ()  # 节电档的这个视频模型不支持首帧
+    await svc.generate("video", "海浪", Placement(0, "media", 2), tier="flagship", references=[REF])
+    assert rig.fake.video_frames[1] == (REF,)
+    quiet = Rig(audio=False)
+    await quiet.service().generate("video", "海浪", WHERE)
+    assert quiet.calls("video")[0][3]["generate_audio"] is False
+
+
+async def test_month_spent_counts_all_media_this_month_only(rig: Rig):
+    rig.fake.media_cost = 0.5
+    svc = rig.service()
+    await svc.generate("image", "猫", WHERE)
+    await svc.generate("music", "歌", Placement(0, "media", 2))
+    assert svc.month_spent() == pytest.approx(1.0)
+    rig.rt.repo.clock = lambda: "2999-01-15T00:00:00+00:00"  # 下一个自然月
+    assert svc.month_spent() == pytest.approx(0.0)

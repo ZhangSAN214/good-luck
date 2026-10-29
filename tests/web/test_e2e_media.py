@@ -32,7 +32,7 @@ def test_output_selector_reflects_availability(serve, page):
     page.goto(srv2.url)
     page.wait_for_selector("#media button[data-v='image']:not([disabled])")
     labels = page.locator("#media button").all_inner_texts()
-    assert labels == ["文字", "图片", "语音", "视频"]
+    assert labels == ["文字", "图片", "语音", "视频", "音乐"]
     assert page.is_hidden("#mediatier")  # 选了媒体输出后才出现质量档位
     choose_output(page, "video")
     assert page.is_visible("#mediatier")

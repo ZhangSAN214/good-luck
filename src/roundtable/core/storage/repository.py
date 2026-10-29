@@ -2136,6 +2136,14 @@ class Repository:
             (workflow, iso(start), iso(end)),
         ).fetchone()[0]
 
+    def spent_in_role(self, role: str, start: datetime, end: datetime) -> float:
+        """[start, end) 内某种调用角色（calls.role，如 'media'）的花费：创作输出的每月上限。"""
+        return self._exec(
+            "SELECT COALESCE(SUM(cost_usd), 0) FROM calls WHERE role = ? AND created_at >= ?"
+            " AND created_at < ?",
+            (role, iso(start), iso(end)),
+        ).fetchone()[0]
+
     def spent_in_step(self, step: str, start: datetime, end: datetime) -> float:
         """[start, end) 内某个步骤名（calls.step，如 'plain_rewrite'）的调用花费。"""
         return self._exec(

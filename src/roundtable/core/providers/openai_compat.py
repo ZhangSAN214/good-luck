@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import json
 from collections.abc import Sequence
 from typing import Any
 
@@ -283,6 +284,59 @@ class OpenAICompatProvider(Provider):
         mime = {"mp3": "audio/mpeg", "wav": "audio/wav", "opus": "audio/ogg"}.get(fmt, "audio/mpeg")
         return MediaOutput(Media("audio", mime, response.content, f"speech.{fmt}"))
 
+    async def generate_music(self, model: str, prompt: str, params: dict[str, Any]) -> MediaOutput:
+        """音乐模型走对话接口：modalities ["text","audio"]、必须流式；每个 SSE 片段的
+        delta.audio.data 是一段 base64 音频（逐段解码后拼接），delta.content 是歌词 / 说明，
+        最后一个片段带 usage.cost（见 https://openrouter.ai/docs/guides/overview/multimodal/audio）。"""
+        params = dict(params)
+        fmt = params.pop("format", "mp3")
+        params.pop("max_tokens", None)
+        body = {
+            **params,
+            "model": model,
+            "messages": [{"role": "user", "content": prompt}],
+            "modalities": ["text", "audio"],
+            "audio": {"format": fmt},
+            "stream": True,
+        }
+        response = await self._send("POST", "chat/completions", json=body)
+        audio = bytearray()
+        text: list[str] = []
+        cost: float | None = None
+        for line in response.text.splitlines():
+            if not line.startswith("data:"):
+                continue
+            payload = line[5:].strip()
+            if not payload or payload == "[DONE]":
+                continue
+            try:
+                chunk = json.loads(payload)
+            except ValueError:
+                continue
+            if not isinstance(chunk, dict):
+                continue
+            if chunk.get("error"):
+                code, message = error_fields(chunk)
+                status = int(code) if code and code.isdigit() else 500
+                raise self._error(kind_for_status(status, code), message or "生成失败")
+            for choice in chunk.get("choices") or ():
+                delta = (choice or {}).get("delta") or {}
+                piece = (delta.get("audio") or {}).get("data")
+                if isinstance(piece, str) and piece:
+                    try:
+                        audio += base64.b64decode(piece)
+                    except ValueError:
+                        continue
+                if isinstance(delta.get("content"), str):
+                    text.append(delta["content"])
+            usage = chunk.get("usage") or {}
+            if usage.get("cost") is not None:
+                cost = _float_or_none(usage.get("cost"))
+        if not audio:
+            raise self._error(ErrorKind.INVALID_RESPONSE, "没有返回音频")
+        mime = {"mp3": "audio/mpeg", "wav": "audio/wav"}.get(fmt, "audio/mpeg")
+        return MediaOutput(Media("audio", mime, bytes(audio), f"music.{fmt}"), cost, "".join(text))
+
     async def transcribe(self, model: str, audio: Media, params: dict[str, Any]) -> Transcription:
         fmt = AUDIO_FORMATS.get(audio.mime, audio.mime.split("/")[-1])
         body: dict[str, Any] = {
@@ -301,6 +355,7 @@ class OpenAICompatProvider(Provider):
     async def submit_video(
         self, model: str, prompt: str, params: dict[str, Any], images: Sequence[Media] = ()
     ) -> VideoJob:
+        """images：第一张作首帧、第二张作尾帧（frame_images[*].frame_type，图生视频）。"""
         body: dict[str, Any] = {"model": model, "prompt": prompt, **params}
         if images:
             body["frame_images"] = [
@@ -309,8 +364,9 @@ class OpenAICompatProvider(Provider):
                     "image_url": {
                         "url": f"data:{m.mime};base64,{base64.b64encode(m.data).decode('ascii')}"
                     },
+                    "frame_type": frame,
                 }
-                for m in images
+                for m, frame in zip(images, ("first_frame", "last_frame"), strict=False)
             ]
         return self._job(self._json(await self._send("POST", "videos", json=body)))
 
