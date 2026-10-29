@@ -88,7 +88,7 @@ class MemberEngine:
         repo = self.rt.repo
         last = repo.setting(LAST_KEY)
         start = datetime.fromisoformat(last) if last else now - timedelta(hours=1)
-        start = max(start, now - timedelta(days=self.rules.bus.keep_days))
+        start = max(start, now - timedelta(days=self.rules.bus.catch_up_days))
         if start < now:
             out["events"] = self.bridge(start, now)
         repo.set_setting(LAST_KEY, now.isoformat())

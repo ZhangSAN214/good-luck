@@ -1445,6 +1445,13 @@ class RoundtableService:
         n = self.engine.profiles.clear(member)
         return {"member": member, "deleted": n}
 
+    def member_events_count(self) -> dict[str, Any]:
+        return {"events": self.rt.repo.count_member_events()}
+
+    def member_events_clear(self) -> dict[str, Any]:
+        """一键清空成员引擎记下的全部事件（只存本机的经历数据）。"""
+        return {"deleted": self.engine.bus.clear()}
+
     def life_reports(self) -> dict[str, Any]:
         """生活的每周自检（docs/CHAT.md G9）：已存的每周报告（新的在前）和最近 7 天的实时报告。"""
         now = self.rt.budget.now()

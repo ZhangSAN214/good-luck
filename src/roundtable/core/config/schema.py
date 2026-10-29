@@ -848,7 +848,9 @@ class HeartbeatRules(_Strict):
 
 class BusRules(_Strict):
     persist: bool = True  # 事件存进 member_events
-    keep_days: int = Field(default=14, ge=1, le=365)
+    # 事件保留几天；None 为一直保留（攒经历数据，以后可能用来训练本地小模型；只存本机）
+    keep_days: int | None = Field(default=None, ge=1, le=3650)
+    catch_up_days: int = Field(default=14, ge=1, le=365)  # 开机补算最多往回看几天
 
 
 class EvalRules(_Strict):
