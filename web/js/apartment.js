@@ -980,7 +980,7 @@ export class Apartment {
     const d = this.data;
     const dorms = this.dormNames();
     const sel = this.people().find((r) => r.id === this.selected);
-    let h = `<div class="sh"><b>进驻总览</b><span>RESIDENTS · ${(d.residents || []).length}</span></div><div class="clock"><span class="big">${esc(this.clock)}</span><span class="day">${esc(this.day || '')}</span><span class="hint">按你电脑的时间作息，30 秒刷新一次</span></div>`;
+    let h = `<div class="sh"><b>进驻总览</b><span>RESIDENTS · ${(d.residents || []).length}</span></div><div class="clock"><span class="big">${esc(this.clock)}</span><span class="day">${esc(this.day || '')}</span><span class="hint">按主时区（终端时钟里点星星选）作息，30 秒刷新一次</span></div>`;
     if (sel) {
       const m = this.look(sel);
       h += `<div class="card" id="resident-card"><div class="who">${m?.images?.avatar_128 ? `<img src="${esc(m.images.avatar_128)}" alt="">` : ''}<div><b>${esc(m?.display || sel.name)}</b><div class="hint">${esc(ROLE[sel.role] || sel.role)} · 住 ${esc(dorms[sel.dorm] || '')}</div></div></div>`;
