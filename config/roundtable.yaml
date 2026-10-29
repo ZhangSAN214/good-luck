@@ -44,10 +44,15 @@ chat:
     enabled: true
     context_chars: 800             # 聊天时最多带多少字的记忆
     catch_up_days: 7               # 最多补整理几天前的聊天
-    recall: layers                 # 召回方式：layers 按时间固定带几层；half_life 半衰期记忆（按相关 × 鲜活 × 重要挑）
+    recall: half_life              # 召回方式：half_life 半衰期记忆（默认，按相关 × 鲜活 × 重要挑）；layers 按时间固定带几层（旧）
     half_life_days: 30             # 半衰期记忆：发生过的事过 30 天鲜活度减半（不删，只排后）
     inject_max: 6                  # 半衰期记忆：每次聊天最多带几件
     daily_quota: 8                 # 半衰期记忆：每人每天最多记几件事
+    freshness_floor: 0.5           # 鲜活度保底：再久的事也不低于一半（只排后，不删）
+    night: true                    # 每晚整理合并成一次调用：第一人称日记 + 记忆件 + 挂着的事（心情只改回忆语气和重要度，留旧版）
+    domains: [学术, 日常, 工作, 娱乐, 社交, 身心]   # 领域标签
+    hanging_max: 5                 # 脑子里挂着的事最多几件
+    diary: {enabled: true, daily_reads: 3}       # 翻日记：只在生活模式，每位成员每天最多翻 3 次
   life:                            # 生活引擎：你不在时成员按作息过日子、彼此聊天（不主动找你）
     enabled: true
     daily_usd: 0.10                # 生活（含记忆整理）每天最多花多少；约 $3 / 月
@@ -217,7 +222,10 @@ prompts:
   memory_day: v1         # 记忆：把一天的聊天压成一段
   memory_roll: v1        # 记忆：日 → 周、周 → 月
   memory_profile: v1     # 记忆：更新长期档案
-  memory_items: v1       # 记忆（半衰期，recall: half_life 时用）：一天的聊天拆成几件事，重要的标 ★
+  memory_items: v1       # 记忆（半衰期，night: false 时用）：一天的聊天拆成几件事，重要的标 ★
+  memory_night: v1       # 记忆（P2）：每晚一次调用整理一天，写第一人称日记 + 记忆件 + 挂着的事
+  memory_diary: v1       # 记忆（P2）：翻日记工具的说明（生活模式的私聊、生活群）
+  memory_diary_result: v1  # 记忆（P2）：把翻到的日记交回给成员
   member_eval: v1       # 成员评测集：情境题（规则判分，离线用假模型）
   life_chat: v2          # 生活：成员之间聊天（公寓楼里的模拟生活）
   life_share: v2         # 生活：成员把上网看到的一条内容分享到生活群
