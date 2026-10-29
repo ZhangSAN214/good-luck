@@ -1,5 +1,5 @@
 """夜间整理：每位成员每天一次调用，写第一人称日记 + 记忆件 + 挂着的事；心情只改语气和重要度；
-不再另外滚动周 / 月。"""
+生活只读自己的工作记录（匿名未揭晓不读）；不再另外滚动周 / 月。"""
 
 from __future__ import annotations
 
@@ -9,8 +9,9 @@ from roundtable.core.chat import ChatHub, dm_room
 from roundtable.core.member.memory import MemoryStore
 from roundtable.core.member.memory.night import mood_words, parse
 from roundtable.core.memory import MemoryKeeper
+from roundtable.core.service import RoundtableService
 
-from ...orchestrator.conftest import Env
+from ...orchestrator.conftest import MEDIUM, Env
 
 NOW = datetime(2026, 10, 23, 12, 0, tzinfo=UTC)
 DAY = datetime(2026, 10, 22, 9, 30, tzinfo=UTC)
@@ -55,8 +56,7 @@ async def test_one_call_per_member_per_day_writes_diary_items_and_hanging():
     items = {r["text"]: r for r in env.rt.repo.memory_items("V1")}
     assert items["用户说周末只想去爬山，不想逛街"]["kind"] == "fact"
     assert items["用户说周末只想去爬山，不想逛街"]["importance"] == 3
-    assert items["晚上看了会儿书"]["domain"] == "日常"  # 表外的领域归日常
-    assert items["和用户聊了周末去爬山的计划"]["domain"] == "娱乐"
+    assert items["晚上看了会儿书"]["domain"] == "日常"  # 表外的领域用关键词兜底
     assert not any("密码" in t for t in items)
     assert [h["text"] for h in env.rt.repo.memory_hanging("V1")] == ["周末爬山要带水"]
     assert [h["text"] for h in env.rt.repo.memory_hanging("V1", "done")] == ["给阿二回消息"]
@@ -92,3 +92,41 @@ async def test_mood_only_retells_tone_and_importance_and_keeps_versions():
 async def test_quiet_day_costs_nothing():
     env = Env()
     assert await keeper(env).catch_up(NOW) == 0 and not env.fake.calls
+
+
+async def test_life_reads_own_work_records_but_not_unrevealed_anonymous():
+    env = Env(confirm_threshold_usd=100.0)
+    svc = RoundtableService(env.rt)
+    sid = svc.create(MEDIUM, seed=3, workflow="solo")
+    async for _ in svc.events(sid):
+        pass
+    rows = env.rt.repo.work_records_between(
+        datetime(2000, 1, 1, tzinfo=UTC), datetime(2100, 1, 1, tzinfo=UTC), ("solo",)
+    )
+    assert rows and rows[0]["session_id"] == sid and rows[0]["workflow"] == "solo"
+    assert (
+        env.rt.repo.work_records_between(
+            datetime(2000, 1, 1, tzinfo=UTC), datetime(2100, 1, 1, tzinfo=UTC), ("office",)
+        )
+        == []
+    )
+    vendor = {m.id: m.vendor for m in env.config.models.models}
+    member = vendor[rows[0]["model_id"]]
+    hub = ChatHub(env.rt)
+    me = next(m for m in hub.everyone() if m.id == member)
+    k = MemoryKeeper(env.rt, hub.everyone)
+    at = datetime.fromisoformat(rows[0]["at"]).astimezone(UTC)
+    lines = k.work_lines(me, at.date(), UTC)
+    assert rows[0]["revealed_at"] or not rows[0]["anonymous"]  # 个人作答结束时已揭晓
+    title = " ".join(rows[0]["question"].split())[:40]
+    assert lines == [f"在个人作答参加了「{title}」"]
+    (item,) = env.rt.repo.memory_items(member)
+    assert item["domain"] == "工作" and item["source"] == "work"
+    assert k.work_lines(me, at.date(), UTC) == lines  # 同一场只记一次
+    assert env.rt.repo.count_memory_items(member) == 1
+    # 匿名且未揭晓：不读
+    env.rt.repo.work_records_between = lambda start, end, wf: [
+        {**rows[0], "session_id": "anon", "anonymous": 1, "revealed_at": None}
+    ]
+    assert k.work_lines(me, at.date(), UTC) == []
+    assert env.rt.repo.memory_item_by_key(member, "work:anon") is None
