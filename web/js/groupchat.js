@@ -21,6 +21,7 @@ const SLOW_MS = 8000;
 const FAST_FOR_MS = 25_000; // 发出消息后这么久内保持快速轮询
 const EVERYONE = '全员';
 const ROOM_KEY = 'roundtable.chat.room';
+const SENSES = '感官'; // 「正在输入」里的这一项表示感官正在看 / 听你发的内容
 
 const storage = {
   get() {
@@ -50,7 +51,7 @@ export function atQuery(text, caret) {
 export class GroupChat {
   constructor(root, { api, now = () => Date.now(), openSession = null, openPeople = null, openFeeds = null, openMoments = null } = {}) {
     this.root = root;
-    this.api = api; // {get(after, q, room), post(text, room, media, quote), pat(member, room), recall(id, room), clear(room), rooms(), handoff(text)}
+    this.api = api; // {get(after, q, room), post(text, room, media, quote), pat(member, room), recall(id, room), clear(room), rooms(), handoff(text), look(id, room)}
     this.openSession = openSession; // 工作群里点「查看」：回到办公室里的这件事
     this.openPeople = openPeople; // 成员设定与记忆
     this.openFeeds = openFeeds; // 上网：订阅源
@@ -203,6 +204,8 @@ export class GroupChat {
       if (e.target.closest('#gc-exit-search')) this.runSearch('');
       const open = e.target.closest('[data-session]');
       if (open && this.openSession) this.openSession(open.dataset.session);
+      const look = e.target.closest('[data-look]');
+      if (look) this.lookCloser(Number(look.dataset.look), look);
     });
     this.$('#gc-handoff').addEventListener('click', () => this.handoff());
     this.$('#gc-people').hidden = !this.openPeople;
@@ -239,7 +242,7 @@ export class GroupChat {
   schedule() {
     clearTimeout(this.timer);
     if (this.root.hidden) return;
-    const fast = this.typing.length || this.now() < this.fastUntil;
+    const fast = this.typing.length || this.watchSeen || this.now() < this.fastUntil;
     this.timer = setTimeout(() => this.poll(), fast ? FAST_MS : SLOW_MS);
   }
 
@@ -281,8 +284,22 @@ export class GroupChat {
         this.pending = (this.pending || []).filter((n) => queued.has(n) || this.typing.includes(n) || (data.typing || []).includes(n));
       }
       if ((this.pending || []).length) this.fastUntil = Math.max(this.fastUntil, this.now() + FAST_MS * 3);
-      const changed = newMembers || (data.messages || []).length || String(data.typing) !== String(this.typing);
+      let changed = newMembers || (data.messages || []).length || String(data.typing) !== String(this.typing);
       this.typing = data.typing || [];
+      // 感官看完（发图后或点了「细看」）：那条消息的「已看过」标记变了，整页重拉，直到标记出现（最多等 60 秒）
+      const want = this.watchSeen;
+      if (want && !this.typing.includes(SENSES)) {
+        const all = await this.api.get(0, '', room);
+        if (room === this.room && (all.messages || []).length) {
+          this.messages = all.messages;
+          this.lastId = this.messages[this.messages.length - 1].id;
+          changed = true;
+          const msg = this.messages.find((m) => m.id === want.id);
+          const cards = msg?.meta?.perception || [];
+          const done = cards.length && (want.mode !== 'fine' || cards.every((c) => c.mode === 'fine'));
+          if (done || this.now() > want.until) this.watchSeen = null;
+        }
+      }
       if (changed) this.renderAll();
     } catch (e) {
       if (e.message) {
@@ -304,6 +321,7 @@ export class GroupChat {
     this.search = null;
     this.pending = [];
     this.typing = [];
+    this.watchSeen = null;
     this.$('#gc-q').value = '';
     this.closeSuggest();
     this.quote = null;
@@ -339,6 +357,7 @@ export class GroupChat {
       const quote = this.quote?.id ?? null;
       const res = await this.api.post(text, this.room, media, quote);
       this.setQuote(null);
+      if (res && res.look) this.watchSeen = { id: res.id, mode: res.look, until: this.now() + 60_000 };
       // 排队等着回应的人：收到 TA 的消息（或系统说明 TA 为什么没回）后划掉
       this.pending = [...(this.pending || []), ...((res && res.speakers) || [])];
       if (!direct) {
@@ -690,8 +709,9 @@ export class GroupChat {
     const cls = `gc-msg${msg.author === 'user' ? ' me' : ''}${follow ? ' follow' : ''}`;
     const stamp = `<time datetime="${esc(msg.created_at)}">${esc(time)}</time>`;
     const tag = msg.meta?.event === 'handoff' ? `<span class="gc-tag">已交给办公室${look}</span>` : '';
+    const seen = this.seenTag(msg);
     const quote = this.quoteHTML(msg.meta?.quote);
-    if (msg.author === 'user') return `<div class="${cls}" data-id="${msg.id}"><div class="gc-body"><div class="gc-meta">${tag}${stamp}</div><div class="gc-bub${kindCls}">${text}</div>${quote}</div></div>`;
+    if (msg.author === 'user') return `<div class="${cls}" data-id="${msg.id}"><div class="gc-body"><div class="gc-meta">${tag}${seen}${stamp}</div><div class="gc-bub${kindCls}">${text}</div>${quote}</div></div>`;
     const member = this.members.find((m) => m.id === msg.author);
     const away = msg.meta?.offline ? '<span class="gc-tag away" title="你不在的时候发生的">你不在时</span>' : '';
     return `<div class="${cls}" data-id="${msg.id}" data-author="${esc(msg.author)}">${this.avatar(member, msg.name)}<div class="gc-body"><div class="gc-meta"><span class="gc-name">${esc(msg.name)}</span>${away}${stamp}</div><div class="gc-bub${kindCls}">${text}${card ? '' : this.source(msg.meta?.share)}</div>${quote}</div></div>`;
@@ -703,6 +723,35 @@ export class GroupChat {
     const orig = this.find(q.id);
     const body = orig?.meta?.recalled ? '引用的内容已撤回' : `${esc(this.nameOf(q.author))}：${richText(snip(q.text))}`;
     return `<button type="button" class="gc-quote" data-goto="${Number(q.id)}" title="查看原消息">${body}</button>`;
+  }
+
+  /** 你发的图片 / 视频 / 语音：感官看过后标「已看过 · 快速 / 精细」，并给一个「细看」按钮（精细模式重看一次）。 */
+  seenTag(msg) {
+    if (msg.author !== 'user' || !msg.meta?.media?.length || !this.api.look) return '';
+    const cards = msg.meta.perception || [];
+    const fine = cards.length && cards.every((c) => c.mode === 'fine');
+    const state = cards.length ? `<span class="gc-tag seen" title="成员读的是感官整理出的内容">已看过 · ${fine ? '精细' : '快速'}</span>` : '';
+    const btn = fine ? '' : `<button type="button" class="link gc-look" data-look="${msg.id}" title="用精细模式重新看一遍，再请一位成员回应">细看</button>`;
+    return `${state}${btn}`;
+  }
+
+  async lookCloser(id, btn) {
+    if (!id || btn.disabled) return;
+    btn.disabled = true;
+    btn.textContent = '细看中…';
+    try {
+      const res = await this.api.look(id, this.room);
+      this.pending = [...(this.pending || []), ...((res && res.speakers) || [])];
+      this.fastUntil = this.now() + FAST_FOR_MS;
+      this.watchSeen = { id, mode: 'fine', until: this.now() + 60_000 };
+      this.error = '';
+    } catch (e) {
+      this.error = e.message || '细看失败';
+      btn.disabled = false;
+      btn.textContent = '细看';
+    }
+    this.renderError();
+    await this.poll();
   }
 
   /** 上网分享的来源：标题链接、来源名、发布时间、未核实。只接受 http(s) 网址。 */
@@ -816,7 +865,10 @@ export class GroupChat {
     const t = this.$('#gc-typing');
     const waiting = (this.pending || []).filter((n) => !this.typing.includes(n));
     const parts = [];
-    if (this.typing.length) parts.push(`${this.typing.join('、')} 正在输入…`);
+    const looking = this.typing.includes(SENSES);
+    const typing = this.typing.filter((n) => n !== SENSES);
+    if (looking) parts.push('正在看你发的图片 / 视频 / 语音…');
+    if (typing.length) parts.push(`${typing.join('、')} 正在输入…`);
     if (waiting.length) parts.push(`接下来：${waiting.join('、')}`);
     t.hidden = !parts.length;
     t.innerHTML = `${this.typing.length ? '<i></i><i></i><i></i>' : ''}<span>${esc(parts.join('　'))}</span>`;

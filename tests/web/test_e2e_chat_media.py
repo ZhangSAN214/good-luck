@@ -147,3 +147,24 @@ def test_moment_with_photos_and_sticker_comment(serve, page, tmp_path):
     assert page.input_value(f".mo-cf[data-mid='{mid}'] input[name=text]") == "[表情:文字·好耶]"
     page.click(f".mo-cf[data-mid='{mid}'] button[type=submit]")
     page.wait_for_selector(".mo-comments svg.stk")
+
+
+def test_seen_mark_and_look_closer(serve, page, tmp_path):
+    """发图后感官先快速看一遍（标「已看过 · 快速」）；点「细看」改用精细，再有一位成员回应。"""
+    srv = media_server(serve, tmp_path)
+    repo = srv.env.rt.repo
+    page.goto(srv.url + "/#m=chat")
+    page.wait_for_selector(".gc-room[data-room='dm:V1']")
+    page.click(".gc-room[data-room='dm:V1']")
+    page.set_input_files(
+        "#gc-tools [data-cm-file='image']",
+        [{"name": "a.png", "mimeType": "image/png", "buffer": png_bytes()}],
+    )
+    page.wait_for_selector("#gc-tray .cm-thumb.done")
+    page.click("#gc-send")
+    page.wait_for_selector(".gc-msg.me .gc-tag.seen:has-text('已看过 · 快速')")
+    page.wait_for_selector(".gc-msg:not(.me) .gc-bub")
+    page.click(".gc-msg.me [data-look]")
+    page.wait_for_selector(".gc-msg.me .gc-tag.seen:has-text('已看过 · 精细')")
+    assert page.locator(".gc-msg.me [data-look]").count() == 0  # 精细看过就不再显示按钮
+    wait_until(lambda: len([m for m in repo.chat_messages("dm:V1") if m["author"] == "V1"]) == 2)

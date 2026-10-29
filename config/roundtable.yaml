@@ -274,6 +274,8 @@ prompts:
   evolve_review: v1      # 革新 PR 的对抗式复审（开发侧脚本 scripts/evolve_review.py，可选）
   web_search: v1         # 借助聚合平台联网搜索时发给搜索用模型的指令
   web_fetch: v1          # 借助聚合平台读取网页时发给读取用模型的指令
+  perceive_fast: v1      # 感官·快速：把用户发的图片 / 视频画面 / 语音转写整理成简短的感知卡
+  perceive_fine: v1      # 感官·精细：同上，写得更细，图里的字逐字抄下
   plain_talk: v1         # 说话底线（去八股化）：接在 plain_talk.roles 的每次调用上，所有成员相同
   plain_rewrite: v1      # 说话底线·改写：发言查出八股腔时成员自己用节电档改一次
 
@@ -923,3 +925,18 @@ clipper:
   max_clips: 200             # 资料夹最多存几份，超出时删最旧的
   search_results: 8
   search_estimate_usd: 0.01
+
+# 成员感官（docs/PERCEPTION.md）：聊天 / 私聊里你发的图片、语音、视频，先整理成「感知卡」，成员读卡回应。
+# 快速（默认）：图缩小、视频取 8 帧拼成 2 张宫格图、声音转写；你在消息里写「仔细看」等词时用精细：
+# 图更大、卡更长；有带 video_in 标签的模型时整段视频连声音交给它，否则多取帧不拼图。
+# 转写稿和感知卡按文件内容缓存，同一个文件不重复花钱；精细直接复用快速时的转写稿。
+# 模型只按标签和价格挑最便宜的。花费计入聊天月预算和总预算，另有感官自己的月上限。
+perception:
+  enabled: true
+  monthly_usd: 1.5
+  fast:  {image_side: 768,  video_frames: 8,  frame_side: 512, grid: true,  max_tokens: 600,  estimate_usd: 0.002}
+  fine:  {image_side: 1536, video_frames: 24, frame_side: 768, native_video: true, max_tokens: 2000, estimate_usd: 0.03}
+  fine_words: [仔细看, 细看, 看清楚, 看仔细, 仔细听, 听清楚]
+  max_audio_s: 600           # 语音 / 视频声音最多转写多长（秒）
+  native_max_mb: 20          # 整段视频交给模型的大小上限
+  card_chars: 800            # 每张感知卡最多保留多少字

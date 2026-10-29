@@ -822,6 +822,53 @@ class BrowseRules(_Strict):
     max_feed_kb: int = Field(default=1024, ge=16, le=8192)
 
 
+class PerceptionMode(_Strict):
+    """感官的一种精细程度（docs/PERCEPTION.md）：图片缩到多大、视频取几帧、感知卡写多长。"""
+
+    image_side: int = Field(ge=256, le=4096)  # 图片缩到长边不超过这么多像素
+    video_frames: int = Field(ge=1, le=64)  # 视频均匀取几帧（整段交给模型时不用）
+    frame_side: int = Field(ge=128, le=2048)  # 每帧缩到长边不超过这么多像素
+    grid: bool = False  # 每 4 帧拼成一张 2×2 宫格图（看图 token 约为原来的 1/4）
+    native_video: bool = False  # 有带 video_in 标签的模型时，整段视频连声音直接交给它
+    max_tokens: int = Field(ge=64, le=8000)  # 感知卡（一条消息的全部内容合计）的输出上限
+    estimate_usd: float = Field(ge=0)  # 一条消息的预估花费（预算检查用）
+
+
+class PerceptionRules(_Strict):
+    """成员感官（M11 感知，docs/PERCEPTION.md）：把用户发的图片、语音、视频整理成感知卡给成员读。
+
+    快速（默认）先看；用户要求细看时才补精细，转写稿和缓存都复用。花费计入聊天月预算和总预算，
+    另有感官自己的月上限。
+    """
+
+    enabled: bool = True
+    monthly_usd: float = Field(default=1.5, ge=0)  # 感官每月最多花多少（UTC 自然月）
+    fast: PerceptionMode = PerceptionMode(
+        image_side=768,
+        video_frames=8,
+        frame_side=512,
+        grid=True,
+        max_tokens=600,
+        estimate_usd=0.002,
+    )
+    fine: PerceptionMode = PerceptionMode(
+        image_side=1536,
+        video_frames=24,
+        frame_side=768,
+        native_video=True,
+        max_tokens=2000,
+        estimate_usd=0.03,
+    )
+    # 用户在消息里写了这些词时直接用精细模式
+    fine_words: list[str] = Field(
+        default_factory=lambda: ["仔细看", "细看", "看清楚", "看仔细", "仔细听", "听清楚"],
+        max_length=30,
+    )
+    max_audio_s: int = Field(default=600, ge=10, le=3600)  # 语音 / 视频声音最多转写多长
+    native_max_mb: float = Field(default=20, gt=0, le=60)  # 整段视频交给模型的大小上限
+    card_chars: int = Field(default=800, ge=100, le=4000)  # 每张感知卡最多保留多少字
+
+
 class ClipperRules(_Strict):
     """办公室的资料浏览器（docs/CLIPPER.md）：打开网页只读抓取（不花钱），搜索走联网搜索。"""
 
@@ -1346,6 +1393,7 @@ class RoundtableConfig(_Strict):
     evolution: EvolutionRules = EvolutionRules()
     mail: MailConfig = MailConfig()
     clipper: ClipperRules = ClipperRules()
+    perception: PerceptionRules = PerceptionRules()
 
     @field_validator("prompts")
     @classmethod
