@@ -1,6 +1,6 @@
 # dsh 工作台
 
-圆桌在电脑上管一个 dsh（DeepSeek Harness）进程当「边车」，dsh 的插件在它里面跑，圆桌在顶栏「工作台」里把 dsh 的网页嵌进来。
+圆桌在电脑上管一个 dsh（DeepSeek Harness）进程当「边车」，dsh 的插件在它里面跑，圆桌在分段栏「工作台」页的「dsh」标签里把 dsh 的网页嵌进来。
 
 ## 硬性原则
 
@@ -20,7 +20,7 @@ python scripts/setup_dsh.py --check   # 只检查 Node / npm / pnpm 和是否已
 python scripts/setup_dsh.py           # 装 dsh 运行时（约 0.9 GB）和白名单插件
 ```
 
-安装时不使用任何 key。装好后在 `.env` 里放 `DEEPSEEK_API_KEY`（在 DeepSeek 官网充值；不经过 OpenRouter），重启圆桌，点顶栏「工作台」→「启动」。
+安装时不使用任何 key。装好后在 `.env` 里放 `DEEPSEEK_API_KEY`（在 DeepSeek 官网充值；不经过 OpenRouter），重启圆桌，点分段栏「工作台」→「dsh」→「启动」。
 
 ## 运行方式
 

@@ -1,8 +1,6 @@
 /* 超级电脑：几位编程助手平级、按分数派活 */
-#superbtn.sc-on{position:relative;color:var(--ok)}
-#superbtn.sc-on::after{content:"";position:absolute;top:-2px;right:-7px;width:6px;height:6px;border-radius:50%;background:var(--ok)}
-#superdlg{width:min(1100px,96vw);max-height:94vh}
-#superdlg .vh{display:flex;align-items:center;gap:8px}
+#entries [data-m="bench"].sc-on{position:relative}
+#entries [data-m="bench"].sc-on::after{content:"";position:absolute;top:6px;right:8px;width:6px;height:6px;border-radius:50%;background:var(--ok)}
 .sc-gap{flex:1}
 .sc-state{font-size:12px;padding:2px 8px;border-radius:999px;background:var(--surface-2);color:var(--muted)}
 .sc-state.on{color:var(--ok)}
@@ -28,4 +26,4 @@
 .sc-log{font-size:11px;color:var(--muted);max-height:140px;overflow:auto;margin:0;padding-left:18px}
 .sc-recent{font-size:12px;margin:0;padding-left:18px}
 .sc-recent button{font-size:12px}
-@media (max-width:640px){#superdlg{width:100vw;max-height:100vh}.sc-subs td.sc-why{display:none}}
+@media (max-width:640px){.sc-subs td.sc-why{display:none}}

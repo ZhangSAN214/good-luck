@@ -28,12 +28,14 @@ export function budgetLine(b) {
 
 export class Workbench {
   /**
-   * @param {HTMLDialogElement} dlg
-   * @param {HTMLButtonElement} button 顶栏按钮
-   * @param {{api: Record<string, Function>}} opts
+   * @param {HTMLElement} dlg 画在哪里：弹窗（dialog）或「工作台」页里的一块
+   * @param {HTMLButtonElement} button 运行中加绿点的按钮（「工作台」页里的 dsh 标签）
+   * @param {{api: Record<string, Function>, isOpen?: () => boolean}} opts isOpen：现在看得见吗（页面里用）
    */
-  constructor(dlg, button, { api }) {
+  constructor(dlg, button, { api, isOpen = null }) {
     Object.assign(this, { dlg, button, api });
+    this.isOpen = isOpen || (() => !!dlg.open);
+    this.modal = dlg.tagName === 'DIALOG';
     this.st = null;
     this.err = '';
     this.busy = false;
@@ -48,7 +50,7 @@ export class Workbench {
 
   schedule() {
     clearInterval(this.timer);
-    this.timer = setInterval(() => this.refresh(), this.dlg.open ? OPEN_MS : IDLE_MS);
+    this.timer = setInterval(() => this.refresh(), this.isOpen() ? OPEN_MS : IDLE_MS);
   }
 
   async refresh() {
@@ -58,7 +60,7 @@ export class Workbench {
       return;
     }
     this.paintButton();
-    if (this.dlg.open && !this.busy) this.render();
+    if (this.isOpen() && !this.busy) this.render();
   }
 
   paintButton() {
@@ -66,12 +68,12 @@ export class Workbench {
     this.button.hidden = st.enabled === false;
     const on = st.state === 'running';
     this.button.classList.toggle('wb-on', on);
-    this.button.title = on ? '工作台正在运行：点开' : '工作台：圆桌在电脑上管着的 dsh，装插件、写代码';
+    this.button.title = on ? 'dsh 正在运行' : 'dsh：圆桌在电脑上管着的工作台，装插件、写代码';
   }
 
   async open() {
     this.err = '';
-    if (!this.dlg.open) this.dlg.showModal();
+    if (this.modal && !this.dlg.open) this.dlg.showModal();
     this.schedule();
     try {
       this.st = await this.api.status();
@@ -85,11 +87,11 @@ export class Workbench {
     const st = this.st || {};
     const running = st.state === 'running';
     const starting = st.state === 'starting' || st.state === 'stopping';
-    const head = `<div class="vh"><b>工作台</b>
+    const head = `<div class="vh"><b>dsh</b>
       <span class="wb-state ${running ? 'on' : ''}">${running ? '运行中' : starting ? '处理中…' : '已停止'}</span>
       <span class="wb-gap"></span>
       ${running ? `<button type="button" class="btn" data-check title="立刻查一次余额">刷新花费</button><button type="button" class="btn" data-stop>停止</button>` : `<button type="button" class="btn primary" data-start ${st.unavailable || this.busy || starting ? 'disabled' : ''}>${this.busy ? '启动中…' : '启动'}</button>`}
-      <button type="button" class="btn" data-close>关闭</button></div>`;
+      ${this.modal ? '<button type="button" class="btn" data-close>关闭</button>' : ''}</div>`;
     const notes = [];
     if (st.unavailable) notes.push(`<p class="wb-warn">${esc(st.unavailable)}</p>`);
     if (st.stopped_for_budget) notes.push(`<p class="wb-warn" role="alert">${esc(st.stopped_for_budget)}</p>`);
@@ -108,9 +110,12 @@ export class Workbench {
         ${plugins ? `<details><summary>白名单插件（${(st.plugins || []).length}）</summary><ul class="wb-plugins">${plugins}</ul></details>` : ''}
       </div>`;
     const url = running ? safeDshUrl(st.url) : '';
+    const keep = url && url === this.frameUrl ? this.dlg.querySelector('.wb-frame-box') : null;
     this.dlg.innerHTML = `${head}<div class="vb wb">${notes.join('')}${info}<div class="wb-frame-box"></div>${
       st.log && st.log.length && !running ? `<details class="wb-log"><summary>dsh 输出（最后几行）</summary><pre>${esc(st.log.slice(-15).join('\n'))}</pre></details>` : ''
     }</div>`;
+    // 刷新状态时把原来的网页框原样放回去，dsh 网页不会每几秒重新加载一次
+    if (keep) this.dlg.querySelector('.wb-frame-box').replaceWith(keep);
     this.paintFrame(url);
   }
 

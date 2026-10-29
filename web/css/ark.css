@@ -22,17 +22,17 @@
 
 /* 背景：整站一张图铺满整屏（玻璃外观的每一页、以及任何外观下的首页），顶栏和面板都直接浮在上面，不切块。
    默认图不在仓库里就落到夜景；自定义图片由首页写进 --rt-bg-img；首页时跟着鼠标微移（--rt-bx / --rt-by）。 */
-:root:is([data-skin="ark"],[data-entry="hub"]) body{background:#05070c}
-:root:is([data-skin="ark"],[data-entry="hub"]) body::before{content:"";position:fixed;inset:-3%;z-index:-2;background-color:#070a12;background-position:center;background-size:cover;
+:root:is([data-skin="ark"],[data-entry="hub"],[data-entry="bench"]) body{background:#05070c}
+:root:is([data-skin="ark"],[data-entry="hub"],[data-entry="bench"]) body::before{content:"";position:fixed;inset:-3%;z-index:-2;background-color:#070a12;background-position:center;background-size:cover;
   background-image:var(--rt-bg-img,url("../img/ark/default_bg.jpg")),url("../img/ark/hub_night.jpg");will-change:transform}
-:root[data-rtbg="night"]:is([data-skin="ark"],[data-entry="hub"]) body::before{background-image:url("../img/ark/hub_night.jpg")}
-:root[data-rtbg="day"]:is([data-skin="ark"],[data-entry="hub"]) body::before{background-image:url("../img/ark/hub_day.jpg")}
+:root[data-rtbg="night"]:is([data-skin="ark"],[data-entry="hub"],[data-entry="bench"]) body::before{background-image:url("../img/ark/hub_night.jpg")}
+:root[data-rtbg="day"]:is([data-skin="ark"],[data-entry="hub"],[data-entry="bench"]) body::before{background-image:url("../img/ark/hub_day.jpg")}
 :root[data-entry="hub"] body::before{transform:translate3d(var(--rt-bx,0px),var(--rt-by,0px),0) scale(1.04)}
-:root:is([data-skin="ark"],[data-entry="hub"]) body::after{content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;background:rgba(4,6,12,.5)}
+:root:is([data-skin="ark"],[data-entry="hub"],[data-entry="bench"]) body::after{content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;background:rgba(4,6,12,.5)}
 /* 首页只压暗右侧放卡片的地方，左边让背景完整透出来 */
 :root[data-entry="hub"] body::after{background:linear-gradient(90deg,rgba(4,6,12,.05) 30%,rgba(4,6,12,.45) 100%),linear-gradient(180deg,rgba(4,6,12,.35),rgba(4,6,12,0) 18%)}
 [data-skin="ark"] body{color:var(--ink)}
-:root[data-entry="hub"] .top{color:#eceff3}
+:root:is([data-entry="hub"],[data-entry="bench"]) .top{color:#eceff3}
 /* 所有面板：液态玻璃，没有描边和光晕 */
 [data-skin="ark"] .chat,[data-skin="ark"] .panel,[data-skin="ark"] .stagecol,[data-skin="ark"] .gc-rooms,[data-skin="ark"] .gc-main,[data-skin="ark"] .gc-members,
 [data-skin="ark"] .home-side,[data-skin="ark"] dialog.viewer{background:var(--surface);backdrop-filter:var(--glass-blur);-webkit-backdrop-filter:var(--glass-blur);
@@ -46,7 +46,7 @@
 [data-skin="ark"] ::selection{background:rgba(70,100,150,.5)}
 
 /* 顶栏：安静的一条，入口是胶囊分段，选中项是暗墨蓝 */
-[data-skin="ark"] .top,:root[data-entry="hub"] .top{border-bottom:0;padding:8px 6px;position:relative;z-index:5;background:transparent}
+[data-skin="ark"] .top,:root:is([data-entry="hub"],[data-entry="bench"]) .top{border-bottom:0;padding:8px 6px;position:relative;z-index:5;background:transparent}
 [data-skin="ark"] .brand h1{font-family:var(--f-display);font-weight:400;letter-spacing:.12em;color:#fff}
 [data-skin="ark"] .bt-open{color:var(--muted)}
 [data-skin="ark"] .seg{background:rgba(255,255,255,.06);border:0;border-radius:999px;padding:3px;box-shadow:var(--glass-edge)}
