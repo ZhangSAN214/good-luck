@@ -2,7 +2,7 @@
 // 面板：选画面来源（整个屏幕 / 某个窗口 / 安卓手机平板）、选 1～3 位陪看、勾选同意后开始；
 // 开始后左边是预览（只在电脑上），右边是和她们的聊天；可以「安静看」、随时停止。
 // 截图只在电脑内存里，网页预览每几秒取一张；她们读到的是画面的文字描述（面板里可以展开看）。
-// 安卓设备在面板里用无线调试配对 / 连接；iPhone 只能用 AirPlay 镜像到电脑上的窗口再选那个窗口。
+// 安卓设备在面板里用无线调试配对 / 连接（扫二维码，或填配对码）；iPhone 只能用 AirPlay 镜像到电脑上的窗口再选那个窗口。
 // 看视频时不用切回来：「悬浮窗」在电脑上开一个总在最前面的小窗（可拖动、调透明度、收成小圆点）；
 // 浏览器支持时还有「画中画」小窗（同样总在最前面）。两种小窗里都能直接打字。
 
@@ -12,6 +12,27 @@ const esc = (s) =>
 const STATUS_MS = 3000;
 const MESSAGES_MS = 1500;
 const IDLE_MS = 15000; // 面板关着时多久看一次是否在投屏（顶栏红点）
+const QR_POLL_MS = 2000; // 等手机扫配对二维码时多久看一次
+
+/** 本机生成二维码（不联网），画成 SVG。 */
+async function qrSvg(text) {
+  if (typeof window.qrcode !== 'function') {
+    await new Promise((resolve, reject) => {
+      const el = document.createElement('script');
+      el.src = 'boot/assets/qrcode-gen.js';
+      el.onload = resolve;
+      el.onerror = () => reject(new Error('二维码组件加载失败'));
+      document.head.appendChild(el);
+    });
+  }
+  const qr = window.qrcode(0, 'M');
+  qr.addData(text, 'Byte');
+  qr.make();
+  const n = qr.getModuleCount();
+  let d = '';
+  for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) if (qr.isDark(y, x)) d += `M${x + 4} ${y + 4}h1v1h-1z`;
+  return `<svg class="wt-qr" viewBox="0 0 ${n + 8} ${n + 8}" role="img" aria-label="安卓配对二维码" shape-rendering="crispEdges"><rect width="100%" height="100%" fill="#fff"/><path d="${d}" fill="#000"/></svg>`;
+}
 
 // 画中画小窗自己的样式（小窗是另一个文档，不继承页面样式）
 const PIP_CSS = `
@@ -56,7 +77,10 @@ export class Watch {
     dlg.addEventListener('click', (e) => this.onClick(e));
     dlg.addEventListener('change', (e) => this.onChange(e));
     dlg.addEventListener('submit', (e) => this.onSubmit(e));
-    dlg.addEventListener('close', () => this.schedule());
+    dlg.addEventListener('close', () => {
+      this.stopQr();
+      this.schedule();
+    });
     this.refresh();
     this.schedule();
   }
@@ -232,27 +256,36 @@ export class Watch {
     this.renderChat();
   }
 
-  /** 连手机 / 平板：安卓无线调试一步步配对；iPhone 用 AirPlay 镜像到电脑窗口。 */
+  /** 连手机 / 平板：安卓无线调试扫码或填配对码；iPhone 用 AirPlay 镜像到电脑窗口。 */
   phoneHelp() {
     const a = this.adb || {};
+    const msg = a.msg ? `<p class="wt-hint" role="status">${esc(a.msg)}</p>` : '';
     return `
       <details class="wt-phone"${a.open ? ' open' : ''} data-phone>
         <summary>连接安卓手机 / 平板（无线，不用插线）</summary>
         <ol>
           <li>手机、平板和这台电脑连同一个 Wi-Fi。</li>
           <li>打开开发者选项：设置 → 关于手机（平板）→ 版本信息 → 连续点「版本号」7 次。</li>
-          <li>设置 → 系统与更新 → 开发者选项 → 打开「无线调试」，点进去 →「使用配对码配对设备」。</li>
-          <li>把弹窗里的 IP 地址、端口和 6 位配对码填到下面，点「配对」（弹窗别关）。</li>
-          <li>配对一次以后，下次只要打开无线调试再点「连接」就行。</li>
+          <li>设置 → 系统与更新 → 开发者选项 → 打开「无线调试」，点进去。</li>
         </ol>
+        <h5>方式一：扫二维码（推荐）</h5>
+        <p class="wt-hint">点下面的按钮，在手机上点「使用二维码配对设备」扫这张图，配好后自动连上。</p>
+        <div class="wt-adb">
+          <button type="button" class="btn" data-qr ${a.busy || a.qr ? 'disabled' : ''}>${a.qr ? '等手机扫码…' : '生成配对二维码'}</button>
+          ${a.qr ? '<button type="button" class="btn" data-qr-cancel>取消</button>' : ''}
+        </div>
+        ${a.qr || ''}
+        ${a.via === 'qr' ? msg : ''}
+        <h5>方式二：配对码</h5>
+        <p class="wt-hint">点「使用配对码配对设备」，把弹窗里的 IP 地址、端口和 6 位配对码填到下面，点「配对」（弹窗别关）。配对一次以后，下次只要打开无线调试再点「连接」（端口可以留空，圆桌自己找）。</p>
         <div class="wt-adb">
           <input data-adb-host placeholder="IP 地址，如 192.168.1.5" value="${esc(a.host || '')}" aria-label="IP 地址" inputmode="decimal">
-          <input data-adb-port placeholder="端口" value="${esc(a.port || '')}" aria-label="配对端口" inputmode="numeric" maxlength="5">
+          <input data-adb-port placeholder="端口" value="${esc(a.port || '')}" aria-label="端口" inputmode="numeric" maxlength="5">
           <input data-adb-code placeholder="6 位配对码" aria-label="配对码" inputmode="numeric" maxlength="6">
           <button type="button" class="btn" data-pair ${a.busy ? 'disabled' : ''}>配对</button>
           <button type="button" class="btn" data-connect ${a.busy ? 'disabled' : ''}>连接</button>
         </div>
-        ${a.msg ? `<p class="wt-hint" role="status">${esc(a.msg)}</p>` : ''}
+        ${a.via === 'qr' ? '' : msg}
       </details>
       <details class="wt-phone">
         <summary>iPhone 怎么投</summary>
@@ -265,6 +298,7 @@ export class Watch {
     const host = q('[data-adb-host]');
     const port = q('[data-adb-port]');
     const code = q('[data-adb-code]');
+    this.stopQr();
     this.adb = { open: true, host, port, busy: true, msg: kind === 'pair' ? '正在配对…' : '正在连接…' };
     this.render();
     try {
@@ -273,15 +307,62 @@ export class Watch {
         const r = await this.api.adbPair(host, Number(port), code);
         this.adb.msg = r.connected.length ? `配对成功，已连上 ${r.connected.join('、')}。` : '配对成功。回到无线调试主页面，再点「连接」。';
       } else {
-        // 连接时填的是无线调试主页面「IP 地址和端口」那一行；不填就自动找
+        // 连接时填的是无线调试主页面「IP 地址和端口」那一行；端口填错（如填成配对端口）或不填时自动找
         const r = await this.api.adbConnect(host, port ? Number(port) : 0);
-        this.adb.msg = `已连上 ${r.connected.join('、')}。`;
+        const moved = port && !r.connected.some((x) => x.endsWith(`:${port}`));
+        this.adb.msg = `已连上 ${r.connected.join('、')}。${moved ? '（你填的端口连不上，已自动改用手机的连接端口）' : ''}`;
+        if (moved) this.adb.port = r.connected[0].split(':').pop();
       }
     } catch (x) {
       this.adb.msg = x.message;
     }
     this.adb.busy = false;
     await this.loadSetup();
+  }
+
+  /** 方式一：生成配对二维码，等手机扫（每 2 秒问一次后端），扫了自动配对并连上。 */
+  async qrStart() {
+    this.stopQr();
+    this.adb = { ...(this.adb || {}), open: true, via: 'qr', busy: true, msg: '正在准备 adb…' };
+    this.render();
+    try {
+      const r = await this.api.adbQr();
+      this.adb.qr = await qrSvg(r.payload);
+      this.adb.msg = `手机上：无线调试 →「使用二维码配对设备」→ 扫上面这张图（${Math.round(r.expires_s / 60)} 分钟内有效）。`;
+      this.qrTimer = setInterval(() => this.qrPoll(), QR_POLL_MS);
+    } catch (x) {
+      this.adb.msg = x.message;
+    }
+    this.adb.busy = false;
+    this.render();
+  }
+
+  async qrPoll() {
+    if (this.qrPolling) return;
+    this.qrPolling = true;
+    try {
+      const r = await this.api.adbQrPoll();
+      if (r.state === 'waiting') return;
+      this.stopQr();
+      this.adb.msg = {
+        connected: `扫码配对成功，已连上 ${(r.connected || []).join('、')}。`,
+        paired: '扫码配对成功。回到无线调试主页面，再点「连接」。',
+        expired: '二维码过期了，再点一次「生成配对二维码」。',
+      }[r.state] || '二维码已失效，再生成一张。';
+      await this.loadSetup();
+    } catch (x) {
+      this.stopQr();
+      this.adb.msg = x.message;
+      this.render();
+    } finally {
+      this.qrPolling = false;
+    }
+  }
+
+  stopQr() {
+    clearInterval(this.qrTimer);
+    this.qrTimer = null;
+    if (this.adb) this.adb.qr = '';
   }
 
   /** 投屏中：只更新状态区、预览和钱，不动聊天输入框。 */
@@ -350,6 +431,12 @@ export class Watch {
     }
     if (t.closest('[data-pip]')) return this.openPip();
     if (t.closest('[data-start]')) return this.start();
+    if (t.closest('[data-qr]')) return this.qrStart();
+    if (t.closest('[data-qr-cancel]')) {
+      this.stopQr();
+      this.adb.msg = '';
+      return this.render();
+    }
     if (t.closest('[data-pair]')) return this.adbDo('pair');
     if (t.closest('[data-connect]')) return this.adbDo('connect');
   }

@@ -270,6 +270,8 @@ export const watchAdbPair = (host, port, code) =>
   api('/api/watch/adb/pair', { method: 'POST', body: { host, port, code } });
 export const watchAdbConnect = (host, port) =>
   api('/api/watch/adb/connect', { method: 'POST', body: { host, port } });
+export const watchAdbQr = () => api('/api/watch/adb/qr', { method: 'POST' });
+export const watchAdbQrPoll = () => api('/api/watch/adb/qr');
 export const wanderStatus = () => api('/api/wander');
 export const wanderStart = (member, site) => api('/api/wander/start', { method: 'POST', body: { member, site } });
 export const wanderStop = () => api('/api/wander/stop', { method: 'POST' });

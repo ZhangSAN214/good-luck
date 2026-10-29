@@ -6,6 +6,8 @@
 
 from __future__ import annotations
 
+import re
+
 import pytest
 
 PIL = pytest.importorskip("PIL")
@@ -53,6 +55,26 @@ def test_watch_panel_flow(serve, page):
     assert btn.text_content() == "一起看"
 
 
+DECODE_QR = """async () => {
+  await new Promise((r) => {
+    const s = document.createElement('script');
+    s.src = 'boot/assets/jsqr.js';
+    s.onload = r;
+    document.head.appendChild(s);
+  });
+  const svg = new XMLSerializer().serializeToString(document.querySelector('svg.wt-qr'));
+  const img = new Image();
+  img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+  await img.decode();
+  const c = document.createElement('canvas');
+  c.width = c.height = 400;
+  const g = c.getContext('2d');
+  g.imageSmoothingEnabled = false;
+  g.drawImage(img, 0, 0, 400, 400);
+  return jsQR(g.getImageData(0, 0, 400, 400).data, 400, 400)?.data || '';
+}"""
+
+
 class _WirelessAdb:
     def available(self):
         return None
@@ -69,6 +91,15 @@ class _WirelessAdb:
 
     def connect(self, host="", port=0):
         return ["192.168.1.5:37000"]
+
+    polls = 0
+
+    def qr_ready(self):
+        pass
+
+    def qr_pair(self, name, password):
+        self.polls += 1  # 第二次问的时候「手机扫了」
+        return "192.168.1.5:40021" if self.polls >= 2 else None
 
 
 def setup_phone(env) -> None:
@@ -96,6 +127,20 @@ def test_watch_pair_android_wirelessly(serve, page):
     dlg.get_by_text("配对成功，已连上 192.168.1.5:37000").wait_for()
     # 面板重画后折叠区保持展开、IP 还在
     assert dlg.locator("[data-adb-host]").input_value() == "192.168.1.5"
+    # 填成配对端口点连接：自动改用连接端口
+    dlg.locator("[data-adb-port]").fill("40021")
+    dlg.locator("[data-connect]").click()
+    dlg.get_by_text("已自动改用手机的连接端口").wait_for()
+    assert dlg.locator("[data-adb-port]").input_value() == "37000"
+    # 方式一：扫二维码
+    dlg.locator("[data-qr]").click()
+    dlg.locator("svg.wt-qr").wait_for()
+    # 画出来的二维码能被识别，内容是安卓扫码配对的格式
+    text = page.evaluate(DECODE_QR)
+    assert re.fullmatch(r"WIFI:T:ADB;S:roundtable-[a-z0-9]{8};P:[a-z0-9]{12};;", text)
+    dlg.get_by_text("使用二维码配对设备」→ 扫上面这张图").wait_for()
+    dlg.get_by_text("扫码配对成功，已连上 192.168.1.5:37000").wait_for(timeout=10000)
+    assert dlg.locator("svg.wt-qr").count() == 0
     dlg.get_by_text("iPhone 怎么投").click()
     dlg.get_by_text("屏幕镜像").wait_for()
 

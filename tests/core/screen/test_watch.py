@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 import pytest
 
 PIL = pytest.importorskip("PIL")
@@ -16,6 +18,8 @@ from roundtable.core.screen import (  # noqa: E402
     change_ratio,
     encode_frame,
     is_sensitive,
+    new_qr_pairing,
+    qr_pairing_payload,
 )
 
 from ..orchestrator.conftest import Env  # noqa: E402
@@ -373,28 +377,43 @@ def test_window_list_drops_background_and_overlay_windows():
 
 
 class WirelessAdb:
-    def __init__(self, paired_ok=True, mdns=True) -> None:
+    def __init__(self, paired_ok=True, mdns=True, mdns_check=True, server=True) -> None:
         self.paired_ok = paired_ok
         self.mdns = mdns
+        self.mdns_check = mdns_check
+        self.server = server
+        self.extra: list[bytes] = []  # 额外的 mdns 行（扫码后手机广播的配对服务）
         self.cmds: list[list[str]] = []
 
     def __call__(self, cmd: list[str]) -> bytes:
         self.cmds.append(cmd)
+        if cmd[1] == "start-server":
+            if not self.server:
+                raise ScreenUnavailable("adb 服务启动超时")
+            return b""
+        if cmd[1] == "kill-server":
+            return b""
+        if cmd[1:] == ["mdns", "check"]:
+            if self.mdns_check:
+                return b"mdns daemon version [Openscreen discovery 0.0.0]\n"
+            return b"ERROR: mdns daemon unavailable\n"
         if cmd[1] == "pair":
             if self.paired_ok:
                 return b"Successfully paired to 192.168.1.5:41234 [guid=adb-abc]\n"
-            return b"Failed: Wrong password or connection was dropped.\n"
+            raise ScreenUnavailable("adb 出错")  # 新版 adb 配对失败时返回非零
         if cmd[1:] == ["mdns", "services"]:
             if not self.mdns:
                 return b"List of discovered mdns services\n"
             return (
                 b"List of discovered mdns services\n"
                 b"adb-abc-1\t_adb-tls-pairing._tcp.\t192.168.1.5:41234\n"
-                b"adb-abc-2\t_adb-tls-connect._tcp.\t192.168.1.5:37000\n"
+                b"adb-abc-2\t_adb-tls-connect._tcp.\t192.168.1.5:37000\n" + b"".join(self.extra)
             )
         if cmd[1] == "connect":
             if cmd[2] == "192.168.1.9:5555":
                 return b"failed to connect to 192.168.1.9:5555\n"
+            if cmd[2] == "192.168.1.5:40021":  # 填成了配对端口：adb 一直等到超时
+                raise ScreenUnavailable("adb 没有响应")
             return f"connected to {cmd[2]}\n".encode()
         raise AssertionError(cmd)
 
@@ -429,3 +448,52 @@ def test_adb_wireless_failures(monkeypatch):
         src.connect()
     with pytest.raises(ScreenUnavailable, match="adb"):
         AdbSource("adb-not-installed").pair("192.168.1.5", 1, "123456")
+
+
+def test_adb_not_starting_says_what_to_do(monkeypatch):
+    src = AdbSource("adb", runner=WirelessAdb(server=False))
+    monkeypatch.setattr(src, "_exe", lambda: "/usr/bin/adb")
+    with pytest.raises(ScreenUnavailable, match="adb 启动不了.*start-server"):
+        src.connect("192.168.1.5", 37000)
+
+
+def test_adb_connect_finds_the_real_connect_port(monkeypatch):
+    # 用户截图：配对端口 40021、连接端口 33835（这里是 37000）；填错了端口自动改用连接端口
+    fake = WirelessAdb()
+    src = AdbSource("adb", runner=fake)
+    monkeypatch.setattr(src, "_exe", lambda: "/usr/bin/adb")
+    assert src.connect("192.168.1.5", 40021) == ["192.168.1.5:37000"]
+    assert src.connect("192.168.1.5", 0) == ["192.168.1.5:37000"]  # 只填 IP
+    assert src.discover("192.168.1.6") == []
+    nomdns = AdbSource("adb", runner=WirelessAdb(mdns=False))
+    monkeypatch.setattr(nomdns, "_exe", lambda: "/usr/bin/adb")
+    with pytest.raises(ScreenUnavailable, match="连接端口和配对端口不一样"):
+        nomdns.connect("192.168.1.5", 40021)
+
+
+def test_qr_pairing_payload_and_flow(monkeypatch):
+    name, password = new_qr_pairing()
+    assert re.fullmatch(r"roundtable-[a-z0-9]{8}", name) and re.fullmatch(r"[a-z0-9]{12}", password)
+    assert new_qr_pairing() != (name, password)
+    assert qr_pairing_payload(name, password) == f"WIFI:T:ADB;S:{name};P:{password};;"
+    fake = WirelessAdb()
+    src = AdbSource("adb", runner=fake)
+    monkeypatch.setattr(src, "_exe", lambda: "/usr/bin/adb")
+    src.qr_ready()
+    assert src.qr_pair(name, password) is None  # 还没扫：别人的配对服务不算
+    fake.extra.append(f"{name}\t_adb-tls-pairing._tcp.\t192.168.1.5:40021\n".encode())
+    assert src.qr_pair(name, password) == "192.168.1.5:40021"
+    assert fake.cmds[-1] == ["/usr/bin/adb", "pair", "192.168.1.5:40021", password]
+    fake.paired_ok = False
+    with pytest.raises(ScreenUnavailable, match="配对没成功"):
+        src.qr_pair(name, password)
+    assert not any("shell" in c or "input" in c for c in fake.cmds)
+
+
+def test_qr_needs_mdns_restarts_adb_once(monkeypatch):
+    fake = WirelessAdb(mdns_check=False)
+    src = AdbSource("adb", runner=fake)
+    monkeypatch.setattr(src, "_exe", lambda: "/usr/bin/adb")
+    with pytest.raises(ScreenUnavailable, match="不支持扫码配对.*配对码"):
+        src.qr_ready()
+    assert ["/usr/bin/adb", "kill-server"] in fake.cmds

@@ -14,8 +14,11 @@ from __future__ import annotations
 
 import contextlib
 import io
+import os
 import re
+import secrets
 import shutil
+import string
 import subprocess
 import sys
 from dataclasses import dataclass, field
@@ -23,6 +26,7 @@ from typing import Any, Protocol
 
 SIGNATURE_SIZE = (32, 18)  # 判断画面变没变：缩成 32×18 的灰度图逐点比
 ADB_TIMEOUT_S = 8.0
+ADB_START_TIMEOUT_S = 25.0  # 第一次启动 adb 后台服务较慢（Windows 上常要 5～15 秒）
 
 
 class ScreenUnavailable(RuntimeError):
@@ -320,7 +324,21 @@ _FOCUS_APP = re.compile(r"mFocusedApp=.*?\s([A-Za-z0-9_.]+)/")
 _SERIAL = re.compile(r"^[A-Za-z0-9._:\-]{1,64}$")
 _HOST = re.compile(r"^[A-Za-z0-9.\-]{1,100}$")
 _CODE = re.compile(r"^\d{6}$")
-_MDNS_CONNECT = re.compile(r"_adb-tls-connect\._tcp\.?\s+([A-Za-z0-9.\-]+:\d{1,5})")
+_MDNS_LINE = re.compile(
+    r"^(\S+)\s+(_adb-tls-(?:pairing|connect)\._tcp)\.?\s+([A-Za-z0-9.\-]+):(\d{1,5})\s*$"
+)
+_QR_ALPHABET = string.ascii_lowercase + string.digits
+
+
+def qr_pairing_payload(name: str, password: str) -> str:
+    """安卓「使用二维码配对设备」扫的内容（和 Android Studio 的格式相同）。"""
+    return f"WIFI:T:ADB;S:{name};P:{password};;"
+
+
+def new_qr_pairing() -> tuple[str, str]:
+    """随机生成一组二维码配对用的服务名和密码（只含小写字母和数字，不用转义）。"""
+    pick = lambda n: "".join(secrets.choice(_QR_ALPHABET) for _ in range(n))  # noqa: E731
+    return f"roundtable-{pick(8)}", pick(12)
 
 
 class AdbSource:
@@ -368,20 +386,36 @@ class AdbSource:
     def _text(self, cmd: list[str]) -> str:
         return self.run(cmd).decode("utf-8", "replace").strip()
 
-    def pair(self, host: str, port: int, code: str) -> str:
-        """手机「无线调试 → 使用配对码配对设备」里显示的 IP:端口 和 6 位配对码。"""
+    def _ready(self) -> str:
+        """找到 adb 并确保后台服务在跑；不行就给出能照着做的原因。"""
         exe = self._exe()
         if exe is None:
             raise ScreenUnavailable(self.available() or "没有 adb")
+        try:
+            self.run([exe, "start-server"])
+        except ScreenUnavailable as e:
+            raise ScreenUnavailable(
+                f"电脑上的 adb 启动不了（{e}）。在命令行运行 adb start-server 看报错；"
+                "被别的手机助手占用时先关掉它们"
+            ) from None
+        return exe
+
+    def pair(self, host: str, port: int, code: str) -> str:
+        """手机「无线调试 → 使用配对码配对设备」里显示的 IP:端口 和 6 位配对码。"""
         if not _CODE.match((code or "").strip()):
             raise ScreenUnavailable("配对码是 6 位数字")
-        out = self._text([exe, "pair", self._addr(host, port), code.strip()])
+        addr = self._addr(host, port)
+        exe = self._ready()
+        try:
+            out = self._text([exe, "pair", addr, code.strip()])
+        except ScreenUnavailable:
+            out = ""  # 配对失败时 adb 也会返回非零
         if "Successfully paired" not in out:
             raise ScreenUnavailable("配对没成功：检查配对码和端口（配对码弹窗关掉后会失效）")
         return "配对成功"
 
-    def discover(self) -> list[str]:
-        """同一个 Wi-Fi 里已配对、开着无线调试的设备（adb mdns）。"""
+    def mdns(self) -> list[tuple[str, str, str, int]]:
+        """局域网里开着无线调试的设备：(服务名, pairing / connect, IP, 端口)。"""
         exe = self._exe()
         if exe is None:
             return []
@@ -389,27 +423,103 @@ class AdbSource:
             out = self._text([exe, "mdns", "services"])
         except ScreenUnavailable:
             return []
-        return sorted(set(_MDNS_CONNECT.findall(out)))
+        found = []
+        for line in out.splitlines():
+            m = _MDNS_LINE.match(line.strip())
+            if m and _HOST.match(m.group(3)) and 1 <= int(m.group(4)) <= 65535:
+                kind = "pairing" if "pairing" in m.group(2) else "connect"
+                found.append((m.group(1), kind, m.group(3), int(m.group(4))))
+        return found
 
-    def connect(self, host: str = "", port: int = 0) -> list[str]:
-        """连上设备。不填地址时自动找已配对的设备。返回连上的地址。"""
+    def discover(self, host: str = "") -> list[str]:
+        """同一个 Wi-Fi 里已配对、开着无线调试的设备（adb mdns）；给了 host 只找这台。"""
+        found = {f"{h}:{p}" for _, kind, h, p in self.mdns() if kind == "connect"}
+        return sorted(a for a in found if not host or a.rsplit(":", 1)[0] == host)
+
+    def mdns_ok(self) -> bool:
+        """adb 的局域网发现能不能用（扫码配对靠它）。"""
         exe = self._exe()
         if exe is None:
-            raise ScreenUnavailable(self.available() or "没有 adb")
-        targets = [self._addr(host, port)] if host else self.discover()
-        if not targets:
+            return False
+        try:
+            out = self._text([exe, "mdns", "check"]).lower()
+        except ScreenUnavailable:
+            return False
+        return "unavailable" not in out and "error" not in out
+
+    def qr_ready(self) -> None:
+        """扫码配对前的检查：adb 在跑、局域网发现可用（不可用时重启一次 adb 服务再看）。"""
+        exe = self._ready()
+        if self.mdns_ok():
+            return
+        # 老的 adb 服务可能是不带 ADB_MDNS_OPENSCREEN 启动的：重启一次（_run 会带上这个开关）
+        with contextlib.suppress(ScreenUnavailable):
+            self.run([exe, "kill-server"])
+        self._ready()
+        if not self.mdns_ok():
             raise ScreenUnavailable(
-                "没找到设备：确认手机和电脑在同一个 Wi-Fi、无线调试开着；"
-                "也可以填无线调试页面上「IP 地址和端口」那一行"
+                "这台电脑的 adb 不支持扫码配对（局域网发现用不了）。把 Android 平台工具更新到"
+                "最新版，或改用下面的「配对码」方式"
             )
-        done = []
-        for addr in targets:
+
+    def qr_pair(self, name: str, password: str) -> str | None:
+        """手机扫了二维码后会在局域网里广播同名的配对服务：找到就配对，返回配对用的地址。
+
+        还没扫（没找到）返回 None；找到了但配对失败时抛错。
+        """
+        exe = self._ready()
+        hit = next(
+            ((h, p) for n, kind, h, p in self.mdns() if kind == "pairing" and n == name), None
+        )
+        if hit is None:
+            return None
+        addr = self._addr(*hit)
+        try:
+            out = self._text([exe, "pair", addr, password])
+        except ScreenUnavailable:
+            out = ""
+        if "Successfully paired" not in out:
+            raise ScreenUnavailable("配对没成功：手机上点「重试」或重新生成二维码")
+        return addr
+
+    def _try_connect(self, exe: str, addr: str) -> bool:
+        try:
             out = self._text([exe, "connect", addr])
-            if "connected to" in out and "cannot" not in out and "failed" not in out:
-                done.append(addr)
-        if not done:
-            raise ScreenUnavailable("连接没成功：确认无线调试开着、地址和端口是主页面那一行")
-        return done
+        except ScreenUnavailable:
+            return False  # 连到配对端口时 adb 常常一直等，超时就算没连上
+        return "connected to" in out and "cannot" not in out and "failed" not in out
+
+    def connect(self, host: str = "", port: int = 0) -> list[str]:
+        """连上设备。返回连上的地址。
+
+        - 什么都不填：自动找已配对的设备。
+        - 只填 IP（端口 0）：在局域网里找这台设备的连接端口。
+        - 填了端口但连不上（常见：填成了配对弹窗里的配对端口）：自动找这台设备真正的连接端口再试。
+        """
+        if host and port:
+            first = [self._addr(host, port)]
+        elif host:
+            first = []
+            self._addr(host, 1)  # 只校验 IP
+        else:
+            first = []
+        exe = self._ready()
+        done = [a for a in first if self._try_connect(exe, a)]
+        if done:
+            return done
+        found = [a for a in self.discover(host.strip()) if a not in first]
+        done = [a for a in found if self._try_connect(exe, a)]
+        if done:
+            return done
+        if first:
+            raise ScreenUnavailable(
+                "连接没成功：连接端口和配对端口不一样。请填无线调试主页面「IP 地址和端口」"
+                "那一行的端口（不是配对弹窗里的），或者端口留空让圆桌自己找"
+            )
+        raise ScreenUnavailable(
+            "没找到设备：确认手机和电脑在同一个 Wi-Fi、无线调试开着；"
+            "也可以填无线调试页面上「IP 地址和端口」那一行"
+        )
 
     def _serial(self, source_id: str) -> str:
         serial = source_id.removeprefix("android:")
@@ -449,13 +559,27 @@ class AdbSource:
 
 def _run(cmd: list[str]) -> bytes:
     flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)  # Windows 上不弹黑窗口
+    starting = "start-server" in cmd
+    # 新版 adb 自带的局域网发现（扫码配对要用）；只影响由这条命令启动的 adb 服务
+    env = {**os.environ, "ADB_MDNS_OPENSCREEN": "1"}
     try:
         done = subprocess.run(
-            cmd, capture_output=True, timeout=ADB_TIMEOUT_S, check=False, creationflags=flags
+            cmd,
+            capture_output=True,
+            timeout=ADB_START_TIMEOUT_S if starting else ADB_TIMEOUT_S,
+            check=False,
+            creationflags=flags,
+            env=env,
         )
-    except (OSError, subprocess.TimeoutExpired):
-        raise ScreenUnavailable("adb 没有响应（手机断开了？）") from None
+    except OSError:
+        raise ScreenUnavailable("adb 运行不了（路径不对，或被杀毒软件拦了）") from None
+    except subprocess.TimeoutExpired:
+        if starting:
+            raise ScreenUnavailable("adb 服务启动超时") from None
+        raise ScreenUnavailable("adb 没有响应（手机断开了，或端口不对？）") from None
     if done.returncode != 0:
+        if starting:
+            raise ScreenUnavailable("adb 服务启动失败，可能端口 5037 被别的手机助手占用") from None
         raise ScreenUnavailable("adb 出错（手机断开了，或没在手机上允许调试）")
     return done.stdout
 

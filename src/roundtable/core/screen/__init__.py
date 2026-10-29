@@ -15,6 +15,8 @@ from .capture import (
     change_ratio,
     encode_frame,
     is_sensitive,
+    new_qr_pairing,
+    qr_pairing_payload,
 )
 from .watch import WATCH_PREFIX, ScreenWatch
 
@@ -31,4 +33,6 @@ __all__ = [
     "change_ratio",
     "encode_frame",
     "is_sensitive",
+    "new_qr_pairing",
+    "qr_pairing_payload",
 ]
