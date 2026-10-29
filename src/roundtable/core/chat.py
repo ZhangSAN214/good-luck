@@ -57,7 +57,7 @@ EVERYONE_WORDS = (
 )
 USER_LABEL = "用户"
 # 不在群聊列表里、不能从群聊发言的会话（投屏陪伴「一起看」有自己的面板，docs/WATCH.md）
-HIDDEN_KINDS = frozenset({"watch"})
+HIDDEN_KINDS = frozenset({"watch", "wander"})
 # 会话类型 → 提示词角色（roundtable.yaml 的 prompts）
 PROMPT_ROLES = {"group": "chat", "work": "chat_work", "dm": "chat_dm"}
 # 能翻日记的会话（生活模式的私聊和生活群；工作群不带）

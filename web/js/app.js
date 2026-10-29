@@ -42,6 +42,7 @@ import { Moments } from './moments.js';
 import { BootSettings } from './bootcfg.js';
 import { LanPanel } from './lan.js';
 import { Watch } from './watch.js';
+import { Wander } from './wander.js';
 import { Hub } from './hub.js';
 import { Standee } from './standee.js';
 import { Music } from './music.js';
@@ -166,6 +167,15 @@ new Watch($('#watchdlg'), $('#watchbtn'), {
     scrcpy: API.watchScrcpy,
     frameUrl: API.watchFrameUrl,
     members: () => API.api('/api/chat?after=2147483647'),
+  },
+});
+new Wander($('#wanderdlg'), $('#wanderbtn'), {
+  api: {
+    status: API.wanderStatus,
+    start: API.wanderStart,
+    stop: API.wanderStop,
+    log: API.wanderLog,
+    frameUrl: API.wanderFrameUrl,
   },
 });
 $('#skin').addEventListener('click', () => {

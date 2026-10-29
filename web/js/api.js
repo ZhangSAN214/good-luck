@@ -206,3 +206,9 @@ export const watchMessages = (after = 0) => api(`/api/watch/messages?after=${aft
 export const watchSay = (text) => api('/api/watch/say', { method: 'POST', body: { text } });
 export const watchScrcpy = (source) => api('/api/watch/scrcpy', { method: 'POST', body: { source } });
 export const watchFrameUrl = () => `/api/watch/frame?t=${Date.now()}`;
+export const wanderStatus = () => api('/api/wander');
+export const wanderStart = (member, site) => api('/api/wander/start', { method: 'POST', body: { member, site } });
+export const wanderStop = () => api('/api/wander/stop', { method: 'POST' });
+export const wanderLog = (member, after = 0) =>
+  api(`/api/wander/log?member=${encodeURIComponent(member)}&after=${after}`);
+export const wanderFrameUrl = () => `/api/wander/frame?t=${Date.now()}`;
