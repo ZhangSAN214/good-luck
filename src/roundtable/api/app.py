@@ -1066,6 +1066,15 @@ def create_app(service: RoundtableService | None = None, lan: LanAccess | None =
     async def member_growth_clear(request: Request, member: str) -> dict[str, Any]:
         return svc(request).member_growth_clear(member)
 
+    # 成员关系（P4）：和你的阶段、同事之间的亲近度与看法；清空
+    @app.get("/api/chat/relation/{member}")
+    async def member_relation(request: Request, member: str) -> dict[str, Any]:
+        return svc(request).member_relation(member)
+
+    @app.delete("/api/chat/relation")
+    async def member_relation_clear(request: Request, member: str | None = None) -> dict[str, Any]:
+        return svc(request).member_relation_clear(member)
+
     @app.get("/api/chat/engine/state")
     async def member_states(request: Request) -> dict[str, Any]:
         return svc(request).member_states()

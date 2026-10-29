@@ -14,6 +14,8 @@ from typing import Any
 from roundtable.core.config.schema import Persona
 from roundtable.core.member.card import pocket_card
 from roundtable.core.member.context import Piece, assemble
+from roundtable.core.member.relation import SOURCE as RELATION
+from roundtable.core.member.relation import RelationPlugin
 from roundtable.core.member.state import SOURCE as STATE
 from roundtable.core.member.state import StatePlugin
 
@@ -105,4 +107,7 @@ def chat_persona(rt: Any, member: str) -> str:
     state = StatePlugin(rt).line(member)  # P3：程序算出的此刻心情和精力（放在随身卡后面）
     if state:
         pieces.append(Piece(STATE, state, score=1.0))
+    relation = RelationPlugin(rt).line(member)  # P4：和你到了哪一步（程序按共同经历算）
+    if relation:
+        pieces.append(Piece(RELATION, relation, score=0.9))
     return assemble(pieces, r.budget_chars, r.per_source, r.min_piece_chars).text
