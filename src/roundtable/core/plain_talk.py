@@ -96,6 +96,24 @@ def _parallel_run(text: str, min_run: int, heads: Sequence[str]) -> str | None:
     return None
 
 
+def sentences(text: str) -> list[str]:
+    return [s.strip() for s in _SENTENCE_END.split(text) if _TRAILING.sub("", s.strip())]
+
+
+def _mug(text: str, rule: Any) -> str | None:
+    """马克杯警戒线：空泛大词够多、又没有任何具体所指的一句（脱离上下文也成立）。"""
+    for sentence in sentences(text):
+        core = _TRAILING.sub("", sentence)
+        if not 6 <= len(core) <= rule.max_chars:
+            continue
+        if any(re.search(c, core) for c in rule.concrete):
+            continue
+        found = {m.group(0) for p in rule.patterns for m in re.finditer(p, core)}
+        if len(found) >= rule.min_hits:
+            return core
+    return None
+
+
 def check(text: str, rules: Any) -> list[Hit]:
     """按规则表检查一条发言（rules：``plain_talk.check``）。纯函数，不调用模型。"""
     if len(text.strip()) < rules.min_chars:
@@ -106,6 +124,8 @@ def check(text: str, rules: Any) -> list[Hit]:
         excerpt: str | None = None
         if rule.kind == "parallel":
             excerpt = _parallel_run(text, rule.min_run, rule.heads)
+        elif rule.kind == "mug":
+            excerpt = _mug(text, rule)
         else:
             target = ending if rule.kind == "ending" else text
             for pattern in rule.patterns:
@@ -197,6 +217,28 @@ async def before_speaking(rt: Any, text: str, *, room: str, name: str, model_id:
         return text
     rewrite = member_rewriter(rt, room=room, name=name, model_id=model_id)
     return (await review(text, rules.check, rewrite)).text
+
+
+async def before_speaking_all(
+    rt: Any, texts: Sequence[str], *, room: str, name: str, model_id: str
+) -> list[str]:
+    """一次回复拆成几条连发的消息时：合起来查（一行一条），有问题整段改写一次再按行拆回。
+
+    逐条查会漏掉：短消息不够 min_chars、金句常常单独成一条。改写后的条数不超过原来的条数
+    （多出来的并进最后一条）；整条被删掉的就少发一条。
+    """
+    rules = rt.config.roundtable.plain_talk
+    if not rules.enabled or not texts:
+        return list(texts)
+    joined = "\n".join(t.replace("\n", " ") for t in texts)
+    rewrite = member_rewriter(rt, room=room, name=name, model_id=model_id)
+    out = await review(joined, rules.check, rewrite)
+    if not out.rewritten:
+        return list(texts)
+    lines = [line.strip() for line in out.text.splitlines() if line.strip()]
+    if len(lines) > len(texts):
+        lines = [*lines[: len(texts) - 1], " ".join(lines[len(texts) - 1 :])]
+    return lines or list(texts)
 
 
 def _neutralize(text: str) -> str:

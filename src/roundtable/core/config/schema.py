@@ -1218,17 +1218,22 @@ class PlainTalkRule(_Strict):
 
     kind：phrase = 全文出现任一 patterns；ending = 最后一句匹配任一 patterns（金句收尾）；
     parallel = 连续 min_run 个以上分句开头相同（排比）：
-    开头两个字相同，或开头一个字相同且在 heads 里。
+    开头两个字相同，或开头一个字相同且在 heads 里；
+    mug = 马克杯警戒线：某一句（6～max_chars 字）命中 patterns 里的空泛大词至少 min_hits 个、
+    又不含 concrete 里任何一个具体所指（数字、这个、今天、书名号……），即脱离上下文也成立的金句。
     """
 
     name: str = Field(pattern=r"^[a-z][a-z0-9_]*$", max_length=40)
     problem: str = Field(min_length=1, max_length=80)  # 改写时告诉成员的问题说明
-    kind: Literal["phrase", "ending", "parallel"]
+    kind: Literal["phrase", "ending", "parallel", "mug"]
     patterns: list[str] = Field(default_factory=list, max_length=60)  # 正则
     min_run: int = Field(default=3, ge=2, le=10)
     heads: list[str] = Field(default_factory=list, max_length=30)
+    min_hits: int = Field(default=2, ge=1, le=10)  # mug：一句里至少几个空泛大词
+    max_chars: int = Field(default=40, ge=6, le=200)  # mug：只查不超过这么多字的句子
+    concrete: list[str] = Field(default_factory=list, max_length=60)  # mug：具体所指（正则）
 
-    @field_validator("patterns")
+    @field_validator("patterns", "concrete")
     @classmethod
     def _compile(cls, patterns: list[str]) -> list[str]:
         for p in patterns:
