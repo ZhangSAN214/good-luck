@@ -80,6 +80,7 @@ from roundtable.core.lan import LanAccess, is_local, is_remote, qr_svg
 from roundtable.core.life import LIFE_STEPS, LifeEngine
 from roundtable.core.mail import MailAI, MailAIError, MailBox, MailBusy, OwaBrowser
 from roundtable.core.media import KIND_LABELS, KINDS, MediaService
+from roundtable.core.member import MemberEngine, ProfileError
 from roundtable.core.members_art import MEMBERS_FILE, load_members, mime_of, resolve_file
 from roundtable.core.memory import LAYERS, MemoryKeeper, clean_memory
 from roundtable.core.moments import SEEN_KEY as MOMENTS_SEEN
@@ -169,6 +170,7 @@ class RoundtableService:
         self.chats = ChatHub(runtime, names=self._art_names)
         self.memory = MemoryKeeper(runtime, self.chats.everyone)
         self.life = LifeEngine(runtime, self.chats, self.memory)
+        self.engine = MemberEngine(runtime, lambda: [m.id for m in self.chats.everyone()])
         self.mail = MailBox(runtime.repo)
         self.mail_ai = MailAI(runtime, self.mail)
         if runtime.mail_source is not None:
@@ -226,8 +228,12 @@ class RoundtableService:
             await asyncio.sleep(self.rt.config.roundtable.evolution.tick_minutes * 60)
 
     async def life_tick(self) -> dict[str, int]:
-        """推进一次生活（开机后第一次会补上关机期间的时间）。"""
-        return await self.life.tick(self.rt.budget.now().astimezone())
+        """推进一次生活（开机后第一次会补上关机期间的时间），再推进一次成员引擎（不花钱）。"""
+        now = self.rt.budget.now().astimezone()
+        out = await self.life.tick(now)
+        with contextlib.suppress(Exception):  # 引擎出错不影响生活
+            await self.engine.tick(now)
+        return out
 
     async def aclose(self) -> None:
         tasks = [*self._tasks.values(), *self._chat_tasks]
@@ -1308,6 +1314,58 @@ class RoundtableService:
         return self.upload(clipper.safe_name(clip["title"]), data)
 
     # --- 上网（订阅源） ------------------------------------------------------------
+
+    # --- 成员引擎：自我档案（docs/MEMBER_ENGINE.md） ---------------------------------
+
+    def _profile_member(self, member: str) -> str:
+        if member not in {m.id for m in self.chats.everyone()}:
+            raise ServiceError(f"没有这位成员：{member}")
+        return member
+
+    def member_profile(self, member: str) -> dict[str, Any]:
+        """当前档案、版本号和修改记录（新的在前）。"""
+        p = self.engine.profiles.current(self._profile_member(member))
+        return {
+            "member": member,
+            "version": p.version,
+            "data": p.data,
+            "locked": p.locked,
+            "sections": dict(self.rt.config.roundtable.chat.engine.profile.sections),
+            "history": self.engine.profiles.history(member),
+        }
+
+    def _profile_do(self, fn: Any) -> None:
+        try:
+            fn()
+        except ProfileError as e:
+            raise ServiceError(str(e)) from None
+
+    def member_profile_change(
+        self, member: str, patch: dict[str, Any], reason: str = ""
+    ) -> dict[str, Any]:
+        """用户改档案：{分区: {键: 值或 None}}。"""
+        member = self._profile_member(member)
+        self._profile_do(
+            lambda: self.engine.profiles.change(
+                member, patch, author="user", reason=reason or "你改的"
+            )
+        )
+        return self.member_profile(member)
+
+    def member_profile_lock(self, member: str, path: str, locked: bool = True) -> dict[str, Any]:
+        member = self._profile_member(member)
+        self._profile_do(lambda: self.engine.profiles.lock(member, path, locked=locked))
+        return self.member_profile(member)
+
+    def member_profile_revert(self, member: str, version: int) -> dict[str, Any]:
+        member = self._profile_member(member)
+        self._profile_do(lambda: self.engine.profiles.revert(member, version))
+        return self.member_profile(member)
+
+    def member_profile_clear(self, member: str) -> dict[str, Any]:
+        member = self._profile_member(member)
+        n = self.engine.profiles.clear(member)
+        return {"member": member, "deleted": n}
 
     def life_reports(self) -> dict[str, Any]:
         """生活的每周自检（docs/CHAT.md G9）：已存的每周报告（新的在前）和最近 7 天的实时报告。"""

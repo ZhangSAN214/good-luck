@@ -84,6 +84,14 @@ chat:
       - {name: NASA, url: "https://www.nasa.gov/news-release/feed/", topics: [天文, 科学], kind: news}
       - {name: ScienceDaily, url: "https://www.sciencedaily.com/rss/top/science.xml", topics: [科学], kind: news}
       - {name: Polygon, url: "https://www.polygon.com/rss/index.xml", topics: [游戏], kind: news}
+  engine:                          # 成员引擎（docs/MEMBER_ENGINE.md）：只用于聊天、朋友圈、生活
+    enabled: true
+    context: {budget_chars: 600}   # 调模型时带的资料最多多少字（固定部分放最前，利于缓存）
+    scheduler:                     # 预算调度：你直接找她 > 主动找你 > 群聊 > 生活
+      daily_usd: 0.25              # 聊天这一块每天的额度；你直接找她不受它限制
+      shares: {proactive: 0.85, group: 0.7, life: 0.5}   # 其余三类最多用到额度的几成，超了只记一行
+    heartbeat: {enabled: true, max_actions: 3}
+    bus: {keep_days: 14}           # 事件保留几天
   tier: budget
   max_repliers: 2
   max_mentioned: 8                 # 「@全员」「所有人」「大家」时最多几位依次回应
@@ -164,6 +172,7 @@ prompts:
   memory_roll: v1        # 记忆：日 → 周、周 → 月
   memory_profile: v1     # 记忆：更新长期档案
   memory_items: v1       # 记忆（半衰期，recall: half_life 时用）：一天的聊天拆成几件事，重要的标 ★
+  member_eval: v1       # 成员评测集：情境题（规则判分，离线用假模型）
   life_chat: v1          # 生活：成员之间聊天（公寓楼里的模拟生活）
   life_share: v1         # 生活：成员把上网看到的一条内容分享到生活群
   moment_post: v1        # 朋友圈：成员发一条动态
