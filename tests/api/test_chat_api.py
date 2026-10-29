@@ -338,7 +338,7 @@ def test_memory_items_api():
         data = c.get("/api/chat/memory/V1/items").json()
         (item,) = data["items"]
         assert item["text"] == "用户下周三考试" and item["kind"] == "fact"
-        assert item["source"] == "user" and item["domain"] == "日常"
+        assert item["source"] == "user" and item["domain"] == "学术"
         assert data["count"] == 1 and data["diary_reads_left"] == 3 and data["hanging"] == []
         assert "身心" in data["domains"]
         # 改随手记也改对应的记忆件（留旧版）

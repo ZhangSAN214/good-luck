@@ -18,13 +18,23 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Any
 
-from roundtable.core.member.memory.domains import tag
+from roundtable.core.member.memory.domains import WORK, tag
 from roundtable.core.recall import grams
+from roundtable.core.routing.decide import WORKFLOWS
 
 FACT = "fact"
 EPISODE = "episode"
 MERGE, UPDATE, NEW = "merge", "update", "new"
 SIMILAR_CANDIDATES = 40
+# 生活读工作记录时看的工作模式（邮件、革新例会等后台任务不算）
+WORK_WORKFLOWS = WORKFLOWS
+WORKFLOW_NAMES = {
+    "discussion": "讨论",
+    "collab": "协同",
+    "solo": "个人作答",
+    "brainstorm": "头脑风暴",
+    "office": "办公室",
+}
 
 
 @dataclass(frozen=True)
@@ -157,6 +167,24 @@ class MemoryStore:
         if not any(h["id"] == hanging_id for h in self.repo.memory_hanging(member)):
             return False
         return self.repo.close_memory_hanging(hanging_id, "done")
+
+    # --- 生活只读自己的工作记录 -----------------------------------------------------
+
+    def work_text(self, row: dict[str, Any]) -> str:
+        mode = WORKFLOW_NAMES.get(row.get("workflow") or "office", "工作")
+        title = " ".join((row.get("question") or "").split())[:40]
+        return f"在{mode}参加了「{title}」"
+
+    def add_work(self, member: str, row: dict[str, Any], day: str) -> Written:
+        """一场工作成为一件经历（同一场只记一次）。匿名开启且未揭晓的由调用方跳过。"""
+        return self.write(
+            member,
+            self.work_text(row),
+            day=day,
+            domain=WORK,
+            source="work",
+            source_key=f"work:{row['session_id']}",
+        )
 
     # --- 全量经历的习惯摘要 ---------------------------------------------------------
 
