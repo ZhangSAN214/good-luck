@@ -39,7 +39,7 @@ from roundtable.core.hometz import home_zone
 from roundtable.core.member.memory.diary import TOOL, DiaryTool
 from roundtable.core.office.apartment import ACTIVITIES, PUBLIC_ROOMS, schedule
 from roundtable.core.persona import EMPTY, chat_persona
-from roundtable.core.plain_talk import before_speaking, plain_prompt
+from roundtable.core.plain_talk import before_speaking_all, plain_prompt
 from roundtable.core.providers import AllChannelsFailed, Message, NoChannelAvailable, ProviderError
 from roundtable.core.tools.protocol import parse_calls, strip_calls
 
@@ -670,7 +670,21 @@ class GroupChat:
             rt.repo.add_chat_message(self.room, SYSTEM, f"{member.name} 没有回复（{why}）。")
             self.on_change()
             return {}
-        return Thought(member, parsed.segments, completion.cost_usd or 0.0)
+        # 说话底线：几条连发的消息合起来查，有问题整段改写一次（改写后条数可能变少）
+        said = await before_speaking_all(
+            rt,
+            [seg.text for seg in parsed.segments],
+            room=self.room,
+            name=member.name,
+            model_id=member.model_id,
+        )
+        if len(said) == len(parsed.segments):
+            kept = [Segment(t, seg.quote) for t, seg in zip(said, parsed.segments, strict=True)]
+        else:
+            kept = [
+                Segment(t, parsed.segments[0].quote if i == 0 else None) for i, t in enumerate(said)
+            ]
+        return Thought(member, kept, completion.cost_usd or 0.0)
 
     async def _complete(self, session: str, member: ChatMember, prompt: Any) -> Any:
         """调用模型。思考把输出上限用光、几乎没有正文时（finish_reason=length），关掉思考、
@@ -717,10 +731,7 @@ class GroupChat:
                     self.typing.remove(member.name)
                 if round_no is not None and self.stale(round_no):
                     break
-            text = swap_repeated_stickers(seg.text, used, stickers, self.rng)
-            words = await before_speaking(
-                rt, text, room=self.room, name=member.name, model_id=member.model_id
-            )
+            words = swap_repeated_stickers(seg.text, used, stickers, self.rng)
             if not words.strip():
                 continue
             meta: dict[str, Any] = {}

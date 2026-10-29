@@ -915,6 +915,14 @@ def create_app(service: RoundtableService | None = None, lan: LanAccess | None =
     async def member_profile_clear(request: Request, member: str) -> dict[str, Any]:
         return svc(request).member_profile_clear(member)
 
+    @app.get("/api/chat/engine/state")
+    async def member_states(request: Request) -> dict[str, Any]:
+        return svc(request).member_states()
+
+    @app.delete("/api/chat/engine/state")
+    async def member_states_clear(request: Request, member: str | None = None) -> dict[str, Any]:
+        return svc(request).member_states_clear(member)
+
     @app.get("/api/chat/engine/events")
     async def member_events_count(request: Request) -> dict[str, Any]:
         return svc(request).member_events_count()

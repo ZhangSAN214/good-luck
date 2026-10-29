@@ -43,6 +43,7 @@ from roundtable.core.chat import (
     mentioned,
 )
 from roundtable.core.persona import chat_persona
+from roundtable.core.plain_talk import before_speaking, plain_prompt
 from roundtable.core.providers import (
     AllChannelsFailed,
     Media,
@@ -476,6 +477,7 @@ class ScreenWatch:
                 history=history,
                 others=others,
             )
+            prompt = plain_prompt(rt.prompts, rt.config, prompt)
             session = rt.repo.watch_session()
             self.typing.append(member.name)
             self.on_change()
@@ -511,6 +513,9 @@ class ScreenWatch:
             text = clean_reply(completion.text, member.name, rules.max_chars)
             if not text or text.strip() in SILENT:
                 return {}
+            text = await before_speaking(
+                rt, text, room=self.room, name=member.name, model_id=member.model_id
+            )
             self.room_spoke = now
             if not self.running:
                 return None
