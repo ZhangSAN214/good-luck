@@ -94,6 +94,8 @@ def test_tablet_can_chat_and_stop_but_not_start_or_preview(tmp_path):
         pair = {"host": "192.168.1.5", "port": 41234, "code": "123456"}
         assert pad.post("/api/watch/adb/pair", json=pair).status_code == 403
         assert pad.post("/api/watch/adb/connect", json={}).status_code == 403
+        assert pad.post("/api/watch/adb/qr").status_code == 403
+        assert pad.get("/api/watch/adb/qr").status_code == 403
 
 
 class FakeWirelessAdb:
@@ -120,6 +122,15 @@ class FakeWirelessAdb:
         self.calls.append(("connect", host, port))
         return [f"{host or '192.168.1.5'}:{port or 37000}"]
 
+    def qr_ready(self):
+        self.calls.append(("qr_ready",))
+
+    def qr_pair(self, name, password):
+        self.calls.append(("qr_pair", name, password))
+        return "192.168.1.5:40021" if self.scanned else None
+
+    scanned = False
+
 
 def test_adb_pair_and_connect_from_the_pc():
     env = env_with_screen()
@@ -143,3 +154,27 @@ def test_adb_pair_and_connect_from_the_pc():
         )
         r = c.post("/api/watch/adb/connect", json={"host": "192.168.1.5", "port": 37001})
         assert r.json() == {"connected": ["192.168.1.5:37001"]}
+
+
+def test_adb_qr_pairing_from_the_pc():
+    env = env_with_screen()
+    adb = FakeWirelessAdb()
+    env.rt.screen_sources["android"] = adb
+    with TestClient(create_app(RoundtableService(env.rt))) as c:
+        assert c.get("/api/watch/adb/qr").json() == {"state": "none", "connected": []}
+        r = c.post("/api/watch/adb/qr").json()
+        assert r["payload"].startswith("WIFI:T:ADB;S:roundtable-") and r["expires_s"] == 180
+        name = r["payload"].split(";S:")[1].split(";")[0]
+        password = r["payload"].split(";P:")[1].split(";")[0]
+        assert c.get("/api/watch/adb/qr").json()["state"] == "waiting"
+        assert adb.calls[-1] == ("qr_pair", name, password)
+        adb.scanned = True
+        assert c.get("/api/watch/adb/qr").json() == {
+            "state": "connected",
+            "connected": ["192.168.1.5:37000"],
+        }
+        assert adb.calls[-1] == ("connect", "192.168.1.5", 0)
+        assert c.get("/api/watch/adb/qr").json()["state"] == "none"  # 用过就作废
+        # 新生成一张，旧的密码不再用
+        r2 = c.post("/api/watch/adb/qr").json()
+        assert r2["payload"] != r["payload"]
