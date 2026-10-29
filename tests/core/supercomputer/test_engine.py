@@ -225,3 +225,33 @@ def test_memory_db_unavailable():
     assert all("启动方式" in w["blocked"] for w in st["workers"])
     with pytest.raises(ValueError, match="内存数据库"):
         sc.submit("活")
+
+
+async def test_step_excludes_and_logs_to_caller(tmp_path):
+    import random as _random
+
+    agents = Agents()
+    sc = Supercomputer(
+        rules(),
+        root=tmp_path,
+        render=render,
+        launchers={"command": Launcher(), "dsh": Launcher()},
+        runner=agents,
+        now=Clock(),
+    )
+    logs: list[str] = []
+    record: dict = {}
+    folder = tmp_path / "bench" / "work"
+    first = sc.rules.workers[0].id
+    chosen, result = await sc.step(
+        "split",
+        render("super_split"),
+        folder=folder,
+        rng=_random.Random(1),
+        record=record,
+        log=logs.append,
+        exclude=(first,),
+    )
+    assert chosen is not None and chosen.id != first
+    assert result.ok and folder.is_dir()
+    assert record["worker"] == chosen.id

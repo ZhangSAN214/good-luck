@@ -145,6 +145,10 @@ def test_repo_config_loads_with_defaults():
         "super_split",
         "super_work",
         "super_merge",
+        "bench_plan",
+        "bench_window",
+        "bench_review",
+        "bench_rework",
         "describe_screen",
     }
     assert rt.collab_pipeline == [
