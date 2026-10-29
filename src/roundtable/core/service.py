@@ -95,7 +95,7 @@ from roundtable.core.member.card import (
 from roundtable.core.member.memory import DiaryTool
 from roundtable.core.member.memory.store import query_terms
 from roundtable.core.members_art import MEMBERS_FILE, load_members, mime_of, resolve_file
-from roundtable.core.memory import LAYERS, MemoryKeeper, clean_memory
+from roundtable.core.memory import LAYERS, MemoryKeeper, clean_memory, prepare_items
 from roundtable.core.moments import SEEN_KEY as MOMENTS_SEEN
 from roundtable.core.notes import NoteError, check_can_add, clean_note
 from roundtable.core.nowplaying import COVERS_DIR, NowPlaying, SmtcSource, list_covers, read_cover
@@ -1310,6 +1310,8 @@ class RoundtableService:
         """一位成员的记忆件（q 为空时最近的在前，否则按全文索引找）、挂着的事、习惯、统计。"""
         self._chat_member(member)
         repo = self.rt.repo
+        if self.rt.config.roundtable.chat.memory.recall == "half_life":
+            prepare_items(self.rt)
         limit = min(max(limit, 1), 500)
         if q:
             ids = repo.search_memory_items(member, query_terms(q), limit)

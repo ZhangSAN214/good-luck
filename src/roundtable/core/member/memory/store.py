@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from datetime import date
 from typing import Any
@@ -26,6 +27,8 @@ FACT = "fact"
 EPISODE = "episode"
 MERGE, UPDATE, NEW = "merge", "update", "new"
 SIMILAR_CANDIDATES = 40
+# 只有标题没有正文的一行：「10月24日回忆录：」「# 今天」「**小结**」（生成被截断时常见）
+HEADING = re.compile(r"^(#+\s*.*|\*\*[^*]+\*\*[:：]?|[^。！？!?；;，,]{0,30}[:：])$")
 # 生活读工作记录时看的工作模式（邮件、革新例会等后台任务不算）
 WORK_WORKFLOWS = WORKFLOWS
 WORKFLOW_NAMES = {
@@ -49,6 +52,12 @@ def similarity(a: str, b: str) -> float:
     if not x or not y:
         return 1.0 if a.strip() == b.strip() else 0.0
     return len(x & y) / len(x | y)
+
+
+def headless(text: str) -> bool:
+    """每一行都只是标题（没有正文）。"""
+    lines = [ln.strip() for ln in (text or "").splitlines() if ln.strip()]
+    return all(HEADING.match(ln) for ln in lines)
 
 
 def query_terms(text: str, limit: int = 24, size: int = 3) -> list[str]:
@@ -93,9 +102,9 @@ class MemoryStore:
         source_key: str | None = None,
         at: str | None = None,
     ) -> Written:
-        text = " ".join((text or "").split())
-        if not text:
+        if headless(text):  # 空的或只有标题：丢掉
             return Written("skip", None)
+        text = " ".join(text.split())
         day = day if isinstance(day, str) else day.isoformat()
         importance = min(max(int(importance), 1), 3)
         kind = FACT if fact else EPISODE
