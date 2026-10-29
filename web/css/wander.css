@@ -1,0 +1,32 @@
+/* 「上网」成员自己上网（js/wander.js）：顶栏按钮有人在逛时变色；面板上方是正在逛的那位，下面是浏览记录 */
+#wanderbtn.wd-on{position:relative;color:var(--ok)}
+#wanderbtn.wd-on::after{content:"";position:absolute;top:-2px;right:-7px;width:6px;height:6px;border-radius:50%;background:var(--ok)}
+.viewer .wd h4{margin:16px 0 6px;font-size:14px}
+.wd-live{display:grid;grid-template-columns:minmax(0,3fr) minmax(200px,2fr);gap:14px;align-items:start;padding:10px;border-radius:var(--r);background:var(--surface-2);margin-bottom:12px}
+.wd-frame{width:100%;max-height:40vh;object-fit:contain;border-radius:var(--r);background:#000}
+.wd-now{display:flex;flex-direction:column;gap:8px;min-width:0}
+.wd-bar{display:flex;align-items:center;gap:8px;font-size:13px}
+.wd-dot{width:9px;height:9px;border-radius:50%;background:var(--ok);flex:none;animation:wd-pulse 1.6s ease-in-out infinite}
+@keyframes wd-pulse{50%{opacity:.35}}
+@media (prefers-reduced-motion: reduce){.wd-dot{animation:none}}
+.wd-title{margin:0;font-size:13px;overflow-wrap:anywhere}
+.wd-stop{align-self:flex-start;border-color:var(--bad);color:var(--bad)}
+.wd-start{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+.wd-start select{padding:4px 8px;border:1px solid var(--line);border-radius:var(--r);background:var(--surface);color:inherit;font:inherit}
+.wd-hint{margin:6px 0;color:var(--muted);font-size:12px;line-height:1.5}
+.wd-warn{margin:8px 0;padding:8px 10px;border-radius:var(--r);background:var(--bad-bg);font-size:13px}
+.wd-tabs{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px}
+.wd-tab{padding:4px 12px;border:1px solid var(--line);border-radius:999px;background:var(--surface);color:inherit;font:inherit;font-size:13px;cursor:pointer}
+.wd-tab.on{background:var(--brass-bg);border-color:transparent}
+.wd-tab span{margin-left:6px;font-size:11px;color:var(--muted)}
+.wd-log{display:flex;flex-direction:column;gap:6px;max-height:46vh;overflow:auto;padding:8px;border-radius:var(--r);background:var(--surface-2)}
+.wd-log p{margin:0;line-height:1.55;overflow-wrap:anywhere}
+.wd-trip{margin-top:8px !important;font-size:12px;color:var(--muted)}
+.wd-trip span{margin-right:8px}
+.wd-page{padding:6px 10px;border-radius:12px;background:var(--surface)}
+.wd-where{display:block;font-size:11px;color:var(--muted)}
+.wd-where a{color:inherit}
+.wd-sum{padding:8px 10px;border-radius:12px;background:var(--brass-bg)}
+.wd-sum b{display:block;font-size:11px;font-weight:500;color:var(--muted)}
+.wd-sys{font-size:12px;color:var(--muted);text-align:center}
+@media (max-width: 760px){.wd-live{grid-template-columns:1fr}.wd-log{max-height:50vh}}
