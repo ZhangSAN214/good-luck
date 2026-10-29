@@ -7,7 +7,7 @@
   不调用模型。调用记在「记忆」隐藏聊天会话上，计入聊天月预算。
 - 用到哪：聊天提示词里放一小段（``memory_context``，有字数上限）。**工作模式与办公室不读取**。
 - 召回方式 ``chat.memory.recall``：``half_life``（默认，P2 记忆与联想）从记忆件里按和当前对话的
-  相关度 × 鲜活度（带保底）× 重要度挑最多 ``inject_max`` 件，加上脑子里挂着的事
+  相关度 × 鲜活度（带保底）× 重要度挑最多 ``inject_max`` 件，加上脑子里挂着的事和联想到的一件
   （``core/member/memory/``，不调用模型）；``layers``（旧）按时间固定带几层。
 - 夜间整理（``night: true``，默认）：每位成员每天只调用一次（``memory_night``），写第一人称日记、
   拆记忆件、更新挂着的事，心情不平静时改几件旧记忆的语气和重要度（原文不改，留旧版）；
@@ -24,7 +24,7 @@ from typing import Any
 
 from roundtable.core.chat import SYSTEM, USER, USER_LABEL, ChatMember, call_member
 from roundtable.core.member.memory import MemoryStore, Recaller
-from roundtable.core.member.memory.night import apply, materials, parse
+from roundtable.core.member.memory.night import apply, materials, nightly_links, parse
 from roundtable.core.member.memory.store import WORK_WORKFLOWS
 from roundtable.core.recall import STAR
 from roundtable.core.storage.repository import iso
@@ -104,7 +104,7 @@ def memory_context(
 ) -> str:
     """聊天提示词里的记忆。
 
-    ``half_life``：按 query（当前对话、场景）召回，加挂着的事，总长 ≤ max_chars；
+    ``half_life``：按 query（当前对话、场景）召回，加挂着的事和联想，总长 ≤ max_chars；
     conversation（会话）相同且间隔不久的几次调用算一次对话，带过的不再带。
     ``layers``：长期档案、最近一月 / 一周 / 三天、最近几条随手记。
     """
@@ -217,6 +217,7 @@ class MemoryKeeper:
         work = self.work_lines(member, day, tz)
         if not log and not work:
             return None  # 平静的一天不调用模型
+        drift = nightly_links(self.rt, member.id, period)
         mats = materials(
             self.rt,
             member.id,
@@ -225,7 +226,7 @@ class MemoryKeeper:
             log=log,
             work=work,
             mood=float(self.mood_of(member.id)),
-            drift=[],
+            drift=drift,
         )
         text = await self._call(member, "memory_night", **mats.variables)
         if text is None:

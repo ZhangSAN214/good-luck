@@ -1518,6 +1518,61 @@ class Repository:
             > 0
         )
 
+    # 联想网
+
+    def memory_links_of(self, member: str, ids: Sequence[int]) -> list[tuple[int, int, float]]:
+        """这些件的全部连接 (a, b, 强度)。"""
+        if not ids:
+            return []
+        marks = ",".join("?" * len(ids))
+        rows = self._exec(
+            f"SELECT a, b, weight FROM memory_links WHERE member = ? AND (a IN ({marks})"
+            f" OR b IN ({marks}))",
+            (member, *ids, *ids),
+        ).fetchall()
+        return [(r[0], r[1], r[2]) for r in rows]
+
+    def set_memory_links(self, member: str, links: Mapping[tuple[int, int], float]) -> None:
+        now = self.clock()
+        with self._tx():
+            for (a, b), w in links.items():
+                self.conn.execute(
+                    "INSERT INTO memory_links (member, a, b, weight, updated_at)"
+                    " VALUES (?, ?, ?, ?, ?) ON CONFLICT(member, a, b) DO UPDATE SET"
+                    " weight = excluded.weight, updated_at = excluded.updated_at",
+                    (member, a, b, w, now),
+                )
+
+    def decay_memory_links(self, member: str, factor: float, min_weight: float) -> int:
+        """每条连接乘以 factor，低于 min_weight 的删掉。返回删掉的条数。"""
+        with self._tx():
+            self.conn.execute(
+                "UPDATE memory_links SET weight = weight * ? WHERE member = ?", (factor, member)
+            )
+            return self.conn.execute(
+                "DELETE FROM memory_links WHERE member = ? AND weight < ?", (member, min_weight)
+            ).rowcount
+
+    def trim_memory_links(self, member: str, item_id: int, keep: int) -> int:
+        """一件记忆最多留 keep 条最强的连接。"""
+        rows = self._exec(
+            "SELECT a, b FROM memory_links WHERE member = ? AND (a = ? OR b = ?)"
+            " ORDER BY weight DESC LIMIT -1 OFFSET ?",
+            (member, item_id, item_id, keep),
+        ).fetchall()
+        with self._tx():
+            for a, b in rows:
+                self.conn.execute(
+                    "DELETE FROM memory_links WHERE member = ? AND a = ? AND b = ?",
+                    (member, a, b),
+                )
+        return len(rows)
+
+    def count_memory_links(self, member: str) -> int:
+        return self._exec(
+            "SELECT COUNT(*) FROM memory_links WHERE member = ?", (member,)
+        ).fetchone()[0]
+
     # 全量经历的习惯摘要
 
     def memory_digest(self, member: str) -> dict[str, Any] | None:
