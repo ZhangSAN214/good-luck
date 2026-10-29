@@ -87,11 +87,11 @@ export class Workbench {
     const st = this.st || {};
     const running = st.state === 'running';
     const starting = st.state === 'starting' || st.state === 'stopping';
-    const head = `<div class="vh"><b>dsh</b>
+    const head = `<b>dsh</b>
       <span class="wb-state ${running ? 'on' : ''}">${running ? '运行中' : starting ? '处理中…' : '已停止'}</span>
       <span class="wb-gap"></span>
       ${running ? `<button type="button" class="btn" data-check title="立刻查一次余额">刷新花费</button><button type="button" class="btn" data-stop>停止</button>` : `<button type="button" class="btn primary" data-start ${st.unavailable || this.busy || starting ? 'disabled' : ''}>${this.busy ? '启动中…' : '启动'}</button>`}
-      ${this.modal ? '<button type="button" class="btn" data-close>关闭</button>' : ''}</div>`;
+      ${this.modal ? '<button type="button" class="btn" data-close>关闭</button>' : ''}`;
     const notes = [];
     if (st.unavailable) notes.push(`<p class="wb-warn">${esc(st.unavailable)}</p>`);
     if (st.stopped_for_budget) notes.push(`<p class="wb-warn" role="alert">${esc(st.stopped_for_budget)}</p>`);
@@ -109,14 +109,28 @@ export class Workbench {
         <p class="wb-hint">dsh ${esc(st.runtime || '')} · 文件权限：${esc(MODE[st.permission_mode] || st.permission_mode || '')}。dsh 是工具，不是成员；它的数据只在电脑的 data/dsh/ 里，会话日志上传和遥测已强制关闭。</p>
         ${plugins ? `<details><summary>白名单插件（${(st.plugins || []).length}）</summary><ul class="wb-plugins">${plugins}</ul></details>` : ''}
       </div>`;
-    const url = running ? safeDshUrl(st.url) : '';
-    const keep = url && url === this.frameUrl ? this.dlg.querySelector('.wb-frame-box') : null;
-    this.dlg.innerHTML = `${head}<div class="vb wb">${notes.join('')}${info}<div class="wb-frame-box"></div>${
-      st.log && st.log.length && !running ? `<details class="wb-log"><summary>dsh 输出（最后几行）</summary><pre>${esc(st.log.slice(-15).join('\n'))}</pre></details>` : ''
-    }</div>`;
-    // 刷新状态时把原来的网页框原样放回去，dsh 网页不会每几秒重新加载一次
-    if (keep) this.dlg.querySelector('.wb-frame-box').replaceWith(keep);
-    this.paintFrame(url);
+    const log =
+      st.log && st.log.length && !running
+        ? `<details class="wb-log"><summary>dsh 输出（最后几行）</summary><pre>${esc(st.log.slice(-15).join('\n'))}</pre></details>`
+        : '';
+    // 骨架只搭一次；网页框始终留在原处，不能拿出来再放回去（iframe 一离开页面就会重新加载）。
+    // 其余部分内容没变就不重画，展开的「白名单插件」也不会每几秒收起来。
+    if (!this.dlg.querySelector(':scope > .wb')) {
+      this.dlg.innerHTML =
+        '<div class="vh"></div><div class="vb wb"><div class="wb-top"></div><div class="wb-frame-box"></div><div class="wb-tail"></div></div>';
+    }
+    this.fill('.vh', head);
+    this.fill('.wb-top', notes.join('') + info);
+    this.fill('.wb-tail', log);
+    this.paintFrame(running ? safeDshUrl(st.url) : '');
+  }
+
+  fill(sel, html) {
+    const el = this.dlg.querySelector(sel);
+    if (el.dataset.html !== html) {
+      el.innerHTML = html;
+      el.dataset.html = html;
+    }
   }
 
   paintFrame(url) {
@@ -125,6 +139,7 @@ export class Workbench {
     if (!url) {
       this.frameUrl = '';
       box.hidden = true;
+      box.replaceChildren();
       return;
     }
     box.hidden = false;

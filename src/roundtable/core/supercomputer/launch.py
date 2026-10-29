@@ -1,6 +1,7 @@
 """启动器：怎么把一位助手跑起来（配置里的 via）。
 
 - ``CommandLauncher``：via=command，按 argv 直接运行电脑上装好的官方命令行（用它自己登录的订阅）。
+  先查 PATH，再查常见的用户安装位置（如 ``~/.local/bin``：安装器不一定改 PATH）。
   环境变量照搬当前进程，但去掉圆桌的所有 key 和一切 ``*_API_KEY``：助手用自己登录的订阅额度，
   不会因为环境里有 key 就改走按量计费，也拿不到圆桌的钱。
 - ``HookLauncher``：via=dsh 等由服务层拼好的启动方式（这里不导入 dsh）。
@@ -9,10 +10,10 @@
 from __future__ import annotations
 
 import os
-import shutil
 from collections.abc import Awaitable, Callable, Iterable, Mapping
 
 from roundtable.core.config.schema import SuperWorker
+from roundtable.core.evolution_dev import resolve
 from roundtable.core.supercomputer.engine import Launch
 
 
@@ -21,7 +22,7 @@ class CommandLauncher:
         self,
         drop_env: Iterable[str] = (),
         environ: Mapping[str, str] | None = None,
-        which: Callable[[str], str | None] = shutil.which,
+        which: Callable[[str], str | None] = resolve,
     ) -> None:
         self.drop = {n.upper() for n in drop_env}
         self.environ = environ
