@@ -133,6 +133,7 @@ def test_repo_config_loads_with_defaults():
         "member_eval",
         "plain_talk",
         "plain_rewrite",
+        "voice_rewrite",
         "watch",
         "wander",
         "dsh_workbench",

@@ -107,3 +107,23 @@ async def test_offline_run_with_fake_model_same_prompt_for_everyone():
     # 两位答得一模一样的题算撞型
     assert report.clashes and all(c["similarity"] >= 0.6 for c in report.clashes)
     assert not env.fake.calls  # 离线：没有走真实渠道
+
+
+async def test_distinct_scenarios_fail_members_whose_replies_clash():
+    """「8 人回复不雷同」：标了 distinct 的题，两位撞型都算不合格；不撞就过。"""
+    env = Env()
+    engine = MemberEngine(env.rt, lambda: [])
+    es = load_evalset()
+    distinct = [s for s in es.scenarios if s.distinct]
+    assert len(distinct) >= 2 and any("表情包" in s.situation for s in distinct)
+    es = es.model_copy(update={"scenarios": distinct})
+    same = "橙子和账本，记一笔就好"
+    names = {"f1": same, "f2": "深夜粥铺冒泡的鲸鱼", "f3": same}
+
+    async def fake(model_id, messages, params):
+        return names[model_id]
+
+    subjects = [Subject(f"V{i}", f"阿{i}", f"f{i}", ()) for i in (1, 2, 3)]
+    report = await run_eval(env.rt, subjects, es, assemble=engine.context, call=fake)
+    failed = {a.member for a in report.answers if any("雷同" in w for w in a.failures)}
+    assert failed == {"V1", "V3"}
