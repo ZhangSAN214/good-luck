@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="zh-CN" data-k-theme="ink">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>设计套件样板</title>
+<link rel="stylesheet" href="kit.css">
+</head>
+<body class="k-root">
+<div class="k-page">
+  <header class="k-topbar">
+    <div class="k-brand">
+      <span class="k-logo" id="logo"></span>
+      <div><h1>设计套件样板</h1><div class="k-sub">工作台生成的每个窗口都从这里拼 · 质检的基准页</div></div>
+    </div>
+    <div class="k-actions">
+      <div id="themes" aria-label="主题"></div>
+      <div id="modes" aria-label="明暗"></div>
+    </div>
+  </header>
+
+  <section class="k-stats" aria-label="关键指标">
+    <div class="k-stat k-reveal"><span class="k-label" id="i1"></span><span class="k-value k-num"><span id="v1">0</span><small>次</small></span><span><span class="k-delta k-up" id="d1"></span> <span class="k-muted" style="font-size:12px">对比上周</span></span><div class="k-spark" id="s1"></div></div>
+    <div class="k-stat k-reveal"><span class="k-label" id="i2"></span><span class="k-value k-num"><span id="v2">0</span><small>吨</small></span><span><span class="k-delta k-up" id="d2"></span> <span class="k-muted" style="font-size:12px">对比上周</span></span><div class="k-spark" id="s2"></div></div>
+    <div class="k-stat k-reveal"><span class="k-label" id="i3"></span><span class="k-value k-num"><span id="v3">0</span><small>分钟</small></span><span><span class="k-delta k-down" id="d3"></span> <span class="k-muted" style="font-size:12px">对比上周</span></span><div class="k-spark" id="s3"></div></div>
+    <div class="k-stat k-reveal"><span class="k-label" id="i4"></span><span class="k-value k-num"><span id="v4">0</span><small>%</small></span><span><span class="k-delta k-flat" id="d4"></span> <span class="k-muted" style="font-size:12px">对比上周</span></span><div class="k-spark" id="s4"></div></div>
+  </section>
+
+  <div class="k-grid">
+    <section class="k-card k-span-8 k-reveal">
+      <div class="k-card-h"><span class="k-ico-wrap" id="h1"></span><div><h2>趋势</h2><div class="k-sub">双轴折线 · 面积 · 悬停看数值</div></div><div class="k-actions" id="rng"></div></div>
+      <div class="k-card-b"><div id="line"></div></div>
+    </section>
+    <section class="k-card k-span-4 k-reveal">
+      <div class="k-card-h"><span class="k-ico-wrap" id="h2"></span><div><h2>构成</h2><div class="k-sub">环形图 · 悬停高亮</div></div></div>
+      <div class="k-card-b"><div id="donut"></div></div>
+    </section>
+    <section class="k-card k-span-6 k-reveal">
+      <div class="k-card-h"><span class="k-ico-wrap" id="h3"></span><div><h2>每日量</h2><div class="k-sub">堆叠柱状图 · 今天高亮</div></div></div>
+      <div class="k-card-b"><div id="bars"></div></div>
+    </section>
+    <section class="k-card k-span-6 k-reveal">
+      <div class="k-card-h"><span class="k-ico-wrap" id="h4"></span><div><h2>坚持</h2><div class="k-sub">日历热力图 · 进度环 · 进度条</div></div></div>
+      <div class="k-card-b k-stack">
+        <div id="heat"></div>
+        <div class="k-row" style="gap:18px">
+          <div id="ring"></div>
+          <div class="k-stack" style="flex:1;min-width:160px">
+            <div class="k-split"><span>本周目标</span><span class="k-num k-muted">4 / 5</span></div><div class="k-progress"><i style="width:80%"></i></div>
+            <div class="k-split"><span>蛋白质</span><span class="k-num k-muted">112 / 130 克</span></div><div class="k-progress k-good"><i style="width:86%"></i></div>
+            <div class="k-split"><span>热量</span><span class="k-num k-muted">2380 / 2200 千卡</span></div><div class="k-progress k-warn"><i style="width:100%"></i></div>
+          </div>
+        </div>
+      </div>
+    </section>
+    <section class="k-card k-span-7 k-reveal">
+      <div class="k-card-h"><span class="k-ico-wrap" id="h5"></span><div><h2>记录</h2><div class="k-sub">表格 · 点表头排序</div></div><div class="k-actions"><label class="k-search" style="width:200px"><span id="sic"></span><input class="k-input" placeholder="搜索" aria-label="搜索记录" id="q"></label></div></div>
+      <div class="k-card-b k-tight"><div id="table"></div></div>
+    </section>
+    <section class="k-card k-span-5 k-reveal k-stretch">
+      <div class="k-card-h"><span class="k-ico-wrap" id="h6"></span><div><h2>助手</h2><div class="k-sub">会话窗 · 正在输入 · 快捷问题</div></div></div>
+      <div id="chat" style="display:flex;flex-direction:column;flex:1"></div>
+    </section>
+    <section class="k-card k-span-12 k-reveal">
+      <div class="k-card-h"><span class="k-ico-wrap" id="h7"></span><div><h2>媒体卡</h2><div class="k-sub">图片网格 · 角标 · 悬停上浮</div></div><div class="k-actions" id="filters"></div></div>
+      <div class="k-card-b"><div class="k-tiles" id="tiles"></div></div>
+    </section>
+    <section class="k-card k-span-6 k-reveal">
+      <div class="k-card-h"><span class="k-ico-wrap" id="h8"></span><div><h2>控件</h2><div class="k-sub">按钮 · 标签 · 开关 · 表单</div></div></div>
+      <div class="k-card-b k-stack">
+        <div class="k-row"><button class="k-btn k-primary" type="button" id="b-toast"></button><button class="k-btn" type="button">次要</button><button class="k-btn k-ghost" type="button">幽灵</button><button class="k-btn k-icon" type="button" aria-label="设置" id="b-ic"></button><button class="k-btn" type="button" disabled>不可用</button></div>
+        <div class="k-row"><span class="k-badge k-accent">强调</span><span class="k-badge k-good">通过</span><span class="k-badge k-warn">注意</span><span class="k-badge k-bad">失败</span><span class="k-badge">普通</span></div>
+        <div class="k-row" style="gap:16px"><label class="k-row"><input type="checkbox" class="k-switch" checked aria-label="提醒"> 提醒</label><label class="k-row"><input type="checkbox" class="k-check" checked> 已完成</label><div id="seg"></div></div>
+        <div class="k-row" style="align-items:flex-end"><label class="k-field" style="flex:1;min-width:140px">名称<input class="k-input" value="杠铃卧推"></label><label class="k-field" style="width:120px">重量<select class="k-select"><option>60 kg</option><option>62.5 kg</option></select></label></div>
+        <label class="k-field">强度<input type="range" class="k-range" value="70"></label>
+      </div>
+    </section>
+    <section class="k-card k-span-6 k-reveal">
+      <div class="k-card-h"><span class="k-ico-wrap" id="h9"></span><div><h2>列表与空状态</h2><div class="k-sub">没有数据时也要好看</div></div></div>
+      <div class="k-card-b">
+        <ul class="k-list" id="list"></ul>
+        <div id="empty"></div>
+      </div>
+    </section>
+    <section class="k-card k-span-7 k-reveal">
+      <div class="k-card-h"><span class="k-ico-wrap" id="h10"></span><div><h2>地图框</h2><div class="k-sub">按经纬度画地点和路线 · 不联网</div></div></div>
+      <div class="k-card-b"><div id="map"></div></div>
+    </section>
+    <section class="k-card k-span-5 k-reveal">
+      <div class="k-card-h"><span class="k-ico-wrap" id="h11"></span><div><h2>时间线</h2><div class="k-sub">行程 · 日程 · 进度</div></div></div>
+      <div class="k-card-b"><div id="tl"></div></div>
+    </section>
+    <section class="k-card k-span-12 k-reveal">
+      <div class="k-card-h"><span class="k-ico-wrap" id="h12"></span><div><h2>看板</h2><div class="k-sub">拖动换列 · 键盘用箭头按钮</div></div></div>
+      <div class="k-card-b"><div id="kb"></div></div>
+    </section>
+    <section class="k-card k-span-4 k-reveal">
+      <div class="k-card-h"><span class="k-ico-wrap" id="h13"></span><div><h2>月历</h2><div class="k-sub">点一天看安排</div></div></div>
+      <div class="k-card-b"><div id="cal"></div><p class="k-muted" id="calpick" style="font-size:12.5px;margin-top:8px" aria-live="polite">点一天看当天的安排。</p></div>
+    </section>
+    <section class="k-card k-span-4 k-reveal">
+      <div class="k-card-h"><span class="k-ico-wrap" id="h14"></span><div><h2>清单</h2><div class="k-sub">勾选 · 添加 · 进度</div></div></div>
+      <div class="k-card-b"><div id="ck"></div></div>
+    </section>
+    <section class="k-card k-span-4 k-reveal">
+      <div class="k-card-h"><span class="k-ico-wrap" id="h15"></span><div><h2>查看器</h2><div class="k-sub">点开大图 · ← → 切换</div></div></div>
+      <div class="k-card-b"><div id="vw"></div></div>
+    </section>
+    <section class="k-card k-span-12 k-reveal">
+      <div class="k-card-h"><span class="k-ico-wrap" id="h16"></span><div><h2>编辑器框</h2><div class="k-sub">行号 · 字数 · 自动保存状态</div></div></div>
+      <div class="k-card-b"><div id="ed"></div></div>
+    </section>
+  </div>
+</div>
+
+<script type="module">
+import { icon, lineChart, barChart, donut, spark, ring, heatmap, table, chat, empty, toast, seg, countUp, setTheme, setMode, persist, fmt, timeline, kanban, calendar, mapFrame, viewer, editor, checklist } from './kit.js';
+const $ = (s) => document.querySelector(s);
+const st = persist('kit-gallery');
+setTheme(st.get('theme', 'ink')); if (st.get('mode', 'auto') !== 'auto') setMode(st.get('mode'));
+$('#logo').innerHTML = icon('layers', { size: 20 });
+['activity', 'chart-pie', 'chart-column', 'flame', 'list-checks', 'bot', 'image', 'settings', 'inbox'].forEach((n, i) => { $(`#h${i + 1}`).innerHTML = icon(n, { size: 17 }); });
+$('#sic').outerHTML = icon('search', { size: 16 });
+seg($('#themes'), ['ink', 'paper', 'crimson', 'forest', 'amber', 'ocean'].map((v) => ({ value: v, label: { ink: '墨蓝', paper: '纸面', crimson: '深红', forest: '青松', amber: '琥珀', ocean: '海湾' }[v] })), document.documentElement.dataset.kTheme, (v) => { setTheme(v); st.set('theme', v); });
+seg($('#modes'), [{ value: 'auto', label: '跟随' }, { value: 'light', label: '浅' }, { value: 'dark', label: '深' }], st.get('mode', 'auto'), (v) => { setMode(v); st.set('mode', v); });
+
+const kpi = [['activity', '训练次数', 18, '+12%', [9, 11, 10, 13, 12, 15, 18]], ['dumbbell', '总训练量', 42.6, '+8.4%', [31, 33, 35, 34, 38, 40, 42.6]], ['timer', '平均时长', 54, '−6%', [61, 60, 58, 57, 59, 56, 54]], ['target', '计划完成率', 86, '持平', [84, 85, 88, 86, 85, 87, 86]]];
+kpi.forEach(([ic, lb, v, d, sp], i) => { $(`#i${i + 1}`).innerHTML = `${icon(ic, { size: 15 })}${lb}`; countUp($(`#v${i + 1}`), v); $(`#d${i + 1}`).textContent = d; spark($(`#s${i + 1}`), sp, { color: `var(--k-s${i + 1})` }); });
+
+const weeks = Array.from({ length: 12 }, (_, i) => `第${i + 1}周`);
+lineChart($('#line'), { labels: weeks, height: 230, series: [
+  { name: '卧推 1RM（kg）', values: [66, 67, 68, 68, 70, 71, 72, 72, 73, 74, 75, 76], area: true },
+  { name: '深蹲 1RM（kg）', values: [88, 90, 90, 93, 95, 96, 98, 96, 99, 101, 102, 104] },
+  { name: '体重（kg，右轴）', values: [74.6, 74.4, 74.1, 73.9, 73.6, 73.5, 73.2, 73.1, 72.9, 72.8, 72.6, 72.5], axis: 'right', dashed: true, color: 'var(--k-s6)' }
+], rightFormat: (v) => v.toFixed(1) });
+seg($('#rng'), [{ value: 4, label: '4 周' }, { value: 12, label: '12 周' }], 12, () => toast('样板页只有 12 周的数据'));
+donut($('#donut'), { items: [{ label: '胸', value: 14 }, { label: '背', value: 15 }, { label: '腿', value: 12 }, { label: '肩', value: 6 }, { label: '手臂', value: 9 }], center: { value: '56', label: '组 · 近 7 天' } });
+const days = ['一', '二', '三', '四', '五', '六', '日', '一', '二', '三', '四', '五', '六', '日'];
+barChart($('#bars'), { labels: days, stacked: true, highlight: 13, height: 210, yFormat: (v) => fmt(v), series: [
+  { name: '力量（吨）', values: [5.2, 6.1, 0, 7.4, 4.8, 5.9, 0, 5.6, 6.4, 0, 7.9, 5.1, 6.2, 3.1] },
+  { name: '有氧（千卡/100）', values: [0, 0, 3.2, 0, 1.1, 0, 0, 0, 0, 3.4, 0, 1.2, 0, 0.8] }
+] });
+heatmap($('#heat'), { values: Array.from({ length: 140 }, (_, i) => ((i * 7) % 5 === 0 || i % 7 === 6 ? 0 : (i * 13) % 4 + 1)), label: '训练组数' });
+ring($('#ring'), 4, { max: 5, size: 112, label: '本周', text: '4/5' });
+
+const rows = [
+  { d: '10-29', n: '杠铃卧推', w: 62.5, r: '8/8/8', e: 79.2, s: '破纪录' }, { d: '10-28', n: '硬拉', w: 100, r: '5/5/5', e: 116.7, s: '完成' },
+  { d: '10-27', n: '杠铃深蹲', w: 85, r: '6/6/5', e: 102, s: '完成' }, { d: '10-26', n: '站姿推举', w: 37.5, r: '8/7/6', e: 47.5, s: '没做满' },
+  { d: '10-25', n: '引体向上', w: 0, r: '8/7/6', e: 8, s: '完成' }
+];
+const badge = { 破纪录: 'k-accent', 完成: 'k-good', 没做满: 'k-warn' };
+const t = table($('#table'), { rows, columns: [
+  { key: 'd', label: '日期', sort: true }, { key: 'n', label: '动作', format: (v) => `<b>${v}</b>` },
+  { key: 'w', label: '重量', align: 'right', sort: true, format: (v) => (v ? `${v} kg` : '自重') }, { key: 'r', label: '次数', align: 'right' },
+  { key: 'e', label: '估算 1RM', align: 'right', sort: true, format: (v) => fmt(v, { digits: 1 }) }, { key: 's', label: '状态', format: (v) => `<span class="k-badge ${badge[v]}">${v}</span>` }
+] });
+$('#q').addEventListener('input', (e) => t.update(rows.filter((r) => r.n.includes(e.target.value.trim()))));
+
+chat($('#chat'), { greeting: '我是样板页的助手。真实工作台里这里接真会话，回答前会显示「正在输入」。', quick: ['这周练得怎么样', '下次卧推用多重'], avatar: 'bot', store: st,
+  onAsk: (q) => new Promise((ok) => setTimeout(() => ok(/卧推/.test(q) ? '上次 62.5 kg 三组都做满了，下次试 65 kg，做不满就退回 62.5。' : '这周 4 次训练，比上周多 1 次；训练量涨了 8%，节奏刚好。'), 700)) });
+
+const pics = [['杠铃深蹲', '腿 · 杠铃'], ['杠铃卧推', '胸 · 杠铃'], ['引体向上', '背 · 徒手'], ['哑铃侧平举', '肩 · 哑铃'], ['杠铃臀推', '臀 · 杠铃'], ['平板支撑', '核心 · 徒手']];
+const hues = [8, 220, 160, 40, 280, 120];
+$('#tiles').innerHTML = pics.map(([n, m], i) => `<article class="k-tile"><button type="button" class="k-cover"><div class="k-media"><svg viewBox="0 0 160 120" role="img" aria-label="${n}占位图" style="width:100%;height:100%;display:block"><defs><linearGradient id="g${i}" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="hsl(${hues[i]} 70% 55%)"/><stop offset="1" stop-color="hsl(${hues[i] + 40} 60% 32%)"/></linearGradient></defs><rect width="160" height="120" fill="url(#g${i})"/><circle cx="118" cy="30" r="34" fill="#fff" opacity=".12"/></svg></div><div class="k-tile-b"><span class="k-title">${n}</span><span class="k-meta">${m}</span></div></button><span class="k-corner k-badge k-accent k-num">${String(i + 1).padStart(2, '0')}</span><button type="button" class="k-corner-r k-btn k-icon k-sm" aria-label="把${n}加到今天">${icon('plus', { size: 15 })}</button></article>`).join('');
+$('#filters').innerHTML = ['全部', '胸', '背', '腿'].map((p, i) => `<button type="button" class="k-chip" aria-pressed="${i === 0}">${p}</button>`).join('');
+$('#tiles').addEventListener('click', (e) => { if (e.target.closest('.k-corner-r')) toast('已加到今天'); });
+$('#filters').addEventListener('click', (e) => { const b = e.target.closest('.k-chip'); if (b) $('#filters').querySelectorAll('.k-chip').forEach((x) => x.setAttribute('aria-pressed', x === b)); });
+
+$('#b-toast').innerHTML = `${icon('sparkles', { size: 16 })}主要按钮`;
+$('#b-toast').addEventListener('click', () => toast('这是一条提示'));
+$('#b-ic').innerHTML = icon('settings', { size: 16 });
+seg($('#seg'), [{ value: 'kg', label: '公斤' }, { value: 'lb', label: '磅' }], 'kg');
+$('#list').innerHTML = [['code', '编程助手甲', '写窗口 · 3 件进行中', 'k-good', '空闲'], ['square-terminal', '编程助手乙', '写技能 · 1 件', 'k-warn', '忙'], ['globe', '查资料助手', '今天剩 18 次', 'k-good', '空闲']].map(([ic, n, m, c, s]) => `<li class="k-item"><span class="k-avatar">${icon(ic, { size: 18 })}</span><div class="k-main"><div class="k-title">${n}</div><div class="k-meta">${m}</div></div><span class="k-badge ${c}"><span class="k-dot"></span>${s}</span></li>`).join('');
+$('#empty').innerHTML = empty({ icon: 'inbox', title: '待你决定：没有', hint: '工作台需要你点头时会出现在这里，比如下载插件或花费超过上限。' });
+
+['map', 'route', 'layout-grid', 'calendar', 'list-checks', 'image', 'pencil'].forEach((n, i) => { const e = $(`#h${i + 10}`); if (e) e.innerHTML = icon(n, { size: 17 }) || icon('layers', { size: 17 }); });
+const spots = [{ name: '浅草寺', lat: 35.7148, lng: 139.7967, meta: '第 1 天 · 上午', group: '第 1 天' }, { name: '上野公园', lat: 35.7156, lng: 139.7745, meta: '第 1 天 · 下午', group: '第 1 天' }, { name: '涩谷', lat: 35.6595, lng: 139.7005, meta: '第 2 天 · 上午', group: '第 2 天' }, { name: '明治神宫', lat: 35.6764, lng: 139.6993, meta: '第 2 天 · 下午', group: '第 2 天' }, { name: '台场', lat: 35.6268, lng: 139.7745, meta: '第 3 天', group: '第 3 天' }];
+mapFrame($('#map'), { points: spots, height: 300, label: '三天行程地点' });
+timeline($('#tl'), { items: [
+  { time: '09:00', title: '浅草寺', meta: '步行 · 预计 1.5 小时', done: true, icon: 'house' },
+  { time: '11:30', title: '午饭：天妇罗', meta: '人均约 ¥2,000', done: true, icon: 'utensils', tone: 'good' },
+  { time: '13:30', title: '上野公园 + 博物馆', meta: '门票 ¥1,000', icon: 'camera' },
+  { time: '18:00', title: '回酒店', meta: '地铁银座线 · 20 分钟', icon: 'clock', tone: 'warn' }
+] });
+kanban($('#kb'), { columns: [{ id: 'todo', title: '待办' }, { id: 'doing', title: '进行中' }, { id: 'review', title: '待验收' }, { id: 'done', title: '完成' }], cards: [
+  { id: 1, col: 'todo', title: '拆需求', meta: '一句话 → 能力清单', tag: '规划' }, { id: 2, col: 'doing', title: '写行程窗口', meta: '编程助手甲 · 第 2 版', tag: '进行中', tone: 'warn' },
+  { id: 3, col: 'doing', title: '找地图插件', meta: '查资料助手', tag: '调研' }, { id: 4, col: 'review', title: '预算表', meta: '质检 92 分', tag: '待验收', tone: 'good' }, { id: 5, col: 'done', title: '配方存档', tag: '完成', tone: 'good' }
+], onMove: (k, col) => toast(`「${k.title}」移到了 ${({ todo: '待办', doing: '进行中', review: '待验收', done: '完成' })[col]}`) });
+const d0 = new Date(); const iso = (n) => { const d = new Date(d0); d.setDate(d0.getDate() + n); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+calendar($('#cal'), { events: [{ date: iso(0), title: '出发' }, { date: iso(1), title: '涩谷' }, { date: iso(2), title: '台场', tone: 'good' }, { date: iso(5), title: '交报告', tone: 'bad' }],
+  onPick: (d, ev) => { $('#calpick').textContent = ev.length ? `${d}：${ev.map((e) => e.title).join('、')}` : `${d}：没有安排`; } });
+checklist($('#ck'), { items: [{ id: 'a', text: '护照', done: true }, { id: 'b', text: '充电器和转换插头', done: true }, { id: 'c', text: '西瓜卡充值', meta: '机场就能充' }, { id: 'd', text: '雨伞' }], placeholder: '加一样要带的' });
+const ph = (h, t) => 'data:image/svg+xml,' + encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="640" height="480"><defs><linearGradient id="a" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="hsl(${h} 65% 58%)"/><stop offset="1" stop-color="hsl(${h + 50} 55% 28%)"/></linearGradient></defs><rect width="640" height="480" fill="url(#a)"/><text x="40" y="440" font-family="sans-serif" font-size="40" fill="#fff" opacity=".9">${t}</text></svg>`);
+viewer($('#vw'), { items: [[200, '分镜 1'], [20, '分镜 2'], [140, '分镜 3'], [300, '分镜 4'], [60, '分镜 5'], [250, '分镜 6']].map(([h, t]) => ({ src: ph(h, t), alt: `${t}示意`, caption: t })) });
+editor($('#ed'), { value: '# 第 2 天\n- 上午：涩谷十字路口，拍延时\n- 下午：明治神宫\n- 晚上：新宿看夜景', label: '行程笔记' });
+</script>
+</body>
+</html>

@@ -1696,6 +1696,12 @@ def build_parser() -> argparse.ArgumentParser:
             cmd.add_argument("--details", action="store_true")
             cmd.add_argument("--raw", action="store_true")
             cmd.add_argument("--costs", action="store_true", help="显示每步与每次调用的花费")
+    kit = sub.add_parser(
+        "kit-check", help="工作台质检：三种屏宽 × 浅色 / 深色，量出不达标的地方（不调用模型）"
+    )
+    kit.add_argument("target", help="本地 .html 文件或 http(s) 地址")
+    kit.add_argument("-o", "--output", help="截图和 report.json 存到这个目录")
+    kit.add_argument("--json", action="store_true", help="只输出 JSON 报告")
     estimate = sub.add_parser("estimate", help="提交前预估：各模式 × 各档位的上桌人数与预计花费")
     estimate.add_argument("question", nargs="?", help="题目；省略时从 --file 读取")
     estimate.add_argument("--file", help="从 UTF-8 文本文件读取题目")
@@ -1741,6 +1747,8 @@ async def run(
     ask: Callable[[str], str] = input,
 ) -> int:
     args = build_parser().parse_args(argv)
+    if args.command == "kit-check":  # 不需要配置和模型
+        return await asyncio.to_thread(cmd_kit_check, args, out)
     try:
         rt = runtime or Runtime.build()
     except ConfigError as exc:
@@ -1873,6 +1881,24 @@ async def run(
         if runtime is None:
             await rt.aclose()
     return 0
+
+
+def cmd_kit_check(args: argparse.Namespace, out: TextIO) -> int:
+    """工作台质检：通过返回 0，不通过返回 1，没法检查返回 2。"""
+    from roundtable.core.benchkit.quality import QualityError, run_check
+
+    try:
+        report = run_check(args.target, args.output)
+    except QualityError as exc:
+        print(f"没法质检：{exc}", file=out)
+        return 2
+    if args.json:
+        print(json.dumps(report.to_dict(), ensure_ascii=False, indent=2), file=out)
+    else:
+        print(report.summary(), file=out)
+        if args.output:
+            print(f"截图和报告在：{args.output}", file=out)
+    return 0 if report.passed else 1
 
 
 def _utf8_streams() -> None:

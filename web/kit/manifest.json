@@ -1,0 +1,48 @@
+{
+  "version": 1,
+  "about": "工作台设计套件的零件清单。生成器按需求从这里挑零件拼窗口；缺的零件现做，过了质检再加进来（docs/KIT.md）。",
+  "include": {
+    "css": "/kit/kit.css",
+    "js": "/kit/kit.js",
+    "page": "<html data-k-theme=\"主题\"> <body class=\"k-root\">，内容放在 .k-page 里"
+  },
+  "themes": ["ink", "paper", "crimson", "forest", "amber", "ocean"],
+  "parts": [
+    {"name": "page", "kind": "css", "use": "整页外壳：顶栏（标志、标题、副标题、操作）+ 12 列网格", "classes": ["k-page", "k-topbar", "k-brand", "k-logo", "k-grid", "k-span-3…12"]},
+    {"name": "card", "kind": "css", "use": "窗口卡片：带图标的标题栏、内容、底栏", "classes": ["k-card", "k-card-h", "k-ico-wrap", "k-card-b", "k-card-f", "k-glass", "k-flat"]},
+    {"name": "stat", "kind": "css", "use": "关键指标：数字、单位、涨跌、迷你趋势", "classes": ["k-stats", "k-stat", "k-label", "k-value", "k-delta", "k-spark"], "with": ["countUp", "spark"]},
+    {"name": "controls", "kind": "css", "use": "按钮、标签、分段按钮、输入框、开关、滑块、勾选框", "classes": ["k-btn", "k-primary", "k-ghost", "k-icon", "k-sm", "k-chip", "k-seg", "k-input", "k-select", "k-field", "k-search", "k-switch", "k-range", "k-check"]},
+    {"name": "badge", "kind": "css", "use": "状态标签、进度条", "classes": ["k-badge", "k-accent", "k-good", "k-warn", "k-bad", "k-dot", "k-progress"]},
+    {"name": "list", "kind": "css", "use": "带头像的列表行", "classes": ["k-list", "k-item", "k-avatar", "k-main", "k-title", "k-meta"]},
+    {"name": "tiles", "kind": "css", "use": "图片卡网格：角标、编号、悬停上浮", "classes": ["k-tiles", "k-tile", "k-media", "k-tile-b", "k-corner", "k-corner-r", "k-cover"]},
+    {"name": "tabs", "kind": "css", "use": "页签与弹窗", "classes": ["k-tabs", "k-dialog", "k-dialog-b"]},
+    {"name": "lineChart", "kind": "js", "use": "趋势：多条线、面积、右轴、悬停十字线", "api": "lineChart(el, { labels, series: [{ name, values, color?, area?, dashed?, axis?: 'right' }], height?, yFormat?, rightFormat?, zero? })"},
+    {"name": "barChart", "kind": "js", "use": "比较与每日量：分组或堆叠、高亮某一根", "api": "barChart(el, { labels, series: [{ name, values, color? }], stacked?, highlight?, height?, yFormat? })"},
+    {"name": "donut", "kind": "js", "use": "构成占比，中间写合计", "api": "donut(el, { items: [{ label, value, color? }], center?: { value, label }, size?, format? })"},
+    {"name": "spark", "kind": "js", "use": "指标卡里的迷你趋势", "api": "spark(el, values, { color?, area? })"},
+    {"name": "ring", "kind": "js", "use": "目标完成度", "api": "ring(el, value, { max?, size?, label?, color?, text? })"},
+    {"name": "heatmap", "kind": "js", "use": "每天的坚持与频率", "api": "heatmap(el, { values, end?, label? })"},
+    {"name": "table", "kind": "js", "use": "记录表：可排序、数字右对齐、空状态", "api": "table(el, { columns: [{ key, label, align?, format?, sort? }], rows, empty? }) → { update(rows) }"},
+    {"name": "timeline", "kind": "js", "use": "行程、日程、进度记录", "api": "timeline(el, { items: [{ time, title, meta?, icon?, tone?, done? }] })"},
+    {"name": "kanban", "kind": "js", "use": "任务分工：拖动换列，键盘可用", "api": "kanban(el, { columns: [{ id, title }], cards: [{ id, col, title, meta?, tag?, tone? }], onMove? }) → { update(cards) }"},
+    {"name": "calendar", "kind": "js", "use": "月历：标出有安排的日子", "api": "calendar(el, { month?, events: [{ date, title, tone? }], onPick? }) → { update(events) }"},
+    {"name": "mapFrame", "kind": "js", "use": "地点和路线示意（不联网）；要真地图时换地图服务并经用户同意", "api": "mapFrame(el, { points: [{ name, lat, lng, meta?, group? }], route?, height?, label? })"},
+    {"name": "viewer", "kind": "js", "use": "图片 / 视频缩略图 + 大图查看", "api": "viewer(el, { items: [{ src, alt, caption?, type? }] })"},
+    {"name": "editor", "kind": "js", "use": "写作、代码、笔记：行号、字数、保存状态", "api": "editor(el, { value?, placeholder?, mono?, onChange?, label? }) → { value, set(text) }"},
+    {"name": "checklist", "kind": "js", "use": "待办、打包清单、步骤", "api": "checklist(el, { items: [{ id, text, done?, meta? }], onChange?, addable?, placeholder? })"},
+    {"name": "chat", "kind": "js", "use": "会话窗：正在输入、快捷问题；onAsk 接真会话", "api": "chat(el, { greeting?, quick?, placeholder?, avatar?, onAsk, store? }) → { ask, say, clear }"},
+    {"name": "seg", "kind": "js", "use": "分段切换（周 / 月、单位等）", "api": "seg(el, [{ value, label }], value, onChange) → { value, set(v) }"},
+    {"name": "empty", "kind": "js", "use": "没有数据时的空状态（返回 HTML）", "api": "empty({ icon?, title?, hint?, action? })"},
+    {"name": "toast", "kind": "js", "use": "操作后的提示条", "api": "toast(text, { icon?, ms? })"},
+    {"name": "icon", "kind": "js", "use": "线条图标（Lucide 子集，名字见 icons.js）", "api": "icon(name, { size?, label?, cls? })"},
+    {"name": "persist", "kind": "js", "use": "本机存储个人便利设置（读写失败当作没有）", "api": "persist(ns) → { get(k, d), set(k, v) }"},
+    {"name": "format", "kind": "js", "use": "数字格式、刻度、滚动数字、主题和明暗", "api": "fmt(n, { digits?, unit? }); niceTicks(min, max, count?); countUp(el, to, opts?); setTheme(name); setMode('auto'|'light'|'dark')"}
+  ],
+  "rules": [
+    "颜色只用 --k-* 变量，不写死色值（图片和插画除外）",
+    "每个窗口都要有没数据时的样子（empty）",
+    "按钮、图片、图表都要有名字或说明",
+    "手机宽度不能横向滚动，按钮不小于 32px",
+    "页面必须过 roundtable kit-check"
+  ]
+}

@@ -285,6 +285,14 @@
 - 新提示词 `super_split/v1`、`super_work/v1`、`super_merge/v1`；顶栏「超级电脑」面板；接口 `/api/super/*`。见 `docs/SUPERCOMPUTER.md`。
 - 测试：`tests/core/supercomputer/`、`tests/api/test_super_api.py`、`tests/web/test_e2e_supercomputer.py`、`tests/core/dsh/test_manager.py`（headless 活）。
 
+### 工作台生成器 · W1 零件库 + 自动质检（2026-10-29，预估 8～12 小时，实际约 3 小时）
+
+用户要「一句话生成商业级工作台，不能像毕业设计，不预设品类」，计划 W1～W6（共 52～80 小时，见 `docs/KIT.md`）。本段：
+- `web/kit/`：设计套件（6 个主题、深浅两套、组件样式、图表与交互零件、Lucide 图标子集、零件清单 `manifest.json`、样板页 `gallery.html`）。
+- `core/benchkit/quality.py` + `roundtable kit-check`：三种屏宽 × 浅 / 深色的自动质检，硬指标 + 截图 + 打分。
+- 测试：`tests/core/benchkit/`（判定、颜色、清单与代码对得上、套件不引外部资源）、`tests/web/test_kit.py`（样板页满分、坏页被拦）。
+- 下一段 W2：生成逻辑（拆需求 → 自行找插件 / 拼零件 / 缺件现做 → 质检打回 → 迭代）。
+
 ## 下一步
 
 0. 你本机试用办公室模式（单人办、开会、项目分工、预算单、绩效）、公寓楼和群聊；看看「员工」页底部的人才市场，决定要不要换人 / 改价格。合并 PR #6 / #7 / #8 需要你点头。
