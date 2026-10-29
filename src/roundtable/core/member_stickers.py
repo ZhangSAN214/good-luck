@@ -325,7 +325,7 @@ class MemberStickers:
             "caption": spec.caption,
             "file": file,
             "status": "pending" if self.rules.review else "approved",
-            "problems": "" if check is None or check.ok else check.problems,
+            "problems": self._problems(check),
             "checked": check is not None,
             "card": card_hash(card, spec),
             "model": used.id,
@@ -336,6 +336,12 @@ class MemberStickers:
         return next(r for r in self.listing(member) if r["name"] == name)
 
     # --- 核对 ------------------------------------------------------------------------
+
+    def _problems(self, check: Check | None) -> str:
+        if check is None:
+            # 有识图模型却没核对上（调用失败或没给出结果）：不挡住，但提醒你自己看
+            return "自动核对没给出结果，请自己看一下" if self._check_model() else ""
+        return "" if check.ok else check.problems
 
     def _check_model(self) -> ModelSpec | None:
         if not self.rules.check:

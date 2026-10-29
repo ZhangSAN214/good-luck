@@ -577,7 +577,8 @@ class StickerRules(_Strict):
     monthly_usd: float = Field(default=3.0, ge=0)
     size: int = Field(default=360, ge=64, le=1024)  # 存下来的边长（像素，正方形）
     check: bool = True  # 画完核对配文和形象
-    check_max_tokens: int = Field(default=300, ge=50)
+    # 含思考：识图模型会先想一阵，太小时正文是空的（实测 300 全被思考用掉）
+    check_max_tokens: int = Field(default=1200, ge=200)
     max_attempts: int = Field(default=2, ge=1, le=4)  # 含第一次；核对不合格时换模型重画
     review: bool = True  # 新画的先进「待审」，你点「可以」后成员才会用
 
