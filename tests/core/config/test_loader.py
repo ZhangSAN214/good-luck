@@ -394,3 +394,11 @@ def test_default_tts_voices_are_set_per_model():
     models = load_config().models
     assert models.get("gemini-3.8-flash-tts").params["voice"] == "Zephyr"
     assert models.get("qwen-audio-3.0-tts-flash").params["voice"] == "loongjohn"
+    # 2026-10-29 实测：Gemini 语音只接受 pcm；千问 Plus 只有 longanlingxin / longanlufeng
+    assert models.get("gemini-3.8-flash-tts").params["response_format"] == "pcm"
+    assert models.get("qwen-audio-3.0-tts-plus").params["voice"] == "longanlingxin"
+
+
+def test_member_voices_must_name_speech_models(config_dir):
+    edit(config_dir, "personas.yaml", lambda d: d["voices"].update(Google={"gpt-image-2": "Kore"}))
+    expect_error(config_dir, "voices.Google", "gpt-image-2")

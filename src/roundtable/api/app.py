@@ -140,6 +140,10 @@ class HandoffBody(BaseModel):
     text: str
 
 
+class VoiceBody(BaseModel):
+    text: str | None = Field(default=None, max_length=2000)  # 省略：念一句试听
+
+
 class PersonaBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -755,6 +759,24 @@ def create_app(service: RoundtableService | None = None, lan: LanAccess | None =
     @app.post("/api/chat/handoff", status_code=202)
     async def chat_handoff(request: Request, body: HandoffBody) -> dict[str, Any]:
         return svc(request).chat_handoff(body.text)
+
+    @app.get("/api/chat/voices")
+    async def chat_voices(request: Request) -> dict[str, Any]:
+        return svc(request).member_voices()
+
+    @app.post("/api/chat/voices/{member}")
+    async def chat_voice(request: Request, member: str, body: VoiceBody) -> Response:
+        """用成员的固定音色念 text（省略时念一句试听）；返回音频，花费计入创作输出月上限。"""
+        clip = await svc(request).member_voice(member, body.text)
+        headers = {
+            "X-Content-Type-Options": "nosniff",
+            "Cache-Control": "private, no-store",
+            "X-Voice-Cost": f"{clip.cost_usd:.6f}",
+            "X-Voice-Cached": "1" if clip.cached else "0",
+        }
+        if clip.seconds is not None:
+            headers["X-Voice-Seconds"] = f"{clip.seconds:.2f}"
+        return Response(content=clip.data, media_type=clip.mime, headers=headers)
 
     @app.get("/api/chat/personas")
     async def chat_personas(request: Request) -> dict[str, Any]:
