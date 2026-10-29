@@ -1053,6 +1053,8 @@ class WatchRules(_Strict):
     estimate_usd: float = Field(default=0.002, ge=0)  # 每句的预估花费
     max_minutes: int = Field(default=240, ge=5, le=24 * 60)  # 一次投屏最长多久，到时自动停
     max_failures: int = Field(default=5, ge=1, le=100)  # 连续几次截不到画面就停
+    # 窗口列表里另外不列的窗口（标题含这些字，不分大小写）；系统后台、显卡浮层已默认滤掉
+    ignore_windows: list[str] = Field(default_factory=list, max_length=50)
     # 前台窗口标题 / 进程名、安卓前台包名含这些字时暂停（不截、不看），不分大小写
     sensitive: list[str] = Field(
         default_factory=lambda: [

@@ -208,7 +208,10 @@ class RoundtableService:
             self.chats.everyone,
             runtime.screen_sources
             if runtime.screen_sources is not None
-            else {"pc": PcSource(), "android": AdbSource(watch_rules.adb)},
+            else {
+                "pc": PcSource(watch_rules.ignore_windows),
+                "android": AdbSource(watch_rules.adb),
+            },
             publish=self.engine.bus.publish,
         )
         base = runtime.mail_dir.parent if runtime.mail_dir is not None else data_dir()

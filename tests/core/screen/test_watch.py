@@ -252,3 +252,29 @@ def test_same_prompt_and_params_for_every_watcher():
     """中立：陪看的每位成员拿到同一套提示词模板和参数。"""
     env, w, *_ = watch_env([img(0)])
     assert w.params() == {"max_tokens": 1200, "reasoning": {"effort": "low"}}
+
+
+# ---------- 窗口列表 ----------
+
+
+def test_window_list_drops_background_and_overlay_windows():
+    from roundtable.core.screen.capture import (
+        WS_EX_APPWINDOW,
+        WS_EX_NOACTIVATE,
+        WS_EX_TOOLWINDOW,
+        keep_window,
+    )
+
+    normal = {"ex_style": 0, "owned": False, "cloaked": False, "width": 1280, "height": 720}
+    assert keep_window("哔哩哔哩 - Microsoft Edge", **normal)
+    # 用户电脑上实际出现过的后台窗口
+    for title in ("no_active_wnd", "AsHotplugCtrl", "NVIDIA GeForce Overlay", "Program Manager"):
+        assert not keep_window(title, **normal), title
+    assert not keep_window("   ", **normal)
+    assert not keep_window("XBOX", **normal | {"cloaked": True})  # 系统藏起来的后台应用
+    assert not keep_window("浮层", **normal | {"ex_style": WS_EX_TOOLWINDOW})
+    assert keep_window("应用", **normal | {"ex_style": WS_EX_TOOLWINDOW | WS_EX_APPWINDOW})
+    assert not keep_window("叠加层", **normal | {"ex_style": WS_EX_NOACTIVATE})
+    assert not keep_window("另存为", **normal | {"owned": True})
+    assert not keep_window("小窗", **normal | {"width": 60, "height": 20})
+    assert not keep_window("Some Helper", **normal, ignore=["helper"])  # 配置里加的
