@@ -98,6 +98,16 @@ class ThemeBody(BaseModel):
     theme: str | None = None
 
 
+class ChannelPriorityBody(BaseModel):
+    """渠道优先顺序：auto 按配置 / custom 按 order；credits 为每月额度（null = 不设）。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    strategy: str
+    order: list[str] | None = None
+    credits: dict[str, float | None] | None = None
+
+
 class Note(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -523,6 +533,16 @@ def create_app(service: RoundtableService | None = None, lan: LanAccess | None =
     @app.get("/api/usage/balance")
     async def usage_balance(request: Request, refresh: int = 0) -> dict[str, Any]:
         return await svc(request).account_balance(refresh=bool(refresh))
+
+    @app.get("/api/channels/priority")
+    async def channel_priority(request: Request) -> dict[str, Any]:
+        return svc(request).channel_priority()
+
+    @app.put("/api/channels/priority")
+    async def set_channel_priority(request: Request, body: ChannelPriorityBody) -> dict[str, Any]:
+        return svc(request).set_channel_priority(
+            strategy=body.strategy, order=body.order, credits=body.credits
+        )
 
     @app.get("/api/members")
     async def members(request: Request) -> dict[str, Any]:

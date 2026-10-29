@@ -100,3 +100,30 @@ def test_balance_without_configured_channel_is_empty():
     _, c = client()
     with c:
         assert c.get("/api/usage/balance").json()["channels"] == []
+
+
+def test_channel_priority_get_and_put():
+    env, c = client()
+    with c:
+        p = c.get("/api/channels/priority").json()
+        assert p["strategy"] == "auto"
+        names = [row["channel"] for row in p["channels"]]
+        assert "c" in names
+        row = next(r for r in p["channels"] if r["channel"] == "c")
+        assert row["credit_usd"] is None and row["available"] and row["members"]
+
+        r = c.put(
+            "/api/channels/priority",
+            json={"strategy": "custom", "order": names[::-1], "credits": {"c": 50}},
+        )
+        assert r.status_code == 200
+        p = r.json()
+        assert p["strategy"] == "custom"
+        assert [row["channel"] for row in p["channels"]][: len(names)] == names[::-1]
+        row = next(r for r in p["channels"] if r["channel"] == "c")
+        assert row["credit_usd"] == 50 and row["credit_left_usd"] == 50
+        assert env.rt.router.priority.credits["c"] == 50
+        assert FAKE_KEY not in r.text
+
+        assert c.put("/api/channels/priority", json={"strategy": "x"}).status_code == 400
+        assert c.put("/api/channels/priority", json={"strategy": "auto", "x": 1}).status_code == 422

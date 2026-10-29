@@ -24,6 +24,7 @@ from .errors import (
     ProviderError,
     UnsupportedCapability,
 )
+from .priority import ChannelPriority, order_routes
 
 T = TypeVar("T")
 
@@ -84,10 +85,24 @@ class ChannelRouter:
         # 限速与并发：每个渠道一个信号量（同时在途的请求数）和最近一分钟的请求时间
         self._slots: dict[str, asyncio.Semaphore] = {}
         self._recent: dict[str, deque[float]] = {}
+        self._priority = ChannelPriority()
+        self._spent: Callable[[str], float] = lambda _channel: 0.0
 
     @property
     def mode(self) -> ChannelMode:
         return self._mode
+
+    @property
+    def priority(self) -> ChannelPriority:
+        return self._priority
+
+    def set_priority(
+        self, priority: ChannelPriority, spent: Callable[[str], float] | None = None
+    ) -> None:
+        """渠道优先顺序；spent(渠道) = 本月已用（美元），用来判断每月额度是否用完。"""
+        self._priority = priority
+        if spent is not None:
+            self._spent = spent
 
     # --- 可用性 ----------------------------------------------------------------
 
@@ -147,9 +162,10 @@ class ChannelRouter:
     # --- 调用 ------------------------------------------------------------------
 
     def _ordered(self, routes: Sequence[Route]) -> list[Route]:
-        """冷却中的渠道排到最后，其余保持配置顺序。"""
+        """按渠道优先顺序（见 priority.py）排，冷却中的渠道排到最后。"""
         now = self._clock()
-        return sorted(routes, key=lambda r: self._cooldown_until.get(r.channel, 0) > now)
+        ranked = order_routes(routes, self._priority, self._spent)
+        return sorted(ranked, key=lambda r: self._cooldown_until.get(r.channel, 0) > now)
 
     def _cool_down(self, error: ProviderError) -> None:
         p = self._policy

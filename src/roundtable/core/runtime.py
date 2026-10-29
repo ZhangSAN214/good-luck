@@ -12,6 +12,7 @@ from typing import Any
 from roundtable.core.allocation import IdentityScrubber
 from roundtable.core.attachments import FileStore
 from roundtable.core.budget import BudgetGuard
+from roundtable.core.budget.channels import MonthSpend, load_priority
 from roundtable.core.catalog import Fetch, ModelCatalog
 from roundtable.core.changelog import CHANGELOG_FILE
 from roundtable.core.config import AppConfig, load_config
@@ -180,6 +181,7 @@ class Runtime:
             evolution_dir = Path(db_path).parent / EVOLUTION_DIR
         repo = Repository(connect(db_path))
         guard = BudgetGuard(config.roundtable.budget, repo, **({"now": now} if now else {}))
+        router.set_priority(load_priority(config, repo), MonthSpend(repo, guard.now))
         return cls(
             config=config,
             router=router,

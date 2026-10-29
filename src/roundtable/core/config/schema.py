@@ -63,6 +63,9 @@ class ChannelSpec(_Strict):
     # 账户余额查询（只读，供「余额与用量」面板）：credits = GET {base_url}/credits（账户充值与已用）
     # 加 GET {base_url}/key（这个 key 的额度与今天 / 本周 / 本月已用）。不填表示该渠道不查余额
     balance: Literal["credits"] | None = None
+    # 每月赠送 / 包含的额度（美元，如会员附送的 API 额度）。渠道优先顺序据此判断：
+    # 本月按本机账本还没用完时排在前面，用完后排到最后。可在界面里改（存 app_settings）
+    monthly_credit_usd: float | None = Field(default=None, ge=0)
 
     @property
     def reasoning_style(self) -> str:
@@ -224,6 +227,18 @@ class CoordinatorRule(_Strict):
         if self.strategy == "fixed" and not self.fixed_id:
             raise ValueError("coordinator.strategy 为 fixed 时必须填写 fixed_id")
         return self
+
+
+class ChannelPriority(_Strict):
+    """同一模型有多个渠道时的先后（只决定走哪条路，不影响谁上桌）。
+
+    auto：按 models.yaml 里各模型 routes 的顺序；custom：按 order 列出的渠道先后，没列出的排在后面。
+    两种方式下，填了每月额度的渠道本月还有余额时排最前，用完后排最后；冷却中的渠道始终排最后。
+    界面里的修改存在 app_settings，优先于这里。
+    """
+
+    strategy: Literal["auto", "custom"] = "auto"
+    order: list[str] = Field(default_factory=list)
 
 
 class RequestPolicy(_Strict):
@@ -1428,6 +1443,7 @@ class RoundtableConfig(_Strict):
     brainstorm: BrainstormRules = BrainstormRules()
     collab: CollabRules = CollabRules()
     channel_mode: ChannelMode = "auto"
+    channel_priority: ChannelPriority = ChannelPriority()
     request: RequestPolicy = RequestPolicy()
     step_params: dict[str, dict[str, Any]] = Field(default_factory=dict)
     length_guard: LengthGuard = LengthGuard()
@@ -1763,6 +1779,9 @@ class AppConfig(_Strict):
         unknown = sorted(set(personas.personas) - ids)
         if unknown:
             raise ValueError(f"personas 中有未知模型 id：{unknown}")
+        stray = sorted(set(rt.channel_priority.order) - set(self.models.channels))
+        if stray:
+            raise ValueError(f"channel_priority.order 中有未知渠道：{stray}")
         self._check_routing()
         self._check_collab()
         return self

@@ -1,5 +1,6 @@
 // 余额与用量：账户余额（渠道实时查）、本月预算、对账、钱折算成 token、详细使用情况（本机账本）。
 // 只读：不改预算、不上传；key 只在服务端，这里永远拿不到。渠道名、成员名全部来自接口，不写死。
+// 唯一能改的是「走哪条路」：同一成员有几条渠道时先走哪条、每条渠道每月附送的额度（存本机）。
 
 const esc = (s) =>
   String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -15,6 +16,7 @@ const RANGES = [
 // 各功能在图表里的颜色序号（颜色在 usage.css 里按序号定义）
 const FEATURE_ORDER = ['work', 'office', 'chat', 'life', 'evolution'];
 const BASIS_KEY = 'roundtable.usage.basis';
+const KIND_LABEL = { direct: '官方直连', aggregator: '中转站', local: '本机' };
 
 /** 美元：小额多给几位小数，免得全是 $0.00。 */
 export function usd(v) {
@@ -64,7 +66,7 @@ export function reconcileLine(row) {
 export class Usage {
   /**
    * @param {HTMLDialogElement} dialog
-   * @param {{api:{usage:Function, balance:Function}}} opts
+   * @param {{api:{usage:Function, balance:Function, priority?:Function, setPriority?:Function}}} opts
    */
   constructor(dialog, { api }) {
     this.dlg = dialog;
@@ -75,13 +77,52 @@ export class Usage {
     this.balError = '';
     this.msg = '';
     this.basis = load(BASIS_KEY) === 'budget' ? 'budget' : 'balance';
+    this.pri = null; // 渠道优先顺序（编辑中的草稿）
+    this.priMsg = '';
     this.dlg.addEventListener('click', (e) => this.onClick(e));
   }
 
   async open() {
     if (!this.dlg.open) this.dlg.showModal();
     this.render();
-    await Promise.all([this.loadUsage(), this.loadBalance(false)]);
+    await Promise.all([this.loadUsage(), this.loadBalance(false), this.loadPriority()]);
+  }
+
+  async loadPriority() {
+    if (!this.api.priority) return;
+    try {
+      this.pri = await this.api.priority();
+      this.priMsg = '';
+    } catch (e) {
+      this.priMsg = e.message;
+    }
+    if (this.dlg.open) this.render();
+  }
+
+  /** 把输入框里还没保存的额度读回草稿（重画前调用，免得打的字丢掉）。 */
+  readCredits() {
+    for (const input of this.dlg.querySelectorAll('[data-credit]')) {
+      const row = this.pri?.channels.find((c) => c.channel === input.dataset.credit);
+      if (!row) continue;
+      const v = input.value.trim();
+      row.credit_usd = v === '' ? null : Math.max(0, Number(v) || 0);
+    }
+  }
+
+  async savePriority() {
+    this.readCredits();
+    const p = this.pri;
+    try {
+      this.pri = await this.api.setPriority({
+        strategy: p.strategy,
+        order: p.channels.map((c) => c.channel),
+        credits: Object.fromEntries(p.channels.map((c) => [c.channel, c.credit_usd])),
+      });
+      this.priMsg = '已保存，下一次调用起生效。';
+    } catch (e) {
+      this.priMsg = `没保存成功：${e.message}`;
+    }
+    this.render();
   }
 
   close() {
@@ -124,6 +165,7 @@ export class Usage {
       <div class="vb us">
         ${this.msg ? `<p class="pp-msg" role="alert">${esc(this.msg)}</p>` : ''}
         ${this.balanceSection()}
+        ${this.prioritySection()}
         ${d ? this.budgetSection(d) : '<p class="hint us-wait">正在读本机账本…</p>'}
         ${d ? this.tokenSection(d) : ''}
         ${d ? this.detailSection(d) : ''}
@@ -174,6 +216,36 @@ export class Usage {
       <p class="us-recon">${esc(reconcileLine(c))}</p>
       ${c.notes?.length ? `<p class="us-why">部分没查到：${esc(c.notes.join('；'))}</p>` : ''}
     </div>`;
+  }
+
+  prioritySection() {
+    const p = this.pri;
+    if (!p) return this.priMsg ? `<section class="grp"><h4 class="grp-h">走哪条路</h4><div class="grp-box"><div class="grp-row us-bad">${esc(this.priMsg)}</div></div></section>` : '';
+    const custom = p.strategy === 'custom';
+    const rows = p.channels
+      .map((c, i) => {
+        const left = c.credit_usd == null ? '' : c.credit_left_usd > 0 ? `本月额度还剩 ${usd(c.credit_left_usd)}，优先走` : '本月额度已用完，排到最后';
+        const move = custom
+          ? `<span class="us-pmove"><button type="button" class="sheet-icon" data-pmove="${i}:-1" aria-label="往前"${i ? '' : ' disabled'}>↑</button><button type="button" class="sheet-icon" data-pmove="${i}:1" aria-label="往后"${i < p.channels.length - 1 ? '' : ' disabled'}>↓</button></span>`
+          : '';
+        return `<div class="us-prow${c.available ? '' : ' off'}">
+          <div class="us-acct-h">${custom ? `<small class="us-pno">${i + 1}</small>` : ''}<b>${esc(c.channel)}</b><span class="us-pill">${esc(KIND_LABEL[c.kind] || c.kind)}</span>${c.available ? '' : `<span class="us-pill bad">${esc(c.reason || '未启用')}</span>`}${move}</div>
+          ${c.members.length ? `<p class="us-sub">经过它的成员：${esc(c.members.join('、'))}</p>` : ''}
+          <label class="us-sub us-credit">每月附送额度 $<input type="number" min="0" step="1" inputmode="decimal" data-credit="${esc(c.channel)}" value="${c.credit_usd ?? ''}" placeholder="没有就空着" aria-label="${esc(c.channel)} 每月附送额度"></label>
+          <p class="us-sub">本机账本记的本月已用 ${usd(c.spent_month_usd)}${left ? ` · ${left}` : ''}</p>
+        </div>`;
+      })
+      .join('');
+    return `<section class="grp">
+      <h4 class="grp-h">走哪条路 <small>同一位成员有几条渠道时先走哪条</small></h4>
+      <div class="us-tabs" role="group" aria-label="渠道顺序">
+        <button type="button" class="us-tab" data-pstrat="auto" aria-pressed="${!custom}">自动判断</button>
+        <button type="button" class="us-tab" data-pstrat="custom" aria-pressed="${custom}">我来排</button>
+      </div>
+      <div class="grp-box">${rows}</div>
+      <p class="grp-foot">${custom ? '按上面的先后走；' : '按各成员配置里的顺序走（一般官方直连在前、中转站兜底）；'}填了每月附送额度的渠道（比如会员送的 API 额度），本月没用完时最先走，用完自动排到最后。出错的渠道会临时排后。只决定走哪条路，不影响谁上桌。</p>
+      <div class="us-psave"><button type="button" class="btn" data-psave>保存</button>${this.priMsg ? `<span class="hint">${esc(this.priMsg)}</span>` : ''}</div>
+    </section>`;
   }
 
   budgetSection(d) {
@@ -324,6 +396,23 @@ export class Usage {
       this.range = r.dataset.range;
       return this.loadUsage();
     }
+    const ps = t.closest('[data-pstrat]');
+    if (ps && this.pri) {
+      this.readCredits();
+      this.pri.strategy = ps.dataset.pstrat;
+      this.priMsg = '';
+      return this.render();
+    }
+    const pm = t.closest('[data-pmove]');
+    if (pm && !pm.disabled && this.pri) {
+      this.readCredits();
+      const [i, d] = pm.dataset.pmove.split(':').map(Number);
+      const list = this.pri.channels;
+      [list[i], list[i + d]] = [list[i + d], list[i]];
+      this.priMsg = '';
+      return this.render();
+    }
+    if (t.closest('[data-psave]') && this.pri) return this.savePriority();
     const b = t.closest('[data-basis]');
     if (b && !b.disabled) {
       this.basis = b.dataset.basis;

@@ -1018,6 +1018,15 @@ class Repository:
             (iso(start), iso(end)),
         ).fetchone()[0]
 
+    def spent_by_channel_between(self, start: datetime, end: datetime) -> dict[str, float]:
+        """[start, end) 内按渠道的花费（按调用记录时间）。"""
+        rows = self._exec(
+            "SELECT channel, COALESCE(SUM(cost_usd), 0) AS cost FROM calls"
+            " WHERE channel IS NOT NULL AND created_at >= ? AND created_at < ? GROUP BY channel",
+            (iso(start), iso(end)),
+        ).fetchall()
+        return {r["channel"]: r["cost"] for r in rows}
+
     def spent_in_sessions(
         self, session_ids: Sequence[str], start: datetime, end: datetime
     ) -> float:
