@@ -263,8 +263,13 @@ class GroupChat:
         if info is None:
             raise KeyError(room)
         self.kind: str = info["kind"]
-        self.title: str = info["title"]
+        self._title: str = info["title"]
         self.member_ids: list[str] = info["members"]
+
+    @property
+    def title(self) -> str:
+        names = {m.id: m.name for m in self.everyone()}
+        return live_title(self.kind, self.member_ids, self._title, names)
 
     @property
     def rules(self) -> Any:
@@ -596,6 +601,13 @@ class GroupChat:
         return first
 
 
+def live_title(kind: str, members: list[str], stored: str, names: dict[str, str]) -> str:
+    """双人房的标题按成员现在的名字拼（改名后跟着变）；其他会话用建房时存的标题。"""
+    if kind == "pair" and members and all(m in names for m in members):
+        return " 和 ".join(names[m] for m in members)
+    return stored
+
+
 class ChatHub:
     """全部会话：默认的生活群、工作群，以及按需建立的私聊。每个会话一个 GroupChat。"""
 
@@ -654,9 +666,11 @@ class ChatHub:
         names = {m.id: m.name for m in self.everyone()} | {USER: "我", SYSTEM: "系统"}
         stored = {r["id"]: r for r in self.rt.repo.chat_rooms()}
         out = []
+        member_names = {m.id: m.name for m in self.everyone()}
         for r in stored.values():
             if r["kind"] != "dm" and r["kind"] not in HIDDEN_KINDS:
-                out.append(r)
+                title = live_title(r["kind"], r["members"], r["title"], member_names)
+                out.append({**r, "title": title})
         for m in self.everyone():
             rid = dm_room(m.id)
             r = stored.get(rid) or {
