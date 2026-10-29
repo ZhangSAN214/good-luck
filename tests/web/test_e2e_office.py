@@ -170,3 +170,37 @@ def test_live_progress_only_highlights_the_assigned_staff(serve, page):
     page.wait_for_selector("#stage .seat.speaking")
     assert page.locator("#stage .seat.speaking").count() == 1
     wait_done(page)
+
+
+def test_model_directory_filters_and_offers_disabled_snippet(serve, page):
+    srv = serve(confirm_threshold_usd=100.0)
+    page.goto(srv.url)
+    page.click('#tabs button[data-t="models"]')
+    # 第一次打开：没查过 → 自动拉取一次
+    page.wait_for_selector("#mdir-list li[data-route='zz/brand-new-chat']")
+    assert srv.directory_calls == 1
+    body = page.inner_text("#pbody")
+    assert "不会上桌" in body and "文字对话" in body and "绘图 1" in body and "向量 1" in body
+    first = page.locator("#mdir-list li").first
+    assert first.get_attribute("data-route") == "zz/brand-new-chat"  # 最新的在前
+    assert "已在圆桌" in page.inner_text("#mdir-list")
+    # 标签筛选：超长上下文只剩新模型
+    page.click("#mdir-tag [data-g='huge_context']")
+    assert page.locator("#mdir-list li").count() == 1
+    # 配置片段默认停用
+    page.click("#mdir-list li[data-route='zz/brand-new-chat'] summary")
+    snippet = page.inner_text("#mdir-list li[data-route='zz/brand-new-chat'] pre")
+    assert "enabled: false" in snippet and "model: zz/brand-new-chat" in snippet
+    # 搜索时输入框不丢焦点
+    page.click("#mdir-tag [data-g='huge_context']")
+    page.fill("#mdir-q", "brand")
+    assert page.evaluate("document.activeElement.id") == "mdir-q"
+    assert page.locator("#mdir-list li").count() == 1
+    # 换类别（搜索词保留，先清空）
+    page.fill("#mdir-q", "")
+    page.click("#mdir-cat [data-c='image']")
+    page.wait_for_selector("#mdir-list li[data-route='zz/painter']")
+    assert "每张输出图 $0.02" in page.inner_text("#mdir-list")
+    page.click("#mdir-refresh")
+    page.wait_for_function("() => !document.querySelector('#mdir-refresh').disabled")
+    assert srv.directory_calls == 2

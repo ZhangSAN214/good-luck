@@ -7,12 +7,25 @@ from roundtable.core.media import MediaService
 from roundtable.core.providers import ErrorKind, FakeProvider
 from roundtable.core.runtime import Runtime
 
+# 下面的用例按这三个画图模型写（一个走对话接口、两个走 /images 接口，分在两档）；
+# 配置里其余画图模型默认去掉，让断言不随上桌名单变化。整份名单的检查见 test_repo_image_models.py
+CORE_IMAGE_MODELS = {"gpt-image-1-mini", "gpt-image-2", "gemini-3.1-flash-image"}
+
+
+def core_images_only(config):
+    models = [
+        m for m in config.models.models if "image_gen" not in m.tags or m.id in CORE_IMAGE_MODELS
+    ]
+    return config.model_copy(update={"models": config.models.model_copy(update={"models": models})})
+
 
 class Rig:
     """真实配置（含媒体模型）+ 假渠道：媒体模型都只走 openrouter 渠道。"""
 
-    def __init__(self, no_image_edit=False, **media_updates):
+    def __init__(self, no_image_edit=False, all_images=False, **media_updates):
         config = load_config()
+        if not all_images:
+            config = core_images_only(config)
         if no_image_edit:  # 所有画图模型都不支持参考图
             models = [
                 m.model_copy(update={"tags": [t for t in m.tags if t != "image_edit"]})
