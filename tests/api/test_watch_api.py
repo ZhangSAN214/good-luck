@@ -143,3 +143,34 @@ def test_adb_pair_and_connect_from_the_pc():
         )
         r = c.post("/api/watch/adb/connect", json={"host": "192.168.1.5", "port": 37001})
         assert r.json() == {"connected": ["192.168.1.5:37001"]}
+
+
+def test_overlay_starts_once_and_only_on_the_pc(monkeypatch):
+    """悬浮窗：另起一个进程连本机圆桌；开着时不重复开；没在投屏或平板上不能开。"""
+    import roundtable.core.service as service_mod
+
+    started: list[list[str]] = []
+
+    class Proc:
+        def poll(self):
+            return None
+
+    def popen(cmd, **kw):
+        started.append(cmd)
+        return Proc()
+
+    monkeypatch.setattr(service_mod.subprocess, "Popen", popen)
+    monkeypatch.setattr(service_mod, "_has_tk", lambda: True)
+    env = env_with_screen()
+    with TestClient(create_app(RoundtableService(env.rt)), base_url="http://127.0.0.1:8123") as c:
+        r = c.post("/api/watch/overlay")
+        assert r.status_code == 400 and "没在投屏" in r.json()["detail"]
+        c.post("/api/watch/start", json={"source": "pc", "watchers": ["V1"], "consent": True})
+        assert c.post("/api/watch/overlay").json() == {"started": True, "already": False}
+        assert c.post("/api/watch/overlay").json() == {"started": False, "already": True}
+        assert len(started) == 1
+        cmd = started[0]
+        assert cmd[1:3] == ["-m", "roundtable.desktop.overlay"]
+        assert cmd[cmd.index("--url") + 1] == "http://127.0.0.1:8123"
+        assert cmd[cmd.index("--state") + 1].endswith("watch_overlay.json")
+        c.post("/api/watch/stop")

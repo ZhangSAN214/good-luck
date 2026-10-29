@@ -98,3 +98,39 @@ def test_watch_pair_android_wirelessly(serve, page):
     assert dlg.locator("[data-adb-host]").input_value() == "192.168.1.5"
     dlg.get_by_text("iPhone 怎么投").click()
     dlg.get_by_text("屏幕镜像").wait_for()
+
+
+def test_watch_overlay_button_and_pip(serve, page, monkeypatch):
+    """投屏中：「悬浮窗」按钮请电脑开置顶小窗（不切屏也能看她们说话）；浏览器支持时有「画中画」。"""
+    import roundtable.core.service as service_mod
+
+    started = []
+
+    class Proc:
+        def poll(self):
+            return None
+
+    def popen(cmd, **kw):
+        started.append(cmd)
+        return Proc()
+
+    monkeypatch.setattr(service_mod.subprocess, "Popen", popen)
+    monkeypatch.setattr(service_mod, "_has_tk", lambda: True)
+    srv = serve(confirm_threshold_usd=100.0, setup=setup)
+    page.goto(srv.url)
+    page.locator("#watchbtn").click()
+    dlg = page.locator("#watchdlg")
+    dlg.get_by_text("哔哩哔哩").click()
+    dlg.locator("[data-member='V1']").check()
+    dlg.locator("[data-consent]").check()
+    dlg.locator("[data-start]").click()
+    dlg.locator(".wt-on").wait_for()
+    dlg.locator("[data-overlay]").click()
+    dlg.get_by_text("悬浮窗打开了").wait_for()
+    dlg.locator("[data-overlay]").click()
+    dlg.get_by_text("悬浮窗已经开着了").wait_for()
+    assert len(started) == 1 and "roundtable.desktop.overlay" in started[0]
+    has_pip = page.evaluate("'documentPictureInPicture' in window")
+    assert dlg.locator("[data-pip]").count() == (1 if has_pip else 0)
+    dlg.locator("[data-stop]").click()
+    dlg.locator("[data-start]").wait_for()

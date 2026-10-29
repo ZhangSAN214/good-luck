@@ -248,6 +248,95 @@ async def test_stop_and_max_minutes():
         w.post("还在吗")
 
 
+async def test_describe_without_thinking_and_with_previous_and_title():
+    """看画面不思考（思考会把字数花光、交回空白）；带上一段描述和当前窗口标题。"""
+    env, w, src, events, clock = watch_env([img(0), img(255)])
+    src.window_title = "玩《影之刃零》，看《叶问》_哔哩哔哩_bilibili"
+    env.fake.queue("b2", "B站播放页，游戏画面。")
+    env.fake.queue("b1", "…")
+    w.start("pc:42", "哔哩哔哩 (゜-゜)つロ 干杯~-bilibili", ["V1"], consent=True)
+    assert await w.tick() == "looked"
+    first = next(c for c in env.fake.calls if is_describe(c.messages))
+    assert first.params["reasoning"] == {"enabled": False}
+    assert first.params["max_tokens"] == 800
+    assert "影之刃零" in first.messages[-1].content and "这是第一张" in first.messages[-1].content
+    assert w.status()["source"]["title"].startswith("玩《影之刃零》")
+    speak = env.fake.calls[-1].messages[-1].content
+    assert "<title>玩《影之刃零》" in speak and "<turn>画面</turn>" in speak
+    assert "<voice>" in speak
+    clock.t += 20
+    env.fake.queue("b2", "白衣角色倒地了。")
+    env.fake.queue("b1", "…")
+    await w.tick()
+    second = [c for c in env.fake.calls if is_describe(c.messages)][-1]
+    assert "<previous>B站播放页，游戏画面。</previous>" in second.messages[-1].content
+
+
+async def test_blank_describe_backs_off_instead_of_retrying_every_grab():
+    env, w, src, events, clock = watch_env([img(0)], fail_gap_seconds=10, grab_seconds=3)
+    env.fake.queue("b2", "", "", "屏幕上是黑色的画面。")
+    w.start("pc", "整个屏幕", ["V1"], consent=True)
+    w.set_quiet(True)
+    assert await w.tick() == "failed"
+    assert "空白" in w.status()["error"]
+    n = len(env.fake.calls)
+    for _ in range(3):  # 每 3 秒截一张，但 10 秒内不再看
+        clock.t += 3
+        assert await w.tick() == "wait"
+    assert len(env.fake.calls) == n
+    clock.t += 3
+    assert await w.tick() == "failed"
+    clock.t += 10
+    assert await w.tick() == "looked"
+    assert w.status()["screens"][0]["text"] == "屏幕上是黑色的画面。"
+
+
+async def test_friends_pick_up_each_others_lines():
+    """一位说完，别人接她的话（最多 max_followups 句）；接话的提示词标明「朋友」。"""
+    env, w, src, events, clock = watch_env([img(0)], followup_chance=1.0, max_followups=2)
+    env.fake.queue("b2", "屏幕上是黑色的画面。")
+    w.start("pc", "整个屏幕", ["V1", "V3"], consent=True)
+    v1 = next(m for m in w._watchers() if m.id == "V1")
+    v3 = next(m for m in w._watchers() if m.id == "V3")
+    w.rng.choice = lambda xs: v1 if v1 in xs else xs[0]  # 主动说的是 V1
+    w.rng.random = lambda: 0.4  # 第二句的几率减半成 0.5，仍接
+    env.fake.queue(v1.model_id, "这黑屏是故意的吧")
+    env.fake.queue(v3.model_id, "我觉得是在加载")
+    env.fake.queue(v1.model_id, "加载这么久也太慢了")
+    assert await w.tick() == "spoke"
+    said = [m for m in w.messages() if m["author"] != "system"]
+    assert [m["author"] for m in said] == ["V1", "V3", "V1"]
+    assert said[1]["reply_to"] == said[0]["id"] and said[2]["reply_to"] == said[1]["id"]
+    last = env.fake.calls[-1].messages[-1].content
+    assert "<turn>朋友</turn>" in last and "我觉得是在加载" in last
+
+
+async def test_no_followup_when_quiet_or_chance_zero_or_friend_passes():
+    env, w, src, events, clock = watch_env([img(0)], followup_chance=0.0)
+    w.start("pc", "整个屏幕", ["V1", "V3"], consent=True)
+    w.set_quiet(True)
+    await w.tick()
+    msg, speakers = w.post("@" + w._watchers()[0].name + " 好看吗")
+    env.fake.queue(speakers[0].model_id, "好看")
+    out = await w.replies(msg["id"], speakers)
+    assert [m["text"] for m in out] == ["好看"]
+    # 几率为 1，但朋友选择不接（…）：就停
+    env, w, src, events, clock = watch_env([img(0)], followup_chance=1.0)
+    w.start("pc", "整个屏幕", ["V1", "V3"], consent=True)
+    w.set_quiet(True)
+    await w.tick()
+    first, other = w._watchers()
+    msg, speakers = w.post(f"@{first.name} 好看吗")
+    env.fake.queue(first.model_id, "好看")
+    env.fake.queue(other.model_id, "…")
+    out = await w.replies(msg["id"], speakers)
+    assert [m["text"] for m in out] == ["好看"]
+    assert (
+        "<turn>用户</turn>"
+        in [c for c in env.fake.calls if c.model == first.model_id][-1].messages[-1].content
+    )
+
+
 def test_same_prompt_and_params_for_every_watcher():
     """中立：陪看的每位成员拿到同一套提示词模板和参数。"""
     env, w, *_ = watch_env([img(0)])
