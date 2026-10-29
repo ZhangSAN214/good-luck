@@ -6,7 +6,7 @@
 // 微信式动作：右键 / 长按消息 → 引用、复制、撤回（自己的、几分钟内）；双击成员头像 → 拍一拍。
 // 成员一次回复可能拆成几条气泡陆续出现；私聊顶部显示「对方正在输入…」。
 
-import { MediaComposer, bindMedia, mediaHTML, richText, soloSticker, stickerSVG, visibleText } from './chatmedia.js';
+import { MediaComposer, bindMedia, cardHTML, mediaHTML, richText, soloSticker, stickerSVG, visibleText } from './chatmedia.js';
 
 const esc = (s) =>
   String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -459,6 +459,7 @@ export class GroupChat {
     const items = [];
     if (this.kind() !== 'pair') items.push(['quote', '引用']);
     items.push(['copy', '复制']);
+    if (this.api.forward && this.forwardable(msg)) items.push(['forward', '转发']);
     if (this.canRecall(msg)) items.push(['recall', '撤回']);
     const menu = this.$('#gc-menu');
     menu.innerHTML = items.map(([act, label]) => `<button type="button" role="menuitem" data-act="${act}" data-id="${id}">${label}</button>`).join('');
@@ -492,6 +493,44 @@ export class GroupChat {
       }
     } else if (act === 'recall') {
       await this.recall(msg);
+    } else if (act === 'forward') {
+      this.forwardMenu(msg);
+    } else if (act.startsWith('to:')) {
+      await this.forward(msg, act.slice(3));
+    }
+  }
+
+  /** 能转发的：图片 / 视频 / 语音 / 表情包、链接卡片，或有文字的消息。 */
+  forwardable(msg) {
+    return Boolean(msg.meta?.media?.length || msg.meta?.card || msg.meta?.share || visibleText(msg.text, msg.meta));
+  }
+
+  /** 第二步：选转发到哪个群或私聊（成员之间的聊天只能看，不能转进去）。 */
+  forwardMenu(msg) {
+    const targets = this.rooms.filter((r) => r.kind === 'group' || r.kind === 'dm');
+    const menu = this.$('#gc-menu');
+    const head = '<small class="gc-menu-h">转发给</small>';
+    menu.innerHTML = head + targets.map((r) => `<button type="button" role="menuitem" data-act="to:${esc(r.id)}" data-id="${msg.id}">${esc(r.title)}</button>`).join('');
+    menu.hidden = false;
+    this.menuAt = this.now();
+    menu.querySelector('button')?.focus({ preventScroll: true });
+  }
+
+  async forward(msg, room) {
+    try {
+      const res = await this.api.forward(msg.id, room);
+      this.error = '';
+      if (room === this.room) {
+        this.pending = [...(this.pending || []), ...((res && res.speakers) || [])];
+        this.fastUntil = this.now() + FAST_FOR_MS;
+        this.renderError();
+      } else {
+        this.notice(`已转发到「${this.rooms.find((r) => r.id === room)?.title || '聊天'}」`);
+      }
+      this.poll();
+    } catch (e) {
+      this.error = e.message || '转发失败';
+      this.renderError();
     }
   }
 
@@ -658,11 +697,14 @@ export class GroupChat {
     const at = new Date(msg.created_at);
     const time = at.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false });
     const shown = visibleText(msg.text, msg.meta);
-    const solo = !msg.meta?.media?.length && soloSticker(msg.text);
+    const solo = !msg.meta?.media?.length && !msg.meta?.card && soloSticker(msg.text);
     const media = mediaHTML(msg.meta?.media, { group: `m${msg.id}`, mine: msg.author === 'user' });
     const words = shown ? `<div class="gc-words">${richText(shown, { mentions: true })}</div>` : '';
-    const text = solo ? stickerSVG(solo.pack, solo.name, { big: true }) : `${words}${media}`;
-    const kindCls = solo ? ' stk-only' : msg.meta?.media?.length ? (shown ? ' has-media' : ' media-only') : '';
+    const card = cardHTML(msg.meta?.card);
+    const fwd = msg.meta?.forwarded ? '<small class="gc-fwd">转发</small>' : '';
+    const text = solo ? stickerSVG(solo.pack, solo.name, { big: true }) : `${fwd}${words}${media}${card}`;
+    const stkOnly = msg.meta?.media?.length && msg.meta.media.every((m) => m.sticker) && !shown;
+    const kindCls = solo || stkOnly ? ' stk-only' : msg.meta?.media?.length ? (shown ? ' has-media' : ' media-only') : card && !shown ? ' card-only' : '';
     const follow = prev && prev.author === msg.author && at - new Date(prev.created_at) < 180000;
     const cls = `gc-msg${msg.author === 'user' ? ' me' : ''}${follow ? ' follow' : ''}`;
     const stamp = `<time datetime="${esc(msg.created_at)}">${esc(time)}</time>`;
@@ -672,7 +714,7 @@ export class GroupChat {
     if (msg.author === 'user') return `<div class="${cls}" data-id="${msg.id}"><div class="gc-body"><div class="gc-meta">${tag}${seen}${stamp}</div><div class="gc-bub${kindCls}">${text}</div>${quote}</div></div>`;
     const member = this.members.find((m) => m.id === msg.author);
     const away = msg.meta?.offline ? '<span class="gc-tag away" title="你不在的时候发生的">你不在时</span>' : '';
-    return `<div class="${cls}" data-id="${msg.id}" data-author="${esc(msg.author)}">${this.avatar(member, msg.name)}<div class="gc-body"><div class="gc-meta"><span class="gc-name">${esc(msg.name)}</span>${away}${stamp}</div><div class="gc-bub${kindCls}">${text}${this.source(msg.meta?.share)}</div>${quote}</div></div>`;
+    return `<div class="${cls}" data-id="${msg.id}" data-author="${esc(msg.author)}">${this.avatar(member, msg.name)}<div class="gc-body"><div class="gc-meta"><span class="gc-name">${esc(msg.name)}</span>${away}${stamp}</div><div class="gc-bub${kindCls}">${text}${card ? '' : this.source(msg.meta?.share)}</div>${quote}</div></div>`;
   }
 
   /** 微信式引用框：放在气泡下面，灰底一行「名字：开头一段」；原消息已撤回时说明。点击跳到原消息。 */
@@ -832,9 +874,25 @@ export class GroupChat {
     t.innerHTML = `${this.typing.length ? '<i></i><i></i><i></i>' : ''}<span>${esc(parts.join('　'))}</span>`;
   }
 
+  /** 一句提示（不是错误），几秒后消失。 */
+  notice(text) {
+    const el = this.$('#gc-err');
+    if (!el) return;
+    el.hidden = false;
+    el.textContent = text;
+    el.classList.add('ok');
+    clearTimeout(this.noticeTimer);
+    this.noticeTimer = setTimeout(() => {
+      el.classList.remove('ok');
+      this.renderError();
+    }, 2500);
+  }
+
   renderError() {
     const el = this.$('#gc-err');
     if (!el) return;
+    if (el.classList.contains('ok') && !this.error) return;
+    el.classList.remove('ok');
     el.hidden = !this.error;
     el.textContent = this.error;
   }
