@@ -36,7 +36,8 @@ def test_status_lists_media_availability_without_model_names():
     with c:
         media = c.get("/api/status").json()["media"]
         assert media["enabled"] and media["confirm_video"] and media["default_tier"] == "budget"
-        assert set(media["kinds"]) == {"image", "speech", "video"}
+        assert set(media["kinds"]) == {"image", "speech", "video", "music"}
+        assert media["kinds"]["music"]["tiers"] == {"budget": True, "flagship": True}
         image = media["kinds"]["image"]
         assert image["available"] and image["tiers"] == {"budget": True, "flagship": True}
         assert media["kinds"]["speech"]["tiers"] == {"budget": True, "flagship": True}  # 退到另一档

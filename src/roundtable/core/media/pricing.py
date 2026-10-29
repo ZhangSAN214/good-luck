@@ -1,18 +1,28 @@
-"""媒体模型的计价：按张 / 秒 / 分钟 / 字符，渠道返回实际费用时以实际为准。"""
+"""媒体模型的计价：按张 / 秒 / 分钟 / 字符 / 首，渠道返回实际费用时以实际为准。"""
 
 from __future__ import annotations
 
 from roundtable.core.config import MediaRules, ModelSpec, Route
 from roundtable.core.providers import estimate_cost, image_cost
 
-KINDS = ("image", "speech", "video")
+KINDS = ("image", "speech", "video", "music")
 # 媒体种类 → 生成所需的模型能力标签
-KIND_TAGS = {"image": "image_gen", "speech": "tts", "video": "video_gen"}
-KIND_LABELS = {"image": "图片", "speech": "语音", "video": "视频"}
+KIND_TAGS = {"image": "image_gen", "speech": "tts", "video": "video_gen", "music": "music_gen"}
+KIND_LABELS = {"image": "图片", "speech": "语音", "video": "视频", "music": "音乐"}
+# 只生成一次、不评审的种类（没有可看的画面）
+NO_REVIEW = ("speech", "music")
 
 
-def quantities(*, images: int = 0, seconds: float = 0.0, chars: int = 0) -> dict[str, float]:
-    return {"image": images, "second": seconds, "minute": seconds / 60, "char": chars}
+def quantities(
+    *, images: int = 0, seconds: float = 0.0, chars: int = 0, songs: int = 0
+) -> dict[str, float]:
+    return {
+        "image": images,
+        "second": seconds,
+        "minute": seconds / 60,
+        "char": chars,
+        "song": songs,
+    }
 
 
 def unit_cost(
@@ -22,12 +32,14 @@ def unit_cost(
     images: int = 0,
     seconds: float = 0.0,
     chars: int = 0,
+    songs: int = 0,
 ) -> float | None:
     """按配置的 media_price 计算；没有 media_price 时返回 None。"""
     price = model.media_price_for(route) if route else model.media_price
     if price is None:
         return None
-    return price.usd * quantities(images=images, seconds=seconds, chars=chars)[price.unit]
+    amounts = quantities(images=images, seconds=seconds, chars=chars, songs=songs)
+    return price.usd * amounts[price.unit]
 
 
 def mostly_cjk(text: str, threshold: float = 0.3) -> bool:
@@ -54,6 +66,8 @@ def estimate_generation(model: ModelSpec, kind: str, rules: MediaRules, *, chars
         return image_cost(model, None, rules.images_per_round)
     elif kind == "video":
         cost = unit_cost(model, seconds=rules.video.duration_s)
+    elif kind == "music":
+        cost = unit_cost(model, songs=1)
     else:
         return speech_cost(model, None, min(chars, rules.speech.max_chars))
     if cost is not None:

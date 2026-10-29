@@ -1,4 +1,4 @@
-"""媒体生成：模型选择、计价、图片 / 语音 / 视频生成服务、视频截帧。
+"""媒体生成：模型选择、计价、图片 / 语音 / 视频 / 音乐生成服务、视频截帧。
 
 MediaService 依赖存储层，而存储层又依赖路由；为避免循环导入，服务相关的名称按需加载。
 """
@@ -8,7 +8,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from .frames import FramesUnavailable, extract_frames, shrink_image
-from .pricing import KIND_LABELS, KIND_TAGS, KINDS, estimate_generation, unit_cost
+from .pricing import KIND_LABELS, KIND_TAGS, KINDS, NO_REVIEW, estimate_generation, unit_cost
 from .select import media_group, pick_media_model, pick_stt_model
 
 if TYPE_CHECKING:
@@ -18,6 +18,7 @@ __all__ = [
     "KINDS",
     "KIND_LABELS",
     "KIND_TAGS",
+    "NO_REVIEW",
     "FramesUnavailable",
     "MediaResult",
     "MediaService",

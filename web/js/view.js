@@ -40,7 +40,7 @@ export const STEP_LABELS = {
   office_review: '复核经理验收',
   office_revise: '按验收意见修改',
 };
-export const MEDIA_LABELS = { image: '图片', speech: '语音', video: '视频' };
+export const MEDIA_LABELS = { image: '图片', speech: '语音', video: '视频', music: '音乐' };
 const JOB_STATE = {
   submitted: ['已提交', ''],
   pending: ['排队中', 'wait'],
@@ -1452,7 +1452,7 @@ export function directoryPanel(d, f) {
 }
 
 const TIER_NAMES = { flagship: '全力档', budget: '节电档' };
-const KIND_TAGS = { image: ['image_gen'], video: ['video_gen'], speech: ['tts'], transcription: ['stt'] };
+const KIND_TAGS = { image: ['image_gen'], video: ['video_gen'], speech: ['tts'], music: ['music_gen'], transcription: ['stt'] };
 
 function shortPrice(n) {
   if (n === null || n === undefined) return '—';
@@ -1949,7 +1949,7 @@ export function estimateHTML(est, { workflow, anonymous, plans, customLabel }) {
 // --- 媒体面板 ----------------------------------------------------------------------------
 
 export function mediaPanel(sv, prefix) {
-  if (!sv) return '<p class="empty">提交题目时可以选择输出图片、语音或视频；协同模式由统筹决定哪些子任务要生成媒体。</p>';
+  if (!sv) return '<p class="empty">提交题目时可以选择输出图片、语音、视频或音乐；协同模式由统筹决定哪些子任务要生成媒体。</p>';
   const names = new Names(sv, prefix);
   const jobs = sv.media || [];
   const total = jobs.reduce((a, j) => a + (j.cost_usd || 0), 0);
@@ -1962,7 +1962,7 @@ export function mediaPanel(sv, prefix) {
     const pill = { ok: 'okp', wait: 'wait', bad: 'badp' }[sc] || '';
     const who = j.code ? names.member(j.code) : '统筹';
     const model = j.model_id ? `<div class="hint">${esc(j.model_id)}${j.channel ? ` · ${esc(j.channel)}` : ''}</div>` : '';
-    h += `<tr><td>第 ${j.round} 轮${j.attempt > 1 ? `<div class="hint">第 ${j.attempt} 次尝试</div>` : ''}</td><td>${esc(MEDIA_LABELS[j.kind] || j.kind)} · ${esc(who)}${j.subtask ? ` · ${esc(j.subtask)}` : ''}${j.reference_count ? `<div class="hint">参考图 ${esc(j.reference_count)} 张</div>` : ''}${j.warning ? `<div class="hint bad">${esc(j.warning)}</div>` : ''}${model}<details class="more"><summary>提示词</summary><div>${esc(j.prompt)}</div></details></td><td><span class="pill ${pill}">${esc(st)}</span></td><td class="num">${money(j.cost_usd)}</td></tr>`;
+    h += `<tr><td>第 ${j.round} 轮${j.attempt > 1 ? `<div class="hint">第 ${j.attempt} 次尝试</div>` : ''}</td><td>${esc(MEDIA_LABELS[j.kind] || j.kind)} · ${esc(who)}${j.subtask ? ` · ${esc(j.subtask)}` : ''}${j.reference_count ? `<div class="hint">参考图 ${esc(j.reference_count)} 张</div>` : ''}${j.warning ? `<div class="hint bad">${esc(j.warning)}</div>` : ''}${model}<details class="more"><summary>提示词</summary><div>${esc(j.prompt)}</div></details>${j.lyrics ? `<details class="more"><summary>歌词 / 说明</summary><div>${esc(j.lyrics)}</div></details>` : ''}</td><td><span class="pill ${pill}">${esc(st)}</span></td><td class="num">${money(j.cost_usd)}</td></tr>`;
   }
   h += '</tbody></table><h4>成果</h4><div class="filebar" style="flex-direction:column;align-items:stretch">';
   for (const j of jobs) {

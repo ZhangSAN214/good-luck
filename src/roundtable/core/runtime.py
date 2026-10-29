@@ -46,6 +46,8 @@ MAIL_DIR = "mail_browser"
 CHAT_MEDIA_DIR = "chat_media"
 # 成员自己上网的隔离浏览器资料夹，每位成员一个（登录状态在里面；放在数据库旁边，不进 git）
 WANDER_DIR = "wander"
+# 感官整理出的感知卡和转写稿缓存（放在数据库旁边，不进 git）
+PERCEPTION_DIR = "perception"
 
 
 def data_dir(environ: Mapping[str, str] | None = None) -> Path:
@@ -99,6 +101,8 @@ class Runtime:
     wander_web: Any | None = None
     # 聊天 / 朋友圈的图片、视频、语音所在目录；为空表示不能存（内存数据库）
     chat_media_dir: Path | None = None
+    # 感官的感知卡与转写稿缓存（docs/PERCEPTION.md）；为空时只缓存在内存里（内存数据库）
+    perception_dir: Path | None = None
 
     @classmethod
     def build(
@@ -205,6 +209,9 @@ class Runtime:
             chat_media_dir=None
             if str(db_path) == ":memory:"
             else Path(db_path).parent / CHAT_MEDIA_DIR,
+            perception_dir=None
+            if str(db_path) == ":memory:"
+            else Path(db_path).parent / PERCEPTION_DIR,
         )
 
     def sandbox(self) -> tuple[Sandbox | None, str | None]:

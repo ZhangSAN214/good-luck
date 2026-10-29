@@ -103,6 +103,7 @@ from roundtable.core.office import building, payslip, roster
 from roundtable.core.office import collect as collect_performance
 from roundtable.core.office import reset as reset_performance
 from roundtable.core.orchestrator import Orchestrator, OrchestratorError, RunResult
+from roundtable.core.perception import Perceiver, PerceptionCache, SenseItem
 from roundtable.core.persona import card_text, is_empty, persona_of, set_persona
 from roundtable.core.plugin_board import board_view, load_board
 from roundtable.core.preview import render_preview
@@ -185,6 +186,7 @@ class RoundtableService:
         self.chats = ChatHub(runtime, names=self._art_names)
         self.memory = MemoryKeeper(runtime, self.chats.everyone)
         self.life = LifeEngine(runtime, self.chats, self.memory)
+        self.perceiver = Perceiver(runtime, PerceptionCache(runtime.perception_dir))
         self.engine = MemberEngine(runtime, lambda: [m.id for m in self.chats.everyone()])
         state = getattr(self.engine, "state", None)  # 状态插件（心情）装上后，夜间整理按心情改语气
         if state is not None:
@@ -1120,8 +1122,79 @@ class RoundtableService:
         except ValueError as exc:
             raise ServiceError(str(exc)) from None
         self.rt.repo.mark_chat_read(chat.room, msg["id"])
-        self._chat_replies(chat, msg["id"], speakers)
-        return {"id": msg["id"], "speakers": [m.name for m in speakers]}
+        mode = self.perceiver.mode_for(text) if meta else None
+        if mode:
+            self._background(self._look_and_reply(chat, msg["id"], speakers, mode, chat.round))
+        else:
+            self._chat_replies(chat, msg["id"], speakers)
+        return {"id": msg["id"], "speakers": [m.name for m in speakers], "look": mode}
+
+    async def _look_and_reply(
+        self, chat: Any, message_id: int, speakers: list[Any], mode: str, round_no: int
+    ) -> None:
+        """消息带图片 / 视频 / 语音时，先由感官整理成感知卡（成员读卡），再依次回应。"""
+        with contextlib.suppress(Exception):  # 没看成也照常回应，成员只看到占位
+            await self._perceive_message(chat.room, message_id, mode)
+        if speakers:  # 用户在感官看的时候又发了消息或撤回：按策略作废这一轮
+            await chat.replies(message_id, speakers, round_no)
+
+    def _sense_items(self, meta: dict[str, Any]) -> list[SenseItem]:
+        items = []
+        for it in meta.get("media") or []:
+            found = self.chat_media.load(it["id"])
+            if found is not None:
+                items.append(SenseItem(it["id"], it["kind"], found[0], found[1]))
+        return items
+
+    async def _perceive_message(self, room: str, message_id: int, mode: str) -> list[dict]:
+        row = self.rt.repo.chat_message(message_id)
+        if row is None or row["room"] != room:
+            return []
+        meta = dict(row["meta"] or {})
+        items = self._sense_items(meta)
+        if not items:
+            return []
+        chat = self._chat_room(room)
+        chat.typing.append("感官")
+        chat.on_change()
+        try:
+            cards = await self.perceiver.perceive(room, items, mode)
+        finally:
+            chat.typing.remove("感官")
+            chat.on_change()
+        if cards:
+            meta["perception"] = [
+                {"id": c.id, "kind": c.kind, "mode": c.mode, "text": c.text} for c in cards
+            ]
+            self.rt.repo.set_chat_message_meta(message_id, meta)
+            chat.on_change()
+        return meta.get("perception", [])
+
+    async def chat_look(self, room: str, message_id: int) -> dict[str, Any]:
+        """「细看」：把一条带图片 / 视频 / 语音的消息按精细模式重新整理，再请一位成员看过后回应。
+
+        转写稿和缓存复用；已经是精细的直接用缓存（不花钱）。
+        """
+        chat = self._chat_room(room)
+        row = self.rt.repo.chat_message(message_id)
+        if row is None or row["room"] != chat.room or row["author"] != "user":
+            raise ServiceError("消息不存在", 404)
+        if not (row["meta"] or {}).get("media"):
+            raise ServiceError("这条消息没有图片、视频或语音")
+        if not self.rt.config.roundtable.perception.enabled:
+            raise ServiceError("感官已关闭（perception.enabled）")
+        cards = await self._perceive_message(chat.room, message_id, "fine")
+        if not any(c["mode"] == "fine" for c in cards):
+            raise ServiceError("这次没能细看（没有可用的看图模型，或本月感官额度已用完）")
+        replied = [
+            r["author"]
+            for r in self.rt.repo.chat_messages(chat.room, after=message_id, limit=50)
+            if r["reply_to"] == message_id and r["author"] not in ("user", "system")
+        ]
+        online = [m for m in chat.members() if m.available]
+        speakers = [m for m in online if m.id in replied][:1] or chat.pick(row["text"])[:1]
+        self._chat_replies(chat, message_id, speakers)
+        return {"id": message_id, "speakers": [m.name for m in speakers]}
 
     def _chat_replies(self, chat: Any, reply_to: int, speakers: list[Any]) -> None:
         if not speakers:
@@ -1395,9 +1468,33 @@ class RoundtableService:
             raise ServiceError(f"内容太长（最多 {MAX_MOMENT_CHARS} 字）")
         text, meta = self._media_meta(text, media)
         row = self.rt.repo.add_moment("user", self._moment_text(text), meta=meta)
+        mode = self.perceiver.mode_for(text) if meta else None
+        if self.rt.config.roundtable.chat.moments.enabled or mode:
+            self._background(self._look_and_comment(row["id"], mode))
+        return {"id": row["id"], "look": mode}
+
+    async def _look_and_comment(self, moment_id: int, mode: str | None) -> None:
+        """动态带图片 / 视频 / 语音时，先由感官整理成感知卡，再请成员评论。"""
+        if mode is not None:
+            with contextlib.suppress(Exception):  # 没看成也照常评论，成员只看到占位
+                await self._perceive_moment(moment_id, mode)
         if self.rt.config.roundtable.chat.moments.enabled:
-            self._background(self.life.moments.react_to_user_post(row["id"]))
-        return {"id": row["id"]}
+            await self.life.moments.react_to_user_post(moment_id)
+
+    async def _perceive_moment(self, moment_id: int, mode: str) -> None:
+        row = self.rt.repo.moment(moment_id)
+        if row is None:
+            return
+        meta = dict(row["meta"] or {})
+        items = self._sense_items(meta)
+        if not items:
+            return
+        cards = await self.perceiver.perceive(ROOM, items, mode)
+        if cards:
+            meta["perception"] = [
+                {"id": c.id, "kind": c.kind, "mode": c.mode, "text": c.text} for c in cards
+            ]
+            self.rt.repo.set_moment_meta(moment_id, meta)
 
     def moments_like(self, moment_id: int) -> dict[str, Any]:
         """用户点赞 / 取消点赞。"""
@@ -1751,6 +1848,10 @@ class RoundtableService:
         chat = self._chat_room(room)
         return {"deleted": self.rt.repo.clear_chat(chat.room)}
 
+    def perception_clear(self) -> dict[str, Any]:
+        """一键清空感官缓存（data/perception/ 里的感知卡和转写稿；聊天记录里的卡不动）。"""
+        return {"deleted": self.perceiver.cache.clear()}
+
     def payslip(self, session_id: str) -> dict[str, Any]:
         """一件事的工资单：每位组员 / 统筹各领多少，外包（搜索、媒体、规划员等）另列。
 
@@ -1793,7 +1894,7 @@ class RoundtableService:
         workflow：discussion（讨论模式）或 collab（协同模式）；
         attachments：先用 upload() 上传得到的附件 id；
         style_refs：其中作为风格参考的图片附件 id（None = 全部图片；传空表示都不是）；
-        media：讨论模式的输出类型（image / speech / video，默认文字）；
+        media：讨论模式的输出类型（image / speech / video / music，默认文字）；
         media_tier：媒体模型的档位（budget / flagship）；
         carry_from：接力的上一场会话 id，question 是这一场的要求，上一场的成果摘要附在后面。
         """
@@ -2154,6 +2255,7 @@ class RoundtableService:
                 "extra_files": j["params"].get("extra_files", []),
                 "reference_count": j["reference_count"],
                 "warning": j["params"].get("warning"),
+                "lyrics": scrub(j["params"]["lyrics"]) if j["params"].get("lyrics") else None,
                 "model_id": j["model_id"] if revealed else None,
                 "channel": j["channel"] if revealed else None,
             }

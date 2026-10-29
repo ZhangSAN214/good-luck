@@ -34,11 +34,11 @@ class Price(_Strict):
 
 
 # 媒体模型的计价单位：张、秒、分钟、字符；按 token 计价的模型沿用 Price
-MediaUnit = Literal["image", "second", "minute", "char"]
+MediaUnit = Literal["image", "second", "minute", "char", "song"]  # song：每生成一首 / 一段
 
 
 class MediaPrice(_Strict):
-    """媒体模型每个单位的价格（美元）：图片每张、视频每秒、转写每分钟、语音合成每字符。"""
+    """媒体模型每个单位的价格（美元）：图片每张、视频每秒、转写每分钟、语音合成每字符、音乐每首。"""
 
     unit: MediaUnit
     usd: float = Field(ge=0)
@@ -554,6 +554,15 @@ class VideoRules(_Strict):
     submit_retries: int = Field(default=1, ge=0)  # 提交失败或任务失败后再试几次
     frames: int = Field(default=4, ge=1, le=12)  # 发给评审者的截帧数
     max_mb: float = Field(default=100, gt=0)
+    # 支持声音的视频模型同时生成配音和音效（渠道参数 generate_audio）；关掉则只要画面
+    audio: bool = True
+
+
+class MusicRules(_Strict):
+    """音乐生成（配乐、片头、整首歌）：渠道按段 / 首计价，生成一次，不评审（没有可看的画面）。"""
+
+    format: Literal["mp3", "wav"] = "mp3"
+    max_chars: int = Field(default=1500, ge=50)  # 音乐描述（含歌词）最多多少字
 
 
 class SpeechRules(_Strict):
@@ -579,7 +588,7 @@ class StyleRules(_Strict):
 
 
 class MediaRules(_Strict):
-    """媒体生成（图片、语音、视频）：由 seat: false 的媒体模型完成，按标签和档位选择。"""
+    """媒体生成（图片、语音、视频、音乐）：由 seat: false 的媒体模型完成，按标签和档位选择。"""
 
     enabled: bool = True
     default_tier: Tier = "budget"
@@ -591,6 +600,10 @@ class MediaRules(_Strict):
     images_per_round: int = Field(default=1, ge=1, le=4)
     speech: SpeechRules = SpeechRules()
     video: VideoRules = VideoRules()
+    music: MusicRules = MusicRules()
+    # 创作输出（图片 / 语音 / 视频 / 音乐）单独的每月上限（美元，按 UTC 自然月）：
+    # 本月已花 + 这次预计超过它时，生成前先弹确认卡片；0 = 不设上限
+    monthly_usd: float = Field(default=5.0, ge=0)
     # 花费预估：平均生成几轮；评审与改写提示词每次的 token 数
     expected_rounds: float = Field(default=1.5, ge=1)
     review_tokens: int = Field(default=500, ge=0)
@@ -820,6 +833,53 @@ class BrowseRules(_Strict):
     max_tokens: int = Field(default=800, ge=64)
     timeout_s: float = Field(default=10, gt=0, le=60)
     max_feed_kb: int = Field(default=1024, ge=16, le=8192)
+
+
+class PerceptionMode(_Strict):
+    """感官的一种精细程度（docs/PERCEPTION.md）：图片缩到多大、视频取几帧、感知卡写多长。"""
+
+    image_side: int = Field(ge=256, le=4096)  # 图片缩到长边不超过这么多像素
+    video_frames: int = Field(ge=1, le=64)  # 视频均匀取几帧（整段交给模型时不用）
+    frame_side: int = Field(ge=128, le=2048)  # 每帧缩到长边不超过这么多像素
+    grid: bool = False  # 每 4 帧拼成一张 2×2 宫格图（看图 token 约为原来的 1/4）
+    native_video: bool = False  # 有带 video_in 标签的模型时，整段视频连声音直接交给它
+    max_tokens: int = Field(ge=64, le=8000)  # 感知卡（一条消息的全部内容合计）的输出上限
+    estimate_usd: float = Field(ge=0)  # 一条消息的预估花费（预算检查用）
+
+
+class PerceptionRules(_Strict):
+    """成员感官（M11 感知，docs/PERCEPTION.md）：把用户发的图片、语音、视频整理成感知卡给成员读。
+
+    快速（默认）先看；用户要求细看时才补精细，转写稿和缓存都复用。花费计入聊天月预算和总预算，
+    另有感官自己的月上限。
+    """
+
+    enabled: bool = True
+    monthly_usd: float = Field(default=1.5, ge=0)  # 感官每月最多花多少（UTC 自然月）
+    fast: PerceptionMode = PerceptionMode(
+        image_side=768,
+        video_frames=8,
+        frame_side=512,
+        grid=True,
+        max_tokens=600,
+        estimate_usd=0.002,
+    )
+    fine: PerceptionMode = PerceptionMode(
+        image_side=1536,
+        video_frames=24,
+        frame_side=768,
+        native_video=True,
+        max_tokens=2000,
+        estimate_usd=0.03,
+    )
+    # 用户在消息里写了这些词时直接用精细模式
+    fine_words: list[str] = Field(
+        default_factory=lambda: ["仔细看", "细看", "看清楚", "看仔细", "仔细听", "听清楚"],
+        max_length=30,
+    )
+    max_audio_s: int = Field(default=600, ge=10, le=3600)  # 语音 / 视频声音最多转写多长
+    native_max_mb: float = Field(default=20, gt=0, le=60)  # 整段视频交给模型的大小上限
+    card_chars: int = Field(default=800, ge=100, le=4000)  # 每张感知卡最多保留多少字
 
 
 class ClipperRules(_Strict):
@@ -1378,6 +1438,7 @@ class RoundtableConfig(_Strict):
     evolution: EvolutionRules = EvolutionRules()
     mail: MailConfig = MailConfig()
     clipper: ClipperRules = ClipperRules()
+    perception: PerceptionRules = PerceptionRules()
 
     @field_validator("prompts")
     @classmethod
@@ -1712,7 +1773,7 @@ class AppConfig(_Strict):
                 raise ValueError(f"collab.kinds.{name}.tags 含未知标签 {unknown}")
         for template in rt.collab.templates:
             for step in template.steps:
-                if step.media not in (None, "image", "speech", "video"):
+                if step.media not in (None, "image", "speech", "video", "music"):
                     raise ValueError(f"模板 {template.name} 的步骤 {step.id} 的 media 无效")
 
     def _check_routing(self) -> None:
