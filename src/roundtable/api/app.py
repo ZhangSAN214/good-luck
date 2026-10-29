@@ -646,6 +646,34 @@ def create_app(service: RoundtableService | None = None, lan: LanAccess | None =
     async def chat_clear_memories(request: Request, member: str | None = None) -> dict[str, Any]:
         return svc(request).chat_clear_memories(member)
 
+    @app.get("/api/chat/memory/{member}/items")
+    async def chat_memory_items(
+        request: Request, member: str, q: str | None = None, limit: int = 50
+    ) -> dict[str, Any]:
+        return svc(request).chat_memory_items(member, q, limit)
+
+    @app.get("/api/chat/memory/{member}/diary")
+    async def chat_read_diary(request: Request, member: str, q: str = "") -> dict[str, Any]:
+        return svc(request).chat_read_diary(member, q)
+
+    @app.get("/api/chat/memory/items/{item_id}/history")
+    async def chat_memory_item_history(request: Request, item_id: int) -> dict[str, Any]:
+        return svc(request).chat_memory_item_history(item_id)
+
+    @app.patch("/api/chat/memory/items/{item_id}")
+    async def chat_update_memory_item(
+        request: Request, item_id: int, body: MemoryBody
+    ) -> dict[str, Any]:
+        return svc(request).chat_update_memory_item(item_id, body.text)
+
+    @app.delete("/api/chat/memory/items/{item_id}")
+    async def chat_delete_memory_item(request: Request, item_id: int) -> dict[str, Any]:
+        return svc(request).chat_delete_memory_item(item_id)
+
+    @app.delete("/api/chat/memory/hanging/{hanging_id}")
+    async def chat_drop_hanging(request: Request, hanging_id: int) -> dict[str, Any]:
+        return svc(request).chat_drop_hanging(hanging_id)
+
     @app.get("/api/moments")
     async def moments(
         request: Request, author: str | None = None, before: int | None = None

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+
 from tests.web.conftest import wait_until
 
 
@@ -305,3 +307,40 @@ def test_people_dialog_self_profile_import_edit_revert(serve, page, tmp_path):
     page.click("#people #pf-clear")
     page.wait_for_selector("#people #pp-prof .pf-empty")
     assert srv.env.rt.repo.member_profile("V2") is None
+
+
+def test_people_dialog_memory_items_hanging_and_diary(serve, page, tmp_path):
+    """记忆与联想（P2）：记忆件、挂着的事、习惯、翻日记（网页翻不占成员的次数）。"""
+    srv = serve(confirm_threshold_usd=100.0)
+    repo = srv.env.rt.repo
+    repo.add_memory("V2", "day", "今天和用户去了一兰拉面店，排了好久的队。", period="2026-10-21")
+    item = repo.add_memory_item("V2", "和用户去了一兰拉面店", day="2026-10-21", domain="社交")
+    repo.add_memory_item("V2", "用户不吃香菜", day="2026-10-20", kind="fact", importance=3)
+    repo.add_memory_hanging("V2", "周末爬山要带水", "日常", "2026-10-28")
+    repo.set_memory_digest(
+        "V2", "常做的事：晚上去天台看星星（12 次）；经历多在：日常60%、社交40%", {}
+    )
+    open_chat(srv, page)
+    page.click(".gc-room[data-room='dm:V2']")
+    page.wait_for_function("document.querySelector('#gc-title')?.textContent === '与 阿二 私聊'")
+    page.click("#gc-people")
+    page.wait_for_selector("#people[open] .pp-who.cur[data-member='V2']")
+    page.wait_for_selector("#people li[data-hid]")
+    text = page.inner_text("#people .pp-mem")
+    assert "周末爬山要带水" in text and "常做的事：晚上去天台看星星" in text
+    assert "用户不吃香菜" in text and "TA 今天还能翻 3 次日记" in text
+    page.fill("#people #pp-diary input", "10-21")
+    page.click("#people #pp-diary button")
+    page.wait_for_selector("#people .pp-mem li:has-text('2026-10-21 的日记')")
+    page.locator("#people .pp-mem").screenshot(path=str(tmp_path / "memory.png"))
+    if os.environ.get("ROUNDTABLE_SHOTS"):
+        page.locator("#people .pp-mem").screenshot(path=os.environ["ROUNDTABLE_SHOTS"])
+    page.locator(f"#people li[data-iid='{item['id']}'] [data-iedit]").click()
+    page.fill("#people .pp-ieditf textarea", "和用户去了拉面店")
+    page.click("#people .pp-ieditf button")
+    page.wait_for_selector("#people .pp-msg:has-text('改好了')")
+    assert repo.memory_item(item["id"])["text"] == "和用户去了拉面店"
+    assert repo.memory_revisions(item["id"])[0]["old"] == "和用户去了一兰拉面店"
+    page.click("#people [data-drop]")
+    page.wait_for_selector("#people .pp-msg:has-text('放下了')")
+    assert repo.memory_hanging("V2") == []

@@ -96,6 +96,12 @@ export const editChatMemory = (mid, text) => api(`/api/chat/memories/${mid}`, { 
 export const delChatMemory = (mid) => api(`/api/chat/memories/${mid}`, { method: 'DELETE' });
 export const clearChatMemories = (id) => api(`/api/chat/memories${id ? `?member=${encodeURIComponent(id)}` : ''}`, { method: 'DELETE' });
 export const tidyChatMemories = () => api('/api/chat/memories/tidy', { method: 'POST' });
+// 记忆与联想（P2）：记忆件、挂着的事、习惯、翻日记
+export const memoryItems = (id, q = '') => api(`/api/chat/memory/${encodeURIComponent(id)}/items${q ? `?q=${encodeURIComponent(q)}` : ''}`);
+export const editMemoryItem = (iid, text) => api(`/api/chat/memory/items/${iid}`, { method: 'PATCH', body: { text } });
+export const delMemoryItem = (iid) => api(`/api/chat/memory/items/${iid}`, { method: 'DELETE' });
+export const dropHanging = (hid) => api(`/api/chat/memory/hanging/${hid}`, { method: 'DELETE' });
+export const readDiary = (id, q) => api(`/api/chat/memory/${encodeURIComponent(id)}/diary?q=${encodeURIComponent(q)}`);
 export const getMoments = (author, before) => {
   const q = new URLSearchParams();
   if (author) q.set('author', author);
