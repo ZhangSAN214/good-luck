@@ -269,7 +269,9 @@ class LifeEngine:
                 others=others,
                 scene=p.topic,
                 persona=chat_persona(rt, member.id),
-                memory=member_memory(rt, member.id, f"{p.topic}\n{chat.history(names)}"),
+                memory=member_memory(
+                    rt, member.id, f"{p.topic}\n{chat.history(names)}", p.room or ROOM
+                ),
                 history=chat.history(names),
             )
             prompt = plain_prompt(rt.prompts, rt.config, prompt)

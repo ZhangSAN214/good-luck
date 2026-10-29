@@ -128,8 +128,8 @@ def test_personas_and_memories_api():
         assert c.delete(f"/api/chat/memories/{mid}").status_code == 404
         c.post("/api/chat/memories", json={"member": "V1", "text": "a"})
         c.post("/api/chat/memories", json={"member": "V2", "text": "b"})
-        assert c.delete("/api/chat/memories", params={"member": "V1"}).json() == {"deleted": 1}
-        assert c.delete("/api/chat/memories").json() == {"deleted": 1}
+        assert c.delete("/api/chat/memories", params={"member": "V1"}).json()["deleted"] == 1
+        assert c.delete("/api/chat/memories").json()["deleted"] == 1
 
 
 def test_pair_room_is_listed_and_read_only():
@@ -251,3 +251,50 @@ def test_chat_and_moments_media(tmp_path):
         mo = c.get("/api/moments").json()["moments"][0]
         assert mo["meta"]["media"][0]["id"] == up["id"] and mo["meta"]["caption"] == "今天"
         assert c.post("/api/moments", json={}).status_code == 400
+
+
+def test_memory_items_api():
+    """记忆与联想（P2）：记忆件可查、可搜、可改（留旧版）、可删；挂着的事可放下；网页翻日记不占次数。"""
+    env = Env()
+    repo = env.rt.repo
+    with TestClient(create_app(RoundtableService(env.rt))) as c:
+        r = c.post("/api/chat/memories", json={"member": "V1", "text": "用户下周三考试"})
+        note = r.json()["id"]
+        data = c.get("/api/chat/memory/V1/items").json()
+        (item,) = data["items"]
+        assert item["text"] == "用户下周三考试" and item["kind"] == "fact"
+        assert item["source"] == "user" and item["domain"] == "学术"
+        assert data["count"] == 1 and data["diary_reads_left"] == 3 and data["hanging"] == []
+        assert "身心" in data["domains"]
+        # 改随手记也改对应的记忆件（留旧版）
+        c.patch(f"/api/chat/memories/{note}", json={"text": "用户下周四考试"})
+        hist = c.get(f"/api/chat/memory/items/{item['id']}/history").json()
+        assert hist["item"]["text"] == "用户下周四考试"
+        assert [(x["old"], x["new"]) for x in hist["revisions"] if x["field"] == "text"] == [
+            ("用户下周三考试", "用户下周四考试")
+        ]
+        other = repo.add_memory_item("V1", "和用户去了一兰拉面店", day="2026-10-21")
+        found = c.get("/api/chat/memory/V1/items", params={"q": "一兰拉面"}).json()["items"]
+        assert [x["id"] for x in found] == [other["id"]]
+        r = c.patch(f"/api/chat/memory/items/{other['id']}", json={"text": "去了拉面店"})
+        assert r.json()["text"] == "去了拉面店"
+        assert (
+            c.patch(f"/api/chat/memory/items/{other['id']}", json={"text": "密码 1"}).status_code
+            == 400
+        )
+        assert c.delete(f"/api/chat/memory/items/{other['id']}").json() == {"deleted": 1}
+        assert c.delete(f"/api/chat/memory/items/{other['id']}").status_code == 404
+        hid = repo.add_memory_hanging("V1", "周末爬山要带水", "日常", "2026-10-28")
+        assert c.get("/api/chat/memory/V1/items").json()["hanging"][0]["text"] == "周末爬山要带水"
+        assert c.delete(f"/api/chat/memory/hanging/{hid}").json() == {"dropped": 1}
+        repo.add_memory("V1", "day", "今天去了图书馆。", period="2026-10-21")
+        got = c.get("/api/chat/memory/V1/diary", params={"q": "图书馆"}).json()
+        assert got["found"] == ["【2026-10-21 的日记】今天去了图书馆。"]
+        assert c.get("/api/chat/memory/V1/items").json()["diary_reads_left"] == 3
+        assert c.get("/api/chat/memory/X/items").status_code == 404
+        # 删随手记也删对应的件；一键清空连记忆件一起清
+        c.delete(f"/api/chat/memories/{note}")
+        assert c.get("/api/chat/memory/V1/items").json()["count"] == 0
+        c.post("/api/chat/memories", json={"member": "V1", "text": "a 记一条"})
+        assert c.delete("/api/chat/memories").json()["cleared"] >= 1
+        assert repo.count_memory_items() == 0

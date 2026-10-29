@@ -697,21 +697,52 @@ class ChatBudgetRules(_Strict):
     monthly_usd: float = Field(default=5.0, gt=0)
 
 
-class MemoryRules(_Strict):
-    """成员的分层记忆（docs/CHAT.md G3）。只存本地；只用于聊天。"""
+class DiaryToolRules(_Strict):
+    """翻日记（P2）：生活模式里成员自己翻以前的日记和记忆，每位成员每天有次数上限（所有成员相同）。"""
 
     enabled: bool = True
-    context_chars: int = Field(default=800, ge=0)  # 聊天提示词里最多放多少字的记忆
+    daily_reads: int = Field(default=3, ge=0, le=20)  # 每位成员每天最多翻几次（本地日）
+    max_hits: int = Field(default=3, ge=1, le=10)  # 每次最多翻出几段
+    result_chars: int = Field(default=300, ge=50, le=2000)  # 每次翻出的内容最多多少字
+
+
+class MemoryRules(_Strict):
+    """成员的记忆（docs/CHAT.md G3、docs/MEMBER_ENGINE.md「P2 记忆与联想」）。
+
+    只存本地；只用于生活模式。
+    """
+
+    enabled: bool = True
+    context_chars: int = Field(default=800, ge=0)  # 聊天提示词里最多放多少字的记忆（所有成员相同）
     entry_chars: int = Field(default=300, ge=50)  # 每条记忆最多多少字
     log_chars: int = Field(default=6000, ge=500)  # 整理一天时最多读多少字的聊天记录
     catch_up_days: int = Field(default=7, ge=1, le=60)  # 最多补整理几天前的
     max_tokens: int = Field(default=600, ge=64)
     estimate_usd: float = Field(default=0.001, ge=0)  # 每次整理的预估花费（预算检查用）
-    # 召回方式：layers 按时间固定带几层（默认）；half_life 半衰期记忆，按相关 × 鲜活 × 重要挑几件
-    recall: Literal["layers", "half_life"] = "layers"
+    # 召回方式：half_life 半衰期记忆（默认），按相关 × 鲜活 × 重要挑几件；
+    # layers 按时间固定带几层（旧）
+    recall: Literal["layers", "half_life"] = "half_life"
     half_life_days: float = Field(default=30, ge=1, le=3650)  # 发生过的事过多少天鲜活度减半
+    freshness_floor: float = Field(default=0.5, ge=0, le=1)  # 鲜活度保底：再久的事也不低于它
     inject_max: int = Field(default=6, ge=1, le=30)  # 半衰期召回每次最多带几件
     daily_quota: int = Field(default=8, ge=1, le=30)  # 半衰期记忆每人每天最多记几件事
+    # --- P2 记忆与联想 ---
+    night: bool = True  # 每晚整理合并成一次调用：第一人称日记 + 记忆件 + 挂着的事（+ 心情改写）
+    diary_chars: int = Field(default=300, ge=50, le=2000)  # 日记最多多少字
+    domains: list[str] = Field(
+        default_factory=lambda: ["学术", "日常", "工作", "娱乐", "社交", "身心"], min_length=1
+    )
+    hanging_max: int = Field(default=5, ge=0, le=10)  # 脑子里挂着的事最多几件
+    candidates: int = Field(default=200, ge=10, le=5000)  # 召回时全文索引最多取几件候选
+    recent: int = Field(default=30, ge=0, le=500)  # 另外带上最近的几件当候选
+    merge_similarity: float = Field(default=0.6, gt=0, le=1)  # 和已有的一件这么像就合并计数
+    update_similarity: float = Field(default=0.3, gt=0, le=1)  # 事实这么像（但不到合并）就算更新
+    repeat_gap_minutes: int = Field(default=60, ge=1, le=24 * 60)  # 同一次对话：间隔不超过这么久
+    digest_chars: int = Field(default=120, ge=0, le=1000)  # 全量经历的习惯摘要多少字（随身卡用）
+    work_lookback_days: int = Field(default=14, ge=1, le=90)  # 读自己的工作记录往回看几天
+    mood_threshold: float = Field(default=0.3, ge=0, le=1)  # 心情偏离中性这么多才改回忆语气
+    retell_max: int = Field(default=3, ge=0, le=10)  # 每晚最多改几件旧记忆的语气和重要度
+    diary: DiaryToolRules = DiaryToolRules()
 
 
 class LifeGuardRules(_Strict):
