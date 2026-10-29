@@ -1154,6 +1154,56 @@ class StateRules(_Strict):
     context_chars: int = Field(default=80, ge=0, le=300)
 
 
+class GrowthReviewRules(_Strict):
+    """成长的评审（借 dsh answer-reviewer）：另一位成员给每条改动打分，低于 min_score 不改；
+    不自评（评审永远不是本人）；每周才评一次；提议格式不对或全被拦下时最多重试 max_retries 次。"""
+
+    enabled: bool = True
+    min_score: int = Field(default=3, ge=1, le=5)  # 1～5 分，低于它这条不改
+    max_retries: int = Field(default=1, ge=0, le=1)
+
+
+class GrowthRules(_Strict):
+    """P6 成长（docs/MEMBER_ENGINE.md「P6 成长」）：每周用成员自己的模型读一遍上周的经历，
+    最多提几条对自我档案的改动，每条必须引用真实经历；程序把关后才写进档案（author = growth）。
+
+    只用于生活模式；8 位同一套规则、同一个预算。
+    """
+
+    enabled: bool = True
+    weekday: int = Field(default=1, ge=1, le=7)  # 每周几（ISO，1 = 周一）反思上一周
+    min_days: int = Field(default=3, ge=1, le=7)  # 上周至少几天有经历才反思，否则跳过并记原因
+    min_lines: int = Field(default=5, ge=1, le=100)  # 上周至少几条经历（日记、记忆件、你说的话）
+    max_changes: int = Field(default=3, ge=1, le=5)  # 每周最多改几条
+    material_chars: int = Field(default=4000, ge=500, le=20000)  # 周总结最多多少字
+    line_chars: int = Field(default=120, ge=20, le=500)  # 每条经历最多多少字
+    user_lines: int = Field(default=12, ge=0, le=50)  # 最多带你说过的几句话
+    # 引用的原话至少有这么多（两字片段）出现在所引的经历里（照抄为 1）
+    evidence_overlap: float = Field(default=0.6, gt=0, le=1)
+    # 能改的列表项（分区 → 键）；五项性格分（personality.五项）另按「一格」改
+    lists: dict[str, list[str]] = Field(
+        default_factory=lambda: {
+            "personality": ["长处", "小毛病"],
+            "values": ["最看重"],
+            "style": ["口头禅"],
+            "likes": ["最爱", "讨厌"],
+        }
+    )
+    list_max: int = Field(default=8, ge=1, le=30)  # 每个列表最多几项
+    item_chars: int = Field(default=20, ge=2, le=60)  # 新加的一项最多多少字
+    unique_lists: list[str] = Field(default_factory=lambda: ["style.口头禅"])  # 不和别人重样的列表
+    core_monthly_steps: int = Field(default=1, ge=0, le=5)  # 核心性格（五项）每月最多改几格
+    min_distance: int = Field(default=2, ge=0, le=20)  # 8 人五项分两两至少差几（各项差的和）
+    user_share: float = Field(default=0.3, ge=0, le=1)  # 受你影响的改动最多占几成
+    share_window_weeks: int = Field(default=8, ge=1, le=52)  # 按最近几周的改动算占比
+    share_floor: int = Field(default=10, ge=1, le=100)  # 改动不到这么多条时按这么多条算（起步时）
+    review: GrowthReviewRules = GrowthReviewRules()
+    backups: int = Field(default=8, ge=1, le=52)  # 每周本地备份留几份
+    timeline_keep: int = Field(default=500, ge=10, le=5000)  # 成长时间线每人最多留几条
+    max_tokens: int = Field(default=900, ge=64)
+    estimate_usd: float = Field(default=0.002, ge=0)  # 每次调用的预估花费（8 位相同）
+
+
 class EngineRules(_Strict):
     """成员引擎（docs/MEMBER_ENGINE.md）：只用于聊天、朋友圈、生活；工作模式不读取。"""
 
@@ -1167,6 +1217,7 @@ class EngineRules(_Strict):
     bus: BusRules = BusRules()
     eval: EvalRules = EvalRules()
     voice: VoiceRules = VoiceRules()
+    growth: GrowthRules = GrowthRules()
 
 
 class WanderSite(_Strict):

@@ -1,0 +1,296 @@
+"""P6 成长：每周一次，成员用自己的模型读上一周的经历，最多提几条自我档案的改动；程序把关、
+另一位成员评审后才写进档案（docs/MEMBER_ENGINE.md「P6 成长」）。
+
+- **唯一能以成长（growth）的身份写档案 personality / values / style / likes 的地方**（测试守卫）。
+- 流程（每位成员每周一次，``growth.weekday`` 那天起反思上一周）：
+  1. 程序整理一周的经历（``member/growth/week.py``）。有经历的天数少于 ``min_days`` 或条数少于
+     ``min_lines`` 就跳过，记下原因，不调用模型。
+  2. 成员用自己的模型（聊天档）提最多 ``max_changes`` 条改动（``growth_reflect``）。
+  3. 程序把关（``member/growth/gate.py``）。提议不是 JSON、或提了但一条也没过时，带着被拦下的原因
+     **最多重试一次**（借 dsh answer-reviewer；第二次的请求和第一次不同）。
+  4. **评审**：从别的成员里按（周、成员）固定的随机数抽一位（不自评），用她的模型给通过把关的
+     每条打 1～5 分（``growth_review``），低于 ``min_score`` 的不改；评审没回应时这周都不改。
+  5. 通过的每条各存成档案的一个新版本（能一条条撤回），全部结果记进成长时间线。
+  6. 全部成员反思完，写一份本地备份（留 ``backups`` 份）。
+- 花费：每次调用的预估相同（8 位相同），计入生活每天的上限（``chat.life.daily_usd``，
+  步骤 ``growth``）、聊天月预算和总预算；额度不够时这周先不反思，下次推进再试。
+- 只用于生活模式：``run(..., mode="work")`` 直接报错；工作模式的代码不 import 本模块。
+"""
+
+from __future__ import annotations
+
+import hashlib
+import random
+from collections.abc import Callable
+from datetime import date, datetime, timedelta, tzinfo
+from pathlib import Path
+from typing import Any
+
+from roundtable.core.chat import USER, USER_LABEL, ChatMember, call_member
+from roundtable.core.jsonout import JSONOutputError, extract_json_object
+from roundtable.core.member.card import TRAITS
+from roundtable.core.member.growth import (
+    Gate,
+    GrowthLog,
+    Verdict,
+    Week,
+    build,
+    monday,
+    parse,
+    week_id,
+)
+from roundtable.core.member.growth.gate import fresh_patch
+from roundtable.core.member.growth.timeline import CHANGE, REJECTED, SKIP
+from roundtable.core.member.mode import Mode, require_life
+from roundtable.core.member.profile import ProfileStore
+
+ROOM = "growth"
+STEP = "growth"
+AUTHOR = "growth"
+NONE = "（没有）"
+SELF_KEYS = (
+    ("personality", "五项"),
+    ("personality", "长处"),
+    ("personality", "小毛病"),
+    ("values", "最看重"),
+    ("style", "口头禅"),
+    ("likes", "最爱"),
+    ("likes", "讨厌"),
+)
+
+
+def self_text(data: dict[str, Any]) -> str:
+    """档案里成长能看、能改的几项（短项），给提示词用。"""
+    lines = []
+    for sec, key in SELF_KEYS:
+        v = (data.get(sec) or {}).get(key)
+        if v is None or v == [] or v == {}:
+            continue
+        if isinstance(v, dict):
+            order = [k for k in TRAITS if k in v] + [k for k in v if k not in TRAITS]
+            v = "、".join(f"{k} {v[k]}" for k in order)
+        elif isinstance(v, list):
+            v = "、".join(str(x) for x in v)
+        lines.append(f"{sec}.{key}：{v}")
+    return "\n".join(lines) or NONE
+
+
+def seed_of(week: str, member: str) -> int:
+    return int.from_bytes(hashlib.sha256(f"growth:{week}:{member}".encode()).digest()[:8], "big")
+
+
+class GrowthKeeper:
+    def __init__(
+        self,
+        rt: Any,
+        members: Callable[[], list[ChatMember]],
+        *,
+        folder: Path | None = None,
+    ) -> None:
+        self.rt = rt
+        self.members = members
+        self.folder = folder  # 每周备份放在哪（为空时不写备份，如内存数据库）
+        self.allow: Callable[[float], bool] = lambda estimate_usd: True  # 生活每天的上限
+        self.log = GrowthLog(rt)
+        self.gate = Gate(rt)
+        self.profiles = ProfileStore(rt)
+
+    @property
+    def rules(self) -> Any:
+        return self.rt.config.roundtable.chat.engine.growth
+
+    def _params(self) -> dict[str, Any]:
+        params = dict(self.rt.config.roundtable.step_params.get("chat", {}))
+        params["max_tokens"] = self.rules.max_tokens
+        return params
+
+    async def _call(self, member: ChatMember, role: str, variables: dict[str, str]) -> str | None:
+        rt = self.rt
+        if not self.allow(self.rules.estimate_usd):
+            return None
+        prompt = rt.prompts.render(role, rt.config.roundtable.prompts[role], **variables)
+        completion = await call_member(
+            rt,
+            room=ROOM,
+            model_id=member.model_id,
+            prompt=prompt,
+            step=STEP,
+            params=self._params(),
+            estimate_usd=self.rules.estimate_usd,
+        )
+        return None if completion is None else completion.text
+
+    # --- 每周一次 ----------------------------------------------------------------------
+
+    def due(self, today: date) -> date | None:
+        """今天该反思哪一周（返回那一周的周一）；还没到每周的那一天时为 None。"""
+        if today.isoweekday() < self.rules.weekday:
+            return None
+        return monday(today) - timedelta(days=7)
+
+    async def tick(self, now: datetime) -> dict[str, int]:
+        """推进到 now（带时区）：上一周还没反思过的成员各反思一次。返回各结果的数量。"""
+        out = {"members": 0, "changes": 0, "rejected": 0, "skipped": 0}
+        if not self.rules.enabled:
+            return out
+        start = self.due(now.date())
+        if start is None:
+            return out
+        wid = week_id(start)
+        everyone = self.members()
+        ran = False
+        for m in everyone:
+            if self.log.done_week(m.id) == wid:
+                continue
+            got = await self.run(m, start, now.tzinfo, today=now.date())
+            if got is None:
+                continue  # 额度不够：下次推进再试
+            ran = True
+            out["members"] += 1
+            for k in ("changes", "rejected", "skipped"):
+                out[k] += got[k]
+        if ran:
+            self.log.backup(self.folder, wid, [m.id for m in everyone])
+        return out
+
+    def week(self, member: str, start: date, tz: tzinfo | None) -> Week:
+        return build(self.rt, member, start, tz, user_label=USER_LABEL, user_author=USER)
+
+    async def run(
+        self,
+        member: ChatMember,
+        start: date,
+        tz: tzinfo | None,
+        *,
+        today: date | None = None,
+        mode: Mode | str = Mode.LIFE,
+    ) -> dict[str, int] | None:
+        """一位成员反思 start 起的那一周。额度不够时返回 None（这周还算没反思）。"""
+        require_life(mode)
+        r = self.rules
+        today = today or start + timedelta(days=7)
+        week = self.week(member.id, start, tz)
+        out = {"changes": 0, "rejected": 0, "skipped": 0}
+        if week.days < r.min_days or len(week.lines) < r.min_lines:
+            why = f"上周只有 {week.days} 天、{len(week.lines)} 条经历，太少了，这周不反思"
+            self.log.add(
+                member.id, [{"week": week.week, "kind": SKIP, "reason": why}], week=week.week
+            )
+            out["skipped"] = 1
+            return out
+        profile = self.profiles.current(member.id)
+        variables = {
+            "name": member.name,
+            "week": f"{week.week}（{start.isoformat()} 起的 7 天）",
+            "profile": self_text(profile.data),
+            "locked": "、".join(profile.locked) or NONE,
+            "habits": self._habits(member.id),
+            "lines": week.text(),
+            "feedback": "没有",
+            "max_changes": str(r.max_changes),
+            "lists": "；".join(f"{s}.{k}" for s, keys in r.lists.items() for k in keys),
+            "item_chars": str(r.item_chars),
+        }
+        others = {
+            m.id: self.profiles.current(m.id).data for m in self.members() if m.id != member.id
+        }
+        verdicts: list[Verdict] = []
+        skip = ""
+        for attempt in range(r.review.max_retries + 1):
+            text = await self._call(member, "growth_reflect", variables)
+            if text is None:
+                return None
+            proposals, skip = parse(text, r.max_changes)
+            ledger = self.log.ledger(member.id, today)
+            verdicts = (
+                self.gate.check(member.id, proposals, week, ledger, others) if proposals else []
+            )
+            if proposals == [] or any(v.ok for v in verdicts):
+                break  # 没想改，或者有能改的：不重试
+            if attempt < r.review.max_retries:
+                variables["feedback"] = self._feedback(proposals is None, verdicts)
+        passed = [v for v in verdicts if v.ok]
+        if passed and not await self._review(member, week, passed, profile.data):
+            return None
+        entries = []
+        for v in verdicts:
+            patch = fresh_patch(self.profiles.current(member.id).data, v.proposal) if v.ok else {}
+            if patch:
+                p = self.profiles.change(
+                    member.id, patch, author=AUTHOR, reason=f"成长 {week.week}：{v.proposal.why}"
+                )
+                entries.append(self.log.entry(week.week, v, kind=CHANGE, version=p.version))
+                out["changes"] += 1
+            else:
+                if v.ok:  # 评审期间档案被改过，这条已经改不了
+                    v.ok, v.reason = False, "档案刚被改过，这条改不了了"
+                entries.append(self.log.entry(week.week, v, kind=REJECTED))
+                out["rejected"] += 1
+        if not out["changes"]:
+            reason = skip or ("提议都没通过把关" if verdicts else "这周没有想改的地方")
+            entries.append({"week": week.week, "kind": SKIP, "reason": reason})
+            out["skipped"] = 1
+        self.log.add(member.id, entries, week=week.week)
+        return out
+
+    @staticmethod
+    def _feedback(not_json: bool, verdicts: list[Verdict]) -> str:
+        if not_json:
+            return "上一次没有按格式只输出一个 JSON 对象。"
+        return "\n".join(f"- {v.proposal.label()}：{v.reason}" for v in verdicts) or "没有"
+
+    def _habits(self, member: str) -> str:
+        row = self.rt.repo.memory_digest(member)
+        return (row or {}).get("text") or NONE
+
+    async def _review(
+        self, member: ChatMember, week: Week, passed: list[Verdict], data: dict[str, Any]
+    ) -> bool:
+        """评审：抽一位别的成员给通过把关的每条打分（不自评）。评审没回应时返回 False。
+
+        打分低于 min_score 的那条改成拦下。没有别的成员时不评审。"""
+        r = self.rules.review
+        others = [m for m in self.members() if m.id != member.id]
+        if not r.enabled or not others:
+            return True
+        reviewer = random.Random(seed_of(week.week, member.id)).choice(
+            sorted(others, key=lambda m: m.id)
+        )
+        cited = sorted({n for v in passed for n in v.proposal.evidence})
+        lines = [week.line(n) for n in cited]
+        evidence = "\n".join(f"{ln.n}. {ln.text}" for ln in lines if ln is not None)
+        changes = "\n".join(
+            f"{i}. {v.proposal.label()}；为什么：{v.proposal.why}；引用：{v.proposal.evidence}"
+            f" 「{v.proposal.quote}」"
+            for i, v in enumerate(passed, 1)
+        )
+        text = await self._call(
+            reviewer,
+            "growth_review",
+            {
+                "reviewer": reviewer.name,
+                "name": member.name,
+                "profile": self_text(data),
+                "evidence": evidence or NONE,
+                "changes": changes,
+            },
+        )
+        if text is None:
+            return False
+        try:
+            scores = extract_json_object(text).get("scores") or []
+        except JSONOutputError:
+            scores = []
+        got: dict[int, int] = {}
+        for s in scores if isinstance(scores, list) else []:
+            if isinstance(s, dict):
+                try:
+                    got[int(s.get("id"))] = int(s.get("score"))
+                except (TypeError, ValueError):
+                    continue
+        for i, v in enumerate(passed, 1):
+            v.score = got.get(i)
+            if v.score is None or v.score < r.min_score:
+                v.ok, v.patch = False, {}
+                v.reason = "评审没给分" if v.score is None else f"评审只给了 {v.score} 分，证据不够"
+        return True

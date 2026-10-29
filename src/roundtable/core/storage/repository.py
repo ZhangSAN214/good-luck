@@ -39,6 +39,7 @@ class NotFound(LookupError):
 
 
 STATE_KEY = "member_state:"  # 成员状态（P3）在 app_settings 里的键前缀
+GROWTH_KEY = "member_growth:"  # 成员成长（P6）在 app_settings 里的键前缀
 
 
 def iso(moment: datetime) -> str:
@@ -1949,6 +1950,28 @@ class Repository:
                 "DELETE FROM app_settings WHERE key LIKE ?", (STATE_KEY + "%",)
             ).rowcount
         return self._exec("DELETE FROM app_settings WHERE key = ?", (STATE_KEY + member,)).rowcount
+
+    # --- 成员成长（P6；app_settings 的 member_growth:<成员> 键，只有 member/growth 写）
+
+    def growth_data(self, member: str) -> dict[str, Any] | None:
+        value = self.setting(GROWTH_KEY + member)
+        return None if value is None else json.loads(value)
+
+    def save_growth_data(self, member: str, data: dict[str, Any]) -> None:
+        self.set_setting(GROWTH_KEY + member, json.dumps(data, ensure_ascii=False))
+
+    def growth_members(self) -> list[str]:
+        rows = self._exec(
+            "SELECT key FROM app_settings WHERE key LIKE ? ORDER BY key", (GROWTH_KEY + "%",)
+        ).fetchall()
+        return [r["key"][len(GROWTH_KEY) :] for r in rows]
+
+    def clear_growth_data(self, member: str | None = None) -> int:
+        if member is None:
+            return self._exec(
+                "DELETE FROM app_settings WHERE key LIKE ?", (GROWTH_KEY + "%",)
+            ).rowcount
+        return self._exec("DELETE FROM app_settings WHERE key = ?", (GROWTH_KEY + member,)).rowcount
 
     def spent_in_steps(
         self, workflow: str, steps: Sequence[str], start: datetime, end: datetime

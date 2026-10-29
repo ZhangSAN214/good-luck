@@ -81,6 +81,7 @@ from roundtable.core.export import Style as ExportStyle
 from roundtable.core.export import deliverable
 from roundtable.core.export import filename as export_filename
 from roundtable.core.export import options as export_choices
+from roundtable.core.growth import GrowthKeeper
 from roundtable.core.hometz import home_zone
 from roundtable.core.ideaboard import Board
 from roundtable.core.lan import COOKIE as LAN_COOKIE
@@ -97,6 +98,7 @@ from roundtable.core.member.card import (
     source_title,
     without_locked,
 )
+from roundtable.core.member.growth import monday, week_id
 from roundtable.core.member.memory import DiaryTool
 from roundtable.core.member.memory.store import query_terms
 from roundtable.core.member.voice import VoicePolicy
@@ -230,6 +232,9 @@ class RoundtableService:
         state = getattr(self.engine, "state", None)  # 状态插件（心情）装上后，夜间整理按心情改语气
         if state is not None:
             self.memory.mood_of = state.mood_of
+        # P6 成长：每周一用成员自己的模型反思上一周，程序把关后才写档案；花费计入生活每天的上限
+        self.growth = GrowthKeeper(runtime, self.chats.everyone, folder=runtime.growth_dir)
+        self.growth.allow = self.life.allowed
         self.calendar = Almanac(runtime, self.chats.everyone)
         self.mail = MailBox(runtime.repo)
         self.mail_ai = MailAI(runtime, self.mail)
@@ -367,6 +372,8 @@ class RoundtableService:
             self.calendar.tick(now, self.engine.bus.publish)
         with contextlib.suppress(Exception):  # 引擎出错不影响生活
             await self.engine.tick(now)
+        with contextlib.suppress(Exception):  # 成长出错不影响生活，下次推进再试
+            await self.growth.tick(now)
         return out
 
     async def aclose(self) -> None:
@@ -2208,6 +2215,58 @@ class RoundtableService:
     def member_states_clear(self, member: str | None = None) -> dict[str, Any]:
         """清空状态（全部或某一位），回到基线。"""
         return {"deleted": self.engine.state.clear(member)}
+
+    # --- 成员成长（P6，docs/MEMBER_ENGINE.md「P6 成长」） ------------------------------
+
+    def member_growth(self, member: str) -> dict[str, Any]:
+        """成长时间线（新的在前）、上次反思的是哪一周、下一次反思哪一周。"""
+        member = self._profile_member(member)
+        rules = self.rt.config.roundtable.chat.engine.growth
+        due = self.growth.due(self._local_now().date())
+        names = {m.id: m.name for m in self.chats.everyone()}
+        entries = []
+        for e in self.growth.log.entries(member):
+            e = dict(e)
+            if e.get("clash"):
+                e["clash_name"] = names.get(e["clash"], e["clash"])
+            entries.append(e)
+        return {
+            "member": member,
+            "enabled": rules.enabled,
+            "week": self.growth.log.done_week(member),
+            "due": week_id(due) if due else None,
+            "rules": {
+                "max_changes": rules.max_changes,
+                "core_monthly_steps": rules.core_monthly_steps,
+                "user_share": rules.user_share,
+                "min_days": rules.min_days,
+            },
+            "timeline": entries,
+        }
+
+    async def member_growth_run(self, member: str) -> dict[str, Any]:
+        """马上让这位成员反思上一周（每周只反思一次；上周已经反思过就不再调用）。"""
+        member = self._profile_member(member)
+        now = self._local_now()
+        start = monday(now.date()) - timedelta(days=7)
+        if self.growth.log.done_week(member) == week_id(start):
+            raise ServiceError("上一周已经反思过了，每周只反思一次", 409)
+        m = next(x for x in self.chats.everyone() if x.id == member)
+        got = await self.growth.run(m, start, now.tzinfo, today=now.date())
+        if got is None:
+            raise ServiceError("今天生活的额度或聊天预算不够，下次推进时再试", 409)
+        return {"result": got, **self.member_growth(member)}
+
+    def member_growth_revert(self, member: str, entry_id: int) -> dict[str, Any]:
+        """撤回一条成长改动（以你的身份存成档案的新版本）。"""
+        member = self._profile_member(member)
+        self._profile_do(lambda: self.growth.log.revert(member, entry_id))
+        return self.member_growth(member)
+
+    def member_growth_clear(self, member: str) -> dict[str, Any]:
+        """清空这位成员的成长时间线（档案本身和它的修改记录不动）。"""
+        member = self._profile_member(member)
+        return {"member": member, "deleted": self.growth.log.clear(member)}
 
     def member_events_count(self) -> dict[str, Any]:
         return {"events": self.rt.repo.count_member_events()}

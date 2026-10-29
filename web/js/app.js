@@ -138,6 +138,10 @@ const people = new People($('#people'), {
     revert: API.revertMemberProfile,
     clearProfile: API.clearMemberProfile,
     importCards: API.importMemberCards,
+    growth: API.memberGrowth,
+    growthRun: API.runMemberGrowth,
+    growthRevert: API.revertMemberGrowth,
+    growthClear: API.clearMemberGrowth,
   },
 });
 const feeds = new Feeds($('#feeds'), { api: { get: API.chatFeeds, set: API.setChatFeeds, refresh: API.refreshChatFeeds } });
