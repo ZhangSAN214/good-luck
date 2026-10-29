@@ -1495,6 +1495,22 @@ class Repository:
                     (now, note, item_id),
                 )
 
+    def memory_items_for_cleanup(self, key_prefix: str, kind: str) -> list[dict[str, Any]]:
+        """来源键以 key_prefix 开头、某种类、只出现过一次且从没改过的件（清理旧导入用）。"""
+        rows = self._exec(
+            "SELECT * FROM memory_items i WHERE substr(source_key, 1, ?) = ? AND kind = ?"
+            " AND hits <= 1"
+            " AND NOT EXISTS (SELECT 1 FROM memory_revisions r WHERE r.item_id = i.id)",
+            (len(key_prefix), key_prefix, kind),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def memory_items_not_from(self, source: str) -> list[tuple[int, str]]:
+        rows = self._exec(
+            "SELECT id, text FROM memory_items WHERE source != ?", (source,)
+        ).fetchall()
+        return [(r["id"], r["text"]) for r in rows]
+
     def delete_memory_item(self, item_id: int) -> bool:
         with self._tx():
             n = self.conn.execute("DELETE FROM memory_items WHERE id = ?", (item_id,)).rowcount
@@ -2174,6 +2190,13 @@ class Repository:
             (start, end),
         ).fetchall()
         return [_chat_row(r) for r in rows]
+
+    def first_chat_message_by_author(self) -> dict[str, str]:
+        """每位发过言的人第一次说话的时间（作者 → ISO 时间），日历算入职纪念日用。"""
+        rows = self._exec(
+            "SELECT author, MIN(created_at) FROM chat_messages GROUP BY author"
+        ).fetchall()
+        return {r[0]: r[1] for r in rows}
 
     def spent_in_workflow(self, workflow: str, start: datetime, end: datetime) -> float:
         """[start, end) 内挂在某类隐藏会话（如 workflow = 'chat'）上的调用花费。"""

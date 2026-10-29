@@ -93,3 +93,15 @@ voices:
   Zhipu AI:
     gemini-3.8-flash-tts: Gacrux
     minimax-speech-2.8-hd: female-chengshu-jingpin
+
+# 成员生日（日历用，只影响生活：聊天、朋友圈、生活；工作模式不读）。键是 models.yaml 的 vendor，
+# 值是 MM-DD。默认取各自模型首次公开发布的日子（公开报道的日期，可能有一两天出入），想改直接改。
+birthdays:
+  OpenAI: "11-30"      # 2022-11-30 首次公开
+  Anthropic: "03-14"   # 2023-03-14
+  Google: "12-06"      # 2023-12-06
+  Alibaba: "04-11"     # 2023-04-11
+  xAI: "11-04"         # 2023-11-04
+  DeepSeek: "11-02"    # 2023-11-02
+  Moonshot AI: "10-09" # 2023-10-09
+  Zhipu AI: "03-14"    # 2023-03-14
