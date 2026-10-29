@@ -29,6 +29,7 @@ from roundtable.core.attachments import Attachment, UploadError, ingest
 from roundtable.core.attachments.detect import TYPES as UPLOAD_TYPES
 from roundtable.core.browse import REFRESH_KEY, feeds_of, set_feeds
 from roundtable.core.budget import report as usage_report
+from roundtable.core.budget.channels import MonthSpend, save_priority
 from roundtable.core.budget.guard import day_window, month_window
 from roundtable.core.carry import carry_question, compact
 from roundtable.core.changelog import changelog_view, load_changelog
@@ -1004,6 +1005,63 @@ class RoundtableService:
         result = {"fetched_at": now.isoformat(), "channels": out}
         self._balance_cache = (now, result)
         return result
+
+    # --- 渠道优先顺序（同一成员有多条路时先走哪条；不影响谁上桌） ---------------------------
+
+    def channel_priority(self) -> dict[str, Any]:
+        cfg = self.rt.config
+        prio = self.rt.router.priority
+        spent = MonthSpend(self.rt.repo, self.rt.budget.now, ttl_s=0).all()
+        names = list(cfg.models.channels)
+        if prio.strategy == "custom":
+            names = [*prio.order, *(n for n in names if n not in prio.order)]
+        rows = []
+        for name in names:
+            spec = cfg.models.channels[name]
+            credit = prio.credits.get(name)
+            used = spent.get(name, 0.0)
+            left = None if credit is None else round(max(0.0, credit - used), 6)
+            members = [
+                display_name(m.id, cfg)
+                for m in cfg.models.enabled
+                if m.seat and any(r.channel == name for r in m.routes)
+            ]
+            rows.append(
+                {
+                    "channel": name,
+                    "kind": spec.kind,
+                    "available": name not in self.rt.unavailable_channels,
+                    "reason": self.rt.unavailable_channels.get(name),
+                    "credit_usd": credit,
+                    "spent_month_usd": round(used, 6),
+                    "credit_left_usd": left,
+                    "members": list(dict.fromkeys(members)),
+                }
+            )
+        return {"strategy": prio.strategy, "channels": rows}
+
+    def set_channel_priority(
+        self,
+        *,
+        strategy: str,
+        order: list[str] | None = None,
+        credits: dict[str, float | None] | None = None,
+    ) -> dict[str, Any]:
+        cfg = self.rt.config
+        prio = self.rt.router.priority
+        current: dict[str, float | None] = {n: prio.credits.get(n) for n in cfg.models.channels}
+        try:
+            saved = save_priority(
+                cfg,
+                self.rt.repo,
+                strategy=strategy,
+                order=order if order is not None else list(prio.order),
+                credits={**current, **(credits or {})},
+            )
+        except ValueError as exc:
+            raise ServiceError(str(exc)) from None
+        self.rt.router.set_priority(saved)
+        return self.channel_priority()
 
     # --- 插件榜 ------------------------------------------------------------------
 
@@ -3014,7 +3072,8 @@ class RoundtableService:
         rules = self.rt.config.roundtable.evolution
         if not rules.enabled:
             raise ServiceError(
-                "革新例会没有开启：在 config/roundtable.yaml 里把 evolution.enabled 改成 true", 409
+                "革新例会没有开启：在 config/roundtable.local.yaml 里写 evolution: {enabled: true}",
+                409,
             )
         inbox, _ = self._evolution_dirs()
         if inbox is None:
@@ -3193,7 +3252,8 @@ class RoundtableService:
         rules = self.rt.config.roundtable.evolution
         if not rules.enabled:
             raise ServiceError(
-                "革新例会没有开启：在 config/roundtable.yaml 里把 evolution.enabled 改成 true", 409
+                "革新例会没有开启：在 config/roundtable.local.yaml 里写 evolution: {enabled: true}",
+                409,
             )
         if rules.plan not in self.rt.config.routing.plans:
             raise ServiceError(f"evolution.plan 不是已有的档位：{rules.plan!r}")
@@ -3395,7 +3455,8 @@ class RoundtableService:
         rules = self.rt.config.roundtable.evolution
         if not rules.enabled:
             raise ServiceError(
-                "革新例会没有开启：在 config/roundtable.yaml 里把 evolution.enabled 改成 true", 409
+                "革新例会没有开启：在 config/roundtable.local.yaml 里写 evolution: {enabled: true}",
+                409,
             )
         meetings = self._meetings()
         meeting = next((m for m in meetings if m.session_id == session_id), None)

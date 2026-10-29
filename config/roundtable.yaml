@@ -843,6 +843,15 @@ collab:
 # 没有 key 的渠道自动跳过。
 channel_mode: auto
 
+# 同一成员有几条渠道时先走哪条（只决定走哪条路，不影响谁上桌）：
+#   auto   —— 按每个模型 routes 的顺序
+#   custom —— 按 order 列出的渠道先后，没列出的排在后面
+# 两种方式下，models.yaml 里填了 monthly_credit_usd（每月附送额度）的渠道，本月按本机账本没用完时最先走，
+# 用完排到最后。「余额与用量」面板里可以改，改过的存本机设置，优先于这里。
+channel_priority:
+  strategy: auto
+  order: []
+
 request:
   timeout_s: 120
   failover_rounds: 2          # 所有渠道都失败后从头再试的轮数（含第一轮）

@@ -28,6 +28,8 @@ tag_vocabulary:
 # 调用渠道。key 只从 .env 读取，这里只写环境变量名。
 #   adapter: 适配器实现（openai_compat / anthropic / gemini）
 #   kind:    aggregator（聚合平台）| direct（官方直连）| local（本地）
+#   monthly_credit_usd: 每月附送的额度（美元，如会员送的 API 额度），没用完时优先走这个渠道（可选，
+#            也可在「余额与用量」面板里填）
 #   param_aliases: 该渠道的参数改名（统一参数名 → 渠道要求的参数名）
 #            roundtable.yaml 的 channel_mode 据此筛选渠道
 channels:

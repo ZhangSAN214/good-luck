@@ -229,6 +229,8 @@ export async function streamEvents(id, onEvent, signal) {
 }
 // 余额与用量：本机账本汇总（range = day / week / month / all）与渠道账户余额（只读）
 export const getUsage = (range = 'month') => api(`/api/usage?range=${encodeURIComponent(range)}`);
+export const getChannelPriority = () => api('/api/channels/priority');
+export const setChannelPriority = (body) => api('/api/channels/priority', { method: 'PUT', body });
 export const getUsageBalance = (refresh = false) => api(`/api/usage/balance${refresh ? '?refresh=1' : ''}`);
 
 // 局域网访问（平板）：只能在电脑本机上调用

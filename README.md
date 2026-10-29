@@ -23,7 +23,7 @@ pip install -e ".[dev]"            # 只运行不开发可用 pip install -e .
 
 可选依赖：`pip install -e ".[media]"`（视频截帧，评审者才能看到视频画面）。
 
-Windows 可以直接双击 `start.bat`：它会创建 `.venv`、`git pull`、安装依赖、安装代码沙箱、停掉 8000 端口上旧的圆桌服务（旧窗口或后台启动的），再启动服务并打开浏览器。关闭窗口或按 Ctrl+C 停止；没有窗口的旧服务可以双击 `stop.bat` 停掉。
+Windows 可以直接双击 `start.bat`：它会创建 `.venv`、`git pull`、安装依赖、安装代码沙箱、停掉 8000 端口上旧的圆桌服务（旧窗口或后台启动的），再启动服务并打开浏览器。关闭窗口或按 Ctrl+C 停止；没有窗口的旧服务可以双击 `stop.bat` 停掉。只在你电脑上生效的设置（如开启革新例会）写在 `config/roundtable.local.yaml`，只写要改的项，例如 `evolution: {enabled: true}`；这个文件不进 git，更新时不会冲突。
 
 想像普通软件一样双击图标打开（没有黑色窗口，Windows 和 macOS 都行）：双击一次 `install_desktop.bat`（Mac 上是 `install_desktop.command`），桌面上会出现「圆桌」图标，见 [docs/DESKTOP.md](docs/DESKTOP.md)。
 

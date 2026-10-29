@@ -20,7 +20,7 @@ if not exist ".venv\Scripts\activate.bat" (
 call ".venv\Scripts\activate.bat" || goto :error
 
 echo [1/4] git pull ...
-git pull --ff-only || echo [warn] git pull failed, starting with the local code.
+git pull --ff-only --autostash || echo [warn] git pull failed, starting with the local code.
 
 echo [2/4] pip install -e ".[dev,windows]" ...
 python -m pip install -e ".[dev,windows]" || goto :error

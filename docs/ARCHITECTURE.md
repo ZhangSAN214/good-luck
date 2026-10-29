@@ -56,6 +56,7 @@
 - 阵容（`routing/lineup.py`）：所选档位的全部可用模型上桌；统筹按 `roundtable.yaml` 的 `coordinator` 规则在场内选出（rotate：随机，最近当过的排后；fixed：指定模型在场时用它），其余为组员；人数不足 `min_members + 1` 或组员超过 `seats` 时报错。
 - 加模型 / 加渠道只改配置。禁止针对具体模型、厂商或渠道写分支（`if model_id == ...`、`if vendor == ...`）。
 - 所有配置 pydantic 校验（多余字段报错），失败给出带文件名和字段路径的报错。
+- **本机设置覆盖**：用户在自己电脑上改的设置写在 `config/<名字>.local.yaml`（如 `roundtable.local.yaml`，`.gitignore` 已忽略），加载时逐层合并到仓库配置之上（映射合并，列表和标量整体替换），校验报错会同时写出两个文件名。不要直接改仓库里的 `config/*.yaml` 存本机设置，否则 `git pull` 会被卡住。测试通过 `ROUNDTABLE_NO_LOCAL_CONFIG` 跳过覆盖文件。
 
 ### 2.2 Provider 与双渠道
 - `core/providers/base.py`：`Provider` 抽象类，**一个渠道一个实例**。文本补全必须实现；媒体能力 `generate_image`（默认走对话接口的 `images`）、`synthesize_speech`、`transcribe`、`submit_video` / `poll_video` / `fetch_video`（异步任务）默认抛 `UnsupportedCapability`。`openai_compat` 按 OpenRouter 的接口实现后四项（`/audio/speech`、`/audio/transcriptions`、`/videos`）。`ChannelRouter.invoke(model_id, call)` 是通用的渠道调用（切换 / 退避 / 冷却规则同文本；渠道不支持该能力时视为不可用换下一个），`complete()` 建立在它之上。
@@ -66,6 +67,7 @@
   3. 遇到 429、额度用尽、key 无效、模型不存在、网络错误、超时、5xx 时**切换到下一个渠道**；请求本身有问题（400）或模型拒答时不切换。
   4. 所有渠道都失败后按 `failover_rounds` 退避重试；额度用尽 / key 无效的渠道本次不再重试。
   5. 出错的渠道进入冷却期（限流短、额度长，参考 `retry-after`），冷却中排到最后。
+  6. **渠道优先顺序**（`providers/priority.py`，`roundtable.yaml` 的 `channel_priority`，界面「余额与用量 → 走哪条路」可改，存 `app_settings` 的 `channels.priority`）：`auto` 按 `routes` 顺序，`custom` 按用户列的渠道先后；渠道填了每月附送额度（`models.yaml` 渠道的 `monthly_credit_usd` 或界面填写）时，本月按本机账本没用完排最前、用完排最后（`budget/channels.py` 的 `MonthSpend`，缓存 30 秒）。只决定走哪条路，不影响谁上桌。
 - **限速与并发**（`request.max_concurrent` / `request.requests_per_minute`，按渠道分别计，在 `ChannelRouter.invoke` 里）：同时在途的请求数超过上限时排队；每分钟请求数达到上限时等待而不是报错。Web 服务另有 `limits.max_running_sessions`（同时在后台执行的讨论数，超过时 HTTP 429；等待确认的不占名额）。
 - 适配器本身不重试（SDK 的 `max_retries=0`），重试和切换只由路由负责。
 - 每次调用返回 `Completion`：实际走的渠道、渠道类型、各次尝试（渠道 + 错误类型）、token、费用及来源。

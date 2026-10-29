@@ -185,7 +185,7 @@ export class Evolution {
     if (!d.enabled) {
       return `<section class="ev-hero">
         <p class="ev-eyebrow">革新例会还没开启</p>
-        <p class="ev-reason">在 config/roundtable.yaml 里把 evolution.enabled 改成 true，再重启圆桌（也可以让开发侧帮你开）。</p>
+        <p class="ev-reason">把 evolution.enabled 设为 true（写在 config/roundtable.local.yaml，如 evolution: {enabled: true}），再重启圆桌（也可以让开发侧帮你开）。</p>
         <div class="ev-go"><button type="button" class="btn primary" data-meet${tip('meet')} disabled>现在开一场</button></div></section>`;
     }
     return `<section class="ev-hero ev-${kind}">
