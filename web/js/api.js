@@ -108,6 +108,17 @@ export async function memberVoice(id, text = null) {
   }
   return r.blob();
 }
+// 关于你（成员系统 P8）：8 位共用的用户画像
+export const aboutYou = () => api('/api/chat/about');
+export const aboutAdd = (text, domain) => api('/api/chat/about/facts', { method: 'POST', body: { text, domain } });
+export const aboutEdit = (id, text) => api(`/api/chat/about/facts/${id}`, { method: 'PATCH', body: { text } });
+export const aboutDel = (id) => api(`/api/chat/about/facts/${id}`, { method: 'DELETE' });
+export const aboutReject = (id) => api(`/api/chat/about/facts/${id}/reject`, { method: 'POST' });
+export const aboutLock = (id, locked) => api(`/api/chat/about/facts/${id}/lock`, { method: 'POST', body: { locked } });
+export const aboutDomain = (domain, on) => api('/api/chat/about/domains', { method: 'POST', body: { domain, on } });
+export const aboutForget = (i) => api(`/api/chat/about/rejected/${i}`, { method: 'DELETE' });
+export const aboutClear = (rejected = false) => api(`/api/chat/about${rejected ? '?rejected=true' : ''}`, { method: 'DELETE' });
+export const aboutExportUrl = (fmt) => `/api/chat/about/export?fmt=${encodeURIComponent(fmt)}`;
 export const memberProfiles = () => api('/api/chat/profiles');
 export const memberProfile = (id) => api(`/api/chat/profiles/${encodeURIComponent(id)}`);
 export const changeMemberProfile = (id, patch, reason = '') => api(`/api/chat/profiles/${encodeURIComponent(id)}`, { method: 'PATCH', body: { patch, reason } });
