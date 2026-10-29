@@ -56,6 +56,8 @@ EVERYONE_WORDS = (
     "你们每",
 )
 USER_LABEL = "用户"
+# 不在群聊列表里、不能从群聊发言的会话（投屏陪伴「一起看」有自己的面板，docs/WATCH.md）
+HIDDEN_KINDS = frozenset({"watch"})
 # 会话类型 → 提示词角色（roundtable.yaml 的 prompts）
 PROMPT_ROLES = {"group": "chat", "work": "chat_work", "dm": "chat_dm"}
 # 能翻日记的会话（生活模式的私聊和生活群；工作群不带）
@@ -627,7 +629,10 @@ class ChatHub:
         """取一个会话；私聊（dm:<成员>）第一次打开时建立。不存在时抛 KeyError。"""
         if room in self._rooms:
             return self._rooms[room]
-        if self.rt.repo.chat_room(room) is None and room.startswith(DM_PREFIX):
+        info = self.rt.repo.chat_room(room)
+        if info is not None and info["kind"] in HIDDEN_KINDS:
+            raise KeyError(room)
+        if info is None and room.startswith(DM_PREFIX):
             member = next((m for m in self.everyone() if dm_room(m.id) == room), None)
             if member is None:
                 raise KeyError(room)
@@ -657,7 +662,7 @@ class ChatHub:
         out = []
         member_names = {m.id: m.name for m in self.everyone()}
         for r in stored.values():
-            if r["kind"] != "dm":
+            if r["kind"] != "dm" and r["kind"] not in HIDDEN_KINDS:
                 title = live_title(r["kind"], r["members"], r["title"], member_names)
                 out.append({**r, "title": title})
         for m in self.everyone():
