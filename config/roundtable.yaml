@@ -200,7 +200,7 @@ prompts:
   revise: v3
   synthesize: v4
   redo: v1
-  decompose: v4
+  decompose: v5
   volunteer: v1
   assign: v3
   accept: v1             # 协同：合并前统筹按验收标准逐条验收
@@ -266,7 +266,7 @@ prompts:
   user_notes: v1         # 用户中途补充的意见，接在之后的每次调用上
   media_refine: v1       # 统筹根据评审决定是否改提示词重新生成
   media_rewrite: v2      # 汇总失败时，由一位成员根据修订稿重写生成提示词
-  work_media: v1         # 协同：媒体子任务，成员写生成提示词
+  work_media: v2         # 协同：媒体子任务，成员写生成提示词
   rework_media: v2       # 协同：按审查意见修改生成提示词
   evolve_review: v1      # 革新 PR 的对抗式复审（开发侧脚本 scripts/evolve_review.py，可选）
   web_search: v1         # 借助聚合平台联网搜索时发给搜索用模型的指令
