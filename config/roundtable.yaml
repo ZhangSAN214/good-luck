@@ -160,20 +160,6 @@ chat:
         性取向: [性取向, 同性恋, 异性恋, 双性恋, 出柜, 酷儿, gay, lgbt]
         经济: [工资, 收入, 存款, 欠款, 贷款, 负债, 没钱, 有钱, 穷, 零花钱, 花呗, 理财, 资产, 房租, 生活费, 信用卡]
         行动轨迹: [住址, 地址, 定位, 位置, 行程, 路线, 酒店, 机场, 航班, 车站, 门牌, 宿舍号, 出门去, 回家路上]
-<<<<<<< HEAD
-    growth:                        # P6 成长：每周一用她自己的模型读上一周，最多改 3 条档案，每条要引用真实经历；程序把关
-      enabled: true
-      weekday: 1                   # 每周一反思上一周
-      min_days: 3                  # 上周至少 3 天有经历才反思，太少就跳过并记原因
-      max_changes: 3
-      core_monthly_steps: 1        # 五项性格分每月最多改一格
-      min_distance: 2              # 8 人五项分两两至少差 2，免得撞型
-      user_share: 0.3              # 受你影响的改动最多三成
-      review: {enabled: true, min_score: 3, max_retries: 1}   # 另一位成员打分（不自评），最多重试 1 次
-      backups: 8                   # 每周本地备份留 8 份
-      habits: {min_count: 5, min_weeks: 3}   # 习惯：从全部经历累加，至少 5 次、跨 3 周才算
-      report: {enabled: true, keep: 24}       # 每月 1 号起写上个月的「这个月的我」（程序算，不花钱）
-=======
       # 第二块：你的状态（正在放的歌、电脑空闲、在玩游戏、课表 DDL、邮件栏）。每项默认关，在「关于你」里自己打开
       status_chars: 80             # 聊天时「用户此刻」最多几个字（8 位相同）
       idle_minutes: 10             # 电脑 10 分钟没人动算走开了
@@ -186,7 +172,18 @@ chat:
         League of Legends.exe: 英雄联盟
         VALORANT-Win64-Shipping.exe: 无畏契约
         Minecraft.Windows.exe: 我的世界
->>>>>>> e7bf1c6 (成员系统 P8 关于你·你的状态：歌、电脑空闲、游戏、课表 DDL、邮件栏统一收进来，默认全关)
+    growth:                        # P6 成长：每周一用她自己的模型读上一周，最多改 3 条档案，每条要引用真实经历；程序把关
+      enabled: true
+      weekday: 1                   # 每周一反思上一周
+      min_days: 3                  # 上周至少 3 天有经历才反思，太少就跳过并记原因
+      max_changes: 3
+      core_monthly_steps: 1        # 五项性格分每月最多改一格
+      min_distance: 2              # 8 人五项分两两至少差 2，免得撞型
+      user_share: 0.3              # 受你影响的改动最多三成
+      review: {enabled: true, min_score: 3, max_retries: 1}   # 另一位成员打分（不自评），最多重试 1 次
+      backups: 8                   # 每周本地备份留 8 份
+      habits: {min_count: 5, min_weeks: 3}   # 习惯：从全部经历累加，至少 5 次、跨 3 周才算
+      report: {enabled: true, keep: 24}       # 每月 1 号起写上个月的「这个月的我」（程序算，不花钱）
   watch:                           # 投屏陪伴（docs/WATCH.md）：你投屏，选 1～3 位陪你一起看
     enabled: true
     monthly_usd: 1.5               # 一起看每月最多花多少（不占聊天月预算）；用完只陪聊、不看画面
