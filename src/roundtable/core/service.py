@@ -2943,7 +2943,8 @@ class RoundtableService:
         rules = self.rt.config.roundtable.evolution
         if not rules.enabled:
             raise ServiceError(
-                "革新例会没有开启：在 config/roundtable.yaml 里把 evolution.enabled 改成 true", 409
+                "革新例会没有开启：在 config/roundtable.local.yaml 里写 evolution: {enabled: true}",
+                409,
             )
         inbox, _ = self._evolution_dirs()
         if inbox is None:
@@ -3122,7 +3123,8 @@ class RoundtableService:
         rules = self.rt.config.roundtable.evolution
         if not rules.enabled:
             raise ServiceError(
-                "革新例会没有开启：在 config/roundtable.yaml 里把 evolution.enabled 改成 true", 409
+                "革新例会没有开启：在 config/roundtable.local.yaml 里写 evolution: {enabled: true}",
+                409,
             )
         if rules.plan not in self.rt.config.routing.plans:
             raise ServiceError(f"evolution.plan 不是已有的档位：{rules.plan!r}")
@@ -3324,7 +3326,8 @@ class RoundtableService:
         rules = self.rt.config.roundtable.evolution
         if not rules.enabled:
             raise ServiceError(
-                "革新例会没有开启：在 config/roundtable.yaml 里把 evolution.enabled 改成 true", 409
+                "革新例会没有开启：在 config/roundtable.local.yaml 里写 evolution: {enabled: true}",
+                409,
             )
         meetings = self._meetings()
         meeting = next((m for m in meetings if m.session_id == session_id), None)

@@ -56,6 +56,7 @@
 - 阵容（`routing/lineup.py`）：所选档位的全部可用模型上桌；统筹按 `roundtable.yaml` 的 `coordinator` 规则在场内选出（rotate：随机，最近当过的排后；fixed：指定模型在场时用它），其余为组员；人数不足 `min_members + 1` 或组员超过 `seats` 时报错。
 - 加模型 / 加渠道只改配置。禁止针对具体模型、厂商或渠道写分支（`if model_id == ...`、`if vendor == ...`）。
 - 所有配置 pydantic 校验（多余字段报错），失败给出带文件名和字段路径的报错。
+- **本机设置覆盖**：用户在自己电脑上改的设置写在 `config/<名字>.local.yaml`（如 `roundtable.local.yaml`，`.gitignore` 已忽略），加载时逐层合并到仓库配置之上（映射合并，列表和标量整体替换），校验报错会同时写出两个文件名。不要直接改仓库里的 `config/*.yaml` 存本机设置，否则 `git pull` 会被卡住。测试通过 `ROUNDTABLE_NO_LOCAL_CONFIG` 跳过覆盖文件。
 
 ### 2.2 Provider 与双渠道
 - `core/providers/base.py`：`Provider` 抽象类，**一个渠道一个实例**。文本补全必须实现；媒体能力 `generate_image`（默认走对话接口的 `images`）、`synthesize_speech`、`transcribe`、`submit_video` / `poll_video` / `fetch_video`（异步任务）默认抛 `UnsupportedCapability`。`openai_compat` 按 OpenRouter 的接口实现后四项（`/audio/speech`、`/audio/transcriptions`、`/videos`）。`ChannelRouter.invoke(model_id, call)` 是通用的渠道调用（切换 / 退避 / 冷却规则同文本；渠道不支持该能力时视为不可用换下一个），`complete()` 建立在它之上。
