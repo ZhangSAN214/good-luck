@@ -33,7 +33,7 @@ def test_members_and_files(tmp_path):
             "id": "m1",
             "name": "成员一",
             "nickname": "小一",
-            "display": "小一",
+            "display": "成员一",
             "theme_color": "#3366cc",
             "order": 1,
             "status": "active",
