@@ -110,6 +110,7 @@ def test_repo_config_loads_with_defaults():
         "merge",
         "attachments",
         "describe_image",
+        "describe_video",
         "transcribe",
         "tools",
         "image_gen",

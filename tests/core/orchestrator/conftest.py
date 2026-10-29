@@ -90,6 +90,8 @@ class Env:
             return "\n".join(
                 f"【{i}】画面 {i}：一只橘猫趴在窗台上晒太阳。" for i in range(1, count + 1)
             )
+        if "视频转写成" in system:
+            return "0:00 黑板上写着「求 f(x)=x^3-3x 的最值」，老师开始讲解。"
         if "图片转写成" in system:
             return "图中文字：求 f(x)=x^3-3x 在 [-2, 2] 上的最值。坐标系中画有曲线。"
         if "逐字转写成文字稿" in system:
