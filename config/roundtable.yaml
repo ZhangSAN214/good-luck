@@ -233,7 +233,7 @@ prompts:
   transcribe: v1         # 音频转写
   tools: v5              # 工具说明与工具结果（v2：联网搜索；v3：图表中文；v4：转述的网页正文；v5：in/ 上游文件与参考图）
   image_gen: v1          # 图像生成工具
-  media_brief: v1        # 媒体输出：把题目改写成「写生成提示词」的任务
+  media_brief: v2        # 媒体输出：把题目改写成「写生成提示词」的任务
   media_review: v2       # 评审生成结果（图片 / 视频截帧）；v2：对照风格清单逐条判定
   style_extract: v1      # 风格规范提取：成员各自看参考图
   office_intake: v4      # 办公室：经理分诊派活（v2：开会点名；v3：项目组点名；v4：名单附绩效）
@@ -268,7 +268,7 @@ prompts:
   style_guide: v1        # 风格规范，接在之后的每次调用上
   user_notes: v1         # 用户中途补充的意见，接在之后的每次调用上
   media_refine: v1       # 统筹根据评审决定是否改提示词重新生成
-  media_rewrite: v1      # 汇总失败时，由一位成员根据修订稿重写生成提示词
+  media_rewrite: v2      # 汇总失败时，由一位成员根据修订稿重写生成提示词
   work_media: v1         # 协同：媒体子任务，成员写生成提示词
   rework_media: v2       # 协同：按审查意见修改生成提示词
   evolve_review: v1      # 革新 PR 的对抗式复审（开发侧脚本 scripts/evolve_review.py，可选）
@@ -796,10 +796,13 @@ media:
   default_tier: budget       # 提问时可改选 flagship（高质量档）
   max_rounds: 3              # 生成 → 评审 → 重新生成，最多几轮（含第一次生成）
   reviewers: 3               # 每轮最多几位评审者（需带 vision 标签）
-  confirm_video: true        # 视频每次生成前都先问你；图片、语音只在超过单题门槛时才问
+  confirm_video: true        # 视频每次生成前都先问你；图片、语音、音乐只在超过单题门槛或创作月上限时才问
   images_per_round: 1
+  monthly_usd: 5.0           # 创作输出（图片 / 语音 / 视频 / 音乐）每月合计上限；本月快超时先问你，0 = 不限
   speech: {voice: alloy, format: mp3, max_chars: 4000}
+  music: {format: mp3, max_chars: 1500}   # 音乐：按「风格、情绪、乐器、时长、有无人声 / 歌词」描述生成一段，不评审
   video:
+    audio: true              # 视频同时生成声音（环境声、对白；模型不支持时忽略）
     duration_s: 5
     resolution: 720p
     aspect_ratio: "16:9"

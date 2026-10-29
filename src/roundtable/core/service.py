@@ -1891,7 +1891,7 @@ class RoundtableService:
         workflow：discussion（讨论模式）或 collab（协同模式）；
         attachments：先用 upload() 上传得到的附件 id；
         style_refs：其中作为风格参考的图片附件 id（None = 全部图片；传空表示都不是）；
-        media：讨论模式的输出类型（image / speech / video，默认文字）；
+        media：讨论模式的输出类型（image / speech / video / music，默认文字）；
         media_tier：媒体模型的档位（budget / flagship）；
         carry_from：接力的上一场会话 id，question 是这一场的要求，上一场的成果摘要附在后面。
         """
@@ -2252,6 +2252,7 @@ class RoundtableService:
                 "extra_files": j["params"].get("extra_files", []),
                 "reference_count": j["reference_count"],
                 "warning": j["params"].get("warning"),
+                "lyrics": scrub(j["params"]["lyrics"]) if j["params"].get("lyrics") else None,
                 "model_id": j["model_id"] if revealed else None,
                 "channel": j["channel"] if revealed else None,
             }
