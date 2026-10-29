@@ -150,7 +150,9 @@ async def test_same_action_prompt_for_every_member():
     msg, _ = r.post("@全员 早")
     await r.replies(msg["id"], r.pick("@全员 早"))
     systems = {
-        c.messages[0].content.split("能发的东西")[1].split("你的人物卡")[0] for c in env.fake.calls
+        c.messages[0].content.split("能发的东西")[1].split("你的人物卡")[0]
+        for c in env.fake.calls
+        if "能发的东西" in c.messages[0].content  # 说出口前自查的改写调用不算
     }
     assert len(systems) == 1
 
@@ -220,3 +222,84 @@ async def asyncio_gather(svc) -> None:
     import asyncio
 
     await asyncio.gather(*list(svc._chat_tasks))
+
+
+# --- 同时独立想、思考吃光额度、表情包不撞 -------------------------------------------------
+
+
+async def test_members_think_at_the_same_time():
+    import asyncio
+
+    env = Env()
+    r = room(env)
+    busy, peak = 0, 0
+    original = env.fake.complete
+
+    async def slow(*args, **kwargs):
+        nonlocal busy, peak
+        busy += 1
+        peak = max(peak, busy)
+        await asyncio.sleep(0.05)
+        busy -= 1
+        return await original(*args, **kwargs)
+
+    env.fake.complete = slow
+    msg, _ = r.post("@全员 早")
+    speakers = r.pick("@全员 早")
+    out = await r.replies(msg["id"], speakers)
+    assert len(speakers) > 2 and peak == len(speakers)  # 所有人一起想
+    assert len(out) == len(speakers)
+
+
+async def test_thinking_that_eats_the_budget_is_retried_without_thinking():
+    from roundtable.core.providers.base import RawCompletion
+
+    env = Env()
+    r = room(env)
+    empty = RawCompletion("", output_tokens=1500, truncated=True, finish_reason="length")
+    env.fake.queue("b1", empty, "早呀")
+    msg, _ = r.post("@阿一 早")
+    out = await r.replies(msg["id"], r.pick("@阿一 早"))
+    assert out[0]["text"] == "早呀"
+    first, second = env.fake.calls[-2:]
+    assert second.params["reasoning"] == {"enabled": False}
+    assert second.params["max_tokens"] > first.params["max_tokens"]
+    session = env.rt.repo.chat_session("main")
+    rows = env.rt.repo.conn.execute(
+        "SELECT finish_reason FROM calls WHERE session_id = ?", (session,)
+    ).fetchall()
+    assert [r[0] for r in rows].count("length") == 1  # 第一次也单独记了账
+
+
+def test_repeated_sticker_is_swapped_within_a_round():
+    from roundtable.core.chat_actions import swap_repeated_stickers
+
+    used: set[str] = set()
+    rng = random.Random(0)
+    a = swap_repeated_stickers("[表情:团子·开心]", used, STICKERS, rng)
+    b = swap_repeated_stickers("好 [表情:团子·开心]", used, STICKERS, rng)
+    c = swap_repeated_stickers("[表情:团子·开心]", used, STICKERS, rng)
+    assert a == "[表情:团子·开心]" and b == "好 [表情:团子·吃瓜]"
+    assert c == "[表情:团子·开心]"  # 这套都发过了就留着
+
+
+async def test_member_who_thinks_too_long_is_skipped_without_blocking_others(monkeypatch):
+    import asyncio
+
+    env = Env()
+    r = room(env)
+    rules = env.config.roundtable.chat.model_copy(update={"think_timeout_seconds": 0.1})
+    monkeypatch.setattr(GroupChat, "rules", property(lambda self: rules))
+    original = env.fake.complete
+
+    async def stuck(model, *args, **kwargs):
+        if model == "b1":
+            await asyncio.sleep(30)  # 卡死
+        return await original(model, *args, **kwargs)
+
+    env.fake.complete = stuck
+    msg, _ = r.post("@阿一 @阿二 在吗")
+    out = await asyncio.wait_for(r.replies(msg["id"], r.pick("@阿一 @阿二 在吗")), 5)
+    assert [m["author"] for m in out] == ["V2"]
+    assert "阿一 想太久了" in " ".join(m["text"] for m in env.rt.repo.chat_messages("main"))
+    assert r.typing == []

@@ -10,6 +10,7 @@
 // - 位置、大小、翻转、透明度、动态幅度、显示与否、用哪一套：只存在本机浏览器（localStorage）。
 // - 系统开了「减少动态」时不呼吸不摆动，只换表情。
 
+import { homeParts } from './hometz.js';
 import { RigRenderer, glSupported } from './standee_gl.js';
 import { IDLE_MOTIONS, Motion } from './standee_motion.js';
 
@@ -505,7 +506,7 @@ export class Standee {
 
   /** 进入首页时打招呼：早上 / 深夜有专门的台词，没有就说首页提示。 */
   greet() {
-    const h = this.now().getHours();
+    const h = homeParts(this.now()).h; // 按主时区说早安 / 晚安
     const lines = this.info?.lines || {};
     const special = h >= 5 && h < 10 ? lines.morning : h >= 23 || h < 5 ? lines.night : null;
     const text = pick(special, this.rand) || pick(lines.greet, this.rand);

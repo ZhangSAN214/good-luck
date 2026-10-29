@@ -62,6 +62,8 @@ class ActionPolicy(Protocol):
 
     def pat_suffix(self, member: str) -> str: ...
 
+    def voice(self, member: str, room_kind: str, seed: int = 0) -> str: ...
+
     def moment_forward(self, member: str, key: str) -> bool: ...
 
 
@@ -100,6 +102,10 @@ class DefaultPolicy:
     def pat_suffix(self, member: str) -> str:
         return ""
 
+    def voice(self, member: str, room_kind: str, seed: int = 0) -> str:
+        """提示词里这位成员的「说话习惯」（成员系统接管时给，seed 用来轮换示范句）；默认没有。"""
+        return ""
+
     def moment_forward(self, member: str, key: str) -> bool:
         """今天上网分享过东西的成员发朋友圈时，要不要发成「一句话 + 转发卡片」。
         key 由调用方给（如事件 id），随机数由它派生，可复现。"""
@@ -122,6 +128,25 @@ def clean_stickers(text: str, stickers: dict[str, list[str]]) -> str:
         return f"[表情:{pack}·{name}]" if name in stickers.get(pack, ()) else ""
 
     return STICKER_RE.sub(keep, text)
+
+
+def swap_repeated_stickers(
+    text: str, used: set[str], stickers: dict[str, list[str]], rng: Any
+) -> str:
+    """同一轮里别人已经发过的表情包，换成同一套里还没人发过的（都发过了就留着）；
+    发出的表情包记进 used。"""
+
+    def swap(m: re.Match[str]) -> str:
+        pack, name = m.group(1), m.group(2)
+        token = f"[表情:{pack}·{name}]"
+        if token in used:
+            free = [n for n in stickers.get(pack, ()) if f"[表情:{pack}·{n}]" not in used]
+            if free:
+                token = f"[表情:{pack}·{rng.choice(free)}]"
+        used.add(token)
+        return token
+
+    return STICKER_RE.sub(swap, text)
 
 
 def parse(

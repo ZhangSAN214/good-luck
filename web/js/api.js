@@ -83,6 +83,31 @@ export const clearChat = (room = 'main') => api(`/api/chat?room=${encodeURICompo
 export const getChatRooms = () => api('/api/chat/rooms');
 export const chatPersonas = () => api('/api/chat/personas');
 export const setChatPersona = (id, persona) => api(`/api/chat/personas/${encodeURIComponent(id)}`, { method: 'PUT', body: { persona } });
+export const memberVoices = () => api('/api/chat/voices');
+// 成员专属表情包：列表、画一张（新画的待审）、审（approved / rejected / pending）
+export const memberStickers = () => api('/api/stickers');
+export const drawSticker = (id, name) => api(`/api/stickers/${encodeURIComponent(id)}/${encodeURIComponent(name)}/draw`, { method: 'POST' });
+export const reviewSticker = (id, name, status) =>
+  api(`/api/stickers/${encodeURIComponent(id)}/${encodeURIComponent(name)}/review`, { method: 'POST', body: { status } });
+// 用成员的固定音色念一句（text 省略时念试听句）：返回音频 Blob
+export async function memberVoice(id, text = null) {
+  const r = await fetch(`/api/chat/voices/${encodeURIComponent(id)}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text }),
+  });
+  if (r.status === 401 && location.pathname !== '/login.html') location.assign('/login.html');
+  if (!r.ok) {
+    let data = null;
+    try {
+      data = await r.json();
+    } catch {
+      data = null;
+    }
+    throw new ApiError(errorText(data, r.status), r.status);
+  }
+  return r.blob();
+}
 export const memberProfiles = () => api('/api/chat/profiles');
 export const memberProfile = (id) => api(`/api/chat/profiles/${encodeURIComponent(id)}`);
 export const changeMemberProfile = (id, patch, reason = '') => api(`/api/chat/profiles/${encodeURIComponent(id)}`, { method: 'PATCH', body: { patch, reason } });
@@ -137,6 +162,9 @@ export const getDirectory = () => api('/api/models/directory');
 export const refreshDirectory = () => api('/api/models/directory/refresh', { method: 'POST' });
 export const getPluginBoard = () => api('/api/plugins/board');
 export const getChangelog = () => api('/api/changelog');
+export const getCalendar = () => api('/api/calendar');
+export const addCalendarDate = (body) => api('/api/calendar/dates', { method: 'POST', body });
+export const removeCalendarDate = (id) => api(`/api/calendar/dates/${encodeURIComponent(id)}`, { method: 'DELETE' });
 export const mailView = () => api('/api/mail');
 export const mailSettings = (body) => api('/api/mail/settings', { method: 'PUT', body });
 export const mailLogin = () => api('/api/mail/login', { method: 'POST' });
@@ -211,9 +239,28 @@ export const watchMessages = (after = 0) => api(`/api/watch/messages?after=${aft
 export const watchSay = (text) => api('/api/watch/say', { method: 'POST', body: { text } });
 export const watchScrcpy = (source) => api('/api/watch/scrcpy', { method: 'POST', body: { source } });
 export const watchFrameUrl = () => `/api/watch/frame?t=${Date.now()}`;
+export const watchAdbPair = (host, port, code) =>
+  api('/api/watch/adb/pair', { method: 'POST', body: { host, port, code } });
+export const watchAdbConnect = (host, port) =>
+  api('/api/watch/adb/connect', { method: 'POST', body: { host, port } });
 export const wanderStatus = () => api('/api/wander');
 export const wanderStart = (member, site) => api('/api/wander/start', { method: 'POST', body: { member, site } });
 export const wanderStop = () => api('/api/wander/stop', { method: 'POST' });
 export const wanderLog = (member, after = 0) =>
   api(`/api/wander/log?member=${encodeURIComponent(member)}&after=${after}`);
 export const wanderFrameUrl = () => `/api/wander/frame?t=${Date.now()}`;
+// 工作台（dsh 边车，docs/DSH.md）
+export const dshStatus = () => api('/api/dsh');
+export const dshStart = () => api('/api/dsh/start', { method: 'POST' });
+export const dshStop = () => api('/api/dsh/stop', { method: 'POST' });
+export const dshCheck = () => api('/api/dsh/check', { method: 'POST' });
+
+// 超级电脑：几位编程助手平级、按分数派活（docs/SUPERCOMPUTER.md）
+export const superStatus = () => api('/api/super');
+export const superSubmit = (text) => api('/api/super/tasks', { method: 'POST', body: { text } });
+export const superCancel = () => api('/api/super/cancel', { method: 'POST' });
+export const superTask = (id) => api(`/api/super/tasks/${encodeURIComponent(id)}`);
+export const superLimit = (worker, limit) =>
+  api(`/api/super/workers/${encodeURIComponent(worker)}/limit`, { method: 'PUT', body: { limit } });
+export const superWake = (worker) =>
+  api(`/api/super/workers/${encodeURIComponent(worker)}/wake`, { method: 'POST' });

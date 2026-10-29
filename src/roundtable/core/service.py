@@ -17,13 +17,14 @@ import shutil
 import subprocess
 from collections.abc import AsyncIterator, Sequence
 from dataclasses import asdict
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta, tzinfo
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
 
 from roundtable.core import clipper
 from roundtable.core.allocation import coordinator_name, display_name
+from roundtable.core.almanac import Almanac
 from roundtable.core.attachments import Attachment, UploadError, ingest
 from roundtable.core.attachments.detect import TYPES as UPLOAD_TYPES
 from roundtable.core.browse import REFRESH_KEY, feeds_of, set_feeds
@@ -38,7 +39,7 @@ from roundtable.core.chat_actions import card_text as chat_card_text
 from roundtable.core.chat_media import MAX_BYTES as CHAT_MEDIA_MAX
 from roundtable.core.chat_media import ChatMediaStore, MediaError, clean_items, placeholder
 from roundtable.core.chat_work import WORK_EVENTS, post_handoff, post_office_event
-from roundtable.core.config.loader import ConfigError
+from roundtable.core.config.loader import DEFAULT_CONFIG_DIR, ConfigError
 from roundtable.core.evolution import (
     DECISIONS,
     DECISIONS_KEY,
@@ -80,6 +81,7 @@ from roundtable.core.export import Style as ExportStyle
 from roundtable.core.export import deliverable
 from roundtable.core.export import filename as export_filename
 from roundtable.core.export import options as export_choices
+from roundtable.core.hometz import home_zone
 from roundtable.core.ideaboard import Board
 from roundtable.core.lan import COOKIE as LAN_COOKIE
 from roundtable.core.lan import LanAccess, is_local, is_remote, qr_svg
@@ -97,8 +99,23 @@ from roundtable.core.member.card import (
 )
 from roundtable.core.member.memory import DiaryTool
 from roundtable.core.member.memory.store import query_terms
+from roundtable.core.member.voice import VoicePolicy
+from roundtable.core.member_stickers import (
+    MemberStickers,
+    StickerBudgetExceeded,
+    StickerError,
+    StickerUnavailable,
+)
+from roundtable.core.member_voice import MAX_CHARS as VOICE_MAX_CHARS
+from roundtable.core.member_voice import (
+    SAMPLE_TEXT,
+    MemberVoices,
+    VoiceBudgetExceeded,
+    VoiceClip,
+    VoiceUnavailable,
+)
 from roundtable.core.members_art import MEMBERS_FILE, load_members, mime_of, resolve_file
-from roundtable.core.memory import LAYERS, MemoryKeeper, clean_memory
+from roundtable.core.memory import LAYERS, MemoryKeeper, clean_memory, prepare_items
 from roundtable.core.moments import SEEN_KEY as MOMENTS_SEEN
 from roundtable.core.notes import NoteError, check_can_add, clean_note
 from roundtable.core.nowplaying import COVERS_DIR, NowPlaying, SmtcSource, list_covers, read_cover
@@ -131,14 +148,21 @@ from roundtable.core.routing import (
     preview_estimates,
 )
 from roundtable.core.runtime import PROJECT_ROOT, WANDER_DIR, Runtime, data_dir
-from roundtable.core.screen import AdbSource, PcSource, ScreenWatch
+from roundtable.core.screen import AdbSource, PcSource, ScreenUnavailable, ScreenWatch
 from roundtable.core.search import SearchUnavailable
 from roundtable.core.standee import load_standee
 from roundtable.core.standee import standee_file as read_standee_file
 from roundtable.core.steps import Event, restore_state
 from roundtable.core.steps.office import group_estimates
 from roundtable.core.storage import NotFound
+from roundtable.core.supercomputer import Supercomputer
+from roundtable.core.supercomputer.launch import CommandLauncher, HookLauncher
 from roundtable.core.wander import Wanderer
+
+try:  # dsh 工作台是可拔掉的外设：删掉整个 core/dsh/ 圆桌照常运行（docs/DSH.md，CI「拔掉 dsh」任务）
+    from roundtable.core.dsh import DshManager
+except ImportError:  # pragma: no cover - 只在拔掉 dsh 时走到
+    DshManager = None  # type: ignore[assignment,misc]
 
 log = logging.getLogger(__name__)
 
@@ -191,13 +215,22 @@ class RoundtableService:
         self._tasks: dict[str, asyncio.Task[None]] = {}
         self._art_names_cache: tuple[int | None, dict[str, str]] | None = None
         self.chats = ChatHub(runtime, names=self._art_names)
+        if runtime.config.roundtable.chat.engine.voice.enabled:  # P5 表达：照人物卡说话风格
+            self.chats.policy = VoicePolicy(runtime)
+        self.voices = MemberVoices(runtime, runtime.voice_cache_dir)
+        self.stickers = MemberStickers(runtime, runtime.sticker_dir)
         self.memory = MemoryKeeper(runtime, self.chats.everyone)
         self.life = LifeEngine(runtime, self.chats, self.memory)
         self.perceiver = Perceiver(runtime, PerceptionCache(runtime.perception_dir))
-        self.engine = MemberEngine(runtime, lambda: [m.id for m in self.chats.everyone()])
+        self.engine = MemberEngine(
+            runtime,
+            lambda: [m.id for m in self.chats.everyone()],
+            lambda: {m.id: m.name for m in self.chats.everyone()},
+        )
         state = getattr(self.engine, "state", None)  # 状态插件（心情）装上后，夜间整理按心情改语气
         if state is not None:
             self.memory.mood_of = state.mood_of
+        self.calendar = Almanac(runtime, self.chats.everyone)
         self.mail = MailBox(runtime.repo)
         self.mail_ai = MailAI(runtime, self.mail)
         if runtime.mail_source is not None:
@@ -215,7 +248,10 @@ class RoundtableService:
             self.chats.everyone,
             runtime.screen_sources
             if runtime.screen_sources is not None
-            else {"pc": PcSource(), "android": AdbSource(watch_rules.adb)},
+            else {
+                "pc": PcSource(watch_rules.ignore_windows),
+                "android": AdbSource(watch_rules.adb),
+            },
             publish=self.engine.bus.publish,
         )
         base = runtime.mail_dir.parent if runtime.mail_dir is not None else data_dir()
@@ -227,11 +263,62 @@ class RoundtableService:
             publish=self.engine.bus.publish,
         )
         self.engine.heartbeat.register("wander", self.wander.want)
+        self.dsh = self._build_dsh(runtime, base if runtime.mail_dir is not None else None)
+        self.supercomputer = self._build_super(
+            runtime, base if runtime.mail_dir is not None else None
+        )
         self._chat_tasks: set[asyncio.Task[Any]] = set()
         self._life_task: asyncio.Task[None] | None = None
         self._evolution_task: asyncio.Task[None] | None = None
         self._dev_tasks: dict[str, asyncio.Task[None]] = {}  # 「做这条」后正在实现的建议
         self.dev_run: DevRun = run_process  # 叫外部命令（测试换成假的）
+
+    @staticmethod
+    def _build_dsh(runtime: Runtime, base: Path | None) -> Any:
+        """dsh 工作台（可选）：core/dsh 不在时为 None，其余功能不受影响。"""
+        if DshManager is None:
+            return None
+        version = runtime.config.roundtable.prompts.get("dsh_workbench")
+
+        def persona() -> str:
+            if version is None:
+                return ""
+            return runtime.prompts.render("dsh_workbench", version).messages[0].content
+
+        return DshManager(
+            runtime.config.roundtable.dsh,
+            catalog_path=DEFAULT_CONFIG_DIR / "dsh_plugins.yaml",
+            root=base / "dsh" if base is not None else None,
+            persona=persona,
+            shared_spend=runtime.repo.spent_on_channels,
+            dotenv_path=PROJECT_ROOT / ".env",
+        )
+
+    def _build_super(self, runtime: Runtime, base: Path | None) -> Supercomputer:
+        """超级电脑（docs/SUPERCOMPUTER.md）：命令行助手 + dsh（带了 dsh 才有）。"""
+        config = runtime.config
+        keys = [c.key_env for c in config.models.channels.values() if c.key_env]
+        keys += [p.key_env for p in config.models.search_providers.values() if p.key_env]
+        if config.roundtable.dsh.key_env:
+            keys.append(config.roundtable.dsh.key_env)
+        launchers: dict[str, Any] = {"command": CommandLauncher(drop_env=keys)}
+        if self.dsh is not None:
+            dsh = self.dsh
+            launchers["dsh"] = HookLauncher(
+                dsh.job_blocked, dsh.job_launch, dsh.job_started, dsh.job_finished
+            )
+        prompts = config.roundtable.prompts
+
+        def render(role: str, **values: str) -> str:
+            rendered = runtime.prompts.render(role, prompts[role], **values)
+            return "\n\n".join(m.content for m in rendered.messages)
+
+        return Supercomputer(
+            config.roundtable.supercomputer,
+            root=base / "super" if base is not None else None,
+            render=render,
+            launchers=launchers,
+        )
 
     def reconcile(self) -> list[str]:
         """开机对账：上次服务意外退出（或被关掉）时还在跑的讨论，数据库里会一直留着「进行中」。
@@ -274,14 +361,21 @@ class RoundtableService:
 
     async def life_tick(self) -> dict[str, int]:
         """推进一次生活（开机后第一次会补上关机期间的时间），再推进一次成员引擎（不花钱）。"""
-        now = self.rt.budget.now().astimezone()
+        now = self._local_now()
         out = await self.life.tick(now)
+        with contextlib.suppress(Exception):  # 日历出错不影响生活
+            self.calendar.tick(now, self.engine.bus.publish)
         with contextlib.suppress(Exception):  # 引擎出错不影响生活
             await self.engine.tick(now)
         return out
 
     async def aclose(self) -> None:
         self.watch.stop("服务关闭，投屏停了")
+        with contextlib.suppress(Exception):
+            await self.supercomputer.aclose()
+        if self.dsh is not None:
+            with contextlib.suppress(Exception):
+                await self.dsh.aclose()
         await self.wander.aclose()
         tasks = [*self._tasks.values(), *self._chat_tasks]
         tasks += [t for t in (self._life_task, self._evolution_task) if t is not None]
@@ -486,6 +580,31 @@ class RoundtableService:
             out["scrcpy"] = shutil.which(self.rt.config.roundtable.chat.watch.scrcpy) is not None
         return out
 
+    def _adb(self) -> Any:
+        src = self.watch.sources.get("android")
+        if src is None or not hasattr(src, "pair"):
+            raise ServiceError("这台电脑不能连安卓设备")
+        return src
+
+    def watch_adb_pair(self, host: str, port: int, code: str) -> dict[str, Any]:
+        """安卓无线调试：用配对码配对（只建立 adb 连接）。配对后自动试着连上。"""
+        src = self._adb()
+        try:
+            msg = src.pair(host, port, code)
+        except ScreenUnavailable as e:
+            raise ServiceError(str(e)) from None
+        try:
+            connected = src.connect()
+        except ScreenUnavailable:
+            connected = []
+        return {"message": msg, "connected": connected}
+
+    def watch_adb_connect(self, host: str = "", port: int = 0) -> dict[str, Any]:
+        try:
+            return {"connected": self._adb().connect(host, port)}
+        except ScreenUnavailable as e:
+            raise ServiceError(str(e)) from None
+
     async def watch_start(self, source: str, watchers: list[str], consent: bool) -> dict[str, Any]:
         devices = await asyncio.to_thread(self.watch.devices)
         infos = {s["id"]: s for d in devices.values() for s in d["sources"]}
@@ -565,6 +684,89 @@ class RoundtableService:
 
     def wander_frame(self) -> bytes | None:
         return self.wander.frame()
+
+    # --- dsh 工作台（docs/DSH.md）：可拔掉的外设 ---------------------------------------
+
+    NO_DSH = "这份圆桌没有带 dsh 工作台（core/dsh 不在），其他功能不受影响"
+
+    def dsh_status(self) -> dict[str, Any]:
+        if self.dsh is None:
+            return {
+                "enabled": False,
+                "installed": False,
+                "unavailable": self.NO_DSH,
+                "state": "stopped",
+            }
+        return self.dsh.status()
+
+    async def dsh_start(self) -> dict[str, Any]:
+        if self.dsh is None:
+            raise ServiceError(self.NO_DSH, 409)
+        try:
+            return await self.dsh.start()
+        except ValueError as exc:
+            raise ServiceError(str(exc), 409) from None
+
+    async def dsh_stop(self) -> dict[str, Any]:
+        if self.dsh is None:
+            return self.dsh_status()
+        return await self.dsh.stop()
+
+    async def dsh_check(self) -> dict[str, Any]:
+        if self.dsh is None:
+            return self.dsh_status()
+        return await self.dsh.check_now()
+
+    # --- 超级电脑（docs/SUPERCOMPUTER.md） ----------------------------------------------
+
+    def super_status(self) -> dict[str, Any]:
+        return self.supercomputer.status()
+
+    def super_submit(self, text: str) -> dict[str, Any]:
+        try:
+            self.supercomputer.submit(text)
+        except RuntimeError as exc:
+            raise ServiceError(str(exc), 409) from None
+        except ValueError as exc:
+            raise ServiceError(str(exc), 400) from None
+        return self.super_status()
+
+    async def super_cancel(self) -> dict[str, Any]:
+        await self.supercomputer.cancel()
+        return self.super_status()
+
+    def super_task(self, task_id: str) -> dict[str, Any]:
+        task = self.supercomputer.get(task_id)
+        if task is None:
+            raise ServiceError("没有这件活", 404)
+        return task
+
+    def super_set_limit(self, worker: str, limit: int) -> dict[str, Any]:
+        try:
+            self.supercomputer.set_limit(worker, limit)
+        except ValueError as exc:
+            raise ServiceError(str(exc), 400) from None
+        return self.super_status()
+
+    def super_clear_cooldown(self, worker: str) -> dict[str, Any]:
+        try:
+            self.supercomputer.clear_cooldown(worker)
+        except ValueError as exc:
+            raise ServiceError(str(exc), 400) from None
+        return self.super_status()
+
+    def start_dsh(self) -> None:
+        """服务启动时：配置了 autostart 才顺带启动 dsh（默认不启动）。失败只记日志。"""
+        if self.dsh is None or not self.rt.config.roundtable.dsh.autostart:
+            return
+
+        async def boot() -> None:
+            try:
+                await self.dsh.start()
+            except Exception as exc:  # noqa: BLE001 - dsh 起不来不影响圆桌
+                log.warning("dsh 工作台自动启动失败：%s", exc)
+
+        self._background(boot())
 
     def _covers_dir(self) -> Path | None:
         sf = self.rt.standee_file
@@ -885,6 +1087,19 @@ class RoundtableService:
     def mail_view(self) -> dict[str, Any]:
         return self._mail_view()
 
+    # --- 主时区 ----------------------------------------------------------------------
+
+    def home_tz(self) -> dict[str, Any]:
+        """整个圆桌按哪个时区过日子（公寓、群聊、成员作息、日记）；``local`` = 跟随电脑。"""
+        return home_zone(self.rt).view(self.rt.budget.now())
+
+    def set_home_tz(self, zone: str) -> dict[str, Any]:
+        try:
+            home_zone(self.rt).set(zone)
+        except ValueError as exc:
+            raise ServiceError(str(exc)) from None
+        return self.home_tz()
+
     def mail_settings(self, *, ai_ok: bool | None = None, **changes: Any) -> dict[str, Any]:
         try:
             self.mail.set_settings(**{k: v for k, v in changes.items() if v is not None})
@@ -1190,6 +1405,8 @@ class RoundtableService:
         except ValueError as exc:
             raise ServiceError(str(exc)) from None
         self.rt.repo.mark_chat_read(chat.room, msg["id"])
+        with contextlib.suppress(Exception):  # 状态出错不影响聊天
+            self.engine.observe(self.rt.budget.now())  # 被 @、被批评的反射在回应前算进状态
         mode = self.perceiver.mode_for(text) if meta else None
         if mode:
             self._background(self._look_and_reply(chat, msg["id"], speakers, mode, chat.round))
@@ -1341,6 +1558,76 @@ class RoundtableService:
             raise ServiceError(f"没有这位成员：{member}", 404)
         return found
 
+    def member_voices(self) -> dict[str, Any]:
+        """每位成员的固定音色：现在会用哪个音色（不含模型名，匿名无关：聊天不匿名）。"""
+        out = []
+        for m in self.chats.everyone():
+            pick = self.voices.model_for(m.id, SAMPLE_TEXT)
+            out.append(
+                {
+                    "id": m.id,
+                    "name": m.name,
+                    "available": pick is not None,
+                    "voice": pick[1] if pick else None,
+                }
+            )
+        return {"members": out, "max_chars": VOICE_MAX_CHARS}
+
+    async def member_voice(self, member: str, text: str | None = None) -> VoiceClip:
+        """用成员的固定音色念一段文字（省略 text 时念一句试听）。花费计入创作输出的每月上限。"""
+        found = self._chat_member(member)
+        try:
+            return await self.voices.speak(member, text or SAMPLE_TEXT.format(name=found.name))
+        except ValueError as exc:
+            raise ServiceError(str(exc)) from None
+        except VoiceBudgetExceeded as exc:
+            raise ServiceError(str(exc), 402) from None
+        except VoiceUnavailable as exc:
+            raise ServiceError(str(exc), 503) from None
+
+    def member_stickers(self) -> dict[str, Any]:
+        """每位有形象卡的成员的专属表情：画了没有、待审还是可以用（不含模型名）。"""
+        names = {m.id: m.name for m in self.chats.everyone()}
+        rules = self.rt.config.roundtable.media.stickers
+        members = [
+            {
+                "id": member,
+                "name": names.get(member, member),
+                "stickers": self.stickers.listing(member),
+            }
+            for member in self.rt.config.personas.sticker_cards
+        ]
+        return {
+            "members": members,
+            "available": bool(self.stickers.draw_models()),
+            "review": rules.review,
+            "month_spent_usd": round(self.stickers.month_spent(), 4),
+            "monthly_usd": rules.monthly_usd,
+        }
+
+    async def draw_sticker(self, member: str, name: str) -> dict[str, Any]:
+        """画（或重画）成员的一个专属表情；花费计入表情包和创作输出的每月上限。"""
+        try:
+            return await self.stickers.draw(member, name)
+        except StickerError as exc:
+            raise ServiceError(str(exc), 404) from None
+        except StickerBudgetExceeded as exc:
+            raise ServiceError(str(exc), 402) from None
+        except StickerUnavailable as exc:
+            raise ServiceError(str(exc), 503) from None
+
+    def review_sticker(self, member: str, name: str, status: str) -> dict[str, Any]:
+        try:
+            return self.stickers.review(member, name, status)
+        except StickerError as exc:
+            raise ServiceError(str(exc)) from None
+
+    def sticker_file(self, member: str, name: str) -> bytes:
+        data = self.stickers.file(member, name)
+        if data is None:
+            raise ServiceError("这个表情还没画", 404)
+        return data
+
     def chat_personas(self) -> dict[str, Any]:
         """每位成员的聊天人设；source：local 网页里改过 / config 配置文件 / empty 没有设定。"""
         out = []
@@ -1389,7 +1676,7 @@ class RoundtableService:
         self.memory.store.write(
             member,
             row["text"],
-            day=self.rt.budget.now().astimezone().date(),
+            day=self._local_now().date(),
             fact=True,
             importance=2,
             source="user",
@@ -1431,6 +1718,8 @@ class RoundtableService:
         """一位成员的记忆件（q 为空时最近的在前，否则按全文索引找）、挂着的事、习惯、统计。"""
         self._chat_member(member)
         repo = self.rt.repo
+        if self.rt.config.roundtable.chat.memory.recall == "half_life":
+            prepare_items(self.rt)
         limit = min(max(limit, 1), 500)
         if q:
             ids = repo.search_memory_items(member, query_terms(q), limit)
@@ -1476,7 +1765,7 @@ class RoundtableService:
 
     async def chat_tidy_memories(self) -> dict[str, Any]:
         """马上整理一次记忆（到昨天为止还没整理的日子）。"""
-        now = self.rt.budget.now().astimezone()
+        now = self._local_now()
         return {"written": await self.memory.catch_up(now)}
 
     # --- 朋友圈 --------------------------------------------------------------------
@@ -1718,7 +2007,7 @@ class RoundtableService:
         if cut:
             text += "\n\n（后面还有内容，超过资料字数上限没有保存）"
         title = " ".join((title or "").split())[:200] or clipper.site_of(url)
-        saved_at = self.rt.budget.now().astimezone().strftime("%Y-%m-%d %H:%M")
+        saved_at = self._local_now().strftime("%Y-%m-%d %H:%M")
         body = clipper.clip_markdown(title, url, text, saved_at, " ".join(note.split())[:300])
         key = self.rt.files.save(body.encode("utf-8"), "md")
         clip = {
@@ -1890,8 +2179,69 @@ class RoundtableService:
         n = self.engine.profiles.clear(member)
         return {"member": member, "deleted": n}
 
+    def member_states(self) -> dict[str, Any]:
+        """每位成员此刻的心情（-1～1）和精力（0～1）、基线、最近的本能反射（P3 状态，只读）。"""
+        state = self.engine.state
+        out = []
+        for m in self.chats.everyone():
+            r = state.read(m.id)
+            b = r.baseline
+            out.append(
+                {
+                    "member": m.id,
+                    "name": m.name,
+                    "mood": round(r.mood, 3),
+                    "energy": round(r.energy, 3),
+                    "line": state.line(m.id, r.at),
+                    "baseline": {
+                        "mood": b.mood,
+                        "sensitivity": b.sensitivity,
+                        "wake": b.wake,
+                        "sleep": b.sleep,
+                        "night_owl": b.night_owl,
+                    },
+                    "recent": r.recent,
+                }
+            )
+        return {"members": out, "enabled": state.enabled()}
+
+    def member_states_clear(self, member: str | None = None) -> dict[str, Any]:
+        """清空状态（全部或某一位），回到基线。"""
+        return {"deleted": self.engine.state.clear(member)}
+
     def member_events_count(self) -> dict[str, Any]:
         return {"events": self.rt.repo.count_member_events()}
+
+    # --- 日历底座（docs/CALENDAR.md；只给数据，不调模型） ------------------------------------
+
+    def calendar_view(self, days: int | None = None, start: str | None = None) -> dict[str, Any]:
+        """从 start（默认今天）起 days 天（默认 calendar.board_days）是什么日子。"""
+        rules = self.rt.config.roundtable.calendar
+        try:
+            first = date.fromisoformat(start) if start else self._local_now().date()
+        except ValueError:
+            raise ServiceError("start 要写成 YYYY-MM-DD", 400) from None
+        n = days or rules.board_days
+        if not 1 <= n <= 366:
+            raise ServiceError("days 要在 1～366 之间", 400)
+        return {
+            "enabled": rules.enabled,
+            "days": self.calendar.span(first, n) if rules.enabled else [],
+            "user_dates": self.calendar.user_dates(),
+        }
+
+    def calendar_add_date(self, name: str, when: str, lunar: bool = False) -> dict[str, Any]:
+        """加一个你自己的纪念日（每年都过，只存本机）。"""
+        try:
+            row = self.calendar.add_user_date(name, when, lunar=lunar)
+        except ValueError as exc:
+            raise ServiceError(str(exc), 400) from None
+        return {"date": row, "user_dates": self.calendar.user_dates()}
+
+    def calendar_remove_date(self, date_id: str) -> dict[str, Any]:
+        if not self.calendar.remove_user_date(date_id):
+            raise ServiceError("没有这个纪念日", 404)
+        return {"user_dates": self.calendar.user_dates()}
 
     def member_events_clear(self) -> dict[str, Any]:
         """一键清空成员引擎记下的全部事件（只存本机的经历数据）。"""
@@ -1930,7 +2280,7 @@ class RoundtableService:
 
     async def chat_refresh_feeds(self) -> dict[str, Any]:
         """马上抓一遍订阅源（不调用模型、不花钱）。"""
-        result = await self.life.browse.refresh(self.rt.budget.now().astimezone(), force=True)
+        result = await self.life.browse.refresh(self._local_now(), force=True)
         return {**result, **self.chat_feeds()}
 
     def chat_clear(self, room: str = ROOM) -> dict[str, Any]:
@@ -2651,12 +3001,13 @@ class RoundtableService:
         rules = self.rt.config.roundtable.evolution
         if not rules.enabled:
             raise ServiceError(
-                "革新例会没有开启：在 config/roundtable.yaml 里把 evolution.enabled 改成 true", 409
+                "革新例会没有开启：在 config/roundtable.local.yaml 里写 evolution: {enabled: true}",
+                409,
             )
         inbox, _ = self._evolution_dirs()
         if inbox is None:
             raise ServiceError("没有数据目录，放不了资料卡", 409)
-        week = week_key((now or self._local_now()).astimezone())
+        week = week_key((now or self._local_now()).astimezone(self._tz()))
         left = rules.monthly_usd - self._evolution_spent(self._meetings())
         try:
             report = await Scout(self.rt).run(inbox, week, left)
@@ -2670,7 +3021,7 @@ class RoundtableService:
         rules = self.rt.config.roundtable.evolution
         if not (rules.enabled and rules.auto and rules.scout.enabled):
             return None
-        now = (now or self._local_now()).astimezone()
+        now = (now or self._local_now()).astimezone(self._tz())
         week = week_key(now)
         if now < week_slot(now, rules.schedule.weekday, rules.schedule.hour):
             return None
@@ -2689,8 +3040,12 @@ class RoundtableService:
             log.info("革新例会：本次没有找资料（%s）", exc)
             return {"week": week, "skipped": str(exc)}
 
+    def _tz(self) -> tzinfo | None:
+        """主时区（None = 本机），见 core/hometz.py。"""
+        return home_zone(self.rt).tz()
+
     def _local_now(self) -> datetime:
-        return self.rt.budget.now().astimezone()
+        return self.rt.budget.now().astimezone(self._tz())
 
     def evolution(self) -> dict[str, Any]:
         """革新例会概况：开关、收件箱里的资料卡、本月花费与上限、最近的例会。"""
@@ -2779,7 +3134,7 @@ class RoundtableService:
     def _plan(self, now: datetime | None = None, meetings: Sequence[Meeting] | None = None):
         rules = self.rt.config.roundtable.evolution
         return plan_meeting(
-            (now or self._local_now()).astimezone(),
+            (now or self._local_now()).astimezone(self._tz()),
             self._meetings() if meetings is None else meetings,
             gap_days=rules.major_gap_days,
             themes=rules.major_themes,
@@ -2826,13 +3181,14 @@ class RoundtableService:
         rules = self.rt.config.roundtable.evolution
         if not rules.enabled:
             raise ServiceError(
-                "革新例会没有开启：在 config/roundtable.yaml 里把 evolution.enabled 改成 true", 409
+                "革新例会没有开启：在 config/roundtable.local.yaml 里写 evolution: {enabled: true}",
+                409,
             )
         if rules.plan not in self.rt.config.routing.plans:
             raise ServiceError(f"evolution.plan 不是已有的档位：{rules.plan!r}")
         if kind is not None and kind not in MEETING_KINDS:
             raise ServiceError(f"例会类型只能是 {'、'.join(MEETING_KINDS)}：{kind!r}")
-        now = (now or self._local_now()).astimezone()
+        now = (now or self._local_now()).astimezone(self._tz())
         meetings = self._meetings()
         plan = self._plan(now, meetings)
         override = kind is not None and kind != plan.kind
@@ -3028,7 +3384,8 @@ class RoundtableService:
         rules = self.rt.config.roundtable.evolution
         if not rules.enabled:
             raise ServiceError(
-                "革新例会没有开启：在 config/roundtable.yaml 里把 evolution.enabled 改成 true", 409
+                "革新例会没有开启：在 config/roundtable.local.yaml 里写 evolution: {enabled: true}",
+                409,
             )
         meetings = self._meetings()
         meeting = next((m for m in meetings if m.session_id == session_id), None)
@@ -3205,7 +3562,7 @@ class RoundtableService:
             if m.adopted is None and not self.running(m.session_id):
                 with contextlib.suppress(ServiceError, NotFound):
                     out["exported"].append(self.evolution_export(m.session_id)["file"])
-        now = (now or self._local_now()).astimezone()
+        now = (now or self._local_now()).astimezone(self._tz())
         week = week_key(now)
         if now < week_slot(now, rules.schedule.weekday, rules.schedule.hour) or self._slot_met(
             week

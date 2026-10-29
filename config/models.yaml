@@ -448,12 +448,12 @@ models:
         model: openai/gpt-5.4-image-2
         params: {modalities: [image, text]}
   - id: hy-image-3.5
-    # 预览版，每张约 $0.007（图像输出 $1.6 / 百万 token）；一次最多 20 张参考图，可出 4K
+    # 预览版，2026-10-29 实测每张约 $0.024（按图像输出 $5.75 / 百万 token 折算）；一次最多 20 张参考图，可出 4K
     vendor: Tencent
     aliases: [混元, Hunyuan, 腾讯混元, Hy Image]
     seat: false
     tier: budget
-    price: {input: 0, output: 1.6}
+    price: {input: 0, output: 5.75}
     image_tokens: 4175
     tags: [image_gen, image_edit, vision, zh]
     image_api: images
@@ -482,7 +482,7 @@ models:
     price: {input: 0.50, output: 9.0}     # 按 token 计价（音频输出）
     speech_tokens_per_char: 3.0           # 每个字符约对应的音频输出 token 数，只用于预估
     tags: [tts]
-    params: {voice: Zephyr}               # 默认音色（覆盖 roundtable.yaml 的 media.speech.voice）
+    params: {voice: Zephyr, response_format: pcm}   # 默认音色；只接受 pcm（返回后包成 wav）
     enabled: true
     routes:
       - {channel: openrouter, model: google/gemini-3.8-flash-tts}
@@ -505,7 +505,7 @@ models:
     tier: budget
     media_price: {unit: char, usd: 0.000020}   # $20 / 百万字符
     tags: [tts, zh]
-    params: {voice: loongjohn}
+    params: {voice: longanlingxin}             # Plus 只有 longanlingxin / longanlufeng 两个音色
     enabled: true
     routes:
       - {channel: openrouter, model: qwen/qwen-audio-3.0-tts-plus}

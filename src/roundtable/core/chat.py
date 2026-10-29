@@ -26,16 +26,20 @@ from roundtable.core.budget.guard import EPS, month_window
 from roundtable.core.chat_actions import (
     ActionPolicy,
     DefaultPolicy,
+    Segment,
     card_text,
     clean_card,
     is_recalled,
     parse,
     quote_meta,
     sticker_list,
+    swap_repeated_stickers,
 )
+from roundtable.core.hometz import home_zone
 from roundtable.core.member.memory.diary import TOOL, DiaryTool
+from roundtable.core.office.apartment import ACTIVITIES, PUBLIC_ROOMS, schedule
 from roundtable.core.persona import EMPTY, chat_persona
-from roundtable.core.plain_talk import before_speaking, plain_prompt
+from roundtable.core.plain_talk import before_speaking_all, plain_prompt
 from roundtable.core.providers import AllChannelsFailed, Message, NoChannelAvailable, ProviderError
 from roundtable.core.tools.protocol import parse_calls, strip_calls
 
@@ -58,12 +62,25 @@ EVERYONE_WORDS = (
     "你们每",
 )
 USER_LABEL = "用户"
+VOICE_NONE = "（没写：用你自己的说话风格）"
 # 不在群聊列表里、不能从群聊发言的会话（投屏陪伴「一起看」有自己的面板，docs/WATCH.md）
 HIDDEN_KINDS = frozenset({"watch", "wander"})
 # 会话类型 → 提示词角色（roundtable.yaml 的 prompts）
 PROMPT_ROLES = {"group": "chat", "work": "chat_work", "dm": "chat_dm"}
 # 能翻日记的会话（生活模式的私聊和生活群；工作群不带）
 DIARY_KINDS = frozenset({"group", "dm"})
+_WEEK = "一二三四五六日"
+
+
+def life_clock(rt: Any, member_id: str) -> str:
+    """按主时区说现在几点、这位成员这会儿通常在干什么（公寓作息，不调用模型）。"""
+    now = home_zone(rt).local(rt.budget.now())
+    room, act = schedule(member_id, now.hour, now.weekday())
+    where = "自己房间" if room == "dorm" else PUBLIC_ROOMS.get(room, room)
+    return (
+        f"{now.month}月{now.day}日 周{_WEEK[now.weekday()]} {now:%H:%M}，"
+        f"你这会儿一般在{where}{ACTIVITIES.get(act, act)}"
+    )
 
 
 def with_diary_tool(rt: Any, prompt: Any, remaining: int) -> Any:
@@ -127,6 +144,16 @@ class ChatMember:
     name: str  # 昵称
     model_id: str
     available: bool
+
+
+@dataclass(frozen=True)
+class Thought:
+    """一位成员想好、还没发出的话（几条气泡）；cost_usd 记在第一条上。"""
+
+    member: ChatMember
+    segments: list[Segment]
+    cost_usd: float
+    memory: str = ""  # 这次带的记忆（说出口前自查用：记忆为空时「上次我们……」算编造）
 
 
 def _price(m: Any) -> tuple[float, float]:
@@ -426,24 +453,35 @@ class GroupChat:
     async def replies(
         self, reply_to: int, speakers: list[ChatMember], round_no: int | None = None
     ) -> list[dict[str, Any]]:
-        """依次让成员回应。round_no：发起这一轮时的回合号（省略为当前）；用户之后又发了消息
-        或撤回时（且策略允许作废），还没开口的人不再说。返回每位成员的第一条消息。"""
+        """让成员回应：所有人同时独立想（各自只看到这一刻的聊天记录，看不到别人还没发出的
+        回复），谁先想好谁先发，同一时刻只有一个人在往群里发。round_no：发起这一轮时的回合号
+        （省略为当前）；用户之后又发了消息或撤回时（且策略允许作废），还没发出的不再发。
+        返回每位成员的第一条消息。"""
         round_no = self.round if round_no is None else round_no
         self.queued.extend(m.name for m in speakers)
+        used: set[str] = set()  # 这一轮已经有人发过的表情包
+        tasks = [asyncio.create_task(self._think(m, reply_to)) for m in speakers]
+        out: list[dict[str, Any]] = []
         try:
-            async with self._lock:
-                out = []
-                for member in speakers:
-                    self._unqueue(member.name)
+            for done in asyncio.as_completed(tasks):
+                thought = await done
+                if thought is None:  # 预算用完：其余的也不再说
+                    for t in tasks:
+                        t.cancel()
+                    break
+                if not isinstance(thought, Thought):
+                    continue
+                async with self._lock:
                     if self.stale(round_no):
                         continue
-                    said = await self._speak(member, reply_to, round_no)
-                    if said is None:
-                        break
-                    if said:
-                        out.append(said)
-                return out
+                    said = await self._post(thought, reply_to, round_no, used)
+                if said:
+                    out.append(said)
+            return out
         finally:
+            for t in tasks:
+                if not t.done():
+                    t.cancel()
             for m in speakers:
                 self._unqueue(m.name)
             self.on_change()
@@ -502,8 +540,18 @@ class GroupChat:
     async def _speak(
         self, member: ChatMember, reply_to: int, round_no: int | None = None
     ) -> dict[str, Any] | None:
-        """一位成员发言（可能拆成几条气泡）。返回第一条消息；调用失败或不接话返回 {}；
+        """一位成员想好再发言（可能拆成几条气泡）。返回第一条消息；调用失败或不接话返回 {}；
         预算用完返回 None（后面的人也不再说）。"""
+        thought = await self._think(member, reply_to)
+        if not isinstance(thought, Thought):
+            return thought
+        async with self._lock:
+            return await self._post(thought, reply_to, round_no, set())
+
+    async def _think(self, member: ChatMember, reply_to: int) -> Thought | dict | None:
+        """一位成员想好要说什么（调用模型、解析成几条气泡），还不发。调用失败、不接话或
+        没说出话返回 {}（没说出话时在群里说明）；预算用完返回 None。"""
+        self._unqueue(member.name)
         rt, rules = self.rt, self.rules
         if not rt.budget.check(rules.estimate_usd).allowed:
             rt.repo.add_chat_message(self.room, SYSTEM, "预算用完了，大家先不说话了。")
@@ -540,6 +588,11 @@ class GroupChat:
             variables["members"] = (
                 "、".join(m.name for m in self.members() if m.id != member.id) or "（没有别人）"
             )
+        if "clock" in wants:
+            variables["clock"] = life_clock(rt, member.id)
+        if "voice" in wants:  # 说话习惯（chat / chat_dm v6 起；成员系统 P5 给，没接管时为空）
+            habit = policy.voice(member.id, self.kind, reply_to) if self.kind != "work" else ""
+            variables["voice"] = habit or VOICE_NONE
         if numbered:
             variables |= {
                 "stickers": sticker_list(acts.stickers) if acts.enabled else "（这里不用表情包）",
@@ -556,8 +609,12 @@ class GroupChat:
         session = rt.repo.chat_session(self.room)
         self.typing.append(member.name)
         self.on_change()
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + rules.think_timeout_seconds
         try:
-            completion = await rt.router.complete(member.model_id, prompt.messages, self.params())
+            completion = await asyncio.wait_for(
+                self._complete(session, member, prompt), deadline - loop.time()
+            )
             call = next((c for c in parse_calls(completion.text) if c.name == TOOL), None)
             found = diary.read(member.id, call.body) if diary and call else None
             if found is not None:
@@ -572,7 +629,12 @@ class GroupChat:
                 )
                 messages = diary_followup(rt, prompt.messages, completion.text, found)
                 prompt = replace(prompt, messages=messages)
-                completion = await rt.router.complete(member.model_id, messages, self.params())
+                completion = await asyncio.wait_for(
+                    self._complete(session, member, prompt), max(deadline - loop.time(), 1.0)
+                )
+        except TimeoutError:
+            rt.repo.add_chat_message(self.room, SYSTEM, f"{member.name} 想太久了，这次先不回。")
+            return {}
         except (AllChannelsFailed, NoChannelAvailable, ProviderError) as e:
             rt.repo.record_call(
                 session,
@@ -613,8 +675,58 @@ class GroupChat:
             rt.repo.add_chat_message(self.room, SYSTEM, f"{member.name} 没有回复（{why}）。")
             self.on_change()
             return {}
+        # 说话底线：几条连发的消息合起来查，有问题整段改写一次（改写后条数可能变少）
+        said = await before_speaking_all(
+            rt,
+            [seg.text for seg in parsed.segments],
+            room=self.room,
+            name=member.name,
+            model_id=member.model_id,
+        )
+        if len(said) == len(parsed.segments):
+            kept = [Segment(t, seg.quote) for t, seg in zip(said, parsed.segments, strict=True)]
+        else:
+            kept = [
+                Segment(t, parsed.segments[0].quote if i == 0 else None) for i, t in enumerate(said)
+            ]
+        return Thought(member, kept, completion.cost_usd or 0.0, variables["memory"])
+
+    async def _complete(self, session: str, member: ChatMember, prompt: Any) -> Any:
+        """调用模型。思考把输出上限用光、几乎没有正文时（finish_reason=length），关掉思考、
+        提高上限再调一次（不原样重发；第一次单独记录）。"""
+        rt, params = self.rt, self.params()
+        completion = await rt.router.complete(member.model_id, prompt.messages, params)
+        guard = rt.config.roundtable.length_guard
+        if guard.enabled and completion.truncated and completion.visible_chars < 20:
+            rt.repo.record_call(
+                session,
+                step="chat",
+                role="member",
+                model_id=member.model_id,
+                messages=prompt.messages,
+                prompt=prompt,
+                completion=completion,
+            )
+            retry = guard.escalate(params) | {"reasoning": {"enabled": False}}
+            completion = await rt.router.complete(member.model_id, prompt.messages, retry)
+        return completion
+
+    async def _post(
+        self,
+        thought: Thought,
+        reply_to: int,
+        round_no: int | None,
+        used: set[str],
+    ) -> dict[str, Any]:
+        """把想好的话按节奏一条条发出去。同一轮里别人已经发过的表情包换成同一套里没人发过的
+        （免得大家都发同一个）。用户又发了消息时还没发出的气泡作废。返回第一条消息。"""
+        rt, member = self.rt, thought.member
+        policy = self.policy()
+        stickers = rt.config.roundtable.chat.actions.stickers
         first: dict[str, Any] = {}
-        for i, seg in enumerate(parsed.segments):
+        posted: list[str] = []
+        recent = self.recent()  # 发之前再取一次：并行思考时别人可能刚发过
+        for i, seg in enumerate(thought.segments):
             if i:
                 if round_no is not None and self.stale(round_no):
                     break  # 用户又发了消息：还没发出的气泡作废
@@ -626,9 +738,8 @@ class GroupChat:
                     self.typing.remove(member.name)
                 if round_no is not None and self.stale(round_no):
                     break
-            words = await before_speaking(
-                rt, seg.text, room=self.room, name=member.name, model_id=member.model_id
-            )
+            text = swap_repeated_stickers(seg.text, used, stickers, self.rng)
+            words = await self._self_check(member, text, recent, reply_to, posted, thought.memory)
             if not words.strip():
                 continue
             meta: dict[str, Any] = {}
@@ -641,12 +752,64 @@ class GroupChat:
                 words,
                 model_id=member.model_id,
                 reply_to=reply_to,
-                cost_usd=0.0 if first else (completion.cost_usd or 0.0),
+                cost_usd=0.0 if first else thought.cost_usd,
                 meta=meta or None,
             )
             first = first or msg
+            posted.append(words)
             self.on_change()
         return first
+
+    async def _self_check(
+        self,
+        member: ChatMember,
+        text: str,
+        recent: list[dict[str, Any]],
+        reply_to: int,
+        posted: list[str],
+        memory: str,
+    ) -> str:
+        """说出口前自查（成员系统 P5，``core/member/voice``）：和自己最近说的、别人这一轮说的比；
+        返回要发的话，空串表示这条不发。工作群和关闭时原样返回。"""
+        from roundtable.core.member.voice import (  # voice 依赖本模块
+            Said,
+            before_voice,
+            recent_words,
+        )
+        from roundtable.core.memory import NONE  # memory 依赖本模块
+
+        names = {m.id: m.name for m in self.everyone()}
+        rows = [r for r in recent if not is_recalled(r)]
+        rows += [
+            r
+            for r in self.rt.repo.chat_messages(self.room, limit=self.rules.history_messages)
+            if r["id"] > max((x["id"] for x in rows), default=0) and not is_recalled(r)
+        ]
+        own = tuple(r["text"] for r in rows if r["author"] == member.id) + tuple(posted)
+        others = tuple(
+            (names.get(r["author"], r["author"]), r["text"])
+            for r in rows
+            if r["id"] > reply_to and r["author"] not in (member.id, USER, SYSTEM)
+        )
+        said = Said(
+            own=own,
+            others=others,
+            has_memory=memory.strip() not in ("", NONE),
+            long=recent_words(self.rt, member.id, self.rt.budget.now()) + tuple(posted),
+            asked=next((r["text"] for r in rows if r["id"] == reply_to), ""),
+        )
+        return await before_voice(
+            self.rt,
+            text,
+            said,
+            member=member.id,
+            room=self.room,
+            room_kind=self.kind,
+            named=self.named(member, reply_to),
+            name=member.name,
+            model_id=member.model_id,
+            voice=self.policy().voice(member.id, self.kind, reply_to),
+        )
 
 
 def live_title(kind: str, members: list[str], stored: str, names: dict[str, str]) -> str:

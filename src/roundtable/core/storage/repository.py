@@ -38,6 +38,9 @@ class NotFound(LookupError):
     pass
 
 
+STATE_KEY = "member_state:"  # 成员状态（P3）在 app_settings 里的键前缀
+
+
 def iso(moment: datetime) -> str:
     """库中时间戳的统一格式（UTC，毫秒），可按字符串比较先后。"""
     if moment.tzinfo is None:
@@ -1093,6 +1096,22 @@ class Repository:
             return row["id"]
         return self.create_session("邮件栏：总结与翻译", seed=0, anonymous=False, workflow="mail")
 
+    def voice_session(self) -> str:
+        """成员固定音色的隐藏会话（workflow = 'voice'）：用成员音色念文字的调用挂在这里，
+        计入总预算和创作输出的每月上限（role = media）；不出现在会话列表里。"""
+        row = self._exec("SELECT id FROM sessions WHERE workflow = 'voice' LIMIT 1").fetchone()
+        if row:
+            return row["id"]
+        return self.create_session("成员音色：念给你听", seed=0, anonymous=False, workflow="voice")
+
+    def sticker_session(self) -> str:
+        """成员表情包的隐藏会话（workflow = 'sticker'）：画表情和核对配文的调用挂在这里，
+        计入总预算、创作输出的每月上限和表情包的每月小上限（role = media）；不出现在会话列表里。"""
+        row = self._exec("SELECT id FROM sessions WHERE workflow = 'sticker' LIMIT 1").fetchone()
+        if row:
+            return row["id"]
+        return self.create_session("成员表情包", seed=0, anonymous=False, workflow="sticker")
+
     def watch_session(self) -> str:
         """投屏陪伴的隐藏会话（workflow = 'watch'）：画面转文字和成员陪看发言的调用挂在这里，
         计入总预算和「一起看」的每月上限；不出现在会话列表里。截图本身不存，只存描述的哈希。"""
@@ -1493,6 +1512,22 @@ class Repository:
                     (now, note, item_id),
                 )
 
+    def memory_items_for_cleanup(self, key_prefix: str, kind: str) -> list[dict[str, Any]]:
+        """来源键以 key_prefix 开头、某种类、只出现过一次且从没改过的件（清理旧导入用）。"""
+        rows = self._exec(
+            "SELECT * FROM memory_items i WHERE substr(source_key, 1, ?) = ? AND kind = ?"
+            " AND hits <= 1"
+            " AND NOT EXISTS (SELECT 1 FROM memory_revisions r WHERE r.item_id = i.id)",
+            (len(key_prefix), key_prefix, kind),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def memory_items_not_from(self, source: str) -> list[tuple[int, str]]:
+        rows = self._exec(
+            "SELECT id, text FROM memory_items WHERE source != ?", (source,)
+        ).fetchall()
+        return [(r["id"], r["text"]) for r in rows]
+
     def delete_memory_item(self, item_id: int) -> bool:
         with self._tx():
             n = self.conn.execute("DELETE FROM memory_items WHERE id = ?", (item_id,)).rowcount
@@ -1891,6 +1926,30 @@ class Repository:
     def prune_member_events(self, before: str) -> int:
         return self._exec("DELETE FROM member_events WHERE at < ?", (before,)).rowcount
 
+    # --- 成员状态（P3；app_settings 的 member_state:<成员> 键，只有 member/state.py 写）
+
+    def member_state(self, member: str) -> dict[str, Any] | None:
+        row = self._exec(
+            "SELECT value, updated_at FROM app_settings WHERE key = ?", (STATE_KEY + member,)
+        ).fetchone()
+        return None if row is None else {"data": json.loads(row["value"]), "at": row["updated_at"]}
+
+    def save_member_state(self, member: str, data: dict[str, Any]) -> None:
+        self.set_setting(STATE_KEY + member, json.dumps(data, ensure_ascii=False))
+
+    def member_state_members(self) -> list[str]:
+        rows = self._exec(
+            "SELECT key FROM app_settings WHERE key LIKE ? ORDER BY key", (STATE_KEY + "%",)
+        ).fetchall()
+        return [r["key"][len(STATE_KEY) :] for r in rows]
+
+    def clear_member_state(self, member: str | None = None) -> int:
+        if member is None:
+            return self._exec(
+                "DELETE FROM app_settings WHERE key LIKE ?", (STATE_KEY + "%",)
+            ).rowcount
+        return self._exec("DELETE FROM app_settings WHERE key = ?", (STATE_KEY + member,)).rowcount
+
     def spent_in_steps(
         self, workflow: str, steps: Sequence[str], start: datetime, end: datetime
     ) -> float:
@@ -2149,6 +2208,13 @@ class Repository:
         ).fetchall()
         return [_chat_row(r) for r in rows]
 
+    def first_chat_message_by_author(self) -> dict[str, str]:
+        """每位发过言的人第一次说话的时间（作者 → ISO 时间），日历算入职纪念日用。"""
+        rows = self._exec(
+            "SELECT author, MIN(created_at) FROM chat_messages GROUP BY author"
+        ).fetchall()
+        return {r[0]: r[1] for r in rows}
+
     def spent_in_workflow(self, workflow: str, start: datetime, end: datetime) -> float:
         """[start, end) 内挂在某类隐藏会话（如 workflow = 'chat'）上的调用花费。"""
         return self._exec(
@@ -2156,6 +2222,18 @@ class Repository:
             " ON s.id = c.session_id WHERE s.workflow = ? AND c.created_at >= ?"
             " AND c.created_at < ?",
             (workflow, iso(start), iso(end)),
+        ).fetchone()[0]
+
+    def spent_on_channels(self, channels: Sequence[str], start: datetime, end: datetime) -> float:
+        """[start, end) 内走这些渠道的调用花费（dsh 工作台从余额差值里扣掉圆桌自己用掉的）。"""
+        names = list(channels)
+        if not names:
+            return 0.0
+        marks = ",".join("?" * len(names))
+        return self._exec(
+            f"SELECT COALESCE(SUM(cost_usd), 0) FROM calls WHERE channel IN ({marks})"
+            " AND created_at >= ? AND created_at < ?",
+            (*names, iso(start), iso(end)),
         ).fetchone()[0]
 
     def spent_in_role(self, role: str, start: datetime, end: datetime) -> float:
@@ -2523,7 +2601,8 @@ class Repository:
             " r.difficulty, r.plan,"
             " (SELECT COALESCE(SUM(cost_usd), 0) FROM calls c WHERE c.session_id = s.id) AS cost"
             " FROM sessions s LEFT JOIN routing_records r ON r.session_id = s.id"
-            " WHERE s.workflow NOT IN ('chat', 'evolution_scout', 'mail', 'watch')"
+            " WHERE s.workflow NOT IN"
+            " ('chat', 'evolution_scout', 'mail', 'watch', 'voice', 'sticker')"
             " ORDER BY s.created_at DESC LIMIT ?",
             (limit,),
         ).fetchall()

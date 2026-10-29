@@ -623,6 +623,17 @@ dialog.sheet[open]{display:flex}
 .pp-list li{padding:12px 16px;border-top:1px solid var(--line)}
 .pp-list li.hint{color:var(--muted)}
 .pp-list p{margin:4px 0 0;line-height:1.6;overflow-wrap:anywhere}
+.pp-stk-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(112px,1fr));gap:10px;padding:12px;list-style:none;margin:0}
+.pp-stk{display:flex;flex-direction:column;align-items:center;gap:4px;padding:8px;border-radius:12px;background:var(--card,rgba(255,255,255,.04));border:1px solid var(--line);text-align:center;font-size:12px}
+.pp-stk img,.pp-stk-empty{width:96px;height:96px;border-radius:10px;object-fit:contain;background:#fff}
+.pp-stk-empty{display:grid;place-items:center;color:#999;background:rgba(127,127,127,.12)}
+.pp-stk.pending{border-color:var(--gold,#c9a227)}
+.pp-stk.rejected img{opacity:.4}
+.pp-stk-cap{color:var(--ink);overflow-wrap:anywhere}
+.pp-stk-st{color:var(--muted)}
+.pp-stk-warn{color:var(--danger,#d9534f);line-height:1.4}
+.pp-stk-acts{display:flex;gap:8px}
+.pp-stk-acts .link{border:0;background:none;color:var(--mo-name,#576b95);padding:0;cursor:pointer;font-size:12px}
 .pp-mh{display:flex;gap:8px;align-items:baseline;font-size:12px;color:var(--muted)}
 .pp-mh b{color:var(--ink);font-weight:500}
 .pp-mh .link:first-of-type{margin-left:auto}

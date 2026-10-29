@@ -1,0 +1,221 @@
+from __future__ import annotations
+
+import asyncio
+import io
+import json
+
+import pytest
+from PIL import Image
+
+from roundtable.core.config import load_config
+from roundtable.core.member_stickers import (
+    CHECK_STEP,
+    DRAW_STEP,
+    MemberStickers,
+    StickerBudgetExceeded,
+    StickerError,
+    StickerUnavailable,
+)
+from roundtable.core.providers import ErrorKind, FakeProvider
+from roundtable.core.runtime import Runtime
+
+from .members_samples import write_assets
+
+OK = json.dumps({"caption_ok": True, "looks_ok": True, "problems": ""})
+BAD = json.dumps({"caption_ok": False, "looks_ok": True, "problems": "配文少了一个字"})
+
+
+def build(tmp_path, *, root=True, assets=True, check_text=OK, **stickers):
+    config = load_config()
+    policy = config.roundtable.request.model_copy(update={"backoff_s": 0, "failover_rounds": 1})
+    media = config.roundtable.media
+    media = media.model_copy(update={"stickers": media.stickers.model_copy(update=stickers)})
+    rt_cfg = config.roundtable.model_copy(update={"request": policy, "media": media})
+    config = config.model_copy(update={"roundtable": rt_cfg})
+    fake = FakeProvider("openrouter", default=check_text)
+    members_dir = tmp_path / "art"
+    if assets:
+        write_assets(members_dir, "OpenAI")
+    rt = Runtime.build(
+        config=config,
+        providers={"openrouter": fake},
+        db_path=":memory:",
+        members_dir=members_dir,
+    )
+    return rt, fake, MemberStickers(rt, tmp_path / "stickers" if root else None)
+
+
+def image_calls(fake):
+    return [c for c in fake.media_calls if c[0] == "image"]
+
+
+def test_every_card_is_valid_and_openai_has_a_full_set():
+    cards = load_config().personas.sticker_cards
+    assert len(cards["OpenAI"].stickers) == 12
+    vendors = {m.vendor for m in load_config().models.models if m.seat}
+    assert set(cards) <= vendors
+    for card in cards.values():
+        for spec in card.stickers:
+            assert spec.caption and spec.action
+
+
+def test_draw_uses_reference_images_and_a_zh_model_then_waits_for_review(tmp_path):
+    rt, fake, stickers = build(tmp_path)
+    row = asyncio.run(stickers.draw("OpenAI", "快夸我"))
+    assert row["status"] == "pending" and not row["problems"] and not row["stale"]
+    [(_, route_model, prompt, _, refs, _)] = image_calls(fake)
+    first = stickers.draw_models()[0]
+    assert "zh" in first.tags and any(r.model == route_model for r in first.routes)
+    assert refs and all(r.kind == "image" for r in refs)
+    assert "快夸我" in prompt
+    # 存成白底正方形 PNG
+    data = stickers.file("OpenAI", "快夸我")
+    with Image.open(io.BytesIO(data)) as im:
+        assert im.size == (360, 360) and im.format == "PNG"
+    # 审过才进可用清单
+    assert stickers.approved("OpenAI") == []
+    stickers.review("OpenAI", "快夸我", "approved")
+    [ok] = stickers.approved("OpenAI")
+    assert ok["name"] == "快夸我" and ok["caption"] == "快夸我"
+
+
+def test_index_and_files_survive_a_new_instance(tmp_path):
+    rt, _, stickers = build(tmp_path)
+    asyncio.run(stickers.draw("OpenAI", "晚安"))
+    fresh = MemberStickers(rt, tmp_path / "stickers")
+    [row] = [r for r in fresh.listing("OpenAI") if r["name"] == "晚安"]
+    assert row["status"] == "pending"
+    assert fresh.file("OpenAI", "晚安") == stickers.file("OpenAI", "晚安")
+    missing = [r for r in fresh.listing("OpenAI") if r["status"] == "missing"]
+    assert len(missing) == 11
+
+
+def test_failed_check_redraws_with_another_model_and_keeps_the_problem(tmp_path):
+    rt, fake, stickers = build(tmp_path, check_text=BAD)
+    row = asyncio.run(stickers.draw("OpenAI", "收到"))
+    calls = image_calls(fake)
+    assert len(calls) == 2 and calls[0][1] != calls[1][1]
+    assert row["problems"] == "配文少了一个字" and row["status"] == "pending"
+    session = rt.repo.sticker_session()
+    rows = rt.repo.conn.execute("SELECT step FROM calls WHERE session_id = ?", (session,))
+    steps = [r[0] for r in rows]
+    assert steps.count(DRAW_STEP) == 2 and steps.count(CHECK_STEP) == 2
+
+
+def test_check_can_be_turned_off(tmp_path):
+    _, fake, stickers = build(tmp_path, check=False)
+    asyncio.run(stickers.draw("OpenAI", "好耶"))
+    assert fake.calls == [] and len(image_calls(fake)) == 1
+
+
+def test_without_review_new_stickers_are_usable_at_once(tmp_path):
+    _, _, stickers = build(tmp_path, review=False)
+    asyncio.run(stickers.draw("OpenAI", "啊这"))
+    assert [s["name"] for s in stickers.approved("OpenAI")] == ["啊这"]
+
+
+def test_costs_go_to_the_hidden_session_and_the_monthly_cap_blocks(tmp_path):
+    rt, fake, stickers = build(tmp_path, monthly_usd=0.05)
+    fake.media_cost = 0.03
+    asyncio.run(stickers.draw("OpenAI", "想想"))
+    assert stickers.month_spent() >= 0.03
+    assert all(s["id"] != rt.repo.sticker_session() for s in rt.repo.list_sessions())
+    with pytest.raises(StickerBudgetExceeded):
+        asyncio.run(stickers.draw("OpenAI", "刹车"))
+
+
+def test_creative_cap_also_blocks(tmp_path):
+    rt, fake, stickers = build(tmp_path)
+    fake.media_cost = 0.03
+    media = rt.config.roundtable.media.model_copy(update={"monthly_usd": 0.03})
+    rt.config = rt.config.model_copy(
+        update={"roundtable": rt.config.roundtable.model_copy(update={"media": media})}
+    )
+    asyncio.run(stickers.draw("OpenAI", "想想"))
+    with pytest.raises(StickerBudgetExceeded):
+        asyncio.run(stickers.draw("OpenAI", "刹车"))
+
+
+def test_unknown_sticker_member_or_missing_refs(tmp_path):
+    _, _, stickers = build(tmp_path)
+    with pytest.raises(StickerError):
+        asyncio.run(stickers.draw("OpenAI", "不存在"))
+    with pytest.raises(StickerError):
+        stickers.listing("Nobody")
+    with pytest.raises(StickerError):
+        stickers.review("OpenAI", "晚安", "approved")  # 还没画
+    _, _, bare = build(tmp_path / "bare", assets=False)
+    with pytest.raises(StickerUnavailable):
+        asyncio.run(bare.draw("OpenAI", "晚安"))
+
+
+def test_all_image_calls_failing_is_unavailable(tmp_path):
+    _, fake, stickers = build(tmp_path)
+    fake.submit_errors.extend([ErrorKind.SERVER] * 20)
+    fake.broken_models.update(m.id for m in stickers.draw_models())
+    with pytest.raises(StickerUnavailable):
+        asyncio.run(stickers.draw("OpenAI", "晚安"))
+    assert stickers.file("OpenAI", "晚安") is None
+
+
+def test_media_off_means_no_models(tmp_path):
+    _, _, stickers = build(tmp_path, enabled=False)
+    assert stickers.draw_models() == []
+    with pytest.raises(StickerUnavailable):
+        asyncio.run(stickers.draw("OpenAI", "晚安"))
+
+
+def test_editing_the_card_marks_the_sticker_stale(tmp_path):
+    rt, _, stickers = build(tmp_path)
+    asyncio.run(stickers.draw("OpenAI", "晚安"))
+    personas = rt.config.personas
+    card = personas.sticker_cards["OpenAI"].model_copy(update={"look": "换了个发型"})
+    cards = {**personas.sticker_cards, "OpenAI": card}
+    rt.config = rt.config.model_copy(
+        update={"personas": personas.model_copy(update={"sticker_cards": cards})}
+    )
+    [row] = [r for r in stickers.listing("OpenAI") if r["name"] == "晚安"]
+    assert row["stale"]
+
+
+def test_model_order_only_looks_at_tags(tmp_path):
+    _, _, stickers = build(tmp_path)
+    order = stickers.draw_models()
+    prefer = stickers.rules.prefer_tags
+    scores = [sum(t in m.tags for t in prefer) for m in order]
+    assert scores == sorted(scores, reverse=True)
+    assert all("image_edit" in m.tags and not m.seat for m in order)
+
+
+def test_memory_store_works_without_a_folder(tmp_path):
+    _, _, stickers = build(tmp_path, root=False)
+    asyncio.run(stickers.draw("OpenAI", "晚安"))
+    assert stickers.file("OpenAI", "晚安")
+    assert not (tmp_path / "stickers").exists()
+
+
+def test_setting_sheet_one_level_up_comes_first_then_member_art(tmp_path):
+    rt, fake, stickers = build(tmp_path)
+    card = rt.config.personas.sticker_cards["OpenAI"]
+    sheet = tmp_path / card.refs[0]
+    sheet.parent.mkdir(parents=True)
+    Image.new("RGB", (8, 8), "purple").save(sheet, "JPEG")
+    refs = stickers.references("OpenAI", card)
+    assert refs[0].name == sheet.name and len(refs) >= 2
+    # 往上只找一级：再往外的路径不认
+    outside = card.model_copy(update={"refs": ["../../etc/passwd"]})
+    assert all(r.name != "passwd" for r in stickers.references("OpenAI", outside))
+
+
+def test_caption_mismatch_in_text_seen_overrides_the_models_ok(tmp_path):
+    seen = json.dumps(
+        {"text_seen": "本尤不傻，真的", "caption_ok": True, "looks_ok": True, "problems": ""}
+    )
+    _, fake, stickers = build(tmp_path, check_text=seen, max_attempts=1)
+    row = asyncio.run(stickers.draw("OpenAI", "不傻"))
+    assert "本尤不傻" in row["problems"]
+    same = json.dumps(
+        {"text_seen": "本龙不傻 真的！", "caption_ok": True, "looks_ok": True, "problems": ""}
+    )
+    _, _, ok = build(tmp_path / "b", check_text=same, max_attempts=1)
+    assert asyncio.run(ok.draw("OpenAI", "不傻"))["problems"] == ""

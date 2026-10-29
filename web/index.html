@@ -32,6 +32,9 @@
 <link rel="stylesheet" href="css/lan.css">
 <link rel="stylesheet" href="css/watch.css">
 <link rel="stylesheet" href="css/wander.css">
+<link rel="stylesheet" href="css/workbench.css">
+<link rel="stylesheet" href="css/supercomputer.css">
+<link rel="stylesheet" href="css/bench.css">
 <link rel="stylesheet" href="css/clipper.css">
 <link rel="stylesheet" href="css/exporter.css">
 <link rel="stylesheet" href="css/touch.css">
@@ -45,11 +48,12 @@
 <div class="app">
   <header class="top">
     <div class="brand"><h1>圆桌</h1><button type="button" class="link bt-open" id="bootcfg" title="开机动画设置">片头</button><button type="button" class="link bt-open" id="skin" title="在方舟式外观和原来的外观之间切换">外观</button><button type="button" class="link bt-open" id="lanbtn" title="在家里的平板 / 手机上用圆桌">平板</button><button type="button" class="link bt-open" id="watchbtn" title="投屏陪伴：把屏幕给成员看，她们陪你一起看">一起看</button><button type="button" class="link bt-open" id="wanderbtn" title="成员自己上网：看她们逛了什么">上网</button></div>
-    <nav class="seg entries" id="entries" aria-label="入口（Alt+4 / 1 / 2 / 3）">
+    <nav class="seg entries" id="entries" aria-label="入口（Alt+4 / 1 / 2 / 3 / 5）">
       <button type="button" data-m="hub" aria-pressed="false">终端</button>
       <button type="button" data-m="work" aria-pressed="true">办公室</button>
       <button type="button" data-m="home" aria-pressed="false">公寓楼</button>
       <button type="button" data-m="chat" aria-pressed="false">群聊</button>
+      <button type="button" data-m="bench" aria-pressed="false" title="工作台：超级电脑和 dsh">工作台</button>
     </nav>
     <div class="ctrls" id="workctrls">
       <button class="btn" id="new" type="button">新题目</button>
@@ -63,6 +67,7 @@
   <section class="hub view" id="hub" hidden aria-label="终端首页"></section>
   <section class="home view" id="home" hidden aria-label="公寓楼"></section>
   <section class="gchat view" id="gchat" hidden aria-label="群聊"></section>
+  <section class="bench view" id="bench" hidden aria-label="工作台"></section>
 
   <div class="main" id="main">
     <div class="stagecol">

@@ -25,3 +25,18 @@ jobs:
         run: playwright install --with-deps chromium
       # 不联网、不需要任何 key；代码沙箱相关的越权测试在没有 Deno 时自动跳过
       - run: pytest -q
+
+  # dsh 工作台是可拔掉的外设（docs/DSH.md）：整个删掉后圆桌的测试照样全过
+  unplug-dsh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+      - run: pip install -e ".[dev]"
+      - name: 拔掉 dsh
+        run: rm -rf src/roundtable/core/dsh tests/core/dsh config/dsh_plugins.yaml scripts/setup_dsh.py
+      - run: pytest -q --ignore=tests/web

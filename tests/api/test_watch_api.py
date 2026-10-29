@@ -91,3 +91,55 @@ def test_tablet_can_chat_and_stop_but_not_start_or_preview(tmp_path):
         assert pad.get("/api/watch/frame").status_code == 403
         assert pad.get("/api/watch").json()["running"]
         assert pad.post("/api/watch/stop").json()["running"] is False
+        pair = {"host": "192.168.1.5", "port": 41234, "code": "123456"}
+        assert pad.post("/api/watch/adb/pair", json=pair).status_code == 403
+        assert pad.post("/api/watch/adb/connect", json={}).status_code == 403
+
+
+class FakeWirelessAdb:
+    """只有配对 / 连接的假安卓来源。"""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple] = []
+
+    def available(self):
+        return None
+
+    def sources(self):
+        return []
+
+    def pair(self, host, port, code):
+        from roundtable.core.screen import ScreenUnavailable
+
+        self.calls.append(("pair", host, port, code))
+        if code != "123456":
+            raise ScreenUnavailable("配对没成功")
+        return "配对成功"
+
+    def connect(self, host="", port=0):
+        self.calls.append(("connect", host, port))
+        return [f"{host or '192.168.1.5'}:{port or 37000}"]
+
+
+def test_adb_pair_and_connect_from_the_pc():
+    env = env_with_screen()
+    adb = FakeWirelessAdb()
+    env.rt.screen_sources["android"] = adb
+    with TestClient(create_app(RoundtableService(env.rt))) as c:
+        r = c.post(
+            "/api/watch/adb/pair", json={"host": "192.168.1.5", "port": 41234, "code": "123456"}
+        )
+        assert r.status_code == 200 and r.json() == {
+            "message": "配对成功",
+            "connected": ["192.168.1.5:37000"],
+        }
+        bad = c.post(
+            "/api/watch/adb/pair", json={"host": "192.168.1.5", "port": 1, "code": "000000"}
+        )
+        assert bad.status_code == 400 and "配对没成功" in bad.json()["detail"]
+        assert (
+            c.post("/api/watch/adb/pair", json={"host": "x", "port": 1, "code": "1"}).status_code
+            == 422
+        )
+        r = c.post("/api/watch/adb/connect", json={"host": "192.168.1.5", "port": 37001})
+        assert r.json() == {"connected": ["192.168.1.5:37001"]}

@@ -1,0 +1,42 @@
+/* 「工作台」页：跟终端首页同一套——背景透出来，上面是墨蓝液态玻璃、大圆角、衬线标题，不发光 */
+.bench{position:relative;flex:1;min-height:0;overflow:auto;color:#eceff3;
+  --hb-glass:rgba(255,255,255,.055); --hb-edge:inset 0 .5px 0 rgba(255,255,255,.14);
+  --hb-ink:rgba(24,44,78,.82); --hb-ink-hi:rgba(32,58,100,.88);
+  --hb-muted:rgba(236,239,243,.62);
+  --hb-serif:"Noto Serif SC","Songti SC","STSong",serif;
+  --hb-sx:30%; --hb-sy:-20%}
+.bn-wrap{max-width:1200px;margin:0 auto;padding:20px 28px 28px;display:flex;flex-direction:column;gap:18px;min-height:100%;box-sizing:border-box}
+.bn-head{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap}
+.bn-title{display:flex;flex-direction:column;gap:2px}
+.bn-zh{font-family:var(--hb-serif);font-weight:400;font-size:40px;letter-spacing:.08em;line-height:1.15}
+.bn-en{font-family:var(--hb-serif);font-size:12px;letter-spacing:.42em;color:var(--hb-muted)}
+.bn-tabs{display:flex;gap:4px;padding:4px;border-radius:999px}
+.bn-tabs button{position:relative;border:0;border-radius:999px;padding:7px 20px;background:transparent;color:var(--hb-muted);font:inherit;font-size:14px;cursor:pointer}
+.bn-tabs button[aria-selected="true"]{background:var(--hb-ink);color:#eceff3;box-shadow:inset 0 .5px 0 rgba(255,255,255,.12)}
+.bn-tabs button:hover:not([aria-selected="true"]){background:rgba(255,255,255,.07);color:#eceff3}
+.bn-tabs button:focus-visible{outline:2px solid rgba(160,185,230,.85);outline-offset:2px}
+/* dsh 运行中：标签旁一个小绿点（和其他入口的「有人在」一致） */
+.bn-tabs button.wb-on::after{content:"";position:absolute;top:6px;right:8px;width:6px;height:6px;border-radius:50%;background:var(--ok,#7fc79a)}
+.bn-card{border-radius:32px;padding:22px 26px;min-height:0;flex:1}
+.bn-card[hidden]{display:none}
+/* 面板内容沿用超级电脑 / dsh 的布局，只把配色换成终端的玻璃 */
+.bench .vh b{font-family:var(--hb-serif);font-weight:400;font-size:22px;letter-spacing:.06em}
+.bench .sc-worker,.bench .wb-plugins li{background:rgba(255,255,255,.06);border-radius:20px;box-shadow:var(--hb-edge)}
+.bench .sc-worker b{font-family:var(--hb-serif);font-weight:400;font-size:18px;letter-spacing:.04em}
+.bench .sc-state,.bench .wb-state{background:var(--hb-ink);color:#eceff3}
+.bench .sc-hint,.bench .wb-hint,.bench .sc-skills,.bench .sc-subs td.sc-why,.bench .sc-log{color:var(--hb-muted)}
+.bench .sc-ask textarea{background:rgba(255,255,255,.05);border:0;border-radius:20px;padding:12px 16px;color:#eceff3;box-shadow:var(--hb-edge);font:inherit}
+.bench .sc-worker input{background:rgba(255,255,255,.08);border:0;border-radius:10px;padding:3px 8px;color:#eceff3;font:inherit}
+.bench .sc-subs th{font-weight:400;color:var(--hb-muted)}
+.bench .sc-subs th,.bench .sc-subs td{border-bottom:1px solid rgba(255,255,255,.07)}
+.bench .sc-result pre,.bench .sc-sum pre,.bench .wb-log pre{background:rgba(0,0,0,.18);border-radius:16px;padding:12px 14px}
+.bench .btn{border-radius:999px}
+.bench .btn.primary{background:var(--hb-ink);border-color:transparent;color:#eceff3}
+.bench .btn.primary:hover:not(:disabled){background:var(--hb-ink-hi)}
+.bench .wb{height:auto}
+.bench .wb-frame{min-height:min(70vh,760px);border-radius:24px}
+@media (max-width:860px){
+  .bn-wrap{padding:16px}
+  .bn-zh{font-size:32px}
+  .bn-card{padding:16px;border-radius:24px}
+}

@@ -111,8 +111,10 @@ roundtable mindmap <id> -o 导图.svg  # 保存头脑风暴的导图（.svg / .m
 roundtable evolve [meet|export <id>] # 革新例会：成员读资料卡提建议、投票，导出采纳单（默认关，docs/evolution/）
 roundtable ask --attach 图.png --attach 讲义.pdf '题目'   # 带附件
 roundtable files <id> [-o 目录]      # 保存成员生成的文件（含图片 / 音频 / 视频）
+roundtable stickers OpenAI --all -o 目录   # 成员专属表情包：画还没画的（新画的待审，到「成员设定」里审）
 roundtable ask --media image '画一只猫'   # 输出图片（--media speech / video；--media-tier flagship 用高质量档）
 python scripts/setup_sandbox.py     # 一次性安装代码运行沙箱（--check 只检查）
+python scripts/setup_dsh.py         # 在电脑上安装 dsh 工作台（需要 Node 22+ 和 pnpm；--check 只检查，见 docs/DSH.md）
 uvicorn roundtable.api.app:app --reload   # 浏览器打开 http://127.0.0.1:8000
 start_lan.bat                       # Windows：同时对家里局域网开放（平板 / 手机，须设访问口令，见 docs/LAN.md）
 playwright install chromium        # 首次运行前端端到端测试前

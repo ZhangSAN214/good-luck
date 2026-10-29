@@ -1,0 +1,29 @@
+/* 超级电脑：几位编程助手平级、按分数派活 */
+#entries [data-m="bench"].sc-on{position:relative}
+#entries [data-m="bench"].sc-on::after{content:"";position:absolute;top:6px;right:8px;width:6px;height:6px;border-radius:50%;background:var(--ok)}
+.sc-gap{flex:1}
+.sc-state{font-size:12px;padding:2px 8px;border-radius:999px;background:var(--surface-2);color:var(--muted)}
+.sc-state.on{color:var(--ok)}
+.sc{display:flex;flex-direction:column;gap:12px}
+.sc-hint{font-size:12px;color:var(--muted);margin:0}
+.sc-warn{font-size:13px;color:var(--warn,#c77);margin:0}
+.sc-workers{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:8px}
+.sc-worker{padding:10px 12px;border-radius:var(--r);background:var(--surface-2);display:flex;flex-direction:column;gap:6px;font-size:13px}
+.sc-worker b{font-size:14px}
+.sc-worker .sc-row{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.sc-worker input{width:4.5em}
+.sc-ok{color:var(--ok)}
+.sc-skills{font-size:11px;color:var(--muted)}
+.sc-ask textarea{width:100%;min-height:84px;box-sizing:border-box;resize:vertical}
+.sc-ask .sc-row{display:flex;gap:8px;align-items:center;margin-top:6px}
+.sc-task{display:flex;flex-direction:column;gap:8px}
+.sc-subs{width:100%;border-collapse:collapse;font-size:13px}
+.sc-subs th,.sc-subs td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line,rgba(255,255,255,.08));vertical-align:top}
+.sc-subs td.sc-why{font-size:11px;color:var(--muted)}
+.sc-st-done{color:var(--ok)}
+.sc-st-failed{color:var(--warn,#c77)}
+.sc-result pre,.sc-sum pre{white-space:pre-wrap;max-height:320px;overflow:auto;font-size:12px;margin:4px 0 0}
+.sc-log{font-size:11px;color:var(--muted);max-height:140px;overflow:auto;margin:0;padding-left:18px}
+.sc-recent{font-size:12px;margin:0;padding-left:18px}
+.sc-recent button{font-size:12px}
+@media (max-width:640px){.sc-subs td.sc-why{display:none}}

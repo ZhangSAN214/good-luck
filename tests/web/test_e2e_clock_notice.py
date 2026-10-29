@@ -68,6 +68,25 @@ def test_main_zone_leads_and_diffs_follow_it(serve, page):
     assert _names(page) == ["本机", "曼城"]
 
 
+def test_main_zone_is_saved_for_the_whole_roundtable(serve, page):
+    srv = serve(confirm_threshold_usd=100.0)
+    page.add_init_script(LAND_HUB)
+    page.goto(srv.url)
+    page.wait_for_selector("#hub .ck-face")
+    home = "async () => (await (await fetch('/api/home-tz')).json()).zone"
+    # 第一次打开：服务器上没选过，把时钟的主时区（曼城）报上去
+    page.wait_for_function(f"({home})().then(z => z === 'Europe/London')")
+    page.click("#hub .ck-btn")
+    page.click("#hub [data-main='1']")  # 中国
+    page.wait_for_function(f"({home})().then(z => z === 'Asia/Shanghai')")
+    # 换一台设备（本机没有时钟设置）：以服务器为准，中国排最前
+    page.evaluate("localStorage.removeItem('roundtable.clock')")
+    page.reload()
+    main = "document.querySelector('#hub .ck-face.ck-main')?.dataset.tz"
+    page.wait_for_function(f"{main} === 'Asia/Shanghai'")
+    assert _names(page) == ["中国", "曼城"]
+
+
 def test_stopwatch_and_countdown(serve, page):
     srv = serve(confirm_threshold_usd=100.0)
     page.clock.install()
@@ -146,3 +165,28 @@ def test_notice_board_marks_read(serve, page):
         "document.querySelector('#hub .nt-btn').getAttribute('aria-label').startsWith('公告：版本')"
     )
     assert page.is_hidden("#hub .nt-dot")
+
+
+def test_notice_board_calendar_and_user_dates(serve, page):
+    srv = serve(confirm_threshold_usd=100.0)
+    page.add_init_script(LAND_HUB)
+    page.goto(srv.url)
+    page.click("#hub .nt-btn")
+    page.wait_for_selector("#hub .nt-cal .nt-cal-day.is-today")
+    assert "今天" in page.inner_text("#hub .nt-cal-day.is-today .nt-cal-when")
+
+    page.click("#hub [data-cal-form]")
+    page.fill("#hub .nt-cal-add [name='name']", "来曼城的日子")
+    page.fill("#hub .nt-cal-add [name='date']", "2025-09-20")
+    page.click("#hub .nt-cal-add [type='submit']")
+    page.wait_for_selector("#hub .nt-cal-mine [data-del-date]")
+    assert "来曼城的日子" in page.inner_text("#hub .nt-cal-mine")
+    assert srv.env.rt.repo.setting("calendar.user_dates")  # 只存在本机数据库
+
+    page.fill("#hub .nt-cal-add [name='name']", "坏日期")
+    page.fill("#hub .nt-cal-add [name='date']", "9/20")
+    page.click("#hub .nt-cal-add [type='submit']")
+    page.wait_for_selector("#hub .nt-cal-mine .hb-err")
+
+    page.click("#hub .nt-cal-mine [data-del-date]")
+    page.wait_for_selector("#hub .nt-cal-mine [data-del-date]", state="detached")

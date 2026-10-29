@@ -6,6 +6,7 @@ import { ProfilePanel } from './profile.js';
 const esc = (s) =>
   String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 
+const STICKER = { missing: '还没画', pending: '待审', approved: '可以用', rejected: '不要' };
 const LAYER = { note: '记下的', day: '日记', week: '一周', month: '一个月', profile: '长期档案' };
 const SOURCE = { local: '你改过的设定', config: '配置文件里的设定', empty: '没有设定（用模型本身的风格）' };
 const BACK = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>';
@@ -62,6 +63,11 @@ export class People {
   async loadMembers() {
     try {
       this.members = (await this.api.personas()).members || [];
+      if (this.api.stickers) this.stickers = await this.api.stickers();
+      if (this.api.voices) {
+        const v = (await this.api.voices()).members || [];
+        this.voices = Object.fromEntries(v.map((x) => [x.id, x]));
+      }
     } catch (e) {
       this.msg = e.message;
     }
@@ -102,6 +108,59 @@ export class People {
           <ul class="pp-list grp-box">${items}</ul>
           <form id="pp-diary" class="grp-box"><div class="grp-row"><input name="q" placeholder="翻日记：日期（10-21）或关键词" aria-label="翻日记"><button class="btn" type="submit">翻</button></div></form>
           ${found}`;
+  }
+
+  voiceHtml(m) {
+    const v = this.voices?.[m.id];
+    if (!v) return '';
+    return v.available
+      ? `<div class="grp-box pp-voice"><div class="grp-row"><span>音色</span><b>${esc(v.voice)}</b><button type="button" class="btn" data-voice>试听音色</button></div><p class="grp-foot">合成音色，不是真人声音；同一句话只合成一次，花费计入创作输出月上限。</p></div>`
+      : '<p class="grp-foot pp-voice">TA 还没有可用的音色（没配，或语音模型都不可用）。</p>';
+  }
+
+  // 专属表情包：照形象参考图画的 Q 版贴纸；新画的待审，点「可以」后 TA 才会用
+  stickerHtml(m) {
+    const card = this.stickers?.members?.find((x) => x.id === m.id);
+    if (!card) return '';
+    const s = this.stickers;
+    const items = card.stickers
+      .map((x) => {
+        const img =
+          x.status === 'missing'
+            ? '<span class="pp-stk-empty">未画</span>'
+            : `<img src="/api/stickers/${encodeURIComponent(m.id)}/${encodeURIComponent(x.name)}/image?v=${esc(x.version)}" alt="${esc(x.caption)}" loading="lazy">`;
+        const acts =
+          x.status === 'missing'
+            ? `<button type="button" class="link" data-sdraw="${esc(x.name)}">画</button>`
+            : `${x.status !== 'approved' ? `<button type="button" class="link" data-sok="${esc(x.name)}">可以</button>` : ''}${x.status !== 'rejected' ? `<button type="button" class="link" data-sno="${esc(x.name)}">不要</button>` : ''}<button type="button" class="link" data-sdraw="${esc(x.name)}">重画</button>`;
+        const note = x.problems ? `<small class="pp-stk-warn">核对：${esc(x.problems)}</small>` : x.stale ? '<small class="pp-stk-warn">形象卡改过，建议重画</small>' : '';
+        return `<li class="pp-stk ${x.status}" data-sname="${esc(x.name)}">${img}<div class="pp-stk-cap">「${esc(x.caption)}」</div><div class="pp-stk-st">${STICKER[x.status] || ''}</div>${note}<div class="pp-stk-acts">${acts}</div></li>`;
+      })
+      .join('');
+    const missing = card.stickers.filter((x) => x.status === 'missing').length;
+    const pending = card.stickers.filter((x) => x.status === 'pending').length;
+    return `<section class="pp-stickers grp" aria-label="专属表情包">
+      <h4 class="grp-h">${esc(m.name)} 的专属表情 <small>本月 $${Number(s.month_spent_usd).toFixed(2)} / $${Number(s.monthly_usd).toFixed(2)}</small></h4>
+      <ul class="pp-stk-grid grp-box">${items}</ul>
+      <p class="grp-foot">照 TA 的形象图画的贴纸，存在你电脑上，画一次一直用。${s.review ? '新画的先待审，点「可以」后 TA 才会在聊天里用。' : ''}${s.available ? '' : '现在没有可用的绘图模型。'}</p>
+      <div class="pp-row grp-end">${pending ? `<button type="button" class="btn" data-sokall>全部可以（${pending}）</button>` : ''}${missing && s.available ? `<button type="button" class="btn primary" data-sdrawall>画还没画的 ${missing} 张</button>` : ''}</div>
+    </section>`;
+  }
+
+  async drawStickers(names) {
+    for (const [i, name] of names.entries()) {
+      this.msg = `正在画「${name}」（${i + 1}/${names.length}），每张约半分钟…`;
+      this.render();
+      try {
+        await this.api.drawSticker(this.member, name);
+      } catch (e) {
+        this.msg = e.message;
+        break;
+      }
+      this.stickers = await this.api.stickers().catch(() => this.stickers);
+    }
+    if (this.msg.startsWith('正在画')) this.msg = '画好了，看看合不合适';
+    this.render();
   }
 
   current() {
@@ -146,8 +205,10 @@ export class People {
             ${row('interests', '兴趣', (p.interests || []).join('，'), '逗号分隔，最多 8 个；上网时按兴趣看新闻')}
           </div>
           <p class="grp-foot">只用于私聊、群聊和朋友圈；工作和办公室不受影响。空着就用模型本身的说话风格。</p>
+          ${this.voiceHtml(m)}
           <div class="pp-row grp-end"><button type="button" class="btn" data-reset>恢复默认</button><button class="btn primary" type="submit">保存人设</button></div>
         </form>
+        ${this.stickerHtml(m)}
         <section class="pp-mem grp" aria-label="记忆">
           <h4 class="grp-h">${esc(m.name)} 的记忆 <small>只存在你电脑上</small></h4>
           <form id="pp-add" class="grp-box"><div class="grp-row"><input name="text" maxlength="300" placeholder="替 TA 记一条，比如：我下周三考试" aria-label="记一条"><button class="btn" type="submit">记下</button></div></form>
@@ -161,6 +222,21 @@ export class People {
       </div>`;
     const prof = this.dlg.querySelector('#pp-prof');
     if (prof && m) this.profile.mount(prof, m.id);
+  }
+
+  async listen() {
+    this.msg = '正在合成…';
+    this.render();
+    try {
+      const blob = await this.api.voice(this.member);
+      if (this.audio) URL.revokeObjectURL(this.audio.src);
+      this.audio = new Audio(URL.createObjectURL(blob));
+      this.msg = '';
+      await this.audio.play().catch(() => {});
+    } catch (e) {
+      this.msg = e.message;
+    }
+    this.render();
   }
 
   armedOk(id, label) {
@@ -207,6 +283,22 @@ export class People {
       this.diary = null;
       await this.loadMemories();
       return this.render();
+    }
+    if (t.closest('[data-voice]')) return this.listen();
+    const sdraw = t.closest('[data-sdraw]');
+    if (sdraw) return this.drawStickers([sdraw.dataset.sdraw]);
+    if (t.closest('[data-sdrawall]')) {
+      const card = this.stickers.members.find((x) => x.id === this.member);
+      return this.drawStickers(card.stickers.filter((x) => x.status === 'missing').map((x) => x.name));
+    }
+    const sok = t.closest('[data-sok]');
+    const sno = t.closest('[data-sno]');
+    if (sok || sno) return this.act(() => this.api.reviewSticker(this.member, (sok || sno).dataset[sok ? 'sok' : 'sno'], sok ? 'approved' : 'rejected'), '');
+    if (t.closest('[data-sokall]')) {
+      const card = this.stickers.members.find((x) => x.id === this.member);
+      return this.act(async () => {
+        for (const x of card.stickers.filter((y) => y.status === 'pending')) await this.api.reviewSticker(this.member, x.name, 'approved');
+      }, '都可以用了');
     }
     if (t.closest('[data-reset]')) return this.act(() => this.api.setPersona(this.member, null), '已恢复默认人设');
     if (t.closest('[data-tidy]')) {

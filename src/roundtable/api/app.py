@@ -150,6 +150,16 @@ class HandoffBody(BaseModel):
     text: str
 
 
+class VoiceBody(BaseModel):
+    text: str | None = Field(default=None, max_length=2000)  # 省略：念一句试听
+
+
+class StickerReviewBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    status: Literal["pending", "approved", "rejected"]
+
+
 class PersonaBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -233,6 +243,24 @@ class MemoryBody(BaseModel):
     member: str | None = None  # 新建时必填
 
 
+class HomeTzBody(BaseModel):
+    """主时区：IANA 名字（如 Europe/London）或 local（跟随电脑）。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    zone: str = Field(max_length=64)
+
+
+class CalendarDateBody(BaseModel):
+    """你自己加的纪念日：date 写 YYYY-MM-DD（会算第几周年）或 MM-DD；lunar 为农历。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str
+    date: str
+    lunar: bool = False
+
+
 class MailSettingsBody(BaseModel):
     """邮件栏设置：只改给了的字段。"""
 
@@ -281,10 +309,37 @@ class WatchQuietBody(BaseModel):
     quiet: bool
 
 
+class SuperTaskBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    text: str = Field(min_length=1, max_length=8000)
+
+
+class SuperLimitBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    limit: int = Field(ge=0, le=1000)
+
+
 class WatchSayBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     text: str = Field(min_length=1, max_length=1000)
+
+
+class AdbPairBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    host: str = Field(min_length=1, max_length=100)
+    port: int = Field(ge=1, le=65535)
+    code: str = Field(min_length=6, max_length=6)
+
+
+class AdbConnectBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    host: str = Field(default="", max_length=100)  # 空 = 自动找已配对的设备
+    port: int = Field(default=0, ge=0, le=65535)
 
 
 class WatchScrcpyBody(BaseModel):
@@ -502,6 +557,7 @@ def create_app(service: RoundtableService | None = None, lan: LanAccess | None =
         app.state.service.reconcile()
         app.state.service.start_life()
         app.state.service.start_evolution()
+        app.state.service.start_dsh()
         try:
             yield
         finally:
@@ -623,6 +679,53 @@ def create_app(service: RoundtableService | None = None, lan: LanAccess | None =
     async def watch_say(request: Request, body: WatchSayBody) -> dict[str, Any]:
         return await svc(request).watch_say(body.text)
 
+    # dsh 工作台：网页地址带一次性口令，只给电脑本机（dsh 只监听 127.0.0.1，平板也打不开）
+    def dsh_out(request: Request, out: dict[str, Any]) -> dict[str, Any]:
+        if out.get("url") and not is_local(_client(request.scope)):
+            out = {**out, "url": None, "local_only": True}
+        return out
+
+    @app.get("/api/dsh")
+    async def dsh_status(request: Request) -> dict[str, Any]:
+        return dsh_out(request, svc(request).dsh_status())
+
+    @app.post("/api/dsh/start")
+    async def dsh_start(request: Request) -> dict[str, Any]:
+        return dsh_out(request, await svc(request).dsh_start())
+
+    @app.post("/api/dsh/stop")
+    async def dsh_stop(request: Request) -> dict[str, Any]:
+        return dsh_out(request, await svc(request).dsh_stop())
+
+    @app.post("/api/dsh/check")
+    async def dsh_check(request: Request) -> dict[str, Any]:
+        return dsh_out(request, await svc(request).dsh_check())
+
+    # 超级电脑：几位编程助手平级、按分数派活（docs/SUPERCOMPUTER.md）
+    @app.get("/api/super")
+    async def super_status(request: Request) -> dict[str, Any]:
+        return svc(request).super_status()
+
+    @app.post("/api/super/tasks")
+    async def super_submit(request: Request, body: SuperTaskBody) -> dict[str, Any]:
+        return svc(request).super_submit(body.text)
+
+    @app.post("/api/super/cancel")
+    async def super_cancel(request: Request) -> dict[str, Any]:
+        return await svc(request).super_cancel()
+
+    @app.get("/api/super/tasks/{task_id}")
+    async def super_task(request: Request, task_id: str) -> dict[str, Any]:
+        return svc(request).super_task(task_id)
+
+    @app.put("/api/super/workers/{worker}/limit")
+    async def super_limit(request: Request, worker: str, body: SuperLimitBody) -> dict[str, Any]:
+        return svc(request).super_set_limit(worker, body.limit)
+
+    @app.post("/api/super/workers/{worker}/wake")
+    async def super_wake(request: Request, worker: str) -> dict[str, Any]:
+        return svc(request).super_clear_cooldown(worker)
+
     @app.get("/api/wander")
     async def wander_status(request: Request) -> dict[str, Any]:
         return svc(request).wander_status()
@@ -646,6 +749,16 @@ def create_app(service: RoundtableService | None = None, lan: LanAccess | None =
         if frame is None:
             return Response(status_code=204, headers=headers)
         return Response(content=frame, media_type="image/jpeg", headers=headers)
+
+    @app.post("/api/watch/adb/pair")
+    async def watch_adb_pair(request: Request, body: AdbPairBody) -> dict[str, Any]:
+        watch_local(request)
+        return await asyncio.to_thread(svc(request).watch_adb_pair, body.host, body.port, body.code)
+
+    @app.post("/api/watch/adb/connect")
+    async def watch_adb_connect(request: Request, body: AdbConnectBody) -> dict[str, Any]:
+        watch_local(request)
+        return await asyncio.to_thread(svc(request).watch_adb_connect, body.host, body.port)
 
     @app.post("/api/watch/scrcpy")
     async def watch_scrcpy(request: Request, body: WatchScrcpyBody) -> dict[str, Any]:
@@ -744,6 +857,45 @@ def create_app(service: RoundtableService | None = None, lan: LanAccess | None =
     @app.post("/api/chat/handoff", status_code=202)
     async def chat_handoff(request: Request, body: HandoffBody) -> dict[str, Any]:
         return svc(request).chat_handoff(body.text)
+
+    @app.get("/api/chat/voices")
+    async def chat_voices(request: Request) -> dict[str, Any]:
+        return svc(request).member_voices()
+
+    @app.post("/api/chat/voices/{member}")
+    async def chat_voice(request: Request, member: str, body: VoiceBody) -> Response:
+        """用成员的固定音色念 text（省略时念一句试听）；返回音频，花费计入创作输出月上限。"""
+        clip = await svc(request).member_voice(member, body.text)
+        headers = {
+            "X-Content-Type-Options": "nosniff",
+            "Cache-Control": "private, no-store",
+            "X-Voice-Cost": f"{clip.cost_usd:.6f}",
+            "X-Voice-Cached": "1" if clip.cached else "0",
+        }
+        if clip.seconds is not None:
+            headers["X-Voice-Seconds"] = f"{clip.seconds:.2f}"
+        return Response(content=clip.data, media_type=clip.mime, headers=headers)
+
+    @app.get("/api/stickers")
+    async def stickers(request: Request) -> dict[str, Any]:
+        return svc(request).member_stickers()
+
+    @app.post("/api/stickers/{member}/{name}/draw")
+    async def sticker_draw(request: Request, member: str, name: str) -> dict[str, Any]:
+        """画（或重画）一张专属表情；新画的是「待审」。花费计入表情包与创作输出的月上限。"""
+        return await svc(request).draw_sticker(member, name)
+
+    @app.post("/api/stickers/{member}/{name}/review")
+    async def sticker_review(
+        request: Request, member: str, name: str, body: StickerReviewBody
+    ) -> dict[str, Any]:
+        return svc(request).review_sticker(member, name, body.status)
+
+    @app.get("/api/stickers/{member}/{name}/image")
+    async def sticker_image(request: Request, member: str, name: str) -> Response:
+        data = svc(request).sticker_file(member, name)
+        headers = {"X-Content-Type-Options": "nosniff", "Cache-Control": "private, max-age=86400"}
+        return Response(content=data, media_type="image/png", headers=headers)
 
     @app.get("/api/chat/personas")
     async def chat_personas(request: Request) -> dict[str, Any]:
@@ -872,6 +1024,14 @@ def create_app(service: RoundtableService | None = None, lan: LanAccess | None =
     async def member_profile_clear(request: Request, member: str) -> dict[str, Any]:
         return svc(request).member_profile_clear(member)
 
+    @app.get("/api/chat/engine/state")
+    async def member_states(request: Request) -> dict[str, Any]:
+        return svc(request).member_states()
+
+    @app.delete("/api/chat/engine/state")
+    async def member_states_clear(request: Request, member: str | None = None) -> dict[str, Any]:
+        return svc(request).member_states_clear(member)
+
     @app.get("/api/chat/engine/events")
     async def member_events_count(request: Request) -> dict[str, Any]:
         return svc(request).member_events_count()
@@ -977,6 +1137,28 @@ def create_app(service: RoundtableService | None = None, lan: LanAccess | None =
     @app.get("/api/changelog")
     async def changelog(request: Request) -> dict[str, Any]:
         return svc(request).changelog()
+
+    @app.get("/api/home-tz")
+    async def home_tz(request: Request) -> dict[str, Any]:
+        return svc(request).home_tz()
+
+    @app.put("/api/home-tz")
+    async def set_home_tz(request: Request, body: HomeTzBody) -> dict[str, Any]:
+        return svc(request).set_home_tz(body.zone)
+
+    @app.get("/api/calendar")
+    async def calendar(
+        request: Request, days: int | None = None, start: str | None = None
+    ) -> dict[str, Any]:
+        return svc(request).calendar_view(days, start)
+
+    @app.post("/api/calendar/dates")
+    async def calendar_add_date(request: Request, body: CalendarDateBody) -> dict[str, Any]:
+        return svc(request).calendar_add_date(body.name, body.date, body.lunar)
+
+    @app.delete("/api/calendar/dates/{date_id}")
+    async def calendar_remove_date(request: Request, date_id: str) -> dict[str, Any]:
+        return svc(request).calendar_remove_date(date_id)
 
     @app.get("/api/mail")
     async def mail(request: Request) -> dict[str, Any]:

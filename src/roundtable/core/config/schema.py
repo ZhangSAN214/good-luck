@@ -580,6 +580,23 @@ class MusicRules(_Strict):
     max_chars: int = Field(default=1500, ge=50)  # 音乐描述（含歌词）最多多少字
 
 
+class StickerRules(_Strict):
+    """成员专属表情包：用节电档带 image_edit 的绘图模型，以成员形象参考图画 Q 版贴纸；
+    画完用最便宜的识图模型核对配文和形象，不合格换一个模型重画一次。"""
+
+    enabled: bool = True
+    tier: Tier = "budget"
+    # 绘图模型的先后：带的偏好标签越多越先试（只看标签，不看模型名），同样多时保持配置顺序
+    prefer_tags: list[str] = Field(default_factory=lambda: ["zh", "vision"], max_length=6)
+    # 这部分单独的每月上限（美元，UTC 自然月），同时也算在创作输出的 monthly_usd 里
+    monthly_usd: float = Field(default=3.0, ge=0)
+    size: int = Field(default=360, ge=64, le=1024)  # 存下来的边长（像素，正方形）
+    check: bool = True  # 画完核对配文和形象
+    check_max_tokens: int = Field(default=300, ge=50)
+    max_attempts: int = Field(default=2, ge=1, le=4)  # 含第一次；核对不合格时换模型重画
+    review: bool = True  # 新画的先进「待审」，你点「可以」后成员才会用
+
+
 class SpeechRules(_Strict):
     voice: str = "alloy"
     format: Literal["mp3", "wav"] = "mp3"
@@ -616,6 +633,7 @@ class MediaRules(_Strict):
     speech: SpeechRules = SpeechRules()
     video: VideoRules = VideoRules()
     music: MusicRules = MusicRules()
+    stickers: StickerRules = StickerRules()
     # 创作输出（图片 / 语音 / 视频 / 音乐）单独的每月上限（美元，按 UTC 自然月）：
     # 本月已花 + 这次预计超过它时，生成前先弹确认卡片；0 = 不设上限
     monthly_usd: float = Field(default=5.0, ge=0)
@@ -990,10 +1008,157 @@ class CardRules(_Strict):
     budget_chars: int = Field(default=400, ge=50, le=4000)
 
 
+class VoiceMode(_Strict):
+    """说话模式档位（借 dsh maid 的思路）：由性格分决定，所有成员同一张表。"""
+
+    label: str = Field(min_length=1, max_length=8)
+    max_segments: int = Field(ge=1, le=6)  # 一次回复最多拆几条
+    gap_scale: float = Field(default=1.0, gt=0, le=5)  # 拆条间隔 × 这个倍数（慢性子停得久）
+    reply: str = Field(min_length=1, max_length=80)  # 写进说话习惯的「接话」一行
+
+
+class VoiceCheckRules(_Strict):
+    """说出口前自查（程序检查，不调用模型）：重复自己、跟风别人、光附和、口头禅太勤、编造回忆。
+
+    群里没被点名时，跟风 / 光附和的那条直接不发（$0）；其余命中才用成员自己的模型改写一次
+    （提示词 ``voice_rewrite``，每月上限 ``monthly_usd``），改不好就发原文。
+    """
+
+    enabled: bool = True
+    min_chars: int = Field(default=6, ge=1, le=100)  # 去掉表情包记号后短于这么多字的不查
+    own_recent: int = Field(default=5, ge=1, le=30)  # 和自己最近几条比
+    repeat_similarity: float = Field(default=0.6, gt=0, le=1)
+    echo_similarity: float = Field(default=0.5, gt=0, le=1)  # 和别人这一轮说的比
+    catchphrase_recent: int = Field(default=3, ge=1, le=20)  # 口头禅最近几条里用过就算太勤
+    agree_patterns: list[str] = Field(default_factory=list, max_length=40)  # 开头是附和
+    agree_rest_chars: int = Field(default=8, ge=0, le=60)  # 附和之外剩下的字少于这么多算「光附和」
+    follow_similarity: float = Field(default=0.25, gt=0, le=1)  # 附和开头 + 剩下的像别人说的：接龙
+    memory_patterns: list[str] = Field(default_factory=list, max_length=40)  # 提到共同回忆
+    opening_chars: int = Field(default=3, ge=2, le=10)  # 开头这么多字和最近几条一样算套句式
+    opening_times: int = Field(default=2, ge=1, le=10)
+    post_repeat_similarity: float = Field(default=0.4, gt=0, le=1)  # 朋友圈和自己最近的动态比
+    rechew_hours: int = Field(default=72, ge=1, le=24 * 30)  # 反复提同一件事：看最近几小时
+    rechew_messages: int = Field(default=60, ge=5, le=500)
+    rechew_chars: int = Field(default=4, ge=2, le=8)  # 几个字的片段算一件事（如「番茄牛腩」）
+    rechew_times: int = Field(default=2, ge=1, le=20)  # 最近已经说过这么多次就别再提
+    moments_need_event: bool = True  # 没发生什么事（只有一个人待着、没活干）的日子不发朋友圈
+    monthly_usd: float = Field(default=0.05, ge=0)
+    estimate_usd: float = Field(default=0.0005, ge=0)
+    max_tokens: int = Field(default=400, ge=64)
+
+
+class VoiceRules(_Strict):
+    """P5 决定与表达·表达（docs/MEMBER_ENGINE.md「说话风格」）：从自我档案的说话风格抽「说话习惯」，
+    按性格分定说话模式档位，接管聊天的 ActionPolicy。只用于生活群和私聊；
+    8 位同一套规则、同一个字数上限。
+    """
+
+    enabled: bool = True
+    budget_chars: int = Field(default=260, ge=60, le=1000)  # 说话习惯段最多多少字（8 位相同）
+    samples: int = Field(default=2, ge=0, le=4)  # 每次带几句示范（轮换，防止照抄）
+    sample_chars: int = Field(default=50, ge=10, le=200)  # 太长的示范句不带
+    # 句子长短 → 一条大约多少字以内
+    lengths: dict[str, int] = Field(default_factory=lambda: {"短": 25, "中": 45, "长": 80})
+    # 外向分 → 档位：≤ quiet_max 话少，≥ chatty_min 话多，其余平常
+    quiet_max: int = Field(default=2, ge=1, le=5)
+    chatty_min: int = Field(default=4, ge=1, le=5)
+    modes: dict[str, VoiceMode] = Field(default_factory=dict)
+    # 幽默分 → 表情包频率（≤2 / 3 / ≥4）
+    sticker_habits: list[str] = Field(default_factory=list, max_length=3)
+    check: VoiceCheckRules = VoiceCheckRules()
+
+    @field_validator("modes")
+    @classmethod
+    def _modes(cls, v: dict[str, VoiceMode]) -> dict[str, VoiceMode]:
+        missing = {"quiet", "normal", "chatty"} - set(v)
+        if v and missing:
+            raise ValueError(f"缺少档位：{', '.join(sorted(missing))}")
+        return v
+
+
+class StateLayerRules(_Strict):
+    """心情或精力的快慢两层：每次冲击 slow_share 落到慢层，其余落到快层；两层各自按半衰期回到 0。"""
+
+    fast_half_life_hours: float = Field(default=2.0, gt=0, le=72)
+    slow_half_life_hours: float = Field(default=48.0, gt=0, le=24 * 30)
+    slow_share: float = Field(default=0.2, ge=0, le=1)
+    fast_cap: float = Field(default=0.8, gt=0, le=2)  # 快层最多偏离多少
+    slow_cap: float = Field(default=0.4, gt=0, le=2)  # 慢层最多偏离多少
+
+
+class CircadianRules(_Strict):
+    """精力的作息基线（0～1）：醒来后爬升到高点，午后小低谷，睡前回落，睡着时最低。"""
+
+    asleep: float = Field(default=0.15, ge=0, le=1)
+    waking: float = Field(default=0.45, ge=0, le=1)  # 刚醒
+    peak: float = Field(default=0.85, ge=0, le=1)
+    bedtime: float = Field(default=0.35, ge=0, le=1)  # 快睡时
+    ramp_hours: float = Field(default=1.5, gt=0, le=6)  # 醒来后几小时到高点（夜猫子加倍）
+    wind_down_hours: float = Field(default=2.0, gt=0, le=6)  # 睡前几小时开始回落（夜猫子减半）
+    dip: float = Field(default=0.1, ge=0, le=0.5)  # 午后低谷
+    dip_hours: tuple[int, int] = (13, 15)
+
+
+class BaselineRules(_Strict):
+    """从自我档案读基线（人物卡第 5 章「情绪」、第 8 章「日常」、五项性格分）；只看这些词。"""
+
+    bright_words: list[str] = ["乐观", "开朗", "想得开", "没心没肺", "很快就忘", "很快就好"]
+    dark_words: list[str] = ["内耗", "焦虑", "敏感", "多想", "钻牛角尖", "想太多"]
+    calm_words: list[str] = ["很少生气", "不太生气", "平静", "淡定", "不会大吼", "不容易生气"]
+    wake_words: list[str] = ["起床", "醒", "闹钟", "起来", "睡到"]
+    sleep_words: list[str] = ["睡觉", "入睡", "上床", "睡前", "熄灯", "前睡", "不晚于", "洗漱"]
+    night_words: list[str] = ["夜猫", "熬夜", "晚上反而", "容易精神", "越晚越精神", "深夜才睡"]
+
+
+class ReflexRule(_Strict):
+    """本能反射规则表的一行：刺激带齐 tags 里的标签且满足条件时，改心情 / 精力，给出动作和说明。
+
+    标签：spoke 自己说话 / from_user 你发的 / from_member 别的成员发的 / dm 私聊 / mentioned 被 @ /
+    everyone 叫所有人 / criticized 被直接批评 / group_criticized 大家一起被批评 / praised 被夸 /
+    life、life.gather、life.pair、life.solo 生活里的事 / work 在办公室干完活 / perceive 看过听过的。
+    """
+
+    name: str
+    tags: list[str] = Field(min_length=1)
+    night: bool | None = None  # true：她本该在睡觉时才触发；false：醒着时才触发
+    energy_below: float | None = Field(default=None, ge=0, le=1)
+    mood_below: float | None = Field(default=None, ge=-1, le=1)
+    mood: float = Field(default=0.0, ge=-1, le=1)  # 乘以这位成员的情绪敏感度
+    energy: float = Field(default=0.0, ge=-1, le=1)
+    act: str = ""  # 给之后的「决定与表达」：reply_now 秒回 / sleepy 犯困 / flustered 害羞 …
+    note: str = ""  # 记成「刚才…」放进状态那一行
+
+
+class StateRules(_Strict):
+    """状态（P3，docs/MEMBER_ENGINE.md）：心情和精力全由程序按事件算，快慢两层、会回到基线。"""
+
+    enabled: bool = True
+    mood: StateLayerRules = StateLayerRules()
+    energy: StateLayerRules = StateLayerRules(
+        fast_half_life_hours=1.0, slow_half_life_hours=10.0, slow_share=0.5, slow_cap=0.5
+    )
+    circadian: CircadianRules = CircadianRules()
+    baseline: BaselineRules = BaselineRules()
+    criticism_words: list[str] = []
+    praise_words: list[str] = []
+    reflexes: list[ReflexRule] = []
+    recent_keep: int = Field(default=5, ge=0, le=50)  # 记最近几次反射
+    recent_hours: float = Field(
+        default=2.0, ge=0, le=48
+    )  # 多久以内的反射写进状态那一行（默认 2 小时）
+    # 状态那一行：{mood} {energy} 换成下面的标签，{recent} 换成 recent_format；总长 ≤ context_chars
+    mood_labels: list[tuple[float, str]] = []  # (下限, 标签)，从高到低，取第一个 ≥ 下限的
+    energy_labels: list[tuple[float, str]] = []
+    line_format: str = "{mood}，{energy}{recent}"
+    recent_format: str = "；{note}"
+    context_chars: int = Field(default=80, ge=0, le=300)
+
+
 class EngineRules(_Strict):
     """成员引擎（docs/MEMBER_ENGINE.md）：只用于聊天、朋友圈、生活；工作模式不读取。"""
 
     enabled: bool = True
+    state: StateRules = StateRules()
     profile: ProfileRules = ProfileRules()
     card: CardRules = CardRules()
     context: ContextRules = ContextRules()
@@ -1001,6 +1166,7 @@ class EngineRules(_Strict):
     heartbeat: HeartbeatRules = HeartbeatRules()
     bus: BusRules = BusRules()
     eval: EvalRules = EvalRules()
+    voice: VoiceRules = VoiceRules()
 
 
 class WanderSite(_Strict):
@@ -1068,6 +1234,8 @@ class WatchRules(_Strict):
     estimate_usd: float = Field(default=0.002, ge=0)  # 每句的预估花费
     max_minutes: int = Field(default=240, ge=5, le=24 * 60)  # 一次投屏最长多久，到时自动停
     max_failures: int = Field(default=5, ge=1, le=100)  # 连续几次截不到画面就停
+    # 窗口列表里另外不列的窗口（标题含这些字，不分大小写）；系统后台、显卡浮层已默认滤掉
+    ignore_windows: list[str] = Field(default_factory=list, max_length=50)
     # 前台窗口标题 / 进程名、安卓前台包名含这些字时暂停（不截、不看），不分大小写
     sensitive: list[str] = Field(
         default_factory=lambda: [
@@ -1126,6 +1294,8 @@ class ChatActionRules(_Strict):
 class ChatRules(_Strict):
     """聊天：生活群、工作群、私聊。成员不主动找用户，只回应用户。"""
 
+    # 每位成员一次回应最多想多久（含重试），超时就跳过这次，不卡住整轮
+    think_timeout_seconds: float = Field(default=60.0, gt=0)
     life_title: str = "大家庭"  # 生活群的名字
     work_title: str = "工作群"
     budget: ChatBudgetRules = ChatBudgetRules()
@@ -1152,17 +1322,22 @@ class PlainTalkRule(_Strict):
 
     kind：phrase = 全文出现任一 patterns；ending = 最后一句匹配任一 patterns（金句收尾）；
     parallel = 连续 min_run 个以上分句开头相同（排比）：
-    开头两个字相同，或开头一个字相同且在 heads 里。
+    开头两个字相同，或开头一个字相同且在 heads 里；
+    mug = 马克杯警戒线：某一句（6～max_chars 字）命中 patterns 里的空泛大词至少 min_hits 个、
+    又不含 concrete 里任何一个具体所指（数字、这个、今天、书名号……），即脱离上下文也成立的金句。
     """
 
     name: str = Field(pattern=r"^[a-z][a-z0-9_]*$", max_length=40)
     problem: str = Field(min_length=1, max_length=80)  # 改写时告诉成员的问题说明
-    kind: Literal["phrase", "ending", "parallel"]
+    kind: Literal["phrase", "ending", "parallel", "mug"]
     patterns: list[str] = Field(default_factory=list, max_length=60)  # 正则
     min_run: int = Field(default=3, ge=2, le=10)
     heads: list[str] = Field(default_factory=list, max_length=30)
+    min_hits: int = Field(default=2, ge=1, le=10)  # mug：一句里至少几个空泛大词
+    max_chars: int = Field(default=40, ge=6, le=200)  # mug：只查不超过这么多字的句子
+    concrete: list[str] = Field(default_factory=list, max_length=60)  # mug：具体所指（正则）
 
-    @field_validator("patterns")
+    @field_validator("patterns", "concrete")
     @classmethod
     def _compile(cls, patterns: list[str]) -> list[str]:
         for p in patterns:
@@ -1419,6 +1594,169 @@ class LengthGuard(_Strict):
         return out
 
 
+class SuperWorker(_Strict):
+    """超级电脑的一位「员工」：一个在电脑上用官方命令行跑的编程助手（docs/SUPERCOMPUTER.md）。
+
+    谁擅长什么、每天能用几次都写在配置里；派活的程序只看这些数字，不看是谁。"""
+
+    id: str = Field(pattern=r"^[a-z][a-z0-9_-]{0,23}$")
+    label: str = Field(min_length=1, max_length=24)  # 界面上的称呼
+    # 怎么启动：command = 按 argv 直接运行；dsh = 交给圆桌的 dsh 工作台
+    # （用它的运行时、叠加配置和 key）
+    via: Literal["command", "dsh"] = "command"
+    # 命令行（via=command）；任务正文从标准输入交给它，不放进参数
+    argv: list[str] = Field(default_factory=list)
+    skills: dict[str, float] = Field(default_factory=dict)  # 活的种类 → 擅长程度 0～1
+    daily_limit: int = Field(default=20, ge=0, le=1000)  # 每天最多派几件（界面上可改）
+    max_parallel: int = Field(default=1, ge=1, le=8)  # 同时最多干几件
+    timeout_s: float = Field(default=1800, gt=0, le=7200)
+    cooldown_minutes: float = Field(default=60, ge=0, le=1440)  # 撞到订阅限额后歇多久
+    # 输出里出现这些（不分大小写）就当作撞到订阅限额
+    limit_patterns: list[str] = Field(
+        default_factory=lambda: ["usage limit", "rate limit", "limit reached", "quota"]
+    )
+
+    @model_validator(mode="after")
+    def _argv(self) -> SuperWorker:
+        if self.via == "command" and not self.argv:
+            raise ValueError(f"{self.id}：via=command 时要写 argv")
+        for kind, v in self.skills.items():
+            if not 0 <= v <= 1:
+                raise ValueError(f"{self.id}.skills.{kind} 要在 0～1 之间")
+        return self
+
+
+class SuperWeights(_Strict):
+    """派活打分的权重：分数 = 擅长 × skill + 剩余额度比例 × quota − 手上的活 × busy。"""
+
+    skill: float = Field(default=0.6, ge=0)
+    quota: float = Field(default=0.3, ge=0)
+    busy: float = Field(default=0.2, ge=0)
+
+
+class SupercomputerRules(_Strict):
+    """超级电脑（docs/SUPERCOMPUTER.md）：几位编程助手平级，没有固定主管。
+
+    你交一件活：程序按分数挑一位拆成小活，每件小活再按分数分给最合适、额度最多、最闲的一位，
+    大家在同一个工作文件夹里并行干，最后按分数挑一位合并。只在你发起时干活。"""
+
+    enabled: bool = True
+    kinds: list[str] = Field(
+        default_factory=lambda: ["code", "frontend", "test", "docs", "research", "review"]
+    )
+    max_subtasks: int = Field(default=6, ge=1, le=20)
+    weights: SuperWeights = SuperWeights()
+    workers: list[SuperWorker] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _check(self) -> SupercomputerRules:
+        ids = [w.id for w in self.workers]
+        if len(ids) != len(set(ids)):
+            raise ValueError("supercomputer.workers 的 id 不能重复")
+        known = set(self.kinds) | {"split", "merge"}
+        for w in self.workers:
+            bad = sorted(set(w.skills) - known)
+            if bad:
+                raise ValueError(f"{w.id}.skills 里有不认识的种类：{bad}（kinds 里加上）")
+        return self
+
+
+class DshRules(_Strict):
+    """dsh 工作台（docs/DSH.md）：圆桌在本机启动、管理一个 dsh 进程当「边车」，dsh 插件在里面运行。
+
+    硬性原则：圆桌是主人，dsh 是随时能拔掉的外设。核心功能不依赖它；它自己的数据只放在
+    ``data/dsh/``；不带任何人格。dsh 直接用 ``key_env`` 指向的 key 调模型
+    （用户在模型服务官网充值），
+    花费靠余额接口的差值估算，超过 ``monthly_usd`` 就提醒并停掉 dsh（软上限，查余额有间隔）。
+    """
+
+    enabled: bool = True  # 关掉后工作台入口隐藏，dsh 不会被启动
+    autostart: bool = False  # 圆桌启动时是否顺带启动 dsh（默认不启动，用时再开）
+    port: int = Field(default=3080, ge=1024, le=65535)  # dsh 网页只监听本机 127.0.0.1
+    start_timeout_s: float = Field(default=120, gt=0, le=600)
+    # dsh 调模型用的 key 的环境变量名（只放在项目根目录 .env，启动 dsh 时才交给它）
+    key_env: str | None = None
+    # 查余额的接口（返回 balance_infos）；为空表示不查，用量面板只显示「无法统计」
+    balance_url: str | None = None
+    # 圆桌自己也用同一个 key 的渠道（models.yaml 里的渠道名）：这部分花费从余额差值里扣掉
+    shared_channels: list[str] = Field(default_factory=list)
+    monthly_usd: float = Field(default=3.0, ge=0)  # 工作台每月花费上限（UTC 自然月，软上限）
+    balance_check_minutes: float = Field(default=5, ge=1, le=120)
+    # 余额币种换算成美元：{币种: 1 美元合多少}，美元本身不用写
+    usd_rates: dict[str, float] = Field(default_factory=lambda: {"CNY": 7.2})
+    # dsh 的文件权限：read-only 只读（默认）/ workspace-write 只能写工作区 / danger-full-access
+    permission_mode: Literal["read-only", "workspace-write", "danger-full-access"] = "read-only"
+    # 超级电脑派给 dsh 的活：只能写这件活的共享工作文件夹（dsh 的工作区就是当前目录）
+    job_permission_mode: Literal["read-only", "workspace-write", "danger-full-access"] = (
+        "workspace-write"
+    )
+
+    @field_validator("key_env")
+    @classmethod
+    def _env_name(cls, v: str | None) -> str | None:
+        if v is not None and not _ENV_NAME.match(v):
+            raise ValueError("key_env 只能写环境变量名（大写字母、数字、下划线），不能写 key 本身")
+        return v
+
+
+class CalendarRegion(_Strict):
+    """一个国家 / 地区的法定假日（开源库 holidays 离线计算）。"""
+
+    country: str = Field(pattern=r"^[A-Z]{2}$")  # ISO 国家代码，如 GB、CN、US
+    subdiv: str | None = None  # 地区，如 GB 的 ENG（英格兰）
+    label: str = Field(min_length=1, max_length=12)  # 界面和事件里的称呼，如「英国」
+    language: str | None = None  # 节日名的语言（holidays 支持的才行，如 zh_CN）
+
+
+_DATE_RULE = re.compile(
+    r"^(\d{2}-\d{2}|easter[+-]\d{1,3}|[1-5]-(mon|tue|wed|thu|fri|sat|sun)-\d{2}"
+    r"|last-(mon|tue|wed|thu|fri|sat|sun)-\d{2})$"
+)
+
+
+class CalendarObservance(_Strict):
+    """不放假的节日 / 纪念日。rule：MM-DD；easter+N / easter-N（复活节前后 N 天）；
+    N-周几-MM（某月第 N 个周几，如 2-sun-05）；last-周几-MM（某月最后一个周几）。"""
+
+    name: str = Field(min_length=1, max_length=20)
+    rule: str
+    label: str = Field(default="国际", max_length=12)  # 哪里的节日
+
+    @field_validator("rule")
+    @classmethod
+    def _rule(cls, rule: str) -> str:
+        if not _DATE_RULE.match(rule):
+            raise ValueError(
+                f"日期规则写法不对：{rule}（MM-DD / easter±N / 2-sun-05 / last-sun-10）"
+            )
+        return rule
+
+
+class LunarFestival(_Strict):
+    """农历节日：lunar 写 MM-DD，或 MM-last（这个月最后一天，如除夕 12-last）。"""
+
+    name: str = Field(min_length=1, max_length=12)
+    lunar: str = Field(pattern=r"^\d{2}-(\d{2}|last)$")
+
+
+class CalendarRules(_Strict):
+    """日历底座（docs/CALENDAR.md）：只算「今天是什么日子」，发事件给成员系统；不调模型、不联网。
+
+    怎么过节由生活引擎 / 成员系统决定；工作模式不挂载。"""
+
+    enabled: bool = True
+    # 成员的休息日按哪里的法定假日算（成员住曼彻斯特：英格兰）
+    rest: CalendarRegion | None = CalendarRegion(country="GB", subdiv="ENG", label="英国")
+    cultures: list[CalendarRegion] = Field(default_factory=list)  # 也过、但不放假的国家
+    lunar_festivals: list[LunarFestival] = Field(default_factory=list)
+    solar_terms: bool = True  # 二十四节气
+    observances: list[CalendarObservance] = Field(default_factory=list)
+    names: dict[str, str] = Field(default_factory=dict)  # 外文节日名 → 中文
+    upcoming_days: int = Field(default=3, ge=0, le=30)  # 提前几天发「快到了」
+    board_days: int = Field(default=7, ge=1, le=60)  # 公告栏显示未来几天
+    max_user_dates: int = Field(default=100, ge=0, le=1000)  # 你能加的纪念日上限
+
+
 class RoundtableConfig(_Strict):
     seats: int = Field(ge=2)
     min_members: int = Field(default=2, ge=2)
@@ -1462,6 +1800,9 @@ class RoundtableConfig(_Strict):
     mail: MailConfig = MailConfig()
     clipper: ClipperRules = ClipperRules()
     perception: PerceptionRules = PerceptionRules()
+    dsh: DshRules = DshRules()
+    supercomputer: SupercomputerRules = SupercomputerRules()
+    calendar: CalendarRules = CalendarRules()
 
     @field_validator("prompts")
     @classmethod
@@ -1513,6 +1854,32 @@ class Persona(_Strict):
     voice: str = Field(default="", max_length=60)  # 语音音色（预留）
 
 
+class StickerSpec(_Strict):
+    name: str = Field(min_length=1, max_length=12)  # 表情名（聊天里写 [表情:包名·表情名]）
+    caption: str = Field(min_length=1, max_length=16)  # 画进图里的配文
+    action: str = Field(min_length=1, max_length=120)  # 动作和表情
+
+
+class StickerCard(_Strict):
+    """一位成员的形象卡 + 专属表情清单（只用于聊天、朋友圈；工作模式不读）。"""
+
+    look: str = Field(min_length=1, max_length=400)  # 外观要点
+    must: list[str] = Field(default_factory=list, max_length=8)  # 每张都必须画到的细节
+    # 形象参考图：素材目录（members.json 所在目录）里的相对路径，最多 3 张；
+    # 不写时用 members.json 里的立绘 / 小人 / 头像
+    refs: list[str] = Field(default_factory=list, max_length=3)
+    stickers: list[StickerSpec] = Field(default_factory=list, max_length=24)
+
+    @field_validator("stickers")
+    @classmethod
+    def _unique(cls, items: list[StickerSpec]) -> list[StickerSpec]:
+        names = [s.name for s in items]
+        dup = sorted({n for n in names if names.count(n) > 1})
+        if dup:
+            raise ValueError(f"表情名重复：{dup}")
+        return items
+
+
 class PersonasConfig(_Strict):
     # 代号前缀；留空时代号本身就是称呼（塔罗牌名、昵称）
     code_prefix: str = "组员"
@@ -1525,6 +1892,24 @@ class PersonasConfig(_Strict):
     coordinator_suffix: str = "（统筹）"
     manager_suffix: str = "（经理）"  # 办公室模式里统筹就是经理
     personas: dict[str, Persona] = Field(default_factory=dict)  # 厂商 → 人设
+    # 成员固定音色（合成音色，不克隆真人）：厂商 → {语音模型 id → 该模型的音色名}
+    voices: dict[str, dict[str, str]] = Field(default_factory=dict)
+    # 成员专属表情包：厂商 → 形象卡与表情清单
+    sticker_cards: dict[str, StickerCard] = Field(default_factory=dict)
+    # 成员生日（日历用，只用于生活）：厂商 → MM-DD；默认取各自模型首次公开发布的日子，可改
+    birthdays: dict[str, str] = Field(default_factory=dict)
+
+    @field_validator("birthdays")
+    @classmethod
+    def _birthdays(cls, days: dict[str, str]) -> dict[str, str]:
+        from datetime import date
+
+        for who, md in days.items():
+            try:
+                date.fromisoformat(f"2000-{md}")  # 2000 年是闰年，02-29 也算合法
+            except ValueError:
+                raise ValueError(f"{who} 的生日要写成 MM-DD：{md}") from None
+        return days
 
     @field_validator("codes")
     @classmethod
@@ -1782,6 +2167,15 @@ class AppConfig(_Strict):
         stray = sorted(set(rt.channel_priority.order) - set(self.models.channels))
         if stray:
             raise ValueError(f"channel_priority.order 中有未知渠道：{stray}")
+        unknown_channels = sorted(set(rt.dsh.shared_channels) - set(self.models.channels))
+        if unknown_channels:
+            raise ValueError(f"dsh.shared_channels 里有未知渠道：{unknown_channels}")
+        # 音色只能配给语音模型；名单里没有的 id 不报错（模型下架或换了名单时音色表留着也无害）
+        not_tts = {m.id for m in self.models.models if "tts" not in m.tags}
+        for member, voices in personas.voices.items():
+            bad = sorted(set(voices) & not_tts)
+            if bad:
+                raise ValueError(f"voices.{member} 里有不是语音模型（tts 标签）的 id：{bad}")
         self._check_routing()
         self._check_collab()
         return self

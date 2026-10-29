@@ -44,6 +44,9 @@ import { BootSettings } from './bootcfg.js';
 import { LanPanel } from './lan.js';
 import { Watch } from './watch.js';
 import { Wander } from './wander.js';
+import { Workbench } from './workbench.js';
+import { SuperPanel } from './supercomputer.js';
+import { Bench } from './bench.js';
 import { Hub } from './hub.js';
 import { Standee } from './standee.js';
 import { Music } from './music.js';
@@ -113,6 +116,11 @@ const people = new People($('#people'), {
   api: {
     personas: API.chatPersonas,
     setPersona: API.setChatPersona,
+    voices: API.memberVoices,
+    voice: API.memberVoice,
+    stickers: API.memberStickers,
+    drawSticker: API.drawSticker,
+    reviewSticker: API.reviewSticker,
     memories: API.chatMemories,
     addMemory: API.addChatMemory,
     editMemory: API.editChatMemory,
@@ -166,6 +174,8 @@ new Watch($('#watchdlg'), $('#watchbtn'), {
     messages: API.watchMessages,
     say: API.watchSay,
     scrcpy: API.watchScrcpy,
+    adbPair: API.watchAdbPair,
+    adbConnect: API.watchAdbConnect,
     frameUrl: API.watchFrameUrl,
     members: () => API.api('/api/chat?after=2147483647'),
   },
@@ -179,6 +189,24 @@ new Wander($('#wanderdlg'), $('#wanderbtn'), {
     frameUrl: API.wanderFrameUrl,
   },
 });
+// 「工作台」页（分段栏第五个入口）：超级电脑 + dsh
+const bench = new Bench($('#bench'));
+const workbench = new Workbench(bench.pane('dsh'), bench.tabButton('dsh'), {
+  api: { status: API.dshStatus, start: API.dshStart, stop: API.dshStop, check: API.dshCheck },
+  isOpen: () => bench.visible('dsh'),
+});
+const superPanel = new SuperPanel(bench.pane('super'), document.querySelector('#entries [data-m="bench"]'), {
+  api: {
+    status: API.superStatus,
+    submit: API.superSubmit,
+    cancel: API.superCancel,
+    task: API.superTask,
+    limit: API.superLimit,
+    wake: API.superWake,
+  },
+  isOpen: () => bench.visible('super'),
+});
+bench.onSelect = (name) => (name === 'dsh' ? workbench.open() : superPanel.open());
 $('#skin').addEventListener('click', () => {
   const next = document.documentElement.dataset.skin === 'ark' ? 'classic' : 'ark';
   document.documentElement.dataset.skin = next;
@@ -246,7 +274,10 @@ const standee = new Standee({ load: API.standee, pointer: () => hub.follow });
 const hub = new Hub($('#hub'), {
   music: new Music(),
   clock: new Clock(),
-  notice: new Notice({ load: API.getChangelog }),
+  notice: new Notice({
+    load: API.getChangelog,
+    calendar: { load: API.getCalendar, add: API.addCalendarDate, remove: API.removeCalendarDate },
+  }),
   mail: new Mail({
     load: API.mailView,
     settings: API.mailSettings,
@@ -1173,9 +1204,9 @@ function typing(el) {
   return !!el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName));
 }
 
-// --- 入口：办公室 / 公寓楼 / 群聊 ------------------------------------------------------------
+// --- 入口：办公室 / 公寓楼 / 群聊 / 终端 / 工作台 ------------------------------------------------------------
 
-const ENTRIES = ['work', 'home', 'chat', 'hub'];
+const ENTRIES = ['work', 'home', 'chat', 'hub', 'bench'];
 let entry = 'work';
 
 /** 打开网页时进哪个入口：默认终端首页；终端里可以勾选直接进办公室（存在本机）。本机存储不能用时进办公室。 */
@@ -1188,7 +1219,7 @@ function landing() {
 }
 
 /** 切换入口。终端是首页；办公室是原来的界面；公寓楼是只读的基建式剖面图；群聊和成员聊天。地址栏 #m=hub / #m=home / #m=chat 刷新后回到原入口。 */
-const VIEW_OF = { work: '#main', home: '#home', chat: '#gchat', hub: '#hub' };
+const VIEW_OF = { work: '#main', home: '#home', chat: '#gchat', hub: '#hub', bench: '#bench' };
 
 /**
  * 切换入口，带过渡（仿 iPhone 打开 App，不回弹）：背景和顶栏不动，只有页面在动。
@@ -1302,6 +1333,8 @@ function applyEntry(m) {
   else gchat.hide();
   if (m === 'hub') shown = hub.show();
   else hub.hide();
+  if (m === 'bench') shown = bench.show();
+  else bench.hide();
   document.documentElement.dataset.entry = m;
   syncPet();
   if (m !== 'work') history.replaceState(null, '', `#m=${m}`);
@@ -1312,7 +1345,7 @@ function applyEntry(m) {
 /**
  * 全局快捷键（不在输入框里时）：
  * / 或 Ctrl+K 聚焦题目输入框；Esc 离开输入框；1～9 选择等待确认卡片的对应选项；
- * N 新题目；Alt+1 / 2 / 3 / 4 切换办公室 / 公寓楼 / 群聊 / 终端。输入框里只处理 Esc、Ctrl+K 与 Alt+数字。
+ * N 新题目；Alt+1 / 2 / 3 / 4 / 5 切换办公室 / 公寓楼 / 群聊 / 终端 / 工作台。输入框里只处理 Esc、Ctrl+K 与 Alt+数字。
  */
 function shortcut(e) {
   if (composing(e) || e.defaultPrevented) return;

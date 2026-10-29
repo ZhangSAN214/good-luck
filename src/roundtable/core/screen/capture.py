@@ -103,8 +103,9 @@ def is_sensitive(foreground: str, keywords: list[str]) -> str | None:
 class PcSource:
     """电脑屏幕：整屏（所有显示器拼在一起）；Windows 上还能选某个窗口。"""
 
-    def __init__(self) -> None:
+    def __init__(self, ignore: tuple[str, ...] | list[str] = ()) -> None:
         self._dpi_done = False
+        self.ignore = tuple(ignore)  # 窗口列表里不列的标题（配置 chat.watch.ignore_windows）
 
     def available(self) -> str | None:
         if sys.platform not in ("win32", "darwin"):
@@ -118,7 +119,7 @@ class PcSource:
             return []
         out = [SourceInfo("pc", "pc", "整个屏幕")]
         if sys.platform == "win32":
-            out += [SourceInfo(f"pc:{h}", "window", t) for h, t in _win_windows()]
+            out += [SourceInfo(f"pc:{h}", "window", t) for h, t in _win_windows(self.ignore)]
         return out
 
     def foreground(self, source_id: str) -> str:
@@ -158,13 +159,66 @@ class PcSource:
             ctypes.windll.shcore.SetProcessDpiAwareness(2)
 
 
-def _win_windows() -> list[tuple[int, str]]:
-    """可见、有标题、没最小化的顶层窗口。"""
+# 系统后台、显卡浮层、输入法之类的窗口（标题含这些字就不列，不分大小写；配置可加）
+NOISE_WINDOWS = (
+    "Program Manager",
+    "Windows 输入体验",
+    "Microsoft Text Input Application",
+    "NVIDIA GeForce Overlay",
+    "no_active_wnd",
+    "AsHotplugCtrl",
+)
+WS_EX_TOOLWINDOW = 0x00000080
+WS_EX_APPWINDOW = 0x00040000
+WS_EX_NOACTIVATE = 0x08000000
+MIN_WINDOW_SIDE = 120  # 比这还小的窗口不列（后台占位的小窗口）
+
+
+def keep_window(
+    title: str,
+    *,
+    ex_style: int,
+    owned: bool,
+    cloaked: bool,
+    width: int,
+    height: int,
+    ignore: tuple[str, ...] | list[str] = (),
+) -> bool:
+    """这个顶层窗口值不值得列出来（和任务栏 / Alt+Tab 里看到的差不多）。"""
+    title = title.strip()
+    if not title or cloaked or owned:
+        return False
+    if ex_style & WS_EX_TOOLWINDOW and not ex_style & WS_EX_APPWINDOW:
+        return False  # 工具窗口、浮层
+    if ex_style & WS_EX_NOACTIVATE and not ex_style & WS_EX_APPWINDOW:
+        return False  # 点不到的浮层（显卡、录屏工具的叠加层）
+    if min(width, height) < MIN_WINDOW_SIDE:
+        return False
+    low = title.lower()
+    return not any(n.lower() in low for n in (*NOISE_WINDOWS, *ignore) if n)
+
+
+def _win_windows(ignore: tuple[str, ...] | list[str] = ()) -> list[tuple[int, str]]:
+    """可见、有标题、没最小化、不是工具窗口 / 浮层 / 系统后台的顶层窗口。"""
     import ctypes
     from ctypes import wintypes
 
     user32 = ctypes.windll.user32
+    try:
+        dwm = ctypes.windll.dwmapi
+    except OSError:  # 极老的系统没有
+        dwm = None
     found: list[tuple[int, str]] = []
+    user32.GetWindowLongW.restype = ctypes.c_long
+
+    def cloaked(hwnd: int) -> bool:
+        if dwm is None:
+            return False
+        value = ctypes.c_int(0)
+        res = dwm.DwmGetWindowAttribute(
+            wintypes.HWND(hwnd), 14, ctypes.byref(value), ctypes.sizeof(value)
+        )  # DWMWA_CLOAKED：被系统藏起来的窗口（后台 UWP 应用等）
+        return res == 0 and value.value != 0
 
     @ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
     def each(hwnd: int, _: int) -> bool:
@@ -175,9 +229,19 @@ def _win_windows() -> list[tuple[int, str]]:
             return True
         buf = ctypes.create_unicode_buffer(n + 1)
         user32.GetWindowTextW(hwnd, buf, n + 1)
-        title = buf.value.strip()
-        if title and title not in ("Program Manager", "Windows 输入体验"):
-            found.append((int(hwnd), title[:80]))
+        rect = wintypes.RECT()
+        user32.GetWindowRect(hwnd, ctypes.byref(rect))
+        keep = keep_window(
+            buf.value,
+            ex_style=user32.GetWindowLongW(hwnd, -20) & 0xFFFFFFFF,  # GWL_EXSTYLE
+            owned=bool(user32.GetWindow(hwnd, 4)),  # GW_OWNER：弹出的小窗、对话框
+            cloaked=cloaked(hwnd),
+            width=rect.right - rect.left,
+            height=rect.bottom - rect.top,
+            ignore=ignore,
+        )
+        if keep:
+            found.append((int(hwnd), buf.value.strip()[:80]))
         return True
 
     user32.EnumWindows(each, 0)
@@ -235,6 +299,9 @@ def _win_foreground() -> str:
 _FOCUS = re.compile(r"mCurrentFocus=Window\{[^}]*\s([A-Za-z0-9_.]+)/")
 _FOCUS_APP = re.compile(r"mFocusedApp=.*?\s([A-Za-z0-9_.]+)/")
 _SERIAL = re.compile(r"^[A-Za-z0-9._:\-]{1,64}$")
+_HOST = re.compile(r"^[A-Za-z0-9.\-]{1,100}$")
+_CODE = re.compile(r"^\d{6}$")
+_MDNS_CONNECT = re.compile(r"_adb-tls-connect\._tcp\.?\s+([A-Za-z0-9.\-]+:\d{1,5})")
 
 
 class AdbSource:
@@ -269,6 +336,61 @@ class AdbSource:
             title = model.replace("_", " ") or parts[0]
             found.append(SourceInfo(f"android:{parts[0]}", "android", title))
         return found
+
+    # --- 无线调试：配对 / 连接（只建立 adb 连接，不读写手机上的任何东西） ---------------------
+
+    @staticmethod
+    def _addr(host: str, port: int) -> str:
+        host = (host or "").strip()
+        if not _HOST.match(host) or not 1 <= int(port) <= 65535:
+            raise ScreenUnavailable("IP 地址或端口不对")
+        return f"{host}:{int(port)}"
+
+    def _text(self, cmd: list[str]) -> str:
+        return self.run(cmd).decode("utf-8", "replace").strip()
+
+    def pair(self, host: str, port: int, code: str) -> str:
+        """手机「无线调试 → 使用配对码配对设备」里显示的 IP:端口 和 6 位配对码。"""
+        exe = self._exe()
+        if exe is None:
+            raise ScreenUnavailable(self.available() or "没有 adb")
+        if not _CODE.match((code or "").strip()):
+            raise ScreenUnavailable("配对码是 6 位数字")
+        out = self._text([exe, "pair", self._addr(host, port), code.strip()])
+        if "Successfully paired" not in out:
+            raise ScreenUnavailable("配对没成功：检查配对码和端口（配对码弹窗关掉后会失效）")
+        return "配对成功"
+
+    def discover(self) -> list[str]:
+        """同一个 Wi-Fi 里已配对、开着无线调试的设备（adb mdns）。"""
+        exe = self._exe()
+        if exe is None:
+            return []
+        try:
+            out = self._text([exe, "mdns", "services"])
+        except ScreenUnavailable:
+            return []
+        return sorted(set(_MDNS_CONNECT.findall(out)))
+
+    def connect(self, host: str = "", port: int = 0) -> list[str]:
+        """连上设备。不填地址时自动找已配对的设备。返回连上的地址。"""
+        exe = self._exe()
+        if exe is None:
+            raise ScreenUnavailable(self.available() or "没有 adb")
+        targets = [self._addr(host, port)] if host else self.discover()
+        if not targets:
+            raise ScreenUnavailable(
+                "没找到设备：确认手机和电脑在同一个 Wi-Fi、无线调试开着；"
+                "也可以填无线调试页面上「IP 地址和端口」那一行"
+            )
+        done = []
+        for addr in targets:
+            out = self._text([exe, "connect", addr])
+            if "connected to" in out and "cannot" not in out and "failed" not in out:
+                done.append(addr)
+        if not done:
+            raise ScreenUnavailable("连接没成功：确认无线调试开着、地址和端口是主页面那一行")
+        return done
 
     def _serial(self, source_id: str) -> str:
         serial = source_id.removeprefix("android:")
