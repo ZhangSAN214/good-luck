@@ -32,6 +32,9 @@ RULES = load_config().roundtable.uploads
         ("n.csv", b"a,b\n1,2\n", "text", "text/csv"),
         ("v.mp3", MP3, "audio", "audio/mpeg"),
         ("v.wav", WAV, "audio", "audio/wav"),
+        ("c.mp4", b"\x00\x00\x00\x18ftypmp42" + b"\x00" * 16, "video", "video/mp4"),
+        ("c.MOV", b"\x00\x00\x00\x14ftypqt  " + b"\x00" * 16, "video", "video/quicktime"),
+        ("c.webm", b"\x1a\x45\xdf\xa3" + b"\x00" * 16, "video", "video/webm"),
     ],
 )
 def test_detect_by_extension_and_header(name, data, kind, mime):

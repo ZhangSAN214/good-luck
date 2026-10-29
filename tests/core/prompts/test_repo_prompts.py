@@ -134,6 +134,7 @@ PLAIN_ROLES = ("plain_rewrite",)
 ATTACHMENT_ROLES = (
     "attachments",
     "describe_image",
+    "describe_video",
     "describe_screen",
     "transcribe",
     "image_gen",
