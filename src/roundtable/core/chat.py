@@ -270,6 +270,11 @@ class GroupChat:
                 continue
             who = USER_LABEL if r["author"] == USER else names.get(r["author"], r["author"])
             lines.append(f"{who}：{r['text']}")
+            cards = (r.get("meta") or {}).get("perception")
+            if cards:  # 感官整理出的感知卡：成员「看到 / 听到」的内容
+                from roundtable.core.perception import media_block  # perception 依赖本模块
+
+                lines.append(media_block(who, cards))
         return "\n".join(lines)
 
     def post(
@@ -277,7 +282,8 @@ class GroupChat:
     ) -> tuple[dict[str, Any], list[ChatMember]]:
         """存下用户的消息并选出回应的成员（回应由 replies() 生成）。
 
-        meta 里可带图片 / 视频 / 语音清单（media）；成员只看到 text 里的文字占位。
+        meta 里可带图片 / 视频 / 语音清单（media）；成员看到 text 里的文字占位，感官整理出感知卡后
+        （meta 的 perception），聊天记录里在这条消息后面附上感知卡。
         """
         msg = self.rt.repo.add_chat_message(self.room, USER, text, meta=meta)
         return msg, self.pick(text)

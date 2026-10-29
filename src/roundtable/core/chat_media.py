@@ -2,7 +2,8 @@
 
 文件名是内容的哈希加扩展名，同一个文件只存一份。只认常见的图片 / 视频 / 音频格式，
 并且检查文件开头的特征字节，扩展名和声明的类型对不上就拒收。
-不发给模型、不上传；成员只看到「[图片]」「[语音 5 秒]」这样的文字占位。
+消息文字里是「[图片]」「[语音 5 秒]」这样的占位；感官（core/perception）把文件整理成感知卡后，
+成员读的是卡（文件本身只发给看图 / 转写模型，见 docs/PERCEPTION.md）。
 """
 
 from __future__ import annotations
@@ -138,7 +139,7 @@ def clean_items(store: ChatMediaStore, items: list[dict] | None) -> list[dict]:
 
 
 def placeholder(items: list[dict]) -> str:
-    """给成员看的文字占位（成员看不到文件本身）。"""
+    """消息里的文字占位（感官整理出感知卡后，成员另外读到卡）。"""
     parts = []
     for it in items:
         if it["kind"] == "voice" and it.get("duration"):

@@ -383,6 +383,9 @@
 .gc-sys.work{color:var(--ink)}
 .gc-tag{font-size:11px;color:var(--muted)}
 .gc-tag.away{border:1px solid var(--line,#ccc);border-radius:8px;padding:0 6px;margin:0 6px}
+.gc-tag.seen{margin:0 6px}
+.gc-look{border:0;background:none;color:var(--brass-ink);padding:0;margin-right:6px;font-size:11px;text-decoration:underline;text-underline-offset:2px;cursor:pointer}
+.gc-look:disabled{opacity:.6;cursor:default;text-decoration:none}
 .gc-readonly{text-align:center;margin:8px 0}
 .gc-src{display:block;margin-top:6px;padding:6px 8px;border-left:3px solid var(--brass-ink,#a77);background:rgba(0,0,0,.04);color:inherit;text-decoration:underline;text-underline-offset:2px;overflow-wrap:anywhere}
 .gc-srcm{display:block;font-size:11px;color:var(--muted);margin-top:2px}

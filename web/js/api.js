@@ -112,6 +112,8 @@ export const evolutionScout =() => api('/api/evolution/scout', { method: 'POST' 
 export const evolutionDecide = (sid, idea, decision) =>
   api(`/api/evolution/meetings/${encodeURIComponent(sid)}/ideas/${encodeURIComponent(idea)}`, { method: 'POST', body: { decision } });
 export const chatHandoff = (text) => api('/api/chat/handoff', { method: 'POST', body: { text } });
+// 「细看」：按精细模式重新看这条消息里的图片 / 视频 / 语音，再请一位成员回应
+export const chatLook = (id, room = 'main') => api(`/api/chat/messages/${id}/look?room=${encodeURIComponent(room)}`, { method: 'POST' });
 export const getApartment = (hour, weekday) => api(`/api/apartment?hour=${hour}&weekday=${weekday}`);
 export const getCandidates = () => api('/api/models/candidates');
 export const getPluginBoard = () => api('/api/plugins/board');

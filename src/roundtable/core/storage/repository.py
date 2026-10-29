@@ -1385,6 +1385,13 @@ class Repository:
         )
         return self.moment(cur.lastrowid) or {}
 
+    def set_moment_meta(self, moment_id: int, meta: dict[str, Any] | None) -> None:
+        """更新一条动态的附加信息（如感官整理出的感知卡）；正文不变。"""
+        self._exec(
+            "UPDATE moments SET meta = ? WHERE id = ?",
+            (json.dumps(meta, ensure_ascii=False) if meta else None, moment_id),
+        )
+
     def moment(self, moment_id: int) -> dict[str, Any] | None:
         row = self._exec("SELECT * FROM moments WHERE id = ?", (moment_id,)).fetchone()
         return self._with_reactions([_moment_row(row)])[0] if row else None
@@ -1549,6 +1556,17 @@ class Repository:
             f"SELECT * FROM ({sql} ORDER BY id DESC LIMIT ?) ORDER BY id", (*params, limit)
         ).fetchall()
         return [_chat_row(r) for r in rows]
+
+    def chat_message(self, message_id: int) -> dict[str, Any] | None:
+        row = self._exec("SELECT * FROM chat_messages WHERE id = ?", (message_id,)).fetchone()
+        return _chat_row(row) if row else None
+
+    def set_chat_message_meta(self, message_id: int, meta: dict[str, Any] | None) -> None:
+        """更新一条消息的附加信息（如感官整理出的感知卡）；文字本身不变。"""
+        self._exec(
+            "UPDATE chat_messages SET meta = ? WHERE id = ?",
+            (json.dumps(meta, ensure_ascii=False) if meta else None, message_id),
+        )
 
     def clear_chat(self, room: str) -> int:
         """一键清空：删掉聊天记录，并抹掉对应调用里存的消息原文（花费记录保留，预算照算）。"""

@@ -234,6 +234,15 @@
 - 接口：`GET /api/sessions/{id}/carry`（预览摘要）；`POST /api/sessions`、`POST /api/estimate` 多一个 `carry_from`。
 - 测试：`tests/core/test_carry.py`、`tests/api/test_carry_api.py`、`tests/web/test_e2e_carry.py`。
 
+### 成员感官 K2 第一部分：聊天里真看真听（2026-10-29，预估 4～5 小时，实际约 1.5 小时）
+
+用户要求成员真正能看视频、听声音、看图（从 DSH 插件找灵感），并加入「快速 / 精细」两种模式、尽量省 token：
+- 私聊、群聊、朋友圈里用户发的图片、语音、视频，先由感官整理成感知卡（`core/perception/`），成员读卡回应；以前只看到「[图片]」占位。
+- 快速（默认）：图缩小、视频 8 帧拼 2 张宫格图 + 声音转写；精细：图更大、卡更长，有 `video_in` 模型时整段视频连声音交给它。消息里写「仔细看」或点「细看」用精细。
+- 一条消息一次看图调用；按内容哈希缓存（`data/perception/`），精细复用转写稿；感官月上限 $1.5（`perception`）。
+- 新提示词 `perceive_fast/v1`、`perceive_fine/v1`；`Media` 加 `video` 种类（OpenAI 兼容 `video_url`）；`models.yaml` 加 `video_in` 标签。无新迁移、无新依赖。
+- 详见 `docs/PERCEPTION.md`；测试 `tests/core/perception/`、`tests/api/test_chat_api.py`、`tests/web/test_e2e_chat_media.py`。
+
 ## 下一步
 
 0. 你本机试用办公室模式（单人办、开会、项目分工、预算单、绩效）、公寓楼和群聊；看看「员工」页底部的人才市场，决定要不要换人 / 改价格。合并 PR #6 / #7 / #8 需要你点头。

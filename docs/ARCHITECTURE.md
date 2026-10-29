@@ -161,6 +161,7 @@
 - `Message.media`（`Media`：image / audio、MIME、字节）由各适配器转换：OpenAI 兼容 `image_url`（data URI）/ `input_audio`；Anthropic `image`（base64，音频报 bad_request 不切换）；Gemini `inline_data`。`Media` 的 repr 不含内容；调用记录只存类型、大小与哈希。
 - 预估：附件文字按 token 计入题目长度，图片取 `estimate.image_tokens` 与文字版的较大者。
 - **风格参考**（阶段 22）：上传的图片默认是**风格参考**（`attachments.style_ref`；提问区每张图片有「风格参考」勾选，取消后只是普通附件；`POST /api/sessions` 的 `style_refs` 传仍作为风格参考的图片 id，省略 = 全部图片，`[]` = 都不是；命令行 `--no-style-ref`）。见 §2.10 的风格规范与参考图。
+- 聊天里用户发的图片 / 语音 / 视频不走这里，由 `core/perception/` 整理成感知卡（见 docs/PERCEPTION.md）；`Media` 的 `video` 种类目前只用于感官的精细模式。
 - 对外：会话详情的 `attachments` 只有名称、类型、大小、页数、状态、来源、警告（不含内容与存储位置）；`roundtable show --details` 显示图片文字版与转写稿。
 
 ### 2.9 工具（`core/tools/`、`steps/tooluse.py`）
@@ -231,6 +232,7 @@ src/roundtable/
     routing/       规则判断、规划员、方案与阵容、花费预估、用户模式、升级、每题记录
     storage/       SQLite 迁移、Repository、揭晓前的匿名视图
     attachments/   上传文件的识别、文字提取、存放、图片文字版 / 音频转写、发给模型时的呈现
+    perception/    成员感官（docs/PERCEPTION.md）：用户在聊天里发的图片 / 语音 / 视频 → 感知卡（快速 / 精细，按内容缓存在 data/perception/），成员读卡回应
     media/         媒体生成：模型选择（标签 + 档位）、计价、MediaService（图片 / 语音 / 视频异步任务）、视频截帧
     tools/         工具协议、沙箱（wasm / docker，runner.mjs）、工作目录与文件收集、ToolBox（执行与额度）
     search/        联网搜索服务（注册、OpenRouter 搜索（默认）、Tavily、按顺序切换的 SearchService）

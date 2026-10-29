@@ -61,6 +61,17 @@ def similarity(a: str, b: str) -> float:
     return len(x & y) / len(x | y)
 
 
+def post_with_media(moment: dict[str, Any], names: dict[str, str]) -> str:
+    """动态正文；感官整理过图片 / 视频 / 语音时，后面附上感知卡（成员「看到」的内容）。"""
+    cards = (moment.get("meta") or {}).get("perception")
+    if not cards:
+        return moment["text"]
+    from roundtable.core.perception import media_block  # perception 依赖 chat
+
+    who = "用户" if moment["author"] == "user" else names.get(moment["author"], moment["author"])
+    return f"{moment['text']}\n{media_block(who, cards)}"
+
+
 class Moments:
     def __init__(self, rt: Any, hub: ChatHub, allow: Callable[[float], bool]) -> None:
         self.rt = rt
@@ -184,7 +195,7 @@ class Moments:
             member,
             "moment_comment",
             author=names.get(moment["author"], moment["author"]),
-            post=moment["text"],
+            post=post_with_media(moment, names),
             comments=self.comments_text(moment),
             task=task,
         )
