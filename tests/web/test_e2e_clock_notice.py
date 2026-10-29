@@ -53,7 +53,7 @@ def test_main_zone_leads_and_diffs_follow_it(serve, page):
     page.add_init_script(LAND_HUB)
     page.goto(srv.url)
     page.wait_for_selector("#hub .ck-face")
-    assert "主时区" in page.inner_text("#hub .ck-face.main .ck-sub")
+    assert "主时区" in page.inner_text("#hub .ck-face.ck-main .ck-sub")
     page.click("#hub .ck-btn")
     page.click("#hub [data-main='1']")  # 把中国设为主时区
     assert _names(page) == ["中国", "曼城"]
@@ -61,8 +61,8 @@ def test_main_zone_leads_and_diffs_follow_it(serve, page):
     assert "−" in page.inner_text("#hub .ck-face:nth-child(2) .ck-sub")  # 曼城比中国慢
     # 「跟随这台电脑」：显示名变「本机」，按浏览器时区算
     page.select_option("#hub [data-tz='1']", "local")
-    assert page.get_attribute("#hub .ck-face.main", "data-tz") == "local"
-    assert page.inner_text("#hub .ck-face.main .ck-name") == "本机"
+    assert page.get_attribute("#hub .ck-face.ck-main", "data-tz") == "local"
+    assert page.inner_text("#hub .ck-face.ck-main .ck-name") == "本机"
     page.reload()
     page.wait_for_selector("#hub .ck-face")
     assert _names(page) == ["本机", "曼城"]

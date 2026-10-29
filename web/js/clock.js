@@ -384,7 +384,7 @@ export class Clock {
       const tz = realZone(z.tz, local);
       const p = zoneParts(t, tz);
       const span = document.createElement('span');
-      span.className = i === 0 ? 'ck-face main' : 'ck-face';
+      span.className = i === 0 ? 'ck-face ck-main' : 'ck-face';
       span.dataset.tz = z.tz;
       span.dataset.real = tz;
       const diff = i === 0 ? '主时区' : mainDiffLabel(t, tz, mainTz);
