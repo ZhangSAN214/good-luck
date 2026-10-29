@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import base64
+import io
 import json
+import wave
 from collections.abc import Sequence
 from typing import Any
 
@@ -281,6 +283,10 @@ class OpenAICompatProvider(Provider):
         response = await self._send("POST", "audio/speech", json=body)
         if not response.content:
             raise self._error(ErrorKind.INVALID_RESPONSE, "没有返回音频")
+        if fmt == "pcm":  # 裸 PCM（有的模型只给这种）：包成 wav 才能播放
+            return MediaOutput(
+                Media("audio", "audio/wav", pcm_to_wav(response.content), "speech.wav")
+            )
         mime = {"mp3": "audio/mpeg", "wav": "audio/wav", "opus": "audio/ogg"}.get(fmt, "audio/mpeg")
         return MediaOutput(Media("audio", mime, response.content, f"speech.{fmt}"))
 
@@ -444,3 +450,16 @@ def _money(value: Any) -> float | None:
     if isinstance(value, bool) or not isinstance(value, int | float):
         return None
     return float(value)
+
+
+PCM_RATE = 24000  # 语音接口返回的裸 PCM：24 kHz、16 位、单声道
+
+
+def pcm_to_wav(data: bytes, rate: int = PCM_RATE) -> bytes:
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(rate)
+        w.writeframes(data[: len(data) // 2 * 2])
+    return buf.getvalue()

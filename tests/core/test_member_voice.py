@@ -33,24 +33,36 @@ def speech_calls(fake):
     return [c for c in fake.media_calls if c[0] == "speech"]
 
 
-def test_every_member_has_a_voice_for_each_speech_model():
+def test_every_member_has_a_voice_in_each_tier():
     config = load_config()
-    tts = {m.id for m in config.models.models if "tts" in m.tags and m.enabled}
     vendors = {m.vendor for m in config.models.models if m.seat}
-    for vendor in vendors:
-        assert tts <= set(config.personas.voices.get(vendor, {})), vendor
+    for tier in ("budget", "flagship"):
+        tts = {
+            m.id for m in config.models.models if "tts" in m.tags and m.enabled and m.tier == tier
+        }
+        for vendor in vendors:
+            assert tts & set(config.personas.voices.get(vendor, {})), (vendor, tier)
 
 
 def test_chinese_text_uses_a_zh_model_with_the_members_own_voice():
     rt, fake, voices = build()
-    model, voice = voices.model_for("Anthropic", "你好呀")
+    model, voice = voices.model_for("Anthropic", "你好呀", "flagship")
     assert "zh" in model.tags
     assert voice == rt.config.personas.voices["Anthropic"][model.id]
-    clip = asyncio.run(voices.speak("Anthropic", "你好呀"))
+    clip = asyncio.run(voices.speak("Anthropic", "你好呀", tier="flagship"))
     [(_, route, text, params)] = speech_calls(fake)
     assert text == "你好呀" and params["voice"] == voice
     assert clip.voice == voice and not clip.cached and clip.data
     assert clip.mime.startswith("audio/")
+
+
+def test_members_sound_different_and_skip_models_without_their_voice():
+    rt, _, voices = build()
+    budget = {voices.model_for(v, "你好")[1] for v in rt.config.personas.voices}
+    assert len(budget) == len(rt.config.personas.voices)
+    # 只有两个音色的中文模型没给成员配：中文也退回到配了音色的模型
+    model, _ = voices.model_for("Anthropic", "你好")
+    assert model.id in rt.config.personas.voices["Anthropic"]
 
 
 def test_english_text_prefers_the_default_model():
