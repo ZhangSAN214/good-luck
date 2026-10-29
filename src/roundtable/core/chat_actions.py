@@ -124,6 +124,25 @@ def clean_stickers(text: str, stickers: dict[str, list[str]]) -> str:
     return STICKER_RE.sub(keep, text)
 
 
+def swap_repeated_stickers(
+    text: str, used: set[str], stickers: dict[str, list[str]], rng: Any
+) -> str:
+    """同一轮里别人已经发过的表情包，换成同一套里还没人发过的（都发过了就留着）；
+    发出的表情包记进 used。"""
+
+    def swap(m: re.Match[str]) -> str:
+        pack, name = m.group(1), m.group(2)
+        token = f"[表情:{pack}·{name}]"
+        if token in used:
+            free = [n for n in stickers.get(pack, ()) if f"[表情:{pack}·{n}]" not in used]
+            if free:
+                token = f"[表情:{pack}·{rng.choice(free)}]"
+        used.add(token)
+        return token
+
+    return STICKER_RE.sub(swap, text)
+
+
 def parse(
     text: str,
     *,

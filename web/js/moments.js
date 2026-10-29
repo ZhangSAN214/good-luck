@@ -3,6 +3,7 @@
 // 发动态可带图片（最多 9 张）、视频、语音和表情；评论可用 Emoji 和表情包。
 // 版式照真实朋友圈：顶部封面 + 头像，下面一列动态；赞和评论收在每条右下角的「··」里，看谁的动态从右上角的小入口选。
 
+import { homeDay, tzOpt } from './hometz.js';
 import { MediaComposer, bindMedia, cardHTML, mediaHTML, richText, soloSticker, stickerSVG, visibleText } from './chatmedia.js';
 
 const esc = (s) =>
@@ -10,8 +11,8 @@ const esc = (s) =>
 
 const when = (iso) => {
   const d = new Date(iso);
-  const day = d.toDateString() === new Date().toDateString() ? '今天' : d.toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' });
-  return `${day} ${d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false })}`;
+  const day = homeDay(d) === homeDay() ? '今天' : d.toLocaleDateString('zh-CN', tzOpt({ month: 'numeric', day: 'numeric' }));
+  return `${day} ${d.toLocaleTimeString('zh-CN', tzOpt({ hour: '2-digit', minute: '2-digit', hour12: false }))}`;
 };
 
 export class Moments {
