@@ -51,3 +51,50 @@ def test_watch_panel_flow(serve, page):
     dlg.locator("[data-stop]").click()
     dlg.locator("[data-start]").wait_for()
     assert btn.text_content() == "一起看"
+
+
+class _WirelessAdb:
+    def available(self):
+        return None
+
+    def sources(self):
+        return []
+
+    def pair(self, host, port, code):
+        from roundtable.core.screen import ScreenUnavailable
+
+        if code != "123456":
+            raise ScreenUnavailable("配对没成功：配对码不对或已过期")
+        return "配对成功"
+
+    def connect(self, host="", port=0):
+        return ["192.168.1.5:37000"]
+
+
+def setup_phone(env) -> None:
+    setup(env)
+    env.rt.screen_sources["android"] = _WirelessAdb()
+
+
+def test_watch_pair_android_wirelessly(serve, page):
+    srv = serve(confirm_threshold_usd=100.0, setup=setup_phone)
+    page.goto(srv.url)
+    page.locator("#watchbtn").click()
+    dlg = page.locator("#watchdlg")
+    dlg.get_by_text("连接安卓手机 / 平板（无线，不用插线）").click()
+    dlg.get_by_text("使用配对码配对设备").wait_for()
+    dlg.locator("[data-adb-host]").fill("192.168.1.5")
+    dlg.locator("[data-adb-port]").fill("41234")
+    dlg.locator("[data-adb-code]").fill("12")
+    dlg.locator("[data-pair]").click()
+    dlg.get_by_text("请填 IP 地址、端口和 6 位配对码").wait_for()
+    dlg.locator("[data-adb-code]").fill("000000")
+    dlg.locator("[data-pair]").click()
+    dlg.get_by_text("配对码不对或已过期").wait_for()
+    dlg.locator("[data-adb-code]").fill("123456")
+    dlg.locator("[data-pair]").click()
+    dlg.get_by_text("配对成功，已连上 192.168.1.5:37000").wait_for()
+    # 面板重画后折叠区保持展开、IP 还在
+    assert dlg.locator("[data-adb-host]").input_value() == "192.168.1.5"
+    dlg.get_by_text("iPhone 怎么投").click()
+    dlg.get_by_text("屏幕镜像").wait_for()

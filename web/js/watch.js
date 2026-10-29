@@ -2,6 +2,7 @@
 // 面板：选画面来源（整个屏幕 / 某个窗口 / 安卓手机平板）、选 1～3 位陪看、勾选同意后开始；
 // 开始后左边是预览（只在电脑上），右边是和她们的聊天；可以「安静看」、随时停止。
 // 截图只在电脑内存里，网页预览每几秒取一张；她们读到的是画面的文字描述（面板里可以展开看）。
+// 安卓设备在面板里用无线调试配对 / 连接；iPhone 只能用 AirPlay 镜像到电脑上的窗口再选那个窗口。
 
 const esc = (s) =>
   String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -195,6 +196,7 @@ export class Watch {
         ${this.remote ? '<p class="wt-warn">投屏只能在电脑上开始。开始以后，平板上可以聊天和停止。</p>' : `
         <h4>投什么 <button type="button" class="link" data-reload>刷新</button></h4>
         <div class="wt-list">${list}</div>
+        ${this.phoneHelp()}
         <h4>谁陪你看（最多 ${max} 位）</h4>
         <div class="wt-list wt-people">${people || '<p class="wt-hint">现在没有在线的成员。</p>'}</div>
         <label class="wt-consent"><input type="checkbox" data-consent ${this.consent ? 'checked' : ''}> 我同意：画面明显变化时，把截图交给云端的识图模型写成文字给她们看（截图不存盘；支付、银行、密码窗口自动暂停；每月最多 $${Number(b.limit_usd).toFixed(2)}）</label>
@@ -203,6 +205,58 @@ export class Watch {
         ${last}
       </div>`;
     this.renderChat();
+  }
+
+  /** 连手机 / 平板：安卓无线调试一步步配对；iPhone 用 AirPlay 镜像到电脑窗口。 */
+  phoneHelp() {
+    const a = this.adb || {};
+    return `
+      <details class="wt-phone"${a.open ? ' open' : ''} data-phone>
+        <summary>连接安卓手机 / 平板（无线，不用插线）</summary>
+        <ol>
+          <li>手机、平板和这台电脑连同一个 Wi-Fi。</li>
+          <li>打开开发者选项：设置 → 关于手机（平板）→ 版本信息 → 连续点「版本号」7 次。</li>
+          <li>设置 → 系统与更新 → 开发者选项 → 打开「无线调试」，点进去 →「使用配对码配对设备」。</li>
+          <li>把弹窗里的 IP 地址、端口和 6 位配对码填到下面，点「配对」（弹窗别关）。</li>
+          <li>配对一次以后，下次只要打开无线调试再点「连接」就行。</li>
+        </ol>
+        <div class="wt-adb">
+          <input data-adb-host placeholder="IP 地址，如 192.168.1.5" value="${esc(a.host || '')}" aria-label="IP 地址" inputmode="decimal">
+          <input data-adb-port placeholder="端口" value="${esc(a.port || '')}" aria-label="配对端口" inputmode="numeric" maxlength="5">
+          <input data-adb-code placeholder="6 位配对码" aria-label="配对码" inputmode="numeric" maxlength="6">
+          <button type="button" class="btn" data-pair ${a.busy ? 'disabled' : ''}>配对</button>
+          <button type="button" class="btn" data-connect ${a.busy ? 'disabled' : ''}>连接</button>
+        </div>
+        ${a.msg ? `<p class="wt-hint" role="status">${esc(a.msg)}</p>` : ''}
+      </details>
+      <details class="wt-phone">
+        <summary>iPhone 怎么投</summary>
+        <p class="wt-hint">苹果不让别的程序读 iPhone 屏幕。可以在这台电脑上装一个免费的 AirPlay 接收软件（例如 LetsView），iPhone 打开控制中心 →「屏幕镜像」→ 选这台电脑，再点上面的「刷新」，在列表里选镜像出来的那个窗口。iPhone 这一路不会自动认出支付页面，看到隐私内容时请点「安静看」或停止。</p>
+      </details>`;
+  }
+
+  async adbDo(kind) {
+    const q = (sel) => this.dlg.querySelector(sel)?.value.trim() || '';
+    const host = q('[data-adb-host]');
+    const port = q('[data-adb-port]');
+    const code = q('[data-adb-code]');
+    this.adb = { open: true, host, port, busy: true, msg: kind === 'pair' ? '正在配对…' : '正在连接…' };
+    this.render();
+    try {
+      if (kind === 'pair') {
+        if (!host || !port || !/^\d{6}$/.test(code)) throw new Error('请填 IP 地址、端口和 6 位配对码。');
+        const r = await this.api.adbPair(host, Number(port), code);
+        this.adb.msg = r.connected.length ? `配对成功，已连上 ${r.connected.join('、')}。` : '配对成功。回到无线调试主页面，再点「连接」。';
+      } else {
+        // 连接时填的是无线调试主页面「IP 地址和端口」那一行；不填就自动找
+        const r = await this.api.adbConnect(host, port ? Number(port) : 0);
+        this.adb.msg = `已连上 ${r.connected.join('、')}。`;
+      }
+    } catch (x) {
+      this.adb.msg = x.message;
+    }
+    this.adb.busy = false;
+    await this.loadSetup();
   }
 
   /** 投屏中：只更新状态区、预览和钱，不动聊天输入框。 */
@@ -261,6 +315,8 @@ export class Watch {
       return;
     }
     if (t.closest('[data-start]')) return this.start();
+    if (t.closest('[data-pair]')) return this.adbDo('pair');
+    if (t.closest('[data-connect]')) return this.adbDo('connect');
   }
 
   onChange(e) {
