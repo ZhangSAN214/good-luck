@@ -129,12 +129,8 @@ async def test_refresh_caches_to_file_and_reports_staleness(tmp_path):
 
 async def test_no_aggregator_channel():
     cfg = config()
-    channels = {
-        k: v.model_copy(update={"kind": "direct"}) for k, v in cfg.models.channels.items()
-    }
-    cfg = cfg.model_copy(
-        update={"models": cfg.models.model_copy(update={"channels": channels})}
-    )
+    channels = {k: v.model_copy(update={"kind": "direct"}) for k, v in cfg.models.channels.items()}
+    cfg = cfg.model_copy(update={"models": cfg.models.model_copy(update={"channels": channels})})
     d = ModelDirectory(cfg, None)
     assert d.view()["available"] is False
     with pytest.raises(LookupError):

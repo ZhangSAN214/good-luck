@@ -85,7 +85,8 @@ class DirectoryEntry:
     output_modalities: list[str]
     context_length: int | None
     price: tuple[float | None, float | None]  # 每百万 token（输入, 输出）
-    extra_prices: dict[str, float] = field(default_factory=dict)  # PRICE_FIELDS 中非零的项（美元 / 单位）
+    # PRICE_FIELDS 中非零的项（美元 / 单位；token 类换算成每百万）
+    extra_prices: dict[str, float] = field(default_factory=dict)
     price_band: str | None = None  # 只对文字模型
     suggested_tier: str | None = None  # 按圆桌各档位的价格区间建议（只对文字模型）
     description: str = ""

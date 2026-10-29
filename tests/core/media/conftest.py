@@ -7,7 +7,6 @@ from roundtable.core.media import MediaService
 from roundtable.core.providers import ErrorKind, FakeProvider
 from roundtable.core.runtime import Runtime
 
-
 # 下面的用例按这三个画图模型写（一个走对话接口、两个走 /images 接口，分在两档）；
 # 配置里其余画图模型默认去掉，让断言不随上桌名单变化。整份名单的检查见 test_repo_image_models.py
 CORE_IMAGE_MODELS = {"gpt-image-1-mini", "gpt-image-2", "gemini-3.1-flash-image"}
