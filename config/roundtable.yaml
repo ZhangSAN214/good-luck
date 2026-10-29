@@ -56,7 +56,7 @@ chat:
     diary: {enabled: true, daily_reads: 3}       # 翻日记：只在生活模式，每位成员每天最多翻 3 次
   life:                            # 生活引擎：你不在时成员按作息过日子、彼此聊天（不主动找你）
     enabled: true
-    daily_usd: 0.10                # 生活（含记忆整理）每天最多花多少；约 $3 / 月
+    daily_usd: 0.15                # 生活（含记忆整理、自己上网）每天最多花多少；约 $4.5 / 月
     tick_minutes: 30               # 电脑开着时多久推进一次
     max_written_per_tick: 2        # 每次推进最多几件事写成聊天，其余只记一行
     max_written_catch_up: 6        # 开机补算时最多写几件
@@ -109,6 +109,17 @@ chat:
     describes_per_hour: 90
     react_gap_seconds: 90          # 没人说话时，同一位最多每 90 秒主动说一句
     max_minutes: 240               # 一次投屏最长 4 小时，到时自动停
+  wander:                          # 成员自己上网（docs/WANDER.md）：在隔离浏览器里逛下面这些网站，第一期只看不互动
+    enabled: true
+    auto: true                     # 按作息自动安排（每人每天最多 1 次，每次最多 10 分钟）；关掉后只能手动让她去
+    headless: true                 # 在后台逛，不弹窗口；用电脑自带的 Edge（没有就用 Chrome）
+    trips_per_member_per_day: 1
+    max_steps: 12                  # 一次最多看 12 个页面
+    max_minutes: 10
+    sites:                         # 只能打开这些网站（域名后缀匹配）；花费算在生活每天的上限里
+      - {id: bilibili, name: B站, home: "https://www.bilibili.com/", search: "https://search.bilibili.com/all?keyword={q}", hosts: [bilibili.com]}
+      - {id: xiaoheihe, name: 小黑盒, home: "https://www.xiaoheihe.cn/", hosts: [xiaoheihe.cn]}
+      - {id: taobao, name: 淘宝, home: "https://www.taobao.com/", search: "https://s.taobao.com/search?q={q}", hosts: [taobao.com, tmall.com]}
   actions:                         # 聊天里能发什么（docs/CHAT.md「微信式动作」）；何时发、节奏归成员系统，这里是默认值
     enabled: true
     stickers:                      # 成员能用的表情包（名字与网页表情面板一致）
@@ -243,6 +254,7 @@ prompts:
   office_revise: v1      # 办公室·项目：主办经理按验收意见改一次
   office_handle: v2      # 办公室：员工办理（v2：带字画面用代码画、数字须核实）
   watch: v1              # 投屏陪伴：成员陪用户看屏幕，吐槽、接话
+  wander: v1             # 成员自己上网：每看一页说一句感想、决定下一步（只看不互动）
   describe_screen: v1    # 投屏陪伴：把一张截图写成给成员看的文字（隐私信息打码）
   chat: v4               # 群聊：口语、短句（v2：人设与记忆；v3：人物卡随身卡，AI 身份平时不刻意提、被认真问如实承认；v4：表情包、颜文字、引用、分条、不接话）
   chat_dm: v4            # 私聊：和用户一对一（v2：人设与记忆；v3：人物卡随身卡；v4：表情包、颜文字、引用、分条）
@@ -289,6 +301,7 @@ step_params:
   #   评审、汇总、拆分、分配、自荐、风格校验等用低强度。
   answer: {max_tokens: 5000, reasoning: {max_tokens: 2000}}
   watch: {max_tokens: 1200, reasoning: {effort: low}}  # 投屏陪伴：一两句
+  wander: {max_tokens: 1200, reasoning: {effort: low}}  # 自己上网：每页一小段 JSON
   chat: {max_tokens: 1500, reasoning: {effort: low}}   # 群聊：一两句话，少想多说（思考会挤占输出，之前 500 上限时有人回复为空）
   review: {max_tokens: 3000, reasoning: {max_tokens: 800}}
   revise: {max_tokens: 5000, reasoning: {max_tokens: 2000}}

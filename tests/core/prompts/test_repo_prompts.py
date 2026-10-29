@@ -150,7 +150,7 @@ MEMORY_ROLES = ("memory_day", "memory_roll", "memory_profile", "memory_items", "
 # 翻日记（P2）：工具说明没有外部内容；翻到的日记放在 <diary> 标签里交回
 DIARY_ROLES = ("memory_diary", "memory_diary_result")
 # 生活：成员之间聊天，外部内容是场景、人设、记忆和聊天记录
-LIFE_ROLES = ("life_chat", "life_share", "moment_post", "moment_comment")
+LIFE_ROLES = ("life_chat", "life_share", "moment_post", "moment_comment", "wander")
 # 成员评测集：外部内容是成员自己的资料和情境，放在 <self> / <situation> 标签里
 MEMBER_ROLES = ("member_eval",)
 # 开发侧脚本用的提示词（不发给圆桌成员）：材料是项目规则与改动
@@ -353,6 +353,7 @@ def test_life_prompts_delimit_material_and_stay_honest(template):
         "life_share": ("<article>", "<source>", "<chat>"),
         "moment_post": ("<scene>", "<recent>"),
         "moment_comment": ("<post>", "<comments>"),
+        "wander": ("<page>", "<links>", "<visited>"),
     }[template.role]
     for tag in (*material, "<persona>", "<memory>"):
         assert tag in template.user

@@ -129,7 +129,7 @@ from roundtable.core.routing import (
     detect_multi_media,
     preview_estimates,
 )
-from roundtable.core.runtime import PROJECT_ROOT, Runtime, data_dir
+from roundtable.core.runtime import PROJECT_ROOT, WANDER_DIR, Runtime, data_dir
 from roundtable.core.screen import AdbSource, PcSource, ScreenWatch
 from roundtable.core.search import SearchUnavailable
 from roundtable.core.standee import load_standee
@@ -137,6 +137,7 @@ from roundtable.core.standee import standee_file as read_standee_file
 from roundtable.core.steps import Event, restore_state
 from roundtable.core.steps.office import group_estimates
 from roundtable.core.storage import NotFound
+from roundtable.core.wander import Wanderer
 
 log = logging.getLogger(__name__)
 
@@ -216,6 +217,15 @@ class RoundtableService:
             else {"pc": PcSource(), "android": AdbSource(watch_rules.adb)},
             publish=self.engine.bus.publish,
         )
+        base = runtime.mail_dir.parent if runtime.mail_dir is not None else data_dir()
+        self.wander = Wanderer(
+            runtime,
+            self.chats,
+            self.life.allowed,
+            profiles=base / WANDER_DIR,
+            publish=self.engine.bus.publish,
+        )
+        self.engine.heartbeat.register("wander", self.wander.want)
         self._chat_tasks: set[asyncio.Task[Any]] = set()
         self._life_task: asyncio.Task[None] | None = None
         self._evolution_task: asyncio.Task[None] | None = None
@@ -271,6 +281,7 @@ class RoundtableService:
 
     async def aclose(self) -> None:
         self.watch.stop("服务关闭，投屏停了")
+        await self.wander.aclose()
         tasks = [*self._tasks.values(), *self._chat_tasks]
         tasks += [t for t in (self._life_task, self._evolution_task) if t is not None]
         for task in tasks:
@@ -529,6 +540,30 @@ class RoundtableService:
         except OSError:
             raise ServiceError("scrcpy 启动失败") from None
         return {"started": True}
+
+    # --- 成员自己上网 ---------------------------------------------------------------------
+
+    def wander_status(self) -> dict[str, Any]:
+        return self.wander.status()
+
+    def wander_start(self, member: str, site: str | None = None) -> dict[str, Any]:
+        try:
+            self.wander.start(member, site or None)
+        except ValueError as e:
+            raise ServiceError(str(e)) from None
+        return self.wander.status()
+
+    def wander_stop(self) -> dict[str, Any]:
+        self.wander.stop()
+        return self.wander.status()
+
+    def wander_log(self, member: str, after: int = 0) -> list[dict[str, Any]]:
+        if member not in {m.id for m in self.chats.everyone()}:
+            raise ServiceError("没有这位成员")
+        return self.wander.log(member, after)
+
+    def wander_frame(self) -> bytes | None:
+        return self.wander.frame()
 
     def _covers_dir(self) -> Path | None:
         sf = self.rt.standee_file
