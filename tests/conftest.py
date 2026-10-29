@@ -5,6 +5,13 @@ from __future__ import annotations
 import pytest
 
 import roundtable.core.browse as browse
+from roundtable.core.config.loader import NO_LOCAL_ENV
+
+
+@pytest.fixture(autouse=True)
+def _no_local_config(monkeypatch):
+    """本机的 config/*.local.yaml 不影响测试。"""
+    monkeypatch.setenv(NO_LOCAL_ENV, "1")
 
 
 @pytest.fixture(autouse=True)

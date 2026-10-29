@@ -1417,7 +1417,8 @@ class CLI:
             self.p(str(exc))
             return 2
         info = svc.evolution()
-        state = "开启" if info["enabled"] else "关闭（config/roundtable.yaml 的 evolution.enabled）"
+        off = "关闭（evolution.enabled，本机设置写在 config/roundtable.local.yaml）"
+        state = "开启" if info["enabled"] else off
         self.p(f"革新例会：{state}")
         if info["enabled"] and info["auto"]:
             sch = info["schedule"]

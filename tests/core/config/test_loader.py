@@ -10,6 +10,7 @@ import pytest
 import yaml
 
 from roundtable.core.config import DEFAULT_CONFIG_DIR, ConfigError, load_config
+from roundtable.core.config.loader import NO_LOCAL_ENV, deep_merge
 
 
 @pytest.fixture
@@ -406,3 +407,35 @@ def test_default_tts_voices_are_set_per_model():
 def test_member_voices_must_name_speech_models(config_dir):
     edit(config_dir, "personas.yaml", lambda d: d["voices"].update(Google={"gpt-image-2": "Kore"}))
     expect_error(config_dir, "voices.Google", "gpt-image-2")
+
+
+# --- 本机覆盖文件 <名字>.local.yaml -----------------------------------------------
+
+
+def test_local_override_merges_over_repo_config(config_dir, monkeypatch):
+    monkeypatch.delenv(NO_LOCAL_ENV)
+    base = load_config(config_dir).roundtable.evolution
+    (config_dir / "roundtable.local.yaml").write_text(
+        "evolution:\n  enabled: true\n  implement:\n    enabled: true\n", encoding="utf-8"
+    )
+    merged = load_config(config_dir).roundtable.evolution
+    assert merged.enabled and merged.implement.enabled
+    # 没写的字段保持仓库里的值
+    assert merged.topic == base.topic
+    assert merged.implement.base_branch == base.implement.base_branch
+
+
+def test_local_override_errors_name_both_files(config_dir, monkeypatch):
+    monkeypatch.delenv(NO_LOCAL_ENV)
+    (config_dir / "roundtable.local.yaml").write_text("evolution:\n  bogus: 1\n", encoding="utf-8")
+    expect_error(config_dir, "roundtable.local.yaml", "evolution.bogus")
+
+
+def test_local_override_ignored_in_tests(config_dir):
+    (config_dir / "roundtable.local.yaml").write_text("evolution:\n  bogus: 1\n", encoding="utf-8")
+    load_config(config_dir)
+
+
+def test_deep_merge_replaces_lists_and_scalars():
+    merged = deep_merge({"a": {"b": 1, "c": [1, 2]}, "d": 1}, {"a": {"c": [3]}, "d": 2})
+    assert merged == {"a": {"b": 1, "c": [3]}, "d": 2}
