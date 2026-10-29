@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 from roundtable.core.member.memory import MemoryStore
-from roundtable.core.member.memory.domains import tag
+from roundtable.core.member.memory.domains import classify, tag
 from roundtable.core.member.memory.store import MERGE, NEW, UPDATE, similarity
 
 from ...orchestrator.conftest import Env
@@ -20,14 +20,16 @@ def store() -> tuple[Env, MemoryStore]:
 def test_similarity_and_domains():
     assert similarity("和用户去爬山", "和用户去爬山") == 1.0
     assert similarity("和用户去爬山", "今天下雨了") == 0.0
-    assert tag("看了场电影", "不存在的领域", DOMAINS) == "日常"  # 模型标了表外的归日常
+    assert classify("明天要考试，复习到很晚", DOMAINS) == "学术"
+    assert classify("今天天气不错", DOMAINS) == "日常"
+    assert tag("看了场电影", "不存在的领域", DOMAINS) == "娱乐"  # 模型标了表外的就用关键词兜底
     assert tag("随便", "身心", DOMAINS) == "身心"
 
 
 def test_three_routes_merge_update_new():
     env, s = store()
     a = s.write("V1", "晚上和阿二一起打游戏", day="2026-10-20")
-    assert a.route == NEW and a.item["domain"] == "日常" and a.item["hits"] == 1
+    assert a.route == NEW and a.item["domain"] == "娱乐" and a.item["hits"] == 1
     b = s.write("V1", "晚上和阿二一起打游戏了", day="2026-10-21", importance=2)
     assert b.route == MERGE and b.item["id"] == a.item["id"]
     assert b.item["hits"] == 2 and b.item["importance"] == 2  # 原文不改，合并计数

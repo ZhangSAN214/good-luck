@@ -25,6 +25,7 @@ from typing import Any
 from roundtable.core.chat import SYSTEM, USER, USER_LABEL, ChatMember, call_member
 from roundtable.core.member.memory import MemoryStore, Recaller
 from roundtable.core.member.memory.night import apply, materials, parse
+from roundtable.core.member.memory.store import WORK_WORKFLOWS
 from roundtable.core.recall import STAR
 from roundtable.core.storage.repository import iso
 
@@ -181,6 +182,29 @@ class MemoryKeeper:
     def nightly(self) -> bool:
         return self.rules.recall == "half_life" and self.rules.night
 
+    def work_lines(self, member: ChatMember, day: date, tz: tzinfo | None) -> list[str]:
+        """生活只读工作：这位成员自己在工作模式里参加过的场次记成经历（同一场只记一次）。
+
+        往回看 ``work_lookback_days`` 天（匿名场次揭晓后才读，揭晓晚了也补上）。
+        返回这一天新记下或发生在这一天的几件，给夜间整理当材料。不反写工作。"""
+        vendor = {m.id: m.vendor for m in self.rt.config.models.models}
+        start, _ = day_window(day - timedelta(days=self.rules.work_lookback_days - 1), tz)
+        _, end = day_window(day, tz)
+        lines = []
+        for row in self.rt.repo.work_records_between(
+            datetime.fromisoformat(start), datetime.fromisoformat(end), WORK_WORKFLOWS
+        ):
+            if vendor.get(row["model_id"]) != member.id:
+                continue
+            if row["anonymous"] and not row["revealed_at"]:
+                continue  # 匿名场次揭晓前不读
+            at = datetime.fromisoformat(row["at"]).astimezone(tz).date()
+            w = self.store.add_work(member.id, row, at.isoformat())
+            text = self.store.work_text(row)
+            if (w.route != "skip" or at == day) and text not in lines:
+                lines.append(text)
+        return lines
+
     async def night(
         self, member: ChatMember, day: date, tz: tzinfo | None, *, offline: bool = False
     ) -> dict[str, Any] | None:
@@ -190,7 +214,8 @@ class MemoryKeeper:
         if any(m["period"] == period for m in repo.memories(member.id, layer="day", limit=50)):
             return None
         log = self.day_log(member, day, tz)
-        if not log:
+        work = self.work_lines(member, day, tz)
+        if not log and not work:
             return None  # 平静的一天不调用模型
         mats = materials(
             self.rt,
@@ -198,7 +223,7 @@ class MemoryKeeper:
             name=member.name,
             day=period,
             log=log,
-            work=[],
+            work=work,
             mood=float(self.mood_of(member.id)),
             drift=[],
         )
