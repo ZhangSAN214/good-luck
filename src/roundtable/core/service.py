@@ -99,6 +99,7 @@ from roundtable.core.member.card import (
     without_locked,
 )
 from roundtable.core.member.growth import monday, week_id
+from roundtable.core.member.growth.report import lines as report_lines
 from roundtable.core.member.memory import DiaryTool
 from roundtable.core.member.memory.store import query_terms
 from roundtable.core.member.voice import VoicePolicy
@@ -2242,6 +2243,12 @@ class RoundtableService:
                 "min_days": rules.min_days,
             },
             "timeline": entries,
+            "habits": self.growth.habits(member),
+            "skills": self.growth.skills(member),
+            "reports": [
+                {**r, "lines": report_lines(r)}
+                for _, r in sorted(self.growth.log.load(member)["reports"].items(), reverse=True)
+            ],
         }
 
     async def member_growth_run(self, member: str) -> dict[str, Any]:

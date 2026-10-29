@@ -28,6 +28,7 @@ from typing import Any
 
 from roundtable.core.chat import USER, USER_LABEL, ChatMember, call_member
 from roundtable.core.jsonout import JSONOutputError, extract_json_object
+from roundtable.core.life import LifeEngine
 from roundtable.core.member.card import TRAITS
 from roundtable.core.member.growth import (
     Gate,
@@ -39,10 +40,13 @@ from roundtable.core.member.growth import (
     parse,
     week_id,
 )
+from roundtable.core.member.growth import habits as hb
+from roundtable.core.member.growth import report as rp
 from roundtable.core.member.growth.gate import fresh_patch
 from roundtable.core.member.growth.timeline import CHANGE, REJECTED, SKIP
 from roundtable.core.member.mode import Mode, require_life
 from roundtable.core.member.profile import ProfileStore
+from roundtable.core.storage.repository import iso
 
 ROOM = "growth"
 STEP = "growth"
@@ -129,10 +133,13 @@ class GrowthKeeper:
         return monday(today) - timedelta(days=7)
 
     async def tick(self, now: datetime) -> dict[str, int]:
-        """推进到 now（带时区）：上一周还没反思过的成员各反思一次。返回各结果的数量。"""
-        out = {"members": 0, "changes": 0, "rejected": 0, "skipped": 0}
+        """推进到 now（带时区）：先累加习惯计数、补上个月的报告（都不花钱），
+        再让上一周还没反思过的成员各反思一次。返回各结果的数量。"""
+        out = {"members": 0, "changes": 0, "rejected": 0, "skipped": 0, "reports": 0}
         if not self.rules.enabled:
             return out
+        self.count(now)
+        out["reports"] = self.reports(now.date())
         start = self.due(now.date())
         if start is None:
             return out
@@ -152,6 +159,60 @@ class GrowthKeeper:
         if ran:
             self.log.backup(self.folder, wid, [m.id for m in everyone])
         return out
+
+    # --- 习惯、熟练度、月度报告（程序算，不花钱） ----------------------------------------
+
+    def count(self, now: datetime) -> int:
+        """把事件总线上新的事件累加进每位成员的习惯计数（第一次从头算全部经历）。"""
+        until = iso(now)
+        members = [m.id for m in self.members()]
+        cursors = [self.log.load(m).get("cursor") or "" for m in members]
+        if not members or min(cursors) >= until:
+            return 0
+        events = self.rt.repo.member_events_between(min(cursors), until)
+        return sum(
+            self.log.count(m, events, until, now.tzinfo, LifeEngine.place_name) for m in members
+        )
+
+    def habits(self, member: str) -> list[dict[str, Any]]:
+        return hb.habits(self.log.load(member), self.rules.habits)
+
+    def skills(self, member: str) -> list[dict[str, Any]]:
+        domains = self.rt.config.roundtable.chat.memory.domains
+        return hb.skills(self.rt.repo.memory_item_stats(member), domains)
+
+    def report(self, member: str, month: str) -> dict[str, Any]:
+        """这位成员 month（YYYY-MM）的「这个月的我」（不存）。"""
+        repo = self.rt.repo
+        days = {
+            d["period"]
+            for d in repo.memories(member, layer="day", limit=100)
+            if str(d["period"]).startswith(month)
+        }
+        items = repo.memory_items(member, since_day=f"{month}-01", current=False, limit=5000)
+        return rp.build(
+            self.log.load(member),
+            month,
+            rules=self.rules,
+            skills=self.skills(member),
+            diary_days=len(days),
+            items=sum(1 for it in items if it["day"].startswith(month)),
+        )
+
+    def reports(self, today: date) -> int:
+        """上个月还没有报告的成员各写一份（那个月什么都没发生的不写）。返回写了几份。"""
+        if not self.rules.report.enabled:
+            return 0
+        month = rp.prev_month(today)
+        n = 0
+        for m in self.members():
+            if month in self.log.load(m.id)["reports"]:
+                continue
+            r = self.report(m.id, month)
+            if r["diary_days"] or r["items"] or r["changes"]:
+                self.log.save_report(m.id, r, self.skills(m.id))
+                n += 1
+        return n
 
     def week(self, member: str, start: date, tz: tzinfo | None) -> Week:
         return build(self.rt, member, start, tz, user_label=USER_LABEL, user_author=USER)
@@ -240,8 +301,10 @@ class GrowthKeeper:
         return "\n".join(f"- {v.proposal.label()}：{v.reason}" for v in verdicts) or "没有"
 
     def _habits(self, member: str) -> str:
+        """给反思用：P2 的常做的事 + 全部经历累积的习惯和熟练度。"""
         row = self.rt.repo.memory_digest(member)
-        return (row or {}).get("text") or NONE
+        parts = [(row or {}).get("text") or "", hb.text(self.habits(member), self.skills(member))]
+        return "\n".join(p for p in parts if p) or NONE
 
     async def _review(
         self, member: ChatMember, week: Week, passed: list[Verdict], data: dict[str, Any]

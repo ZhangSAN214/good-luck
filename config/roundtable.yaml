@@ -153,6 +153,8 @@ chat:
       user_share: 0.3              # 受你影响的改动最多三成
       review: {enabled: true, min_score: 3, max_retries: 1}   # 另一位成员打分（不自评），最多重试 1 次
       backups: 8                   # 每周本地备份留 8 份
+      habits: {min_count: 5, min_weeks: 3}   # 习惯：从全部经历累加，至少 5 次、跨 3 周才算
+      report: {enabled: true, keep: 24}       # 每月 1 号起写上个月的「这个月的我」（程序算，不花钱）
   watch:                           # 投屏陪伴（docs/WATCH.md）：你投屏，选 1～3 位陪你一起看
     enabled: true
     monthly_usd: 1.5               # 一起看每月最多花多少（不占聊天月预算）；用完只陪聊、不看画面

@@ -1,5 +1,6 @@
 // 成长（成员系统 P6）：每周一成员读一遍上一周的经历，最多改 3 条自我档案，每条都引用真实经历；
 // 程序把关、另一位成员评审后才写进档案。这里是成长时间线：改了什么、为什么、被拦下的原因，可以一条条撤回。
+// 另有从全部经历累积的习惯、按领域的熟练度和每月一份「这个月的我」（程序算，不花钱）。
 // 只用于私聊、群聊、朋友圈和生活；工作和办公室不读取。
 
 const esc = (s) =>
@@ -76,6 +77,19 @@ export class GrowthPanel {
     return `<li class="gr-${esc(e.kind)}"><div class="pp-mh"><b>${esc(KIND[e.kind] || e.kind)}</b>${tags}${undo}</div><p>${esc(describe(e))}${why}${reason}${quote}</p></li>`;
   }
 
+  // 习惯（全部经历累积）、熟练度、最近一份「这个月的我」
+  extras(g) {
+    const habits = (g.habits || []).length
+      ? `<p class="grp-foot">习惯：${g.habits.map((h) => `${esc(h.label)}（${h.n} 次，${h.weeks} 周）`).join('、')}</p>`
+      : '<p class="grp-foot">习惯：还没有。同一件事做够 5 次、跨 3 周才算习惯。</p>';
+    const skills = (g.skills || []).map((s) => `<span class="gr-skill" title="经验 ${s.xp}${s.next ? `，${s.next} 升下一级` : ''}">${esc(s.domain)} ${s.level} 级·${esc(s.name)}</span>`).join(' ');
+    const r = (g.reports || [])[0];
+    const report = r
+      ? `<details class="pf-sec gr-report"><summary><b>这个月的我</b><span>${esc(r.month)} · 共 ${g.reports.length} 份</span></summary><ul class="pp-list grp-box">${r.lines.map((x) => `<li><p>${esc(x)}</p></li>`).join('')}</ul></details>`
+      : '';
+    return `${habits}<p class="grp-foot">熟练度：${skills}</p>${report}`;
+  }
+
   render() {
     if (!this.el) return;
     const g = this.g;
@@ -88,6 +102,7 @@ export class GrowthPanel {
     const canRun = g.enabled && g.due && g.week !== g.due;
     this.el.innerHTML = `<h4 class="grp-h">成长 <small>每周一反思上一周${g.week ? ` · 上次：${esc(g.week)}` : ''}</small></h4>
       <p class="grp-foot">每周最多改 ${r.max_changes ?? 3} 条，每条都要引用这一周真实发生的事；性格分每月最多变 ${r.core_monthly_steps ?? 1} 格，受你影响的改动不超过 ${Math.round((r.user_share ?? 0.3) * 100)}%，你锁住的项不动。另一位成员评审打分，低于 3 分的不改。</p>
+      ${this.extras(g)}
       <ul class="pp-list grp-box">${rows}</ul>
       <div class="grp-box grp-acts">${canRun ? `<button type="button" class="grp-btn" data-grun${this.busy ? ' disabled' : ''}>${this.busy ? '正在反思…' : `现在反思 ${esc(g.due)}`}</button>` : ''}<button type="button" class="grp-btn danger" id="gr-clear" data-gclear>清空成长记录</button></div>
       <p class="hint" role="status">${esc(this.msg)}</p>`;
