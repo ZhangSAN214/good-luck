@@ -9,7 +9,7 @@
 | 部件 | 文件 | 做什么 | 调模型吗 |
 |---|---|---|---|
 | 自我档案 | `profile.py` | 每位成员一份，按分区存（`chat.engine.profile.sections`：分区 → 谁能改）。**每次修改都是一个新版本**（`member_profiles`，迁移 24），记下谁改的、为什么、改了哪几项（旧值 → 新值）；旧版本不改不删，撤回 = 把旧版本的内容存成新版本。用户锁住的项（`分区.键`）只有用户能改。用户可以随时查看、修改、撤回、一键清空 | 不调 |
-| 事件总线 | `bus.py` | `publish(Event)` / `subscribe(kind, handler)`，`kind` 可写 `*` 或前缀 `life.*`；处理函数出错只记日志。事件存 `member_events`（迁移 24），保留 `keep_days`（默认 14）天，开机可补算 | 不调 |
+| 事件总线 | `bus.py` | `publish(Event)` / `subscribe(kind, handler)`，`kind` 可写 `*` 或前缀 `life.*`；处理函数出错只记日志。事件存 `member_events`（迁移 24，只存本机）。**默认一直保留**（`keep_days: null`，攒经历数据，以后可能用来训练本地小模型；用户 2026-10-29 要求），开机最多补算 `catch_up_days`（14）天；可一键清空（`DELETE /api/chat/engine/events`） | 不调 |
 | 心跳调度 | `heartbeat.py` | 模块登记「想做的事」（由代码判断，返回 `Intent` 或 None）；每次心跳只问醒着的成员（公寓楼作息），意图交给预算调度器排队，能做的做（每次最多 `max_actions` 件），其余降级只记一行（`engine.note` 事件）。**现在没有模块登记，所以不花钱** | 不调（决定后才由模块调） |
 | 上下文组装器 | `context.py` | 各模块交上来几段 `Piece`（来源、文字、相关度、是否固定）。固定段（随身卡、规则）按原顺序放最前（内容不变时前缀不变，利于缓存），其余按相关度挑，每个来源最多 `per_source` 段，总长 ≤ `budget_chars`（默认 600 字），剩余空间够时最后一段截断放进去 | 不调 |
 | 预算调度器 | `scheduler.py` | 优先级：用户直接找她 > 主动找你 > 群聊 > 生活。用户直接找她只受聊天月预算和总预算限制，**从不因每日额度降级**；其余三类在今天聊天花费超过 `daily_usd × 份额`（主动 0.85、群聊 0.7、生活 0.5）时降级为只记一行。生活另外仍受生活每日上限 $0.10 | 不调 |
@@ -37,12 +37,23 @@
 - `POST /api/chat/profiles/{member}/lock`：`{path: "分区.键", locked: true|false}`。
 - `POST /api/chat/profiles/{member}/revert`：`{version}`，撤回到某个版本（存成新版本）。
 - `DELETE /api/chat/profiles/{member}`：一键清空这位成员的档案和修改记录。
+- `GET /api/chat/engine/events`：记下了多少条事件；`DELETE /api/chat/engine/events`：一键清空。
 - 不允许的修改（分区不存在、没有权限、改了锁定的项）返回 400，说明原因。网页界面在「成员设定与记忆 → 自我档案」（M1）。
+
+## 聊天动作的策略（接管口）
+
+聊天里「发不发、什么节奏」的默认值在 `core/chat_actions.DefaultPolicy`（docs/CHAT.md G10）。M7 行为决策 / M8 说话风格 / 心跳做好后，实现 `ActionPolicy` 并赋给 `RoundtableService.chats.policy` 即可接管，不用改聊天和界面；拍一拍会发 `chat.pat` 事件到总线（`member` 是被拍的人，`data = {room, id, actor}`）。
 
 ## 存储（迁移 24，只存本地，不进 git）
 
 - `member_profiles`：`(member, version)` 主键，整份档案（JSON）、`author`（user / growth / program …）、`reason`、`changes`（改了哪几项）、时间。
 - `member_events`：时间、种类、成员、数据（JSON）。
+
+## 工作与生活（用户 2026-10-29 硬性要求）
+
+- `core/member/mode.py`：`mode_of(workflow)`，只有 `chat`（聊天、朋友圈、生活）是生活模式，其余（讨论、协同、办公室、个人作答、头脑风暴……）都是工作模式。
+- **工作模式不挂载成员引擎**：`MemberEngine.context(..., mode="work")` 直接报错；编排引擎、步骤、路由、分配、提示词、办公室的代码不得 import `core.member`（测试守卫）；跑讨论 / 办公室 / 个人作答 / 协同时，发给模型的每条消息都不含档案、事件等成员模块的内容（测试守卫，`tests/core/member/test_mode.py`）。
+- **生活模式只读工作**：引擎每次推进把成员在办公室办过的活转成 `work.done` 事件（成员、场次、题目），之后由记忆订阅成经历；不反写工作；匿名开启且未揭晓的场次不读。
 
 ## 扩展：感知事件（预留接口）
 
@@ -50,4 +61,4 @@
 
 ## 还没做（之后的模块）
 
-夜间合并（M2）、质量闸门的自我监控（M20）、行为决策在心跳上登记（M7）。
+夜间合并（M2）、质量闸门的自我监控（M20）、行为决策在心跳上登记（M7，届时借鉴 dsh heartbeat：代码闸门不过就不调模型、记下沉默原因、话题种子池、默认安静）。

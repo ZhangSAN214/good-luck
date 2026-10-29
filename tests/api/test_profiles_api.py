@@ -38,3 +38,12 @@ def test_profile_errors():
         assert c.post("/api/chat/profiles/V1/revert", json={"version": 3}).status_code == 400
         assert c.post("/api/chat/profiles/V1/lock", json={"path": "abc"}).status_code == 400
         assert c.patch("/api/chat/profiles/V1", json={"patch": {}, "x": 1}).status_code == 422
+
+
+def test_engine_events_count_and_clear():
+    env = Env()
+    service = RoundtableService(env.rt)
+    env.rt.repo.add_member_event("2026-10-29T00:00:00.000+00:00", "life.event", "V1", {})
+    with TestClient(create_app(service)) as c:
+        assert c.get("/api/chat/engine/events").json() == {"events": 1}
+        assert c.delete("/api/chat/engine/events").json() == {"deleted": 1}

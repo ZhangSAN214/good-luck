@@ -3,8 +3,11 @@
 - 事件：``kind``（如 ``life.event``、``chat.user``、``heartbeat``）、相关成员、时间、数据。
 - 订阅：``subscribe(kind, handler)``，``kind`` 写 ``*`` 收全部；也可以写前缀 ``life.*``。
   处理函数同步执行；某个处理函数出错只记日志，不影响别的订阅者和发事件的一方。
-- 事件存进 ``member_events``（迁移 24，只存本地），保留 ``chat.engine.bus.keep_days`` 天，
-  之后的模块（记忆、情绪、关系……）开机时可以从这里补算。
+- 事件存进 ``member_events``（迁移 24，只存本机 SQLite，不进 git、不上传）。默认一直保留
+  （``chat.engine.bus.keep_days: null``）：既是之后的模块（记忆、情绪、关系……）开机补算的依据，
+  也是以后可能训练本地小模型的经历数据。用户可以一键清空（``clear()``）。
+- 总线上只有生活侧的事件；工作模式不挂载引擎（见 ``mode.py``），工作只以 ``work.done`` 经历的形式
+  被生活只读。
 """
 
 from __future__ import annotations
@@ -86,5 +89,11 @@ class EventBus:
         return [e for e in out if matches(kind, e.kind)]
 
     def prune(self, now: datetime) -> int:
-        """删掉 keep_days 天以前的事件。返回删掉的条数。"""
+        """删掉 keep_days 天以前的事件（keep_days 为空时一直保留）。返回删掉的条数。"""
+        if self.rules.keep_days is None:
+            return 0
         return self.rt.repo.prune_member_events(iso(now - timedelta(days=self.rules.keep_days)))
+
+    def clear(self) -> int:
+        """一键清空全部事件（用户的权利）。返回删掉的条数。"""
+        return self.rt.repo.clear_member_events()

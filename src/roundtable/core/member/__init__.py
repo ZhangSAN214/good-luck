@@ -14,6 +14,7 @@ from roundtable.core.member.bus import Event, EventBus
 from roundtable.core.member.context import Context, Piece, assemble
 from roundtable.core.member.engine import MemberEngine
 from roundtable.core.member.heartbeat import Heartbeat, Intent
+from roundtable.core.member.mode import Mode, WorkModeError, mode_of, require_life
 from roundtable.core.member.profile import Profile, ProfileError, ProfileStore
 from roundtable.core.member.scheduler import BudgetScheduler, Decision, Priority
 
@@ -26,10 +27,14 @@ __all__ = [
     "Heartbeat",
     "Intent",
     "MemberEngine",
+    "Mode",
+    "WorkModeError",
     "Piece",
     "Priority",
     "Profile",
     "ProfileError",
     "ProfileStore",
     "assemble",
+    "mode_of",
+    "require_life",
 ]
