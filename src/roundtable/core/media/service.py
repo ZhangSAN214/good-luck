@@ -1,4 +1,4 @@
-"""媒体生成服务：图片、语音（同步）与视频（异步：提交 → 轮询 → 下载）。
+"""媒体生成服务：图片、语音、音乐（同步）与视频（异步：提交 → 轮询 → 下载）。
 
 - 模型只按能力标签和档位选择；提示词发出前遮蔽身份。
 - 每次生成在 media_jobs 表里一行（提示词、模型、渠道、状态、花费、第几轮）；成功的生成同时记入
@@ -16,10 +16,12 @@ import random
 import time
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Any
 
 from roundtable.core.allocation import IdentityScrubber
 from roundtable.core.attachments import FileStore
+from roundtable.core.budget.guard import month_window
 from roundtable.core.config import AppConfig, ModelSpec, Route
 from roundtable.core.providers import (
     VIDEO_FINAL,
@@ -53,7 +55,7 @@ EXT = {
     "video/mp4": "mp4",
     "video/webm": "webm",
 }
-FILE_KIND = {"image": "image", "speech": "audio", "video": "video"}
+FILE_KIND = {"image": "image", "speech": "audio", "video": "video", "music": "audio"}
 ACTIVE = ("submitted", "pending", "running")
 NO_REFERENCE_MODEL = "没有支持参考图的画图模型，只能按文字风格规范生成"
 MAX_POLL_ERRORS = 5
@@ -142,6 +144,11 @@ class MediaService:
         model = self.model_for(kind, tier)
         return estimate_generation(model, kind, self.rules, chars=chars) if model else 0.0
 
+    def month_spent(self) -> float:
+        """本自然月（UTC）全部创作输出（图片 / 语音 / 视频 / 音乐）的花费，跨会话。"""
+        start, end = month_window(datetime.fromisoformat(self.repo.clock()))
+        return self.repo.spent_in_role("media", start, end)
+
     # --- 生成 ----------------------------------------------------------------------
 
     async def generate(
@@ -153,25 +160,31 @@ class MediaService:
         tier: str | None = None,
         references: Sequence[Media] = (),
     ) -> MediaResult:
-        """references：风格参考图（只对图片有意义）。选带 image_edit 标签的模型并把参考图传给它；
-        没有这样的模型时退回只传文字，结果的 warning 里写明。"""
+        """references：参考图。图片：风格参考，选带 image_edit 标签的模型并把参考图传给它，
+        没有这样的模型时退回只传文字，结果的 warning 里写明。视频：第一张作为首帧（图生视频），
+        只传给带 image_edit 标签的视频模型。音乐和语音不用参考图。"""
         existing = self._jobs(where)
         last = existing[-1] if existing else None
         if last and last["state"] == "completed" and last["file_id"]:
             return self._result(last, len(existing))
         refs = list(references)[: self.rules.references.max] if kind == "image" else []
+        frames = list(references)[:1] if kind == "video" else []
         model = self.model_for(kind, tier, text=prompt, references=bool(refs))
         if model is None:
             return MediaResult(False, kind, error=self.unavailable_reason(kind, tier))
         text = self.scrubber.scrub(prompt).strip()
         if kind == "speech":
             text = text[: self.rules.speech.max_chars]
+        elif kind == "music":
+            text = text[: self.rules.music.max_chars]
         else:
             text = text[: self.rules.prompt_max_chars]
         if not text:
             return MediaResult(False, kind, error="生成提示词为空")
         if kind == "video":
-            return await self._video(model, text, where, existing)
+            if "image_edit" not in model.tags:
+                frames = []
+            return await self._video(model, text, where, existing, frames)
         # 一个模型失败后换同档的其他模型重试（带参考图时先试支持参考图的）
         result = MediaResult(False, kind, error="生成失败")
         for candidate in self._candidates(kind, model, tier, bool(refs)):
@@ -293,6 +306,9 @@ class MediaService:
                     **m.params_for(route),
                 },
             ),
+            "music": lambda prov, route, m: prov.generate_music(
+                route.model, text, {"format": self.rules.music.format, **m.params_for(route)}
+            ),
         }[kind]
         try:
             inv = await self.router.invoke(model.id, style)
@@ -307,6 +323,10 @@ class MediaService:
             fallback = image_cost(
                 model, inv.route, len(medias), out.input_tokens, out.output_tokens
             )
+        elif kind == "music":
+            medias = [out.media]
+            reported, tokens = out.cost_usd, (0, 0)
+            fallback = unit_cost(model, inv.route, songs=1)
         else:
             medias = [out.media]
             reported, tokens = out.cost_usd, (0, 0)
@@ -321,6 +341,12 @@ class MediaService:
         else:
             cost, source = estimate_cost(model.price_for(inv.route), *tokens), "estimated"
         file_ids = [self._store(m, kind, where, i) for i, m in enumerate(medias, 1)]
+        params: dict[str, Any] = {"extra_files": file_ids[1:]}
+        if warning:
+            params["warning"] = warning
+        lyrics = getattr(out, "text", "") if kind == "music" else ""
+        if lyrics:
+            params["lyrics"] = lyrics[: self.rules.prompt_max_chars]
         self.repo.update_media_job(
             job_id,
             state="completed",
@@ -328,7 +354,7 @@ class MediaService:
             route_model=inv.route.model,
             cost_usd=cost,
             file_id=file_ids[0],
-            params={"extra_files": file_ids[1:], **({"warning": warning} if warning else {})},
+            params=params,
         )
         self._record_call(model, text, where, inv, cost, source, tokens)
         self._event("media_done", where, kind=kind)
@@ -338,7 +364,12 @@ class MediaService:
     # --- 视频（异步任务）---------------------------------------------------------------
 
     async def _video(
-        self, model: ModelSpec, text: str, where: Placement, existing: list[dict[str, Any]]
+        self,
+        model: ModelSpec,
+        text: str,
+        where: Placement,
+        existing: list[dict[str, Any]],
+        frames: Sequence[Media] = (),
     ) -> MediaResult:
         rules = self.rules.video
         max_attempts = rules.submit_retries + 1
@@ -358,7 +389,7 @@ class MediaService:
                     )  # fmt: skip
                 job_id = self._new_job("video", model, text, where, len(jobs) + 1)
                 self._event("media_started", where, kind="video")
-                if not await self._submit(model, text, job_id, where):
+                if not await self._submit(model, text, job_id, where, frames):
                     jobs = self._jobs(where)
                     continue
             elif not last["external_id"]:
@@ -377,18 +408,26 @@ class MediaService:
                 return done
             jobs = self._jobs(where)
 
-    async def _submit(self, model: ModelSpec, text: str, job_id: int, where: Placement) -> bool:
+    async def _submit(
+        self,
+        model: ModelSpec,
+        text: str,
+        job_id: int,
+        where: Placement,
+        frames: Sequence[Media] = (),
+    ) -> bool:
         rules = self.rules.video
         base = {
             "duration": rules.duration_s,
             "resolution": rules.resolution,
             "aspect_ratio": rules.aspect_ratio,
+            "generate_audio": rules.audio,
         }
         try:
             inv = await self.router.invoke(
                 model.id,
                 lambda prov, route, m: prov.submit_video(
-                    route.model, text, {**base, **m.params_for(route)}
+                    route.model, text, {**base, **m.params_for(route)}, images=tuple(frames)
                 ),
             )
         except (AllChannelsFailed, NoChannelAvailable):
@@ -485,7 +524,7 @@ class MediaService:
 
     def _store(self, media: Media, kind: str, where: Placement, n: int) -> str:
         ext = EXT.get(media.mime) or media.mime.split("/")[-1][:5]
-        stem = {"image": "image", "speech": "speech", "video": "video"}[kind]
+        stem = {"image": "image", "speech": "speech", "video": "video", "music": "music"}[kind]
         suffix = f"_{n}" if n > 1 else ""
         path = f"{stem}_r{where.round_no}{suffix}.{ext}"
         if where.subtask:

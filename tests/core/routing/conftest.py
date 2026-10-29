@@ -28,7 +28,7 @@ POOL = [
 MANAGERS = ("f1", "f2")
 
 
-# 媒体模型（不上桌）：图片 / 语音 / 转写 / 视频，各有便宜档与高质量档
+# 媒体模型（不上桌）：图片 / 语音 / 转写 / 视频 / 音乐，各有便宜档与高质量档
 MEDIA_MODELS = [
     ("mi1", "VM1", "budget", ["image_gen"], {"unit": "image", "usd": 0.04}),
     ("mi2", "VM2", "flagship", ["image_gen", "image_edit"], {"unit": "image", "usd": 0.20}),
@@ -36,6 +36,7 @@ MEDIA_MODELS = [
     ("ms1", "VM4", "budget", ["stt"], {"unit": "minute", "usd": 0.006}),
     ("mv1", "VM5", "budget", ["video_gen"], {"unit": "second", "usd": 0.10}),
     ("mv2", "VM6", "flagship", ["video_gen"], {"unit": "second", "usd": 0.40}),
+    ("mm1", "VM7", "budget", ["music_gen"], {"unit": "song", "usd": 0.04}),
 ]
 
 
