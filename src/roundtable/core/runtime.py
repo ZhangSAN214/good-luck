@@ -44,6 +44,8 @@ EVOLUTION_DIR = "evolution"
 MAIL_DIR = "mail_browser"
 # 聊天 / 朋友圈里用户发的图片、视频、语音（放在数据库旁边，不进 git）
 CHAT_MEDIA_DIR = "chat_media"
+# 成员自己上网的隔离浏览器资料夹，每位成员一个（登录状态在里面；放在数据库旁边，不进 git）
+WANDER_DIR = "wander"
 # 感官整理出的感知卡和转写稿缓存（放在数据库旁边，不进 git）
 PERCEPTION_DIR = "perception"
 
@@ -95,6 +97,8 @@ class Runtime:
     nowplaying_source: Any | None = None
     # 投屏陪伴的画面来源 {"pc": ..., "android": ...}（测试中注入假的；为空时用电脑截屏和 adb）
     screen_sources: dict[str, Any] | None = None
+    # 成员自己上网的浏览器（测试中注入一个返回假浏览器的函数；为空时用电脑上的 Edge / Chrome）
+    wander_web: Any | None = None
     # 聊天 / 朋友圈的图片、视频、语音所在目录；为空表示不能存（内存数据库）
     chat_media_dir: Path | None = None
     # 感官的感知卡与转写稿缓存（docs/PERCEPTION.md）；为空时只缓存在内存里（内存数据库）

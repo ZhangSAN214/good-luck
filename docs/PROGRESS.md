@@ -255,6 +255,15 @@
 - 每月上限 $1.5（`chat.watch`，不占聊天 $5），隐藏会话 `watch`；感知事件 `perceive.screen`。见 `docs/WATCH.md`。
 - 测试：`tests/core/screen/test_watch.py`、`tests/api/test_watch_api.py`、`tests/web/test_e2e_watch.py`。
 
+### 成员自己上网 · 第一期 ①（2026-10-29，预估 5～7 小时，实际约 2 小时）
+
+用户要「哪怕我不投屏她们也可以自行进行网上的各项事宜」（方案功能一，第一期只看）：
+- 隔离浏览器（`core/wander/web.py`）：Playwright 驱动电脑上的 Edge / Chrome，每位成员一个资料夹 `data/wander/<成员>/`；只按链接打开白名单网站（B站、小黑盒、淘宝），跳去外站拦下。
+- 逛网站循环（`core/wander/wander.py`）：每页交成员（`wander/v1`）说一句感想、决定打开 / 搜索 / 返回 / 结束；同一时间一位、每次最多 12 页 10 分钟；浏览记录在隐藏会话 `wander:<成员>`，小结发 `perceive.web`。
+- 心跳上登记自动出门（醒着、闲着、10～23 点、每人每天 1 次）；生活每日上限 $0.10 → $0.15。
+- 顶栏「上网」面板；接口 `/api/wander/*`。见 `docs/WANDER.md`。
+- 测试：`tests/core/wander/`（含本机真浏览器冒烟测试）、`tests/api/test_wander_api.py`、`tests/web/test_e2e_wander.py`。
+
 ## 下一步
 
 0. 你本机试用办公室模式（单人办、开会、项目分工、预算单、绩效）、公寓楼和群聊；看看「员工」页底部的人才市场，决定要不要换人 / 改价格。合并 PR #6 / #7 / #8 需要你点头。
