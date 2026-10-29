@@ -12,9 +12,10 @@
 from __future__ import annotations
 
 import re
-from datetime import date, datetime, time, timedelta
+from datetime import date, datetime, time, timedelta, tzinfo
 from typing import Any
 
+from roundtable.core.hometz import home_zone
 from roundtable.core.member.memory.store import query_terms
 from roundtable.core.member.mode import Mode, require_life
 from roundtable.core.storage.repository import iso
@@ -24,8 +25,9 @@ _DATE = re.compile(r"(?:(\d{4})[-/年])?(\d{1,2})[-/月](\d{1,2})日?")
 _SPLIT = re.compile(r"[\s,，、;；。.!！?？]+")
 
 
-def _local_day_window(today: date) -> tuple[str, str]:
-    start = datetime.combine(today, time(0)).astimezone()
+def _local_day_window(today: date, tz: tzinfo | None = None) -> tuple[str, str]:
+    start = datetime.combine(today, time(0), tzinfo=tz) if tz else datetime.combine(today, time(0))
+    start = start.astimezone(tz)
     return iso(start), iso(start + timedelta(days=1))
 
 
@@ -38,14 +40,14 @@ class DiaryTool:
         return self.rt.config.roundtable.chat.memory.diary
 
     def _today(self) -> date:
-        return self.rt.budget.now().astimezone().date()
+        return self.rt.budget.now().astimezone(home_zone(self.rt).tz()).date()
 
     def remaining(self, member: str, mode: Mode | str = Mode.LIFE) -> int:
         require_life(mode)
         mem = self.rt.config.roundtable.chat.memory
         if not (mem.enabled and self.rules.enabled):
             return 0
-        start, end = _local_day_window(self._today())
+        start, end = _local_day_window(self._today(), home_zone(self.rt).tz())
         used = self.rt.repo.diary_reads_between(member, start, end)
         return max(self.rules.daily_reads - used, 0)
 

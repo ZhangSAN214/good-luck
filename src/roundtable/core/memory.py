@@ -23,6 +23,7 @@ from datetime import date, datetime, time, timedelta, tzinfo
 from typing import Any
 
 from roundtable.core.chat import SYSTEM, USER, USER_LABEL, ChatMember, call_member
+from roundtable.core.hometz import home_zone
 from roundtable.core.member.memory import MemoryStore, Recaller
 from roundtable.core.member.memory.night import apply, materials, nightly_links, parse
 from roundtable.core.member.memory.store import WORK_WORKFLOWS, headless
@@ -147,7 +148,7 @@ def memory_context(
         got = Recaller(rt).recall(
             member,
             query,
-            today=now.astimezone().date(),
+            today=now.astimezone(home_zone(rt).tz()).date(),
             now=now,
             conversation=conversation,
             budget_chars=max_chars,
