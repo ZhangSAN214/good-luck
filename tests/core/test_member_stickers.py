@@ -192,3 +192,30 @@ def test_memory_store_works_without_a_folder(tmp_path):
     asyncio.run(stickers.draw("OpenAI", "晚安"))
     assert stickers.file("OpenAI", "晚安")
     assert not (tmp_path / "stickers").exists()
+
+
+def test_setting_sheet_one_level_up_comes_first_then_member_art(tmp_path):
+    rt, fake, stickers = build(tmp_path)
+    card = rt.config.personas.sticker_cards["OpenAI"]
+    sheet = tmp_path / card.refs[0]
+    sheet.parent.mkdir(parents=True)
+    Image.new("RGB", (8, 8), "purple").save(sheet, "JPEG")
+    refs = stickers.references("OpenAI", card)
+    assert refs[0].name == sheet.name and len(refs) >= 2
+    # 往上只找一级：再往外的路径不认
+    outside = card.model_copy(update={"refs": ["../../etc/passwd"]})
+    assert all(r.name != "passwd" for r in stickers.references("OpenAI", outside))
+
+
+def test_caption_mismatch_in_text_seen_overrides_the_models_ok(tmp_path):
+    seen = json.dumps(
+        {"text_seen": "本尤不傻，真的", "caption_ok": True, "looks_ok": True, "problems": ""}
+    )
+    _, fake, stickers = build(tmp_path, check_text=seen, max_attempts=1)
+    row = asyncio.run(stickers.draw("OpenAI", "不傻"))
+    assert "本尤不傻" in row["problems"]
+    same = json.dumps(
+        {"text_seen": "本龙不傻 真的！", "caption_ok": True, "looks_ok": True, "problems": ""}
+    )
+    _, _, ok = build(tmp_path / "b", check_text=same, max_attempts=1)
+    assert asyncio.run(ok.draw("OpenAI", "不傻"))["problems"] == ""

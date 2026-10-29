@@ -235,11 +235,15 @@ class MemberStickers:
         root = self.rt.members_dir
         paths: list[Path] = []
         for rel in card.refs:
-            path = resolve_file(root, rel)
-            if path:
+            # 设定图可以放在素材目录里，也可以放在它的上一级（如 data/avatars/设定图/）
+            bases = (root, root.parent) if root is not None else ()
+            path = next((p for p in (resolve_file(b, rel) for b in bases) if p), None)
+            if path and path not in paths:
                 paths.append(path)
-        if not paths:
-            paths = _art_refs(root, member)
+        # 再补上素材里的立绘 / 小人 / 头像：设定图管配色和细节，小人图管 Q 版画风
+        for path in _art_refs(root, member):
+            if path not in paths:
+                paths.append(path)
         out = []
         for path in paths[:3]:
             try:
@@ -398,10 +402,15 @@ class MemberStickers:
             data = extract_json_object(completion.text)
         except JSONOutputError:
             return None
+        problems = str(data.get("problems") or "")[:120]
+        caption_ok = data.get("caption_ok") is True
+        seen = data.get("text_seen")
+        # 模型抄下来的字和配文对不上就算不合格（不全信它自己的判断）
+        if isinstance(seen, str) and _letters(seen) != _letters(spec.caption):
+            caption_ok = False
+            problems = problems or f"图上的字是「{seen[:20]}」，不是「{spec.caption}」"
         return Check(
-            caption_ok=data.get("caption_ok") is True,
-            looks_ok=data.get("looks_ok") is True,
-            problems=str(data.get("problems") or "")[:120],
+            caption_ok=caption_ok, looks_ok=data.get("looks_ok") is True, problems=problems
         )
 
     def _record(
@@ -439,6 +448,11 @@ class MemberStickers:
 
 
 # --- 图片处理 ----------------------------------------------------------------------
+
+
+def _letters(text: str) -> str:
+    """只留文字（去掉标点、空白、省略号），用来比对配文。"""
+    return "".join(ch for ch in text if ch.isalnum() or ch == "□")
 
 
 def _art_refs(root: Path | None, member: str) -> list[Path]:
