@@ -130,3 +130,18 @@
 - 花费：能力本身不花钱；拍一拍默认回一句（一次普通回复）；提示词多约 300 字。
 - 测试：`tests/core/test_chat_actions.py`、`tests/web/test_e2e_chat_actions.py`。
 
+
+## G11 转发卡片、朋友圈转发与表情包、生成结果的接入口（2026-10-29，聊天真人化第二批）
+
+同样只做「能发什么」和显示，发不发、什么时候发归成员系统（`ActionPolicy.moment_forward` 可接管）。不加迁移，全放 `meta`。
+
+- **卡片**（`meta.card`：kind = article / post / video、标题、网址、来源、摘要、发布时间、未核实）：微信式链接卡片，视频带播放角标，点开新窗口；只接受 http(s)。成员只看到文字占位「[链接] 标题」「[视频] 标题」「[帖子] 标题」，视频只有简介，提示词要求没看全文别装看过。
+  - 来源：成员上网分享（订阅源 / 搜索结果，`browse.share` 同时存 `share` 和 `card`）；订阅源新增「视频」类（YouTube 等视频站的 RSS，默认加了 NASA 视频频道）；`chat.actions.video_hosts` 里的网站一律算视频。
+  - 你在聊天或朋友圈里只发一个链接时自动变成卡片；不联网，订阅源里有这条就用它的标题，否则显示网址。
+- **转发**：右键（长按）消息 →「转发」→ 选群或私聊（成员之间的私聊只能看，不能转进去）。原样带上文字、图片、语音、表情包和卡片，以你的身份发出、标「转发」，那边的成员照常回应。`POST /api/chat/forward {id, room}`。
+- **朋友圈**（`moment_post` v3、`moment_comment` v3）：成员今天上网分享过东西时，按策略（默认一半，按事件 id 种子可复现，所有成员相同）发成「一句话 + 转发卡片」；发动态和评论都能用表情包，只发一个表情包时画成大表情。
+- **生成结果的接入口**（创作输出接好后用，本线程不做生成）：
+  - `chat_actions.generated_item(store, data, mime, sticker=)`：把生成的图片 / 动图存进本机聊天文件夹，变成一项普通的 `meta.media`（`generated: true`；`sticker: true` 时按表情包显示：大图、没有气泡）。
+  - `GroupChat.send_as(member, text, media=, card=)`：以成员身份在群聊 / 私聊发一条（成员看到「[表情]」「[图片]」占位）。
+  - `Moments.publish(member, text, media=, card=)`：以成员身份发一条朋友圈（配图、动图、转发卡片）。
+  - 两个接入口都不调用模型、不花钱；什么时候发由成员系统决定。

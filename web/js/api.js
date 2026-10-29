@@ -77,6 +77,7 @@ export const getChat = (after = 0, q = '', room = 'main') =>
   api(`/api/chat?room=${encodeURIComponent(room)}&after=${after}${q ? `&q=${encodeURIComponent(q)}` : ''}`);
 export const postChat = (text, room = 'main', media = [], quote = null) => api('/api/chat', { method: 'POST', body: { text, room, media, quote } });
 export const patChat = (member, room = 'main') => api('/api/chat/pat', { method: 'POST', body: { member, room } });
+export const forwardChat = (id, room = 'main') => api('/api/chat/forward', { method: 'POST', body: { id, room } });
 export const recallChat = (id, room = 'main') => api('/api/chat/recall', { method: 'POST', body: { id, room } });
 export const clearChat = (room = 'main') => api(`/api/chat?room=${encodeURIComponent(room)}`, { method: 'DELETE' });
 export const getChatRooms = () => api('/api/chat/rooms');
