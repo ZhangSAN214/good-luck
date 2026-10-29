@@ -58,5 +58,5 @@ def test_people_dialog_thinks_about_you_and_drops_a_view(serve, page):
     assert "从这几条来：「喜欢深夜写代码」" in text
     assert page.locator("#pp-rel [data-rthink]").count() == 0  # 每周一次
     page.click("#pp-rel [data-rdrop='0']")
-    page.wait_for_selector("#pp-rel [data-rdrop]")
+    page.wait_for_selector("#pp-rel [data-rdrop='1']", state="detached")  # 删完重画只剩一句
     assert "挺能熬" not in page.inner_text("#pp-rel")
