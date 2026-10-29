@@ -928,6 +928,62 @@ class EngineRules(_Strict):
     eval: EvalRules = EvalRules()
 
 
+class WatchRules(_Strict):
+    """投屏陪伴（docs/WATCH.md）：用户投屏给成员看，选几位陪着一起看。
+
+    画面只在明显变化、且离上次够久时才交给最便宜的识图模型转成文字；成员看的是文字。
+    花费计入总预算和这里的每月上限（不占聊天月预算）；用完就只陪聊、不看画面。
+    """
+
+    enabled: bool = True
+    monthly_usd: float = Field(default=1.5, ge=0)  # 一起看每月最多花多少（UTC 自然月）
+    max_watchers: int = Field(default=3, ge=1, le=6)  # 最多几位一起看
+    grab_seconds: float = Field(default=3, ge=1, le=60)  # 多久截一张（只在内存里）
+    change_threshold: float = Field(default=0.06, gt=0, le=1)  # 画面变化超过这个比例才算变了
+    describe_gap_seconds: float = Field(default=20, ge=5, le=600)  # 两次看画面至少隔多久
+    describes_per_hour: int = Field(default=90, ge=1, le=720)  # 每小时最多看几次画面
+    max_side: int = Field(default=1024, ge=320, le=2048)  # 交给模型的画面最长边（像素）
+    jpeg_quality: int = Field(default=70, ge=30, le=95)
+    describe_max_tokens: int = Field(default=300, ge=64, le=2000)
+    describe_estimate_usd: float = Field(default=0.002, ge=0)
+    recent_screens: int = Field(default=3, ge=1, le=10)  # 发给成员的最近几段画面描述
+    react_gap_seconds: float = Field(default=90, ge=10, le=3600)  # 同一位成员主动说话至少隔多久
+    room_gap_seconds: float = Field(default=40, ge=5, le=3600)  # 没人说话时，大家主动说话至少隔多久
+    history_messages: int = Field(default=16, ge=2, le=100)
+    max_tokens: int = Field(default=400, ge=64)
+    max_chars: int = Field(default=200, ge=20, le=2000)  # 陪看时每句最多保留多少字
+    estimate_usd: float = Field(default=0.002, ge=0)  # 每句的预估花费
+    max_minutes: int = Field(default=240, ge=5, le=24 * 60)  # 一次投屏最长多久，到时自动停
+    max_failures: int = Field(default=5, ge=1, le=100)  # 连续几次截不到画面就停
+    # 前台窗口标题 / 进程名、安卓前台包名含这些字时暂停（不截、不看），不分大小写
+    sensitive: list[str] = Field(
+        default_factory=lambda: [
+            "支付宝",
+            "alipay",
+            "银行",
+            "bank",
+            "paypal",
+            "wallet",
+            "钱包",
+            "密码",
+            "password",
+            "1password",
+            "bitwarden",
+            "keepass",
+            "lastpass",
+            "验证码",
+            "com.chinamworld",
+            "com.icbc",
+            "cmb.pb",
+            "com.unionpay",
+        ],
+        max_length=100,
+    )
+    # adb 可执行文件（PATH 里的名字或完整路径）
+    adb: str = Field(default="adb", min_length=1, max_length=300)
+    scrcpy: str = Field(default="scrcpy", min_length=1, max_length=300)  # 流畅投屏窗口（可选）
+
+
 class ChatActionRules(_Strict):
     """聊天里能发什么（docs/CHAT.md「微信式动作」）：表情包、颜文字、引用、拆条、拍一拍、撤回。
 
@@ -958,6 +1014,8 @@ class ChatRules(_Strict):
     browse: BrowseRules = BrowseRules()
     moments: MomentsRules = MomentsRules()
     engine: EngineRules = EngineRules()
+    watch: WatchRules = WatchRules()
+
     actions: ChatActionRules = ChatActionRules()
     tier: Tier = "budget"  # 每位成员用这个档位的模型发言（没有就用该成员最便宜的）
     max_repliers: int = Field(default=2, ge=1, le=6)  # 没有 @ 人时，一条消息最多几位回应

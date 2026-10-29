@@ -18,7 +18,7 @@ def test_reads_members_and_resolves_images(tmp_path):
         "m1",
         "成员一",
         "小一",
-        "小一",
+        "成员一",
         "#3366cc",
     )
     assert m.images["avatar_circle_light"] == {
@@ -382,3 +382,10 @@ def test_public_room_scenes_are_listed_when_present(tmp_path):
     assert art.rooms["gym"]["room"] is None
     (root / "rooms" / "rooms.json").write_text("{坏", encoding="utf-8")
     assert load_members(root).rooms == {}
+
+
+def test_display_is_original_name_not_old_nickname(tmp_path):
+    extra = [{"id": "m2", "name": "Claude", "nickname": "克劳德", "vendor": "VendorB", "order": 2}]
+    art = load_members(write_assets(tmp_path, "VendorA", extra=extra))
+    m = art.members[1]
+    assert m.display == "Claude" and m.nickname == "克劳德"
