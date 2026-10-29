@@ -41,4 +41,4 @@ def test_report_counts_month_only_and_skill_ups():
     assert r["skill_ups"] == [{"domain": "学术", "from": 2, "to": 4}]
     text = "\n".join(lines(r))
     assert "好奇 3 → 4" in text and "学术 2 → 4 级" in text and "有经历的日子 12 天" in text
-    assert lines(r)[-1] == NOTE and "表现得像" in NOTE and "不等于她有主观体验" in NOTE
+    assert lines(r)[-1] == NOTE and "表现得像" in NOTE and "不等于 TA 有主观体验" in NOTE
