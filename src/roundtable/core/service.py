@@ -81,6 +81,7 @@ from roundtable.core.life import LIFE_STEPS, LifeEngine
 from roundtable.core.mail import MailAI, MailAIError, MailBox, MailBusy, OwaBrowser
 from roundtable.core.media import KIND_LABELS, KINDS, MediaService
 from roundtable.core.member import MemberEngine, ProfileError
+from roundtable.core.member.bus import Event as MemberEvent
 from roundtable.core.member.card import (
     card_patch,
     match_members,
@@ -880,6 +881,7 @@ class RoundtableService:
             "rooms": self.chats.rooms(),
             "members": [asdict(m) for m in self.chats.everyone()],
             "typing": self.chats.typing(),
+            "queued": self.chats.queued(),
             "budget": {"spent_usd": budget.spent_usd, "limit_usd": budget.limit_usd},
             "moments_unseen": self.rt.repo.unseen_moments(
                 int(self.rt.repo.setting(MOMENTS_SEEN) or 0)
@@ -924,6 +926,8 @@ class RoundtableService:
                 for r in rows
             ],
             "typing": list(chat.typing),
+            "queued": list(chat.queued),
+            "recall_seconds": self.rt.config.roundtable.chat.actions.recall_seconds,
         }
 
     # --- 聊天 / 朋友圈里的图片、视频、语音（只存本机） ------------------------------
@@ -962,9 +966,13 @@ class RoundtableService:
         return f"{text}\n{tag}", meta | {"caption": text}
 
     async def chat_post(
-        self, text: str, room: str = ROOM, media: list[dict] | None = None
+        self,
+        text: str,
+        room: str = ROOM,
+        media: list[dict] | None = None,
+        quote: int | None = None,
     ) -> dict[str, Any]:
-        """用户发一条消息（可带图片 / 视频 / 语音）；被选中的成员在后台依次回应。"""
+        """用户发一条消息（可带图片 / 视频 / 语音，可引用一条消息）；被选中的成员在后台依次回应。"""
         chat = self._chat_room(room)
         if chat.kind == "pair":
             raise ServiceError("这是成员之间的私聊，你只能看，不能发言")
@@ -974,15 +982,56 @@ class RoundtableService:
         text, meta = self._media_meta(text, media)
         if not text:
             raise ServiceError("消息不能为空")
-        msg, speakers = chat.post(text, meta)
+        try:
+            msg, speakers = chat.post(text, meta, quote)
+        except ValueError as exc:
+            raise ServiceError(str(exc)) from None
         self.rt.repo.mark_chat_read(chat.room, msg["id"])
         with contextlib.suppress(Exception):  # 状态出错不影响聊天
             self.engine.observe(self.rt.budget.now())  # 被 @、被批评的反射在回应前算进状态
-        if speakers:
-            task = asyncio.get_running_loop().create_task(chat.replies(msg["id"], speakers))
-            self._chat_tasks.add(task)
-            task.add_done_callback(self._chat_tasks.discard)
+        self._chat_replies(chat, msg["id"], speakers)
         return {"id": msg["id"], "speakers": [m.name for m in speakers]}
+
+    def _chat_replies(self, chat: Any, reply_to: int, speakers: list[Any]) -> None:
+        if not speakers:
+            return
+        coro = chat.replies(reply_to, speakers, chat.round)
+        task = asyncio.get_running_loop().create_task(coro)
+        self._chat_tasks.add(task)
+        task.add_done_callback(self._chat_tasks.discard)
+
+    async def chat_pat(self, member: str, room: str = ROOM) -> dict[str, Any]:
+        """拍一拍会话里的一位成员：发 chat.pat 事件给成员系统，按策略（默认回一句）让 TA 回应。"""
+        chat = self._chat_room(room)
+        if chat.kind == "pair":
+            raise ServiceError("这是成员之间的私聊，你只能看")
+        try:
+            msg = chat.pat(member)
+        except ValueError as exc:
+            raise ServiceError(str(exc)) from None
+        self.rt.repo.mark_chat_read(chat.room, msg["id"])
+        now = self.rt.budget.now()
+        self.engine.bus.publish(
+            MemberEvent(
+                "chat.pat", now, member, {"room": chat.room, "id": msg["id"], "actor": "user"}
+            )
+        )
+        target = next((m for m in chat.members() if m.id == member and m.available), None)
+        speakers = []
+        if target is not None and self.chats.policy.reply_to_pat(member, chat.kind):
+            speakers = [target]
+            chat.round += 1  # 拍一拍也算新的一轮：上一轮还没发出的按策略作废
+        self._chat_replies(chat, msg["id"], speakers)
+        return {"id": msg["id"], "text": msg["text"], "speakers": [m.name for m in speakers]}
+
+    def chat_recall(self, message_id: int, room: str = ROOM) -> dict[str, Any]:
+        """撤回你自己发的一条消息（发出后几分钟内）。"""
+        chat = self._chat_room(room)
+        try:
+            row = chat.recall(message_id, self.rt.budget.now())
+        except ValueError as exc:
+            raise ServiceError(str(exc)) from None
+        return {"id": row["id"], "recalled": True}
 
     def chat_handoff(self, text: str) -> dict[str, Any]:
         """在工作群里交办：按办公室模式（默认档位）开一件事，工作群里记下这条交办。"""
