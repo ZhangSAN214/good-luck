@@ -1264,6 +1264,339 @@ class Repository:
             return self._exec("DELETE FROM member_memories").rowcount
         return self._exec("DELETE FROM member_memories WHERE member = ?", (member,)).rowcount
 
+    # --- 记忆与联想（P2，迁移 25；只存本机） ------------------------------------
+
+    _ITEM_COLS = (
+        "member, text, kind, domain, importance, tone, day, source, source_key, hits,"
+        " first_at, last_at"
+    )
+
+    def add_memory_item(
+        self,
+        member: str,
+        text: str,
+        *,
+        day: str,
+        kind: str = "episode",
+        domain: str = "日常",
+        importance: int = 1,
+        source: str = "night",
+        source_key: str | None = None,
+        at: str | None = None,
+    ) -> dict[str, Any] | None:
+        """新增一件记忆；source_key 已存在时不重复写，返回 None。"""
+        now = at or self.clock()
+        with self._tx():
+            cur = self.conn.execute(
+                f"INSERT OR IGNORE INTO memory_items ({self._ITEM_COLS})"
+                " VALUES (?, ?, ?, ?, ?, '', ?, ?, ?, 1, ?, ?)",
+                (member, text, kind, domain, importance, day, source, source_key, now, now),
+            )
+            if not cur.rowcount:
+                return None
+            self.conn.execute(
+                "INSERT INTO memory_items_fts (rowid, text, member) VALUES (?, ?, ?)",
+                (cur.lastrowid, text, member),
+            )
+        return self.memory_item(cur.lastrowid)
+
+    def add_memory_items_bulk(self, rows: Sequence[Mapping[str, Any]]) -> int:
+        """批量写入（导入旧记忆、压力测试用）。
+
+        每行要有 member / text / day，其余同 add_memory_item。
+        """
+        now = self.clock()
+        with self._tx():
+            n = 0
+            for r in rows:
+                at = r.get("at") or now
+                cur = self.conn.execute(
+                    f"INSERT OR IGNORE INTO memory_items ({self._ITEM_COLS})"
+                    " VALUES (?, ?, ?, ?, ?, '', ?, ?, ?, 1, ?, ?)",
+                    (
+                        r["member"],
+                        r["text"],
+                        r.get("kind", "episode"),
+                        r.get("domain", "日常"),
+                        r.get("importance", 1),
+                        r["day"],
+                        r.get("source", "import"),
+                        r.get("source_key"),
+                        at,
+                        at,
+                    ),
+                )
+                if cur.rowcount:
+                    self.conn.execute(
+                        "INSERT INTO memory_items_fts (rowid, text, member) VALUES (?, ?, ?)",
+                        (cur.lastrowid, r["text"], r["member"]),
+                    )
+                    n += 1
+        return n
+
+    def memory_item(self, item_id: int) -> dict[str, Any] | None:
+        row = self._exec("SELECT * FROM memory_items WHERE id = ?", (item_id,)).fetchone()
+        return dict(row) if row else None
+
+    def memory_item_by_key(self, member: str, source_key: str) -> dict[str, Any] | None:
+        row = self._exec(
+            "SELECT * FROM memory_items WHERE member = ? AND source_key = ?", (member, source_key)
+        ).fetchone()
+        return dict(row) if row else None
+
+    def memory_items_by_ids(self, ids: Sequence[int]) -> list[dict[str, Any]]:
+        if not ids:
+            return []
+        marks = ",".join("?" * len(ids))
+        rows = self._exec(f"SELECT * FROM memory_items WHERE id IN ({marks})", tuple(ids))
+        return [dict(r) for r in rows.fetchall()]
+
+    def memory_items(
+        self,
+        member: str,
+        *,
+        kind: str | None = None,
+        min_importance: int = 1,
+        since_day: str | None = None,
+        day: str | None = None,
+        current: bool = True,
+        limit: int = 200,
+        offset: int = 0,
+    ) -> list[dict[str, Any]]:
+        """最近的在前。current：只要没被更新掉的件。"""
+        sql = "SELECT * FROM memory_items WHERE member = ? AND importance >= ?"
+        params: list[Any] = [member, min_importance]
+        if kind is not None:
+            sql += " AND kind = ?"
+            params.append(kind)
+        if since_day is not None:
+            sql += " AND day >= ?"
+            params.append(since_day)
+        if day is not None:
+            sql += " AND day = ?"
+            params.append(day)
+        if current:
+            sql += " AND superseded_by IS NULL"
+        sql += " ORDER BY last_at DESC, id DESC LIMIT ? OFFSET ?"
+        rows = self._exec(sql, (*params, limit, offset)).fetchall()
+        return [dict(r) for r in rows]
+
+    def search_memory_items(self, member: str, terms: Sequence[str], limit: int) -> list[int]:
+        """全文索引里含任一三字片段的件（按匹配程度），只返回 id。"""
+        quoted = [t.replace('"', "") for t in terms if len(t) >= 3]
+        quoted = [f'"{t}"' for t in quoted if t]
+        if not quoted:
+            return []
+        rows = self._exec(
+            "SELECT rowid FROM memory_items_fts WHERE memory_items_fts MATCH ? AND member = ?"
+            " ORDER BY rank LIMIT ?",
+            (" OR ".join(quoted), member, limit),
+        ).fetchall()
+        return [r[0] for r in rows]
+
+    def like_memory_items(self, member: str, words: Sequence[str], limit: int) -> list[int]:
+        """含任一两字词的件（三字片段索引查不到两字词时补上），从新到旧最多 limit 件。"""
+        words = [w for w in words if w]
+        if not words:
+            return []
+        cond = " OR ".join("text LIKE ?" for _ in words)
+        rows = self._exec(
+            f"SELECT id FROM memory_items WHERE member = ? AND ({cond}) ORDER BY id DESC LIMIT ?",
+            (member, *[f"%{w}%" for w in words], limit),
+        ).fetchall()
+        return [r[0] for r in rows]
+
+    def count_memory_items(self, member: str | None = None) -> int:
+        if member is None:
+            return self._exec("SELECT COUNT(*) FROM memory_items").fetchone()[0]
+        return self._exec(
+            "SELECT COUNT(*) FROM memory_items WHERE member = ?", (member,)
+        ).fetchone()[0]
+
+    def memory_item_stats(self, member: str) -> list[dict[str, Any]]:
+        """全部经历按领域的件数和合并次数（随身卡的习惯用；一条 SQL，不读全部行）。"""
+        rows = self._exec(
+            "SELECT domain, COUNT(*) AS items, SUM(hits) AS hits FROM memory_items"
+            " WHERE member = ? AND superseded_by IS NULL GROUP BY domain ORDER BY hits DESC",
+            (member,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def top_memory_items(self, member: str, *, limit: int, min_hits: int = 2) -> list[dict]:
+        """全部经历里合并次数最多的件（常做的事、反复提到的喜好）。"""
+        rows = self._exec(
+            "SELECT * FROM memory_items WHERE member = ? AND superseded_by IS NULL"
+            " AND hits >= ? ORDER BY hits DESC, last_at DESC LIMIT ?",
+            (member, min_hits, limit),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def bump_memory_item(self, item_id: int, at: str) -> None:
+        """相似的事又发生了一次：合并计数，更新最近一次的时间（原文不改）。"""
+        self._exec(
+            "UPDATE memory_items SET hits = hits + 1, last_at = ? WHERE id = ?", (at, item_id)
+        )
+
+    def revise_memory_item(self, item_id: int, field: str, new: Any, reason: str) -> bool:
+        """改重要度 / 回忆语气 / 原文（原文只有用户能改），旧值留在 memory_revisions。"""
+        if field not in ("importance", "tone", "text", "kind", "domain"):
+            raise ValueError(f"不能改 {field}")
+        row = self.memory_item(item_id)
+        if row is None or str(row[field]) == str(new):
+            return False
+        now = self.clock()
+        with self._tx():
+            self.conn.execute(
+                "INSERT INTO memory_revisions (item_id, at, field, old, new, reason)"
+                " VALUES (?, ?, ?, ?, ?, ?)",
+                (item_id, now, field, str(row[field]), str(new), reason),
+            )
+            self.conn.execute(f"UPDATE memory_items SET {field} = ? WHERE id = ?", (new, item_id))
+            if field == "text":
+                self.conn.execute(
+                    "UPDATE memory_items_fts SET text = ? WHERE rowid = ?", (new, item_id)
+                )
+        return True
+
+    def supersede_memory_item(self, old_id: int, new_id: int) -> None:
+        self._exec("UPDATE memory_items SET superseded_by = ? WHERE id = ?", (new_id, old_id))
+
+    def memory_revisions(self, item_id: int) -> list[dict[str, Any]]:
+        rows = self._exec(
+            "SELECT * FROM memory_revisions WHERE item_id = ? ORDER BY id", (item_id,)
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def mark_items_recalled(self, notes: Mapping[int, str]) -> None:
+        now = self.clock()
+        with self._tx():
+            for item_id, note in notes.items():
+                self.conn.execute(
+                    "UPDATE memory_items SET recalled_at = ?, recall_note = ? WHERE id = ?",
+                    (now, note, item_id),
+                )
+
+    def delete_memory_item(self, item_id: int) -> bool:
+        with self._tx():
+            n = self.conn.execute("DELETE FROM memory_items WHERE id = ?", (item_id,)).rowcount
+            self.conn.execute("DELETE FROM memory_items_fts WHERE rowid = ?", (item_id,))
+            self.conn.execute("DELETE FROM memory_revisions WHERE item_id = ?", (item_id,))
+            self.conn.execute("DELETE FROM memory_links WHERE a = ? OR b = ?", (item_id, item_id))
+        return n > 0
+
+    # 挂着的事
+
+    def memory_hanging(self, member: str, status: str = "open") -> list[dict[str, Any]]:
+        rows = self._exec(
+            "SELECT * FROM memory_hanging WHERE member = ? AND status = ? ORDER BY since, id",
+            (member, status),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def add_memory_hanging(self, member: str, text: str, domain: str, since: str) -> int:
+        cur = self._exec(
+            "INSERT INTO memory_hanging (member, text, domain, status, since, updated_at)"
+            " VALUES (?, ?, ?, 'open', ?, ?)",
+            (member, text, domain, since, self.clock()),
+        )
+        return cur.lastrowid
+
+    def close_memory_hanging(self, hanging_id: int, status: str) -> bool:
+        return (
+            self._exec(
+                "UPDATE memory_hanging SET status = ?, updated_at = ? WHERE id = ?",
+                (status, self.clock(), hanging_id),
+            ).rowcount
+            > 0
+        )
+
+    # 全量经历的习惯摘要
+
+    def memory_digest(self, member: str) -> dict[str, Any] | None:
+        row = self._exec("SELECT * FROM memory_digest WHERE member = ?", (member,)).fetchone()
+        if row is None:
+            return None
+        return dict(row) | {"stats": json.loads(row["stats"])}
+
+    def set_memory_digest(self, member: str, text: str, stats: Mapping[str, Any]) -> None:
+        self._exec(
+            "INSERT INTO memory_digest (member, text, stats, updated_at) VALUES (?, ?, ?, ?)"
+            " ON CONFLICT(member) DO UPDATE SET text = excluded.text, stats = excluded.stats,"
+            " updated_at = excluded.updated_at",
+            (member, text, _json(dict(stats)), self.clock()),
+        )
+
+    # 翻日记
+
+    def add_diary_read(self, member: str, at: str, query: str, found: int) -> None:
+        self._exec(
+            "INSERT INTO memory_diary_reads (member, at, query, found) VALUES (?, ?, ?, ?)",
+            (member, at, query, found),
+        )
+
+    def diary_reads_between(self, member: str, start: str, end: str) -> int:
+        return self._exec(
+            "SELECT COUNT(*) FROM memory_diary_reads WHERE member = ? AND at >= ? AND at < ?",
+            (member, start, end),
+        ).fetchone()[0]
+
+    def search_diaries(self, member: str, words: Sequence[str], limit: int) -> list[dict]:
+        """成员自己的日记（member_memories 的 day 层）里含任一关键词的，新的在前。"""
+        words = [w for w in words if w]
+        if not words:
+            return []
+        cond = " OR ".join("text LIKE ?" for _ in words)
+        rows = self._exec(
+            f"SELECT * FROM member_memories WHERE member = ? AND layer = 'day' AND ({cond})"
+            " ORDER BY period DESC LIMIT ?",
+            (member, *[f"%{w}%" for w in words], limit),
+        ).fetchall()
+        return [_memory_row(r) for r in rows]
+
+    # 训练数据（不过期）
+
+    def add_memory_train(self, member: str, kind: str, data: Mapping[str, Any]) -> None:
+        self._exec(
+            "INSERT INTO memory_train (at, member, kind, data) VALUES (?, ?, ?, ?)",
+            (self.clock(), member, kind, _json(dict(data))),
+        )
+
+    def memory_train(self, member: str | None = None, limit: int = 1000) -> list[dict]:
+        sql, params = "SELECT * FROM memory_train", []
+        if member is not None:
+            sql += " WHERE member = ?"
+            params.append(member)
+        rows = self._exec(sql + " ORDER BY id DESC LIMIT ?", (*params, limit)).fetchall()
+        return [dict(r) | {"data": json.loads(r["data"])} for r in rows]
+
+    def clear_memory_p2(self, member: str | None = None) -> int:
+        """一键清空记忆件、改动记录、挂着的事、联想网、习惯摘要、翻日记记录和训练数据。"""
+        tables = (
+            "memory_items",
+            "memory_hanging",
+            "memory_links",
+            "memory_digest",
+            "memory_diary_reads",
+            "memory_train",
+        )
+        n = 0
+        with self._tx():
+            if member is None:
+                self.conn.execute("DELETE FROM memory_revisions")
+                self.conn.execute("DELETE FROM memory_items_fts")
+                for t in tables:
+                    n += self.conn.execute(f"DELETE FROM {t}").rowcount
+            else:
+                self.conn.execute(
+                    "DELETE FROM memory_revisions WHERE item_id IN"
+                    " (SELECT id FROM memory_items WHERE member = ?)",
+                    (member,),
+                )
+                self.conn.execute("DELETE FROM memory_items_fts WHERE member = ?", (member,))
+                for t in tables:
+                    n += self.conn.execute(f"DELETE FROM {t} WHERE member = ?", (member,)).rowcount
+        return n
+
     def add_life_event(
         self,
         at: str,

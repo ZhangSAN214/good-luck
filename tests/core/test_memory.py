@@ -20,6 +20,20 @@ from .orchestrator.conftest import Env
 NOW = datetime(2026, 10, 23, 12, 0, tzinfo=UTC)  # 星期五，第 43 周
 
 
+def rules_env(**memory: object) -> Env:
+    rules = Env().config.roundtable.chat
+    return Env(
+        rt_update={
+            "chat": rules.model_copy(update={"memory": rules.memory.model_copy(update=memory)})
+        }
+    )
+
+
+def layers_env() -> Env:
+    """旧的分层记忆（recall: layers）：按天整理、周 / 月滚动、长期档案。"""
+    return rules_env(recall="layers")
+
+
 def keeper(env: Env) -> MemoryKeeper:
     hub = ChatHub(env.rt)
     return MemoryKeeper(env.rt, hub.everyone)
@@ -84,7 +98,7 @@ async def test_dm_of_someone_else_is_not_in_the_log():
 
 
 async def test_finished_weeks_and_months_roll_up_and_update_profile():
-    env = Env()
+    env = layers_env()
     repo = env.rt.repo
     repo.add_memory("V1", "day", "9 月 15 日的事", period="2026-09-15")
     repo.add_memory("V1", "day", "10 月 13 日的事", period="2026-10-13")
@@ -111,7 +125,7 @@ async def test_user_written_profile_is_kept():
 
 
 def test_memory_context_order_and_limit():
-    env = Env()
+    env = layers_env()
     repo = env.rt.repo
     assert memory_context(env.rt, "V1", 800) == "（暂无）"
     repo.add_memory("V1", "day", "前天", period="2026-10-21")
@@ -129,7 +143,7 @@ def test_memory_context_order_and_limit():
 
 
 async def test_chat_prompt_carries_memory_and_persona():
-    env = Env()
+    env = layers_env()
     env.rt.repo.add_memory("V1", "note", "用户说下周考试", source="user")
     env.rt.repo.set_member_persona("V1", {"personality": "爱较真", "interests": ["天文"]})
     dm = ChatHub(env.rt).room(dm_room("V1"))
@@ -155,11 +169,8 @@ async def test_memory_off_and_budget_block():
 
 
 def half_life_env() -> Env:
-    rules = Env().config.roundtable.chat
-    hl = rules.model_copy(
-        update={"memory": rules.memory.model_copy(update={"recall": "half_life"})}
-    )
-    return Env(rt_update={"chat": hl})
+    """半衰期记忆，但不用夜间一次调用（旧的 memory_items 提示词）。"""
+    return rules_env(night=False)
 
 
 async def test_half_life_day_items_quota_and_star():
@@ -174,20 +185,26 @@ async def test_half_life_day_items_quota_and_star():
     assert "密码" not in mem["text"]
     (call,) = [c for c in env.fake.calls if "挑出值得以后记得的事" in c.messages[0].content]
     assert f"最多 {quota} 行" in call.messages[0].content
+    # 拆出来的几件也写进记忆件（★ 的是重要事实）
+    star = env.rt.repo.memory_items("V1", kind="fact")
+    assert [r["text"] for r in star] == ["用户说周末只想去爬山，不想逛街"]
+    assert star[0]["importance"] == 3
 
 
 async def test_half_life_recall_uses_conversation_and_records_why():
-    env = half_life_env()
+    env = Env()
     repo = env.rt.repo
-    star = repo.add_memory("V1", "day", "★用户说话喜欢简短", period="2026-08-01")
-    noodle = repo.add_memory("V1", "day", "和用户去了一兰拉面店", period="2026-09-01")
+    star = repo.add_memory_item(
+        "V1", "用户说话喜欢简短", day="2026-08-01", kind="fact", importance=3
+    )
+    noodle = repo.add_memory_item("V1", "和用户去了一兰拉面店", day="2026-09-01")
     for i in range(8):
-        repo.add_memory("V1", "day", f"整理了第{i}份文件", period=f"2026-10-1{i}")
+        repo.add_memory_item("V1", f"整理了第{i}份文件", day=f"2026-10-1{i}")
     text = memory_context(env.rt, "V1", 800, "上次那家拉面店叫什么")
     assert "【长期】用户说话喜欢简短" in text and "一兰拉面店" in text
-    assert len(text.splitlines()) == env.config.roundtable.chat.memory.inject_max
-    assert repo.memory(star["id"])["recall_note"] == "标了重要，总是记得"
-    got = repo.memory(noodle["id"])
+    assert len(text.splitlines()) <= env.config.roundtable.chat.memory.inject_max + 1
+    assert repo.memory_item(star["id"])["recall_note"] == "标了重要，总是记得"
+    got = repo.memory_item(noodle["id"])
     assert "『拉面店』" in got["recall_note"] and got["recalled_at"]
     # 聊天时用当前对话召回
     dm = ChatHub(env.rt).room(dm_room("V1"))
@@ -197,9 +214,25 @@ async def test_half_life_recall_uses_conversation_and_records_why():
     assert "一兰拉面店" in prompt
 
 
-def test_layers_mode_is_default_and_does_not_record_recall():
+def test_half_life_is_default_and_old_memories_are_imported_once():
     env = Env()
-    assert env.config.roundtable.chat.memory.recall == "layers"
+    rules = env.config.roundtable.chat.memory
+    assert rules.recall == "half_life" and rules.night and rules.freshness_floor == 0.5
+    repo = env.rt.repo
+    repo.add_memory("V1", "day", "★用户不吃香菜\n昨天去了图书馆", period="2026-10-22")
+    repo.add_memory("V1", "note", "用户下周考试", source="user")
+    text = memory_context(env.rt, "V1", 800, "图书馆")
+    assert "用户不吃香菜" in text and "图书馆" in text
+    facts = {r["text"]: r for r in repo.memory_items("V1", kind="fact")}
+    assert facts["用户不吃香菜"]["importance"] == 3 and facts["用户下周考试"]["source"] == "user"
+    n = repo.count_memory_items("V1")
+    repo.add_memory("V1", "note", "导入之后再加的", source="user")
+    memory_context(env.rt, "V1", 800, "")
+    assert repo.count_memory_items("V1") == n  # 只导入一次；之后用户记的经服务写进记忆件
+
+
+def test_layers_mode_does_not_record_recall():
+    env = layers_env()
     m = env.rt.repo.add_memory("V1", "day", "昨天", period="2026-10-22")
     memory_context(env.rt, "V1", 800, "昨天")
     assert env.rt.repo.memory(m["id"])["recalled_at"] is None
