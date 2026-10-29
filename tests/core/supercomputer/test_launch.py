@@ -33,6 +33,20 @@ def test_command_launcher_missing_tool():
     assert "没找到 agent" in lau.blocked(w)
 
 
+def test_command_launcher_finds_user_install(tmp_path, monkeypatch):
+    # Claude Code 的安装器装到 ~/.local/bin，但不一定加进 PATH
+    folder = tmp_path / ".local" / "bin"
+    folder.mkdir(parents=True)
+    (folder / "agent.exe").write_bytes(b"")
+    monkeypatch.setattr("pathlib.Path.home", lambda: tmp_path)
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "none"))
+    monkeypatch.setenv("PATH", str(tmp_path / "empty"))
+    w = SuperWorker(id="a", label="A", argv=["agent", "-p"])
+    lau = CommandLauncher(environ={})
+    assert lau.blocked(w) is None
+    assert lau.launch(w).argv == [str(folder / "agent.exe"), "-p"]
+
+
 async def test_hook_launcher():
     calls = []
 
