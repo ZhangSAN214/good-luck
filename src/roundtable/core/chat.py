@@ -18,9 +18,10 @@ import asyncio
 import random
 import re
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
+from roundtable.core.attachments.model import append_to_messages
 from roundtable.core.budget.guard import EPS, month_window
 from roundtable.core.chat_actions import (
     ActionPolicy,
@@ -30,9 +31,11 @@ from roundtable.core.chat_actions import (
     quote_meta,
     sticker_list,
 )
+from roundtable.core.member.memory.diary import TOOL, DiaryTool
 from roundtable.core.persona import EMPTY, chat_persona
 from roundtable.core.plain_talk import before_speaking, plain_prompt
-from roundtable.core.providers import AllChannelsFailed, NoChannelAvailable, ProviderError
+from roundtable.core.providers import AllChannelsFailed, Message, NoChannelAvailable, ProviderError
+from roundtable.core.tools.protocol import parse_calls, strip_calls
 
 ROOM = "main"  # 生活群
 WORK = "work"  # 工作群
@@ -55,16 +58,34 @@ EVERYONE_WORDS = (
 USER_LABEL = "用户"
 # 会话类型 → 提示词角色（roundtable.yaml 的 prompts）
 PROMPT_ROLES = {"group": "chat", "work": "chat_work", "dm": "chat_dm"}
+# 能翻日记的会话（生活模式的私聊和生活群；工作群不带）
+DIARY_KINDS = frozenset({"group", "dm"})
 
 
-def member_memory(rt: Any, member: str, query: str = "") -> str:
-    """聊天提示词里的记忆（关闭记忆时为「暂无」）。query：当前对话或场景，半衰期召回按它挑相关的。"""
+def with_diary_tool(rt: Any, prompt: Any, remaining: int) -> Any:
+    """接上翻日记工具的说明（所有成员同一段，只说今天还能翻几次）。"""
+    template = rt.prompts.get("memory_diary", rt.config.roundtable.prompts["memory_diary"])
+    messages = append_to_messages(prompt.messages, template, remaining=str(remaining))
+    return replace(prompt, messages=messages)
+
+
+def diary_followup(rt: Any, messages: Any, said: str, found: str) -> tuple[Message, ...]:
+    """把翻到的内容交回（<diary> 标签里），让她接着回复。"""
+    role = "memory_diary_result"
+    filled = rt.prompts.render(role, rt.config.roundtable.prompts[role], result=found)
+    extra = next(m.content for m in filled.messages if m.role == "user")
+    return (*messages, Message("assistant", said), Message("user", extra))
+
+
+def member_memory(rt: Any, member: str, query: str = "", conversation: str | None = None) -> str:
+    """聊天提示词里的记忆（关闭记忆时为「暂无」）。query：当前对话或场景，半衰期召回按它挑相关的；
+    conversation：会话，同一次对话里带过的记忆不再带。"""
     from roundtable.core.memory import NONE, memory_context  # memory 依赖本模块
 
     rules = rt.config.roundtable.chat.memory
     if not rules.enabled or rules.context_chars == 0:
         return NONE
-    return memory_context(rt, member, rules.context_chars, query)
+    return memory_context(rt, member, rules.context_chars, query, conversation)
 
 
 def dm_room(member_id: str) -> str:
@@ -457,7 +478,7 @@ class GroupChat:
             "name": member.name,
             # 工作群不带人物卡和人设（2026-10-29 用户：工作与生活分开）
             "persona": EMPTY if self.kind == "work" else chat_persona(rt, member.id),
-            "memory": member_memory(rt, member.id, history),
+            "memory": member_memory(rt, member.id, history, self.room),
             "history": history,
         }
         if self.kind != "dm":
@@ -473,11 +494,30 @@ class GroupChat:
             }
         prompt = rt.prompts.render(role, version, **variables)
         prompt = plain_prompt(rt.prompts, rt.config, prompt)
+        diary = DiaryTool(rt) if self.kind in DIARY_KINDS else None
+        reads = diary.remaining(member.id) if diary else 0
+        if reads:
+            prompt = with_diary_tool(rt, prompt, reads)
         session = rt.repo.chat_session(self.room)
         self.typing.append(member.name)
         self.on_change()
         try:
             completion = await rt.router.complete(member.model_id, prompt.messages, self.params())
+            call = next((c for c in parse_calls(completion.text) if c.name == TOOL), None)
+            found = diary.read(member.id, call.body) if diary and call else None
+            if found is not None:
+                rt.repo.record_call(
+                    session,
+                    step="chat",
+                    role="member",
+                    model_id=member.model_id,
+                    messages=prompt.messages,
+                    prompt=prompt,
+                    completion=completion,
+                )
+                messages = diary_followup(rt, prompt.messages, completion.text, found)
+                prompt = replace(prompt, messages=messages)
+                completion = await rt.router.complete(member.model_id, messages, self.params())
         except (AllChannelsFailed, NoChannelAvailable, ProviderError) as e:
             rt.repo.record_call(
                 session,
@@ -502,7 +542,7 @@ class GroupChat:
             prompt=prompt,
             completion=completion,
         )
-        text = clean_reply(completion.text, member.name, rules.max_chars)
+        text = clean_reply(strip_calls(completion.text), member.name, rules.max_chars)
         parsed = parse(
             text,
             stickers=acts.stickers if acts.enabled else {},
