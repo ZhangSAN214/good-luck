@@ -6,6 +6,7 @@
 // AI 总结 / 翻译只在你点了按钮、并同意把这封发给模型后才调用（每月有上限）。
 // 「显示图片」才去取图文版：在不能跑脚本的沙箱框里显示，外部图片默认拦着，你点了才加载。
 // 打开首页时和之后每 15 分钟顺便刷新一次（后端限制最短间隔），后台任务进行中每 1.5 秒问一次进度。
+import { homeDay, homeParts } from './hometz.js';
 
 const esc = (s) =>
   String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -28,10 +29,11 @@ const icon = (k) => `<svg class="ml-i" viewBox="0 0 24 24" aria-hidden="true">${
 export function when(iso, now = new Date()) {
   const t = new Date(iso);
   if (Number.isNaN(t.getTime())) return '';
-  const hm = `${pad(t.getHours())}:${pad(t.getMinutes())}`;
-  if (t.toDateString() === now.toDateString()) return hm;
-  if (t.getFullYear() === now.getFullYear()) return `${t.getMonth() + 1}月${t.getDate()}日 ${hm}`;
-  return `${t.getFullYear()}.${pad(t.getMonth() + 1)}.${pad(t.getDate())}`;
+  const p = homeParts(t); // 按主时区
+  const hm = `${pad(p.h)}:${pad(p.mi)}`;
+  if (homeDay(t) === homeDay(now)) return hm;
+  if (p.y === homeParts(now).y) return `${p.m}月${p.d}日 ${hm}`;
+  return `${p.y}.${pad(p.m)}.${pad(p.d)}`;
 }
 
 /** 提醒的截止时间（'YYYY-MM-DD' 或带 'THH:MM'，按你本机日历显示）。 */

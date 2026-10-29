@@ -31,7 +31,9 @@ from roundtable.core.chat_actions import (
     quote_meta,
     sticker_list,
 )
+from roundtable.core.hometz import home_zone
 from roundtable.core.member.memory.diary import TOOL, DiaryTool
+from roundtable.core.office.apartment import ACTIVITIES, PUBLIC_ROOMS, schedule
 from roundtable.core.persona import EMPTY, chat_persona
 from roundtable.core.plain_talk import before_speaking, plain_prompt
 from roundtable.core.providers import AllChannelsFailed, Message, NoChannelAvailable, ProviderError
@@ -62,6 +64,18 @@ HIDDEN_KINDS = frozenset({"watch", "wander"})
 PROMPT_ROLES = {"group": "chat", "work": "chat_work", "dm": "chat_dm"}
 # 能翻日记的会话（生活模式的私聊和生活群；工作群不带）
 DIARY_KINDS = frozenset({"group", "dm"})
+_WEEK = "一二三四五六日"
+
+
+def life_clock(rt: Any, member_id: str) -> str:
+    """按主时区说现在几点、这位成员这会儿通常在干什么（公寓作息，不调用模型）。"""
+    now = home_zone(rt).local(rt.budget.now())
+    room, act = schedule(member_id, now.hour, now.weekday())
+    where = "自己房间" if room == "dorm" else PUBLIC_ROOMS.get(room, room)
+    return (
+        f"{now.month}月{now.day}日 周{_WEEK[now.weekday()]} {now:%H:%M}，"
+        f"你这会儿一般在{where}{ACTIVITIES.get(act, act)}"
+    )
 
 
 def with_diary_tool(rt: Any, prompt: Any, remaining: int) -> Any:
@@ -492,6 +506,8 @@ class GroupChat:
             variables["members"] = (
                 "、".join(m.name for m in self.members() if m.id != member.id) or "（没有别人）"
             )
+        if "clock" in wants:
+            variables["clock"] = life_clock(rt, member.id)
         if numbered:
             variables |= {
                 "stickers": sticker_list(acts.stickers) if acts.enabled else "（这里不用表情包）",

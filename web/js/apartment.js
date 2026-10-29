@@ -7,6 +7,7 @@
 // 这些都只在浏览器里：不调用模型、不花钱、不改真实作息，几分钟后小人自己回到按作息的位置。
 
 import { cutout } from './cutout.js';
+import { homeParts } from './hometz.js';
 import { THEMES, bedAnchor, dormScene } from './rooms3d.js';
 
 const esc = (s) =>
@@ -723,6 +724,8 @@ export class Apartment {
     this.timer = null;
     this.error = '';
     root.addEventListener('click', (e) => this.onClick(e));
+    // 终端时钟里换了主时区：天色、钟点和大家在干什么马上跟着变
+    window.addEventListener('hometz', () => !this.root.hidden && this.load());
     root.addEventListener('keydown', (e) => this.onKey(e));
     root.addEventListener('pointerdown', (e) => this.onDown(e));
     root.addEventListener('scroll', () => this.placePop(), true);
@@ -767,20 +770,20 @@ export class Apartment {
   }
 
   async load() {
-    const t = this.now();
-    // 后端按周一 = 0；JS 的 getDay() 周日 = 0
-    const weekday = (t.getDay() + 6) % 7;
+    // 按主时区（终端时钟里点星星选的）过日子；星期按周一 = 0，和后端一致
+    const t = homeParts(this.now());
+    const weekday = t.wd;
     const budget = this.budgetApi ? this.budgetApi().catch(() => null) : null;
     try {
-      this.data = await this.api(t.getHours(), weekday);
+      this.data = await this.api(t.h, weekday);
       this.error = '';
     } catch (e) {
       this.error = e.message || '加载失败';
     }
     if (budget) this.budget = (await budget) || this.budget;
-    this.hour = t.getHours();
-    this.clock = `${String(t.getHours()).padStart(2, '0')}:${String(t.getMinutes()).padStart(2, '0')}`;
-    this.day = `${t.getMonth() + 1} 月 ${t.getDate()} 日 · 周${WEEK[weekday]}`;
+    this.hour = t.h;
+    this.clock = `${String(t.h).padStart(2, '0')}:${String(t.mi).padStart(2, '0')}`;
+    this.day = `${t.m} 月 ${t.d} 日 · 周${WEEK[weekday]}`;
     this.render();
   }
 

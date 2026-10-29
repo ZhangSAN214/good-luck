@@ -142,3 +142,34 @@ def test_timer_state_is_cleaned():
     assert empty["cd"] == {"dur": 300000, "end": None, "left": None, "done": False}
     assert messy["sw"] == {"start": None, "acc": 0, "laps": [1, 2]}
     assert messy["cd"] == {"dur": 300000, "end": 5, "left": None, "done": False}
+
+
+def test_home_zone_parts_follow_the_chosen_zone():
+    # hometz.js：主时区的墙上时间（星期 0 = 周一，和后端一致）；离线时设置也先在本页生效
+    script = (
+        f"const H = await import({json.dumps((WEB / 'hometz.js').as_uri())});"
+        "const d = new Date('2026-01-15T00:30:00Z');"
+        "const before = H.homeZone();"
+        "await H.setHomeZone('Asia/Shanghai');"
+        "const sh = H.homeParts(d);"
+        "await H.setHomeZone('America/New_York');"
+        "const ny = H.homeParts(d);"
+        "const bad = await H.setHomeZone('Mars/Base');"
+        "process.stdout.write(JSON.stringify({before, sh, ny, bad, zone: H.homeZone(),"
+        " opt: H.tzOpt({hour: '2-digit'}),"
+        " same: H.homeDay(d) === H.homeDay(new Date('2026-01-14T23:00:00Z'))}));"
+    )
+    res = subprocess.run(
+        ["node", "--input-type=module", "-e", script],
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=True,
+    )
+    out = json.loads(res.stdout)
+    assert out["before"] == "local"
+    assert out["sh"] == {"y": 2026, "m": 1, "d": 15, "h": 8, "mi": 30, "wd": 3}
+    assert out["ny"] == {"y": 2026, "m": 1, "d": 14, "h": 19, "mi": 30, "wd": 2}
+    assert out["bad"] is False and out["zone"] == "America/New_York"
+    assert out["opt"] == {"hour": "2-digit", "timeZone": "America/New_York"}
+    assert out["same"] is True
