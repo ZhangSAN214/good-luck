@@ -395,6 +395,7 @@ prompts:
   bench_window: v1       # 工作台生成器：按规格用零件库写一个窗口
   bench_review: v1       # 工作台生成器：看截图按商业标准打分（不评自己写的窗口）
   bench_rework: v1       # 工作台生成器：按评审和质检返工
+  bench_ask: v1          # 工作台生成器：成品里的对话窗，按台的用途和数据回答
   sticker_draw: v1       # 成员专属表情包：画一张 Q 版贴纸的提示词
   sticker_check: v2      # 成员专属表情包：先逐字抄出图上的字再核对配文和形象
   describe_screen: v1    # 投屏陪伴：把一张截图写成给成员看的文字（隐私信息打码）
@@ -1171,6 +1172,8 @@ bench:
   plan_kind: split
   window_kind: frontend
   review_kind: review
+  ask_kind: research   # 成品里的对话窗：问题交给谁答（走订阅次数）
+  ask_max_chars: 1000
   rubric: [视觉层次, 信息密度, 一致性, 交互完整, 空状态与边界, 文案, 商业感]
   scout: true       # 找插件：按拆需求写下的缺口去 dsh 插件集市和 GitHub 找（用户 10-29 拍板「全自动，事后看清单」）
   min_stars: 100    # GitHub 星数够这个、许可证宽松才直接搬；不够只借思路

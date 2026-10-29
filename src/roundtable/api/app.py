@@ -370,6 +370,12 @@ class BenchBody(BaseModel):
     request: str = Field(min_length=1, max_length=2000)
 
 
+class BenchAskBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    question: str = Field(min_length=1, max_length=8000)
+
+
 # 生成的工作台在「沙箱」里运行：浏览器把它当成一个陌生网站，碰不到圆桌的接口、存储和登录状态
 BENCH_CSP = (
     "sandbox allow-scripts allow-forms allow-popups allow-downloads; "
@@ -790,6 +796,10 @@ def create_app(service: RoundtableService | None = None, lan: LanAccess | None =
     @app.get("/api/bench/{bench_id}")
     async def bench_get(request: Request, bench_id: str) -> dict[str, Any]:
         return svc(request).bench_get(bench_id)
+
+    @app.post("/api/bench/{bench_id}/ask")
+    async def bench_ask(request: Request, bench_id: str, body: BenchAskBody) -> dict[str, Any]:
+        return await svc(request).bench_ask(bench_id, body.question)
 
     @app.get("/bench/{bench_id}/{path:path}")
     async def bench_file(request: Request, bench_id: str, path: str) -> Response:

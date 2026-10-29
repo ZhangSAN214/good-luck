@@ -40,3 +40,30 @@
   .bn-zh{font-size:32px}
   .bn-card{padding:16px;border-radius:24px}
 }
+/* 生成器（benchgen.js）：进度条、分数条、截图、插件清单、成品预览 */
+.bg{display:flex;flex-direction:column;gap:14px}
+.bg-title{font-family:var(--hb-serif);font-weight:400;font-size:20px;letter-spacing:.04em}
+.bg-status{padding:2px 10px;border-radius:999px;background:var(--hb-ink);font-size:13px}
+.bg-status.bg-done{background:rgba(127,199,154,.22)}
+.bg-status.bg-needs_you,.bg-status.bg-failed{background:rgba(230,150,120,.22)}
+.bg-steps{display:flex;flex-wrap:wrap;gap:6px;list-style:none;margin:0;padding:0}
+.bg-steps li{padding:5px 14px;border-radius:999px;background:rgba(255,255,255,.05);color:var(--hb-muted);font-size:13px}
+.bg-steps li.past{color:#eceff3;background:rgba(127,199,154,.16)}
+.bg-steps li.skip{opacity:.55}
+.bg-steps li.now{color:#eceff3;background:var(--hb-ink-hi);box-shadow:var(--hb-edge)}
+.bg-frame{width:100%;min-height:min(78vh,860px);border:0;border-radius:24px;background:#fff}
+.bg-scores{list-style:none;margin:8px 0;padding:0;display:grid;gap:6px;grid-template-columns:repeat(auto-fill,minmax(220px,1fr))}
+.bg-scores li{display:grid;grid-template-columns:6em 1fr 2.6em;align-items:center;gap:8px;font-size:13px}
+.bg-bar{height:6px;border-radius:999px;background:rgba(255,255,255,.08);overflow:hidden}
+.bg-bar i{display:block;height:100%;background:rgba(160,185,230,.85);border-radius:inherit}
+.bg-shots{display:grid;gap:10px;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));margin:8px 0}
+.bg-shot{display:flex;flex-direction:column;gap:4px;color:var(--hb-muted);font-size:12px;text-decoration:none}
+.bg-shot img{width:100%;aspect-ratio:4/3;object-fit:cover;object-position:top;border-radius:14px;background:rgba(0,0,0,.2)}
+.bg-findings,.bg-reviews,.bg-list{margin:6px 0;padding-left:18px;font-size:13px;line-height:1.6}
+.bg-sources table{font-size:13px}
+.bg-v-adopt{color:var(--ok,#7fc79a)}
+.bg-v-idea{color:var(--hb-muted)}
+.bench .bg .sc-subs{width:100%;border-collapse:collapse}
+.bench .bg .sc-subs th,.bench .bg .sc-subs td{padding:6px 8px;text-align:left;vertical-align:top}
+.bench .bg-sources{overflow-x:auto}
+@media (max-width:860px){.bg-scores li{grid-template-columns:5em 1fr 2.4em}}

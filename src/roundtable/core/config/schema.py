@@ -1847,6 +1847,8 @@ class BenchRules(_Strict):
     plan_kind: str = "split"  # 拆需求按哪种活打分挑人
     window_kind: str = "frontend"  # 写窗口
     review_kind: str = "review"  # 截图评审
+    ask_kind: str = "research"  # 成品里的对话窗：用户提问交给谁答
+    ask_max_chars: int = Field(default=1000, ge=20, le=8000)  # 一个问题最多几个字
     # 找插件（2026-10-29 用户定：达标的全自动搬，做完给清单；不达标只借思路）
     scout: bool = True
     min_stars: int = Field(default=100, ge=0)  # GitHub 星数门槛
@@ -2025,7 +2027,7 @@ class RoundtableConfig(_Strict):
     def _bench_kinds(self) -> RoundtableConfig:
         known = set(self.supercomputer.kinds) | {"split", "merge"}
         b = self.bench
-        bad = [k for k in (b.plan_kind, b.window_kind, b.review_kind) if k not in known]
+        bad = [k for k in (b.plan_kind, b.window_kind, b.review_kind, b.ask_kind) if k not in known]
         if bad:
             raise ValueError(f"bench 用到的活的种类不在 supercomputer.kinds 里：{bad}")
         return self

@@ -74,7 +74,9 @@ class FakeSC:
             return None, None
         who = preset if preset in pool else pool[self.turn % len(pool)]
         self.turn += 1
-        self.calls.append({"role": p["role"], "who": who, "exclude": exclude, "preset": preset})
+        self.calls.append(
+            {"role": p["role"], "who": who, "exclude": exclude, "preset": preset, "folder": folder}
+        )
         record["worker"] = who
         if p["role"] == "bench_plan":
             return W(who), RunResult(0, json.dumps(self.plan, ensure_ascii=False))
@@ -95,6 +97,8 @@ class FakeSC:
                 "summary": "还行",
             }
             return W(who), RunResult(0, json.dumps(out, ensure_ascii=False))
+        if p["role"] == "bench_ask":
+            return W(who), RunResult(0, f"回答：{p['question']}")
         raise AssertionError(p["role"])
 
 
@@ -287,3 +291,22 @@ async def test_library_is_seeded_into_new_bench_and_shown_to_planner(tmp_path):
     plan_prompt = json.loads(sc.prompts[0])
     assert "route-line：在地图上画路线" in plan_prompt["parts"]
     assert build["new_parts"] == []  # 本来就在库里的不算新的
+
+
+async def test_ask_uses_spec_and_data_and_validates(tmp_path):
+    sc = FakeSC()
+    b = make(tmp_path, sc)
+    build = b.submit("旅行台")
+    await b.wait()
+    assert await b.ask(build["id"], " 第一天去哪 ") == "回答：第一天去哪"
+    p = json.loads(sc.prompts[-1])
+    assert p["role"] == "bench_ask" and "旅行台" in p["spec"] and "## " in p["data"]
+    assert sc.calls[-1]["folder"] == tmp_path / build["id"] / "ask"  # 在子文件夹里答，不碰台本身
+    with pytest.raises(ValueError):
+        await b.ask(build["id"], "  ")
+    with pytest.raises(ValueError):
+        await b.ask(build["id"], "长" * 2000)
+    with pytest.raises(LookupError):
+        await b.ask("nope", "在吗")
+    sc.workers = []
+    assert "没有助手" in await b.ask(build["id"], "在吗")
