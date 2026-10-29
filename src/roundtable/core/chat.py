@@ -21,6 +21,7 @@ from typing import Any
 
 from roundtable.core.budget.guard import EPS, month_window
 from roundtable.core.persona import persona_of, persona_text
+from roundtable.core.plain_talk import before_speaking, plain_prompt
 from roundtable.core.providers import AllChannelsFailed, NoChannelAvailable, ProviderError
 
 ROOM = "main"  # 生活群
@@ -323,6 +324,7 @@ class GroupChat:
                 "、".join(m.name for m in self.members() if m.id != member.id) or "（没有别人）"
             )
         prompt = rt.prompts.render(role, rt.config.roundtable.prompts[role], **variables)
+        prompt = plain_prompt(rt.prompts, rt.config, prompt)
         session = rt.repo.chat_session(self.room)
         self.typing.append(member.name)
         self.on_change()
@@ -359,6 +361,9 @@ class GroupChat:
             rt.repo.add_chat_message(self.room, SYSTEM, f"{member.name} 没有回复（{why}）。")
             self.on_change()
             return {}
+        text = await before_speaking(
+            rt, text, room=self.room, name=member.name, model_id=member.model_id
+        )
         msg = rt.repo.add_chat_message(
             self.room,
             member.id,

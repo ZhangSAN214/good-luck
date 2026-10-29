@@ -25,6 +25,7 @@ from roundtable.core.cards import ConfirmationCard
 from roundtable.core.config import AppConfig
 from roundtable.core.jsonout import JSONOutputError
 from roundtable.core.media import FramesUnavailable, MediaService, extract_frames, shrink_image
+from roundtable.core.plain_talk import with_plain_talk
 from roundtable.core.prompts import PromptLibrary, RenderedPrompt
 from roundtable.core.providers import (
     AllChannelsFailed,
@@ -174,7 +175,7 @@ class TableContext:
 
         同一步骤的成员之间，唯一的差别是图片以原图还是文字（名称、说明）呈现。
         """
-        messages = prompt.messages
+        messages = with_plain_talk(self.prompts, self.config, prompt.messages, prompt.role)
         vision = "vision" in self.models_by_id[model_id].tags
         if self.attachments:
             template = self.prompts.get("attachments", self.prompt_version("attachments"))

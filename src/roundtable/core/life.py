@@ -27,6 +27,7 @@ from roundtable.core.memory import MemoryKeeper
 from roundtable.core.moments import MOMENT_STEP, Moments
 from roundtable.core.office.apartment import ACTIVITIES, PUBLIC_ROOMS, schedule
 from roundtable.core.persona import persona_of, persona_text
+from roundtable.core.plain_talk import before_speaking, plain_prompt
 from roundtable.core.storage.repository import iso
 
 LAST_TICK_KEY = "life.last_tick"
@@ -252,6 +253,7 @@ class LifeEngine:
                 memory=member_memory(rt, member.id, f"{p.topic}\n{chat.history(names)}"),
                 history=chat.history(names),
             )
+            prompt = plain_prompt(rt.prompts, rt.config, prompt)
             completion = await call_member(
                 rt,
                 room=chat.room,
@@ -266,6 +268,9 @@ class LifeEngine:
             text = clean_reply(completion.text, member.name, rt.config.roundtable.chat.max_chars)
             if not text:
                 break
+            text = await before_speaking(
+                rt, text, room=chat.room, name=member.name, model_id=member.model_id
+            )
             when = p.at + timedelta(minutes=turn) if offline else now
             rt.repo.add_chat_message(
                 chat.room,
