@@ -93,6 +93,8 @@ class Runtime:
     mail_source: Any | None = None
     # 音乐卡片的「电脑上正在放的歌」（测试中注入假的；为空时用 Windows 系统媒体控制）
     nowplaying_source: Any | None = None
+    # 投屏陪伴的画面来源 {"pc": ..., "android": ...}（测试中注入假的；为空时用电脑截屏和 adb）
+    screen_sources: dict[str, Any] | None = None
     # 聊天 / 朋友圈的图片、视频、语音所在目录；为空表示不能存（内存数据库）
     chat_media_dir: Path | None = None
     # 感官的感知卡与转写稿缓存（docs/PERCEPTION.md）；为空时只缓存在内存里（内存数据库）
