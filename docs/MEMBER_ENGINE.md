@@ -97,6 +97,19 @@
 - **月度「这个月的我」（②）**（`member/growth/report.py`，程序算不花钱）：每月 1 号起，生活推进时给上个月有经历的成员各写一份——有经历的天数、记下的事、反思了几周、改了几处（撤回、被拦下几处）、受你影响的占比、五项性格分从多少到多少、设定加了 / 去了什么、习惯前几项、熟练度升了几级（和上一份报告比）。最后一句固定写明：这些数字说明她「表现得像」在变化，**不等于她有主观体验**。每人最多留 `report.keep`（24）份。
 - **接口**：`GET /api/chat/growth/{member}`（时间线、上次反思的周、该反思的周、规则、习惯、熟练度、月度报告）；`POST /api/chat/growth/{member}/run`（马上反思上一周，已反思过返回 409）；`POST /api/chat/growth/{member}/revert` `{id}`（撤回一条）；`DELETE /api/chat/growth/{member}`（清空时间线，档案本身不动）。网页在「成员设定与记忆 → 成长」。
 
+### P8 第二块：你的状态（`core/member/yourstate.py`、`core/yourpc.py`）
+
+正在放的歌、电脑空闲、在玩游戏、课表和 DDL、邮件栏这几样关于你**此刻**的数据和它们的开关统一收在「关于你」里。**每项默认关**，开关只由 `about.py` 写（`about_you:switches` 的 `status`）；课表和 DDL 存 `about_you:schedule`。
+
+- **只在聊天时现问**：私聊和生活群里成员要回话时，打开了的几项各说一句，拼成一段（≤ `status_chars` 80 字，8 位相同），标题「【用户此刻（用户自己打开的，自然带出，别直接念）】」，接在「关于用户」后面。读到的歌名、程序、邮件数不写数据库、不进日志。工作模式不挂载（`UserStatus.line(..., mode="work")` 报错；守卫测试打开全部开关后跑讨论 / 办公室 / 个人作答 / 协同，消息里没有）。
+- **正在放的歌**：借音乐卡片的系统媒体控制（默认只看 QQ 音乐，可选网易云、Spotify 或任意播放器），只在「播放中」时说「用户正在听《歌名》（歌手）」。
+- **电脑空闲**：Windows `GetLastInputInfo`，`idle_minutes`（10）分钟没动说「已经 N 分钟没人动了（可能走开了）」，否则「正在用电脑」。不看你在做什么。
+- **在玩游戏**：只看前台窗口的程序路径，和游戏表比（配置 `about.games` + 你在画像页加的），Steam / Epic 装的按游戏文件夹自动认；不是游戏就什么都不报。
+- **课表和 DDL**：你在画像页填（每周固定的课：星期、上下课时间、课名；DDL：名字、截止时间）。程序算「正在上 X（几点下课）」「今天几点还有 X」和 `ddl_days`（7）天内最近的一个 DDL。
+- **邮件栏**：要先在终端首页打开邮件栏。只说今天收到几封、重要未读几封、最近的截止日期（本机速览，不读正文、不花钱）。
+- 不在 Windows 上、没打开邮件栏时，这一项不说，画像页写明原因。
+- **接口**：`GET /api/chat/about/status`（每项开没开、原因、成员现在会看到什么、课表）；`POST /api/chat/about/status`（`{kind, on}`）；`POST /api/chat/about/status/player`；`POST` / `DELETE /api/chat/about/games`；`POST /api/chat/about/schedule/classes`、`/ddls`；`DELETE /api/chat/about/schedule/{class|ddl}/{id}`；`DELETE /api/chat/about/schedule`。
+
 ## 中立
 
 - 所有成员的档案规则（分区权限、锁定）、心跳问的模块、预算份额、上下文预算、评测题目 / 提示词 / 参数 / 判分完全相同，与是哪个模型无关。

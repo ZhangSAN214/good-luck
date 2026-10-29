@@ -81,3 +81,39 @@ def test_about_you_page(serve, page):
     page.click("#people #ab-clear")
     page.wait_for_selector("#people [role=status]:has-text('已清空')")
     assert about.facts() == []
+
+
+def test_your_status_switches_and_timetable(serve, page):
+    srv = serve(confirm_threshold_usd=100.0)
+    open_about(srv, page)
+    page.wait_for_selector("#people .ab-status")
+    assert page.locator("#people .ab-tog.on").count() == 0  # 默认全关
+    page.click("#people [data-st='timetable']")
+    page.wait_for_selector("#people #ab-class")
+    about = AboutYou(srv.env.rt)
+    assert about.status_on("timetable") and not about.status_on("music")
+    now = datetime.now(UTC)
+    page.select_option("#people #ab-class select", str(now.weekday()))
+    page.fill("#people #ab-class input[name=start]", "00:00")
+    page.fill("#people #ab-class input[name=end]", "23:59")
+    page.fill("#people #ab-class input[name=name]", "全天的课")
+    page.click("#people #ab-class button")
+    page.wait_for_selector("#people .ab-mini li:has-text('全天的课')")
+    page.fill("#people #ab-ddl input[name=name]", "操作系统作业")
+    due = (now + timedelta(days=2)).strftime("%Y-%m-%dT23:59")
+    page.fill("#people #ab-ddl input[name=due]", due)
+    page.click("#people #ab-ddl button")
+    page.wait_for_selector("#people .ab-mini li:has-text('操作系统作业')")
+    assert "操作系统作业" in page.inner_text("#people li[data-kind='timetable']")
+    # 这台机器读不到歌：打开后写明原因
+    page.click("#people [data-st='music']")
+    page.wait_for_selector("#people li[data-kind='music'] .ab-tog.on")
+    assert page.inner_text("#people li[data-kind='music'] .ab-meta")
+    if os.environ.get("ROUNDTABLE_SHOTS"):
+        page.locator("#people .ab-status").screenshot(
+            path=os.environ["ROUNDTABLE_SHOTS"].replace(".png", "_status.png")
+        )
+    page.click("#people #ab-sch-clear")
+    page.click("#people #ab-sch-clear")
+    page.wait_for_selector("#people [role=status]:has-text('清空了')")
+    assert about.schedule()["classes"] == []

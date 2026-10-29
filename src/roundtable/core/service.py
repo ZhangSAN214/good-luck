@@ -104,6 +104,7 @@ from roundtable.core.member.growth.report import lines as report_lines
 from roundtable.core.member.memory import DiaryTool
 from roundtable.core.member.memory.store import query_terms
 from roundtable.core.member.voice import VoicePolicy
+from roundtable.core.member.yourstate import UserStatus
 from roundtable.core.member_stickers import (
     MemberStickers,
     StickerBudgetExceeded,
@@ -162,6 +163,7 @@ from roundtable.core.storage import NotFound
 from roundtable.core.supercomputer import Supercomputer
 from roundtable.core.supercomputer.launch import CommandLauncher, HookLauncher
 from roundtable.core.wander import Wanderer
+from roundtable.core.yourpc import WindowsPc, game_of
 
 try:  # dsh 工作台是可拔掉的外设：删掉整个 core/dsh/ 圆桌照常运行（docs/DSH.md，CI「拔掉 dsh」任务）
     from roundtable.core.dsh import DshManager
@@ -240,6 +242,23 @@ class RoundtableService:
         # P6 成长：每周一用成员自己的模型反思上一周，程序把关后才写档案；花费计入生活每天的上限
         self.growth = GrowthKeeper(runtime, self.chats.everyone, folder=runtime.growth_dir)
         self.growth.allow = self.life.allowed
+        # P8 第二块：你的状态（每项默认关）；聊天时现问一次，读到的不写库
+        self._pc = runtime.pc_source if runtime.pc_source is not None else WindowsPc()
+        runtime.user_status = UserStatus(
+            runtime,
+            {
+                "music": self._say_music,
+                "idle": self._say_idle,
+                "game": self._say_game,
+                "mail": self._say_mail,
+            },
+            {
+                "music": lambda: self._np().source.available(),
+                "idle": self._pc.available,
+                "game": self._pc.available,
+                "mail": lambda: None if self.mail.enabled() else "邮件栏还没打开",
+            },
+        )
         self.calendar = Almanac(runtime, self.chats.everyone)
         self.mail = MailBox(runtime.repo)
         self.mail_ai = MailAI(runtime, self.mail)
@@ -2245,6 +2264,77 @@ class RoundtableService:
                 e["by_name"] = names.get(e.get("by"), e.get("by") or "")
             f["noticed"] = [names.get(x, x) for x in f.get("noticed", [])]
         return v
+
+    # 你的状态的来源（每项只在开关打开、成员要回话时才问；读到的不写库）
+
+    def _say_music(self, now: datetime) -> str | None:
+        v = self._np().view(self.engine.about.switches()["music_player"])
+        cur = v.get("now")
+        if not v["available"] or not cur or cur["status"] != "playing" or not cur["title"]:
+            return None
+        who = f"（{cur['artist']}）" if cur["artist"] else ""
+        return f"用户正在听《{cur['title']}》{who}"
+
+    def _say_idle(self, now: datetime) -> str | None:
+        if self._pc.available():
+            return None
+        idle = self._pc.read().idle_seconds
+        if idle is None:
+            return None
+        minutes = int(idle // 60)
+        if minutes >= self.engine.about.rules.idle_minutes:
+            return f"用户的电脑已经 {minutes} 分钟没人动了（可能走开了）"
+        return "用户正在用电脑"
+
+    def _say_game(self, now: datetime) -> str | None:
+        if self._pc.available():
+            return None
+        game = game_of(self._pc.read().foreground, self.engine.about.games())
+        return f"用户在玩{game}" if game else None
+
+    def _say_mail(self, now: datetime) -> str | None:
+        if not self.mail.enabled():
+            return None
+        d = self.mail.view()["digest"]
+        text = f"用户邮箱今天收到 {d['today']} 封，重要未读 {d['important_unread']} 封"
+        if d["due"]:
+            first = d["due"][0]
+            text += f"；最近截止 {first['due'][5:10]}「{' '.join(first['snippet'].split())[:16]}」"
+        return text
+
+    def about_status(self) -> dict[str, Any]:
+        return self.rt.user_status.view()
+
+    def about_status_set(self, kind: str, on: bool) -> dict[str, Any]:
+        self._about(lambda: self.engine.about.set_status(kind, on))
+        return self.about_status()
+
+    def about_music_player(self, player: str) -> dict[str, Any]:
+        self._about(lambda: self.engine.about.set_music_player(player))
+        return self.about_status()
+
+    def about_game_add(self, exe: str, name: str) -> dict[str, Any]:
+        self._about(lambda: self.engine.about.add_game(exe, name))
+        return self.about_status()
+
+    def about_game_del(self, exe: str) -> dict[str, Any]:
+        self._about(lambda: self.engine.about.del_game(exe))
+        return self.about_status()
+
+    def about_class_add(self, weekday: int, start: str, end: str, name: str) -> dict[str, Any]:
+        self._about(lambda: self.engine.about.add_class(weekday, start, end, name))
+        return self.about_status()
+
+    def about_ddl_add(self, name: str, due: str) -> dict[str, Any]:
+        self._about(lambda: self.engine.about.add_ddl(name, due))
+        return self.about_status()
+
+    def about_schedule_del(self, kind: str, item_id: int) -> dict[str, Any]:
+        self._about(lambda: self.engine.about.del_schedule(kind, item_id))
+        return self.about_status()
+
+    def about_schedule_clear(self) -> dict[str, Any]:
+        return {"deleted": self.engine.about.clear_schedule()}
 
     def about_add(self, text: str, domain: str | None = None) -> dict[str, Any]:
         self._about(lambda: self.engine.about.add(text, domain))

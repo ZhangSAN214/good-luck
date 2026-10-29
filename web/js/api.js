@@ -118,6 +118,15 @@ export const aboutLock = (id, locked) => api(`/api/chat/about/facts/${id}/lock`,
 export const aboutDomain = (domain, on) => api('/api/chat/about/domains', { method: 'POST', body: { domain, on } });
 export const aboutForget = (i) => api(`/api/chat/about/rejected/${i}`, { method: 'DELETE' });
 export const aboutClear = (rejected = false) => api(`/api/chat/about${rejected ? '?rejected=true' : ''}`, { method: 'DELETE' });
+export const aboutStatus = () => api('/api/chat/about/status');
+export const aboutSetStatus = (kind, on) => api('/api/chat/about/status', { method: 'POST', body: { kind, on } });
+export const aboutPlayer = (player) => api('/api/chat/about/status/player', { method: 'POST', body: { player } });
+export const aboutAddGame = (exe, name) => api('/api/chat/about/games', { method: 'POST', body: { exe, name } });
+export const aboutDelGame = (exe) => api(`/api/chat/about/games?exe=${encodeURIComponent(exe)}`, { method: 'DELETE' });
+export const aboutAddClass = (weekday, start, end, name) => api('/api/chat/about/schedule/classes', { method: 'POST', body: { weekday, start, end, name } });
+export const aboutAddDdl = (name, due) => api('/api/chat/about/schedule/ddls', { method: 'POST', body: { name, due } });
+export const aboutDelSchedule = (kind, id) => api(`/api/chat/about/schedule/${kind}/${id}`, { method: 'DELETE' });
+export const aboutClearSchedule = () => api('/api/chat/about/schedule', { method: 'DELETE' });
 export const aboutExportUrl = (fmt) => `/api/chat/about/export?fmt=${encodeURIComponent(fmt)}`;
 export const memberProfiles = () => api('/api/chat/profiles');
 export const memberProfile = (id) => api(`/api/chat/profiles/${encodeURIComponent(id)}`);
