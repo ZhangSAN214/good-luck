@@ -63,3 +63,33 @@ manager_suffix: "（经理）"   # 办公室模式：统筹就是经理
 #     catchphrases: [我算一下]
 #     interests: [天文, 数学, 科幻]
 personas: {}
+
+# 成员固定音色：键是 vendor，值是「语音模型 id → 音色名」。只用模型自带的合成音色，不克隆真人声音。
+# 中文文字优先用带 zh 标签的语音模型；没给某个模型配音色，这位成员就不用那个模型。
+# 千问语音 Plus 只有两个音色，分不出八个人，所以不配（节电档用 Gemini，全力档用 MiniMax）。
+# 「成员设定」页可以试听；聊天里的语音消息、「听 TA 说」也用这里的音色（花费计入创作输出月上限）。
+voices:
+  OpenAI:
+    gemini-3.8-flash-tts: Kore
+    minimax-speech-2.8-hd: female-yujie
+  Anthropic:
+    gemini-3.8-flash-tts: Leda
+    minimax-speech-2.8-hd: female-chengshu
+  xAI:
+    gemini-3.8-flash-tts: Zephyr
+    minimax-speech-2.8-hd: female-shaonv-jingpin
+  DeepSeek:
+    gemini-3.8-flash-tts: Despina
+    minimax-speech-2.8-hd: female-tianmei-jingpin
+  Google:
+    gemini-3.8-flash-tts: Aoede
+    minimax-speech-2.8-hd: female-yujie-jingpin
+  Alibaba:
+    gemini-3.8-flash-tts: Laomedeia
+    minimax-speech-2.8-hd: female-tianmei
+  Moonshot AI:
+    gemini-3.8-flash-tts: Callirrhoe
+    minimax-speech-2.8-hd: female-shaonv
+  Zhipu AI:
+    gemini-3.8-flash-tts: Gacrux
+    minimax-speech-2.8-hd: female-chengshu-jingpin

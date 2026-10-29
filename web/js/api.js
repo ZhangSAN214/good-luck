@@ -83,6 +83,26 @@ export const clearChat = (room = 'main') => api(`/api/chat?room=${encodeURICompo
 export const getChatRooms = () => api('/api/chat/rooms');
 export const chatPersonas = () => api('/api/chat/personas');
 export const setChatPersona = (id, persona) => api(`/api/chat/personas/${encodeURIComponent(id)}`, { method: 'PUT', body: { persona } });
+export const memberVoices = () => api('/api/chat/voices');
+// 用成员的固定音色念一句（text 省略时念试听句）：返回音频 Blob
+export async function memberVoice(id, text = null) {
+  const r = await fetch(`/api/chat/voices/${encodeURIComponent(id)}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text }),
+  });
+  if (r.status === 401 && location.pathname !== '/login.html') location.assign('/login.html');
+  if (!r.ok) {
+    let data = null;
+    try {
+      data = await r.json();
+    } catch {
+      data = null;
+    }
+    throw new ApiError(errorText(data, r.status), r.status);
+  }
+  return r.blob();
+}
 export const memberProfiles = () => api('/api/chat/profiles');
 export const memberProfile = (id) => api(`/api/chat/profiles/${encodeURIComponent(id)}`);
 export const changeMemberProfile = (id, patch, reason = '') => api(`/api/chat/profiles/${encodeURIComponent(id)}`, { method: 'PATCH', body: { patch, reason } });

@@ -17,7 +17,7 @@ import shutil
 import subprocess
 from collections.abc import AsyncIterator, Sequence
 from dataclasses import asdict
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, tzinfo
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
@@ -79,6 +79,7 @@ from roundtable.core.export import Style as ExportStyle
 from roundtable.core.export import deliverable
 from roundtable.core.export import filename as export_filename
 from roundtable.core.export import options as export_choices
+from roundtable.core.hometz import home_zone
 from roundtable.core.ideaboard import Board
 from roundtable.core.lan import COOKIE as LAN_COOKIE
 from roundtable.core.lan import LanAccess, is_local, is_remote, qr_svg
@@ -96,6 +97,14 @@ from roundtable.core.member.card import (
 )
 from roundtable.core.member.memory import DiaryTool
 from roundtable.core.member.memory.store import query_terms
+from roundtable.core.member_voice import MAX_CHARS as VOICE_MAX_CHARS
+from roundtable.core.member_voice import (
+    SAMPLE_TEXT,
+    MemberVoices,
+    VoiceBudgetExceeded,
+    VoiceClip,
+    VoiceUnavailable,
+)
 from roundtable.core.members_art import MEMBERS_FILE, load_members, mime_of, resolve_file
 from roundtable.core.memory import LAYERS, MemoryKeeper, clean_memory
 from roundtable.core.moments import SEEN_KEY as MOMENTS_SEEN
@@ -190,6 +199,7 @@ class RoundtableService:
         self._tasks: dict[str, asyncio.Task[None]] = {}
         self._art_names_cache: tuple[int | None, dict[str, str]] | None = None
         self.chats = ChatHub(runtime, names=self._art_names)
+        self.voices = MemberVoices(runtime, runtime.voice_cache_dir)
         self.memory = MemoryKeeper(runtime, self.chats.everyone)
         self.life = LifeEngine(runtime, self.chats, self.memory)
         self.perceiver = Perceiver(runtime, PerceptionCache(runtime.perception_dir))
@@ -276,7 +286,7 @@ class RoundtableService:
 
     async def life_tick(self) -> dict[str, int]:
         """推进一次生活（开机后第一次会补上关机期间的时间），再推进一次成员引擎（不花钱）。"""
-        now = self.rt.budget.now().astimezone()
+        now = self._local_now()
         out = await self.life.tick(now)
         with contextlib.suppress(Exception):  # 引擎出错不影响生活
             await self.engine.tick(now)
@@ -855,6 +865,19 @@ class RoundtableService:
     def mail_view(self) -> dict[str, Any]:
         return self._mail_view()
 
+    # --- 主时区 ----------------------------------------------------------------------
+
+    def home_tz(self) -> dict[str, Any]:
+        """整个圆桌按哪个时区过日子（公寓、群聊、成员作息、日记）；``local`` = 跟随电脑。"""
+        return home_zone(self.rt).view(self.rt.budget.now())
+
+    def set_home_tz(self, zone: str) -> dict[str, Any]:
+        try:
+            home_zone(self.rt).set(zone)
+        except ValueError as exc:
+            raise ServiceError(str(exc)) from None
+        return self.home_tz()
+
     def mail_settings(self, *, ai_ok: bool | None = None, **changes: Any) -> dict[str, Any]:
         try:
             self.mail.set_settings(**{k: v for k, v in changes.items() if v is not None})
@@ -1311,6 +1334,33 @@ class RoundtableService:
             raise ServiceError(f"没有这位成员：{member}", 404)
         return found
 
+    def member_voices(self) -> dict[str, Any]:
+        """每位成员的固定音色：现在会用哪个音色（不含模型名，匿名无关：聊天不匿名）。"""
+        out = []
+        for m in self.chats.everyone():
+            pick = self.voices.model_for(m.id, SAMPLE_TEXT)
+            out.append(
+                {
+                    "id": m.id,
+                    "name": m.name,
+                    "available": pick is not None,
+                    "voice": pick[1] if pick else None,
+                }
+            )
+        return {"members": out, "max_chars": VOICE_MAX_CHARS}
+
+    async def member_voice(self, member: str, text: str | None = None) -> VoiceClip:
+        """用成员的固定音色念一段文字（省略 text 时念一句试听）。花费计入创作输出的每月上限。"""
+        found = self._chat_member(member)
+        try:
+            return await self.voices.speak(member, text or SAMPLE_TEXT.format(name=found.name))
+        except ValueError as exc:
+            raise ServiceError(str(exc)) from None
+        except VoiceBudgetExceeded as exc:
+            raise ServiceError(str(exc), 402) from None
+        except VoiceUnavailable as exc:
+            raise ServiceError(str(exc), 503) from None
+
     def chat_personas(self) -> dict[str, Any]:
         """每位成员的聊天人设；source：local 网页里改过 / config 配置文件 / empty 没有设定。"""
         out = []
@@ -1359,7 +1409,7 @@ class RoundtableService:
         self.memory.store.write(
             member,
             row["text"],
-            day=self.rt.budget.now().astimezone().date(),
+            day=self._local_now().date(),
             fact=True,
             importance=2,
             source="user",
@@ -1446,7 +1496,7 @@ class RoundtableService:
 
     async def chat_tidy_memories(self) -> dict[str, Any]:
         """马上整理一次记忆（到昨天为止还没整理的日子）。"""
-        now = self.rt.budget.now().astimezone()
+        now = self._local_now()
         return {"written": await self.memory.catch_up(now)}
 
     # --- 朋友圈 --------------------------------------------------------------------
@@ -1688,7 +1738,7 @@ class RoundtableService:
         if cut:
             text += "\n\n（后面还有内容，超过资料字数上限没有保存）"
         title = " ".join((title or "").split())[:200] or clipper.site_of(url)
-        saved_at = self.rt.budget.now().astimezone().strftime("%Y-%m-%d %H:%M")
+        saved_at = self._local_now().strftime("%Y-%m-%d %H:%M")
         body = clipper.clip_markdown(title, url, text, saved_at, " ".join(note.split())[:300])
         key = self.rt.files.save(body.encode("utf-8"), "md")
         clip = {
@@ -1900,7 +1950,7 @@ class RoundtableService:
 
     async def chat_refresh_feeds(self) -> dict[str, Any]:
         """马上抓一遍订阅源（不调用模型、不花钱）。"""
-        result = await self.life.browse.refresh(self.rt.budget.now().astimezone(), force=True)
+        result = await self.life.browse.refresh(self._local_now(), force=True)
         return {**result, **self.chat_feeds()}
 
     def chat_clear(self, room: str = ROOM) -> dict[str, Any]:
@@ -2626,7 +2676,7 @@ class RoundtableService:
         inbox, _ = self._evolution_dirs()
         if inbox is None:
             raise ServiceError("没有数据目录，放不了资料卡", 409)
-        week = week_key((now or self._local_now()).astimezone())
+        week = week_key((now or self._local_now()).astimezone(self._tz()))
         left = rules.monthly_usd - self._evolution_spent(self._meetings())
         try:
             report = await Scout(self.rt).run(inbox, week, left)
@@ -2640,7 +2690,7 @@ class RoundtableService:
         rules = self.rt.config.roundtable.evolution
         if not (rules.enabled and rules.auto and rules.scout.enabled):
             return None
-        now = (now or self._local_now()).astimezone()
+        now = (now or self._local_now()).astimezone(self._tz())
         week = week_key(now)
         if now < week_slot(now, rules.schedule.weekday, rules.schedule.hour):
             return None
@@ -2659,8 +2709,12 @@ class RoundtableService:
             log.info("革新例会：本次没有找资料（%s）", exc)
             return {"week": week, "skipped": str(exc)}
 
+    def _tz(self) -> tzinfo | None:
+        """主时区（None = 本机），见 core/hometz.py。"""
+        return home_zone(self.rt).tz()
+
     def _local_now(self) -> datetime:
-        return self.rt.budget.now().astimezone()
+        return self.rt.budget.now().astimezone(self._tz())
 
     def evolution(self) -> dict[str, Any]:
         """革新例会概况：开关、收件箱里的资料卡、本月花费与上限、最近的例会。"""
@@ -2749,7 +2803,7 @@ class RoundtableService:
     def _plan(self, now: datetime | None = None, meetings: Sequence[Meeting] | None = None):
         rules = self.rt.config.roundtable.evolution
         return plan_meeting(
-            (now or self._local_now()).astimezone(),
+            (now or self._local_now()).astimezone(self._tz()),
             self._meetings() if meetings is None else meetings,
             gap_days=rules.major_gap_days,
             themes=rules.major_themes,
@@ -2802,7 +2856,7 @@ class RoundtableService:
             raise ServiceError(f"evolution.plan 不是已有的档位：{rules.plan!r}")
         if kind is not None and kind not in MEETING_KINDS:
             raise ServiceError(f"例会类型只能是 {'、'.join(MEETING_KINDS)}：{kind!r}")
-        now = (now or self._local_now()).astimezone()
+        now = (now or self._local_now()).astimezone(self._tz())
         meetings = self._meetings()
         plan = self._plan(now, meetings)
         override = kind is not None and kind != plan.kind
@@ -3175,7 +3229,7 @@ class RoundtableService:
             if m.adopted is None and not self.running(m.session_id):
                 with contextlib.suppress(ServiceError, NotFound):
                     out["exported"].append(self.evolution_export(m.session_id)["file"])
-        now = (now or self._local_now()).astimezone()
+        now = (now or self._local_now()).astimezone(self._tz())
         week = week_key(now)
         if now < week_slot(now, rules.schedule.weekday, rules.schedule.hour) or self._slot_met(
             week

@@ -373,3 +373,36 @@ def test_memory_items_api():
         c.post("/api/chat/memories", json={"member": "V1", "text": "a 记一条"})
         assert c.delete("/api/chat/memories").json()["cleared"] >= 1
         assert repo.count_memory_items() == 0
+
+
+def test_member_voice_api():
+    from roundtable.core.member_voice import VoiceBudgetExceeded, VoiceClip
+
+    env = Env()
+    service = RoundtableService(env.rt)
+    with TestClient(create_app(service)) as c:
+        data = c.get("/api/chat/voices").json()
+        assert data["max_chars"] > 0
+        assert data["members"][0] == {"id": "V1", "name": "阿一", "available": False, "voice": None}
+        # 测试配置里没有语音模型：不可用
+        assert c.post("/api/chat/voices/V1", json={}).status_code == 503
+        assert c.post("/api/chat/voices/X", json={}).status_code == 404
+
+        said = []
+
+        async def speak(member, text, tier=None):
+            said.append((member, text))
+            if text == "超了":
+                raise VoiceBudgetExceeded("快超过上限")
+            return VoiceClip(b"RIFFxx", "audio/wav", 1.5, 0.002, "m", "Kore", False)
+
+        service.voices.speak = speak
+        r = c.post("/api/chat/voices/V1", json={})
+        assert r.status_code == 200 and r.content == b"RIFFxx"
+        assert r.headers["content-type"] == "audio/wav"
+        assert r.headers["x-voice-seconds"] == "1.50" and r.headers["x-voice-cached"] == "0"
+        assert said[-1] == ("V1", "你好呀，我是阿一。今天也一起加油吧。")
+        assert c.post("/api/chat/voices/V2", json={"text": "在吗"}).status_code == 200
+        assert said[-1] == ("V2", "在吗")
+        assert c.post("/api/chat/voices/V2", json={"text": "超了"}).status_code == 402
+        assert c.post("/api/chat/voices/V2", json={"text": "x" * 2001}).status_code == 422

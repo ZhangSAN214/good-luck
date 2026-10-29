@@ -1113,6 +1113,8 @@ class ChatActionRules(_Strict):
 class ChatRules(_Strict):
     """聊天：生活群、工作群、私聊。成员不主动找用户，只回应用户。"""
 
+    # 每位成员一次回应最多想多久（含重试），超时就跳过这次，不卡住整轮
+    think_timeout_seconds: float = Field(default=60.0, gt=0)
     life_title: str = "大家庭"  # 生活群的名字
     work_title: str = "工作群"
     budget: ChatBudgetRules = ChatBudgetRules()
@@ -1511,6 +1513,8 @@ class PersonasConfig(_Strict):
     coordinator_suffix: str = "（统筹）"
     manager_suffix: str = "（经理）"  # 办公室模式里统筹就是经理
     personas: dict[str, Persona] = Field(default_factory=dict)  # 厂商 → 人设
+    # 成员固定音色（合成音色，不克隆真人）：厂商 → {语音模型 id → 该模型的音色名}
+    voices: dict[str, dict[str, str]] = Field(default_factory=dict)
 
     @field_validator("codes")
     @classmethod
@@ -1765,6 +1769,12 @@ class AppConfig(_Strict):
         unknown = sorted(set(personas.personas) - ids)
         if unknown:
             raise ValueError(f"personas 中有未知模型 id：{unknown}")
+        # 音色只能配给语音模型；名单里没有的 id 不报错（模型下架或换了名单时音色表留着也无害）
+        not_tts = {m.id for m in self.models.models if "tts" not in m.tags}
+        for member, voices in personas.voices.items():
+            bad = sorted(set(voices) & not_tts)
+            if bad:
+                raise ValueError(f"voices.{member} 里有不是语音模型（tts 标签）的 id：{bad}")
         self._check_routing()
         self._check_collab()
         return self
