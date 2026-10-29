@@ -63,3 +63,40 @@ manager_suffix: "（经理）"   # 办公室模式：统筹就是经理
 #     catchphrases: [我算一下]
 #     interests: [天文, 数学, 科幻]
 personas: {}
+
+# 成员固定音色：键是 vendor，值是「语音模型 id → 音色名」。只用模型自带的合成音色，不克隆真人声音。
+# 中文文字优先用带 zh 标签的语音模型；没给某个模型配音色，这位成员就不用那个模型。
+# 「成员设定」页可以试听；聊天里的语音消息、「听 TA 说」也用这里的音色（花费计入创作输出月上限）。
+voices:
+  OpenAI:
+    gemini-3.8-flash-tts: Kore
+    qwen-audio-3.0-tts-plus: Serena
+    minimax-speech-2.8-hd: female-yujie
+  Anthropic:
+    gemini-3.8-flash-tts: Leda
+    qwen-audio-3.0-tts-plus: Chelsie
+    minimax-speech-2.8-hd: female-chengshu
+  xAI:
+    gemini-3.8-flash-tts: Zephyr
+    qwen-audio-3.0-tts-plus: Momo
+    minimax-speech-2.8-hd: female-shaonv-jingpin
+  DeepSeek:
+    gemini-3.8-flash-tts: Despina
+    qwen-audio-3.0-tts-plus: Vivian
+    minimax-speech-2.8-hd: female-tianmei-jingpin
+  Google:
+    gemini-3.8-flash-tts: Aoede
+    qwen-audio-3.0-tts-plus: Maia
+    minimax-speech-2.8-hd: female-yujie-jingpin
+  Alibaba:
+    gemini-3.8-flash-tts: Laomedeia
+    qwen-audio-3.0-tts-plus: Cherry
+    minimax-speech-2.8-hd: female-tianmei
+  Moonshot AI:
+    gemini-3.8-flash-tts: Callirrhoe
+    qwen-audio-3.0-tts-plus: Bella
+    minimax-speech-2.8-hd: female-shaonv
+  Zhipu AI:
+    gemini-3.8-flash-tts: Gacrux
+    qwen-audio-3.0-tts-plus: Jennifer
+    minimax-speech-2.8-hd: female-chengshu-jingpin
