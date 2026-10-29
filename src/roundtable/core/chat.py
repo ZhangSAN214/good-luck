@@ -31,6 +31,7 @@ from roundtable.core.chat_actions import (
     sticker_list,
 )
 from roundtable.core.persona import EMPTY, chat_persona
+from roundtable.core.plain_talk import before_speaking, plain_prompt
 from roundtable.core.providers import AllChannelsFailed, NoChannelAvailable, ProviderError
 
 ROOM = "main"  # 生活群
@@ -465,6 +466,7 @@ class GroupChat:
                 "skip": "可以" if skip else "不要",
             }
         prompt = rt.prompts.render(role, version, **variables)
+        prompt = plain_prompt(rt.prompts, rt.config, prompt)
         session = rt.repo.chat_session(self.room)
         self.typing.append(member.name)
         self.on_change()
@@ -523,6 +525,11 @@ class GroupChat:
                     self.typing.remove(member.name)
                 if round_no is not None and self.stale(round_no):
                     break
+            words = await before_speaking(
+                rt, seg.text, room=self.room, name=member.name, model_id=member.model_id
+            )
+            if not words.strip():
+                continue
             meta: dict[str, Any] = {}
             row = self.quotable(seg.quote) if seg.quote is not None else None
             if row is not None:
@@ -530,10 +537,10 @@ class GroupChat:
             msg = rt.repo.add_chat_message(
                 self.room,
                 member.id,
-                seg.text,
+                words,
                 model_id=member.model_id,
                 reply_to=reply_to,
-                cost_usd=(completion.cost_usd or 0.0) if not i else 0.0,
+                cost_usd=0.0 if first else (completion.cost_usd or 0.0),
                 meta=meta or None,
             )
             first = first or msg

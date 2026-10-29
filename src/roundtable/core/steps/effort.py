@@ -11,6 +11,7 @@ from collections.abc import Mapping
 from difflib import SequenceMatcher
 
 from roundtable.core.config.schema import EffortCheck
+from roundtable.core.plain_talk import with_plain_talk
 from roundtable.core.prompts import RenderedPrompt
 from roundtable.core.providers import Message
 
@@ -132,11 +133,13 @@ async def redo_call(
     """打回重做：同一对话追加"上一次的输出 + 重做说明"，提示词与参数对所有成员相同。"""
     redo = ctx.prompts.get("redo", ctx.prompt_version("redo"))
     filled = redo.render(reasons="\n".join(f"- {r}" for r in reasons))
-    system = "\n\n".join(m.content for m in prompt.messages if m.role == "system")
+    # 原调用接过说话底线的，重做时保留（combined 的角色是 redo，不会再接一次）
+    original = with_plain_talk(ctx.prompts, ctx.config, prompt.messages, prompt.role)
+    system = "\n\n".join(m.content for m in original if m.role == "system")
     extra_system = next(m.content for m in filled.messages if m.role == "system")
     messages = (
         Message("system", f"{system}\n\n{extra_system}"),
-        *(m for m in prompt.messages if m.role != "system"),
+        *(m for m in original if m.role != "system"),
         Message("assistant", previous),
         *(m for m in filled.messages if m.role != "system"),
     )

@@ -1460,6 +1460,12 @@ class Repository:
         ).fetchall()
         return [{**dict(r), "data": json.loads(r["data"])} for r in rows]
 
+    def clear_member_events(self) -> int:
+        return self._exec("DELETE FROM member_events").rowcount
+
+    def count_member_events(self) -> int:
+        return self._exec("SELECT COUNT(*) FROM member_events").fetchone()[0]
+
     def prune_member_events(self, before: str) -> int:
         return self._exec("DELETE FROM member_events WHERE at < ?", (before,)).rowcount
 
@@ -1708,6 +1714,14 @@ class Repository:
             " ON s.id = c.session_id WHERE s.workflow = ? AND c.created_at >= ?"
             " AND c.created_at < ?",
             (workflow, iso(start), iso(end)),
+        ).fetchone()[0]
+
+    def spent_in_step(self, step: str, start: datetime, end: datetime) -> float:
+        """[start, end) 内某个步骤名（calls.step，如 'plain_rewrite'）的调用花费。"""
+        return self._exec(
+            "SELECT COALESCE(SUM(cost_usd), 0) FROM calls WHERE step = ? AND created_at >= ?"
+            " AND created_at < ?",
+            (step, iso(start), iso(end)),
         ).fetchone()[0]
 
     def calls_in_workflow(self, workflow: str, start: datetime, end: datetime) -> int:

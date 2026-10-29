@@ -49,8 +49,20 @@ def test_unsubscribe_and_replay_filter():
     assert [e.kind for e in bus.replay(*span, kind="life.*")] == ["life.event"]
 
 
-def test_prune_old_events():
+def test_events_kept_forever_by_default_and_clearable():
     env = Env()
+    bus = EventBus(env.rt)
+    bus.publish(Event("old", NOW - timedelta(days=3000)))
+    assert bus.prune(NOW) == 0
+    assert env.rt.repo.count_member_events() == 1
+    assert bus.clear() == 1 and env.rt.repo.count_member_events() == 0
+
+
+def test_prune_old_events():
+    rules = Env().config.roundtable.chat
+    bus_rules = rules.engine.bus.model_copy(update={"keep_days": 14})
+    engine = rules.engine.model_copy(update={"bus": bus_rules})
+    env = Env(rt_update={"chat": rules.model_copy(update={"engine": engine})})
     bus = EventBus(env.rt)
     bus.publish(Event("old", NOW - timedelta(days=30)))
     bus.publish(Event("new", NOW))
