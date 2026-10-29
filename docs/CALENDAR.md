@@ -30,7 +30,7 @@
 
 ## 事件（写进成员事件总线）
 
-生活后台循环每次推进时，日历在**每天第一次**发：
+生活后台循环每次推进时，日历在**每天第一次**发（「今天」按时钟里选的主时区算）：
 
 - `calendar.day`：`member = null`，`data = {date, weekday, lunar, rest, items: [...]}`。
 - `calendar.upcoming`：`upcoming_days`（默认 3）天后的每个日子一条（节气、补班不发）；成员生日 / 入职纪念日的 `member` 是那位成员，`data` 是条目本身加 `in_days`。
