@@ -543,3 +543,18 @@ async def test_creative_monthly_cap_zero_means_no_limit():
     limit_creative(env, 0)
     r = await start(env)
     assert r.status == "completed" and len(media_calls(env, "image")) == 1
+
+
+async def test_collab_music_subtask_is_generated_with_music_prompt():
+    env = make_env()
+    script(env, **{"把任务拆成子任务": decompose_reply(2, media={"T2": "music"})})
+    r = await env.orc.start(Question(MEDIUM), choice(workflow="collab"), seed=1)
+    assert r.status == "completed"
+    subtasks = json.loads(env.rt.repo.outputs(r.session_id, kind="subtasks")[0]["content"])
+    assert [s["media"] for s in subtasks["subtasks"]] == [None, "music"]
+    music = [j for j in jobs(env, r.session_id) if j["kind"] == "music"]
+    assert music and {j["subtask"] for j in music} == {"T2"}
+    writers = [c for c in env.fake.calls if "需要生成「音乐」" in c.messages[0].content]
+    assert writers and "歌词" in writers[0].messages[0].content  # work_media/v2 的音乐写法
+    files = [f for f in env.rt.repo.files(r.session_id) if f["kind"] == "audio"]
+    assert files and all(f["path"].startswith("T2_music_") for f in files)

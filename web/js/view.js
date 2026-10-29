@@ -1039,9 +1039,20 @@ export const CARRY_TARGETS = [
   ['office', '交给办公室'],
 ];
 
+// 转成作品：把这一场的成果交给讨论模式，商定生成提示词后生成图片 / 视频 / 语音 / 音乐（走原有的媒体流程）
+export const MAKE_TARGETS = [
+  ['illustration', 'image', '插图', '把上一场的成果画成一张插图：抓住最核心的内容，画面清楚、一眼能看懂；不要在图里写大段文字。'],
+  ['poster', 'image', '海报', '把上一场的成果做成一张海报：一个醒目的标题和最多三条要点，图中的文字要逐字写出，版式简洁。'],
+  ['video', 'video', '短视频', '把上一场的成果做成一段 5 秒左右的短视频：按 2～3 个镜头写分镜，写明画面、动作和需要的声音。'],
+  ['speech', 'speech', '配音朗读', '把上一场的成果改写成一段适合朗读的口播稿（一两分钟能读完，口语化），并写明语气和语速。'],
+  ['music', 'music', '配乐', '为上一场的成果配一段契合主题和情绪的音乐（约 30 秒），写明风格、节奏、乐器和有无人声。'],
+];
+
 function carryBar() {
   const btns = CARRY_TARGETS.map(([k, label]) => `<button class="btn sm" type="button" data-carry="${k}">${label}</button>`).join('');
-  return `<div class="carry-bar" role="group" aria-label="接着做"><span class="hint">接着做（只带这一场的成果摘要）：</span>${btns}</div>`;
+  const make = MAKE_TARGETS.map(([k, kind, label]) => `<button class="btn sm" type="button" data-make="${k}" data-kind="${kind}">${label}</button>`).join('');
+  return `<div class="carry-bar" role="group" aria-label="接着做"><span class="hint">接着做（只带这一场的成果摘要）：</span>${btns}</div>
+<div class="carry-bar make-bar" role="group" aria-label="转成作品"><span class="hint">转成作品（讨论模式商定提示词后生成，提交前显示预估花费）：</span>${make}</div>`;
 }
 
 // --- 圆桌 ------------------------------------------------------------------------

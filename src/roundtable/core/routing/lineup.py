@@ -169,8 +169,11 @@ class LineupBuilder:
         tiers = set(plan.tiers)
         pool = [m for m in self.available if m.tier in tiers]
         seated = {m.id for m in pool}
+        # 只数上桌的模型：媒体模型（seat: false）本来就不上桌，不算缺席
         absent = [
-            m.id for m in self.config.models.enabled if m.tier in tiers and m.id not in seated
+            m.id
+            for m in self.config.models.enabled
+            if m.seat and m.tier in tiers and m.id not in seated
         ]
         pipeline = self.pipeline(plan, workflow)
         return self._seat(pool, pipeline, absent=absent, scope=f"「{plan.label}」")
