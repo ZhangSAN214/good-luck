@@ -31,7 +31,7 @@
 .ck-btn:focus-visible,.ck-ib:focus-visible,.ck-row input:focus-visible,.ck-row select:focus-visible,.ck-opt input:focus-visible{outline:2px solid rgba(160,185,230,.85);outline-offset:2px}
 
 /* 主时区：排最前、字更大；星星按钮亮起表示它是主时区 */
-.ck-face.ck-main .ck-time{font-size:22px;line-height:1.05}
+.ck-face.ck-main .ck-time{font-weight:500}
 .ck-face.ck-main .ck-name{color:#eceff3}
 .ck-star .ck-i{color:var(--hb-muted)}
 .ck-star[aria-pressed="true"] .ck-i{color:#e9c97a;fill:rgba(233,201,122,.35)}
@@ -82,7 +82,6 @@
   .ck-btn{gap:10px;padding:6px 12px}
   .ck-face{padding:0 10px}
   .ck-time{font-size:17px}
-  .ck-face.ck-main .ck-time{font-size:19px}
   .ck-btn{flex-wrap:wrap;max-width:100%;width:100%;box-sizing:border-box}
   .ck-btn > .ck-i{display:none}
   .ck-faces{display:grid;grid-template-columns:repeat(auto-fit,minmax(80px,1fr));width:100%}
