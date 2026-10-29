@@ -34,11 +34,11 @@ class Price(_Strict):
 
 
 # 媒体模型的计价单位：张、秒、分钟、字符；按 token 计价的模型沿用 Price
-MediaUnit = Literal["image", "second", "minute", "char"]
+MediaUnit = Literal["image", "second", "minute", "char", "song"]  # song：每生成一首 / 一段
 
 
 class MediaPrice(_Strict):
-    """媒体模型每个单位的价格（美元）：图片每张、视频每秒、转写每分钟、语音合成每字符。"""
+    """媒体模型每个单位的价格（美元）：图片每张、视频每秒、转写每分钟、语音合成每字符、音乐每首。"""
 
     unit: MediaUnit
     usd: float = Field(ge=0)
@@ -554,6 +554,15 @@ class VideoRules(_Strict):
     submit_retries: int = Field(default=1, ge=0)  # 提交失败或任务失败后再试几次
     frames: int = Field(default=4, ge=1, le=12)  # 发给评审者的截帧数
     max_mb: float = Field(default=100, gt=0)
+    # 支持声音的视频模型同时生成配音和音效（渠道参数 generate_audio）；关掉则只要画面
+    audio: bool = True
+
+
+class MusicRules(_Strict):
+    """音乐生成（配乐、片头、整首歌）：渠道按段 / 首计价，生成一次，不评审（没有可看的画面）。"""
+
+    format: Literal["mp3", "wav"] = "mp3"
+    max_chars: int = Field(default=1500, ge=50)  # 音乐描述（含歌词）最多多少字
 
 
 class SpeechRules(_Strict):
@@ -579,7 +588,7 @@ class StyleRules(_Strict):
 
 
 class MediaRules(_Strict):
-    """媒体生成（图片、语音、视频）：由 seat: false 的媒体模型完成，按标签和档位选择。"""
+    """媒体生成（图片、语音、视频、音乐）：由 seat: false 的媒体模型完成，按标签和档位选择。"""
 
     enabled: bool = True
     default_tier: Tier = "budget"
@@ -591,6 +600,10 @@ class MediaRules(_Strict):
     images_per_round: int = Field(default=1, ge=1, le=4)
     speech: SpeechRules = SpeechRules()
     video: VideoRules = VideoRules()
+    music: MusicRules = MusicRules()
+    # 创作输出（图片 / 语音 / 视频 / 音乐）单独的每月上限（美元，按 UTC 自然月）：
+    # 本月已花 + 这次预计超过它时，生成前先弹确认卡片；0 = 不设上限
+    monthly_usd: float = Field(default=5.0, ge=0)
     # 花费预估：平均生成几轮；评审与改写提示词每次的 token 数
     expected_rounds: float = Field(default=1.5, ge=1)
     review_tokens: int = Field(default=500, ge=0)
@@ -1566,7 +1579,7 @@ class AppConfig(_Strict):
                 raise ValueError(f"collab.kinds.{name}.tags 含未知标签 {unknown}")
         for template in rt.collab.templates:
             for step in template.steps:
-                if step.media not in (None, "image", "speech", "video"):
+                if step.media not in (None, "image", "speech", "video", "music"):
                     raise ValueError(f"模板 {template.name} 的步骤 {step.id} 的 media 无效")
 
     def _check_routing(self) -> None:

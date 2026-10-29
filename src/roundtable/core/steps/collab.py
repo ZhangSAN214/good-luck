@@ -247,7 +247,7 @@ async def make_media(
         text,
         Placement(ctx.table_no, step, round_no, code, sid),
         tier=ctx.media_tier,
-        references=ctx.style_references() if kind == "image" else (),
+        references=ctx.style_references() if kind in ("image", "video") else (),
     )
     final_prompt = None
     style = None

@@ -3,7 +3,8 @@
 - `media` 步骤（讨论模式，提问时选了输出类型）：把汇总出的生成提示词交给媒体模型生成 →
   带 vision 标签的成员评审结果（图片、视频截帧真正发给他们）→ 统筹决定是否改提示词重新生成，
   最多 media.max_rounds 轮。语音只生成一次（没有可评审的画面）。
-- `media_gate()`：视频每次生成前都必须用户确认；图片、语音超过单题门槛才确认；预算不足时弹预算卡片。
+- `media_gate()`：视频每次生成前都必须用户确认；图片、语音、音乐超过单题门槛或创作每月上限才确认；
+  预算不足时弹预算卡片。
 - 协同模式的媒体子任务（steps/collab.py）也通过这里生成。
 """
 
@@ -19,7 +20,7 @@ from pydantic import Field
 from roundtable.core.allocation import shuffled
 from roundtable.core.cards import CardOption, ConfirmationCard, money
 from roundtable.core.jsonout import extract_json_object
-from roundtable.core.media import KIND_LABELS, MediaResult, Placement
+from roundtable.core.media import KIND_LABELS, NO_REVIEW, MediaResult, Placement
 from roundtable.core.prompts import RenderedPrompt
 from roundtable.core.providers import Media
 
@@ -54,7 +55,9 @@ def media_gate(
     if budget_card is not None:
         raise NeedsApproval(budget_card)
     threshold = ctx.config.routing.confirm_threshold_usd
-    if not ((rules.confirm_video and "video" in kinds) or cost > threshold):
+    spent = ctx.media.month_spent() if rules.monthly_usd > 0 else 0.0
+    over_month = rules.monthly_usd > 0 and spent + cost > rules.monthly_usd + 1e-9
+    if not ((rules.confirm_video and "video" in kinds) or cost > threshold or over_month):
         return "go"
     answer = ctx.approval(key)
     if answer == "generate":
@@ -67,6 +70,11 @@ def media_gate(
         situation.append("视频生成较贵且需要等待，每次生成前都会先问你。")
     if cost > threshold:
         situation.append(f"超过单题确认门槛 {money(threshold)}。")
+    if over_month:
+        situation.append(
+            f"本月创作输出已花 {money(spent)}，加上这次会超过创作每月上限"
+            f" {money(rules.monthly_usd)}。"
+        )
     card = ConfirmationCard(
         kind="media",
         situation="\n".join(situation),
@@ -213,6 +221,8 @@ def result_note(ctx: TableContext, kind: str, res: MediaResult) -> tuple[str, li
             if medias
             else "生成了 1 个视频，但无法截帧，你只能依据提示词做判断，并在 checked 中说明。"
         )
+    elif kind == "music":
+        body = "生成了 1 段音乐（你无法收听），请检查描述本身是否清楚。"
     else:
         body = "生成了 1 段语音（你无法收听），请检查文稿本身是否适合朗读。"
     return f'<result type="{kind}">\n{neutralize(body, TAGS)}\n</result>', medias
@@ -265,14 +275,14 @@ class MediaStep:
                 prompt,
                 Placement(ctx.table_no, self.name, round_no),
                 tier=ctx.media_tier,
-                references=ctx.style_references() if kind == "image" else (),
+                references=ctx.style_references() if kind in ("image", "video") else (),
             )
             if not res.ok:
                 notes.append(f"第 {round_no} 轮生成失败：{res.error}")
                 break
             if res.warning and res.warning not in notes:
                 notes.append(res.warning)
-            if round_no == rules.max_rounds or kind == "speech":
+            if round_no == rules.max_rounds or kind in NO_REVIEW:
                 break
             made, decision = await self._review_and_decide(ctx, kind, prompt, res, round_no)
             calls += made

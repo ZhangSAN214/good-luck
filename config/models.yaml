@@ -22,7 +22,7 @@ tag_vocabulary:
   - tts             # 文字转语音
   - stt             # 语音转文字（Whisper 系列）
   - video_gen       # 视频生成（异步）
-  - music_gen       # 音乐 / 音效生成（预留，暂不启用）
+  - music_gen       # 音乐生成（配乐、片头、整首歌；同步返回音频）
 
 # 调用渠道。key 只从 .env 读取，这里只写环境变量名。
 #   adapter: 适配器实现（openai_compat / anthropic / gemini）
@@ -491,9 +491,31 @@ models:
     media_price: {unit: char, usd: 0.000015}   # $15 / 百万字符
     tags: [tts, zh]                            # zh：擅长中文，脚本主要是中文时优先
     params: {voice: loongjohn}                 # 默认音色
-    enabled: true
+    enabled: false                             # 2026-10-29 换成 Plus（中文更自然），留作备用
     routes:
       - {channel: openrouter, model: qwen/qwen-audio-3.0-tts-flash}
+  - id: qwen-audio-3.0-tts-plus
+    # 千问语音 Plus：中文朗读更自然、语气更稳，节电档中文默认
+    vendor: Alibaba
+    aliases: [Qwen, 通义千问, 千问, 通义]
+    seat: false
+    tier: budget
+    media_price: {unit: char, usd: 0.000020}   # $20 / 百万字符
+    tags: [tts, zh]
+    params: {voice: loongjohn}
+    enabled: true
+    routes:
+      - {channel: openrouter, model: qwen/qwen-audio-3.0-tts-plus}
+  - id: minimax-speech-2.8-hd
+    # MiniMax 语音 HD：情绪和停顿最像真人，中英都好；高质量档（旗舰），贵（$100 / 百万字符）
+    vendor: MiniMax
+    seat: false
+    tier: flagship
+    media_price: {unit: char, usd: 0.000100}
+    tags: [tts, zh]
+    enabled: true
+    routes:
+      - {channel: openrouter, model: minimax/speech-2.8-hd}
   # --- 视频（异步任务：提交 → 轮询 → 下载）---
   - id: alibaba-wan-video
     vendor: Alibaba
@@ -502,7 +524,7 @@ models:
     tier: budget
     media_price: {unit: second, usd: 0.10}
     tags: [video_gen]
-    enabled: true
+    enabled: false                         # 2026-10-29 节电档换成更便宜的 Grok Lite / Veo Lite，留作备用
     routes:
       - {channel: openrouter, model: alibaba/wan-2.6}
   - id: veo-3.1
@@ -511,10 +533,69 @@ models:
     seat: false
     tier: flagship
     media_price: {unit: second, usd: 0.40}
-    tags: [video_gen]
-    enabled: true
+    tags: [video_gen, image_edit]
+    enabled: false                         # 2026-10-29 旗舰档换成 Veo 3.1 Fast（便宜四分之三），留作备用
     routes:
       - {channel: openrouter, model: google/veo-3.1}
+  # image_edit：能拿一张图当首帧（图生视频）
+  - id: grok-imagine-video-1.5-lite
+    # Grok 视频 Lite：最便宜（约 $0.10 / 5 秒），720p，适合草稿、表情动图、日常小片段
+    vendor: SpaceXAI
+    seat: false
+    tier: budget
+    default: true
+    media_price: {unit: second, usd: 0.02}
+    tags: [video_gen, image_edit]
+    enabled: true
+    routes:
+      - {channel: openrouter, model: x-ai/grok-imagine-video-1.5-lite}
+  - id: veo-3.1-lite
+    # Veo 3.1 Lite：画面更稳、自带同步声音（环境声 / 对白），约 $0.25 / 5 秒
+    vendor: Google
+    aliases: [Veo]
+    seat: false
+    tier: budget
+    media_price: {unit: second, usd: 0.05}
+    tags: [video_gen, image_edit]
+    enabled: true
+    routes:
+      - {channel: openrouter, model: google/veo-3.1-lite}
+  - id: veo-3.1-fast
+    # Veo 3.1 Fast：高质量档默认，接近完整版画质、带声音，约 $0.50 / 5 秒
+    vendor: Google
+    aliases: [Veo]
+    seat: false
+    tier: flagship
+    default: true
+    media_price: {unit: second, usd: 0.10}
+    tags: [video_gen, image_edit]
+    enabled: true
+    routes:
+      - {channel: openrouter, model: google/veo-3.1-fast}
+  # --- 音乐（对话接口 + 流式音频，同步返回；生成一次、不评审）---
+  - id: lyria-3-clip
+    # Lyria 3 Clip：30 秒片段 / 循环 / 片头，$0.04 一段；节电档默认
+    vendor: Google
+    aliases: [Lyria]
+    seat: false
+    tier: budget
+    default: true
+    media_price: {unit: song, usd: 0.04}
+    tags: [music_gen]
+    enabled: true
+    routes:
+      - {channel: openrouter, model: google/lyria-3-clip-preview}
+  - id: lyria-3-pro
+    # Lyria 3 Pro：整首歌（可带人声和歌词），$0.08 一首；高质量档
+    vendor: Google
+    aliases: [Lyria]
+    seat: false
+    tier: flagship
+    media_price: {unit: song, usd: 0.08}
+    tags: [music_gen]
+    enabled: true
+    routes:
+      - {channel: openrouter, model: google/lyria-3-pro-preview}
 
 # 联网搜索服务（成员的 search / fetch 工具），按顺序优先使用；没有 key 的自动跳过
 search_providers:
