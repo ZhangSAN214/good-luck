@@ -15,6 +15,9 @@ import {
   officePanel,
   channelsPanel,
   pluginBoardPanel,
+  directoryPanel,
+  directoryList,
+  directorySnippet,
   esc,
   feedItems,
   flowPanel,
@@ -73,6 +76,8 @@ const S = {
   board: null, // 插件榜（/api/plugins/board）：只读
   boardFilter: 'all',
   talent: null, // 人才市场（/api/models/candidates）：只提示，不改配置
+  directory: null, // 模型图鉴（/api/models/directory）：只浏览，不上桌、不改配置
+  dirFilter: { cat: 'text', tag: '', q: '', sort: 'new', limit: 80 },
   payslip: null, // { sid, data }：当前会话的工资单
   sid: null,
   session: null,
@@ -426,6 +431,7 @@ function renderPanel() {
   if (S.tab === 'office') h = officePanel(S.office, S.status?.rice, S.talent, S.perfArmed);
   if (S.tab === 'channels') h = channelsPanel(S.status);
   if (S.tab === 'plugins') h = pluginBoardPanel(S.board, S.boardFilter);
+  if (S.tab === 'models') h = directoryPanel(S.directory, S.dirFilter);
   if (S.tab === 'history') h = historyPanel(S.history, S.sid);
   if (S.tab === 'cast') h = castPanel(S.session, prefix());
   if (S.tab === 'contrib') h = contributionsPanel(S.session, S.contribHistory, prefix());
@@ -1017,6 +1023,35 @@ async function loadOffice() {
   if (S.talent.available && S.talent.stale) refreshTalent(); // 超过一天没查：自动查一次（只提示，不改配置）
 }
 
+/** 模型图鉴：第一次打开时读缓存；超过一天没查就自动重新拉取（只浏览，不改配置）。 */
+async function loadDirectory() {
+  if (S.directory && !S.directory.error) return;
+  try {
+    S.directory = await API.getDirectory();
+  } catch (e) {
+    S.directory = { error: e.message || '加载失败', available: true };
+  }
+  if (S.tab === 'models') renderPanel();
+  if (S.directory.available && S.directory.stale) refreshDirectory();
+}
+
+async function refreshDirectory() {
+  if (!S.directory || S.directory.loading) return;
+  S.directory = { ...S.directory, loading: true, error: null };
+  if (S.tab === 'models') renderPanel();
+  try {
+    S.directory = await API.refreshDirectory();
+  } catch (e) {
+    S.directory = { ...S.directory, loading: false, error: e.message || '查询失败' };
+  }
+  if (S.tab === 'models') renderPanel();
+}
+
+function renderDirectoryList() {
+  const list = $('#mdir-list');
+  if (list && S.directory) list.innerHTML = directoryList(S.directory, S.dirFilter);
+}
+
 /** 插件榜：每次切到页签都重新拉取（数据文件每周更新，不用重启）。 */
 async function loadBoard() {
   try {
@@ -1385,6 +1420,31 @@ function bind() {
   });
   document.addEventListener('click', (e) => {
     if (e.target.closest('#talent-refresh')) refreshTalent();
+    if (e.target.closest('#mdir-refresh')) refreshDirectory();
+    const mc = e.target.closest('#mdir-cat [data-c]');
+    if (mc) {
+      S.dirFilter = { ...S.dirFilter, cat: mc.dataset.c, tag: '', limit: 80 };
+      renderPanel();
+    }
+    const mt = e.target.closest('#mdir-tag [data-g]');
+    if (mt) {
+      S.dirFilter = { ...S.dirFilter, tag: S.dirFilter.tag === mt.dataset.g ? '' : mt.dataset.g, limit: 80 };
+      renderPanel();
+    }
+    if (e.target.closest('#mdir-more')) {
+      S.dirFilter = { ...S.dirFilter, limit: S.dirFilter.limit + 80 };
+      renderDirectoryList();
+    }
+    const cp = e.target.closest('[data-copy-route]');
+    if (cp && S.directory) {
+      const entry = (S.directory.entries || []).find((x) => x.route === cp.dataset.copyRoute);
+      if (entry) {
+        navigator.clipboard?.writeText(directorySnippet(entry, S.directory.source)).then(
+          () => (cp.textContent = '已复制'),
+          () => (cp.textContent = '复制失败，请手动选中'),
+        );
+      }
+    }
     const f = e.target.closest('#board-filter [data-f]');
     if (f) {
       S.boardFilter = f.dataset.f;
@@ -1447,6 +1507,16 @@ function bind() {
     const quick = e.target.closest('.exports a[data-fmt]');
     if (quick) quick.href = exportHref(quick.dataset.sid, quick.dataset.fmt); // 用最新记住的样式
   });
+  document.addEventListener('input', (e) => {
+    if (e.target.id !== 'mdir-q') return;
+    S.dirFilter = { ...S.dirFilter, q: e.target.value, limit: 80 };
+    renderDirectoryList(); // 只重画列表，输入框不丢焦点
+  });
+  document.addEventListener('change', (e) => {
+    if (e.target.id !== 'mdir-sort') return;
+    S.dirFilter = { ...S.dirFilter, sort: e.target.value };
+    renderDirectoryList();
+  });
   $('#tabs').addEventListener('click', (e) => {
     const b = e.target.closest('button');
     if (!b) return;
@@ -1456,6 +1526,7 @@ function bind() {
     if (S.tab === 'usage') loadBudget();
     if (S.tab === 'office') loadOffice();
     if (S.tab === 'plugins') loadBoard();
+    if (S.tab === 'models') loadDirectory();
     renderPanel();
   });
   $('#pbody').addEventListener('click', (e) => {
