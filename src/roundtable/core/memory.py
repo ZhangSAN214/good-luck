@@ -179,6 +179,8 @@ class MemoryKeeper:
         self.allow: Any = lambda estimate_usd: True
         # 现在的心情（-1～1，0 平静）；由状态插件接上（engine.state.mood_of），默认平静
         self.mood_of: Any = lambda member: 0.0
+        # 关于用户的线索交给谁（成员系统 P8「关于你」：engine.about.observe）；默认不收
+        self.on_clues: Any = lambda member, day, window, clues: None
         self.store = MemoryStore(rt)
 
     @property
@@ -263,9 +265,12 @@ class MemoryKeeper:
         text = await self._call(member, "memory_night", **mats.variables)
         if text is None:
             return None
+        result = parse(text)
         counts = apply(
-            self.rt, member.id, period, parse(text), mats, clean=clean_memory, offline=offline
+            self.rt, member.id, period, result, mats, clean=clean_memory, offline=offline
         )
+        if result.about:  # 只交出去，画像由 P8 核对原话后写
+            self.on_clues(member.id, period, day_window(day, tz), result.about)
         self.store.digest(member.id)
         if not counts["diary"]:
             return None
