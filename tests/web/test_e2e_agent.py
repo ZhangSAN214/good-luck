@@ -54,7 +54,7 @@ def test_pet_shows_chibi_and_can_be_dragged_and_snapped(serve, page, tmp_path):
     # 素材带浅色底时会在浏览器里抠掉底色，换成抠好的图（blob:）
     src = img.get_attribute("src")
     assert src == f"{ART_URL}m1/chibi.png" or src.startswith("blob:")
-    assert img.get_attribute("alt") == "小一"
+    assert img.get_attribute("alt") == "成员一"
     assert page.locator(PET).count() == 1
     b = box(page)
     assert b["x"] > 1000 and b["y"] > 600  # 默认在右下角
