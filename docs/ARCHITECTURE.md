@@ -229,6 +229,7 @@ prompts/       planner/ answer/ answer_quick/ review/ revise/ synthesize/ redo/
                attachments/ describe_image/ transcribe/ tools/（v4） image_gen/ web_search/ web_fetch/
                decompose/（v4） decompose_retry/ volunteer/ assign/（v3） work/ work_<类型>/ cross_review/ rework/ merge/
                panel/（v2） ideate/（v2） expand/ crossbreed/ vote/ organize/（v2）
+               dsh_workbench/ super_split/ super_work/ super_merge/（超级电脑）
                media_brief/ media_review/ media_refine/ work_media/ rework_media/  evolve_review/（开发侧复审）  versions.lock
 src/roundtable/
   core/
@@ -258,6 +259,7 @@ src/roundtable/
     member/        成员引擎（docs/MEMBER_ENGINE.md；只用于聊天、朋友圈、生活）：自我档案（profile.py，版本 + 修改记录 + 锁定 + 撤回）、人物卡与随身卡（card.py：人物卡 Markdown → 档案分区，档案 → ≤400 字随身卡）、事件总线（bus.py）、心跳（heartbeat.py）、上下文组装器（context.py，约 600 字）、预算调度器（scheduler.py）、评测集（evalset.py，题库 benchmarks/members/scenarios.yaml）
     screen/        投屏陪伴「一起看」（docs/WATCH.md）：画面来源（capture.py：电脑整屏 / 窗口用 Pillow ImageGrab + ctypes，安卓用 adb 截屏，只读；画面变化判断、敏感窗口暂停）、一起看（watch.py：画面变了才交最便宜的识图模型写成文字、陪看成员吐槽和回话、安静看、每月上限 chat.watch.monthly_usd、感知事件 perceive.screen）；截图只在内存里
     dsh/           dsh 工作台（docs/DSH.md）：可拔掉的外设，只有 service.py 可选导入（拔掉 core/dsh 圆桌照常，CI「unplug-dsh」任务）；白名单与安装包哈希（catalog.py，读 config/dsh_plugins.yaml）、叠加配置层（overlay.py：关上传和遥测、中立身份）、key 与余额（channel.py）、按余额差额估花费与每月软上限（usage.py）、进程管理（sidecar.py，只监听 127.0.0.1）、一次性安装（install.py）；数据都在 data/dsh/，不进 git
+    supercomputer/ 超级电脑（docs/SUPERCOMPUTER.md）：几位编程助手平级、没有固定主管；打分派活（scoring.py：擅长 + 今天剩余次数 + 手上的活，换名不变）、账本（ledger.py：每天件数、冷却、界面上改的次数，data/super/ledger.json）、跑官方命令行（runner.py：正文走标准输入、超时连子进程结束）、启动器（launch.py：命令行去掉所有 *_API_KEY；dsh 由服务层以钩子交进来）、流程（engine.py：拆分 → 并行 → 合并，撞限额冷却换人，记录在 data/super/tasks/）
     wander/        成员自己上网（docs/WANDER.md）：隔离浏览器（web.py：Playwright 驱动电脑上的 Edge / Chrome，每位成员一个资料夹，只按链接打开白名单网站、读文字和链接、截小图，跳去外站拦下）、逛网站循环（wander.py：每页交成员说一句感想并决定下一步，浏览记录在隐藏会话 wander:<成员>，小结发感知事件 perceive.web，花费计入生活每日上限，心跳上登记自动出门）
     almanac/       日历底座（docs/CALENDAR.md；只影响生活）：今天是什么日子（各国法定假日用开源库 holidays 离线算、农历与节气查预生成的表 lunar_table.json、节日规则、成员生日与入职纪念日、你加的纪念日），每天发 calendar.day / calendar.upcoming 到成员事件总线；不调模型、不联网
     life_guard.py  生活「收得住」：互聊收尾、每日条数上限、熔断、每周自检（docs/CHAT.md G9；不调模型）

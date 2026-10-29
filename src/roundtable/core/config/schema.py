@@ -1561,6 +1561,73 @@ class LengthGuard(_Strict):
         return out
 
 
+class SuperWorker(_Strict):
+    """超级电脑的一位「员工」：一个在电脑上用官方命令行跑的编程助手（docs/SUPERCOMPUTER.md）。
+
+    谁擅长什么、每天能用几次都写在配置里；派活的程序只看这些数字，不看是谁。"""
+
+    id: str = Field(pattern=r"^[a-z][a-z0-9_-]{0,23}$")
+    label: str = Field(min_length=1, max_length=24)  # 界面上的称呼
+    # 怎么启动：command = 按 argv 直接运行；dsh = 交给圆桌的 dsh 工作台
+    # （用它的运行时、叠加配置和 key）
+    via: Literal["command", "dsh"] = "command"
+    # 命令行（via=command）；任务正文从标准输入交给它，不放进参数
+    argv: list[str] = Field(default_factory=list)
+    skills: dict[str, float] = Field(default_factory=dict)  # 活的种类 → 擅长程度 0～1
+    daily_limit: int = Field(default=20, ge=0, le=1000)  # 每天最多派几件（界面上可改）
+    max_parallel: int = Field(default=1, ge=1, le=8)  # 同时最多干几件
+    timeout_s: float = Field(default=1800, gt=0, le=7200)
+    cooldown_minutes: float = Field(default=60, ge=0, le=1440)  # 撞到订阅限额后歇多久
+    # 输出里出现这些（不分大小写）就当作撞到订阅限额
+    limit_patterns: list[str] = Field(
+        default_factory=lambda: ["usage limit", "rate limit", "limit reached", "quota"]
+    )
+
+    @model_validator(mode="after")
+    def _argv(self) -> SuperWorker:
+        if self.via == "command" and not self.argv:
+            raise ValueError(f"{self.id}：via=command 时要写 argv")
+        for kind, v in self.skills.items():
+            if not 0 <= v <= 1:
+                raise ValueError(f"{self.id}.skills.{kind} 要在 0～1 之间")
+        return self
+
+
+class SuperWeights(_Strict):
+    """派活打分的权重：分数 = 擅长 × skill + 剩余额度比例 × quota − 手上的活 × busy。"""
+
+    skill: float = Field(default=0.6, ge=0)
+    quota: float = Field(default=0.3, ge=0)
+    busy: float = Field(default=0.2, ge=0)
+
+
+class SupercomputerRules(_Strict):
+    """超级电脑（docs/SUPERCOMPUTER.md）：几位编程助手平级，没有固定主管。
+
+    你交一件活：程序按分数挑一位拆成小活，每件小活再按分数分给最合适、额度最多、最闲的一位，
+    大家在同一个工作文件夹里并行干，最后按分数挑一位合并。只在你发起时干活。"""
+
+    enabled: bool = True
+    kinds: list[str] = Field(
+        default_factory=lambda: ["code", "frontend", "test", "docs", "research", "review"]
+    )
+    max_subtasks: int = Field(default=6, ge=1, le=20)
+    weights: SuperWeights = SuperWeights()
+    workers: list[SuperWorker] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _check(self) -> SupercomputerRules:
+        ids = [w.id for w in self.workers]
+        if len(ids) != len(set(ids)):
+            raise ValueError("supercomputer.workers 的 id 不能重复")
+        known = set(self.kinds) | {"split", "merge"}
+        for w in self.workers:
+            bad = sorted(set(w.skills) - known)
+            if bad:
+                raise ValueError(f"{w.id}.skills 里有不认识的种类：{bad}（kinds 里加上）")
+        return self
+
+
 class DshRules(_Strict):
     """dsh 工作台（docs/DSH.md）：圆桌在本机启动、管理一个 dsh 进程当「边车」，dsh 插件在里面运行。
 
@@ -1586,6 +1653,10 @@ class DshRules(_Strict):
     usd_rates: dict[str, float] = Field(default_factory=lambda: {"CNY": 7.2})
     # dsh 的文件权限：read-only 只读（默认）/ workspace-write 只能写工作区 / danger-full-access
     permission_mode: Literal["read-only", "workspace-write", "danger-full-access"] = "read-only"
+    # 超级电脑派给 dsh 的活：只能写这件活的共享工作文件夹（dsh 的工作区就是当前目录）
+    job_permission_mode: Literal["read-only", "workspace-write", "danger-full-access"] = (
+        "workspace-write"
+    )
 
     @field_validator("key_env")
     @classmethod
@@ -1696,6 +1767,7 @@ class RoundtableConfig(_Strict):
     clipper: ClipperRules = ClipperRules()
     perception: PerceptionRules = PerceptionRules()
     dsh: DshRules = DshRules()
+    supercomputer: SupercomputerRules = SupercomputerRules()
     calendar: CalendarRules = CalendarRules()
 
     @field_validator("prompts")

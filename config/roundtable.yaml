@@ -334,6 +334,9 @@ prompts:
   watch: v1              # 投屏陪伴：成员陪用户看屏幕，吐槽、接话
   wander: v1             # 成员自己上网：每看一页说一句感想、决定下一步（只看不互动）
   dsh_workbench: v1      # dsh 工作台助手的身份说明：中立、不带人格（接在 dsh 系统提示前面）
+  super_split: v1        # 超级电脑：把一件活拆成能并行的小活
+  super_work: v1         # 超级电脑：一位助手在共享工作文件夹里干一件小活
+  super_merge: v1        # 超级电脑：合并各件小活的成果并写交付说明
   describe_screen: v1    # 投屏陪伴：把一张截图写成给成员看的文字（隐私信息打码）
   chat: v6               # 群聊：口语、短句（v2：人设与记忆；v3：人物卡随身卡，AI 身份平时不刻意提、被认真问如实承认；v4：表情包、颜文字、引用、分条、不接话；v5：知道现在几点和自己在干什么；v6：照人物卡说话风格，各人不同）
   chat_dm: v6            # 私聊：和用户一对一（v2：人设与记忆；v3：人物卡随身卡；v4：表情包、颜文字、引用、分条；v5：知道现在几点；v6：照人物卡说话风格）
@@ -1048,6 +1051,34 @@ dsh:                             # dsh 工作台（docs/DSH.md）：圆桌在本
   balance_check_minutes: 5
   usd_rates: {CNY: 7.2}          # 余额是人民币时按这个汇率折成美元
   permission_mode: read-only     # dsh 默认只读；要让它改文件改成 workspace-write（只能改 data/dsh/work/）
+  job_permission_mode: workspace-write   # 超级电脑派给 dsh 的活：只能写那件活的共享工作文件夹
+
+# 超级电脑（docs/SUPERCOMPUTER.md）：几位编程助手平级、没有固定主管，只在你交活时干活。
+# 派活只看下面的数字：分数 = 擅长 × skill + 今天剩余次数比例 × quota − 手上的活 × busy；
+# 拆分（split）和合并（merge）也按分数挑人。撞到订阅限额的歇 cooldown_minutes 分钟，活换给下一位。
+# 每天次数（daily_limit）在「工作台 → 超级电脑」里也能改。任务正文从标准输入交给命令行，不放进参数。
+supercomputer:
+  enabled: true
+  kinds: [code, frontend, test, docs, research, review]
+  max_subtasks: 6
+  weights: {skill: 0.6, quota: 0.3, busy: 0.2}
+  workers:
+    - id: dsh
+      label: dsh
+      via: dsh                   # 用圆桌的 dsh 工作台（headless 方式），花费计入 dsh.monthly_usd
+      skills: {research: 0.85, docs: 0.7, code: 0.6, test: 0.55, review: 0.6, frontend: 0.5, split: 0.6, merge: 0.6}
+      daily_limit: 20
+      max_parallel: 2
+    - id: codex
+      label: Codex
+      argv: [codex, exec, --skip-git-repo-check, --sandbox, workspace-write, "-"]
+      skills: {code: 0.9, test: 0.85, review: 0.75, frontend: 0.7, docs: 0.6, research: 0.5, split: 0.7, merge: 0.7}
+      daily_limit: 20
+    - id: claude
+      label: Claude Code
+      argv: [claude, -p, --permission-mode, acceptEdits, --output-format, text]
+      skills: {code: 0.85, frontend: 0.85, review: 0.9, docs: 0.85, test: 0.75, research: 0.6, split: 0.85, merge: 0.85}
+      daily_limit: 20
 
 # 日历底座（docs/CALENDAR.md）：只算「今天是什么日子」，每天发事件给成员系统（怎么过节由生活引擎决定）。
 # 全部离线计算：法定假日用开源库 holidays，农历和节气查预先算好的表；不调模型、不联网、不花钱。

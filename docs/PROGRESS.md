@@ -275,6 +275,14 @@
 - 顶栏「工作台」面板；接口 `/api/dsh/*`，网页地址只给电脑本机。见 `docs/DSH.md`。
 - 测试：`tests/core/dsh/`、`tests/api/test_dsh_api.py`、`tests/test_architecture.py`（只有 service 导入 dsh）。
 
+### 超级电脑（2026-10-29，预估 10～14 小时，实际约 3 小时）
+
+用户要「dsh、Codex、Claude Code 组成超级电脑，没有固定主管，按擅长和剩余额度分配」：
+- `core/supercomputer/`：打分派活（擅长 + 今天剩余次数 + 手上的活，拆分和合并也按分数，换名不变）、账本（每天件数默认 20 可改、撞限额冷却）、跑官方命令行（正文走标准输入）、拆分 → 并行 → 合并的流程，记录在 `data/super/tasks/`。
+- 启动器：命令行去掉所有 `*_API_KEY`，保证走订阅；dsh 走工作台的 headless 方式（`DshManager.job_*`），花费计入 dsh 月上限。
+- 新提示词 `super_split/v1`、`super_work/v1`、`super_merge/v1`；顶栏「超级电脑」面板；接口 `/api/super/*`。见 `docs/SUPERCOMPUTER.md`。
+- 测试：`tests/core/supercomputer/`、`tests/api/test_super_api.py`、`tests/web/test_e2e_supercomputer.py`、`tests/core/dsh/test_manager.py`（headless 活）。
+
 ## 下一步
 
 0. 你本机试用办公室模式（单人办、开会、项目分工、预算单、绩效）、公寓楼和群聊；看看「员工」页底部的人才市场，决定要不要换人 / 改价格。合并 PR #6 / #7 / #8 需要你点头。

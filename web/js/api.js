@@ -247,3 +247,13 @@ export const dshStatus = () => api('/api/dsh');
 export const dshStart = () => api('/api/dsh/start', { method: 'POST' });
 export const dshStop = () => api('/api/dsh/stop', { method: 'POST' });
 export const dshCheck = () => api('/api/dsh/check', { method: 'POST' });
+
+// 超级电脑：几位编程助手平级、按分数派活（docs/SUPERCOMPUTER.md）
+export const superStatus = () => api('/api/super');
+export const superSubmit = (text) => api('/api/super/tasks', { method: 'POST', body: { text } });
+export const superCancel = () => api('/api/super/cancel', { method: 'POST' });
+export const superTask = (id) => api(`/api/super/tasks/${encodeURIComponent(id)}`);
+export const superLimit = (worker, limit) =>
+  api(`/api/super/workers/${encodeURIComponent(worker)}/limit`, { method: 'PUT', body: { limit } });
+export const superWake = (worker) =>
+  api(`/api/super/workers/${encodeURIComponent(worker)}/wake`, { method: 'POST' });

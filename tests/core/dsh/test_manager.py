@@ -174,3 +174,24 @@ async def test_bad_catalog_makes_workbench_unavailable(tmp_path, fake_dsh):
     bad.write_text("runtime: {}\n", encoding="utf-8")
     mgr = DshManager(DshRules(), catalog_path=bad, root=tmp_path / "dsh", persona=str)
     assert "白名单配置有误" in mgr.status()["unavailable"]
+
+
+async def test_headless_jobs_for_supercomputer(tmp_path, fake_dsh):
+    """超级电脑派来的一次性活：headless 启动参数、写共享文件夹的权限、花费计入月上限。"""
+    mgr, _ = build(tmp_path, fake_dsh, balances=Balances(10.0, 9.0, 9.0), monthly=0.5)
+    assert mgr.job_blocked() is None
+    argv, env, secrets = mgr.job_launch()
+    assert argv[2:4] == ["--profile", "headless"] and argv[-1] == "-"
+    assert argv[argv.index("--patch") + 1] == str(mgr.paths.overlay)
+    assert env["DSH_PERMISSION_MODE"] == "workspace-write" and env["DSH_TEST_KEY"] == KEY
+    assert "OPENROUTER_API_KEY" not in env and secrets == [KEY]
+    await mgr.job_started()  # 记起点 10.0
+    await mgr.job_finished()  # 9.0：花了 1.0，超过 0.5
+    assert mgr.budget()["spent_usd"] == pytest.approx(1.0)
+    assert "到了上限" in mgr.job_blocked()
+
+
+def test_job_blocked_without_key(tmp_path, fake_dsh):
+    mgr, _ = build(tmp_path, fake_dsh)
+    mgr.key = type(mgr.key)("DSH_TEST_KEY", None)
+    assert "DSH_TEST_KEY" in mgr.job_blocked()

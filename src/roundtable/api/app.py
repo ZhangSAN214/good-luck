@@ -293,6 +293,18 @@ class WatchQuietBody(BaseModel):
     quiet: bool
 
 
+class SuperTaskBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    text: str = Field(min_length=1, max_length=8000)
+
+
+class SuperLimitBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    limit: int = Field(ge=0, le=1000)
+
+
 class WatchSayBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -662,6 +674,31 @@ def create_app(service: RoundtableService | None = None, lan: LanAccess | None =
     @app.post("/api/dsh/check")
     async def dsh_check(request: Request) -> dict[str, Any]:
         return dsh_out(request, await svc(request).dsh_check())
+
+    # 超级电脑：几位编程助手平级、按分数派活（docs/SUPERCOMPUTER.md）
+    @app.get("/api/super")
+    async def super_status(request: Request) -> dict[str, Any]:
+        return svc(request).super_status()
+
+    @app.post("/api/super/tasks")
+    async def super_submit(request: Request, body: SuperTaskBody) -> dict[str, Any]:
+        return svc(request).super_submit(body.text)
+
+    @app.post("/api/super/cancel")
+    async def super_cancel(request: Request) -> dict[str, Any]:
+        return await svc(request).super_cancel()
+
+    @app.get("/api/super/tasks/{task_id}")
+    async def super_task(request: Request, task_id: str) -> dict[str, Any]:
+        return svc(request).super_task(task_id)
+
+    @app.put("/api/super/workers/{worker}/limit")
+    async def super_limit(request: Request, worker: str, body: SuperLimitBody) -> dict[str, Any]:
+        return svc(request).super_set_limit(worker, body.limit)
+
+    @app.post("/api/super/workers/{worker}/wake")
+    async def super_wake(request: Request, worker: str) -> dict[str, Any]:
+        return svc(request).super_clear_cooldown(worker)
 
     @app.get("/api/wander")
     async def wander_status(request: Request) -> dict[str, Any]:
