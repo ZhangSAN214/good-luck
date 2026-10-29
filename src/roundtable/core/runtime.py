@@ -51,6 +51,7 @@ PERCEPTION_DIR = "perception"
 # 成员音色念过的语音缓存（放在数据库旁边，不进 git）
 VOICE_CACHE_DIR = "voice_cache"
 STICKER_DIR = "stickers"
+GROWTH_DIR = "growth_backups"  # 成员成长（P6）每周的本地备份
 
 
 def data_dir(environ: Mapping[str, str] | None = None) -> Path:
@@ -110,6 +111,8 @@ class Runtime:
     voice_cache_dir: Path | None = None
     # 成员表情包的图片与索引（数据库旁边的 stickers/）；为空时只存在内存里
     sticker_dir: Path | None = None
+    # 成员成长（P6）每周的本地备份（数据库旁边的 growth_backups/）；为空时不写备份
+    growth_dir: Path | None = None
 
     @classmethod
     def build(
@@ -223,6 +226,7 @@ class Runtime:
             if str(db_path) == ":memory:"
             else Path(db_path).parent / VOICE_CACHE_DIR,
             sticker_dir=None if str(db_path) == ":memory:" else Path(db_path).parent / STICKER_DIR,
+            growth_dir=None if str(db_path) == ":memory:" else Path(db_path).parent / GROWTH_DIR,
         )
 
     def sandbox(self) -> tuple[Sandbox | None, str | None]:

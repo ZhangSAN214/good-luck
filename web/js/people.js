@@ -1,6 +1,7 @@
 // 成员设定与记忆：聊天里每位成员的自我档案（人物卡，profile.js）、简单人设（性格、说话风格、口头禅、兴趣）和 TA 的记忆。
 // 人设和记忆只用于私聊、群聊、朋友圈，工作模式与办公室不读取；记忆只存在你电脑上，可以改、删、清空。
 
+import { GrowthPanel } from './growth.js';
 import { ProfilePanel } from './profile.js';
 
 const esc = (s) =>
@@ -42,6 +43,9 @@ export class People {
             importCards: api.importCards,
           },
         })
+      : null;
+    this.growth = api?.growth
+      ? new GrowthPanel({ now, api: { get: api.growth, run: api.growthRun, revert: api.growthRevert, clear: api.growthClear } })
       : null;
     this.dlg.addEventListener('click', (e) => this.onClick(e));
     this.dlg.addEventListener('submit', (e) => this.onSubmit(e));
@@ -196,6 +200,7 @@ export class People {
         ${
           m
             ? `${this.profile ? '<section class="pp-prof grp" id="pp-prof" aria-label="自我档案"></section>' : ''}
+        ${this.growth ? '<section class="pp-grow grp" id="pp-grow" aria-label="成长"></section>' : ''}
         <form id="pp-persona" class="pp-form grp">
           <h4 class="grp-h">${esc(m.name)} 的人设 <small>${esc(SOURCE[m.source] || '')}</small></h4>
           <div class="grp-box">
@@ -222,6 +227,8 @@ export class People {
       </div>`;
     const prof = this.dlg.querySelector('#pp-prof');
     if (prof && m) this.profile.mount(prof, m.id);
+    const grow = this.dlg.querySelector('#pp-grow');
+    if (grow && m) this.growth.mount(grow, m.id);
   }
 
   async listen() {
@@ -273,7 +280,7 @@ export class People {
 
   async onClick(e) {
     const t = e.target;
-    if (t.closest('#pp-prof')) return; // 自我档案自己处理（profile.js）
+    if (t.closest('#pp-prof') || t.closest('#pp-grow')) return; // 自我档案、成长自己处理
     if (t.closest('[data-close]')) return this.close();
     const who = t.closest('[data-member]');
     if (who) {
