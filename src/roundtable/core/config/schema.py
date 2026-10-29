@@ -1851,6 +1851,33 @@ class SupercomputerRules(_Strict):
         return self
 
 
+class BenchRules(_Strict):
+    """工作台生成器（docs/KIT.md）：一句话 → 拆需求 → 按零件库拼窗口 → 质检 + 截图评审 → 打回重做。
+
+    活都交给超级电脑的几位助手（按分数挑人，花的是订阅次数）；评审永远不分给窗口的作者本人。
+    做满 ``max_rounds`` 轮还不过线就停下来，交给用户决定。"""
+
+    enabled: bool = True
+    max_windows: int = Field(default=8, ge=1, le=16)  # 一个工作台最多几个窗口
+    max_rounds: int = Field(default=3, ge=1, le=6)  # 质检 + 评审 + 返工最多几轮
+    pass_avg: float = Field(default=8.0, ge=0, le=10)  # 评审各项平均分过线
+    pass_min: float = Field(default=6.0, ge=0, le=10)  # 每一项都不能低于它
+    plan_kind: str = "split"  # 拆需求按哪种活打分挑人
+    window_kind: str = "frontend"  # 写窗口
+    review_kind: str = "review"  # 截图评审
+    # 找插件（2026-10-29 用户定：达标的全自动搬，做完给清单；不达标只借思路）
+    scout: bool = True
+    min_stars: int = Field(default=100, ge=0)  # GitHub 星数门槛
+    max_repo_mb: int = Field(default=20, ge=1, le=200)  # 仓库太大就只借思路
+    max_adopt: int = Field(default=3, ge=0, le=10)  # 一个工作台最多搬几个
+    rubric: list[str] = Field(
+        default_factory=lambda: [
+            *("视觉层次", "信息密度", "一致性", "交互完整"),
+            *("空状态与边界", "文案", "商业感"),
+        ]
+    )
+
+
 class DshRules(_Strict):
     """dsh 工作台（docs/DSH.md）：圆桌在本机启动、管理一个 dsh 进程当「边车」，dsh 插件在里面运行。
 
@@ -1992,6 +2019,7 @@ class RoundtableConfig(_Strict):
     perception: PerceptionRules = PerceptionRules()
     dsh: DshRules = DshRules()
     supercomputer: SupercomputerRules = SupercomputerRules()
+    bench: BenchRules = BenchRules()
     calendar: CalendarRules = CalendarRules()
 
     @field_validator("prompts")
@@ -2010,6 +2038,15 @@ class RoundtableConfig(_Strict):
         if len(steps) != len(set(steps)):
             raise ValueError(f"pipeline 中的步骤不能重复：{steps}")
         return steps
+
+    @model_validator(mode="after")
+    def _bench_kinds(self) -> RoundtableConfig:
+        known = set(self.supercomputer.kinds) | {"split", "merge"}
+        b = self.bench
+        bad = [k for k in (b.plan_kind, b.window_kind, b.review_kind) if k not in known]
+        if bad:
+            raise ValueError(f"bench 用到的活的种类不在 supercomputer.kinds 里：{bad}")
+        return self
 
     @model_validator(mode="after")
     def _members(self) -> RoundtableConfig:

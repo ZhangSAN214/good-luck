@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import mimetypes
 import re
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -363,6 +364,21 @@ class WatchQuietBody(BaseModel):
     quiet: bool
 
 
+class BenchBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    request: str = Field(min_length=1, max_length=2000)
+
+
+# 生成的工作台在「沙箱」里运行：浏览器把它当成一个陌生网站，碰不到圆桌的接口、存储和登录状态
+BENCH_CSP = (
+    "sandbox allow-scripts allow-forms allow-popups allow-downloads; "
+    "default-src 'self' data: blob:; script-src 'self' 'unsafe-inline'; "
+    "style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' data: blob:; "
+    "connect-src 'self'; frame-ancestors 'self'"
+)
+
+
 class SuperTaskBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -506,6 +522,9 @@ class WebFiles(StaticFiles):
     ) -> Response:
         resp = super().file_response(full_path, stat_result, scope, *args, **kwargs)
         resp.headers["Cache-Control"] = "no-cache"
+        if "/kit/" in str(full_path).replace("\\", "/"):
+            # 设计套件：沙箱里的工作台（来源是「陌生网站」）也要能用 import 载入
+            resp.headers["Access-Control-Allow-Origin"] = "*"
         if (
             str(full_path).endswith(".html")
             and Request(scope).cookies.get(WEB_CACHE_COOKIE) != WEB_CACHE_EPOCH
@@ -756,6 +775,32 @@ def create_app(service: RoundtableService | None = None, lan: LanAccess | None =
         return dsh_out(request, await svc(request).dsh_check())
 
     # 超级电脑：几位编程助手平级、按分数派活（docs/SUPERCOMPUTER.md）
+    @app.get("/api/bench")
+    async def bench_status(request: Request) -> dict[str, Any]:
+        return svc(request).bench_status()
+
+    @app.post("/api/bench")
+    async def bench_submit(request: Request, body: BenchBody) -> dict[str, Any]:
+        return svc(request).bench_submit(body.request)
+
+    @app.post("/api/bench/cancel")
+    async def bench_cancel(request: Request) -> dict[str, Any]:
+        return await svc(request).bench_cancel()
+
+    @app.get("/api/bench/{bench_id}")
+    async def bench_get(request: Request, bench_id: str) -> dict[str, Any]:
+        return svc(request).bench_get(bench_id)
+
+    @app.get("/bench/{bench_id}/{path:path}")
+    async def bench_file(request: Request, bench_id: str, path: str) -> Response:
+        full = svc(request).bench_file(bench_id, path)
+        mime = mimetypes.guess_type(full.name)[0] or "application/octet-stream"
+        if full.suffix in (".js", ".mjs"):
+            mime = "text/javascript"
+        headers = {"Cache-Control": "no-cache", "Content-Security-Policy": BENCH_CSP}
+        headers["Access-Control-Allow-Origin"] = "*"  # 沙箱页面载入自己的模块和数据
+        return Response(content=full.read_bytes(), media_type=mime, headers=headers)
+
     @app.get("/api/super")
     async def super_status(request: Request) -> dict[str, Any]:
         return svc(request).super_status()

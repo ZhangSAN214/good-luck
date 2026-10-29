@@ -240,6 +240,25 @@ class Supercomputer:
             with contextlib.suppress(asyncio.CancelledError):
                 await self._job
 
+    async def step(
+        self,
+        kind: str,
+        prompt: str,
+        *,
+        folder: Path,
+        rng: random.Random,
+        record: dict[str, Any],
+        log: Callable[[str], None] | None = None,
+        preset: str | None = None,
+        exclude: tuple[str, ...] = (),
+    ) -> tuple[SuperWorker | None, RunResult | None]:
+        """给别的流程（如工作台生成器）用：按分数挑一位干一步，规则和自己的流程完全一样
+        （撞限额冷却换人、别的失败换一位再试一次、记次数）。
+        exclude 里的人不参加（比如不评自己的活）。"""
+        job: dict[str, Any] = {"folder": str(folder), "log": [], "_log": log}
+        folder.mkdir(parents=True, exist_ok=True)
+        return await self._attempt(job, kind, prompt, rng, record, preset=preset, exclude=exclude)
+
     # --- 流程 -------------------------------------------------------------------
 
     def folder(self, task_id: str) -> Path:
@@ -247,6 +266,9 @@ class Supercomputer:
         return self.root / "tasks" / task_id / "work"
 
     def _log(self, task: dict[str, Any], text: str) -> None:
+        if task.get("_log"):  # step() 交进来的活：记到调用方那里
+            task["_log"](text)
+            return
         task["log"].append({"at": _iso(self.now()), "text": text})
         self._save()
 
@@ -297,20 +319,23 @@ class Supercomputer:
         record: dict[str, Any],
         *,
         preset: str | None = None,
+        exclude: tuple[str, ...] = (),
     ) -> tuple[SuperWorker | None, RunResult | None]:
         """按分数挑人干一步；撞限额换人，别的失败换一位再试一次。返回（干成的人，结果）。"""
-        tried: list[str] = []
+        tried: list[str] = list(exclude)
         failures = 0
+        first = True
         record.setdefault("attempts", [])
         while True:
             chosen: SuperWorker | None
-            if preset and not tried:
+            if preset and first:
                 chosen, ranking = self.worker(preset), record.get("ranking", [])
             else:
                 chosen, scores = pick(
                     self.rules.workers, kind, self.states(), self.rules.weights, rng, tried
                 )
                 ranking = [s.as_dict() for s in scores]
+            first = False
             if chosen is None:
                 return None, None
             tried.append(chosen.id)

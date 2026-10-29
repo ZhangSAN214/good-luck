@@ -394,6 +394,10 @@ prompts:
   super_split: v1        # 超级电脑：把一件活拆成能并行的小活
   super_work: v1         # 超级电脑：一位助手在共享工作文件夹里干一件小活
   super_merge: v1        # 超级电脑：合并各件小活的成果并写交付说明
+  bench_plan: v1         # 工作台生成器：一句话拆成窗口、数据、操作
+  bench_window: v1       # 工作台生成器：按规格用零件库写一个窗口
+  bench_review: v1       # 工作台生成器：看截图按商业标准打分（不评自己写的窗口）
+  bench_rework: v1       # 工作台生成器：按评审和质检返工
   sticker_draw: v1       # 成员专属表情包：画一张 Q 版贴纸的提示词
   sticker_check: v2      # 成员专属表情包：先逐字抄出图上的字再核对配文和形象
   describe_screen: v2    # 投屏陪伴：把一张截图写成给成员看的文字（隐私信息打码；v2 带上一段，写出变化）
@@ -1158,6 +1162,23 @@ supercomputer:
       argv: [claude, -p, --permission-mode, acceptEdits, --output-format, text]
       skills: {code: 0.85, frontend: 0.85, review: 0.9, docs: 0.85, test: 0.75, research: 0.6, split: 0.85, merge: 0.85}
       daily_limit: 20
+
+# 工作台生成器（docs/KIT.md）：一句话 → 拆需求 → 按零件库拼窗口 → 自动质检 + 截图评审 → 返工。
+# 活交给上面的超级电脑（花的是订阅次数）；评审永远不分给窗口的作者本人；做满 max_rounds 轮还不过线就停下来问你。
+bench:
+  enabled: true
+  max_windows: 8
+  max_rounds: 3
+  pass_avg: 8.0      # 评审各项平均分过线
+  pass_min: 6.0      # 每一项都不能低于它
+  plan_kind: split
+  window_kind: frontend
+  review_kind: review
+  rubric: [视觉层次, 信息密度, 一致性, 交互完整, 空状态与边界, 文案, 商业感]
+  scout: true       # 找插件：按拆需求写下的缺口去 dsh 插件集市和 GitHub 找（用户 10-29 拍板「全自动，事后看清单」）
+  min_stars: 100    # GitHub 星数够这个、许可证宽松才直接搬；不够只借思路
+  max_repo_mb: 20   # 仓库太大只借思路
+  max_adopt: 3      # 一个工作台最多搬几个
 
 # 日历底座（docs/CALENDAR.md）：只算「今天是什么日子」，每天发事件给成员系统（怎么过节由生活引擎决定）。
 # 全部离线计算：法定假日用开源库 holidays，农历和节气查预先算好的表；不调模型、不联网、不花钱。
