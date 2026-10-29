@@ -3,7 +3,10 @@
 // 选 12 / 24 小时、显示日期和时差；面板里还有秒表（可计次）和倒计时（常用时长一键开始、到点响三声）。
 // 时间全靠浏览器自带的 IANA 时区表（Intl）算，夏令时自动切换（曼彻斯特 10 月最后一个周日回冬令时）；
 // 不联网、不花钱，设置和正在走的秒表 / 倒计时只存在这台电脑的浏览器里（localStorage），刷新页面不丢。
+// 主时区同时存到服务器（hometz.js），公寓、群聊、成员作息都按它过日子。
 // 只管显示时间和计时；日期、节假日归日历。
+
+import { homeZone, loadHomeZone, setHomeZone } from './hometz.js';
 
 const esc = (s) =>
   String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -304,6 +307,33 @@ export class Clock {
     this.paint();
     // 每 0.25 秒看一眼：分钟变了才重画钟面；秒表 / 倒计时在走时刷新读数，倒计时到点就响（页面看不见时也照样到点）
     this.timer = setInterval(() => this.pulse(), 250);
+    this.syncHome();
+  }
+
+  mainTz() {
+    return (this.set.zones[this.set.main] || this.set.zones[0]).tz;
+  }
+
+  /** 主时区变了：告诉服务器（整个圆桌跟着换）。 */
+  pushHome() {
+    const tz = this.mainTz();
+    if (tz !== homeZone()) setHomeZone(tz);
+  }
+
+  /** 开页面时和服务器对一下：服务器上没选过就把这里的主时区报上去，选过就以服务器为准（别的设备改过）。 */
+  async syncHome() {
+    const { zone, chosen } = await loadHomeZone();
+    if (!chosen) return setHomeZone(this.mainTz());
+    if (zone === this.mainTz()) return;
+    const i = this.set.zones.findIndex((z) => z.tz === zone);
+    this.update((s) => {
+      const z = { tz: zone, name: cityName(zone) };
+      if (i >= 0) s.main = i;
+      else if (s.zones.length < MAX_ZONES) {
+        s.zones.unshift(z);
+        s.main = 0;
+      } else s.zones[s.main] = z;
+    }, this.open);
   }
 
   ms() {
@@ -450,7 +480,7 @@ export class Clock {
       .join('');
     return `
       <ul class="ck-list">${rows}</ul>
-      <p class="hb-hint ck-mainhint">点星星设主时区：它排最前面、加粗显示，其他钟的时差按它算。时区选「跟随这台电脑」，出门换了时区会自己跟着变。</p>
+      <p class="hb-hint ck-mainhint">点星星设主时区：它排最前面、加粗显示，其他钟的时差按它算；公寓的天色和作息、群聊时间、成员几点睡觉也都按它。时区选「跟随这台电脑」，出门换了时区会自己跟着变。</p>
       <button type="button" class="hb-chip ck-add" data-add${full ? ' disabled' : ''}>${icon('add')}${full ? `最多 ${MAX_ZONES} 个` : '添加城市'}</button>
       <div class="hb-chips" role="group" aria-label="小时制">
         <button type="button" class="hb-chip" data-h12="0" aria-pressed="${!s.h12}">24 小时</button>
@@ -568,6 +598,7 @@ export class Clock {
     fn(this.set);
     this.set = cleanSettings(this.set);
     this.save();
+    this.pushHome();
     if (repaint) {
       this.paintTab();
       this.tick(true);
