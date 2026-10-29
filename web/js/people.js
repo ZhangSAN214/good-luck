@@ -1,6 +1,7 @@
 // 成员设定与记忆：聊天里每位成员的自我档案（人物卡，profile.js）、简单人设（性格、说话风格、口头禅、兴趣）和 TA 的记忆。
 // 人设和记忆只用于私聊、群聊、朋友圈，工作模式与办公室不读取；记忆只存在你电脑上，可以改、删、清空。
 
+import { AboutPanel } from './about.js';
 import { GrowthPanel } from './growth.js';
 import { RelationPanel } from './relation.js';
 import { ProfilePanel } from './profile.js';
@@ -11,6 +12,7 @@ const esc = (s) =>
 const STICKER = { missing: '还没画', pending: '待审', approved: '可以用', rejected: '不要' };
 const LAYER = { note: '记下的', day: '日记', week: '一周', month: '一个月', profile: '长期档案' };
 const SOURCE = { local: '你改过的设定', config: '配置文件里的设定', empty: '没有设定（用模型本身的风格）' };
+const ABOUT = '__about'; // 成员条最前面的「关于你」（8 位共用的用户画像，about.js）
 const BACK = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>';
 const list = (s) =>
   String(s || '')
@@ -19,7 +21,7 @@ const list = (s) =>
     .filter(Boolean);
 
 export class People {
-  constructor(dialog, { api, now = () => Date.now(), avatar = null } = {}) {
+  constructor(dialog, { api, now = () => Date.now(), avatar = null, goto = null } = {}) {
     this.dlg = dialog;
     this.api = api; // {personas(), setPersona(id, p), memories(id), addMemory(id, text), editMemory(mid, text), delMemory(mid), clearMemories(id?), tidy(), profile…（见 profile.js）}
     this.now = now;
@@ -43,6 +45,18 @@ export class People {
             clear: api.clearProfile,
             importCards: api.importCards,
           },
+        })
+      : null;
+    this.about = api?.about
+      ? new AboutPanel({
+          now,
+          api: api.about,
+          goto: goto
+            ? (room, id) => {
+                this.close();
+                goto(room, id);
+              }
+            : null,
         })
       : null;
     this.growth = api?.growth
@@ -80,7 +94,7 @@ export class People {
   }
 
   async loadMemories() {
-    if (!this.member) return;
+    if (!this.member || this.member === ABOUT) return;
     try {
       this.memories = (await this.api.memories(this.member)).memories || [];
       this.mind = this.api.items ? await this.api.items(this.member, this.itemQuery) : null;
@@ -181,7 +195,10 @@ export class People {
   render() {
     const m = this.current();
     const p = m?.persona || {};
-    const tabs = this.members
+    const aboutTab = this.about
+      ? `<button type="button" class="pp-who${this.member === ABOUT ? ' cur' : ''}" data-member="${ABOUT}"${this.member === ABOUT ? ' aria-current="true"' : ''}><span class="pp-face ini ab-face">你</span><span class="pp-nm">关于你</span></button>`
+      : '';
+    const tabs = aboutTab + this.members
       .map((x) => `<button type="button" class="pp-who${x.id === this.member ? ' cur' : ''}" data-member="${esc(x.id)}"${x.id === this.member ? ' aria-current="true"' : ''}>${this.face(x)}<span class="pp-nm">${esc(x.name)}</span></button>`)
       .join('');
     const mems = this.memories.length
@@ -200,7 +217,9 @@ export class People {
       <div class="vb pp">
         <nav class="pp-members pp-strip" aria-label="成员">${tabs}</nav>
         ${
-          m
+          this.member === ABOUT && this.about
+            ? '<section class="pp-about grp" id="pp-about" aria-label="关于你"></section>'
+            : m
             ? `${this.profile ? '<section class="pp-prof grp" id="pp-prof" aria-label="自我档案"></section>' : ''}
         <form id="pp-persona" class="pp-form grp">
           <h4 class="grp-h">${esc(m.name)} 的人设 <small>${esc(SOURCE[m.source] || '')}</small></h4>
@@ -230,6 +249,8 @@ export class People {
       </div>`;
     const prof = this.dlg.querySelector('#pp-prof');
     if (prof && m) this.profile.mount(prof, m.id);
+    const about = this.dlg.querySelector('#pp-about');
+    if (about) this.about.mount(about);
     const grow = this.dlg.querySelector('#pp-grow');
     if (grow && m) this.growth.mount(grow, m.id);
     const rel = this.dlg.querySelector('#pp-rel');
@@ -285,7 +306,7 @@ export class People {
 
   async onClick(e) {
     const t = e.target;
-    if (t.closest('#pp-prof') || t.closest('#pp-grow')) return; // 自我档案、成长自己处理
+    if (t.closest('#pp-prof') || t.closest('#pp-about') || t.closest('#pp-grow')) return; // 自我档案、关于你、成长自己处理
     if (t.closest('[data-close]')) return this.close();
     const who = t.closest('[data-member]');
     if (who) {
@@ -354,7 +375,7 @@ export class People {
 
   async onSubmit(e) {
     const f = e.target;
-    if (f.closest('#pp-prof')) return; // 自我档案自己处理（profile.js）
+    if (f.closest('#pp-prof') || f.closest('#pp-about')) return; // 自我档案、关于你自己处理
     e.preventDefault();
     const data = new FormData(f);
     if (f.id === 'pp-persona') {

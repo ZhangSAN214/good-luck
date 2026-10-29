@@ -39,6 +39,23 @@ INLINE_IMAGES = frozenset({"image/png", "image/jpeg", "image/gif", "image/webp"}
 INLINE_MEDIA = frozenset({"audio/mpeg", "audio/wav", "audio/ogg", "video/mp4", "video/webm"})
 
 
+class AboutFactBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    text: str | None = Field(default=None, max_length=300)
+    domain: str | None = Field(default=None, max_length=40)
+
+
+class AboutLockBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    locked: bool = True
+
+
+class AboutDomainBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    domain: str = Field(max_length=40)
+    on: bool
+
+
 class CreateSession(BaseModel):
     model_config = ConfigDict(extra="forbid")  # 旧字段（mode / preset）直接报错，不悄悄忽略
 
@@ -1065,6 +1082,52 @@ def create_app(service: RoundtableService | None = None, lan: LanAccess | None =
     @app.delete("/api/chat/engine/state")
     async def member_states_clear(request: Request, member: str | None = None) -> dict[str, Any]:
         return svc(request).member_states_clear(member)
+
+    # 关于你（成员系统 P8）：8 位共用的用户画像
+    @app.get("/api/chat/about")
+    async def about_view(request: Request) -> dict[str, Any]:
+        return svc(request).about_view()
+
+    @app.post("/api/chat/about/facts", status_code=201)
+    async def about_add(request: Request, body: AboutFactBody) -> dict[str, Any]:
+        return svc(request).about_add(body.text or "", body.domain)
+
+    @app.patch("/api/chat/about/facts/{fact_id}")
+    async def about_edit(request: Request, fact_id: int, body: AboutFactBody) -> dict[str, Any]:
+        return svc(request).about_edit(fact_id, body.text, body.domain)
+
+    @app.delete("/api/chat/about/facts/{fact_id}")
+    async def about_delete(request: Request, fact_id: int) -> dict[str, Any]:
+        return svc(request).about_delete(fact_id)
+
+    @app.post("/api/chat/about/facts/{fact_id}/reject")
+    async def about_reject(request: Request, fact_id: int) -> dict[str, Any]:
+        return svc(request).about_reject(fact_id)
+
+    @app.post("/api/chat/about/facts/{fact_id}/lock")
+    async def about_lock(request: Request, fact_id: int, body: AboutLockBody) -> dict[str, Any]:
+        return svc(request).about_lock(fact_id, body.locked)
+
+    @app.delete("/api/chat/about/rejected/{index}")
+    async def about_forget_rejected(request: Request, index: int) -> dict[str, Any]:
+        return svc(request).about_forget_rejected(index)
+
+    @app.post("/api/chat/about/domains")
+    async def about_domain(request: Request, body: AboutDomainBody) -> dict[str, Any]:
+        return svc(request).about_domain(body.domain, body.on)
+
+    @app.delete("/api/chat/about")
+    async def about_clear(request: Request, rejected: bool = False) -> dict[str, Any]:
+        return svc(request).about_clear(rejected)
+
+    @app.get("/api/chat/about/export")
+    async def about_export(request: Request, fmt: str = "json") -> Response:
+        data, media, name = svc(request).about_export(fmt)
+        return Response(
+            data,
+            media_type=media,
+            headers={"Content-Disposition": f'attachment; filename="{name}"'},
+        )
 
     @app.get("/api/chat/engine/events")
     async def member_events_count(request: Request) -> dict[str, Any]:

@@ -69,6 +69,7 @@ HIDDEN_KINDS = frozenset({"watch", "wander"})
 PROMPT_ROLES = {"group": "chat", "work": "chat_work", "dm": "chat_dm"}
 # 能翻日记的会话（生活模式的私聊和生活群；工作群不带）
 DIARY_KINDS = frozenset({"group", "dm"})
+ABOUT_KINDS = frozenset({"group", "dm"})  # 带「关于你」画像的会话（工作群不带）
 _WEEK = "一二三四五六日"
 
 
@@ -107,6 +108,18 @@ def member_memory(rt: Any, member: str, query: str = "", conversation: str | Non
     if not rules.enabled or rules.context_chars == 0:
         return NONE
     return memory_context(rt, member, rules.context_chars, query, conversation)
+
+
+def with_about_you(rt: Any, memory: str, query: str) -> str:
+    """私聊和生活群：记忆后面接上「关于你」画像里和当前对话相关的几条（成员系统 P8；
+    8 位相同的条数和字数，没有相关的就不接）。工作群不调用。"""
+    from roundtable.core.member.about import AboutYou  # about 依赖记忆模块
+    from roundtable.core.memory import NONE
+
+    about = AboutYou(rt).lines(query)
+    if not about:
+        return memory
+    return about if memory == NONE else f"{memory}\n{about}"
 
 
 def dm_room(member_id: str) -> str:
@@ -584,6 +597,8 @@ class GroupChat:
             "memory": member_memory(rt, member.id, history, self.room),
             "history": history,
         }
+        if self.kind in ABOUT_KINDS:  # 关于你（P8）：只在私聊和生活群
+            variables["memory"] = with_about_you(rt, variables["memory"], history)
         if self.kind != "dm":
             variables["members"] = (
                 "、".join(m.name for m in self.members() if m.id != member.id) or "（没有别人）"
