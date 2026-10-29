@@ -140,7 +140,7 @@ from roundtable.core.routing import (
     preview_estimates,
 )
 from roundtable.core.runtime import PROJECT_ROOT, WANDER_DIR, Runtime, data_dir
-from roundtable.core.screen import AdbSource, PcSource, ScreenWatch
+from roundtable.core.screen import AdbSource, PcSource, ScreenUnavailable, ScreenWatch
 from roundtable.core.search import SearchUnavailable
 from roundtable.core.standee import load_standee
 from roundtable.core.standee import standee_file as read_standee_file
@@ -230,7 +230,10 @@ class RoundtableService:
             self.chats.everyone,
             runtime.screen_sources
             if runtime.screen_sources is not None
-            else {"pc": PcSource(), "android": AdbSource(watch_rules.adb)},
+            else {
+                "pc": PcSource(watch_rules.ignore_windows),
+                "android": AdbSource(watch_rules.adb),
+            },
             publish=self.engine.bus.publish,
         )
         base = runtime.mail_dir.parent if runtime.mail_dir is not None else data_dir()
@@ -502,6 +505,31 @@ class RoundtableService:
             out["devices"] = self.watch.devices()
             out["scrcpy"] = shutil.which(self.rt.config.roundtable.chat.watch.scrcpy) is not None
         return out
+
+    def _adb(self) -> Any:
+        src = self.watch.sources.get("android")
+        if src is None or not hasattr(src, "pair"):
+            raise ServiceError("这台电脑不能连安卓设备")
+        return src
+
+    def watch_adb_pair(self, host: str, port: int, code: str) -> dict[str, Any]:
+        """安卓无线调试：用配对码配对（只建立 adb 连接）。配对后自动试着连上。"""
+        src = self._adb()
+        try:
+            msg = src.pair(host, port, code)
+        except ScreenUnavailable as e:
+            raise ServiceError(str(e)) from None
+        try:
+            connected = src.connect()
+        except ScreenUnavailable:
+            connected = []
+        return {"message": msg, "connected": connected}
+
+    def watch_adb_connect(self, host: str = "", port: int = 0) -> dict[str, Any]:
+        try:
+            return {"connected": self._adb().connect(host, port)}
+        except ScreenUnavailable as e:
+            raise ServiceError(str(e)) from None
 
     async def watch_start(self, source: str, watchers: list[str], consent: bool) -> dict[str, Any]:
         devices = await asyncio.to_thread(self.watch.devices)
