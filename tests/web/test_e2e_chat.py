@@ -344,3 +344,29 @@ def test_people_dialog_memory_items_hanging_and_diary(serve, page, tmp_path):
     page.click("#people [data-drop]")
     page.wait_for_selector("#people .pp-msg:has-text('放下了')")
     assert repo.memory_hanging("V2") == []
+
+
+def test_people_dialog_voice_preview(serve, page, monkeypatch):
+    from roundtable.core.member_voice import MemberVoices, VoiceClip
+
+    said = []
+
+    def model_for(self, member, text="", tier=None):
+        return (None, "Kore") if member == "V2" else None
+
+    async def speak(self, member, text, *, tier=None):
+        said.append((member, text))
+        return VoiceClip(b"RIFF0000WAVE", "audio/wav", 1.0, 0.001, "m", "Kore", False)
+
+    monkeypatch.setattr(MemberVoices, "model_for", model_for)
+    monkeypatch.setattr(MemberVoices, "speak", speak)
+    srv = serve(confirm_threshold_usd=100.0)
+    open_chat(srv, page)
+    page.click(".gc-room[data-room='dm:V2']")
+    page.wait_for_function("document.querySelector('#gc-title')?.textContent === '与 阿二 私聊'")
+    page.click("#gc-people")
+    page.wait_for_selector("#people .pp-voice:has-text('Kore')")
+    page.click("#people [data-voice]")
+    wait_until(lambda: said == [("V2", "你好呀，我是阿二。今天也一起加油吧。")])
+    page.click("#people .pp-who[data-member='V1']")
+    page.wait_for_selector("#people .pp-voice:has-text('还没有可用的音色')")

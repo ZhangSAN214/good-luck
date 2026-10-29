@@ -56,6 +56,24 @@ async def test_speech_request_and_audio_bytes():
     assert out.media.data == b"ID3audio" and out.cost_usd is None
 
 
+async def test_raw_pcm_speech_is_wrapped_as_wav():
+    import io
+    import wave
+
+    seen = {}
+
+    def handler(request: httpx.Request):
+        seen["body"] = json.loads(request.content)
+        return httpx.Response(200, content=b"\x01\x00" * 24000 + b"\x07")
+
+    out = await make(handler).synthesize_speech("tts-m", "你好", {"response_format": "pcm"})
+    assert seen["body"]["response_format"] == "pcm"
+    assert out.media.mime == "audio/wav" and out.media.data[:4] == b"RIFF"
+    with wave.open(io.BytesIO(out.media.data)) as w:
+        assert (w.getnchannels(), w.getsampwidth(), w.getframerate()) == (1, 2, 24000)
+        assert w.getnframes() == 24000
+
+
 async def test_transcribe_request_and_usage():
     seen = {}
 
