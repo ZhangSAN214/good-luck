@@ -3,7 +3,7 @@
 // 发动态可带图片（最多 9 张）、视频、语音和表情；评论可用 Emoji 和表情包。
 // 版式照真实朋友圈：顶部封面 + 头像，下面一列动态；赞和评论收在每条右下角的「··」里，看谁的动态从右上角的小入口选。
 
-import { MediaComposer, bindMedia, mediaHTML, richText, visibleText } from './chatmedia.js';
+import { MediaComposer, bindMedia, cardHTML, mediaHTML, richText, soloSticker, stickerSVG, visibleText } from './chatmedia.js';
 
 const esc = (s) =>
   String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -114,6 +114,15 @@ export class Moments {
     return this.members.find((m) => m.id === id)?.name || id;
   }
 
+  /** 动态正文；只发了一个表情包时画成大表情。 */
+  textHTML(m) {
+    const shown = visibleText(m.text, m.meta);
+    if (!shown) return '';
+    const solo = !m.meta?.media?.length && soloSticker(shown);
+    if (solo) return `<p class="mo-text stk">${stickerSVG(solo.pack, solo.name, { big: true })}</p>`;
+    return `<p class="mo-text">${richText(shown)}</p>`;
+  }
+
   face(id, name, cls = 'mo-av') {
     const member = this.members.find((m) => m.id === id);
     const art = id !== 'user' && this.avatarOf ? this.avatarOf(member, name) : '';
@@ -134,8 +143,9 @@ export class Moments {
       ${this.face(m.author, m.name)}
       <div class="mo-body">
         <header><b class="mo-name">${esc(m.name)}</b></header>
-        ${visibleText(m.text, m.meta) ? `<p class="mo-text">${richText(visibleText(m.text, m.meta))}</p>` : ''}
+        ${this.textHTML(m)}
         ${m.meta?.media?.length ? `<div class="mo-media">${mediaHTML(m.meta.media, { group: `mo${m.id}`, layout: 'moment', mine: m.author === 'user' })}</div>` : ''}
+        ${cardHTML(m.meta?.card, { layout: 'moment' })}
         <div class="mo-foot"><time datetime="${esc(m.created_at)}">${esc(when(m.created_at))}</time>${m.offline ? '<span class="gc-tag away">你不在时</span>' : ''}<button type="button" class="link mo-del" data-del="${m.id}">删除</button>
           <span class="mo-menu"><span class="mo-act"${open ? '' : ' hidden'}><button type="button" data-like="${m.id}" aria-pressed="${m.liked}">♡ ${m.liked ? '取消' : '赞'}</button><button type="button" data-reply="${m.id}:">评论</button></span>
           <button type="button" class="mo-more" data-menu="${m.id}" aria-expanded="${open}" aria-label="赞或评论">··</button></span></div>

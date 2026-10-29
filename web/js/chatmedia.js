@@ -47,12 +47,34 @@ export function richText(text, { mentions = false } = {}) {
 
 /** 消息 / 动态里真正给人看的文字：只发了图片时不显示占位，有说明文字时只显示说明。 */
 export function visibleText(text, meta) {
+  if (meta?.card && !meta?.media?.length) return cardFree(text, meta.card);
   if (!meta?.media?.length) return text || '';
   if (meta.auto_text) return '';
   return meta.caption ?? text ?? '';
 }
 
 export { soloSticker, stickerSVG };
+
+// --- 转发卡片（帖子 / 文章 / 视频） ------------------------------------------------------
+
+const CARD_LABEL = { article: '链接', post: '帖子', video: '视频' };
+
+/** 正文里给成员看的「[链接] 标题」占位不再显示（卡片本身已经显示了）。 */
+function cardFree(text, card) {
+  const holder = `[${CARD_LABEL[card.kind] || '链接'}] ${card.title || ''}`;
+  return String(text || '').replace(holder, '').trim();
+}
+
+/** 微信式链接卡片：标题、摘要、来源；视频带播放角标。只接受 http(s) 网址，新窗口打开。 */
+export function cardHTML(card, { layout = 'chat' } = {}) {
+  if (!card || !/^https?:\/\//i.test(card.url || '')) return '';
+  const kind = CARD_LABEL[card.kind] ? card.kind : 'article';
+  const when = card.published ? new Date(card.published).toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' }) : '';
+  const flag = card.unverified ? '<span class="gc-tag away">未核实</span>' : '';
+  const icon = kind === 'video' ? `<span class="cm-card-ic vid">${I.play}</span>` : `<span class="cm-card-ic">${kind === 'post' ? '帖' : '文'}</span>`;
+  const sum = card.summary ? `<span class="cm-card-sum">${esc(card.summary)}</span>` : '';
+  return `<a class="cm-card ${layout} ${kind}" href="${esc(card.url)}" target="_blank" rel="noopener noreferrer nofollow"><span class="cm-card-main"><b class="cm-card-title">${esc(card.title)}</b>${sum}</span>${icon}<small class="cm-card-src">${esc(CARD_LABEL[kind])} · ${esc(card.source || '')}${when ? ` · ${esc(when)}` : ''}${flag}</small></a>`;
+}
 
 function hashBars(id, n) {
   let h = 2166136261;
@@ -81,7 +103,9 @@ export function voiceHTML(item, { mine = false } = {}) {
 /** group：同一组里的图片 / 视频可以在大图里左右翻。layout：chat 气泡里 / moment 九宫格。 */
 export function mediaHTML(items, { group = '', layout = 'chat', mine = false } = {}) {
   if (!items?.length) return '';
-  const visual = items.filter((m) => m.kind === 'image' || m.kind === 'video');
+  // 生成的自制表情包（sticker: true）：大图、没有气泡，不进九宫格
+  const stickers = items.filter((m) => m.kind === 'image' && m.sticker);
+  const visual = items.filter((m) => (m.kind === 'image' && !m.sticker) || m.kind === 'video');
   const voices = items.filter((m) => m.kind === 'voice');
   const n = visual.length;
   const cells = visual
@@ -93,7 +117,8 @@ export function mediaHTML(items, { group = '', layout = 'chat', mine = false } =
     })
     .join('');
   const grid = n ? `<div class="cm-grid ${layout} n${Math.min(n, 9)}${n === 4 ? ' four' : ''}">${cells}</div>` : '';
-  return `${grid}${voices.map((v) => voiceHTML(v, { mine })).join('')}`;
+  const own = stickers.map((m) => `<img class="cm-stk" src="${mediaUrl(m.id)}" alt="表情包" loading="lazy" decoding="async">`).join('');
+  return `${own}${grid}${voices.map((v) => voiceHTML(v, { mine })).join('')}`;
 }
 
 // --- 播放：语音（同时只放一条）、大图 / 视频 --------------------------------------------

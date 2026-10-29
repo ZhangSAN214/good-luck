@@ -38,6 +38,7 @@ from roundtable.core.chat import (
     clean_reply,
     member_memory,
 )
+from roundtable.core.chat_actions import card_from_item
 from roundtable.core.config.schema import FeedSpec
 from roundtable.core.office.apartment import schedule
 from roundtable.core.persona import chat_persona, persona_of
@@ -379,6 +380,10 @@ class Browser:
             rt, text, room=ROOM, name=member.name, model_id=member.model_id
         )
         rt.repo.mark_web_shared(item["id"], member.id)
+        kinds = {f.name: f.kind for f in feeds_of(rt)[0]}
+        card = card_from_item(
+            item, kinds.get(item["feed"], "blog"), rt.config.roundtable.chat.actions.video_hosts
+        )
         return rt.repo.add_chat_message(
             ROOM,
             member.id,
@@ -387,6 +392,7 @@ class Browser:
             cost_usd=completion.cost_usd or 0.0,
             meta={
                 "life": True,
+                "card": card,
                 "share": {
                     "title": item["title"],
                     "url": item["url"],
