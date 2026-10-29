@@ -697,6 +697,23 @@ class ChatBudgetRules(_Strict):
     monthly_usd: float = Field(default=5.0, gt=0)
 
 
+class MemoryLinkRules(_Strict):
+    """联想网（P2，M22 档 1 的记忆部分）：一起出现 / 一起被想起的记忆连得更紧（赫布学习），
+    想起一件时顺着连接想到别的（扩散激活），夜里顺着连接随便走几步（随机游走）。程序算，不调用模型。"""
+
+    enabled: bool = True
+    learn_rate: float = Field(default=0.2, gt=0, le=1)  # 每次一起出现，强度向 1 靠近的比例
+    nightly_decay: float = Field(default=0.02, ge=0, lt=1)  # 每晚所有连接衰减的比例
+    min_weight: float = Field(default=0.05, ge=0, lt=1)  # 低于它的连接删掉
+    max_links: int = Field(default=20, ge=1, le=200)  # 每件记忆最多留几条最强的连接
+    hops: int = Field(default=2, ge=1, le=3)  # 扩散几步
+    spread: float = Field(default=0.5, gt=0, le=1)  # 每走一步激活乘以 强度 × spread
+    seeds: int = Field(default=4, ge=1, le=20)  # 从分数最高的几件开始扩散
+    assoc_max: int = Field(default=1, ge=0, le=5)  # 每次最多多带几件「联想到的」
+    walks: int = Field(default=2, ge=0, le=10)  # 每晚随机游走几次
+    walk_steps: int = Field(default=3, ge=1, le=20)  # 每次走几步
+
+
 class DiaryToolRules(_Strict):
     """翻日记（P2）：生活模式里成员自己翻以前的日记和记忆，每位成员每天有次数上限（所有成员相同）。"""
 
@@ -742,6 +759,7 @@ class MemoryRules(_Strict):
     work_lookback_days: int = Field(default=14, ge=1, le=90)  # 读自己的工作记录往回看几天
     mood_threshold: float = Field(default=0.3, ge=0, le=1)  # 心情偏离中性这么多才改回忆语气
     retell_max: int = Field(default=3, ge=0, le=10)  # 每晚最多改几件旧记忆的语气和重要度
+    links: MemoryLinkRules = MemoryLinkRules()
     diary: DiaryToolRules = DiaryToolRules()
 
 

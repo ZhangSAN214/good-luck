@@ -1284,6 +1284,7 @@ class RoundtableService:
             "hanging": repo.memory_hanging(member),
             "habits": digest["text"] if digest else "",
             "count": repo.count_memory_items(member),
+            "links": repo.count_memory_links(member),
             "diary_reads_left": DiaryTool(self.rt).remaining(member),
             "domains": list(self.rt.config.roundtable.chat.memory.domains),
         }
