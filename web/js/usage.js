@@ -1,5 +1,6 @@
 // 余额与用量：账户余额（渠道实时查）、本月预算、对账、钱折算成 token、详细使用情况（本机账本）。
 // 只读：不改预算、不上传；key 只在服务端，这里永远拿不到。渠道名、成员名全部来自接口，不写死。
+import { tzOpt } from './hometz.js';
 
 const esc = (s) =>
   String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -140,7 +141,7 @@ export class Usage {
     else if (!chans) body = `<div class="grp-row hint">正在向渠道查询余额…</div>`;
     else if (!chans.length) body = `<div class="grp-row hint">配置里没有能查余额的渠道。下面用本机账本和本月预算估算。</div>`;
     else body = chans.map((c) => this.channelCard(c)).join('');
-    const when = this.bal?.fetched_at ? new Date(this.bal.fetched_at).toLocaleTimeString('zh-CN', { hour12: false }) : '';
+    const when = this.bal?.fetched_at ? new Date(this.bal.fetched_at).toLocaleTimeString('zh-CN', tzOpt({ hour12: false })) : '';
     return `<section class="grp">
       <h4 class="grp-h">账户余额 <small>${this.balLoading ? '查询中…' : when ? `${esc(when)} 查的` : ''}</small></h4>
       <div class="grp-box">${body}</div>
@@ -186,7 +187,7 @@ export class Usage {
       return `<div class="us-meter">
         <div class="us-meter-h"><span>${label}</span><b>${usd(s.spent_usd)} <small>/ ${usd(s.limit_usd)}</small></b></div>
         <div class="us-track" role="meter" aria-valuemin="0" aria-valuemax="${s.limit_usd}" aria-valuenow="${s.spent_usd}" aria-label="${label}已用"><i class="${state}" style="width:${(ratio * 100).toFixed(1)}%"></i></div>
-        <div class="us-meter-f"><span>剩 ${usd(Math.max(0, s.limit_usd - s.spent_usd))}（${pct(1 - ratio)}）</span><span>${new Date(s.resets_at).toLocaleString('zh-CN', { hour12: false, month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })} 重置</span></div>
+        <div class="us-meter-f"><span>剩 ${usd(Math.max(0, s.limit_usd - s.spent_usd))}（${pct(1 - ratio)}）</span><span>${new Date(s.resets_at).toLocaleString('zh-CN', tzOpt({ hour12: false, month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }))} 重置</span></div>
       </div>`;
     };
     return `<section class="grp">

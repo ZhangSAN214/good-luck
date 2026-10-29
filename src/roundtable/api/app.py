@@ -223,6 +223,14 @@ class MemoryBody(BaseModel):
     member: str | None = None  # 新建时必填
 
 
+class HomeTzBody(BaseModel):
+    """主时区：IANA 名字（如 Europe/London）或 local（跟随电脑）。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    zone: str = Field(max_length=64)
+
+
 class MailSettingsBody(BaseModel):
     """邮件栏设置：只改给了的字段。"""
 
@@ -980,6 +988,14 @@ def create_app(service: RoundtableService | None = None, lan: LanAccess | None =
     @app.get("/api/changelog")
     async def changelog(request: Request) -> dict[str, Any]:
         return svc(request).changelog()
+
+    @app.get("/api/home-tz")
+    async def home_tz(request: Request) -> dict[str, Any]:
+        return svc(request).home_tz()
+
+    @app.put("/api/home-tz")
+    async def set_home_tz(request: Request, body: HomeTzBody) -> dict[str, Any]:
+        return svc(request).set_home_tz(body.zone)
 
     @app.get("/api/mail")
     async def mail(request: Request) -> dict[str, Any]:

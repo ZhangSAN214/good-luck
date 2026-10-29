@@ -188,3 +188,11 @@ def test_office_custom_uses_picked_staff_and_config_managers():
     cfg, b = builder()
     lineup = b.build_custom(["b2", "b3"], None, "office")
     assert set(lineup.members) == {"b2", "b3"} and lineup.coordinator in {"f1", "f2"}
+
+
+def test_media_models_are_never_listed_as_absent():
+    cfg = app_config(with_media=True)
+    _, b = builder(cfg)
+    for plan in ("budget", "flagship"):
+        lineup = b.build(cfg.routing.plans[plan])
+        assert lineup.absent == (), plan  # 媒体模型（seat: false）不上桌，不算缺席

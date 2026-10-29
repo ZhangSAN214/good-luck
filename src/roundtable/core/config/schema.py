@@ -1111,6 +1111,8 @@ class ChatActionRules(_Strict):
 class ChatRules(_Strict):
     """聊天：生活群、工作群、私聊。成员不主动找用户，只回应用户。"""
 
+    # 每位成员一次回应最多想多久（含重试），超时就跳过这次，不卡住整轮
+    think_timeout_seconds: float = Field(default=60.0, gt=0)
     life_title: str = "大家庭"  # 生活群的名字
     work_title: str = "工作群"
     budget: ChatBudgetRules = ChatBudgetRules()

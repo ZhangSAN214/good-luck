@@ -214,7 +214,7 @@ prompts:
   revise: v3
   synthesize: v4
   redo: v1
-  decompose: v4
+  decompose: v5
   volunteer: v1
   assign: v3
   accept: v1             # 协同：合并前统筹按验收标准逐条验收
@@ -257,8 +257,8 @@ prompts:
   wander: v1             # 成员自己上网：每看一页说一句感想、决定下一步（只看不互动）
   dsh_workbench: v1      # dsh 工作台助手的身份说明：中立、不带人格（接在 dsh 系统提示前面）
   describe_screen: v1    # 投屏陪伴：把一张截图写成给成员看的文字（隐私信息打码）
-  chat: v4               # 群聊：口语、短句（v2：人设与记忆；v3：人物卡随身卡，AI 身份平时不刻意提、被认真问如实承认；v4：表情包、颜文字、引用、分条、不接话）
-  chat_dm: v4            # 私聊：和用户一对一（v2：人设与记忆；v3：人物卡随身卡；v4：表情包、颜文字、引用、分条）
+  chat: v5               # 群聊：口语、短句（v2：人设与记忆；v3：人物卡随身卡，AI 身份平时不刻意提、被认真问如实承认；v4：表情包、颜文字、引用、分条、不接话；v5：知道现在几点和自己在干什么）
+  chat_dm: v5            # 私聊：和用户一对一（v2：人设与记忆；v3：人物卡随身卡；v4：表情包、颜文字、引用、分条；v5：知道现在几点）
   chat_work: v3          # 工作群：聊工作，交办走办公室（v2：人设与记忆；v3：人物卡随身卡）
   memory_day: v1         # 记忆：把一天的聊天压成一段
   memory_roll: v1        # 记忆：日 → 周、周 → 月
@@ -282,7 +282,7 @@ prompts:
   user_notes: v1         # 用户中途补充的意见，接在之后的每次调用上
   media_refine: v1       # 统筹根据评审决定是否改提示词重新生成
   media_rewrite: v2      # 汇总失败时，由一位成员根据修订稿重写生成提示词
-  work_media: v1         # 协同：媒体子任务，成员写生成提示词
+  work_media: v2         # 协同：媒体子任务，成员写生成提示词
   rework_media: v2       # 协同：按审查意见修改生成提示词
   evolve_review: v1      # 革新 PR 的对抗式复审（开发侧脚本 scripts/evolve_review.py，可选）
   web_search: v1         # 借助聚合平台联网搜索时发给搜索用模型的指令

@@ -6,6 +6,7 @@
 // 微信式动作：右键 / 长按消息 → 引用、复制、撤回（自己的、几分钟内）；双击成员头像 → 拍一拍。
 // 成员一次回复可能拆成几条气泡陆续出现；私聊顶部显示「对方正在输入…」。
 
+import { tzOpt } from './hometz.js';
 import { MediaComposer, bindMedia, cardHTML, mediaHTML, richText, soloSticker, stickerSVG, visibleText } from './chatmedia.js';
 
 const esc = (s) =>
@@ -695,7 +696,7 @@ export class GroupChat {
     if (msg.author === 'system') return `<div class="gc-sys${sid ? ' work' : ''}${msg.meta?.pat ? ' pat' : ''}" data-id="${msg.id}"><span>${esc(msg.text)}</span>${look}</div>`;
     if (msg.meta?.recalled) return `<div class="gc-sys recalled" data-id="${msg.id}"><span>${msg.author === 'user' ? '你' : esc(msg.name)}撤回了一条消息</span></div>`;
     const at = new Date(msg.created_at);
-    const time = at.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false });
+    const time = at.toLocaleTimeString('zh-CN', tzOpt({ hour: '2-digit', minute: '2-digit', hour12: false }));
     const shown = visibleText(msg.text, msg.meta);
     const solo = !msg.meta?.media?.length && !msg.meta?.card && soloSticker(msg.text);
     const media = mediaHTML(msg.meta?.media, { group: `m${msg.id}`, mine: msg.author === 'user' });
@@ -757,7 +758,7 @@ export class GroupChat {
   /** 上网分享的来源：标题链接、来源名、发布时间、未核实。只接受 http(s) 网址。 */
   source(share) {
     if (!share || !/^https?:\/\//i.test(share.url || '')) return '';
-    const when = share.published ? new Date(share.published).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }) : '';
+    const when = share.published ? new Date(share.published).toLocaleString('zh-CN', tzOpt({ month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false })) : '';
     const flag = share.unverified ? '<span class="gc-tag away">未核实</span>' : '';
     return `<a class="gc-src" href="${esc(share.url)}" target="_blank" rel="noopener noreferrer nofollow">${esc(share.title)}</a><small class="gc-srcm">${esc(share.feed)}${when ? ` · ${esc(when)}` : ''}${flag}</small>`;
   }
