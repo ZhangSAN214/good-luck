@@ -1,6 +1,6 @@
 """前端：「工作台」（dsh 边车）。用替身代替 dsh 进程，不真装 dsh。
 
-顶栏「工作台」→ 启动 → 顶栏绿点、面板显示花费和插件、嵌入网页 → 停止。
+分段栏「工作台」→ dsh 标签 → 启动 → 标签绿点、显示花费和插件、嵌入网页（刷新状态不重新加载）→ 停止。
 """
 
 from __future__ import annotations
@@ -86,17 +86,22 @@ def test_workbench_start_and_stop(serve, page, monkeypatch):
     srv = serve(confirm_threshold_usd=100.0)
     fake.url = f"{srv.url}/login.html?token=abc"  # 随便一个本机页面代替 dsh 网页
     page.goto(srv.url)
-    btn = page.locator("#workbenchbtn")
-    btn.wait_for()
+    page.locator('#entries [data-m="bench"]').click()
+    btn = page.locator('#bench [data-tab="dsh"]')
     btn.click()
-    dlg = page.locator("#workbenchdlg")
+    dlg = page.locator('#bench [data-pane="dsh"]')
     dlg.get_by_text("本月约 $0.42 / 上限 $3.00").wait_for()
     assert "51.30 CNY" in dlg.text_content()
     dlg.locator("[data-start]").click()
-    page.wait_for_function("document.querySelector('#workbenchbtn').classList.contains('wb-on')")
+    page.wait_for_function(
+        "document.querySelector('#bench [data-tab=\"dsh\"]').classList.contains('wb-on')"
+    )
     frame = dlg.locator("iframe.wb-frame")
     frame.wait_for()
     assert frame.get_attribute("src") == fake.url
+    frame.evaluate("f => (f.dataset.mark = 'same')")
+    page.wait_for_timeout(4500)  # 打开时每 4 秒刷新一次状态
+    assert dlg.locator("iframe.wb-frame").get_attribute("data-mark") == "same"
     dlg.locator("summary", has_text="白名单插件（1）").click()
     dlg.get_by_text("终端窗格不受只读模式约束").wait_for()
     if shots := os.environ.get("ROUNDTABLE_SHOTS"):  # 版本说明用的截图

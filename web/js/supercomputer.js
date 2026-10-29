@@ -1,5 +1,5 @@
 // 「超级电脑」：几位编程助手平级、没有固定主管（docs/SUPERCOMPUTER.md）。
-// 顶栏一个按钮，干活时加一个绿点。面板：每位助手今天的次数（可改）、是否可用；交活；
+// 在「工作台」页的标签里，干活时分段栏「工作台」加一个绿点。面板：每位助手今天的次数（可改）、是否可用；交活；
 // 当前这件活拆成了哪些小活、各自分给了谁、为什么（当时的分数）；结果和最近几件活。
 // 助手的名字、擅长的种类都来自接口，不写死。
 
@@ -30,18 +30,20 @@ export function whyLine(score) {
 
 export class SuperPanel {
   /**
-   * @param {HTMLDialogElement} dlg
-   * @param {HTMLButtonElement} button 顶栏按钮
-   * @param {{api: Record<string, Function>}} opts
+   * @param {HTMLElement} dlg 画在哪里：弹窗（dialog）或「工作台」页里的一块
+   * @param {HTMLButtonElement|null} button 干活时加绿点的按钮（分段栏的「工作台」）
+   * @param {{api: Record<string, Function>, isOpen?: () => boolean}} opts isOpen：现在看得见吗（页面里用）
    */
-  constructor(dlg, button, { api }) {
+  constructor(dlg, button, { api, isOpen = null }) {
     Object.assign(this, { dlg, button, api });
+    this.isOpen = isOpen || (() => !!dlg.open);
+    this.modal = dlg.tagName === 'DIALOG';
     this.st = null;
     this.viewing = null; // 正在看的旧任务（不是当前这件）
     this.err = '';
     this.draft = '';
     this.timer = null;
-    button.addEventListener('click', () => this.open());
+    button?.addEventListener('click', () => this.open());
     dlg.addEventListener('click', (e) => this.onClick(e));
     dlg.addEventListener('change', (e) => this.onChange(e));
     dlg.addEventListener('input', (e) => {
@@ -54,7 +56,7 @@ export class SuperPanel {
 
   schedule() {
     clearTimeout(this.timer);
-    const ms = this.st && this.st.busy ? BUSY_MS : this.dlg.open ? OPEN_MS : IDLE_MS;
+    const ms = this.st && this.st.busy ? BUSY_MS : this.isOpen() ? OPEN_MS : IDLE_MS;
     this.timer = setTimeout(() => this.refresh().finally(() => this.schedule()), ms);
   }
 
@@ -65,19 +67,19 @@ export class SuperPanel {
       return;
     }
     this.paintButton();
-    if (this.dlg.open && !this.dlg.contains(document.activeElement?.closest('input,textarea') || null)) this.render();
+    if (this.isOpen() && !this.dlg.contains(document.activeElement?.closest('input,textarea') || null)) this.render();
   }
 
   paintButton() {
+    if (!this.button) return;
     const st = this.st || {};
-    this.button.hidden = st.enabled === false;
     this.button.classList.toggle('sc-on', !!st.busy);
-    this.button.title = st.busy ? '超级电脑正在干活：点开' : '超级电脑：几位编程助手一起干你交的活';
+    this.button.title = st.busy ? '超级电脑正在干活' : '工作台：超级电脑和 dsh';
   }
 
   async open() {
     this.err = '';
-    if (!this.dlg.open) this.dlg.showModal();
+    if (this.modal && !this.dlg.open) this.dlg.showModal();
     try {
       this.st = await this.api.status();
     } catch (e) {
@@ -100,7 +102,7 @@ export class SuperPanel {
       <span class="sc-state ${busy ? 'on' : ''}">${busy ? '干活中' : '空闲'}</span>
       <span class="sc-gap"></span>
       ${busy ? '<button type="button" class="btn" data-cancel>叫停</button>' : ''}
-      <button type="button" class="btn" data-close>关闭</button></div>`;
+      ${this.modal ? '<button type="button" class="btn" data-close>关闭</button>' : ''}</div>`;
     const notes = [];
     if (st.unavailable) notes.push(`<p class="sc-warn">${esc(st.unavailable)}</p>`);
     if (this.err) notes.push(`<p class="sc-warn" role="alert">${esc(this.err)}</p>`);
