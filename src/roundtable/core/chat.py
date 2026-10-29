@@ -322,10 +322,15 @@ class GroupChat:
             who = USER_LABEL if r["author"] == USER else names.get(r["author"], r["author"])
             if not numbered:
                 lines.append(f"{who}：{r['text']}")
-                continue
-            quote = meta.get("quote")
-            reply = f"（回复 #{quote['id']}）" if quote else ""
-            lines.append(f"#{r['id']} {who}{reply}：{r['text']}")
+            else:
+                quote = meta.get("quote")
+                reply = f"（回复 #{quote['id']}）" if quote else ""
+                lines.append(f"#{r['id']} {who}{reply}：{r['text']}")
+            cards = meta.get("perception")
+            if cards:  # 感官整理出的感知卡：成员「看到 / 听到」的内容
+                from roundtable.core.perception import media_block  # perception 依赖本模块
+
+                lines.append(media_block(who, cards))
         return "\n".join(lines)
 
     def pat_words(self, pat: dict[str, Any], names: dict[str, str], for_model: bool = False) -> str:
@@ -348,7 +353,8 @@ class GroupChat:
     ) -> tuple[dict[str, Any], list[ChatMember]]:
         """存下用户的消息并选出回应的成员（回应由 replies() 生成）。
 
-        meta 里可带图片 / 视频 / 语音清单（media）；成员只看到 text 里的文字占位。
+        meta 里可带图片 / 视频 / 语音清单（media）；成员看到 text 里的文字占位，感官整理出感知卡后
+        （meta 的 perception），聊天记录里在这条消息后面附上感知卡。
         quote：引用的消息 id（必须是这个会话里的、没撤回的），不对时抛 ValueError。
         """
         meta = dict(meta or {})

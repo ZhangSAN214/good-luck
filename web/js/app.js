@@ -204,7 +204,7 @@ const gchat = new GroupChat($('#gchat'), {
   openPeople: (member) => people.open(member),
   openFeeds: () => feeds.open(),
   openMoments: (author) => moments.open(author),
-  api: { get: API.getChat, post: API.postChat, pat: API.patChat, recall: API.recallChat, clear: API.clearChat, rooms: API.getChatRooms, handoff: API.chatHandoff, lifeReports: API.lifeReports },
+  api: { get: API.getChat, post: API.postChat, pat: API.patChat, recall: API.recallChat, clear: API.clearChat, rooms: API.getChatRooms, handoff: API.chatHandoff, lifeReports: API.lifeReports, look: API.chatLook },
   openSession: async (sid) => {
     await setEntry('work');
     await open(sid);

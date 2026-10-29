@@ -53,8 +53,9 @@ class AnthropicProvider(Provider):
         blocks: list[dict[str, Any]] = [{"type": "text", "text": m.content}]
         for media in m.media:
             if media.kind != "image":
-                # 该接口不接收音频：换渠道也是同样的请求，不切换
-                raise self._error(ErrorKind.BAD_REQUEST, "不支持音频输入")
+                # 该接口不接收音频和视频：换渠道也是同样的请求，不切换
+                what = "视频" if media.kind == "video" else "音频"
+                raise self._error(ErrorKind.BAD_REQUEST, f"不支持{what}输入")
             data = base64.b64encode(media.data).decode("ascii")
             source = {"type": "base64", "media_type": media.mime, "data": data}
             blocks.append({"type": "image", "source": source})
