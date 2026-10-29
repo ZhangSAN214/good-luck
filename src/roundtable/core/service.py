@@ -32,6 +32,8 @@ from roundtable.core.budget.guard import day_window, month_window
 from roundtable.core.carry import carry_question, compact
 from roundtable.core.changelog import changelog_view, load_changelog
 from roundtable.core.chat import ROOM, WORK, ChatHub, chat_budget
+from roundtable.core.chat_actions import card_from_url, is_bare_url
+from roundtable.core.chat_actions import card_text as chat_card_text
 from roundtable.core.chat_media import MAX_BYTES as CHAT_MEDIA_MAX
 from roundtable.core.chat_media import ChatMediaStore, MediaError, clean_items, placeholder
 from roundtable.core.chat_work import WORK_EVENTS, post_handoff, post_office_event
@@ -174,6 +176,10 @@ class ServiceError(ValueError):
     def __init__(self, message: str, status: int = 400) -> None:
         super().__init__(message)
         self.status = status
+
+
+# 转发时带过去的附加信息（图片、卡片、表情包说明文字）
+FORWARD_KEYS = ("media", "caption", "auto_text", "card", "perception")
 
 
 class RoundtableService:
@@ -1145,6 +1151,10 @@ class RoundtableService:
         text, meta = self._media_meta(text, media)
         if not text:
             raise ServiceError("消息不能为空")
+        if meta is None and is_bare_url(text):  # 只发了一个链接：显示成卡片
+            hosts = self.rt.config.roundtable.chat.actions.video_hosts
+            card = card_from_url(text, hosts, self.rt.repo.web_item_by_url(text))
+            text, meta = chat_card_text(card), {"card": card}
         try:
             msg, speakers = chat.post(text, meta, quote)
         except ValueError as exc:
@@ -1255,6 +1265,24 @@ class RoundtableService:
             chat.round += 1  # 拍一拍也算新的一轮：上一轮还没发出的按策略作废
         self._chat_replies(chat, msg["id"], speakers)
         return {"id": msg["id"], "text": msg["text"], "speakers": [m.name for m in speakers]}
+
+    async def chat_forward(self, message_id: int, room: str) -> dict[str, Any]:
+        """把一条消息（文字、图片、表情包、卡片）原样转发到另一个会话，以你的身份发出；
+        那边的成员照常回应。"""
+        row = self.rt.repo.chat_message(message_id)
+        if row is None or row["author"] == "system" or (row["meta"] or {}).get("recalled"):
+            raise ServiceError("这条消息不能转发")
+        src = self._chat_room(row["room"])
+        chat = self._chat_room(room)
+        if chat.kind == "pair":
+            raise ServiceError("这是成员之间的私聊，你只能看")
+        meta = {k: v for k, v in (row["meta"] or {}).items() if k in FORWARD_KEYS}
+        names = {m.id: m.name for m in src.everyone()} | {"user": "我"}
+        meta["forwarded"] = {"from": names.get(row["author"], row["author"]), "room": src.title}
+        msg, speakers = chat.post(row["text"], meta)
+        self.rt.repo.mark_chat_read(chat.room, msg["id"])
+        self._chat_replies(chat, msg["id"], speakers)
+        return {"id": msg["id"], "speakers": [m.name for m in speakers]}
 
     def chat_recall(self, message_id: int, room: str = ROOM) -> dict[str, Any]:
         """撤回你自己发的一条消息（发出后几分钟内）。"""
@@ -1495,6 +1523,10 @@ class RoundtableService:
         if len(text) > MAX_MOMENT_CHARS:
             raise ServiceError(f"内容太长（最多 {MAX_MOMENT_CHARS} 字）")
         text, meta = self._media_meta(text, media)
+        if meta is None and is_bare_url(text):  # 只发了一个链接：显示成转发卡片
+            hosts = self.rt.config.roundtable.chat.actions.video_hosts
+            card = card_from_url(text, hosts, self.rt.repo.web_item_by_url(text))
+            text, meta = chat_card_text(card), {"card": card}
         row = self.rt.repo.add_moment("user", self._moment_text(text), meta=meta)
         mode = self.perceiver.mode_for(text) if meta else None
         if self.rt.config.roundtable.chat.moments.enabled or mode:

@@ -120,6 +120,13 @@ class PatBody(BaseModel):
     room: str = "main"
 
 
+class ForwardBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: int
+    room: str
+
+
 class RecallBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -685,6 +692,10 @@ def create_app(service: RoundtableService | None = None, lan: LanAccess | None =
     @app.post("/api/chat/pat", status_code=202)
     async def chat_pat(request: Request, body: PatBody) -> dict[str, Any]:
         return await svc(request).chat_pat(body.member, body.room)
+
+    @app.post("/api/chat/forward", status_code=202)
+    async def chat_forward(request: Request, body: ForwardBody) -> dict[str, Any]:
+        return await svc(request).chat_forward(body.id, body.room)
 
     @app.post("/api/chat/recall")
     async def chat_recall(request: Request, body: RecallBody) -> dict[str, Any]:

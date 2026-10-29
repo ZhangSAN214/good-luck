@@ -2,6 +2,7 @@
 import * as API from './api.js';
 import {
   STATUS_LABELS,
+  MAKE_TARGETS,
   MEDIA_LABELS,
   STEP_LABELS,
   attachmentsHTML,
@@ -216,7 +217,7 @@ const gchat = new GroupChat($('#gchat'), {
   openPeople: (member) => people.open(member),
   openFeeds: () => feeds.open(),
   openMoments: (author) => moments.open(author),
-  api: { get: API.getChat, post: API.postChat, pat: API.patChat, recall: API.recallChat, clear: API.clearChat, rooms: API.getChatRooms, handoff: API.chatHandoff, lifeReports: API.lifeReports, look: API.chatLook },
+  api: { get: API.getChat, post: API.postChat, pat: API.patChat, recall: API.recallChat, forward: API.forwardChat, clear: API.clearChat, rooms: API.getChatRooms, handoff: API.chatHandoff, lifeReports: API.lifeReports, look: API.chatLook },
   openSession: async (sid) => {
     await setEntry('work');
     await open(sid);
@@ -530,29 +531,43 @@ const CARRY_ASK = {
 };
 const ASK_PLACEHOLDER = $('#ask')?.getAttribute('placeholder') || '';
 
-async function startCarry(workflow) {
+async function startCarry(workflow, make = null) {
   const sid = S.sid;
   if (!sid) return;
   try {
     const info = await API.carry(sid);
-    S.carry = { sid, question: info.question, summary: info.summary, workflow, model: '' };
+    S.carry = { sid, question: info.question, summary: info.summary, workflow, model: '', ask: make?.ask || '', make: make?.label || '' };
     S.anonymous = info.anonymous;
   } catch (e) {
     formError(e.message);
     return;
   }
   S.workflow = workflow;
+  if (make) S.media = make.kind;
   renderComposer();
   renderLegend();
   $('#ask').focus();
   scheduleEstimate();
 }
 
+/** 转成作品：讨论模式 + 选好的输出类型，带上这一场的成果摘要；用户看过预估再提交。 */
+function startMake(key) {
+  const target = MAKE_TARGETS.find(([k]) => k === key);
+  if (!target) return;
+  const [, kind, label, ask] = target;
+  const info = S.status?.media?.kinds?.[kind];
+  if (!info?.available) {
+    formError(info?.reason || `现在没有可用的${label}生成模型`);
+    return;
+  }
+  startCarry('discussion', { kind, label, ask });
+}
+
 function renderCarry() {
   const box = $('#carry');
   const c = S.carry;
   box.hidden = !c;
-  $('#ask').setAttribute('placeholder', c ? `这一场要做什么（可留空：${CARRY_ASK[S.workflow] || CARRY_ASK.discussion}）` : ASK_PLACEHOLDER);
+  $('#ask').setAttribute('placeholder', c ? `这一场要做什么（可留空：${c.ask || CARRY_ASK[S.workflow] || CARRY_ASK.discussion}）` : ASK_PLACEHOLDER);
   if (!c) {
     box.innerHTML = '';
     return;
@@ -564,14 +579,14 @@ function renderCarry() {
       .map((m) => `<option value="${esc(m.id)}"${m.id === c.model ? ' selected' : ''}>${esc(m.id)}</option>`).join('');
     who = `<label class="hint">交给 <select id="carry-who" aria-label="交给谁"><option value="">所选档位里最便宜的一位</option>${opts}</select></label>`;
   }
-  box.innerHTML = `<div class="carry-head"><span class="tag">接着上一场</span><b>${esc(short(c.question, 60))}</b>${who}<button class="btn sm" type="button" data-act="carry-off" title="不带上一场的成果">取消接力</button></div>
+  box.innerHTML = `<div class="carry-head"><span class="tag">${c.make ? `转成作品 · ${esc(c.make)}` : '接着上一场'}</span><b>${esc(short(c.question, 60))}</b>${who}<button class="btn sm" type="button" data-act="carry-off" title="不带上一场的成果">取消接力</button></div>
 <details><summary class="hint">将带入的成果摘要（约 ${c.summary.length} 字，不带过程）</summary><div class="carry-sum">${esc(c.summary)}</div></details>`;
 }
 
 function carryFields(body) {
   if (!S.carry) return body;
   body.carry_from = S.carry.sid;
-  if (!body.question) body.question = CARRY_ASK[S.workflow] || CARRY_ASK.discussion;
+  if (!body.question) body.question = S.carry.ask || CARRY_ASK[S.workflow] || CARRY_ASK.discussion;
   if (S.workflow === 'solo' && S.carry.model) {
     body.tier = 'custom';
     body.models = [S.carry.model];
@@ -1520,6 +1535,8 @@ function bind() {
     if (e.target.closest('[data-act="resume"]')) doResume();
     const relay = e.target.closest('[data-carry]');
     if (relay) startCarry(relay.dataset.carry);
+    const make = e.target.closest('[data-make]');
+    if (make) startMake(make.dataset.make);
     if (e.target.closest('[data-act="export"]') && S.sid) exporter.open(S.sid);
     const quick = e.target.closest('.exports a[data-fmt]');
     if (quick) quick.href = exportHref(quick.dataset.sid, quick.dataset.fmt); // 用最新记住的样式
