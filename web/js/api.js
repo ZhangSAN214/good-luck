@@ -126,6 +126,8 @@ export const chatHandoff = (text) => api('/api/chat/handoff', { method: 'POST', 
 export const chatLook = (id, room = 'main') => api(`/api/chat/messages/${id}/look?room=${encodeURIComponent(room)}`, { method: 'POST' });
 export const getApartment = (hour, weekday) => api(`/api/apartment?hour=${hour}&weekday=${weekday}`);
 export const getCandidates = () => api('/api/models/candidates');
+export const getDirectory = () => api('/api/models/directory');
+export const refreshDirectory = () => api('/api/models/directory/refresh', { method: 'POST' });
 export const getPluginBoard = () => api('/api/plugins/board');
 export const getChangelog = () => api('/api/changelog');
 export const mailView = () => api('/api/mail');

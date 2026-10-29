@@ -874,6 +874,14 @@ def create_app(service: RoundtableService | None = None, lan: LanAccess | None =
     async def refresh_model_candidates(request: Request) -> dict[str, Any]:
         return await svc(request).refresh_model_candidates()
 
+    @app.get("/api/models/directory")
+    async def model_directory(request: Request) -> dict[str, Any]:
+        return svc(request).model_directory()
+
+    @app.post("/api/models/directory/refresh")
+    async def refresh_model_directory(request: Request) -> dict[str, Any]:
+        return await svc(request).refresh_model_directory()
+
     @app.get("/api/sessions/{session_id}/payslip")
     async def payslip(request: Request, session_id: str) -> dict[str, Any]:
         return svc(request).payslip(session_id)
