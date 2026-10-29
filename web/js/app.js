@@ -250,7 +250,10 @@ const standee = new Standee({ load: API.standee, pointer: () => hub.follow });
 const hub = new Hub($('#hub'), {
   music: new Music(),
   clock: new Clock(),
-  notice: new Notice({ load: API.getChangelog }),
+  notice: new Notice({
+    load: API.getChangelog,
+    calendar: { load: API.getCalendar, add: API.addCalendarDate, remove: API.removeCalendarDate },
+  }),
   mail: new Mail({
     load: API.mailView,
     settings: API.mailSettings,

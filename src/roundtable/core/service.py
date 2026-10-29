@@ -17,13 +17,14 @@ import shutil
 import subprocess
 from collections.abc import AsyncIterator, Sequence
 from dataclasses import asdict
-from datetime import datetime, timedelta, tzinfo
+from datetime import date, datetime, timedelta, tzinfo
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
 
 from roundtable.core import clipper
 from roundtable.core.allocation import coordinator_name, display_name
+from roundtable.core.almanac import Almanac
 from roundtable.core.attachments import Attachment, UploadError, ingest
 from roundtable.core.attachments.detect import TYPES as UPLOAD_TYPES
 from roundtable.core.browse import REFRESH_KEY, feeds_of, set_feeds
@@ -106,7 +107,7 @@ from roundtable.core.member_voice import (
     VoiceUnavailable,
 )
 from roundtable.core.members_art import MEMBERS_FILE, load_members, mime_of, resolve_file
-from roundtable.core.memory import LAYERS, MemoryKeeper, clean_memory
+from roundtable.core.memory import LAYERS, MemoryKeeper, clean_memory, prepare_items
 from roundtable.core.moments import SEEN_KEY as MOMENTS_SEEN
 from roundtable.core.notes import NoteError, check_can_add, clean_note
 from roundtable.core.nowplaying import COVERS_DIR, NowPlaying, SmtcSource, list_covers, read_cover
@@ -212,6 +213,7 @@ class RoundtableService:
         state = getattr(self.engine, "state", None)  # 状态插件（心情）装上后，夜间整理按心情改语气
         if state is not None:
             self.memory.mood_of = state.mood_of
+        self.calendar = Almanac(runtime, self.chats.everyone)
         self.mail = MailBox(runtime.repo)
         self.mail_ai = MailAI(runtime, self.mail)
         if runtime.mail_source is not None:
@@ -312,6 +314,8 @@ class RoundtableService:
         """推进一次生活（开机后第一次会补上关机期间的时间），再推进一次成员引擎（不花钱）。"""
         now = self._local_now()
         out = await self.life.tick(now)
+        with contextlib.suppress(Exception):  # 日历出错不影响生活
+            self.calendar.tick(now, self.engine.bus.publish)
         with contextlib.suppress(Exception):  # 引擎出错不影响生活
             await self.engine.tick(now)
         return out
@@ -1498,6 +1502,8 @@ class RoundtableService:
         """一位成员的记忆件（q 为空时最近的在前，否则按全文索引找）、挂着的事、习惯、统计。"""
         self._chat_member(member)
         repo = self.rt.repo
+        if self.rt.config.roundtable.chat.memory.recall == "half_life":
+            prepare_items(self.rt)
         limit = min(max(limit, 1), 500)
         if q:
             ids = repo.search_memory_items(member, query_terms(q), limit)
@@ -1959,6 +1965,37 @@ class RoundtableService:
 
     def member_events_count(self) -> dict[str, Any]:
         return {"events": self.rt.repo.count_member_events()}
+
+    # --- 日历底座（docs/CALENDAR.md；只给数据，不调模型） ------------------------------------
+
+    def calendar_view(self, days: int | None = None, start: str | None = None) -> dict[str, Any]:
+        """从 start（默认今天）起 days 天（默认 calendar.board_days）是什么日子。"""
+        rules = self.rt.config.roundtable.calendar
+        try:
+            first = date.fromisoformat(start) if start else self._local_now().date()
+        except ValueError:
+            raise ServiceError("start 要写成 YYYY-MM-DD", 400) from None
+        n = days or rules.board_days
+        if not 1 <= n <= 366:
+            raise ServiceError("days 要在 1～366 之间", 400)
+        return {
+            "enabled": rules.enabled,
+            "days": self.calendar.span(first, n) if rules.enabled else [],
+            "user_dates": self.calendar.user_dates(),
+        }
+
+    def calendar_add_date(self, name: str, when: str, lunar: bool = False) -> dict[str, Any]:
+        """加一个你自己的纪念日（每年都过，只存本机）。"""
+        try:
+            row = self.calendar.add_user_date(name, when, lunar=lunar)
+        except ValueError as exc:
+            raise ServiceError(str(exc), 400) from None
+        return {"date": row, "user_dates": self.calendar.user_dates()}
+
+    def calendar_remove_date(self, date_id: str) -> dict[str, Any]:
+        if not self.calendar.remove_user_date(date_id):
+            raise ServiceError("没有这个纪念日", 404)
+        return {"user_dates": self.calendar.user_dates()}
 
     def member_events_clear(self) -> dict[str, Any]:
         """一键清空成员引擎记下的全部事件（只存本机的经历数据）。"""

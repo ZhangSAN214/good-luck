@@ -26,7 +26,7 @@ from roundtable.core.chat import SYSTEM, USER, USER_LABEL, ChatMember, call_memb
 from roundtable.core.hometz import home_zone
 from roundtable.core.member.memory import MemoryStore, Recaller
 from roundtable.core.member.memory.night import apply, materials, nightly_links, parse
-from roundtable.core.member.memory.store import WORK_WORKFLOWS
+from roundtable.core.member.memory.store import WORK_WORKFLOWS, headless
 from roundtable.core.recall import STAR
 from roundtable.core.storage.repository import iso
 
@@ -34,6 +34,7 @@ MEMORY_ROOM = "memory"
 LAYERS = ("note", "day", "week", "month", "profile")
 LAST_DAY_KEY = "memory.last_day"
 IMPORTED_KEY = "memory.items_imported"
+CLEANED_KEY = "memory.items_cleaned_v1"
 SENSITIVE = re.compile(r"密码|口令|身份证|护照号|银行卡|卡号|验证码|\d{11,}")
 NONE = "（暂无）"
 
@@ -68,7 +69,11 @@ def _cut(text: str, max_chars: int) -> str:
 
 
 def import_old_memories(rt: Any) -> int:
-    """第一次用半衰期记忆时，把旧的分层记忆导入成记忆件（只做一次，原文不改）。返回导入件数。"""
+    """第一次用半衰期记忆时，把旧的分层记忆导入成记忆件（只做一次，原文不改）。返回导入件数。
+
+    只导入长期档案、用户写的和标了 ★ 的行：日记、周 / 月小结本身还在（网页和翻日记都看得到），
+    逐行再抄一份成记忆件只会和日记重复。只有标题的行（「10月24日回忆录：」）不导入。
+    """
     repo = rt.repo
     if repo.setting(IMPORTED_KEY):
         return 0
@@ -81,9 +86,11 @@ def import_old_memories(rt: Any) -> int:
         for i, raw in enumerate(ln.strip() for ln in lines):
             star = raw.startswith(STAR)
             text = raw.lstrip(STAR).strip()
-            if not text:
-                continue
             fact = star or m["layer"] == "profile" or m["source"] == "user"
+            if not text or not fact or headless(text):
+                continue
+            if repo.memory_item_by_key(m["member"], f"note:{m['id']}"):
+                continue  # 用户记的已经经服务写成记忆件了
             rows.append(
                 {
                     "member": m["member"],
@@ -100,6 +107,30 @@ def import_old_memories(rt: Any) -> int:
     return n
 
 
+def clean_old_items(rt: Any) -> int:
+    """清理一次已经存在的重复和空记忆件（只做一次，只改本机数据库）。返回删掉的件数。
+
+    - 旧版导入时把日记、周 / 月小结逐行抄成的普通经历件（和日记重复）：只出现过一次、
+      没被改过的删掉；日记原文不动。被合并过（命中多次）或改过语气、原文的保留。
+    - 只有标题没有正文的件（用户自己写的除外）。
+    """
+    repo = rt.repo
+    if repo.setting(CLEANED_KEY):
+        return 0
+    ids = {r["id"] for r in repo.memory_items_for_cleanup("import:", "episode")}
+    ids |= {i for i, text in repo.memory_items_not_from("user") if headless(text)}
+    for item_id in sorted(ids):
+        repo.delete_memory_item(item_id)
+    repo.set_setting(CLEANED_KEY, iso(rt.budget.now()))
+    return len(ids)
+
+
+def prepare_items(rt: Any) -> None:
+    """用记忆件前：导入旧记忆、清理旧的重复和空件（各只做一次）。"""
+    import_old_memories(rt)
+    clean_old_items(rt)
+
+
 def memory_context(
     rt: Any, member: str, max_chars: int, query: str = "", conversation: str | None = None
 ) -> str:
@@ -112,7 +143,7 @@ def memory_context(
     repo = rt.repo
     rules = rt.config.roundtable.chat.memory
     if rules.recall == "half_life":
-        import_old_memories(rt)
+        prepare_items(rt)
         now = rt.budget.now()
         got = Recaller(rt).recall(
             member,
