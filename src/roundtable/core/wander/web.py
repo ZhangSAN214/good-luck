@@ -169,11 +169,8 @@ class PlaywrightWeb:
         if self.load_wait_ms:
             page.wait_for_timeout(self.load_wait_ms)
         if not host_allowed(page.url, self.hosts):
-            # 页面自己跳去外站被拦下后停在出错页：退回上一页
-            with contextlib.suppress(Exception):
-                page.go_back(wait_until="domcontentloaded")
-            if not host_allowed(page.url, self.hosts):
-                raise WebError("页面跳到了白名单以外的网站，已拦下")
+            # 页面自己跳去外站被拦下后停在出错页：这一步算失败，成员换个链接（不读出错页）
+            raise WebError("页面想跳到白名单以外的网站，已拦下")
         try:
             text = page.inner_text("body")
         except Exception:  # noqa: BLE001 - 页面还没好就当没字

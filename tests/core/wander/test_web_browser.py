@@ -18,16 +18,16 @@ pytest.importorskip("playwright.sync_api")
 from roundtable.core.wander import PlaywrightWeb, WebError  # noqa: E402
 
 PAGES = {
-    "index.html": '<a href="/v.html">猫咪合集</a><a href="https://example.com/">外站</a>'
-    "<script>setTimeout(() => { location.href = 'https://example.com/' }, 50)</script>",
+    "index.html": '<a href="/v.html">猫咪合集</a><a href="https://example.com/">外站</a>',
     "v.html": "一只橘猫在睡觉",
+    "jump.html": "<script>location.href = 'https://example.com/'</script>马上跳走",
 }
 
 
 @pytest.fixture
 def site(tmp_path):
     for name, body in PAGES.items():
-        title = "首页" if name == "index.html" else "猫咪合集"
+        title = {"index.html": "首页", "v.html": "猫咪合集"}.get(name, "跳转")
         head = f'<head><meta charset="utf-8"><title>{title}</title></head>'
         html = f"<html>{head}<body>{body}</body></html>"
         (tmp_path / name).write_text(html, encoding="utf-8")
@@ -55,7 +55,6 @@ async def test_real_browser_reads_follows_and_blocks(site, tmp_path):
         pytest.skip(f"没有可用的浏览器：{e}")
     try:
         home = await web.goto(site)
-        # 脚本想跳去外站被拦下：还停在首页
         assert home.title == "首页" and "猫咪合集" in home.text
         assert home.links == [("猫咪合集", site + "v.html")]  # 外站链接不列出
         video = await web.goto(home.links[0][1])
@@ -65,6 +64,13 @@ async def test_real_browser_reads_follows_and_blocks(site, tmp_path):
         assert (await web.back()).title == "首页"
         with pytest.raises(WebError, match="白名单"):
             await web.goto("https://example.com/")
+        # 页面自己用脚本跳去外站：被拦下，读到的永远不是外站的内容
+        try:
+            jumped = await web.goto(site + "jump.html")
+        except WebError:
+            jumped = None
+        if jumped is not None:
+            assert jumped.url.startswith(site) and "Example Domain" not in jumped.text
     finally:
         await web.close()
     assert Path(tmp_path / "profile" / "V1").is_dir()  # 每位成员一个资料夹
