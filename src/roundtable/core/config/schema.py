@@ -1001,6 +1001,14 @@ class VoiceCheckRules(_Strict):
     agree_rest_chars: int = Field(default=8, ge=0, le=60)  # 附和之外剩下的字少于这么多算「光附和」
     follow_similarity: float = Field(default=0.25, gt=0, le=1)  # 附和开头 + 剩下的像别人说的：接龙
     memory_patterns: list[str] = Field(default_factory=list, max_length=40)  # 提到共同回忆
+    opening_chars: int = Field(default=3, ge=2, le=10)  # 开头这么多字和最近几条一样算套句式
+    opening_times: int = Field(default=2, ge=1, le=10)
+    post_repeat_similarity: float = Field(default=0.4, gt=0, le=1)  # 朋友圈和自己最近的动态比
+    rechew_hours: int = Field(default=72, ge=1, le=24 * 30)  # 反复提同一件事：看最近几小时
+    rechew_messages: int = Field(default=60, ge=5, le=500)
+    rechew_chars: int = Field(default=4, ge=2, le=8)  # 几个字的片段算一件事（如「番茄牛腩」）
+    rechew_times: int = Field(default=2, ge=1, le=20)  # 最近已经说过这么多次就别再提
+    moments_need_event: bool = True  # 没发生什么事（只有一个人待着、没活干）的日子不发朋友圈
     monthly_usd: float = Field(default=0.05, ge=0)
     estimate_usd: float = Field(default=0.0005, ge=0)
     max_tokens: int = Field(default=400, ge=64)
