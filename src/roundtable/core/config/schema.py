@@ -1042,7 +1042,7 @@ class StateRules(_Strict):
     praise_words: list[str] = []
     reflexes: list[ReflexRule] = []
     recent_keep: int = Field(default=5, ge=0, le=50)  # 记最近几次反射
-    recent_hours: float = Field(default=3.0, ge=0, le=48)  # 多久以内的反射写进状态那一行
+    recent_hours: float = Field(default=2.0, ge=0, le=48)  # 多久以内的反射写进状态那一行（默认 2 小时）
     # 状态那一行：{mood} {energy} 换成下面的标签，{recent} 换成 recent_format；总长 ≤ context_chars
     mood_labels: list[tuple[float, str]] = []  # (下限, 标签)，从高到低，取第一个 ≥ 下限的
     energy_labels: list[tuple[float, str]] = []

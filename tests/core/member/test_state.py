@@ -338,3 +338,9 @@ def test_hours_follow_home_zone():
     assert st.hour(NOON) == 20  # 北京时间晚上八点
     home_zone(env.rt).set("Europe/London")
     assert st.hour(NOON) == 12
+
+
+def test_owl_without_clock_stays_up_late():
+    rules = Env().rt.config.roundtable.chat.engine.state.baseline
+    b = derive_baseline(profile(daily="上午不起太早。深夜才睡。"), "x", rules)
+    assert b.night_owl and b.sleep >= 25

@@ -124,6 +124,8 @@ def sleep_hours(daily: str, rules: Any, member: str) -> tuple[float, float, bool
     if sleep - wake < 12:  # 读出来的不合理（比如把午睡当成睡觉）：用公寓楼的
         wake, sleep = _house_hours(member)
     owl = any(w in daily for w in rules.night_words)
+    if owl and not sleeps:  # 只写了「深夜才睡」没写钟点：按凌晨一点算
+        sleep = max(sleep, 25.0)
     return wake, sleep, owl
 
 
