@@ -285,6 +285,24 @@
 - 新提示词 `super_split/v1`、`super_work/v1`、`super_merge/v1`；顶栏「超级电脑」面板；接口 `/api/super/*`。见 `docs/SUPERCOMPUTER.md`。
 - 测试：`tests/core/supercomputer/`、`tests/api/test_super_api.py`、`tests/web/test_e2e_supercomputer.py`、`tests/core/dsh/test_manager.py`（headless 活）。
 
+### 工作台生成器 · W1 零件库 + 自动质检（2026-10-29，预估 8～12 小时，实际约 3 小时）
+
+用户要「一句话生成商业级工作台，不能像毕业设计，不预设品类」，计划 W1～W6（共 52～80 小时，见 `docs/KIT.md`）。本段：
+- `web/kit/`：设计套件（6 个主题、深浅两套、组件样式、图表与交互零件、Lucide 图标子集、零件清单 `manifest.json`、样板页 `gallery.html`）。
+- `core/benchkit/quality.py` + `roundtable kit-check`：三种屏宽 × 浅 / 深色的自动质检，硬指标 + 截图 + 打分。
+- 测试：`tests/core/benchkit/`（判定、颜色、清单与代码对得上、套件不引外部资源）、`tests/web/test_kit.py`（样板页满分、坏页被拦）。
+- 下一段 W2：生成逻辑（拆需求 → 自行找插件 / 拼零件 / 缺件现做 → 质检打回 → 迭代）。
+
+### 工作台生成器 · W2 生成逻辑（2026-10-29，预估 16～24 小时，实际约 4 小时）
+
+- `core/benchkit/spec.py`：拆需求的规格校验修正，外壳由程序按规格画（`shell.html`、`card.html`）。
+- `core/benchkit/builder.py`：拆需求 → 找插件 → 分头写窗口 → 质检 + 截图评审（按作者分组，不自评）→ 打回原作者返工 → 过线或停下来等你；派活走超级电脑新增的 `step()`（可排除某位助手）。
+- `core/benchkit/scout.py`：从 dsh 插件集市和 GitHub 找插件，≥100 星且许可证宽松就搬（钉提交、只解压不运行、记 sha256），其余只借思路。
+- `core/benchkit/library.py`：过线后新零件收进本机零件库、整台存成配方，以后的台自动用上。
+- 新提示词 `bench_plan` / `bench_window` / `bench_review` / `bench_rework` v1；接口 `/api/bench*`，成品在 `/bench/<编号>/` 沙箱里打开。
+- 测试：`tests/core/benchkit/test_builder.py`、`test_scout.py`、`tests/api/test_bench_api.py`、`tests/web/test_kit.py`（生成的外壳过质检、坏窗口被抓）。
+- 下一段 W3：圆桌里的工作台外壳和控制室。
+
 ## 下一步
 
 0. 你本机试用办公室模式（单人办、开会、项目分工、预算单、绩效）、公寓楼和群聊；看看「员工」页底部的人才市场，决定要不要换人 / 改价格。合并 PR #6 / #7 / #8 需要你点头。
