@@ -1605,6 +1605,23 @@ class Repository:
                     n += self.conn.execute(f"DELETE FROM {t} WHERE member = ?", (member,)).rowcount
         return n
 
+    def work_records_between(
+        self, start: datetime, end: datetime, workflows: Sequence[str]
+    ) -> list[dict[str, Any]]:
+        """[start, end) 内这些工作模式里每个模型参加过的场次：
+        模型、会话、模式、题目、做了哪些步骤、是否匿名、揭晓时间。生活只读自己的（由调用方挑）。"""
+        marks = ",".join("?" * len(workflows))
+        rows = self._exec(
+            "SELECT c.model_id, s.id AS session_id, s.workflow, s.question, s.anonymous,"
+            " s.revealed_at, GROUP_CONCAT(DISTINCT c.step) AS steps, MAX(c.created_at) AS at"
+            " FROM calls c JOIN sessions s ON s.id = c.session_id"
+            f" WHERE s.workflow IN ({marks}) AND c.role IN ('member', 'coordinator')"
+            " AND c.model_id IS NOT NULL AND c.created_at >= ? AND c.created_at < ?"
+            " GROUP BY c.model_id, s.id ORDER BY at",
+            (*workflows, iso(start), iso(end)),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
     def add_life_event(
         self,
         at: str,
