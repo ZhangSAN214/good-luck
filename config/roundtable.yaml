@@ -56,6 +56,13 @@ chat:
     max_written_catch_up: 6        # 开机补算时最多写几件
     catch_up_hours: 24             # 补算最多往回看多少小时（更早的只整理成记忆）
     turns: 3                       # 一段成员之间的对话最多几句
+    guard:                         # 收得住：全部由代码判断，不花钱
+      daily_messages: 40           # 成员之间每天最多说几句（含分享）
+      max_chars: 200               # 互聊每句最多多少字
+      stale_similarity: 0.5        # 和这段前面的话或最近的互聊太像就收尾（0～1）
+      max_failures: 3              # 连续出错几次，当天停掉生活
+      budget_alarm: 0.9            # 生活日上限或聊天月预算用到 90%，当天停掉
+      report_weekday: 1            # 每周一生成上一周的自检报告（花费、谁说得多、重复、异常）
   moments:                         # 朋友圈：成员每天最多发 1 条，互相点赞（免费）、评论
     enabled: true
     posts_per_member: 1

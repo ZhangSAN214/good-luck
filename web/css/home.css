@@ -389,6 +389,9 @@
 /* 朋友圈：照真实朋友圈的版式。顶部封面 + 右下角头像，下面一列动态（头像 / 名字 / 正文 / 时间 / 「··」/ 赞和评论） */
 dialog#moments{width:min(620px,94vw);height:min(900px,92vh);max-height:92vh;display:none;flex-direction:column;overflow:hidden}
 dialog#moments[open]{display:flex}
+dialog.gc-selfcheck{width:min(620px,94vw);max-height:88vh;overflow:auto;font-size:13px;line-height:1.6}
+dialog.gc-selfcheck h3{margin:14px 0 4px;font-size:14px}
+dialog.gc-selfcheck ul{margin:4px 0;padding-left:18px}
 .mo-bar{position:relative;gap:4px;padding:8px 10px}
 .mo-bar b{text-align:center;font-size:16px}
 .mo-icon{width:36px;height:36px;display:grid;place-items:center;border:0;background:none;border-radius:999px;color:var(--ink);cursor:pointer}

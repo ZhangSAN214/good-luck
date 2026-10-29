@@ -97,6 +97,7 @@ export const likeMoment = (id) => api(`/api/moments/${id}/like`, { method: 'POST
 export const commentMoment = (id, text, reply_to) => api(`/api/moments/${id}/comments`, { method: 'POST', body: { text, reply_to } });
 export const delMoment = (id) => api(`/api/moments/${id}`, { method: 'DELETE' });
 export const delMomentComment = (cid) => api(`/api/moments/comments/${cid}`, { method: 'DELETE' });
+export const lifeReports = () => api('/api/life/reports');
 export const chatFeeds = () => api('/api/chat/feeds');
 export const setChatFeeds = (feeds) => api('/api/chat/feeds', { method: 'PUT', body: { feeds } });
 export const refreshChatFeeds = () => api('/api/chat/feeds/refresh', { method: 'POST' });

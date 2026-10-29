@@ -592,4 +592,26 @@ ALTER TABLE mail_messages ADD COLUMN translation TEXT;
 ALTER TABLE mail_messages ADD COLUMN html TEXT;
 """,
     ),
+    (
+        23,
+        "生活收得住：记录与每周自检",
+        """
+-- 收得住（docs/CHAT.md G9）：生活引擎的收尾、条数上限、熔断记录（只增不改），和每周自检报告。
+-- kind：stale 没新内容收尾 / cap 到了每日条数上限 / halt 当天停掉；detail 是给人看的说明。
+CREATE TABLE life_guard_log (
+    id      INTEGER PRIMARY KEY,
+    at      TEXT NOT NULL,
+    kind    TEXT NOT NULL,
+    member  TEXT,
+    detail  TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX idx_life_guard_at ON life_guard_log(at);
+-- week：ISO 周（如 2026-W43）；report：JSON（花费、谁说得多、重复、异常）
+CREATE TABLE life_reports (
+    week        TEXT PRIMARY KEY,
+    created_at  TEXT NOT NULL,
+    report      TEXT NOT NULL
+);
+""",
+    ),
 ]

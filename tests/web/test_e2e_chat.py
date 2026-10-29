@@ -246,3 +246,19 @@ def test_moments_dialog_post_like_comment(serve, page):
     wait_until(lambda: "周末去爬山" not in page.inner_text("#moments .mo-wrap"))
     page.click("#moments [data-close]")
     assert page.locator("#gc-moments .gc-unread").count() == 0
+
+
+def test_life_self_check_dialog(serve, page):
+    srv = serve(confirm_threshold_usd=100.0)
+    repo = srv.env.rt.repo
+    repo.add_chat_message("main", "V1", "今天食堂的面不错", meta={"life": True})
+    repo.add_chat_message("main", "V2", "今天食堂的面不错啊", meta={"life": True})
+    open_chat(srv, page)
+    assert "互聊 2/40 句" in page.inner_text("#gc-budget")
+    page.click("#gc-selfcheck")
+    page.wait_for_selector("#gc-selfcheck-dlg h3")
+    text = page.inner_text("#gc-selfcheck-dlg")
+    assert "最近 7 天" in text and "谁说得多" in text and "阿一" in text
+    assert "重复：1 句" in text
+    page.click("#gc-selfcheck-dlg [data-close]")
+    page.wait_for_selector("#gc-selfcheck-dlg", state="hidden")

@@ -871,6 +871,9 @@ class RoundtableService:
                 "enabled": self.rt.config.roundtable.chat.life.enabled,
                 "spent_today_usd": self.life.spent_today(),
                 "daily_usd": self.rt.config.roundtable.chat.life.daily_usd,
+                "messages_today": self.life.guard.messages_today(),
+                "daily_messages": self.rt.config.roundtable.chat.life.guard.daily_messages,
+                "halted": self.life.guard.halted(),
             },
         }
 
@@ -1305,6 +1308,16 @@ class RoundtableService:
         return self.upload(clipper.safe_name(clip["title"]), data)
 
     # --- 上网（订阅源） ------------------------------------------------------------
+
+    def life_reports(self) -> dict[str, Any]:
+        """生活的每周自检（docs/CHAT.md G9）：已存的每周报告（新的在前）和最近 7 天的实时报告。"""
+        now = self.rt.budget.now()
+        names = {m.id: m.name for m in self.chats.everyone()}
+        return {
+            "reports": self.rt.repo.life_reports(),
+            "recent": self.life.guard.report(now - timedelta(days=7), now, names),
+            "halted": self.life.guard.halted(),
+        }
 
     def chat_feeds(self) -> dict[str, Any]:
         """订阅源清单（网页改过的优先）、上次抓取时间、今天联网搜索次数与上限。"""
