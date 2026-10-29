@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 
 from roundtable.core.chat import ChatHub, dm_room
 from roundtable.core.member.memory import MemoryStore
-from roundtable.core.member.memory.night import mood_words, parse
+from roundtable.core.member.memory.night import apply, materials, mood_words, parse
 from roundtable.core.memory import MemoryKeeper
 from roundtable.core.service import RoundtableService
 
@@ -130,3 +130,13 @@ async def test_life_reads_own_work_records_but_not_unrevealed_anonymous():
     ]
     assert k.work_lines(me, at.date(), UTC) == []
     assert env.rt.repo.memory_item_by_key(member, "work:anon") is None
+
+
+def test_heading_only_diary_is_dropped():
+    env = Env()
+    mats = materials(env.rt, "V1", name="V1", day="2026-10-24", log="x", work=[], mood=0, drift=[])
+    result = parse('{"diary": "10月24日回忆录：", "items": [{"text": "10月24日回忆录："}]}')
+    counts = apply(env.rt, "V1", "2026-10-24", result, mats, clean=lambda t, n: t[:n])
+    assert counts["diary"] == 0 and counts["new"] == 0
+    assert env.rt.repo.memories("V1", layer="day") == []
+    assert env.rt.repo.count_memory_items("V1") == 0
