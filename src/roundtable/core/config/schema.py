@@ -812,7 +812,7 @@ class FeedSpec(_Strict):
     name: str = Field(min_length=1, max_length=40)
     url: str = Field(pattern=r"^https?://", max_length=500)
     topics: list[str] = Field(default_factory=list, max_length=8)
-    kind: Literal["news", "forum", "blog"] = "news"
+    kind: Literal["news", "forum", "blog", "video"] = "news"
     enabled: bool = True
 
 
@@ -1160,6 +1160,13 @@ class ChatActionRules(_Strict):
     pat_reply: bool = True  # 被拍一拍后回一句（默认值）
     no_reply_in_group: bool = True  # 群里没被点名时允许不接话（默认值）
     drop_stale: bool = True  # 你补发新消息或撤回时，上一轮还没发出的气泡和还没开口的人作废
+    # 今天上网分享过的成员发朋友圈时，有几成发成「一句话 + 转发卡片」（默认值）
+    moment_forward: float = Field(default=0.5, ge=0, le=1)
+    # 这些网站上的链接显示成视频卡片（只看网址，不联网）
+    video_hosts: list[str] = Field(
+        default_factory=lambda: ["youtube.com", "youtu.be", "vimeo.com", "bilibili.com"],
+        max_length=20,
+    )
 
 
 class ChatRules(_Strict):

@@ -44,3 +44,31 @@ def test_carry_buttons_start_next_session_with_summary(serve, page):
     page.wait_for_selector("#carry:not([hidden])")
     page.click("[data-act='carry-off']")
     assert page.is_hidden("#carry")
+
+
+def test_make_buttons_turn_the_result_into_a_media_session(serve, page):
+    """转成作品：选「配乐」→ 讨论模式 + 输出音乐，带上成果摘要，题目留空用默认要求。"""
+    srv = serve(confirm_threshold_usd=100.0, with_media=True)
+    page.goto(srv.url)
+    page.wait_for_selector("#legend .row")
+    page.click("#workflow button[data-v='discussion']")
+    ask(page, MEDIUM)
+    wait_done(page)
+
+    labels = page.locator(".make-bar [data-make]").all_inner_texts()
+    assert labels == ["插图", "海报", "短视频", "配音朗读", "配乐"]
+    page.click(".make-bar [data-make='music']")
+    page.wait_for_selector("#carry:not([hidden]) .carry-head")
+    assert "转成作品 · 配乐" in page.inner_text("#carry")
+    assert page.get_attribute("#workflow button[data-v='discussion']", "aria-pressed") == "true"
+    assert page.get_attribute("#media button[data-v='music']", "aria-pressed") == "true"
+    assert "配一段契合主题" in page.get_attribute("#ask", "placeholder")
+    first = page.evaluate("location.hash")
+    page.click("#submit")
+    page.wait_for_function(f"location.hash !== {first!r}", timeout=10000)
+    wait_done(page)
+    sid = page.evaluate("location.hash").split("=", 1)[1]
+    sv = page.request.get(f"{srv.url}/api/sessions/{sid}").json()
+    assert sv["media_kind"] == "music" and "配一段契合主题" in sv["question"]
+    assert "previous_result" in sv["question"]
+    assert [j["kind"] for j in sv["media"]] == ["music"]

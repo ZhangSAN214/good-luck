@@ -90,6 +90,7 @@ chat:
       - {name: NASA, url: "https://www.nasa.gov/news-release/feed/", topics: [天文, 科学], kind: news}
       - {name: ScienceDaily, url: "https://www.sciencedaily.com/rss/top/science.xml", topics: [科学], kind: news}
       - {name: Polygon, url: "https://www.polygon.com/rss/index.xml", topics: [游戏], kind: news}
+      - {name: NASA 视频, url: "https://www.youtube.com/feeds/videos.xml?channel_id=UCLA_DiR1FfKNvjuUpBHmylQ", topics: [天文, 科学, 视频], kind: video}
   engine:                          # 成员引擎（docs/MEMBER_ENGINE.md）：只用于聊天、朋友圈、生活
     enabled: true
     context: {budget_chars: 600}   # 调模型时带的资料最多多少字（固定部分放最前，利于缓存）
@@ -151,6 +152,8 @@ chat:
     pat_reply: true                # 被拍一拍后回一句
     no_reply_in_group: true        # 群里没被点名时可以不接话
     drop_stale: true               # 你补发新消息或撤回时，上一轮还没发出的气泡和还没开口的人作废
+    moment_forward: 0.5            # 今天上网分享过的成员发朋友圈时，一半发成「一句话 + 转发卡片」
+    video_hosts: [youtube.com, youtu.be, vimeo.com, bilibili.com]   # 这些网站的链接显示成视频卡片（只看网址）
   tier: budget
   max_repliers: 2
   max_mentioned: 8                 # 「@全员」「所有人」「大家」时最多几位依次回应
@@ -230,7 +233,7 @@ prompts:
   revise: v3
   synthesize: v4
   redo: v1
-  decompose: v4
+  decompose: v5
   volunteer: v1
   assign: v3
   accept: v1             # 协同：合并前统筹按验收标准逐条验收
@@ -286,8 +289,8 @@ prompts:
   member_eval: v1       # 成员评测集：情境题（规则判分，离线用假模型）
   life_chat: v2          # 生活：成员之间聊天（公寓楼里的模拟生活）
   life_share: v2         # 生活：成员把上网看到的一条内容分享到生活群
-  moment_post: v2        # 朋友圈：成员发一条动态
-  moment_comment: v2     # 朋友圈：成员评论一条动态（或回复评论）
+  moment_post: v3        # 朋友圈：成员发一条动态（v3：转发卡片、表情包）
+  moment_comment: v3     # 朋友圈：成员评论一条动态（或回复评论）（v3：表情包）
   evolution_card: v1     # 革新例会·自己找资料：一位成员把网页写成资料卡
   evolution_check: v1    # 革新例会·自己找资料：另一位成员复核资料卡
   evolution_plugins: v1  # 革新例会·插件清单：一位成员根据资料卡和点子榜写给用户看的插件清单
@@ -298,7 +301,7 @@ prompts:
   user_notes: v1         # 用户中途补充的意见，接在之后的每次调用上
   media_refine: v1       # 统筹根据评审决定是否改提示词重新生成
   media_rewrite: v2      # 汇总失败时，由一位成员根据修订稿重写生成提示词
-  work_media: v1         # 协同：媒体子任务，成员写生成提示词
+  work_media: v2         # 协同：媒体子任务，成员写生成提示词
   rework_media: v2       # 协同：按审查意见修改生成提示词
   evolve_review: v1      # 革新 PR 的对抗式复审（开发侧脚本 scripts/evolve_review.py，可选）
   web_search: v1         # 借助聚合平台联网搜索时发给搜索用模型的指令

@@ -11,6 +11,14 @@
 - ``[引用#12]``：放在一段开头，引用聊天记录里编号为 12 的消息（只认最近记录里有的编号）；
 - 空行：把一次回复拆成几条气泡，最多 ``max_segments`` 条，多出来的并进最后一条；
 - ``[不回]``：这次不接话（只在允许时生效）。
+
+第二批（转发与朋友圈）：
+
+- 卡片（``meta.card``）：帖子 / 文章 / 视频的链接卡片（标题、来源、摘要），
+  来自订阅源或用户粘贴的链接；成员看到的是文字占位「[链接] 标题」。
+- 生成的图片 / 动图 / 自制表情包（创作输出接好后）：``generated_item`` 存进本机聊天文件夹，
+  成为普通的 ``meta.media`` 一项（``sticker: true`` 时按表情包显示），用 ``GroupChat.send_as`` /
+  ``Moments.publish`` 发出。
 """
 
 from __future__ import annotations
@@ -18,6 +26,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 from typing import Any, Protocol
+from urllib.parse import urlparse
 
 NO_REPLY = "[不回]"
 STICKER_RE = re.compile(r"\[表情[:：]([^\]·]{1,6})·([^\]]{1,6})\]")
@@ -54,6 +63,8 @@ class ActionPolicy(Protocol):
     def pat_suffix(self, member: str) -> str: ...
 
     def voice(self, member: str, room_kind: str, seed: int = 0) -> str: ...
+
+    def moment_forward(self, member: str, key: str) -> bool: ...
 
 
 class DefaultPolicy:
@@ -94,6 +105,14 @@ class DefaultPolicy:
     def voice(self, member: str, room_kind: str, seed: int = 0) -> str:
         """提示词里这位成员的「说话习惯」（成员系统接管时给，seed 用来轮换示范句）；默认没有。"""
         return ""
+
+    def moment_forward(self, member: str, key: str) -> bool:
+        """今天上网分享过东西的成员发朋友圈时，要不要发成「一句话 + 转发卡片」。
+        key 由调用方给（如事件 id），随机数由它派生，可复现。"""
+        import random
+
+        r = self.rules
+        return r.enabled and random.Random(f"forward:{key}:{member}").random() < r.moment_forward
 
 
 def sticker_list(stickers: dict[str, list[str]]) -> str:
@@ -153,3 +172,94 @@ def quote_meta(row: dict[str, Any]) -> dict[str, Any]:
 
 def is_recalled(row: dict[str, Any]) -> bool:
     return bool((row.get("meta") or {}).get("recalled"))
+
+
+# --- 卡片（转发帖子 / 文章 / 视频） ---------------------------------------------------
+
+CARD_KINDS = ("article", "post", "video")
+CARD_LABELS = {"article": "链接", "post": "帖子", "video": "视频"}
+URL_RE = re.compile(r"^https?://[^\s<>\"']{3,1000}$")
+
+
+def card_kind(
+    url: str, feed_kind: str = "news", video_hosts: list[str] | tuple[str, ...] = ()
+) -> str:
+    """订阅源是视频源、或网址在视频站上 → video；论坛 → post；其余 article。"""
+    host = (urlparse(url).hostname or "").lower()
+    if feed_kind == "video" or any(host == h or host.endswith("." + h) for h in video_hosts):
+        return "video"
+    return "post" if feed_kind == "forum" else "article"
+
+
+def card_from_item(item: dict[str, Any], feed_kind: str, video_hosts: list[str]) -> dict[str, Any]:
+    """订阅源 / 搜索结果的一条 → 卡片。"""
+    return {
+        "kind": card_kind(item["url"], feed_kind, video_hosts),
+        "title": str(item["title"])[:120],
+        "url": item["url"],
+        "source": str(item.get("feed") or urlparse(item["url"]).hostname or "")[:40],
+        "summary": snippet(item.get("summary") or ""),
+        "published": item.get("published"),
+        "unverified": bool(item.get("unverified")),
+    }
+
+
+def card_from_url(
+    url: str, video_hosts: list[str], known: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    """用户粘贴的链接 → 卡片。不联网：订阅源里有这条就用它的标题，否则用网址本身。"""
+    if known:
+        return card_from_item(known, "news" if not known.get("unverified") else "blog", video_hosts)
+    host = urlparse(url).hostname or ""
+    return {
+        "kind": card_kind(url, "news", video_hosts),
+        "title": url[:120],
+        "url": url,
+        "source": host[:40],
+        "summary": "",
+        "published": None,
+        "unverified": True,
+    }
+
+
+def is_bare_url(text: str) -> bool:
+    return bool(URL_RE.match(text.strip()))
+
+
+def card_text(card: dict[str, Any]) -> str:
+    """给成员看的文字占位。"""
+    return f"[{CARD_LABELS.get(card.get('kind', ''), '链接')}] {card.get('title', '')}"
+
+
+def clean_card(card: Any) -> dict[str, Any] | None:
+    """检查卡片字段（转发、接入口传进来的）：只接受 http(s) 网址。"""
+    if not isinstance(card, dict) or not URL_RE.match(str(card.get("url") or "")):
+        return None
+    kind = card.get("kind") if card.get("kind") in CARD_KINDS else "article"
+    return {
+        "kind": kind,
+        "title": str(card.get("title") or card["url"])[:120],
+        "url": str(card["url"]),
+        "source": str(card.get("source") or "")[:40],
+        "summary": snippet(str(card.get("summary") or "")),
+        "published": card.get("published") if isinstance(card.get("published"), str) else None,
+        "unverified": bool(card.get("unverified", True)),
+    }
+
+
+# --- 生成的图片 / 动图 / 自制表情包（接入口） ------------------------------------------
+
+
+def generated_item(store: Any, data: bytes, mime: str, *, sticker: bool = False) -> dict[str, Any]:
+    """把生成的图片 / 动图存进本机聊天文件夹，返回一项 ``meta.media``。
+
+    创作输出（画图、做动图）接好后调用它，再用 ``GroupChat.send_as`` 或 ``Moments.publish`` 发出。
+    sticker 为真时网页按表情包显示（大图、没有气泡）。格式和大小限制与用户发的图片相同。
+    """
+    saved = store.save(data, mime)
+    if saved.kind != "image":
+        raise ValueError("只能是图片或动图")
+    item: dict[str, Any] = {"id": saved.id, "kind": "image", "generated": True}
+    if sticker:
+        item["sticker"] = True
+    return item
