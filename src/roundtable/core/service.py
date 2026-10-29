@@ -794,6 +794,23 @@ class RoundtableService:
         except Exception as e:  # noqa: BLE001 - 网络错误只报类型，不带外部文本
             raise ServiceError(f"查询模型列表失败（{type(e).__name__}）", 502) from None
 
+    def model_directory(self) -> dict[str, Any]:
+        """模型图鉴的最近结果：聚合渠道上的全部模型，分类、打标签、标出已在圆桌里的。只浏览。"""
+        if self.rt.directory is None:
+            return {"fetched_at": None, "stale": False, "available": False}
+        return self.rt.directory.view()
+
+    async def refresh_model_directory(self) -> dict[str, Any]:
+        """重新拉取聚合渠道的全部模型（公开列表，不需要 key）。"""
+        if self.rt.directory is None:
+            raise ServiceError("没有可用的模型列表来源", 404)
+        try:
+            return await self.rt.directory.refresh()
+        except LookupError as e:
+            raise ServiceError(str(e), 404) from None
+        except Exception as e:  # noqa: BLE001 - 网络错误只报类型，不带外部文本
+            raise ServiceError(f"查询模型列表失败（{type(e).__name__}）", 502) from None
+
     def office(self) -> dict[str, Any]:
         """名册：经理与员工、工资标准（每百万 token 的美元价格）、本月已领工资。不涉及具体会话。"""
         cfg = self.rt.config
