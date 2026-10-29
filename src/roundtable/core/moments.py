@@ -34,7 +34,8 @@ from roundtable.core.chat import (
     member_memory,
 )
 from roundtable.core.office.apartment import schedule
-from roundtable.core.persona import persona_of, persona_text
+from roundtable.core.persona import chat_persona
+from roundtable.core.plain_talk import before_speaking, plain_prompt
 from roundtable.core.storage.repository import iso
 
 MOMENT_ROOM = "moments"
@@ -142,10 +143,11 @@ class Moments:
             role,
             rt.config.roundtable.prompts[role],
             name=member.name,
-            persona=persona_text(persona_of(rt, member.id)),
+            persona=chat_persona(rt, member.id),
             memory=member_memory(rt, member.id, "\n".join(variables.values())),
             **variables,
         )
+        prompt = plain_prompt(rt.prompts, rt.config, prompt)
         params = dict(rt.config.roundtable.step_params.get("chat", {}))
         params["max_tokens"] = rules.max_tokens
         completion = await call_member(
@@ -159,7 +161,12 @@ class Moments:
         )
         if completion is None:
             return None
-        return clean_reply(completion.text, member.name, rules.max_chars) or None
+        text = clean_reply(completion.text, member.name, rules.max_chars)
+        if not text:
+            return None
+        return await before_speaking(
+            rt, text, room=MOMENT_ROOM, name=member.name, model_id=member.model_id
+        )
 
     async def post(
         self,

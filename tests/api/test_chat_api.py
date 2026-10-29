@@ -150,6 +150,18 @@ def test_pair_room_is_listed_and_read_only():
         assert r.status_code == 400
 
 
+def test_life_reports():
+    env = Env()
+    env.rt.repo.add_chat_message("main", "V1", "下雨了", meta={"life": True})
+    env.rt.repo.save_life_report("2026-W40", {"notes": ["一切正常"]})
+    with TestClient(create_app(RoundtableService(env.rt))) as c:
+        data = c.get("/api/life/reports").json()
+        assert data["reports"][0]["week"] == "2026-W40"
+        assert data["recent"]["speakers"][0]["member"] == "V1"
+        assert data["halted"] is None
+        assert c.get("/api/chat/rooms").json()["life"]["messages_today"] == 1
+
+
 def test_feeds_settings_round_trip():
     env = Env()
     with TestClient(create_app(RoundtableService(env.rt))) as c:

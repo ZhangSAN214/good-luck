@@ -111,6 +111,12 @@ const people = new People($('#people'), {
     delMemory: API.delChatMemory,
     clearMemories: API.clearChatMemories,
     tidy: API.tidyChatMemories,
+    profile: API.memberProfile,
+    change: API.changeMemberProfile,
+    lock: API.lockMemberProfile,
+    revert: API.revertMemberProfile,
+    clearProfile: API.clearMemberProfile,
+    importCards: API.importMemberCards,
   },
 });
 const feeds = new Feeds($('#feeds'), { api: { get: API.chatFeeds, set: API.setChatFeeds, refresh: API.refreshChatFeeds } });
@@ -174,7 +180,7 @@ const gchat = new GroupChat($('#gchat'), {
   openPeople: (member) => people.open(member),
   openFeeds: () => feeds.open(),
   openMoments: (author) => moments.open(author),
-  api: { get: API.getChat, post: API.postChat, clear: API.clearChat, rooms: API.getChatRooms, handoff: API.chatHandoff, look: API.chatLook },
+  api: { get: API.getChat, post: API.postChat, clear: API.clearChat, rooms: API.getChatRooms, handoff: API.chatHandoff, lifeReports: API.lifeReports, look: API.chatLook },
   openSession: async (sid) => {
     await setEntry('work');
     await open(sid);

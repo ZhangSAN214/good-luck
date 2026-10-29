@@ -103,7 +103,9 @@ export class GroupChat {
       <nav class="gc-rooms" aria-label="会话"><div id="gc-rooms"></div>
         <button type="button" class="btn gc-people" id="gc-people">成员设定与记忆</button>
         <button type="button" class="btn gc-people" id="gc-feeds">上网：看哪些内容</button>
+        <button type="button" class="btn gc-people" id="gc-selfcheck" title="花了多少、谁说得多、有没有重复和出错">生活自检</button>
         <p class="hint" id="gc-budget"></p></nav>
+      <dialog class="gc-selfcheck" id="gc-selfcheck-dlg" aria-label="生活自检"></dialog>
       <section class="gc-main" aria-label="聊天">
         <header class="gc-head"><b id="gc-title">大家庭</b><span class="gc-count" id="gc-count"></span>
           <form id="gc-search" role="search"><input type="search" id="gc-q" placeholder="搜索聊天记录" aria-label="搜索聊天记录"></form>
@@ -167,6 +169,11 @@ export class GroupChat {
     this.$('#gc-people').hidden = !this.openPeople;
     this.$('#gc-feeds').hidden = !this.openFeeds;
     this.$('#gc-feeds').addEventListener('click', () => this.openFeeds?.());
+    this.$('#gc-selfcheck').hidden = !this.api.lifeReports;
+    this.$('#gc-selfcheck').addEventListener('click', () => this.openSelfCheck());
+    this.$('#gc-selfcheck-dlg').addEventListener('click', (e) => {
+      if (e.target.closest('[data-close]')) this.$('#gc-selfcheck-dlg').close();
+    });
     this.$('#gc-people').addEventListener('click', () => {
       const dm = this.isDm() ? this.room.slice(3) : null; // 私聊里打开时直接看对方
       this.openPeople?.(dm);
@@ -605,8 +612,21 @@ export class GroupChat {
     const mo = this.openMoments ? `<button type="button" class="gc-room" id="gc-moments"><span class="gc-av ini grp">圈</span><span class="gc-rt"><b>朋友圈</b><small>成员的动态</small></span>${unseen}</button>` : '';
     el.innerHTML = `${mo}<h3>群聊</h3>${groups.map(item).join('')}<h3>私聊</h3>${dms.map(item).join('')}${pairs.length ? `<h3 title="成员私下的聊天，你只能看">成员之间</h3>${pairs.map(item).join('')}` : ''}`;
     const b = this.budget;
-    const life = this.life?.enabled ? `；今天生活 $${this.life.spent_today_usd.toFixed(3)} / $${this.life.daily_usd.toFixed(2)}` : '';
+    const l = this.life;
+    const halted = l?.halted ? `（今天已停：${l.halted}）` : '';
+    const life = l?.enabled ? `；今天生活 $${l.spent_today_usd.toFixed(3)} / $${l.daily_usd.toFixed(2)}，互聊 ${l.messages_today ?? 0}/${l.daily_messages ?? '-'} 句${halted}` : '';
     this.$('#gc-budget').textContent = b ? `本月聊天 $${b.spent_usd.toFixed(2)} / $${b.limit_usd.toFixed(2)}${life}` : '';
+  }
+
+  async openSelfCheck() {
+    const dlg = this.$('#gc-selfcheck-dlg');
+    dlg.innerHTML = '<p class="hint">正在统计…</p>';
+    if (!dlg.open) dlg.showModal();
+    try {
+      dlg.innerHTML = selfCheckHtml(await this.api.lifeReports());
+    } catch (e) {
+      dlg.innerHTML = `<p class="hint">没取到：${esc(e.message || String(e))}</p><button type="button" class="btn" data-close>关闭</button>`;
+    }
   }
 
   markMomentsSeen() {
@@ -651,4 +671,28 @@ export class GroupChat {
     this.renderTyping();
     this.renderError();
   }
+}
+
+// 生活自检（docs/CHAT.md G9）：最近 7 天的实时报告在前，下面是每周存下的报告
+function reportHtml(r, title) {
+  const usd = (v) => `$${Number(v || 0).toFixed(3)}`;
+  const talk = (r.speakers || [])
+    .map((s) => `<li>${esc(s.name)}：互聊 ${s.life} 句、回应你 ${s.replies} 句（占 ${Math.round((s.share || 0) * 100)}%）</li>`)
+    .join('');
+  const reps = (r.repeats?.examples || []).map((x) => `<li>${esc(x.name)}：${esc(x.text)}</li>`).join('');
+  const halts = (r.guard?.halts || []).map((h) => `<li>${esc(h.at.slice(0, 10))}：${esc(h.reason)}</li>`).join('');
+  return `<section><h3>${esc(title)}</h3>
+    <p><b>${(r.notes || []).map(esc).join('；')}</b></p>
+    <p>花费：生活 ${usd(r.cost?.life_usd)}（平均每天 ${usd(r.cost?.life_per_day_usd)}，上限 $${Number(r.cost?.life_daily_limit_usd || 0).toFixed(2)}），聊天合计 ${usd(r.cost?.total_usd)}</p>
+    <p>出错：${r.errors?.failed || 0} / ${r.errors?.calls || 0} 次调用；没新内容收尾 ${r.guard?.stale || 0} 次；到每日条数上限 ${r.guard?.cap_days || 0} 天</p>
+    ${talk ? `<p>谁说得多：</p><ul>${talk}</ul>` : '<p>这段时间没人说话。</p>'}
+    ${r.repeats?.count ? `<p>重复：${r.repeats.count} 句和之前很像，例如：</p><ul>${reps}</ul>` : ''}
+    ${halts ? `<p>熔断：</p><ul>${halts}</ul>` : ''}</section>`;
+}
+
+export function selfCheckHtml(data) {
+  const now = data.halted ? `<p class="hint">今天的生活已停：${esc(data.halted)}（明天自动恢复）</p>` : '';
+  const weeks = (data.reports || []).map((r) => reportHtml(r, `${r.week} 周报`)).join('');
+  return `<h2>生活自检</h2>${now}${reportHtml(data.recent || {}, '最近 7 天')}${weeks || '<p class="hint">每周一会存一份上一周的报告。</p>'}
+    <form method="dialog"><button type="button" class="btn" data-close>关闭</button></form>`;
 }
