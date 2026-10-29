@@ -20,7 +20,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from roundtable.core.budget.guard import EPS, month_window
-from roundtable.core.persona import persona_of, persona_text
+from roundtable.core.persona import chat_persona
 from roundtable.core.providers import AllChannelsFailed, NoChannelAvailable, ProviderError
 
 ROOM = "main"  # 生活群
@@ -314,7 +314,7 @@ class GroupChat:
         history = self.history(names)
         variables: dict[str, str] = {
             "name": member.name,
-            "persona": persona_text(persona_of(rt, member.id)),
+            "persona": chat_persona(rt, member.id),
             "memory": member_memory(rt, member.id, history),
             "history": history,
         }

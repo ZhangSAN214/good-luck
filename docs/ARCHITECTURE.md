@@ -245,7 +245,7 @@ src/roundtable/
     standee.py     终端首页大立绘清单（用户本机 data/avatars/standee.json，可用 ROUNDTABLE_STANDEE_FILE 改；图片、表情差分和网格形变素材 rig 不进 git，缺失时优雅降级）
     plugin_board.py 插件榜：自我学习革新调研过的插件 / 项目（读 config/plugin_board.yaml，按价值排名、判断借思路 / 搬代码门槛；只读）
     ideaboard.py   头脑风暴的点子榜：投票排名、黑马、对比表 / 场景故事 / 行动方案的数据与 Markdown
-    member/        成员引擎（docs/MEMBER_ENGINE.md；只用于聊天、朋友圈、生活）：自我档案（profile.py，版本 + 修改记录 + 锁定 + 撤回）、事件总线（bus.py）、心跳（heartbeat.py）、上下文组装器（context.py，约 600 字）、预算调度器（scheduler.py）、评测集（evalset.py，题库 benchmarks/members/scenarios.yaml）
+    member/        成员引擎（docs/MEMBER_ENGINE.md；只用于聊天、朋友圈、生活）：自我档案（profile.py，版本 + 修改记录 + 锁定 + 撤回）、人物卡与随身卡（card.py：人物卡 Markdown → 档案分区，档案 → ≤400 字随身卡）、事件总线（bus.py）、心跳（heartbeat.py）、上下文组装器（context.py，约 600 字）、预算调度器（scheduler.py）、评测集（evalset.py，题库 benchmarks/members/scenarios.yaml）
     life_guard.py  生活「收得住」：互聊收尾、每日条数上限、熔断、每周自检（docs/CHAT.md G9；不调模型）
     evolution.py   革新例会：资料卡读取、例会题目、例会记录、采纳单 Markdown
     budget/        用量统计（按渠道/模型）、预算守卫（每月 + 每日，UTC）

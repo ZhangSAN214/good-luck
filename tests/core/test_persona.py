@@ -56,6 +56,9 @@ async def test_persona_and_memory_never_reach_work_prompts(workflow):
     for m in svc.chats.everyone():
         set_persona(env.rt, m.id, {"personality": MARK_PERSONA, "interests": [MARK_PERSONA]})
         env.rt.repo.add_memory(m.id, "note", MARK_MEMORY, source="user")
+        svc.engine.profiles.change(
+            m.id, {"identity": {"随身卡": MARK_PERSONA}}, author="user", reason="测试"
+        )
     sid = svc.create(MEDIUM, seed=3, workflow=workflow)
     async for _ in svc.events(sid):
         pass

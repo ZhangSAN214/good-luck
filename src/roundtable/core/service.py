@@ -81,6 +81,13 @@ from roundtable.core.life import LIFE_STEPS, LifeEngine
 from roundtable.core.mail import MailAI, MailAIError, MailBox, MailBusy, OwaBrowser
 from roundtable.core.media import KIND_LABELS, KINDS, MediaService
 from roundtable.core.member import MemberEngine, ProfileError
+from roundtable.core.member.card import (
+    card_patch,
+    match_members,
+    parse_cards,
+    source_title,
+    without_locked,
+)
 from roundtable.core.members_art import MEMBERS_FILE, load_members, mime_of, resolve_file
 from roundtable.core.memory import LAYERS, MemoryKeeper, clean_memory
 from roundtable.core.moments import SEEN_KEY as MOMENTS_SEEN
@@ -90,7 +97,7 @@ from roundtable.core.office import building, payslip, roster
 from roundtable.core.office import collect as collect_performance
 from roundtable.core.office import reset as reset_performance
 from roundtable.core.orchestrator import Orchestrator, OrchestratorError, RunResult
-from roundtable.core.persona import is_empty, persona_of, set_persona
+from roundtable.core.persona import card_text, is_empty, persona_of, set_persona
 from roundtable.core.plugin_board import board_view, load_board
 from roundtable.core.preview import render_preview
 from roundtable.core.providers import (
@@ -1325,13 +1332,84 @@ class RoundtableService:
     def member_profile(self, member: str) -> dict[str, Any]:
         """当前档案、版本号和修改记录（新的在前）。"""
         p = self.engine.profiles.current(self._profile_member(member))
+        rules = self.rt.config.roundtable.chat.engine
+        card = card_text(self.rt, member)
         return {
             "member": member,
             "version": p.version,
             "data": p.data,
             "locked": p.locked,
-            "sections": dict(self.rt.config.roundtable.chat.engine.profile.sections),
+            "sections": dict(rules.profile.sections),
             "history": self.engine.profiles.history(member),
+            "card": {
+                "text": card,
+                "chars": len(card),
+                "budget": rules.card.budget_chars,
+                "custom": bool(str(p.get("identity.随身卡") or "").strip()),
+            },
+        }
+
+    def member_profiles(self) -> dict[str, Any]:
+        """每位成员的档案概况：版本号、随身卡字数（网页「自我档案」的成员列表）。"""
+        out = []
+        for m in self.chats.everyone():
+            p = self.engine.profiles.current(m.id)
+            card = card_text(self.rt, m.id)
+            out.append(
+                {
+                    "id": m.id,
+                    "name": m.name,
+                    "version": p.version,
+                    "nickname": p.get("identity.小名") or "",
+                    "card_chars": len(card),
+                }
+            )
+        return {"members": out, "budget": self.rt.config.roundtable.chat.engine.card.budget_chars}
+
+    def member_profile_import(
+        self, text: str, mapping: dict[str, str] | None = None, dry_run: bool = False
+    ) -> dict[str, Any]:
+        """把人物卡（Markdown，每位成员一节）读进自我档案；以用户身份写，每位成员存一个新版本。
+
+        卡名和成员显示名一样就自动对上，mapping（卡名 → 成员 id，空串 = 跳过）可以改。
+        dry_run 只解析不写。用户锁住的项不动。
+        """
+        cards = parse_cards(text)
+        if not cards:
+            raise ServiceError("没认出人物卡：每位成员一节，标题写成「## 名字 · 完整角色卡」")
+        everyone = self.chats.everyone()
+        ids = {m.id for m in everyone}
+        matched = match_members(cards, [(m.id, m.name) for m in everyone])
+        for name, mid in (mapping or {}).items():
+            if name in matched:
+                matched[name] = mid or None
+        source = source_title(text)
+        out = []
+        for card in cards:
+            mid = matched.get(card.name)
+            if mid is not None and mid not in ids:
+                raise ServiceError(f"没有这位成员：{mid}")
+            row: dict[str, Any] = {
+                "name": card.name,
+                "member": mid,
+                "chapters": list(card.chapters),
+                "version": None,
+            }
+            if mid is not None and not dry_run:
+                patch = card_patch(card, source)
+                patch = without_locked(patch, self.engine.profiles.current(mid).locked)
+                self._profile_do(
+                    lambda mid=mid, patch=patch: self.engine.profiles.change(
+                        mid, patch, author="user", reason=f"导入人物卡：{source}"
+                    )
+                )
+                row["version"] = self.engine.profiles.current(mid).version
+            out.append(row)
+        return {
+            "source": source,
+            "cards": out,
+            "members": [{"id": m.id, "name": m.name} for m in everyone],
+            "imported": sum(1 for r in out if r["version"] is not None),
         }
 
     def _profile_do(self, fn: Any) -> None:

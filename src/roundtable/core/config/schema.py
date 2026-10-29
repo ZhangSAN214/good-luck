@@ -858,11 +858,18 @@ class EvalRules(_Strict):
     clash_similarity: float = Field(default=0.6, gt=0, le=1)
 
 
+class CardRules(_Strict):
+    """随身卡（M1 自我认知）：每次调模型都带的那一小段，放在上下文组装器的固定前缀里。"""
+
+    budget_chars: int = Field(default=400, ge=50, le=4000)
+
+
 class EngineRules(_Strict):
     """成员引擎（docs/MEMBER_ENGINE.md）：只用于聊天、朋友圈、生活；工作模式不读取。"""
 
     enabled: bool = True
     profile: ProfileRules = ProfileRules()
+    card: CardRules = CardRules()
     context: ContextRules = ContextRules()
     scheduler: SchedulerRules = SchedulerRules()
     heartbeat: HeartbeatRules = HeartbeatRules()

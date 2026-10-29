@@ -174,6 +174,14 @@ class ProfileLockBody(BaseModel):
     locked: bool = True
 
 
+class ProfileImportBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    text: str = Field(min_length=1, max_length=500_000)  # 人物卡 Markdown
+    mapping: dict[str, str] | None = None  # 卡名 → 成员 id（空串 = 跳过）
+    dry_run: bool = False
+
+
 class ProfileRevertBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -633,6 +641,14 @@ def create_app(service: RoundtableService | None = None, lan: LanAccess | None =
         return svc(request).moments_delete_comment(comment_id)
 
     # 成员引擎：自我档案（docs/MEMBER_ENGINE.md）
+    @app.get("/api/chat/profiles")
+    async def member_profiles(request: Request) -> dict[str, Any]:
+        return svc(request).member_profiles()
+
+    @app.post("/api/chat/profiles/import")
+    async def member_profile_import(request: Request, body: ProfileImportBody) -> dict[str, Any]:
+        return svc(request).member_profile_import(body.text, body.mapping, body.dry_run)
+
     @app.get("/api/chat/profiles/{member}")
     async def member_profile(request: Request, member: str) -> dict[str, Any]:
         return svc(request).member_profile(member)
