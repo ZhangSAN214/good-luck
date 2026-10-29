@@ -62,6 +62,10 @@ export class People {
   async loadMembers() {
     try {
       this.members = (await this.api.personas()).members || [];
+      if (this.api.voices) {
+        const v = (await this.api.voices()).members || [];
+        this.voices = Object.fromEntries(v.map((x) => [x.id, x]));
+      }
     } catch (e) {
       this.msg = e.message;
     }
@@ -102,6 +106,14 @@ export class People {
           <ul class="pp-list grp-box">${items}</ul>
           <form id="pp-diary" class="grp-box"><div class="grp-row"><input name="q" placeholder="翻日记：日期（10-21）或关键词" aria-label="翻日记"><button class="btn" type="submit">翻</button></div></form>
           ${found}`;
+  }
+
+  voiceHtml(m) {
+    const v = this.voices?.[m.id];
+    if (!v) return '';
+    return v.available
+      ? `<div class="grp-box pp-voice"><div class="grp-row"><span>音色</span><b>${esc(v.voice)}</b><button type="button" class="btn" data-voice>试听音色</button></div><p class="grp-foot">合成音色，不是真人声音；同一句话只合成一次，花费计入创作输出月上限。</p></div>`
+      : '<p class="grp-foot pp-voice">TA 还没有可用的音色（没配，或语音模型都不可用）。</p>';
   }
 
   current() {
@@ -146,6 +158,7 @@ export class People {
             ${row('interests', '兴趣', (p.interests || []).join('，'), '逗号分隔，最多 8 个；上网时按兴趣看新闻')}
           </div>
           <p class="grp-foot">只用于私聊、群聊和朋友圈；工作和办公室不受影响。空着就用模型本身的说话风格。</p>
+          ${this.voiceHtml(m)}
           <div class="pp-row grp-end"><button type="button" class="btn" data-reset>恢复默认</button><button class="btn primary" type="submit">保存人设</button></div>
         </form>
         <section class="pp-mem grp" aria-label="记忆">
@@ -161,6 +174,21 @@ export class People {
       </div>`;
     const prof = this.dlg.querySelector('#pp-prof');
     if (prof && m) this.profile.mount(prof, m.id);
+  }
+
+  async listen() {
+    this.msg = '正在合成…';
+    this.render();
+    try {
+      const blob = await this.api.voice(this.member);
+      if (this.audio) URL.revokeObjectURL(this.audio.src);
+      this.audio = new Audio(URL.createObjectURL(blob));
+      this.msg = '';
+      await this.audio.play().catch(() => {});
+    } catch (e) {
+      this.msg = e.message;
+    }
+    this.render();
   }
 
   armedOk(id, label) {
@@ -208,6 +236,7 @@ export class People {
       await this.loadMemories();
       return this.render();
     }
+    if (t.closest('[data-voice]')) return this.listen();
     if (t.closest('[data-reset]')) return this.act(() => this.api.setPersona(this.member, null), '已恢复默认人设');
     if (t.closest('[data-tidy]')) {
       this.msg = '正在整理…';
