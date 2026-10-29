@@ -117,7 +117,7 @@ export function mediaHTML(items, { group = '', layout = 'chat', mine = false } =
     })
     .join('');
   const grid = n ? `<div class="cm-grid ${layout} n${Math.min(n, 9)}${n === 4 ? ' four' : ''}">${cells}</div>` : '';
-  const own = stickers.map((m) => `<img class="cm-stk" src="${mediaUrl(m.id)}" alt="表情包" loading="lazy" decoding="async">`).join('');
+  const own = stickers.map((m) => `<img class="cm-gstk" src="${mediaUrl(m.id)}" alt="表情包" loading="lazy" decoding="async">`).join('');
   return `${own}${grid}${voices.map((v) => voiceHTML(v, { mine })).join('')}`;
 }
 

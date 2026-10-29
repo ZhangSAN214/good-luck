@@ -119,7 +119,7 @@ export class Moments {
     const shown = visibleText(m.text, m.meta);
     if (!shown) return '';
     const solo = !m.meta?.media?.length && soloSticker(shown);
-    if (solo) return `<p class="mo-text stk">${stickerSVG(solo.pack, solo.name, { big: true })}</p>`;
+    if (solo) return `<p class="mo-text mo-stk">${stickerSVG(solo.pack, solo.name, { big: true })}</p>`;
     return `<p class="mo-text">${richText(shown)}</p>`;
   }
 

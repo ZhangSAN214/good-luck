@@ -266,8 +266,11 @@ video.cm-lb-item{cursor:auto;background:#000}
 .cm-card-src{grid-column:1/-1;font-size:11px;color:var(--muted);border-top:1px solid var(--line,rgba(0,0,0,.08));padding-top:4px}
 .gc-bub.card-only{background:none!important;border:0!important;padding:0!important;box-shadow:none!important}
 .gc-bub.card-only .cm-card{margin-top:0}
-.cm-stk{display:block;max-width:120px;max-height:120px;object-fit:contain}
+.cm-gstk{display:block;max-width:120px;max-height:120px;object-fit:contain}
 .gc-fwd{display:block;font-size:11px;color:var(--muted);margin-bottom:2px}
-.mo-text.stk{margin:4px 0}
-.gc-menu-h{font-size:11px;color:var(--muted);padding:4px 10px 2px}
+.mo-text.mo-stk{margin:4px 0}
+.gc-menu-h{display:block;flex:none;font-size:11px;line-height:1.4;color:var(--muted);padding:4px 10px 2px}
+.gc-menu{max-height:min(60vh,360px);overflow-y:auto}
+:root[data-skin="ark"] .gc-menu{background:rgba(22,30,46,.94);-webkit-backdrop-filter:blur(18px);backdrop-filter:blur(18px)}
+.gc-menu button{flex:none}
 #gc-err.ok{color:var(--ok,#2a7);border-color:transparent}
