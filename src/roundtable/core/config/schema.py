@@ -848,7 +848,9 @@ class HeartbeatRules(_Strict):
 
 class BusRules(_Strict):
     persist: bool = True  # 事件存进 member_events
-    keep_days: int = Field(default=14, ge=1, le=365)
+    # 事件保留几天；None 为一直保留（攒经历数据，以后可能用来训练本地小模型；只存本机）
+    keep_days: int | None = Field(default=None, ge=1, le=3650)
+    catch_up_days: int = Field(default=14, ge=1, le=365)  # 开机补算最多往回看几天
 
 
 class EvalRules(_Strict):
@@ -952,6 +954,78 @@ class ChatRules(_Strict):
     max_tokens: int = Field(default=500, ge=64)
     max_chars: int = Field(default=800, ge=50)  # 一条消息最多保留的字数
     estimate_usd: float = Field(default=0.002, ge=0)  # 每条回应的预估花费（预算检查用）
+
+
+class PlainTalkRule(_Strict):
+    """说话底线规则表的一条（程序检查，不调用模型）。
+
+    kind：phrase = 全文出现任一 patterns；ending = 最后一句匹配任一 patterns（金句收尾）；
+    parallel = 连续 min_run 个以上分句开头相同（排比）：
+    开头两个字相同，或开头一个字相同且在 heads 里。
+    """
+
+    name: str = Field(pattern=r"^[a-z][a-z0-9_]*$", max_length=40)
+    problem: str = Field(min_length=1, max_length=80)  # 改写时告诉成员的问题说明
+    kind: Literal["phrase", "ending", "parallel"]
+    patterns: list[str] = Field(default_factory=list, max_length=60)  # 正则
+    min_run: int = Field(default=3, ge=2, le=10)
+    heads: list[str] = Field(default_factory=list, max_length=30)
+
+    @field_validator("patterns")
+    @classmethod
+    def _compile(cls, patterns: list[str]) -> list[str]:
+        for p in patterns:
+            try:
+                re.compile(p)
+            except re.error as exc:
+                raise ValueError(f"正则写错了：{p!r}（{exc}）") from None
+        return patterns
+
+    @field_validator("heads")
+    @classmethod
+    def _single(cls, heads: list[str]) -> list[str]:
+        bad = [h for h in heads if len(h) != 1]
+        if bad:
+            raise ValueError(f"heads 每项只能是一个字：{bad}")
+        return heads
+
+    @model_validator(mode="after")
+    def _needs_patterns(self) -> PlainTalkRule:
+        if self.kind != "parallel" and not self.patterns:
+            raise ValueError(f"{self.kind} 规则至少要有一条 patterns")
+        return self
+
+
+class PlainTalkCheck(_Strict):
+    """说话前的程序检查（成员自我监控的雏形）：只查聊天、生活、朋友圈的发言；查出问题才改写一次。"""
+
+    enabled: bool = True
+    min_chars: int = Field(default=12, ge=0)  # 短于这么多字的消息不查
+    monthly_usd: float = Field(
+        default=0.05, ge=0
+    )  # 改写每月最多花多少（UTC 自然月；也计入聊天预算）
+    estimate_usd: float = Field(default=0.0005, ge=0)  # 每次改写的预估花费（预算检查用）
+    max_tokens: int = Field(default=600, ge=64)
+    rules: list[PlainTalkRule] = Field(default_factory=list, max_length=30)
+
+    @field_validator("rules")
+    @classmethod
+    def _unique(cls, rules: list[PlainTalkRule]) -> list[PlainTalkRule]:
+        names = [r.name for r in rules]
+        if len(names) != len(set(names)):
+            raise ValueError(f"规则名不能重复：{names}")
+        return rules
+
+
+class PlainTalkRules(_Strict):
+    """说话底线（去八股化）：roles 里的提示词每次调用都接上 plain_talk 提示词。
+
+    同一步骤所有成员相同。
+    """
+
+    enabled: bool = True
+    roles: list[str] = Field(default_factory=list)
+    check: PlainTalkCheck = PlainTalkCheck()
 
 
 class EvolutionSchedule(_Strict):
@@ -1191,6 +1265,7 @@ class RoundtableConfig(_Strict):
     style: StyleRules = StyleRules()
     office: OfficeRules = OfficeRules()
     chat: ChatRules = ChatRules()
+    plain_talk: PlainTalkRules = PlainTalkRules()
     evolution: EvolutionRules = EvolutionRules()
     mail: MailConfig = MailConfig()
     clipper: ClipperRules = ClipperRules()
@@ -1216,6 +1291,16 @@ class RoundtableConfig(_Strict):
     def _members(self) -> RoundtableConfig:
         if self.min_members > self.seats:
             raise ValueError("min_members 不能大于 seats")
+        return self
+
+    @model_validator(mode="after")
+    def _plain_talk_roles(self) -> RoundtableConfig:
+        if not self.plain_talk.enabled:
+            return self
+        needed = {"plain_talk"} | ({"plain_rewrite"} if self.plain_talk.check.enabled else set())
+        missing = sorted((needed | set(self.plain_talk.roles)) - set(self.prompts))
+        if missing:
+            raise ValueError(f"plain_talk 用到的提示词没有在 prompts 里配置版本：{missing}")
         return self
 
 

@@ -66,7 +66,9 @@ async def test_style_guide_is_added_to_every_call_the_same_for_all_members():
 
 async def test_no_style_means_messages_unchanged():
     t = Table(2)
-    prompt = PromptLibrary().render("answer", "v1", code="甲", question="题")
+    # review 不在说话底线的 roles 里：没有风格规范时原样发送
+    template = PromptLibrary().get("review", "v3")
+    prompt = template.render(**{v: "题" for v in template.variables})
     assert t.ctx.messages_for(prompt, "b1") == prompt.messages
 
 
