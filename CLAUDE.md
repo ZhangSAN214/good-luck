@@ -64,7 +64,7 @@
 - 测试用的假 key 用字符串拼接生成，避免被仓库密钥扫描误报；提交前检查 diff。
 
 ## 5.1 产品原则（日常模式与群聊，适用于 `docs/PLAN.md` 的 v3 方案）
-1. 成员**坦诚自己是 AI**，不假装是真人、不编造现实经历；被问到时直接承认。
+1. 成员**不否认自己是 AI**：AI 身份当普通身份，平时不刻意提、不说「我只是个 AI」；被认真问到时如实承认。人物卡里的身世和日常发生在圆桌世界，不冒充现实世界的真人、不编造现实世界的经历（2026-10-29 用户定）。
 2. **不设计制造依赖的机制**（连续打卡、挽留、情感绑架、制造焦虑）；适时鼓励用户与现实中的朋友、家人联系。
 3. **不一味附和**：有不同意见或发现错误时直说，并给出理由。
 4. **记忆和聊天记录只存本地**（SQLite），不上传、不用于训练；用户可随时查看、修改、删除、一键清空。
@@ -102,6 +102,7 @@ roundtable performance [--reset]    # 办公室模式的员工绩效（--reset �
 roundtable bench --max-usd 2          # 对比实验：个人 / 讨论 / 协同各跑同一批题，比正确率、花费、耗时
 roundtable show <id> --costs        # 每步预估与实际花费、每次调用的 token
 roundtable export <id> [-o 文件]     # 导出完整记录（UTF-8 带 BOM，含花费明细）
+roundtable export <id> --format docx  # 只导出成果：md / docx / pptx / pdf / html（本地转换，不调用模型）
 roundtable ask '题目'                # 默认办公室模式（节电档）：经理派一位员工办理、过目；--mode discussion 为全员讨论（PowerShell 中题目用单引号）
 roundtable ask --tier flagship --anonymous '题目'   # 全力模式（旗舰档全员）、匿名
 roundtable ask --mode collab '题目'  # 协同模式：拆分子任务、分工完成、合并

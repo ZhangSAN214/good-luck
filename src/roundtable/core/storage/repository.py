@@ -1114,6 +1114,25 @@ class Repository:
         row = self._exec("SELECT * FROM chat_messages WHERE id = ?", (cur.lastrowid,)).fetchone()
         return _chat_row(row)
 
+    def chat_message(self, message_id: int) -> dict[str, Any] | None:
+        row = self._exec("SELECT * FROM chat_messages WHERE id = ?", (message_id,)).fetchone()
+        return _chat_row(row) if row else None
+
+    def recall_chat_message(self, message_id: int) -> dict[str, Any] | None:
+        """撤回：清掉文字和附件清单，只留「已撤回」标记（时间、作者不变）。"""
+        row = self.chat_message(message_id)
+        if row is None:
+            return None
+        meta = {
+            k: v for k, v in (row["meta"] or {}).items() if k not in ("media", "caption", "quote")
+        }
+        meta["recalled"] = True
+        self._exec(
+            "UPDATE chat_messages SET text = '', meta = ? WHERE id = ?",
+            (json.dumps(meta, ensure_ascii=False), message_id),
+        )
+        return self.chat_message(message_id)
+
     def ensure_chat_room(
         self,
         room: str,
@@ -1280,6 +1299,175 @@ class Repository:
             "SELECT * FROM life_events WHERE at >= ? AND at < ? ORDER BY at, id", (start, end)
         ).fetchall()
         return [_life_row(r) for r in rows]
+
+    # --- 收得住（docs/CHAT.md G9） ------------------------------------------------
+
+    def life_messages_between(self, start: str, end: str) -> list[dict[str, Any]]:
+        """[start, end) 内成员之间的生活消息（meta.life，含分享），按时间先后。"""
+        rows = self._exec(
+            "SELECT * FROM chat_messages WHERE json_extract(meta, '$.life') = 1"
+            " AND created_at >= ? AND created_at < ? ORDER BY created_at, id",
+            (start, end),
+        ).fetchall()
+        return [_chat_row(r) for r in rows]
+
+    def count_life_messages(self, start: str, end: str) -> int:
+        return self._exec(
+            "SELECT COUNT(*) FROM chat_messages WHERE json_extract(meta, '$.life') = 1"
+            " AND created_at >= ? AND created_at < ?",
+            (start, end),
+        ).fetchone()[0]
+
+    def recent_life_messages(self, room: str, limit: int) -> list[dict[str, Any]]:
+        """某个会话里最近 limit 条生活消息（按时间先后）。"""
+        rows = self._exec(
+            "SELECT * FROM chat_messages WHERE room = ? AND json_extract(meta, '$.life') = 1"
+            " ORDER BY id DESC LIMIT ?",
+            (room, limit),
+        ).fetchall()
+        return [_chat_row(r) for r in reversed(rows)]
+
+    def member_message_counts(self, start: str, end: str) -> list[dict[str, Any]]:
+        """[start, end) 内每位作者的消息数（life：成员之间的；其余是回应用户的）与字数。"""
+        rows = self._exec(
+            "SELECT author, COALESCE(json_extract(meta, '$.life'), 0) = 1 AS life,"
+            " COUNT(*) AS n, COALESCE(SUM(LENGTH(text)), 0) AS chars FROM chat_messages"
+            " WHERE created_at >= ? AND created_at < ? GROUP BY author, life",
+            (start, end),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def recent_call_errors(
+        self, workflow: str, steps: Sequence[str], start: datetime, end: datetime, limit: int
+    ) -> list[bool]:
+        """[start, end) 内某类隐藏会话里、指定步骤最近 limit 次调用是否出错（新的在前）。"""
+        marks = ", ".join("?" for _ in steps)
+        rows = self._exec(
+            "SELECT c.error IS NOT NULL AS failed FROM calls c JOIN sessions s"
+            f" ON s.id = c.session_id WHERE s.workflow = ? AND c.step IN ({marks})"
+            " AND c.created_at >= ? AND c.created_at < ? ORDER BY c.id DESC LIMIT ?",
+            (workflow, *steps, iso(start), iso(end), limit),
+        ).fetchall()
+        return [bool(r["failed"]) for r in rows]
+
+    def calls_by_step(self, workflow: str, start: datetime, end: datetime) -> list[dict[str, Any]]:
+        """[start, end) 内某类隐藏会话里每个步骤的调用次数、出错次数和花费。"""
+        rows = self._exec(
+            "SELECT c.step AS step, COUNT(*) AS calls,"
+            " SUM(CASE WHEN c.error IS NULL THEN 0 ELSE 1 END) AS failed,"
+            " COALESCE(SUM(c.cost_usd), 0) AS cost_usd FROM calls c JOIN sessions s"
+            " ON s.id = c.session_id WHERE s.workflow = ? AND c.created_at >= ?"
+            " AND c.created_at < ? GROUP BY c.step ORDER BY c.step",
+            (workflow, iso(start), iso(end)),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def add_guard_log(
+        self, kind: str, detail: str = "", *, member: str | None = None, at: str | None = None
+    ) -> None:
+        self._exec(
+            "INSERT INTO life_guard_log (at, kind, member, detail) VALUES (?, ?, ?, ?)",
+            (at or self.clock(), kind, member, detail),
+        )
+
+    def guard_log_between(self, start: str, end: str) -> list[dict[str, Any]]:
+        rows = self._exec(
+            "SELECT * FROM life_guard_log WHERE at >= ? AND at < ? ORDER BY at, id", (start, end)
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def save_life_report(self, week: str, report: dict[str, Any]) -> None:
+        self._exec(
+            "INSERT INTO life_reports (week, created_at, report) VALUES (?, ?, ?)"
+            " ON CONFLICT(week) DO UPDATE SET created_at = excluded.created_at,"
+            " report = excluded.report",
+            (week, self.clock(), json.dumps(report, ensure_ascii=False)),
+        )
+
+    def life_reports(self, limit: int = 12) -> list[dict[str, Any]]:
+        """最近的每周自检报告（新的在前）。"""
+        rows = self._exec(
+            "SELECT * FROM life_reports ORDER BY week DESC LIMIT ?", (limit,)
+        ).fetchall()
+        return [
+            {"week": r["week"], "created_at": r["created_at"], **json.loads(r["report"])}
+            for r in rows
+        ]
+
+    # --- 成员引擎（docs/MEMBER_ENGINE.md） --------------------------------------------
+
+    def member_profile(self, member: str, version: int | None = None) -> dict[str, Any] | None:
+        """某位成员的档案：最新版（version 为空）或指定版本。"""
+        if version is None:
+            row = self._exec(
+                "SELECT * FROM member_profiles WHERE member = ? ORDER BY version DESC LIMIT 1",
+                (member,),
+            ).fetchone()
+        else:
+            row = self._exec(
+                "SELECT * FROM member_profiles WHERE member = ? AND version = ?", (member, version)
+            ).fetchone()
+        if row is None:
+            return None
+        return {"version": row["version"], "data": json.loads(row["data"])}
+
+    def member_profile_history(self, member: str) -> list[dict[str, Any]]:
+        rows = self._exec(
+            "SELECT version, author, reason, changes, created_at FROM member_profiles"
+            " WHERE member = ? ORDER BY version DESC",
+            (member,),
+        ).fetchall()
+        return [{**dict(r), "changes": json.loads(r["changes"])} for r in rows]
+
+    def add_member_profile(
+        self,
+        member: str,
+        version: int,
+        data: dict[str, Any],
+        *,
+        author: str,
+        reason: str,
+        changes: list[dict[str, Any]],
+    ) -> None:
+        self._exec(
+            "INSERT INTO member_profiles (member, version, data, author, reason, changes,"
+            " created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (
+                member,
+                version,
+                json.dumps(data, ensure_ascii=False, sort_keys=True),
+                author,
+                reason,
+                json.dumps(changes, ensure_ascii=False),
+                self.clock(),
+            ),
+        )
+
+    def clear_member_profiles(self, member: str) -> int:
+        return self._exec("DELETE FROM member_profiles WHERE member = ?", (member,)).rowcount
+
+    def add_member_event(
+        self, at: str, kind: str, member: str | None, data: dict[str, Any]
+    ) -> None:
+        self._exec(
+            "INSERT INTO member_events (at, kind, member, data) VALUES (?, ?, ?, ?)",
+            (at, kind, member, json.dumps(data, ensure_ascii=False)),
+        )
+
+    def member_events_between(self, start: str, end: str) -> list[dict[str, Any]]:
+        rows = self._exec(
+            "SELECT * FROM member_events WHERE at >= ? AND at < ? ORDER BY at, id", (start, end)
+        ).fetchall()
+        return [{**dict(r), "data": json.loads(r["data"])} for r in rows]
+
+    def clear_member_events(self) -> int:
+        return self._exec("DELETE FROM member_events").rowcount
+
+    def count_member_events(self) -> int:
+        return self._exec("SELECT COUNT(*) FROM member_events").fetchone()[0]
+
+    def prune_member_events(self, before: str) -> int:
+        return self._exec("DELETE FROM member_events WHERE at < ?", (before,)).rowcount
 
     def spent_in_steps(
         self, workflow: str, steps: Sequence[str], start: datetime, end: datetime
@@ -1526,6 +1714,14 @@ class Repository:
             " ON s.id = c.session_id WHERE s.workflow = ? AND c.created_at >= ?"
             " AND c.created_at < ?",
             (workflow, iso(start), iso(end)),
+        ).fetchone()[0]
+
+    def spent_in_step(self, step: str, start: datetime, end: datetime) -> float:
+        """[start, end) 内某个步骤名（calls.step，如 'plain_rewrite'）的调用花费。"""
+        return self._exec(
+            "SELECT COALESCE(SUM(cost_usd), 0) FROM calls WHERE step = ? AND created_at >= ?"
+            " AND created_at < ?",
+            (step, iso(start), iso(end)),
         ).fetchone()[0]
 
     def calls_in_workflow(self, workflow: str, start: datetime, end: datetime) -> int:

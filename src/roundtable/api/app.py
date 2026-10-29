@@ -54,6 +54,7 @@ class CreateSession(BaseModel):
     media_tier: str | None = None  # 媒体模型的档位：budget / flagship
     # 作为风格参考的图片附件 id；省略 = 全部图片都是风格参考，[] = 都不是
     style_refs: list[str] | None = None
+    carry_from: str | None = None  # 接力：上一场的会话 id（带上它的成果摘要）
 
 
 class EstimateRequest(BaseModel):
@@ -69,6 +70,7 @@ class EstimateRequest(BaseModel):
     seed: int | None = None
     media: str | None = None
     media_tier: str | None = None
+    carry_from: str | None = None
 
 
 class DecisionBody(BaseModel):
@@ -108,6 +110,21 @@ class ChatBody(BaseModel):
     text: str = ""
     room: str = "main"
     media: list[dict[str, Any]] = Field(default_factory=list)  # POST /api/chat/media 返回的 id
+    quote: int | None = None  # 引用的消息 id
+
+
+class PatBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    member: str
+    room: str = "main"
+
+
+class RecallBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: int
+    room: str = "main"
 
 
 class HandoffBody(BaseModel):
@@ -134,6 +151,56 @@ class MomentCommentBody(BaseModel):
 
     text: str
     reply_to: int | None = None
+
+
+class ClipOpenBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    url: str = Field(max_length=2000)
+
+
+class ClipSearchBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    query: str = Field(max_length=200)
+
+
+class ClipSaveBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    url: str = Field(max_length=2000)
+    title: str = Field(default="", max_length=300)
+    text: str = Field(max_length=200000)
+    partial: bool = False  # 只存了选中的段落
+    note: str = Field(default="", max_length=300)
+
+
+class ProfilePatchBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    patch: dict[str, dict[str, Any]]
+    reason: str = Field(default="", max_length=200)
+
+
+class ProfileLockBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    path: str = Field(min_length=3, max_length=100)
+    locked: bool = True
+
+
+class ProfileImportBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    text: str = Field(min_length=1, max_length=500_000)  # 人物卡 Markdown
+    mapping: dict[str, str] | None = None  # 卡名 → 成员 id（空串 = 跳过）
+    dry_run: bool = False
+
+
+class ProfileRevertBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    version: int = Field(ge=1)
 
 
 class FeedsBody(BaseModel):
@@ -209,6 +276,18 @@ class MailReminderBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     action: str = Field(pattern="^(accept|dismiss|undo)$")
+
+
+class ExportSave(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    format: str = Field(default="docx", max_length=16)
+    folder: str = Field(max_length=1024)
+    size: str | None = Field(default=None, max_length=16)
+    theme: str | None = Field(default=None, max_length=16)
+    ratio: str | None = Field(default=None, max_length=8)
+    question: bool | None = None
+    process: bool | None = None
 
 
 class LanPassword(BaseModel):
@@ -471,7 +550,15 @@ def create_app(service: RoundtableService | None = None, lan: LanAccess | None =
 
     @app.post("/api/chat", status_code=202)
     async def chat_post(request: Request, body: ChatBody) -> dict[str, Any]:
-        return await svc(request).chat_post(body.text, body.room, body.media)
+        return await svc(request).chat_post(body.text, body.room, body.media, body.quote)
+
+    @app.post("/api/chat/pat", status_code=202)
+    async def chat_pat(request: Request, body: PatBody) -> dict[str, Any]:
+        return await svc(request).chat_pat(body.member, body.room)
+
+    @app.post("/api/chat/recall")
+    async def chat_recall(request: Request, body: RecallBody) -> dict[str, Any]:
+        return svc(request).chat_recall(body.id, body.room)
 
     @app.post("/api/chat/media", status_code=201)
     async def chat_media_upload(request: Request) -> dict[str, Any]:
@@ -576,6 +663,53 @@ def create_app(service: RoundtableService | None = None, lan: LanAccess | None =
     async def moments_delete_comment(request: Request, comment_id: int) -> dict[str, Any]:
         return svc(request).moments_delete_comment(comment_id)
 
+    # 成员引擎：自我档案（docs/MEMBER_ENGINE.md）
+    @app.get("/api/chat/profiles")
+    async def member_profiles(request: Request) -> dict[str, Any]:
+        return svc(request).member_profiles()
+
+    @app.post("/api/chat/profiles/import")
+    async def member_profile_import(request: Request, body: ProfileImportBody) -> dict[str, Any]:
+        return svc(request).member_profile_import(body.text, body.mapping, body.dry_run)
+
+    @app.get("/api/chat/profiles/{member}")
+    async def member_profile(request: Request, member: str) -> dict[str, Any]:
+        return svc(request).member_profile(member)
+
+    @app.patch("/api/chat/profiles/{member}")
+    async def member_profile_change(
+        request: Request, member: str, body: ProfilePatchBody
+    ) -> dict[str, Any]:
+        return svc(request).member_profile_change(member, body.patch, body.reason)
+
+    @app.post("/api/chat/profiles/{member}/lock")
+    async def member_profile_lock(
+        request: Request, member: str, body: ProfileLockBody
+    ) -> dict[str, Any]:
+        return svc(request).member_profile_lock(member, body.path, body.locked)
+
+    @app.post("/api/chat/profiles/{member}/revert")
+    async def member_profile_revert(
+        request: Request, member: str, body: ProfileRevertBody
+    ) -> dict[str, Any]:
+        return svc(request).member_profile_revert(member, body.version)
+
+    @app.delete("/api/chat/profiles/{member}")
+    async def member_profile_clear(request: Request, member: str) -> dict[str, Any]:
+        return svc(request).member_profile_clear(member)
+
+    @app.get("/api/chat/engine/events")
+    async def member_events_count(request: Request) -> dict[str, Any]:
+        return svc(request).member_events_count()
+
+    @app.delete("/api/chat/engine/events")
+    async def member_events_clear(request: Request) -> dict[str, Any]:
+        return svc(request).member_events_clear()
+
+    @app.get("/api/life/reports")
+    async def life_reports(request: Request) -> dict[str, Any]:
+        return svc(request).life_reports()
+
     @app.get("/api/chat/feeds")
     async def chat_feeds(request: Request) -> dict[str, Any]:
         return svc(request).chat_feeds()
@@ -587,6 +721,37 @@ def create_app(service: RoundtableService | None = None, lan: LanAccess | None =
     @app.post("/api/chat/feeds/refresh")
     async def chat_refresh_feeds(request: Request) -> dict[str, Any]:
         return await svc(request).chat_refresh_feeds()
+
+    # 办公室的资料浏览器：打开网页（只读抓取正文）、搜索、存资料、提问时附上
+    @app.get("/api/clips")
+    async def clips(request: Request) -> dict[str, Any]:
+        return svc(request).clips()
+
+    @app.post("/api/clips/open")
+    async def clip_open(request: Request, body: ClipOpenBody) -> dict[str, Any]:
+        return await svc(request).clip_open(body.url)
+
+    @app.post("/api/clips/search")
+    async def clip_search(request: Request, body: ClipSearchBody) -> dict[str, Any]:
+        return await svc(request).clip_search(body.query)
+
+    @app.post("/api/clips", status_code=201)
+    async def clip_save(request: Request, body: ClipSaveBody) -> dict[str, Any]:
+        return svc(request).clip_save(
+            body.url, body.title, body.text, partial=body.partial, note=body.note
+        )
+
+    @app.get("/api/clips/{clip_id}")
+    async def clip_text(request: Request, clip_id: str) -> dict[str, Any]:
+        return svc(request).clip_text(clip_id)
+
+    @app.delete("/api/clips/{clip_id}")
+    async def clip_delete(request: Request, clip_id: str) -> dict[str, Any]:
+        return svc(request).clip_delete(clip_id)
+
+    @app.post("/api/clips/{clip_id}/attach", status_code=201)
+    async def clip_attach(request: Request, clip_id: str) -> dict[str, Any]:
+        return svc(request).clip_attach(clip_id)
 
     @app.delete("/api/chat")
     async def chat_clear(request: Request, room: str = "main") -> dict[str, Any]:
@@ -725,8 +890,14 @@ def create_app(service: RoundtableService | None = None, lan: LanAccess | None =
             media=body.media,
             media_tier=body.media_tier,
             style_refs=body.style_refs,
+            carry_from=body.carry_from,
         )
         return {"session_id": sid}
+
+    @app.get("/api/sessions/{session_id}/carry")
+    async def carry(request: Request, session_id: str) -> dict[str, Any]:
+        """接力用：上一场的题目和将带入下一场的成果摘要。"""
+        return svc(request).carry(session_id)
 
     @app.get("/api/sessions/{session_id}/files/{file_id}")
     async def file_download(request: Request, session_id: str, file_id: str) -> Response:
@@ -761,6 +932,49 @@ def create_app(service: RoundtableService | None = None, lan: LanAccess | None =
                 )
         return Response(content=data, media_type=media, headers=headers)
 
+    @app.get("/api/export/options")
+    async def export_options(request: Request) -> dict[str, Any]:
+        """导出面板的可选项；保存文件夹只告诉本机（平板看不到电脑上的路径）。"""
+        data = svc(request).export_options()
+        data["can_save_to_folder"] = not is_remote(_client(request.scope))
+        if not data["can_save_to_folder"]:
+            data["folder"] = data["suggested_folder"] = ""
+        return data
+
+    @app.get("/api/sessions/{session_id}/export")
+    async def export_document(
+        request: Request,
+        session_id: str,
+        format: str = "docx",
+        size: str | None = None,
+        theme: str | None = None,
+        ratio: str | None = None,
+        question: bool | None = None,
+        process: bool | None = None,
+    ) -> Response:
+        """导出最终成果：md / docx / pptx / pdf / html，可选字号、配色、PPT 比例、附题目 / 过程。
+
+        本地转换，不调用模型。"""
+        options = {
+            "size": size, "theme": theme, "ratio": ratio, "question": question, "process": process
+        }  # fmt: skip
+        data, name, mime = svc(request).export_document(session_id, format, options)
+        headers = {
+            "Content-Disposition": f"attachment; filename*=UTF-8''{quote(name)}",
+            "X-Content-Type-Options": "nosniff",
+            "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+            "Cache-Control": "no-store",
+        }
+        return Response(content=data, media_type=mime, headers=headers)
+
+    @app.post("/api/sessions/{session_id}/export/save")
+    async def export_save(request: Request, session_id: str, body: ExportSave) -> dict[str, Any]:
+        """直接存进电脑上的文件夹。只允许在电脑本机上用，平板 / 手机不能往电脑里写文件。"""
+        if is_remote(_client(request.scope)):
+            raise ServiceError("只能在电脑上直接存到文件夹；平板上请用下载", 403)
+        options = body.model_dump(exclude={"format", "folder"})
+        return svc(request).export_save(session_id, body.format, body.folder, options)
+
     @app.get("/api/sessions/{session_id}/files/{file_id}/preview")
     async def file_preview(request: Request, session_id: str, file_id: str) -> dict[str, Any]:
         return svc(request).file_preview(session_id, file_id)
@@ -779,6 +993,7 @@ def create_app(service: RoundtableService | None = None, lan: LanAccess | None =
             seed=body.seed,
             media=body.media,
             media_tier=body.media_tier,
+            carry_from=body.carry_from,
         )
 
     @app.post("/api/uploads", status_code=201)

@@ -1,5 +1,7 @@
-// 成员设定与记忆：聊天里每位成员的人设（性格、说话风格、口头禅、兴趣）和 TA 的记忆。
+// 成员设定与记忆：聊天里每位成员的自我档案（人物卡，profile.js）、简单人设（性格、说话风格、口头禅、兴趣）和 TA 的记忆。
 // 人设和记忆只用于私聊、群聊、朋友圈，工作模式与办公室不读取；记忆只存在你电脑上，可以改、删、清空。
+
+import { ProfilePanel } from './profile.js';
 
 const esc = (s) =>
   String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -16,7 +18,7 @@ const list = (s) =>
 export class People {
   constructor(dialog, { api, now = () => Date.now(), avatar = null } = {}) {
     this.dlg = dialog;
-    this.api = api; // {personas(), setPersona(id, p), memories(id), addMemory(id, text), editMemory(mid, text), delMemory(mid), clearMemories(id?), tidy()}
+    this.api = api; // {personas(), setPersona(id, p), memories(id), addMemory(id, text), editMemory(mid, text), delMemory(mid), clearMemories(id?), tidy(), profile…（见 profile.js）}
     this.now = now;
     this.avatarOf = avatar; // (成员 id, 名字) → 头像 HTML；没有就用名字首字
     this.members = [];
@@ -24,6 +26,19 @@ export class People {
     this.memories = [];
     this.armed = {}; // 两步确认：按钮 id → 截止时间
     this.msg = '';
+    this.profile = api?.profile
+      ? new ProfilePanel({
+          now,
+          api: {
+            profile: api.profile,
+            change: api.change,
+            lock: api.lock,
+            revert: api.revert,
+            clear: api.clearProfile,
+            importCards: api.importCards,
+          },
+        })
+      : null;
     this.dlg.addEventListener('click', (e) => this.onClick(e));
     this.dlg.addEventListener('submit', (e) => this.onSubmit(e));
   }
@@ -90,7 +105,8 @@ export class People {
         <nav class="pp-members pp-strip" aria-label="成员">${tabs}</nav>
         ${
           m
-            ? `<form id="pp-persona" class="pp-form grp">
+            ? `${this.profile ? '<section class="pp-prof grp" id="pp-prof" aria-label="自我档案"></section>' : ''}
+        <form id="pp-persona" class="pp-form grp">
           <h4 class="grp-h">${esc(m.name)} 的人设 <small>${esc(SOURCE[m.source] || '')}</small></h4>
           <div class="grp-box">
             ${row('personality', '性格', p.personality, '比如：安静、爱较真')}
@@ -111,6 +127,8 @@ export class People {
         }
         <p class="hint pp-msg" role="status">${esc(this.msg)}</p>
       </div>`;
+    const prof = this.dlg.querySelector('#pp-prof');
+    if (prof && m) this.profile.mount(prof, m.id);
   }
 
   armedOk(id, label) {
@@ -147,6 +165,7 @@ export class People {
 
   async onClick(e) {
     const t = e.target;
+    if (t.closest('#pp-prof')) return; // 自我档案自己处理（profile.js）
     if (t.closest('[data-close]')) return this.close();
     const who = t.closest('[data-member]');
     if (who) {
@@ -184,8 +203,9 @@ export class People {
   }
 
   async onSubmit(e) {
-    e.preventDefault();
     const f = e.target;
+    if (f.closest('#pp-prof')) return; // 自我档案自己处理（profile.js）
+    e.preventDefault();
     const data = new FormData(f);
     if (f.id === 'pp-persona') {
       const persona = {

@@ -33,6 +33,9 @@ function errorText(data, status) {
   return `请求失败（${status}）`;
 }
 
+export const carry = (sid) => api(`/api/sessions/${sid}/carry`);
+export const exportOptions = () => api('/api/export/options');
+export const exportSave = (sid, body) => api(`/api/sessions/${sid}/export/save`, { method: 'POST', body });
 export const estimate = (body) => api('/api/estimate', { method: 'POST', body });
 export const filePreview = (sid, fid) => api(`/api/sessions/${sid}/files/${fid}/preview`);
 export const fileUrl = (sid, fid, inline = false) =>
@@ -56,6 +59,13 @@ export async function upload(file) {
 }
 
 export const getStatus = () => api('/api/status');
+export const listClips = () => api('/api/clips');
+export const openClipPage = (url) => api('/api/clips/open', { method: 'POST', body: { url } });
+export const searchClips = (query) => api('/api/clips/search', { method: 'POST', body: { query } });
+export const saveClip = (clip) => api('/api/clips', { method: 'POST', body: clip });
+export const clipText = (id) => api(`/api/clips/${encodeURIComponent(id)}`);
+export const delClip = (id) => api(`/api/clips/${encodeURIComponent(id)}`, { method: 'DELETE' });
+export const attachClip = (id) => api(`/api/clips/${encodeURIComponent(id)}/attach`, { method: 'POST' });
 export const getBudget = () => api('/api/budget');
 export const members = () => api('/api/members');
 export const standee = () => api('/api/standee');
@@ -65,11 +75,20 @@ export const getOffice = () => api('/api/office');
 export const resetPerformance = () => api('/api/office/performance/reset', { method: 'POST' });
 export const getChat = (after = 0, q = '', room = 'main') =>
   api(`/api/chat?room=${encodeURIComponent(room)}&after=${after}${q ? `&q=${encodeURIComponent(q)}` : ''}`);
-export const postChat = (text, room = 'main', media = []) => api('/api/chat', { method: 'POST', body: { text, room, media } });
+export const postChat = (text, room = 'main', media = [], quote = null) => api('/api/chat', { method: 'POST', body: { text, room, media, quote } });
+export const patChat = (member, room = 'main') => api('/api/chat/pat', { method: 'POST', body: { member, room } });
+export const recallChat = (id, room = 'main') => api('/api/chat/recall', { method: 'POST', body: { id, room } });
 export const clearChat = (room = 'main') => api(`/api/chat?room=${encodeURIComponent(room)}`, { method: 'DELETE' });
 export const getChatRooms = () => api('/api/chat/rooms');
 export const chatPersonas = () => api('/api/chat/personas');
 export const setChatPersona = (id, persona) => api(`/api/chat/personas/${encodeURIComponent(id)}`, { method: 'PUT', body: { persona } });
+export const memberProfiles = () => api('/api/chat/profiles');
+export const memberProfile = (id) => api(`/api/chat/profiles/${encodeURIComponent(id)}`);
+export const changeMemberProfile = (id, patch, reason = '') => api(`/api/chat/profiles/${encodeURIComponent(id)}`, { method: 'PATCH', body: { patch, reason } });
+export const lockMemberProfile = (id, path, locked = true) => api(`/api/chat/profiles/${encodeURIComponent(id)}/lock`, { method: 'POST', body: { path, locked } });
+export const revertMemberProfile = (id, version) => api(`/api/chat/profiles/${encodeURIComponent(id)}/revert`, { method: 'POST', body: { version } });
+export const clearMemberProfile = (id) => api(`/api/chat/profiles/${encodeURIComponent(id)}`, { method: 'DELETE' });
+export const importMemberCards = (text, mapping = null, dry_run = false) => api('/api/chat/profiles/import', { method: 'POST', body: { text, mapping, dry_run } });
 export const chatMemories = (id) => api(`/api/chat/memories${id ? `?member=${encodeURIComponent(id)}` : ''}`);
 export const addChatMemory = (member, text) => api('/api/chat/memories', { method: 'POST', body: { member, text } });
 export const editChatMemory = (mid, text) => api(`/api/chat/memories/${mid}`, { method: 'PATCH', body: { text } });
@@ -87,6 +106,7 @@ export const likeMoment = (id) => api(`/api/moments/${id}/like`, { method: 'POST
 export const commentMoment = (id, text, reply_to) => api(`/api/moments/${id}/comments`, { method: 'POST', body: { text, reply_to } });
 export const delMoment = (id) => api(`/api/moments/${id}`, { method: 'DELETE' });
 export const delMomentComment = (cid) => api(`/api/moments/comments/${cid}`, { method: 'DELETE' });
+export const lifeReports = () => api('/api/life/reports');
 export const chatFeeds = () => api('/api/chat/feeds');
 export const setChatFeeds = (feeds) => api('/api/chat/feeds', { method: 'PUT', body: { feeds } });
 export const refreshChatFeeds = () => api('/api/chat/feeds/refresh', { method: 'POST' });

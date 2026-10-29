@@ -87,6 +87,42 @@ def test_not_anonymous_shows_models_from_the_start(serve, page):
     assert "作答 · c · $" in page.inner_text("#pbody")  # 每次调用的渠道直接显示
 
 
+def test_export_buttons_download_the_result(serve, page):
+    """讨论完成后可以把成果导出成 Word / PPT / PDF 等（本地转换）。"""
+    srv = serve(confirm_threshold_usd=100.0)
+    page.goto(srv.url)
+    ask(page, MEDIUM)
+    wait_done(page)
+    links = page.locator(".sys.ok .exports a")
+    assert links.count() == 5 and "Word" in page.inner_text(".sys.ok .exports")
+    with page.expect_download() as info:
+        page.click(".sys.ok .exports a:has-text('Word')")
+    assert info.value.suggested_filename.endswith(".docx")
+
+
+def test_export_panel_styles_and_saves_to_a_folder(serve, page, tmp_path):
+    """「更多选项」：选格式、配色、比例，存到固定文件夹；选择记在浏览器里，快捷按钮跟着用。"""
+    srv = serve(confirm_threshold_usd=100.0)
+    page.goto(srv.url)
+    ask(page, MEDIUM)
+    wait_done(page)
+    page.click(".sys.ok .exports [data-act='export']")
+    dlg = page.locator("#exportdlg")
+    dlg.locator("[data-seg='format'] button[data-v='pptx']").click()
+    dlg.locator("[data-seg='ratio'] button[data-v='4:3']").click()
+    dlg.locator("[data-seg='theme'] button[data-v='green']").click()
+    dlg.locator("[data-seg='dest'] button[data-v='folder']").click()
+    dlg.locator("[data-folder]").fill(str(tmp_path / "导出"))
+    dlg.locator("[data-go]").click()
+    page.wait_for_selector("#exportdlg .ex-msg:has-text('已保存')")
+    saved = list((tmp_path / "导出").iterdir())
+    assert len(saved) == 1 and saved[0].suffix == ".pptx"
+    dlg.locator("[data-close]").click()
+    word = ".sys.ok .exports a[data-fmt='docx']"
+    page.wait_for_function(f"document.querySelector(`{word}`)?.href.includes('theme=green')")
+    assert "ratio=4%3A3" in page.get_attribute(word, "href")
+
+
 def test_flagship_tier(serve, page):
     srv = serve(confirm_threshold_usd=100.0)
     page.goto(srv.url)

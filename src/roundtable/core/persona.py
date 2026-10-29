@@ -3,6 +3,8 @@
 - 来源：网页「成员设定」存在本地数据库的优先，其次是 personas.yaml 的 ``personas``，都没有为空。
 - 全部为空时提示词里写「没有设定」，成员用模型本身的说话风格。
 - 工作模式与办公室的提示词不读取人设（tests/core/test_persona.py 守卫）。
+- 成员有了自我档案（人物卡导入后，docs/MEMBER_ENGINE.md）时，提示词里用档案的随身卡
+  （经上下文组装器，总长 ``chat.engine.context.budget_chars``），这里的简单人设不再进提示词。
 """
 
 from __future__ import annotations
@@ -10,6 +12,8 @@ from __future__ import annotations
 from typing import Any
 
 from roundtable.core.config.schema import Persona
+from roundtable.core.member.card import pocket_card
+from roundtable.core.member.context import Piece, assemble
 
 EMPTY = "（没有设定：用你自己的说话风格，口语化、短句，像朋友聊天。）"
 
@@ -62,3 +66,24 @@ def set_persona(rt: Any, member: str, data: dict[str, Any] | None) -> Persona:
         )
         rt.repo.set_member_persona(member, clean.model_dump())
     return persona_of(rt, member)
+
+
+def card_text(rt: Any, member: str) -> str:
+    """这位成员自我档案的随身卡；没有档案（或引擎关着）时为空串。"""
+    engine = rt.config.roundtable.chat.engine
+    if not engine.enabled:
+        return ""
+    row = rt.repo.member_profile(member)
+    if row is None or not row["data"]:
+        return ""
+    return pocket_card(row["data"], engine.card.budget_chars)
+
+
+def chat_persona(rt: Any, member: str) -> str:
+    """私聊、群聊、朋友圈、生活提示词里 <persona> 的内容：有随身卡用随身卡，否则用简单人设。"""
+    card = card_text(rt, member)
+    if not card:
+        return persona_text(persona_of(rt, member))
+    r = rt.config.roundtable.chat.engine.context
+    pieces = [Piece("card", card, fixed=True)]
+    return assemble(pieces, r.budget_chars, r.per_source, r.min_piece_chars).text

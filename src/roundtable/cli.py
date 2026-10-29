@@ -15,6 +15,7 @@
     roundtable resume <会话 id>                   # 中断后继续
     roundtable show <会话 id>                     # 查看结果（--costs 显示花费明细）
     roundtable export <会话 id> [-o 文件]         # 导出完整记录（UTF-8 文本文件，含花费明细）
+    roundtable export <会话 id> --format docx     # 只导出成果：md/docx/pptx/pdf/html，不调用模型
     roundtable files <会话 id> [-o 目录]          # 保存成员生成的文件（代码、图片、文档等）
     roundtable reveal <会话 id>                   # 揭晓身份（匿名讨论）
 
@@ -51,6 +52,10 @@ from roundtable.core.bench import (
 )
 from roundtable.core.config import ConfigError
 from roundtable.core.display import format_rice
+from roundtable.core.export import FORMATS as EXPORT_FORMATS
+from roundtable.core.export.style import RATIOS as EXPORT_RATIOS
+from roundtable.core.export.style import SIZES as EXPORT_SIZES
+from roundtable.core.export.style import THEMES as EXPORT_THEMES
 from roundtable.core.notes import NoteError, check_can_add, clean_note
 from roundtable.core.office import payslip
 from roundtable.core.orchestrator import Orchestrator, OrchestratorError, RunResult
@@ -517,6 +522,19 @@ class CLI:
         target = Path(path or f"roundtable-{sid[:8]}.txt")
         # 带 BOM：Windows 记事本和旧版 PowerShell 也能正确识别 UTF-8
         target.write_text(buffer.getvalue(), encoding="utf-8-sig")
+        return target
+
+    def export_document(
+        self, sid: str, fmt: str, path: str | None, options: dict | None = None
+    ) -> Path:
+        """只导出最终成果（Word / PPT / PDF 等），由本地转换，不调用模型。
+
+        path 是已有的文件夹时，用默认文件名存进去。"""
+        data, name, _ = RoundtableService(self.rt).export_document(sid, fmt, options)
+        target = Path(path or name)
+        if target.is_dir():
+            target = target / name
+        target.write_bytes(data)
         return target
 
     def print_collab(self, outputs, table_no: int, details: bool) -> None:
@@ -1631,6 +1649,18 @@ def build_parser() -> argparse.ArgumentParser:
     export.add_argument("session_id")
     export.add_argument("-o", "--output", help="输出文件，默认 roundtable-<会话 id 前 8 位>.txt")
     export.add_argument("--raw", action="store_true", help="保持模型输出的原样")
+    export.add_argument(
+        "--format",
+        choices=["txt", *EXPORT_FORMATS],
+        default="txt",
+        help="txt 为完整记录（默认）；md / docx / pptx / pdf / html 只导出最终成果"
+        "（本地转换，不调用模型）",
+    )
+    export.add_argument("--size", choices=list(EXPORT_SIZES), help="字号：small / medium / large")
+    export.add_argument("--theme", choices=list(EXPORT_THEMES), help="配色模板")
+    export.add_argument("--ratio", choices=list(EXPORT_RATIOS), help="PPT 页面比例")
+    export.add_argument("--no-question", action="store_true", help="开头不附题目")
+    export.add_argument("--process", action="store_true", help="文末附上过程（各人的初稿与修订）")
     return parser
 
 
@@ -1744,6 +1774,21 @@ async def run(
         if args.command == "mindmap":
             return cli.cmd_mindmap(args.session_id, args.output)
         if args.command == "export":
+            if args.format != "txt":
+                try:
+                    options = {
+                        "size": args.size,
+                        "theme": args.theme,
+                        "ratio": args.ratio,
+                        "question": not args.no_question,
+                        "process": args.process,
+                    }
+                    target = cli.export_document(args.session_id, args.format, args.output, options)
+                except ServiceError as exc:
+                    print(str(exc), file=out)
+                    return 1
+                print(f"已导出到 {target.resolve()}", file=out)
+                return 0
             target = cli.export(args.session_id, args.output)
             print(f"已导出到 {target.resolve()}", file=out)
             return 0

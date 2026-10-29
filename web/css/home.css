@@ -389,6 +389,9 @@
 /* 朋友圈：照真实朋友圈的版式。顶部封面 + 右下角头像，下面一列动态（头像 / 名字 / 正文 / 时间 / 「··」/ 赞和评论） */
 dialog#moments{width:min(620px,94vw);height:min(900px,92vh);max-height:92vh;display:none;flex-direction:column;overflow:hidden}
 dialog#moments[open]{display:flex}
+dialog.gc-selfcheck{width:min(620px,94vw);max-height:88vh;overflow:auto;font-size:13px;line-height:1.6}
+dialog.gc-selfcheck h3{margin:14px 0 4px;font-size:14px}
+dialog.gc-selfcheck ul{margin:4px 0;padding-left:18px}
 .mo-bar{position:relative;gap:4px;padding:8px 10px}
 .mo-bar b{text-align:center;font-size:16px}
 .mo-icon{width:36px;height:36px;display:grid;place-items:center;border:0;background:none;border-radius:999px;color:var(--ink);cursor:pointer}
@@ -596,6 +599,24 @@ dialog.sheet[open]{display:flex}
 .pp-strip .pp-who.cur .pp-face{box-shadow:0 0 0 2px var(--surface),0 0 0 4px var(--accent,var(--brass-ink))}
 .pp-nm{max-width:100%;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .pp-list{max-height:none}
+/* 自我档案（profile.js） */
+.pp-prof{margin-bottom:20px}
+.pf-cardbox{padding:12px 16px}
+.pf-cardbox .pp-mh{margin-bottom:8px}
+.pf-card{margin:0;white-space:pre-wrap;word-break:break-word;font:inherit;font-size:13px;line-height:1.7;color:var(--ink)}
+.pf-cardbox textarea,.pf-edit textarea,.pf-add textarea{width:100%;box-sizing:border-box;padding:8px 10px;font:inherit;font-size:13px;line-height:1.6}
+.pf-secs{margin-top:12px}
+.pf-sec{margin-top:8px}
+.pf-sec>summary{display:flex;gap:8px;align-items:baseline;padding:10px 16px;cursor:pointer;list-style:none}
+.pf-sec>summary::-webkit-details-marker{display:none}
+.pf-sec>summary::before{content:'›';display:inline-block;width:10px;color:var(--muted);transition:transform .2s}
+.pf-sec[open]>summary::before{transform:rotate(90deg)}
+.pf-sec>summary span{font-size:12px;color:var(--muted)}
+.pf-item p{margin:6px 0 0;font-size:13px;line-height:1.6;word-break:break-word}
+.pf-item.locked .pp-mh b::after{content:' 🔒';font-size:11px}
+.pf-long>summary{margin-top:6px;font-size:13px;line-height:1.6;color:var(--ink);cursor:pointer}
+.pf-empty{margin:0 16px 12px}
+.pf-import .grp-row select{flex:1}
 .pp-list li{padding:12px 16px;border-top:1px solid var(--line)}
 .pp-list li.hint{color:var(--muted)}
 .pp-list p{margin:4px 0 0;line-height:1.6;overflow-wrap:anywhere}
@@ -637,3 +658,19 @@ input.switch:checked::after{transform:translateX(18px)}
 .bt-qr .btn{cursor:pointer}
 @media (max-width: 600px){.bt-card{grid-template-columns:1fr}}
 .bt label.btn{display:inline-block}
+
+/* 微信式动作：引用框、引用条、右键菜单、撤回 / 拍一拍提示、跳转闪烁 */
+.gc-quote{display:block;max-width:560px;margin-top:4px;padding:4px 8px;border:0;border-radius:var(--r-sm);background:var(--surface-2);color:var(--muted);font:inherit;font-size:12px;line-height:18px;text-align:left;cursor:pointer;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.gc-msg.me .gc-quote{margin-left:auto}
+.gc-quote .stk{width:1.3em;height:1.3em;vertical-align:-.35em}
+.gc-quotebar{display:flex;align-items:center;gap:8px;padding:4px 10px;margin-bottom:6px;border-radius:var(--r-sm);background:var(--surface-2);color:var(--muted);font-size:12px}
+.gc-quotebar span{flex:1;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.gc-quotebar .stk{width:1.3em;height:1.3em;vertical-align:-.35em}
+.gc-main{position:relative}
+.gc-menu{position:absolute;z-index:20;display:flex;flex-direction:column;min-width:96px;padding:4px;border-radius:var(--r-sm);background:var(--surface);border:1px solid var(--line);box-shadow:0 8px 24px rgba(0,0,0,.28)}
+.gc-menu[hidden]{display:none}
+.gc-menu button{border:0;background:none;color:var(--ink);font:inherit;font-size:13px;text-align:left;padding:6px 10px;border-radius:6px;cursor:pointer}
+.gc-menu button:hover,.gc-menu button:focus-visible{background:var(--surface-2)}
+.gc-sys.recalled span,.gc-sys.pat span{font-style:normal}
+.gc-msg.flash .gc-bub{animation:gc-flash 1.2s ease}
+@keyframes gc-flash{0%,60%{box-shadow:0 0 0 3px var(--brass-ink)}100%{box-shadow:none}}

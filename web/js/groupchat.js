@@ -3,11 +3,18 @@
 // 发出后成员在后台依次回应，这里轮询 /api/chat?room=…&after=… 拿新消息和「正在输入」，并刷新会话列表。
 // 表情包、图片、视频、语音：输入框上方的工具条（chatmedia.js）；表情包和语音点完直接发出。
 // 键盘：Enter 发送、Shift+Enter 换行（输入法选字时不发送）；输入 @ 弹出成员候选，↑↓ 选择、Enter / Tab 确认、Esc 关闭。
+// 微信式动作：右键 / 长按消息 → 引用、复制、撤回（自己的、几分钟内）；双击成员头像 → 拍一拍。
+// 成员一次回复可能拆成几条气泡陆续出现；私聊顶部显示「对方正在输入…」。
 
 import { MediaComposer, bindMedia, mediaHTML, richText, soloSticker, stickerSVG, visibleText } from './chatmedia.js';
 
 const esc = (s) =>
   String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+
+const snip = (t, n = 40) => {
+  const s = String(t || '').replace(/\s+/g, ' ');
+  return s.length > n ? `${s.slice(0, n)}…` : s;
+};
 
 const FAST_MS = 900; // 有人正在输入或刚发出消息时
 const SLOW_MS = 8000;
@@ -43,7 +50,7 @@ export function atQuery(text, caret) {
 export class GroupChat {
   constructor(root, { api, now = () => Date.now(), openSession = null, openPeople = null, openFeeds = null, openMoments = null } = {}) {
     this.root = root;
-    this.api = api; // {get(after, q, room), post(text, room), clear(room), rooms(), handoff(text)}
+    this.api = api; // {get(after, q, room), post(text, room, media, quote), pat(member, room), recall(id, room), clear(room), rooms(), handoff(text)}
     this.openSession = openSession; // 工作群里点「查看」：回到办公室里的这件事
     this.openPeople = openPeople; // 成员设定与记忆
     this.openFeeds = openFeeds; // 上网：订阅源
@@ -67,6 +74,8 @@ export class GroupChat {
     this.error = '';
     this.sending = false;
     this.built = false;
+    this.quote = null; // 正在引用的消息
+    this.recallSeconds = 120;
   }
 
   setArt(art) {
@@ -102,15 +111,19 @@ export class GroupChat {
       <nav class="gc-rooms" aria-label="会话"><div id="gc-rooms"></div>
         <button type="button" class="btn gc-people" id="gc-people">成员设定与记忆</button>
         <button type="button" class="btn gc-people" id="gc-feeds">上网：看哪些内容</button>
+        <button type="button" class="btn gc-people" id="gc-selfcheck" title="花了多少、谁说得多、有没有重复和出错">生活自检</button>
         <p class="hint" id="gc-budget"></p></nav>
+      <dialog class="gc-selfcheck" id="gc-selfcheck-dlg" aria-label="生活自检"></dialog>
       <section class="gc-main" aria-label="聊天">
         <header class="gc-head"><b id="gc-title">大家庭</b><span class="gc-count" id="gc-count"></span>
           <form id="gc-search" role="search"><input type="search" id="gc-q" placeholder="搜索聊天记录" aria-label="搜索聊天记录"></form>
           <button type="button" class="btn" id="gc-clear" title="删除这个会话的全部聊天记录（花费记录保留）">清空记录</button></header>
         <div class="gc-feed" id="gc-feed" aria-live="polite"></div>
+        <div class="gc-menu" id="gc-menu" role="menu" hidden></div>
         <div class="gc-typing" id="gc-typing" hidden></div>
         <form class="gc-compose" id="gc-compose" autocomplete="off">
           <div class="gc-suggest" id="gc-suggest" role="listbox" hidden></div>
+          <div class="gc-quotebar" id="gc-quotebar" hidden></div>
           <div id="gc-tools"></div>
           <div id="gc-tray" hidden></div>
           <textarea id="chat-input" rows="2" maxlength="2000" placeholder="说点什么：Enter 发送，Shift+Enter 换行；输入 @ 点名" aria-label="聊天消息"></textarea>
@@ -121,7 +134,7 @@ export class GroupChat {
         <p class="hint gc-err" id="gc-err" role="alert" hidden></p>
       </section>
       <aside class="gc-members" id="gc-aside" aria-label="群成员"><h3>成员 <span id="gc-online"></span></h3><ul id="gc-members"></ul>
-        <p class="hint">成员都是 AI，只在你发言后回应。点名字可以 @ 对方；写「大家」或「所有人」时每位在线成员都会回。</p></aside>`;
+        <p class="hint">成员都是 AI，只在你发言后回应。点名字可以 @ 对方；写「大家」或「所有人」时每位在线成员都会回。双击聊天里的头像拍一拍，右键（长按）消息可以引用、撤回。</p></aside>`;
     this.$('#gc-rooms').addEventListener('click', (e) => {
       if (e.target.closest('#gc-moments')) return this.openMoments?.(null);
       const b = e.target.closest('[data-room]');
@@ -155,7 +168,38 @@ export class GroupChat {
         this.runSearch('');
       }
     });
-    this.$('#gc-feed').addEventListener('click', (e) => {
+    const feed = this.$('#gc-feed');
+    feed.addEventListener('contextmenu', (e) => {
+      const m = e.target.closest('.gc-msg[data-id]');
+      if (!m || this.search) return;
+      e.preventDefault();
+      this.openMenu(Number(m.dataset.id), e.clientX, e.clientY);
+    });
+    let press = null; // 长按（触屏）
+    feed.addEventListener('touchstart', (e) => {
+      const m = e.target.closest('.gc-msg[data-id]');
+      if (!m || this.search) return;
+      const t = e.touches[0];
+      press = setTimeout(() => this.openMenu(Number(m.dataset.id), t.clientX, t.clientY), 500);
+    }, { passive: true });
+    for (const ev of ['touchend', 'touchmove', 'touchcancel']) feed.addEventListener(ev, () => clearTimeout(press), { passive: true });
+    feed.addEventListener('dblclick', (e) => {
+      const av = e.target.closest('.gc-msg[data-author] .gc-av');
+      if (av) this.pat(av.closest('.gc-msg').dataset.author);
+    });
+    this.$('#gc-menu').addEventListener('click', (e) => {
+      const b = e.target.closest('[data-act]');
+      if (b) this.menuAction(b.dataset.act, Number(b.dataset.id));
+    });
+    document.addEventListener('click', (e) => {
+      if (!e.target.closest('#gc-menu') && this.now() - (this.menuAt || 0) > 400) this.closeMenu();
+    });
+    this.$('#gc-quotebar').addEventListener('click', (e) => {
+      if (e.target.closest('[data-unquote]')) this.setQuote(null);
+    });
+    feed.addEventListener('click', (e) => {
+      const q = e.target.closest('[data-goto]');
+      if (q) return this.flash(Number(q.dataset.goto));
       if (e.target.closest('#gc-exit-search')) this.runSearch('');
       const open = e.target.closest('[data-session]');
       if (open && this.openSession) this.openSession(open.dataset.session);
@@ -164,6 +208,11 @@ export class GroupChat {
     this.$('#gc-people').hidden = !this.openPeople;
     this.$('#gc-feeds').hidden = !this.openFeeds;
     this.$('#gc-feeds').addEventListener('click', () => this.openFeeds?.());
+    this.$('#gc-selfcheck').hidden = !this.api.lifeReports;
+    this.$('#gc-selfcheck').addEventListener('click', () => this.openSelfCheck());
+    this.$('#gc-selfcheck-dlg').addEventListener('click', (e) => {
+      if (e.target.closest('[data-close]')) this.$('#gc-selfcheck-dlg').close();
+    });
     this.$('#gc-people').addEventListener('click', () => {
       const dm = this.isDm() ? this.room.slice(3) : null; // 私聊里打开时直接看对方
       this.openPeople?.(dm);
@@ -216,6 +265,7 @@ export class GroupChat {
       const newMembers = roster !== this.roster;
       this.roster = roster;
       this.members = data.members || [];
+      if (data.recall_seconds != null) this.recallSeconds = data.recall_seconds;
       if ((data.messages || []).length) {
         this.messages.push(...data.messages);
         for (const m of data.messages) {
@@ -224,6 +274,11 @@ export class GroupChat {
           else if (m.author === 'system' && m.text.includes('预算用完')) this.pending = [];
         }
         this.lastId = this.messages[this.messages.length - 1].id;
+      }
+      if (Array.isArray(data.queued)) {
+        // 服务器说还有谁没开口（不接话的成员也会从这里消失）
+        const queued = new Set(data.queued);
+        this.pending = (this.pending || []).filter((n) => queued.has(n) || this.typing.includes(n) || (data.typing || []).includes(n));
       }
       if ((this.pending || []).length) this.fastUntil = Math.max(this.fastUntil, this.now() + FAST_MS * 3);
       const changed = newMembers || (data.messages || []).length || String(data.typing) !== String(this.typing);
@@ -251,6 +306,8 @@ export class GroupChat {
     this.typing = [];
     this.$('#gc-q').value = '';
     this.closeSuggest();
+    this.quote = null;
+    this.renderQuote();
     this.renderAll();
     clearTimeout(this.timer);
     await this.poll();
@@ -279,7 +336,9 @@ export class GroupChat {
     this.sending = true;
     this.$('#gc-send').disabled = true;
     try {
-      const res = await this.api.post(text, this.room, media);
+      const quote = this.quote?.id ?? null;
+      const res = await this.api.post(text, this.room, media, quote);
+      this.setQuote(null);
       // 排队等着回应的人：收到 TA 的消息（或系统说明 TA 为什么没回）后划掉
       this.pending = [...(this.pending || []), ...((res && res.speakers) || [])];
       if (!direct) {
@@ -362,6 +421,118 @@ export class GroupChat {
       this.error = e.message || '清空失败';
       this.renderError();
     }
+  }
+
+  // --- 微信式动作：引用、复制、撤回、拍一拍 ----------------------------------------
+
+  find(id) {
+    return this.messages.find((m) => m.id === id) || null;
+  }
+
+  canRecall(msg) {
+    if (!msg || msg.author !== 'user' || msg.meta?.recalled || !this.api.recall) return false;
+    return this.now() - new Date(msg.created_at).getTime() <= this.recallSeconds * 1000;
+  }
+
+  openMenu(id, x, y) {
+    const msg = this.find(id);
+    if (!msg || msg.author === 'system' || msg.meta?.recalled) return this.closeMenu();
+    const items = [];
+    if (this.kind() !== 'pair') items.push(['quote', '引用']);
+    items.push(['copy', '复制']);
+    if (this.canRecall(msg)) items.push(['recall', '撤回']);
+    const menu = this.$('#gc-menu');
+    menu.innerHTML = items.map(([act, label]) => `<button type="button" role="menuitem" data-act="${act}" data-id="${id}">${label}</button>`).join('');
+    menu.hidden = false;
+    this.menuAt = this.now();
+    const box = this.$('.gc-main').getBoundingClientRect();
+    const w = menu.offsetWidth || 120;
+    const h = menu.offsetHeight || 40;
+    menu.style.left = `${Math.max(4, Math.min(x - box.left, box.width - w - 4))}px`;
+    menu.style.top = `${Math.max(4, Math.min(y - box.top, box.height - h - 4))}px`;
+    menu.querySelector('button')?.focus({ preventScroll: true });
+  }
+
+  closeMenu() {
+    const menu = this.$('#gc-menu');
+    if (menu) menu.hidden = true;
+  }
+
+  async menuAction(act, id) {
+    this.closeMenu();
+    const msg = this.find(id);
+    if (!msg) return;
+    if (act === 'quote') {
+      this.setQuote(msg);
+      this.$('#chat-input').focus();
+    } else if (act === 'copy') {
+      try {
+        await navigator.clipboard.writeText(visibleText(msg.text, msg.meta));
+      } catch {
+        /* 复制不了就算了 */
+      }
+    } else if (act === 'recall') {
+      await this.recall(msg);
+    }
+  }
+
+  setQuote(msg) {
+    this.quote = msg ? { id: msg.id, author: msg.author, text: visibleText(msg.text, msg.meta) || msg.text } : null;
+    this.renderQuote();
+  }
+
+  renderQuote() {
+    const bar = this.$('#gc-quotebar');
+    if (!bar) return;
+    const q = this.quote;
+    bar.hidden = !q;
+    bar.innerHTML = q ? `<span>引用 ${esc(this.nameOf(q.author))}：${richText(snip(q.text))}</span><button type="button" class="link" data-unquote aria-label="取消引用">×</button>` : '';
+  }
+
+  nameOf(author) {
+    if (author === 'user') return '我';
+    const m = [...(this.members || []), ...(this.everyone || [])].find((x) => x.id === author);
+    return m?.name || author;
+  }
+
+  /** 撤回自己的消息：成功后就地换成「你撤回了一条消息」。 */
+  async recall(msg) {
+    try {
+      await this.api.recall(msg.id, this.room);
+      msg.text = '';
+      msg.meta = { ...(msg.meta || {}), recalled: true, media: undefined, caption: undefined, quote: undefined };
+      if (this.quote?.id === msg.id) this.setQuote(null);
+      this.error = '';
+      this.renderFeed();
+    } catch (e) {
+      this.error = e.message || '撤回失败';
+    }
+    this.renderError();
+  }
+
+  /** 拍一拍：双击成员头像。 */
+  async pat(member) {
+    if (!member || !this.api.pat || this.kind() === 'pair') return;
+    try {
+      const res = await this.api.pat(member, this.room);
+      this.pending = [...(this.pending || []), ...((res && res.speakers) || [])];
+      this.fastUntil = this.now() + FAST_FOR_MS;
+      this.error = '';
+    } catch (e) {
+      this.error = e.message || '拍一拍失败';
+    }
+    this.renderError();
+    await this.poll();
+  }
+
+  /** 点引用框：滚到原消息并闪一下。 */
+  flash(id) {
+    const el = this.$(`#gc-feed .gc-msg[data-id="${id}"]`);
+    if (!el) return;
+    el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    el.classList.remove('flash');
+    void el.offsetWidth;
+    el.classList.add('flash');
   }
 
   // --- @ 候选 ----------------------------------------------------------------
@@ -463,7 +634,8 @@ export class GroupChat {
   bubble(msg, prev) {
     const sid = msg.meta?.session_id;
     const look = sid && this.openSession ? ` <button type="button" class="link" data-session="${esc(sid)}">查看</button>` : '';
-    if (msg.author === 'system') return `<div class="gc-sys${sid ? ' work' : ''}" data-id="${msg.id}"><span>${esc(msg.text)}</span>${look}</div>`;
+    if (msg.author === 'system') return `<div class="gc-sys${sid ? ' work' : ''}${msg.meta?.pat ? ' pat' : ''}" data-id="${msg.id}"><span>${esc(msg.text)}</span>${look}</div>`;
+    if (msg.meta?.recalled) return `<div class="gc-sys recalled" data-id="${msg.id}"><span>${msg.author === 'user' ? '你' : esc(msg.name)}撤回了一条消息</span></div>`;
     const at = new Date(msg.created_at);
     const time = at.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false });
     const shown = visibleText(msg.text, msg.meta);
@@ -476,10 +648,19 @@ export class GroupChat {
     const cls = `gc-msg${msg.author === 'user' ? ' me' : ''}${follow ? ' follow' : ''}`;
     const stamp = `<time datetime="${esc(msg.created_at)}">${esc(time)}</time>`;
     const tag = msg.meta?.event === 'handoff' ? `<span class="gc-tag">已交给办公室${look}</span>` : '';
-    if (msg.author === 'user') return `<div class="${cls}" data-id="${msg.id}"><div class="gc-body"><div class="gc-meta">${tag}${stamp}</div><div class="gc-bub${kindCls}">${text}</div></div></div>`;
+    const quote = this.quoteHTML(msg.meta?.quote);
+    if (msg.author === 'user') return `<div class="${cls}" data-id="${msg.id}"><div class="gc-body"><div class="gc-meta">${tag}${stamp}</div><div class="gc-bub${kindCls}">${text}</div>${quote}</div></div>`;
     const member = this.members.find((m) => m.id === msg.author);
     const away = msg.meta?.offline ? '<span class="gc-tag away" title="你不在的时候发生的">你不在时</span>' : '';
-    return `<div class="${cls}" data-id="${msg.id}" data-author="${esc(msg.author)}">${this.avatar(member, msg.name)}<div class="gc-body"><div class="gc-meta"><span class="gc-name">${esc(msg.name)}</span>${away}${stamp}</div><div class="gc-bub${kindCls}">${text}${this.source(msg.meta?.share)}</div></div></div>`;
+    return `<div class="${cls}" data-id="${msg.id}" data-author="${esc(msg.author)}">${this.avatar(member, msg.name)}<div class="gc-body"><div class="gc-meta"><span class="gc-name">${esc(msg.name)}</span>${away}${stamp}</div><div class="gc-bub${kindCls}">${text}${this.source(msg.meta?.share)}</div>${quote}</div></div>`;
+  }
+
+  /** 微信式引用框：放在气泡下面，灰底一行「名字：开头一段」；原消息已撤回时说明。点击跳到原消息。 */
+  quoteHTML(q) {
+    if (!q) return '';
+    const orig = this.find(q.id);
+    const body = orig?.meta?.recalled ? '引用的内容已撤回' : `${esc(this.nameOf(q.author))}：${richText(snip(q.text))}`;
+    return `<button type="button" class="gc-quote" data-goto="${Number(q.id)}" title="查看原消息">${body}</button>`;
   }
 
   /** 上网分享的来源：标题链接、来源名、发布时间、未核实。只接受 http(s) 网址。 */
@@ -556,8 +737,21 @@ export class GroupChat {
     const mo = this.openMoments ? `<button type="button" class="gc-room" id="gc-moments"><span class="gc-av ini grp">圈</span><span class="gc-rt"><b>朋友圈</b><small>成员的动态</small></span>${unseen}</button>` : '';
     el.innerHTML = `${mo}<h3>群聊</h3>${groups.map(item).join('')}<h3>私聊</h3>${dms.map(item).join('')}${pairs.length ? `<h3 title="成员私下的聊天，你只能看">成员之间</h3>${pairs.map(item).join('')}` : ''}`;
     const b = this.budget;
-    const life = this.life?.enabled ? `；今天生活 $${this.life.spent_today_usd.toFixed(3)} / $${this.life.daily_usd.toFixed(2)}` : '';
+    const l = this.life;
+    const halted = l?.halted ? `（今天已停：${l.halted}）` : '';
+    const life = l?.enabled ? `；今天生活 $${l.spent_today_usd.toFixed(3)} / $${l.daily_usd.toFixed(2)}，互聊 ${l.messages_today ?? 0}/${l.daily_messages ?? '-'} 句${halted}` : '';
     this.$('#gc-budget').textContent = b ? `本月聊天 $${b.spent_usd.toFixed(2)} / $${b.limit_usd.toFixed(2)}${life}` : '';
+  }
+
+  async openSelfCheck() {
+    const dlg = this.$('#gc-selfcheck-dlg');
+    dlg.innerHTML = '<p class="hint">正在统计…</p>';
+    if (!dlg.open) dlg.showModal();
+    try {
+      dlg.innerHTML = selfCheckHtml(await this.api.lifeReports());
+    } catch (e) {
+      dlg.innerHTML = `<p class="hint">没取到：${esc(e.message || String(e))}</p><button type="button" class="btn" data-close>关闭</button>`;
+    }
   }
 
   markMomentsSeen() {
@@ -570,11 +764,13 @@ export class GroupChat {
     this.$('#gc-count').textContent = `${this.members.length + 1} 人`;
     this.$('#gc-online').textContent = `${online}/${this.members.length} 在线`;
     this.$('#gc-members').innerHTML = this.members
-      .map((m) => `<li><button type="button" class="link${m.available ? '' : ' off'}" data-name="${esc(m.name)}" title="${m.available ? `@${esc(m.name)}` : '离线：没有可用渠道（检查 .env 里的 key）'}"><span class="gc-avwrap">${this.avatar(m, m.name)}<i class="dot${m.available ? ' on' : ''}" aria-label="${m.available ? '在线' : '离线'}"></i></span><span class="nm">${esc(m.name)}</span></button></li>`)
+      .map((m) => `<li data-member="${esc(m.id)}"><button type="button" class="link${m.available ? '' : ' off'}" data-name="${esc(m.name)}" title="${m.available ? `@${esc(m.name)}` : '离线：没有可用渠道（检查 .env 里的 key）'}"><span class="gc-avwrap">${this.avatar(m, m.name)}<i class="dot${m.available ? ' on' : ''}" aria-label="${m.available ? '在线' : '离线'}"></i></span><span class="nm">${esc(m.name)}</span></button></li>`)
       .join('');
   }
 
   renderTyping() {
+    const title = this.$('#gc-title');
+    if (title) title.textContent = this.isDm() && this.typing.length ? '对方正在输入…' : this.roomTitle(this.roomInfo) || '聊天';
     const t = this.$('#gc-typing');
     const waiting = (this.pending || []).filter((n) => !this.typing.includes(n));
     const parts = [];
@@ -599,4 +795,28 @@ export class GroupChat {
     this.renderTyping();
     this.renderError();
   }
+}
+
+// 生活自检（docs/CHAT.md G9）：最近 7 天的实时报告在前，下面是每周存下的报告
+function reportHtml(r, title) {
+  const usd = (v) => `$${Number(v || 0).toFixed(3)}`;
+  const talk = (r.speakers || [])
+    .map((s) => `<li>${esc(s.name)}：互聊 ${s.life} 句、回应你 ${s.replies} 句（占 ${Math.round((s.share || 0) * 100)}%）</li>`)
+    .join('');
+  const reps = (r.repeats?.examples || []).map((x) => `<li>${esc(x.name)}：${esc(x.text)}</li>`).join('');
+  const halts = (r.guard?.halts || []).map((h) => `<li>${esc(h.at.slice(0, 10))}：${esc(h.reason)}</li>`).join('');
+  return `<section><h3>${esc(title)}</h3>
+    <p><b>${(r.notes || []).map(esc).join('；')}</b></p>
+    <p>花费：生活 ${usd(r.cost?.life_usd)}（平均每天 ${usd(r.cost?.life_per_day_usd)}，上限 $${Number(r.cost?.life_daily_limit_usd || 0).toFixed(2)}），聊天合计 ${usd(r.cost?.total_usd)}</p>
+    <p>出错：${r.errors?.failed || 0} / ${r.errors?.calls || 0} 次调用；没新内容收尾 ${r.guard?.stale || 0} 次；到每日条数上限 ${r.guard?.cap_days || 0} 天</p>
+    ${talk ? `<p>谁说得多：</p><ul>${talk}</ul>` : '<p>这段时间没人说话。</p>'}
+    ${r.repeats?.count ? `<p>重复：${r.repeats.count} 句和之前很像，例如：</p><ul>${reps}</ul>` : ''}
+    ${halts ? `<p>熔断：</p><ul>${halts}</ul>` : ''}</section>`;
+}
+
+export function selfCheckHtml(data) {
+  const now = data.halted ? `<p class="hint">今天的生活已停：${esc(data.halted)}（明天自动恢复）</p>` : '';
+  const weeks = (data.reports || []).map((r) => reportHtml(r, `${r.week} 周报`)).join('');
+  return `<h2>生活自检</h2>${now}${reportHtml(data.recent || {}, '最近 7 天')}${weeks || '<p class="hint">每周一会存一份上一周的报告。</p>'}
+    <form method="dialog"><button type="button" class="btn" data-close>关闭</button></form>`;
 }

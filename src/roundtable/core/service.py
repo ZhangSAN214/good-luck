@@ -19,12 +19,14 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import quote
 
+from roundtable.core import clipper
 from roundtable.core.allocation import coordinator_name, display_name
 from roundtable.core.attachments import Attachment, UploadError, ingest
 from roundtable.core.attachments.detect import TYPES as UPLOAD_TYPES
 from roundtable.core.browse import REFRESH_KEY, feeds_of, set_feeds
 from roundtable.core.budget import report as usage_report
 from roundtable.core.budget.guard import day_window, month_window
+from roundtable.core.carry import carry_question, compact
 from roundtable.core.changelog import changelog_view, load_changelog
 from roundtable.core.chat import ROOM, WORK, ChatHub, chat_budget
 from roundtable.core.chat_media import MAX_BYTES as CHAT_MEDIA_MAX
@@ -67,12 +69,26 @@ from roundtable.core.evolution_plugins import (
     plugins_markdown,
 )
 from roundtable.core.evolution_scout import SCOUT_WEEK_KEY, Scout, ScoutError
+from roundtable.core.export import FORMATS as EXPORT_FORMATS
+from roundtable.core.export import Style as ExportStyle
+from roundtable.core.export import deliverable
+from roundtable.core.export import filename as export_filename
+from roundtable.core.export import options as export_choices
 from roundtable.core.ideaboard import Board
 from roundtable.core.lan import COOKIE as LAN_COOKIE
 from roundtable.core.lan import LanAccess, is_local, is_remote, qr_svg
 from roundtable.core.life import LIFE_STEPS, LifeEngine
 from roundtable.core.mail import MailAI, MailAIError, MailBox, MailBusy, OwaBrowser
 from roundtable.core.media import KIND_LABELS, KINDS, MediaService
+from roundtable.core.member import MemberEngine, ProfileError
+from roundtable.core.member.bus import Event as MemberEvent
+from roundtable.core.member.card import (
+    card_patch,
+    match_members,
+    parse_cards,
+    source_title,
+    without_locked,
+)
 from roundtable.core.members_art import MEMBERS_FILE, load_members, mime_of, resolve_file
 from roundtable.core.memory import LAYERS, MemoryKeeper, clean_memory
 from roundtable.core.moments import SEEN_KEY as MOMENTS_SEEN
@@ -82,10 +98,16 @@ from roundtable.core.office import building, payslip, roster
 from roundtable.core.office import collect as collect_performance
 from roundtable.core.office import reset as reset_performance
 from roundtable.core.orchestrator import Orchestrator, OrchestratorError, RunResult
-from roundtable.core.persona import is_empty, persona_of, set_persona
+from roundtable.core.persona import card_text, is_empty, persona_of, set_persona
 from roundtable.core.plugin_board import board_view, load_board
 from roundtable.core.preview import render_preview
-from roundtable.core.providers import ProviderError, UnsupportedCapability, redact
+from roundtable.core.providers import (
+    Completion,
+    Message,
+    ProviderError,
+    UnsupportedCapability,
+    redact,
+)
 from roundtable.core.routing import (
     AUTO,
     CUSTOM,
@@ -100,6 +122,7 @@ from roundtable.core.routing import (
     preview_estimates,
 )
 from roundtable.core.runtime import PROJECT_ROOT, Runtime, data_dir
+from roundtable.core.search import SearchUnavailable
 from roundtable.core.standee import load_standee
 from roundtable.core.standee import standee_file as read_standee_file
 from roundtable.core.steps import Event, restore_state
@@ -134,6 +157,9 @@ __all__ = [
 ]
 
 
+EXPORT_FOLDER_KEY = "export.folder"  # 导出时「存到固定文件夹」记住的文件夹
+
+
 class ServiceError(ValueError):
     """请求不合法（参数错误、状态不允许等）。status 为建议的 HTTP 状态码。"""
 
@@ -152,6 +178,7 @@ class RoundtableService:
         self.chats = ChatHub(runtime, names=self._art_names)
         self.memory = MemoryKeeper(runtime, self.chats.everyone)
         self.life = LifeEngine(runtime, self.chats, self.memory)
+        self.engine = MemberEngine(runtime, lambda: [m.id for m in self.chats.everyone()])
         self.mail = MailBox(runtime.repo)
         self.mail_ai = MailAI(runtime, self.mail)
         if runtime.mail_source is not None:
@@ -209,8 +236,12 @@ class RoundtableService:
             await asyncio.sleep(self.rt.config.roundtable.evolution.tick_minutes * 60)
 
     async def life_tick(self) -> dict[str, int]:
-        """推进一次生活（开机后第一次会补上关机期间的时间）。"""
-        return await self.life.tick(self.rt.budget.now().astimezone())
+        """推进一次生活（开机后第一次会补上关机期间的时间），再推进一次成员引擎（不花钱）。"""
+        now = self.rt.budget.now().astimezone()
+        out = await self.life.tick(now)
+        with contextlib.suppress(Exception):  # 引擎出错不影响生活
+            await self.engine.tick(now)
+        return out
 
     async def aclose(self) -> None:
         tasks = [*self._tasks.values(), *self._chat_tasks]
@@ -846,6 +877,7 @@ class RoundtableService:
             "rooms": self.chats.rooms(),
             "members": [asdict(m) for m in self.chats.everyone()],
             "typing": self.chats.typing(),
+            "queued": self.chats.queued(),
             "budget": {"spent_usd": budget.spent_usd, "limit_usd": budget.limit_usd},
             "moments_unseen": self.rt.repo.unseen_moments(
                 int(self.rt.repo.setting(MOMENTS_SEEN) or 0)
@@ -854,6 +886,9 @@ class RoundtableService:
                 "enabled": self.rt.config.roundtable.chat.life.enabled,
                 "spent_today_usd": self.life.spent_today(),
                 "daily_usd": self.rt.config.roundtable.chat.life.daily_usd,
+                "messages_today": self.life.guard.messages_today(),
+                "daily_messages": self.rt.config.roundtable.chat.life.guard.daily_messages,
+                "halted": self.life.guard.halted(),
             },
         }
 
@@ -887,6 +922,8 @@ class RoundtableService:
                 for r in rows
             ],
             "typing": list(chat.typing),
+            "queued": list(chat.queued),
+            "recall_seconds": self.rt.config.roundtable.chat.actions.recall_seconds,
         }
 
     # --- 聊天 / 朋友圈里的图片、视频、语音（只存本机） ------------------------------
@@ -925,9 +962,13 @@ class RoundtableService:
         return f"{text}\n{tag}", meta | {"caption": text}
 
     async def chat_post(
-        self, text: str, room: str = ROOM, media: list[dict] | None = None
+        self,
+        text: str,
+        room: str = ROOM,
+        media: list[dict] | None = None,
+        quote: int | None = None,
     ) -> dict[str, Any]:
-        """用户发一条消息（可带图片 / 视频 / 语音）；被选中的成员在后台依次回应。"""
+        """用户发一条消息（可带图片 / 视频 / 语音，可引用一条消息）；被选中的成员在后台依次回应。"""
         chat = self._chat_room(room)
         if chat.kind == "pair":
             raise ServiceError("这是成员之间的私聊，你只能看，不能发言")
@@ -937,13 +978,54 @@ class RoundtableService:
         text, meta = self._media_meta(text, media)
         if not text:
             raise ServiceError("消息不能为空")
-        msg, speakers = chat.post(text, meta)
+        try:
+            msg, speakers = chat.post(text, meta, quote)
+        except ValueError as exc:
+            raise ServiceError(str(exc)) from None
         self.rt.repo.mark_chat_read(chat.room, msg["id"])
-        if speakers:
-            task = asyncio.get_running_loop().create_task(chat.replies(msg["id"], speakers))
-            self._chat_tasks.add(task)
-            task.add_done_callback(self._chat_tasks.discard)
+        self._chat_replies(chat, msg["id"], speakers)
         return {"id": msg["id"], "speakers": [m.name for m in speakers]}
+
+    def _chat_replies(self, chat: Any, reply_to: int, speakers: list[Any]) -> None:
+        if not speakers:
+            return
+        coro = chat.replies(reply_to, speakers, chat.round)
+        task = asyncio.get_running_loop().create_task(coro)
+        self._chat_tasks.add(task)
+        task.add_done_callback(self._chat_tasks.discard)
+
+    async def chat_pat(self, member: str, room: str = ROOM) -> dict[str, Any]:
+        """拍一拍会话里的一位成员：发 chat.pat 事件给成员系统，按策略（默认回一句）让 TA 回应。"""
+        chat = self._chat_room(room)
+        if chat.kind == "pair":
+            raise ServiceError("这是成员之间的私聊，你只能看")
+        try:
+            msg = chat.pat(member)
+        except ValueError as exc:
+            raise ServiceError(str(exc)) from None
+        self.rt.repo.mark_chat_read(chat.room, msg["id"])
+        now = self.rt.budget.now()
+        self.engine.bus.publish(
+            MemberEvent(
+                "chat.pat", now, member, {"room": chat.room, "id": msg["id"], "actor": "user"}
+            )
+        )
+        target = next((m for m in chat.members() if m.id == member and m.available), None)
+        speakers = []
+        if target is not None and self.chats.policy.reply_to_pat(member, chat.kind):
+            speakers = [target]
+            chat.round += 1  # 拍一拍也算新的一轮：上一轮还没发出的按策略作废
+        self._chat_replies(chat, msg["id"], speakers)
+        return {"id": msg["id"], "text": msg["text"], "speakers": [m.name for m in speakers]}
+
+    def chat_recall(self, message_id: int, room: str = ROOM) -> dict[str, Any]:
+        """撤回你自己发的一条消息（发出后几分钟内）。"""
+        chat = self._chat_room(room)
+        try:
+            row = chat.recall(message_id, self.rt.budget.now())
+        except ValueError as exc:
+            raise ServiceError(str(exc)) from None
+        return {"id": row["id"], "recalled": True}
 
     def chat_handoff(self, text: str) -> dict[str, Any]:
         """在工作群里交办：按办公室模式（默认档位）开一件事，工作群里记下这条交办。"""
@@ -1142,7 +1224,292 @@ class RoundtableService:
             raise ServiceError("没有这条评论", 404)
         return {"deleted": 1}
 
+    # --- 资料浏览器（办公室） --------------------------------------------------------
+
+    def _clip_rules(self):
+        rules = self.rt.config.roundtable.clipper
+        if not rules.enabled:
+            raise ServiceError("资料浏览器已在配置里关闭", 403)
+        return rules
+
+    def clips(self) -> dict[str, Any]:
+        rules = self.rt.config.roundtable.clipper
+        return {
+            "enabled": rules.enabled,
+            "search": self.rt.search.available,
+            "search_estimate_usd": rules.search_estimate_usd,
+            "max_clip_chars": rules.max_clip_chars,
+            "clips": [clipper.public_clip(c) for c in clipper.clips_of(self.rt.repo)],
+        }
+
+    async def clip_open(self, url: str) -> dict[str, Any]:
+        """打开网页：直接抓取并提取正文（不调用模型、不花钱）。"""
+        rules = self._clip_rules()
+        try:
+            url = clipper.normalize_url(url)
+            fetched = await clipper.http_fetch(url, rules.timeout_s, rules.max_page_kb * 1024)
+            page = clipper.parse_fetched(fetched, max_chars=rules.max_page_chars)
+        except clipper.ClipError as exc:
+            raise ServiceError(str(exc), 422) from None
+        out = page.public()
+        if not page.blocks:
+            out["hint"] = "没提取到正文：这个网页可能要登录，或者内容是用脚本加载的"
+        return out
+
+    async def clip_search(self, query: str) -> dict[str, Any]:
+        """联网搜索（有花费，计入总预算）。只返回标题、网址和摘要。"""
+        rules = self._clip_rules()
+        query = (query or "").strip()[:200]
+        if not query:
+            raise ServiceError("请输入要搜索的内容")
+        rt = self.rt
+        if not rt.search.available:
+            raise ServiceError(f"联网搜索不可用：{rt.search.reason()}", 409)
+        if not rt.budget.check(rules.search_estimate_usd).allowed:
+            raise ServiceError("本月或今天的预算已用完，不能搜索", 409)
+        try:
+            result, call = await rt.search.search(query, rules.search_results)
+        except SearchUnavailable as exc:
+            raise ServiceError(str(exc), 502) from None
+        completion = Completion(
+            text="",
+            model_id=f"search:{call.provider}",
+            channel=call.provider,
+            channel_kind="search",
+            route_model="search",
+            input_tokens=0,
+            output_tokens=0,
+            cached_tokens=0,
+            cost_usd=call.cost_usd,
+            cost_source=call.cost_source,  # type: ignore[arg-type]
+            latency_s=call.latency_s,
+            attempts=call.attempts,
+        )
+        rt.repo.record_call(
+            rt.repo.chat_session(clipper.SEARCH_ROOM),
+            step=clipper.SEARCH_STEP,
+            role="tool",
+            model_id=completion.model_id,
+            messages=[Message("user", f"search: {query}")],
+            completion=completion,
+        )
+        hits = [
+            {
+                "title": clipper.strip_tags(h.title)[:300] or h.url,
+                "url": h.url,
+                "snippet": clipper.strip_tags(h.snippet)[:400],
+            }
+            for h in result.hits
+            if h.url.startswith(("http://", "https://"))
+        ]
+        return {"query": query, "hits": hits, "cost_usd": call.cost_usd}
+
+    def clip_save(
+        self, url: str, title: str, text: str, *, partial: bool = False, note: str = ""
+    ) -> dict[str, Any]:
+        """把正文或选中的段落存进资料夹（只存本机）。"""
+        rules = self._clip_rules()
+        try:
+            url = clipper.normalize_url(url)
+        except clipper.ClipError as exc:
+            raise ServiceError(str(exc)) from None
+        text = (text or "").strip()
+        if not text:
+            raise ServiceError("没有可保存的内容")
+        cut = len(text) > rules.max_clip_chars
+        text = text[: rules.max_clip_chars]
+        chars = len(text)
+        if cut:
+            text += "\n\n（后面还有内容，超过资料字数上限没有保存）"
+        title = " ".join((title or "").split())[:200] or clipper.site_of(url)
+        saved_at = self.rt.budget.now().astimezone().strftime("%Y-%m-%d %H:%M")
+        body = clipper.clip_markdown(title, url, text, saved_at, " ".join(note.split())[:300])
+        key = self.rt.files.save(body.encode("utf-8"), "md")
+        clip = {
+            "id": clipper.new_clip_id(),
+            "title": title,
+            "url": url,
+            "site": clipper.site_of(url),
+            "chars": chars,
+            "excerpt": " ".join(text.replace("## ", "").split())[:160],
+            "partial": partial,
+            "saved_at": self.rt.budget.now().isoformat(),
+            "key": key,
+        }
+        clips = [clip, *clipper.clips_of(self.rt.repo)][: rules.max_clips]
+        clipper.save_clips(self.rt.repo, clips)
+        return {**clipper.public_clip(clip), "truncated": cut}
+
+    def _clip(self, clip_id: str) -> dict[str, Any]:
+        for clip in clipper.clips_of(self.rt.repo):
+            if clip["id"] == clip_id:
+                return clip
+        raise ServiceError("资料不存在", 404)
+
+    def clip_text(self, clip_id: str) -> dict[str, Any]:
+        clip = self._clip(clip_id)
+        try:
+            text = self.rt.files.load(clip["key"]).decode("utf-8")
+        except (OSError, KeyError, ValueError):
+            raise ServiceError("资料文件找不到了", 404) from None
+        return {**clipper.public_clip(clip), "text": text}
+
+    def clip_delete(self, clip_id: str) -> dict[str, Any]:
+        self._clip(clip_id)
+        rest = [c for c in clipper.clips_of(self.rt.repo) if c["id"] != clip_id]
+        clipper.save_clips(self.rt.repo, rest)
+        return self.clips()
+
+    def clip_attach(self, clip_id: str) -> dict[str, Any]:
+        """提问时附上：用这份资料新建一个 Markdown 附件（附件只能用一次，所以每次新建）。"""
+        clip = self._clip(clip_id)
+        try:
+            data = self.rt.files.load(clip["key"])
+        except (OSError, KeyError, ValueError):
+            raise ServiceError("资料文件找不到了", 404) from None
+        return self.upload(clipper.safe_name(clip["title"]), data)
+
     # --- 上网（订阅源） ------------------------------------------------------------
+
+    # --- 成员引擎：自我档案（docs/MEMBER_ENGINE.md） ---------------------------------
+
+    def _profile_member(self, member: str) -> str:
+        if member not in {m.id for m in self.chats.everyone()}:
+            raise ServiceError(f"没有这位成员：{member}")
+        return member
+
+    def member_profile(self, member: str) -> dict[str, Any]:
+        """当前档案、版本号和修改记录（新的在前）。"""
+        p = self.engine.profiles.current(self._profile_member(member))
+        rules = self.rt.config.roundtable.chat.engine
+        card = card_text(self.rt, member)
+        return {
+            "member": member,
+            "version": p.version,
+            "data": p.data,
+            "locked": p.locked,
+            "sections": dict(rules.profile.sections),
+            "history": self.engine.profiles.history(member),
+            "card": {
+                "text": card,
+                "chars": len(card),
+                "budget": rules.card.budget_chars,
+                "custom": bool(str(p.get("identity.随身卡") or "").strip()),
+            },
+        }
+
+    def member_profiles(self) -> dict[str, Any]:
+        """每位成员的档案概况：版本号、随身卡字数（网页「自我档案」的成员列表）。"""
+        out = []
+        for m in self.chats.everyone():
+            p = self.engine.profiles.current(m.id)
+            card = card_text(self.rt, m.id)
+            out.append(
+                {
+                    "id": m.id,
+                    "name": m.name,
+                    "version": p.version,
+                    "nickname": p.get("identity.小名") or "",
+                    "card_chars": len(card),
+                }
+            )
+        return {"members": out, "budget": self.rt.config.roundtable.chat.engine.card.budget_chars}
+
+    def member_profile_import(
+        self, text: str, mapping: dict[str, str] | None = None, dry_run: bool = False
+    ) -> dict[str, Any]:
+        """把人物卡（Markdown，每位成员一节）读进自我档案；以用户身份写，每位成员存一个新版本。
+
+        卡名和成员显示名一样就自动对上，mapping（卡名 → 成员 id，空串 = 跳过）可以改。
+        dry_run 只解析不写。用户锁住的项不动。
+        """
+        cards = parse_cards(text)
+        if not cards:
+            raise ServiceError("没认出人物卡：每位成员一节，标题写成「## 名字 · 完整角色卡」")
+        everyone = self.chats.everyone()
+        ids = {m.id for m in everyone}
+        matched = match_members(cards, [(m.id, m.name) for m in everyone])
+        for name, mid in (mapping or {}).items():
+            if name in matched:
+                matched[name] = mid or None
+        source = source_title(text)
+        out = []
+        for card in cards:
+            mid = matched.get(card.name)
+            if mid is not None and mid not in ids:
+                raise ServiceError(f"没有这位成员：{mid}")
+            row: dict[str, Any] = {
+                "name": card.name,
+                "member": mid,
+                "chapters": list(card.chapters),
+                "version": None,
+            }
+            if mid is not None and not dry_run:
+                patch = card_patch(card, source)
+                patch = without_locked(patch, self.engine.profiles.current(mid).locked)
+                self._profile_do(
+                    lambda mid=mid, patch=patch: self.engine.profiles.change(
+                        mid, patch, author="user", reason=f"导入人物卡：{source}"
+                    )
+                )
+                row["version"] = self.engine.profiles.current(mid).version
+            out.append(row)
+        return {
+            "source": source,
+            "cards": out,
+            "members": [{"id": m.id, "name": m.name} for m in everyone],
+            "imported": sum(1 for r in out if r["version"] is not None),
+        }
+
+    def _profile_do(self, fn: Any) -> None:
+        try:
+            fn()
+        except ProfileError as e:
+            raise ServiceError(str(e)) from None
+
+    def member_profile_change(
+        self, member: str, patch: dict[str, Any], reason: str = ""
+    ) -> dict[str, Any]:
+        """用户改档案：{分区: {键: 值或 None}}。"""
+        member = self._profile_member(member)
+        self._profile_do(
+            lambda: self.engine.profiles.change(
+                member, patch, author="user", reason=reason or "你改的"
+            )
+        )
+        return self.member_profile(member)
+
+    def member_profile_lock(self, member: str, path: str, locked: bool = True) -> dict[str, Any]:
+        member = self._profile_member(member)
+        self._profile_do(lambda: self.engine.profiles.lock(member, path, locked=locked))
+        return self.member_profile(member)
+
+    def member_profile_revert(self, member: str, version: int) -> dict[str, Any]:
+        member = self._profile_member(member)
+        self._profile_do(lambda: self.engine.profiles.revert(member, version))
+        return self.member_profile(member)
+
+    def member_profile_clear(self, member: str) -> dict[str, Any]:
+        member = self._profile_member(member)
+        n = self.engine.profiles.clear(member)
+        return {"member": member, "deleted": n}
+
+    def member_events_count(self) -> dict[str, Any]:
+        return {"events": self.rt.repo.count_member_events()}
+
+    def member_events_clear(self) -> dict[str, Any]:
+        """一键清空成员引擎记下的全部事件（只存本机的经历数据）。"""
+        return {"deleted": self.engine.bus.clear()}
+
+    def life_reports(self) -> dict[str, Any]:
+        """生活的每周自检（docs/CHAT.md G9）：已存的每周报告（新的在前）和最近 7 天的实时报告。"""
+        now = self.rt.budget.now()
+        names = {m.id: m.name for m in self.chats.everyone()}
+        return {
+            "reports": self.rt.repo.life_reports(),
+            "recent": self.life.guard.report(now - timedelta(days=7), now, names),
+            "halted": self.life.guard.halted(),
+        }
 
     def chat_feeds(self) -> dict[str, Any]:
         """订阅源清单（网页改过的优先）、上次抓取时间、今天联网搜索次数与上限。"""
@@ -1209,6 +1576,7 @@ class RoundtableService:
         media: str | None = None,
         media_tier: str | None = None,
         style_refs: Sequence[str] | None = None,
+        carry_from: str | None = None,
     ) -> str:
         """创建会话并在后台开始执行，立即返回会话 id。
 
@@ -1217,11 +1585,10 @@ class RoundtableService:
         attachments：先用 upload() 上传得到的附件 id；
         style_refs：其中作为风格参考的图片附件 id（None = 全部图片；传空表示都不是）；
         media：讨论模式的输出类型（image / speech / video，默认文字）；
-        media_tier：媒体模型的档位（budget / flagship）。
+        media_tier：媒体模型的档位（budget / flagship）；
+        carry_from：接力的上一场会话 id，question 是这一场的要求，上一场的成果摘要附在后面。
         """
-        text = question.strip()
-        if not text:
-            raise ServiceError("题目不能为空")
+        text = self._carried(question, carry_from, anonymous)
         if len(text) > MAX_QUESTION_CHARS:
             raise ServiceError(f"题目过长（超过 {MAX_QUESTION_CHARS} 字）")
         try:
@@ -1247,6 +1614,41 @@ class RoundtableService:
             raise ServiceError(str(exc)) from None
         self._spawn(sid, self.orc.run(sid))
         return sid
+
+    def carry(self, session_id: str) -> dict[str, Any]:
+        """接力用：上一场的题目和将带入下一场的成果摘要（揭晓前为匿名视图）。"""
+        row, result = self._carry_source(session_id)
+        return {
+            "session_id": session_id,
+            "question": row["question"],
+            "workflow": row["workflow"],
+            "anonymous": bool(row["anonymous"]),
+            "summary": compact(
+                self.rt.scrubber.scrub(result, row["question"]) if row["anonymous"] else result
+            ),
+        }
+
+    def _carry_source(self, session_id: str) -> tuple[dict[str, Any], str]:
+        row = self._require(session_id)
+        if row["status"] != "completed":
+            raise ServiceError("上一场还没完成，完成后才能接着做")
+        result = self.orc.final_answer(session_id)
+        if not result:
+            raise ServiceError("上一场没有可以接着用的成果")
+        return row, result
+
+    def _carried(self, question: str, carry_from: str | None, anonymous: bool) -> str:
+        """这一场的题目；接力时附上上一场的题目和成果摘要（只带成果，不带过程）。"""
+        text = question.strip()
+        if not text:
+            raise ServiceError("题目不能为空")
+        if carry_from is None:
+            return text
+        row, result = self._carry_source(carry_from)
+        prev = row["question"]
+        if anonymous or row["anonymous"]:  # 匿名的一方：成员名称一律遮蔽（原题里的名称保留）
+            result = self.rt.scrubber.scrub(result, prev)
+        return carry_question(prev, result, text)
 
     def _check_media(self, media: str | None, media_tier: str | None) -> None:
         if media is None:
@@ -1280,15 +1682,14 @@ class RoundtableService:
         seed: int | None = None,
         media: str | None = None,
         media_tier: str | None = None,
+        carry_from: str | None = None,
     ) -> dict[str, Any]:
         """提交前预估：各模式 × 各档位（及自选）的上桌人数、缺席、预计花费与步骤明细。
 
         不调用任何模型（答案长度只用规则判断，判断不出时用默认值）。返回的 seed 在提交时
         一并传给 create()，上桌名单就与预估一致。匿名开启时不返回模型名单。
         """
-        text = question.strip()
-        if not text:
-            raise ServiceError("题目不能为空")
+        text = self._carried(question, carry_from, anonymous)
         if workflow == AUTO:
             workflow = None  # 自动模式：预估列出全部方式，供对比
         if workflow is not None and workflow not in WORKFLOWS:
@@ -1589,6 +1990,59 @@ class RoundtableService:
                 }
             )
         return out
+
+    def export_document(
+        self, session_id: str, fmt: str, options: dict[str, Any] | None = None
+    ) -> tuple[bytes, str, str]:
+        """导出最终成果（内容、文件名、类型）。本地转换存库的成果，不调用模型、不花 token。
+
+        options：size / theme / ratio / question / process（见 core/export/style.py），
+        缺省用默认样式。
+        """
+        self._require(session_id)
+        spec = EXPORT_FORMATS.get(fmt)
+        if spec is None:
+            raise ServiceError(f"不支持的导出格式：{fmt}（可选 {'、'.join(EXPORT_FORMATS)}）")
+        try:
+            style = ExportStyle(**{k: v for k, v in (options or {}).items() if v is not None})
+        except (TypeError, ValueError) as exc:
+            raise ServiceError(f"导出选项不对：{exc}") from None
+        view = self.rt.repo.session_view(session_id, scrub=self.rt.scrubber.scrub)
+        doc = deliverable(view, question=style.question, process=style.process)
+        if doc is None:
+            raise ServiceError("这一场还没有可以导出的成果", 409)
+        return spec.render(doc, style), export_filename(doc, session_id, spec.ext), spec.mime
+
+    def export_options(self) -> dict[str, Any]:
+        """导出面板的可选项，以及记住的保存文件夹（没设过时给一个建议值）。"""
+        saved = self.rt.repo.setting(EXPORT_FOLDER_KEY)
+        return {
+            "formats": [{"value": k, "label": f.label} for k, f in EXPORT_FORMATS.items()],
+            **export_choices(),
+            "folder": saved or "",
+            "suggested_folder": str(Path.home() / "Documents" / "圆桌导出"),
+        }
+
+    def export_save(
+        self, session_id: str, fmt: str, folder: str, options: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
+        """把导出的文件直接存进电脑上的文件夹（只允许本机调用，由接口层把关），并记住这个文件夹。"""
+        target_dir = Path(folder.strip()).expanduser() if folder and folder.strip() else None
+        if target_dir is None or not target_dir.is_absolute():
+            raise ServiceError("请填写完整的文件夹路径，例如 D:\\圆桌导出")
+        data, name, _ = self.export_document(session_id, fmt, options)
+        try:
+            target_dir.mkdir(parents=True, exist_ok=True)
+            target = target_dir / name
+            stem, n = target.stem, 2
+            while target.exists():  # 不覆盖已有文件：加 (2)、(3)……
+                target = target_dir / f"{stem} ({n}){target.suffix}"
+                n += 1
+            target.write_bytes(data)
+        except OSError as exc:
+            raise ServiceError(f"保存失败：{exc.strerror or '无法写入这个文件夹'}") from None
+        self.rt.repo.set_setting(EXPORT_FOLDER_KEY, str(target_dir))
+        return {"path": str(target), "name": target.name, "folder": str(target_dir)}
 
     def file_content(self, session_id: str, file_id: str) -> tuple[bytes, dict[str, Any]]:
         """下载：文件内容与元数据（文件名只取路径最后一段）。"""
