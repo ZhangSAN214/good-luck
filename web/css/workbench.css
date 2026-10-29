@@ -4,6 +4,7 @@
 .wb-state{font-size:12px;padding:2px 8px;border-radius:999px;background:var(--surface-2);color:var(--muted)}
 .wb-state.on{color:var(--ok)}
 .wb{display:flex;flex-direction:column;gap:8px;height:calc(100% - 52px);min-height:0}
+.wb-top,.wb-tail{display:contents}
 .wb-info p{margin:4px 0}
 .wb-hint{font-size:12px;color:var(--muted)}
 .wb-warn{font-size:13px;color:var(--warn,#c77);margin:4px 0}
