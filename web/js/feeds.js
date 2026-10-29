@@ -1,4 +1,5 @@
 // 上网：成员读哪些公开订阅源（RSS / Atom）。只读、不登录；抓取不花钱，分享和搜索计入生活每日上限。
+import { tzOpt } from './hometz.js';
 
 const esc = (s) =>
   String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -47,7 +48,7 @@ export class Feeds {
 
   render() {
     const d = this.data || { feeds: [] };
-    const when = d.last_refresh ? new Date(d.last_refresh).toLocaleString('zh-CN', { hour12: false }) : '还没抓过';
+    const when = d.last_refresh ? new Date(d.last_refresh).toLocaleString('zh-CN', tzOpt({ hour12: false })) : '还没抓过';
     const rows = d.feeds.length
       ? d.feeds
           .map(
