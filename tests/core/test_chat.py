@@ -189,6 +189,18 @@ def test_default_rooms_and_dm_list():
     assert dms[0]["title"] == "阿一" and dms[0]["unread"] == 0 and dms[0]["last"] is None
 
 
+def test_pair_room_title_follows_current_names():
+    """双人房标题按成员现名拼：建房时存的旧名（改名前）不再显示。"""
+    env = Env()
+    env.rt.repo.ensure_chat_room(
+        "pair:V1+V2", kind="pair", title="旧名一 和 旧名二", members=["V1", "V2"], with_user=False
+    )
+    hub = ChatHub(env.rt)
+    (pair,) = [r for r in hub.rooms() if r["kind"] == "pair"]
+    assert pair["title"] == "阿一 和 阿二"
+    assert hub.room("pair:V1+V2").title == "阿一 和 阿二"
+
+
 def test_unknown_rooms_are_rejected():
     env = Env()
     hub = ChatHub(env.rt)
