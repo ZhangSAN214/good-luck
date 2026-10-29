@@ -53,6 +53,8 @@ class ActionPolicy(Protocol):
 
     def pat_suffix(self, member: str) -> str: ...
 
+    def voice(self, member: str, room_kind: str, seed: int = 0) -> str: ...
+
 
 class DefaultPolicy:
     """没接管时的默认值：按配置，所有成员相同（中立）。"""
@@ -87,6 +89,10 @@ class DefaultPolicy:
         return self.rules.drop_stale
 
     def pat_suffix(self, member: str) -> str:
+        return ""
+
+    def voice(self, member: str, room_kind: str, seed: int = 0) -> str:
+        """提示词里这位成员的「说话习惯」（成员系统接管时给，seed 用来轮换示范句）；默认没有。"""
         return ""
 
 

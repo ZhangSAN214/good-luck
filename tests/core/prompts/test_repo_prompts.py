@@ -129,7 +129,7 @@ APPENDED_ROLES = (
     "plain_talk",
 )
 # 说话底线（去八股化）：底线本身不带变量；改写把草稿放在标签里
-PLAIN_ROLES = ("plain_rewrite",)
+PLAIN_ROLES = ("plain_rewrite", "voice_rewrite")  # voice_rewrite：说出口前自查的改写（P5）
 # 附件相关：外部内容是文件本身（attachments 用 <attachment> 标签，预处理随附图片 / 音频）
 ATTACHMENT_ROLES = (
     "attachments",

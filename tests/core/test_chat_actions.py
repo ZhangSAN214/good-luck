@@ -150,7 +150,9 @@ async def test_same_action_prompt_for_every_member():
     msg, _ = r.post("@全员 早")
     await r.replies(msg["id"], r.pick("@全员 早"))
     systems = {
-        c.messages[0].content.split("能发的东西")[1].split("你的人物卡")[0] for c in env.fake.calls
+        c.messages[0].content.split("能发的东西")[1].split("你的人物卡")[0]
+        for c in env.fake.calls
+        if "能发的东西" in c.messages[0].content  # 说出口前自查的改写调用不算
     }
     assert len(systems) == 1
 

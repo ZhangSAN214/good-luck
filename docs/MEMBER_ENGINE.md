@@ -46,6 +46,17 @@
 - **旧记忆导入**：第一次用半衰期时把旧的分层记忆导入成记忆件（只一次，原文不改）；用户之后记的随手记同时写成事实件，改、删同步。
 - **接口**：`GET /api/chat/memory/{member}/items?q=`（记忆件、挂着的事、习惯、件数、今天还能翻几次）、`GET /api/chat/memory/items/{id}/history`、`PATCH` / `DELETE /api/chat/memory/items/{id}`（用户改原文也留旧版）、`DELETE /api/chat/memory/hanging/{id}`、`GET /api/chat/memory/{member}/diary?q=`（你在网页翻，不占成员次数）。网页在「成员设定与记忆 → 记忆」。
 
+## P5 决定与表达·说话风格（`core/member/voice.py`）
+
+用户 10-29 验收群聊反馈「回复还是没有活人感」，第 3 轮的 P5 提前做「表达」这一半（关系相关的决定等 P4）。**只用于生活群和私聊**：工作群、讨论、协同、办公室、个人作答一概不挂载（`tests/core/member/test_voice.py`、`test_mode.py`）。本插件只读档案，不写任何数据。规则在 `chat.engine.voice`。
+
+- **说话习惯**：从档案 `style.说话风格`（人物卡第⑥章原文）由程序抽出句子长短（短 / 中 / 长 → 一条大约 25 / 45 / 80 字以内）、语气词、口头禅、常用表情、自称和几句示范；不调模型，档案改了跟着变。人物卡写法不统一（加粗列表、一段话、「第一，……」），抽取对这些写法都有测试。
+- **说话模式档位**（借 dsh maid）：外向 ≤2 话少、≥4 话多、其余平常；档位决定「接话」那一行、最多拆几条、拆条间隔倍数（话少的停得久）。幽默分决定表情包频率那一句。用户可以在档案写 `style.说话模式 = quiet / normal / chatty` 直接指定。
+- **进提示词**：chat v5 / chat_dm v5 的 `<voice>` 段，8 位同一个字数上限（`budget_chars` 260），示范句每次按消息编号轮换着带 2 句（只学语气不照抄）；没有档案的成员写「没写：用你自己的说话风格」。v5 同时要求接住对方话里具体的点、可以只回几个字、不先附和再重复、「每人发一个」时别和前面的人挑一样的。
+- **节奏**：`VoicePolicy` 实现 `ActionPolicy`（新增 `voice()` 方法给提示词用），由 `RoundtableService` 赋给 `chats.policy`。
+- **说出口前自查**（程序查，$0）：和自己最近 5 条太像、和别人这一轮说的太像（跟风）、开头附和且后面没几个字（光附和）、口头禅最近 3 条用过、记忆为空却说「上次我们……」（编造回忆）。群里没被点名、只是跟风或光附和的那条**直接不发**；其余命中才用她自己的聊天档模型改写一次（`voice_rewrite` v1，每月上限 $0.05），问题没变少就发原文。之后照常过说话底线（`plain_talk`）。
+- **评测**：题库加 `group` 类 3 题（各发一个表情包、周末干嘛、照头像描述表情包），标 `distinct: true`，两位撞型都算不合格（「8 人回复不雷同」）。
+
 ## 中立
 
 - 所有成员的档案规则（分区权限、锁定）、心跳问的模块、预算份额、上下文预算、评测题目 / 提示词 / 参数 / 判分完全相同，与是哪个模型无关。
@@ -63,7 +74,7 @@
 
 ## 聊天动作的策略（接管口）
 
-聊天里「发不发、什么节奏」的默认值在 `core/chat_actions.DefaultPolicy`（docs/CHAT.md G10）。M7 行为决策 / M8 说话风格 / 心跳做好后，实现 `ActionPolicy` 并赋给 `RoundtableService.chats.policy` 即可接管，不用改聊天和界面；拍一拍会发 `chat.pat` 事件到总线（`member` 是被拍的人，`data = {room, id, actor}`）。
+聊天里「发不发、什么节奏」的默认值在 `core/chat_actions.DefaultPolicy`（docs/CHAT.md G10）；现在由 P5 的 `VoicePolicy` 接管（见下文「说话风格」）。M7 行为决策 / M8 说话风格 / 心跳做好后，实现 `ActionPolicy` 并赋给 `RoundtableService.chats.policy` 即可接管，不用改聊天和界面；拍一拍会发 `chat.pat` 事件到总线（`member` 是被拍的人，`data = {room, id, actor}`）。
 
 ## 存储（迁移 24，只存本地，不进 git）
 

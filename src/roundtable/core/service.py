@@ -94,6 +94,7 @@ from roundtable.core.member.card import (
 )
 from roundtable.core.member.memory import DiaryTool
 from roundtable.core.member.memory.store import query_terms
+from roundtable.core.member.voice import VoicePolicy
 from roundtable.core.members_art import MEMBERS_FILE, load_members, mime_of, resolve_file
 from roundtable.core.memory import LAYERS, MemoryKeeper, clean_memory
 from roundtable.core.moments import SEEN_KEY as MOMENTS_SEEN
@@ -184,6 +185,8 @@ class RoundtableService:
         self._tasks: dict[str, asyncio.Task[None]] = {}
         self._art_names_cache: tuple[int | None, dict[str, str]] | None = None
         self.chats = ChatHub(runtime, names=self._art_names)
+        if runtime.config.roundtable.chat.engine.voice.enabled:  # P5 表达：照人物卡说话风格
+            self.chats.policy = VoicePolicy(runtime)
         self.memory = MemoryKeeper(runtime, self.chats.everyone)
         self.life = LifeEngine(runtime, self.chats, self.memory)
         self.perceiver = Perceiver(runtime, PerceptionCache(runtime.perception_dir))

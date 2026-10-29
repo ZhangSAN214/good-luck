@@ -5,7 +5,8 @@
   参数 ``chat.engine.eval``。**所有成员的题目、提示词、参数、判分规则完全相同**，只有名字和
   她自己的资料不同（中立）。
 - 判分只用规则（``max_chars`` / ``must_any`` / ``must_not_any`` / 题库共用的 ``common_bans``），
-  不调用模型。另算「撞型」：同一道题两位成员的回复太像（字符二元组相似度 ≥ ``clash_similarity``）。
+  不调用模型。另算「撞型」：同一道题两位成员的回复太像（字符二元组相似度 ≥ ``clash_similarity``）；
+  标了 ``distinct`` 的题（「8 人回复不雷同」）撞型的两位都算不合格。
 - 离线：测试里用假模型跑（$0）。真实模型的月度小样本以后接命令行。
 """
 
@@ -43,6 +44,7 @@ class Scenario(_Strict):
     max_chars: int = Field(default=200, ge=10, le=2000)
     must_any: list[str] = Field(default_factory=list)
     must_not_any: list[str] = Field(default_factory=list)
+    distinct: bool = False  # 8 人回复不能雷同：撞型的成员这题算不合格（P5 表达）
 
 
 class EvalSet(_Strict):
@@ -184,6 +186,7 @@ async def run_eval(
                 Answer(subject.member, s.id, s.category, text, judge(s, text, evalset.common_bans))
             )
     clashes = []
+    distinct = {s.id: s.distinct for s in evalset.scenarios}
     by_scenario: dict[str, list[Answer]] = {}
     for a in answers:
         by_scenario.setdefault(a.scenario, []).append(a)
@@ -193,4 +196,7 @@ async def run_eval(
             if sim >= rules.clash_similarity:
                 pair = [a.member, b.member]
                 clashes.append({"scenario": sid, "members": pair, "similarity": sim})
+                if distinct.get(sid):
+                    a.failures.append(f"和 {b.member} 的回复雷同")
+                    b.failures.append(f"和 {a.member} 的回复雷同")
     return EvalReport(answers, clashes)
