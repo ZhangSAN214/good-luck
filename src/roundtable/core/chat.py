@@ -33,7 +33,7 @@ from roundtable.core.chat_actions import (
 )
 from roundtable.core.member.memory.diary import TOOL, DiaryTool
 from roundtable.core.persona import EMPTY, chat_persona
-from roundtable.core.plain_talk import before_speaking, plain_prompt
+from roundtable.core.plain_talk import before_speaking_all, plain_prompt
 from roundtable.core.providers import AllChannelsFailed, Message, NoChannelAvailable, ProviderError
 from roundtable.core.tools.protocol import parse_calls, strip_calls
 
@@ -565,26 +565,37 @@ class GroupChat:
             rt.repo.add_chat_message(self.room, SYSTEM, f"{member.name} 没有回复（{why}）。")
             self.on_change()
             return {}
+        # 说话底线：几条连发的消息合起来查，有问题整段改写一次（改写后条数可能变少）
+        said = await before_speaking_all(
+            rt,
+            [seg.text for seg in parsed.segments],
+            room=self.room,
+            name=member.name,
+            model_id=member.model_id,
+        )
+        if len(said) == len(parsed.segments):
+            bubbles = [(text, seg.quote) for text, seg in zip(said, parsed.segments, strict=True)]
+        else:
+            bubbles = [
+                (text, parsed.segments[0].quote if i == 0 else None) for i, text in enumerate(said)
+            ]
         first: dict[str, Any] = {}
-        for i, seg in enumerate(parsed.segments):
+        for i, (words, quote) in enumerate(bubbles):
             if i:
                 if round_no is not None and self.stale(round_no):
                     break  # 用户又发了消息：还没发出的气泡作废
                 self.typing.append(member.name)
                 self.on_change()
                 try:
-                    await self.sleep(policy.segment_gap(member.id, seg.text))
+                    await self.sleep(policy.segment_gap(member.id, words))
                 finally:
                     self.typing.remove(member.name)
                 if round_no is not None and self.stale(round_no):
                     break
-            words = await before_speaking(
-                rt, seg.text, room=self.room, name=member.name, model_id=member.model_id
-            )
             if not words.strip():
                 continue
             meta: dict[str, Any] = {}
-            row = self.quotable(seg.quote) if seg.quote is not None else None
+            row = self.quotable(quote) if quote is not None else None
             if row is not None:
                 meta["quote"] = quote_meta(row)
             msg = rt.repo.add_chat_message(
