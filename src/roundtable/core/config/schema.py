@@ -1283,6 +1283,24 @@ class RelationWeights(_Strict):
     work: float = Field(default=0.5, ge=0, le=10)  # 一起在办公室干过同一件活（只读工作记录）
 
 
+class InsightRules(_Strict):
+    """P4 关系·对你的见解：每周一次，成员用自己的模型按自己的性格和三观读一遍「关于你」画像，
+    写几句她对你的看法（可以和别人不同、可以不同意你，开头都是「我觉得」）。程序把关：
+    必须引用画像里的条目、不推测敏感领域、不只是复述事实。8 位同一套规则、同一个预算。"""
+
+    enabled: bool = True
+    max_views: int = Field(default=3, ge=1, le=5)  # 每位最多几句
+    view_chars: int = Field(default=40, ge=10, le=120)  # 每句最多几个字
+    facts_max: int = Field(default=20, ge=1, le=60)  # 最多带画像里几条（按把握度）
+    min_facts: int = Field(default=2, ge=1, le=20)  # 画像里少于这么多条（或还没和你说过话）就不想
+    rehash_similarity: float = Field(default=0.75, gt=0, le=1)  # 和所引事实这么像算只是复述
+    context_chars: int = Field(default=100, ge=0, le=300)  # 聊天里带的见解最多几个字（8 位相同）
+    header: str = "我对你的看法（只是我自己的看法，可能不对；说出口时用「我觉得」）："
+    keep_log: int = Field(default=20, ge=1, le=200)  # 每人留最近几周的见解记录
+    max_tokens: int = Field(default=600, ge=64)
+    estimate_usd: float = Field(default=0.001, ge=0)  # 每次调用的预估花费（8 位相同）
+
+
 class RelationRules(_Strict):
     """P4 关系（docs/MEMBER_ENGINE.md「P4 关系」）：和你的阶段、同事之间的亲近度，
     全由程序按真实的共同经历累积，不调用模型。只用于生活模式；只影响生活里谁和谁聊，
@@ -1315,6 +1333,7 @@ class RelationRules(_Strict):
     quiet_format: str = "，有阵子没聊了"
     context_chars: int = Field(default=60, ge=0, le=200)  # 和你那一行最多几个字（8 位相同）
     scene_chars: int = Field(default=80, ge=0, le=300)  # 生活场景里「交情」那一行最多几个字
+    insight: InsightRules = InsightRules()
 
 
 class EngineRules(_Strict):

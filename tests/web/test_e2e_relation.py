@@ -35,3 +35,28 @@ def test_people_dialog_shows_relation_and_clears(serve, page):
     page.click("#pp-rel [data-rclear]")
     page.click("#pp-rel [data-rclear]")
     page.wait_for_selector("#pp-rel .hint >> text=还是新邻居")
+
+
+def prepare_views(env):
+    from ..core.member.test_insight import NOW as MONDAY
+    from ..core.member.test_insight import prepare as insight_prepare
+
+    insight_prepare(env)
+    env.rt.budget.now = lambda: MONDAY
+
+
+def test_people_dialog_thinks_about_you_and_drops_a_view(serve, page):
+    srv = serve(setup=prepare_views)
+    open_chat(srv, page)
+    page.click(".gc-room[data-room='dm:V1']")
+    page.click("#gc-people")
+    page.wait_for_selector("#people[open] #pp-rel [data-rthink]")
+    page.click("#pp-rel [data-rthink]")
+    page.wait_for_selector("#pp-rel [data-rdrop]")
+    text = page.inner_text("#pp-rel")
+    assert "我觉得你挺能熬的，但别太晚睡" in text and "不太同意你" in text
+    assert "从这几条来：「喜欢深夜写代码」" in text
+    assert page.locator("#pp-rel [data-rthink]").count() == 0  # 每周一次
+    page.click("#pp-rel [data-rdrop='0']")
+    page.wait_for_selector("#pp-rel [data-rdrop]")
+    assert "挺能熬" not in page.inner_text("#pp-rel")

@@ -161,6 +161,8 @@ const people = new People($('#people'), {
     growthClear: API.clearMemberGrowth,
     relation: API.memberRelation,
     relationClear: API.clearMemberRelation,
+    relationThink: API.thinkMemberRelation,
+    relationDropView: API.dropMemberView,
   },
 });
 const feeds = new Feeds($('#feeds'), { api: { get: API.chatFeeds, set: API.setChatFeeds, refresh: API.refreshChatFeeds } });

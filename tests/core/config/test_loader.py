@@ -136,6 +136,7 @@ def test_repo_config_loads_with_defaults():
         "member_eval",
         "growth_reflect",
         "growth_review",
+        "relation_insight",
         "plain_talk",
         "plain_rewrite",
         "voice_rewrite",

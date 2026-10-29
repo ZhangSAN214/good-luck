@@ -1,6 +1,7 @@
 // 关系（成员系统 P4）：和你到了哪一步（新邻居 → 熟悉 → 老朋友）、和每位同事有多熟、TA 对同事的看法。
 // 全由程序按真实的共同经历累积（你说话 TA 接了、生活里碰到一起、私下聊天、一起干活），不调模型、不花钱。
 // 只影响生活里谁和谁更常凑一起聊；工作派活不看关系。
+// 另有她对你的见解：每周按她自己的性格读一遍「关于你」画像，写几句「我觉得」（可以和别人不同、可以不同意你）。
 
 const esc = (s) =>
   String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -10,12 +11,13 @@ const day = (s) => (s ? String(s).slice(0, 10) : '');
 
 export class RelationPanel {
   constructor({ api, now = () => Date.now() } = {}) {
-    this.api = api; // {get(id), clear(id)}
+    this.api = api; // {get(id), clear(id), think(id), dropView(id, index)}
     this.now = now;
     this.member = null;
     this.r = null;
     this.msg = '';
     this.armed = 0;
+    this.busy = false;
     this.el = null;
   }
 
@@ -55,6 +57,22 @@ export class RelationPanel {
     return `到「${esc(n.stage)}」：${need.length ? need.join('、') : '快了'}。`;
   }
 
+  // 她对你的见解（每周想一次）
+  views(r) {
+    const rows = (r.views || [])
+      .map(
+        (v) => `<li class="${v.live ? '' : 'rl-gone'}"><div class="pp-mh"><b>${esc(v.text)}</b>${v.agree ? '' : '<span>不太同意你</span>'}${v.live ? '' : '<span>依据被删了，聊天不带</span>'}<button type="button" class="link" data-rdrop="${v.index}">删掉</button></div>${(v.facts_text || []).length ? `<p><small>从这几条来：${v.facts_text.map((t) => `「${esc(t)}」`).join('')}</small></p>` : ''}</li>`,
+      )
+      .join('');
+    const log = (r.views_log || [])[0];
+    const empty = `<li class="hint">${esc(log?.note || '还没想过。每周一会按 TA 自己的性格读一遍「关于你」，写几句「我觉得」。')}</li>`;
+    const can = r.insight_enabled && r.insight_due && r.views_week !== r.insight_due;
+    return `<h4 class="grp-h">TA 对你的看法 <small>${r.views_week ? `上次：${esc(r.views_week)}` : '每周一想一次'}</small></h4>
+      <p class="grp-foot">只是 TA 自己的理解，8 位可以想得不一样，也可以不同意你；聊天时 TA 会说「我觉得」。每句都要从「关于你」里的条目来，那几条被你删了就不再带。</p>
+      <ul class="pp-list grp-box">${rows || empty}</ul>
+      ${can ? `<div class="grp-box grp-acts"><button type="button" class="grp-btn" data-rthink${this.busy ? ' disabled' : ''}>${this.busy ? '正在想…' : `现在想一想 ${esc(r.insight_due)}`}</button></div>` : ''}`;
+  }
+
   render() {
     if (!this.el) return;
     const r = this.r;
@@ -78,11 +96,32 @@ export class RelationPanel {
       <div class="grp-box rl-you">${you}</div>
       <p class="grp-foot">和同事：越熟的越常凑一起聊（生人也会碰到）。工作派活不看关系。</p>
       <ul class="pp-list grp-box">${peers}</ul>
+      ${this.views(r)}
       <div class="grp-box grp-acts"><button type="button" class="grp-btn danger" id="rl-clear" data-rclear>清空 TA 的关系</button></div>
       <p class="hint" role="status">${esc(this.msg)}</p>`;
   }
 
+  async act(fn, done = '') {
+    try {
+      this.r = await fn();
+      this.msg = done;
+    } catch (err) {
+      this.msg = err.message || '出错了';
+    }
+    this.render();
+  }
+
   async onClick(e) {
+    const drop = e.target.closest('[data-rdrop]');
+    if (drop) return this.act(() => this.api.dropView(this.member, Number(drop.dataset.rdrop)), '删掉了');
+    if (e.target.closest('[data-rthink]')) {
+      if (this.busy) return;
+      this.busy = true;
+      this.render();
+      await this.act(() => this.api.think(this.member), '想完了');
+      this.busy = false;
+      return this.render();
+    }
     if (!e.target.closest('[data-rclear]')) return;
     if (this.now() > this.armed) {
       this.armed = this.now() + 5000;

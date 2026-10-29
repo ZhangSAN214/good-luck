@@ -84,6 +84,7 @@ from roundtable.core.export import options as export_choices
 from roundtable.core.growth import GrowthKeeper
 from roundtable.core.hometz import home_zone
 from roundtable.core.ideaboard import Board
+from roundtable.core.insight import InsightKeeper
 from roundtable.core.lan import COOKIE as LAN_COOKIE
 from roundtable.core.lan import LanAccess, is_local, is_remote, qr_svg
 from roundtable.core.life import LIFE_STEPS, LifeEngine
@@ -240,6 +241,9 @@ class RoundtableService:
         # P6 成长：每周一用成员自己的模型反思上一周，程序把关后才写档案；花费计入生活每天的上限
         self.growth = GrowthKeeper(runtime, self.chats.everyone, folder=runtime.growth_dir)
         self.growth.allow = self.life.allowed
+        # P4 关系·对你的见解：和成长同一天，每位按自己的性格读一遍画像；花费计入生活每天的上限
+        self.insight = InsightKeeper(runtime, self.chats.everyone)
+        self.insight.allow = self.life.allowed
         self.calendar = Almanac(runtime, self.chats.everyone)
         self.mail = MailBox(runtime.repo)
         self.mail_ai = MailAI(runtime, self.mail)
@@ -379,6 +383,8 @@ class RoundtableService:
             await self.engine.tick(now)
         with contextlib.suppress(Exception):  # 成长出错不影响生活，下次推进再试
             await self.growth.tick(now)
+        with contextlib.suppress(Exception):  # 见解出错不影响生活，下次推进再试
+            await self.insight.tick(now)
         return out
 
     async def aclose(self) -> None:
@@ -2228,11 +2234,51 @@ class RoundtableService:
         member = self._profile_member(member)
         rel = self.engine.relation
         rules = self.rt.config.roundtable.chat.engine.relation
+        data = rel.data(member)
+        live = {f["id"] for f in self.engine.about.facts()}
+        facts = {f["id"]: f["text"] for f in self.engine.about.facts()}
+        views = [
+            {
+                **v,
+                "index": i,
+                "live": bool(set(v.get("facts") or []) & live),
+                "facts_text": [facts[n] for n in v.get("facts") or [] if n in facts],
+            }
+            for i, v in enumerate(data.get("views") or [])
+        ]
+        due = self.insight.due(self._local_now().date())
         return {
             **rel.summary(member),
             "enabled": rel.enabled(),
             "stages": [s.model_dump() for s in rules.stages],
+            "views": views,
+            "views_week": rel.views_week(member),
+            "views_log": list(reversed(data.get("views_log") or []))[:5],
+            "insight_due": week_id(due) if due else None,
+            "insight_enabled": self.insight.enabled(),
         }
+
+    async def member_relation_insight(self, member: str) -> dict[str, Any]:
+        """马上让她想一次上一周对你的看法（每周一次；已想过返回 409）。"""
+        member = self._profile_member(member)
+        due = self.insight.due(self._local_now().date())
+        if due is None or not self.insight.enabled():
+            raise ServiceError("还没到每周想一想的那天", 409)
+        wid = week_id(due)
+        if self.engine.relation.views_week(member) == wid:
+            raise ServiceError(f"{wid} 已经想过了", 409)
+        m = next(m for m in self.chats.everyone() if m.id == member)
+        got = await self.insight.run(m, wid, today=self._local_now().date())
+        if got is None:
+            raise ServiceError("今天生活的额度不够了，下次再想", 409)
+        return {"result": got, **self.member_relation(member)}
+
+    def member_relation_drop_view(self, member: str, index: int) -> dict[str, Any]:
+        """删掉她的一句见解。"""
+        member = self._profile_member(member)
+        if not self.engine.relation.drop_view(member, index):
+            raise ServiceError("没有这一句", 404)
+        return self.member_relation(member)
 
     def member_relation_clear(self, member: str | None = None) -> dict[str, Any]:
         """清空关系（全部或某一位），从头再按经历累积。"""

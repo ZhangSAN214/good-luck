@@ -1071,6 +1071,16 @@ def create_app(service: RoundtableService | None = None, lan: LanAccess | None =
     async def member_relation(request: Request, member: str) -> dict[str, Any]:
         return svc(request).member_relation(member)
 
+    @app.post("/api/chat/relation/{member}/insight")
+    async def member_relation_insight(request: Request, member: str) -> dict[str, Any]:
+        return await svc(request).member_relation_insight(member)
+
+    @app.delete("/api/chat/relation/{member}/views/{index}")
+    async def member_relation_drop_view(
+        request: Request, member: str, index: int
+    ) -> dict[str, Any]:
+        return svc(request).member_relation_drop_view(member, index)
+
     @app.delete("/api/chat/relation")
     async def member_relation_clear(request: Request, member: str | None = None) -> dict[str, Any]:
         return svc(request).member_relation_clear(member)
