@@ -15,7 +15,7 @@ from .errors import Attempt, UnsupportedCapability
 Role = Literal["system", "user", "assistant"]
 
 
-MediaKind = Literal["image", "audio"]
+MediaKind = Literal["image", "audio", "video"]
 
 
 @dataclass(frozen=True)

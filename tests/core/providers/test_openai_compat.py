@@ -177,7 +177,11 @@ async def test_images_and_audio_as_content_parts():
         seen["body"] = json.loads(request.content)
         return httpx.Response(200, json=ok_body())
 
-    media = (Media("image", "image/png", b"PNGDATA", "a.png"), Media("audio", "audio/mpeg", b"MP3"))
+    media = (
+        Media("image", "image/png", b"PNGDATA", "a.png"),
+        Media("audio", "audio/mpeg", b"MP3"),
+        Media("video", "video/mp4", b"MP4"),
+    )
     msgs = [Message("system", "s"), Message("user", "看图", media)]
     await make(handler).complete("m", msgs, {})
     user = seen["body"]["messages"][1]
@@ -186,6 +190,8 @@ async def test_images_and_audio_as_content_parts():
     assert user["content"][1] == {"type": "image_url", "image_url": {"url": url}}
     audio = {"data": base64.b64encode(b"MP3").decode(), "format": "mp3"}
     assert user["content"][2] == {"type": "input_audio", "input_audio": audio}
+    video = "data:video/mp4;base64," + base64.b64encode(b"MP4").decode()  # 整段视频（video_in）
+    assert user["content"][3] == {"type": "video_url", "video_url": {"url": video}}
     assert seen["body"]["messages"][0] == {"role": "system", "content": "s"}  # 纯文字保持原格式
 
 

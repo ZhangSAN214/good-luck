@@ -669,6 +669,16 @@ def create_app(service: RoundtableService | None = None, lan: LanAccess | None =
             )
         return Response(content=data, media_type=mime, headers=headers)
 
+    @app.post("/api/chat/messages/{message_id}/look", status_code=202)
+    async def chat_look(request: Request, message_id: int, room: str = "main") -> dict[str, Any]:
+        """「细看」：按精细模式重新整理这条消息里的图片 / 视频 / 语音，再请一位成员回应。"""
+        return await svc(request).chat_look(room, message_id)
+
+    @app.delete("/api/perception")
+    async def perception_clear(request: Request) -> dict[str, Any]:
+        """一键清空感官缓存（本机 data/perception/）。"""
+        return svc(request).perception_clear()
+
     @app.post("/api/chat/handoff", status_code=202)
     async def chat_handoff(request: Request, body: HandoffBody) -> dict[str, Any]:
         return svc(request).chat_handoff(body.text)

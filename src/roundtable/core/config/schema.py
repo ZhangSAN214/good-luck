@@ -710,6 +710,23 @@ class ChatBudgetRules(_Strict):
     monthly_usd: float = Field(default=5.0, gt=0)
 
 
+class MemoryLinkRules(_Strict):
+    """联想网（P2，M22 档 1 的记忆部分）：一起出现 / 一起被想起的记忆连得更紧（赫布学习），
+    想起一件时顺着连接想到别的（扩散激活），夜里顺着连接随便走几步（随机游走）。程序算，不调用模型。"""
+
+    enabled: bool = True
+    learn_rate: float = Field(default=0.2, gt=0, le=1)  # 每次一起出现，强度向 1 靠近的比例
+    nightly_decay: float = Field(default=0.02, ge=0, lt=1)  # 每晚所有连接衰减的比例
+    min_weight: float = Field(default=0.05, ge=0, lt=1)  # 低于它的连接删掉
+    max_links: int = Field(default=20, ge=1, le=200)  # 每件记忆最多留几条最强的连接
+    hops: int = Field(default=2, ge=1, le=3)  # 扩散几步
+    spread: float = Field(default=0.5, gt=0, le=1)  # 每走一步激活乘以 强度 × spread
+    seeds: int = Field(default=4, ge=1, le=20)  # 从分数最高的几件开始扩散
+    assoc_max: int = Field(default=1, ge=0, le=5)  # 每次最多多带几件「联想到的」
+    walks: int = Field(default=2, ge=0, le=10)  # 每晚随机游走几次
+    walk_steps: int = Field(default=3, ge=1, le=20)  # 每次走几步
+
+
 class DiaryToolRules(_Strict):
     """翻日记（P2）：生活模式里成员自己翻以前的日记和记忆，每位成员每天有次数上限（所有成员相同）。"""
 
@@ -755,6 +772,7 @@ class MemoryRules(_Strict):
     work_lookback_days: int = Field(default=14, ge=1, le=90)  # 读自己的工作记录往回看几天
     mood_threshold: float = Field(default=0.3, ge=0, le=1)  # 心情偏离中性这么多才改回忆语气
     retell_max: int = Field(default=3, ge=0, le=10)  # 每晚最多改几件旧记忆的语气和重要度
+    links: MemoryLinkRules = MemoryLinkRules()
     diary: DiaryToolRules = DiaryToolRules()
 
 
@@ -815,6 +833,53 @@ class BrowseRules(_Strict):
     max_tokens: int = Field(default=800, ge=64)
     timeout_s: float = Field(default=10, gt=0, le=60)
     max_feed_kb: int = Field(default=1024, ge=16, le=8192)
+
+
+class PerceptionMode(_Strict):
+    """感官的一种精细程度（docs/PERCEPTION.md）：图片缩到多大、视频取几帧、感知卡写多长。"""
+
+    image_side: int = Field(ge=256, le=4096)  # 图片缩到长边不超过这么多像素
+    video_frames: int = Field(ge=1, le=64)  # 视频均匀取几帧（整段交给模型时不用）
+    frame_side: int = Field(ge=128, le=2048)  # 每帧缩到长边不超过这么多像素
+    grid: bool = False  # 每 4 帧拼成一张 2×2 宫格图（看图 token 约为原来的 1/4）
+    native_video: bool = False  # 有带 video_in 标签的模型时，整段视频连声音直接交给它
+    max_tokens: int = Field(ge=64, le=8000)  # 感知卡（一条消息的全部内容合计）的输出上限
+    estimate_usd: float = Field(ge=0)  # 一条消息的预估花费（预算检查用）
+
+
+class PerceptionRules(_Strict):
+    """成员感官（M11 感知，docs/PERCEPTION.md）：把用户发的图片、语音、视频整理成感知卡给成员读。
+
+    快速（默认）先看；用户要求细看时才补精细，转写稿和缓存都复用。花费计入聊天月预算和总预算，
+    另有感官自己的月上限。
+    """
+
+    enabled: bool = True
+    monthly_usd: float = Field(default=1.5, ge=0)  # 感官每月最多花多少（UTC 自然月）
+    fast: PerceptionMode = PerceptionMode(
+        image_side=768,
+        video_frames=8,
+        frame_side=512,
+        grid=True,
+        max_tokens=600,
+        estimate_usd=0.002,
+    )
+    fine: PerceptionMode = PerceptionMode(
+        image_side=1536,
+        video_frames=24,
+        frame_side=768,
+        native_video=True,
+        max_tokens=2000,
+        estimate_usd=0.03,
+    )
+    # 用户在消息里写了这些词时直接用精细模式
+    fine_words: list[str] = Field(
+        default_factory=lambda: ["仔细看", "细看", "看清楚", "看仔细", "仔细听", "听清楚"],
+        max_length=30,
+    )
+    max_audio_s: int = Field(default=600, ge=10, le=3600)  # 语音 / 视频声音最多转写多长
+    native_max_mb: float = Field(default=20, gt=0, le=60)  # 整段视频交给模型的大小上限
+    card_chars: int = Field(default=800, ge=100, le=4000)  # 每张感知卡最多保留多少字
 
 
 class ClipperRules(_Strict):
@@ -1334,6 +1399,7 @@ class RoundtableConfig(_Strict):
     evolution: EvolutionRules = EvolutionRules()
     mail: MailConfig = MailConfig()
     clipper: ClipperRules = ClipperRules()
+    perception: PerceptionRules = PerceptionRules()
 
     @field_validator("prompts")
     @classmethod
