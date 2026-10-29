@@ -41,7 +41,8 @@ def test_engine_context_refuses_work_mode():
 
 
 def test_work_code_never_imports_member_engine():
-    pattern = re.compile(r"roundtable\.core\.member\b|from \.+member\b")
+    # 成员引擎和日历底座（只影响生活）都不进工作模式
+    pattern = re.compile(r"roundtable\.core\.(member|almanac)\b|from \.+(member|almanac)\b")
     for pkg in WORK_PACKAGES:
         for f in (SRC / pkg).rglob("*.py"):
             assert not pattern.search(f.read_text(encoding="utf-8")), f
