@@ -272,10 +272,11 @@ models:
   # 典型 token 数：Gemini 1K×1K ≈ 1290；OpenAI 图像模型 1024×1024 中等质量 ≈ 1056（mini 按其公布的
   # 每张 $0.011 反推为 1375）。输入价格已由用户核对。
   - id: gemini-3.1-flash-image
+    # Nano Banana 2：每张约 $0.067，改图和多轮修改稳定
     vendor: Google
     aliases: [Gemini, Nano Banana]
     seat: false
-    # 实测约 $0.067 / 张，比 gpt-image-2 还贵，所以放在旗舰档（节电模式默认只用 gpt-image-1-mini）
+    # 实测约 $0.067 / 张，比 gpt-image-2 还贵，所以放在旗舰档（节电档只放每张 ≤ $0.02 的）
     tier: flagship
     price: {input: 0.50, output: 60.0}
     image_tokens: 1290
@@ -287,6 +288,7 @@ models:
         model: google/gemini-3.1-flash-image
         params: {modalities: [image, text]}
   - id: gpt-image-1-mini
+    # 每张约 $0.011；便宜、出图快，质量够日常插图
     vendor: OpenAI
     aliases: [GPT Image 1 Mini]
     seat: false
@@ -300,6 +302,7 @@ models:
       - channel: openrouter
         model: openai/gpt-image-1-mini
   - id: gpt-image-2
+    # 中等质量每张约 $0.03；构图和文字渲染好
     vendor: OpenAI
     aliases: [GPT Image 2]
     seat: false
@@ -312,6 +315,145 @@ models:
     routes:
       - channel: openrouter
         model: openai/gpt-image-2
+  # --- 2026-10-29 用户要求：OpenRouter 上的绘图模型全部加入（每个配一句说明）---
+  # ID 与价格来自 OpenRouter 公开页面（2026-10-29），云端连不上模型列表、尚未用 check_models.py 实测；
+  # image_api 按「输出里带不带文字」推断（带文字 → chat，只出图 → images），实测不通时改这一项即可。
+  # 节电档只放每张 ≤ $0.02 的；其余放旗舰档。同档内随机选，实际费用以渠道返回为准。
+  - id: muse-image
+    # 每张 $0.01，全场最便宜；支持参考图、局部修改和多图合成，排行前 10
+    vendor: Meta Platforms
+    aliases: [Muse Image, Meta AI]
+    seat: false
+    tier: budget
+    media_price: {unit: image, usd: 0.01}
+    tags: [image_gen, image_edit]
+    image_api: images
+    enabled: true
+    routes:
+      - {channel: openrouter, model: meta/muse-image}
+  - id: seedream-5.0-flash
+    # 每张约 $0.018；中文提示词理解好，可编辑
+    vendor: ByteDance
+    aliases: [Seedream, 豆包, 即梦, 字节跳动]
+    seat: false
+    tier: budget
+    media_price: {unit: image, usd: 0.018}
+    tags: [image_gen, image_edit, zh]
+    image_api: images
+    enabled: true
+    routes:
+      - {channel: openrouter, model: bytedance-seed/seedream-5-0-flash}
+  - id: seedream-4.5
+    # 每张 $0.04（不论尺寸）；上一代，多图合成与编辑一致性好
+    vendor: ByteDance
+    aliases: [Seedream, 豆包, 即梦, 字节跳动]
+    seat: false
+    tier: flagship
+    media_price: {unit: image, usd: 0.04}
+    tags: [image_gen, image_edit, zh]
+    image_api: images
+    enabled: true
+    routes:
+      - {channel: openrouter, model: bytedance-seed/seedream-4.5}
+  - id: gemini-nano-banana-2.1
+    # 1K 每张约 $0.034；局部改图（蒙版 / 涂抹）、人物前后一致，可出 2K / 4K
+    vendor: Google
+    aliases: [Gemini, Nano Banana]
+    seat: false
+    tier: flagship
+    price: {input: 1.5, output: 30.0}
+    image_tokens: 1120
+    tags: [image_gen, image_edit, vision]
+    image_api: chat
+    enabled: true
+    routes:
+      - channel: openrouter
+        model: google/gemini-nano-banana-2.1
+        params: {modalities: [image, text]}
+  - id: gemini-3.1-flash-lite-image
+    # 1K 每张约 $0.034；Nano Banana 2 的轻量版，14 种画幅，支持多图合成
+    vendor: Google
+    aliases: [Gemini, Nano Banana]
+    seat: false
+    tier: flagship
+    price: {input: 0.25, output: 30.0}
+    image_tokens: 1120
+    tags: [image_gen, image_edit, vision]
+    image_api: chat
+    enabled: true
+    routes:
+      - channel: openrouter
+        model: google/gemini-3.1-flash-lite-image
+        params: {modalities: [image, text]}
+  - id: gemini-2.5-flash-image
+    # 每张约 $0.039；初代 Nano Banana，多轮对话式改图，稳定
+    vendor: Google
+    aliases: [Gemini, Nano Banana]
+    seat: false
+    tier: flagship
+    price: {input: 0.30, output: 30.0}
+    image_tokens: 1290
+    tags: [image_gen, image_edit, vision]
+    image_api: chat
+    enabled: true
+    routes:
+      - channel: openrouter
+        model: google/gemini-2.5-flash-image
+        params: {modalities: [image, text]}
+  - id: gpt-image-2.5-sunburst
+    # 中等质量每张约 $0.03（高质量约 $0.21）；当前绘图排行第一，图中文字最清楚
+    vendor: OpenAI
+    aliases: [GPT Image 2.5, Sunburst]
+    seat: false
+    tier: flagship
+    price: {input: 8.0, output: 30.0}
+    image_tokens: 1056
+    tags: [image_gen, image_edit]
+    image_api: images
+    enabled: true
+    routes:
+      - {channel: openrouter, model: openai/gpt-image-2.5-sunburst}
+  - id: gpt-image-2.5-flare
+    # 中等质量每张约 $0.03；GPT Image 2.5 的另一版本，风格更鲜艳（以实测为准）
+    vendor: OpenAI
+    aliases: [GPT Image 2.5, Flare]
+    seat: false
+    tier: flagship
+    price: {input: 8.0, output: 30.0}
+    image_tokens: 1056
+    tags: [image_gen, image_edit]
+    image_api: images
+    enabled: true
+    routes:
+      - {channel: openrouter, model: openai/gpt-image-2.5-flare}
+  - id: gpt-5.4-image-2
+    # 每张约 $0.03 起（会先思考，token 多时更贵）；对话模型直接出图，适合复杂构图说明
+    vendor: OpenAI
+    aliases: [GPT-5.4 Image, GPT]
+    seat: false
+    tier: flagship
+    price: {input: 8.0, output: 30.0}
+    image_tokens: 1056
+    tags: [image_gen, image_edit, vision]
+    image_api: chat
+    enabled: true
+    routes:
+      - channel: openrouter
+        model: openai/gpt-5.4-image-2
+        params: {modalities: [image, text]}
+  - id: hy-image-3.5
+    # 预览版，$1.6 / 百万 token（每张的 token 数待实测，先按 4096 估约 $0.007）；一次最多 20 张参考图，可出 4K
+    vendor: Tencent
+    aliases: [混元, Hunyuan, 腾讯混元, Hy Image]
+    seat: false
+    tier: flagship
+    price: {input: 1.6, output: 1.6}
+    image_tokens: 4096
+    tags: [image_gen, image_edit, vision, zh]
+    image_api: images
+    enabled: true
+    routes:
+      - {channel: openrouter, model: tencent/hy-image-v3.5-preview}
   # --- 语音转文字（上传音频的转写；优先于带 transcribe 标签的对话模型）---
   - id: whisper-large-v3-turbo
     vendor: OpenAI
