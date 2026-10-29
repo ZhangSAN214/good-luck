@@ -16,6 +16,7 @@ from roundtable.core.catalog import Fetch, ModelCatalog
 from roundtable.core.changelog import CHANGELOG_FILE
 from roundtable.core.config import AppConfig, load_config
 from roundtable.core.config.loader import DEFAULT_CONFIG_DIR
+from roundtable.core.model_directory import ModelDirectory
 from roundtable.core.plugin_board import BOARD_FILE
 from roundtable.core.prompts import PromptLibrary
 from roundtable.core.providers import ChannelRouter, KeyRing, Provider, build_providers
@@ -35,6 +36,8 @@ DEFAULT_STANDEE_FILE = PROJECT_ROOT / "data" / "avatars" / "standee.json"
 STANDEE_ENV = "ROUNDTABLE_STANDEE_FILE"
 # 人才市场的最近结果（放在数据库旁边，不进 git）
 CATALOG_FILE = "model_candidates.json"
+# 模型图鉴（聚合渠道上的全部模型，分类展示；放在数据库旁边，不进 git）
+DIRECTORY_FILE = "model_directory.json"
 # 革新例会的资料卡与采纳单（放在数据库旁边，不进 git）
 EVOLUTION_DIR = "evolution"
 # 邮件栏专用浏览器的配置目录（登录状态在里面；放在数据库旁边，不进 git）
@@ -74,6 +77,8 @@ class Runtime:
     standee_file: Path | None = None
     # 模型人才市场（只提示，不改配置）；为空时不提供
     catalog: ModelCatalog | None = None
+    # 模型图鉴（只浏览，不上桌、不改配置）；为空时不提供
+    directory: ModelDirectory | None = None
     # 革新例会的资料卡收件箱与采纳单所在目录（数据库旁边的 evolution/）；为空表示不可用
     evolution_dir: Path | None = None
     # 插件榜数据文件（自我学习革新调研过的插件，只读展示）；测试中可换成临时文件
@@ -182,6 +187,11 @@ class Runtime:
             catalog=ModelCatalog(
                 config,
                 None if str(db_path) == ":memory:" else Path(db_path).parent / CATALOG_FILE,
+                catalog_fetch,
+            ),
+            directory=ModelDirectory(
+                config,
+                None if str(db_path) == ":memory:" else Path(db_path).parent / DIRECTORY_FILE,
                 catalog_fetch,
             ),
             evolution_dir=Path(evolution_dir) if evolution_dir is not None else None,
