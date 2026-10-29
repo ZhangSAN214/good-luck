@@ -3,6 +3,7 @@
 
 import { AboutPanel } from './about.js';
 import { GrowthPanel } from './growth.js';
+import { RelationPanel } from './relation.js';
 import { ProfilePanel } from './profile.js';
 
 const esc = (s) =>
@@ -61,6 +62,7 @@ export class People {
     this.growth = api?.growth
       ? new GrowthPanel({ now, api: { get: api.growth, run: api.growthRun, revert: api.growthRevert, clear: api.growthClear } })
       : null;
+    this.relation = api?.relation ? new RelationPanel({ now, api: { get: api.relation, clear: api.relationClear } }) : null;
     this.dlg.addEventListener('click', (e) => this.onClick(e));
     this.dlg.addEventListener('submit', (e) => this.onSubmit(e));
   }
@@ -239,7 +241,8 @@ export class People {
           ${this.mindHtml()}
           <div class="grp-box grp-acts"><button type="button" class="grp-btn" data-tidy>现在整理</button><button type="button" class="grp-btn danger" id="pp-clear-one" data-clear="one">清空 TA 的记忆</button><button type="button" class="grp-btn danger" id="pp-clear-all" data-clear="all">清空全部成员的记忆</button></div>
         </section>
-        ${this.growth ? '<section class="pp-grow grp" id="pp-grow" aria-label="成长"></section>' : ''}`
+        ${this.growth ? '<section class="pp-grow grp" id="pp-grow" aria-label="成长"></section>' : ''}
+        ${this.relation ? '<section class="pp-rel grp" id="pp-rel" aria-label="关系"></section>' : ''}`
             : '<p class="hint">没有成员。</p>'
         }
         <p class="hint pp-msg" role="status">${esc(this.msg)}</p>
@@ -250,6 +253,8 @@ export class People {
     if (about) this.about.mount(about);
     const grow = this.dlg.querySelector('#pp-grow');
     if (grow && m) this.growth.mount(grow, m.id);
+    const rel = this.dlg.querySelector('#pp-rel');
+    if (rel && m) this.relation.mount(rel, m.id);
   }
 
   async listen() {

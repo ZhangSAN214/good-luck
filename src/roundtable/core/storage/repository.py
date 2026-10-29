@@ -41,6 +41,8 @@ class NotFound(LookupError):
 STATE_KEY = "member_state:"  # 成员状态（P3）在 app_settings 里的键前缀
 ABOUT_KEY = "about_you:"  # 关于你（P8）在 app_settings 里的键前缀：画像、开关
 GROWTH_KEY = "member_growth:"  # 成员成长（P6）在 app_settings 里的键前缀
+RELATION_KEY = "member_relation:"  # 成员关系（P4）在 app_settings 里的键前缀
+RELATION_TRACKER = "relation.tracker"  # 关系插件认「一来一回」用的房间游标（P4）
 
 
 def iso(moment: datetime) -> str:
@@ -1991,6 +1993,38 @@ class Repository:
                 "DELETE FROM app_settings WHERE key LIKE ?", (GROWTH_KEY + "%",)
             ).rowcount
         return self._exec("DELETE FROM app_settings WHERE key = ?", (GROWTH_KEY + member,)).rowcount
+
+    # --- 成员关系（P4；app_settings 的 member_relation:<成员> 键，只有 member/relation.py 写）
+
+    def relation_data(self, member: str) -> dict[str, Any] | None:
+        value = self.setting(RELATION_KEY + member)
+        return None if value is None else json.loads(value)
+
+    def save_relation_data(self, member: str, data: dict[str, Any]) -> None:
+        self.set_setting(RELATION_KEY + member, json.dumps(data, ensure_ascii=False))
+
+    def relation_members(self) -> list[str]:
+        rows = self._exec(
+            "SELECT key FROM app_settings WHERE key LIKE ? ORDER BY key", (RELATION_KEY + "%",)
+        ).fetchall()
+        return [r["key"][len(RELATION_KEY) :] for r in rows]
+
+    def relation_tracker(self) -> dict[str, Any]:
+        value = self.setting(RELATION_TRACKER)
+        return {} if value is None else json.loads(value)
+
+    def save_relation_tracker(self, data: dict[str, Any]) -> None:
+        self.set_setting(RELATION_TRACKER, json.dumps(data, ensure_ascii=False))
+
+    def clear_relation_data(self, member: str | None = None) -> int:
+        if member is None:
+            self._exec("DELETE FROM app_settings WHERE key = ?", (RELATION_TRACKER,))
+            return self._exec(
+                "DELETE FROM app_settings WHERE key LIKE ?", (RELATION_KEY + "%",)
+            ).rowcount
+        return self._exec(
+            "DELETE FROM app_settings WHERE key = ?", (RELATION_KEY + member,)
+        ).rowcount
 
     def spent_in_steps(
         self, workflow: str, steps: Sequence[str], start: datetime, end: datetime

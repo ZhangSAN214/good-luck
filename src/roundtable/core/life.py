@@ -26,6 +26,7 @@ from roundtable.core.budget.guard import day_window as utc_day_window
 from roundtable.core.chat import ROOM, ChatHub, ChatMember, call_member, clean_reply, member_memory
 from roundtable.core.chat_work import short_title
 from roundtable.core.life_guard import LifeGuard
+from roundtable.core.member.relation import RelationPlugin
 from roundtable.core.member.voice import Said, before_voice, recent_words, voice_for
 from roundtable.core.memory import MemoryKeeper
 from roundtable.core.moments import MOMENT_STEP, NOTHING, Moments
@@ -104,6 +105,8 @@ class LifeEngine:
         if not members:
             return []
         names = {m.id: m.name for m in members}
+        relation = RelationPlugin(self.rt, names=lambda: names)
+        weights = self._weights(relation, list(names), end)
         slot = start.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
         plans: list[Plan] = []
         while slot <= end:
@@ -124,7 +127,7 @@ class LifeEngine:
                 at = slot + timedelta(minutes=rng.randrange(5, 50))
                 if len(ids) >= 2 and act in GATHER:
                     rng.shuffle(ids)
-                    group = ids[:3]
+                    group = self._closest(ids, 3, weights, rng)
                     done = [f"{names[i]} 今天办了{'、'.join(work[i])}" for i in group if i in work]
                     plans.append(
                         Plan(
@@ -143,7 +146,7 @@ class LifeEngine:
                         plans.append(Plan(at, "solo", place, [i], acts[i]))
             awake = [m.id for m in members if acts[m.id] != "sleep"]
             if 18 <= slot.hour < 23 and len(awake) >= 2 and rng.random() < self.rules.pair_chance:
-                a, b = rng.sample(awake, 2)
+                a, b = self._pair(awake, weights, rng)
                 done = [f"{names[i]} 今天办了{'、'.join(work[i])}" for i in (a, b) if i in work]
                 plans.append(
                     Plan(
@@ -160,7 +163,47 @@ class LifeEngine:
             slot += timedelta(hours=1)
         for p in plans:
             p.topic = self.scene(p, names)
+            if weights and p.kind != "solo":
+                bond = relation.scene_line(p.members, end)
+                if bond:
+                    p.topic += f"\n{bond}"
         return plans
+
+    # --- 关系（P4）：谁和谁更常聊 ------------------------------------------------------
+
+    @staticmethod
+    def _weights(
+        relation: RelationPlugin, ids: list[str], at: datetime
+    ) -> dict[tuple[str, str], float]:
+        """两两之间挑人的权重（1 + 偏向 × 亲近度）；谁和谁都没来往过时为空（照旧均匀随机）。"""
+        out = {(a, b): relation.weight(a, b, at) for a in ids for b in ids if a != b}
+        return out if any(w > 1 for w in out.values()) else {}
+
+    @staticmethod
+    def _closest(
+        ids: list[str], k: int, weights: dict[tuple[str, str], float], rng: random.Random
+    ) -> list[str]:
+        """从打乱后的 ids 里挑 k 位：第一位随机，其余按和已选的人的亲近度加权抽（不放回）。"""
+        if len(ids) <= k or not weights:
+            return ids[:k]
+        group, pool = ids[:1], ids[1:]
+        while len(group) < k:
+            w = [sum(weights[(g, c)] for g in group) / len(group) for c in pool]
+            pick = rng.choices(pool, w)[0]
+            group.append(pick)
+            pool.remove(pick)
+        return group
+
+    @staticmethod
+    def _pair(
+        awake: list[str], weights: dict[tuple[str, str], float], rng: random.Random
+    ) -> tuple[str, str]:
+        if not weights:
+            a, b = rng.sample(awake, 2)
+            return a, b
+        a = rng.choice(awake)
+        others = [x for x in awake if x != a]
+        return a, rng.choices(others, [weights[(a, x)] for x in others])[0]
 
     def scene(self, p: Plan, names: dict[str, str]) -> str:
         place = "私聊" if p.kind == "pair" else self.place_name(p.place)

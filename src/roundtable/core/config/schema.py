@@ -1269,6 +1269,60 @@ class GrowthRules(_Strict):
     estimate_usd: float = Field(default=0.002, ge=0)  # 每次调用的预估花费（8 位相同）
 
 
+class RelationStage(_Strict):
+    """和你的一个阶段：一起聊过的天数、来回次数、从认识到现在跨的周数都够了才到这一阶段。"""
+
+    name: str = Field(min_length=1, max_length=10)
+    min_days: int = Field(default=0, ge=0, le=3650)
+    min_exchanges: int = Field(default=0, ge=0, le=100000)
+    min_weeks: int = Field(default=0, ge=0, le=520)
+
+
+class RelationWeights(_Strict):
+    """每种共同经历记几分（所有成员相同）。"""
+
+    dm: float = Field(default=1.0, ge=0, le=10)  # 你私聊她，她回了
+    group: float = Field(default=0.5, ge=0, le=10)  # 群里你说话，她接了
+    gather: float = Field(default=1.0, ge=0, le=10)  # 生活里碰到一起（吃饭、锻炼……）
+    pair: float = Field(default=2.0, ge=0, le=10)  # 生活里两人私下聊天
+    chat: float = Field(default=0.3, ge=0, le=10)  # 生活群 / 私聊里一来一回
+    work: float = Field(default=0.5, ge=0, le=10)  # 一起在办公室干过同一件活（只读工作记录）
+
+
+class RelationRules(_Strict):
+    """P4 关系（docs/MEMBER_ENGINE.md「P4 关系」）：和你的阶段、同事之间的亲近度，
+    全由程序按真实的共同经历累积，不调用模型。只用于生活模式；只影响生活里谁和谁聊，
+    不影响工作派活。8 位规则相同。"""
+
+    enabled: bool = True
+    half_life_days: float = Field(default=60.0, gt=0, le=3650)  # 亲近度多久不来往淡一半
+    # 亲近度 = 1 − e^(−分数 / scale)：和你按 user_scale，同事之间按 scale
+    scale: float = Field(default=12.0, gt=0, le=1000)
+    user_scale: float = Field(default=40.0, gt=0, le=1000)
+    reply_window_minutes: int = Field(default=30, ge=1, le=1440)  # 多久以内接话算一来一回
+    user_daily_cap: float = Field(default=6.0, ge=0, le=100)  # 和你每天最多记几分（刷不出老朋友）
+    peer_daily_cap: float = Field(default=4.0, ge=0, le=100)  # 两位同事之间每天最多记几分
+    weights: RelationWeights = RelationWeights()
+    stages: list[RelationStage] = Field(
+        default_factory=lambda: [
+            RelationStage(name="新邻居"),
+            RelationStage(name="熟悉", min_days=3, min_exchanges=15),
+            RelationStage(name="老朋友", min_days=20, min_exchanges=150, min_weeks=6),
+        ],
+        min_length=1,
+    )
+    quiet_days: int = Field(default=14, ge=1, le=365)  # 多少天没来往算「有阵子没聊了」
+    # 同事之间的亲近度标签：(下限, 标签)，从高到低，取第一个 ≥ 下限的
+    peer_labels: list[tuple[float, str]] = Field(
+        default_factory=lambda: [(0.6, "走得近"), (0.3, "挺熟"), (0.1, "点头之交"), (0.0, "不太熟")]
+    )
+    pair_bias: float = Field(default=2.0, ge=0, le=20)  # 生活里挑谁和谁聊：权重 = 1 + 它 × 亲近度
+    line_format: str = "和你（程序按一起经历的事算的，别直接念）：{stage}，认识第 {known} 天{quiet}"
+    quiet_format: str = "，有阵子没聊了"
+    context_chars: int = Field(default=60, ge=0, le=200)  # 和你那一行最多几个字（8 位相同）
+    scene_chars: int = Field(default=80, ge=0, le=300)  # 生活场景里「交情」那一行最多几个字
+
+
 class EngineRules(_Strict):
     """成员引擎（docs/MEMBER_ENGINE.md）：只用于聊天、朋友圈、生活；工作模式不读取。"""
 
@@ -1284,6 +1338,7 @@ class EngineRules(_Strict):
     voice: VoiceRules = VoiceRules()
     about: AboutRules = AboutRules()
     growth: GrowthRules = GrowthRules()
+    relation: RelationRules = RelationRules()
 
 
 class WanderSite(_Strict):
