@@ -42,6 +42,7 @@ import { Moments } from './moments.js';
 import { BootSettings } from './bootcfg.js';
 import { LanPanel } from './lan.js';
 import { Watch } from './watch.js';
+import { Wander } from './wander.js';
 import { Hub } from './hub.js';
 import { Standee } from './standee.js';
 import { Music } from './music.js';
@@ -168,6 +169,15 @@ new Watch($('#watchdlg'), $('#watchbtn'), {
     members: () => API.api('/api/chat?after=2147483647'),
   },
 });
+new Wander($('#wanderdlg'), $('#wanderbtn'), {
+  api: {
+    status: API.wanderStatus,
+    start: API.wanderStart,
+    stop: API.wanderStop,
+    log: API.wanderLog,
+    frameUrl: API.wanderFrameUrl,
+  },
+});
 $('#skin').addEventListener('click', () => {
   const next = document.documentElement.dataset.skin === 'ark' ? 'classic' : 'ark';
   document.documentElement.dataset.skin = next;
@@ -204,7 +214,7 @@ const gchat = new GroupChat($('#gchat'), {
   openPeople: (member) => people.open(member),
   openFeeds: () => feeds.open(),
   openMoments: (author) => moments.open(author),
-  api: { get: API.getChat, post: API.postChat, pat: API.patChat, recall: API.recallChat, clear: API.clearChat, rooms: API.getChatRooms, handoff: API.chatHandoff, lifeReports: API.lifeReports, look: API.chatLook },
+  api: { get: API.getChat, post: API.postChat, pat: API.patChat, recall: API.recallChat, forward: API.forwardChat, clear: API.clearChat, rooms: API.getChatRooms, handoff: API.chatHandoff, lifeReports: API.lifeReports, look: API.chatLook },
   openSession: async (sid) => {
     await setEntry('work');
     await open(sid);

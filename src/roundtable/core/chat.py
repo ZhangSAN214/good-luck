@@ -26,6 +26,8 @@ from roundtable.core.budget.guard import EPS, month_window
 from roundtable.core.chat_actions import (
     ActionPolicy,
     DefaultPolicy,
+    card_text,
+    clean_card,
     is_recalled,
     parse,
     quote_meta,
@@ -57,7 +59,7 @@ EVERYONE_WORDS = (
 )
 USER_LABEL = "用户"
 # 不在群聊列表里、不能从群聊发言的会话（投屏陪伴「一起看」有自己的面板，docs/WATCH.md）
-HIDDEN_KINDS = frozenset({"watch"})
+HIDDEN_KINDS = frozenset({"watch", "wander"})
 # 会话类型 → 提示词角色（roundtable.yaml 的 prompts）
 PROMPT_ROLES = {"group": "chat", "work": "chat_work", "dm": "chat_dm"}
 # 能翻日记的会话（生活模式的私聊和生活群；工作群不带）
@@ -263,8 +265,13 @@ class GroupChat:
         if info is None:
             raise KeyError(room)
         self.kind: str = info["kind"]
-        self.title: str = info["title"]
+        self._title: str = info["title"]
         self.member_ids: list[str] = info["members"]
+
+    @property
+    def title(self) -> str:
+        names = {m.id: m.name for m in self.everyone()}
+        return live_title(self.kind, self.member_ids, self._title, names)
 
     @property
     def rules(self) -> Any:
@@ -325,7 +332,11 @@ class GroupChat:
             else:
                 quote = meta.get("quote")
                 reply = f"（回复 #{quote['id']}）" if quote else ""
-                lines.append(f"#{r['id']} {who}{reply}：{r['text']}")
+                text = r["text"]
+                card = meta.get("card")
+                if card and card_text(card) not in text:
+                    text = f"{text} {card_text(card)}".strip()
+                lines.append(f"#{r['id']} {who}{reply}：{text}")
             cards = meta.get("perception")
             if cards:  # 感官整理出的感知卡：成员「看到 / 听到」的内容
                 from roundtable.core.perception import media_block  # perception 依赖本模块
@@ -366,6 +377,48 @@ class GroupChat:
         self.round += 1
         msg = self.rt.repo.add_chat_message(self.room, USER, text, meta=meta or None)
         return msg, self.pick(text)
+
+    def send_as(
+        self,
+        member: str,
+        text: str = "",
+        *,
+        media: list[dict[str, Any]] | None = None,
+        card: dict[str, Any] | None = None,
+        meta: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """接入口：以成员身份发一条（转发卡片、生成的图片 / 动图 / 自制表情包）。
+
+        什么时候发由成员系统决定；这里只负责存成和别的消息一样的格式。media 用
+        ``chat_actions.generated_item`` 生成；card 用 ``chat_actions.card_from_item`` 等生成。
+        成员不在这个会话里、或什么都没有时抛 ValueError。不调用模型、不花钱。
+        """
+        if member not in {m.id for m in self.members()}:
+            raise ValueError("这位成员不在这个会话里")
+        meta = dict(meta or {})
+        words = text.strip()
+        if card is not None:
+            checked = clean_card(card)
+            if checked is None:
+                raise ValueError("卡片的网址不对")
+            meta["card"] = checked
+        if media:
+            meta["media"] = list(media)
+            if not words:
+                meta["auto_text"] = True
+            else:
+                meta["caption"] = words
+        shown = words
+        if media:
+            tag = " ".join("[表情]" if it.get("sticker") else "[图片]" for it in media)
+            shown = f"{words}\n{tag}".strip()
+        if not shown and "card" in meta:
+            shown = card_text(meta["card"])
+        if not shown:
+            raise ValueError("没有要发的内容")
+        msg = self.rt.repo.add_chat_message(self.room, member, shown, meta=meta or None)
+        self.on_change()
+        return msg
 
     def stale(self, round_no: int) -> bool:
         return self.round != round_no and self.policy().drop_stale(self.kind)
@@ -596,6 +649,13 @@ class GroupChat:
         return first
 
 
+def live_title(kind: str, members: list[str], stored: str, names: dict[str, str]) -> str:
+    """双人房的标题按成员现在的名字拼（改名后跟着变）；其他会话用建房时存的标题。"""
+    if kind == "pair" and members and all(m in names for m in members):
+        return " 和 ".join(names[m] for m in members)
+    return stored
+
+
 class ChatHub:
     """全部会话：默认的生活群、工作群，以及按需建立的私聊。每个会话一个 GroupChat。"""
 
@@ -654,9 +714,11 @@ class ChatHub:
         names = {m.id: m.name for m in self.everyone()} | {USER: "我", SYSTEM: "系统"}
         stored = {r["id"]: r for r in self.rt.repo.chat_rooms()}
         out = []
+        member_names = {m.id: m.name for m in self.everyone()}
         for r in stored.values():
             if r["kind"] != "dm" and r["kind"] not in HIDDEN_KINDS:
-                out.append(r)
+                title = live_title(r["kind"], r["members"], r["title"], member_names)
+                out.append({**r, "title": title})
         for m in self.everyone():
             rid = dm_room(m.id)
             r = stored.get(rid) or {

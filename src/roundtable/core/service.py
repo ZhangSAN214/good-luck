@@ -32,6 +32,8 @@ from roundtable.core.budget.guard import day_window, month_window
 from roundtable.core.carry import carry_question, compact
 from roundtable.core.changelog import changelog_view, load_changelog
 from roundtable.core.chat import ROOM, WORK, ChatHub, chat_budget
+from roundtable.core.chat_actions import card_from_url, is_bare_url
+from roundtable.core.chat_actions import card_text as chat_card_text
 from roundtable.core.chat_media import MAX_BYTES as CHAT_MEDIA_MAX
 from roundtable.core.chat_media import ChatMediaStore, MediaError, clean_items, placeholder
 from roundtable.core.chat_work import WORK_EVENTS, post_handoff, post_office_event
@@ -127,7 +129,7 @@ from roundtable.core.routing import (
     detect_multi_media,
     preview_estimates,
 )
-from roundtable.core.runtime import PROJECT_ROOT, Runtime, data_dir
+from roundtable.core.runtime import PROJECT_ROOT, WANDER_DIR, Runtime, data_dir
 from roundtable.core.screen import AdbSource, PcSource, ScreenWatch
 from roundtable.core.search import SearchUnavailable
 from roundtable.core.standee import load_standee
@@ -135,6 +137,7 @@ from roundtable.core.standee import standee_file as read_standee_file
 from roundtable.core.steps import Event, restore_state
 from roundtable.core.steps.office import group_estimates
 from roundtable.core.storage import NotFound
+from roundtable.core.wander import Wanderer
 
 log = logging.getLogger(__name__)
 
@@ -175,6 +178,10 @@ class ServiceError(ValueError):
         self.status = status
 
 
+# 转发时带过去的附加信息（图片、卡片、表情包说明文字）
+FORWARD_KEYS = ("media", "caption", "auto_text", "card", "perception")
+
+
 class RoundtableService:
     def __init__(self, runtime: Runtime) -> None:
         self.rt = runtime
@@ -210,6 +217,15 @@ class RoundtableService:
             else {"pc": PcSource(), "android": AdbSource(watch_rules.adb)},
             publish=self.engine.bus.publish,
         )
+        base = runtime.mail_dir.parent if runtime.mail_dir is not None else data_dir()
+        self.wander = Wanderer(
+            runtime,
+            self.chats,
+            self.life.allowed,
+            profiles=base / WANDER_DIR,
+            publish=self.engine.bus.publish,
+        )
+        self.engine.heartbeat.register("wander", self.wander.want)
         self._chat_tasks: set[asyncio.Task[Any]] = set()
         self._life_task: asyncio.Task[None] | None = None
         self._evolution_task: asyncio.Task[None] | None = None
@@ -265,6 +281,7 @@ class RoundtableService:
 
     async def aclose(self) -> None:
         self.watch.stop("服务关闭，投屏停了")
+        await self.wander.aclose()
         tasks = [*self._tasks.values(), *self._chat_tasks]
         tasks += [t for t in (self._life_task, self._evolution_task) if t is not None]
         for task in tasks:
@@ -523,6 +540,30 @@ class RoundtableService:
         except OSError:
             raise ServiceError("scrcpy 启动失败") from None
         return {"started": True}
+
+    # --- 成员自己上网 ---------------------------------------------------------------------
+
+    def wander_status(self) -> dict[str, Any]:
+        return self.wander.status()
+
+    def wander_start(self, member: str, site: str | None = None) -> dict[str, Any]:
+        try:
+            self.wander.start(member, site or None)
+        except ValueError as e:
+            raise ServiceError(str(e)) from None
+        return self.wander.status()
+
+    def wander_stop(self) -> dict[str, Any]:
+        self.wander.stop()
+        return self.wander.status()
+
+    def wander_log(self, member: str, after: int = 0) -> list[dict[str, Any]]:
+        if member not in {m.id for m in self.chats.everyone()}:
+            raise ServiceError("没有这位成员")
+        return self.wander.log(member, after)
+
+    def wander_frame(self) -> bytes | None:
+        return self.wander.frame()
 
     def _covers_dir(self) -> Path | None:
         sf = self.rt.standee_file
@@ -1082,6 +1123,10 @@ class RoundtableService:
         text, meta = self._media_meta(text, media)
         if not text:
             raise ServiceError("消息不能为空")
+        if meta is None and is_bare_url(text):  # 只发了一个链接：显示成卡片
+            hosts = self.rt.config.roundtable.chat.actions.video_hosts
+            card = card_from_url(text, hosts, self.rt.repo.web_item_by_url(text))
+            text, meta = chat_card_text(card), {"card": card}
         try:
             msg, speakers = chat.post(text, meta, quote)
         except ValueError as exc:
@@ -1192,6 +1237,24 @@ class RoundtableService:
             chat.round += 1  # 拍一拍也算新的一轮：上一轮还没发出的按策略作废
         self._chat_replies(chat, msg["id"], speakers)
         return {"id": msg["id"], "text": msg["text"], "speakers": [m.name for m in speakers]}
+
+    async def chat_forward(self, message_id: int, room: str) -> dict[str, Any]:
+        """把一条消息（文字、图片、表情包、卡片）原样转发到另一个会话，以你的身份发出；
+        那边的成员照常回应。"""
+        row = self.rt.repo.chat_message(message_id)
+        if row is None or row["author"] == "system" or (row["meta"] or {}).get("recalled"):
+            raise ServiceError("这条消息不能转发")
+        src = self._chat_room(row["room"])
+        chat = self._chat_room(room)
+        if chat.kind == "pair":
+            raise ServiceError("这是成员之间的私聊，你只能看")
+        meta = {k: v for k, v in (row["meta"] or {}).items() if k in FORWARD_KEYS}
+        names = {m.id: m.name for m in src.everyone()} | {"user": "我"}
+        meta["forwarded"] = {"from": names.get(row["author"], row["author"]), "room": src.title}
+        msg, speakers = chat.post(row["text"], meta)
+        self.rt.repo.mark_chat_read(chat.room, msg["id"])
+        self._chat_replies(chat, msg["id"], speakers)
+        return {"id": msg["id"], "speakers": [m.name for m in speakers]}
 
     def chat_recall(self, message_id: int, room: str = ROOM) -> dict[str, Any]:
         """撤回你自己发的一条消息（发出后几分钟内）。"""
@@ -1434,6 +1497,10 @@ class RoundtableService:
         if len(text) > MAX_MOMENT_CHARS:
             raise ServiceError(f"内容太长（最多 {MAX_MOMENT_CHARS} 字）")
         text, meta = self._media_meta(text, media)
+        if meta is None and is_bare_url(text):  # 只发了一个链接：显示成转发卡片
+            hosts = self.rt.config.roundtable.chat.actions.video_hosts
+            card = card_from_url(text, hosts, self.rt.repo.web_item_by_url(text))
+            text, meta = chat_card_text(card), {"card": card}
         row = self.rt.repo.add_moment("user", self._moment_text(text), meta=meta)
         mode = self.perceiver.mode_for(text) if meta else None
         if self.rt.config.roundtable.chat.moments.enabled or mode:

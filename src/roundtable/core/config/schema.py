@@ -812,7 +812,7 @@ class FeedSpec(_Strict):
     name: str = Field(min_length=1, max_length=40)
     url: str = Field(pattern=r"^https?://", max_length=500)
     topics: list[str] = Field(default_factory=list, max_length=8)
-    kind: Literal["news", "forum", "blog"] = "news"
+    kind: Literal["news", "forum", "blog", "video"] = "news"
     enabled: bool = True
 
 
@@ -988,6 +988,44 @@ class EngineRules(_Strict):
     eval: EvalRules = EvalRules()
 
 
+class WanderSite(_Strict):
+    """成员自己逛的一个网站：首页、搜索地址（{q} 换成搜索词）、允许打开的域名（后缀匹配）。"""
+
+    id: str = Field(pattern=r"^[a-z0-9_]{1,20}$")
+    name: str = Field(min_length=1, max_length=20)
+    home: str = Field(pattern=r"^https://", max_length=300)
+    search: str = Field(default="", max_length=300)
+    hosts: list[str] = Field(min_length=1, max_length=10)
+    enabled: bool = True
+
+
+class WanderRules(_Strict):
+    """成员自己上网（docs/WANDER.md）：隔离浏览器里逛白名单网站，第一期只看不互动。
+
+    花费计入生活每日上限（``chat.life.daily_usd``）、聊天月预算和总预算。
+    """
+
+    enabled: bool = True
+    auto: bool = True  # 由心跳按作息自动安排；关掉后只能在网页里手动让她去逛
+    sites: list[WanderSite] = Field(default_factory=list, max_length=10)
+    # 浏览器程序：依次试这些（msedge / chrome；空字符串 = Playwright 自带的 Chromium）
+    channels: list[str] = Field(default_factory=lambda: ["msedge", "chrome", ""], max_length=4)
+    headless: bool = True  # 不弹窗口，在后台逛
+    trips_per_member_per_day: int = Field(default=1, ge=0, le=5)
+    trip_chance: float = Field(default=0.3, ge=0, le=1)  # 每次心跳醒着且闲着时出门的概率
+    start_hour: int = Field(default=10, ge=0, le=23)  # 自动逛只在这几个小时里（本地时间）
+    end_hour: int = Field(default=23, ge=1, le=24)
+    max_steps: int = Field(default=12, ge=1, le=40)  # 一次最多看几个页面（每页一次模型调用）
+    max_minutes: float = Field(default=10, gt=0, le=60)
+    step_wait_seconds: float = Field(default=4, ge=0, le=60)  # 每看完一页停一会儿，像人一样慢慢逛
+    load_wait_seconds: float = Field(default=2.5, ge=0, le=20)  # 打开页面后等网页加载内容
+    timeout_s: float = Field(default=25, gt=0, le=120)
+    page_chars: int = Field(default=2500, ge=300, le=12000)  # 交给成员读的页面文字最多多少字
+    max_links: int = Field(default=30, ge=5, le=80)
+    estimate_usd: float = Field(default=0.002, ge=0)  # 每看一页的预估花费
+    max_tokens: int = Field(default=600, ge=64)
+
+
 class WatchRules(_Strict):
     """投屏陪伴（docs/WATCH.md）：用户投屏给成员看，选几位陪着一起看。
 
@@ -1061,6 +1099,13 @@ class ChatActionRules(_Strict):
     pat_reply: bool = True  # 被拍一拍后回一句（默认值）
     no_reply_in_group: bool = True  # 群里没被点名时允许不接话（默认值）
     drop_stale: bool = True  # 你补发新消息或撤回时，上一轮还没发出的气泡和还没开口的人作废
+    # 今天上网分享过的成员发朋友圈时，有几成发成「一句话 + 转发卡片」（默认值）
+    moment_forward: float = Field(default=0.5, ge=0, le=1)
+    # 这些网站上的链接显示成视频卡片（只看网址，不联网）
+    video_hosts: list[str] = Field(
+        default_factory=lambda: ["youtube.com", "youtu.be", "vimeo.com", "bilibili.com"],
+        max_length=20,
+    )
 
 
 class ChatRules(_Strict):
@@ -1075,6 +1120,7 @@ class ChatRules(_Strict):
     moments: MomentsRules = MomentsRules()
     engine: EngineRules = EngineRules()
     watch: WatchRules = WatchRules()
+    wander: WanderRules = WanderRules()
 
     actions: ChatActionRules = ChatActionRules()
     tier: Tier = "budget"  # 每位成员用这个档位的模型发言（没有就用该成员最便宜的）

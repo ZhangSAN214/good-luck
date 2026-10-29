@@ -120,6 +120,13 @@ class PatBody(BaseModel):
     room: str = "main"
 
 
+class ForwardBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: int
+    room: str
+
+
 class RecallBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -249,6 +256,13 @@ class WatchStartBody(BaseModel):
     source: str = Field(min_length=1, max_length=100)  # pc / pc:<窗口> / android:<序列号>
     watchers: list[str] = Field(min_length=1, max_length=6)
     consent: bool = False  # 用户点了「同意把截图发给识图模型」
+
+
+class WanderStartBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    member: str = Field(min_length=1, max_length=60)
+    site: str | None = Field(default=None, max_length=20)  # 空 = 随她挑
 
 
 class WatchQuietBody(BaseModel):
@@ -589,6 +603,30 @@ def create_app(service: RoundtableService | None = None, lan: LanAccess | None =
     async def watch_say(request: Request, body: WatchSayBody) -> dict[str, Any]:
         return await svc(request).watch_say(body.text)
 
+    @app.get("/api/wander")
+    async def wander_status(request: Request) -> dict[str, Any]:
+        return svc(request).wander_status()
+
+    @app.post("/api/wander/start")
+    async def wander_start(request: Request, body: WanderStartBody) -> dict[str, Any]:
+        return svc(request).wander_start(body.member, body.site)
+
+    @app.post("/api/wander/stop")
+    async def wander_stop(request: Request) -> dict[str, Any]:
+        return svc(request).wander_stop()
+
+    @app.get("/api/wander/log")
+    async def wander_log(request: Request, member: str, after: int = 0) -> dict[str, Any]:
+        return {"messages": svc(request).wander_log(member, after)}
+
+    @app.get("/api/wander/frame")
+    async def wander_frame(request: Request) -> Response:
+        frame = svc(request).wander_frame()
+        headers = {"X-Content-Type-Options": "nosniff", "Cache-Control": "no-store"}
+        if frame is None:
+            return Response(status_code=204, headers=headers)
+        return Response(content=frame, media_type="image/jpeg", headers=headers)
+
     @app.post("/api/watch/scrcpy")
     async def watch_scrcpy(request: Request, body: WatchScrcpyBody) -> dict[str, Any]:
         watch_local(request)
@@ -629,6 +667,10 @@ def create_app(service: RoundtableService | None = None, lan: LanAccess | None =
     @app.post("/api/chat/pat", status_code=202)
     async def chat_pat(request: Request, body: PatBody) -> dict[str, Any]:
         return await svc(request).chat_pat(body.member, body.room)
+
+    @app.post("/api/chat/forward", status_code=202)
+    async def chat_forward(request: Request, body: ForwardBody) -> dict[str, Any]:
+        return await svc(request).chat_forward(body.id, body.room)
 
     @app.post("/api/chat/recall")
     async def chat_recall(request: Request, body: RecallBody) -> dict[str, Any]:

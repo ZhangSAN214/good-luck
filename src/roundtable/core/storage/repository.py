@@ -1966,6 +1966,19 @@ class Repository:
             (member, since),
         ).fetchone()[0]
 
+    def web_item_by_url(self, url: str) -> dict[str, Any] | None:
+        row = self._exec("SELECT * FROM web_items WHERE url = ?", (url,)).fetchone()
+        return _web_row(row) if row else None
+
+    def web_items_shared_by(self, member: str, since: str) -> list[dict[str, Any]]:
+        """这位成员 since 之后分享过的条目（新的在前）。"""
+        rows = self._exec(
+            "SELECT * FROM web_items WHERE shared_by = ? AND shared_at >= ?"
+            " ORDER BY shared_at DESC, id DESC",
+            (member, since),
+        ).fetchall()
+        return [_web_row(r) for r in rows]
+
     def mark_web_shared(self, item_id: int, member: str) -> None:
         self._exec(
             "UPDATE web_items SET shared_by = ?, shared_at = ? WHERE id = ?",

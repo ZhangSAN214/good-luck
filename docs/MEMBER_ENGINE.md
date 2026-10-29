@@ -64,7 +64,9 @@
 
 ## 聊天动作的策略（接管口）
 
-聊天里「发不发、什么节奏」的默认值在 `core/chat_actions.DefaultPolicy`（docs/CHAT.md G10）。M7 行为决策 / M8 说话风格 / 心跳做好后，实现 `ActionPolicy` 并赋给 `RoundtableService.chats.policy` 即可接管，不用改聊天和界面；拍一拍会发 `chat.pat` 事件到总线（`member` 是被拍的人，`data = {room, id, actor}`）。
+聊天里「发不发、什么节奏」的默认值在 `core/chat_actions.DefaultPolicy`（docs/CHAT.md G10）。M7 行为决策 / M8 说话风格 / 心跳做好后，实现 `ActionPolicy` 并赋给 `RoundtableService.chats.policy` 即可接管，不用改聊天和界面；拍一拍会发 `chat.pat` 事件到总线（`member` 是被拍的人，`data = {room, id, actor}`）。朋友圈要不要发成转发卡片也由策略的 `moment_forward(member, key)` 决定。
+
+生成结果的接入口（docs/CHAT.md G11）：创作输出生成的表情包、配图、动图用 `chat_actions.generated_item` 存好，再用 `GroupChat.send_as` 发到聊天、`Moments.publish` 发朋友圈；都不调用模型、不花钱。
 
 ## 存储（迁移 24，只存本地，不进 git）
 
