@@ -113,6 +113,8 @@ const people = new People($('#people'), {
   api: {
     personas: API.chatPersonas,
     setPersona: API.setChatPersona,
+    voices: API.memberVoices,
+    voice: API.memberVoice,
     memories: API.chatMemories,
     addMemory: API.addChatMemory,
     editMemory: API.editChatMemory,

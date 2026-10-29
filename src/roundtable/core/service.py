@@ -97,6 +97,14 @@ from roundtable.core.member.card import (
 )
 from roundtable.core.member.memory import DiaryTool
 from roundtable.core.member.memory.store import query_terms
+from roundtable.core.member_voice import MAX_CHARS as VOICE_MAX_CHARS
+from roundtable.core.member_voice import (
+    SAMPLE_TEXT,
+    MemberVoices,
+    VoiceBudgetExceeded,
+    VoiceClip,
+    VoiceUnavailable,
+)
 from roundtable.core.members_art import MEMBERS_FILE, load_members, mime_of, resolve_file
 from roundtable.core.memory import LAYERS, MemoryKeeper, clean_memory
 from roundtable.core.moments import SEEN_KEY as MOMENTS_SEEN
@@ -191,6 +199,7 @@ class RoundtableService:
         self._tasks: dict[str, asyncio.Task[None]] = {}
         self._art_names_cache: tuple[int | None, dict[str, str]] | None = None
         self.chats = ChatHub(runtime, names=self._art_names)
+        self.voices = MemberVoices(runtime, runtime.voice_cache_dir)
         self.memory = MemoryKeeper(runtime, self.chats.everyone)
         self.life = LifeEngine(runtime, self.chats, self.memory)
         self.perceiver = Perceiver(runtime, PerceptionCache(runtime.perception_dir))
@@ -1296,6 +1305,33 @@ class RoundtableService:
         if found is None:
             raise ServiceError(f"没有这位成员：{member}", 404)
         return found
+
+    def member_voices(self) -> dict[str, Any]:
+        """每位成员的固定音色：现在会用哪个音色（不含模型名，匿名无关：聊天不匿名）。"""
+        out = []
+        for m in self.chats.everyone():
+            pick = self.voices.model_for(m.id, SAMPLE_TEXT)
+            out.append(
+                {
+                    "id": m.id,
+                    "name": m.name,
+                    "available": pick is not None,
+                    "voice": pick[1] if pick else None,
+                }
+            )
+        return {"members": out, "max_chars": VOICE_MAX_CHARS}
+
+    async def member_voice(self, member: str, text: str | None = None) -> VoiceClip:
+        """用成员的固定音色念一段文字（省略 text 时念一句试听）。花费计入创作输出的每月上限。"""
+        found = self._chat_member(member)
+        try:
+            return await self.voices.speak(member, text or SAMPLE_TEXT.format(name=found.name))
+        except ValueError as exc:
+            raise ServiceError(str(exc)) from None
+        except VoiceBudgetExceeded as exc:
+            raise ServiceError(str(exc), 402) from None
+        except VoiceUnavailable as exc:
+            raise ServiceError(str(exc), 503) from None
 
     def chat_personas(self) -> dict[str, Any]:
         """每位成员的聊天人设；source：local 网页里改过 / config 配置文件 / empty 没有设定。"""
