@@ -2148,6 +2148,13 @@ class Repository:
         ).fetchall()
         return [_chat_row(r) for r in rows]
 
+    def first_chat_message_by_author(self) -> dict[str, str]:
+        """每位发过言的人第一次说话的时间（作者 → ISO 时间），日历算入职纪念日用。"""
+        rows = self._exec(
+            "SELECT author, MIN(created_at) FROM chat_messages GROUP BY author"
+        ).fetchall()
+        return {r[0]: r[1] for r in rows}
+
     def spent_in_workflow(self, workflow: str, start: datetime, end: datetime) -> float:
         """[start, end) 内挂在某类隐藏会话（如 workflow = 'chat'）上的调用花费。"""
         return self._exec(

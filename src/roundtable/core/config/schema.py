@@ -1406,6 +1406,64 @@ class LengthGuard(_Strict):
         return out
 
 
+class CalendarRegion(_Strict):
+    """一个国家 / 地区的法定假日（开源库 holidays 离线计算）。"""
+
+    country: str = Field(pattern=r"^[A-Z]{2}$")  # ISO 国家代码，如 GB、CN、US
+    subdiv: str | None = None  # 地区，如 GB 的 ENG（英格兰）
+    label: str = Field(min_length=1, max_length=12)  # 界面和事件里的称呼，如「英国」
+    language: str | None = None  # 节日名的语言（holidays 支持的才行，如 zh_CN）
+
+
+_DATE_RULE = re.compile(
+    r"^(\d{2}-\d{2}|easter[+-]\d{1,3}|[1-5]-(mon|tue|wed|thu|fri|sat|sun)-\d{2}"
+    r"|last-(mon|tue|wed|thu|fri|sat|sun)-\d{2})$"
+)
+
+
+class CalendarObservance(_Strict):
+    """不放假的节日 / 纪念日。rule：MM-DD；easter+N / easter-N（复活节前后 N 天）；
+    N-周几-MM（某月第 N 个周几，如 2-sun-05）；last-周几-MM（某月最后一个周几）。"""
+
+    name: str = Field(min_length=1, max_length=20)
+    rule: str
+    label: str = Field(default="国际", max_length=12)  # 哪里的节日
+
+    @field_validator("rule")
+    @classmethod
+    def _rule(cls, rule: str) -> str:
+        if not _DATE_RULE.match(rule):
+            raise ValueError(
+                f"日期规则写法不对：{rule}（MM-DD / easter±N / 2-sun-05 / last-sun-10）"
+            )
+        return rule
+
+
+class LunarFestival(_Strict):
+    """农历节日：lunar 写 MM-DD，或 MM-last（这个月最后一天，如除夕 12-last）。"""
+
+    name: str = Field(min_length=1, max_length=12)
+    lunar: str = Field(pattern=r"^\d{2}-(\d{2}|last)$")
+
+
+class CalendarRules(_Strict):
+    """日历底座（docs/CALENDAR.md）：只算「今天是什么日子」，发事件给成员系统；不调模型、不联网。
+
+    怎么过节由生活引擎 / 成员系统决定；工作模式不挂载。"""
+
+    enabled: bool = True
+    # 成员的休息日按哪里的法定假日算（成员住曼彻斯特：英格兰）
+    rest: CalendarRegion | None = CalendarRegion(country="GB", subdiv="ENG", label="英国")
+    cultures: list[CalendarRegion] = Field(default_factory=list)  # 也过、但不放假的国家
+    lunar_festivals: list[LunarFestival] = Field(default_factory=list)
+    solar_terms: bool = True  # 二十四节气
+    observances: list[CalendarObservance] = Field(default_factory=list)
+    names: dict[str, str] = Field(default_factory=dict)  # 外文节日名 → 中文
+    upcoming_days: int = Field(default=3, ge=0, le=30)  # 提前几天发「快到了」
+    board_days: int = Field(default=7, ge=1, le=60)  # 公告栏显示未来几天
+    max_user_dates: int = Field(default=100, ge=0, le=1000)  # 你能加的纪念日上限
+
+
 class RoundtableConfig(_Strict):
     seats: int = Field(ge=2)
     min_members: int = Field(default=2, ge=2)
@@ -1448,6 +1506,7 @@ class RoundtableConfig(_Strict):
     mail: MailConfig = MailConfig()
     clipper: ClipperRules = ClipperRules()
     perception: PerceptionRules = PerceptionRules()
+    calendar: CalendarRules = CalendarRules()
 
     @field_validator("prompts")
     @classmethod
@@ -1513,6 +1572,20 @@ class PersonasConfig(_Strict):
     personas: dict[str, Persona] = Field(default_factory=dict)  # 厂商 → 人设
     # 成员固定音色（合成音色，不克隆真人）：厂商 → {语音模型 id → 该模型的音色名}
     voices: dict[str, dict[str, str]] = Field(default_factory=dict)
+    # 成员生日（日历用，只用于生活）：厂商 → MM-DD；默认取各自模型首次公开发布的日子，可改
+    birthdays: dict[str, str] = Field(default_factory=dict)
+
+    @field_validator("birthdays")
+    @classmethod
+    def _birthdays(cls, days: dict[str, str]) -> dict[str, str]:
+        from datetime import date
+
+        for who, md in days.items():
+            try:
+                date.fromisoformat(f"2000-{md}")  # 2000 年是闰年，02-29 也算合法
+            except ValueError:
+                raise ValueError(f"{who} 的生日要写成 MM-DD：{md}") from None
+        return days
 
     @field_validator("codes")
     @classmethod

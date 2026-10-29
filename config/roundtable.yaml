@@ -956,3 +956,91 @@ perception:
   max_audio_s: 600           # 语音 / 视频声音最多转写多长（秒）
   native_max_mb: 20          # 整段视频交给模型的大小上限
   card_chars: 800            # 每张感知卡最多保留多少字
+
+# 日历底座（docs/CALENDAR.md）：只算「今天是什么日子」，每天发事件给成员系统（怎么过节由生活引擎决定）。
+# 全部离线计算：法定假日用开源库 holidays，农历和节气查预先算好的表；不调模型、不联网、不花钱。
+# 只影响生活（聊天、朋友圈、生活）；工作模式不挂载。你加的纪念日只存本机。
+calendar:
+  enabled: true
+  # 成员的休息日按这里的法定假日算（成员住曼彻斯特）
+  rest: {country: GB, subdiv: ENG, label: 英国}
+  # 也过、但成员不放假的国家（想加别的国家写 ISO 代码，如 KR、FR、DE）
+  cultures:
+    - {country: CN, label: 中国, language: zh_CN}
+    - {country: US, label: 美国}
+    - {country: JP, label: 日本, language: en_US}
+  upcoming_days: 3     # 提前几天发「快到了」
+  board_days: 7        # 公告栏显示未来几天
+  solar_terms: true    # 二十四节气
+  lunar_festivals:
+    - {name: 春节, lunar: "01-01"}
+    - {name: 元宵节, lunar: "01-15"}
+    - {name: 龙抬头, lunar: "02-02"}
+    - {name: 端午节, lunar: "05-05"}
+    - {name: 七夕, lunar: "07-07"}
+    - {name: 中元节, lunar: "07-15"}
+    - {name: 中秋节, lunar: "08-15"}
+    - {name: 重阳节, lunar: "09-09"}
+    - {name: 腊八节, lunar: "12-08"}
+    - {name: 小年, lunar: "12-23"}
+    - {name: 除夕, lunar: "12-last"}
+  # 不放假的节日。rule：MM-DD；easter-21（复活节前 21 天）；2-sun-05（5 月第 2 个周日）；last-sun-10
+  observances:
+    - {name: 情人节, rule: "02-14"}
+    - {name: 煎饼日, rule: "easter-47", label: 英国}
+    - {name: 妇女节, rule: "03-08"}
+    - {name: 植树节, rule: "03-12", label: 中国}
+    - {name: 圣帕特里克节, rule: "03-17", label: 爱尔兰}
+    - {name: 英国母亲节, rule: "easter-21", label: 英国}
+    - {name: 夏令时开始（拨快一小时）, rule: "last-sun-03", label: 英国}
+    - {name: 愚人节, rule: "04-01"}
+    - {name: 复活节, rule: "easter+0"}
+    - {name: 地球日, rule: "04-22"}
+    - {name: 世界读书日, rule: "04-23"}
+    - {name: 青年节, rule: "05-04", label: 中国}
+    - {name: 母亲节, rule: "2-sun-05", label: 中美}
+    - {name: 儿童节, rule: "06-01", label: 中国}
+    - {name: 父亲节, rule: "3-sun-06", label: 英中美}
+    - {name: 教师节, rule: "09-10", label: 中国}
+    - {name: 万圣夜, rule: "10-31"}
+    - {name: 夏令时结束（拨慢一小时）, rule: "last-sun-10", label: 英国}
+    - {name: 篝火夜, rule: "11-05", label: 英国}
+    - {name: 双十一, rule: "11-11", label: 中国}
+    - {name: 平安夜, rule: "12-24"}
+    - {name: 跨年夜, rule: "12-31"}
+  # 外文节日名 → 中文（holidays 只给英文名的国家用）
+  names:
+    "New Year's Day": 元旦
+    Good Friday: 耶稣受难日
+    Easter Monday: 复活节星期一
+    May Day: 五月银行假日
+    Spring Bank Holiday: 春季银行假日
+    Late Summer Bank Holiday: 夏末银行假日
+    Christmas Day: 圣诞节
+    Boxing Day: 节礼日
+    Martin Luther King Jr. Day: 马丁·路德·金纪念日
+    "Washington's Birthday": 美国总统日
+    Memorial Day: 美国阵亡将士纪念日
+    Juneteenth National Independence Day: 六月节
+    Independence Day: 美国独立日
+    Labor Day: 美国劳动节
+    Columbus Day: 哥伦布日
+    Veterans Day: 美国退伍军人节
+    Thanksgiving Day: 感恩节
+    Coming of Age Day: 日本成人之日
+    Foundation Day: 日本建国纪念日
+    "Emperor's Birthday": 日本天皇诞辰
+    Vernal Equinox Day: 日本春分之日
+    Showa Day: 日本昭和之日
+    Constitution Day: 日本宪法纪念日
+    Greenery Day: 日本绿之日
+    "Children's Day": 日本儿童节
+    Substitute Holiday: 日本补假
+    Marine Day: 日本海之日
+    Mountain Day: 日本山之日
+    Respect for the Aged Day: 日本敬老之日
+    National Holiday: 日本国民休日
+    Autumnal Equinox Day: 日本秋分之日
+    Sports Day: 日本体育之日
+    Culture Day: 日本文化之日
+    Labor Thanksgiving Day: 日本勤劳感谢之日
