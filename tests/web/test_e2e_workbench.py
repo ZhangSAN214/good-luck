@@ -100,7 +100,8 @@ def test_workbench_start_and_stop(serve, page, monkeypatch):
     frame.wait_for()
     assert frame.get_attribute("src") == fake.url
     page.wait_for_function(
-        "document.querySelector('#bench iframe.wb-frame').contentDocument?.readyState === 'complete'"
+        "document.querySelector('#bench iframe.wb-frame')"
+        ".contentDocument?.readyState === 'complete'"
     )
     # 标在网页里面：iframe 被拿出来再放回去时网页会重新加载，标记就没了
     frame.evaluate("f => (f.contentWindow.__mark = 'same')")
