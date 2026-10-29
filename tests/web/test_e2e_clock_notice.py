@@ -1,6 +1,7 @@
 """前端：终端首页的多时区时钟与公告栏。
 
-时钟：增删城市、改名、12 / 24 小时、记在本机；公告栏：未读数、展开算已读、全部已读、记在本机。
+时钟：增删城市、改名、12 / 24 小时、主时区、秒表、倒计时、记在本机；
+公告栏：未读数、展开算已读、全部已读、记在本机。
 """
 
 from __future__ import annotations
@@ -45,6 +46,70 @@ def test_clock_shows_two_zones_and_can_be_changed(serve, page):
     page.wait_for_selector("#hub .ck-face")
     assert _names(page) == ["家", "东京"]
     assert page.get_attribute("#hub .ck-face:nth-child(2)", "data-tz") == "Asia/Tokyo"
+
+
+def test_main_zone_leads_and_diffs_follow_it(serve, page):
+    srv = serve(confirm_threshold_usd=100.0)
+    page.add_init_script(LAND_HUB)
+    page.goto(srv.url)
+    page.wait_for_selector("#hub .ck-face")
+    assert "主时区" in page.inner_text("#hub .ck-face.main .ck-sub")
+    page.click("#hub .ck-btn")
+    page.click("#hub [data-main='1']")  # 把中国设为主时区
+    assert _names(page) == ["中国", "曼城"]
+    assert page.get_attribute("#hub [data-main='1']", "aria-pressed") == "true"
+    assert "−" in page.inner_text("#hub .ck-face:nth-child(2) .ck-sub")  # 曼城比中国慢
+    # 「跟随这台电脑」：显示名变「本机」，按浏览器时区算
+    page.select_option("#hub [data-tz='1']", "local")
+    assert page.get_attribute("#hub .ck-face.main", "data-tz") == "local"
+    assert page.inner_text("#hub .ck-face.main .ck-name") == "本机"
+    page.reload()
+    page.wait_for_selector("#hub .ck-face")
+    assert _names(page) == ["本机", "曼城"]
+
+
+def test_stopwatch_and_countdown(serve, page):
+    srv = serve(confirm_threshold_usd=100.0)
+    page.clock.install()
+    page.add_init_script(LAND_HUB)
+    page.goto(srv.url)
+    page.wait_for_selector("#hub .ck-face")
+    page.click("#hub .ck-btn")
+
+    page.click("#hub [data-tab='sw']")
+    page.click("#hub [data-sw='start']")
+    page.clock.run_for(3000)
+    page.click("#hub [data-sw='lap']")
+    page.clock.run_for(2000)
+    page.click("#hub [data-sw='pause']")
+    assert page.inner_text("#hub [data-ro='sw']").startswith("00:05")
+    assert page.locator("#hub .ck-laps li").count() == 1
+    page.click("#hub [data-sw='start']")  # 继续
+    page.keyboard.press("Escape")
+    assert page.is_visible("#hub .ck-run[data-jump='sw']")  # 关了面板，钟面旁边还看得到秒表
+
+    # 倒计时：点常用时长直接开始，到点钟面旁边显示「时间到」
+    page.click("#hub .ck-btn")
+    page.click("#hub [data-tab='cd']")
+    page.click("#hub [data-preset='1']")
+    page.clock.run_for(30_000)
+    assert page.inner_text("#hub [data-ro='cd']") in ("00:29", "00:30", "00:31")
+    page.click("#hub [data-cd='pause']")
+    paused = page.inner_text("#hub [data-ro='cd']")
+    page.clock.run_for(60_000)
+    assert page.inner_text("#hub [data-ro='cd']") == paused  # 暂停时不走
+    page.click("#hub [data-cd='resume']")
+    page.clock.run_for(31_000)
+    page.wait_for_selector("#hub .ck-big.ring")
+    assert page.inner_text("#hub .ck-run.ring") == "时间到"
+    page.click("#hub [data-cd='reset']")
+    assert page.locator("#hub .ck-run.ring").count() == 0
+
+    # 刷新网页，秒表接着走
+    page.reload()
+    page.wait_for_selector("#hub .ck-run[data-jump='sw']")
+    page.click("#hub .ck-run[data-jump='sw']")
+    page.wait_for_selector("#hub .ck-panel:not([hidden]) [data-sw='lap']")
 
 
 def test_notice_board_marks_read(serve, page):
