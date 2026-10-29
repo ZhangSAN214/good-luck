@@ -909,6 +909,25 @@ class EngineRules(_Strict):
     eval: EvalRules = EvalRules()
 
 
+class ChatActionRules(_Strict):
+    """聊天里能发什么（docs/CHAT.md「微信式动作」）：表情包、颜文字、引用、拆条、拍一拍、撤回。
+
+    这里只管「能发什么」和简单的默认值；什么时候发、发不发、节奏和延迟由成员系统接管
+    （``chat_actions.ActionPolicy``，没接管时按下面的默认值）。
+    """
+
+    enabled: bool = True
+    # 成员能用的表情包：套装 → 名字（与 web/js/stickers.js 同名，有测试）
+    stickers: dict[str, list[str]] = Field(default_factory=dict)
+    kaomoji: list[str] = Field(default_factory=list, max_length=40)  # 颜文字示例
+    max_segments: int = Field(default=3, ge=1, le=6)  # 一次回复最多拆成几条
+    segment_gap_seconds: float = Field(default=1.2, ge=0, le=10)  # 拆条之间的固定间隔（默认值）
+    recall_seconds: int = Field(default=120, ge=0, le=3600)  # 你发出后多久内可以撤回
+    pat_reply: bool = True  # 被拍一拍后回一句（默认值）
+    no_reply_in_group: bool = True  # 群里没被点名时允许不接话（默认值）
+    drop_stale: bool = True  # 你补发新消息或撤回时，上一轮还没发出的气泡和还没开口的人作废
+
+
 class ChatRules(_Strict):
     """聊天：生活群、工作群、私聊。成员不主动找用户，只回应用户。"""
 
@@ -920,6 +939,7 @@ class ChatRules(_Strict):
     browse: BrowseRules = BrowseRules()
     moments: MomentsRules = MomentsRules()
     engine: EngineRules = EngineRules()
+    actions: ChatActionRules = ChatActionRules()
     tier: Tier = "budget"  # 每位成员用这个档位的模型发言（没有就用该成员最便宜的）
     max_repliers: int = Field(default=2, ge=1, le=6)  # 没有 @ 人时，一条消息最多几位回应
     max_mentioned: int = Field(default=8, ge=1, le=12)  # @全员 / 所有人 / @多人 时最多几位回应

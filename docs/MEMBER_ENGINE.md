@@ -58,6 +58,10 @@
 - `GET /api/chat/engine/events`：记下了多少条事件；`DELETE /api/chat/engine/events`：一键清空。
 - 不允许的修改（分区不存在、没有权限、改了锁定的项）返回 400，说明原因。网页界面在「成员设定与记忆 → 自我档案」（M1）。
 
+## 聊天动作的策略（接管口）
+
+聊天里「发不发、什么节奏」的默认值在 `core/chat_actions.DefaultPolicy`（docs/CHAT.md G10）。M7 行为决策 / M8 说话风格 / 心跳做好后，实现 `ActionPolicy` 并赋给 `RoundtableService.chats.policy` 即可接管，不用改聊天和界面；拍一拍会发 `chat.pat` 事件到总线（`member` 是被拍的人，`data = {room, id, actor}`）。
+
 ## 存储（迁移 24，只存本地，不进 git）
 
 - `member_profiles`：`(member, version)` 主键，整份档案（JSON）、`author`（user / growth / program …）、`reason`、`changes`（改了哪几项）、时间。
