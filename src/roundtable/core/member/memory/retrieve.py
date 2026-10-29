@@ -8,7 +8,8 @@
    事实（约定、偏好、用户写的）不变淡。相关度：和当前对话共有的片段，按在候选里的罕见程度加权。
 3. **同一次对话不重复注入**：同一会话里、间隔不超过 ``repeat_gap_minutes`` 的几次调用算一次对话，
    已经带过的件不再带（她当时的回答已经在聊天记录里了），重要度 3 的事实除外。
-4. **脑子里挂着的事**放最前（最多 ``hanging_max`` 件）。全部经上下文组装器装进
+4. **联想**：从分数最高的几件顺着联想网扩散，多带 ``assoc_max`` 件「想起」；一起被想起的件互相加强。
+5. **脑子里挂着的事**放最前（最多 ``hanging_max`` 件）。全部经上下文组装器装进
    ``context_chars`` 字（8 位成员同一个预算）。
 """
 
@@ -20,6 +21,7 @@ from datetime import date, datetime
 from typing import Any
 
 from roundtable.core.member.context import Piece, assemble
+from roundtable.core.member.memory.links import LinkNet
 from roundtable.core.member.memory.store import FACT, MemoryStore, query_terms
 from roundtable.core.recall import _distinct, grams
 
@@ -36,6 +38,7 @@ class Scored:
     row: dict[str, Any]
     score: float = 0.0
     hits: list[str] = field(default_factory=list)
+    assoc: bool = False
 
     @property
     def id(self) -> int:
@@ -59,6 +62,8 @@ def freshness(day: str, today: date, half_life_days: float, floor: float) -> flo
 
 
 def label(s: Scored) -> str:
+    if s.assoc:
+        return "想起"
     if s.row["kind"] == FACT:
         return "长期"
     try:
@@ -74,6 +79,8 @@ def line(s: Scored) -> str:
 
 
 def why(s: Scored) -> str:
+    if s.assoc:
+        return "顺着联想想起"
     if s.hits:
         return "提到了" + "、".join(f"『{h}』" for h in s.hits)
     if s.row["importance"] == 3:
@@ -87,6 +94,7 @@ class Recaller:
     def __init__(self, rt: Any) -> None:
         self.rt = rt
         self.store = MemoryStore(rt)
+        self.links = LinkNet(rt)
 
     @property
     def rules(self) -> Any:
@@ -171,21 +179,34 @@ class Recaller:
         always = always[: max(r.inject_max // 2, 1)]
         rest = [s for s in scored if s not in always]
         chosen = always + rest[: max(r.inject_max - len(always), 0)]
+        seeds = {s.id: s.score for s in sorted(chosen, key=lambda s: -s.score)[: r.links.seeds]}
+        top = max(seeds.values(), default=0.0) or 1.0
+        spread = self.links.spread(member, {k: v / top for k, v in seeds.items()})
+        spread = {k: v for k, v in spread.items() if k not in seen}
+        assoc_ids = sorted(spread, key=lambda k: (-spread[k], -k))[: r.links.assoc_max]
+        assoc_rows = [row for row in self.rt.repo.memory_items_by_ids(assoc_ids)]
+        assoc = [
+            Scored(row, spread[row["id"]], assoc=True)
+            for row in sorted(assoc_rows, key=lambda x: -spread[x["id"]])
+            if row["superseded_by"] is None
+        ]
         hanging = self.rt.repo.memory_hanging(member)[: r.hanging_max]
         pieces = [Piece("hanging", f"【挂着】{h['text']}", fixed=True) for h in hanging]
         ordered = sorted(chosen, key=lambda s: (s.row["kind"] != FACT, s.row["day"], s.id))
         pieces += [Piece("memory", line(s), score=1000 - i) for i, s in enumerate(ordered)]
+        pieces += [Piece("assoc", line(s), score=-1 - i) for i, s in enumerate(assoc)]
         ctx = assemble(pieces, budget, per_source=max(r.inject_max, 1), min_piece_chars=20)
         used_text = {p.text for p in ctx.used}
         final = [
             s
-            for s in ordered
+            for s in ordered + assoc
             if line(s) in used_text
             or any(u.endswith("…") and line(s).startswith(u[:-1]) for u in used_text)
         ]
         text = ctx.text or NONE
         if final:
             self.rt.repo.mark_items_recalled({s.id: why(s) for s in final})
+            self.links.strengthen(member, [s.id for s in final])
             self.store.train(
                 member,
                 "recall",
@@ -193,7 +214,7 @@ class Recaller:
                     "query": query[-300:],
                     "conversation": conversation or "",
                     "candidates": len(rows),
-                    "chosen": [[s.id, round(s.score, 4)] for s in final],
+                    "chosen": [[s.id, round(s.score, 4), s.assoc] for s in final],
                 },
             )
         self._remember_seen(member, conversation, now, seen | {s.id for s in final})

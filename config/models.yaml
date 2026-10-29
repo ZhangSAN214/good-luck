@@ -16,6 +16,7 @@ tag_vocabulary:
   - zh              # 擅长中文（语音合成按脚本语言选择时使用）
   # 媒体类
   - vision          # 能看图（图片、视频截帧）
+  - video_in        # 能直接看整段视频（画面连声音，作为消息附件发送）
   - transcribe      # 能直接接收音频的对话模型（旧的转写方式；有 stt 模型时优先用 stt）
   - image_gen       # 图像生成
   - image_edit      # 支持以参考图为输入的图像生成 / 编辑（风格参考图用）
@@ -131,7 +132,7 @@ models:
     tier: flagship
     # 搜索结果中最新的 Pro 为 3.1 Pro Preview（未找到 3.8 Pro）；待核对
     price: {input: 2.00, output: 12.00, cached_input: 0.20}
-    tags: [math, derivation, science, research, long_context, vision]
+    tags: [math, derivation, science, research, long_context, vision, video_in]
     enabled: true
     routes:
       - {channel: google, model: gemini-3.1-pro-preview}
@@ -143,7 +144,7 @@ models:
     tier: budget
     price: {input: 0.75, output: 3.75}
     # transcribe：能直接接收音频，用于把上传的音频转写成文字（普通对话调用）
-    tags: [design, research, long_context, vision, transcribe]
+    tags: [design, research, long_context, vision, transcribe, video_in]
     enabled: true
     routes:
       - {channel: google, model: gemini-3.8-flash}

@@ -164,4 +164,8 @@ async def test_image_blocks_and_audio_rejected():
     with pytest.raises(ProviderError) as info:
         await provider.complete("claude-test", [Message("user", "听", (audio,))], {})
     assert info.value.kind == ErrorKind.BAD_REQUEST  # 不切换渠道（换了也是同样的请求）
+    video = Media("video", "video/mp4", b"MP4")
+    with pytest.raises(ProviderError) as info:
+        await provider.complete("claude-test", [Message("user", "看", (video,))], {})
+    assert info.value.kind == ErrorKind.BAD_REQUEST
     await provider.aclose()

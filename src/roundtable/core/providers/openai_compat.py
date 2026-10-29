@@ -67,6 +67,9 @@ class OpenAICompatProvider(Provider):
             if media.kind == "image":
                 url = f"data:{media.mime};base64,{data}"
                 parts.append({"type": "image_url", "image_url": {"url": url}})
+            elif media.kind == "video":  # 整段视频（带 video_in 标签的模型）
+                url = f"data:{media.mime};base64,{data}"
+                parts.append({"type": "video_url", "video_url": {"url": url}})
             else:
                 fmt = AUDIO_FORMATS.get(media.mime, media.mime.split("/")[-1])
                 parts.append({"type": "input_audio", "input_audio": {"data": data, "format": fmt}})

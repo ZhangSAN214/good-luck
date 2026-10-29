@@ -95,7 +95,7 @@ export class People {
     const found = this.diary
       ? `<ul class="pp-list grp-box">${this.diary.length ? this.diary.map((t) => `<li><p>${esc(t)}</p></li>`).join('') : '<li class="hint">没翻到。</li>'}</ul>`
       : '';
-    return `<h4 class="grp-h">记忆件 <small>共 ${d.count} 件${d.links != null ? ` · 联想 ${d.links} 条` : ''} · TA 今天还能翻 ${d.diary_reads_left} 次日记</small></h4>
+    return `<h4 class="grp-h">记忆件与联想 <small>共 ${d.count} 件${d.links != null ? ` · 联想 ${d.links} 条` : ''} · TA 今天还能翻 ${d.diary_reads_left} 次日记</small></h4>
           ${d.habits ? `<p class="grp-foot">${esc(d.habits)}</p>` : ''}
           <ul class="pp-list grp-box">${hang}</ul>
           <form id="pp-isearch" class="grp-box"><div class="grp-row"><input name="q" value="${esc(this.itemQuery)}" placeholder="找记忆件（关键词）" aria-label="找记忆件"><button class="btn" type="submit">找</button></div></form>
