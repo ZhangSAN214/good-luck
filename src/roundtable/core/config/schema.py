@@ -975,6 +975,66 @@ class CardRules(_Strict):
     budget_chars: int = Field(default=400, ge=50, le=4000)
 
 
+class VoiceMode(_Strict):
+    """说话模式档位（借 dsh maid 的思路）：由性格分决定，所有成员同一张表。"""
+
+    label: str = Field(min_length=1, max_length=8)
+    max_segments: int = Field(ge=1, le=6)  # 一次回复最多拆几条
+    gap_scale: float = Field(default=1.0, gt=0, le=5)  # 拆条间隔 × 这个倍数（慢性子停得久）
+    reply: str = Field(min_length=1, max_length=80)  # 写进说话习惯的「接话」一行
+
+
+class VoiceCheckRules(_Strict):
+    """说出口前自查（程序检查，不调用模型）：重复自己、跟风别人、光附和、口头禅太勤、编造回忆。
+
+    群里没被点名时，跟风 / 光附和的那条直接不发（$0）；其余命中才用成员自己的模型改写一次
+    （提示词 ``voice_rewrite``，每月上限 ``monthly_usd``），改不好就发原文。
+    """
+
+    enabled: bool = True
+    min_chars: int = Field(default=6, ge=1, le=100)  # 去掉表情包记号后短于这么多字的不查
+    own_recent: int = Field(default=5, ge=1, le=30)  # 和自己最近几条比
+    repeat_similarity: float = Field(default=0.6, gt=0, le=1)
+    echo_similarity: float = Field(default=0.5, gt=0, le=1)  # 和别人这一轮说的比
+    catchphrase_recent: int = Field(default=3, ge=1, le=20)  # 口头禅最近几条里用过就算太勤
+    agree_patterns: list[str] = Field(default_factory=list, max_length=40)  # 开头是附和
+    agree_rest_chars: int = Field(default=8, ge=0, le=60)  # 附和之外剩下的字少于这么多算「光附和」
+    follow_similarity: float = Field(default=0.25, gt=0, le=1)  # 附和开头 + 剩下的像别人说的：接龙
+    memory_patterns: list[str] = Field(default_factory=list, max_length=40)  # 提到共同回忆
+    monthly_usd: float = Field(default=0.05, ge=0)
+    estimate_usd: float = Field(default=0.0005, ge=0)
+    max_tokens: int = Field(default=400, ge=64)
+
+
+class VoiceRules(_Strict):
+    """P5 决定与表达·表达（docs/MEMBER_ENGINE.md「说话风格」）：从自我档案的说话风格抽「说话习惯」，
+    按性格分定说话模式档位，接管聊天的 ActionPolicy。只用于生活群和私聊；
+    8 位同一套规则、同一个字数上限。
+    """
+
+    enabled: bool = True
+    budget_chars: int = Field(default=260, ge=60, le=1000)  # 说话习惯段最多多少字（8 位相同）
+    samples: int = Field(default=2, ge=0, le=4)  # 每次带几句示范（轮换，防止照抄）
+    sample_chars: int = Field(default=50, ge=10, le=200)  # 太长的示范句不带
+    # 句子长短 → 一条大约多少字以内
+    lengths: dict[str, int] = Field(default_factory=lambda: {"短": 25, "中": 45, "长": 80})
+    # 外向分 → 档位：≤ quiet_max 话少，≥ chatty_min 话多，其余平常
+    quiet_max: int = Field(default=2, ge=1, le=5)
+    chatty_min: int = Field(default=4, ge=1, le=5)
+    modes: dict[str, VoiceMode] = Field(default_factory=dict)
+    # 幽默分 → 表情包频率（≤2 / 3 / ≥4）
+    sticker_habits: list[str] = Field(default_factory=list, max_length=3)
+    check: VoiceCheckRules = VoiceCheckRules()
+
+    @field_validator("modes")
+    @classmethod
+    def _modes(cls, v: dict[str, VoiceMode]) -> dict[str, VoiceMode]:
+        missing = {"quiet", "normal", "chatty"} - set(v)
+        if v and missing:
+            raise ValueError(f"缺少档位：{', '.join(sorted(missing))}")
+        return v
+
+
 class StateLayerRules(_Strict):
     """心情或精力的快慢两层：每次冲击 slow_share 落到慢层，其余落到快层；两层各自按半衰期回到 0。"""
 
@@ -1065,6 +1125,7 @@ class EngineRules(_Strict):
     heartbeat: HeartbeatRules = HeartbeatRules()
     bus: BusRules = BusRules()
     eval: EvalRules = EvalRules()
+    voice: VoiceRules = VoiceRules()
 
 
 class WanderSite(_Strict):

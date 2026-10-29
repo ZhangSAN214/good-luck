@@ -62,6 +62,7 @@ EVERYONE_WORDS = (
     "你们每",
 )
 USER_LABEL = "用户"
+VOICE_NONE = "（没写：用你自己的说话风格）"
 # 不在群聊列表里、不能从群聊发言的会话（投屏陪伴「一起看」有自己的面板，docs/WATCH.md）
 HIDDEN_KINDS = frozenset({"watch", "wander"})
 # 会话类型 → 提示词角色（roundtable.yaml 的 prompts）
@@ -152,6 +153,7 @@ class Thought:
     member: ChatMember
     segments: list[Segment]
     cost_usd: float
+    memory: str = ""  # 这次带的记忆（说出口前自查用：记忆为空时「上次我们……」算编造）
 
 
 def _price(m: Any) -> tuple[float, float]:
@@ -588,6 +590,9 @@ class GroupChat:
             )
         if "clock" in wants:
             variables["clock"] = life_clock(rt, member.id)
+        if "voice" in wants:  # 说话习惯（chat / chat_dm v6 起；成员系统 P5 给，没接管时为空）
+            habit = policy.voice(member.id, self.kind, reply_to) if self.kind != "work" else ""
+            variables["voice"] = habit or VOICE_NONE
         if numbered:
             variables |= {
                 "stickers": sticker_list(acts.stickers) if acts.enabled else "（这里不用表情包）",
@@ -684,7 +689,7 @@ class GroupChat:
             kept = [
                 Segment(t, parsed.segments[0].quote if i == 0 else None) for i, t in enumerate(said)
             ]
-        return Thought(member, kept, completion.cost_usd or 0.0)
+        return Thought(member, kept, completion.cost_usd or 0.0, variables["memory"])
 
     async def _complete(self, session: str, member: ChatMember, prompt: Any) -> Any:
         """调用模型。思考把输出上限用光、几乎没有正文时（finish_reason=length），关掉思考、
@@ -719,6 +724,8 @@ class GroupChat:
         policy = self.policy()
         stickers = rt.config.roundtable.chat.actions.stickers
         first: dict[str, Any] = {}
+        posted: list[str] = []
+        recent = self.recent()  # 发之前再取一次：并行思考时别人可能刚发过
         for i, seg in enumerate(thought.segments):
             if i:
                 if round_no is not None and self.stale(round_no):
@@ -731,7 +738,8 @@ class GroupChat:
                     self.typing.remove(member.name)
                 if round_no is not None and self.stale(round_no):
                     break
-            words = swap_repeated_stickers(seg.text, used, stickers, self.rng)
+            text = swap_repeated_stickers(seg.text, used, stickers, self.rng)
+            words = await self._self_check(member, text, recent, reply_to, posted, thought.memory)
             if not words.strip():
                 continue
             meta: dict[str, Any] = {}
@@ -748,8 +756,50 @@ class GroupChat:
                 meta=meta or None,
             )
             first = first or msg
+            posted.append(words)
             self.on_change()
         return first
+
+    async def _self_check(
+        self,
+        member: ChatMember,
+        text: str,
+        recent: list[dict[str, Any]],
+        reply_to: int,
+        posted: list[str],
+        memory: str,
+    ) -> str:
+        """说出口前自查（成员系统 P5，``core/member/voice``）：和自己最近说的、别人这一轮说的比；
+        返回要发的话，空串表示这条不发。工作群和关闭时原样返回。"""
+        from roundtable.core.member.voice import Said, before_voice  # voice 依赖本模块
+        from roundtable.core.memory import NONE  # memory 依赖本模块
+
+        names = {m.id: m.name for m in self.everyone()}
+        rows = [r for r in recent if not is_recalled(r)]
+        rows += [
+            r
+            for r in self.rt.repo.chat_messages(self.room, limit=self.rules.history_messages)
+            if r["id"] > max((x["id"] for x in rows), default=0) and not is_recalled(r)
+        ]
+        own = tuple(r["text"] for r in rows if r["author"] == member.id) + tuple(posted)
+        others = tuple(
+            (names.get(r["author"], r["author"]), r["text"])
+            for r in rows
+            if r["id"] > reply_to and r["author"] not in (member.id, USER, SYSTEM)
+        )
+        said = Said(own=own, others=others, has_memory=memory.strip() not in ("", NONE))
+        return await before_voice(
+            self.rt,
+            text,
+            said,
+            member=member.id,
+            room=self.room,
+            room_kind=self.kind,
+            named=self.named(member, reply_to),
+            name=member.name,
+            model_id=member.model_id,
+            voice=self.policy().voice(member.id, self.kind, reply_to),
+        )
 
 
 def live_title(kind: str, members: list[str], stored: str, names: dict[str, str]) -> str:
