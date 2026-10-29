@@ -814,6 +814,16 @@ def create_app(service: RoundtableService | None = None, lan: LanAccess | None =
         watch_local(request)
         return await asyncio.to_thread(svc(request).watch_adb_connect, body.host, body.port)
 
+    @app.post("/api/watch/adb/qr")
+    async def watch_adb_qr(request: Request) -> dict[str, Any]:
+        watch_local(request)
+        return await asyncio.to_thread(svc(request).watch_adb_qr)
+
+    @app.get("/api/watch/adb/qr")
+    async def watch_adb_qr_poll(request: Request) -> dict[str, Any]:
+        watch_local(request)
+        return await asyncio.to_thread(svc(request).watch_adb_qr_poll)
+
     @app.post("/api/watch/scrcpy")
     async def watch_scrcpy(request: Request, body: WatchScrcpyBody) -> dict[str, Any]:
         watch_local(request)

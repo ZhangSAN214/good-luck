@@ -15,6 +15,7 @@ import re
 import secrets
 import shutil
 import subprocess
+import time
 from collections.abc import AsyncIterator, Sequence
 from dataclasses import asdict
 from datetime import date, datetime, timedelta, tzinfo
@@ -153,7 +154,14 @@ from roundtable.core.routing import (
     preview_estimates,
 )
 from roundtable.core.runtime import PROJECT_ROOT, WANDER_DIR, Runtime, data_dir
-from roundtable.core.screen import AdbSource, PcSource, ScreenUnavailable, ScreenWatch
+from roundtable.core.screen import (
+    AdbSource,
+    PcSource,
+    ScreenUnavailable,
+    ScreenWatch,
+    new_qr_pairing,
+    qr_pairing_payload,
+)
 from roundtable.core.search import SearchUnavailable
 from roundtable.core.standee import load_standee
 from roundtable.core.standee import standee_file as read_standee_file
@@ -179,6 +187,7 @@ ORPHANED_ERROR = "服务上次意外退出，做到一半中断了，可以点�
 MAX_QUESTION_CHARS = 20_000
 MAX_CHAT_CHARS = 2000
 MAX_MOMENT_CHARS = 500
+ADB_QR_TTL_S = 180  # 配对二维码几秒内有效（手机上的扫码页面本身也会超时）
 # 公寓楼：进行中的会话这么久没有更新就不算在上班（服务意外退出后留下的 running）
 WORKING_WINDOW_H = 3
 
@@ -283,6 +292,7 @@ class RoundtableService:
             },
             publish=self.engine.bus.publish,
         )
+        self._adb_qr: dict[str, Any] | None = None  # 正在等手机扫的配对二维码（只在内存里）
         base = runtime.mail_dir.parent if runtime.mail_dir is not None else data_dir()
         self.wander = Wanderer(
             runtime,
@@ -635,6 +645,44 @@ class RoundtableService:
             return {"connected": self._adb().connect(host, port)}
         except ScreenUnavailable as e:
             raise ServiceError(str(e)) from None
+
+    def watch_adb_qr(self) -> dict[str, Any]:
+        """安卓扫码配对：生成新的配对二维码（旧的作废），再用 watch_adb_qr_poll 等扫码。"""
+        src = self._adb()
+        try:
+            src.qr_ready()
+        except ScreenUnavailable as e:
+            raise ServiceError(str(e)) from None
+        name, password = new_qr_pairing()
+        self._adb_qr = {"name": name, "password": password, "at": time.monotonic()}
+        return {"payload": qr_pairing_payload(name, password), "expires_s": ADB_QR_TTL_S}
+
+    def watch_adb_qr_poll(self) -> dict[str, Any]:
+        """看手机扫了没有，扫了就配对并连上。state：waiting / connected / paired / expired / none"""
+        qr = self._adb_qr
+        if qr is None:
+            return {"state": "none", "connected": []}
+        if time.monotonic() - qr["at"] > ADB_QR_TTL_S:
+            self._adb_qr = None
+            return {"state": "expired", "connected": []}
+        src = self._adb()
+        try:
+            addr = src.qr_pair(qr["name"], qr["password"])
+        except ScreenUnavailable as e:
+            self._adb_qr = None
+            raise ServiceError(str(e)) from None
+        if addr is None:
+            return {"state": "waiting", "connected": []}
+        self._adb_qr = None
+        host = addr.rsplit(":", 1)[0]
+        connected: list[str] = []
+        for _ in range(3):  # 刚配对完手机要一两秒才广播连接端口
+            try:
+                connected = src.connect(host, 0)
+                break
+            except ScreenUnavailable:
+                time.sleep(1.5)
+        return {"state": "connected" if connected else "paired", "connected": connected}
 
     async def watch_start(self, source: str, watchers: list[str], consent: bool) -> dict[str, Any]:
         devices = await asyncio.to_thread(self.watch.devices)

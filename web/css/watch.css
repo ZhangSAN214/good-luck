@@ -39,3 +39,5 @@
 .wt-adb{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0}
 .wt-adb input{min-width:0;width:9em;padding:5px 8px;border:1px solid var(--line);border-radius:var(--r);background:var(--surface);color:inherit;font:inherit}
 .wt-adb input[data-adb-host]{width:13em}
+.wt-phone h5{margin:10px 0 2px;font-size:13px}
+.wt-qr{display:block;width:180px;height:180px;margin:6px 0;border-radius:6px}
