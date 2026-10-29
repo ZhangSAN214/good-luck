@@ -27,6 +27,9 @@ from roundtable.core.allocation import coordinator_name, display_name
 from roundtable.core.almanac import Almanac
 from roundtable.core.attachments import Attachment, UploadError, ingest
 from roundtable.core.attachments.detect import TYPES as UPLOAD_TYPES
+from roundtable.core.benchkit.builder import BenchBuilder
+from roundtable.core.benchkit.scout import Scout as PluginScout
+from roundtable.core.benchkit.scout import http_fetchers
 from roundtable.core.browse import REFRESH_KEY, feeds_of, set_feeds
 from roundtable.core.budget import report as usage_report
 from roundtable.core.budget.channels import MonthSpend, save_priority
@@ -296,6 +299,13 @@ class RoundtableService:
         self.supercomputer = self._build_super(
             runtime, base if runtime.mail_dir is not None else None
         )
+        self.bench = BenchBuilder(
+            runtime.config.roundtable.bench,
+            root=(base / "bench") if runtime.mail_dir is not None else None,
+            supercomputer=self.supercomputer,
+            render=self._super_render,
+            scout=self._build_scout(runtime.config.roundtable.bench),
+        )
         self._chat_tasks: set[asyncio.Task[Any]] = set()
         self._life_task: asyncio.Task[None] | None = None
         self._evolution_task: asyncio.Task[None] | None = None
@@ -323,6 +333,21 @@ class RoundtableService:
             dotenv_path=PROJECT_ROOT / ".env",
         )
 
+    @staticmethod
+    def _build_scout(rules: Any) -> PluginScout:
+        fetch_json, fetch_bytes = http_fetchers()
+        return PluginScout(
+            fetch_json=fetch_json,
+            fetch_bytes=fetch_bytes,
+            min_stars=rules.min_stars,
+            max_kb=rules.max_repo_mb * 1024,
+        )
+
+    def _super_render(self, role: str, **values: str) -> str:
+        """超级电脑和工作台生成器发给助手的全文：系统和用户两段拼在一起（命令行助手只收一段）。"""
+        rendered = self.rt.prompts.render(role, self.rt.config.roundtable.prompts[role], **values)
+        return "\n\n".join(m.content for m in rendered.messages)
+
     def _build_super(self, runtime: Runtime, base: Path | None) -> Supercomputer:
         """超级电脑（docs/SUPERCOMPUTER.md）：命令行助手 + dsh（带了 dsh 才有）。"""
         config = runtime.config
@@ -336,16 +361,10 @@ class RoundtableService:
             launchers["dsh"] = HookLauncher(
                 dsh.job_blocked, dsh.job_launch, dsh.job_started, dsh.job_finished
             )
-        prompts = config.roundtable.prompts
-
-        def render(role: str, **values: str) -> str:
-            rendered = runtime.prompts.render(role, prompts[role], **values)
-            return "\n\n".join(m.content for m in rendered.messages)
-
         return Supercomputer(
             config.roundtable.supercomputer,
             root=base / "super" if base is not None else None,
-            render=render,
+            render=self._super_render,
             launchers=launchers,
         )
 
@@ -403,6 +422,7 @@ class RoundtableService:
     async def aclose(self) -> None:
         self.watch.stop("服务关闭，投屏停了")
         with contextlib.suppress(Exception):
+            await self.bench.aclose()
             await self.supercomputer.aclose()
         if self.dsh is not None:
             with contextlib.suppress(Exception):
@@ -785,6 +805,40 @@ class RoundtableService:
         except ValueError as exc:
             raise ServiceError(str(exc), 400) from None
         return self.super_status()
+
+    # --- 工作台生成器（docs/KIT.md） --------------------------------------------------
+
+    def bench_status(self) -> dict[str, Any]:
+        return self.bench.status()
+
+    def bench_submit(self, request: str) -> dict[str, Any]:
+        try:
+            self.bench.submit(request)
+        except RuntimeError as exc:
+            raise ServiceError(str(exc), 409) from None
+        except ValueError as exc:
+            raise ServiceError(str(exc), 400) from None
+        return self.bench_status()
+
+    async def bench_cancel(self) -> dict[str, Any]:
+        await self.bench.cancel()
+        return self.bench_status()
+
+    def bench_get(self, bench_id: str) -> dict[str, Any]:
+        b = self.bench.get(bench_id)
+        if b is None:
+            raise ServiceError("没有这个工作台", 404)
+        return b
+
+    def bench_file(self, bench_id: str, path: str) -> Path:
+        """生成的工作台里的一个文件（只读；不许跳出它自己的文件夹）。"""
+        if self.bench.root is None or self.bench.get(bench_id) is None:
+            raise ServiceError("没有这个工作台", 404)
+        base = self.bench.folder(bench_id).resolve()
+        full = (base / (path or "index.html")).resolve()
+        if not full.is_relative_to(base) or not full.is_file() or full.name == "build.json":
+            raise ServiceError("没有这个文件", 404)
+        return full
 
     def start_dsh(self) -> None:
         """服务启动时：配置了 autostart 才顺带启动 dsh（默认不启动）。失败只记日志。"""
