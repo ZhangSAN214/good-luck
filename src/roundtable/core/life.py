@@ -29,7 +29,8 @@ from roundtable.core.life_guard import LifeGuard
 from roundtable.core.memory import MemoryKeeper
 from roundtable.core.moments import MOMENT_STEP, Moments
 from roundtable.core.office.apartment import ACTIVITIES, PUBLIC_ROOMS, schedule
-from roundtable.core.persona import persona_of, persona_text
+from roundtable.core.persona import chat_persona
+from roundtable.core.plain_talk import before_speaking, plain_prompt
 from roundtable.core.storage.repository import iso
 
 LAST_TICK_KEY = "life.last_tick"
@@ -267,10 +268,11 @@ class LifeEngine:
                 name=member.name,
                 others=others,
                 scene=p.topic,
-                persona=persona_text(persona_of(rt, member.id)),
+                persona=chat_persona(rt, member.id),
                 memory=member_memory(rt, member.id, f"{p.topic}\n{chat.history(names)}"),
                 history=chat.history(names),
             )
+            prompt = plain_prompt(rt.prompts, rt.config, prompt)
             completion = await call_member(
                 rt,
                 room=chat.room,
@@ -289,6 +291,9 @@ class LifeEngine:
             if self.guard.is_stale(text, earlier):
                 self.guard.note_stale(member.id, text)  # 没有新内容：这句不发，这段收尾
                 break
+            text = await before_speaking(
+                rt, text, room=chat.room, name=member.name, model_id=member.model_id
+            )
             earlier.append(text)
             when = p.at + timedelta(minutes=turn) if offline else now
             rt.repo.add_chat_message(

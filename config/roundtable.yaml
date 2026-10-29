@@ -84,11 +84,65 @@ chat:
       - {name: NASA, url: "https://www.nasa.gov/news-release/feed/", topics: [天文, 科学], kind: news}
       - {name: ScienceDaily, url: "https://www.sciencedaily.com/rss/top/science.xml", topics: [科学], kind: news}
       - {name: Polygon, url: "https://www.polygon.com/rss/index.xml", topics: [游戏], kind: news}
+  engine:                          # 成员引擎（docs/MEMBER_ENGINE.md）：只用于聊天、朋友圈、生活
+    enabled: true
+    context: {budget_chars: 600}   # 调模型时带的资料最多多少字（固定部分放最前，利于缓存）
+    card: {budget_chars: 400}      # 随身卡（人物卡的精简版，每次都带）最多多少字，算在上面的 600 字里
+    scheduler:                     # 预算调度：你直接找她 > 主动找你 > 群聊 > 生活
+      daily_usd: 0.25              # 聊天这一块每天的额度；你直接找她不受它限制
+      shares: {proactive: 0.85, group: 0.7, life: 0.5}   # 其余三类最多用到额度的几成，超了只记一行
+    heartbeat: {enabled: true, max_actions: 3}
+    bus: {keep_days: 14}           # 事件保留几天
   tier: budget
   max_repliers: 2
   max_mentioned: 8                 # 「@全员」「所有人」「大家」时最多几位依次回应
   history_messages: 30
   max_tokens: 1500
+
+# 说话底线（去八股化）：不用金句收尾、不喊格言口号、不排比升华、不写空洞总结
+plain_talk:
+  enabled: true
+  # 第 1 层：这些提示词的每次调用都接上 plain_talk 提示词（同一步骤所有成员完全相同；聊天、生活、工作模式共用）
+  roles: [
+    chat, chat_dm, chat_work, life_chat, life_share, moment_post, moment_comment,
+    answer, revise, work, work_analyze, work_research, work_write, work_review, rework, merge,
+    accept_fix, clarify_answer, office_speak, office_decide, office_handle, office_fix, office_revise,
+  ]
+  # 第 2 层：聊天、生活、朋友圈的发言发出前按规则表检查（不调用模型），查出问题才改写一次
+  check:
+    enabled: true
+    min_chars: 12                  # 短于 12 个字的消息不查
+    monthly_usd: 0.05              # 改写每月最多花 $0.05（超了就发原文）
+    estimate_usd: 0.0005
+    rules:
+      - name: ending_maxim
+        problem: 用金句、感悟或寄语收尾
+        kind: ending               # 只看最后一句
+        patterns:
+          - "^(说到底|归根结底|归根到底|说白了|毕竟|其实|或许|也许|终究)[，,]?.{0,24}(才是|就是|便是|不过是)"
+          - "(这就是|这便是|这才是|这正是|或许这就是|也许这就是).{0,16}(意义|魅力|真谛|浪漫|力量|生活|人生|答案|智慧|成长|美好)"
+          - "^(愿你|愿我们|愿每|但愿|祝愿|希望我们都能|希望每个人)"
+          - "^(人生|生活|成长|时间|岁月|世界|青春|热爱)(就是|就像|本就是|不过是|总会|从来都|终将|自有)"
+          - "(才是|就是)(最好的|最大的|最美的|最珍贵的|真正的)(答案|礼物|风景|修行|浪漫|意义)"
+      - name: slogan
+        problem: 格言口号或鸡汤
+        kind: phrase
+        patterns:
+          - "不忘初心|砥砺前行|未来可期|乘风破浪|勇往直前|永不言弃|星辰大海|奔赴山海|向阳而生|心之所向"
+          - "岁月静好|保持热爱|且行且珍惜|热爱可抵岁月漫长|山高路远|行而不辍|久久为功|未来已来"
+          - "让我们(一起|共同|携手)|一起加油吧|永远在路上|每一天都是新的开始"
+      - name: parallel
+        problem: 排比升华（连着三句以上同样开头）
+        kind: parallel
+        min_run: 3
+        heads: [是, 让, 像, 有, 用, 为, 把, 每]
+      - name: empty_summary
+        problem: 空洞总结或套话
+        kind: phrase
+        patterns:
+          - "总而言之|综上所述|总的来说|一言以蔽之|归纳起来"
+          - "希望(这些|以上|我的回答)?(内容)?对你有(所)?帮助|以上就是"
+          - "值得我们(每个人)?(深思|思考|铭记)|意义深远|发人深省|引人深思|令人深思"
 
 # 单步预估 token 超过此值时询问用户
 token_threshold: 20000
@@ -157,17 +211,18 @@ prompts:
   office_review: v1      # 办公室·项目：复核经理最终验收
   office_revise: v1      # 办公室·项目：主办经理按验收意见改一次
   office_handle: v2      # 办公室：员工办理（v2：带字画面用代码画、数字须核实）
-  chat: v2               # 群聊：口语、短句，坦诚自己是 AI（v2：人设与记忆）
-  chat_dm: v2            # 私聊：和用户一对一（v2：人设与记忆）
-  chat_work: v2          # 工作群：聊工作，交办走办公室（v2：人设与记忆）
+  chat: v3               # 群聊：口语、短句（v2：人设与记忆；v3：人物卡随身卡，AI 身份平时不刻意提、被认真问如实承认）
+  chat_dm: v3            # 私聊：和用户一对一（v2：人设与记忆；v3：人物卡随身卡）
+  chat_work: v3          # 工作群：聊工作，交办走办公室（v2：人设与记忆；v3：人物卡随身卡）
   memory_day: v1         # 记忆：把一天的聊天压成一段
   memory_roll: v1        # 记忆：日 → 周、周 → 月
   memory_profile: v1     # 记忆：更新长期档案
   memory_items: v1       # 记忆（半衰期，recall: half_life 时用）：一天的聊天拆成几件事，重要的标 ★
-  life_chat: v1          # 生活：成员之间聊天（公寓楼里的模拟生活）
-  life_share: v1         # 生活：成员把上网看到的一条内容分享到生活群
-  moment_post: v1        # 朋友圈：成员发一条动态
-  moment_comment: v1     # 朋友圈：成员评论一条动态（或回复评论）
+  member_eval: v1       # 成员评测集：情境题（规则判分，离线用假模型）
+  life_chat: v2          # 生活：成员之间聊天（公寓楼里的模拟生活）
+  life_share: v2         # 生活：成员把上网看到的一条内容分享到生活群
+  moment_post: v2        # 朋友圈：成员发一条动态
+  moment_comment: v2     # 朋友圈：成员评论一条动态（或回复评论）
   evolution_card: v1     # 革新例会·自己找资料：一位成员把网页写成资料卡
   evolution_check: v1    # 革新例会·自己找资料：另一位成员复核资料卡
   evolution_plugins: v1  # 革新例会·插件清单：一位成员根据资料卡和点子榜写给用户看的插件清单
@@ -183,6 +238,8 @@ prompts:
   evolve_review: v1      # 革新 PR 的对抗式复审（开发侧脚本 scripts/evolve_review.py，可选）
   web_search: v1         # 借助聚合平台联网搜索时发给搜索用模型的指令
   web_fetch: v1          # 借助聚合平台读取网页时发给读取用模型的指令
+  plain_talk: v1         # 说话底线（去八股化）：接在 plain_talk.roles 的每次调用上，所有成员相同
+  plain_rewrite: v1      # 说话底线·改写：发言查出八股腔时成员自己用节电档改一次
 
 # 每个步骤对所有模型统一使用的参数（中立：同一步骤参数相同；模型自身必需的参数在 models.yaml）
 step_params:

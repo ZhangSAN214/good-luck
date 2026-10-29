@@ -80,6 +80,14 @@ from roundtable.core.lan import LanAccess, is_local, is_remote, qr_svg
 from roundtable.core.life import LIFE_STEPS, LifeEngine
 from roundtable.core.mail import MailAI, MailAIError, MailBox, MailBusy, OwaBrowser
 from roundtable.core.media import KIND_LABELS, KINDS, MediaService
+from roundtable.core.member import MemberEngine, ProfileError
+from roundtable.core.member.card import (
+    card_patch,
+    match_members,
+    parse_cards,
+    source_title,
+    without_locked,
+)
 from roundtable.core.members_art import MEMBERS_FILE, load_members, mime_of, resolve_file
 from roundtable.core.memory import LAYERS, MemoryKeeper, clean_memory
 from roundtable.core.moments import SEEN_KEY as MOMENTS_SEEN
@@ -89,7 +97,7 @@ from roundtable.core.office import building, payslip, roster
 from roundtable.core.office import collect as collect_performance
 from roundtable.core.office import reset as reset_performance
 from roundtable.core.orchestrator import Orchestrator, OrchestratorError, RunResult
-from roundtable.core.persona import is_empty, persona_of, set_persona
+from roundtable.core.persona import card_text, is_empty, persona_of, set_persona
 from roundtable.core.plugin_board import board_view, load_board
 from roundtable.core.preview import render_preview
 from roundtable.core.providers import (
@@ -169,6 +177,7 @@ class RoundtableService:
         self.chats = ChatHub(runtime, names=self._art_names)
         self.memory = MemoryKeeper(runtime, self.chats.everyone)
         self.life = LifeEngine(runtime, self.chats, self.memory)
+        self.engine = MemberEngine(runtime, lambda: [m.id for m in self.chats.everyone()])
         self.mail = MailBox(runtime.repo)
         self.mail_ai = MailAI(runtime, self.mail)
         if runtime.mail_source is not None:
@@ -226,8 +235,12 @@ class RoundtableService:
             await asyncio.sleep(self.rt.config.roundtable.evolution.tick_minutes * 60)
 
     async def life_tick(self) -> dict[str, int]:
-        """推进一次生活（开机后第一次会补上关机期间的时间）。"""
-        return await self.life.tick(self.rt.budget.now().astimezone())
+        """推进一次生活（开机后第一次会补上关机期间的时间），再推进一次成员引擎（不花钱）。"""
+        now = self.rt.budget.now().astimezone()
+        out = await self.life.tick(now)
+        with contextlib.suppress(Exception):  # 引擎出错不影响生活
+            await self.engine.tick(now)
+        return out
 
     async def aclose(self) -> None:
         tasks = [*self._tasks.values(), *self._chat_tasks]
@@ -1325,6 +1338,129 @@ class RoundtableService:
         return self.upload(clipper.safe_name(clip["title"]), data)
 
     # --- 上网（订阅源） ------------------------------------------------------------
+
+    # --- 成员引擎：自我档案（docs/MEMBER_ENGINE.md） ---------------------------------
+
+    def _profile_member(self, member: str) -> str:
+        if member not in {m.id for m in self.chats.everyone()}:
+            raise ServiceError(f"没有这位成员：{member}")
+        return member
+
+    def member_profile(self, member: str) -> dict[str, Any]:
+        """当前档案、版本号和修改记录（新的在前）。"""
+        p = self.engine.profiles.current(self._profile_member(member))
+        rules = self.rt.config.roundtable.chat.engine
+        card = card_text(self.rt, member)
+        return {
+            "member": member,
+            "version": p.version,
+            "data": p.data,
+            "locked": p.locked,
+            "sections": dict(rules.profile.sections),
+            "history": self.engine.profiles.history(member),
+            "card": {
+                "text": card,
+                "chars": len(card),
+                "budget": rules.card.budget_chars,
+                "custom": bool(str(p.get("identity.随身卡") or "").strip()),
+            },
+        }
+
+    def member_profiles(self) -> dict[str, Any]:
+        """每位成员的档案概况：版本号、随身卡字数（网页「自我档案」的成员列表）。"""
+        out = []
+        for m in self.chats.everyone():
+            p = self.engine.profiles.current(m.id)
+            card = card_text(self.rt, m.id)
+            out.append(
+                {
+                    "id": m.id,
+                    "name": m.name,
+                    "version": p.version,
+                    "nickname": p.get("identity.小名") or "",
+                    "card_chars": len(card),
+                }
+            )
+        return {"members": out, "budget": self.rt.config.roundtable.chat.engine.card.budget_chars}
+
+    def member_profile_import(
+        self, text: str, mapping: dict[str, str] | None = None, dry_run: bool = False
+    ) -> dict[str, Any]:
+        """把人物卡（Markdown，每位成员一节）读进自我档案；以用户身份写，每位成员存一个新版本。
+
+        卡名和成员显示名一样就自动对上，mapping（卡名 → 成员 id，空串 = 跳过）可以改。
+        dry_run 只解析不写。用户锁住的项不动。
+        """
+        cards = parse_cards(text)
+        if not cards:
+            raise ServiceError("没认出人物卡：每位成员一节，标题写成「## 名字 · 完整角色卡」")
+        everyone = self.chats.everyone()
+        ids = {m.id for m in everyone}
+        matched = match_members(cards, [(m.id, m.name) for m in everyone])
+        for name, mid in (mapping or {}).items():
+            if name in matched:
+                matched[name] = mid or None
+        source = source_title(text)
+        out = []
+        for card in cards:
+            mid = matched.get(card.name)
+            if mid is not None and mid not in ids:
+                raise ServiceError(f"没有这位成员：{mid}")
+            row: dict[str, Any] = {
+                "name": card.name,
+                "member": mid,
+                "chapters": list(card.chapters),
+                "version": None,
+            }
+            if mid is not None and not dry_run:
+                patch = card_patch(card, source)
+                patch = without_locked(patch, self.engine.profiles.current(mid).locked)
+                self._profile_do(
+                    lambda mid=mid, patch=patch: self.engine.profiles.change(
+                        mid, patch, author="user", reason=f"导入人物卡：{source}"
+                    )
+                )
+                row["version"] = self.engine.profiles.current(mid).version
+            out.append(row)
+        return {
+            "source": source,
+            "cards": out,
+            "members": [{"id": m.id, "name": m.name} for m in everyone],
+            "imported": sum(1 for r in out if r["version"] is not None),
+        }
+
+    def _profile_do(self, fn: Any) -> None:
+        try:
+            fn()
+        except ProfileError as e:
+            raise ServiceError(str(e)) from None
+
+    def member_profile_change(
+        self, member: str, patch: dict[str, Any], reason: str = ""
+    ) -> dict[str, Any]:
+        """用户改档案：{分区: {键: 值或 None}}。"""
+        member = self._profile_member(member)
+        self._profile_do(
+            lambda: self.engine.profiles.change(
+                member, patch, author="user", reason=reason or "你改的"
+            )
+        )
+        return self.member_profile(member)
+
+    def member_profile_lock(self, member: str, path: str, locked: bool = True) -> dict[str, Any]:
+        member = self._profile_member(member)
+        self._profile_do(lambda: self.engine.profiles.lock(member, path, locked=locked))
+        return self.member_profile(member)
+
+    def member_profile_revert(self, member: str, version: int) -> dict[str, Any]:
+        member = self._profile_member(member)
+        self._profile_do(lambda: self.engine.profiles.revert(member, version))
+        return self.member_profile(member)
+
+    def member_profile_clear(self, member: str) -> dict[str, Any]:
+        member = self._profile_member(member)
+        n = self.engine.profiles.clear(member)
+        return {"member": member, "deleted": n}
 
     def life_reports(self) -> dict[str, Any]:
         """生活的每周自检（docs/CHAT.md G9）：已存的每周报告（新的在前）和最近 7 天的实时报告。"""

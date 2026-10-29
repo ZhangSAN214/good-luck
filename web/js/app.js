@@ -116,6 +116,12 @@ const people = new People($('#people'), {
     delMemory: API.delChatMemory,
     clearMemories: API.clearChatMemories,
     tidy: API.tidyChatMemories,
+    profile: API.memberProfile,
+    change: API.changeMemberProfile,
+    lock: API.lockMemberProfile,
+    revert: API.revertMemberProfile,
+    clearProfile: API.clearMemberProfile,
+    importCards: API.importMemberCards,
   },
 });
 const feeds = new Feeds($('#feeds'), { api: { get: API.chatFeeds, set: API.setChatFeeds, refresh: API.refreshChatFeeds } });

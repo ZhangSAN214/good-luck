@@ -1375,6 +1375,75 @@ class Repository:
             for r in rows
         ]
 
+    # --- 成员引擎（docs/MEMBER_ENGINE.md） --------------------------------------------
+
+    def member_profile(self, member: str, version: int | None = None) -> dict[str, Any] | None:
+        """某位成员的档案：最新版（version 为空）或指定版本。"""
+        if version is None:
+            row = self._exec(
+                "SELECT * FROM member_profiles WHERE member = ? ORDER BY version DESC LIMIT 1",
+                (member,),
+            ).fetchone()
+        else:
+            row = self._exec(
+                "SELECT * FROM member_profiles WHERE member = ? AND version = ?", (member, version)
+            ).fetchone()
+        if row is None:
+            return None
+        return {"version": row["version"], "data": json.loads(row["data"])}
+
+    def member_profile_history(self, member: str) -> list[dict[str, Any]]:
+        rows = self._exec(
+            "SELECT version, author, reason, changes, created_at FROM member_profiles"
+            " WHERE member = ? ORDER BY version DESC",
+            (member,),
+        ).fetchall()
+        return [{**dict(r), "changes": json.loads(r["changes"])} for r in rows]
+
+    def add_member_profile(
+        self,
+        member: str,
+        version: int,
+        data: dict[str, Any],
+        *,
+        author: str,
+        reason: str,
+        changes: list[dict[str, Any]],
+    ) -> None:
+        self._exec(
+            "INSERT INTO member_profiles (member, version, data, author, reason, changes,"
+            " created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (
+                member,
+                version,
+                json.dumps(data, ensure_ascii=False, sort_keys=True),
+                author,
+                reason,
+                json.dumps(changes, ensure_ascii=False),
+                self.clock(),
+            ),
+        )
+
+    def clear_member_profiles(self, member: str) -> int:
+        return self._exec("DELETE FROM member_profiles WHERE member = ?", (member,)).rowcount
+
+    def add_member_event(
+        self, at: str, kind: str, member: str | None, data: dict[str, Any]
+    ) -> None:
+        self._exec(
+            "INSERT INTO member_events (at, kind, member, data) VALUES (?, ?, ?, ?)",
+            (at, kind, member, json.dumps(data, ensure_ascii=False)),
+        )
+
+    def member_events_between(self, start: str, end: str) -> list[dict[str, Any]]:
+        rows = self._exec(
+            "SELECT * FROM member_events WHERE at >= ? AND at < ? ORDER BY at, id", (start, end)
+        ).fetchall()
+        return [{**dict(r), "data": json.loads(r["data"])} for r in rows]
+
+    def prune_member_events(self, before: str) -> int:
+        return self._exec("DELETE FROM member_events WHERE at < ?", (before,)).rowcount
+
     def spent_in_steps(
         self, workflow: str, steps: Sequence[str], start: datetime, end: datetime
     ) -> float:
@@ -1620,6 +1689,14 @@ class Repository:
             " ON s.id = c.session_id WHERE s.workflow = ? AND c.created_at >= ?"
             " AND c.created_at < ?",
             (workflow, iso(start), iso(end)),
+        ).fetchone()[0]
+
+    def spent_in_step(self, step: str, start: datetime, end: datetime) -> float:
+        """[start, end) 内某个步骤名（calls.step，如 'plain_rewrite'）的调用花费。"""
+        return self._exec(
+            "SELECT COALESCE(SUM(cost_usd), 0) FROM calls WHERE step = ? AND created_at >= ?"
+            " AND created_at < ?",
+            (step, iso(start), iso(end)),
         ).fetchone()[0]
 
     def calls_in_workflow(self, workflow: str, start: datetime, end: datetime) -> int:

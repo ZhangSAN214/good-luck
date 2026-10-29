@@ -803,6 +803,80 @@ class MomentsRules(_Strict):
     estimate_usd: float = Field(default=0.002, ge=0)
 
 
+class ProfileRules(_Strict):
+    """自我档案（docs/MEMBER_ENGINE.md）：分区 → 谁能改（user / growth 成长 / program 程序）。"""
+
+    sections: dict[str, list[str]] = Field(
+        default_factory=lambda: {
+            "identity": ["user"],
+            "personality": ["user", "growth"],
+            "values": ["user", "growth"],
+            "style": ["user", "growth"],
+            "likes": ["user", "growth"],
+            "state": ["user", "program"],
+        }
+    )
+
+
+class ContextRules(_Strict):
+    """上下文组装器：总长预算、每个来源最多几段、截断后最少保留几个字。"""
+
+    budget_chars: int = Field(default=600, ge=100, le=8000)
+    per_source: int = Field(default=2, ge=1, le=10)
+    min_piece_chars: int = Field(default=20, ge=1, le=200)
+
+
+class SchedulerShares(_Strict):
+    """各优先级最多能用到每日额度的几成（用户直接找她不设每日额度）。"""
+
+    proactive: float = Field(default=0.85, gt=0, le=1)
+    group: float = Field(default=0.7, gt=0, le=1)
+    life: float = Field(default=0.5, gt=0, le=1)
+
+
+class SchedulerRules(_Strict):
+    """预算调度器：聊天这一块每天的额度，按优先级分份额。"""
+
+    daily_usd: float = Field(default=0.25, ge=0)
+    shares: SchedulerShares = SchedulerShares()
+
+
+class HeartbeatRules(_Strict):
+    enabled: bool = True
+    max_actions: int = Field(default=3, ge=0, le=20)  # 每次心跳最多做几件事
+
+
+class BusRules(_Strict):
+    persist: bool = True  # 事件存进 member_events
+    keep_days: int = Field(default=14, ge=1, le=365)
+
+
+class EvalRules(_Strict):
+    """评测集：所有成员相同的参数；同一题两位回复的相似度达到 clash_similarity 算撞型。"""
+
+    max_tokens: int = Field(default=600, ge=64)
+    clash_similarity: float = Field(default=0.6, gt=0, le=1)
+
+
+class CardRules(_Strict):
+    """随身卡（M1 自我认知）：每次调模型都带的那一小段，放在上下文组装器的固定前缀里。"""
+
+    budget_chars: int = Field(default=400, ge=50, le=4000)
+
+
+class EngineRules(_Strict):
+    """成员引擎（docs/MEMBER_ENGINE.md）：只用于聊天、朋友圈、生活；工作模式不读取。"""
+
+    enabled: bool = True
+    profile: ProfileRules = ProfileRules()
+    card: CardRules = CardRules()
+    context: ContextRules = ContextRules()
+    scheduler: SchedulerRules = SchedulerRules()
+    heartbeat: HeartbeatRules = HeartbeatRules()
+    bus: BusRules = BusRules()
+    eval: EvalRules = EvalRules()
+
+
 class ChatRules(_Strict):
     """聊天：生活群、工作群、私聊。成员不主动找用户，只回应用户。"""
 
@@ -813,6 +887,7 @@ class ChatRules(_Strict):
     life: LifeRules = LifeRules()
     browse: BrowseRules = BrowseRules()
     moments: MomentsRules = MomentsRules()
+    engine: EngineRules = EngineRules()
     tier: Tier = "budget"  # 每位成员用这个档位的模型发言（没有就用该成员最便宜的）
     max_repliers: int = Field(default=2, ge=1, le=6)  # 没有 @ 人时，一条消息最多几位回应
     max_mentioned: int = Field(default=8, ge=1, le=12)  # @全员 / 所有人 / @多人 时最多几位回应
@@ -820,6 +895,78 @@ class ChatRules(_Strict):
     max_tokens: int = Field(default=500, ge=64)
     max_chars: int = Field(default=800, ge=50)  # 一条消息最多保留的字数
     estimate_usd: float = Field(default=0.002, ge=0)  # 每条回应的预估花费（预算检查用）
+
+
+class PlainTalkRule(_Strict):
+    """说话底线规则表的一条（程序检查，不调用模型）。
+
+    kind：phrase = 全文出现任一 patterns；ending = 最后一句匹配任一 patterns（金句收尾）；
+    parallel = 连续 min_run 个以上分句开头相同（排比）：
+    开头两个字相同，或开头一个字相同且在 heads 里。
+    """
+
+    name: str = Field(pattern=r"^[a-z][a-z0-9_]*$", max_length=40)
+    problem: str = Field(min_length=1, max_length=80)  # 改写时告诉成员的问题说明
+    kind: Literal["phrase", "ending", "parallel"]
+    patterns: list[str] = Field(default_factory=list, max_length=60)  # 正则
+    min_run: int = Field(default=3, ge=2, le=10)
+    heads: list[str] = Field(default_factory=list, max_length=30)
+
+    @field_validator("patterns")
+    @classmethod
+    def _compile(cls, patterns: list[str]) -> list[str]:
+        for p in patterns:
+            try:
+                re.compile(p)
+            except re.error as exc:
+                raise ValueError(f"正则写错了：{p!r}（{exc}）") from None
+        return patterns
+
+    @field_validator("heads")
+    @classmethod
+    def _single(cls, heads: list[str]) -> list[str]:
+        bad = [h for h in heads if len(h) != 1]
+        if bad:
+            raise ValueError(f"heads 每项只能是一个字：{bad}")
+        return heads
+
+    @model_validator(mode="after")
+    def _needs_patterns(self) -> PlainTalkRule:
+        if self.kind != "parallel" and not self.patterns:
+            raise ValueError(f"{self.kind} 规则至少要有一条 patterns")
+        return self
+
+
+class PlainTalkCheck(_Strict):
+    """说话前的程序检查（成员自我监控的雏形）：只查聊天、生活、朋友圈的发言；查出问题才改写一次。"""
+
+    enabled: bool = True
+    min_chars: int = Field(default=12, ge=0)  # 短于这么多字的消息不查
+    monthly_usd: float = Field(
+        default=0.05, ge=0
+    )  # 改写每月最多花多少（UTC 自然月；也计入聊天预算）
+    estimate_usd: float = Field(default=0.0005, ge=0)  # 每次改写的预估花费（预算检查用）
+    max_tokens: int = Field(default=600, ge=64)
+    rules: list[PlainTalkRule] = Field(default_factory=list, max_length=30)
+
+    @field_validator("rules")
+    @classmethod
+    def _unique(cls, rules: list[PlainTalkRule]) -> list[PlainTalkRule]:
+        names = [r.name for r in rules]
+        if len(names) != len(set(names)):
+            raise ValueError(f"规则名不能重复：{names}")
+        return rules
+
+
+class PlainTalkRules(_Strict):
+    """说话底线（去八股化）：roles 里的提示词每次调用都接上 plain_talk 提示词。
+
+    同一步骤所有成员相同。
+    """
+
+    enabled: bool = True
+    roles: list[str] = Field(default_factory=list)
+    check: PlainTalkCheck = PlainTalkCheck()
 
 
 class EvolutionSchedule(_Strict):
@@ -1059,6 +1206,7 @@ class RoundtableConfig(_Strict):
     style: StyleRules = StyleRules()
     office: OfficeRules = OfficeRules()
     chat: ChatRules = ChatRules()
+    plain_talk: PlainTalkRules = PlainTalkRules()
     evolution: EvolutionRules = EvolutionRules()
     mail: MailConfig = MailConfig()
     clipper: ClipperRules = ClipperRules()
@@ -1084,6 +1232,16 @@ class RoundtableConfig(_Strict):
     def _members(self) -> RoundtableConfig:
         if self.min_members > self.seats:
             raise ValueError("min_members 不能大于 seats")
+        return self
+
+    @model_validator(mode="after")
+    def _plain_talk_roles(self) -> RoundtableConfig:
+        if not self.plain_talk.enabled:
+            return self
+        needed = {"plain_talk"} | ({"plain_rewrite"} if self.plain_talk.check.enabled else set())
+        missing = sorted((needed | set(self.plain_talk.roles)) - set(self.prompts))
+        if missing:
+            raise ValueError(f"plain_talk 用到的提示词没有在 prompts 里配置版本：{missing}")
         return self
 
 
