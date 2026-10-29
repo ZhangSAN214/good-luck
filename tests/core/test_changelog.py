@@ -23,13 +23,17 @@ def test_repo_changelog_is_valid_and_newest_first():
     view = changelog_view(load_changelog())
     dates = [r["date"] for r in view["releases"]]
     assert dates == sorted(dates, reverse=True)
+    nums = [tuple(int(n) for n in r["version"].split(".")) for r in view["releases"]]
+    assert nums == sorted(nums, reverse=True)
     assert view["latest"] == view["releases"][0]["version"]
     assert all(r["added"] or r["fixed"] for r in view["releases"])
 
 
-def test_orders_by_date_then_file_order(tmp_path):
-    log = load_changelog(write(tmp_path, [rel("1.2"), rel("1.9", "2026-10-26"), rel("1.3")]))
-    assert [r["version"] for r in changelog_view(log)["releases"]] == ["1.2", "1.3", "1.9"]
+def test_orders_by_version_number_not_file_order(tmp_path):
+    releases = [rel("1.9"), rel("1.62"), rel("1.10"), rel("1.55"), rel("1.55.1")]
+    log = load_changelog(write(tmp_path, releases))
+    got = [r["version"] for r in changelog_view(log)["releases"]]
+    assert got == ["1.62", "1.55.1", "1.55", "1.10", "1.9"]
 
 
 @pytest.mark.parametrize(

@@ -2,7 +2,7 @@
 
 - 每合并一个 PR 就在文件最上面追加一条：版本号、日期、标题、新增 / 修复 / 怎么用，
   写给不懂代码的人看。
-- 版本号不能重复；顺序由代码按日期（新的在前）排，同一天按文件里的先后。
+- 版本号不能重复；顺序由代码按版本号（大的在前）排，文件里的先后不影响显示。
 - 每次请求重新读文件，更新说明不用重启服务；已读状态只存在浏览器本机，不进数据库。
 """
 
@@ -66,8 +66,10 @@ def load_changelog(path: Path | str = DEFAULT_CONFIG_DIR / CHANGELOG_FILE) -> Ch
 
 
 def changelog_view(log: Changelog) -> dict[str, Any]:
-    """可 JSON 化的公告：新的在前（同一天保持文件里的先后）。"""
-    order = sorted(enumerate(log.releases), key=lambda p: (-p[1].date.toordinal(), p[0]))
+    """可 JSON 化的公告：按版本号从大到小（1.55.1 排在 1.55 前面）。"""
+    order = sorted(
+        log.releases, key=lambda r: tuple(int(n) for n in r.version.split(".")), reverse=True
+    )
     releases = [
         {
             "version": r.version,
@@ -78,6 +80,6 @@ def changelog_view(log: Changelog) -> dict[str, Any]:
             "fixed": list(r.fixed),
             "howto": r.howto,
         }
-        for _, r in order
+        for r in order
     ]
     return {"latest": releases[0]["version"], "releases": releases}
