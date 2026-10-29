@@ -539,12 +539,12 @@ models:
       - {channel: openrouter, model: google/veo-3.1}
   # image_edit：能拿一张图当首帧（图生视频）
   - id: grok-imagine-video-1.5-lite
-    # Grok 视频 Lite：最便宜（约 $0.10 / 5 秒），720p，适合草稿、表情动图、日常小片段
+    # Grok 视频 Lite：最便宜（720p 约 $0.15 / 5 秒；480p 每秒 2 美分），适合草稿、表情动图、日常小片段
     vendor: SpaceXAI
     seat: false
     tier: budget
     default: true
-    media_price: {unit: second, usd: 0.02}
+    media_price: {unit: second, usd: 0.03}     # 720p（roundtable.yaml 的 media.video.resolution）；2026-10-29 用户电脑核对
     tags: [video_gen, image_edit]
     enabled: true
     routes:
