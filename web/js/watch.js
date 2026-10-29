@@ -3,6 +3,8 @@
 // 开始后左边是预览（只在电脑上），右边是和她们的聊天；可以「安静看」、随时停止。
 // 截图只在电脑内存里，网页预览每几秒取一张；她们读到的是画面的文字描述（面板里可以展开看）。
 // 安卓设备在面板里用无线调试配对 / 连接（扫二维码，或填配对码）；iPhone 只能用 AirPlay 镜像到电脑上的窗口再选那个窗口。
+// 看视频时不用切回来：「悬浮窗」在电脑上开一个总在最前面的小窗（可拖动、调透明度、收成小圆点）；
+// 浏览器支持时还有「画中画」小窗（同样总在最前面）。两种小窗里都能直接打字。
 
 const esc = (s) =>
   String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -31,6 +33,25 @@ async function qrSvg(text) {
   for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) if (qr.isDark(y, x)) d += `M${x + 4} ${y + 4}h1v1h-1z`;
   return `<svg class="wt-qr" viewBox="0 0 ${n + 8} ${n + 8}" role="img" aria-label="安卓配对二维码" shape-rendering="crispEdges"><rect width="100%" height="100%" fill="#fff"/><path d="${d}" fill="#000"/></svg>`;
 }
+
+// 画中画小窗自己的样式（小窗是另一个文档，不继承页面样式）
+const PIP_CSS = `
+  body { margin: 0; font: 14px/1.5 system-ui, "Microsoft YaHei", sans-serif; color: #f2f4f8; background: #14161c;
+    display: flex; flex-direction: column; height: 100vh; }
+  .bar { display: flex; align-items: center; gap: 8px; padding: 4px 8px; background: rgba(35, 39, 51, .9); font-size: 12px; }
+  .bar b { color: #ff6b6b; font-weight: 600; margin-right: auto; }
+  .bar input { width: 70px; vertical-align: middle; }
+  .bar button { background: none; border: 0; color: inherit; font-size: 16px; cursor: pointer; }
+  .feed { flex: 1; overflow-y: auto; padding: 6px 10px; }
+  .feed p { margin: 0 0 6px; }
+  .feed b { color: #ffd479; margin-right: 4px; }
+  .feed b::after { content: "："; }
+  .feed .me, .feed .me b { color: #c9d1e0; }
+  .feed .sys { color: #9aa3b2; font-size: 12px; }
+  form { padding: 4px 8px 8px; }
+  form input { width: 100%; box-sizing: border-box; padding: 6px 8px; border: 0; border-radius: 6px; background: #232733; color: inherit; }
+  body.small form { display: none; }
+`;
 
 export class Watch {
   /**
@@ -67,7 +88,7 @@ export class Watch {
   schedule() {
     this.timers.forEach(clearInterval);
     this.timers = [];
-    if (this.dlg.open) {
+    if (this.dlg.open || this.pip) {
       this.timers.push(setInterval(() => this.refresh(), STATUS_MS));
       this.timers.push(setInterval(() => this.pull(), MESSAGES_MS));
     } else {
@@ -83,6 +104,7 @@ export class Watch {
       return;
     }
     this.paintButton();
+    if (!this.st.running && this.pip) this.closePip();
     if (!this.dlg.open) return;
     if (this.st.running && was) this.renderLive(); // 只刷新状态区和预览，不打断正在输入的话
     else if (this.st.running !== was) {
@@ -150,6 +172,7 @@ export class Watch {
       return;
     }
     if (this.dlg.open) this.renderChat();
+    this.renderPip();
   }
 
   sources() {
@@ -176,6 +199,8 @@ export class Watch {
             <div class="wt-ctrls">
               <label class="hint switch"><input type="checkbox" data-quiet ${st.quiet ? 'checked' : ''}> 安静看（不主动说话）</label>
               ${scrcpy ? '<button type="button" class="btn" data-scrcpy>流畅窗口</button>' : ''}
+              ${this.remote ? '' : '<button type="button" class="btn" data-overlay title="总在最前面的小窗：看视频时不用切回来">悬浮窗</button>'}
+              ${'documentPictureInPicture' in window ? '<button type="button" class="btn" data-pip title="浏览器的画中画小窗，总在最前面">画中画</button>' : ''}
               <button type="button" class="btn wt-stop" data-stop>停止投屏</button>
             </div>
           </div>
@@ -395,6 +420,16 @@ export class Watch {
       }
       return;
     }
+    if (t.closest('[data-overlay]')) {
+      try {
+        const r = await this.api.overlay();
+        this.note(r.already ? '悬浮窗已经开着了（在屏幕右上角附近）。' : '悬浮窗打开了：按住顶上那条拖动，「－」收起。');
+      } catch (x) {
+        this.note(x.message);
+      }
+      return;
+    }
+    if (t.closest('[data-pip]')) return this.openPip();
     if (t.closest('[data-start]')) return this.start();
     if (t.closest('[data-qr]')) return this.qrStart();
     if (t.closest('[data-qr-cancel]')) {
@@ -435,6 +470,101 @@ export class Watch {
     }
     this.paintButton();
     this.render();
+  }
+
+  /** 投屏中的一句提示（不重画整个面板，免得打断输入）。 */
+  note(text) {
+    const live = this.dlg.querySelector('.wt-live');
+    if (!live) return;
+    let p = this.dlg.querySelector('.wt-note');
+    if (!p) {
+      p = document.createElement('p');
+      p.className = 'wt-hint wt-note';
+      p.setAttribute('role', 'status');
+      live.after(p);
+    }
+    p.textContent = text;
+  }
+
+  /** 浏览器画中画小窗（Document Picture-in-Picture，Edge / Chrome 116+）：总在最前面。 */
+  async openPip() {
+    if (this.pip) return this.pip.focus();
+    let pip;
+    try {
+      pip = await window.documentPictureInPicture.requestWindow({ width: 340, height: 320 });
+    } catch (x) {
+      return this.note(`画中画没打开：${x.message}`);
+    }
+    this.pip = pip;
+    this.pipSmall = false;
+    pip.document.title = '一起看';
+    const style = pip.document.createElement('style');
+    style.textContent = PIP_CSS;
+    pip.document.head.append(style);
+    pip.document.body.innerHTML = `
+      <div class="bar"><b>● 一起看</b>
+        <label title="背景深浅">深浅 <input type="range" min="0" max="100" value="${this.pipShade ?? 85}" data-shade></label>
+        <button type="button" data-small title="收起 / 展开">－</button></div>
+      <div class="feed" aria-live="polite"></div>
+      <form autocomplete="off"><input maxlength="1000" placeholder="和她们说点什么（@名字 指定谁回）" aria-label="说话"></form>`;
+    const body = pip.document.body;
+    body.querySelector('[data-shade]').addEventListener('input', (e) => {
+      this.pipShade = Number(e.target.value);
+      this.paintShade();
+    });
+    body.querySelector('[data-small]').addEventListener('click', () => {
+      this.pipSmall = !this.pipSmall;
+      body.classList.toggle('small', this.pipSmall);
+      try {
+        pip.resizeTo(340, this.pipSmall ? 96 : 320);
+      } catch {
+        /* 有的浏览器不让改大小：只收起内容 */
+      }
+    });
+    body.querySelector('form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const input = e.target.querySelector('input');
+      const text = input.value.trim();
+      if (!text) return;
+      input.value = '';
+      await this.api.say(text).catch(() => {});
+      await this.pull();
+    });
+    pip.addEventListener('pagehide', () => {
+      this.pip = null;
+      this.schedule();
+    });
+    this.paintShade();
+    this.renderPip();
+    this.schedule();
+  }
+
+  closePip() {
+    const pip = this.pip;
+    this.pip = null;
+    pip?.close();
+    this.schedule();
+  }
+
+  paintShade() {
+    if (!this.pip) return;
+    const a = (this.pipShade ?? 85) / 100;
+    this.pip.document.body.style.background = `rgba(20, 22, 28, ${a.toFixed(2)})`;
+  }
+
+  renderPip() {
+    const feed = this.pip?.document.querySelector('.feed');
+    if (!feed) return;
+    const rows = this.msgs.slice(this.pipSmall ? -1 : -8);
+    feed.innerHTML =
+      rows
+        .map((m) =>
+          m.author === 'system'
+            ? `<p class="sys">${esc(m.text)}</p>`
+            : `<p class="${m.author === 'user' ? 'me' : ''}"><b>${esc(m.author === 'user' ? '我' : m.name)}</b>${esc(m.text)}</p>`,
+        )
+        .join('') + ((this.typing || []).length ? `<p class="sys">${this.typing.map(esc).join('、')} 正在输入…</p>` : '');
+    feed.scrollTop = feed.scrollHeight;
   }
 
   async onSubmit(e) {

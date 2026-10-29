@@ -869,6 +869,12 @@ def create_app(service: RoundtableService | None = None, lan: LanAccess | None =
         watch_local(request)
         return await asyncio.to_thread(svc(request).watch_adb_connect, body.host, body.port)
 
+    @app.post("/api/watch/overlay")
+    async def watch_overlay(request: Request) -> dict[str, Any]:
+        watch_local(request)
+        port = request.url.port or (443 if request.url.scheme == "https" else 80)
+        return svc(request).watch_overlay(port)
+
     @app.post("/api/watch/adb/qr")
     async def watch_adb_qr(request: Request) -> dict[str, Any]:
         watch_local(request)

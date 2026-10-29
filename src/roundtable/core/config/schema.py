@@ -1391,15 +1391,33 @@ class WatchRules(_Strict):
     max_watchers: int = Field(default=3, ge=1, le=6)  # 最多几位一起看
     grab_seconds: float = Field(default=3, ge=1, le=60)  # 多久截一张（只在内存里）
     change_threshold: float = Field(default=0.06, gt=0, le=1)  # 画面变化超过这个比例才算变了
-    describe_gap_seconds: float = Field(default=20, ge=5, le=600)  # 两次看画面至少隔多久
+    describe_gap_seconds: float = Field(default=15, ge=5, le=600)  # 两次看画面至少隔多久
     describes_per_hour: int = Field(default=90, ge=1, le=720)  # 每小时最多看几次画面
     max_side: int = Field(default=1024, ge=320, le=2048)  # 交给模型的画面最长边（像素）
     jpeg_quality: int = Field(default=70, ge=30, le=95)
-    describe_max_tokens: int = Field(default=300, ge=64, le=2000)
+    # 看画面不用思考：思考会把字数花光、交回空白（2026-10-29 实测 4 次有 3 次为空）
+    describe_max_tokens: int = Field(default=800, ge=64, le=2000)
+    describe_reasoning: dict[str, Any] = Field(default_factory=lambda: {"enabled": False})
+    fail_gap_seconds: float = Field(default=10, ge=0, le=600)  # 看画面失败后，至少隔多久再看
     describe_estimate_usd: float = Field(default=0.002, ge=0)
     recent_screens: int = Field(default=3, ge=1, le=10)  # 发给成员的最近几段画面描述
-    react_gap_seconds: float = Field(default=90, ge=10, le=3600)  # 同一位成员主动说话至少隔多久
-    room_gap_seconds: float = Field(default=40, ge=5, le=3600)  # 没人说话时，大家主动说话至少隔多久
+    react_gap_seconds: float = Field(default=60, ge=10, le=3600)  # 同一位成员主动说话至少隔多久
+    room_gap_seconds: float = Field(default=25, ge=5, le=3600)  # 没人说话时，大家主动说话至少隔多久
+    # 一位说完后，别的陪看成员接话的几率（每多接一句减半）和最多接几句；接话也可以选「…」不说
+    followup_chance: float = Field(default=0.6, ge=0, le=1)
+    max_followups: int = Field(default=2, ge=0, le=5)
+    # 主动说话时这次往哪个方向说（随机抽一条，所有成员同一张表）：让她们有观点、会提问，不只描述画面
+    angles: list[str] = Field(
+        default_factory=lambda: [
+            "说说你自己的看法或感受，可以和别人不一样",
+            "问一个你好奇的问题（问用户或朋友都行）",
+            "接个梗或吐槽一句",
+            "补一点相关的背景或小知识（不确定就换个说法）",
+            "猜一猜接下来会怎样",
+        ],
+        min_length=1,
+        max_length=20,
+    )
     history_messages: int = Field(default=16, ge=2, le=100)
     max_tokens: int = Field(default=400, ge=64)
     max_chars: int = Field(default=200, ge=20, le=2000)  # 陪看时每句最多保留多少字

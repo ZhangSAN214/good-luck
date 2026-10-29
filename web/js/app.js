@@ -207,6 +207,7 @@ new Watch($('#watchdlg'), $('#watchbtn'), {
     messages: API.watchMessages,
     say: API.watchSay,
     scrcpy: API.watchScrcpy,
+    overlay: API.watchOverlay,
     adbPair: API.watchAdbPair,
     adbConnect: API.watchAdbConnect,
     adbQr: API.watchAdbQr,

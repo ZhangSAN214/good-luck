@@ -213,6 +213,13 @@ __all__ = [
 EXPORT_FOLDER_KEY = "export.folder"  # 导出时「存到固定文件夹」记住的文件夹
 
 
+def _has_tk() -> bool:
+    """这台电脑的 Python 带不带 tkinter（一起看的悬浮窗要用）。"""
+    import importlib.util
+
+    return importlib.util.find_spec("tkinter") is not None
+
+
 class ServiceError(ValueError):
     """请求不合法（参数错误、状态不允许等）。status 为建议的 HTTP 状态码。"""
 
@@ -759,6 +766,34 @@ class RoundtableService:
         except OSError:
             raise ServiceError("scrcpy 启动失败") from None
         return {"started": True}
+
+    def watch_overlay(self, port: int) -> dict[str, Any]:
+        """打开一起看的置顶悬浮窗（另一个进程，tkinter；只通过 HTTP 连本机圆桌，docs/WATCH.md）。"""
+        import sys
+
+        if not self.watch.running:
+            raise ServiceError("现在没在投屏")
+        proc = getattr(self, "_overlay", None)
+        if proc is not None and proc.poll() is None:
+            return {"started": False, "already": True}
+        if not _has_tk():
+            raise ServiceError("这台电脑的 Python 没带 tkinter，开不了悬浮窗；可以用「画中画」小窗")
+        state = data_dir() / "desktop" / "watch_overlay.json"
+        cmd = [
+            sys.executable,
+            "-m",
+            "roundtable.desktop.overlay",
+            "--url",
+            f"http://127.0.0.1:{int(port)}",
+            "--state",
+            str(state),
+        ]
+        flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        try:
+            self._overlay = subprocess.Popen(cmd, creationflags=flags)  # noqa: S603
+        except OSError:
+            raise ServiceError("悬浮窗启动失败") from None
+        return {"started": True, "already": False}
 
     # --- 成员自己上网 ---------------------------------------------------------------------
 
