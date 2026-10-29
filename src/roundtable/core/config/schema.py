@@ -999,6 +999,7 @@ class VoiceCheckRules(_Strict):
     catchphrase_recent: int = Field(default=3, ge=1, le=20)  # 口头禅最近几条里用过就算太勤
     agree_patterns: list[str] = Field(default_factory=list, max_length=40)  # 开头是附和
     agree_rest_chars: int = Field(default=8, ge=0, le=60)  # 附和之外剩下的字少于这么多算「光附和」
+    follow_similarity: float = Field(default=0.25, gt=0, le=1)  # 附和开头 + 剩下的像别人说的：接龙
     memory_patterns: list[str] = Field(default_factory=list, max_length=40)  # 提到共同回忆
     monthly_usd: float = Field(default=0.05, ge=0)
     estimate_usd: float = Field(default=0.0005, ge=0)

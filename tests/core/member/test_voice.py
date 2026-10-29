@@ -113,6 +113,9 @@ def test_self_check_rules():
     assert rule("今天的晚霞粉得像草莓牛奶") == {"repeat"}
     assert rule("火锅吧，天冷吃火锅最舒服") == {"echo"}
     assert rule("说得对！我也想") == {"agree"}
+    assert rule("说得对") == {"agree"}  # 很短也查
+    assert rule("我也觉得火锅好，天冷吃火锅") == {"agree"}  # 附和接龙
+    assert voice_hits("我也是", Said(), v, c) == []  # 这一轮没人说过话（私聊回你）：不算附和
     assert "agree" not in rule("确实，不过我更想吃楼下那家新开的烤肉")
     assert rule("让我想想。烤肉也行吧") == {"catchphrase"}
     assert rule("上次我们一起去的那家店不错") == {"memory"}
@@ -123,7 +126,7 @@ def test_self_check_rules():
 
 def test_drop_only_echo_or_agree_in_group_when_not_named():
     c = rules().check
-    hits = voice_hits("说得对", Said(), Voice(), c.model_copy(update={"min_chars": 1}))
+    hits = voice_hits("说得对", Said(others=(("阿二", "去天台"),)), Voice(), c)
     assert should_drop(hits, "group", named=False)
     assert not should_drop(hits, "group", named=True)
     assert not should_drop(hits, "dm", named=True)

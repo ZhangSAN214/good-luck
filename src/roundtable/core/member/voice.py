@@ -262,9 +262,23 @@ def voice_hits(text: str, said: Said, voice: Voice, rules: Any) -> list[Hit]:
     from roundtable.core.moments import similarity  # moments 依赖 chat，chat 用到本模块
 
     bare = _bare(text)
-    if not rules.enabled or len(bare) < rules.min_chars:
+    if not rules.enabled or not bare:
         return []
     hits: list[Hit] = []
+    # 附和接龙：这一轮别人已经说过话时才查；光附和多半很短，不受 min_chars 限制
+    for pattern in rules.agree_patterns if said.others else ():
+        m = re.match(pattern, bare)
+        if not m:
+            continue
+        rest = bare[m.end() :].strip()
+        follows = any(  # 「我也收盘子，天台见」：附和开头 + 后面跟别人说的差不多（附和接龙）
+            similarity(rest, _bare(other)) >= rules.follow_similarity for _, other in said.others
+        )
+        if len(rest) < rules.agree_rest_chars or follows:
+            hits.append(Hit("agree", "只是在附和或跟着别人说，没说自己的看法", bare[:60]))
+            break
+    if len(bare) < rules.min_chars:
+        return hits
     for old in said.own[-rules.own_recent :]:
         if similarity(bare, _bare(old)) >= rules.repeat_similarity:
             hits.append(Hit("repeat", "和你自己刚才说过的话太像，换个说法或者说点新的", old[:60]))
@@ -274,11 +288,6 @@ def voice_hits(text: str, said: Said, voice: Voice, rules: Any) -> list[Hit]:
             hits.append(
                 Hit("echo", f"和{who}刚说的差不多，别跟风：说你自己的看法，或者不接", other[:60])
             )
-            break
-    for pattern in rules.agree_patterns:
-        m = re.match(pattern, bare)
-        if m and len(bare[m.end() :].strip()) < rules.agree_rest_chars:
-            hits.append(Hit("agree", "只是在附和，没说自己的看法", bare[:60]))
             break
     recent = said.own[-rules.catchphrase_recent :]
     for phrase in voice.catchphrases:
