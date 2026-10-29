@@ -50,7 +50,7 @@ class CreateSession(BaseModel):
     workflow: str = "discussion"  # discussion 讨论 / collab 协同
     seed: int | None = None
     attachments: list[str] = Field(default_factory=list)  # POST /api/uploads 返回的附件 id
-    media: str | None = None  # 讨论模式的输出类型：image / speech / video
+    media: str | None = None  # 讨论模式的输出类型：image / speech / video / music
     media_tier: str | None = None  # 媒体模型的档位：budget / flagship
     # 作为风格参考的图片附件 id；省略 = 全部图片都是风格参考，[] = 都不是
     style_refs: list[str] | None = None
@@ -668,6 +668,16 @@ def create_app(service: RoundtableService | None = None, lan: LanAccess | None =
                 content=data[start : end + 1], status_code=206, media_type=mime, headers=headers
             )
         return Response(content=data, media_type=mime, headers=headers)
+
+    @app.post("/api/chat/messages/{message_id}/look", status_code=202)
+    async def chat_look(request: Request, message_id: int, room: str = "main") -> dict[str, Any]:
+        """「细看」：按精细模式重新整理这条消息里的图片 / 视频 / 语音，再请一位成员回应。"""
+        return await svc(request).chat_look(room, message_id)
+
+    @app.delete("/api/perception")
+    async def perception_clear(request: Request) -> dict[str, Any]:
+        """一键清空感官缓存（本机 data/perception/）。"""
+        return svc(request).perception_clear()
 
     @app.post("/api/chat/handoff", status_code=202)
     async def chat_handoff(request: Request, body: HandoffBody) -> dict[str, Any]:

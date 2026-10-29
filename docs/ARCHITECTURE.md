@@ -161,6 +161,7 @@
 - `Message.media`（`Media`：image / audio、MIME、字节）由各适配器转换：OpenAI 兼容 `image_url`（data URI）/ `input_audio`；Anthropic `image`（base64，音频报 bad_request 不切换）；Gemini `inline_data`。`Media` 的 repr 不含内容；调用记录只存类型、大小与哈希。
 - 预估：附件文字按 token 计入题目长度，图片取 `estimate.image_tokens` 与文字版的较大者。
 - **风格参考**（阶段 22）：上传的图片默认是**风格参考**（`attachments.style_ref`；提问区每张图片有「风格参考」勾选，取消后只是普通附件；`POST /api/sessions` 的 `style_refs` 传仍作为风格参考的图片 id，省略 = 全部图片，`[]` = 都不是；命令行 `--no-style-ref`）。见 §2.10 的风格规范与参考图。
+- 聊天里用户发的图片 / 语音 / 视频不走这里，由 `core/perception/` 整理成感知卡（见 docs/PERCEPTION.md）；`Media` 的 `video` 种类目前只用于感官的精细模式。
 - 对外：会话详情的 `attachments` 只有名称、类型、大小、页数、状态、来源、警告（不含内容与存储位置）；`roundtable show --details` 显示图片文字版与转写稿。
 
 ### 2.9 工具（`core/tools/`、`steps/tooluse.py`）
@@ -184,7 +185,7 @@
   - **参考图传给画图模型**：`MediaService.generate(..., references=)`（图片；数量 `media.references.max`、每张 `max_mb`）。带参考图时优先选带 **`image_edit`** 标签（支持以参考图为输入）的模型，参考图作为 `image_url` 随提示词发出；没有这样的模型时退回只传文字，job 的 `params.warning` 与结果 `warning` 写明"没有支持参考图的画图模型，只能按文字风格规范生成"（事件 `media_warning`，界面和命令行都显示）；`media_jobs.reference_count` 记录实际传了几张。提示词里仍写入风格规范（双保险）。讨论模式的 `media` 步骤、协同模式的 `generate` 子任务、`generate_image` 工具（标签上写 `refs="1 2"`，编号 = 风格参考图的顺序，`tools/v5`）都走这条路径。
   - **对照参考图校验**：讨论模式的评审（`media_review/v2`）带着参考图（附件原图）和风格清单逐条判定 `checks`（符合 / 不符合 + 依据），**任意一条不符合即不通过**（代码保证，不信模型自己的 `satisfied`），统筹的改写意见针对不符合的条目（轮数仍受 `media.max_rounds`）。协同模式生成图片后（完成子任务与按审查修改两处，`make_media()`）立即做**风格校验**（`style_gate()`，事件 `style_checked`）：由 `media.gate_reviewers` 位**非作者**的 vision 成员对照清单判定；不通过则作者按意见改提示词（沿用 `rework_media`）并重画，最多 `media.style_retries` 次（默认 2）；仍不通过时保留最后一版并标"风格未通过"（`style_failed`，合并时 `<work style=…>` 让统筹可见，`merge/v4` 要求如实说明）。每次判定 / 改写都存库（`style_gate` / `style_redraw`，按 phase 区分），恢复时不重复调用；重画受预算和单题确认门槛约束（需要确认或预算不足时不自动重画，不在并发任务里弹卡片）。
   - 界面：提问区的「风格参考」勾选、过程区的风格规范卡片（可折叠，含清单和来源提示）、风格校验逐条通过 / 不通过、生成卡片的"参考图 N 张"与警告；命令行 `show` 有【风格规范】与校验结果。
-- **模型**：图片（`image_gen`，通过对话接口返回图片）、文字转语音（`tts`）、语音转文字（`stt`，Whisper 系列）、视频（`video_gen`，异步）都是 `seat: false` 的工具模型。选择只看能力标签和档位（`pick_media_model`：先取指定档位，没有则取未分档的，再取另一档；同组内先限定在带偏好标签的模型里（语音合成：脚本主要是中文时偏好 `zh` 标签）、再限定在 `default: true` 的模型里（有的话），最后按 seed 随机，换名不影响）；同一场同种类同档位总是同一个模型（语音合成按脚本语言选，例外）。按 token 计价的语音模型用 `speech_tokens_per_char` 估算（渠道没返回费用时记账用）。`config/models.yaml` 里的媒体模型 ID 与价格来自网页搜索、**尚未核对**，用 `python scripts/check_models.py` 核对（存在性检查；列表含 `output_modalities=image / audio / speech / transcription / video`，转写模型必须用 `transcription` 才查得到；按秒 / 字符 / token 计价的媒体模型只列出远端 pricing 供人工核对）。
+- **模型**：图片（`image_gen`，通过对话接口返回图片）、文字转语音（`tts`）、语音转文字（`stt`，Whisper 系列）、视频（`video_gen`，异步）、音乐（`music_gen`，同步）都是 `seat: false` 的工具模型。选择只看能力标签和档位（`pick_media_model`：先取指定档位，没有则取未分档的，再取另一档；同组内先限定在带偏好标签的模型里（语音合成：脚本主要是中文时偏好 `zh` 标签）、再限定在 `default: true` 的模型里（有的话），最后按 seed 随机，换名不影响）；同一场同种类同档位总是同一个模型（语音合成按脚本语言选，例外）。按 token 计价的语音模型用 `speech_tokens_per_char` 估算（渠道没返回费用时记账用）。`config/models.yaml` 里的媒体模型 ID 与价格来自网页搜索、**尚未核对**，用 `python scripts/check_models.py` 核对（存在性检查；列表含 `output_modalities=image / audio / speech / transcription / video`，转写模型必须用 `transcription` 才查得到；按秒 / 字符 / token 计价的媒体模型只列出远端 pricing 供人工核对）。
 - **画图接口与换模型重试**：`Provider.generate_image(..., images=, api=)`；`openai_compat` 的 `api="images"` 请求 `POST images`（body：`model`、`prompt`、`n`、其余 params（去掉对话接口专用的 `modalities`/`max_tokens`）、参考图放 `input_references:[{type: image_url, image_url: {url: data URI}}]`；响应取 `data[*].b64_json`（附 `media_type`）/ `url`，`usage.cost` 为实际费用）——格式已对照 OpenRouter 官方文档（features/multimodal/image-generation）修正，用 `python scripts/try_image.py [--ref 图.png]` 做真实调用核对（会产生少量费用）。一个画图模型的所有渠道都失败（或没返回图片）时，`MediaService.generate` 与 `generate_image` 工具自动换**同档**的其他画图模型重试（带参考图时先试带 `image_edit` 的），每次尝试一行 `media_jobs`，全部失败才报失败。
 - **配置**（`roundtable.yaml` 的 `media`）：`default_tier`、`max_rounds`（生成 → 评审 → 重新生成，含第一次）、`reviewers`、`confirm_video`、语音（voice / format）、视频（时长 / 分辨率 / 轮询间隔 / 超时 / 重试 / 截帧数）、预估参数。
 - **`MediaService`**：`generate(kind, prompt, Placement(table, step, round, code, subtask))` 按位置幂等（已完成的不重复生成 / 计费）；提示词发出前遮蔽身份；每次生成一行 `media_jobs`（提示词、模型、渠道、状态、花费、第几轮、尝试次数、文件），成功的同时记入 `calls`（`role="media"`），所以进入每月 / 每日预算与按渠道花费。计价：渠道返回实际费用优先，否则按 `media_price`（张 / 秒 / 分钟 / 字符），图像模型再按用量 token 或 `image_tokens` 估算。**视频**：提交 → 轮询 → 下载，任务 id 与轮询地址存库，暂停 / 重启后继续轮询同一个任务；超时（`video.timeout_s`，按提交时间的墙钟计）、任务失败或提交失败按 `submit_retries` 重新提交；轮询连续出错 5 次或鉴权 / 额度错误则失败；失败不计费。生成的文件登记在 `files`（kind image / audio / video），始终经下载接口取用。
@@ -194,6 +195,11 @@
 - **预估**（`routing/media_estimate.py`）：`Question.media` 非空时在 `reveal` 前加一项 `media`：生成费用取候选模型的平均（上限取最大）× `expected_rounds`（上限 `max_rounds`）+ 评审者与统筹改写提示词的模型调用；`POST /api/estimate` 与命令行 `estimate --media` 单列显示。协同模式的媒体子任务拆分前未知，不在预估内，由确认与预算兜住。
 - **音频转写**：上传音频时优先用 `stt` 模型（`provider.transcribe`，按渠道返回的费用，否则每分钟单价 × 时长），失败或没有时回退到带 `transcribe` 标签的对话模型（旧方式）；任一可用即允许上传。
 - **图像生成工具**（§2.9 `generate_image`）并入这里的档位选择（`media_tier`，默认 `default_tier`）；按张计价的图像模型在渠道没有返回实际费用时按每张单价记账。
+- **音乐、视频声音与首帧、创作月上限**（2026-10-29 创作输出端 A 批）：
+  - **音乐**（`music_gen`，`media_price.unit: song`）：`Provider.generate_music(model, prompt, params)`；`openai_compat` 走对话接口，`modalities: ["text","audio"]`、`audio: {format}`、**必须 `stream: true`**，逐个 SSE 片段取 `delta.audio.data`（每段单独 base64 解码后拼接）和 `delta.content`（歌词 / 说明，存 `media_jobs.params.lyrics`，会话详情 `lyrics` 经遮蔽），最后一段 `usage.cost` 为实际费用；流中途的 `error` 按其 code 分类。和语音一样只生成一次、不评审（`NO_REVIEW`），提示词上限 `media.music.max_chars`。`media_brief/v2`、`media_rewrite/v2` 加了音乐的写法（风格、情绪、节奏、乐器、有无人声与歌词，不写真实歌手名）。文件登记为 audio（`music_r1.mp3`）。
+  - **视频**：提交时带 `generate_audio`（`media.video.audio`，默认开，模型不支持时渠道忽略）；`generate(..., references=)` 对视频取第一张作**首帧**，只传给带 `image_edit` 标签的视频模型；`openai_compat` 的 `frame_images[*]` 带 `frame_type`（第一张 `first_frame`、第二张 `last_frame`）。
+  - **创作月上限**（`media.monthly_usd`，默认 $5，0 = 不限）：`MediaService.month_spent()` 统计本 UTC 自然月全部 `role="media"` 调用（跨会话，`Repository.spent_in_role`）；`media_gate` 在「本月已花 + 这次预计」超过时弹 `kind="media"` 卡片（生成 / 不生成 / 停止），与视频必确认、单题门槛同一张卡片。
+  - **阵容**：节电档视频默认 Grok Video Lite（另有 Veo 3.1 Lite），旗舰档 Veo 3.1 Fast；中文语音 Qwen TTS Plus（节电）、MiniMax Speech HD（旗舰）；音乐 Lyria 3 Clip（节电，$0.04 / 段）、Lyria 3 Pro（旗舰，$0.08 / 首）。视频按 720p 带声音的单价配置（远端按分辨率和有无声音分档，价格只在 `/videos/models` 里，`/models` 列表里是 0）；2026-10-29 在用户电脑核对过 ID 与价格，并真实生成过一段 Lyria Clip（$0.04，返回 mp3）。被换下的 wan-2.6、veo-3.1、qwen-tts-flash 留在配置里 `enabled: false` 作备用。
 - **对外**：会话详情 `media`（每次生成：轮次、尝试、提示词、状态、花费、文件；模型和渠道揭晓前为空，提示词经遮蔽）、`media_kind` / `media_tier`；`/api/status` 的 `media`（各种类是否可用及原因、两个档位是否有模型，不含模型名）。事件 `media_started` / `media_progress` / `media_done` / `media_failed`（只含种类、轮次、状态）。网页：提问区「输出」选择（文字 / 图片 / 语音 / 视频，不可用的灰掉并说明原因）与「普通 / 高质量」；过程区每次生成一张卡片（第几轮、状态、花费、提示词、图片 / 音频 / 视频播放器与下载），评审与统筹决定逐条显示；面板「媒体」标签列出全部生成与成果。命令行 `ask --media image|speech|video --media-tier budget|flagship`、`estimate --media`；`show` 有「媒体生成」段；`files` 一并保存媒体文件。视频截帧用 PyAV（可选依赖 `pip install 'roundtable[media]'`；没有时评审者只看文字说明并被告知）。
 
 ## 4. 预算
@@ -231,6 +237,7 @@ src/roundtable/
     routing/       规则判断、规划员、方案与阵容、花费预估、用户模式、升级、每题记录
     storage/       SQLite 迁移、Repository、揭晓前的匿名视图
     attachments/   上传文件的识别、文字提取、存放、图片文字版 / 音频转写、发给模型时的呈现
+    perception/    成员感官（docs/PERCEPTION.md）：用户在聊天里发的图片 / 语音 / 视频 → 感知卡（快速 / 精细，按内容缓存在 data/perception/），成员读卡回应
     media/         媒体生成：模型选择（标签 + 档位）、计价、MediaService（图片 / 语音 / 视频异步任务）、视频截帧
     tools/         工具协议、沙箱（wasm / docker，runner.mjs）、工作目录与文件收集、ToolBox（执行与额度）
     search/        联网搜索服务（注册、OpenRouter 搜索（默认）、Tavily、按顺序切换的 SearchService）

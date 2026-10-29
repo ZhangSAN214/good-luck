@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import json
 
 import httpx
@@ -291,3 +292,73 @@ async def test_providers_without_an_images_endpoint_refuse_it():
     p = FakeProvider("c")
     with pytest.raises(UnsupportedCapability):
         await FakeProvider.__mro__[1].generate_image(p, "m", "猫", {}, api="images")
+
+
+# --- 音乐：对话接口 + 流式音频 --------------------------------------------------------
+
+
+def sse(*chunks) -> bytes:
+    lines = [f"data: {json.dumps(c)}\n\n" for c in chunks]
+    return (": keep-alive\n\n" + "".join(lines) + "data: [DONE]\n\n").encode()
+
+
+async def test_music_streams_audio_chunks_lyrics_and_cost():
+    seen = {}
+
+    def handler(request: httpx.Request):
+        seen["path"] = request.url.path
+        seen["body"] = json.loads(request.content)
+        part1, part2 = base64.b64encode(b"ID3abc").decode(), base64.b64encode(b"def").decode()
+        body = sse(
+            {"choices": [{"delta": {"content": "[Verse] ", "audio": {"data": part1}}}]},
+            {"choices": [{"delta": {"content": "la la", "audio": {"data": part2}}}]},
+            {"choices": [{"delta": {}, "finish_reason": "stop"}], "usage": {"cost": 0.04}},
+        )
+        return httpx.Response(200, content=body, headers={"content-type": "text/event-stream"})
+
+    out = await make(handler).generate_music("m", "轻快的钢琴片头", {"format": "mp3", "seed": 3})
+    assert seen["path"].endswith("/chat/completions")
+    body = seen["body"]
+    assert body["stream"] is True and body["modalities"] == ["text", "audio"]
+    assert body["audio"] == {"format": "mp3"} and body["seed"] == 3 and "format" not in body
+    assert body["messages"] == [{"role": "user", "content": "轻快的钢琴片头"}]
+    assert out.media.data == b"ID3abcdef" and out.media.mime == "audio/mpeg"
+    assert out.media.kind == "audio" and out.cost_usd == 0.04 and out.text == "[Verse] la la"
+
+
+async def test_music_without_audio_or_with_stream_error_fails():
+    def empty(request):
+        return httpx.Response(200, content=sse({"choices": [{"delta": {"content": "hi"}}]}))
+
+    with pytest.raises(ProviderError) as info:
+        await make(empty).generate_music("m", "x", {})
+    assert info.value.kind == ErrorKind.INVALID_RESPONSE
+
+    def broken(request):
+        return httpx.Response(200, content=sse({"error": {"code": 429, "message": "slow down"}}))
+
+    with pytest.raises(ProviderError) as info:
+        await make(broken).generate_music("m", "x", {})
+    assert info.value.kind == ErrorKind.RATE_LIMIT
+
+
+async def test_music_unsupported_by_default():
+    class Plain(FakeProvider):
+        generate_music = FakeProvider.__mro__[1].generate_music
+
+    with pytest.raises(UnsupportedCapability):
+        await Plain("c").generate_music("m", "x", {})
+
+
+async def test_video_frames_are_sent_as_first_and_last_frame():
+    seen = {}
+
+    def handler(request: httpx.Request):
+        seen.update(json.loads(request.content))
+        return httpx.Response(202, json={"id": "j", "status": "pending"})
+
+    frames = (Media("image", "image/png", FAKE_PNG), Media("image", "image/png", FAKE_PNG))
+    await make(handler).submit_video("vid", "动起来", {"generate_audio": True}, images=frames)
+    assert [f["frame_type"] for f in seen["frame_images"]] == ["first_frame", "last_frame"]
+    assert seen["frame_images"][0]["image_url"]["url"].startswith("data:image/png;base64,")
+    assert seen["generate_audio"] is True

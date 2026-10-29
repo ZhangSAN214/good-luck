@@ -230,7 +230,7 @@ prompts:
   transcribe: v1         # 音频转写
   tools: v5              # 工具说明与工具结果（v2：联网搜索；v3：图表中文；v4：转述的网页正文；v5：in/ 上游文件与参考图）
   image_gen: v1          # 图像生成工具
-  media_brief: v1        # 媒体输出：把题目改写成「写生成提示词」的任务
+  media_brief: v2        # 媒体输出：把题目改写成「写生成提示词」的任务
   media_review: v2       # 评审生成结果（图片 / 视频截帧）；v2：对照风格清单逐条判定
   style_extract: v1      # 风格规范提取：成员各自看参考图
   office_intake: v4      # 办公室：经理分诊派活（v2：开会点名；v3：项目组点名；v4：名单附绩效）
@@ -265,12 +265,14 @@ prompts:
   style_guide: v1        # 风格规范，接在之后的每次调用上
   user_notes: v1         # 用户中途补充的意见，接在之后的每次调用上
   media_refine: v1       # 统筹根据评审决定是否改提示词重新生成
-  media_rewrite: v1      # 汇总失败时，由一位成员根据修订稿重写生成提示词
+  media_rewrite: v2      # 汇总失败时，由一位成员根据修订稿重写生成提示词
   work_media: v1         # 协同：媒体子任务，成员写生成提示词
   rework_media: v2       # 协同：按审查意见修改生成提示词
   evolve_review: v1      # 革新 PR 的对抗式复审（开发侧脚本 scripts/evolve_review.py，可选）
   web_search: v1         # 借助聚合平台联网搜索时发给搜索用模型的指令
   web_fetch: v1          # 借助聚合平台读取网页时发给读取用模型的指令
+  perceive_fast: v1      # 感官·快速：把用户发的图片 / 视频画面 / 语音转写整理成简短的感知卡
+  perceive_fine: v1      # 感官·精细：同上，写得更细，图里的字逐字抄下
   plain_talk: v1         # 说话底线（去八股化）：接在 plain_talk.roles 的每次调用上，所有成员相同
   plain_rewrite: v1      # 说话底线·改写：发言查出八股腔时成员自己用节电档改一次
 
@@ -791,10 +793,13 @@ media:
   default_tier: budget       # 提问时可改选 flagship（高质量档）
   max_rounds: 3              # 生成 → 评审 → 重新生成，最多几轮（含第一次生成）
   reviewers: 3               # 每轮最多几位评审者（需带 vision 标签）
-  confirm_video: true        # 视频每次生成前都先问你；图片、语音只在超过单题门槛时才问
+  confirm_video: true        # 视频每次生成前都先问你；图片、语音、音乐只在超过单题门槛或创作月上限时才问
   images_per_round: 1
+  monthly_usd: 5.0           # 创作输出（图片 / 语音 / 视频 / 音乐）每月合计上限；本月快超时先问你，0 = 不限
   speech: {voice: alloy, format: mp3, max_chars: 4000}
+  music: {format: mp3, max_chars: 1500}   # 音乐：按「风格、情绪、乐器、时长、有无人声 / 歌词」描述生成一段，不评审
   video:
+    audio: true              # 视频同时生成声音（环境声、对白；模型不支持时忽略）
     duration_s: 5
     resolution: 720p
     aspect_ratio: "16:9"
@@ -920,3 +925,18 @@ clipper:
   max_clips: 200             # 资料夹最多存几份，超出时删最旧的
   search_results: 8
   search_estimate_usd: 0.01
+
+# 成员感官（docs/PERCEPTION.md）：聊天 / 私聊里你发的图片、语音、视频，先整理成「感知卡」，成员读卡回应。
+# 快速（默认）：图缩小、视频取 8 帧拼成 2 张宫格图、声音转写；你在消息里写「仔细看」等词时用精细：
+# 图更大、卡更长；有带 video_in 标签的模型时整段视频连声音交给它，否则多取帧不拼图。
+# 转写稿和感知卡按文件内容缓存，同一个文件不重复花钱；精细直接复用快速时的转写稿。
+# 模型只按标签和价格挑最便宜的。花费计入聊天月预算和总预算，另有感官自己的月上限。
+perception:
+  enabled: true
+  monthly_usd: 1.5
+  fast:  {image_side: 768,  video_frames: 8,  frame_side: 512, grid: true,  max_tokens: 600,  estimate_usd: 0.002}
+  fine:  {image_side: 1536, video_frames: 24, frame_side: 768, native_video: true, max_tokens: 2000, estimate_usd: 0.03}
+  fine_words: [仔细看, 细看, 看清楚, 看仔细, 仔细听, 听清楚]
+  max_audio_s: 600           # 语音 / 视频声音最多转写多长（秒）
+  native_max_mb: 20          # 整段视频交给模型的大小上限
+  card_chars: 800            # 每张感知卡最多保留多少字

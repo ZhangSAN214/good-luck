@@ -84,6 +84,12 @@ class Env:
 
     def reply(self, model, messages):
         system = messages[0].content
+        if "眼睛和耳朵" in system:  # 感官：按 <items> 的编号各写一张感知卡
+            body = messages[-1].content.split("<items>")[1].split("</items>")[0]
+            count = sum(1 for line in body.splitlines() if line[:1].isdigit() and ". " in line)
+            return "\n".join(
+                f"【{i}】画面 {i}：一只橘猫趴在窗台上晒太阳。" for i in range(1, count + 1)
+            )
         if "图片转写成" in system:
             return "图中文字：求 f(x)=x^3-3x 在 [-2, 2] 上的最值。坐标系中画有曲线。"
         if "逐字转写成文字稿" in system:

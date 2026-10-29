@@ -12,10 +12,29 @@ from roundtable.core.runtime import Runtime
 CORE_IMAGE_MODELS = {"gpt-image-1-mini", "gpt-image-2", "gemini-3.1-flash-image"}
 
 
+# 视频、语音、音乐同理：按最初的这几个写（视频、语音的原阵容 2026-10-29 已换成新模型并停用，
+# 这里重新打开），整份名单另测
+CORE_MEDIA_MODELS = {
+    "alibaba-wan-video",
+    "veo-3.1",
+    "gemini-3.8-flash-tts",
+    "qwen-audio-3.0-tts-flash",
+    "lyria-3-clip",
+    "lyria-3-pro",
+}
+OTHER_MEDIA_TAGS = {"video_gen", "tts", "music_gen"}
+
+
 def core_images_only(config):
-    models = [
-        m for m in config.models.models if "image_gen" not in m.tags or m.id in CORE_IMAGE_MODELS
-    ]
+    models = []
+    for m in config.models.models:
+        if "image_gen" in m.tags and m.id not in CORE_IMAGE_MODELS:
+            continue
+        if OTHER_MEDIA_TAGS & set(m.tags):
+            if m.id not in CORE_MEDIA_MODELS:
+                continue
+            m = m.model_copy(update={"enabled": True})
+        models.append(m)
     return config.model_copy(update={"models": config.models.model_copy(update={"models": models})})
 
 
@@ -77,7 +96,15 @@ class Rig:
         return [c for c in self.fake.media_calls if c[0] == kind]
 
 
-VIDEO_KEYS = {"duration_s", "poll_interval_s", "timeout_s", "submit_retries", "frames", "max_mb"}
+VIDEO_KEYS = {
+    "audio",
+    "duration_s",
+    "poll_interval_s",
+    "timeout_s",
+    "submit_retries",
+    "frames",
+    "max_mb",
+}
 
 
 @pytest.fixture

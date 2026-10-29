@@ -48,6 +48,7 @@ def _wav() -> bytes:
 
 FAKE_WAV = _wav()
 FAKE_MP4 = b"\x00\x00\x00\x18ftypmp42\x00\x00\x00\x00mp42isom" + b"fake-video"
+FAKE_MP3 = b"ID3\x04\x00\x00\x00\x00\x00\x00" + b"\xff\xfb\x90\x00" + b"fake-music"
 
 
 @dataclass(frozen=True)
@@ -79,6 +80,7 @@ class FakeProvider(Provider):
         self.calls: list[FakeCall] = []
         # 媒体：每次调用记录为 (种类, 模型, 输入, 参数)；cost 为 None 时由路由按配置价格估算
         self.media_calls: list[tuple[str, str, Any, dict[str, Any]]] = []
+        self.video_frames: list[tuple[Media, ...]] = []  # 每次提交视频带的首 / 尾帧
         self.media_cost: float | None = None
         self.broken_models: set[str] = set()  # 画图时总是失败的模型（测试换模型重试用）
         self.transcript = "说话人 1：这是一段测试转写。"
@@ -123,6 +125,12 @@ class FakeProvider(Provider):
         self._media_fail(self.submit_errors)
         return MediaOutput(Media("audio", "audio/wav", FAKE_WAV, "speech.wav"), self.media_cost)
 
+    async def generate_music(self, model: str, prompt: str, params: dict[str, Any]) -> MediaOutput:
+        self.media_calls.append(("music", model, prompt, dict(params)))
+        self._media_fail(self.submit_errors)
+        audio = Media("audio", "audio/mpeg", FAKE_MP3, "music.mp3")
+        return MediaOutput(audio, self.media_cost, "[Verse] fake lyrics")
+
     async def transcribe(self, model: str, audio: Media, params: dict[str, Any]) -> Transcription:
         self.media_calls.append(("transcribe", model, audio.describe(), dict(params)))
         self._media_fail(self.submit_errors)
@@ -132,6 +140,7 @@ class FakeProvider(Provider):
         self, model: str, prompt: str, params: dict[str, Any], images=()
     ) -> VideoJob:
         self.media_calls.append(("video", model, prompt, dict(params)))
+        self.video_frames.append(tuple(images))
         self._media_fail(self.submit_errors)
         self._jobs += 1
         return VideoJob(f"job-{self._jobs}", "pending", f"videos/job-{self._jobs}")

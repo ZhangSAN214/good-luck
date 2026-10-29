@@ -6,7 +6,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import replace
 
 from roundtable.core.config import AppConfig, ModelSpec
-from roundtable.core.media import estimate_generation, media_group
+from roundtable.core.media import NO_REVIEW, estimate_generation, media_group
 from roundtable.core.providers import ChannelRouter, estimate_cost
 
 from .estimate import CostEstimate, Participant, StepCost
@@ -37,9 +37,9 @@ def media_step_cost(
     worst = max(estimate_generation(m, kind, rules, chars=chars) for m in group)
     mean = sum(costs) / len(costs)
 
-    # 评审（带 vision 标签的成员，最多 reviewers 位）+ 统筹改写提示词；语音没有评审
+    # 评审（带 vision 标签的成员，最多 reviewers 位）+ 统筹改写提示词；语音和音乐没有评审
     seeing = [p for p in members if "vision" in by_id[p.model_id].tags][: rules.reviewers]
-    if kind == "speech":
+    if kind in NO_REVIEW:
         review = 0.0
     else:
         pictures = {"image": rules.images_per_round, "video": rules.video.frames}[kind]
@@ -49,8 +49,8 @@ def media_step_cost(
         if coordinator is not None and seeing:
             refine_in = params.prompt_overhead_tokens + prompt_tokens + len(seeing) * 300
             review += estimate_cost(coordinator.price, refine_in, rules.refine_tokens)
-    rounds = 1.0 if kind == "speech" else rules.expected_rounds
-    max_rounds = 1 if kind == "speech" else rules.max_rounds
+    rounds = 1.0 if kind in NO_REVIEW else rules.expected_rounds
+    max_rounds = 1 if kind in NO_REVIEW else rules.max_rounds
     expected = mean * rounds + review * rounds
     upper = worst * max_rounds + review * max(0, max_rounds - 1)
     return StepCost("media", 0, 0, expected, upper)
