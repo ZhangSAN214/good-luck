@@ -148,6 +148,8 @@ from roundtable.core.standee import standee_file as read_standee_file
 from roundtable.core.steps import Event, restore_state
 from roundtable.core.steps.office import group_estimates
 from roundtable.core.storage import NotFound
+from roundtable.core.supercomputer import Supercomputer
+from roundtable.core.supercomputer.launch import CommandLauncher, HookLauncher
 from roundtable.core.wander import Wanderer
 
 try:  # dsh 工作台是可拔掉的外设：删掉整个 core/dsh/ 圆桌照常运行（docs/DSH.md，CI「拔掉 dsh」任务）
@@ -254,6 +256,9 @@ class RoundtableService:
         )
         self.engine.heartbeat.register("wander", self.wander.want)
         self.dsh = self._build_dsh(runtime, base if runtime.mail_dir is not None else None)
+        self.supercomputer = self._build_super(
+            runtime, base if runtime.mail_dir is not None else None
+        )
         self._chat_tasks: set[asyncio.Task[Any]] = set()
         self._life_task: asyncio.Task[None] | None = None
         self._evolution_task: asyncio.Task[None] | None = None
@@ -279,6 +284,32 @@ class RoundtableService:
             persona=persona,
             shared_spend=runtime.repo.spent_on_channels,
             dotenv_path=PROJECT_ROOT / ".env",
+        )
+
+    def _build_super(self, runtime: Runtime, base: Path | None) -> Supercomputer:
+        """超级电脑（docs/SUPERCOMPUTER.md）：命令行助手 + dsh（带了 dsh 才有）。"""
+        config = runtime.config
+        keys = [c.key_env for c in config.models.channels.values() if c.key_env]
+        keys += [p.key_env for p in config.models.search_providers.values() if p.key_env]
+        if config.roundtable.dsh.key_env:
+            keys.append(config.roundtable.dsh.key_env)
+        launchers: dict[str, Any] = {"command": CommandLauncher(drop_env=keys)}
+        if self.dsh is not None:
+            dsh = self.dsh
+            launchers["dsh"] = HookLauncher(
+                dsh.job_blocked, dsh.job_launch, dsh.job_started, dsh.job_finished
+            )
+        prompts = config.roundtable.prompts
+
+        def render(role: str, **values: str) -> str:
+            rendered = runtime.prompts.render(role, prompts[role], **values)
+            return "\n\n".join(m.content for m in rendered.messages)
+
+        return Supercomputer(
+            config.roundtable.supercomputer,
+            root=base / "super" if base is not None else None,
+            render=render,
+            launchers=launchers,
         )
 
     def reconcile(self) -> list[str]:
@@ -332,6 +363,8 @@ class RoundtableService:
 
     async def aclose(self) -> None:
         self.watch.stop("服务关闭，投屏停了")
+        with contextlib.suppress(Exception):
+            await self.supercomputer.aclose()
         if self.dsh is not None:
             with contextlib.suppress(Exception):
                 await self.dsh.aclose()
@@ -675,6 +708,44 @@ class RoundtableService:
         if self.dsh is None:
             return self.dsh_status()
         return await self.dsh.check_now()
+
+    # --- 超级电脑（docs/SUPERCOMPUTER.md） ----------------------------------------------
+
+    def super_status(self) -> dict[str, Any]:
+        return self.supercomputer.status()
+
+    def super_submit(self, text: str) -> dict[str, Any]:
+        try:
+            self.supercomputer.submit(text)
+        except RuntimeError as exc:
+            raise ServiceError(str(exc), 409) from None
+        except ValueError as exc:
+            raise ServiceError(str(exc), 400) from None
+        return self.super_status()
+
+    async def super_cancel(self) -> dict[str, Any]:
+        await self.supercomputer.cancel()
+        return self.super_status()
+
+    def super_task(self, task_id: str) -> dict[str, Any]:
+        task = self.supercomputer.get(task_id)
+        if task is None:
+            raise ServiceError("没有这件活", 404)
+        return task
+
+    def super_set_limit(self, worker: str, limit: int) -> dict[str, Any]:
+        try:
+            self.supercomputer.set_limit(worker, limit)
+        except ValueError as exc:
+            raise ServiceError(str(exc), 400) from None
+        return self.super_status()
+
+    def super_clear_cooldown(self, worker: str) -> dict[str, Any]:
+        try:
+            self.supercomputer.clear_cooldown(worker)
+        except ValueError as exc:
+            raise ServiceError(str(exc), 400) from None
+        return self.super_status()
 
     def start_dsh(self) -> None:
         """服务启动时：配置了 autostart 才顺带启动 dsh（默认不启动）。失败只记日志。"""

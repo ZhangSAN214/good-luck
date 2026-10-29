@@ -33,6 +33,7 @@
 <link rel="stylesheet" href="css/watch.css">
 <link rel="stylesheet" href="css/wander.css">
 <link rel="stylesheet" href="css/workbench.css">
+<link rel="stylesheet" href="css/supercomputer.css">
 <link rel="stylesheet" href="css/clipper.css">
 <link rel="stylesheet" href="css/exporter.css">
 <link rel="stylesheet" href="css/touch.css">
@@ -45,7 +46,7 @@
 <script src="js/boot.js"></script>
 <div class="app">
   <header class="top">
-    <div class="brand"><h1>圆桌</h1><button type="button" class="link bt-open" id="bootcfg" title="开机动画设置">片头</button><button type="button" class="link bt-open" id="skin" title="在方舟式外观和原来的外观之间切换">外观</button><button type="button" class="link bt-open" id="lanbtn" title="在家里的平板 / 手机上用圆桌">平板</button><button type="button" class="link bt-open" id="watchbtn" title="投屏陪伴：把屏幕给成员看，她们陪你一起看">一起看</button><button type="button" class="link bt-open" id="wanderbtn" title="成员自己上网：看她们逛了什么">上网</button><button type="button" class="link bt-open" id="workbenchbtn" title="工作台：圆桌在电脑上管着的 dsh，装插件、写代码" hidden>工作台</button></div>
+    <div class="brand"><h1>圆桌</h1><button type="button" class="link bt-open" id="bootcfg" title="开机动画设置">片头</button><button type="button" class="link bt-open" id="skin" title="在方舟式外观和原来的外观之间切换">外观</button><button type="button" class="link bt-open" id="lanbtn" title="在家里的平板 / 手机上用圆桌">平板</button><button type="button" class="link bt-open" id="watchbtn" title="投屏陪伴：把屏幕给成员看，她们陪你一起看">一起看</button><button type="button" class="link bt-open" id="wanderbtn" title="成员自己上网：看她们逛了什么">上网</button><button type="button" class="link bt-open" id="workbenchbtn" title="工作台：圆桌在电脑上管着的 dsh，装插件、写代码" hidden>工作台</button><button type="button" class="link bt-open" id="superbtn" title="超级电脑：几位编程助手一起干你交的活" hidden>超级电脑</button></div>
     <nav class="seg entries" id="entries" aria-label="入口（Alt+4 / 1 / 2 / 3）">
       <button type="button" data-m="hub" aria-pressed="false">终端</button>
       <button type="button" data-m="work" aria-pressed="true">办公室</button>
@@ -145,6 +146,7 @@
 <dialog class="viewer sheet" id="watchdlg" aria-label="一起看"></dialog>
 <dialog class="viewer sheet" id="wanderdlg" aria-label="她们在上网"></dialog>
 <dialog class="viewer" id="workbenchdlg" aria-label="工作台"></dialog>
+<dialog class="viewer" id="superdlg" aria-label="超级电脑"></dialog>
 <dialog class="viewer sheet" id="evolvedlg" aria-label="革新例会"></dialog>
 <dialog class="viewer sheet" id="usagedlg" aria-label="余额与用量"></dialog>
 <script type="module" src="js/app.js"></script>

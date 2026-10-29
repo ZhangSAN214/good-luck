@@ -45,6 +45,7 @@ import { LanPanel } from './lan.js';
 import { Watch } from './watch.js';
 import { Wander } from './wander.js';
 import { Workbench } from './workbench.js';
+import { SuperPanel } from './supercomputer.js';
 import { Hub } from './hub.js';
 import { Standee } from './standee.js';
 import { Music } from './music.js';
@@ -186,6 +187,16 @@ new Wander($('#wanderdlg'), $('#wanderbtn'), {
 });
 new Workbench($('#workbenchdlg'), $('#workbenchbtn'), {
   api: { status: API.dshStatus, start: API.dshStart, stop: API.dshStop, check: API.dshCheck },
+});
+new SuperPanel($('#superdlg'), $('#superbtn'), {
+  api: {
+    status: API.superStatus,
+    submit: API.superSubmit,
+    cancel: API.superCancel,
+    task: API.superTask,
+    limit: API.superLimit,
+    wake: API.superWake,
+  },
 });
 $('#skin').addEventListener('click', () => {
   const next = document.documentElement.dataset.skin === 'ark' ? 'classic' : 'ark';

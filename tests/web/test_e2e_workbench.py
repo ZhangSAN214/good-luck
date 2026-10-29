@@ -68,6 +68,17 @@ class FakeDsh:
     async def aclose(self) -> None:
         self.state = "stopped"
 
+    # 超级电脑的启动器要用（这里不派活给它）
+    def job_blocked(self) -> str | None:
+        return "测试里不派活"
+
+    def job_launch(self):
+        raise AssertionError("不该派活")
+
+    async def job_started(self) -> None: ...
+
+    async def job_finished(self) -> None: ...
+
 
 def test_workbench_start_and_stop(serve, page, monkeypatch):
     fake = FakeDsh()

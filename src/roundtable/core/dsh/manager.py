@@ -75,6 +75,7 @@ class DshManager:
         self.stopped_for_budget: str | None = None
         self._watch: asyncio.Task[None] | None = None
         self._lock = asyncio.Lock()
+        self._jobs = 0  # 超级电脑派来的一次性活（headless），正在跑几件
 
     # --- 状态 -------------------------------------------------------------------
 
@@ -198,7 +199,7 @@ class DshManager:
                 await self.sidecar.start()
             except RuntimeError as exc:
                 raise ValueError(str(exc)) from None
-            await self._check_balance(rebase=True)
+            await self._check_balance(rebase=self._jobs == 0)  # 有活在跑时接着记，不重置
             self._watch = asyncio.get_running_loop().create_task(self._watch_loop())
             return self.status()
 
@@ -219,6 +220,55 @@ class DshManager:
 
     async def aclose(self) -> None:
         await self.stop("圆桌关闭，dsh 也停了")
+
+    # --- 超级电脑派来的一次性活（dsh headless） --------------------------------------
+
+    def job_blocked(self) -> str | None:
+        """不能接活的原因：没装、没 key、本月到了上限。"""
+        reason = self.unavailable_reason()
+        if reason:
+            return reason
+        if not self.key.present:
+            return f"没有配置 {self.rules.key_env}，dsh 调不了模型"
+        if self.over_budget():
+            return f"本月 dsh 已花约 ${self.ledger.spent(self.now()):.2f}，到了上限"
+        return None
+
+    def job_launch(self) -> tuple[list[str], dict[str, str], list[str]]:
+        """一次性活的启动参数：headless 方式，任务正文从标准输入给（最后的 ``-``）。"""
+        assert self.paths is not None
+        self.paths.ensure()
+        write_overlay(self.paths.overlay, self.persona())
+        argv = [
+            self._node() or "node",
+            str(self.paths.bin_js),
+            "--profile",
+            "headless",
+            "--patch",
+            str(self.paths.overlay),
+            "-",
+        ]
+        extra = {
+            "DSH_HOME": str(self.paths.home),
+            "DSH_TELEMETRY_DISABLED": "1",
+            "DSH_PERMISSION_MODE": self.rules.job_permission_mode,
+        }
+        env = self.key.child_env(extra, self.environ)
+        secrets = [env[self.rules.key_env]] if self.rules.key_env in env else []
+        return argv, env, secrets
+
+    async def job_started(self) -> None:
+        """活开始前：没有别的活、网页也没开时，先记一次余额当起点。"""
+        if self._jobs == 0 and not self.running:
+            await self._check_balance(rebase=True)
+        self._jobs += 1
+
+    async def job_finished(self) -> None:
+        """活干完：记上这段花费；超了上限就停掉网页（之后的活也不再派给 dsh）。"""
+        self._jobs = max(0, self._jobs - 1)
+        await self._check_balance()
+        async with self._lock:
+            await self._enforce()
 
     # --- 余额与软上限 ---------------------------------------------------------------
 
