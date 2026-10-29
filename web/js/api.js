@@ -264,6 +264,7 @@ export const watchQuiet = (quiet) => api('/api/watch/quiet', { method: 'POST', b
 export const watchMessages = (after = 0) => api(`/api/watch/messages?after=${after}`);
 export const watchSay = (text) => api('/api/watch/say', { method: 'POST', body: { text } });
 export const watchScrcpy = (source) => api('/api/watch/scrcpy', { method: 'POST', body: { source } });
+export const watchOverlay = () => api('/api/watch/overlay', { method: 'POST' });
 export const watchFrameUrl = () => `/api/watch/frame?t=${Date.now()}`;
 export const watchAdbPair = (host, port, code) =>
   api('/api/watch/adb/pair', { method: 'POST', body: { host, port, code } });

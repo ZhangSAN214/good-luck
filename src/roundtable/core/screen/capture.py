@@ -134,6 +134,15 @@ class PcSource:
         except Exception:  # noqa: BLE001 - 拿不到就当没有
             return ""
 
+    def title(self, source_id: str) -> str:
+        """投的那个窗口现在的标题（浏览器里就是正在看的视频 / 网页标题）；整屏和拿不到时为空。"""
+        if sys.platform != "win32" or not source_id.startswith("pc:"):
+            return ""
+        try:
+            return _win_title(int(source_id.removeprefix("pc:")))
+        except Exception:  # noqa: BLE001 - 拿不到就当没有
+            return ""
+
     def grab(self, source_id: str, max_side: int, quality: int) -> Frame:
         reason = self.available()
         if reason:
@@ -273,6 +282,16 @@ def _win_rect(hwnd: int) -> tuple[int, int, int, int] | None:
     if rect.right - rect.left < 20 or rect.bottom - rect.top < 20:
         return None
     return (rect.left, rect.top, rect.right, rect.bottom)
+
+
+def _win_title(hwnd: int) -> str:
+    import ctypes
+
+    user32 = ctypes.windll.user32
+    n = user32.GetWindowTextLengthW(hwnd)
+    buf = ctypes.create_unicode_buffer(n + 1)
+    user32.GetWindowTextW(hwnd, buf, n + 1)
+    return buf.value
 
 
 def _win_foreground() -> str:
@@ -582,6 +601,7 @@ class FakeScreenSource:
         self.images = list(images or [])
         self.infos = sources if sources is not None else [SourceInfo("pc", "pc", "整个屏幕")]
         self.fg = foreground
+        self.window_title = ""
         self.reason = reason
         self.grabs = 0
         self.fail: str | None = None
@@ -594,6 +614,9 @@ class FakeScreenSource:
 
     def foreground(self, source_id: str) -> str:
         return self.fg
+
+    def title(self, source_id: str) -> str:
+        return self.window_title
 
     def grab(self, source_id: str, max_side: int, quality: int) -> Frame:
         if self.fail:
