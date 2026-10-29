@@ -39,6 +39,7 @@ class NotFound(LookupError):
 
 
 STATE_KEY = "member_state:"  # 成员状态（P3）在 app_settings 里的键前缀
+ABOUT_KEY = "about_you:"  # 关于你（P8）在 app_settings 里的键前缀：画像、开关
 GROWTH_KEY = "member_growth:"  # 成员成长（P6）在 app_settings 里的键前缀
 
 
@@ -1950,6 +1951,24 @@ class Repository:
                 "DELETE FROM app_settings WHERE key LIKE ?", (STATE_KEY + "%",)
             ).rowcount
         return self._exec("DELETE FROM app_settings WHERE key = ?", (STATE_KEY + member,)).rowcount
+
+    # --- 关于你（P8；app_settings 的 about_you:<名字> 键，只有 member/about.py 写）
+
+    def about_you(self, name: str) -> dict[str, Any] | None:
+        row = self._exec(
+            "SELECT value FROM app_settings WHERE key = ?", (ABOUT_KEY + name,)
+        ).fetchone()
+        return None if row is None else json.loads(row["value"])
+
+    def save_about_you(self, name: str, data: dict[str, Any]) -> None:
+        self.set_setting(ABOUT_KEY + name, json.dumps(data, ensure_ascii=False))
+
+    def clear_about_you(self, name: str | None = None) -> int:
+        if name is None:
+            return self._exec(
+                "DELETE FROM app_settings WHERE key LIKE ?", (ABOUT_KEY + "%",)
+            ).rowcount
+        return self._exec("DELETE FROM app_settings WHERE key = ?", (ABOUT_KEY + name,)).rowcount
 
     # --- 成员成长（P6；app_settings 的 member_growth:<成员> 键，只有 member/growth 写）
 

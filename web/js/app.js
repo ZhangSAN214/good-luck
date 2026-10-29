@@ -109,6 +109,11 @@ function freshLive() {
 // 网页小人：匿名且未揭晓的会话里不出现（启动时先不显示，确定当前会话后再决定）
 const pet = new Pet({ labels: STEP_LABELS, goto: gotoDiscussion });
 const people = new People($('#people'), {
+  goto: async (room, id) => {
+    await setEntry('chat');
+    await gchat.openRoom(room);
+    setTimeout(() => gchat.flash(id), 300);
+  },
   avatar: (id, name) => {
     const m = gchat.everyone?.find((x) => x.id === id);
     return m ? gchat.avatar(m, name) : '';
@@ -138,6 +143,18 @@ const people = new People($('#people'), {
     revert: API.revertMemberProfile,
     clearProfile: API.clearMemberProfile,
     importCards: API.importMemberCards,
+    about: {
+      get: API.aboutYou,
+      add: API.aboutAdd,
+      edit: API.aboutEdit,
+      del: API.aboutDel,
+      reject: API.aboutReject,
+      lock: API.aboutLock,
+      domain: API.aboutDomain,
+      forget: API.aboutForget,
+      clear: API.aboutClear,
+      exportUrl: API.aboutExportUrl,
+    },
     growth: API.memberGrowth,
     growthRun: API.runMemberGrowth,
     growthRevert: API.revertMemberGrowth,

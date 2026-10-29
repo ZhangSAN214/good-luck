@@ -14,6 +14,7 @@ from collections.abc import Callable
 from datetime import datetime, timedelta
 from typing import Any
 
+from roundtable.core.member.about import AboutYou
 from roundtable.core.member.bus import Event, EventBus
 from roundtable.core.member.context import Context, Piece, assemble
 from roundtable.core.member.heartbeat import Heartbeat
@@ -42,6 +43,8 @@ class MemberEngine:
         self.heartbeat = Heartbeat(rt, self.bus, self.scheduler)
         # P3 状态：订阅总线，按事件算心情和精力（names：成员 id → 称呼，认 @ 用）
         self.state = StatePlugin(rt, self.bus, names or (lambda: {m: m for m in self.members()}))
+        # P8 关于你：8 位共用的用户画像（线索由夜间整理交来，每周在这里整合一次）
+        self.about = AboutYou(rt)
 
     @property
     def rules(self) -> Any:
@@ -121,4 +124,6 @@ class MemberEngine:
         if repo.setting(PRUNED_KEY) != today:
             out["pruned"] = self.bus.prune(now)
             repo.set_setting(PRUNED_KEY, today)
+        if self.about.weekly(now) is not None:
+            out["about_week"] = 1
         return out

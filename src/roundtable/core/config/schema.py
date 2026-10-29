@@ -1154,6 +1154,48 @@ class StateRules(_Strict):
     context_chars: int = Field(default=80, ge=0, le=300)
 
 
+class AboutRules(_Strict):
+    """关于你（P8，docs/MEMBER_ENGINE.md「P8 关于你」）：8 位成员共用的一份用户画像，只放事实、
+    来源、证据和把握度；推测会变淡，你亲口说的不变淡。只用于私聊和生活群，工作模式不挂载。"""
+
+    enabled: bool = True
+    # 画像分哪几个领域（可以按领域关掉）；夜间整理给的领域不在表里时归最后一个
+    domains: list[str] = Field(
+        default=[
+            "称呼与身份",
+            "学业",
+            "工作",
+            "兴趣爱好",
+            "口味",
+            "作息",
+            "聊天偏好",
+            "计划",
+            "其他",
+        ],
+        min_length=1,
+    )
+    # 不推测的领域：线索里出现这些词就不记（你在画像页自己写的不拦）
+    blocked: dict[str, list[str]] = {}
+    clues_per_night: int = Field(default=3, ge=0, le=10)  # 每位成员每晚最多交几条线索
+    fact_chars: int = Field(default=40, ge=10, le=200)  # 一条事实最多几个字
+    said_confidence: float = Field(default=0.9, gt=0, le=1)  # 你亲口说的：把握度，不变淡
+    inferred_confidence: float = Field(default=0.5, gt=0, le=1)  # 推测：起步把握度
+    evidence_bonus: float = Field(default=0.15, ge=0, le=1)  # 推测每多一条不同的证据加多少
+    inferred_cap: float = Field(default=0.85, gt=0, le=1)  # 推测最多到多少
+    half_life_days: float = Field(default=30.0, gt=0)  # 推测多久没再出现证据就淡一半
+    faded_below: float = Field(default=0.25, ge=0, le=1)  # 低于这个算「变淡了」，聊天不带
+    merge_similarity: float = Field(default=0.55, gt=0, le=1)  # 同领域、这么像算同一条
+    reject_similarity: float = Field(default=0.5, gt=0, le=1)  # 和你点过「不对」的这么像就不再记
+    max_facts: int = Field(default=200, ge=1, le=2000)
+    max_evidence: int = Field(default=5, ge=1, le=50)  # 每条最多留几条证据
+    # 聊天时带几条、多少字（8 位相同）；只带和当前话题相关的
+    inject_max: int = Field(default=3, ge=0, le=10)
+    context_chars: int = Field(default=100, ge=0, le=400)
+    min_relevance: float = Field(default=0.1, ge=0, le=1)
+    header: str = "【关于用户（大家共知的事实，用得上再提）】"
+    maybe_below: float = Field(default=0.6, ge=0, le=1)  # 把握度低于这个的在聊天里标「可能」
+
+
 class GrowthReviewRules(_Strict):
     """成长的评审（借 dsh answer-reviewer）：另一位成员给每条改动打分，低于 min_score 不改；
     不自评（评审永远不是本人）；每周才评一次；提议格式不对或全被拦下时最多重试 max_retries 次。"""
@@ -1234,6 +1276,7 @@ class EngineRules(_Strict):
     bus: BusRules = BusRules()
     eval: EvalRules = EvalRules()
     voice: VoiceRules = VoiceRules()
+    about: AboutRules = AboutRules()
     growth: GrowthRules = GrowthRules()
 
 

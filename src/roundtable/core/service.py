@@ -90,6 +90,7 @@ from roundtable.core.life import LIFE_STEPS, LifeEngine
 from roundtable.core.mail import MailAI, MailAIError, MailBox, MailBusy, OwaBrowser
 from roundtable.core.media import KIND_LABELS, KINDS, MediaService
 from roundtable.core.member import MemberEngine, ProfileError
+from roundtable.core.member.about import AboutError, AboutMissing
 from roundtable.core.member.bus import Event as MemberEvent
 from roundtable.core.member.card import (
     card_patch,
@@ -233,6 +234,9 @@ class RoundtableService:
         state = getattr(self.engine, "state", None)  # 状态插件（心情）装上后，夜间整理按心情改语气
         if state is not None:
             self.memory.mood_of = state.mood_of
+        about = getattr(self.engine, "about", None)  # P8 关于你：夜间整理交来的线索写进画像
+        if about is not None:
+            self.memory.on_clues = about.observe
         # P6 成长：每周一用成员自己的模型反思上一周，程序把关后才写档案；花费计入生活每天的上限
         self.growth = GrowthKeeper(runtime, self.chats.everyone, folder=runtime.growth_dir)
         self.growth.allow = self.life.allowed
@@ -2216,6 +2220,73 @@ class RoundtableService:
     def member_states_clear(self, member: str | None = None) -> dict[str, Any]:
         """清空状态（全部或某一位），回到基线。"""
         return {"deleted": self.engine.state.clear(member)}
+
+    # --- 关于你（成员系统 P8：8 位共用的用户画像，只存本机） --------------------------------
+
+    def _about(self, fn: Any) -> Any:
+        try:
+            return fn()
+        except AboutMissing as e:
+            raise ServiceError(str(e), 404) from None
+        except AboutError as e:
+            raise ServiceError(str(e)) from None
+
+    def about_view(self) -> dict[str, Any]:
+        """画像：每条的领域、来源、把握度、变淡 / 锁定，证据（原话、会话、时间、谁注意到的）。"""
+        v = self.engine.about.view()
+        names = {m.id: m.name for m in self.chats.everyone()}
+        rooms = {r["id"]: r for r in self.rt.repo.chat_rooms()}
+        for f in v["facts"]:
+            for e in f["evidence"]:
+                room = rooms.get(e["room"])
+                e["room_title"] = (
+                    "私聊" if room and room["kind"] == "dm" else (room or {}).get("title", "")
+                )
+                e["by_name"] = names.get(e.get("by"), e.get("by") or "")
+            f["noticed"] = [names.get(x, x) for x in f.get("noticed", [])]
+        return v
+
+    def about_add(self, text: str, domain: str | None = None) -> dict[str, Any]:
+        self._about(lambda: self.engine.about.add(text, domain))
+        return self.about_view()
+
+    def about_edit(
+        self, fact_id: int, text: str | None = None, domain: str | None = None
+    ) -> dict[str, Any]:
+        self._about(lambda: self.engine.about.edit(fact_id, text, domain))
+        return self.about_view()
+
+    def about_delete(self, fact_id: int) -> dict[str, Any]:
+        self._about(lambda: self.engine.about.delete(fact_id))
+        return self.about_view()
+
+    def about_reject(self, fact_id: int) -> dict[str, Any]:
+        """「不对」：删掉，之后像它的线索不再记。"""
+        self._about(lambda: self.engine.about.reject(fact_id))
+        return self.about_view()
+
+    def about_forget_rejected(self, index: int) -> dict[str, Any]:
+        self._about(lambda: self.engine.about.forget_rejected(index))
+        return self.about_view()
+
+    def about_lock(self, fact_id: int, locked: bool = True) -> dict[str, Any]:
+        self._about(lambda: self.engine.about.lock(fact_id, locked))
+        return self.about_view()
+
+    def about_domain(self, domain: str, on: bool) -> dict[str, Any]:
+        self._about(lambda: self.engine.about.set_domain(domain, on))
+        return self.about_view()
+
+    def about_clear(self, rejected: bool = False) -> dict[str, Any]:
+        return {"deleted": self.engine.about.clear(rejected)}
+
+    def about_export(self, fmt: str = "json") -> tuple[bytes, str, str]:
+        """导出画像：(内容, 类型, 文件名)；fmt = json / md。"""
+        if fmt not in ("json", "md"):
+            raise ServiceError("格式只能是 json 或 md")
+        text = self.engine.about.export(fmt)
+        media = "application/json" if fmt == "json" else "text/markdown"
+        return text.encode("utf-8"), f"{media}; charset=utf-8", f"about_you.{fmt}"
 
     # --- 成员成长（P6，docs/MEMBER_ENGINE.md「P6 成长」） ------------------------------
 

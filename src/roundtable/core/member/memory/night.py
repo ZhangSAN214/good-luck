@@ -9,7 +9,8 @@
   夜里随机游走想到的旧事（``<drift>``）、现在的心情（一句话）。
 - 输出 JSON：``diary``（日记）、``items``（每件 text / domain / importance / fact）、
   ``hanging``（``add`` 新挂上的、``done`` 了结的编号）、
-  ``retell``（编号、语气、重要度；心情平静时为空）。
+  ``retell``（编号、语气、重要度；心情平静时为空）、
+  ``about``（v2：关于用户的线索，交给 P8「关于你」核对原话后写画像；本插件不写画像）。
 - 日记存进 ``member_memories`` 的 ``day`` 层（原始记录：聊天、生活事件、日记都一直保留）；
   记忆件经三路分流写入；当天的件互相加强（联想网），再每晚衰减一次、随机游走几步、重算习惯摘要。
 """
@@ -33,6 +34,7 @@ class NightResult:
     hang: list[str] = field(default_factory=list)
     done: list[int] = field(default_factory=list)
     retell: list[dict[str, Any]] = field(default_factory=list)
+    about: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass
@@ -81,6 +83,9 @@ def materials(
     ][: max(rules.retell_max * 2, 0)]
     drift_rows = repo.memory_items_by_ids(drift)
     retell_allowed = abs(mood) >= rules.mood_threshold and rules.retell_max > 0
+    engine = rt.config.roundtable.chat.engine
+    about = engine.about
+    clues = about.clues_per_night if about.enabled and engine.enabled else 0
     variables = {
         "name": name,
         "day": day,
@@ -95,6 +100,8 @@ def materials(
         "hanging_max": str(rules.hanging_max),
         "domains": "、".join(rules.domains),
         "diary_chars": str(rules.diary_chars),
+        "clues": str(clues),
+        "about_domains": "、".join(about.domains),
     }
     return Materials(
         variables,
@@ -124,12 +131,14 @@ def parse(text: str) -> NightResult:
     items = [i for i in data.get("items") or [] if isinstance(i, dict) and i.get("text")]
     hanging = data.get("hanging") if isinstance(data.get("hanging"), dict) else {}
     retell = [r for r in data.get("retell") or [] if isinstance(r, dict) and "id" in r]
+    about = [a for a in data.get("about") or [] if isinstance(a, dict) and a.get("text")]
     return NightResult(
         diary=str(data.get("diary") or "").strip(),
         items=items,
         hang=[str(h) for h in hanging.get("add") or [] if str(h).strip()],
         done=_ints(hanging.get("done")),
         retell=retell,
+        about=about,
     )
 
 
