@@ -73,10 +73,10 @@ def test_image_round_is_shown_with_prompt_review_and_media_panel(serve, page):
     img = job.locator("img.thumb")
     assert img.count() == 1
     img.scroll_into_view_if_needed()  # 缩略图是 loading="lazy"：在屏幕外时浏览器不加载
-    img.wait_for(state="visible")
+    # 图片真的加载了（等它加载完，CI 慢时立刻查会偶尔失败）
     page.wait_for_function(
-        "e => e.complete && e.naturalWidth > 0", arg=img.element_handle()
-    )  # 图片真的加载了
+        "e => e.complete && e.naturalWidth > 0", arg=img.element_handle(), timeout=10_000
+    )
     assert "mi1" in job.inner_text()  # 匿名关闭：显示模型
     page.click(".mediajob details summary")
     assert "最大值 2，最小值 -2" in page.inner_text(".mediajob")  # 生成提示词

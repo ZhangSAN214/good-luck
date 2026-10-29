@@ -21,7 +21,7 @@ from typing import Any
 
 from roundtable.core.jsonout import JSONOutputError, extract_json_object
 from roundtable.core.member.memory.links import LinkNet
-from roundtable.core.member.memory.store import MemoryStore
+from roundtable.core.member.memory.store import MemoryStore, headless
 
 NONE = "（没有）"
 
@@ -148,6 +148,8 @@ def apply(
     store, links = MemoryStore(rt), LinkNet(rt)
     out = {"diary": 0, "new": 0, "merge": 0, "update": 0, "hang": 0, "done": 0, "retell": 0}
     diary = clean(result.diary, rules.diary_chars)
+    if headless(diary):  # 只有标题没有正文（多半是生成被截断）：不存
+        diary = ""
     if diary:
         rt.repo.add_memory(member, "day", diary, period=day, offline=offline)
         out["diary"] = 1
