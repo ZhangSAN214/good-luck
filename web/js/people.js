@@ -200,7 +200,6 @@ export class People {
         ${
           m
             ? `${this.profile ? '<section class="pp-prof grp" id="pp-prof" aria-label="自我档案"></section>' : ''}
-        ${this.growth ? '<section class="pp-grow grp" id="pp-grow" aria-label="成长"></section>' : ''}
         <form id="pp-persona" class="pp-form grp">
           <h4 class="grp-h">${esc(m.name)} 的人设 <small>${esc(SOURCE[m.source] || '')}</small></h4>
           <div class="grp-box">
@@ -220,7 +219,8 @@ export class People {
           <ul class="pp-list grp-box">${mems}</ul>
           ${this.mindHtml()}
           <div class="grp-box grp-acts"><button type="button" class="grp-btn" data-tidy>现在整理</button><button type="button" class="grp-btn danger" id="pp-clear-one" data-clear="one">清空 TA 的记忆</button><button type="button" class="grp-btn danger" id="pp-clear-all" data-clear="all">清空全部成员的记忆</button></div>
-        </section>`
+        </section>
+        ${this.growth ? '<section class="pp-grow grp" id="pp-grow" aria-label="成长"></section>' : ''}`
             : '<p class="hint">没有成员。</p>'
         }
         <p class="hint pp-msg" role="status">${esc(this.msg)}</p>
