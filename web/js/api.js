@@ -130,6 +130,8 @@ export const evolutionDecide = (sid, idea, decision) =>
 export const chatHandoff = (text) => api('/api/chat/handoff', { method: 'POST', body: { text } });
 export const getApartment = (hour, weekday) => api(`/api/apartment?hour=${hour}&weekday=${weekday}`);
 export const getCandidates = () => api('/api/models/candidates');
+export const getDirectory = () => api('/api/models/directory');
+export const refreshDirectory = () => api('/api/models/directory/refresh', { method: 'POST' });
 export const getPluginBoard = () => api('/api/plugins/board');
 export const getChangelog = () => api('/api/changelog');
 export const mailView = () => api('/api/mail');

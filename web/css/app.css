@@ -424,3 +424,13 @@ table.mdt th{background:var(--bg-soft,rgba(127,127,127,.12));font-weight:600}
 .board a{color:inherit;text-decoration:underline;text-decoration-color:var(--inner-muted);text-underline-offset:2px}
 .board li:first-child{border-top:0}
 .board p{margin:4px 0}
+/* 模型图鉴 */
+.mdir-seg{flex-wrap:wrap;height:auto}
+.mdir-about{margin:6px 0;font-size:13px;color:var(--muted)}
+.mdir-tools{display:flex;gap:6px;margin:6px 0}
+.mdir-tools input{flex:1;min-width:0}
+.mdir-tags,.mdir-pills{display:flex;flex-wrap:wrap;gap:4px;margin:4px 0}
+.mdir-tags .pill{cursor:pointer;border:0}
+.mdir-tags .pill.on{background:var(--ink);color:var(--surface)}
+.mdir pre{white-space:pre-wrap;font-size:12px;margin:4px 0}
+.mdir details summary{cursor:pointer;font-size:12px;color:var(--muted)}
