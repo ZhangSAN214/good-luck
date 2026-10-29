@@ -130,7 +130,8 @@ class Member:
 
     @property
     def display(self) -> str:
-        return self.nickname or self.name
+        # 2026-10-29 用户决定：成员一律显示英文原名；素材包里的旧中文昵称只作小名保留
+        return self.name
 
 
 @dataclass(frozen=True)
