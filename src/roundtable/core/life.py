@@ -26,8 +26,9 @@ from roundtable.core.budget.guard import day_window as utc_day_window
 from roundtable.core.chat import ROOM, ChatHub, ChatMember, call_member, clean_reply, member_memory
 from roundtable.core.chat_work import short_title
 from roundtable.core.life_guard import LifeGuard
+from roundtable.core.member.voice import Said, before_voice, recent_words, voice_for
 from roundtable.core.memory import MemoryKeeper
-from roundtable.core.moments import MOMENT_STEP, Moments
+from roundtable.core.moments import MOMENT_STEP, NOTHING, Moments
 from roundtable.core.office.apartment import ACTIVITIES, PUBLIC_ROOMS, schedule
 from roundtable.core.persona import chat_persona
 from roundtable.core.plain_talk import before_speaking, plain_prompt
@@ -167,7 +168,7 @@ class LifeEngine:
             f"时间：星期{WEEKDAYS[p.at.weekday()]} {p.at.hour} 点 {p.at.minute} 分",
             f"地点：{place}（{ACTIVITIES.get(p.activity, p.activity)}）",
             f"在场：{'、'.join(names.get(i, i) for i in p.members)}",
-            f"今天的事：{'；'.join(p.work) if p.work else '没有特别的事'}",
+            f"今天的事：{'；'.join(p.work) if p.work else NOTHING}",
         ]
         return "\n".join(lines)
 
@@ -254,6 +255,7 @@ class LifeEngine:
         params["max_tokens"] = rules.max_tokens
         said = 0
         earlier = self.guard.recent_lines(chat.room)
+        spoken: list[tuple[str, str]] = []  # 这一段里谁说了什么（自查比对用）
         for turn in range(rules.turns):
             member: ChatMember = speakers[turn % len(speakers)]
             if not self.allowed(rules.estimate_usd):
@@ -269,6 +271,7 @@ class LifeEngine:
                 others=others,
                 scene=p.topic,
                 persona=chat_persona(rt, member.id),
+                voice=voice_for(rt, member.id, "life", seed=turn + len(earlier)),
                 memory=member_memory(
                     rt, member.id, f"{p.topic}\n{chat.history(names)}", p.room or ROOM
                 ),
@@ -293,9 +296,28 @@ class LifeEngine:
             if self.guard.is_stale(text, earlier):
                 self.guard.note_stale(member.id, text)  # 没有新内容：这句不发，这段收尾
                 break
+            text = await before_voice(
+                rt,
+                text,
+                Said(
+                    own=tuple(t for who, t in spoken if who == member.id),
+                    others=tuple((names.get(w, w), t) for w, t in spoken if w != member.id),
+                    long=recent_words(rt, member.id, now),
+                ),
+                member=member.id,
+                room=chat.room,
+                room_kind="life",
+                named=False,
+                name=member.name,
+                model_id=member.model_id,
+            )
+            if not text:
+                self.guard.note_stale(member.id, "（自查：跟风或重复，不发）")
+                break  # 说出口前自查：跟风、附和接龙、反复提同一件事——这句不发，这段收尾
             text = await before_speaking(
                 rt, text, room=chat.room, name=member.name, model_id=member.model_id
             )
+            spoken.append((member.id, text))
             earlier.append(text)
             when = p.at + timedelta(minutes=turn) if offline else now
             rt.repo.add_chat_message(

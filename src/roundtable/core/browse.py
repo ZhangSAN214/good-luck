@@ -40,6 +40,7 @@ from roundtable.core.chat import (
 )
 from roundtable.core.chat_actions import card_from_item
 from roundtable.core.config.schema import FeedSpec
+from roundtable.core.member.voice import Said, before_voice, recent_words, voice_for
 from roundtable.core.office.apartment import schedule
 from roundtable.core.persona import chat_persona, persona_of
 from roundtable.core.plain_talk import before_speaking, plain_prompt
@@ -335,6 +336,32 @@ class Browser:
 
     # --- 分享 --------------------------------------------------------------------
 
+    async def _self_check(self, member: ChatMember, text: str, names: dict[str, str]) -> str:
+        """说出口前自查（成员系统 P5）：和大家最近的分享比开头句式、相似度，和她自己最近说的比；
+        查出问题改写一次（分享不会因此不发）。"""
+        rt = self.rt
+        rows = [
+            r
+            for r in rt.repo.chat_messages(ROOM, limit=200)
+            if (r["meta"] or {}).get("share") and r["author"] in names
+        ][-12:]
+        said = Said(
+            own=tuple(r["text"] for r in rows if r["author"] == member.id),
+            others=tuple((names[r["author"]], r["text"]) for r in rows if r["author"] != member.id),
+            long=recent_words(rt, member.id, rt.budget.now()),
+        )
+        return await before_voice(
+            rt,
+            text,
+            said,
+            member=member.id,
+            room=ROOM,
+            room_kind="share",
+            named=True,
+            name=member.name,
+            model_id=member.model_id,
+        )
+
     async def share(
         self, member: ChatMember, item: dict[str, Any], interest: str
     ) -> dict[str, Any] | None:
@@ -356,6 +383,7 @@ class Browser:
             source=source,
             article=article,
             persona=chat_persona(rt, member.id),
+            voice=voice_for(rt, member.id, "share", seed=item["id"]),
             memory=member_memory(rt, member.id, f"{interest}\n{article}"),
             history=chat.history(everyone),
         )
@@ -376,6 +404,7 @@ class Browser:
         text = clean_reply(completion.text, member.name, rt.config.roundtable.chat.max_chars)
         if not text:
             return None
+        text = await self._self_check(member, text, everyone) or text
         text = await before_speaking(
             rt, text, room=ROOM, name=member.name, model_id=member.model_id
         )

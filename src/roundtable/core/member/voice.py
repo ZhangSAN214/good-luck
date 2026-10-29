@@ -27,7 +27,14 @@ from typing import Any
 from roundtable.core.chat_actions import STICKER_RE, DefaultPolicy
 from roundtable.core.plain_talk import Hit
 
-LIFE_ROOMS = frozenset({"group", "dm"})
+LIFE_ROOMS = frozenset({"group", "dm"})  # 带说话习惯、按档位定节奏的聊天会话
+# 说出口前自查的场合：生活群、私聊，加上成员之间的生活互聊、上网分享、朋友圈动态和评论
+CHECK_KINDS = LIFE_ROOMS | {"life", "share", "moment", "comment"}
+# 没人等她回话的场合：查出跟风、重复之类直接不发（$0）；只有口头禅和编造回忆才改写
+QUIET_KINDS = frozenset({"life", "moment", "comment"})
+REWRITE_ONLY = frozenset({"catchphrase", "memory"})
+# 找「反复提同一件事」时不算的字（虚词、代词）：含这些字的四字片段不当成话题
+_FILLER = set("我你他她它的了是在就也都很这那吗呢吧啊呀哦嗯么们个不没有和与把被给又还")
 REWRITE_ROLE = "voice_rewrite"
 REWRITE_STEP = "voice_rewrite"
 MODES = ("quiet", "normal", "chatty")
@@ -211,6 +218,17 @@ def voice_text(voice: Voice, rules: Any, room_kind: str, seed: int = 0) -> str:
     return "\n".join(out)
 
 
+NO_VOICE = "（没写：用你自己的说话风格）"
+
+
+def voice_for(rt: Any, member: str, kind: str, seed: int = 0) -> str:
+    """生活互聊、上网分享提示词里的说话习惯（没有档案或关着时为「没写」）。"""
+    voice = member_voice(rt, member)
+    if voice.empty:
+        return NO_VOICE
+    return voice_text(voice, rt.config.roundtable.chat.engine.voice, kind, seed) or NO_VOICE
+
+
 # --- 节奏 -------------------------------------------------------------------------
 
 
@@ -251,6 +269,9 @@ class Said:
     own: tuple[str, ...] = ()
     others: tuple[tuple[str, str], ...] = ()  # (名字, 内容)
     has_memory: bool = False
+    long: tuple[str, ...] = ()  # 她最近几天在各处说过的话（查反复提同一件事）
+    repeat_similarity: float | None = None  # 和自己比的门槛（朋友圈更严）；None 用配置
+    asked: str = ""  # 对方这次说的话：里面提到的事不算「反复提」（是对方问起的）
 
 
 def _bare(text: str) -> str:
@@ -279,8 +300,9 @@ def voice_hits(text: str, said: Said, voice: Voice, rules: Any) -> list[Hit]:
             break
     if len(bare) < rules.min_chars:
         return hits
+    limit = said.repeat_similarity or rules.repeat_similarity
     for old in said.own[-rules.own_recent :]:
-        if similarity(bare, _bare(old)) >= rules.repeat_similarity:
+        if similarity(bare, _bare(old)) >= limit:
             hits.append(Hit("repeat", "和你自己刚才说过的话太像，换个说法或者说点新的", old[:60]))
             break
     for who, other in said.others:
@@ -288,6 +310,24 @@ def voice_hits(text: str, said: Said, voice: Voice, rules: Any) -> list[Hit]:
             hits.append(
                 Hit("echo", f"和{who}刚说的差不多，别跟风：说你自己的看法，或者不接", other[:60])
             )
+            break
+    head = bare[: rules.opening_chars]
+    same = [
+        t
+        for t in (*said.own, *(o for _, o in said.others))
+        if _common_prefix(head, _bare(t)) >= len(head)
+    ]
+    if len(head) == rules.opening_chars and len(same) >= rules.opening_times:
+        hits.append(Hit("opening", f"开头「{head}」和最近好几条一样，换个说法开头", head))
+    for topic in _topics(bare, rules.rechew_chars):
+        times = sum(topic in t for t in said.long)
+        asked = topic in said.asked or any(topic in o for _, o in said.others)
+        if (
+            times >= rules.rechew_times
+            and not asked
+            and not any(topic in p for p in voice.catchphrases)
+        ):
+            hits.append(Hit("rechew", f"「{topic}」最近已经说过 {times} 次了，这次别提", topic))
             break
     recent = said.own[-rules.catchphrase_recent :]
     for phrase in voice.catchphrases:
@@ -305,10 +345,45 @@ def voice_hits(text: str, said: Said, voice: Voice, rules: Any) -> list[Hit]:
 
 
 def should_drop(hits: list[Hit], room_kind: str, named: bool) -> bool:
-    """群里没被点名、只是跟风或附和：这条不发（像真人一样不接）。"""
-    return (
-        room_kind == "group" and not named and bool(hits) and {h.rule for h in hits} <= DROP_RULES
-    )
+    """这条不发：群里没被点名、只是跟风或附和（像真人一样不接）；生活互聊、朋友圈动态和评论
+    （不是回你的）查出口头禅和编造回忆以外的问题（没人在等她，不发比改写省钱也更自然）。"""
+    rules = {h.rule for h in hits}
+    if not rules:
+        return False
+    if room_kind in QUIET_KINDS:
+        return not named and not rules <= REWRITE_ONLY
+    return room_kind == "group" and not named and rules <= DROP_RULES
+
+
+def _topics(text: str, n: int) -> list[str]:
+    """一句话里可能是话题的 n 字片段（不含标点、虚词）。"""
+    out: list[str] = []
+    for i in range(len(text) - n + 1):
+        g = text[i : i + n]
+        if all("\u4e00" <= ch <= "\u9fff" and ch not in _FILLER for ch in g) and g not in out:
+            out.append(g)
+    return out
+
+
+def _common_prefix(a: str, b: str) -> int:
+    k = 0
+    while k < min(len(a), len(b)) and a[k] == b[k]:
+        k += 1
+    return k
+
+
+def recent_words(rt: Any, member: str, now: Any) -> tuple[str, ...]:
+    """她最近 ``rechew_hours`` 小时在各个会话里说过的话和发的朋友圈（查反复提同一件事）。"""
+    from datetime import timedelta
+
+    from roundtable.core.storage.repository import iso
+
+    rules = rt.config.roundtable.chat.engine.voice.check
+    start = now - timedelta(hours=rules.rechew_hours)
+    rows = rt.repo.chat_messages_between(iso(start), iso(now + timedelta(minutes=1)))
+    texts = [r["text"] for r in rows if r["author"] == member]
+    texts += [m["text"] for m in rt.repo.moments(author=member, since=iso(start), limit=20)]
+    return tuple(texts[-rules.rechew_messages :])
 
 
 def rewrite_spent(rt: Any) -> float:
@@ -368,7 +443,7 @@ async def before_voice(
 ) -> str:
     """说出口前自查。返回要发的话；空串表示这条不发。关闭或不是生活群 / 私聊时原样返回。"""
     engine = rt.config.roundtable.chat.engine
-    if room_kind not in LIFE_ROOMS or not (engine.enabled and engine.voice.enabled):
+    if room_kind not in CHECK_KINDS or not (engine.enabled and engine.voice.enabled):
         return text
     rules = engine.voice.check
     profile = member_voice(rt, member)

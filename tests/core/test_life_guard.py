@@ -15,10 +15,15 @@ from .orchestrator.conftest import Env
 from .test_life import NOW, chatty, engine, life_calls, life_env
 
 
-def guard_env(**guard) -> Env:
+def guard_env(voice_check: bool = True, **guard) -> Env:
     rules = Env().config.roundtable.chat
     life = rules.life.model_copy(update={"guard": rules.life.guard.model_copy(update=guard)})
-    return Env(rt_update={"chat": rules.model_copy(update={"life": life})})
+    voice = rules.engine.voice
+    voice = voice.model_copy(
+        update={"check": voice.check.model_copy(update={"enabled": voice_check})}
+    )
+    engine = rules.engine.model_copy(update={"voice": voice})
+    return Env(rt_update={"chat": rules.model_copy(update={"life": life, "engine": engine})})
 
 
 def at(env: Env, moment: datetime) -> None:
@@ -117,7 +122,7 @@ async def test_budget_alarm_halts_life():
 
 
 async def test_guard_disabled_keeps_old_behaviour():
-    env = guard_env(enabled=False)
+    env = guard_env(enabled=False, voice_check=False)  # 说出口前自查（P5）也关掉才是旧行为
     at(env, NOW)
     life = engine(env)
     assert await life.write(plan_for(life), offline=False, now=NOW) == 3
