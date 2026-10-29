@@ -14,6 +14,8 @@ from typing import Any
 from roundtable.core.config.schema import Persona
 from roundtable.core.member.card import pocket_card
 from roundtable.core.member.context import Piece, assemble
+from roundtable.core.member.state import SOURCE as STATE
+from roundtable.core.member.state import StatePlugin
 
 EMPTY = "（没有设定：用你自己的说话风格，口语化、短句，像朋友聊天。）"
 
@@ -86,4 +88,7 @@ def chat_persona(rt: Any, member: str) -> str:
         return persona_text(persona_of(rt, member))
     r = rt.config.roundtable.chat.engine.context
     pieces = [Piece("card", card, fixed=True)]
+    state = StatePlugin(rt).line(member)  # P3：程序算出的此刻心情和精力（放在随身卡后面）
+    if state:
+        pieces.append(Piece(STATE, state, score=1.0))
     return assemble(pieces, r.budget_chars, r.per_source, r.min_piece_chars).text

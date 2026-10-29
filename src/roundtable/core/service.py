@@ -177,7 +177,11 @@ class RoundtableService:
         self.chats = ChatHub(runtime, names=self._art_names)
         self.memory = MemoryKeeper(runtime, self.chats.everyone)
         self.life = LifeEngine(runtime, self.chats, self.memory)
-        self.engine = MemberEngine(runtime, lambda: [m.id for m in self.chats.everyone()])
+        self.engine = MemberEngine(
+            runtime,
+            lambda: [m.id for m in self.chats.everyone()],
+            lambda: {m.id: m.name for m in self.chats.everyone()},
+        )
         self.mail = MailBox(runtime.repo)
         self.mail_ai = MailAI(runtime, self.mail)
         if runtime.mail_source is not None:
@@ -972,6 +976,8 @@ class RoundtableService:
             raise ServiceError("消息不能为空")
         msg, speakers = chat.post(text, meta)
         self.rt.repo.mark_chat_read(chat.room, msg["id"])
+        with contextlib.suppress(Exception):  # 状态出错不影响聊天
+            self.engine.observe(self.rt.budget.now())  # 被 @、被批评的反射在回应前算进状态
         if speakers:
             task = asyncio.get_running_loop().create_task(chat.replies(msg["id"], speakers))
             self._chat_tasks.add(task)
@@ -1444,6 +1450,36 @@ class RoundtableService:
         member = self._profile_member(member)
         n = self.engine.profiles.clear(member)
         return {"member": member, "deleted": n}
+
+    def member_states(self) -> dict[str, Any]:
+        """每位成员此刻的心情（-1～1）和精力（0～1）、基线、最近的本能反射（P3 状态，只读）。"""
+        state = self.engine.state
+        out = []
+        for m in self.chats.everyone():
+            r = state.read(m.id)
+            b = r.baseline
+            out.append(
+                {
+                    "member": m.id,
+                    "name": m.name,
+                    "mood": round(r.mood, 3),
+                    "energy": round(r.energy, 3),
+                    "line": state.line(m.id, r.at),
+                    "baseline": {
+                        "mood": b.mood,
+                        "sensitivity": b.sensitivity,
+                        "wake": b.wake,
+                        "sleep": b.sleep,
+                        "night_owl": b.night_owl,
+                    },
+                    "recent": r.recent,
+                }
+            )
+        return {"members": out, "enabled": state.enabled()}
+
+    def member_states_clear(self, member: str | None = None) -> dict[str, Any]:
+        """清空状态（全部或某一位），回到基线。"""
+        return {"deleted": self.engine.state.clear(member)}
 
     def member_events_count(self) -> dict[str, Any]:
         return {"events": self.rt.repo.count_member_events()}

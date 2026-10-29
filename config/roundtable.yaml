@@ -93,6 +93,30 @@ chat:
       shares: {proactive: 0.85, group: 0.7, life: 0.5}   # 其余三类最多用到额度的几成，超了只记一行
     heartbeat: {enabled: true, max_actions: 3}
     bus: {keep_days: null, catch_up_days: 14}   # 事件一直保留（只存本机，攒经历数据）；开机最多补算 14 天
+    state:                         # 心情和精力（P3）：全由程序按事件算，快慢两层，会回到基线；模型不写情绪
+      mood: {fast_half_life_hours: 2, slow_half_life_hours: 48, slow_share: 0.2}
+      energy: {fast_half_life_hours: 1, slow_half_life_hours: 10, slow_share: 0.5, slow_cap: 0.5}
+      criticism_words: [这不对, 不对吧, 错了, 太差, 好差, 失望, 敷衍, 别瞎说, 胡说, 乱说, 不靠谱, 说错, 搞错, 笨, 烦人, 你怎么又]
+      praise_words: [谢谢, 厉害, 真棒, 好棒, 不错, 辛苦了, 说得好, 好聪明, 靠谱, 喜欢你, 太好了, 真好]
+      # 本能反射规则表（所有成员同一张；心情的改动再乘各自的情绪敏感度）。以后可以换成小网络，接口不变
+      reflexes:
+        - {name: 被点名, tags: [mentioned], mood: 0.03, act: reply_now, note: 刚被点名}
+        - {name: 你来私聊, tags: [from_user, dm], mood: 0.05, act: reply_now}
+        - {name: 深夜被叫醒, tags: [from_user], night: true, mood: -0.05, energy: -0.05, act: sleepy, note: 本来在睡，被叫醒了，很困}
+        - {name: 被批评, tags: [criticized], mood: -0.3, note: 刚被说了几句，心里有点不痛快}
+        - {name: 一起挨说, tags: [group_criticized], mood: -0.1}
+        - {name: 被夸, tags: [praised], mood: 0.2, act: flustered, note: 刚被夸了}
+        - {name: 说话, tags: [spoke], energy: -0.02}
+        - {name: 累了还在说, tags: [spoke], energy_below: 0.25, mood: -0.03, note: 有点累了}
+        - {name: 聚会, tags: [life.gather], mood: 0.03, energy: -0.03}
+        - {name: 两人聊天, tags: [life.pair], mood: 0.02, energy: -0.02}
+        - {name: 独处, tags: [life.solo], energy: 0.03}
+        - {name: 干完活, tags: [work], mood: 0.02, energy: -0.08, note: 刚在办公室干完一件活}
+        - {name: 看到听到, tags: [perceive], mood: 0.02}
+      mood_labels: [[0.45, 心情很好], [0.15, 心情不错], [-0.15, 心情平常], [-0.45, 心情有点低落], [-2, 心情很差]]
+      energy_labels: [[0.7, 精神很好], [0.45, 精力还行], [0.25, 有点累], [0, 很困]]
+      line_format: "此刻（程序按经历算出的状态，自然地带出来，别直接念）：{mood}，{energy}{recent}"
+      context_chars: 80             # 状态那一行最多几个字，算在上面的 600 字里（8 位相同）
   tier: budget
   max_repliers: 2
   max_mentioned: 8                 # 「@全员」「所有人」「大家」时最多几位依次回应

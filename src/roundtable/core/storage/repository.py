@@ -38,6 +38,9 @@ class NotFound(LookupError):
     pass
 
 
+STATE_KEY = "member_state:"  # 成员状态（P3）在 app_settings 里的键前缀
+
+
 def iso(moment: datetime) -> str:
     """库中时间戳的统一格式（UTC，毫秒），可按字符串比较先后。"""
     if moment.tzinfo is None:
@@ -1449,6 +1452,34 @@ class Repository:
 
     def prune_member_events(self, before: str) -> int:
         return self._exec("DELETE FROM member_events WHERE at < ?", (before,)).rowcount
+
+    # --- 成员状态（P3；app_settings 的 member_state:<成员> 键，只有 member/state.py 写）
+
+    def member_state(self, member: str) -> dict[str, Any] | None:
+        row = self._exec(
+            "SELECT value, updated_at FROM app_settings WHERE key = ?", (STATE_KEY + member,)
+        ).fetchone()
+        return None if row is None else {"data": json.loads(row["value"]), "at": row["updated_at"]}
+
+    def save_member_state(self, member: str, data: dict[str, Any]) -> None:
+        self.set_setting(STATE_KEY + member, json.dumps(data, ensure_ascii=False))
+
+    def member_state_members(self) -> list[str]:
+        rows = self._exec(
+            "SELECT key FROM app_settings WHERE key LIKE ? ORDER BY key", (STATE_KEY + "%",)
+        ).fetchall()
+        return [r["key"][len(STATE_KEY) :] for r in rows]
+
+    def clear_member_state(self, member: str | None = None) -> int:
+        if member is None:
+            return self._exec(
+                "DELETE FROM app_settings WHERE key LIKE ?", (STATE_KEY + "%",)
+            ).rowcount
+        return self._exec("DELETE FROM app_settings WHERE key = ?", (STATE_KEY + member,)).rowcount
+
+    def chat_message_by_id(self, message_id: int) -> dict[str, Any] | None:
+        row = self._exec("SELECT * FROM chat_messages WHERE id = ?", (message_id,)).fetchone()
+        return None if row is None else _chat_row(row)
 
     def spent_in_steps(
         self, workflow: str, steps: Sequence[str], start: datetime, end: datetime
