@@ -1696,6 +1696,19 @@ def build_parser() -> argparse.ArgumentParser:
             cmd.add_argument("--details", action="store_true")
             cmd.add_argument("--raw", action="store_true")
             cmd.add_argument("--costs", action="store_true", help="显示每步与每次调用的花费")
+    sim = sub.add_parser(
+        "sim",
+        help="成员系统加速时间模拟：临时数据库里快进几天到几个月，出报告（默认假模型，不花钱）",
+    )
+    sim.add_argument("--days", type=int, default=30, help="模拟多少天（默认 30）")
+    sim.add_argument("--out", help="输出目录（默认 sim_runs/<时间>；不能在 data/ 下）")
+    sim.add_argument("--seed", type=int, default=0)
+    sim.add_argument("--start", help="从哪天开始（YYYY-MM-DD，默认 2026-11-02 星期一）")
+    sim.add_argument("--tz", default="Asia/Shanghai", help="模拟用的主时区")
+    sim.add_argument("--user-per-day", type=float, default=6.0, help="模拟用户每天大约发几条")
+    sim.add_argument("--cards", help="人物卡 Markdown（导入成员自我档案；不给就没有档案）")
+    sim.add_argument("--real", action="store_true", help="用 .env 里的真实 key（会花钱）")
+    sim.add_argument("--max-usd", type=float, default=0.0, help="真模型的花费硬上限（必填）")
     kit = sub.add_parser(
         "kit-check", help="工作台质检：三种屏宽 × 浅色 / 深色，量出不达标的地方（不调用模型）"
     )
@@ -1749,6 +1762,8 @@ async def run(
     args = build_parser().parse_args(argv)
     if args.command == "kit-check":  # 不需要配置和模型
         return await asyncio.to_thread(cmd_kit_check, args, out)
+    if args.command == "sim":  # 自己建临时数据库，不打开真实数据
+        return await cmd_sim(args, out)
     try:
         rt = runtime or Runtime.build()
     except ConfigError as exc:
@@ -1881,6 +1896,41 @@ async def run(
         if runtime is None:
             await rt.aclose()
     return 0
+
+
+async def cmd_sim(args: argparse.Namespace, out: TextIO) -> int:
+    from datetime import datetime as _dt
+
+    from roundtable.core.simlab import SimError, Simulation
+
+    folder = args.out or f"sim_runs/{_dt.now():%Y%m%d-%H%M%S}"
+    start = _dt.fromisoformat(args.start).replace(hour=7) if args.start else None
+    try:
+        sim = Simulation(
+            Path(folder),
+            days=args.days,
+            seed=args.seed,
+            start=start,
+            tz=args.tz,
+            real=args.real,
+            max_usd=args.max_usd,
+            user_per_day=args.user_per_day,
+            cards=Path(args.cards).read_text(encoding="utf-8") if args.cards else None,
+        )
+        print(f"模拟 {args.days} 天（{'真模型' if args.real else '假模型'}）……", file=out)
+        res = await sim.run()
+    except (SimError, ConfigError, OSError) as exc:
+        print(f"模拟没跑成：{exc}", file=out)
+        return 2
+    m = res.meta
+    passed = sum(c["ok"] for c in res.checks)
+    print(
+        f"完成：{m['days']} 天，用时 {m['wall_seconds']} 秒，花费 ${m['spent_usd']}"
+        f"（每天约 ${m['usd_per_day']}），检查 {passed}/{len(res.checks)} 通过",
+        file=out,
+    )
+    print(f"报告：{sim.out / 'report.md'}", file=out)
+    return 0 if res.ok else 1
 
 
 def cmd_kit_check(args: argparse.Namespace, out: TextIO) -> int:
