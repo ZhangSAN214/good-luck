@@ -1510,6 +1510,102 @@ class ValueRules(_Strict):
     agree: float = Field(default=0.4, ge=0, le=1)  # 一致时「不同意」的权重 × agree
 
 
+class AttachStyle(_Strict):
+    """一种依恋方式（Hazan & Shaver 成人依恋：安全 / 焦虑 / 回避）。
+    谁更像：base + 性格分（减 3）× 系数，取最高。
+    影响想念涨多快、多容易受伤、多容易吃醋、想念时的样子。"""
+
+    base: float = 0.0
+    traits: dict[str, float] = {}
+    longing: float = Field(default=1.0, ge=0, le=5)
+    hurt: float = Field(default=1.0, ge=0, le=5)
+    jealous: float = Field(default=0.25, ge=0, le=1)
+    line: str = ""
+
+
+class LoveStyle(_Strict):
+    """一种爱的表达方式（Lee 爱情风格的简化）：谁更像（性格分减 3 后 × 系数，取最高），
+    在乎时、心动时、舍不得对方走时、怪对方没来时各是什么样子——各人不同，不千篇一律。"""
+
+    traits: dict[str, float]
+    care: str
+    crush: str
+    retain: str
+    blame: str
+
+
+class Privilege(_Strict):
+    """只给用户的一种偏心（特权）：谁更会这样（性格分减 3 后 × 系数）。每位按自己的性格挑两种。"""
+
+    line: str
+    traits: dict[str, float] = {}
+
+
+class LoveRules(_Strict):
+    """爱与复合情绪（docs/BRAIN.md「爱」；CLAUDE.md §5.1 第 2、6 条）：
+    她对每位同事和用户各有一组感情（在乎、心动、信任，加上会过去的委屈、感激、内疚、看不惯），由相处慢慢长出来，不是一个分数。
+    依据 Sternberg 爱情三角、Hazan & Shaver 依恋、Rusbult 投入模型、Aron 自我扩展、
+    Fredrickson 正向共鸣、Gottman 回应邀约。全程序、不调模型。"""
+
+    enabled: bool = True
+    romance: bool = True  # 同事之间可以心动（2026-10-30 用户选）
+    romance_user: bool = True  # 对用户也可以心动、发展成恋人（2026-10-30 用户定）
+    retain_blame: bool = True  # 可以挽留、责怪用户没来（有边界，2026-10-30 用户定）；关掉就都不做
+    user_name: str = "用户"
+    window_minutes: float = Field(default=30, gt=0, le=1440)  # 多久内接话算一来一回
+    gains: dict[str, float] = {
+        "exchange": 0.02,  # 接了对方的话
+        "attended": 0.03,  # 自己的话被对方接住
+        "moment": 0.05,  # 一起笑、一起高兴（正向共鸣）
+        "together": 0.015,  # 生活里待在一起
+        "novel": 0.04,  # 一起去了没去过的地方（自我扩展）
+        "comfort_given": 0.03,
+        "confided": 0.04,  # 对方跟自己说了心事
+    }
+    daily_cap: float = Field(default=0.12, ge=0, le=1)  # 每段关系每天在乎 + 心动最多涨多少
+    spark_rate: float = Field(default=0.6, ge=0, le=5)  # 心动涨幅 = 在乎涨幅 × 它 × 化学反应
+    chemistry_floor: float = Field(default=0.45, ge=0, le=1)  # 化学反应低于它就不会心动
+    half_life_days: dict[str, float] = {
+        "care": 120,
+        "spark": 45,
+        "hurt": 3,
+        "grateful": 7,
+        "guilt": 4,
+        "dislike": 20,
+        "vicarious": 1,
+    }
+    trust_start: float = Field(default=0.3, ge=0, le=1)
+    trust: dict[str, float] = {"attended": 0.02, "comfort": 0.05, "confided": 0.03, "missed": -0.03}
+    hurt: dict[str, float] = {"disagree": 0.12, "missed": 0.06}
+    guilt_disagree: float = Field(default=0.15, ge=0, le=1)
+    grateful_comfort: float = Field(default=0.35, ge=0, le=1)
+    dislike: dict[str, float] = {"clash": 0.08, "disagree": 0.04}  # 看不惯：三观相反、被当面反驳
+    forgive: float = Field(default=0.6, ge=0, le=0.9)  # 委屈的半衰期 × (1 - forgive × 承诺)
+    high: float = Field(default=0.5, ge=0, le=1)  # 亲密 / 心动 / 承诺算「高」的线
+    on: float = Field(default=0.25, ge=0, le=1)  # 委屈、感激、内疚、看不惯到多少才影响说话
+    show_care: float = Field(default=0.45, ge=0, le=1)
+    show_spark: float = Field(default=0.4, ge=0, le=1)
+    longing_per_day: float = Field(default=0.12, ge=0, le=1)
+    longing_show: float = Field(default=0.35, ge=0, le=1)
+    privilege_above: float = Field(default=0.55, ge=0, le=1)  # 对用户的在乎到多少开始偏心
+    retain_care: float = Field(default=0.5, ge=0, le=1)  # 在乎到多少才会舍不得对方走
+    blame_care: float = Field(default=0.4, ge=0, le=1)
+    blame_after_days: float = Field(default=2.0, gt=0, le=60)
+    withdraw_jump: float = Field(default=0.15, ge=0, le=1)  # 回避型：三天里在乎涨这么多就想退半步
+    leave_words: list[str] = []  # 用户要走了
+    no_retain: dict[str, list[str]] = {}  # 这些理由不留：说法 → 词
+    comfort_words: list[str] = []
+    joy_words: list[str] = []
+    kinds: dict[str, str] = {}  # 亲密 / 心动 / 承诺 高低（如 "101"）→ 是哪种感情
+    attachment: dict[str, AttachStyle] = {}
+    styles: dict[str, LoveStyle] = {}
+    privileges: list[Privilege] = []
+    effects: dict[str, dict[str, float]] = {}  # 感情 → {意图: 倍数}
+    weights: dict[str, float] = {}  # 卡里那一句感情话的优先权重
+    salience: float = Field(default=0.4, ge=0, le=2)  # 在乎的人说的话更显著（× 在乎）
+    empathy: float = Field(default=0.4, ge=0, le=1)  # 在乎的人难过时心疼的概率加多少（× 在乎）
+
+
 class PsycheRules(_Strict):
     """人的特质（docs/BRAIN.md「人的特质」）：全程序、不调用模型，结果写进意图卡。"""
 
@@ -1554,6 +1650,7 @@ class BrainRules(_Strict):
     empathy: EmpathyRules = EmpathyRules()
     meta: MetaRules = MetaRules()
     psyche: PsycheRules = PsycheRules()
+    love: LoveRules = LoveRules()
 
 
 class CareRules(_Strict):

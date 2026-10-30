@@ -725,7 +725,7 @@ class GroupChat:
         if row is not None and row["author"] != SYSTEM:
             last = row["text"]
             speaker = None if row["author"] == USER else row["author"]
-        brain = Brain(self.rt)
+        brain = Brain(self.rt, names=names)
         card = brain.intent(
             member.id,
             last=last,
@@ -734,6 +734,7 @@ class GroupChat:
             group=self.kind != "dm",
             seed=f"{self.room}:{reply_to}",
             room=self.room,
+            present={m.id for m in self.members()} | {"user"},
         )
         brain.after(card, self.rt.budget.now())
         return card

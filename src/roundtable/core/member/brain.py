@@ -27,7 +27,7 @@ import contextlib
 import json
 import random
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Any
@@ -36,6 +36,7 @@ from roundtable.core.hometz import home_zone
 from roundtable.core.member import psyche
 from roundtable.core.member.bus import Event, EventBus
 from roundtable.core.member.care import Care
+from roundtable.core.member.love import USER, Heart
 from roundtable.core.member.mode import Mode, require_life
 from roundtable.core.member.profile import ProfileStore
 from roundtable.core.storage.repository import iso
@@ -74,6 +75,7 @@ class IntentCard:
     # 真说了才结算的事（候选卡没说出口就不算）：元认知察觉到的套路、说干就干记下的盼头
     noticed: str = ""
     expect: str = ""
+    to: str = ""  # 对谁说（成员 id 或 "user"；主动开口时可能为空），爱与复合情绪结算用
 
     @property
     def silent(self) -> bool:
@@ -110,11 +112,14 @@ class Brain:
         bus: EventBus | None = None,
         buffer: dict[str, str] | None = None,
         members: Callable[[], list[str]] | None = None,
+        names: Callable[[], dict[str, str]] | dict[str, str] | None = None,
     ) -> None:
         self.rt = rt
         self.bus = bus
         self.members = members
         self.profiles = ProfileStore(rt)
+        # 爱与复合情绪（love.py）：传了 bus 时订阅聊天和生活事件；names：成员 id → 称呼
+        self.heart = Heart(rt, bus, names)
         # buffer：先写在内存里、``flush()`` 时才落库（生活排日程时用，排出来的事真发生了才算数，
         # 同一段时间排两次结果一样）
         self.buffer = buffer
@@ -269,11 +274,14 @@ class Brain:
             else:
                 close = 0.5  # 你说的：大家都在意
             gentle = _num(self._traits(m).get("温和", 3)) - 3
-            p = r.base + r.gentle * gentle + r.close * close
+            care = self.heart.care(m, speaker or USER, event.at)  # 在乎的人难过更容易跟着动
+            p = r.base + r.gentle * gentle + r.close * close + self.heart.rules.empathy * care
             rng = random.Random(f"brain-empathy:{m}:{msg['id']}")
             if rng.random() < p:
                 self.bus.publish(Event("brain.signal", event.at, m, {"tags": [tag]}))
                 feel = self.rules.psyche.episode.feels.get(tag, "")
+                if feel and tag == "empathy_sad" and care >= 0.5:
+                    feel = "心疼"
                 if feel:
                     s = self._grown(m, self._load(m), event.at)
                     self._episode(s, feel, f"听到「{text[:16]}」", event.at)
@@ -541,11 +549,13 @@ class Brain:
         seed: str = "",
         mode: Mode | str = Mode.LIFE,
         room: str = "",
+        present: Iterable[str] | None = None,
     ) -> IntentCard | None:
         """说话前的综合：返回意图卡；没开启时返回 None（照旧说话）。群里不接时 ``silent``。
 
         ``room`` 是会话名：用户在这个会话里说出让人担心的话时，进入关心时段，返回关心卡
-        （压过平时的一切，大脑分区关着也照样生效，见 ``care.py``）。"""
+        （压过平时的一切，大脑分区关着也照样生效，见 ``care.py``）。
+        ``present`` 是在场的人（成员 id，用户为 ``"user"``）：不在场的才会想念。"""
         require_life(mode)
         at = at or self.rt.budget.now()
         if room:
@@ -557,6 +567,7 @@ class Brain:
                 return IntentCard(member, "care", care.card(level, at), None, 2.0)
         if not self.enabled():
             return None
+        to = speaker or (USER if last or room.startswith("dm:") else "")
         rng = random.Random(f"brain:{member}:{iso(at)}:{seed}")
         s = self._grown(member, self._load(member), at)
         traits = self._traits(member)
@@ -575,6 +586,8 @@ class Brain:
                 ps.sway, traits, member, self.local(at), close=close, energy=energy, mood=mood
             )
         sal = self.salience(member, last, named=named, speaker=speaker, at=at) if last else 0.0
+        if last and to:
+            sal = round(sal + self.heart.bonus(member, to, at), 3)  # 在乎的人说的话更显著
         social = s.drives.get("social", 0.3)
         floor = self.rules.silence_below
         if (
@@ -587,6 +600,9 @@ class Brain:
             self._save(member, s)
             return IntentCard(member, "silent", "", None, sal)
         mine = self.thoughts(member, s, at, rng)
+        here = set(present) if present is not None else {to}
+        for text, strength in self.heart.thoughts(member, at, here | {member}):
+            mine.append(Thought("love", text, strength))
         if last:
             mine.append(Thought("message", last[:40], 0.4 + sal, "msg"))
             if _CLAIM.search(last):
@@ -602,6 +618,7 @@ class Brain:
         has_sad = any(t.kind == "sad" for t in mine)
         has_whim = any(t.kind == "whim" for t in mine)
         noticed = self._noticed(s)
+        love = self.heart.effects(member, to, at)
         has_own = any(t.kind == "own" for t in mine)
         has_claim = any(t.kind == "claim" for t in mine)
         weights: dict[str, float] = {}
@@ -625,6 +642,7 @@ class Brain:
                     w = (max(w, 0.0) + ps.values.push) * (1 + ps.values.oppose)
                 else:
                     w *= ps.values.agree
+            w *= love.get(name, 1.0)  # 对说话对象的感情（在乎、心动、委屈、内疚……）
             if s.recent[-2:] == [name, name]:
                 w *= 0.4  # 别一直一个套路
             if noticed == name:  # 元认知：察觉到自己最近老这样，压一压
@@ -653,6 +671,12 @@ class Brain:
         if noticed and noticed != s.noticed:  # 刚察觉到就写一句（真说了才算察觉过，见 after）
             note = self.rules.meta.notes.get(noticed, "")
             text = f"{text}\n你察觉到自己{note}，想换个方式"[: self.rules.card_chars]
+        heart = self.heart.line(member, to, at, rng, last=last if speaker is None else "")
+        if heart:  # 关于说话对象的一句感情话（放人那句一定写上）
+            text = f"{text}\n{heart[1]}"
+            tags.append(f"love:{heart[0]}")
+        if opposed is not None and opposed[0] and to and to != USER:
+            tags.append("clash")
         if ps.enabled:
             lines = self._psyche_lines(
                 member, s, chosen, last, mood, energy, traits, opposed, at, rng
@@ -662,7 +686,7 @@ class Brain:
                     text += "\n" + line
                     tags.append(tag)
         self._save(member, s)  # 只存随时间长的驱力；候选卡的其余影响等 after 再结算
-        return IntentCard(member, chosen, text, focus, sal, tuple(tags), noticed, expect)
+        return IntentCard(member, chosen, text, focus, sal, tuple(tags), noticed, expect, to)
 
     def _closeness(self, member: str, other: str, at: datetime) -> float:
         from roundtable.core.member.relation import RelationPlugin  # relation 不依赖本模块
@@ -824,6 +848,7 @@ class Brain:
         if card.spotlight is not None and card.spotlight.source == "goal":
             s.news = [n for n in s.news if n["text"] != card.spotlight.text]
         self._save(card.member, s)
+        self.heart.after(card, at)
 
 
 def _num(x: Any) -> float:

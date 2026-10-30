@@ -307,7 +307,7 @@ class LifeEngine:
         said = 0
         earlier = self.guard.recent_lines(chat.room)
         spoken: list[tuple[str, str]] = []  # 这一段里谁说了什么（自查比对用）
-        brain = Brain(self.rt)
+        brain = Brain(self.rt, names=names)
         last_by: str | None = None
         for turn in range(rules.turns):
             # 补算：按事件发生的时刻，且不晚于现在（整点那件事的分钟数可能落到现在之后）
@@ -428,6 +428,7 @@ class LifeEngine:
                 group=len(speakers) > 2,
                 at=at,
                 seed=seed,
+                present={s.id for s in speakers},
             )
             if card is None:
                 return m, None
