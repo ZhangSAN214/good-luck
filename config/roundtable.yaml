@@ -979,6 +979,7 @@ media:
     monthly_usd: 3.0         # 表情包单独的每月上限，同时算在上面的 monthly_usd 里
     size: 360                # 存下来的边长（像素）
     check: true              # 画完用最便宜的识图模型核对配文和形象
+    check_max_tokens: 1200   # 核对的输出上限（含思考；300 时会被思考全部用掉，正文为空）
     max_attempts: 2          # 核对不合格时换一个模型重画一次
     review: true             # 新画的先进「待审」，你点「可以」后成员才会用
   video:

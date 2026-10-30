@@ -118,7 +118,7 @@ sticker_cards:
     refs: [设定图/设定图_小白龙.jpg]
     stickers:
       - {name: 快夸我, caption: 快夸我, action: 双手叉腰下巴微抬，一脸得意，尾巴在身后摇出一道弧线}
-      - {name: 不傻, caption: 本龙不傻，真的, action: 小声挽尊，手里的地图明显拿反了（地图上的字是倒的），额头冒一滴汗}
+      - {name: 不傻, caption: 本龙不傻, action: 小声挽尊，手里的地图明显拿反了，额头冒一滴汗}
       - {name: 想想, caption: 让我想想。, action: 一手托腮认真思考，尾尖翘起，头顶一个小问号}
       - {name: 收到, caption: 收到！, action: 精神地敬礼，翅膀张开，身边有闪光}
       - {name: 没生气, caption: 才没有生气, action: 鼓起脸颊扭头，尾巴啪地拍在地上，头上一个生气符号}
