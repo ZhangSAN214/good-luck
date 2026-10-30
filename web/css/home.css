@@ -639,6 +639,8 @@ dialog.sheet[open]{display:flex}
 .pp-mh .link:first-of-type{margin-left:auto}
 .pp-mh .link{border:0;background:none;color:var(--mo-name,#576b95);padding:0;cursor:pointer}
 .pp-list li.rl-gone{opacity:.55}
+.rl-was{margin:.25rem 0;font-size:.85em}.rl-was ol{margin:.25rem 0 0 1.2rem;padding:0}
+.rl-reply{display:flex;gap:.4rem;align-items:center;margin-top:.3rem}.rl-reply input{flex:1;min-width:0}
 /* 关于你（P8）：8 位共用的用户画像 */
 .ab-face{background:var(--accent,var(--brass-ink));color:var(--accent-ink,#fff)}
 .ab-doms{display:flex;flex-wrap:wrap;gap:8px;padding:12px 16px}

@@ -108,6 +108,7 @@ from roundtable.core.member.growth import monday, week_id
 from roundtable.core.member.growth.report import lines as report_lines
 from roundtable.core.member.memory import DiaryTool
 from roundtable.core.member.memory.store import query_terms
+from roundtable.core.member.relation import view_live
 from roundtable.core.member.voice import VoicePolicy
 from roundtable.core.member.yourstate import UserStatus
 from roundtable.core.member_stickers import (
@@ -2414,14 +2415,16 @@ class RoundtableService:
             {
                 **v,
                 "index": i,
-                "live": bool(set(v.get("facts") or []) & live),
+                "live": view_live(v, live),
                 "facts_text": [facts[n] for n in v.get("facts") or [] if n in facts],
             }
             for i, v in enumerate(data.get("views") or [])
         ]
         due = self.insight.due(self._local_now().date())
+        depth = rules.insight.at(rel.level(member))
         return {
             **rel.summary(member),
+            "depth": {"views": depth.views, "chars": depth.chars},
             "enabled": rel.enabled(),
             "stages": [s.model_dump() for s in rules.stages],
             "views": views,
@@ -2450,6 +2453,13 @@ class RoundtableService:
         """删掉她的一句见解。"""
         member = self._profile_member(member)
         if not self.engine.relation.drop_view(member, index):
+            raise ServiceError("没有这一句", 404)
+        return self.member_relation(member)
+
+    def member_relation_reply_view(self, member: str, index: int, text: str) -> dict[str, Any]:
+        """你在她的一句看法下随手回一句（空串＝撤回）；她下周自己琢磨你的意思。"""
+        member = self._profile_member(member)
+        if not self.engine.relation.reply_view(member, index, text):
             raise ServiceError("没有这一句", 404)
         return self.member_relation(member)
 

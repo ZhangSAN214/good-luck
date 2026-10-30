@@ -139,6 +139,7 @@ export const revertMemberGrowth = (id, entry) => api(`/api/chat/growth/${encodeU
 export const clearMemberGrowth = (id) => api(`/api/chat/growth/${encodeURIComponent(id)}`, { method: 'DELETE' });
 export const memberRelation = (id) => api(`/api/chat/relation/${encodeURIComponent(id)}`);
 export const thinkMemberRelation = (id) => api(`/api/chat/relation/${encodeURIComponent(id)}/insight`, { method: 'POST' });
+export const replyMemberView = (id, index, text) => api(`/api/chat/relation/${encodeURIComponent(id)}/views/${index}/reply`, { method: 'PUT', body: { text } });
 export const dropMemberView = (id, index) => api(`/api/chat/relation/${encodeURIComponent(id)}/views/${index}`, { method: 'DELETE' });
 export const clearMemberRelation = (id) => api(`/api/chat/relation?member=${encodeURIComponent(id)}`, { method: 'DELETE' });
 export const clearMemberProfile = (id) => api(`/api/chat/profiles/${encodeURIComponent(id)}`, { method: 'DELETE' });

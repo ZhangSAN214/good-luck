@@ -173,6 +173,7 @@ const people = new People($('#people'), {
     relationClear: API.clearMemberRelation,
     relationThink: API.thinkMemberRelation,
     relationDropView: API.dropMemberView,
+    relationReplyView: API.replyMemberView,
   },
 });
 const feeds = new Feeds($('#feeds'), { api: { get: API.chatFeeds, set: API.setChatFeeds, refresh: API.refreshChatFeeds } });
