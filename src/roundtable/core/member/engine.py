@@ -15,6 +15,7 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from roundtable.core.member.about import AboutYou
+from roundtable.core.member.brain import Brain
 from roundtable.core.member.bus import Event, EventBus
 from roundtable.core.member.context import Context, Piece, assemble
 from roundtable.core.member.heartbeat import Heartbeat
@@ -48,6 +49,8 @@ class MemberEngine:
         self.relation = RelationPlugin(rt, self.bus, names)
         # P8 关于你：8 位共用的用户画像（线索由夜间整理交来，每周在这里整合一次）
         self.about = AboutYou(rt)
+        # 大脑分区：订阅总线结算驱力（说了话、和人待在一起）；意图卡由聊天和生活说话前现算
+        self.brain = Brain(rt, self.bus, members=members, names=names)
 
     @property
     def rules(self) -> Any:
@@ -122,10 +125,17 @@ class MemberEngine:
         if start < now:
             out["events"] = self.bridge(start, now)
         repo.set_setting(LAST_KEY, now.isoformat())
+        for member in self.members():  # 大脑分区：盼头到期见分晓，攒下的奖赏信号发给 P3
+            out["signals"] = out.get("signals", 0) + self.brain.flush_signals(member, self.bus, now)
+        out["missed"] = self.brain.heart.tick(now)  # 爱：同事私聊里找对方说话没人接，记一点委屈
         out |= await self.heartbeat.beat(self.members(), now)
         today = now.date().isoformat()
         if repo.setting(PRUNED_KEY) != today:
             out["pruned"] = self.bus.prune(now)
+            bus = self.rules.bus
+            if bus.prompt_keep_days is not None:  # 旧调用的整段提示词只留开头（库不再越滚越大）
+                before = iso(now - timedelta(days=bus.prompt_keep_days))
+                out["trimmed"] = repo.trim_chat_prompts(before, bus.prompt_keep_chars)
             repo.set_setting(PRUNED_KEY, today)
         if self.about.weekly(now) is not None:
             out["about_week"] = 1

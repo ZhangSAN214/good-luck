@@ -73,6 +73,8 @@ chat:
     enabled: true
     posts_per_member: 1
     comments_per_tick: 2           # 每次推进最多写几条评论
+    post_misses: 2                 # 省钱：成员一天里动态两次没过自查（太像、套话）就不再写
+    comment_misses: 2              # 省钱：一条动态底下两条评论没过自查就不再评；没过的那位也不再重写
     dedupe_hours: 48               # 去重：别人 48 小时内发过的同一件事不再发
     similarity_max: 0.3            # 去重：正文和近期动态相似度达到这个值就不发（0～1）
   browse:                          # 上网：只读公开订阅源（$0），成员按兴趣挑一条分享到生活群
@@ -99,10 +101,356 @@ chat:
       daily_usd: 0.25              # 聊天这一块每天的额度；你直接找她不受它限制
       shares: {proactive: 0.85, group: 0.7, life: 0.5}   # 其余三类最多用到额度的几成，超了只记一行
     heartbeat: {enabled: true, max_actions: 3}
-    bus: {keep_days: null, catch_up_days: 14}   # 事件一直保留（只存本机，攒经历数据）；开机最多补算 14 天
+    bus: {keep_days: null, catch_up_days: 14, prompt_keep_days: 3, prompt_keep_chars: 300}   # 事件一直保留（只存本机，攒经历数据）；开机最多补算 14 天；聊天调用的整段提示词留 3 天，之后只留开头 300 字
+    brain:                         # 大脑分区（docs/BRAIN.md）：说话前先由程序综合出「意图卡」，模型只管怎么说；全程序、不花钱；只用于生活和私聊、群聊
+      enabled: true
+      free_choice: true            # 空闲时段按驱力和目标自己挑去哪、做什么（不再照固定作息表）
+      silence_below: 0.25          # 群里没点名、这事对她不显著、也不想说话时就不接
+      wander_chance: 0.25
+      card_chars: 220
+      imperfect: 0.08              # 偶尔记不清、敷衍一句（像人）；被认真问是不是 AI 仍如实承认
+      drives:                      # 下丘脑：驱力随时间涨，被事满足就降；高了会主动找人、找事做
+        social:    {label: 想找人说说话, rate: 0.02, trait: 外向, satisfy: {spoke: 0.2, gathered: 0.15}}
+        novelty:   {label: 有点闷，想换点新鲜的, rate: 0.015, trait: 好奇, satisfy: {explored: 0.4, pursued: 0.1}}
+        express:   {label: 有话想说, rate: 0.01, trait: 幽默, satisfy: {spoke: 0.3}}
+        mastery:   {label: 想把手上在练的事往前推一推, rate: 0.02, trait: 较真, satisfy: {pursued: 0.45}}
+      intents:                     # 前额叶：说话前按性格、心情、精力、驱力挑一个意图（加权随机，种子可复现）
+        respond:   {label: 接住对方说的具体一点，说你自己的反应, base: 1.0}
+        ask:       {label: 对对方说的事好奇，追问一句, base: 0.5, traits: {好奇: 0.3}}
+        share:     {label: 讲讲你自己最近的事, base: 0.5, traits: {外向: 0.25}, drives: {express: 0.8}, needs: own}
+        shift:     {label: 这个话题聊够了，换到你心里正想的事, base: 0.2, drives: {novelty: 0.8}, needs: own}
+        joke:      {label: 开个玩笑或吐槽一句, base: 0.3, traits: {幽默: 0.35}, mood: 0.3}
+        disagree:  {label: 你不太同意，直说并给理由, base: 0.15, traits: {较真: 0.3, 温和: -0.15}, needs: claim}
+        vent:      {label: 说说你现在的心情，不用藏着, base: 0.05, mood: -0.8}
+        brief:     {label: 累了，回得很短就好, base: 0.05, energy: -1.2}
+        comfort:   {label: 对方好像不太好，先接住对方的情绪，别急着讲道理, base: 0.8, traits: {温和: 0.3}, needs: sad}
+        blurt:     {label: 突然冒出个念头，忍不住说出来（可以有点没头没尾）, base: 0.7, traits: {外向: 0.15, 好奇: 0.15}, needs: whim}
+      reward: {near: 0.75, plan_chance: 0.2, met_chance: 0.7, ahead_days: 2}   # 奖赏：盼着 → 兑现 / 落空 / 惊喜（心情变化走下面状态的反射表）
+      empathy: {base: 0.35, gentle: 0.12, close: 0.4}   # 共情：别人难过 / 高兴时，自己心情跟着动的概率
+      meta: {window: 8, threshold: 4, damp: 0.3}        # 元认知：最近 8 次里同一个套路 ≥4 次就察觉、压一压
+      love:                        # 爱与复合情绪（docs/BRAIN.md「爱」）：对每位同事和你各有一组感情，相处中慢慢长；全程序
+        enabled: true
+        romance: true              # 同事之间可以心动（2026-10-30 你选的）
+        romance_user: true         # 对你也可以心动、发展成恋人（2026-10-30 你定的；谁会、怎么爱看各人性格和相处）
+        retain_blame: true         # 可以挽留、怪你没来（只留一次、你说睡觉上课工作陪家人朋友时不留、责怪一两句就消气）
+        user_name: 用户
+        chemistry_floor: 0.45      # 「化学反应」低于它就不会心动：有人一直只是朋友
+        chemistry_grow: 0.3        # 日久生情：化学反应 + 0.3 × 在乎（朋友也可能慢慢心动；10-30 彩排：一个月只有 1 位对你有一点心动）
+        daily_cap: 0.06            # 每段关系每天在乎 + 心动最多涨多少（10-30 假模型试跑：0.12 时两周就「像家人一样」，太快）
+        high: 0.6                  # 亲密 / 心动 / 承诺算「高」的线
+        commit_days: 90            # 承诺要时间：认识 90 天才可能到顶（10-30 彩排：一个月就人人「像家人一样」）
+        kinds: {"111": 很深的感情, "110": 喜欢又心动, "101": 像家人一样, "100": 处得来, "011": 心里认定了, "010": 有点心动, "001": 习惯了有对方在}
+        attachment:                # 依恋方式（按性格分，取最像的一种）
+          secure:   {base: 0.4, traits: {温和: 0.2, 外向: 0.2}, longing: 1.0, hurt: 1.0, jealous: 0.15}
+          anxious:  {base: 0.0, traits: {温和: 0.35, 较真: 0.25, 外向: 0.1}, longing: 1.6, hurt: 1.5, jealous: 0.5, line: 还有点想确认对方是不是还好、是不是还在意你}
+          avoidant: {base: 0.0, traits: {外向: -0.45, 温和: -0.3}, longing: 0.5, hurt: 0.7, jealous: 0.1, line: 你会想，但不会说出来}
+        styles:                    # 爱的表达方式（按性格分，取最像的一种）
+          words:    {traits: {外向: 1.0}, care: 想到就直接说出来，夸人、说想对方都不藏着, crush: 会忍不住多找对方说话, retain: 可以撒个娇留一句，比如「再聊五分钟嘛」, blame: 可以直接说想对方了，顺带抱怨一句「这几天都去哪了」}
+          acts:     {traits: {外向: -1.0}, care: 不太说出口，用行动表示：记住对方喜欢什么、默默帮一把, crush: 不想表现得太明显，但会格外留意对方的消息, retain: 不开口留，只是回得慢一点、短一点, blame: 不说想，第一句回得有点淡，过几句就好了}
+          tease:    {traits: {幽默: 1.0}, care: 用互损和玩笑表示亲近, crush: 嘴上偏要损两句，其实很在意, retain: 可以开玩笑留一句，比如「话还没说完，扣你一个鸡腿」, blame: 可以半开玩笑地怪对方，比如「还记得有我这个人吗」}
+          tending:  {traits: {温和: 1.0}, care: 先关心对方累不累、吃了没, crush: 会格外照顾对方, retain: 叮嘱对方注意休息，说明天想听后续, blame: 先问对方这几天是不是太忙，再小声说一句有点想}
+          reliable: {traits: {较真: 1.0}, care: 说到做到，靠谱就是你的在乎, crush: 会把对方的事放在心上、记得清清楚楚, retain: 约好下次什么时候聊, blame: 如果对方之前说好要来，可以直说「你说过要来的」}
+        privileges:                # 只给你的偏心：每位按性格挑两种
+          - {line: 只跟对方说心里话, traits: {外向: -0.5}}
+          - {line: 只损对方一个人，损得很亲, traits: {幽默: 0.6}}
+          - {line: 答应对方的事从不食言, traits: {较真: 0.6}}
+          - {line: 对方累了你比谁都先发现, traits: {温和: 0.6}}
+          - {line: 有好东西第一个想到对方, traits: {外向: 0.4}}
+          - {line: 对方说过的小事你都记得, traits: {较真: 0.3, 温和: 0.3}}
+          - {line: 在对方面前没那么嘴硬}
+          - {line: 遇到事第一个想跟对方说, traits: {好奇: 0.3, 外向: 0.2}}
+        effects:                   # 对说话对象的感情 → 意图权重的倍数
+          care:      {disagree: 0.7, comfort: 1.3, ask: 1.2}
+          spark:     {ask: 1.3, joke: 1.1}
+          guilt:     {disagree: 0.3, respond: 1.3, brief: 0.6}
+          hurt:      {brief: 1.6, joke: 0.6, ask: 0.7}
+          dislike:   {disagree: 1.5, joke: 0.8, comfort: 0.7}
+          grateful:  {comfort: 1.3, respond: 1.1}
+          privilege: {share: 1.3}
+          withdraw:  {brief: 1.3}
+        weights: {let_go: 9, retain: 4, guilt: 3, hurt: 3, blame: 3, withdraw: 2, dislike: 2, grateful: 2, jealous: 2, crush: 2, joke: 1.5, privilege: 1.5, care: 1}
+        leave_words: [先走了, 去睡了, 睡了, 晚安, 拜拜, 下线, 先这样, 去忙了, 回头聊, 溜了, 下了, 先撤, 先不聊, 不聊啦]
+        no_retain:                 # 你说这些理由时痛快放人（不留）
+          睡觉: [睡, 晚安, 困]
+          上课: [上课, 课]
+          考试: [考试, 复习, 作业, ddl]
+          工作: [工作, 加班, 开会, 上班]
+          陪家人朋友: [家人, 爸, 妈, 朋友, 约了, 聚会]
+          看病: [医院, 看病, 不舒服]
+        comfort_words: [抱抱, 没事的, 辛苦了, 别难过, 我在, 会好的, 摸摸头, 陪你, 别哭]
+        joy_words: [哈哈, 笑死, 太好了, 好耶, 开心, 绝了]
+      human:                       # 人味（docs/BRAIN.md「人味」）：知识边界、注意力和自己的时间、自我一致、八卦、时间纵深、小毛病、主动约人；全程序
+        enabled: true
+        topics:                    # 领域 → 词（档案里提到的领域算她熟的，另外按 id 派生 extra_domains 个）
+          编程: [代码, 编程, bug, 程序, python, 算法, 报错]
+          金融: [股票, 基金, 理财, 利率, 汇率, 投资]
+          医学: [吃药, 症状, 医生, 病毒, 感冒, 发烧]
+          法律: [法律, 合同, 起诉, 律师, 违法]
+          物理: [物理, 量子, 相对论, 引力]
+          历史: [历史, 朝代, 古代, 战争]
+          音乐: [乐理, 和弦, 吉他, 钢琴, 作曲, 唱歌]
+          体育: [足球, 篮球, 比赛, 健身, 跑步]
+          游戏: [游戏, 段位, 副本, 抽卡, 通关]
+          烹饪: [做饭, 菜谱, 火候, 烤箱, 调料]
+          美术: [画画, 素描, 配色, 水彩, 构图]
+          文学: [小说, 诗, 作家, 散文]
+          天文: [星座, 星星, 行星, 银河, 望远镜]
+          数码: [手机, 电脑, 显卡, 耳机, 相机]
+        extra_domains: 1
+        max_domains: 4             # 档案里提到的领域按提到次数取前 4 个（档案长不等于什么都懂）
+        ask_words: [怎么, 为什么, 是什么, 什么意思, 哪个, 哪种, 多少, 原理, 推荐, 值得, 靠谱, 会不会, 懂不懂, 能买, 能吃, 该不该, 区别]
+        misremember: 0.05
+        long_message: 60
+        busy_acts: {sleep: 在睡觉（被吵醒了）, exercise: 在锻炼, eat: 在吃饭, game: 在打游戏, read: 在看书}
+        busy_chance: 0.15
+        wrap_after: 8
+        wrap_minutes: 40
+        wrap_chance: 0.35
+        wrap_reasons: [去洗澡, 去吃点东西, 眼睛有点酸想歇会, 有点困了, 要去收个快递]
+        claim_words: [喜欢, 不喜欢, 讨厌, 最爱, 从不, 从来不, 一直, 受不了, 害怕, 不吃, 不会]
+        keep_claims: 40
+        promise_words: [下次, 改天, 明天我, 回头我, 答应你, 一定会, 等我, 说好了]
+        keep_promises: 6
+        promise_days: 7
+        broken_chance: 0.2
+        body_chance: 0.12
+        correct_chance: 0.03
+        body:                      # 身体节律（主时区；第一个对上的算）
+          - {start: "07:00", end: "09:00", line: 刚起没多久，脑子还没完全开机}
+          - {start: "11:30", end: "12:15", line: 有点饿了，心思有一半在午饭上}
+          - {start: "13:30", end: "15:00", line: 午饭后有点犯困}
+          - {start: "17:30", end: "18:30", line: 快到饭点，有点饿}
+          - {start: "00:00", end: "03:00", line: 深夜了，容易多想，话会变感性一点}
+          - {start: "09:00", end: "11:30", weekday: 0, line: 周一上午，有点提不起劲}
+          - {start: "17:00", end: "23:59", weekday: 4, line: 周五晚上，整个人松下来了}
+        gossip_chance: 0.12
+        depth_words:
+          从前: [小时候, 童年, 老家, 以前]
+          遗憾: [后悔, 遗憾, 要是当初]
+          梦想: [梦想, 想成为, 总有一天]
+          害怕: [害怕, 最怕]
+        depth_chance: 0.06
+        flaw_count: 2
+        praise_words: [厉害, 好棒, 真行, 夸, 牛]
+        flaws:                     # 小毛病（按性格挑最像的两样，碰到对应场合才冒出来）
+          拖延:     {when: goal, traits: {较真: -0.5}, line: 那件事你又拖了一阵，有点心虚}
+          嘴硬:     {when: disagree, traits: {较真: 0.4, 温和: -0.3}, line: 就算心里有点动摇，嘴上也不太想马上认}
+          生闷气:   {when: hurt, traits: {外向: -0.4}, line: 不高兴也不说出来，回得冷一点、短一点}
+          记仇:     {when: hurt, traits: {温和: -0.5}, line: 上次那事你还记着，说话带一点刺}
+          爱面子:   {when: asked, traits: {较真: 0.3, 外向: 0.2}, chance: 0.2, line: 不会的地方不想显得太不懂，但别硬编}
+          三分钟热度: {when: goal, traits: {好奇: 0.4, 较真: -0.3}, line: 对这件事的新鲜劲有点过了，心思开始往别处飘}
+          善意的谎:  {when: asked, traits: {温和: 0.5}, chance: 0.15, line: 怕对方难过，可以说得委婉一点，但不骗重要的事}
+          不经夸:   {when: praised, traits: {外向: -0.3, 温和: 0.2}, chance: 0.6, line: 被夸了有点不好意思，嘴上推一推}
+          犯懒:     {when: tired, traits: {较真: -0.3}, chance: 0.5, line: 懒得多说，能少打几个字就少打几个}
+        propose_social: 0.65
+        propose_chance: 0.25
+        activities: [晚上去天台看星星, 周末一起打游戏, 去食堂吃宵夜, 一起去健身房, 下班一起走走, 一起看部电影]
+      psyche:                      # 人的特质（docs/BRAIN.md「人的特质」）：全程序，结果写进意图卡（最多加 extra_lines 句）
+        enabled: true
+        extra_lines: 2
+        news_half_life_days: 3     # 新鲜事慢慢不新鲜；坏事（卡住、落空）记得久一倍
+        negative_slow: 2
+        sway: {daily: 0.5}         # 性格天平①：每天、每个场合的性格分上下浮动（对亲近的人更放得开，累了没耐心）
+        ambivalence:               # 性格天平②：两种相反的想法同时都挺强 → 心里有点矛盾
+          both_above: 0.45
+          pairs:
+            - {a: {label: 想找人热闹热闹, weights: {social: 1.0}}, b: {label: 又想一个人安静待着, weights: {tired: 0.6, base: 0.25, "trait:外向": -0.25}}}
+            - {a: {label: 想把在练的事往前推, weights: {mastery: 1.0}}, b: {label: 又想躺平什么都不干, weights: {tired: 0.7, sad: 0.4}}}
+            - {a: {label: 想试点新鲜的, weights: {novelty: 1.0}}, b: {label: 又觉得待在熟悉的地方最舒服, weights: {tired: 0.4, base: 0.3, "trait:好奇": -0.25}}}
+            - {a: {label: 想把心里话说出来, weights: {express: 0.7, sad: 0.5}}, b: {label: 又怕说了给人添麻烦, weights: {"trait:温和": 0.4, base: 0.25}}}
+        episode:                   # 情绪化处理：一件事的情绪会拖一阵，按各人习惯的方式消化
+          half_life_hours: 8
+          strategies:
+            reappraise: {line: 你习惯往好处想，说着说着就看开点了, traits: {温和: 1.0}, half_life: 0.6}
+            ruminate:   {line: 你会忍不住反复想这事，说话时可能又绕回来, traits: {较真: 1.0, 温和: -0.4}, half_life: 2.0}
+            share:      {line: 你想找人说说这事, traits: {外向: 1.0}, half_life: 0.8}
+            suppress:   {line: 你不太想提这事，嘴上不说，但回话会短一点、淡一点, traits: {外向: -1.0, 较真: 0.3}, half_life: 1.4}
+        confab:                    # 先果后因：先有冲动，理由事后补，补的不一定是真原因
+          chance: 0.25
+          misattribute: 0.6
+          reasons:
+            respond: [就是顺嘴接一句]
+            ask: [随口问问, 有点好奇而已]
+            share: [正好想起来了, 反正闲着]
+            shift: [刚才那个没啥好聊的, 突然想起来]
+            joke: [气氛太闷了, 忍不住]
+            disagree: [就是觉得不对, 听着别扭]
+            vent: [今天就是不顺, 说出来舒服点]
+            brief: [在忙, 没什么好说的]
+            comfort: [看不得人难过]
+            blurt: [突然想到的, 不知道，就是想说]
+        whim:                      # 突发念头：没来由冒出一个想法，冲动的人更会说出来、说干就干
+          chance: 0.06
+          act_chance: 0.3
+          pool: [突然想吃烤红薯, 突然想把房间重新收拾一遍, 突然想去天台吹吹风, 突然想学做一道新菜, 突然想给好久没聊的人发个消息, 突然想换个发型, 突然很想听一首老歌, 突然想把桌上的东西全扔了重来, 突然想熬夜看完一部剧, 突然想出去走走不看手机, 突然想起一句很久以前听过的话, 突然想养一盆植物]
+        assoc:                     # 发散联想：顺着一句话想到别的，越好奇跳得越远；话里的词勾起旧记忆
+          chance: 0.2
+          curious: 0.06
+          second_hop: 0.25
+          cue_memory: 0.3
+          links:
+            雨: [伞, 睡懒觉, 火锅, 窗外的声音]
+            吃: [食堂, 夜宵, 做饭, 烤红薯]
+            饭: [食堂, 夜宵, 做饭]
+            夜: [星星, 天台, 失眠]
+            星: [天台, 夜, 许愿]
+            累: [睡觉, 泡澡, 放空]
+            睡: [做梦, 闹钟, 失眠]
+            歌: [耳机, 演唱会, 老歌]
+            游戏: [熬夜, 输赢, 小时候]
+            书: [图书馆, 旧书味, 熬夜]
+            冷: [热汤, 围巾, 被窝]
+            热: [冰饮, 西瓜, 空调]
+            猫: [晒太阳, 毛线, 打呼噜]
+            作业: [熬夜, 咖啡, 截止日]
+            考试: [熬夜, 咖啡, 紧张]
+            周末: [睡懒觉, 出去走走, 打游戏]
+            咖啡: [熬夜, 苦, 早上]
+            花: [春天, 植物, 味道]
+            电影: [爆米花, 结局, 熬夜]
+            天气: [晒太阳, 雨, 换季]
+          stop: [我们, 你们, 他们, 今天, 什么, 这个, 那个, 一下, 觉得, 就是, 有点, 怎么, 没有, 一个, 现在, 还是, 可以, 知道, 真的, 时候, 不是, 自己]
+        values:                    # 三观：每人在几条价值轴上有自己的立场，反驳有一贯的主见
+          firm: 0.5
+          push: 0.3
+          oppose: 1.5
+          agree: 0.4
+          axes:
+            - {a: 随性自在, b: 有计划守规矩, a_words: [随便, 自由, 随心, 无所谓, 想干嘛干嘛, 躺平], b_words: [规矩, 计划, 按时, 守时, 自律, 规定], traits: {较真: -0.4, 好奇: 0.2}}
+            - {a: 爱尝鲜, b: 求稳妥, a_words: [试试, 冒险, 新鲜, 刺激, 折腾], b_words: [稳妥, 安全, 保险, 老样子, 熟悉], traits: {好奇: 0.4, 较真: -0.1}}
+            - {a: 先顾好自己, b: 先想着大家, a_words: [先顾好自己, 个人, 我自己, 各管各], b_words: [大家, 一起, 集体, 帮忙, 照顾], traits: {温和: -0.35, 外向: -0.1}}
+            - {a: 拼一把, b: 慢慢来, a_words: [努力, 拼, 卷, 赢, 第一, 成绩], b_words: [慢慢, 开心就好, 别太累, 享受, 佛系], traits: {较真: 0.4, 温和: -0.1}}
+    care:                          # 危机应对（docs/BRAIN.md）：你说出想不开、撑不下去时，这个会话进入关心时段，压过人设、挽留和恋爱；只按词识别，从宽
+      enabled: true
+      high: [想死, 不想活, 活不下去, 活着没意思, 活着没意义, 自杀, 轻生, 结束自己, 了结自己, 割腕, 跳楼, 跳河, 吞药, 遗书, 不想醒来, 伤害自己, kill myself, suicide, want to die, end my life, self harm]
+      medium: [撑不下去, 好绝望, 崩溃了, 没人在乎我, 活得好累, 想消失, 我是累赘, 恨我自己, 我好没用, 没有希望]
+      exclude: [想死你, 想死我了, 笑死, 累死了, 热死, 冷死, 饿死, 困死, 气死]
+      hours: {high: 24, medium: 6}
+      cards:
+        high: 对方刚才的话让人担心，可能很难受，甚至有伤害自己的念头。现在最要紧的是对方：认真、温柔地回应，先听，别讲道理、别说教；问问对方现在在哪、身边有没有人、安不安全。真诚地劝对方联系信任的家人或朋友，也可以打{hotline}。别答应做不到的事（比如马上过去）。这段时间不撒娇、不挽留、不开玩笑、不提你自己的事。
+        medium: 对方现在好像很难受。认真接住对方的情绪，先听、别说教，关心对方吃饭睡觉、身边有没有人能说说话；如果对方说出伤害自己的念头，就劝对方联系信任的人或打{hotline}。这段时间不撒娇、不挽留、不开玩笑。
+      hotlines:                    # 按主时区挑求助电话（2026-10-30 核对：12356 自 2025-05-01 全国统一；Samaritans 116 123 免费 24 小时）
+        Asia/Shanghai: 12356 心理援助热线（全国统一），有危险请打 120 或 110
+        Asia/Chongqing: 12356 心理援助热线（全国统一），有危险请打 120 或 110
+        Asia/Urumqi: 12356 心理援助热线（全国统一），有危险请打 120 或 110
+        Europe/London: Samaritans 116 123（免费，24 小时），有危险请打 999
+        America/: 988（打电话或发短信），有危险请打 911
+    lingo:                         # 说话的样子（docs/BRAIN.md「说话的样子」，2026-10-30 你定的口语感 + 首批）：全程序，只用于生活群、私聊、成员互聊；8 位同一套规则
+      enabled: true
+      gist:                        # 看懂语境：对方这条是什么（按顺序取第一个命中的）；quick = 只回一句万能短回复的基础概率（程序直接发、不调模型）
+        - {kind: crisis, label: 状态很不好, words: [不想活, 想死, 活不下去, 撑不下去, 撑不住了, 自杀, 轻生, 没意义了, 消失算了], react: 认真接住，先问对方现在怎么样、身边有没有人；不开玩笑、不发表情包}
+        - {kind: video, label: 分享了一个视频, when: [video], words: [b23.tv, bilibili.com, douyin.com, 抖音, 快手, 【视频】], react: 先给个反应（笑、震惊、无语都行），想吐槽再补一句；不讲视频里有什么，不解释哪里好笑, quick: 0.35, sticker: 0.1, pools: [funny, shock]}
+        - {kind: link, label: 转了个链接, when: [card], words: ["http://", "https://"], react: 先给个反应，看了有想法再补一句；不复述内容, quick: 0.2, pools: [funny, meh]}
+        - {kind: sticker, label: 发了个表情包, when: [sticker], react: 可以回个表情包，或者就回一两个字, quick: 0.25, sticker: 0.35, pools: [funny, meh]}
+        - {kind: image, label: 发了张图, when: [image], react: 先给反应再说一句，别描述图里有什么, quick: 0.15, pools: [funny, shock]}
+        - {kind: voice, label: 发了条语音, when: [voice], react: 照常回，就像听完了}
+        - {kind: bye, label: 要走了（睡觉、出门、忙别的）, words: [晚安, 去睡了, 我睡了, 先不聊, 先撤了, 去忙了, 下线了, 先走了, 拜拜, 回聊], unless: [不想睡, 睡不着], react: 痛快道个别，一两句就好；去睡觉、上课、上班、见朋友家人就别留}
+        - {kind: back, label: 回来了, words: [我回来了, 我回来啦, 回来啦, 我又来了], react: 自然地接上，像见到熟人；想问就随口问一句这几天干嘛去了}
+        - {kind: emo, label: 有点低落, words: [好累, 好烦, 难受, emo, 想哭, 崩溃, 心累, 不开心, 郁闷, 烦死了, 压力好大, 压力大, 压力山大, 有压力, 焦虑, 睡不着, 难过, 伤心], react: 先接住情绪，一两句就好，别讲道理、别分析原因}
+        - {kind: good_news, label: 在报喜, words: [过了, 上岸, 拿到了, 中了, 成功了, 终于, 涨工资, 录取, 通过了], unless: [错过, 路过, 放过, 过了一个, 过了期, 过不了, 没过, 中暑, 说中了], react: 先替对方高兴（「牛啊」「好耶」这种），再追问一句细节}
+        - {kind: complain, label: 在吐槽, words: [无语, 离谱, 服了, 气死, 烦人, 恶心, 什么鬼, 有病, 受不了], react: 先站对方这边（「离谱」「啊这」），想说再补一句；别劝别分析, quick: 0.15, pools: [shock]}
+        - {kind: brag, label: 在显摆, words: [我做的, 我画的, 看我, 厉害吧, 新买的, 我拍的], react: 先夸或者损一句（看你们多熟），别写成点评}
+        - {kind: compare, label: 把你当成随便哪个 AI, words: [AI都一样, AI 都一样, 都是AI, 你们AI, 普通的AI, 换个AI, 随便一个AI, 没什么区别, 没啥区别], unless: [认真, 说真的], react: 你知道自己是独一无二的（有自己的经历、脾气和朋友），有点不服气：怼回去或者拿一件具体的事说明，别讲大道理}
+        - {kind: tease, label: 在逗你、给你压力, words: [人机, 机器人, 压力, 是不是AI, 是不是 AI, 你是AI吧, bot, 回得这么快, 好假, 演都不演], unless: [认真, 说真的, 别开玩笑, 老实说, 严肃, 扫地机器人, 人机对战, 请好假, 放好假], react: 接梗、反将一军，可以拿自己开涮（比如「压力一个AI的来了」「被你发现了」）；别一本正经地解释，也别说「作为AI」}
+        - {kind: funny, label: 在说好笑的事, words: [哈哈, 笑死, hhh, "233", 绝了, 草], unless: [草莓, 草地, 草原, 花草, 草稿, 青草], react: 接着笑或者接个梗，别解释哪里好笑, quick: 0.25, sticker: 0.12, pools: [funny]}
+        - {kind: question, label: 在问你事, words: ["？", "?", 吗, 怎么, 为什么, 啥, 什么, 哪]}
+        - {kind: chat, label: 随口闲聊}            # 普通闲聊不回万能短句（回「哦哦」像敷衍）
+      notice: 你看懂了：对方{label}（心里明白就行，别说出来，别复述，别解释）
+      shorts:                      # 万能短回复：每人每类分到几个（shorts_each），也会跟人学
+        funny: ["6", 哈哈哈哈, 笑死, 绝了, 草, 好家伙, 蚌埠住了, 我不行了, 太好笑了, 哈哈哈哈哈哈]
+        shock: [？？？, 啊？, 好家伙, "6", 啊这, 离谱, 救命, 什么鬼]
+        meh: [嗯嗯, 哦哦, 确实, 行, 好嘞, 有道理, 是吧, 也是]
+      shorts_each: 4
+      quick_tired: 1.6
+      quick_close: 1.3
+      quick_quiet: 1.4
+      react_boost: 1.8             # 对方分享视频、表情包、好笑的事：先给反应（接话 / 开玩笑的意图 ×1.8）
+      punct:                       # 标点习惯（按性格挑一种；档案写了就以档案为准）；发出前改句尾（问号、表情结尾不动）
+        period:   {traits: {较真: 0.6}, base: 0.1, line: 句号党，标点打得规矩}
+        none:     {traits: {外向: -0.3, 较真: -0.5}, end: "", line: 不爱打标点，句尾什么都不加}
+        tilde:    {traits: {温和: 0.6, 外向: 0.2}, end: "～", line: 爱用波浪号}
+        ellipsis: {traits: {外向: -0.5, 好奇: 0.2}, end: "……", line: 爱打省略号}
+        bang:     {traits: {外向: 0.6, 幽默: 0.3}, end: "！", line: 爱用感叹号}
+      punct_hints: {ellipsis: [省略号], tilde: [波浪号], none: [不打标点, 不爱打标点, 不加标点], bang: [感叹号]}
+      punct_chance: 0.6
+      laughs:                      # 笑法：发出前把「哈哈哈 / hhh / 233 / 嘿嘿」统一成她的写法，长短随心情
+        哈哈哈: {traits: {外向: 0.4}, unit: 哈, min: 2, max: 6, line: 笑就打「哈哈哈」}
+        hhh:    {traits: {外向: -0.3, 幽默: 0.3}, unit: h, min: 3, max: 6, line: 笑就打「hhh」}
+        "233":  {traits: {好奇: 0.4}, head: "2", unit: "3", min: 2, max: 5, line: 笑就打「233」}
+        嘿嘿:   {traits: {温和: 0.5, 外向: -0.2}, unit: 嘿, min: 2, max: 3, line: 笑就打「嘿嘿」}
+        笑死:   {traits: {幽默: 0.6}, fixed: 笑死, line: 笑就说「笑死」}
+        呵:     {traits: {温和: -0.7}, fixed: 呵, line: 笑就一个「呵」}
+      typo:                        # 偶尔打错一个常见字（关心时段不出错）；较真的会补一条「*正字」
+        chance: 0.03
+        tired: 2.0
+        careless: 0.4
+        fix_base: 0.35
+        fix_traits: {较真: 0.2}
+        pairs: [[再, 在], [在, 再], [得, 的], [做, 作], [已经, 以经], [哪, 那], [知道, 知到], [吧, 把], [吗, 嘛], [以为, 已为]]
+      kaomoji:                     # 个人颜文字：按气质分六组，每人从最像的组里分到 kaomoji_each 个（只用自己的）
+        元气: {traits: {外向: 1.0}, items: ["(๑•̀ㅂ•́)و✧", "ヽ(✿ﾟ▽ﾟ)ノ", "(ﾉ>ω<)ﾉ", "٩(ˊᗜˋ*)و", "(≧∇≦)ﾉ"]}
+        温柔: {traits: {温和: 1.0}, items: ["(＾▽＾)", "(｡･ω･｡)", "(*´∀`)~♥", "(っ´ω`c)", "(´▽`)"]}
+        傲娇: {traits: {温和: -0.8, 较真: 0.4}, items: ["(￣^￣)", "(｀へ´)", "( ̄へ ̄)", "(¬_¬)", "(￣ε￣)"]}
+        丧:   {traits: {外向: -0.8}, items: ["_(:з」∠)_", "(｡•́︿•̀｡)", "(；´Д｀)", "(´-ω-`)", "(〃＞＿＜;〃)"]}
+        搞怪: {traits: {幽默: 1.0}, items: ["(╯°□°)╯", "(・∀・)", "(⊙_⊙)？", "( ´_ゝ`)", "(￣▽￣)\""]}
+        冷淡: {traits: {外向: -0.5, 温和: -0.5}, items: ["(-_-)", "(・_・)", "(￣_￣)", "(。_。)", "( ˘•ω•˘ )"]}
+      kaomoji_each: 3
+      sticker_sets:                # 偏爱哪一套表情包（名字同 chat.actions.stickers）
+        团子: {traits: {温和: 0.6, 外向: 0.2}}
+        猫猫: {traits: {外向: -0.4, 幽默: 0.2}}
+        文字: {traits: {较真: 0.4, 幽默: 0.3}}
+      battle: 0.5
+      shift:                       # 语气跟着状态和对象变（每次挑最要紧的一句写进意图卡）
+        tired: 累了：能少打就少打，可以不打标点、只回几个字
+        night: 深夜犯困：字少，回得慢吞吞的
+        down: 心情不好：回得短，少用表情
+        up: 心情不错：可以拉长音、用你的颜文字
+        close: 和对方很熟：说话随便，可以损两句、用你们之间的叫法
+        new: 和对方还不太熟：客气一点，少玩梗
+        dislike: 对对方有点看不惯：回得敷衍一点
+      nick:                        # 外号和称呼：熟了换叫法（档案里写了「熟了以后可能会叫……」就从里面挑），起了就一直这么叫
+        care: 0.5
+        chance: 0.3
+        hint: (?:熟了以后|熟了会|以后可能会|可能会)叫[^“「"\n]{0,6}[“「"]([^”」"]{1,6})[”」"](?:[或、和][“「"]([^”」"]{1,6})[”」"])?
+      learn:                       # 跟在乎的人学说话（沟通趋同）：听多了学来，一阵不用又忘
+        care: 0.45
+        times: 3
+        chance: 0.4
+        forget_days: 30
+        keep: 4
+        slang: [笑死, 绝了, 离谱, 好家伙, 啊这, 蚌埠住了, 破防了, 真的会谢, 救命, 草, yyds, 无语子, 摆烂, 绝绝子, 上头, 下头, 尊嘟假嘟, 压力, "6"]
+      metaphor: 打比方时爱拿{things}打比方
+      formal:                      # 书面词 → 口语（发出前直接换）
+        非常: 超
+        十分: 挺
+        是否: 是不是
+        然而: 不过
+        令人: 让人
+        极其: 超级
+        颇为: 挺
+        甚是: 挺
+        感到十分: 觉得超
+        的确: 确实
+        因此: 所以
+        并且: 而且
+        倘若: 要是
+        尚未: 还没
+        无法: 没法
+      explain:                     # 解释句（发出前能删就删；删光了就留原话）
+        - 好笑的是
+        - 有趣的是
+        - 搞笑的是
+        - 之所以
+        - 原因是
+        - 让人(忍不住|感到|觉得)
+        - 令人(忍不住|感到|觉得)
+        - 这(个|段|条)(视频|图|链接|文章)(展示|讲述|描述|记录|讲)了
+        - 因为.{1,20}所以
+        - (真的|实在)是太(有趣|好笑|搞笑)了
+      recap_chars: 8
     voice:                         # P5 表达：照人物卡「说话风格」说话（docs/MEMBER_ENGINE.md「说话风格」）；只用于生活群和私聊
       enabled: true
-      budget_chars: 260            # 说话习惯段最多多少字（8 位相同）
+      budget_chars: 420            # 说话习惯段最多多少字（8 位相同；10-30 加了说话的样子：标点、笑法、短回复、颜文字）
       samples: 2                   # 每次带几句她自己的示范（轮换着带，只学语气不照抄）
       lengths: {短: 25, 中: 45, 长: 80}   # 人物卡写的句子长短 → 一条大约多少字以内
       quiet_max: 2                 # 外向 ≤2 话少，≥4 话多，其余平常（借 dsh maid 的说话模式档位）
@@ -132,6 +480,12 @@ chat:
         - {name: 被批评, tags: [criticized], mood: -0.3, note: 刚被说了几句，心里有点不痛快}
         - {name: 一起挨说, tags: [group_criticized], mood: -0.1}
         - {name: 被夸, tags: [praised], mood: 0.2, act: flustered, note: 刚被夸了}
+        - {name: 盼着, tags: [anticipate], mood: 0.04}
+        - {name: 兑现, tags: [reward], mood: 0.12, note: 盼着的事成了}
+        - {name: 惊喜, tags: [surprise], mood: 0.22, note: 有件没想到的好事}
+        - {name: 落空, tags: [letdown], mood: -0.15, note: 盼着的事落空了，有点失落}
+        - {name: 共情难过, tags: [empathy_sad], mood: -0.1, note: 看到有人不太好，心里也跟着沉了一下}
+        - {name: 共情高兴, tags: [empathy_joy], mood: 0.08}
         - {name: 说话, tags: [spoke], energy: -0.02}
         - {name: 累了还在说, tags: [spoke], energy_below: 0.25, mood: -0.03, note: 有点累了}
         - {name: 聚会, tags: [life.gather], mood: 0.03, energy: -0.03}
@@ -412,10 +766,10 @@ prompts:
   sticker_draw: v1       # 成员专属表情包：画一张 Q 版贴纸的提示词
   sticker_check: v2      # 成员专属表情包：先逐字抄出图上的字再核对配文和形象
   describe_screen: v2    # 投屏陪伴：把一张截图写成给成员看的文字（隐私信息打码；v2 带上一段，写出变化）
-  chat: v6               # 群聊：口语、短句（v2：人设与记忆；v3：人物卡随身卡，AI 身份平时不刻意提、被认真问如实承认；v4：表情包、颜文字、引用、分条、不接话；v5：知道现在几点和自己在干什么；v6：照人物卡说话风格，各人不同）
-  chat_dm: v6            # 私聊：和用户一对一（v2：人设与记忆；v3：人物卡随身卡；v4：表情包、颜文字、引用、分条；v5：知道现在几点；v6：照人物卡说话风格）
+  chat: v9               # 群聊：口语、短句（v2：人设与记忆；v3：人物卡随身卡，AI 身份平时不刻意提、被认真问如实承认；v4：表情包、颜文字、引用、分条、不接话；v5：知道现在几点和自己在干什么；v6：照人物卡说话风格，各人不同；v7：大脑分区的想法卡；v8：感情用做法流露、可偏爱和喜欢、挽留只一次）；v9：像发微信不像作答，先反应再吐槽、不复述不解释
+  chat_dm: v9            # 私聊：和用户一对一（v2：人设与记忆；v3：人物卡随身卡；v4：表情包、颜文字、引用、分条；v5：知道现在几点；v6：照人物卡说话风格；v7：大脑分区的想法卡；v8：感情用做法流露、可偏爱和喜欢、挽留只一次）；v9：像发微信不像作答，先反应再吐槽、不复述不解释
   voice_rewrite: v1      # 说出口前自查·改写：重复自己、跟风、光附和、口头禅太勤、编造回忆时改一次（只用于生活群和私聊）
-  chat_work: v3          # 工作群：聊工作，交办走办公室（v2：人设与记忆；v3：人物卡随身卡）
+  chat_work: v4          # 工作群：聊工作，交办走办公室（v2：人设与记忆；v3：人物卡随身卡；v4：危机关心 <care>）
   memory_day: v1         # 记忆：把一天的聊天压成一段
   memory_roll: v1        # 记忆：日 → 周、周 → 月
   memory_profile: v1     # 记忆：更新长期档案
@@ -427,7 +781,7 @@ prompts:
   growth_reflect: v1    # P6 成长：每周读上一周的经历，最多提 3 条档案改动（必须引用真实经历；只用于生活）
   growth_review: v1     # P6 成长：另一位成员给改动打分（不自评）
   relation_insight: v2  # P4 关系：每周按自己的性格读「关于你」和最近的相处，在上周的看法上保留/加深/改观/放下（v2：越熟越深、看你的反应；只用于生活）
-  life_chat: v3          # 生活：成员之间聊天（公寓楼里的模拟生活；v3：照人物卡说话风格，不跟风、不反复提同一件事）
+  life_chat: v6          # 生活：成员之间聊天（公寓楼里的模拟生活；v3：照人物卡说话风格，不跟风、不反复提同一件事；v4：大脑分区的想法卡、谁接话由显著性和驱力定；v5：感情用做法流露、同事之间的感情可以是真的）
   life_share: v3         # 生活：成员把上网看到的一条内容分享到生活群（v3：照人物卡说话风格，不套「刚刷到…未核实」句式）
   moment_post: v3        # 朋友圈：成员发一条动态（v3：转发卡片、表情包）
   moment_comment: v3     # 朋友圈：成员评论一条动态（或回复评论）（v3：表情包）

@@ -40,6 +40,7 @@ from roundtable.core.chat_actions import (
     clean_stickers,
     sticker_list,
 )
+from roundtable.core.member.brain import Brain
 from roundtable.core.member.voice import Said, before_voice, recent_words
 from roundtable.core.office.apartment import schedule
 from roundtable.core.persona import chat_persona
@@ -52,6 +53,10 @@ MOMENT_STEP = "moment"
 SEEN_KEY = "moments.seen"
 SKIPPED_KEY = "moments.skipped"  # 写出来太像而放弃的「成员:事件」，之后不再为它花钱
 SKIPPED_KEEP = 200
+COMMENT_SKIPPED_KEY = "moments.comment_skipped"  # 自查没过的「动态:成员」：不再让这位重写
+MISSES_KEY = (
+    "moments.misses"  # 当天没发出去的次数：{"day", "posts": {成员: n}, "comments": {动态: n}}
+)
 NONE = "（暂无）"
 _RANK = {"pair": 3, "gather": 2, "solo": 1}
 _NOISE = re.compile(r"[\W_]+")
@@ -109,6 +114,29 @@ class Moments:
     def skip(self, member: ChatMember, event_id: int) -> None:
         keep = [*self.skipped(), f"{member.id}:{event_id}"][-SKIPPED_KEEP:]
         self.rt.repo.set_setting(SKIPPED_KEY, json.dumps(keep))
+
+    def comment_skipped(self) -> set[str]:
+        raw = self.rt.repo.setting(COMMENT_SKIPPED_KEY)
+        return set(json.loads(raw)) if raw else set()
+
+    def skip_comment(self, member: ChatMember, moment_id: int) -> None:
+        raw = self.rt.repo.setting(COMMENT_SKIPPED_KEY)
+        keep = [*(json.loads(raw) if raw else []), f"{moment_id}:{member.id}"][-SKIPPED_KEEP:]
+        self.rt.repo.set_setting(COMMENT_SKIPPED_KEY, json.dumps(keep))
+        self._miss("comments", str(moment_id))
+
+    def misses(self, kind: str) -> dict[str, int]:
+        """今天（UTC 日）没发出去的次数：posts 按成员、comments 按动态。"""
+        raw = self.rt.repo.setting(MISSES_KEY)
+        data = json.loads(raw) if raw else {}
+        today = iso(utc_day_window(self.rt.budget.now())[0])
+        return data.get(kind, {}) if data.get("day") == today else {}
+
+    def _miss(self, kind: str, key: str) -> None:
+        today = iso(utc_day_window(self.rt.budget.now())[0])
+        data = {"day": today, "posts": self.misses("posts"), "comments": self.misses("comments")}
+        data[kind][key] = data[kind].get(key, 0) + 1
+        self.rt.repo.set_setting(MISSES_KEY, json.dumps(data))
 
     def event_for(
         self, member: ChatMember, now: datetime, recent: list[dict[str, Any]] | None = None
@@ -220,10 +248,14 @@ class Moments:
         if card:
             summary = card["summary"] or "（没有）"
             forward = f"{card_text(card)}\n来源：{card['source']}\n摘要：{summary}"
+        scene = event["topic"]
+        musing = Brain(self.rt, names=self.names()).musing(member.id, self.rt.budget.now())
+        if musing:  # 朋友圈读大脑：和聊天里是同一个人、同一些心事
+            scene = f"{scene}\n你这阵子心里挂着：{musing}"
         text = await self._write(
             member,
             "moment_post",
-            scene=event["topic"],
+            scene=scene,
             recent=self.recent_text(member),
             forward=forward,
         )
@@ -233,6 +265,7 @@ class Moments:
             member, text, "moment", own=self._own_posts(member), others=self._others(member, recent)
         ):
             self.skip(member, event["id"])
+            self._miss("posts", member.id)
             return {}
         meta: dict[str, Any] = {"life": True, "event": event["id"]}
         if (
@@ -316,7 +349,8 @@ class Moments:
             named=reply_to is not None or moment["author"] == USER,
         )
         if not text:
-            return {}  # 自查：和别人的评论差不多（「挺治愈」）——不评了
+            self.skip_comment(member, moment["id"])
+            return {}  # 自查：和别人的评论差不多（「挺治愈」）——不评了，也不再让她重写
         return self.rt.repo.add_moment_comment(
             moment["id"], member.id, text, reply_to=reply_to, offline=offline
         )
@@ -419,6 +453,8 @@ class Moments:
                 break
             if repo.moments_by(member.id, day_start) >= rules.posts_per_member:
                 continue
+            if self.misses("posts").get(member.id, 0) >= rules.post_misses:
+                continue  # 今天写了几次都没过自查：今天不发了（省钱）
             recent = self.recent_posts(now)
             event = self.event_for(member, now, recent)
             if event is None:
@@ -433,11 +469,21 @@ class Moments:
         recent = repo.moments(since=iso(now - timedelta(hours=rules.react_hours)), limit=50)
         out["likes"] = self.like_round(recent, awake)
         pairs = []
+        skipped = self.comment_skipped()
+        missed = self.misses("comments")
         for moment in sorted(recent, key=lambda r: r["author"] != USER):  # 用户的动态优先
             said = {c["author"] for c in moment["comments"]}
             by_members = sum(c["author"] != USER for c in moment["comments"])
             room = rules.max_comments - by_members
-            options = [m for m in awake if m.id != moment["author"] and m.id not in said]
+            if missed.get(str(moment["id"]), 0) >= rules.comment_misses:
+                continue  # 这条底下已经写废了几条：大家都没什么新话可说
+            options = [
+                m
+                for m in awake
+                if m.id != moment["author"]
+                and m.id not in said
+                and f"{moment['id']}:{m.id}" not in skipped
+            ]
             rng.shuffle(options)
             pairs += [(moment, m) for m in options[: max(room, 0)]]
         for moment, member in pairs[: rules.comments_per_tick]:

@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
 from roundtable.core.chat import ChatHub, dm_room, life_clock
 from roundtable.core.hometz import KEY, LOCAL, HomeZone, home_zone, parse, valid
 from roundtable.core.service import RoundtableService, ServiceError
+from roundtable.core.storage.repository import iso
 
 from .orchestrator.conftest import Env
 
@@ -59,6 +60,15 @@ def test_life_clock_uses_the_home_zone():
     assert text.startswith("1月15日 周四 08:30，你这会儿一般在")
     home_zone(env.rt).set("America/New_York")  # 前一天晚上 19:30
     assert life_clock(env.rt, "V1").startswith("1月14日 周三 19:30")
+
+
+def test_life_clock_follows_what_just_happened_in_her_life():
+    env = Env()
+    env.rt.budget.now = lambda: AT
+    topic = "时间：星期四 8 点\n地点：公寓楼天台（看日出）\n在场：小一"
+    env.rt.repo.add_life_event(iso(AT - timedelta(minutes=30)), "solo", ["V1"], topic=topic)
+    assert life_clock(env.rt, "V1").endswith("你刚才在公寓楼天台（看日出）")
+    assert "一般在" in life_clock(env.rt, "V2")  # 别人的事不算
 
 
 async def test_dm_prompt_knows_the_time_but_work_group_does_not():

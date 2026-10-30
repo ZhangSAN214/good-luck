@@ -19,6 +19,7 @@ import random
 import re
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, replace
+from datetime import timedelta
 from typing import Any
 
 from roundtable.core.attachments.model import append_to_messages
@@ -36,11 +37,13 @@ from roundtable.core.chat_actions import (
     swap_repeated_stickers,
 )
 from roundtable.core.hometz import home_zone
+from roundtable.core.member.brain import Brain, intent_text
 from roundtable.core.member.memory.diary import TOOL, DiaryTool
 from roundtable.core.office.apartment import ACTIVITIES, PUBLIC_ROOMS, schedule
 from roundtable.core.persona import EMPTY, chat_persona
 from roundtable.core.plain_talk import before_speaking_all, plain_prompt
 from roundtable.core.providers import AllChannelsFailed, Message, NoChannelAvailable, ProviderError
+from roundtable.core.storage.repository import iso
 from roundtable.core.tools.protocol import parse_calls, strip_calls
 
 ROOM = "main"  # 生活群
@@ -63,6 +66,7 @@ EVERYONE_WORDS = (
 )
 USER_LABEL = "用户"
 VOICE_NONE = "（没写：用你自己的说话风格）"
+INTENT_NONE = "（没有特别的念头：照平时的你接话）"
 # 不在群聊列表里、不能从群聊发言的会话（投屏陪伴「一起看」有自己的面板，docs/WATCH.md）
 HIDDEN_KINDS = frozenset({"watch", "wander"})
 # 会话类型 → 提示词角色（roundtable.yaml 的 prompts）
@@ -75,13 +79,21 @@ _WEEK = "一二三四五六日"
 
 def life_clock(rt: Any, member_id: str) -> str:
     """按主时区说现在几点、这位成员这会儿通常在干什么（公寓作息，不调用模型）。"""
-    now = home_zone(rt).local(rt.budget.now())
+    at = rt.budget.now()
+    now = home_zone(rt).local(at)
+    head = f"{now.month}月{now.day}日 周{_WEEK[now.weekday()]} {now:%H:%M}，"
+    # 生活里刚发生过的（大脑分区自己挑的去处）为准，和生活群里说的对得上；没有再按作息表
+    recent = [
+        e
+        for e in rt.repo.life_events_between(iso(at - timedelta(minutes=90)), iso(at))
+        if member_id in e["members"]
+    ]
+    spot = re.search(r"地点：(.+)", recent[-1]["topic"] or "") if recent else None
+    if spot:
+        return f"{head}你刚才在{spot.group(1).strip()}"
     room, act = schedule(member_id, now.hour, now.weekday())
     where = "自己房间" if room == "dorm" else PUBLIC_ROOMS.get(room, room)
-    return (
-        f"{now.month}月{now.day}日 周{_WEEK[now.weekday()]} {now:%H:%M}，"
-        f"你这会儿一般在{where}{ACTIVITIES.get(act, act)}"
-    )
+    return f"{head}你这会儿一般在{where}{ACTIVITIES.get(act, act)}"
 
 
 def with_diary_tool(rt: Any, prompt: Any, remaining: int) -> Any:
@@ -611,6 +623,8 @@ class GroupChat:
             "memory": member_memory(rt, member.id, history, self.room),
             "history": history,
         }
+        if "care" in wants:  # 工作群也要危机关心（chat_work v4 起；生活里由意图卡给关心卡）
+            variables["care"] = self._work_care(reply_to)
         if self.kind in ABOUT_KINDS:  # 关于你（P8）：只在私聊和生活群
             variables["memory"] = with_about_you(rt, variables["memory"], history)
             variables["memory"] = with_views(rt, variables["memory"], member.id)
@@ -623,10 +637,20 @@ class GroupChat:
         if "voice" in wants:  # 说话习惯（chat / chat_dm v6 起；成员系统 P5 给，没接管时为空）
             habit = policy.voice(member.id, self.kind, reply_to) if self.kind != "work" else ""
             variables["voice"] = habit or VOICE_NONE
+        card = None
+        if "intent" in wants:  # 大脑分区（chat / chat_dm v7 起）：说话前程序综合出此刻的想法
+            card = self._intent(member, reply_to, names)
+            if card is not None and card.silent and skip:
+                return {}
+            if card is not None and card.quick:  # 万能短回复：只回一句，不调模型
+                return Thought(member, [Segment(card.quick, None)], 0.0, variables["memory"])
+            variables["intent"] = intent_text(card, INTENT_NONE)
         if numbered:
             variables |= {
                 "stickers": sticker_list(acts.stickers) if acts.enabled else "（这里不用表情包）",
-                "kaomoji": "　".join(acts.kaomoji) if acts.enabled else "（这里不用颜文字）",
+                "kaomoji": "　".join(self._kaomoji(member.id) or acts.kaomoji)
+                if acts.enabled
+                else "（这里不用颜文字）",
                 "segments": str(segments),
                 "skip": "可以" if skip else "不要",
             }
@@ -721,6 +745,41 @@ class GroupChat:
             ]
         return Thought(member, kept, completion.cost_usd or 0.0, variables["memory"])
 
+    def _work_care(self, reply_to: int) -> str:
+        """工作群里用户说出让人担心的话：进入关心时段，给关心卡（不带人设，8 位相同）。"""
+        from roundtable.core.member.care import Care  # care 只依赖主时区和存储
+
+        care, now = Care(self.rt), self.rt.budget.now()
+        row = self.rt.repo.chat_message(reply_to) if reply_to else None
+        if row is not None and row["author"] == USER:
+            care.note(self.room, row["text"] or "", now)
+        level = care.active(self.room, now)
+        return care.card(level, now) if level else EMPTY
+
+    def _intent(self, member: ChatMember, reply_to: int, names: dict[str, str]) -> Any:
+        """这次说话前的意图卡（工作群不算；大脑分区没开时为 None）。"""
+        if self.kind == "work":
+            return None
+        row = self.rt.repo.chat_message(reply_to) if reply_to else None
+        last, speaker = "", None
+        if row is not None and row["author"] != SYSTEM:
+            last = row["text"]
+            speaker = None if row["author"] == USER else row["author"]
+        brain = Brain(self.rt, names=names)
+        card = brain.intent(
+            member.id,
+            last=last,
+            speaker=speaker,
+            named=self.named(member, reply_to) if row is not None else self.kind == "dm",
+            group=self.kind != "dm",
+            seed=f"{self.room}:{reply_to}",
+            room=self.room,
+            present={m.id for m in self.members()} | {"user"},
+            meta=(row["meta"] or {}) if row is not None else None,
+        )
+        brain.after(card, self.rt.budget.now())
+        return card
+
     async def _complete(self, session: str, member: ChatMember, prompt: Any) -> Any:
         """调用模型。思考把输出上限用光、几乎没有正文时（finish_reason=length），关掉思考、
         提高上限再调一次（不原样重发；第一次单独记录）。"""
@@ -776,19 +835,53 @@ class GroupChat:
             row = self.quotable(seg.quote) if seg.quote is not None else None
             if row is not None:
                 meta["quote"] = quote_meta(row)
-            msg = rt.repo.add_chat_message(
-                self.room,
-                member.id,
-                words,
-                model_id=member.model_id,
-                reply_to=reply_to,
-                cost_usd=0.0 if first else thought.cost_usd,
-                meta=meta or None,
-            )
-            first = first or msg
-            posted.append(words)
-            self.on_change()
+            for n, piece in enumerate(self._finish(member, words, reply_to)):
+                if n:  # 打错字后补的「*正字」：隔一小会儿单独发一条
+                    await self.sleep(policy.segment_gap(member.id, piece))
+                msg = rt.repo.add_chat_message(
+                    self.room,
+                    member.id,
+                    piece,
+                    model_id=member.model_id,
+                    reply_to=reply_to,
+                    cost_usd=0.0 if first else thought.cost_usd,
+                    meta=(meta or None) if not n else None,
+                )
+                first = first or msg
+                posted.append(piece)
+                self.on_change()
         return first
+
+    def _kaomoji(self, member: str) -> tuple[str, ...]:
+        """她自己常用的几个颜文字（说话的样子没开或工作群时为空，用公共的）。"""
+        if self.kind == "work":
+            return ()
+        from roundtable.core.member.lingo import Lingo  # lingo 依赖成员档案
+
+        return Lingo(self.rt, names={m.id: m.name for m in self.everyone()}).kaomoji(member)
+
+    def _finish(self, member: ChatMember, words: str, reply_to: int) -> list[str]:
+        """发出前收尾（``core/member/lingo``）：书面词换口语、删解释和复述、句尾标点、笑法、
+        偶尔打错字。工作群和关心时段原样发。"""
+        if self.kind == "work":
+            return [words]
+        from roundtable.core.member.care import Care  # care 只依赖主时区和存储
+        from roundtable.core.member.lingo import Lingo
+
+        now = self.rt.budget.now()
+        if Care(self.rt).active(self.room, now):
+            return [words]
+        try:
+            from roundtable.core.member.state import StatePlugin
+
+            energy = StatePlugin(self.rt).read(member.id, now).energy
+        except Exception:  # noqa: BLE001 - 读不到精力就当平常
+            energy = 0.6
+        row = self.rt.repo.chat_message(reply_to) if reply_to else None
+        asked = str(row["text"] or "") if row is not None and row["author"] != member.id else ""
+        lingo = Lingo(self.rt, names={m.id: m.name for m in self.everyone()})
+        rng = random.Random(f"{self.room}:{reply_to}:{member.id}:{words}")
+        return [p for p in lingo.finish(member.id, words, asked=asked, energy=energy, rng=rng) if p]
 
     async def _self_check(
         self,

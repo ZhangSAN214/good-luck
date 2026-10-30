@@ -1930,6 +1930,34 @@ class Repository:
     def prune_member_events(self, before: str) -> int:
         return self._exec("DELETE FROM member_events WHERE at < ?", (before,)).rowcount
 
+    def trim_chat_prompts(self, before: str, keep_chars: int) -> int:
+        """聊天 / 生活隐藏会话（workflow = 'chat'）里 before 以前的调用：整段提示词换成一条说明
+        加最后一段的开头。回复、花费、token 都不动。返回精简了几条。"""
+        rows = self._exec(
+            "SELECT c.id, c.input FROM calls c JOIN sessions s ON s.id = c.session_id"
+            " WHERE s.workflow = 'chat' AND c.created_at < ? AND LENGTH(c.input) > ?",
+            (before, keep_chars + 200),
+        ).fetchall()
+        trimmed = 0
+        with self._tx():
+            for row in rows:
+                messages = json.loads(row["input"])
+                if not messages or messages[0].get("role") == "trimmed":
+                    continue
+                size = sum(len(str(m.get("content", ""))) for m in messages)
+                last = messages[-1]
+                note = f"（提示词已精简：原来 {len(messages)} 段、{size} 字）"
+                head = str(last.get("content", ""))[:keep_chars]
+                short = [
+                    {"role": "trimmed", "content": note},
+                    {"role": last.get("role", "user"), "content": head},
+                ]
+                self.conn.execute(
+                    "UPDATE calls SET input = ? WHERE id = ?", (_json(short), row["id"])
+                )
+                trimmed += 1
+        return trimmed
+
     # --- 成员状态（P3；app_settings 的 member_state:<成员> 键，只有 member/state.py 写）
 
     def member_state(self, member: str) -> dict[str, Any] | None:

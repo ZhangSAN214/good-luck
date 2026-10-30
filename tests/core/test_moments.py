@@ -166,3 +166,40 @@ async def test_old_posts_outside_window_do_not_block():
     repo.add_life_event(iso(NOW - timedelta(hours=1)), "solo", [a.id], topic="地点：天台")
     out = await mo.tick(NOW)
     assert out["posts"] == 1 and out["skipped"] == 0
+
+
+async def test_member_stops_writing_posts_after_daily_misses():
+    env = Env()
+    mo = moments(env)
+    (a, b) = one_awake(env, mo, 2)
+    repo = env.rt.repo
+    repo.add_moment(b.id, FAKE_POST)  # 她写什么都和这条太像
+    for hour in (1, 2, 3, 4):
+        repo.add_life_event(
+            iso(NOW - timedelta(hours=hour)), "solo", [a.id], topic=f"地点：天台 {hour}"
+        )
+    for minute in range(0, 60, 10):
+        await mo.tick(NOW + timedelta(minutes=minute))
+    limit = env.config.roundtable.chat.moments.post_misses
+    assert len(calls(env, "想发一条朋友圈")) == limit
+    assert mo.misses("posts") == {a.id: limit}
+
+
+async def test_failed_comment_is_not_rewritten_and_moment_gives_up_after_misses():
+    env = Env()
+    mo = moments(env)
+
+    async def nothing_new(*args, **kwargs):
+        return ""  # 自查都没过：说的话和别人差不多
+
+    mo._self_check = nothing_new
+    awake = mo.awake(NOW)
+    moment = env.rt.repo.add_moment("user", "今天下雨了", created_at=iso(NOW))
+    for minute in range(0, 60, 10):
+        out = await mo.tick(NOW + timedelta(minutes=minute))
+        assert out["comments"] == 0
+    limit = env.config.roundtable.chat.moments.comment_misses
+    assert len(awake) > limit
+    assert len(calls(env, "想在下面留一条评论")) == limit
+    assert mo.misses("comments") == {str(moment["id"]): limit}
+    assert len(mo.comment_skipped()) == limit
