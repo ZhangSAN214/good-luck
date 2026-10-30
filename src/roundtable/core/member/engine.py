@@ -15,6 +15,7 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from roundtable.core.member.about import AboutYou
+from roundtable.core.member.brain import Brain
 from roundtable.core.member.bus import Event, EventBus
 from roundtable.core.member.context import Context, Piece, assemble
 from roundtable.core.member.heartbeat import Heartbeat
@@ -48,6 +49,8 @@ class MemberEngine:
         self.relation = RelationPlugin(rt, self.bus, names)
         # P8 关于你：8 位共用的用户画像（线索由夜间整理交来，每周在这里整合一次）
         self.about = AboutYou(rt)
+        # 大脑分区：订阅总线结算驱力（说了话、和人待在一起）；意图卡由聊天和生活说话前现算
+        self.brain = Brain(rt, self.bus)
 
     @property
     def rules(self) -> Any:

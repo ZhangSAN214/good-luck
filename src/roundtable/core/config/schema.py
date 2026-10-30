@@ -1324,6 +1324,71 @@ class RelationRules(_Strict):
     scene_chars: int = Field(default=80, ge=0, le=300)  # 生活场景里「交情」那一行最多几个字
 
 
+class DriveRule(_Strict):
+    """一种驱力（下丘脑）：每小时自己涨多少（再乘性格系数），被什么事满足多少。"""
+
+    label: str  # 写进意图卡的说法，如「想找人说说话」
+    rate: float = Field(ge=0, le=1)  # 每小时涨多少（0～1 的刻度）
+    trait: str | None = None  # 哪项性格分放大涨速（五项之一；3 分 1 倍，1 分 0.6，5 分 1.4）
+    satisfy: dict[str, float] = {}  # 事件 → 降多少：spoke / gathered / pursued / explored
+
+
+class GoalRules(_Strict):
+    """长线目标（前额叶）：从喜好里挑一两件「在做的事」，空闲时去做，会进步、会卡住、会有里程碑。"""
+
+    max_active: int = Field(default=2, ge=0, le=5)
+    fallback: list[str] = ["学一门新手艺", "读完一本厚书", "把房间布置成自己喜欢的样子"]
+    gain: tuple[float, float] = (0.3, 1.2)  # 每做一次涨多少经验（随机）
+    setback_chance: float = Field(default=0.12, ge=0, le=1)  # 做着做着卡住
+    levels: list[float] = [4, 12, 25, 45, 80]  # 经验到这些数就过一个坎（一个月大约过两三个）
+    stages: list[str] = [
+        "刚开始",
+        "有了点头绪",
+        "往前走了一步",
+        "有点样子了",
+        "快成了",
+        "成了",
+    ]
+
+
+class IntentRule(_Strict):
+    """一种说话意图：基础权重、受哪些量放大或压低、写进意图卡的说法。"""
+
+    label: str  # 写进意图卡，如「讲讲你自己的事」
+    base: float = Field(ge=0)
+    traits: dict[str, float] = {}  # 性格分（减 3 后）× 系数
+    drives: dict[str, float] = {}  # 驱力（0～1）× 系数
+    mood: float = 0.0  # 心情（-1～1）× 系数
+    energy: float = 0.0  # 精力（0～1，减 0.5 后）× 系数
+    needs: str | None = None  # 只有在有这类念头时才可选：own（自己的事）/ claim（对方说了个看法）
+
+
+class BrainRules(_Strict):
+    """大脑分区（docs/BRAIN.md）：全局工作区 + 丘脑显著性 + 驱力 + 前额叶意图与目标 + 走神。
+
+    全由程序算、不调用模型；只用于生活群、私聊、成员之间的生活聊天，工作模式不挂载。
+    8 位同一套规则，差别只来自各自的自我档案和经历（中立）。"""
+
+    enabled: bool = True
+    drives: dict[str, DriveRule] = {}
+    goals: GoalRules = GoalRules()
+    intents: dict[str, IntentRule] = {}
+    salience: dict[str, float] = {  # 丘脑：一条消息对她有多显著
+        "named": 1.0,  # 点了她的名 / 私聊
+        "likes": 0.5,  # 说到她喜欢的东西
+        "close": 0.4,  # 亲近的人说的（× 亲近度）
+        "emotion": 0.3,  # 带情绪的话
+        "question": 0.3,  # 是个问句
+        "user": 0.3,  # 是你说的（群里你说话，大家至少会留意，接不接由模型自己定）
+    }
+    emotion_words: list[str] = ["累", "烦", "难过", "开心", "哈哈", "紧张", "崩溃", "气死", "好想"]
+    silence_below: float = Field(default=0.25, ge=0, le=2)  # 没点名、显著性和社交驱力都低于它就不接
+    wander_chance: float = Field(default=0.25, ge=0, le=1)  # 空闲时冒出一个走神念头的概率
+    free_choice: bool = True  # 空闲时段按驱力和目标自己挑去哪、做什么（关掉就照公寓楼作息表）
+    card_chars: int = Field(default=160, ge=40, le=400)  # 意图卡最多多少字（8 位相同）
+    imperfect: float = Field(default=0.08, ge=0, le=0.5)  # 允许不完美：记不清、敷衍一句的概率
+
+
 class EngineRules(_Strict):
     """成员引擎（docs/MEMBER_ENGINE.md）：只用于聊天、朋友圈、生活；工作模式不读取。"""
 
@@ -1340,6 +1405,7 @@ class EngineRules(_Strict):
     about: AboutRules = AboutRules()
     growth: GrowthRules = GrowthRules()
     relation: RelationRules = RelationRules()
+    brain: BrainRules = BrainRules()
 
 
 class WanderSite(_Strict):

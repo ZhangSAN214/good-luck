@@ -26,6 +26,7 @@ from roundtable.core.budget.guard import day_window as utc_day_window
 from roundtable.core.chat import ROOM, ChatHub, ChatMember, call_member, clean_reply, member_memory
 from roundtable.core.chat_work import short_title
 from roundtable.core.life_guard import LifeGuard
+from roundtable.core.member.brain import Brain, intent_text
 from roundtable.core.member.relation import RelationPlugin
 from roundtable.core.member.voice import Said, before_voice, recent_words, voice_for
 from roundtable.core.memory import MemoryKeeper
@@ -68,6 +69,7 @@ class LifeEngine:
         memory.allow = self.allowed  # 记忆整理也算进生活的每日上限
         self.browse = Browser(rt, hub, self.allowed)
         self.moments = Moments(rt, hub, self.allowed)
+        self._planned: Brain | None = None
 
     @property
     def rules(self) -> Any:
@@ -107,6 +109,8 @@ class LifeEngine:
         names = {m.id: m.name for m in members}
         relation = RelationPlugin(self.rt, names=lambda: names)
         weights = self._weights(relation, list(names), end)
+        brain = Brain(self.rt, buffer={})  # 排日程只写内存；tick 里真发生了才落库
+        self._planned = brain
         slot = start.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
         plans: list[Plan] = []
         while slot <= end:
@@ -117,6 +121,8 @@ class LifeEngine:
             acts: dict[str, str] = {}
             for m in members:
                 place, act = schedule(m.id, slot.hour, slot.weekday())
+                # 大脑分区：空闲时段按驱力和在做的事自己挑去哪、做什么（不是空闲时段照作息表）
+                place, act = brain.choose_activity(m.id, slot, place, act)
                 acts[m.id] = act
                 if act == "sleep":
                     continue
@@ -125,7 +131,7 @@ class LifeEngine:
             for place, ids in sorted(where.items()):
                 act = acts[ids[0]]
                 at = slot + timedelta(minutes=rng.randrange(5, 50))
-                if len(ids) >= 2 and act in GATHER:
+                if len(ids) >= 2 and all(acts[i] == act for i in ids) and act in GATHER:
                     rng.shuffle(ids)
                     group = self._closest(ids, 3, weights, rng)
                     done = [f"{names[i]} 今天办了{'、'.join(work[i])}" for i in group if i in work]
@@ -241,6 +247,8 @@ class LifeEngine:
             return out
         offline = now - start > tick * 2
         plans = self.plan(start, now)
+        if self._planned is not None:
+            self._planned.flush()  # 这段时间里她们自己挑的去处、练的事算数了
         limit = self.rules.max_written_catch_up if offline else self.rules.max_written_per_tick
         if self.guard.check(self.spent_today()):
             limit = 0  # 熔断：当天只记一行
@@ -299,8 +307,16 @@ class LifeEngine:
         said = 0
         earlier = self.guard.recent_lines(chat.room)
         spoken: list[tuple[str, str]] = []  # 这一段里谁说了什么（自查比对用）
+        brain = Brain(self.rt)
+        last_by: str | None = None
         for turn in range(rules.turns):
-            member: ChatMember = speakers[turn % len(speakers)]
+            # 补算：按事件发生的时刻，且不晚于现在（整点那件事的分钟数可能落到现在之后）
+            at = min(p.at, now - timedelta(minutes=rules.turns)) + timedelta(minutes=turn)
+            at = at if offline else now
+            pick = self.next_speaker(brain, speakers, spoken, last_by, at, f"{p.room}:{turn}")
+            if pick is None:
+                break  # 大家都没什么想说的：这段自然收尾
+            member, card = pick
             if not self.allowed(rules.estimate_usd):
                 break
             if self.guard.room_left() == 0:
@@ -319,6 +335,7 @@ class LifeEngine:
                     rt, member.id, f"{p.topic}\n{chat.history(names)}", p.room or ROOM
                 ),
                 history=chat.history(names),
+                **self.intent_vars(card),
             )
             prompt = plain_prompt(rt.prompts, rt.config, prompt)
             completion = await call_member(
@@ -362,7 +379,9 @@ class LifeEngine:
             )
             spoken.append((member.id, text))
             earlier.append(text)
-            when = p.at + timedelta(minutes=turn) if offline else now
+            brain.after(card, at)
+            last_by = member.id
+            when = at
             rt.repo.add_chat_message(
                 chat.room,
                 member.id,
@@ -374,3 +393,48 @@ class LifeEngine:
             )
             said += 1
         return said
+
+    # --- 大脑分区：谁接话、带上此刻的想法 -------------------------------------------------
+
+    def intent_vars(self, card: Any) -> dict[str, str]:
+        """life_chat v4 起带 <intent>；旧版本提示词没有这个变量就不传。"""
+        version = self.rt.config.roundtable.prompts["life_chat"]
+        if "intent" not in self.rt.prompts.get("life_chat", version).variables:
+            return {}
+        return {"intent": intent_text(card, "（没有特别的念头：照平时的你接话）")}
+
+    @staticmethod
+    def next_speaker(
+        brain: Brain,
+        speakers: list[ChatMember],
+        spoken: list[tuple[str, str]],
+        last_by: str | None,
+        at: datetime,
+        seed: str,
+    ) -> tuple[ChatMember, Any] | None:
+        """下一句谁说：除了刚说完的人，每位算一张意图卡，不接的跳过，按显著性 + 想说的劲儿
+        挑最想说的；没人想说就返回 None。大脑分区没开时照旧轮流。"""
+        others = [m for m in speakers if m.id != last_by] or speakers
+        if not brain.enabled():
+            return others[len(spoken) % len(others)], None
+        last = spoken[-1][1] if spoken else ""
+        best: tuple[float, ChatMember, Any] | None = None
+        for m in others:
+            card = brain.intent(
+                m.id,
+                last=last,
+                speaker=last_by,
+                named=not spoken or len(speakers) == 2,
+                group=len(speakers) > 2,
+                at=at,
+                seed=seed,
+            )
+            if card is None:
+                return m, None
+            if card.silent:
+                continue
+            drives = brain.snapshot(m.id, at)["drives"]
+            score = card.salience + drives.get("social", 0.3) + drives.get("express", 0.3)
+            if best is None or score > best[0]:
+                best = (score, m, card)
+        return (best[1], best[2]) if best else None

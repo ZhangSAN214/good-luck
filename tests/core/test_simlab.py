@@ -107,3 +107,29 @@ async def test_cli_sim(tmp_path):
     buf = io.StringIO()
     assert await run(["sim", "--real", "--out", str(tmp_path / "d")], out=buf) == 2
     assert "花费上限" in buf.getvalue()
+
+
+def test_fake_mind_follows_intent_card_and_voice():
+    """假模型照意图卡（想说的事、意图）和说话习惯（语气词）拼话，大脑分区的作用不花钱也看得出。"""
+    import yaml
+
+    config = load_config()
+    mind = FakeMind(config, PromptLibrary(), yaml.safe_load(SIM_FILE.read_text("utf-8")), 1)
+    user = (
+        "<voice>\n句子：偏短\n语气词：喵、嘿\n</voice>\n\n"
+        "<intent>\n此刻：心情平常，精力一般\n你想：讲讲你自己最近的事\n"
+        "想说的事：弹吉他入门了\n</intent>"
+    )
+    text = mind.say(user)
+    assert "弹吉他入门了" in text and text.split("，")[0] in ("喵", "嘿")
+    assert mind.say("<intent>\n此刻：有点累\n你想：累了，回得很短就好\n</intent>") in (
+        "嗯",
+        "嗯…",
+        "嗯嗯",
+        "好",
+        "哈哈",
+        "哈哈…",
+        "诶",
+        "诶…",
+    )
+    assert mind.say("") and "，" in mind.say("")  # 没有意图卡时照旧

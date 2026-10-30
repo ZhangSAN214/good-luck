@@ -102,6 +102,12 @@ def tags(text: str) -> dict[str, str]:
     return {m.group(1): m.group(2) for m in _TAG.finditer(text)}
 
 
+def _items(voice: str, label: str) -> list[str]:
+    """说话习惯里某一行（「语气词：嗯、诶」）的各项。"""
+    m = re.search(rf"^{re.escape(label)}：(.+)$", voice, re.M)
+    return [x.strip() for x in re.split(r"[、，,]", m.group(1)) if x.strip()] if m else []
+
+
 class FakeMind:
     """假模型模式下替所有成员回话：认出是哪种提示词，回一个结构合规的结果。"""
 
@@ -115,9 +121,41 @@ class FakeMind:
         system = messages[0].content if messages else ""
         return next((role for role, sig in self.sigs if all(p in system for p in sig)), "unknown")
 
-    def say(self) -> str:
+    def say(self, user: str = "") -> str:
+        """聊天类的回话。有意图卡（<intent>）和说话习惯（<voice>）时照它们拼：想说的事 / 注意到的话
+        决定内容，意图决定句式，说话习惯里的语气词、口头禅、句子长短决定口吻——这样大脑分区和说话风格
+        有没有起作用，假模型下也看得出来。都没有时照旧从短语表随机拼。"""
         f, r = self.fake, self.rng
-        return f"{r.choice(f['open'])}，{r.choice(f['middle'])}{r.choice(f['close'])}"
+        t = tags(user)
+        intent, voice = t.get("intent", ""), t.get("voice", "")
+        want = re.search(r"你想：(.+)", intent)
+        focus = re.search(r"(?:想说的事|你注意到)：(.+)", intent)
+        if not want:
+            return f"{r.choice(f['open'])}，{r.choice(f['middle'])}{r.choice(f['close'])}"
+        particles = _items(voice, "语气词") or list(f["open"][:3])
+        catch = _items(voice, "口头禅（隔好几条才用一次）")
+        short = "偏短" in voice
+        head = r.choice(particles)
+        what = (focus.group(1) if focus else r.choice(f["middle"])).strip()
+        what = re.sub(r"^(心里挂着：|最近在|突然想到|突然想起)", "", what)[: 14 if short else 24]
+        w = want.group(1)
+        if "回得很短" in w:
+            text = r.choice([head, f"{head}…", "嗯嗯", "好"])
+        elif "追问" in w:
+            text = f"{head}，{what[:8]}然后呢？"
+        elif "不同意" in w:
+            text = f"{head}，{what[:8]}这个我不太同意"
+        elif "玩笑" in w:
+            text = f"笑死，{what[:10]}"
+        elif "心情" in w:
+            text = f"{head}…{what}"
+        elif "自己" in w or "换到" in w:
+            text = f"{head}，{what}"
+        else:
+            text = f"{head}，{what[:10]}{r.choice(f['close'])}"
+        if catch and r.random() < 0.15:
+            text += f" {r.choice(catch)}"
+        return text
 
     def __call__(self, model: str, messages: Sequence[Message]) -> RawCompletion:
         role = self.identify(messages)
@@ -137,7 +175,9 @@ class FakeMind:
             block = tags(user).get("changes", "")
             n = len(re.findall(r"^\d+\. ", block, re.M))
             return json.dumps({"scores": [{"id": i, "score": 4} for i in range(1, n + 1)]})
-        if role.startswith(("life_", "moment_", "chat", "voice_", "plain_")) or role == "unknown":
+        if role.startswith(("life_", "chat")):
+            return self.say(user)
+        if role.startswith(("moment_", "voice_", "plain_")) or role == "unknown":
             return self.say()
         return "{}"
 
@@ -458,9 +498,11 @@ class Simulation:
                     "growth_changes": len(growth),
                     "messages": len(texts[m.id]),
                     "moments": len(rt.repo.moments(author=m.id, limit=1000)),
+                    "brain": svc.engine.brain.snapshot(m.id, self.clock.now()),
                 }
             )
         res.tells = tells(texts)
+        res.tells["change"] = change(rt, begin, self.clock.now())
         self.transcript = transcript(rt, {m.id: m.name for m in members}, self.zone)
         total = sum(d["spent_usd"] for d in res.days)
         res.meta |= {
@@ -546,6 +588,35 @@ def tells(texts: dict[str, list[str]]) -> dict[str, Any]:
         "self_repeat": per_member,
         "attribution": attribution(texts),
         "chance": round(1 / max(1, sum(1 for ts in texts.values() if len(ts) >= 3)), 3),
+    }
+
+
+def change(rt: Any, begin: datetime, end: datetime) -> dict[str, Any]:
+    """第一周和最后一周比：说的话（两字片段）重合多少、去过的地方 / 做的事有几种。"""
+    if end - begin < timedelta(days=8):
+        return {}
+
+    def week(a: datetime) -> tuple[set[str], set[str]]:
+        b = a + timedelta(days=7)
+        grams: set[str] = set()
+        for msg in rt.repo.chat_messages_between(iso(a), iso(b)):
+            if msg["author"] not in ("user", "system"):
+                grams |= set(_grams(msg["text"]))
+        places = set()
+        for e in rt.repo.life_events_between(iso(a), iso(b)):
+            hit = re.search(r"地点：(.+)", e.get("topic") or "")
+            if hit:
+                places.add(hit.group(1))
+        return grams, places
+
+    g1, p1 = week(begin)
+    g2, p2 = week(end - timedelta(days=7))
+    overlap = len(g1 & g2) / max(1, len(g1 | g2))
+    return {
+        "topic_overlap": round(overlap, 3),
+        "places_first": len(p1),
+        "places_last": len(p2),
+        "places_new": len(p2 - p1),
     }
 
 
@@ -663,6 +734,29 @@ def render(res: SimResult) -> str:
             f"{row['closest_peer'] or '-'} | {row['memory_items']} | {row['growth_changes']} | "
             f"{row['messages']} | {row['moments']} | {spark} |"
         )
+    ch = t.get("change") or {}
+    if ch or any(row.get("brain") for row in res.members):
+        lines += ["", "## 大脑分区（主动性与变化）", ""]
+        if ch:
+            lines += [
+                f"- 第一周和最后一周说的话重合 {ch['topic_overlap']:.0%}（越低变化越大）；"
+                f"去处和做的事：第一周 {ch['places_first']} 种，最后一周 {ch['places_last']} 种，"
+                f"其中新出现 {ch['places_new']} 种",
+                "",
+            ]
+        lines.append("| 成员 | 在做的事（进展） | 还没讲的新鲜事 | 最常挑的意图 | 此刻最强的驱力 |")
+        lines.append("|---|---|---|---|---|")
+        for row in res.members:
+            b = row.get("brain") or {}
+            goals = "；".join(f"{k}（{v}）" for k, v in (b.get("stages") or {}).items()) or "-"
+            counts = sorted((b.get("counts") or {}).items(), key=lambda kv: -kv[1])[:3]
+            top = "、".join(f"{k} {v}" for k, v in counts) or "-"
+            drives = b.get("drives") or {}
+            strong = max(drives.items(), key=lambda kv: kv[1], default=("-", 0))
+            lines.append(
+                f"| {row['name']} | {goals} | {len(b.get('news') or [])} | {top} | "
+                f"{strong[0]} {strong[1]} |"
+            )
     lines += ["", "## 每天", ""]
     head = ["天", "日期", "生活事件", "写成聊天", "成员消息", "你的消息", "朋友圈", "记忆件"]
     lines.append("| " + " | ".join([*head, "关于你", "花费"]) + " |")

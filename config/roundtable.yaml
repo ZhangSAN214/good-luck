@@ -100,6 +100,27 @@ chat:
       shares: {proactive: 0.85, group: 0.7, life: 0.5}   # 其余三类最多用到额度的几成，超了只记一行
     heartbeat: {enabled: true, max_actions: 3}
     bus: {keep_days: null, catch_up_days: 14}   # 事件一直保留（只存本机，攒经历数据）；开机最多补算 14 天
+    brain:                         # 大脑分区（docs/BRAIN.md）：说话前先由程序综合出「意图卡」，模型只管怎么说；全程序、不花钱；只用于生活和私聊、群聊
+      enabled: true
+      free_choice: true            # 空闲时段按驱力和目标自己挑去哪、做什么（不再照固定作息表）
+      silence_below: 0.25          # 群里没点名、这事对她不显著、也不想说话时就不接
+      wander_chance: 0.25
+      card_chars: 160
+      imperfect: 0.08              # 偶尔记不清、敷衍一句（像人）；被认真问是不是 AI 仍如实承认
+      drives:                      # 下丘脑：驱力随时间涨，被事满足就降；高了会主动找人、找事做
+        social:    {label: 想找人说说话, rate: 0.02, trait: 外向, satisfy: {spoke: 0.2, gathered: 0.15}}
+        novelty:   {label: 有点闷，想换点新鲜的, rate: 0.015, trait: 好奇, satisfy: {explored: 0.4, pursued: 0.1}}
+        express:   {label: 有话想说, rate: 0.01, trait: 幽默, satisfy: {spoke: 0.3}}
+        mastery:   {label: 想把手上在练的事往前推一推, rate: 0.02, trait: 较真, satisfy: {pursued: 0.45}}
+      intents:                     # 前额叶：说话前按性格、心情、精力、驱力挑一个意图（加权随机，种子可复现）
+        respond:   {label: 接住对方说的具体一点，说你自己的反应, base: 1.0}
+        ask:       {label: 对对方说的事好奇，追问一句, base: 0.5, traits: {好奇: 0.3}}
+        share:     {label: 讲讲你自己最近的事, base: 0.5, traits: {外向: 0.25}, drives: {express: 0.8}, needs: own}
+        shift:     {label: 这个话题聊够了，换到你心里正想的事, base: 0.2, drives: {novelty: 0.8}, needs: own}
+        joke:      {label: 开个玩笑或吐槽一句, base: 0.3, traits: {幽默: 0.35}, mood: 0.3}
+        disagree:  {label: 你不太同意，直说并给理由, base: 0.15, traits: {较真: 0.3, 温和: -0.15}, needs: claim}
+        vent:      {label: 说说你现在的心情，不用藏着, base: 0.05, mood: -0.8}
+        brief:     {label: 累了，回得很短就好, base: 0.05, energy: -1.2}
     voice:                         # P5 表达：照人物卡「说话风格」说话（docs/MEMBER_ENGINE.md「说话风格」）；只用于生活群和私聊
       enabled: true
       budget_chars: 260            # 说话习惯段最多多少字（8 位相同）
@@ -403,8 +424,8 @@ prompts:
   sticker_draw: v1       # 成员专属表情包：画一张 Q 版贴纸的提示词
   sticker_check: v2      # 成员专属表情包：先逐字抄出图上的字再核对配文和形象
   describe_screen: v2    # 投屏陪伴：把一张截图写成给成员看的文字（隐私信息打码；v2 带上一段，写出变化）
-  chat: v6               # 群聊：口语、短句（v2：人设与记忆；v3：人物卡随身卡，AI 身份平时不刻意提、被认真问如实承认；v4：表情包、颜文字、引用、分条、不接话；v5：知道现在几点和自己在干什么；v6：照人物卡说话风格，各人不同）
-  chat_dm: v6            # 私聊：和用户一对一（v2：人设与记忆；v3：人物卡随身卡；v4：表情包、颜文字、引用、分条；v5：知道现在几点；v6：照人物卡说话风格）
+  chat: v7               # 群聊：口语、短句（v2：人设与记忆；v3：人物卡随身卡，AI 身份平时不刻意提、被认真问如实承认；v4：表情包、颜文字、引用、分条、不接话；v5：知道现在几点和自己在干什么；v6：照人物卡说话风格，各人不同；v7：大脑分区的想法卡）
+  chat_dm: v7            # 私聊：和用户一对一（v2：人设与记忆；v3：人物卡随身卡；v4：表情包、颜文字、引用、分条；v5：知道现在几点；v6：照人物卡说话风格；v7：大脑分区的想法卡）
   voice_rewrite: v1      # 说出口前自查·改写：重复自己、跟风、光附和、口头禅太勤、编造回忆时改一次（只用于生活群和私聊）
   chat_work: v3          # 工作群：聊工作，交办走办公室（v2：人设与记忆；v3：人物卡随身卡）
   memory_day: v1         # 记忆：把一天的聊天压成一段
@@ -417,7 +438,7 @@ prompts:
   member_eval: v1       # 成员评测集：情境题（规则判分，离线用假模型）
   growth_reflect: v1    # P6 成长：每周读上一周的经历，最多提 3 条档案改动（必须引用真实经历；只用于生活）
   growth_review: v1     # P6 成长：另一位成员给改动打分（不自评）
-  life_chat: v3          # 生活：成员之间聊天（公寓楼里的模拟生活；v3：照人物卡说话风格，不跟风、不反复提同一件事）
+  life_chat: v4          # 生活：成员之间聊天（公寓楼里的模拟生活；v3：照人物卡说话风格，不跟风、不反复提同一件事；v4：大脑分区的想法卡、谁接话由显著性和驱力定）
   life_share: v3         # 生活：成员把上网看到的一条内容分享到生活群（v3：照人物卡说话风格，不套「刚刷到…未核实」句式）
   moment_post: v3        # 朋友圈：成员发一条动态（v3：转发卡片、表情包）
   moment_comment: v3     # 朋友圈：成员评论一条动态（或回复评论）（v3：表情包）
