@@ -97,7 +97,8 @@ def test_repo_of_and_match_dsh():
         ]
     }
     got = match_dsh(index, "map route", limit=3)
-    assert [x.repo for x in got] == ["y/route", "x/maps"]
+    assert [x.repo for x in got] == ["y/route"]  # 只命中一个词的 x/maps 不算
+    assert [x.repo for x in match_dsh(index, "map", limit=3)] == ["y/route", "x/maps"]
     assert match_dsh(index, "", limit=3) == []
 
 
@@ -112,7 +113,7 @@ class Net:
             return {
                 "plugins": [
                     {
-                        "name": "route map",
+                        "name": "leaflet route map",
                         "summary": "map route",
                         "repo": "https://github.com/d/route",
                         "stars": 10,

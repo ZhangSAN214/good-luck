@@ -27,6 +27,7 @@ from statistics import mean
 from typing import Any
 
 from roundtable.core.benchkit.library import Library
+from roundtable.core.benchkit.lint import lint_windows
 from roundtable.core.benchkit.quality import QualityError, Report, run_check
 from roundtable.core.benchkit.scout import Scout
 from roundtable.core.benchkit.spec import (
@@ -440,6 +441,8 @@ class BenchBuilder:
             report = await asyncio.to_thread(self.check, str(folder / "index.html"), out)
         except QualityError as exc:
             raise RuntimeError(f"自动质检没法进行：{exc}") from None
+        # 读代码就能看出来的问题（没用零件库、写死颜色、代码太大）一起算进质检
+        report.findings += lint_windows(folder, [w["id"] for w in b["windows"]])
         rnd["check"] = report.to_dict()
         self._log(b, f"第 {n} 轮质检：{'通过' if report.passed else '不通过'}，{report.score} 分")
         shots = "\n".join(os.path.relpath(s, folder) for s in report.shots)
@@ -503,7 +506,11 @@ class BenchBuilder:
         lines: list[str] = []
         check = rnd.get("check") or {}
         for f in check.get("findings", []):
-            lines.append(f"- [自动质检·{f['where']}] {f['check']}：{f['detail']}")
+            # 知道出在哪几个窗口的，只交给那几个窗口的作者；不知道的大家都看
+            if f.get("windows") and wid not in f["windows"]:
+                continue
+            level = "必须修" if f["severity"] == "block" else "建议修"
+            lines.append(f"- [自动质检·{level}·{f['where']}] {f['check']}：{f['detail']}")
         for rec in rnd.get("reviews", []):
             got = (rec.get("problems") or {}).get(wid)
             if got:

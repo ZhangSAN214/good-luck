@@ -47,6 +47,7 @@ PERMISSIVE = frozenset(
 RISKY = re.compile(r"api[ _-]?key|token|login|oauth|telemetry|upload|cloud sync|credentials", re.I)
 DSH_INDEX = "https://www.mydsh.xyz/market/index.json"
 GITHUB = "https://api.github.com"
+IDEA_MIN_STARS = 20  # 只借思路的候选至少几星才列进清单
 
 FetchJSON = Callable[[str], Awaitable[Any]]
 FetchBytes = Callable[[str], Awaitable[bytes]]
@@ -104,13 +105,15 @@ def match_dsh(index: dict[str, Any], keywords: str, limit: int = 3) -> list[Cand
     want = _words(keywords)
     if not want:
         return []
+    # 只命中一个常见词（比如 map）的大多不相关：关键词有两个以上时至少命中两个
+    need = min(2, len(want))
     scored = []
     for p in index.get("plugins") or []:
         repo = repo_of(str(p.get("repo") or ""))
         if not repo:
             continue
         hit = len(want & _words(f"{p.get('name', '')} {p.get('summary', '')} {repo}"))
-        if hit:
+        if hit >= need:
             scored.append((hit, int(p.get("stars") or 0), p, repo))
     scored.sort(key=lambda x: (-x[0], -x[1]))
     return [
@@ -200,7 +203,10 @@ class Scout:
                 except Exception:  # noqa: BLE001 - 查不到仓库信息：当作没写许可证
                     c.license = ""
             c.need = need
-            out.append(judge(c, min_stars=self.min_stars, max_kb=self.max_kb))
+            judge(c, min_stars=self.min_stars, max_kb=self.max_kb)
+            # 星太少的只借思路也没什么可借：不列进清单，免得清单里一堆不相关的小仓库
+            if c.verdict == "adopt" or c.stars >= IDEA_MIN_STARS:
+                out.append(c)
         return out
 
     async def fetch(self, c: Candidate, dest: Path) -> dict[str, Any]:

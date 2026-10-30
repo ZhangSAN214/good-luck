@@ -26,7 +26,7 @@ PNG = base64.b64decode(
 )
 ASK_WINDOW = (
     "export default async (el, ctx) => {"
-    " el.innerHTML = '<p class=\"answer\">…</p>';"
+    " el.innerHTML = '<p class=\"answer k-sub\">' + ctx.kit.esc('…') + '</p>';"
     " el.querySelector('.answer').textContent = await ctx.ask('第一天去哪');"
     " };"
 )

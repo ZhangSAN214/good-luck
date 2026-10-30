@@ -87,3 +87,32 @@ def test_broken_window_is_caught(tmp_path):
     )
     r = _check(str(index), viewports=(("电脑", 1280, 860),), modes=("light",))
     assert "页面报错" in {f.check for f in r.blocking}, r.summary()
+
+
+def test_icon_buttons_named_and_long_windows_caught(tmp_path):
+    """第一次真跑的教训：只有图标、图标带了说明的按钮不能误报；手机上太长的窗口要抓到，并记在哪个窗口。"""
+    from roundtable.core.benchkit.spec import normalize, write_shell
+
+    spec = normalize(
+        {
+            "title": "清单台",
+            "windows": [{"id": "tools", "title": "工具"}, {"id": "list", "title": "清单"}],
+        },
+        max_windows=8,
+    )
+    index = write_shell(tmp_path, spec, "b3")
+    (tmp_path / "windows" / "tools.js").write_text(
+        "export default (el, ctx) => { el.innerHTML = `<details open><summary>更多</summary>"
+        "<button class=\"k-btn\">${ctx.kit.icon('download', { label: '导出' })}</button>"
+        "</details>`; };",
+        encoding="utf-8",
+    )
+    (tmp_path / "windows" / "list.js").write_text(
+        "export default (el, ctx) => { el.innerHTML = Array.from({ length: 120 }, (_, i) =>"
+        " `<p class=\"k-sub\">${ctx.kit.esc('第 ' + (i + 1) + ' 项')}</p>`).join(''); };",
+        encoding="utf-8",
+    )
+    r = _check(str(index), viewports=(("手机", 390, 844),), modes=("light",))
+    found = {f.check: f for f in r.findings}
+    assert "按钮没有名字" not in found, r.summary()
+    assert found["窗口太长"].windows == ["list"], r.summary()

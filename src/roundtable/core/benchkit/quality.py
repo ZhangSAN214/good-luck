@@ -42,6 +42,9 @@ SCRIPT_HOSTS = (
 )
 MIN_FONT_PX = 12.0
 MIN_TAP_PX = 32.0
+# 生成的工作台：手机上一个窗口卡片最多几屏高（超过建议修 / 必须修）
+WINDOW_WARN_SCREENS = 2.0
+WINDOW_BLOCK_SCREENS = 4.0
 BAD_TEXT = ("undefined", "NaN", "[object Object]", "null null", "Infinity")
 
 # 在页面里跑的测量脚本：只读，返回原始数据，判定在 Python 里做
@@ -145,6 +148,8 @@ class Finding:
     severity: str  # block：必须修；warn：建议修
     where: str  # 哪种屏宽 / 明暗
     detail: str
+    # 生成的工作台里出在哪几个窗口（按窗口交回作者）
+    windows: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -199,8 +204,9 @@ def evaluate(
     """把一次测量结果变成问题清单。"""
     out: list[Finding] = []
 
-    def add(check: str, severity: str, detail: str) -> None:
-        out.append(Finding(check, severity, where, detail))
+    def add(check: str, severity: str, detail: str, items: Iterable[dict] = ()) -> None:
+        wins = sorted({i.get("win") for i in items if i.get("win")})
+        out.append(Finding(check, severity, where, detail, wins))
 
     if errors:
         add("页面报错", "block", "；".join(e[:120] for e in errors[:3]))
@@ -232,18 +238,32 @@ def evaluate(
     if foreign:
         add("外链脚本", "block", "、".join(foreign[:3]))
 
-    nameless = [b["where"] for b in probe["buttons"] if not b["name"]]
+    def examples(items: list[dict]) -> str:
+        return "；".join(i["where"] for i in items[:3])
+
+    nameless = [b for b in probe["buttons"] if not b["name"]]
     if nameless:
-        add("按钮没有名字", "block", f"{len(nameless)} 个，如 {nameless[0]}（读屏软件读不出来）")
-    no_alt = [i["where"] for i in probe["images"] if i["alt"] is None]
+        add(
+            "按钮没有名字",
+            "block",
+            f"{len(nameless)} 个，如 {examples(nameless)}（读屏软件读不出来；"
+            "只有图标的按钮要加 aria-label）",
+            nameless,
+        )
+    no_alt = [i for i in probe["images"] if i["alt"] is None]
     if no_alt:
-        add("图片没有说明", "block", f"{len(no_alt)} 张，如 {no_alt[0]}")
-    broken = [i["where"] for i in probe["images"] if not i["ok"]]
+        add("图片没有说明", "block", f"{len(no_alt)} 张，如 {examples(no_alt)}", no_alt)
+    broken = [i for i in probe["images"] if not i["ok"]]
     if broken:
-        add("图片打不开", "block", f"{len(broken)} 张，如 {broken[0]}")
-    blank = [c["where"] for c in probe["charts"] if not c["drawn"]]
+        add("图片打不开", "block", f"{len(broken)} 张，如 {examples(broken)}", broken)
+    blank = [c for c in probe["charts"] if not c["drawn"]]
     if blank:
-        add("图表空白", "block", f"{len(blank)} 个，如 {blank[0]}（没数据也要显示空状态）")
+        add(
+            "图表空白",
+            "block",
+            f"{len(blank)} 个，如 {examples(blank)}（没数据也要显示空状态）",
+            blank,
+        )
 
     small = [t for t in probe["texts"] if t["size"] < MIN_FONT_PX - 0.01 and not t["disabled"]]
     if small:
@@ -251,8 +271,24 @@ def evaluate(
         add(
             "字太小",
             "warn",
-            f"{len(small)} 处小于 {MIN_FONT_PX:g}px，如「{t['text']}」{t['size']:g}px",
+            f"{len(small)} 处小于 {MIN_FONT_PX:g}px，如「{t['text']}」{t['size']:g}px"
+            f"（{t['where']}）",
+            small,
         )
+    if phone and probe.get("height"):
+        screens = [(w["h"] / probe["height"], w) for w in probe.get("windows") or []]
+        for limit, sev in ((WINDOW_BLOCK_SCREENS, "block"), (WINDOW_WARN_SCREENS, "warn")):
+            long = [(n, w) for n, w in screens if n > limit]
+            if long:
+                add(
+                    "窗口太长",
+                    sev,
+                    "、".join(f"{w['id']} 约 {n:.1f} 屏" for n, w in long[:4])
+                    + f"（手机上一个窗口不超过 {WINDOW_WARN_SCREENS:g} 屏：用标签页、分段、"
+                    "折叠或「查看全部」收起来）",
+                    [{"win": w["id"]} for _, w in long],
+                )
+                break
 
     low: list[tuple[float, dict]] = []
     for t in probe["texts"]:
@@ -272,6 +308,7 @@ def evaluate(
             "对比度不够",
             sev,
             f"{len(low)} 处，最差「{worst[1]['text']}」{worst[0]:.1f}:1（{worst[1]['where']}）",
+            [t for _, t in low],
         )
     if phone:
         tiny = [
@@ -285,7 +322,9 @@ def evaluate(
             add(
                 "手机上按钮太小",
                 "warn",
-                f"{len(tiny)} 个小于 {MIN_TAP_PX:g}px，如「{b['name']}」{b['w']:.0f}×{b['h']:.0f}",
+                f"{len(tiny)} 个小于 {MIN_TAP_PX:g}px，如「{b['name']}」{b['w']:.0f}×{b['h']:.0f}"
+                f"（{b['where']}）",
+                tiny,
             )
     return out
 
@@ -298,8 +337,9 @@ def merge(findings: Iterable[Finding]) -> list[Finding]:
         if k in by:
             if f.where not in by[k].where:
                 by[k].where += "、" + f.where
+            by[k].windows = sorted(set(by[k].windows) | set(f.windows))
         else:
-            by[k] = Finding(f.check, f.severity, f.where, f.detail)
+            by[k] = Finding(f.check, f.severity, f.where, f.detail, list(f.windows))
     order = {"block": 0, "warn": 1}
     return sorted(by.values(), key=lambda f: order.get(f.severity, 2))
 

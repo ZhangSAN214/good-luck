@@ -9,13 +9,23 @@
     }
     return true;
   };
-  const label = (el) => (el.getAttribute('aria-label') || el.getAttribute('title') || el.innerText || el.value || '').trim();
+  // 可读的名字：自己的 aria-label / title / aria-labelledby、文字（看不见的折叠内容 innerText 是空的，所以再看 textContent）、
+  // 里面图标的 aria-label 或 <title>、图片的 alt
+  const label = (el) => {
+    const by = (el.getAttribute('aria-labelledby') || '').split(/\s+/).map((id) => id && document.getElementById(id)?.textContent).join(' ');
+    const inner = el.querySelector('svg[aria-label],[role="img"][aria-label]')?.getAttribute('aria-label') || el.querySelector('svg title')?.textContent || el.querySelector('img[alt]')?.getAttribute('alt');
+    const picks = [el.getAttribute('aria-label'), el.getAttribute('title'), by, el.innerText, el.textContent, el.value, inner];
+    return picks.map((x) => String(x || '').trim()).find(Boolean) || '';
+  };
+  // 在哪个窗口里（工作台生成器按窗口把问题交回作者）
+  const win = (el) => el.closest('[data-window]')?.dataset.window || '';
   const path = (el) => {
     const bits = [];
-    for (let e = el; e && e !== document.body && bits.length < 4; e = e.parentElement) {
+    for (let e = el; e && e !== document.body && !e.dataset?.window && bits.length < 4; e = e.parentElement) {
       bits.unshift(e.tagName.toLowerCase() + (e.id ? '#' + e.id : e.classList[0] ? '.' + e.classList[0] : ''));
     }
-    return bits.join(' > ');
+    const w = win(el);
+    return (w ? `[窗口 ${w}] ` : '') + bits.join(' > ');
   };
   const bgOf = (el) => {
     const layers = [];
@@ -45,19 +55,24 @@
     const s = getComputedStyle(el);
     const disabled = !!el.closest('[disabled],[aria-disabled="true"],.k-disabled');
     const inSvg = !!el.closest('svg');
-    texts.push({ text: t.slice(0, 40), where: path(el), size: parseFloat(s.fontSize), weight: +s.fontWeight || 400,
+    texts.push({ text: t.slice(0, 40), where: path(el), win: win(el), size: parseFloat(s.fontSize), weight: +s.fontWeight || 400,
       color: s.color, bg: inSvg ? { image: true } : bgOf(el), disabled });  // 图里的字压在图形上，底色量不准，只查字号
   }
   const buttons = [...document.querySelectorAll('button,[role="button"],a[href],input:not([type="hidden"]),select,textarea')]
     .filter(vis).map((el) => {
       const r = el.getBoundingClientRect();
       const lab = label(el) || (el.id && document.querySelector(`label[for="${el.id}"]`)?.innerText) || el.closest('label')?.innerText || el.getAttribute('placeholder') || '';
-      return { where: path(el), name: lab.trim().slice(0, 30), w: r.width, h: r.height, tag: el.tagName.toLowerCase(), type: el.type || '' };
+      return { where: path(el), win: win(el), name: lab.trim().slice(0, 30), w: r.width, h: r.height, tag: el.tagName.toLowerCase(), type: el.type || '' };
     });
   const images = [...document.querySelectorAll('img')].filter(vis)
-    .map((el) => ({ where: path(el), alt: el.getAttribute('alt'), ok: el.complete && el.naturalWidth > 0 }));
+    .map((el) => ({ where: path(el), win: win(el), alt: el.getAttribute('alt'), ok: el.complete && el.naturalWidth > 0 }));
   const charts = [...document.querySelectorAll('.k-chart,[data-k-chart]')].filter(vis)
-    .map((el) => ({ where: path(el), drawn: !!el.querySelector('svg,canvas') || !!el.querySelector('.k-empty') }));
+    .map((el) => ({ where: path(el), win: win(el), drawn: !!el.querySelector('svg,canvas') || !!el.querySelector('.k-empty') }));
+  // 每个窗口卡片的高度（手机上太长要拆或折叠）
+  const windows = [...document.querySelectorAll('[data-window]')].map((el) => {
+    const card = el.closest('.k-card') || el;
+    return { id: el.dataset.window, h: card.getBoundingClientRect().height };
+  });
   const scripts = [...document.querySelectorAll('script[src]')].map((s) => s.src);
   const sheets = [...document.querySelectorAll('link[rel="stylesheet"]')].map((l) => l.href);
   const kit = sheets.some((h) => /\/kit\.css(\?|$)/.test(h)) && !!document.querySelector('.k-root');
@@ -67,7 +82,7 @@
   }).slice(0, 5).map(path);
   return {
     title: document.title, kit, scripts, overflow, charset: document.characterSet,
-    scrollWidth: doc.scrollWidth, width: innerWidth,
+    scrollWidth: doc.scrollWidth, width: innerWidth, height: innerHeight, windows,
     bodyText: document.body.innerText.slice(0, 20000),
     texts, buttons, images, charts,
   };

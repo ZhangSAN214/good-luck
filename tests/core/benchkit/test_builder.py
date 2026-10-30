@@ -57,6 +57,7 @@ class FakeSC:
         self.review_n = 0
         self.turn = 0
         self.parts: dict[str, str] = {}
+        self.window_code = "export default (el, ctx) => { el.innerHTML = ctx.kit.esc('ok'); };"
 
     def worker(self, wid):
         return W(wid) if wid in self.workers else None
@@ -81,7 +82,7 @@ class FakeSC:
         if p["role"] == "bench_plan":
             return W(who), RunResult(0, json.dumps(self.plan, ensure_ascii=False))
         if p["role"] in ("bench_window", "bench_rework"):
-            (folder / p["file"]).write_text("export default (el) => { el.textContent = 'ok'; };")
+            (folder / p["file"]).write_text(self.window_code)
             (folder / p["data_file"]).write_text("{}")
             for name, text in self.parts.items():
                 (folder / "parts").mkdir(exist_ok=True)
@@ -310,3 +311,82 @@ async def test_ask_uses_spec_and_data_and_validates(tmp_path):
         await b.ask("nope", "在吗")
     sc.workers = []
     assert "没有助手" in await b.ask(build["id"], "在吗")
+
+
+async def test_window_without_kit_is_sent_back_to_its_author_only(tmp_path):
+    sc = FakeSC()
+    sc.window_code = "export default (el) => { el.textContent = 'ok'; };"
+    b = make(tmp_path, sc, max_rounds=2)
+    build = b.submit("手写台")
+    await b.wait()
+    assert build["status"] == "needs_you"
+    f = next(x for x in build["rounds"][0]["check"]["findings"] if x["check"] == "窗口没用零件库")
+    assert f["severity"] == "block" and set(f["windows"]) == {w["id"] for w in build["windows"]}
+    reworks = [json.loads(p) for p in sc.prompts if json.loads(p)["role"] == "bench_rework"]
+    assert reworks and all("窗口没用零件库" in p["problems"] for p in reworks)
+    assert all("必须修" in p["problems"] for p in reworks)
+
+
+def test_check_findings_route_to_named_windows():
+    b = BenchBuilder(BenchRules(), root=None, supercomputer=FakeSC(), render=render)
+    rnd = {
+        "check": {
+            "findings": [
+                {
+                    "check": "窗口太长",
+                    "severity": "block",
+                    "where": "手机·浅色",
+                    "detail": "list 5 屏",
+                    "windows": ["list"],
+                },
+                {
+                    "check": "页面报错",
+                    "severity": "block",
+                    "where": "电脑·浅色",
+                    "detail": "boom",
+                    "windows": [],
+                },
+            ]
+        },
+        "reviews": [],
+    }
+    assert "窗口太长" in b._problems_for(rnd, "list")
+    other = b._problems_for(rnd, "map")
+    assert "窗口太长" not in other and "页面报错" in other
+
+
+def test_spec_keeps_shared_facts_and_event_contract(tmp_path):
+    from roundtable.core.benchkit.spec import write_shell
+
+    raw = dict(PLAN)
+    raw["shared"] = {
+        "dates": "2026-11-03 至 11-05",
+        "people": [{"role": "孩子", "age": 6}],
+        "currency": "JPY",
+    }
+    raw["events"] = [
+        {
+            "name": "Trip Changed",
+            "from": "Map View",
+            "to": ["plan", "nope"],
+            "detail": {"people": "人数"},
+            "when": "改人数",
+        },
+        {"from": "plan"},
+    ]
+    spec = normalize(raw, max_windows=8)
+    assert spec.shared["currency"] == "JPY"
+    assert spec.events == [
+        {
+            "name": "trip-changed",
+            "from": "map-view",
+            "to": ["plan"],
+            "detail": {"people": "人数"},
+            "when": "改人数",
+        }
+    ]
+    write_shell(tmp_path, spec, "b1")
+    assert json.loads((tmp_path / "data" / "_shared.json").read_text("utf-8"))["currency"] == "JPY"
+    raw["shared"] = {"x": "长" * 7000}
+    with pytest.raises(SpecError):
+        normalize(raw, max_windows=8)

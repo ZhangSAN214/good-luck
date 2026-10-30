@@ -172,3 +172,51 @@ def test_missing_file_raises(tmp_path):
     pytest.importorskip("playwright.sync_api")
     with pytest.raises(q.QualityError):
         q.run_check(str(tmp_path / "nope.html"))
+
+
+def test_findings_know_their_windows_and_merge_them():
+    p = probe(
+        buttons=[
+            {
+                "where": "[窗口 plan] button",
+                "win": "plan",
+                "name": "",
+                "w": 40,
+                "h": 40,
+                "tag": "button",
+                "type": "",
+            },
+            {
+                "where": "[窗口 cost] button",
+                "win": "cost",
+                "name": "",
+                "w": 40,
+                "h": 40,
+                "tag": "button",
+                "type": "",
+            },
+            {
+                "where": "button.k-btn",
+                "win": "",
+                "name": "",
+                "w": 40,
+                "h": 40,
+                "tag": "button",
+                "type": "",
+            },
+        ]
+    )
+    f = next(x for x in run(p) if x.check == "按钮没有名字")
+    assert f.windows == ["cost", "plan"] and "[窗口 plan]" in f.detail
+    other = q.Finding("按钮没有名字", "block", "手机·深色", "x", ["menu"])
+    merged = q.merge([f, other])
+    assert merged[0].windows == ["cost", "menu", "plan"]
+
+
+def test_long_windows_on_phone():
+    p = probe(height=844, windows=[{"id": "list", "h": 844 * 5}, {"id": "ok", "h": 600}])
+    f = next(x for x in run(p, phone=True) if x.check == "窗口太长")
+    assert f.severity == "block" and f.windows == ["list"]
+    p = probe(height=844, windows=[{"id": "list", "h": 844 * 2.5}])
+    assert checks(run(p, phone=True))["窗口太长"] == "warn"
+    assert "窗口太长" not in checks(run(p, phone=False))  # 只看手机

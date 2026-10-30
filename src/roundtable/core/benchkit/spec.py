@@ -16,6 +16,7 @@ from typing import Any
 from roundtable.core.benchkit.quality import KIT_DIR
 
 _ID = re.compile(r"[^a-z0-9-]+")
+SHARED_MAX_CHARS = 6000
 
 
 def manifest() -> dict[str, Any]:
@@ -64,6 +65,10 @@ class Spec:
     theme: str = "ink"
     windows: list[Window] = field(default_factory=list)
     needs: list[dict[str, str]] = field(default_factory=list)
+    # 各窗口共用的基本信息（日期、人数、币种、场景……）：只放一份，窗口都从 ctx.shared 读
+    shared: dict[str, Any] = field(default_factory=dict)
+    # 窗口之间的消息约定：名字、谁发、谁收、detail 里有什么（ctx.bus 上照这个发和收）
+    events: list[dict[str, Any]] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -128,6 +133,28 @@ def normalize(raw: dict[str, Any], *, max_windows: int) -> Spec:
         for x in (raw.get("needs") or [])
         if isinstance(x, dict) and x.get("need")
     ][:6]
+    shared = raw.get("shared") if isinstance(raw.get("shared"), dict) else {}
+    if len(json.dumps(shared, ensure_ascii=False)) > SHARED_MAX_CHARS:
+        raise SpecError(f"共用信息太长（超过 {SHARED_MAX_CHARS} 字）")
+    events = []
+    for e in raw.get("events") or []:
+        if not isinstance(e, dict) or not e.get("name"):
+            continue
+        name = re.sub(r"[^a-z0-9:-]+", "-", str(e["name"]).lower()).strip("-")[:40]
+        if not name:
+            continue
+        sender = _ID.sub("-", str(e.get("from") or "").lower()).strip("-")
+        receivers = [_ID.sub("-", str(x).lower()).strip("-") for x in (e.get("to") or [])]
+        detail = e.get("detail") if isinstance(e.get("detail"), dict) else {}
+        events.append(
+            {
+                "name": name,
+                "from": sender if sender in seen else "",
+                "to": [x for x in receivers if x in seen][:8],
+                "detail": {str(k)[:30]: _text(v, 80) for k, v in list(detail.items())[:12]},
+                "when": _text(e.get("when"), 80),
+            }
+        )
     return Spec(
         title=title,
         subtitle=_text(raw.get("subtitle"), 60),
@@ -135,6 +162,8 @@ def normalize(raw: dict[str, Any], *, max_windows: int) -> Spec:
         theme=theme if theme in themes else "ink",
         windows=windows,
         needs=needs,
+        shared=shared,
+        events=events[:12],
     )
 
 
@@ -178,6 +207,9 @@ def write_shell(folder: Path, spec: Spec, bench_id: str) -> Path:
     (folder / "data").mkdir(exist_ok=True)
     (folder / "spec.json").write_text(
         json.dumps(spec.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    (folder / "data" / "_shared.json").write_text(
+        json.dumps(spec.shared, ensure_ascii=False, indent=2), encoding="utf-8"
     )
     path = folder / "index.html"
     path.write_text(shell_html(spec, bench_id), encoding="utf-8")
