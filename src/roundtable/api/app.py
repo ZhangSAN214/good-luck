@@ -375,6 +375,40 @@ class BenchBody(BaseModel):
     request: str = Field(min_length=1, max_length=2000)
 
 
+class BenchAnswerBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    answers: dict[str, str] = Field(default_factory=dict)
+
+
+class BenchReqItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(default="", max_length=10)
+    text: str = Field(max_length=300)
+
+
+class BenchSignBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    requirements: list[BenchReqItem] | None = Field(default=None, max_length=30)
+    note: str = Field(default="", max_length=1000)
+
+
+class BenchComment(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    text: str = Field(min_length=1, max_length=1000)
+    window: str = Field(default="", max_length=60)
+
+
+class BenchReviewBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    decision: Literal["pass", "change"]
+    comments: list[BenchComment] = Field(default_factory=list, max_length=20)
+
+
 class BenchAskBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -810,6 +844,34 @@ def create_app(service: RoundtableService | None = None, lan: LanAccess | None =
     @app.get("/api/bench/{bench_id}")
     async def bench_get(request: Request, bench_id: str) -> dict[str, Any]:
         return svc(request).bench_get(bench_id)
+
+    @app.post("/api/bench/{bench_id}/answer")
+    async def bench_answer(
+        request: Request, bench_id: str, body: BenchAnswerBody
+    ) -> dict[str, Any]:
+        return await svc(request).bench_project(bench_id, "answer", answers=body.answers)
+
+    @app.post("/api/bench/{bench_id}/sign")
+    async def bench_sign(request: Request, bench_id: str, body: BenchSignBody) -> dict[str, Any]:
+        reqs = (
+            [r.model_dump() for r in body.requirements] if body.requirements is not None else None
+        )
+        return await svc(request).bench_project(bench_id, "sign", requirements=reqs, note=body.note)
+
+    @app.post("/api/bench/{bench_id}/review")
+    async def bench_review(
+        request: Request, bench_id: str, body: BenchReviewBody
+    ) -> dict[str, Any]:
+        return await svc(request).bench_project(
+            bench_id,
+            "review",
+            decision=body.decision,
+            comments=[c.model_dump() for c in body.comments],
+        )
+
+    @app.post("/api/bench/{bench_id}/evolve")
+    async def bench_evolve(request: Request, bench_id: str) -> dict[str, Any]:
+        return await svc(request).bench_project(bench_id, "evolve")
 
     @app.post("/api/bench/{bench_id}/ask")
     async def bench_ask(request: Request, bench_id: str, body: BenchAskBody) -> dict[str, Any]:

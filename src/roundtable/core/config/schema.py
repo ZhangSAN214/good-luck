@@ -2455,6 +2455,18 @@ class BenchResearch(_Strict):
     learn: int = Field(default=3, ge=0, le=6)  # 写几张学习卡（每张花一次订阅次数）
 
 
+class BenchProject(_Strict):
+    """项目室（2026-10-30 用户批）：你是甲方，几位助手是乙方。开工前访谈 → 调研 → 方案书（你签字）→
+    按里程碑演示（你通过或提变更单）→ 交付验收（你验收）→ 下一版提案。关口上停着等你，不花次数。
+    关掉就是原来的一口气做完。"""
+
+    enabled: bool = False
+    interview: bool = True  # 开工前先问你几个问题（可以跳过）
+    max_questions: int = Field(default=6, ge=1, le=10)
+    # 里程碑几小时不回就算通过（0 = 一直等）
+    gate_auto_hours: float = Field(default=0, ge=0, le=24 * 7)
+
+
 class BenchRules(_Strict):
     """工作台生成器（docs/KIT.md）：一句话 → 拆需求 → 按零件库拼窗口 → 质检 + 截图评审 → 打回重做。
 
@@ -2477,6 +2489,7 @@ class BenchRules(_Strict):
     max_repo_mb: int = Field(default=20, ge=1, le=200)  # 仓库太大就只借思路
     max_adopt: int = Field(default=3, ge=0, le=10)  # 一个工作台最多搬几个
     research: BenchResearch = Field(default_factory=BenchResearch)
+    project: BenchProject = Field(default_factory=BenchProject)
     rubric: list[str] = Field(
         default_factory=lambda: [
             *("视觉层次", "信息密度", "一致性", "交互完整"),

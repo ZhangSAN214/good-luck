@@ -127,3 +127,42 @@ def test_net_check_lists_every_service_without_real_network(tmp_path):
     assert names[0] == "fx" and "github" in names
     assert r["total"] == len(names) and r["ok"] == r["total"] - 1
     assert seen[0] == "https://fx.example/?b=EUR"
+
+
+def test_project_room_gates_over_http(tmp_path):
+    from ..core.benchkit.test_builder import ProjectSC
+
+    service = RoundtableService(Env().rt)
+    service.bench = BenchBuilder(
+        BenchRules(project={"enabled": True}),
+        root=tmp_path / "bench",
+        supercomputer=ProjectSC(),
+        render=render,
+        check=fake_check(),
+        seed=1,
+    )
+    with TestClient(create_app(service)) as c:
+        c.post("/api/bench", json={"request": "旅行台"})
+        wait_done(c)
+        b = c.get("/api/bench").json()["current"]
+        assert b["gate"]["kind"] == "interview"
+        bid = b["id"]
+        assert c.post(f"/api/bench/{bid}/sign", json={}).status_code == 400  # 不在这一关
+        assert c.post("/api/bench/nope/answer", json={}).status_code == 404
+        c.post(f"/api/bench/{bid}/answer", json={"answers": {"q1": "自己"}})
+        wait_done(c)
+        assert c.get("/api/bench").json()["current"]["gate"]["kind"] == "sign"
+        r = c.post(f"/api/bench/{bid}/sign", json={"requirements": [{"text": "能换城市"}]})
+        assert r.status_code == 200
+        wait_done(c)
+        assert c.get("/api/bench").json()["current"]["gate"]["kind"] == "m1"
+        bad = c.post(f"/api/bench/{bid}/review", json={"decision": "maybe"})
+        assert bad.status_code == 422
+        c.post(f"/api/bench/{bid}/review", json={"decision": "pass"})
+        wait_done(c)
+        assert c.get("/api/bench").json()["current"]["gate"]["kind"] == "accept"
+        c.post(f"/api/bench/{bid}/review", json={"decision": "pass"})
+        assert c.get("/api/bench").json()["current"]["status"] == "delivered"
+        assert c.post(f"/api/bench/{bid}/evolve").status_code == 200
+        wait_done(c)
+        assert c.get(f"/api/bench/{bid}").json()["evolve"]["items"]
