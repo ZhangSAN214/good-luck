@@ -1709,6 +1709,9 @@ def build_parser() -> argparse.ArgumentParser:
     sim.add_argument("--cards", help="人物卡 Markdown（导入成员自我档案；不给就没有档案）")
     sim.add_argument("--real", action="store_true", help="用 .env 里的真实 key（会花钱）")
     sim.add_argument("--max-usd", type=float, default=0.0, help="真模型的花费硬上限（必填）")
+    sim.add_argument(
+        "--resume", action="store_true", help="接着上次断开的地方跑（要给同一个 --out）"
+    )
     kit = sub.add_parser(
         "kit-check", help="工作台质检：三种屏宽 × 浅色 / 深色，量出不达标的地方（不调用模型）"
     )
@@ -1903,6 +1906,9 @@ async def cmd_sim(args: argparse.Namespace, out: TextIO) -> int:
 
     from roundtable.core.simlab import SimError, Simulation
 
+    if args.resume and not args.out:
+        print("接着跑要用 --out 指定上次的输出目录", file=out)
+        return 2
     folder = args.out or f"sim_runs/{_dt.now():%Y%m%d-%H%M%S}"
     start = _dt.fromisoformat(args.start).replace(hour=7) if args.start else None
     try:
@@ -1916,6 +1922,7 @@ async def cmd_sim(args: argparse.Namespace, out: TextIO) -> int:
             max_usd=args.max_usd,
             user_per_day=args.user_per_day,
             cards=Path(args.cards).read_text(encoding="utf-8") if args.cards else None,
+            resume=args.resume,
         )
         print(f"模拟 {args.days} 天（{'真模型' if args.real else '假模型'}）……", file=out)
         res = await sim.run()
@@ -1929,6 +1936,13 @@ async def cmd_sim(args: argparse.Namespace, out: TextIO) -> int:
         f"（每天约 ${m['usd_per_day']}），检查 {passed}/{len(res.checks)} 通过",
         file=out,
     )
+    if m.get("stopped"):
+        print(f"提前停了：{m['stopped']}（修好后可用 --resume 接着跑）", file=out)
+    exams = [e for e in res.exams if e["ok"] is not None]
+    if exams:
+        print(f"考题 {sum(e['ok'] for e in exams)}/{len(exams)} 通过", file=out)
+    if res.problems:
+        print(f"问题清单 {len(res.problems)} 条（要紧的在前）", file=out)
     print(f"报告：{sim.out / 'report.md'}", file=out)
     return 0 if res.ok else 1
 

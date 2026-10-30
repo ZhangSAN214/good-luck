@@ -36,6 +36,7 @@ from zoneinfo import ZoneInfo
 import yaml
 
 import roundtable.core.browse as browse
+from roundtable.core import simexam
 from roundtable.core.chat import ROOM, dm_room
 from roundtable.core.config import AppConfig, load_config
 from roundtable.core.prompts import PromptLibrary
@@ -48,6 +49,9 @@ log = logging.getLogger(__name__)
 
 SIM_FILE = PROJECT_ROOT / "benchmarks" / "members" / "sim.yaml"
 USER_HOURS = range(9, 24)  # 模拟用户醒着的钟点（本地时间）
+CHECKPOINT = "checkpoint.json"  # 断点（每过一天写一次）
+LEDGER = "ledger.jsonl"  # 花费账本（每天一行）
+SELF_CHECK_DAYS = (1, 3, 7)  # 这几天结束时自检；真模型下自检不过就停，免得白花钱
 _CJK = re.compile(r"[　-鿿＀-￯]")
 _TAG = re.compile(r"<(\w+)>\n?(.*?)\n?</\1>", re.S)
 _PLACEHOLDER = re.compile(r"\{\{\s*\w+\s*\}\}")
@@ -242,6 +246,8 @@ class SimResult:
     tells: dict[str, Any] = field(default_factory=dict)
     errors: list[dict[str, Any]] = field(default_factory=list)
     probes: list[dict[str, Any]] = field(default_factory=list)
+    exams: list[dict[str, Any]] = field(default_factory=list)
+    problems: list[dict[str, Any]] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     meta: dict[str, Any] = field(default_factory=dict)
 
@@ -257,6 +263,8 @@ class SimResult:
             "days": self.days,
             "members": self.members,
             "probes": self.probes,
+            "exams": self.exams,
+            "problems": self.problems,
             "errors": self.errors,
             "warnings": self.warnings[:200],
         }
@@ -281,6 +289,7 @@ class Simulation:
         config: AppConfig | None = None,
         material: dict | None = None,
         sleep: Callable[[float], Any] | None = None,
+        resume: bool = False,
     ) -> None:
         out = Path(out).resolve()
         if out.is_relative_to(DEFAULT_DB.parent.resolve()):
@@ -290,7 +299,7 @@ class Simulation:
         if days < 1:
             raise SimError("至少模拟 1 天")
         self.out, self.days, self.seed, self.real = out, days, seed, real
-        self.max_usd, self.user_per_day, self.cards = max_usd, user_per_day, cards
+        self.max_usd, self.user_per_day, self.cards_file = max_usd, user_per_day, cards
         self.zone = ZoneInfo(tz)
         first = start or datetime(2026, 11, 2, 7, 0)  # 默认从一个星期一早上开始
         self.clock = SimClock(first.replace(tzinfo=self.zone) if first.tzinfo is None else first)
@@ -300,6 +309,14 @@ class Simulation:
         self.result = SimResult(out)
         self._sleep = sleep or asyncio.sleep
         self.transcript = ""
+        self.resume = resume
+        self.cards: list[dict[str, Any]] = []  # 说出口的意图卡（考题判分用）
+        self.exams = simexam.exams(self.material)
+        self.done: set[str] = set()  # 考过的题（「题号:天」）
+        self.begin = self.clock.now()
+        self._restored: dict[str, Any] | None = None
+        if resume:
+            self._restore()
 
     # --- 组装 ---
 
@@ -308,8 +325,10 @@ class Simulation:
 
         self.out.mkdir(parents=True, exist_ok=True)
         db = self.out / "sim.db"
-        if db.exists():
-            raise SimError(f"{db} 已存在：换一个输出目录（每次模拟用全新的数据库）")
+        if db.exists() and self._restored is None:
+            raise SimError(
+                f"{db} 已存在：换一个输出目录（每次模拟用全新的数据库；接着跑用 --resume）"
+            )
         prompts = PromptLibrary()
         self.mind: FakeMind | None = None
         providers = None
@@ -338,8 +357,8 @@ class Simulation:
 
         svc.chats.sleep = no_wait  # 拆条之间不真的等
         svc.engine.heartbeat.unregister("wander")  # 模拟里成员不开真浏览器上网
-        if self.cards:
-            svc.member_profile_import(self.cards)
+        if self.cards_file and self._restored is None:
+            svc.member_profile_import(self.cards_file)
         return svc
 
     # --- 推进 ---
@@ -359,6 +378,8 @@ class Simulation:
         tick_hours = self.config.roundtable.chat.life.tick_minutes / 60
         if now.hour not in USER_HOURS:
             return 0
+        if len(self.result.days) + 1 in simexam.quiet_days(self.material):
+            return 0  # 考题「几天不来」：这几天不说话
         p = self.user_per_day * tick_hours / len(USER_HOURS)
         if self.rng.random() >= p:
             return 0
@@ -388,13 +409,126 @@ class Simulation:
                     {"day": day, "member": m.id, "name": m.name, "q": q, "a": " / ".join(said)}
                 )
 
+    async def exam(self, svc: Any, members: list[Any], exam: simexam.Exam, day: int) -> None:
+        """考一道题：私聊题每位成员各问一遍，群题问一次；按意图卡和回复判分。"""
+        from roundtable.core.member.human import Human
+
+        rooms = [(dm_room(m.id), [m]) for m in members] if exam.room == "dm" else [(ROOM, members)]
+        human = Human(svc.rt)
+        for room, who in rooms:
+            mark = len(self.cards)
+            sent = await self._step("exam", lambda r=room: svc.chat_post(exam.text, room=r))
+            pending = list(svc._chat_tasks)
+            if pending:
+                await asyncio.gather(*pending, return_exceptions=True)
+            after = sent["id"] if sent else 0
+            rows = svc.rt.repo.chat_messages(room, after=after)
+            for m in who:
+                if not simexam.applies(exam, human.domains(m.id)):
+                    continue
+                said = [x["text"] for x in rows if x["author"] == m.id]
+                if exam.room == "group" and not said:
+                    continue  # 群里没接话的不判
+                cards = [c for c in self.cards[mark:] if c["member"] == m.id]
+                got = simexam.judge(exam, m.id, cards, said, real=self.real)
+                self.result.exams.append(
+                    {"exam": exam.id, "name": exam.name, "day": day, "member": m.id}
+                    | {"who": m.name, "q": exam.text, "a": " / ".join(said)}
+                    | got
+                )
+
+    def _record(self, card: Any, at: datetime) -> None:
+        if card is not None:
+            self.cards.append(
+                {"member": card.member, "intent": card.intent, "tags": list(card.tags)}
+                | {"to": getattr(card, "to", ""), "at": iso(at)}
+            )
+
+    # --- 断点续跑、账本、自检 ---
+
+    def _restore(self) -> None:
+        path = self.out / CHECKPOINT
+        if not path.exists() or not (self.out / "sim.db").exists():
+            raise SimError(f"{self.out} 里没有可以接着跑的断点")
+        data = json.loads(path.read_text(encoding="utf-8"))
+        self._restored = data
+        self.clock = SimClock(datetime.fromisoformat(data["clock"]))
+        self.begin = datetime.fromisoformat(data["begin"])
+        r = data["result"]
+        for key in ("days", "probes", "exams", "errors"):
+            setattr(self.result, key, r.get(key, []))
+        self.result.meta["resumed"] = self.result.meta.get("resumed", 0) + 1
+        self.cards = data.get("cards", [])
+        self.done = set(data.get("done", []))
+        version, inner, gauss = data["rng"]
+        self.rng.setstate((version, tuple(inner), gauss))
+
+    def checkpoint(self) -> None:
+        r = self.result
+        data = {
+            "clock": self.clock.now().isoformat(),
+            "begin": self.begin.isoformat(),
+            "days_total": self.days,
+            "result": {"days": r.days, "probes": r.probes, "exams": r.exams, "errors": r.errors},
+            "cards": self.cards[-2000:],
+            "done": sorted(self.done),
+            "rng": list(self.rng.getstate()),
+        }
+        tmp = self.out / (CHECKPOINT + ".tmp")
+        tmp.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        tmp.replace(self.out / CHECKPOINT)
+
+    def ledger(self, day: dict[str, Any]) -> None:
+        total = round(sum(d["spent_usd"] for d in self.result.days), 4)
+        row = {"day": day["day"], "date": day["date"], "spent_usd": day["spent_usd"]}
+        row |= {"total_usd": total, "calls": dict(self.mind.roles) if self.mind else None}
+        with (self.out / LEDGER).open("a", encoding="utf-8") as f:
+            f.write(json.dumps(row, ensure_ascii=False) + "\n")
+
+    def self_check(self, day: int) -> str | None:
+        """第 1 / 3 / 7 天结束时自检，写 selfcheck_dayN.md。真模型下有要紧问题就返回停下的原因。"""
+        res = self.result
+        res.checks = [c for c in checks(self.config, res) if c["name"] != "每周反思有记录"]
+        res.problems = simexam.problems(res)
+        spent = sum(d["spent_usd"] for d in res.days)
+        projected = spent / max(1, day) * self.days
+        lines = [
+            f"# 第 {day} 天自检",
+            "",
+            f"- 已花 ${spent:.3f}，照这样 {self.days} 天约 ${projected:.2f}",
+        ]
+        lines += [f"- {'⚠' if p['level'] == 1 else '·'} {p['what']}" for p in res.problems] or [
+            "- 没发现问题"
+        ]
+        (self.out / f"selfcheck_day{day}.md").write_text("\n".join(lines) + "\n", "utf-8")
+        if not self.real:
+            return None
+        if self.max_usd and projected > self.max_usd * 1.2:
+            return (
+                f"第 {day} 天自检：照这样会花 ${projected:.2f}，超过上限 ${self.max_usd:.2f}，先停"
+            )
+        urgent = [p for p in res.problems if p["level"] == 1]
+        if len(urgent) >= 3:
+            n = len(urgent)
+            return f"第 {day} 天自检：有 {n} 个要紧问题，先停下来修（见 selfcheck_day{day}.md）"
+        return None
+
     def _spent(self, rt: Any, start: datetime, end: datetime) -> float:
         return rt.repo.spent_between(start, end)
 
     async def run(self) -> SimResult:
+        from roundtable.core.member.brain import Brain
+
         handler = _Collect()
         logging.getLogger("roundtable").addHandler(handler)
         saved_fetch = browse.http_fetch
+        saved_after = Brain.after
+
+        def after(brain: Any, card: Any, at: datetime) -> None:
+            self._record(card, at)  # 记下说出口的意图卡（考题判分用）
+            saved_after(brain, card, at)
+
+        Brain.after = after  # type: ignore[method-assign]
 
         async def offline(*_a: Any, **_k: Any) -> Any:
             raise browse.FeedError("模拟不联网")
@@ -410,6 +544,7 @@ class Simulation:
                 await svc.aclose()
         finally:
             browse.http_fetch = saved_fetch
+            Brain.after = saved_after  # type: ignore[method-assign]
             logging.getLogger("roundtable").removeHandler(handler)
             self.result.warnings = handler.records
         self.write()
@@ -419,14 +554,20 @@ class Simulation:
         rt = self.rt = svc.rt
         members = svc.chats.everyone()
         tick = timedelta(minutes=self.config.roundtable.chat.life.tick_minutes)
-        begin = self.clock.now()
+        begin = self.begin
         end = begin + timedelta(days=self.days)
         self.result.meta["stopped"] = None
-        day_start, user_msgs = begin, 0
+        day_start, user_msgs = self.clock.now(), 0
         while self.clock.now() < end:
             now = self.clock.advance(tick)
             user_msgs += await self._user_turn(svc, members)
             local = svc._local_now()
+            day_no = len(self.result.days) + 1
+            for ex in self.exams:
+                key = f"{ex.id}:{ex.day}"
+                if ex.day == day_no and local.strftime("%H:%M") == ex.at and key not in self.done:
+                    self.done.add(key)
+                    await self.exam(svc, members, ex, day_no)
             await self._step("life", lambda t=local: svc.life.tick(t))
             await self._step(
                 "calendar", lambda t=local: svc.calendar.tick(t, svc.engine.bus.publish)
@@ -434,8 +575,15 @@ class Simulation:
             await self._step("engine", lambda t=local: svc.engine.tick(t))
             await self._step("growth", lambda t=local: svc.growth.tick(t))
             if now - day_start >= timedelta(days=1):
-                self.result.days.append(self.snapshot(svc, members, day_start, now, user_msgs))
+                day = self.snapshot(svc, members, day_start, now, user_msgs)
+                self.result.days.append(day)
                 day_start, user_msgs = now, 0
+                self.ledger(day)
+                stop = self.self_check(day["day"]) if day["day"] in SELF_CHECK_DAYS else None
+                self.checkpoint()
+                if stop:
+                    self.result.meta["stopped"] = stop
+                    break
             first_or_last = now.date() == begin.date() or end - now < timedelta(days=1)
             if (local.hour, local.minute) == (21, 0) and first_or_last:  # 晚上 9 点问一遍
                 await self.probe(svc, members, len(self.result.days) + 1)
@@ -482,6 +630,7 @@ class Simulation:
         for msg in all_msgs:
             if msg["author"] in texts:
                 texts[msg["author"]].append(msg["text"])
+        names = {m.id: m.name for m in members}
         for m in members:
             rel = svc.engine.relation.summary(m.id) if svc.engine.relation.enabled else {}
             growth = [
@@ -499,6 +648,7 @@ class Simulation:
                     "messages": len(texts[m.id]),
                     "moments": len(rt.repo.moments(author=m.id, limit=1000)),
                     "brain": svc.engine.brain.snapshot(m.id, self.clock.now()),
+                    "heart": self._heart(svc, m.id, names),
                 }
             )
         res.tells = tells(texts)
@@ -516,6 +666,23 @@ class Simulation:
             "calls": dict(self.mind.roles) if self.mind else None,
         }
         res.checks = checks(self.config, res)
+        res.problems = simexam.problems(res)
+
+    def _heart(self, svc: Any, member: str, names: dict[str, str]) -> dict[str, Any]:
+        """期末她的感情和人味：依恋方式、表达方式、小毛病、熟悉的领域、对谁感情最深。"""
+        brain, at = svc.engine.brain, self.clock.now()
+        heart, human = brain.heart, brain.human
+        bonds = [
+            b | {"name": names.get(b["who"], "你" if b["who"] == "user" else b["who"])}
+            for b in heart.snapshot(member, at)[:3]
+        ]
+        return {
+            "attachment": heart.attachment(member),
+            "style": heart.style(member),
+            "flaws": human.flaws(member),
+            "domains": human.domains(member),
+            "bonds": bonds,
+        }
 
     def write(self) -> None:
         res = self.result
@@ -757,6 +924,41 @@ def render(res: SimResult) -> str:
                 f"| {row['name']} | {goals} | {len(b.get('news') or [])} | {top} | "
                 f"{strong[0]} {strong[1]} |"
             )
+    if any(row.get("heart") for row in res.members):
+        lines += ["", "## 爱与人味（期末）", ""]
+        head = ["成员", "依恋 / 表达", "小毛病", "熟悉的领域", "感情最深的（在乎·心动·哪种）"]
+        lines.append("| " + " | ".join([*head, "用得最多的特质"]) + " |")
+        lines.append("|---|---|---|---|---|---|")
+        for row in res.members:
+            h = row.get("heart") or {}
+            bonds = "；".join(
+                f"{b['name']} {b['care']:.2f}·{b['spark']:.2f}·{b['kind'] or '-'}"
+                for b in h.get("bonds") or []
+            )
+            psy = sorted(((row.get("brain") or {}).get("psy") or {}).items(), key=lambda kv: -kv[1])
+            top = "、".join(f"{k} {v}" for k, v in psy[:4]) or "-"
+            flaws = "、".join(h.get("flaws") or []) or "-"
+            domains = "、".join(h.get("domains") or []) or "-"
+            lines.append(
+                f"| {row['name']} | {h.get('attachment', '-')} / {h.get('style', '-')} | "
+                f"{flaws} | {domains} | {bonds or '-'} | {top} |"
+            )
+    if res.exams:
+        passed = sum(1 for e in res.exams if e["ok"])
+        judged = sum(1 for e in res.exams if e["ok"] is not None)
+        lines += ["", f"## 考题（{passed}/{judged} 通过）", ""]
+        lines.append("| 天 | 题 | 成员 | 结果 | 回复 |")
+        lines.append("|---|---|---|---|---|")
+        for e in res.exams:
+            mark = {True: "✅", False: "❌", None: "·"}[e["ok"]]
+            reply = (e["a"] or "（没回）")[:40].replace("|", "｜")
+            lines.append(
+                f"| {e['day']} | {e['name']} | {e['who']} | {mark} {e['detail']} | {reply} |"
+            )
+    if res.problems:
+        lines += ["", "## 问题清单（按要紧程度）", ""]
+        mark = {1: "🔴", 2: "🟠", 3: "🟡"}
+        lines += [f"- {mark.get(p['level'], '·')} {p['what']}" for p in res.problems]
     lines += ["", "## 每天", ""]
     head = ["天", "日期", "生活事件", "写成聊天", "成员消息", "你的消息", "朋友圈", "记忆件"]
     lines.append("| " + " | ".join([*head, "关于你", "花费"]) + " |")
