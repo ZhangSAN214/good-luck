@@ -34,6 +34,8 @@ const ask = (q) => new Promise((done) => {
   addEventListener('message', onMsg);
   window.parent.postMessage({ type: 'bench-ask', bench: BENCH, id, q: String(q) }, '*');
 });
+// 各窗口共用的基本信息（拆需求时定的一份，大家都从这里读，不各编一套）
+const shared = await fetch('./data/_shared.json').then((r) => (r.ok ? r.json() : {})).catch(() => ({}));
 for (const el of document.querySelectorAll('[data-window]')) {
   const id = el.dataset.window;
   try {
@@ -41,7 +43,7 @@ for (const el of document.querySelectorAll('[data-window]')) {
       import(`./windows/${id}.js`),
       fetch(`./data/${id}.json`).then((r) => (r.ok ? r.json() : null)).catch(() => null),
     ]);
-    await mod.default(el, { kit, data, store: kit.persist(`bench:${BENCH}:${id}`), bus, ask });
+    await mod.default(el, { kit, data, shared, store: kit.persist(`bench:${BENCH}:${id}`), bus, ask });
   } catch (err) {
     console.error(`窗口 ${id} 出错：`, err);
     el.innerHTML = kit.empty({ icon: 'triangle-alert', title: '这个窗口还没做好', hint: String(err && err.message || err).slice(0, 120) });
