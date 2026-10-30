@@ -105,7 +105,8 @@ def test_disagreement_follows_a_consistent_stance():
 
 def test_whim_can_be_blurted_and_counted():
     env, brain = setup((5, 3, 5, 3, 3))
-    _with(env, whim=RULES.whim.model_copy(update={"chance": 1.0, "act_chance": 1.0}))
+    whim = {"chance": 1.0, "act_chance": 1.0, "pool": ["突然想吃烤红薯", "突然想去天台吹吹风"]}
+    _with(env, whim=RULES.whim.model_copy(update=whim))
     cards = [
         brain.intent("V1", last="在干嘛", named=True, group=False, at=NOON, seed=str(i))
         for i in range(30)

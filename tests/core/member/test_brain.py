@@ -285,11 +285,51 @@ def test_metacognition_notices_a_rut_damps_it_and_says_so_once():
     s.recent = ["vent"] * 5
     brain._save("V1", s)
     assert brain._noticed(brain._load("V1")) == "vent"
-    cards = [
+    first = brain.intent("V1", last="在干嘛", named=True, group=False, at=NOON, seed="0")
+    assert "察觉到自己最近老在抱怨" in first.text and first.noticed == "vent"
+    # 没说出口的候选卡不算察觉过：再算一张还会写
+    again = brain.intent("V1", last="在干嘛", named=True, group=False, at=NOON, seed="1")
+    assert "察觉到" in again.text
+    brain.after(first, NOON)  # 真说了：之后只在察觉的那一刻写过一次
+    later = [
         brain.intent("V1", last="在干嘛", named=True, group=False, at=NOON, seed=str(i))
-        for i in range(3)
+        for i in range(2, 5)
     ]
-    assert "察觉到自己最近老在抱怨" in cards[0].text
-    assert all("察觉到" not in c.text for c in cards[1:])  # 只在察觉的那一刻写
+    assert all("察觉到" not in c.text for c in later)
     meta = env.rt.config.roundtable.chat.engine.brain.meta
     assert meta.damp < 1
+
+
+def test_unspoken_candidate_cards_leave_no_trace():
+    """生活聊天里每人都算一张候选卡，没说出口的那张不能留下盼头（bug 修复，2026-10-30）。"""
+    from .test_psyche import _with
+
+    env, brain = setup((5, 3, 5, 3, 3))
+    whim = env.rt.config.roundtable.chat.engine.brain.psyche.whim
+    one = {"chance": 1.0, "act_chance": 1.0, "pool": ["突然想吃烤红薯"]}
+    _with(env, whim=whim.model_copy(update=one))
+    card = brain.intent("V1", last="在干嘛", named=True, group=False, at=NOON, seed="w")
+    assert card.expect == "盼着吃烤红薯"
+    assert not brain._load("V1").expects  # 只是候选
+    brain.after(card, NOON)
+    assert [e["text"] for e in brain._load("V1").expects] == ["盼着吃烤红薯"]
+
+
+def test_days_follow_the_home_time_zone():
+    """性格的每日浮动、周末盼头按主时区的日子算，不按 UTC（bug 修复，2026-10-30）。"""
+    from roundtable.core.hometz import home_zone
+
+    env, brain = setup()
+    home_zone(env.rt).set("Asia/Shanghai")
+    early = datetime(2026, 11, 1, 23, 30, tzinfo=UTC)  # 上海 11-02 07:30
+    later = datetime(2026, 11, 2, 0, 30, tzinfo=UTC)  # 上海 11-02 08:30（UTC 换了一天）
+    assert brain.local(early).date() == brain.local(later).date()
+    from roundtable.core.member import psyche
+
+    rules = env.rt.config.roundtable.chat.engine.brain.psyche.sway
+    calm = dict.fromkeys(TRAITS, 3)
+    assert psyche.sway(rules, calm, "V1", brain.local(early)) == psyche.sway(
+        rules, calm, "V1", brain.local(later)
+    )
+    thursday_night = datetime(2026, 11, 5, 17, tzinfo=UTC)  # 上海周五 01:00
+    assert brain.local(thursday_night).weekday() == 4
