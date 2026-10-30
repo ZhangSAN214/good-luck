@@ -1481,7 +1481,12 @@ class CLI:
         return 0
 
     async def cmd_stickers(
-        self, member: str | None, draw: list[str], draw_all: bool, output: str | None
+        self,
+        member: str | None,
+        draw: list[str],
+        draw_all: bool,
+        output: str | None,
+        whiten: bool = False,
     ) -> int:
         """成员专属表情包：列出状态；--draw / --all 画（新画的待审，到网页成员设定里审）。"""
         from roundtable.core.member_stickers import (
@@ -1505,6 +1510,8 @@ class CLI:
             if (draw or draw_all)
             else {}
         )
+        if whiten:
+            self.p(f"底色刷白了 {stickers.whiten(member)} 张（没重画，审核状态不变）")
         failed = 0
         for m, todo in names.items():
             for name in todo:
@@ -1662,6 +1669,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     stickers.add_argument("--all", action="store_true", help="画所有还没画的")
     stickers.add_argument("-o", "--output", help="把画好的图保存到这个目录")
+    stickers.add_argument(
+        "--whiten", action="store_true", help="把已画好的表情浅灰底色统一刷成纯白（不重画）"
+    )
     perf = sub.add_parser("performance", help="办公室模式的员工绩效（件数、退回、通过率等）")
     perf.add_argument("--reset", action="store_true", help="清零：之后只统计从现在起的会话")
     evolve = sub.add_parser("evolve", help="革新例会：成员读资料卡提建议、投票，导出采纳单")
@@ -1807,7 +1817,9 @@ async def run(
         if args.command == "stats":
             return cli.cmd_stats()
         if args.command == "stickers":
-            return await cli.cmd_stickers(args.member, args.draw, args.all, args.output)
+            return await cli.cmd_stickers(
+                args.member, args.draw, args.all, args.output, args.whiten
+            )
         if args.command == "performance":
             return cli.cmd_performance(args.reset)
         if args.command == "evolve":

@@ -49,6 +49,10 @@ STATUSES = ("pending", "approved", "rejected")
 # members.json 里当参考图用的图片，按顺序取（找不到 refs 时）
 REF_KEYS = ("standee", "chibi", "avatar")
 REF_MAX_SIDE = 1024  # 参考图缩到这个边长以内再发
+# 底色刷白：边框上最暗通道 ≥ 这个值、通道差 ≤ 这个值才算底色；刷的时候允许和起点差这么多
+BG_MIN_LEVEL = 200
+BG_MAX_TINT = 16
+BG_THRESH = 36
 CHECK_INPUT_TOKENS = 2500  # 识图核对一次的输入 token 估计（几张图 + 提示词）
 
 
@@ -210,6 +214,28 @@ class MemberStickers:
         e["status"] = status
         self._index.save(data)
         return {"name": name, "status": status}
+
+    def whiten(self, member: str | None = None) -> int:
+        """把已画好的表情底色统一刷成纯白（不重画、不花钱、状态不变），返回改了几张。"""
+        data = self._index.load()
+        changed = 0
+        for m, rows in data["items"].items():
+            if member and m != member:
+                continue
+            for e in rows.values():
+                old = self._index.read(e["file"])
+                if not old:
+                    continue
+                image = _square(old, self.rules.size)
+                if image == old:
+                    continue
+                file = hashlib.sha256(image).hexdigest()[:24] + ".png"
+                self._index.write(file, image)
+                e["file"] = file
+                changed += 1
+        if changed:
+            self._index.save(data)
+        return changed
 
     # --- 花费 ------------------------------------------------------------------------
 
@@ -503,7 +529,7 @@ def _square(data: bytes, size: int) -> bytes:
         from PIL import Image
 
         with Image.open(io.BytesIO(data)) as im:
-            im = im.convert("RGBA")
+            im = _white_background(im.convert("RGBA"))
             im.thumbnail((size, size))
             canvas = Image.new("RGBA", (size, size), (255, 255, 255, 255))
             canvas.alpha_composite(im, ((size - im.width) // 2, (size - im.height) // 2))
@@ -512,3 +538,25 @@ def _square(data: bytes, size: int) -> bytes:
             return buf.getvalue()
     except Exception:  # noqa: BLE001 - 读不了的图：原样存
         return data
+
+
+def _white_background(im: Any) -> Any:
+    """把和边框连着的浅灰底色刷成纯白；人物身上的白色、浅色不和边框连着，不动。"""
+    from PIL import ImageDraw
+
+    w, h = im.size
+    step = max(1, min(w, h) // 64)
+    edge = (
+        [(x, 0) for x in range(0, w, step)]
+        + [(x, h - 1) for x in range(0, w, step)]
+        + [(0, y) for y in range(0, h, step)]
+        + [(w - 1, y) for y in range(0, h, step)]
+    )
+    for xy in edge:
+        r, g, b, a = im.getpixel(xy)
+        if (r, g, b) == (255, 255, 255) or a < 255:
+            continue
+        # 只认浅而不带颜色的底：最暗的通道够亮，三个通道相差不大
+        if min(r, g, b) >= BG_MIN_LEVEL and max(r, g, b) - min(r, g, b) <= BG_MAX_TINT:
+            ImageDraw.floodfill(im, xy, (255, 255, 255, 255), thresh=BG_THRESH)
+    return im
