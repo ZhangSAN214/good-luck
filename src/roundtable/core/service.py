@@ -477,6 +477,11 @@ class RoundtableService:
         chat = self.chats.room(dm_room(urge.member))
         rows = chat.recent()
         chat.notes[urge.member] = f"{urge.note}\n{reach.rules.tail}"
+        if urge.reason == "longing":  # 想念记成她的一段情绪经历（意图卡会带上她自己理解的想念）
+            from roundtable.core.member.feel import Feelings
+
+            feel = Feelings(self.rt)
+            feel.record(urge.member, feel.rules.missing, feel.rules.reach_miss, now)
         said = await chat.replies(rows[-1]["id"] if rows else 0, [members[urge.member]])
         chat.notes.pop(urge.member, None)
         if not said:

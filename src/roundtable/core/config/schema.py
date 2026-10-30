@@ -1744,6 +1744,22 @@ class HumanRules(_Strict):
     activities: list[str] = []
 
 
+class RoutineRules(_Strict):
+    """习惯回路（docs/BRAIN.md「习惯回路」）：同一个钟点（工作日 / 周末 × 早中晚）反复去同一处
+    做同一件事，慢慢成了习惯；到了这个点更可能照老样子去，闷了（想换新鲜）就破一次例；久不去就淡了。
+    依据 Wood & Neal 2007 习惯是情境—反应联结；Lally 2010 习惯要重复几十次才自动化。"""
+
+    enabled: bool = True
+    half_life_days: float = Field(default=14, gt=0, le=365)  # 不去了，习惯的劲儿多久减半
+    min_strength: float = Field(default=3.0, ge=0.5, le=100)  # 攒到这么多才算习惯
+    # 没什么特别想做的时候（没想练在做的事、没想换新鲜），习惯每多 1 分，照老样子去的概率多这么多
+    per: float = Field(default=0.12, ge=0, le=1)
+    cap: float = Field(default=0.8, ge=0, le=1)  # 最多这么大的概率照老样子（总留点变化）
+    keep: int = Field(default=24, ge=4, le=200)  # 每人最多记多少条（钟点 × 去处）
+    # 刚成习惯时记一件可以说的新鲜事：{when} 钟点、{what} 去处和做的事
+    news: str = "最近一到{when}就{what}，快成习惯了"
+
+
 class BrainRules(_Strict):
     """大脑分区（docs/BRAIN.md）：全局工作区 + 丘脑显著性 + 驱力 + 前额叶意图与目标 + 走神。
 
@@ -1777,6 +1793,7 @@ class BrainRules(_Strict):
     psyche: PsycheRules = PsycheRules()
     love: LoveRules = LoveRules()
     human: HumanRules = HumanRules()
+    routine: RoutineRules = RoutineRules()
 
 
 class CareRules(_Strict):
@@ -1845,6 +1862,62 @@ class LearnRules(_Strict):
     forget_days: float = Field(default=30, gt=0, le=365)  # 这么久没用就忘了
     keep: int = Field(default=4, ge=0, le=20)
     slang: list[str] = []  # 会被学走的网络用语（另加每人的笑法、短回复、口头禅）
+
+
+class FeelRules(_Strict):
+    """各自的情感（docs/BRAIN.md「各自的情感」，2026-10-30 用户定）：开心、难过、想念、生气，
+    每位的理解和表达从自己的人物卡来、按自己的理解分辨、随经历和每周成长慢慢变。全程序、不调模型；
+    8 位同一套规则，差别只来自人物卡、性格分和经历。"""
+
+    enabled: bool = True
+    # 有哪几种情绪，以及人物卡里认它的词（抽起点用；第一个词是名字以外的说法）
+    names: dict[str, list[str]] = {
+        "开心": ["开心", "高兴"],
+        "难过": ["难过", "低落", "伤心"],
+        "想念": ["想念", "思念", "惦记", "被丢下", "多坐一会儿"],
+        "生气": ["生气", "恼火"],
+    }
+    positive: list[str] = Field(default_factory=lambda: ["开心"], min_length=1)
+    negative: list[str] = Field(default_factory=lambda: ["难过", "生气"], min_length=1)
+    missing: str = "想念"
+    min_mood: float = Field(default=0.08, ge=0, le=1)  # 心情至少动这么多才记成一次情绪
+    # 负面的那一下算哪种：反射默认偏哪种（× lean_weight）+ 和她自己理解的相似度（× match）
+    # + 性格（分数 - 3 后 × 系数）；分最高的那种
+    lean: dict[str, str] = {
+        "被批评": "生气",
+        "一起挨说": "难过",
+        "落空": "难过",
+        "共情难过": "难过",
+    }
+    lean_weight: float = Field(default=0.5, ge=0, le=5)
+    match: float = Field(default=2.0, ge=0, le=10)
+    traits: dict[str, dict[str, float]] = {
+        "生气": {"较真": 0.15, "温和": -0.15},
+        "难过": {"温和": 0.15, "较真": -0.15},
+    }
+    miss_days: float = Field(default=2, gt=0, le=60)  # 私聊里隔这么多天你再来，她记一次想念
+    miss_words: list[str] = ["想你", "想我", "好久不见", "好久没聊", "想念"]  # 对方说想她
+    miss_back: str = "好几天没聊，对方终于来找你了"
+    reach_miss: str = "好几天没和对方说话，你先找了对方"
+    linger_hours: float = Field(default=6, gt=0, le=72)  # 这么久以内的情绪算「刚才」，还在场
+    mood_high: float = Field(default=0.3, ge=0, le=1)
+    mood_low: float = Field(default=-0.3, ge=-1, le=0)
+    keep: int = Field(default=60, ge=5, le=500)  # 每位留最近多少段情绪经历
+    seed_chars: int = Field(default=70, ge=10, le=300)  # 从人物卡抽的起点最多多少字
+    mine_chars: int = Field(default=40, ge=10, le=200)  # 意图卡里写她的理解最多多少字
+    why_chars: int = Field(default=30, ge=6, le=100)
+    line_chars: int = Field(default=90, ge=20, le=200)
+    user_label: str = "用户"
+    someone: str = "有人"
+    unknown: str = "还说不太清，看这回是什么感觉"
+    line: str = "你心里的{emo}：{mine}"
+    last: str = "；上回是{when}，{why}"
+    # 成长改写（P6，growth/gate.py）：新的理解最多多少字、和别人对同一种情绪的理解最多多像、
+    # 同一种情绪隔几天才能再改
+    grow_chars: int = Field(default=60, ge=10, le=200)
+    copy_max: float = Field(default=0.5, gt=0, le=1)
+    same_max: float = Field(default=0.9, gt=0, le=1)
+    gap_days: int = Field(default=14, ge=0, le=365)
 
 
 class RhythmRules(_Strict):
@@ -1927,6 +2000,8 @@ class LingoRules(_Strict):
     formal: dict[str, str] = {}  # 书面词 → 口语（发出前直接换）
     explain: list[str] = []  # 解释句的正则（发出前能删就删）
     recap_chars: int = Field(default=8, ge=4, le=40)  # 和对方原话连着这么多字一样算复述
+    # 口吻指纹：草稿里别的成员的口头禅、颜文字、自称（她没学过的）发出前换回她自己的
+    own_voice: bool = True
 
 
 class EngineRules(_Strict):
@@ -1950,6 +2025,7 @@ class EngineRules(_Strict):
     lingo: LingoRules = LingoRules()
     rhythm: RhythmRules = RhythmRules()
     reach: ReachRules = ReachRules()
+    feel: FeelRules = FeelRules()
 
 
 class WanderSite(_Strict):
