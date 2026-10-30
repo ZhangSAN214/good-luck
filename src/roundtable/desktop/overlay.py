@@ -1,14 +1,16 @@
 """一起看的置顶悬浮窗：`python -m roundtable.desktop.overlay --url http://127.0.0.1:8000`。
 
 看视频时不用切回圆桌：成员说的话浮在屏幕最前面（docs/WATCH.md「悬浮窗」）。
-- 总在最前面、没有标题栏；按住顶上那一条拖动；滑块调透明度；「－」收成一个小圆点（有新消息时
-  显示条数），点一下展开；「×」只关悬浮窗，不停投屏。
-- 底下可以直接打字和她们说话（回车发送，@名字 指定谁回）。
-- 投屏停了，悬浮窗显示一句「已停止」，几秒后自己关掉。
+- 有 pywebview（桌面版已带）时开一个没有标题栏、总在最前面的应用小窗，载入 ``/overlay.html``：
+  和画中画同一个界面（web/js/overlay.js），墨蓝液态玻璃风格；按住顶条拖动、滑块调整个窗口的透明度、
+  「－」收成一颗胶囊（有新消息显示条数）、「×」只关小窗不停投屏；点一条消息就回那个人。
+- 没有 pywebview 时退回 Python 自带的 tkinter 小窗（同样能拖、调透明度、收起、打字）。
+- Windows 上两种小窗都设成「截屏时看不见」，成员看画面时不会读到自己的聊天。
+- 投屏停了，小窗说一句「已停止」，几秒后自己关掉。
 - 位置、透明度、收起状态记在 ``--state`` 文件里（data/desktop/watch_overlay.json），下次照旧。
 
-和网页一样只通过 HTTP 和本机的圆桌说话（不 import 服务端代码）；用 Python 自带的 tkinter，
-不加依赖。由「一起看」面板的「悬浮窗」按钮经 /api/watch/overlay 启动（只在电脑本机）。
+和网页一样只通过 HTTP 和本机的圆桌说话（不 import 服务端代码）。由「一起看」面板的「悬浮窗」按钮经
+/api/watch/overlay 启动（只在电脑本机）。
 """
 
 from __future__ import annotations
@@ -27,6 +29,8 @@ SHOW_MESSAGES = 6
 MIN_ALPHA, MAX_ALPHA = 0.3, 1.0
 DEFAULT_STATE = {"x": -1, "y": 80, "alpha": 0.85, "collapsed": False}
 WIDTH, HEIGHT, DOT = 340, 300, 52
+WEB_WIDTH, WEB_HEIGHT, PILL_WIDTH, PILL_HEIGHT = 360, 400, 170, 44
+WEB_BG = "#0e1422"  # 窗口底色（和悬浮窗玻璃的边缘同色，透明不生效时也不突兀）
 HINT = "在下面打字，回车发送（@名字 指定谁回）"
 
 # 只连本机：不走系统代理
@@ -112,9 +116,130 @@ def save_state(path: Path | None, state: dict[str, Any]) -> None:
         pass
 
 
+# --- Windows 窗口小工具（其他系统上什么都不做） ---------------------------------------
+
+
+def exclude_from_capture(hwnd: int) -> bool:
+    """截屏时看不见这个窗口（Windows 10 2004+）：成员看画面时不会读到悬浮窗里的聊天。"""
+    import sys
+
+    if sys.platform != "win32" or not hwnd:
+        return False
+    import ctypes
+
+    wda_exclude_from_capture = 0x11
+    return bool(ctypes.windll.user32.SetWindowDisplayAffinity(hwnd, wda_exclude_from_capture))
+
+
+def set_window_alpha(hwnd: int, alpha: float) -> bool:
+    """整个窗口的透明度（分层窗口）。"""
+    import sys
+
+    if sys.platform != "win32" or not hwnd:
+        return False
+    import ctypes
+
+    user32 = ctypes.windll.user32
+    gwl_exstyle, ws_ex_layered, lwa_alpha = -20, 0x80000, 0x2
+    style = user32.GetWindowLongW(hwnd, gwl_exstyle)
+    user32.SetWindowLongW(hwnd, gwl_exstyle, style | ws_ex_layered)
+    a = int(round(min(MAX_ALPHA, max(MIN_ALPHA, alpha)) * 255))
+    return bool(user32.SetLayeredWindowAttributes(hwnd, 0, a, lwa_alpha))
+
+
+def round_corners(hwnd: int) -> None:
+    """Windows 11 的系统圆角（没有标题栏的窗口默认是直角）。"""
+    import sys
+
+    if sys.platform != "win32" or not hwnd:
+        return
+    import ctypes
+
+    pref = ctypes.c_int(2)  # DWMWCP_ROUND
+    with contextlib.suppress(Exception):
+        dwm = ctypes.windll.dwmapi
+        dwm.DwmSetWindowAttribute(hwnd, 33, ctypes.byref(pref), ctypes.sizeof(pref))
+
+
+class Bridge:
+    """给 /overlay.html 用的 js_api（pywebview）：读设置、调透明度、收起时改窗口大小、关窗。"""
+
+    def __init__(self, state_path: Path | None, window: Any = None) -> None:
+        self.state_path = state_path
+        self.state = load_state(state_path)
+        self.window = window
+        self.hwnd = 0
+
+    def get_state(self) -> dict[str, Any]:
+        return {"alpha": self.state["alpha"], "collapsed": self.state["collapsed"]}
+
+    def set_opacity(self, alpha: float) -> None:
+        self.state["alpha"] = min(MAX_ALPHA, max(MIN_ALPHA, float(alpha)))
+        set_window_alpha(self.hwnd, self.state["alpha"])
+        save_state(self.state_path, self.state)
+
+    def set_collapsed(self, collapsed: bool) -> None:
+        self.state["collapsed"] = bool(collapsed)
+        if self.window is not None:
+            w, h = (PILL_WIDTH, PILL_HEIGHT) if collapsed else (WEB_WIDTH, WEB_HEIGHT)
+            self.window.resize(w, h)
+        save_state(self.state_path, self.state)
+
+    def moved(self, x: int, y: int) -> None:
+        self.state["x"], self.state["y"] = int(x), int(y)
+        save_state(self.state_path, self.state)
+
+    def close(self) -> None:
+        save_state(self.state_path, self.state)
+        if self.window is not None:
+            self.window.destroy()
+
+
+def web_overlay(base: str, state_path: Path | None) -> bool:  # pragma: no cover - 需要桌面环境
+    """用 pywebview 开应用小窗；没装 pywebview 返回 False（改用 tkinter）。"""
+    try:
+        import webview
+    except ImportError:
+        return False
+    bridge = Bridge(state_path)
+    st = bridge.state
+    small = st["collapsed"]
+    x = st["x"] if st["x"] >= 0 else None
+    window = webview.create_window(
+        "一起看",
+        f"{base.rstrip('/')}/overlay.html",
+        js_api=bridge,
+        width=PILL_WIDTH if small else WEB_WIDTH,
+        height=PILL_HEIGHT if small else WEB_HEIGHT,
+        x=x,
+        y=st["y"] if x is not None else None,
+        frameless=True,
+        easy_drag=False,
+        on_top=True,
+        transparent=True,
+        background_color=WEB_BG,
+        min_size=(PILL_WIDTH, PILL_HEIGHT),
+    )
+    bridge.window = window
+
+    def shown() -> None:
+        with contextlib.suppress(Exception):
+            bridge.hwnd = int(window.native.Handle.ToInt64())
+        exclude_from_capture(bridge.hwnd)
+        round_corners(bridge.hwnd)
+        set_window_alpha(bridge.hwnd, st["alpha"])
+
+    window.events.shown += shown
+    window.events.moved += bridge.moved
+    webview.start()
+    return True
+
+
+# --- 没有 pywebview 时：tkinter 小窗 -----------------------------------------------
+
 # 成员名字的颜色（按名字轮换，和是谁无关）
 NAME_COLORS = ("#ffd479", "#8fd3ff", "#b6f09c", "#ffadc8", "#d1b3ff", "#ffb38a")
-BG, FG, DIM, BAR = "#14161c", "#f2f4f8", "#9aa3b2", "#232733"
+BG, FG, DIM, BAR = "#111827", "#eceff3", "#9ea7b6", "#182c4e"  # 墨蓝玻璃的近似色
 
 
 class Overlay:  # pragma: no cover - 需要桌面环境，靠手动验收
@@ -137,6 +262,9 @@ class Overlay:  # pragma: no cover - 需要桌面环境，靠手动验收
         self._drag: tuple[int, int, int, int, bool] = (0, 0, 0, 0, False)
         self._build()
         self.apply_collapsed()
+        root.update_idletasks()
+        with contextlib.suppress(Exception):
+            exclude_from_capture(int(root.wm_frame(), 16))
         root.after(200, self.tick_messages)
         root.after(500, self.tick_status)
 
@@ -349,8 +477,12 @@ def main(argv: list[str] | None = None) -> int:  # pragma: no cover - 需要桌�
     ap = argparse.ArgumentParser(description="一起看的置顶悬浮窗")
     ap.add_argument("--url", default="http://127.0.0.1:8000")
     ap.add_argument("--state", default="")
+    ap.add_argument("--ui", choices=["auto", "web", "tk"], default="auto")
     args = ap.parse_args(argv)
-    Overlay(Feed(args.url), Path(args.state) if args.state else None).run()
+    state = Path(args.state) if args.state else None
+    if args.ui != "tk" and web_overlay(args.url, state):
+        return 0
+    Overlay(Feed(args.url), state).run()
     return 0
 
 

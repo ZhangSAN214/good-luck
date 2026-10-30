@@ -219,7 +219,8 @@ models:
     tags: [math, derivation, code]
     enabled: true
     routes:
-      - {channel: deepseek, model: deepseek-v4.1-flash}
+      # DeepSeek 官方接口只认 deepseek-flash / deepseek-v4-pro（2026-10-29 实测 400：不认 deepseek-v4.1-flash）
+      - {channel: deepseek, model: deepseek-flash}
       - {channel: openrouter, model: deepseek/deepseek-v4.1-flash}
 
   # ⚠️ 以下四个模型（Kimi、GLM）的 ID 来自 OpenRouter 网页（2026-10），价格因页面位置不同有出入，

@@ -62,3 +62,53 @@ def test_state_is_remembered_and_sanitized(tmp_path):
     assert state["x"] == 10 and state["collapsed"] is True and state["alpha"] == MIN_ALPHA
     path.write_text("不是 json", encoding="utf-8")
     assert load_state(path) == DEFAULT_STATE
+
+
+class FakeWindow:
+    def __init__(self) -> None:
+        self.sizes: list[tuple[int, int]] = []
+        self.destroyed = False
+
+    def resize(self, w, h):
+        self.sizes.append((w, h))
+
+    def destroy(self):
+        self.destroyed = True
+
+
+def test_bridge_for_the_app_window_remembers_and_resizes(tmp_path):
+    """应用小窗（pywebview）的 js_api：透明度夹在范围内、收起时变成胶囊大小、记住位置。"""
+    from roundtable.desktop.overlay import (
+        MAX_ALPHA,
+        PILL_HEIGHT,
+        PILL_WIDTH,
+        WEB_HEIGHT,
+        WEB_WIDTH,
+        Bridge,
+    )
+
+    path = tmp_path / "watch_overlay.json"
+    win = FakeWindow()
+    b = Bridge(path, win)
+    assert b.get_state() == {"alpha": DEFAULT_STATE["alpha"], "collapsed": False}
+    b.set_opacity(5)
+    assert b.state["alpha"] == MAX_ALPHA
+    b.set_collapsed(True)
+    b.set_collapsed(False)
+    assert win.sizes == [(PILL_WIDTH, PILL_HEIGHT), (WEB_WIDTH, WEB_HEIGHT)]
+    b.moved(12, 34)
+    b.close()
+    assert win.destroyed
+    again = load_state(path)
+    assert (again["x"], again["y"], again["alpha"]) == (12, 34, MAX_ALPHA)
+
+
+def test_window_helpers_do_nothing_off_windows():
+    import sys
+
+    from roundtable.desktop.overlay import exclude_from_capture, set_window_alpha
+
+    if sys.platform != "win32":
+        assert exclude_from_capture(123) is False
+        assert set_window_alpha(123, 0.5) is False
+    assert exclude_from_capture(0) is False
