@@ -937,6 +937,8 @@ class MomentsRules(_Strict):
     posts_per_tick: int = Field(default=1, ge=0, le=5)  # 每次推进最多发几条
     comments_per_tick: int = Field(default=2, ge=0, le=10)  # 每次推进最多写几条评论
     max_comments: int = Field(default=3, ge=0, le=10)  # 成员在一条动态下最多评论几条
+    post_misses: int = Field(default=2, ge=1, le=10)  # 成员一天里动态几次没过自查就不再写
+    comment_misses: int = Field(default=2, ge=1, le=10)  # 一条动态底下几条评论没过自查就不再评
     like_chance: float = Field(default=0.4, ge=0, le=1)  # 每位成员给一条动态点赞的概率（不花钱）
     react_hours: int = Field(default=24, ge=1, le=168)  # 只对这么多小时内的动态点赞评论
     dedupe_hours: int = Field(default=48, ge=1, le=336)  # 和这么多小时内所有人的动态比对去重
@@ -994,6 +996,10 @@ class BusRules(_Strict):
     # 事件保留几天；None 为一直保留（攒经历数据，以后可能用来训练本地小模型；只存本机）
     keep_days: int | None = Field(default=None, ge=1, le=3650)
     catch_up_days: int = Field(default=14, ge=1, le=365)  # 开机补算最多往回看几天
+    # 聊天 / 生活的调用记录里整段提示词保留几天，之后只留最后一段的开头（回复、花费、token 不动）；
+    # None 为一直保留。30 天模拟里整段提示词占了库的四分之三
+    prompt_keep_days: int | None = Field(default=3, ge=1, le=3650)
+    prompt_keep_chars: int = Field(default=300, ge=0, le=5000)
 
 
 class EvalRules(_Strict):
@@ -1743,6 +1749,91 @@ class CareRules(_Strict):
     default_hotline: str = "当地的心理援助热线；有危险请马上打当地的急救电话"
 
 
+class GistRule(_Strict):
+    """一种语境：对方这条消息带这些附件（when）或这些词（words）就算。"""
+
+    kind: str
+    label: str
+    when: list[Literal["video", "image", "sticker", "card", "voice"]] = []
+    words: list[str] = []
+    unless: list[str] = []  # 带这些词就不算（比如「说真的」「别开玩笑」就不是在逗你）
+    react: str = ""  # 这种语境下人一般怎么回（写进意图卡）
+    quick: float = Field(default=0.0, ge=0, le=1)  # 只回一句万能短回复的基础概率（程序直接发）
+    sticker: float = Field(default=0.0, ge=0, le=1)  # 只回一个表情包的基础概率
+    pools: list[str] = []  # 万能短回复从哪几类里挑
+
+
+class TraitPick(_Strict):
+    """按性格分挑一种（base + (性格分 - 全员平均) × 系数）。"""
+
+    traits: dict[str, float] = {}
+    base: float = 0.0
+    line: str = ""
+    end: str | None = None  # 标点：句尾换成什么（None = 不动）
+    unit: str = ""  # 笑法：重复的字
+    head: str = ""
+    fixed: str = ""
+    min: int = Field(default=2, ge=1, le=10)
+    max: int = Field(default=4, ge=1, le=12)
+    items: list[str] = []  # 颜文字：这一组有哪些
+
+
+class TypoRules(_Strict):
+    chance: float = Field(default=0.03, ge=0, le=1)
+    tired: float = Field(default=2.0, ge=1, le=10)  # 精力低于 0.3 时 ×
+    careless: float = Field(default=0.4, ge=0, le=3)  # 较真每比平均低 1 分，× (1 + 它)
+    fix_base: float = Field(default=0.35, ge=0, le=1)  # 打错后补一条「*正字」的概率
+    fix_traits: dict[str, float] = {}
+    pairs: list[tuple[str, str]] = []
+
+
+class NickRules(_Strict):
+    care: float = Field(default=0.5, ge=0, le=1)  # 在乎到这么多才起外号、换称呼
+    chance: float = Field(default=0.3, ge=0, le=1)  # 够熟以后每天起的概率
+    hint: str = ""  # 档案里「熟了以后可能会叫……」的正则（第一个分组起是候选）
+
+
+class LearnRules(_Strict):
+    care: float = Field(default=0.45, ge=0, le=1)  # 在乎的人说的才学
+    times: int = Field(default=3, ge=1, le=50)  # 听到几次
+    chance: float = Field(default=0.4, ge=0, le=1)
+    forget_days: float = Field(default=30, gt=0, le=365)  # 这么久没用就忘了
+    keep: int = Field(default=4, ge=0, le=20)
+    slang: list[str] = []  # 会被学走的网络用语（另加每人的笑法、短回复、口头禅）
+
+
+class LingoRules(_Strict):
+    """说话的样子（docs/BRAIN.md「说话的样子」）：看懂语境、万能短回复、先反应再吐槽、
+    书面腔过滤、标点和笑法、打错字、个人颜文字、表情包脾气、语气变调、外号、跟人学、打比方。
+    全程序、不调模型；只用于生活群、私聊、成员互聊。8 位同一套规则，差别只来自档案和性格分。"""
+
+    enabled: bool = True
+    gist: list[GistRule] = []
+    notice: str = "你看懂了：对方{label}（心里明白就行，别说出来，别复述，别解释）"
+    shorts: dict[str, list[str]] = {}  # 万能短回复：类 → 词
+    shorts_each: int = Field(default=4, ge=1, le=20)  # 每类每人分到几个
+    quick_tired: float = Field(default=1.6, ge=1, le=5)  # 精力低时短回复概率 ×
+    quick_close: float = Field(default=1.3, ge=1, le=5)  # 和对方很熟时 ×
+    quick_quiet: float = Field(default=1.4, ge=1, le=5)  # 话少的人 ×
+    react_boost: float = Field(default=1.8, ge=1, le=10)  # 对方分享东西时「接话 / 开玩笑」的意图 ×
+    punct: dict[str, TraitPick] = {}
+    punct_hints: dict[str, list[str]] = {}  # 档案里写了这些词就定这种标点习惯
+    punct_chance: float = Field(default=0.6, ge=0, le=1)  # 发出前把句尾换成她的习惯的概率
+    laughs: dict[str, TraitPick] = {}
+    typo: TypoRules = TypoRules()
+    kaomoji: dict[str, TraitPick] = {}
+    kaomoji_each: int = Field(default=3, ge=1, le=10)
+    sticker_sets: dict[str, TraitPick] = {}  # 偏爱哪一套表情包（名字同 chat.actions.stickers）
+    battle: float = Field(default=0.5, ge=0, le=1)  # 群里上一条是表情包：幽默的人回表情包斗图
+    shift: dict[str, str] = {}  # 语气变调：tired / down / up / night / close / new / dislike
+    nick: NickRules = NickRules()
+    learn: LearnRules = LearnRules()
+    metaphor: str = ""  # 「打比方时爱拿{things}打比方」
+    formal: dict[str, str] = {}  # 书面词 → 口语（发出前直接换）
+    explain: list[str] = []  # 解释句的正则（发出前能删就删）
+    recap_chars: int = Field(default=8, ge=4, le=40)  # 和对方原话连着这么多字一样算复述
+
+
 class EngineRules(_Strict):
     """成员引擎（docs/MEMBER_ENGINE.md）：只用于聊天、朋友圈、生活；工作模式不读取。"""
 
@@ -1761,6 +1852,7 @@ class EngineRules(_Strict):
     relation: RelationRules = RelationRules()
     brain: BrainRules = BrainRules()
     care: CareRules = CareRules()
+    lingo: LingoRules = LingoRules()
 
 
 class WanderSite(_Strict):

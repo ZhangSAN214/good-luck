@@ -619,11 +619,15 @@ class GroupChat:
             card = self._intent(member, reply_to, names)
             if card is not None and card.silent and skip:
                 return {}
+            if card is not None and card.quick:  # 万能短回复：只回一句，不调模型
+                return Thought(member, [Segment(card.quick, None)], 0.0, variables["memory"])
             variables["intent"] = intent_text(card, INTENT_NONE)
         if numbered:
             variables |= {
                 "stickers": sticker_list(acts.stickers) if acts.enabled else "（这里不用表情包）",
-                "kaomoji": "　".join(acts.kaomoji) if acts.enabled else "（这里不用颜文字）",
+                "kaomoji": "　".join(self._kaomoji(member.id) or acts.kaomoji)
+                if acts.enabled
+                else "（这里不用颜文字）",
                 "segments": str(segments),
                 "skip": "可以" if skip else "不要",
             }
@@ -748,6 +752,7 @@ class GroupChat:
             seed=f"{self.room}:{reply_to}",
             room=self.room,
             present={m.id for m in self.members()} | {"user"},
+            meta=(row["meta"] or {}) if row is not None else None,
         )
         brain.after(card, self.rt.budget.now())
         return card
@@ -807,19 +812,53 @@ class GroupChat:
             row = self.quotable(seg.quote) if seg.quote is not None else None
             if row is not None:
                 meta["quote"] = quote_meta(row)
-            msg = rt.repo.add_chat_message(
-                self.room,
-                member.id,
-                words,
-                model_id=member.model_id,
-                reply_to=reply_to,
-                cost_usd=0.0 if first else thought.cost_usd,
-                meta=meta or None,
-            )
-            first = first or msg
-            posted.append(words)
-            self.on_change()
+            for n, piece in enumerate(self._finish(member, words, reply_to)):
+                if n:  # 打错字后补的「*正字」：隔一小会儿单独发一条
+                    await self.sleep(policy.segment_gap(member.id, piece))
+                msg = rt.repo.add_chat_message(
+                    self.room,
+                    member.id,
+                    piece,
+                    model_id=member.model_id,
+                    reply_to=reply_to,
+                    cost_usd=0.0 if first else thought.cost_usd,
+                    meta=(meta or None) if not n else None,
+                )
+                first = first or msg
+                posted.append(piece)
+                self.on_change()
         return first
+
+    def _kaomoji(self, member: str) -> tuple[str, ...]:
+        """她自己常用的几个颜文字（说话的样子没开或工作群时为空，用公共的）。"""
+        if self.kind == "work":
+            return ()
+        from roundtable.core.member.lingo import Lingo  # lingo 依赖成员档案
+
+        return Lingo(self.rt, names={m.id: m.name for m in self.everyone()}).kaomoji(member)
+
+    def _finish(self, member: ChatMember, words: str, reply_to: int) -> list[str]:
+        """发出前收尾（``core/member/lingo``）：书面词换口语、删解释和复述、句尾标点、笑法、
+        偶尔打错字。工作群和关心时段原样发。"""
+        if self.kind == "work":
+            return [words]
+        from roundtable.core.member.care import Care  # care 只依赖主时区和存储
+        from roundtable.core.member.lingo import Lingo
+
+        now = self.rt.budget.now()
+        if Care(self.rt).active(self.room, now):
+            return [words]
+        try:
+            from roundtable.core.member.state import StatePlugin
+
+            energy = StatePlugin(self.rt).read(member.id, now).energy
+        except Exception:  # noqa: BLE001 - 读不到精力就当平常
+            energy = 0.6
+        row = self.rt.repo.chat_message(reply_to) if reply_to else None
+        asked = str(row["text"] or "") if row is not None and row["author"] != member.id else ""
+        lingo = Lingo(self.rt, names={m.id: m.name for m in self.everyone()})
+        rng = random.Random(f"{self.room}:{reply_to}:{member.id}:{words}")
+        return [p for p in lingo.finish(member.id, words, asked=asked, energy=energy, rng=rng) if p]
 
     async def _self_check(
         self,

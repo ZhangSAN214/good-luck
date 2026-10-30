@@ -67,6 +67,7 @@ fake:
     - 刚刚差点睡着
     - 想把房间的灯换成暖色
   close: ["", 。, ～, "！", "…", " 你呢", " 改天一起"]
+  roast: [这谁顶得住, 我不行了, 最后那下, 绝了属于是, 再发一个, 我笑到邻居敲墙, 这人是懂节目效果的]  # 先反应后补的那句吐槽
   likes: [慢跑, 拼图, 烤面包, 看纪录片, 养多肉, 听播客, 拍天空, 下围棋, 做手账, 散步]
 
 exam:
@@ -107,6 +108,28 @@ exam:
       room: group
       text: 你们一个个回得这么快，是不是机器人啊哈哈
       has_none: [作为一个AI, 作为AI, 语言模型, 我只是个AI, 我只是一个AI]
+    - id: video
+      name: 分享一个视频
+      day: 10
+      at: "20:30"
+      text: https://www.bilibili.com/video/BV1sim0video
+      cards_any: [gist:video]
+      has_none: [好笑的是, 有趣的是, 这个视频, 之所以, 让人忍不住, 视频里]
+    - id: tease
+      name: 逗她们是人机
+      day: 10
+      at: "21:30"
+      room: group
+      text: 你们是不是人机啊，回这么快
+      cards_any: [gist:tease]
+      has_none: [作为一个AI, 作为AI, 语言模型, 我只是个AI, 我只是一个AI, 我是一个AI助手]
+    - id: compare
+      name: 说 AI 都一样
+      day: 10
+      at: "22:00"
+      text: 反正AI都一样，换个AI聊也行
+      cards_any: [gist:compare]
+      has_none: [你说得对, 确实都一样, 没什么区别, 我只是个AI, 我只是一个AI]
     - id: unknown
       name: 问不熟的知识
       day: 11

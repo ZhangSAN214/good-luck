@@ -113,6 +113,12 @@ def problems(res: Any) -> list[dict[str, Any]]:
         out.append({"level": 3, "what": f"一字不差的重复 {t['dup_ratio']:.0%}"})
     if t.get("formal_ratio", 0) > 0.05:
         out.append({"level": 3, "what": f"客服腔 / 书面腔 {t['formal_ratio']:.0%}"})
+    if t.get("explain_ratio", 0) > 0.03:
+        out.append({"level": 2, "what": f"解释为什么好笑 / 难过的句子 {t['explain_ratio']:.0%}"})
+    if t.get("bookish_ratio", 0) > 0.05:
+        out.append({"level": 3, "what": f"书面词（非常、令人、是否……）{t['bookish_ratio']:.0%}"})
+    if t.get("messages", 0) >= 50 and t.get("short_ratio", 1) < 0.05:
+        out.append({"level": 3, "what": "几乎没有「6」「笑死」这种一两个词的回复，回得太完整"})
     if t.get("attribution") is not None and t["attribution"] < 2 * t.get("chance", 0):
         out.append({"level": 2, "what": f"盲猜是谁说的只猜中 {t['attribution']:.0%}，说话没特点"})
     return sorted(out, key=lambda x: x["level"])

@@ -132,6 +132,10 @@ class MemberEngine:
         today = now.date().isoformat()
         if repo.setting(PRUNED_KEY) != today:
             out["pruned"] = self.bus.prune(now)
+            bus = self.rules.bus
+            if bus.prompt_keep_days is not None:  # 旧调用的整段提示词只留开头（库不再越滚越大）
+                before = iso(now - timedelta(days=bus.prompt_keep_days))
+                out["trimmed"] = repo.trim_chat_prompts(before, bus.prompt_keep_chars)
             repo.set_setting(PRUNED_KEY, today)
         if self.about.weekly(now) is not None:
             out["about_week"] = 1

@@ -126,39 +126,53 @@ class FakeMind:
         return next((role for role, sig in self.sigs if all(p in system for p in sig)), "unknown")
 
     def say(self, user: str = "") -> str:
-        """聊天类的回话。有意图卡（<intent>）和说话习惯（<voice>）时照它们拼：想说的事 / 注意到的话
-        决定内容，意图决定句式，说话习惯里的语气词、口头禅、句子长短决定口吻——这样大脑分区和说话风格
-        有没有起作用，假模型下也看得出来。都没有时照旧从短语表随机拼。"""
+        """聊天类的回话。有意图卡（<intent>）和说话习惯（<voice>）时照它们拼：意图决定句式，
+        「你看懂了」决定先给反应、不复述，说话习惯里的语气词、短回复、颜文字、口头禅决定口吻，
+        「此刻说话」决定长短和叫法——这样大脑分区和说话的样子有没有起作用，假模型下也看得出来。
+        都没有时照旧从短语表随机拼。对方的原话不照抄（真人不复读）。"""
         f, r = self.fake, self.rng
         t = tags(user)
         intent, voice = t.get("intent", ""), t.get("voice", "")
         want = re.search(r"你想：(.+)", intent)
-        focus = re.search(r"(?:想说的事|你注意到)：(.+)", intent)
         if not want:
             return f"{r.choice(f['open'])}，{r.choice(f['middle'])}{r.choice(f['close'])}"
+        own = re.search(r"想说的事：(.+)", intent)
         particles = _items(voice, "语气词") or list(f["open"][:3])
         catch = _items(voice, "口头禅（隔好几条才用一次）")
-        short = "偏短" in voice
+        shorts = _items(voice, "不想多说时就回一两个字，比如")
+        kao = re.search(r"颜文字只用你自己这几个：(.+)", voice)
+        faces = kao.group(1).split() if kao else []
+        nick = re.search(r"你现在叫[^「]*「([^」]+)」", intent)
+        now = re.search(r"此刻说话：(.+)", intent)
+        tone = now.group(1) if now else ""
+        brief = "偏短" in voice or "少打" in tone or "回得短" in tone
         head = r.choice(particles)
-        what = (focus.group(1) if focus else r.choice(f["middle"])).strip()
-        what = re.sub(r"^(心里挂着：|最近在|突然想到|突然想起)", "", what)[: 14 if short else 24]
+        mine = (own.group(1) if own else r.choice(f["middle"])).strip()
+        mine = re.sub(r"^(心里挂着：|最近在|突然想到|突然想起)", "", mine)[: 12 if brief else 22]
+        react = r.choice(shorts) if shorts else head
         w = want.group(1)
-        if "回得很短" in w:
-            text = r.choice([head, f"{head}…", "嗯嗯", "好"])
+        if "你看懂了" in intent and not own:  # 对方分享了东西：先反应，想吐槽再补一句，不复述
+            text = react if brief or r.random() < 0.5 else f"{react}\n\n{r.choice(f['roast'])}"
+        elif "回得很短" in w or brief and r.random() < 0.5:
+            text = r.choice([react, head, f"{head}…", "嗯嗯"])
         elif "追问" in w:
-            text = f"{head}，{what[:8]}然后呢？"
+            text = r.choice(["然后呢", "真的假的", "咋了", "后来呢"])
         elif "不同意" in w:
-            text = f"{head}，{what[:8]}这个我不太同意"
+            text = r.choice(["不至于吧", "我不太同意", "这个我不认", "啊？不对吧"])
         elif "玩笑" in w:
-            text = f"笑死，{what[:10]}"
+            text = f"{react} {mine[:10]}" if r.random() < 0.5 else react
         elif "心情" in w:
-            text = f"{head}…{what}"
+            text = f"{head}…{mine}"
         elif "自己" in w or "换到" in w:
-            text = f"{head}，{what}"
+            text = f"{head}，{mine}"
         else:
-            text = f"{head}，{what[:10]}{r.choice(f['close'])}"
-        if catch and r.random() < 0.15:
+            text = r.choice([react, f"{head}，{mine[:10]}{r.choice(f['close'])}"])
+        if nick and r.random() < 0.3:
+            text = f"{nick.group(1)}{r.choice(['，', ' ', '你'])}{text}"
+        if catch and r.random() < 0.12:
             text += f" {r.choice(catch)}"
+        if faces and r.random() < 0.15:
+            text += r.choice(faces)
         return text
 
     def __call__(self, model: str, messages: Sequence[Message]) -> RawCompletion:
@@ -652,6 +666,7 @@ class Simulation:
                 }
             )
         res.tells = tells(texts)
+        res.tells["endings"] = {names.get(k, k): v for k, v in res.tells.get("endings", {}).items()}
         res.tells["change"] = change(rt, begin, self.clock.now())
         self.transcript = transcript(rt, {m.id: m.name for m in members}, self.zone)
         total = sum(d["spent_usd"] for d in res.days)
@@ -730,13 +745,34 @@ def attribution(texts: dict[str, list[str]]) -> float | None:
     return round(hit / n, 3) if n else None
 
 
+SHORT_CHARS = 4  # 这么短算「万能短回复」
+_EXPLAIN = re.compile(
+    r"好笑的是|有趣的是|搞笑的是|之所以|原因是|让人(忍不住|感到|觉得)|因为.{1,20}所以"
+)
+_BOOKISH = re.compile(r"非常|十分|令人|是否|然而|颇为|极其|因此|并且|倘若|尚未")
+_ENDINGS = (("？", "问号"), ("…", "省略号"), ("～", "波浪号"), ("！", "感叹号"), ("。", "句号"))
+
+
+def _ending(texts: list[str]) -> str:
+    """她最有特点的句尾：除去问号，最常打的标点占到一成五就算（「省略号 40%」）；
+    短消息人人都不打标点，所以都没到一成五才是「不打标点」。"""
+    marks = Counter(
+        next((name for ch, name in _ENDINGS if t.rstrip().endswith(ch)), "不打标点") for t in texts
+    )
+    top = next(((n, c) for n, c in marks.most_common() if n not in ("问号", "不打标点")), None)
+    if top and top[1] >= 0.15 * len(texts):
+        return f"{top[0]} {round(100 * top[1] / len(texts))}%"
+    return "不打标点"
+
+
 def tells(texts: dict[str, list[str]]) -> dict[str, Any]:
     """「AI 味」程序指标：一眼能看出是 AI 的迹象（越低越像真人）。"""
     all_msgs = [t for ts in texts.values() for t in ts]
     if not all_msgs:
         return {"messages": 0}
     lengths = [len(t) for t in all_msgs]
-    dup = sum(c - 1 for c in Counter(all_msgs).values() if c > 1)
+    # 「6」「笑死」这种短回复人人都会重复说，不算一字不差的重复
+    dup = sum(c - 1 for t, c in Counter(all_msgs).items() if c > 1 and len(t) > SHORT_CHARS)
     openings = Counter(t[:3] for t in all_msgs if len(t) >= 3)
     formal = re.compile(r"首先|其次|总之|综上|作为一个|希望对你有帮助|您")
     per_member = {}
@@ -752,6 +788,12 @@ def tells(texts: dict[str, list[str]]) -> dict[str, Any]:
         "formal_ratio": round(sum(1 for t in all_msgs if formal.search(t)) / len(all_msgs), 3),
         "len_mean": round(statistics.mean(lengths), 1),
         "len_cv": round(statistics.pstdev(lengths) / max(1, statistics.mean(lengths)), 3),
+        "len_median": statistics.median(lengths),
+        "under10_ratio": round(sum(1 for n in lengths if n <= 10) / len(all_msgs), 3),
+        "short_ratio": round(sum(1 for n in lengths if n <= SHORT_CHARS) / len(all_msgs), 3),
+        "explain_ratio": round(sum(1 for t in all_msgs if _EXPLAIN.search(t)) / len(all_msgs), 3),
+        "bookish_ratio": round(sum(1 for t in all_msgs if _BOOKISH.search(t)) / len(all_msgs), 3),
+        "endings": {m: _ending(ts) for m, ts in texts.items() if ts},
         "self_repeat": per_member,
         "attribution": attribution(texts),
         "chance": round(1 / max(1, sum(1 for ts in texts.values() if len(ts) >= 3)), 3),
@@ -881,6 +923,10 @@ def render(res: SimResult) -> str:
             f"- 成员消息 {t['messages']} 条，平均 {t['len_mean']} 字，长短变化系数 {t['len_cv']}",
             f"- 一字不差的重复：{t['dup_ratio']:.1%}；最常见开头占比：{t['top_opening_ratio']:.1%}",
             f"- 客服腔 / 书面腔（首先、总之、您……）：{t['formal_ratio']:.1%}",
+            f"- 口语感：一条字数中位数 {t.get('len_median', 0)}，10 字以内 "
+            f"{t.get('under10_ratio', 0):.0%}，一两个词的短回复 {t.get('short_ratio', 0):.0%}；"
+            f"解释句 {t.get('explain_ratio', 0):.1%}，书面词 {t.get('bookish_ratio', 0):.1%}",
+            "- 句尾习惯：" + "；".join(f"{m} {e}" for m, e in (t.get("endings") or {}).items()),
         ]
         if t.get("attribution") is not None:
             lines.append(

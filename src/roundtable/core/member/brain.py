@@ -37,6 +37,7 @@ from roundtable.core.member import psyche
 from roundtable.core.member.bus import PERCEIVE, Event, EventBus
 from roundtable.core.member.care import Care
 from roundtable.core.member.human import Human
+from roundtable.core.member.lingo import Lingo
 from roundtable.core.member.love import USER, Heart
 from roundtable.core.member.mode import Mode, require_life
 from roundtable.core.member.profile import ProfileStore
@@ -74,6 +75,9 @@ class Thought:
     kind: str = "own"  # own：她自己的事；msg：别人刚说的；claim：别人说了个看法
 
 
+QUICK_INTENTS = frozenset({"respond", "joke"})  # 这几种意图才可能只回一句短的
+
+
 @dataclass(frozen=True)
 class IntentCard:
     member: str
@@ -88,6 +92,7 @@ class IntentCard:
     to: str = ""  # 对谁说（成员 id 或 "user"；主动开口时可能为空），爱与复合情绪结算用
     cues: tuple[str, ...] = ()  # 这张卡用上的附加提示（真说了才记进冷却）
     lean: str = ""  # 对方在哪条三观轴上和她相反（"轴|方向"），真说了才结算慢慢变
+    quick: str = ""  # 万能短回复：有就直接发这句，不调模型（lingo.py）
 
     @property
     def silent(self) -> bool:
@@ -138,6 +143,8 @@ class Brain:
         self.heart = Heart(rt, bus, names)
         # 人味（human.py）：知识边界、自己的时间、自我一致、八卦、时间纵深、小毛病、主动约人
         self.human = Human(rt, bus, names)
+        # 说话的样子（lingo.py）：看懂语境、万能短回复、语气变调、外号、跟人学、发出前收尾
+        self.lingo = Lingo(rt, bus, names)
         # buffer：先写在内存里、``flush()`` 时才落库（生活排日程时用，排出来的事真发生了才算数，
         # 同一段时间排两次结果一样）
         self.buffer = buffer
@@ -677,12 +684,14 @@ class Brain:
         mode: Mode | str = Mode.LIFE,
         room: str = "",
         present: Iterable[str] | None = None,
+        meta: dict[str, Any] | None = None,
     ) -> IntentCard | None:
         """说话前的综合：返回意图卡；没开启时返回 None（照旧说话）。群里不接时 ``silent``。
 
         ``room`` 是会话名：用户在这个会话里说出让人担心的话时，进入关心时段，返回关心卡
         （压过平时的一切，大脑分区关着也照样生效，见 ``care.py``）。
-        ``present`` 是在场的人（成员 id，用户为 ``"user"``）：不在场的才会想念。"""
+        ``present`` 是在场的人（成员 id，用户为 ``"user"``）：不在场的才会想念。
+        ``meta`` 是对方那条消息的附件信息（视频、图片、表情包、链接卡片），看懂语境用。"""
         require_life(mode)
         at = at or self.rt.budget.now()
         if room:
@@ -781,6 +790,10 @@ class Brain:
             weights[name] = max(w, 0.0)
         if not weights or sum(weights.values()) <= 0:
             weights = {"respond": 1.0} if last else {"share": 1.0}
+        gist = self.lingo.gist(last, meta) if last else None
+        if gist is not None and (gist.quick or gist.sticker):  # 别人分享东西：人一般先给反应
+            for name in QUICK_INTENTS & set(weights):
+                weights[name] *= self.lingo.rules.react_boost
         chosen = rng.choices(list(weights), list(weights.values()))[0]
         pool = mine
         if chosen in ("share", "shift", "vent"):
@@ -797,6 +810,33 @@ class Brain:
             pool = [t for t in mine if t.kind != "own"] or mine
         focus = self.spotlight(pool, rng)
         text = self._card(chosen, focus, mood, energy, s, rng)
+        # 说话的样子：看懂了什么（别说出来）、此刻怎么说话（变调、叫法、斗图）
+        if gist is not None and gist.kind != "chat":
+            tags.append(f"gist:{gist.kind}")
+        notice = self.lingo.notice(gist)
+        if notice:
+            text = f"{text}\n{notice}"
+        to_view = self.heart.view(member, to, at) if to else {}
+        battle = (
+            group
+            and gist is not None
+            and gist.kind == "sticker"
+            and _num(base_traits.get("幽默", 3)) >= 4
+            and rng.random() < self.lingo.rules.battle
+        )
+        how = self.lingo.card_line(
+            member,
+            to,
+            mood=mood,
+            energy=energy,
+            care=float(to_view.get("care", 0.0)),
+            dislike=float(to_view.get("dislike", 0.0)),
+            at=at,
+            rng=rng,
+            battle=battle,
+        )
+        if how:
+            text = f"{text}\n此刻说话：{how}"
         # 附加提示（察觉、感情、特质）：最多 max_cues 句；说出口过的隔 cooldown_cards 张卡才再用
         budget, cues = self.rules.max_cues, []
         cool = set(s.used[-self.rules.cooldown_cards :]) if self.rules.cooldown_cards else set()
@@ -851,9 +891,32 @@ class Brain:
             tags.append(tag)
             cues.append(key)
             budget -= 1
+        quick = ""
+        if chosen in QUICK_INTENTS and not hurt:  # 万能短回复：只回一句，程序直接发
+            quick = self.lingo.quick(
+                member,
+                gist,
+                energy=energy,
+                care=float(to_view.get("care", 0.0)),
+                quiet=_num(base_traits.get("外向", 3)) <= 2,
+                rng=rng,
+            )
+            if quick:
+                tags.append("quick")
         self._save(member, s)  # 只存随时间长的驱力；候选卡的其余影响等 after 再结算
         return IntentCard(
-            member, chosen, text, focus, sal, tuple(tags), noticed, expect, to, tuple(cues), lean
+            member,
+            chosen,
+            text,
+            focus,
+            sal,
+            tuple(tags),
+            noticed,
+            expect,
+            to,
+            tuple(cues),
+            lean,
+            quick,
         )
 
     def _closeness(self, member: str, other: str, at: datetime) -> float:

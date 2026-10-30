@@ -322,34 +322,40 @@ class LifeEngine:
             if self.guard.room_left() == 0:
                 self.guard.note_cap()
                 break
-            others = "、".join(s.name for s in speakers if s.id != member.id)
-            prompt = rt.prompts.render(
-                "life_chat",
-                rt.config.roundtable.prompts["life_chat"],
-                name=member.name,
-                others=others,
-                scene=p.topic,
-                persona=chat_persona(rt, member.id),
-                voice=voice_for(rt, member.id, "life", seed=turn + len(earlier)),
-                memory=member_memory(
-                    rt, member.id, f"{p.topic}\n{chat.history(names)}", p.room or ROOM
-                ),
-                history=chat.history(names),
-                **self.intent_vars(card),
-            )
-            prompt = plain_prompt(rt.prompts, rt.config, prompt)
-            completion = await call_member(
-                rt,
-                room=chat.room,
-                model_id=member.model_id,
-                prompt=prompt,
-                step="life",
-                params=params,
-                estimate_usd=rules.estimate_usd,
-            )
-            if completion is None:
-                break
-            text = clean_reply(completion.text, member.name, rt.config.roundtable.chat.max_chars)
+            cost = 0.0
+            if card is not None and card.quick:  # 万能短回复：只回一句，不调模型
+                text = card.quick
+            else:
+                others = "、".join(s.name for s in speakers if s.id != member.id)
+                prompt = rt.prompts.render(
+                    "life_chat",
+                    rt.config.roundtable.prompts["life_chat"],
+                    name=member.name,
+                    others=others,
+                    scene=p.topic,
+                    persona=chat_persona(rt, member.id),
+                    voice=voice_for(rt, member.id, "life", seed=turn + len(earlier)),
+                    memory=member_memory(
+                        rt, member.id, f"{p.topic}\n{chat.history(names)}", p.room or ROOM
+                    ),
+                    history=chat.history(names),
+                    **self.intent_vars(card),
+                )
+                prompt = plain_prompt(rt.prompts, rt.config, prompt)
+                completion = await call_member(
+                    rt,
+                    room=chat.room,
+                    model_id=member.model_id,
+                    prompt=prompt,
+                    step="life",
+                    params=params,
+                    estimate_usd=rules.estimate_usd,
+                )
+                if completion is None:
+                    break
+                limit = rt.config.roundtable.chat.max_chars
+                text = clean_reply(completion.text, member.name, limit)
+                cost = completion.cost_usd or 0.0
             text = self.guard.clip(text)
             if not text:
                 break
@@ -377,6 +383,11 @@ class LifeEngine:
             text = await before_speaking(
                 rt, text, room=chat.room, name=member.name, model_id=member.model_id
             )
+            # 说话的样子：书面词换口语、删解释和复述、句尾标点、笑法（互聊里不补「*正字」）
+            asked = spoken[-1][1] if spoken else ""
+            text = brain.lingo.finish(
+                member.id, text, asked=asked, rng=random.Random(f"{p.room}:{turn}:{member.id}")
+            )[0]
             spoken.append((member.id, text))
             earlier.append(text)
             brain.after(card, at)
@@ -387,7 +398,7 @@ class LifeEngine:
                 member.id,
                 text,
                 model_id=member.model_id,
-                cost_usd=completion.cost_usd or 0.0,
+                cost_usd=cost,
                 meta={"life": True, "offline": offline},
                 created_at=iso(when),
             )

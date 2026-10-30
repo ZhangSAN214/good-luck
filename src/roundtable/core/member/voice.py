@@ -184,8 +184,11 @@ def _sticker_habit(voice: Voice, rules: Any) -> str:
     return habits[min(i, len(habits) - 1)]
 
 
-def voice_text(voice: Voice, rules: Any, room_kind: str, seed: int = 0) -> str:
-    """提示词里「说话习惯」那一段（≤ budget_chars 字）。seed 决定这次带哪几句示范。"""
+def voice_text(
+    voice: Voice, rules: Any, room_kind: str, seed: int = 0, extra: tuple[str, ...] = ()
+) -> str:
+    """提示词里「说话习惯」那一段（≤ budget_chars 字）。seed 决定这次带哪几句示范；
+    extra 是「说话的样子」给的打字习惯（标点、笑法、短回复、颜文字……），排在示范句前面。"""
     mode = rules.modes.get(voice.mode)
     lines: list[str] = []
     if voice.length:
@@ -205,6 +208,7 @@ def voice_text(voice: Voice, rules: Any, room_kind: str, seed: int = 0) -> str:
         lines.append(f"表情：{emoji}{habit}".rstrip("；"))
     if voice.self_name:
         lines.append(f"自称：{voice.self_name}")
+    lines += list(extra)
     if voice.samples and rules.samples:
         picks = random.Random(seed).sample(
             list(voice.samples), min(rules.samples, len(voice.samples))
@@ -226,7 +230,16 @@ def voice_for(rt: Any, member: str, kind: str, seed: int = 0) -> str:
     voice = member_voice(rt, member)
     if voice.empty:
         return NO_VOICE
-    return voice_text(voice, rt.config.roundtable.chat.engine.voice, kind, seed) or NO_VOICE
+    rules = rt.config.roundtable.chat.engine.voice
+    return voice_text(voice, rules, kind, seed, _lingo_lines(rt, member)) or NO_VOICE
+
+
+def _lingo_lines(rt: Any, member: str) -> tuple[str, ...]:
+    from roundtable.core.chat import chat_members  # chat 只在函数里引用本模块
+    from roundtable.core.member.lingo import Lingo
+
+    names = {m.id: m.name for m in chat_members(rt.config, set())}
+    return tuple(Lingo(rt, names=names).voice_lines(member))
 
 
 # --- 节奏 -------------------------------------------------------------------------
@@ -256,7 +269,9 @@ class VoicePolicy(DefaultPolicy):
         if room_kind not in LIFE_ROOMS:
             return ""
         voice = member_voice(self.rt, member)
-        return "" if voice.empty else voice_text(voice, self.voice_rules, room_kind, seed)
+        if voice.empty:
+            return ""
+        return voice_text(voice, self.voice_rules, room_kind, seed, _lingo_lines(self.rt, member))
 
 
 # --- 说出口前自查 -----------------------------------------------------------------

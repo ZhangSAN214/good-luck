@@ -71,8 +71,21 @@ def test_attribution_tells_distinct_voices():
 
 def test_tokens_and_tells():
     assert tokens_of("你好") == 2 and tokens_of("abcdefgh") == 2
-    t = tells({"a": ["嗯，好的", "嗯，好的", "首先我们来看"], "b": ["哈哈"]})
+    t = tells({"a": ["嗯，好的呀", "嗯，好的呀", "首先我们来看"], "b": ["哈哈"]})
     assert t["messages"] == 4 and t["dup_ratio"] == 0.25 and t["formal_ratio"] == 0.25
+    assert tells({"a": ["6", "6", "6"]})["dup_ratio"] == 0  # 短回复人人都会重复说
+
+
+def test_colloquial_tells():
+    t = tells(
+        {
+            "a": ["笑死", "好笑的是他摔了", "这个非常经典。"],
+            "b": ["然后呢？", "我也觉得…", "6"],
+        }
+    )
+    assert t["short_ratio"] == round(3 / 6, 3) and t["explain_ratio"] == round(1 / 6, 3)
+    assert t["bookish_ratio"] == round(1 / 6, 3) and t["under10_ratio"] == 1.0
+    assert t["endings"] == {"a": "句号 33%", "b": "省略号 33%"}
 
 
 async def test_two_days_fake_run_is_isolated_and_reports(tmp_path):
