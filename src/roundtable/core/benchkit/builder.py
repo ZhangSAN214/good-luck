@@ -43,6 +43,9 @@ from roundtable.core.jsonout import JSONOutputError, extract_json_object
 from roundtable.core.supercomputer.scoring import excluded
 
 RECENT = 10
+# 写完自测：只开一种屏宽，只管这几项低级错误
+SELFTEST_VIEWPORTS = (("电脑", 1280, 860),)
+SELFTEST_CHECKS = ("页面报错", "窗口没用零件库")
 Check = Callable[..., Report]
 
 
@@ -251,6 +254,7 @@ class BenchBuilder:
             b["status"] = "building"
             self._log(b, f"规格：{spec.title}，{len(spec.windows)} 个窗口")
             await asyncio.gather(*(self._write(b, spec, w, rng) for w in b["windows"]))
+            await self._selftest(b, spec, rng)
             for n in range(1, self.rules.max_rounds + 1):
                 b["status"] = "checking"
                 ok = await self._round(b, spec, n, rng)
@@ -502,6 +506,35 @@ class BenchBuilder:
         )
         return rnd["passed"]
 
+    async def _selftest(self, b: dict[str, Any], spec: Spec, rng: random.Random) -> None:
+        """写完先自测一遍（只开电脑·浅色，几秒钟）：脚本报错、没用零件库这种低级问题当场交回作者改，
+        不占评审轮次，也不让评审拿着坏页面打分。"""
+        folder = self.folder(b["id"])
+        try:
+            report = await asyncio.to_thread(
+                self.check,
+                str(folder / "index.html"),
+                folder / "report" / "selftest",
+                viewports=SELFTEST_VIEWPORTS,
+                modes=("light",),
+            )
+        except QualityError as exc:
+            raise RuntimeError(f"自动质检没法进行：{exc}") from None
+        report.findings += lint_windows(folder, [w["id"] for w in b["windows"]])
+        bad = [
+            f.__dict__
+            for f in report.findings
+            if f.severity == "block" and f.check in SELFTEST_CHECKS and f.windows
+        ]
+        b["selftest"] = {"findings": bad}
+        if not bad:
+            self._log(b, "写完自测：没有低级错误")
+            return
+        names = "、".join(sorted({w for f in bad for w in f["windows"]}))
+        self._log(b, f"写完自测：{names} 有低级错误，交回作者先改")
+        b["status"] = "reworking"
+        await self._rework(b, spec, 0, rng, rnd={"check": {"findings": bad}}, only_flagged=True)
+
     def _problems_for(self, rnd: dict[str, Any], wid: str) -> str:
         lines: list[str] = []
         check = rnd.get("check") or {}
@@ -520,12 +553,20 @@ class BenchBuilder:
                 lines.append(f"- [评审总评] {rec['summary']}")
         return "\n".join(lines)
 
-    async def _rework(self, b: dict[str, Any], spec: Spec, n: int, rng: random.Random) -> None:
-        rnd = b["rounds"][-1]
+    async def _rework(
+        self,
+        b: dict[str, Any],
+        spec: Spec,
+        n: int,
+        rng: random.Random,
+        rnd: dict[str, Any] | None = None,
+        only_flagged: bool = False,
+    ) -> None:
+        rnd = rnd if rnd is not None else b["rounds"][-1]
         jobs = []
         for rec in b["windows"]:
             problems = self._problems_for(rnd, rec["id"])
-            if not problems and rec["status"] == "done":
+            if not problems and (rec["status"] == "done" or only_flagged):
                 continue
             w = spec.window(rec["id"])
             assert w is not None
@@ -560,4 +601,5 @@ class BenchBuilder:
             rec["author"], rec["status"] = chosen.id, "done"
             rec["summary"] = result.output.strip()[-2000:] or rec["summary"]
         done = "完成" if rec["status"] == "done" else "没成"
-        self._log(b, f"第 {n} 轮返工「{rec['title']}」{done}")
+        stage = f"第 {n} 轮返工" if n else "自测后返工"
+        self._log(b, f"{stage}「{rec['title']}」{done}")
