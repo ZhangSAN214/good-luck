@@ -45,6 +45,7 @@ MIN_TAP_PX = 32.0
 # 生成的工作台：手机上一个窗口卡片最多几屏高（超过建议修 / 必须修）
 WINDOW_WARN_SCREENS = 2.0
 WINDOW_BLOCK_SCREENS = 4.0
+ERROR_WINDOW = re.compile(r"窗口 ([a-z0-9-]+) 出错")
 BAD_TEXT = ("undefined", "NaN", "[object Object]", "null null", "Infinity")
 
 # 在页面里跑的测量脚本：只读，返回原始数据，判定在 Python 里做
@@ -209,7 +210,9 @@ def evaluate(
         out.append(Finding(check, severity, where, detail, wins))
 
     if errors:
-        add("页面报错", "block", "；".join(e[:120] for e in errors[:3]))
+        # 生成的工作台：外壳把窗口的错误记成「窗口 xxx 出错：…」，据此交回那个窗口的作者
+        wins = [{"win": m.group(1)} for e in errors for m in [ERROR_WINDOW.search(e)] if m]
+        add("页面报错", "block", "；".join(e[:160] for e in errors[:3]), wins)
     if (probe.get("charset") or "").upper() != "UTF-8":
         add(
             "没有声明编码",

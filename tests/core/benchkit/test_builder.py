@@ -390,3 +390,32 @@ def test_spec_keeps_shared_facts_and_event_contract(tmp_path):
     raw["shared"] = {"x": "长" * 7000}
     with pytest.raises(SpecError):
         normalize(raw, max_windows=8)
+
+
+async def test_selftest_sends_broken_window_back_before_review(tmp_path):
+    calls = []
+
+    def check(target, out_dir=None, **kw):
+        calls.append((Path(out_dir).name, kw.get("viewports")))
+        r = fake_check()(target, out_dir, **kw)
+        if Path(out_dir).name == "selftest":
+            r.findings = [
+                Finding("页面报错", "block", "电脑·浅色", "窗口 plan 出错：SyntaxError", ["plan"]),
+                Finding("字太小", "warn", "电脑·浅色", "11px", ["budget"]),  # 自测只管低级错误
+            ]
+        return r
+
+    sc = FakeSC()
+    b = make(tmp_path, sc, check=check)
+    build = b.submit("旅行台")
+    await b.wait()
+    assert build["status"] == "done", build["log"]
+    assert calls[0][0] == "selftest" and len(calls[0][1]) == 1  # 自测只开一种屏宽
+    roles = [json.loads(p)["role"] for p in sc.prompts]
+    first_review = roles.index("bench_review")
+    reworks = [
+        json.loads(p) for p in sc.prompts[:first_review] if json.loads(p)["role"] == "bench_rework"
+    ]
+    assert len(reworks) == 1 and "SyntaxError" in reworks[0]["problems"]
+    assert reworks[0]["file"] == "windows/plan.js"
+    assert any("自测" in x["text"] for x in build["log"])

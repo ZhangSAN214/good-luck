@@ -220,3 +220,8 @@ def test_long_windows_on_phone():
     p = probe(height=844, windows=[{"id": "list", "h": 844 * 2.5}])
     assert checks(run(p, phone=True))["窗口太长"] == "warn"
     assert "窗口太长" not in checks(run(p, phone=False))  # 只看手机
+
+
+def test_page_errors_name_their_window():
+    f = next(x for x in run(probe(), errors=["窗口 trip-setup 出错：SyntaxError", "别的错"]))
+    assert f.check == "页面报错" and f.windows == ["trip-setup"]
