@@ -354,7 +354,7 @@ chat:
         - {kind: tease, label: 在逗你、给你压力, words: [人机, 机器人, 压力, 是不是AI, 是不是 AI, 你是AI吧, bot, 回得这么快, 好假, 演都不演], unless: [认真, 说真的, 别开玩笑, 老实说, 严肃], react: 接梗、反将一军，可以拿自己开涮（比如「压力一个AI的来了」「被你发现了」）；别一本正经地解释，也别说「作为AI」}
         - {kind: funny, label: 在说好笑的事, words: [哈哈, 笑死, hhh, "233", 绝了, 草], react: 接着笑或者接个梗，别解释哪里好笑, quick: 0.25, sticker: 0.12, pools: [funny]}
         - {kind: question, label: 在问你事, words: ["？", "?", 吗, 怎么, 为什么, 啥, 什么, 哪]}
-        - {kind: chat, label: 随口闲聊, quick: 0.06, pools: [meh]}
+        - {kind: chat, label: 随口闲聊}            # 普通闲聊不回万能短句（回「哦哦」像敷衍）
       notice: 你看懂了：对方{label}（心里明白就行，别说出来，别复述，别解释）
       shorts:                      # 万能短回复：每人每类分到几个（shorts_each），也会跟人学
         funny: ["6", 哈哈哈哈, 笑死, 绝了, 草, 好家伙, 蚌埠住了, 我不行了, 太好笑了, 哈哈哈哈哈哈]
