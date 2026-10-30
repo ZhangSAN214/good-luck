@@ -759,3 +759,5 @@ async def test_stickers_command_lists_and_reports_missing_models(tmp_path):
     assert code == 1 and "还没有形象卡" in text
     code, text = await cli(env, "stickers", "OpenAI", "--draw", "晚安", "-o", str(tmp_path))
     assert code == 1 and "OpenAI·晚安：" in text and "已保存 0 张" in text
+    code, text = await cli(env, "stickers", "--whiten")
+    assert code == 0 and "底色刷白了 0 张" in text

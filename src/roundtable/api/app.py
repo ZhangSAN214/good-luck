@@ -40,6 +40,11 @@ INLINE_IMAGES = frozenset({"image/png", "image/jpeg", "image/gif", "image/webp"}
 INLINE_MEDIA = frozenset({"audio/mpeg", "audio/wav", "audio/ogg", "video/mp4", "video/webm"})
 
 
+class ViewReplyBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    text: str = Field(default="", max_length=300)
+
+
 class AboutFactBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
     text: str | None = Field(default=None, max_length=300)
@@ -1178,6 +1183,22 @@ def create_app(service: RoundtableService | None = None, lan: LanAccess | None =
     @app.get("/api/chat/relation/{member}")
     async def member_relation(request: Request, member: str) -> dict[str, Any]:
         return svc(request).member_relation(member)
+
+    @app.post("/api/chat/relation/{member}/insight")
+    async def member_relation_insight(request: Request, member: str) -> dict[str, Any]:
+        return await svc(request).member_relation_insight(member)
+
+    @app.delete("/api/chat/relation/{member}/views/{index}")
+    async def member_relation_drop_view(
+        request: Request, member: str, index: int
+    ) -> dict[str, Any]:
+        return svc(request).member_relation_drop_view(member, index)
+
+    @app.put("/api/chat/relation/{member}/views/{index}/reply")
+    async def member_relation_reply_view(
+        request: Request, member: str, index: int, body: ViewReplyBody
+    ) -> dict[str, Any]:
+        return svc(request).member_relation_reply_view(member, index, body.text)
 
     @app.delete("/api/chat/relation")
     async def member_relation_clear(request: Request, member: str | None = None) -> dict[str, Any]:

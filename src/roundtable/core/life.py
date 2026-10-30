@@ -40,7 +40,16 @@ LAST_TICK_KEY = "life.last_tick"
 PAIR_PREFIX = "pair:"
 GATHER = frozenset({"eat", "exercise", "chat", "game", "stargaze"})
 WEEKDAYS = "一二三四五六日"
-LIFE_STEPS = ("life", "memory", SHARE_STEP, SEARCH_STEP, MOMENT_STEP, "wander", "growth")
+LIFE_STEPS = (
+    "life",
+    "memory",
+    SHARE_STEP,
+    SEARCH_STEP,
+    MOMENT_STEP,
+    "wander",
+    "growth",
+    "relation",
+)
 
 
 def pair_room(a: str, b: str) -> str:
