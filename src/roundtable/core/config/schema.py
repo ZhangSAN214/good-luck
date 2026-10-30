@@ -1852,6 +1852,36 @@ class SupercomputerRules(_Strict):
         return self
 
 
+class BenchNetService(_Strict):
+    """生成的工作台能联网取的一项公开数据（2026-10-30 用户批：只用免费、公开、不要 key 的）。
+
+    ``url`` 里的 ``{名字}`` 由窗口传参数填（会做网址编码）；``kind: tiles`` 是地图底图，
+    ``{z}/{x}/{y}`` 由地图零件自己填。``also`` 是这项服务还会用到的别的网址（例如图片所在的域名）。
+    名单之外的网址，沙箱一律拦下。"""
+
+    name: str = Field(pattern=r"^[a-z][a-z0-9_-]{1,30}$")
+    use: str = Field(min_length=1, max_length=80)  # 给助手看：这项数据能干什么
+    url: str = Field(pattern=r"^https://[^\s/]+/")
+    source: str = Field(min_length=1, max_length=60)  # 界面上标的来源
+    kind: str = Field(default="json", pattern=r"^(json|tiles)$")
+    also: list[str] = Field(default_factory=list, max_length=4)
+    ttl_min: int = Field(default=60, ge=0, le=7 * 24 * 60)  # 本机缓存几分钟
+
+    @field_validator("url", "also")
+    @classmethod
+    def _no_key(cls, v: Any) -> Any:
+        for u in [v] if isinstance(v, str) else v:
+            if not str(u).startswith("https://"):
+                raise ValueError("只能用 https 网址")
+            if re.search(r"(?i)(api[_-]?key|token|secret|password)=", str(u)):
+                raise ValueError("只能用不要 key 的公开服务，网址里不能带 key")
+        return v
+
+    @property
+    def origins(self) -> list[str]:
+        return [re.match(r"^https://[^/]+", u).group(0) for u in [self.url, *self.also]]
+
+
 class BenchRules(_Strict):
     """工作台生成器（docs/KIT.md）：一句话 → 拆需求 → 按零件库拼窗口 → 质检 + 截图评审 → 打回重做。
 
@@ -1879,6 +1909,11 @@ class BenchRules(_Strict):
             *("空状态与边界", "文案", "商业感"),
         ]
     )
+    # 底线标准（2026-10-30 用户：参考资料展示的是他的底线）：每个台都要逐条做到，
+    # 和用户这句话拆出来的要求一起进验收清单，有一条没做到就不算过线
+    baseline: list[str] = Field(default_factory=list, max_length=12)
+    max_requirements: int = Field(default=12, ge=1, le=24)  # 从用户这句话里最多拆几条要求
+    net: list[BenchNetService] = Field(default_factory=list, max_length=12)  # 空 = 成品不能联网
 
 
 class DshRules(_Strict):

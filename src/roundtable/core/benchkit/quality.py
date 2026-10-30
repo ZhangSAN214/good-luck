@@ -370,9 +370,10 @@ class _Handler(http.server.SimpleHTTPRequestHandler):
         pass
 
 
-def _gate(local_hosts: tuple[str, ...], route, _request=None) -> None:
-    """不联网：本机以外的请求一律中止。"""
-    if (urlsplit(route.request.url).hostname or "") in local_hosts:
+def _gate(local_hosts: tuple[str, ...], allow: tuple[str, ...], route, _request=None) -> None:
+    """只放行本机和 allow 里的网址（工作台配置里的公开数据，如地图底图、天气），其余一律中止。"""
+    u = route.request.url
+    if (urlsplit(u).hostname or "") in local_hosts or any(u.startswith(o + "/") for o in allow):
         route.continue_()
     else:
         route.abort()
@@ -398,6 +399,7 @@ def run_check(
     viewports: tuple[tuple[str, int, int], ...] = VIEWPORTS,
     modes: tuple[str, ...] = MODES,
     settle_ms: int = 900,
+    allow: tuple[str, ...] = (),
 ) -> Report:
     """质检一个页面：本地 .html 文件（自带一个只在本机的静态服务）或 http(s) 地址。"""
     try:
@@ -448,7 +450,7 @@ def run_check(
                     lambda m, errors=errors: errors.append(m.text) if m.type == "error" else None,
                 )
 
-                page.route("**/*", functools.partial(_gate, local_hosts))
+                page.route("**/*", functools.partial(_gate, local_hosts, tuple(allow)))
                 try:
                     page.goto(url, wait_until="load", timeout=20000)
                     page.wait_for_timeout(settle_ms)

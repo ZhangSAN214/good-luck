@@ -52,6 +52,13 @@
 .bg-steps li.skip{opacity:.55}
 .bg-steps li.now{color:#eceff3;background:var(--hb-ink-hi);box-shadow:var(--hb-edge)}
 .bg-frame{width:100%;min-height:min(78vh,860px);border:0;border-radius:24px;background:#fff}
+.bg-reqs{list-style:none;margin:8px 0;padding:0;display:grid;gap:4px}
+.bg-reqs li{position:relative;padding:4px 0 4px 26px;font-size:13px;line-height:1.5}
+.bg-reqs .bg-mark{position:absolute;left:4px;top:4px;font-weight:700}
+.bg-reqs .bg-met .bg-mark{color:var(--ok)}
+.bg-reqs .bg-miss .bg-mark{color:var(--warn)}
+.bg-reqs .bg-src{font-size:12px;opacity:.7}
+.bg-back{margin:4px 0}
 .bg-scores{list-style:none;margin:8px 0;padding:0;display:grid;gap:6px;grid-template-columns:repeat(auto-fill,minmax(220px,1fr))}
 .bg-scores li{display:grid;grid-template-columns:6em 1fr 2.6em;align-items:center;gap:8px;font-size:13px}
 .bg-bar{height:6px;border-radius:999px;background:rgba(255,255,255,.08);overflow:hidden}

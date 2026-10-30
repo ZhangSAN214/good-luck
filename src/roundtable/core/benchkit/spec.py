@@ -73,6 +73,11 @@ class Spec:
     # 几个窗口一起读写的用户数据（行程里加了什么、记了哪些账……）：键 → 结构和谁来改。
     # 都放在 ctx.state 里，谁改了大家都看得到，不各存一份（「已加入」两边对不上就是各存一份）
     state: dict[str, str] = field(default_factory=dict)
+    # 验收清单：用户这句话拆出来的要求（r1、r2……）和底线标准（b1、b2……），每条写怎么检查、
+    # 归哪几个窗口负责。评审逐条判做到没有，有一条没做到就不过线
+    requirements: list[dict[str, Any]] = field(default_factory=list)
+    # 主视觉窗口（地图、3D、图纸、照片这类真素材）：排在最前面、占大半屏
+    hero: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -89,7 +94,52 @@ def _text(v: Any, limit: int) -> str:
     return re.sub(r"\s+", " ", str(v or "")).strip()[:limit]
 
 
-def normalize(raw: dict[str, Any], *, max_windows: int) -> Spec:
+def _requirements(
+    raw: Any, seen: set[str], baseline: list[str], max_requirements: int
+) -> list[dict[str, Any]]:
+    """用户的要求编号 r1…，底线编号 b1…；底线以配置为准（拆需求的助手只能补「怎么检查、归谁」）。"""
+    items = [x for x in (raw if isinstance(raw, list) else []) if isinstance(x, dict)]
+    own = [x for x in items if not str(x.get("id") or "").startswith("b")]
+    out: list[dict[str, Any]] = []
+
+    def wins(x: dict[str, Any]) -> list[str]:
+        got = [_ID.sub("-", str(w).lower()).strip("-") for w in (x.get("windows") or [])]
+        return [w for w in got if w in seen][:8]
+
+    for x in own:
+        text = _text(x.get("text"), 160)
+        if text and len(out) < max_requirements:
+            out.append(
+                {
+                    "id": f"r{len(out) + 1}",
+                    "source": "你的要求",
+                    "text": text,
+                    "check": _text(x.get("check"), 200),
+                    "windows": wins(x),
+                }
+            )
+    by_id = {str(x.get("id")): x for x in items}
+    for n, text in enumerate(baseline, 1):
+        x = by_id.get(f"b{n}", {})
+        out.append(
+            {
+                "id": f"b{n}",
+                "source": "底线",
+                "text": text,
+                "check": _text(x.get("check"), 200),
+                "windows": wins(x),
+            }
+        )
+    return out
+
+
+def normalize(
+    raw: dict[str, Any],
+    *,
+    max_windows: int,
+    baseline: list[str] | None = None,
+    max_requirements: int = 12,
+) -> Spec:
     """校验并修正：id 规范且不重复、零件和图标只留认得的、span 限在 3～12、窗口数不超上限。"""
     m = manifest()
     part_names = {p["name"] for p in m["parts"]}
@@ -164,6 +214,16 @@ def normalize(raw: dict[str, Any], *, max_windows: int) -> Spec:
         key = re.sub(r"[^a-zA-Z0-9_-]+", "", str(k))[:30]
         if key and len(state) < STATE_MAX:
             state[key] = _text(v, 200)
+    hero = _ID.sub("-", str(raw.get("hero") or "").lower()).strip("-")
+    if hero in seen:
+        # 主视觉排最前、占大半屏（参考资料里地图、3D、图纸都是画面的主体）
+        windows.sort(key=lambda w: w.id != hero)
+        windows[0].span = max(windows[0].span, 8)
+    else:
+        hero = ""
+    requirements = _requirements(
+        raw.get("requirements"), seen, list(baseline or []), max_requirements
+    )
     return Spec(
         title=title,
         subtitle=_text(raw.get("subtitle"), 60),
@@ -174,6 +234,8 @@ def normalize(raw: dict[str, Any], *, max_windows: int) -> Spec:
         shared=shared,
         events=events[:12],
         state=state,
+        requirements=requirements,
+        hero=hero,
     )
 
 
@@ -193,6 +255,7 @@ def shell_html(spec: Spec, bench_id: str) -> str:
         _fill(
             card,
             span=w.span,
+            hero=" k-hero" if w.id == spec.hero else "",
             id=w.id,
             icon=e(w.icon),
             title=e(w.title),
@@ -211,7 +274,9 @@ def shell_html(spec: Spec, bench_id: str) -> str:
     )
 
 
-def write_shell(folder: Path, spec: Spec, bench_id: str) -> Path:
+def write_shell(
+    folder: Path, spec: Spec, bench_id: str, net: list[dict[str, Any]] | None = None
+) -> Path:
     folder.mkdir(parents=True, exist_ok=True)
     (folder / "windows").mkdir(exist_ok=True)
     (folder / "data").mkdir(exist_ok=True)
@@ -220,6 +285,10 @@ def write_shell(folder: Path, spec: Spec, bench_id: str) -> Path:
     )
     (folder / "data" / "_shared.json").write_text(
         json.dumps(spec.shared, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    # 能联网取的公开数据（名字、用途、网址模板、来源）：窗口经 ctx.net 取，地图零件自动用底图
+    (folder / "data" / "_net.json").write_text(
+        json.dumps(net or [], ensure_ascii=False, indent=2), encoding="utf-8"
     )
     path = folder / "index.html"
     path.write_text(shell_html(spec, bench_id), encoding="utf-8")

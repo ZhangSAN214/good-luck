@@ -110,13 +110,13 @@ export class BenchGenPanel {
     if (!frame || e.source !== frame.contentWindow) return;
     const d = e.data || {};
     if (d.type !== 'bench-ask' || typeof d.id !== 'string') return;
-    let text;
+    let text, data = null;
     try {
-      text = (await this.api.ask(frame.dataset.preview, String(d.q || ''))).text;
+      ({ text, data = null } = await this.api.ask(frame.dataset.preview, String(d.q || ''), !!d.json));
     } catch (x) {
       text = `没问成：${x.message}`;
     }
-    e.source.postMessage({ type: 'bench-answer', id: d.id, text }, '*');
+    e.source.postMessage({ type: 'bench-answer', id: d.id, text, data }, '*');
   }
 
   render() {
@@ -237,8 +237,21 @@ export class BenchGenPanel {
         return `<li>${esc(v.worker ? this.label(v.worker) : '—')} 评 ${esc(this.label(v.author))} 写的窗口：${esc(v.error || v.summary || '')}${probs ? `<ul>${probs}</ul>` : ''}</li>`;
       })
       .join('');
+    // 验收清单：你的要求和底线逐条做到没有（有一条没做到就不过线）
+    const reqs = r.requirements || [];
+    const metN = reqs.filter((x) => x.met).length;
+    const reqList = reqs
+      .map(
+        (x) => `<li class="${x.met ? 'bg-met' : 'bg-miss'}"><span class="bg-mark" role="img" aria-label="${x.met ? '做到了' : '没做到'}">${x.met ? '✓' : '✗'}</span><b>${esc(x.id)}</b> <span class="bg-src">${esc(x.source)}</span> ${esc(x.text)}${!x.met && x.why?.length ? `<div class="sc-sub">${esc(x.why.join('；'))}</div>` : ''}</li>`,
+      )
+      .join('');
+    const back = Object.entries(r.reverted || {})
+      .map(([id, [a, z]]) => `${esc(id)}（${esc(a)} → ${esc(z)}）`)
+      .join('、');
     return `<details class="bg-round" ${r === b.rounds[b.rounds.length - 1] ? 'open' : ''}>
-      <summary>第 ${r.n} 轮：质检${c.passed ? '通过' : '不通过'} ${esc(c.score ?? '—')} 分 · ${r.passed ? '过线' : '没过线'}</summary>
+      <summary>第 ${r.n} 轮：质检${c.passed ? '通过' : '不通过'} ${esc(c.score ?? '—')} 分${reqs.length ? ` · 验收 ${metN}/${reqs.length}` : ''} · ${r.passed ? '过线' : '没过线'}</summary>
+      ${reqList ? `<ul class="bg-reqs" aria-label="验收清单">${reqList}</ul>` : ''}
+      ${back ? `<p class="sc-sub bg-back">分数降了，退回上一版：${back}</p>` : ''}
       ${scores ? `<ul class="bg-scores">${scores}</ul>` : ''}
       ${findings ? `<ul class="bg-findings">${findings}</ul>` : ''}
       ${shots ? `<div class="bg-shots">${shots}</div>` : ''}

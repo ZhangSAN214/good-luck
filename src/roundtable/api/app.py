@@ -374,15 +374,20 @@ class BenchAskBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     question: str = Field(min_length=1, max_length=8000)
+    as_json: bool = False  # 要结构化的结果（成品按用户的输入现场生成内容）
 
 
 # 生成的工作台在「沙箱」里运行：浏览器把它当成一个陌生网站，碰不到圆桌的接口、存储和登录状态
-BENCH_CSP = (
-    "sandbox allow-scripts allow-forms allow-popups allow-downloads; "
-    "default-src 'self' data: blob:; script-src 'self' 'unsafe-inline'; "
-    "style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' data: blob:; "
-    "connect-src 'self'; frame-ancestors 'self'"
-)
+# 能联网取的只有配置里那几项公开数据（地图底图、天气、汇率……），其余网址一律拦下
+def bench_csp(origins: list[str]) -> str:
+    extra = "".join(f" {o}" for o in origins)
+    return (
+        "sandbox allow-scripts allow-forms allow-popups allow-downloads; "
+        "default-src 'self' data: blob:; script-src 'self' 'unsafe-inline'; "
+        f"style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:{extra}; "
+        "media-src 'self' data: blob:; "
+        f"connect-src 'self'{extra}; frame-ancestors 'self'"
+    )
 
 
 class SuperTaskBody(BaseModel):
@@ -799,7 +804,7 @@ def create_app(service: RoundtableService | None = None, lan: LanAccess | None =
 
     @app.post("/api/bench/{bench_id}/ask")
     async def bench_ask(request: Request, bench_id: str, body: BenchAskBody) -> dict[str, Any]:
-        return await svc(request).bench_ask(bench_id, body.question)
+        return await svc(request).bench_ask(bench_id, body.question, body.as_json)
 
     @app.get("/bench/{bench_id}/{path:path}")
     async def bench_file(request: Request, bench_id: str, path: str) -> Response:
@@ -807,7 +812,8 @@ def create_app(service: RoundtableService | None = None, lan: LanAccess | None =
         mime = mimetypes.guess_type(full.name)[0] or "application/octet-stream"
         if full.suffix in (".js", ".mjs"):
             mime = "text/javascript"
-        headers = {"Cache-Control": "no-cache", "Content-Security-Policy": BENCH_CSP}
+        csp = bench_csp(svc(request).bench_net_origins())
+        headers = {"Cache-Control": "no-cache", "Content-Security-Policy": csp}
         headers["Access-Control-Allow-Origin"] = "*"  # 沙箱页面载入自己的模块和数据
         return Response(content=full.read_bytes(), media_type=mime, headers=headers)
 

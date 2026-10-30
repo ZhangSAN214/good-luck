@@ -53,3 +53,21 @@ def test_destructured_kit_counts_and_polling_is_flagged(tmp_path):
     found = {f.check: f for f in lint_windows(tmp_path, ["pack", "arg", "poll"])}
     assert "窗口没用零件库" not in found
     assert found["轮询定时器"].windows == ["poll"] and found["轮询定时器"].severity == "warn"
+
+
+def test_hand_drawn_svg_is_blocked(tmp_path):
+    shapes = "".join(f"<circle cx='{i}' cy='1' r='2'/>" for i in range(13))
+    write(
+        tmp_path,
+        "drawn",
+        "export default (el, ctx) => { ctx.kit.esc('');"
+        f" el.innerHTML = `<svg>{shapes}</svg>`; }};",
+    )
+    write(
+        tmp_path,
+        "few",
+        "export default (el, ctx) => { ctx.kit.esc('');"
+        " el.innerHTML = '<svg><path d=\"M0 0\"/></svg>'; };",
+    )
+    found = {f.check: f for f in lint_windows(tmp_path, ["drawn", "few"])}
+    assert found["自己画插图"].severity == "block" and found["自己画插图"].windows == ["drawn"]

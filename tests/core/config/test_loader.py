@@ -150,6 +150,7 @@ def test_repo_config_loads_with_defaults():
         "bench_review",
         "bench_rework",
         "bench_ask",
+        "bench_ask_json",
         "describe_screen",
     }
     assert rt.collab_pipeline == [
