@@ -592,7 +592,8 @@ class StickerRules(_Strict):
     monthly_usd: float = Field(default=3.0, ge=0)
     size: int = Field(default=360, ge=64, le=1024)  # 存下来的边长（像素，正方形）
     check: bool = True  # 画完核对配文和形象
-    check_max_tokens: int = Field(default=300, ge=50)
+    # 含思考：识图模型会先想一阵，太小时正文是空的（实测 300 全被思考用掉）
+    check_max_tokens: int = Field(default=1200, ge=200)
     max_attempts: int = Field(default=2, ge=1, le=4)  # 含第一次；核对不合格时换模型重画
     review: bool = True  # 新画的先进「待审」，你点「可以」后成员才会用
 
@@ -1194,6 +1195,12 @@ class AboutRules(_Strict):
     min_relevance: float = Field(default=0.1, ge=0, le=1)
     header: str = "【关于用户（大家共知的事实，用得上再提）】"
     maybe_below: float = Field(default=0.6, ge=0, le=1)  # 把握度低于这个的在聊天里标「可能」
+    # 第二块：用户状态（正在放的歌、电脑空闲、在玩游戏、课表 DDL、邮件栏），每项默认关
+    status_header: str = "【用户此刻（用户自己打开的，自然带出，别直接念）】"
+    status_chars: int = Field(default=80, ge=0, le=300)  # 8 位相同
+    idle_minutes: float = Field(default=10.0, gt=0)  # 电脑多久没人动算「走开了」
+    ddl_days: int = Field(default=7, ge=0, le=60)  # 多少天内的 DDL 才提
+    games: dict[str, str] = {}  # 程序文件名 → 游戏名（Steam / Epic 装的不用写）
 
 
 class GrowthReviewRules(_Strict):
@@ -1404,15 +1411,33 @@ class WatchRules(_Strict):
     max_watchers: int = Field(default=3, ge=1, le=6)  # 最多几位一起看
     grab_seconds: float = Field(default=3, ge=1, le=60)  # 多久截一张（只在内存里）
     change_threshold: float = Field(default=0.06, gt=0, le=1)  # 画面变化超过这个比例才算变了
-    describe_gap_seconds: float = Field(default=20, ge=5, le=600)  # 两次看画面至少隔多久
+    describe_gap_seconds: float = Field(default=15, ge=5, le=600)  # 两次看画面至少隔多久
     describes_per_hour: int = Field(default=90, ge=1, le=720)  # 每小时最多看几次画面
     max_side: int = Field(default=1024, ge=320, le=2048)  # 交给模型的画面最长边（像素）
     jpeg_quality: int = Field(default=70, ge=30, le=95)
-    describe_max_tokens: int = Field(default=300, ge=64, le=2000)
+    # 看画面不用思考：思考会把字数花光、交回空白（2026-10-29 实测 4 次有 3 次为空）
+    describe_max_tokens: int = Field(default=800, ge=64, le=2000)
+    describe_reasoning: dict[str, Any] = Field(default_factory=lambda: {"enabled": False})
+    fail_gap_seconds: float = Field(default=10, ge=0, le=600)  # 看画面失败后，至少隔多久再看
     describe_estimate_usd: float = Field(default=0.002, ge=0)
     recent_screens: int = Field(default=3, ge=1, le=10)  # 发给成员的最近几段画面描述
-    react_gap_seconds: float = Field(default=90, ge=10, le=3600)  # 同一位成员主动说话至少隔多久
-    room_gap_seconds: float = Field(default=40, ge=5, le=3600)  # 没人说话时，大家主动说话至少隔多久
+    react_gap_seconds: float = Field(default=60, ge=10, le=3600)  # 同一位成员主动说话至少隔多久
+    room_gap_seconds: float = Field(default=25, ge=5, le=3600)  # 没人说话时，大家主动说话至少隔多久
+    # 一位说完后，别的陪看成员接话的几率（每多接一句减半）和最多接几句；接话也可以选「…」不说
+    followup_chance: float = Field(default=0.6, ge=0, le=1)
+    max_followups: int = Field(default=2, ge=0, le=5)
+    # 主动说话时这次往哪个方向说（随机抽一条，所有成员同一张表）：让她们有观点、会提问，不只描述画面
+    angles: list[str] = Field(
+        default_factory=lambda: [
+            "说说你自己的看法或感受，可以和别人不一样",
+            "问一个你好奇的问题（问用户或朋友都行）",
+            "接个梗或吐槽一句",
+            "补一点相关的背景或小知识（不确定就换个说法）",
+            "猜一猜接下来会怎样",
+        ],
+        min_length=1,
+        max_length=20,
+    )
     history_messages: int = Field(default=16, ge=2, le=100)
     max_tokens: int = Field(default=400, ge=64)
     max_chars: int = Field(default=200, ge=20, le=2000)  # 陪看时每句最多保留多少字
@@ -1846,6 +1871,70 @@ class SupercomputerRules(_Strict):
         return self
 
 
+class BenchNetService(_Strict):
+    """生成的工作台能联网取的一项公开数据（2026-10-30 用户批：只用免费、公开、不要 key 的）。
+
+    ``url`` 里的 ``{名字}`` 由窗口传参数填（会做网址编码）；``kind: tiles`` 是地图底图，
+    ``{z}/{x}/{y}`` 由地图零件自己填。``also`` 是这项服务还会用到的别的网址（例如图片所在的域名）。
+    名单之外的网址，沙箱一律拦下。"""
+
+    name: str = Field(pattern=r"^[a-z][a-z0-9_-]{1,30}$")
+    use: str = Field(min_length=1, max_length=80)  # 给助手看：这项数据能干什么
+    url: str = Field(pattern=r"^https://[^\s/]+/")
+    source: str = Field(min_length=1, max_length=60)  # 界面上标的来源
+    kind: str = Field(default="json", pattern=r"^(json|tiles)$")
+    also: list[str] = Field(default_factory=list, max_length=4)
+    ttl_min: int = Field(default=60, ge=0, le=7 * 24 * 60)  # 本机缓存几分钟
+
+    @field_validator("url", "also")
+    @classmethod
+    def _no_key(cls, v: Any) -> Any:
+        for u in [v] if isinstance(v, str) else v:
+            if not str(u).startswith("https://"):
+                raise ValueError("只能用 https 网址")
+            if re.search(r"(?i)(api[_-]?key|token|secret|password)=", str(u)):
+                raise ValueError("只能用不要 key 的公开服务，网址里不能带 key")
+        return v
+
+    @property
+    def origins(self) -> list[str]:
+        return [re.match(r"^https://[^/]+", u).group(0) for u in [self.url, *self.also]]
+
+
+class BenchRules(_Strict):
+    """工作台生成器（docs/KIT.md）：一句话 → 拆需求 → 按零件库拼窗口 → 质检 + 截图评审 → 打回重做。
+
+    活都交给超级电脑的几位助手（按分数挑人，花的是订阅次数）；评审永远不分给窗口的作者本人。
+    做满 ``max_rounds`` 轮还不过线就停下来，交给用户决定。"""
+
+    enabled: bool = True
+    max_windows: int = Field(default=8, ge=1, le=16)  # 一个工作台最多几个窗口
+    max_rounds: int = Field(default=3, ge=1, le=6)  # 质检 + 评审 + 返工最多几轮
+    pass_avg: float = Field(default=8.0, ge=0, le=10)  # 评审各项平均分过线
+    pass_min: float = Field(default=6.0, ge=0, le=10)  # 每一项都不能低于它
+    plan_kind: str = "split"  # 拆需求按哪种活打分挑人
+    window_kind: str = "frontend"  # 写窗口
+    review_kind: str = "review"  # 截图评审
+    ask_kind: str = "research"  # 成品里的对话窗：用户提问交给谁答
+    ask_max_chars: int = Field(default=1000, ge=20, le=8000)  # 一个问题最多几个字
+    # 找插件（2026-10-29 用户定：达标的全自动搬，做完给清单；不达标只借思路）
+    scout: bool = True
+    min_stars: int = Field(default=100, ge=0)  # GitHub 星数门槛
+    max_repo_mb: int = Field(default=20, ge=1, le=200)  # 仓库太大就只借思路
+    max_adopt: int = Field(default=3, ge=0, le=10)  # 一个工作台最多搬几个
+    rubric: list[str] = Field(
+        default_factory=lambda: [
+            *("视觉层次", "信息密度", "一致性", "交互完整"),
+            *("空状态与边界", "文案", "商业感"),
+        ]
+    )
+    # 底线标准（2026-10-30 用户：参考资料展示的是他的底线）：每个台都要逐条做到，
+    # 和用户这句话拆出来的要求一起进验收清单，有一条没做到就不算过线
+    baseline: list[str] = Field(default_factory=list, max_length=12)
+    max_requirements: int = Field(default=12, ge=1, le=24)  # 从用户这句话里最多拆几条要求
+    net: list[BenchNetService] = Field(default_factory=list, max_length=12)  # 空 = 成品不能联网
+
+
 class DshRules(_Strict):
     """dsh 工作台（docs/DSH.md）：圆桌在本机启动、管理一个 dsh 进程当「边车」，dsh 插件在里面运行。
 
@@ -1987,6 +2076,7 @@ class RoundtableConfig(_Strict):
     perception: PerceptionRules = PerceptionRules()
     dsh: DshRules = DshRules()
     supercomputer: SupercomputerRules = SupercomputerRules()
+    bench: BenchRules = BenchRules()
     calendar: CalendarRules = CalendarRules()
 
     @field_validator("prompts")
@@ -2005,6 +2095,15 @@ class RoundtableConfig(_Strict):
         if len(steps) != len(set(steps)):
             raise ValueError(f"pipeline 中的步骤不能重复：{steps}")
         return steps
+
+    @model_validator(mode="after")
+    def _bench_kinds(self) -> RoundtableConfig:
+        known = set(self.supercomputer.kinds) | {"split", "merge"}
+        b = self.bench
+        bad = [k for k in (b.plan_kind, b.window_kind, b.review_kind, b.ask_kind) if k not in known]
+        if bad:
+            raise ValueError(f"bench 用到的活的种类不在 supercomputer.kinds 里：{bad}")
+        return self
 
     @model_validator(mode="after")
     def _members(self) -> RoundtableConfig:

@@ -99,11 +99,17 @@ def test_workbench_start_and_stop(serve, page, monkeypatch):
     frame = dlg.locator("iframe.wb-frame")
     frame.wait_for()
     assert frame.get_attribute("src") == fake.url
-    frame.evaluate("f => (f.dataset.mark = 'same')")
-    page.wait_for_timeout(4500)  # 打开时每 4 秒刷新一次状态
-    assert dlg.locator("iframe.wb-frame").get_attribute("data-mark") == "same"
+    page.wait_for_function(
+        "document.querySelector('#bench iframe.wb-frame')"
+        ".contentDocument?.readyState === 'complete'"
+    )
+    # 标在网页里面：iframe 被拿出来再放回去时网页会重新加载，标记就没了
+    frame.evaluate("f => (f.contentWindow.__mark = 'same')")
     dlg.locator("summary", has_text="白名单插件（1）").click()
     dlg.get_by_text("终端窗格不受只读模式约束").wait_for()
+    page.wait_for_timeout(4500)  # 打开时每 4 秒刷新一次状态
+    assert dlg.locator("iframe.wb-frame").evaluate("f => f.contentWindow.__mark") == "same"
+    assert dlg.get_by_text("终端窗格不受只读模式约束").is_visible()  # 展开的插件列表没被收起
     if shots := os.environ.get("ROUNDTABLE_SHOTS"):  # 版本说明用的截图
         page.screenshot(path=str(Path(shots) / "workbench.png"))
     dlg.locator("[data-stop]").click()

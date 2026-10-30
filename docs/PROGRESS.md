@@ -285,6 +285,41 @@
 - 新提示词 `super_split/v1`、`super_work/v1`、`super_merge/v1`；顶栏「超级电脑」面板；接口 `/api/super/*`。见 `docs/SUPERCOMPUTER.md`。
 - 测试：`tests/core/supercomputer/`、`tests/api/test_super_api.py`、`tests/web/test_e2e_supercomputer.py`、`tests/core/dsh/test_manager.py`（headless 活）。
 
+### 工作台生成器 · W1 零件库 + 自动质检（2026-10-29，预估 8～12 小时，实际约 3 小时）
+
+用户要「一句话生成商业级工作台，不能像毕业设计，不预设品类」，计划 W1～W6（共 52～80 小时，见 `docs/KIT.md`）。本段：
+- `web/kit/`：设计套件（6 个主题、深浅两套、组件样式、图表与交互零件、Lucide 图标子集、零件清单 `manifest.json`、样板页 `gallery.html`）。
+- `core/benchkit/quality.py` + `roundtable kit-check`：三种屏宽 × 浅 / 深色的自动质检，硬指标 + 截图 + 打分。
+- 测试：`tests/core/benchkit/`（判定、颜色、清单与代码对得上、套件不引外部资源）、`tests/web/test_kit.py`（样板页满分、坏页被拦）。
+- 下一段 W2：生成逻辑（拆需求 → 自行找插件 / 拼零件 / 缺件现做 → 质检打回 → 迭代）。
+
+### 工作台生成器 · W2 生成逻辑（2026-10-29，预估 16～24 小时，实际约 4 小时）
+
+- `core/benchkit/spec.py`：拆需求的规格校验修正，外壳由程序按规格画（`shell.html`、`card.html`）。
+- `core/benchkit/builder.py`：拆需求 → 找插件 → 分头写窗口 → 质检 + 截图评审（按作者分组，不自评）→ 打回原作者返工 → 过线或停下来等你；派活走超级电脑新增的 `step()`（可排除某位助手）。
+- `core/benchkit/scout.py`：从 dsh 插件集市和 GitHub 找插件，≥100 星且许可证宽松就搬（钉提交、只解压不运行、记 sha256），其余只借思路。
+- `core/benchkit/library.py`：过线后新零件收进本机零件库、整台存成配方，以后的台自动用上。
+- 新提示词 `bench_plan` / `bench_window` / `bench_review` / `bench_rework` v1；接口 `/api/bench*`，成品在 `/bench/<编号>/` 沙箱里打开。
+- 测试：`tests/core/benchkit/test_builder.py`、`test_scout.py`、`tests/api/test_bench_api.py`、`tests/web/test_kit.py`（生成的外壳过质检、坏窗口被抓）。
+- 下一段 W3：圆桌里的工作台外壳和控制室。
+
+### 工作台生成器 · W3 控制室（2026-10-29，预估 8～12 小时，实际约 1.5 小时）
+
+- 「工作台」页新增「生成器」标签（`web/js/benchgen.js`，默认标签）：一句话输入、进度条、窗口分工、插件清单、每轮分数条和截图、评审意见、新零件、打开成品（沙箱 iframe）。
+- 成品里的对话窗接上后端：`POST /api/bench/<编号>/ask`、提示词 `bench_ask/v1`、`bench.ask_kind` / `ask_max_chars`。
+- 测试：`tests/web/test_e2e_benchgen.py`（假助手跑完一台、截图能显示、成品里提问拿到回答），`test_builder.py`、`test_bench_api.py` 补了提问。
+- 下一段 W4：用户给 3 句话，生成器真跑，不合格的改逻辑。
+
+### 工作台生成器 · W4 第一次真跑与修正（2026-10-30，进行中）
+
+- 用户第一句「旅行台」在用户电脑上真跑：52 分钟、3 轮未过线（5.76 分），dsh $0、订阅 34 次。分析见 `/mnt/project-files/验收/W4_旅行台_第1次.md`。
+- 修正（见 `docs/KIT.md`「W4 第一次真跑后的修正」）：质检按钮名字误判、问题按窗口交回、手机窗口长度、`benchkit/lint.py` 读代码检查、规格加 `shared` / `events`、四个提示词 v2、找插件相关度。
+- 测试：`test_lint.py`、`test_quality.py`（窗口归属、窗口太长）、`test_builder.py`（没用零件库只打回作者、按窗口分发、shared / events）、`tests/web/test_kit.py`（图标按钮不误报、长窗口抓到）。
+- 第二次真跑中用户找不到能用的成品，且一个窗口选择器写错导致崩溃：加「先看草稿」和「写完先自测」（低级错误当场交回作者）。
+- 第二次真跑：67 分钟、6.0 分、第 3 轮质检 97 分通过，卡在评审。第三轮修正（`docs/KIT.md`「W4 第二次真跑后的修正」）：共用用户数据 `ctx.state`、评审先核对上一轮问题、解构写法不误报、轮询定时器、小圆环字号、手机首屏；四个提示词 v3。
+- 用户看了第二次成品说「完全不符合我的要求」，参考资料是底线。差距分析见 `/mnt/project-files/验收/W4_旅行台_第2次_差距.md`。第四轮修正（`docs/KIT.md`「拿用户的要求和底线来验收」）：验收清单 + 底线、主视觉、自己画插图打回、联网公开数据（用户批）、成品按用户条件现场生成、分数降了退回上一版；四个提示词 v4、`bench_ask_json` v1。只用假助手测试。
+- 下一步：**等用户明确同意**后，在用户电脑上第三次真跑旅行台（用户 2026-10-30 要求：未经允许不真跑）。
+
 ## 下一步
 
 0. 你本机试用办公室模式（单人办、开会、项目分工、预算单、绩效）、公寓楼和群聊；看看「员工」页底部的人才市场，决定要不要换人 / 改价格。合并 PR #6 / #7 / #8 需要你点头。

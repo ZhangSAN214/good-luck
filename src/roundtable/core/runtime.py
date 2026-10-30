@@ -100,6 +100,10 @@ class Runtime:
     mail_source: Any | None = None
     # 音乐卡片的「电脑上正在放的歌」（测试中注入假的；为空时用 Windows 系统媒体控制）
     nowplaying_source: Any | None = None
+    # 「关于你」的电脑状态（空闲、前台游戏；测试中注入假的，为空时读 Windows）
+    pc_source: Any | None = None
+    # 「关于你」的用户状态（服务启动时装上；为空时聊天不带用户状态）
+    user_status: Any | None = None
     # 投屏陪伴的画面来源 {"pc": ..., "android": ...}（测试中注入假的；为空时用电脑截屏和 adb）
     screen_sources: dict[str, Any] | None = None
     # 成员自己上网的浏览器（测试中注入一个返回假浏览器的函数；为空时用电脑上的 Edge / Chrome）

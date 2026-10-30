@@ -111,12 +111,14 @@ def member_memory(rt: Any, member: str, query: str = "", conversation: str | Non
 
 
 def with_about_you(rt: Any, memory: str, query: str) -> str:
-    """私聊和生活群：记忆后面接上「关于你」画像里和当前对话相关的几条（成员系统 P8；
-    8 位相同的条数和字数，没有相关的就不接）。工作群不调用。"""
+    """私聊和生活群：记忆后面接上「关于你」画像里和当前对话相关的几条，和你打开了的
+    「此刻」状态（成员系统 P8；8 位相同的条数和字数，没有就不接）。工作群不调用。"""
     from roundtable.core.member.about import AboutYou  # about 依赖记忆模块
     from roundtable.core.memory import NONE
 
-    about = AboutYou(rt).lines(query)
+    status = getattr(rt, "user_status", None)  # 第二块：你打开了的「此刻」状态
+    parts = [AboutYou(rt).lines(query), status.line() if status is not None else ""]
+    about = "\n".join(p for p in parts if p)
     if not about:
         return memory
     return about if memory == NONE else f"{memory}\n{about}"

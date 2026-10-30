@@ -160,6 +160,18 @@ chat:
         性取向: [性取向, 同性恋, 异性恋, 双性恋, 出柜, 酷儿, gay, lgbt]
         经济: [工资, 收入, 存款, 欠款, 贷款, 负债, 没钱, 有钱, 穷, 零花钱, 花呗, 理财, 资产, 房租, 生活费, 信用卡]
         行动轨迹: [住址, 地址, 定位, 位置, 行程, 路线, 酒店, 机场, 航班, 车站, 门牌, 宿舍号, 出门去, 回家路上]
+      # 第二块：你的状态（正在放的歌、电脑空闲、在玩游戏、课表 DDL、邮件栏）。每项默认关，在「关于你」里自己打开
+      status_chars: 80             # 聊天时「用户此刻」最多几个字（8 位相同）
+      idle_minutes: 10             # 电脑 10 分钟没人动算走开了
+      ddl_days: 7                  # 7 天内的 DDL 才提
+      games:                       # 程序文件名 → 游戏名；Steam / Epic 装的按游戏文件夹自动认，不用写
+        YuanShen.exe: 原神
+        GenshinImpact.exe: 原神
+        StarRail.exe: 崩坏：星穹铁道
+        ZenlessZoneZero.exe: 绝区零
+        League of Legends.exe: 英雄联盟
+        VALORANT-Win64-Shipping.exe: 无畏契约
+        Minecraft.Windows.exe: 我的世界
     growth:                        # P6 成长：每周一用她自己的模型读上一周，最多改 3 条档案，每条要引用真实经历；程序把关
       enabled: true
       weekday: 1                   # 每周一反思上一周
@@ -196,9 +208,12 @@ chat:
     monthly_usd: 1.5               # 一起看每月最多花多少（不占聊天月预算）；用完只陪聊、不看画面
     max_watchers: 3
     grab_seconds: 3                # 多久截一张（只在内存里，不存盘）
-    describe_gap_seconds: 20       # 画面明显变了、且离上次至少这么久，才交给识图模型看一次
+    describe_gap_seconds: 15       # 画面明显变了、且离上次至少这么久，才交给识图模型看一次
     describes_per_hour: 90
-    react_gap_seconds: 90          # 没人说话时，同一位最多每 90 秒主动说一句
+    react_gap_seconds: 60          # 没人说话时，同一位最多每 60 秒主动说一句
+    room_gap_seconds: 25           # 没人说话时，大家最多每 25 秒有人主动开口
+    followup_chance: 0.6           # 一位说完，别人接话的几率（每多接一句减半），最多接 2 句
+    max_followups: 2
     max_minutes: 240               # 一次投屏最长 4 小时，到时自动停
   wander:                          # 成员自己上网（docs/WANDER.md）：在隔离浏览器里逛下面这些网站，第一期只看不互动
     enabled: true
@@ -379,15 +394,21 @@ prompts:
   office_review: v1      # 办公室·项目：复核经理最终验收
   office_revise: v1      # 办公室·项目：主办经理按验收意见改一次
   office_handle: v2      # 办公室：员工办理（v2：带字画面用代码画、数字须核实）
-  watch: v1              # 投屏陪伴：成员陪用户看屏幕，吐槽、接话
+  watch: v2              # 投屏陪伴：成员陪用户看屏幕，吐槽、接话（v2：会接朋友的话、带说话风格和标题）
   wander: v1             # 成员自己上网：每看一页说一句感想、决定下一步（只看不互动）
   dsh_workbench: v1      # dsh 工作台助手的身份说明：中立、不带人格（接在 dsh 系统提示前面）
   super_split: v1        # 超级电脑：把一件活拆成能并行的小活
   super_work: v1         # 超级电脑：一位助手在共享工作文件夹里干一件小活
   super_merge: v1        # 超级电脑：合并各件小活的成果并写交付说明
+  bench_plan: v4         # 工作台生成器：一句话拆成窗口、数据、操作（v4：验收清单与底线、主视觉、联网数据、按用户条件现场生成；v3：几个窗口共用的用户数据 state、手机首屏；v2：共用信息 shared、窗口消息约定 events、必须用零件库、手机长度、不画简笔画）
+  bench_window: v4       # 工作台生成器：按规格用零件库写一个窗口（v4：验收清单与底线、主视觉、联网数据、按用户条件现场生成；v3：ctx.state 共用数据、不轮询、手机首屏、一个主按钮；v2：共用信息 shared、窗口消息约定 events、必须用零件库、手机长度、不画简笔画）
+  bench_review: v4       # 工作台生成器：看截图按商业标准打分（不评自己写的窗口）（v4：验收清单与底线、主视觉、联网数据、按用户条件现场生成；v3：先核对上一轮问题、同样问题每轮扣一样多；v2：查共用信息和联动是否一致，质检压分只限出问题的窗口）
+  bench_rework: v4       # 工作台生成器：按评审和质检返工（v4：验收清单与底线、主视觉、联网数据、按用户条件现场生成；v3：ctx.state、不轮询、手机首屏；v2：共用信息 shared、窗口消息约定 events、必须用零件库、手机长度、不画简笔画）
+  bench_ask: v1          # 工作台生成器：成品里的对话窗，按台的用途和数据回答
+  bench_ask_json: v1     # 工作台生成器：成品按用户自己的输入现场生成结构化内容（真实地点、参考价标日期来源、守用户条件）
   sticker_draw: v1       # 成员专属表情包：画一张 Q 版贴纸的提示词
   sticker_check: v2      # 成员专属表情包：先逐字抄出图上的字再核对配文和形象
-  describe_screen: v1    # 投屏陪伴：把一张截图写成给成员看的文字（隐私信息打码）
+  describe_screen: v2    # 投屏陪伴：把一张截图写成给成员看的文字（隐私信息打码；v2 带上一段，写出变化）
   chat: v6               # 群聊：口语、短句（v2：人设与记忆；v3：人物卡随身卡，AI 身份平时不刻意提、被认真问如实承认；v4：表情包、颜文字、引用、分条、不接话；v5：知道现在几点和自己在干什么；v6：照人物卡说话风格，各人不同）
   chat_dm: v6            # 私聊：和用户一对一（v2：人设与记忆；v3：人物卡随身卡；v4：表情包、颜文字、引用、分条；v5：知道现在几点；v6：照人物卡说话风格）
   voice_rewrite: v1      # 说出口前自查·改写：重复自己、跟风、光附和、口头禅太勤、编造回忆时改一次（只用于生活群和私聊）
@@ -966,6 +987,7 @@ media:
     monthly_usd: 3.0         # 表情包单独的每月上限，同时算在上面的 monthly_usd 里
     size: 360                # 存下来的边长（像素）
     check: true              # 画完用最便宜的识图模型核对配文和形象
+    check_max_tokens: 1200   # 核对的输出上限（含思考；300 时会被思考全部用掉，正文为空）
     max_attempts: 2          # 核对不合格时换一个模型重画一次
     review: true             # 新画的先进「待审」，你点「可以」后成员才会用
   video:
@@ -1150,6 +1172,65 @@ supercomputer:
       argv: [claude, -p, --permission-mode, acceptEdits, --output-format, text]
       skills: {code: 0.85, frontend: 0.85, review: 0.9, docs: 0.85, test: 0.75, research: 0.6, split: 0.85, merge: 0.85}
       daily_limit: 20
+
+# 工作台生成器（docs/KIT.md）：一句话 → 拆需求 → 按零件库拼窗口 → 自动质检 + 截图评审 → 返工。
+# 活交给上面的超级电脑（花的是订阅次数）；评审永远不分给窗口的作者本人；做满 max_rounds 轮还不过线就停下来问你。
+bench:
+  enabled: true
+  max_windows: 8
+  max_rounds: 3
+  pass_avg: 8.0      # 评审各项平均分过线
+  pass_min: 6.0      # 每一项都不能低于它
+  plan_kind: split
+  window_kind: frontend
+  review_kind: review
+  ask_kind: research   # 成品里的对话窗：问题交给谁答（走订阅次数）
+  ask_max_chars: 1000
+  rubric: [视觉层次, 信息密度, 一致性, 交互完整, 空状态与边界, 文案, 商业感]
+  # 底线标准：来自用户给的参考资料（DSH 工作台的 7 个成品），每个台都要做到，评审逐条判；改这里就改标准
+  baseline:
+    - 有一个主视觉窗口占大半屏（真实地图、3D、图纸、照片这类真素材），列表和详情围在它旁边
+    - 不让助手自己用几何图形画插图、示意图；地图、图片、模型用现成的真素材，找不到就用图标和文字
+    - 点一下能联动：点列表里的一项，主视觉定位或高亮，详情跟着换
+    - 有自己的主色和标题风格，一眼看得出是什么产品，不是通用后台
+    - 数据有真实来源；需要时效的信息联网获取，联不上时标明「参考」和日期
+    - 能按用户自己的情况用：换成自己的输入（目的地、日期、人数、场景等），内容跟着变，不是一份写死的样品
+    - 手机上能顺手用：首屏先给最重要的内容，按钮够大，不横向溢出
+  max_requirements: 12
+  # 成品能联网取的公开数据（2026-10-30 用户批：只用免费、公开、不要 key 的）。会把地名、经纬度发给这些网站。
+  # 删掉一项，成品就取不到那项，沙箱也会拦下它；全删掉 = 成品完全离线
+  net:
+    - name: tiles
+      use: 真实地图底图（瓦片图），地图零件 mapFrame 会自动用上
+      url: https://tile.openstreetmap.org/{z}/{x}/{y}.png
+      source: © OpenStreetMap 贡献者
+      kind: tiles
+      ttl_min: 0
+    - name: geocode
+      use: 地名查经纬度，参数 q（地名）
+      url: https://geocoding-api.open-meteo.com/v1/search?name={q}&count=5&language=zh&format=json
+      source: Open-Meteo
+      ttl_min: 10080
+    - name: weather
+      use: 未来 7 天每日天气（天气代码、最高最低温、降水概率），参数 lat、lng
+      url: https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lng}&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max&timezone=auto
+      source: Open-Meteo
+      ttl_min: 60
+    - name: fx
+      use: 汇率（欧洲央行每日参考价），参数 from、to（货币代码，如 CNY、JPY）
+      url: https://api.frankfurter.dev/v1/latest?base={from}&symbols={to}
+      source: 欧洲央行（Frankfurter）
+      ttl_min: 720
+    - name: wiki
+      use: 地点、景点的简介和配图（维基百科摘要，返回 extract、thumbnail.source），参数 q（词条名）
+      url: https://zh.wikipedia.org/api/rest_v1/page/summary/{q}
+      source: 维基百科
+      also: [https://upload.wikimedia.org/]
+      ttl_min: 10080
+  scout: true       # 找插件：按拆需求写下的缺口去 dsh 插件集市和 GitHub 找（用户 10-29 拍板「全自动，事后看清单」）
+  min_stars: 100    # GitHub 星数够这个、许可证宽松才直接搬；不够只借思路
+  max_repo_mb: 20   # 仓库太大只借思路
+  max_adopt: 3      # 一个工作台最多搬几个
 
 # 日历底座（docs/CALENDAR.md）：只算「今天是什么日子」，每天发事件给成员系统（怎么过节由生活引擎决定）。
 # 全部离线计算：法定假日用开源库 holidays，农历和节气查预先算好的表；不调模型、不联网、不花钱。

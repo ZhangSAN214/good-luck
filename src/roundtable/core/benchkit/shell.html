@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="zh-CN" data-k-theme="%%theme%%">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>%%title%%</title>
+<link rel="stylesheet" href="/kit/kit.css">
+</head>
+<body class="k-root">
+<div class="k-page">
+  <header class="k-topbar">
+    <div class="k-brand"><span class="k-logo" data-icon="%%icon%%"></span><div><h1>%%title%%</h1><div class="k-sub">%%subtitle%%</div></div></div>
+    <div class="k-actions"><div id="k-mode" aria-label="明暗"></div></div>
+  </header>
+  <main class="k-grid">
+%%cards%%
+  </main>
+</div>
+<script type="module">
+import * as kit from '/kit/kit.js';
+const BENCH = %%bench_id%%;
+const prefs = kit.persist(`bench:${BENCH}`);
+const mode = prefs.get('mode', 'auto');
+if (mode !== 'auto') kit.setMode(mode);
+kit.seg(document.getElementById('k-mode'), [{ value: 'auto', label: '跟随' }, { value: 'light', label: '浅' }, { value: 'dark', label: '深' }], mode, (v) => { kit.setMode(v); prefs.set('mode', v); });
+document.querySelectorAll('[data-icon]').forEach((el) => { el.innerHTML = kit.icon(el.dataset.icon, { size: el.classList.contains('k-logo') ? 20 : 17 }); });
+const bus = new EventTarget();
+// 对话：页面嵌在圆桌的工作台里时，问题交给外层（postMessage），外层接真会话后把回答送回来
+// json: true 时请助手按用户自己的输入现场生成一份结构化内容（行程、推荐……），回来的是对象或 null
+const call = (q, json) => new Promise((done) => {
+  const fail = (text) => done(json ? { data: null, text } : text);
+  if (window.parent === window) { fail('要在圆桌的工作台里打开才能用。'); return; }
+  const id = Math.random().toString(36).slice(2);
+  const onMsg = (ev) => {
+    if (!ev.data || ev.data.type !== 'bench-answer' || ev.data.id !== id) return;
+    removeEventListener('message', onMsg); clearTimeout(t);
+    done(json ? { data: ev.data.data ?? null, text: String(ev.data.text || '') } : String(ev.data.text || ''));
+  };
+  const t = setTimeout(() => { removeEventListener('message', onMsg); fail('这次没等到结果，稍后再试。'); }, json ? 300000 : 120000);
+  addEventListener('message', onMsg);
+  window.parent.postMessage({ type: 'bench-ask', bench: BENCH, id, q: String(q), json: !!json }, '*');
+});
+const ask = (q) => call(q, false);
+const askJson = (q) => call(q, true);
+// 各窗口共用的基本信息（拆需求时定的一份，大家都从这里读，不各编一套）
+const shared = await fetch('./data/_shared.json').then((r) => (r.ok ? r.json() : {})).catch(() => ({}));
+// 能联网取的公开数据名单（圆桌配置里的）：地图零件自动用底图，窗口经 ctx.net 取天气、汇率等
+kit.setNet(await fetch('./data/_net.json').then((r) => (r.ok ? r.json() : [])).catch(() => []));
+// 几个窗口一起读写的数据（规格里的 state）：谁改了大家都收到
+const state = kit.sharedState(`bench:${BENCH}:_state`, bus);
+for (const el of document.querySelectorAll('[data-window]')) {
+  const id = el.dataset.window;
+  try {
+    const [mod, data] = await Promise.all([
+      import(`./windows/${id}.js`),
+      fetch(`./data/${id}.json`).then((r) => (r.ok ? r.json() : null)).catch(() => null),
+    ]);
+    await mod.default(el, { kit, data, shared, store: kit.persist(`bench:${BENCH}:${id}`), state, bus, ask, askJson, net: kit.net });
+  } catch (err) {
+    console.error(`窗口 ${id} 出错：`, err);
+    el.innerHTML = kit.empty({ icon: 'triangle-alert', title: '这个窗口还没做好', hint: String(err && err.message || err).slice(0, 120) });
+  }
+}
+</script>
+</body>
+</html>

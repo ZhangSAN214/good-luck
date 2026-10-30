@@ -118,6 +118,15 @@ export const aboutLock = (id, locked) => api(`/api/chat/about/facts/${id}/lock`,
 export const aboutDomain = (domain, on) => api('/api/chat/about/domains', { method: 'POST', body: { domain, on } });
 export const aboutForget = (i) => api(`/api/chat/about/rejected/${i}`, { method: 'DELETE' });
 export const aboutClear = (rejected = false) => api(`/api/chat/about${rejected ? '?rejected=true' : ''}`, { method: 'DELETE' });
+export const aboutStatus = () => api('/api/chat/about/status');
+export const aboutSetStatus = (kind, on) => api('/api/chat/about/status', { method: 'POST', body: { kind, on } });
+export const aboutPlayer = (player) => api('/api/chat/about/status/player', { method: 'POST', body: { player } });
+export const aboutAddGame = (exe, name) => api('/api/chat/about/games', { method: 'POST', body: { exe, name } });
+export const aboutDelGame = (exe) => api(`/api/chat/about/games?exe=${encodeURIComponent(exe)}`, { method: 'DELETE' });
+export const aboutAddClass = (weekday, start, end, name) => api('/api/chat/about/schedule/classes', { method: 'POST', body: { weekday, start, end, name } });
+export const aboutAddDdl = (name, due) => api('/api/chat/about/schedule/ddls', { method: 'POST', body: { name, due } });
+export const aboutDelSchedule = (kind, id) => api(`/api/chat/about/schedule/${kind}/${id}`, { method: 'DELETE' });
+export const aboutClearSchedule = () => api('/api/chat/about/schedule', { method: 'DELETE' });
 export const aboutExportUrl = (fmt) => `/api/chat/about/export?fmt=${encodeURIComponent(fmt)}`;
 export const memberProfiles = () => api('/api/chat/profiles');
 export const memberProfile = (id) => api(`/api/chat/profiles/${encodeURIComponent(id)}`);
@@ -257,11 +266,14 @@ export const watchQuiet = (quiet) => api('/api/watch/quiet', { method: 'POST', b
 export const watchMessages = (after = 0) => api(`/api/watch/messages?after=${after}`);
 export const watchSay = (text) => api('/api/watch/say', { method: 'POST', body: { text } });
 export const watchScrcpy = (source) => api('/api/watch/scrcpy', { method: 'POST', body: { source } });
+export const watchOverlay = () => api('/api/watch/overlay', { method: 'POST' });
 export const watchFrameUrl = () => `/api/watch/frame?t=${Date.now()}`;
 export const watchAdbPair = (host, port, code) =>
   api('/api/watch/adb/pair', { method: 'POST', body: { host, port, code } });
 export const watchAdbConnect = (host, port) =>
   api('/api/watch/adb/connect', { method: 'POST', body: { host, port } });
+export const watchAdbQr = () => api('/api/watch/adb/qr', { method: 'POST' });
+export const watchAdbQrPoll = () => api('/api/watch/adb/qr');
 export const wanderStatus = () => api('/api/wander');
 export const wanderStart = (member, site) => api('/api/wander/start', { method: 'POST', body: { member, site } });
 export const wanderStop = () => api('/api/wander/stop', { method: 'POST' });
@@ -275,6 +287,12 @@ export const dshStop = () => api('/api/dsh/stop', { method: 'POST' });
 export const dshCheck = () => api('/api/dsh/check', { method: 'POST' });
 
 // 超级电脑：几位编程助手平级、按分数派活（docs/SUPERCOMPUTER.md）
+export const benchStatus = () => api('/api/bench');
+export const benchSubmit = (request) => api('/api/bench', { method: 'POST', body: { request } });
+export const benchCancel = () => api('/api/bench/cancel', { method: 'POST' });
+export const benchGet = (id) => api(`/api/bench/${encodeURIComponent(id)}`);
+export const benchAsk = (id, question, json = false) =>
+  api(`/api/bench/${encodeURIComponent(id)}/ask`, { method: 'POST', body: { question, as_json: json } });
 export const superStatus = () => api('/api/super');
 export const superSubmit = (text) => api('/api/super/tasks', { method: 'POST', body: { text } });
 export const superCancel = () => api('/api/super/cancel', { method: 'POST' });

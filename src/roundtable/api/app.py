@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import mimetypes
 import re
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -54,6 +55,37 @@ class AboutDomainBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
     domain: str = Field(max_length=40)
     on: bool
+
+
+class AboutStatusBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    kind: str = Field(max_length=20)
+    on: bool
+
+
+class AboutPlayerBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    player: str = Field(max_length=20)
+
+
+class AboutGameBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    exe: str = Field(max_length=80)
+    name: str = Field(max_length=30)
+
+
+class AboutClassBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    weekday: int = Field(ge=0, le=6)
+    start: str = Field(max_length=5)
+    end: str = Field(max_length=5)
+    name: str = Field(max_length=30)
+
+
+class AboutDdlBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: str = Field(max_length=30)
+    due: str = Field(max_length=16)
 
 
 class CreateSession(BaseModel):
@@ -332,6 +364,32 @@ class WatchQuietBody(BaseModel):
     quiet: bool
 
 
+class BenchBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    request: str = Field(min_length=1, max_length=2000)
+
+
+class BenchAskBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    question: str = Field(min_length=1, max_length=8000)
+    as_json: bool = False  # 要结构化的结果（成品按用户的输入现场生成内容）
+
+
+# 生成的工作台在「沙箱」里运行：浏览器把它当成一个陌生网站，碰不到圆桌的接口、存储和登录状态
+# 能联网取的只有配置里那几项公开数据（地图底图、天气、汇率……），其余网址一律拦下
+def bench_csp(origins: list[str]) -> str:
+    extra = "".join(f" {o}" for o in origins)
+    return (
+        "sandbox allow-scripts allow-forms allow-popups allow-downloads; "
+        "default-src 'self' data: blob:; script-src 'self' 'unsafe-inline'; "
+        f"style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:{extra}; "
+        "media-src 'self' data: blob:; "
+        f"connect-src 'self'{extra}; frame-ancestors 'self'"
+    )
+
+
 class SuperTaskBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -475,6 +533,9 @@ class WebFiles(StaticFiles):
     ) -> Response:
         resp = super().file_response(full_path, stat_result, scope, *args, **kwargs)
         resp.headers["Cache-Control"] = "no-cache"
+        if "/kit/" in str(full_path).replace("\\", "/"):
+            # 设计套件：沙箱里的工作台（来源是「陌生网站」）也要能用 import 载入
+            resp.headers["Access-Control-Allow-Origin"] = "*"
         if (
             str(full_path).endswith(".html")
             and Request(scope).cookies.get(WEB_CACHE_COOKIE) != WEB_CACHE_EPOCH
@@ -725,6 +786,37 @@ def create_app(service: RoundtableService | None = None, lan: LanAccess | None =
         return dsh_out(request, await svc(request).dsh_check())
 
     # 超级电脑：几位编程助手平级、按分数派活（docs/SUPERCOMPUTER.md）
+    @app.get("/api/bench")
+    async def bench_status(request: Request) -> dict[str, Any]:
+        return svc(request).bench_status()
+
+    @app.post("/api/bench")
+    async def bench_submit(request: Request, body: BenchBody) -> dict[str, Any]:
+        return svc(request).bench_submit(body.request)
+
+    @app.post("/api/bench/cancel")
+    async def bench_cancel(request: Request) -> dict[str, Any]:
+        return await svc(request).bench_cancel()
+
+    @app.get("/api/bench/{bench_id}")
+    async def bench_get(request: Request, bench_id: str) -> dict[str, Any]:
+        return svc(request).bench_get(bench_id)
+
+    @app.post("/api/bench/{bench_id}/ask")
+    async def bench_ask(request: Request, bench_id: str, body: BenchAskBody) -> dict[str, Any]:
+        return await svc(request).bench_ask(bench_id, body.question, body.as_json)
+
+    @app.get("/bench/{bench_id}/{path:path}")
+    async def bench_file(request: Request, bench_id: str, path: str) -> Response:
+        full = svc(request).bench_file(bench_id, path)
+        mime = mimetypes.guess_type(full.name)[0] or "application/octet-stream"
+        if full.suffix in (".js", ".mjs"):
+            mime = "text/javascript"
+        csp = bench_csp(svc(request).bench_net_origins())
+        headers = {"Cache-Control": "no-cache", "Content-Security-Policy": csp}
+        headers["Access-Control-Allow-Origin"] = "*"  # 沙箱页面载入自己的模块和数据
+        return Response(content=full.read_bytes(), media_type=mime, headers=headers)
+
     @app.get("/api/super")
     async def super_status(request: Request) -> dict[str, Any]:
         return svc(request).super_status()
@@ -782,6 +874,22 @@ def create_app(service: RoundtableService | None = None, lan: LanAccess | None =
     async def watch_adb_connect(request: Request, body: AdbConnectBody) -> dict[str, Any]:
         watch_local(request)
         return await asyncio.to_thread(svc(request).watch_adb_connect, body.host, body.port)
+
+    @app.post("/api/watch/overlay")
+    async def watch_overlay(request: Request) -> dict[str, Any]:
+        watch_local(request)
+        port = request.url.port or (443 if request.url.scheme == "https" else 80)
+        return svc(request).watch_overlay(port)
+
+    @app.post("/api/watch/adb/qr")
+    async def watch_adb_qr(request: Request) -> dict[str, Any]:
+        watch_local(request)
+        return await asyncio.to_thread(svc(request).watch_adb_qr)
+
+    @app.get("/api/watch/adb/qr")
+    async def watch_adb_qr_poll(request: Request) -> dict[str, Any]:
+        watch_local(request)
+        return await asyncio.to_thread(svc(request).watch_adb_qr_poll)
 
     @app.post("/api/watch/scrcpy")
     async def watch_scrcpy(request: Request, body: WatchScrcpyBody) -> dict[str, Any]:
@@ -1138,6 +1246,43 @@ def create_app(service: RoundtableService | None = None, lan: LanAccess | None =
             media_type=media,
             headers={"Content-Disposition": f'attachment; filename="{name}"'},
         )
+
+    # 关于你 · 你的状态（P8 第二块；每项默认关）
+    @app.get("/api/chat/about/status")
+    async def about_status(request: Request) -> dict[str, Any]:
+        return svc(request).about_status()
+
+    @app.post("/api/chat/about/status")
+    async def about_status_set(request: Request, body: AboutStatusBody) -> dict[str, Any]:
+        return svc(request).about_status_set(body.kind, body.on)
+
+    @app.post("/api/chat/about/status/player")
+    async def about_music_player(request: Request, body: AboutPlayerBody) -> dict[str, Any]:
+        return svc(request).about_music_player(body.player)
+
+    @app.post("/api/chat/about/games")
+    async def about_game_add(request: Request, body: AboutGameBody) -> dict[str, Any]:
+        return svc(request).about_game_add(body.exe, body.name)
+
+    @app.delete("/api/chat/about/games")
+    async def about_game_del(request: Request, exe: str) -> dict[str, Any]:
+        return svc(request).about_game_del(exe)
+
+    @app.post("/api/chat/about/schedule/classes")
+    async def about_class_add(request: Request, body: AboutClassBody) -> dict[str, Any]:
+        return svc(request).about_class_add(body.weekday, body.start, body.end, body.name)
+
+    @app.post("/api/chat/about/schedule/ddls")
+    async def about_ddl_add(request: Request, body: AboutDdlBody) -> dict[str, Any]:
+        return svc(request).about_ddl_add(body.name, body.due)
+
+    @app.delete("/api/chat/about/schedule/{kind}/{item_id}")
+    async def about_schedule_del(request: Request, kind: str, item_id: int) -> dict[str, Any]:
+        return svc(request).about_schedule_del(kind, item_id)
+
+    @app.delete("/api/chat/about/schedule")
+    async def about_schedule_clear(request: Request) -> dict[str, Any]:
+        return svc(request).about_schedule_clear()
 
     @app.get("/api/chat/engine/events")
     async def member_events_count(request: Request) -> dict[str, Any]:

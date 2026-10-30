@@ -49,9 +49,9 @@ def image_calls(fake):
     return [c for c in fake.media_calls if c[0] == "image"]
 
 
-def test_every_card_is_valid_and_openai_has_a_full_set():
+def test_every_member_has_a_full_set_of_twelve():
     cards = load_config().personas.sticker_cards
-    assert len(cards["OpenAI"].stickers) == 12
+    assert len(cards) == 8 and all(len(c.stickers) == 12 for c in cards.values())
     vendors = {m.vendor for m in load_config().models.models if m.seat}
     assert set(cards) <= vendors
     for card in cards.values():
@@ -209,13 +209,20 @@ def test_setting_sheet_one_level_up_comes_first_then_member_art(tmp_path):
 
 def test_caption_mismatch_in_text_seen_overrides_the_models_ok(tmp_path):
     seen = json.dumps(
-        {"text_seen": "本尤不傻，真的", "caption_ok": True, "looks_ok": True, "problems": ""}
+        {"text_seen": "本尤不傻", "caption_ok": True, "looks_ok": True, "problems": ""}
     )
     _, fake, stickers = build(tmp_path, check_text=seen, max_attempts=1)
     row = asyncio.run(stickers.draw("OpenAI", "不傻"))
     assert "本尤不傻" in row["problems"]
     same = json.dumps(
-        {"text_seen": "本龙不傻 真的！", "caption_ok": True, "looks_ok": True, "problems": ""}
+        {"text_seen": "本龙不傻！", "caption_ok": True, "looks_ok": True, "problems": ""}
     )
     _, _, ok = build(tmp_path / "b", check_text=same, max_attempts=1)
     assert asyncio.run(ok.draw("OpenAI", "不傻"))["problems"] == ""
+
+
+def test_check_without_a_usable_answer_is_flagged_for_you(tmp_path):
+    _, fake, stickers = build(tmp_path, check_text="", max_attempts=1)
+    row = asyncio.run(stickers.draw("OpenAI", "晚安"))
+    assert row["problems"] == "自动核对没给出结果，请自己看一下"
+    assert fake.calls[-1].params["max_tokens"] == 1200

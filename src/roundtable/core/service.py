@@ -15,6 +15,7 @@ import re
 import secrets
 import shutil
 import subprocess
+import time
 from collections.abc import AsyncIterator, Sequence
 from dataclasses import asdict
 from datetime import date, datetime, timedelta, tzinfo
@@ -27,6 +28,9 @@ from roundtable.core.allocation import coordinator_name, display_name
 from roundtable.core.almanac import Almanac
 from roundtable.core.attachments import Attachment, UploadError, ingest
 from roundtable.core.attachments.detect import TYPES as UPLOAD_TYPES
+from roundtable.core.benchkit.builder import BenchBuilder
+from roundtable.core.benchkit.scout import Scout as PluginScout
+from roundtable.core.benchkit.scout import http_fetchers
 from roundtable.core.browse import REFRESH_KEY, feeds_of, set_feeds
 from roundtable.core.budget import report as usage_report
 from roundtable.core.budget.channels import MonthSpend, save_priority
@@ -105,6 +109,7 @@ from roundtable.core.member.growth.report import lines as report_lines
 from roundtable.core.member.memory import DiaryTool
 from roundtable.core.member.memory.store import query_terms
 from roundtable.core.member.voice import VoicePolicy
+from roundtable.core.member.yourstate import UserStatus
 from roundtable.core.member_stickers import (
     MemberStickers,
     StickerBudgetExceeded,
@@ -153,7 +158,14 @@ from roundtable.core.routing import (
     preview_estimates,
 )
 from roundtable.core.runtime import PROJECT_ROOT, WANDER_DIR, Runtime, data_dir
-from roundtable.core.screen import AdbSource, PcSource, ScreenUnavailable, ScreenWatch
+from roundtable.core.screen import (
+    AdbSource,
+    PcSource,
+    ScreenUnavailable,
+    ScreenWatch,
+    new_qr_pairing,
+    qr_pairing_payload,
+)
 from roundtable.core.search import SearchUnavailable
 from roundtable.core.standee import load_standee
 from roundtable.core.standee import standee_file as read_standee_file
@@ -163,6 +175,7 @@ from roundtable.core.storage import NotFound
 from roundtable.core.supercomputer import Supercomputer
 from roundtable.core.supercomputer.launch import CommandLauncher, HookLauncher
 from roundtable.core.wander import Wanderer
+from roundtable.core.yourpc import WindowsPc, game_of
 
 try:  # dsh 工作台是可拔掉的外设：删掉整个 core/dsh/ 圆桌照常运行（docs/DSH.md，CI「拔掉 dsh」任务）
     from roundtable.core.dsh import DshManager
@@ -178,6 +191,7 @@ ORPHANED_ERROR = "服务上次意外退出，做到一半中断了，可以点�
 MAX_QUESTION_CHARS = 20_000
 MAX_CHAT_CHARS = 2000
 MAX_MOMENT_CHARS = 500
+ADB_QR_TTL_S = 180  # 配对二维码几秒内有效（手机上的扫码页面本身也会超时）
 # 公寓楼：进行中的会话这么久没有更新就不算在上班（服务意外退出后留下的 running）
 WORKING_WINDOW_H = 3
 
@@ -198,6 +212,13 @@ __all__ = [
 
 
 EXPORT_FOLDER_KEY = "export.folder"  # 导出时「存到固定文件夹」记住的文件夹
+
+
+def _has_tk() -> bool:
+    """这台电脑的 Python 带不带 tkinter（一起看的悬浮窗要用）。"""
+    import importlib.util
+
+    return importlib.util.find_spec("tkinter") is not None
 
 
 class ServiceError(ValueError):
@@ -244,6 +265,23 @@ class RoundtableService:
         # P4 关系·对你的见解：和成长同一天，每位按自己的性格读一遍画像；花费计入生活每天的上限
         self.insight = InsightKeeper(runtime, self.chats.everyone)
         self.insight.allow = self.life.allowed
+        # P8 第二块：你的状态（每项默认关）；聊天时现问一次，读到的不写库
+        self._pc = runtime.pc_source if runtime.pc_source is not None else WindowsPc()
+        runtime.user_status = UserStatus(
+            runtime,
+            {
+                "music": self._say_music,
+                "idle": self._say_idle,
+                "game": self._say_game,
+                "mail": self._say_mail,
+            },
+            {
+                "music": lambda: self._np().source.available(),
+                "idle": self._pc.available,
+                "game": self._pc.available,
+                "mail": lambda: None if self.mail.enabled() else "邮件栏还没打开",
+            },
+        )
         self.calendar = Almanac(runtime, self.chats.everyone)
         self.mail = MailBox(runtime.repo)
         self.mail_ai = MailAI(runtime, self.mail)
@@ -268,6 +306,7 @@ class RoundtableService:
             },
             publish=self.engine.bus.publish,
         )
+        self._adb_qr: dict[str, Any] | None = None  # 正在等手机扫的配对二维码（只在内存里）
         base = runtime.mail_dir.parent if runtime.mail_dir is not None else data_dir()
         self.wander = Wanderer(
             runtime,
@@ -280,6 +319,13 @@ class RoundtableService:
         self.dsh = self._build_dsh(runtime, base if runtime.mail_dir is not None else None)
         self.supercomputer = self._build_super(
             runtime, base if runtime.mail_dir is not None else None
+        )
+        self.bench = BenchBuilder(
+            runtime.config.roundtable.bench,
+            root=(base / "bench") if runtime.mail_dir is not None else None,
+            supercomputer=self.supercomputer,
+            render=self._super_render,
+            scout=self._build_scout(runtime.config.roundtable.bench),
         )
         self._chat_tasks: set[asyncio.Task[Any]] = set()
         self._life_task: asyncio.Task[None] | None = None
@@ -308,6 +354,21 @@ class RoundtableService:
             dotenv_path=PROJECT_ROOT / ".env",
         )
 
+    @staticmethod
+    def _build_scout(rules: Any) -> PluginScout:
+        fetch_json, fetch_bytes = http_fetchers()
+        return PluginScout(
+            fetch_json=fetch_json,
+            fetch_bytes=fetch_bytes,
+            min_stars=rules.min_stars,
+            max_kb=rules.max_repo_mb * 1024,
+        )
+
+    def _super_render(self, role: str, **values: str) -> str:
+        """超级电脑和工作台生成器发给助手的全文：系统和用户两段拼在一起（命令行助手只收一段）。"""
+        rendered = self.rt.prompts.render(role, self.rt.config.roundtable.prompts[role], **values)
+        return "\n\n".join(m.content for m in rendered.messages)
+
     def _build_super(self, runtime: Runtime, base: Path | None) -> Supercomputer:
         """超级电脑（docs/SUPERCOMPUTER.md）：命令行助手 + dsh（带了 dsh 才有）。"""
         config = runtime.config
@@ -321,16 +382,10 @@ class RoundtableService:
             launchers["dsh"] = HookLauncher(
                 dsh.job_blocked, dsh.job_launch, dsh.job_started, dsh.job_finished
             )
-        prompts = config.roundtable.prompts
-
-        def render(role: str, **values: str) -> str:
-            rendered = runtime.prompts.render(role, prompts[role], **values)
-            return "\n\n".join(m.content for m in rendered.messages)
-
         return Supercomputer(
             config.roundtable.supercomputer,
             root=base / "super" if base is not None else None,
-            render=render,
+            render=self._super_render,
             launchers=launchers,
         )
 
@@ -390,6 +445,7 @@ class RoundtableService:
     async def aclose(self) -> None:
         self.watch.stop("服务关闭，投屏停了")
         with contextlib.suppress(Exception):
+            await self.bench.aclose()
             await self.supercomputer.aclose()
         if self.dsh is not None:
             with contextlib.suppress(Exception):
@@ -623,6 +679,44 @@ class RoundtableService:
         except ScreenUnavailable as e:
             raise ServiceError(str(e)) from None
 
+    def watch_adb_qr(self) -> dict[str, Any]:
+        """安卓扫码配对：生成新的配对二维码（旧的作废），再用 watch_adb_qr_poll 等扫码。"""
+        src = self._adb()
+        try:
+            src.qr_ready()
+        except ScreenUnavailable as e:
+            raise ServiceError(str(e)) from None
+        name, password = new_qr_pairing()
+        self._adb_qr = {"name": name, "password": password, "at": time.monotonic()}
+        return {"payload": qr_pairing_payload(name, password), "expires_s": ADB_QR_TTL_S}
+
+    def watch_adb_qr_poll(self) -> dict[str, Any]:
+        """看手机扫了没有，扫了就配对并连上。state：waiting / connected / paired / expired / none"""
+        qr = self._adb_qr
+        if qr is None:
+            return {"state": "none", "connected": []}
+        if time.monotonic() - qr["at"] > ADB_QR_TTL_S:
+            self._adb_qr = None
+            return {"state": "expired", "connected": []}
+        src = self._adb()
+        try:
+            addr = src.qr_pair(qr["name"], qr["password"])
+        except ScreenUnavailable as e:
+            self._adb_qr = None
+            raise ServiceError(str(e)) from None
+        if addr is None:
+            return {"state": "waiting", "connected": []}
+        self._adb_qr = None
+        host = addr.rsplit(":", 1)[0]
+        connected: list[str] = []
+        for _ in range(3):  # 刚配对完手机要一两秒才广播连接端口
+            try:
+                connected = src.connect(host, 0)
+                break
+            except ScreenUnavailable:
+                time.sleep(1.5)
+        return {"state": "connected" if connected else "paired", "connected": connected}
+
     async def watch_start(self, source: str, watchers: list[str], consent: bool) -> dict[str, Any]:
         devices = await asyncio.to_thread(self.watch.devices)
         infos = {s["id"]: s for d in devices.values() for s in d["sources"]}
@@ -678,6 +772,34 @@ class RoundtableService:
         except OSError:
             raise ServiceError("scrcpy 启动失败") from None
         return {"started": True}
+
+    def watch_overlay(self, port: int) -> dict[str, Any]:
+        """打开一起看的置顶悬浮窗（另一个进程，tkinter；只通过 HTTP 连本机圆桌，docs/WATCH.md）。"""
+        import sys
+
+        if not self.watch.running:
+            raise ServiceError("现在没在投屏")
+        proc = getattr(self, "_overlay", None)
+        if proc is not None and proc.poll() is None:
+            return {"started": False, "already": True}
+        if not _has_tk():
+            raise ServiceError("这台电脑的 Python 没带 tkinter，开不了悬浮窗；可以用「画中画」小窗")
+        state = data_dir() / "desktop" / "watch_overlay.json"
+        cmd = [
+            sys.executable,
+            "-m",
+            "roundtable.desktop.overlay",
+            "--url",
+            f"http://127.0.0.1:{int(port)}",
+            "--state",
+            str(state),
+        ]
+        flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        try:
+            self._overlay = subprocess.Popen(cmd, creationflags=flags)  # noqa: S603
+        except OSError:
+            raise ServiceError("悬浮窗启动失败") from None
+        return {"started": True, "already": False}
 
     # --- 成员自己上网 ---------------------------------------------------------------------
 
@@ -772,6 +894,57 @@ class RoundtableService:
         except ValueError as exc:
             raise ServiceError(str(exc), 400) from None
         return self.super_status()
+
+    # --- 工作台生成器（docs/KIT.md） --------------------------------------------------
+
+    def bench_status(self) -> dict[str, Any]:
+        return self.bench.status()
+
+    def bench_submit(self, request: str) -> dict[str, Any]:
+        try:
+            self.bench.submit(request)
+        except RuntimeError as exc:
+            raise ServiceError(str(exc), 409) from None
+        except ValueError as exc:
+            raise ServiceError(str(exc), 400) from None
+        return self.bench_status()
+
+    async def bench_cancel(self) -> dict[str, Any]:
+        await self.bench.cancel()
+        return self.bench_status()
+
+    def bench_get(self, bench_id: str) -> dict[str, Any]:
+        b = self.bench.get(bench_id)
+        if b is None:
+            raise ServiceError("没有这个工作台", 404)
+        return b
+
+    async def bench_ask(self, bench_id: str, question: str, json: bool = False) -> dict[str, Any]:
+        try:
+            if json:
+                return await self.bench.ask_json(bench_id, question)
+            return {"text": await self.bench.ask(bench_id, question)}
+        except LookupError as exc:
+            raise ServiceError(str(exc), 404) from None
+        except ValueError as exc:
+            raise ServiceError(str(exc), 400) from None
+
+    def bench_net_origins(self) -> list[str]:
+        """生成的工作台能联网访问的网址（配置里的公开数据名单）；沙箱只放行这些。"""
+        out: list[str] = []
+        for svc in self.bench.rules.net:
+            out += [o for o in svc.origins if o not in out]
+        return out
+
+    def bench_file(self, bench_id: str, path: str) -> Path:
+        """生成的工作台里的一个文件（只读；不许跳出它自己的文件夹）。"""
+        if self.bench.root is None or self.bench.get(bench_id) is None:
+            raise ServiceError("没有这个工作台", 404)
+        base = self.bench.folder(bench_id).resolve()
+        full = (base / (path or "index.html")).resolve()
+        if not full.is_relative_to(base) or not full.is_file() or full.name == "build.json":
+            raise ServiceError("没有这个文件", 404)
+        return full
 
     def start_dsh(self) -> None:
         """服务启动时：配置了 autostart 才顺带启动 dsh（默认不启动）。失败只记日志。"""
@@ -2310,6 +2483,77 @@ class RoundtableService:
                 e["by_name"] = names.get(e.get("by"), e.get("by") or "")
             f["noticed"] = [names.get(x, x) for x in f.get("noticed", [])]
         return v
+
+    # 你的状态的来源（每项只在开关打开、成员要回话时才问；读到的不写库）
+
+    def _say_music(self, now: datetime) -> str | None:
+        v = self._np().view(self.engine.about.switches()["music_player"])
+        cur = v.get("now")
+        if not v["available"] or not cur or cur["status"] != "playing" or not cur["title"]:
+            return None
+        who = f"（{cur['artist']}）" if cur["artist"] else ""
+        return f"用户正在听《{cur['title']}》{who}"
+
+    def _say_idle(self, now: datetime) -> str | None:
+        if self._pc.available():
+            return None
+        idle = self._pc.read().idle_seconds
+        if idle is None:
+            return None
+        minutes = int(idle // 60)
+        if minutes >= self.engine.about.rules.idle_minutes:
+            return f"用户的电脑已经 {minutes} 分钟没人动了（可能走开了）"
+        return "用户正在用电脑"
+
+    def _say_game(self, now: datetime) -> str | None:
+        if self._pc.available():
+            return None
+        game = game_of(self._pc.read().foreground, self.engine.about.games())
+        return f"用户在玩{game}" if game else None
+
+    def _say_mail(self, now: datetime) -> str | None:
+        if not self.mail.enabled():
+            return None
+        d = self.mail.view()["digest"]
+        text = f"用户邮箱今天收到 {d['today']} 封，重要未读 {d['important_unread']} 封"
+        if d["due"]:
+            first = d["due"][0]
+            text += f"；最近截止 {first['due'][5:10]}「{' '.join(first['snippet'].split())[:16]}」"
+        return text
+
+    def about_status(self) -> dict[str, Any]:
+        return self.rt.user_status.view()
+
+    def about_status_set(self, kind: str, on: bool) -> dict[str, Any]:
+        self._about(lambda: self.engine.about.set_status(kind, on))
+        return self.about_status()
+
+    def about_music_player(self, player: str) -> dict[str, Any]:
+        self._about(lambda: self.engine.about.set_music_player(player))
+        return self.about_status()
+
+    def about_game_add(self, exe: str, name: str) -> dict[str, Any]:
+        self._about(lambda: self.engine.about.add_game(exe, name))
+        return self.about_status()
+
+    def about_game_del(self, exe: str) -> dict[str, Any]:
+        self._about(lambda: self.engine.about.del_game(exe))
+        return self.about_status()
+
+    def about_class_add(self, weekday: int, start: str, end: str, name: str) -> dict[str, Any]:
+        self._about(lambda: self.engine.about.add_class(weekday, start, end, name))
+        return self.about_status()
+
+    def about_ddl_add(self, name: str, due: str) -> dict[str, Any]:
+        self._about(lambda: self.engine.about.add_ddl(name, due))
+        return self.about_status()
+
+    def about_schedule_del(self, kind: str, item_id: int) -> dict[str, Any]:
+        self._about(lambda: self.engine.about.del_schedule(kind, item_id))
+        return self.about_status()
+
+    def about_schedule_clear(self) -> dict[str, Any]:
+        return {"deleted": self.engine.about.clear_schedule()}
 
     def about_add(self, text: str, domain: str | None = None) -> dict[str, Any]:
         self._about(lambda: self.engine.about.add(text, domain))

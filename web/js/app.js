@@ -47,6 +47,7 @@ import { Wander } from './wander.js';
 import { Workbench } from './workbench.js';
 import { SuperPanel } from './supercomputer.js';
 import { Bench } from './bench.js';
+import { BenchGenPanel } from './benchgen.js';
 import { Hub } from './hub.js';
 import { Standee } from './standee.js';
 import { Music } from './music.js';
@@ -154,6 +155,15 @@ const people = new People($('#people'), {
       forget: API.aboutForget,
       clear: API.aboutClear,
       exportUrl: API.aboutExportUrl,
+      status: API.aboutStatus,
+      setStatus: API.aboutSetStatus,
+      player: API.aboutPlayer,
+      addGame: API.aboutAddGame,
+      delGame: API.aboutDelGame,
+      addClass: API.aboutAddClass,
+      addDdl: API.aboutAddDdl,
+      delSchedule: API.aboutDelSchedule,
+      clearSchedule: API.aboutClearSchedule,
     },
     growth: API.memberGrowth,
     growthRun: API.runMemberGrowth,
@@ -199,8 +209,11 @@ new Watch($('#watchdlg'), $('#watchbtn'), {
     messages: API.watchMessages,
     say: API.watchSay,
     scrcpy: API.watchScrcpy,
+    overlay: API.watchOverlay,
     adbPair: API.watchAdbPair,
     adbConnect: API.watchAdbConnect,
+    adbQr: API.watchAdbQr,
+    adbQrPoll: API.watchAdbQrPoll,
     frameUrl: API.watchFrameUrl,
     members: () => API.api('/api/chat?after=2147483647'),
   },
@@ -214,7 +227,7 @@ new Wander($('#wanderdlg'), $('#wanderbtn'), {
     frameUrl: API.wanderFrameUrl,
   },
 });
-// 「工作台」页（分段栏第五个入口）：超级电脑 + dsh
+// 「工作台」页（分段栏第五个入口）：生成器 + 超级电脑 + dsh
 const bench = new Bench($('#bench'));
 const workbench = new Workbench(bench.pane('dsh'), bench.tabButton('dsh'), {
   api: { status: API.dshStatus, start: API.dshStart, stop: API.dshStop, check: API.dshCheck },
@@ -231,7 +244,19 @@ const superPanel = new SuperPanel(bench.pane('super'), document.querySelector('#
   },
   isOpen: () => bench.visible('super'),
 });
-bench.onSelect = (name) => (name === 'dsh' ? workbench.open() : superPanel.open());
+const benchGen = new BenchGenPanel(bench.pane('gen'), {
+  api: {
+    status: API.benchStatus,
+    submit: API.benchSubmit,
+    cancel: API.benchCancel,
+    get: API.benchGet,
+    ask: API.benchAsk,
+  },
+  isOpen: () => bench.visible('gen'),
+  label: (id) => superPanel.label(id),
+});
+bench.onSelect = (name) =>
+  name === 'dsh' ? workbench.open() : name === 'gen' ? benchGen.open() : superPanel.open();
 $('#skin').addEventListener('click', () => {
   const next = document.documentElement.dataset.skin === 'ark' ? 'classic' : 'ark';
   document.documentElement.dataset.skin = next;
