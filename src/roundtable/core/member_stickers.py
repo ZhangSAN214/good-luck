@@ -53,6 +53,7 @@ REF_MAX_SIDE = 1024  # 参考图缩到这个边长以内再发
 BG_MIN_LEVEL = 200
 BG_MAX_TINT = 16
 BG_THRESH = 36
+MARK = (255, 0, 255, 0)  # 刷底时临时用的记号色
 CHECK_INPUT_TOKENS = 2500  # 识图核对一次的输入 token 估计（几张图 + 提示词）
 
 
@@ -558,5 +559,9 @@ def _white_background(im: Any) -> Any:
             continue
         # 只认浅而不带颜色的底：最暗的通道够亮，三个通道相差不大
         if min(r, g, b) >= BG_MIN_LEVEL and max(r, g, b) - min(r, g, b) <= BG_MAX_TINT:
-            ImageDraw.floodfill(im, xy, (255, 255, 255, 255), thresh=BG_THRESH)
+            # 先填一个图里不会有的颜色（全透明），最后再换成白：直接填白时，
+            # 起点和白色相差不到 thresh 会被当成“已经填过”跳过，越接近白的灰越刷不到
+            ImageDraw.floodfill(im, xy, MARK, thresh=BG_THRESH)
+    mask = im.getchannel("A").point(lambda a: 255 if a == 0 else 0)
+    im.paste((255, 255, 255, 255), mask=mask)
     return im

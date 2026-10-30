@@ -250,6 +250,11 @@ def test_light_grey_background_becomes_pure_white_but_the_character_stays(tmp_pa
         assert im.getpixel((357, 180)) == (255, 255, 255)
         assert im.getpixel((100, 80))[1] < 100  # 红色块不动
         assert im.getpixel((100, 130)) == (250, 250, 252)  # 白裙子不和边框连着，原样
+    # 很接近白的灰也要刷到
+    with Image.open(io.BytesIO(_square(grey_sticker(bg=(243, 244, 246)), 360))) as im:
+        im = im.convert("RGB")
+        assert im.getpixel((2, 2)) == (255, 255, 255)
+        assert im.getpixel((100, 80))[1] < 100
     # 带颜色的底不是“浅灰”，不刷
     tinted = grey_sticker(bg=(250, 220, 200))
     with Image.open(io.BytesIO(_square(tinted, 360))) as im:
