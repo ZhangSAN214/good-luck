@@ -201,6 +201,7 @@ class SimResult:
     checks: list[dict[str, Any]] = field(default_factory=list)
     tells: dict[str, Any] = field(default_factory=dict)
     errors: list[dict[str, Any]] = field(default_factory=list)
+    probes: list[dict[str, Any]] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     meta: dict[str, Any] = field(default_factory=dict)
 
@@ -215,6 +216,7 @@ class SimResult:
             "tells": self.tells,
             "days": self.days,
             "members": self.members,
+            "probes": self.probes,
             "errors": self.errors,
             "warnings": self.warnings[:200],
         }
@@ -257,6 +259,7 @@ class Simulation:
         self.rng = random.Random(seed)
         self.result = SimResult(out)
         self._sleep = sleep or asyncio.sleep
+        self.transcript = ""
 
     # --- 组装 ---
 
@@ -329,6 +332,22 @@ class Simulation:
             await asyncio.gather(*pending, return_exceptions=True)
         return int(sent is not None)
 
+    async def probe(self, svc: Any, members: list[Any], day: int) -> None:
+        """前后对比：在私聊里问每位成员同样的几句（走真实聊天流程），记下她的回答。"""
+        for m in members:
+            room = dm_room(m.id)
+            for q in self.material.get("probes", []):
+                sent = await self._step("probe", lambda q=q, room=room: svc.chat_post(q, room=room))
+                pending = list(svc._chat_tasks)
+                if pending:
+                    await asyncio.gather(*pending, return_exceptions=True)
+                after = sent["id"] if sent else 0
+                rows = svc.rt.repo.chat_messages(room, after=after)
+                said = [x["text"] for x in rows if x["author"] == m.id]
+                self.result.probes.append(
+                    {"day": day, "member": m.id, "name": m.name, "q": q, "a": " / ".join(said)}
+                )
+
     def _spent(self, rt: Any, start: datetime, end: datetime) -> float:
         return rt.repo.spent_between(start, end)
 
@@ -377,6 +396,9 @@ class Simulation:
             if now - day_start >= timedelta(days=1):
                 self.result.days.append(self.snapshot(svc, members, day_start, now, user_msgs))
                 day_start, user_msgs = now, 0
+            first_or_last = now.date() == begin.date() or end - now < timedelta(days=1)
+            if (local.hour, local.minute) == (21, 0) and first_or_last:  # 晚上 9 点问一遍
+                await self.probe(svc, members, len(self.result.days) + 1)
             if self.real and self._spent(rt, begin, now + tick) >= self.max_usd:
                 self.result.meta["stopped"] = f"真模型花费到了上限 ${self.max_usd:.2f}，提前停"
                 break
@@ -439,6 +461,7 @@ class Simulation:
                 }
             )
         res.tells = tells(texts)
+        self.transcript = transcript(rt, {m.id: m.name for m in members}, self.zone)
         total = sum(d["spent_usd"] for d in res.days)
         res.meta |= {
             "mode": "real" if self.real else "fake",
@@ -458,6 +481,7 @@ class Simulation:
             json.dumps(res.as_dict(), ensure_ascii=False, indent=1), encoding="utf-8"
         )
         (self.out / "report.md").write_text(render(res), encoding="utf-8")
+        (self.out / "chat.md").write_text(self.transcript, encoding="utf-8")
 
 
 # --- 检查与指标（程序算，不调模型）---------------------------------------------------
@@ -466,6 +490,35 @@ class Simulation:
 def _similar(a: str, b: str) -> float:
     sa, sb = set(a), set(b)
     return len(sa & sb) / max(1, len(sa | sb))
+
+
+def _grams(text: str) -> Counter[str]:
+    return Counter(text[i : i + 2] for i in range(len(text) - 1))
+
+
+def attribution(texts: dict[str, list[str]]) -> float | None:
+    """盲猜是谁说的：每条消息拿掉后，和每位成员其余消息的两字片段最像的是谁（留一法）。
+    猜中率接近 1/人数 = 说话没特点；越高越有各自的味道。"""
+    pools = {m: sum((_grams(t) for t in ts), Counter()) for m, ts in texts.items() if len(ts) >= 3}
+    if len(pools) < 2:
+        return None
+    hit = n = 0
+    for member, ts in texts.items():
+        if member not in pools:
+            continue
+        for t in ts:
+            g = _grams(t)
+            if not g:
+                continue
+
+            def score(other: str, g: Counter[str] = g, member: str = member) -> float:
+                pool = pools[other] - g if other == member else pools[other]
+                total = sum(pool.values()) or 1
+                return sum(min(c, pool[k]) for k, c in g.items()) / total**0.5
+
+            hit += max(pools, key=score) == member
+            n += 1
+    return round(hit / n, 3) if n else None
 
 
 def tells(texts: dict[str, list[str]]) -> dict[str, Any]:
@@ -491,6 +544,8 @@ def tells(texts: dict[str, list[str]]) -> dict[str, Any]:
         "len_mean": round(statistics.mean(lengths), 1),
         "len_cv": round(statistics.pstdev(lengths) / max(1, statistics.mean(lengths)), 3),
         "self_repeat": per_member,
+        "attribution": attribution(texts),
+        "chance": round(1 / max(1, sum(1 for ts in texts.values() if len(ts) >= 3)), 3),
     }
 
 
@@ -535,6 +590,25 @@ def checks(config: AppConfig, res: SimResult) -> list[dict[str, Any]]:
     return out
 
 
+def transcript(rt: Any, names: dict[str, str], zone: Any) -> str:
+    """模拟世界里的全部聊天，按天分好（给人翻看）。"""
+    rooms = {r["id"]: r for r in rt.repo.chat_rooms()}
+    names = names | {"user": "你（模拟用户）"}
+    out, day = ["# 模拟里的聊天记录", ""], None
+    for m in rt.repo.chat_messages_between("0", "9"):
+        if m["author"] == "system":
+            continue
+        at = datetime.fromisoformat(m["created_at"]).astimezone(zone)
+        if at.date() != day:
+            day = at.date()
+            out += ["", f"## {day}", ""]
+        room = rooms.get(m["room"]) or {}
+        title = room.get("title") or m["room"]
+        where = {"dm": f"私聊·{title}", "pair": f"成员私聊·{title}"}.get(room.get("kind"), title)
+        out.append(f"- {at:%H:%M} [{where}] {names.get(m['author'], m['author'])}：{m['text']}")
+    return "\n".join(out) + "\n"
+
+
 def _spark(values: list[float]) -> str:
     bars = "▁▂▃▄▅▆▇█"
     if not values:
@@ -570,6 +644,11 @@ def render(res: SimResult) -> str:
             f"- 一字不差的重复：{t['dup_ratio']:.1%}；最常见开头占比：{t['top_opening_ratio']:.1%}",
             f"- 客服腔 / 书面腔（首先、总之、您……）：{t['formal_ratio']:.1%}",
         ]
+        if t.get("attribution") is not None:
+            lines.append(
+                f"- 盲猜是谁说的（越高越有各自特点）：猜中 {t['attribution']:.0%}，"
+                f"瞎猜也有 {t['chance']:.0%}"
+            )
     else:
         lines.append("- 没有成员消息")
     lines += ["", "## 每位成员（期末）", ""]
@@ -594,6 +673,18 @@ def render(res: SimResult) -> str:
             f"{d['member_msgs']} | {d['user_msgs']} | {d['moments']} | {d['memory_items']} | "
             f"{d['about_facts']} | ${d['spent_usd']} |"
         )
+    days = sorted({p["day"] for p in res.probes})
+    if len(days) >= 2:
+        first, last = days[0], days[-1]
+        lines += ["", f"## 前后对比（第 {first} 天 vs 第 {last} 天，同样的问题）", ""]
+        got = {(p["day"], p["member"], p["q"]): p for p in res.probes}
+        for row in res.members:
+            lines += [f"### {row['name']}", ""]
+            for q in dict.fromkeys(p["q"] for p in res.probes):
+                a = got.get((first, row["member"], q), {}).get("a") or "（没回）"
+                b = got.get((last, row["member"], q), {}).get("a") or "（没回）"
+                lines += [f"- 问：{q}", f"  - 第 {first} 天：{a}", f"  - 第 {last} 天：{b}"]
+            lines.append("")
     if res.errors:
         lines += ["", "## 出错（前 20 条）", ""]
         lines += [f"- {e['at'][:16]} {e['part']}：{e['error']}" for e in res.errors[:20]]

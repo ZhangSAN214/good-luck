@@ -58,6 +58,17 @@ def test_fake_mind_identifies_prompts_and_answers_valid_json():
     assert got["changes"][0]["evidence"] == [1]
 
 
+def test_attribution_tells_distinct_voices():
+    from roundtable.core.simlab import attribution
+
+    distinct = {
+        "a": ["喵喵今天好开心喵", "喵喵想吃鱼喵", "喵喵困了喵", "喵喵晒太阳喵"],
+        "b": ["本座已阅，退下吧", "本座今日心情尚可", "本座不屑一顾", "本座要去练剑"],
+    }
+    assert attribution(distinct) == 1.0
+    assert attribution({"a": ["嗯"], "b": ["哦"]}) is None
+
+
 def test_tokens_and_tells():
     assert tokens_of("你好") == 2 and tokens_of("abcdefgh") == 2
     t = tells({"a": ["嗯，好的", "嗯，好的", "首先我们来看"], "b": ["哈哈"]})
@@ -79,7 +90,10 @@ async def test_two_days_fake_run_is_isolated_and_reports(tmp_path):
     db = sqlite3.connect(out / "sim.db")
     assert not db.execute("SELECT id FROM chat_rooms WHERE kind = 'wander'").fetchall()  # 不上网
     db.close()
-    assert "成员系统加速时间模拟报告" in (out / "report.md").read_text("utf-8")
+    md = (out / "report.md").read_text("utf-8")
+    assert "成员系统加速时间模拟报告" in md and "前后对比" in md
+    assert {p["day"] for p in res.probes} == {1, 2} and all(p["a"] for p in res.probes)
+    assert "你（模拟用户）" in (out / "chat.md").read_text("utf-8")
     with pytest.raises(SimError, match="已存在"):  # 每次用全新的数据库
         await Simulation(out, days=1).run()
 
