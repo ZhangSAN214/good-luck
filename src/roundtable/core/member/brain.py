@@ -1127,14 +1127,25 @@ def seeds(growth: str) -> list[str]:
     return list(dict.fromkeys(keep))
 
 
+_SETTING = re.compile(r"(的时候|时|旁边|之前|之后|以前|以后|那天|夜里)$")
+_JOIN = re.compile(r"^(慢慢变|变成|攒到)")
+
+
 def _clause(text: str) -> str:
-    """一句话里最像「要做的事」的那一小句（跳过「从……」「某天夜里」这类开头），去掉「我会」之类。"""
+    """一句话里最像「要做的事」的那一小句（跳过「从……」「某天夜里」「……的时候」这类场景），
+    去掉「我会」之类；话被逗号拆开时（「把那本子，攒到……」「从……，慢慢变成……」）接上后半句。"""
     parts = [p.strip(' “”"') for p in re.split(r"[，,。；;！!]", text.strip()) if p.strip()]
-    for part in parts:
+    for i, part in enumerate(parts):
         if len(part) < 4 or re.match(r"^(从|某天|有一天|今年|明年|有时)", part):
             continue
+        if _SETTING.search(part) and i + 1 < len(parts):
+            continue
+        nxt = parts[i + 1] if i + 1 < len(parts) else ""
+        if nxt and (part.startswith("把") or "从" in part or _JOIN.match(nxt)):
+            part = re.sub(r"^慢慢", "", part + nxt) if _JOIN.match(nxt) else part + nxt
+            part = re.sub(r"从(.+?)慢慢变成", r"从\1变成", part)
         part = re.sub(r"^(我会|我可能会|可能会|我可能|可能|慢慢|我的|我)", "", part)
-        return part.strip()[:20]
+        return part.strip()[:28]
     return ""
 
 

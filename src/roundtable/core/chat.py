@@ -19,6 +19,7 @@ import random
 import re
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, replace
+from datetime import timedelta
 from typing import Any
 
 from roundtable.core.attachments.model import append_to_messages
@@ -42,6 +43,7 @@ from roundtable.core.office.apartment import ACTIVITIES, PUBLIC_ROOMS, schedule
 from roundtable.core.persona import EMPTY, chat_persona
 from roundtable.core.plain_talk import before_speaking_all, plain_prompt
 from roundtable.core.providers import AllChannelsFailed, Message, NoChannelAvailable, ProviderError
+from roundtable.core.storage.repository import iso
 from roundtable.core.tools.protocol import parse_calls, strip_calls
 
 ROOM = "main"  # 生活群
@@ -77,13 +79,21 @@ _WEEK = "一二三四五六日"
 
 def life_clock(rt: Any, member_id: str) -> str:
     """按主时区说现在几点、这位成员这会儿通常在干什么（公寓作息，不调用模型）。"""
-    now = home_zone(rt).local(rt.budget.now())
+    at = rt.budget.now()
+    now = home_zone(rt).local(at)
+    head = f"{now.month}月{now.day}日 周{_WEEK[now.weekday()]} {now:%H:%M}，"
+    # 生活里刚发生过的（大脑分区自己挑的去处）为准，和生活群里说的对得上；没有再按作息表
+    recent = [
+        e
+        for e in rt.repo.life_events_between(iso(at - timedelta(minutes=90)), iso(at))
+        if member_id in e["members"]
+    ]
+    spot = re.search(r"地点：(.+)", recent[-1]["topic"] or "") if recent else None
+    if spot:
+        return f"{head}你刚才在{spot.group(1).strip()}"
     room, act = schedule(member_id, now.hour, now.weekday())
     where = "自己房间" if room == "dorm" else PUBLIC_ROOMS.get(room, room)
-    return (
-        f"{now.month}月{now.day}日 周{_WEEK[now.weekday()]} {now:%H:%M}，"
-        f"你这会儿一般在{where}{ACTIVITIES.get(act, act)}"
-    )
+    return f"{head}你这会儿一般在{where}{ACTIVITIES.get(act, act)}"
 
 
 def with_diary_tool(rt: Any, prompt: Any, remaining: int) -> Any:

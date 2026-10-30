@@ -131,6 +131,7 @@ def test_punctuation_and_laughs_follow_her_habits():
     assert lingo.finish("V2", "我觉得还行。", rng=rng)[0] == "我觉得还行……"
     assert lingo.finish("V2", "你吃了吗？", rng=rng)[0] == "你吃了吗？"  # 问号不动
     assert lingo.finish("V2", "[表情:团子·开心]", rng=rng)[0] == "[表情:团子·开心]"
+    assert lingo.finish("V2", "6", rng=rng)[0] == "6"  # 一两个字的短回复不加标点
     laugh = lingo.habits("V2").laugh
     said = lingo.finish("V2", "哈哈哈哈哈太好笑了", rng=rng)[0]
     pick = env.rt.config.roundtable.chat.engine.lingo.laughs[laugh]

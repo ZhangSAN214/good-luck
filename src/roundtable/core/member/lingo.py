@@ -537,6 +537,8 @@ class Lingo:
             return line
         if h.punct_end == "":
             return _END.sub("", line)
+        if len(line.strip()) <= 2:  # 「6」「嗯」「啊？」这种一两个字的不加
+            return line
         if rng.random() >= self.rules.punct_chance:
             return line
         return _END.sub("", line) + h.punct_end

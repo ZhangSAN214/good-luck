@@ -145,6 +145,17 @@ def test_goal_seeds_read_the_growth_chapter_in_any_format():
     )
     assert seeds(b) == ["还清第一笔债", "学会求助"]
     assert seeds("") == []
+    # 场景不算要做的事；被逗号拆开的一件事接上后半句
+    c = (
+        "小愿望：希望有一天，和大家一起吃饭的时候，我不需要想任何事。\n最可能改变的：\n"
+        "1. 把「大家的语录」那本子，攒到能出一本小册子。\n"
+        "2. 房间会从只允许自己窝着，慢慢变成愿意留位置给朋友。"
+    )
+    assert seeds(c) == [
+        "不需要想任何事",
+        "把「大家的语录」那本子攒到能出一本小册子",
+        "房间会从只允许自己窝着变成愿意留位置给朋友",
+    ]
 
 
 def test_same_seed_same_card_and_after_marks_news_told():
