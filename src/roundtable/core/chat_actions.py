@@ -115,6 +115,35 @@ class DefaultPolicy:
         return r.enabled and random.Random(f"forward:{key}:{member}").random() < r.moment_forward
 
 
+def own_stickers(rt: Any, member: str, name: str) -> dict[str, list[str]]:
+    """成员自己那套审过的专属表情：{昵称: [表情名]}（套装名就是昵称）。
+
+    没有、聊天动作关着、昵称放不进记号（太长或带分隔符）时为空。"""
+    from roundtable.core.member_stickers import MemberStickers
+
+    acts = rt.config.roundtable.chat.actions
+    if not acts.enabled or not STICKER_RE.fullmatch(f"[表情:{name}·x]") or name in acts.stickers:
+        return {}
+    names = [s["name"] for s in MemberStickers(rt, rt.sticker_dir).approved(member)]
+    names = [n for n in names if STICKER_RE.fullmatch(f"[表情:{name}·{n}]")]
+    return {name: names} if names else {}
+
+
+def member_stickers(rt: Any, member: str, name: str) -> dict[str, list[str]]:
+    """这位成员能发的表情包：自己的专属那套在前，再加通用的几套；聊天动作关着时为空。"""
+    acts = rt.config.roundtable.chat.actions
+    if not acts.enabled:
+        return {}
+    return own_stickers(rt, member, name) | acts.stickers
+
+
+def sticker_menu(rt: Any, member: str, name: str) -> str:
+    """提示词里给这位成员的表情包清单：有专属表情时分成「你的专属」和「通用」两段。"""
+    own = own_stickers(rt, member, name)
+    common = sticker_list(rt.config.roundtable.chat.actions.stickers)
+    return f"你的专属：{sticker_list(own)}；通用：{common}" if own else common
+
+
 def sticker_list(stickers: dict[str, list[str]]) -> str:
     """提示词里的表情包清单：「[表情:团子·开心]、……」。"""
     return "、".join(f"[表情:{pack}·{name}]" for pack, names in stickers.items() for name in names)

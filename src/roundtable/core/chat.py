@@ -31,9 +31,10 @@ from roundtable.core.chat_actions import (
     card_text,
     clean_card,
     is_recalled,
+    member_stickers,
     parse,
     quote_meta,
-    sticker_list,
+    sticker_menu,
     swap_repeated_stickers,
 )
 from roundtable.core.hometz import home_zone
@@ -647,7 +648,11 @@ class GroupChat:
             variables["intent"] = intent_text(card, INTENT_NONE)
         if numbered:
             variables |= {
-                "stickers": sticker_list(acts.stickers) if acts.enabled else "（这里不用表情包）",
+                "stickers": (
+                    sticker_menu(rt, member.id, member.name)
+                    if acts.enabled
+                    else "（这里不用表情包）"
+                ),
                 "kaomoji": "　".join(self._kaomoji(member.id) or acts.kaomoji)
                 if acts.enabled
                 else "（这里不用颜文字）",
@@ -716,7 +721,7 @@ class GroupChat:
         text = clean_reply(strip_calls(completion.text), member.name, rules.max_chars)
         parsed = parse(
             text,
-            stickers=acts.stickers if acts.enabled else {},
+            stickers=member_stickers(rt, member.id, member.name),
             max_segments=segments if numbered else 1,
             quotable={r["id"] for r in recent} if numbered else set(),
             allow_no_reply=skip and numbered,
@@ -811,7 +816,7 @@ class GroupChat:
         （免得大家都发同一个）。用户又发了消息时还没发出的气泡作废。返回第一条消息。"""
         rt, member = self.rt, thought.member
         policy = self.policy()
-        stickers = rt.config.roundtable.chat.actions.stickers
+        stickers = member_stickers(rt, member.id, member.name)
         first: dict[str, Any] = {}
         posted: list[str] = []
         recent = self.recent()  # 发之前再取一次：并行思考时别人可能刚发过

@@ -86,6 +86,7 @@ export const setChatPersona = (id, persona) => api(`/api/chat/personas/${encodeU
 export const memberVoices = () => api('/api/chat/voices');
 // 成员专属表情包：列表、画一张（新画的待审）、审（approved / rejected / pending）
 export const memberStickers = () => api('/api/stickers');
+export const chatStickers = () => api('/api/chat/stickers');
 export const drawSticker = (id, name) => api(`/api/stickers/${encodeURIComponent(id)}/${encodeURIComponent(name)}/draw`, { method: 'POST' });
 export const reviewSticker = (id, name, status) =>
   api(`/api/stickers/${encodeURIComponent(id)}/${encodeURIComponent(name)}/review`, { method: 'POST', body: { status } });

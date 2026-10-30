@@ -303,3 +303,62 @@ async def test_member_who_thinks_too_long_is_skipped_without_blocking_others(mon
     assert [m["author"] for m in out] == ["V2"]
     assert "阿一 想太久了" in " ".join(m["text"] for m in env.rt.repo.chat_messages("main"))
     assert r.typing == []
+
+
+# --- 成员专属表情 -------------------------------------------------------------------
+
+
+def give_stickers(env: Env, tmp_path: Path, member: str, approved: list[str], pending=()):
+    """给成员放几张专属表情（approved 审过、pending 待审），存在临时文件夹里。"""
+    from roundtable.core.config.schema import StickerCard, StickerSpec
+    from roundtable.core.member_stickers import MemberStickers
+
+    rt = env.rt
+    specs = [StickerSpec(name=n, caption=n, action="挥手") for n in [*approved, *pending]]
+    cards = rt.config.personas.sticker_cards | {member: StickerCard(look="测试", stickers=specs)}
+    personas = rt.config.personas.model_copy(update={"sticker_cards": cards})
+    rt.config = rt.config.model_copy(update={"personas": personas})
+    env.rt.sticker_dir = tmp_path / "stickers"
+    stickers = MemberStickers(env.rt, env.rt.sticker_dir)
+    data = stickers._index.load()
+    for i, name in enumerate([*approved, *pending]):
+        file = f"{member}{i}.png"
+        stickers._index.write(file, b"\x89PNG")
+        data["items"].setdefault(member, {})[name] = {
+            "caption": name + "！",
+            "file": file,
+            "status": "approved" if name in approved else "pending",
+        }
+    stickers._index.save(data)
+
+
+def test_member_gets_own_approved_pack_first_in_the_prompt(tmp_path):
+    from roundtable.core.chat_actions import member_stickers, own_stickers, sticker_menu
+
+    env = Env()
+    give_stickers(env, tmp_path, "V1", ["晚安", "收到"], pending=["没审"])
+    assert own_stickers(env.rt, "V1", "阿一") == {"阿一": ["晚安", "收到"]}
+    assert own_stickers(env.rt, "V2", "阿二") == {}
+    common = env.rt.config.roundtable.chat.actions.stickers
+    every = member_stickers(env.rt, "V1", "阿一")
+    assert list(every)[0] == "阿一" and set(every) > set(common)
+    menu = sticker_menu(env.rt, "V1", "阿一")
+    assert menu.startswith("你的专属：[表情:阿一·晚安]、[表情:阿一·收到]；通用：")
+    assert "没审" not in menu
+    # 没有专属表情的成员：只有通用清单
+    assert sticker_menu(env.rt, "V2", "阿二") == sticker_list(common)
+    # 昵称放不进记号（太长）时不给专属
+    assert own_stickers(env.rt, "V1", "一个很长很长的昵称") == {}
+
+
+async def test_member_may_send_only_her_own_pack(tmp_path):
+    env = Env()
+    give_stickers(env, tmp_path, "V1", ["晚安"])
+    give_stickers(env, tmp_path, "V2", ["收到"])
+    r = room(env)
+    msg, _ = r.post("@阿一 晚安")
+    env.fake.queue("b1", "[表情:阿一·晚安]\n\n[表情:阿二·收到]好")
+    await r.replies(msg["id"], r.pick("@阿一 晚安"))
+    rows = [m["text"] for m in env.rt.repo.chat_messages("main") if m["author"] == "V1"]
+    assert rows == ["[表情:阿一·晚安]", "好"]
+    assert "你的专属：[表情:阿一·晚安]" in env.fake.calls[-1].messages[0].content
