@@ -40,6 +40,7 @@ from roundtable.core.chat_actions import (
     clean_stickers,
     sticker_list,
 )
+from roundtable.core.member.brain import Brain
 from roundtable.core.member.voice import Said, before_voice, recent_words
 from roundtable.core.office.apartment import schedule
 from roundtable.core.persona import chat_persona
@@ -220,10 +221,14 @@ class Moments:
         if card:
             summary = card["summary"] or "（没有）"
             forward = f"{card_text(card)}\n来源：{card['source']}\n摘要：{summary}"
+        scene = event["topic"]
+        musing = Brain(self.rt, names=self.names()).musing(member.id, self.rt.budget.now())
+        if musing:  # 朋友圈读大脑：和聊天里是同一个人、同一些心事
+            scene = f"{scene}\n你这阵子心里挂着：{musing}"
         text = await self._write(
             member,
             "moment_post",
-            scene=event["topic"],
+            scene=scene,
             recent=self.recent_text(member),
             forward=forward,
         )

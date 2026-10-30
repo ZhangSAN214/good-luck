@@ -289,6 +289,8 @@ class Human:
         body = self._body(local)
         if body and rng.random() < r.body_chance:
             out.append(("body", body))
+        if rng.random() < r.correct_chance:  # 不完美的表达：偶尔说着说着改口
+            out.append(("correct", "可以先说半句，再改口「不对，是……」，像打字打到一半想起来"))
         mine = self.flaws(member)
         cond = {
             "hurt": hurt,

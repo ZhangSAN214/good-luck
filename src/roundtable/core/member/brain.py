@@ -34,7 +34,7 @@ from typing import Any
 
 from roundtable.core.hometz import home_zone
 from roundtable.core.member import psyche
-from roundtable.core.member.bus import Event, EventBus
+from roundtable.core.member.bus import PERCEIVE, Event, EventBus
 from roundtable.core.member.care import Care
 from roundtable.core.member.human import Human
 from roundtable.core.member.love import USER, Heart
@@ -55,6 +55,9 @@ EXPLORE = (
 _CLAIM = re.compile(r"(我觉得|我认为|应该|肯定|就是|不如|才是|根本|绝对|一定)")
 _QUESTION = re.compile(r"[？?]|(吗|呢|么)[。！!～~]*$")
 KEEP_NEWS = 6
+KEEP_PERCEPTS = 4
+CALENDAR_KINDS = frozenset({"holiday", "birthday", "joined", "user", "lunar", "observance"})
+SENSES = {"web": "上网看到", "screen": "在屏幕上看到", "video": "看到", "weather": "看了天气"}
 URGENT = frozenset({"let_go", "retain", "blame"})  # 感情话里这几种不受条数和冷却限制
 FIRST = frozenset({"unknown", "consistent", "busy", "wrap", "attention"})  # 人味里先给的几种
 
@@ -108,6 +111,7 @@ class _State:
     used: list[str] = field(default_factory=list)  # 最近说出口的附加提示（冷却，去模板化）
     dropped: list[dict[str, Any]] = field(default_factory=list)  # 放下过的事（不再捡回来）
     shifts: dict[str, float] = field(default_factory=dict)  # 三观轴上被在乎的人慢慢带偏了多少
+    percepts: list[dict[str, Any]] = field(default_factory=list)  # 感知到的事（节日、上网看到的）
 
 
 def _factor(score: Any) -> float:
@@ -140,6 +144,8 @@ class Brain:
         if bus is not None:
             bus.subscribe("chat.message", self.on_event)
             bus.subscribe("life.event", self.on_event)
+            for kind in ("calendar.day", "calendar.upcoming", f"{PERCEIVE}*"):
+                bus.subscribe(kind, self.on_sense)
 
     @property
     def rules(self) -> Any:
@@ -250,6 +256,43 @@ class Brain:
         ):
             self.satisfy(event.member, "gathered", event.at)
 
+    def on_sense(self, event: Event) -> None:
+        """输入层进念头：今天和快到的节日、纪念日（日历），上网、看屏幕看到的（感知卡）。"""
+        if not self.enabled():
+            return
+        data, kind = event.data, event.kind
+        found: list[tuple[str | None, str, str]] = []  # (谁，没有 = 全员；念头；种类)
+        if kind == "calendar.day":
+            for it in data.get("items") or []:
+                if it.get("kind") in CALENDAR_KINDS:
+                    found.append((None, f"今天是{it.get('name', '')}", str(it.get("kind"))))
+        elif kind == "calendar.upcoming" and data.get("kind") in CALENDAR_KINDS:
+            text = f"再过{data.get('in_days', '几')}天就是{data.get('name', '')}"
+            found.append((None, text, "upcoming"))
+        elif kind.startswith(PERCEIVE) and event.member:
+            card = str(data.get("card") or "").strip().replace("\n", " ")
+            if card:
+                verb = SENSES.get(kind.removeprefix(PERCEIVE), "看到")
+                found.append((event.member, f"{verb}：{card[:30]}", "sense"))
+        everyone = self.members() if self.members is not None else []
+        for who, text, what in found:
+            for m in [who] if who else everyone:
+                s = self._grown(m, self._load(m), event.at)
+                if any(p["text"] == text for p in s.percepts):
+                    continue
+                item = {"text": text, "at": iso(event.at), "kind": what}
+                s.percepts = (s.percepts + [item])[-KEEP_PERCEPTS:]
+                self._save(m, s)
+
+    def _festive(self, s: _State, at: datetime) -> bool:
+        """今天是节假日或纪念日（日历进来的）：更想约人出去。"""
+        day = self.local(at).date()
+        return any(
+            p["kind"] in CALENDAR_KINDS
+            and self.local(datetime.fromisoformat(p["at"])).date() == day
+            for p in s.percepts
+        )
+
     def _empathy(self, event: Event) -> None:
         """共情：有人（你或同事）说了难过 / 高兴的话，在场的成员按温和分和亲近度，
         有一定概率心情跟着动一下（发 brain.signal，由 P3 的反射表改心情）。"""
@@ -312,17 +355,35 @@ class Brain:
             rng = random.Random(f"brain-goals:{member}")
             first, rest = pool[:1], pool[1:]  # 小愿望排第一，其余随机
             rng.shuffle(rest)
-            s.goals = [
-                {"name": g, "xp": 0.0, "level": 0, "stuck": 0}
-                for g in (first + rest)[: self.rules.goals.max_active]
-            ]
+            chosen = (first + rest)[: self.rules.goals.max_active]
+            s.goals = [self._new_goal(member, g) for g in chosen]
         return s.goals
+
+    def _new_goal(self, member: str, name: str) -> dict[str, Any]:
+        """新开一件在做的事。和 P6 成长打通：这件事所属领域她已经熟（熟练度等级高），
+        起步就快一些，不会一边说「已经很熟练」一边说「刚开始」。"""
+        from roundtable.core.member.growth import habits as hb
+        from roundtable.core.member.memory.domains import classify
+
+        domains = list(self.rt.config.roundtable.chat.memory.domains)
+        domain = classify(name, domains)
+        try:
+            skills = hb.skills(self.rt.repo.memory_item_stats(member), domains)
+            lv = next((x["level"] for x in skills if x["domain"] == domain), 0)
+        except Exception:  # noqa: BLE001 - 读不到熟练度就从头来
+            lv = 0
+        r = self.rules.goals
+        xp = round(r.levels[0] * min(1.0, lv / 5), 2) if r.levels else 0.0
+        level = sum(1 for need in r.levels if xp >= need)
+        return {"name": name, "xp": xp, "level": level, "stuck": 0, "domain": domain}
 
     def _stage(self, level: int) -> str:
         stages = self.rules.goals.stages
         return stages[min(level, len(stages) - 1)]
 
-    def _pursue(self, s: _State, goal: dict[str, Any], rng: random.Random, at: datetime) -> str:
+    def _pursue(
+        self, s: _State, goal: dict[str, Any], rng: random.Random, at: datetime, member: str = ""
+    ) -> str:
         """做一次在做的事：涨经验，可能卡住，可能过一个坎（记成没讲过的新鲜事）。"""
         r = self.rules.goals
         if rng.random() < r.setback_chance:
@@ -330,7 +391,7 @@ class Brain:
             goal["fails"] = goal.get("fails", 0) + 1
             tired_of = goal["fails"] >= r.give_up_after and goal["level"] <= 1
             if tired_of and rng.random() < r.give_up_chance:  # 主动做决定：做不下去就放下、换一件
-                return self._give_up(s, goal, rng, at)
+                return self._give_up(s, goal, rng, at, member)
             note = f"「{goal['name']}」这件事最近没什么进展，有点泄气"
             self._news(s, note, at, 0.6, neg=True)
             return note
@@ -345,14 +406,16 @@ class Brain:
         self._anticipate_goal(s, goal, at)
         return f"在{goal['name']}（{self._stage(goal['level'])}）"
 
-    def _give_up(self, s: _State, goal: dict[str, Any], rng: random.Random, at: datetime) -> str:
+    def _give_up(
+        self, s: _State, goal: dict[str, Any], rng: random.Random, at: datetime, member: str
+    ) -> str:
         names = {g["name"] for g in s.goals} | {d["name"] for d in s.dropped}
         pool = [x for x in self.rules.goals.fallback if x not in names]
         s.dropped = (s.dropped + [{"name": goal["name"], "at": iso(at)}])[-6:]
         s.expects = [e for e in s.expects if e.get("goal") != goal["name"]]
         if pool:
             new = rng.choice(pool)
-            s.goals[s.goals.index(goal)] = {"name": new, "xp": 0.0, "level": 0, "stuck": 0}
+            s.goals[s.goals.index(goal)] = self._new_goal(member, new)
             note = f"决定先放下「{goal['name']}」，改去{new}"
         else:
             s.goals.remove(goal)
@@ -475,7 +538,7 @@ class Brain:
         choice = rng.choices([o for _, o in options], [max(w, 0.01) for w, _ in options])[0]
         if choice == "pursue":
             goal = min(goals, key=lambda g: g["xp"] + rng.random() * 3)
-            self._pursue(s, goal, rng, slot)
+            self._pursue(s, goal, rng, slot, member)
             self._satisfy(s, "pursued")
             place, act = "dorm", f"琢磨「{goal['name']}」"
         elif choice == "company":
@@ -531,6 +594,17 @@ class Brain:
         if linger:
             e, left, _ = linger
             out.append(Thought("episode", f"还在为「{e['why']}」{e['feel']}", 0.3 + 0.5 * left))
+        for p in s.percepts:  # 输入层：节日当天、快到的日子、刚看到的东西（看到的半天就淡了）
+            hours = (at - datetime.fromisoformat(p["at"])).total_seconds() / 3600
+            if p["kind"] == "sense":
+                left = psyche.decayed(1.0, datetime.fromisoformat(p["at"]), at, 6)
+            else:
+                same_day = (
+                    self.local(at).date() == self.local(datetime.fromisoformat(p["at"])).date()
+                )
+                left = 1.0 if same_day else 0.0
+            if left >= 0.3 and hours >= 0:
+                out.append(Thought("sense", p["text"], round(0.3 + 0.35 * left, 3)))
         for d in s.dropped[-1:]:  # 认知失调：放下了的事，会跟自己说其实也没那么想做
             if at - datetime.fromisoformat(d["at"]) <= timedelta(days=3):
                 why = f"放下「{d['name']}」以后，你跟自己说其实也没那么想做（心里还有点不甘）"
@@ -568,6 +642,19 @@ class Brain:
             word = "心情挺好" if mood > 0 else "心情不太好"
             out.append(Thought("mood", word, 0.3 + abs(mood)))
         return out
+
+    def musing(self, member: str, at: datetime) -> str:
+        """她这阵子心里最挂着的一件自己的事（朋友圈、日记读这个，和聊天是一个人）：
+        新鲜事、情绪余波、盼头、想念、节日、刚看到的……只读不写。没开启或没有时为空串。"""
+        if not self.enabled():
+            return ""
+        rng = random.Random(f"brain-musing:{member}:{self.local(at).date().isoformat()}")
+        s = self._grown(member, self._load(member), at)
+        mine = self.thoughts(member, s, at, rng)
+        mine += [Thought("love", t, w) for t, w in self.heart.thoughts(member, at, {member})]
+        mine = [t for t in mine if t.source not in ("mood", "wander", "hanging")]
+        focus = self.spotlight(mine, rng)
+        return focus.text if focus else ""
 
     @staticmethod
     def spotlight(thoughts: list[Thought], rng: random.Random) -> Thought | None:
@@ -745,7 +832,7 @@ class Brain:
             chosen=chosen,
             room=room,
             energy=energy,
-            social=s.drives.get("social", 0.3),
+            social=s.drives.get("social", 0.3) + (0.2 if self._festive(s, at) else 0.0),
             spotlight=focus,
             hurt=hurt,
             at=at,

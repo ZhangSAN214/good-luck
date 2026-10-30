@@ -320,8 +320,8 @@ def json_text(call) -> str:
 
 
 async def test_crisis_words_in_a_dm_reach_the_member_as_a_care_card():
-    """危机应对（2026-10-30）：私聊里说出想不开的话，成员拿到的是关心卡（求助电话按主时区），
-    工作群不挂载。"""
+    """危机应对（2026-10-30）：私聊里说出想不开的话，成员拿到的是关心卡（求助电话按主时区）；
+    工作群里也一样（chat_work v4 的 <care>，不带人设），平常的工作消息不带。"""
     from roundtable.core.hometz import home_zone
 
     env = Env()
@@ -334,4 +334,8 @@ async def test_crisis_words_in_a_dm_reach_the_member_as_a_care_card():
     work = ChatHub(env.rt).room("work")
     msg, _ = work.post("@阿三 我不想活了")
     await work.replies(msg["id"], work.pick("@阿三 我不想活了"))
+    assert "12356" in json_text(env.fake.calls[-1])
+    env.rt.repo.set_setting("member_care", "")
+    msg, _ = work.post("@阿三 进度怎么样")
+    await work.replies(msg["id"], work.pick("@阿三 进度怎么样"))
     assert "12356" not in json_text(env.fake.calls[-1])

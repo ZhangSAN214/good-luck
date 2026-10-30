@@ -1678,6 +1678,7 @@ class HumanRules(_Strict):
     broken_chance: float = Field(default=0.2, ge=0, le=1)  # 言行不一：过期没做的承诺偶尔想起来
     body: list[BodyRhythm] = []  # 身体节律（按顺序，第一个对上的算）
     body_chance: float = Field(default=0.25, ge=0, le=1)
+    correct_chance: float = Field(default=0.03, ge=0, le=1)  # 偶尔说到一半改口
     gossip_chance: float = Field(default=0.12, ge=0, le=1)
     depth_words: dict[str, list[str]] = {}  # 从前、遗憾、梦想、害怕 → 词
     depth_chance: float = Field(default=0.06, ge=0, le=1)

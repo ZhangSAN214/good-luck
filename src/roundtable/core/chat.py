@@ -601,6 +601,8 @@ class GroupChat:
             "memory": member_memory(rt, member.id, history, self.room),
             "history": history,
         }
+        if "care" in wants:  # 工作群也要危机关心（chat_work v4 起；生活里由意图卡给关心卡）
+            variables["care"] = self._work_care(reply_to)
         if self.kind in ABOUT_KINDS:  # 关于你（P8）：只在私聊和生活群
             variables["memory"] = with_about_you(rt, variables["memory"], history)
         if self.kind != "dm":
@@ -715,6 +717,17 @@ class GroupChat:
                 Segment(t, parsed.segments[0].quote if i == 0 else None) for i, t in enumerate(said)
             ]
         return Thought(member, kept, completion.cost_usd or 0.0, variables["memory"])
+
+    def _work_care(self, reply_to: int) -> str:
+        """工作群里用户说出让人担心的话：进入关心时段，给关心卡（不带人设，8 位相同）。"""
+        from roundtable.core.member.care import Care  # care 只依赖主时区和存储
+
+        care, now = Care(self.rt), self.rt.budget.now()
+        row = self.rt.repo.chat_message(reply_to) if reply_to else None
+        if row is not None and row["author"] == USER:
+            care.note(self.room, row["text"] or "", now)
+        level = care.active(self.room, now)
+        return care.card(level, now) if level else EMPTY
 
     def _intent(self, member: ChatMember, reply_to: int, names: dict[str, str]) -> Any:
         """这次说话前的意图卡（工作群不算；大脑分区没开时为 None）。"""
