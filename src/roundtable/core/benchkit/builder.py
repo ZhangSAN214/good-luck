@@ -451,6 +451,7 @@ class BenchBuilder:
         self._log(b, f"第 {n} 轮质检：{'通过' if report.passed else '不通过'}，{report.score} 分")
         shots = "\n".join(os.path.relpath(s, folder) for s in report.shots)
         authors = {w["id"]: w["author"] for w in b["windows"] if w["author"]}
+        last = b["rounds"][-2] if len(b["rounds"]) > 1 else None
         reviews: list[dict[str, float]] = []
         for author, wids in review_groups(authors).items():
             rec: dict[str, Any] = {"author": author, "windows": wids}
@@ -463,6 +464,7 @@ class BenchBuilder:
                 rubric="、".join(self.rules.rubric),
                 shots=shots or "（这轮没有截图）",
                 check=report.summary(),
+                previous=self._previous(last, wids),
             )
             chosen, result = await self._step(
                 b, self.rules.review_kind, prompt, rng, rec, exclude=(author,)
@@ -505,6 +507,17 @@ class BenchBuilder:
             + ("、".join(f"{k} {v:g}" for k, v in rnd["scores"].items()) or "没评成"),
         )
         return rnd["passed"]
+
+    @staticmethod
+    def _previous(last: dict[str, Any] | None, wids: list[str]) -> str:
+        """上一轮评审对这几个窗口提的问题：这一轮先核对改了没有，分数才不会每轮换一把尺子。"""
+        lines: list[str] = []
+        for rec in (last or {}).get("reviews", []):
+            for wid in wids:
+                got = (rec.get("problems") or {}).get(wid)
+                if got:
+                    lines += [f"- {wid}：{p}" for p in got["problems"]]
+        return "\n".join(lines) or "（第一轮，没有上一轮的问题）"
 
     async def _selftest(self, b: dict[str, Any], spec: Spec, rng: random.Random) -> None:
         """写完先自测一遍（只开电脑·浅色，几秒钟）：脚本报错、没用零件库这种低级问题当场交回作者改，

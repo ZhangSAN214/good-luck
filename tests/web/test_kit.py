@@ -116,3 +116,37 @@ def test_icon_buttons_named_and_long_windows_caught(tmp_path):
     found = {f.check: f for f in r.findings}
     assert "按钮没有名字" not in found, r.summary()
     assert found["窗口太长"].windows == ["list"], r.summary()
+
+
+def test_windows_share_user_data_and_small_rings_stay_readable(tmp_path):
+    """ctx.state：一个窗口加进去，另一个窗口马上看得到、改了也收到；小圆环的字不小于 12px。"""
+    from roundtable.core.benchkit.spec import normalize, write_shell
+
+    spec = normalize(
+        {
+            "title": "旅行台",
+            "windows": [
+                {"id": "eat", "title": "吃", "span": 6, "icon": "utensils"},
+                {"id": "plan", "title": "行程", "span": 6, "icon": "route"},
+            ],
+            "state": {"itinerary": "行程条目：id、标题"},
+        },
+        max_windows=8,
+    )
+    index = write_shell(tmp_path, spec, "b3")
+    (tmp_path / "windows" / "eat.js").write_text(
+        "export default (el, ctx) => { ctx.state.set('itinerary', [{ id: 'a', title: '浅草寺' }]);"
+        " ctx.kit.ring(el, 40, { size: 64, label: '已排进行程' }); };",
+        encoding="utf-8",
+    )
+    (tmp_path / "windows" / "plan.js").write_text(
+        "export default (el, ctx) => { let seen = [];"
+        " ctx.state.on('itinerary', (v) => { seen.push(v.length);"
+        " el.innerHTML = '<p>已加入 ' + v.length + ' 项</p>'; }, []);"
+        " ctx.state.update('itinerary', (l) => [...l, { id: 'b', title: '上野' }], []);"
+        " if (seen.join() !== '1,2') throw new Error('没收到：' + seen.join()); };",
+        encoding="utf-8",
+    )
+    r = _check(str(index), viewports=(("手机", 390, 844),), modes=("light",))
+    found = {f.check for f in r.findings}
+    assert "页面报错" not in found and "字太小" not in found, r.summary()
