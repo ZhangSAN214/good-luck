@@ -128,6 +128,25 @@ async def test_start_and_stop(tmp_path, fake_dsh):
     assert st["budget"]["spent_usd"] == pytest.approx(0.6)
 
 
+async def test_budget_shown_in_display_currency(tmp_path, fake_dsh):
+    mgr, _ = build(tmp_path, fake_dsh, balances=Balances(10.0, 9.0))
+    await mgr.start()
+    try:
+        b = (await mgr.check_now())["budget"]
+    finally:
+        await mgr.stop()
+    assert b["display_currency"] == "CNY"
+    assert (b["spent"], b["limit"]) == (7.2, 21.6)  # 花了 1 美元、上限 3 美元，按 7.2 折成人民币
+    assert (b["balance"], b["currency"]) == (64.8, "CNY")
+    usd, _ = build(tmp_path / "usd", fake_dsh, display_currency="USD")
+    assert usd.budget()["limit"] == 3.0
+
+
+def test_display_currency_needs_a_rate():
+    with pytest.raises(ValueError, match="usd_rates"):
+        DshRules(display_currency="EUR")
+
+
 async def test_budget_cap_stops_dsh(tmp_path, fake_dsh):
     mgr, _ = build(tmp_path, fake_dsh, balances=Balances(10.0, 8.0), monthly=1.0)
     await mgr.start()

@@ -41,7 +41,7 @@ from roundtable.core.budget.guard import day_window, month_window
 from roundtable.core.carry import carry_question, compact
 from roundtable.core.changelog import changelog_view, load_changelog
 from roundtable.core.chat import ROOM, WORK, ChatHub, chat_budget
-from roundtable.core.chat_actions import card_from_url, is_bare_url
+from roundtable.core.chat_actions import card_from_url, is_bare_url, own_stickers
 from roundtable.core.chat_actions import card_text as chat_card_text
 from roundtable.core.chat_media import MAX_BYTES as CHAT_MEDIA_MAX
 from roundtable.core.chat_media import ChatMediaStore, MediaError, clean_items, placeholder
@@ -1845,6 +1845,25 @@ class RoundtableService:
         if data is None:
             raise ServiceError("这个表情还没画", 404)
         return data
+
+    def chat_sticker_packs(self) -> dict[str, Any]:
+        """聊天里能显示的成员专属表情（审过的）：套装名是昵称，图从 /api/stickers/… 取。"""
+        packs = []
+        for m in self.chats.everyone():
+            own = own_stickers(self.rt, m.id, m.name).get(m.name, [])
+            if not own:
+                continue
+            files = {s["name"]: s for s in self.stickers.approved(m.id)}
+            items = [
+                {
+                    "name": n,
+                    "caption": files[n]["caption"],
+                    "url": f"/api/stickers/{quote(m.id)}/{quote(n)}/image?v={files[n]['file'][:8]}",
+                }
+                for n in own
+            ]
+            packs.append({"pack": m.name, "member": m.id, "items": items})
+        return {"packs": packs}
 
     def chat_personas(self) -> dict[str, Any]:
         """每位成员的聊天人设；source：local 网页里改过 / config 配置文件 / empty 没有设定。"""

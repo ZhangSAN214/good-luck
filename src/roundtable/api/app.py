@@ -1037,6 +1037,11 @@ def create_app(service: RoundtableService | None = None, lan: LanAccess | None =
         headers = {"X-Content-Type-Options": "nosniff", "Cache-Control": "private, max-age=86400"}
         return Response(content=data, media_type="image/png", headers=headers)
 
+    @app.get("/api/chat/stickers")
+    async def chat_stickers(request: Request) -> dict[str, Any]:
+        """聊天里显示的成员专属表情（审过的那些）。"""
+        return svc(request).chat_sticker_packs()
+
     @app.get("/api/chat/personas")
     async def chat_personas(request: Request) -> dict[str, Any]:
         return svc(request).chat_personas()

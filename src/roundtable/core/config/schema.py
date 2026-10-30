@@ -937,6 +937,8 @@ class MomentsRules(_Strict):
     posts_per_tick: int = Field(default=1, ge=0, le=5)  # 每次推进最多发几条
     comments_per_tick: int = Field(default=2, ge=0, le=10)  # 每次推进最多写几条评论
     max_comments: int = Field(default=3, ge=0, le=10)  # 成员在一条动态下最多评论几条
+    post_misses: int = Field(default=2, ge=1, le=10)  # 成员一天里动态几次没过自查就不再写
+    comment_misses: int = Field(default=2, ge=1, le=10)  # 一条动态底下几条评论没过自查就不再评
     like_chance: float = Field(default=0.4, ge=0, le=1)  # 每位成员给一条动态点赞的概率（不花钱）
     react_hours: int = Field(default=24, ge=1, le=168)  # 只对这么多小时内的动态点赞评论
     dedupe_hours: int = Field(default=48, ge=1, le=336)  # 和这么多小时内所有人的动态比对去重
@@ -994,6 +996,10 @@ class BusRules(_Strict):
     # 事件保留几天；None 为一直保留（攒经历数据，以后可能用来训练本地小模型；只存本机）
     keep_days: int | None = Field(default=None, ge=1, le=3650)
     catch_up_days: int = Field(default=14, ge=1, le=365)  # 开机补算最多往回看几天
+    # 聊天 / 生活的调用记录里整段提示词保留几天，之后只留最后一段的开头（回复、花费、token 不动）；
+    # None 为一直保留。30 天模拟里整段提示词占了库的四分之三
+    prompt_keep_days: int | None = Field(default=3, ge=1, le=3650)
+    prompt_keep_chars: int = Field(default=300, ge=0, le=5000)
 
 
 class EvalRules(_Strict):
@@ -1369,6 +1375,510 @@ class RelationRules(_Strict):
     insight: InsightRules = InsightRules()
 
 
+class DriveRule(_Strict):
+    """一种驱力（下丘脑）：每小时自己涨多少（再乘性格系数），被什么事满足多少。"""
+
+    label: str  # 写进意图卡的说法，如「想找人说说话」
+    rate: float = Field(ge=0, le=1)  # 每小时涨多少（0～1 的刻度）
+    trait: str | None = None  # 哪项性格分放大涨速（五项之一；3 分 1 倍，1 分 0.6，5 分 1.4）
+    satisfy: dict[str, float] = {}  # 事件 → 降多少：spoke / gathered / pursued / explored
+
+
+class GoalRules(_Strict):
+    """长线目标（前额叶）：从喜好里挑一两件「在做的事」，空闲时去做，会进步、会卡住、会有里程碑。"""
+
+    max_active: int = Field(default=2, ge=0, le=5)
+    fallback: list[str] = ["学一门新手艺", "读完一本厚书", "把房间布置成自己喜欢的样子"]
+    gain: tuple[float, float] = (0.3, 1.2)  # 每做一次涨多少经验（随机）
+    setback_chance: float = Field(default=0.12, ge=0, le=1)  # 做着做着卡住
+    levels: list[float] = [4, 12, 25, 45, 80]  # 经验到这些数就过一个坎（一个月大约过两三个）
+    # 主动做决定：卡住次数到了、又还没什么进展，有一定概率放下这件事、换一件（较真的人更坚持）
+    give_up_after: int = Field(default=3, ge=1, le=50)
+    give_up_chance: float = Field(default=0.4, ge=0, le=1)
+    stages: list[str] = [
+        "刚开始",
+        "有了点头绪",
+        "往前走了一步",
+        "有点样子了",
+        "快成了",
+        "成了",
+    ]
+
+
+class IntentRule(_Strict):
+    """一种说话意图：基础权重、受哪些量放大或压低、写进意图卡的说法。"""
+
+    label: str  # 写进意图卡，如「讲讲你自己的事」
+    base: float = Field(ge=0)
+    traits: dict[str, float] = {}  # 性格分（减 3 后）× 系数
+    drives: dict[str, float] = {}  # 驱力（0～1）× 系数
+    mood: float = 0.0  # 心情（-1～1）× 系数
+    energy: float = 0.0  # 精力（0～1，减 0.5 后）× 系数
+    needs: str | None = (
+        None  # 只有在有这类念头时才可选：own（自己的事）/ claim（对方说了个看法）/ sad / whim
+    )
+
+
+class RewardRules(_Strict):
+    """奖赏（多巴胺）：盼着一件事 → 到时候兑现（满足）/ 落空（失落）/ 没想到的好事（惊喜）。
+    心情的变化交给 P3 的反射规则表（标签 anticipate / reward / surprise / letdown）。"""
+
+    near: float = Field(default=0.75, ge=0, le=1)  # 在做的事离下一个坎还差多少时开始盼
+    plan_chance: float = Field(default=0.2, ge=0, le=1)  # 周四到周六盼周末的小计划的概率
+    met_chance: float = Field(default=0.7, ge=0, le=1)  # 周末小计划到时候成行的概率
+    ahead_days: float = Field(default=2.0, gt=0, le=14)  # 盼的事几天后见分晓
+    plans: list[str] = ["去天台看星星", "睡个懒觉", "去食堂吃顿好的", "和谁约着打一局游戏"]
+
+
+class EmpathyRules(_Strict):
+    """共情：听到别人难过 / 高兴，自己的心情跟着动一下（概率看温和分和亲近度）。"""
+
+    sad_words: list[str] = ["难过", "好累", "崩溃", "烦死", "失眠", "哭", "不开心", "委屈", "焦虑"]
+    joy_words: list[str] = ["太好了", "成功了", "开心", "终于", "好耶", "过了"]
+    base: float = Field(default=0.35, ge=0, le=1)
+    gentle: float = Field(default=0.12, ge=0, le=1)  # 温和分每高 1 分加多少
+    close: float = Field(default=0.4, ge=0, le=1)  # × 亲近度
+
+
+class MetaRules(_Strict):
+    """元认知：察觉自己最近老是一个套路（老抱怨、老敷衍……），主动压一压、换个方式。"""
+
+    window: int = Field(default=8, ge=3, le=30)
+    threshold: int = Field(default=4, ge=2, le=30)
+    damp: float = Field(default=0.3, ge=0, le=1)
+    notes: dict[str, str] = {
+        "vent": "最近老在抱怨",
+        "brief": "最近回人回得很敷衍",
+        "disagree": "最近老在抬杠",
+        "share": "最近老说自己的事，没怎么问别人",
+        "joke": "最近老在开玩笑，没好好接话",
+    }
+    swap: dict[str, str] = {"share": "ask", "vent": "share", "brief": "respond"}  # 压下去后多做的
+
+
+class SwayRules(_Strict):
+    """性格天平①：同一个人每天、每个场合表现不一样（Fleeson 整体特质论：性格是一段分布，
+    不是一个点；Mischel & Shoda 认知情感人格系统：「如果……就……」的情境特征）。"""
+
+    daily: float = Field(default=0.5, ge=0, le=2)  # 每项性格分每天上下浮动（标准差，单位：分）
+    close: dict[str, float] = {"外向": 1.0, "幽默": 0.6}  # 对亲近的人（× 亲近度）
+    tired: dict[str, float] = {"较真": -0.8, "幽默": -0.6, "温和": -0.5}  # 累了（× 疲惫程度）
+    mood: dict[str, float] = {"外向": 0.8, "幽默": 0.6, "温和": 0.3}  # × 心情（-1～1）
+
+
+class PoleRule(_Strict):
+    """对立情绪的一端：强度 = Σ 系数 × 输入。输入有 social / novelty / express / mastery 驱力，
+    energy、tired（= 1 - 精力），mood、sad（心情低落的程度），trait:外向 等（= (分数 - 3) / 2），
+    base（常数 1）。"""
+
+    label: str
+    weights: dict[str, float]
+
+
+class TensionRule(_Strict):
+    a: PoleRule
+    b: PoleRule
+
+
+class AmbivalenceRules(_Strict):
+    """性格天平②：两种相反的想法同时都挺强（Larsen & McGraw 2001：人能同时又高兴又难过；
+    Schwartz 价值环：相邻的价值相容、对面的价值相冲）。两端都过线时意图卡写一句「心里有点矛盾」。"""
+
+    both_above: float = Field(default=0.45, ge=0, le=2)
+    pairs: list[TensionRule] = []
+
+
+class Strategy(_Strict):
+    line: str  # 写进意图卡
+    traits: dict[str, float]  # 谁更习惯这样处理（性格分减 3 后 × 系数，取最高）
+    half_life: float = Field(default=1.0, gt=0, le=10)  # × 余波半衰期（反刍的更久，往好处想的更快）
+
+
+class EpisodeRules(_Strict):
+    """情绪化处理：一件事带来的情绪会拖一阵（余波），按各人习惯的方式消化（Gross 情绪调节过程模型：
+    重新评价 / 压着不说；Nolen-Hoeksema 反刍；找人倾诉）。余波还在时会冒出来、会影响说话。"""
+
+    feels: dict[str, str] = {  # 信号 → 余波的感受
+        "letdown": "有点失落",
+        "surprise": "还挺高兴",
+        "reward": "挺满足",
+        "empathy_sad": "替人难受",
+    }
+    half_life_hours: float = Field(default=8.0, gt=0, le=240)
+    keep: int = Field(default=3, ge=1, le=10)
+    strategies: dict[str, Strategy] = {}
+
+
+class ConfabRules(_Strict):
+    """先果后因：先有冲动、先做了，理由是事后补的，而且补的理由常常不是真原因。
+    依据 Gazzaniga 解释器；Nisbett & Wilson 1977；Haidt 2001 情绪的狗和理性的尾巴；
+    Schwarz & Clore 情绪当信息（心情归错因）。"""
+
+    chance: float = Field(default=0.25, ge=0, le=1)  # 意图卡写一句「事后会给自己的理由」的概率
+    reasons: dict[str, list[str]] = {}  # 意图 → 事后理由（随便挑一条，不一定是真原因）
+    misattribute: float = Field(
+        default=0.6, ge=0, le=1
+    )  # 累了 / 心情差时把烦躁归到眼前这事上的概率
+
+
+class WhimRules(_Strict):
+    """突发念头：没来由地冒出一个想法（Christoff 2016 自发思维；Berntsen 不由自主的回忆），
+    冲动的人更可能说出来、甚至说干就干（变成一个小盼头）。"""
+
+    chance: float = Field(default=0.06, ge=0, le=1)  # 每次说话前冒出念头的基础概率
+    traits: dict[str, float] = {"外向": 0.015, "好奇": 0.02, "较真": -0.01}  # × (分数 - 3)
+    act_chance: float = Field(default=0.3, ge=0, le=1)  # 冒出来后说干就干（记成盼头）的概率
+    pool: list[str] = []
+    # 去模板化：每位只从公共念头里分到一部分（按成员 id 派生，不认人），再加上由喜好来的「突然想……」
+    share: float = Field(default=0.5, gt=0, le=1)
+
+
+class AssocRules(_Strict):
+    """发散联想：顺着一句话想到别的，越好奇跳得越远（Mednick 1962 联想层级：创造力高的人联想
+    分布更平；扩散激活）。还会被一句话勾起一段旧记忆（不由自主的回忆，线索触发）。"""
+
+    chance: float = Field(default=0.2, ge=0, le=1)
+    curious: float = Field(default=0.06, ge=0, le=1)  # 好奇分每高 1 分加多少
+    second_hop: float = Field(default=0.25, ge=0, le=1)  # 再跳一步（远联想）的概率，× 好奇系数
+    cue_memory: float = Field(default=0.3, ge=0, le=1)  # 话里有和旧记忆相同的词时被勾起的概率
+    links: dict[str, list[str]] = {}  # 通用联想网（不认人）；她自己的喜好和记忆另算
+    stop: list[str] = []  # 勾记忆时不算的常用词
+    # 记忆走样：勾起的旧事超过这么多天，有一定概率记岔细节（Loftus 记忆重构）
+    drift_days: float = Field(default=30, gt=0, le=3650)
+    drift_chance: float = Field(default=0.5, ge=0, le=1)
+
+
+class ValueAxis(_Strict):
+    """一条三观轴：两端的说法、各自的关键词、谁更偏哪端（性格分减 3 后 × 系数，正 = 偏 a 端）。"""
+
+    a: str
+    b: str
+    a_words: list[str]
+    b_words: list[str]
+    traits: dict[str, float] = {}
+
+
+class ValueRules(_Strict):
+    """三观：每人在几条价值轴上有自己的立场（Schwartz 基本价值理论；Haidt 道德直觉），
+    别人的看法和自己的立场相反时更想反驳、一致时更认同——反驳不再是随机的，而是有一贯立场。"""
+
+    axes: list[ValueAxis] = []
+    firm: float = Field(default=0.5, ge=0, le=5)  # 立场绝对值超过它才算有主见
+    push: float = Field(default=0.3, ge=0, le=5)  # 相反时「不同意」先加这么多（温和的人也会反驳）
+    oppose: float = Field(default=1.5, ge=0, le=5)  # 再 × (1 + oppose)
+    agree: float = Field(default=0.4, ge=0, le=1)  # 一致时「不同意」的权重 × agree
+    # 三观慢慢变：在乎的人一再说相反的看法，她的立场一点点往那边挪（说出口才算）
+    shift_step: float = Field(default=0.05, ge=0, le=1)
+    shift_cap: float = Field(default=1.0, ge=0, le=5)
+    shift_care: float = Field(default=0.5, ge=0, le=1)
+
+
+class AttachStyle(_Strict):
+    """一种依恋方式（Hazan & Shaver 成人依恋：安全 / 焦虑 / 回避）。
+    谁更像：base + 性格分（减 3）× 系数，取最高。
+    影响想念涨多快、多容易受伤、多容易吃醋、想念时的样子。"""
+
+    base: float = 0.0
+    traits: dict[str, float] = {}
+    longing: float = Field(default=1.0, ge=0, le=5)
+    hurt: float = Field(default=1.0, ge=0, le=5)
+    jealous: float = Field(default=0.25, ge=0, le=1)
+    line: str = ""
+
+
+class LoveStyle(_Strict):
+    """一种爱的表达方式（Lee 爱情风格的简化）：谁更像（性格分减 3 后 × 系数，取最高），
+    在乎时、心动时、舍不得对方走时、怪对方没来时各是什么样子——各人不同，不千篇一律。"""
+
+    traits: dict[str, float]
+    care: str
+    crush: str
+    retain: str
+    blame: str
+
+
+class Privilege(_Strict):
+    """只给用户的一种偏心（特权）：谁更会这样（性格分减 3 后 × 系数）。每位按自己的性格挑两种。"""
+
+    line: str
+    traits: dict[str, float] = {}
+
+
+class LoveRules(_Strict):
+    """爱与复合情绪（docs/BRAIN.md「爱」；CLAUDE.md §5.1 第 2、6 条）：
+    她对每位同事和用户各有一组感情（在乎、心动、信任，加上会过去的委屈、感激、内疚、看不惯），由相处慢慢长出来，不是一个分数。
+    依据 Sternberg 爱情三角、Hazan & Shaver 依恋、Rusbult 投入模型、Aron 自我扩展、
+    Fredrickson 正向共鸣、Gottman 回应邀约。全程序、不调模型。"""
+
+    enabled: bool = True
+    romance: bool = True  # 同事之间可以心动（2026-10-30 用户选）
+    romance_user: bool = True  # 对用户也可以心动、发展成恋人（2026-10-30 用户定）
+    retain_blame: bool = True  # 可以挽留、责怪用户没来（有边界，2026-10-30 用户定）；关掉就都不做
+    user_name: str = "用户"
+    window_minutes: float = Field(default=30, gt=0, le=1440)  # 多久内接话算一来一回
+    gains: dict[str, float] = {
+        "exchange": 0.02,  # 接了对方的话
+        "attended": 0.03,  # 自己的话被对方接住
+        "moment": 0.05,  # 一起笑、一起高兴（正向共鸣）
+        "together": 0.015,  # 生活里待在一起
+        "novel": 0.04,  # 一起去了没去过的地方（自我扩展）
+        "comfort_given": 0.03,
+        "confided": 0.04,  # 对方跟自己说了心事
+    }
+    daily_cap: float = Field(default=0.12, ge=0, le=1)  # 每段关系每天在乎 + 心动最多涨多少
+    spark_rate: float = Field(default=0.6, ge=0, le=5)  # 心动涨幅 = 在乎涨幅 × 它 × 化学反应
+    chemistry_floor: float = Field(default=0.45, ge=0, le=1)  # 化学反应低于它就不会心动
+    chemistry_grow: float = Field(default=0.0, ge=0, le=1)  # 日久生情：化学反应 + 它 × 在乎
+    half_life_days: dict[str, float] = {
+        "care": 120,
+        "spark": 45,
+        "hurt": 3,
+        "grateful": 7,
+        "guilt": 4,
+        "dislike": 20,
+        "vicarious": 1,
+    }
+    trust_start: float = Field(default=0.3, ge=0, le=1)
+    trust: dict[str, float] = {"attended": 0.02, "comfort": 0.05, "confided": 0.03, "missed": -0.03}
+    hurt: dict[str, float] = {"disagree": 0.12, "missed": 0.06}
+    guilt_disagree: float = Field(default=0.15, ge=0, le=1)
+    grateful_comfort: float = Field(default=0.35, ge=0, le=1)
+    dislike: dict[str, float] = {"clash": 0.08, "disagree": 0.04}  # 看不惯：三观相反、被当面反驳
+    forgive: float = Field(default=0.6, ge=0, le=0.9)  # 委屈的半衰期 × (1 - forgive × 承诺)
+    high: float = Field(default=0.5, ge=0, le=1)  # 亲密 / 心动 / 承诺算「高」的线
+    commit_days: float = Field(default=90, ge=0, le=3650)  # 承诺要时间：认识 N 天才可能到顶
+    on: float = Field(default=0.25, ge=0, le=1)  # 委屈、感激、内疚、看不惯到多少才影响说话
+    show_care: float = Field(default=0.45, ge=0, le=1)
+    show_spark: float = Field(default=0.4, ge=0, le=1)
+    longing_per_day: float = Field(default=0.12, ge=0, le=1)
+    longing_show: float = Field(default=0.35, ge=0, le=1)
+    privilege_above: float = Field(default=0.55, ge=0, le=1)  # 对用户的在乎到多少开始偏心
+    retain_care: float = Field(default=0.5, ge=0, le=1)  # 在乎到多少才会舍不得对方走
+    blame_care: float = Field(default=0.4, ge=0, le=1)
+    blame_after_days: float = Field(default=2.0, gt=0, le=60)
+    withdraw_jump: float = Field(default=0.15, ge=0, le=1)  # 回避型：三天里在乎涨这么多就想退半步
+    leave_words: list[str] = []  # 用户要走了
+    late_hours: tuple[int, int] = (23, 6)  # 主时区这段钟点里用户要走就不留（深夜该睡了）
+    no_retain: dict[str, list[str]] = {}  # 这些理由不留：说法 → 词
+    comfort_words: list[str] = []
+    joy_words: list[str] = []
+    kinds: dict[str, str] = {}  # 亲密 / 心动 / 承诺 高低（如 "101"）→ 是哪种感情
+    attachment: dict[str, AttachStyle] = {}
+    styles: dict[str, LoveStyle] = {}
+    privileges: list[Privilege] = []
+    effects: dict[str, dict[str, float]] = {}  # 感情 → {意图: 倍数}
+    weights: dict[str, float] = {}  # 卡里那一句感情话的优先权重
+    salience: float = Field(default=0.4, ge=0, le=2)  # 在乎的人说的话更显著（× 在乎）
+    empathy: float = Field(default=0.4, ge=0, le=1)  # 在乎的人难过时心疼的概率加多少（× 在乎）
+
+
+class PsycheRules(_Strict):
+    """人的特质（docs/BRAIN.md「人的特质」）：全程序、不调用模型，结果写进意图卡。"""
+
+    enabled: bool = True
+    extra_lines: int = Field(default=2, ge=0, le=5)  # 意图卡最多加几句特质相关的话
+    news_half_life_days: float = Field(default=3.0, gt=0, le=60)  # 新鲜事慢慢不新鲜
+    negative_slow: float = Field(default=2.0, ge=1, le=10)  # 坏事记得更久（Baumeister 坏比好强）
+    sway: SwayRules = SwayRules()
+    ambivalence: AmbivalenceRules = AmbivalenceRules()
+    episode: EpisodeRules = EpisodeRules()
+    confab: ConfabRules = ConfabRules()
+    whim: WhimRules = WhimRules()
+    assoc: AssocRules = AssocRules()
+    values: ValueRules = ValueRules()
+
+
+class FlawRule(_Strict):
+    """一样小毛病：谁更像（base + 性格分减 3 后 × 系数），碰到什么场合（when）以多大概率冒出来。"""
+
+    line: str
+    when: Literal["hurt", "goal", "disagree", "asked", "tired", "praised"]
+    traits: dict[str, float] = {}
+    base: float = 0.0
+    chance: float = Field(default=0.4, ge=0, le=1)
+
+
+class BodyRhythm(_Strict):
+    """一段身体节律：主时区 start～end（可以跨午夜），weekday 为空表示每天（0 = 周一）。"""
+
+    start: str
+    end: str
+    line: str
+    weekday: int | None = Field(default=None, ge=0, le=6)
+
+
+class HumanRules(_Strict):
+    """人味（docs/BRAIN.md「人味」）：知识边界、有限的注意力和自己的时间、自我一致、八卦、
+    时间纵深、小毛病、主动做决定。全程序、不调模型。"""
+
+    enabled: bool = True
+    topics: dict[str, list[str]] = {}  # 领域 → 词
+    extra_domains: int = Field(default=1, ge=0, le=10)  # 档案之外再熟悉几个领域（按 id 派生）
+    max_domains: int = Field(default=4, ge=1, le=30)  # 档案里提到的领域最多算几个（按提到次数）
+    ask_words: list[str] = []  # 问句里带这些词才算「问知识」（「玩游戏吗」这种邀约不算）
+    misremember: float = Field(default=0.05, ge=0, le=1)
+    long_message: int = Field(default=60, ge=10, le=2000)  # 这么长算「说了好几件事」
+    busy_acts: dict[str, str] = {}  # 作息里的活动 → 说法（这会儿在忙自己的）
+    busy_chance: float = Field(default=0.25, ge=0, le=1)
+    wrap_after: int = Field(default=8, ge=1, le=200)  # 这么多分钟内她在这个会话说了这么多条
+    wrap_minutes: float = Field(default=40, gt=0, le=600)
+    wrap_chance: float = Field(default=0.35, ge=0, le=1)
+    wrap_reasons: list[str] = []
+    claim_words: list[str] = []  # 关于自己的说法
+    keep_claims: int = Field(default=40, ge=1, le=500)
+    promise_words: list[str] = []  # 答应的事
+    keep_promises: int = Field(default=6, ge=1, le=100)
+    promise_days: float = Field(default=7, gt=0, le=90)
+    broken_chance: float = Field(default=0.2, ge=0, le=1)  # 言行不一：过期没做的承诺偶尔想起来
+    body: list[BodyRhythm] = []  # 身体节律（按顺序，第一个对上的算）
+    body_chance: float = Field(default=0.25, ge=0, le=1)
+    correct_chance: float = Field(default=0.03, ge=0, le=1)  # 偶尔说到一半改口
+    gossip_chance: float = Field(default=0.12, ge=0, le=1)
+    depth_words: dict[str, list[str]] = {}  # 从前、遗憾、梦想、害怕 → 词
+    depth_chance: float = Field(default=0.06, ge=0, le=1)
+    flaws: dict[str, FlawRule] = {}
+    flaw_count: int = Field(default=2, ge=0, le=6)
+    praise_words: list[str] = []
+    propose_social: float = Field(default=0.65, ge=0, le=1)  # 想找人说话的劲儿到这么高才主动约
+    propose_chance: float = Field(default=0.25, ge=0, le=1)
+    activities: list[str] = []
+
+
+class BrainRules(_Strict):
+    """大脑分区（docs/BRAIN.md）：全局工作区 + 丘脑显著性 + 驱力 + 前额叶意图与目标 + 走神。
+
+    全由程序算、不调用模型；只用于生活群、私聊、成员之间的生活聊天，工作模式不挂载。
+    8 位同一套规则，差别只来自各自的自我档案和经历（中立）。"""
+
+    enabled: bool = True
+    drives: dict[str, DriveRule] = {}
+    goals: GoalRules = GoalRules()
+    intents: dict[str, IntentRule] = {}
+    salience: dict[str, float] = {  # 丘脑：一条消息对她有多显著
+        "named": 1.0,  # 点了她的名 / 私聊
+        "likes": 0.5,  # 说到她喜欢的东西
+        "close": 0.4,  # 亲近的人说的（× 亲近度）
+        "emotion": 0.3,  # 带情绪的话
+        "question": 0.3,  # 是个问句
+        "user": 0.3,  # 是你说的（群里你说话，大家至少会留意，接不接由模型自己定）
+    }
+    emotion_words: list[str] = ["累", "烦", "难过", "开心", "哈哈", "紧张", "崩溃", "气死", "好想"]
+    silence_below: float = Field(default=0.25, ge=0, le=2)  # 没点名、显著性和社交驱力都低于它就不接
+    wander_chance: float = Field(default=0.25, ge=0, le=1)  # 空闲时冒出一个走神念头的概率
+    free_choice: bool = True  # 空闲时段按驱力和目标自己挑去哪、做什么（关掉就照公寓楼作息表）
+    card_chars: int = Field(default=160, ge=40, le=400)  # 意图卡最多多少字（8 位相同）
+    # 去模板化：意图卡里附加的提示（察觉、感情、特质）最多几句；同一句说出口后隔几张卡才再用
+    max_cues: int = Field(default=2, ge=0, le=6)
+    cooldown_cards: int = Field(default=6, ge=0, le=50)
+    imperfect: float = Field(default=0.08, ge=0, le=0.5)  # 允许不完美：记不清、敷衍一句的概率
+    reward: RewardRules = RewardRules()
+    empathy: EmpathyRules = EmpathyRules()
+    meta: MetaRules = MetaRules()
+    psyche: PsycheRules = PsycheRules()
+    love: LoveRules = LoveRules()
+    human: HumanRules = HumanRules()
+
+
+class CareRules(_Strict):
+    """危机应对（docs/BRAIN.md「危机应对」）：用户说出想不开、撑不下去这类话时，这个会话进入一段
+    「关心时段」：成员先认真关心、陪着说话、劝用户联系身边信任的人和专业帮助，不撒娇、不挽留、
+    不开玩笑、不提自己的事，压过人设、挽留和恋爱。只按词识别（程序、不调模型），识别从宽。"""
+
+    enabled: bool = True
+    high: list[str] = []  # 有伤害自己的念头
+    medium: list[str] = []  # 很难受、很绝望
+    exclude: list[str] = []  # 先去掉再判断的口头说法（「想死你了」「笑死」）
+    hours: dict[str, float] = {"high": 24.0, "medium": 6.0}  # 关心时段持续多久
+    cards: dict[str, str] = {}  # 级别 → 写进意图卡的话（{hotline} 换成求助电话）
+    hotlines: dict[str, str] = {}  # 主时区名（或前缀，如 America/）→ 求助电话
+    default_hotline: str = "当地的心理援助热线；有危险请马上打当地的急救电话"
+
+
+class GistRule(_Strict):
+    """一种语境：对方这条消息带这些附件（when）或这些词（words）就算。"""
+
+    kind: str
+    label: str
+    when: list[Literal["video", "image", "sticker", "card", "voice"]] = []
+    words: list[str] = []
+    unless: list[str] = []  # 带这些词就不算（比如「说真的」「别开玩笑」就不是在逗你）
+    react: str = ""  # 这种语境下人一般怎么回（写进意图卡）
+    quick: float = Field(default=0.0, ge=0, le=1)  # 只回一句万能短回复的基础概率（程序直接发）
+    sticker: float = Field(default=0.0, ge=0, le=1)  # 只回一个表情包的基础概率
+    pools: list[str] = []  # 万能短回复从哪几类里挑
+
+
+class TraitPick(_Strict):
+    """按性格分挑一种（base + (性格分 - 全员平均) × 系数）。"""
+
+    traits: dict[str, float] = {}
+    base: float = 0.0
+    line: str = ""
+    end: str | None = None  # 标点：句尾换成什么（None = 不动）
+    unit: str = ""  # 笑法：重复的字
+    head: str = ""
+    fixed: str = ""
+    min: int = Field(default=2, ge=1, le=10)
+    max: int = Field(default=4, ge=1, le=12)
+    items: list[str] = []  # 颜文字：这一组有哪些
+
+
+class TypoRules(_Strict):
+    chance: float = Field(default=0.03, ge=0, le=1)
+    tired: float = Field(default=2.0, ge=1, le=10)  # 精力低于 0.3 时 ×
+    careless: float = Field(default=0.4, ge=0, le=3)  # 较真每比平均低 1 分，× (1 + 它)
+    fix_base: float = Field(default=0.35, ge=0, le=1)  # 打错后补一条「*正字」的概率
+    fix_traits: dict[str, float] = {}
+    pairs: list[tuple[str, str]] = []
+
+
+class NickRules(_Strict):
+    care: float = Field(default=0.5, ge=0, le=1)  # 在乎到这么多才起外号、换称呼
+    chance: float = Field(default=0.3, ge=0, le=1)  # 够熟以后每天起的概率
+    hint: str = ""  # 档案里「熟了以后可能会叫……」的正则（第一个分组起是候选）
+
+
+class LearnRules(_Strict):
+    care: float = Field(default=0.45, ge=0, le=1)  # 在乎的人说的才学
+    times: int = Field(default=3, ge=1, le=50)  # 听到几次
+    chance: float = Field(default=0.4, ge=0, le=1)
+    forget_days: float = Field(default=30, gt=0, le=365)  # 这么久没用就忘了
+    keep: int = Field(default=4, ge=0, le=20)
+    slang: list[str] = []  # 会被学走的网络用语（另加每人的笑法、短回复、口头禅）
+
+
+class LingoRules(_Strict):
+    """说话的样子（docs/BRAIN.md「说话的样子」）：看懂语境、万能短回复、先反应再吐槽、
+    书面腔过滤、标点和笑法、打错字、个人颜文字、表情包脾气、语气变调、外号、跟人学、打比方。
+    全程序、不调模型；只用于生活群、私聊、成员互聊。8 位同一套规则，差别只来自档案和性格分。"""
+
+    enabled: bool = True
+    gist: list[GistRule] = []
+    notice: str = "你看懂了：对方{label}（心里明白就行，别说出来，别复述，别解释）"
+    shorts: dict[str, list[str]] = {}  # 万能短回复：类 → 词
+    shorts_each: int = Field(default=4, ge=1, le=20)  # 每类每人分到几个
+    quick_tired: float = Field(default=1.6, ge=1, le=5)  # 精力低时短回复概率 ×
+    quick_close: float = Field(default=1.3, ge=1, le=5)  # 和对方很熟时 ×
+    quick_quiet: float = Field(default=1.4, ge=1, le=5)  # 话少的人 ×
+    react_boost: float = Field(default=1.8, ge=1, le=10)  # 对方分享东西时「接话 / 开玩笑」的意图 ×
+    punct: dict[str, TraitPick] = {}
+    punct_hints: dict[str, list[str]] = {}  # 档案里写了这些词就定这种标点习惯
+    punct_chance: float = Field(default=0.6, ge=0, le=1)  # 发出前把句尾换成她的习惯的概率
+    laughs: dict[str, TraitPick] = {}
+    typo: TypoRules = TypoRules()
+    kaomoji: dict[str, TraitPick] = {}
+    kaomoji_each: int = Field(default=3, ge=1, le=10)
+    sticker_sets: dict[str, TraitPick] = {}  # 偏爱哪一套表情包（名字同 chat.actions.stickers）
+    battle: float = Field(default=0.5, ge=0, le=1)  # 群里上一条是表情包：幽默的人回表情包斗图
+    shift: dict[str, str] = {}  # 语气变调：tired / down / up / night / close / new / dislike
+    nick: NickRules = NickRules()
+    learn: LearnRules = LearnRules()
+    metaphor: str = ""  # 「打比方时爱拿{things}打比方」
+    formal: dict[str, str] = {}  # 书面词 → 口语（发出前直接换）
+    explain: list[str] = []  # 解释句的正则（发出前能删就删）
+    recap_chars: int = Field(default=8, ge=4, le=40)  # 和对方原话连着这么多字一样算复述
+
+
 class EngineRules(_Strict):
     """成员引擎（docs/MEMBER_ENGINE.md）：只用于聊天、朋友圈、生活；工作模式不读取。"""
 
@@ -1385,6 +1895,9 @@ class EngineRules(_Strict):
     about: AboutRules = AboutRules()
     growth: GrowthRules = GrowthRules()
     relation: RelationRules = RelationRules()
+    brain: BrainRules = BrainRules()
+    care: CareRules = CareRules()
+    lingo: LingoRules = LingoRules()
 
 
 class WanderSite(_Strict):
@@ -2000,6 +2513,8 @@ class DshRules(_Strict):
     balance_check_minutes: float = Field(default=5, ge=1, le=120)
     # 余额币种换算成美元：{币种: 1 美元合多少}，美元本身不用写
     usd_rates: dict[str, float] = Field(default_factory=lambda: {"CNY": 7.2})
+    # 页面上花费、上限、余额用什么币种显示（USD 或 usd_rates 里有的）；上限仍按 monthly_usd 算
+    display_currency: str = "CNY"
     # dsh 的文件权限：read-only 只读（默认）/ workspace-write 只能写工作区 / danger-full-access
     permission_mode: Literal["read-only", "workspace-write", "danger-full-access"] = "read-only"
     # 超级电脑派给 dsh 的活：只能写这件活的共享工作文件夹（dsh 的工作区就是当前目录）
@@ -2013,6 +2528,23 @@ class DshRules(_Strict):
         if v is not None and not _ENV_NAME.match(v):
             raise ValueError("key_env 只能写环境变量名（大写字母、数字、下划线），不能写 key 本身")
         return v
+
+    @field_validator("display_currency")
+    @classmethod
+    def _upper(cls, v: str) -> str:
+        return v.strip().upper()
+
+    @model_validator(mode="after")
+    def _known_display(self) -> DshRules:
+        cur = self.display_currency
+        if cur != "USD" and cur not in {k.upper() for k in self.usd_rates}:
+            raise ValueError(f"display_currency {cur} 没有汇率：在 usd_rates 里加上它")
+        return self
+
+    def display_rate(self) -> float:
+        """1 美元合多少显示币种。"""
+        rates = {k.upper(): v for k, v in self.usd_rates.items()}
+        return 1.0 if self.display_currency == "USD" else rates[self.display_currency]
 
 
 class CalendarRegion(_Strict):

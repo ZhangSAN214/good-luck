@@ -1,0 +1,565 @@
+"""说话的样子（docs/BRAIN.md「说话的样子」）：让成员说话像发微信的真人，而不是认真作答。
+
+- **看懂语境**（``gist``）：对方这条是分享视频、发表情包、吐槽、报喜、求安慰……意图卡里写
+  「你看懂了（别说出来）」和这种场合人一般怎么回（先反应、再吐槽、不解释）。
+- **万能短回复**（``quick``）：分享视频、发表情包、闲聊时，有一定概率只回一句「6」「笑死」「？？」
+  或一个表情包——程序直接发，不调模型。累了、话少、和对方很熟时更常见。
+- **打字习惯**（``habits``）：标点（句号党 / 不打标点 / 波浪号 / 省略号 / 感叹号）、笑法、
+  个人颜文字、偏爱的表情包、每人自己的一小套短回复。按性格分和全员平均比挑
+  （加一点按 id 的个人差异），档案里写了的以档案为准。
+- **语气变调**（``card_line``）：累了、深夜、心情好坏、和对方熟不熟、看不惯——挑最要紧的一句；
+  熟了有外号，起了就一直这么叫。
+- **跟人学**（``on_event``）：在乎的人反复说的笑法、短回复、网络用语、口头禅，听多了会学来，
+  一阵不用又忘。
+- **发出前收尾**（``finish``）：书面词换成口语，解释句和复述能删就删，句尾按她的标点习惯，
+  笑法统一成她的写法，偶尔打错一个字（较真的会补一条「*正字」）。关心时段不动。
+
+全程序、不调模型；只用于生活群、私聊、成员互聊（工作群不挂载）。规则 8 位相同，差别只来自
+档案和性格分（中立）。只有这里写 ``member_lingo:*``。
+"""
+
+from __future__ import annotations
+
+import json
+import random
+import re
+import time
+from collections.abc import Callable
+from dataclasses import dataclass, field
+from datetime import datetime, timedelta
+from typing import Any
+
+from roundtable.core.chat_actions import STICKER_RE
+from roundtable.core.hometz import home_zone
+from roundtable.core.member.bus import Event, EventBus
+from roundtable.core.member.profile import ProfileStore
+from roundtable.core.storage.repository import iso
+
+KEY = "member_lingo:"
+USER = "user"
+LIFE_KINDS = frozenset({"group", "dm", "life", "pair"})
+CACHE_SECONDS = 60.0
+_LAUGH = re.compile(r"(?:哈){2,}|(?<![A-Za-z])h{3,}(?![A-Za-z])|(?<!\d)2333*(?!\d)|(?:嘿){2,}")
+_END = re.compile(r"[。．.！!～~…]+$")
+_KEEP_END = re.compile(r"(?:[？?）)」』>\]】]|[\U0001f300-\U0001faff☀-➿])$")
+_CLAUSE = re.compile(r"[^，,。！!？?～~…\n]+[，,。！!？?～~…]*")
+_SKIP = re.compile(r"\[表情[:：][^\]]*\]|\[引用[^\]]*\]|https?://\S+")
+
+
+def _num(x: Any, default: float = 3.0) -> float:
+    try:
+        return float(x)
+    except (TypeError, ValueError):
+        return default
+
+
+@dataclass(frozen=True)
+class Gist:
+    """对方这条消息是什么。"""
+
+    kind: str
+    label: str
+    react: str = ""
+    quick: float = 0.0
+    sticker: float = 0.0
+    pools: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class Habits:
+    """一位成员的打字习惯（按档案和性格分挑，不随时间变）。"""
+
+    punct: str = ""
+    punct_end: str | None = None
+    laugh: str = ""
+    kaomoji: tuple[str, ...] = ()
+    sticker_set: str = ""
+    shorts: dict[str, tuple[str, ...]] = field(default_factory=dict)
+    things: tuple[str, ...] = ()  # 打比方的取材
+
+
+class Lingo:
+    def __init__(
+        self,
+        rt: Any,
+        bus: EventBus | None = None,
+        names: Callable[[], dict[str, str]] | dict[str, str] | None = None,
+    ) -> None:
+        self.rt = rt
+        self.names = names
+        self.profiles = ProfileStore(rt)
+        self._cache: dict[str, tuple[float, Any]] = {}  # 档案读一次用一会儿（习惯不随时间变）
+        if bus is not None:
+            bus.subscribe("chat.message", self.on_event)
+
+    @property
+    def rules(self) -> Any:
+        return self.rt.config.roundtable.chat.engine.lingo
+
+    def enabled(self) -> bool:
+        engine = self.rt.config.roundtable.chat.engine
+        return bool(engine.enabled and self.rules.enabled)
+
+    def _names(self) -> dict[str, str]:
+        names = self.names() if callable(self.names) else (self.names or {})
+        return dict(names)
+
+    # --- 存取（只有这里写 member_lingo:*）------------------------------------------
+
+    def _load(self, member: str) -> dict[str, Any]:
+        raw = self.rt.repo.setting(KEY + member)
+        try:
+            data = json.loads(raw) if raw else {}
+        except ValueError:
+            data = {}
+        data = data if isinstance(data, dict) else {}
+        for k in ("heard", "learned", "nick"):
+            if not isinstance(data.get(k), dict):
+                data[k] = {}
+        return data
+
+    def _save(self, member: str, data: dict[str, Any]) -> None:
+        self.rt.repo.set_setting(KEY + member, json.dumps(data, ensure_ascii=False))
+
+    def clear(self, member: str) -> None:
+        self.rt.repo.set_setting(KEY + member, "")
+
+    # --- 档案和性格 -----------------------------------------------------------------
+
+    def _data(self, member: str) -> dict[str, Any]:
+        return dict(self.profiles.current(member).data or {})
+
+    def styled(self, member: str) -> bool:
+        """有人物卡（性格分）才有自己的打字习惯；没有档案时原样说话。"""
+        return self.enabled() and bool(self._traits(member))
+
+    def _traits(self, member: str) -> dict[str, Any]:
+        return dict((self._data(member).get("personality") or {}).get("五项") or {})
+
+    def _cached(self, key: str, make: Callable[[], Any]) -> Any:
+        now = time.monotonic()
+        hit = self._cache.get(key)
+        if hit is not None and now - hit[0] < CACHE_SECONDS:
+            return hit[1]
+        value = make()
+        self._cache[key] = (now, value)
+        return value
+
+    def _cast_mean(self) -> dict[str, float]:
+        return self._cached("mean", self._mean)
+
+    def _mean(self) -> dict[str, float]:
+        cast = [m for m in self._names() if m != USER]
+        if not cast:
+            return {}
+        rows = [self._traits(m) for m in cast]
+        keys = {k for r in rows for k in r}
+        return {k: sum(_num(r.get(k, 3)) for r in rows) / len(rows) for k in keys}
+
+    def _rank(self, member: str, options: dict[str, Any], salt: str) -> list[str]:
+        """按性格分（和全员平均比）给几种选项打分，最像的在前；加一点按 id 的个人差异。"""
+        traits, mean = self._traits(member), self._cast_mean()
+        rng = random.Random(f"lingo-{salt}:{member}")
+        scored = []
+        for name, pick in options.items():
+            score = pick.base + rng.random() * 0.35
+            score += sum(
+                c * (_num(traits.get(t, 3)) - mean.get(t, 3)) for t, c in pick.traits.items()
+            )
+            scored.append((score, name))
+        scored.sort(key=lambda x: -x[0])
+        return [n for _, n in scored]
+
+    def habits(self, member: str) -> Habits:
+        return self._cached("habits:" + member, lambda: self._habits(member))
+
+    def _habits(self, member: str) -> Habits:
+        r = self.rules
+        text = json.dumps(self._data(member).get("style") or {}, ensure_ascii=False)
+        punct = next((k for k, ws in r.punct_hints.items() if any(w in text for w in ws)), "")
+        if not punct and r.punct:
+            punct = self._rank(member, r.punct, "punct")[0]
+        laugh = self._rank(member, r.laughs, "laugh")[0] if r.laughs else ""
+        kaomoji: list[str] = []
+        for vibe in self._rank(member, r.kaomoji, "kaomoji")[:2]:
+            items = list(r.kaomoji[vibe].items)
+            random.Random(f"lingo-kao:{member}:{vibe}").shuffle(items)
+            kaomoji += items
+        kaomoji = kaomoji[: r.kaomoji_each]
+        sticker_set = self._rank(member, r.sticker_sets, "sticker")[0] if r.sticker_sets else ""
+        shorts: dict[str, tuple[str, ...]] = {}
+        for pool, words in r.shorts.items():
+            items = list(words)
+            random.Random(f"lingo-short:{member}:{pool}").shuffle(items)
+            shorts[pool] = tuple(items[: r.shorts_each])
+        pick = r.punct.get(punct)
+        return Habits(
+            punct=punct,
+            punct_end=pick.end if pick else None,
+            laugh=laugh,
+            kaomoji=tuple(kaomoji),
+            sticker_set=sticker_set,
+            shorts=shorts,
+            things=tuple(self._things(member)),
+        )
+
+    def _things(self, member: str) -> list[str]:
+        """打比方的取材：她熟悉的领域和爱好（各取一两样）。"""
+        from roundtable.core.member.human import Human  # human 不依赖本模块
+
+        out = Human(self.rt, names=self.names).domains(member)[:2]
+        likes = (self._data(member).get("preferences") or {}).get("喜欢") or []
+        if isinstance(likes, list):
+            out += [str(x) for x in likes[:1] if str(x).strip()]
+        return out
+
+    # --- 写进说话习惯段（不随时间变）---------------------------------------------------
+
+    def voice_lines(self, member: str) -> list[str]:
+        if not self.styled(member):
+            return []
+        r, h = self.rules, self.habits(member)
+        lines = []
+        pick = r.punct.get(h.punct)
+        laugh = r.laughs.get(h.laugh)
+        bits = [x for x in (pick.line if pick else "", laugh.line if laugh else "") if x]
+        if bits:
+            lines.append("打字：" + "，".join(bits))
+        mine = [w for ws in h.shorts.values() for w in ws[:2]]
+        if mine:
+            lines.append(f"不想多说时就回一两个字，比如：{'、'.join(mine[:5])}")
+        if h.kaomoji:
+            lines.append(f"颜文字只用你自己这几个：{' '.join(h.kaomoji)}")
+        if h.sticker_set:
+            lines.append(f"表情包最常发「{h.sticker_set}」那套")
+        if h.things and r.metaphor:
+            lines.append(r.metaphor.format(things="、".join(h.things)))
+        learned = self.learned(member, self.rt.budget.now())
+        if learned:
+            lines.append(
+                "最近跟人学的说法（偶尔冒出来）："
+                + "、".join(f"「{w}」（跟{self._name(src)}学的）" for w, src in learned)
+            )
+        return lines
+
+    def kaomoji(self, member: str) -> tuple[str, ...]:
+        return self.habits(member).kaomoji if self.styled(member) else ()
+
+    def _name(self, who: str) -> str:
+        return "用户" if who == USER else self._names().get(who, who)
+
+    # --- 看懂语境 ---------------------------------------------------------------------
+
+    def gist(self, text: str, meta: dict[str, Any] | None = None) -> Gist | None:
+        if not self.enabled():
+            return None
+        meta = meta or {}
+        has = set()
+        for item in meta.get("media") or []:
+            has.add("sticker" if item.get("sticker") else str(item.get("kind", "")))
+        if meta.get("card"):
+            has.add("card")
+            if str((meta["card"] or {}).get("kind", "")) == "video":
+                has.add("video")
+        if STICKER_RE.search(text or ""):
+            has.add("sticker")
+        bare = STICKER_RE.sub("", text or "").strip()
+        for g in self.rules.gist:
+            hit = bool(set(g.when) & has) or any(w in (text or "") for w in g.words)
+            if hit and any(w in (text or "") for w in g.unless):
+                continue
+            if g.kind == "sticker" and bare and "sticker" in has:
+                hit = len(bare) <= 4  # 话里带个表情包不算「只发了表情包」
+            if hit or (not g.when and not g.words):
+                return Gist(g.kind, g.label, g.react, g.quick, g.sticker, tuple(g.pools))
+        return None
+
+    def notice(self, gist: Gist | None) -> str:
+        if gist is None or gist.kind == "chat":
+            return ""
+        line = self.rules.notice.format(label=gist.label)
+        return f"{line}；{gist.react}" if gist.react else line
+
+    # --- 万能短回复（程序直接发）-----------------------------------------------------
+
+    def quick(
+        self,
+        member: str,
+        gist: Gist | None,
+        *,
+        energy: float,
+        care: float,
+        quiet: bool,
+        rng: random.Random,
+    ) -> str:
+        """只回一句短的（或一个表情包）。不回就是空串。"""
+        if gist is None or not (gist.quick or gist.sticker) or not self.styled(member):
+            return ""
+        r, h = self.rules, self.habits(member)
+        boost = 1.0
+        if energy < 0.3:
+            boost *= r.quick_tired
+        if care >= 0.5:
+            boost *= r.quick_close
+        if quiet:
+            boost *= r.quick_quiet
+        stickers = self.rt.config.roundtable.chat.actions.stickers
+        if h.sticker_set in stickers and rng.random() < min(gist.sticker * boost, 0.9):
+            return f"[表情:{h.sticker_set}·{rng.choice(stickers[h.sticker_set])}]"
+        if rng.random() >= min(gist.quick * boost, 0.9):
+            return ""
+        words = [w for p in gist.pools for w in h.shorts.get(p, ())]
+        words += [w for w, _ in self.learned(member, self.rt.budget.now())]
+        if not words:
+            return ""
+        word = rng.choice(words)
+        return self._laugh(word, h, rng) if _LAUGH.fullmatch(word) else word
+
+    # --- 语气变调 + 外号（写进意图卡）------------------------------------------------
+
+    def card_line(
+        self,
+        member: str,
+        to: str,
+        *,
+        mood: float,
+        energy: float,
+        care: float,
+        dislike: float,
+        at: datetime,
+        rng: random.Random,
+        battle: bool = False,
+    ) -> str:
+        """此刻怎么说话：最要紧的一句变调 + 对对方的叫法 + 斗图。没有就空串。"""
+        if not self.enabled():
+            return ""
+        r, bits = self.rules, []
+        hour = home_zone(self.rt).local(at).hour
+        for key, ok in (
+            ("night", hour >= 1 and hour < 6),
+            ("tired", energy < 0.3),
+            ("down", mood < -0.3),
+            ("dislike", bool(to) and dislike >= 0.25 and care < 0.4),
+            ("close", bool(to) and care >= 0.5),
+            ("new", bool(to) and care < 0.15),
+            ("up", mood > 0.4),
+        ):
+            if ok and r.shift.get(key):
+                bits.append(r.shift[key])
+                break
+        nick = self.nickname(member, to, care, at, rng) if to else ""
+        if nick:
+            bits.append(f"你现在叫{self._name(to)}「{nick}」")
+        if battle:
+            bits.append("上一条是表情包，可以直接回个表情包斗图")
+        return "；".join(bits)
+
+    def nickname(
+        self, member: str, other: str, care: float, at: datetime, rng: random.Random
+    ) -> str:
+        """对 other 的叫法：熟了以后从档案「熟了以后可能会叫……」里挑一个，起了就一直这么叫。"""
+        data = self._load(member)
+        got = data["nick"].get(other)
+        if got:
+            return str(got.get("name", ""))
+        r = self.rules.nick
+        if care < r.care or not r.hint:
+            return ""
+        day = home_zone(self.rt).local(at).date().isoformat()
+        if random.Random(f"lingo-nick:{member}:{other}:{day}").random() >= r.chance:
+            return ""
+        options = self._nick_options(member, other)
+        if not options:
+            return ""
+        name = rng.choice(options)
+        data["nick"][other] = {"name": name, "at": iso(at)}
+        self._save(member, data)
+        return name
+
+    def _nick_options(self, member: str, other: str) -> list[str]:
+        style = self._data(member).get("style") or {}
+        text = str(style.get("说话风格") or "") + str(style.get("称呼") or "")
+        out: list[str] = []
+        target = self._name(other)
+        for m in re.finditer(self.rules.nick.hint, text):
+            line_start = text.rfind("\n", 0, m.start()) + 1
+            before = text[max(line_start, m.start() - 30) : m.start()]
+            about_user = other == USER and not any(
+                n and n in before for k, n in self._names().items() if k != USER
+            )
+            if about_user or (other != USER and target in before):
+                out += [g for g in m.groups() if g]
+        return list(dict.fromkeys(out))
+
+    def nicks(self, member: str) -> dict[str, str]:
+        return {k: str(v.get("name", "")) for k, v in self._load(member)["nick"].items()}
+
+    # --- 跟人学 -----------------------------------------------------------------------
+
+    def _own(self, who: str) -> list[str]:
+        """她自己本来就会说的：短回复和口头禅（用户没有）。"""
+        if who == USER:
+            return []
+        h = self.habits(who)
+        out = [w for ws in h.shorts.values() for w in ws]
+        phrases = (self._data(who).get("style") or {}).get("口头禅") or []
+        out += [str(p).strip("。.！!") for p in phrases if 2 <= len(str(p)) <= 8]
+        return list(dict.fromkeys(w for w in out if w))
+
+    def _tics(self, who: str) -> list[str]:
+        """这个人说话里能被学走的东西：网络用语，加上她自己的短回复和口头禅。"""
+        return list(dict.fromkeys([*self.rules.learn.slang, *self._own(who)]))
+
+    def on_event(self, event: Event) -> None:
+        """有人在生活群 / 私聊 / 互聊里说了话：在乎说话人的成员听到口头禅就记一次；
+        她自己用了学来的说法就记一次「用过」（不会忘）。"""
+        if not self.enabled():
+            return
+        room = str(event.data.get("room", ""))
+        info = self.rt.repo.chat_room(room) or {}
+        if info.get("kind", "") not in LIFE_KINDS:
+            return
+        msg = self.rt.repo.chat_message(int(event.data.get("id", 0) or 0))
+        if not msg:
+            return
+        text = str(msg["text"] or "")
+        author = USER if event.data.get("from_user") else (event.member or "")
+        if not author:
+            return
+        if author != USER:
+            self._used(author, text, event.at)
+        listeners = [m for m in info.get("members") or [] if m != author]
+        tics = [w for w in self._tics(author) if w in text]
+        if not tics:
+            return
+        from roundtable.core.member.love import Heart  # love 不依赖本模块
+
+        heart, r = Heart(self.rt, names=self.names), self.rules.learn
+        for m in listeners:
+            if heart.care(m, author, event.at) < r.care:
+                continue
+            data, mine = self._load(m), set(self._own(m))
+            for w in tics:
+                if w in mine or w in data["learned"]:
+                    continue
+                seen = data["heard"].setdefault(w, {"from": author, "n": 0})
+                seen["n"] = int(seen.get("n", 0)) + 1
+                seen["from"] = author
+                roll = random.Random(f"lingo-learn:{m}:{w}:{seen['n']}").random()
+                if seen["n"] >= r.times and roll < r.chance:
+                    data["learned"][w] = {"from": author, "at": iso(event.at), "used": ""}
+                    data["heard"].pop(w, None)
+            data["learned"] = dict(list(data["learned"].items())[-r.keep :]) if r.keep else {}
+            data["heard"] = dict(list(data["heard"].items())[-40:])
+            self._save(m, data)
+
+    def _used(self, member: str, text: str, at: datetime) -> None:
+        data = self._load(member)
+        hit = [w for w in data["learned"] if w in text]
+        if hit:
+            for w in hit:
+                data["learned"][w]["used"] = iso(at)
+            self._save(member, data)
+
+    def learned(self, member: str, at: datetime) -> list[tuple[str, str]]:
+        """还记得的学来的说法 [(说法, 跟谁学的)]；太久没用的忘掉。"""
+        days = self.rules.learn.forget_days
+        out = []
+        for w, v in self._load(member)["learned"].items():
+            last = v.get("used") or v.get("at") or ""
+            if last and at - datetime.fromisoformat(last) <= timedelta(days=days):
+                out.append((w, str(v.get("from", ""))))
+        return out
+
+    # --- 发出前收尾 -------------------------------------------------------------------
+
+    def finish(
+        self,
+        member: str,
+        text: str,
+        *,
+        asked: str = "",
+        energy: float = 0.6,
+        rng: random.Random | None = None,
+    ) -> list[str]:
+        """发出前收尾：返回要发的几条（通常一条；打错字又改口时多一条「*正字」）。"""
+        if not text.strip() or not self.styled(member):
+            return [text]
+        rng = rng or random.Random(f"lingo-finish:{member}:{text}")
+        h = self.habits(member)
+        out = self.colloquial(text, asked)
+        out = _LAUGH.sub(lambda m: self._laugh(m.group(0), h, rng), out)
+        out = "\n".join(self._end(line, h, rng) for line in out.split("\n"))
+        fixed = self._typo(member, out, energy, rng)
+        return fixed if fixed else [out]
+
+    def colloquial(self, text: str, asked: str = "") -> str:
+        """书面词换成口语；解释句、复述对方的分句能删就删（删光了就留原话）。"""
+        r = self.rules
+        out = text
+        for k in sorted(r.formal, key=len, reverse=True):
+            out = out.replace(k, r.formal[k])
+        lines = []
+        for line in out.split("\n"):
+            if _SKIP.search(line) and not _SKIP.sub("", line).strip():
+                lines.append(line)
+                continue
+            clauses = _CLAUSE.findall(line)
+            keep = [c for c in clauses if not self._explains(c) and not self._recaps(c, asked)]
+            lines.append("".join(keep).rstrip("，,") if keep else line)
+        return "\n".join(lines)
+
+    def _explains(self, clause: str) -> bool:
+        return any(re.search(p, clause) for p in self.rules.explain)
+
+    def _recaps(self, clause: str, asked: str) -> bool:
+        n = self.rules.recap_chars
+        core = re.sub(r"[，,。！!？?～~…\s]", "", clause)
+        said = re.sub(r"[，,。！!？?～~…\s]", "", asked or "")
+        if len(core) < n or len(said) < n:
+            return False
+        return any(core[i : i + n] in said for i in range(len(core) - n + 1))
+
+    def _laugh(self, raw: str, h: Habits, rng: random.Random) -> str:
+        pick = self.rules.laughs.get(h.laugh)
+        if pick is None:
+            return raw
+        if pick.fixed:
+            return pick.fixed
+        n = rng.randint(pick.min, max(pick.min, pick.max))
+        return pick.head + pick.unit * n
+
+    def _end(self, line: str, h: Habits, rng: random.Random) -> str:
+        """句尾换成她的标点习惯（问号、表情、引号结尾不动；句号党不动）。"""
+        if h.punct_end is None or not line.strip() or _KEEP_END.search(line):
+            return line
+        if STICKER_RE.search(line) and not STICKER_RE.sub("", line).strip():
+            return line
+        if h.punct_end == "":
+            return _END.sub("", line)
+        if len(line.strip()) <= 2:  # 「6」「嗯」「啊？」这种一两个字的不加
+            return line
+        if rng.random() >= self.rules.punct_chance:
+            return line
+        return _END.sub("", line) + h.punct_end
+
+    def _typo(self, member: str, text: str, energy: float, rng: random.Random) -> list[str]:
+        r = self.rules.typo
+        if not r.pairs:
+            return []
+        careful = _num(self._traits(member).get("较真", 3)) - self._cast_mean().get("较真", 3)
+        chance = r.chance * (r.tired if energy < 0.3 else 1.0)
+        chance *= max(0.2, 1 - r.careless * careful)
+        if rng.random() >= chance:
+            return []
+        plain = _SKIP.sub(lambda m: "\0" * len(m.group(0)), text)
+        options = [(a, b) for a, b in r.pairs if a in plain]
+        if not options:
+            return []
+        right, wrong = rng.choice(options)
+        at = plain.index(right)
+        typo = text[:at] + wrong + text[at + len(right) :]
+        fix = r.fix_base + sum(
+            c * (_num(self._traits(member).get(t, 3)) - 3) for t, c in r.fix_traits.items()
+        )
+        return [typo, f"*{right}"] if rng.random() < fix else [typo]

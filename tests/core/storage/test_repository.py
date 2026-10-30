@@ -222,6 +222,29 @@ async def test_record_failed_call(repo):
     assert n == 2
 
 
+async def test_old_chat_prompts_are_trimmed_but_work_calls_are_kept(repo, router):
+    from roundtable.core.providers import Message
+
+    long = [Message("system", "人物卡" * 500), Message("user", "最后一段：" + "聊天记录" * 200)]
+    completion = await router.complete("gemini-3.8-flash", MSG)
+    chat, work = repo.chat_session("生活群"), repo.create_session("题目", seed=1)
+    ids = [
+        repo.record_call(
+            sid, step="chat", role="member", model_id="m", messages=long, completion=completion
+        )
+        for sid in (chat, work)
+    ]
+    assert repo.trim_chat_prompts("2000-01-01T00:00:00.000+00:00", 300) == 0  # 还不够旧
+    assert repo.trim_chat_prompts("2999-01-01T00:00:00.000+00:00", 300) == 1
+    rows = [repo.conn.execute("SELECT * FROM calls WHERE id = ?", (i,)).fetchone() for i in ids]
+    note, last = json.loads(rows[0]["input"])
+    assert note["role"] == "trimmed" and "2 段" in note["content"]
+    assert last == {"role": "user", "content": long[1].content[:300]}
+    assert rows[0]["output"] == completion.text and rows[0]["cost_usd"] == completion.cost_usd
+    assert len(json.loads(rows[1]["input"])) == 2  # 工作会话一字不动
+    assert repo.trim_chat_prompts("2999-01-01T00:00:00.000+00:00", 300) == 0  # 不重复精简
+
+
 def test_record_call_needs_exactly_one_outcome(repo):
     sid = repo.create_session("q", seed=1)
     with pytest.raises(ValueError):

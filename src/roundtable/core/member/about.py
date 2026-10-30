@@ -92,7 +92,7 @@ class AboutYou:
         return bool(self.rt.config.roundtable.chat.engine.enabled and self.rules.enabled)
 
     def today(self) -> date:
-        return datetime.now(home_zone(self.rt).tz()).date()
+        return self.rt.budget.now().astimezone(home_zone(self.rt).tz()).date()
 
     # --- 存取（只有这里写） ---------------------------------------------------------
 

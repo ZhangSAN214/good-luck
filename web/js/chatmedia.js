@@ -2,7 +2,7 @@
 // 文件只存在本机（POST /api/chat/media → data/chat_media/），发消息时带上返回的 id。
 // 成员只看到「[图片]」「[语音 5 秒]」这样的文字占位，看不到文件本身。
 
-import { EMOJI, STICKERS, TOKEN_RE, findSticker, recent, remember, soloSticker, stickerSVG, token } from './stickers.js';
+import { EMOJI, STICKERS, TOKEN_RE, findSticker, recent, remember, setMemberPacks, soloSticker, stickerSVG, token } from './stickers.js';
 import { ApiError } from './api.js';
 
 const esc = (s) =>
@@ -53,7 +53,7 @@ export function visibleText(text, meta) {
   return meta.caption ?? text ?? '';
 }
 
-export { soloSticker, stickerSVG };
+export { setMemberPacks, soloSticker, stickerSVG };
 
 // --- 转发卡片（帖子 / 文章 / 视频） ------------------------------------------------------
 
