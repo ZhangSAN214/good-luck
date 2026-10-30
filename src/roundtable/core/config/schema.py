@@ -1847,6 +1847,56 @@ class LearnRules(_Strict):
     slang: list[str] = []  # 会被学走的网络用语（另加每人的笑法、短回复、口头禅）
 
 
+class RhythmRules(_Strict):
+    """作息与回话节奏（docs/BRAIN.md）：睡着时你发来的消息，多数醒了再回，有时被吵醒。"""
+
+    enabled: bool = True
+    wake_base: float = Field(default=0.12, ge=0, le=1)  # 睡着时被一条消息吵醒的基础概率
+    wake_named: float = Field(default=0.2, ge=0, le=1)  # 群里点了她的名 / 私聊
+    wake_close: float = Field(default=0.3, ge=0, le=1)  # × 她对你的在乎（0～1）
+    wake_repeat: float = Field(default=0.15, ge=0, le=1)  # 十分钟内每多连发一条
+    wake_max: float = Field(default=0.8, ge=0, le=1)
+    grumpy_below: float = Field(default=-0.1, ge=-1, le=1)  # 心情低于这个，被吵醒时会抱怨
+    keep_hours: int = Field(default=16, ge=1, le=72)  # 睡着没看到的消息，超过这么久就不回了
+    woken: str = "你本来睡着了，被消息吵醒：迷迷糊糊的，回得短一点，可以说自己刚被吵醒"
+    woken_grumpy: str = (
+        "你本来睡着了，被消息吵醒，心情本来就不太好：可以嘟囔着抱怨一两句（比如「大半夜的……」"
+        "「我都睡了」）再回；别真生气、别翻旧账，对方要是有急事就清醒过来认真回"
+    )
+    late: str = (
+        "你刚醒，才看到对方 {when} 发来的消息：自然地接上，可以提一句刚看到 / 刚醒，别道歉个没完"
+    )
+
+
+class ReachRules(_Strict):
+    """主动找你（docs/BRAIN.md）：按心情、新鲜事、挂着的事、想念，偶尔先开口；有边界。"""
+
+    enabled: bool = True
+    per_day_chance: float = Field(default=0.6, ge=0, le=5)  # 想找的劲儿为 1 时，一天里先开口的概率
+    per_day: int = Field(default=2, ge=0, le=10)  # 全体每天最多主动找几次
+    gap_days: float = Field(default=2.0, ge=0, le=30)  # 同一位隔几天才可能再主动找
+    after_user_hours: float = Field(default=3.0, ge=0, le=72)  # 你几小时内刚和她聊过就不找
+    quiet_hours: tuple[int, int] = (23, 9)  # 你的深夜（主时区钟点，[开始, 结束)）不找
+    care_min: float = Field(default=0.3, ge=0, le=1)  # 心情不好 / 想念才找你，要这么在乎你
+    mood_low: float = Field(default=-0.35, ge=-1, le=0)
+    mood_high: float = Field(default=0.55, ge=0, le=1)
+    news_min: float = Field(default=0.7, ge=0, le=1)  # 新鲜事要这么重要才值得专门找你说
+    longing_days: float = Field(default=2.0, ge=0.5, le=30)  # 多少天没聊开始想念
+    notes: dict[str, str] = Field(
+        default_factory=lambda: {
+            "mood_low": "你现在心情不太好，想找对方说说话：你先开口，可以说也可以不说为什么",
+            "mood_high": "你现在心情很好，想跟对方分享一下：你先开口",
+            "news": "你想主动跟对方说说：{what}",
+            "hanging": "你一直惦记着：{what}，想问问对方后来怎么样了",
+            "longing": "好几天没和对方聊了，有点想对方：你先开口，随便找个由头",
+        }
+    )
+    tail: str = (
+        "这是你主动找对方（对方没有先说话）：像随手发的微信，一两句就好；别只发「在吗」没下文，"
+        "别怪对方不找你、不拿自己难过要挟"
+    )
+
+
 class LingoRules(_Strict):
     """说话的样子（docs/BRAIN.md「说话的样子」）：看懂语境、万能短回复、先反应再吐槽、
     书面腔过滤、标点和笑法、打错字、个人颜文字、表情包脾气、语气变调、外号、跟人学、打比方。
@@ -1898,6 +1948,8 @@ class EngineRules(_Strict):
     brain: BrainRules = BrainRules()
     care: CareRules = CareRules()
     lingo: LingoRules = LingoRules()
+    rhythm: RhythmRules = RhythmRules()
+    reach: ReachRules = ReachRules()
 
 
 class WanderSite(_Strict):
@@ -2041,7 +2093,7 @@ class ChatActionRules(_Strict):
 
 
 class ChatRules(_Strict):
-    """聊天：生活群、工作群、私聊。成员不主动找用户，只回应用户。"""
+    """聊天：生活群、工作群、私聊。成员平时回应用户，按心情偶尔主动找（engine.reach）。"""
 
     # 每位成员一次回应最多想多久（含重试），超时就跳过这次，不卡住整轮
     think_timeout_seconds: float = Field(default=60.0, gt=0)

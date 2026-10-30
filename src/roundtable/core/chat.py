@@ -3,7 +3,8 @@
 - 会话：生活群（``main``，全体成员）、工作群（``work``）、和每位成员的私聊（``dm:<成员>``）。
 - 成员 = 每个厂商一位（昵称相同的全力 / 节电模型算一位），发言用 ``chat.tier`` 档位的模型，
   没有就用该成员最便宜的可用模型。
-- 成员不主动找用户：只在用户发言后回应。群里 ``@昵称`` 指定谁回应，``@全员`` 大家都说；
+- 成员平时在用户发言后回应；按心情偶尔主动找用户（core/member/reach.py，有边界），
+  睡着时晚点回（rhythm.py）。群里 ``@昵称`` 指定谁回应，``@全员`` 大家都说；
   没有 @ 时随机一两位回应，后发言的人能看到前面的回应。私聊里只有那一位回应。
 - 每次发言都记在 calls 表（挂在该会话的隐藏会话上，workflow = 'chat'），计入总预算和工资；
   另有聊天的月预算（``chat.budget.monthly_usd``），用完就不再调用。
@@ -325,6 +326,7 @@ class GroupChat:
         self.typing: list[str] = []
         self.queued: list[str] = []  # 这一轮还没开口的成员名
         self.round = 0  # 用户每发一条（或撤回）加一；旧回合据此作废
+        self.notes: dict[str, str] = {}  # 这一轮写进意图卡的作息提示（刚被吵醒、刚醒才看到）
         self._lock = asyncio.Lock()
         ensure_default_rooms(rt)
         info = rt.repo.chat_room(room)
@@ -442,7 +444,36 @@ class GroupChat:
             meta["quote"] = quote_meta(row)
         self.round += 1
         msg = self.rt.repo.add_chat_message(self.room, USER, text, meta=meta or None)
-        return msg, self.pick(text)
+        return msg, self.awake(msg, self.pick(text))
+
+    def awake(self, msg: dict[str, Any], speakers: list[ChatMember]) -> list[ChatMember]:
+        """作息（生活群和私聊）：睡着的人多数没看到——私聊和点了名的记下来醒了再回，群里没点名
+        就不回；有时被吵醒，回的时候意图卡里写上。"""
+        if self.kind not in ("dm", "group"):
+            return speakers
+        from roundtable.core.member.rhythm import LATER, WOKEN, Rhythm  # rhythm 读聊天记录
+
+        rhythm, at = Rhythm(self.rt), self.rt.budget.now()
+        out = []
+        for m in speakers:
+            named = self.kind == "dm" or self.named(m, msg["id"])
+            gate = rhythm.gate(
+                m.id,
+                room=self.room,
+                text=msg["text"],
+                meta=msg["meta"],
+                named=named,
+                msg_id=msg["id"],
+                at=at,
+            )
+            if gate.kind == LATER:
+                if named:
+                    rhythm.defer(m.id, self.room, msg["id"], at)
+                continue
+            if gate.kind == WOKEN:
+                self.notes[m.id] = gate.note
+            out.append(m)
+        return out
 
     def send_as(
         self,
@@ -642,9 +673,14 @@ class GroupChat:
             card = self._intent(member, reply_to, names)
             if card is not None and card.silent and skip:
                 return {}
-            if card is not None and card.quick:  # 万能短回复：只回一句，不调模型
+            if (
+                card is not None and card.quick and member.id not in self.notes
+            ):  # 万能短回复：只回一句，不调模型
                 return Thought(member, [Segment(card.quick, None)], 0.0, variables["memory"])
             variables["intent"] = intent_text(card, INTENT_NONE)
+            note = self.notes.pop(member.id, "")
+            if note:  # 作息：刚被吵醒 / 刚醒才看到
+                variables["intent"] = f"{variables['intent']}\n{note}"
         if numbered:
             variables |= {
                 "stickers": sticker_list(acts.stickers) if acts.enabled else "（这里不用表情包）",

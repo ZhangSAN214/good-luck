@@ -587,6 +587,7 @@ class Simulation:
                 "calendar", lambda t=local: svc.calendar.tick(t, svc.engine.bus.publish)
             )
             await self._step("engine", lambda t=local: svc.engine.tick(t))
+            await self._step("turns", lambda t=local: svc.member_turns(t))
             await self._step("growth", lambda t=local: svc.growth.tick(t))
             if now - day_start >= timedelta(days=1):
                 day = self.snapshot(svc, members, day_start, now, user_msgs)
