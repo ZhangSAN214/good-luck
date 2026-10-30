@@ -1556,6 +1556,21 @@ class BrainRules(_Strict):
     psyche: PsycheRules = PsycheRules()
 
 
+class CareRules(_Strict):
+    """危机应对（docs/BRAIN.md「危机应对」）：用户说出想不开、撑不下去这类话时，这个会话进入一段
+    「关心时段」：成员先认真关心、陪着说话、劝用户联系身边信任的人和专业帮助，不撒娇、不挽留、
+    不开玩笑、不提自己的事，压过人设、挽留和恋爱。只按词识别（程序、不调模型），识别从宽。"""
+
+    enabled: bool = True
+    high: list[str] = []  # 有伤害自己的念头
+    medium: list[str] = []  # 很难受、很绝望
+    exclude: list[str] = []  # 先去掉再判断的口头说法（「想死你了」「笑死」）
+    hours: dict[str, float] = {"high": 24.0, "medium": 6.0}  # 关心时段持续多久
+    cards: dict[str, str] = {}  # 级别 → 写进意图卡的话（{hotline} 换成求助电话）
+    hotlines: dict[str, str] = {}  # 主时区名（或前缀，如 America/）→ 求助电话
+    default_hotline: str = "当地的心理援助热线；有危险请马上打当地的急救电话"
+
+
 class EngineRules(_Strict):
     """成员引擎（docs/MEMBER_ENGINE.md）：只用于聊天、朋友圈、生活；工作模式不读取。"""
 
@@ -1573,6 +1588,7 @@ class EngineRules(_Strict):
     growth: GrowthRules = GrowthRules()
     relation: RelationRules = RelationRules()
     brain: BrainRules = BrainRules()
+    care: CareRules = CareRules()
 
 
 class WanderSite(_Strict):

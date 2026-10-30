@@ -317,3 +317,21 @@ async def test_work_group_never_carries_the_pocket_card():
 
 def json_text(call) -> str:
     return "\n".join(m.content for m in call.messages)
+
+
+async def test_crisis_words_in_a_dm_reach_the_member_as_a_care_card():
+    """危机应对（2026-10-30）：私聊里说出想不开的话，成员拿到的是关心卡（求助电话按主时区），
+    工作群不挂载。"""
+    from roundtable.core.hometz import home_zone
+
+    env = Env()
+    home_zone(env.rt).set("Asia/Shanghai")
+    dm = ChatHub(env.rt, rng=random.Random(0)).room(dm_room("V2"))
+    msg, speakers = dm.post("我真的不想活了")
+    await dm.replies(msg["id"], speakers)
+    text = json_text(env.fake.calls[-1])
+    assert "12356" in text and "不挽留" in text
+    work = ChatHub(env.rt).room("work")
+    msg, _ = work.post("@阿三 我不想活了")
+    await work.replies(msg["id"], work.pick("@阿三 我不想活了"))
+    assert "12356" not in json_text(env.fake.calls[-1])

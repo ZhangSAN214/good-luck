@@ -733,6 +733,7 @@ class GroupChat:
             named=self.named(member, reply_to) if row is not None else self.kind == "dm",
             group=self.kind != "dm",
             seed=f"{self.room}:{reply_to}",
+            room=self.room,
         )
         brain.after(card, self.rt.budget.now())
         return card

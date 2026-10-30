@@ -35,6 +35,7 @@ from typing import Any
 from roundtable.core.hometz import home_zone
 from roundtable.core.member import psyche
 from roundtable.core.member.bus import Event, EventBus
+from roundtable.core.member.care import Care
 from roundtable.core.member.mode import Mode, require_life
 from roundtable.core.member.profile import ProfileStore
 from roundtable.core.storage.repository import iso
@@ -539,12 +540,23 @@ class Brain:
         at: datetime | None = None,
         seed: str = "",
         mode: Mode | str = Mode.LIFE,
+        room: str = "",
     ) -> IntentCard | None:
-        """说话前的综合：返回意图卡；没开启时返回 None（照旧说话）。群里不接时 ``silent``。"""
+        """说话前的综合：返回意图卡；没开启时返回 None（照旧说话）。群里不接时 ``silent``。
+
+        ``room`` 是会话名：用户在这个会话里说出让人担心的话时，进入关心时段，返回关心卡
+        （压过平时的一切，大脑分区关着也照样生效，见 ``care.py``）。"""
         require_life(mode)
+        at = at or self.rt.budget.now()
+        if room:
+            care = Care(self.rt)
+            if speaker is None and last:
+                care.note(room, last, at)
+            level = care.active(room, at)
+            if level:
+                return IntentCard(member, "care", care.card(level, at), None, 2.0)
         if not self.enabled():
             return None
-        at = at or self.rt.budget.now()
         rng = random.Random(f"brain:{member}:{iso(at)}:{seed}")
         s = self._grown(member, self._load(member), at)
         traits = self._traits(member)
