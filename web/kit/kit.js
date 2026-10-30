@@ -54,6 +54,29 @@ export function persist(ns) {
   };
 }
 
+/**
+ * 几个窗口一起读写的数据（行程里加了什么、记了哪些账）：存在本机，谁改了都通知大家。
+ * 「已加入」「已付」这类状态都从这里算，不各存一份，两边才对得上。
+ * sharedState(ns, bus) → { get(k, d), set(k, v), update(k, fn, d), on(k, fn) → 取消 }
+ * on 会立刻用当前值调一次 fn，之后每次有窗口 set 都再调一次。
+ */
+export function sharedState(ns, bus) {
+  const box = persist(ns);
+  const name = (k) => `state:${k}`;
+  const api = {
+    get: (k, d) => box.get(k, d),
+    set(k, v) { box.set(k, v); bus.dispatchEvent(new CustomEvent(name(k), { detail: v })); return v; },
+    update(k, fn, d) { return api.set(k, fn(box.get(k, d))); },
+    on(k, fn, d) {
+      const h = (ev) => fn(ev.detail);
+      bus.addEventListener(name(k), h);
+      fn(box.get(k, d));
+      return () => bus.removeEventListener(name(k), h);
+    },
+  };
+  return api;
+}
+
 export function setTheme(name) { document.documentElement.dataset.kTheme = name; }
 export function setMode(mode) {
   if (mode === 'auto') delete document.documentElement.dataset.kMode; else document.documentElement.dataset.kMode = mode;
@@ -243,7 +266,11 @@ export function spark(el, values, { color = 'var(--k-accent)', area = true } = {
 /** 进度环。 */
 export function ring(el, value, { max = 100, size = 120, label = '', color = 'var(--k-accent)', text = null } = {}) {
   const r = size / 2 - 9, C = 2 * Math.PI * r, p = Math.max(0, Math.min(1, value / max));
-  el.innerHTML = `<svg viewBox="0 0 ${size} ${size}" width="${size}" height="${size}" role="img" aria-label="${esc(label)} ${Math.round(p * 100)}%"><circle cx="${size / 2}" cy="${size / 2}" r="${r}" fill="none" stroke="var(--k-surface-3)" stroke-width="10"/><circle cx="${size / 2}" cy="${size / 2}" r="${r}" fill="none" stroke="${color}" stroke-width="10" stroke-linecap="round" stroke-dasharray="${C}" stroke-dashoffset="${C * (1 - p)}" transform="rotate(-90 ${size / 2} ${size / 2})" style="transition:stroke-dashoffset var(--k-slow) var(--k-ease)"/><text x="50%" y="${size / 2 + 2}" text-anchor="middle" style="font:700 ${size / 5}px var(--k-font);fill:var(--k-fg)">${esc(text ?? Math.round(p * 100) + '%')}</text><text x="50%" y="${size / 2 + size / 6}" text-anchor="middle" style="font:500 12px var(--k-font);fill:var(--k-fg-3)">${esc(label)}</text></svg>`;
+  // 小圆环：数字不小于 14px，说明字放不下就挪到圆环下面，不叠在一起
+  const big = size >= 96, num = Math.max(14, Math.round(size / 5));
+  const caption = label && big ? `<text x="50%" y="${size / 2 + size / 6}" text-anchor="middle" style="font:500 12px var(--k-font);fill:var(--k-fg-3)">${esc(label)}</text>` : '';
+  const under = label && !big ? `<div class="k-sub" style="text-align:center">${esc(label)}</div>` : '';
+  el.innerHTML = `<svg viewBox="0 0 ${size} ${size}" width="${size}" height="${size}" role="img" aria-label="${esc(label)} ${Math.round(p * 100)}%"><circle cx="${size / 2}" cy="${size / 2}" r="${r}" fill="none" stroke="var(--k-surface-3)" stroke-width="10"/><circle cx="${size / 2}" cy="${size / 2}" r="${r}" fill="none" stroke="${color}" stroke-width="10" stroke-linecap="round" stroke-dasharray="${C}" stroke-dashoffset="${C * (1 - p)}" transform="rotate(-90 ${size / 2} ${size / 2})" style="transition:stroke-dashoffset var(--k-slow) var(--k-ease)"/><text x="50%" y="${big ? size / 2 + 2 : size / 2 + num / 3}" text-anchor="middle" style="font:700 ${num}px var(--k-font);fill:var(--k-fg)">${esc(text ?? Math.round(p * 100) + '%')}</text>${caption}</svg>${under}`;
 }
 
 /**
