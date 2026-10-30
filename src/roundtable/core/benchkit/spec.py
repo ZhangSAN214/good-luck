@@ -17,6 +17,7 @@ from roundtable.core.benchkit.quality import KIT_DIR
 
 _ID = re.compile(r"[^a-z0-9-]+")
 SHARED_MAX_CHARS = 6000
+STATE_MAX = 10
 
 
 def manifest() -> dict[str, Any]:
@@ -69,6 +70,9 @@ class Spec:
     shared: dict[str, Any] = field(default_factory=dict)
     # 窗口之间的消息约定：名字、谁发、谁收、detail 里有什么（ctx.bus 上照这个发和收）
     events: list[dict[str, Any]] = field(default_factory=list)
+    # 几个窗口一起读写的用户数据（行程里加了什么、记了哪些账……）：键 → 结构和谁来改。
+    # 都放在 ctx.state 里，谁改了大家都看得到，不各存一份（「已加入」两边对不上就是各存一份）
+    state: dict[str, str] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -155,6 +159,11 @@ def normalize(raw: dict[str, Any], *, max_windows: int) -> Spec:
                 "when": _text(e.get("when"), 80),
             }
         )
+    state = {}
+    for k, v in (raw.get("state") if isinstance(raw.get("state"), dict) else {}).items():
+        key = re.sub(r"[^a-zA-Z0-9_-]+", "", str(k))[:30]
+        if key and len(state) < STATE_MAX:
+            state[key] = _text(v, 200)
     return Spec(
         title=title,
         subtitle=_text(raw.get("subtitle"), 60),
@@ -164,6 +173,7 @@ def normalize(raw: dict[str, Any], *, max_windows: int) -> Spec:
         needs=needs,
         shared=shared,
         events=events[:12],
+        state=state,
     )
 
 

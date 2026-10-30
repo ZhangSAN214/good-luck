@@ -34,3 +34,22 @@ def test_lint_windows(tmp_path):
     assert found["写死颜色"].windows == ["colors"] and found["写死颜色"].severity == "warn"
     assert found["窗口代码太大"].windows == ["big"]
     assert lint_windows(tmp_path, ["good", "imp"]) == []
+
+
+def test_destructured_kit_counts_and_polling_is_flagged(tmp_path):
+    # 第 2 次真跑的误报：先从 ctx 解构出 kit、再从 kit 解构零件，也是在用零件库
+    write(
+        tmp_path,
+        "pack",
+        "export default (el, ctx) => { const { kit, store } = ctx;"
+        " const { seg, ring } = kit; ring(el, 3); };",
+    )
+    write(tmp_path, "arg", "export default (el, { kit, bus }) => { const { table } = kit; };")
+    write(
+        tmp_path,
+        "poll",
+        "export default (el, ctx) => { setInterval(() => ctx.kit.esc('x'), 2000); };",
+    )
+    found = {f.check: f for f in lint_windows(tmp_path, ["pack", "arg", "poll"])}
+    assert "窗口没用零件库" not in found
+    assert found["轮询定时器"].windows == ["poll"] and found["轮询定时器"].severity == "warn"

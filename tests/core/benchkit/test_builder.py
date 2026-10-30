@@ -419,3 +419,27 @@ async def test_selftest_sends_broken_window_back_before_review(tmp_path):
     assert len(reworks) == 1 and "SyntaxError" in reworks[0]["problems"]
     assert reworks[0]["file"] == "windows/plan.js"
     assert any("自测" in x["text"] for x in build["log"])
+
+
+def test_spec_keeps_shared_user_data_keys_and_shell_passes_state():
+    raw = dict(PLAN)
+    raw["state"] = {"itinerary": "条目：id、标题、费用", "my key!": "x", "坏": "y", "n": 1}
+    spec = normalize(raw, max_windows=8)
+    assert spec.state == {"itinerary": "条目：id、标题、费用", "mykey": "x", "n": "1"}
+    assert "state, bus, ask" in shell_html(spec, "b1")
+    raw["state"] = {f"k{i}": "x" for i in range(30)}
+    assert len(normalize(raw, max_windows=8).state) == 10
+
+
+async def test_reviewers_see_last_rounds_problems_for_their_windows(tmp_path):
+    sc = FakeSC(scores=lambda n: 5 if n <= 3 else 9)
+    b = make(tmp_path, sc)
+    b.submit("拍摄台")
+    await b.wait()
+    reviews = [json.loads(p) for p in sc.prompts if json.loads(p)["role"] == "bench_review"]
+    assert all("第一轮" in r["previous"] for r in reviews[:3])
+    later = [r for r in reviews[3:] if "标题太挤" in r["previous"]]
+    assert later  # 第 2 轮评审先核对上一轮提的问题
+    for r in later:
+        wid = r["previous"].split("：")[0][2:]
+        assert f"- {wid}（" in r["windows"]  # 只给自己这组窗口的

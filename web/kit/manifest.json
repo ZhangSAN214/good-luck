@@ -35,6 +35,7 @@
     {"name": "empty", "kind": "js", "use": "没有数据时的空状态（返回 HTML）", "api": "empty({ icon?, title?, hint?, action? })"},
     {"name": "toast", "kind": "js", "use": "操作后的提示条", "api": "toast(text, { icon?, ms? })"},
     {"name": "icon", "kind": "js", "use": "线条图标（Lucide 子集，名字见 icons.js）", "api": "icon(name, { size?, label?, cls? })"},
+    {"name": "sharedState", "kind": "js", "use": "几个窗口一起读写的数据（已加入、已付、勾选），谁改了都通知大家；窗口里用 ctx.state", "api": "sharedState(ns, bus) → { get(k, d), set(k, v), update(k, fn, d), on(k, fn, d) → 取消 }"},
     {"name": "persist", "kind": "js", "use": "本机存储个人便利设置（读写失败当作没有）", "api": "persist(ns) → { get(k, d), set(k, v) }"},
     {"name": "format", "kind": "js", "use": "数字格式、刻度、滚动数字、主题和明暗", "api": "fmt(n, { digits?, unit? }); niceTicks(min, max, count?); countUp(el, to, opts?); setTheme(name); setMode('auto'|'light'|'dark')"}
   ],
