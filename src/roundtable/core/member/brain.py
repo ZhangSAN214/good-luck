@@ -36,6 +36,7 @@ from roundtable.core.hometz import home_zone
 from roundtable.core.member import psyche
 from roundtable.core.member.bus import Event, EventBus
 from roundtable.core.member.care import Care
+from roundtable.core.member.human import Human
 from roundtable.core.member.love import USER, Heart
 from roundtable.core.member.mode import Mode, require_life
 from roundtable.core.member.profile import ProfileStore
@@ -55,6 +56,7 @@ _CLAIM = re.compile(r"(我觉得|我认为|应该|肯定|就是|不如|才是|�
 _QUESTION = re.compile(r"[？?]|(吗|呢|么)[。！!～~]*$")
 KEEP_NEWS = 6
 URGENT = frozenset({"let_go", "retain", "blame"})  # 感情话里这几种不受条数和冷却限制
+FIRST = frozenset({"unknown", "consistent", "busy", "wrap", "attention"})  # 人味里先给的几种
 
 
 def _cue_key(tag: str, line: str) -> str:
@@ -103,6 +105,7 @@ class _State:
     episodes: list[dict[str, Any]] = field(default_factory=list)  # 情绪余波：哪件事、什么感受、何时
     psy: dict[str, int] = field(default_factory=dict)  # 各种特质一共用上几次（看各人差别）
     used: list[str] = field(default_factory=list)  # 最近说出口的附加提示（冷却，去模板化）
+    dropped: list[str] = field(default_factory=list)  # 放下过的事（不再捡回来）
 
 
 def _factor(score: Any) -> float:
@@ -127,6 +130,8 @@ class Brain:
         self.profiles = ProfileStore(rt)
         # 爱与复合情绪（love.py）：传了 bus 时订阅聊天和生活事件；names：成员 id → 称呼
         self.heart = Heart(rt, bus, names)
+        # 人味（human.py）：知识边界、自己的时间、自我一致、八卦、时间纵深、小毛病、主动约人
+        self.human = Human(rt, bus, names)
         # buffer：先写在内存里、``flush()`` 时才落库（生活排日程时用，排出来的事真发生了才算数，
         # 同一段时间排两次结果一样）
         self.buffer = buffer
@@ -320,6 +325,10 @@ class Brain:
         r = self.rules.goals
         if rng.random() < r.setback_chance:
             goal["stuck"] = goal.get("stuck", 0) + 1
+            goal["fails"] = goal.get("fails", 0) + 1
+            tired_of = goal["fails"] >= r.give_up_after and goal["level"] <= 1
+            if tired_of and rng.random() < r.give_up_chance:  # 主动做决定：做不下去就放下、换一件
+                return self._give_up(s, goal, rng, at)
             note = f"「{goal['name']}」这件事最近没什么进展，有点泄气"
             self._news(s, note, at, 0.6, neg=True)
             return note
@@ -333,6 +342,21 @@ class Brain:
                 s.signals.append({"tags": ["surprise"], "at": iso(at), "why": goal["name"]})
         self._anticipate_goal(s, goal, at)
         return f"在{goal['name']}（{self._stage(goal['level'])}）"
+
+    def _give_up(self, s: _State, goal: dict[str, Any], rng: random.Random, at: datetime) -> str:
+        names = {g["name"] for g in s.goals} | set(s.dropped)
+        pool = [x for x in self.rules.goals.fallback if x not in names]
+        s.dropped = (s.dropped + [goal["name"]])[-6:]
+        s.expects = [e for e in s.expects if e.get("goal") != goal["name"]]
+        if pool:
+            new = rng.choice(pool)
+            s.goals[s.goals.index(goal)] = {"name": new, "xp": 0.0, "level": 0, "stuck": 0}
+            note = f"决定先放下「{goal['name']}」，改去{new}"
+        else:
+            s.goals.remove(goal)
+            note = f"决定先放下「{goal['name']}」，歇一阵再说"
+        self._news(s, note, at, 0.7)
+        return note
 
     def _news(
         self, s: _State, text: str, at: datetime, strength: float, *, neg: bool = False
@@ -505,8 +529,11 @@ class Brain:
         if linger:
             e, left, _ = linger
             out.append(Thought("episode", f"还在为「{e['why']}」{e['feel']}", 0.3 + 0.5 * left))
-        for e in s.expects:
-            out.append(Thought("expect", e["text"], 0.5))
+        for e in s.expects:  # 大事前提心吊胆：快见分晓时有点紧张（过后的松口气、失落由 _settle 给）
+            if datetime.fromisoformat(e["due"]) - at <= timedelta(days=1):
+                out.append(Thought("expect", f"{e['text']}，快见分晓了，有点紧张", 0.55))
+            else:
+                out.append(Thought("expect", e["text"], 0.5))
         for g in self._goals(member, s):
             out.append(
                 Thought("goal", f"最近在琢磨「{g['name']}」，{self._stage(g['level'])}", 0.35)
@@ -610,6 +637,8 @@ class Brain:
         here = set(present) if present is not None else {to}
         for text, strength in self.heart.thoughts(member, at, here | {member}):
             mine.append(Thought("love", text, strength))
+        for text, strength in self.human.thoughts(member, at, here | {member}, rng):
+            mine.append(Thought("human", text, strength))
         if last:
             mine.append(Thought("message", last[:40], 0.4 + sal, "msg"))
             if _CLAIM.search(last):
@@ -694,21 +723,38 @@ class Brain:
             budget = max(budget - 1, 0)
         if opposed is not None and opposed[0] and to and to != USER:
             tags.append("clash")
+        lines = []
         if ps.enabled:
             lines = self._psyche_lines(
                 member, s, chosen, last, mood, energy, traits, opposed, at, rng
-            )
-            room_left = min(budget, ps.extra_lines)
-            for tag, line in lines:
-                if room_left <= 0:
-                    break
-                key = _cue_key(tag, line)
-                if key in cool or len(text) + 1 + len(line) > self.rules.card_chars:
-                    continue
-                text += "\n" + line
-                tags.append(tag)
-                cues.append(key)
-                room_left -= 1
+            )[: ps.extra_lines]
+        hurt = bool(to) and self.heart.view(member, to, at).get("hurt", 0) >= self.heart.rules.on
+        extra = self.human.lines(
+            member,
+            to=to,
+            last=last,
+            chosen=chosen,
+            room=room,
+            energy=energy,
+            social=s.drives.get("social", 0.3),
+            spotlight=focus,
+            hurt=hurt,
+            at=at,
+            rng=rng,
+        )
+        first = [x for x in extra if x[0] in FIRST]
+        rest = lines + [x for x in extra if x[0] not in FIRST]
+        rng.shuffle(rest)
+        for tag, line in first + rest:  # 人味里要紧的先给，其余和特质句一起随机
+            if budget <= 0:
+                break
+            key = _cue_key(tag, line)
+            if key in cool or len(text) + 1 + len(line) > self.rules.card_chars:
+                continue
+            text += "\n" + line
+            tags.append(tag)
+            cues.append(key)
+            budget -= 1
         self._save(member, s)  # 只存随时间长的驱力；候选卡的其余影响等 after 再结算
         return IntentCard(
             member, chosen, text, focus, sal, tuple(tags), noticed, expect, to, tuple(cues)
@@ -879,6 +925,7 @@ class Brain:
             s.news = [n for n in s.news if n["text"] != card.spotlight.text]
         self._save(card.member, s)
         self.heart.after(card, at)
+        self.human.after(card, at)
 
 
 def _num(x: Any) -> float:

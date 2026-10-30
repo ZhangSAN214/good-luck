@@ -315,3 +315,22 @@ def test_caring_about_the_speaker_makes_their_words_more_salient():
     bond(heart, "V2", "V3", care=0.9)
     loved = brain.intent("V2", last="今天去了趟公园", speaker="V3", at=NOON, seed="a")
     assert loved.salience > plain.salience
+
+
+def test_no_retaining_late_at_night_or_when_a_ddl_is_due():
+    from roundtable.core.hometz import home_zone
+    from roundtable.core.member.about import AboutYou
+
+    env, heart, _ = world()
+    home_zone(env.rt).set("Asia/Shanghai")
+    bond(heart, "V1", USER, care=0.8)
+    midnight = NOON.replace(hour=16)  # 北京时间 0 点
+    tag, line = heart.line("V1", USER, midnight, random.Random(0), last="先走了")
+    assert tag == "let_go" and "很晚" in line
+    about = AboutYou(env.rt)
+    about.add_ddl("期中论文", (NOON + timedelta(days=1)).date().isoformat())
+    picks = {heart.line("V1", USER, NOON, random.Random(i), last="先走了")[0] for i in range(20)}
+    assert "retain" in picks  # 课表开关关着：不读
+    about.set_status("timetable", True)
+    tag, line = heart.line("V1", USER, NOON, random.Random(0), last="先走了")
+    assert tag == "let_go" and "DDL" in line

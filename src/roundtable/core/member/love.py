@@ -634,6 +634,9 @@ class Heart:
             if reason:
                 bye = GOODBYE.get(reason, "加油")
                 return ("let_go", f"{name}要去{reason}了，痛快放人，说句{bye}就好，别留")
+            busy = self.user_busy(at)
+            if busy:
+                return ("let_go", f"{name}要走了，{busy}，痛快放人，别留")
             if (
                 v
                 and v["care"] >= r.retain_care
@@ -707,6 +710,24 @@ class Heart:
             return None
         weights = [r.weights.get(tag, 1.0) for tag, _ in cands]
         return rng.choices(cands, weights)[0]
+
+    def user_busy(self, at: datetime) -> str:
+        """用户此刻不该被留的情况（读主时区的钟点和 P8 课表，课表开关关着就不读）：深夜、
+        正在上课或快上课、DDL 就在今明两天。没有就空串。"""
+        local = home_zone(self.rt).local(at)
+        start, end = self.rules.late_hours
+        if (local.hour >= start or local.hour < end) if start > end else start <= local.hour < end:
+            return "已经很晚了，该睡了"
+        try:
+            from roundtable.core.member.about import AboutYou
+
+            about = AboutYou(self.rt)
+            line = about.timetable_line(local) if about.status_on("timetable") else ""
+        except Exception:  # noqa: BLE001 - 读不到课表就不算
+            line = ""
+        if "正在上" in line or "DDL 今天" in line or "DDL 明天" in line:
+            return "这阵子有课、有 DDL 要赶"
+        return ""
 
     def snapshot(self, member: str, at: datetime) -> list[dict[str, Any]]:
         """她对每个人的感情（模拟报告、网页用），按在乎从高到低。"""

@@ -1341,6 +1341,9 @@ class GoalRules(_Strict):
     gain: tuple[float, float] = (0.3, 1.2)  # 每做一次涨多少经验（随机）
     setback_chance: float = Field(default=0.12, ge=0, le=1)  # 做着做着卡住
     levels: list[float] = [4, 12, 25, 45, 80]  # 经验到这些数就过一个坎（一个月大约过两三个）
+    # 主动做决定：卡住次数到了、又还没什么进展，有一定概率放下这件事、换一件（较真的人更坚持）
+    give_up_after: int = Field(default=3, ge=1, le=50)
+    give_up_chance: float = Field(default=0.4, ge=0, le=1)
     stages: list[str] = [
         "刚开始",
         "有了点头绪",
@@ -1595,6 +1598,7 @@ class LoveRules(_Strict):
     blame_after_days: float = Field(default=2.0, gt=0, le=60)
     withdraw_jump: float = Field(default=0.15, ge=0, le=1)  # 回避型：三天里在乎涨这么多就想退半步
     leave_words: list[str] = []  # 用户要走了
+    late_hours: tuple[int, int] = (23, 6)  # 主时区这段钟点里用户要走就不留（深夜该睡了）
     no_retain: dict[str, list[str]] = {}  # 这些理由不留：说法 → 词
     comfort_words: list[str] = []
     joy_words: list[str] = []
@@ -1622,6 +1626,48 @@ class PsycheRules(_Strict):
     whim: WhimRules = WhimRules()
     assoc: AssocRules = AssocRules()
     values: ValueRules = ValueRules()
+
+
+class FlawRule(_Strict):
+    """一样小毛病：谁更像（base + 性格分减 3 后 × 系数），碰到什么场合（when）以多大概率冒出来。"""
+
+    line: str
+    when: Literal["hurt", "goal", "disagree", "asked", "tired", "praised"]
+    traits: dict[str, float] = {}
+    base: float = 0.0
+    chance: float = Field(default=0.4, ge=0, le=1)
+
+
+class HumanRules(_Strict):
+    """人味（docs/BRAIN.md「人味」）：知识边界、有限的注意力和自己的时间、自我一致、八卦、
+    时间纵深、小毛病、主动做决定。全程序、不调模型。"""
+
+    enabled: bool = True
+    topics: dict[str, list[str]] = {}  # 领域 → 词
+    extra_domains: int = Field(default=1, ge=0, le=10)  # 档案之外再熟悉几个领域（按 id 派生）
+    ask_words: list[str] = []  # 问句里带这些词才算「问知识」（「玩游戏吗」这种邀约不算）
+    misremember: float = Field(default=0.05, ge=0, le=1)
+    long_message: int = Field(default=60, ge=10, le=2000)  # 这么长算「说了好几件事」
+    busy_acts: dict[str, str] = {}  # 作息里的活动 → 说法（这会儿在忙自己的）
+    busy_chance: float = Field(default=0.25, ge=0, le=1)
+    wrap_after: int = Field(default=8, ge=1, le=200)  # 这么多分钟内她在这个会话说了这么多条
+    wrap_minutes: float = Field(default=40, gt=0, le=600)
+    wrap_chance: float = Field(default=0.35, ge=0, le=1)
+    wrap_reasons: list[str] = []
+    claim_words: list[str] = []  # 关于自己的说法
+    keep_claims: int = Field(default=40, ge=1, le=500)
+    promise_words: list[str] = []  # 答应的事
+    keep_promises: int = Field(default=6, ge=1, le=100)
+    promise_days: float = Field(default=7, gt=0, le=90)
+    gossip_chance: float = Field(default=0.12, ge=0, le=1)
+    depth_words: dict[str, list[str]] = {}  # 从前、遗憾、梦想、害怕 → 词
+    depth_chance: float = Field(default=0.06, ge=0, le=1)
+    flaws: dict[str, FlawRule] = {}
+    flaw_count: int = Field(default=2, ge=0, le=6)
+    praise_words: list[str] = []
+    propose_social: float = Field(default=0.65, ge=0, le=1)  # 想找人说话的劲儿到这么高才主动约
+    propose_chance: float = Field(default=0.25, ge=0, le=1)
+    activities: list[str] = []
 
 
 class BrainRules(_Strict):
@@ -1656,6 +1702,7 @@ class BrainRules(_Strict):
     meta: MetaRules = MetaRules()
     psyche: PsycheRules = PsycheRules()
     love: LoveRules = LoveRules()
+    human: HumanRules = HumanRules()
 
 
 class CareRules(_Strict):
