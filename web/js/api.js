@@ -289,8 +289,8 @@ export const benchStatus = () => api('/api/bench');
 export const benchSubmit = (request) => api('/api/bench', { method: 'POST', body: { request } });
 export const benchCancel = () => api('/api/bench/cancel', { method: 'POST' });
 export const benchGet = (id) => api(`/api/bench/${encodeURIComponent(id)}`);
-export const benchAsk = (id, question) =>
-  api(`/api/bench/${encodeURIComponent(id)}/ask`, { method: 'POST', body: { question } });
+export const benchAsk = (id, question, json = false) =>
+  api(`/api/bench/${encodeURIComponent(id)}/ask`, { method: 'POST', body: { question, as_json: json } });
 export const superStatus = () => api('/api/super');
 export const superSubmit = (text) => api('/api/super/tasks', { method: 'POST', body: { text } });
 export const superCancel = () => api('/api/super/cancel', { method: 'POST' });

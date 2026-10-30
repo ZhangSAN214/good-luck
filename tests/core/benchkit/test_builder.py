@@ -100,6 +100,8 @@ class FakeSC:
             return W(who), RunResult(0, json.dumps(out, ensure_ascii=False))
         if p["role"] == "bench_ask":
             return W(who), RunResult(0, f"回答：{p['question']}")
+        if p["role"] == "bench_ask_json":
+            return W(who), RunResult(0, json.dumps({"days": [{"id": "d1", "q": p["question"]}]}))
         raise AssertionError(p["role"])
 
 
@@ -443,3 +445,201 @@ async def test_reviewers_see_last_rounds_problems_for_their_windows(tmp_path):
     for r in later:
         wid = r["previous"].split("：")[0][2:]
         assert f"- {wid}（" in r["windows"]  # 只给自己这组窗口的
+
+
+BASE = ["主视觉占大半屏", "不自己画插图"]
+
+
+def test_requirements_number_user_asks_and_take_baseline_from_config():
+    raw = dict(PLAN)
+    raw["hero"] = "Map View"
+    raw["requirements"] = [
+        {"text": "能按婚礼定制", "check": "选婚礼后出现宾客接送", "windows": ["plan", "nope"]},
+        {"text": ""},
+        {"id": "b1", "text": "改掉的底线", "check": "看地图那格", "windows": ["map-view"]},
+    ]
+    spec = normalize(raw, max_windows=8, baseline=BASE, max_requirements=4)
+    assert [r["id"] for r in spec.requirements] == ["r1", "b1", "b2"]
+    r1, b1, b2 = spec.requirements
+    assert r1["windows"] == ["plan"] and r1["source"] == "你的要求"
+    assert b1["text"] == "主视觉占大半屏" and b1["check"] == "看地图那格"  # 底线原文以配置为准
+    assert b2["windows"] == [] and b2["source"] == "底线"
+    # 主视觉排最前、至少 8 列，外壳给它加 k-hero
+    assert spec.hero == "map-view" and spec.windows[0].id == "map-view"
+    assert spec.windows[0].span == 8
+    assert "k-span-8 k-hero" in shell_html(spec, "b1")
+    raw["hero"] = "nope"
+    assert normalize(raw, max_windows=8).hero == ""
+
+
+class CheckSC(FakeSC):
+    """评审逐条验收：unmet 里的要求判为没做到（直到第 fix_after 次评审）。"""
+
+    def __init__(self, unmet=(), fix_after=99, **kw):
+        super().__init__(**kw)
+        self.unmet, self.fix_after = set(unmet), fix_after
+
+    async def step(self, kind, prompt, **kw):
+        chosen, result = await super().step(kind, prompt, **kw)
+        p = json.loads(prompt)
+        if p["role"] == "bench_review":
+            out = json.loads(result.output)
+            ids = [line[2:].split("（")[0] for line in p["requirements"].splitlines()]
+            bad = self.unmet if self.review_n <= self.fix_after else set()
+            out["checks"] = [
+                {"id": i, "met": i not in bad, "why": "只换了标签" if i in bad else ""} for i in ids
+            ]
+            return chosen, RunResult(0, json.dumps(out, ensure_ascii=False))
+        return chosen, result
+
+
+def plan_with_requirements():
+    raw = dict(PLAN)
+    raw["requirements"] = [{"text": "能按婚礼定制", "check": "选婚礼", "windows": ["plan"]}]
+    return raw
+
+
+async def test_unmet_requirement_blocks_pass_and_goes_to_its_window(tmp_path):
+    sc = CheckSC(unmet={"r1"}, fix_after=3, plan=plan_with_requirements())
+    b = make(tmp_path, sc, baseline=BASE)
+    build = b.submit("旅行台")
+    await b.wait()
+    assert build["status"] == "done", build["log"]
+    first, second = build["rounds"]
+    assert not first["passed"]  # 分数 9，但 r1 没做到
+    assert [r["id"] for r in first["requirements"] if not r["met"]] == ["r1"]
+    assert first["requirements"][0]["why"] == ["只换了标签"]
+    assert second["passed"] and all(r["met"] for r in second["requirements"])
+    reviews = [json.loads(p) for p in sc.prompts if json.loads(p)["role"] == "bench_review"]
+    assert "r1（你的要求）能按婚礼定制｜检查：选婚礼｜负责窗口：plan" in reviews[0]["requirements"]
+    assert "b2（底线）不自己画插图" in reviews[0]["requirements"]
+    reworks = [json.loads(p) for p in sc.prompts if json.loads(p)["role"] == "bench_rework"]
+    plan_fix = [r for r in reworks if r["file"] == "windows/plan.js"]
+    assert plan_fix and "[验收·必须做到·r1] 能按婚礼定制：只换了标签" in plan_fix[0]["problems"]
+    others = [r for r in reworks if r["file"] != "windows/plan.js"]
+    assert all("r1" not in r["problems"] for r in others)
+    assert any("验收：2/3" in line for line in (x["text"] for x in build["log"]))
+
+
+def test_merge_checks_needs_every_judge_and_no_missing():
+    reqs = [{"id": i, "source": "s", "text": i, "windows": []} for i in ("r1", "r2", "r3")]
+    reviews = [
+        {"checks": {"r1": {"met": True, "why": ""}, "r2": {"met": True, "why": ""}}},
+        {"checks": {"r1": {"met": False, "why": "没有"}}},
+        {"error": "没评成"},
+    ]
+    from roundtable.core.benchkit.builder import merge_checks
+
+    got = {r["id"]: r for r in merge_checks(reqs, reviews)}
+    assert not got["r1"]["met"] and got["r1"]["why"] == ["没有"]
+    assert got["r2"]["met"]
+    assert not got["r3"]["met"]  # 没人判过不算做到
+
+
+async def test_window_whose_score_drops_is_reverted_and_reworked_from_last_advice(tmp_path):
+    # 第 1 轮 7 分，第 2 轮 5 分（改坏了），第 3 轮 9 分
+    sc = FakeSC(scores=lambda n: 7 if n <= 3 else (5 if n <= 6 else 9))
+    versions = iter(range(100))
+
+    def code():
+        return (
+            f"export default (el, ctx) => {{ el.innerHTML = ctx.kit.esc('v{next(versions)}'); }};"
+        )
+
+    orig = sc.step
+
+    async def step(kind, prompt, **kw):
+        sc.window_code = code()
+        return await orig(kind, prompt, **kw)
+
+    sc.step = step
+    b = make(tmp_path, sc)
+    build = b.submit("拍摄台")
+    await b.wait()
+    assert build["status"] == "done", build["log"]
+    second = build["rounds"][1]
+    assert set(second["reverted"]) == {"map-view", "plan", "budget"}
+    assert second["reverted"]["plan"] == [7.0, 5.0]
+    assert any("退回上一版" in line for line in (x["text"] for x in build["log"]))
+    folder = tmp_path / build["id"]
+    snap = folder / "report" / "round-1" / "snap" / "windows" / "plan.js"
+    assert snap.is_file()
+    reworks = [json.loads(p) for p in sc.prompts if json.loads(p)["role"] == "bench_rework"]
+    last = [r for r in reworks if r["file"] == "windows/plan.js"][-1]
+    assert last["problems"].startswith("- [退回] 上一次的改法让分数从 7 降到 5")
+
+
+async def test_ask_json_returns_parsed_data_or_reason(tmp_path):
+    sc = FakeSC()
+    b = make(tmp_path, sc)
+    build = b.submit("旅行台")
+    await b.wait()
+    orig = sc.step
+
+    async def step(kind, prompt, **kw):
+        p = json.loads(prompt)
+        if p["role"] == "bench_ask_json":
+            sc.calls.append({"role": p["role"]})
+            body = '好的：{"days": [{"id": "d1"}]}' if "行程" in p["question"] else "做不了"
+            return W("a"), RunResult(0, body)
+        return await orig(kind, prompt, **kw)
+
+    sc.step = step
+    got = await b.ask_json(build["id"], "按杭州 3 天生成行程")
+    assert got["data"] == {"days": [{"id": "d1"}]}
+    bad = await b.ask_json(build["id"], "别的")
+    assert bad["data"] is None and bad["text"] == "做不了"
+
+
+async def test_net_list_is_written_for_the_shell_and_shown_to_writers(tmp_path):
+    net = [
+        {
+            "name": "tiles",
+            "use": "地图底图",
+            "url": "https://t.example/{z}/{x}/{y}.png",
+            "source": "示例地图",
+            "kind": "tiles",
+        },
+        {
+            "name": "weather",
+            "use": "天气，参数 lat、lng",
+            "url": "https://w.example/f?a={lat}",
+            "source": "示例天气",
+            "also": ["https://img.example/"],
+        },
+    ]
+    seen = []
+
+    def check(target, out_dir=None, **kw):
+        seen.append(kw.get("allow"))
+        return fake_check()(target, out_dir)
+
+    sc = FakeSC()
+    b = make(tmp_path, sc, check=check, net=net)
+    build = b.submit("旅行台")
+    await b.wait()
+    written = json.loads((tmp_path / build["id"] / "data" / "_net.json").read_text("utf-8"))
+    assert [x["name"] for x in written] == ["tiles", "weather"]
+    assert written[1]["ttl"] == 60 and "also" not in written[1]
+    assert seen and all(
+        a == ("https://t.example", "https://w.example", "https://img.example") for a in seen
+    )
+    windows = [json.loads(p) for p in sc.prompts if json.loads(p)["role"] == "bench_window"]
+    assert "ctx.net.get('weather', 参数)" in windows[0]["net"]
+    assert "地图零件 mapFrame 自动使用" in windows[0]["net"]
+
+
+def test_net_services_must_be_keyless_https():
+    from pydantic import ValidationError
+
+    from roundtable.core.config.schema import BenchNetService
+
+    ok = dict(name="fx", use="汇率", url="https://fx.example/l?from={a}", source="央行")
+    assert BenchNetService(**ok).origins == ["https://fx.example"]
+    for bad in (
+        {"url": "http://fx.example/x"},
+        {"url": "https://fx.example/x?api_key={k}"},
+        {"also": ["https://x.example/?token=1"]},
+    ):
+        with pytest.raises(ValidationError):
+            BenchNetService(**(ok | bad))

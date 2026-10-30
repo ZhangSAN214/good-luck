@@ -14,7 +14,7 @@ ICONS = (KIT_DIR / "icons.js").read_text(encoding="utf-8")
 
 
 def test_js_parts_are_exported():
-    exported = set(re.findall(r"export function (\w+)", JS)) | {"icon"}
+    exported = set(re.findall(r"export (?:function|const) (\w+)", JS)) | {"icon"}
     for part in MANIFEST["parts"]:
         if part["kind"] == "js" and part["name"] != "format":
             assert part["name"] in exported, part["name"]

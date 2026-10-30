@@ -15,10 +15,10 @@ from ..core.benchkit.test_builder import FakeSC, fake_check, render
 from ..core.orchestrator.conftest import Env
 
 
-def service_with(tmp_path) -> RoundtableService:
+def service_with(tmp_path, **rules) -> RoundtableService:
     service = RoundtableService(Env().rt)
     service.bench = BenchBuilder(
-        BenchRules(),
+        BenchRules(**rules),
         root=tmp_path / "bench",
         supercomputer=FakeSC(),
         render=render,
@@ -71,3 +71,39 @@ def test_ask_inside_bench(tmp_path):
         assert c.post(f"/api/bench/{bid}/ask", json={"question": "   "}).status_code == 400
         assert c.post("/api/bench/nope/ask", json={"question": "在吗"}).status_code == 404
         assert c.post(f"/api/bench/{bid}/ask", json={}).status_code == 422
+
+
+def test_sandbox_lets_through_only_configured_public_data(tmp_path):
+    net = [
+        {
+            "name": "tiles",
+            "use": "底图",
+            "url": "https://t.example/{z}/{x}/{y}.png",
+            "source": "示例",
+            "kind": "tiles",
+        },
+        {
+            "name": "wiki",
+            "use": "简介",
+            "url": "https://w.example/s/{q}",
+            "source": "示例",
+            "also": ["https://img.example/"],
+        },
+    ]
+    with TestClient(create_app(service_with(tmp_path, net=net))) as c:
+        c.post("/api/bench", json={"request": "东京旅行台"})
+        wait_done(c)
+        bid = c.get("/api/bench").json()["current"]["id"]
+        csp = c.get(f"/bench/{bid}/").headers["content-security-policy"]
+        origins = "https://t.example https://w.example https://img.example"
+        assert f"connect-src 'self' {origins};" in csp
+        assert f"img-src 'self' data: blob: {origins};" in csp
+        assert c.get(f"/bench/{bid}/data/_net.json").json()[1]["name"] == "wiki"
+        # 成品按用户的条件现场生成内容：拿到的是对象
+        r = c.post(f"/api/bench/{bid}/ask", json={"question": "杭州 3 天", "as_json": True})
+        assert r.status_code == 200 and r.json()["data"]["days"][0]["q"] == "杭州 3 天"
+    with TestClient(create_app(service_with(tmp_path / "off"))) as c:
+        c.post("/api/bench", json={"request": "东京旅行台"})
+        wait_done(c)
+        bid = c.get("/api/bench").json()["current"]["id"]
+        assert "connect-src 'self';" in c.get(f"/bench/{bid}/").headers["content-security-policy"]

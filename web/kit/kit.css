@@ -159,6 +159,16 @@
 /* ---------- 卡片 ---------- */
 .k-card { background: var(--k-surface); border: 1px solid var(--k-line); border-radius: var(--k-r); box-shadow: var(--k-shadow); min-width: 0; display: flex; flex-direction: column; }
 .k-card.k-flat { box-shadow: none; }
+/* 主视觉窗口：地图、3D、图纸、照片占画面主体，内容区贴边、更高 */
+.k-card.k-hero { min-height: min(72vh, 640px); }
+.k-card.k-hero .k-card-b { padding: 0; flex: 1; display: flex; flex-direction: column; min-height: 0; overflow: hidden; border-radius: 0 0 var(--k-r) var(--k-r); }
+/* 每个台自己的标题风格：大号粗体标语 + 小号字距标签（例：「先选区域，再选目标。」） */
+.k-display { font-size: clamp(28px, 5vw, 56px); line-height: 1.08; font-weight: 800; letter-spacing: -0.02em; margin: 0; color: var(--k-fg); }
+.k-kicker { font-size: 12px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: var(--k-accent); }
+/* 真照片（带来源）：没有图时不放占位色块，直接不显示 */
+.k-media { position: relative; margin: 0; border-radius: var(--k-r-sm, 10px); overflow: hidden; background: var(--k-surface-2); }
+.k-media img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.k-media figcaption { position: absolute; left: 0; right: 0; bottom: 0; padding: 18px 10px 6px; font-size: 12px; color: #fff; background: linear-gradient(transparent, rgba(0, 0, 0, .6)); }
 .k-card.k-glass { background: color-mix(in srgb, var(--k-surface) 72%, transparent); backdrop-filter: blur(18px) saturate(1.3); -webkit-backdrop-filter: blur(18px) saturate(1.3); }
 .k-card-h { display: flex; align-items: center; gap: 10px; padding: 14px 16px 10px; min-width: 0; flex-wrap: wrap; }
 .k-card-h .k-ico-wrap { width: 30px; height: 30px; border-radius: 9px; display: grid; place-items: center; background: var(--k-accent-soft); color: var(--k-accent); flex: none; }
@@ -378,6 +388,8 @@
 
 /* ---------- 地图框 ---------- */
 .k-pin { cursor: pointer; outline: none; }
+.k-map-tiles img { user-select: none; max-width: none; }
+.k-map-credit { position: absolute; right: 6px; bottom: 6px; padding: 2px 8px; border-radius: 6px; font-size: 12px; color: var(--k-fg-2); background: color-mix(in srgb, var(--k-surface) 85%, transparent); pointer-events: none; }
 .k-pin circle:first-child { transition: r var(--k-fast); }
 .k-pin:hover circle:first-child, .k-pin:focus circle:first-child { r: 16; }
 

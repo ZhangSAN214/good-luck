@@ -913,13 +913,22 @@ class RoundtableService:
             raise ServiceError("没有这个工作台", 404)
         return b
 
-    async def bench_ask(self, bench_id: str, question: str) -> dict[str, Any]:
+    async def bench_ask(self, bench_id: str, question: str, json: bool = False) -> dict[str, Any]:
         try:
+            if json:
+                return await self.bench.ask_json(bench_id, question)
             return {"text": await self.bench.ask(bench_id, question)}
         except LookupError as exc:
             raise ServiceError(str(exc), 404) from None
         except ValueError as exc:
             raise ServiceError(str(exc), 400) from None
+
+    def bench_net_origins(self) -> list[str]:
+        """生成的工作台能联网访问的网址（配置里的公开数据名单）；沙箱只放行这些。"""
+        out: list[str] = []
+        for svc in self.bench.rules.net:
+            out += [o for o in svc.origins if o not in out]
+        return out
 
     def bench_file(self, bench_id: str, path: str) -> Path:
         """生成的工作台里的一个文件（只读；不许跳出它自己的文件夹）。"""

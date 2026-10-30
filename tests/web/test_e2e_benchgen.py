@@ -26,8 +26,11 @@ PNG = base64.b64decode(
 )
 ASK_WINDOW = (
     "export default async (el, ctx) => {"
-    " el.innerHTML = '<p class=\"answer k-sub\">' + ctx.kit.esc('…') + '</p>';"
+    " el.innerHTML = '<p class=\"answer k-sub\">' + ctx.kit.esc('…') + '</p><p class=\"gen\"></p>';"
     " el.querySelector('.answer').textContent = await ctx.ask('第一天去哪');"
+    " const got = await ctx.askJson('按杭州 3 天生成行程');"
+    " el.querySelector('.gen').textContent ="
+    " got.data ? '生成了 ' + got.data.days.length + ' 天' : got.text;"
     " };"
 )
 
@@ -42,6 +45,11 @@ class SlowSC(FakeSC):
             (kw["folder"] / p["file"]).write_text(ASK_WINDOW, encoding="utf-8")
         if p["role"] == "bench_ask":
             return W(chosen.id), RunResult(0, "先去浅草寺，再去上野")
+        if p["role"] == "bench_review":  # 验收清单逐条判：都做到了
+            out = json.loads(result.output)
+            ids = [line[2:].split("（")[0] for line in p["requirements"].splitlines()]
+            out["checks"] = [{"id": i, "met": True, "why": ""} for i in ids]
+            return chosen, RunResult(0, json.dumps(out, ensure_ascii=False))
         return chosen, result
 
 
@@ -88,7 +96,7 @@ def check(target, out_dir=None, **kw):
 def test_benchgen_flow(serve, page, monkeypatch, tmp_path):
     def factory(rules, *, root, **kw):
         return BenchBuilder(
-            rules,
+            rules.model_copy(update={"baseline": ["主视觉占大半屏", "不自己画插图"]}),
             root=tmp_path / "bench",
             supercomputer=SlowSC(),
             render=fake_render,
@@ -117,6 +125,9 @@ def test_benchgen_flow(serve, page, monkeypatch, tmp_path):
     assert src.locator(".bg-v-adopt").text_content() == "直接用"
     rnd = pane.locator(".bg-round").first
     assert "过线" in rnd.locator("summary").text_content()
+    assert "验收 2/2" in rnd.locator("summary").text_content()
+    assert rnd.locator(".bg-reqs li.bg-met").count() == 2
+    assert "不自己画插图" in rnd.locator(".bg-reqs").text_content()
     assert rnd.locator(".bg-scores li").count() == 7
     shot = rnd.locator(".bg-shot img").first
     page.wait_for_function(
@@ -128,6 +139,7 @@ def test_benchgen_flow(serve, page, monkeypatch, tmp_path):
     frame = page.frame_locator("iframe.bg-frame")
     frame.locator(".answer", has_text="先去浅草寺").wait_for(timeout=10000)
     assert frame.locator("h1").text_content() == "旅行台"
+    frame.locator(".gen", has_text="生成了 1 天").wait_for(timeout=10000)
     if shots := os.environ.get("ROUNDTABLE_SHOTS"):  # 版本说明用的截图
         page.set_viewport_size({"width": 1280, "height": 2600})
         page.screenshot(path=str(Path(shots) / "benchgen.png"))

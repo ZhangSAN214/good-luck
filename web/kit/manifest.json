@@ -9,6 +9,7 @@
   "themes": ["ink", "paper", "crimson", "forest", "amber", "ocean"],
   "parts": [
     {"name": "page", "kind": "css", "use": "整页外壳：顶栏（标志、标题、副标题、操作）+ 12 列网格", "classes": ["k-page", "k-topbar", "k-brand", "k-logo", "k-grid", "k-span-3…12"]},
+    {"name": "hero", "kind": "css", "use": "主视觉和台的个性：主视觉窗口（规格 hero，自动加 k-hero，内容区贴边）、大号标语、小号字距标签、带来源的真照片", "classes": ["k-hero", "k-display", "k-kicker", "k-media"]},
     {"name": "card", "kind": "css", "use": "窗口卡片：带图标的标题栏、内容、底栏", "classes": ["k-card", "k-card-h", "k-ico-wrap", "k-card-b", "k-card-f", "k-glass", "k-flat"]},
     {"name": "stat", "kind": "css", "use": "关键指标：数字、单位、涨跌、迷你趋势", "classes": ["k-stats", "k-stat", "k-label", "k-value", "k-delta", "k-spark"], "with": ["countUp", "spark"]},
     {"name": "controls", "kind": "css", "use": "按钮、标签、分段按钮、输入框、开关、滑块、勾选框", "classes": ["k-btn", "k-primary", "k-ghost", "k-icon", "k-sm", "k-chip", "k-seg", "k-input", "k-select", "k-field", "k-search", "k-switch", "k-range", "k-check"]},
@@ -26,7 +27,7 @@
     {"name": "timeline", "kind": "js", "use": "行程、日程、进度记录", "api": "timeline(el, { items: [{ time, title, meta?, icon?, tone?, done? }] })"},
     {"name": "kanban", "kind": "js", "use": "任务分工：拖动换列，键盘可用", "api": "kanban(el, { columns: [{ id, title }], cards: [{ id, col, title, meta?, tag?, tone? }], onMove? }) → { update(cards) }"},
     {"name": "calendar", "kind": "js", "use": "月历：标出有安排的日子", "api": "calendar(el, { month?, events: [{ date, title, tone? }], onPick? }) → { update(events) }"},
-    {"name": "mapFrame", "kind": "js", "use": "地点和路线示意（不联网）；要真地图时换地图服务并经用户同意", "api": "mapFrame(el, { points: [{ name, lat, lng, meta?, group? }], route?, height?, label? })"},
+    {"name": "mapFrame", "kind": "js", "use": "真实地图底图上的地点和路线（配置里有地图底图时自动用；没有时退回浅色底），点地点能联动", "api": "mapFrame(el, { points: [{ name, lat, lng, meta?, group? }], route?, height?, label?, onPick?(i, p) }) → { focus(i), update(points) }"},
     {"name": "viewer", "kind": "js", "use": "图片 / 视频缩略图 + 大图查看", "api": "viewer(el, { items: [{ src, alt, caption?, type? }] })"},
     {"name": "editor", "kind": "js", "use": "写作、代码、笔记：行号、字数、保存状态", "api": "editor(el, { value?, placeholder?, mono?, onChange?, label? }) → { value, set(text) }"},
     {"name": "checklist", "kind": "js", "use": "待办、打包清单、步骤", "api": "checklist(el, { items: [{ id, text, done?, meta? }], onChange?, addable?, placeholder? })"},
@@ -36,6 +37,7 @@
     {"name": "toast", "kind": "js", "use": "操作后的提示条", "api": "toast(text, { icon?, ms? })"},
     {"name": "icon", "kind": "js", "use": "线条图标（Lucide 子集，名字见 icons.js）", "api": "icon(name, { size?, label?, cls? })"},
     {"name": "sharedState", "kind": "js", "use": "几个窗口一起读写的数据（已加入、已付、勾选），谁改了都通知大家；窗口里用 ctx.state", "api": "sharedState(ns, bus) → { get(k, d), set(k, v), update(k, fn, d), on(k, fn, d) → 取消 }"},
+    {"name": "net", "kind": "js", "use": "联网取公开数据（天气、汇率、地名查坐标、地点简介和配图……名单在配置里），带缓存，联不上返回上次结果或 null；窗口里用 ctx.net", "api": "net.get(name, params) → Promise<{ data, source, asOf, live } | null>; net.has(name); net.source(name); net.list()"},
     {"name": "persist", "kind": "js", "use": "本机存储个人便利设置（读写失败当作没有）", "api": "persist(ns) → { get(k, d), set(k, v) }"},
     {"name": "format", "kind": "js", "use": "数字格式、刻度、滚动数字、主题和明暗", "api": "fmt(n, { digits?, unit? }); niceTicks(min, max, count?); countUp(el, to, opts?); setTheme(name); setMode('auto'|'light'|'dark')"}
   ],

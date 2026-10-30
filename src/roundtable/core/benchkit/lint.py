@@ -17,6 +17,9 @@ USES_KIT = re.compile(
     r"|\{[^{}]*\bkit\b[^{}]*\}\s*=\s*ctx\b|\}\s*=\s*kit\b|\(\s*\w+\s*,\s*\{[^{}]*\bkit\b"
 )
 POLL = re.compile(r"\bsetInterval\s*\(")
+# 自己用 svg 拼图形（参考资料里 UP 主的原话：不要让模型自己去画内容）：地图、图表、照片都有现成的
+DRAW = re.compile(r"<(?:path|circle|ellipse|polygon|polyline|rect|line)\b|createElementNS\s*\(")
+MAX_DRAW = 12  # 窗口代码里画图形的地方超过几处算自己画插图
 COLOR = re.compile(r"#[0-9a-fA-F]{3,8}\b|\brgba?\(\s*\d")
 MAX_COLORS = 3  # 写死的色值超过几个算问题（颜色要用 var(--k-*)）
 MAX_KB = 60  # 一个窗口的代码超过多少 KB 算太大（该拆成零件或精简）
@@ -24,7 +27,7 @@ MAX_KB = 60  # 一个窗口的代码超过多少 KB 算太大（该拆成零件�
 
 def lint_windows(folder: Path, window_ids: list[str]) -> list[Finding]:
     out: list[Finding] = []
-    no_kit, colors, big, poll = [], [], [], []
+    no_kit, colors, big, poll, drawn = [], [], [], [], []
     for wid in window_ids:
         path = folder / "windows" / f"{wid}.js"
         try:
@@ -36,6 +39,9 @@ def lint_windows(folder: Path, window_ids: list[str]) -> list[Finding]:
         n = len(COLOR.findall(text))
         if n > MAX_COLORS:
             colors.append((wid, n))
+        shapes = len(DRAW.findall(text))
+        if shapes > MAX_DRAW:
+            drawn.append((wid, shapes))
         if POLL.search(text):
             poll.append(wid)
         kb = len(text.encode("utf-8")) / 1024
@@ -74,6 +80,18 @@ def lint_windows(folder: Path, window_ids: list[str]) -> list[Finding]:
                 "、".join(f"{w} {kb:.0f}KB" for w, kb in big)
                 + f"：超过 {MAX_KB}KB，通用的部分拆成 parts/ 里的零件，重复的内容收进数据",
                 [w for w, _ in big],
+            )
+        )
+    if drawn:
+        out.append(
+            Finding(
+                "自己画插图",
+                "block",
+                where,
+                "、".join(f"{w} {n} 处" for w, n in drawn)
+                + "：用 svg 图形拼插图、地图、图表，看起来简陋；地图用 mapFrame（真实底图），"
+                "图表用零件库，照片用联网数据，都没有就用图标和真实信息",
+                [w for w, _ in drawn],
             )
         )
     if poll:

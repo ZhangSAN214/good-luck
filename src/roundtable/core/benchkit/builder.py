@@ -20,6 +20,7 @@ import os
 import random
 import re
 import secrets
+import shutil
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
@@ -45,7 +46,8 @@ from roundtable.core.supercomputer.scoring import excluded
 RECENT = 10
 # 写完自测：只开一种屏宽，只管这几项低级错误
 SELFTEST_VIEWPORTS = (("电脑", 1280, 860),)
-SELFTEST_CHECKS = ("页面报错", "窗口没用零件库")
+REVERT_MARGIN = 0.3  # 一组窗口的评审均分比上一轮低这么多以上，就退回上一版
+SELFTEST_CHECKS = ("页面报错", "窗口没用零件库", "自己画插图")
 Check = Callable[..., Report]
 
 
@@ -69,6 +71,39 @@ def merge_scores(reviews: list[dict[str, float]], rubric: list[str]) -> dict[str
     for item in rubric:
         vals = [float(r.get(item, 0) or 0) for r in reviews]
         out[item] = round(mean(vals), 2)
+    return out
+
+
+def requirements_text(spec: Spec) -> str:
+    """验收清单给评审看：编号、来源、要求、怎么检查、归哪几个窗口。"""
+    lines = []
+    for r in spec.requirements:
+        line = f"- {r['id']}（{r['source']}）{r['text']}"
+        if r["check"]:
+            line += f"｜检查：{r['check']}"
+        if r["windows"]:
+            line += f"｜负责窗口：{'、'.join(r['windows'])}"
+        lines.append(line)
+    return "\n".join(lines) or "（没有验收清单）"
+
+
+def merge_checks(
+    requirements: list[dict[str, Any]], reviews: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """几位评审各判一遍：至少一位判过、且判过的都说做到了才算做到（漏判不能白送）。"""
+    out = []
+    for r in requirements:
+        got = [rec["checks"][r["id"]] for rec in reviews if r["id"] in (rec.get("checks") or {})]
+        out.append(
+            {
+                "id": r["id"],
+                "source": r["source"],
+                "text": r["text"],
+                "windows": r["windows"],
+                "met": bool(got) and all(g["met"] for g in got),
+                "why": list(dict.fromkeys(g["why"] for g in got if not g["met"] and g["why"]))[:3],
+            }
+        )
     return out
 
 
@@ -245,7 +280,15 @@ class BenchBuilder:
         rng = random.Random(b["seed"])
         try:
             spec = await self._plan(b, rng)
-            write_shell(self.folder(b["id"]), spec, b["id"])
+            write_shell(
+                self.folder(b["id"]),
+                spec,
+                b["id"],
+                net=[
+                    x.model_dump(exclude={"also", "ttl_min"}) | {"ttl": x.ttl_min}
+                    for x in self.rules.net
+                ],
+            )
             if self.library is not None:
                 self.library.seed(self.folder(b["id"]))
             if spec.needs and self.scout is not None and self.rules.scout:
@@ -263,6 +306,7 @@ class BenchBuilder:
                     self._log(b, f"第 {n} 轮过线")
                     self._grow(b, spec)
                     break
+                self._revert(b, n)
                 if n == self.rules.max_rounds:
                     b["status"] = "needs_you"
                     self._log(b, f"做满 {n} 轮还没过线，停下来等你决定")
@@ -290,12 +334,21 @@ class BenchBuilder:
             parts=parts_brief(m) + ("\n" + self.library.brief() if self.library else ""),
             themes="、".join(m["themes"]),
             max_windows=str(self.rules.max_windows),
+            baseline="\n".join(f"b{i}. {t}" for i, t in enumerate(self.rules.baseline, 1))
+            or "（没有底线）",
+            max_requirements=str(self.rules.max_requirements),
+            net=self._net_text(),
         )
         chosen, result = await self._step(b, self.rules.plan_kind, prompt, rng, record)
         if chosen is None or result is None or not result.ok:
             raise RuntimeError("没有人能拆需求（都没装、在冷却或今天次数用完了）")
         try:
-            spec = normalize(extract_json_object(result.output), max_windows=self.rules.max_windows)
+            spec = normalize(
+                extract_json_object(result.output),
+                max_windows=self.rules.max_windows,
+                baseline=self.rules.baseline,
+                max_requirements=self.rules.max_requirements,
+            )
         except (JSONOutputError, SpecError) as exc:
             raise RuntimeError(f"拆需求的结果看不懂：{exc}") from None
         b["title"] = spec.title
@@ -356,7 +409,18 @@ class BenchBuilder:
                 )
         return "\n".join(lines) or "（这次没找插件，全部用零件库自己写）"
 
-    async def ask(self, bid: str, question: str) -> str:
+    async def ask_json(self, bid: str, question: str) -> dict[str, Any]:
+        """成品按用户自己的输入现场生成内容（行程、推荐……）：助手只交一个 JSON 对象。
+        拿不到或看不懂时 data 为 None，窗口退回示例数据并告诉用户。"""
+        text = await self.ask(bid, question, role="bench_ask_json", limit=60000)
+        try:
+            return {"text": "", "data": extract_json_object(text)}
+        except JSONOutputError:
+            return {"text": text[:400], "data": None}
+
+    async def ask(
+        self, bid: str, question: str, *, role: str = "bench_ask", limit: int = 4000
+    ) -> str:
         """成品里的对话窗：用户的问题连同这个台的规格和示例数据，交给一位助手回答。
         在 ``ask/`` 子文件夹里跑，不碰台本身的文件。"""
         q = question.strip()
@@ -378,7 +442,7 @@ class BenchBuilder:
             with contextlib.suppress(OSError, UnicodeDecodeError):
                 data.append(f"## {p.stem}\n{p.read_text(encoding='utf-8')[:3000]}")
         prompt = self.render(
-            "bench_ask",
+            role,
             request=b["request"],
             spec=spec[:6000],
             data="\n\n".join(data) or "（没有数据）",
@@ -395,7 +459,7 @@ class BenchBuilder:
             return "现在没有助手能回答（都没装、在冷却或今天次数用完了）。"
         if not result.ok:
             return "这次没答上来，稍后再试。"
-        return result.output.strip()[:4000] or "（没有回答）"
+        return result.output.strip()[:limit] or "（没有回答）"
 
     def _grow(self, b: dict[str, Any], spec: Spec) -> None:
         """过线以后：新零件收进本机零件库，整个台存成配方（自行拓展）。"""
@@ -405,6 +469,22 @@ class BenchBuilder:
         b["recipe"] = str(self.library.save_recipe(b, spec.to_dict()).name)
         if b["new_parts"]:
             self._log(b, "收进零件库：" + "、".join(b["new_parts"]))
+
+    def _allow(self) -> tuple[str, ...]:
+        """质检截图时放行的网址：配置里的公开数据（评审要看到真实地图和照片）。"""
+        return tuple(dict.fromkeys(o for x in self.rules.net for o in x.origins))
+
+    def _net_text(self) -> str:
+        """能联网取的公开数据，给助手看：名字、用途（含参数）、来源。"""
+        lines = []
+        for x in self.rules.net:
+            how = (
+                "地图零件 mapFrame 自动使用"
+                if x.kind == "tiles"
+                else f"ctx.net.get('{x.name}', 参数)"
+            )
+            lines.append(f"- {x.name}：{x.use}（{how}；来源：{x.source}）")
+        return "\n".join(lines) or "（成品不能联网：需要实时的信息用可信的参考数据，标日期和来源）"
 
     def _kit_text(self) -> str:
         return json.dumps(manifest(), ensure_ascii=False, indent=1)
@@ -425,6 +505,7 @@ class BenchBuilder:
             data_file=w.data_file,
             kit=self._kit_text(),
             sources=self._sources_text(b),
+            net=self._net_text(),
         )
         chosen, result = await self._step(b, self.rules.window_kind, prompt, rng, rec)
         rec["author"] = chosen.id if chosen else None
@@ -442,7 +523,9 @@ class BenchBuilder:
         rnd: dict[str, Any] = {"n": n, "check": None, "reviews": [], "scores": {}, "passed": False}
         b["rounds"].append(rnd)
         try:
-            report = await asyncio.to_thread(self.check, str(folder / "index.html"), out)
+            report = await asyncio.to_thread(
+                self.check, str(folder / "index.html"), out, allow=self._allow()
+            )
         except QualityError as exc:
             raise RuntimeError(f"自动质检没法进行：{exc}") from None
         # 读代码就能看出来的问题（没用零件库、写死颜色、代码太大）一起算进质检
@@ -465,6 +548,7 @@ class BenchBuilder:
                 shots=shots or "（这轮没有截图）",
                 check=report.summary(),
                 previous=self._previous(last, wids),
+                requirements=requirements_text(spec),
             )
             chosen, result = await self._step(
                 b, self.rules.review_kind, prompt, rng, rec, exclude=(author,)
@@ -486,6 +570,14 @@ class BenchBuilder:
                     scores[k] = 0.0
             rec["scores"] = scores
             rec["summary"] = str(data.get("summary") or "")[:400]
+            rec["checks"] = {
+                str(x.get("id")): {
+                    "met": x.get("met") is True,
+                    "why": str(x.get("why") or "")[:300],
+                }
+                for x in (data.get("checks") or [])
+                if isinstance(x, dict) and x.get("id")
+            }
             rec["problems"] = {
                 str(x.get("id")): {
                     "problems": [str(p)[:300] for p in (x.get("problems") or [])][:10],
@@ -498,9 +590,24 @@ class BenchBuilder:
         rnd["scores"] = merge_scores(reviews, self.rules.rubric)
         # 每组窗口都要有人评过才算数：缺了哪组，就当那组没评（不能靠少评过线）
         complete = bool(rnd["reviews"]) and all("scores" in r for r in rnd["reviews"])
-        rnd["passed"] = complete and passes(report.passed, rnd["scores"], self.rules)
+        rnd["window_scores"] = {
+            wid: round(mean(r["scores"].values()), 2)
+            for r in rnd["reviews"]
+            if r.get("scores")
+            for wid in r["windows"]
+        }
+        rnd["requirements"] = merge_checks(spec.requirements, rnd["reviews"])
+        met = all(r["met"] for r in rnd["requirements"])
+        rnd["passed"] = complete and met and passes(report.passed, rnd["scores"], self.rules)
         if rnd["scores"]:
             b["score"] = round(mean(rnd["scores"].values()), 2)
+        if rnd["requirements"]:
+            miss = [r["id"] for r in rnd["requirements"] if not r["met"]]
+            self._log(
+                b,
+                f"第 {n} 轮验收：{len(rnd['requirements']) - len(miss)}/{len(rnd['requirements'])}"
+                + (f" 条做到，没做到：{'、'.join(miss)}" if miss else " 条全部做到"),
+            )
         self._log(
             b,
             f"第 {n} 轮评审："
@@ -530,6 +637,7 @@ class BenchBuilder:
                 folder / "report" / "selftest",
                 viewports=SELFTEST_VIEWPORTS,
                 modes=("light",),
+                allow=self._allow(),
             )
         except QualityError as exc:
             raise RuntimeError(f"自动质检没法进行：{exc}") from None
@@ -548,8 +656,48 @@ class BenchBuilder:
         b["status"] = "reworking"
         await self._rework(b, spec, 0, rng, rnd={"check": {"findings": bad}}, only_flagged=True)
 
+    def _files(self, b: dict[str, Any], wid: str) -> list[str]:
+        return [f"windows/{wid}.js", f"data/{wid}.json"]
+
+    def _snapshot(self, b: dict[str, Any], n: int) -> None:
+        """返工前把每个窗口现在的样子（第 n 轮评审看到的）存一份，改坏了能退回。"""
+        folder = self.folder(b["id"])
+        snap = folder / "report" / f"round-{n}" / "snap"
+        for rec in b["windows"]:
+            for rel in self._files(b, rec["id"]):
+                if (folder / rel).is_file():
+                    (snap / rel).parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(folder / rel, snap / rel)
+
+    def _revert(self, b: dict[str, Any], n: int) -> None:
+        """第 n 轮比上一轮分数低的窗口：退回上一轮评审看到的版本（返工前的快照），
+        下次返工照上一轮的意见、换个改法（不让分数越改越低）。"""
+        if n < 2 or len(b["rounds"]) < 2:
+            return
+        cur, prev = b["rounds"][-1], b["rounds"][-2]
+        folder = self.folder(b["id"])
+        snap = folder / "report" / f"round-{prev['n']}" / "snap"
+        back: dict[str, list[float]] = {}
+        for wid, now in (cur.get("window_scores") or {}).items():
+            before = (prev.get("window_scores") or {}).get(wid)
+            files = [rel for rel in self._files(b, wid) if (snap / rel).is_file()]
+            if before is None or now >= before - REVERT_MARGIN or not files:
+                continue
+            for rel in files:
+                shutil.copy2(snap / rel, folder / rel)
+            back[wid] = [before, now]
+            title = next((w["title"] for w in b["windows"] if w["id"] == wid), wid)
+            self._log(b, f"「{title}」第 {n} 轮分数从 {before:g} 降到 {now:g}，退回上一版")
+        cur["reverted"] = back
+
     def _problems_for(self, rnd: dict[str, Any], wid: str) -> str:
         lines: list[str] = []
+        # 验收清单没做到的放最前面：归这个窗口负责的（没写归谁的大家都看）
+        for r in rnd.get("requirements") or []:
+            if r["met"] or (r["windows"] and wid not in r["windows"]):
+                continue
+            why = "；".join(r["why"]) or "评审判为没做到"
+            lines.append(f"- [验收·必须做到·{r['id']}] {r['text']}：{why}")
         check = rnd.get("check") or {}
         for f in check.get("findings", []):
             # 知道出在哪几个窗口的，只交给那几个窗口的作者；不知道的大家都看
@@ -576,9 +724,21 @@ class BenchBuilder:
         only_flagged: bool = False,
     ) -> None:
         rnd = rnd if rnd is not None else b["rounds"][-1]
+        if n:
+            self._snapshot(b, n)
+        reverted = rnd.get("reverted") or {}
         jobs = []
         for rec in b["windows"]:
-            problems = self._problems_for(rnd, rec["id"])
+            if rec["id"] in reverted and len(b["rounds"]) > 1:
+                # 退回了上一版：照上一轮的意见改，并提醒上次的改法让分数降了
+                before, now = reverted[rec["id"]]
+                problems = (
+                    f"- [退回] 上一次的改法让分数从 {before:g} 降到 {now:g}，已退回改之前的版本；"
+                    "这次换个改法，别把做好的地方改坏\n"
+                    + self._problems_for(b["rounds"][-2], rec["id"])
+                )
+            else:
+                problems = self._problems_for(rnd, rec["id"])
             if not problems and (rec["status"] == "done" or only_flagged):
                 continue
             w = spec.window(rec["id"])
@@ -593,6 +753,7 @@ class BenchBuilder:
                 problems=problems or "- 上一次没写成，请从头写这个窗口",
                 kit=self._kit_text(),
                 sources=self._sources_text(b),
+                net=self._net_text(),
             )
             jobs.append(self._redo(b, rec, prompt, rng, n))
         await asyncio.gather(*jobs)

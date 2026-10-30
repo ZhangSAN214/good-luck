@@ -77,6 +77,38 @@ export function sharedState(ns, bus) {
   return api;
 }
 
+/**
+ * 联网取公开数据（名单在圆桌配置里，外壳启动时交给 setNet；名单外的网址沙箱会拦下）。
+ * net.get(名字, 参数) → { data, source, asOf, live } 或 null（联不上、名单里没有）。
+ * 结果在本机缓存；联不上时拿上一次的结果，live 为 false，界面要标「参考」和日期。
+ */
+let NET = [];
+export function setNet(list) { NET = Array.isArray(list) ? list.filter((x) => x && x.name && x.url) : []; }
+export const net = {
+  has: (name) => NET.some((x) => x.name === name),
+  source: (name) => NET.find((x) => x.name === name)?.source ?? '',
+  list: () => NET.map(({ name, use, source }) => ({ name, use, source })),
+  async get(name, params = {}, { timeout = 8000 } = {}) {
+    const s = NET.find((x) => x.name === name && x.kind !== 'tiles');
+    if (!s) return null;
+    const url = s.url.replace(/\{(\w+)\}/g, (_, k) => encodeURIComponent(params[k] ?? ''));
+    const box = persist('kit-net'), old = box.get(url, null);
+    const pack = (hit, live) => ({ data: hit.d, source: s.source, asOf: new Date(hit.t).toISOString(), live });
+    if (old && Date.now() - old.t < (s.ttl ?? 60) * 60000) return pack(old, true);
+    const ctl = typeof AbortController === 'function' ? new AbortController() : null;
+    const t = setTimeout(() => ctl?.abort(), timeout);
+    try {
+      const r = await fetch(url, { signal: ctl?.signal });
+      if (!r.ok) throw new Error(String(r.status));
+      const hit = { t: Date.now(), d: await r.json() };
+      box.set(url, hit);
+      return pack(hit, true);
+    } catch {
+      return old ? pack(old, false) : null;
+    } finally { clearTimeout(t); }
+  },
+};
+
 export function setTheme(name) { document.documentElement.dataset.kTheme = name; }
 export function setMode(mode) {
   if (mode === 'auto') delete document.documentElement.dataset.kMode; else document.documentElement.dataset.kMode = mode;
@@ -446,46 +478,79 @@ export function calendar(el, { month = new Date(), events = [], onPick } = {}) {
  * 需要真地图时，生成器在这一格里换成地图服务（要用户点头）。
  * mapFrame(el, { points: [{ name, lat, lng, meta?, group? }], route?: true, height? })
  */
-export function mapFrame(el, { points, route = true, height = 300, label = '地点示意图' }) {
+export function mapFrame(el, { points, route = true, height = 300, label = '地点地图', onPick = null }) {
+  let active = -1;
+  const tiles = NET.find((x) => x.kind === 'tiles');
   const draw = () => {
     const W = widthOf(el), H = height, pad = 34;
     if (!points.length) { el.innerHTML = empty({ icon: 'globe', title: '还没有地点' }); return; }
     const lats = points.map((p) => p.lat), lngs = points.map((p) => p.lng);
     let [a, b, c, d] = [Math.min(...lats), Math.max(...lats), Math.min(...lngs), Math.max(...lngs)];
     if (b - a < 0.01) { a -= 0.01; b += 0.01; } if (d - c < 0.01) { c -= 0.01; d += 0.01; }
-    const k = Math.cos(((a + b) / 2) * Math.PI / 180);
-    const sx = (W - pad * 2) / ((d - c) * k), sy = (H - pad * 2) / (b - a), s = Math.min(sx, sy);
-    const ox = (W - (d - c) * k * s) / 2, oy = (H - (b - a) * s) / 2;
-    const X = (lng) => ox + (lng - c) * k * s, Y = (lat) => H - oy - (lat - a) * s;
+    let X, Y, bg = '';
+    if (tiles) {
+      // 真实底图（Web 墨卡托瓦片）：挑一个能装下全部地点的最大缩放级别；瓦片加载不出来时下面还是浅色底
+      const mx = (lng, z) => ((lng + 180) / 360) * 256 * 2 ** z;
+      const my = (lat, z) => { const t = Math.sin((lat * Math.PI) / 180); return (0.5 - Math.log((1 + t) / (1 - t)) / (4 * Math.PI)) * 256 * 2 ** z; };
+      let z = 17;
+      while (z > 2 && (mx(d, z) - mx(c, z) > W - pad * 2 || my(a, z) - my(b, z) > H - pad * 2)) z -= 1;
+      const cx = (mx(c, z) + mx(d, z)) / 2, cy = (my(a, z) + my(b, z)) / 2, ox = W / 2 - cx, oy = H / 2 - cy, n = 2 ** z;
+      X = (lng) => mx(lng, z) + ox; Y = (lat) => my(lat, z) + oy;
+      let imgs = '';
+      for (let tx = Math.floor(-ox / 256); tx <= Math.floor((W - ox) / 256); tx += 1) {
+        for (let ty = Math.floor(-oy / 256); ty <= Math.floor((H - oy) / 256); ty += 1) {
+          if (ty < 0 || ty >= n) continue;
+          const src = tiles.url.replace('{z}', z).replace('{x}', ((tx % n) + n) % n).replace('{y}', ty);
+          imgs += `<img src="${esc(src)}" alt="" aria-hidden="true" draggable="false" loading="lazy" style="position:absolute;left:${tx * 256 + ox}px;top:${ty * 256 + oy}px;width:256px;height:256px" onerror="this.remove()">`;
+        }
+      }
+      bg = `<div class="k-map-tiles" style="position:absolute;inset:0;overflow:hidden;border-radius:12px;background:var(--k-surface-2)">${imgs}</div><div class="k-map-credit">${esc(tiles.source)}</div>`;
+    } else {
+      const k = Math.cos(((a + b) / 2) * Math.PI / 180);
+      const sx = (W - pad * 2) / ((d - c) * k), sy = (H - pad * 2) / (b - a), s = Math.min(sx, sy);
+      const ox = (W - (d - c) * k * s) / 2, oy = (H - (b - a) * s) / 2;
+      X = (lng) => ox + (lng - c) * k * s; Y = (lat) => H - oy - (lat - a) * s;
+    }
     const groups = [...new Set(points.map((p) => p.group ?? ''))];
     const col = (p) => PALETTE[groups.indexOf(p.group ?? '') % 6];
-    let g = `<rect width="${W}" height="${H}" rx="12" fill="var(--k-surface-2)"/>`;
-    for (let x = 24; x < W; x += 48) g += `<line x1="${x}" x2="${x}" y1="0" y2="${H}" stroke="var(--k-line)" stroke-width="1" opacity=".6"/>`;
-    for (let y = 24; y < H; y += 48) g += `<line y1="${y}" y2="${y}" x1="0" x2="${W}" stroke="var(--k-line)" stroke-width="1" opacity=".6"/>`;
+    let g = '';
+    if (!tiles) {
+      g += `<rect width="${W}" height="${H}" rx="12" fill="var(--k-surface-2)"/>`;
+      for (let x = 24; x < W; x += 48) g += `<line x1="${x}" x2="${x}" y1="0" y2="${H}" stroke="var(--k-line)" stroke-width="1" opacity=".6"/>`;
+      for (let y = 24; y < H; y += 48) g += `<line y1="${y}" y2="${y}" x1="0" x2="${W}" stroke="var(--k-line)" stroke-width="1" opacity=".6"/>`;
+    }
     if (route && points.length > 1) {
       const pts = points.map((p) => [X(p.lng), Y(p.lat)]);
       const dd = pts.map((p, i) => (i ? `Q${(pts[i - 1][0] + p[0]) / 2 + (p[1] - pts[i - 1][1]) * 0.15},${(pts[i - 1][1] + p[1]) / 2 - (p[0] - pts[i - 1][0]) * 0.15} ${p[0]},${p[1]}` : `M${p[0]},${p[1]}`)).join(' ');
-      g += `<path d="${dd}" fill="none" stroke="var(--k-accent)" stroke-width="2.5" stroke-dasharray="6 5" opacity=".75"/>`;
+      g += `<path d="${dd}" fill="none" stroke="var(--k-accent)" stroke-width="2.5" stroke-dasharray="6 5" opacity=".85"/>`;
     }
     // 地点名字找一个不和别的圆点、名字重叠的位置：下、上、右、左
     const boxes = points.map((p) => ({ x: X(p.lng) - 15, y: Y(p.lat) - 15, w: 30, h: 30 }));
     const hit = (r) => boxes.some((o) => r.x < o.x + o.w && r.x + r.w > o.x && r.y < o.y + o.h && r.y + r.h > o.y);
     points.forEach((p, i) => {
-      const x = X(p.lng), y = Y(p.lat), tw = [...p.name].length * 13 + 6;
+      const x = X(p.lng), y = Y(p.lat), tw = [...p.name].length * 13 + 6, on = i === active;
       const cand = [[x, y + 30, 'middle', x - tw / 2, y + 18], [x, y - 20, 'middle', x - tw / 2, y - 33], [x + 19, y + 5, 'start', x + 17, y - 8], [x - 19, y + 5, 'end', x - 17 - tw, y - 8]];
       const pick = cand.find((c) => { const r = { x: c[3], y: c[4], w: tw, h: 17 }; return r.x >= 0 && r.x + r.w <= W && !hit(r); }) || cand[0];
       boxes.push({ x: pick[3], y: pick[4], w: tw, h: 17 });
-      g += `<g class="k-pin" data-i="${i}" tabindex="0" role="button" aria-label="${i + 1}. ${esc(p.name)}"><circle cx="${x}" cy="${y}" r="13" fill="${col(p)}" stroke="var(--k-surface)" stroke-width="3"/><text x="${x}" y="${y + 4}" text-anchor="middle" style="fill:#fff;font-weight:700;font-size:12px">${i + 1}</text>
+      g += `<g class="k-pin${on ? ' k-on' : ''}" data-i="${i}" tabindex="0" role="button" aria-label="${i + 1}. ${esc(p.name)}"><circle cx="${x}" cy="${y}" r="${on ? 17 : 13}" fill="${on ? 'var(--k-accent)' : col(p)}" stroke="var(--k-surface)" stroke-width="3"/><text x="${x}" y="${y + 4}" text-anchor="middle" style="fill:#fff;font-weight:700;font-size:12px">${i + 1}</text>
         <text x="${pick[0]}" y="${pick[1]}" text-anchor="${pick[2]}" style="fill:var(--k-fg);font-weight:600;font-size:12.5px;paint-order:stroke;stroke:var(--k-surface-2);stroke-width:4px">${esc(p.name)}</text></g>`;
     });
-    el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="${esc(label)}">${g}</svg>`;
+    el.innerHTML = `<div class="k-map" style="position:relative;width:${W}px;height:${H}px">${bg}<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="${esc(label)}" style="position:absolute;inset:0">${g}</svg></div>`;
     el.querySelectorAll('.k-pin').forEach((pin) => {
       const show = () => { const p = points[+pin.dataset.i], r = pin.getBoundingClientRect(); tip(`<b>${+pin.dataset.i + 1}. ${esc(p.name)}</b>${p.meta ? `<br>${esc(p.meta)}` : ''}`, r.left + r.width / 2, r.top); };
+      const pick = () => { active = +pin.dataset.i; draw(); onPick?.(active, points[active]); };
       pin.addEventListener('pointerenter', show); pin.addEventListener('focus', show);
       pin.addEventListener('pointerleave', () => tip(null)); pin.addEventListener('blur', () => tip(null));
+      pin.addEventListener('click', pick);
+      pin.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pick(); } });
     });
   };
   track(el, draw);
+  // 列表里点了某一项：地图上把它标出来（联动）；换了地点就 update
+  return {
+    focus(i) { active = i; draw(); },
+    update(next) { points = next; active = -1; draw(); },
+  };
 }
 
 // ---------- 图片 / 视频查看器 ----------
