@@ -172,6 +172,9 @@ export class BenchGenPanel {
       .join('');
     const rounds = (b.rounds || []).map((r) => this.roundHtml(b, r)).join('');
     const finished = ['done', 'needs_you'].includes(b.status);
+    // 没跑完也能先看草稿：只要有窗口写好了（跑到一半看到的是当时的样子，还会再改）
+    const draft = !finished && (b.windows || []).some((w) => w.status === 'done');
+    const openLabel = this.preview === b.id ? (finished ? '收起成品' : '收起草稿') : finished ? '打开成品' : '先看草稿';
     const log = (b.log || []).map((l) => `<li>${esc(l.at.slice(11, 19))} ${esc(l.text)}</li>`).join('');
     const newParts = (b.new_parts || []).length
       ? `<p class="sc-hint">这次新收进零件库：${esc(b.new_parts.join('、'))}</p>`
@@ -181,7 +184,7 @@ export class BenchGenPanel {
       <p class="sc-hint">你说的：${esc((b.request || '').slice(0, 200))}</p>
       <ol class="bg-steps" aria-label="进度">${steps}</ol>
       ${b.status === 'needs_you' ? '<p class="sc-warn">做满了还没过线：下面有每轮的分数、截图和评审意见，成品也能先打开看看。要不要换个说法再生成一次，由你决定。</p>' : ''}
-      ${finished ? `<div class="sc-row"><button type="button" class="btn primary" data-preview="${esc(b.id)}">${this.preview === b.id ? '收起成品' : '打开成品'}</button>
+      ${finished || draft ? `<div class="sc-row"><button type="button" class="btn ${finished ? 'primary' : ''}" data-preview="${esc(b.id)}">${openLabel}</button>
         <a class="link" href="/bench/${encodeURIComponent(b.id)}/index.html" target="_blank" rel="noopener">在新窗口打开</a></div>` : ''}
       ${wins ? `<table class="sc-subs"><thead><tr><th>窗口</th><th>谁写的</th><th>状态</th></tr></thead><tbody>${wins}</tbody></table>` : ''}
       ${this.sourcesHtml(b)}
