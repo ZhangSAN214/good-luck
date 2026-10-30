@@ -29,8 +29,9 @@ NONE = "（暂无）"
 FACT_CANDIDATES = 50
 QUERY_TAIL = 120  # 只用当前对话最后这些字找候选（最新的话最相关）
 WORD_LIMIT = 8
-# 同一次对话已经带过的件：{数据库连接: {(成员, 会话): (上次时间, {件 id})}}，只在内存里
-_SEEN: dict[int, dict[tuple[str, str], tuple[datetime, set[int]]]] = {}
+# 同一次对话已经带过的件：{(成员, 会话): (上次时间, {件 id})}，只在内存里，挂在数据库对象上
+# （不按 id(连接) 记：旧库释放后 id 会被新库复用，读到别的库的记录）
+SEEN_ATTR = "_recall_seen"
 
 
 @dataclass
@@ -100,10 +101,16 @@ class Recaller:
     def rules(self) -> Any:
         return self.rt.config.roundtable.chat.memory
 
+    def _book(self) -> dict[tuple[str, str], tuple[datetime, set[int]]]:
+        repo = self.rt.repo
+        if not hasattr(repo, SEEN_ATTR):
+            setattr(repo, SEEN_ATTR, {})
+        return getattr(repo, SEEN_ATTR)
+
     def _seen(self, member: str, conversation: str | None, now: datetime) -> set[int]:
         if not conversation:
             return set()
-        book = _SEEN.setdefault(id(self.rt.repo.conn), {})
+        book = self._book()
         last = book.get((member, conversation))
         if last is None:
             return set()
@@ -114,7 +121,7 @@ class Recaller:
         self, member: str, conversation: str | None, now: datetime, ids: set[int]
     ) -> None:
         if conversation:
-            book = _SEEN.setdefault(id(self.rt.repo.conn), {})
+            book = self._book()
             book[(member, conversation)] = (now, ids)
 
     def candidates(self, member: str, query: str) -> list[dict[str, Any]]:

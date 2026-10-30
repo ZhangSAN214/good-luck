@@ -36,7 +36,8 @@ log = logging.getLogger(__name__)
 
 SOURCE = "state"  # 上下文组装器里的来源名
 REFLEX = "state.reflex"
-WATCH = ("chat.message", "life.event", "work.done", f"{PERCEIVE}*")
+BRAIN = "brain."  # 大脑分区发来的信号（奖赏、共情）：data["tags"] 直接当刺激标签
+WATCH = ("chat.message", "life.event", "work.done", f"{PERCEIVE}*", f"{BRAIN}*")
 DM_PREFIX = "dm:"
 EVERYONE = "全员"
 
@@ -367,6 +368,8 @@ class StatePlugin:
             add(event.member, "work")
         elif kind.startswith(PERCEIVE):
             add(event.member, "perceive", kind)
+        elif kind.startswith(BRAIN):
+            add(event.member, *[str(t) for t in data.get("tags") or []])
         return [
             Stimulus(m, event.at, frozenset(t), data=dict(data)) for m, t in sorted(tags_of.items())
         ]

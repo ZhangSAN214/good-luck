@@ -36,7 +36,7 @@ class UserStatus:
         self.reasons = dict(reasons or {})
 
     def now(self) -> datetime:
-        return datetime.now(home_zone(self.rt).tz())
+        return self.rt.budget.now().astimezone(home_zone(self.rt).tz())
 
     def _say(self, kind: str, now: datetime) -> str:
         fn = self.providers.get(kind)
