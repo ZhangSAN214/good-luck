@@ -226,3 +226,48 @@ def test_check_without_a_usable_answer_is_flagged_for_you(tmp_path):
     row = asyncio.run(stickers.draw("OpenAI", "晚安"))
     assert row["problems"] == "自动核对没给出结果，请自己看一下"
     assert fake.calls[-1].params["max_tokens"] == 1200
+
+
+def grey_sticker(size=360, bg=(228, 228, 230)):
+    """浅灰底上一个人物：白裙子碰不到边框，红色块在中间。"""
+    im = Image.new("RGB", (size, size), bg)
+    for x in range(60, 140):
+        for y in range(40, 160):
+            im.putpixel((x, y), (250, 250, 252) if y > 100 else (200, 40, 40))
+    for x in range(40, 160):  # 深色描边把白裙子和底色隔开
+        im.putpixel((x, 38), (30, 30, 30))
+    buf = io.BytesIO()
+    im.save(buf, "PNG")
+    return buf.getvalue()
+
+
+def test_light_grey_background_becomes_pure_white_but_the_character_stays(tmp_path):
+    from roundtable.core.member_stickers import _square
+
+    with Image.open(io.BytesIO(_square(grey_sticker(), 360))) as im:
+        im = im.convert("RGB")
+        assert im.getpixel((2, 2)) == (255, 255, 255)
+        assert im.getpixel((357, 180)) == (255, 255, 255)
+        assert im.getpixel((100, 80))[1] < 100  # 红色块不动
+        assert im.getpixel((100, 130)) == (250, 250, 252)  # 白裙子不和边框连着，原样
+    # 带颜色的底不是“浅灰”，不刷
+    tinted = grey_sticker(bg=(250, 220, 200))
+    with Image.open(io.BytesIO(_square(tinted, 360))) as im:
+        assert im.convert("RGB").getpixel((2, 2)) != (255, 255, 255)
+
+
+def test_whiten_repaints_stored_stickers_and_keeps_their_status(tmp_path):
+    rt, _, stickers = build(tmp_path)
+    asyncio.run(stickers.draw("OpenAI", "晚安"))
+    stickers.review("OpenAI", "晚安", "approved")
+    # 模拟以前画的、底色发灰的图
+    data = stickers._index.load()
+    data["items"]["OpenAI"]["晚安"]["file"] = "old.png"
+    stickers._index.write("old.png", grey_sticker())
+    stickers._index.save(data)
+    assert stickers.whiten() == 1
+    assert stickers.whiten() == 0  # 刷过一次再刷不变
+    [ok] = stickers.approved("OpenAI")
+    assert ok["file"] != "old.png"
+    with Image.open(io.BytesIO(stickers.file("OpenAI", "晚安"))) as im:
+        assert im.convert("RGB").getpixel((3, 3)) == (255, 255, 255)
