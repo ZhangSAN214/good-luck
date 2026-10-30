@@ -1363,6 +1363,43 @@ class IntentRule(_Strict):
     needs: str | None = None  # 只有在有这类念头时才可选：own（自己的事）/ claim（对方说了个看法）
 
 
+class RewardRules(_Strict):
+    """奖赏（多巴胺）：盼着一件事 → 到时候兑现（满足）/ 落空（失落）/ 没想到的好事（惊喜）。
+    心情的变化交给 P3 的反射规则表（标签 anticipate / reward / surprise / letdown）。"""
+
+    near: float = Field(default=0.75, ge=0, le=1)  # 在做的事离下一个坎还差多少时开始盼
+    plan_chance: float = Field(default=0.2, ge=0, le=1)  # 周四到周六盼周末的小计划的概率
+    met_chance: float = Field(default=0.7, ge=0, le=1)  # 周末小计划到时候成行的概率
+    ahead_days: float = Field(default=2.0, gt=0, le=14)  # 盼的事几天后见分晓
+    plans: list[str] = ["去天台看星星", "睡个懒觉", "去食堂吃顿好的", "和谁约着打一局游戏"]
+
+
+class EmpathyRules(_Strict):
+    """共情：听到别人难过 / 高兴，自己的心情跟着动一下（概率看温和分和亲近度）。"""
+
+    sad_words: list[str] = ["难过", "好累", "崩溃", "烦死", "失眠", "哭", "不开心", "委屈", "焦虑"]
+    joy_words: list[str] = ["太好了", "成功了", "开心", "终于", "好耶", "过了"]
+    base: float = Field(default=0.35, ge=0, le=1)
+    gentle: float = Field(default=0.12, ge=0, le=1)  # 温和分每高 1 分加多少
+    close: float = Field(default=0.4, ge=0, le=1)  # × 亲近度
+
+
+class MetaRules(_Strict):
+    """元认知：察觉自己最近老是一个套路（老抱怨、老敷衍……），主动压一压、换个方式。"""
+
+    window: int = Field(default=8, ge=3, le=30)
+    threshold: int = Field(default=4, ge=2, le=30)
+    damp: float = Field(default=0.3, ge=0, le=1)
+    notes: dict[str, str] = {
+        "vent": "最近老在抱怨",
+        "brief": "最近回人回得很敷衍",
+        "disagree": "最近老在抬杠",
+        "share": "最近老说自己的事，没怎么问别人",
+        "joke": "最近老在开玩笑，没好好接话",
+    }
+    swap: dict[str, str] = {"share": "ask", "vent": "share", "brief": "respond"}  # 压下去后多做的
+
+
 class BrainRules(_Strict):
     """大脑分区（docs/BRAIN.md）：全局工作区 + 丘脑显著性 + 驱力 + 前额叶意图与目标 + 走神。
 
@@ -1387,6 +1424,9 @@ class BrainRules(_Strict):
     free_choice: bool = True  # 空闲时段按驱力和目标自己挑去哪、做什么（关掉就照公寓楼作息表）
     card_chars: int = Field(default=160, ge=40, le=400)  # 意图卡最多多少字（8 位相同）
     imperfect: float = Field(default=0.08, ge=0, le=0.5)  # 允许不完美：记不清、敷衍一句的概率
+    reward: RewardRules = RewardRules()
+    empathy: EmpathyRules = EmpathyRules()
+    meta: MetaRules = MetaRules()
 
 
 class EngineRules(_Strict):

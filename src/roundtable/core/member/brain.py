@@ -27,8 +27,9 @@ import contextlib
 import json
 import random
 import re
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 from roundtable.core.member.bus import Event, EventBus
@@ -81,6 +82,9 @@ class _State:
     recent: list[str] = field(default_factory=list)  # 最近几次的意图
     places: list[str] = field(default_factory=list)  # 最近几次空闲去的地方
     counts: dict[str, int] = field(default_factory=dict)  # 各种意图一共挑过几次（看各人差别）
+    expects: list[dict[str, Any]] = field(default_factory=list)  # 奖赏：盼着的事（到期见分晓）
+    signals: list[dict[str, Any]] = field(default_factory=list)  # 待发到总线的信号（奖赏、共情）
+    noticed: str = ""  # 元认知：最近察觉到的自己的套路
 
 
 def _factor(score: Any) -> float:
@@ -92,9 +96,15 @@ def _factor(score: Any) -> float:
 
 class Brain:
     def __init__(
-        self, rt: Any, bus: EventBus | None = None, buffer: dict[str, str] | None = None
+        self,
+        rt: Any,
+        bus: EventBus | None = None,
+        buffer: dict[str, str] | None = None,
+        members: Callable[[], list[str]] | None = None,
     ) -> None:
         self.rt = rt
+        self.bus = bus
+        self.members = members
         self.profiles = ProfileStore(rt)
         # buffer：先写在内存里、``flush()`` 时才落库（生活排日程时用，排出来的事真发生了才算数，
         # 同一段时间排两次结果一样）
@@ -195,14 +205,59 @@ class Brain:
         """总线：说了话 → spoke；生活里和人碰到一起 / 私聊 → gathered。"""
         if not self.enabled():
             return
-        if event.kind == "chat.message" and event.member:
-            self.satisfy(event.member, "spoke", event.at)
+        if event.kind == "chat.message":
+            if event.member:
+                self.satisfy(event.member, "spoke", event.at)
+            self._empathy(event)
         elif (
             event.kind == "life.event"
             and event.member
             and event.data.get("kind") in ("gather", "pair")
         ):
             self.satisfy(event.member, "gathered", event.at)
+
+    def _empathy(self, event: Event) -> None:
+        """共情：有人（你或同事）说了难过 / 高兴的话，在场的成员按温和分和亲近度，
+        有一定概率心情跟着动一下（发 brain.signal，由 P3 的反射表改心情）。"""
+        if self.bus is None:
+            return
+        msg = self.rt.repo.chat_message(int(event.data.get("id", 0) or 0))
+        if not msg:
+            return
+        r = self.rules.empathy
+        text = msg["text"] or ""
+        tag = (
+            "empathy_sad"
+            if any(w in text for w in r.sad_words)
+            else "empathy_joy"
+            if any(w in text for w in r.joy_words)
+            else ""
+        )
+        if not tag:
+            return
+        from roundtable.core.member.relation import RelationPlugin
+
+        room = self.rt.repo.chat_room(msg["room"]) or {}
+        present = list(room.get("members") or [])
+        if msg["room"].startswith("dm:"):
+            present = [msg["room"][3:]]
+        elif not present and self.members is not None:
+            present = self.members()  # 大家庭群：全员都在
+        speaker = event.member
+        for m in present:
+            if m == speaker:
+                continue
+            close = 0.0
+            if speaker:
+                with contextlib.suppress(Exception):
+                    close = RelationPlugin(self.rt).closeness(m, speaker, event.at)
+            else:
+                close = 0.5  # 你说的：大家都在意
+            gentle = _num(self._traits(m).get("温和", 3)) - 3
+            p = r.base + r.gentle * gentle + r.close * close
+            rng = random.Random(f"brain-empathy:{m}:{msg['id']}")
+            if rng.random() < p:
+                self.bus.publish(Event("brain.signal", event.at, m, {"tags": [tag]}))
 
     # --- 前额叶：长线目标 ---------------------------------------------------------
 
@@ -238,11 +293,72 @@ class Brain:
         while goal["level"] < len(r.levels) and goal["xp"] >= r.levels[goal["level"]]:
             goal["level"] += 1
             self._news(s, f"「{goal['name']}」{self._stage(goal['level'])}", at, 0.9)
+            expected = any(e.get("goal") == goal["name"] for e in s.expects)
+            if not expected:  # 没盼着却成了：惊喜（盼着的那种到期时算「兑现」）
+                s.signals.append({"tags": ["surprise"], "at": iso(at), "why": goal["name"]})
+        self._anticipate_goal(s, goal, at)
         return f"在{goal['name']}（{self._stage(goal['level'])}）"
 
     def _news(self, s: _State, text: str, at: datetime, strength: float) -> None:
         s.news.append({"text": text, "at": iso(at), "strength": strength})
         s.news = s.news[-KEEP_NEWS:]
+
+    # --- 奖赏：盼着 → 兑现 / 落空 / 惊喜 -------------------------------------------
+
+    def _expect(self, s: _State, item: dict[str, Any], at: datetime) -> None:
+        if any(e["text"] == item["text"] for e in s.expects):
+            return
+        item |= {"at": iso(at), "due": iso(at + timedelta(days=self.rules.reward.ahead_days))}
+        s.expects = (s.expects + [item])[-4:]
+        s.signals.append({"tags": ["anticipate"], "at": iso(at), "why": item["text"]})
+
+    def _anticipate_goal(self, s: _State, goal: dict[str, Any], at: datetime) -> None:
+        levels = self.rules.goals.levels
+        if goal["level"] >= len(levels):
+            return
+        nxt = levels[goal["level"]]
+        if goal["xp"] >= nxt * self.rules.reward.near:
+            stage = self._stage(goal["level"] + 1)
+            text = f"「{goal['name']}」眼看就要{stage}了"
+            self._expect(s, {"text": text, "goal": goal["name"], "level": goal["level"]}, at)
+
+    def _anticipate_plan(self, member: str, s: _State, at: datetime, rng: random.Random) -> None:
+        r = self.rules.reward
+        if at.weekday() not in (3, 4, 5) or rng.random() >= r.plan_chance:
+            return
+        pool = list(r.plans) + [f"弄点和{x}有关的事" for x in self._likes(member)[:3]]
+        self._expect(s, {"text": f"盼着周末{rng.choice(pool)}", "plan": True}, at)
+
+    def _settle(self, member: str, s: _State, at: datetime) -> None:
+        """到期的盼头见分晓：在做的事过了坎 → 兑现；没过 / 小计划没成行 → 落空。"""
+        keep = []
+        for e in s.expects:
+            if datetime.fromisoformat(e["due"]) > at:
+                keep.append(e)
+                continue
+            if e.get("goal"):
+                goal = next((g for g in s.goals if g["name"] == e["goal"]), None)
+                met = goal is not None and goal["level"] > e.get("level", 0)
+            else:
+                rng = random.Random(f"brain-plan:{member}:{e['text']}:{e['due']}")
+                met = rng.random() < self.rules.reward.met_chance
+            tag = "reward" if met else "letdown"
+            s.signals.append({"tags": [tag], "at": iso(at), "why": e["text"]})
+            what = e["text"].replace("盼着", "")
+            self._news(s, f"{what}，成了" if met else f"本来{e['text']}，结果落空了", at, 0.8)
+        s.expects = keep
+
+    def flush_signals(self, member: str, bus: EventBus, at: datetime) -> int:
+        """把攒下的信号发到总线（P3 状态按反射表改心情）。返回发了几个。"""
+        s = self._grown(member, self._load(member), at)
+        self._settle(member, s, at)
+        sent = s.signals
+        s.signals = []
+        self._save(member, s)
+        for sig in sent:
+            when = datetime.fromisoformat(sig["at"]) if sig.get("at") else at
+            bus.publish(Event("brain.signal", when, member, {"tags": sig["tags"]}))
+        return len(sent)
 
     def choose_activity(self, member: str, slot: datetime, place: str, act: str) -> tuple[str, str]:
         """空闲时段：按驱力和目标自己挑去哪、做什么（不再每周照一张表）。
@@ -253,6 +369,7 @@ class Brain:
         rng = random.Random(f"brain-act:{member}:{slot.isoformat()}")
         s = self._grown(member, self._load(member), slot)
         goals = self._goals(member, s)
+        self._anticipate_plan(member, s, slot, rng)
         d = s.drives
         options: list[tuple[float, str]] = [(0.6, "default")]
         if goals:
@@ -308,6 +425,8 @@ class Brain:
         out: list[Thought] = []
         for n in s.news:
             out.append(Thought("goal", n["text"], float(n.get("strength", 0.7))))
+        for e in s.expects:
+            out.append(Thought("expect", e["text"], 0.5))
         for g in self._goals(member, s):
             out.append(
                 Thought("goal", f"最近在琢磨「{g['name']}」，{self._stage(g['level'])}", 0.35)
@@ -389,6 +508,10 @@ class Brain:
             mine.append(Thought("message", last[:40], 0.4 + sal, "msg"))
             if _CLAIM.search(last):
                 mine.append(Thought("message", last[:40], 0.3 + sal, "claim"))
+            if any(w in last for w in self.rules.empathy.sad_words):
+                mine.append(Thought("message", last[:40], 0.6 + sal, "sad"))
+        has_sad = any(t.kind == "sad" for t in mine)
+        noticed = self._noticed(s)
         has_own = any(t.kind == "own" for t in mine)
         has_claim = any(t.kind == "claim" for t in mine)
         weights: dict[str, float] = {}
@@ -396,6 +519,8 @@ class Brain:
             if rule.needs == "own" and not has_own:
                 continue
             if rule.needs == "claim" and not has_claim:
+                continue
+            if rule.needs == "sad" and not has_sad:
                 continue
             if name in ("respond", "ask", "disagree") and not last:
                 continue
@@ -405,6 +530,10 @@ class Brain:
             w += rule.mood * mood + rule.energy * (energy - 0.5)
             if s.recent[-2:] == [name, name]:
                 w *= 0.4  # 别一直一个套路
+            if noticed == name:  # 元认知：察觉到自己最近老这样，压一压
+                w *= self.rules.meta.damp
+            elif noticed and self.rules.meta.swap.get(noticed) == name:
+                w *= 1.5
             weights[name] = max(w, 0.0)
         if not weights or sum(weights.values()) <= 0:
             weights = {"respond": 1.0} if last else {"share": 1.0}
@@ -416,12 +545,27 @@ class Brain:
                 pool = [t for t in pool if t.source == "mood"] or pool
         elif chosen == "disagree":
             pool = [t for t in mine if t.kind == "claim"] or mine
+        elif chosen == "comfort":
+            pool = [t for t in mine if t.kind == "sad"] or mine
         elif last:
             pool = [t for t in mine if t.kind != "own"] or mine
         focus = self.spotlight(pool, rng)
         text = self._card(chosen, focus, mood, energy, s, rng)
+        if noticed and noticed != s.noticed:  # 刚察觉到：想法卡里写一句（只在察觉的那一刻）
+            note = self.rules.meta.notes.get(noticed, "")
+            text = f"{text}\n你察觉到自己{note}，想换个方式"[: self.rules.card_chars]
+        s.noticed = noticed
         self._save(member, s)
         return IntentCard(member, chosen, text, focus, sal)
+
+    def _noticed(self, s: _State) -> str:
+        """元认知：最近 window 次里同一个套路（有记的那几种）出现 ≥ threshold 次。"""
+        r = self.rules.meta
+        recent = s.recent[-r.window :]
+        for name in r.notes:
+            if recent.count(name) >= r.threshold:
+                return name
+        return ""
 
     def _card(
         self,
@@ -459,7 +603,7 @@ class Brain:
         s = self._grown(card.member, self._load(card.member), at)
         s.counts[card.intent] = s.counts.get(card.intent, 0) + 1
         if not card.silent:
-            s.recent = (s.recent + [card.intent])[-6:]
+            s.recent = (s.recent + [card.intent])[-max(6, self.rules.meta.window) :]
         if card.spotlight is not None and card.spotlight.source == "goal":
             s.news = [n for n in s.news if n["text"] != card.spotlight.text]
         self._save(card.member, s)

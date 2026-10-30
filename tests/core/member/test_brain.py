@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import random
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -200,3 +201,95 @@ def test_renaming_members_does_not_change_choices():
     a = brain.snapshot("V1", NOON)
     b = brain.snapshot("V2", NOON)
     assert a["drives"] == b["drives"]
+
+
+# --- 奖赏、共情、元认知 ------------------------------------------------------------
+
+
+def test_reward_expect_then_settle_to_reward_or_letdown_and_surprise_when_unexpected():
+    env, brain = setup()
+    bus = EventBus(env.rt)
+    got: list[Event] = []
+    bus.subscribe("brain.signal", got.append)
+    s = brain._load("V1")
+    goal = {"name": "练琴", "xp": 3.5, "level": 0, "stuck": 0}
+    s.goals = [goal]
+    brain._anticipate_goal(s, goal, NOON)  # 4 分过坎，3.5 ≥ 0.75×4：开始盼
+    assert s.expects and s.signals[-1]["tags"] == ["anticipate"]
+    goal["level"] = 1  # 到期前真的过了坎
+    brain._save("V1", s)
+    later = NOON + timedelta(days=3)
+    assert brain.flush_signals("V1", bus, later) == 2
+    assert [e.data["tags"] for e in got] == [["anticipate"], ["reward"]]
+    assert not brain._load("V1").expects
+    # 没盼着就过了坎：惊喜
+    s = brain._load("V1")
+    g2 = {"name": "做饭", "xp": 3.9, "level": 0, "stuck": 0}
+    s.goals.append(g2)
+    rng = random.Random(1)
+    rules = env.rt.config.roundtable.chat.engine.brain.goals
+    rng.random = lambda: 1.0  # 不卡住
+    rng.uniform = lambda a, b: 1.0
+    brain._pursue(s, g2, rng, later)
+    assert {"surprise"} <= {t for sig in s.signals for t in sig["tags"]}
+    assert rules.levels[0] == 4
+
+
+def test_letdown_when_goal_did_not_move():
+    env, brain = setup()
+    bus = EventBus(env.rt)
+    got: list[Event] = []
+    bus.subscribe("brain.signal", got.append)
+    s = brain._load("V1")
+    s.goals = [{"name": "练琴", "xp": 3.5, "level": 0, "stuck": 0}]
+    brain._anticipate_goal(s, s.goals[0], NOON)
+    brain._save("V1", s)
+    brain.flush_signals("V1", bus, NOON + timedelta(days=3))
+    assert got[-1].data["tags"] == ["letdown"]
+    assert any("落空" in n["text"] for n in brain._load("V1").news)
+
+
+def test_empathy_moves_others_mood_signal_not_the_speaker():
+    env, _ = setup((3, 3, 3, 5, 3))
+    bus = EventBus(env.rt)
+    Brain(env.rt, bus, members=lambda: ["V1", "V2"])
+    got: list[Event] = []
+    bus.subscribe("brain.signal", got.append)
+    for i in range(12):
+        msg = env.rt.repo.add_chat_message("dm:V1", "user", f"今天好累，有点崩溃 {i}")
+        bus.publish(Event("chat.message", NOON, None, {"id": msg["id"]}))
+    assert got and all(e.member == "V1" and e.data["tags"] == ["empathy_sad"] for e in got)
+    plain = env.rt.repo.add_chat_message("dm:V1", "user", "今天天气一般")
+    n = len(got)
+    bus.publish(Event("chat.message", NOON, None, {"id": plain["id"]}))
+    assert len(got) == n
+
+
+def test_comfort_only_when_someone_is_sad():
+    _, brain = setup((3, 3, 3, 5, 3))
+    plain = {
+        brain.intent("V1", last="下雨了", named=True, group=False, at=NOON, seed=str(i)).intent
+        for i in range(60)
+    }
+    assert "comfort" not in plain
+    sad = [
+        brain.intent("V1", last="我好难过，委屈", named=True, group=False, at=NOON, seed=str(i))
+        for i in range(60)
+    ]
+    assert any(c.intent == "comfort" for c in sad)
+
+
+def test_metacognition_notices_a_rut_damps_it_and_says_so_once():
+    env, brain = setup()
+    s = brain._load("V1")
+    s.recent = ["vent"] * 5
+    brain._save("V1", s)
+    assert brain._noticed(brain._load("V1")) == "vent"
+    cards = [
+        brain.intent("V1", last="在干嘛", named=True, group=False, at=NOON, seed=str(i))
+        for i in range(3)
+    ]
+    assert "察觉到自己最近老在抱怨" in cards[0].text
+    assert all("察觉到" not in c.text for c in cards[1:])  # 只在察觉的那一刻写
+    meta = env.rt.config.roundtable.chat.engine.brain.meta
+    assert meta.damp < 1

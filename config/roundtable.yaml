@@ -121,6 +121,10 @@ chat:
         disagree:  {label: 你不太同意，直说并给理由, base: 0.15, traits: {较真: 0.3, 温和: -0.15}, needs: claim}
         vent:      {label: 说说你现在的心情，不用藏着, base: 0.05, mood: -0.8}
         brief:     {label: 累了，回得很短就好, base: 0.05, energy: -1.2}
+        comfort:   {label: 对方好像不太好，先接住对方的情绪，别急着讲道理, base: 0.8, traits: {温和: 0.3}, needs: sad}
+      reward: {near: 0.75, plan_chance: 0.2, met_chance: 0.7, ahead_days: 2}   # 奖赏：盼着 → 兑现 / 落空 / 惊喜（心情变化走下面状态的反射表）
+      empathy: {base: 0.35, gentle: 0.12, close: 0.4}   # 共情：别人难过 / 高兴时，自己心情跟着动的概率
+      meta: {window: 8, threshold: 4, damp: 0.3}        # 元认知：最近 8 次里同一个套路 ≥4 次就察觉、压一压
     voice:                         # P5 表达：照人物卡「说话风格」说话（docs/MEMBER_ENGINE.md「说话风格」）；只用于生活群和私聊
       enabled: true
       budget_chars: 260            # 说话习惯段最多多少字（8 位相同）
@@ -153,6 +157,12 @@ chat:
         - {name: 被批评, tags: [criticized], mood: -0.3, note: 刚被说了几句，心里有点不痛快}
         - {name: 一起挨说, tags: [group_criticized], mood: -0.1}
         - {name: 被夸, tags: [praised], mood: 0.2, act: flustered, note: 刚被夸了}
+        - {name: 盼着, tags: [anticipate], mood: 0.04}
+        - {name: 兑现, tags: [reward], mood: 0.12, note: 盼着的事成了}
+        - {name: 惊喜, tags: [surprise], mood: 0.22, note: 有件没想到的好事}
+        - {name: 落空, tags: [letdown], mood: -0.15, note: 盼着的事落空了，有点失落}
+        - {name: 共情难过, tags: [empathy_sad], mood: -0.1, note: 看到有人不太好，心里也跟着沉了一下}
+        - {name: 共情高兴, tags: [empathy_joy], mood: 0.08}
         - {name: 说话, tags: [spoke], energy: -0.02}
         - {name: 累了还在说, tags: [spoke], energy_below: 0.25, mood: -0.03, note: 有点累了}
         - {name: 聚会, tags: [life.gather], mood: 0.03, energy: -0.03}
