@@ -179,3 +179,36 @@ def test_watch_overlay_button_and_pip(serve, page, monkeypatch):
     assert dlg.locator("[data-pip]").count() == (1 if has_pip else 0)
     dlg.locator("[data-stop]").click()
     dlg.locator("[data-start]").wait_for()
+
+
+def test_overlay_page_shows_chat_and_replies_to_a_member(serve, page):
+    """悬浮窗页面（应用小窗和画中画共用）：显示她们说的话；点一条消息就回那个人；收起成胶囊。"""
+    srv = serve(confirm_threshold_usd=100.0, setup=setup)
+    page.goto(srv.url)
+    page.locator("#watchbtn").click()
+    dlg = page.locator("#watchdlg")
+    dlg.get_by_text("哔哩哔哩").click()
+    dlg.locator("[data-member='V1']").check()
+    dlg.locator("[data-consent]").check()
+    dlg.locator("[data-start]").click()
+    dlg.locator(".wt-msg b", has_text="阿一").first.wait_for()
+
+    ov = page.context.new_page()
+    ov.goto(srv.url + "/overlay.html")
+    ov.locator(".ov-title", has_text="一起看").wait_for()
+    msg = ov.locator(".ov-msg[data-reply='阿一']").first
+    msg.wait_for()
+    msg.click()
+    ov.locator(".ov-to b", has_text="阿一").wait_for()
+    ov.locator(".ov-row input").fill("你怎么看")
+    ov.locator(".ov-row input").press("Enter")
+    ov.locator(".ov-msg.me", has_text="@阿一 你怎么看").wait_for()
+    assert ov.locator(".ov-to").is_hidden()
+    # 她回的这句标着是回我的
+    ov.locator(".ov-quote", has_text="我：@阿一 你怎么看").wait_for()
+    ov.locator("[data-small]").click()
+    ov.locator(".ov-pill").wait_for()
+    ov.locator("[data-expand]").click()
+    ov.locator(".ov-feed").wait_for()
+    dlg.locator("[data-stop]").click()
+    ov.get_by_text("投屏已停止").wait_for(timeout=10000)
