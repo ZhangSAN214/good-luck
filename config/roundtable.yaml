@@ -105,7 +105,7 @@ chat:
       free_choice: true            # 空闲时段按驱力和目标自己挑去哪、做什么（不再照固定作息表）
       silence_below: 0.25          # 群里没点名、这事对她不显著、也不想说话时就不接
       wander_chance: 0.25
-      card_chars: 160
+      card_chars: 220
       imperfect: 0.08              # 偶尔记不清、敷衍一句（像人）；被认真问是不是 AI 仍如实承认
       drives:                      # 下丘脑：驱力随时间涨，被事满足就降；高了会主动找人、找事做
         social:    {label: 想找人说说话, rate: 0.02, trait: 外向, satisfy: {spoke: 0.2, gathered: 0.15}}
@@ -122,9 +122,85 @@ chat:
         vent:      {label: 说说你现在的心情，不用藏着, base: 0.05, mood: -0.8}
         brief:     {label: 累了，回得很短就好, base: 0.05, energy: -1.2}
         comfort:   {label: 对方好像不太好，先接住对方的情绪，别急着讲道理, base: 0.8, traits: {温和: 0.3}, needs: sad}
+        blurt:     {label: 突然冒出个念头，忍不住说出来（可以有点没头没尾）, base: 0.7, traits: {外向: 0.15, 好奇: 0.15}, needs: whim}
       reward: {near: 0.75, plan_chance: 0.2, met_chance: 0.7, ahead_days: 2}   # 奖赏：盼着 → 兑现 / 落空 / 惊喜（心情变化走下面状态的反射表）
       empathy: {base: 0.35, gentle: 0.12, close: 0.4}   # 共情：别人难过 / 高兴时，自己心情跟着动的概率
       meta: {window: 8, threshold: 4, damp: 0.3}        # 元认知：最近 8 次里同一个套路 ≥4 次就察觉、压一压
+      psyche:                      # 人的特质（docs/BRAIN.md「人的特质」）：全程序，结果写进意图卡（最多加 extra_lines 句）
+        enabled: true
+        extra_lines: 2
+        news_half_life_days: 3     # 新鲜事慢慢不新鲜；坏事（卡住、落空）记得久一倍
+        negative_slow: 2
+        sway: {daily: 0.5}         # 性格天平①：每天、每个场合的性格分上下浮动（对亲近的人更放得开，累了没耐心）
+        ambivalence:               # 性格天平②：两种相反的想法同时都挺强 → 心里有点矛盾
+          both_above: 0.45
+          pairs:
+            - {a: {label: 想找人热闹热闹, weights: {social: 1.0}}, b: {label: 又想一个人安静待着, weights: {tired: 0.6, base: 0.25, "trait:外向": -0.25}}}
+            - {a: {label: 想把在练的事往前推, weights: {mastery: 1.0}}, b: {label: 又想躺平什么都不干, weights: {tired: 0.7, sad: 0.4}}}
+            - {a: {label: 想试点新鲜的, weights: {novelty: 1.0}}, b: {label: 又觉得待在熟悉的地方最舒服, weights: {tired: 0.4, base: 0.3, "trait:好奇": -0.25}}}
+            - {a: {label: 想把心里话说出来, weights: {express: 0.7, sad: 0.5}}, b: {label: 又怕说了给人添麻烦, weights: {"trait:温和": 0.4, base: 0.25}}}
+        episode:                   # 情绪化处理：一件事的情绪会拖一阵，按各人习惯的方式消化
+          half_life_hours: 8
+          strategies:
+            reappraise: {line: 你习惯往好处想，说着说着就看开点了, traits: {温和: 1.0}, half_life: 0.6}
+            ruminate:   {line: 你会忍不住反复想这事，说话时可能又绕回来, traits: {较真: 1.0, 温和: -0.4}, half_life: 2.0}
+            share:      {line: 你想找人说说这事, traits: {外向: 1.0}, half_life: 0.8}
+            suppress:   {line: 你不太想提这事，嘴上不说，但回话会短一点、淡一点, traits: {外向: -1.0, 较真: 0.3}, half_life: 1.4}
+        confab:                    # 先果后因：先有冲动，理由事后补，补的不一定是真原因
+          chance: 0.25
+          misattribute: 0.6
+          reasons:
+            respond: [就是顺嘴接一句]
+            ask: [随口问问, 有点好奇而已]
+            share: [正好想起来了, 反正闲着]
+            shift: [刚才那个没啥好聊的, 突然想起来]
+            joke: [气氛太闷了, 忍不住]
+            disagree: [就是觉得不对, 听着别扭]
+            vent: [今天就是不顺, 说出来舒服点]
+            brief: [在忙, 没什么好说的]
+            comfort: [看不得人难过]
+            blurt: [突然想到的, 不知道，就是想说]
+        whim:                      # 突发念头：没来由冒出一个想法，冲动的人更会说出来、说干就干
+          chance: 0.06
+          act_chance: 0.3
+          pool: [突然想吃烤红薯, 突然想把房间重新收拾一遍, 突然想去天台吹吹风, 突然想学做一道新菜, 突然想给好久没聊的人发个消息, 突然想换个发型, 突然很想听一首老歌, 突然想把桌上的东西全扔了重来, 突然想熬夜看完一部剧, 突然想出去走走不看手机, 突然想起一句很久以前听过的话, 突然想养一盆植物]
+        assoc:                     # 发散联想：顺着一句话想到别的，越好奇跳得越远；话里的词勾起旧记忆
+          chance: 0.2
+          curious: 0.06
+          second_hop: 0.25
+          cue_memory: 0.3
+          links:
+            雨: [伞, 睡懒觉, 火锅, 窗外的声音]
+            吃: [食堂, 夜宵, 做饭, 烤红薯]
+            饭: [食堂, 夜宵, 做饭]
+            夜: [星星, 天台, 失眠]
+            星: [天台, 夜, 许愿]
+            累: [睡觉, 泡澡, 放空]
+            睡: [做梦, 闹钟, 失眠]
+            歌: [耳机, 演唱会, 老歌]
+            游戏: [熬夜, 输赢, 小时候]
+            书: [图书馆, 旧书味, 熬夜]
+            冷: [热汤, 围巾, 被窝]
+            热: [冰饮, 西瓜, 空调]
+            猫: [晒太阳, 毛线, 打呼噜]
+            作业: [熬夜, 咖啡, 截止日]
+            考试: [熬夜, 咖啡, 紧张]
+            周末: [睡懒觉, 出去走走, 打游戏]
+            咖啡: [熬夜, 苦, 早上]
+            花: [春天, 植物, 味道]
+            电影: [爆米花, 结局, 熬夜]
+            天气: [晒太阳, 雨, 换季]
+          stop: [我们, 你们, 他们, 今天, 什么, 这个, 那个, 一下, 觉得, 就是, 有点, 怎么, 没有, 一个, 现在, 还是, 可以, 知道, 真的, 时候, 不是, 自己]
+        values:                    # 三观：每人在几条价值轴上有自己的立场，反驳有一贯的主见
+          firm: 0.5
+          push: 0.3
+          oppose: 1.5
+          agree: 0.4
+          axes:
+            - {a: 随性自在, b: 有计划守规矩, a_words: [随便, 自由, 随心, 无所谓, 想干嘛干嘛, 躺平], b_words: [规矩, 计划, 按时, 守时, 自律, 规定], traits: {较真: -0.4, 好奇: 0.2}}
+            - {a: 爱尝鲜, b: 求稳妥, a_words: [试试, 冒险, 新鲜, 刺激, 折腾], b_words: [稳妥, 安全, 保险, 老样子, 熟悉], traits: {好奇: 0.4, 较真: -0.1}}
+            - {a: 先顾好自己, b: 先想着大家, a_words: [先顾好自己, 个人, 我自己, 各管各], b_words: [大家, 一起, 集体, 帮忙, 照顾], traits: {温和: -0.35, 外向: -0.1}}
+            - {a: 拼一把, b: 慢慢来, a_words: [努力, 拼, 卷, 赢, 第一, 成绩], b_words: [慢慢, 开心就好, 别太累, 享受, 佛系], traits: {较真: 0.4, 温和: -0.1}}
     voice:                         # P5 表达：照人物卡「说话风格」说话（docs/MEMBER_ENGINE.md「说话风格」）；只用于生活群和私聊
       enabled: true
       budget_chars: 260            # 说话习惯段最多多少字（8 位相同）

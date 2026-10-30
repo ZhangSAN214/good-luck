@@ -1360,7 +1360,9 @@ class IntentRule(_Strict):
     drives: dict[str, float] = {}  # 驱力（0～1）× 系数
     mood: float = 0.0  # 心情（-1～1）× 系数
     energy: float = 0.0  # 精力（0～1，减 0.5 后）× 系数
-    needs: str | None = None  # 只有在有这类念头时才可选：own（自己的事）/ claim（对方说了个看法）
+    needs: str | None = (
+        None  # 只有在有这类念头时才可选：own（自己的事）/ claim（对方说了个看法）/ sad / whim
+    )
 
 
 class RewardRules(_Strict):
@@ -1400,6 +1402,130 @@ class MetaRules(_Strict):
     swap: dict[str, str] = {"share": "ask", "vent": "share", "brief": "respond"}  # 压下去后多做的
 
 
+class SwayRules(_Strict):
+    """性格天平①：同一个人每天、每个场合表现不一样（Fleeson 整体特质论：性格是一段分布，
+    不是一个点；Mischel & Shoda 认知情感人格系统：「如果……就……」的情境特征）。"""
+
+    daily: float = Field(default=0.5, ge=0, le=2)  # 每项性格分每天上下浮动（标准差，单位：分）
+    close: dict[str, float] = {"外向": 1.0, "幽默": 0.6}  # 对亲近的人（× 亲近度）
+    tired: dict[str, float] = {"较真": -0.8, "幽默": -0.6, "温和": -0.5}  # 累了（× 疲惫程度）
+    mood: dict[str, float] = {"外向": 0.8, "幽默": 0.6, "温和": 0.3}  # × 心情（-1～1）
+
+
+class PoleRule(_Strict):
+    """对立情绪的一端：强度 = Σ 系数 × 输入。输入有 social / novelty / express / mastery 驱力，
+    energy、tired（= 1 - 精力），mood、sad（心情低落的程度），trait:外向 等（= (分数 - 3) / 2），
+    base（常数 1）。"""
+
+    label: str
+    weights: dict[str, float]
+
+
+class TensionRule(_Strict):
+    a: PoleRule
+    b: PoleRule
+
+
+class AmbivalenceRules(_Strict):
+    """性格天平②：两种相反的想法同时都挺强（Larsen & McGraw 2001：人能同时又高兴又难过；
+    Schwartz 价值环：相邻的价值相容、对面的价值相冲）。两端都过线时意图卡写一句「心里有点矛盾」。"""
+
+    both_above: float = Field(default=0.45, ge=0, le=2)
+    pairs: list[TensionRule] = []
+
+
+class Strategy(_Strict):
+    line: str  # 写进意图卡
+    traits: dict[str, float]  # 谁更习惯这样处理（性格分减 3 后 × 系数，取最高）
+    half_life: float = Field(default=1.0, gt=0, le=10)  # × 余波半衰期（反刍的更久，往好处想的更快）
+
+
+class EpisodeRules(_Strict):
+    """情绪化处理：一件事带来的情绪会拖一阵（余波），按各人习惯的方式消化（Gross 情绪调节过程模型：
+    重新评价 / 压着不说；Nolen-Hoeksema 反刍；找人倾诉）。余波还在时会冒出来、会影响说话。"""
+
+    feels: dict[str, str] = {  # 信号 → 余波的感受
+        "letdown": "有点失落",
+        "surprise": "还挺高兴",
+        "reward": "挺满足",
+        "empathy_sad": "替人难受",
+    }
+    half_life_hours: float = Field(default=8.0, gt=0, le=240)
+    keep: int = Field(default=3, ge=1, le=10)
+    strategies: dict[str, Strategy] = {}
+
+
+class ConfabRules(_Strict):
+    """先果后因：先有冲动、先做了，理由是事后补的，而且补的理由常常不是真原因。
+    依据 Gazzaniga 解释器；Nisbett & Wilson 1977；Haidt 2001 情绪的狗和理性的尾巴；
+    Schwarz & Clore 情绪当信息（心情归错因）。"""
+
+    chance: float = Field(default=0.25, ge=0, le=1)  # 意图卡写一句「事后会给自己的理由」的概率
+    reasons: dict[str, list[str]] = {}  # 意图 → 事后理由（随便挑一条，不一定是真原因）
+    misattribute: float = Field(
+        default=0.6, ge=0, le=1
+    )  # 累了 / 心情差时把烦躁归到眼前这事上的概率
+
+
+class WhimRules(_Strict):
+    """突发念头：没来由地冒出一个想法（Christoff 2016 自发思维；Berntsen 不由自主的回忆），
+    冲动的人更可能说出来、甚至说干就干（变成一个小盼头）。"""
+
+    chance: float = Field(default=0.06, ge=0, le=1)  # 每次说话前冒出念头的基础概率
+    traits: dict[str, float] = {"外向": 0.015, "好奇": 0.02, "较真": -0.01}  # × (分数 - 3)
+    act_chance: float = Field(default=0.3, ge=0, le=1)  # 冒出来后说干就干（记成盼头）的概率
+    pool: list[str] = []
+
+
+class AssocRules(_Strict):
+    """发散联想：顺着一句话想到别的，越好奇跳得越远（Mednick 1962 联想层级：创造力高的人联想
+    分布更平；扩散激活）。还会被一句话勾起一段旧记忆（不由自主的回忆，线索触发）。"""
+
+    chance: float = Field(default=0.2, ge=0, le=1)
+    curious: float = Field(default=0.06, ge=0, le=1)  # 好奇分每高 1 分加多少
+    second_hop: float = Field(default=0.25, ge=0, le=1)  # 再跳一步（远联想）的概率，× 好奇系数
+    cue_memory: float = Field(default=0.3, ge=0, le=1)  # 话里有和旧记忆相同的词时被勾起的概率
+    links: dict[str, list[str]] = {}  # 通用联想网（不认人）；她自己的喜好和记忆另算
+    stop: list[str] = []  # 勾记忆时不算的常用词
+
+
+class ValueAxis(_Strict):
+    """一条三观轴：两端的说法、各自的关键词、谁更偏哪端（性格分减 3 后 × 系数，正 = 偏 a 端）。"""
+
+    a: str
+    b: str
+    a_words: list[str]
+    b_words: list[str]
+    traits: dict[str, float] = {}
+
+
+class ValueRules(_Strict):
+    """三观：每人在几条价值轴上有自己的立场（Schwartz 基本价值理论；Haidt 道德直觉），
+    别人的看法和自己的立场相反时更想反驳、一致时更认同——反驳不再是随机的，而是有一贯立场。"""
+
+    axes: list[ValueAxis] = []
+    firm: float = Field(default=0.5, ge=0, le=5)  # 立场绝对值超过它才算有主见
+    push: float = Field(default=0.3, ge=0, le=5)  # 相反时「不同意」先加这么多（温和的人也会反驳）
+    oppose: float = Field(default=1.5, ge=0, le=5)  # 再 × (1 + oppose)
+    agree: float = Field(default=0.4, ge=0, le=1)  # 一致时「不同意」的权重 × agree
+
+
+class PsycheRules(_Strict):
+    """人的特质（docs/BRAIN.md「人的特质」）：全程序、不调用模型，结果写进意图卡。"""
+
+    enabled: bool = True
+    extra_lines: int = Field(default=2, ge=0, le=5)  # 意图卡最多加几句特质相关的话
+    news_half_life_days: float = Field(default=3.0, gt=0, le=60)  # 新鲜事慢慢不新鲜
+    negative_slow: float = Field(default=2.0, ge=1, le=10)  # 坏事记得更久（Baumeister 坏比好强）
+    sway: SwayRules = SwayRules()
+    ambivalence: AmbivalenceRules = AmbivalenceRules()
+    episode: EpisodeRules = EpisodeRules()
+    confab: ConfabRules = ConfabRules()
+    whim: WhimRules = WhimRules()
+    assoc: AssocRules = AssocRules()
+    values: ValueRules = ValueRules()
+
+
 class BrainRules(_Strict):
     """大脑分区（docs/BRAIN.md）：全局工作区 + 丘脑显著性 + 驱力 + 前额叶意图与目标 + 走神。
 
@@ -1427,6 +1553,7 @@ class BrainRules(_Strict):
     reward: RewardRules = RewardRules()
     empathy: EmpathyRules = EmpathyRules()
     meta: MetaRules = MetaRules()
+    psyche: PsycheRules = PsycheRules()
 
 
 class EngineRules(_Strict):

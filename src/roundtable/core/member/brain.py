@@ -32,6 +32,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Any
 
+from roundtable.core.member import psyche
 from roundtable.core.member.bus import Event, EventBus
 from roundtable.core.member.mode import Mode, require_life
 from roundtable.core.member.profile import ProfileStore
@@ -67,6 +68,7 @@ class IntentCard:
     text: str  # 写进提示词 <intent> 的那一段
     spotlight: Thought | None = None
     salience: float = 0.0
+    tags: tuple[str, ...] = ()  # 这次用上的人的特质（矛盾、余波、先果后因……），模拟报告统计用
 
     @property
     def silent(self) -> bool:
@@ -85,6 +87,8 @@ class _State:
     expects: list[dict[str, Any]] = field(default_factory=list)  # 奖赏：盼着的事（到期见分晓）
     signals: list[dict[str, Any]] = field(default_factory=list)  # 待发到总线的信号（奖赏、共情）
     noticed: str = ""  # 元认知：最近察觉到的自己的套路
+    episodes: list[dict[str, Any]] = field(default_factory=list)  # 情绪余波：哪件事、什么感受、何时
+    psy: dict[str, int] = field(default_factory=dict)  # 各种特质一共用上几次（看各人差别）
 
 
 def _factor(score: Any) -> float:
@@ -163,6 +167,8 @@ class Brain:
             "news": s.news,
             "recent": s.recent,
             "counts": s.counts,
+            "episodes": s.episodes,
+            "psy": s.psy,
             "stages": {g["name"]: self._stage(g["level"]) for g in s.goals},
         }
 
@@ -258,6 +264,11 @@ class Brain:
             rng = random.Random(f"brain-empathy:{m}:{msg['id']}")
             if rng.random() < p:
                 self.bus.publish(Event("brain.signal", event.at, m, {"tags": [tag]}))
+                feel = self.rules.psyche.episode.feels.get(tag, "")
+                if feel:
+                    s = self._grown(m, self._load(m), event.at)
+                    self._episode(s, feel, f"听到「{text[:16]}」", event.at)
+                    self._save(m, s)
 
     # --- 前额叶：长线目标 ---------------------------------------------------------
 
@@ -286,7 +297,7 @@ class Brain:
         if rng.random() < r.setback_chance:
             goal["stuck"] = goal.get("stuck", 0) + 1
             note = f"「{goal['name']}」这件事最近没什么进展，有点泄气"
-            self._news(s, note, at, 0.6)
+            self._news(s, note, at, 0.6, neg=True)
             return note
         goal["xp"] = round(goal["xp"] + rng.uniform(*r.gain), 2)
         goal["stuck"] = 0
@@ -299,9 +310,36 @@ class Brain:
         self._anticipate_goal(s, goal, at)
         return f"在{goal['name']}（{self._stage(goal['level'])}）"
 
-    def _news(self, s: _State, text: str, at: datetime, strength: float) -> None:
-        s.news.append({"text": text, "at": iso(at), "strength": strength})
+    def _news(
+        self, s: _State, text: str, at: datetime, strength: float, *, neg: bool = False
+    ) -> None:
+        s.news.append({"text": text, "at": iso(at), "strength": strength, "neg": neg})
         s.news = s.news[-KEEP_NEWS:]
+
+    # --- 情绪余波：一件事的情绪拖一阵，按各人习惯的方式消化 ---------------------------
+
+    def _episode(self, s: _State, feel: str, why: str, at: datetime) -> None:
+        s.episodes = [e for e in s.episodes if e["why"] != why]
+        s.episodes = (s.episodes + [{"feel": feel, "why": why, "at": iso(at)}])[
+            -self.rules.psyche.episode.keep :
+        ]
+
+    def _lingering(self, member: str, s: _State, at: datetime) -> tuple[dict, float, str] | None:
+        """还没消化完的、最强的那段余波：(余波, 剩下的强度, 她的消化方式)。"""
+        ps = self.rules.psyche
+        if not (ps.enabled and s.episodes):
+            return None
+        how = psyche.strategy(ps.episode, self._traits(member), member)
+        scale = ps.episode.strategies[how].half_life if how else 1.0
+        best = None
+        for e in s.episodes:
+            since = datetime.fromisoformat(e["at"])
+            if since > at:
+                continue
+            left = psyche.decayed(1.0, since, at, ps.episode.half_life_hours * scale)
+            if best is None or left > best[1]:
+                best = (e, round(left, 3), how)
+        return best if best and best[1] >= 0.25 else None
 
     # --- 奖赏：盼着 → 兑现 / 落空 / 惊喜 -------------------------------------------
 
@@ -345,7 +383,10 @@ class Brain:
             tag = "reward" if met else "letdown"
             s.signals.append({"tags": [tag], "at": iso(at), "why": e["text"]})
             what = e["text"].replace("盼着", "")
-            self._news(s, f"{what}，成了" if met else f"本来{e['text']}，结果落空了", at, 0.8)
+            if met:
+                self._news(s, f"{what}，成了", at, 0.8)
+            else:
+                self._news(s, f"本来{e['text']}，结果落空了", at, 0.8, neg=True)
         s.expects = keep
 
     def flush_signals(self, member: str, bus: EventBus, at: datetime) -> int:
@@ -354,6 +395,11 @@ class Brain:
         self._settle(member, s, at)
         sent = s.signals
         s.signals = []
+        feels = self.rules.psyche.episode.feels
+        for sig in sent:
+            feel = next((feels[t] for t in sig["tags"] if t in feels), "")
+            if feel and sig.get("why"):
+                self._episode(s, feel, sig["why"], datetime.fromisoformat(sig["at"]))
         self._save(member, s)
         for sig in sent:
             when = datetime.fromisoformat(sig["at"]) if sig.get("at") else at
@@ -423,8 +469,18 @@ class Brain:
 
     def thoughts(self, member: str, s: _State, at: datetime, rng: random.Random) -> list[Thought]:
         out: list[Thought] = []
+        ps = self.rules.psyche
         for n in s.news:
-            out.append(Thought("goal", n["text"], float(n.get("strength", 0.7))))
+            strength = float(n.get("strength", 0.7))
+            if ps.enabled and n.get("at"):  # 新鲜事慢慢不新鲜，坏事记得更久
+                days = ps.news_half_life_days * (ps.negative_slow if n.get("neg") else 1.0)
+                since = datetime.fromisoformat(n["at"])
+                strength = psyche.decayed(strength, since, at, days * 24)
+            out.append(Thought("goal", n["text"], round(strength, 3)))
+        linger = self._lingering(member, s, at)
+        if linger:
+            e, left, _ = linger
+            out.append(Thought("episode", f"还在为「{e['why']}」{e['feel']}", 0.3 + 0.5 * left))
         for e in s.expects:
             out.append(Thought("expect", e["text"], 0.5))
         for g in self._goals(member, s):
@@ -491,6 +547,11 @@ class Brain:
             mood, energy = reading.mood, reading.energy
         except Exception:  # noqa: BLE001
             mood, energy = 0.0, 0.6
+        ps = self.rules.psyche
+        base_traits = traits
+        if ps.enabled:  # 性格天平①：今天、此刻、对这个人
+            close = 0.5 if speaker is None else self._closeness(member, speaker, at)
+            traits = psyche.sway(ps.sway, traits, member, at, close=close, energy=energy, mood=mood)
         sal = self.salience(member, last, named=named, speaker=speaker, at=at) if last else 0.0
         social = s.drives.get("social", 0.3)
         floor = self.rules.silence_below
@@ -510,7 +571,14 @@ class Brain:
                 mine.append(Thought("message", last[:40], 0.3 + sal, "claim"))
             if any(w in last for w in self.rules.empathy.sad_words):
                 mine.append(Thought("message", last[:40], 0.6 + sal, "sad"))
+        tags: list[str] = []
+        opposed = None
+        if ps.enabled:
+            opposed = self._psyche_thoughts(
+                member, s, mine, tags, last, traits, base_traits, at, rng
+            )
         has_sad = any(t.kind == "sad" for t in mine)
+        has_whim = any(t.kind == "whim" for t in mine)
         noticed = self._noticed(s)
         has_own = any(t.kind == "own" for t in mine)
         has_claim = any(t.kind == "claim" for t in mine)
@@ -522,12 +590,19 @@ class Brain:
                 continue
             if rule.needs == "sad" and not has_sad:
                 continue
+            if rule.needs == "whim" and not has_whim:
+                continue
             if name in ("respond", "ask", "disagree") and not last:
                 continue
             w = rule.base
             w += sum(c * (_num(traits.get(t, 3)) - 3) for t, c in rule.traits.items())
             w += sum(c * s.drives.get(d, 0.3) for d, c in rule.drives.items())
             w += rule.mood * mood + rule.energy * (energy - 0.5)
+            if name == "disagree" and opposed is not None:  # 三观：和她的立场相反更想反驳
+                if opposed[0]:
+                    w = (max(w, 0.0) + ps.values.push) * (1 + ps.values.oppose)
+                else:
+                    w *= ps.values.agree
             if s.recent[-2:] == [name, name]:
                 w *= 0.4  # 别一直一个套路
             if noticed == name:  # 元认知：察觉到自己最近老这样，压一压
@@ -547,6 +622,8 @@ class Brain:
             pool = [t for t in mine if t.kind == "claim"] or mine
         elif chosen == "comfort":
             pool = [t for t in mine if t.kind == "sad"] or mine
+        elif chosen == "blurt":
+            pool = [t for t in mine if t.kind == "whim"] or mine
         elif last:
             pool = [t for t in mine if t.kind != "own"] or mine
         focus = self.spotlight(pool, rng)
@@ -555,8 +632,119 @@ class Brain:
             note = self.rules.meta.notes.get(noticed, "")
             text = f"{text}\n你察觉到自己{note}，想换个方式"[: self.rules.card_chars]
         s.noticed = noticed
+        if ps.enabled:
+            lines = self._psyche_lines(
+                member, s, chosen, last, mood, energy, traits, opposed, at, rng
+            )
+            for tag, line in lines:
+                if len(text) + 1 + len(line) <= self.rules.card_chars:
+                    text += "\n" + line
+                    tags.append(tag)
         self._save(member, s)
-        return IntentCard(member, chosen, text, focus, sal)
+        return IntentCard(member, chosen, text, focus, sal, tuple(tags))
+
+    def _closeness(self, member: str, other: str, at: datetime) -> float:
+        from roundtable.core.member.relation import RelationPlugin  # relation 不依赖本模块
+
+        try:
+            return float(RelationPlugin(self.rt).closeness(member, other, at))
+        except Exception:  # noqa: BLE001 - 读不到亲近度就当普通关系
+            return 0.0
+
+    def _psyche_thoughts(
+        self,
+        member: str,
+        s: _State,
+        mine: list[Thought],
+        tags: list[str],
+        last: str,
+        traits: dict[str, float],
+        base_traits: dict[str, Any],
+        at: datetime,
+        rng: random.Random,
+    ) -> tuple[bool, str] | None:
+        """人的特质交上来的念头：突发念头、发散联想、被勾起的旧记忆；返回三观判断
+        （(和她立场相反?, 她偏的那端)，没表态时 None）。"""
+        ps = self.rules.psyche
+        w = ps.whim
+        chance = w.chance + sum(c * (traits.get(t, 3) - 3) for t, c in w.traits.items())
+        if w.pool and rng.random() < chance:
+            whim = rng.choice(w.pool)
+            mine.append(Thought("whim", whim, 0.7, "whim"))
+            tags.append("whim")
+            doable = whim.startswith("突然想") and not whim.startswith("突然想起")
+            if doable and rng.random() < w.act_chance:  # 说干就干：记成一个小盼头
+                self._expect(s, {"text": "盼着" + whim.removeprefix("突然想"), "plan": True}, at)
+        if not last:
+            return None
+        personal = self._likes(member) + [g["name"] for g in s.goals]
+        hop = psyche.associate(ps.assoc, last, personal, traits.get("好奇", 3.0), rng)
+        if hop:
+            mine.append(Thought("assoc", f"由「{hop[0]}」想到{hop[1]}", 0.45))
+            tags.append("assoc")
+        try:
+            old = self.rt.repo.memory_items(member, min_importance=2)[-30:]
+            memories = [str(m["text"]) for m in old]
+        except Exception:  # noqa: BLE001
+            memories = []
+        cue = psyche.cue_memory(ps.assoc, last, memories, rng)
+        if cue:
+            mine.append(Thought("cue", f"被「{cue[0]}」勾起：{cue[1][:30]}", 0.55))
+            tags.append("cue")
+        if not _CLAIM.search(last):
+            return None
+        values = json.dumps(
+            self.profiles.current(member).data.get("values") or {}, ensure_ascii=False
+        )
+        for axis in ps.values.axes:
+            side = psyche.lean(axis, last)
+            if not side:
+                continue
+            st = psyche.stance(axis, base_traits, values, member)
+            if abs(st) >= ps.values.firm:
+                return (st * side < 0, axis.a if st > 0 else axis.b)
+        return None
+
+    def _psyche_lines(
+        self,
+        member: str,
+        s: _State,
+        chosen: str,
+        last: str,
+        mood: float,
+        energy: float,
+        traits: dict[str, float],
+        opposed: tuple[bool, str] | None,
+        at: datetime,
+        rng: random.Random,
+    ) -> list[tuple[str, str]]:
+        """写进意图卡的特质句：矛盾、情绪余波（或心情归错因）、三观、先果后因；随机挑几句。"""
+        ps = self.rules.psyche
+        lines: list[tuple[str, str]] = []
+        ten = psyche.tensions(ps.ambivalence, s.drives, energy, mood, traits)
+        if ten:
+            lines.append(("ambivalence", f"心里有点矛盾：{ten[0][0]}，{ten[0][1]}"))
+        linger = self._lingering(member, s, at)
+        if linger:
+            e, _, how = linger
+            line = f"还在为「{e['why']}」{e['feel']}"
+            if how:
+                line += "；" + ps.episode.strategies[how].line
+            lines.append(("episode", line))
+        elif last and (energy < 0.3 or mood < -0.3) and rng.random() < ps.confab.misattribute:
+            cause = "累了" if energy < 0.3 else "心情本来就不好"
+            lines.append(
+                ("misattr", f"你有点烦躁，会下意识觉得是眼前这事烦人（其实是{cause}，你没意识到）")
+            )
+        if opposed is not None:
+            fit = "不一样" if opposed[0] else "挺合"
+            lines.append(("values", f"这话和你的看法{fit}（你更偏「{opposed[1]}」）"))
+        reasons = ps.confab.reasons.get(chosen)
+        if reasons and rng.random() < ps.confab.chance:
+            why = rng.choice(reasons)
+            lines.append(("confab", f"你没细想就想这么做；被问起会说「{why}」，不一定是真原因"))
+        rng.shuffle(lines)
+        return lines[: ps.extra_lines]
 
     def _noticed(self, s: _State) -> str:
         """元认知：最近 window 次里同一个套路（有记的那几种）出现 ≥ threshold 次。"""
@@ -602,6 +790,8 @@ class Brain:
             return
         s = self._grown(card.member, self._load(card.member), at)
         s.counts[card.intent] = s.counts.get(card.intent, 0) + 1
+        for tag in card.tags:
+            s.psy[tag] = s.psy.get(tag, 0) + 1
         if not card.silent:
             s.recent = (s.recent + [card.intent])[-max(6, self.rules.meta.window) :]
         if card.spotlight is not None and card.spotlight.source == "goal":
