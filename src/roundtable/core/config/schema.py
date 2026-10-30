@@ -1475,6 +1475,8 @@ class WhimRules(_Strict):
     traits: dict[str, float] = {"外向": 0.015, "好奇": 0.02, "较真": -0.01}  # × (分数 - 3)
     act_chance: float = Field(default=0.3, ge=0, le=1)  # 冒出来后说干就干（记成盼头）的概率
     pool: list[str] = []
+    # 去模板化：每位只从公共念头里分到一部分（按成员 id 派生，不认人），再加上由喜好来的「突然想……」
+    share: float = Field(default=0.5, gt=0, le=1)
 
 
 class AssocRules(_Strict):
@@ -1645,6 +1647,9 @@ class BrainRules(_Strict):
     wander_chance: float = Field(default=0.25, ge=0, le=1)  # 空闲时冒出一个走神念头的概率
     free_choice: bool = True  # 空闲时段按驱力和目标自己挑去哪、做什么（关掉就照公寓楼作息表）
     card_chars: int = Field(default=160, ge=40, le=400)  # 意图卡最多多少字（8 位相同）
+    # 去模板化：意图卡里附加的提示（察觉、感情、特质）最多几句；同一句说出口后隔几张卡才再用
+    max_cues: int = Field(default=2, ge=0, le=6)
+    cooldown_cards: int = Field(default=6, ge=0, le=50)
     imperfect: float = Field(default=0.08, ge=0, le=0.5)  # 允许不完美：记不清、敷衍一句的概率
     reward: RewardRules = RewardRules()
     empathy: EmpathyRules = EmpathyRules()

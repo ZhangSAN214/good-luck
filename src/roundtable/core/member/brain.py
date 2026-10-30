@@ -54,6 +54,11 @@ EXPLORE = (
 _CLAIM = re.compile(r"(我觉得|我认为|应该|肯定|就是|不如|才是|根本|绝对|一定)")
 _QUESTION = re.compile(r"[？?]|(吗|呢|么)[。！!～~]*$")
 KEEP_NEWS = 6
+URGENT = frozenset({"let_go", "retain", "blame"})  # 感情话里这几种不受条数和冷却限制
+
+
+def _cue_key(tag: str, line: str) -> str:
+    return f"{tag}:{line[:16]}"
 
 
 @dataclass(frozen=True)
@@ -76,6 +81,7 @@ class IntentCard:
     noticed: str = ""
     expect: str = ""
     to: str = ""  # 对谁说（成员 id 或 "user"；主动开口时可能为空），爱与复合情绪结算用
+    cues: tuple[str, ...] = ()  # 这张卡用上的附加提示（真说了才记进冷却）
 
     @property
     def silent(self) -> bool:
@@ -96,6 +102,7 @@ class _State:
     noticed: str = ""  # 元认知：最近察觉到的自己的套路
     episodes: list[dict[str, Any]] = field(default_factory=list)  # 情绪余波：哪件事、什么感受、何时
     psy: dict[str, int] = field(default_factory=dict)  # 各种特质一共用上几次（看各人差别）
+    used: list[str] = field(default_factory=list)  # 最近说出口的附加提示（冷却，去模板化）
 
 
 def _factor(score: Any) -> float:
@@ -668,25 +675,44 @@ class Brain:
             pool = [t for t in mine if t.kind != "own"] or mine
         focus = self.spotlight(pool, rng)
         text = self._card(chosen, focus, mood, energy, s, rng)
-        if noticed and noticed != s.noticed:  # 刚察觉到就写一句（真说了才算察觉过，见 after）
+        # 附加提示（察觉、感情、特质）：最多 max_cues 句；说出口过的隔 cooldown_cards 张卡才再用
+        budget, cues = self.rules.max_cues, []
+        cool = set(s.used[-self.rules.cooldown_cards :]) if self.rules.cooldown_cards else set()
+        if (
+            noticed and noticed != s.noticed and budget > 0
+        ):  # 刚察觉到就写一句（真说了才算，见 after）
             note = self.rules.meta.notes.get(noticed, "")
             text = f"{text}\n你察觉到自己{note}，想换个方式"[: self.rules.card_chars]
+            budget -= 1
         heart = self.heart.line(member, to, at, rng, last=last if speaker is None else "")
-        if heart:  # 关于说话对象的一句感情话（放人那句一定写上）
+        if heart and (
+            heart[0] in URGENT or (budget > 0 and _cue_key(heart[0], heart[1]) not in cool)
+        ):  # 关于说话对象的一句感情话（放人那句一定写上）
             text = f"{text}\n{heart[1]}"
             tags.append(f"love:{heart[0]}")
+            cues.append(_cue_key(heart[0], heart[1]))
+            budget = max(budget - 1, 0)
         if opposed is not None and opposed[0] and to and to != USER:
             tags.append("clash")
         if ps.enabled:
             lines = self._psyche_lines(
                 member, s, chosen, last, mood, energy, traits, opposed, at, rng
             )
+            room_left = min(budget, ps.extra_lines)
             for tag, line in lines:
-                if len(text) + 1 + len(line) <= self.rules.card_chars:
-                    text += "\n" + line
-                    tags.append(tag)
+                if room_left <= 0:
+                    break
+                key = _cue_key(tag, line)
+                if key in cool or len(text) + 1 + len(line) > self.rules.card_chars:
+                    continue
+                text += "\n" + line
+                tags.append(tag)
+                cues.append(key)
+                room_left -= 1
         self._save(member, s)  # 只存随时间长的驱力；候选卡的其余影响等 after 再结算
-        return IntentCard(member, chosen, text, focus, sal, tuple(tags), noticed, expect, to)
+        return IntentCard(
+            member, chosen, text, focus, sal, tuple(tags), noticed, expect, to, tuple(cues)
+        )
 
     def _closeness(self, member: str, other: str, at: datetime) -> float:
         from roundtable.core.member.relation import RelationPlugin  # relation 不依赖本模块
@@ -716,8 +742,10 @@ class Brain:
         w = ps.whim
         expect = ""
         chance = w.chance + sum(c * (traits.get(t, 3) - 3) for t, c in w.traits.items())
-        if w.pool and rng.random() < chance:
-            whim = rng.choice(w.pool)
+        pool = psyche.personal(w.pool, member, "whim", w.share)  # 每位分到的不一样
+        pool += [f"突然想{x}" for x in self._likes(member) if x]
+        if pool and rng.random() < chance:
+            whim = rng.choice(pool)
             mine.append(Thought("whim", whim, 0.7, "whim"))
             tags.append("whim")
             doable = whim.startswith("突然想") and not whim.startswith("突然想起")
@@ -792,7 +820,7 @@ class Brain:
             why = rng.choice(reasons)
             lines.append(("confab", f"你没细想就想这么做；被问起会说「{why}」，不一定是真原因"))
         rng.shuffle(lines)
-        return lines[: ps.extra_lines]
+        return lines  # 条数和冷却由 intent 把关
 
     def _noticed(self, s: _State) -> str:
         """元认知：最近 window 次里同一个套路（有记的那几种）出现 ≥ threshold 次。"""
@@ -843,6 +871,8 @@ class Brain:
         if not card.silent:
             s.recent = (s.recent + [card.intent])[-max(6, self.rules.meta.window) :]
             s.noticed = card.noticed
+            keep = max(12, 2 * self.rules.cooldown_cards)
+            s.used = (s.used + list(card.cues))[-keep:]
             if card.expect:
                 self._expect(s, {"text": card.expect, "plan": True}, at)
         if card.spotlight is not None and card.spotlight.source == "goal":

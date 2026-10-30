@@ -97,6 +97,16 @@ def strategy(rules: Any, traits: dict[str, Any], member: str) -> str:
     return max(scored, key=lambda n: scored[n])
 
 
+def personal(pool: Iterable[str], member: str, salt: str, share: float) -> list[str]:
+    """去模板化：公共素材里每位只分到一部分（按成员 id 派生、可复现，不认人），至少一条。"""
+    items = list(pool)
+    if not items or share >= 1:
+        return items
+    rng = random.Random(f"psyche-personal:{salt}:{member}")
+    n = max(1, round(len(items) * share))
+    return sorted(rng.sample(items, n), key=items.index)
+
+
 def decayed(strength: float, since: datetime, at: datetime, half_life_hours: float) -> float:
     hours = max((at - since).total_seconds() / 3600, 0.0)
     return strength * 0.5 ** (hours / half_life_hours)
