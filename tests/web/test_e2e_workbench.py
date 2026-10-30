@@ -47,6 +47,9 @@ class FakeDsh:
             "budget": {
                 "spent_usd": 0.42,
                 "limit_usd": 3.0,
+                "display_currency": "CNY",
+                "spent": 3.02,
+                "limit": 21.6,
                 "balance": 51.3,
                 "currency": "CNY",
                 "tracking": True,
@@ -90,8 +93,7 @@ def test_workbench_start_and_stop(serve, page, monkeypatch):
     btn = page.locator('#bench [data-tab="dsh"]')
     btn.click()
     dlg = page.locator('#bench [data-pane="dsh"]')
-    dlg.get_by_text("本月约 $0.42 / 上限 $3.00").wait_for()
-    assert "51.30 CNY" in dlg.text_content()
+    dlg.get_by_text("本月约 ¥3.02 / 上限 ¥21.60（$3.00），账户余额 ¥51.30").wait_for()
     dlg.locator("[data-start]").click()
     page.wait_for_function(
         "document.querySelector('#bench [data-tab=\"dsh\"]').classList.contains('wb-on')"

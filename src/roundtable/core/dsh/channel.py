@@ -55,8 +55,8 @@ class BalanceError(RuntimeError):
 @dataclass(frozen=True)
 class Balance:
     amount: float  # 换算成美元后的总余额
-    currency: str  # 原始币种
-    raw: float  # 原始币种的金额
+    currency: str  # 显示用的币种（dsh.display_currency）
+    raw: float  # 按显示币种的总余额
 
 
 class ModelKey:
@@ -100,6 +100,7 @@ class ModelKey:
         url: str,
         usd_rates: Mapping[str, float],
         *,
+        display: str = "USD",
         timeout_s: float = 15,
         transport: httpx.AsyncBaseTransport | None = None,
     ) -> Balance:
@@ -116,25 +117,26 @@ class ModelKey:
             detail = redact(resp.text[:200], [self._secret.reveal()])
             raise BalanceError(f"查余额失败：HTTP {resp.status_code} {detail}") from None
         try:
-            return parse_balance(resp.json(), usd_rates)
+            return parse_balance(resp.json(), usd_rates, display)
         except (ValueError, TypeError, KeyError) as exc:
             raise BalanceError(f"余额接口返回的格式看不懂：{exc}") from None
 
 
-def parse_balance(data: Any, usd_rates: Mapping[str, float]) -> Balance:
+def parse_balance(data: Any, usd_rates: Mapping[str, float], display: str = "USD") -> Balance:
+    """各币种余额都折成美元加起来（接口常常同时返回人民币和一条 0 美元），再按 display 币种显示。"""
     infos = data.get("balance_infos") if isinstance(data, dict) else None
     if not infos:
         raise ValueError("没有 balance_infos")
-    # 有美元余额时优先用美元；否则用第一个能换算的币种
-    ordered = sorted(infos, key=lambda i: str(i.get("currency", "")).upper() != "USD")
-    for info in ordered:
-        currency = str(info.get("currency", "")).upper()
-        raw = float(info.get("total_balance"))
-        if currency == "USD":
-            return Balance(raw, currency, raw)
-        rate = usd_rates.get(currency)
+    rates = {**{k.upper(): v for k, v in usd_rates.items()}, "USD": 1.0}
+    total, known = 0.0, False
+    for info in infos:
+        rate = rates.get(str(info.get("currency", "")).upper())
         if rate:
-            return Balance(raw / rate, currency, raw)
-    raise ValueError(
-        f"不认识的币种 {[i.get('currency') for i in infos]}（在 dsh.usd_rates 里加汇率）"
-    )
+            total += float(info.get("total_balance")) / rate
+            known = True
+    if not known:
+        raise ValueError(
+            f"不认识的币种 {[i.get('currency') for i in infos]}（在 dsh.usd_rates 里加汇率）"
+        )
+    display = display.upper() if display.upper() in rates else "USD"
+    return Balance(total, display, round(total * rates[display], 2))

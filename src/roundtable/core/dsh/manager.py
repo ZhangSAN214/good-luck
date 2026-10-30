@@ -90,9 +90,15 @@ class DshManager:
     def budget(self) -> dict[str, Any]:
         now = self.now()
         st = self.ledger.state
+        spent = self.ledger.spent(now)
+        rate = self.rules.display_rate()
         return {
-            "spent_usd": round(self.ledger.spent(now), 4),
+            "spent_usd": round(spent, 4),
             "limit_usd": self.rules.monthly_usd,
+            # 页面显示用（display_currency）：花费和上限按汇率折算，余额是接口各币种合计
+            "display_currency": self.rules.display_currency,
+            "spent": round(spent * rate, 2),
+            "limit": round(self.rules.monthly_usd * rate, 2),
             "balance": st.last_raw,
             "currency": st.currency,
             "last_check": st.last_check,
@@ -277,7 +283,10 @@ class DshManager:
             return
         try:
             bal = await self.key.balance(
-                self.rules.balance_url, self.rules.usd_rates, transport=self.balance_transport
+                self.rules.balance_url,
+                self.rules.usd_rates,
+                display=self.rules.display_currency,
+                transport=self.balance_transport,
             )
         except BalanceError as exc:
             self.balance_error = str(exc)

@@ -33,15 +33,27 @@ def test_missing_key():
 
 def test_parse_balance_converts_currency():
     data = {"balance_infos": [{"currency": "CNY", "total_balance": "72.00"}]}
-    b = parse_balance(data, {"CNY": 7.2})
+    b = parse_balance(data, {"CNY": 7.2}, "CNY")
     assert (round(b.amount, 6), b.currency, b.raw) == (10.0, "CNY", 72.0)
-    usd = {
+    b = parse_balance(data, {"CNY": 7.2})  # 不指定就按美元显示
+    assert (round(b.amount, 6), b.currency, round(b.raw, 6)) == (10.0, "USD", 10.0)
+    # 官方接口充人民币后会同时给一条 0 美元：两条加起来，不能只看美元
+    both = {
         "balance_infos": [
-            {"currency": "CNY", "total_balance": "7"},
+            {"currency": "CNY", "total_balance": "85.15"},
+            {"currency": "USD", "total_balance": "0.00"},
+        ]
+    }
+    b = parse_balance(both, {"CNY": 7.2}, "CNY")
+    assert (b.currency, b.raw) == ("CNY", 85.15) and b.amount == pytest.approx(85.15 / 7.2)
+    mixed = {
+        "balance_infos": [
+            {"currency": "CNY", "total_balance": "7.2"},
             {"currency": "USD", "total_balance": "3.5"},
         ]
     }
-    assert parse_balance(usd, {}).amount == 3.5
+    assert parse_balance(mixed, {"CNY": 7.2}).amount == pytest.approx(4.5)
+    assert parse_balance(mixed, {}).amount == 3.5  # 没有汇率的币种不算
     with pytest.raises(ValueError):
         parse_balance({"balance_infos": [{"currency": "EUR", "total_balance": "1"}]}, {})
 

@@ -1146,6 +1146,7 @@ dsh:                             # dsh 工作台（docs/DSH.md）：圆桌在本
   monthly_usd: 3.0               # 工作台每月花费上限：超过就提醒并停掉 dsh（查余额有间隔，可能多花几毛）
   balance_check_minutes: 5
   usd_rates: {CNY: 7.2}          # 余额是人民币时按这个汇率折成美元
+  display_currency: CNY          # 工作台页面上花费、上限、余额按人民币显示（上限仍按 monthly_usd 算）
   permission_mode: read-only     # dsh 默认只读；要让它改文件改成 workspace-write（只能改 data/dsh/work/）
   job_permission_mode: workspace-write   # 超级电脑派给 dsh 的活：只能写那件活的共享工作文件夹
 

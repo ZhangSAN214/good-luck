@@ -33,7 +33,7 @@ python scripts/setup_dsh.py           # 装 dsh 运行时（约 0.9 GB）和白�
 
 dsh 直接用 DeepSeek 官方 key，钱不经过圆桌，所以圆桌按**余额差额**估算：启动时记一次余额，之后每 5 分钟（`dsh.balance_check_minutes`）查一次，余额下降算作花费，充值不算；如果圆桌自己的渠道也用同一个 key，把渠道名写进 `dsh.shared_channels`，这部分花费会从差额里扣掉。
 
-每月软上限 `dsh.monthly_usd`（默认 $3，UTC 自然月）：超过就停掉 dsh，下个月 1 号恢复。因为查余额有间隔，可能多花几毛。余额是人民币时按 `dsh.usd_rates` 折算。
+每月软上限 `dsh.monthly_usd`（默认 $3，UTC 自然月）：超过就停掉 dsh，下个月 1 号恢复。因为查余额有间隔，可能多花几毛。余额接口返回的各币种（比如人民币和一条 0 美元）都按 `dsh.usd_rates` 折成美元加起来。页面上的花费、上限和余额默认按人民币显示（`dsh.display_currency`，可改成 `USD`），上限本身仍按美元算。
 
 ## 已知不足
 

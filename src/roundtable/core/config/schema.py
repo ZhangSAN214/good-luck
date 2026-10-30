@@ -1984,6 +1984,8 @@ class DshRules(_Strict):
     balance_check_minutes: float = Field(default=5, ge=1, le=120)
     # 余额币种换算成美元：{币种: 1 美元合多少}，美元本身不用写
     usd_rates: dict[str, float] = Field(default_factory=lambda: {"CNY": 7.2})
+    # 页面上花费、上限、余额用什么币种显示（USD 或 usd_rates 里有的）；上限仍按 monthly_usd 算
+    display_currency: str = "CNY"
     # dsh 的文件权限：read-only 只读（默认）/ workspace-write 只能写工作区 / danger-full-access
     permission_mode: Literal["read-only", "workspace-write", "danger-full-access"] = "read-only"
     # 超级电脑派给 dsh 的活：只能写这件活的共享工作文件夹（dsh 的工作区就是当前目录）
@@ -1997,6 +1999,23 @@ class DshRules(_Strict):
         if v is not None and not _ENV_NAME.match(v):
             raise ValueError("key_env 只能写环境变量名（大写字母、数字、下划线），不能写 key 本身")
         return v
+
+    @field_validator("display_currency")
+    @classmethod
+    def _upper(cls, v: str) -> str:
+        return v.strip().upper()
+
+    @model_validator(mode="after")
+    def _known_display(self) -> DshRules:
+        cur = self.display_currency
+        if cur != "USD" and cur not in {k.upper() for k in self.usd_rates}:
+            raise ValueError(f"display_currency {cur} 没有汇率：在 usd_rates 里加上它")
+        return self
+
+    def display_rate(self) -> float:
+        """1 美元合多少显示币种。"""
+        rates = {k.upper(): v for k, v in self.usd_rates.items()}
+        return 1.0 if self.display_currency == "USD" else rates[self.display_currency]
 
 
 class CalendarRegion(_Strict):
