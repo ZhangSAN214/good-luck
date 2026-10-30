@@ -364,17 +364,34 @@ class Heart:
         b[f"{kind}_why"] = why
         self._save(member, data)
 
+    def _joke(self, member: str, other: str, text: str) -> None:
+        """一起笑过的那句话，成了两人之间的梗（最多记 3 个）。"""
+        text = text.strip()
+        if not text or member in (USER, other):
+            return
+        data = self._load(member)
+        b = self._bond(data, other)
+        jokes = [j for j in b.get("jokes", []) if j != text]
+        b["jokes"] = (jokes + [text])[-3:]
+        self._save(member, data)
+
     def _mark(self, member: str, other: str, field: str, value: str) -> None:
         data = self._load(member)
         self._bond(data, other)[field] = value
         self._save(member, data)
 
     def _vicarious(self, listener: str, teller: str, text: str, at: datetime) -> None:
-        """对方讲了自己的好事或坏事：在乎对方的人替对方高兴或揪心。"""
-        if listener == USER or self.view(listener, teller, at).get("care", 0.0) < 0.35:
+        """对方讲了自己的好事或坏事：在乎对方的人替对方高兴或揪心；不太熟的听到别人的好事，
+        嘴上恭喜、心里有点比较（面子和比较，Festinger 社会比较）。"""
+        if listener == USER:
             return
-        data = self._load(listener)
+        care = self.view(listener, teller, at).get("care", 0.0)
         kind = "sad" if any(h in text for h in SAD_HINTS) else "happy"
+        if care < 0.35:
+            if kind == "sad":
+                return
+            kind = "compare"
+        data = self._load(listener)
         keep = [v for v in data["vicarious"] if v["text"] != text[:30]]
         item = {"who": teller, "text": text[:30], "kind": kind, "at": iso(at)}
         data["vicarious"] = (keep + [item])[-KEEP_VICARIOUS:]
@@ -429,7 +446,8 @@ class Heart:
         who = USER if data.get("from_user") else event.member
         if not msg or not who:
             return
-        sig = self._signals(msg["text"] or "")
+        text = msg["text"] or ""
+        sig = self._signals(text)
         tracker = self._tracker()
         slot = tracker.setdefault(room, {})
         prev_user, prev = slot.get("user"), slot.get("member")
@@ -443,8 +461,9 @@ class Heart:
                     )
                 if prev.get("joy") and sig["joy"]:
                     self._touch(m, USER, at, "moment")
+                    self._joke(m, USER, prev.get("text", ""))
                 prev["answered"] = True
-            slot["user"] = {"at": iso(at), **sig, "answered": []}
+            slot["user"] = {"at": iso(at), **sig, "answered": [], "text": text[:16]}
         else:
             if self._within(prev_user, at) and who not in prev_user["answered"]:  # 她接了你的话
                 self._touch(who, USER, at, "exchange")
@@ -468,8 +487,16 @@ class Heart:
                 if prev.get("joy") and sig["joy"]:
                     self._touch(who, other, at, "moment")
                     self._touch(other, who, at, "moment")
+                    for a, b in ((who, other), (other, who)):
+                        self._joke(a, b, prev.get("text", ""))
                 prev["answered"] = True
-            slot["member"] = {"who": who, "at": iso(at), **sig, "answered": False}
+            slot["member"] = {
+                "who": who,
+                "at": iso(at),
+                **sig,
+                "answered": False,
+                "text": text[:16],
+            }
         self.rt.repo.set_setting(TRACKER, json.dumps(tracker, ensure_ascii=False))
 
     def _life(self, event: Event) -> None:
@@ -588,8 +615,12 @@ class Heart:
             left = _decay(1.0, v["at"], at, hl)
             if left < 0.3:
                 continue
-            verb = "揪心" if v["kind"] == "sad" else "高兴"
-            out.append((f"替{self.name(v['who'])}{verb}：{v['text']}", round(0.3 + 0.4 * left, 3)))
+            who = self.name(v["who"])
+            if v["kind"] == "compare":
+                text = f"听{who}说「{v['text']}」，嘴上替对方高兴，心里有点比较"
+            else:
+                text = f"替{who}{'揪心' if v['kind'] == 'sad' else '高兴'}：{v['text']}"
+            out.append((text, round(0.3 + 0.4 * left, 3)))
         return out
 
     def _on(self, member: str, other: str, v: dict[str, Any], at: datetime) -> list[str]:
@@ -696,6 +727,9 @@ class Heart:
             else:
                 text = f"看{name}最近老和{rname}在一起，你心里有点酸，不至于说出来"
             cands.append(("jealous", text))
+        if v.get("jokes") and v.get("moments", 0) >= 2:
+            joke = rng.choice(v["jokes"])
+            cands.append(("joke", f"你和{name}之间有个梗：「{joke}」，合适时可以拿来逗一下"))
         if v["spark"] >= r.show_spark and style:
             cands.append(("crush", f"你对{name}有点心动：{style.crush}"))
         if other == USER and v["care"] >= r.privilege_above:

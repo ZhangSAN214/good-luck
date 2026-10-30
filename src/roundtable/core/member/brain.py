@@ -84,6 +84,7 @@ class IntentCard:
     expect: str = ""
     to: str = ""  # 对谁说（成员 id 或 "user"；主动开口时可能为空），爱与复合情绪结算用
     cues: tuple[str, ...] = ()  # 这张卡用上的附加提示（真说了才记进冷却）
+    lean: str = ""  # 对方在哪条三观轴上和她相反（"轴|方向"），真说了才结算慢慢变
 
     @property
     def silent(self) -> bool:
@@ -105,7 +106,8 @@ class _State:
     episodes: list[dict[str, Any]] = field(default_factory=list)  # 情绪余波：哪件事、什么感受、何时
     psy: dict[str, int] = field(default_factory=dict)  # 各种特质一共用上几次（看各人差别）
     used: list[str] = field(default_factory=list)  # 最近说出口的附加提示（冷却，去模板化）
-    dropped: list[str] = field(default_factory=list)  # 放下过的事（不再捡回来）
+    dropped: list[dict[str, Any]] = field(default_factory=list)  # 放下过的事（不再捡回来）
+    shifts: dict[str, float] = field(default_factory=dict)  # 三观轴上被在乎的人慢慢带偏了多少
 
 
 def _factor(score: Any) -> float:
@@ -344,9 +346,9 @@ class Brain:
         return f"在{goal['name']}（{self._stage(goal['level'])}）"
 
     def _give_up(self, s: _State, goal: dict[str, Any], rng: random.Random, at: datetime) -> str:
-        names = {g["name"] for g in s.goals} | set(s.dropped)
+        names = {g["name"] for g in s.goals} | {d["name"] for d in s.dropped}
         pool = [x for x in self.rules.goals.fallback if x not in names]
-        s.dropped = (s.dropped + [goal["name"]])[-6:]
+        s.dropped = (s.dropped + [{"name": goal["name"], "at": iso(at)}])[-6:]
         s.expects = [e for e in s.expects if e.get("goal") != goal["name"]]
         if pool:
             new = rng.choice(pool)
@@ -529,6 +531,10 @@ class Brain:
         if linger:
             e, left, _ = linger
             out.append(Thought("episode", f"还在为「{e['why']}」{e['feel']}", 0.3 + 0.5 * left))
+        for d in s.dropped[-1:]:  # 认知失调：放下了的事，会跟自己说其实也没那么想做
+            if at - datetime.fromisoformat(d["at"]) <= timedelta(days=3):
+                why = f"放下「{d['name']}」以后，你跟自己说其实也没那么想做（心里还有点不甘）"
+                out.append(Thought("dissonance", why, 0.4))
         for e in s.expects:  # 大事前提心吊胆：快见分晓时有点紧张（过后的松口气、失落由 _settle 给）
             if datetime.fromisoformat(e["due"]) - at <= timedelta(days=1):
                 out.append(Thought("expect", f"{e['text']}，快见分晓了，有点紧张", 0.55))
@@ -721,8 +727,11 @@ class Brain:
             tags.append(f"love:{heart[0]}")
             cues.append(_cue_key(heart[0], heart[1]))
             budget = max(budget - 1, 0)
-        if opposed is not None and opposed[0] and to and to != USER:
-            tags.append("clash")
+        lean = ""
+        if opposed is not None and opposed[0] and to:
+            lean = f"{opposed[2]}|{opposed[3]}"  # 三观慢慢变：说出口后，在乎对方就往那边挪一点
+            if to != USER:
+                tags.append("clash")
         lines = []
         if ps.enabled:
             lines = self._psyche_lines(
@@ -757,7 +766,7 @@ class Brain:
             budget -= 1
         self._save(member, s)  # 只存随时间长的驱力；候选卡的其余影响等 after 再结算
         return IntentCard(
-            member, chosen, text, focus, sal, tuple(tags), noticed, expect, to, tuple(cues)
+            member, chosen, text, focus, sal, tuple(tags), noticed, expect, to, tuple(cues), lean
         )
 
     def _closeness(self, member: str, other: str, at: datetime) -> float:
@@ -779,7 +788,7 @@ class Brain:
         base_traits: dict[str, Any],
         at: datetime,
         rng: random.Random,
-    ) -> tuple[tuple[bool, str] | None, str]:
+    ) -> tuple[tuple[bool, str, str, int] | None, str]:
         """人的特质交上来的念头：突发念头、发散联想、被勾起的旧记忆。
 
         返回（三观判断，说干就干的盼头）。三观判断是 (和她立场相反?, 她偏的那端)，没表态时 None；
@@ -808,10 +817,17 @@ class Brain:
             old = self.rt.repo.memory_items(member, min_importance=2)[-30:]
             memories = [str(m["text"]) for m in old]
         except Exception:  # noqa: BLE001
-            memories = []
+            old, memories = [], []
         cue = psyche.cue_memory(ps.assoc, last, memories, rng)
         if cue:
-            mine.append(Thought("cue", f"被「{cue[0]}」勾起：{cue[1][:30]}", 0.55))
+            text = f"被「{cue[0]}」勾起：{cue[1][:30]}"
+            day = next((str(m.get("day") or "") for m in old if m["text"] == cue[1]), "")
+            if day and rng.random() < ps.assoc.drift_chance:  # 记忆走样：太久的事细节会记岔
+                age = (self.local(at).date() - datetime.fromisoformat(day[:10]).date()).days
+                if age > ps.assoc.drift_days:
+                    text += "（记得不太清了，细节可能有出入）"
+                    tags.append("drift")
+            mine.append(Thought("cue", text, 0.55))
             tags.append("cue")
         if not _CLAIM.search(last):
             return None, expect
@@ -822,9 +838,9 @@ class Brain:
             side = psyche.lean(axis, last)
             if not side:
                 continue
-            st = psyche.stance(axis, base_traits, values, member)
+            st = psyche.stance(axis, base_traits, values, member) + s.shifts.get(axis.a, 0.0)
             if abs(st) >= ps.values.firm:
-                return (st * side < 0, axis.a if st > 0 else axis.b), expect
+                return (st * side < 0, axis.a if st > 0 else axis.b, axis.a, side), expect
         return None, expect
 
     def _psyche_lines(
@@ -836,7 +852,7 @@ class Brain:
         mood: float,
         energy: float,
         traits: dict[str, float],
-        opposed: tuple[bool, str] | None,
+        opposed: tuple[bool, str, str, int] | None,
         at: datetime,
         rng: random.Random,
     ) -> list[tuple[str, str]]:
@@ -919,6 +935,11 @@ class Brain:
             s.noticed = card.noticed
             keep = max(12, 2 * self.rules.cooldown_cards)
             s.used = (s.used + list(card.cues))[-keep:]
+            vr = self.rules.psyche.values
+            if card.lean and self.heart.care(card.member, card.to, at) >= vr.shift_care:
+                axis, side = card.lean.rsplit("|", 1)
+                moved = s.shifts.get(axis, 0.0) + int(side) * vr.shift_step
+                s.shifts[axis] = round(max(-vr.shift_cap, min(vr.shift_cap, moved)), 3)
             if card.expect:
                 self._expect(s, {"text": card.expect, "plan": True}, at)
         if card.spotlight is not None and card.spotlight.source == "goal":

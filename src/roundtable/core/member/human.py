@@ -213,6 +213,12 @@ class Human:
                 f"{said}，记着这事" if said.startswith("约了") else f"{who}说过「{said}」，记着这事"
             )
             out.append((text, 0.5))
+        days = timedelta(days=r.promise_days)
+        for p in self._load(member)["promises"]:  # 言行不一：说了没做，过一阵想起来有点不好意思
+            age = at - datetime.fromisoformat(p["at"])
+            if days < age <= 2 * days and rng.random() < r.broken_chance:
+                out.append((f"说过「{p['text']}」，结果一直没做，有点不好意思", 0.45))
+                break
         names = self.names() if callable(self.names) else (self.names or {})
         absent = [m for m in names if m not in here and m not in (member, USER)]
         if absent and rng.random() < r.gossip_chance:
@@ -280,6 +286,9 @@ class Human:
                 out.append(
                     ("wrap", f"聊了挺久，你有点乏了，可以找个理由先撤（比如{why}），说一声就行")
                 )
+        body = self._body(local)
+        if body and rng.random() < r.body_chance:
+            out.append(("body", body))
         mine = self.flaws(member)
         cond = {
             "hurt": hurt,
@@ -303,6 +312,17 @@ class Human:
                 act = rng.choice(r.activities)
                 out.append(("propose", f"你想约{self.name(who)}{act}，可以直接提"))
         return out
+
+    def _body(self, local: datetime) -> str:
+        """身体节律：按主时区的钟点和星期（饭前饿、午后困、深夜感性、刚起床、周一没劲）。"""
+        hm = local.strftime("%H:%M")
+        for b in self.rules.body:
+            in_day = b.weekday is None or b.weekday == local.weekday()
+            if in_day and (
+                b.start <= hm < b.end if b.start <= b.end else hm >= b.start or hm < b.end
+            ):
+                return b.line
+        return ""
 
     def _talked(self, member: str, room: str, at: datetime) -> int:
         start = iso(at - timedelta(minutes=self.rules.wrap_minutes))

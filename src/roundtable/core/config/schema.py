@@ -1492,6 +1492,9 @@ class AssocRules(_Strict):
     cue_memory: float = Field(default=0.3, ge=0, le=1)  # 话里有和旧记忆相同的词时被勾起的概率
     links: dict[str, list[str]] = {}  # 通用联想网（不认人）；她自己的喜好和记忆另算
     stop: list[str] = []  # 勾记忆时不算的常用词
+    # 记忆走样：勾起的旧事超过这么多天，有一定概率记岔细节（Loftus 记忆重构）
+    drift_days: float = Field(default=30, gt=0, le=3650)
+    drift_chance: float = Field(default=0.5, ge=0, le=1)
 
 
 class ValueAxis(_Strict):
@@ -1513,6 +1516,10 @@ class ValueRules(_Strict):
     push: float = Field(default=0.3, ge=0, le=5)  # 相反时「不同意」先加这么多（温和的人也会反驳）
     oppose: float = Field(default=1.5, ge=0, le=5)  # 再 × (1 + oppose)
     agree: float = Field(default=0.4, ge=0, le=1)  # 一致时「不同意」的权重 × agree
+    # 三观慢慢变：在乎的人一再说相反的看法，她的立场一点点往那边挪（说出口才算）
+    shift_step: float = Field(default=0.05, ge=0, le=1)
+    shift_cap: float = Field(default=1.0, ge=0, le=5)
+    shift_care: float = Field(default=0.5, ge=0, le=1)
 
 
 class AttachStyle(_Strict):
@@ -1638,6 +1645,15 @@ class FlawRule(_Strict):
     chance: float = Field(default=0.4, ge=0, le=1)
 
 
+class BodyRhythm(_Strict):
+    """一段身体节律：主时区 start～end（可以跨午夜），weekday 为空表示每天（0 = 周一）。"""
+
+    start: str
+    end: str
+    line: str
+    weekday: int | None = Field(default=None, ge=0, le=6)
+
+
 class HumanRules(_Strict):
     """人味（docs/BRAIN.md「人味」）：知识边界、有限的注意力和自己的时间、自我一致、八卦、
     时间纵深、小毛病、主动做决定。全程序、不调模型。"""
@@ -1659,6 +1675,9 @@ class HumanRules(_Strict):
     promise_words: list[str] = []  # 答应的事
     keep_promises: int = Field(default=6, ge=1, le=100)
     promise_days: float = Field(default=7, gt=0, le=90)
+    broken_chance: float = Field(default=0.2, ge=0, le=1)  # 言行不一：过期没做的承诺偶尔想起来
+    body: list[BodyRhythm] = []  # 身体节律（按顺序，第一个对上的算）
+    body_chance: float = Field(default=0.25, ge=0, le=1)
     gossip_chance: float = Field(default=0.12, ge=0, le=1)
     depth_words: dict[str, list[str]] = {}  # 从前、遗憾、梦想、害怕 → 词
     depth_chance: float = Field(default=0.06, ge=0, le=1)

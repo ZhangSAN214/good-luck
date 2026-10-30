@@ -197,7 +197,7 @@ def test_gives_up_a_stuck_goal_and_picks_another():
     s.goals = [{"name": "练琴", "xp": 1.0, "level": 0, "stuck": 0, "fails": 2}]
     note = brain._pursue(s, s.goals[0], random.Random(0), NOON)
     assert note.startswith("决定先放下「练琴」") and s.goals[0]["name"] != "练琴"
-    assert "练琴" in s.dropped and any("放下" in n["text"] for n in s.news)
+    assert s.dropped[0]["name"] == "练琴" and any("放下" in n["text"] for n in s.news)
 
 
 def test_gets_nervous_right_before_a_big_moment():
