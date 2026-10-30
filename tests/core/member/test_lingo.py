@@ -294,3 +294,15 @@ def test_hard_moments_and_goodbyes_never_get_a_canned_short_reply():
     assert lingo.gist("不想活了 哈哈哈").kind == "crisis"  # 比好笑的事先看
     assert "别留" in lingo.gist("今晚约了大学室友吃饭，先不聊啦").react
     assert lingo.gist("晚安是不可能晚安的，睡不着").kind != "bye"
+
+
+def test_real_stress_and_everyday_words_are_not_read_as_teasing():
+    env, lingo = world()
+    assert lingo.gist("最近压力好大，组会好难").kind == "emo"
+    assert lingo.gist("我家扫地机器人又卡住了").kind != "tease"
+    assert lingo.gist("我请好假了，下周回家").kind != "tease"
+    assert lingo.gist("压力一下你们，今天谁最懒").kind == "tease"
+    assert lingo.gist("今天好难过了").kind == "emo"
+    assert lingo.gist("我错过了末班车").kind != "good_news"
+    assert lingo.gist("买了一盒草莓").kind != "funny"
+    assert lingo.gist("考试终于过了！").kind == "good_news"
