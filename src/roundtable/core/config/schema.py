@@ -1290,6 +1290,50 @@ class RelationWeights(_Strict):
     work: float = Field(default=0.5, ge=0, le=10)  # 一起在办公室干过同一件活（只读工作记录）
 
 
+class InsightDepth(_Strict):
+    """和你到了某一阶段时，看法能写多深（第 i 条对应第 i 个阶段，阶段比条目多时用最后一条）。"""
+
+    views: int = Field(default=3, ge=1, le=8)  # 最多几句
+    chars: int = Field(default=40, ge=10, le=120)  # 每句最多几个字
+    context: int = Field(default=100, ge=0, le=400)  # 私聊、生活群里带的看法最多几个字
+    hint: str = Field(default="", max_length=200)  # 写进提示词：这个阶段说到多深
+
+
+class InsightRules(_Strict):
+    """P4 关系·对你的见解：每周一次，成员用自己的模型按自己的性格和三观，读「关于你」画像和
+    最近和你相处的片段（私聊里的原话，含你对她看法的反应、你在网页上回她的话），在上周的看法上
+    保留、加深、改观或放下，开头都是「我觉得」。越熟写得越多越深（``depth``）。程序把关：
+    必须有依据（画像条目或相处片段）、不推测敏感领域、不只是复述。8 位同一套规则、同一个预算。"""
+
+    enabled: bool = True
+    depth: list[InsightDepth] = Field(
+        default_factory=lambda: [
+            InsightDepth(views=1, chars=30, context=60),
+            InsightDepth(views=3, chars=40, context=100),
+            InsightDepth(views=5, chars=60, context=200),
+        ],
+        min_length=1,
+    )
+    facts_max: int = Field(default=20, ge=0, le=60)  # 最多带画像里几条（按把握度）
+    moments_max: int = Field(default=12, ge=0, le=40)  # 最多带几段私聊里的相处片段
+    moment_chars: int = Field(default=60, ge=10, le=200)  # 每段片段最多几个字
+    moments_days: int = Field(default=14, ge=1, le=90)  # 片段从最近几天的私聊里挑
+    min_facts: int = Field(default=2, ge=0, le=60)  # 画像条目 + 相处片段少于这么多就不想
+    rehash_similarity: float = Field(default=0.75, gt=0, le=1)  # 和所引依据这么像算只是复述
+    history_max: int = Field(default=6, ge=0, le=50)  # 每句看法留几版以前的说法（时间线）
+    reply_chars: int = Field(default=80, ge=1, le=300)  # 你在看法下随手回的一句最多几个字
+    header: str = (
+        "我对你的看法（只是我自己的看法，可能不对；合适的时候可以顺口说出来，用「我觉得」，"
+        "不用每次都提）："
+    )
+    keep_log: int = Field(default=20, ge=1, le=200)  # 每人留最近几周的见解记录
+    max_tokens: int = Field(default=900, ge=64)
+    estimate_usd: float = Field(default=0.002, ge=0)  # 每次调用的预估花费（8 位相同）
+
+    def at(self, level: int) -> InsightDepth:
+        return self.depth[min(max(level, 0), len(self.depth) - 1)]
+
+
 class RelationRules(_Strict):
     """P4 关系（docs/MEMBER_ENGINE.md「P4 关系」）：和你的阶段、同事之间的亲近度，
     全由程序按真实的共同经历累积，不调用模型。只用于生活模式；只影响生活里谁和谁聊，
@@ -1322,6 +1366,7 @@ class RelationRules(_Strict):
     quiet_format: str = "，有阵子没聊了"
     context_chars: int = Field(default=60, ge=0, le=200)  # 和你那一行最多几个字（8 位相同）
     scene_chars: int = Field(default=80, ge=0, le=300)  # 生活场景里「交情」那一行最多几个字
+    insight: InsightRules = InsightRules()
 
 
 class EngineRules(_Strict):

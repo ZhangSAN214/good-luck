@@ -62,6 +62,11 @@ def _new_bond(at: str) -> dict[str, Any]:
     }
 
 
+def view_live(view: dict[str, Any], live: set[int]) -> bool:
+    """一句见解还能不能用：有相处片段作依据，或所引画像条目还有一条在。"""
+    return bool(view.get("quotes")) or bool(set(view.get("facts") or []) & live)
+
+
 class RelationPlugin:
     """P4 关系。订阅总线（传了 bus 时），只写自己的关系键。"""
 
@@ -226,6 +231,48 @@ class RelationPlugin:
             return ""
         return ("交情：" + "；".join(parts))[: r.scene_chars]
 
+    # --- 对你的见解（第 2 块；每周由 core/insight.py 请她想一次，存在这里） -------------------
+
+    def level(self, member: str) -> int:
+        """和你此刻到第几阶段（stages 的下标，只升不降）。"""
+        level = int((self.data(member)["user"] or {}).get("level", 0))
+        return min(level, len(self.rules.stages) - 1)
+
+    def views(self, member: str, live: set[int] | None = None) -> list[dict[str, Any]]:
+        """她此刻对你的见解。live：画像里还在的条目 id。只靠画像条目、而那几条都被删了的那句不再算；
+        有相处片段作依据的照常算。"""
+        out = self.data(member).get("views") or []
+        if live is None:
+            from roundtable.core.member.about import AboutYou  # about 依赖记忆模块
+
+            live = {f["id"] for f in AboutYou(self.rt).facts()}
+        return [v for v in out if view_live(v, live)]
+
+    def views_week(self, member: str) -> str:
+        return str(self.data(member).get("views_week") or "")
+
+    def views_text(self, member: str, mode: Mode | str = Mode.LIFE) -> str:
+        """写进私聊、生活群提示词的见解（字数按和你的阶段，``insight.depth``，8 位同一张表）；
+        你在网页上回过她的那句，一并带上你的原话。没有时为空串。"""
+        require_life(mode)
+        r = self.rules.insight
+        limit = r.at(self.level(member)).context
+        if not self.enabled() or not r.enabled or limit == 0:
+            return ""
+        out: list[str] = []
+        used = 0
+        for v in self.views(member):
+            line = f"- {v['text']}"
+            reply = (v.get("reply") or {}).get("text")
+            if reply:
+                line += f"（你回过我：「{reply}」）"
+            need = len(line) + 1
+            if used + need > limit:
+                continue
+            out.append(line)
+            used += need
+        return f"{r.header}\n" + "\n".join(out) if out else ""
+
     # --- 写（只有这里写关系）-------------------------------------------
 
     def add(
@@ -285,6 +332,56 @@ class RelationPlugin:
         else:
             d["peers"][other] = bond
         self.rt.repo.save_relation_data(member, d)
+
+    def set_views(
+        self,
+        member: str,
+        week: str,
+        views: list[dict[str, Any]],
+        note: str = "",
+        changes: list[str] | None = None,
+    ) -> None:
+        """记下这一周她对你的见解（整组替换，每句带着以前的说法），并留一条记录
+        （这周改了什么、被拦下的原因）。"""
+        d = self.data(member)
+        d["views"] = views
+        d["views_week"] = week
+        log = d.setdefault("views_log", [])
+        log.append(
+            {
+                "week": week,
+                "at": iso(self.rt.budget.now()),
+                "views": [{"text": v["text"], "change": v.get("change", "")} for v in views],
+                "changes": list(changes or []),
+                "note": note,
+            }
+        )
+        del log[: max(len(log) - self.rules.insight.keep_log, 0)]
+        self.rt.repo.save_relation_data(member, d)
+
+    def drop_view(self, member: str, index: int) -> bool:
+        """你删掉她的一句见解（她下周可能会再想到，但这周不再带）。"""
+        d = self.data(member)
+        views = d.get("views") or []
+        if not 0 <= index < len(views):
+            return False
+        views.pop(index)
+        self.rt.repo.save_relation_data(member, d)
+        return True
+
+    def reply_view(self, member: str, index: int, text: str) -> bool:
+        """你在她的一句看法下随手回一句（空串＝撤回）。她聊天时看得到，下周想的时候自己琢磨你的意思。"""
+        d = self.data(member)
+        views = d.get("views") or []
+        if not 0 <= index < len(views):
+            return False
+        text = " ".join(str(text or "").split())[: self.rules.insight.reply_chars]
+        if text:
+            views[index]["reply"] = {"text": text, "at": iso(self.rt.budget.now())}
+        else:
+            views[index].pop("reply", None)
+        self.rt.repo.save_relation_data(member, d)
+        return True
 
     def on_event(self, event: Event) -> None:
         if not self.enabled():

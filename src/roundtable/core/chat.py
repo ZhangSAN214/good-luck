@@ -124,6 +124,18 @@ def with_about_you(rt: Any, memory: str, query: str) -> str:
     return about if memory == NONE else f"{memory}\n{about}"
 
 
+def with_views(rt: Any, memory: str, member: str) -> str:
+    """私聊和生活群：再接上她自己对你的见解（成员系统 P4，每周想一次；8 位相同的字数上限，
+    没有就不接）。工作群不调用。"""
+    from roundtable.core.member.relation import RelationPlugin  # relation 经人设被本模块间接引用
+    from roundtable.core.memory import NONE
+
+    views = RelationPlugin(rt).views_text(member)
+    if not views:
+        return memory
+    return views if memory == NONE else f"{memory}\n{views}"
+
+
 def dm_room(member_id: str) -> str:
     return f"{DM_PREFIX}{member_id}"
 
@@ -601,6 +613,7 @@ class GroupChat:
         }
         if self.kind in ABOUT_KINDS:  # 关于你（P8）：只在私聊和生活群
             variables["memory"] = with_about_you(rt, variables["memory"], history)
+            variables["memory"] = with_views(rt, variables["memory"], member.id)
         if self.kind != "dm":
             variables["members"] = (
                 "、".join(m.name for m in self.members() if m.id != member.id) or "（没有别人）"
