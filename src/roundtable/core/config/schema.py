@@ -1911,6 +1911,7 @@ class BenchNetService(_Strict):
     kind: str = Field(default="json", pattern=r"^(json|tiles)$")
     also: list[str] = Field(default_factory=list, max_length=4)
     ttl_min: int = Field(default=60, ge=0, le=7 * 24 * 60)  # 本机缓存几分钟
+    probe: dict[str, str] = Field(default_factory=dict)  # 联网自检时 {参数} 用的样例值
 
     @field_validator("url", "also")
     @classmethod
@@ -1925,6 +1926,20 @@ class BenchNetService(_Strict):
     @property
     def origins(self) -> list[str]:
         return [re.match(r"^https://[^/]+", u).group(0) for u in [self.url, *self.also]]
+
+
+class BenchResearch(_Strict):
+    """开工前的调研（2026-10-30 用户要求）：GitHub 至少 ``min_github`` 个高质量相关项目，加上论文、
+    资讯和视频；分最高的 ``learn`` 个项目源码只读下载，交给助手写学习卡。资讯和视频交给一位能联网
+    搜索的助手查（``kind`` 按分数挑人），其余是程序查公开接口（不要 key）。"""
+
+    enabled: bool = True
+    kind: str = "research"  # 查资讯、写学习卡按哪种活挑人
+    min_github: int = Field(default=10, ge=0, le=30)
+    max_github: int = Field(default=15, ge=1, le=40)
+    papers: int = Field(default=6, ge=0, le=20)
+    news: int = Field(default=8, ge=0, le=20)  # 资讯、视频、发布会、官方博客合计
+    learn: int = Field(default=3, ge=0, le=6)  # 写几张学习卡（每张花一次订阅次数）
 
 
 class BenchRules(_Strict):
@@ -1948,6 +1963,7 @@ class BenchRules(_Strict):
     min_stars: int = Field(default=100, ge=0)  # GitHub 星数门槛
     max_repo_mb: int = Field(default=20, ge=1, le=200)  # 仓库太大就只借思路
     max_adopt: int = Field(default=3, ge=0, le=10)  # 一个工作台最多搬几个
+    research: BenchResearch = Field(default_factory=BenchResearch)
     rubric: list[str] = Field(
         default_factory=lambda: [
             *("视觉层次", "信息密度", "一致性", "交互完整"),

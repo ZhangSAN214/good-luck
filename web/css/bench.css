@@ -74,3 +74,11 @@
 .bench .bg .sc-subs th,.bench .bg .sc-subs td{padding:6px 8px;text-align:left;vertical-align:top}
 .bench .bg-sources{overflow-x:auto}
 @media (max-width:860px){.bg-scores li{grid-template-columns:5em 1fr 2.4em}}
+/* 调研报告与联网自检 */
+.bg-research,.bg-net{margin:8px 0}
+.bg-research h4{margin:10px 0 4px;font-size:13px}
+.bg-research table{font-size:13px}
+.bench .bg-research{overflow-x:auto}
+.bg-cards{margin:6px 0;padding-left:18px;font-size:13px;line-height:1.6}
+.bg-cards ul{margin:2px 0;padding-left:16px;opacity:.9}
+.bg-net .bg-reqs li.bg-miss{opacity:.95}

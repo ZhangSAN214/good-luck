@@ -152,6 +152,8 @@ def test_repo_config_loads_with_defaults():
         "bench_rework",
         "bench_ask",
         "bench_ask_json",
+        "bench_research",
+        "bench_learn",
         "describe_screen",
     }
     assert rt.collab_pipeline == [

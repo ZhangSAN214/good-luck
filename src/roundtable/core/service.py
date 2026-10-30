@@ -29,6 +29,9 @@ from roundtable.core.almanac import Almanac
 from roundtable.core.attachments import Attachment, UploadError, ingest
 from roundtable.core.attachments.detect import TYPES as UPLOAD_TYPES
 from roundtable.core.benchkit.builder import BenchBuilder
+from roundtable.core.benchkit.netcheck import http_status, net_check
+from roundtable.core.benchkit.research import Researcher
+from roundtable.core.benchkit.research import http_fetchers as research_fetchers
 from roundtable.core.benchkit.scout import Scout as PluginScout
 from roundtable.core.benchkit.scout import http_fetchers
 from roundtable.core.browse import REFRESH_KEY, feeds_of, set_feeds
@@ -327,7 +330,9 @@ class RoundtableService:
             supercomputer=self.supercomputer,
             render=self._super_render,
             scout=self._build_scout(runtime.config.roundtable.bench),
+            researcher=self._build_researcher(runtime.config.roundtable.bench),
         )
+        self.bench_status_fetch = http_status()  # 联网自检用（测试换成假的）
         self._chat_tasks: set[asyncio.Task[Any]] = set()
         self._life_task: asyncio.Task[None] | None = None
         self._evolution_task: asyncio.Task[None] | None = None
@@ -361,6 +366,22 @@ class RoundtableService:
         return PluginScout(
             fetch_json=fetch_json,
             fetch_bytes=fetch_bytes,
+            min_stars=rules.min_stars,
+            max_kb=rules.max_repo_mb * 1024,
+        )
+
+    @staticmethod
+    def _build_researcher(rules: Any) -> Researcher:
+        fetch_json, fetch_text, check_url = research_fetchers()
+        r = rules.research
+        return Researcher(
+            fetch_json=fetch_json,
+            fetch_text=fetch_text,
+            check_url=check_url,
+            min_github=r.min_github,
+            max_github=r.max_github,
+            papers=r.papers,
+            news=r.news,
             min_stars=rules.min_stars,
             max_kb=rules.max_repo_mb * 1024,
         )
@@ -929,6 +950,11 @@ class RoundtableService:
             raise ServiceError(str(exc), 404) from None
         except ValueError as exc:
             raise ServiceError(str(exc), 400) from None
+
+    async def bench_net_check(self) -> dict[str, Any]:
+        """联网自检：成品要用的公开数据和调研接口各试一次（只读 GET）。"""
+        items = await net_check(list(self.bench.rules.net), self.bench_status_fetch)
+        return {"items": items, "ok": sum(1 for x in items if x["ok"]), "total": len(items)}
 
     def bench_net_origins(self) -> list[str]:
         """生成的工作台能联网访问的网址（配置里的公开数据名单）；沙箱只放行这些。"""
