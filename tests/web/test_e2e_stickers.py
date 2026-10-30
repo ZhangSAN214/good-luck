@@ -1,4 +1,4 @@
-"""成员专属表情包：「成员设定」里看到表情网格，待审的点「可以」后变成可以用。"""
+"""成员专属表情包：「成员设定」里看到表情网格，待审的点「可以」后变成可以用；聊天里显示成图，面板里能发。"""
 
 from __future__ import annotations
 
@@ -51,11 +51,15 @@ def test_people_dialog_reviews_member_stickers(serve, page, tmp_path):
                 "at": rt.repo.clock(),
             }
         stickers._index.save(data)
+        rt.repo.ensure_chat_room("dm:V2", kind="dm", title="阿二", members=["V2"])
+        rt.repo.add_chat_message("dm:V2", "V2", "[表情:阿二·收到]")
 
     srv = serve(confirm_threshold_usd=100.0, setup=setup)
     open_chat(srv, page)
     page.click(".gc-room[data-room='dm:V2']")
     page.wait_for_function("document.querySelector('#gc-title')?.textContent === '与 阿二 私聊'")
+    # 审过的专属表情：聊天里单独发的显示成大图
+    page.wait_for_selector("#gchat img.stk.pic.big[alt='阿二：收到！']")
     page.click("#gc-people")
     page.wait_for_selector("#people[open] .pp-stickers .pp-stk")
     grid = page.locator("#people .pp-stk")
@@ -69,3 +73,8 @@ def test_people_dialog_reviews_member_stickers(serve, page, tmp_path):
     page.wait_for_selector("#people .pp-stk.approved[data-sname='晚安']")
     approved = MemberStickers(srv.env.rt, tmp_path / "stickers").approved("V2")
     assert [s["name"] for s in approved] == ["晚安", "收到"]
+    # 审完后表情面板里多了这位成员的一套（两张）
+    page.keyboard.press("Escape")
+    page.click("[data-cm='panel']")
+    page.click(".cm-tab[title='阿二']")
+    page.wait_for_function("document.querySelectorAll('.cm-grid-stk img.stk.pic').length === 2")

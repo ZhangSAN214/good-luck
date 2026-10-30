@@ -51,3 +51,18 @@ def test_stickers_api():
         img = c.get("/api/stickers/V1/晚安/image")
         assert img.status_code == 200 and img.content == b"\x89PNG"
         assert img.headers["content-type"] == "image/png"
+
+
+def test_chat_sticker_packs_list_only_approved_ones_under_the_nickname(tmp_path):
+    from ..core.test_chat_actions import give_stickers
+
+    env = Env()
+    give_stickers(env, tmp_path, "V2", ["收到"], pending=["没审"])
+    service = RoundtableService(env.rt)
+    with TestClient(create_app(service)) as c:
+        [pack] = c.get("/api/chat/stickers").json()["packs"]
+        assert pack["pack"] == "阿二" and pack["member"] == "V2"
+        [item] = pack["items"]
+        assert item["name"] == "收到" and item["caption"] == "收到！"
+        img = c.get(item["url"])
+        assert img.status_code == 200 and img.content == b"\x89PNG"

@@ -1,4 +1,5 @@
 // 表情：Emoji 分类 + 三套自绘动态表情包（团子、猫猫、文字）。全部是内联 SVG + CSS 动画，不用外部图片。
+// 另有成员专属表情（setMemberPacks 装入，是后端给的图片）。
 // 表情包在消息里写成文字记号「[表情:团子·开心]」：成员看得懂（是一段文字），界面把它画成动态表情。
 
 export const EMOJI = [
@@ -135,6 +136,15 @@ export const STICKERS = [
   { id: '文字', items: WORDS.map(([name, anim, ink, bg]) => ({ name, anim, ink, bg, word: true })) },
 ];
 
+/** 成员专属表情（审过的那些，后端 /api/chat/stickers）：套装名是成员昵称，每张是一张图。重复装入时先换掉旧的。 */
+export function setMemberPacks(packs) {
+  for (let i = STICKERS.length - 1; i >= 0; i--) if (STICKERS[i].member) STICKERS.splice(i, 1);
+  for (const p of packs || []) {
+    if (!p?.pack || !p.items?.length || STICKERS.some((x) => x.id === p.pack)) continue;
+    STICKERS.push({ id: p.pack, member: p.member, items: p.items.map((x) => ({ name: x.name, caption: x.caption, img: x.url })) });
+  }
+}
+
 export const token = (pack, name) => `[表情:${pack}·${name}]`;
 export const TOKEN_RE = /\[表情:([^\]·]{1,6})·([^\]]{1,6})\]/g;
 
@@ -160,6 +170,10 @@ function wordSvg(s) {
 export function stickerSVG(pack, name, { big = false, label = true } = {}) {
   const s = findSticker(pack, name);
   if (!s) return null;
+  if (s.img) {
+    const alt = label ? escAttr(`${pack}：${s.caption || name}`) : '';
+    return `<img class="stk pic${big ? ' big' : ''}" src="${escAttr(s.img)}" alt="${alt}" title="${escAttr(s.caption || name)}" loading="lazy" decoding="async">`;
+  }
   const inner = s.word
     ? wordSvg(s)
     : `<g class="stk-body">${BODY[s.body](s.color)}<g class="face">${EYES[s.eyes] || ''}${MOUTH[s.mouth] || ''}</g></g>${s.extras.map((x) => EXTRA[x] || '').join('')}`;

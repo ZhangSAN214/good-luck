@@ -57,6 +57,7 @@ import { Mail } from './mail.js';
 import { Evolution } from './evolution.js';
 import { Usage } from './usage.js';
 import { Deck } from './deck.js';
+import { setMemberPacks } from './stickers.js';
 
 const $ = (q) => document.querySelector(q);
 const RESTING = new Set(['completed', 'stopped', 'failed', 'awaiting_confirmation', 'paused']);
@@ -126,7 +127,11 @@ const people = new People($('#people'), {
     voice: API.memberVoice,
     stickers: API.memberStickers,
     drawSticker: API.drawSticker,
-    reviewSticker: API.reviewSticker,
+    reviewSticker: async (...args) => {
+      const r = await API.reviewSticker(...args);
+      loadMemberStickers();
+      return r;
+    },
     memories: API.chatMemories,
     addMemory: API.addChatMemory,
     editMemory: API.editChatMemory,
@@ -302,6 +307,17 @@ const gchat = new GroupChat($('#gchat'), {
     await open(sid);
   },
 });
+// 成员专属表情（审过的）：装进表情面板，聊天和朋友圈里的记号画成图；在成员设定里审完后再取一次
+async function loadMemberStickers() {
+  try {
+    setMemberPacks((await API.chatStickers()).packs);
+  } catch {
+    return; // 取不到就只用通用表情
+  }
+  if (gchat.built) gchat.renderAll();
+  if ($('#moments').open) moments.render();
+}
+loadMemberStickers();
 const home = new Apartment($('#home'), {
   api: API.getApartment,
   budget: API.getBudget,
