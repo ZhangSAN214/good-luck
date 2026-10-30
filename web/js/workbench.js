@@ -15,15 +15,20 @@ export function safeDshUrl(u) {
   return /^http:\/\/127\.0\.0\.1:\d{2,5}\//.test(u || '') ? u : '';
 }
 
-/** 本月花费的一句话。 */
+const SIGN = { USD: '$', CNY: '¥' };
+
+/** 本月花费的一句话：按接口给的显示币种（默认人民币），不是美元时括号里带上美元上限。 */
 export function budgetLine(b) {
   if (!b) return '';
-  const spent = Number(b.spent_usd) || 0;
-  const limit = Number(b.limit_usd) || 0;
-  if (!b.tracking) return `本月上限 $${limit.toFixed(2)}；还没法统计花费（没有配置 key 或余额接口）。`;
-  const bal = b.balance != null ? `，账户余额 ${Number(b.balance).toFixed(2)} ${esc(b.currency || '')}` : '';
+  const cur = b.display_currency || 'USD';
+  const usd = cur === 'USD';
+  const money = (n) => `${SIGN[cur] ?? `${esc(cur)} `}${(Number(n) || 0).toFixed(2)}`;
+  const spent = money(usd ? b.spent_usd : b.spent);
+  const limit = money(usd ? b.limit_usd : b.limit) + (usd ? '' : `（$${(Number(b.limit_usd) || 0).toFixed(2)}）`);
+  if (!b.tracking) return `本月上限 ${limit}；还没法统计花费（没有配置 key 或余额接口）。`;
+  const bal = b.balance != null ? `，账户余额 ${b.currency === cur ? money(b.balance) : `${Number(b.balance).toFixed(2)} ${esc(b.currency || '')}`}` : '';
   const err = b.error ? `（上次查余额失败：${esc(b.error)}）` : '';
-  return `本月约 $${spent.toFixed(2)} / 上限 $${limit.toFixed(2)}${bal}${err}`;
+  return `本月约 ${spent} / 上限 ${limit}${bal}${err}`;
 }
 
 export class Workbench {
