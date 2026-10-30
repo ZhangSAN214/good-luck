@@ -1577,6 +1577,7 @@ class LoveRules(_Strict):
     daily_cap: float = Field(default=0.12, ge=0, le=1)  # 每段关系每天在乎 + 心动最多涨多少
     spark_rate: float = Field(default=0.6, ge=0, le=5)  # 心动涨幅 = 在乎涨幅 × 它 × 化学反应
     chemistry_floor: float = Field(default=0.45, ge=0, le=1)  # 化学反应低于它就不会心动
+    chemistry_grow: float = Field(default=0.0, ge=0, le=1)  # 日久生情：化学反应 + 它 × 在乎
     half_life_days: dict[str, float] = {
         "care": 120,
         "spark": 45,
@@ -1594,6 +1595,7 @@ class LoveRules(_Strict):
     dislike: dict[str, float] = {"clash": 0.08, "disagree": 0.04}  # 看不惯：三观相反、被当面反驳
     forgive: float = Field(default=0.6, ge=0, le=0.9)  # 委屈的半衰期 × (1 - forgive × 承诺)
     high: float = Field(default=0.5, ge=0, le=1)  # 亲密 / 心动 / 承诺算「高」的线
+    commit_days: float = Field(default=90, ge=0, le=3650)  # 承诺要时间：认识 N 天才可能到顶
     on: float = Field(default=0.25, ge=0, le=1)  # 委屈、感激、内疚、看不惯到多少才影响说话
     show_care: float = Field(default=0.45, ge=0, le=1)
     show_spark: float = Field(default=0.4, ge=0, le=1)
@@ -1661,6 +1663,7 @@ class HumanRules(_Strict):
     enabled: bool = True
     topics: dict[str, list[str]] = {}  # 领域 → 词
     extra_domains: int = Field(default=1, ge=0, le=10)  # 档案之外再熟悉几个领域（按 id 派生）
+    max_domains: int = Field(default=4, ge=1, le=30)  # 档案里提到的领域最多算几个（按提到次数）
     ask_words: list[str] = []  # 问句里带这些词才算「问知识」（「玩游戏吗」这种邀约不算）
     misremember: float = Field(default=0.05, ge=0, le=1)
     long_message: int = Field(default=60, ge=10, le=2000)  # 这么长算「说了好几件事」

@@ -102,10 +102,22 @@ class Human:
         data = self.profiles.current(member).data
         return dict((data.get("personality") or {}).get("五项") or {})
 
+    def _cast_mean(self) -> dict[str, float]:
+        """全体成员每项性格分的平均（没有档案的按 3 算）。"""
+        names = self.names() if callable(self.names) else (self.names or {})
+        cast = [m for m in names if m != USER]
+        if not cast:
+            return {}
+        rows = [self._traits(m) for m in cast]
+        keys = {k for r in rows for k in r}
+        return {k: sum(_num(r.get(k, 3)) for r in rows) / len(rows) for k in keys}
+
     def domains(self, member: str) -> list[str]:
-        """她熟悉的领域：自我档案里提到过的，加上按 id 派生的一两个（人总有点杂学）。"""
+        """她熟悉的领域：自我档案里提得最多的几个，加上按 id 派生的一两个（人总有点杂学）。"""
         text, topics = self._profile_text(member), self.rules.topics
-        known = [d for d, words in topics.items() if any(w in text for w in words)]
+        hits = {d: sum(text.count(w) for w in words) for d, words in topics.items()}
+        ranked = sorted((d for d in topics if hits[d]), key=lambda d: -hits[d])
+        known = ranked[: self.rules.max_domains]
         rest = [d for d in topics if d not in known]
         rng = random.Random(f"human-domains:{member}")
         rng.shuffle(rest)
@@ -116,12 +128,16 @@ class Human:
         return next((d for d, ws in self.rules.topics.items() if any(w in text for w in ws)), "")
 
     def flaws(self, member: str) -> list[str]:
-        """她的小毛病：按性格分挑最像的几样（加一点个人差异）。"""
+        """她的小毛病：按性格分挑最像的几样（加一点个人差异）。
+
+        性格分和大家的平均比：八位都温和时，「温和」就不算谁的特点，毛病才各不相同。
+        """
         traits, rng = self._traits(member), random.Random(f"human-flaws:{member}")
+        mean = self._cast_mean()
         scored = [
             (
                 f.base
-                + sum(c * (_num(traits.get(t, 3)) - 3) for t, c in f.traits.items())
+                + sum(c * (_num(traits.get(t, 3)) - mean.get(t, 3)) for t, c in f.traits.items())
                 + rng.random() * 0.3,
                 name,
             )

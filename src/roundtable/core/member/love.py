@@ -192,14 +192,17 @@ class Heart:
         own = random.Random(f"heart-chem:{member}>{other}").random()
         return round(0.6 * pair + 0.4 * own, 4)
 
-    def _spark_factor(self, member: str, other: str) -> float:
+    def _spark_factor(self, member: str, other: str, care: float = 0.0) -> float:
+        """心动的系数：化学反应过了门槛才有。日久生情：越在乎，化学反应越强一点，
+        所以朋友也可能慢慢变心动；底子太差的仍然只是朋友。"""
         r = self.rules
         if not (r.romance_user if other == USER else r.romance):
             return 0.0
         floor = r.chemistry_floor
         if floor >= 1:
             return 0.0
-        return max(0.0, (self.chemistry(member, other) - floor) / (1 - floor))
+        chem = min(1.0, self.chemistry(member, other) + r.chemistry_grow * care)
+        return max(0.0, (chem - floor) / (1 - floor))
 
     # --- 读：此刻的感情 -------------------------------------------------------------
 
@@ -210,6 +213,15 @@ class Heart:
             return float(RelationPlugin(self.rt).closeness(member, other, at))
         except Exception:  # noqa: BLE001 - 读不到亲近度就当没经历过
             return 0.0
+
+    def _known(self, b: dict[str, Any], at: datetime) -> float:
+        """认识多久了，折成 0～1（commit_days 天到顶）。旧数据没有 since 就看最早的足迹。"""
+        days = self.rules.commit_days
+        first = b.get("since") or min(b.get("marks") or {"": ""})
+        if not days or not first:
+            return 1.0
+        start = datetime.fromisoformat(first).replace(tzinfo=at.tzinfo)
+        return min(1.0, max((at - start).total_seconds() / 86400, 0.0) / days)
 
     def _view(self, member: str, other: str, b: dict[str, Any], at: datetime) -> dict[str, Any]:
         r, hl = self.rules, self.rules.half_life_days
@@ -222,6 +234,7 @@ class Heart:
             min(
                 1.0,
                 max(0.0, 0.5 * v["care"] + 0.3 * v["intimacy"] + 0.2 * v["trust"] - 0.3 * raw_hurt),
+                self._known(b, at),  # 承诺要时间：认识没多久，再在乎也到不了「像家人一样」
             ),
             4,
         )
@@ -326,12 +339,12 @@ class Heart:
             day = self.local_day(at)
             used = float(b["daily"].get(day, 0.0))
             room = max(0.0, r.daily_cap - used)
-            g = min(r.gains.get(gain, 0.0), room)
-            dc = g * (1 - b["care"])
-            ds = min(g * r.spark_rate * self._spark_factor(member, other), room - g) * (
-                1 - b["spark"]
-            )
-            ds = max(ds, 0.0)
+            want = r.gains.get(gain, 0.0)
+            want_s = want * r.spark_rate * self._spark_factor(member, other, b["care"])
+            scale = min(1.0, room / (want + want_s)) if want + want_s > 0 else 0.0
+            dc = want * scale * (1 - b["care"])  # 日上限按比例分给在乎和心动（心动不被挤掉）
+            ds = max(want_s * scale * (1 - b["spark"]), 0.0)
+            b.setdefault("since", day)
             b["care"] = round(b["care"] + dc, 4)
             b["spark"] = round(b["spark"] + ds, 4)
             b["daily"][day] = round(used + dc + ds, 4)
