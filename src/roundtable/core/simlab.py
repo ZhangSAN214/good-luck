@@ -294,6 +294,7 @@ class Simulation:
             return None
 
         svc.chats.sleep = no_wait  # 拆条之间不真的等
+        svc.engine.heartbeat.unregister("wander")  # 模拟里成员不开真浏览器上网
         if self.cards:
             svc.member_profile_import(self.cards)
         return svc

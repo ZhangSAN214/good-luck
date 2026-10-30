@@ -74,6 +74,11 @@ async def test_two_days_fake_run_is_isolated_and_reports(tmp_path):
     report = json.loads((out / "report.json").read_text("utf-8"))
     assert report["days"][0]["life_events"] > 0
     assert {m["member"] for m in report["members"]}
+    import sqlite3
+
+    db = sqlite3.connect(out / "sim.db")
+    assert not db.execute("SELECT id FROM chat_rooms WHERE kind = 'wander'").fetchall()  # 不上网
+    db.close()
     assert "成员系统加速时间模拟报告" in (out / "report.md").read_text("utf-8")
     with pytest.raises(SimError, match="已存在"):  # 每次用全新的数据库
         await Simulation(out, days=1).run()
