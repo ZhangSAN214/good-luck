@@ -49,9 +49,9 @@ def image_calls(fake):
     return [c for c in fake.media_calls if c[0] == "image"]
 
 
-def test_every_card_is_valid_and_openai_has_a_full_set():
+def test_every_member_has_a_full_set_of_twelve():
     cards = load_config().personas.sticker_cards
-    assert len(cards["OpenAI"].stickers) == 12
+    assert len(cards) == 8 and all(len(c.stickers) == 12 for c in cards.values())
     vendors = {m.vendor for m in load_config().models.models if m.seat}
     assert set(cards) <= vendors
     for card in cards.values():
