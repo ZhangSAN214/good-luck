@@ -150,3 +150,18 @@
 .bg-wins details summary{cursor:pointer}
 .bg-wins details p{margin:4px 0 0 14px;font-size:13px}
 .bg-design-view{position:sticky;top:8px}
+/* 素材：拖放区、缩略图、色块；选项分组 */
+.bg-drop{margin:6px 0;padding:8px 10px;border:1.5px dashed var(--line, rgba(127,127,127,.4));border-radius:10px;font-size:13px;display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center}
+.bg-drop.bg-over,.bg-dmats.bg-over{border-color:var(--accent, #2f5bea);background:rgba(47,91,234,.08)}
+.bg-dmats{padding:8px;border:1.5px dashed var(--line, rgba(127,127,127,.4));border-radius:10px}
+.bg-mats{list-style:none;margin:4px 0;padding:0;display:grid;gap:6px;width:100%}
+.bg-mat{display:flex;align-items:center;gap:8px;font-size:13px}
+.bg-mat img{width:44px;height:44px;object-fit:cover;border-radius:6px;flex:none;background:rgba(127,127,127,.15)}
+.bg-mat span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis}
+.bg-mat select{font:inherit;font-size:12px}
+.bg-swatch{width:28px;height:28px;border-radius:50%;border:2px solid rgba(127,127,127,.35);cursor:pointer;padding:0}
+.bg-swatch[aria-pressed="true"]{outline:2px solid currentColor;outline-offset:2px}
+.bg-dim input[type=color]{width:36px;height:30px;padding:0;border:0;background:none;cursor:pointer}
+.bg-dim textarea{width:100%;box-sizing:border-box;font:inherit}
+.bg-dgroup{margin:0 0 6px;border-bottom:1px solid var(--line, rgba(127,127,127,.2));padding-bottom:4px}
+.bg-dgroup>summary{cursor:pointer;font-weight:700;padding:4px 0;display:flex;gap:8px;align-items:baseline}

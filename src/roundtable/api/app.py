@@ -373,6 +373,13 @@ class BenchBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     request: str = Field(min_length=1, max_length=2000)
+    materials: list[str] = Field(default_factory=list, max_length=64)  # 先收下的素材编号
+
+
+class BenchAttachBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    ids: list[str] = Field(min_length=1, max_length=64)
 
 
 class BenchAnswerBody(BaseModel):
@@ -399,6 +406,19 @@ class BenchDesignBody(BaseModel):
     density: str = Field(default="", max_length=20)
     corner: str = Field(default="", max_length=20)
     type: str = Field(default="", max_length=20)
+    width: str = Field(default="", max_length=20)
+    topbar: str = Field(default="", max_length=20)
+    herosize: str = Field(default="", max_length=20)
+    bg: str = Field(default="", max_length=20)
+    shadow: str = Field(default="", max_length=20)
+    size: str = Field(default="", max_length=20)
+    tone: str = Field(default="", max_length=20)
+    button: str = Field(default="", max_length=20)
+    cardhead: str = Field(default="", max_length=20)
+    motion: str = Field(default="", max_length=20)
+    accent: str | None = Field(default=None, max_length=7)  # #rrggbb；空字符串 = 用配色里的主色
+    note: str | None = Field(default=None, max_length=200)  # 自己写一条风格要求
+    assets: dict[str, str] = Field(default_factory=dict, max_length=64)  # 素材编号 → 用处
     refs: list[str] | None = Field(default=None, max_length=12)
     spans: dict[str, int] = Field(default_factory=dict, max_length=12)
     drop: list[str] = Field(default_factory=list, max_length=12)
@@ -861,7 +881,23 @@ def create_app(service: RoundtableService | None = None, lan: LanAccess | None =
 
     @app.post("/api/bench")
     async def bench_submit(request: Request, body: BenchBody) -> dict[str, Any]:
-        return svc(request).bench_submit(body.request)
+        return svc(request).bench_submit(body.request, body.materials)
+
+    @app.post("/api/bench/materials", status_code=201)
+    async def bench_material(request: Request, name: str, of: str = "") -> dict[str, Any]:
+        """拖进来的一份素材：请求体是原始字节，?name= 文件名，?of= 视频编号（浏览器截的帧）。"""
+        service = svc(request)
+        limit = service.bench_material_limit
+        declared = request.headers.get("content-length")
+        if declared and declared.isdigit() and int(declared) > limit:
+            raise ServiceError("文件超过大小上限", 413)
+        chunks, size = [], 0
+        async for chunk in request.stream():
+            size += len(chunk)
+            if size > limit:
+                raise ServiceError("文件超过大小上限", 413)
+            chunks.append(chunk)
+        return service.bench_material(name, b"".join(chunks), of)
 
     @app.post("/api/bench/cancel")
     async def bench_cancel(request: Request) -> dict[str, Any]:
@@ -910,6 +946,16 @@ def create_app(service: RoundtableService | None = None, lan: LanAccess | None =
             decision=body.decision,
             comments=[c.model_dump() for c in body.comments],
         )
+
+    @app.post("/api/bench/{bench_id}/materials")
+    async def bench_attach(
+        request: Request, bench_id: str, body: BenchAttachBody
+    ) -> dict[str, Any]:
+        return await svc(request).bench_project(bench_id, "attach", ids=body.ids)
+
+    @app.post("/api/bench/{bench_id}/look")
+    async def bench_look(request: Request, bench_id: str) -> dict[str, Any]:
+        return await svc(request).bench_project(bench_id, "look")
 
     @app.post("/api/bench/{bench_id}/evolve")
     async def bench_evolve(request: Request, bench_id: str) -> dict[str, Any]:

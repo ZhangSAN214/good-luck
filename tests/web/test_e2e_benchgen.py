@@ -407,6 +407,7 @@ def test_benchgen_design_board_live_preview(serve, page, monkeypatch, tmp_path):
     gate.locator("li[data-req] input").first.fill("能换目的地和日期")  # 先改要求，再点选型也不丢
     board.locator('[data-dz="layout"]', has_text="主视觉通栏").click()
     assert cards.first.get_attribute("data-span") == "12"
+    board.locator(".bg-dgroup summary", has_text="质感").click()  # 前两组默认展开，其余点开
     board.locator('[data-dz="material"]', has_text="液态玻璃").click()
     board.locator('[data-dz="theme"]', has_text="森绿").click()
     board.locator('[data-dz="mode"][data-v="dark"]').click()
@@ -432,3 +433,118 @@ def test_benchgen_design_board_live_preview(serve, page, monkeypatch, tmp_path):
     assert [(w["id"], w["span"]) for w in spec["windows"]] == [("map-view", 12), ("budget", 6)]
     assert spec["requirements"][0]["text"] == "能换目的地和日期"
     assert 'data-k-material="glass"' in (folder / "index.html").read_text(encoding="utf-8")
+
+
+def png(w=48, h=32, rgb=(255, 122, 0)):
+    """一张纯色 PNG（不靠图片库）。"""
+    import struct
+    import zlib
+
+    raw = b"".join(b"\x00" + bytes(rgb) * w for _ in range(h))
+
+    def chunk(kind, data):
+        body = kind + data
+        return struct.pack(">I", len(data)) + body + struct.pack(">I", zlib.crc32(body))
+
+    head = struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0)
+    return (
+        b"\x89PNG\r\n\x1a\n"
+        + chunk(b"IHDR", head)
+        + chunk(b"IDAT", zlib.compress(raw))
+        + chunk(b"IEND", b"")
+    )
+
+
+# 在页面里用画布录一段 1.5 秒的 webm（不带视频文件进仓库）
+RECORD_WEBM = """async () => {
+  const c = document.createElement('canvas'); c.width = 160; c.height = 120;
+  const g = c.getContext('2d'); let n = 0;
+  const paint = () => { g.fillStyle = n++ % 2 ? '#f70' : '#111'; g.fillRect(0, 0, 160, 120) };
+  const tick = setInterval(paint, 50);
+  const rec = new MediaRecorder(c.captureStream(20), { mimeType: 'video/webm' });
+  const parts = []; rec.ondataavailable = (e) => parts.push(e.data);
+  const done = new Promise((ok) => (rec.onstop = ok));
+  rec.start(); await new Promise((ok) => setTimeout(ok, 1500));
+  rec.stop(); await done; clearInterval(tick);
+  const buf = new Uint8Array(await new Blob(parts, { type: 'video/webm' }).arrayBuffer());
+  let s = ''; for (const b of buf) s += String.fromCharCode(b); return btoa(s);
+}"""
+
+
+def test_benchgen_materials_drop_look_and_use_in_product(serve, page, monkeypatch, tmp_path):
+    """拖进参考图和视频（浏览器截帧）→ 能看图的助手看一遍 → 选型台显示结论和色块，
+    标成 Logo、点色块当主色、改按钮形状、写风格要求 → 预览马上用上 → 签字后成品也用上。"""
+    from ..core.benchkit.test_materials import LookSC
+
+    sc = LookSC()
+
+    def factory(rules, *, root, **kw):
+        return BenchBuilder(
+            rules.model_copy(
+                update={
+                    "baseline": [],
+                    "project": BenchProject(enabled=True, interview=False),
+                    "team": BenchTeam(enabled=False),
+                }
+            ),
+            root=tmp_path / "bench",
+            supercomputer=sc,
+            render=fake_render,
+            check=check,
+            seed=3,
+        )
+
+    monkeypatch.setattr(service_mod, "BenchBuilder", factory)
+    srv = serve(confirm_threshold_usd=100.0)
+    page.set_viewport_size({"width": 1400, "height": 1000})
+    page.goto(srv.url)
+    page.locator('#entries [data-m="bench"]').click()
+    pane = page.locator('#bench [data-pane="gen"]')
+    pane.locator("[data-text]").fill("帮我做一个修图台")
+    files = page.locator("input[data-benchfile]")  # 在面板外面，刷新不会换掉
+    files.set_input_files([{"name": "参考.png", "mimeType": "image/png", "buffer": png()}])
+    pane.locator(".bg-drop .bg-mat").first.wait_for(timeout=10000)
+    webm = base64.b64decode(page.evaluate(RECORD_WEBM))
+    files.set_input_files([{"name": "演示.webm", "mimeType": "video/webm", "buffer": webm}])
+    video = pane.locator(".bg-drop .bg-mat", has_text="演示.webm")
+    video.wait_for(timeout=20000)
+    assert "截了" in video.text_content() and "截了 0 帧" not in video.text_content()
+    pane.locator("[data-submit]").click()
+
+    board = pane.locator(".bg-design")
+    board.wait_for(timeout=15000)
+    assert "暖橙、编辑器式三栏" in board.text_content()
+    rows = board.locator(".bg-dmats .bg-mat")
+    assert rows.count() == 2  # 截帧不单列
+    assert "看过" in rows.first.text_content()
+    look = next(json.loads(p) for p in sc.prompts if json.loads(p)["role"] == "bench_look")
+    assert look["files"].count("截帧") >= 1
+
+    view = page.frame_locator("[data-dpreview]")
+    root = view.locator("html")
+    view.locator("[data-pw]").first.wait_for(timeout=10000)
+    board.locator('[data-swatch="#ff7a00"]').click()
+    assert "--k-accent: #ff7a00" in (root.get_attribute("style") or "")
+    mid = rows.first.locator("select").get_attribute("data-drole")
+    rows.first.locator("select").select_option("logo")
+    assert view.locator(".k-logo-img img").count() == 1
+    board.locator(".bg-dgroup summary", has_text="控件").click()
+    board.locator('[data-dz="button"]', has_text="胶囊").click()
+    assert root.get_attribute("data-k-button") == "pill"
+    board.locator('[data-dz="cardhead"]', has_text="彩色顶条").click()  # 点完分组不收起
+    assert root.get_attribute("data-k-cardhead") == "bar"
+    board.locator("[data-dnote]").fill("按钮要大一点")
+    if shots := os.environ.get("ROUNDTABLE_SHOTS"):
+        page.set_viewport_size({"width": 1400, "height": 2600})
+        board.screenshot(path=str(Path(shots) / "benchgen_materials.png"))
+
+    pane.locator(".bg-gate [data-sign]").click()
+    pane.locator(".bg-gate [data-pass]").wait_for(timeout=15000)
+    folder = next((tmp_path / "bench").glob("*/spec.json")).parent
+    spec = json.loads((folder / "spec.json").read_text(encoding="utf-8"))
+    d = spec["design"]
+    assert d["picks"]["accent"] == "#ff7a00" and d["picks"]["button"] == "pill"
+    assert d["note"] == "按钮要大一点"
+    assert [(a["id"], a["role"]) for a in d["assets"]] == [(mid, "logo")]
+    assert (folder / d["assets"][0]["file"]).is_file()
+    assert d["assets"][0]["file"] in (folder / "index.html").read_text(encoding="utf-8")

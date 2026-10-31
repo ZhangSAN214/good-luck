@@ -244,3 +244,38 @@ def test_decide_when_stuck_over_http(tmp_path):
         assert len(c.get("/api/bench").json()["current"]["rounds"]) == 2
         r = c.post(f"/api/bench/{b['id']}/decide", json={"action": "accept"})
         assert r.json()["current"]["status"] == "done"
+
+
+def test_materials_over_http(tmp_path):
+    from ..core.benchkit.test_materials import LookSC
+
+    service = RoundtableService(Env().rt)
+    service.bench = BenchBuilder(
+        BenchRules(project={"enabled": True, "interview": False}),
+        root=tmp_path / "bench",
+        supercomputer=LookSC(),
+        render=render,
+        check=fake_check(),
+        seed=1,
+    )
+    with TestClient(create_app(service)) as c:
+        assert c.post("/api/bench/materials?name=a.exe", content=b"x").status_code == 400
+        img = c.post("/api/bench/materials?name=参考.png", content=b"png")
+        assert img.status_code == 201 and img.json()["kind"] == "image"
+        mid = img.json()["id"]
+        c.post("/api/bench", json={"request": "修图台", "materials": [mid]})
+        wait_done(c)
+        b = c.get("/api/bench").json()["current"]
+        assert b["gate"]["kind"] == "sign" and b["look"]["summary"]
+        bid = b["id"]
+        assert c.get(f"/bench/{bid}/materials/{mid}.png").content == b"png"
+        logo = c.post("/api/bench/materials?name=标.png", content=b"logo").json()["id"]
+        assert c.post(f"/api/bench/{bid}/materials", json={"ids": []}).status_code == 422
+        assert c.post(f"/api/bench/{bid}/materials", json={"ids": [logo]}).status_code == 200
+        assert c.post(f"/api/bench/{bid}/look").status_code == 200
+        wait_done(c)
+        design = {"assets": {logo: "logo"}, "accent": "#ff7a00", "note": "大按钮", "button": "pill"}
+        assert c.post(f"/api/bench/{bid}/sign", json={"design": design}).status_code == 200
+        wait_done(c)
+        html = c.get(f"/bench/{bid}/index.html").text
+        assert f"assets/{logo}.png" in html and "--k-accent: #ff7a00" in html

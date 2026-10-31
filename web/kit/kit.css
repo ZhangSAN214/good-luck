@@ -453,3 +453,44 @@
 [data-k-type="serif"] { --k-head: "Noto Serif SC", "Source Han Serif SC", "Songti SC", "SimSun", Georgia, serif; }
 [data-k-type="mono"] { --k-head: var(--k-mono); }
 [data-k-type] .k-root h1, [data-k-type] .k-root h2, [data-k-type] .k-root h3, [data-k-type] .k-display, [data-k-type] .k-stat .k-value { font-family: var(--k-head, var(--k-font)); }
+/* 页面宽度、顶栏、主视觉高度 */
+[data-k-width="narrow"] .k-page { max-width: 1080px; }
+[data-k-width="full"] .k-page { max-width: none; }
+[data-k-topbar="banner"] .k-topbar { padding: 26px 24px; border-radius: var(--k-r); background: linear-gradient(135deg, var(--k-accent), color-mix(in srgb, var(--k-accent) 55%, var(--k-s3))); color: var(--k-accent-fg); box-shadow: var(--k-shadow-lg); }
+[data-k-topbar="banner"] .k-brand h1 { font-size: clamp(22px, 3.4vw, 32px); }
+[data-k-topbar="banner"] .k-brand .k-sub { color: color-mix(in srgb, var(--k-accent-fg) 82%, transparent); font-size: 14px; }
+[data-k-topbar="banner"] .k-brand .k-logo { background: var(--k-accent-fg); color: var(--k-accent); }
+[data-k-topbar="compact"] .k-topbar { padding: 0 2px; }
+[data-k-topbar="compact"] .k-brand h1 { font-size: 16px; }
+[data-k-topbar="compact"] .k-brand .k-logo { width: 28px; height: 28px; border-radius: 8px; }
+[data-k-topbar="compact"] .k-brand .k-sub { display: none; }
+.k-brand .k-logo-img { overflow: hidden; background: var(--k-surface); padding: 0; }
+.k-brand .k-logo-img img { width: 100%; height: 100%; object-fit: contain; display: block; }
+[data-k-herosize="low"] .k-card.k-hero { min-height: min(48vh, 420px); }
+[data-k-herosize="tall"] .k-card.k-hero { min-height: min(86vh, 820px); }
+/* 背景：soft 柔光（默认）、plain 纯色、grid 网格点、image 素材图（--k-bg-image 由外壳写） */
+[data-k-bg="plain"] .k-root { background: var(--k-bg); }
+[data-k-bg="grid"] .k-root { background: radial-gradient(color-mix(in srgb, var(--k-fg) 14%, transparent) 1px, transparent 1.4px) 0 0 / 18px 18px, var(--k-bg); }
+[data-k-bg="image"] .k-root { background: linear-gradient(color-mix(in srgb, var(--k-bg) 74%, transparent), color-mix(in srgb, var(--k-bg) 88%, transparent)), var(--k-bg-image, none) center / cover fixed, var(--k-bg); }
+/* 阴影：none 无、soft 轻（默认）、deep 重 */
+[data-k-shadow="none"] .k-card, [data-k-shadow="none"] .k-stat { box-shadow: none; }
+[data-k-shadow="deep"] .k-card, [data-k-shadow="deep"] .k-stat { box-shadow: var(--k-shadow-lg); }
+/* 字号 */
+[data-k-size="small"] .k-root { font-size: 13px; }
+[data-k-size="small"] .k-card-h h2 { font-size: 14px; }
+[data-k-size="large"] .k-root { font-size: 15.5px; }
+[data-k-size="large"] .k-card-h h2 { font-size: 17px; }
+[data-k-size="large"] .k-brand h1 { font-size: 24px; }
+[data-k-size="large"] .k-btn { min-height: 40px; font-size: 15px; }
+/* 按钮形状 */
+[data-k-button="pill"] .k-btn { border-radius: 999px; }
+[data-k-button="square"] .k-btn { border-radius: 3px; }
+/* 窗口标题：icon 图标块（默认）、plain 只有文字、bar 彩色顶条 */
+[data-k-cardhead="plain"] .k-card-h .k-ico-wrap { display: none; }
+[data-k-cardhead="bar"] .k-card { border-top: 3px solid var(--k-accent); }
+[data-k-cardhead="bar"] .k-card-h .k-ico-wrap { background: none; width: auto; }
+/* 动效：none 无、soft 轻（默认）、rich 丰富 */
+[data-k-motion="none"] .k-reveal { animation: none; }
+[data-k-motion="rich"] .k-card { transition: transform var(--k-fast) var(--k-ease), box-shadow var(--k-fast) var(--k-ease); }
+[data-k-motion="rich"] .k-card:hover { transform: translateY(-3px); box-shadow: var(--k-shadow-lg); }
+@media (prefers-reduced-motion: reduce) { [data-k-motion="rich"] .k-card:hover { transform: none; } }

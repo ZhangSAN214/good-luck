@@ -22,6 +22,7 @@ export const STATUS = {
   failed: '失败',
   cancelled: '已叫停',
   interviewing: '正在准备访谈',
+  looking: '正在看素材',
   waiting: '等你',
   delivered: '已交付',
   evolving: '正在出下一版提案',
@@ -49,6 +50,55 @@ export function layoutSpans(wins, hero, layout) {
 const SPANS = [3, 4, 6, 8, 12];
 const SPAN_NAME = { 3: '窄', 4: '三分之一', 6: '一半', 8: '三分之二', 12: '通栏' };
 const DESK_W = 1280;
+/** 主色上的字用黑还是白（和后端 spec.py 的 _fg_for 一样算）。 */
+export function fgFor(hex) {
+  const lin = (c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
+  const [r, g, b] = [1, 3, 5].map((i) => lin(parseInt(hex.slice(i, i + 2), 16) / 255));
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b > 0.36 ? '#111418' : '#ffffff';
+}
+// 不改样式、只给写文案的助手看的项；其余每项都写成预览页 <html data-k-*>（和成品外壳一样）
+const TEXT_ONLY = ['layout', 'theme', 'tone'];
+const FRAMES = 6;
+const matUrl = (bid, m) => `/bench/${encodeURIComponent(bid)}/materials/${encodeURIComponent(m.file)}`;
+
+/** 视频在浏览器里截几帧（均匀取点），交给能看图的助手看；打不开的视频返回空。 */
+export async function videoFrames(file, n = FRAMES, width = 960) {
+  const url = URL.createObjectURL(file);
+  const v = document.createElement('video');
+  Object.assign(v, { muted: true, preload: 'auto', playsInline: true, src: url });
+  const out = [];
+  try {
+    await new Promise((ok, bad) => {
+      v.onloadeddata = ok;
+      v.onerror = () => bad(new Error('打不开'));
+      setTimeout(() => bad(new Error('太慢')), 15000);
+    });
+    const dur = Number.isFinite(v.duration) ? v.duration : 0;
+    const scale = Math.min(1, width / (v.videoWidth || width));
+    const c = document.createElement('canvas');
+    c.width = Math.max(1, Math.round((v.videoWidth || width) * scale));
+    c.height = Math.max(1, Math.round((v.videoHeight || 540) * scale));
+    const base = file.name.replace(/\.[^.]+$/, '');
+    for (let i = 0; i < (dur ? n : 1); i++) {
+      const t = dur ? (dur * (i + 0.5)) / n : 0;
+      if (t > 0) {
+        await new Promise((ok) => {
+          const done = setTimeout(ok, 3000);
+          v.onseeked = () => (clearTimeout(done), ok());
+          v.currentTime = t;
+        });
+      }
+      c.getContext('2d').drawImage(v, 0, 0, c.width, c.height);
+      const blob = await new Promise((ok) => c.toBlob(ok, 'image/jpeg', 0.82));
+      if (blob) out.push(new File([blob], `${base}-第${i + 1}帧-${t.toFixed(1)}秒.jpg`, { type: 'image/jpeg' }));
+    }
+  } catch {
+    return [];
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+  return out;
+}
 const PHONE_W = 390;
 // 项目室四个阶段（你是甲方，几位助手是乙方）
 const STAGES = ['立项', '执行', '交付', '革新'];
@@ -118,6 +168,9 @@ export class BenchGenPanel {
     this.timer = null;
     this.net = null; // 联网自检的结果（null 没测过，'busy' 正在测）
     this.dirty = false; // 项目室的表单里填了还没交：定时刷新不重画，免得把你写的冲掉
+    this.openGroups = new Set(['结构', '色彩']); // 选型台上展开着的分组（重画时保持）
+    this.mats = []; // 开工前拖进来的素材（已上传、还没开工）：{id, name, kind, of, thumb}
+    this.uploading = 0;
     this.pick = null; // 选型台上点的（版型、配色、材质……、参考、窗口宽窄和去掉的），签字时一起交
     this.icons = null; // 预览里画图标用（零件库的 icons.js，第一次打开选型台时加载）
     this.seq = 0; // 每次取状态加一：你点了按钮之后，之前发出去的定时刷新回来也不用（是旧的）
@@ -134,8 +187,47 @@ export class BenchGenPanel {
         if (x.value) this.pick.spans[x.dataset.dspan] = Number(x.value);
         else delete this.pick.spans[x.dataset.dspan];
       } else if (x.matches('[data-ddrop]')) this.pick.drop[x.checked ? 'delete' : 'add'](x.dataset.ddrop);
+      else if (x.matches('[data-drole]')) this.pick.assets[x.dataset.drole] = x.value;
       else return;
       this.redrawDesign();
+    });
+    // details 的 toggle 不冒泡，用捕获记下你展开 / 收起了哪组
+    el.addEventListener(
+      'toggle',
+      (e) => {
+        const g = e.target.dataset && e.target.dataset.dgroup;
+        if (g) this.openGroups[e.target.open ? 'add' : 'delete'](g);
+      },
+      true,
+    );
+    el.addEventListener('dragover', (e) => {
+      const zone = e.target.closest('[data-drop]');
+      if (!zone) return;
+      e.preventDefault();
+      zone.classList.add('bg-over');
+    });
+    el.addEventListener('dragleave', (e) => e.target.closest('[data-drop]')?.classList.remove('bg-over'));
+    el.addEventListener('drop', (e) => {
+      const zone = e.target.closest('[data-drop]');
+      if (!zone) return;
+      e.preventDefault();
+      zone.classList.remove('bg-over');
+      this.addFiles([...(e.dataTransfer?.files || [])], zone.dataset.drop);
+    });
+    // 选文件的框放在面板外面：定时刷新会重画面板，挑文件挑得慢也不会丢
+    this.fileInput = Object.assign(document.createElement('input'), { type: 'file', multiple: true, accept: 'image/*,video/*', hidden: true });
+    this.fileInput.dataset.benchfile = 'submit';
+    this.fileInput.addEventListener('change', () => {
+      this.addFiles([...this.fileInput.files], this.fileInput.dataset.benchfile);
+      this.fileInput.value = '';
+    });
+    document.body.append(this.fileInput);
+    el.addEventListener('input', (e) => {
+      if (e.target.matches('[data-dnote]') && this.pick) this.pick.note = e.target.value;
+      if (e.target.matches('[data-daccent]') && this.pick) {
+        this.pick.accent = e.target.value;
+        this.drawPreview();
+      }
     });
     this.ro = typeof ResizeObserver === 'function' ? new ResizeObserver(() => this.fitPreview()) : null;
     window.addEventListener('message', (e) => this.onMessage(e));
@@ -216,7 +308,17 @@ export class BenchGenPanel {
     const notes = [];
     if (st.unavailable) notes.push(`<p class="sc-warn">${esc(st.unavailable)}</p>`);
     if (this.err) notes.push(`<p class="sc-warn" role="alert">${esc(this.err)}</p>`);
+    const mats = this.mats
+      .filter((m) => !m.of)
+      .map((m) => {
+        const frames = this.mats.filter((x) => x.of === m.id).length;
+        return `<li class="bg-mat">${m.thumb ? `<img src="${esc(m.thumb)}" alt="">` : ''}<span>${esc(m.name)}${m.kind === 'video' ? `（视频，截了 ${frames} 帧）` : ''}</span><button type="button" class="link" data-unmat="${esc(m.id)}" aria-label="去掉 ${esc(m.name)}">去掉</button></li>`;
+      })
+      .join('');
+    const drop = `<div class="bg-drop" data-drop="submit">把参考图或视频拖到这里（会先请能看图的助手分析，再出方案）<button type="button" class="link" data-pick="submit">选文件</button>
+      ${this.uploading ? `<span class="sc-sub">正在上传 ${this.uploading} 个…</span>` : ''}${mats ? `<ul class="bg-mats">${mats}</ul>` : ''}</div>`;
     const ask = `<div class="sc-ask"><textarea data-text aria-label="想要什么样的工作台" placeholder="一句话说你想要什么台，比如：做一个管理我租的三套房子的台，看租金、到期、维修和水电" ${busy ? 'disabled' : ''}>${esc(this.draft)}</textarea>
+      ${busy ? '' : drop}
       <div class="sc-row"><button type="button" class="btn primary" data-submit ${busy || st.unavailable ? 'disabled' : ''}>生成工作台</button>
       <span class="sc-hint">${st.project ? '你是甲方：先回答几个问题 → 调研（至少 10 个 GitHub 项目、论文、资讯）→ 方案书你签字 → 按里程碑演示，你通过或提意见 → 交付你验收 → 下一版提案。停下来等你时不花次数。' : `拆需求、找插件、几位助手分头写、质检加截图评审（不评自己写的），不过线就打回重做，最多 ${esc(st.max_rounds || 3)} 轮。`}花的是订阅次数。</span></div></div>`;
     const b = this.viewing || st.current;
@@ -462,6 +564,9 @@ export class BenchGenPanel {
       bid: b.id,
       ...picks,
       refs: new Set((d.refs || []).map((r) => r.name)),
+      assets: {},
+      accent: picks.accent || '',
+      note: d.note || '',
       spans: {},
       drop: new Set(),
       view: { mode: 'light', device: 'desk' },
@@ -475,6 +580,8 @@ export class BenchGenPanel {
     if (!d || !this.pick || this.pick.bid !== b.id) return undefined;
     const out = { refs: [...this.pick.refs], spans: { ...this.pick.spans }, drop: [...this.pick.drop] };
     for (const dim of d.dims || []) out[dim.key] = this.pick[dim.key] || '';
+    out.note = this.pick.note || '';
+    out.assets = { ...this.pick.assets };
     return out;
   }
 
@@ -507,18 +614,32 @@ export class BenchGenPanel {
   }
 
   designOpts(b, d, pick) {
-    const dims = (d.dims || [])
-      .map((dim) => {
-        const rec = (d.recommend || {})[dim.key];
-        const cur = dim.options.find((o) => o.id === pick[dim.key]) || dim.options[0];
-        const chips = dim.options
-          .map((o) => `<button type="button" class="chip" data-dz="${esc(dim.key)}" data-v="${esc(o.id)}" aria-pressed="${o.id === pick[dim.key]}" title="${esc(o.hint)}">${esc(o.label)}${o.id === rec ? '<span class="bg-rec">推荐</span>' : ''}</button>`)
+    const one = (dim) => {
+      const rec = (d.recommend || {})[dim.key];
+      const why = (d.why || {})[dim.key];
+      if (dim.kind === 'color') {
+        const palette = [...new Set([...(((d.look || {}).palette) || []), ...(rec ? [rec] : [])])];
+        const sw = palette
+          .map((c) => `<button type="button" class="bg-swatch" data-swatch="${esc(c)}" style="background:${esc(c)}" aria-pressed="${pick.accent === c}" title="${esc(c)}${c === rec ? '（推荐）' : ''}" aria-label="主色 ${esc(c)}"></button>`)
           .join('');
-        const why = (d.why || {})[dim.key];
-        return `<div class="bg-dim"><b>${esc(dim.label)}</b><span class="bg-opts">${chips}</span>
-          <span class="sc-sub">${esc(cur.hint)}${why && cur.id === rec ? `。推荐理由：${esc(why)}` : ''}</span></div>`;
-      })
-      .join('');
+        return `<div class="bg-dim"><b>${esc(dim.label)}</b><span class="bg-opts"><input type="color" data-daccent value="${esc(pick.accent || '#2f5bea')}" aria-label="自己挑主色">
+          ${sw}<button type="button" class="chip" data-dz="accent" data-v="" aria-pressed="${!pick.accent}">用配色自带</button></span>
+          <span class="sc-sub">${palette.length ? '色块是从你的素材里取的。' : ''}${pick.accent ? `现在：${esc(pick.accent)}` : '跟着配色走'}${why && pick.accent === rec ? `。推荐理由：${esc(why)}` : ''}</span></div>`;
+      }
+      const cur = dim.options.find((o) => o.id === pick[dim.key]) || dim.options[0];
+      const chips = dim.options
+        .map((o) => `<button type="button" class="chip" data-dz="${esc(dim.key)}" data-v="${esc(o.id)}" aria-pressed="${o.id === pick[dim.key]}" title="${esc(o.hint)}">${esc(o.label)}${o.id === rec ? '<span class="bg-rec">推荐</span>' : ''}</button>`)
+        .join('');
+      return `<div class="bg-dim"><b>${esc(dim.label)}</b><span class="bg-opts">${chips}</span>
+        <span class="sc-sub">${esc(cur.hint)}${why && cur.id === rec ? `。推荐理由：${esc(why)}` : ''}</span></div>`;
+    };
+    const groups = [];
+    for (const dim of d.dims || []) {
+      const g = dim.group || '其他';
+      if (!groups.length || groups[groups.length - 1][0] !== g) groups.push([g, []]);
+      groups[groups.length - 1][1].push(dim);
+    }
+    const dims = groups.map(([g, list]) => `<details class="bg-dgroup" data-dgroup="${esc(g)}" ${this.openGroups.has(g) ? 'open' : ''}><summary>${esc(g)}<span class="sc-sub">${list.map((x) => esc(x.label)).join('、')}</span></summary>${list.map(one).join('')}</details>`).join('');
     const refs = (d.refs || [])
       .map((r) => `<li><label><input type="checkbox" data-dref="${esc(r.name)}" ${pick.refs.has(r.name) ? 'checked' : ''}> <b>${esc(r.name)}</b> <span class="bg-src">${esc(r.from || '')}</span> ${esc(r.borrow || '')}</label></li>`)
       .join('');
@@ -532,10 +653,84 @@ export class BenchGenPanel {
           <select data-dspan="${esc(w.id)}" aria-label="「${esc(w.title)}」的宽度" ${off ? 'disabled' : ''}>${opts}</select></li>`;
       })
       .join('');
-    return `${dims}
+    return `${this.materialsHtml(b, d, pick)}${dims}
+      <label class="bg-dim"><b>还想要的风格（自己写，助手照着做）</b><textarea data-dnote rows="2" maxlength="200" placeholder="比如：像老式胶片相机的质感、按钮要大、别用紫色">${esc(pick.note || '')}</textarea></label>
       ${refs ? `<div class="bg-dim"><b>参考作品（勾上的写进规格，助手照着借鉴）</b><ul class="bg-drefs">${refs}</ul></div>` : ''}
       <div class="bg-dim"><b>窗口（去掉勾就不做，宽度可调）</b><ul class="bg-dwins">${wins}</ul></div>
       <button type="button" class="link" data-dreset>恢复推荐</button>`;
+  }
+
+  /** 素材：拖进来的图和视频，标用处（只当参考 / Logo / 主视觉图 / 背景 / 图库）；看过的显示分析。 */
+  materialsHtml(b, d, pick) {
+    const all = d.materials || [];
+    const roles = d.roles || {};
+    const rows = all
+      .filter((m) => m.kind !== 'frame')
+      .map((m) => {
+        const frames = all.filter((x) => x.of === m.id);
+        const thumb = m.kind === 'video' ? (frames[0] ? matUrl(b.id, frames[0]) : '') : matUrl(b.id, m);
+        const opts = Object.entries(roles)
+          .filter(([k]) => !(m.kind === 'video' && (k === 'logo' || k === 'bg')))
+          .map(([k, t]) => `<option value="${esc(k)}" ${(pick.assets[m.id] || 'ref') === k ? 'selected' : ''}>${esc(t)}</option>`)
+          .join('');
+        const seen = m.kind === 'video' ? frames.some((x) => x.seen) : m.seen;
+        return `<li class="bg-mat">${thumb ? `<img src="${esc(thumb)}" alt="">` : ''}<span>${esc(m.name)}${m.kind === 'video' ? `（视频，${frames.length} 帧）` : ''}${seen ? ' <span class="bg-src">看过</span>' : ''}</span>
+          <select data-drole="${esc(m.id)}" aria-label="「${esc(m.name)}」用来做什么">${opts}</select></li>`;
+      })
+      .join('');
+    const look = d.look;
+    const items = ((look || {}).items || []).filter((x) => x.what).slice(0, 6).map((x) => `<li>${esc(x.what)}${x.borrow ? `：${esc(x.borrow)}` : ''}</li>`).join('');
+    const unseen = all.some((m) => (m.kind === 'image' || m.kind === 'frame') && !m.seen);
+    return `<div class="bg-dim bg-dmats" data-drop="board"><b>素材（拖图片或视频进来，标好用处，预览马上用上）</b>
+      ${rows ? `<ul class="bg-mats">${rows}</ul>` : '<span class="sc-sub">还没有素材。</span>'}
+      <span class="bg-opts"><button type="button" class="link" data-pick="board">选文件</button>
+      ${unseen ? '<button type="button" class="chip" data-dlook>请助手看一遍新素材（占 1 次）</button>' : ''}${this.uploading ? `<span class="sc-sub">正在上传 ${this.uploading} 个…</span>` : ''}</span>
+      ${look && look.summary ? `<p class="sc-sub">看素材的结论：${esc(look.summary)}</p>` : ''}${items ? `<ul class="bg-list">${items}</ul>` : ''}</div>`;
+  }
+
+  /** 拖进来的文件：先上传收下；视频再在浏览器里截几帧一起传。开工前的留在框里，签字前的直接加进工作台。 */
+  async addFiles(files, where) {
+    const ok = files.filter((f) => /^(image|video)\//.test(f.type) || /\.(png|jpe?g|webp|gif|mp4|webm|mov)$/i.test(f.name));
+    if (!ok.length) {
+      this.err = '只收图片和视频';
+      return this.render();
+    }
+    this.uploading += ok.length;
+    where === 'board' ? this.redrawDesign() : this.render();
+    const got = [];
+    for (const f of ok) {
+      try {
+        const m = await this.api.material(f);
+        const video = m.kind === 'video';
+        got.push({ ...m, thumb: video ? '' : URL.createObjectURL(f) });
+        if (video) {
+          const frames = await videoFrames(f);
+          for (const fr of frames) {
+            const x = await this.api.material(fr, m.id);
+            got.push({ ...x, thumb: '' });
+          }
+          const first = got.find((x) => x.of === m.id);
+          if (first) got.find((x) => x.id === m.id).thumb = URL.createObjectURL(frames[0]);
+          if (!frames.length) this.err = `「${f.name}」浏览器截不了帧，只能当文件参考`;
+        }
+      } catch (x) {
+        this.err = `「${f.name}」没传上：${x.message}`;
+      }
+      this.uploading -= 1;
+    }
+    const b = this.viewing || (this.st || {}).current;
+    if (where === 'board' && b && got.length) {
+      try {
+        this.st = await this.api.attach(b.id, got.map((m) => m.id));
+        const fresh = (this.st || {}).current;
+        if (fresh && fresh.id === b.id && fresh.proposal) b.proposal.design.materials = fresh.proposal.design.materials;
+      } catch (x) {
+        this.err = x.message;
+      }
+      return this.redrawDesign();
+    }
+    this.mats.push(...got);
+    this.render();
   }
 
   /** 选型变了：只重画左边的选项和右边的预览，不碰你在验收清单里改的字。 */
@@ -573,20 +768,38 @@ export class BenchGenPanel {
     const root = doc.documentElement;
     root.dataset.kTheme = pick.theme || 'ink';
     root.dataset.kMode = pick.view.mode;
-    for (const k of ['material', 'density', 'corner', 'type']) root.dataset[`k${k[0].toUpperCase()}${k.slice(1)}`] = pick[k] || '';
+    const roles = {};
+    for (const m of d.materials || []) if (pick.assets[m.id] && pick.assets[m.id] !== 'ref') roles[pick.assets[m.id]] = m;
+    for (const dim of d.dims || []) {
+      if (dim.kind === 'color' || TEXT_ONLY.includes(dim.key)) continue;
+      let v = pick[dim.key] || '';
+      if (dim.key === 'bg' && v === 'image' && !roles.bg) v = 'soft'; // 没标背景图就退回柔光（和成品一样）
+      root.dataset[`k${dim.key[0].toUpperCase()}${dim.key.slice(1)}`] = v;
+    }
+    root.style.cssText = '';
+    if (/^#[0-9a-f]{6}$/i.test(pick.accent || '')) {
+      root.style.setProperty('--k-accent', pick.accent);
+      root.style.setProperty('--k-accent-fg', fgFor(pick.accent));
+    }
+    if (roles.bg) root.style.setProperty('--k-bg-image', `url("${matUrl(b.id, roles.bg)}")`);
     const ic = (name, size = 17) => this.icons(name, { size });
     const cards = this.arranged(b)
       .map((w) => {
         const hero = w.id === p.hero;
         const acts = (w.actions || []).slice(0, 3).map((a, i) => `<button type="button" class="k-btn${i === 0 ? ' k-primary' : ''}">${esc(a)}</button>`).join('');
         const parts = (w.parts || []).slice(0, 5).map((x) => `<span class="k-badge">${esc(x)}</span>`).join('');
+        const media = hero && roles.hero
+          ? roles.hero.kind === 'video'
+            ? `<video src="${esc(matUrl(b.id, roles.hero))}" muted autoplay loop playsinline style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover"></video>`
+            : `<img src="${esc(matUrl(b.id, roles.hero))}" alt="" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover">`
+          : '';
         const body = hero
-          ? `<div class="k-stack" style="padding:22px 22px 18px;flex:1;justify-content:flex-end;background:linear-gradient(160deg,var(--k-accent-soft),transparent 70%)"><span class="k-kicker">${esc(w.title)}</span><p class="k-display">${esc(d.tagline || p.subtitle || w.title)}</p><p class="k-muted">${esc(w.purpose)}</p><div class="k-row">${parts}</div><div class="k-row">${acts}</div></div>`
+          ? `<div class="k-stack" style="position:relative;padding:22px 22px 18px;flex:1;justify-content:flex-end;background:linear-gradient(160deg,var(--k-accent-soft),transparent 70%)">${media}<div class="k-stack" style="position:relative;${media ? 'background:color-mix(in srgb,var(--k-surface) 82%,transparent);padding:14px;border-radius:var(--k-r-sm)' : ''}"><span class="k-kicker">${esc(w.title)}</span><p class="k-display">${esc(d.tagline || p.subtitle || w.title)}</p><p class="k-muted">${esc(w.purpose)}</p><div class="k-row">${parts}</div><div class="k-row">${acts}</div></div></div>`
           : `<div class="k-stack"><p class="k-muted">${esc(w.purpose)}</p><div class="k-row">${parts}</div><div class="k-row">${acts}</div></div>`;
         return `<section class="k-card k-span-${w.span}${hero ? ' k-hero' : ''}" data-pw="${esc(w.id)}" data-span="${w.span}"><div class="k-card-h"><span class="k-ico-wrap">${ic(w.icon || 'layout-grid')}</span><div><h2>${esc(w.title)}</h2>${w.sub ? `<div class="k-sub">${esc(w.sub)}</div>` : ''}</div></div><div class="k-card-b">${body}</div></section>`;
       })
       .join('');
-    doc.body.innerHTML = `<div class="k-page"><header class="k-topbar"><div class="k-brand"><span class="k-logo">${ic(p.icon || 'layers', 20)}</span><div><h1>${esc(p.title || '')}</h1><div class="k-sub">${esc(p.subtitle || '')}</div></div></div></header><main class="k-grid">${cards}</main></div>`;
+    doc.body.innerHTML = `<div class="k-page"><header class="k-topbar"><div class="k-brand">${roles.logo ? `<span class="k-logo k-logo-img"><img src="${esc(matUrl(b.id, roles.logo))}" alt="标志"></span>` : `<span class="k-logo">${ic(p.icon || 'layers', 20)}</span>`}<div><h1>${esc(p.title || '')}</h1><div class="k-sub">${esc(p.subtitle || '')}</div></div></div></header><main class="k-grid">${cards}</main></div>`;
     this.fitPreview();
   }
 
@@ -770,7 +983,22 @@ export class BenchGenPanel {
 
   async onClick(e) {
     const t = e.target;
-    if (t.closest('[data-submit]')) return this.act(() => this.api.submit(this.draft), true);
+    if (t.closest('[data-submit]')) {
+      const ids = this.mats.map((m) => m.id);
+      const done = await this.act(() => this.api.submit(this.draft, ids), true);
+      if (!this.err) this.mats = [];
+      return done;
+    }
+    const pickBtn = t.closest('[data-pick]');
+    if (pickBtn) {
+      this.fileInput.dataset.benchfile = pickBtn.dataset.pick;
+      return this.fileInput.click();
+    }
+    const un = t.closest('[data-unmat]');
+    if (un) {
+      this.mats = this.mats.filter((m) => m.id !== un.dataset.unmat && m.of !== un.dataset.unmat);
+      return this.render();
+    }
     if (t.closest('[data-cancel]') || t.closest('[data-endproj]')) return this.act(() => this.api.cancel());
     const b = this.viewing || (this.st || {}).current;
     const form = t.closest('[data-form]');
@@ -792,6 +1020,15 @@ export class BenchGenPanel {
       if (key === 'mode' || key === 'device') this.pick.view[key] = value;
       else this.pick[key] = value;
       return this.redrawDesign();
+    }
+    const sw = t.closest('[data-swatch]');
+    if (sw && this.pick) {
+      this.pick.accent = sw.dataset.swatch;
+      return this.redrawDesign();
+    }
+    if (t.closest('[data-dlook]') && b) {
+      this.dirty = false;
+      return this.act(() => this.api.look(b.id));
     }
     if (t.closest('[data-dreset]') && this.pick) {
       this.pick = null;
