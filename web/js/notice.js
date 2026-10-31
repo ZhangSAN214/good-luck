@@ -6,14 +6,17 @@
 const esc = (s) =>
   String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 
-const KEY = 'roundtable.notice.read'; // 看过的版本号
+const KEY = 'roundtable.notice.read'; // 看过的条目 id（#PR 编号；旧版存的是 1.<PR 编号>，读的时候换算）
 const SHOWN = 5; // 默认列出最近几条，更早的折叠起来
 
-/** 还没看过的版本（保持新的在前）。 */
+/** 还没看过的条目 id（保持新的在前）。 */
 export function unreadVersions(releases, read) {
   const seen = new Set(read || []);
-  return (releases || []).map((r) => r.version).filter((v) => !seen.has(v));
+  return (releases || []).map((r) => r.id).filter((v) => !seen.has(v));
 }
+
+/** 旧版按「1.<PR 编号>」记已读，换成现在的「#<PR 编号>」。 */
+export const migrateRead = (ids) => ids.map((x) => x.replace(/^1\.(\d+(\.\d+)?)$/, '#$1'));
 
 const ICON = {
   horn: '<path d="M4 10v4h3l6 4V6L7 10zM16.5 9a4 4 0 0 1 0 6M19 7a7 7 0 0 1 0 10"/>',
@@ -101,7 +104,7 @@ export class Notice {
   loadRead() {
     try {
       const v = JSON.parse(localStorage.getItem(KEY) || '[]');
-      return Array.isArray(v) ? v.filter((x) => typeof x === 'string') : [];
+      return Array.isArray(v) ? migrateRead(v.filter((x) => typeof x === 'string')) : [];
     } catch {
       return [];
     }
@@ -256,10 +259,10 @@ export class Notice {
   }
 
   release(r) {
-    const isNew = this.fresh.has(r.version);
+    const isNew = this.fresh.has(r.id);
     const list = (label, items) =>
       items?.length ? `<p class="nt-k">${label}</p><ul>${items.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>` : '';
-    return `<details class="nt-rel" data-v="${esc(r.version)}"${this.expanded.has(r.version) ? ' open' : ''}>
+    return `<details class="nt-rel" data-v="${esc(r.id)}"${this.expanded.has(r.id) ? ' open' : ''}>
       <summary><span class="nt-ver">v${esc(r.version)}</span><span class="nt-ttl">${esc(r.title)}</span>${
         isNew ? '<span class="nt-new">新</span>' : ''
       }<span class="nt-date">${esc(r.date)}</span></summary>
@@ -287,13 +290,13 @@ export class Notice {
       </div>`;
     this.paintButton();
     // 默认展开的最新一条在面板打开时算看过
-    if (this.open && rels[0] && this.expanded.has(rels[0].version)) this.markRead([rels[0].version]);
+    if (this.open && rels[0] && this.expanded.has(rels[0].id)) this.markRead([rels[0].id]);
   }
 
   toggle(open, refocus = true) {
     if (open) {
       this.fresh = new Set(this.unread());
-      const latest = this.data?.releases?.[0]?.version;
+      const latest = this.data?.releases?.[0]?.id;
       this.expanded = new Set(latest ? [latest] : []);
     }
     this.open = open;
@@ -315,7 +318,7 @@ export class Notice {
     const del = e.target.closest('[data-del-date]');
     if (del) return this.removeDate(del.dataset.delDate);
     if (e.target.closest('[data-allread]')) {
-      this.markRead((this.data?.releases || []).map((r) => r.version));
+      this.markRead((this.data?.releases || []).map((r) => r.id));
       this.fresh.clear();
       return this.paint();
     }
