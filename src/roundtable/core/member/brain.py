@@ -42,6 +42,7 @@ from roundtable.core.member.lingo import Lingo
 from roundtable.core.member.love import USER, Heart
 from roundtable.core.member.memes import MemeSense
 from roundtable.core.member.mode import Mode, require_life
+from roundtable.core.member.phrasebook import Phrasebook
 from roundtable.core.member.profile import ProfileStore
 from roundtable.core.storage.repository import iso
 
@@ -144,6 +145,7 @@ class Brain:
         self.members = members
         self.profiles = ProfileStore(rt)
         self.memes = MemeSense(rt)
+        self.phrases = Phrasebook(rt, bus)
         # 爱与复合情绪（love.py）：传了 bus 时订阅聊天和生活事件；names：成员 id → 称呼
         self.heart = Heart(rt, bus, names)
         # 人味（human.py）：知识边界、自己的时间、自我一致、八卦、时间纵深、小毛病、主动约人
@@ -984,6 +986,21 @@ class Brain:
         if meme is not None:  # 网络梗：对方玩梗就接住（不懂就问），平时偶尔提一句最近在玩的梗
             text = f"{text}\n{meme[1]}"
             tags.append(meme[0])
+        else:  # 情境说法本：按场合和性格提一条说话招式（只写逻辑），或你常说的短句
+            phrase = self.phrases.line(
+                member,
+                last=last,
+                gist=gist.kind if gist is not None else "",
+                chosen=chosen,
+                traits=traits,
+                care=self.heart.care(member, USER, at),
+                hurt=hurt,
+                at=at,
+                rng=random.Random(f"phrase:{member}:{iso(at)}:{seed}"),
+            )
+            if phrase is not None:
+                text = f"{text}\n{phrase[1]}"
+                tags.append(phrase[0])
         extra = self.human.lines(
             member,
             to=to,
@@ -1237,6 +1254,7 @@ class Brain:
         self.human.after(card, at)
         if not card.silent:
             self.memes.after(card.member, card.tags, at)
+            self.phrases.after(card.member, card.tags, at)
 
 
 def _num(x: Any) -> float:

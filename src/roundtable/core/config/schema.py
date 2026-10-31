@@ -2191,6 +2191,62 @@ class SlopRules(_Strict):
     allow: list[str] = Field(default_factory=list, max_length=200)
 
 
+class PhraseEntry(_Strict):
+    """说话招式：什么场合（gists / cues / intents，都没写 = 随时）、
+    怎么说（只写逻辑，不给句子）、谁爱用。"""
+
+    name: str = Field(min_length=1, max_length=20)
+    how: str = Field(min_length=1, max_length=120)
+    gists: list[str] = []  # 对方这条的语境（chat.engine.lingo.gist 的 kind）
+    cues: list[str] = []  # 对方原话里的词（正则）
+    intents: list[str] = []  # 她这会儿的意图（brain.intents 的名字）
+    traits: dict[str, float] = {}  # 性格分每高 1 分加多少
+    base: float = Field(default=0.4, ge=-1, le=2)
+
+    @field_validator("cues")
+    @classmethod
+    def _compile(cls, cues: list[str]) -> list[str]:
+        for p in cues:
+            try:
+                re.compile(p)
+            except re.error as exc:
+                raise ValueError(f"正则写错了：{p!r}（{exc}）") from None
+        return cues
+
+
+class PhraseLearnRules(_Strict):
+    """跟你学：你接成员某种话时回的短句，同一种场合说过 times 次以上就记下。"""
+
+    enabled: bool = True
+    kinds: list[str] = []  # 只学这几种场合（gist kind）
+    max_chars: int = Field(default=12, ge=2, le=40)
+    times: int = Field(default=2, ge=1, le=20)
+    forget_days: float = Field(default=30, gt=0, le=365)
+    keep: int = Field(default=8, ge=1, le=50)  # 每种场合最多记几句
+    care: float = Field(default=0.45, ge=0, le=1)  # 在乎你到这个程度才学
+    intents: list[str] = ["respond", "joke"]
+    weight: float = Field(default=0.6, ge=0, le=2)
+    line: str = "这种时候有人爱说「{said}」，你听多了也会顺嘴说（别每次都用）"
+
+
+class PhrasebookRules(_Strict):
+    """情境说法本（2026-10-31 拟人插件调研第 4 项，借麦麦「表达学习」的思路）：
+    意图卡里按场合和性格提一条说话招式（只写逻辑、不给句子），或你常说的短句；
+    同一条她 reuse_days 天内不重复，已有 max_users 位在 taken_days 天里用过的别人不挑。
+    全程序、不调模型。"""
+
+    enabled: bool = True
+    chance: float = Field(default=0.2, ge=0, le=1)  # 有合适的招式时写进卡的概率
+    reuse_days: float = Field(default=3, ge=0, le=60)
+    taken_days: float = Field(default=7, ge=0, le=60)
+    max_users: int = Field(default=2, ge=1, le=8)
+    round_minutes: float = Field(default=10, ge=0, le=240)  # 别人这么多分钟内刚用过的招不挑
+    skip_gists: list[str] = ["crisis"]
+    line: str = "这会儿可以用一招：{how}（用你自己的口气，别套固定句子）"
+    entries: list[PhraseEntry] = Field(default_factory=list, max_length=60)
+    learn: PhraseLearnRules = PhraseLearnRules()
+
+
 class RhythmRules(_Strict):
     """作息与回话节奏（docs/BRAIN.md）：睡着时你发来的消息，多数醒了再回，有时被吵醒。"""
 
@@ -2383,6 +2439,7 @@ class EngineRules(_Strict):
     rhythm: RhythmRules = RhythmRules()
     pace: PaceRules = PaceRules()
     slop: SlopRules = SlopRules()
+    phrasebook: PhrasebookRules = PhrasebookRules()
     reach: ReachRules = ReachRules()
     feel: FeelRules = FeelRules()
 

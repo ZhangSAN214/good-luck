@@ -400,6 +400,31 @@ chat:
         你的, 我的, 她的, 他的, 我也, 你也, 我还, 你还, 我就, 你就, 我要, 你要, 我在, 你在, 给你, 给我, 跟你, 跟我, 和你,
         是不是, 有没有, 要不要, 会不会, 能不能, 好不好, 对不对, 行不行, 看到, 听到, 说的, 说了, 做了, 去了, 来了, 到了
       ]
+    phrasebook:                    # 情境说法本（2026-10-31 拟人插件调研第 4 项）：按场合和性格往意图卡里提一条说话招式（只写逻辑、不给句子），或你常说的短句；全程序
+      enabled: true
+      chance: 0.2                  # 有合适的招式时写进卡的概率
+      reuse_days: 3                # 同一招她 3 天内不重复
+      taken_days: 7
+      max_users: 2                 # 一周内已有 2 位用过的招，别人不挑（免得 8 位一个腔调）
+      round_minutes: 10            # 别人 10 分钟内刚用过的招不挑（同一轮群聊里不撞形式）
+      entries:                     # 前 8 条拆自 10-31 你转来的别人智能体发言（学逻辑不学句子），换个壳 / 补一刀是你说「差点意思」后补的
+        - {name: 开口亮态度, how: 第一句直接给反应或态度，不交代你看了什么、想了什么, gists: [video, image, link, funny, complain, brag, good_news], intents: [respond, joke], traits: {外向: 0.15}, base: 0.4}
+        - {name: 演起来, how: 演一下：带个拟声词或一个小动作（像打字时配的戏），用你自己的自称, gists: [funny, tease, brag], intents: [joke, respond, blurt], traits: {外向: 0.25, 幽默: 0.2}, base: 0.1}
+        - {name: 口是心非, how: 嘴上先嫌弃或损一句，话里其实在关心、在帮忙；反差就是笑点，别解释, gists: [emo, complain, brag, good_news, back], intents: [respond, joke, comfort], traits: {幽默: 0.2, 温和: -0.3}, base: 0.25}
+        - {name: 大词说小事, how: 拿很夸张、很不相称的大词说眼前这件小事（像在说一件天大的事），说一句就收, gists: [complain, emo, good_news, brag, chat], intents: [joke, respond, tangent], traits: {幽默: 0.3, 好奇: 0.1}, base: 0.1}
+        - {name: 先立后破, how: 先说一句很绝对的话，下半句马上把自己绕进去, gists: [tease, funny, chat], intents: [joke, share, blurt], traits: {幽默: 0.3}, base: 0.0}
+        - {name: 多走一步, how: 顺着一个常见的说法或句式多推一步、换掉一个词，玩一下再答, gists: [funny, tease], cues: ["会不会|能不能|要不要|有没有|肯不肯|会.{0,8}吗|能.{0,8}吗"], intents: [respond, joke], traits: {幽默: 0.3, 较真: -0.1}, base: 0.1}
+        - {name: 把球踢出去, how: 替对方先问一句再自己答，或者结尾把球踢给别人、留个钩子，别总结, gists: [question, tease, chat], intents: [respond, joke, share], traits: {外向: 0.1, 幽默: 0.15}, base: 0.15}
+        - {name: 碎句, how: 拆成几句短的碎碎说，标点和颜文字当语气，别写成一整段, gists: [funny, good_news, video, image, brag], intents: [respond, joke, blurt], traits: {外向: 0.3, 较真: -0.2}, base: 0.1}
+        - {name: 换个壳, how: 换个文体说这件事（小统计、说书、伪考据、宣言、旁白都行），形式本身就是笑点，说完别解释, gists: [funny, brag, complain, tease, chat, good_news], intents: [joke, share, blurt], traits: {幽默: 0.3, 好奇: 0.15, 外向: 0.1}, base: -0.05}
+        - {name: 补一刀, how: 前面正常铺垫，最后一句短短地反转或补个冷刀子收尾，不解释, gists: [funny, tease, brag, chat], intents: [joke, respond], traits: {幽默: 0.25, 温和: -0.1, 较真: 0.1}, base: 0.05}
+        - {name: 被夸推回去, how: 被夸了别说谢谢：推回去，或者顺杆往上爬, cues: ["(你|您)(好|真|太|也太|超)?(厉害|棒|牛|强|可爱|聪明|好看|漂亮|贴心|温柔)"], intents: [respond, joke], traits: {温和: 0.1}, base: 0.4}
+        - {name: 嘴硬, how: 被说中了先嘴硬一句，再一点点软下来, cues: ["被我说中|说中了|嘴硬|承认吧|是不是.{0,6}(想|喜欢|在意)|脸红"], intents: [respond, joke], traits: {幽默: 0.1, 温和: -0.1}, base: 0.4}
+        - {name: 站队, how: 先站对方这边，跟着骂一句具体的，再说别的, gists: [complain], intents: [respond], traits: {温和: 0.1}, base: 0.3}
+      learn:                       # 跟你学：你接她们某种话时回的短句（12 字内），同一种场合说过 2 次就记下，30 天不说就忘
+        kinds: [funny, complain, brag, good_news, tease, emo, sticker, image, video, link, back]
+        times: 2
+        care: 0.45
     rhythm:                        # 作息与回话节奏（docs/BRAIN.md，2026-10-30 你定）：她睡着时你发的消息，多数醒了再回，有时被吵醒（心情不好会抱怨两句）；说出让人担心的话时立刻回
       enabled: true
       wake_base: 0.12              # 被一条消息吵醒的基础概率；点名 / 私聊 +0.2，在乎你 ×0.3，十分钟内连发每多一条 +0.15，最多 0.8

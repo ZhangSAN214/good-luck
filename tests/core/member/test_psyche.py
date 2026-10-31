@@ -160,7 +160,7 @@ def test_psyche_off_keeps_plain_cards():
     env, brain = setup()
     _with(env, enabled=False)
     card = brain.intent("V1", last="下雨了", named=True, group=False, at=NOON, seed="x")
-    assert card.tags == ()
+    assert tuple(t for t in card.tags if not t.startswith("phrase:")) == ()  # 说法本另算
 
 
 def test_same_rules_for_everyone():
