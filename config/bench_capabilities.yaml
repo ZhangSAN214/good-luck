@@ -1,0 +1,39 @@
+# 能力地图（2026-10-31 工作台大更新第 5 批）：能给生成的工作台加本事的现成工具。
+# 工作台抽屉「资料 → 能力地图」显示；写窗口时按工作台类型挑几样附给助手。
+# kinds 用 bench.skills.kinds 里的类型名（editor、motion3d、game、sim、dashboard……）。刷新时程序去 GitHub 核实星数、许可证和最近更新（只读、免费）。
+# 加一项只改这里；status：没接 / 借了思路 / 已接入。difficulty：低 / 中 / 高。
+capabilities:
+  # --- 3D 与渲染 ---
+  - {id: threejs, direction: 3D 渲染, name: three.js, repo: mrdoob/three.js, use: 网页里显示和编辑 3D 场景、模型、材质和灯光, license: MIT, difficulty: 中, kinds: [motion3d, editor, game]}
+  - {id: babylonjs, direction: 3D 渲染, name: Babylon.js, repo: BabylonJS/Babylon.js, use: 带物理和编辑器的完整网页 3D 引擎, license: Apache-2.0, difficulty: 高, kinds: [motion3d, game, editor]}
+  - {id: model-viewer, direction: 3D 渲染, name: model-viewer, repo: google/model-viewer, use: 一个标签就能转着看 glTF 模型，支持 AR, license: Apache-2.0, difficulty: 低, kinds: [motion3d, editor, dashboard]}
+  - {id: gsplat, direction: 3D 渲染, name: gsplat.js, repo: huggingface/gsplat.js, use: 网页里看高斯泼溅（照片重建的 3D 场景）, license: MIT, difficulty: 中, kinds: [motion3d, editor]}
+  - {id: blender, direction: 3D 建模, name: Blender, repo: blender/blender, use: 电脑上建模、绑骨、渲染；可用命令行批量导出, license: GPL-3.0, difficulty: 高, kinds: [motion3d, editor], note: 只当外部工具调用，代码不搬}
+  # --- 动画与动效 ---
+  - {id: gsap, direction: 动画, name: GSAP, repo: greensock/GSAP, use: 时间轴动画、滚动动效、路径动画, license: 免费商用（自有条款）, difficulty: 低, kinds: [motion3d, editor, dashboard, game]}
+  - {id: lottie, direction: 动画, name: lottie-web, repo: airbnb/lottie-web, use: 播放设计软件导出的矢量动画（JSON）, license: MIT, difficulty: 低, kinds: [motion3d, editor, dashboard]}
+  - {id: theatre, direction: 动画, name: Theatre.js, repo: theatre-js/theatre, use: 带关键帧编辑面板的网页动画工具, license: Apache-2.0, difficulty: 中, kinds: [motion3d, editor]}
+  - {id: motion-canvas, direction: 动画, name: Motion Canvas, repo: motion-canvas/motion-canvas, use: 用代码做讲解动画并导出视频, license: MIT, difficulty: 中, kinds: [motion3d, editor]}
+  - {id: gifjs, direction: 动图, name: gif.js, repo: jnordberg/gif.js, use: 在浏览器里把画布逐帧编码成 GIF, license: MIT, difficulty: 低, kinds: [motion3d, editor]}
+  - {id: ffmpeg-wasm, direction: 视频, name: ffmpeg.wasm, repo: ffmpegwasm/ffmpeg.wasm, use: 浏览器里剪辑、转码、拼接音视频, license: MIT, difficulty: 中, kinds: [content, editor]}
+  # --- Live2D 与虚拟形象 ---
+  - {id: pixi-live2d, direction: Live2D, name: pixi-live2d-display, repo: guansss/pixi-live2d-display, use: 网页里加载和驱动 Live2D 模型（表情、动作、视线）, license: MIT, difficulty: 中, kinds: [motion3d, chat, editor, game], note: Cubism 核心库要按 Live2D 官方条款单独取}
+  - {id: pixi, direction: 2D 渲染, name: PixiJS, repo: pixijs/pixijs, use: 高性能 2D 画布：精灵、滤镜、粒子, license: MIT, difficulty: 中, kinds: [game, editor]}
+  - {id: mediapipe, direction: 动作捕捉, name: MediaPipe, repo: google-ai-edge/mediapipe, use: 摄像头识别人脸、手、全身关键点（驱动形象）, license: Apache-2.0, difficulty: 中, kinds: [motion3d, editor, game]}
+  # --- 修图与图像 ---
+  - {id: fabric, direction: 修图, name: Fabric.js, repo: fabricjs/fabric.js, use: 画布上的图层、选中、拖拽、变形、文字, license: MIT, difficulty: 低, kinds: [content, editor]}
+  - {id: konva, direction: 修图, name: Konva, repo: konvajs/konva, use: 带图层和事件的 2D 画布编辑, license: MIT, difficulty: 低, kinds: [content, editor, game]}
+  - {id: opencvjs, direction: 图像处理, name: OpenCV.js, repo: opencv/opencv, use: 浏览器里做抠图、边缘、透视校正、色彩调整, license: Apache-2.0, difficulty: 高, kinds: [editor]}
+  - {id: tldraw, direction: 白板, name: tldraw, repo: tldraw/tldraw, use: 无限画布白板（框选、连线、便签）, license: 自有条款（商用需授权）, difficulty: 中, kinds: [editor], note: 商用要授权，默认只借思路}
+  # --- 游戏与模拟 ---
+  - {id: phaser, direction: 游戏引擎, name: Phaser, repo: phaserjs/phaser, use: 网页 2D 游戏：场景、碰撞、动画、输入, license: MIT, difficulty: 中, kinds: [game]}
+  - {id: rapier, direction: 物理, name: Rapier, repo: dimforge/rapier.js, use: 2D / 3D 物理碰撞（掉落、弹跳、关节）, license: Apache-2.0, difficulty: 中, kinds: [game]}
+  - {id: boardgameio, direction: 回合制, name: boardgame.io, repo: boardgameio/boardgame.io, use: 回合制和桌游规则、多人同步、回放（麻将、跑团、剧本杀）, license: MIT, difficulty: 中, kinds: [game]}
+  - {id: tone, direction: 声音, name: Tone.js, repo: Tonejs/Tone.js, use: 网页里合成音乐、节拍、音效, license: MIT, difficulty: 中, kinds: [audio, game, editor]}
+  - {id: howler, direction: 声音, name: howler.js, repo: goldfire/howler.js, use: 稳定地播放和混合音效、背景音乐, license: MIT, difficulty: 低, kinds: [audio, game, editor, dashboard, education]}
+  # --- 数据与界面 ---
+  - {id: echarts, direction: 图表, name: Apache ECharts, repo: apache/echarts, use: K 线、热力图、地图、关系图等上百种图表, license: Apache-2.0, difficulty: 低, kinds: [sim, dashboard]}
+  - {id: lightweight-charts, direction: 图表, name: Lightweight Charts, repo: tradingview/lightweight-charts, use: 轻量 K 线和行情图（模拟炒股）, license: Apache-2.0, difficulty: 低, kinds: [sim, dashboard, game]}
+  - {id: maplibre, direction: 地图, name: MapLibre GL JS, repo: maplibre/maplibre-gl-js, use: 矢量地图、标点、路线（不要 key 的瓦片可配）, license: BSD-3-Clause, difficulty: 中, kinds: [dashboard]}
+  - {id: duckdb-wasm, direction: 数据, name: DuckDB-Wasm, repo: duckdb/duckdb-wasm, use: 浏览器里直接用 SQL 查 CSV / Parquet 大表, license: MIT, difficulty: 中, kinds: [productivity, dashboard]}
+  - {id: tiptap, direction: 文档编辑, name: Tiptap, repo: ueberdosis/tiptap, use: 富文本编辑器（标题、表格、批注）, license: MIT, difficulty: 中, kinds: [content, editor, other]}

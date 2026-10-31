@@ -177,8 +177,8 @@ def test_benchgen_flow(serve, page, monkeypatch, tmp_path):
 
 
 def test_benchgen_project_room(serve, page, monkeypatch, tmp_path):
-    """项目室：回答访谈 → 改验收清单签字 → 里程碑演示提意见 → 通过 → 交付验收 → 下一版提案。"""
-    from ..core.benchkit.test_builder import ProjectSC
+    """项目室：理想画像 + 取舍 → 改验收清单签字 → 分段演示提意见 → 通过 → 交付验收 → 下一版提案。"""
+    from ..core.benchkit.test_builder import IntentSC
 
     def factory(rules, *, root, **kw):
         return BenchBuilder(
@@ -190,7 +190,7 @@ def test_benchgen_project_room(serve, page, monkeypatch, tmp_path):
                 }
             ),
             root=tmp_path / "bench",
-            supercomputer=ProjectSC(),
+            supercomputer=IntentSC(),
             render=fake_render,
             check=check,
             seed=3,
@@ -207,11 +207,20 @@ def test_benchgen_project_room(serve, page, monkeypatch, tmp_path):
     gate = pane.locator(".bg-gate")
     gate.locator("textarea[data-q]").first.wait_for(timeout=15000)
     assert "问取舍" in pane.locator(".bg-flow li.now").text_content()
+    ideal = pane.locator(".bg-stage .bg-idealpage")  # 还没成品时理想画像放大摆在中间
+    assert "带爸妈出游也不手忙脚乱" in ideal.locator(".bg-idealbig").text_content()
+    assert ideal.locator('.bg-lv[data-lv="确定"]').count() == 1  # 排三天行程（原话）
+    assert "推荐" in gate.locator(".chip.rec").first.text_content()
     gate.locator("[data-opt]").first.click()  # 点选项填进回答
     assert gate.locator("textarea[data-q]").first.input_value() == "自己"
     gate.locator("[data-answer]").click()
 
     gate.locator("[data-sign]").wait_for(timeout=15000)
+    intent = pane.locator(".bg-client .bg-intent")  # 签字时中间是选型预览，理想画像回到左栏
+    assert intent.locator('.bg-lv[data-lv="确定"]').count() == 2  # 选了「自己」：给谁用变成确定
+    assert pane.locator(".bg-stages li").count() == 2  # 方案里的分段
+    assert "你能试：换目的地 → 看行程" in pane.locator(".bg-stages li").first.text_content()
+    assert pane.locator(".bg-trace li").count() == 2  # 开工那句 + 访谈回答
     assert gate.locator("li[data-req]").count() == 2
     gate.locator("li[data-req]").nth(1).locator("[data-delreq]").click()
     gate.locator("[data-addreq]").click()
@@ -226,12 +235,13 @@ def test_benchgen_project_room(serve, page, monkeypatch, tmp_path):
     gate.locator("[data-comments]").fill("地图再大一点")
     gate.locator("[data-cwin]").select_option("map-view")
     gate.locator("[data-change]").click()
-    pane.locator(".bg-changes li", has_text="改好了").wait_for(timeout=15000)
+    pane.locator('.bg-trace li[data-state="改好了"]').wait_for(state="attached", timeout=15000)
     gate.locator("[data-pass]").wait_for(timeout=15000)
     assert pane.locator(".bg-demo figcaption", has_text="改之后").count() == 1
     gate.locator("[data-pass]").click()
 
     pane.locator(".bg-gate [data-pass]", has_text="验收通过").wait_for(timeout=15000)
+    assert pane.locator(".bg-stages li", has_text="第 2 段 · 主要功能").count() == 1
     assert "交付" in pane.locator(".bg-steps li.now").text_content()
     pane.locator(".bg-gate [data-pass]").click()
     pane.locator("[data-evolve]").click()
@@ -557,3 +567,110 @@ def test_benchgen_materials_drop_look_and_use_in_product(serve, page, monkeypatc
     assert [(a["id"], a["role"]) for a in d["assets"]] == [(mid, "logo")]
     assert (folder / d["assets"][0]["file"]).is_file()
     assert d["assets"][0]["file"] in (folder / "index.html").read_text(encoding="utf-8")
+
+
+def test_benchgen_desk_drawer_rank_feed_caps_and_suggestions(serve, page, monkeypatch, tmp_path):
+    """资料台（第 5 批）：打开「资料」→ 过期就后台刷新 → 榜单分类 / 新星、动态、能力地图按类型筛、
+    建议卡点「加进地图」。GitHub、论文和订阅都是假的。"""
+    from roundtable.core.benchkit.desk import Desk
+
+    from ..core.benchkit.test_desk import Net, gh
+
+    net = Net(
+        rank={
+            "topic%3A3d": [gh("mrdoob/three.js", 105000, desc="JavaScript 3D library")],
+            "topic%3Agame-engine": [gh("godotengine/godot", 99000, desc="Godot Engine")],
+            "topic%3Alive2d": [gh("y/live2d-kit", 800, "Apache-2.0", desc="Live2D kit")],
+        }
+    )
+
+    def desk_factory(rules, root, **kw):
+        return Desk(
+            rules, tmp_path / "desk", fetch_json=net.json, fetch_text=net.text, sleep=net.sleep
+        )
+
+    monkeypatch.setattr(service_mod, "Desk", desk_factory)
+    srv = serve(confirm_threshold_usd=100.0)
+    page.goto(srv.url)
+    page.locator('#entries [data-m="bench"]').click()
+    pane = page.locator('#bench [data-pane="gen"]')
+    pane.locator("[data-text]").wait_for()
+    pane.locator('[data-drawer="desk"]').click()
+    rank = pane.locator(".bg-rank li")
+    rank.first.wait_for(timeout=15000)
+    assert "three.js" in rank.first.inner_text() and "105,000" in rank.first.inner_text()
+    pane.locator('[data-desk-cat="game"]').click()
+    assert "godot" in pane.locator(".bg-rank li").first.inner_text()
+    pane.locator('[data-desk-mode="rising"]').click()
+    assert pane.locator('[data-desk-mode="rising"]').get_attribute("aria-pressed") == "true"
+
+    pane.locator('[data-desk-tab="feed"]').click()
+    feed = pane.locator(".bg-feed li")
+    assert feed.count() >= 2 and pane.locator('.bg-feed .bg-tag[data-kind="paper"]').count()
+
+    pane.locator('[data-desk-tab="caps"]').click()
+    total = pane.locator(".bg-caps tbody tr").count()
+    pane.locator('[data-desk-kind="game"]').click()
+    games = pane.locator(".bg-caps tbody tr")
+    assert 0 < games.count() < total and "Phaser" in pane.locator(".bg-caps").inner_text()
+
+    pane.locator('[data-desk-tab="suggest"]').click()
+    card = pane.locator(".bg-sugg li", has_text="y/live2d-kit")
+    card.locator('[data-accept="1"]').click()
+    card.wait_for(state="detached")
+    pane.locator('[data-desk-tab="caps"]').click()
+    pane.locator('[data-desk-kind=""]').click()
+    assert "你加的" in pane.locator(".bg-caps").inner_text()
+
+
+def test_benchgen_profile_and_from_product(serve, page, monkeypatch, tmp_path):
+    """第 6 批：「你的偏好」写一条、删一条；拖进成品后勾「这是成品」，开工时带上反推。"""
+    from ..core.benchkit.test_builder import BlindSC
+
+    built = {}
+
+    def factory(rules, *, root, **kw):
+        b = BenchBuilder(
+            rules.model_copy(
+                update={"project": BenchProject(enabled=False), "team": BenchTeam(enabled=False)}
+            ),
+            root=tmp_path / "bench",
+            supercomputer=BlindSC(),
+            render=fake_render,
+            check=check,
+            seed=3,
+        )
+        built["b"] = b
+        return b
+
+    monkeypatch.setattr(service_mod, "BenchBuilder", factory)
+    srv = serve(confirm_threshold_usd=100.0)
+    page.set_viewport_size({"width": 1400, "height": 1000})
+    page.goto(srv.url)
+    page.locator('#entries [data-m="bench"]').click()
+    pane = page.locator('#bench [data-pane="gen"]')
+    prof = pane.locator(".bg-profile")
+    pane.locator("[data-text]").wait_for()
+    prof.wait_for()
+    assert "0 条" in prof.locator("summary").inner_text()
+    prof.locator("[data-profile-text]").fill("给小白用，别堆专业参数")
+    prof.locator("[data-profile-add]").click()
+    pane.locator(".bg-profile summary", has_text="1 条").wait_for()
+    pane.locator(".bg-profile summary").click()  # 有了以后默认收起
+    pane.locator(".bg-prof li", has_text="给小白用").wait_for()
+
+    pane.locator("[data-text]").fill("照着这个动图做一个能换角色和动作的台")
+    assert pane.locator("[data-fromprod]").count() == 0  # 没有素材时不出现
+    files = page.locator("input[data-benchfile]")
+    files.set_input_files([{"name": "鲸鱼女孩.png", "mimeType": "image/png", "buffer": PNG}])
+    pane.locator(".bg-drop .bg-mat").first.wait_for(timeout=10000)
+    pane.locator(".bg-fromprod").click()
+    assert pane.locator("[data-fromprod]").is_checked()
+    pane.locator("[data-submit]").click()
+    page.wait_for_function("() => true")
+    end = __import__("time").monotonic() + 10
+    while not built["b"].build and __import__("time").monotonic() < end:
+        page.wait_for_timeout(100)
+    b = built["b"].build
+    assert b["from_product"] is True
+    assert any(v["src"] == "档案" and "小白" in v["text"] for v in b["voices"])
