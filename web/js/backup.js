@@ -6,6 +6,8 @@
 const esc = (s) =>
   String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 
+// update_and_start.bat 存的标签是英文（批处理里不写中文），界面上显示成中文
+const LABEL = { update: '更新前' };
 const mb = (n) => `${(Number(n || 0) / 1048576).toFixed(1)} MB`;
 const when = (iso) => String(iso || '').replace('T', ' ').slice(0, 16);
 
@@ -40,7 +42,7 @@ export class BackupPanel {
   }
 
   row(f) {
-    const kind = f.kind === 'daily' ? '每天' : `存档点 · ${esc(f.label)}`;
+    const kind = f.kind === 'daily' ? '每天' : `存档点 · ${esc(LABEL[f.label] || f.label)}`;
     const ask = this.confirm === f.name;
     const act = ask
       ? `<span class="bk-ask">用这份覆盖现在的全部数据？</span>
