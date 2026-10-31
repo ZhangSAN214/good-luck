@@ -76,10 +76,15 @@ def test_settings_are_cleaned():
 
 def test_unread_versions_keep_newest_first():
     out = run(
-        "const rels = [{ version: '1.3' }, { version: '1.2' }, { version: '1.1' }];"
-        "return N.unreadVersions(rels, ['1.2']);"
+        "const rels = [{ id: '#3' }, { id: '#2' }, { id: '#1' }];"
+        "return N.unreadVersions(rels, ['#2']);"
     )
-    assert out == ["1.3", "1.1"]
+    assert out == ["#3", "#1"]
+
+
+def test_old_read_marks_carry_over():
+    out = run("return N.migrateRead(['1.55', '1.55.1', '#7', '3.2.1']);")
+    assert out == ["#55", "#55.1", "#7", "3.2.1"]
 
 
 def test_main_zone_order_and_local_follow():

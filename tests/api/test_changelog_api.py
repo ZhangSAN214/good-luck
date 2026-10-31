@@ -17,9 +17,10 @@ def test_changelog_reads_the_file_on_each_request(tmp_path):
         assert r.status_code == 200
         data = r.json()
         assert data["latest"] == data["releases"][0]["version"] and data["releases"][0]["title"]
+        assert data["releases"][0]["id"].startswith("#")
 
         broken = tmp_path / "changelog.yaml"
-        broken.write_text("releases: []\n", "utf-8")
+        broken.write_text("start: 3\nreleases: []\n", "utf-8")
         env.rt.changelog = broken
         r = c.get("/api/changelog")
         assert r.status_code == 500 and "changelog.yaml" in r.json()["detail"]

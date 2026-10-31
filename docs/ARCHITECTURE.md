@@ -227,7 +227,7 @@ README.md      安装、.env、加模型 / 步骤 / 提示词版本、上传、�
 install_desktop.bat / install_desktop.command   安装并生成桌面版图标（docs/DESKTOP.md）
 .github/workflows/android.yml   打包安卓外壳 APK（只在改了 mobile/ 的 PR 上跑）
 mobile/        安卓外壳（Capacitor）：www/ 连接页（记住电脑地址、依次试家里 / 离家地址）、build-android.mjs；android/ 不进 git（docs/MOBILE.md）
-config/        models.yaml  roundtable.yaml  personas.yaml  routing.yaml  plugin_board.yaml（插件榜数据，不属于运行配置）  dsh_plugins.yaml（dsh 工作台的运行时版本与插件白名单）  changelog.yaml（公告栏的版本更新说明，每合并一个 PR 在最上面追加一条）
+config/        models.yaml  roundtable.yaml  personas.yaml  routing.yaml  plugin_board.yaml（插件榜数据，不属于运行配置）  dsh_plugins.yaml（dsh 工作台的运行时版本与插件白名单）  changelog.yaml（公告栏的版本更新说明，每合并一个 PR 在最上面追加一条；版本号「代.大功能.小改」由代码按合并先后自动算，条目只写 level）
 prompts/       planner/ answer/ answer_quick/ review/ revise/ synthesize/ redo/
                attachments/ describe_image/ transcribe/ tools/（v4） image_gen/ web_search/ web_fetch/
                decompose/（v4） decompose_retry/ volunteer/ assign/（v3） work/ work_<类型>/ cross_review/ rework/ merge/
@@ -252,7 +252,7 @@ src/roundtable/
     simlab.py      成员系统加速时间模拟（docs/SIM.md）：临时数据库 + 快进时钟 + 假 / 真模型 + 模拟用户，出报告
     export/        导出成果：从存库的产出取最终成果（deliverable.py）→ Markdown / Word（python-docx）/ PPT（手写 OOXML，按标题分页）/ PDF（手写，阅读器自带中文字体）/ 网页；样式（style.py：字号、配色模板、PPT 比例、附题目 / 过程）；界面可直接存到本机固定文件夹（只限电脑本机，文件夹记在设置里）；不调用模型、不加依赖
     lan.py         局域网访问：口令加盐哈希（data/lan_access.json，不进 git）、登录 cookie 签名与过期、输错限速、一次性配对码、本机局域网地址、二维码（docs/LAN.md）
-    changelog.py   公告栏：版本更新说明（读 config/changelog.yaml，校验、按日期排序；只读）
+    changelog.py   公告栏：版本更新说明（读 config/changelog.yaml，校验、按合并先后自动编版本号；只读）
     clipper.py     办公室的资料浏览器：只读抓取网页（拒绝本机 / 内网地址，重定向逐跳检查）、提取正文、资料夹清单；存资料与「附上」= 新建 Markdown 附件（docs/CLIPPER.md）
     mail/          终端邮件栏：用户本人学校邮箱只读接入（专用浏览器窗口由用户本人登录、只读守卫、本机「重要」与分类规则、截止日期提取；图文版正文清洗（html.py）；点了才调用的 AI 总结 / 翻译（ai.py，每月上限 mail.ai）；登录状态在 data/mail_browser/，不进 git；见 docs/MAIL.md）
     nowplaying.py  音乐卡片的「电脑上正在放的歌」：读 Windows 系统媒体控制（pywinrt，可选依赖 .[windows]），默认只跟 QQ 音乐（按应用 id 关键字），发送播放 / 暂停 / 切歌 / 跳转；不登录、不抓音频、不存库；本机 data/avatars/music_covers/ 的封面列表（不进 git；同目录 effects.json 写每张封面的动态特效）
