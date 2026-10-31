@@ -2260,6 +2260,43 @@ class PhrasebookRules(_Strict):
     first_line: str = ""
 
 
+class StashFollowRules(_Strict):
+    """跟队形：群里 minutes 分钟内两个不同的人（含你）先后发了同一句短话或同一个表情包，
+    其余成员按外向、幽默分有概率跟着发一模一样的（程序直接发、不调模型），最多 max_followers 位，
+    这一串跟够了就停。"""
+
+    enabled: bool = True
+    minutes: float = Field(default=10, ge=1, le=120)
+    max_chars: int = Field(default=8, ge=1, le=30)  # 只跟这么短的话（问句不跟）
+    max_followers: int = Field(default=2, ge=0, le=8)
+    base: float = Field(default=0.15, ge=0, le=1)
+    traits: dict[str, float] = {"外向": 0.08, "幽默": 0.08}
+    max_chance: float = Field(default=0.6, ge=0, le=1)
+
+
+class StashRules(_Strict):
+    """表情包收藏与跟队形（2026-10-31 拟人插件调研第 5 项）：
+    你发的表情包（动图、小图，或标成表情的），看过的成员按性格和在不在乎你有一定概率存下来自己用；刚收的几天更爱用，用腻了或很久没用就丢掉。
+    只用感官已经整理好的感知卡当说明，不另外调模型；只存本机，可以在成员设定里删、清空。"""
+
+    enabled: bool = True
+    small_px: int = Field(default=480, ge=32, le=4096)  # 宽高都不超过这么多像素的图算表情包
+    base: float = Field(default=0.12, ge=0, le=1)
+    traits: dict[str, float] = {"幽默": 0.06, "好奇": 0.03}
+    care: float = Field(default=0.15, ge=0, le=1)  # × 她对你的在乎（0～1）
+    max_chance: float = Field(default=0.4, ge=0, le=1)
+    max_keep: int = Field(default=12, ge=1, le=64)  # 每位最多收几张，满了丢最旧的
+    fresh_days: float = Field(default=3, ge=0, le=60)  # 刚收的这几天更想用
+    tired_uses: int = Field(default=8, ge=1, le=100)  # 用了这么多次就腻了，丢掉
+    forget_days: float = Field(default=21, ge=1, le=365)  # 这么多天没用就丢掉
+    menu_max: int = Field(default=5, ge=1, le=20)  # 提示词里最多列几张
+    label_chars: int = Field(default=16, ge=4, le=40)
+    menu: str = "你从别人那收来的：{items}"
+    fresh: str = "刚收的，正想用"
+    unused: str = "从对方那偷来的，还没用过"
+    follow: StashFollowRules = StashFollowRules()
+
+
 class RhythmRules(_Strict):
     """作息与回话节奏（docs/BRAIN.md）：睡着时你发来的消息，多数醒了再回，有时被吵醒。"""
 
@@ -2455,6 +2492,7 @@ class EngineRules(_Strict):
     pace: PaceRules = PaceRules()
     slop: SlopRules = SlopRules()
     phrasebook: PhrasebookRules = PhrasebookRules()
+    stash: StashRules = StashRules()
     reach: ReachRules = ReachRules()
     feel: FeelRules = FeelRules()
 

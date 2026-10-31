@@ -577,6 +577,10 @@ class GroupChat:
         （省略为当前）；用户之后又发了消息或撤回时（且策略允许作废），还没发出的不再发。
         返回每位成员的第一条消息。"""
         round_no = self.round if round_no is None else round_no
+        if self.kind == "group" and speakers:  # 跟队形：这一轮只跟着发同一个，然后就停
+            followed = await self._formation(reply_to, speakers, round_no)
+            if followed:
+                return followed
         self.queued.extend(m.name for m in speakers)
         used: set[str] = set()  # 这一轮已经有人发过的表情包
         shapes: list[tuple[str, int]] = []  # 这一轮已经发出的「开头两个字、条数」
@@ -606,6 +610,57 @@ class GroupChat:
             for m in speakers:
                 self._unqueue(m.name)
             self.on_change()
+
+    async def _formation(
+        self, reply_to: int, speakers: list[ChatMember], round_no: int
+    ) -> list[dict[str, Any]]:
+        """群里两个人先后发了同一句短话 / 同一个表情包：这一轮该回话的人按性格可能跟一个
+        一模一样的（程序直接发、不调模型）。关心时段不跟。返回发出的消息（没人跟时为空）。"""
+        from roundtable.core.member.care import Care
+        from roundtable.core.member.stash import Formation, Stash
+
+        rt = self.rt
+        msg = rt.repo.chat_message(reply_to)
+        if msg is None or Care(rt).active(self.room, rt.budget.now()):
+            return []
+        stash = Stash(rt)
+        followers = Formation(rt).followers(
+            self.room,
+            msg,
+            [m.id for m in speakers],
+            stickers={m.id: member_stickers(rt, m.id, m.name) for m in speakers},
+            traits={m.id: stash._traits(m.id) for m in speakers},
+        )
+        if not followers:
+            return []
+        by_id = {m.id: m for m in speakers}
+        out: list[dict[str, Any]] = []
+        for i, (member, what) in enumerate(followers):
+            if i:
+                await self.sleep(self.policy().segment_gap(member, what["text"]))
+            if self.stale(round_no):
+                break
+            meta = None
+            if what.get("media"):
+                ids = {it["id"] for it in what["media"]}
+                cards = [
+                    c for c in (msg["meta"] or {}).get("perception") or [] if c.get("id") in ids
+                ]
+                meta = {"media": what["media"], "auto_text": True}
+                if cards:
+                    meta["perception"] = cards
+            out.append(
+                rt.repo.add_chat_message(
+                    self.room,
+                    member,
+                    what["text"],
+                    model_id=by_id[member].model_id,
+                    reply_to=reply_to,
+                    meta=meta,
+                )
+            )
+            self.on_change()
+        return out
 
     def _unshape(self, thought: Thought, shapes: list[tuple[str, int]]) -> Thought:
         """同一轮群聊里结构撞车（开头两个字一样、条数一样且 3 条以上）：后说的只发前 2 条。"""
@@ -702,6 +757,10 @@ class GroupChat:
             )
             self.on_change()
             return None
+        if self.kind in ("dm", "group"):  # 你发的表情包：看过的人按性格可能存下来自己用
+            from roundtable.core.member.stash import Stash
+
+            Stash(rt).consider(member.id, rt.repo.chat_message(reply_to))
         everyone = self.everyone()
         names = {m.id: m.name for m in everyone}
         role = PROMPT_ROLES[self.kind]
@@ -946,8 +1005,13 @@ class GroupChat:
                     break
             text = drop_own_repeats(seg.text, mine)
             text = swap_repeated_stickers(text, used, stickers, self.rng)
-            words = await self._self_check(member, text, recent, reply_to, posted, thought.memory)
-            if not words.strip():
+            text, stashed = self._stashed(member, text)
+            words = (
+                await self._self_check(member, text, recent, reply_to, posted, thought.memory)
+                if text.strip()
+                else ""
+            )
+            if not words.strip() and not stashed:
                 continue
             meta: dict[str, Any] = {}
             quote = seg.quote
@@ -959,7 +1023,8 @@ class GroupChat:
             row = self.quotable(quote) if quote is not None else None
             if row is not None:
                 meta["quote"] = quote_meta(row)
-            for n, piece in enumerate(self._finish(member, words, reply_to)):
+            pieces = self._finish(member, words, reply_to) if words.strip() else []
+            for n, piece in enumerate(pieces):
                 if n:  # 打错字后补的「*正字」：隔一小会儿单独发一条
                     await self.sleep(policy.segment_gap(member.id, piece))
                 msg = rt.repo.add_chat_message(
@@ -974,7 +1039,45 @@ class GroupChat:
                 first = first or msg
                 posted.append(piece)
                 self.on_change()
+            if stashed:  # 她收藏的表情包：单独发一张图（和别的表情包一样）
+                if pieces:
+                    await self.sleep(policy.segment_gap(member.id, "[表情]"))
+                msg = rt.repo.add_chat_message(
+                    self.room,
+                    member.id,
+                    "[表情]",
+                    model_id=member.model_id,
+                    reply_to=reply_to,
+                    cost_usd=0.0 if first else thought.cost_usd,
+                    meta=self._stash_meta(member, stashed, None if pieces else meta),
+                )
+                first = first or msg
+                self.on_change()
         return first
+
+    def _stashed(self, member: ChatMember, text: str) -> tuple[str, list[dict[str, Any]]]:
+        if self.kind not in ("dm", "group"):
+            return text, []
+        from roundtable.core.member.stash import Stash
+
+        return Stash(self.rt).extract(member.id, text)
+
+    def _stash_meta(
+        self, member: ChatMember, items: list[dict[str, Any]], extra: dict[str, Any] | None
+    ) -> dict[str, Any]:
+        """收藏的表情包消息：图片清单 + 一张感知卡（别人读聊天记录时知道这是什么图）。"""
+        from roundtable.core.member.stash import Stash
+
+        stash = Stash(self.rt)
+        cards = [
+            {"id": it["id"], "kind": "image", "mode": "fast", "text": label}
+            for it in items
+            if (label := stash.label_of(member.id, it["id"]))
+        ]
+        meta: dict[str, Any] = dict(extra or {}) | {"media": items, "auto_text": True}
+        if cards:
+            meta["perception"] = cards
+        return meta
 
     def _kaomoji(self, member: str) -> tuple[str, ...]:
         """她自己常用的几个颜文字（说话的样子没开或工作群时为空，用公共的）。"""

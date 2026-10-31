@@ -167,6 +167,21 @@ export class People {
     </section>`;
   }
 
+  // 从你那收来的表情包：你发的动图 / 小图，TA 按性格存下来自己用；用腻了、很久没用会自己丢
+  stashHtml(m) {
+    const mine = this.stickers?.stash?.find((x) => x.id === m.id);
+    if (!mine?.items?.length || !this.api.delStash) return '';
+    const items = mine.items
+      .map((x) => `<li class="pp-stk approved"><img src="/api/chat/media/${encodeURIComponent(x.id)}" alt="${esc(x.label)}" loading="lazy"><div class="pp-stk-cap">${esc(x.label)}</div><div class="pp-stk-st">${x.uses ? `用过 ${x.uses} 次` : '还没用过'}</div><div class="pp-stk-acts"><button type="button" class="link" data-stdel="${x.n}">删</button></div></li>`)
+      .join('');
+    return `<section class="pp-stickers grp" aria-label="收来的表情包">
+      <h4 class="grp-h">${esc(m.name)} 从你那收来的表情包</h4>
+      <ul class="pp-stk-grid grp-box">${items}</ul>
+      <p class="grp-foot">你发的动图和小图，TA 看了喜欢就存下来自己用；用腻了或很久没用会自己丢掉。只存在你电脑上。</p>
+      <div class="pp-row grp-end"><button type="button" class="btn" data-stclear>清空</button></div>
+    </section>`;
+  }
+
   async drawStickers(names) {
     for (const [i, name] of names.entries()) {
       this.msg = `正在画「${name}」（${i + 1}/${names.length}），每张约半分钟…`;
@@ -234,6 +249,7 @@ export class People {
           <div class="pp-row grp-end"><button type="button" class="btn" data-reset>恢复默认</button><button class="btn primary" type="submit">保存人设</button></div>
         </form>
         ${this.stickerHtml(m)}
+        ${this.stashHtml(m)}
         <section class="pp-mem grp" aria-label="记忆">
           <h4 class="grp-h">${esc(m.name)} 的记忆 <small>只存在你电脑上</small></h4>
           <form id="pp-add" class="grp-box"><div class="grp-row"><input name="text" maxlength="300" placeholder="替 TA 记一条，比如：我下周三考试" aria-label="记一条"><button class="btn" type="submit">记下</button></div></form>
@@ -333,6 +349,15 @@ export class People {
         for (const x of card.stickers.filter((y) => y.status === 'pending')) await this.api.reviewSticker(this.member, x.name, 'approved');
       }, '都可以用了');
     }
+    const stdel = t.closest('[data-stdel]');
+    if (stdel) return this.act(async () => {
+      await this.api.delStash(this.member, Number(stdel.dataset.stdel));
+      this.stickers = await this.api.stickers().catch(() => this.stickers);
+    }, '删掉了');
+    if (t.closest('[data-stclear]')) return this.act(async () => {
+      await this.api.clearStash(this.member);
+      this.stickers = await this.api.stickers().catch(() => this.stickers);
+    }, '清空了');
     if (t.closest('[data-reset]')) return this.act(() => this.api.setPersona(this.member, null), '已恢复默认人设');
     if (t.closest('[data-tidy]')) {
       this.msg = '正在整理…';
