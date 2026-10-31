@@ -72,6 +72,9 @@ const ACT_LINES = {
   idle: ['发会儿呆。', '这里好舒服。', '嗯～', '歇一下。'],
   chat: ['我有个想法！', '你们觉得呢？', '我们来对一下。'],
 };
+// 白天在天台：不说看星星（和后端白天把「看星星」叫「晒太阳」一致）
+const DAY_SKY = ['太阳好暖和。', '晒得人都懒了。', '风好舒服。', '从这儿能看好远。'];
+const daytime = (h) => h != null && h >= 6 && h < 18;
 const TOGETHER = ['一起吗？', '给我挪个位置～', '你也在这儿呀。'];
 const WELCOME = ['来呀～', '好呀！', '坐这儿吧。'];
 // 聊一句：按正在做的事；成员设定里有口头禅时一半概率说口头禅
@@ -1263,6 +1266,7 @@ export class Apartment {
     const h = this.hour ?? 12;
     if (Math.random() < 0.3 && (h >= 23 || h < 5)) return '这么晚了，早点休息呀。';
     if (Math.random() < 0.3 && h >= 5 && h < 10) return '早上好！';
+    if (r.activity === 'stargaze' && daytime(h)) return pick(DAY_SKY);
     return pick(TALK[r.activity] || TALK.idle);
   }
 
@@ -1459,7 +1463,8 @@ export class Apartment {
     if (spot) this.burst(spot, h.fx, 2);
     // 自己去用的不每次都说话，免得满屏气泡
     if (auto && Math.random() < 0.5) return;
-    const own = h.say?.length && Math.random() < 0.6 ? h.say : ACT_LINES[h.act] || h.say || [];
+    let own = h.say?.length && Math.random() < 0.6 ? h.say : ACT_LINES[h.act] || h.say || [];
+    if (h.act === 'stargaze' && daytime(this.hour)) own = DAY_SKY;
     this.say(who.id, mate && Math.random() < 0.6 ? pick(TOGETHER) : pick(own));
     if (mate && mate.activity !== 'sleep') setTimeout(() => this.say(mate.id, pick(WELCOME)), 900);
   }

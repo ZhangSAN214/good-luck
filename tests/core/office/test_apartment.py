@@ -178,3 +178,27 @@ def test_life_spots_win_over_schedule_but_not_over_work():
     room, act = schedule("V3", 20, 2)
     v3 = people["V3"]
     assert (v3.room, v3.activity) == (v3.dorm if room == "dorm" else room, act)
+
+
+def test_daytime_rooftop_is_sunbathing_not_stargazing():
+    """周末白天也会上天台：白天说「晒太阳」，晚上才「看星星」（10-31 朋友圈白天发了看星星）。"""
+    from roundtable.core.life import LifeEngine, Plan
+    from roundtable.core.office import activity_label
+
+    assert activity_label("stargaze", 9) == "晒太阳"
+    assert activity_label("stargaze", 21) == "看星星"
+    assert activity_label("stargaze", 3) == "看星星"
+    assert activity_label("琢磨「做菜」", 9) == "琢磨「做菜」"
+    # 周末白天作息排到天台的，公寓显示晒太阳
+    for rid in ("V1", "V2", "V3"):
+        for hour in range(9, 18):
+            if schedule(rid, hour, SAT) == ("rooftop", "stargaze"):
+                b = building(app_config(), hour=hour, weekday=SAT)
+                assert by_id(b)[rid].activity_label == "晒太阳"
+    # 生活事件的场景（朋友圈、生活群照它写）白天也说晒太阳；读回来活动仍是 stargaze
+    engine = object.__new__(LifeEngine)
+    at = datetime(2026, 10, 31, 9, 20, tzinfo=UTC)
+    topic = engine.scene(Plan(at, "solo", "rooftop", ["V1"], "stargaze"), {"V1": "V1"})
+    assert "晒太阳" in topic and "看星星" not in topic
+    spots = life_spots([{"kind": "solo", "place": "rooftop", "members": ["V1"], "topic": topic}])
+    assert spots == {"V1": ("rooftop", "stargaze", "晒太阳")}

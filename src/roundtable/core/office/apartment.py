@@ -47,6 +47,18 @@ ACTIVITIES = {
     "game": "打游戏",
 }
 
+# 白天上天台不看星星：同一个活动白天叫「晒太阳」（动画、聚在一起等规则照旧按活动 id）
+DAYTIME_LABELS = {"stargaze": "晒太阳"}
+DAY_HOURS = range(6, 18)
+
+
+def activity_label(act: str, hour: int) -> str:
+    """活动的显示文字（按钟点）：白天的「看星星」说成「晒太阳」；不认识的活动照原样。"""
+    if hour % 24 in DAY_HOURS and act in DAYTIME_LABELS:
+        return DAYTIME_LABELS[act]
+    return ACTIVITIES.get(act, act)
+
+
 # 下班后的去处（按住户编号与日期轮换）
 EVENING = (("gym", "exercise"), ("lounge", "chat"), ("rooftop", "stargaze"), ("lounge", "game"))
 WEEKEND = (("lounge", "game"), ("rooftop", "stargaze"), ("gym", "exercise"), ("dorm", "read"))
@@ -54,7 +66,9 @@ WEEKEND = (("lounge", "game"), ("rooftop", "stargaze"), ("gym", "exercise"), ("d
 
 # 生活事件场景里的「地点：公寓楼休息室（聊天）」：括号里是在做的事
 _SCENE_ACT = re.compile(r"^地点：[^\n]*（([^\n（）]+)）\s*$", re.M)
-_ACT_IDS = {label: aid for aid, label in ACTIVITIES.items()}
+_ACT_IDS = {label: aid for aid, label in ACTIVITIES.items()} | {
+    label: aid for aid, label in DAYTIME_LABELS.items()
+}
 
 # 住户 → (房间, 活动 id, 显示文字)
 Spots = Mapping[str, tuple[str, str, str]]
@@ -224,7 +238,7 @@ def building(
                 dorm=dorm,
                 room=dorm if room == "dorm" else room,
                 activity=activity,
-                activity_label=label or ACTIVITIES[activity],
+                activity_label=label or activity_label(activity, hour),
                 month_paid_usd=round(
                     sum(float(usage.get(i, {}).get("cost_usd", 0.0)) for i in ids), 6
                 ),

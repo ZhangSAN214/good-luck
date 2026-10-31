@@ -44,7 +44,7 @@ from roundtable.core.meme_radar import STEP as MEME_STEP
 from roundtable.core.meme_radar import MemeRadar
 from roundtable.core.memory import MemoryKeeper
 from roundtable.core.moments import MOMENT_STEP, NOTHING, Moments
-from roundtable.core.office.apartment import ACTIVITIES, PUBLIC_ROOMS, schedule
+from roundtable.core.office.apartment import PUBLIC_ROOMS, activity_label, schedule
 from roundtable.core.persona import chat_persona
 from roundtable.core.plain_talk import before_speaking, plain_prompt
 from roundtable.core.storage.repository import iso
@@ -251,7 +251,7 @@ class LifeEngine:
         place = "私聊" if p.kind == "pair" else self.place_name(p.place)
         lines = [
             f"时间：星期{WEEKDAYS[p.at.weekday()]} {p.at.hour} 点 {p.at.minute} 分",
-            f"地点：{place}（{ACTIVITIES.get(p.activity, p.activity)}）",
+            f"地点：{place}（{activity_label(p.activity, p.at.hour)}）",
             f"在场：{'、'.join(names.get(i, i) for i in p.members)}",
             f"今天的事：{'；'.join(p.work) if p.work else NOTHING}",
         ]
