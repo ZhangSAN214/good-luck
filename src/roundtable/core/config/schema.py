@@ -1865,36 +1865,71 @@ class LearnRules(_Strict):
 
 
 class FeelRules(_Strict):
-    """各自的情感（docs/BRAIN.md「各自的情感」，2026-10-30 用户定）：开心、难过、想念、生气，
-    每位的理解和表达从自己的人物卡来、按自己的理解分辨、随经历和每周成长慢慢变。全程序、不调模型；
-    8 位同一套规则，差别只来自人物卡、性格分和经历。"""
+    """各自的情感（docs/BRAIN.md「各自的情感」，2026-10-30 / 10-31 用户定）：开心、难过、想念、
+    生气、害羞、委屈、内疚、感激、吃醋、失落、满足、惊喜、心疼、紧张、期待、无聊，每位的理解和表达
+    从自己的人物卡来、按自己的理解分辨、随经历和每周成长慢慢变；可以五味杂陈（同时有两种）。
+    全程序、不调模型；8 位同一套规则，差别只来自人物卡、性格分和经历。"""
 
     enabled: bool = True
-    # 有哪几种情绪，以及人物卡里认它的词（抽起点用；第一个词是名字以外的说法）
+    # 有哪几种情绪，以及人物卡里认它的词（抽起点用）
     names: dict[str, list[str]] = {
         "开心": ["开心", "高兴"],
         "难过": ["难过", "低落", "伤心"],
         "想念": ["想念", "思念", "惦记", "被丢下", "多坐一会儿"],
         "生气": ["生气", "恼火"],
+        "害羞": ["害羞", "不好意思"],
+        "委屈": ["委屈"],
+        "内疚": ["内疚", "愧疚", "过意不去"],
+        "感激": ["感激", "感动", "谢谢"],
+        "吃醋": ["吃醋", "醋"],
+        "失落": ["失落", "落空"],
+        "满足": ["满足", "踏实"],
+        "惊喜": ["惊喜"],
+        "心疼": ["心疼"],
+        "紧张": ["紧张", "忐忑", "提心吊胆"],
+        "期待": ["期待", "盼着"],
+        "无聊": ["无聊", "闷"],
     }
+    # 反射表里没列的事：心情往上 / 往下动时在这几种里分
     positive: list[str] = Field(default_factory=lambda: ["开心"], min_length=1)
     negative: list[str] = Field(default_factory=lambda: ["难过", "生气"], min_length=1)
+    # 心情明显不好、又说不清为什么时，从最近哪几种里找（都没有就用 negative 的第一种）
+    low: list[str] = ["难过", "生气", "委屈", "失落", "内疚", "吃醋", "心疼", "紧张", "无聊"]
     missing: str = "想念"
     min_mood: float = Field(default=0.08, ge=0, le=1)  # 心情至少动这么多才记成一次情绪
-    # 负面的那一下算哪种：反射默认偏哪种（× lean_weight）+ 和她自己理解的相似度（× match）
-    # + 性格（分数 - 3 后 × 系数）；分最高的那种
-    lean: dict[str, str] = {
-        "被批评": "生气",
-        "一起挨说": "难过",
-        "落空": "难过",
-        "共情难过": "难过",
+    min_mood_listed: float = Field(default=0.03, ge=0, le=1)  # 反射表里列了的事门槛低一些
+    # 反射（P3 规则表的名字）→ 可能是哪几种情绪（越靠前默认越偏，× lean_weight）；
+    # 最后按「默认偏向 + 和她自己理解的相似度（× match）+ 性格（分数 - 3 后 × 系数）」挑分最高的
+    reflexes: dict[str, list[str]] = {
+        "被夸": ["害羞", "开心"],
+        "被批评": ["委屈", "生气", "难过"],
+        "一起挨说": ["委屈", "难过", "生气"],
+        "兑现": ["满足", "开心"],
+        "惊喜": ["惊喜", "开心"],
+        "落空": ["失落", "难过"],
+        "共情难过": ["心疼", "难过"],
+        "共情高兴": ["开心"],
+        "盼着": ["期待"],
     }
-    lean_weight: float = Field(default=0.5, ge=0, le=5)
+    lean_weight: float = Field(default=0.4, ge=0, le=5)
     match: float = Field(default=2.0, ge=0, le=10)
     traits: dict[str, dict[str, float]] = {
         "生气": {"较真": 0.15, "温和": -0.15},
         "难过": {"温和": 0.15, "较真": -0.15},
+        "委屈": {"温和": 0.1, "外向": -0.1},
+        "害羞": {"外向": -0.15, "幽默": -0.05},
+        "开心": {"外向": 0.1, "幽默": 0.05},
+        "失落": {"外向": -0.1},
+        "满足": {"温和": 0.1},
+        "惊喜": {"外向": 0.1, "好奇": 0.1},
+        "心疼": {"温和": 0.15},
     }
+    # 感情（love.py）里的几样 → 情绪：委屈、内疚、感激记成经历；说话时那句感情话在场也算
+    love: dict[str, str] = {"hurt": "委屈", "guilt": "内疚", "grateful": "感激", "jealous": "吃醋"}
+    tense: str = "紧张"  # 盼着的事快见分晓
+    bored: str = "无聊"  # 闷（想换新鲜的驱力很高）
+    bored_above: float = Field(default=0.8, ge=0, le=1)
+    mix_max: int = Field(default=2, ge=1, le=3)  # 五味杂陈：意图卡里最多同时写几种
     miss_days: float = Field(default=2, gt=0, le=60)  # 私聊里隔这么多天你再来，她记一次想念
     miss_words: list[str] = ["想你", "想我", "好久不见", "好久没聊", "想念"]  # 对方说想她
     miss_back: str = "好几天没聊，对方终于来找你了"
@@ -1903,15 +1938,18 @@ class FeelRules(_Strict):
     mood_high: float = Field(default=0.3, ge=0, le=1)
     mood_low: float = Field(default=-0.3, ge=-1, le=0)
     keep: int = Field(default=60, ge=5, le=500)  # 每位留最近多少段情绪经历
+    daily_max: int = Field(default=2, ge=1, le=20)  # 同一种情绪一天最多记几回（别让一种挤掉别的）
     seed_chars: int = Field(default=70, ge=10, le=300)  # 从人物卡抽的起点最多多少字
     mine_chars: int = Field(default=40, ge=10, le=200)  # 意图卡里写她的理解最多多少字
     why_chars: int = Field(default=30, ge=6, le=100)
     line_chars: int = Field(default=90, ge=20, le=200)
+    mix_chars: int = Field(default=130, ge=20, le=300)  # 两种一起写时最多多少字
     user_label: str = "用户"
     someone: str = "有人"
     unknown: str = "还说不太清，看这回是什么感觉"
     line: str = "你心里的{emo}：{mine}"
     last: str = "；上回是{when}，{why}"
+    mix: str = "心里五味杂陈。{first}\n同时还有点{emo}：{mine}"
     # 成长改写（P6，growth/gate.py）：新的理解最多多少字、和别人对同一种情绪的理解最多多像、
     # 同一种情绪隔几天才能再改
     grow_chars: int = Field(default=60, ge=10, le=200)
