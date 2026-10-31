@@ -244,3 +244,15 @@ def test_evaluate_pokes_without_browser():
     assert q.evaluate_pokes(solo, "x", errors=[]) == []
     err = q.evaluate_pokes([], "x", errors=["窗口 fav 出错：坏了"])
     assert err[0].check == "点了报错" and err[0].windows == ["fav"]
+
+
+def test_load_failure_text_blocks_and_ai_taste_warns():
+    f = checks(run(probe(bodyText="示例照片加载失败 🎨 修图 ✨ 一键 🚀 赋能创作 一站式")))
+    assert f["素材打不开"] == "block"
+    assert f["表情符号当图标"] == "warn"
+    assert f["空话"] == "warn"
+
+
+def test_plain_copy_has_no_ai_taste_findings():
+    f = checks(run(probe(bodyText="导入照片 · 裁剪 · 调色 ✓ 已保存 ★★★★☆ 开启通知")))
+    assert not {"素材打不开", "表情符号当图标", "空话"} & set(f)

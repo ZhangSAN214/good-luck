@@ -974,3 +974,98 @@ async def test_selftest_sends_empty_address_back_before_review(tmp_path):
     assert "[自动质检·必须修·查数据] 地址为空" in first_rework["problems"]
     roles = [c["role"] for c in sc.calls]
     assert roles.index("bench_rework") < roles.index("bench_review")  # 评审前就拦下
+
+
+# --- 工作台大更新（2026-10-31）：本地示例素材包、用户意见优先、项目墙缩略图 -------------------
+
+
+async def test_local_samples_are_installed_and_shown_to_writers(tmp_path):
+    from roundtable.core.benchkit.samples import SampleCatalog, sha256_of
+
+    data = b"png"
+    (tmp_path / "_samples/photos").mkdir(parents=True)
+    (tmp_path / "_samples/photos/cat.png").write_bytes(data)
+    cat = SampleCatalog.model_validate(
+        {
+            "samples": [
+                {
+                    "id": "cat",
+                    "name": "猫",
+                    "kind": "photo",
+                    "file": "photos/cat.png",
+                    "url": "https://example.com/cat.png",
+                    "sha256": sha256_of(data),
+                    "license": "CC0",
+                    "author": "某人",
+                }
+            ]
+        }
+    )
+    sc = FakeSC()
+    b = BenchBuilder(
+        BenchRules(),
+        root=tmp_path,
+        supercomputer=sc,
+        render=render,
+        check=fake_check(),
+        seed=7,
+        samples=cat,
+    )
+    build = b.submit("修图台")
+    await b.wait()
+    assert (tmp_path / build["id"] / "assets/samples/photos/cat.png").read_bytes() == data
+    writes = [json.loads(p) for p in sc.prompts if json.loads(p)["role"] == "bench_window"]
+    assert writes and all("assets/samples/photos/cat.png" in p["samples"] for p in writes)
+
+
+async def test_without_pack_writers_are_told_not_to_fetch_images_online(tmp_path):
+    sc = FakeSC()
+    b = make(tmp_path, sc)
+    b.submit("修图台")
+    await b.wait()
+    writes = [json.loads(p) for p in sc.prompts if json.loads(p)["role"] == "bench_window"]
+    assert writes and all("不要在线取图" in p["samples"] for p in writes)
+
+
+def test_user_change_requests_come_first_labelled_as_user_opinion():
+    b = BenchBuilder(BenchRules(), root=None, supercomputer=FakeSC(), render=render)
+    rnd = {
+        "requirements": [{"id": "R1", "text": "能导入", "met": False, "windows": [], "why": []}],
+        "check": {
+            "findings": [
+                {
+                    "check": "横向溢出",
+                    "severity": "block",
+                    "where": "手机",
+                    "detail": "宽",
+                    "windows": [],
+                },
+                {
+                    "check": "你的意见（变更单 c1）",
+                    "severity": "block",
+                    "where": "甲方",
+                    "detail": "按钮放右边",
+                    "windows": ["w1"],
+                },
+            ]
+        },
+    }
+    lines = b._problems_for(rnd, "w1").splitlines()
+    assert lines[0] == "- [用户意见·必须照办] 你的意见（变更单 c1）：按钮放右边"
+    assert "甲方" not in b._problems_for(rnd, "w2")
+
+
+def test_thumb_of_picks_latest_desk_light_shot():
+    from roundtable.core.benchkit.builder import thumb_of
+
+    assert thumb_of({"rounds": []}) is None
+    b = {
+        "rounds": [
+            {"n": 1, "check": {"shots": ["x/电脑_light.png"]}},
+            {
+                "n": 2,
+                "check": {"shots": ["x/手机_light.png", "x/电脑_dark.png", "x/电脑_light.png"]},
+            },
+        ]
+    }
+    assert thumb_of(b) == "report/round-2/电脑_light.png"

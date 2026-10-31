@@ -31,6 +31,7 @@ from roundtable.core.benchkit.library import Library
 from roundtable.core.benchkit.lint import lint_data, lint_windows
 from roundtable.core.benchkit.quality import Finding, QualityError, Report, run_check, run_probes
 from roundtable.core.benchkit.research import Researcher, report_markdown
+from roundtable.core.benchkit.samples import SampleCatalog, install, load_catalog, samples_text
 from roundtable.core.benchkit.scout import Candidate, Scout
 from roundtable.core.benchkit.spec import (
     ASSET_ROLES,
@@ -49,6 +50,7 @@ from roundtable.core.benchkit.spec import (
     shell_html,
     write_shell,
 )
+from roundtable.core.config.loader import ConfigError
 from roundtable.core.config.schema import BenchRules
 from roundtable.core.jsonout import JSONOutputError, extract_json_object
 from roundtable.core.supercomputer.scoring import excluded
@@ -182,6 +184,17 @@ def _short(v: Any, limit: int = 80) -> str:
     return text if len(text) <= limit else text[: limit - 1] + "…"
 
 
+def thumb_of(b: dict[str, Any]) -> str | None:
+    """项目墙上的缩略图：最近一轮质检的电脑截图（优先浅色），相对成品文件夹的路径；没有就 None。"""
+    for r in reversed(b.get("rounds") or []):
+        shots = [Path(str(p)).name for p in (r.get("check") or {}).get("shots") or []]
+        desk = [x for x in shots if x.startswith("电脑")] or shots
+        if desk:
+            pick = next((x for x in desk if "light" in x), desk[0])
+            return f"report/round-{r.get('n', len(b['rounds']))}/{pick}"
+    return None
+
+
 class BenchBuilder:
     def __init__(
         self,
@@ -197,8 +210,15 @@ class BenchBuilder:
         probe: Callable[..., list[dict[str, Any]]] | None = run_probes,
         now: Callable[[], datetime] = lambda: datetime.now(UTC),
         seed: int | None = None,
+        samples: SampleCatalog | None = None,
     ) -> None:
         self.rules = rules
+        if samples is None:
+            try:
+                samples = load_catalog()
+            except ConfigError:
+                samples = SampleCatalog()
+        self.samples = samples  # 本地示例素材清单（config/bench_samples.yaml）
         self.root = root
         self.sc = supercomputer
         self.render = render
@@ -239,7 +259,10 @@ class BenchBuilder:
             with contextlib.suppress(OSError, ValueError):
                 b = json.loads(p.read_text(encoding="utf-8"))
                 keys = ("id", "request", "status", "title", "created_at", "score")
-                out.append({k: b.get(k) for k in keys} | {"rounds": len(b.get("rounds") or [])})
+                rounds = b.get("rounds") or []
+                out.append(
+                    {k: b.get(k) for k in keys} | {"rounds": len(rounds), "thumb": thumb_of(b)}
+                )
         return out
 
     def get(self, bid: str) -> dict[str, Any] | None:
@@ -626,6 +649,8 @@ class BenchBuilder:
         )
         if self.library is not None:
             self.library.seed(self.folder(b["id"]))
+        if self.root is not None:
+            b["samples"] = install(self.root, self.folder(b["id"]), self.samples)
         if self.researcher is not None and self.rules.research.enabled:
             b["status"] = "researching"
             await self._research(b, spec, rng)
@@ -1760,6 +1785,9 @@ class BenchBuilder:
             lines.append(f"- {x.name}：{x.use}（{how}；来源：{x.source}）")
         return "\n".join(lines) or "（成品不能联网：需要实时的信息用可信的参考数据，标日期和来源）"
 
+    def _samples_text(self, b: dict[str, Any]) -> str:
+        return samples_text(b.get("samples") or [])
+
     def _kit_text(self) -> str:
         return json.dumps(manifest(), ensure_ascii=False, indent=1)
 
@@ -1780,6 +1808,7 @@ class BenchBuilder:
             kit=self._kit_text(),
             sources=self._sources_text(b),
             net=self._net_text(),
+            samples=self._samples_text(b),
         )
         chosen, result = await self._step(
             b, self.rules.window_kind, prompt, rng, rec, role="实施", task=f"写窗口「{w.title}」"
@@ -2051,6 +2080,10 @@ class BenchBuilder:
             if f.get("windows") and wid not in f["windows"]:
                 continue
             level = "必须修" if f["severity"] == "block" else "建议修"
+            if f.get("where") == "甲方":
+                # 用户自己提的变更单：标「用户意见」，返工提示词要求优先照办
+                lines.insert(0, f"- [用户意见·必须照办] {f['check']}：{f['detail']}")
+                continue
             lines.append(f"- [自动质检·{level}·{f['where']}] {f['check']}：{f['detail']}")
         for x in (rnd.get("attack") or {}).get("bugs", []):
             if x["window"] and x["window"] != wid:
@@ -2110,6 +2143,7 @@ class BenchBuilder:
                 kit=self._kit_text(),
                 sources=self._sources_text(b),
                 net=self._net_text(),
+                samples=self._samples_text(b),
             )
             jobs.append(self._redo(b, rec, prompt, rng, n))
         await asyncio.gather(*jobs)
