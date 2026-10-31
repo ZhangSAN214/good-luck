@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
-from roundtable.core.office import building, schedule, seat_room
+from roundtable.core.office import building, life_spots, schedule, seat_room
 from roundtable.core.storage import Repository, connect
 
 from ..routing.conftest import app_config
@@ -131,3 +131,50 @@ def test_repository_working_seats():
     assert {(r["table_no"], r["role"], r["code"]) for r in rows} == {(0, "member", "甲")}
     # 太久没更新的不算
     assert repo.working_seats(now[0] + timedelta(minutes=1)) == []
+
+
+def _event(kind, place, members, label):
+    topic = f"时间：星期三 20 点 10 分\n地点：公寓楼某处（{label}）\n在场：x\n今天的事：无"
+    return {"kind": kind, "place": place, "members": members, "topic": topic}
+
+
+def test_life_spots_from_life_events():
+    events = [
+        _event("solo", "gym", ["V1"], "锻炼"),
+        _event("gather", "lounge", ["V2", "V3"], "打游戏"),
+        _event("solo", "dorm:V1", ["V1"], "琢磨「做菜」"),  # 后来的为准；大脑写的活动照原样显示
+        _event("pair", "", ["V2", "V3"], "聊天"),  # 私聊没有地点：不算
+        _event("solo", "moon", ["V4"], "看书"),  # 不是公寓房间：跳过
+    ]
+    spots = life_spots(events)
+    assert spots == {
+        "V1": ("dorm", "read", "琢磨「做菜」"),
+        "V2": ("lounge", "game", "打游戏"),
+        "V3": ("lounge", "game", "打游戏"),
+    }
+    # 场景里读不出在做什么：宿舍按看书、别处按待命
+    assert life_spots([{"kind": "solo", "place": "rooftop", "members": ["V1"]}]) == {
+        "V1": ("rooftop", "idle", "待命")
+    }
+
+
+def test_life_spots_win_over_schedule_but_not_over_work():
+    spots = {"V1": ("dorm", "read", "琢磨「做菜」"), "V2": ("rooftop", "stargaze", "看星星")}
+    working = [
+        {
+            "session_id": "s2",
+            "model_id": "b2",
+            "status": "running",
+            "hidden": False,
+            "workflow": "discussion",
+        },
+    ]
+    b = building(app_config(), hour=20, weekday=2, working=working, life=spots)
+    people = by_id(b)
+    v1 = people["V1"]
+    assert (v1.room, v1.activity, v1.activity_label) == (v1.dorm, "read", "琢磨「做菜」")
+    assert (people["V2"].room, people["V2"].activity) == ("meeting", "work")  # 上班优先
+    # 没有生活记录的照作息表
+    room, act = schedule("V3", 20, 2)
+    v3 = people["V3"]
+    assert (v3.room, v3.activity) == (v3.dorm if room == "dorm" else room, act)

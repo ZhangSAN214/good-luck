@@ -5,7 +5,7 @@ O5：绩效（按活的类型：件数、被退回、验收通过率、平均工
 公寓楼：员工下班后的作息与正在上班的人（只读，不调用模型）。
 """
 
-from .apartment import Building, Resident, building, schedule, seat_room
+from .apartment import Building, Resident, building, life_spots, schedule, seat_room
 from .payroll import Payslip, PayslipLine, payslip
 from .performance import Performance, Stats, collect, reset
 from .roster import RosterEntry, roster
@@ -20,6 +20,7 @@ __all__ = [
     "RosterEntry",
     "building",
     "collect",
+    "life_spots",
     "payslip",
     "reset",
     "roster",

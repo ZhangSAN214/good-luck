@@ -55,3 +55,36 @@ def test_office_meeting_attendees_are_in_the_meeting_room():
     rooms = {p["id"]: p["room"] for p in data["residents"] if p["session_id"] == sid}
     # 经理（V1）和参会的甲（V2）在会议室，没参会的乙（V3）在办公室
     assert rooms == {"V1": "meeting", "V2": "meeting", "V3": "office"}
+
+
+def test_apartment_follows_this_hours_life_events():
+    """主时区这一小时生活系统记下的去处优先；问别的钟点照作息表。"""
+    from datetime import timedelta
+
+    from roundtable.core.hometz import home_zone
+    from roundtable.core.office import schedule
+    from roundtable.core.storage import iso
+
+    env = Env()
+    svc = RoundtableService(env.rt)
+    local = home_zone(env.rt).local(env.rt.budget.now())
+    slot = local.replace(minute=0, second=0, microsecond=0)
+    env.rt.repo.add_life_event(
+        iso(slot + timedelta(minutes=20)),
+        "solo",
+        ["V1"],
+        place="rooftop",
+        topic="地点：公寓楼天台（看星星）",
+    )
+    env.rt.repo.add_life_event(
+        iso(slot - timedelta(minutes=40)), "solo", ["V2"], place="gym", topic="地点：x（锻炼）"
+    )
+    data = svc.apartment(local.hour, local.weekday())
+    people = {p["id"]: p for p in data["residents"]}
+    assert (people["V1"]["room"], people["V1"]["activity"]) == ("rooftop", "stargaze")
+    # 上一小时的不算，照作息表
+    assert people["V2"]["activity"] == schedule("V2", local.hour, local.weekday())[1]
+    # 问的不是主时区的这一小时：照作息表
+    hour = (local.hour + 12) % 24
+    other = {p["id"]: p for p in svc.apartment(hour, local.weekday())["residents"]}
+    assert other["V1"]["activity"] == schedule("V1", hour, local.weekday())[1]

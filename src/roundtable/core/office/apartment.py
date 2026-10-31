@@ -2,6 +2,8 @@
 正在办事的住户在办公室或会议室上班。
 
 - 作息只看本地时间（小时、星期几）和住户的稳定编号，不随机：同一时刻打开看到的一样。
+- 生活系统这一小时已经记下的去处（大脑按驱力、目标、习惯自己挑的，``life_spots``）优先于作息表，
+  和生活群、朋友圈里说的对得上；还没记下（这一小时的生活还没推进、关着生活）才按作息表。
 - 上班状态来自正在进行的会话的座位：**匿名开启且未揭晓的会话不暴露是谁**，只计入
   ``hidden_meetings``（会议室门上挂"匿名会议进行中"），这些住户照常按作息出现。
 - 只读，不调用模型，不花钱。
@@ -10,6 +12,7 @@
 from __future__ import annotations
 
 import hashlib
+import re
 from collections.abc import Collection, Iterable, Mapping
 from dataclasses import dataclass, field
 from typing import Any
@@ -47,6 +50,37 @@ ACTIVITIES = {
 # 下班后的去处（按住户编号与日期轮换）
 EVENING = (("gym", "exercise"), ("lounge", "chat"), ("rooftop", "stargaze"), ("lounge", "game"))
 WEEKEND = (("lounge", "game"), ("rooftop", "stargaze"), ("gym", "exercise"), ("dorm", "read"))
+
+
+# 生活事件场景里的「地点：公寓楼休息室（聊天）」：括号里是在做的事
+_SCENE_ACT = re.compile(r"^地点：[^\n]*（([^\n（）]+)）\s*$", re.M)
+_ACT_IDS = {label: aid for aid, label in ACTIVITIES.items()}
+
+# 住户 → (房间, 活动 id, 显示文字)
+Spots = Mapping[str, tuple[str, str, str]]
+
+
+def life_spots(events: Iterable[Mapping[str, Any]]) -> dict[str, tuple[str, str, str]]:
+    """生活事件（``life_events`` 行，按时间先后）→ 每位住户最后记下的去处。
+
+    私聊（pair，没有地点）不算；地点不是公寓房间的跳过。活动不在 ``ACTIVITIES`` 里的
+    （大脑写的「琢磨「某事」」这类）照原样显示，动画在宿舍按看书、在别处按待命。"""
+    out: dict[str, tuple[str, str, str]] = {}
+    for e in events:
+        if e.get("kind") not in ("gather", "solo"):
+            continue
+        place = str(e.get("place") or "")
+        room = "dorm" if place == "dorm" or place.startswith("dorm:") else place
+        if room != "dorm" and room not in PUBLIC_ROOMS:
+            continue
+        found = _SCENE_ACT.search(str(e.get("topic") or ""))
+        label = found.group(1).strip() if found else ""
+        aid = _ACT_IDS.get(label) or ("read" if room == "dorm" else "idle")
+        if aid == "sleep":
+            continue
+        for member in e.get("members") or ():
+            out[str(member)] = (room, aid, label or ACTIVITIES[aid])
+    return out
 
 
 @dataclass(frozen=True)
@@ -132,12 +166,15 @@ def building(
     working: Iterable[Mapping[str, Any]] = (),
     month_usage: Mapping[str, Mapping[str, Any]] | None = None,
     meetings: Meetings | None = None,
+    life: Spots | None = None,
 ) -> Building:
     """working：进行中会话的座位 {session_id, model_id, status, hidden, workflow,
     table_no, role, code}；hidden 为真（匿名未揭晓）的只计数，不对应到住户。
 
     meetings：办公室模式里在会议室的桌子，会话 → 桌号 → 参会员工的代号（None 为整桌，
-    如项目组）。参会员工和主持的经理在会议室；其余办公室模式的座位在办公室。"""
+    如项目组）。参会员工和主持的经理在会议室；其余办公室模式的座位在办公室。
+
+    life：生活系统这一小时记下的去处（``life_spots``）；上班的照样在办公室 / 会议室。"""
     groups: dict[str, list[Any]] = {}
     for m in config.models.enabled:
         if m.seat and m.tier is not None:
@@ -168,8 +205,13 @@ def building(
         hits = [busy[i] for i in ids if i in busy]
         found = next((h for h in hits if h[0] == "meeting" and h[2] == hits[0][2]), None)
         found = found or (hits[0] if hits else None)
+        label = None
+        spot = (life or {}).get(vendor)
         if found:
             room, activity, sid = found
+        elif spot:
+            room, activity, label = spot
+            sid = None
         else:
             room, activity = schedule(vendor, hour % 24, weekday % 7)
             sid = None
@@ -182,7 +224,7 @@ def building(
                 dorm=dorm,
                 room=dorm if room == "dorm" else room,
                 activity=activity,
-                activity_label=ACTIVITIES[activity],
+                activity_label=label or ACTIVITIES[activity],
                 month_paid_usd=round(
                     sum(float(usage.get(i, {}).get("cost_usd", 0.0)) for i in ids), 6
                 ),
