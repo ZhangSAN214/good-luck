@@ -2260,6 +2260,31 @@ class PhrasebookRules(_Strict):
     first_line: str = ""
 
 
+class FloorRules(_Strict):
+    """群聊分寸（2026-10-31 拟人插件调研第 6 项）：在场 / 离场、每天的话量份额、嘴累、别淹没用户。
+    只看性格分和今天说了多少，8 位同一套；全程序。"""
+
+    enabled: bool = True
+    scan_messages: int = Field(default=300, ge=20, le=2000)  # 往回看多少条聊天记录
+    present_minutes: float = Field(default=15, ge=1, le=240)  # 说过话 / 被叫到后在场多久
+    present_traits: dict[str, float] = {"外向": 4.0}  # 每多 1 分外向多在场几分钟
+    present_boost: float = Field(default=2.0, ge=1, le=10)  # 在场的人更可能被挑到
+    absent_penalty: float = Field(default=0.15, ge=0, le=2)  # 没在场、没点名：显著性扣多少
+    quota_base: float = Field(default=25, ge=1, le=500)  # 每天在一个群里大概说多少条
+    quota_traits: dict[str, float] = {"外向": 0.25, "幽默": 0.1}
+    quota_min: float = Field(default=5, ge=1, le=500)
+    over_weight: float = Field(default=0.4, ge=0, le=1)
+    over_penalty: float = Field(default=0.25, ge=0, le=2)
+    tired_half_life_minutes: float = Field(default=20, ge=1, le=600)
+    tired_per_message: float = Field(default=1.0, ge=0, le=10)
+    tired_per_char: float = Field(default=0.02, ge=0, le=1)
+    tired_at: float = Field(default=6.0, ge=0.5, le=100)
+    tired_weight: float = Field(default=0.5, ge=0, le=1)
+    tired_penalty: float = Field(default=0.2, ge=0, le=2)
+    flood_ratio: float = Field(default=4, ge=1, le=50)  # 成员说的超过你说的这么多倍
+    flood_floor: int = Field(default=20, ge=1, le=1000)  # 且至少这么多条：没点名的一轮只挑一位
+
+
 class StashFollowRules(_Strict):
     """跟队形：群里 minutes 分钟内两个不同的人（含你）先后发了同一句短话或同一个表情包，
     其余成员按外向、幽默分有概率跟着发一模一样的（程序直接发、不调模型），最多 max_followers 位，
@@ -2493,6 +2518,7 @@ class EngineRules(_Strict):
     slop: SlopRules = SlopRules()
     phrasebook: PhrasebookRules = PhrasebookRules()
     stash: StashRules = StashRules()
+    floor: FloorRules = FloorRules()
     reach: ReachRules = ReachRules()
     feel: FeelRules = FeelRules()
 

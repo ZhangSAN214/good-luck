@@ -824,10 +824,17 @@ class Brain:
             sal = round(sal + self.heart.bonus(member, to, at), 3)  # 在乎的人说的话更显著
         social = s.drives.get("social", 0.3)
         floor = self.rules.silence_below
+        quiet = sal
+        if group and not named and room:  # 群聊分寸：没在场、今天说超了、嘴累的更容易潜水
+            from roundtable.core.member.floor import Floor
+
+            quiet = sal - Floor(self.rt).penalty(
+                member, room, at, self.lingo._names().get(member, "")
+            )
         if (
             group
             and not named
-            and sal < floor
+            and quiet < floor
             and social < floor + 0.3
             and s.drives.get("express", 0.3) < floor + 0.3
         ):

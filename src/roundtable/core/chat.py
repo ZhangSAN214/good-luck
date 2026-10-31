@@ -417,7 +417,38 @@ class GroupChat:
         if not online:
             return []
         k = self.rng.randint(1, min(self.rules.max_repliers, len(online)))
-        return self.rng.sample(online, k)
+        if self.kind != "group":
+            return self.rng.sample(online, k)
+        return self._floor_pick(online, k)
+
+    def _floor_pick(self, online: list[ChatMember], k: int) -> list[ChatMember]:
+        """群聊分寸（``core/member/floor``）：刚聊过的人更可能接，说超了、嘴累的少接；
+        成员今天说的远多于你时只挑一位。大家都一样时和原来一样随机挑。"""
+        from roundtable.core.member.floor import Floor
+
+        floor = Floor(self.rt)
+        if not floor.enabled():
+            return self.rng.sample(online, k)
+        at = self.rt.budget.now()
+        rows = floor.rows(self.room)
+        if floor.flooded(rows, at):
+            k = 1
+        weights = [floor.weight(m.id, rows, at, m.name) for m in online]
+        if len(set(weights)) <= 1:
+            return self.rng.sample(online, k)
+        pool, out = list(zip(online, weights, strict=True)), []
+        for _ in range(k):
+            total = sum(w for _, w in pool)
+            if total <= 0:
+                break
+            x, acc = self.rng.random() * total, 0.0
+            for i, (m, w) in enumerate(pool):
+                acc += w
+                if x < acc or i == len(pool) - 1:
+                    out.append(m)
+                    pool.pop(i)
+                    break
+        return out or self.rng.sample(online, 1)
 
     def _newcomer(self) -> bool:
         """你在这个群里说过的话还不到 newcomer_messages 条（含刚发的这条）。"""
