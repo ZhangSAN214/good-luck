@@ -172,6 +172,10 @@ export const lifeReports = () => api('/api/life/reports');
 export const chatFeeds = () => api('/api/chat/feeds');
 export const setChatFeeds = (feeds) => api('/api/chat/feeds', { method: 'PUT', body: { feeds } });
 export const refreshChatFeeds = () => api('/api/chat/feeds/refresh', { method: 'POST' });
+export const chatMemes = () => api('/api/chat/memes');
+export const addChatMeme = (meme) => api('/api/chat/memes', { method: 'POST', body: meme });
+export const removeChatMeme = (phrase) => api(`/api/chat/memes?phrase=${encodeURIComponent(phrase)}`, { method: 'DELETE' });
+export const refreshChatMemes = () => api('/api/chat/memes/refresh', { method: 'POST' });
 export const getEvolution = () => api('/api/evolution');
 export const evolutionMeet = (kind = null, theme = null) =>
   api('/api/evolution/meetings', { method: 'POST', body: { kind, theme } });

@@ -38,6 +38,9 @@ from roundtable.core.life_guard import ERRORS, LifeGuard
 from roundtable.core.member.brain import Brain, intent_text
 from roundtable.core.member.relation import RelationPlugin
 from roundtable.core.member.voice import Said, before_voice, recent_words, voice_for
+from roundtable.core.meme_radar import SEARCH_STEP as MEME_SEARCH_STEP
+from roundtable.core.meme_radar import STEP as MEME_STEP
+from roundtable.core.meme_radar import MemeRadar
 from roundtable.core.memory import MemoryKeeper
 from roundtable.core.moments import MOMENT_STEP, NOTHING, Moments
 from roundtable.core.office.apartment import ACTIVITIES, PUBLIC_ROOMS, schedule
@@ -52,6 +55,8 @@ WEEKDAYS = "一二三四五六日"
 LIFE_STEPS = (
     "life",
     "memory",
+    MEME_STEP,
+    MEME_SEARCH_STEP,
     SHARE_STEP,
     SEARCH_STEP,
     MOMENT_STEP,
@@ -87,6 +92,7 @@ class LifeEngine:
         # 记忆整理也算进生活的每日上限，但能用到为它留的那笔（10-31 试跑：白天花满，夜里没钱记）
         memory.allow = lambda estimate_usd: self.allowed(estimate_usd, reserve=False)
         self.browse = Browser(rt, hub, self.allowed)
+        self.memes = MemeRadar(rt, self.allowed)
         self.moments = Moments(rt, hub, self.allowed)
         self._planned: Brain | None = None
 
@@ -306,6 +312,7 @@ class LifeEngine:
         repo.set_setting(LAST_TICK_KEY, now.isoformat())
         out["memories"] = await self.memory.catch_up(now, offline=offline)
         if self.guard.room_left() > 0:
+            out["memes"] = (await self.memes.refresh(now))["added"]  # 梗雷达：每天一次
             out["shares"] = await self.browse.tick(now)
             for row in self.browse.posted:  # 分享是甩过去让大家看：一两位看了接着说两句
                 out["messages"] += await self.react(row, now)

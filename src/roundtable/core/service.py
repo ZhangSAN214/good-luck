@@ -2878,6 +2878,61 @@ class RoundtableService:
         result = await self.life.browse.refresh(self._local_now(), force=True)
         return {**result, **self.chat_feeds()}
 
+    def chat_memes(self) -> dict[str, Any]:
+        """网络梗：梗库（经典梗在前）、每个梗哪几位懂、上次更新、热榜抓没抓到。"""
+        from roundtable.core.chat import chat_members
+        from roundtable.core.member.memes import MemeBook
+
+        book, now = MemeBook(self.rt), self._local_now()
+        rules = book.rules
+        members = chat_members(self.rt.config, set())
+        memes = [
+            {
+                **{
+                    k: m.get(k, "")
+                    for k in ("phrase", "meaning", "cue", "reply", "example", "since")
+                },
+                "aliases": list(m.get("aliases") or []),
+                "classic": bool(m.get("classic")),
+                "source": m.get("source", ""),
+                "last_seen": m.get("last_seen") or None,
+                "known_by": [x.name for x in members if book.knows(x.id, m, now)],
+            }
+            for m in book.all(now)
+        ]
+        return {
+            "enabled": rules.enabled,
+            "memes": memes,
+            "status": self.life.memes.status(),
+            "sources": [s.name for s in rules.sources if s.enabled],
+            "fresh_days": rules.fresh_days,
+            "stale": list(rules.stale),
+            "search_used_today": self.life.memes.searches_today(),
+            "search_per_day": rules.search_per_day,
+        }
+
+    def chat_add_meme(self, data: dict[str, Any]) -> dict[str, Any]:
+        """你手动加一个梗（或改一个已有的）；classic=True 时永远不下架。"""
+        from roundtable.core.member.memes import MemeBook
+
+        try:
+            MemeBook(self.rt).add(data, self._local_now())
+        except ValueError as exc:
+            raise ServiceError(str(exc)) from None
+        return self.chat_memes()
+
+    def chat_remove_meme(self, phrase: str) -> dict[str, Any]:
+        from roundtable.core.member.memes import MemeBook
+
+        if not MemeBook(self.rt).remove(phrase):
+            raise ServiceError(f"没有这个梗：{phrase}")
+        return self.chat_memes()
+
+    async def chat_refresh_memes(self) -> dict[str, Any]:
+        """马上更新一次梗库（抓热榜不花钱；提炼和搜索约 $0.01～0.03，算生活每日上限）。"""
+        result = await self.life.memes.refresh(self._local_now(), force=True)
+        return {**result, **self.chat_memes()}
+
     def chat_clear(self, room: str = ROOM) -> dict[str, Any]:
         """一键清空这个会话的聊天记录（花费记录保留，预算照算）。"""
         chat = self._chat_room(room)
