@@ -1995,11 +1995,36 @@ class RoundtableService:
         ]
         return {
             "members": members,
+            "stash": self._stash_listing(names),
             "available": bool(self.stickers.draw_models()),
             "review": rules.review,
             "month_spent_usd": round(self.stickers.month_spent(), 4),
             "monthly_usd": rules.monthly_usd,
         }
+
+    def _stash_listing(self, names: dict[str, str]) -> list[dict[str, Any]]:
+        """成员从你那收来的表情包（只存本机）：谁收了哪几张、用过几次。"""
+        from roundtable.core.member.stash import Stash
+
+        return [
+            {"id": member, "name": names.get(member, member), "items": items}
+            for member, items in Stash(self.rt).listing().items()
+            if items
+        ]
+
+    def stash_delete(self, member: str, n: int) -> dict[str, Any]:
+        """删掉成员收藏的一张表情包（图片本身还在聊天记录里）。"""
+        from roundtable.core.member.stash import Stash
+
+        if not Stash(self.rt).delete(member, n):
+            raise ServiceError("没有这张收藏", 404)
+        return {"deleted": n}
+
+    def stash_clear(self, member: str | None = None) -> dict[str, Any]:
+        """一键清空成员收藏的表情包（member 为空时清空所有人的）。"""
+        from roundtable.core.member.stash import Stash
+
+        return {"cleared": Stash(self.rt).clear(member)}
 
     async def draw_sticker(self, member: str, name: str) -> dict[str, Any]:
         """画（或重画）成员的一个专属表情；花费计入表情包和创作输出的每月上限。"""

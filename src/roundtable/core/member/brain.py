@@ -36,7 +36,9 @@ from roundtable.core.hometz import home_zone
 from roundtable.core.member import psyche
 from roundtable.core.member.bus import PERCEIVE, Event, EventBus
 from roundtable.core.member.care import Care
+from roundtable.core.member.circle import Circle
 from roundtable.core.member.feel import Feelings
+from roundtable.core.member.firsts import Firsts
 from roundtable.core.member.human import Human
 from roundtable.core.member.lingo import Lingo
 from roundtable.core.member.love import USER, Heart
@@ -146,6 +148,8 @@ class Brain:
         self.profiles = ProfileStore(rt)
         self.memes = MemeSense(rt)
         self.phrases = Phrasebook(rt, bus)
+        self.circle = Circle(rt, bus)  # 圈外熟人名册：她提过的室友、老同学，免得说反
+        self.firsts = Firsts(rt, bus)  # 「第一次」纪念：你亲口说的第一次，整月 / 整年那天轻轻提
         # 爱与复合情绪（love.py）：传了 bus 时订阅聊天和生活事件；names：成员 id → 称呼
         self.heart = Heart(rt, bus, names)
         # 人味（human.py）：知识边界、自己的时间、自我一致、八卦、时间纵深、小毛病、主动约人
@@ -683,6 +687,10 @@ class Brain:
                 since = datetime.fromisoformat(n["at"])
                 strength = psyche.decayed(strength, since, at, days * 24)
             out.append(Thought("goal", n["text"], round(strength, 3)))
+        from roundtable.core.member.phase import Phase  # 生活阶段：这阵子在忙 / 感冒 / 迷上……
+
+        for text, strength in Phase(self.rt).thoughts(member, at):
+            out.append(Thought("goal", text, round(strength, 3)))
         linger = self._lingering(member, s, at)
         if linger:
             e, left, _ = linger
@@ -824,10 +832,17 @@ class Brain:
             sal = round(sal + self.heart.bonus(member, to, at), 3)  # 在乎的人说的话更显著
         social = s.drives.get("social", 0.3)
         floor = self.rules.silence_below
+        quiet = sal
+        if group and not named and room:  # 群聊分寸：没在场、今天说超了、嘴累的更容易潜水
+            from roundtable.core.member.floor import Floor
+
+            quiet = sal - Floor(self.rt).penalty(
+                member, room, at, self.lingo._names().get(member, "")
+            )
         if (
             group
             and not named
-            and sal < floor
+            and quiet < floor
             and social < floor + 0.3
             and s.drives.get("express", 0.3) < floor + 0.3
         ):
@@ -1002,6 +1017,18 @@ class Brain:
             if phrase is not None:
                 text = f"{text}\n{phrase[1]}"
                 tags.append(phrase[0])
+        circle = self.circle.line(member, last)
+        if circle:  # 对方提到她说过的圈外人（室友、老同学……）：照之前说的来
+            text = f"{text}\n{circle}"
+            tags.append("circle")
+        first = (
+            self.firsts.line(member, at, random.Random(f"firsts:{member}:{iso(at)}:{seed}"))
+            if to == USER
+            else None
+        )
+        if first is not None:
+            text = f"{text}\n{first[1]}"
+            tags.append(first[0])
         extra = self.human.lines(
             member,
             to=to,
@@ -1265,6 +1292,7 @@ class Brain:
         if not card.silent:
             self.memes.after(card.member, card.tags, at)
             self.phrases.after(card.member, card.tags, at)
+            self.firsts.after(card.member, card.tags)
 
 
 def _num(x: Any) -> float:

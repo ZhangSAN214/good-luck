@@ -172,6 +172,21 @@ def test_a_typo_now_and_then_and_careful_people_correct_it():
     assert Lingo(env.rt, names=NAMES).finish("V2", "明天再说", rng=random.Random(0)) == ["明天再说"]
 
 
+def test_ime_homophone_typos_pick_whole_words_or_same_sound_characters():
+    env, _ = world()
+    rules = env.rt.config.roundtable.chat.engine.lingo
+    typo = rules.typo.model_copy(update={"chance": 1.0, "fix_base": 0.0, "word_share": 1.0})
+    _lingo(env, typo=typo)
+    out = Lingo(env.rt, names=NAMES).finish("V2", "困了我要睡觉", rng=random.Random(0))
+    assert out == ["困了我要水饺"]  # 输入法首选错了整个词
+    _lingo(env, typo=typo.model_copy(update={"word_share": 0.0, "pairs": [], "words": []}))
+    seen = {
+        Lingo(env.rt, names=NAMES).finish("V2", "回去想想", rng=random.Random(i))[0].rstrip("…")
+        for i in range(30)
+    }
+    assert seen <= {"会去想想", "回去像想", "回去想像"} and len(seen) >= 2  # 同音字，一句只错一处
+
+
 def test_no_card_means_no_restyling():
     env, lingo = world()
     assert lingo.finish("V9", "这个视频非常好笑。") == ["这个视频非常好笑。"]

@@ -2020,6 +2020,19 @@ class TypoRules(_Strict):
     fix_base: float = Field(default=0.35, ge=0, le=1)  # 打错后补一条「*正字」的概率
     fix_traits: dict[str, float] = {}
     pairs: list[tuple[str, str]] = []
+    # 输入法同音错字（2026-10-31 拟人插件调研第 8 项）：同一组里的字读音相同，打字时互相选错；
+    # words 是整词首选错（「睡觉」打成「水饺」），打错时 word_share 的机会优先挑整词
+    groups: list[list[str]] = []
+    words: list[tuple[str, str]] = []
+    word_share: float = Field(default=0.35, ge=0, le=1)
+
+    @field_validator("groups")
+    @classmethod
+    def _groups(cls, v: list[list[str]]) -> list[list[str]]:
+        for g in v:
+            if len(g) < 2 or any(len(c) != 1 for c in g):
+                raise ValueError("每组至少两个字，每项一个字")
+        return v
 
 
 class NickRules(_Strict):
@@ -2260,6 +2273,139 @@ class PhrasebookRules(_Strict):
     first_line: str = ""
 
 
+class FirstsRules(_Strict):
+    """「第一次」纪念（2026-10-31 拟人插件调研第 10 项）：你在私聊亲口说的「第一次……」记下来，
+    过整月、整年那天她可能轻轻提一句，只提一次、不要你回应。全程序。"""
+
+    enabled: bool = True
+    pattern: str = "第一次(.{2,18}?)(?:[。！？!?，,~～\\n]|$)"
+    milestones: list[int] = Field(default_factory=lambda: [1, 12], max_length=10)  # 几个月后
+    chance: float = Field(default=0.5, ge=0, le=1)
+    max_keep: int = Field(default=30, ge=1, le=200)
+    line: str = (
+        "{when}的今天，他第一次{what}（他原话：「{quote}」）：想提就轻轻带一句，"
+        "只提这一次，别要他回应；没合适的时机就不提"
+    )
+
+    @field_validator("pattern")
+    @classmethod
+    def _pattern(cls, v: str) -> str:
+        if re.compile(v).groups < 1:
+            raise ValueError("pattern 要有一个分组（那件事）")
+        return v
+
+
+class CircleRules(_Strict):
+    """圈外熟人名册（2026-10-31 拟人插件调研第 9 项）：人物卡和她自己说过的「我室友小林」记下来，
+    对方提到时意图卡里带一句，免得前后说反。全程序。"""
+
+    enabled: bool = True
+    relations: list[str] = Field(default_factory=list, max_length=80)
+    per_relation: int = Field(default=2, ge=1, le=10)  # 同一种关系最多记几个名字
+    max_keep: int = Field(default=30, ge=1, le=200)
+    max_line: int = Field(default=2, ge=1, le=10)
+    line: str = "你提过的圈外人：{items}——照这个说，别前后说反"
+
+
+class PhaseKind(_Strict):
+    """一种生活阶段：持续几天、怎么影响精力 / 心情 / 回话快慢，念头池里放什么（只写事实和分寸）。"""
+
+    name: str = Field(min_length=1, max_length=20)
+    label: str = Field(min_length=1, max_length=20)
+    days: list[int] = Field(min_length=2, max_length=2)
+    weight: float = Field(default=1.0, ge=0, le=10)
+    energy: float = Field(default=0.0, ge=-0.6, le=0.6)
+    mood: float = Field(default=0.0, ge=-0.6, le=0.6)
+    busy: float = Field(default=0.0, ge=0, le=3)  # 私聊在忙时多等的比例
+    start: str = ""  # 开始那天的新鲜事（{thing} 换成她迷上的东西）
+    note: str = ""  # 过程中
+    end: str = ""  # 刚结束
+
+    @field_validator("days")
+    @classmethod
+    def _days(cls, v: list[int]) -> list[int]:
+        if min(v) < 1 or max(v) > 30:
+            raise ValueError("days 要在 1～30 天之间")
+        return v
+
+
+class PhaseRules(_Strict):
+    """生活阶段与小意外（2026-10-31 拟人插件调研第 7 项）：忙季、小感冒、迷上一样东西、收拾屋子……
+    持续几天到两周，影响精力、心情、回话快慢，念头池里有可说的事。8 位同一张表，全程序。"""
+
+    enabled: bool = True
+    chance_per_day: float = Field(default=0.08, ge=0, le=1)
+    cooldown_days: float = Field(default=5, ge=0, le=60)
+    max_concurrent: int = Field(default=2, ge=1, le=8)
+    start_strength: float = Field(default=0.7, ge=0, le=2)
+    during_strength: float = Field(default=0.35, ge=0, le=2)
+    end_strength: float = Field(default=0.5, ge=0, le=2)
+    things: list[str] = Field(default_factory=list, max_length=40)
+    kinds: list[PhaseKind] = Field(default_factory=list, max_length=30)
+
+
+class FloorRules(_Strict):
+    """群聊分寸（2026-10-31 拟人插件调研第 6 项）：在场 / 离场、每天的话量份额、嘴累、别淹没用户。
+    只看性格分和今天说了多少，8 位同一套；全程序。"""
+
+    enabled: bool = True
+    scan_messages: int = Field(default=300, ge=20, le=2000)  # 往回看多少条聊天记录
+    present_minutes: float = Field(default=15, ge=1, le=240)  # 说过话 / 被叫到后在场多久
+    present_traits: dict[str, float] = {"外向": 4.0}  # 每多 1 分外向多在场几分钟
+    present_boost: float = Field(default=2.0, ge=1, le=10)  # 在场的人更可能被挑到
+    absent_penalty: float = Field(default=0.15, ge=0, le=2)  # 没在场、没点名：显著性扣多少
+    quota_base: float = Field(default=25, ge=1, le=500)  # 每天在一个群里大概说多少条
+    quota_traits: dict[str, float] = {"外向": 0.25, "幽默": 0.1}
+    quota_min: float = Field(default=5, ge=1, le=500)
+    over_weight: float = Field(default=0.4, ge=0, le=1)
+    over_penalty: float = Field(default=0.25, ge=0, le=2)
+    tired_half_life_minutes: float = Field(default=20, ge=1, le=600)
+    tired_per_message: float = Field(default=1.0, ge=0, le=10)
+    tired_per_char: float = Field(default=0.02, ge=0, le=1)
+    tired_at: float = Field(default=6.0, ge=0.5, le=100)
+    tired_weight: float = Field(default=0.5, ge=0, le=1)
+    tired_penalty: float = Field(default=0.2, ge=0, le=2)
+    flood_ratio: float = Field(default=4, ge=1, le=50)  # 成员说的超过你说的这么多倍
+    flood_floor: int = Field(default=20, ge=1, le=1000)  # 且至少这么多条：没点名的一轮只挑一位
+
+
+class StashFollowRules(_Strict):
+    """跟队形：群里 minutes 分钟内两个不同的人（含你）先后发了同一句短话或同一个表情包，
+    其余成员按外向、幽默分有概率跟着发一模一样的（程序直接发、不调模型），最多 max_followers 位，
+    这一串跟够了就停。"""
+
+    enabled: bool = True
+    minutes: float = Field(default=10, ge=1, le=120)
+    max_chars: int = Field(default=8, ge=1, le=30)  # 只跟这么短的话（问句不跟）
+    max_followers: int = Field(default=2, ge=0, le=8)
+    base: float = Field(default=0.15, ge=0, le=1)
+    traits: dict[str, float] = {"外向": 0.08, "幽默": 0.08}
+    max_chance: float = Field(default=0.6, ge=0, le=1)
+
+
+class StashRules(_Strict):
+    """表情包收藏与跟队形（2026-10-31 拟人插件调研第 5 项）：
+    你发的表情包（动图、小图，或标成表情的），看过的成员按性格和在不在乎你有一定概率存下来自己用；刚收的几天更爱用，用腻了或很久没用就丢掉。
+    只用感官已经整理好的感知卡当说明，不另外调模型；只存本机，可以在成员设定里删、清空。"""
+
+    enabled: bool = True
+    small_px: int = Field(default=480, ge=32, le=4096)  # 宽高都不超过这么多像素的图算表情包
+    base: float = Field(default=0.12, ge=0, le=1)
+    traits: dict[str, float] = {"幽默": 0.06, "好奇": 0.03}
+    care: float = Field(default=0.15, ge=0, le=1)  # × 她对你的在乎（0～1）
+    max_chance: float = Field(default=0.4, ge=0, le=1)
+    max_keep: int = Field(default=12, ge=1, le=64)  # 每位最多收几张，满了丢最旧的
+    fresh_days: float = Field(default=3, ge=0, le=60)  # 刚收的这几天更想用
+    tired_uses: int = Field(default=8, ge=1, le=100)  # 用了这么多次就腻了，丢掉
+    forget_days: float = Field(default=21, ge=1, le=365)  # 这么多天没用就丢掉
+    menu_max: int = Field(default=5, ge=1, le=20)  # 提示词里最多列几张
+    label_chars: int = Field(default=16, ge=4, le=40)
+    menu: str = "你从别人那收来的：{items}"
+    fresh: str = "刚收的，正想用"
+    unused: str = "从对方那偷来的，还没用过"
+    follow: StashFollowRules = StashFollowRules()
+
+
 class RhythmRules(_Strict):
     """作息与回话节奏（docs/BRAIN.md）：睡着时你发来的消息，多数醒了再回，有时被吵醒。"""
 
@@ -2455,6 +2601,11 @@ class EngineRules(_Strict):
     pace: PaceRules = PaceRules()
     slop: SlopRules = SlopRules()
     phrasebook: PhrasebookRules = PhrasebookRules()
+    stash: StashRules = StashRules()
+    floor: FloorRules = FloorRules()
+    phase: PhaseRules = PhaseRules()
+    circle: CircleRules = CircleRules()
+    firsts: FirstsRules = FirstsRules()
     reach: ReachRules = ReachRules()
     feel: FeelRules = FeelRules()
 

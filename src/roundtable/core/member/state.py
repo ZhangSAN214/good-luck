@@ -269,6 +269,14 @@ class StatePlugin:
         snap = self._snapshot(member, at).decayed(at, r.mood, r.energy)
         mood = _clip(b.mood + snap.mood_slow + snap.mood_fast, -1, 1)
         energy = circadian(self.hour(at), b, r.circadian) + snap.energy_slow + snap.energy_fast
+        try:  # 生活阶段（忙季、小感冒……）挪一点精力和心情
+            from roundtable.core.member.phase import Phase
+
+            phase = Phase(self.rt)
+            mood = _clip(mood + phase.mood(member, at), -1, 1)
+            energy += phase.energy(member, at)
+        except Exception:  # noqa: BLE001 — 阶段数据坏了也照常读
+            pass
         layers = {k: round(v, 4) for k, v in asdict(snap).items() if k not in ("at", "recent")}
         return Reading(member, at, mood, _clip(energy, 0, 1), b, layers, snap.recent)
 
