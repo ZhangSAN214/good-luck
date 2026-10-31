@@ -583,6 +583,8 @@ dialog.sheet[open]{display:flex}
 .grp-row input:focus,.grp-row select:focus{outline:0;box-shadow:none}
 .grp-row:focus-within{background:var(--hover)}
 .grp-foot{margin:8px 16px 0;font-size:12px;line-height:1.6;color:var(--muted)}
+.gr-undone p{opacity:.55;text-decoration:line-through}
+.gr-bookbox .grp-box{max-height:320px;overflow:auto}
 .grp-end{justify-content:flex-end;margin-top:12px}
 .grp-acts{display:flex;flex-direction:column}
 .grp-btn{display:block;width:100%;min-height:48px;padding:0 16px;border:0;border-top:1px solid var(--line);background:none;text-align:left;font:inherit;color:var(--mo-name,#576b95);cursor:pointer}

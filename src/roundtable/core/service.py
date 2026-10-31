@@ -111,6 +111,8 @@ from roundtable.core.member.card import (
     without_locked,
 )
 from roundtable.core.member.growth import monday, week_id
+from roundtable.core.member.growth.book import SOURCES as BOOK_SOURCES
+from roundtable.core.member.growth.book import BookError
 from roundtable.core.member.growth.report import lines as report_lines
 from roundtable.core.member.memory import DiaryTool
 from roundtable.core.member.memory.store import query_terms
@@ -2956,6 +2958,9 @@ class RoundtableService:
                 "min_days": rules.min_days,
             },
             "timeline": entries,
+            # 成长总账：设定、口癖、和你的阶段、对你的看法、收藏排成一条（新的在前）
+            "book": self.growth.book.changes(member) if rules.book.enabled else [],
+            "book_sources": BOOK_SOURCES,
             "habits": self.growth.habits(member),
             "skills": self.growth.skills(member),
             "reports": [
@@ -2976,6 +2981,15 @@ class RoundtableService:
         if got is None:
             raise ServiceError("今天生活的额度或聊天预算不够，下次推进时再试", 409)
         return {"result": got, **self.member_growth(member)}
+
+    def member_growth_undo(self, member: str, token: str) -> dict[str, Any]:
+        """在成长总账里撤回一条（交回原来那个模块撤：设定、口癖、收藏）。"""
+        member = self._profile_member(member)
+        try:
+            self.growth.book.undo(member, token)
+        except (BookError, ProfileError) as e:
+            raise ServiceError(str(e)) from None
+        return self.member_growth(member)
 
     def member_growth_revert(self, member: str, entry_id: int) -> dict[str, Any]:
         """撤回一条成长改动（以你的身份存成档案的新版本）。"""
