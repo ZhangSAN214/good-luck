@@ -1790,6 +1790,10 @@ def build_parser() -> argparse.ArgumentParser:
     sim.add_argument(
         "--resume", action="store_true", help="接着上次断开的地方跑（要给同一个 --out）"
     )
+    sim.add_argument(
+        "--scenario",
+        help="开跑前摆好的场景（sim.yaml 的 scenarios，如 birthday：认识一个月、你过生日）",
+    )
     kit = sub.add_parser(
         "kit-check", help="工作台质检：三种屏宽 × 浅色 / 深色，量出不达标的地方（不调用模型）"
     )
@@ -2009,6 +2013,7 @@ async def cmd_sim(args: argparse.Namespace, out: TextIO) -> int:
             user_per_day=args.user_per_day,
             cards=Path(args.cards).read_text(encoding="utf-8") if args.cards else None,
             resume=args.resume,
+            scenario=args.scenario,
         )
         print(f"模拟 {args.days} 天（{'真模型' if args.real else '假模型'}）……", file=out)
         res = await sim.run()

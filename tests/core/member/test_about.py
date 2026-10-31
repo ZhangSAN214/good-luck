@@ -457,3 +457,11 @@ def test_your_identity_comes_first_in_dm_and_group_chat():
         update={"roundtable": cfg.model_copy(update={"chat": chat})}
     )
     assert "老板" not in with_about_you(env.rt, NONE, "你好")
+
+
+def test_relevance_is_not_diluted_by_a_second_clause():
+    from roundtable.core.member.about import relevance
+
+    q = "你还记得我养的猫叫什么吗？"
+    assert relevance("养了一只橘猫叫土豆，特别能吃", q) == relevance("养了一只橘猫叫土豆", q) > 0.1
+    assert relevance("不太吃辣，川菜只能吃微辣", q) == 0

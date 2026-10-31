@@ -50,6 +50,7 @@ SOURCES = {USER: "你写的", SAID: "你说过", INFERRED: "推测"}
 USER_AUTHOR = "user"
 LIFE_ROOMS = frozenset({"group", "dm"})  # 线索只认私聊和生活群里你的原话（工作群不读）
 MIN_QUOTE = 4  # 原话至少几个字（整条消息更短时要一字不差）
+_CLAUSE = re.compile(r"[，,；;。！!？?、]")
 QUERY_CHARS = 300  # 相关度只看当前对话最后这么多字
 REJECTED_MAX = 500
 HISTORY_MAX = 10
@@ -73,11 +74,16 @@ def one_line(text: str, limit: int) -> str:
 
 
 def relevance(fact: str, query: str) -> float:
-    """这条事实的两字片段有多少出现在当前对话里（0～1）。"""
-    f = grams(fact, (2,))
-    if not f:
-        return 0.0
-    return len(f & grams(query, (2,))) / len(f)
+    """这条事实的两字片段有多少出现在当前对话里（0～1）。分句各算、取最高的：
+    「养了一只橘猫叫土豆，特别能吃」被问「我养的猫叫什么」时，后半句不该把前半句冲淡
+    （2026-10-31 生日场景假模型彩排发现）。"""
+    q = grams(query, (2,))
+    best = 0.0
+    for part in [fact, *_CLAUSE.split(fact or "")]:
+        f = grams(part, (2,))
+        if f:
+            best = max(best, len(f & q) / len(f))
+    return best
 
 
 class AboutYou:

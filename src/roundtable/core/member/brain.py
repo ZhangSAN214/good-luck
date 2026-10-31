@@ -64,6 +64,15 @@ _QUESTION = re.compile(r"[？?]|(吗|呢|么)[。！!～~]*$")
 KEEP_NEWS = 6
 KEEP_PERCEPTS = 4
 CALENDAR_KINDS = frozenset({"holiday", "birthday", "joined", "user", "lunar", "observance"})
+
+
+def _theirs(item: dict[str, Any]) -> str:
+    """日历条目的名字。你自己加的纪念日是你的口吻（「我的生日」），成员念头里换成「他」，
+    免得她当成自己的生日（2026-10-31 生日场景）。"""
+    name = str(item.get("name", ""))
+    return name.replace("我", "他") if item.get("kind") == "user" else name
+
+
 _OWN_DAY = re.compile(r"^(今天是|再过\S+?天就是)\S+?(的生日|入职)")  # 日历念头里的「某某的生日」
 SENSES = {"web": "上网看到", "screen": "在屏幕上看到", "video": "看到", "weather": "看了天气"}
 URGENT = frozenset({"let_go", "retain", "blame"})  # 感情话里这几种不受条数和冷却限制
@@ -288,10 +297,10 @@ class Brain:
         if kind == "calendar.day":
             for it in data.get("items") or []:
                 if it.get("kind") in CALENDAR_KINDS:
-                    text = f"今天是{it.get('name', '')}"
+                    text = f"今天是{_theirs(it)}"
                     found.append((None, text, str(it.get("kind")), it.get("member")))
         elif kind == "calendar.upcoming" and data.get("kind") in CALENDAR_KINDS:
-            text = f"再过{data.get('in_days', '几')}天就是{data.get('name', '')}"
+            text = f"再过{data.get('in_days', '几')}天就是{_theirs(data)}"
             found.append((None, text, "upcoming", data.get("member")))
         elif kind.startswith(PERCEIVE) and event.member:
             card = str(data.get("card") or "").strip().replace("\n", " ")
