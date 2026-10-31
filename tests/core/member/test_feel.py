@@ -62,16 +62,24 @@ def test_long_card_lines_are_cut_but_never_too_short():
     assert 15 <= len(got["开心"]) <= 30
 
 
-def test_whether_a_hurt_is_sadness_or_anger_is_her_own_call():
+def test_which_feeling_a_moment_is_is_her_own_call():
     env = world()
     f = Feelings(env.rt)
-    assert f.classify("V1", 0.2, "被夸", "被夸") == "开心"
     assert f.classify("V1", -0.02, "小事", "被批评") == ""  # 心情没怎么动：不算一次情绪
-    # 同样被说了几句：较真的那位当成生气，温和的那位当成难过
+    # 被夸：内向的那位害羞，外向的那位开心
+    assert f.classify("V3", 0.2, "被夸", "被夸") == "害羞"
+    assert f.classify("V2", 0.2, "被夸", "被夸") == "开心"
+    # 同样被说了几句：较真的生气，温和的难过，其余的委屈
     assert f.classify("V1", -0.3, "用户说「你也太慢了吧」", "被批评") == "生气"
     assert f.classify("V2", -0.3, "用户说「你也太慢了吧」", "被批评") == "难过"
-    # 像她自己理解的生气（被催）：本来偏难过的事也会觉得是生气
-    assert f.classify("V1", -0.15, "被人催个不停", "落空") == "生气"
+    assert f.classify("V3", -0.3, "用户说「你也太慢了吧」", "被批评") == "委屈"
+    # 像她自己理解里的那种：落空本来偏失落，和她理解的难过一样就算难过
+    assert f.classify("V1", -0.15, "做的东西没达到期待", "落空") == "难过"
+    assert f.classify("V3", -0.15, "做的东西没达到期待", "落空") == "失落"
+    # 没列的事按心情往下分：像她理解的生气（糊涂账）就算生气
+    assert f.classify("V3", -0.2, "账又对不上，前后不一", "") == "生气"
+    assert f.classify("V3", -0.2, "下雨了", "") == "难过"
+    assert f.classify("V3", 0.04, "盼着的事", "盼着") == "期待"
 
 
 def test_real_feelings_are_recorded_from_reflexes_and_missing_from_gaps():
@@ -86,9 +94,9 @@ def test_real_feelings_are_recorded_from_reflexes_and_missing_from_gaps():
     bus.publish(Event("state.reflex", AT, "V1", data))
     bus.publish(Event("state.reflex", AT, "V1", {"name": "兑现", "mood": 0.12, "why": "盼着的事"}))
     bus.publish(Event("state.reflex", AT, "V1", {"name": "说话", "mood": 0.0}))
-    (angry, glad) = f.episodes("V1")
+    (angry, content) = f.episodes("V1")
     assert angry["emo"] == "生气" and angry["why"] == "用户说「你也太慢了吧，快点」"
-    assert glad == {"emo": "开心", "why": "盼着的事", "at": iso(AT)}
+    assert content == {"emo": "满足", "why": "盼着的事", "at": iso(AT)}
     # 好几天没聊，你又来私聊：想念
     later = AT + timedelta(days=3)
     second = env.rt.repo.add_chat_message(room, "user", "在吗", created_at=iso(later))
@@ -101,12 +109,13 @@ def test_real_feelings_are_recorded_from_reflexes_and_missing_from_gaps():
 def test_the_line_carries_her_understanding_and_the_last_time_it_happened():
     env = world()
     f = Feelings(env.rt)
-    assert f.active("V1", mood=0.0, last="今天吃了面", at=AT) == ""
-    assert f.active("V1", mood=0.0, last="好久不见，有点想你", at=AT) == "想念"
+    assert f.active("V1", mood=0.0, last="今天吃了面", at=AT) == []
+    assert f.active("V1", mood=0.0, last="好久不见，有点想你", at=AT) == ["想念"]
     f.record("V1", "生气", "被人催了三遍", AT - timedelta(days=1, hours=2))
-    assert f.active("V1", mood=-0.5, last="", at=AT) == "生气"  # 心情差：最近那种负面的
+    f.record("V1", "期待", "盼着周末", AT - timedelta(days=1))
+    assert f.active("V1", mood=-0.5, last="", at=AT) == ["生气"]  # 心情差：最近那种负面的
     f.record("V1", "开心", "作业被老师夸了", AT - timedelta(hours=1))
-    assert f.active("V1", mood=0.0, last="嗯", at=AT) == "开心"  # 刚有过：还在场
+    assert f.active("V1", mood=0.0, last="嗯", at=AT) == ["开心"]  # 刚有过：还在场
     line = f.line("V1", "开心", AT)
     assert line.startswith("你心里的开心：被准确地夸奖") and "上回是刚才，作业被老师夸了" in line
     assert "上回是昨天，被人催了三遍" in f.line("V1", "生气", AT)
@@ -125,6 +134,45 @@ def test_the_intent_card_brings_it_up_only_when_the_feeling_is_present():
     assert "你心里的开心" in card.text and "feel" in card.tags
     calm = brain.intent("V2", last="在干嘛", speaker=None, named=True, group=False, at=AT)
     assert "你心里的" not in calm.text
+    # 两种都在场：五味杂陈
+    Feelings(env.rt).record("V1", "生气", "被人催了三遍", AT - timedelta(minutes=10))
+    mixed = brain.intent("V1", last="在干嘛", speaker=None, named=True, group=False, at=AT)
+    assert "心里五味杂陈" in mixed.text and "feel:mix" in mixed.tags
+    assert "生气" in mixed.text and "开心" in mixed.text
+
+
+def test_mixed_feelings_come_from_the_brain_and_recent_moments():
+    env = world()
+    f = Feelings(env.rt)
+    assert f.hints(heart="hurt") == ["委屈"]
+    assert f.hints(heart="care", tense=True, novelty=0.9) == ["紧张", "无聊"]
+    assert f.hints(heart="jealous", novelty=0.2) == ["吃醋"]
+    f.record("V1", "开心", "作业被老师夸了", AT - timedelta(hours=1))
+    both = f.active("V1", mood=0.0, last="嗯", at=AT, hints=["紧张", "无聊"])
+    assert both == ["紧张", "开心"] or both == ["紧张", "无聊"]
+    assert len(both) == f.rules.mix_max == 2
+    f.record("V1", "紧张", "明天交稿", AT - timedelta(hours=2))
+    line = f.line("V1", ["开心", "紧张"], AT)
+    assert line.startswith("心里五味杂陈。你心里的开心：被准确地夸奖")
+    assert "\n同时还有点紧张：" in line and "明天交稿" in line
+    assert len(line) <= f.rules.mix_chars
+    # 一种说不出来（卡里没写、也没经历过）：只写另一种，不硬凑
+    assert f.line("V1", ["开心", "心疼"], AT) == f.line("V1", "开心", AT)
+
+
+def test_hurt_guilt_and_gratitude_in_love_are_felt_too():
+    from roundtable.core.member.love import Heart
+
+    env = world()
+    heart = Heart(env.rt, None, {"V1": "阿一", "V2": "阿二"})
+    heart._feel("V1", "V2", "hurt", 0.4, "{name}当众说你画得不行", AT)
+    heart._feel("V2", "V1", "guilt", 0.3, "上次你对{name}说话有点冲", AT)
+    heart._feel("V3", "V1", "dislike", 0.3, "{name}老是插话", AT)
+    assert Feelings(env.rt).episodes("V1") == [
+        {"emo": "委屈", "why": "阿二当众说你画得不行", "at": iso(AT)}
+    ]
+    assert Feelings(env.rt).episodes("V2")[0]["emo"] == "内疚"
+    assert Feelings(env.rt).episodes("V3") == []  # 看不惯不是一种情绪经历
 
 
 def week_with(member: str, text: str) -> Week:
