@@ -194,6 +194,7 @@ class Browser:
         fetch: Fetch | None = None,
     ) -> None:
         self.rt = rt
+        self.posted: list[dict[str, Any]] = []  # 这次推进里发出的分享（消息行）
         self.hub = hub
         self.allow = allow  # 生活每日上限
         self.fetch = fetch  # 为空时用模块里的 http_fetch（测试里整体替换，不联网）
@@ -453,6 +454,7 @@ class Browser:
         ]
         rng.shuffle(awake)
         shared = 0
+        self.posted = []
         for member in awake:
             if shared >= rules.shares_per_tick:
                 break
@@ -465,7 +467,9 @@ class Browser:
                 found = (item, interest) if item else None
             if found is None:
                 continue
-            if await self.share(member, *found) is None:
+            row = await self.share(member, *found)
+            if row is None:
                 break  # 预算不够或调用失败：这次不再试
+            self.posted.append(row)  # 生活引擎接着让一两位看了说两句
             shared += 1
         return shared

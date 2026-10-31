@@ -863,6 +863,8 @@ class Brain:
                 continue
             if rule.needs == "whim" and not has_whim:
                 continue
+            if rule.needs == "last" and not last:
+                continue
             if name in ("respond", "ask", "disagree") and not last:
                 continue
             w = rule.base

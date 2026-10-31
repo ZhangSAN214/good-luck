@@ -47,6 +47,8 @@ _BARE_FIX = re.compile(r"^\s*不对[，,、]?\s*是\s*(?:…+|\.{3,})\s*")  # �
 _END = re.compile(r"[。．.！!～~…]+$")
 _KEEP_END = re.compile(r"(?:[？?）)」』>\]】]|[\U0001f300-\U0001faff☀-➿])$")
 _CLAUSE = re.compile(r"[^，,。！!？?～~…\n]+[，,。！!？?～~…]*")
+_EMOJI = re.compile(r"[\U0001f300-\U0001faff☀-➿]")
+_LAST_HAN = re.compile(r"[\u4e00-\u9fff](?=[^\u4e00-\u9fff]*$)")  # 一行里最后一个汉字
 _SKIP = re.compile(r"\[表情[:：][^\]]*\]|\[引用[^\]]*\]|https?://\S+")
 
 
@@ -519,9 +521,11 @@ class Lingo:
         rng: random.Random | None = None,
     ) -> list[str]:
         """发出前收尾：返回要发的几条（通常一条；打错字又改口时多一条「*正字」）。"""
-        if not text.strip() or not self.styled(member):
+        if not text.strip() or not self.enabled():
             return [text]
         rng = rng or random.Random(f"lingo-finish:{member}:{text}")
+        if not self.styled(member):  # 没有人物卡：只补她的招牌小尾巴（配置里写了的话）
+            return [self.signature_tail(member, text, rng)]
         h = self.habits(member)
         out = _BARE_FIX.sub("", text, count=1) or text  # 一开口就「不对，是……」：改口没有对象
         out = self.colloquial(out, asked)
@@ -529,8 +533,50 @@ class Lingo:
         out = self.show(member, out, rng)
         out = _LAUGH.sub(lambda m: self._laugh(m.group(0), h, rng), out)
         out = "\n".join(self._end(line, h, rng) for line in out.split("\n"))
+        out = self.signature_tail(member, out, rng)
+        out = self._sprinkle(out, h, rng)
         fixed = self._typo(member, out, energy, rng)
         return fixed if fixed else [out]
+
+    def _sprinkle(self, text: str, h: Habits, rng: random.Random) -> str:
+        """一条里一个表情都没有时，按概率在最后一行末尾补一个她自己的颜文字（问句、很短的不补）。"""
+        chance = self.rules.kaomoji_sprinkle
+        if not chance or not h.kaomoji or STICKER_RE.search(text) or _EMOJI.search(text):
+            return text
+        if any(k in text for k in (*self.rules_kaomoji_all(), *h.kaomoji)):
+            return text
+        lines = text.split("\n")
+        last = lines[-1].rstrip()
+        if len(last) < 4 or last.endswith(("？", "?")) or rng.random() >= chance:
+            return text
+        lines[-1] = f"{last}{rng.choice(h.kaomoji)}"
+        return "\n".join(lines)
+
+    def rules_kaomoji_all(self) -> tuple[str, ...]:
+        return tuple(k for pick in self.rules.kaomoji.values() for k in pick.items)
+
+    def signature_tail(self, member: str, text: str, rng: random.Random) -> str:
+        """招牌小尾巴（如「喵」）：一行里还没带时按概率补在最后一个汉字后面（标点、表情之前）。"""
+        from roundtable.core.member.voice import signature_of  # voice 只在函数里引用本模块
+
+        sig = signature_of(self.rt, member)
+        if sig is None or not sig.tails or sig.tail_chance <= 0:
+            return text
+        lines = []
+        for line in text.split("\n"):
+            if not line.strip() or any(t in line for t in sig.tails):
+                lines.append(line)
+                continue
+            if rng.random() >= sig.tail_chance:
+                lines.append(line)
+                continue
+            plain = _SKIP.sub(lambda m: "\0" * len(m.group(0)), line)
+            hit = _LAST_HAN.search(plain)
+            if hit is None:
+                lines.append(line)
+                continue
+            lines.append(line[: hit.end()] + rng.choice(sig.tails) + line[hit.end() :])
+        return "\n".join(lines)
 
     def _marks(self, who: str) -> tuple[list[str], list[str], str]:
         """一个人说话的指纹：(口头禅, 颜文字, 自称)。"""
