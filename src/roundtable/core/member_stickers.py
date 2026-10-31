@@ -45,6 +45,7 @@ from roundtable.core.providers.cost import estimate_cost, image_cost
 INDEX_FILE = "index.json"
 DRAW_STEP = "member_sticker"
 CHECK_STEP = "sticker_check"
+PHOTO_STEP = "moment_photo"
 STATUSES = ("pending", "approved", "rejected")
 # members.json 里当参考图用的图片，按顺序取（找不到 refs 时）
 REF_KEYS = ("standee", "chibi", "avatar")
@@ -385,6 +386,56 @@ class MemberStickers:
         self._index.save(data)
         return next(r for r in self.listing(member) if r["name"] == name)
 
+    # --- 朋友圈配图 --------------------------------------------------------------------
+
+    async def photo(self, member: str, scene: str, post: str, shot: str) -> tuple[bytes, str]:
+        """照成员的形象卡和参考图画一张朋友圈配图（随手拍，不审、不存进表情索引）。
+        返回 (JPEG, mime)；花费和表情包算在同一个隐藏会话和每月上限里。"""
+        rules = self.rt.config.roundtable.media.moment_photos
+        card = self.card(member)
+        models = self.draw_models()
+        if not rules.enabled or not models:
+            raise StickerUnavailable("没有能看参考图的绘图模型")
+        refs = self.references(member, card)
+        if not refs:
+            raise StickerUnavailable("找不到这位成员的形象参考图")
+        prompt = self.rt.prompts.render(
+            "moment_photo",
+            self.rt.config.roundtable.prompts["moment_photo"],
+            look=card.look,
+            must="、".join(card.must) or "无",
+            shot=shot,
+            scene=scene,
+            post=post,
+        )
+        text = "\n\n".join(m.content for m in prompt.messages)
+        session = self.rt.repo.sticker_session()
+        for model in models[: self.rules.max_attempts]:  # 画不出来时换下一个模型
+            self._check_budget(image_cost(model, None, 1))
+            try:
+                inv = await self.rt.router.invoke(
+                    model.id,
+                    lambda prov, route, m: prov.generate_image(
+                        route.model,
+                        text,
+                        dict(m.params_for(route)),
+                        images=tuple(refs),
+                        api=m.image_api_for(route),
+                    ),
+                )
+            except (AllChannelsFailed, NoChannelAvailable):
+                continue
+            out = inv.result
+            cost = (
+                out.cost_usd
+                if out.cost_usd is not None
+                else image_cost(model, inv.route, 1, out.input_tokens, out.output_tokens)
+            )
+            self._record(session, PHOTO_STEP, model, text, inv, cost, out.cost_usd is not None)
+            if out.images:
+                return _jpeg(out.images[0].data, rules.max_side), "image/jpeg"
+        raise StickerUnavailable("画图失败（所有模型都没画出来）")
+
     # --- 核对 ------------------------------------------------------------------------
 
     def _problems(self, check: Check | None) -> str:
@@ -559,6 +610,21 @@ def _square(data: bytes, size: int) -> bytes:
             canvas.alpha_composite(im, ((size - im.width) // 2, (size - im.height) // 2))
             buf = io.BytesIO()
             canvas.convert("RGB").save(buf, "PNG", optimize=True)
+            return buf.getvalue()
+    except Exception:  # noqa: BLE001 - 读不了的图：原样存
+        return data
+
+
+def _jpeg(data: bytes, max_side: int) -> bytes:
+    """缩到长边不超过 max_side，存成 JPEG（朋友圈照片不需要透明）；读不了时原样返回。"""
+    try:
+        from PIL import Image
+
+        with Image.open(io.BytesIO(data)) as im:
+            im = im.convert("RGB")
+            im.thumbnail((max_side, max_side))
+            buf = io.BytesIO()
+            im.save(buf, "JPEG", quality=88)
             return buf.getvalue()
     except Exception:  # noqa: BLE001 - 读不了的图：原样存
         return data

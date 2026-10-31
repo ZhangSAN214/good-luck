@@ -333,3 +333,22 @@ def test_frames_must_be_exactly_four():
     with pytest.raises(ValidationError):
         StickerSpec(name="a", caption="a", action="a", frames=["一", "二"])
     assert StickerSpec(name="a", caption="a", action="a").frames == []
+
+
+def test_moment_photo_uses_the_card_and_refs_and_counts_in_the_sticker_budget(tmp_path):
+    rt, fake, stickers = build(tmp_path)
+    data, mime = asyncio.run(stickers.photo("OpenAI", "天台看星星", "今天的星星好多", "a selfie"))
+    assert mime == "image/jpeg"
+    with Image.open(io.BytesIO(data)) as im:
+        assert im.format == "JPEG"
+    [(_, _, prompt, _, refs, _)] = image_calls(fake)
+    assert refs and "a selfie" in prompt and "<post>今天的星星好多</post>" in prompt
+    assert stickers.month_spent() > 0  # 和表情包算在同一个每月小上限里
+    # 不存进表情索引
+    assert all(r["status"] == "missing" for r in stickers.listing("OpenAI"))
+
+
+def test_moment_photo_blocked_by_the_monthly_cap(tmp_path):
+    _, _, stickers = build(tmp_path, monthly_usd=0.000001)
+    with pytest.raises(StickerBudgetExceeded):
+        asyncio.run(stickers.photo("OpenAI", "天台", "好看", "a selfie"))
