@@ -17,6 +17,8 @@
 
 from __future__ import annotations
 
+import json
+import re
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -122,12 +124,32 @@ def _ints(values: Any) -> list[int]:
     return out
 
 
+_DIARY = re.compile(r'"diary"\s*:\s*"((?:[^"\\]|\\.)*)"')
+_ITEM = re.compile(r'\{\s*"text"\s*:\s*"(?:[^"\\]|\\.)*"[^{}]*\}')
+
+
+def _salvage(text: str) -> dict[str, Any] | None:
+    """JSON 写到一半被截断（输出上限）：捡回写完了的日记和条目，不把半截 JSON 当日记存。"""
+    diary = _DIARY.search(text)
+    if diary is None:
+        return None
+    items = []
+    for m in _ITEM.finditer(text[diary.end() :]):
+        try:
+            items.append(json.loads(m.group(0)))
+        except ValueError:
+            continue
+    return {"diary": json.loads(f'"{diary.group(1)}"'), "items": items}
+
+
 def parse(text: str) -> NightResult:
     """解析模型输出；不是 JSON 时整段当日记（不丢内容）。"""
     try:
         data = extract_json_object(text)
     except JSONOutputError:
-        return NightResult(diary=(text or "").strip())
+        data = _salvage(text or "")
+        if data is None:
+            return NightResult(diary=(text or "").strip())
     items = [i for i in data.get("items") or [] if isinstance(i, dict) and i.get("text")]
     hanging = data.get("hanging") if isinstance(data.get("hanging"), dict) else {}
     retell = [r for r in data.get("retell") or [] if isinstance(r, dict) and "id" in r]

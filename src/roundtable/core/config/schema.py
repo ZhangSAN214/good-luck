@@ -808,8 +808,9 @@ class MemoryRules(_Strict):
     entry_chars: int = Field(default=300, ge=50)  # 每条记忆最多多少字
     log_chars: int = Field(default=6000, ge=500)  # 整理一天时最多读多少字的聊天记录
     catch_up_days: int = Field(default=7, ge=1, le=60)  # 最多补整理几天前的
-    max_tokens: int = Field(default=600, ge=64)
-    estimate_usd: float = Field(default=0.001, ge=0)  # 每次整理的预估花费（预算检查用）
+    # 夜里整理是一段 JSON，思考也算在输出里：600 时三位一个字都没写出来（10-31 真模型试跑）
+    max_tokens: int = Field(default=2500, ge=64)
+    estimate_usd: float = Field(default=0.003, ge=0)  # 每次整理的预估花费（预算检查用）
     # 召回方式：half_life 半衰期记忆（默认），按相关 × 鲜活 × 重要挑几件；
     # layers 按时间固定带几层（旧）
     recall: Literal["layers", "half_life"] = "half_life"
@@ -1424,6 +1425,8 @@ class GoalRules(_Strict):
     # 主动做决定：卡住次数到了、又还没什么进展，有一定概率放下这件事、换一件（较真的人更坚持）
     give_up_after: int = Field(default=3, ge=1, le=50)
     give_up_chance: float = Field(default=0.4, ge=0, le=1)
+    # 目标是从人物卡里摘的原句，说出口时要换成自己的话（10-31 真模型试跑：有人照抄「有人站得住」）
+    say_line: str = "（这是你的打算：说出口就讲眼下具体在弄的一小步，用你自己的话，别照搬这句）"
     stages: list[str] = [
         "刚开始",
         "有了点头绪",
@@ -1831,8 +1834,8 @@ class AskedRules(_Strict):
         "别把同一句原样问回去"
     )
     judge_line: str = (
-        "对方让你评价他：按你的性格给个反应就行（打趣一句、说还看不出来、挑一件具体的事说都行），"
-        "别先说一段「认识不久」再给他做性格分析"
+        "对方让你评价他：按你的性格回一两句就行——要么打趣，要么老实说还看不出来，"
+        "要么只挑一件具体的小事说；三选一，别先说「才聊几句、不太熟」再接一段性格分析"
     )
 
 

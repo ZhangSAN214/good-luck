@@ -50,6 +50,18 @@ def test_her_own_birthday_is_hers_not_someone_elses():
     assert "今天是一号的生日" in theirs and "再过3天就是你的生日" in theirs
 
 
+def test_a_goal_from_her_card_is_said_in_her_own_words():
+    env, brain = setup()
+    from roundtable.core.member.brain import Thought
+
+    s = brain._load("V1")
+    focus = Thought("goal", "最近在琢磨「有人站得住」，刚开始", 0.35)  # 来源是目标
+    card = brain._card("share", focus, 0.0, 0.6, s, random.Random(0))
+    assert brain.rules.goals.say_line in card
+    other = brain._card("share", Thought("own", "今天下雨", 0.3), 0.0, 0.6, s, random.Random(0))
+    assert brain.rules.goals.say_line not in other
+
+
 def test_moments_read_what_is_on_her_mind():
     env, brain = setup()
     s = brain._load("V1")
