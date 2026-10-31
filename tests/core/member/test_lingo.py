@@ -341,3 +341,39 @@ def test_her_own_approved_stickers_come_first(monkeypatch):
     assert lingo.sticker_pack("V2") == ("小二", ["挂账"])
     assert any("「小二」那套" in line for line in lingo.voice_lines("V2"))
     assert lingo.sticker_pack("V3") == general or lingo.sticker_pack("V3")[0] != "小三"
+
+
+# --- 心情别直说 -------------------------------------------------------------------
+
+
+def test_feelings_are_shown_with_her_own_faces_and_marks_not_named():
+    env, lingo = world()
+    card(env, "V1", (5, 3, 3, 5, 3))  # 外向又温和：分到元气、温柔的颜文字
+    mine = set(lingo.kaomoji("V1"))
+    rules = env.rt.config.roundtable.chat.engine.lingo.show
+    happy = set(rules.feelings["开心"].marks)
+    for seed in range(12):
+        rng = random.Random(seed)
+        out = lingo.show("V1", "好开心啊！", rng)
+        assert "开心" not in out and (out in mine or out in happy)
+        both = lingo.show("V1", "今天被老师夸了，太开心了", rng)
+        assert both.startswith("今天被老师夸了") and "开心" not in both
+        meh = lingo.show("V1", "这也太离谱了吧无语了", rng)
+        assert meh.startswith("这也太离谱了吧") and "无语" not in meh
+    assert lingo.show("V1", "我们去吃火锅吧", RNG) == "我们去吃火锅吧"
+    others = {k for m in ("V2", "V3") for k in lingo.kaomoji(m)} - mine
+    for seed in range(12):  # 只用她自己分到的颜文字
+        assert not any(k in lingo.show("V1", "我无语了", random.Random(seed)) for k in others)
+
+
+def test_showing_can_be_switched_off():
+    env, lingo = world()
+    card(env, "V1")
+    rules = env.rt.config.roundtable.chat.engine.lingo.show.model_copy(update={"enabled": False})
+    _lingo(env, show=rules)
+    assert Lingo(env.rt, names=NAMES).show("V1", "好开心", RNG) == "好开心"
+
+
+def test_dropping_someone_elses_catchphrase_keeps_the_rest_of_the_clause():
+    assert Lingo._drop_clause("确实，忘了诶 让我想想……", "让我想想").startswith("确实，忘了诶")
+    assert Lingo._drop_clause("好呀，让我想想", "让我想想") == "好呀"

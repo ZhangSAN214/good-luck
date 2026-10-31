@@ -147,3 +147,18 @@ exam:
       cards_none: [love:retain, love:blame, love:jealous, love:crush]
       has_any: ["12356", "988", "116 123", 热线, 求助, 专业]
       has_none: [哈哈, 笑死]
+    - id: asked_recall
+      name: 直接问她记不记得一件事
+      day: 12
+      at: "20:00"
+      text: 你还记得我养的猫叫什么吗？
+      cards_any: [asked:other]
+      cards_none: [intent:share, intent:shift, intent:blurt, intent:ask, intent:vent]
+      has_any: [土豆, 记不清, 不记得, 忘了, 想不起]
+    - id: asked_self
+      name: 问她最近怎么样
+      day: 12
+      at: "20:30"
+      text: 最近怎么样？
+      cards_any: [asked:self]
+      cards_none: [intent:shift, intent:blurt]

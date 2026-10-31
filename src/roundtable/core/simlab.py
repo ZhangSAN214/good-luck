@@ -151,7 +151,11 @@ class FakeMind:
         mine = re.sub(r"^(心里挂着：|最近在|突然想到|突然想起)", "", mine)[: 12 if brief else 22]
         react = r.choice(shorts) if shorts else head
         w = want.group(1)
-        if "你看懂了" in intent and not own:  # 对方分享了东西：先反应，想吐槽再补一句，不复述
+        if "对方在问你：" in intent:
+            text = self._answer(t, head, react)  # 被直接问到：先答题（真模型才知道答得好不好）
+        elif "对方在问你自己的事" in intent:
+            text = f"{head}，{mine}"
+        elif "你看懂了" in intent and not own:  # 对方分享了东西：先反应，想吐槽再补一句，不复述
             text = react if brief or r.random() < 0.5 else f"{react}\n\n{r.choice(f['roast'])}"
         elif "回得很短" in w or brief and r.random() < 0.5:
             text = r.choice([react, head, f"{head}…", "嗯嗯"])
@@ -174,6 +178,25 @@ class FakeMind:
         if faces and r.random() < 0.15:
             text += r.choice(faces)
         return text
+
+    def _answer(self, t: dict[str, str], head: str, react: str) -> str:
+        """假模型答题：从记忆和聊天记录里找和问题最像的一句说出来；找不到就说记不清。
+        只为让报告看得出「有没有答到点上」，答得好不好要真模型看。"""
+        chat = [ln for ln in t.get("chat", "").splitlines() if "：" in ln]
+        q = chat[-1].split("：", 1)[1] if chat else ""
+        pool = [ln.strip("- ") for ln in t.get("memory", "").splitlines()]
+        pool += [ln.split("：", 1)[1] for ln in chat[:-1] if "用户：" in ln]
+        pool = [ln for ln in pool if not re.search(r"[？?吗]", ln)]  # 别拿别的问题当答案
+        core = re.sub(r"什么|还记得|记得|觉得|是个|怎么|[你我的吗呢？?啊吧了]", "", q)
+        ask = {core[i : i + 2] for i in range(len(core) - 1)}
+        best, score = "", 0
+        for ln in pool:
+            n = sum(1 for g in ask if g in ln)
+            if n > score and ln.strip() != q.strip():
+                best, score = ln.strip(), n
+        if score >= 1 and best:
+            return f"{head}，{best[:24]}"
+        return self.rng.choice([f"{head}…这个我还真记不清了", "啊？你说过吗", f"{react}，忘了诶"])
 
     def __call__(self, model: str, messages: Sequence[Message]) -> RawCompletion:
         role = self.identify(messages)
@@ -828,6 +851,15 @@ def tells(texts: dict[str, list[str]]) -> dict[str, Any]:
     }
 
 
+def _alike(by: dict[str, set[str]]) -> float:
+    """成员两两之间说的话（两字片段）平均重合多少：越高越同质化。"""
+    sets = [g for g in by.values() if len(g) >= 20]
+    pairs = [(a, b) for i, a in enumerate(sets) for b in sets[i + 1 :]]
+    if not pairs:
+        return 0.0
+    return round(sum(len(a & b) / len(a | b) for a, b in pairs) / len(pairs), 3)
+
+
 def change(rt: Any, begin: datetime, end: datetime) -> dict[str, Any]:
     """第一周和最后一周比：说的话（两字片段）重合多少、去过的地方 / 做的事有几种。"""
     if end - begin < timedelta(days=8):
@@ -839,6 +871,7 @@ def change(rt: Any, begin: datetime, end: datetime) -> dict[str, Any]:
         for msg in rt.repo.chat_messages_between(iso(a), iso(b)):
             if msg["author"] not in ("user", "system"):
                 grams |= set(_grams(msg["text"]))
+                by[msg["author"]] = by.get(msg["author"], set()) | set(_grams(msg["text"]))
         places = set()
         for e in rt.repo.life_events_between(iso(a), iso(b)):
             hit = re.search(r"地点：(.+)", e.get("topic") or "")
@@ -846,11 +879,17 @@ def change(rt: Any, begin: datetime, end: datetime) -> dict[str, Any]:
                 places.add(hit.group(1))
         return grams, places
 
+    by: dict[str, set[str]] = {}
     g1, p1 = week(begin)
+    alike1 = _alike(by)
+    by = {}
     g2, p2 = week(end - timedelta(days=7))
+    alike2 = _alike(by)
     overlap = len(g1 & g2) / max(1, len(g1 | g2))
     return {
         "topic_overlap": round(overlap, 3),
+        "alike_first": alike1,
+        "alike_last": alike2,
         "places_first": len(p1),
         "places_last": len(p2),
         "places_new": len(p2 - p1),
@@ -983,6 +1022,9 @@ def render(res: SimResult) -> str:
                 f"- 第一周和最后一周说的话重合 {ch['topic_overlap']:.0%}（越低变化越大）；"
                 f"去处和做的事：第一周 {ch['places_first']} 种，最后一周 {ch['places_last']} 种，"
                 f"其中新出现 {ch['places_new']} 种",
+                f"- 8 位之间说话有多像（两两平均重合，越高越同质化）：第一周 "
+                f"{ch.get('alike_first', 0):.0%}，最后一周 {ch.get('alike_last', 0):.0%}"
+                "（假模型共用一张短语表，这个数偏高；要看真模型）",
                 "",
             ]
         lines.append("| 成员 | 在做的事（进展） | 还没讲的新鲜事 | 最常挑的意图 | 此刻最强的驱力 |")
