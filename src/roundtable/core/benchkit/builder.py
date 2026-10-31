@@ -29,7 +29,7 @@ from typing import Any
 
 from roundtable.core.benchkit.library import Library
 from roundtable.core.benchkit.lint import lint_data, lint_windows
-from roundtable.core.benchkit.quality import QualityError, Report, run_check
+from roundtable.core.benchkit.quality import Finding, QualityError, Report, run_check, run_probes
 from roundtable.core.benchkit.research import Researcher, report_markdown
 from roundtable.core.benchkit.scout import Candidate, Scout
 from roundtable.core.benchkit.spec import (
@@ -181,6 +181,7 @@ class BenchBuilder:
         scout: Scout | None = None,
         researcher: Researcher | None = None,
         whitelist: Callable[[], dict[str, str]] | None = None,
+        probe: Callable[..., list[dict[str, Any]]] | None = run_probes,
         now: Callable[[], datetime] = lambda: datetime.now(UTC),
         seed: int | None = None,
     ) -> None:
@@ -193,6 +194,7 @@ class BenchBuilder:
         self.researcher = researcher
         # dsh 插件白名单 {仓库 owner/name: 白名单 id}：调研列出的插件标出「已审过，可以装」
         self.whitelist = whitelist
+        self.probe = probe  # 可执行的验收（测试换成假的）
         self.library = Library(root) if root is not None else None
         self.now = now
         self.seed = seed
@@ -1528,6 +1530,7 @@ class BenchBuilder:
         # 读代码就能看出来的问题（没用零件库、写死颜色、代码太大）一起算进质检
         report.findings += lint_windows(folder, [w["id"] for w in b["windows"]])
         report.findings += lint_data(folder, [w["id"] for w in b["windows"]], spec.shared)
+        rnd["probes"] = await self._probes(b, spec, report)
         rnd["check"] = report.to_dict()
         self._log(b, f"第 {n} 轮质检：{'通过' if report.passed else '不通过'}，{report.score} 分")
         shots = "\n".join(os.path.relpath(s, folder) for s in report.shots)
@@ -1602,6 +1605,12 @@ class BenchBuilder:
             for wid in r["windows"]
         }
         rnd["requirements"] = merge_checks(spec.requirements, rnd["reviews"])
+        # 程序真的去填、去点没做到的：评审说做到了也不算
+        failed = {x["id"]: x["why"] for x in rnd["probes"] if x["ok"] is False}
+        for r in rnd["requirements"]:
+            if r["id"] in failed:
+                r["met"] = False
+                r["why"] = [f"自动检查：{failed[r['id']]}", *r["why"]][:3]
         met = all(r["met"] for r in rnd["requirements"])
         rnd["passed"] = complete and met and passes(report.passed, rnd["scores"], self.rules)
         team = self.rules.team
@@ -1626,6 +1635,41 @@ class BenchBuilder:
             + ("、".join(f"{k} {v:g}" for k, v in rnd["scores"].items()) or "没评成"),
         )
         return rnd["passed"]
+
+    async def _probes(self, b: dict[str, Any], spec: Spec, report: Report) -> list[dict[str, Any]]:
+        """可执行的验收：拆需求时写了 probe 的要求，程序打开成品照着填、选、点，
+        看该出现的字出现没有。没做到的记成必须修的质检问题，交给负责的窗口。"""
+        probes = [{"id": r["id"], **r["probe"]} for r in spec.requirements if r.get("probe")]
+        if not probes or self.probe is None:
+            return []
+        try:
+            results = await asyncio.to_thread(
+                self.probe, str(self.folder(b["id"]) / "index.html"), probes, allow=self._allow()
+            )
+        except QualityError as exc:
+            self._log(b, f"验收自动检查没法进行：{exc}")
+            return []
+        by = {r["id"]: r for r in spec.requirements}
+        for x in results:
+            if x["ok"] is False:
+                r = by[x["id"]]
+                report.findings.append(
+                    Finding(
+                        "验收自动检查没过",
+                        "block",
+                        "自动检查",
+                        f"{r['id']} {r['text']}：{x['why']}",
+                        list(r["windows"]),
+                    )
+                )
+        ok = sum(1 for x in results if x["ok"])
+        skipped = sum(1 for x in results if x["ok"] is None)
+        self._log(
+            b,
+            f"验收自动检查：{ok}/{len(results)} 条做到"
+            + (f"，{skipped} 条要现场生成、交给评审看" if skipped else ""),
+        )
+        return results
 
     @staticmethod
     def _previous(last: dict[str, Any] | None, wids: list[str]) -> str:

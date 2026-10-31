@@ -327,7 +327,7 @@
 - 第 1 块 联网自检 + 调研员（预估 5～7 小时，实际约 1.5 小时）：`core/benchkit/research.py`、`netcheck.py`，提示词 `bench_research` v1、`bench_learn` v1，配置 `bench.research`、`bench.net[].probe`，控制室显示调研报告和联网自检。见 `docs/KIT.md`「调研员与联网自检」。只用假助手测试。PR #119。
 - 第 2 块 项目室（预估 14～18 小时，实际约 2.5 小时）：访谈、方案书签字、里程碑演示与变更单、交付验收、下一版提案、时间线；配置 `bench.project`，提示词 `bench_interview` v1、`bench_evolve` v1，接口 `answer` / `sign` / `review` / `evolve`。见 `docs/KIT.md`「项目室：甲方乙方全流程」。只用假助手测试。PR #121。
 - 第 3 块 三位助手协作 + dsh 插件（预估 8～10 小时，实际约 2 小时）：方案会（各提方案、互投不投自己、主案定做法）、每轮对抗手找毛病（严重问题挡过线）、协作看板、dsh 插件学习卡与「申请装上」；配置 `bench.team`、`bench.research.learn_plugins`，提示词 `bench_pitch` / `bench_vote` / `bench_attack` v1，接口 `plugin`。见 `docs/KIT.md`「三位助手协作与 dsh 插件」。只用假助手测试。PR #122。
-- 第 4 块上半 没过线时你来定 + 查数据（预估 4～5 小时，实际约 1 小时）：B3「卡在哪」和三个选择（接口 `decide`）、方案书写清方案会、C4 `lint_data`、C5 自动点一遍（`poke.js`）。见 `docs/KIT.md`「没过线时你来定、查数据」。只用假助手测试。
+- 第 4 块上半 没过线时你来定 + 查数据（预估 4～5 小时，实际约 1 小时）：B3「卡在哪」和三个选择（接口 `decide`）、方案书写清方案会、C4 `lint_data`、C5 自动点一遍（`poke.js`）、C6 可执行的验收（`probe` + `run_probes`）。见 `docs/KIT.md`「没过线时你来定、查数据」。只用假助手测试。
 
 ## 下一步
 

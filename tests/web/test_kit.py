@@ -205,3 +205,58 @@ def test_poke_clicks_every_window_and_finds_dead_lonely_and_broken_buttons(tmp_p
     # 只在第一种组合里点
     two = _check(str(index), viewports=(("电脑", 1280, 860), ("手机", 390, 844)), modes=("light",))
     assert "、" not in {f.check: f for f in two.findings}["点了没反应"].where
+
+
+def test_run_probes_fills_clicks_and_reads_the_page(tmp_path):
+    """程序真的去填「京都」、点「生成」：做到的判过；写死的、找不到按钮的判不过；
+    要请助手现场生成的判「查不了」。"""
+    from roundtable.core.benchkit.quality import run_probes
+    from roundtable.core.benchkit.spec import normalize, write_shell
+
+    spec = normalize(
+        {
+            "title": "旅行台",
+            "windows": [
+                {"id": "form", "title": "条件", "span": 6},
+                {"id": "plan", "title": "行程", "span": 6},
+            ],
+        },
+        max_windows=8,
+    )
+    index = write_shell(tmp_path, spec, "b10")
+    form = [
+        "export default (el, ctx) => { el.innerHTML = '<label>目的地 <input class=k-input",
+        " data-to></label><button class=k-btn data-go>生成行程</button>",
+        "<button class=k-btn data-ai>智能推荐</button>';",
+        " const to = el.querySelector('[data-to]');",
+        " el.querySelector('[data-go]').onclick = () => ctx.state.set('to', to.value);",
+        " el.querySelector('[data-ai]').onclick = () => ctx.askJson('推荐 ' + to.value); };",
+    ]
+    (tmp_path / "windows" / "form.js").write_text("".join(form), encoding="utf-8")
+    plan = [
+        "export default (el, ctx) => { el.innerHTML = '<p>东京三日游</p>';",
+        " ctx.state.on('to', (v) => {",
+        " if (v) el.innerHTML = '<p>' + ctx.kit.esc(v) + '三日游</p>'; }); };",
+    ]
+    (tmp_path / "windows" / "plan.js").write_text("".join(plan), encoding="utf-8")
+    fill = {"do": "fill", "target": "目的地", "value": "京都"}
+
+    def click(t):
+        return {"do": "click", "target": t}
+
+    probes = [
+        {"id": "r1", "steps": [fill, click("生成行程")], "expect": ["京都三日游"]},
+        {"id": "r2", "steps": [click("生成行程")], "expect": [], "changes": True},
+        {"id": "r3", "steps": [click("导出 PDF")], "expect": ["已导出"]},
+        {"id": "r4", "steps": [fill, click("智能推荐")], "expect": ["推荐结果"]},
+    ]
+    try:
+        got = {x["id"]: x for x in run_probes(str(index), probes)}
+    except QualityError as exc:
+        if "浏览器启动失败" in str(exc):
+            pytest.skip(str(exc))
+        raise
+    assert got["r1"]["ok"] is True, got
+    assert got["r2"]["ok"] is False and "一点没变" in got["r2"]["why"]  # 空输入点生成：没变
+    assert got["r3"]["ok"] is False and "找不到「导出 PDF」" in got["r3"]["why"]
+    assert got["r4"]["ok"] is None and "现场生成" in got["r4"]["why"]

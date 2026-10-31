@@ -535,3 +535,113 @@ def run_check(
             json.dumps(report.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8"
         )
     return report
+
+
+# ---------------------------------------------------------------- 可执行的验收（C6）
+
+
+# 成品不在圆桌里打开时，问助手的消息发给这个假的外层：只记次数、不回答
+ASK_SPY = """window.__asks = 0;
+window.parent = { postMessage(m) { if (m && m.type === 'bench-ask') window.__asks += 1; } };"""
+
+
+def _find(page, step: dict):
+    """按界面上看得到的字找元素：标签 → 占位文字 → 按钮 / 标签页 → 任意文字。找不到返回 None。"""
+    t = step["target"]
+    if step["do"] == "click":
+        tries = [
+            page.get_by_role("button", name=t),
+            page.get_by_role("tab", name=t),
+            page.get_by_role("option", name=t),
+            page.get_by_role("link", name=t),
+            page.get_by_text(t),
+        ]
+    else:
+        tries = [page.get_by_label(t), page.get_by_placeholder(t)]
+    for loc in tries:
+        visible = [x for x in loc.all() if x.is_visible()]
+        if visible:
+            return visible[0]
+    return None
+
+
+def run_probes(
+    target: str,
+    probes: list[dict],
+    *,
+    allow: tuple[str, ...] = (),
+    settle_ms: int = 900,
+    step_ms: int = 600,
+) -> list[dict]:
+    """逐条打开成品（电脑·浅色，每条一个新页面），照 steps 去填、去选、去点，再看 expect 的字
+    出现没有、页面变没变。返回 [{id, ok, why}]。
+
+    不调用模型：成品向助手要现场生成的内容（ctx.ask / askJson）时，这里只记下「问过」、不回答；
+    这样的要求没看到 expect 就判「查不了」（ok 为 None，交给评审看），不冤枉作者。"""
+    try:
+        from playwright.sync_api import Error as PwError
+        from playwright.sync_api import sync_playwright
+    except ImportError:
+        raise QualityError(
+            "没有安装 Playwright：pip install playwright，再运行 playwright install chromium"
+        ) from None
+    path = Path(target)
+    if not path.is_file():
+        raise QualityError(f"找不到文件：{target}")
+    results: list[dict] = []
+    with contextlib.ExitStack() as stack:
+        base = stack.enter_context(_serve(path.resolve().parent))
+        url = f"{base}/{path.name}"
+        local_hosts = ("127.0.0.1", "localhost")
+        try:
+            pw = stack.enter_context(sync_playwright())
+            browser = pw.chromium.launch(
+                executable_path=os.environ.get("ROUNDTABLE_CHROMIUM") or None
+            )
+        except PwError as exc:
+            raise QualityError(f"浏览器启动失败：{str(exc).splitlines()[0][:160]}") from None
+        stack.callback(browser.close)
+        for p in probes:
+            page = browser.new_page(viewport={"width": 1280, "height": 860})
+            page.add_init_script(ASK_SPY)
+            page.on("dialog", lambda d: d.dismiss())
+            page.route("**/*", functools.partial(_gate, local_hosts, tuple(allow)))
+            why = ""
+            try:
+                page.goto(url, wait_until="load", timeout=20000)
+                page.wait_for_timeout(settle_ms)
+                before = page.inner_text("body")
+                for i, step in enumerate(p["steps"], 1):
+                    el = _find(page, step)
+                    if el is None:
+                        why = f"第 {i} 步找不到「{step['target']}」"
+                        break
+                    if step["do"] == "fill":
+                        el.fill(step["value"])
+                        el.press("Enter")
+                    elif step["do"] == "select":
+                        try:
+                            el.select_option(label=step["value"])
+                        except PwError:
+                            el.select_option(step["value"])
+                    else:
+                        el.click(timeout=3000)
+                    page.wait_for_timeout(step_ms)
+                if not why:
+                    after = page.inner_text("body")
+                    missing = [e for e in p["expect"] if e not in after]
+                    if missing:
+                        why = f"做完以后页面上没有「{'」「'.join(missing)}」"
+                    elif p.get("changes") and after == before:
+                        why = "做完以后页面内容一点没变（像是写死的）"
+                    if why and page.evaluate("window.__asks || 0"):
+                        results.append(
+                            {"id": p["id"], "ok": None, "why": "要请助手现场生成，自动检查拿不到"}
+                        )
+                        page.close()
+                        continue
+            except PwError as exc:
+                why = f"操作时出错：{str(exc).splitlines()[0][:120]}"
+            results.append({"id": p["id"], "ok": not why, "why": why})
+            page.close()
+    return results

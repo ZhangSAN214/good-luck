@@ -94,6 +94,36 @@ def _text(v: Any, limit: int) -> str:
     return re.sub(r"\s+", " ", str(v or "")).strip()[:limit]
 
 
+PROBE_DO = ("fill", "select", "click")
+
+
+def probe_of(raw: Any) -> dict[str, Any] | None:
+    """验收要求的自动检查：最多 4 步（填写 / 选择 / 点击），做完看哪些字出现、页面变没变。
+    看不懂或没有能看的结果就当没写。"""
+    if not isinstance(raw, dict):
+        return None
+    steps = []
+    for x in raw.get("steps") or []:
+        if not isinstance(x, dict) or x.get("do") not in PROBE_DO:
+            continue
+        target = _text(x.get("target"), 40)
+        if not target:
+            continue
+        step = {"do": x["do"], "target": target}
+        if x["do"] != "click":
+            value = _text(x.get("value"), 80)
+            if not value:
+                continue
+            step["value"] = value
+        steps.append(step)
+    steps = steps[:4]
+    expect = [t for t in (_text(e, 40) for e in raw.get("expect") or []) if t][:4]
+    changes = raw.get("changes") is True
+    if not steps or not (expect or changes):
+        return None
+    return {"steps": steps, "expect": expect, "changes": changes}
+
+
 def _requirements(
     raw: Any, seen: set[str], baseline: list[str], max_requirements: int
 ) -> list[dict[str, Any]]:
@@ -116,6 +146,7 @@ def _requirements(
                     "text": text,
                     "check": _text(x.get("check"), 200),
                     "windows": wins(x),
+                    "probe": probe_of(x.get("probe")),
                 }
             )
     by_id = {str(x.get("id")): x for x in items}
@@ -128,6 +159,7 @@ def _requirements(
                 "text": text,
                 "check": _text(x.get("check"), 200),
                 "windows": wins(x),
+                "probe": probe_of(x.get("probe")),
             }
         )
     return out
