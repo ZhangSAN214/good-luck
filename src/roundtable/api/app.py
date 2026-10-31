@@ -296,6 +296,18 @@ class FeedsBody(BaseModel):
     feeds: list[dict[str, Any]] | None = None  # None：恢复为配置文件里的
 
 
+class MemeBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    phrase: str = Field(min_length=1, max_length=20)
+    aliases: list[str] = Field(default_factory=list, max_length=6)
+    meaning: str = Field(default="", max_length=80)
+    cue: str = Field(default="", max_length=40)
+    reply: str = Field(default="", max_length=40)
+    example: str = Field(default="", max_length=80)
+    classic: bool = True
+
+
 class MemoryBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -1480,6 +1492,22 @@ def create_app(service: RoundtableService | None = None, lan: LanAccess | None =
     @app.put("/api/chat/feeds")
     async def chat_set_feeds(request: Request, body: FeedsBody) -> dict[str, Any]:
         return svc(request).chat_set_feeds(body.feeds)
+
+    @app.get("/api/chat/memes")
+    async def chat_memes(request: Request) -> dict[str, Any]:
+        return svc(request).chat_memes()
+
+    @app.post("/api/chat/memes")
+    async def chat_add_meme(request: Request, body: MemeBody) -> dict[str, Any]:
+        return svc(request).chat_add_meme(body.model_dump())
+
+    @app.delete("/api/chat/memes")
+    async def chat_remove_meme(request: Request, phrase: str) -> dict[str, Any]:
+        return svc(request).chat_remove_meme(phrase)
+
+    @app.post("/api/chat/memes/refresh")
+    async def chat_refresh_memes(request: Request) -> dict[str, Any]:
+        return await svc(request).chat_refresh_memes()
 
     @app.post("/api/chat/feeds/refresh")
     async def chat_refresh_feeds(request: Request) -> dict[str, Any]:

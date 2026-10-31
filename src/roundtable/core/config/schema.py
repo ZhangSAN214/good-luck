@@ -902,6 +902,69 @@ class BrowseRules(_Strict):
     react_turns: int = Field(default=2, ge=0, le=4)  # 接着聊最多几句（每句一次调用，算生活花费）
 
 
+class MemeSource(_Strict):
+    """一个公开热榜（只读、不登录）。kind=json：按 path 找到条目列表、取 key 字段当标题
+    （path / key 用「.」分级，数字是第几个、「*」是每一个）；kind=rss：取每条的标题。"""
+
+    name: str = Field(min_length=1, max_length=40)
+    url: str = Field(pattern=r"^https?://", max_length=500)
+    kind: Literal["json", "rss"] = "json"
+    path: str = Field(default="", max_length=80)
+    key: str = Field(default="", max_length=40)
+    enabled: bool = True
+
+
+class ClassicMeme(_Strict):
+    """经典梗：永远不下架、不算老梗（2026-10-31 用户：NiKo 被称为虾爹、我chovey 之类可以保留）。
+    意思空着时，梗雷达第一次联网时搜一下补上（补好的在网页里能看、能改）。"""
+
+    phrase: str = Field(min_length=1, max_length=20)
+    aliases: list[str] = Field(default_factory=list, max_length=6)  # 别的说法 / 上句里会出现的词
+    meaning: str = Field(default="", max_length=80)
+    cue: str = Field(default="", max_length=40)  # 上句：别人说什么时会用到
+    reply: str = Field(default="", max_length=40)  # 接法：熟的人怎么接
+
+
+class MemeRules(_Strict):
+    """网络梗（梗雷达，docs/CHAT.md「网络梗」）：每天抓一次公开热榜（$0），每天最多搜几次补充，
+    交给档位里最便宜的一位提炼成梗卡（梗、意思、上句 → 接法）；花费计入生活每日上限。
+    只用于生活群、私聊、成员互聊（大脑分区的意图卡），工作模式不读。
+    防老梗烂梗：只收最近 max_age_days 天内火起来的；fresh_days 天没再上榜就下架（经典梗除外）；
+    stale 里的老梗不收、成员说出口前删掉。8 位同一套规则，谁懂哪个梗只看各自的性格分。"""
+
+    enabled: bool = True
+    plan: str = "budget"  # 提炼用这个档位里按价格最便宜的一位
+    refresh_hours: float = Field(default=24, ge=1, le=168)
+    sources: list[MemeSource] = Field(default_factory=list, max_length=20)
+    titles_max: int = Field(default=120, ge=10, le=400)  # 交给模型的热榜标题最多几条
+    search_per_day: int = Field(
+        default=2, ge=0, le=5
+    )  # 每天最多联网搜几次（找新梗 1 次 + 查经典梗意思）
+    search_query: str = Field(default="最近一周 新出的网络热梗 是什么意思", max_length=60)
+    search_estimate_usd: float = Field(default=0.01, ge=0)
+    estimate_usd: float = Field(default=0.01, ge=0)  # 提炼一次的预估花费
+    max_tokens: int = Field(default=1500, ge=200)
+    timeout_s: float = Field(default=10, gt=0, le=60)
+    max_kb: int = Field(default=1024, ge=16, le=8192)
+    fresh_days: int = Field(default=14, ge=1, le=90)  # 多少天没再上榜就下架
+    max_age_days: int = Field(default=90, ge=7, le=730)  # 火起来超过这么久的不收（老梗）
+    max_memes: int = Field(default=40, ge=5, le=200)  # 新梗最多存几个（经典梗另算）
+    know_base: float = Field(default=0.5, ge=0, le=1)  # 懂一个新梗的基础概率
+    know_traits: dict[str, float] = {}  # 性格分（1～5，3 为中）每高 1 分加多少
+    know_min: float = Field(default=0.2, ge=0, le=1)
+    know_max: float = Field(default=0.95, ge=0, le=1)
+    learn_days: float = Field(default=4, ge=0, le=30)  # 新梗刚出来时懂的人少，这么多天后到满
+    use_chance: float = Field(default=0.12, ge=0, le=1)  # 意图卡里提一句「最近在玩的梗」的概率
+    use_intents: list[str] = Field(default_factory=lambda: ["respond", "joke", "tangent", "blurt"])
+    quick_chance: float = Field(
+        default=0.5, ge=0, le=1
+    )  # 别人说了上句、她懂又有接法：程序直接接（不调模型）
+    ask_chance: float = Field(default=0.6, ge=0, le=1)  # 别人玩的梗她不懂：问一句是啥梗
+    reuse_days: int = Field(default=3, ge=1, le=30)  # 同一个梗她隔这么多天才再主动用
+    classics: list[ClassicMeme] = Field(default_factory=list, max_length=100)
+    stale: list[str] = Field(default_factory=list, max_length=200)  # 老梗烂梗：不收、说出口前删掉
+
+
 class PerceptionMode(_Strict):
     """感官的一种精细程度（docs/PERCEPTION.md）：图片缩到多大、视频取几帧、感知卡写多长。"""
 
@@ -2402,6 +2465,7 @@ class ChatRules(_Strict):
     memory: MemoryRules = MemoryRules()
     life: LifeRules = LifeRules()
     browse: BrowseRules = BrowseRules()
+    memes: MemeRules = MemeRules()
     moments: MomentsRules = MomentsRules()
     engine: EngineRules = EngineRules()
     watch: WatchRules = WatchRules()

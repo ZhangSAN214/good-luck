@@ -40,6 +40,7 @@ from roundtable.core.member.feel import Feelings
 from roundtable.core.member.human import Human
 from roundtable.core.member.lingo import Lingo
 from roundtable.core.member.love import USER, Heart
+from roundtable.core.member.memes import MemeSense
 from roundtable.core.member.mode import Mode, require_life
 from roundtable.core.member.profile import ProfileStore
 from roundtable.core.storage.repository import iso
@@ -142,6 +143,7 @@ class Brain:
         self.bus = bus
         self.members = members
         self.profiles = ProfileStore(rt)
+        self.memes = MemeSense(rt)
         # 爱与复合情绪（love.py）：传了 bus 时订阅聊天和生活事件；names：成员 id → 称呼
         self.heart = Heart(rt, bus, names)
         # 人味（human.py）：知识边界、自己的时间、自我一致、八卦、时间纵深、小毛病、主动约人
@@ -971,6 +973,17 @@ class Brain:
                 member, s, chosen, last, mood, energy, traits, opposed, at, rng
             )[: ps.extra_lines]
         hurt = bool(to) and self.heart.view(member, to, at).get("hurt", 0) >= self.heart.rules.on
+        meme = self.memes.line(  # 用自己的随机数，不打乱别的区
+            member,
+            last=last,
+            chosen=chosen,
+            hurt=hurt,
+            at=at,
+            rng=random.Random(f"meme:{member}:{iso(at)}:{seed}"),
+        )
+        if meme is not None:  # 网络梗：对方玩梗就接住（不懂就问），平时偶尔提一句最近在玩的梗
+            text = f"{text}\n{meme[1]}"
+            tags.append(meme[0])
         extra = self.human.lines(
             member,
             to=to,
@@ -1023,6 +1036,9 @@ class Brain:
             )
             if quick:
                 tags.append("quick")
+        if meme is not None and meme[2] and not asked:  # 上句 → 接法：懂的人直接接，不调模型
+            quick = meme[2]
+            tags.append("quick")
         self._save(member, s)  # 只存随时间长的驱力；候选卡的其余影响等 after 再结算
         return IntentCard(
             member,
@@ -1219,6 +1235,8 @@ class Brain:
         self._save(card.member, s)
         self.heart.after(card, at)
         self.human.after(card, at)
+        if not card.silent:
+            self.memes.after(card.member, card.tags, at)
 
 
 def _num(x: Any) -> float:

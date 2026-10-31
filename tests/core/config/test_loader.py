@@ -90,6 +90,7 @@ def test_repo_config_loads_with_defaults():
         "memory_diary_result",
         "life_chat",
         "life_share",
+        "meme_radar",
         "moment_post",
         "moment_comment",
         "office_fix",

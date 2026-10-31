@@ -97,6 +97,30 @@ chat:
       - {name: ScienceDaily, url: "https://www.sciencedaily.com/rss/top/science.xml", topics: [科学], kind: news}
       - {name: Polygon, url: "https://www.polygon.com/rss/index.xml", topics: [游戏], kind: news}
       - {name: NASA 视频, url: "https://www.youtube.com/feeds/videos.xml?channel_id=UCLA_DiR1FfKNvjuUpBHmylQ", topics: [天文, 科学, 视频], kind: video}
+  memes:                           # 网络梗（梗雷达，2026-10-31 你要的）：每天抓一次公开热榜（$0）+ 每天最多搜 2 次，最便宜的一位提炼成梗卡；约 $0.01～0.03/天，算生活每日上限；只用于生活和聊天
+    enabled: true
+    refresh_hours: 24
+    sources:                       # 只读热榜标题；抓不到的跳过（网页「上网」里能看到抓没抓到）
+      - {name: 微博热搜, url: "https://weibo.com/ajax/side/hotSearch", path: data.realtime, key: word}
+      - {name: 百度热搜, url: "https://top.baidu.com/api/board?tab=realtime", path: data.cards.0.content, key: word}
+      - {name: 抖音热榜, url: "https://www.iesdouyin.com/web/api/v2/hotsearch/billboard/word/", path: word_list, key: word}
+      - {name: 知乎热榜, url: "https://api.zhihu.com/topstory/hot-list?limit=50", path: data, key: target.title}
+    search_per_day: 2              # 找新梗 1 次 + 查一个还不知道意思的经典梗
+    fresh_days: 14                 # 两周没再上榜就下架（你说的：禁止老梗）
+    max_age_days: 90               # 火起来超过 3 个月的不收
+    know_traits: {幽默: 0.08, 外向: 0.08, 好奇: 0.06}   # 谁懂得多只看性格分：爱玩爱聊的懂得多、跟得快
+    use_chance: 0.12               # 偶尔提一句「最近在玩的梗」，用不用她自己看场合（10-31 第 3 次试跑：新东西用过头反而像 AI）
+    quick_chance: 0.5              # 别人说了上句（如「康神开播了」），懂的人一半时候直接接下句（「真的假的？！」），不调模型
+    classics:                      # 经典梗：永远不下架、不算老梗；意思空着的会在联网时补上，网页里能改
+      - {phrase: 虾爹, aliases: [NiKo, niko, Niko]}
+      - {phrase: 我chovey, aliases: [chovey, Chovey]}
+    stale: [                       # 老梗烂梗：不收；成员说出口前删掉（你可以自己加减；「真香」「凡尔赛」「集美」本身也是普通词，不放）
+      yyds, YYDS, 绝绝子, 栓Q, 栓q, 芭比Q, 芭比q, 奥利给, 我太难了, 蓝瘦香菇, 洪荒之力, 皮皮虾我们走,
+      你品你细品, 惊不惊喜意不意外, 扎心了老铁, 我酸了, 柠檬精, 盘他, 雨女无瓜, awsl, 夺笋, 爷青回, 爷青结,
+      鸡你太美, 退退退, 小丑竟是我自己, 我裂开了, 不讲武德, 耗子尾汁, 打工人, 干饭人, 尊嘟假嘟, 泰裤辣,
+      无语子, 真的会谢, 社会社会, 老铁没毛病, "666666", 厉害了我的哥, 你是魔鬼吗, 宝藏女孩, 小仙女, 一给我里giaogiao,
+      完蛋了芭比, 我不要你觉得我要我觉得, 只因你太美, 我直接好家伙, 绝了家人们, 家人们谁懂啊, 遥遥领先, 显眼包,
+    ]
   engine:                          # 成员引擎（docs/MEMBER_ENGINE.md）：只用于聊天、朋友圈、生活
     enabled: true
     context: {budget_chars: 600}   # 调模型时带的资料最多多少字（固定部分放最前，利于缓存）
@@ -445,7 +469,7 @@ chat:
         chance: 0.4
         forget_days: 30
         keep: 4
-        slang: [笑死, 绝了, 离谱, 好家伙, 啊这, 蚌埠住了, 破防了, 真的会谢, 救命, 草, yyds, 无语子, 摆烂, 绝绝子, 上头, 下头, 尊嘟假嘟, 压力, "6"]
+        slang: [笑死, 绝了, 离谱, 好家伙, 啊这, 蚌埠住了, 破防了, 救命, 草, 摆烂, 上头, 下头, 压力, "6"]   # 10-31 删了老梗（yyds、绝绝子、尊嘟假嘟……，见 memes.stale）
       metaphor: 打比方时爱拿{things}打比方
       formal:                      # 书面词 → 口语（发出前直接换）
         非常: 超
@@ -844,6 +868,7 @@ prompts:
   growth_review: v1     # P6 成长：另一位成员给改动打分（不自评）
   relation_insight: v2  # P4 关系：每周按自己的性格读「关于你」和最近的相处，在上周的看法上保留/加深/改观/放下（v2：越熟越深、看你的反应；只用于生活）
   life_chat: v7          # 生活：成员之间聊天（公寓楼里的模拟生活；v3：照人物卡说话风格，不跟风、不反复提同一件事；v4：大脑分区的想法卡、谁接话由显著性和驱力定；v5：感情用做法流露、同事之间的感情可以是真的；v7：简单短词、会歪楼、招牌特色、能发表情包）
+  meme_radar: v1         # 梗雷达：从热榜标题和搜索摘要里挑出最近真正在流行的网络梗，写成梗卡（梗、意思、上句 → 接法）
   life_share: v6         # 生活：成员把上网看到的一条内容分享到生活群（v4：不提摘要、原文，不用「先存疑」收尾；v5：只说一件、更短，重点是自己的反应；v6：直接甩链接配几个字，不介绍内容）
   moment_post: v3        # 朋友圈：成员发一条动态（v3：转发卡片、表情包）
   moment_comment: v3     # 朋友圈：成员评论一条动态（或回复评论）（v3：表情包）
@@ -877,6 +902,7 @@ step_params:
   #   评审、汇总、拆分、分配、自荐、风格校验等用低强度。
   answer: {max_tokens: 5000, reasoning: {max_tokens: 2000}}
   watch: {max_tokens: 1200, reasoning: {effort: low}}  # 投屏陪伴：一两句
+  memes: {max_tokens: 1500, reasoning: {effort: low}}  # 梗雷达：每天一次提炼梗卡
   wander: {max_tokens: 1200, reasoning: {effort: low}}  # 自己上网：每页一小段 JSON
   chat: {max_tokens: 1500, reasoning: {effort: low}}   # 群聊：一两句话，少想多说（思考会挤占输出，之前 500 上限时有人回复为空）
   review: {max_tokens: 3000, reasoning: {max_tokens: 800}}
