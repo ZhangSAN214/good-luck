@@ -745,6 +745,15 @@ class Brain:
 
     # --- 前额叶：挑意图，写成意图卡 -------------------------------------------------
 
+    def _asked(self, last: str, gist: Any, *, named: bool, group: bool) -> str:
+        """对方是不是在直接问她："self"（问她自己的事）/ "other"（问别的）/ ""（不是）。"""
+        r = self.rules.asked
+        if not (r.enabled and last and gist is not None and gist.kind == "question"):
+            return ""
+        if group and not named:
+            return ""
+        return "self" if any(w in last for w in r.about_me) else "other"
+
     def intent(
         self,
         member: str,
@@ -868,6 +877,11 @@ class Brain:
         if gist is not None and (gist.quick or gist.sticker):  # 别人分享东西：人一般先给反应
             for name in QUICK_INTENTS & set(weights):
                 weights[name] *= self.lingo.rules.react_boost
+        asked = self._asked(last, gist, named=named, group=group)
+        if asked:  # 被直接问到：先回答，不岔开（问的是她自己的事时也可以讲自己的事）
+            keep = self.rules.asked.self_intents if asked == "self" else self.rules.asked.intents
+            weights = {k: v for k, v in weights.items() if k in keep and v > 0} or {"respond": 1.0}
+            tags.append(f"asked:{asked}")
         chosen = rng.choices(list(weights), list(weights.values()))[0]
         pool = mine
         if chosen in ("share", "shift", "vent"):
@@ -884,6 +898,9 @@ class Brain:
             pool = [t for t in mine if t.kind != "own"] or mine
         focus = self.spotlight(pool, rng)
         text = self._card(chosen, focus, mood, energy, s, rng)
+        if asked:
+            ra = self.rules.asked
+            text = f"{text}\n{ra.self_line if asked == 'self' else ra.line}"
         # 说话的样子：看懂了什么（别说出来）、此刻怎么说话（变调、叫法、斗图）
         if gist is not None and gist.kind != "chat":
             tags.append(f"gist:{gist.kind}")

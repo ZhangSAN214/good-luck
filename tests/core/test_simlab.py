@@ -146,3 +146,17 @@ def test_fake_mind_follows_intent_card_and_voice():
         "诶…",
     )
     assert mind.say("") and "，" in mind.say("")  # 没有意图卡时照旧
+
+
+def test_fake_mind_answers_a_direct_question_from_memory_or_admits_it_forgot():
+    """被直接问到：假模型从记忆里找最像的一句答；找不到就说记不清（报告里看得出答没答到点上）。"""
+    import yaml
+
+    config = load_config()
+    mind = FakeMind(config, PromptLibrary(), yaml.safe_load(SIM_FILE.read_text("utf-8")), 1)
+    card = "<intent>\n你想：接住对方说的具体一点\n对方在问你：先正面回答\n</intent>\n\n"
+    chat = "<chat>\n#3 用户：你还记得我养的猫叫什么吗？\n</chat>"
+    memory = "<memory>\n- 用户说过我养了一只橘猫叫土豆\n- 周末下雨\n</memory>\n\n"
+    assert "土豆" in mind.say(card + memory + chat)
+    forgot = mind.say(card + "<memory>\n- 周末下雨\n</memory>\n\n" + chat)
+    assert any(w in forgot for w in ("记不清", "说过吗", "忘了"))
