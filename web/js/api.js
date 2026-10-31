@@ -299,7 +299,7 @@ export const benchNetCheck = () => api('/api/bench/net-check');
 // 项目室的关口：回答访谈、签字开工、里程碑 / 交付通过或提变更单、出下一版提案
 const benchPost = (id, what, body) => api(`/api/bench/${encodeURIComponent(id)}/${what}`, { method: 'POST', body });
 export const benchAnswer = (id, answers) => benchPost(id, 'answer', { answers });
-export const benchSign = (id, requirements, note) => benchPost(id, 'sign', { requirements, note });
+export const benchSign = (id, requirements, note, design) => benchPost(id, 'sign', { requirements, note, design });
 export const benchReview = (id, decision, comments = []) => benchPost(id, 'review', { decision, comments });
 export const benchEvolve = (id) => benchPost(id, 'evolve', {});
 export const benchDecide = (id, action, requirements) => benchPost(id, 'decide', { action, requirements });

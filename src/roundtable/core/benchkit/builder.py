@@ -35,10 +35,15 @@ from roundtable.core.benchkit.scout import Candidate, Scout
 from roundtable.core.benchkit.spec import (
     Spec,
     SpecError,
+    apply_design,
+    design_brief,
+    design_catalog,
+    design_lines,
     load_spec,
     manifest,
     normalize,
     parts_brief,
+    shell_html,
     write_shell,
 )
 from roundtable.core.config.schema import BenchRules
@@ -167,6 +172,11 @@ def stuck_report(rounds: list[dict[str, Any]]) -> dict[str, Any]:
             "建议改要求或就这样收下"
         )
     return {"missing": missing, "blocks": blocks, "high": high, "trend": trend, "advice": advice}
+
+
+def _short(v: Any, limit: int = 80) -> str:
+    text = v if isinstance(v, str) else json.dumps(v, ensure_ascii=False)
+    return text if len(text) <= limit else text[: limit - 1] + "…"
 
 
 class BenchBuilder:
@@ -864,9 +874,27 @@ class BenchBuilder:
         b["proposal"] = {
             "title": spec.title,
             "subtitle": spec.subtitle,
+            "icon": spec.icon,
             "requirements": spec.requirements,
             "hero": spec.hero,
-            "windows": [{"id": w.id, "title": w.title, "purpose": w.purpose} for w in spec.windows],
+            "windows": [
+                {
+                    "id": w.id,
+                    "title": w.title,
+                    "sub": w.sub,
+                    "icon": w.icon,
+                    "span": w.span,
+                    "purpose": w.purpose,
+                    "data": w.data,
+                    "actions": w.actions,
+                    "parts": w.parts,
+                }
+                for w in spec.windows
+            ],
+            "links": self._links(spec),
+            "shared": [f"{k}：{_short(v)}" for k, v in list(spec.shared.items())[:12]],
+            "state": [f"{k}：{v}" for k, v in spec.state.items()],
+            "design": self._design_board(b, spec),
             "milestones": [m | {"titles": [title[x] for x in m["windows"]]} for m in milestones],
             "tech": tech[:12],
             "plugins": [p["title"] for p in r.get("plugins") or []],
@@ -876,11 +904,21 @@ class BenchBuilder:
         folder = self.folder(b["id"])
         lines = [f"# 方案书：{spec.title}", "", f"你说的：{b['request']}", "", "## 验收清单"]
         lines += [f"- {x['id']} {x['text']}" for x in spec.requirements]
+        lines += ["", "## 设计选型（推荐，签字时可改）"] + [f"- {t}" for t in design_lines(spec)]
         lines += ["", "## 窗口"]
-        lines += [
-            f"- {w.title}{'（主视觉）' if w.id == spec.hero else ''}：{w.purpose}"
-            for w in spec.windows
-        ]
+        for w in spec.windows:
+            lines.append(f"### {w.title}{'（主视觉）' if w.id == spec.hero else ''}")
+            lines.append(w.purpose)
+            if w.data:
+                lines.append(f"- 数据：{w.data}")
+            if w.actions:
+                lines.append(f"- 能做的事：{'、'.join(w.actions)}")
+            if w.parts:
+                lines.append(f"- 零件：{'、'.join(w.parts)}")
+        if b["proposal"]["links"]:
+            lines += ["", "## 窗口之间怎么联动"] + [f"- {t}" for t in b["proposal"]["links"]]
+        if b["proposal"]["shared"]:
+            lines += ["", "## 共用信息（只放一份）"] + [f"- {t}" for t in b["proposal"]["shared"]]
         lines += ["", "## 里程碑"]
         lines += [
             f"{m['n']}. {m['title']}：{'、'.join(m['titles'])}" for m in b["proposal"]["milestones"]
@@ -897,6 +935,43 @@ class BenchBuilder:
             f"验收清单 {len(spec.requirements)} 条、{len(spec.windows)} 个窗口、"
             f"{len(milestones)} 个里程碑",
         )
+
+    @staticmethod
+    def _links(spec: Spec) -> list[str]:
+        """窗口之间的联动，写成大白话：谁做了什么 → 谁跟着变。"""
+        title = {w.id: w.title for w in spec.windows}
+        out = []
+        for e in spec.events:
+            to = "、".join(title[x] for x in e["to"] if x in title)
+            if not to:
+                continue
+            who = title.get(e["from"], "某个窗口")
+            out.append(f"{who}{('：' + e['when']) if e['when'] else ''} → {to}跟着变")
+        return out[:12]
+
+    def _design_board(self, b: dict[str, Any], spec: Spec) -> dict[str, Any]:
+        """选型台的材料：每项的选项（带推荐和理由）、每个版型下窗口怎么排、参考作品
+        （方案里提的 + 调研里采纳的项目和学习卡）。预览在浏览器里按这些现场画，不再问助手。"""
+        d = spec.design or {}
+        refs = list(d.get("refs") or [])
+        names = {x["name"] for x in refs}
+        for s in b.get("sources") or []:
+            if s["verdict"] == "adopt" and s["repo"] not in names:
+                refs.append({"name": s["repo"], "borrow": s["why"][:120], "from": "调研"})
+                names.add(s["repo"])
+        for c in (b.get("research") or {}).get("cards") or []:
+            if c["repo"] not in names:
+                refs.append({"name": c["repo"], "borrow": c["what"][:120], "from": "学习卡"})
+                names.add(c["repo"])
+        spec.design = d | {"refs": refs[:12]}
+        return {
+            "dims": design_catalog(),
+            "picks": d.get("picks") or {},
+            "recommend": d.get("recommend") or d.get("picks") or {},
+            "why": d.get("why") or {},
+            "refs": refs[:12],
+            "tagline": d.get("tagline") or "",
+        }
 
     def _meeting_lines(self, b: dict[str, Any]) -> list[str]:
         """方案书里写清方案会上谁提了什么、为什么采纳或没采纳。"""
@@ -919,11 +994,18 @@ class BenchBuilder:
         return out
 
     def sign(
-        self, bid: str, requirements: list[dict[str, str]] | None = None, note: str = ""
+        self,
+        bid: str,
+        requirements: list[dict[str, str]] | None = None,
+        note: str = "",
+        design: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """签字开工：可以改、删、加验收清单里你的要求（底线 b… 不能删），写一句补充。"""
+        """签字开工：可以改、删、加验收清单里你的要求（底线 b… 不能删），写一句补充；
+        选型台上点的版型、配色、材质……和每个窗口的宽窄、去掉哪些，一起写回规格。"""
         b = self._at_gate(bid, "sign")
         spec = load_spec(self.folder(bid))
+        if design is not None:
+            self._choose_design(b, spec, design)
         if requirements is not None:
             self._edit_requirements(b, spec, requirements)
         note = note.strip()[:1000]
@@ -938,6 +1020,29 @@ class BenchBuilder:
         b["gate"] = None
         self._start_job(b, lambda: self._milestone(b, 1))
         return b
+
+    def _choose_design(self, b: dict[str, Any], spec: Spec, choice: dict[str, Any]) -> None:
+        drop = apply_design(spec, choice)
+        folder = self.folder(b["id"])
+        (folder / "spec.json").write_text(
+            json.dumps(spec.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+        (folder / "index.html").write_text(shell_html(spec, b["id"]), encoding="utf-8")
+        if drop:
+            b["windows"] = [w for w in b["windows"] if w["id"] not in drop]
+            for m in b["proposal"]["milestones"]:
+                m["windows"] = [x for x in m["windows"] if x not in drop]
+                m["titles"] = [x["title"] for x in b["windows"] if x["id"] in m["windows"]]
+        b["proposal"]["requirements"] = spec.requirements
+        b["proposal"]["design"]["picks"] = spec.design["picks"]
+        lines = design_lines(spec)
+        b["brief"] = f"{self._brief(b)}\n\n设计选型（你在选型台上定的）：" + "；".join(lines)
+        self._mark(
+            b,
+            "立项",
+            "你定了设计",
+            "；".join(lines[:6]) + (f"；去掉了 {len(drop)} 个窗口" if drop else ""),
+        )
 
     async def _milestone(self, b: dict[str, Any], n: int) -> None:
         """按方案书的里程碑做：第 1 个通常是主视觉，演示给你看；
@@ -1171,6 +1276,7 @@ class BenchBuilder:
             or "（没有底线）",
             max_requirements=str(self.rules.max_requirements),
             net=self._net_text(),
+            design=design_brief(m["themes"]),
         )
         chosen, result = await self._step(
             b, self.rules.plan_kind, prompt, rng, record, role="拆需求", task="把一句话拆成规格"

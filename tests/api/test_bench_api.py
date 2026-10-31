@@ -152,8 +152,21 @@ def test_project_room_gates_over_http(tmp_path):
         c.post(f"/api/bench/{bid}/answer", json={"answers": {"q1": "自己"}})
         wait_done(c)
         assert c.get("/api/bench").json()["current"]["gate"]["kind"] == "sign"
-        r = c.post(f"/api/bench/{bid}/sign", json={"requirements": [{"text": "能换城市"}]})
+        d = c.get("/api/bench").json()["current"]["proposal"]["design"]
+        assert d["picks"]["layout"] and d["dims"]
+        extra = {"design": {"layout": "stream", "colour": "红"}}
+        assert c.post(f"/api/bench/{bid}/sign", json=extra).status_code == 422
+        r = c.post(
+            f"/api/bench/{bid}/sign",
+            json={
+                "requirements": [{"text": "能换城市"}],
+                "design": {"layout": "stream", "material": "glass", "refs": []},
+            },
+        )
         assert r.status_code == 200
+        wait_done(c)
+        got = c.get(f"/api/bench/{bid}").json()["proposal"]["design"]["picks"]
+        assert got["material"] == "glass" and got["layout"] == "stream"
         wait_done(c)
         assert c.get("/api/bench").json()["current"]["gate"]["kind"] == "m1"
         bad = c.post(f"/api/bench/{bid}/review", json={"decision": "maybe"})

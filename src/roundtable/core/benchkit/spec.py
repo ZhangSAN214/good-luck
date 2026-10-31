@@ -78,6 +78,9 @@ class Spec:
     requirements: list[dict[str, Any]] = field(default_factory=list)
     # 主视觉窗口（地图、3D、图纸、照片这类真素材）：排在最前面、占大半屏
     hero: str = ""
+    # 设计选型（版型、配色、材质、密度、圆角、字体气质、参考作品）：拆需求的助手给推荐和理由，
+    # 签字时按你在选型台上点的定下来。外壳按它排窗口、加样式（<html data-k-*>）
+    design: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -122,6 +125,240 @@ def probe_of(raw: Any) -> dict[str, Any] | None:
     if not steps or not (expect or changes):
         return None
     return {"steps": steps, "expect": expect, "changes": changes}
+
+
+# 设计选型的目录（程序定，拆需求的助手只能从里面挑并说理由）。每一项都直接对应外壳上的样式
+# 或窗口排布，选型台的预览和成品用的是同一套样式，所见即所得。
+THEME_LABELS = {
+    "ink": ("墨蓝", "沉稳专业，适合工具、数据、办公"),
+    "paper": ("纸本", "暖白纸感，适合阅读、手账、学习"),
+    "crimson": ("赤红", "有冲劲，适合运动、游戏、比赛"),
+    "forest": ("森绿", "自然健康，适合户外、植物、生活"),
+    "amber": ("琥珀", "温暖，适合美食、家居、手作"),
+    "ocean": ("海蓝", "清爽，适合旅行、出行、海边"),
+}
+DESIGN_DIMS: dict[str, tuple[str, list[tuple[str, str, str]]]] = {
+    "layout": (
+        "版型",
+        [
+            ("plan", "按方案", "照拆需求时排的宽窄和顺序"),
+            ("hero-side", "主视觉 + 侧栏", "大画面在左占三分之二，列表和详情在右"),
+            ("hero-wide", "主视觉通栏", "大画面占满一整行，其余窗口排在下面"),
+            ("dashboard", "仪表盘", "窗口差不多大，一行三个，一眼看全"),
+            ("workspace", "编辑器三栏", "左边工具、中间画布、右边属性，像修图和设计软件"),
+            ("stream", "单列阅读", "从上到下一列，像文档、报告、教程"),
+        ],
+    ),
+    "material": (
+        "材质",
+        [
+            ("solid", "实色卡片", "白底卡片加轻阴影，最稳"),
+            ("glass", "液态玻璃", "半透明磨砂，背后的颜色透出来"),
+            ("paper", "纸感", "没有阴影、细边框，像纸面"),
+            ("flat", "扁平", "没有边框和阴影，用底色分块"),
+            ("outline", "线框", "透明底、粗一点的边框，像图纸"),
+        ],
+    ),
+    "density": (
+        "密度",
+        [
+            ("cozy", "宽松", "留白多，适合触屏和展示"),
+            ("normal", "标准", "一般情况"),
+            ("compact", "紧凑", "一屏放更多，适合数据多的"),
+        ],
+    ),
+    "corner": (
+        "圆角",
+        [
+            ("sharp", "方正", "小圆角，干练"),
+            ("normal", "适中", "一般情况"),
+            ("round", "圆润", "大圆角，亲和"),
+        ],
+    ),
+    "type": (
+        "字体气质",
+        [
+            ("sans", "现代无衬线", "清楚，一般情况"),
+            ("serif", "衬线编辑感", "标题用宋体 / 衬线字，像杂志"),
+            ("mono", "等宽技术感", "标题用等宽字，像终端和图纸"),
+        ],
+    ),
+}
+DESIGN_DEFAULTS = {
+    "layout": "plan",
+    "material": "solid",
+    "density": "normal",
+    "corner": "normal",
+    "type": "sans",
+}
+# 选型台上每个窗口能调的宽度（12 列里占几列）
+SPAN_CHOICES = (3, 4, 6, 8, 12)
+REFS_MAX = 6
+
+
+def design_catalog(themes: list[str] | None = None) -> list[dict[str, Any]]:
+    """选型台左边的选项：每项的名字和可选的值（配色从零件库的主题里来）。"""
+    themes = themes or manifest()["themes"]
+    out = []
+    for key, (label, opts) in DESIGN_DIMS.items():
+        out.append(
+            {
+                "key": key,
+                "label": label,
+                "options": [{"id": i, "label": t, "hint": h} for i, t, h in opts],
+            }
+        )
+        if key == "layout":
+            out.append(
+                {
+                    "key": "theme",
+                    "label": "配色",
+                    "options": [
+                        {
+                            "id": t,
+                            "label": THEME_LABELS.get(t, (t, ""))[0],
+                            "hint": THEME_LABELS.get(t, (t, ""))[1],
+                        }
+                        for t in themes
+                    ],
+                }
+            )
+    return out
+
+
+def design_brief(themes: list[str] | None = None) -> str:
+    """给拆需求的助手看的选型目录。"""
+    return "\n".join(
+        f"- {d['key']}（{d['label']}）："
+        + "；".join(f"{o['id']} {o['label']}（{o['hint']}）" for o in d["options"])
+        for d in design_catalog(themes)
+    )
+
+
+def design_of(raw: Any, theme: str, themes: list[str]) -> dict[str, Any]:
+    """拆需求的助手给的选型推荐：每项只认目录里的值，看不懂就用默认；参考作品最多 6 条。"""
+    raw = raw if isinstance(raw, dict) else {}
+    got = raw.get("picks") if isinstance(raw.get("picks"), dict) else {}
+    why_raw = raw.get("why") if isinstance(raw.get("why"), dict) else {}
+    picks: dict[str, str] = {}
+    why: dict[str, str] = {}
+    for d in design_catalog(themes):
+        ids = [o["id"] for o in d["options"]]
+        v = str(got.get(d["key"]) or "")
+        if d["key"] == "theme":
+            v = theme
+        picks[d["key"]] = v if v in ids else DESIGN_DEFAULTS.get(d["key"], ids[0])
+        text = _text(why_raw.get(d["key"]), 120)
+        if text:
+            why[d["key"]] = text
+    refs = []
+    for x in raw.get("refs") or []:
+        if not isinstance(x, dict):
+            continue
+        name = _text(x.get("name"), 40)
+        if name and name not in {r["name"] for r in refs}:
+            refs.append({"name": name, "borrow": _text(x.get("borrow"), 120), "from": "方案"})
+    return {
+        "picks": picks,
+        "recommend": dict(picks),
+        "why": why,
+        "refs": refs[:REFS_MAX],
+        "tagline": _text(raw.get("tagline"), 30),
+    }
+
+
+def _rows(ids: list[str], per: int) -> list[tuple[str, int]]:
+    """按每行最多 per 个排，一行几个就平分 12 列（1 个占满、2 个各 6、3 个各 4、4 个各 3）。"""
+    out = []
+    for i in range(0, len(ids), per):
+        row = ids[i : i + per]
+        out += [(w, 12 // len(row)) for w in row]
+    return out
+
+
+def layout_spans(spec: Spec, layout: str) -> list[tuple[str, int]]:
+    """某个版型下窗口的顺序和宽度（12 列里占几列）。选型台预览和签字后写回规格用同一份。"""
+    plan = [(w.id, w.span) for w in spec.windows]
+    ids = [w.id for w in spec.windows]
+    hero = spec.hero if spec.hero in ids else ids[0]
+    rest = [w for w in ids if w != hero]
+    if layout == "hero-side":
+        if not rest:
+            return [(hero, 12)]
+        return [(hero, 8), (rest[0], 4), *_rows(rest[1:], 3)]
+    if layout == "hero-wide":
+        return [(hero, 12), *_rows(rest, 3)]
+    if layout == "dashboard":
+        return _rows([hero, *rest], 3)
+    if layout == "workspace":
+        if len(rest) < 2:
+            return layout_spans(spec, "hero-side")
+        return [(rest[0], 3), (hero, 6), (rest[1], 3), *_rows(rest[2:], 2)]
+    if layout == "stream":
+        return [(w, 12) for w in [hero, *rest]]
+    return plan
+
+
+def apply_design(spec: Spec, choice: dict[str, Any]) -> list[str]:
+    """签字时把你在选型台上点的写回规格：配色、样式、参考作品、去掉的窗口、版型和每个窗口的宽度。
+    返回去掉的窗口 id。主视觉不能去掉，至少留两个窗口（只有一个就留着）。"""
+    design = spec.design or design_of({}, spec.theme, manifest()["themes"])
+    picks = dict(design.get("picks") or {})
+    for d in design_catalog():
+        v = str(choice.get(d["key"]) or "")
+        if v in {o["id"] for o in d["options"]}:
+            picks[d["key"]] = v
+    spec.theme = picks.get("theme", spec.theme)
+    ids = [w.id for w in spec.windows]
+    drop = [
+        w
+        for w in dict.fromkeys(str(x) for x in choice.get("drop") or [])
+        if w in ids and w != spec.hero
+    ][: max(0, len(ids) - 2)]
+    if drop:
+        spec.windows = [w for w in spec.windows if w.id not in drop]
+        for e in spec.events:
+            e["to"] = [x for x in e["to"] if x not in drop]
+            if e["from"] in drop:
+                e["from"] = ""
+        for r in spec.requirements:
+            r["windows"] = [x for x in r.get("windows") or [] if x not in drop]
+    order = layout_spans(spec, picks.get("layout", "plan"))
+    spans = choice.get("spans") if isinstance(choice.get("spans"), dict) else {}
+    by_id = {w.id: w for w in spec.windows}
+    windows = []
+    for wid, n in order:
+        w = by_id[wid]
+        try:
+            want = int(spans.get(wid) or 0)
+        except (TypeError, ValueError):
+            want = 0
+        w.span = want if want in SPAN_CHOICES else n
+        windows.append(w)
+    spec.windows = windows
+    if "refs" in choice:
+        keep = {str(x) for x in choice.get("refs") or []}
+        design["refs"] = [r for r in design.get("refs") or [] if r["name"] in keep]
+    spec.design = design | {"picks": picks, "chosen": True}
+    return drop
+
+
+def design_lines(spec: Spec) -> list[str]:
+    """方案书和给写窗口的助手看的设计选型（大白话）。"""
+    picks = (spec.design or {}).get("picks") or {}
+    if not picks:
+        return []
+    names = {d["key"]: (d["label"], {o["id"]: o for o in d["options"]}) for d in design_catalog()}
+    out = []
+    for key, v in picks.items():
+        if key in names and v in names[key][1]:
+            o = names[key][1][v]
+            out.append(f"{names[key][0]}：{o['label']}（{o['hint']}）")
+    out += [
+        f"参考：{r['name']}" + (f"，借鉴{r['borrow']}" if r.get("borrow") else "")
+        for r in (spec.design or {}).get("refs") or []
+    ]
+    return out
 
 
 def _requirements(
@@ -256,11 +493,12 @@ def normalize(
     requirements = _requirements(
         raw.get("requirements"), seen, list(baseline or []), max_requirements
     )
+    theme = theme if theme in themes else "ink"
     return Spec(
         title=title,
         subtitle=_text(raw.get("subtitle"), 60),
         icon=icon if icon in icons else "layers",
-        theme=theme if theme in themes else "ink",
+        theme=theme,
         windows=windows,
         needs=needs,
         shared=shared,
@@ -268,6 +506,7 @@ def normalize(
         state=state,
         requirements=requirements,
         hero=hero,
+        design=design_of(raw.get("design"), theme, themes),
     )
 
 
@@ -295,8 +534,15 @@ def shell_html(spec: Spec, bench_id: str) -> str:
         )
         for w in spec.windows
     )
+    picks = (spec.design or {}).get("picks") or {}
+    attrs = "".join(
+        f' data-k-{k}="{e(str(picks[k]))}"'
+        for k in ("material", "density", "corner", "type")
+        if picks.get(k) and picks[k] != DESIGN_DEFAULTS[k]
+    )
     return _fill(
         _HERE("shell.html").read_text(encoding="utf-8"),
+        design=attrs,
         theme=e(spec.theme),
         title=e(spec.title),
         subtitle=e(spec.subtitle),
