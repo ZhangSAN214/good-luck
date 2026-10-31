@@ -220,12 +220,11 @@ async def test_post_gets_a_photo_by_chance_with_daily_caps(tmp_path, monkeypatch
     cards = {m: StickerCard(look="测试") for m in members}
     media = rt.config.roundtable.media
     photos = media.moment_photos.model_copy(update={"chance": 1.0, "per_day": 2})
+    media = media.model_copy(update={"enabled": True, "moment_photos": photos})
     rt.config = rt.config.model_copy(
         update={
             "personas": rt.config.personas.model_copy(update={"sticker_cards": cards}),
-            "roundtable": rt.config.roundtable.model_copy(
-                update={"media": media.model_copy(update={"enabled": True, "moment_photos": photos})}
-            ),
+            "roundtable": rt.config.roundtable.model_copy(update={"media": media}),
         }
     )
     buf = io.BytesIO()
