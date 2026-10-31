@@ -824,7 +824,7 @@ class Lingo:
 
     def _typo(self, member: str, text: str, energy: float, rng: random.Random) -> list[str]:
         r = self.rules.typo
-        if not r.pairs:
+        if not (r.pairs or r.groups or r.words):
             return []
         careful = _num(self._traits(member).get("较真", 3)) - self._cast_mean().get("较真", 3)
         chance = r.chance * (r.tired if energy < 0.3 else 1.0)
@@ -832,7 +832,12 @@ class Lingo:
         if rng.random() >= chance:
             return []
         plain = _SKIP.sub(lambda m: "\0" * len(m.group(0)), text)
-        options = [(a, b) for a, b in r.pairs if a in plain]
+        words = [(a, b) for a, b in r.words if a in plain]
+        if words and rng.random() < r.word_share:  # 整词首选错：「睡觉」→「水饺」
+            options = words
+        else:
+            singles = [(a, b) for g in r.groups for a in g for b in g if a != b and a in plain]
+            options = [(a, b) for a, b in r.pairs if a in plain] + singles or words
         if not options:
             return []
         right, wrong = rng.choice(options)

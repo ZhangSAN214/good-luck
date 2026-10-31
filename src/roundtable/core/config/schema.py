@@ -2020,6 +2020,19 @@ class TypoRules(_Strict):
     fix_base: float = Field(default=0.35, ge=0, le=1)  # 打错后补一条「*正字」的概率
     fix_traits: dict[str, float] = {}
     pairs: list[tuple[str, str]] = []
+    # 输入法同音错字（2026-10-31 拟人插件调研第 8 项）：同一组里的字读音相同，打字时互相选错；
+    # words 是整词首选错（「睡觉」打成「水饺」），打错时 word_share 的机会优先挑整词
+    groups: list[list[str]] = []
+    words: list[tuple[str, str]] = []
+    word_share: float = Field(default=0.35, ge=0, le=1)
+
+    @field_validator("groups")
+    @classmethod
+    def _groups(cls, v: list[list[str]]) -> list[list[str]]:
+        for g in v:
+            if len(g) < 2 or any(len(c) != 1 for c in g):
+                raise ValueError("每组至少两个字，每项一个字")
+        return v
 
 
 class NickRules(_Strict):
