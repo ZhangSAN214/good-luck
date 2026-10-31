@@ -196,6 +196,13 @@ export class BenchGenPanel {
     this.composing = false; // 点了「新项目」：左边写想法，中间是项目墙
     this.device = 'desk'; // 中间成品按电脑还是手机宽度看
     this.drawer = ''; // 底部抽屉开着哪一格（空 = 收起）
+    this.desk = null; // 资料台（GitHub 榜单 / 动态 / 能力地图 / 建议卡）
+    this.deskTab = 'rank';
+    this.deskCat = '';
+    this.deskMode = 'total';
+    this.deskKind = '';
+    this.deskAsked = false; // 这次打开页面已经叫过一次刷新
+    this.fromProduct = false; // 拖进来的是成品：要能做出类似东西的台
     this.pane = 'client'; // 窄屏时显示哪一栏
     this.err = '';
     this.draft = '';
@@ -478,12 +485,13 @@ export class BenchGenPanel {
     const changes = Object.fromEntries((b.changes || []).map((c) => [c.id, c]));
     const voices = Object.fromEntries((b.voices || []).map((v) => [v.id, v]));
     const open = rows.filter((r) => ['没做到', '没改成', '没对上'].includes(r.state)).length;
+    const kept = new Set(((this.st || {}).profile || []).map((x) => x.text));
     const items = rows
       .map((r) => {
         const v = voices[r.id] || {};
         const c = r.src === '变更单' ? changes[v.ref] : null;
         const where = [r.stage ? `第 ${r.stage} 段` : '', (r.reqs || []).join(' ')].filter(Boolean).join(' · ');
-        return `<li data-state="${esc(r.state)}"><span class="bg-tr-st">${esc(r.state)}</span><span class="bg-tr-tx"><span class="bg-k">${esc(r.src)}</span>${esc(r.text.slice(0, 120))}${where ? `<span class="sc-sub">${esc(where)}</span>` : ''}${c && c.reply ? `<span class="sc-sub">${esc(c.reply.slice(-140))}</span>` : ''}</span></li>`;
+        return `<li data-state="${esc(r.state)}"><span class="bg-tr-st">${esc(r.state)}</span><span class="bg-tr-tx"><span class="bg-k">${esc(r.src)}</span>${esc(r.text.slice(0, 120))}${where ? `<span class="sc-sub">${esc(where)}</span>` : ''}${c && c.reply ? `<span class="sc-sub">${esc(c.reply.slice(-140))}</span>` : ''}</span>${kept.has(r.text.slice(0, 200).replace(/\s+/g, ' ').trim()) ? '<span class="bg-src">记住了</span>' : ['访谈', '签字', '变更单', '风格'].includes(r.src) ? `<button type="button" class="link bg-remember" data-remember="${esc(r.text.slice(0, 200))}" data-src="${esc(b.title || b.id)}" title="以后每个新项目都带上这句">记住</button>` : ''}</li>`;
       })
       .join('');
     return `<details class="bg-fold bg-trace" ${open ? 'open' : ''}><summary>你说的话去哪了（${rows.length} 句${open ? `，${open} 句要你看` : ''}）</summary><ul class="bg-trlist">${items}</ul></details>`;
@@ -499,11 +507,22 @@ export class BenchGenPanel {
       })
       .join('');
     const drop = `<div class="bg-drop" data-drop="submit"><span>参考图、视频拖到这里</span><button type="button" class="link" data-pick="submit">选文件</button>
-      ${this.uploading ? `<span class="sc-sub">正在上传 ${this.uploading} 个…</span>` : ''}${mats ? `<ul class="bg-mats">${mats}</ul>` : ''}</div>`;
+      ${this.uploading ? `<span class="sc-sub">正在上传 ${this.uploading} 个…</span>` : ''}${mats ? `<ul class="bg-mats">${mats}</ul>` : ''}</div>
+      ${mats ? `<label class="bg-fromprod"><input type="checkbox" data-fromprod ${this.fromProduct ? 'checked' : ''}><span><b>这是成品，照着它做一个台</b><span class="sc-sub">先拆出哪些固定（画风、尺寸、节奏）、哪些能换（角色、动作、文字），做成能批量出类似东西的台</span></span></label>` : ''}`;
     return `<div class="sc-ask bg-ask"><textarea data-text rows="5" aria-label="想要什么样的工作台" placeholder="一句话说你想要什么台。比如：管理我租的三套房子，看租金、到期、维修和水电" ${busy ? 'disabled' : ''}>${esc(this.draft)}</textarea>
       ${busy ? '<p class="sc-hint">上一个还在做，做完或叫停后才能开新的。</p>' : drop}
       <button type="button" class="btn primary bg-go" data-submit ${busy || st.unavailable ? 'disabled' : ''}>生成工作台</button>
+      ${this.profileHtml(st)}
       <p class="sc-hint">${st.project ? '先问你几个取舍，再出样子和计划给你签字；之后自动搭，每段做完给你试用。停下来等你时不花次数。' : `自动拆需求、分头写、质检和评审，不过线就返工，最多 ${esc(st.max_rounds || 3)} 轮。`}花的是订阅次数。</p></div>`;
+  }
+
+  /** 甲方档案：你的长期偏好，每个新项目都带上（只存本机，可删）。 */
+  profileHtml(st) {
+    const items = st.profile || [];
+    const rows = items.map((x) => `<li><span>${esc(x.text)}</span>${x.src ? `<span class="bg-src">${esc(x.src)}</span>` : ''}<button type="button" class="link" data-unprofile="${esc(x.id)}" aria-label="删掉：${esc(x.text)}">删掉</button></li>`).join('');
+    return `<details class="bg-fold bg-profile"${items.length ? '' : ' open'}><summary>你的偏好（${items.length} 条，每个新项目都会带上）</summary>
+      ${rows ? `<ul class="bg-list bg-prof">${rows}</ul>` : '<p class="sc-hint">还没有。比如「给小白用，别堆专业参数」「深色、不要表情符号」。项目里你说过的话也能点「记住」。</p>'}
+      <div class="bg-profadd"><input type="text" data-profile-text maxlength="200" aria-label="写一条偏好" placeholder="写一条偏好"><button type="button" class="btn" data-profile-add>记下</button></div></details>`;
   }
 
   /** 素材缩略图一排（你拖进来的图和视频）。 */
@@ -720,6 +739,7 @@ export class BenchGenPanel {
       ['log', '过程', b ? (b.log || []).length : 0],
       ['net', '联网', this.net && this.net !== 'busy' ? this.net.ok : 0],
       ['lib', '零件库', ((st.library || {}).parts || []).length],
+      ['desk', '资料', this.desk ? (this.desk.suggest || []).length : 0],
     ];
     const open = this.drawer;
     const bar = tabs
@@ -732,12 +752,114 @@ export class BenchGenPanel {
     else if (open === 'team') body = (b && this.teamHtml(b)) || '<p class="sc-hint">还没开始协作。</p>';
     else if (open === 'log') body = b ? this.logHtml(b) : '<p class="sc-hint">还没有项目。</p>';
     else if (open === 'net') body = `${this.netHtml() || '<p class="sc-hint">点右上「联网自检」，看成品要用的公开数据和调研来源通不通。</p>'}`;
+    else if (open === 'desk') body = this.deskHtml();
     else if (open === 'lib') {
       const parts = ((st.library || {}).parts || []).map((p) => `<li><b>${esc(p.name)}</b>：${esc(p.use)}</li>`).join('');
       body = parts ? `<p class="sc-hint">做台的过程中自己长出来的零件，下次直接用。</p><ul class="bg-list">${parts}</ul>` : '<p class="sc-hint">零件库还没有新长出来的零件。</p>';
     }
     return `<div class="bg-dbar" role="tablist" aria-label="资料">${bar}<span class="sc-gap"></span>${open ? '<button type="button" class="link" data-drawer="">收起</button>' : ''}</div>
       ${open ? `<div class="bg-dbody" role="tabpanel">${body}</div>` : ''}`;
+  }
+
+  /** 资料台：榜单（每类前 10，总榜 / 新星）、动态（论文和订阅）、能力地图（按工作台类型筛）、建议卡。 */
+  deskHtml() {
+    const d = this.desk;
+    if (!d) return '<p class="sc-hint">正在读资料台…</p>';
+    if (!d.enabled) return '<p class="sc-hint">资料台在配置里关着（bench.desk.enabled）。</p>';
+    const tabs = [
+      ['rank', '榜单'],
+      ['feed', '动态', (d.feed || []).length],
+      ['caps', '能力地图', (d.caps || []).length],
+      ['suggest', '建议', (d.suggest || []).length],
+    ]
+      .map(([k, t, n]) => `<button type="button" class="chip" data-desk-tab="${k}" aria-pressed="${this.deskTab === k}">${t}${n ? ` ${esc(n)}` : ''}</button>`)
+      .join('');
+    const when = d.updated_at ? `${d.updated_at.slice(5, 16).replace('T', ' ')} 更新` : '还没刷新过';
+    const head = `<div class="bg-deskbar"><div class="bg-chips" role="group" aria-label="资料分类">${tabs}</div><span class="sc-gap"></span>
+      <span class="bg-src" data-desk-when>${d.busy ? '正在刷新（GitHub 每分钟限 10 次，约 3～5 分钟）…' : esc(when)}</span>
+      <button type="button" class="link" data-desk-refresh ${d.busy ? 'disabled' : ''}>刷新</button></div>`;
+    let body = '';
+    if (this.deskTab === 'rank') body = this.deskRankHtml(d);
+    else if (this.deskTab === 'feed') body = this.deskFeedHtml(d);
+    else if (this.deskTab === 'caps') body = this.deskCapsHtml(d);
+    else body = this.deskSuggestHtml(d);
+    const notes = (d.notes || []).length ? `<details class="bg-fold"><summary>这次有 ${d.notes.length} 处没取到</summary><ul class="bg-list">${d.notes.map((n) => `<li>${esc(n)}</li>`).join('')}</ul></details>` : '';
+    return head + body + notes;
+  }
+
+  deskRankHtml(d) {
+    const cats = d.categories || [];
+    if (!cats.length) return '<p class="sc-hint">配置里还没写榜单分类（bench.desk.categories）。</p>';
+    const cat = cats.find((c) => c.id === this.deskCat) || cats[0];
+    const nav = cats.map((c) => `<button type="button" role="tab" data-desk-cat="${esc(c.id)}" aria-selected="${c.id === cat.id}">${esc(c.label)}</button>`).join('');
+    const mode = ['total', 'rising'].map((m) => `<button type="button" class="chip" data-desk-mode="${m}" aria-pressed="${this.deskMode === m}">${m === 'total' ? '总榜' : `新星（${d.rising_days || 30} 天内新建）`}</button>`).join('');
+    const rows = (((d.rank || {})[cat.id] || {})[this.deskMode] || [])
+      .map(
+        (r, i) => `<li><span class="bg-rk">${i + 1}</span><div><a href="${esc(r.url)}" target="_blank" rel="noopener noreferrer"><b>${esc(r.repo)}</b></a>${r.new ? ' <span class="bg-tag">新</span>' : ''}
+          <span class="bg-src">★ ${esc(r.stars.toLocaleString())} · ${esc(r.license || '许可证未写')} · ${esc(r.pushed || '')} 更新</span><p>${esc(r.desc || '（没写简介）')}</p></div></li>`,
+      )
+      .join('');
+    return `<div class="bg-desk2"><nav class="bg-desknav" role="tablist" aria-label="榜单分类">${nav}</nav>
+      <div><div class="bg-chips" role="group" aria-label="榜单">${mode}</div>
+      ${rows ? `<ol class="bg-rank">${rows}</ol>` : '<p class="sc-hint">这一类还没取到，点右上「刷新」。</p>'}</div></div>`;
+  }
+
+  deskFeedHtml(d) {
+    const kinds = { paper: '论文', news: '资讯', video: '视频', model: '模型' };
+    const rows = (d.feed || [])
+      .map(
+        (x) => `<li><span class="bg-tag" data-kind="${esc(x.kind)}">${esc(kinds[x.kind] || x.kind)}</span><div><a href="${esc(x.url)}" target="_blank" rel="noopener noreferrer"><b>${esc(x.title)}</b></a>
+          <span class="bg-src">${esc(x.source)}${x.date ? ` · ${esc(x.date)}` : ''}${x.score ? ` · 👍 ${esc(x.score)}` : ''}</span>${x.summary ? `<p>${esc(x.summary)}</p>` : ''}</div></li>`,
+      )
+      .join('');
+    const topics = (d.topics || []).length ? `<p class="sc-hint">关注主题：${esc(d.topics.join('、'))}（改 bench.desk.topics）</p>` : '';
+    return topics + (rows ? `<ul class="bg-feed">${rows}</ul>` : '<p class="sc-hint">还没有动态，点右上「刷新」。</p>');
+  }
+
+  deskCapsHtml(d) {
+    const names = { editor: '编辑器', motion3d: '3D 与动画', game: '游戏', sim: '模拟经营', dashboard: '看板', productivity: '效率工具', content: '内容创作', education: '学习', audio: '音频', chat: '聊天角色' };
+    const used = [...new Set((d.caps || []).flatMap((c) => c.kinds || []))];
+    const kinds = { '': '全部', ...Object.fromEntries(used.map((k) => [k, names[k] || k])) };
+    const pick = Object.entries(kinds).map(([k, t]) => `<button type="button" class="chip" data-desk-kind="${k}" aria-pressed="${this.deskKind === k}">${t}</button>`).join('');
+    const caps = (d.caps || []).filter((c) => !this.deskKind || (c.kinds || []).includes(this.deskKind));
+    const rows = caps
+      .map(
+        (c) => `<tr><th scope="row">${c.repo ? `<a href="https://github.com/${esc(c.repo)}" target="_blank" rel="noopener noreferrer">${esc(c.name)}</a>` : esc(c.name)}${c.added ? ' <span class="bg-tag">你加的</span>' : ''}<span class="bg-src">${esc(c.direction)}</span></th>
+          <td>${esc(c.use)}${c.note ? `<span class="bg-src">${esc(c.note)}</span>` : ''}</td><td>${esc(c.license_seen || c.license || '未写')}</td>
+          <td>${c.stars ? `★ ${esc(c.stars.toLocaleString())}` : '—'}</td><td>${esc(c.cost || '$0')}</td><td data-lv="${esc(c.difficulty)}">${esc(c.difficulty)}</td><td>${esc(c.status)}</td></tr>`,
+      )
+      .join('');
+    return `<div class="bg-chips" role="group" aria-label="工作台类型">${pick}</div>
+      <p class="sc-hint">写窗口时会按工作台类型挑几样附给助手。星数和许可证每次刷新从 GitHub 核实。</p>
+      <div class="bg-tablewrap"><table class="bg-caps"><thead><tr><th>工具</th><th>用途</th><th>许可证</th><th>星数</th><th>花费</th><th>接入难度</th><th>状态</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  }
+
+  deskSuggestHtml(d) {
+    const rows = (d.suggest || [])
+      .map(
+        (s) => `<li><div><a href="${esc(s.url)}" target="_blank" rel="noopener noreferrer"><b>${esc(s.repo)}</b></a> <span class="bg-src">★ ${esc(s.stars.toLocaleString())} · ${esc(s.license)} · 主题「${esc(s.direction)}」</span><p>${esc(s.desc || '（没写简介）')}</p></div>
+          <div class="bg-acts"><button type="button" class="primary" data-desk-sug="${esc(s.id)}" data-accept="1">加进地图</button><button type="button" data-desk-sug="${esc(s.id)}" data-accept="0">不要</button></div></li>`,
+      )
+      .join('');
+    return rows
+      ? `<p class="sc-hint">按关注主题每周找一次：星数够、许可证宽松、地图里还没有的。你点了才加；「不要」的以后不再推。</p><ul class="bg-sugg">${rows}</ul>`
+      : '<p class="sc-hint">这周没有新的建议。</p>';
+  }
+
+  /** 打开「资料」时读一次；过期了叫后台刷新，刷新中每 5 秒看一眼。 */
+  async loadDesk(refresh = false) {
+    try {
+      this.desk = await this.api.desk(refresh);
+      if (!refresh && this.desk.due && !this.deskAsked && this.desk.enabled) {
+        this.deskAsked = true;
+        this.desk = await this.api.desk(true);
+      }
+    } catch (x) {
+      this.err = `资料台没读到：${x.message}`;
+    }
+    this.paint('drawer', this.drawerHtml(this.st || {}, this.shownBuild()), true);
+    clearTimeout(this.deskTimer);
+    if (this.desk && this.desk.busy && this.drawer === 'desk') this.deskTimer = setTimeout(() => this.loadDesk(), 5000);
   }
 
   logHtml(b) {
@@ -1277,10 +1399,32 @@ export class BenchGenPanel {
       this.drawer = '';
       this.paint('drawer', this.drawerHtml(this.st || {}, this.shownBuild()), true);
     }
+    if (t.closest('[data-fromprod]')) {
+      this.fromProduct = t.closest('[data-fromprod]').checked;
+      return;
+    }
+    const rem = t.closest('[data-remember]');
+    if (rem) {
+      return this.act(() => this.api.profileAdd(rem.dataset.remember, rem.dataset.src || ''));
+    }
+    if (t.closest('[data-profile-add]')) {
+      const box = this.el.querySelector('[data-profile-text]');
+      const text = (box?.value || '').trim();
+      if (!text) return box?.focus();
+      return this.act(() => this.api.profileAdd(text));
+    }
+    const unp = t.closest('[data-unprofile]');
+    if (unp) {
+      return this.act(() => this.api.profileRemove(unp.dataset.unprofile));
+    }
     if (t.closest('[data-submit]')) {
       const ids = this.mats.map((m) => m.id);
-      const done = await this.act(() => this.api.submit(this.draft, ids), true);
-      if (!this.err) this.mats = [];
+      const fromProduct = this.fromProduct && ids.length > 0;
+      const done = await this.act(() => this.api.submit(this.draft, ids, fromProduct), true);
+      if (!this.err) {
+        this.mats = [];
+        this.fromProduct = false;
+      }
       return done;
     }
     const pickBtn = t.closest('[data-pick]');
@@ -1416,7 +1560,26 @@ export class BenchGenPanel {
     const dr = t.closest('[data-drawer]');
     if (dr) {
       this.drawer = this.drawer === dr.dataset.drawer ? '' : dr.dataset.drawer;
+      if (this.drawer === 'desk') this.loadDesk();
       return this.render(true);
+    }
+    const dsk = t.closest('[data-desk-tab],[data-desk-cat],[data-desk-mode],[data-desk-kind]');
+    if (dsk) {
+      if (dsk.dataset.deskTab) this.deskTab = dsk.dataset.deskTab;
+      if (dsk.dataset.deskCat) this.deskCat = dsk.dataset.deskCat;
+      if (dsk.dataset.deskMode) this.deskMode = dsk.dataset.deskMode;
+      if (dsk.dataset.deskKind !== undefined) this.deskKind = dsk.dataset.deskKind;
+      return this.paint('drawer', this.drawerHtml(this.st || {}, this.shownBuild()), true);
+    }
+    if (t.closest('[data-desk-refresh]')) return this.loadDesk(true);
+    const sug = t.closest('[data-desk-sug]');
+    if (sug) {
+      try {
+        this.desk = await this.api.deskSuggest(sug.dataset.deskSug, sug.dataset.accept === '1');
+      } catch (x) {
+        this.err = `没处理成：${x.message}`;
+      }
+      return this.paint('drawer', this.drawerHtml(this.st || {}, this.shownBuild()), true);
     }
     const go = t.closest('[data-pane-go]');
     if (go) {

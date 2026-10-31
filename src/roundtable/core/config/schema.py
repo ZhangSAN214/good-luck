@@ -2941,6 +2941,8 @@ class BenchSkills(_Strict):
     steps: dict[str, BenchSkillStep] = Field(default_factory=dict)
     kinds: dict[str, BenchKind] = Field(default_factory=dict)
     checks: dict[str, list[str]] = Field(default_factory=dict)
+    # 从成品反推（第 6 批）：你拖进一个成品、要一个能做出类似成品的台时，每一步都加这些（长版）
+    product: list[str] = Field(default_factory=list)
 
     @field_validator("steps")
     @classmethod
@@ -2953,7 +2955,39 @@ class BenchSkills(_Strict):
     def names(self) -> set[str]:
         out = {n for st in self.steps.values() for n in st.short + st.long}
         out |= {n for k in self.kinds.values() for n in k.skills}
-        return out | set(self.checks)
+        return out | set(self.checks) | set(self.product)
+
+
+class BenchDeskCategory(_Strict):
+    id: str = Field(pattern=r"^[a-z0-9][a-z0-9-]{0,30}$")
+    label: str = Field(min_length=1, max_length=20)
+    query: str = Field(min_length=3, max_length=200)  # GitHub 搜索语句，如 topic:threejs
+    kinds: list[str] = Field(default_factory=list)  # 对口的工作台类型（写窗口时附上榜单前几名）
+
+
+class BenchDeskFeed(_Strict):
+    name: str = Field(min_length=1, max_length=40)
+    url: str = Field(pattern=r"^https://")
+    kind: str = Field(default="news", pattern=r"^(news|video|paper|model)$")
+
+
+class BenchDesk(_Strict):
+    """资料台（2026-10-31 工作台大更新第 5 批）：工作台底部抽屉里的「资料」。
+    GitHub 榜单、每日论文和订阅、能力地图、每周建议卡；全部免费、不要 key、只读。"""
+
+    enabled: bool = True
+    refresh_hours: float = Field(default=24, ge=1, le=24 * 30)  # 打开抽屉时超过这么久就自动刷新
+    top: int = Field(default=10, ge=3, le=30)  # 每类榜单前几名
+    rising_days: int = Field(default=30, ge=7, le=365)  # 「新星」只看最近多少天新建的
+    github_gap_s: float = Field(default=7.0, ge=0, le=60)  # GitHub 搜索匿名每分钟 10 次
+    feed_per_source: int = Field(default=6, ge=1, le=30)
+    feed_max: int = Field(default=60, ge=5, le=300)
+    suggest_days: int = Field(default=7, ge=1, le=90)  # 多久找一次新工具出建议卡
+    topics: list[str] = Field(
+        default_factory=list, max_length=12
+    )  # 关注主题（英文，论文和建议卡用）
+    categories: list[BenchDeskCategory] = Field(default_factory=list, max_length=20)
+    feeds: list[BenchDeskFeed] = Field(default_factory=list, max_length=30)
 
 
 class BenchRules(_Strict):
@@ -2982,6 +3016,7 @@ class BenchRules(_Strict):
     team: BenchTeam = Field(default_factory=BenchTeam)
     materials: BenchMaterials = Field(default_factory=BenchMaterials)
     skills: BenchSkills = Field(default_factory=BenchSkills)
+    desk: BenchDesk = Field(default_factory=BenchDesk)
     rubric: list[str] = Field(
         default_factory=lambda: [
             *("视觉层次", "信息密度", "一致性", "交互完整"),

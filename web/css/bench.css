@@ -318,3 +318,46 @@
 .bg-idealpage .bg-live{margin-top:auto}
 @media (max-width:760px){.bg-idealpage{padding:16px}.bg-idealbig{font-size:20px}}
 .bg-idealcols .sc-sub{margin-left:8px}
+/* 资料台（抽屉「资料」）：榜单 / 动态 / 能力地图 / 建议卡（2026-10-31 第 5 批） */
+.bg-deskbar{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;margin-bottom:8px}
+.bg-chips{display:flex;flex-wrap:wrap;gap:6px}
+.bg-chips .chip[aria-pressed="true"]{background:var(--hb-ink-hi);color:#eceff3;box-shadow:var(--hb-edge)}
+.bg-desk2{display:grid;grid-template-columns:160px minmax(0,1fr);gap:12px}
+.bg-desknav{display:flex;flex-direction:column;gap:2px}
+.bg-desknav button{text-align:left;border:0;border-radius:10px;padding:6px 10px;background:transparent;color:var(--hb-muted);font:inherit;font-size:13px;cursor:pointer}
+.bg-desknav button[aria-selected="true"]{background:rgba(255,255,255,.08);color:#eceff3;box-shadow:var(--hb-edge)}
+.bg-rank,.bg-feed,.bg-sugg{list-style:none;margin:8px 0 0;padding:0;display:grid;gap:6px}
+.bg-rank li,.bg-feed li,.bg-sugg li{display:flex;gap:10px;align-items:flex-start;padding:8px 10px;border-radius:12px;background:rgba(255,255,255,.04);font-size:13px;line-height:1.5;min-width:0}
+.bg-rank li>div,.bg-feed li>div,.bg-sugg li>div:first-child{min-width:0;flex:1}
+.bg-rank p,.bg-feed p,.bg-sugg p{margin:2px 0 0;color:var(--hb-muted);overflow-wrap:anywhere}
+.bg-rank a,.bg-feed a,.bg-sugg a,.bg-caps a{color:#eceff3;overflow-wrap:anywhere}
+.bg-rk{flex:none;width:24px;height:24px;border-radius:50%;display:grid;place-items:center;background:var(--hb-ink);font-size:12px;font-variant-numeric:tabular-nums}
+.bg-rank li:nth-child(-n+3) .bg-rk{background:var(--hb-ink-hi);box-shadow:var(--hb-edge)}
+.bg-rank .bg-src,.bg-feed .bg-src,.bg-sugg .bg-src{display:block}
+.bg-tag{display:inline-block;flex:none;padding:0 8px;border-radius:999px;font-size:12px;line-height:20px;background:rgba(255,255,255,.1);color:#eceff3}
+.bg-tag[data-kind="paper"]{background:rgba(127,199,154,.22)}
+.bg-tag[data-kind="video"]{background:rgba(224,160,80,.25)}
+.bg-tablewrap{overflow-x:auto;margin-top:6px}
+.bg-caps{width:100%;border-collapse:collapse;font-size:13px;line-height:1.45}
+.bg-caps th,.bg-caps td{padding:6px 8px;text-align:left;vertical-align:top;border-bottom:1px solid rgba(255,255,255,.07)}
+.bg-caps thead th{font-weight:400;color:var(--hb-muted);white-space:nowrap}
+.bg-caps tbody th{font-weight:600;min-width:120px}
+.bg-caps .bg-src{display:block;font-weight:400}
+.bg-caps td[data-lv="低"]{color:var(--ok,#7fc79a)}
+.bg-caps td[data-lv="高"]{color:var(--warn,#e0a050)}
+.bg-acts{display:flex;gap:6px;flex:none}
+@media (max-width:720px){
+  .bg-desk2{grid-template-columns:1fr}
+  .bg-desknav{flex-direction:row;overflow-x:auto}
+  .bg-desknav button{white-space:nowrap}
+  .bg-sugg li{flex-direction:column}
+}
+/* 从成品反推、甲方档案（2026-10-31 第 6 批） */
+.bg-fromprod{display:flex;gap:10px;align-items:flex-start;margin:6px 0;padding:10px 12px;border-radius:14px;background:rgba(255,255,255,.05);box-shadow:var(--hb-edge);font-size:13px;line-height:1.5;cursor:pointer}
+.bg-fromprod input{margin-top:3px;width:16px;height:16px;flex:none}
+.bg-fromprod .sc-sub{display:block}
+.bg-prof li{display:flex;gap:8px;align-items:baseline;flex-wrap:wrap}
+.bg-prof li>span:first-child{flex:1;min-width:0}
+.bg-profadd{display:flex;gap:6px;margin-top:6px}
+.bg-profadd input{flex:1;min-width:0;background:rgba(255,255,255,.05);border:0;border-radius:12px;padding:8px 12px;color:#eceff3;box-shadow:var(--hb-edge);font:inherit}
+.bg-trlist .bg-remember,.bg-trlist li>.bg-src:last-child{margin-left:auto;flex:none;font-size:12px}

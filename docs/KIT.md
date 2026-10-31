@@ -226,6 +226,32 @@ roundtable kit-check 页面.html -o 质检结果/      # 也可以是 http(s) �
 - 生成器的技能文字来自注入的 `skill(名字) → (短版, 长版)`，服务里读提示词库，测试换成假的。读不到某个技能时只少一段说明，不挡流程。
 - 测试：`tests/core/prompts/test_repo_prompts.py` 核对技能都是「短版 + 长版」、没有变量、配置里提到的技能和质检名字都存在；`test_builder.py` 核对各步骤拿到的短版和长版，以及按类型加品类技能。
 
+## 工作台大更新 · 第 5 批：资料抽屉（2026-10-31）
+
+方案见 `/mnt/project-files/计划/资料摘取界面_方案.md`。放在工作台底部抽屉的「资料」一格，不换页。全部免费、不要 key、只读 GET，不调模型。
+
+- **榜单**：`bench.desk.categories` 每一类（3D、动画、Live2D、修图、游戏、智能体、本地大模型、界面组件、数据可视化、音视频）各取前 10。「总榜」按星数，「新星」只看最近 `rising_days` 天新建的。简介用仓库自己的简介。第二次刷新起，新进榜的标「新」。
+- **动态**：Hugging Face 每日论文、arXiv 按 `topics` 的最新论文、`feeds` 里的 RSS / Atom（资讯、发布、视频频道都可以加）。
+- **能力地图** `config/bench_capabilities.yaml`：能给工作台加本事的工具，目前 28 项（three.js、model-viewer、高斯泼溅、Blender、GSAP、Lottie、Theatre.js、gif.js、ffmpeg.wasm、pixi-live2d-display、MediaPipe、Fabric.js、OpenCV.js、Phaser、Rapier、boardgame.io、Tone.js、ECharts、Lightweight Charts、MapLibre、DuckDB-Wasm……）。每项写用途、许可证、花费、接入难度、适合哪类工作台，可按类型筛。刷新时去 GitHub 核实星数、许可证和最近更新。
+- **建议卡**：每 `suggest_days` 天按关注主题找一次新工具：星数 ≥ `bench.min_stars`、许可证宽松、地图里还没有的才出卡。点「加进地图」才加，点「不要」以后不再推。
+- **交给写窗口的助手**：写窗口和返工时，`<sources>` 里附上能力地图中适合这类工作台的工具（按 `kind`），再加对口榜单的前 3 名。资料台出错不影响写窗口。
+- **刷新**：打开「资料」时如果超过 `refresh_hours`（默认 24 小时）就在后台刷一次，先显示旧的。GitHub 匿名搜索每分钟限 10 次，请求之间隔 `github_gap_s` 秒，一次大约 3～5 分钟。取不到的写进「这次有 N 处没取到」，不中断。存在 `data/bench/_desk/desk.json`。
+- 接口：`GET /api/bench/desk`（只读、不联网）、`POST /api/bench/desk/refresh`、`POST /api/bench/desk/suggest/{id}?accept=true|false`。
+- 测试：`tests/core/benchkit/test_desk.py` 用假的 GitHub、论文和订阅，覆盖总榜、新星、新进榜、核实、失败记笔记、建议卡门槛和点选、按类型挑工具。另有 `tests/api/test_bench_api.py` 和 `tests/web/test_e2e_benchgen.py` 的资料抽屉用例。
+
+## 工作台大更新 · 第 6 批：其余技能、从成品反推、甲方档案（2026-10-31）
+
+- **技能补齐到 37 个**（第 4 批 13 个 + 这批 24 个）：
+  - 通用：需求访谈 `interview`、品牌设计 `brand`、交互与可用性 `interaction`、调研 `research`、写代码的规矩 `coding`、估时与预算 `estimate`、手机与多端 `mobile`、中文排版 `cjk_type`、数据存取 `storage`、安全与隐私 `security`、台内 AI 功能 `ai_features`、商业包装 `commercial`。
+  - 全流程：交付与交接 `handoff`、新手引导 `onboarding`、复盘与迭代 `retro`、对抗挑错 `attack`。
+  - 品类：模拟经营与金融 `sim`、内容创作 `content`、3D 与动画 `motion3d`、效率工具 `productivity`、学习教育 `education`、音频音乐 `audio`、聊天与角色 `chat_role`。
+  - 从成品反推 `product`。
+- **步骤分配**（`bench.skills.steps`）：访谈加需求访谈长版；拆需求加估时、安全、商业包装短版和品牌、调研长版；写窗口加品牌、交互、多端、中文排版、存取、安全、台内 AI、新手引导、写代码短版；返工加复盘长版；评审加交互、多端、中文排版、商业包装、交接短版和对抗挑错长版。
+- **工作台类型扩到 11 类**（`bench.skills.kinds`）：编辑器、3D 与动画、游戏、模拟经营与金融、看板、效率工具、内容创作、学习教育、音频、聊天角色、其他。能力地图和榜单分类的 `kinds` 跟着改，测试核对只用配置里有的类型名。
+- **从成品反推**：开工时拖进一个成品（图片、动图、视频）并勾「这是成品，照着它做一个台」。这样每一步都加上 `bench.skills.product` 的技能（长版）：先拆出固定项（画风、尺寸、节奏）和可变项（角色、动作、文字），主界面做成「换可变项 → 预览 → 导出」。第一段要做到不改直接导出就和原成品一致。没拖素材时不能勾（接口返回 400）。例：鲸鱼女孩动图 → 能换角色和动作、批量出同系列动图的台。
+- **甲方档案**：你的长期偏好（如「给小白用」「深色、不要表情符号」）只存在本机的 `data/bench/_client/profile.json`，最多 40 条。开工框下方「你的偏好」可以写、可以删；项目里「你说的话去哪了」每句访谈、签字、变更单、风格要求旁边都有「记住」。每个新项目开工时，档案逐条记进原话表（来源「档案」），拆需求和写窗口的助手都看得到，追踪表里算「已参考」。接口：`POST /api/bench/profile`、`DELETE /api/bench/profile/{id}`。
+- 测试：`test_builder.py` 覆盖档案增删、去重、上限、带进新项目，以及从成品反推每一步加技能、普通项目不加。`test_bench_api.py` 覆盖接口。`test_e2e_benchgen.py` 覆盖写偏好和勾「这是成品」开工。
+
 ## 接下来（项目室方案）
 
 - I 调研员的「方案书引用调研」。

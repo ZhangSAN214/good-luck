@@ -30,7 +30,7 @@ FIVE = (
 )
 FIVE_KEYS = tuple(k for k, _ in FIVE)
 EXPECT_FROM = ("对标", "使用者", "常识", "素材", "档案")
-VOICE_SRC = ("开工", "访谈", "签字", "变更单", "风格", "素材")
+VOICE_SRC = ("开工", "访谈", "签字", "变更单", "风格", "素材", "档案")
 MAX_QUESTIONS = 3
 MAX_STAGES = 5
 MIN_STAGES = 2
@@ -345,7 +345,7 @@ def trace(b: dict[str, Any]) -> list[dict[str, Any]]:
                 state = "做到"
             else:
                 state = "待做"
-        elif v["src"] in ("访谈", "素材", "签字", "风格"):
+        elif v["src"] in ("访谈", "素材", "签字", "风格", "档案"):
             state = "已参考"
         elif not reqs:
             state = "待做"  # 还没拆出验收清单

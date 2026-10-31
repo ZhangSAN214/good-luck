@@ -854,6 +854,30 @@ prompts:
   bench_skill_editor: v1      # 工作台地基技能·编辑器类（品类）
   bench_skill_game: v1        # 工作台地基技能·游戏与模拟类（品类）
   bench_skill_dashboard: v1   # 工作台地基技能·看板与数据类（品类）
+  bench_skill_ai_features: v1   # 工作台地基技能（第 6 批）
+  bench_skill_attack: v1   # 工作台地基技能（第 6 批）
+  bench_skill_audio: v1   # 工作台地基技能（第 6 批）
+  bench_skill_brand: v1   # 工作台地基技能（第 6 批）
+  bench_skill_chat_role: v1   # 工作台地基技能（第 6 批）
+  bench_skill_cjk_type: v1   # 工作台地基技能（第 6 批）
+  bench_skill_coding: v1   # 工作台地基技能（第 6 批）
+  bench_skill_commercial: v1   # 工作台地基技能（第 6 批）
+  bench_skill_content: v1   # 工作台地基技能（第 6 批）
+  bench_skill_education: v1   # 工作台地基技能（第 6 批）
+  bench_skill_estimate: v1   # 工作台地基技能（第 6 批）
+  bench_skill_handoff: v1   # 工作台地基技能（第 6 批）
+  bench_skill_interaction: v1   # 工作台地基技能（第 6 批）
+  bench_skill_interview: v1   # 工作台地基技能（第 6 批）
+  bench_skill_mobile: v1   # 工作台地基技能（第 6 批）
+  bench_skill_motion3d: v1   # 工作台地基技能（第 6 批）
+  bench_skill_onboarding: v1   # 工作台地基技能（第 6 批）
+  bench_skill_product: v1   # 工作台地基技能（第 6 批）
+  bench_skill_productivity: v1   # 工作台地基技能（第 6 批）
+  bench_skill_research: v1   # 工作台地基技能（第 6 批）
+  bench_skill_retro: v1   # 工作台地基技能（第 6 批）
+  bench_skill_security: v1   # 工作台地基技能（第 6 批）
+  bench_skill_sim: v1   # 工作台地基技能（第 6 批）
+  bench_skill_storage: v1   # 工作台地基技能（第 6 批）
   bench_evolve: v1       # 工作台生成器·项目室：交付后按用户意见和新资料出下一版提案
   bench_pitch: v1        # 工作台生成器·方案会：每位助手各提一份做法
   bench_vote: v1         # 工作台生成器·方案会：看别人的方案投一票（不投自己），写要借的点
@@ -1743,17 +1767,26 @@ bench:
   skills:
     enabled: true
     steps:
-      interview: {short: [manager, report], long: [intent]}
-      plan: {short: [manager, no_ai, assets, data], long: [intent, layout]}
-      window: {short: [manager, intent, layout, team, testing], long: [no_ai, assets, data]}
-      rework: {short: [manager, team, assets, data, testing, layout], long: [no_ai]}
-      review: {short: [manager, no_ai, layout], long: [visual_review, testing]}
+      interview: {short: [manager, report], long: [intent, interview]}
+      plan: {short: [manager, no_ai, assets, data, estimate, security, commercial], long: [intent, layout, brand, research]}
+      window: {short: [manager, intent, layout, team, testing, brand, interaction, mobile, cjk_type, storage, security, ai_features, onboarding, coding], long: [no_ai, assets, data]}
+      rework: {short: [manager, team, assets, data, testing, layout, coding, mobile, cjk_type], long: [no_ai, retro]}
+      review: {short: [manager, no_ai, layout, interaction, mobile, cjk_type, commercial, handoff], long: [visual_review, testing, attack]}
     # 拆需求时判断的工作台类型 → 写窗口、返工、评审时加上的品类技能（长版）。没有对得上的就是 other
     kinds:
-      editor: {label: 编辑器类（修图、3D 建模、视频剪辑、Live2D、画图）, skills: [editor]}
-      game: {label: 游戏与模拟类（麻将、跑团、剧本杀、模拟炒股、模拟经营）, skills: [game]}
-      dashboard: {label: 看板与数据类（旅行、生活和工作日常、记账、数据看板）, skills: [dashboard]}
+      editor: {label: 编辑器类（修图、视频剪辑、画图、排版）, skills: [editor]}
+      motion3d: {label: 3D 与动画类（3D 展示和建模、动画、Live2D、动图）, skills: [editor, motion3d]}
+      game: {label: 游戏类（麻将、跑团、剧本杀、桌游、小游戏）, skills: [game]}
+      sim: {label: 模拟经营与金融模拟（模拟炒股、模拟经营）, skills: [game, sim]}
+      dashboard: {label: 看板与数据类（旅行、生活和工作日常、数据看板）, skills: [dashboard]}
+      productivity: {label: 效率工具类（表单、清单、日程、记账）, skills: [productivity, storage]}
+      content: {label: 内容创作类（写作、海报、视频脚本）, skills: [content]}
+      education: {label: 学习教育类（题库、闪卡、背单词）, skills: [education]}
+      audio: {label: 音频音乐类（编曲、音效、播放器）, skills: [audio]}
+      chat: {label: 聊天与角色类（角色陪练、客服、Live2D 角色）, skills: [chat_role]}
       other: {label: 都不像（按通用技能做）, skills: []}
+    # 从成品反推（第 6 批）：你拖进一个成品、要能做出类似东西的台时，每一步都加这些（长版）
+    product: [product]
     # 技能里能机器查的规则：质检会自动查这些（名字要和质检里的一致，测试核对）
     checks:
       no_ai: [表情符号当图标, 空话]
@@ -1761,6 +1794,34 @@ bench:
       testing: [页面报错, 点了报错, 横向溢出, 按钮没有名字, 图表空白, 验收自动检查没过, 倒退]
       data: [数据文件看不懂, 坏字]
       layout: [窗口太长, 手机上按钮太小]
+      mobile: [手机上按钮太小, 横向溢出]
+      security: [页面报错]
+  # 资料台（2026-10-31 工作台大更新第 5 批）：工作台底部抽屉「资料」。全部免费、不要 key、只读 GET。
+  # GitHub 榜单每类前 10（总榜按星数、新星只看最近 30 天新建的），每日论文和订阅，能力地图
+  # （config/bench_capabilities.yaml，刷新时核实星数和许可证），每周按关注主题出建议卡（你点「加进地图」才加）
+  desk:
+    enabled: true
+    refresh_hours: 24
+    top: 10
+    rising_days: 30
+    github_gap_s: 7
+    topics: [3d rendering, animation, live2d, image editing, game engine, gaussian splatting]
+    categories:
+      - {id: 3d, label: 3D 建模与渲染, query: topic:3d topic:webgl, kinds: [motion3d]}
+      - {id: animation, label: 动画与动效, query: topic:animation topic:javascript, kinds: [motion3d]}
+      - {id: live2d, label: Live2D 与虚拟形象, query: "live2d in:name,description,topics", kinds: [motion3d, chat]}
+      - {id: image, label: 修图与图像处理, query: topic:image-processing, kinds: [editor]}
+      - {id: game, label: 游戏引擎与模拟, query: topic:game-engine, kinds: [game, sim]}
+      - {id: agent, label: AI 智能体, query: topic:ai-agents}
+      - {id: local-llm, label: 大模型本地运行, query: topic:llm-inference}
+      - {id: ui, label: 前端界面组件, query: topic:ui-components topic:javascript, kinds: [dashboard]}
+      - {id: dataviz, label: 数据可视化, query: topic:data-visualization, kinds: [dashboard]}
+      - {id: media, label: 音视频处理, query: topic:video-processing, kinds: [editor, content]}
+    feeds:
+      - {name: Hacker News 首页, url: "https://hnrss.org/frontpage", kind: news}
+      - {name: three.js 发布, url: "https://github.com/mrdoob/three.js/releases.atom", kind: news}
+      - {name: Godot 新闻, url: "https://godotengine.org/rss.xml", kind: news}
+      - {name: Blender 开发者博客, url: "https://code.blender.org/feed/", kind: news}
 
 # 日历底座（docs/CALENDAR.md）：只算「今天是什么日子」，每天发事件给成员系统（怎么过节由生活引擎决定）。
 # 全部离线计算：法定假日用开源库 holidays，农历和节气查预先算好的表；不调模型、不联网、不花钱。

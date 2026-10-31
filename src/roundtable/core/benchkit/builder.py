@@ -69,6 +69,8 @@ from roundtable.core.config.schema import BenchRules
 from roundtable.core.jsonout import JSONOutputError, extract_json_object
 from roundtable.core.supercomputer.scoring import excluded
 
+PROFILE_FILE = "_client/profile.json"  # 甲方档案（只存本机）
+PROFILE_MAX = 40
 RECENT = 10
 # 写完自测：只开一种屏宽，只管这几项低级错误
 SELFTEST_VIEWPORTS = (("电脑", 1280, 860),)
@@ -237,8 +239,10 @@ class BenchBuilder:
         seed: int | None = None,
         samples: SampleCatalog | None = None,
         skill: Callable[[str], tuple[str, str]] | None = None,
+        desk: Any = None,
     ) -> None:
         self.rules = rules
+        self.desk = desk  # 资料台（能力地图 + 榜单），写窗口时按工作台类型挑工具附上
         if samples is None:
             try:
                 samples = load_catalog()
@@ -314,6 +318,7 @@ class BenchBuilder:
             "project": self.rules.project.enabled,
             "current": self.build,
             "recent": self.recent(),
+            "profile": self.profile(),
             "library": {
                 "parts": self.library.parts() if self.library else [],
                 "recipes": self.library.recipes()[:RECENT] if self.library else [],
@@ -322,11 +327,18 @@ class BenchBuilder:
 
     # --- 交活 -------------------------------------------------------------------
 
-    def submit(self, request: str, materials: list[str] | None = None) -> dict[str, Any]:
-        """开工：一句话，可以带拖进来的素材（先用 stage_material 收下，这里给编号）。"""
+    def submit(
+        self, request: str, materials: list[str] | None = None, *, from_product: bool = False
+    ) -> dict[str, Any]:
+        """开工：一句话，可以带拖进来的素材（先用 stage_material 收下，这里给编号）。
+
+        from_product：拖进来的是一个成品（图片、动图、视频），要的是能做出类似成品的台
+        （第 6 批「从成品反推」）：每一步都加上反推技能，先拆出哪些固定、哪些可以换。"""
         request = request.strip()
         if not request:
             raise ValueError("想要什么样的工作台？写一句话就行")
+        if from_product and not materials:
+            raise ValueError("从成品反推要先把成品（图片、动图或视频）拖进来")
         reason = self.unavailable_reason()
         if reason:
             raise ValueError(reason)
@@ -358,16 +370,66 @@ class BenchBuilder:
             "changes": [],
             "voices": [],
             "intent": None,
+            "from_product": bool(from_product),
             "rounds": [],
             "score": None,
             "result": None,
             "log": [],
         }
         add_voice(self.build, "开工", request, _iso(now))
+        for item in self.profile():  # 甲方档案：以前定下的偏好，每个新项目都带上
+            add_voice(self.build, "档案", item["text"], _iso(now), item["id"])
         self._take_materials(self.build, materials or [])
         self._save()
         self._start_job(self.build, lambda: self._run(self.build))
         return self.build
+
+    # --- 甲方档案（第 6 批）：你的长期偏好，只存本机，可看可改可删 ---------------------------
+
+    def _profile_path(self) -> Path | None:
+        return None if self.root is None else self.root / PROFILE_FILE
+
+    def profile(self) -> list[dict[str, Any]]:
+        p = self._profile_path()
+        if p is None or not p.is_file():
+            return []
+        try:
+            items = json.loads(p.read_text(encoding="utf-8")).get("items") or []
+        except (OSError, ValueError, AttributeError):
+            return []
+        return [x for x in items if isinstance(x, dict) and x.get("id") and x.get("text")]
+
+    def _save_profile(self, items: list[dict[str, Any]]) -> None:
+        p = self._profile_path()
+        if p is None:
+            raise RuntimeError("没有存放档案的地方")
+        p.parent.mkdir(parents=True, exist_ok=True)
+        tmp = p.with_suffix(".tmp")
+        tmp.write_text(json.dumps({"items": items}, ensure_ascii=False, indent=1), "utf-8")
+        os.replace(tmp, p)
+
+    def profile_add(self, text: str, src: str = "") -> list[dict[str, Any]]:
+        """记下一条偏好（你写的，或从某个项目的原话点「记住」）。重复的不再加。"""
+        text = " ".join(str(text).split())[:200]
+        if not text:
+            raise ValueError("写一句你的偏好")
+        items = self.profile()
+        if any(x["text"] == text for x in items):
+            return items
+        if len(items) >= PROFILE_MAX:
+            raise ValueError(f"档案最多 {PROFILE_MAX} 条，先删掉几条不用的")
+        n = max([int(x["id"][1:]) for x in items if x["id"][1:].isdigit()] or [0]) + 1
+        items.append({"id": f"p{n}", "text": text, "src": str(src)[:40], "at": _iso(self.now())})
+        self._save_profile(items)
+        return items
+
+    def profile_remove(self, pid: str) -> list[dict[str, Any]]:
+        items = self.profile()
+        left = [x for x in items if x["id"] != pid]
+        if len(left) == len(items):
+            raise LookupError("档案里没有这一条")
+        self._save_profile(left)
+        return left
 
     async def cancel(self) -> dict[str, Any] | None:
         job = self._job
@@ -1064,7 +1126,7 @@ class BenchBuilder:
             ).strip()
             or "（没有参考素材）",
             max_questions=str(self.rules.project.max_questions),
-            skills=self._skills("interview"),
+            skills=self._skills("interview", b=b),
         )
         chosen, result = await self._step(
             b,
@@ -1669,7 +1731,7 @@ class BenchBuilder:
             design=design_brief(m["themes"]),
             voices=voices_text(b) or f"- v1（开工）{b['request']}",
             max_stages=str(self.rules.project.max_stages),
-            skills=self._skills("plan"),
+            skills=self._skills("plan", b=b),
             kinds="\n".join(f"- {k}：{v.label}" for k, v in self.rules.skills.kinds.items())
             or "- other：通用",
         )
@@ -1907,6 +1969,17 @@ class BenchBuilder:
             )
         for p in (r.get("papers") or [])[:3]:
             lines.append(f"- 论文：{p['title']}（{p['source']} {p['date']}）")
+        if self.desk is not None:
+            kind = ((b.get("proposal") or {}).get("kind")) or "other"
+            try:
+                tools = self.desk.text_for(kind)
+            except Exception:  # noqa: BLE001 - 资料台坏了不影响写窗口
+                tools = ""
+            if tools:
+                lines.append(
+                    "- 能力地图里适合这类工作台的现成工具（要用就按许可证接，用不上别硬塞）："
+                )
+                lines += ["  " + x for x in tools.splitlines()]
         return "\n".join(lines) or "（这次没找插件，全部用零件库自己写）"
 
     async def ask_json(self, bid: str, question: str) -> dict[str, Any]:
@@ -1986,7 +2059,7 @@ class BenchBuilder:
             lines.append(f"- {x.name}：{x.use}（{how}；来源：{x.source}）")
         return "\n".join(lines) or "（成品不能联网：需要实时的信息用可信的参考数据，标日期和来源）"
 
-    def _skills(self, step: str, kind: str = "") -> str:
+    def _skills(self, step: str, kind: str = "", b: dict[str, Any] | None = None) -> str:
         """这一步要带的地基技能：短版常驻、长版只在这一步给；写窗口、返工、评审再加上工作台类型的
         品类技能（长版）。技能文字从注入的 skill 函数取（短版, 长版），没有就空。"""
         cfg = self.rules.skills
@@ -1996,6 +2069,8 @@ class BenchBuilder:
         long = list(st.long) if st else []
         if step in ("window", "rework", "review") and kind in cfg.kinds:
             long += cfg.kinds[kind].skills
+        if b is not None and b.get("from_product"):
+            long += cfg.product
         short = [n for n in (st.short if st else []) if n not in long]
         parts: list[str] = []
         for name in dict.fromkeys(short + long):
@@ -2036,7 +2111,7 @@ class BenchBuilder:
             net=self._net_text(),
             samples=self._samples_text(b),
             stage=stage or ONE_GO,
-            skills=self._skills("window", spec.kind),
+            skills=self._skills("window", spec.kind, b),
         )
         chosen, result = await self._step(
             b, self.rules.window_kind, prompt, rng, rec, role="实施", task=f"写窗口「{w.title}」"
@@ -2085,7 +2160,7 @@ class BenchBuilder:
                 check=report.summary(),
                 previous=self._previous(last, wids),
                 requirements=requirements_text(spec),
-                skills=self._skills("review", spec.kind),
+                skills=self._skills("review", spec.kind, b),
             )
             chosen, result = await self._step(
                 b,
@@ -2404,7 +2479,7 @@ class BenchBuilder:
                 net=self._net_text(),
                 samples=self._samples_text(b),
                 stage=stage or b.get("stage_task") or ALL_DONE,
-                skills=self._skills("rework", spec.kind),
+                skills=self._skills("rework", spec.kind, b),
             )
             jobs.append(self._redo(b, rec, prompt, rng, n))
         await asyncio.gather(*jobs)

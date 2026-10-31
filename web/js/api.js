@@ -294,7 +294,10 @@ export const dshCheck = () => api('/api/dsh/check', { method: 'POST' });
 
 // 超级电脑：几位编程助手平级、按分数派活（docs/SUPERCOMPUTER.md）
 export const benchStatus = () => api('/api/bench');
-export const benchSubmit = (request, materials = []) => api('/api/bench', { method: 'POST', body: { request, materials } });
+export const benchSubmit = (request, materials = [], fromProduct = false) => api('/api/bench', { method: 'POST', body: { request, materials, from_product: fromProduct } });
+// 甲方档案：长期偏好（只存本机），每个新项目都带上
+export const benchProfileAdd = (text, src = '') => api('/api/bench/profile', { method: 'POST', body: { text, src } });
+export const benchProfileRemove = (pid) => api(`/api/bench/profile/${encodeURIComponent(pid)}`, { method: 'DELETE' });
 /** 拖进来的一份素材（图片、视频或视频截帧，of 是视频编号）：原始字节上传。 */
 export async function benchMaterial(file, of = '') {
   const q = `name=${encodeURIComponent(file.name)}${of ? `&of=${encodeURIComponent(of)}` : ''}`;
@@ -313,6 +316,9 @@ export const benchGet = (id) => api(`/api/bench/${encodeURIComponent(id)}`);
 export const benchAsk = (id, question, json = false) =>
   api(`/api/bench/${encodeURIComponent(id)}/ask`, { method: 'POST', body: { question, as_json: json } });
 export const benchNetCheck = () => api('/api/bench/net-check');
+// 资料台（工作台抽屉「资料」）：GitHub 榜单、论文动态、能力地图、建议卡
+export const benchDesk = (refresh = false) => (refresh ? api('/api/bench/desk/refresh', { method: 'POST' }) : api('/api/bench/desk'));
+export const benchDeskSuggest = (sid, accept) => api(`/api/bench/desk/suggest/${encodeURIComponent(sid)}?accept=${accept ? 'true' : 'false'}`, { method: 'POST' });
 // 项目室的关口：回答访谈、签字开工、里程碑 / 交付通过或提变更单、出下一版提案
 const benchPost = (id, what, body) => api(`/api/bench/${encodeURIComponent(id)}/${what}`, { method: 'POST', body });
 export const benchAnswer = (id, answers) => benchPost(id, 'answer', { answers });

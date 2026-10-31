@@ -29,6 +29,7 @@ from roundtable.core.almanac import Almanac
 from roundtable.core.attachments import Attachment, UploadError, ingest
 from roundtable.core.attachments.detect import TYPES as UPLOAD_TYPES
 from roundtable.core.benchkit.builder import BenchBuilder
+from roundtable.core.benchkit.desk import Desk
 from roundtable.core.benchkit.netcheck import http_status, net_check
 from roundtable.core.benchkit.research import Researcher
 from roundtable.core.benchkit.research import http_fetchers as research_fetchers
@@ -324,6 +325,10 @@ class RoundtableService:
         self.supercomputer = self._build_super(
             runtime, base if runtime.mail_dir is not None else None
         )
+        self.desk = self._build_desk(
+            runtime.config.roundtable.bench,
+            (base / "bench") if runtime.mail_dir is not None else None,
+        )
         self.bench = BenchBuilder(
             runtime.config.roundtable.bench,
             root=(base / "bench") if runtime.mail_dir is not None else None,
@@ -333,6 +338,7 @@ class RoundtableService:
             researcher=self._build_researcher(runtime.config.roundtable.bench),
             whitelist=self._dsh_whitelist,
             skill=self._bench_skill,
+            desk=self.desk,
         )
         self.bench_status_fetch = http_status()  # 联网自检用（测试换成假的）
         self._chat_tasks: set[asyncio.Task[Any]] = set()
@@ -387,6 +393,31 @@ class RoundtableService:
             min_stars=rules.min_stars,
             max_kb=rules.max_repo_mb * 1024,
         )
+
+    @staticmethod
+    def _build_desk(rules: Any, root: Path | None) -> Desk:
+        """资料台（工作台抽屉「资料」）：GitHub 榜单、论文动态、能力地图、建议卡；免费只读。"""
+        fetch_json, fetch_text, _ = research_fetchers()
+        return Desk(
+            rules.desk,
+            root,
+            fetch_json=fetch_json,
+            fetch_text=fetch_text,
+            min_stars=rules.min_stars,
+        )
+
+    def bench_desk(self, *, refresh: bool = False) -> dict[str, Any]:
+        """资料台的内容。refresh=True 时在后台刷新（联网、免费），先给旧的；
+        读不联网，过期了由界面决定要不要刷（打开抽屉时 due 就刷一次）。"""
+        if refresh:
+            self.desk.start_refresh()
+        return self.desk.view()
+
+    def bench_desk_suggest(self, sid: str, accept: bool) -> dict[str, Any]:
+        try:
+            return self.desk.decide(sid, accept)
+        except LookupError as exc:
+            raise ServiceError(str(exc), 404) from None
 
     def _bench_skill(self, name: str) -> tuple[str, str]:
         """工作台地基技能：prompts/bench_skill_<名字>/ 的 system 段是短版、user 段是长版。"""
@@ -976,6 +1007,23 @@ class RoundtableService:
     def bench_status(self) -> dict[str, Any]:
         return self.bench.status()
 
+    def bench_profile_add(self, text: str, src: str = "") -> dict[str, Any]:
+        """甲方档案：记下一条长期偏好（只存本机），以后每个新项目都带上。"""
+        try:
+            self.bench.profile_add(text, src)
+        except ValueError as exc:
+            raise ServiceError(str(exc), 400) from None
+        except RuntimeError as exc:
+            raise ServiceError(str(exc), 409) from None
+        return self.bench_status()
+
+    def bench_profile_remove(self, pid: str) -> dict[str, Any]:
+        try:
+            self.bench.profile_remove(pid)
+        except LookupError as exc:
+            raise ServiceError(str(exc), 404) from None
+        return self.bench_status()
+
     def bench_material(self, name: str, data: bytes, of: str = "") -> dict[str, Any]:
         """拖进来的素材先收下（开工或加进工作台时再给编号）。"""
         try:
@@ -987,9 +1035,11 @@ class RoundtableService:
     def bench_material_limit(self) -> int:
         return self.bench.rules.materials.max_video_mb * 1024 * 1024
 
-    def bench_submit(self, request: str, materials: list[str] | None = None) -> dict[str, Any]:
+    def bench_submit(
+        self, request: str, materials: list[str] | None = None, *, from_product: bool = False
+    ) -> dict[str, Any]:
         try:
-            self.bench.submit(request, materials)
+            self.bench.submit(request, materials, from_product=from_product)
         except RuntimeError as exc:
             raise ServiceError(str(exc), 409) from None
         except ValueError as exc:

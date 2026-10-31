@@ -279,3 +279,38 @@ def test_materials_over_http(tmp_path):
         wait_done(c)
         html = c.get(f"/bench/{bid}/index.html").text
         assert f"assets/{logo}.png" in html and "--k-accent: #ff7a00" in html
+
+
+def test_desk_endpoints_read_without_network_and_refresh_on_request(tmp_path):
+    from ..core.benchkit.test_desk import CAPS, RULES, Net, gh, make
+
+    service = service_with(tmp_path)
+    net = Net(rank={"topic%3Alive2d": [gh("y/good", 500, "MIT")]})
+    service.desk = make(tmp_path, net)
+    with TestClient(create_app(service)) as c:
+        v = c.get("/api/bench/desk").json()
+        assert v["enabled"] and v["due"] and v["updated_at"] is None and not net.urls
+        assert [x["id"] for x in v["categories"]] == [x.id for x in RULES.categories]
+        assert len(v["caps"]) == len(CAPS.capabilities)
+        assert c.post("/api/bench/desk/refresh").status_code == 200
+        end = time.monotonic() + 5
+        while c.get("/api/bench/desk").json()["busy"] and time.monotonic() < end:
+            time.sleep(0.02)
+        v = c.get("/api/bench/desk").json()
+        assert v["updated_at"] and v["suggest"]
+        sid = v["suggest"][0]["id"]
+        assert c.post("/api/bench/desk/suggest/nope").status_code == 404
+        v = c.post(f"/api/bench/desk/suggest/{sid}?accept=false").json()
+        assert v["suggest"] == []
+
+
+def test_profile_endpoints_and_from_product_flag(tmp_path):
+    with TestClient(create_app(service_with(tmp_path))) as c:
+        st = c.post("/api/bench/profile", json={"text": "给小白用", "src": "修图台"}).json()
+        assert [x["text"] for x in st["profile"]] == ["给小白用"]
+        assert c.post("/api/bench/profile", json={"text": ""}).status_code == 422
+        pid = st["profile"][0]["id"]
+        assert c.delete("/api/bench/profile/nope").status_code == 404
+        assert c.delete(f"/api/bench/profile/{pid}").json()["profile"] == []
+        r = c.post("/api/bench", json={"request": "照着做", "from_product": True})
+        assert r.status_code == 400 and "成品" in r.json()["detail"]

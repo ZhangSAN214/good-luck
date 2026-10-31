@@ -1284,3 +1284,122 @@ def test_skills_off_or_unknown_kind():
     b.rules = BenchRules(skills={"steps": {"window": {"short": ["team"]}}})
     assert b._skills("window", "不认得") == "短·team"
     assert normalize(PLAN | {"kind": "hacker"}, max_windows=8, kinds={"editor"}).kind == ""
+
+
+async def test_desk_tools_are_given_to_writers_by_kind(tmp_path):
+    """资料台（第 5 批）：写窗口时附上能力地图里适合这类工作台的工具；资料台坏了照常写。"""
+
+    class FakeDesk:
+        def __init__(self, boom=False):
+            self.kinds: list[str] = []
+            self.boom = boom
+
+        def text_for(self, kind):
+            self.kinds.append(kind)
+            if self.boom:
+                raise RuntimeError("坏了")
+            return "- three.js（3D 渲染）"
+
+    for boom in (False, True):
+        sc = FakeSC()
+        desk = FakeDesk(boom)
+        b = BenchBuilder(
+            BenchRules(),
+            root=tmp_path / str(boom),
+            supercomputer=sc,
+            render=render,
+            check=fake_check(),
+            seed=7,
+            desk=desk,
+        )
+        build = b.submit("修图台")
+        await b.wait()
+        assert b.get(build["id"])["status"] == "done" and desk.kinds
+        writes = [json.loads(p) for p in sc.prompts if json.loads(p)["role"] == "bench_window"]
+        assert writes and all(("three.js" in p["sources"]) is not boom for p in writes)
+
+
+# --- 第 6 批：甲方档案、从成品反推 --------------------------------------------------------
+
+
+async def test_client_profile_is_local_editable_and_rides_every_new_project(tmp_path):
+    from roundtable.core.benchkit.builder import PROFILE_MAX
+
+    sc = FakeSC()
+    b = make(tmp_path, sc)
+    assert b.profile() == [] and b.status()["profile"] == []
+    with pytest.raises(ValueError):
+        b.profile_add("   ")
+    b.profile_add("给小白用，别堆专业参数")
+    items = b.profile_add("深色、不要表情符号", src="修图台")
+    assert [x["id"] for x in items] == ["p1", "p2"] and items[1]["src"] == "修图台"
+    assert len(b.profile_add("深色、不要表情符号")) == 2  # 重复的不再加
+    assert [x["id"] for x in b.profile_remove("p1")] == ["p2"]
+    with pytest.raises(LookupError):
+        b.profile_remove("p1")
+    assert (tmp_path / "_client/profile.json").is_file()
+
+    build = b.submit("修图台")
+    await b.wait()
+    voices = [v for v in build["voices"] if v["src"] == "档案"]
+    assert [v["text"] for v in voices] == ["深色、不要表情符号"] and voices[0]["ref"] == "p2"
+    plan = next(json.loads(p) for p in sc.prompts if json.loads(p)["role"] == "bench_plan")
+    assert "（档案）深色、不要表情符号" in plan["voices"]
+    row = next(r for r in build["trace"] if r["src"] == "档案")
+    assert row["state"] in ("已参考", "做到", "待做")
+    assert all(r["id"] != "p2" for r in b.recent())  # 档案不是项目
+
+    for i in range(PROFILE_MAX):
+        try:
+            b.profile_add(f"偏好 {i}")
+        except ValueError as exc:
+            assert "最多" in str(exc)
+            break
+    assert len(b.profile()) == PROFILE_MAX
+    assert BenchBuilder(BenchRules(), root=None, supercomputer=sc, render=render).profile() == []
+
+
+class BlindSC(FakeSC):
+    """没有能看图的助手：素材只收下。"""
+
+    async def step(self, kind, prompt, **kw):
+        if json.loads(prompt)["role"] == "bench_look":
+            return None, None
+        return await super().step(kind, prompt, **kw)
+
+
+async def test_from_product_needs_a_product_and_adds_trace_skill_everywhere(tmp_path):
+    sc = BlindSC()
+    b = BenchBuilder(
+        BenchRules(
+            skills={
+                "steps": {"plan": {"short": ["manager"]}, "window": {"short": ["layout"]}},
+                "product": ["product"],
+            }
+        ),
+        root=tmp_path,
+        supercomputer=sc,
+        render=render,
+        check=fake_check(),
+        seed=7,
+        skill=fake_skill,
+    )
+    with pytest.raises(ValueError, match="成品"):
+        b.submit("照着做个动图台", from_product=True)
+    m = b.stage_material("鲸鱼女孩.gif", b"GIF89a fake")
+    build = b.submit("照着做个能换角色和动作的动图台", [m["id"]], from_product=True)
+    await b.wait()
+    assert build["from_product"] is True and build["status"] == "done", build["log"][-3:]
+    by_role = {}
+    for p in sc.prompts:
+        d = json.loads(p)
+        by_role.setdefault(d["role"], d)
+    assert by_role["bench_plan"]["skills"] == "短·manager\n\n长·product"
+    assert by_role["bench_window"]["skills"] == "短·layout\n\n长·product"
+    # 平常的项目不加
+    sc2 = FakeSC()
+    b.sc = sc2
+    b.submit("修图台")
+    await b.wait()
+    plan = next(json.loads(p) for p in sc2.prompts if json.loads(p)["role"] == "bench_plan")
+    assert plan["skills"] == "短·manager"
