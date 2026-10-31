@@ -897,6 +897,9 @@ class BrowseRules(_Strict):
     max_tokens: int = Field(default=800, ge=64)
     timeout_s: float = Field(default=10, gt=0, le=60)
     max_feed_kb: int = Field(default=1024, ge=16, le=8192)
+    # 分享完有几位接着看、接着聊（2026-10-31 用户：分享就是甩过去让大家看了再讨论）；0 = 不接
+    react_members: int = Field(default=2, ge=0, le=4)
+    react_turns: int = Field(default=2, ge=0, le=4)  # 接着聊最多几句（每句一次调用，算生活花费）
 
 
 class PerceptionMode(_Strict):
@@ -1446,9 +1449,9 @@ class IntentRule(_Strict):
     drives: dict[str, float] = {}  # 驱力（0～1）× 系数
     mood: float = 0.0  # 心情（-1～1）× 系数
     energy: float = 0.0  # 精力（0～1，减 0.5 后）× 系数
-    needs: str | None = (
-        None  # 只有在有这类念头时才可选：own（自己的事）/ claim（对方说了个看法）/ sad / whim
-    )
+    # 只有在有这类念头时才可选：own（自己的事）/ claim（对方说了个看法）/ sad / whim；
+    # last：有人刚说了话才可选（顺着那句话歪楼）
+    needs: str | None = None
 
 
 class RewardRules(_Strict):
@@ -2204,6 +2207,8 @@ class LingoRules(_Strict):
     typo: TypoRules = TypoRules()
     kaomoji: dict[str, TraitPick] = {}
     kaomoji_each: int = Field(default=3, ge=1, le=10)
+    # 一条消息里一个表情都没带时，发出前补一个她自己的颜文字的概率（2026-10-31 用户：表情用得少）
+    kaomoji_sprinkle: float = Field(default=0.0, ge=0, le=1)
     sticker_sets: dict[str, TraitPick] = {}  # 偏爱哪一套表情包（名字同 chat.actions.stickers）
     battle: float = Field(default=0.5, ge=0, le=1)  # 群里上一条是表情包：幽默的人回表情包斗图
     shift: dict[str, str] = {}  # 语气变调：tired / down / up / night / close / new / dislike
@@ -3101,6 +3106,25 @@ class Persona(_Strict):
     voice: str = Field(default="", max_length=60)  # 语音音色（预留）
 
 
+class Signature(_Strict):
+    """一位成员最有辨识度的说话特色（只用于私聊、群聊、生活、朋友圈；2026-10-31 用户定）。
+
+    写进说话习惯段的第一行（不会因为字数被挤掉）；句尾小尾巴发出前按概率补上；
+    招牌词和小尾巴不会被「口癖慢慢变」换掉或歇掉。"""
+
+    line: str = Field(default="", max_length=160)  # 写进说话习惯段第一行
+    tails: list[str] = Field(default_factory=list, max_length=3)  # 句尾小尾巴，如「喵」
+    tail_chance: float = Field(default=0.0, ge=0, le=1)  # 一句话没带小尾巴时补上的概率
+    words: list[str] = Field(default_factory=list, max_length=6)  # 招牌词（口癖漂移不动）
+
+    @field_validator("tails", "words")
+    @classmethod
+    def _short(cls, items: list[str]) -> list[str]:
+        if any(not w.strip() or len(w) > 8 for w in items):
+            raise ValueError("小尾巴和招牌词每个 1～8 字")
+        return items
+
+
 class StickerSpec(_Strict):
     name: str = Field(min_length=1, max_length=12)  # 表情名（聊天里写 [表情:包名·表情名]）
     caption: str = Field(min_length=1, max_length=16)  # 画进图里的配文
@@ -3148,6 +3172,8 @@ class PersonasConfig(_Strict):
     coordinator_suffix: str = "（统筹）"
     manager_suffix: str = "（经理）"  # 办公室模式里统筹就是经理
     personas: dict[str, Persona] = Field(default_factory=dict)  # 厂商 → 人设
+    # 厂商 → 最有辨识度的说话特色（优先于人物卡里没写够的地方；只用于聊天和生活）
+    signatures: dict[str, Signature] = Field(default_factory=dict)
     # 成员固定音色（合成音色，不克隆真人）：厂商 → {语音模型 id → 该模型的音色名}
     voices: dict[str, dict[str, str]] = Field(default_factory=dict)
     # 成员专属表情包：厂商 → 形象卡与表情清单

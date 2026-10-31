@@ -188,3 +188,17 @@ async def test_daily_cap_blocks_sharing_and_search():
     assert await b.tick(NOW) == 0
     assert not env.fake.calls
     assert b.searches_today() == 0
+
+
+async def test_a_share_is_tossed_into_the_group_with_a_few_words_not_retold():
+    """2026-10-31 用户：人分享东西一般不介绍，直接甩过去让别人看；程序附卡片，配的话很短。"""
+    env = Env()
+    set_feeds(env.rt, FEEDS)
+    for m in ChatHub(env.rt).everyone():
+        set_persona(env.rt, m.id, {"interests": ["游戏"]})
+    b = browser(env)
+    assert await b.tick(NOW) == 1
+    (row,) = b.posted
+    assert row["meta"]["card"]["url"] == "https://forum.test/g"
+    system = share_calls(env)[0].messages[0].content
+    assert "甩到群里" in system and "不介绍、不转述" in system
