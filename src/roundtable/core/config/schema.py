@@ -3472,6 +3472,15 @@ class CalendarRules(_Strict):
     max_user_dates: int = Field(default=100, ge=0, le=1000)  # 你能加的纪念日上限
 
 
+class BackupRules(_Strict):
+    """整库备份（docs/BACKUP.md）：每天一份 + 存档点，坏了一键恢复；不花钱。"""
+
+    enabled: bool = True  # 每天自动备份（关掉后仍能手动存档点、恢复）
+    keep_daily: int = Field(default=14, ge=1, le=365)  # 每天的备份留几份
+    keep_checkpoints: int = Field(default=10, ge=1, le=100)  # 存档点留几份（和每天的分开数）
+    check_minutes: int = Field(default=60, ge=5, le=1440)  # 开着时每隔多久看一眼「今天备份了没」
+
+
 class RoundtableConfig(_Strict):
     seats: int = Field(ge=2)
     min_members: int = Field(default=2, ge=2)
@@ -3519,6 +3528,7 @@ class RoundtableConfig(_Strict):
     supercomputer: SupercomputerRules = SupercomputerRules()
     bench: BenchRules = BenchRules()
     calendar: CalendarRules = CalendarRules()
+    backup: BackupRules = BackupRules()
 
     @field_validator("prompts")
     @classmethod

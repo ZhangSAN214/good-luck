@@ -1958,6 +1958,15 @@ bench:
       - {name: Godot 新闻, url: "https://godotengine.org/rss.xml", kind: news}
       - {name: Blender 开发者博客, url: "https://code.blender.org/feed/", kind: news}
 
+# 整库备份（docs/BACKUP.md）：成员的记忆、关系、日记、成长、聊天记录都在一个数据库文件里。
+# 每天第一次开着时备份一份到数据库旁边的 db_backups/，另有存档点（更新前、恢复前自动存，也能手动存）；
+# 网页顶栏「备份」或 roundtable backup 一键恢复。不联网、不花钱。
+backup:
+  enabled: true
+  keep_daily: 14        # 每天的备份留 14 份（两周）
+  keep_checkpoints: 10  # 存档点留 10 份
+  check_minutes: 60     # 开着时每小时看一眼今天备份了没
+
 # 日历底座（docs/CALENDAR.md）：只算「今天是什么日子」，每天发事件给成员系统（怎么过节由生活引擎决定）。
 # 全部离线计算：法定假日用开源库 holidays，农历和节气查预先算好的表；不调模型、不联网、不花钱。
 # 只影响生活（聊天、朋友圈、生活）；工作模式不挂载。你加的纪念日只存本机。

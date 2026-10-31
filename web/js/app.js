@@ -42,6 +42,7 @@ import { Exporter, exportHref } from './exporter.js';
 import { Moments } from './moments.js';
 import { BootSettings } from './bootcfg.js';
 import { LanPanel } from './lan.js';
+import { BackupPanel } from './backup.js';
 import { Watch } from './watch.js';
 import { Wander } from './wander.js';
 import { Workbench } from './workbench.js';
@@ -210,6 +211,9 @@ new LanPanel($('#landlg'), $('#lanbtn'), {
     signOut: API.lanSignOut,
     logout: API.lanLogout,
   },
+});
+new BackupPanel($('#backupdlg'), $('#backupbtn'), {
+  api: { status: API.backupStatus, checkpoint: API.backupCheckpoint, restore: API.backupRestore },
 });
 new Watch($('#watchdlg'), $('#watchbtn'), {
   api: {

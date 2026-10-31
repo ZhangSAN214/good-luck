@@ -28,6 +28,7 @@ from roundtable.core.allocation import coordinator_name, display_name
 from roundtable.core.almanac import Almanac
 from roundtable.core.attachments import Attachment, UploadError, ingest
 from roundtable.core.attachments.detect import TYPES as UPLOAD_TYPES
+from roundtable.core.backup import BackupError, DbBackup
 from roundtable.core.benchkit.builder import BenchBuilder
 from roundtable.core.benchkit.desk import Desk
 from roundtable.core.benchkit.netcheck import http_status, net_check
@@ -267,6 +268,16 @@ class RoundtableService:
         # P6 成长：每周一用成员自己的模型反思上一周，程序把关后才写档案；花费计入生活每天的上限
         self.growth = GrowthKeeper(runtime, self.chats.everyone, folder=runtime.growth_dir)
         self.growth.allow = self.life.allowed
+        # 整库备份（docs/BACKUP.md）：每天一份 + 存档点，不花钱
+        rules = runtime.config.roundtable.backup
+        self.backup = DbBackup(
+            runtime.repo.conn,
+            runtime.backup_dir,
+            enabled=rules.enabled,
+            keep_daily=rules.keep_daily,
+            keep_checkpoints=rules.keep_checkpoints,
+        )
+        self._backup_task: asyncio.Task[None] | None = None
         # P4 关系·对你的见解：和成长同一天，每位按自己的性格读一遍画像；花费计入生活每天的上限
         self.insight = InsightKeeper(runtime, self.chats.everyone)
         self.insight.allow = self.life.allowed
@@ -473,6 +484,45 @@ class RoundtableService:
                 await self.life_tick()
             await asyncio.sleep(self.rt.config.roundtable.chat.life.tick_minutes * 60)
 
+    def start_backup(self) -> None:
+        """后台每天备份一次整库（只在正式启动的服务里调用；测试直接调 backup_tick）。"""
+        if self._backup_task is None and self.backup.enabled:
+            self._backup_task = asyncio.get_running_loop().create_task(self._backup_loop())
+
+    async def _backup_loop(self) -> None:
+        while True:
+            try:
+                self.backup_tick()  # 同一个数据库连接，在事件循环里做（整库一两秒）
+            except Exception:  # noqa: BLE001 - 备份出错不影响其他功能，下次再试
+                log.exception("整库备份：没备份成")
+            await asyncio.sleep(self.rt.config.roundtable.backup.check_minutes * 60)
+
+    def backup_tick(self) -> dict[str, Any] | None:
+        """今天还没备份就备一份（按本地日期）。"""
+        got = self.backup.daily(self._local_now())
+        if got is not None:
+            log.info("整库备份：已备份 %s", got.name)
+        return got.view() if got is not None else None
+
+    def backup_status(self) -> dict[str, Any]:
+        return self.backup.status()
+
+    def backup_checkpoint(self, label: str) -> dict[str, Any]:
+        try:
+            got = self.backup.checkpoint(label, self._local_now())
+        except BackupError as exc:
+            raise ServiceError(str(exc)) from None
+        return {"saved": got.view(), **self.backup.status()}
+
+    def backup_restore(self, name: str) -> dict[str, Any]:
+        """把一份备份写回数据库（先自动存「恢复前」存档点）；之后要重启圆桌。"""
+        try:
+            out = self.backup.restore(name, self._local_now())
+        except BackupError as exc:
+            raise ServiceError(str(exc)) from None
+        log.warning("整库备份：已恢复 %s（恢复前存档点 %s）", name, out["before"]["name"])
+        return {**out, **self.backup.status()}
+
     def start_evolution(self) -> None:
         """后台按时开革新例会（只在正式启动的服务里调用；测试直接调 evolution_tick）。"""
         rules = self.rt.config.roundtable.evolution
@@ -559,7 +609,9 @@ class RoundtableService:
                 await self.dsh.aclose()
         await self.wander.aclose()
         tasks = [*self._tasks.values(), *self._chat_tasks]
-        tasks += [t for t in (self._life_task, self._evolution_task) if t is not None]
+        tasks += [
+            t for t in (self._life_task, self._evolution_task, self._backup_task) if t is not None
+        ]
         for task in tasks:
             task.cancel()
             with contextlib.suppress(asyncio.CancelledError, Exception):
