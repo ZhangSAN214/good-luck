@@ -122,6 +122,7 @@ def _group_line(mode: str, group: dict[str, Any]) -> str:
     return f"{MODE_LABELS[mode]}（{people} 人）约 {span}"
 
 
+IMAGE_EXTS = ("png", "jpg", "jpeg", "webp", "gif")
 STICKER_LABELS = {"missing": "还没画", "pending": "待审", "approved": "可以用", "rejected": "不要"}
 MEDIA_NAMES = {"image": "图片", "speech": "语音", "video": "视频", "music": "音乐"}
 JOB_STATE = {
@@ -1487,8 +1488,11 @@ class CLI:
         draw_all: bool,
         output: str | None,
         whiten: bool = False,
+        prompts: str | None = None,
+        import_dir: str | None = None,
     ) -> int:
-        """成员专属表情包：列出状态；--draw / --all 画（新画的待审，到网页成员设定里审）。"""
+        """成员专属表情包：列出状态；--draw / --all 画（新画的待审，到网页成员设定里审）；
+        --prompts 导出提示词和参考图拿去别处画，--import 把画好的收进来（待审）。"""
         from roundtable.core.member_stickers import (
             MemberStickers,
             StickerBudgetExceeded,
@@ -1507,12 +1511,16 @@ class CLI:
                 m: draw or [r["name"] for r in stickers.listing(m) if r["status"] == "missing"]
                 for m in members
             }
-            if (draw or draw_all)
+            if (draw or draw_all) and not prompts  # 导出提示词时 --draw 只用来挑哪几张
             else {}
         )
         if whiten:
             self.p(f"底色刷白了 {stickers.whiten(member)} 张（没重画，审核状态不变）")
         failed = 0
+        if prompts:
+            self._sticker_prompts(stickers, members, draw, Path(prompts))
+        if import_dir:
+            failed += self._sticker_import(stickers, members, Path(import_dir))
         for m, todo in names.items():
             for name in todo:
                 try:
@@ -1547,6 +1555,56 @@ class CLI:
                         saved += 1
             self.p(f"已保存 {saved} 张到 {folder}")
         return 1 if failed else 0
+
+    def _sticker_prompts(
+        self, stickers: Any, members: list[str], names: list[str], folder: Path
+    ) -> None:
+        """每位成员一个子目录：参考图 + 每张一个「名字.txt」提示词（只导出还没画的或指定的）。"""
+        count = 0
+        for m in members:
+            todo = names or [r["name"] for r in stickers.listing(m) if r["status"] == "missing"]
+            if not todo:
+                continue
+            sub = folder / m
+            sub.mkdir(parents=True, exist_ok=True)
+            for i, ref in enumerate(stickers.references(m, stickers.card(m)), 1):
+                (sub / f"参考图{i}_{ref.name}").write_bytes(ref.data)
+            for name in todo:
+                (sub / f"{name}.txt").write_text(stickers.prompt_text(m, name), encoding="utf-8")
+                count += 1
+        self.p(
+            f"导出了 {count} 张的提示词到 {folder}：把参考图和提示词一起发给画图工具，"
+            f"画好的图存成「表情名.png」放回同一个成员目录，再运行 --import {folder}"
+        )
+
+    def _sticker_import(self, stickers: Any, members: list[str], folder: Path) -> int:
+        """收图：成员目录里（或直接在 folder 里，只有一位成员时）与表情同名的图片。"""
+        from roundtable.core.member_stickers import StickerError
+
+        failed = 0
+        for m in members:
+            sub = folder / m if (folder / m).is_dir() else folder if len(members) == 1 else None
+            if sub is None:
+                continue
+            for row in stickers.listing(m):
+                path = next(
+                    (
+                        sub / f"{row['name']}.{ext}"
+                        for ext in IMAGE_EXTS
+                        if (sub / f"{row['name']}.{ext}").is_file()
+                    ),
+                    None,
+                )
+                if path is None:
+                    continue
+                try:
+                    stickers.import_image(m, row["name"], path.read_bytes())
+                except StickerError as exc:
+                    self.p(f"  {m}·{row['name']}：{exc}")
+                    failed += 1
+                    continue
+                self.p(f"  {m}·{row['name']} 导入了，待审")
+        return failed
 
     def cmd_note(self, session_id: str, text: str) -> int:
         """讨论进行中补充意见（可在另一个终端运行）：下一个步骤开始时被带上。"""
@@ -1672,6 +1730,15 @@ def build_parser() -> argparse.ArgumentParser:
     stickers.add_argument("-o", "--output", help="把画好的图保存到这个目录")
     stickers.add_argument(
         "--whiten", action="store_true", help="把已画好的表情浅灰底色统一刷成纯白（不重画）"
+    )
+    stickers.add_argument(
+        "--prompts", metavar="目录", help="导出提示词和参考图，拿去别处画（不花钱）"
+    )
+    stickers.add_argument(
+        "--import",
+        dest="import_dir",
+        metavar="目录",
+        help="把别处画好的图收进来（文件名=表情名，动图给四格图），待审",
     )
     perf = sub.add_parser("performance", help="办公室模式的员工绩效（件数、退回、通过率等）")
     perf.add_argument("--reset", action="store_true", help="清零：之后只统计从现在起的会话")
@@ -1837,7 +1904,13 @@ async def run(
             return cli.cmd_stats()
         if args.command == "stickers":
             return await cli.cmd_stickers(
-                args.member, args.draw, args.all, args.output, args.whiten
+                args.member,
+                args.draw,
+                args.all,
+                args.output,
+                args.whiten,
+                args.prompts,
+                args.import_dir,
             )
         if args.command == "performance":
             return cli.cmd_performance(args.reset)
