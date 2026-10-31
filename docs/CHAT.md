@@ -61,7 +61,7 @@
 - 花费：每句前检查 **生活每日上限** `chat.life.daily_usd`（默认 $0.10，UTC 日，含记忆整理）、聊天月预算（$5）和总预算，任何一个不够就停。调用记在对应会话的隐藏聊天会话上（`step = life`）。按默认设置一个月最多约 $3。
 - 开机补算：`app_settings` 里记 `life.last_tick`；启动后补上中间的时间（最多往回 `catch_up_hours` 小时，默认 24），补出来的消息时间按事件发生时刻，标「你不在时」（`meta.offline`）。第一次启动不往回补。推进之后顺带整理记忆（`MemoryKeeper.catch_up`）。
 - 后台推进：正式启动的服务（`create_app()` 不传 service）每 `tick_minutes`（默认 30）分钟推进一次；出错不影响其他功能。
-- 成员之间的私聊：`chat_rooms.kind = 'pair'`、`with_user = 0`；会话列表里单独一栏「成员之间」，用户只能看，不能发言（接口 400，网页隐藏输入框）。**成员不主动找用户**：生活不进用户的私聊，不推送。
+- 成员之间的私聊：`chat_rooms.kind = 'pair'`、`with_user = 0`；会话列表里单独一栏「成员之间」，用户只能看，不能发言（接口 400，网页隐藏输入框）。生活不进用户的私聊，不推送；成员按心情偶尔主动找用户由 `core/member/reach.py` 管（2026-10-30 起，见 docs/BRAIN.md）。
 - 接口：`GET /api/chat/rooms` 多了 `life`（是否开启、今天生活花费、每日上限）；网页左下角显示「今天生活 $x / $0.10」。
 - 关掉：`config/roundtable.yaml` 的 `chat.life.enabled: false`。
 

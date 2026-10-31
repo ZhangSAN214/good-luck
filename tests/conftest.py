@@ -22,3 +22,19 @@ def _no_feed_network(monkeypatch):
         raise browse.FeedError("测试不联网")
 
     monkeypatch.setattr(browse, "http_fetch", offline)
+
+
+@pytest.fixture(autouse=True)
+def _members_awake(request, monkeypatch):
+    """测试用的是真实钟点：成员一律当醒着，免得半夜跑测试时消息被「睡着没看到」。
+    要测作息的测试请求 ``real_rhythm`` 夹具。"""
+    if "real_rhythm" in request.fixturenames:
+        return
+    from roundtable.core.member.rhythm import Rhythm
+
+    monkeypatch.setattr(Rhythm, "asleep", lambda self, member, at: False)
+
+
+@pytest.fixture
+def real_rhythm():
+    """照真实作息判断成员睡没睡（配合固定的 budget.now 用）。"""

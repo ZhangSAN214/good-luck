@@ -30,6 +30,7 @@ from roundtable.core.chat import USER, USER_LABEL, ChatMember, call_member
 from roundtable.core.jsonout import JSONOutputError, extract_json_object
 from roundtable.core.life import LifeEngine
 from roundtable.core.member.card import TRAITS
+from roundtable.core.member.feel import Feelings
 from roundtable.core.member.growth import (
     Gate,
     GrowthLog,
@@ -244,6 +245,7 @@ class GrowthKeeper:
             "name": member.name,
             "week": f"{week.week}（{start.isoformat()} 起的 7 天）",
             "profile": self_text(profile.data),
+            "feelings": self._feelings(member.id),
             "locked": "、".join(profile.locked) or NONE,
             "habits": self._habits(member.id),
             "lines": week.text(),
@@ -251,6 +253,8 @@ class GrowthKeeper:
             "max_changes": str(r.max_changes),
             "lists": "；".join(f"{s}.{k}" for s, keys in r.lists.items() for k in keys),
             "item_chars": str(r.item_chars),
+            "emotions": "、".join(self.rt.config.roundtable.chat.engine.feel.names),
+            "feel_chars": str(self.rt.config.roundtable.chat.engine.feel.grow_chars),
         }
         others = {
             m.id: self.profiles.current(m.id).data for m in self.members() if m.id != member.id
@@ -299,6 +303,13 @@ class GrowthKeeper:
         if not_json:
             return "上一次没有按格式只输出一个 JSON 对象。"
         return "\n".join(f"- {v.proposal.label()}：{v.reason}" for v in verdicts) or "没有"
+
+    def _feelings(self, member: str) -> str:
+        """给反思用：她现在对每种情绪的理解（人物卡起点或成长改写过的），还没有的写「还说不清」。"""
+        feel = Feelings(self.rt)
+        mine = feel.understanding(member)
+        names = self.rt.config.roundtable.chat.engine.feel.names
+        return "\n".join(f"{emo}：{mine.get(emo) or feel.rules.unknown}" for emo in names)
 
     def _habits(self, member: str) -> str:
         """给反思用：P2 的常做的事 + 全部经历累积的习惯和熟练度。"""

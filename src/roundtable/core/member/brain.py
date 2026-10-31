@@ -36,6 +36,7 @@ from roundtable.core.hometz import home_zone
 from roundtable.core.member import psyche
 from roundtable.core.member.bus import PERCEIVE, Event, EventBus
 from roundtable.core.member.care import Care
+from roundtable.core.member.feel import Feelings
 from roundtable.core.member.human import Human
 from roundtable.core.member.lingo import Lingo
 from roundtable.core.member.love import USER, Heart
@@ -117,6 +118,7 @@ class _State:
     dropped: list[dict[str, Any]] = field(default_factory=list)  # 放下过的事（不再捡回来）
     shifts: dict[str, float] = field(default_factory=dict)  # 三观轴上被在乎的人慢慢带偏了多少
     percepts: list[dict[str, Any]] = field(default_factory=list)  # 感知到的事（节日、上网看到的）
+    routines: dict[str, dict[str, Any]] = field(default_factory=dict)  # 习惯回路：钟点|去处 → 劲儿
 
 
 def _factor(score: Any) -> float:
@@ -145,6 +147,8 @@ class Brain:
         self.human = Human(rt, bus, names)
         # 说话的样子（lingo.py）：看懂语境、万能短回复、语气变调、外号、跟人学、发出前收尾
         self.lingo = Lingo(rt, bus, names)
+        # 各自的情感（feel.py）：开心 / 难过 / 想念 / 生气按她自己的理解记经历、写进意图卡
+        self.feel = Feelings(rt, bus, names)
         # buffer：先写在内存里、``flush()`` 时才落库（生活排日程时用，排出来的事真发生了才算数，
         # 同一段时间排两次结果一样）
         self.buffer = buffer
@@ -342,13 +346,14 @@ class Brain:
             p = r.base + r.gentle * gentle + r.close * close + self.heart.rules.empathy * care
             rng = random.Random(f"brain-empathy:{m}:{msg['id']}")
             if rng.random() < p:
-                self.bus.publish(Event("brain.signal", event.at, m, {"tags": [tag]}))
+                why = f"听到「{text[:16]}」"
+                self.bus.publish(Event("brain.signal", event.at, m, {"tags": [tag], "why": why}))
                 feel = self.rules.psyche.episode.feels.get(tag, "")
                 if feel and tag == "empathy_sad" and care >= 0.5:
                     feel = "心疼"
                 if feel:
                     s = self._grown(m, self._load(m), event.at)
-                    self._episode(s, feel, f"听到「{text[:16]}」", event.at)
+                    self._episode(s, feel, why, event.at)
                     self._save(m, s)
 
     # --- 前额叶：长线目标 ---------------------------------------------------------
@@ -523,7 +528,8 @@ class Brain:
         self._save(member, s)
         for sig in sent:
             when = datetime.fromisoformat(sig["at"]) if sig.get("at") else at
-            bus.publish(Event("brain.signal", when, member, {"tags": sig["tags"]}))
+            data = {"tags": sig["tags"], "why": sig.get("why", "")}
+            bus.publish(Event("brain.signal", when, member, data))
         return len(sent)
 
     def choose_activity(self, member: str, slot: datetime, place: str, act: str) -> tuple[str, str]:
@@ -537,12 +543,18 @@ class Brain:
         goals = self._goals(member, s)
         self._anticipate_plan(member, s, slot, rng)
         d = s.drives
+        cue = self._cue(slot)
+        habit = self._habit(s, cue, slot)
         options: list[tuple[float, str]] = [(0.6, "default")]
         if goals:
             options.append((1.5 * d.get("mastery", 0.3), "pursue"))
         options.append((1.5 * d.get("social", 0.3), "company"))
         options.append((1.5 * d.get("novelty", 0.3), "explore"))
         choice = rng.choices([o for _, o in options], [max(w, 0.01) for w, _ in options])[0]
+        # 没什么特别想做的（没想练在做的事、没想换新鲜）时，到点了照老样子
+        if habit is not None and choice in ("default", "company") and rng.random() < habit[1]:
+            choice = "habit"
+            place, act = habit[0].split(":", 1)
         if choice == "pursue":
             goal = min(goals, key=lambda g: g["xp"] + rng.random() * 3)
             self._pursue(s, goal, rng, slot, member)
@@ -558,8 +570,70 @@ class Brain:
         if key in s.places[-3:]:  # 老待在一个地方：闷
             s.drives["novelty"] = round(min(1.0, s.drives.get("novelty", 0.3) + 0.05), 4)
         s.places = (s.places + [key])[-6:]
+        self._routine(s, cue, place, act, slot)
         self._save(member, s)
         return place, act
+
+    # --- 习惯回路：同一个钟点反复做同一件事，慢慢成了习惯 --------------------------------
+
+    def _cue(self, at: datetime) -> str:
+        """钟点线索：工作日 / 周末 × 早上 / 中午 / 下午 / 晚上 / 深夜（主时区）。"""
+        from roundtable.core.member.growth.habits import slot as day_slot
+
+        local = self.local(at)
+        return ("周末" if local.weekday() >= 5 else "工作日") + day_slot(local.hour)
+
+    def _strength(self, item: dict[str, Any], at: datetime) -> float:
+        r = self.rules.routine
+        return psyche.decayed(
+            float(item.get("n", 0)), datetime.fromisoformat(item["at"]), at, r.half_life_days * 24
+        )
+
+    def _habit(self, s: _State, cue: str, at: datetime) -> tuple[str, float] | None:
+        """这个钟点最强的习惯（去处:做什么, 照老样子的概率）；还没成习惯时为 None。"""
+        r = self.rules.routine
+        if not r.enabled:
+            return None
+        best = None
+        for key, item in s.routines.items():
+            when, _, what = key.partition("|")
+            if when != cue:
+                continue
+            n = self._strength(item, at)
+            if n >= r.min_strength and (best is None or n > best[1]):
+                best = (what, n)
+        if best is None:
+            return None
+        return best[0], min(r.cap, r.per * best[1])
+
+    def _routine(self, s: _State, cue: str, place: str, act: str, at: datetime) -> None:
+        """这个钟点去了这里做这件事：习惯的劲儿 +1（先按过了多久淡一点）；
+        刚成习惯时记一件新鲜事。"""
+        r = self.rules.routine
+        if not r.enabled or act not in FREE_ACTS:
+            return
+        key = f"{cue}|{place}:{act}"
+        item = s.routines.get(key)
+        before = self._strength(item, at) if item else 0.0
+        s.routines.pop(key, None)
+        s.routines[key] = {"n": round(before + 1, 3), "at": iso(at)}
+        if len(s.routines) > r.keep:
+            weakest = min(s.routines, key=lambda k: self._strength(s.routines[k], at))
+            s.routines.pop(weakest)
+        if before < r.min_strength <= before + 1:
+            from roundtable.core.office.apartment import ACTIVITIES, PUBLIC_ROOMS
+
+            where = "在宿舍" if place.startswith("dorm") else f"去{PUBLIC_ROOMS.get(place, place)}"
+            what = f"{where}{ACTIVITIES.get(act, act)}"
+            self._news(s, r.news.format(when=cue.removeprefix("工作日"), what=what), at, 0.5)
+
+    def habits_of(self, member: str, at: datetime | None = None) -> list[tuple[str, float]]:
+        """她现在的习惯（钟点|去处:做什么, 劲儿），强的在前（网页 / 模拟报告用）。"""
+        at = at or self.rt.budget.now()
+        s = self._load(member)
+        r = self.rules.routine
+        got = [(k, round(self._strength(v, at), 2)) for k, v in s.routines.items()]
+        return sorted([g for g in got if g[1] >= r.min_strength], key=lambda g: -g[1])
 
     # --- 丘脑：显著性 -------------------------------------------------------------
 
@@ -879,6 +953,11 @@ class Brain:
             rng=rng,
         )
         first = [x for x in extra if x[0] in FIRST]
+        if self.feel.enabled():  # 此刻在场的情绪：她自己的理解 + 上回真有这种情绪是为了什么
+            emo = self.feel.active(member, mood=mood, last=last, at=at)
+            felt = self.feel.line(member, emo, at)
+            if felt:
+                first.insert(0, ("feel", felt))
         rest = lines + [x for x in extra if x[0] not in FIRST]
         rng.shuffle(rest)
         for tag, line in first + rest:  # 人味里要紧的先给，其余和特质句一起随机
