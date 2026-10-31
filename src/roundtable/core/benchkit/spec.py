@@ -293,3 +293,10 @@ def write_shell(
     path = folder / "index.html"
     path.write_text(shell_html(spec, bench_id), encoding="utf-8")
     return path
+
+
+def load_spec(folder: Path) -> Spec:
+    """读回拆需求时存下的规格（项目室在关口之间停下、之后接着做时用）。"""
+    d = json.loads((folder / "spec.json").read_text(encoding="utf-8"))
+    d["windows"] = [Window(**w) for w in d.get("windows") or []]
+    return Spec(**d)

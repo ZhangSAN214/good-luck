@@ -997,6 +997,27 @@ class RoundtableService:
         except ValueError as exc:
             raise ServiceError(str(exc), 400) from None
 
+    async def bench_project(self, bench_id: str, action: str, **kw: Any) -> dict[str, Any]:
+        """项目室的关口：回答访谈、签字开工、里程碑 / 交付通过或提变更单、出下一版提案。"""
+        try:
+            if action == "answer":
+                self.bench.answer(bench_id, kw.get("answers") or {})
+            elif action == "sign":
+                self.bench.sign(bench_id, kw.get("requirements"), kw.get("note") or "")
+            elif action == "review":
+                self.bench.review(bench_id, kw.get("decision") or "", kw.get("comments"))
+            elif action == "evolve":
+                await self.bench.evolve(bench_id)
+            else:
+                raise ValueError("不认得这个操作")
+        except LookupError as exc:
+            raise ServiceError(str(exc), 404) from None
+        except RuntimeError as exc:
+            raise ServiceError(str(exc), 409) from None
+        except ValueError as exc:
+            raise ServiceError(str(exc), 400) from None
+        return self.bench_status()
+
     async def bench_net_check(self) -> dict[str, Any]:
         """联网自检：成品要用的公开数据和调研接口各试一次（只读 GET）。"""
         items = await net_check(list(self.bench.rules.net), self.bench_status_fetch)
