@@ -50,6 +50,10 @@ BAD_TEXT = ("undefined", "NaN", "[object Object]", "null null", "Infinity")
 
 # 在页面里跑的测量脚本：只读，返回原始数据，判定在 Python 里做
 PROBE_JS = (Path(__file__).with_name("probe.js")).read_text(encoding="utf-8").split("\n", 1)[1]
+# 自动点一遍：逐个点按钮、标签，返回每次点了以后哪些窗口变了（只在第一种组合里点）
+POKE_JS = (Path(__file__).with_name("poke.js")).read_text(encoding="utf-8").split("\n", 1)[1]
+# 名字像「加入 / 收藏 / 选这个」的按钮：点了以后别的窗口（行程、清单、合计）应该跟着变
+LINK_WORDS = re.compile(r"加入|添加|加到|收藏|选这|选择|放进|保存|add|save|select|pick", re.I)
 
 
 SCROLL_JS = """async () => {
@@ -332,6 +336,51 @@ def evaluate(
     return out
 
 
+def evaluate_pokes(pokes: list[dict], where: str, *, errors: list[str]) -> list[Finding]:
+    """自动点一遍的结果 → 问题：点了报错（必须修）、点了没反应、加入后别的窗口不变（建议修）。"""
+    out: list[Finding] = []
+    multi = len({p["win"] for p in pokes}) > 1
+    dead = [p for p in pokes if not p["changed"] and not p["page"]]
+    if errors:
+        wins = sorted({m.group(1) for e in errors for m in [ERROR_WINDOW.search(e)] if m})
+        out.append(
+            Finding("点了报错", "block", where, "；".join(e[:160] for e in errors[:3]), wins)
+        )
+    if dead:
+        out.append(
+            Finding(
+                "点了没反应",
+                "warn",
+                where,
+                f"{len(dead)} 个，如 "
+                + "；".join(f"{p['win']}「{p['name']}」" for p in dead[:4])
+                + "（点了页面上什么都没变：要么接上功能，要么去掉；点了要给反馈）",
+                sorted({p["win"] for p in dead}),
+            )
+        )
+    alone = [
+        p
+        for p in pokes
+        if multi
+        and LINK_WORDS.search(p["name"])
+        and p["changed"]
+        and set(p["changed"]) <= {p["win"]}
+    ]
+    if alone:
+        out.append(
+            Finding(
+                "加入后别处不变",
+                "warn",
+                where,
+                "；".join(f"{p['win']}「{p['name']}」" for p in alone[:4])
+                + "：点了只有自己这个窗口变，别的窗口（清单、行程、合计）没跟着变；"
+                "数据放进 ctx.state，别的窗口用 ctx.state.on 跟着更新",
+                sorted({p["win"] for p in alone}),
+            )
+        )
+    return out
+
+
 def merge(findings: Iterable[Finding]) -> list[Finding]:
     """同一检查项在几种组合里都出现时合成一条，where 写成「电脑·浅色、手机·深色」。"""
     by: dict[tuple[str, str], Finding] = {}
@@ -400,6 +449,7 @@ def run_check(
     modes: tuple[str, ...] = MODES,
     settle_ms: int = 900,
     allow: tuple[str, ...] = (),
+    poke: bool = True,
 ) -> Report:
     """质检一个页面：本地 .html 文件（自带一个只在本机的静态服务）或 http(s) 地址。"""
     try:
@@ -460,12 +510,22 @@ def run_check(
                 except PwError as exc:
                     raise QualityError(f"页面打不开：{str(exc).splitlines()[0][:160]}") from None
                 # 外部字体等被中止的请求会在控制台报「Failed to load resource」，不算页面的错
-                errors = [e for e in errors if "Failed to load resource" not in e]
-                raw += evaluate(probe, where, errors=errors, phone=w < 600, local_hosts=local_hosts)
+                errs = [e for e in errors if "Failed to load resource" not in e]
+                raw += evaluate(probe, where, errors=errs, phone=w < 600, local_hosts=local_hosts)
                 if out:
                     shot = out / f"{vp_name}_{mode}.png"
                     page.screenshot(path=str(shot), full_page=True)
                     report.shots.append(str(shot))
+                if poke and report.combos == 0 and probe.get("windows"):
+                    # 截完图再点（点会改页面）；只在第一种组合里点一遍，弹窗一律取消
+                    page.on("dialog", lambda d: d.dismiss())
+                    mark = len(errors)
+                    try:
+                        pokes = page.evaluate(POKE_JS)
+                    except PwError:
+                        pokes = []
+                    errs = [e for e in errors[mark:] if "Failed to load resource" not in e]
+                    raw += evaluate_pokes(pokes, where, errors=errs)
                 page.close()
                 report.combos += 1
 

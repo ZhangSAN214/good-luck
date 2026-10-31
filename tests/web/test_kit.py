@@ -150,3 +150,58 @@ def test_windows_share_user_data_and_small_rings_stay_readable(tmp_path):
     r = _check(str(index), viewports=(("手机", 390, 844),), modes=("light",))
     found = {f.check for f in r.findings}
     assert "页面报错" not in found and "字太小" not in found, r.summary()
+
+
+def test_poke_clicks_every_window_and_finds_dead_lonely_and_broken_buttons(tmp_path):
+    """自动点一遍：加入后行程跟着变（不报）；点了没反应、只有自己变、点了报错都指出是哪个窗口。
+    名字像「删除」「导出」的按钮不点。"""
+    from roundtable.core.benchkit.spec import normalize, write_shell
+
+    spec = normalize(
+        {
+            "title": "旅行台",
+            "windows": [
+                {"id": "spots", "title": "景点", "span": 4},
+                {"id": "plan", "title": "行程", "span": 4},
+                {"id": "fav", "title": "收藏", "span": 4},
+            ],
+            "state": {"itinerary": "行程条目"},
+        },
+        max_windows=8,
+    )
+    index = write_shell(tmp_path, spec, "b9")
+    spots = [
+        "export default (el, ctx) => { el.innerHTML = '",
+        '<button class="k-btn" data-add>加入行程</button>',
+        '<button class="k-btn" data-dead>看详情</button>',
+        '<button class="k-btn" data-del>删除</button>\';',
+        " el.querySelector('[data-add]').onclick =",
+        " () => ctx.state.update('itinerary', (l) => [...l, 1], []);",
+        " el.querySelector('[data-del]').onclick = () => { throw new Error('不该点到'); }; };",
+    ]
+    (tmp_path / "windows" / "spots.js").write_text("".join(spots), encoding="utf-8")
+    (tmp_path / "windows" / "plan.js").write_text(
+        "export default (el, ctx) => { ctx.state.on('itinerary', (v) => {"
+        " el.innerHTML = '<p>已加入 ' + v.length + ' 项</p>'; }, []); };",
+        encoding="utf-8",
+    )
+    fav = [
+        'export default (el, ctx) => { let n = 0; el.innerHTML = \'<p class="k-sub">0</p>',
+        '<button class="k-btn" data-fav>收藏这家</button>',
+        '<button class="k-btn" data-boom>刷新</button>\';',
+        " el.querySelector('[data-fav]').onclick =",
+        " () => { el.querySelector('p').textContent = ++n; };",
+        " el.querySelector('[data-boom]').onclick =",
+        " () => { throw new Error('窗口 fav 出错：刷新坏了'); }; };",
+    ]
+    (tmp_path / "windows" / "fav.js").write_text("".join(fav), encoding="utf-8")
+    r = _check(str(index), viewports=(("电脑", 1280, 860),), modes=("light",))
+    found = {f.check: f for f in r.findings}
+    assert found["点了没反应"].windows == ["fav", "spots"], r.summary()
+    assert "看详情" in found["点了没反应"].detail and "删除" not in found["点了没反应"].detail
+    assert found["加入后别处不变"].windows == ["fav"], r.summary()
+    assert "加入行程" not in found["加入后别处不变"].detail
+    assert found["点了报错"].severity == "block" and "不该点到" not in found["点了报错"].detail
+    # 只在第一种组合里点
+    two = _check(str(index), viewports=(("电脑", 1280, 860), ("手机", 390, 844)), modes=("light",))
+    assert "、" not in {f.check: f for f in two.findings}["点了没反应"].where
