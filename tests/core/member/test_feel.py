@@ -80,6 +80,9 @@ def test_which_feeling_a_moment_is_is_her_own_call():
     assert f.classify("V3", -0.2, "账又对不上，前后不一", "") == "生气"
     assert f.classify("V3", -0.2, "下雨了", "") == "难过"
     assert f.classify("V3", 0.04, "盼着的事", "盼着") == "期待"
+    # 没想到的好事：外向的激动，内向的惊喜
+    assert f.classify("V2", 0.3, "抽中了演唱会门票", "惊喜") == "激动"
+    assert f.classify("V3", 0.3, "抽中了演唱会门票", "惊喜") == "惊喜"
 
 
 def test_real_feelings_are_recorded_from_reflexes_and_missing_from_gaps():
@@ -118,6 +121,7 @@ def test_the_line_carries_her_understanding_and_the_last_time_it_happened():
     assert f.active("V1", mood=0.0, last="嗯", at=AT) == ["开心"]  # 刚有过：还在场
     line = f.line("V1", "开心", AT)
     assert line.startswith("你心里的开心：被准确地夸奖") and "上回是刚才，作业被老师夸了" in line
+    assert line.endswith(f.rules.show)  # 提醒她别直说
     assert "上回是昨天，被人催了三遍" in f.line("V1", "生气", AT)
     assert f.line("V2", "生气", AT) == ""  # 卡里没写过、也还没经历过：不写空话
     f.record("V2", "生气", "被人插队", AT - timedelta(days=2))

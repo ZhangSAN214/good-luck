@@ -1783,6 +1783,33 @@ class RoutineRules(_Strict):
     news: str = "最近一到{when}就{what}，快成习惯了"
 
 
+class AskedRules(_Strict):
+    """被直接问到（私聊里、或群里点了她的名问她）：先正面回答对方问的，不岔开、不反问了事。
+    问的是她自己的事（最近怎么样、在干嘛）时，也可以讲自己的事、说说心情。"""
+
+    enabled: bool = True
+    about_me: list[str] = [  # 问的是她自己的事
+        "你最近",
+        "你呢",
+        "你在干",
+        "你在忙",
+        "你今天",
+        "你怎么样",
+        "最近怎么样",
+        "最近咋样",
+        "最近如何",
+        "你过得",
+        "干嘛呢",
+        "在干嘛",
+        "忙啥",
+        "你好吗",
+    ]
+    intents: list[str] = ["respond", "joke", "disagree", "brief", "comfort"]
+    self_intents: list[str] = ["respond", "joke", "share", "vent", "brief"]
+    line: str = "对方在问你：先正面回答（记得就说具体的，记不清、不知道就直说），再按上面的意思接"
+    self_line: str = "对方在问你自己的事：照实说说你最近怎么样"
+
+
 class BrainRules(_Strict):
     """大脑分区（docs/BRAIN.md）：全局工作区 + 丘脑显著性 + 驱力 + 前额叶意图与目标 + 走神。
 
@@ -1817,6 +1844,7 @@ class BrainRules(_Strict):
     love: LoveRules = LoveRules()
     human: HumanRules = HumanRules()
     routine: RoutineRules = RoutineRules()
+    asked: AskedRules = AskedRules()
 
 
 class CareRules(_Strict):
@@ -1889,7 +1917,7 @@ class LearnRules(_Strict):
 
 class FeelRules(_Strict):
     """各自的情感（docs/BRAIN.md「各自的情感」，2026-10-30 / 10-31 用户定）：开心、难过、想念、
-    生气、害羞、委屈、内疚、感激、吃醋、失落、满足、惊喜、心疼、紧张、期待、无聊，每位的理解和表达
+    生气、害羞、委屈、内疚、感激、吃醋、失落、满足、惊喜、心疼、紧张、期待、无聊、激动、无语，每位的理解和表达
     从自己的人物卡来、按自己的理解分辨、随经历和每周成长慢慢变；可以五味杂陈（同时有两种）。
     全程序、不调模型；8 位同一套规则，差别只来自人物卡、性格分和经历。"""
 
@@ -1912,12 +1940,25 @@ class FeelRules(_Strict):
         "紧张": ["紧张", "忐忑", "提心吊胆"],
         "期待": ["期待", "盼着"],
         "无聊": ["无聊", "闷"],
+        "激动": ["激动", "兴奋"],
+        "无语": ["无语", "服了"],
     }
     # 反射表里没列的事：心情往上 / 往下动时在这几种里分
     positive: list[str] = Field(default_factory=lambda: ["开心"], min_length=1)
-    negative: list[str] = Field(default_factory=lambda: ["难过", "生气"], min_length=1)
+    negative: list[str] = Field(default_factory=lambda: ["难过", "生气", "无语"], min_length=1)
     # 心情明显不好、又说不清为什么时，从最近哪几种里找（都没有就用 negative 的第一种）
-    low: list[str] = ["难过", "生气", "委屈", "失落", "内疚", "吃醋", "心疼", "紧张", "无聊"]
+    low: list[str] = [
+        "难过",
+        "生气",
+        "委屈",
+        "失落",
+        "内疚",
+        "吃醋",
+        "心疼",
+        "紧张",
+        "无聊",
+        "无语",
+    ]
     missing: str = "想念"
     min_mood: float = Field(default=0.08, ge=0, le=1)  # 心情至少动这么多才记成一次情绪
     min_mood_listed: float = Field(default=0.03, ge=0, le=1)  # 反射表里列了的事门槛低一些
@@ -1927,8 +1968,8 @@ class FeelRules(_Strict):
         "被夸": ["害羞", "开心"],
         "被批评": ["委屈", "生气", "难过"],
         "一起挨说": ["委屈", "难过", "生气"],
-        "兑现": ["满足", "开心"],
-        "惊喜": ["惊喜", "开心"],
+        "兑现": ["满足", "开心", "激动"],
+        "惊喜": ["惊喜", "激动", "开心"],
         "落空": ["失落", "难过"],
         "共情难过": ["心疼", "难过"],
         "共情高兴": ["开心"],
@@ -1944,8 +1985,10 @@ class FeelRules(_Strict):
         "开心": {"外向": 0.1, "幽默": 0.05},
         "失落": {"外向": -0.1},
         "满足": {"温和": 0.1},
-        "惊喜": {"外向": 0.1, "好奇": 0.1},
+        "惊喜": {"好奇": 0.1},
         "心疼": {"温和": 0.15},
+        "激动": {"外向": 0.25, "好奇": 0.05},
+        "无语": {"幽默": 0.1, "较真": 0.05, "温和": -0.05},
     }
     # 感情（love.py）里的几样 → 情绪：委屈、内疚、感激记成经历；说话时那句感情话在场也算
     love: dict[str, str] = {"hurt": "委屈", "guilt": "内疚", "grateful": "感激", "jealous": "吃醋"}
@@ -1973,6 +2016,7 @@ class FeelRules(_Strict):
     line: str = "你心里的{emo}：{mine}"
     last: str = "；上回是{when}，{why}"
     mix: str = "心里五味杂陈。{first}\n同时还有点{emo}：{mine}"
+    show: str = "（别直说，用表情包、颜文字、符号带出来）"  # 接在那句后面
     # 成长改写（P6，growth/gate.py）：新的理解最多多少字、和别人对同一种情绪的理解最多多像、
     # 同一种情绪隔几天才能再改
     grow_chars: int = Field(default=60, ge=10, le=200)
@@ -2031,6 +2075,61 @@ class ReachRules(_Strict):
     )
 
 
+class ShowRule(_Strict):
+    """一种心情直说出来的说法，和换成什么：她自己这几组气质里的颜文字，或者符号。"""
+
+    words: list[str]  # 直说的说法（长的写前面）
+    vibes: list[str] = []  # 优先用这几组气质（chat.engine.lingo.kaomoji）里她分到的颜文字
+    marks: list[str] = []  # 或者用符号
+
+
+class ShowRules(_Strict):
+    """心情别直说（2026-10-31 用户定）：开心、激动、无语这些，不说「好开心」「无语」，
+    用表情包、颜文字和符号带出来。意图卡里提醒一句；发出前程序再兜一层：直说了的换成她自己的
+    颜文字或符号（只用她分到的颜文字，没有就用符号）。"""
+
+    enabled: bool = True
+    kaomoji: float = Field(default=0.5, ge=0, le=1)  # 换成颜文字（而不是符号）的概率
+    feelings: dict[str, ShowRule] = {
+        "开心": ShowRule(
+            words=[
+                "开心死了",
+                "太开心了",
+                "我好开心",
+                "我很开心",
+                "好开心",
+                "超开心",
+                "太高兴了",
+                "好高兴",
+            ],
+            vibes=["元气", "温柔"],
+            marks=["！！", "～～", "嘿嘿"],
+        ),
+        "激动": ShowRule(
+            words=["激动死了", "太激动了", "我好激动", "我很激动", "好激动"],
+            vibes=["元气", "搞怪"],
+            marks=["！！！", "啊啊啊"],
+        ),
+        "无语": ShowRule(
+            words=["无语死了", "我无语了", "我很无语", "真的无语", "好无语", "无语了"],
+            vibes=["冷淡", "搞怪"],
+            marks=["……", "？？？", "。。。"],
+        ),
+        "难过": ShowRule(
+            words=["太难过了", "我好难过", "我很难过", "好难过"], vibes=["丧"], marks=["……"]
+        ),
+        "生气": ShowRule(
+            words=["气死我了", "我很生气", "我好生气", "我生气了", "好生气"],
+            vibes=["傲娇"],
+            marks=["？？", "……"],
+        ),
+        "委屈": ShowRule(words=["我好委屈", "好委屈"], vibes=["丧"], marks=["……"]),
+        "害羞": ShowRule(
+            words=["我好害羞", "好害羞", "我害羞了"], vibes=["温柔"], marks=["//", "……"]
+        ),
+    }
+
+
 class LingoRules(_Strict):
     """说话的样子（docs/BRAIN.md「说话的样子」）：看懂语境、万能短回复、先反应再吐槽、
     书面腔过滤、标点和笑法、打错字、个人颜文字、表情包脾气、语气变调、外号、跟人学、打比方。
@@ -2062,6 +2161,7 @@ class LingoRules(_Strict):
     explain: list[str] = []  # 解释句的正则（发出前能删就删）
     recap_chars: int = Field(default=8, ge=4, le=40)  # 和对方原话连着这么多字一样算复述
     # 口吻指纹：草稿里别的成员的口头禅、颜文字、自称（她没学过的）发出前换回她自己的
+    show: ShowRules = ShowRules()
     own_voice: bool = True
 
 
