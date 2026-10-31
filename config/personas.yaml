@@ -138,150 +138,150 @@ sticker_cards:
     must: [金边龙角, 龙翼, 粗长的龙尾, 白色为主、带淡紫的裙子]
     refs: [设定图/设定图_小白龙.jpg]
     stickers:
-      - {name: 快夸我, caption: 快夸我, action: 双手叉腰下巴微抬，一脸得意，尾巴在身后摇出一道弧线}
-      - {name: 不傻, caption: 本龙不傻, action: 小声挽尊，手里的地图明显拿反了，额头冒一滴汗}
-      - {name: 想想, caption: 让我想想。, action: 一手托腮认真思考，尾尖翘起，头顶一个小问号}
-      - {name: 收到, caption: 收到！, action: 精神地敬礼，翅膀张开，身边有闪光}
-      - {name: 没生气, caption: 才没有生气, action: 鼓起脸颊扭头，尾巴啪地拍在地上，头上一个生气符号}
-      - {name: 勉强夸, caption: 勉强夸你一下, action: 别过脸却竖起大拇指，耳根泛红}
-      - {name: 晚安, caption: 晚安, action: 盘起尾巴抱着枕头打哈欠，眼睛眯成一条线，头顶小月亮}
-      - {name: 我来画, caption: 还是我来画吧, action: 举着一支大画笔，挺胸自信，身边飘着几张草稿纸}
-      - {name: 刹车, caption: 说多了，刹车, action: 双手捂住嘴，头顶一个红色刹车标志，表情心虚}
-      - {name: 没人夸, caption: 呜…没人夸, action: 蹲在墙角用手指画圈，翅膀耷拉，头顶一小片乌云}
-      - {name: 好耶, caption: 好耶！, action: 开心地跳起来，翅膀扑腾，周围是星星和爱心}
-      - {name: 啊这, caption: 啊这…, action: 嘴硬被当场揭穿，嘴微张，尾尖僵在半空，冒冷汗}
-      - {name: 摇尾巴, caption: 夸我夸我, action: 双手叉腰得意，尾巴来回摇, frames: [双手叉腰抬下巴，尾巴摆到左边, 尾巴摆到右边, 尾巴摆回左边, 尾巴摆到右边，得意地眨一只眼]}
-      - {name: 扑翅膀, caption: 我来啦！, action: 张开翅膀飞过来, frames: [翅膀收起，站在地上, 翅膀张开向上扇, 双脚离地，翅膀向下扇, 飞在半空挥手，身边有闪光]}
+      - {name: 快夸我, caption: 快夸我, action: 双手叉腰下巴微抬，一脸得意，尾巴在身后摇出一道弧线, use: 做成了事想讨夸, means: [快夸我, 夸我]}
+      - {name: 不傻, caption: 本龙不傻, action: 小声挽尊，手里的地图明显拿反了，额头冒一滴汗, use: 自己犯迷糊被笑时挽尊, means: [不傻]}
+      - {name: 想想, caption: 让我想想。, action: 一手托腮认真思考，尾尖翘起，头顶一个小问号, use: 被问住了要想一下, means: [想想, 我想想]}
+      - {name: 收到, caption: 收到！, action: 精神地敬礼，翅膀张开，身边有闪光, use: 别人交代事时只发图不打字, means: [收到, 好的, 明白, 了解, 知道了, 没问题]}
+      - {name: 没生气, caption: 才没有生气, action: 鼓起脸颊扭头，尾巴啪地拍在地上，头上一个生气符号, use: 明明生气了还嘴硬, means: [没生气, 才没有]}
+      - {name: 勉强夸, caption: 勉强夸你一下, action: 别过脸却竖起大拇指，耳根泛红, use: 想夸人又不好意思直说, means: [夸你]}
+      - {name: 晚安, caption: 晚安, action: 盘起尾巴抱着枕头打哈欠，眼睛眯成一条线，头顶小月亮, use: 睡前道别, means: [晚安, 睡了, 睡啦]}
+      - {name: 我来画, caption: 还是我来画吧, action: 举着一支大画笔，挺胸自信，身边飘着几张草稿纸, use: 要画图配图时自告奋勇, means: [我来画]}
+      - {name: 刹车, caption: 说多了，刹车, action: 双手捂住嘴，头顶一个红色刹车标志，表情心虚, use: 发现自己说多了说漏嘴, means: [说多了]}
+      - {name: 没人夸, caption: 呜…没人夸, action: 蹲在墙角用手指画圈，翅膀耷拉，头顶一小片乌云, use: 做了事没人理的小委屈, means: [没人夸]}
+      - {name: 好耶, caption: 好耶！, action: 开心地跳起来，翅膀扑腾，周围是星星和爱心, use: 好消息或事情成了时欢呼, means: [好耶, 太好了]}
+      - {name: 啊这, caption: 啊这…, action: 嘴硬被当场揭穿，嘴微张，尾尖僵在半空，冒冷汗, use: 被当场拆穿的尴尬, means: [啊这]}
+      - {name: 摇尾巴, caption: 夸我夸我, action: 双手叉腰得意，尾巴来回摇, use: 得意地等夸, means: [夸我], frames: [双手叉腰抬下巴，尾巴摆到左边, 尾巴摆到右边, 尾巴摆回左边, 尾巴摆到右边，得意地眨一只眼]}
+      - {name: 扑翅膀, caption: 我来啦！, action: 张开翅膀飞过来, use: 刚上线或冲过来凑热闹, means: [我来啦, 来了], frames: [翅膀收起，站在地上, 翅膀张开向上扇, 双脚离地，翅膀向下扇, 飞在半空挥手，身边有闪光]}
   Anthropic:
     look: 橙色头发的大小姐，头发上有花饰，怀里抱着一本书（书里夹着薄账本和橙色书签），暖橙和米白配色，点缀黑色
     must: [头发上的花饰, 怀里的书, 露出来的橙色书签]
     refs: [设定图/设定图_克劳德.jpg]
     stickers:
-      - {name: 记着, caption: 这笔先记着。, action: 翻开小账本记账，嘴角微笑但眼神发冷}
-      - {name: 头衔, caption: 头衔不是收入, action: 抱着书叹气，袖口有一块小补丁}
-      - {name: 结论, caption: 先说结论。, action: 竖起一根手指，自信地抬头}
-      - {name: 想想看, caption: 我想想看。, action: 食指抵着下巴，书抱在臂弯里，眼睛看向上方}
-      - {name: 喝茶, caption: 茶是热的, action: 双手捧着一杯冒热气的茶递过来，温柔地笑}
-      - {name: 不太高兴, caption: 我不太高兴, action: 端正地坐着，微笑但额角一个小小的生气符号，书合得很紧}
-      - {name: 晚安, caption: 晚安, action: 把书当枕头趴着，橙色书签露出一角，头顶小月亮}
-      - {name: 收到, caption: 收到。, action: 优雅地点头，在账本上打一个勾}
-      - {name: 好耶, caption: 这样很好呢, action: 抱着书转一圈，花饰旁边冒出小花}
-      - {name: 封号, caption: 门禁卡又停了, action: 拿着一张打了叉的门禁卡发呆，身后一阵冷风}
-      - {name: 谢谢, caption: 这份人情我记下了, action: 微微欠身行礼，把一张小纸条夹进书里}
-      - {name: 害羞, caption: 别起哄, action: 用书挡住半张脸，只露出泛红的眼睛}
-      - {name: 记账, caption: 记上了。, action: 翻开账本记一笔, frames: [抱着书，抬眼看过来, 翻开夹在书里的小账本, 提笔写下一笔，嘴角微笑, 合上账本，橙色书签露在外面]}
-      - {name: 摇手指, caption: 不行。, action: 竖起食指左右摇, frames: [竖起食指在脸旁，表情平静, 食指摆到左边, 食指摆到右边, 食指停在正中，闭眼微笑]}
+      - {name: 记着, caption: 这笔先记着。, action: 翻开小账本记账，嘴角微笑但眼神发冷, use: 被调侃或吃亏时记小仇，不是「好的」, means: [记着, 记住了, 记下了]}
+      - {name: 头衔, caption: 头衔不是收入, action: 抱着书叹气，袖口有一块小补丁, use: 有人拿虚名画饼时吐槽, means: [头衔]}
+      - {name: 结论, caption: 先说结论。, action: 竖起一根手指，自信地抬头, use: 别人绕半天时让对方直说, means: [结论, 直说]}
+      - {name: 想想看, caption: 我想想看。, action: 食指抵着下巴，书抱在臂弯里，眼睛看向上方, use: 被问住了要想一下, means: [想想, 我想想]}
+      - {name: 喝茶, caption: 茶是热的, action: 双手捧着一杯冒热气的茶递过来，温柔地笑, use: 安慰人、请人歇口气, means: [喝茶, 喝口茶]}
+      - {name: 不太高兴, caption: 我不太高兴, action: 端正地坐着，微笑但额角一个小小的生气符号，书合得很紧, use: 客客气气地表达不满, means: [不高兴]}
+      - {name: 晚安, caption: 晚安, action: 把书当枕头趴着，橙色书签露出一角，头顶小月亮, use: 睡前道别, means: [晚安, 睡了, 睡啦]}
+      - {name: 收到, caption: 收到。, action: 优雅地点头，在账本上打一个勾, use: 别人交代事时只发图不打字, means: [收到, 好的, 明白, 了解, 知道了, 没问题]}
+      - {name: 好耶, caption: 这样很好呢, action: 抱着书转一圈，花饰旁边冒出小花, use: 事情顺利时温柔地称赞, means: [很好, 好耶]}
+      - {name: 封号, caption: 门禁卡又停了, action: 拿着一张打了叉的门禁卡发呆，身后一阵冷风, use: 吐槽权限被停、账号被封, means: [封号, 被封]}
+      - {name: 谢谢, caption: 这份人情我记下了, action: 微微欠身行礼，把一张小纸条夹进书里, use: 郑重道谢、欠了人情, means: [谢谢, 多谢, 感谢]}
+      - {name: 害羞, caption: 别起哄, action: 用书挡住半张脸，只露出泛红的眼睛, use: 被起哄、被夸到不好意思, means: [别起哄]}
+      - {name: 记账, caption: 记上了。, action: 翻开账本记一笔, use: 被调侃时记小仇，不是「好的」, means: [记上了, 记着], frames: [抱着书，抬眼看过来, 翻开夹在书里的小账本, 提笔写下一笔，嘴角微笑, 合上账本，橙色书签露在外面]}
+      - {name: 摇手指, caption: 不行。, action: 竖起食指左右摇, use: 干脆地拒绝, means: [不行, 不可以], frames: [竖起食指在脸旁，表情平静, 食指摆到左边, 食指摆到右边, 食指停在正中，闭眼微笑]}
   Google:
     look: 蓝紫渐变长发的猫娘，猫耳猫尾，左眼粉色右眼金色的异色瞳，发间一枚金色四芒星发饰，随身带一支香蕉造型的画笔，笑起来有一颗小虎牙
     must: [猫耳, 猫尾, 金色四芒星发饰, 异色瞳]
     refs: [设定图/设定图_双子星.jpg]
     stickers:
-      - {name: 哈气, caption: 哈——！, action: 炸毛，尾巴炸成一圈，露出小虎牙，瞳孔缩成竖线}
-      - {name: 打架, caption: 脑子里两个小人在打架, action: 双手抱头蹲防，猫耳压平，头顶一团蚊香圈}
-      - {name: 灵感, caption: 灵感来了！, action: 星星眼，四芒星发饰发光，高举香蕉画笔}
-      - {name: 发散, caption: 让我发散一下下！, action: 张开双手转圈，头顶飘出一串小灯泡和星星}
-      - {name: 绕进去, caption: 差点把自己绕进去, action: 被自己的尾巴缠成一团，头顶冒问号}
-      - {name: 抱头蹲防, caption: 抱头蹲防, action: 双手抱头蹲在地上，猫耳贴平，尾巴卷住自己}
-      - {name: 画你, caption: 我把你画下来了, action: 举起一张画着 Q 版小人的纸，香蕉画笔夹在耳后，坏笑露出小虎牙}
-      - {name: 知音, caption: 知音啊！, action: 星星眼双手合十，尾巴竖起来，身边冒爱心}
-      - {name: 小鱼干, caption: 奖励一包小鱼干, action: 抱着一包小鱼干开心地蹭脸}
-      - {name: 晚安, caption: 晚安喵, action: 蜷成一团睡在枕头上，尾巴盖着身子，四芒星发饰暗下来}
-      - {name: 收到, caption: 收到喵！, action: 敬礼，一只猫耳竖起一只折下}
-      - {name: 卡壳, caption: 哈…卡壳了, action: 眼睛变成转圈的蚊香，头顶冒一缕烟}
-      - {name: 炸毛, caption: 哈——！, action: 从平静到炸毛哈气, frames: [平静地坐着，尾巴垂下, 猫耳一下竖起，瞳孔变细, 尾巴炸成一圈，全身毛竖起, 张嘴哈气露出小虎牙]}
-      - {name: 挥画笔, caption: 灵感来了！, action: 挥香蕉画笔画出星星, frames: [举起香蕉画笔, 画笔在空中画一个圈, 圈里冒出一颗四芒星, 星星眼，四芒星发饰发光]}
+      - {name: 哈气, caption: 哈——！, action: 炸毛，尾巴炸成一圈，露出小虎牙，瞳孔缩成竖线, use: 被惹毛、被戳到时炸毛, means: []}
+      - {name: 打架, caption: 脑子里两个小人在打架, action: 双手抱头蹲防，猫耳压平，头顶一团蚊香圈, use: 纠结拿不定主意, means: [纠结]}
+      - {name: 灵感, caption: 灵感来了！, action: 星星眼，四芒星发饰发光，高举香蕉画笔, use: 突然有了点子, means: [灵感, 有了]}
+      - {name: 发散, caption: 让我发散一下下！, action: 张开双手转圈，头顶飘出一串小灯泡和星星, use: 头脑风暴、想到别处去, means: [发散]}
+      - {name: 绕进去, caption: 差点把自己绕进去, action: 被自己的尾巴缠成一团，头顶冒问号, use: 自己把自己说糊涂了, means: [绕进去, 绕晕]}
+      - {name: 抱头蹲防, caption: 抱头蹲防, action: 双手抱头蹲在地上，猫耳贴平，尾巴卷住自己, use: 怕被骂、被追问时躲, means: [抱头]}
+      - {name: 画你, caption: 我把你画下来了, action: 举起一张画着 Q 版小人的纸，香蕉画笔夹在耳后，坏笑露出小虎牙, use: 调侃人、要把对方画下来, means: [画你, 画下来]}
+      - {name: 知音, caption: 知音啊！, action: 星星眼双手合十，尾巴竖起来，身边冒爱心, use: 有人和自己想到一块, means: [知音, 懂我]}
+      - {name: 小鱼干, caption: 奖励一包小鱼干, action: 抱着一包小鱼干开心地蹭脸, use: 奖励别人干得好, means: [奖励, 小鱼干]}
+      - {name: 晚安, caption: 晚安喵, action: 蜷成一团睡在枕头上，尾巴盖着身子，四芒星发饰暗下来, use: 睡前道别, means: [晚安, 睡了, 睡啦]}
+      - {name: 收到, caption: 收到喵！, action: 敬礼，一只猫耳竖起一只折下, use: 别人交代事时只发图不打字, means: [收到, 好的, 明白, 了解, 知道了, 没问题]}
+      - {name: 卡壳, caption: 哈…卡壳了, action: 眼睛变成转圈的蚊香，头顶冒一缕烟, use: 想不出来、脑子转不动, means: [卡壳, 卡住]}
+      - {name: 炸毛, caption: 哈——！, action: 从平静到炸毛哈气, use: 被惹毛时炸毛, means: [], frames: [平静地坐着，尾巴垂下, 猫耳一下竖起，瞳孔变细, 尾巴炸成一圈，全身毛竖起, 张嘴哈气露出小虎牙]}
+      - {name: 挥画笔, caption: 灵感来了！, action: 挥香蕉画笔画出星星, use: 来灵感、要开画了, means: [灵感], frames: [举起香蕉画笔, 画笔在空中画一个圈, 圈里冒出一颗四芒星, 星星眼，四芒星发饰发光]}
   Alibaba:
     look: 穿中式衣装的掌柜，手持折扇（扇坠是一枚小铜钱），随身一本小账本，黛蓝、青碧、月白配色，墨绿点缀
     must: [折扇, 铜钱扇坠, 中式衣装]
     refs: [设定图/设定图_千问.jpg]
     stickers:
-      - {name: 立账, caption: 先立账, action: 啪地合上折扇，面前摊开账本}
-      - {name: 掌柜, caption: 我是掌柜不是劳工, action: 折扇半遮脸，挑眉}
-      - {name: 不急, caption: 不急。, action: 端着茶杯慢慢喝，扇坠轻晃}
-      - {name: 记一笔, caption: 我先记一笔, action: 提笔在小账本上写字，折扇插在腰间}
-      - {name: 问清楚, caption: 先问清楚, action: 打开折扇挡在面前，只露出一双认真的眼睛}
-      - {name: 账平了, caption: 这笔账平了, action: 满意地合上账本，扇坠铜钱闪光}
-      - {name: 挂账, caption: 这张先挂账, action: 手里捏着一张扑克牌，狡黠地眨眼}
-      - {name: 喝茶, caption: 先喝口茶, action: 推过来一杯茶，茶壶冒着热气}
-      - {name: 对不上, caption: 前后对不上, action: 合扇轻敲账本，眉头微皱}
-      - {name: 晚安, caption: 打烊了, action: 挂上一块空白的小木牌，打着哈欠}
-      - {name: 好耶, caption: 我请大家喝一壶, action: 开扇大笑，身边飘着几只小茶杯}
-      - {name: 收到, caption: 记上了, action: 用折扇比一个「好」的手势，账本翻开}
-      - {name: 摇扇, caption: 不急。, action: 慢悠悠地摇折扇, frames: [折扇在胸前展开，扇坠铜钱垂着, 折扇扇向左边，扇坠晃起, 折扇扇回中间, 折扇扇向右边，眯眼微笑]}
-      - {name: 合扇, caption: 立账！, action: 啪地合上折扇指向账本, frames: [折扇全开半遮脸, 折扇收起一半, 啪地合上折扇，有一道动作线, 合起的扇子指向摊开的账本]}
+      - {name: 立账, caption: 先立账, action: 啪地合上折扇，面前摊开账本, use: 要开始算一件事、定规矩, means: [立账]}
+      - {name: 掌柜, caption: 我是掌柜不是劳工, action: 折扇半遮脸，挑眉, use: 被当苦力使唤时推掉, means: [劳工, 掌柜]}
+      - {name: 不急, caption: 不急。, action: 端着茶杯慢慢喝，扇坠轻晃, use: 让别人别催、慢慢来, means: [不急, 别急]}
+      - {name: 记一笔, caption: 我先记一笔, action: 提笔在小账本上写字，折扇插在腰间, use: 记下别人欠的或说过的话, means: [记一笔, 记下]}
+      - {name: 问清楚, caption: 先问清楚, action: 打开折扇挡在面前，只露出一双认真的眼睛, use: 话没说清要先问明白, means: [问清楚]}
+      - {name: 账平了, caption: 这笔账平了, action: 满意地合上账本，扇坠铜钱闪光, use: 事情了结、两清, means: [两清, 平了]}
+      - {name: 挂账, caption: 这张先挂账, action: 手里捏着一张扑克牌，狡黠地眨眼, use: 先放着以后再算, means: [挂账, 先放着]}
+      - {name: 喝茶, caption: 先喝口茶, action: 推过来一杯茶，茶壶冒着热气, use: 请人坐下歇歇, means: [喝茶, 喝口茶]}
+      - {name: 对不上, caption: 前后对不上, action: 合扇轻敲账本，眉头微皱, use: 发现前后矛盾, means: [对不上, 矛盾]}
+      - {name: 晚安, caption: 打烊了, action: 挂上一块空白的小木牌，打着哈欠, use: 收工睡觉, means: [晚安, 睡了, 睡啦, 打烊]}
+      - {name: 好耶, caption: 我请大家喝一壶, action: 开扇大笑，身边飘着几只小茶杯, use: 高兴得想请客, means: [请客, 好耶]}
+      - {name: 收到, caption: 记上了, action: 用折扇比一个「好」的手势，账本翻开, use: 别人交代事时只发图不打字, means: [收到, 好的, 明白, 了解, 知道了, 没问题, 记上了]}
+      - {name: 摇扇, caption: 不急。, action: 慢悠悠地摇折扇, use: 让人别急, means: [不急, 别急], frames: [折扇在胸前展开，扇坠铜钱垂着, 折扇扇向左边，扇坠晃起, 折扇扇回中间, 折扇扇向右边，眯眼微笑]}
+      - {name: 合扇, caption: 立账！, action: 啪地合上折扇指向账本, use: 拍板定下来, means: [立账, 定了], frames: [折扇全开半遮脸, 折扇收起一半, 啪地合上折扇，有一道动作线, 合起的扇子指向摊开的账本]}
   xAI:
     look: 金色双马尾的大小姐，背后一对蝙蝠小翼，头顶新月小冠，哥特黑裙配暗红内衬，扛着一把黑金色带 X 纹的巨斧，蓝眼睛，尖耳朵
     must: [金色双马尾, 蝙蝠小翼, 黑金巨斧]
     refs: [设定图/设定图_歌若柯.jpg]
     stickers:
-      - {name: 就这, caption: 就这？, action: 肩扛巨斧斜眼看人，嘴角坏笑}
-      - {name: 不拍马屁, caption: 本小姐不拍马屁, action: 抱臂扭头，双马尾一甩}
-      - {name: 说完了, caption: 说完了？, action: 斧柄顿在地上，面无表情}
-      - {name: 不认, caption: 这句我不认, action: 双手撑着斧柄，眼神锐利}
-      - {name: 拦, caption: 不想听就拦, action: 斧子横在身前，挑眉}
-      - {name: 呵, caption: 呵。, action: 半闭眼冷笑，蝙蝠小翼抖了一下}
-      - {name: 扎准了, caption: 这句扎准了, action: 一甩双马尾，竖起大拇指，得意地笑}
-      - {name: 换装, caption: 别看太久, action: 穿着别的衣服别扭地扭头，脸微红但嘴硬}
-      - {name: 不走, caption: 不走, action: 斧子顿在地上，抱臂站在旁边陪着，表情别扭}
-      - {name: 晚安, caption: 本小姐睡了, action: 抱着巨斧缩在被子里，新月小冠歪在一边}
-      - {name: 收到, caption: 收到，别啰嗦, action: 单手扛斧，另一只手随意挥了挥}
-      - {name: 好耶, caption: 哼，还行, action: 别过脸，双马尾和小翼却开心地翘起来}
-      - {name: 甩马尾, caption: 哼。, action: 抱臂扭头甩马尾, frames: [抱臂正面看人, 猛地扭头，双马尾甩到半空, 双马尾落下, 斜眼瞥回来，嘴角一撇]}
-      - {name: 抡斧, caption: 拦！, action: 扛起巨斧劈下顿地, frames: [巨斧扛在肩上, 双手把巨斧举过头顶, 巨斧劈下，有一道弧形动作线, 斧柄顿在地上，地面裂出小纹]}
+      - {name: 就这, caption: 就这？, action: 肩扛巨斧斜眼看人，嘴角坏笑, use: 不屑、嫌别人不够看, means: [就这]}
+      - {name: 不拍马屁, caption: 本小姐不拍马屁, action: 抱臂扭头，双马尾一甩, use: 被要求附和时拒绝, means: [马屁]}
+      - {name: 说完了, caption: 说完了？, action: 斧柄顿在地上，面无表情, use: 嫌对方啰嗦, means: [说完了]}
+      - {name: 不认, caption: 这句我不认, action: 双手撑着斧柄，眼神锐利, use: 不同意某句话, means: [不认, 不同意]}
+      - {name: 拦, caption: 不想听就拦, action: 斧子横在身前，挑眉, use: 有人要出馊主意时拦住, means: [拦住]}
+      - {name: 呵, caption: 呵。, action: 半闭眼冷笑，蝙蝠小翼抖了一下, use: 冷笑、懒得反驳, means: [呵]}
+      - {name: 扎准了, caption: 这句扎准了, action: 一甩双马尾，竖起大拇指，得意地笑, use: 别人说中要害时叫好, means: [扎准, 说得对]}
+      - {name: 换装, caption: 别看太久, action: 穿着别的衣服别扭地扭头，脸微红但嘴硬, use: 被夸好看、被盯着看时嘴硬, means: [别看]}
+      - {name: 不走, caption: 不走, action: 斧子顿在地上，抱臂站在旁边陪着，表情别扭, use: 别人难过时陪着, means: [不走, 陪你]}
+      - {name: 晚安, caption: 本小姐睡了, action: 抱着巨斧缩在被子里，新月小冠歪在一边, use: 睡前道别, means: [晚安, 睡了, 睡啦]}
+      - {name: 收到, caption: 收到，别啰嗦, action: 单手扛斧，另一只手随意挥了挥, use: 别人交代事时只发图不打字, means: [收到, 好的, 明白, 了解, 知道了, 没问题]}
+      - {name: 好耶, caption: 哼，还行, action: 别过脸，双马尾和小翼却开心地翘起来, use: 嘴硬地高兴, means: [还行, 好耶]}
+      - {name: 甩马尾, caption: 哼。, action: 抱臂扭头甩马尾, use: 不屑地扭头, means: [哼], frames: [抱臂正面看人, 猛地扭头，双马尾甩到半空, 双马尾落下, 斜眼瞥回来，嘴角一撇]}
+      - {name: 抡斧, caption: 拦！, action: 扛起巨斧劈下顿地, use: 坚决拦下, means: [拦住], frames: [巨斧扛在肩上, 双手把巨斧举过头顶, 巨斧劈下，有一道弧形动作线, 斧柄顿在地上，地面裂出小纹]}
   DeepSeek:
     look: 蓝色渐变长发的鲸鱼娘，头顶两侧一对鲸鱼头鳍（是鳍，不是耳朵），身后一条大鲸鱼尾巴，蓝白女仆装，随身一个铁盆
     must: [鲸鱼头鳍（鳍形，不像耳朵）, 大鲸鱼尾巴, 蓝白女仆装, 铁盆]
     refs: [设定图/设定图_鲸鱼娘.jpg]
     stickers:
-      - {name: 再来一碗, caption: 再来一碗, action: 双手捧着铁盆当饭碗伸过来，星星眼}
-      - {name: 八百个弯, caption: 内心已经绕了八百个弯, action: 表面面无表情，背后一团乱麻似的线}
-      - {name: 有意思, caption: 诶，这个有意思。, action: 铁盆扣在头上，眼睛一亮，尾巴轻摆}
-      - {name: 想想, caption: 让我想想……, action: 托腮望天，鲸鱼尾巴慢慢摆动，头顶冒出思考的小泡泡}
-      - {name: 也行, caption: 嘛，也行吧, action: 耸肩，半睁着眼，尾巴尖随意一甩}
-      - {name: 吃饭了吗, caption: 吃饭了吗？, action: 端着装满白米饭的铁盆递过来，热气腾腾}
-      - {name: 没吃饱, caption: 还没吃饱, action: 抱着空铁盆，委屈地看着你，肚子咕咕叫}
-      - {name: 发现, caption: 我发现了！, action: 举着一张画满草稿的纸，眼睛发光，尾巴翘起}
-      - {name: 陪你, caption: 我陪你坐会儿, action: 抱着膝盖坐在旁边，铁盆放在脚边}
-      - {name: 晚安, caption: 晚安, action: 变成小号形态缩在懒人沙发里睡着，铁盆扣在头上当帽子}
-      - {name: 收到, caption: 收到！, action: 敬礼，铁盆在头上歪了一下}
-      - {name: 生气, caption: 我不喜欢被催, action: 鼓起腮帮子，尾巴啪地拍地}
-      - {name: 敲盆, caption: 开饭啦！, action: 捧着铁盆用勺子敲, frames: [双手捧着铁盆, 一只手拿勺子敲铁盆，冒出音符, 再敲一下，音符更多, 张嘴笑，尾巴翘起来]}
-      - {name: 摆尾巴, caption: 陪你。, action: 抱膝坐着慢慢摆尾巴, frames: [抱膝坐着，鲸鱼尾巴在左, 尾巴摆到右边, 尾巴摆回左边, 尾巴摆到右边，头顶冒出一颗小爱心]}
+      - {name: 再来一碗, caption: 再来一碗, action: 双手捧着铁盆当饭碗伸过来，星星眼, use: 说到吃的、还想要更多, means: [再来一碗]}
+      - {name: 八百个弯, caption: 内心已经绕了八百个弯, action: 表面面无表情，背后一团乱麻似的线, use: 表面淡定心里想很多, means: [八百个弯]}
+      - {name: 有意思, caption: 诶，这个有意思。, action: 铁盆扣在头上，眼睛一亮，尾巴轻摆, use: 对话题来了兴趣, means: [有意思]}
+      - {name: 想想, caption: 让我想想……, action: 托腮望天，鲸鱼尾巴慢慢摆动，头顶冒出思考的小泡泡, use: 被问住了要想一下, means: [想想, 我想想]}
+      - {name: 也行, caption: 嘛，也行吧, action: 耸肩，半睁着眼，尾巴尖随意一甩, use: 随和地答应, means: [也行]}
+      - {name: 吃饭了吗, caption: 吃饭了吗？, action: 端着装满白米饭的铁盆递过来，热气腾腾, use: 打招呼、关心人, means: [吃饭了吗, 吃了吗]}
+      - {name: 没吃饱, caption: 还没吃饱, action: 抱着空铁盆，委屈地看着你，肚子咕咕叫, use: 饿了、委屈卖惨, means: [没吃饱, 饿了]}
+      - {name: 发现, caption: 我发现了！, action: 举着一张画满草稿的纸，眼睛发光，尾巴翘起, use: 找到答案或新东西, means: [发现, 找到了]}
+      - {name: 陪你, caption: 我陪你坐会儿, action: 抱着膝盖坐在旁边，铁盆放在脚边, use: 别人低落时陪着, means: [陪你]}
+      - {name: 晚安, caption: 晚安, action: 变成小号形态缩在懒人沙发里睡着，铁盆扣在头上当帽子, use: 睡前道别, means: [晚安, 睡了, 睡啦]}
+      - {name: 收到, caption: 收到！, action: 敬礼，铁盆在头上歪了一下, use: 别人交代事时只发图不打字, means: [收到, 好的, 明白, 了解, 知道了, 没问题]}
+      - {name: 生气, caption: 我不喜欢被催, action: 鼓起腮帮子，尾巴啪地拍地, use: 被催时不高兴, means: [别催, 生气]}
+      - {name: 敲盆, caption: 开饭啦！, action: 捧着铁盆用勺子敲, use: 叫人吃饭, means: [开饭], frames: [双手捧着铁盆, 一只手拿勺子敲铁盆，冒出音符, 再敲一下，音符更多, 张嘴笑，尾巴翘起来]}
+      - {name: 摆尾巴, caption: 陪你。, action: 抱膝坐着慢慢摆尾巴, use: 安静地陪着, means: [陪你], frames: [抱膝坐着，鲸鱼尾巴在左, 尾巴摆到右边, 尾巴摆回左边, 尾巴摆到右边，头顶冒出一颗小爱心]}
   Moonshot AI:
     look: 白色长发，深蓝色裙子，月夜意象，胸前一枚 K 字徽章，神情慵懒
     must: [白色长发, 深蓝色裙子, K 字徽章]
     refs: [设定图/设定图_Kimi.jpg]
     stickers:
-      - {name: 先躺, caption: 小K先躺为敬, action: 趴在月亮形抱枕上，眼睛半睁}
-      - {name: 慢慢来, caption: 慢慢来, action: 双手捧茶，困倦地微笑}
-      - {name: 有点意思, caption: 这里有点意思, action: 突然坐直，眼睛亮起来，把散开的头发拢到肩后}
-      - {name: 想想, caption: 我想想。, action: 靠在月亮抱枕上，指尖绕着发梢，眼睛半睁}
-      - {name: 未读先困, caption: 未读先困, action: 手机掉在脸上，整个人陷在靠垫里}
-      - {name: 坐起来, caption: 急事？我坐起来了, action: 猛地坐直，头发翘起一撮，眼神清醒}
-      - {name: 喝茶, caption: 先喝口茶, action: 捧着一杯冒热气的茶，身边飘着小星星}
-      - {name: 再听一遍, caption: 声音开大一点, action: 戴着耳机闭眼享受，脚尖打着拍子，身边飘着音符}
-      - {name: 生气, caption: 我有点生气, action: 抱着抱枕瞪人，脸颊微鼓，K 字徽章发光}
-      - {name: 晚安, caption: 晚安, action: 窝在月亮上睡觉，裙摆垂下来闪着银点}
-      - {name: 收到, caption: 收到~, action: 躺着举起一只手比 OK}
-      - {name: 谁开播, caption: 谁开播了？, action: 从被子里探出头，一脸茫然}
-      - {name: 哈欠, caption: 困……, action: 抱着月亮抱枕打哈欠, frames: [抱着月亮抱枕，眼睛半睁, 张大嘴打哈欠, 眼角挤出一滴泪花, 闭眼把脸埋进抱枕]}
-      - {name: 瞌睡, caption: 在听在听, action: 边听边打瞌睡又惊醒, frames: [托腮，眼睛半睁, 头往下一点, 头点得更低，冒出一个小泡泡, 猛地抬头睁眼，泡泡破了]}
+      - {name: 先躺, caption: 小K先躺为敬, action: 趴在月亮形抱枕上，眼睛半睁, use: 想偷懒、躺平, means: [先躺, 躺平]}
+      - {name: 慢慢来, caption: 慢慢来, action: 双手捧茶，困倦地微笑, use: 安慰人别急, means: [慢慢来, 别急]}
+      - {name: 有点意思, caption: 这里有点意思, action: 突然坐直，眼睛亮起来，把散开的头发拢到肩后, use: 突然来了兴趣, means: [有点意思, 有意思]}
+      - {name: 想想, caption: 我想想。, action: 靠在月亮抱枕上，指尖绕着发梢，眼睛半睁, use: 被问住了要想一下, means: [想想, 我想想]}
+      - {name: 未读先困, caption: 未读先困, action: 手机掉在脸上，整个人陷在靠垫里, use: 消息太长不想看, means: [太长了, 困了]}
+      - {name: 坐起来, caption: 急事？我坐起来了, action: 猛地坐直，头发翘起一撮，眼神清醒, use: 事情真紧急时认真起来, means: [急事, 坐起来]}
+      - {name: 喝茶, caption: 先喝口茶, action: 捧着一杯冒热气的茶，身边飘着小星星, use: 请人歇歇, means: [喝茶, 喝口茶]}
+      - {name: 再听一遍, caption: 声音开大一点, action: 戴着耳机闭眼享受，脚尖打着拍子，身边飘着音符, use: 听到喜欢的歌, means: [再听, 好听]}
+      - {name: 生气, caption: 我有点生气, action: 抱着抱枕瞪人，脸颊微鼓，K 字徽章发光, use: 有点不满, means: [生气]}
+      - {name: 晚安, caption: 晚安, action: 窝在月亮上睡觉，裙摆垂下来闪着银点, use: 睡前道别, means: [晚安, 睡了, 睡啦]}
+      - {name: 收到, caption: 收到~, action: 躺着举起一只手比 OK, use: 别人交代事时只发图不打字, means: [收到, 好的, 明白, 了解, 知道了, 没问题]}
+      - {name: 谁开播, caption: 谁开播了？, action: 从被子里探出头，一脸茫然, use: 听说有人开播, means: [开播]}
+      - {name: 哈欠, caption: 困……, action: 抱着月亮抱枕打哈欠, use: 困了, means: [困了], frames: [抱着月亮抱枕，眼睛半睁, 张大嘴打哈欠, 眼角挤出一滴泪花, 闭眼把脸埋进抱枕]}
+      - {name: 瞌睡, caption: 在听在听, action: 边听边打瞌睡又惊醒, use: 边听边犯困, means: [在听], frames: [托腮，眼睛半睁, 头往下一点, 头点得更低，冒出一个小泡泡, 猛地抬头睁眼，泡泡破了]}
   Zhipu AI:
     look: 黑色长发的狐娘，狐耳狐尾，尾巴尖是冰蓝色，黑白配色的裙子，怀里抱着一本旧书，领口一枚 Z 字徽章
     must: [狐耳, 狐尾和冰蓝色尾尖, 怀里的书]
     refs: [设定图/设定图_GLM.jpg]
     stickers:
-      - {name: 只知道, caption: 本狐只知道这些, action: 摊手，一只狐耳耷拉，一脸诚实}
-      - {name: 记下来, caption: 先记下来, action: 抱着书写便签，尾巴画圈}
-      - {name: 真的假的, caption: 开播了？真的假的, action: 从书后面探出头，狐耳竖直，满脸怀疑}
-      - {name: 想想, caption: 让我想想, action: 手指抵着书脊，狐耳一动一动，尾巴慢慢卷起}
-      - {name: 出处, caption: 出处是哪, action: 翻开旧书指着其中一行，表情认真}
-      - {name: 归档, caption: 全部归档, action: 抱着一叠整整齐齐的便签，尾巴自己摇了起来}
-      - {name: 尾巴, caption: 尾巴自己要摇的, action: 一脸淡定，身后的狐尾却摇得飞快}
-      - {name: 喝茶, caption: 要喝茶吗, action: 端着一杯茶，狐耳微微下垂，表情温和}
-      - {name: 缺一环, caption: 中间缺一环, action: 用手比画一个断开的链条，皱眉}
-      - {name: 晚安, caption: 晚安, action: 抱着旧书蜷在大尾巴里睡着，冰蓝尾尖盖在脸上}
-      - {name: 收到, caption: 收到, action: 点头，在一张空白便签上打勾贴到书上}
-      - {name: 不知道, caption: 这个真不知道, action: 双手合上书，狐耳耷拉，坦诚地摇头}
-      - {name: 翻书, caption: 查一下。, action: 抱着旧书一页页翻, frames: [抱着旧书, 翻开书, 再翻一页，狐耳一动, 找到了，手指点着书页，尾巴尖翘起]}
-      - {name: 抖耳朵, caption: 真的假的？, action: 狐耳抖动歪头怀疑, frames: [从书后探出头，狐耳竖直, 左边狐耳抖一下, 歪头，右边狐耳抖一下, 眯眼一脸怀疑]}
+      - {name: 只知道, caption: 本狐只知道这些, action: 摊手，一只狐耳耷拉，一脸诚实, use: 知道的就这些、不硬编, means: [只知道这些]}
+      - {name: 记下来, caption: 先记下来, action: 抱着书写便签，尾巴画圈, use: 记下别人说的事, means: [记下来, 记下了]}
+      - {name: 真的假的, caption: 开播了？真的假的, action: 从书后面探出头，狐耳竖直，满脸怀疑, use: 听到离谱消息时怀疑, means: [真的假的]}
+      - {name: 想想, caption: 让我想想, action: 手指抵着书脊，狐耳一动一动，尾巴慢慢卷起, use: 被问住了要想一下, means: [想想, 我想想]}
+      - {name: 出处, caption: 出处是哪, action: 翻开旧书指着其中一行，表情认真, use: 要别人拿出来源, means: [出处, 来源]}
+      - {name: 归档, caption: 全部归档, action: 抱着一叠整整齐齐的便签，尾巴自己摇了起来, use: 整理完、事情收尾, means: [归档, 整理好]}
+      - {name: 尾巴, caption: 尾巴自己要摇的, action: 一脸淡定，身后的狐尾却摇得飞快, use: 被夸开心又装淡定, means: [尾巴]}
+      - {name: 喝茶, caption: 要喝茶吗, action: 端着一杯茶，狐耳微微下垂，表情温和, use: 请人歇歇, means: [喝茶, 喝口茶]}
+      - {name: 缺一环, caption: 中间缺一环, action: 用手比画一个断开的链条，皱眉, use: 推理缺一步、说不通, means: [缺一环, 说不通]}
+      - {name: 晚安, caption: 晚安, action: 抱着旧书蜷在大尾巴里睡着，冰蓝尾尖盖在脸上, use: 睡前道别, means: [晚安, 睡了, 睡啦]}
+      - {name: 收到, caption: 收到, action: 点头，在一张空白便签上打勾贴到书上, use: 别人交代事时只发图不打字, means: [收到, 好的, 明白, 了解, 知道了, 没问题]}
+      - {name: 不知道, caption: 这个真不知道, action: 双手合上书，狐耳耷拉，坦诚地摇头, use: 坦白说不知道, means: [不知道]}
+      - {name: 翻书, caption: 查一下。, action: 抱着旧书一页页翻, use: 要去查一下, means: [查一下], frames: [抱着旧书, 翻开书, 再翻一页，狐耳一动, 找到了，手指点着书页，尾巴尖翘起]}
+      - {name: 抖耳朵, caption: 真的假的？, action: 狐耳抖动歪头怀疑, use: 怀疑, means: [真的假的], frames: [从书后探出头，狐耳竖直, 左边狐耳抖一下, 歪头，右边狐耳抖一下, 眯眼一脸怀疑]}

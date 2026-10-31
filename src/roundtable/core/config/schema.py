@@ -3608,6 +3608,17 @@ class StickerSpec(_Strict):
     action: str = Field(min_length=1, max_length=120)  # 动作和表情
     # 动图：四格画面里依次的动作（正好 4 条）；不写就是一张静态贴纸
     frames: list[str] = Field(default_factory=list, max_length=4)
+    # 什么时候发：写进给成员的表情包清单（只有名字时模型会望文生义，如把记仇的「记着」当「好的」）
+    use: str = Field(default="", max_length=24)
+    # 这张图的意思等于哪些话：一句话里已经有这些词时再配这张就重复了（发出前去重用）；不影响画图
+    means: list[str] = Field(default_factory=list, max_length=8)
+
+    @field_validator("means")
+    @classmethod
+    def _short(cls, words: list[str]) -> list[str]:
+        if any(not w.strip() or len(w) > 8 for w in words):
+            raise ValueError("means 每个词 1～8 字")
+        return words
 
     @field_validator("frames")
     @classmethod
