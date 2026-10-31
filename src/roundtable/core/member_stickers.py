@@ -46,6 +46,7 @@ INDEX_FILE = "index.json"
 DRAW_STEP = "member_sticker"
 CHECK_STEP = "sticker_check"
 PHOTO_STEP = "moment_photo"
+IMPORTED = "imported"  # 在别处画好、导入进来的（model 字段）
 STATUSES = ("pending", "approved", "rejected")
 # members.json 里当参考图用的图片，按顺序取（找不到 refs 时）
 REF_KEYS = ("standee", "chibi", "avatar")
@@ -287,6 +288,74 @@ class MemberStickers:
             out.append(Media("image", mime, data, path.name))
         return out
 
+    def _prompt(self, card: StickerCard, spec: StickerSpec) -> Any:
+        if spec.frames:  # 动图：一次画 2×2 四格，切开后连起来
+            frames = "\n".join(f"Panel {i}: {f}" for i, f in enumerate(spec.frames, 1))
+            return self.rt.prompts.render(
+                "sticker_anim",
+                self.rt.config.roundtable.prompts["sticker_anim"],
+                look=card.look,
+                must="、".join(card.must) or "无",
+                caption=spec.caption,
+                frames=frames,
+            )
+        return self.rt.prompts.render(
+            "sticker_draw",
+            self.rt.config.roundtable.prompts["sticker_draw"],
+            look=card.look,
+            must="、".join(card.must) or "无",
+            caption=spec.caption,
+            action=spec.action,
+        )
+
+    def prompt_text(self, member: str, name: str) -> str:
+        """这张表情的绘图提示词（拿去别处画时用，配上 references 里的参考图）。"""
+        return "\n\n".join(
+            m.content for m in self._prompt(self.card(member), self.spec(member, name)).messages
+        )
+
+    def import_image(self, member: str, name: str, data: bytes) -> dict[str, Any]:
+        """把在别处画好的图收进来：和自己画的一样刷白、做成正方形（动图给 2×2 四格图，
+        或现成的 GIF），存成待审；不花钱、不核对。"""
+        card = self.card(member)
+        spec = self.spec(member, name)
+        if spec.frames:
+            cells = [_square(c, self.rules.size) for c in _frames(data)]
+            image = _gif(cells, self.rules.frame_ms)
+        else:
+            image = _square(data, self.rules.size)
+            if image == data and not _is_image(data):
+                raise StickerError("读不了这张图")
+        self._store(member, card, spec, image, None, IMPORTED, 0.0)
+        return next(r for r in self.listing(member) if r["name"] == name)
+
+    def _store(
+        self,
+        member: str,
+        card: StickerCard,
+        spec: StickerSpec,
+        image: bytes,
+        check: Check | None,
+        model: str,
+        cost: float,
+    ) -> None:
+        ext = ".gif" if image[:3] == b"GIF" else ".png"
+        file = hashlib.sha256(image).hexdigest()[:24] + ext
+        self._index.write(file, image)
+        data = self._index.load()
+        data["items"].setdefault(member, {})[spec.name] = {
+            "caption": spec.caption,
+            "file": file,
+            "status": "pending" if self.rules.review else "approved",
+            "problems": self._problems(check),
+            "checked": check is not None,
+            "card": card_hash(card, spec),
+            "model": model,
+            "cost_usd": round(cost, 6),
+            "at": self.rt.repo.clock(),
+        }
+        self._index.save(data)
+
     async def draw(self, member: str, name: str) -> dict[str, Any]:
         """画（或重画）一张。返回这张的状态；花费计入两个每月上限。"""
         card = self.card(member)
@@ -297,25 +366,7 @@ class MemberStickers:
         refs = self.references(member, card)
         if not refs:
             raise StickerUnavailable("找不到这位成员的形象参考图（素材目录里的设定图、立绘或头像）")
-        if spec.frames:  # 动图：一次画 2×2 四格，切开后连起来
-            frames = "\n".join(f"Panel {i}: {f}" for i, f in enumerate(spec.frames, 1))
-            prompt = self.rt.prompts.render(
-                "sticker_anim",
-                self.rt.config.roundtable.prompts["sticker_anim"],
-                look=card.look,
-                must="、".join(card.must) or "无",
-                caption=spec.caption,
-                frames=frames,
-            )
-        else:
-            prompt = self.rt.prompts.render(
-                "sticker_draw",
-                self.rt.config.roundtable.prompts["sticker_draw"],
-                look=card.look,
-                must="、".join(card.must) or "无",
-                caption=spec.caption,
-                action=spec.action,
-            )
+        prompt = self._prompt(card, spec)
         text = "\n\n".join(m.content for m in prompt.messages)
         session = self.rt.repo.sticker_session()
         attempts = [models[i % len(models)] for i in range(self.rules.max_attempts)]
@@ -368,22 +419,7 @@ class MemberStickers:
                 break
         if image is None or used is None:
             raise StickerUnavailable("画图失败（所有模型都没画出来）")
-        ext = ".gif" if image[:3] == b"GIF" else ".png"
-        file = hashlib.sha256(image).hexdigest()[:24] + ext
-        self._index.write(file, image)
-        data = self._index.load()
-        data["items"].setdefault(member, {})[name] = {
-            "caption": spec.caption,
-            "file": file,
-            "status": "pending" if self.rules.review else "approved",
-            "problems": self._problems(check),
-            "checked": check is not None,
-            "card": card_hash(card, spec),
-            "model": used.id,
-            "cost_usd": round(total, 6),
-            "at": self.rt.repo.clock(),
-        }
-        self._index.save(data)
+        self._store(member, card, spec, image, check, used.id, total)
         return next(r for r in self.listing(member) if r["name"] == name)
 
     # --- 朋友圈配图 --------------------------------------------------------------------
@@ -649,6 +685,35 @@ def _quarters(data: bytes) -> list[bytes]:
             return out
     except Exception:  # noqa: BLE001 - 坏图：交给后面按一张处理
         return [data] * 4
+
+
+def _frames(data: bytes) -> list[bytes]:
+    """动图的各帧：现成的 GIF 按帧拆开，其他图当 2×2 四格切开。"""
+    try:
+        from PIL import Image, ImageSequence
+
+        with Image.open(io.BytesIO(data)) as im:
+            if getattr(im, "n_frames", 1) > 1:
+                out = []
+                for frame in ImageSequence.Iterator(im):
+                    buf = io.BytesIO()
+                    frame.convert("RGBA").save(buf, "PNG")
+                    out.append(buf.getvalue())
+                return out
+    except Exception:  # noqa: BLE001 - 读不了：下面报错
+        raise StickerError("读不了这张图") from None
+    return _quarters(data)
+
+
+def _is_image(data: bytes) -> bool:
+    try:
+        from PIL import Image
+
+        with Image.open(io.BytesIO(data)) as im:
+            im.verify()
+        return True
+    except Exception:  # noqa: BLE001
+        return False
 
 
 def _gif(frames: list[bytes], ms: int) -> bytes:

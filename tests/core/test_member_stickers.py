@@ -352,3 +352,51 @@ def test_moment_photo_blocked_by_the_monthly_cap(tmp_path):
     _, _, stickers = build(tmp_path, monthly_usd=0.000001)
     with pytest.raises(StickerBudgetExceeded):
         asyncio.run(stickers.photo("OpenAI", "天台", "好看", "a selfie"))
+
+
+def png(color="red", size=(300, 400)):
+    im = Image.new("RGB", size, (236, 236, 236))
+    im.paste(color, (100, 100, 200, 300))
+    buf = io.BytesIO()
+    im.save(buf, "PNG")
+    return buf.getvalue()
+
+
+def test_prompt_text_is_what_draw_would_send(tmp_path):
+    rt, fake, stickers = build(tmp_path)
+    text = stickers.prompt_text("OpenAI", "快夸我")
+    assert "「快夸我」" in text
+    anim = stickers.prompt_text("OpenAI", "摇尾巴")
+    assert "2×2" in anim and "Panel 4:" in anim
+
+
+def test_imported_still_is_squared_whitened_and_waits_for_review_without_spending(tmp_path):
+    rt, fake, stickers = build(tmp_path)
+    row = stickers.import_image("OpenAI", "快夸我", png())
+    assert row["status"] == "pending" and not row["stale"]
+    with Image.open(io.BytesIO(stickers.file("OpenAI", "快夸我"))) as im:
+        assert im.size == (360, 360) and im.getpixel((2, 2))[:3] == (255, 255, 255)
+    assert image_calls(fake) == [] and stickers.month_spent() == 0
+    entry = json.loads((tmp_path / "stickers" / "index.json").read_text(encoding="utf-8"))
+    assert entry["items"]["OpenAI"]["快夸我"]["model"] == "imported"
+    with pytest.raises(StickerError):
+        stickers.import_image("OpenAI", "快夸我", b"not an image")
+
+
+def test_imported_animated_sticker_takes_a_four_panel_sheet_or_a_gif(tmp_path):
+    rt, fake, stickers = build(tmp_path)
+    sheet = Image.new("RGB", (400, 400), "white")
+    for i, color in enumerate(["red", "green", "blue", "orange"]):
+        x, y = (i % 2) * 200, (i // 2) * 200
+        sheet.paste(color, (x + 60, y + 60, x + 140, y + 140))
+    buf = io.BytesIO()
+    sheet.save(buf, "PNG")
+    stickers.import_image("OpenAI", "摇尾巴", buf.getvalue())
+    with Image.open(io.BytesIO(stickers.file("OpenAI", "摇尾巴"))) as gif:
+        assert gif.format == "GIF" and gif.n_frames == 4 and gif.size == (360, 360)
+    frames = [Image.new("RGB", (200, 200), c) for c in ("red", "blue", "green")]
+    buf = io.BytesIO()
+    frames[0].save(buf, "GIF", save_all=True, append_images=frames[1:], duration=200)
+    stickers.import_image("OpenAI", "扑翅膀", buf.getvalue())
+    with Image.open(io.BytesIO(stickers.file("OpenAI", "扑翅膀"))) as gif:
+        assert gif.n_frames == 3
