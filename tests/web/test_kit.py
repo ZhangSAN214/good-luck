@@ -150,3 +150,113 @@ def test_windows_share_user_data_and_small_rings_stay_readable(tmp_path):
     r = _check(str(index), viewports=(("手机", 390, 844),), modes=("light",))
     found = {f.check for f in r.findings}
     assert "页面报错" not in found and "字太小" not in found, r.summary()
+
+
+def test_poke_clicks_every_window_and_finds_dead_lonely_and_broken_buttons(tmp_path):
+    """自动点一遍：加入后行程跟着变（不报）；点了没反应、只有自己变、点了报错都指出是哪个窗口。
+    名字像「删除」「导出」的按钮不点。"""
+    from roundtable.core.benchkit.spec import normalize, write_shell
+
+    spec = normalize(
+        {
+            "title": "旅行台",
+            "windows": [
+                {"id": "spots", "title": "景点", "span": 4},
+                {"id": "plan", "title": "行程", "span": 4},
+                {"id": "fav", "title": "收藏", "span": 4},
+            ],
+            "state": {"itinerary": "行程条目"},
+        },
+        max_windows=8,
+    )
+    index = write_shell(tmp_path, spec, "b9")
+    spots = [
+        "export default (el, ctx) => { el.innerHTML = '",
+        '<button class="k-btn" data-add>加入行程</button>',
+        '<button class="k-btn" data-dead>看详情</button>',
+        '<button class="k-btn" data-del>删除</button>\';',
+        " el.querySelector('[data-add]').onclick =",
+        " () => ctx.state.update('itinerary', (l) => [...l, 1], []);",
+        " el.querySelector('[data-del]').onclick = () => { throw new Error('不该点到'); }; };",
+    ]
+    (tmp_path / "windows" / "spots.js").write_text("".join(spots), encoding="utf-8")
+    (tmp_path / "windows" / "plan.js").write_text(
+        "export default (el, ctx) => { ctx.state.on('itinerary', (v) => {"
+        " el.innerHTML = '<p>已加入 ' + v.length + ' 项</p>'; }, []); };",
+        encoding="utf-8",
+    )
+    fav = [
+        'export default (el, ctx) => { let n = 0; el.innerHTML = \'<p class="k-sub">0</p>',
+        '<button class="k-btn" data-fav>收藏这家</button>',
+        '<button class="k-btn" data-boom>刷新</button>\';',
+        " el.querySelector('[data-fav]').onclick =",
+        " () => { el.querySelector('p').textContent = ++n; };",
+        " el.querySelector('[data-boom]').onclick =",
+        " () => { throw new Error('窗口 fav 出错：刷新坏了'); }; };",
+    ]
+    (tmp_path / "windows" / "fav.js").write_text("".join(fav), encoding="utf-8")
+    r = _check(str(index), viewports=(("电脑", 1280, 860),), modes=("light",))
+    found = {f.check: f for f in r.findings}
+    assert found["点了没反应"].windows == ["fav", "spots"], r.summary()
+    assert "看详情" in found["点了没反应"].detail and "删除" not in found["点了没反应"].detail
+    assert found["加入后别处不变"].windows == ["fav"], r.summary()
+    assert "加入行程" not in found["加入后别处不变"].detail
+    assert found["点了报错"].severity == "block" and "不该点到" not in found["点了报错"].detail
+    # 只在第一种组合里点
+    two = _check(str(index), viewports=(("电脑", 1280, 860), ("手机", 390, 844)), modes=("light",))
+    assert "、" not in {f.check: f for f in two.findings}["点了没反应"].where
+
+
+def test_run_probes_fills_clicks_and_reads_the_page(tmp_path):
+    """程序真的去填「京都」、点「生成」：做到的判过；写死的、找不到按钮的判不过；
+    要请助手现场生成的判「查不了」。"""
+    from roundtable.core.benchkit.quality import run_probes
+    from roundtable.core.benchkit.spec import normalize, write_shell
+
+    spec = normalize(
+        {
+            "title": "旅行台",
+            "windows": [
+                {"id": "form", "title": "条件", "span": 6},
+                {"id": "plan", "title": "行程", "span": 6},
+            ],
+        },
+        max_windows=8,
+    )
+    index = write_shell(tmp_path, spec, "b10")
+    form = [
+        "export default (el, ctx) => { el.innerHTML = '<label>目的地 <input class=k-input",
+        " data-to></label><button class=k-btn data-go>生成行程</button>",
+        "<button class=k-btn data-ai>智能推荐</button>';",
+        " const to = el.querySelector('[data-to]');",
+        " el.querySelector('[data-go]').onclick = () => ctx.state.set('to', to.value);",
+        " el.querySelector('[data-ai]').onclick = () => ctx.askJson('推荐 ' + to.value); };",
+    ]
+    (tmp_path / "windows" / "form.js").write_text("".join(form), encoding="utf-8")
+    plan = [
+        "export default (el, ctx) => { el.innerHTML = '<p>东京三日游</p>';",
+        " ctx.state.on('to', (v) => {",
+        " if (v) el.innerHTML = '<p>' + ctx.kit.esc(v) + '三日游</p>'; }); };",
+    ]
+    (tmp_path / "windows" / "plan.js").write_text("".join(plan), encoding="utf-8")
+    fill = {"do": "fill", "target": "目的地", "value": "京都"}
+
+    def click(t):
+        return {"do": "click", "target": t}
+
+    probes = [
+        {"id": "r1", "steps": [fill, click("生成行程")], "expect": ["京都三日游"]},
+        {"id": "r2", "steps": [click("生成行程")], "expect": [], "changes": True},
+        {"id": "r3", "steps": [click("导出 PDF")], "expect": ["已导出"]},
+        {"id": "r4", "steps": [fill, click("智能推荐")], "expect": ["推荐结果"]},
+    ]
+    try:
+        got = {x["id"]: x for x in run_probes(str(index), probes)}
+    except QualityError as exc:
+        if "浏览器启动失败" in str(exc):
+            pytest.skip(str(exc))
+        raise
+    assert got["r1"]["ok"] is True, got
+    assert got["r2"]["ok"] is False and "一点没变" in got["r2"]["why"]  # 空输入点生成：没变
+    assert got["r3"]["ok"] is False and "找不到「导出 PDF」" in got["r3"]["why"]
+    assert got["r4"]["ok"] is None and "现场生成" in got["r4"]["why"]

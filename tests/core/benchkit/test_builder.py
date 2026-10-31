@@ -945,3 +945,32 @@ async def test_project_disabled_keeps_old_one_shot_flow(tmp_path):
     await b.wait()
     assert b.build["status"] == "done" and b.build["gate"] is None
     assert "bench_interview" not in [c["role"] for c in sc.calls]
+
+
+class EmptyAddressSC(FakeSC):
+    """第一次写「预算」窗口时数据里地址是空的；返工时补上。"""
+
+    async def step(self, kind, prompt, **kw):
+        chosen, result = await super().step(kind, prompt, **kw)
+        p = json.loads(prompt)
+        if p["role"] in ("bench_window", "bench_rework") and p["file"].endswith("budget.js"):
+            addr = "" if p["role"] == "bench_window" else "东京都中央区银座 1-1"
+            (kw["folder"] / p["data_file"]).write_text(
+                json.dumps({"items": [{"name": "酒店", "address": addr}]}, ensure_ascii=False)
+            )
+        return chosen, result
+
+
+async def test_selftest_sends_empty_address_back_before_review(tmp_path):
+    sc = EmptyAddressSC()
+    b = make(tmp_path, sc)
+    build = b.submit("旅行台")
+    await b.wait()
+    assert build["status"] == "done", build["log"]
+    first_rework = next(
+        json.loads(p) for p in sc.prompts if json.loads(p)["role"] == "bench_rework"
+    )
+    assert first_rework["file"].endswith("budget.js")
+    assert "[自动质检·必须修·查数据] 地址为空" in first_rework["problems"]
+    roles = [c["role"] for c in sc.calls]
+    assert roles.index("bench_rework") < roles.index("bench_review")  # 评审前就拦下
