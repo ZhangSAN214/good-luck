@@ -2026,6 +2026,12 @@ class NickRules(_Strict):
     care: float = Field(default=0.5, ge=0, le=1)  # 在乎到这么多才起外号、换称呼
     chance: float = Field(default=0.3, ge=0, le=1)  # 够熟以后每天起的概率
     hint: str = ""  # 档案里「熟了以后可能会叫……」的正则（第一个分组起是候选）
+    # 档案里没写叫法时：够熟后偶尔提醒她可以自己给对方起个专属叫法
+    # （10-31 用户：让她们自行产生，不写死）
+    invite: str = ""
+    invite_chance: float = Field(default=0.15, ge=0, le=1)  # 够熟以后每天提醒一次的概率
+    # 她自己说出「以后就叫你 X」时记下来（第一个分组是叫法），之后一直这么叫
+    capture: str = ""
 
 
 class LearnRules(_Strict):

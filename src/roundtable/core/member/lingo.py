@@ -401,6 +401,8 @@ class Lingo:
         nick = self.nickname(member, to, care, at, rng) if to else ""
         if nick:
             bits.append(f"你现在叫{self._name(to)}「{nick}」")
+        elif to and self._invite(member, to, care, at):  # 没写叫法：够熟了偶尔提一句，她自己起
+            bits.append(self.rules.nick.invite)
         if battle:
             bits.append("上一条是表情包，可以直接回个表情包斗图")
         return "；".join(bits)
@@ -426,6 +428,27 @@ class Lingo:
         data["nick"][other] = {"name": name, "at": iso(at)}
         self._save(member, data)
         return name
+
+    def _invite(self, member: str, other: str, care: float, at: datetime) -> bool:
+        r = self.rules.nick
+        if not r.invite or care < r.care or self._nick_options(member, other):
+            return False
+        day = home_zone(self.rt).local(at).date().isoformat()
+        return random.Random(f"lingo-invite:{member}:{other}:{day}").random() < r.invite_chance
+
+    def _capture_nick(self, member: str, text: str, room: dict[str, Any], at: datetime) -> None:
+        """她自己说出「以后就叫你 X」：记下来（只记对你的；已有叫法就不改）。"""
+        r = self.rules.nick
+        if not r.capture or room.get("kind") not in ("dm", "group"):
+            return
+        m = re.search(r.capture, text)
+        if m is None or not m.group(1) or m.group(1)[0] in "了吧啊哦呢一个声什":
+            return
+        data = self._load(member)
+        if data["nick"].get(USER):
+            return
+        data["nick"][USER] = {"name": m.group(1), "at": iso(at), "self": True}
+        self._save(member, data)
 
     def _nick_options(self, member: str, other: str) -> list[str]:
         style = self._data(member).get("style") or {}
@@ -479,6 +502,7 @@ class Lingo:
             return
         if author != USER:
             self._used(author, text, event.at)
+            self._capture_nick(author, text, info, event.at)
             from roundtable.core.member.drift import Drift
 
             if Drift(self.rt).count(author, text, event.at, self):  # 口癖换了：习惯重新算
