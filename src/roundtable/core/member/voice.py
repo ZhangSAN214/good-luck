@@ -285,8 +285,10 @@ class VoicePolicy(DefaultPolicy):
         return base if base <= 1 or mode is None else mode.max_segments
 
     def segment_gap(self, member: str, text: str) -> float:
+        from roundtable.core.member.pace import Pace  # 回话节拍：按字数算打字时间
+
         mode = self._mode(member)
-        base = super().segment_gap(member, text)
+        base = Pace(self.rt).gap(member, text, super().segment_gap(member, text))
         return base * mode.gap_scale if mode is not None else base
 
     def voice(self, member: str, room_kind: str, seed: int = 0) -> str:

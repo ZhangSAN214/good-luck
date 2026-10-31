@@ -660,6 +660,11 @@ class GroupChat:
         没说出话返回 {}（没说出话时在群里说明）；预算用完返回 None。"""
         self._unqueue(member.name)
         rt, rules = self.rt, self.rules
+        if self.kind == "dm":  # 回话节拍：互道晚安后你只回了句「嗯嗯」，就不接了
+            from roundtable.core.member.pace import Pace
+
+            if Pace(rt).wrapup(member.id, self.room, reply_to):
+                return {}
         if not rt.budget.check(rules.estimate_usd).allowed:
             rt.repo.add_chat_message(self.room, SYSTEM, "预算用完了，大家先不说话了。")
             self.on_change()
@@ -918,7 +923,13 @@ class GroupChat:
             if not words.strip():
                 continue
             meta: dict[str, Any] = {}
-            row = self.quotable(seg.quote) if seg.quote is not None else None
+            quote = seg.quote
+            if quote is None and not first and self.kind in ("dm", "group"):
+                from roundtable.core.member.pace import Pace
+
+                if Pace(rt).quote(member.id, self.room, reply_to):
+                    quote = reply_to  # 后面已经又有几条话了：引用一下她回的是哪条
+            row = self.quotable(quote) if quote is not None else None
             if row is not None:
                 meta["quote"] = quote_meta(row)
             for n, piece in enumerate(self._finish(member, words, reply_to)):

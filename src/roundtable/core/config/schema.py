@@ -2145,6 +2145,32 @@ class FeelRules(_Strict):
     gap_days: int = Field(default=14, ge=0, le=365)
 
 
+class PaceRules(_Strict):
+    """回话节拍（2026-10-31 拟人插件调研第 2 项，借麦麦、private_companion、virtual_life 的思路）：
+    ① 私聊里你连着发时等你说完（debounce_min～debounce_max 秒，按你这几条的间隔自适应）再一起想；
+    ② 她在忙（锻炼、吃饭、上班……）时私聊晚一会儿回（busy 里各活动的秒数范围，
+    从你这一串的第一条算起），
+    刚来回聊过 hot_minutes 分钟内、点名、急事不晚回；③ 气泡间隔按这条的字数算打字时间；
+    ④ 她想好时后面已经又有 quote_after 条别人的话，第一条自动引用她回的那条；
+    ⑤ 收尾不回：她上一句已经道别、你又只回了句应声（嗯嗯、好、晚安……），私聊里就不回了。
+    全程序、不调模型；8 位同一套公式，差别只来自作息和性格分。"""
+
+    enabled: bool = True
+    debounce_min: float = Field(default=1.5, ge=0, le=10)
+    debounce_max: float = Field(default=4.0, ge=0, le=15)
+    burst_seconds: float = Field(default=30, ge=1, le=300)  # 这么久以内连着发的算一串
+    busy: dict[str, list[float]] = {}  # 活动 → [最少, 最多] 秒
+    busy_cap: float = Field(default=900, ge=0, le=3600)
+    hot_minutes: float = Field(default=5, ge=0, le=60)
+    type_cps: float = Field(default=6.0, gt=0, le=50)  # 每秒打几个字（中间分）
+    type_traits: dict[str, float] = {}  # 性格分每高 1 分快多少（比例）
+    gap_min: float = Field(default=0.6, ge=0, le=10)
+    gap_max: float = Field(default=5.0, ge=0, le=30)
+    quote_after: int = Field(default=2, ge=0, le=10)
+    acks: list[str] = Field(default_factory=list, max_length=60)  # 应声（整条就是这些）
+    byes: list[str] = Field(default_factory=list, max_length=60)  # 道别（她上一句里有这些）
+
+
 class RhythmRules(_Strict):
     """作息与回话节奏（docs/BRAIN.md）：睡着时你发来的消息，多数醒了再回，有时被吵醒。"""
 
@@ -2335,6 +2361,7 @@ class EngineRules(_Strict):
     care: CareRules = CareRules()
     lingo: LingoRules = LingoRules()
     rhythm: RhythmRules = RhythmRules()
+    pace: PaceRules = PaceRules()
     reach: ReachRules = ReachRules()
     feel: FeelRules = FeelRules()
 
