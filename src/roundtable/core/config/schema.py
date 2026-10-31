@@ -2273,6 +2273,18 @@ class PhrasebookRules(_Strict):
     first_line: str = ""
 
 
+class CircleRules(_Strict):
+    """圈外熟人名册（2026-10-31 拟人插件调研第 9 项）：人物卡和她自己说过的「我室友小林」记下来，
+    对方提到时意图卡里带一句，免得前后说反。全程序。"""
+
+    enabled: bool = True
+    relations: list[str] = Field(default_factory=list, max_length=80)
+    per_relation: int = Field(default=2, ge=1, le=10)  # 同一种关系最多记几个名字
+    max_keep: int = Field(default=30, ge=1, le=200)
+    max_line: int = Field(default=2, ge=1, le=10)
+    line: str = "你提过的圈外人：{items}——照这个说，别前后说反"
+
+
 class PhaseKind(_Strict):
     """一种生活阶段：持续几天、怎么影响精力 / 心情 / 回话快慢，念头池里放什么（只写事实和分寸）。"""
 
@@ -2570,6 +2582,7 @@ class EngineRules(_Strict):
     stash: StashRules = StashRules()
     floor: FloorRules = FloorRules()
     phase: PhaseRules = PhaseRules()
+    circle: CircleRules = CircleRules()
     reach: ReachRules = ReachRules()
     feel: FeelRules = FeelRules()
 

@@ -36,6 +36,7 @@ from roundtable.core.hometz import home_zone
 from roundtable.core.member import psyche
 from roundtable.core.member.bus import PERCEIVE, Event, EventBus
 from roundtable.core.member.care import Care
+from roundtable.core.member.circle import Circle
 from roundtable.core.member.feel import Feelings
 from roundtable.core.member.human import Human
 from roundtable.core.member.lingo import Lingo
@@ -146,6 +147,7 @@ class Brain:
         self.profiles = ProfileStore(rt)
         self.memes = MemeSense(rt)
         self.phrases = Phrasebook(rt, bus)
+        self.circle = Circle(rt, bus)  # 圈外熟人名册：她提过的室友、老同学，免得说反
         # 爱与复合情绪（love.py）：传了 bus 时订阅聊天和生活事件；names：成员 id → 称呼
         self.heart = Heart(rt, bus, names)
         # 人味（human.py）：知识边界、自己的时间、自我一致、八卦、时间纵深、小毛病、主动约人
@@ -1013,6 +1015,10 @@ class Brain:
             if phrase is not None:
                 text = f"{text}\n{phrase[1]}"
                 tags.append(phrase[0])
+        circle = self.circle.line(member, last)
+        if circle:  # 对方提到她说过的圈外人（室友、老同学……）：照之前说的来
+            text = f"{text}\n{circle}"
+            tags.append("circle")
         extra = self.human.lines(
             member,
             to=to,
