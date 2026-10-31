@@ -596,6 +596,28 @@ class StickerRules(_Strict):
     check_max_tokens: int = Field(default=1200, ge=200)
     max_attempts: int = Field(default=2, ge=1, le=4)  # 含第一次；核对不合格时换模型重画
     review: bool = True  # 新画的先进「待审」，你点「可以」后成员才会用
+    frame_ms: int = Field(default=280, ge=60, le=2000)  # 动图每格停多久（毫秒）
+
+
+class MomentPhotoRules(_Strict):
+    """朋友圈配图：成员发动态时，照她的形象卡和参考图画一张随手拍（不用审）。
+    用表情包同一批绘图模型，花费也算在表情包的每月小上限和创作输出的月上限里。"""
+
+    enabled: bool = True
+    chance: float = Field(default=0.5, ge=0, le=1)  # 一条动态配图的概率
+    per_member_day: int = Field(default=1, ge=0, le=5)  # 每位成员每天最多几张
+    per_day: int = Field(default=3, ge=0, le=20)  # 所有成员加起来每天最多几张（控制花费）
+    max_side: int = Field(default=1024, ge=256, le=2048)  # 存下来的长边（像素，JPEG）
+    # 拍法：每张随机抽一种（自拍、他拍、多机位，也可以只拍东西、风景）
+    shots: list[str] = Field(
+        default_factory=lambda: [
+            "a selfie she took herself, arm's length, she is looking at the camera",
+            "a photo a friend took of her, she is not posing much",
+            "a photo of the things or the view in front of her, she does not appear",
+        ],
+        min_length=1,
+        max_length=8,
+    )
 
 
 class SpeechRules(_Strict):
@@ -635,6 +657,7 @@ class MediaRules(_Strict):
     video: VideoRules = VideoRules()
     music: MusicRules = MusicRules()
     stickers: StickerRules = StickerRules()
+    moment_photos: MomentPhotoRules = MomentPhotoRules()
     # 创作输出（图片 / 语音 / 视频 / 音乐）单独的每月上限（美元，按 UTC 自然月）：
     # 本月已花 + 这次预计超过它时，生成前先弹确认卡片；0 = 不设上限
     monthly_usd: float = Field(default=5.0, ge=0)
@@ -2873,6 +2896,15 @@ class StickerSpec(_Strict):
     name: str = Field(min_length=1, max_length=12)  # 表情名（聊天里写 [表情:包名·表情名]）
     caption: str = Field(min_length=1, max_length=16)  # 画进图里的配文
     action: str = Field(min_length=1, max_length=120)  # 动作和表情
+    # 动图：四格画面里依次的动作（正好 4 条）；不写就是一张静态贴纸
+    frames: list[str] = Field(default_factory=list, max_length=4)
+
+    @field_validator("frames")
+    @classmethod
+    def _four(cls, frames: list[str]) -> list[str]:
+        if frames and (len(frames) != 4 or any(not f.strip() or len(f) > 60 for f in frames)):
+            raise ValueError("动图要正好 4 格，每格的动作 1～60 字")
+        return frames
 
 
 class StickerCard(_Strict):

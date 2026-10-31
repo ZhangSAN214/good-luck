@@ -632,6 +632,7 @@ dialog.sheet[open]{display:flex}
 .pp-stk-cap{color:var(--ink);overflow-wrap:anywhere}
 .pp-stk-st{color:var(--muted)}
 .pp-stk-warn{color:var(--danger,#d9534f);line-height:1.4}
+.pp-stk-gif{margin-left:4px;padding:0 5px;border-radius:6px;font-size:10px;background:var(--accent-soft,rgba(120,140,255,.18))}
 .pp-stk-acts{display:flex;gap:8px}
 .pp-stk-acts .link{border:0;background:none;color:var(--mo-name,#576b95);padding:0;cursor:pointer;font-size:12px}
 .pp-mh{display:flex;gap:8px;align-items:baseline;font-size:12px;color:var(--muted)}

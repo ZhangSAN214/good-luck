@@ -154,7 +154,7 @@ export class People {
             ? `<button type="button" class="link" data-sdraw="${esc(x.name)}">画</button>`
             : `${x.status !== 'approved' ? `<button type="button" class="link" data-sok="${esc(x.name)}">可以</button>` : ''}${x.status !== 'rejected' ? `<button type="button" class="link" data-sno="${esc(x.name)}">不要</button>` : ''}<button type="button" class="link" data-sdraw="${esc(x.name)}">重画</button>`;
         const note = x.problems ? `<small class="pp-stk-warn">核对：${esc(x.problems)}</small>` : x.stale ? '<small class="pp-stk-warn">形象卡改过，建议重画</small>' : '';
-        return `<li class="pp-stk ${x.status}" data-sname="${esc(x.name)}">${img}<div class="pp-stk-cap">「${esc(x.caption)}」</div><div class="pp-stk-st">${STICKER[x.status] || ''}</div>${note}<div class="pp-stk-acts">${acts}</div></li>`;
+        return `<li class="pp-stk ${x.status}" data-sname="${esc(x.name)}">${img}<div class="pp-stk-cap">「${esc(x.caption)}」${x.animated ? '<small class="pp-stk-gif">动图</small>' : ''}</div><div class="pp-stk-st">${STICKER[x.status] || ''}</div>${note}<div class="pp-stk-acts">${acts}</div></li>`;
       })
       .join('');
     const missing = card.stickers.filter((x) => x.status === 'missing').length;

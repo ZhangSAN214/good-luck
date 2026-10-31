@@ -203,3 +203,57 @@ async def test_failed_comment_is_not_rewritten_and_moment_gives_up_after_misses(
     assert len(calls(env, "想在下面留一条评论")) == limit
     assert mo.misses("comments") == {str(moment["id"]): limit}
     assert len(mo.comment_skipped()) == limit
+
+
+async def test_post_gets_a_photo_by_chance_with_daily_caps(tmp_path, monkeypatch):
+    import io
+
+    from PIL import Image
+
+    from roundtable.core.config.schema import StickerCard
+    from roundtable.core.member_stickers import MemberStickers, StickerBudgetExceeded
+
+    env = Env()
+    rt = env.rt
+    rt.chat_media_dir = tmp_path / "media"
+    members = [m.id for m in ChatHub(rt).everyone()]
+    cards = {m: StickerCard(look="测试") for m in members}
+    media = rt.config.roundtable.media
+    photos = media.moment_photos.model_copy(update={"chance": 1.0, "per_day": 2})
+    media = media.model_copy(update={"enabled": True, "moment_photos": photos})
+    rt.config = rt.config.model_copy(
+        update={
+            "personas": rt.config.personas.model_copy(update={"sticker_cards": cards}),
+            "roundtable": rt.config.roundtable.model_copy(update={"media": media}),
+        }
+    )
+    buf = io.BytesIO()
+    Image.new("RGB", (40, 30), "skyblue").save(buf, "JPEG")
+    asked = []
+
+    async def photo(self, member, scene, post, shot):
+        asked.append((member, scene, post, shot))
+        if len(asked) > 2:
+            raise StickerBudgetExceeded("快超了")
+        return buf.getvalue(), "image/jpeg"
+
+    monkeypatch.setattr(MemberStickers, "photo", photo)
+    seed_events(env)
+    mo = moments(env)
+    hub = ChatHub(rt)
+    everyone = hub.everyone()
+    for i, member in enumerate([everyone[0], everyone[0], everyone[1], everyone[2], everyone[3]]):
+        event = {"id": 100 + i, "topic": f"地点：公寓楼天台（看星星）第 {i} 次"}
+        await mo.post(member, event, [])
+    posts = env.rt.repo.moments(limit=50)
+    with_photo = [p for p in posts if p["meta"].get("photo")]
+    # 每人每天最多 1 张、所有人每天最多 2 张；超了或画不出来照样发文字
+    assert len(with_photo) == 2 and len(posts) > len(with_photo)
+    assert len({p["author"] for p in with_photo}) == 2
+    for p in with_photo:
+        [item] = p["meta"]["media"]
+        assert item["kind"] == "image" and item["generated"]
+        assert p["text"].endswith("\n[图片]") and p["meta"]["caption"] in p["text"]
+        assert (tmp_path / "media").exists()
+    member, scene, post, shot = asked[0]
+    assert "天台" in scene and shot in photos.shots

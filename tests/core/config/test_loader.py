@@ -48,6 +48,8 @@ def test_repo_config_loads_with_defaults():
     assert set(rt.prompts) == {
         "sticker_draw",
         "sticker_check",
+        "sticker_anim",
+        "moment_photo",
         "planner",
         "panel",
         "ideate",

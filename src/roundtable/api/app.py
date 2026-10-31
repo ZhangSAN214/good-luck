@@ -1109,7 +1109,8 @@ def create_app(service: RoundtableService | None = None, lan: LanAccess | None =
     async def sticker_image(request: Request, member: str, name: str) -> Response:
         data = svc(request).sticker_file(member, name)
         headers = {"X-Content-Type-Options": "nosniff", "Cache-Control": "private, max-age=86400"}
-        return Response(content=data, media_type="image/png", headers=headers)
+        mime = "image/gif" if data[:3] == b"GIF" else "image/png"
+        return Response(content=data, media_type=mime, headers=headers)
 
     @app.get("/api/chat/stickers")
     async def chat_stickers(request: Request) -> dict[str, Any]:
