@@ -173,14 +173,22 @@ class Scout:
         found: dict[str, Candidate] = {}
         for c in match_dsh(await self.dsh_index(), keywords, self.per_need):
             found.setdefault(c.repo.lower(), c)
-        q = quote(f"{keywords} stars:>={max(1, self.min_stars // 4)}")
-        try:
-            res = await self.fetch_json(
-                f"{GITHUB}/search/repositories?q={q}&sort=stars&per_page={self.per_need}"
-            )
-            items = res.get("items") or []
-        except Exception:  # noqa: BLE001 - 搜索失败（限流、断网）就用集市里找到的
-            items = []
+        # GitHub 要求每个词都命中，关键词一长常常一个都搜不到：
+        # 缩成前 3 个、前 2 个词再搜，不拆成单个词
+        words = keywords.split()
+        tries = [keywords, *(" ".join(words[:n]) for n in (3, 2) if len(words) > n)]
+        items: list[dict[str, Any]] = []
+        for kw in tries:
+            q = quote(f"{kw} stars:>={max(1, self.min_stars // 4)}")
+            try:
+                res = await self.fetch_json(
+                    f"{GITHUB}/search/repositories?q={q}&sort=stars&per_page={self.per_need}"
+                )
+                items = res.get("items") or []
+            except Exception:  # noqa: BLE001 - 搜索失败（限流、断网）就用集市里找到的
+                break
+            if items:
+                break
         for it in items[: self.per_need]:
             repo = str(it.get("full_name") or "")
             if repo and repo.lower() not in found:

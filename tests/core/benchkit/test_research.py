@@ -118,14 +118,14 @@ def test_parsers():
 
 
 @pytest.mark.asyncio
-async def test_github_reaches_ten_by_splitting_words_and_ranks_by_relevance():
+async def test_github_reaches_ten_by_shorter_phrases_and_ranks_by_relevance():
     big = [repo(f"a/r{i}", 1000 + i) for i in range(6)]
-    more = [repo(f"b/r{i}", 500 + i, desc="canvas thing") for i in range(6)]
+    more = [repo(f"b/r{i}", 500 + i, desc="photo editor thing") for i in range(6)]
     tiny = [repo("c/tiny", 3)]  # 星太少：不列
     old = [repo("c/old", 9000, archived=True)]  # 归档：不列
-    net = Net({"photo%20editor%20canvas": big + tiny + old, "canvas": more})
+    net = Net({"photo%20editor%20canvas": big + tiny + old, "photo%20editor": more})
     r = Researcher(fetch_json=net.fetch_json, fetch_text=net.fetch_text, min_github=10)
-    rep = await r.run(["photo editor canvas"], [])
+    rep = await r.run(["photo editor canvas layers"], [])
     names = [g.title for g in rep.github]
     assert len(names) == 12 and "c/tiny" not in names and "c/old" not in names
     assert names[0].startswith("a/")  # 命中词多的排前面
@@ -135,8 +135,48 @@ async def test_github_reaches_ten_by_splitting_words_and_ranks_by_relevance():
 
 
 @pytest.mark.asyncio
+async def test_github_never_falls_back_to_single_words_and_drops_one_word_matches():
+    """2026-10-31 修图台真跑：长句搜不到，退到单个词 perspective 按星数排，
+    拿回一堆不相干的热门项目。"""
+    queries = [
+        "photo editor canvas layers curves HSL javascript",
+        "javascript perspective correction crop image editor",
+        "film emulation LUT VSCO style open source",
+    ]
+    junk = [
+        repo("p/perspective", 11000, desc="A data visualization and analytics component"),
+        repo(
+            "c/council", 4700, desc="Structured multi-perspective deliberation for hard decisions"
+        ),
+    ]
+    good = [
+        repo(
+            "j/jpegview",
+            3000,
+            desc="fast viewer/editor for JPEG images with on-the-fly image processing",
+        ),
+        repo("f/filmlut", 800, desc="Film emulation LUT pack"),
+    ]
+    net = Net(
+        {
+            "perspective": junk,
+            "photo%20editor%20canvas": good[:1] + junk,
+            "film%20emulation": good[1:],
+        }
+    )
+    r = Researcher(fetch_json=net.fetch_json, fetch_text=net.fetch_text, min_github=10)
+    rep = await r.run(queries, [])
+    assert [g.title for g in rep.github] == ["f/filmlut", "j/jpegview"]  # 命中 3 个词的在前
+    searched = [
+        u.split("q=")[1].split("&")[0] for u in net.urls if u.startswith(f"{GITHUB}/search")
+    ]
+    assert "perspective" not in searched and all("%20" in q for q in searched)
+    assert any("只找到 2 个" in n for n in rep.notes)
+
+
+@pytest.mark.asyncio
 async def test_github_short_is_reported_honestly_and_queries_are_capped():
-    net = Net({"rare%20thing": [repo("a/one", 300)]})
+    net = Net({"rare%20thing": [repo("a/one", 300, desc="a rare thing")]})
     r = Researcher(fetch_json=net.fetch_json, fetch_text=net.fetch_text, min_github=10)
     rep = await r.run(["rare thing", "alpha beta gamma delta", "epsilon zeta eta"], [])
     assert len(rep.github) == 1

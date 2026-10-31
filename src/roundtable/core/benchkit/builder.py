@@ -1575,10 +1575,8 @@ class BenchBuilder:
         n, np_ = self.rules.research.learn, self.rules.research.learn_plugins
         if self.scout is None:
             return []
-        picks = sorted(
-            (g for g in github if g["verdict"] in ("adopt", "idea")),
-            key=lambda g: -g["stars"],
-        )[:n]
+        # 调研报告里已经按「命中的关键词多、星多」排好，照这个顺序挑，不再只看星数
+        picks = [g for g in github if g["verdict"] in ("adopt", "idea")][:n]
         seen = {g["title"] for g in picks}
         for p in sorted(plugins or [], key=lambda p: -p["stars"]):
             if np_ <= 0:
