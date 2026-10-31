@@ -60,6 +60,7 @@ def test_pick_without_mentions_is_one_or_two_available_members():
 def test_clean_reply():
     assert clean_reply("阿二：「好的」", "阿二", 100) == "好的"
     assert clean_reply("x" * 20, "阿二", 10) == "x" * 10 + "…"
+    assert clean_reply("心虚 (〃&gt;＿&lt;;〃)", "阿二", 100) == "心虚 (〃>＿<;〃)"
 
 
 async def test_replies_are_recorded_and_think_independently():

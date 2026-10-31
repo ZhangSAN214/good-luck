@@ -40,6 +40,16 @@ def test_parse_and_mood_words():
     assert mood_words(0.0, 0.3) == "平静" and mood_words(-0.8, 0.3) == "很低落"
 
 
+def test_a_cut_off_answer_keeps_the_finished_diary_and_items():
+    cut = (
+        '```json\n{\n  "diary": "今天待命了大半天，\\"挺好\\"",\n  "items": [\n'
+        '    {"text": "阿二今天过生日", "importance": 2},\n    {\n      "text": '
+    )
+    got = parse(cut)
+    assert got.diary == '今天待命了大半天，"挺好"'
+    assert got.items == [{"text": "阿二今天过生日", "importance": 2}]
+
+
 async def test_one_call_per_member_per_day_writes_diary_items_and_hanging():
     env = Env()
     chat(env)

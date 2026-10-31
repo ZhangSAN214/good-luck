@@ -1181,6 +1181,8 @@ class Brain:
         if focus is not None:
             what = "你注意到" if focus.kind != "own" else "想说的事"
             lines.append(f"{what}：{focus.text}")
+            if focus.source == "goal":  # 目标是从人物卡里摘的原句：说出口要换成眼下具体的一小步
+                lines.append(self.rules.goals.say_line)
         if rng.random() < self.rules.imperfect:
             lines.append(
                 rng.choice(

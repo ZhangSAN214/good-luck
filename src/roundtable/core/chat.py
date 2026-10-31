@@ -16,6 +16,7 @@
 from __future__ import annotations
 
 import asyncio
+import html
 import random
 import re
 from collections.abc import Awaitable, Callable
@@ -275,8 +276,9 @@ def mentioned(text: str, members: list[ChatMember]) -> list[ChatMember]:
 
 
 def clean_reply(text: str, name: str, max_chars: int) -> str:
-    """去掉模型自己加的「名字：」前缀和包裹的引号，截断过长的消息。"""
-    t = text.strip()
+    """去掉模型自己加的「名字：」前缀和包裹的引号，截断过长的消息；有的模型会把颜文字里的
+    ``<`` ``>`` 写成 ``&lt;`` ``&gt;``，换回原字（10-31 真模型试跑）。"""
+    t = html.unescape(text).strip()
     t = re.sub(rf"^\s*{re.escape(name)}\s*[:：]\s*", "", t)
     if len(t) >= 2 and t[0] in '"“「' and t[-1] in '"”」':
         t = t[1:-1].strip()

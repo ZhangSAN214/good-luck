@@ -296,6 +296,24 @@ def test_model_jokes_about_each_other_are_caught_but_ai_news_is_not():
     assert "model_joke" not in rules_hit("苹果那个智能助手说要接国内的模型了，下周开测")
 
 
+@pytest.mark.parametrize(
+    "text",
+    [  # 10-31 第 2 次真模型试跑
+        "还看不太出来呢。不过从你这几条来看，至少你是个问得出来的人",
+        "其实咱俩还不算太熟hh 非要现在答的话，感觉你一般不会太闷吧",
+        "我们才刚聊没多久，就觉得你挺好相处的",
+    ],
+)
+def test_hedge_then_profile(text):
+    assert "hedge_profile" in rules_hit(text)
+
+
+def test_a_plain_reaction_to_being_judged_is_fine():
+    for text in ("突然大考吗", "看不出来。", "你连猫名都要来问，挺在意细节的"):
+        assert "hedge_profile" not in rules_hit(text)
+    assert "model_joke" in rules_hit("比某些一开口就问「你到底什么时候发布」的人好相处多了")
+
+
 def test_ordinary_doubt_is_not_a_search_digest():
     assert "search_digest" not in rules_hit("真的假的，我不太信，等出了实测再说吧")
 
