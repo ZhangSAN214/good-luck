@@ -40,6 +40,7 @@ from roundtable.core.member.circle import Circle
 from roundtable.core.member.feel import Feelings
 from roundtable.core.member.firsts import Firsts
 from roundtable.core.member.human import Human
+from roundtable.core.member.hush import Hush
 from roundtable.core.member.lingo import Lingo
 from roundtable.core.member.love import USER, Heart
 from roundtable.core.member.memes import MemeSense
@@ -63,6 +64,15 @@ _QUESTION = re.compile(r"[？?]|(吗|呢|么)[。！!～~]*$")
 KEEP_NEWS = 6
 KEEP_PERCEPTS = 4
 CALENDAR_KINDS = frozenset({"holiday", "birthday", "joined", "user", "lunar", "observance"})
+
+
+def _theirs(item: dict[str, Any]) -> str:
+    """日历条目的名字。你自己加的纪念日是你的口吻（「我的生日」），成员念头里换成「他」，
+    免得她当成自己的生日（2026-10-31 生日场景）。"""
+    name = str(item.get("name", ""))
+    return name.replace("我", "他") if item.get("kind") == "user" else name
+
+
 _OWN_DAY = re.compile(r"^(今天是|再过\S+?天就是)\S+?(的生日|入职)")  # 日历念头里的「某某的生日」
 SENSES = {"web": "上网看到", "screen": "在屏幕上看到", "video": "看到", "weather": "看了天气"}
 URGENT = frozenset({"let_go", "retain", "blame"})  # 感情话里这几种不受条数和冷却限制
@@ -149,6 +159,7 @@ class Brain:
         self.memes = MemeSense(rt)
         self.phrases = Phrasebook(rt, bus)
         self.circle = Circle(rt, bus)  # 圈外熟人名册：她提过的室友、老同学，免得说反
+        self.hush = Hush(rt, bus)  # 以后别再提：你说别提了的事不再主动提
         self.firsts = Firsts(rt, bus)  # 「第一次」纪念：你亲口说的第一次，整月 / 整年那天轻轻提
         # 爱与复合情绪（love.py）：传了 bus 时订阅聊天和生活事件；names：成员 id → 称呼
         self.heart = Heart(rt, bus, names)
@@ -286,10 +297,10 @@ class Brain:
         if kind == "calendar.day":
             for it in data.get("items") or []:
                 if it.get("kind") in CALENDAR_KINDS:
-                    text = f"今天是{it.get('name', '')}"
+                    text = f"今天是{_theirs(it)}"
                     found.append((None, text, str(it.get("kind")), it.get("member")))
         elif kind == "calendar.upcoming" and data.get("kind") in CALENDAR_KINDS:
-            text = f"再过{data.get('in_days', '几')}天就是{data.get('name', '')}"
+            text = f"再过{data.get('in_days', '几')}天就是{_theirs(data)}"
             found.append((None, text, "upcoming", data.get("member")))
         elif kind.startswith(PERCEIVE) and event.member:
             card = str(data.get("card") or "").strip().replace("\n", " ")
@@ -742,7 +753,7 @@ class Brain:
         if abs(mood) > 0.35:
             word = "心情挺好" if mood > 0 else "心情不太好"
             out.append(Thought("mood", word, 0.3 + abs(mood)))
-        return out
+        return [t for t in out if not self.hush.blocks(member, t.text)]  # 他说过别再提的
 
     def musing(self, member: str, at: datetime) -> str:
         """她这阵子心里最挂着的一件自己的事（朋友圈、日记读这个，和聊天是一个人）：

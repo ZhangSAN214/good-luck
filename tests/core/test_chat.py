@@ -387,3 +387,33 @@ async def test_crisis_words_in_a_dm_reach_the_member_as_a_care_card():
     msg, _ = work.post("@阿三 进度怎么样")
     await work.replies(msg["id"], work.pick("@阿三 进度怎么样"))
     assert "12356" not in json_text(env.fake.calls[-1])
+
+
+def test_group_history_hides_what_she_slept_through_except_the_last_few(real_rhythm):
+    from datetime import UTC, datetime, timedelta
+
+    from roundtable.core.office.apartment import schedule
+    from roundtable.core.storage.repository import iso
+
+    env = Env()
+    room = chat(env)
+    member = room.members()[0]
+    base = datetime(2026, 11, 2, tzinfo=UTC)
+    zone_hours = [h for h in range(24) if schedule(member.id, h, base.weekday())[1] == "sleep"]
+    if not zone_hours:
+        return
+    from roundtable.core.hometz import home_zone
+
+    local = home_zone(env.rt).local(base).replace(hour=zone_hours[0], minute=0)
+    for i in range(6):
+        env.rt.repo.add_chat_message(
+            "main",
+            "V2" if member.id != "V2" else "V3",
+            f"夜里第{i}条",
+            created_at=iso(local + timedelta(minutes=i)),
+        )
+    names = {m.id: m.name for m in room.everyone()}
+    seen = room.history(names, viewer=member.id)
+    assert "夜里第5条" in seen and "夜里第3条" in seen and "夜里第2条" not in seen
+    assert "还有 3 条没看到" in seen
+    assert "夜里第0条" in room.history(names)  # 不指定谁在看：全给

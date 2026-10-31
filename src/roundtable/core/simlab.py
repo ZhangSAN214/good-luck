@@ -36,7 +36,7 @@ from zoneinfo import ZoneInfo
 import yaml
 
 import roundtable.core.browse as browse
-from roundtable.core import simexam
+from roundtable.core import simexam, simscene
 from roundtable.core.chat import ROOM, dm_room
 from roundtable.core.config import AppConfig, load_config
 from roundtable.core.prompts import PromptLibrary
@@ -327,6 +327,7 @@ class Simulation:
         material: dict | None = None,
         sleep: Callable[[float], Any] | None = None,
         resume: bool = False,
+        scenario: str | None = None,
     ) -> None:
         out = Path(out).resolve()
         if out.is_relative_to(DEFAULT_DB.parent.resolve()):
@@ -342,6 +343,13 @@ class Simulation:
         self.clock = SimClock(first.replace(tzinfo=self.zone) if first.tzinfo is None else first)
         self.config = config or load_config()
         self.material = material or yaml.safe_load(SIM_FILE.read_text(encoding="utf-8"))
+        self.scene: dict[str, Any] = {}
+        if scenario:
+            scenes = self.material.get("scenarios") or {}
+            if scenario not in scenes:
+                raise SimError(f"没有这个场景：{scenario}（有：{'、'.join(scenes) or '无'}）")
+            self.scene = scenes[scenario] | {"name": scenario}
+            self.material = simscene.material_with(self.material, self.scene)
         self.rng = random.Random(seed)
         self.result = SimResult(out)
         self._sleep = sleep or asyncio.sleep
@@ -396,6 +404,9 @@ class Simulation:
         svc.engine.heartbeat.unregister("wander")  # 模拟里成员不开真浏览器上网
         if self.cards_file and self._restored is None:
             svc.member_profile_import(self.cards_file)
+        if self.scene and self._restored is None:  # 场景：认识多久、今天什么日子……
+            got = simscene.prepare(svc, self.scene, self.clock.now(), self.seed)
+            self.result.meta["scenario"] = {"name": self.scene["name"]} | got
         return svc
 
     # --- 推进 ---

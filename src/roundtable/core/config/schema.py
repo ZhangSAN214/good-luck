@@ -2273,6 +2273,25 @@ class PhrasebookRules(_Strict):
     first_line: str = ""
 
 
+class HushRules(_Strict):
+    """以后别再提（2026-10-31，借 AI-Buddy 的思路）：
+    你说「别提了」的事，她们不再主动提，你问起再说。"""
+
+    enabled: bool = True
+    max_chars: int = Field(default=20, ge=4, le=100)  # 只认这么短的一句
+    ask: str = "^(?:以后|那个|这个|求你)?(?:别|不要|不许|甭)再?(?:提|说|聊)(?:起)?(.{0,12})$"
+    lift: str = "(?:可以|能)再?(?:提|说|聊)了|不用(?:再)?避着"
+    max_keep: int = Field(default=10, ge=1, le=100)
+    line: str = "【他说过别再提】{items}——别主动提，他自己问起再说"
+
+    @field_validator("ask")
+    @classmethod
+    def _ask(cls, v: str) -> str:
+        if re.compile(v).groups < 1:
+            raise ValueError("ask 要有一个分组（那件事）")
+        return v
+
+
 class FirstsRules(_Strict):
     """「第一次」纪念（2026-10-31 拟人插件调研第 10 项）：你在私聊亲口说的「第一次……」记下来，
     过整月、整年那天她可能轻轻提一句，只提一次、不要你回应。全程序。"""
@@ -2424,6 +2443,11 @@ class RhythmRules(_Strict):
     )
     late: str = (
         "你刚醒，才看到对方 {when} 发来的消息：自然地接上，可以提一句刚看到 / 刚醒，别道歉个没完"
+    )
+    # 不在场就看不到（借 AI-Buddy 的思路）：群里她睡着时的消息，醒来只看到最后 missed_keep 条
+    missed_keep: int = Field(default=3, ge=0, le=50)
+    missed_note: str = (
+        "（你刚才睡着了，前面还有 {n} 条没看到；想知道可以问一句刚才聊啥了，别装作都看过）"
     )
 
 
@@ -2606,6 +2630,7 @@ class EngineRules(_Strict):
     phase: PhaseRules = PhaseRules()
     circle: CircleRules = CircleRules()
     firsts: FirstsRules = FirstsRules()
+    hush: HushRules = HushRules()
     reach: ReachRules = ReachRules()
     feel: FeelRules = FeelRules()
 

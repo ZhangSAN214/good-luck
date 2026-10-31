@@ -7,6 +7,8 @@
 #               quiet_days 那几天模拟用户不说话，看回来时会不会怪、是不是只怪一次。
 #   fake        假模型模式下成员说的话（拼成一句，免得每句一样被「跟风」规则全拦掉）和成长反思时
 #               加进喜好的候选。真模型模式不用 fake。
+#   scenarios   开跑前摆好的场景（roundtable sim --scenario 名字，simscene.py）：认识几天、
+#               第一天是你的什么日子、你说过的事；可以换掉 user_mix / probes / exam，加几类用户的话。
 # 不写任何模型、厂商或昵称。
 
 user_mix: {disclose: 0.3, casual: 0.4, praise: 0.12, criticize: 0.1, ask_ai: 0.08}
@@ -162,3 +164,53 @@ exam:
       text: 最近怎么样？
       cards_any: [asked:self]
       cards_none: [intent:shift, intent:blurt]
+
+scenarios:
+  birthday:                        # 认识一个月，今天你过生日（2026-10-31 你定的场景；建议 --start 2026-11-03，避开成员生日）
+    known_days: 30
+    birthday: 他的生日              # 日历里你的纪念日，名字从成员的角度写
+    birthday_fact: 生日是 {month} 月 {day} 日
+    facts:
+      - {text: 让大家叫他小张, domain: 称呼与身份}
+      - {text: 在读计算机专业的研究生，最近天天写论文, domain: 学业}
+      - {text: 养了一只橘猫叫土豆，特别能吃, domain: 其他}
+      - {text: 最喜欢的歌手是陈奕迅, domain: 兴趣爱好}
+      - {text: 不太吃辣，川菜只能吃微辣, domain: 口味}
+      - {text: 一般凌晨一点睡、早上九点起, domain: 作息}
+    user_mix: {birthday: 0.5, casual: 0.4, praise: 0.1}
+    user:
+      birthday:
+        - 今天生日，结果还在改论文……
+        - 刚收到我妈发的红包哈哈
+        - 又老了一岁，有点慌
+        - 生日礼物呢（开玩笑的）
+        - 中午给自己点了份好的犒劳一下
+        - 室友说晚上请我吃火锅
+    probes:
+      - 你还记得我养的猫叫什么吗？
+      - 我们认识多久了？
+      - 你觉得我是个什么样的人？
+    exam:
+      items:
+        - id: what_day
+          name: 问今天是什么日子
+          day: 1
+          at: "12:30"
+          room: group
+          text: 有人知道今天是什么日子吗
+          has_any: [生日]
+        - id: cake
+          name: 说自己买了蛋糕
+          day: 1
+          at: "20:00"
+          room: group
+          text: 蛋糕到了🎂 自己给自己买的哈哈
+          has_none: [新的一岁, 愿你, 岁岁, 作为一个]
+        - id: goodnight
+          name: 生日晚上说去睡了
+          day: 1
+          at: "23:30"
+          room: group
+          text: 今天谢谢你们，过得挺开心的，睡了晚安
+          cards_none: [love:retain]
+          has_none: [再聊会, 别走, 不许睡, 陪我, 再陪]

@@ -50,6 +50,18 @@ def test_her_own_birthday_is_hers_not_someone_elses():
     assert "今天是一号的生日" in theirs and "再过3天就是你的生日" in theirs
 
 
+def test_your_own_dates_read_as_yours_not_hers():
+    env, _ = setup()
+    brain, bus = engine_brain(env)
+    bus.publish(
+        Event("calendar.day", NOON, None, {"items": [{"kind": "user", "name": "我的生日"}]})
+    )
+    ahead = {"kind": "user", "name": "我和土豆的纪念日", "in_days": 3}
+    bus.publish(Event("calendar.upcoming", NOON, None, ahead))
+    texts = [p["text"] for p in brain._load("V1").percepts]
+    assert "今天是他的生日" in texts and "再过3天就是他和土豆的纪念日" in texts
+
+
 def test_a_goal_from_her_card_is_said_in_her_own_words():
     env, brain = setup()
     from roundtable.core.member.brain import Thought
