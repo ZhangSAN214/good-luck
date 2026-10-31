@@ -409,6 +409,12 @@ class BenchReviewBody(BaseModel):
     comments: list[BenchComment] = Field(default_factory=list, max_length=20)
 
 
+class BenchPluginBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=200)  # 调研报告里列出的插件（仓库名）
+
+
 class BenchAskBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -872,6 +878,12 @@ def create_app(service: RoundtableService | None = None, lan: LanAccess | None =
     @app.post("/api/bench/{bench_id}/evolve")
     async def bench_evolve(request: Request, bench_id: str) -> dict[str, Any]:
         return await svc(request).bench_project(bench_id, "evolve")
+
+    @app.post("/api/bench/{bench_id}/plugin")
+    async def bench_plugin(
+        request: Request, bench_id: str, body: BenchPluginBody
+    ) -> dict[str, Any]:
+        return await svc(request).bench_project(bench_id, "plugin", name=body.name)
 
     @app.post("/api/bench/{bench_id}/ask")
     async def bench_ask(request: Request, bench_id: str, body: BenchAskBody) -> dict[str, Any]:

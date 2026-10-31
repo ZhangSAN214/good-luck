@@ -109,6 +109,11 @@ def merge_checks(
     return out
 
 
+def _who(w: Any) -> str:
+    """助手的显示名（Codex、Claude Code、dsh……）。"""
+    return str(getattr(w, "label", None) or w.id)
+
+
 def review_groups(authors: dict[str, str]) -> dict[str, list[str]]:
     """按作者分组：{作者: [他写的窗口]}，评审时整组交给不是他的一位。"""
     groups: dict[str, list[str]] = {}
@@ -128,6 +133,7 @@ class BenchBuilder:
         check: Check = run_check,
         scout: Scout | None = None,
         researcher: Researcher | None = None,
+        whitelist: Callable[[], dict[str, str]] | None = None,
         now: Callable[[], datetime] = lambda: datetime.now(UTC),
         seed: int | None = None,
     ) -> None:
@@ -138,6 +144,8 @@ class BenchBuilder:
         self.check = check
         self.scout = scout
         self.researcher = researcher
+        # dsh 插件白名单 {仓库 owner/name: 白名单 id}：调研列出的插件标出「已审过，可以装」
+        self.whitelist = whitelist
         self.library = Library(root) if root is not None else None
         self.now = now
         self.seed = seed
@@ -227,6 +235,9 @@ class BenchBuilder:
             "windows": [],
             "sources": [],
             "research": None,
+            "meeting": None,
+            "team": {"cards": []},
+            "plugin_requests": [],
             "gate": None,
             "timeline": [],
             "changes": [],
@@ -280,8 +291,8 @@ class BenchBuilder:
         b["log"].append({"at": _iso(self.now()), "text": text})
         self._save()
 
-    def _save(self) -> None:
-        b = self.build
+    def _save(self, b: dict[str, Any] | None = None) -> None:
+        b = b or self.build
         if b is None or self.root is None:
             return
         path = self.folder(b["id"]) / "build.json"
@@ -290,8 +301,8 @@ class BenchBuilder:
         tmp.write_text(json.dumps(b, ensure_ascii=False, indent=1), encoding="utf-8")
         os.replace(tmp, path)
 
-    async def _step(self, b, kind, prompt, rng, record, **kw):
-        return await self.sc.step(
+    async def _step(self, b, kind, prompt, rng, record, *, role: str = "", task: str = "", **kw):
+        chosen, result = await self.sc.step(
             kind,
             prompt,
             folder=self.folder(b["id"]),
@@ -299,6 +310,23 @@ class BenchBuilder:
             record=record,
             log=lambda t: self._log(b, t),
             **kw,
+        )
+        if role and chosen is not None:
+            self._card(b, chosen, role, task, bool(result is not None and result.ok))
+        return chosen, result
+
+    def _card(self, b: dict[str, Any], who: Any, role: str, task: str, ok: bool) -> None:
+        """协作看板：谁、当什么角色、干了哪件事、成没成。界面按人分栏显示。"""
+        team = b.setdefault("team", {"cards": []})
+        team["cards"].append(
+            {
+                "at": _iso(self.now()),
+                "who": who.id,
+                "label": _who(who),
+                "role": role,
+                "task": task[:120],
+                "ok": ok,
+            }
         )
 
     def _brief(self, b: dict[str, Any]) -> str:
@@ -387,6 +415,9 @@ class BenchBuilder:
         if spec.needs and self.scout is not None and self.rules.scout:
             b["status"] = "scouting"
             await self._scout(b, spec)
+        if self.rules.team.enabled:
+            b["status"] = "meeting"
+            await self._meeting(b, spec, rng)
         if self.rules.project.enabled:
             self._proposal(b, spec)
             self._gate(b, "sign", "看方案书，改好了签字开工")
@@ -432,6 +463,214 @@ class BenchBuilder:
             )
             self._gate(b, "accept", "试用成品，逐条验收")
 
+    # --- 三位助手协作：方案会、对抗手、dsh 插件申请 ------------------------------------
+
+    async def _meeting(self, b: dict[str, Any], spec: Spec, rng: random.Random) -> None:
+        """方案会：几位助手各提一份做法（每人一份，不重复找同一个人），再互相投票（看不到自己的，
+        顺序各自打乱）。得票最多的当主案，平票抽签；只有一份就是它。主案的做法交给写窗口的人。"""
+        team = self.rules.team
+        m: dict[str, Any] = {"pitches": [], "votes": [], "lead": None, "borrow": []}
+        b["meeting"] = m
+        spec_json = json.dumps(spec.to_dict(), ensure_ascii=False, indent=1)
+        prompt = self.render(
+            "bench_pitch", request=self._brief(b), spec=spec_json, sources=self._sources_text(b)
+        )
+        asked: list[str] = []
+        for _ in range(team.pitches):
+            record: dict[str, Any] = {}
+            chosen, result = await self._step(
+                b,
+                team.pitch_kind,
+                prompt,
+                rng,
+                record,
+                exclude=tuple(asked),
+                role="主案候选",
+                task="方案会：提一份做法",
+            )
+            if chosen is None:
+                break
+            asked.append(chosen.id)
+            if result is None or not result.ok:
+                continue
+            try:
+                d = extract_json_object(result.output)
+            except JSONOutputError:
+                self._log(b, f"{_who(chosen)} 的方案看不懂，不算")
+                continue
+            m["pitches"].append(
+                {
+                    "worker": chosen.id,
+                    "author": _who(chosen),
+                    "label": "",
+                    "idea": str(d.get("idea") or "")[:600],
+                    "hero": str(d.get("hero") or "")[:300],
+                    "plan": [str(x)[:300] for x in (d.get("plan") or [])][:8],
+                    "risks": [str(x)[:300] for x in (d.get("risks") or [])][:5],
+                    "cut": [str(x)[:200] for x in (d.get("cut") or [])][:3],
+                    "votes": 0,
+                }
+            )
+        pitches = m["pitches"]
+        if not pitches:
+            self._log(b, "方案会没收到能用的方案，按规格直接做")
+            return
+        rng.shuffle(pitches)
+        for i, p in enumerate(pitches):
+            p["label"] = "ABCDE"[i]
+        if team.vote and len(pitches) > 1:
+            await self._votes(b, spec_json, rng)
+        best = max(p["votes"] for p in pitches)
+        top = [p for p in pitches if p["votes"] == best]
+        lead = top[0] if len(top) == 1 else rng.choice(top)
+        m["lead"] = lead["worker"]
+        tally = "、".join(f"{p['label']} {p['votes']} 票" for p in pitches)
+        self._log(b, f"方案会：{len(pitches)} 份方案（{tally}），主案是 {lead['author']}")
+        self._mark(b, "立项", "方案会", f"主案：方案 {lead['label']}（{lead['author']}），{tally}")
+
+    async def _votes(self, b: dict[str, Any], spec_json: str, rng: random.Random) -> None:
+        m = b["meeting"]
+        by_label = {p["label"]: p for p in m["pitches"]}
+        for voter in [p["worker"] for p in m["pitches"]]:
+            others = [p for p in m["pitches"] if p["worker"] != voter]
+            rng.shuffle(others)
+            text = "\n\n".join(
+                f"方案 {p['label']}：{p['idea']}\n主视觉：{p['hero']}\n"
+                + "\n".join(f"- {x}" for x in p["plan"])
+                + ("\n风险：" + "；".join(p["risks"]) if p["risks"] else "")
+                for p in others
+            )
+            prompt = self.render("bench_vote", request=self._brief(b), spec=spec_json, pitches=text)
+            record: dict[str, Any] = {}
+            chosen, result = await self._step(
+                b,
+                self.rules.team.pitch_kind,
+                prompt,
+                rng,
+                record,
+                preset=voter,
+                role="投票",
+                task="方案会：给别人的方案投票",
+            )
+            # 本人干不了时调度会换人；换来的人可能正是某份方案的作者，这票不算
+            if chosen is None or chosen.id != voter or result is None or not result.ok:
+                continue
+            try:
+                d = extract_json_object(result.output)
+            except JSONOutputError:
+                continue
+            pick = str(d.get("pick") or "").strip().upper().removeprefix("方案").strip()
+            if pick not in by_label or by_label[pick]["worker"] == voter:
+                continue
+            by_label[pick]["votes"] += 1
+            borrow = [str(x)[:300] for x in (d.get("borrow") or [])][:3]
+            m["votes"].append(
+                {
+                    "voter": voter,
+                    "label": _who(chosen),
+                    "pick": pick,
+                    "why": str(d.get("why") or "")[:300],
+                    "borrow": borrow,
+                }
+            )
+            m["borrow"] = list(dict.fromkeys([*m["borrow"], *borrow]))[:6]
+
+    async def _attack(
+        self,
+        b: dict[str, Any],
+        spec: Spec,
+        rnd: dict[str, Any],
+        check: str,
+        shots: str,
+        authors: dict[str, str],
+        rng: random.Random,
+    ) -> None:
+        """对抗手：专门想办法把成品弄坏。先找没写过窗口的人；人手不够才让作者自己来
+        （只报毛病不打分，不算自评）。"""
+        team = self.rules.team
+        rec: dict[str, Any] = {"bugs": []}
+        rnd["attack"] = rec
+        wids = [w["id"] for w in b["windows"]]
+        prompt = self.render(
+            "bench_attack",
+            request=self._brief(b),
+            spec=json.dumps(spec.to_dict(), ensure_ascii=False, indent=1),
+            windows="\n".join(f"- {wid}（windows/{wid}.js）" for wid in wids),
+            shots=shots or "（这轮没有截图）",
+            check=check,
+            requirements=requirements_text(spec),
+        )
+        kw: dict[str, Any] = {"role": "对抗", "task": f"第 {rnd['n']} 轮：找毛病"}
+        writers = tuple(sorted(set(authors.values())))
+        chosen, result = await self._step(
+            b, team.attack_kind, prompt, rng, rec, exclude=writers, **kw
+        )
+        if chosen is None and writers:
+            chosen, result = await self._step(b, team.attack_kind, prompt, rng, rec, **kw)
+        if chosen is None or result is None or not result.ok:
+            rec["error"] = "这轮没有人能当对抗手"
+            return
+        try:
+            d = extract_json_object(result.output)
+        except JSONOutputError:
+            rec["error"] = "对抗手交来的东西看不懂"
+            return
+        for x in d.get("bugs") or []:
+            if not isinstance(x, dict) or not str(x.get("problem") or "").strip():
+                continue
+            sev = str(x.get("severity") or "").lower()
+            win = str(x.get("window") or "")
+            rec["bugs"].append(
+                {
+                    "window": win if win in wids else "",
+                    "severity": sev if sev in ("high", "mid", "low") else "mid",
+                    "problem": str(x["problem"])[:300],
+                    "steps": str(x.get("steps") or "")[:300],
+                    "fix": str(x.get("fix") or "")[:300],
+                }
+            )
+        rec["bugs"] = rec["bugs"][:12]
+        rec["summary"] = str(d.get("summary") or "")[:300]
+        rec["worker"] = chosen.id
+        counts = {
+            k: sum(1 for x in rec["bugs"] if x["severity"] == k) for k in ("high", "mid", "low")
+        }
+        self._log(
+            b,
+            f"第 {rnd['n']} 轮对抗：{_who(chosen)} 找出严重 {counts['high']}、"
+            f"一般 {counts['mid']}、小 {counts['low']} 个问题",
+        )
+
+    def request_plugin(self, bid: str, name: str) -> dict[str, Any]:
+        """你点「申请装上」：记进这个项目和全局申请单。装不装由审过源码的白名单决定
+        （config/dsh_plugins.yaml 钉版本和哈希，合并后在电脑上运行 setup_dsh.py 装上）。"""
+        b = self.get(bid)
+        if b is None:
+            raise KeyError(bid)
+        plugins = (b.get("research") or {}).get("plugins") or []
+        item = next((p for p in plugins if p["title"] == name), None)
+        if item is None:
+            raise ValueError("调研报告里没有这个插件")
+        reqs = b.setdefault("plugin_requests", [])
+        if name not in [r["name"] for r in reqs]:
+            entry = {"name": name, "url": item["url"], "at": _iso(self.now()), "bench": bid}
+            reqs.append(entry)
+            self._mark(b, "立项", "申请给 dsh 装插件", name)
+            if self.root is not None:
+                path = self.root / "plugin_requests.json"
+                try:
+                    allreq = json.loads(path.read_text(encoding="utf-8"))
+                except (OSError, ValueError):
+                    allreq = []
+                if name not in [r.get("name") for r in allreq]:
+                    allreq.append(entry)
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    path.write_text(
+                        json.dumps(allreq, ensure_ascii=False, indent=1), encoding="utf-8"
+                    )
+            self._save(b)
+        return b
+
     # --- 项目室：访谈、方案书、签字、里程碑、变更单、交付、革新 --------------------------
 
     async def _interview(self, b: dict[str, Any]) -> None:
@@ -444,7 +683,13 @@ class BenchBuilder:
             max_questions=str(self.rules.project.max_questions),
         )
         chosen, result = await self._step(
-            b, self.rules.plan_kind, prompt, self._rng(b, "interview"), record
+            b,
+            self.rules.plan_kind,
+            prompt,
+            self._rng(b, "interview"),
+            record,
+            role="访谈",
+            task="想该问你的问题",
         )
         qs: list[dict[str, Any]] = []
         if chosen is not None and result is not None and result.ok:
@@ -744,7 +989,13 @@ class BenchBuilder:
             )
             record: dict[str, Any] = {}
             chosen, result = await self._step(
-                b, self.rules.plan_kind, prompt, self._rng(b, "evolve"), record
+                b,
+                self.rules.plan_kind,
+                prompt,
+                self._rng(b, "evolve"),
+                record,
+                role="革新",
+                task="写下一版提案",
             )
             items: list[dict[str, str]] = []
             if chosen is not None and result is not None and result.ok:
@@ -802,7 +1053,9 @@ class BenchBuilder:
             max_requirements=str(self.rules.max_requirements),
             net=self._net_text(),
         )
-        chosen, result = await self._step(b, self.rules.plan_kind, prompt, rng, record)
+        chosen, result = await self._step(
+            b, self.rules.plan_kind, prompt, rng, record, role="拆需求", task="把一句话拆成规格"
+        )
         if chosen is None or result is None or not result.ok:
             raise RuntimeError("没有人能拆需求（都没装、在冷却或今天次数用完了）")
         try:
@@ -879,7 +1132,9 @@ class BenchBuilder:
         )
         queries = [str(n.get("keywords") or "") for n in spec.needs]
         news: Any = []
-        chosen, result = await self._step(b, rules.kind, prompt, rng, record)
+        chosen, result = await self._step(
+            b, rules.kind, prompt, rng, record, role="调研", task="给搜索词、查资讯和视频"
+        )
         if chosen is not None and result is not None and result.ok:
             try:
                 got = extract_json_object(result.output)
@@ -891,7 +1146,10 @@ class BenchBuilder:
             self._log(b, "没有助手能联网查资讯，只搜 GitHub 和论文")
         report = (await self.researcher.run(queries, news)).to_dict()
         report["worker"] = record.get("worker")
-        report["cards"] = await self._learn(b, report["github"], rng)
+        known = self.whitelist() if self.whitelist else {}
+        for p in report["plugins"]:
+            p["whitelisted"] = known.get(p["title"], "")
+        report["cards"] = await self._learn(b, report["github"], rng, report["plugins"])
         b["research"] = report
         folder = self.folder(b["id"])
         (folder / "research.json").write_text(
@@ -908,16 +1166,33 @@ class BenchBuilder:
         )
 
     async def _learn(
-        self, b: dict[str, Any], github: list[dict[str, Any]], rng: random.Random
+        self,
+        b: dict[str, Any],
+        github: list[dict[str, Any]],
+        rng: random.Random,
+        plugins: list[dict[str, Any]] | None = None,
     ) -> list[dict[str, Any]]:
-        """挑分最高的几个项目，源码只读下载到 research/learn/，各交给一位助手读完写学习卡。"""
-        n = self.rules.research.learn
-        if n <= 0 or self.scout is None:
+        """挑分最高的几个项目，源码只读下载到 research/learn/，各交给一位助手读完写学习卡；
+        dsh 插件集市里最对口的插件也读一读（给 dsh 和别的助手学它的做法，装不装另说）。"""
+        n, np_ = self.rules.research.learn, self.rules.research.learn_plugins
+        if self.scout is None:
             return []
         picks = sorted(
             (g for g in github if g["verdict"] in ("adopt", "idea")),
             key=lambda g: -g["stars"],
         )[:n]
+        seen = {g["title"] for g in picks}
+        for p in sorted(plugins or [], key=lambda p: -p["stars"]):
+            if np_ <= 0:
+                break
+            # 只读 GitHub 上的（owner/name）；许可证没核对过，一律只借思路
+            if p["title"] in seen or not re.fullmatch(r"[\w.-]+/[\w.-]+", p["title"]):
+                continue
+            picks.append(p | {"verdict": "idea", "license": p.get("license") or ""})
+            seen.add(p["title"])
+            np_ -= 1
+        if not picks:
+            return []
 
         async def one(g: dict[str, Any]) -> dict[str, Any] | None:
             assert self.scout is not None
@@ -941,7 +1216,15 @@ class BenchBuilder:
                 ),
                 folder=rel or "（没有源码，只按简介写）",
             )
-            chosen, result = await self._step(b, self.rules.research.kind, prompt, rng, record)
+            chosen, result = await self._step(
+                b,
+                self.rules.research.kind,
+                prompt,
+                rng,
+                record,
+                role="调研",
+                task=f"读 {g['title']} 写学习卡",
+            )
             if chosen is None or result is None or not result.ok:
                 return None
             try:
@@ -952,6 +1235,7 @@ class BenchBuilder:
                 "repo": g["title"],
                 "url": g["url"],
                 "verdict": g["verdict"],
+                "plugin": g.get("kind") == "dsh",
                 "folder": rel,
                 "worker": chosen.id,
                 "what": str(card.get("what") or "")[:400],
@@ -965,6 +1249,17 @@ class BenchBuilder:
 
     def _sources_text(self, b: dict[str, Any]) -> str:
         lines = []
+        m = b.get("meeting") or {}
+        lead = next((p for p in m.get("pitches") or [] if p["worker"] == m.get("lead")), None)
+        if lead:
+            lines.append(
+                f"- 方案会定下的主案（方案 {lead['label']}，大家照这个做）：{lead['idea']}"
+                + (f"\n  · 主视觉：{lead['hero']}" if lead["hero"] else "")
+                + "".join(f"\n  · {x}" for x in lead["plan"])
+                + "".join(f"\n  · 防：{x}" for x in lead["risks"])
+                + "".join(f"\n  · 这一版先不做：{x}" for x in lead["cut"])
+                + "".join(f"\n  · 补进来：{x}" for x in m.get("borrow") or [])
+            )
         for s in b.get("sources") or []:
             if s["verdict"] == "adopt" and s.get("folder"):
                 lines.append(
@@ -1090,7 +1385,9 @@ class BenchBuilder:
             sources=self._sources_text(b),
             net=self._net_text(),
         )
-        chosen, result = await self._step(b, self.rules.window_kind, prompt, rng, rec)
+        chosen, result = await self._step(
+            b, self.rules.window_kind, prompt, rng, rec, role="实施", task=f"写窗口「{w.title}」"
+        )
         rec["author"] = chosen.id if chosen else None
         if chosen is None or result is None or not result.ok:
             rec["status"] = "failed"
@@ -1134,7 +1431,14 @@ class BenchBuilder:
                 requirements=requirements_text(spec),
             )
             chosen, result = await self._step(
-                b, self.rules.review_kind, prompt, rng, rec, exclude=(author,)
+                b,
+                self.rules.review_kind,
+                prompt,
+                rng,
+                rec,
+                exclude=(author,),
+                role="评审",
+                task=f"评 {'、'.join(wids)}",
             )
             if chosen is None or result is None or not result.ok:
                 rec["error"] = "没有能评审的人（作者不能评自己写的窗口）"
@@ -1182,6 +1486,13 @@ class BenchBuilder:
         rnd["requirements"] = merge_checks(spec.requirements, rnd["reviews"])
         met = all(r["met"] for r in rnd["requirements"])
         rnd["passed"] = complete and met and passes(report.passed, rnd["scores"], self.rules)
+        team = self.rules.team
+        if team.enabled and team.attack:
+            await self._attack(b, spec, rnd, report.summary(), shots, authors, rng)
+            high = [x for x in rnd["attack"].get("bugs", []) if x["severity"] == "high"]
+            if high and team.block_high:
+                rnd["passed"] = False
+                self._log(b, f"第 {n} 轮对抗：找出 {len(high)} 个严重问题，修完才算过线")
         if rnd["scores"]:
             b["score"] = round(mean(rnd["scores"].values()), 2)
         if rnd["requirements"]:
@@ -1302,6 +1613,15 @@ class BenchBuilder:
                 continue
             level = "必须修" if f["severity"] == "block" else "建议修"
             lines.append(f"- [自动质检·{level}·{f['where']}] {f['check']}：{f['detail']}")
+        for x in (rnd.get("attack") or {}).get("bugs", []):
+            if x["window"] and x["window"] != wid:
+                continue
+            level = {"high": "必须修", "mid": "该修", "low": "顺手修"}[x["severity"]]
+            lines.append(
+                f"- [对抗·{level}] {x['problem']}"
+                + (f"（复现：{x['steps']}）" if x["steps"] else "")
+                + (f"\n  建议：{x['fix']}" if x["fix"] else "")
+            )
         for rec in rnd.get("reviews", []):
             got = (rec.get("problems") or {}).get(wid)
             if got:
@@ -1366,7 +1686,14 @@ class BenchBuilder:
         w = self.sc.worker(author) if author else None
         preset = author if w is not None and not excluded(self.sc.state(w)) else None
         chosen, result = await self._step(
-            b, self.rules.window_kind, prompt, rng, record, preset=preset
+            b,
+            self.rules.window_kind,
+            prompt,
+            rng,
+            record,
+            preset=preset,
+            role="实施",
+            task=f"返工「{rec['title']}」",
         )
         if chosen is not None and result is not None and result.ok:
             rec["author"], rec["status"] = chosen.id, "done"

@@ -13,6 +13,7 @@ export const STATUS = {
   planning: '正在拆需求',
   researching: '正在调研',
   scouting: '正在找插件',
+  meeting: '方案会',
   building: '分头写窗口',
   checking: '质检和评审',
   reworking: '打回返工',
@@ -36,13 +37,14 @@ export function stageIndex(b) {
   if (/^m\d+$/.test(kind)) return 1;
   if (b.evolve || b.status === 'evolving') return 3;
   if (b.status === 'delivered') return 2;
-  if (['planning', 'researching', 'scouting', 'interviewing'].includes(b.status)) return 0;
+  if (['planning', 'researching', 'scouting', 'meeting', 'interviewing'].includes(b.status)) return 0;
   return (b.timeline || []).length ? 1 : 0;
 }
 const STEPS = [
   ['planning', '拆需求'],
   ['researching', '调研'],
   ['scouting', '找插件'],
+  ['meeting', '方案会'],
   ['building', '分头写'],
   ['checking', '质检评审'],
   ['reworking', '返工'],
@@ -52,6 +54,7 @@ const WSTATUS = { waiting: '等着', running: '在写', done: '写好了', faile
 const VERDICT = { adopt: '直接用', idea: '只借思路', skip: '不用' };
 const NEWS = { news: '资讯', video: '视频', launch: '发布会', blog: '官方博客' };
 const CHECKED = { true: '', false: '（链接打不开，没核实）', null: '（没核实）' };
+const SEVERITY = { high: '严重', mid: '一般', low: '小' };
 const SHOT = { 电脑: '电脑', 平板: '平板', 手机: '手机', light: '浅色', dark: '深色' };
 
 /** 截图文件名（如「手机_dark.png」）→「手机 · 深色」。 */
@@ -211,11 +214,21 @@ export class BenchGenPanel {
       .join('');
     const cards = (r.cards || [])
       .map(
-        (k) => `<li><b>${esc(k.repo)}</b>${k.worker ? `（${esc(this.label(k.worker))} 写的）` : ''}：${esc(k.what)}
+        (k) => `<li><b>${esc(k.repo)}</b>${k.plugin ? ' <span class="bg-src">dsh 插件</span>' : ''}${k.worker ? `（${esc(this.label(k.worker))} 写的）` : ''}：${esc(k.what)}
           ${(k.borrow || []).length ? `<ul>${k.borrow.map((x) => `<li>借：${esc(x)}</li>`).join('')}${(k.avoid || []).map((x) => `<li>别学：${esc(x)}</li>`).join('')}</ul>` : ''}</li>`,
       )
       .join('');
-    const plugins = (r.plugins || []).map((p) => `<li>${link(p)} · ${esc(p.stars)} 星 · ${esc(p.summary)}</li>`).join('');
+    const asked = new Set((b.plugin_requests || []).map((x) => x.name));
+    const plugins = (r.plugins || [])
+      .map((p) => {
+        const state = p.whitelisted
+          ? `<span class="bg-ok">已审过，在电脑上运行 setup_dsh.py 就能装（${esc(p.whitelisted)}）</span>`
+          : asked.has(p.title)
+            ? '<span class="bg-src">已申请：审过源码、钉好版本后加进白名单</span>'
+            : `<button type="button" class="btn" data-plugin="${esc(p.title)}">申请装上</button>`;
+        return `<li>${link(p)} · ${esc(p.stars)} 星 · ${esc(p.summary)} ${state}</li>`;
+      })
+      .join('');
     const papers = (r.papers || []).map((p) => `<li>${link(p)} · ${esc(p.source)} ${esc(p.date)} · ${esc(p.summary)}</li>`).join('');
     const news = (r.news || [])
       .map((n) => `<li>${esc(NEWS[n.kind] || '资讯')}：${link(n)} · ${esc(n.source)} ${esc(n.date)}${esc(CHECKED[String(n.verified)] ?? '')} · ${esc(n.summary)}</li>`)
@@ -225,7 +238,7 @@ export class BenchGenPanel {
       ${notes}
       ${gh ? `<table class="sc-subs bg-gh"><thead><tr><th>项目</th><th>星</th><th>许可证</th><th>最近更新</th><th>结论</th><th>是什么</th></tr></thead><tbody>${gh}</tbody></table>` : ''}
       ${cards ? `<h4>学习卡</h4><ul class="bg-cards">${cards}</ul>` : ''}
-      ${plugins ? `<h4>dsh 插件（建议安装，你点同意才装）</h4><ul class="bg-list">${plugins}</ul>` : ''}
+      ${plugins ? `<h4>dsh 插件（建议安装，你点同意才装）</h4><ul class="bg-list bg-plugins">${plugins}</ul>` : ''}
       ${papers ? `<h4>论文</h4><ul class="bg-list bg-papers">${papers}</ul>` : ''}
       ${news ? `<h4>资讯和视频</h4><ul class="bg-list bg-news">${news}</ul>` : ''}
       <a class="link" href="/bench/${encodeURIComponent(b.id)}/${encodeURIComponent('调研报告.md')}" target="_blank" rel="noopener">打开完整调研报告</a>
@@ -241,7 +254,8 @@ export class BenchGenPanel {
       const skipped =
         (key === 'reworking' && !reworked && at > i) ||
         (key === 'scouting' && !(b.sources || []).length && at > i) ||
-        (key === 'researching' && !b.research && at > i);
+        (key === 'researching' && !b.research && at > i) ||
+        (key === 'meeting' && !b.meeting && at > i);
       const cls = skipped ? 'skip' : i < at || b.status === 'done' ? 'past' : i === at && !stopped ? 'now' : '';
       return `<li class="${cls}">${esc(name)}${skipped ? '（跳过）' : ''}</li>`;
     }).join('');
@@ -265,6 +279,7 @@ export class BenchGenPanel {
       <p class="sc-hint">你说的：${esc((b.request || '').slice(0, 200))}</p>
       ${b.timeline ? this.projectHtml(b) : ''}
       <ol class="bg-steps" aria-label="进度">${steps}</ol>
+      ${this.teamHtml(b)}
       ${b.status === 'needs_you' ? '<p class="sc-warn">做满了还没过线：下面有每轮的分数、截图和评审意见，成品也能先打开看看。要不要换个说法再生成一次，由你决定。</p>' : ''}
       ${finished || draft ? `<div class="sc-row"><button type="button" class="btn ${finished ? 'primary' : ''}" data-preview="${esc(b.id)}">${openLabel}</button>
         <a class="link" href="/bench/${encodeURIComponent(b.id)}/index.html" target="_blank" rel="noopener">在新窗口打开</a></div>` : ''}
@@ -303,6 +318,53 @@ export class BenchGenPanel {
     </section>`;
   }
 
+  /** 团队：方案会（各自的方案、谁投了谁、主案）+ 协作看板（按人分栏：当过什么角色、干了哪些事）。 */
+  teamHtml(b) {
+    const m = b.meeting;
+    const cards = ((b.team || {}).cards || []);
+    if (!m && !cards.length) return '';
+    let meeting = '';
+    if (m && (m.pitches || []).length) {
+      const pitches = [...m.pitches]
+        .sort((x, y) => x.label.localeCompare(y.label))
+        .map((p) => {
+          const lead = p.worker === m.lead;
+          return `<li class="bg-pitch ${lead ? 'bg-lead' : ''}"><p><b>方案 ${esc(p.label)}</b> · ${esc(this.label(p.worker))} · ${esc(p.votes)} 票${lead ? ' <span class="bg-badge">主案</span>' : ''}</p>
+            <p>${esc(p.idea)}</p>${p.hero ? `<p class="sc-sub">主视觉：${esc(p.hero)}</p>` : ''}
+            <ul>${(p.plan || []).map((x) => `<li>${esc(x)}</li>`).join('')}</ul>
+            ${(p.risks || []).length ? `<p class="sc-sub">风险：${esc(p.risks.join('；'))}</p>` : ''}</li>`;
+        })
+        .join('');
+      const votes = (m.votes || [])
+        .map((v) => `<li>${esc(this.label(v.voter))} 投给方案 ${esc(v.pick)}：${esc(v.why)}${(v.borrow || []).length ? `<span class="sc-sub"> · 建议补：${esc(v.borrow.join('；'))}</span>` : ''}</li>`)
+        .join('');
+      meeting = `<h4>方案会</h4><ul class="bg-pitches">${pitches}</ul>${votes ? `<ul class="bg-list bg-votes">${votes}</ul>` : ''}`;
+    } else if (m) {
+      meeting = '<p class="sc-hint">方案会没收到能用的方案，按规格直接做。</p>';
+    }
+    const by = new Map();
+    for (const c of cards) {
+      if (!by.has(c.who)) by.set(c.who, []);
+      by.get(c.who).push(c);
+    }
+    const cols = [...by.entries()]
+      .map(([who, list]) => {
+        const roles = [...new Set(list.map((c) => c.role))];
+        const recent = list
+          .slice(-6)
+          .reverse()
+          .map((c) => `<li class="${c.ok ? '' : 'sc-warn'}"><span class="bg-src">${esc(c.at.slice(11, 16))} ${esc(c.role)}</span> ${esc(c.task)}${c.ok ? '' : '（没成）'}</li>`)
+          .join('');
+        return `<div class="bg-col"><p><b>${esc(this.label(who))}</b>${who === (m || {}).lead ? ' <span class="bg-badge">主案</span>' : ''} · ${list.length} 件</p>
+          <p class="bg-roles">${roles.map((r) => `<span class="chip">${esc(r)}</span>`).join('')}</p><ul class="bg-list">${recent}</ul></div>`;
+      })
+      .join('');
+    return `<details class="bg-team" open><summary>团队：${by.size} 位助手协作${m && m.lead ? `，主案 ${esc(this.label(m.lead))}` : ''}</summary>
+      ${meeting}
+      ${cols ? `<h4>协作看板</h4><div class="bg-board">${cols}</div>` : ''}
+    </details>`;
+  }
+
   winTitle(b, wid) {
     return ((b.windows || []).find((w) => w.id === wid) || {}).title || wid;
   }
@@ -336,7 +398,7 @@ export class BenchGenPanel {
       const wins = (p.windows || []).map((w) => `<li>${esc(w.title)}${w.id === p.hero ? ' <b>（主视觉）</b>' : ''}：${esc(w.purpose)}</li>`).join('');
       const ms = (p.milestones || []).map((m) => `<li>${esc(m.title)}：${esc((m.titles || []).join('、'))}</li>`).join('');
       const tech = (p.tech || []).map((t) => `<li>${esc(t)}</li>`).join('');
-      const plugins = (p.plugins || []).length ? `<p class="sc-hint">建议给 dsh 装的插件：${esc(p.plugins.join('、'))}（下一步做安装）</p>` : '';
+      const plugins = (p.plugins || []).length ? `<p class="sc-hint">建议给 dsh 装的插件：${esc(p.plugins.join('、'))}（在下面调研报告里点「申请装上」）</p>` : '';
       return `<div class="bg-gate" data-form>${head}
         <h4>验收清单（你的要求可以改、删、加；底线不能删）</h4><ul class="bg-reqs bg-sign-reqs">${reqs}</ul>
         <button type="button" class="link" data-addreq>加一条要求</button>
@@ -425,6 +487,15 @@ export class BenchGenPanel {
         (x) => `<li class="${x.met ? 'bg-met' : 'bg-miss'}"><span class="bg-mark" role="img" aria-label="${x.met ? '做到了' : '没做到'}">${x.met ? '✓' : '✗'}</span><b>${esc(x.id)}</b> <span class="bg-src">${esc(x.source)}</span> ${esc(x.text)}${!x.met && x.why?.length ? `<div class="sc-sub">${esc(x.why.join('；'))}</div>` : ''}</li>`,
       )
       .join('');
+    const atk = r.attack || null;
+    const bugs = atk
+      ? (atk.bugs || [])
+          .map((x) => `<li class="bg-bug-${esc(x.severity)}"><b>${esc(SEVERITY[x.severity] || x.severity)}</b>${x.window ? ` · ${esc(this.winTitle(b, x.window))}` : ''}：${esc(x.problem)}${x.fix ? `<span class="sc-sub">建议：${esc(x.fix)}</span>` : ''}</li>`)
+          .join('')
+      : '';
+    const attack = atk
+      ? `<div class="bg-attack"><p><b>对抗手</b>${atk.worker ? `（${esc(this.label(atk.worker))}）` : ''}：${esc(atk.error || atk.summary || '')}${!atk.error && !bugs ? ' 没找到问题' : ''}</p>${bugs ? `<ul class="bg-list">${bugs}</ul>` : ''}</div>`
+      : '';
     const back = Object.entries(r.reverted || {})
       .map(([id, [a, z]]) => `${esc(id)}（${esc(a)} → ${esc(z)}）`)
       .join('、');
@@ -436,6 +507,7 @@ export class BenchGenPanel {
       ${findings ? `<ul class="bg-findings">${findings}</ul>` : ''}
       ${shots ? `<div class="bg-shots">${shots}</div>` : ''}
       ${reviews ? `<ul class="bg-reviews">${reviews}</ul>` : ''}
+      ${attack}
     </details>`;
   }
 
@@ -492,6 +564,8 @@ export class BenchGenPanel {
       return this.act(() => this.api.review(b.id, 'change', comments));
     }
     if (t.closest('[data-evolve]')) return this.act(() => this.api.evolve(b.id));
+    const plug = t.closest('[data-plugin]');
+    if (plug) return this.act(() => this.api.plugin(b.id, plug.dataset.plugin));
     if (t.closest('[data-nextver]')) {
       const items = ((b.evolve || {}).items || []).map((x) => `- ${x.title}：${x.why}`).join('\n');
       this.draft = `${b.request}\n\n这是下一版，要做的改进：\n${items}`;

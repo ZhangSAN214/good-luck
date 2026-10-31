@@ -166,3 +166,41 @@ def test_project_room_gates_over_http(tmp_path):
         assert c.post(f"/api/bench/{bid}/evolve").status_code == 200
         wait_done(c)
         assert c.get(f"/api/bench/{bid}").json()["evolve"]["items"]
+
+
+def test_plugin_request_over_http(tmp_path):
+    from ..core.benchkit.test_builder import LearnScout, ResearchSC
+    from ..core.benchkit.test_team import PluginResearcher
+
+    service = RoundtableService(Env().rt)
+    service.bench = BenchBuilder(
+        BenchRules(),
+        root=tmp_path / "bench",
+        supercomputer=ResearchSC(),
+        render=render,
+        check=fake_check(),
+        scout=LearnScout(),
+        researcher=PluginResearcher(),
+        seed=1,
+    )
+    with TestClient(create_app(service)) as c:
+        c.post("/api/bench", json={"request": "修图台"})
+        wait_done(c)
+        bid = c.get("/api/bench").json()["current"]["id"]
+        r = c.post(f"/api/bench/{bid}/plugin", json={"name": "x/dsh-canvas"})
+        assert r.status_code == 200
+        assert r.json()["current"]["plugin_requests"][0]["name"] == "x/dsh-canvas"
+        assert c.post(f"/api/bench/{bid}/plugin", json={"name": "没有"}).status_code == 400
+        assert c.post("/api/bench/nope/plugin", json={"name": "x"}).status_code == 404
+        assert c.post(f"/api/bench/{bid}/plugin", json={"name": ""}).status_code == 422
+
+
+def test_dsh_whitelist_maps_reviewed_repos_to_ids():
+    service = RoundtableService(Env().rt)
+    known = service._dsh_whitelist()
+    if service.dsh is None or service.dsh.catalog is None:
+        assert known == {}
+    else:
+        assert known["Aisland-SJL/dsh-worktable"] == "worktable"
+    service.dsh = None
+    assert service._dsh_whitelist() == {}
