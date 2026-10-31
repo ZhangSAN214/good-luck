@@ -21,7 +21,7 @@ import random
 import re
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, replace
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any
 
 from roundtable.core.attachments.model import append_to_messages
@@ -143,7 +143,12 @@ def with_about_you(
     about = AboutYou(rt).lines(query, member=member, names=names)  # 只带她知道的（知情范围）
     rules = rt.config.roundtable.chat.engine.about
     who = f"【对方是谁】{rules.identity}" if rules.enabled and rules.identity else ""
-    parts = [who, about, status.line() if status is not None else ""]
+    hush = ""
+    if member:  # 他说过别再提的事：不主动提
+        from roundtable.core.member.hush import Hush
+
+        hush = Hush(rt).line(member)
+    parts = [who, about, hush, status.line() if status is not None else ""]
     about = "\n".join(p for p in parts if p)
     if not about:
         return memory
@@ -461,11 +466,18 @@ class GroupChat:
     def recent(self) -> list[dict[str, Any]]:
         return self.rt.repo.chat_messages(self.room, limit=self.rules.history_messages)
 
-    def history(self, names: dict[str, str], numbered: bool = False) -> str:
+    def history(
+        self, names: dict[str, str], numbered: bool = False, viewer: str | None = None
+    ) -> str:
         """最近的聊天记录，每行「名字：内容」。numbered：行首带消息编号「#12」，
-        引用写成「名字（回复 #8）：内容」，拍一拍写成「（用户拍了拍 某某）」。撤回的消息不出现。"""
+        引用写成「名字（回复 #8）：内容」，拍一拍写成「（用户拍了拍 某某）」。撤回的消息不出现。
+        viewer：生活群里是谁在看——她睡着时的消息只看得到最后几条（不在场就看不到）。"""
         lines = []
-        for r in self.recent():
+        rows, missed = self._seen_by(viewer)
+        if missed:
+            note = self.rt.config.roundtable.chat.engine.rhythm.missed_note
+            lines.append(note.format(n=missed))
+        for r in rows:
             if is_recalled(r):
                 continue
             meta = r["meta"] or {}
@@ -491,6 +503,30 @@ class GroupChat:
 
                 lines.append(media_block(who, cards))
         return "\n".join(lines)
+
+    def _seen_by(self, viewer: str | None) -> tuple[list[dict[str, Any]], int]:
+        """她看得到的记录和没看到的条数：生活群里她睡着时别人发的，只留最后 missed_keep 条。"""
+        rows = self.recent()
+        if viewer is None or self.kind != "group":
+            return rows, 0
+        from roundtable.core.member.rhythm import Rhythm  # rhythm 读聊天记录
+
+        rhythm = Rhythm(self.rt)
+        if not rhythm.enabled():
+            return rows, 0
+        slept = []
+        for i, r in enumerate(rows):
+            if r["author"] in (viewer, SYSTEM):
+                continue
+            try:
+                at = datetime.fromisoformat(r["created_at"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            if rhythm.asleep(viewer, at):
+                slept.append(i)
+        keep = rhythm.rules.missed_keep
+        hidden = set(slept[: max(0, len(slept) - keep)])
+        return [r for i, r in enumerate(rows) if i not in hidden], len(hidden)
 
     def pat_words(self, pat: dict[str, Any], names: dict[str, str], for_model: bool = False) -> str:
         """「你拍了拍 阿一」；for_model 时把「你」写成「用户」。"""
@@ -803,7 +839,7 @@ class GroupChat:
         wants = set(rt.prompts.get(role, version).variables)
         numbered = "stickers" in wants  # 带动作说明的提示词版本（chat / chat_dm v4 起）
         recent = self.recent()
-        history = self.history(names, numbered=numbered)
+        history = self.history(names, numbered=numbered, viewer=member.id)
         variables: dict[str, str] = {
             "name": member.name,
             # 工作群不带人物卡和人设（2026-10-29 用户：工作与生活分开）

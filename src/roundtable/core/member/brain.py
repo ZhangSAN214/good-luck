@@ -40,6 +40,7 @@ from roundtable.core.member.circle import Circle
 from roundtable.core.member.feel import Feelings
 from roundtable.core.member.firsts import Firsts
 from roundtable.core.member.human import Human
+from roundtable.core.member.hush import Hush
 from roundtable.core.member.lingo import Lingo
 from roundtable.core.member.love import USER, Heart
 from roundtable.core.member.memes import MemeSense
@@ -149,6 +150,7 @@ class Brain:
         self.memes = MemeSense(rt)
         self.phrases = Phrasebook(rt, bus)
         self.circle = Circle(rt, bus)  # 圈外熟人名册：她提过的室友、老同学，免得说反
+        self.hush = Hush(rt, bus)  # 以后别再提：你说别提了的事不再主动提
         self.firsts = Firsts(rt, bus)  # 「第一次」纪念：你亲口说的第一次，整月 / 整年那天轻轻提
         # 爱与复合情绪（love.py）：传了 bus 时订阅聊天和生活事件；names：成员 id → 称呼
         self.heart = Heart(rt, bus, names)
@@ -742,7 +744,7 @@ class Brain:
         if abs(mood) > 0.35:
             word = "心情挺好" if mood > 0 else "心情不太好"
             out.append(Thought("mood", word, 0.3 + abs(mood)))
-        return out
+        return [t for t in out if not self.hush.blocks(member, t.text)]  # 他说过别再提的
 
     def musing(self, member: str, at: datetime) -> str:
         """她这阵子心里最挂着的一件自己的事（朋友圈、日记读这个，和聊天是一个人）：
