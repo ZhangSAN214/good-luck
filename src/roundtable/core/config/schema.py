@@ -596,6 +596,7 @@ class StickerRules(_Strict):
     check_max_tokens: int = Field(default=1200, ge=200)
     max_attempts: int = Field(default=2, ge=1, le=4)  # 含第一次；核对不合格时换模型重画
     review: bool = True  # 新画的先进「待审」，你点「可以」后成员才会用
+    frame_ms: int = Field(default=280, ge=60, le=2000)  # 动图每格停多久（毫秒）
 
 
 class SpeechRules(_Strict):
@@ -2700,6 +2701,15 @@ class StickerSpec(_Strict):
     name: str = Field(min_length=1, max_length=12)  # 表情名（聊天里写 [表情:包名·表情名]）
     caption: str = Field(min_length=1, max_length=16)  # 画进图里的配文
     action: str = Field(min_length=1, max_length=120)  # 动作和表情
+    # 动图：四格画面里依次的动作（正好 4 条）；不写就是一张静态贴纸
+    frames: list[str] = Field(default_factory=list, max_length=4)
+
+    @field_validator("frames")
+    @classmethod
+    def _four(cls, frames: list[str]) -> list[str]:
+        if frames and (len(frames) != 4 or any(not f.strip() or len(f) > 60 for f in frames)):
+            raise ValueError("动图要正好 4 格，每格的动作 1～60 字")
+        return frames
 
 
 class StickerCard(_Strict):

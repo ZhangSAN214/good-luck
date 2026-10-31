@@ -82,9 +82,10 @@ class Check:
 
 def card_hash(card: StickerCard, spec: StickerSpec) -> str:
     """形象卡里影响这一张的内容：变了就该重画。"""
-    raw = json.dumps(
-        [card.look, card.must, card.refs, spec.caption, spec.action], ensure_ascii=False
-    )
+    parts: list[Any] = [card.look, card.must, card.refs, spec.caption, spec.action]
+    if spec.frames:  # 静态贴纸不带这一项，原来画好的不会因此变成「该重画」
+        parts.append(spec.frames)
+    raw = json.dumps(parts, ensure_ascii=False)
     return hashlib.sha256(raw.encode()).hexdigest()[:16]
 
 
@@ -177,7 +178,12 @@ class MemberStickers:
         out = []
         for spec in card.stickers:
             e = drawn.get(spec.name)
-            row: dict[str, Any] = {"name": spec.name, "caption": spec.caption, "status": "missing"}
+            row: dict[str, Any] = {
+                "name": spec.name,
+                "caption": spec.caption,
+                "status": "missing",
+                "animated": bool(spec.frames),
+            }
             if e:
                 row.update(
                     status=e["status"],
@@ -225,7 +231,7 @@ class MemberStickers:
                 continue
             for e in rows.values():
                 old = self._index.read(e["file"])
-                if not old:
+                if not old or old[:3] == b"GIF":  # 动图画的时候每格已经刷过
                     continue
                 image = _square(old, self.rules.size)
                 if image == old:
@@ -290,14 +296,25 @@ class MemberStickers:
         refs = self.references(member, card)
         if not refs:
             raise StickerUnavailable("找不到这位成员的形象参考图（素材目录里的设定图、立绘或头像）")
-        prompt = self.rt.prompts.render(
-            "sticker_draw",
-            self.rt.config.roundtable.prompts["sticker_draw"],
-            look=card.look,
-            must="、".join(card.must) or "无",
-            caption=spec.caption,
-            action=spec.action,
-        )
+        if spec.frames:  # 动图：一次画 2×2 四格，切开后连起来
+            frames = "\n".join(f"Panel {i}: {f}" for i, f in enumerate(spec.frames, 1))
+            prompt = self.rt.prompts.render(
+                "sticker_anim",
+                self.rt.config.roundtable.prompts["sticker_anim"],
+                look=card.look,
+                must="、".join(card.must) or "无",
+                caption=spec.caption,
+                frames=frames,
+            )
+        else:
+            prompt = self.rt.prompts.render(
+                "sticker_draw",
+                self.rt.config.roundtable.prompts["sticker_draw"],
+                look=card.look,
+                must="、".join(card.must) or "无",
+                caption=spec.caption,
+                action=spec.action,
+            )
         text = "\n\n".join(m.content for m in prompt.messages)
         session = self.rt.repo.sticker_session()
         attempts = [models[i % len(models)] for i in range(self.rules.max_attempts)]
@@ -339,13 +356,19 @@ class MemberStickers:
             self._record(session, DRAW_STEP, model, text, inv, cost, out.cost_usd is not None)
             if not out.images:
                 continue
-            image, used = _square(out.images[0].data, self.rules.size), model
-            check = await self._check(session, image, spec, card, refs)
+            raw, used = out.images[0].data, model
+            if spec.frames:
+                cells = [_square(c, self.rules.size) for c in _quarters(raw)]
+                image, first = _gif(cells, self.rules.frame_ms), cells[0]
+            else:
+                image = first = _square(raw, self.rules.size)
+            check = await self._check(session, first, spec, card, refs)  # 动图核对第一格
             if check is None or check.ok:
                 break
         if image is None or used is None:
             raise StickerUnavailable("画图失败（所有模型都没画出来）")
-        file = hashlib.sha256(image).hexdigest()[:24] + ".png"
+        ext = ".gif" if image[:3] == b"GIF" else ".png"
+        file = hashlib.sha256(image).hexdigest()[:24] + ext
         self._index.write(file, image)
         data = self._index.load()
         data["items"].setdefault(member, {})[name] = {
@@ -539,6 +562,39 @@ def _square(data: bytes, size: int) -> bytes:
             return buf.getvalue()
     except Exception:  # noqa: BLE001 - 读不了的图：原样存
         return data
+
+
+def _quarters(data: bytes) -> list[bytes]:
+    """把 2×2 四格图切成四张（左上、右上、左下、右下，PNG）；读不了时四格都是原图。"""
+    try:
+        from PIL import Image
+
+        with Image.open(io.BytesIO(data)) as im:
+            im = im.convert("RGBA")
+            w, h = im.size
+            out = []
+            for box in ((0, 0, w // 2, h // 2), (w // 2, 0, w, h // 2)) + (
+                (0, h // 2, w // 2, h),
+                (w // 2, h // 2, w, h),
+            ):
+                buf = io.BytesIO()
+                im.crop(box).save(buf, "PNG")
+                out.append(buf.getvalue())
+            return out
+    except Exception:  # noqa: BLE001 - 坏图：交给后面按一张处理
+        return [data] * 4
+
+
+def _gif(frames: list[bytes], ms: int) -> bytes:
+    """几张同样大小的 PNG 连成循环播放的 GIF。"""
+    from PIL import Image
+
+    images = [Image.open(io.BytesIO(f)).convert("RGB") for f in frames]
+    buf = io.BytesIO()
+    images[0].save(
+        buf, "GIF", save_all=True, append_images=images[1:], duration=ms, loop=0, optimize=True
+    )
+    return buf.getvalue()
 
 
 def _white_background(im: Any) -> Any:

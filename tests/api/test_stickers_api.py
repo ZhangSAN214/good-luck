@@ -18,7 +18,7 @@ def test_stickers_api():
         data = c.get("/api/stickers").json()
         assert data["review"] is True and data["month_spent_usd"] == 0
         first = data["members"][0]
-        assert first["id"] == "OpenAI" and len(first["stickers"]) == 12
+        assert first["id"] == "OpenAI" and len(first["stickers"]) == 14
         assert {s["status"] for s in first["stickers"]} == {"missing"}
         assert data["monthly_usd"] == env.rt.config.roundtable.media.stickers.monthly_usd
         # 没有形象卡：404
@@ -40,7 +40,8 @@ def test_stickers_api():
 
         service.stickers.draw = draw
         service.stickers.review = review
-        service.stickers.file = lambda member, name: b"\x89PNG" if name == "晚安" else None
+        files = {"晚安": b"\x89PNG", "转圈": b"GIF89a"}
+        service.stickers.file = lambda member, name: files.get(name)
         assert c.post("/api/stickers/V1/晚安/draw").json()["status"] == "pending"
         assert c.post("/api/stickers/V1/超了/draw").status_code == 402
         r = c.post("/api/stickers/V1/晚安/review", json={"status": "approved"})
@@ -51,6 +52,7 @@ def test_stickers_api():
         img = c.get("/api/stickers/V1/晚安/image")
         assert img.status_code == 200 and img.content == b"\x89PNG"
         assert img.headers["content-type"] == "image/png"
+        assert c.get("/api/stickers/V1/转圈/image").headers["content-type"] == "image/gif"
 
 
 def test_chat_sticker_packs_list_only_approved_ones_under_the_nickname(tmp_path):

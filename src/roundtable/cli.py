@@ -1542,7 +1542,8 @@ class CLI:
                 for row in stickers.listing(m):
                     data = stickers.file(m, row["name"])
                     if data:
-                        (folder / f"{m}_{row['name']}.png").write_bytes(data)
+                        ext = "gif" if data[:3] == b"GIF" else "png"
+                        (folder / f"{m}_{row['name']}.{ext}").write_bytes(data)
                         saved += 1
             self.p(f"已保存 {saved} 张到 {folder}")
         return 1 if failed else 0

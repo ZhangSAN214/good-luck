@@ -49,9 +49,12 @@ def image_calls(fake):
     return [c for c in fake.media_calls if c[0] == "image"]
 
 
-def test_every_member_has_a_full_set_of_twelve():
+def test_every_member_has_twelve_stills_and_two_animated():
     cards = load_config().personas.sticker_cards
-    assert len(cards) == 8 and all(len(c.stickers) == 12 for c in cards.values())
+    assert len(cards) == 8
+    for card in cards.values():
+        assert len([s for s in card.stickers if not s.frames]) == 12
+        assert len([s for s in card.stickers if s.frames]) == 2
     vendors = {m.vendor for m in load_config().models.models if m.seat}
     assert set(cards) <= vendors
     for card in cards.values():
@@ -87,7 +90,7 @@ def test_index_and_files_survive_a_new_instance(tmp_path):
     assert row["status"] == "pending"
     assert fresh.file("OpenAI", "晚安") == stickers.file("OpenAI", "晚安")
     missing = [r for r in fresh.listing("OpenAI") if r["status"] == "missing"]
-    assert len(missing) == 11
+    assert len(missing) == 13
 
 
 def test_failed_check_redraws_with_another_model_and_keeps_the_problem(tmp_path):
@@ -276,3 +279,57 @@ def test_whiten_repaints_stored_stickers_and_keeps_their_status(tmp_path):
     assert ok["file"] != "old.png"
     with Image.open(io.BytesIO(stickers.file("OpenAI", "晚安"))) as im:
         assert im.convert("RGB").getpixel((3, 3)) == (255, 255, 255)
+
+
+def test_animated_sticker_is_drawn_as_four_panels_and_saved_as_a_gif(tmp_path, monkeypatch):
+    from roundtable.core.config.schema import StickerCard, StickerSpec
+    from roundtable.core.providers import ImageOutput, Media
+
+    rt, fake, stickers = build(tmp_path)
+    card = rt.config.personas.sticker_cards["OpenAI"]
+    spin = StickerSpec(
+        name="转圈", caption="好耶", action="转圈", frames=["站好", "转身", "背对", "转回来"]
+    )
+    cards = rt.config.personas.sticker_cards | {
+        "OpenAI": StickerCard(**(card.model_dump() | {"stickers": [*card.stickers[:11], spin]}))
+    }
+    rt.config = rt.config.model_copy(
+        update={"personas": rt.config.personas.model_copy(update={"sticker_cards": cards})}
+    )
+    # 2×2 四格：每格一个颜色不同的方块
+    sheet = Image.new("RGB", (400, 400), "white")
+    for i, color in enumerate(["red", "green", "blue", "orange"]):
+        x, y = (i % 2) * 200, (i // 2) * 200
+        sheet.paste(color, (x + 60, y + 60, x + 140, y + 140))
+    buf = io.BytesIO()
+    sheet.save(buf, "PNG")
+    calls = []
+
+    async def generate_image(model, prompt, params, images=(), api="chat"):
+        calls.append(prompt)
+        return ImageOutput((Media("image", "image/png", buf.getvalue()),), 0.02)
+
+    monkeypatch.setattr(fake, "generate_image", generate_image)
+    row = asyncio.run(stickers.draw("OpenAI", "转圈"))
+    assert row["status"] == "pending"
+    assert "2×2" in calls[0] and "Panel 4: 转回来" in calls[0] and "「好耶」" in calls[0]
+    data = stickers.file("OpenAI", "转圈")
+    with Image.open(io.BytesIO(data)) as gif:
+        assert gif.format == "GIF" and gif.n_frames == 4 and gif.size == (360, 360)
+        firsts = []
+        for i in range(4):
+            gif.seek(i)
+            firsts.append(gif.convert("RGB").getpixel((180, 180)))
+        assert firsts[0][0] > 200 and firsts[1][1] > 100 and firsts[2][2] > 200
+    # 刷白不碰动图
+    assert stickers.whiten() == 0
+
+
+def test_frames_must_be_exactly_four():
+    from pydantic import ValidationError
+
+    from roundtable.core.config.schema import StickerSpec
+
+    with pytest.raises(ValidationError):
+        StickerSpec(name="a", caption="a", action="a", frames=["一", "二"])
+    assert StickerSpec(name="a", caption="a", action="a").frames == []
