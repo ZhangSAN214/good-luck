@@ -34,7 +34,7 @@ from roundtable.core.chat import (
 )
 from roundtable.core.chat_actions import card_text, clean_stickers, member_stickers, sticker_menu
 from roundtable.core.chat_work import short_title
-from roundtable.core.life_guard import LifeGuard
+from roundtable.core.life_guard import ERRORS, LifeGuard
 from roundtable.core.member.brain import Brain, intent_text
 from roundtable.core.member.relation import RelationPlugin
 from roundtable.core.member.voice import Said, before_voice, recent_words, voice_for
@@ -101,8 +101,14 @@ class LifeEngine:
         return self.rt.repo.spent_in_steps("chat", LIFE_STEPS, start, end)
 
     def allowed(self, estimate_usd: float, *, reserve: bool = True) -> bool:
-        """reserve：给记忆整理留出 ``memory_reserve_usd``（记忆整理自己调用时为 False）。"""
-        if self.guard.halted():
+        """reserve：给记忆整理留出 ``memory_reserve_usd``（记忆整理自己调用时为 False）。
+        记忆整理不受「接近上限」的熔断（10-31 第 3 次试跑：整理了 3 位就熔断，
+        5 位一天什么都没记住），
+        但照样不超每日上限、不超总预算，连续出错停掉时也不跑。"""
+        halted = self.guard.halted()
+        if halted and (reserve or halted.startswith(ERRORS)):
+            return False
+        if not reserve and not self.rt.budget.check(estimate_usd).allowed:
             return False
         cap = self.rules.daily_usd
         if reserve:
@@ -479,6 +485,8 @@ class LifeEngine:
             text = brain.lingo.finish(
                 member.id, text, asked=asked, rng=random.Random(f"{p.room}:{turn}:{member.id}")
             )[0]
+            if not text:
+                break  # 收尾后只剩残句：这句不发，这段收尾
             spoken.append((member.id, text))
             earlier.append(text)
             brain.after(card, at)

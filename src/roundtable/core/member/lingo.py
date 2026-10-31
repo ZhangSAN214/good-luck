@@ -47,6 +47,7 @@ _BARE_FIX = re.compile(r"^\s*不对[，,、]?\s*是\s*(?:…+|\.{3,})\s*")  # �
 _END = re.compile(r"[。．.！!～~…]+$")
 _KEEP_END = re.compile(r"(?:[？?）)」』>\]】]|[\U0001f300-\U0001faff☀-➿])$")
 _CLAUSE = re.compile(r"[^，,。！!？?～~…\n]+[，,。！!？?～~…]*")
+_NO = type("_NoVibe", (), {"items": ()})()  # 没有这种气质时的空组
 _EMOJI = re.compile(r"[\U0001f300-\U0001faff☀-➿]")
 _LAST_HAN = re.compile(r"[\u4e00-\u9fff](?=[^\u4e00-\u9fff]*$)")  # 一行里最后一个汉字
 _SKIP = re.compile(r"\[表情[:：][^\]]*\]|\[引用[^\]]*\]|https?://\S+")
@@ -57,6 +58,23 @@ def _num(x: Any, default: float = 3.0) -> float:
         return float(x)
     except (TypeError, ValueError):
         return default
+
+
+_ORPHAN = re.compile(
+    r"[，,、]\s*[呢吧啊呀嘛哦啦呗]+(?=[。.！!？?～~…]|$)", re.M
+)  # 「理清楚，呢。」
+_LONE = re.compile(r"^\s*([\u4e00-\u9fff])[。.…，,、\s]*$")  # 只剩一个字：「让……」
+_INTERJECTIONS = frozenset("嗯啊哦噢诶欸额呃哈嘿唔哇咦呀嗷喔哎唉呜好行对靠草")
+
+
+def _tidy(text: str) -> str:
+    """收尾后的残句：落单的语气词并回前一句；整条只剩一个不成话的字（「让……」）就不发。
+    （10-31 第 3 次试跑）"""
+    out = _ORPHAN.sub("", text)
+    lone = _LONE.match(out)
+    if lone and lone.group(1) not in _INTERJECTIONS:
+        return ""
+    return out
 
 
 @dataclass(frozen=True)
@@ -525,7 +543,7 @@ class Lingo:
             return [text]
         rng = rng or random.Random(f"lingo-finish:{member}:{text}")
         if not self.styled(member):  # 没有人物卡：只补她的招牌小尾巴（配置里写了的话）
-            return [self.signature_tail(member, text, rng)]
+            return [_tidy(self.signature_tail(member, text, rng))]
         h = self.habits(member)
         out = _BARE_FIX.sub("", text, count=1) or text  # 一开口就「不对，是……」：改口没有对象
         out = self.colloquial(out, asked)
@@ -535,6 +553,9 @@ class Lingo:
         out = "\n".join(self._end(line, h, rng) for line in out.split("\n"))
         out = self.signature_tail(member, out, rng)
         out = self._sprinkle(out, h, rng)
+        out = _tidy(out)
+        if not out:
+            return [""]
         fixed = self._typo(member, out, energy, rng)
         return fixed if fixed else [out]
 
@@ -545,38 +566,57 @@ class Lingo:
             return text
         if any(k in text for k in (*self.rules_kaomoji_all(), *h.kaomoji)):
             return text
+        if any(w in text for w in self.rules.sprinkle_skip):
+            return text  # 想不起来、难过、道歉时不补笑脸（10-31 第 3 次试跑：想不起来配笑脸）
+        light = {k for v in self.rules.sprinkle_vibes for k in self.rules.kaomoji.get(v, _NO).items}
+        faces = [k for k in h.kaomoji if k in light]
         lines = text.split("\n")
         last = lines[-1].rstrip()
-        if len(last) < 4 or last.endswith(("？", "?")) or rng.random() >= chance:
+        if not faces or len(last) < 4 or last.endswith(("？", "?", "…")):
             return text
-        lines[-1] = f"{last}{rng.choice(h.kaomoji)}"
+        if rng.random() >= chance:
+            return text
+        lines[-1] = f"{last}{rng.choice(faces)}"
         return "\n".join(lines)
 
     def rules_kaomoji_all(self) -> tuple[str, ...]:
         return tuple(k for pick in self.rules.kaomoji.values() for k in pick.items)
 
     def signature_tail(self, member: str, text: str, rng: random.Random) -> str:
-        """招牌小尾巴（如「喵」）：一行里还没带时按概率补在最后一个汉字后面（标点、表情之前）。"""
+        """招牌的分寸（10-31 第 3 次试跑：「喵」句句都有、「本小姐」一半都有，反而像设定）：
+        - 小尾巴（如「喵」）：每条按 tail_chance 掷一次——中了就只留一个
+          （没有就补在最后一个汉字后面，标点、表情之前），没中就把句尾的都去掉；
+        - 自称（如「本小姐」）：每条按 self_chance 掷一次，没中就换成「我」。"""
         from roundtable.core.member.voice import signature_of  # voice 只在函数里引用本模块
 
         sig = signature_of(self.rt, member)
-        if sig is None or not sig.tails or sig.tail_chance <= 0:
+        if sig is None or not text.strip():
             return text
-        lines = []
-        for line in text.split("\n"):
-            if not line.strip() or any(t in line for t in sig.tails):
-                lines.append(line)
-                continue
-            if rng.random() >= sig.tail_chance:
-                lines.append(line)
-                continue
-            plain = _SKIP.sub(lambda m: "\0" * len(m.group(0)), line)
-            hit = _LAST_HAN.search(plain)
-            if hit is None:
-                lines.append(line)
-                continue
-            lines.append(line[: hit.end()] + rng.choice(sig.tails) + line[hit.end() :])
-        return "\n".join(lines)
+        out = text
+        if sig.self_names and rng.random() >= sig.self_chance:
+            for name in sorted(sig.self_names, key=len, reverse=True):
+                out = out.replace(name, "我")
+        if not sig.tails:
+            return out
+        keep = rng.random() < sig.tail_chance
+        protect = [w for w in (*sig.words, *sig.self_names) if any(t in w for t in sig.tails)]
+        for k, w in enumerate(protect):
+            out = out.replace(w, f"\x01{k}\x02")
+        tails = "|".join(re.escape(t) for t in sorted(sig.tails, key=len, reverse=True))
+        out = re.sub(rf"(?<=[\u4e00-\u9fff])(?:{tails})+(?![\u4e00-\u9fff])", "", out)
+        for k, w in enumerate(protect):
+            out = out.replace(f"\x01{k}\x02", w)
+        if keep:
+            lines = out.split("\n")
+            for n in range(len(lines) - 1, -1, -1):
+                plain = _SKIP.sub(lambda m: "\0" * len(m.group(0)), lines[n])
+                hit = _LAST_HAN.search(plain)
+                if hit is not None:
+                    tail = rng.choice(sig.tails)
+                    lines[n] = lines[n][: hit.end()] + tail + lines[n][hit.end() :]
+                    break
+            out = "\n".join(lines)
+        return out
 
     def _marks(self, who: str) -> tuple[list[str], list[str], str]:
         """一个人说话的指纹：(口头禅, 颜文字, 自称)。"""

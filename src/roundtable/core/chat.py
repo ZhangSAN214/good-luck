@@ -27,11 +27,13 @@ from typing import Any
 from roundtable.core.attachments.model import append_to_messages
 from roundtable.core.budget.guard import EPS, month_window
 from roundtable.core.chat_actions import (
+    STICKER_RE,
     ActionPolicy,
     DefaultPolicy,
     Segment,
     card_text,
     clean_card,
+    drop_own_repeats,
     is_recalled,
     member_stickers,
     parse,
@@ -885,6 +887,12 @@ class GroupChat:
         first: dict[str, Any] = {}
         posted: list[str] = []
         recent = self.recent()  # 发之前再取一次：并行思考时别人可能刚发过
+        mine = {  # 她自己最近几条发过的表情包：别连着发同一个
+            f"[表情:{m.group(1)}·{m.group(2)}]"
+            for r in [r for r in recent if r["author"] == member.id][-6:]
+            for m in STICKER_RE.finditer(r["text"] or "")
+        }
+        used.update(mine)
         for i, seg in enumerate(thought.segments):
             if i:
                 if round_no is not None and self.stale(round_no):
@@ -897,7 +905,8 @@ class GroupChat:
                     self.typing.remove(member.name)
                 if round_no is not None and self.stale(round_no):
                     break
-            text = swap_repeated_stickers(seg.text, used, stickers, self.rng)
+            text = drop_own_repeats(seg.text, mine)
+            text = swap_repeated_stickers(text, used, stickers, self.rng)
             words = await self._self_check(member, text, recent, reply_to, posted, thought.memory)
             if not words.strip():
                 continue

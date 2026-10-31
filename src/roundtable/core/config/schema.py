@@ -2209,6 +2209,9 @@ class LingoRules(_Strict):
     kaomoji_each: int = Field(default=3, ge=1, le=10)
     # 一条消息里一个表情都没带时，发出前补一个她自己的颜文字的概率（2026-10-31 用户：表情用得少）
     kaomoji_sprinkle: float = Field(default=0.0, ge=0, le=1)
+    # 补的颜文字只从这几种气质里挑（轻松的）；话里带这些词（想不起来、难过……）或以省略号收尾时不补
+    sprinkle_vibes: list[str] = ["元气", "温柔", "搞怪"]
+    sprinkle_skip: list[str] = []
     sticker_sets: dict[str, TraitPick] = {}  # 偏爱哪一套表情包（名字同 chat.actions.stickers）
     battle: float = Field(default=0.5, ge=0, le=1)  # 群里上一条是表情包：幽默的人回表情包斗图
     shift: dict[str, str] = {}  # 语气变调：tired / down / up / night / close / new / dislike
@@ -3114,10 +3117,14 @@ class Signature(_Strict):
 
     line: str = Field(default="", max_length=160)  # 写进说话习惯段第一行
     tails: list[str] = Field(default_factory=list, max_length=3)  # 句尾小尾巴，如「喵」
-    tail_chance: float = Field(default=0.0, ge=0, le=1)  # 一句话没带小尾巴时补上的概率
+    tail_chance: float = Field(default=0.0, ge=0, le=1)  # 一条消息带小尾巴的概率（带也只带一个）
     words: list[str] = Field(default_factory=list, max_length=6)  # 招牌词（口癖漂移不动）
+    self_names: list[str] = Field(default_factory=list, max_length=3)  # 招牌自称，如「本小姐」
+    self_chance: float = Field(
+        default=1.0, ge=0, le=1
+    )  # 一条里可以用招牌自称的概率，没中换成「我」
 
-    @field_validator("tails", "words")
+    @field_validator("tails", "words", "self_names")
     @classmethod
     def _short(cls, items: list[str]) -> list[str]:
         if any(not w.strip() or len(w) > 8 for w in items):
