@@ -1767,6 +1767,22 @@ class HumanRules(_Strict):
     activities: list[str] = []
 
 
+class RoutineRules(_Strict):
+    """习惯回路（docs/BRAIN.md「习惯回路」）：同一个钟点（工作日 / 周末 × 早中晚）反复去同一处
+    做同一件事，慢慢成了习惯；到了这个点更可能照老样子去，闷了（想换新鲜）就破一次例；久不去就淡了。
+    依据 Wood & Neal 2007 习惯是情境—反应联结；Lally 2010 习惯要重复几十次才自动化。"""
+
+    enabled: bool = True
+    half_life_days: float = Field(default=14, gt=0, le=365)  # 不去了，习惯的劲儿多久减半
+    min_strength: float = Field(default=3.0, ge=0.5, le=100)  # 攒到这么多才算习惯
+    # 没什么特别想做的时候（没想练在做的事、没想换新鲜），习惯每多 1 分，照老样子去的概率多这么多
+    per: float = Field(default=0.12, ge=0, le=1)
+    cap: float = Field(default=0.8, ge=0, le=1)  # 最多这么大的概率照老样子（总留点变化）
+    keep: int = Field(default=24, ge=4, le=200)  # 每人最多记多少条（钟点 × 去处）
+    # 刚成习惯时记一件可以说的新鲜事：{when} 钟点、{what} 去处和做的事
+    news: str = "最近一到{when}就{what}，快成习惯了"
+
+
 class BrainRules(_Strict):
     """大脑分区（docs/BRAIN.md）：全局工作区 + 丘脑显著性 + 驱力 + 前额叶意图与目标 + 走神。
 
@@ -1800,6 +1816,7 @@ class BrainRules(_Strict):
     psyche: PsycheRules = PsycheRules()
     love: LoveRules = LoveRules()
     human: HumanRules = HumanRules()
+    routine: RoutineRules = RoutineRules()
 
 
 class CareRules(_Strict):
@@ -1870,6 +1887,112 @@ class LearnRules(_Strict):
     slang: list[str] = []  # 会被学走的网络用语（另加每人的笑法、短回复、口头禅）
 
 
+class FeelRules(_Strict):
+    """各自的情感（docs/BRAIN.md「各自的情感」，2026-10-30 用户定）：开心、难过、想念、生气，
+    每位的理解和表达从自己的人物卡来、按自己的理解分辨、随经历和每周成长慢慢变。全程序、不调模型；
+    8 位同一套规则，差别只来自人物卡、性格分和经历。"""
+
+    enabled: bool = True
+    # 有哪几种情绪，以及人物卡里认它的词（抽起点用；第一个词是名字以外的说法）
+    names: dict[str, list[str]] = {
+        "开心": ["开心", "高兴"],
+        "难过": ["难过", "低落", "伤心"],
+        "想念": ["想念", "思念", "惦记", "被丢下", "多坐一会儿"],
+        "生气": ["生气", "恼火"],
+    }
+    positive: list[str] = Field(default_factory=lambda: ["开心"], min_length=1)
+    negative: list[str] = Field(default_factory=lambda: ["难过", "生气"], min_length=1)
+    missing: str = "想念"
+    min_mood: float = Field(default=0.08, ge=0, le=1)  # 心情至少动这么多才记成一次情绪
+    # 负面的那一下算哪种：反射默认偏哪种（× lean_weight）+ 和她自己理解的相似度（× match）
+    # + 性格（分数 - 3 后 × 系数）；分最高的那种
+    lean: dict[str, str] = {
+        "被批评": "生气",
+        "一起挨说": "难过",
+        "落空": "难过",
+        "共情难过": "难过",
+    }
+    lean_weight: float = Field(default=0.5, ge=0, le=5)
+    match: float = Field(default=2.0, ge=0, le=10)
+    traits: dict[str, dict[str, float]] = {
+        "生气": {"较真": 0.15, "温和": -0.15},
+        "难过": {"温和": 0.15, "较真": -0.15},
+    }
+    miss_days: float = Field(default=2, gt=0, le=60)  # 私聊里隔这么多天你再来，她记一次想念
+    miss_words: list[str] = ["想你", "想我", "好久不见", "好久没聊", "想念"]  # 对方说想她
+    miss_back: str = "好几天没聊，对方终于来找你了"
+    reach_miss: str = "好几天没和对方说话，你先找了对方"
+    linger_hours: float = Field(default=6, gt=0, le=72)  # 这么久以内的情绪算「刚才」，还在场
+    mood_high: float = Field(default=0.3, ge=0, le=1)
+    mood_low: float = Field(default=-0.3, ge=-1, le=0)
+    keep: int = Field(default=60, ge=5, le=500)  # 每位留最近多少段情绪经历
+    seed_chars: int = Field(default=70, ge=10, le=300)  # 从人物卡抽的起点最多多少字
+    mine_chars: int = Field(default=40, ge=10, le=200)  # 意图卡里写她的理解最多多少字
+    why_chars: int = Field(default=30, ge=6, le=100)
+    line_chars: int = Field(default=90, ge=20, le=200)
+    user_label: str = "用户"
+    someone: str = "有人"
+    unknown: str = "还说不太清，看这回是什么感觉"
+    line: str = "你心里的{emo}：{mine}"
+    last: str = "；上回是{when}，{why}"
+    # 成长改写（P6，growth/gate.py）：新的理解最多多少字、和别人对同一种情绪的理解最多多像、
+    # 同一种情绪隔几天才能再改
+    grow_chars: int = Field(default=60, ge=10, le=200)
+    copy_max: float = Field(default=0.5, gt=0, le=1)
+    same_max: float = Field(default=0.9, gt=0, le=1)
+    gap_days: int = Field(default=14, ge=0, le=365)
+
+
+class RhythmRules(_Strict):
+    """作息与回话节奏（docs/BRAIN.md）：睡着时你发来的消息，多数醒了再回，有时被吵醒。"""
+
+    enabled: bool = True
+    wake_base: float = Field(default=0.12, ge=0, le=1)  # 睡着时被一条消息吵醒的基础概率
+    wake_named: float = Field(default=0.2, ge=0, le=1)  # 群里点了她的名 / 私聊
+    wake_close: float = Field(default=0.3, ge=0, le=1)  # × 她对你的在乎（0～1）
+    wake_repeat: float = Field(default=0.15, ge=0, le=1)  # 十分钟内每多连发一条
+    wake_max: float = Field(default=0.8, ge=0, le=1)
+    grumpy_below: float = Field(default=-0.1, ge=-1, le=1)  # 心情低于这个，被吵醒时会抱怨
+    keep_hours: int = Field(default=16, ge=1, le=72)  # 睡着没看到的消息，超过这么久就不回了
+    woken: str = "你本来睡着了，被消息吵醒：迷迷糊糊的，回得短一点，可以说自己刚被吵醒"
+    woken_grumpy: str = (
+        "你本来睡着了，被消息吵醒，心情本来就不太好：可以嘟囔着抱怨一两句（比如「大半夜的……」"
+        "「我都睡了」）再回；别真生气、别翻旧账，对方要是有急事就清醒过来认真回"
+    )
+    late: str = (
+        "你刚醒，才看到对方 {when} 发来的消息：自然地接上，可以提一句刚看到 / 刚醒，别道歉个没完"
+    )
+
+
+class ReachRules(_Strict):
+    """主动找你（docs/BRAIN.md）：按心情、新鲜事、挂着的事、想念，偶尔先开口；有边界。"""
+
+    enabled: bool = True
+    per_day_chance: float = Field(default=0.6, ge=0, le=5)  # 想找的劲儿为 1 时，一天里先开口的概率
+    per_day: int = Field(default=2, ge=0, le=10)  # 全体每天最多主动找几次
+    gap_days: float = Field(default=2.0, ge=0, le=30)  # 同一位隔几天才可能再主动找
+    after_user_hours: float = Field(default=3.0, ge=0, le=72)  # 你几小时内刚和她聊过就不找
+    quiet_hours: tuple[int, int] = (23, 9)  # 你的深夜（主时区钟点，[开始, 结束)）不找
+    care_min: float = Field(default=0.3, ge=0, le=1)  # 心情不好 / 想念才找你，要这么在乎你
+    mood_low: float = Field(default=-0.35, ge=-1, le=0)
+    mood_high: float = Field(default=0.55, ge=0, le=1)
+    news_min: float = Field(default=0.7, ge=0, le=1)  # 新鲜事要这么重要才值得专门找你说
+    longing_days: float = Field(default=2.0, ge=0.5, le=30)  # 多少天没聊开始想念
+    notes: dict[str, str] = Field(
+        default_factory=lambda: {
+            "mood_low": "你现在心情不太好，想找对方说说话：你先开口，可以说也可以不说为什么",
+            "mood_high": "你现在心情很好，想跟对方分享一下：你先开口",
+            "news": "你想主动跟对方说说：{what}",
+            "hanging": "你一直惦记着：{what}，想问问对方后来怎么样了",
+            "longing": "好几天没和对方聊了，有点想对方：你先开口，随便找个由头",
+        }
+    )
+    tail: str = (
+        "这是你主动找对方（对方没有先说话）：像随手发的微信，一两句就好；别只发「在吗」没下文，"
+        "别怪对方不找你、不拿自己难过要挟"
+    )
+
+
 class LingoRules(_Strict):
     """说话的样子（docs/BRAIN.md「说话的样子」）：看懂语境、万能短回复、先反应再吐槽、
     书面腔过滤、标点和笑法、打错字、个人颜文字、表情包脾气、语气变调、外号、跟人学、打比方。
@@ -1900,6 +2023,8 @@ class LingoRules(_Strict):
     formal: dict[str, str] = {}  # 书面词 → 口语（发出前直接换）
     explain: list[str] = []  # 解释句的正则（发出前能删就删）
     recap_chars: int = Field(default=8, ge=4, le=40)  # 和对方原话连着这么多字一样算复述
+    # 口吻指纹：草稿里别的成员的口头禅、颜文字、自称（她没学过的）发出前换回她自己的
+    own_voice: bool = True
 
 
 class EngineRules(_Strict):
@@ -1921,6 +2046,9 @@ class EngineRules(_Strict):
     brain: BrainRules = BrainRules()
     care: CareRules = CareRules()
     lingo: LingoRules = LingoRules()
+    rhythm: RhythmRules = RhythmRules()
+    reach: ReachRules = ReachRules()
+    feel: FeelRules = FeelRules()
 
 
 class WanderSite(_Strict):
@@ -2064,7 +2192,7 @@ class ChatActionRules(_Strict):
 
 
 class ChatRules(_Strict):
-    """聊天：生活群、工作群、私聊。成员不主动找用户，只回应用户。"""
+    """聊天：生活群、工作群、私聊。成员平时回应用户，按心情偶尔主动找（engine.reach）。"""
 
     # 每位成员一次回应最多想多久（含重试），超时就跳过这次，不卡住整轮
     think_timeout_seconds: float = Field(default=60.0, gt=0)
@@ -2447,6 +2575,7 @@ class BenchNetService(_Strict):
     kind: str = Field(default="json", pattern=r"^(json|tiles)$")
     also: list[str] = Field(default_factory=list, max_length=4)
     ttl_min: int = Field(default=60, ge=0, le=7 * 24 * 60)  # 本机缓存几分钟
+    probe: dict[str, str] = Field(default_factory=dict)  # 联网自检时 {参数} 用的样例值
 
     @field_validator("url", "also")
     @classmethod
@@ -2461,6 +2590,20 @@ class BenchNetService(_Strict):
     @property
     def origins(self) -> list[str]:
         return [re.match(r"^https://[^/]+", u).group(0) for u in [self.url, *self.also]]
+
+
+class BenchResearch(_Strict):
+    """开工前的调研（2026-10-30 用户要求）：GitHub 至少 ``min_github`` 个高质量相关项目，加上论文、
+    资讯和视频；分最高的 ``learn`` 个项目源码只读下载，交给助手写学习卡。资讯和视频交给一位能联网
+    搜索的助手查（``kind`` 按分数挑人），其余是程序查公开接口（不要 key）。"""
+
+    enabled: bool = True
+    kind: str = "research"  # 查资讯、写学习卡按哪种活挑人
+    min_github: int = Field(default=10, ge=0, le=30)
+    max_github: int = Field(default=15, ge=1, le=40)
+    papers: int = Field(default=6, ge=0, le=20)
+    news: int = Field(default=8, ge=0, le=20)  # 资讯、视频、发布会、官方博客合计
+    learn: int = Field(default=3, ge=0, le=6)  # 写几张学习卡（每张花一次订阅次数）
 
 
 class BenchRules(_Strict):
@@ -2484,6 +2627,7 @@ class BenchRules(_Strict):
     min_stars: int = Field(default=100, ge=0)  # GitHub 星数门槛
     max_repo_mb: int = Field(default=20, ge=1, le=200)  # 仓库太大就只借思路
     max_adopt: int = Field(default=3, ge=0, le=10)  # 一个工作台最多搬几个
+    research: BenchResearch = Field(default_factory=BenchResearch)
     rubric: list[str] = Field(
         default_factory=lambda: [
             *("视觉层次", "信息密度", "一致性", "交互完整"),

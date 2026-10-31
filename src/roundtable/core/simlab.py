@@ -587,6 +587,7 @@ class Simulation:
                 "calendar", lambda t=local: svc.calendar.tick(t, svc.engine.bus.publish)
             )
             await self._step("engine", lambda t=local: svc.engine.tick(t))
+            await self._step("turns", lambda t=local: svc.member_turns(t))
             await self._step("growth", lambda t=local: svc.growth.tick(t))
             if now - day_start >= timedelta(days=1):
                 day = self.snapshot(svc, members, day_start, now, user_msgs)
@@ -663,6 +664,7 @@ class Simulation:
                     "moments": len(rt.repo.moments(author=m.id, limit=1000)),
                     "brain": svc.engine.brain.snapshot(m.id, self.clock.now()),
                     "heart": self._heart(svc, m.id, names),
+                    "feel": self._feel(svc, m.id),
                 }
             )
         res.tells = tells(texts)
@@ -682,6 +684,29 @@ class Simulation:
         }
         res.checks = checks(self.config, res)
         res.problems = simexam.problems(res)
+
+    def _feel(self, svc: Any, member: str) -> dict[str, Any]:
+        """期末：有过哪些情绪、最近一次、成长改写过哪几种的理解、成了哪些习惯。"""
+        brain = svc.engine.brain
+        eps = brain.feel.episodes(member)
+        counts: dict[str, int] = {}
+        for e in eps:
+            counts[e["emo"]] = counts.get(e["emo"], 0) + 1
+        last = f"{eps[-1]['emo']}：{eps[-1]['why']}" if eps else ""
+        from roundtable.core.office.apartment import ACTIVITIES, PUBLIC_ROOMS
+
+        habits = []
+        for key, n in brain.habits_of(member)[:3]:
+            when, _, what = key.partition("|")
+            place, _, act = what.partition(":")
+            where = "宿舍" if place.startswith("dorm") else PUBLIC_ROOMS.get(place, place)
+            habits.append(f"{when}{where}{ACTIVITIES.get(act, act)}（{n}）")
+        return {
+            "counts": counts,
+            "last": last,
+            "grown": sorted(brain.feel.grown(member)),
+            "habits": habits,
+        }
 
     def _heart(self, svc: Any, member: str, names: dict[str, str]) -> dict[str, Any]:
         """期末她的感情和人味：依恋方式、表达方式、小毛病、熟悉的领域、对谁感情最深。"""
@@ -969,6 +994,18 @@ def render(res: SimResult) -> str:
             lines.append(
                 f"| {row['name']} | {goals} | {len(b.get('news') or [])} | {top} | "
                 f"{strong[0]} {strong[1]} |"
+            )
+    if any(row.get("feel") for row in res.members):
+        lines += ["", "## 各自的情感与习惯（期末）", ""]
+        lines.append("| 成员 | 有过的情绪（次数） | 最近一次 | 改写过理解的情绪 | 习惯 |")
+        lines.append("|---|---|---|---|---|")
+        for row in res.members:
+            f = row.get("feel") or {}
+            counts = "、".join(f"{k} {v}" for k, v in (f.get("counts") or {}).items()) or "-"
+            habits = "；".join(f.get("habits") or []) or "-"
+            grown = "、".join(f.get("grown") or []) or "-"
+            lines.append(
+                f"| {row['name']} | {counts} | {f.get('last') or '-'} | {grown} | {habits} |"
             )
     if any(row.get("heart") for row in res.members):
         lines += ["", "## 爱与人味（期末）", ""]

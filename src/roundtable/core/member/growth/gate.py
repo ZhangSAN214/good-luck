@@ -4,7 +4,9 @@
 
 1. **只能这样改**：``score`` 五项性格分的一项 ±1（结果仍在 1～5）；``add`` / ``remove``
    在 ``growth.lists`` 列出的列表里加一项 / 去掉一项（新的一项不超过 ``item_chars`` 字，
-   列表不超过 ``list_max`` 项）。整段原文（人物卡各章）不让成长改。
+   列表不超过 ``list_max`` 项）；``feel`` 用自己的话改写对一种情绪（``chat.engine.feel.names``）
+   的理解（不超过 ``feel.grow_chars`` 字，和原来不能几乎一样，同一种情绪隔 ``feel.gap_days``
+   天才能再改）。整段原文（人物卡各章）不让成长改。
 2. **用户锁定项不动**：锁住的 ``分区.键`` 一律拦下；分区权限再经 ``ProfileStore.check``
    （成长只能写 personality / values / style / likes）。
 3. **必须引用真实经历**：``evidence`` 是这一周经历的编号（至少一条），``quote`` 的两字片段
@@ -12,7 +14,8 @@
 4. **核心性格每月最多一格**：这个月（本地日历月）已经改过的格数（没撤回的）加上这次，
    不超过 ``core_monthly_steps``。
 5. **8 人不撞型**：改完后和任何一位别的成员的五项分差（各项差的和）小于 ``min_distance``、
-   并且比改之前更近，就拦下；``unique_lists`` 里的列表（口头禅）不和别人重样。
+   并且比改之前更近，就拦下；``unique_lists`` 里的列表（口头禅）不和别人重样；对情绪的理解
+   和别的成员对同一种情绪的理解太像（两字片段重合超过 ``feel.copy_max``）也拦下。
 6. **受用户影响不超过三成**：引用了受用户影响的经历的改动算「受用户影响」；最近
    ``share_window_weeks`` 周没撤回的改动里，这类占比超过 ``user_share``（改动不到
    ``share_floor`` 条时按 ``share_floor`` 条算）就拦下。
@@ -24,14 +27,18 @@ from __future__ import annotations
 
 import copy
 from dataclasses import dataclass, field
+from datetime import datetime, timedelta
 from typing import Any
 
 from roundtable.core.jsonout import JSONOutputError, extract_json_object
+from roundtable.core.member.feel import PATH as FEEL_PATH
+from roundtable.core.member.feel import Feelings
+from roundtable.core.member.feel import overlap as feel_overlap
 from roundtable.core.member.growth.week import Week
 from roundtable.core.member.profile import ProfileError, ProfileStore
 from roundtable.core.recall import grams
 
-SCORE, ADD, REMOVE = "score", "add", "remove"
+SCORE, ADD, REMOVE, FEEL = "score", "add", "remove", "feel"
 CORE = "personality.五项"
 TRAITS_PATH = ("personality", "五项")
 MIN, MAX = 1, 5
@@ -50,6 +57,8 @@ class Proposal:
     def label(self) -> str:
         if self.op == SCORE:
             return f"{self.path} {'+' if self.delta > 0 else ''}{self.delta}"
+        if self.op == FEEL:
+            return f"{self.path} 改成「{self.value}」"
         return f"{self.path} {'加上' if self.op == ADD else '去掉'}「{self.value}」"
 
 
@@ -121,6 +130,12 @@ def fresh_patch(data: dict[str, Any], p: Proposal) -> dict[str, dict[str, Any]]:
     后面这条不会把它也带进去。改不了（项已不在、分数越界）时为空。"""
     sec, _, rest = p.path.partition(".")
     key, _, trait = rest.partition(".")
+    if p.op == FEEL:
+        now = (data.get(sec) or {}).get(key)
+        now = dict(now) if isinstance(now, dict) else {}
+        if not trait or now.get(trait) == p.value:
+            return {}
+        return {sec: {key: {**now, trait: p.value}}}
     if p.op == SCORE:
         scores = dict((data.get("personality") or {}).get("五项") or {})
         if trait not in scores or not MIN <= _int(scores[trait]) + p.delta <= MAX:
@@ -233,8 +248,13 @@ class Gate:
             v.old, v.new = items, new_list
             v.patch = {sec: {key: new_list}}
             locked_path = f"{sec}.{key}"
+        elif p.op == FEEL:
+            got = self._feel(member, p, data, week, others, v)
+            if got:
+                return self._no(v, got)
+            locked_path = f"{sec}.{key}"
         else:
-            return self._no(v, f"不认识的改法「{p.op}」（只能 score / add / remove）")
+            return self._no(v, f"不认识的改法「{p.op}」（只能 score / add / remove / feel）")
         # 2. 用户锁定项不动、分区权限
         if locked_path in locked:
             return self._no(v, f"「{locked_path}」被你锁住了")
@@ -276,6 +296,56 @@ class Gate:
                 return self._no(v, f"最近受你影响的改动已经到上限（{int(r.user_share * 100)}%）")
         v.ok = True
         return v
+
+    def _feel(
+        self,
+        member: str,
+        p: Proposal,
+        data: dict[str, Any],
+        week: Week,
+        others: dict[str, dict[str, Any]],
+        v: Verdict,
+    ) -> str:
+        """改写对一种情绪的理解：能不能改（不能时返回原因，能时填好 v 的 patch）。"""
+        fr = self.rt.config.roundtable.chat.engine.feel
+        sec, _, rest = p.path.partition(".")
+        key, _, emo = rest.partition(".")
+        if (sec, key) != FEEL_PATH or emo not in fr.names:
+            return f"「{p.path}」不是能改写的情绪（只有 {'、'.join(fr.names)}）"
+        if not (6 <= len(p.value) <= fr.grow_chars):
+            return f"对「{emo}」的新理解要 6～{fr.grow_chars} 字"
+        feel = Feelings(self.rt)
+        old = feel.understanding(member).get(emo, "")
+        if old and feel_overlap(p.value, old) >= fr.same_max:
+            return f"和原来对「{emo}」的理解几乎一样，不算变了"
+        for other in sorted(others):
+            theirs = feel.understanding(other).get(emo, "")
+            if theirs and max(feel_overlap(p.value, theirs), feel_overlap(theirs, p.value)) > (
+                fr.copy_max
+            ):
+                v.clash = other
+                return f"和另一位成员对「{emo}」的理解太像了，要用你自己的话"
+        last = self._feel_changed(member, emo)
+        until = datetime.combine(week.start + timedelta(days=7), datetime.min.time())
+        if last is not None and until - last.replace(tzinfo=None) < timedelta(days=fr.gap_days):
+            return f"对「{emo}」的理解最近刚改过，隔 {fr.gap_days} 天再说"
+        now = (data.get(sec) or {}).get(key)
+        now = dict(now) if isinstance(now, dict) else {}
+        v.old, v.new = old, p.value
+        v.patch = {sec: {key: {**now, emo: p.value}}}
+        return ""
+
+    def _feel_changed(self, member: str, emo: str) -> datetime | None:
+        """成长上一次改写她对这种情绪的理解是什么时候（没改过为 None）。"""
+        path = ".".join(FEEL_PATH)
+        for row in self.profiles.history(member):
+            for c in row["changes"]:
+                if c["path"] != path:
+                    continue
+                a, b = c.get("old") or {}, c.get("new") or {}
+                if a.get(emo) != b.get(emo):
+                    return datetime.fromisoformat(row["created_at"])
+        return None
 
     @staticmethod
     def _no(v: Verdict, reason: str) -> Verdict:

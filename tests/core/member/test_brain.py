@@ -344,3 +344,29 @@ def test_days_follow_the_home_time_zone():
     )
     thursday_night = datetime(2026, 11, 5, 17, tzinfo=UTC)  # 上海周五 01:00
     assert brain.local(thursday_night).weekday() == 4
+
+
+def test_same_hour_same_place_becomes_a_habit_that_fades_when_dropped():
+    env, brain = setup()
+    evening = datetime(2026, 11, 7, 19, tzinfo=UTC)  # 周六晚上 7 点（没设主时区按 UTC）
+    s = brain._load("V1")
+    cue = brain._cue(evening)
+    assert cue == "周末晚上"
+    for week in range(4):  # 连着四个周末，周六周日晚上都在休息室聊天
+        for day in (0, 1):
+            brain._routine(s, cue, "lounge", "chat", evening + timedelta(weeks=week, days=day))
+    at = evening + timedelta(weeks=3, days=1, hours=1)  # 周日晚上 8 点
+    habit = brain._habit(s, cue, at)
+    assert habit is not None and habit[0] == "lounge:chat" and 0 < habit[1] <= 0.8
+    assert any("快成习惯了" in n["text"] and "休息室聊天" in n["text"] for n in s.news)
+    assert brain._habit(s, "工作日早上", at) is None  # 别的钟点不算
+    assert brain._habit(s, cue, at + timedelta(weeks=8)) is None  # 久不去就淡了
+    # 到点了、又没什么特别想做的：多半照老样子去休息室
+    brain._save("V1", s)
+    went = 0
+    for i in range(20):
+        slot = at + timedelta(minutes=i)
+        brain.satisfy("V1", "explored", slot)
+        went += brain.choose_activity("V1", slot, "gym", "exercise") == ("lounge", "chat")
+    assert went >= 6
+    assert brain.habits_of("V1", at)[0][0] == "周末晚上|lounge:chat"

@@ -29,6 +29,9 @@ from roundtable.core.almanac import Almanac
 from roundtable.core.attachments import Attachment, UploadError, ingest
 from roundtable.core.attachments.detect import TYPES as UPLOAD_TYPES
 from roundtable.core.benchkit.builder import BenchBuilder
+from roundtable.core.benchkit.netcheck import http_status, net_check
+from roundtable.core.benchkit.research import Researcher
+from roundtable.core.benchkit.research import http_fetchers as research_fetchers
 from roundtable.core.benchkit.scout import Scout as PluginScout
 from roundtable.core.benchkit.scout import http_fetchers
 from roundtable.core.browse import REFRESH_KEY, feeds_of, set_feeds
@@ -37,7 +40,7 @@ from roundtable.core.budget.channels import MonthSpend, save_priority
 from roundtable.core.budget.guard import day_window, month_window
 from roundtable.core.carry import carry_question, compact
 from roundtable.core.changelog import changelog_view, load_changelog
-from roundtable.core.chat import ROOM, WORK, ChatHub, chat_budget
+from roundtable.core.chat import ROOM, WORK, ChatHub, chat_budget, dm_room
 from roundtable.core.chat_actions import card_from_url, is_bare_url, own_stickers
 from roundtable.core.chat_actions import card_text as chat_card_text
 from roundtable.core.chat_media import MAX_BYTES as CHAT_MEDIA_MAX
@@ -327,7 +330,9 @@ class RoundtableService:
             supercomputer=self.supercomputer,
             render=self._super_render,
             scout=self._build_scout(runtime.config.roundtable.bench),
+            researcher=self._build_researcher(runtime.config.roundtable.bench),
         )
+        self.bench_status_fetch = http_status()  # 联网自检用（测试换成假的）
         self._chat_tasks: set[asyncio.Task[Any]] = set()
         self._life_task: asyncio.Task[None] | None = None
         self._evolution_task: asyncio.Task[None] | None = None
@@ -361,6 +366,22 @@ class RoundtableService:
         return PluginScout(
             fetch_json=fetch_json,
             fetch_bytes=fetch_bytes,
+            min_stars=rules.min_stars,
+            max_kb=rules.max_repo_mb * 1024,
+        )
+
+    @staticmethod
+    def _build_researcher(rules: Any) -> Researcher:
+        fetch_json, fetch_text, check_url = research_fetchers()
+        r = rules.research
+        return Researcher(
+            fetch_json=fetch_json,
+            fetch_text=fetch_text,
+            check_url=check_url,
+            min_github=r.min_github,
+            max_github=r.max_github,
+            papers=r.papers,
+            news=r.news,
             min_stars=rules.min_stars,
             max_kb=rules.max_repo_mb * 1024,
         )
@@ -437,11 +458,57 @@ class RoundtableService:
             self.calendar.tick(now, self.engine.bus.publish)
         with contextlib.suppress(Exception):  # 引擎出错不影响生活
             await self.engine.tick(now)
+        with contextlib.suppress(Exception):  # 醒来回消息出错不影响生活
+            await self.member_turns(now)
         with contextlib.suppress(Exception):  # 成长出错不影响生活，下次推进再试
             await self.growth.tick(now)
         with contextlib.suppress(Exception):  # 见解出错不影响生活，下次推进再试
             await self.insight.tick(now)
         return out
+
+    async def member_turns(self, now: datetime) -> int:
+        """成员自己开口的时候（不是回应你刚发的那条）：睡着没看到你的消息、醒了来回。
+        返回开口的人数。"""
+        from roundtable.core.member.rhythm import Rhythm
+
+        rhythm, n = Rhythm(self.rt), 0
+        for entry in rhythm.due(now):
+            try:
+                chat = self.chats.room(entry["room"])
+            except KeyError:
+                continue
+            member = next((m for m in chat.members() if m.id == entry["member"]), None)
+            mine = [r for r in chat.recent() if r["author"] == "user" and r["id"] >= entry["msg"]]
+            if member is None or not member.available or not mine:
+                continue
+            chat.notes[member.id] = rhythm.late_note(entry)
+            said = await chat.replies(mine[-1]["id"], [member])
+            n += bool(said)
+        return n + await self._reach_out(now)
+
+    async def _reach_out(self, now: datetime) -> int:
+        """主动找你：这次推进最多一位，有真事由才开口（core/member/reach.py 挑时机）。"""
+        from roundtable.core.member.reach import Reach
+
+        reach = Reach(self.rt)
+        members = {m.id: m for m in self.chats.everyone() if m.available}
+        urge = reach.pick(list(members), dm_room, now)
+        if urge is None:
+            return 0
+        chat = self.chats.room(dm_room(urge.member))
+        rows = chat.recent()
+        chat.notes[urge.member] = f"{urge.note}\n{reach.rules.tail}"
+        if urge.reason == "longing":  # 想念记成她的一段情绪经历（意图卡会带上她自己理解的想念）
+            from roundtable.core.member.feel import Feelings
+
+            feel = Feelings(self.rt)
+            feel.record(urge.member, feel.rules.missing, feel.rules.reach_miss, now)
+        said = await chat.replies(rows[-1]["id"] if rows else 0, [members[urge.member]])
+        chat.notes.pop(urge.member, None)
+        if not said:
+            return 0
+        reach.sent(urge, said[0]["id"], now)
+        return 1
 
     async def aclose(self) -> None:
         self.watch.stop("服务关闭，投屏停了")
@@ -929,6 +996,11 @@ class RoundtableService:
             raise ServiceError(str(exc), 404) from None
         except ValueError as exc:
             raise ServiceError(str(exc), 400) from None
+
+    async def bench_net_check(self) -> dict[str, Any]:
+        """联网自检：成品要用的公开数据和调研接口各试一次（只读 GET）。"""
+        items = await net_check(list(self.bench.rules.net), self.bench_status_fetch)
+        return {"items": items, "ok": sum(1 for x in items if x["ok"]), "total": len(items)}
 
     def bench_net_origins(self) -> list[str]:
         """生成的工作台能联网访问的网址（配置里的公开数据名单）；沙箱只放行这些。"""

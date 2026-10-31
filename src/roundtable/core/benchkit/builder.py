@@ -30,7 +30,8 @@ from typing import Any
 from roundtable.core.benchkit.library import Library
 from roundtable.core.benchkit.lint import lint_windows
 from roundtable.core.benchkit.quality import QualityError, Report, run_check
-from roundtable.core.benchkit.scout import Scout
+from roundtable.core.benchkit.research import Researcher, report_markdown
+from roundtable.core.benchkit.scout import Candidate, Scout
 from roundtable.core.benchkit.spec import (
     Spec,
     SpecError,
@@ -125,6 +126,7 @@ class BenchBuilder:
         render: Callable[..., str],
         check: Check = run_check,
         scout: Scout | None = None,
+        researcher: Researcher | None = None,
         now: Callable[[], datetime] = lambda: datetime.now(UTC),
         seed: int | None = None,
     ) -> None:
@@ -134,6 +136,7 @@ class BenchBuilder:
         self.render = render
         self.check = check
         self.scout = scout
+        self.researcher = researcher
         self.library = Library(root) if root is not None else None
         self.now = now
         self.seed = seed
@@ -218,6 +221,7 @@ class BenchBuilder:
             "plan": None,
             "windows": [],
             "sources": [],
+            "research": None,
             "rounds": [],
             "score": None,
             "result": None,
@@ -285,12 +289,15 @@ class BenchBuilder:
                 spec,
                 b["id"],
                 net=[
-                    x.model_dump(exclude={"also", "ttl_min"}) | {"ttl": x.ttl_min}
+                    x.model_dump(exclude={"also", "ttl_min", "probe"}) | {"ttl": x.ttl_min}
                     for x in self.rules.net
                 ],
             )
             if self.library is not None:
                 self.library.seed(self.folder(b["id"]))
+            if self.researcher is not None and self.rules.research.enabled:
+                b["status"] = "researching"
+                await self._research(b, spec, rng)
             if spec.needs and self.scout is not None and self.rules.scout:
                 b["status"] = "scouting"
                 await self._scout(b, spec)
@@ -395,6 +402,111 @@ class BenchBuilder:
             json.dumps(b["sources"], ensure_ascii=False, indent=1), encoding="utf-8"
         )
 
+    async def _research(self, b: dict[str, Any], spec: Spec, rng: random.Random) -> None:
+        """开工前调研：一位能联网的助手给英文搜索词和资讯、视频 → 程序搜 GitHub（≥ min_github）、
+        论文、dsh 插件集市并核对链接 → 高分项目源码只读下载，交给助手写学习卡。"""
+        assert self.researcher is not None
+        rules = self.rules.research
+        record: dict[str, Any] = {}
+        prompt = self.render(
+            "bench_research",
+            request=b["request"],
+            spec=json.dumps(
+                {
+                    "title": spec.title,
+                    "windows": [w.title for w in spec.windows],
+                    "needs": spec.needs,
+                },
+                ensure_ascii=False,
+            ),
+            news=str(rules.news),
+        )
+        queries = [str(n.get("keywords") or "") for n in spec.needs]
+        news: Any = []
+        chosen, result = await self._step(b, rules.kind, prompt, rng, record)
+        if chosen is not None and result is not None and result.ok:
+            try:
+                got = extract_json_object(result.output)
+                queries = [*(got.get("queries") or []), *queries]
+                news = got.get("news") or []
+            except JSONOutputError:
+                self._log(b, "调研助手交来的东西看不懂，只用拆需求时的关键词搜")
+        else:
+            self._log(b, "没有助手能联网查资讯，只搜 GitHub 和论文")
+        report = (await self.researcher.run(queries, news)).to_dict()
+        report["worker"] = record.get("worker")
+        report["cards"] = await self._learn(b, report["github"], rng)
+        b["research"] = report
+        folder = self.folder(b["id"])
+        (folder / "research.json").write_text(
+            json.dumps(report, ensure_ascii=False, indent=1), encoding="utf-8"
+        )
+        (folder / "调研报告.md").write_text(
+            report_markdown(spec.title, b["request"], report), encoding="utf-8"
+        )
+        c = report["counts"]
+        self._log(
+            b,
+            f"调研：GitHub {c['github']} 个、论文 {c['papers']} 篇、资讯和视频 {c['news']} 条、"
+            f"dsh 插件 {c['plugins']} 个、学习卡 {len(report['cards'])} 张",
+        )
+
+    async def _learn(
+        self, b: dict[str, Any], github: list[dict[str, Any]], rng: random.Random
+    ) -> list[dict[str, Any]]:
+        """挑分最高的几个项目，源码只读下载到 research/learn/，各交给一位助手读完写学习卡。"""
+        n = self.rules.research.learn
+        if n <= 0 or self.scout is None:
+            return []
+        picks = sorted(
+            (g for g in github if g["verdict"] in ("adopt", "idea")),
+            key=lambda g: -g["stars"],
+        )[:n]
+
+        async def one(g: dict[str, Any]) -> dict[str, Any] | None:
+            assert self.scout is not None
+            slug = re.sub(r"[^\w.-]+", "-", g["title"].replace("/", "__"))
+            rel = f"research/learn/{slug}"
+            c = Candidate("github", g["title"], g["url"], stars=g["stars"], license=g["license"])
+            try:
+                info = await self.scout.fetch_json(f"https://api.github.com/repos/{c.repo}")
+                c.branch = str(info.get("default_branch") or "main")
+                await self.scout.fetch(c, self.folder(b["id"]) / rel)
+            except Exception as exc:  # noqa: BLE001 - 下载不了就只看说明写
+                self._log(b, f"{g['title']} 的源码没下载成（{str(exc)[:60]}），只按简介写学习卡")
+                rel = ""
+            record: dict[str, Any] = {}
+            prompt = self.render(
+                "bench_learn",
+                request=b["request"],
+                repo=json.dumps(
+                    {k: g[k] for k in ("title", "url", "stars", "license", "summary", "verdict")},
+                    ensure_ascii=False,
+                ),
+                folder=rel or "（没有源码，只按简介写）",
+            )
+            chosen, result = await self._step(b, self.rules.research.kind, prompt, rng, record)
+            if chosen is None or result is None or not result.ok:
+                return None
+            try:
+                card = extract_json_object(result.output)
+            except JSONOutputError:
+                return None
+            return {
+                "repo": g["title"],
+                "url": g["url"],
+                "verdict": g["verdict"],
+                "folder": rel,
+                "worker": chosen.id,
+                "what": str(card.get("what") or "")[:400],
+                "borrow": [str(x)[:300] for x in (card.get("borrow") or [])][:6],
+                "avoid": [str(x)[:300] for x in (card.get("avoid") or [])][:4],
+                "files": [str(x)[:200] for x in (card.get("files") or [])][:8],
+            }
+
+        cards = await asyncio.gather(*(one(g) for g in picks))
+        return [c for c in cards if c]
+
     def _sources_text(self, b: dict[str, Any]) -> str:
         lines = []
         for s in b.get("sources") or []:
@@ -407,6 +519,21 @@ class BenchBuilder:
                 lines.append(
                     f"- 只借思路：{s['url']}（{s['why']}）为「{s['need']}」：{s['summary']}"
                 )
+        r = b.get("research") or {}
+        for c in r.get("cards") or []:
+            where = (
+                f"，源码在 {c['folder']}（只能读、借思路"
+                + ("，许可证允许直接搬）" if c["verdict"] == "adopt" else "，不能照抄）")
+                if c["folder"]
+                else ""
+            )
+            lines.append(
+                f"- 学习卡 {c['repo']}{where}：{c['what']}"
+                + "".join(f"\n  · 借：{x}" for x in c["borrow"])
+                + "".join(f"\n  · 别学：{x}" for x in c["avoid"])
+            )
+        for p in (r.get("papers") or [])[:3]:
+            lines.append(f"- 论文：{p['title']}（{p['source']} {p['date']}）")
         return "\n".join(lines) or "（这次没找插件，全部用零件库自己写）"
 
     async def ask_json(self, bid: str, question: str) -> dict[str, Any]:

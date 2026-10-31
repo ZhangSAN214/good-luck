@@ -107,3 +107,23 @@ def test_sandbox_lets_through_only_configured_public_data(tmp_path):
         wait_done(c)
         bid = c.get("/api/bench").json()["current"]["id"]
         assert "connect-src 'self';" in c.get(f"/bench/{bid}/").headers["content-security-policy"]
+
+
+def test_net_check_lists_every_service_without_real_network(tmp_path):
+    service = service_with(
+        tmp_path,
+        net=[{"name": "fx", "use": "汇率", "url": "https://fx.example/?b={from}", "source": "ECB"}],
+    )
+    seen = []
+
+    async def fetch(url):
+        seen.append(url)
+        return 503 if "fx.example" in url else 200
+
+    service.bench_status_fetch = fetch
+    with TestClient(create_app(service)) as c:
+        r = c.get("/api/bench/net-check").json()
+    names = [x["name"] for x in r["items"]]
+    assert names[0] == "fx" and "github" in names
+    assert r["total"] == len(names) and r["ok"] == r["total"] - 1
+    assert seen[0] == "https://fx.example/?b=EUR"

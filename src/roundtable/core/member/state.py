@@ -331,7 +331,14 @@ class StatePlugin:
         self.rt.repo.save_member_state(s.member, asdict(snap))
         if self.bus is not None:
             for x in reflexes:
-                data = {"name": x.name, "act": x.act, "tags": sorted(s.tags)}
+                data = {"name": x.name, "act": x.act, "tags": sorted(s.tags), "mood": x.mood}
+                # 为了什么（各自的情感记经历用）：大脑信号带的事由、聊天消息的 id、反射的说明
+                if s.data.get("why"):
+                    data["why"] = str(s.data["why"])
+                elif s.data.get("id"):
+                    data["msg"] = int(s.data["id"])
+                if x.note:
+                    data["note"] = x.note
                 self.bus.publish(Event(REFLEX, s.at, s.member, data))
         return reflexes
 

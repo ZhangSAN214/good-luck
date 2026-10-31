@@ -11,6 +11,7 @@ const OPEN_MS = 10000;
 const IDLE_MS = 30000;
 export const STATUS = {
   planning: '正在拆需求',
+  researching: '正在调研',
   scouting: '正在找插件',
   building: '分头写窗口',
   checking: '质检和评审',
@@ -22,6 +23,7 @@ export const STATUS = {
 };
 const STEPS = [
   ['planning', '拆需求'],
+  ['researching', '调研'],
   ['scouting', '找插件'],
   ['building', '分头写'],
   ['checking', '质检评审'],
@@ -30,6 +32,8 @@ const STEPS = [
 ];
 const WSTATUS = { waiting: '等着', running: '在写', done: '写好了', failed: '没写成' };
 const VERDICT = { adopt: '直接用', idea: '只借思路', skip: '不用' };
+const NEWS = { news: '资讯', video: '视频', launch: '发布会', blog: '官方博客' };
+const CHECKED = { true: '', false: '（链接打不开，没核实）', null: '（没核实）' };
 const SHOT = { 电脑: '电脑', 平板: '平板', 手机: '手机', light: '浅色', dark: '深色' };
 
 /** 截图文件名（如「手机_dark.png」）→「手机 · 深色」。 */
@@ -49,7 +53,7 @@ export function shotUrl(bid, n, path) {
 
 /** 走到第几步（返工之后又回到质检时，返工那一格也算走过）。 */
 export function stepIndex(status) {
-  if (status === 'needs_you') return 4;
+  if (status === 'needs_you') return STEPS.findIndex(([k]) => k === 'reworking');
   const i = STEPS.findIndex(([k]) => k === status);
   return i < 0 ? -1 : i;
 }
@@ -67,6 +71,7 @@ export class BenchGenPanel {
     this.err = '';
     this.draft = '';
     this.timer = null;
+    this.net = null; // 联网自检的结果（null 没测过，'busy' 正在测）
     el.addEventListener('click', (e) => this.onClick(e));
     el.addEventListener('input', (e) => {
       if (e.target.matches('[data-text]')) this.draft = e.target.value;
@@ -125,6 +130,7 @@ export class BenchGenPanel {
     const head = `<div class="vh"><b>生成器</b>
       <span class="sc-state ${busy ? 'on' : ''}">${busy ? '生成中' : '空闲'}</span>
       <span class="sc-gap"></span>
+      <button type="button" class="btn" data-netcheck ${this.net === 'busy' ? 'disabled' : ''}>${this.net === 'busy' ? '正在自检…' : '联网自检'}</button>
       ${busy ? '<button type="button" class="btn" data-cancel>叫停</button>' : ''}</div>`;
     const notes = [];
     if (st.unavailable) notes.push(`<p class="sc-warn">${esc(st.unavailable)}</p>`);
@@ -146,11 +152,59 @@ export class BenchGenPanel {
       ? `<details><summary>零件库里自己长出来的零件（${(lib.parts || []).length} 个）</summary><ul class="bg-list">${parts}</ul></details>`
       : '';
     this.el.innerHTML = `${head}<div class="vb sc bg">${notes.join('')}
+      ${this.netHtml()}
       ${ask}
       ${b ? this.buildHtml(b) : ''}
       ${library}
       ${recent ? `<details><summary>最近生成的</summary><ul class="sc-recent">${recent}</ul></details>` : ''}
     </div>`;
+  }
+
+  /** 联网自检的结果：每项通不通、多快；不通的写原因。 */
+  netHtml() {
+    const r = this.net;
+    if (!r || r === 'busy') return '';
+    const rows = (r.items || [])
+      .map(
+        (x) => `<li class="${x.ok ? 'bg-met' : 'bg-miss'}"><span class="bg-mark" role="img" aria-label="${x.ok ? '通' : '不通'}">${x.ok ? '✓' : '✗'}</span><b>${esc(x.source)}</b> <span class="bg-src">${esc(x.group)}</span> ${esc(x.use)} · ${esc(x.ok ? `${x.ms} 毫秒` : x.detail)}</li>`,
+      )
+      .join('');
+    return `<details class="bg-net" open><summary>联网自检：${esc(r.ok)}/${esc(r.total)} 项能连上</summary><ul class="bg-reqs">${rows}</ul>
+      <p class="sc-hint">不通的项目：成品里那部分会退回参考数据并标明日期；调研那部分会少一些资料。多半是网络或代理拦下了，换个网络再试。</p></details>`;
+  }
+
+  /** 调研报告：GitHub（至少 10 个）、学习卡、dsh 插件（建议安装）、论文、资讯和视频。 */
+  researchHtml(b) {
+    const r = b.research;
+    if (!r) return '';
+    const c = r.counts || {};
+    const link = (x) => `<a class="link" href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.title)}</a>`;
+    const gh = (r.github || [])
+      .map(
+        (g) => `<tr><td>${link(g)}</td><td>${esc(g.stars)}</td><td>${esc(g.license || '没写')}</td><td>${esc(g.date || '—')}</td><td class="bg-v-${esc(g.verdict)}">${esc(VERDICT[g.verdict] || g.verdict)}</td><td class="sc-why">${esc(g.summary)}</td></tr>`,
+      )
+      .join('');
+    const cards = (r.cards || [])
+      .map(
+        (k) => `<li><b>${esc(k.repo)}</b>${k.worker ? `（${esc(this.label(k.worker))} 写的）` : ''}：${esc(k.what)}
+          ${(k.borrow || []).length ? `<ul>${k.borrow.map((x) => `<li>借：${esc(x)}</li>`).join('')}${(k.avoid || []).map((x) => `<li>别学：${esc(x)}</li>`).join('')}</ul>` : ''}</li>`,
+      )
+      .join('');
+    const plugins = (r.plugins || []).map((p) => `<li>${link(p)} · ${esc(p.stars)} 星 · ${esc(p.summary)}</li>`).join('');
+    const papers = (r.papers || []).map((p) => `<li>${link(p)} · ${esc(p.source)} ${esc(p.date)} · ${esc(p.summary)}</li>`).join('');
+    const news = (r.news || [])
+      .map((n) => `<li>${esc(NEWS[n.kind] || '资讯')}：${link(n)} · ${esc(n.source)} ${esc(n.date)}${esc(CHECKED[String(n.verified)] ?? '')} · ${esc(n.summary)}</li>`)
+      .join('');
+    const notes = (r.notes || []).map((x) => `<p class="sc-sub">${esc(x)}</p>`).join('');
+    return `<details class="bg-research" open><summary>调研报告：GitHub ${esc(c.github || 0)} 个 · 学习卡 ${esc((r.cards || []).length)} 张 · 论文 ${esc(c.papers || 0)} 篇 · 资讯和视频 ${esc(c.news || 0)} 条${c.plugins ? ` · dsh 插件 ${esc(c.plugins)} 个` : ''}</summary>
+      ${notes}
+      ${gh ? `<table class="sc-subs bg-gh"><thead><tr><th>项目</th><th>星</th><th>许可证</th><th>最近更新</th><th>结论</th><th>是什么</th></tr></thead><tbody>${gh}</tbody></table>` : ''}
+      ${cards ? `<h4>学习卡</h4><ul class="bg-cards">${cards}</ul>` : ''}
+      ${plugins ? `<h4>dsh 插件（建议安装，你点同意才装）</h4><ul class="bg-list">${plugins}</ul>` : ''}
+      ${papers ? `<h4>论文</h4><ul class="bg-list bg-papers">${papers}</ul>` : ''}
+      ${news ? `<h4>资讯和视频</h4><ul class="bg-list bg-news">${news}</ul>` : ''}
+      <a class="link" href="/bench/${encodeURIComponent(b.id)}/${encodeURIComponent('调研报告.md')}" target="_blank" rel="noopener">打开完整调研报告</a>
+    </details>`;
   }
 
   buildHtml(b) {
@@ -160,7 +214,9 @@ export class BenchGenPanel {
     const steps = STEPS.map(([key, name], i) => {
       // 一轮就过线、或没找插件：那一格标「跳过」，不假装走过
       const skipped =
-        (key === 'reworking' && !reworked && at > i) || (key === 'scouting' && !(b.sources || []).length && at > i);
+        (key === 'reworking' && !reworked && at > i) ||
+        (key === 'scouting' && !(b.sources || []).length && at > i) ||
+        (key === 'researching' && !b.research && at > i);
       const cls = skipped ? 'skip' : i < at || b.status === 'done' ? 'past' : i === at && !stopped ? 'now' : '';
       return `<li class="${cls}">${esc(name)}${skipped ? '（跳过）' : ''}</li>`;
     }).join('');
@@ -187,6 +243,7 @@ export class BenchGenPanel {
       ${finished || draft ? `<div class="sc-row"><button type="button" class="btn ${finished ? 'primary' : ''}" data-preview="${esc(b.id)}">${openLabel}</button>
         <a class="link" href="/bench/${encodeURIComponent(b.id)}/index.html" target="_blank" rel="noopener">在新窗口打开</a></div>` : ''}
       ${wins ? `<table class="sc-subs"><thead><tr><th>窗口</th><th>谁写的</th><th>状态</th></tr></thead><tbody>${wins}</tbody></table>` : ''}
+      ${this.researchHtml(b)}
       ${this.sourcesHtml(b)}
       ${newParts}
       ${rounds}
@@ -263,6 +320,17 @@ export class BenchGenPanel {
     const t = e.target;
     if (t.closest('[data-submit]')) return this.act(() => this.api.submit(this.draft), true);
     if (t.closest('[data-cancel]')) return this.act(() => this.api.cancel());
+    if (t.closest('[data-netcheck]')) {
+      this.net = 'busy';
+      this.render();
+      try {
+        this.net = await this.api.netCheck();
+      } catch (x) {
+        this.net = null;
+        this.err = `自检没做成：${x.message}`;
+      }
+      return this.render();
+    }
     const pv = t.closest('button[data-preview]');
     if (pv) {
       this.preview = this.preview === pv.dataset.preview ? null : pv.dataset.preview;

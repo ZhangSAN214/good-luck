@@ -643,3 +643,133 @@ def test_net_services_must_be_keyless_https():
     ):
         with pytest.raises(ValidationError):
             BenchNetService(**(ok | bad))
+
+
+# --- 开工前调研 ----------------------------------------------------------------------
+
+
+class ResearchSC(FakeSC):
+    """调研助手给搜索词和资讯；学习卡按仓库名写。"""
+
+    async def step(self, kind, prompt, **kw):
+        p = json.loads(prompt)
+        if p["role"] == "bench_research":
+            kw["record"]["worker"] = "c"
+            self.calls.append({"role": p["role"], "who": "c", "kind": kind})
+            out = {
+                "queries": ["travel planner"],
+                "news": [{"title": "发布会", "url": "https://x/ok", "kind": "launch"}],
+            }
+            return W("c"), RunResult(0, json.dumps(out, ensure_ascii=False))
+        if p["role"] == "bench_learn":
+            r = json.loads(p["repo"])
+            self.calls.append({"role": p["role"], "who": "c", "folder": p["folder"]})
+            card = {"what": f"{r['title']} 的做法", "borrow": ["时间轴拖拽"], "avoid": ["要服务器"]}
+            return W("c"), RunResult(0, json.dumps(card, ensure_ascii=False))
+        return await super().step(kind, prompt, **kw)
+
+
+class FakeResearcher:
+    def __init__(self):
+        self.queries = None
+
+    async def run(self, queries, news):
+        from roundtable.core.benchkit.research import Item, Report
+
+        self.queries = queries
+        rep = Report(queries=queries)
+        rep.github = [
+            Item(
+                "github",
+                f"o/r{i}",
+                f"https://github.com/o/r{i}",
+                stars=1000 - i,
+                verdict="adopt" if i % 2 else "idea",
+                license="MIT",
+            )
+            for i in range(10)
+        ]
+        rep.papers = [
+            Item(
+                "paper",
+                "Trip Planning",
+                "https://arxiv.org/abs/1",
+                source="arXiv",
+                date="2024-01-01",
+            )
+        ]
+        rep.news = [Item("launch", n["title"], n["url"], verified=True) for n in news]
+        return rep
+
+
+class LearnScout:
+    def __init__(self):
+        self.fetched = []
+
+    async def fetch_json(self, url):
+        return {"default_branch": "main"}
+
+    async def fetch(self, c, dest):
+        if c.repo == "o/r1":
+            raise ValueError("太大")
+        dest.mkdir(parents=True, exist_ok=True)
+        self.fetched.append(c.repo)
+        return {}
+
+    async def search(self, need, keywords):
+        return []
+
+
+async def test_research_runs_before_writing_and_feeds_learning_cards(tmp_path):
+    sc = ResearchSC()
+    res = FakeResearcher()
+    scout = LearnScout()
+    b = BenchBuilder(
+        BenchRules(),
+        root=tmp_path,
+        supercomputer=sc,
+        render=render,
+        check=fake_check(),
+        scout=scout,
+        researcher=res,
+        seed=7,
+    )
+    b.submit("帮我做一个旅行台")
+    await b.wait()
+    build = b.build
+    roles = [c["role"] for c in sc.calls]
+    assert roles.index("bench_research") < roles.index("bench_window")
+    assert res.queries[0] == "travel planner" and "leaflet map" in res.queries
+    r = build["research"]
+    assert r["counts"]["github"] == 10 and r["worker"] == "c"
+    # 学习卡：星最多的 3 个；下载失败的照样按简介写
+    assert [c["repo"] for c in r["cards"]] == ["o/r0", "o/r1", "o/r2"]
+    assert scout.fetched == ["o/r0", "o/r2"]
+    assert r["cards"][1]["folder"] == "" and r["cards"][0]["folder"] == "research/learn/o__r0"
+    folders = [c["folder"] for c in sc.calls if c["role"] == "bench_learn"]
+    assert "（没有源码，只按简介写）" in folders
+    # 写窗口的助手拿到学习卡和论文
+    window = next(json.loads(p) for p in sc.prompts if json.loads(p)["role"] == "bench_window")
+    assert "学习卡 o/r0" in window["sources"] and "借：时间轴拖拽" in window["sources"]
+    assert "论文：Trip Planning" in window["sources"]
+    md = (tmp_path / build["id"] / "调研报告.md").read_text(encoding="utf-8")
+    assert "GitHub 10 个" in md and "发布会" in md
+    assert json.loads((tmp_path / build["id"] / "research.json").read_text(encoding="utf-8"))
+    assert any("调研：GitHub 10 个" in x["text"] for x in build["log"])
+
+
+async def test_research_off_or_no_researcher_skips_it(tmp_path):
+    sc = ResearchSC()
+    b = BenchBuilder(
+        BenchRules(research={"enabled": False}),
+        root=tmp_path,
+        supercomputer=sc,
+        render=render,
+        check=fake_check(),
+        researcher=FakeResearcher(),
+        seed=7,
+    )
+    b.submit("旅行台")
+    await b.wait()
+    assert b.build["research"] is None
+    assert "bench_research" not in [c["role"] for c in sc.calls]

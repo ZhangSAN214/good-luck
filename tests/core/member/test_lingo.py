@@ -306,3 +306,38 @@ def test_real_stress_and_everyday_words_are_not_read_as_teasing():
     assert lingo.gist("我错过了末班车").kind != "good_news"
     assert lingo.gist("买了一盒草莓").kind != "funny"
     assert lingo.gist("考试终于过了！").kind == "good_news"
+
+
+def test_other_members_voice_marks_are_swapped_back_to_her_own():
+    env, lingo = world()
+    card(env, "V2", style={"口头禅": ["先说结论。"], "自称": "本狐"})
+    card(env, "V3", style={"口头禅": ["这笔先记着。"], "自称": "我"})
+    theirs = lingo.habits("V2").kaomoji[0]
+    mine = set(lingo.habits("V3").kaomoji)
+    out = lingo.own_voice("V3", f"先说结论，本狐觉得可以 {theirs}\n明天见", random.Random(1))
+    assert "先说结论" not in out and "本狐" not in out and theirs not in out or theirs in mine
+    assert "明天见" in out and "我觉得可以" in out
+    assert lingo.own_voice("V2", "先说结论，本狐觉得可以", RNG) == "先说结论，本狐觉得可以"
+    # 跟人学过的不算串味；整句只有那个口头禅时不删光
+    data = lingo._load("V3")
+    data["learned"]["先说结论"] = {"from": "V2", "at": iso(NOON), "used": ""}
+    lingo._save("V3", data)
+    env.rt.budget.now = lambda: NOON
+    assert "先说结论" in lingo.own_voice("V3", "先说结论，可以", RNG)
+    assert lingo.own_voice("V1", "这笔先记着。", RNG) == "这笔先记着。"
+    _lingo(env, own_voice=False)
+    assert lingo.own_voice("V3", "本狐觉得", RNG) == "本狐觉得"
+
+
+def test_her_own_approved_stickers_come_first(monkeypatch):
+    import roundtable.core.chat_actions as acts
+
+    env, lingo = world()
+    general = lingo.sticker_pack("V2")
+    assert general is None or general[0] in env.rt.config.roundtable.chat.actions.stickers
+    monkeypatch.setattr(
+        acts, "own_stickers", lambda rt, m, name: {name: ["挂账"]} if m == "V2" else {}
+    )
+    assert lingo.sticker_pack("V2") == ("小二", ["挂账"])
+    assert any("「小二」那套" in line for line in lingo.voice_lines("V2"))
+    assert lingo.sticker_pack("V3") == general or lingo.sticker_pack("V3")[0] != "小三"
