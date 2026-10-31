@@ -247,3 +247,20 @@ async def test_dsh_plugin_gets_a_learning_card_and_can_be_requested(tmp_path):
         bb.request_plugin(bid, "没有这个")
     with pytest.raises(KeyError):
         bb.request_plugin("nope", "x/dsh-canvas")
+
+
+@pytest.mark.asyncio
+async def test_proposal_says_who_pitched_what_and_why_adopted(tmp_path):
+    sc = TeamSC(votes={"a": "c", "b": "c", "c": "a"})
+    bb = make(tmp_path, sc, project={"enabled": True, "interview": False})
+    bb.submit("做一个修图台")
+    await bb.wait()
+    b = bb.build
+    assert b["gate"]["kind"] == "sign"
+    lines = b["proposal"]["meeting"]
+    lead = next(x for x in lines if "采纳为主案" in x)
+    assert "c 的思路" in lead and "2 票" in lead and "能落地" in lead
+    assert sum("没采纳" in x for x in lines) == 2
+    assert any("从其他方案补进主案" in x for x in lines)
+    md = (tmp_path / b["id"] / "方案书.md").read_text(encoding="utf-8")
+    assert "## 方案会" in md and "采纳为主案" in md

@@ -225,3 +225,22 @@ def test_long_windows_on_phone():
 def test_page_errors_name_their_window():
     f = next(x for x in run(probe(), errors=["窗口 trip-setup 出错：SyntaxError", "别的错"]))
     assert f.check == "页面报错" and f.windows == ["trip-setup"]
+
+
+def test_evaluate_pokes_without_browser():
+    pokes = [
+        {"win": "spots", "name": "加入行程", "changed": ["spots", "plan"], "page": False},
+        {"win": "spots", "name": "看详情", "changed": [], "page": False},
+        {"win": "spots", "name": "打开说明", "changed": [], "page": True},  # 弹了对话框：算有反应
+        {"win": "fav", "name": "收藏这家", "changed": ["fav"], "page": False},
+        {"win": "fav", "name": "下一页", "changed": ["fav"], "page": False},  # 不是「加入」类
+    ]
+    found = {f.check: f for f in q.evaluate_pokes(pokes, "电脑·浅色", errors=[])}
+    assert set(found) == {"点了没反应", "加入后别处不变"}
+    assert found["点了没反应"].windows == ["spots"] and "看详情" in found["点了没反应"].detail
+    assert found["加入后别处不变"].windows == ["fav"]
+    # 只有一个窗口的页面：没有「别处」可言
+    solo = [{"win": "a", "name": "加入", "changed": ["a"], "page": False}]
+    assert q.evaluate_pokes(solo, "x", errors=[]) == []
+    err = q.evaluate_pokes([], "x", errors=["窗口 fav 出错：坏了"])
+    assert err[0].check == "点了报错" and err[0].windows == ["fav"]
