@@ -44,7 +44,7 @@ from roundtable.core.chat_actions import (
 from roundtable.core.hometz import home_zone
 from roundtable.core.member.brain import Brain, intent_text
 from roundtable.core.member.memory.diary import TOOL, DiaryTool
-from roundtable.core.office.apartment import ACTIVITIES, PUBLIC_ROOMS, schedule
+from roundtable.core.office.apartment import PUBLIC_ROOMS, activity_label, schedule
 from roundtable.core.persona import EMPTY, chat_persona
 from roundtable.core.plain_talk import before_speaking_all, plain_prompt
 from roundtable.core.providers import AllChannelsFailed, Message, NoChannelAvailable, ProviderError
@@ -98,7 +98,7 @@ def life_clock(rt: Any, member_id: str) -> str:
         return f"{head}你刚才在{spot.group(1).strip()}"
     room, act = schedule(member_id, now.hour, now.weekday())
     where = "自己房间" if room == "dorm" else PUBLIC_ROOMS.get(room, room)
-    return f"{head}你这会儿一般在{where}{ACTIVITIES.get(act, act)}"
+    return f"{head}你这会儿一般在{where}{activity_label(act, now.hour)}"
 
 
 def with_diary_tool(rt: Any, prompt: Any, remaining: int) -> Any:
