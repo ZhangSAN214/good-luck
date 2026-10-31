@@ -28,7 +28,7 @@ from statistics import mean
 from typing import Any
 
 from roundtable.core.benchkit.library import Library
-from roundtable.core.benchkit.lint import lint_windows
+from roundtable.core.benchkit.lint import lint_data, lint_windows
 from roundtable.core.benchkit.quality import QualityError, Report, run_check
 from roundtable.core.benchkit.research import Researcher, report_markdown
 from roundtable.core.benchkit.scout import Candidate, Scout
@@ -49,7 +49,10 @@ RECENT = 10
 # 写完自测：只开一种屏宽，只管这几项低级错误
 SELFTEST_VIEWPORTS = (("电脑", 1280, 860),)
 REVERT_MARGIN = 0.3  # 一组窗口的评审均分比上一轮低这么多以上，就退回上一版
-SELFTEST_CHECKS = ("页面报错", "窗口没用零件库", "自己画插图")
+SELFTEST_CHECKS = (
+    *("页面报错", "窗口没用零件库", "自己画插图"),
+    *("数据文件看不懂", "地址为空", "占位数据", "和共用信息矛盾"),
+)
 Check = Callable[..., Report]
 
 
@@ -120,6 +123,50 @@ def review_groups(authors: dict[str, str]) -> dict[str, list[str]]:
     for wid, who in authors.items():
         groups.setdefault(who, []).append(wid)
     return groups
+
+
+def stuck_report(rounds: list[dict[str, Any]]) -> dict[str, Any]:
+    """做满轮数没过线：哪几条没做到、卡在哪、建议怎么办（给你选再跑一轮 / 改要求 / 就这样）。"""
+    last = rounds[-1] if rounds else {}
+    missing = []
+    for r in last.get("requirements") or []:
+        if r["met"]:
+            continue
+        missed = sum(
+            1
+            for rnd in rounds
+            for x in rnd.get("requirements") or []
+            if x["id"] == r["id"] and not x["met"]
+        )
+        missing.append({"id": r["id"], "text": r["text"], "why": r["why"], "missed": missed})
+    blocks = [
+        f"{f['check']}（{f['where']}）"
+        for f in (last.get("check") or {}).get("findings", [])
+        if f.get("severity") == "block"
+    ]
+    high = [
+        x["problem"] for x in (last.get("attack") or {}).get("bugs", []) if x["severity"] == "high"
+    ]
+    trend = [round(mean(r["scores"].values()), 2) for r in rounds if r.get("scores")]
+    advice: list[str] = []
+    for m in missing:
+        if m["missed"] >= 2 and m["missed"] == len(rounds):
+            advice.append(
+                f"「{m['id']}」连续 {m['missed']} 轮都没做到：可能说得太笼统或这一版做不到，"
+                "建议改得更具体，或者先删掉"
+            )
+    if blocks:
+        advice.append(f"自动质检还有 {len(blocks)} 处必须修：{'、'.join(blocks[:3])}")
+    if high:
+        advice.append(f"对抗手找到的严重问题还有 {len(high)} 个没修：{high[0]}")
+    if len(trend) >= 2 and trend[-1] - trend[0] >= 0.5:
+        advice.append(f"评审分在涨（{trend[0]:g} → {trend[-1]:g}），再跑一轮有希望过线")
+    elif len(trend) >= 2:
+        advice.append(
+            f"评审分没怎么涨（{trend[0]:g} → {trend[-1]:g}），再跑多半也一样，"
+            "建议改要求或就这样收下"
+        )
+    return {"missing": missing, "blocks": blocks, "high": high, "trend": trend, "advice": advice}
 
 
 class BenchBuilder:
@@ -432,9 +479,13 @@ class BenchBuilder:
         await self._selftest(b, spec, rng)
         await self._rounds(b, spec, rng)
 
-    async def _rounds(self, b: dict[str, Any], spec: Spec, rng: random.Random) -> None:
+    async def _rounds(
+        self, b: dict[str, Any], spec: Spec, rng: random.Random, limit: int | None = None
+    ) -> None:
         start = len(b["rounds"])
-        for k in range(1, self.rules.max_rounds + 1):
+        limit = limit or self.rules.max_rounds
+        b["stuck"] = None
+        for k in range(1, limit + 1):
             n = start + k
             b["status"] = "checking"
             ok = await self._round(b, spec, n, rng)
@@ -444,8 +495,9 @@ class BenchBuilder:
                 self._grow(b, spec)
                 break
             self._revert(b, n)
-            if k == self.rules.max_rounds:
+            if k == limit:
                 b["status"] = "needs_you"
+                b["stuck"] = stuck_report(b["rounds"])
                 self._log(b, f"做满 {k} 轮还没过线，停下来等你决定")
                 break
             b["status"] = "reworking"
@@ -671,6 +723,68 @@ class BenchBuilder:
             self._save(b)
         return b
 
+    def decide(
+        self, bid: str, action: str, requirements: list[dict[str, str]] | None = None
+    ) -> dict[str, Any]:
+        """做满轮数没过线时你来定：再跑一轮（more）、改要求再跑一轮（edit）、就这样（accept）。"""
+        b = self.get(bid)
+        if b is None:
+            raise LookupError("没有这个工作台")
+        if b.get("status") != "needs_you":
+            raise ValueError("现在不需要你决定")
+        if self.busy:
+            raise RuntimeError("正在做另一个工作台，等它停下来再继续")
+        if action == "accept":
+            b["status"], b["accepted_as_is"], b["stuck"] = "done", True, None
+            self._log(b, "你选了「就这样」，按现在的样子收下")
+            self.build = b
+            self._save()
+            return b
+        if action not in ("more", "edit"):
+            raise ValueError("不认得这个操作")
+        spec = load_spec(self.folder(bid))
+        if action == "edit":
+            if not requirements:
+                raise ValueError("改要求要给出新的验收清单")
+            self._edit_requirements(b, spec, requirements)
+            self._log(b, f"你改了要求（{len(spec.requirements)} 条），再跑一轮")
+        else:
+            self._log(b, "你选了再跑一轮")
+        self._start_job(b, lambda: self._more(b, spec))
+        return b
+
+    async def _more(self, b: dict[str, Any], spec: Spec) -> None:
+        rng = random.Random(f"{b['seed']}-more-{len(b['rounds'])}")
+        b["status"] = "reworking"
+        await self._rework(b, spec, len(b["rounds"]), rng)
+        await self._rounds(b, spec, rng, limit=1)
+
+    def _edit_requirements(
+        self, b: dict[str, Any], spec: Spec, requirements: list[dict[str, str]]
+    ) -> None:
+        """改验收清单里你的要求（r…，可改、删、加）；底线（b…）原样保留。写回 spec.json。"""
+        old = {r["id"]: r for r in spec.requirements}
+        keep = [r for r in spec.requirements if str(r["id"]).startswith("b")]
+        mine: list[dict[str, Any]] = []
+        for x in requirements:
+            text = str(x.get("text") or "").strip()[:300]
+            rid = str(x.get("id") or "")
+            if not text or rid.startswith("b"):
+                continue
+            base = old.get(rid) if rid.startswith("r") else None
+            mine.append(
+                (base or {"check": "", "windows": [], "source": "你的要求"}) | {"text": text}
+            )
+        mine = mine[: self.rules.max_requirements]
+        for i, r in enumerate(mine, 1):
+            r["id"] = f"r{i}"
+        spec.requirements = mine + keep
+        (self.folder(b["id"]) / "spec.json").write_text(
+            json.dumps(spec.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+        if b.get("proposal"):
+            b["proposal"]["requirements"] = spec.requirements
+
     # --- 项目室：访谈、方案书、签字、里程碑、变更单、交付、革新 --------------------------
 
     async def _interview(self, b: dict[str, Any]) -> None:
@@ -754,6 +868,7 @@ class BenchBuilder:
             "milestones": [m | {"titles": [title[x] for x in m["windows"]]} for m in milestones],
             "tech": tech[:12],
             "plugins": [p["title"] for p in r.get("plugins") or []],
+            "meeting": self._meeting_lines(b),
         }
         b["milestones"] = []
         folder = self.folder(b["id"])
@@ -768,6 +883,8 @@ class BenchBuilder:
         lines += [
             f"{m['n']}. {m['title']}：{'、'.join(m['titles'])}" for m in b["proposal"]["milestones"]
         ]
+        if b["proposal"]["meeting"]:
+            lines += ["", "## 方案会"] + [f"- {t}" for t in b["proposal"]["meeting"]]
         if tech:
             lines += ["", "## 借鉴的项目"] + [f"- {t}" for t in tech]
         (folder / "方案书.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
@@ -779,34 +896,34 @@ class BenchBuilder:
             f"{len(milestones)} 个里程碑",
         )
 
+    def _meeting_lines(self, b: dict[str, Any]) -> list[str]:
+        """方案书里写清方案会上谁提了什么、为什么采纳或没采纳。"""
+        m = b.get("meeting") or {}
+        pitches = sorted(m.get("pitches") or [], key=lambda p: p["label"])
+        if not pitches:
+            return []
+        why = {v["pick"]: v["why"] for v in m.get("votes") or [] if v["why"]}
+        out = []
+        for p in pitches:
+            took = p["worker"] == m.get("lead")
+            verdict = (
+                f"采纳为主案（{p['votes']} 票）"
+                + (f"：{why[p['label']]}" if p["label"] in why else "")
+                if took
+                else f"没采纳（{p['votes']} 票）"
+            )
+            out.append(f"方案 {p['label']}（{p['author']}）{p['idea']}——{verdict}")
+        out += [f"从其他方案补进主案：{x}" for x in m.get("borrow") or []]
+        return out
+
     def sign(
         self, bid: str, requirements: list[dict[str, str]] | None = None, note: str = ""
     ) -> dict[str, Any]:
         """签字开工：可以改、删、加验收清单里你的要求（底线 b… 不能删），写一句补充。"""
         b = self._at_gate(bid, "sign")
-        folder = self.folder(bid)
-        spec = load_spec(folder)
+        spec = load_spec(self.folder(bid))
         if requirements is not None:
-            old = {r["id"]: r for r in spec.requirements}
-            keep = [r for r in spec.requirements if str(r["id"]).startswith("b")]
-            mine: list[dict[str, Any]] = []
-            for x in requirements:
-                text = str(x.get("text") or "").strip()[:300]
-                rid = str(x.get("id") or "")
-                if not text or rid.startswith("b"):
-                    continue
-                base = old.get(rid) if rid.startswith("r") else None
-                mine.append(
-                    (base or {"check": "", "windows": [], "source": "你的要求"}) | {"text": text}
-                )
-            mine = mine[: self.rules.max_requirements]
-            for i, r in enumerate(mine, 1):
-                r["id"] = f"r{i}"
-            spec.requirements = mine + keep
-            (folder / "spec.json").write_text(
-                json.dumps(spec.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8"
-            )
-            b["proposal"]["requirements"] = spec.requirements
+            self._edit_requirements(b, spec, requirements)
         note = note.strip()[:1000]
         if note:
             b["brief"] = f"{self._brief(b)}\n\n签字时补充：{note}"
@@ -1410,6 +1527,7 @@ class BenchBuilder:
             raise RuntimeError(f"自动质检没法进行：{exc}") from None
         # 读代码就能看出来的问题（没用零件库、写死颜色、代码太大）一起算进质检
         report.findings += lint_windows(folder, [w["id"] for w in b["windows"]])
+        report.findings += lint_data(folder, [w["id"] for w in b["windows"]], spec.shared)
         rnd["check"] = report.to_dict()
         self._log(b, f"第 {n} 轮质检：{'通过' if report.passed else '不通过'}，{report.score} 分")
         shots = "\n".join(os.path.relpath(s, folder) for s in report.shots)
@@ -1544,7 +1662,7 @@ class BenchBuilder:
         except QualityError as exc:
             raise RuntimeError(f"自动质检没法进行：{exc}") from None
         scope = only if only is not None else [w["id"] for w in b["windows"]]
-        report.findings += lint_windows(folder, scope)
+        report.findings += lint_windows(folder, scope) + lint_data(folder, scope, spec.shared)
         bad = [
             f.__dict__
             for f in report.findings

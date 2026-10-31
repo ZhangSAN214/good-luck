@@ -1009,6 +1009,8 @@ class RoundtableService:
                 self.bench.review(bench_id, kw.get("decision") or "", kw.get("comments"))
             elif action == "evolve":
                 await self.bench.evolve(bench_id)
+            elif action == "decide":
+                self.bench.decide(bench_id, kw.get("choice") or "", kw.get("requirements"))
             elif action == "plugin":
                 self.bench.request_plugin(bench_id, kw.get("name") or "")
             else:

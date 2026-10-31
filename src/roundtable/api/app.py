@@ -395,6 +395,13 @@ class BenchSignBody(BaseModel):
     note: str = Field(default="", max_length=1000)
 
 
+class BenchDecideBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    action: Literal["more", "edit", "accept"]  # 再跑一轮 / 改要求再跑 / 就这样
+    requirements: list[BenchReqItem] | None = Field(default=None, max_length=30)
+
+
 class BenchComment(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -856,6 +863,15 @@ def create_app(service: RoundtableService | None = None, lan: LanAccess | None =
         request: Request, bench_id: str, body: BenchAnswerBody
     ) -> dict[str, Any]:
         return await svc(request).bench_project(bench_id, "answer", answers=body.answers)
+
+    @app.post("/api/bench/{bench_id}/decide")
+    async def bench_decide(
+        request: Request, bench_id: str, body: BenchDecideBody
+    ) -> dict[str, Any]:
+        reqs = [r.model_dump() for r in body.requirements or []]
+        return await svc(request).bench_project(
+            bench_id, "decide", choice=body.action, requirements=reqs
+        )
 
     @app.post("/api/bench/{bench_id}/sign")
     async def bench_sign(request: Request, bench_id: str, body: BenchSignBody) -> dict[str, Any]:

@@ -303,3 +303,47 @@ def test_benchgen_team_meeting_board_attack_and_plugin_request(serve, page, monk
     if shots := os.environ.get("ROUNDTABLE_SHOTS"):
         page.set_viewport_size({"width": 1280, "height": 2600})
         team.screenshot(path=str(Path(shots) / "benchgen_team.png"))
+
+
+def test_benchgen_stuck_lets_you_edit_requirements_or_accept(serve, page, monkeypatch, tmp_path):
+    """做满轮数没过线：列出没做到的和建议，改要求再跑一轮，最后选「就这样」。"""
+    from ..core.benchkit.test_builder import CheckSC, plan_with_requirements
+
+    sc = CheckSC(unmet={"r1"}, plan=plan_with_requirements())
+
+    def factory(rules, *, root, **kw):
+        return BenchBuilder(
+            rules.model_copy(
+                update={
+                    "baseline": [],
+                    "max_rounds": 1,
+                    "project": BenchProject(enabled=False),
+                    "team": BenchTeam(enabled=False),
+                }
+            ),
+            root=tmp_path / "bench",
+            supercomputer=sc,
+            render=fake_render,
+            check=check,
+            seed=3,
+        )
+
+    monkeypatch.setattr(service_mod, "BenchBuilder", factory)
+    srv = serve(confirm_threshold_usd=100.0)
+    page.goto(srv.url)
+    page.locator('#entries [data-m="bench"]').click()
+    pane = page.locator('#bench [data-pane="gen"]')
+    pane.locator("[data-text]").fill("做一个婚礼策划台")
+    pane.locator("[data-submit]").click()
+    stuck = pane.locator(".bg-stuck")
+    stuck.wait_for(timeout=15000)
+    assert "你来定" in stuck.text_content() and "能按婚礼定制" in stuck.text_content()
+    stuck.locator(".bg-edit summary").click()
+    stuck.locator("li[data-req] input").first.fill("选婚礼后标题出现「婚礼」")
+    stuck.locator('[data-decide="edit"]').click()
+    pane.locator(".bg-round").nth(1).wait_for(timeout=15000)
+    pane.locator(".bg-stuck").wait_for(timeout=15000)
+    assert "选婚礼后标题出现「婚礼」" in pane.locator(".bg-stuck").text_content()
+    pane.locator('[data-decide="accept"]').click()
+    pane.locator(".bg-status.bg-done").wait_for(timeout=10000)
+    assert pane.locator(".bg-stuck").count() == 0

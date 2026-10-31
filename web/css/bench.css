@@ -125,3 +125,8 @@
 .bg-bug-high b{color:var(--warn)}
 .bg-plugins li{display:flex;flex-wrap:wrap;gap:4px 8px;align-items:center}
 .bg-ok{color:var(--ok,#7fc79a);font-size:12px}
+/* 没过线时：卡在哪、建议、你来定 */
+.bg-stuck{margin:10px 0;padding:10px 12px;border:1px solid var(--warn, #e0a050);border-radius:12px}
+.bg-stuck p{margin:4px 0}
+.bg-stuck h4{margin:8px 0 4px;font-size:13px}
+.bg-edit{margin:8px 0}
