@@ -803,6 +803,10 @@ def create_app(service: RoundtableService | None = None, lan: LanAccess | None =
     async def bench_cancel(request: Request) -> dict[str, Any]:
         return await svc(request).bench_cancel()
 
+    @app.get("/api/bench/net-check")
+    async def bench_net_check(request: Request) -> dict[str, Any]:
+        return await svc(request).bench_net_check()
+
     @app.get("/api/bench/{bench_id}")
     async def bench_get(request: Request, bench_id: str) -> dict[str, Any]:
         return svc(request).bench_get(bench_id)

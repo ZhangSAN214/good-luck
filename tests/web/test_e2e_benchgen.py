@@ -17,7 +17,7 @@ from roundtable.core.benchkit.quality import Report
 from roundtable.core.benchkit.scout import Candidate
 from roundtable.core.supercomputer.runner import RunResult
 
-from ..core.benchkit.test_builder import FakeSC, W
+from ..core.benchkit.test_builder import FakeResearcher, ResearchSC, W
 from ..core.benchkit.test_builder import render as fake_render
 
 # 1×1 的 PNG：截图要能真的显示出来
@@ -35,8 +35,8 @@ ASK_WINDOW = (
 )
 
 
-class SlowSC(FakeSC):
-    """写窗口时放一个会提问的窗口；其余同 FakeSC。"""
+class SlowSC(ResearchSC):
+    """写窗口时放一个会提问的窗口；调研和学习卡同 ResearchSC。"""
 
     async def step(self, kind, prompt, **kw):
         chosen, result = await super().step(kind, prompt, **kw)
@@ -102,10 +102,18 @@ def test_benchgen_flow(serve, page, monkeypatch, tmp_path):
             render=fake_render,
             check=check,
             scout=FakeScout(),
+            researcher=FakeResearcher(),
             seed=3,
         )
 
+    def fake_status():
+        async def fetch(url):
+            return 403 if "frankfurter" in url else 200
+
+        return fetch
+
     monkeypatch.setattr(service_mod, "BenchBuilder", factory)
+    monkeypatch.setattr(service_mod, "http_status", fake_status)
     srv = serve(confirm_threshold_usd=100.0)
     page.goto(srv.url)
     page.locator('#entries [data-m="bench"]').click()
@@ -117,9 +125,15 @@ def test_benchgen_flow(serve, page, monkeypatch, tmp_path):
     pane.locator(".bg-status.bg-done").wait_for(timeout=15000)
 
     assert pane.locator(".bg-title").text_content() == "旅行台"
-    assert pane.locator(".bg-steps li.past").count() == 5  # 一轮就过线：返工那格跳过
+    assert pane.locator(".bg-steps li.past").count() == 6  # 一轮就过线：返工那格跳过
     assert pane.locator(".bg-steps li.skip").text_content() == "返工（跳过）"
     assert pane.locator(".sc-subs tr", has_text="写好了").count() == 3
+    research = pane.locator(".bg-research")
+    head = research.locator("summary").text_content()
+    assert "GitHub 10 个" in head and "学习卡 3 张" in head and "资讯和视频 1 条" in head
+    assert research.locator(".bg-gh tbody tr").count() == 10
+    assert "借：时间轴拖拽" in research.locator(".bg-cards").text_content()
+    assert "发布会" in research.locator(".bg-news").text_content()
     src = pane.locator(".bg-sources")
     assert "直接用 1 个，只借思路 1 个" in src.locator("summary").text_content()
     assert src.locator(".bg-v-adopt").text_content() == "直接用"
@@ -134,6 +148,13 @@ def test_benchgen_flow(serve, page, monkeypatch, tmp_path):
         "(img) => img.complete && img.naturalWidth > 0", arg=shot.element_handle()
     )
     assert "手机 · 深色" in rnd.locator(".bg-shots").text_content()
+
+    pane.locator("[data-netcheck]").click()
+    net = pane.locator(".bg-net")
+    net.wait_for()
+    assert "能连上" in net.locator("summary").text_content()
+    miss = net.locator("li.bg-miss")
+    assert miss.count() == 1 and "被网络或代理拦下" in miss.text_content()
 
     pane.locator("button[data-preview]").click()
     frame = page.frame_locator("iframe.bg-frame")

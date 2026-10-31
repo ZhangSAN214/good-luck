@@ -257,6 +257,7 @@ const benchGen = new BenchGenPanel(bench.pane('gen'), {
     cancel: API.benchCancel,
     get: API.benchGet,
     ask: API.benchAsk,
+    netCheck: API.benchNetCheck,
   },
   isOpen: () => bench.visible('gen'),
   label: (id) => superPanel.label(id),
