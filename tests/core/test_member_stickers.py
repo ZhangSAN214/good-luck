@@ -62,6 +62,37 @@ def test_every_member_has_twelve_stills_and_two_animated():
             assert spec.caption and spec.action
 
 
+def test_every_sticker_says_when_to_send_it():
+    """10-31：记仇的「记着」被当成「好的」连用 6 次。每张都写用法；「收到」只在不打字时单发。"""
+    for member, card in load_config().personas.sticker_cards.items():
+        for spec in card.stickers:
+            assert spec.use, f"{member}·{spec.name} 没写用法"
+        got = {s.name: s for s in card.stickers}
+        assert "不打字" in got["收到"].use and "收到" in got["收到"].means
+    claude = load_config().personas.sticker_cards["Anthropic"].stickers
+    assert "不是「好的」" in next(s for s in claude if s.name == "记着").use
+
+
+def test_uses_and_means_only_cover_approved_stickers(tmp_path):
+    rt, _, stickers = build(tmp_path)
+    asyncio.run(stickers.draw("OpenAI", "晚安"))
+    asyncio.run(stickers.draw("OpenAI", "啊这"))
+    assert stickers.uses("OpenAI") == {} and stickers.means("OpenAI") == {}
+    stickers.review("OpenAI", "晚安", "approved")
+    assert stickers.uses("OpenAI") == {"晚安": "睡前道别"}
+    assert "晚安" in stickers.means("OpenAI")["晚安"]
+    assert stickers.uses("Nobody") == {} and stickers.means("Nobody") == {}
+
+
+def test_means_falls_back_to_the_caption_without_punctuation():
+    from roundtable.core.config.schema import StickerSpec
+
+    spec = StickerSpec(name="收", caption="收到！", action="敬礼")
+    assert spec.means == [] and spec.use == ""
+    with pytest.raises(ValueError):
+        StickerSpec(name="收", caption="收到", action="敬礼", means=["一个超过八个字的长词语"])
+
+
 def test_draw_uses_reference_images_and_a_zh_model_then_waits_for_review(tmp_path):
     rt, fake, stickers = build(tmp_path)
     row = asyncio.run(stickers.draw("OpenAI", "快夸我"))
@@ -346,6 +377,26 @@ def test_moment_photo_uses_the_card_and_refs_and_counts_in_the_sticker_budget(tm
     assert stickers.month_spent() > 0  # 和表情包算在同一个每月小上限里
     # 不存进表情索引
     assert all(r["status"] == "missing" for r in stickers.listing("OpenAI"))
+
+
+def test_moment_photo_without_her_sends_no_reference_images(tmp_path):
+    _, fake, stickers = build(tmp_path)
+    asyncio.run(stickers.photo("OpenAI", "食堂", "饭好香", "only the food", refs=False))
+    [(_, _, prompt, _, refs, _)] = image_calls(fake)
+    assert refs == () and "only the food" in prompt and "do not act out the post" in prompt
+
+
+def test_phone_look_is_deterministic_and_changes_the_image():
+    import random
+
+    from roundtable.core.member_stickers import phone_look
+
+    src = png("blue", (400, 300))
+    a = phone_look(src, random.Random("x"))
+    assert a == phone_look(src, random.Random("x")) and a != src
+    with Image.open(io.BytesIO(a)) as im:
+        assert im.format == "JPEG" and im.width < 400 and im.height < 300  # 裁过
+    assert phone_look(b"not an image", random.Random(1)) == b"not an image"
 
 
 def test_moment_photo_blocked_by_the_monthly_cap(tmp_path):
