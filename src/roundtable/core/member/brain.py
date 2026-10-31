@@ -59,6 +59,7 @@ _QUESTION = re.compile(r"[？?]|(吗|呢|么)[。！!～~]*$")
 KEEP_NEWS = 6
 KEEP_PERCEPTS = 4
 CALENDAR_KINDS = frozenset({"holiday", "birthday", "joined", "user", "lunar", "observance"})
+_OWN_DAY = re.compile(r"^(今天是|再过\S+?天就是)\S+?(的生日|入职)")  # 日历念头里的「某某的生日」
 SENSES = {"web": "上网看到", "screen": "在屏幕上看到", "video": "看到", "weather": "看了天气"}
 URGENT = frozenset({"let_go", "retain", "blame"})  # 感情话里这几种不受条数和冷却限制
 FIRST = frozenset({"unknown", "consistent", "busy", "wrap", "attention"})  # 人味里先给的几种
@@ -272,28 +273,35 @@ class Brain:
         if not self.enabled():
             return
         data, kind = event.data, event.kind
-        found: list[tuple[str | None, str, str]] = []  # (谁，没有 = 全员；念头；种类)
+        # (谁，没有 = 全员；念头；种类；生日 / 入职纪念日是谁的)
+        found: list[tuple[str | None, str, str, str | None]] = []
         if kind == "calendar.day":
             for it in data.get("items") or []:
                 if it.get("kind") in CALENDAR_KINDS:
-                    found.append((None, f"今天是{it.get('name', '')}", str(it.get("kind"))))
+                    text = f"今天是{it.get('name', '')}"
+                    found.append((None, text, str(it.get("kind")), it.get("member")))
         elif kind == "calendar.upcoming" and data.get("kind") in CALENDAR_KINDS:
             text = f"再过{data.get('in_days', '几')}天就是{data.get('name', '')}"
-            found.append((None, text, "upcoming"))
+            found.append((None, text, "upcoming", data.get("member")))
         elif kind.startswith(PERCEIVE) and event.member:
             card = str(data.get("card") or "").strip().replace("\n", " ")
             if card:
                 verb = SENSES.get(kind.removeprefix(PERCEIVE), "看到")
-                found.append((event.member, f"{verb}：{card[:30]}", "sense"))
+                found.append((event.member, f"{verb}：{card[:30]}", "sense", None))
         everyone = self.members() if self.members is not None else []
-        for who, text, what in found:
+        for who, said, what, owner in found:
             for m in [who] if who else everyone:
+                text = self._own(said, owner) if owner == m else said
                 s = self._grown(m, self._load(m), event.at)
                 if any(p["text"] == text for p in s.percepts):
                     continue
                 item = {"text": text, "at": iso(event.at), "kind": what}
                 s.percepts = (s.percepts + [item])[-KEEP_PERCEPTS:]
                 self._save(m, s)
+
+    def _own(self, text: str, member: str) -> str:
+        """自己的生日 / 入职纪念日：念头里写「你」，不把自己说成第三个人（10-31 真模型试跑）。"""
+        return _OWN_DAY.sub(r"\1你\2", text, count=1)
 
     def _festive(self, s: _State, at: datetime) -> bool:
         """今天是节假日或纪念日（日历进来的）：更想约人出去。"""
@@ -746,12 +754,15 @@ class Brain:
     # --- 前额叶：挑意图，写成意图卡 -------------------------------------------------
 
     def _asked(self, last: str, gist: Any, *, named: bool, group: bool) -> str:
-        """对方是不是在直接问她："self"（问她自己的事）/ "other"（问别的）/ ""（不是）。"""
+        """对方是不是在直接问她："self"（问她自己的事）/ "judge"（让她评价对方）/
+        "other"（问别的）/ ""（不是）。"""
         r = self.rules.asked
         if not (r.enabled and last and gist is not None and gist.kind == "question"):
             return ""
         if group and not named:
             return ""
+        if any(w in last for w in r.judge_me):
+            return "judge"
         return "self" if any(w in last for w in r.about_me) else "other"
 
     def intent(
@@ -879,7 +890,8 @@ class Brain:
                 weights[name] *= self.lingo.rules.react_boost
         asked = self._asked(last, gist, named=named, group=group)
         if asked:  # 被直接问到：先回答，不岔开（问的是她自己的事时也可以讲自己的事）
-            keep = self.rules.asked.self_intents if asked == "self" else self.rules.asked.intents
+            ra = self.rules.asked
+            keep = {"self": ra.self_intents, "judge": ra.judge_intents}.get(asked, ra.intents)
             weights = {k: v for k, v in weights.items() if k in keep and v > 0} or {"respond": 1.0}
             tags.append(f"asked:{asked}")
         chosen = rng.choices(list(weights), list(weights.values()))[0]
@@ -900,7 +912,8 @@ class Brain:
         text = self._card(chosen, focus, mood, energy, s, rng)
         if asked:
             ra = self.rules.asked
-            text = f"{text}\n{ra.self_line if asked == 'self' else ra.line}"
+            line = {"self": ra.self_line, "judge": ra.judge_line}.get(asked, ra.line)
+            text = f"{text}\n{line}"
         # 说话的样子：看懂了什么（别说出来）、此刻怎么说话（变调、叫法、斗图）
         if gist is not None and gist.kind != "chat":
             tags.append(f"gist:{gist.kind}")

@@ -138,6 +138,15 @@ def test_punctuation_and_laughs_follow_her_habits():
     assert said.startswith(pick.fixed or (pick.head + pick.unit * pick.min))
 
 
+def test_a_bare_correction_at_the_very_start_is_dropped():
+    env, lingo = world(punct_chance=0.0)
+    card(env, "V2")
+    rng = random.Random(0)
+    assert lingo.finish("V2", "不对，是……再过3天篝火夜", rng=rng)[0] == "再过3天篝火夜"
+    kept = "周四吧，不对，是周五"
+    assert lingo.finish("V2", kept, rng=rng)[0] == kept  # 前面真说了什么才改口的不动
+
+
 def test_habits_differ_between_members_but_are_stable():
     env, lingo = world()
     for i, scores in enumerate(

@@ -43,6 +43,7 @@ USER = "user"
 LIFE_KINDS = frozenset({"group", "dm", "life", "pair"})
 CACHE_SECONDS = 60.0
 _LAUGH = re.compile(r"(?:哈){2,}|(?<![A-Za-z])h{3,}(?![A-Za-z])|(?<!\d)2333*(?!\d)|(?:嘿){2,}")
+_BARE_FIX = re.compile(r"^\s*不对[，,、]?\s*是\s*(?:…+|\.{3,})\s*")  # 开口第一句就改口
 _END = re.compile(r"[。．.！!～~…]+$")
 _KEEP_END = re.compile(r"(?:[？?）)」』>\]】]|[\U0001f300-\U0001faff☀-➿])$")
 _CLAUSE = re.compile(r"[^，,。！!？?～~…\n]+[，,。！!？?～~…]*")
@@ -522,7 +523,8 @@ class Lingo:
             return [text]
         rng = rng or random.Random(f"lingo-finish:{member}:{text}")
         h = self.habits(member)
-        out = self.colloquial(text, asked)
+        out = _BARE_FIX.sub("", text, count=1) or text  # 一开口就「不对，是……」：改口没有对象
+        out = self.colloquial(out, asked)
         out = self.own_voice(member, out, rng)
         out = self.show(member, out, rng)
         out = _LAUGH.sub(lambda m: self._laugh(m.group(0), h, rng), out)

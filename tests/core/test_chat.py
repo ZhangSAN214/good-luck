@@ -235,6 +235,24 @@ async def test_dm_only_the_member_replies_with_the_dm_prompt():
     assert [r["text"] for r in env.rt.repo.chat_messages("main")] == []
 
 
+async def test_dm_knows_what_was_just_said_in_the_family_group():
+    env = Env()
+    hub = ChatHub(env.rt, rng=random.Random(0))
+    env.rt.repo.add_chat_message("main", "V1", "今天阿三生日，谁去买蛋糕")
+    env.rt.repo.add_chat_message("main", "V3", "我买好了")
+    dm = hub.room(dm_room("V2"))
+    msg, speakers = dm.post("今天有啥事吗")
+    await dm.replies(msg["id"], speakers)
+    sent = env.fake.calls[-1].messages[-1].content
+    assert "大家庭群里最近说过" in sent
+    assert "阿一：今天阿三生日" in sent and "阿三：我买好了" in sent
+    # 群里自己说话时不重复带
+    group = hub.room("main")
+    msg, _ = group.post("@阿二 你买了没")
+    await group.replies(msg["id"], group.pick("@阿二 你买了没"))
+    assert "大家庭群里最近说过" not in env.fake.calls[-1].messages[-1].content
+
+
 async def test_work_group_uses_its_own_prompt():
     env = Env()
     work = ChatHub(env.rt).room("work")

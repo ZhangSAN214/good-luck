@@ -278,6 +278,28 @@ def test_assistant_voice(text, rule):
     assert rule in rules_hit(text)
 
 
+@pytest.mark.parametrize(
+    "text",
+    [  # 10-31 真模型试跑里的分享
+        "AirPods 实时翻译听着是方便，不过支持哪些语言摘要里都没写，等有人实测再说。",
+        "云南小伙手搓AI短片刷屏外网……页面是搜索摘要，细节我先存疑。",
+        "白矮星周围还分出两个碎屑盘。这说法我先存疑。",
+        "Rubin 拍到海王星外那批矮行星了，具体看到啥还没细读，回头翻翻原文。",
+    ],
+)
+def test_reading_out_search_results(text):
+    assert "search_digest" in rules_hit(text)
+
+
+def test_model_jokes_about_each_other_are_caught_but_ai_news_is_not():
+    assert "model_joke" in rules_hit("谁给它点蜡烛啊，别点太久，怕它顺手把火焰也蒸馏了。")
+    assert "model_joke" not in rules_hit("苹果那个智能助手说要接国内的模型了，下周开测")
+
+
+def test_ordinary_doubt_is_not_a_search_digest():
+    assert "search_digest" not in rules_hit("真的假的，我不太信，等出了实测再说吧")
+
+
 def test_mug_rule_validation():
     rule = PlainTalkRule(name="m", problem="p", kind="mug", patterns=["人生"], concrete=["\\d"])
     assert rule.min_hits == 2 and rule.max_chars == 40

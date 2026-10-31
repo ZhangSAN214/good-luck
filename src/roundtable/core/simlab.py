@@ -810,6 +810,8 @@ _EXPLAIN = re.compile(
     r"好笑的是|有趣的是|搞笑的是|之所以|原因是|让人(忍不住|感到|觉得)|因为.{1,20}所以"
 )
 _BOOKISH = re.compile(r"非常|十分|令人|是否|然而|颇为|极其|因此|并且|倘若|尚未")
+# 一看就是背后在用工具：提「摘要」「搜索结果」「原文」、说「先存疑」（10-31 真模型试跑）
+_TOOLISH = re.compile(r"摘要|搜索结果|原文|先存疑|有待核实|未核实|还没细读")
 _ENDINGS = (("？", "问号"), ("…", "省略号"), ("～", "波浪号"), ("！", "感叹号"), ("。", "句号"))
 
 
@@ -853,6 +855,7 @@ def tells(texts: dict[str, list[str]]) -> dict[str, Any]:
         "short_ratio": round(sum(1 for n in lengths if n <= SHORT_CHARS) / len(all_msgs), 3),
         "explain_ratio": round(sum(1 for t in all_msgs if _EXPLAIN.search(t)) / len(all_msgs), 3),
         "bookish_ratio": round(sum(1 for t in all_msgs if _BOOKISH.search(t)) / len(all_msgs), 3),
+        "tool_ratio": round(sum(1 for t in all_msgs if _TOOLISH.search(t)) / len(all_msgs), 3),
         "endings": {m: _ending(ts) for m, ts in texts.items() if ts},
         "self_repeat": per_member,
         "attribution": attribution(texts),
@@ -1001,7 +1004,8 @@ def render(res: SimResult) -> str:
             f"- 客服腔 / 书面腔（首先、总之、您……）：{t['formal_ratio']:.1%}",
             f"- 口语感：一条字数中位数 {t.get('len_median', 0)}，10 字以内 "
             f"{t.get('under10_ratio', 0):.0%}，一两个词的短回复 {t.get('short_ratio', 0):.0%}；"
-            f"解释句 {t.get('explain_ratio', 0):.1%}，书面词 {t.get('bookish_ratio', 0):.1%}",
+            f"解释句 {t.get('explain_ratio', 0):.1%}，书面词 {t.get('bookish_ratio', 0):.1%}，"
+            f"念搜索结果（摘要、先存疑……）{t.get('tool_ratio', 0):.1%}",
             "- 句尾习惯：" + "；".join(f"{m} {e}" for m, e in (t.get("endings") or {}).items()),
         ]
         if t.get("attribution") is not None:

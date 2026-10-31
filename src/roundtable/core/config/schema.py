@@ -801,6 +801,10 @@ class MemoryRules(_Strict):
 
     enabled: bool = True
     context_chars: int = Field(default=800, ge=0)  # 聊天提示词里最多放多少字的记忆（所有成员相同）
+    # 私聊时接上大家庭群里最近 group_hours 小时的最多 group_lines 句（每句最多 group_chars 字）
+    group_lines: int = Field(default=6, ge=0, le=20)
+    group_hours: float = Field(default=12, gt=0, le=48)
+    group_chars: int = Field(default=60, ge=10, le=200)
     entry_chars: int = Field(default=300, ge=50)  # 每条记忆最多多少字
     log_chars: int = Field(default=6000, ge=500)  # 整理一天时最多读多少字的聊天记录
     catch_up_days: int = Field(default=7, ge=1, le=60)  # 最多补整理几天前的
@@ -852,6 +856,8 @@ class LifeRules(_Strict):
 
     enabled: bool = True
     daily_usd: float = Field(default=0.10, ge=0)  # 生活（含记忆整理）每天最多花多少（UTC 日）
+    # 给夜里整理记忆留的钱：白天的聊天、上网、朋友圈花到「上限 − 这笔」就停，记忆整理可以用满上限
+    memory_reserve_usd: float = Field(default=0.02, ge=0)
     tick_minutes: int = Field(default=30, ge=5, le=360)  # 电脑开着时多久推进一次
     max_written_per_tick: int = Field(default=2, ge=0, le=10)  # 每次推进最多几件事写成聊天
     max_written_catch_up: int = Field(default=6, ge=0, le=30)  # 开机补算时最多写几件
@@ -1804,10 +1810,30 @@ class AskedRules(_Strict):
         "忙啥",
         "你好吗",
     ]
+    judge_me: list[str] = [  # 让她评价对方（「你觉得我是个什么样的人」）
+        "我是个什么样",
+        "我是什么样",
+        "你觉得我怎么样",
+        "你怎么看我",
+        "对我印象",
+        "对我的印象",
+        "你觉得我这个人",
+    ]
     intents: list[str] = ["respond", "joke", "disagree", "brief", "comfort"]
     self_intents: list[str] = ["respond", "joke", "share", "vent", "brief"]
-    line: str = "对方在问你：先正面回答（记得就说具体的，记不清、不知道就直说），再按上面的意思接"
-    self_line: str = "对方在问你自己的事：照实说说你最近怎么样"
+    judge_intents: list[str] = ["respond", "joke", "brief"]
+    line: str = (
+        "对方在问你：先正面回答（记得就说具体的，记不清、不知道就直说），再按上面的意思接；"
+        "照你自己的性格说，不用每次都反问一句"
+    )
+    self_line: str = (
+        "对方在问你自己的事：先说你这会儿或最近具体在干嘛、碰到了啥；想问回去就换个具体的问法，"
+        "别把同一句原样问回去"
+    )
+    judge_line: str = (
+        "对方让你评价他：按你的性格给个反应就行（打趣一句、说还看不出来、挑一件具体的事说都行），"
+        "别先说一段「认识不久」再给他做性格分析"
+    )
 
 
 class BrainRules(_Strict):
