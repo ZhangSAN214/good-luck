@@ -348,6 +348,26 @@ def test_moment_photo_uses_the_card_and_refs_and_counts_in_the_sticker_budget(tm
     assert all(r["status"] == "missing" for r in stickers.listing("OpenAI"))
 
 
+def test_moment_photo_without_her_sends_no_reference_images(tmp_path):
+    _, fake, stickers = build(tmp_path)
+    asyncio.run(stickers.photo("OpenAI", "食堂", "饭好香", "only the food", refs=False))
+    [(_, _, prompt, _, refs, _)] = image_calls(fake)
+    assert refs == () and "only the food" in prompt and "do not act out the post" in prompt
+
+
+def test_phone_look_is_deterministic_and_changes_the_image():
+    import random
+
+    from roundtable.core.member_stickers import phone_look
+
+    src = png("blue", (400, 300))
+    a = phone_look(src, random.Random("x"))
+    assert a == phone_look(src, random.Random("x")) and a != src
+    with Image.open(io.BytesIO(a)) as im:
+        assert im.format == "JPEG" and im.width < 400 and im.height < 300  # 裁过
+    assert phone_look(b"not an image", random.Random(1)) == b"not an image"
+
+
 def test_moment_photo_blocked_by_the_monthly_cap(tmp_path):
     _, _, stickers = build(tmp_path, monthly_usd=0.000001)
     with pytest.raises(StickerBudgetExceeded):
