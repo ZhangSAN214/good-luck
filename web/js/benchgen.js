@@ -91,6 +91,7 @@ export class BenchGenPanel {
     this.timer = null;
     this.net = null; // 联网自检的结果（null 没测过，'busy' 正在测）
     this.dirty = false; // 项目室的表单里填了还没交：定时刷新不重画，免得把你写的冲掉
+    this.seq = 0; // 每次取状态加一：你点了按钮之后，之前发出去的定时刷新回来也不用（是旧的）
     el.addEventListener('click', (e) => this.onClick(e));
     el.addEventListener('input', (e) => {
       if (e.target.matches('[data-text]')) this.draft = e.target.value;
@@ -108,11 +109,15 @@ export class BenchGenPanel {
   }
 
   async refresh() {
+    const seq = ++this.seq;
+    let st;
     try {
-      this.st = await this.api.status();
+      st = await this.api.status();
     } catch {
       return;
     }
+    if (seq !== this.seq) return;
+    this.st = st;
     // 正在打字、或在预览成品时不重画（不然输入框和成品会被刷掉）
     const typing = this.el.contains(document.activeElement?.closest('input,textarea') || null);
     if (this.isOpen() && !typing && !this.preview && !this.dirty) this.render();
@@ -531,8 +536,10 @@ export class BenchGenPanel {
   async act(fn, submitted = false) {
     this.err = '';
     this.dirty = false;
+    ++this.seq;
     try {
       this.st = await fn();
+      ++this.seq;
       if (submitted) {
         this.draft = '';
         this.viewing = null;
