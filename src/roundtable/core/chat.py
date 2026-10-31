@@ -150,6 +150,31 @@ def with_views(rt: Any, memory: str, member: str) -> str:
     return views if memory == NONE else f"{memory}\n{views}"
 
 
+def with_group_today(rt: Any, memory: str, room: str, names: dict[str, str]) -> str:
+    """私聊（和你、成员之间）：再接上大家庭群里最近半天的几句。群里刚聊过的事，私聊时
+    不会说成「没人提」（2026-10-31 真模型试跑）。8 位相同的条数和字数；群里没说话就不接。"""
+    from roundtable.core.memory import NONE
+
+    rules = rt.config.roundtable.chat.memory
+    if room in (ROOM, WORK) or rules.group_lines == 0:
+        return memory
+    since = iso(rt.budget.now() - timedelta(hours=rules.group_hours))
+    rows = [
+        r
+        for r in rt.repo.chat_messages(ROOM, limit=60)
+        if r["created_at"] >= since and r["author"] != SYSTEM and not is_recalled(r)
+    ][-rules.group_lines :]
+    if not rows:
+        return memory
+    lines = [
+        f"{USER_LABEL if r['author'] == USER else names.get(r['author'], r['author'])}："
+        f"{str(r['text'] or '')[: rules.group_chars]}"
+        for r in rows
+    ]
+    block = "大家庭群里最近说过（你也看到了）：\n" + "\n".join(lines)
+    return block if memory == NONE else f"{memory}\n{block}"
+
+
 def dm_room(member_id: str) -> str:
     return f"{DM_PREFIX}{member_id}"
 
@@ -660,6 +685,8 @@ class GroupChat:
         if self.kind in ABOUT_KINDS:  # 关于你（P8）：只在私聊和生活群
             variables["memory"] = with_about_you(rt, variables["memory"], history)
             variables["memory"] = with_views(rt, variables["memory"], member.id)
+        if self.kind == "dm":
+            variables["memory"] = with_group_today(rt, variables["memory"], self.room, names)
         if self.kind != "dm":
             variables["members"] = (
                 "、".join(m.name for m in self.members() if m.id != member.id) or "（没有别人）"

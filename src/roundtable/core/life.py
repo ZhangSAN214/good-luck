@@ -23,7 +23,15 @@ from typing import Any
 
 from roundtable.core.browse import SEARCH_STEP, SHARE_STEP, Browser
 from roundtable.core.budget.guard import day_window as utc_day_window
-from roundtable.core.chat import ROOM, ChatHub, ChatMember, call_member, clean_reply, member_memory
+from roundtable.core.chat import (
+    ROOM,
+    ChatHub,
+    ChatMember,
+    call_member,
+    clean_reply,
+    member_memory,
+    with_group_today,
+)
 from roundtable.core.chat_work import short_title
 from roundtable.core.life_guard import LifeGuard
 from roundtable.core.member.brain import Brain, intent_text
@@ -75,7 +83,8 @@ class LifeEngine:
         self.hub = hub
         self.memory = memory
         self.guard = LifeGuard(rt, LIFE_STEPS)
-        memory.allow = self.allowed  # 记忆整理也算进生活的每日上限
+        # 记忆整理也算进生活的每日上限，但能用到为它留的那笔（10-31 试跑：白天花满，夜里没钱记）
+        memory.allow = lambda estimate_usd: self.allowed(estimate_usd, reserve=False)
         self.browse = Browser(rt, hub, self.allowed)
         self.moments = Moments(rt, hub, self.allowed)
         self._planned: Brain | None = None
@@ -90,10 +99,14 @@ class LifeEngine:
         start, end = utc_day_window(self.rt.budget.now())
         return self.rt.repo.spent_in_steps("chat", LIFE_STEPS, start, end)
 
-    def allowed(self, estimate_usd: float) -> bool:
+    def allowed(self, estimate_usd: float, *, reserve: bool = True) -> bool:
+        """reserve：给记忆整理留出 ``memory_reserve_usd``（记忆整理自己调用时为 False）。"""
         if self.guard.halted():
             return False
-        return self.spent_today() + estimate_usd <= self.rules.daily_usd + 1e-9
+        cap = self.rules.daily_usd
+        if reserve:
+            cap = max(cap - self.rules.memory_reserve_usd, 0.0)
+        return self.spent_today() + estimate_usd <= cap + 1e-9
 
     # --- 事件 --------------------------------------------------------------------
 
@@ -344,8 +357,13 @@ class LifeEngine:
                     scene=p.topic,
                     persona=chat_persona(rt, member.id),
                     voice=voice_for(rt, member.id, "life", seed=turn + len(earlier)),
-                    memory=member_memory(
-                        rt, member.id, f"{p.topic}\n{chat.history(names)}", p.room or ROOM
+                    memory=with_group_today(
+                        rt,
+                        member_memory(
+                            rt, member.id, f"{p.topic}\n{chat.history(names)}", p.room or ROOM
+                        ),
+                        p.room or ROOM,
+                        names,
                     ),
                     history=chat.history(names),
                     **self.intent_vars(card),

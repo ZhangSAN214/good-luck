@@ -37,6 +37,19 @@ def test_holidays_and_things_seen_become_thoughts_and_fade():
     assert brain._festive(s, NOON) and not brain._festive(s, NOON + timedelta(days=1))
 
 
+def test_her_own_birthday_is_hers_not_someone_elses():
+    env, _ = setup()
+    brain, bus = engine_brain(env)
+    day = {"items": [{"kind": "birthday", "name": "一号的生日", "member": "V1"}]}
+    bus.publish(Event("calendar.day", NOON, None, day))
+    ahead = {"kind": "birthday", "name": "二号的生日", "member": "V2", "in_days": 3}
+    bus.publish(Event("calendar.upcoming", NOON, "V2", ahead))
+    mine = [p["text"] for p in brain._load("V1").percepts]
+    theirs = [p["text"] for p in brain._load("V2").percepts]
+    assert "今天是你的生日" in mine and "再过3天就是二号的生日" in mine
+    assert "今天是一号的生日" in theirs and "再过3天就是你的生日" in theirs
+
+
 def test_moments_read_what_is_on_her_mind():
     env, brain = setup()
     s = brain._load("V1")
@@ -60,4 +73,4 @@ def test_occasionally_corrects_herself_midway():
     from roundtable.core.member.human import Human
 
     got = dict(human_lines(Human(env.rt, names=NAMES)))
-    assert "不对，是" in got["correct"]
+    assert "改过来" in got["correct"]

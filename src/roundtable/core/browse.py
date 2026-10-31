@@ -373,8 +373,8 @@ class Browser:
         when = item["published"] or "未知"
         source = f"来源：{item['feed']}；发布时间：{when}"
         if item["unverified"]:
-            source += "；未核实（论坛、博客或搜索结果）"
-        article = f"标题：{item['title']}\n摘要：{item['summary'] or '（没有摘要）'}"
+            source += "；未核实（论坛、博客或网上搜到的）"
+        article = f"标题：{item['title']}\n内容：{item['summary'] or '（只有标题）'}"
         prompt = rt.prompts.render(
             "life_share",
             rt.config.roundtable.prompts["life_share"],
@@ -408,6 +408,12 @@ class Browser:
         text = await before_speaking(
             rt, text, room=ROOM, name=member.name, model_id=member.model_id
         )
+        # 说话的样子：书面词换口语、句尾标点、笑法、心情别直说（和群聊同一套收尾）
+        from roundtable.core.member.lingo import Lingo  # lingo 依赖成员档案
+
+        text = Lingo(rt, names=everyone).finish(
+            member.id, text, rng=random.Random(f"share:{item['id']}:{member.id}")
+        )[0]
         rt.repo.mark_web_shared(item["id"], member.id)
         kinds = {f.name: f.kind for f in feeds_of(rt)[0]}
         card = card_from_item(

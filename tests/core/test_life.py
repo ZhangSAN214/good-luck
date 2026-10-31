@@ -143,6 +143,13 @@ async def test_daily_limit_stops_calls_but_keeps_events():
     assert not env.fake.calls  # 生活和记忆整理都不调用
 
 
+def test_daytime_life_leaves_room_for_the_night_memory():
+    env = life_env(daily_usd=0.10, memory_reserve_usd=0.02)
+    life = engine(env)
+    assert life.allowed(0.08) and not life.allowed(0.09)  # 白天只能花到 $0.08
+    assert life.memory.allow(0.09) and not life.memory.allow(0.11)  # 记忆整理能用满上限
+
+
 async def test_disabled_does_nothing():
     env = life_env(enabled=False)
     out = await engine(env).tick(NOW)

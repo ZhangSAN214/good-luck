@@ -22,6 +22,8 @@ def intents(brain: Brain, last: str, *, group: bool = False, named: bool = True)
             assert brain.rules.asked.line in card.text
         if "asked:self" in card.tags:
             assert brain.rules.asked.self_line in card.text
+        if "asked:judge" in card.tags:
+            assert brain.rules.asked.judge_line in card.text
     return got
 
 
@@ -48,3 +50,11 @@ def test_group_chatter_not_aimed_at_her_is_left_alone():
     assert card is None or not any(t.startswith("asked:") for t in card.tags)
     statement = brain.intent("V1", last="今天下雨了", speaker=None, named=True, group=False, at=AT)
     assert not any(t.startswith("asked:") for t in statement.tags)
+
+
+def test_being_asked_to_judge_the_user_gets_a_reaction_not_a_profile():
+    brain = Brain(world().rt)
+    got = intents(brain, "你觉得我是个什么样的人？")
+    assert set(got) <= set(brain.rules.asked.judge_intents) and got["joke"] > 0
+    card = brain.intent("V1", last="你觉得我是个什么样的人？", named=True, group=False, at=AT)
+    assert "asked:judge" in card.tags and "性格分析" in card.text

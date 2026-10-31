@@ -119,9 +119,42 @@ def problems(res: Any) -> list[dict[str, Any]]:
         out.append({"level": 3, "what": f"书面词（非常、令人、是否……）{t['bookish_ratio']:.0%}"})
     if t.get("messages", 0) >= 50 and t.get("short_ratio", 1) < 0.05:
         out.append({"level": 3, "what": "几乎没有「6」「笑死」这种一两个词的回复，回得太完整"})
+    if t.get("tool_ratio", 0) > 0.02:
+        out.append({"level": 2, "what": f"像在念搜索结果（摘要、先存疑……）{t['tool_ratio']:.0%}"})
+    echo, profile = _probe_tells(res.probes)
+    if echo:
+        out.append({"level": 2, "what": f"把问题原样问回去：{echo}"})
+    if profile:
+        out.append({"level": 2, "what": f"被问怎么看你时先免责再侧写：{profile}"})
     if t.get("attribution") is not None and t["attribution"] < 2 * t.get("chance", 0):
         out.append({"level": 2, "what": f"盲猜是谁说的只猜中 {t['attribution']:.0%}，说话没特点"})
     return sorted(out, key=lambda x: x["level"])
+
+
+_HEDGE = (
+    "认识不久",
+    "聊得不多",
+    "聊得还不够",
+    "聊天次数不太多",
+    "不敢下定论",
+    "不太好直接下定义",
+    "了解还不多",
+    "接触太少",
+    "聊得还不算多",
+)
+
+
+def _probe_tells(probes: list[dict[str, Any]]) -> tuple[str, str]:
+    """前后对比的回答里：原样反问（「最近怎么样？」→「你呢，最近怎么样？」）的人，
+    先说「认识不久」再长篇侧写的人。返回两串名字（没有就是空串）。"""
+    echo, profile = [], []
+    for p in probes:
+        q, a = str(p.get("q") or "").strip("？?！! "), str(p.get("a") or "")
+        if len(q) >= 4 and q in a and p["name"] not in echo:
+            echo.append(p["name"])
+        if any(h in a for h in _HEDGE) and len(a) > 40 and p["name"] not in profile:
+            profile.append(p["name"])
+    return "、".join(echo), "、".join(profile)
 
 
 def _error_parts(errors: list[dict[str, Any]]) -> list[tuple[str, int]]:
