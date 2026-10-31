@@ -35,6 +35,15 @@ ARXIV = "https://export.arxiv.org/api/query"
 S2 = "https://api.semanticscholar.org/graph/v1/paper/search"
 NEWS_KINDS = ("news", "video", "launch", "blog")
 MAX_GITHUB_QUERIES = 8  # GitHub 匿名搜索每分钟只给 10 次
+MIN_HITS = 2  # 项目名和简介至少命中几个关键词才算相关（只中一个词的多半是同名的热门项目）
+# 不算关键词的通用词：几乎每个项目都会写，靠它们命中说明不了相关
+GENERIC_WORDS = frozenset(
+    {
+        *("open", "source", "free", "app", "apps", "tool", "tools", "library", "based", "simple"),
+        *("style", "one", "click", "the", "and", "for", "with", "web", "online"),
+        *("javascript", "typescript", "python"),
+    }
+)
 _ATOM = {"a": "http://www.w3.org/2005/Atom"}
 
 FetchJSON = Callable[[str], Awaitable[Any]]
@@ -88,6 +97,26 @@ class Report:
 
 def _words(text: str) -> set[str]:
     return {w for w in re.split(r"[^\w]+", text.lower()) if len(w) > 2}
+
+
+def hits(want: set[str], c: Candidate) -> int:
+    """项目名和简介里命中了几个关键词（通用词不算）。"""
+    return len(want & _words(f"{c.repo.replace('/', ' ')} {c.summary}"))
+
+
+def short_phrases(queries: list[str]) -> tuple[list[str], int]:
+    """搜索顺序：每句的前 3 个词（通用词不算），不够再每句的前 2 个词；返回（短语，第一遍几条）。
+    整句不直接搜：GitHub 要求每个词都命中，五六个词的句子几乎搜不到，白占限流次数。"""
+    out: list[str] = []
+    first = 0
+    for n in (3, 2):
+        for q in queries:
+            words = [w for w in q.split() if w.lower() not in GENERIC_WORDS]
+            phrase = " ".join(words[:n])
+            if phrase and (n == 3 or len(words) > 2) and phrase.lower() not in map(str.lower, out):
+                out.append(phrase)
+        first = first or len(out)
+    return out, first
 
 
 def clean_queries(raw: list[str], limit: int = 6) -> list[str]:
@@ -200,17 +229,22 @@ class Researcher:
         self.max_kb = max_kb
 
     async def github(self, queries: list[str], report: Report) -> None:
-        """先按整句搜，不够数再拆成单个词搜；按命中的词数和星数排序，取前 max_github 个。"""
+        """按短语搜（见 short_phrases），不拆成单个词：单个词按星数排出来的多是不相干的热门项目。
+        至少命中 2 个关键词的才算数，按命中的词数和星数排序，取前 max_github 个。"""
         want = set().union(*(_words(q) for q in queries)) if queries else set()
+        want -= GENERIC_WORDS
         found: dict[str, Candidate] = {}
         tried: list[str] = []
-        singles = sorted(want, key=len, reverse=True)
-        plan = [*queries, *(w for w in singles if w not in (q.lower() for q in queries))]
-        for q in plan:
+        plan, first = short_phrases(queries)
+        for i, q in enumerate(plan):
             if len(tried) >= MAX_GITHUB_QUERIES:
                 break
-            enough = sum(1 for c in found.values() if c.stars >= IDEA_MIN_STARS)
-            if enough >= self.max_github or (enough >= self.min_github and q in singles):
+            enough = sum(
+                1
+                for c in found.values()
+                if not c.archived and c.stars >= IDEA_MIN_STARS and hits(want, c) >= MIN_HITS
+            )
+            if enough >= self.max_github or (enough >= self.min_github and i >= first):
                 break
             tried.append(q)
             url = f"{GITHUB}/search/repositories?q={quote(q)}&sort=stars&order=desc&per_page=10"
@@ -236,9 +270,13 @@ class Researcher:
                 found[repo.lower()] = c
 
         def rank(c: Candidate) -> tuple[int, int]:
-            return (-len(want & _words(f"{c.repo} {c.summary}")), -c.stars)
+            return (-hits(want, c), -c.stars)
 
-        good = [c for c in found.values() if not c.archived and c.stars >= IDEA_MIN_STARS]
+        good = [
+            c
+            for c in found.values()
+            if not c.archived and c.stars >= IDEA_MIN_STARS and hits(want, c) >= MIN_HITS
+        ]
         for c in sorted(good, key=rank)[: self.max_github]:
             judge(c, min_stars=self.min_stars, max_kb=self.max_kb)
             report.github.append(

@@ -165,6 +165,36 @@ async def test_search_merges_dsh_and_github_and_fills_license():
     assert all(x.need == "真地图" for x in got.values())
 
 
+async def test_long_keywords_retry_as_short_phrase_not_single_words():
+    urls: list[str] = []
+
+    async def json_(url):
+        urls.append(url)
+        if url == DSH_INDEX:
+            return {"plugins": []}
+        if "/search/repositories" in url:
+            if "q=image%20crop%20stars" in url:
+                return {
+                    "items": [
+                        {"full_name": "g/cropper", "stargazers_count": 7000, "description": "crop"}
+                    ]
+                }
+            return {"items": []}
+        if url.endswith("/repos/g/cropper"):
+            return {"license": {"spdx_id": "MIT"}, "stargazers_count": 7000, "size": 10}
+        raise AssertionError(url)
+
+    scout = Scout(fetch_json=json_, fetch_bytes=json_)
+    got = await scout.search("裁剪", "image crop perspective transform")
+    assert [x.repo for x in got] == ["g/cropper"]
+    searched = [u.split("q=")[1].split("%20stars")[0] for u in urls if "/search/" in u]
+    assert searched == [
+        "image%20crop%20perspective%20transform",
+        "image%20crop%20perspective",
+        "image%20crop",
+    ]
+
+
 async def test_scout_survives_network_errors():
     async def boom(url):
         raise OSError("断网")
