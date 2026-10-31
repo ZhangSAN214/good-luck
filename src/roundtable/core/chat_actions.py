@@ -130,18 +130,25 @@ def own_stickers(rt: Any, member: str, name: str) -> dict[str, list[str]]:
 
 
 def member_stickers(rt: Any, member: str, name: str) -> dict[str, list[str]]:
-    """这位成员能发的表情包：自己的专属那套在前，再加通用的几套；聊天动作关着时为空。"""
+    """这位成员能发的表情包：自己的专属那套在前，再加通用的几套和她从别人那收来的；
+    聊天动作关着时为空。"""
+    from roundtable.core.member.stash import Stash  # 收藏读成员档案，用到再导入
+
     acts = rt.config.roundtable.chat.actions
     if not acts.enabled:
         return {}
-    return own_stickers(rt, member, name) | acts.stickers
+    return own_stickers(rt, member, name) | acts.stickers | Stash(rt).pack(member)
 
 
 def sticker_menu(rt: Any, member: str, name: str) -> str:
     """提示词里给这位成员的表情包清单：有专属表情时分成「你的专属」和「通用」两段。"""
+    from roundtable.core.member.stash import Stash
+
     own = own_stickers(rt, member, name)
     common = sticker_list(rt.config.roundtable.chat.actions.stickers)
-    return f"你的专属：{sticker_list(own)}；通用：{common}" if own else common
+    menu = f"你的专属：{sticker_list(own)}；通用：{common}" if own else common
+    stash = Stash(rt).menu(member)
+    return f"{menu}；{stash}" if stash else menu
 
 
 def sticker_list(stickers: dict[str, list[str]]) -> str:

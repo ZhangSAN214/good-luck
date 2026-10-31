@@ -64,6 +64,22 @@ def _known_user(request, monkeypatch):
     monkeypatch.setattr(Brain, "_exchanges", lambda self, member: 10**6)
 
 
+@pytest.fixture(autouse=True)
+def _no_life_phase(request, monkeypatch):
+    """生活阶段（忙季、小感冒……）每天按随机数排：测试里一律不排，免得精力、念头被随机挪动。
+    要测阶段的测试请求 ``life_phase`` 夹具。"""
+    if "life_phase" in request.fixturenames:
+        return
+    from roundtable.core.member.phase import Phase
+
+    monkeypatch.setattr(Phase, "_roll", lambda self, member, data, at: None)
+
+
+@pytest.fixture
+def life_phase():
+    """按真实规则排生活阶段。"""
+
+
 @pytest.fixture
 def first_meeting():
     """按真实的来回次数判断第一次见你。"""

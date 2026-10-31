@@ -68,3 +68,24 @@ def test_chat_sticker_packs_list_only_approved_ones_under_the_nickname(tmp_path)
         assert item["name"] == "收到" and item["caption"] == "收到！"
         img = c.get(item["url"])
         assert img.status_code == 200 and img.content == b"\x89PNG"
+
+
+def test_stash_listing_delete_and_clear():
+    import json
+
+    from roundtable.core.member.stash import STASH_KEY
+
+    env = Env()
+    service = RoundtableService(env.rt)
+    at = env.rt.budget.now().isoformat()
+    rows = [{"n": 1, "id": "a" * 32 + ".gif", "label": "翻白眼的猫", "at": at, "uses": 0}]
+    env.rt.repo.set_setting(STASH_KEY, json.dumps({"V1": rows, "V2": rows}))
+    with TestClient(create_app(service)) as c:
+        stash = c.get("/api/stickers").json()["stash"]
+        assert [s["id"] for s in stash] == ["V1", "V2"] and stash[0]["items"][0][
+            "label"
+        ] == "翻白眼的猫"
+        assert c.delete("/api/stickers/stash/V1/1").json() == {"deleted": 1}
+        assert c.delete("/api/stickers/stash/V1/1").status_code == 404
+        assert c.delete("/api/stickers/stash").json() == {"cleared": 1}
+        assert c.get("/api/stickers").json()["stash"] == []

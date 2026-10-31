@@ -127,6 +127,8 @@ const people = new People($('#people'), {
     voice: API.memberVoice,
     stickers: API.memberStickers,
     drawSticker: API.drawSticker,
+    delStash: API.delStash,
+    clearStash: API.clearStash,
     reviewSticker: async (...args) => {
       const r = await API.reviewSticker(...args);
       loadMemberStickers();

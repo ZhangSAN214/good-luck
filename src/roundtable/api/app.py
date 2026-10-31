@@ -1218,6 +1218,15 @@ def create_app(service: RoundtableService | None = None, lan: LanAccess | None =
     async def stickers(request: Request) -> dict[str, Any]:
         return svc(request).member_stickers()
 
+    @app.delete("/api/stickers/stash")
+    async def sticker_stash_clear(request: Request, member: str | None = None) -> dict[str, Any]:
+        """清空成员从你那收来的表情包（member 省略时所有人）。"""
+        return svc(request).stash_clear(member)
+
+    @app.delete("/api/stickers/stash/{member}/{n}")
+    async def sticker_stash_delete(request: Request, member: str, n: int) -> dict[str, Any]:
+        return svc(request).stash_delete(member, n)
+
     @app.post("/api/stickers/{member}/{name}/draw")
     async def sticker_draw(request: Request, member: str, name: str) -> dict[str, Any]:
         """画（或重画）一张专属表情；新画的是「待审」。花费计入表情包与创作输出的月上限。"""
