@@ -20,6 +20,8 @@
   /* 顶栏挤不下会折成两行，压到右侧大卡上：收紧间距；本月花费在「余额」卡里也有，这里先藏起来 */
   .hb-top{gap:8px 10px}
   .hb-top .hb-res{display:none}
+  /* 节日那天公告按钮后面的「· 节日名」也会把顶栏挤成两行：这个宽度下只留按钮 */
+  .hb-top .nt-today{display:none!important}
   .hb-bgbtn{padding:5px 11px}
   /* 右侧卡片列稍微宽一点，小卡里的字不再一个字一行 */
   .hb-col{width:min(540px,50%);gap:16px}
