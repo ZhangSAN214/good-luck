@@ -761,3 +761,19 @@ async def test_stickers_command_lists_and_reports_missing_models(tmp_path):
     assert code == 1 and "OpenAI·晚安：" in text and "已保存 0 张" in text
     code, text = await cli(env, "stickers", "--whiten")
     assert code == 0 and "底色刷白了 0 张" in text
+
+
+async def test_stickers_prompts_export_and_import_back_without_drawing(tmp_path):
+    from PIL import Image
+
+    env = Env(confirm_threshold_usd=100.0)
+    code, text = await cli(
+        env, "stickers", "OpenAI", "--prompts", str(tmp_path), "--draw", "快夸我"
+    )
+    assert code == 0 and "导出了 1 张的提示词" in text and "画好了" not in text
+    prompt = (tmp_path / "OpenAI" / "快夸我.txt").read_text(encoding="utf-8")
+    assert "「快夸我」" in prompt
+    Image.new("RGB", (300, 300), "red").save(tmp_path / "OpenAI" / "快夸我.png")
+    code, text = await cli(env, "stickers", "OpenAI", "--import", str(tmp_path))
+    assert code == 0 and "OpenAI·快夸我 导入了，待审" in text
+    assert "快夸我「快夸我」 待审" in text
