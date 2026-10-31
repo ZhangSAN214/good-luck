@@ -35,6 +35,7 @@ from roundtable.core.chat import (
 from roundtable.core.chat_actions import card_text, clean_stickers, member_stickers, sticker_menu
 from roundtable.core.chat_work import short_title
 from roundtable.core.life_guard import ERRORS, LifeGuard
+from roundtable.core.member.about import AboutYou
 from roundtable.core.member.brain import Brain, intent_text
 from roundtable.core.member.relation import RelationPlugin
 from roundtable.core.member.voice import Said, before_voice, recent_words, voice_for
@@ -296,6 +297,9 @@ class LifeEngine:
             written = 0
             if id(p) in chosen and not self.guard.check(self.spent_today()):
                 written = await self.write(p, offline=offline, now=now)
+            if written and len(p.members) >= 2:  # 私下聊天：你的事可能传过去（知情范围）
+                rng = random.Random(f"gossip:{iso(p.at)}:{','.join(p.members)}")
+                AboutYou(self.rt).gossip(list(p.members), rng)
             repo.add_life_event(
                 iso(p.at),
                 p.kind,

@@ -38,3 +38,37 @@ def _members_awake(request, monkeypatch):
 @pytest.fixture
 def real_rhythm():
     """照真实作息判断成员睡没睡（配合固定的 budget.now 用）。"""
+
+
+@pytest.fixture(autouse=True)
+def _pace_instant(request, monkeypatch):
+    """回话节拍（等你说完、忙时晚回、按字数停顿）会真的等：测试里一律不等，
+    气泡间隔用原来的固定值。要测节拍的测试请求 ``real_pace`` 夹具。"""
+    if "real_pace" in request.fixturenames:
+        return
+    from roundtable.core.member.pace import Pace
+
+    monkeypatch.setattr(Pace, "debounce", lambda self, room, at: 0.0)
+    monkeypatch.setattr(Pace, "busy_delay", lambda self, member, room, text, at: 0.0)
+    monkeypatch.setattr(Pace, "gap", lambda self, member, text, base: base)
+
+
+@pytest.fixture(autouse=True)
+def _known_user(request, monkeypatch):
+    """「第一次见你」看和你来回了几次；测试里一般没有关系记录，一律当聊过很多。
+    要测初见的测试请求 ``first_meeting`` 夹具。"""
+    if "first_meeting" in request.fixturenames:
+        return
+    from roundtable.core.member.brain import Brain
+
+    monkeypatch.setattr(Brain, "_exchanges", lambda self, member: 10**6)
+
+
+@pytest.fixture
+def first_meeting():
+    """按真实的来回次数判断第一次见你。"""
+
+
+@pytest.fixture
+def real_pace():
+    """照真实规则算回话节拍（配合注入的 sleep 和固定的 budget.now 用）。"""

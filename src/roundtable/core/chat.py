@@ -127,14 +127,23 @@ def member_memory(rt: Any, member: str, query: str = "", conversation: str | Non
     return memory_context(rt, member, rules.context_chars, query, conversation)
 
 
-def with_about_you(rt: Any, memory: str, query: str) -> str:
+def with_about_you(
+    rt: Any,
+    memory: str,
+    query: str,
+    member: str | None = None,
+    names: dict[str, str] | None = None,
+) -> str:
     """私聊和生活群：记忆后面接上「关于你」画像里和当前对话相关的几条，和你打开了的
     「此刻」状态（成员系统 P8；8 位相同的条数和字数，没有就不接）。工作群不调用。"""
     from roundtable.core.member.about import AboutYou  # about 依赖记忆模块
     from roundtable.core.memory import NONE
 
     status = getattr(rt, "user_status", None)  # 第二块：你打开了的「此刻」状态
-    parts = [AboutYou(rt).lines(query), status.line() if status is not None else ""]
+    about = AboutYou(rt).lines(query, member=member, names=names)  # 只带她知道的（知情范围）
+    rules = rt.config.roundtable.chat.engine.about
+    who = f"【对方是谁】{rules.identity}" if rules.enabled and rules.identity else ""
+    parts = [who, about, status.line() if status is not None else ""]
     about = "\n".join(p for p in parts if p)
     if not about:
         return memory
@@ -401,12 +410,22 @@ class GroupChat:
         if addresses_everyone(text) and not named:
             named = list(online)
             self.rng.shuffle(named)
+            if self._newcomer():  # 你刚进群说「大家好」：两三位搭话，其余潜水
+                named = named[: self.rng.randint(min(2, len(named)), self.rules.newcomer_max)]
         if named:
             return named[: self.rules.max_mentioned]
         if not online:
             return []
         k = self.rng.randint(1, min(self.rules.max_repliers, len(online)))
         return self.rng.sample(online, k)
+
+    def _newcomer(self) -> bool:
+        """你在这个群里说过的话还不到 newcomer_messages 条（含刚发的这条）。"""
+        n = self.rules.newcomer_messages
+        if self.kind != "group" or n <= 0:
+            return False
+        rows = self.rt.repo.chat_messages(self.room, limit=200)
+        return sum(1 for r in rows if r["author"] == USER) <= n
 
     def recent(self) -> list[dict[str, Any]]:
         return self.rt.repo.chat_messages(self.room, limit=self.rules.history_messages)
@@ -560,6 +579,7 @@ class GroupChat:
         round_no = self.round if round_no is None else round_no
         self.queued.extend(m.name for m in speakers)
         used: set[str] = set()  # 这一轮已经有人发过的表情包
+        shapes: list[tuple[str, int]] = []  # 这一轮已经发出的「开头两个字、条数」
         tasks = [asyncio.create_task(self._think(m, reply_to)) for m in speakers]
         out: list[dict[str, Any]] = []
         try:
@@ -571,6 +591,7 @@ class GroupChat:
                     break
                 if not isinstance(thought, Thought):
                     continue
+                thought = self._unshape(thought, shapes)
                 async with self._lock:
                     if self.stale(round_no):
                         continue
@@ -585,6 +606,17 @@ class GroupChat:
             for m in speakers:
                 self._unqueue(m.name)
             self.on_change()
+
+    def _unshape(self, thought: Thought, shapes: list[tuple[str, int]]) -> Thought:
+        """同一轮群聊里结构撞车（开头两个字一样、条数一样且 3 条以上）：后说的只发前 2 条。"""
+        if self.kind != "group" or not thought.segments:
+            return thought
+        head = re.sub(r"[^\u4e00-\u9fffA-Za-z0-9]", "", thought.segments[0].text)[:2]
+        shape = (head, len(thought.segments))
+        if self.rules.same_shape_trim and shape[1] >= 3 and head and shape in shapes:
+            thought = replace(thought, segments=thought.segments[:2])
+        shapes.append(shape)
+        return thought
 
     def _unqueue(self, name: str) -> None:
         if name in self.queued:
@@ -653,6 +685,11 @@ class GroupChat:
         没说出话返回 {}（没说出话时在群里说明）；预算用完返回 None。"""
         self._unqueue(member.name)
         rt, rules = self.rt, self.rules
+        if self.kind == "dm":  # 回话节拍：互道晚安后你只回了句「嗯嗯」，就不接了
+            from roundtable.core.member.pace import Pace
+
+            if Pace(rt).wrapup(member.id, self.room, reply_to):
+                return {}
         if not rt.budget.check(rules.estimate_usd).allowed:
             rt.repo.add_chat_message(self.room, SYSTEM, "预算用完了，大家先不说话了。")
             self.on_change()
@@ -687,7 +724,7 @@ class GroupChat:
         if "care" in wants:  # 工作群也要危机关心（chat_work v4 起；生活里由意图卡给关心卡）
             variables["care"] = self._work_care(reply_to)
         if self.kind in ABOUT_KINDS:  # 关于你（P8）：只在私聊和生活群
-            variables["memory"] = with_about_you(rt, variables["memory"], history)
+            variables["memory"] = with_about_you(rt, variables["memory"], history, member.id, names)
             variables["memory"] = with_views(rt, variables["memory"], member.id)
         if self.kind == "dm":
             variables["memory"] = with_group_today(rt, variables["memory"], self.room, names)
@@ -815,6 +852,8 @@ class GroupChat:
             kept = [
                 Segment(t, parsed.segments[0].quote if i == 0 else None) for i, t in enumerate(said)
             ]
+        if card is not None and "phrase:初见" in card.tags:  # 第一次见你：最多发 first_max 条
+            kept = kept[: rt.config.roundtable.chat.engine.phrasebook.first_max]
         return Thought(member, kept, completion.cost_usd or 0.0, variables["memory"])
 
     def _work_care(self, reply_to: int) -> str:
@@ -911,7 +950,13 @@ class GroupChat:
             if not words.strip():
                 continue
             meta: dict[str, Any] = {}
-            row = self.quotable(seg.quote) if seg.quote is not None else None
+            quote = seg.quote
+            if quote is None and not first and self.kind in ("dm", "group"):
+                from roundtable.core.member.pace import Pace
+
+                if Pace(rt).quote(member.id, self.room, reply_to):
+                    quote = reply_to  # 后面已经又有几条话了：引用一下她回的是哪条
+            row = self.quotable(quote) if quote is not None else None
             if row is not None:
                 meta["quote"] = quote_meta(row)
             for n, piece in enumerate(self._finish(member, words, reply_to)):

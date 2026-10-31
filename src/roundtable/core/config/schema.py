@@ -1262,6 +1262,8 @@ class AboutRules(_Strict):
     来源、证据和把握度；推测会变淡，你亲口说的不变淡。只用于私聊和生活群，工作模式不挂载。"""
 
     enabled: bool = True
+    # 你的初始身份（10-31 用户定：老板兼房东）：私聊和群聊每次都接在「关于你」最前面
+    identity: str = Field(default="", max_length=120)
     # 画像分哪几个领域（可以按领域关掉）；夜间整理给的领域不在表里时归最后一个
     domains: list[str] = Field(
         default=[
@@ -1295,7 +1297,32 @@ class AboutRules(_Strict):
     inject_max: int = Field(default=3, ge=0, le=10)
     context_chars: int = Field(default=100, ge=0, le=400)
     min_relevance: float = Field(default=0.1, ge=0, le=1)
-    header: str = "【关于用户（大家共知的事实，用得上再提）】"
+    header: str = "【关于用户（你知道的事，用得上再提）】"
+    # 知情范围（2026-10-31 拟人插件调研第 1 项）：你在私聊里只告诉 A 的事只有 A 知道；在群里说的
+    # 群里的人都知道；你在画像页写的大家都知道。别人只能经同事私下聊天「听 A 说」辗转知道，
+    # 每次两人聊天最多传 gossip_max 条、每条按 gossip_chance；说了「别告诉别人」之类的永远不传。
+    scope: bool = True
+    gossip_chance: float = Field(default=0.15, ge=0, le=1)
+    gossip_max: int = Field(default=1, ge=0, le=5)
+    secret_words: list[str] = Field(
+        default=[
+            "别告诉别人",
+            "别跟别人说",
+            "别和别人说",
+            "不要告诉别人",
+            "不要跟别人说",
+            "只告诉你",
+            "只跟你说",
+            "帮我保密",
+            "替我保密",
+            "要保密",
+            "别说出去",
+            "不要说出去",
+            "我们的秘密",
+            "咱俩的秘密",
+        ],
+        max_length=60,
+    )
     maybe_below: float = Field(default=0.6, ge=0, le=1)  # 把握度低于这个的在聊天里标「可能」
     # 第二块：用户状态（正在放的歌、电脑空闲、在玩游戏、课表 DDL、邮件栏），每项默认关
     status_header: str = "【用户此刻（用户自己打开的，自然带出，别直接念）】"
@@ -1999,6 +2026,12 @@ class NickRules(_Strict):
     care: float = Field(default=0.5, ge=0, le=1)  # 在乎到这么多才起外号、换称呼
     chance: float = Field(default=0.3, ge=0, le=1)  # 够熟以后每天起的概率
     hint: str = ""  # 档案里「熟了以后可能会叫……」的正则（第一个分组起是候选）
+    # 档案里没写叫法时：够熟后偶尔提醒她可以自己给对方起个专属叫法
+    # （10-31 用户：让她们自行产生，不写死）
+    invite: str = ""
+    invite_chance: float = Field(default=0.15, ge=0, le=1)  # 够熟以后每天提醒一次的概率
+    # 她自己说出「以后就叫你 X」时记下来（第一个分组是叫法），之后一直这么叫
+    capture: str = ""
 
 
 class LearnRules(_Strict):
@@ -2118,6 +2151,113 @@ class FeelRules(_Strict):
     copy_max: float = Field(default=0.5, gt=0, le=1)
     same_max: float = Field(default=0.9, gt=0, le=1)
     gap_days: int = Field(default=14, ge=0, le=365)
+
+
+class PaceRules(_Strict):
+    """回话节拍（2026-10-31 拟人插件调研第 2 项，借麦麦、private_companion、virtual_life 的思路）：
+    ① 私聊里你连着发时等你说完（debounce_min～debounce_max 秒，按你这几条的间隔自适应）再一起想；
+    ② 她在忙（锻炼、吃饭、上班……）时私聊晚一会儿回（busy 里各活动的秒数范围，
+    从你这一串的第一条算起），
+    刚来回聊过 hot_minutes 分钟内、点名、急事不晚回；③ 气泡间隔按这条的字数算打字时间；
+    ④ 她想好时后面已经又有 quote_after 条别人的话，第一条自动引用她回的那条；
+    ⑤ 收尾不回：她上一句已经道别、你又只回了句应声（嗯嗯、好、晚安……），私聊里就不回了。
+    全程序、不调模型；8 位同一套公式，差别只来自作息和性格分。"""
+
+    enabled: bool = True
+    debounce_min: float = Field(default=1.5, ge=0, le=10)
+    debounce_max: float = Field(default=4.0, ge=0, le=15)
+    burst_seconds: float = Field(default=30, ge=1, le=300)  # 这么久以内连着发的算一串
+    busy: dict[str, list[float]] = {}  # 活动 → [最少, 最多] 秒
+    busy_cap: float = Field(default=900, ge=0, le=3600)
+    hot_minutes: float = Field(default=5, ge=0, le=60)
+    type_cps: float = Field(default=6.0, gt=0, le=50)  # 每秒打几个字（中间分）
+    type_traits: dict[str, float] = {}  # 性格分每高 1 分快多少（比例）
+    gap_min: float = Field(default=0.6, ge=0, le=10)
+    gap_max: float = Field(default=5.0, ge=0, le=30)
+    quote_after: int = Field(default=2, ge=0, le=10)
+    acks: list[str] = Field(default_factory=list, max_length=60)  # 应声（整条就是这些）
+    byes: list[str] = Field(default_factory=list, max_length=60)  # 道别（她上一句里有这些）
+
+
+class SlopRules(_Strict):
+    """AI 腔体检（2026-10-31 拟人插件调研第 3 项，借 Antislop 的思路）：每周生活自检时，
+    把成员的生活发言切成 2～4 字的片段，至少 min_members 位都用得多（每千字 ≥ min_rate 次、
+    每位 ≥ min_count 次）、又是你本人用量的 ratio 倍以上的，列为「AI 腔」，最多 max_active 个；
+    之后说出口前把含它的那一小句删掉。common（常用词）和 allow（你放行的）不算。
+    全程序、不调模型。"""
+
+    enabled: bool = True
+    min_members: int = Field(default=4, ge=2, le=8)
+    min_count: int = Field(default=3, ge=1, le=100)
+    min_rate: float = Field(default=1.5, ge=0, le=100)  # 每千字至少几次
+    ratio: float = Field(default=5.0, ge=1, le=100)  # 比你本人多几倍
+    smooth: float = Field(default=0.3, ge=0, le=10)  # 你没用过时按每千字这么多次算
+    user_days: int = Field(default=30, ge=1, le=365)  # 你本人的话看最近几天
+    user_floor_chars: int = Field(default=2000, ge=100)  # 你说得少时按这么多字算
+    max_active: int = Field(default=12, ge=0, le=60)
+    common: list[str] = Field(default_factory=list, max_length=400)
+    allow: list[str] = Field(default_factory=list, max_length=200)
+
+
+class PhraseEntry(_Strict):
+    """说话招式：什么场合（gists / cues / intents，都没写 = 随时）、
+    怎么说（只写逻辑，不给句子）、谁爱用。"""
+
+    name: str = Field(min_length=1, max_length=20)
+    how: str = Field(min_length=1, max_length=120)
+    gists: list[str] = []  # 对方这条的语境（chat.engine.lingo.gist 的 kind）
+    cues: list[str] = []  # 对方原话里的词（正则）
+    intents: list[str] = []  # 她这会儿的意图（brain.intents 的名字）
+    traits: dict[str, float] = {}  # 性格分每高 1 分加多少
+    base: float = Field(default=0.4, ge=-1, le=2)
+
+    @field_validator("cues")
+    @classmethod
+    def _compile(cls, cues: list[str]) -> list[str]:
+        for p in cues:
+            try:
+                re.compile(p)
+            except re.error as exc:
+                raise ValueError(f"正则写错了：{p!r}（{exc}）") from None
+        return cues
+
+
+class PhraseLearnRules(_Strict):
+    """跟你学：你接成员某种话时回的短句，同一种场合说过 times 次以上就记下。"""
+
+    enabled: bool = True
+    kinds: list[str] = []  # 只学这几种场合（gist kind）
+    max_chars: int = Field(default=12, ge=2, le=40)
+    times: int = Field(default=2, ge=1, le=20)
+    forget_days: float = Field(default=30, gt=0, le=365)
+    keep: int = Field(default=8, ge=1, le=50)  # 每种场合最多记几句
+    care: float = Field(default=0.45, ge=0, le=1)  # 在乎你到这个程度才学
+    intents: list[str] = ["respond", "joke"]
+    weight: float = Field(default=0.6, ge=0, le=2)
+    line: str = "这种时候有人爱说「{said}」，你听多了也会顺嘴说（别每次都用）"
+
+
+class PhrasebookRules(_Strict):
+    """情境说法本（2026-10-31 拟人插件调研第 4 项，借麦麦「表达学习」的思路）：
+    意图卡里按场合和性格提一条说话招式（只写逻辑、不给句子），或你常说的短句；
+    同一条她 reuse_days 天内不重复，已有 max_users 位在 taken_days 天里用过的别人不挑。
+    全程序、不调模型。"""
+
+    enabled: bool = True
+    chance: float = Field(default=0.2, ge=0, le=1)  # 有合适的招式时写进卡的概率
+    reuse_days: float = Field(default=3, ge=0, le=60)
+    taken_days: float = Field(default=7, ge=0, le=60)
+    max_users: int = Field(default=2, ge=1, le=8)
+    round_minutes: float = Field(default=10, ge=0, le=240)  # 别人这么多分钟内刚用过的招不挑
+    skip_gists: list[str] = ["crisis"]
+    line: str = "这会儿可以用一招：{how}（用你自己的口气，别套固定句子）"
+    entries: list[PhraseEntry] = Field(default_factory=list, max_length=60)
+    learn: PhraseLearnRules = PhraseLearnRules()
+    # 第一次见你（和你来回不到 first_exchanges 次）：一定写进卡的一句
+    # （10-31 用户：第一次见面的自我介绍）
+    first_exchanges: int = Field(default=3, ge=0, le=50)
+    first_max: int = Field(default=2, ge=1, le=10)  # 第一次见你那次最多发几条气泡
+    first_line: str = ""
 
 
 class RhythmRules(_Strict):
@@ -2288,6 +2428,8 @@ class LingoRules(_Strict):
     drift: DriftRules = DriftRules()
     # 口吻指纹：草稿里别的成员的口头禅、颜文字、自称（她没学过的）发出前换回她自己的
     own_voice: bool = True
+    # 特色限量：一条里颜文字 / emoji、招牌自称、口头禅最多几样（0 = 不管；10-31 用户反向找问题）
+    max_traits: int = Field(default=2, ge=0, le=5)
 
 
 class EngineRules(_Strict):
@@ -2310,6 +2452,9 @@ class EngineRules(_Strict):
     care: CareRules = CareRules()
     lingo: LingoRules = LingoRules()
     rhythm: RhythmRules = RhythmRules()
+    pace: PaceRules = PaceRules()
+    slop: SlopRules = SlopRules()
+    phrasebook: PhrasebookRules = PhrasebookRules()
     reach: ReachRules = ReachRules()
     feel: FeelRules = FeelRules()
 
@@ -2475,6 +2620,12 @@ class ChatRules(_Strict):
     tier: Tier = "budget"  # 每位成员用这个档位的模型发言（没有就用该成员最便宜的）
     max_repliers: int = Field(default=2, ge=1, le=6)  # 没有 @ 人时，一条消息最多几位回应
     max_mentioned: int = Field(default=8, ge=1, le=12)  # @全员 / 所有人 / @多人 时最多几位回应
+    # 你刚进群（在群里说过的话不到 newcomer_messages 条）时说「大家好」：最多 newcomer_max 位搭话
+    # （10-31 用户反向找问题：新人进群 8 个人轮流自我介绍像机器人）
+    newcomer_messages: int = Field(default=5, ge=0, le=100)
+    newcomer_max: int = Field(default=3, ge=1, le=12)
+    # 同一轮群聊里，后说的人和先说的人开头一样、条数一样（3 条以上）：后说的只发前 2 条
+    same_shape_trim: bool = True
     history_messages: int = Field(default=30, ge=4, le=200)  # 发给模型的最近聊天条数
     max_tokens: int = Field(default=500, ge=64)
     max_chars: int = Field(default=800, ge=50)  # 一条消息最多保留的字数

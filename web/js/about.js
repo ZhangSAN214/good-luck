@@ -74,6 +74,7 @@ export class AboutPanel {
     if (f.locked) tags.push('<span>锁定</span>');
     if (f.faded) tags.push('<span title="很久没有新证据，聊天不再带">变淡了</span>');
     if (f.off) tags.push('<span>领域已关</span>');
+    if (f.everyone === false) tags.push(`<span title="你只在私聊里说过（或别人听她们说的），其他人不知道">只有${esc((f.known_names || []).join('、') || '没人')}知道</span>`);
     const n = f.evidence.length;
     const btns = [
       n ? `<button type="button" class="link" data-ev="${f.id}" aria-expanded="${this.open.has(f.id)}">证据 ${n}</button>` : '',

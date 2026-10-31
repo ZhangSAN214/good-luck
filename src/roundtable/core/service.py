@@ -1853,10 +1853,37 @@ class RoundtableService:
     def _chat_replies(self, chat: Any, reply_to: int, speakers: list[Any]) -> None:
         if not speakers:
             return
-        coro = chat.replies(reply_to, speakers, chat.round)
+        if chat.kind == "dm":  # 回话节拍：等你说完、她在忙时晚一会儿
+            coro = self._paced_replies(chat, reply_to, speakers, chat.round)
+        else:
+            coro = chat.replies(reply_to, speakers, chat.round)
         task = asyncio.get_running_loop().create_task(coro)
         self._chat_tasks.add(task)
         task.add_done_callback(self._chat_tasks.discard)
+
+    async def _paced_replies(
+        self, chat: Any, reply_to: int, speakers: list[Any], round_no: int
+    ) -> list[dict[str, Any]]:
+        """私聊：你连着发时先等一小会儿看你说完没（又发了就交给新的那一轮）；她在忙时再晚一会儿。"""
+        from roundtable.core.member.pace import Pace
+
+        pace = Pace(self.rt)
+        wait = pace.debounce(chat.room, self.rt.budget.now())
+        if wait:
+            await chat.sleep(wait)
+            if chat.round != round_no:
+                return []
+        row = self.rt.repo.chat_message(reply_to)
+        text = str(row["text"] or "") if row is not None else ""
+        delay = max(
+            (pace.busy_delay(m.id, chat.room, text, self.rt.budget.now()) for m in speakers),
+            default=0.0,
+        )
+        if delay:
+            await chat.sleep(delay)
+            if chat.round != round_no:
+                return []
+        return await chat.replies(reply_to, speakers, round_no)
 
     async def chat_pat(self, member: str, room: str = ROOM) -> dict[str, Any]:
         """拍一拍会话里的一位成员：发 chat.pat 事件给成员系统，按策略（默认回一句）让 TA 回应。"""

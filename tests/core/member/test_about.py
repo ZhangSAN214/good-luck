@@ -367,3 +367,93 @@ def test_only_about_plugin_writes_profile():
     for f in SRC.rglob("*.py"):
         if keys.search(f.read_text(encoding="utf-8")):
             assert f.name == "repository.py", f
+
+
+# --- 知情范围（拟人插件调研第 1 项，2026-10-31）---------------------------------------
+
+
+def _scope_setup():
+    env, about = setup()
+    env.rt.repo.ensure_chat_room(dm_room("V2"), kind="dm", title="V2", members=["V2"])
+    return env, about
+
+
+class _Always:
+    def random(self):
+        return 0.0
+
+    def choice(self, seq):
+        return seq[0]
+
+
+def test_what_you_tell_one_member_in_private_only_she_knows():
+    env, about = _scope_setup()
+    say(env, "跟你说，我周末一般去爬山", room=dm_room("V1"))
+    say(env, "我超爱吃辣", room=ROOM, hour=11)
+    about.observe("V1", DAY.isoformat(), WINDOW, [clue("用户周末去爬山", "周末一般去爬山")])
+    about.observe("V3", DAY.isoformat(), WINDOW, [clue("用户爱吃辣", "我超爱吃辣", "口味")])
+    about.add("用户的生日是 5 月 1 日", "称呼与身份")
+    v1 = about.lines("周末去爬山 吃辣 生日", member="V1")
+    v2 = about.lines("周末去爬山 吃辣 生日", member="V2")
+    assert "爬山" in v1 and "爬山" not in v2
+    assert "吃辣" in v2 and "生日" in v2  # 群里说的、你在画像页写的：大家都知道
+    view = {f["text"]: f for f in about.view()["facts"]}
+    assert view["用户周末去爬山"]["known_by"] == ["V1"] and not view["用户周末去爬山"]["everyone"]
+    assert view["用户爱吃辣"]["everyone"]
+
+
+def test_a_secret_never_spreads_but_other_things_can_be_heard_from_a_colleague():
+    env, about = _scope_setup()
+    say(env, "我周末一般去爬山", room=dm_room("V1"))
+    say(env, "别告诉别人，我在偷偷学吉他", room=dm_room("V1"), hour=12)
+    about.observe(
+        "V1",
+        DAY.isoformat(),
+        WINDOW,
+        [clue("用户周末去爬山", "周末一般去爬山"), clue("用户在学吉他", "在偷偷学吉他")],
+    )
+    moved = about.gossip(["V1", "V2"], _Always())
+    assert len(moved) == 1 and moved[0][1:] == ("V1", "V2")
+    again = about.gossip(["V1", "V2"], _Always())
+    assert again == []  # 吉他是秘密，永远不传
+    line = about.lines("周末去爬山 学吉他", member="V2", names={"V1": "阿一"})
+    assert "爬山（听阿一说的）" in line and "吉他" not in line
+    assert "听" not in about.lines("周末去爬山", member="V1")
+
+
+def test_guesses_are_not_passed_on_and_scope_off_means_everyone_knows():
+    env, about = _scope_setup()
+    say(env, "这周又熬夜了", room=dm_room("V1"))
+    about.observe(
+        "V1", DAY.isoformat(), WINDOW, [clue("用户常熬夜", "又熬夜了", "作息", said=False)]
+    )
+    assert about.gossip(["V1", "V2"], _Always()) == []
+    assert "熬夜" not in about.lines("熬夜", member="V2")
+    cfg = env.rt.config.roundtable
+    rules = cfg.chat.engine.about.model_copy(update={"scope": False})
+    engine = cfg.chat.engine.model_copy(update={"about": rules})
+    chat = cfg.chat.model_copy(update={"engine": engine})
+    env.rt.config = env.rt.config.model_copy(
+        update={"roundtable": cfg.model_copy(update={"chat": chat})}
+    )
+    assert "熬夜" in AboutYou(env.rt).lines("熬夜", member="V2")
+
+
+def test_your_identity_comes_first_in_dm_and_group_chat():
+    """10-31 用户定的初始身份：老板兼房东，私聊和群聊每次都带；关掉「关于你」就不带。"""
+    from roundtable.core.chat import with_about_you
+    from roundtable.core.memory import NONE
+
+    from ..orchestrator.conftest import Env
+
+    env = Env()
+    text = with_about_you(env.rt, NONE, "你好")
+    assert text.startswith("【对方是谁】") and "老板" in text and "房东" in text
+    cfg = env.rt.config.roundtable
+    about = cfg.chat.engine.about.model_copy(update={"enabled": False})
+    engine = cfg.chat.engine.model_copy(update={"about": about})
+    chat = cfg.chat.model_copy(update={"engine": engine})
+    env.rt.config = env.rt.config.model_copy(
+        update={"roundtable": cfg.model_copy(update={"chat": chat})}
+    )
+    assert "老板" not in with_about_you(env.rt, NONE, "你好")

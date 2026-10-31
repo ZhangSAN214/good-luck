@@ -22,6 +22,7 @@ from typing import Any
 
 from roundtable.core.budget.guard import day_window as utc_day_window
 from roundtable.core.budget.guard import month_window
+from roundtable.core.member.slop import Slop
 from roundtable.core.moments import similarity
 from roundtable.core.storage.repository import iso
 
@@ -239,5 +240,10 @@ class LifeGuard:
         if any(r["week"] == week for r in self.rt.repo.life_reports(limit=1)):
             return None
         report = self.report(start, this_week, names)
+        slop = Slop(self.rt).weekly(start, this_week)
+        if slop:
+            report["slop"] = slop
+            note = f"大家一起说多了：{'、'.join(f['phrase'] for f in slop[:6])}（之后少说）"
+            report["notes"] = [n for n in report["notes"] if n != "一切正常"] + [note]
         self.rt.repo.save_life_report(week, report)
         return {"week": week, **report}

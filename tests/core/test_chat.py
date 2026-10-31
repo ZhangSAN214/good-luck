@@ -141,10 +141,39 @@ async def test_search_messages():
 def test_everyone_words_ask_all_available_members():
     env = Env()
     n = len(chat(env).members())
+    for _ in range(6):  # 你在群里说过不少话了（刚进群另算，见下一个测试）
+        env.rt.repo.add_chat_message("main", "user", "在吗")
     for text in ("所有人自我介绍一下自己", "大家觉得呢", "各位早"):
         assert len(chat(env).pick(text)) == n
     # 点了名就只叫被点名的人
     assert [m.id for m in chat(env).pick("@阿二 大家说的对吗")] == ["V2"]
+
+
+def test_a_newcomer_saying_hi_to_everyone_gets_two_or_three_answers():
+    """10-31 用户反向找问题：新人进群 8 个人轮流自我介绍像机器人。"""
+    env = Env()
+    n = len(chat(env).members())
+    for seed in range(10):
+        room = chat(env, seed)
+        msg, speakers = room.post("大家好，我是新来的")
+        assert 1 <= len(speakers) <= min(3, n)
+        env.rt.repo.conn.execute("DELETE FROM chat_messages WHERE id = ?", (msg["id"],))
+    assert [m.id for m in chat(env).pick("@阿二 大家好")] == ["V2"]  # 点名照旧
+
+
+async def test_same_shape_replies_in_one_round_are_trimmed():
+    from roundtable.core.chat import Thought
+    from roundtable.core.chat_actions import Segment
+
+    env = Env()
+    room = chat(env)
+    a, b = room.members()[:2]
+    shapes: list = []
+    segs = [Segment("你好呀新邻居"), Segment("我是谁谁"), Segment("住几楼呀")]
+    first = room._unshape(Thought(a, segs, 0.0), shapes)
+    second = room._unshape(Thought(b, [Segment("你好呀！"), *segs[1:]], 0.0), shapes)
+    third = room._unshape(Thought(b, [Segment("哈喽"), *segs[1:]], 0.0), shapes)
+    assert len(first.segments) == 3 and len(second.segments) == 2 and len(third.segments) == 3
 
 
 async def test_empty_reply_is_explained_and_low_effort_params_are_used():

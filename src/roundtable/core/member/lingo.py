@@ -37,6 +37,7 @@ from roundtable.core.hometz import home_zone
 from roundtable.core.member.bus import Event, EventBus
 from roundtable.core.member.memes import strip_stale
 from roundtable.core.member.profile import ProfileStore
+from roundtable.core.member.slop import Slop, strip_phrases, strip_stage
 from roundtable.core.storage.repository import iso
 
 KEY = "member_lingo:"
@@ -400,6 +401,8 @@ class Lingo:
         nick = self.nickname(member, to, care, at, rng) if to else ""
         if nick:
             bits.append(f"你现在叫{self._name(to)}「{nick}」")
+        elif to and self._invite(member, to, care, at):  # 没写叫法：够熟了偶尔提一句，她自己起
+            bits.append(self.rules.nick.invite)
         if battle:
             bits.append("上一条是表情包，可以直接回个表情包斗图")
         return "；".join(bits)
@@ -425,6 +428,27 @@ class Lingo:
         data["nick"][other] = {"name": name, "at": iso(at)}
         self._save(member, data)
         return name
+
+    def _invite(self, member: str, other: str, care: float, at: datetime) -> bool:
+        r = self.rules.nick
+        if not r.invite or care < r.care or self._nick_options(member, other):
+            return False
+        day = home_zone(self.rt).local(at).date().isoformat()
+        return random.Random(f"lingo-invite:{member}:{other}:{day}").random() < r.invite_chance
+
+    def _capture_nick(self, member: str, text: str, room: dict[str, Any], at: datetime) -> None:
+        """她自己说出「以后就叫你 X」：记下来（只记对你的；已有叫法就不改）。"""
+        r = self.rules.nick
+        if not r.capture or room.get("kind") not in ("dm", "group"):
+            return
+        m = re.search(r.capture, text)
+        if m is None or not m.group(1) or m.group(1)[0] in "了吧啊哦呢一个声什":
+            return
+        data = self._load(member)
+        if data["nick"].get(USER):
+            return
+        data["nick"][USER] = {"name": m.group(1), "at": iso(at), "self": True}
+        self._save(member, data)
 
     def _nick_options(self, member: str, other: str) -> list[str]:
         style = self._data(member).get("style") or {}
@@ -478,6 +502,7 @@ class Lingo:
             return
         if author != USER:
             self._used(author, text, event.at)
+            self._capture_nick(author, text, info, event.at)
             from roundtable.core.member.drift import Drift
 
             if Drift(self.rt).count(author, text, event.at, self):  # 口癖换了：习惯重新算
@@ -545,6 +570,8 @@ class Lingo:
         rng = rng or random.Random(f"lingo-finish:{member}:{text}")
         stale = self.rt.config.roundtable.chat.memes.stale
         text = strip_stale(text, stale)  # 老梗烂梗：含老梗的那一小句不说（10-31 用户）
+        text = strip_phrases(text, Slop(self.rt).active())  # AI 腔：8 位一起高频、你很少说的
+        text = strip_stage(text)  # 括号里的动作描写（「（合上折扇）」）：聊天软件里没人这么打字
         if not text.strip():
             return [""]
         if not self.styled(member):  # 没有人物卡：只补她的招牌小尾巴（配置里写了的话）
@@ -558,11 +585,40 @@ class Lingo:
         out = "\n".join(self._end(line, h, rng) for line in out.split("\n"))
         out = self.signature_tail(member, out, rng)
         out = self._sprinkle(out, h, rng)
+        out = self._cap(member, out)
         out = _tidy(out)
         if not out:
             return [""]
         fixed = self._typo(member, out, energy, rng)
         return fixed if fixed else [out]
+
+    def _cap(self, member: str, text: str) -> str:
+        """特色限量（10-31 用户反向找问题：口头禅、表情、颜文字、自称全堆一条里像在完成清单）：
+        一条里「颜文字 / emoji」「招牌自称」「口头禅」超过 max_traits 样时，先删颜文字和 emoji，
+        还多就把自称换成「我」。单独成条的表情包不算。"""
+        cap = self.rules.max_traits
+        if not cap or not text.strip():
+            return text
+        from roundtable.core.member.voice import signature_of  # voice 只在函数里引用本模块
+
+        sig = signature_of(self.rt, member)
+        selves = list(sig.self_names) if sig is not None else []
+        faces = [*self.rules_kaomoji_all()]
+        has_face = bool(_EMOJI.search(text)) or any(k in text for k in faces)
+        has_self = any(n in text for n in selves)
+        phrases = (self._data(member).get("style") or {}).get("口头禅") or []
+        tics = [str(p).strip("。.！!") for p in phrases if 2 <= len(str(p).strip("。.！!")) <= 8]
+        has_tic = any(w in text for w in tics)
+        if has_face + has_self + has_tic <= cap:
+            return text
+        out = _EMOJI.sub("", text)
+        for k in sorted(faces, key=len, reverse=True):
+            out = out.replace(k, "")
+        out = _tidy(out) or text
+        if has_self + has_tic > cap:
+            for n in sorted(selves, key=len, reverse=True):
+                out = out.replace(n, "我")
+        return out
 
     def _sprinkle(self, text: str, h: Habits, rng: random.Random) -> str:
         """一条里一个表情都没有时，按概率在最后一行末尾补一个她自己的颜文字（问句、很短的不补）。"""

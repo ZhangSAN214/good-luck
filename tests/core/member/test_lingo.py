@@ -386,3 +386,34 @@ def test_showing_can_be_switched_off():
 def test_dropping_someone_elses_catchphrase_keeps_the_rest_of_the_clause():
     assert Lingo._drop_clause("确实，忘了诶 让我想想……", "让我想想").startswith("确实，忘了诶")
     assert Lingo._drop_clause("好呀，让我想想", "让我想想") == "好呀"
+
+
+def test_without_a_written_nickname_she_may_coin_one_herself_and_it_sticks():
+    """10-31 用户：称呼让她们自行产生，不写死。档案里没写叫法：够熟了偶尔提醒她可以自己起；
+    她说出「以后就叫你 X」就记下来，之后卡里一直写这个叫法。"""
+    from datetime import UTC, datetime
+
+    from roundtable.core.chat import ChatHub, dm_room
+    from roundtable.core.member.bus import Event
+
+    from ..orchestrator.conftest import Env
+
+    env = Env()
+    lingo = Lingo(env.rt)
+    at = datetime(2026, 11, 2, 12, tzinfo=UTC)
+    days = [at.replace(day=d) for d in range(1, 29)]
+    assert any(lingo._invite("V1", "user", 0.9, d) for d in days)  # 够熟：有几天会提醒
+    assert not any(lingo._invite("V1", "user", 0.1, d) for d in days)  # 不熟：不提
+    ChatHub(env.rt).room(dm_room("V1"))
+    for text in ("我就叫你了啊", "以后就叫你洞主了", "那还是叫你饭票吧"):
+        msg = env.rt.repo.add_chat_message(dm_room("V1"), "V1", text)
+        lingo.on_event(
+            Event(
+                kind="chat.message",
+                at=at,
+                member="V1",
+                data={"room": dm_room("V1"), "id": msg["id"]},
+            )
+        )
+    assert lingo.nicks("V1") == {"user": "洞主"}  # 起了就不改
+    assert lingo.nickname("V1", "user", 0.9, at, random.Random(0)) == "洞主"
