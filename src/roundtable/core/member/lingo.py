@@ -233,8 +233,9 @@ class Lingo:
             lines.append(f"不想多说时就回一两个字，比如：{'、'.join(mine[:5])}")
         if h.kaomoji:
             lines.append(f"颜文字只用你自己这几个：{' '.join(h.kaomoji)}")
-        if h.sticker_set:
-            lines.append(f"表情包最常发「{h.sticker_set}」那套")
+        pack = self.sticker_pack(member)
+        if pack:
+            lines.append(f"表情包最常发「{pack[0]}」那套")
         if h.things and r.metaphor:
             lines.append(r.metaphor.format(things="、".join(h.things)))
         learned = self.learned(member, self.rt.budget.now())
@@ -244,6 +245,18 @@ class Lingo:
                 + "、".join(f"「{w}」（跟{self._name(src)}学的）" for w, src in learned)
             )
         return lines
+
+    def sticker_pack(self, member: str) -> tuple[str, list[str]] | None:
+        """她最常发的那套表情包：有自己审过的专属表情就用自己的，没有再用按性格挑的通用那套。"""
+        from roundtable.core.chat_actions import own_stickers
+
+        name = self._names().get(member, "")
+        own = own_stickers(self.rt, member, name) if name else {}
+        if own:
+            return next(iter(own.items()))
+        stickers = self.rt.config.roundtable.chat.actions.stickers
+        h = self.habits(member)
+        return (h.sticker_set, list(stickers[h.sticker_set])) if h.sticker_set in stickers else None
 
     def kaomoji(self, member: str) -> tuple[str, ...]:
         return self.habits(member).kaomoji if self.styled(member) else ()
@@ -306,9 +319,9 @@ class Lingo:
             boost *= r.quick_close
         if quiet:
             boost *= r.quick_quiet
-        stickers = self.rt.config.roundtable.chat.actions.stickers
-        if h.sticker_set in stickers and rng.random() < min(gist.sticker * boost, 0.9):
-            return f"[表情:{h.sticker_set}·{rng.choice(stickers[h.sticker_set])}]"
+        pack = self.sticker_pack(member)
+        if pack and rng.random() < min(gist.sticker * boost, 0.9):
+            return f"[表情:{pack[0]}·{rng.choice(pack[1])}]"
         if rng.random() >= min(gist.quick * boost, 0.9):
             return ""
         words = [w for p in gist.pools for w in h.shorts.get(p, ())]

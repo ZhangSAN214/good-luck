@@ -327,3 +327,17 @@ def test_other_members_voice_marks_are_swapped_back_to_her_own():
     assert lingo.own_voice("V1", "这笔先记着。", RNG) == "这笔先记着。"
     _lingo(env, own_voice=False)
     assert lingo.own_voice("V3", "本狐觉得", RNG) == "本狐觉得"
+
+
+def test_her_own_approved_stickers_come_first(monkeypatch):
+    import roundtable.core.chat_actions as acts
+
+    env, lingo = world()
+    general = lingo.sticker_pack("V2")
+    assert general is None or general[0] in env.rt.config.roundtable.chat.actions.stickers
+    monkeypatch.setattr(
+        acts, "own_stickers", lambda rt, m, name: {name: ["挂账"]} if m == "V2" else {}
+    )
+    assert lingo.sticker_pack("V2") == ("小二", ["挂账"])
+    assert any("「小二」那套" in line for line in lingo.voice_lines("V2"))
+    assert lingo.sticker_pack("V3") == general or lingo.sticker_pack("V3")[0] != "小三"

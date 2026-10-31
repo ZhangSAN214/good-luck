@@ -38,7 +38,8 @@ from roundtable.core.chat_actions import (
     card_text,
     clean_card,
     clean_stickers,
-    sticker_list,
+    member_stickers,
+    sticker_menu,
 )
 from roundtable.core.member.brain import Brain
 from roundtable.core.member.voice import Said, before_voice, recent_words
@@ -199,7 +200,7 @@ class Moments:
         acts = rt.config.roundtable.chat.actions
         if "stickers" in wants:  # v3 起：能用表情包
             variables["stickers"] = (
-                sticker_list(acts.stickers) if acts.enabled else "（不用表情包）"
+                sticker_menu(rt, member.id, member.name) if acts.enabled else "（不用表情包）"
             )
         variables = {k: v for k, v in variables.items() if k in wants}
         prompt = rt.prompts.render(
@@ -225,7 +226,7 @@ class Moments:
         if completion is None:
             return None
         text = clean_reply(completion.text, member.name, rules.max_chars)
-        text = clean_stickers(text, acts.stickers if acts.enabled else {}).strip()
+        text = clean_stickers(text, member_stickers(rt, member.id, member.name)).strip()
         if not text:
             return None
         return await before_speaking(
