@@ -132,19 +132,22 @@ def test_benchgen_flow(serve, page, monkeypatch, tmp_path):
     pane.locator(".bg-status.bg-done").wait_for(timeout=15000)
 
     assert pane.locator(".bg-title").text_content() == "旅行台"
-    assert pane.locator(".bg-steps li.past").count() == 6  # 一轮就过线：返工那格跳过
-    skipped = pane.locator(".bg-steps li.skip").all_text_contents()
-    assert skipped == ["方案会（跳过）", "返工（跳过）"]
+    assert pane.locator(".bg-steps li.past").count() == 7  # 7 步都走完
+    assert "第 7/7 步" in pane.locator(".bg-top").text_content()
     assert pane.locator(".sc-subs tr", has_text="写好了").count() == 3
+    pane.locator('[data-drawer="research"]').click()  # 资料都在底部抽屉里
     research = pane.locator(".bg-research")
     head = research.locator("summary").text_content()
     assert "GitHub 10 个" in head and "学习卡 3 张" in head and "资讯和视频 1 条" in head
     assert research.locator(".bg-gh tbody tr").count() == 10
     assert "借：时间轴拖拽" in research.locator(".bg-cards").text_content()
     assert "发布会" in research.locator(".bg-news").text_content()
+    pane.locator('[data-drawer="sources"]').click()
     src = pane.locator(".bg-sources")
     assert "直接用 1 个，只借思路 1 个" in src.locator("summary").text_content()
     assert src.locator(".bg-v-adopt").text_content() == "直接用"
+    assert "验收 2/2" in pane.locator(".bg-plan").text_content()  # 右栏有最近一轮的结果
+    pane.locator('[data-drawer="rounds"]').click()
     rnd = pane.locator(".bg-round").first
     assert "过线" in rnd.locator("summary").text_content()
     assert "验收 2/2" in rnd.locator("summary").text_content()
@@ -164,13 +167,12 @@ def test_benchgen_flow(serve, page, monkeypatch, tmp_path):
     miss = net.locator("li.bg-miss")
     assert miss.count() == 1 and "被网络或代理拦下" in miss.text_content()
 
-    pane.locator("button[data-preview]").click()
-    frame = page.frame_locator("iframe.bg-frame")
+    frame = page.frame_locator("iframe.bg-frame")  # 做好了中间直接就是成品
     frame.locator(".answer", has_text="先去浅草寺").wait_for(timeout=10000)
     assert frame.locator("h1").text_content() == "旅行台"
     frame.locator(".gen", has_text="生成了 1 天").wait_for(timeout=10000)
     if shots := os.environ.get("ROUNDTABLE_SHOTS"):  # 版本说明用的截图
-        page.set_viewport_size({"width": 1280, "height": 2600})
+        page.set_viewport_size({"width": 1440, "height": 900})
         page.screenshot(path=str(Path(shots) / "benchgen.png"))
 
 
@@ -204,7 +206,7 @@ def test_benchgen_project_room(serve, page, monkeypatch, tmp_path):
 
     gate = pane.locator(".bg-gate")
     gate.locator("textarea[data-q]").first.wait_for(timeout=15000)
-    assert pane.locator(".bg-stages li.now").text_content() == "立项"
+    assert "问取舍" in pane.locator(".bg-flow li.now").text_content()
     gate.locator("[data-opt]").first.click()  # 点选项填进回答
     assert gate.locator("textarea[data-q]").first.input_value() == "自己"
     gate.locator("[data-answer]").click()
@@ -218,27 +220,29 @@ def test_benchgen_project_room(serve, page, monkeypatch, tmp_path):
     gate.locator("[data-sign]").click()
 
     gate.locator("[data-pass]").wait_for(timeout=15000)
-    assert pane.locator(".bg-stages li.now").text_content() == "执行"
-    assert gate.locator(".bg-demo img").count() >= 1
+    assert "自动搭" in pane.locator(".bg-steps li.now").text_content()
+    assert pane.locator(".bg-plan .bg-demo img").count() >= 1  # 演示截图在右栏
+    page.frame_locator("iframe.bg-frame").locator("body").wait_for()  # 中间是这一段的草稿
     gate.locator("[data-comments]").fill("地图再大一点")
     gate.locator("[data-cwin]").select_option("map-view")
     gate.locator("[data-change]").click()
     pane.locator(".bg-changes li", has_text="改好了").wait_for(timeout=15000)
     gate.locator("[data-pass]").wait_for(timeout=15000)
-    assert gate.locator(".bg-demo figcaption", has_text="改之后").count() == 1
+    assert pane.locator(".bg-demo figcaption", has_text="改之后").count() == 1
     gate.locator("[data-pass]").click()
 
     pane.locator(".bg-gate [data-pass]", has_text="验收通过").wait_for(timeout=15000)
-    assert pane.locator(".bg-stages li.now").text_content() == "交付"
+    assert "交付" in pane.locator(".bg-steps li.now").text_content()
     pane.locator(".bg-gate [data-pass]").click()
     pane.locator("[data-evolve]").click()
     pane.locator(".bg-evolve li", has_text="加离线地图").wait_for(timeout=15000)
+    pane.locator('[data-drawer="log"]').click()
+    assert "你签字开工" in pane.locator(".bg-timeline").text_content()
+    page.keyboard.press("Escape")  # 收起抽屉
     pane.locator("[data-nextver]").click()
     assert "加离线地图" in pane.locator("[data-text]").input_value()
-    pane.locator(".bg-timeline").evaluate("el => el.closest('details').open = true")
-    assert "你签字开工" in pane.locator(".bg-timeline").text_content()
     if shots := os.environ.get("ROUNDTABLE_SHOTS"):
-        page.set_viewport_size({"width": 1280, "height": 2200})
+        page.set_viewport_size({"width": 1440, "height": 900})
         page.screenshot(path=str(Path(shots) / "benchgen_project.png"))
 
 
@@ -281,6 +285,7 @@ def test_benchgen_team_meeting_board_attack_and_plugin_request(serve, page, monk
     pane.locator("[data-submit]").click()
     pane.locator(".bg-status.bg-done").wait_for(timeout=15000)
 
+    pane.locator('[data-drawer="team"]').click()
     team = pane.locator(".bg-team")
     assert "3 位助手协作" in team.locator("summary").text_content()
     assert team.locator(".bg-pitch").count() == 3
@@ -290,19 +295,21 @@ def test_benchgen_team_meeting_board_attack_and_plugin_request(serve, page, monk
     assert team.locator(".bg-col").count() == 3
     roles = team.locator(".bg-board").text_content()
     assert "主案候选" in roles and "实施" in roles and "对抗" in roles
+    if shots := os.environ.get("ROUNDTABLE_SHOTS"):
+        page.set_viewport_size({"width": 1440, "height": 900})
+        page.screenshot(path=str(Path(shots) / "benchgen_team.png"))
+    pane.locator('[data-drawer="rounds"]').click()
     first = pane.locator(".bg-round").first
     first.evaluate("el => el.open = true")
     assert "没过线" in first.locator("summary").text_content()
     assert "空行程点保存会卡死" in first.locator(".bg-attack").text_content()
     assert first.locator(".bg-bug-high").count() == 1
 
+    pane.locator('[data-drawer="research"]').click()
     plugins = pane.locator(".bg-plugins")
     plugins.locator("[data-plugin]").first.click()
     plugins.locator("li", has_text="已申请").wait_for(timeout=10000)
     assert "dsh 插件" in pane.locator(".bg-cards").text_content()  # 插件也写了学习卡
-    if shots := os.environ.get("ROUNDTABLE_SHOTS"):
-        page.set_viewport_size({"width": 1280, "height": 2600})
-        team.screenshot(path=str(Path(shots) / "benchgen_team.png"))
 
 
 def test_benchgen_stuck_lets_you_edit_requirements_or_accept(serve, page, monkeypatch, tmp_path):
@@ -335,18 +342,19 @@ def test_benchgen_stuck_lets_you_edit_requirements_or_accept(serve, page, monkey
     pane = page.locator('#bench [data-pane="gen"]')
     pane.locator("[data-text]").fill("做一个婚礼策划台")
     pane.locator("[data-submit]").click()
-    stuck = pane.locator(".bg-stuck")
+    stuck = pane.locator(".bg-stuck-form")  # 左栏：你来定
     stuck.wait_for(timeout=15000)
-    assert "你来定" in stuck.text_content() and "能按婚礼定制" in stuck.text_content()
+    assert "你来定" in stuck.text_content()
+    assert "能按婚礼定制" in pane.locator(".bg-plan .bg-stuck").text_content()  # 右栏：卡在哪
     stuck.locator(".bg-edit summary").click()
     stuck.locator("li[data-req] input").first.fill("选婚礼后标题出现「婚礼」")
     stuck.locator('[data-decide="edit"]').click()
-    pane.locator(".bg-round").nth(1).wait_for(timeout=15000)
-    pane.locator(".bg-stuck").wait_for(timeout=15000)
-    assert "选婚礼后标题出现「婚礼」" in pane.locator(".bg-stuck").text_content()
+    pane.locator(".bg-top", has_text="第 2 轮").wait_for(timeout=15000)
+    pane.locator(".bg-stuck-form").wait_for(timeout=15000)
+    assert "选婚礼后标题出现「婚礼」" in pane.locator(".bg-plan .bg-stuck").text_content()
     pane.locator('[data-decide="accept"]').click()
     pane.locator(".bg-status.bg-done").wait_for(timeout=10000)
-    assert pane.locator(".bg-stuck").count() == 0
+    assert pane.locator(".bg-stuck-form").count() == 0
 
 
 def test_benchgen_design_board_live_preview(serve, page, monkeypatch, tmp_path):
@@ -410,7 +418,7 @@ def test_benchgen_design_board_live_preview(serve, page, monkeypatch, tmp_path):
     board.locator(".bg-dgroup summary", has_text="质感").click()  # 前两组默认展开，其余点开
     board.locator('[data-dz="material"]', has_text="液态玻璃").click()
     board.locator('[data-dz="theme"]', has_text="森绿").click()
-    board.locator('[data-dz="mode"][data-v="dark"]').click()
+    pane.locator('[data-dz="mode"][data-v="dark"]').click()  # 浅色 / 深色在中间预览的上方
     assert root.get_attribute("data-k-material") == "glass"
     assert root.get_attribute("data-k-theme") == "forest"
     assert root.get_attribute("data-k-mode") == "dark"
@@ -418,12 +426,13 @@ def test_benchgen_design_board_live_preview(serve, page, monkeypatch, tmp_path):
     assert cards.count() == 2
     board.locator('[data-dspan="budget"]').select_option("6")
     assert view.locator('[data-pw="budget"]').get_attribute("data-span") == "6"
-    board.locator('[data-dz="device"][data-v="phone"]').click()
-    assert board.locator("[data-dframe]").get_attribute("data-device") == "phone"
+    pane.locator('[data-dz="device"][data-v="phone"]').click()
+    assert pane.locator("[data-dframe]").get_attribute("data-device") == "phone"
     assert gate.locator("li[data-req] input").first.input_value() == "能换目的地和日期"
     if shots := os.environ.get("ROUNDTABLE_SHOTS"):
-        board.locator('[data-dz="device"][data-v="desk"]').click()
-        board.screenshot(path=str(Path(shots) / "benchgen_design.png"))
+        pane.locator('[data-dz="device"][data-v="desk"]').click()
+        page.set_viewport_size({"width": 1440, "height": 900})
+        page.screenshot(path=str(Path(shots) / "benchgen_design.png"))
 
     gate.locator("[data-sign]").click()
     gate.locator("[data-pass]").wait_for(timeout=15000)

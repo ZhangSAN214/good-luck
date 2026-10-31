@@ -47,6 +47,11 @@ WINDOW_WARN_SCREENS = 2.0
 WINDOW_BLOCK_SCREENS = 4.0
 ERROR_WINDOW = re.compile(r"窗口 ([a-z0-9-]+) 出错")
 BAD_TEXT = ("undefined", "NaN", "[object Object]", "null null", "Infinity")
+# 2026-10-31 工作台大更新：示例素材打不开、AI 味（表情符号当图标、空话）
+LOAD_FAIL = re.compile(r"打不开|加载失败|无法加载|载入失败|failed to load", re.IGNORECASE)
+EMOJI = re.compile("[\U0001f300-\U0001faff\u2728\u2b50\u26a1]")
+EMOJI_WARN = 3  # 页面上出现这么多个表情符号就提醒（多半是拿来当图标了）
+BUZZWORDS = ("赋能", "一站式", "智能化", "全方位", "之旅", "极致体验")
 
 # 在页面里跑的测量脚本：只读，返回原始数据，判定在 Python 里做
 PROBE_JS = (Path(__file__).with_name("probe.js")).read_text(encoding="utf-8").split("\n", 1)[1]
@@ -239,6 +244,26 @@ def evaluate(
     ]
     if bad:
         add("坏字", "block", "页面上出现 " + "、".join(bad))
+    text = probe["bodyText"]
+    fail = sorted(set(m.group(0) for m in LOAD_FAIL.finditer(text)))
+    if fail:
+        add(
+            "素材打不开",
+            "block",
+            "页面上写着「" + "」「".join(fail[:3]) + "」：示例图片、模型先用本地素材包"
+            "（assets/samples/），在线素材要有兜底",
+        )
+    emoji = EMOJI.findall(text)
+    if len(emoji) >= EMOJI_WARN:
+        add(
+            "表情符号当图标",
+            "warn",
+            f"页面上有 {len(emoji)} 个表情符号（如 {''.join(dict.fromkeys(emoji))[:5]}）："
+            "改用设计套件的图标，看着像成熟产品",
+        )
+    hollow = [w for w in BUZZWORDS if w in text]
+    if hollow:
+        add("空话", "warn", "页面上有「" + "」「".join(hollow[:4]) + "」：文案写具体能干什么")
     if not probe["kit"]:
         add("没用设计套件", "block", "要引入 /kit/kit.css，并给 body 加 k-root")
     foreign = [s for s in probe["scripts"] if not _host_ok(s, local_hosts)]

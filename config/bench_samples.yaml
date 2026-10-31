@@ -1,0 +1,129 @@
+# 工作台生成器的本地示例素材包（2026-10-31 工作台大更新）：
+# 生成的工作台需要示例照片、3D 模型时先用这里的本地文件，不再在线取图（修图台那次所有照片都打不开）。
+#
+# - 只收能随项目打包的许可证：CC0 / 公有领域，或注明作者即可的 CC-BY（attribution 必填）。
+# - 每项钉死 sha256：下载后对不上就丢掉，不冒充。
+# - 下载：在电脑上运行 `python scripts/fetch_bench_samples.py`（只下载这里列的，存到 data/bench/_samples/，不进仓库）；
+#   `--check` 只看哪些已经有了。也可以把你自己的图放进 data/bench/_samples/mine/（只用于你自己的台）。
+# - 加一项：照下面的格式写，sha256 用 `sha256sum 文件` 算；不写 sha256 的不会被下载。
+samples:
+  # —— 照片（scikit-image 的标准测试图，许可证见其 _fetchers.py 文档）——
+  - id: portrait
+    name: 人像（宇航员）
+    kind: photo
+    file: photos/portrait.png
+    url: https://gitlab.com/scikit-image/data/-/raw/5c090b56df3988d988ff97928e2ef2d2cbe38e1b/astronaut.png
+    sha256: 88431cd9653ccd539741b555fb0a46b61558b301d4110412b5bc28b5e3ea6cb5
+    license: 公有领域（NASA）
+    author: NASA
+    tags: [人像, 肤色, 半身, 彩色]
+  - id: coffee
+    name: 咖啡（静物）
+    kind: photo
+    file: photos/coffee.png
+    url: https://gitlab.com/scikit-image/data/-/raw/5c090b56df3988d988ff97928e2ef2d2cbe38e1b/coffee.png
+    sha256: cc02f8ca188b167c775a7101b5d767d1e71792cf762c33d6fa15a4599b5a8de7
+    license: CC0
+    author: Rachel Michetti
+    tags: [美食, 静物, 暖色, 浅景深]
+  - id: cat
+    name: 猫（宠物）
+    kind: photo
+    file: photos/cat.png
+    url: https://gitlab.com/scikit-image/data/-/raw/5c090b56df3988d988ff97928e2ef2d2cbe38e1b/chelsea.png
+    sha256: 596aa1e7cb875eb79f437e310381d26b338a81c2da23439704a73c4651e8c4bb
+    license: CC0
+    author: Stefan van der Walt
+    tags: [宠物, 动物, 毛发细节]
+  - id: eagle
+    name: 鹰（野生动物）
+    kind: photo
+    file: photos/eagle.png
+    url: https://gitlab.com/scikit-image/data/-/raw/1e4f62ac31ba4553d176d4473a5967ad1b076d62/eagle.png
+    sha256: 928f1bbe7403b533265f56db3a6b07c835dfa8e2513f5c5075ca2f1960f6179e
+    license: CC0
+    author: Dayane Machado
+    tags: [动物, 高分辨率, 黑白, 细节]
+  - id: camera
+    name: 摄影师（黑白老照片）
+    kind: photo
+    file: photos/camera.png
+    url: https://gitlab.com/scikit-image/data/-/raw/5c090b56df3988d988ff97928e2ef2d2cbe38e1b/camera.png
+    sha256: b0793d2adda0fa6ae899c03989482bff9a42d3d5690fc7e3648f2795d730c23a
+    license: CC0
+    author: Lav Varshney
+    tags: [人像, 黑白, 老照片, 对比度]
+  - id: rocket
+    name: 火箭发射（户外、天空）
+    kind: photo
+    file: photos/rocket.jpg
+    url: https://gitlab.com/scikit-image/data/-/raw/5c090b56df3988d988ff97928e2ef2d2cbe38e1b/rocket.jpg
+    sha256: c2dd0de7c538df8d111e479619b129464d0269d0ae5fd18ca91d33a7fdfea95c
+    license: 公有领域（SpaceX）
+    author: SpaceX
+    tags: [风景, 天空, 户外, 逆光]
+  # —— 3D 模型（Khronos glTF 官方示例，许可证见各模型的 metadata.json）——
+  - id: avocado
+    name: 牛油果（3D）
+    kind: model
+    file: models/avocado.glb
+    url: https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/Avocado/glTF-Binary/Avocado.glb
+    sha256: ccc9c3ce56423720b09399c2351537207cd5a65f859f9e6e2f30922762f3abd4
+    license: CC0
+    author: Microsoft
+    tags: [3D, 食物, PBR材质]
+  - id: boombox
+    name: 收音机（3D）
+    kind: model
+    file: models/boombox.glb
+    url: https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/BoomBox/glTF-Binary/BoomBox.glb
+    sha256: f8b918445ebdd006768232205a62f5182d2208ca57f84c6ccc084943c0bc8f15
+    license: CC0
+    author: Microsoft
+    tags: [3D, 产品, 发光]
+  - id: lantern
+    name: 路灯（3D）
+    kind: model
+    file: models/lantern.glb
+    url: https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/Lantern/glTF-Binary/Lantern.glb
+    sha256: a79458c4b02d695187a952f23a63b8bf278e7bc3d316a3c2a314f2d6974181f1
+    license: CC0
+    author: sbtron、Frank Galligan
+    tags: [3D, 场景道具, 木材]
+  - id: bottle
+    name: 水瓶（3D）
+    kind: model
+    file: models/bottle.glb
+    url: https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/WaterBottle/glTF-Binary/WaterBottle.glb
+    sha256: b337e526fd6a162013c2984aeec163f5fbb4f717252724dfc3f3458bd51df94b
+    license: CC0
+    author: Microsoft
+    tags: [3D, 产品, 金属]
+  - id: toycar
+    name: 玩具车（3D）
+    kind: model
+    file: models/toycar.glb
+    url: https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/ToyCar/glTF-Binary/ToyCar.glb
+    sha256: 01a60862de55cd4b9f3acfab0b0def86451800f9c42467fcd61052c16cb9838c
+    license: CC0
+    author: Guido Odendahl、Eric Chadwick
+    tags: [3D, 产品, 透明材质]
+  - id: chair
+    name: 椅子（3D，可换材质）
+    kind: model
+    file: models/chair.glb
+    url: https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/SheenChair/glTF-Binary/SheenChair.glb
+    sha256: f0af2a2b102d28d540236306ae19f8fb36842df76bd38cf76f063f9bd2853399
+    license: CC0
+    author: Eric Chadwick
+    tags: [3D, 家具, 材质变体]
+  - id: fox
+    name: 狐狸（3D，带走路跑步动画）
+    kind: model
+    file: models/fox.glb
+    url: https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/Fox/glTF-Binary/Fox.glb
+    sha256: d97044e701822bac5a62696459b27d7b375aada5de8574ed4362edbba94771f7
+    license: CC0（模型）+ CC-BY 4.0（骨骼动画）
+    author: PixelMannen；动画 tomkranis、@AsoboStudio、@scurest
+    attribution: 狐狸模型 PixelMannen（CC0），骨骼与动画 tomkranis、AsoboStudio、scurest（CC-BY 4.0）
+    tags: [3D, 角色, 动画, 低多边形]
