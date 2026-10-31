@@ -2782,6 +2782,22 @@ class BenchProject(_Strict):
     gate_auto_hours: float = Field(default=0, ge=0, le=24 * 7)
 
 
+class BenchMaterials(_Strict):
+    """拖进来的素材（2026-10-31 用户：要能从外部拖进素材，并识别图片或视频来出方案）。
+
+    图片和视频（视频由浏览器截几帧）放进工作台的 materials/；带了素材时开工前先请能看图的助手
+    （look_kind 打分挑人，这一项不会的不参加）看一遍，分析写进方案。素材可以标成 Logo、主视觉图、
+    背景、图库放进成品。"""
+
+    enabled: bool = True
+    look: bool = True  # 带了素材时先看一遍（占 1 次订阅次数）
+    look_kind: str = "vision"
+    max_look: int = Field(default=8, ge=1, le=24)  # 一次最多看几张（视频截帧也算）
+    max_files: int = Field(default=16, ge=1, le=64)  # 一个工作台最多几份素材（含截帧）
+    max_image_mb: int = Field(default=15, ge=1, le=100)
+    max_video_mb: int = Field(default=200, ge=1, le=2000)
+
+
 class BenchTeam(_Strict):
     """三位助手协作（2026-10-30 用户批）：开工前开方案会，各自提方案、互相投票（不能投自己），
     得票最多的当主案，他的做法交给写窗口的人照着做；每轮评审后再派一位对抗手专门找毛病
@@ -2820,6 +2836,7 @@ class BenchRules(_Strict):
     research: BenchResearch = Field(default_factory=BenchResearch)
     project: BenchProject = Field(default_factory=BenchProject)
     team: BenchTeam = Field(default_factory=BenchTeam)
+    materials: BenchMaterials = Field(default_factory=BenchMaterials)
     rubric: list[str] = Field(
         default_factory=lambda: [
             *("视觉层次", "信息密度", "一致性", "交互完整"),

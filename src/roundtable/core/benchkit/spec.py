@@ -137,9 +137,11 @@ THEME_LABELS = {
     "amber": ("琥珀", "温暖，适合美食、家居、手作"),
     "ocean": ("海蓝", "清爽，适合旅行、出行、海边"),
 }
-DESIGN_DIMS: dict[str, tuple[str, list[tuple[str, str, str]]]] = {
+# 每项：(名字, 分组, 选项)；分组决定选型台上怎么排（结构、色彩、质感、文字、控件）
+DESIGN_DIMS: dict[str, tuple[str, str, list[tuple[str, str, str]]]] = {
     "layout": (
         "版型",
+        "结构",
         [
             ("plan", "按方案", "照拆需求时排的宽窄和顺序"),
             ("hero-side", "主视觉 + 侧栏", "大画面在左占三分之二，列表和详情在右"),
@@ -149,8 +151,46 @@ DESIGN_DIMS: dict[str, tuple[str, list[tuple[str, str, str]]]] = {
             ("stream", "单列阅读", "从上到下一列，像文档、报告、教程"),
         ],
     ),
+    "width": (
+        "页面宽度",
+        "结构",
+        [
+            ("narrow", "窄", "内容集中在中间，适合阅读"),
+            ("normal", "标准", "一般情况"),
+            ("full", "全宽", "铺满屏幕，适合大屏和画布"),
+        ],
+    ),
+    "topbar": (
+        "顶栏",
+        "结构",
+        [
+            ("normal", "标准", "左边图标和名字"),
+            ("banner", "大标题横幅", "主色横幅加大号标题，像产品首页"),
+            ("compact", "紧凑", "一行小字，把空间让给内容"),
+        ],
+    ),
+    "herosize": (
+        "主视觉高度",
+        "结构",
+        [
+            ("low", "矮", "约半屏，下面的窗口更早露出来"),
+            ("normal", "中", "约七成屏"),
+            ("tall", "高", "接近满屏，沉浸感最强"),
+        ],
+    ),
+    "bg": (
+        "背景",
+        "色彩",
+        [
+            ("soft", "柔光渐变", "角落一抹主色光晕"),
+            ("plain", "纯色", "干净，不抢内容"),
+            ("grid", "网格点", "细点阵，像设计稿和图纸"),
+            ("image", "素材图", "用你拖进来、标成「背景」的图，盖一层淡色保证看得清"),
+        ],
+    ),
     "material": (
         "材质",
+        "质感",
         [
             ("solid", "实色卡片", "白底卡片加轻阴影，最稳"),
             ("glass", "液态玻璃", "半透明磨砂，背后的颜色透出来"),
@@ -159,60 +199,206 @@ DESIGN_DIMS: dict[str, tuple[str, list[tuple[str, str, str]]]] = {
             ("outline", "线框", "透明底、粗一点的边框，像图纸"),
         ],
     ),
-    "density": (
-        "密度",
-        [
-            ("cozy", "宽松", "留白多，适合触屏和展示"),
-            ("normal", "标准", "一般情况"),
-            ("compact", "紧凑", "一屏放更多，适合数据多的"),
-        ],
-    ),
     "corner": (
         "圆角",
+        "质感",
         [
             ("sharp", "方正", "小圆角，干练"),
             ("normal", "适中", "一般情况"),
             ("round", "圆润", "大圆角，亲和"),
         ],
     ),
+    "shadow": (
+        "阴影",
+        "质感",
+        [
+            ("none", "无", "完全平面"),
+            ("soft", "轻", "一般情况"),
+            ("deep", "重", "卡片浮起来，层次更强"),
+        ],
+    ),
+    "density": (
+        "密度",
+        "质感",
+        [
+            ("cozy", "宽松", "留白多，适合触屏和展示"),
+            ("normal", "标准", "一般情况"),
+            ("compact", "紧凑", "一屏放更多，适合数据多的"),
+        ],
+    ),
     "type": (
         "字体气质",
+        "文字",
         [
             ("sans", "现代无衬线", "清楚，一般情况"),
             ("serif", "衬线编辑感", "标题用宋体 / 衬线字，像杂志"),
             ("mono", "等宽技术感", "标题用等宽字，像终端和图纸"),
         ],
     ),
+    "size": (
+        "字号",
+        "文字",
+        [
+            ("small", "小", "信息多时用"),
+            ("normal", "标准", "一般情况"),
+            ("large", "大", "给长辈用、远看、触屏"),
+        ],
+    ),
+    "tone": (
+        "文案语气",
+        "文字",
+        [
+            ("plain", "平实", "说清楚就好"),
+            ("formal", "正式", "像专业软件和报告"),
+            ("friendly", "亲切", "像朋友提醒"),
+            ("lively", "活泼", "带点俏皮，适合游戏和娱乐"),
+        ],
+    ),
+    "button": (
+        "按钮形状",
+        "控件",
+        [
+            ("rounded", "圆角", "一般情况"),
+            ("pill", "胶囊", "两头全圆，柔和"),
+            ("square", "方角", "利落，像专业工具"),
+        ],
+    ),
+    "cardhead": (
+        "窗口标题",
+        "控件",
+        [
+            ("icon", "图标块", "标题前一个带底色的图标"),
+            ("plain", "只有文字", "更安静"),
+            ("bar", "彩色顶条", "窗口顶上一条主色"),
+        ],
+    ),
+    "motion": (
+        "动效",
+        "控件",
+        [
+            ("none", "无", "打开就是最终样子"),
+            ("soft", "轻", "窗口依次淡入"),
+            ("rich", "丰富", "淡入再加悬停浮起"),
+        ],
+    ),
 }
+DESIGN_GROUPS = ("结构", "色彩", "质感", "文字", "控件")
 DESIGN_DEFAULTS = {
     "layout": "plan",
+    "width": "normal",
+    "topbar": "normal",
+    "herosize": "normal",
+    "bg": "soft",
     "material": "solid",
-    "density": "normal",
     "corner": "normal",
+    "shadow": "soft",
+    "density": "normal",
     "type": "sans",
+    "size": "normal",
+    "tone": "plain",
+    "button": "rounded",
+    "cardhead": "icon",
+    "motion": "soft",
 }
+# 只影响写文案、不改样式的项（不写进 <html data-k-*>）
+DESIGN_TEXT_ONLY = ("layout", "tone")
+_HEX = re.compile(r"#[0-9a-fA-F]{6}")
+NOTE_MAX = 200
+# 拖进来的素材在成品里当什么：只当参考（给助手看、不放进成品）、Logo、主视觉图、背景、图库
+ASSET_ROLES = {
+    "ref": "只当参考",
+    "logo": "Logo",
+    "hero": "主视觉图",
+    "bg": "背景",
+    "gallery": "图库",
+}
+_SINGLE_ROLES = ("logo", "hero", "bg")
+MATERIAL_EXT = {
+    ".png": "image",
+    ".jpg": "image",
+    ".jpeg": "image",
+    ".webp": "image",
+    ".gif": "image",
+    ".mp4": "video",
+    ".webm": "video",
+    ".mov": "video",
+}
+
+
+def look_of(raw: dict[str, Any], files: list[str]) -> dict[str, Any]:
+    """看素材的结果：每张图看出来的版型、配色、材质、风格和借鉴点，加一句总结和合起来的色板。
+    只认这次给它看的文件；颜色只认 #rrggbb。"""
+    items = []
+    seen: set[str] = set()
+    for x in raw.get("items") or []:
+        if not isinstance(x, dict):
+            continue
+        f = Path(str(x.get("file") or "")).name
+        if f not in files or f in seen:
+            continue
+        seen.add(f)
+        items.append(
+            {
+                "file": f,
+                "what": _text(x.get("what"), 120),
+                "layout": _text(x.get("layout"), 80),
+                "palette": [c for c in map(hex_color, x.get("palette") or []) if c][:6],
+                "material": _text(x.get("material"), 40),
+                "style": [t for t in (_text(v, 12) for v in x.get("style") or []) if t][:5],
+                "type": _text(x.get("type"), 40),
+                "borrow": _text(x.get("borrow"), 120),
+            }
+        )
+    palette = [c for c in map(hex_color, raw.get("palette") or []) if c]
+    palette += [c for x in items for c in x["palette"]]
+    return {
+        "items": items,
+        "summary": _text(raw.get("summary"), 300),
+        "palette": list(dict.fromkeys(palette))[:10],
+    }
+
+
+def hex_color(v: Any) -> str:
+    """#rrggbb（小写），不是就空。"""
+    text = str(v or "").strip()
+    return text.lower() if _HEX.fullmatch(text) else ""
+
+
+def _fg_for(color: str) -> str:
+    """主色上的字用黑还是白：按亮度挑对比更大的。"""
+    r, g, b = (int(color[i : i + 2], 16) / 255 for i in (1, 3, 5))
+
+    def lin(c: float) -> float:
+        return c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4
+
+    lum = 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b)
+    return "#111418" if lum > 0.36 else "#ffffff"
+
+
 # 选型台上每个窗口能调的宽度（12 列里占几列）
 SPAN_CHOICES = (3, 4, 6, 8, 12)
 REFS_MAX = 6
 
 
 def design_catalog(themes: list[str] | None = None) -> list[dict[str, Any]]:
-    """选型台左边的选项：每项的名字和可选的值（配色从零件库的主题里来）。"""
+    """选型台左边的选项：每项的名字、分组和可选的值（配色从零件库的主题里来，主色是取色器）。"""
     themes = themes or manifest()["themes"]
     out = []
-    for key, (label, opts) in DESIGN_DIMS.items():
+    for key, (label, group, opts) in DESIGN_DIMS.items():
         out.append(
             {
                 "key": key,
                 "label": label,
+                "group": group,
                 "options": [{"id": i, "label": t, "hint": h} for i, t, h in opts],
             }
         )
-        if key == "layout":
+        if key == "herosize":
             out.append(
                 {
                     "key": "theme",
                     "label": "配色",
+                    "group": "色彩",
                     "options": [
                         {
                             "id": t,
@@ -223,14 +409,28 @@ def design_catalog(themes: list[str] | None = None) -> list[dict[str, Any]]:
                     ],
                 }
             )
-    return out
+            out.append(
+                {
+                    "key": "accent",
+                    "label": "主色",
+                    "group": "色彩",
+                    "kind": "color",
+                    "options": [],
+                }
+            )
+    order = {g: n for n, g in enumerate(DESIGN_GROUPS)}
+    return sorted(out, key=lambda d: order[d["group"]])
 
 
 def design_brief(themes: list[str] | None = None) -> str:
     """给拆需求的助手看的选型目录。"""
     return "\n".join(
         f"- {d['key']}（{d['label']}）："
-        + "；".join(f"{o['id']} {o['label']}（{o['hint']}）" for o in d["options"])
+        + (
+            "写 #rrggbb；配色里的主色就够用时留空"
+            if d.get("kind") == "color"
+            else "；".join(f"{o['id']} {o['label']}（{o['hint']}）" for o in d["options"])
+        )
         for d in design_catalog(themes)
     )
 
@@ -243,12 +443,17 @@ def design_of(raw: Any, theme: str, themes: list[str]) -> dict[str, Any]:
     picks: dict[str, str] = {}
     why: dict[str, str] = {}
     for d in design_catalog(themes):
+        text = _text(why_raw.get(d["key"]), 120)
+        if d.get("kind") == "color":
+            picks[d["key"]] = hex_color(got.get(d["key"]))
+            if text and picks[d["key"]]:
+                why[d["key"]] = text
+            continue
         ids = [o["id"] for o in d["options"]]
         v = str(got.get(d["key"]) or "")
         if d["key"] == "theme":
             v = theme
         picks[d["key"]] = v if v in ids else DESIGN_DEFAULTS.get(d["key"], ids[0])
-        text = _text(why_raw.get(d["key"]), 120)
         if text:
             why[d["key"]] = text
     refs = []
@@ -264,6 +469,8 @@ def design_of(raw: Any, theme: str, themes: list[str]) -> dict[str, Any]:
         "why": why,
         "refs": refs[:REFS_MAX],
         "tagline": _text(raw.get("tagline"), 30),
+        "note": "",
+        "assets": [],
     }
 
 
@@ -299,15 +506,27 @@ def layout_spans(spec: Spec, layout: str) -> list[tuple[str, int]]:
     return plan
 
 
-def apply_design(spec: Spec, choice: dict[str, Any]) -> list[str]:
-    """签字时把你在选型台上点的写回规格：配色、样式、参考作品、去掉的窗口、版型和每个窗口的宽度。
-    返回去掉的窗口 id。主视觉不能去掉，至少留两个窗口（只有一个就留着）。"""
+def apply_design(
+    spec: Spec, choice: dict[str, Any], materials: list[dict[str, Any]] | None = None
+) -> list[str]:
+    """签字时把你在选型台上点的写回规格：配色、样式、主色、风格要求、参考作品、素材的用处、
+    去掉的窗口、版型和每个窗口的宽度。返回去掉的窗口 id。
+    主视觉不能去掉，至少留两个窗口（只有一个就留着）。"""
     design = spec.design or design_of({}, spec.theme, manifest()["themes"])
     picks = dict(design.get("picks") or {})
     for d in design_catalog():
+        if d.get("kind") == "color":
+            if d["key"] in choice:
+                picks[d["key"]] = hex_color(choice.get(d["key"]))
+            continue
         v = str(choice.get(d["key"]) or "")
         if v in {o["id"] for o in d["options"]}:
             picks[d["key"]] = v
+    if "note" in choice:
+        design["note"] = _text(choice.get("note"), NOTE_MAX)
+    roles = choice.get("assets") if isinstance(choice.get("assets"), dict) else {}
+    if materials is not None:
+        design["assets"] = assets_of(materials, roles)
     spec.theme = picks.get("theme", spec.theme)
     ids = [w.id for w in spec.windows]
     drop = [
@@ -343,6 +562,30 @@ def apply_design(spec: Spec, choice: dict[str, Any]) -> list[str]:
     return drop
 
 
+def assets_of(materials: list[dict[str, Any]], roles: dict[str, Any]) -> list[dict[str, Any]]:
+    """素材里标了用处（不是「只当参考」）的放进成品的 assets/。
+    Logo、主视觉图、背景各只留最后一个；视频不能当 Logo 和背景。"""
+    out: list[dict[str, Any]] = []
+    for m in materials:
+        role = str(roles.get(m["id"]) or "ref")
+        if role not in ASSET_ROLES or role == "ref" or m.get("of"):
+            continue
+        if m["kind"] == "video" and role in ("logo", "bg"):
+            continue
+        if role in _SINGLE_ROLES:
+            out = [a for a in out if a["role"] != role]
+        out.append(
+            {
+                "id": m["id"],
+                "name": m["name"],
+                "kind": m["kind"],
+                "role": role,
+                "file": f"assets/{m['file']}",
+            }
+        )
+    return out
+
+
 def design_lines(spec: Spec) -> list[str]:
     """方案书和给写窗口的助手看的设计选型（大白话）。"""
     picks = (spec.design or {}).get("picks") or {}
@@ -351,9 +594,18 @@ def design_lines(spec: Spec) -> list[str]:
     names = {d["key"]: (d["label"], {o["id"]: o for o in d["options"]}) for d in design_catalog()}
     out = []
     for key, v in picks.items():
-        if key in names and v in names[key][1]:
+        if key == "accent" and v:
+            out.append(f"主色：{v}（盖过配色里的主色）")
+        elif key in names and v in names[key][1]:
             o = names[key][1][v]
             out.append(f"{names[key][0]}：{o['label']}（{o['hint']}）")
+    d = spec.design or {}
+    if d.get("note"):
+        out.append(f"你的风格要求：{d['note']}")
+    out += [
+        f"素材「{a['name']}」当{ASSET_ROLES[a['role']]}，文件 {a['file']}"
+        for a in d.get("assets") or []
+    ]
     out += [
         f"参考：{r['name']}" + (f"，借鉴{r['borrow']}" if r.get("borrow") else "")
         for r in (spec.design or {}).get("refs") or []
@@ -534,19 +786,37 @@ def shell_html(spec: Spec, bench_id: str) -> str:
         )
         for w in spec.windows
     )
-    picks = (spec.design or {}).get("picks") or {}
+    design = spec.design or {}
+    picks = design.get("picks") or {}
+    roles = {a["role"]: a for a in design.get("assets") or []}
+    shown = dict(picks)
+    if shown.get("bg") == "image" and "bg" not in roles:
+        shown["bg"] = "soft"  # 没有标成背景的图就退回柔光
     attrs = "".join(
-        f' data-k-{k}="{e(str(picks[k]))}"'
-        for k in ("material", "density", "corner", "type")
-        if picks.get(k) and picks[k] != DESIGN_DEFAULTS[k]
+        f' data-k-{k}="{e(str(shown[k]))}"'
+        for k in DESIGN_DEFAULTS
+        if k not in DESIGN_TEXT_ONLY and shown.get(k) and shown[k] != DESIGN_DEFAULTS[k]
+    )
+    style = []
+    if hex_color(picks.get("accent")):
+        c = hex_color(picks.get("accent"))
+        style += [f"--k-accent: {c}", f"--k-accent-fg: {_fg_for(c)}"]
+    if shown.get("bg") == "image":
+        style.append(f"--k-bg-image: url('{roles['bg']['file']}')")
+    if style:
+        attrs += f' style="{e("; ".join(style))}"'
+    logo = (
+        f'<span class="k-logo k-logo-img"><img src="{e(roles["logo"]["file"])}" alt="标志"></span>'
+        if "logo" in roles
+        else f'<span class="k-logo" data-icon="{e(spec.icon)}"></span>'
     )
     return _fill(
         _HERE("shell.html").read_text(encoding="utf-8"),
         design=attrs,
+        logo=logo,
         theme=e(spec.theme),
         title=e(spec.title),
         subtitle=e(spec.subtitle),
-        icon=e(spec.icon),
         cards=cards,
         bench_id=json.dumps(bench_id),
     )

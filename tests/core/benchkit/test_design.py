@@ -7,11 +7,13 @@ import json
 from roundtable.core.benchkit.spec import (
     DESIGN_DIMS,
     apply_design,
+    assets_of,
     design_brief,
     design_catalog,
     design_lines,
     design_of,
     layout_spans,
+    look_of,
     normalize,
     shell_html,
 )
@@ -35,13 +37,20 @@ def spec_with(design=None, n=5):
     return normalize(raw, max_windows=8)
 
 
-def test_catalog_has_theme_after_layout_and_brief_lists_ids():
-    keys = [d["key"] for d in design_catalog(THEMES)]
-    assert keys == ["layout", "theme", "material", "density", "corner", "type"]
-    theme = design_catalog(THEMES)[1]
+def test_catalog_groups_theme_and_accent_and_brief_lists_ids():
+    cat = design_catalog(THEMES)
+    keys = [d["key"] for d in cat]
+    assert keys[:4] == ["layout", "width", "topbar", "herosize"]
+    assert keys[4:7] == ["theme", "accent", "bg"]
+    assert len(keys) == len(DESIGN_DIMS) + 2 and len(keys) >= 17
+    groups = [d["group"] for d in cat]
+    assert groups == sorted(groups, key=["结构", "色彩", "质感", "文字", "控件"].index)
+    theme = cat[4]
     assert [o["id"] for o in theme["options"]] == THEMES and theme["options"][0]["label"] == "墨蓝"
+    assert cat[5]["kind"] == "color" and cat[5]["options"] == []
     text = design_brief(THEMES)
-    for _key, (_label, opts) in DESIGN_DIMS.items():
+    assert "accent（主色）：写 #rrggbb" in text
+    for _key, (_label, _group, opts) in DESIGN_DIMS.items():
         for i, *_ in opts:
             assert i in text
 
@@ -49,7 +58,13 @@ def test_catalog_has_theme_after_layout_and_brief_lists_ids():
 def test_design_of_keeps_only_known_values():
     d = design_of(
         {
-            "picks": {"layout": "workspace", "material": "黄金", "density": "compact"},
+            "picks": {
+                "layout": "workspace",
+                "material": "黄金",
+                "density": "compact",
+                "accent": "#FF8800",
+                "button": "pill",
+            },
             "why": {"layout": "修图要左工具右属性" * 20, "material": ""},
             "refs": [
                 {"name": "Photoshop", "borrow": "左工具栏"},
@@ -62,14 +77,12 @@ def test_design_of_keeps_only_known_values():
         "ocean",
         THEMES,
     )
-    assert d["picks"] == {
-        "layout": "workspace",
-        "theme": "ocean",
-        "material": "solid",  # 认不得的回到默认
-        "density": "compact",
-        "corner": "normal",
-        "type": "sans",
-    }
+    picks = d["picks"]
+    assert picks["layout"] == "workspace" and picks["theme"] == "ocean"
+    assert picks["material"] == "solid"  # 认不得的回到默认
+    assert picks["density"] == "compact" and picks["button"] == "pill"
+    assert picks["accent"] == "#ff8800" and picks["corner"] == "normal"
+    assert design_of({"picks": {"accent": "red"}}, "ink", THEMES)["picks"]["accent"] == ""
     assert d["recommend"] == d["picks"]
     assert len(d["why"]["layout"]) == 120 and "material" not in d["why"]
     assert d["refs"] == [{"name": "Photoshop", "borrow": "左工具栏", "from": "方案"}]
@@ -80,7 +93,7 @@ def test_design_of_keeps_only_known_values():
 def test_normalize_keeps_design_and_spans_fill_rows():
     spec = spec_with({"picks": {"layout": "hero-side"}})
     assert spec.design["picks"]["layout"] == "hero-side"
-    for lay, *_ in DESIGN_DIMS["layout"][1]:
+    for lay, *_ in DESIGN_DIMS["layout"][2]:
         got = layout_spans(spec, lay)
         assert sorted(w for w, _ in got) == sorted(w.id for w in spec.windows)
         if lay != "plan":
@@ -155,7 +168,7 @@ async def test_sign_with_design_rewrites_spec_shell_and_brief(tmp_path):
     plan_prompt = next(json.loads(p) for p in sc.prompts if json.loads(p)["role"] == "bench_plan")
     assert "workspace" in plan_prompt["design"]
     d = b.build["proposal"]["design"]
-    assert [x["key"] for x in d["dims"]][:2] == ["layout", "theme"]
+    assert [x["key"] for x in d["dims"]][:2] == ["layout", "width"]
     assert d["recommend"]["layout"] == "hero-side" and d["why"]["layout"] == "边看地图边改行程"
     assert d["refs"][0] == {"name": "Google 旅行", "borrow": "地图和行程并排", "from": "方案"}
     prop = b.build["proposal"]
@@ -186,3 +199,72 @@ async def test_sign_with_design_rewrites_spec_shell_and_brief(tmp_path):
     assert [m["windows"] for m in b.build["proposal"]["milestones"]] == [["map-view"], ["budget"]]
     assert "设计选型（你在选型台上定的）" in b.build["brief"] and "主视觉通栏" in b.build["brief"]
     assert any(t["title"] == "你定了设计" for t in b.build["timeline"])
+
+
+def test_shell_writes_every_style_accent_note_and_assets():
+    spec = spec_with()
+    mats = [
+        {"id": "a1", "name": "标.png", "kind": "image", "file": "a1.png", "of": ""},
+        {"id": "a2", "name": "海.jpg", "kind": "image", "file": "a2.jpg", "of": ""},
+        {"id": "v1", "name": "片.mp4", "kind": "video", "file": "v1.mp4", "of": ""},
+        {"id": "f1", "name": "帧", "kind": "frame", "file": "f1.jpg", "of": "v1"},
+    ]
+    apply_design(
+        spec,
+        {
+            "bg": "image",
+            "button": "pill",
+            "tone": "lively",
+            "accent": "#FFD400",
+            "note": "像胶片相机" * 60,
+            "assets": {"a1": "logo", "a2": "bg", "v1": "hero", "f1": "gallery"},
+        },
+        mats,
+    )
+    d = spec.design
+    assert d["picks"]["accent"] == "#ffd400" and len(d["note"]) == 200
+    assert [(a["id"], a["role"], a["file"]) for a in d["assets"]] == [
+        ("a1", "logo", "assets/a1.png"),
+        ("a2", "bg", "assets/a2.jpg"),
+        ("v1", "hero", "assets/v1.mp4"),  # 截帧不单独放进成品
+    ]
+    html = shell_html(spec, "x")
+    assert 'data-k-bg="image"' in html and 'data-k-button="pill"' in html
+    assert "data-k-tone" not in html and "data-k-layout" not in html  # 只影响文案的不写
+    assert "--k-accent: #ffd400; --k-accent-fg: #111418" in html  # 亮黄上用深色字
+    assert "--k-bg-image: url(&#x27;assets/a2.jpg&#x27;)" in html
+    assert '<img src="assets/a1.png" alt="标志">' in html
+    lines = design_lines(spec)
+    assert "主色：#ffd400（盖过配色里的主色）" in lines
+    assert any(t.startswith("你的风格要求：像胶片相机") for t in lines)
+    assert "素材「片.mp4」当主视觉图，文件 assets/v1.mp4" in lines
+    assert "文案语气：活泼（带点俏皮，适合游戏和娱乐）" in lines
+    # 背景选了素材图但没有标背景的图：退回柔光；视频不能当 Logo 和背景；单个用处只留最后一个
+    apply_design(spec, {"assets": {"v1": "bg", "a1": "hero", "a2": "hero"}}, mats)
+    assert [(a["id"], a["role"]) for a in spec.design["assets"]] == [("a2", "hero")]
+    assert "data-k-bg" not in shell_html(spec, "x")
+    assert assets_of(mats, {"a1": "nope"}) == []
+
+
+def test_look_of_keeps_known_files_and_hex_colors():
+    got = look_of(
+        {
+            "items": [
+                {"file": "materials/a.png", "what": "修图软件截图", "palette": ["#112233", "蓝"]},
+                {"file": "a.png", "what": "重复"},
+                {"file": "nope.png", "what": "没给它看的"},
+                {
+                    "file": "b.jpg",
+                    "style": ["极简", "", "复古风格非常长的关键词"],
+                    "borrow": "暖橙",
+                },
+            ],
+            "summary": "暖色、极简",
+            "palette": ["#FFAA00", "#112233", "bad"],
+        },
+        ["a.png", "b.jpg"],
+    )
+    assert [x["file"] for x in got["items"]] == ["a.png", "b.jpg"]
+    assert got["items"][0]["palette"] == ["#112233"]
+    assert got["items"][1]["style"] == ["极简", "复古风格非常长的关键词"]
+    assert got["palette"] == ["#ffaa00", "#112233"] and got["summary"] == "暖色、极简"

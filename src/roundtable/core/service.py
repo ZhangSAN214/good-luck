@@ -969,9 +969,20 @@ class RoundtableService:
     def bench_status(self) -> dict[str, Any]:
         return self.bench.status()
 
-    def bench_submit(self, request: str) -> dict[str, Any]:
+    def bench_material(self, name: str, data: bytes, of: str = "") -> dict[str, Any]:
+        """拖进来的素材先收下（开工或加进工作台时再给编号）。"""
         try:
-            self.bench.submit(request)
+            return self.bench.stage_material(name, data, of)
+        except ValueError as exc:
+            raise ServiceError(str(exc), 400) from None
+
+    @property
+    def bench_material_limit(self) -> int:
+        return self.bench.rules.materials.max_video_mb * 1024 * 1024
+
+    def bench_submit(self, request: str, materials: list[str] | None = None) -> dict[str, Any]:
+        try:
+            self.bench.submit(request, materials)
         except RuntimeError as exc:
             raise ServiceError(str(exc), 409) from None
         except ValueError as exc:
@@ -1011,6 +1022,10 @@ class RoundtableService:
                 self.bench.review(bench_id, kw.get("decision") or "", kw.get("comments"))
             elif action == "evolve":
                 await self.bench.evolve(bench_id)
+            elif action == "attach":
+                self.bench.attach(bench_id, kw.get("ids") or [])
+            elif action == "look":
+                self.bench.look(bench_id)
             elif action == "decide":
                 self.bench.decide(bench_id, kw.get("choice") or "", kw.get("requirements"))
             elif action == "plugin":

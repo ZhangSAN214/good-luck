@@ -33,6 +33,8 @@ from roundtable.core.benchkit.quality import Finding, QualityError, Report, run_
 from roundtable.core.benchkit.research import Researcher, report_markdown
 from roundtable.core.benchkit.scout import Candidate, Scout
 from roundtable.core.benchkit.spec import (
+    ASSET_ROLES,
+    MATERIAL_EXT,
     Spec,
     SpecError,
     apply_design,
@@ -40,6 +42,7 @@ from roundtable.core.benchkit.spec import (
     design_catalog,
     design_lines,
     load_spec,
+    look_of,
     manifest,
     normalize,
     parts_brief,
@@ -269,7 +272,8 @@ class BenchBuilder:
 
     # --- 交活 -------------------------------------------------------------------
 
-    def submit(self, request: str) -> dict[str, Any]:
+    def submit(self, request: str, materials: list[str] | None = None) -> dict[str, Any]:
+        """开工：一句话，可以带拖进来的素材（先用 stage_material 收下，这里给编号）。"""
         request = request.strip()
         if not request:
             raise ValueError("想要什么样的工作台？写一句话就行")
@@ -297,6 +301,8 @@ class BenchBuilder:
             "meeting": None,
             "team": {"cards": []},
             "plugin_requests": [],
+            "materials": [],
+            "look": None,
             "gate": None,
             "timeline": [],
             "changes": [],
@@ -305,6 +311,7 @@ class BenchBuilder:
             "result": None,
             "log": [],
         }
+        self._take_materials(self.build, materials or [])
         self._save()
         self._start_job(self.build, lambda: self._run(self.build))
         return self.build
@@ -437,7 +444,166 @@ class BenchBuilder:
         n = len(b.get("timeline") or [])
         return random.Random(f"{b['seed']}-{stage}-{n}")
 
+    # --- 素材：拖进来的图片和视频（视频由浏览器截几帧），看一遍出分析，签字时标用处 --------------
+
+    def _staging(self) -> Path:
+        if self.root is None:
+            raise ValueError("没有存放素材的地方")
+        return self.root / "_materials"
+
+    def stage_material(self, name: str, data: bytes, of: str = "") -> dict[str, Any]:
+        """先收下一份素材（开工前或签字前拖进来的），返回编号；开工 / 加进工作台时再拷过去。
+        of 是视频的编号：浏览器从那个视频里截的帧。"""
+        rules = self.rules.materials
+        if not rules.enabled:
+            raise ValueError("素材功能关着")
+        name = Path(str(name or "")).name[:80] or "素材"
+        ext = Path(name).suffix.lower()
+        kind = MATERIAL_EXT.get(ext)
+        if kind is None:
+            raise ValueError("只收图片（png、jpg、webp、gif）和视频（mp4、webm、mov）")
+        limit = rules.max_video_mb if kind == "video" else rules.max_image_mb
+        if not data or len(data) > limit * 1024 * 1024:
+            raise ValueError(f"文件是空的或超过 {limit} MB")
+        folder = self._staging()
+        folder.mkdir(parents=True, exist_ok=True)
+        if of:
+            if not re.fullmatch(r"[0-9a-f]{12}", of) or not (folder / f"{of}.json").is_file():
+                raise ValueError("找不到这个视频")
+            if kind != "image":
+                raise ValueError("视频截帧要是图片")
+            kind = "frame"
+        mid = secrets.token_hex(6)
+        meta = {"id": mid, "name": name, "kind": kind, "file": f"{mid}{ext}", "of": of}
+        (folder / meta["file"]).write_bytes(data)
+        (folder / f"{mid}.json").write_text(json.dumps(meta, ensure_ascii=False), encoding="utf-8")
+        return meta
+
+    def _take_materials(self, b: dict[str, Any], ids: list[str]) -> list[dict[str, Any]]:
+        """把收下的素材拷进这个工作台的 materials/（视频的截帧跟着视频一起来）。"""
+        if not ids:
+            return []
+        folder = self._staging()
+        metas = {}
+        for p in folder.glob("*.json") if folder.is_dir() else []:
+            with contextlib.suppress(ValueError, OSError):
+                m = json.loads(p.read_text(encoding="utf-8"))
+                metas[m["id"]] = m
+        want = [i for i in dict.fromkeys(ids) if i in metas]
+        want += [m["id"] for m in metas.values() if m["of"] in want and m["id"] not in want]
+        have = {m["id"] for m in b["materials"]}
+        dest = self.folder(b["id"]) / "materials"
+        added = []
+        for mid in want:
+            if mid in have or len(b["materials"]) >= self.rules.materials.max_files:
+                continue
+            m = metas[mid]
+            dest.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(folder / m["file"], dest / m["file"])
+            b["materials"].append(m | {"seen": False})
+            added.append(m)
+        if added:
+            self._log(b, f"收到 {len(added)} 份素材")
+        return added
+
+    def _unseen(self, b: dict[str, Any]) -> list[dict[str, Any]]:
+        return [
+            m for m in b.get("materials") or [] if m["kind"] in ("image", "frame") and not m["seen"]
+        ][: self.rules.materials.max_look]
+
+    def _material_label(self, b: dict[str, Any], m: dict[str, Any]) -> str:
+        if m["kind"] == "frame":
+            video = next((x for x in b["materials"] if x["id"] == m["of"]), None)
+            return f"视频「{video['name'] if video else '?'}」的截帧 {m['name']}"
+        return f"图片「{m['name']}」"
+
+    async def _look(self, b: dict[str, Any]) -> None:
+        """请能看图的助手看一遍素材：版型、配色、材质、风格、值得借鉴的地方。结果写进方案和选型推荐。"""
+        todo = self._unseen(b)
+        if not todo:
+            return
+        b["status"] = "looking"
+        kind = self.rules.materials.look_kind
+        workers = getattr(getattr(self.sc, "rules", None), "workers", None) or []
+        blind = tuple(w.id for w in workers if not w.skills.get(kind))
+        prompt = self.render(
+            "bench_look",
+            request=b["request"],
+            files="\n".join(
+                f"- materials/{m['file']}（{self._material_label(b, m)}）" for m in todo
+            ),
+            design=design_brief(),
+        )
+        record: dict[str, Any] = {}
+        chosen, result = await self._step(
+            b,
+            kind,
+            prompt,
+            self._rng(b, "look"),
+            record,
+            role="看素材",
+            task=f"看 {len(todo)} 张图",
+            exclude=blind,
+        )
+        if chosen is None or result is None or not result.ok:
+            self._log(b, "没有能看图的助手（或没看成），素材只当文件交给写窗口的助手参考")
+            return
+        try:
+            got = look_of(extract_json_object(result.output), [m["file"] for m in todo])
+        except JSONOutputError:
+            self._log(b, "看素材的结果看不懂，素材只当文件参考")
+            return
+        for m in todo:
+            m["seen"] = True
+        old = b.get("look") or {"items": [], "palette": []}
+        got["items"] = old["items"] + got["items"]
+        got["palette"] = list(dict.fromkeys(old["palette"] + got["palette"]))[:10]
+        got["worker"] = record.get("worker")
+        b["look"] = got
+        lines = [
+            f"- {x['file']}：{x['what']}；借鉴：{x['borrow']}" for x in got["items"] if x["what"]
+        ]
+        b["brief"] = (
+            f"{self._brief(b)}\n\n你拖进来的参考素材（在 materials/ 里，看过的分析）："
+            f"{got['summary']}\n配色：{'、'.join(got['palette']) or '没提取到'}\n"
+            + "\n".join(lines)
+        )
+        self._mark(b, "立项", "看素材", f"看了 {len(todo)} 张：{got['summary'][:200]}")
+
+    def attach(self, bid: str, ids: list[str]) -> dict[str, Any]:
+        """签字前再拖进来的素材：拷进工作台，选型台上可以标用处（不花次数）；要分析再点「看一遍」。"""
+        b = self._at_gate(bid, "sign")
+        added = self._take_materials(b, ids)
+        if not added:
+            raise ValueError("没有收到新的素材")
+        b["proposal"]["design"]["materials"] = b["materials"]
+        self._save()
+        return b
+
+    def look(self, bid: str) -> dict[str, Any]:
+        """签字前：把还没看过的素材请助手看一遍（占 1 次），看完回到选型台。"""
+        b = self._at_gate(bid, "sign")
+        if not self._unseen(b):
+            raise ValueError("没有还没看过的图")
+        if self.busy:
+            raise RuntimeError("正在做另一个工作台，等它停下来再继续")
+        gate = b["gate"]
+        b["gate"] = None
+
+        async def run() -> None:
+            await self._look(b)
+            d = b["proposal"]["design"]
+            d["look"] = b.get("look")
+            d["materials"] = b["materials"]
+            b["gate"] = gate
+            b["status"] = "waiting"
+
+        self._start_job(b, run)
+        return b
+
     async def _run(self, b: dict[str, Any]) -> None:
+        if self.rules.materials.look and self._unseen(b):
+            await self._look(b)
         if self.rules.project.enabled and self.rules.project.interview:
             await self._interview(b)
             if b["gate"]:
@@ -971,6 +1137,10 @@ class BenchBuilder:
             "why": d.get("why") or {},
             "refs": refs[:12],
             "tagline": d.get("tagline") or "",
+            "note": d.get("note") or "",
+            "materials": b.get("materials") or [],
+            "roles": ASSET_ROLES,
+            "look": b.get("look"),
         }
 
     def _meeting_lines(self, b: dict[str, Any]) -> list[str]:
@@ -1022,8 +1192,11 @@ class BenchBuilder:
         return b
 
     def _choose_design(self, b: dict[str, Any], spec: Spec, choice: dict[str, Any]) -> None:
-        drop = apply_design(spec, choice)
+        drop = apply_design(spec, choice, b.get("materials") or [])
         folder = self.folder(b["id"])
+        for a in spec.design["assets"]:
+            (folder / "assets").mkdir(exist_ok=True)
+            shutil.copyfile(folder / "materials" / Path(a["file"]).name, folder / a["file"])
         (folder / "spec.json").write_text(
             json.dumps(spec.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8"
         )

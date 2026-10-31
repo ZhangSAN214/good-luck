@@ -290,7 +290,20 @@ export const dshCheck = () => api('/api/dsh/check', { method: 'POST' });
 
 // 超级电脑：几位编程助手平级、按分数派活（docs/SUPERCOMPUTER.md）
 export const benchStatus = () => api('/api/bench');
-export const benchSubmit = (request) => api('/api/bench', { method: 'POST', body: { request } });
+export const benchSubmit = (request, materials = []) => api('/api/bench', { method: 'POST', body: { request, materials } });
+/** 拖进来的一份素材（图片、视频或视频截帧，of 是视频编号）：原始字节上传。 */
+export async function benchMaterial(file, of = '') {
+  const q = `name=${encodeURIComponent(file.name)}${of ? `&of=${encodeURIComponent(of)}` : ''}`;
+  const r = await fetch(`/api/bench/materials?${q}`, { method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: file });
+  let data = null;
+  try {
+    data = await r.json();
+  } catch {
+    data = null;
+  }
+  if (!r.ok) throw new ApiError(errorText(data, r.status), r.status);
+  return data;
+}
 export const benchCancel = () => api('/api/bench/cancel', { method: 'POST' });
 export const benchGet = (id) => api(`/api/bench/${encodeURIComponent(id)}`);
 export const benchAsk = (id, question, json = false) =>
@@ -304,6 +317,8 @@ export const benchReview = (id, decision, comments = []) => benchPost(id, 'revie
 export const benchEvolve = (id) => benchPost(id, 'evolve', {});
 export const benchDecide = (id, action, requirements) => benchPost(id, 'decide', { action, requirements });
 export const benchPlugin = (id, name) => benchPost(id, 'plugin', { name });
+export const benchAttach = (id, ids) => benchPost(id, 'materials', { ids });
+export const benchLook = (id) => benchPost(id, 'look', {});
 export const superStatus = () => api('/api/super');
 export const superSubmit = (text) => api('/api/super/tasks', { method: 'POST', body: { text } });
 export const superCancel = () => api('/api/super/cancel', { method: 'POST' });
