@@ -191,11 +191,27 @@ def _sticker_habit(voice: Voice, rules: Any) -> str:
     return habits[min(i, len(habits) - 1)]
 
 
+def signature_of(rt: Any, member: str) -> Any:
+    """这位成员最有辨识度的说话特色（personas.yaml 的 signatures；没写为 None）。"""
+    return rt.config.personas.signatures.get(member)
+
+
+def signature_line(rt: Any, member: str) -> str:
+    sig = signature_of(rt, member)
+    return f"招牌（让人一眼认出是你）：{sig.line}" if sig is not None and sig.line else ""
+
+
 def voice_text(
-    voice: Voice, rules: Any, room_kind: str, seed: int = 0, extra: tuple[str, ...] = ()
+    voice: Voice,
+    rules: Any,
+    room_kind: str,
+    seed: int = 0,
+    extra: tuple[str, ...] = (),
+    signature: str = "",
 ) -> str:
     """提示词里「说话习惯」那一段（≤ budget_chars 字）。seed 决定这次带哪几句示范；
-    extra 是「说话的样子」给的打字习惯（标点、笑法、短回复、颜文字……），排在示范句前面。"""
+    extra 是「说话的样子」给的打字习惯（标点、笑法、短回复、颜文字……），排在示范句前面；
+    signature 是她的招牌特色，放第一行、不算进字数（不会被挤掉）。"""
     mode = rules.modes.get(voice.mode)
     lines: list[str] = []
     if voice.length:
@@ -226,7 +242,7 @@ def voice_text(
         if len("\n".join([*out, ln])) > rules.budget_chars:
             break
         out.append(ln)
-    return "\n".join(out)
+    return "\n".join([signature, *out] if signature else out)
 
 
 NO_VOICE = "（没写：用你自己的说话风格）"
@@ -235,10 +251,11 @@ NO_VOICE = "（没写：用你自己的说话风格）"
 def voice_for(rt: Any, member: str, kind: str, seed: int = 0) -> str:
     """生活互聊、上网分享提示词里的说话习惯（没有档案或关着时为「没写」）。"""
     voice = member_voice(rt, member)
+    sig = signature_line(rt, member)
     if voice.empty:
-        return NO_VOICE
+        return sig or NO_VOICE
     rules = rt.config.roundtable.chat.engine.voice
-    return voice_text(voice, rules, kind, seed, _lingo_lines(rt, member)) or NO_VOICE
+    return voice_text(voice, rules, kind, seed, _lingo_lines(rt, member), sig) or NO_VOICE
 
 
 def _lingo_lines(rt: Any, member: str) -> tuple[str, ...]:
@@ -276,9 +293,12 @@ class VoicePolicy(DefaultPolicy):
         if room_kind not in LIFE_ROOMS:
             return ""
         voice = member_voice(self.rt, member)
+        sig = signature_line(self.rt, member)
         if voice.empty:
-            return ""
-        return voice_text(voice, self.voice_rules, room_kind, seed, _lingo_lines(self.rt, member))
+            return sig
+        return voice_text(
+            voice, self.voice_rules, room_kind, seed, _lingo_lines(self.rt, member), sig
+        )
 
 
 # --- 说出口前自查 -----------------------------------------------------------------

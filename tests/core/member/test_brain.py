@@ -67,7 +67,7 @@ def test_goals_seed_from_likes_progress_and_leave_news_at_milestones():
         place, act = brain.choose_activity("V1", at, "gym", "exercise")
         seen_goal |= act.startswith("琢磨「")
     snap = brain.snapshot("V1", slot + timedelta(days=40))
-    assert {g["name"] for g in snap["goals"]} == {"和弹吉他有关的小计划", "和下围棋有关的小计划"}
+    assert {g["name"] for g in snap["goals"]} == {"弹吉他", "下围棋"}
     assert seen_goal and any(g["level"] > 0 for g in snap["goals"])
     assert snap["news"]  # 过坎或卡住都会留下没讲过的新鲜事
 

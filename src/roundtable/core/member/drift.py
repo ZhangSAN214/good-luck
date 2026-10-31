@@ -94,9 +94,15 @@ class Drift:
         if not self.enabled():
             return phrases
         data = self._load(member)
+        keep = self.signature_words(member)
         rest = self.resting(member, at)
-        own = [p for p in phrases if p not in rest]
+        own = [p for p in phrases if p not in rest or any(k in p for k in keep)]
         return own + [w for w in data["promoted"] if w not in own]
+
+    def signature_words(self, member: str) -> tuple[str, ...]:
+        """她的招牌小尾巴和招牌词（personas.yaml 的 signatures）：不会说腻、不会被换掉。"""
+        sig = self.rt.config.personas.signatures.get(member)
+        return (*sig.tails, *sig.words, *sig.self_names) if sig is not None else ()
 
     def promoted(self, member: str) -> dict[str, dict[str, str]]:
         return dict(self._load(member)["promoted"])
@@ -122,7 +128,12 @@ class Drift:
             mine[f"c:{p.strip('。.！!？?～~ ')}"] = p.strip("。.！!？?～~ ")
         for w, _ in lingo.learned(member, at):
             mine.setdefault(f"w:{w}", w)
-        hits = [key for key, word in mine.items() if word and word in text]
+        keep = self.signature_words(member)
+        hits = [
+            key
+            for key, word in mine.items()
+            if word and word in text and not any(k in word for k in keep)
+        ]
         if not hits:
             return []
         data = self._load(member)

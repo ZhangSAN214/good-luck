@@ -188,3 +188,31 @@ async def test_daily_cap_blocks_sharing_and_search():
     assert await b.tick(NOW) == 0
     assert not env.fake.calls
     assert b.searches_today() == 0
+
+
+async def test_a_share_is_tossed_into_the_group_with_a_few_words_not_retold():
+    """2026-10-31 用户：人分享东西一般不介绍，直接甩过去让别人看；程序附卡片，配的话很短。"""
+    env = Env()
+    set_feeds(env.rt, FEEDS)
+    for m in ChatHub(env.rt).everyone():
+        set_persona(env.rt, m.id, {"interests": ["游戏"]})
+    b = browser(env)
+    assert await b.tick(NOW) == 1
+    (row,) = b.posted
+    assert row["meta"]["card"]["url"] == "https://forum.test/g"
+    system = share_calls(env)[0].messages[0].content
+    assert "甩到群里" in system and "不介绍、不转述" in system
+
+
+def test_hub_and_list_pages_are_not_shared_as_cards():
+    """10-31 第 3 次试跑：搜索给的全是栏目首页、列表页，点开什么都看不到。"""
+    from roundtable.core.browse import looks_like_article
+
+    assert looks_like_article("https://news.test/2026/10/31/telescope.html", "新望远镜上天")
+    assert looks_like_article("https://b23.tv/BV1xx", "猫猫打架")
+    assert not looks_like_article("https://www.caixin.test/", "财新")
+    assert not looks_like_article("https://tech.test/tech/index.html", "科技")
+    assert not looks_like_article("https://ithome.test/list/", "IT之家")
+    assert not looks_like_article("https://game.test/news/", "游戏")
+    assert not looks_like_article("https://astro.test/a/b", "天文视界首页")
+    assert not looks_like_article("https://x.test/roll/123", "滚动新闻")
