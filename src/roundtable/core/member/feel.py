@@ -1,14 +1,17 @@
 """各自的情感（docs/BRAIN.md「各自的情感」；2026-10-30 用户定）。
 
-开心、难过、想念、生气，8 位各有各的理解和表达，不贴统一的标签，随经历慢慢变：
+开心、难过、想念、生气、害羞、委屈、内疚、感激、吃醋、失落、满足、惊喜、心疼、紧张、期待、无聊
+（``chat.engine.feel.names``），8 位各有各的理解和表达，不贴统一的标签，随经历慢慢变，可以五味杂陈：
 
 - **起点按人物卡**：她对每种情绪的理解，最初从自我档案里人物卡的「情绪」章抽出来——那一段写着
   什么事让她开心 / 生气、开心时她什么样。卡里没写的（多半是想念）就去整张卡里找相关的句子；
   再找不到就空着，等经历来告诉她。
 - **记下每次真有的情绪**：P3 状态每次反射（被夸、被说了几句、盼着的事成了 / 落空、替人难受……）
-  心情真动了一下，就记成一段经历：哪种情绪、为了什么、什么时候。负面的那一下算难过还是生气，
-  **按她自己的理解来分**：她理解里的生气和这件事像，就算生气；不像就算难过。性格里较真的更容易
-  当成生气，温和的更容易当成难过。想念：好几天没和你说话、你终于来了，或者她主动找你说想你了。
+  心情真动了一下，就记成一段经历：哪种情绪、为了什么、什么时候。同一件事算哪种（被夸是害羞
+  还是开心，被说是生气、委屈还是难过），**按她自己的理解来分**：和她理解里的哪种像就算哪种；
+  性格也有影响（较真的更容易生气、温和的更容易难过或委屈、内向的被夸更容易害羞）。
+  感情里的委屈、内疚、感激也记成经历；想念：好几天没和你说话、你终于来了，或者她主动找你。
+- **五味杂陈**：同时在场的情绪（刚有过的、那句感情话、快见分晓的紧张、闷）最多写两种。
 - **说话时带上**：意图卡里写一句「你心里的难过：……（她自己的理解）；上回：……（真发生过的事）」，
   只在这种情绪正在场时写（刚有过、心情明显高 / 低、对方说想她）。
 - **随时间变**：每周成长反思（P6）可以用 ``feel`` 改写其中一种情绪的理解，必须引用这一周真实的
@@ -177,11 +180,18 @@ class Feelings:
     def record(self, member: str, emo: str, why: str, at: datetime) -> None:
         if not (self.enabled() and emo in self.rules.names and why):
             return
+        why = why[: self.rules.why_chars]
         data = self._load(member)
         recent = data["episodes"][-3:]
         if any(e["emo"] == emo and e["why"] == why for e in recent):
             return  # 同一件事连着来几下，算一次
-        data["episodes"].append({"emo": emo, "why": why[: self.rules.why_chars], "at": iso(at)})
+        day = self.local(at).date()
+        same = [e for e in data["episodes"] if e["emo"] == emo]
+        if sum(self.local(datetime.fromisoformat(e["at"])).date() == day for e in same) >= (
+            self.rules.daily_max
+        ):
+            return  # 同一种一天记够了几回，别把别的挤掉
+        data["episodes"].append({"emo": emo, "why": why, "at": iso(at)})
         self._save(member, data)
 
     def clear(self, member: str) -> None:
@@ -190,18 +200,22 @@ class Feelings:
     # --- 哪种情绪：按她自己的理解分 ------------------------------------------------------
 
     def classify(self, member: str, mood: float, why: str, reflex: str = "") -> str:
-        """心情动了 mood 这么多，为了 why：她会觉得这是哪种情绪（不够明显时为空）。"""
+        """心情动了 mood 这么多，为了 why：她会觉得这是哪种情绪（不够明显时为空）。
+
+        反射表里列了的事在那几种里分（被夸：害羞还是开心；被说：生气、委屈还是难过……），
+        没列的按心情往上 / 往下在 positive / negative 里分；分法看她自己的理解和性格。"""
         r = self.rules
-        if abs(mood) < r.min_mood:
+        listed = [e for e in r.reflexes.get(reflex, []) if e in r.names]
+        if abs(mood) < (r.min_mood_listed if listed else r.min_mood) or not mood:
             return ""
-        pool = r.positive if mood > 0 else r.negative
+        pool = listed or (r.positive if mood > 0 else r.negative)
         if len(pool) == 1:
             return pool[0]
         mine = self.understanding(member)
         traits = (self.profiles.current(member).data.get("personality") or {}).get("五项") or {}
         best, score = pool[0], float("-inf")
-        for emo in pool:
-            s = r.lean_weight if r.lean.get(reflex) == emo else 0.0
+        for i, emo in enumerate(pool):
+            s = r.lean_weight * (1 - i / len(pool)) if listed else 0.0
             s += r.match * overlap(why, mine.get(emo, ""))
             for trait, c in r.traits.get(emo, {}).items():
                 with contextlib.suppress(TypeError, ValueError):
@@ -251,21 +265,42 @@ class Feelings:
 
     # --- 说话时：此刻在场的那种情绪 -----------------------------------------------------
 
-    def active(self, member: str, *, mood: float, last: str, at: datetime) -> str:
-        """此刻正在场的情绪（意图卡要不要写、写哪种）：对方说想她 → 想念；刚有过 → 那种；
-        心情明显好 / 不好 → 开心 / 最近那种负面的。都不是时为空。"""
+    def hints(self, *, heart: str = "", tense: bool = False, novelty: float = 0.0) -> list[str]:
+        """大脑交来的此刻情绪：那句感情话（委屈 / 内疚 / 感激 / 吃醋）、快见分晓的事（紧张）、
+        新鲜感攒得太满（无聊）。"""
         r = self.rules
+        out = [r.love[heart]] if heart in r.love else []
+        if tense:
+            out.append(r.tense)
+        if novelty >= r.bored_above:
+            out.append(r.bored)
+        return out
+
+    def active(
+        self, member: str, *, mood: float, last: str, at: datetime, hints: list[str] | None = None
+    ) -> list[str]:
+        """此刻正在场的情绪（最多 mix_max 种，五味杂陈）：对方说想她 → 想念；大脑交来的
+        （那句感情话、快见分晓的紧张、闷）；刚有过的；心情明显好 / 不好 → 开心 / 最近那种负面的。"""
+        r = self.rules
+        out: list[str] = []
+
+        def add(emo: str) -> None:
+            if emo and emo in r.names and emo not in out:
+                out.append(emo)
+
         if last and any(w in last for w in r.miss_words):
-            return r.missing
+            add(r.missing)
+        for emo in hints or []:
+            add(emo)
         fresh = self.episodes(member, since=at - timedelta(hours=r.linger_hours))
-        if fresh:
-            return str(fresh[-1]["emo"])
-        if mood >= r.mood_high:
-            return r.positive[0]
-        if mood <= r.mood_low:
-            neg = [e for e in self.episodes(member) if e["emo"] in r.negative]
-            return str(neg[-1]["emo"]) if neg else r.negative[0]
-        return ""
+        for e in reversed(fresh):
+            add(str(e["emo"]))
+        if not out and mood >= r.mood_high:
+            add(r.positive[0])
+        if not out and mood <= r.mood_low:
+            neg = [e for e in self.episodes(member) if e["emo"] in r.low]
+            add(str(neg[-1]["emo"]) if neg else r.negative[0])
+        return out[: r.mix_max]
 
     def _when(self, at: datetime, now: datetime) -> str:
         if now - at < timedelta(hours=self.rules.linger_hours):
@@ -274,21 +309,33 @@ class Feelings:
         days = (b - a).days
         return "昨天" if days == 1 else "前天" if days == 2 else f"{a.month}月{a.day}日"
 
-    def line(self, member: str, emo: str, at: datetime) -> str:
-        """意图卡里的那一句：她自己对这种情绪的理解 + 上回真有这种情绪是为了什么。"""
-        if not emo:
-            return ""
+    def _one(self, member: str, emo: str, at: datetime) -> tuple[str, str] | None:
+        """(她的理解, 上回那件事)；卡里没写过、也还没经历过时为 None（不写空话）。"""
         r = self.rules
         mine = self.understanding(member).get(emo, "")
         past = [e for e in self.episodes(member, emo) if datetime.fromisoformat(e["at"]) <= at]
         if not (mine or past):
-            return ""  # 卡里没写过、也还没经历过：不写空话
-        text = r.line.format(emo=emo, mine=_cut(mine or r.unknown, r.mine_chars))
+            return None
+        text = _cut(mine or r.unknown, r.mine_chars)
         if past:
             e = past[-1]
             when = self._when(datetime.fromisoformat(e["at"]), at)
             text += r.last.format(when=when, why=e["why"])
-        return text[: r.line_chars]
+        return emo, text
+
+    def line(self, member: str, emo: str | list[str], at: datetime) -> str:
+        """意图卡里的那一句：她自己对这种情绪的理解 + 上回真有这种情绪是为了什么；
+        同时有两种时写成五味杂陈。"""
+        r = self.rules
+        emos = [emo] if isinstance(emo, str) else list(emo)
+        parts = [p for p in (self._one(member, e, at) for e in emos if e) if p]
+        if not parts:
+            return ""
+        first = r.line.format(emo=parts[0][0], mine=parts[0][1])[: r.line_chars]
+        if len(parts) == 1:
+            return first
+        emo2, mine2 = parts[1]
+        return r.mix.format(first=first, emo=emo2, mine=mine2)[: r.mix_chars]
 
     # --- 成长材料 ----------------------------------------------------------------------
 

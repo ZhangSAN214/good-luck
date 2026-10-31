@@ -701,8 +701,11 @@ class Simulation:
             place, _, act = what.partition(":")
             where = "宿舍" if place.startswith("dorm") else PUBLIC_ROOMS.get(place, place)
             habits.append(f"{when}{where}{ACTIVITIES.get(act, act)}（{n}）")
+        mine = [c["tags"] for c in self.cards if c["member"] == member]
         return {
             "counts": counts,
+            "said": sum(1 for t in mine if "feel" in t or "feel:mix" in t),
+            "mixed": sum(1 for t in mine if "feel:mix" in t),
             "last": last,
             "grown": sorted(brain.feel.grown(member)),
             "habits": habits,
@@ -997,16 +1000,17 @@ def render(res: SimResult) -> str:
             )
     if any(row.get("feel") for row in res.members):
         lines += ["", "## 各自的情感与习惯（期末）", ""]
-        lines.append("| 成员 | 有过的情绪（次数） | 最近一次 | 改写过理解的情绪 | 习惯 |")
-        lines.append("|---|---|---|---|---|")
+        head = ["成员", "有过的情绪（次数）", "说话时带上（其中五味杂陈）", "最近一次"]
+        lines.append("| " + " | ".join([*head, "改写过理解的情绪", "习惯"]) + " |")
+        lines.append("|---|---|---|---|---|---|")
         for row in res.members:
             f = row.get("feel") or {}
             counts = "、".join(f"{k} {v}" for k, v in (f.get("counts") or {}).items()) or "-"
             habits = "；".join(f.get("habits") or []) or "-"
             grown = "、".join(f.get("grown") or []) or "-"
-            lines.append(
-                f"| {row['name']} | {counts} | {f.get('last') or '-'} | {grown} | {habits} |"
-            )
+            said = f"{f.get('said', 0)}（{f.get('mixed', 0)}）"
+            cells = [row["name"], counts, said, f.get("last") or "-", grown, habits]
+            lines.append("| " + " | ".join(cells) + " |")
     if any(row.get("heart") for row in res.members):
         lines += ["", "## 爱与人味（期末）", ""]
         head = ["成员", "依恋 / 表达", "小毛病", "熟悉的领域", "感情最深的（在乎·心动·哪种）"]
