@@ -108,7 +108,10 @@ class Pace:
             return 0.0  # 刚来回聊过：秒回
         start = first or at
         rng = random.Random(f"pace:{member}:{room}:{start.isoformat()}")
-        wait = min(rng.uniform(min(span), max(span)), r.busy_cap)
+        from roundtable.core.member.phase import Phase  # 生活阶段：忙季、赶东西时回得更慢
+
+        stretch = 1.0 + Phase(self.rt).busy(member, at)
+        wait = min(rng.uniform(min(span), max(span)) * stretch, r.busy_cap)
         return max(0.0, wait - (at - start).total_seconds())
 
     # --- 打字 ------------------------------------------------------------------------

@@ -2260,6 +2260,43 @@ class PhrasebookRules(_Strict):
     first_line: str = ""
 
 
+class PhaseKind(_Strict):
+    """一种生活阶段：持续几天、怎么影响精力 / 心情 / 回话快慢，念头池里放什么（只写事实和分寸）。"""
+
+    name: str = Field(min_length=1, max_length=20)
+    label: str = Field(min_length=1, max_length=20)
+    days: list[int] = Field(min_length=2, max_length=2)
+    weight: float = Field(default=1.0, ge=0, le=10)
+    energy: float = Field(default=0.0, ge=-0.6, le=0.6)
+    mood: float = Field(default=0.0, ge=-0.6, le=0.6)
+    busy: float = Field(default=0.0, ge=0, le=3)  # 私聊在忙时多等的比例
+    start: str = ""  # 开始那天的新鲜事（{thing} 换成她迷上的东西）
+    note: str = ""  # 过程中
+    end: str = ""  # 刚结束
+
+    @field_validator("days")
+    @classmethod
+    def _days(cls, v: list[int]) -> list[int]:
+        if min(v) < 1 or max(v) > 30:
+            raise ValueError("days 要在 1～30 天之间")
+        return v
+
+
+class PhaseRules(_Strict):
+    """生活阶段与小意外（2026-10-31 拟人插件调研第 7 项）：忙季、小感冒、迷上一样东西、收拾屋子……
+    持续几天到两周，影响精力、心情、回话快慢，念头池里有可说的事。8 位同一张表，全程序。"""
+
+    enabled: bool = True
+    chance_per_day: float = Field(default=0.08, ge=0, le=1)
+    cooldown_days: float = Field(default=5, ge=0, le=60)
+    max_concurrent: int = Field(default=2, ge=1, le=8)
+    start_strength: float = Field(default=0.7, ge=0, le=2)
+    during_strength: float = Field(default=0.35, ge=0, le=2)
+    end_strength: float = Field(default=0.5, ge=0, le=2)
+    things: list[str] = Field(default_factory=list, max_length=40)
+    kinds: list[PhaseKind] = Field(default_factory=list, max_length=30)
+
+
 class FloorRules(_Strict):
     """群聊分寸（2026-10-31 拟人插件调研第 6 项）：在场 / 离场、每天的话量份额、嘴累、别淹没用户。
     只看性格分和今天说了多少，8 位同一套；全程序。"""
@@ -2519,6 +2556,7 @@ class EngineRules(_Strict):
     phrasebook: PhrasebookRules = PhrasebookRules()
     stash: StashRules = StashRules()
     floor: FloorRules = FloorRules()
+    phase: PhaseRules = PhaseRules()
     reach: ReachRules = ReachRules()
     feel: FeelRules = FeelRules()
 

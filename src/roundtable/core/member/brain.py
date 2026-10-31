@@ -683,6 +683,10 @@ class Brain:
                 since = datetime.fromisoformat(n["at"])
                 strength = psyche.decayed(strength, since, at, days * 24)
             out.append(Thought("goal", n["text"], round(strength, 3)))
+        from roundtable.core.member.phase import Phase  # 生活阶段：这阵子在忙 / 感冒 / 迷上……
+
+        for text, strength in Phase(self.rt).thoughts(member, at):
+            out.append(Thought("goal", text, round(strength, 3)))
         linger = self._lingering(member, s, at)
         if linger:
             e, left, _ = linger
