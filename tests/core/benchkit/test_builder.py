@@ -773,3 +773,175 @@ async def test_research_off_or_no_researcher_skips_it(tmp_path):
     await b.wait()
     assert b.build["research"] is None
     assert "bench_research" not in [c["role"] for c in sc.calls]
+
+
+# --- 项目室：访谈 → 方案书签字 → 里程碑演示 → 变更单 → 交付验收 → 下一版提案 ------------------
+
+PROJECT_PLAN = PLAN | {
+    "hero": "Map View",
+    "requirements": [
+        {"text": "能换目的地", "check": "改目的地后行程变", "windows": ["plan"]},
+        {"text": "婚礼场景有宾客", "check": "选婚礼出现宾客"},
+    ],
+}
+
+
+class ProjectSC(FakeSC):
+    def __init__(self, **kw):
+        super().__init__(plan=PROJECT_PLAN, **kw)
+
+    async def step(self, kind, prompt, **kw):
+        p = json.loads(prompt)
+        if p["role"] == "bench_interview":
+            self.calls.append({"role": p["role"], "who": "a"})
+            out = {
+                "questions": [
+                    {"q": "给谁用？", "why": "定界面", "options": ["自己", "家人"]},
+                    {"q": "对标哪个产品？"},
+                    {"q": ""},
+                ]
+            }
+            return W("a"), RunResult(0, json.dumps(out, ensure_ascii=False))
+        if p["role"] == "bench_evolve":
+            self.calls.append({"role": p["role"], "who": "a", "feedback": p["feedback"]})
+            out = {"items": [{"title": "加离线地图", "why": "出国没网", "basis": "c1"}]}
+            return W("a"), RunResult(0, json.dumps(out, ensure_ascii=False))
+        if p["role"] == "bench_review":
+            chosen, result = await super().step(kind, prompt, **kw)
+            out = json.loads(result.output)
+            ids = [line[2:].split("（")[0].split(" ")[0] for line in p["requirements"].splitlines()]
+            out["checks"] = [{"id": i, "met": True, "why": ""} for i in ids if i]
+            return chosen, RunResult(0, json.dumps(out, ensure_ascii=False))
+        return await super().step(kind, prompt, **kw)
+
+
+def project(tmp_path, sc, **proj):
+    return BenchBuilder(
+        BenchRules(project={"enabled": True, **proj}),
+        root=tmp_path,
+        supercomputer=sc,
+        render=render,
+        check=fake_check(),
+        seed=7,
+    )
+
+
+async def test_project_room_full_flow(tmp_path):
+    sc = ProjectSC()
+    b = project(tmp_path, sc)
+    b.submit("帮我做一个旅行台")
+    await b.wait()
+    build = b.build
+    assert build["status"] == "waiting" and build["gate"]["kind"] == "interview"
+    assert [q["id"] for q in build["interview"]["questions"]] == ["q1", "q2"]
+    assert not b.busy
+
+    with pytest.raises(ValueError):
+        b.sign(build["id"])  # 还没到签字这一关
+
+    b.answer(build["id"], {"q1": "自己和家人", "q2": ""})
+    await b.wait()
+    assert build["gate"]["kind"] == "sign"
+    plan_prompt = next(json.loads(p) for p in sc.prompts if json.loads(p)["role"] == "bench_plan")
+    assert "访谈时补充的情况" in plan_prompt["request"] and "自己和家人" in plan_prompt["request"]
+    prop = build["proposal"]
+    assert [m["windows"] for m in prop["milestones"]] == [["map-view"], ["plan", "budget"]]
+    assert [r["text"] for r in prop["requirements"]] == ["能换目的地", "婚礼场景有宾客"]
+    assert (tmp_path / build["id"] / "方案书.md").is_file()
+    assert all(w["status"] == "waiting" for w in build["windows"])  # 签字前一个窗口都不写
+
+    b.sign(
+        build["id"],
+        [{"id": "r1", "text": "能换目的地和日期"}, {"id": "", "text": "生日场景有惊喜"}],
+        note="主要给爸妈用",
+    )
+    await b.wait()
+    spec = json.loads((tmp_path / build["id"] / "spec.json").read_text(encoding="utf-8"))
+    assert [(r["id"], r["text"]) for r in spec["requirements"]] == [
+        ("r1", "能换目的地和日期"),
+        ("r2", "生日场景有惊喜"),
+    ]
+    assert spec["requirements"][0]["check"] == "改目的地后行程变"  # 改了字，检查方法保留
+    assert build["gate"]["kind"] == "m1"
+    status = {w["id"]: w["status"] for w in build["windows"]}
+    assert status == {"map-view": "done", "plan": "waiting", "budget": "waiting"}
+    assert len(build["milestones"][0]["demos"]) == 1
+
+    with pytest.raises(ValueError):
+        b.review(build["id"], "change", [{"text": "  "}])
+    b.review(build["id"], "change", [{"text": "地图再大一点", "window": "map-view"}])
+    await b.wait()
+    assert build["gate"]["kind"] == "m1"
+    c1 = build["changes"][0]
+    assert c1["id"] == "c1" and c1["status"] == "done" and c1["window"] == "map-view"
+    rework = next(json.loads(p) for p in sc.prompts if json.loads(p)["role"] == "bench_rework")
+    assert "地图再大一点" in rework["problems"] and rework["file"] == "windows/map-view.js"
+    assert len(build["milestones"][0]["demos"]) == 2
+
+    b.review(build["id"], "pass")
+    await b.wait()
+    assert build["gate"]["kind"] == "accept" and build["status"] == "waiting"
+    assert all(w["status"] == "done" for w in build["windows"])
+    assert build["rounds"] and build["rounds"][-1]["passed"]
+
+    b.review(build["id"], "change", [{"text": "整体配色太暗"}])
+    await b.wait()
+    assert build["gate"]["kind"] == "accept"
+    assert build["changes"][1]["status"] == "done" and len(build["rounds"]) == 2
+    b.review(build["id"], "pass")
+    assert build["status"] == "delivered" and build["gate"] is None
+
+    await b.evolve(build["id"])
+    await b.wait()
+    assert build["status"] == "delivered"
+    assert build["evolve"]["items"][0]["title"] == "加离线地图"
+    fb = next(c for c in sc.calls if c["role"] == "bench_evolve")["feedback"]
+    assert "地图再大一点" in fb and "整体配色太暗" in fb
+    stages = [(t["stage"], t["title"]) for t in build["timeline"]]
+    assert stages[0] == ("立项", "需求访谈") and ("交付", "你验收通过") in stages
+    assert stages[-1] == ("革新", "下一版提案")
+    # 重启圆桌后从磁盘读回来也一样
+    again = json.loads((tmp_path / build["id"] / "build.json").read_text(encoding="utf-8"))
+    assert again["status"] == "delivered" and again["evolve"]["items"]
+
+
+async def test_project_auto_passes_milestone_and_can_end_at_a_gate(tmp_path):
+    from datetime import UTC, datetime, timedelta
+
+    clock = [datetime(2026, 10, 31, tzinfo=UTC)]
+    sc = ProjectSC()
+    b = BenchBuilder(
+        BenchRules(project={"enabled": True, "interview": False, "gate_auto_hours": 2}),
+        root=tmp_path,
+        supercomputer=sc,
+        render=render,
+        check=fake_check(),
+        now=lambda: clock[0],
+        seed=7,
+    )
+    b.submit("旅行台")
+    await b.wait()
+    build = b.build
+    assert build["gate"]["kind"] == "sign" and build["gate"]["auto_at"] is None  # 签字永远等你
+    b.sign(build["id"])
+    await b.wait()
+    assert build["gate"]["kind"] == "m1"
+    b.status()
+    assert build["gate"]["kind"] == "m1"  # 还没到点
+    clock[0] += timedelta(hours=3)
+    b.status()
+    await b.wait()
+    assert build["gate"]["kind"] == "accept"
+    assert any("到点没回" in t["title"] for t in build["timeline"])
+
+    await b.cancel()
+    assert build["status"] == "cancelled" and build["gate"] is None
+
+
+async def test_project_disabled_keeps_old_one_shot_flow(tmp_path):
+    sc = ProjectSC()
+    b = make(tmp_path, sc)
+    b.submit("旅行台")
+    await b.wait()
+    assert b.build["status"] == "done" and b.build["gate"] is None
+    assert "bench_interview" not in [c["role"] for c in sc.calls]

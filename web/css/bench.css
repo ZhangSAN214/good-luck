@@ -82,3 +82,25 @@
 .bg-cards{margin:6px 0;padding-left:18px;font-size:13px;line-height:1.6}
 .bg-cards ul{margin:2px 0;padding-left:16px;opacity:.9}
 .bg-net .bg-reqs li.bg-miss{opacity:.95}
+/* 项目室：阶段条、关口、变更单、时间线 */
+.bg-project{margin:10px 0;padding:10px 12px;border:1px solid var(--line, rgba(127,127,127,.25));border-radius:12px}
+.bg-stages{list-style:none;display:flex;gap:6px;margin:0 0 8px;padding:0;flex-wrap:wrap}
+.bg-stages li{padding:3px 12px;border-radius:999px;font-size:13px;opacity:.55;border:1px solid currentColor}
+.bg-stages li.past{opacity:.8}
+.bg-stages li.now{opacity:1;font-weight:700}
+.bg-gate h4{margin:12px 0 4px;font-size:13px}
+.bg-gate-title{margin:4px 0 8px}
+.bg-qs{margin:6px 0;padding-left:20px;display:grid;gap:10px}
+.bg-qs label{display:grid;gap:4px}
+.bg-qs textarea,.bg-note textarea{width:100%;box-sizing:border-box;font:inherit}
+.bg-opts{display:flex;flex-wrap:wrap;gap:4px}
+.bg-opts .chip{font-size:12px;padding:2px 10px;border-radius:999px;border:1px solid currentColor;background:none;color:inherit;cursor:pointer;min-height:28px}
+.bg-sign-reqs li{display:flex;gap:6px;align-items:center;padding-left:0}
+.bg-sign-reqs input{flex:1;min-width:0;font:inherit}
+.bg-note{display:grid;gap:4px;margin:8px 0;font-size:13px}
+.bg-demos{display:flex;gap:10px;flex-wrap:wrap}
+.bg-demo{margin:0;flex:1 1 240px}
+.bg-demo img{width:100%;border-radius:8px;display:block}
+.bg-demo figcaption{font-size:12px;opacity:.7;margin-bottom:4px}
+.bg-changes .bg-ch-failed{opacity:.8}
+.bg-evolve{margin:8px 0}

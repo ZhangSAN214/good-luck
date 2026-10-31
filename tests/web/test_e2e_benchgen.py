@@ -15,6 +15,7 @@ import roundtable.core.service as service_mod
 from roundtable.core.benchkit.builder import BenchBuilder
 from roundtable.core.benchkit.quality import Report
 from roundtable.core.benchkit.scout import Candidate
+from roundtable.core.config.schema import BenchProject
 from roundtable.core.supercomputer.runner import RunResult
 
 from ..core.benchkit.test_builder import FakeResearcher, ResearchSC, W
@@ -96,7 +97,12 @@ def check(target, out_dir=None, **kw):
 def test_benchgen_flow(serve, page, monkeypatch, tmp_path):
     def factory(rules, *, root, **kw):
         return BenchBuilder(
-            rules.model_copy(update={"baseline": ["主视觉占大半屏", "不自己画插图"]}),
+            rules.model_copy(
+                update={
+                    "baseline": ["主视觉占大半屏", "不自己画插图"],
+                    "project": BenchProject(enabled=False),  # 这一条测一口气做完的老流程
+                }
+            ),
             root=tmp_path / "bench",
             supercomputer=SlowSC(),
             render=fake_render,
@@ -164,3 +170,65 @@ def test_benchgen_flow(serve, page, monkeypatch, tmp_path):
     if shots := os.environ.get("ROUNDTABLE_SHOTS"):  # 版本说明用的截图
         page.set_viewport_size({"width": 1280, "height": 2600})
         page.screenshot(path=str(Path(shots) / "benchgen.png"))
+
+
+def test_benchgen_project_room(serve, page, monkeypatch, tmp_path):
+    """项目室：回答访谈 → 改验收清单签字 → 里程碑演示提意见 → 通过 → 交付验收 → 下一版提案。"""
+    from ..core.benchkit.test_builder import ProjectSC
+
+    def factory(rules, *, root, **kw):
+        return BenchBuilder(
+            rules.model_copy(update={"baseline": [], "project": BenchProject(enabled=True)}),
+            root=tmp_path / "bench",
+            supercomputer=ProjectSC(),
+            render=fake_render,
+            check=check,
+            seed=3,
+        )
+
+    monkeypatch.setattr(service_mod, "BenchBuilder", factory)
+    srv = serve(confirm_threshold_usd=100.0)
+    page.goto(srv.url)
+    page.locator('#entries [data-m="bench"]').click()
+    pane = page.locator('#bench [data-pane="gen"]')
+    pane.locator("[data-text]").fill("帮我做一个旅行台")
+    pane.locator("[data-submit]").click()
+
+    gate = pane.locator(".bg-gate")
+    gate.locator("textarea[data-q]").first.wait_for(timeout=15000)
+    assert pane.locator(".bg-stages li.now").text_content() == "立项"
+    gate.locator("[data-opt]").first.click()  # 点选项填进回答
+    assert gate.locator("textarea[data-q]").first.input_value() == "自己"
+    gate.locator("[data-answer]").click()
+
+    gate.locator("[data-sign]").wait_for(timeout=15000)
+    assert gate.locator("li[data-req]").count() == 2
+    gate.locator("li[data-req]").nth(1).locator("[data-delreq]").click()
+    gate.locator("[data-addreq]").click()
+    gate.locator("li[data-req]").nth(1).locator("input").fill("生日有惊喜")
+    gate.locator("[data-note]").fill("给爸妈用")
+    gate.locator("[data-sign]").click()
+
+    gate.locator("[data-pass]").wait_for(timeout=15000)
+    assert pane.locator(".bg-stages li.now").text_content() == "执行"
+    assert gate.locator(".bg-demo img").count() >= 1
+    gate.locator("[data-comments]").fill("地图再大一点")
+    gate.locator("[data-cwin]").select_option("map-view")
+    gate.locator("[data-change]").click()
+    pane.locator(".bg-changes li", has_text="改好了").wait_for(timeout=15000)
+    gate.locator("[data-pass]").wait_for(timeout=15000)
+    assert gate.locator(".bg-demo figcaption", has_text="改之后").count() == 1
+    gate.locator("[data-pass]").click()
+
+    pane.locator(".bg-gate [data-pass]", has_text="验收通过").wait_for(timeout=15000)
+    assert pane.locator(".bg-stages li.now").text_content() == "交付"
+    pane.locator(".bg-gate [data-pass]").click()
+    pane.locator("[data-evolve]").click()
+    pane.locator(".bg-evolve li", has_text="加离线地图").wait_for(timeout=15000)
+    pane.locator("[data-nextver]").click()
+    assert "加离线地图" in pane.locator("[data-text]").input_value()
+    pane.locator(".bg-timeline").evaluate("el => el.closest('details').open = true")
+    assert "你签字开工" in pane.locator(".bg-timeline").text_content()
+    if shots := os.environ.get("ROUNDTABLE_SHOTS"):
+        page.set_viewport_size({"width": 1280, "height": 2200})
+        page.screenshot(path=str(Path(shots) / "benchgen_project.png"))

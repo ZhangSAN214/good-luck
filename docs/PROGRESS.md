@@ -324,7 +324,8 @@
 
 - 用户 10-30 晚重新说明：任意类型平台（Live2D、类 PS 修图、模拟炒股 / 麻将 / 跑团 / 剧本杀……）、甲方乙方项目制全流程、企业级标准、三位助手协作、每次至少 10 个 GitHub 资料加论文资讯；生成器、超级电脑、dsh 一体化；GitHub 直接使用能力（自己找、自己学）。第一批验收不定类型，用户随机出题，所以底座做通用的。
 - 方案（云端约 90～115 小时）：A1 联网自检 → H 项目室 + I 调研员 → J 三位协作 + dsh 一体化 → B2/B3/C/D 质量 → K 通用底座 → L 用户随机出题验收 → M 办公室交接。
-- 第 1 块 联网自检 + 调研员（预估 5～7 小时，实际约 1.5 小时）：`core/benchkit/research.py`、`netcheck.py`，提示词 `bench_research` v1、`bench_learn` v1，配置 `bench.research`、`bench.net[].probe`，控制室显示调研报告和联网自检。见 `docs/KIT.md`「调研员与联网自检」。只用假助手测试。
+- 第 1 块 联网自检 + 调研员（预估 5～7 小时，实际约 1.5 小时）：`core/benchkit/research.py`、`netcheck.py`，提示词 `bench_research` v1、`bench_learn` v1，配置 `bench.research`、`bench.net[].probe`，控制室显示调研报告和联网自检。见 `docs/KIT.md`「调研员与联网自检」。只用假助手测试。PR #119。
+- 第 2 块 项目室（预估 14～18 小时，实际约 2.5 小时）：访谈、方案书签字、里程碑演示与变更单、交付验收、下一版提案、时间线；配置 `bench.project`，提示词 `bench_interview` v1、`bench_evolve` v1，接口 `answer` / `sign` / `review` / `evolve`。见 `docs/KIT.md`「项目室：甲方乙方全流程」。只用假助手测试。
 
 ## 下一步
 

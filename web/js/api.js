@@ -296,6 +296,12 @@ export const benchGet = (id) => api(`/api/bench/${encodeURIComponent(id)}`);
 export const benchAsk = (id, question, json = false) =>
   api(`/api/bench/${encodeURIComponent(id)}/ask`, { method: 'POST', body: { question, as_json: json } });
 export const benchNetCheck = () => api('/api/bench/net-check');
+// 项目室的关口：回答访谈、签字开工、里程碑 / 交付通过或提变更单、出下一版提案
+const benchPost = (id, what, body) => api(`/api/bench/${encodeURIComponent(id)}/${what}`, { method: 'POST', body });
+export const benchAnswer = (id, answers) => benchPost(id, 'answer', { answers });
+export const benchSign = (id, requirements, note) => benchPost(id, 'sign', { requirements, note });
+export const benchReview = (id, decision, comments = []) => benchPost(id, 'review', { decision, comments });
+export const benchEvolve = (id) => benchPost(id, 'evolve', {});
 export const superStatus = () => api('/api/super');
 export const superSubmit = (text) => api('/api/super/tasks', { method: 'POST', body: { text } });
 export const superCancel = () => api('/api/super/cancel', { method: 'POST' });
