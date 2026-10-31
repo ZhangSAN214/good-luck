@@ -104,3 +104,24 @@
 .bg-demo figcaption{font-size:12px;opacity:.7;margin-bottom:4px}
 .bg-changes .bg-ch-failed{opacity:.8}
 .bg-evolve{margin:8px 0}
+/* 团队：方案会 + 协作看板 + 对抗手 */
+.bg-team{margin:10px 0}
+.bg-team h4{margin:10px 0 4px;font-size:13px}
+.bg-pitches{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px}
+.bg-pitch{padding:8px 10px;border:1px solid var(--line, rgba(127,127,127,.25));border-radius:10px;font-size:13px;line-height:1.55}
+.bg-pitch p{margin:2px 0}
+.bg-pitch ul{margin:4px 0;padding-left:18px}
+.bg-pitch.bg-lead{border-color:var(--ok,#7fc79a);border-width:2px}
+.bg-badge{display:inline-block;padding:0 8px;border-radius:999px;font-size:12px;background:var(--ok,#7fc79a);color:#0b1a12;font-weight:700}
+.bg-votes{font-size:13px}
+.bg-board{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:8px}
+.bg-col{padding:8px 10px;border:1px solid var(--line, rgba(127,127,127,.25));border-radius:10px;font-size:13px;min-width:0}
+.bg-col p{margin:2px 0}
+.bg-col .bg-list{padding-left:0;list-style:none;margin:4px 0}
+.bg-col .bg-list li{overflow-wrap:anywhere}
+.bg-roles{display:flex;flex-wrap:wrap;gap:4px}
+.bg-roles .chip{font-size:12px;padding:0 8px;border-radius:999px;border:1px solid currentColor;opacity:.8}
+.bg-attack{margin:8px 0;font-size:13px}
+.bg-bug-high b{color:var(--warn)}
+.bg-plugins li{display:flex;flex-wrap:wrap;gap:4px 8px;align-items:center}
+.bg-ok{color:var(--ok,#7fc79a);font-size:12px}

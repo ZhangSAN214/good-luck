@@ -15,7 +15,7 @@ import roundtable.core.service as service_mod
 from roundtable.core.benchkit.builder import BenchBuilder
 from roundtable.core.benchkit.quality import Report
 from roundtable.core.benchkit.scout import Candidate
-from roundtable.core.config.schema import BenchProject
+from roundtable.core.config.schema import BenchProject, BenchTeam
 from roundtable.core.supercomputer.runner import RunResult
 
 from ..core.benchkit.test_builder import FakeResearcher, ResearchSC, W
@@ -101,6 +101,7 @@ def test_benchgen_flow(serve, page, monkeypatch, tmp_path):
                 update={
                     "baseline": ["主视觉占大半屏", "不自己画插图"],
                     "project": BenchProject(enabled=False),  # 这一条测一口气做完的老流程
+                    "team": BenchTeam(enabled=False),
                 }
             ),
             root=tmp_path / "bench",
@@ -132,7 +133,8 @@ def test_benchgen_flow(serve, page, monkeypatch, tmp_path):
 
     assert pane.locator(".bg-title").text_content() == "旅行台"
     assert pane.locator(".bg-steps li.past").count() == 6  # 一轮就过线：返工那格跳过
-    assert pane.locator(".bg-steps li.skip").text_content() == "返工（跳过）"
+    skipped = pane.locator(".bg-steps li.skip").all_text_contents()
+    assert skipped == ["方案会（跳过）", "返工（跳过）"]
     assert pane.locator(".sc-subs tr", has_text="写好了").count() == 3
     research = pane.locator(".bg-research")
     head = research.locator("summary").text_content()
@@ -178,7 +180,13 @@ def test_benchgen_project_room(serve, page, monkeypatch, tmp_path):
 
     def factory(rules, *, root, **kw):
         return BenchBuilder(
-            rules.model_copy(update={"baseline": [], "project": BenchProject(enabled=True)}),
+            rules.model_copy(
+                update={
+                    "baseline": [],
+                    "project": BenchProject(enabled=True),
+                    "team": BenchTeam(enabled=False),
+                }
+            ),
             root=tmp_path / "bench",
             supercomputer=ProjectSC(),
             render=fake_render,
@@ -232,3 +240,66 @@ def test_benchgen_project_room(serve, page, monkeypatch, tmp_path):
     if shots := os.environ.get("ROUNDTABLE_SHOTS"):
         page.set_viewport_size({"width": 1280, "height": 2200})
         page.screenshot(path=str(Path(shots) / "benchgen_project.png"))
+
+
+def test_benchgen_team_meeting_board_attack_and_plugin_request(serve, page, monkeypatch, tmp_path):
+    """三位助手协作：方案会（主案）、协作看板、对抗手的严重问题挡住第 1 轮、申请给 dsh 装插件。"""
+    from ..core.benchkit.test_builder import LearnScout
+    from ..core.benchkit.test_team import PluginResearcher, TeamSC
+
+    class TeamResearchSC(TeamSC, ResearchSC):
+        pass
+
+    bugs = {1: [{"window": "plan", "severity": "high", "problem": "空行程点保存会卡死"}]}
+
+    def factory(rules, *, root, **kw):
+        return BenchBuilder(
+            rules.model_copy(
+                update={
+                    "baseline": [],
+                    "project": BenchProject(enabled=False),
+                    "team": BenchTeam(enabled=True),
+                }
+            ),
+            root=tmp_path / "bench",
+            supercomputer=TeamResearchSC(
+                votes={"a": "c", "b": "c", "c": "a"}, bugs=lambda n: bugs.get(n, [])
+            ),
+            render=fake_render,
+            check=check,
+            scout=LearnScout(),
+            researcher=PluginResearcher(),
+            seed=3,
+        )
+
+    monkeypatch.setattr(service_mod, "BenchBuilder", factory)
+    srv = serve(confirm_threshold_usd=100.0)
+    page.goto(srv.url)
+    page.locator('#entries [data-m="bench"]').click()
+    pane = page.locator('#bench [data-pane="gen"]')
+    pane.locator("[data-text]").fill("做一个修图台")
+    pane.locator("[data-submit]").click()
+    pane.locator(".bg-status.bg-done").wait_for(timeout=15000)
+
+    team = pane.locator(".bg-team")
+    assert "3 位助手协作" in team.locator("summary").text_content()
+    assert team.locator(".bg-pitch").count() == 3
+    lead = team.locator(".bg-pitch.bg-lead")
+    assert lead.count() == 1 and "2 票" in lead.text_content() and "c 的思路" in lead.text_content()
+    assert team.locator(".bg-votes li").count() == 3
+    assert team.locator(".bg-col").count() == 3
+    roles = team.locator(".bg-board").text_content()
+    assert "主案候选" in roles and "实施" in roles and "对抗" in roles
+    first = pane.locator(".bg-round").first
+    first.evaluate("el => el.open = true")
+    assert "没过线" in first.locator("summary").text_content()
+    assert "空行程点保存会卡死" in first.locator(".bg-attack").text_content()
+    assert first.locator(".bg-bug-high").count() == 1
+
+    plugins = pane.locator(".bg-plugins")
+    plugins.locator("[data-plugin]").first.click()
+    plugins.locator("li", has_text="已申请").wait_for(timeout=10000)
+    assert "dsh 插件" in pane.locator(".bg-cards").text_content()  # 插件也写了学习卡
+    if shots := os.environ.get("ROUNDTABLE_SHOTS"):
+        page.set_viewport_size({"width": 1280, "height": 2600})
+        team.screenshot(path=str(Path(shots) / "benchgen_team.png"))

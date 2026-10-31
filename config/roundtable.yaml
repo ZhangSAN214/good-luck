@@ -782,6 +782,9 @@ prompts:
   bench_research: v1     # 工作台生成器：开工前调研，给英文搜索词并联网查资讯、视频、发布会
   bench_interview: v1    # 工作台生成器·项目室：开工前问用户几个关键问题
   bench_evolve: v1       # 工作台生成器·项目室：交付后按用户意见和新资料出下一版提案
+  bench_pitch: v1        # 工作台生成器·方案会：每位助手各提一份做法
+  bench_vote: v1         # 工作台生成器·方案会：看别人的方案投一票（不投自己），写要借的点
+  bench_attack: v1       # 工作台生成器·对抗手：专门找成品的毛病（边界、报错、坏输入、手机）
   bench_learn: v1        # 工作台生成器：读一个高分开源项目的源码（只读），写学习卡
   bench_ask_json: v1     # 工作台生成器：成品按用户自己的输入现场生成结构化内容（真实地点、参考价标日期来源、守用户条件）
   sticker_draw: v1       # 成员专属表情包：画一张 Q 版贴纸的提示词
@@ -1620,6 +1623,7 @@ bench:
     papers: 6
     news: 8
     learn: 3
+    learn_plugins: 1   # 另给 dsh 插件集市里最对口的 1 个插件写学习卡
   # 项目室（2026-10-30 用户批）：你是甲方，助手是乙方。访谈 → 调研 → 方案书（你签字）→ 里程碑演示（通过或提变更单）
   # → 交付验收 → 下一版提案。停在关口等你时不花次数。立项签字和交付验收永远等你；里程碑可以设几小时不回算通过
   project:
@@ -1627,6 +1631,16 @@ bench:
     interview: true
     max_questions: 6
     gate_auto_hours: 0
+  # 三位助手协作（2026-10-30 用户批）：方案会各提方案、互投（不投自己），得票最多的当主案；
+  # 每轮评审后派一位对抗手专门找毛病（尽量不是作者），严重问题不修完不算过线
+  team:
+    enabled: true
+    pitches: 3
+    vote: true
+    pitch_kind: split
+    attack: true
+    attack_kind: review
+    block_high: true
 
 # 日历底座（docs/CALENDAR.md）：只算「今天是什么日子」，每天发事件给成员系统（怎么过节由生活引擎决定）。
 # 全部离线计算：法定假日用开源库 holidays，农历和节气查预先算好的表；不调模型、不联网、不花钱。
