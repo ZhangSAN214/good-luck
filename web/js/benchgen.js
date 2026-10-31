@@ -280,7 +280,7 @@ export class BenchGenPanel {
       ${b.timeline ? this.projectHtml(b) : ''}
       <ol class="bg-steps" aria-label="进度">${steps}</ol>
       ${this.teamHtml(b)}
-      ${b.status === 'needs_you' ? '<p class="sc-warn">做满了还没过线：下面有每轮的分数、截图和评审意见，成品也能先打开看看。要不要换个说法再生成一次，由你决定。</p>' : ''}
+      ${this.stuckHtml(b)}
       ${finished || draft ? `<div class="sc-row"><button type="button" class="btn ${finished ? 'primary' : ''}" data-preview="${esc(b.id)}">${openLabel}</button>
         <a class="link" href="/bench/${encodeURIComponent(b.id)}/index.html" target="_blank" rel="noopener">在新窗口打开</a></div>` : ''}
       ${wins ? `<table class="sc-subs"><thead><tr><th>窗口</th><th>谁写的</th><th>状态</th></tr></thead><tbody>${wins}</tbody></table>` : ''}
@@ -365,6 +365,40 @@ export class BenchGenPanel {
     </details>`;
   }
 
+  /** 做满轮数没过线：哪几条没做到、卡在哪、建议；不在项目室时你选再跑一轮 / 改要求 / 就这样。 */
+  stuckHtml(b) {
+    const k = b.stuck;
+    if (!k) return '';
+    const missing = (k.missing || [])
+      .map((m) => `<li class="bg-miss"><b>${esc(m.id)}</b> ${esc(m.text)}<span class="sc-sub">${m.missed > 1 ? `连续 ${esc(m.missed)} 轮没做到` : '这轮没做到'}${(m.why || []).length ? `：${esc(m.why.join('；'))}` : ''}</span></li>`)
+      .join('');
+    const advice = (k.advice || []).map((a) => `<li>${esc(a)}</li>`).join('');
+    const choose = b.status === 'needs_you';
+    let form = '';
+    if (choose) {
+      const last = (b.rounds || []).slice(-1)[0] || {};
+      const reqs = (last.requirements || [])
+        .map((r) =>
+          String(r.id).startsWith('b')
+            ? `<li class="bg-req-base"><b>${esc(r.id)}</b> <span class="bg-src">底线</span> ${esc(r.text)}</li>`
+            : `<li data-req="${esc(r.id)}"><b>${esc(r.id)}</b> <input type="text" value="${esc(r.text)}" aria-label="要求 ${esc(r.id)}" maxlength="300"><button type="button" class="link" data-delreq aria-label="删掉 ${esc(r.id)}">删掉</button></li>`,
+        )
+        .join('');
+      form = `<details class="bg-edit"><summary>改要求</summary><ul class="bg-reqs bg-sign-reqs">${reqs}</ul>
+        <button type="button" class="link" data-addreq>加一条要求</button>
+        <div class="sc-row"><button type="button" class="btn" data-decide="edit">按改好的要求再跑一轮</button></div></details>
+        <div class="sc-row"><button type="button" class="btn primary" data-decide="more">再跑一轮</button><button type="button" class="btn" data-decide="accept">就这样，收下</button></div>`;
+    }
+    return `<div class="bg-stuck" ${choose ? 'data-form' : ''}>
+      <p><b>${choose ? '做满了还没过线，你来定' : '交付前没过线的地方'}</b>${(k.trend || []).length ? ` · 评审分 ${esc(k.trend.join(' → '))}` : ''}</p>
+      ${missing ? `<ul class="bg-reqs">${missing}</ul>` : ''}
+      ${(k.blocks || []).length ? `<p class="sc-sub">质检必须修：${esc(k.blocks.join('、'))}</p>` : ''}
+      ${(k.high || []).length ? `<p class="sc-sub">对抗手的严重问题：${esc(k.high.join('；'))}</p>` : ''}
+      ${advice ? `<h4>建议</h4><ul class="bg-list">${advice}</ul>` : ''}
+      ${form}
+    </div>`;
+  }
+
   winTitle(b, wid) {
     return ((b.windows || []).find((w) => w.id === wid) || {}).title || wid;
   }
@@ -404,6 +438,7 @@ export class BenchGenPanel {
         <button type="button" class="link" data-addreq>加一条要求</button>
         <h4>窗口</h4><ul class="bg-list">${wins}</ul>
         <h4>里程碑（每个都先演示给你看）</h4><ol class="bg-list">${ms}</ol>
+        ${(p.meeting || []).length ? `<h4>方案会：谁提了什么、为什么采纳</h4><ul class="bg-list">${p.meeting.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}
         ${tech ? `<h4>借鉴的项目</h4><ul class="bg-list">${tech}</ul>` : ''}
         ${plugins}
         <label class="bg-note">补充一句（可不填）<textarea data-note rows="2"></textarea></label>
@@ -564,6 +599,15 @@ export class BenchGenPanel {
       return this.act(() => this.api.review(b.id, 'change', comments));
     }
     if (t.closest('[data-evolve]')) return this.act(() => this.api.evolve(b.id));
+    const dec = t.closest('[data-decide]');
+    if (dec) {
+      const action = dec.dataset.decide;
+      const reqs =
+        action === 'edit'
+          ? [...form.querySelectorAll('li[data-req]')].map((li) => ({ id: li.dataset.req, text: li.querySelector('input').value }))
+          : undefined;
+      return this.act(() => this.api.decide(b.id, action, reqs));
+    }
     const plug = t.closest('[data-plugin]');
     if (plug) return this.act(() => this.api.plugin(b.id, plug.dataset.plugin));
     if (t.closest('[data-nextver]')) {

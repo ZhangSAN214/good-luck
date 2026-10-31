@@ -302,6 +302,7 @@ export const benchAnswer = (id, answers) => benchPost(id, 'answer', { answers })
 export const benchSign = (id, requirements, note) => benchPost(id, 'sign', { requirements, note });
 export const benchReview = (id, decision, comments = []) => benchPost(id, 'review', { decision, comments });
 export const benchEvolve = (id) => benchPost(id, 'evolve', {});
+export const benchDecide = (id, action, requirements) => benchPost(id, 'decide', { action, requirements });
 export const benchPlugin = (id, name) => benchPost(id, 'plugin', { name });
 export const superStatus = () => api('/api/super');
 export const superSubmit = (text) => api('/api/super/tasks', { method: 'POST', body: { text } });

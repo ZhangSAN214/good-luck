@@ -204,3 +204,30 @@ def test_dsh_whitelist_maps_reviewed_repos_to_ids():
         assert known["Aisland-SJL/dsh-worktable"] == "worktable"
     service.dsh = None
     assert service._dsh_whitelist() == {}
+
+
+def test_decide_when_stuck_over_http(tmp_path):
+    from ..core.benchkit.test_builder import CheckSC, plan_with_requirements
+
+    service = RoundtableService(Env().rt)
+    service.bench = BenchBuilder(
+        BenchRules(max_rounds=1),
+        root=tmp_path / "bench",
+        supercomputer=CheckSC(unmet={"r1"}, plan=plan_with_requirements()),
+        render=render,
+        check=fake_check(),
+        seed=1,
+    )
+    with TestClient(create_app(service)) as c:
+        c.post("/api/bench", json={"request": "旅行台"})
+        wait_done(c)
+        b = c.get("/api/bench").json()["current"]
+        assert b["status"] == "needs_you" and b["stuck"]["missing"]
+        assert c.post(f"/api/bench/{b['id']}/decide", json={"action": "x"}).status_code == 422
+        assert c.post(f"/api/bench/{b['id']}/decide", json={"action": "edit"}).status_code == 400
+        assert c.post("/api/bench/nope/decide", json={"action": "more"}).status_code == 404
+        c.post(f"/api/bench/{b['id']}/decide", json={"action": "more"})
+        wait_done(c)
+        assert len(c.get("/api/bench").json()["current"]["rounds"]) == 2
+        r = c.post(f"/api/bench/{b['id']}/decide", json={"action": "accept"})
+        assert r.json()["current"]["status"] == "done"

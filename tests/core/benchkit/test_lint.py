@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from roundtable.core.benchkit.lint import lint_windows
+from roundtable.core.benchkit.lint import lint_data, lint_windows
 
 
 def write(folder, wid, text):
@@ -71,3 +71,51 @@ def test_hand_drawn_svg_is_blocked(tmp_path):
     )
     found = {f.check: f for f in lint_windows(tmp_path, ["drawn", "few"])}
     assert found["自己画插图"].severity == "block" and found["自己画插图"].windows == ["drawn"]
+
+
+def data(folder, wid, obj):
+    import json
+
+    (folder / "data").mkdir(exist_ok=True)
+    text = obj if isinstance(obj, str) else json.dumps(obj, ensure_ascii=False)
+    (folder / "data" / f"{wid}.json").write_text(text, encoding="utf-8")
+
+
+def test_lint_data_catches_empty_address_placeholders_conflicts_and_missing_sources(tmp_path):
+    data(
+        tmp_path,
+        "hotels",
+        {
+            "items": [
+                {"name": "A 酒店", "address": "", "price": 800, "currency": "JPY"},
+                {"name": "B 酒店", "hotel_address": None, "price": 900, "currency": "CNY"},
+                {"name": "示例酒店", "地址": "银座 1-1", "price": 700, "currency": "cny"},
+            ]
+        },
+    )
+    data(tmp_path, "broken", "{不是 JSON")
+    data(
+        tmp_path,
+        "ok",
+        {
+            "source": "https://www.jnto.go.jp",
+            "date": "2026-10-01",
+            "items": [{"name": "浅草寺", "address": "东京都台东区浅草 2-3-1", "rating": 4.6}],
+        },
+    )
+    data(
+        tmp_path,
+        "per-item",
+        {"items": [{"name": "x", "price": 1, "source": "https://a", "date": "2026-10-01"}]},
+    )
+    found = lint_data(tmp_path, ["hotels", "broken", "ok", "per-item", "没有文件"], {"币种": "CNY"})
+    by = {(f.check, tuple(f.windows)): f for f in found}
+    assert by[("地址为空", ("hotels",))].severity == "block"
+    assert "2 处地址是空的" in by[("地址为空", ("hotels",))].detail
+    assert "示例酒店" in by[("占位数据", ("hotels",))].detail
+    conflict = by[("和共用信息矛盾", ("hotels",))]
+    assert "currency=JPY" in conflict.detail and "cny" not in conflict.detail  # 大小写不算矛盾
+    assert by[("数据没标来源和日期", ("hotels",))].severity == "warn"
+    assert "3 处" in by[("数据没标来源和日期", ("hotels",))].detail
+    assert by[("数据文件看不懂", ("broken",))].severity == "block"
+    assert not [f for f in found if set(f.windows) & {"ok", "per-item"}]

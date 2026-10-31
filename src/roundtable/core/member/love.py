@@ -376,6 +376,11 @@ class Heart:
         b[f"{kind}_at"] = iso(at)
         b[f"{kind}_why"] = why
         self._save(member, data)
+        from roundtable.core.member.feel import Feelings  # 各自的情感：委屈、感激、内疚也算经历
+
+        feel = Feelings(self.rt)
+        if feel.enabled() and kind in feel.rules.love:
+            feel.record(member, feel.rules.love[kind], why.replace("{name}", self.name(other)), at)
 
     def _joke(self, member: str, other: str, text: str) -> None:
         """一起笑过的那句话，成了两人之间的梗（最多记 3 个）。"""
