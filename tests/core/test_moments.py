@@ -231,8 +231,8 @@ async def test_post_gets_a_photo_by_chance_with_daily_caps(tmp_path, monkeypatch
     Image.new("RGB", (40, 30), "skyblue").save(buf, "JPEG")
     asked = []
 
-    async def photo(self, member, scene, post, shot):
-        asked.append((member, scene, post, shot))
+    async def photo(self, member, scene, post, shot, **kw):
+        asked.append((member, scene, post, shot, kw))
         if len(asked) > 2:
             raise StickerBudgetExceeded("快超了")
         return buf.getvalue(), "image/jpeg"
@@ -255,5 +255,21 @@ async def test_post_gets_a_photo_by_chance_with_daily_caps(tmp_path, monkeypatch
         assert item["kind"] == "image" and item["generated"]
         assert p["text"].endswith("\n[图片]") and p["meta"]["caption"] in p["text"]
         assert (tmp_path / "media").exists()
-    member, scene, post, shot = asked[0]
-    assert "天台" in scene and shot in photos.shots
+    member, scene, post, shot, kw = asked[0]
+    by_text = {s.text: s for s in photos.shots}
+    assert "天台" in scene and shot in by_text
+    # 她不入镜的拍法不传参考图；种子由事件和成员派生
+    assert kw["refs"] == (by_text[shot].her != "none") and kw["seed"].startswith("100:")
+
+
+def test_photo_shots_mostly_leave_her_out():
+    """真人发朋友圈多半拍东西和风景：默认拍法按权重抽，她不入镜的占多数（10-31 用户嫌 AI 感强）。"""
+    import random
+
+    from roundtable.core.config.schema import MomentPhotoRules
+
+    shots = MomentPhotoRules().shots
+    rng = random.Random(1)
+    picks = [rng.choices(shots, [s.weight for s in shots])[0].her for _ in range(2000)]
+    assert 0.5 < picks.count("none") / len(picks) < 0.7
+    assert picks.count("full") / len(picks) < 0.3

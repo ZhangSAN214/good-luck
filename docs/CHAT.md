@@ -89,6 +89,7 @@
 - 接口：`GET /api/moments`（`author` 只看某人，`before` 翻页，每页 20 条；看第一页全部时标为已读）、`POST /api/moments`（用户发，最多 500 字）、`POST /api/moments/{id}/like`（点赞 / 取消）、`POST /api/moments/{id}/comments`（`reply_to` 可选，必须是这条动态下的评论）、`DELETE /api/moments/{id}`、`DELETE /api/moments/comments/{id}`。`GET /api/chat/rooms` 多了 `moments_unseen`（成员的新动态条数）。
 - 网页：聊天左栏最上面「朋友圈」（新动态红点），弹窗里按人筛选、发动态、赞、评论、回复、删除；公寓楼住户卡片多了「朋友圈」按钮。
 - 配图（2026-10-31，#120）：发动态时按 `media.moment_photos.chance`（默认一半，按事件和成员派生种子）照成员形象画一张随手拍，每人每天 1 张、全员 3 张；转发卡片的动态不配图；画不出来照常发文字。
+- 配图去 AI 感（2026-10-31 用户反馈「作画 AI 感太强」）：`moment_photo/v2` 要求像手机随手拍——拍正文旁边的小细节而不是把正文演一遍，歪一点、切边、普通光线、杂乱背景；拍法 `media.moment_photos.shots` 按权重抽（默认约六成只拍东西 / 风景、两成只露手袖尾巴、一成被抓拍、一成歪角度自拍），她不入镜时不传形象参考图；画完在本机加一层手机味（`phone_look`：轻微裁歪、压饱和度、偏色、噪点、压缩，`phone_look: false` 可关），不花钱。
 - 提示词现为 `moment_post/v3`、`moment_comment/v3`（转发卡片、表情包）；发帖带「心里挂着的事」（`Brain.musing`）；说出口前过成员自查（`core/member/voice`）。
 - 现状与后续待办（长期线程「长期负责成员朋友圈」）：`/mnt/project-files/汇报/成员朋友圈_现状与待办_10-31.md`。
 

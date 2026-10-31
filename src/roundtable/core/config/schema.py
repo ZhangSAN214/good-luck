@@ -599,6 +599,15 @@ class StickerRules(_Strict):
     frame_ms: int = Field(default=280, ge=60, le=2000)  # 动图每格停多久（毫秒）
 
 
+class MomentShot(_Strict):
+    """朋友圈配图的一种拍法。her：none 她不入镜（不传形象参考图）/ part 只露手、袖子、
+    尾巴 / full 入镜。"""
+
+    text: str = Field(min_length=1)
+    weight: float = Field(default=1.0, gt=0)
+    her: Literal["none", "part", "full"] = "full"
+
+
 class MomentPhotoRules(_Strict):
     """朋友圈配图：成员发动态时，照她的形象卡和参考图画一张随手拍（不用审）。
     用表情包同一批绘图模型，花费也算在表情包的每月小上限和创作输出的月上限里。"""
@@ -608,16 +617,36 @@ class MomentPhotoRules(_Strict):
     per_member_day: int = Field(default=1, ge=0, le=5)  # 每位成员每天最多几张
     per_day: int = Field(default=3, ge=0, le=20)  # 所有成员加起来每天最多几张（控制花费）
     max_side: int = Field(default=1024, ge=256, le=2048)  # 存下来的长边（像素，JPEG）
-    # 拍法：每张随机抽一种（自拍、他拍、多机位，也可以只拍东西、风景）
-    shots: list[str] = Field(
+    # 拍法：每张按权重抽一种。真人发朋友圈多半拍东西和风景，很少拍自己（10-31 用户嫌配图 AI 感太强）
+    shots: list[MomentShot] = Field(
         default_factory=lambda: [
-            "a selfie she took herself, arm's length, she is looking at the camera",
-            "a photo a friend took of her, she is not posing much",
-            "a photo of the things or the view in front of her, she does not appear",
+            MomentShot(
+                text="only the thing or view in front of her (food, cup, desk, window, sky); "
+                "she does not appear",
+                weight=6,
+                her="none",
+            ),
+            MomentShot(
+                text="her point of view: only her hand, sleeve or tail at the edge of the frame "
+                "next to the thing she is looking at",
+                weight=2,
+                her="part",
+            ),
+            MomentShot(
+                text="a friend snapped her without warning from a few meters away or from behind; "
+                "she is small in the frame and doing her own thing",
+                weight=1,
+            ),
+            MomentShot(
+                text="a quick selfie at arm's length, awkward angle, "
+                "half her face cut off by the edge",
+                weight=1,
+            ),
         ],
         min_length=1,
         max_length=8,
     )
+    phone_look: bool = True  # 画完在本机加一层手机味：轻微裁歪、压暗饱和度、噪点、压缩（不花钱）
 
 
 class SpeechRules(_Strict):
