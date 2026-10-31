@@ -331,6 +331,7 @@ class RoundtableService:
             render=self._super_render,
             scout=self._build_scout(runtime.config.roundtable.bench),
             researcher=self._build_researcher(runtime.config.roundtable.bench),
+            whitelist=self._dsh_whitelist,
         )
         self.bench_status_fetch = http_status()  # 联网自检用（测试换成假的）
         self._chat_tasks: set[asyncio.Task[Any]] = set()
@@ -1008,6 +1009,8 @@ class RoundtableService:
                 self.bench.review(bench_id, kw.get("decision") or "", kw.get("comments"))
             elif action == "evolve":
                 await self.bench.evolve(bench_id)
+            elif action == "plugin":
+                self.bench.request_plugin(bench_id, kw.get("name") or "")
             else:
                 raise ValueError("不认得这个操作")
         except LookupError as exc:
@@ -1017,6 +1020,11 @@ class RoundtableService:
         except ValueError as exc:
             raise ServiceError(str(exc), 400) from None
         return self.bench_status()
+
+    def _dsh_whitelist(self) -> dict[str, str]:
+        """dsh 插件白名单里审过的仓库（没带 dsh 或名单读不了就是空的）。"""
+        catalog = getattr(self.dsh, "catalog", None) if self.dsh is not None else None
+        return {p.repo: p.id for p in catalog.plugins if p.repo} if catalog else {}
 
     async def bench_net_check(self) -> dict[str, Any]:
         """联网自检：成品要用的公开数据和调研接口各试一次（只读 GET）。"""

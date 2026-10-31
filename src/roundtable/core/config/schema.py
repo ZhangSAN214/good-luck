@@ -2581,6 +2581,7 @@ class BenchResearch(_Strict):
     papers: int = Field(default=6, ge=0, le=20)
     news: int = Field(default=8, ge=0, le=20)  # 资讯、视频、发布会、官方博客合计
     learn: int = Field(default=3, ge=0, le=6)  # 写几张学习卡（每张花一次订阅次数）
+    learn_plugins: int = Field(default=1, ge=0, le=3)  # 另给几个 dsh 插件写学习卡（供助手学习）
 
 
 class BenchProject(_Strict):
@@ -2593,6 +2594,20 @@ class BenchProject(_Strict):
     max_questions: int = Field(default=6, ge=1, le=10)
     # 里程碑几小时不回就算通过（0 = 一直等）
     gate_auto_hours: float = Field(default=0, ge=0, le=24 * 7)
+
+
+class BenchTeam(_Strict):
+    """三位助手协作（2026-10-30 用户批）：开工前开方案会，各自提方案、互相投票（不能投自己），
+    得票最多的当主案，他的做法交给写窗口的人照着做；每轮评审后再派一位对抗手专门找毛病
+    （尽量不是窗口作者），找出的严重问题不修完不算过线。关掉就是原来按分数挑人各干各的。"""
+
+    enabled: bool = False
+    pitches: int = Field(default=3, ge=1, le=5)  # 方案会最多几位提方案（每位花一次次数）
+    vote: bool = True  # 提方案的人互相投票（每位再花一次）；关掉就用排第一的方案
+    pitch_kind: str = "split"  # 提方案、投票按哪种活挑人
+    attack: bool = True  # 每轮派一位对抗手找毛病
+    attack_kind: str = "review"
+    block_high: bool = True  # 对抗手找出的严重问题没修完不算过线
 
 
 class BenchRules(_Strict):
@@ -2618,6 +2633,7 @@ class BenchRules(_Strict):
     max_adopt: int = Field(default=3, ge=0, le=10)  # 一个工作台最多搬几个
     research: BenchResearch = Field(default_factory=BenchResearch)
     project: BenchProject = Field(default_factory=BenchProject)
+    team: BenchTeam = Field(default_factory=BenchTeam)
     rubric: list[str] = Field(
         default_factory=lambda: [
             *("视觉层次", "信息密度", "一致性", "交互完整"),

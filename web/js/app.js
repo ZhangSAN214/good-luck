@@ -262,6 +262,7 @@ const benchGen = new BenchGenPanel(bench.pane('gen'), {
     sign: API.benchSign,
     review: API.benchReview,
     evolve: API.benchEvolve,
+    plugin: API.benchPlugin,
   },
   isOpen: () => bench.visible('gen'),
   label: (id) => superPanel.label(id),
