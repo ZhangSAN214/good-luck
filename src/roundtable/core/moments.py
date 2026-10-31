@@ -38,6 +38,7 @@ from roundtable.core.chat_actions import (
     card_text,
     clean_card,
     clean_stickers,
+    generated_item,
     member_stickers,
     sticker_menu,
 )
@@ -277,7 +278,45 @@ class Moments:
             ).variables
         ):
             meta["card"] = card
+        item = None if card else await self.photo(member, event, text)
+        if item is not None:  # 配图：文字照旧给成员看，图片只多一个「[图片]」占位
+            meta |= {"media": [item], "caption": text, "photo": True}
+            text = f"{text}\n[图片]"
         return self.rt.repo.add_moment(member.id, text, meta=meta, offline=offline)
+
+    async def photo(
+        self, member: ChatMember, event: dict[str, Any], text: str
+    ) -> dict[str, Any] | None:
+        """按概率给这条动态画一张配图（不用审）；不配、超了每天的张数或画不出来时为 None。"""
+        from roundtable.core.chat_media import ChatMediaStore, MediaError
+        from roundtable.core.member_stickers import (
+            MemberStickers,
+            StickerBudgetExceeded,
+            StickerError,
+            StickerUnavailable,
+        )
+
+        rt = self.rt
+        rules = rt.config.roundtable.media.moment_photos
+        if not (rt.config.roundtable.media.enabled and rules.enabled) or rt.chat_media_dir is None:
+            return None
+        if member.id not in rt.config.personas.sticker_cards:
+            return None
+        rng = random.Random(f"photo:{event['id']}:{member.id}")
+        if rng.random() >= rules.chance:
+            return None
+        day_start = iso(utc_day_window(rt.budget.now())[0])
+        today = [m for m in rt.repo.moments(since=day_start, limit=200) if m["meta"].get("photo")]
+        mine = sum(m["author"] == member.id for m in today)
+        if len(today) >= rules.per_day or mine >= rules.per_member_day:
+            return None
+        try:
+            data, mime = await MemberStickers(rt, rt.sticker_dir).photo(
+                member.id, event["topic"], text, rng.choice(rules.shots)
+            )
+            return generated_item(ChatMediaStore(rt.chat_media_dir), data, mime)
+        except (StickerBudgetExceeded, StickerError, StickerUnavailable, MediaError, ValueError):
+            return None  # 没钱、没参考图、画不出来：照样发文字
 
     def forward_card(self, member: ChatMember, event: dict[str, Any]) -> dict[str, Any] | None:
         rt = self.rt
