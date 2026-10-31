@@ -370,7 +370,7 @@ class Brain:
         """在做的事：先从人物卡「成长」章里的小愿望和「最可能改变的地方」里取，没有再用喜好。"""
         if not s.goals and self.rules.goals.max_active:
             pool = seeds(str((self.profiles.current(member).data.get("values") or {}).get("成长")))
-            pool += [f"和{x}有关的小计划" for x in self._likes(member)]
+            pool += list(self._likes(member))  # 就是喜好本身（别带「有关的小计划」这种程序腔）
             pool = pool or list(self.rules.goals.fallback)
             rng = random.Random(f"brain-goals:{member}")
             first, rest = pool[:1], pool[1:]  # 小愿望排第一，其余随机

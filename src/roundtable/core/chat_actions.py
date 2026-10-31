@@ -178,6 +178,21 @@ def swap_repeated_stickers(
     return STICKER_RE.sub(swap, text)
 
 
+def drop_own_repeats(text: str, mine: set[str]) -> str:
+    """她最近刚发过的表情包又跟在一句话后面：去掉（10-31 第 3 次试跑：连着 3 条同一个「疑惑」）。
+    只发了一个表情包的不动（交给 swap_repeated_stickers 换一个）。"""
+    if not mine or not STICKER_RE.search(text):
+        return text
+    bare = STICKER_RE.sub("", text).strip()
+    if not bare:
+        return text
+
+    def drop(m: re.Match[str]) -> str:
+        return "" if f"[表情:{m.group(1)}·{m.group(2)}]" in mine else m.group(0)
+
+    return re.sub(r"[ \t]+$", "", STICKER_RE.sub(drop, text), flags=re.M)
+
+
 def parse(
     text: str,
     *,

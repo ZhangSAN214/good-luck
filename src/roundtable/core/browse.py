@@ -24,6 +24,7 @@ from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
 from email.utils import parsedate_to_datetime
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 from pydantic import TypeAdapter, ValidationError
@@ -63,6 +64,23 @@ Fetch = Callable[[str, float, int], Awaitable[bytes]]
 
 class FeedError(ValueError):
     pass
+
+
+_HUB_PATH = re.compile(
+    r"/(?:index|default|home|list|lists|news|channel|channels|category|categories|tag|tags|"
+    r"topic|topics|search|section|column|rolling|roll|latest|archive|archives)"
+    r"(?:[_-]?\d*)?(?:\.s?html?|\.php|\.aspx?)?/?$",
+    re.IGNORECASE,
+)
+_HUB_TITLE = re.compile(r"首页|频道|栏目|滚动|列表|新闻中心|资讯中心|官网|官方网站|汇总|大全")
+
+
+def looks_like_article(url: str, title: str) -> bool:
+    """搜索结果是一篇具体的内容（文章、帖子、视频），不是网站首页或栏目列表页。"""
+    path = urlparse(url).path
+    if path in ("", "/") or _HUB_PATH.search(path):
+        return False
+    return not _HUB_TITLE.search(title or "")
 
 
 def strip_html(text: str | None) -> str:
@@ -296,7 +314,7 @@ class Browser:
             return None
         query = f"{interest} 最新消息"
         try:
-            result, call = await rt.search.search(query, 3)
+            result, call = await rt.search.search(query, 6)
         except SearchUnavailable:
             return None
         completion = Completion(
@@ -324,6 +342,8 @@ class Browser:
         for hit in result.hits:
             if not hit.url.startswith(("http://", "https://")):
                 continue
+            if not looks_like_article(hit.url, strip_html(hit.title)):
+                continue  # 栏目首页、列表页：点开什么都看不到（10-31 第 3 次试跑 6 条全是这种）
             if rt.repo.add_web_item(
                 f"搜索：{interest}",
                 hit.url,
@@ -412,9 +432,12 @@ class Browser:
         # 说话的样子：书面词换口语、句尾标点、笑法、心情别直说（和群聊同一套收尾）
         from roundtable.core.member.lingo import Lingo  # lingo 依赖成员档案
 
-        text = Lingo(rt, names=everyone).finish(
-            member.id, text, rng=random.Random(f"share:{item['id']}:{member.id}")
-        )[0]
+        text = (
+            Lingo(rt, names=everyone).finish(
+                member.id, text, rng=random.Random(f"share:{item['id']}:{member.id}")
+            )[0]
+            or text
+        )
         rt.repo.mark_web_shared(item["id"], member.id)
         kinds = {f.name: f.kind for f in feeds_of(rt)[0]}
         card = card_from_item(

@@ -150,6 +150,17 @@ def test_daytime_life_leaves_room_for_the_night_memory():
     assert life.memory.allow(0.09) and not life.memory.allow(0.11)  # 记忆整理能用满上限
 
 
+def test_night_memory_still_runs_after_the_near_cap_halt_but_not_after_errors():
+    """10-31 第 3 次试跑：整理了 3 位就「接近每日上限」熔断，剩下 5 位一天什么都没记住。"""
+    env = life_env(daily_usd=0.10, memory_reserve_usd=0.03)
+    life = engine(env)
+    life.guard.halt("生活今天已花 $0.096，接近每日上限 $0.10")
+    assert not life.allowed(0.001)  # 白天的生活停了
+    assert life.memory.allow(0.005)  # 记忆整理照跑（不超上限）
+    life.guard.halt("连续 3 次调用出错")
+    assert not life.memory.allow(0.005)
+
+
 async def test_disabled_does_nothing():
     env = life_env(enabled=False)
     out = await engine(env).tick(NOW)

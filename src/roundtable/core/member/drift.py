@@ -102,7 +102,7 @@ class Drift:
     def signature_words(self, member: str) -> tuple[str, ...]:
         """她的招牌小尾巴和招牌词（personas.yaml 的 signatures）：不会说腻、不会被换掉。"""
         sig = self.rt.config.personas.signatures.get(member)
-        return tuple(sig.tails) + tuple(sig.words) if sig is not None else ()
+        return (*sig.tails, *sig.words, *sig.self_names) if sig is not None else ()
 
     def promoted(self, member: str) -> dict[str, dict[str, str]]:
         return dict(self._load(member)["promoted"])

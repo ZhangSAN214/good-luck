@@ -369,3 +369,14 @@ async def test_chat_with_several_bubbles_is_rewritten_as_a_whole():
     await dm.replies(msg["id"], speakers)
     said = [m["text"] for m in env.rt.repo.chat_messages(dm_room("V1")) if m["author"] == "V1"]
     assert "慢慢来一切都会好的" not in said and said[:2] == ["刚吃完饭", "准备上楼"]
+
+
+def test_memory_system_talk_is_caught():
+    """10-31 第 3 次试跑：「没记到」「存进档案」「……的小计划」像在说系统。"""
+    for text in (
+        "我这边没记到猫的名字诶，不能瞎猜",
+        "这名字是没存进档案里",
+        "在琢磨冰酸梅汤有关的小计划",
+    ):
+        assert "memory_system" in rules_hit(text)
+    assert "memory_system" not in rules_hit("想不起来了，你说过吗")
