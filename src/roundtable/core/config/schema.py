@@ -2171,6 +2171,26 @@ class PaceRules(_Strict):
     byes: list[str] = Field(default_factory=list, max_length=60)  # 道别（她上一句里有这些）
 
 
+class SlopRules(_Strict):
+    """AI 腔体检（2026-10-31 拟人插件调研第 3 项，借 Antislop 的思路）：每周生活自检时，
+    把成员的生活发言切成 2～4 字的片段，至少 min_members 位都用得多（每千字 ≥ min_rate 次、
+    每位 ≥ min_count 次）、又是你本人用量的 ratio 倍以上的，列为「AI 腔」，最多 max_active 个；
+    之后说出口前把含它的那一小句删掉。common（常用词）和 allow（你放行的）不算。
+    全程序、不调模型。"""
+
+    enabled: bool = True
+    min_members: int = Field(default=4, ge=2, le=8)
+    min_count: int = Field(default=3, ge=1, le=100)
+    min_rate: float = Field(default=1.5, ge=0, le=100)  # 每千字至少几次
+    ratio: float = Field(default=5.0, ge=1, le=100)  # 比你本人多几倍
+    smooth: float = Field(default=0.3, ge=0, le=10)  # 你没用过时按每千字这么多次算
+    user_days: int = Field(default=30, ge=1, le=365)  # 你本人的话看最近几天
+    user_floor_chars: int = Field(default=2000, ge=100)  # 你说得少时按这么多字算
+    max_active: int = Field(default=12, ge=0, le=60)
+    common: list[str] = Field(default_factory=list, max_length=400)
+    allow: list[str] = Field(default_factory=list, max_length=200)
+
+
 class RhythmRules(_Strict):
     """作息与回话节奏（docs/BRAIN.md）：睡着时你发来的消息，多数醒了再回，有时被吵醒。"""
 
@@ -2362,6 +2382,7 @@ class EngineRules(_Strict):
     lingo: LingoRules = LingoRules()
     rhythm: RhythmRules = RhythmRules()
     pace: PaceRules = PaceRules()
+    slop: SlopRules = SlopRules()
     reach: ReachRules = ReachRules()
     feel: FeelRules = FeelRules()
 
