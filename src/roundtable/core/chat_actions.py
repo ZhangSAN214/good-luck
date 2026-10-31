@@ -143,17 +143,25 @@ def member_stickers(rt: Any, member: str, name: str) -> dict[str, list[str]]:
 def sticker_menu(rt: Any, member: str, name: str) -> str:
     """提示词里给这位成员的表情包清单：有专属表情时分成「你的专属」和「通用」两段。"""
     from roundtable.core.member.stash import Stash
+    from roundtable.core.member_stickers import MemberStickers
 
     own = own_stickers(rt, member, name)
     common = sticker_list(rt.config.roundtable.chat.actions.stickers)
-    menu = f"你的专属：{sticker_list(own)}；通用：{common}" if own else common
+    # 专属表情名多是她的梗（如记仇的「记着」），光给名字模型会望文生义，所以带上什么时候发
+    uses = MemberStickers(rt, rt.sticker_dir).uses(member) if own else {}
+    menu = f"你的专属：{sticker_list(own, uses)}；通用：{common}" if own else common
     stash = Stash(rt).menu(member)
     return f"{menu}；{stash}" if stash else menu
 
 
-def sticker_list(stickers: dict[str, list[str]]) -> str:
-    """提示词里的表情包清单：「[表情:团子·开心]、……」。"""
-    return "、".join(f"[表情:{pack}·{name}]" for pack, names in stickers.items() for name in names)
+def sticker_list(stickers: dict[str, list[str]], uses: dict[str, str] | None = None) -> str:
+    """提示词里的表情包清单：「[表情:团子·开心]、……」；给了 uses 时写成「[表情:套·名]（用法）」。"""
+    uses = uses or {}
+    return "、".join(
+        f"[表情:{pack}·{name}]" + (f"（{uses[name]}）" if name in uses else "")
+        for pack, names in stickers.items()
+        for name in names
+    )
 
 
 def clean_stickers(text: str, stickers: dict[str, list[str]]) -> str:

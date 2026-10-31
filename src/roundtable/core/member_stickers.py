@@ -212,6 +212,25 @@ class MemberStickers:
             if n in drawn and drawn[n]["status"] == "approved"
         ]
 
+    def uses(self, member: str) -> dict[str, str]:
+        """审过可以用的表情各自什么时候发：{表情名: 用法}（personas 里没写用法的不列）。"""
+        card = self.rt.config.personas.sticker_cards.get(member)
+        ok = {s["name"] for s in self.approved(member)}
+        return {s.name: s.use for s in card.stickers if s.name in ok and s.use} if card else {}
+
+    def means(self, member: str) -> dict[str, list[str]]:
+        """审过可以用的表情各自的意思等于哪些话：{表情名: [词]}。没写 means 的用配文（去掉标点）。
+        发出前去重用：一句话里已经说了这些词，再配这张表情就重复了。"""
+        card = self.rt.config.personas.sticker_cards.get(member)
+        ok = {s["name"] for s in self.approved(member)}
+        if not card:
+            return {}
+        return {
+            s.name: list(s.means) or [w for w in [_letters(s.caption)] if w]
+            for s in card.stickers
+            if s.name in ok
+        }
+
     def review(self, member: str, name: str, status: str) -> dict[str, Any]:
         if status not in STATUSES:
             raise StickerError("状态只能是 pending / approved / rejected")
