@@ -130,3 +130,23 @@
 .bg-stuck p{margin:4px 0}
 .bg-stuck h4{margin:8px 0 4px;font-size:13px}
 .bg-edit{margin:8px 0}
+/* 选型台：左边选项、右边实时预览（iframe 里用零件库样式画） */
+.bg-design{margin:6px 0 10px;padding:10px 12px;border:1px solid var(--line, rgba(127,127,127,.25));border-radius:12px}
+.bg-design-cols{display:grid;grid-template-columns:minmax(260px,5fr) minmax(0,7fr);gap:14px;align-items:start}
+@media (max-width:900px){.bg-design-cols{grid-template-columns:1fr}}
+.bg-dim{display:grid;gap:4px;margin:0 0 10px;font-size:13px}
+.bg-dim .chip[aria-pressed="true"]{background:var(--accent, #2f5bea);border-color:var(--accent, #2f5bea);color:#fff}
+.bg-rec{margin-left:4px;font-size:11px;padding:0 5px;border-radius:6px;background:rgba(255,190,60,.25)}
+.bg-drefs,.bg-dwins{list-style:none;margin:0;padding:0;display:grid;gap:4px}
+.bg-dwins li{display:flex;gap:8px;align-items:center;justify-content:space-between}
+.bg-dwins li.bg-off label{opacity:.5;text-decoration:line-through}
+.bg-dwins select{font:inherit;font-size:12px;max-width:50%}
+.bg-dview{display:flex;gap:4px;align-items:center;margin-bottom:6px}
+.bg-dview .chip{font-size:12px;padding:2px 10px;border-radius:999px;border:1px solid currentColor;background:none;color:inherit;cursor:pointer;min-height:28px}
+.bg-dview .chip[aria-pressed="true"]{font-weight:700;background:rgba(127,127,127,.18)}
+.bg-dframe{position:relative;overflow:hidden;border-radius:10px;border:1px solid var(--line, rgba(127,127,127,.25));background:rgba(127,127,127,.08)}
+.bg-dframe[data-device="phone"]{max-width:392px;margin:0 auto}
+.bg-dframe iframe{border:0;display:block;transform-origin:0 0;background:transparent}
+.bg-wins details summary{cursor:pointer}
+.bg-wins details p{margin:4px 0 0 14px;font-size:13px}
+.bg-design-view{position:sticky;top:8px}
