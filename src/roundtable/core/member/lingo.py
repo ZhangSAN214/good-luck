@@ -70,7 +70,7 @@ class Gist:
 
 @dataclass(frozen=True)
 class Habits:
-    """一位成员的打字习惯（按档案和性格分挑，不随时间变）。"""
+    """一位成员的打字习惯（按档案和性格分挑；用腻了的会慢慢换，见 drift.py）。"""
 
     punct: str = ""
     punct_end: str | None = None
@@ -189,12 +189,16 @@ class Lingo:
             random.Random(f"lingo-kao:{member}:{vibe}").shuffle(items)
             kaomoji += items
         kaomoji = kaomoji[: r.kaomoji_each]
+        from roundtable.core.member.drift import Drift  # drift 只在函数里引用本模块
+
+        drift = Drift(self.rt)
+        kaomoji = list(drift.apply(member, tuple(kaomoji)))  # 用腻了换过的
         sticker_set = self._rank(member, r.sticker_sets, "sticker")[0] if r.sticker_sets else ""
         shorts: dict[str, tuple[str, ...]] = {}
         for pool, words in r.shorts.items():
             items = list(words)
             random.Random(f"lingo-short:{member}:{pool}").shuffle(items)
-            shorts[pool] = tuple(items[: r.shorts_each])
+            shorts[pool] = drift.apply(member, tuple(items[: r.shorts_each]))
         pick = r.punct.get(punct)
         return Habits(
             punct=punct,
@@ -238,7 +242,10 @@ class Lingo:
             lines.append(f"表情包最常发「{pack[0]}」那套")
         if h.things and r.metaphor:
             lines.append(r.metaphor.format(things="、".join(h.things)))
-        learned = self.learned(member, self.rt.budget.now())
+        from roundtable.core.member.drift import Drift
+
+        mine_now = Drift(self.rt).promoted(member)
+        learned = [x for x in self.learned(member, self.rt.budget.now()) if x[0] not in mine_now]
         if learned:
             lines.append(
                 "最近跟人学的说法（偶尔冒出来）："
@@ -363,6 +370,11 @@ class Lingo:
             if ok and r.shift.get(key):
                 bits.append(r.shift[key])
                 break
+        from roundtable.core.member.drift import Drift
+
+        face = Drift(self.rt).mood_face(member, mood, self) if self.styled(member) else ""
+        if face:  # 心情不同用的颜文字不同
+            bits.append(self.rules.drift.mood_line.format(face=face))
         nick = self.nickname(member, to, care, at, rng) if to else ""
         if nick:
             bits.append(f"你现在叫{self._name(to)}「{nick}」")
@@ -444,6 +456,10 @@ class Lingo:
             return
         if author != USER:
             self._used(author, text, event.at)
+            from roundtable.core.member.drift import Drift
+
+            if Drift(self.rt).count(author, text, event.at, self):  # 口癖换了：习惯重新算
+                self._cache.pop("habits:" + author, None)
         listeners = [m for m in info.get("members") or [] if m != author]
         tics = [w for w in self._tics(author) if w in text]
         if not tics:
@@ -480,10 +496,13 @@ class Lingo:
     def learned(self, member: str, at: datetime) -> list[tuple[str, str]]:
         """还记得的学来的说法 [(说法, 跟谁学的)]；太久没用的忘掉。"""
         days = self.rules.learn.forget_days
+        from roundtable.core.member.drift import Drift
+
+        kept = Drift(self.rt).promoted(member) if Drift(self.rt).enabled() else {}
         out = []
         for w, v in self._load(member)["learned"].items():
             last = v.get("used") or v.get("at") or ""
-            if last and at - datetime.fromisoformat(last) <= timedelta(days=days):
+            if w in kept or (last and at - datetime.fromisoformat(last) <= timedelta(days=days)):
                 out.append((w, str(v.get("from", ""))))
         return out
 

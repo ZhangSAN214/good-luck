@@ -2130,6 +2130,30 @@ class ShowRules(_Strict):
     }
 
 
+class DriftRules(_Strict):
+    """口癖和说话风格自己慢慢变（docs/BRAIN.md「口癖慢慢变」，2026-10-31 用户定）：用腻了的颜文字、
+    短回复换新的（只在她自己的风格里挑、别人正在用的不挑），口头禅说腻了歇一阵，学来的用多了成了
+    自己的，心情好坏用的颜文字不同。8 位同一套规则，差别只来自性格分和她自己说过的话。"""
+
+    enabled: bool = True
+    window_days: int = Field(default=14, ge=1, le=90)  # 数最近这么多天用了几次
+    wear_uses: int = Field(default=5, ge=2, le=200)  # 用到这么多次算用得勤
+    min_days: int = Field(default=14, ge=0, le=180)  # 至少用了这么久才会腻
+    chance: float = Field(default=0.45, ge=0, le=1)  # 用得勤时每天腻了的基础概率
+    traits: dict[str, float] = {"好奇": 0.06, "外向": 0.03, "较真": -0.05}  # × (分数 - 3)
+    vibes_top: int = Field(default=3, ge=1, le=10)  # 新颜文字只在和她性格最像的几组里挑
+    crowd: int = Field(default=2, ge=1, le=10)  # 已经有这么多位在用的不挑（不越聊越像）
+    return_days: int = Field(default=60, ge=0, le=365)  # 换掉的这么久以内不挑回来
+    rest_days: int = Field(default=21, ge=1, le=365)  # 口头禅说腻了歇几天
+    promote_uses: int = Field(default=6, ge=1, le=100)  # 学来的说法自己用够几次就成了自己的
+    keep_swaps: int = Field(default=30, ge=5, le=500)
+    mood_high: float = Field(default=0.35, ge=0, le=1)
+    mood_low: float = Field(default=-0.35, ge=-1, le=0)
+    up_vibes: list[str] = ["元气", "温柔", "搞怪"]
+    down_vibes: list[str] = ["丧", "冷淡", "傲娇"]
+    mood_line: str = "这会儿想用{face}"
+
+
 class LingoRules(_Strict):
     """说话的样子（docs/BRAIN.md「说话的样子」）：看懂语境、万能短回复、先反应再吐槽、
     书面腔过滤、标点和笑法、打错字、个人颜文字、表情包脾气、语气变调、外号、跟人学、打比方。
@@ -2160,8 +2184,9 @@ class LingoRules(_Strict):
     formal: dict[str, str] = {}  # 书面词 → 口语（发出前直接换）
     explain: list[str] = []  # 解释句的正则（发出前能删就删）
     recap_chars: int = Field(default=8, ge=4, le=40)  # 和对方原话连着这么多字一样算复述
-    # 口吻指纹：草稿里别的成员的口头禅、颜文字、自称（她没学过的）发出前换回她自己的
     show: ShowRules = ShowRules()
+    drift: DriftRules = DriftRules()
+    # 口吻指纹：草稿里别的成员的口头禅、颜文字、自称（她没学过的）发出前换回她自己的
     own_voice: bool = True
 
 

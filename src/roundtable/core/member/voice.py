@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import random
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 from roundtable.core.chat_actions import STICKER_RE, DefaultPolicy
@@ -170,7 +170,14 @@ def member_voice(rt: Any, member: str) -> Voice:
     if not (engine.enabled and engine.voice.enabled):
         return Voice()
     row = rt.repo.member_profile(member)
-    return voice_of(row["data"] if row and row["data"] else {}, engine.voice)
+    voice = voice_of(row["data"] if row and row["data"] else {}, engine.voice)
+    from roundtable.core.member.drift import Drift  # 口头禅说腻了歇一阵、学来的变成自己的
+
+    if not voice.empty:
+        now = rt.budget.now()
+        own = Drift(rt).catchphrases(member, list(voice.catchphrases), now)
+        voice = replace(voice, catchphrases=tuple(own[:4]))
+    return voice
 
 
 # --- 写进提示词 -------------------------------------------------------------------
