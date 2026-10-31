@@ -181,7 +181,10 @@ const people = new People($('#people'), {
     relationReplyView: API.replyMemberView,
   },
 });
-const feeds = new Feeds($('#feeds'), { api: { get: API.chatFeeds, set: API.setChatFeeds, refresh: API.refreshChatFeeds } });
+const feeds = new Feeds($('#feeds'), {
+  api: { get: API.chatFeeds, set: API.setChatFeeds, refresh: API.refreshChatFeeds },
+  memes: { get: API.chatMemes, add: API.addChatMeme, remove: API.removeChatMeme, refresh: API.refreshChatMemes },
+});
 const exporter = new Exporter($('#exportdlg'), { api: { options: API.exportOptions, save: API.exportSave } });
 const clipper = new Clipper($('#clipdlg'), {
   api: {

@@ -41,6 +41,7 @@ from roundtable.core.chat import (
 )
 from roundtable.core.chat_actions import card_from_item
 from roundtable.core.config.schema import FeedSpec
+from roundtable.core.member.memes import strip_stale
 from roundtable.core.member.voice import Said, before_voice, recent_words, voice_for
 from roundtable.core.office.apartment import schedule
 from roundtable.core.persona import chat_persona, persona_of
@@ -180,6 +181,32 @@ async def http_fetch(url: str, timeout_s: float, max_bytes: int) -> bytes:
         return b"".join(chunks)
 
 
+def record_search(rt: Any, room: str, step: str, query: str, call: Any) -> None:
+    """把一次联网搜索记进 calls 表（挂在隐藏聊天会话 room 上，按 step 统计花费和次数）。"""
+    completion = Completion(
+        text="",
+        model_id=f"search:{call.provider}",
+        channel=call.provider,
+        channel_kind="search",
+        route_model="search",
+        input_tokens=0,
+        output_tokens=0,
+        cached_tokens=0,
+        cost_usd=call.cost_usd,
+        cost_source=call.cost_source,
+        latency_s=call.latency_s,
+        attempts=call.attempts,
+    )
+    rt.repo.record_call(
+        rt.repo.chat_session(room),
+        step=step,
+        role="tool",
+        model_id=completion.model_id,
+        messages=[Message("user", f"search: {query}")],
+        completion=completion,
+    )
+
+
 def feeds_of(rt: Any) -> tuple[list[FeedSpec], str]:
     """(订阅源清单, 来源)：网页里改过的（local）优先，否则配置文件里的（config）。"""
     stored = rt.repo.setting(FEEDS_KEY)
@@ -317,28 +344,7 @@ class Browser:
             result, call = await rt.search.search(query, 6)
         except SearchUnavailable:
             return None
-        completion = Completion(
-            text="",
-            model_id=f"search:{call.provider}",
-            channel=call.provider,
-            channel_kind="search",
-            route_model="search",
-            input_tokens=0,
-            output_tokens=0,
-            cached_tokens=0,
-            cost_usd=call.cost_usd,
-            cost_source=call.cost_source,  # type: ignore[arg-type]
-            latency_s=call.latency_s,
-            attempts=call.attempts,
-        )
-        rt.repo.record_call(
-            rt.repo.chat_session(BROWSE_ROOM),
-            step=SEARCH_STEP,
-            role="tool",
-            model_id=completion.model_id,
-            messages=[Message("user", f"search: {query}")],
-            completion=completion,
-        )
+        record_search(rt, BROWSE_ROOM, SEARCH_STEP, query, call)
         for hit in result.hits:
             if not hit.url.startswith(("http://", "https://")):
                 continue
@@ -432,12 +438,9 @@ class Browser:
         # 说话的样子：书面词换口语、句尾标点、笑法、心情别直说（和群聊同一套收尾）
         from roundtable.core.member.lingo import Lingo  # lingo 依赖成员档案
 
-        text = (
-            Lingo(rt, names=everyone).finish(
-                member.id, text, rng=random.Random(f"share:{item['id']}:{member.id}")
-            )[0]
-            or text
-        )
+        text = Lingo(rt, names=everyone).finish(
+            member.id, text, rng=random.Random(f"share:{item['id']}:{member.id}")
+        )[0] or strip_stale(text, rt.config.roundtable.chat.memes.stale)
         rt.repo.mark_web_shared(item["id"], member.id)
         kinds = {f.name: f.kind for f in feeds_of(rt)[0]}
         card = card_from_item(

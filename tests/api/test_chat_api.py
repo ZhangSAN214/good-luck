@@ -406,3 +406,32 @@ def test_member_voice_api():
         assert said[-1] == ("V2", "在吗")
         assert c.post("/api/chat/voices/V2", json={"text": "超了"}).status_code == 402
         assert c.post("/api/chat/voices/V2", json={"text": "x" * 2001}).status_code == 422
+
+
+def test_memes_round_trip():
+    """网络梗：经典梗在前、谁懂；加、删（删过的经典梗也不显示）；老梗加不进去；马上更新一次（测试里抓取一律失败）。"""
+    env = Env()
+    with TestClient(create_app(RoundtableService(env.rt))) as c:
+        data = c.get("/api/chat/memes").json()
+        assert data["enabled"] and data["fresh_days"] == 14 and "绝绝子" in data["stale"]
+        assert [m["phrase"] for m in data["memes"]][:2] == ["虾爹", "我chovey"]
+        meme = {
+            "phrase": "康神开播",
+            "meaning": "康神开直播了",
+            "cue": "康神开播了",
+            "reply": "真的假的？！",
+        }
+        data = c.post("/api/chat/memes", json=meme).json()
+        (got,) = [m for m in data["memes"] if m["phrase"] == "康神开播"]
+        assert (
+            got["classic"] and got["reply"] == "真的假的？！" and isinstance(got["known_by"], list)
+        )
+        assert (
+            c.post("/api/chat/memes", json={"phrase": "绝绝子", "classic": False}).status_code
+            == 400
+        )
+        data = c.delete("/api/chat/memes", params={"phrase": "虾爹"}).json()
+        assert "虾爹" not in [m["phrase"] for m in data["memes"]]
+        assert c.delete("/api/chat/memes", params={"phrase": "没有"}).status_code == 400
+        r = c.post("/api/chat/memes/refresh").json()
+        assert r["titles"] == 0 and r["failed"] == 4 and r["status"]["at"]

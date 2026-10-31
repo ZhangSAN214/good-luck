@@ -35,6 +35,7 @@ from typing import Any
 from roundtable.core.chat_actions import STICKER_RE
 from roundtable.core.hometz import home_zone
 from roundtable.core.member.bus import Event, EventBus
+from roundtable.core.member.memes import strip_stale
 from roundtable.core.member.profile import ProfileStore
 from roundtable.core.storage.repository import iso
 
@@ -542,6 +543,10 @@ class Lingo:
         if not text.strip() or not self.enabled():
             return [text]
         rng = rng or random.Random(f"lingo-finish:{member}:{text}")
+        stale = self.rt.config.roundtable.chat.memes.stale
+        text = strip_stale(text, stale)  # 老梗烂梗：含老梗的那一小句不说（10-31 用户）
+        if not text.strip():
+            return [""]
         if not self.styled(member):  # 没有人物卡：只补她的招牌小尾巴（配置里写了的话）
             return [_tidy(self.signature_tail(member, text, rng))]
         h = self.habits(member)
