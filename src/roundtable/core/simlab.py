@@ -725,10 +725,19 @@ class Simulation:
             where = "宿舍" if place.startswith("dorm") else PUBLIC_ROOMS.get(place, place)
             habits.append(f"{when}{where}{ACTIVITIES.get(act, act)}（{n}）")
         mine = [c["tags"] for c in self.cards if c["member"] == member]
+        from roundtable.core.member.drift import Drift
+
+        drift = [
+            f"{s['old']}→{s['new']}"
+            if s["new"]
+            else f"{s['old']}（{'歇着' if s['kind'] == 'rest' else '成了自己的'}）"
+            for s in Drift(svc.rt).swaps(member)
+        ]
         return {
             "counts": counts,
             "said": sum(1 for t in mine if "feel" in t or "feel:mix" in t),
             "mixed": sum(1 for t in mine if "feel:mix" in t),
+            "drift": drift[-4:],
             "last": last,
             "grown": sorted(brain.feel.grown(member)),
             "habits": habits,
@@ -1043,15 +1052,16 @@ def render(res: SimResult) -> str:
     if any(row.get("feel") for row in res.members):
         lines += ["", "## 各自的情感与习惯（期末）", ""]
         head = ["成员", "有过的情绪（次数）", "说话时带上（其中五味杂陈）", "最近一次"]
-        lines.append("| " + " | ".join([*head, "改写过理解的情绪", "习惯"]) + " |")
-        lines.append("|---|---|---|---|---|---|")
+        lines.append("| " + " | ".join([*head, "改写过理解的情绪", "习惯", "口癖变化"]) + " |")
+        lines.append("|---|---|---|---|---|---|---|")
         for row in res.members:
             f = row.get("feel") or {}
             counts = "、".join(f"{k} {v}" for k, v in (f.get("counts") or {}).items()) or "-"
             habits = "；".join(f.get("habits") or []) or "-"
             grown = "、".join(f.get("grown") or []) or "-"
             said = f"{f.get('said', 0)}（{f.get('mixed', 0)}）"
-            cells = [row["name"], counts, said, f.get("last") or "-", grown, habits]
+            drift = "；".join(f.get("drift") or []) or "-"
+            cells = [row["name"], counts, said, f.get("last") or "-", grown, habits, drift]
             lines.append("| " + " | ".join(cells) + " |")
     if any(row.get("heart") for row in res.members):
         lines += ["", "## 爱与人味（期末）", ""]
