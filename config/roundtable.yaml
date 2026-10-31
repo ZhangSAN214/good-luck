@@ -73,6 +73,89 @@ chat:
       max_failures: 3              # 连续出错几次，当天停掉生活
       budget_alarm: 0.9            # 生活日上限或聊天月预算用到 90%，当天停掉
       report_weekday: 1            # 每周一生成上一周的自检报告（花费、谁说得多、重复、异常）
+    story:                         # 生活事件库 + 长线剧情（L0）+ 擅长觉醒（L10）：程序挑事不花钱；只发事件，心情 / 记忆 / 档案由 P3 / P2 / P6 接
+      enabled: true
+      max_per_day: 2               # 每人每天最多几件事（大部分日子是平淡的）
+      group_cooldown_days: {sick: 90, mishap: 30}   # 每季度最多病一次、每月最多一件小意外
+      phase_groups: {sick: [小感冒]}   # 生活阶段（chat.engine.phase）里正在小感冒时，不会再排 sick 组的事（感冒归阶段，这里只管过敏、拉伤、牙疼）
+      way:                         # 空闲时去哪：按各自档案里的爱好挑（不再按编号轮换）；键为「房间:活动」
+        options:
+          "gym:exercise": [健身, 跑步, 运动, 篮球, 足球, 瑜伽, 游泳, 锻炼]
+          "rooftop:stargaze": [星星, 星空, 天文, 夜空, 宇宙, 发呆, 晒太阳, 月亮]
+          "lounge:game": [游戏, 通关, 抽卡, 桌游, 打牌, 手柄]
+          "lounge:chat": [聊天, 热闹, 八卦, 朋友, 玩笑, 段子]
+          "dorm:read": [书, 小说, 阅读, 诗, 漫画, 安静, 独处]
+          "canteen:chat": [美食, 做饭, 零食, 甜点, 奶茶, 好吃]
+      stories:                     # 生活事件库：加一种生活只加一条配置；text 不带主语，{name} 她 / {other} 同伴
+        - {id: late_night, chance: 0.05, hours: [22, 24], steps: [{text: 追东西追到很晚才睡, tags: [story.late]}, {day: 1, text: 昨晚睡太晚，一整天都犯困, tags: [story.tired]}]}
+        - {id: lazy_morning, chance: 0.08, weekdays: [5, 6], hours: [9, 12], steps: [{text: 睡到自然醒，懒洋洋地过了一上午}]}
+        - id: allergy              # 轻度生病（10-31 你定：只限过敏、拉伤这类，几天就好；感冒在生活阶段里）
+          group: sick
+          chance: 0.01
+          months: [4, 5, 6]
+          steps:
+            - {text: 花粉过敏，喷嚏打个不停, tags: [story.sick]}
+            - {day: [1, 2], text: 过敏总算消停了, tags: [story.better]}
+        - id: sprain
+          group: sick
+          chance: 0.012
+          likes: [健身, 跑步, 运动, 篮球, 足球, 瑜伽]
+          need_likes: true
+          steps:
+            - {text: 锻炼时把脚踝扭了一下, tags: [story.sick], place: gym}
+            - {day: 1, text: 脚踝还肿着，在房间歇着, tags: [story.sick], rest: true}
+            - {day: [3, 5], text: 脚踝不疼了, tags: [story.better]}
+        - id: toothache
+          group: sick
+          chance: 0.004
+          steps:
+            - {text: 牙疼，吃东西只敢用一边嚼, tags: [story.sick]}
+            - {day: [1, 2], text: 牙不疼了, tags: [story.better]}
+        - {id: lost_keys, group: mishap, chance: 0.01, steps: [{text: 钥匙找了半天，最后在外套口袋里摸到, tags: [story.bad]}]}
+        - {id: new_recipe, domain: 做饭, chance: 0.03, likes: [做饭, 菜, 烘焙, 美食, 下厨], steps: [{text: 在公共厨房试着做了道新菜, tags: [story.good], place: canteen}]}
+        - {id: burnt_pot, domain: 做饭, chance: 0.01, likes: [做饭, 下厨, 烘焙], need_likes: true, steps: [{text: 做饭糊锅了，开窗散了半天味, tags: [story.bad], place: canteen}]}
+        - {id: fix_lamp, domain: 手工修理, chance: 0.025, likes: [修, 工具, 拆, 组装, 手工], steps: [{text: 把房间里接触不良的台灯修好了, tags: [story.good]}]}
+        - {id: clear_sky, domain: 天文科学, chance: 0.035, hours: [20, 23], likes: [星, 天文, 夜空, 宇宙], steps: [{text: 难得晴天，在天台多看了会儿星星, tags: [story.good], place: rooftop}]}
+        - {id: finish_book, domain: 长文阅读, chance: 0.03, likes: [书, 小说, 阅读], steps: [{text: 把一本看了好久的书看完了, tags: [story.good]}]}
+        - {id: write_bit, domain: 写作, chance: 0.03, likes: [写, 故事, 日记, 诗, 文字], steps: [{text: 随手写了一小段东西，自己还挺满意, tags: [story.good]}]}
+        - {id: sketch, domain: 画画审美, chance: 0.03, likes: [画, 配色, 设计, 审美, 拍照], steps: [{text: 窝在房间画了张小画}]}
+        - {id: song_loop, domain: 音乐, chance: 0.03, likes: [歌, 音乐, 唱, 吉他, 钢琴], steps: [{text: 单曲循环了一下午同一首歌}]}
+        - {id: small_ledger, domain: 记账理财, chance: 0.02, likes: [记账, 理财, 省钱, 算账, 预算], steps: [{text: 把这个月的小账理了一遍}]}
+        - {id: sort_photos, domain: 整理归纳, chance: 0.03, likes: [整理, 收纳, 目录, 归档, 清单], steps: [{text: 把手机里攒了很久的照片按日子归了档, tags: [story.good]}]}
+        - {id: rabbit_hole, domain: 资料检索, chance: 0.025, likes: [查, 资料, 考据, 出处, 搜], steps: [{text: 为了弄清一个小问题查了一晚上资料}]}
+        - {id: puzzle_done, domain: 推理, chance: 0.025, likes: [推理, 谜, 逻辑, 侦探, 数独], steps: [{text: 解开了一道卡了好几天的谜题, tags: [story.good]}]}
+        - {id: words_day, domain: 语言翻译, chance: 0.025, likes: [外语, 英语, 日语, 翻译, 单词], steps: [{text: 背了会儿单词，顺手翻了段歌词}]}
+        - {id: tiny_script, domain: 编程, chance: 0.02, likes: [代码, 编程, 程序, 算法], steps: [{text: 给自己写了个小脚本，省了不少事, tags: [story.good]}]}
+        - {id: old_story, domain: 历史文学, chance: 0.02, likes: [历史, 古代, 文学, 典故, 诗词], steps: [{text: 读了段以前没留意过的历史，越看越上头}]}
+        - {id: level_clear, domain: 游戏, chance: 0.03, likes: [游戏, 通关, 抽卡], steps: [{text: 终于把卡了很久的那一关打过去了, tags: [story.good], place: lounge}]}
+        - {id: extra_run, domain: 运动, chance: 0.03, likes: [健身, 跑步, 运动, 瑜伽], steps: [{text: 比平时多跑了两公里, place: gym}]}
+        - {id: kept_company, domain: 倾听照顾人, chance: 0.02, with_other: true, likes: [照顾, 倾听, 关心, 陪伴, 温柔], steps: [{text: "{other}心情不太好，{name}陪着聊了很久", place: lounge}]}
+        - {id: made_laugh, domain: 活跃气氛, chance: 0.02, with_other: true, likes: [热闹, 玩笑, 搞笑, 段子], steps: [{text: "{name}在休息室讲了个段子，把{other}笑得不行", tags: [story.good], place: lounge}]}
+        # 住户变化（10-31 你定：成员离开 / 新成员入住当生活事件，温和，不煽情）
+        - {id: arrive, trigger: arrive, steps: [{text: 刚搬进公寓，还在收拾行李, tags: [story.new]}]}
+        - {id: welcome, trigger: welcome, steps: [{text: "{new}搬进来了，大家去打了个招呼", tags: [story.welcome], place: lounge}]}
+        - {id: farewell, trigger: farewell, steps: [{text: "{gone}搬走了，走之前和大家道了别", tags: [story.farewell], place: lounge}]}
+      talent:                      # 觉醒擅长领域（L10）：证据只用人物卡种子 + 生活练习；和工作完全无关，不影响派活
+        enabled: true
+        domains:                   # 领域 → 档案里的种子词 / 生活里算练习的去处 / 深耕后楼里的人怎么说她（可增删）
+          推理: {words: [推理, 逻辑, 侦探, 谜题, 数独, 悬疑], known: "楼里有想不通的事都爱问{name}"}
+          编程: {words: [代码, 编程, 程序, 算法, 脚本], known: "楼里谁的小程序出毛病都找{name}"}
+          写作: {words: [写作, 故事, 日记, 诗, 文字, 写], known: "楼里要写点什么都找{name}"}
+          语言翻译: {words: [外语, 英语, 日语, 翻译, 单词, 方言], known: "看不懂的外文大家都丢给{name}"}
+          长文阅读: {words: [读书, 看书, 书, 阅读, 小说], acts: ["dorm:read"], known: "想找书看大家都问{name}"}
+          资料检索: {words: [资料, 查证, 考据, 出处, 检索], known: "要查个出处大家都找{name}"}
+          整理归纳: {words: [整理, 收纳, 归纳, 目录, 清单, 归档], known: "楼里东西找不着都问{name}"}
+          画画审美: {words: [画画, 画, 配色, 设计, 审美, 拍照, 摄影], known: "要挑颜色挑样子都找{name}"}
+          音乐: {words: [音乐, 歌, 唱歌, 吉他, 钢琴, 乐理], known: "想听点什么都问{name}"}
+          天文科学: {words: [星星, 天文, 星空, 宇宙, 物理, 科学], acts: ["rooftop:stargaze"], known: "天上有什么动静大家都问{name}"}
+          历史文学: {words: [历史, 古代, 文学, 典故, 诗词], known: "聊到以前的事大家都等{name}开讲"}
+          做饭: {words: [做饭, 菜谱, 厨房, 烘焙, 下厨, 美食], known: "楼里想吃点好的就去找{name}"}
+          手工修理: {words: [修理, 修好, 工具, 手工, 组装], known: "楼里东西坏了都找{name}"}
+          记账理财: {words: [记账, 理财, 省钱, 预算, 算账], known: "算不清账的都去问{name}"}
+          倾听照顾人: {words: [照顾, 倾听, 关心, 陪伴, 安慰, 温柔], known: "楼里谁心里不痛快都爱找{name}说说"}
+          活跃气氛: {words: [热闹, 玩笑, 段子, 搞笑, 气氛], acts: ["lounge:chat"], known: "有{name}在场就冷不下来"}
+          运动: {words: [运动, 健身, 跑步, 瑜伽, 球], acts: ["gym:exercise"], known: "想练练身体的都跟着{name}"}
+          游戏: {words: [游戏, 通关, 抽卡, 桌游], acts: ["lounge:game"], known: "游戏卡关了都找{name}"}
   moments:                         # 朋友圈：成员每天最多发 1 条，互相点赞（免费）、评论
     enabled: true
     posts_per_member: 1
@@ -667,6 +750,18 @@ chat:
         - {name: 聚会, tags: [life.gather], mood: 0.03, energy: -0.03}
         - {name: 两人聊天, tags: [life.pair], mood: 0.02, energy: -0.02}
         - {name: 独处, tags: [life.solo], energy: 0.03}
+        - {name: 生活里的好事, tags: [story.good], mood: 0.06}
+        - {name: 生活里的糟心事, tags: [story.bad], mood: -0.06, note: 刚有件小事不太顺}
+        - {name: 不舒服, tags: [story.sick], mood: -0.05, energy: -0.12, note: 身体不太舒服}
+        - {name: 好多了, tags: [story.better], mood: 0.06, energy: 0.05}
+        - {name: 熬夜, tags: [story.late], energy: -0.08}
+        - {name: 犯困, tags: [story.tired], energy: -0.15, note: 昨晚没睡好，有点困}
+        - {name: 发现自己擅长, tags: [story.talent], mood: 0.12}
+        - {name: 卡住了, tags: [story.stuck], mood: -0.08, note: 最近有件事卡住了}
+        - {name: 想通了, tags: [story.unstuck], mood: 0.12}
+        - {name: 刚搬来, tags: [story.new], energy: -0.05}
+        - {name: 迎新, tags: [story.welcome], mood: 0.04}
+        - {name: 有人搬走, tags: [story.farewell], mood: -0.08, note: 楼里有人搬走了}
         - {name: 干完活, tags: [work], mood: 0.02, energy: -0.08, note: 刚在办公室干完一件活}
         - {name: 看到听到, tags: [perceive], mood: 0.02}
       mood_labels: [[0.45, 心情很好], [0.15, 心情不错], [-0.15, 心情平常], [-0.45, 心情有点低落], [-2, 心情很差]]

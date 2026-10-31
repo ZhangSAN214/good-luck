@@ -378,7 +378,9 @@ class StatePlugin:
         if kind == "chat.message":
             self._chat(event, add)
         elif kind == "life.event":
-            add(event.member, "life", f"life.{data.get('kind', '')}")
+            # 生活事件库的事还带着这一步的标签（story.sick 不舒服、story.good 好事……）
+            tags = [str(t) for t in data.get("tags") or []]
+            add(event.member, "life", f"life.{data.get('kind', '')}", *tags)
         elif kind == "work.done":
             add(event.member, "work")
         elif kind.startswith(PERCEIVE):

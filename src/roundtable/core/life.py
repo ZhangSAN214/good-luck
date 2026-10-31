@@ -38,6 +38,7 @@ from roundtable.core.life_guard import ERRORS, LifeGuard
 from roundtable.core.member.about import AboutYou
 from roundtable.core.member.brain import Brain, intent_text
 from roundtable.core.member.relation import RelationPlugin
+from roundtable.core.member.story import STORY, StoryEngine
 from roundtable.core.member.voice import Said, before_voice, recent_words, voice_for
 from roundtable.core.meme_radar import SEARCH_STEP as MEME_SEARCH_STEP
 from roundtable.core.meme_radar import STEP as MEME_STEP
@@ -95,6 +96,8 @@ class LifeEngine:
         self.browse = Browser(rt, hub, self.allowed)
         self.memes = MemeRadar(rt, self.allowed)
         self.moments = Moments(rt, hub, self.allowed)
+        # P7 生活引擎（L0 / L10）：事件库 + 长线剧情 + 按爱好挑去处 + 擅长觉醒（程序挑，不花钱）
+        self.story = StoryEngine(rt)
         self._planned: Brain | None = None
 
     @property
@@ -143,6 +146,7 @@ class LifeEngine:
         if not members:
             return []
         names = {m.id: m.name for m in members}
+        self.story.reset()
         relation = RelationPlugin(self.rt, names=lambda: names)
         weights = self._weights(relation, list(names), end)
         brain = Brain(self.rt, buffer={})  # 排日程只写内存；tick 里真发生了才落库
@@ -157,6 +161,8 @@ class LifeEngine:
             acts: dict[str, str] = {}
             for m in members:
                 place, act = schedule(m.id, slot.hour, slot.weekday())
+                # 生活引擎：空闲时段按各自爱好挑去处（不按编号轮换），生病那天在宿舍歇着
+                place, act = self.story.prefer(m.id, slot, place, act)
                 # 大脑分区：空闲时段按驱力和在做的事自己挑去哪、做什么（不是空闲时段照作息表）
                 place, act = brain.choose_activity(m.id, slot, place, act)
                 acts[m.id] = act
@@ -255,6 +261,10 @@ class LifeEngine:
             f"在场：{'、'.join(names.get(i, i) for i in p.members)}",
             f"今天的事：{'；'.join(p.work) if p.work else NOTHING}",
         ]
+        if p.kind != "solo":  # 在场的人最近几天的生活（感冒了、刚学会一道菜……）：背景，不是台词
+            recent = self.story.recent(p.members, p.at, names)
+            if recent:
+                lines.append(recent)
         return "\n".join(lines)
 
     @staticmethod
@@ -282,6 +292,10 @@ class LifeEngine:
         if start >= now:
             return out
         offline = now - start > tick * 2
+        # 生活事件库先挑好这几天的事（生病歇着的那天，下面排去处时不出门）
+        everyone = {m.id: m.name for m in self.hub.everyone()}
+        live = {m.id: m.name for m in self.hub.everyone() if m.available}
+        happenings = self.story.advance(start, now, live, everyone)
         plans = self.plan(start, now)
         if self._planned is not None:
             self._planned.flush()  # 这段时间里她们自己挑的去处、练的事算数了
@@ -313,6 +327,11 @@ class LifeEngine:
             out["events"] += 1
             out["written"] += int(bool(written))
             out["messages"] += written
+        for h in happenings:  # 只记一行（kind = story）；心情、记忆由 P3 / P2 从这里接
+            repo.add_life_event(
+                iso(h.at), STORY, h.members, place=h.place, topic=h.topic, offline=offline
+            )
+        out["stories"] = len(happenings)
         repo.set_setting(LAST_TICK_KEY, now.isoformat())
         out["memories"] = await self.memory.catch_up(now, offline=offline)
         if self.guard.room_left() > 0:
