@@ -159,19 +159,34 @@ export class BenchGenPanel {
     }
     if (seq !== this.seq) return;
     this.st = st;
+    // 状态没变就不重画：重画会换掉按钮，正巧在你按下按钮时换掉，这一下就点空了
+    const key = JSON.stringify(st);
+    if (key === this.shown) return;
     // 正在打字、或在预览成品时不重画（不然输入框和成品会被刷掉）
     const typing = this.el.contains(document.activeElement?.closest('input,textarea') || null);
-    if (this.isOpen() && !typing && !this.preview && !this.dirty) this.render();
+    if (this.isOpen() && !typing && !this.preview && !this.dirty) {
+      this.shown = key;
+      this.render();
+    }
   }
 
   async open() {
     this.err = '';
+    const seq = ++this.seq;
+    let st = null;
     try {
-      this.st = await this.api.status();
+      st = await this.api.status();
     } catch (e) {
       this.err = e.message;
     }
-    this.render();
+    // 取状态这段时间里你点了按钮：以那次的结果为准，这份旧的不用
+    if (seq !== this.seq) return this.schedule();
+    if (st) this.st = st;
+    const key = JSON.stringify(this.st);
+    if (key !== this.shown || this.err || !this.el.firstChild) {
+      this.shown = key;
+      this.render();
+    }
     this.schedule();
   }
 
@@ -886,6 +901,7 @@ export class BenchGenPanel {
       this.err = x.message;
     }
     if (this.viewing && this.st && this.st.current && this.st.current.id === this.viewing.id) this.viewing = null;
+    this.shown = JSON.stringify(this.st);
     this.render();
     this.schedule();
   }
