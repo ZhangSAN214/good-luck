@@ -388,11 +388,28 @@ class BenchReqItem(BaseModel):
     text: str = Field(max_length=300)
 
 
+class BenchDesignBody(BaseModel):
+    """选型台上点的：每项一个选项 id（程序会再按目录核对），参考作品、窗口宽窄、去掉的窗口。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    layout: str = Field(default="", max_length=20)
+    theme: str = Field(default="", max_length=20)
+    material: str = Field(default="", max_length=20)
+    density: str = Field(default="", max_length=20)
+    corner: str = Field(default="", max_length=20)
+    type: str = Field(default="", max_length=20)
+    refs: list[str] | None = Field(default=None, max_length=12)
+    spans: dict[str, int] = Field(default_factory=dict, max_length=12)
+    drop: list[str] = Field(default_factory=list, max_length=12)
+
+
 class BenchSignBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     requirements: list[BenchReqItem] | None = Field(default=None, max_length=30)
     note: str = Field(default="", max_length=1000)
+    design: BenchDesignBody | None = None
 
 
 class BenchDecideBody(BaseModel):
@@ -878,7 +895,10 @@ def create_app(service: RoundtableService | None = None, lan: LanAccess | None =
         reqs = (
             [r.model_dump() for r in body.requirements] if body.requirements is not None else None
         )
-        return await svc(request).bench_project(bench_id, "sign", requirements=reqs, note=body.note)
+        design = body.design.model_dump(exclude_none=True) if body.design is not None else None
+        return await svc(request).bench_project(
+            bench_id, "sign", requirements=reqs, note=body.note, design=design
+        )
 
     @app.post("/api/bench/{bench_id}/review")
     async def bench_review(

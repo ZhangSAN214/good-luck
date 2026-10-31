@@ -1004,7 +1004,9 @@ class RoundtableService:
             if action == "answer":
                 self.bench.answer(bench_id, kw.get("answers") or {})
             elif action == "sign":
-                self.bench.sign(bench_id, kw.get("requirements"), kw.get("note") or "")
+                self.bench.sign(
+                    bench_id, kw.get("requirements"), kw.get("note") or "", kw.get("design")
+                )
             elif action == "review":
                 self.bench.review(bench_id, kw.get("decision") or "", kw.get("comments"))
             elif action == "evolve":

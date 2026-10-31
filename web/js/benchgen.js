@@ -26,6 +26,30 @@ export const STATUS = {
   delivered: '已交付',
   evolving: '正在出下一版提案',
 };
+// 选型台：某个版型下窗口的顺序和宽度（和后端 spec.py 的 layout_spans 一样算，签字后成品照这个排）
+const rows = (ids, per) => {
+  const out = [];
+  for (let i = 0; i < ids.length; i += per) {
+    const row = ids.slice(i, i + per);
+    row.forEach((id) => out.push([id, 12 / row.length]));
+  }
+  return out;
+};
+export function layoutSpans(wins, hero, layout) {
+  const ids = wins.map((w) => w.id);
+  const h = ids.includes(hero) ? hero : ids[0];
+  const rest = ids.filter((x) => x !== h);
+  if (layout === 'hero-side') return rest.length ? [[h, 8], [rest[0], 4], ...rows(rest.slice(1), 3)] : [[h, 12]];
+  if (layout === 'hero-wide') return [[h, 12], ...rows(rest, 3)];
+  if (layout === 'dashboard') return rows([h, ...rest], 3);
+  if (layout === 'workspace') return rest.length < 2 ? layoutSpans(wins, hero, 'hero-side') : [[rest[0], 3], [h, 6], [rest[1], 3], ...rows(rest.slice(2), 2)];
+  if (layout === 'stream') return [h, ...rest].map((x) => [x, 12]);
+  return wins.map((w) => [w.id, w.span]);
+}
+const SPANS = [3, 4, 6, 8, 12];
+const SPAN_NAME = { 3: '窄', 4: '三分之一', 6: '一半', 8: '三分之二', 12: '通栏' };
+const DESK_W = 1280;
+const PHONE_W = 390;
 // 项目室四个阶段（你是甲方，几位助手是乙方）
 const STAGES = ['立项', '执行', '交付', '革新'];
 const GATE_STAGE = { interview: 0, sign: 0, accept: 2 };
@@ -94,12 +118,26 @@ export class BenchGenPanel {
     this.timer = null;
     this.net = null; // 联网自检的结果（null 没测过，'busy' 正在测）
     this.dirty = false; // 项目室的表单里填了还没交：定时刷新不重画，免得把你写的冲掉
+    this.pick = null; // 选型台上点的（版型、配色、材质……、参考、窗口宽窄和去掉的），签字时一起交
+    this.icons = null; // 预览里画图标用（零件库的 icons.js，第一次打开选型台时加载）
     this.seq = 0; // 每次取状态加一：你点了按钮之后，之前发出去的定时刷新回来也不用（是旧的）
     el.addEventListener('click', (e) => this.onClick(e));
     el.addEventListener('input', (e) => {
       if (e.target.matches('[data-text]')) this.draft = e.target.value;
       if (e.target.closest('[data-form]')) this.dirty = true;
     });
+    el.addEventListener('change', (e) => {
+      const x = e.target;
+      if (!this.pick) return;
+      if (x.matches('[data-dref]')) this.pick.refs[x.checked ? 'add' : 'delete'](x.dataset.dref);
+      else if (x.matches('[data-dspan]')) {
+        if (x.value) this.pick.spans[x.dataset.dspan] = Number(x.value);
+        else delete this.pick.spans[x.dataset.dspan];
+      } else if (x.matches('[data-ddrop]')) this.pick.drop[x.checked ? 'delete' : 'add'](x.dataset.ddrop);
+      else return;
+      this.redrawDesign();
+    });
+    this.ro = typeof ResizeObserver === 'function' ? new ResizeObserver(() => this.fitPreview()) : null;
     window.addEventListener('message', (e) => this.onMessage(e));
     this.refresh();
     this.schedule();
@@ -121,19 +159,34 @@ export class BenchGenPanel {
     }
     if (seq !== this.seq) return;
     this.st = st;
+    // 状态没变就不重画：重画会换掉按钮，正巧在你按下按钮时换掉，这一下就点空了
+    const key = JSON.stringify(st);
+    if (key === this.shown) return;
     // 正在打字、或在预览成品时不重画（不然输入框和成品会被刷掉）
     const typing = this.el.contains(document.activeElement?.closest('input,textarea') || null);
-    if (this.isOpen() && !typing && !this.preview && !this.dirty) this.render();
+    if (this.isOpen() && !typing && !this.preview && !this.dirty) {
+      this.shown = key;
+      this.render();
+    }
   }
 
   async open() {
     this.err = '';
+    const seq = ++this.seq;
+    let st = null;
     try {
-      this.st = await this.api.status();
+      st = await this.api.status();
     } catch (e) {
       this.err = e.message;
     }
-    this.render();
+    // 取状态这段时间里你点了按钮：以那次的结果为准，这份旧的不用
+    if (seq !== this.seq) return this.schedule();
+    if (st) this.st = st;
+    const key = JSON.stringify(this.st);
+    if (key !== this.shown || this.err || !this.el.firstChild) {
+      this.shown = key;
+      this.render();
+    }
     this.schedule();
   }
 
@@ -186,6 +239,7 @@ export class BenchGenPanel {
       ${library}
       ${recent ? `<details><summary>最近生成的</summary><ul class="sc-recent">${recent}</ul></details>` : ''}
     </div>`;
+    if (this.el.querySelector('[data-dpreview]')) this.drawPreview();
   }
 
   /** 联网自检的结果：每项通不通、多快；不通的写原因。 */
@@ -399,6 +453,162 @@ export class BenchGenPanel {
     </div>`;
   }
 
+  /** 选型台的状态：第一次打开某个台的方案书时，按拆需求助手的推荐填好。 */
+  ensurePick(b) {
+    const d = (b.proposal || {}).design || {};
+    if (this.pick && this.pick.bid === b.id) return this.pick;
+    const picks = d.picks || {};
+    this.pick = {
+      bid: b.id,
+      ...picks,
+      refs: new Set((d.refs || []).map((r) => r.name)),
+      spans: {},
+      drop: new Set(),
+      view: { mode: 'light', device: 'desk' },
+    };
+    return this.pick;
+  }
+
+  /** 签字时交的选型：只交改过宽窄的窗口。 */
+  designChoice(b) {
+    const d = (b.proposal || {}).design;
+    if (!d || !this.pick || this.pick.bid !== b.id) return undefined;
+    const out = { refs: [...this.pick.refs], spans: { ...this.pick.spans }, drop: [...this.pick.drop] };
+    for (const dim of d.dims || []) out[dim.key] = this.pick[dim.key] || '';
+    return out;
+  }
+
+  /** 现在的选型下窗口怎么排：先按版型，再去掉不要的、套上你调的宽窄。 */
+  arranged(b) {
+    const p = b.proposal || {};
+    const pick = this.pick;
+    const wins = (p.windows || []).filter((w) => !pick.drop.has(w.id));
+    const byId = Object.fromEntries(wins.map((w) => [w.id, w]));
+    return layoutSpans(wins, p.hero, pick.layout || 'plan').map(([id, n]) => ({ ...byId[id], span: pick.spans[id] || n }));
+  }
+
+  /** 选型台：左边每项的选项（带「推荐」和理由）、参考作品、窗口宽窄；右边实时预览。 */
+  designHtml(b) {
+    const d = (b.proposal || {}).design;
+    if (!d || !(d.dims || []).length) return '';
+    const pick = this.ensurePick(b);
+    return `<section class="bg-design" aria-label="设计选型">
+      <h4>设计选型（点一下右边马上变，不花次数）</h4>
+      <div class="bg-design-cols"><div class="bg-design-opts" data-dopts>${this.designOpts(b, d, pick)}</div>
+      <div class="bg-design-view">${this.viewBar(pick)}
+        <div class="bg-dframe" data-dframe><iframe data-dpreview title="工作台预览" srcdoc="${esc('<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><link rel="stylesheet" href="/kit/kit.css"></head><body class="k-root"></body></html>')}"></iframe></div>
+        <p class="sc-hint">预览用的是成品同一套样式；窗口里先放用途、零件和按钮，内容开工后才写。</p></div></div>
+    </section>`;
+  }
+
+  viewBar(pick) {
+    const seg = (key, opts) => opts.map(([v, t]) => `<button type="button" class="chip" data-dz="${key}" data-v="${v}" aria-pressed="${pick.view[key] === v}">${t}</button>`).join('');
+    return `<div class="bg-dview" data-dviewbar>${seg('device', [['desk', '电脑'], ['phone', '手机']])}<span class="sc-gap"></span>${seg('mode', [['light', '浅色'], ['dark', '深色']])}</div>`;
+  }
+
+  designOpts(b, d, pick) {
+    const dims = (d.dims || [])
+      .map((dim) => {
+        const rec = (d.recommend || {})[dim.key];
+        const cur = dim.options.find((o) => o.id === pick[dim.key]) || dim.options[0];
+        const chips = dim.options
+          .map((o) => `<button type="button" class="chip" data-dz="${esc(dim.key)}" data-v="${esc(o.id)}" aria-pressed="${o.id === pick[dim.key]}" title="${esc(o.hint)}">${esc(o.label)}${o.id === rec ? '<span class="bg-rec">推荐</span>' : ''}</button>`)
+          .join('');
+        const why = (d.why || {})[dim.key];
+        return `<div class="bg-dim"><b>${esc(dim.label)}</b><span class="bg-opts">${chips}</span>
+          <span class="sc-sub">${esc(cur.hint)}${why && cur.id === rec ? `。推荐理由：${esc(why)}` : ''}</span></div>`;
+      })
+      .join('');
+    const refs = (d.refs || [])
+      .map((r) => `<li><label><input type="checkbox" data-dref="${esc(r.name)}" ${pick.refs.has(r.name) ? 'checked' : ''}> <b>${esc(r.name)}</b> <span class="bg-src">${esc(r.from || '')}</span> ${esc(r.borrow || '')}</label></li>`)
+      .join('');
+    const p = b.proposal || {};
+    const auto = Object.fromEntries(layoutSpans((p.windows || []).filter((w) => !pick.drop.has(w.id)), p.hero, pick.layout || 'plan'));
+    const wins = (p.windows || [])
+      .map((w) => {
+        const off = pick.drop.has(w.id);
+        const opts = [`<option value="">跟版型（${esc(SPAN_NAME[auto[w.id]] || '—')}）</option>`, ...SPANS.map((n) => `<option value="${n}" ${pick.spans[w.id] === n ? 'selected' : ''}>${SPAN_NAME[n]}</option>`)].join('');
+        return `<li class="${off ? 'bg-off' : ''}"><label><input type="checkbox" data-ddrop="${esc(w.id)}" ${off ? '' : 'checked'} ${w.id === p.hero ? 'disabled' : ''} aria-label="要「${esc(w.title)}」"> ${esc(w.title)}${w.id === p.hero ? '（主视觉）' : ''}</label>
+          <select data-dspan="${esc(w.id)}" aria-label="「${esc(w.title)}」的宽度" ${off ? 'disabled' : ''}>${opts}</select></li>`;
+      })
+      .join('');
+    return `${dims}
+      ${refs ? `<div class="bg-dim"><b>参考作品（勾上的写进规格，助手照着借鉴）</b><ul class="bg-drefs">${refs}</ul></div>` : ''}
+      <div class="bg-dim"><b>窗口（去掉勾就不做，宽度可调）</b><ul class="bg-dwins">${wins}</ul></div>
+      <button type="button" class="link" data-dreset>恢复推荐</button>`;
+  }
+
+  /** 选型变了：只重画左边的选项和右边的预览，不碰你在验收清单里改的字。 */
+  redrawDesign() {
+    this.dirty = true;
+    const b = this.viewing || (this.st || {}).current;
+    const box = this.el.querySelector('[data-dopts]');
+    if (!b || !box) return;
+    box.innerHTML = this.designOpts(b, b.proposal.design, this.pick);
+    this.el.querySelector('[data-dviewbar]').outerHTML = this.viewBar(this.pick);
+    this.drawPreview();
+  }
+
+  /** 实时预览：在 iframe 里用零件库的样式画出顶栏和每个窗口（宽窄、顺序、主视觉、材质……都和成品一样）。 */
+  async drawPreview() {
+    const frame = this.el.querySelector('[data-dpreview]');
+    const b = this.viewing || (this.st || {}).current;
+    if (!frame || !b || !this.pick) return;
+    const doc = frame.contentDocument;
+    // srcdoc 还没载入时 contentDocument 是一张空白页（about:blank），等它载完再画
+    if (!doc || doc.URL !== 'about:srcdoc' || doc.readyState !== 'complete' || !doc.body) {
+      frame.addEventListener('load', () => this.drawPreview(), { once: true });
+      return;
+    }
+    if (!this.icons) {
+      try {
+        this.icons = (await import('/kit/icons.js')).icon;
+      } catch {
+        this.icons = () => '';
+      }
+    }
+    const p = b.proposal || {};
+    const d = p.design || {};
+    const pick = this.pick;
+    const root = doc.documentElement;
+    root.dataset.kTheme = pick.theme || 'ink';
+    root.dataset.kMode = pick.view.mode;
+    for (const k of ['material', 'density', 'corner', 'type']) root.dataset[`k${k[0].toUpperCase()}${k.slice(1)}`] = pick[k] || '';
+    const ic = (name, size = 17) => this.icons(name, { size });
+    const cards = this.arranged(b)
+      .map((w) => {
+        const hero = w.id === p.hero;
+        const acts = (w.actions || []).slice(0, 3).map((a, i) => `<button type="button" class="k-btn${i === 0 ? ' k-primary' : ''}">${esc(a)}</button>`).join('');
+        const parts = (w.parts || []).slice(0, 5).map((x) => `<span class="k-badge">${esc(x)}</span>`).join('');
+        const body = hero
+          ? `<div class="k-stack" style="padding:22px 22px 18px;flex:1;justify-content:flex-end;background:linear-gradient(160deg,var(--k-accent-soft),transparent 70%)"><span class="k-kicker">${esc(w.title)}</span><p class="k-display">${esc(d.tagline || p.subtitle || w.title)}</p><p class="k-muted">${esc(w.purpose)}</p><div class="k-row">${parts}</div><div class="k-row">${acts}</div></div>`
+          : `<div class="k-stack"><p class="k-muted">${esc(w.purpose)}</p><div class="k-row">${parts}</div><div class="k-row">${acts}</div></div>`;
+        return `<section class="k-card k-span-${w.span}${hero ? ' k-hero' : ''}" data-pw="${esc(w.id)}" data-span="${w.span}"><div class="k-card-h"><span class="k-ico-wrap">${ic(w.icon || 'layout-grid')}</span><div><h2>${esc(w.title)}</h2>${w.sub ? `<div class="k-sub">${esc(w.sub)}</div>` : ''}</div></div><div class="k-card-b">${body}</div></section>`;
+      })
+      .join('');
+    doc.body.innerHTML = `<div class="k-page"><header class="k-topbar"><div class="k-brand"><span class="k-logo">${ic(p.icon || 'layers', 20)}</span><div><h1>${esc(p.title || '')}</h1><div class="k-sub">${esc(p.subtitle || '')}</div></div></div></header><main class="k-grid">${cards}</main></div>`;
+    this.fitPreview();
+  }
+
+  /** 电脑按 1280 宽画再缩到框里；手机按 390 宽原样画。 */
+  fitPreview() {
+    const box = this.el.querySelector('[data-dframe]');
+    const frame = box && box.querySelector('iframe');
+    if (!frame || !this.pick) return;
+    if (this.ro && !box.dataset.watched) {
+      this.ro.observe(box);
+      box.dataset.watched = '1';
+    }
+    const phone = this.pick.view.device === 'phone';
+    const w = phone ? PHONE_W : DESK_W;
+    const scale = Math.min(1, (box.clientWidth || w) / w);
+    const doc = frame.contentDocument;
+    const h = Math.max(480, Math.min(2400, doc && doc.body ? doc.documentElement.scrollHeight : 800));
+    Object.assign(frame.style, { width: `${w}px`, height: `${h}px`, transform: `scale(${scale})` });
+    box.style.height = `${Math.ceil(h * scale)}px`;
+    box.dataset.device = phone ? 'phone' : 'desk';
+  }
+
   winTitle(b, wid) {
     return ((b.windows || []).find((w) => w.id === wid) || {}).title || wid;
   }
@@ -429,14 +639,26 @@ export class BenchGenPanel {
             : `<li data-req="${esc(r.id)}"><b>${esc(r.id)}</b> <input type="text" value="${esc(r.text)}" aria-label="要求 ${esc(r.id)}" maxlength="300"><button type="button" class="link" data-delreq aria-label="删掉 ${esc(r.id)}">删掉</button></li>`,
         )
         .join('');
-      const wins = (p.windows || []).map((w) => `<li>${esc(w.title)}${w.id === p.hero ? ' <b>（主视觉）</b>' : ''}：${esc(w.purpose)}</li>`).join('');
+      const wins = (p.windows || [])
+        .map(
+          (w) => `<li><details><summary><b>${esc(w.title)}</b>${w.id === p.hero ? ' （主视觉）' : ''}：${esc(w.purpose)}</summary>
+            ${w.data ? `<p><b>数据</b>：${esc(w.data)}</p>` : ''}
+            ${(w.actions || []).length ? `<p><b>能做的事</b>：${esc(w.actions.join('、'))}</p>` : ''}
+            ${(w.parts || []).length ? `<p><b>用到的零件</b>：${esc(w.parts.join('、'))}</p>` : ''}</details></li>`,
+        )
+        .join('');
+      const links = (p.links || []).map((x) => `<li>${esc(x)}</li>`).join('');
+      const shared = (p.shared || []).map((x) => `<li>${esc(x)}</li>`).join('');
       const ms = (p.milestones || []).map((m) => `<li>${esc(m.title)}：${esc((m.titles || []).join('、'))}</li>`).join('');
       const tech = (p.tech || []).map((t) => `<li>${esc(t)}</li>`).join('');
       const plugins = (p.plugins || []).length ? `<p class="sc-hint">建议给 dsh 装的插件：${esc(p.plugins.join('、'))}（在下面调研报告里点「申请装上」）</p>` : '';
       return `<div class="bg-gate" data-form>${head}
+        ${this.designHtml(b)}
         <h4>验收清单（你的要求可以改、删、加；底线不能删）</h4><ul class="bg-reqs bg-sign-reqs">${reqs}</ul>
         <button type="button" class="link" data-addreq>加一条要求</button>
-        <h4>窗口</h4><ul class="bg-list">${wins}</ul>
+        <h4>窗口（点开看数据、操作和零件）</h4><ul class="bg-list bg-wins">${wins}</ul>
+        ${links ? `<h4>窗口之间怎么联动</h4><ul class="bg-list">${links}</ul>` : ''}
+        ${shared ? `<h4>共用信息（只放一份，各窗口都从这里读）</h4><ul class="bg-list">${shared}</ul>` : ''}
         <h4>里程碑（每个都先演示给你看）</h4><ol class="bg-list">${ms}</ol>
         ${(p.meeting || []).length ? `<h4>方案会：谁提了什么、为什么采纳</h4><ul class="bg-list">${p.meeting.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}
         ${tech ? `<h4>借鉴的项目</h4><ul class="bg-list">${tech}</ul>` : ''}
@@ -564,6 +786,18 @@ export class BenchGenPanel {
       if (t.closest('[data-answer]')) form.querySelectorAll('textarea[data-q]').forEach((x) => (answers[x.dataset.q] = x.value));
       return this.act(() => this.api.answer(b.id, answers));
     }
+    const dz = t.closest('[data-dz]');
+    if (dz && this.pick) {
+      const [key, value] = [dz.dataset.dz, dz.dataset.v];
+      if (key === 'mode' || key === 'device') this.pick.view[key] = value;
+      else this.pick[key] = value;
+      return this.redrawDesign();
+    }
+    if (t.closest('[data-dreset]') && this.pick) {
+      this.pick = null;
+      this.ensurePick(b);
+      return this.redrawDesign();
+    }
     if (t.closest('[data-addreq]')) {
       const li = document.createElement('li');
       li.dataset.req = '';
@@ -581,7 +815,7 @@ export class BenchGenPanel {
     if (t.closest('[data-sign]')) {
       const reqs = [...form.querySelectorAll('li[data-req]')].map((li) => ({ id: li.dataset.req, text: li.querySelector('input').value }));
       const note = form.querySelector('[data-note]').value;
-      return this.act(() => this.api.sign(b.id, reqs, note));
+      return this.act(() => this.api.sign(b.id, reqs, note, this.designChoice(b)));
     }
     if (t.closest('[data-pass]')) return this.act(() => this.api.review(b.id, 'pass'));
     if (t.closest('[data-change]')) {
@@ -667,6 +901,7 @@ export class BenchGenPanel {
       this.err = x.message;
     }
     if (this.viewing && this.st && this.st.current && this.st.current.id === this.viewing.id) this.viewing = null;
+    this.shown = JSON.stringify(this.st);
     this.render();
     this.schedule();
   }

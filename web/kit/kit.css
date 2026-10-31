@@ -416,3 +416,40 @@
 .k-ck { padding: 7px 2px; }
 .k-ck label { cursor: pointer; display: flex; flex-direction: column; }
 .k-ck.k-done .k-title { color: var(--k-fg-3); text-decoration: line-through; }
+
+/* ---------- 设计选型（方案阶段在选型台上选的，外壳写在 <html data-k-*> 上） ---------- */
+/* 材质：solid 实色（默认）、glass 液态玻璃、paper 纸感、flat 扁平、outline 线框 */
+[data-k-material="glass"] .k-root {
+  background:
+    radial-gradient(900px 520px at 8% -6%, color-mix(in srgb, var(--k-accent) 30%, transparent), transparent 62%),
+    radial-gradient(760px 520px at 96% 4%, color-mix(in srgb, var(--k-s3) 24%, transparent), transparent 60%),
+    radial-gradient(900px 600px at 50% 110%, color-mix(in srgb, var(--k-s4) 18%, transparent), transparent 60%),
+    var(--k-bg);
+  background-attachment: fixed;
+}
+[data-k-material="glass"] .k-card, [data-k-material="glass"] .k-stat {
+  background: color-mix(in srgb, var(--k-surface) 64%, transparent);
+  border-color: color-mix(in srgb, var(--k-fg) 10%, transparent);
+  backdrop-filter: blur(20px) saturate(1.4); -webkit-backdrop-filter: blur(20px) saturate(1.4);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--k-surface) 50%, transparent), var(--k-shadow-lg);
+}
+[data-k-material="paper"] .k-root { background: var(--k-bg); }
+[data-k-material="paper"] .k-card, [data-k-material="paper"] .k-stat { box-shadow: none; border-color: var(--k-line-strong); }
+[data-k-material="flat"] .k-card, [data-k-material="flat"] .k-stat { box-shadow: none; border-color: transparent; background: var(--k-surface-2); }
+[data-k-material="outline"] .k-root { background: var(--k-bg); }
+[data-k-material="outline"] .k-card, [data-k-material="outline"] .k-stat { box-shadow: none; background: transparent; border: 1.5px solid var(--k-line-strong); }
+/* 密度：cozy 宽松、normal 标准（默认）、compact 紧凑 */
+[data-k-density="cozy"] { --k-gap: 20px; }
+[data-k-density="cozy"] .k-card-h { padding: 18px 22px 12px; }
+[data-k-density="cozy"] .k-card-b { padding: 8px 22px 22px; }
+[data-k-density="compact"] { --k-gap: 10px; }
+[data-k-density="compact"] .k-root { font-size: 13px; }
+[data-k-density="compact"] .k-card-h { padding: 10px 12px 6px; }
+[data-k-density="compact"] .k-card-b { padding: 4px 12px 12px; }
+/* 圆角：sharp 方正、normal 适中（默认）、round 圆润 */
+[data-k-corner="sharp"] { --k-r: 6px; --k-r-sm: 4px; --k-r-xs: 3px; }
+[data-k-corner="round"] { --k-r: 22px; --k-r-sm: 14px; --k-r-xs: 9px; }
+/* 字体气质：sans 现代无衬线（默认）、serif 衬线编辑感、mono 等宽技术感（只换标题和大字） */
+[data-k-type="serif"] { --k-head: "Noto Serif SC", "Source Han Serif SC", "Songti SC", "SimSun", Georgia, serif; }
+[data-k-type="mono"] { --k-head: var(--k-mono); }
+[data-k-type] .k-root h1, [data-k-type] .k-root h2, [data-k-type] .k-root h3, [data-k-type] .k-display, [data-k-type] .k-stat .k-value { font-family: var(--k-head, var(--k-font)); }
