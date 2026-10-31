@@ -52,6 +52,24 @@ def strip_phrases(text: str, phrases: list[str] | tuple[str, ...]) -> str:
     return "\n".join(lines) or text
 
 
+_STAGE = re.compile(r"[（(][^（）()\n]{0,24}[\u4e00-\u9fff]{2}[^（）()\n]{0,24}[）)]")
+
+
+def strip_stage(text: str) -> str:
+    """删掉行首或单独成行的括号动作描写（「（啪地合上折扇）」「(冒个泡)」）。
+    颜文字（括号里没有两个连着的汉字）和话中间的括号补充不动；整条只有它时照发。"""
+    if not text or not _STAGE.search(text):
+        return text
+    lines = []
+    for line in text.split("\n"):
+        m = _STAGE.match(line.strip())
+        if m is not None:
+            line = line.strip()[m.end() :].lstrip("，, ")
+        if line.strip():
+            lines.append(line)
+    return "\n".join(lines) or text
+
+
 class Slop:
     def __init__(self, rt: Any) -> None:
         self.rt = rt

@@ -178,3 +178,21 @@ def test_later_speakers_avoid_the_move_someone_just_used():
     assert pick(book, "V3", last="被我说中了吧", chosen="respond", at=later)  # 只有一位用过
     names_ = {e.name for e in load_config().roundtable.chat.engine.phrasebook.entries}
     assert {"换个壳", "补一刀"} <= names_
+
+
+def test_first_meeting_always_gets_the_no_resume_hint(first_meeting):
+    env, brain = setup()
+    c = brain.intent("V1", last="你好呀", named=True, group=False, at=NOON, seed="1")
+    assert "phrase:初见" in c.tags and "别做简历式自我介绍" in c.text
+    brain.after(c, NOON)
+    assert not Phrasebook(env.rt)._taken("初见", "V2", NOON)[1]  # 不算占用，8 位都能收到
+
+
+async def test_first_meeting_sends_at_most_two_bubbles(first_meeting):
+    env, _ = setup()
+    dm = ChatHub(env.rt).room(dm_room("V1"))
+    env.fake._default = lambda model, messages: "诶？\n\n老板好\n\n找我啥事\n\n我刚醒\n\n还困"
+    msg, speakers = dm.post("你好")
+    said = await dm.replies(msg["id"], speakers)
+    rows = [r for r in env.rt.repo.chat_messages(dm_room("V1")) if r["author"] == "V1"]
+    assert said and 1 <= len(rows) <= 2

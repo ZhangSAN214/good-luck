@@ -37,7 +37,7 @@ from roundtable.core.hometz import home_zone
 from roundtable.core.member.bus import Event, EventBus
 from roundtable.core.member.memes import strip_stale
 from roundtable.core.member.profile import ProfileStore
-from roundtable.core.member.slop import Slop, strip_phrases
+from roundtable.core.member.slop import Slop, strip_phrases, strip_stage
 from roundtable.core.storage.repository import iso
 
 KEY = "member_lingo:"
@@ -547,6 +547,7 @@ class Lingo:
         stale = self.rt.config.roundtable.chat.memes.stale
         text = strip_stale(text, stale)  # 老梗烂梗：含老梗的那一小句不说（10-31 用户）
         text = strip_phrases(text, Slop(self.rt).active())  # AI 腔：8 位一起高频、你很少说的
+        text = strip_stage(text)  # 括号里的动作描写（「（合上折扇）」）：聊天软件里没人这么打字
         if not text.strip():
             return [""]
         if not self.styled(member):  # 没有人物卡：只补她的招牌小尾巴（配置里写了的话）
@@ -560,11 +561,40 @@ class Lingo:
         out = "\n".join(self._end(line, h, rng) for line in out.split("\n"))
         out = self.signature_tail(member, out, rng)
         out = self._sprinkle(out, h, rng)
+        out = self._cap(member, out)
         out = _tidy(out)
         if not out:
             return [""]
         fixed = self._typo(member, out, energy, rng)
         return fixed if fixed else [out]
+
+    def _cap(self, member: str, text: str) -> str:
+        """特色限量（10-31 用户反向找问题：口头禅、表情、颜文字、自称全堆一条里像在完成清单）：
+        一条里「颜文字 / emoji」「招牌自称」「口头禅」超过 max_traits 样时，先删颜文字和 emoji，
+        还多就把自称换成「我」。单独成条的表情包不算。"""
+        cap = self.rules.max_traits
+        if not cap or not text.strip():
+            return text
+        from roundtable.core.member.voice import signature_of  # voice 只在函数里引用本模块
+
+        sig = signature_of(self.rt, member)
+        selves = list(sig.self_names) if sig is not None else []
+        faces = [*self.rules_kaomoji_all()]
+        has_face = bool(_EMOJI.search(text)) or any(k in text for k in faces)
+        has_self = any(n in text for n in selves)
+        phrases = (self._data(member).get("style") or {}).get("口头禅") or []
+        tics = [str(p).strip("。.！!") for p in phrases if 2 <= len(str(p).strip("。.！!")) <= 8]
+        has_tic = any(w in text for w in tics)
+        if has_face + has_self + has_tic <= cap:
+            return text
+        out = _EMOJI.sub("", text)
+        for k in sorted(faces, key=len, reverse=True):
+            out = out.replace(k, "")
+        out = _tidy(out) or text
+        if has_self + has_tic > cap:
+            for n in sorted(selves, key=len, reverse=True):
+                out = out.replace(n, "我")
+        return out
 
     def _sprinkle(self, text: str, h: Habits, rng: random.Random) -> str:
         """一条里一个表情都没有时，按概率在最后一行末尾补一个她自己的颜文字（问句、很短的不补）。"""

@@ -997,6 +997,7 @@ class Brain:
                 hurt=hurt,
                 at=at,
                 rng=random.Random(f"phrase:{member}:{iso(at)}:{seed}"),
+                first=to == USER and self._exchanges(member) < self.phrases.rules.first_exchanges,
             )
             if phrase is not None:
                 text = f"{text}\n{phrase[1]}"
@@ -1079,6 +1080,15 @@ class Brain:
             return float(RelationPlugin(self.rt).closeness(member, other, at))
         except Exception:  # noqa: BLE001 - 读不到亲近度就当普通关系
             return 0.0
+
+    def _exchanges(self, member: str) -> int:
+        """她和你一来一回了几次（关系插件记的）；读不到当聊过很多（不算第一次见）。"""
+        from roundtable.core.member.relation import RelationPlugin  # relation 不依赖本模块
+
+        try:
+            return int((RelationPlugin(self.rt).data(member)["user"] or {}).get("n", 0))
+        except Exception:  # noqa: BLE001
+            return 10**6
 
     def _psyche_thoughts(
         self,

@@ -437,3 +437,23 @@ def test_guesses_are_not_passed_on_and_scope_off_means_everyone_knows():
         update={"roundtable": cfg.model_copy(update={"chat": chat})}
     )
     assert "熬夜" in AboutYou(env.rt).lines("熬夜", member="V2")
+
+
+def test_your_identity_comes_first_in_dm_and_group_chat():
+    """10-31 用户定的初始身份：老板兼房东，私聊和群聊每次都带；关掉「关于你」就不带。"""
+    from roundtable.core.chat import with_about_you
+    from roundtable.core.memory import NONE
+
+    from ..orchestrator.conftest import Env
+
+    env = Env()
+    text = with_about_you(env.rt, NONE, "你好")
+    assert text.startswith("【对方是谁】") and "老板" in text and "房东" in text
+    cfg = env.rt.config.roundtable
+    about = cfg.chat.engine.about.model_copy(update={"enabled": False})
+    engine = cfg.chat.engine.model_copy(update={"about": about})
+    chat = cfg.chat.model_copy(update={"engine": engine})
+    env.rt.config = env.rt.config.model_copy(
+        update={"roundtable": cfg.model_copy(update={"chat": chat})}
+    )
+    assert "老板" not in with_about_you(env.rt, NONE, "你好")

@@ -1262,6 +1262,8 @@ class AboutRules(_Strict):
     来源、证据和把握度；推测会变淡，你亲口说的不变淡。只用于私聊和生活群，工作模式不挂载。"""
 
     enabled: bool = True
+    # 你的初始身份（10-31 用户定：老板兼房东）：私聊和群聊每次都接在「关于你」最前面
+    identity: str = Field(default="", max_length=120)
     # 画像分哪几个领域（可以按领域关掉）；夜间整理给的领域不在表里时归最后一个
     domains: list[str] = Field(
         default=[
@@ -2245,6 +2247,11 @@ class PhrasebookRules(_Strict):
     line: str = "这会儿可以用一招：{how}（用你自己的口气，别套固定句子）"
     entries: list[PhraseEntry] = Field(default_factory=list, max_length=60)
     learn: PhraseLearnRules = PhraseLearnRules()
+    # 第一次见你（和你来回不到 first_exchanges 次）：一定写进卡的一句
+    # （10-31 用户：第一次见面的自我介绍）
+    first_exchanges: int = Field(default=3, ge=0, le=50)
+    first_max: int = Field(default=2, ge=1, le=10)  # 第一次见你那次最多发几条气泡
+    first_line: str = ""
 
 
 class RhythmRules(_Strict):
@@ -2415,6 +2422,8 @@ class LingoRules(_Strict):
     drift: DriftRules = DriftRules()
     # 口吻指纹：草稿里别的成员的口头禅、颜文字、自称（她没学过的）发出前换回她自己的
     own_voice: bool = True
+    # 特色限量：一条里颜文字 / emoji、招牌自称、口头禅最多几样（0 = 不管；10-31 用户反向找问题）
+    max_traits: int = Field(default=2, ge=0, le=5)
 
 
 class EngineRules(_Strict):
@@ -2605,6 +2614,12 @@ class ChatRules(_Strict):
     tier: Tier = "budget"  # 每位成员用这个档位的模型发言（没有就用该成员最便宜的）
     max_repliers: int = Field(default=2, ge=1, le=6)  # 没有 @ 人时，一条消息最多几位回应
     max_mentioned: int = Field(default=8, ge=1, le=12)  # @全员 / 所有人 / @多人 时最多几位回应
+    # 你刚进群（在群里说过的话不到 newcomer_messages 条）时说「大家好」：最多 newcomer_max 位搭话
+    # （10-31 用户反向找问题：新人进群 8 个人轮流自我介绍像机器人）
+    newcomer_messages: int = Field(default=5, ge=0, le=100)
+    newcomer_max: int = Field(default=3, ge=1, le=12)
+    # 同一轮群聊里，后说的人和先说的人开头一样、条数一样（3 条以上）：后说的只发前 2 条
+    same_shape_trim: bool = True
     history_messages: int = Field(default=30, ge=4, le=200)  # 发给模型的最近聊天条数
     max_tokens: int = Field(default=500, ge=64)
     max_chars: int = Field(default=800, ge=50)  # 一条消息最多保留的字数

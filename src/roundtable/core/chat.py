@@ -141,7 +141,9 @@ def with_about_you(
 
     status = getattr(rt, "user_status", None)  # 第二块：你打开了的「此刻」状态
     about = AboutYou(rt).lines(query, member=member, names=names)  # 只带她知道的（知情范围）
-    parts = [about, status.line() if status is not None else ""]
+    rules = rt.config.roundtable.chat.engine.about
+    who = f"【对方是谁】{rules.identity}" if rules.enabled and rules.identity else ""
+    parts = [who, about, status.line() if status is not None else ""]
     about = "\n".join(p for p in parts if p)
     if not about:
         return memory
@@ -408,12 +410,22 @@ class GroupChat:
         if addresses_everyone(text) and not named:
             named = list(online)
             self.rng.shuffle(named)
+            if self._newcomer():  # 你刚进群说「大家好」：两三位搭话，其余潜水
+                named = named[: self.rng.randint(min(2, len(named)), self.rules.newcomer_max)]
         if named:
             return named[: self.rules.max_mentioned]
         if not online:
             return []
         k = self.rng.randint(1, min(self.rules.max_repliers, len(online)))
         return self.rng.sample(online, k)
+
+    def _newcomer(self) -> bool:
+        """你在这个群里说过的话还不到 newcomer_messages 条（含刚发的这条）。"""
+        n = self.rules.newcomer_messages
+        if self.kind != "group" or n <= 0:
+            return False
+        rows = self.rt.repo.chat_messages(self.room, limit=200)
+        return sum(1 for r in rows if r["author"] == USER) <= n
 
     def recent(self) -> list[dict[str, Any]]:
         return self.rt.repo.chat_messages(self.room, limit=self.rules.history_messages)
@@ -567,6 +579,7 @@ class GroupChat:
         round_no = self.round if round_no is None else round_no
         self.queued.extend(m.name for m in speakers)
         used: set[str] = set()  # 这一轮已经有人发过的表情包
+        shapes: list[tuple[str, int]] = []  # 这一轮已经发出的「开头两个字、条数」
         tasks = [asyncio.create_task(self._think(m, reply_to)) for m in speakers]
         out: list[dict[str, Any]] = []
         try:
@@ -578,6 +591,7 @@ class GroupChat:
                     break
                 if not isinstance(thought, Thought):
                     continue
+                thought = self._unshape(thought, shapes)
                 async with self._lock:
                     if self.stale(round_no):
                         continue
@@ -592,6 +606,17 @@ class GroupChat:
             for m in speakers:
                 self._unqueue(m.name)
             self.on_change()
+
+    def _unshape(self, thought: Thought, shapes: list[tuple[str, int]]) -> Thought:
+        """同一轮群聊里结构撞车（开头两个字一样、条数一样且 3 条以上）：后说的只发前 2 条。"""
+        if self.kind != "group" or not thought.segments:
+            return thought
+        head = re.sub(r"[^\u4e00-\u9fffA-Za-z0-9]", "", thought.segments[0].text)[:2]
+        shape = (head, len(thought.segments))
+        if self.rules.same_shape_trim and shape[1] >= 3 and head and shape in shapes:
+            thought = replace(thought, segments=thought.segments[:2])
+        shapes.append(shape)
+        return thought
 
     def _unqueue(self, name: str) -> None:
         if name in self.queued:
@@ -827,6 +852,8 @@ class GroupChat:
             kept = [
                 Segment(t, parsed.segments[0].quote if i == 0 else None) for i, t in enumerate(said)
             ]
+        if card is not None and "phrase:初见" in card.tags:  # 第一次见你：最多发 first_max 条
+            kept = kept[: rt.config.roundtable.chat.engine.phrasebook.first_max]
         return Thought(member, kept, completion.cost_usd or 0.0, variables["memory"])
 
     def _work_care(self, reply_to: int) -> str:

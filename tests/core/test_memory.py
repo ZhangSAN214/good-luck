@@ -151,7 +151,7 @@ async def test_chat_prompt_carries_memory_and_persona():
     msg, speakers = dm.post("在吗")
     await dm.replies(msg["id"], speakers)
     user = env.fake.calls[-1].messages[-1].content
-    assert "<memory>\n【记下的】用户说下周考试\n</memory>" in user
+    assert "<memory>\n【记下的】用户说下周考试\n【对方是谁】" in user  # 你的身份接在记忆后面
     assert "性格：爱较真" in user and "兴趣：天文" in user
 
 

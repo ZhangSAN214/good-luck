@@ -16,6 +16,9 @@
 - 写进意图卡的一句：一张卡最多一条；同一条她 ``reuse_days`` 天内不重复用；已经有 ``max_users`` 位
   在 ``taken_days`` 天里用过的，别人不再挑（免得 8 位一个腔调）。
   对方难受（情绪危机）、她正委屈时不用。
+- 第一次见你（和你来回不到 ``first_exchanges`` 次）：一定写一句
+  「别做简历式自我介绍，先给反应或抛钩子」
+  （10-31 用户：要求限定环境第一次见到我自我介绍）。
 
 只用于生活模式（意图卡），工作模式不挂载。8 位同一套规则，差别只来自性格分和她在不在乎你。
 """
@@ -110,11 +113,14 @@ class Phrasebook:
         hurt: bool,
         at: datetime,
         rng: random.Random,
+        first: bool = False,
     ) -> tuple[str, str] | None:
-        """返回 (标签, 写进意图卡的一句)；这会儿没有合适的就 None。"""
+        """返回 (标签, 写进意图卡的一句)；这会儿没有合适的就 None。first：第一次见你。"""
         r = self.rules
         if not self.enabled() or hurt or gist in r.skip_gists:
             return None
+        if first and r.first_line:
+            return f"{TAG}初见", r.first_line
         pool: list[tuple[float, str, str]] = []  # (权重, 名字, 那一句)
         for entry in r.entries:
             if not self.matches(entry, last=last, gist=gist, chosen=chosen):
@@ -144,7 +150,7 @@ class Phrasebook:
         return f"{TAG}{pool[-1][1]}", pool[-1][2]
 
     def after(self, member: str, tags: tuple[str, ...], at: datetime) -> None:
-        names = [t[len(TAG) :] for t in tags if t.startswith(TAG)]
+        names = [t[len(TAG) :] for t in tags if t.startswith(TAG) and t != f"{TAG}初见"]
         if not names:
             return
         used = _load(self.rt, USED_KEY)

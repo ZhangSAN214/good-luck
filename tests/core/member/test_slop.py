@@ -9,7 +9,7 @@ from datetime import UTC, datetime, timedelta
 from roundtable.core.chat import ROOM, WORK, ChatHub, dm_room, ensure_default_rooms
 from roundtable.core.config import load_config
 from roundtable.core.member.lingo import Lingo
-from roundtable.core.member.slop import ACTIVE_KEY, Slop, grams, strip_phrases
+from roundtable.core.member.slop import ACTIVE_KEY, Slop, grams, strip_phrases, strip_stage
 from roundtable.core.plain_talk import check
 
 from ..orchestrator.conftest import Env
@@ -155,3 +155,26 @@ def test_service_tone_rule():
         "这个问题挺好玩的，我也不知道",
     ):
         assert not hit(text), text
+
+
+def test_stage_directions_are_cut_but_kaomoji_and_asides_stay():
+    assert strip_stage("（啪地合上折扇）新面孔") == "新面孔"
+    assert strip_stage("……\n（冒个泡）\n诶，你好") == "……\n诶，你好"
+    assert strip_stage("哼 (￣^￣)") == "哼 (￣^￣)"  # 颜文字
+    assert strip_stage("我昨天（周二）去了趟超市") == "我昨天（周二）去了趟超市"  # 话中间的补充
+    assert strip_stage("（叹气）") == "（叹气）"  # 整条只有它：照发
+
+
+def test_too_many_signature_traits_in_one_message_are_thinned(monkeypatch):
+    from types import SimpleNamespace
+
+    from roundtable.core.member import voice
+
+    env = setup()
+    lingo = Lingo(env.rt)
+    monkeypatch.setattr(Lingo, "_data", lambda self, m: {"style": {"口头禅": ["只知道这些"]}})
+    monkeypatch.setattr(voice, "signature_of", lambda rt, m: SimpleNamespace(self_names=["本狐"]))
+    face = lingo.rules_kaomoji_all()[0]
+    out = lingo._cap("V1", f"本狐只知道这些 {face}")
+    assert face not in out and "本狐只知道这些" in out
+    assert lingo._cap("V1", f"今天下雨 {face}") == f"今天下雨 {face}"  # 只有一样：不动

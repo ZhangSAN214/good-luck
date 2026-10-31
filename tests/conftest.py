@@ -53,6 +53,22 @@ def _pace_instant(request, monkeypatch):
     monkeypatch.setattr(Pace, "gap", lambda self, member, text, base: base)
 
 
+@pytest.fixture(autouse=True)
+def _known_user(request, monkeypatch):
+    """「第一次见你」看和你来回了几次；测试里一般没有关系记录，一律当聊过很多。
+    要测初见的测试请求 ``first_meeting`` 夹具。"""
+    if "first_meeting" in request.fixturenames:
+        return
+    from roundtable.core.member.brain import Brain
+
+    monkeypatch.setattr(Brain, "_exchanges", lambda self, member: 10**6)
+
+
+@pytest.fixture
+def first_meeting():
+    """按真实的来回次数判断第一次见你。"""
+
+
 @pytest.fixture
 def real_pace():
     """照真实规则算回话节拍（配合注入的 sleep 和固定的 budget.now 用）。"""
