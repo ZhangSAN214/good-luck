@@ -27,6 +27,20 @@ from pathlib import Path
 from statistics import mean
 from typing import Any
 
+from roundtable.core.benchkit.intent import (
+    FIVE_KEYS,
+    add_voice,
+    answer_intent,
+    intent_counts,
+    intent_of,
+    intent_text,
+    link_voices,
+    open_items,
+    questions_of,
+    stage_task,
+    trace,
+    voices_text,
+)
 from roundtable.core.benchkit.library import Library
 from roundtable.core.benchkit.lint import lint_data, lint_windows
 from roundtable.core.benchkit.quality import Finding, QualityError, Report, run_check, run_probes
@@ -184,6 +198,12 @@ def _short(v: Any, limit: int = 80) -> str:
     return text if len(text) <= limit else text[: limit - 1] + "…"
 
 
+def desk_shot(shots: list[str]) -> str | None:
+    """一组截图里挑电脑·浅色那张（没有就第一张）。"""
+    desk = [x for x in shots if Path(x).name.startswith("电脑")] or shots
+    return next((x for x in desk if "light" in Path(x).name), desk[0] if desk else None)
+
+
 def thumb_of(b: dict[str, Any]) -> str | None:
     """项目墙上的缩略图：最近一轮质检的电脑截图（优先浅色），相对成品文件夹的路径；没有就 None。"""
     for r in reversed(b.get("rounds") or []):
@@ -193,6 +213,11 @@ def thumb_of(b: dict[str, Any]) -> str | None:
             pick = next((x for x in desk if "light" in x), desk[0])
             return f"report/round-{r.get('n', len(b['rounds']))}/{pick}"
     return None
+
+
+INTENT_HEAD = "理想画像（访谈时整理，括号里是把握）："
+ONE_GO = "（这个项目不分段：一次把这个窗口完整做好。）"
+ALL_DONE = "（各段都做完了，现在是整体质检后的返工：按 <problems> 改，别把做好的地方改坏。）"
 
 
 class BenchBuilder:
@@ -211,6 +236,7 @@ class BenchBuilder:
         now: Callable[[], datetime] = lambda: datetime.now(UTC),
         seed: int | None = None,
         samples: SampleCatalog | None = None,
+        skill: Callable[[str], tuple[str, str]] | None = None,
     ) -> None:
         self.rules = rules
         if samples is None:
@@ -219,6 +245,7 @@ class BenchBuilder:
             except ConfigError:
                 samples = SampleCatalog()
         self.samples = samples  # 本地示例素材清单（config/bench_samples.yaml）
+        self.skill = skill  # 地基技能：名字 → (短版, 长版)（测试换成假的）
         self.root = root
         self.sc = supercomputer
         self.render = render
@@ -329,11 +356,14 @@ class BenchBuilder:
             "gate": None,
             "timeline": [],
             "changes": [],
+            "voices": [],
+            "intent": None,
             "rounds": [],
             "score": None,
             "result": None,
             "log": [],
         }
+        add_voice(self.build, "开工", request, _iso(now))
         self._take_materials(self.build, materials or [])
         self._save()
         self._start_job(self.build, lambda: self._run(self.build))
@@ -384,6 +414,8 @@ class BenchBuilder:
         b = b or self.build
         if b is None or self.root is None:
             return
+        if b.get("voices"):
+            b["trace"] = trace(b)
         path = self.folder(b["id"]) / "build.json"
         path.parent.mkdir(parents=True, exist_ok=True)
         tmp = path.with_suffix(".tmp")
@@ -716,7 +748,13 @@ class BenchBuilder:
                 f"评审平均 {b.get('score')} 分，验收 {met}/{len(reqs)}"
                 + ("，过线" if b["status"] == "done" else "，没过线"),
             )
-            self._gate(b, "accept", "试用成品，逐条验收")
+            left = open_items(trace(b)) if b.get("voices") else []
+            self._gate(
+                b,
+                "accept",
+                "试用成品，逐条验收"
+                + (f"（你说的话里有 {len(left)} 句还没做到，见追踪表）" if left else ""),
+            )
 
     # --- 三位助手协作：方案会、对抗手、dsh 插件申请 ------------------------------------
 
@@ -975,13 +1013,30 @@ class BenchBuilder:
             if not text or rid.startswith("b"):
                 continue
             base = old.get(rid) if rid.startswith("r") else None
-            mine.append(
-                (base or {"check": "", "windows": [], "source": "你的要求"}) | {"text": text}
-            )
+            item = (base or {"check": "", "windows": [], "source": "你的要求"}) | {"text": text}
+            if base is None or base["text"] != text:
+                # 你在签字时加的、改过的要求：记一句原话，追踪表能指回来
+                v = add_voice(b, "签字", f"验收清单：{text}", _iso(self.now()))
+                item["voices"] = [v["id"]] if v else []
+            mine.append(item)
         mine = mine[: self.rules.max_requirements]
+        renum: dict[str, str] = {}
         for i, r in enumerate(mine, 1):
+            if r.get("id"):
+                renum[r["id"]] = f"r{i}"
             r["id"] = f"r{i}"
         spec.requirements = mine + keep
+        # 分段里的验收编号跟着改：删掉的拿掉，新加的放进最后一段
+        placed: set[str] = set()
+        for st in spec.stages:
+            st["accept"] = [
+                renum.get(a, a) for a in st["accept"] if a.startswith("b") or renum.get(a)
+            ]
+            placed |= set(st["accept"])
+        if spec.stages:
+            spec.stages[-1]["accept"][:0] = [r["id"] for r in mine if r["id"] not in placed]
+            if b.get("proposal"):
+                b["proposal"]["milestones"] = self._stages(spec)
         (self.folder(b["id"]) / "spec.json").write_text(
             json.dumps(spec.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8"
         )
@@ -991,13 +1046,25 @@ class BenchBuilder:
     # --- 项目室：访谈、方案书、签字、里程碑、变更单、交付、革新 --------------------------
 
     async def _interview(self, b: dict[str, Any]) -> None:
-        """开工前先问你几个关键问题（给谁用、在哪用、对标哪个产品、不要什么……）。"""
+        """意图理解：先整理理想画像（五要素、隐含期待、假设，每条标把握），只问会改结构的取舍
+        （最多 3 问，每问带推荐项和后果）。看过的素材先于结构（<look>）。"""
         b["status"] = "interviewing"
         record: dict[str, Any] = {}
+        look = b.get("look") or {}
         prompt = self.render(
             "bench_interview",
             request=b["request"],
+            look=(
+                f"{look.get('summary') or ''}\n配色：{'、'.join(look.get('palette') or [])}\n"
+                + "\n".join(
+                    f"- {x['file']}：{x['what']}；借鉴：{x['borrow']}"
+                    for x in look.get("items") or []
+                    if x.get("what")
+                )
+            ).strip()
+            or "（没有参考素材）",
             max_questions=str(self.rules.project.max_questions),
+            skills=self._skills("interview"),
         )
         chosen, result = await self._step(
             b,
@@ -1006,44 +1073,59 @@ class BenchBuilder:
             self._rng(b, "interview"),
             record,
             role="访谈",
-            task="想该问你的问题",
+            task="整理理想画像、想该问你的取舍",
         )
-        qs: list[dict[str, Any]] = []
+        raw: dict[str, Any] = {}
         if chosen is not None and result is not None and result.ok:
-            try:
-                raw = extract_json_object(result.output).get("questions") or []
-            except JSONOutputError:
-                raw = []
-            for i, q in enumerate(raw if isinstance(raw, list) else [], 1):
-                if not isinstance(q, dict) or not str(q.get("q") or "").strip():
-                    continue
-                opts = q.get("options") if isinstance(q.get("options"), list) else []
-                qs.append(
-                    {
-                        "id": f"q{i}",
-                        "q": str(q["q"]).strip()[:200],
-                        "why": str(q.get("why") or "")[:200],
-                        "options": [str(o)[:60] for o in opts][:6],
-                    }
-                )
-        qs = qs[: self.rules.project.max_questions]
+            with contextlib.suppress(JSONOutputError):
+                raw = extract_json_object(result.output)
+        intent = intent_of(raw.get("intent"))
+        qs = questions_of(raw.get("questions"), self.rules.project.max_questions)
+        useful = intent.get("ideal") or any(intent.get(k) for k in FIVE_KEYS)
+        b["intent"] = intent if useful else None
         b["interview"] = {"questions": qs, "answers": {}, "worker": record.get("worker")}
+        b["brief_pre"] = self._brief(b)
+        if b["intent"]:
+            c = intent_counts(b["intent"])
+            self._mark(
+                b,
+                "立项",
+                "理想画像",
+                f"{b['intent'].get('ideal') or ''}（确定 {c['确定']}、推断 {c['推断']}、"
+                f"假设 {c['假设']}）",
+            )
+            b["brief"] = f"{b['brief_pre']}\n\n{INTENT_HEAD}\n" + intent_text(b["intent"])
         if not qs:
-            self._log(b, "没问成问题（没有助手或看不懂），直接按你这句话往下做")
+            self._log(b, "没有需要你取舍的地方，直接按理想画像往下做")
             return
-        self._mark(b, "立项", "需求访谈", f"{len(qs)} 个问题")
-        self._gate(b, "interview", "回答几个问题（可以跳过）")
+        self._mark(b, "立项", "要你取舍", f"{len(qs)} 个问题")
+        self._gate(b, "interview", "回答几个取舍（可以跳过，跳过按推荐）")
 
     def answer(self, bid: str, answers: dict[str, str]) -> dict[str, Any]:
         b = self._at_gate(bid, "interview")
         qs = b["interview"]["questions"]
         got = {q["id"]: str(answers.get(q["id"]) or "").strip()[:1000] for q in qs}
         b["interview"]["answers"] = got
+        at = _iso(self.now())
+        for q in qs:
+            if got[q["id"]]:
+                add_voice(b, "访谈", f"{q['q']} —— {got[q['id']]}", at, q["id"])
+        if b.get("intent"):
+            answer_intent(b["intent"], qs, got)
         lines = [f"- {q['q']}\n  {got[q['id']]}" for q in qs if got[q["id"]]]
-        if lines:
-            b["brief"] = f"{b['request']}\n\n访谈时补充的情况：\n" + "\n".join(lines)
+        skipped = [
+            f"- {q['q']}\n  （没答，按推荐：{q['recommend']}）"
+            for q in qs
+            if not got[q["id"]] and q.get("recommend")
+        ]
+        base = b.get("brief_pre") or b["request"]
+        if b.get("intent"):
+            base += f"\n\n{INTENT_HEAD}\n" + intent_text(b["intent"])
+        if lines or skipped:
+            base += "\n\n访谈时的取舍：\n" + "\n".join(lines + skipped)
+        b["brief"] = base
         self._mark(
-            b, "立项", "你回答了访谈", f"答了 {len(lines)}/{len(qs)} 题" if lines else "全部跳过"
+            b, "立项", "你回答了取舍", f"答了 {len(lines)}/{len(qs)} 题" if lines else "全部按推荐"
         )
         b["gate"] = None
         self._start_job(b, lambda: self._prepare(b))
@@ -1051,13 +1133,7 @@ class BenchBuilder:
 
     def _proposal(self, b: dict[str, Any], spec: Spec) -> None:
         """方案书：程序按规格和调研整理（验收清单、主视觉、窗口、里程碑、用到的项目），给你看、改、签字。"""
-        hero = [spec.hero] if spec.hero and spec.window(spec.hero) else []
-        rest = [w.id for w in spec.windows if w.id not in hero]
-        title = {w.id: w.title for w in spec.windows}
-        milestones = []
-        if hero:
-            milestones.append({"n": 1, "title": "主视觉演示", "windows": hero})
-        milestones.append({"n": len(milestones) + 1, "title": "全部窗口", "windows": rest})
+        milestones = self._stages(spec)
         r = b.get("research") or {}
         tech = [
             f"{s['repo']}（{s['why']}）" for s in b.get("sources") or [] if s["verdict"] == "adopt"
@@ -1086,7 +1162,14 @@ class BenchBuilder:
             "shared": [f"{k}：{_short(v)}" for k, v in list(spec.shared.items())[:12]],
             "state": [f"{k}：{v}" for k, v in spec.state.items()],
             "design": self._design_board(b, spec),
-            "milestones": [m | {"titles": [title[x] for x in m["windows"]]} for m in milestones],
+            "milestones": milestones,
+            "pool": spec.pool,
+            "kind": spec.kind,
+            "kind_label": (
+                self.rules.skills.kinds[spec.kind].label
+                if spec.kind in self.rules.skills.kinds
+                else ""
+            ),
             "tech": tech[:12],
             "plugins": [p["title"] for p in r.get("plugins") or []],
             "meeting": self._meeting_lines(b),
@@ -1110,10 +1193,20 @@ class BenchBuilder:
             lines += ["", "## 窗口之间怎么联动"] + [f"- {t}" for t in b["proposal"]["links"]]
         if b["proposal"]["shared"]:
             lines += ["", "## 共用信息（只放一份）"] + [f"- {t}" for t in b["proposal"]["shared"]]
-        lines += ["", "## 里程碑"]
-        lines += [
-            f"{m['n']}. {m['title']}：{'、'.join(m['titles'])}" for m in b["proposal"]["milestones"]
-        ]
+        lines += ["", "## 分段计划（每段都能从头到尾走通）"]
+        for m in milestones:
+            lines.append(f"### 第 {m['n']} 段 · {m['title']}：{m['goal']}")
+            if m["try"]:
+                lines.append(f"- 你能试：{' → '.join(m['try'])}")
+            lines.append(f"- 窗口：{'、'.join(m['titles'])}")
+            if m["accept"]:
+                lines.append(f"- 验收：{'、'.join(m['accept'])}")
+            if m["skip"]:
+                lines.append(f"- 这段不做：{m['skip']}")
+            if m["risk"]:
+                lines.append(f"- 风险：{m['risk']}")
+        if spec.pool:
+            lines += ["", "## 建议池（你没要，这次不做）"] + [f"- {t}" for t in spec.pool]
         if b["proposal"]["meeting"]:
             lines += ["", "## 方案会"] + [f"- {t}" for t in b["proposal"]["meeting"]]
         if tech:
@@ -1124,8 +1217,28 @@ class BenchBuilder:
             "立项",
             "方案书",
             f"验收清单 {len(spec.requirements)} 条、{len(spec.windows)} 个窗口、"
-            f"{len(milestones)} 个里程碑",
+            f"分 {len(milestones)} 段",
         )
+
+    @staticmethod
+    def _stages(spec: Spec) -> list[dict[str, Any]]:
+        """方案书和界面用的分段：规格里的 stages 加上窗口标题（旧规格没有分段就整个算一段）。"""
+        title = {w.id: w.title for w in spec.windows}
+        stages = spec.stages or [
+            {
+                "n": 1,
+                "title": "全部窗口",
+                "goal": "写完全部窗口",
+                "try": [],
+                "windows": [w.id for w in spec.windows],
+                "accept": [r["id"] for r in spec.requirements],
+                "skip": "",
+                "risk": "",
+            }
+        ]
+        return [
+            dict(m) | {"titles": [title[x] for x in m["windows"] if x in title]} for m in stages
+        ]
 
     @staticmethod
     def _links(spec: Spec) -> list[str]:
@@ -1204,8 +1317,13 @@ class BenchBuilder:
         if requirements is not None:
             self._edit_requirements(b, spec, requirements)
         note = note.strip()[:1000]
+        at = _iso(self.now())
         if note:
             b["brief"] = f"{self._brief(b)}\n\n签字时补充：{note}"
+            add_voice(b, "签字", note, at)
+        style = str(((design or {}).get("note")) or "").strip()
+        if style:
+            add_voice(b, "风格", style, at)
         self._mark(
             b,
             "立项",
@@ -1228,9 +1346,7 @@ class BenchBuilder:
         (folder / "index.html").write_text(shell_html(spec, b["id"]), encoding="utf-8")
         if drop:
             b["windows"] = [w for w in b["windows"] if w["id"] not in drop]
-            for m in b["proposal"]["milestones"]:
-                m["windows"] = [x for x in m["windows"] if x not in drop]
-                m["titles"] = [x["title"] for x in b["windows"] if x["id"] in m["windows"]]
+            b["proposal"]["milestones"] = self._stages(spec)
         b["proposal"]["requirements"] = spec.requirements
         b["proposal"]["design"]["picks"] = spec.design["picks"]
         lines = design_lines(spec)
@@ -1243,24 +1359,92 @@ class BenchBuilder:
         )
 
     async def _milestone(self, b: dict[str, Any], n: int) -> None:
-        """按方案书的里程碑做：第 1 个通常是主视觉，演示给你看；
-        最后一个写完其余窗口，进入质检评审。"""
+        """按分段做：这一段没写过的窗口新写，写过的往里加这一段的功能（交回作者，带「本段任务」）。
+        不是最后一段就演示给你试；最后一段做完进入质检评审。"""
         spec = load_spec(self.folder(b["id"]))
         ms = b["proposal"]["milestones"]
         m = ms[n - 1]
         rng = self._rng(b, f"m{n}")
         b["status"] = "building"
-        recs = [w for w in b["windows"] if w["id"] in m["windows"]]
-        self._log(b, f"里程碑 {n}「{m['title']}」：写 {len(recs)} 个窗口")
-        await asyncio.gather(*(self._write(b, spec, w, rng) for w in recs))
+        b["stage"] = n
+        task = stage_task(m, spec.requirements, len(ms))
+        b["stage_task"] = task  # 这一段里的自测返工、变更单返工也带上
+        wids = m["windows"] or [w["id"] for w in b["windows"]]
+        recs = [w for w in b["windows"] if w["id"] in wids]
+        new = [w for w in recs if w["status"] == "waiting"]
+        old = [w for w in recs if w["status"] != "waiting"]
+        self._log(
+            b,
+            f"第 {n} 段「{m['title']}」：新写 {len(new)} 个窗口"
+            + (f"，往 {len(old)} 个写好的窗口里加功能" if old else ""),
+        )
+        jobs = [self._write(b, spec, w, rng, stage=task) for w in new]
+        if old:
+            jobs.append(self._stage_rework(b, spec, old, task, rng))
+        await asyncio.gather(*jobs)
         if n < len(ms):
-            shots = await self._selftest(b, spec, rng, only=m["windows"], out=f"m{n}-1")
-            b["milestones"].append({"n": n, "title": m["title"], "demos": [shots]})
-            self._mark(b, "执行", f"里程碑 {n}：{m['title']}", "、".join(m["titles"]))
-            self._gate(b, f"m{n}", f"试用里程碑 {n}「{m['title']}」，通过或提意见")
+            shots = await self._selftest(b, spec, rng, only=wids, out=f"m{n}-1")
+            checks = await self._stage_checks(b, spec, ms[:n], rng)
+            if checks.get("fixed"):
+                shots = await self._selftest(b, spec, rng, only=wids, out=f"m{n}-2")
+            b["milestones"].append(
+                {"n": n, "title": m["title"], "demos": [shots], "checks": checks["results"]}
+            )
+            self._mark(b, "执行", f"第 {n} 段：{m['title']}", m["goal"])
+            self._gate(b, f"m{n}", f"试用第 {n} 段「{m['title']}」，通过或提意见")
             return
         await self._selftest(b, spec, rng)
+        b["stage_task"] = None
         await self._rounds(b, spec, rng)
+
+    async def _stage_checks(
+        self,
+        b: dict[str, Any],
+        spec: Spec,
+        done: list[dict[str, Any]],
+        rng: random.Random,
+    ) -> dict[str, Any]:
+        """分段演示前：把做过的各段里能自动检查的验收跑一遍。没做到或倒退的先交回负责的窗口改一次，
+        改完再查（最多一次，不没完没了），结果随演示给你看。"""
+        ids = {a for st in done for a in st["accept"]}
+        report = Report(target=str(self.folder(b["id"]) / "index.html"))
+        results = await self._probes(b, spec, report, ids)
+        if not report.findings:
+            return {"results": results, "fixed": False}
+        await self._rework(
+            b,
+            spec,
+            0,
+            rng,
+            rnd={"check": {"findings": [f.__dict__ for f in report.findings]}},
+            only_flagged=True,
+        )
+        again = await self._probes(b, spec, Report(target=report.target), ids)
+        return {"results": again, "fixed": True}
+
+    async def _stage_rework(
+        self,
+        b: dict[str, Any],
+        spec: Spec,
+        recs: list[dict[str, Any]],
+        task: str,
+        rng: random.Random,
+    ) -> None:
+        """往写好的窗口里加这一段的功能：交回作者，问题清单里写「本段任务」。"""
+        rnd = {
+            "check": {
+                "findings": [
+                    {
+                        "check": "本段任务",
+                        "severity": "block",
+                        "where": "分段",
+                        "detail": task.replace("\n", "；"),
+                        "windows": [w["id"] for w in recs],
+                    }
+                ]
+            }
+        }
+        await self._rework(b, spec, 0, rng, rnd=rnd, only_flagged=True, stage=task)
 
     def review(
         self, bid: str, decision: str, comments: list[dict[str, str]] | None = None
@@ -1285,7 +1469,13 @@ class BenchBuilder:
                 self._save()
                 return b
             n = int(kind[1:])
-            self._mark(b, "执行", f"里程碑 {n} 你点了通过", "")
+            # 防倒退：这一段（和之前各段）自动检查做到的验收记成基线，后面的段不许让它们变红
+            m = next((x for x in b.get("milestones") or [] if x["n"] == n), {})
+            ok = {x["id"] for x in m.get("checks") or [] if x.get("ok")}
+            b["baseline"] = sorted(set(b.get("baseline") or []) | ok)
+            self._mark(
+                b, "执行", f"第 {n} 段你点了通过", f"基线 {len(b['baseline'])} 条" if ok else ""
+            )
             self._start_job(b, lambda: self._milestone(b, n + 1))
             return b
         wins = {w["id"] for w in b["windows"]}
@@ -1309,6 +1499,8 @@ class BenchBuilder:
         if not items:
             raise ValueError("写一下哪里要改")
         b["changes"].extend(items)
+        for c in items:
+            add_voice(b, "变更单", c["text"], c["at"], c["id"])
         self._mark(
             b,
             "执行" if kind != "accept" else "交付",
@@ -1369,7 +1561,7 @@ class BenchBuilder:
         demos = next(x for x in b["milestones"] if x["n"] == n)["demos"]
         shots = await self._selftest(b, spec, rng, only=m["windows"], out=f"m{n}-{len(demos) + 1}")
         demos.append(shots)
-        self._gate(b, kind, f"再试用里程碑 {n}「{m['title']}」，通过或接着提意见")
+        self._gate(b, kind, f"再试用第 {n} 段「{m['title']}」，通过或接着提意见")
 
     async def evolve(self, bid: str) -> dict[str, Any]:
         """交付以后出下一版提案：汇总你的意见和变更单，对照调研里的新资料，提出下一版改什么。"""
@@ -1475,6 +1667,11 @@ class BenchBuilder:
             max_requirements=str(self.rules.max_requirements),
             net=self._net_text(),
             design=design_brief(m["themes"]),
+            voices=voices_text(b) or f"- v1（开工）{b['request']}",
+            max_stages=str(self.rules.project.max_stages),
+            skills=self._skills("plan"),
+            kinds="\n".join(f"- {k}：{v.label}" for k, v in self.rules.skills.kinds.items())
+            or "- other：通用",
         )
         chosen, result = await self._step(
             b, self.rules.plan_kind, prompt, rng, record, role="拆需求", task="把一句话拆成规格"
@@ -1482,14 +1679,18 @@ class BenchBuilder:
         if chosen is None or result is None or not result.ok:
             raise RuntimeError("没有人能拆需求（都没装、在冷却或今天次数用完了）")
         try:
+            raw = extract_json_object(result.output)
             spec = normalize(
-                extract_json_object(result.output),
+                raw,
                 max_windows=self.rules.max_windows,
                 baseline=self.rules.baseline,
                 max_requirements=self.rules.max_requirements,
+                max_stages=self.rules.project.max_stages,
+                kinds=set(self.rules.skills.kinds),
             )
         except (JSONOutputError, SpecError) as exc:
             raise RuntimeError(f"拆需求的结果看不懂：{exc}") from None
+        link_voices(spec.requirements, raw.get("requirements"), b.get("voices") or [])
         b["title"] = spec.title
         b["windows"] = [
             {"id": w.id, "title": w.title, "author": None, "status": "waiting", "summary": None}
@@ -1785,6 +1986,26 @@ class BenchBuilder:
             lines.append(f"- {x.name}：{x.use}（{how}；来源：{x.source}）")
         return "\n".join(lines) or "（成品不能联网：需要实时的信息用可信的参考数据，标日期和来源）"
 
+    def _skills(self, step: str, kind: str = "") -> str:
+        """这一步要带的地基技能：短版常驻、长版只在这一步给；写窗口、返工、评审再加上工作台类型的
+        品类技能（长版）。技能文字从注入的 skill 函数取（短版, 长版），没有就空。"""
+        cfg = self.rules.skills
+        if not cfg.enabled or self.skill is None:
+            return "（这一步没有额外的技能说明）"
+        st = cfg.steps.get(step)
+        long = list(st.long) if st else []
+        if step in ("window", "rework", "review") and kind in cfg.kinds:
+            long += cfg.kinds[kind].skills
+        short = [n for n in (st.short if st else []) if n not in long]
+        parts: list[str] = []
+        for name in dict.fromkeys(short + long):
+            try:
+                brief, full = self.skill(name)
+            except Exception:  # noqa: BLE001 - 某个技能读不到不挡流程，只少一段说明
+                continue
+            parts.append(full if name in long else brief)
+        return "\n\n".join(parts) or "（这一步没有额外的技能说明）"
+
     def _samples_text(self, b: dict[str, Any]) -> str:
         return samples_text(b.get("samples") or [])
 
@@ -1792,7 +2013,12 @@ class BenchBuilder:
         return json.dumps(manifest(), ensure_ascii=False, indent=1)
 
     async def _write(
-        self, b: dict[str, Any], spec: Spec, rec: dict[str, Any], rng: random.Random
+        self,
+        b: dict[str, Any],
+        spec: Spec,
+        rec: dict[str, Any],
+        rng: random.Random,
+        stage: str = "",
     ) -> None:
         w = spec.window(rec["id"])
         assert w is not None
@@ -1809,6 +2035,8 @@ class BenchBuilder:
             sources=self._sources_text(b),
             net=self._net_text(),
             samples=self._samples_text(b),
+            stage=stage or ONE_GO,
+            skills=self._skills("window", spec.kind),
         )
         chosen, result = await self._step(
             b, self.rules.window_kind, prompt, rng, rec, role="实施", task=f"写窗口「{w.title}」"
@@ -1838,6 +2066,7 @@ class BenchBuilder:
         report.findings += lint_data(folder, [w["id"] for w in b["windows"]], spec.shared)
         rnd["probes"] = await self._probes(b, spec, report)
         rnd["check"] = report.to_dict()
+        b["last_shot"] = desk_shot([os.path.relpath(x, folder) for x in report.shots])
         self._log(b, f"第 {n} 轮质检：{'通过' if report.passed else '不通过'}，{report.score} 分")
         shots = "\n".join(os.path.relpath(s, folder) for s in report.shots)
         authors = {w["id"]: w["author"] for w in b["windows"] if w["author"]}
@@ -1856,6 +2085,7 @@ class BenchBuilder:
                 check=report.summary(),
                 previous=self._previous(last, wids),
                 requirements=requirements_text(spec),
+                skills=self._skills("review", spec.kind),
             )
             chosen, result = await self._step(
                 b,
@@ -1942,10 +2172,21 @@ class BenchBuilder:
         )
         return rnd["passed"]
 
-    async def _probes(self, b: dict[str, Any], spec: Spec, report: Report) -> list[dict[str, Any]]:
+    async def _probes(
+        self,
+        b: dict[str, Any],
+        spec: Spec,
+        report: Report,
+        ids: set[str] | None = None,
+    ) -> list[dict[str, Any]]:
         """可执行的验收：拆需求时写了 probe 的要求，程序打开成品照着填、选、点，
-        看该出现的字出现没有。没做到的记成必须修的质检问题，交给负责的窗口。"""
-        probes = [{"id": r["id"], **r["probe"]} for r in spec.requirements if r.get("probe")]
+        看该出现的字出现没有。没做到的记成必须修的质检问题，交给负责的窗口。
+        ``ids``：只查这几条（分段演示时只查做过的段）。之前的段已经做到、现在又坏了的记成「倒退」。"""
+        probes = [
+            {"id": r["id"], **r["probe"]}
+            for r in spec.requirements
+            if r.get("probe") and (ids is None or r["id"] in ids)
+        ]
         if not probes or self.probe is None:
             return []
         try:
@@ -1956,18 +2197,25 @@ class BenchBuilder:
             self._log(b, f"验收自动检查没法进行：{exc}")
             return []
         by = {r["id"]: r for r in spec.requirements}
+        kept = set(b.get("baseline") or [])
         for x in results:
             if x["ok"] is False:
                 r = by[x["id"]]
+                back = x["id"] in kept
                 report.findings.append(
                     Finding(
-                        "验收自动检查没过",
+                        "倒退" if back else "验收自动检查没过",
                         "block",
                         "自动检查",
-                        f"{r['id']} {r['text']}：{x['why']}",
+                        f"{r['id']} {r['text']}："
+                        + ("前面的段已经做到了，现在又坏了（别把做好的改坏）；" if back else "")
+                        + x["why"],
                         list(r["windows"]),
                     )
                 )
+        back = [x["id"] for x in results if x["ok"] is False and x["id"] in kept]
+        if back:
+            self._log(b, f"防倒退：{'、'.join(back)} 前面做到了，现在坏了，交回负责的窗口")
         ok = sum(1 for x in results if x["ok"])
         skipped = sum(1 for x in results if x["ok"] is None)
         self._log(
@@ -2023,6 +2271,7 @@ class BenchBuilder:
         ]
         b["selftest"] = {"findings": bad}
         shots = [os.path.relpath(x, folder) for x in report.shots]
+        b["last_shot"] = desk_shot(shots)
         if not bad:
             self._log(b, "写完自测：没有低级错误")
             return shots
@@ -2080,6 +2329,9 @@ class BenchBuilder:
             if f.get("windows") and wid not in f["windows"]:
                 continue
             level = "必须修" if f["severity"] == "block" else "建议修"
+            if f.get("where") == "分段":
+                lines.insert(0, f"- [本段任务] {f['detail']}")
+                continue
             if f.get("where") == "甲方":
                 # 用户自己提的变更单：标「用户意见」，返工提示词要求优先照办
                 lines.insert(0, f"- [用户意见·必须照办] {f['check']}：{f['detail']}")
@@ -2111,6 +2363,7 @@ class BenchBuilder:
         rng: random.Random,
         rnd: dict[str, Any] | None = None,
         only_flagged: bool = False,
+        stage: str = "",
     ) -> None:
         rnd = rnd if rnd is not None else b["rounds"][-1]
         if n:
@@ -2130,6 +2383,12 @@ class BenchBuilder:
                 problems = self._problems_for(rnd, rec["id"])
             if not problems and (rec["status"] == "done" or only_flagged):
                 continue
+            if problems and b.get("last_shot"):
+                # 写手自看：改之前整页的样子（电脑·浅色），打开看一眼自己的窗口，改完再对照
+                problems += (
+                    f"\n- [自看] 改之前的截图：{b['last_shot']}（你的窗口是 "
+                    f'data-window="{rec["id"]}" 那一格；改完对照着看有没有变好、有没有改坏别处）'
+                )
             w = spec.window(rec["id"])
             assert w is not None
             prompt = self.render(
@@ -2144,6 +2403,8 @@ class BenchBuilder:
                 sources=self._sources_text(b),
                 net=self._net_text(),
                 samples=self._samples_text(b),
+                stage=stage or b.get("stage_task") or ALL_DONE,
+                skills=self._skills("rework", spec.kind),
             )
             jobs.append(self._redo(b, rec, prompt, rng, n))
         await asyncio.gather(*jobs)

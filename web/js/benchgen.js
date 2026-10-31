@@ -111,6 +111,13 @@ export const FLOW = [
   ['deliver', '交付', '你试用验收；之后按你的意见出下一版'],
 ];
 // 窄屏时三栏变成三屏，用这排按钮切
+const INTENT_FIVE = [
+  ['who', '给谁用'],
+  ['where', '在哪用'],
+  ['task', '要办成'],
+  ['feel', '感觉'],
+  ['avoid', '不要'],
+];
 const PANES = [
   ['client', '甲方'],
   ['stage', '成品'],
@@ -433,7 +440,7 @@ export class BenchGenPanel {
     if (!b) return `<h3 class="bg-h">说想法</h3>${notes.join('')}${this.askHtml(st)}`;
     const req = `<div class="bg-said"><span class="bg-k">你说的</span><p>${esc((b.request || '').slice(0, 400))}</p></div>`;
     const mats = this.matsStrip(b);
-    const changes = (b.changes || [])
+    const changes = (b.trace || []).length ? '' : (b.changes || [])
       .map(
         (c) => `<li class="bg-ch-${esc(c.status)}"><b>${esc(c.id)}</b> ${esc(c.text)}${c.window ? `（${esc(this.winTitle(b, c.window))}）` : ''} · ${esc({ open: '处理中', done: '改好了', failed: '没改成' }[c.status] || c.status)}${c.reply ? `<div class="sc-sub">${esc(c.reply.slice(-160))}</div>` : ''}</li>`,
       )
@@ -444,7 +451,42 @@ export class BenchGenPanel {
     const waiting = !b.gate && !stuck && !evolve && !old && busy ? '<p class="sc-hint bg-quiet">正在做，不用管。中间会实时刷新；需要你时这里会出现要做的事。</p>' : '';
     return `<h3 class="bg-h">甲方 · 你</h3>${notes.join('')}${req}${mats}
       ${this.gateHtml(b)}${stuck}${evolve}${old}${waiting}
+      ${this.hasProduct(b) || (b.gate || {}).kind === 'sign' ? this.intentHtml(b) : ''}${this.traceHtml(b)}
       ${changes ? `<h4 class="bg-h4">变更单（${(b.changes || []).length} 张）</h4><ul class="bg-list bg-changes">${changes}</ul>` : ''}`;
+  }
+
+  /** 理想画像：一句话理想 + 五要素（每条标把握：确定 / 推断 / 假设），隐含期待和假设收起。 */
+  intentHtml(b) {
+    const it = b.intent;
+    if (!it) return '';
+    const lv = (x) => `<span class="bg-lv" data-lv="${esc(x.level)}">${esc(x.level)}</span>`;
+    const rows = INTENT_FIVE.filter(([k]) => it[k])
+      .map(([k, label]) => `<li><span class="bg-k">${esc(label)}</span><span>${esc(it[k].text)}</span>${lv(it[k])}</li>`)
+      .join('');
+    const more = [...(it.expect || []).map((x) => `<li>${esc(x.text)}<span class="sc-sub">来自${esc(x.from)}</span>${lv(x)}</li>`), ...(it.assume || []).map((x) => `<li>${esc(x.text)}${lv(x)}</li>`)].join('');
+    const n = (it.expect || []).length + (it.assume || []).length;
+    return `<section class="bg-intent" aria-label="理想画像"><h4 class="bg-h4">理想画像</h4>
+      ${it.ideal ? `<p class="bg-ideal">${esc(it.ideal)}</p>` : ''}
+      ${rows ? `<ul class="bg-five">${rows}</ul>` : ''}
+      ${n ? `<details class="bg-fold"><summary>隐含期待和假设（${n} 条，假设会在第 1 段请你确认）</summary><ul class="bg-five bg-more">${more}</ul></details>` : ''}</section>`;
+  }
+
+  /** 意图追踪表：你说的每句话去了哪一段、对上哪几条验收、现在什么状态。 */
+  traceHtml(b) {
+    const rows = b.trace || [];
+    if (!rows.length) return '';
+    const changes = Object.fromEntries((b.changes || []).map((c) => [c.id, c]));
+    const voices = Object.fromEntries((b.voices || []).map((v) => [v.id, v]));
+    const open = rows.filter((r) => ['没做到', '没改成', '没对上'].includes(r.state)).length;
+    const items = rows
+      .map((r) => {
+        const v = voices[r.id] || {};
+        const c = r.src === '变更单' ? changes[v.ref] : null;
+        const where = [r.stage ? `第 ${r.stage} 段` : '', (r.reqs || []).join(' ')].filter(Boolean).join(' · ');
+        return `<li data-state="${esc(r.state)}"><span class="bg-tr-st">${esc(r.state)}</span><span class="bg-tr-tx"><span class="bg-k">${esc(r.src)}</span>${esc(r.text.slice(0, 120))}${where ? `<span class="sc-sub">${esc(where)}</span>` : ''}${c && c.reply ? `<span class="sc-sub">${esc(c.reply.slice(-140))}</span>` : ''}</span></li>`;
+      })
+      .join('');
+    return `<details class="bg-fold bg-trace" ${open ? 'open' : ''}><summary>你说的话去哪了（${rows.length} 句${open ? `，${open} 句要你看` : ''}）</summary><ul class="bg-trlist">${items}</ul></details>`;
   }
 
   askHtml(st) {
@@ -489,9 +531,8 @@ export class BenchGenPanel {
         <div class="bg-design-view"><div class="bg-dframe" data-dframe><iframe data-dpreview title="工作台预览" srcdoc="${esc('<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><link rel="stylesheet" href="/kit/kit.css"></head><body class="k-root"></body></html>')}"></iframe></div></div>
         <p class="sc-hint bg-cap">样子的实时预览：左边改一项，这里马上变，不花次数。窗口里的内容开工后才写。</p>`;
     }
-    const finished = ['done', 'needs_you', 'delivered'].includes(b.status) || g.kind === 'accept';
-    const draft = !finished && (b.windows || []).some((w) => w.status === 'done');
-    if (finished || draft) {
+    if (this.hasProduct(b)) {
+      const finished = ['done', 'needs_you', 'delivered'].includes(b.status) || g.kind === 'accept';
       const ver = `${(b.rounds || []).length}-${(b.windows || []).filter((w) => w.status === 'done').length}-${(b.changes || []).filter((c) => c.status === 'done').length}`;
       const dev = this.device === 'phone' ? 'phone' : 'desk';
       const seg = [['desk', '电脑'], ['phone', '手机']].map(([v, t]) => `<button type="button" class="chip" data-device="${v}" aria-pressed="${dev === v}">${t}</button>`).join('');
@@ -499,10 +540,37 @@ export class BenchGenPanel {
           <a class="link" href="/bench/${encodeURIComponent(b.id)}/index.html" target="_blank" rel="noopener">在新窗口打开</a></div>
         <div class="bg-shell" data-device="${dev}"><iframe class="bg-frame" data-preview="${esc(b.id)}" title="${esc(b.title || '成品')}" sandbox="allow-scripts allow-forms allow-popups allow-downloads" src="/bench/${encodeURIComponent(b.id)}/index.html?v=${esc(ver)}"></iframe></div>`;
     }
-    // 还没有能看的：说清楚现在在干什么，最近几件事一直滚动
+    // 还没有能看的：有理想画像就把它放大摆在中间（看得见的复述），否则说清楚现在在干什么
     const log = (b.log || []).slice(-6).reverse().map((l) => `<li><span class="bg-src">${esc((l.at || '').slice(11, 16))}</span> ${esc(l.text)}</li>`).join('');
+    if (b.intent) return this.idealPage(b, log);
     return `<div class="bg-empty"><p class="bg-empty-h">${esc(STATUS[b.status] || b.status)}</p>
       <p class="sc-hint">${esc(FLOW[flowIndex(b)][2])}</p>${log ? `<ol class="bg-live" aria-label="最近在做的">${log}</ol>` : ''}</div>`;
+  }
+
+  /** 成品或草稿已经能看了吗（中间放 iframe）。 */
+  hasProduct(b) {
+    const g = b.gate || {};
+    if (g.kind === 'sign' && ((b.proposal || {}).design || {}).dims) return false;
+    const finished = ['done', 'needs_you', 'delivered'].includes(b.status) || g.kind === 'accept';
+    return finished || (b.windows || []).some((w) => w.status === 'done');
+  }
+
+  /** 中间的理想画像页：一句话理想、五要素（标把握）、隐含期待和假设；底下滚动最近在做的。 */
+  idealPage(b, log) {
+    const it = b.intent;
+    const lv = (x) => `<span class="bg-lv" data-lv="${esc(x.level)}">${esc(x.level)}</span>`;
+    const tiles = INTENT_FIVE.map(([k, label]) => `<div class="bg-tile${it[k] ? '' : ' none'}"><span class="bg-k">${esc(label)}</span><p>${esc(it[k] ? it[k].text : '还不知道')}</p>${it[k] ? lv(it[k]) : ''}</div>`).join('');
+    const ex = (it.expect || []).map((x) => `<li>${esc(x.text)}<span class="sc-sub">来自${esc(x.from)}</span></li>`).join('');
+    const as = (it.assume || []).map((x) => `<li>${esc(x.text)}</li>`).join('');
+    return `<div class="bg-idealpage" aria-label="理想画像">
+      <span class="bg-k">理想画像 · 我们理解的你想要的</span>
+      <p class="bg-idealbig">${esc(it.ideal || b.request || '')}</p>
+      <div class="bg-tiles">${tiles}</div>
+      <div class="bg-idealcols">
+        ${ex ? `<section><h4 class="bg-h4">理所当然要有的</h4><ul class="bg-list">${ex}</ul></section>` : ''}
+        ${as ? `<section><h4 class="bg-h4">先替你定的（第 1 段演示时请你确认）</h4><ul class="bg-list">${as}</ul></section>` : ''}
+      </div>
+      ${log ? `<ol class="bg-live" aria-label="最近在做的">${log}</ol>` : ''}</div>`;
   }
 
   /** 项目墙：最近的项目，每个一张缩略图 + 状态。 */
@@ -564,10 +632,12 @@ export class BenchGenPanel {
       )
       .join('');
     const list = (xs) => ((xs || []).length ? `<ul class="bg-list">${xs.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>` : '');
-    const ms = (p.milestones || []).map((m) => `<li><b>${esc(m.title)}</b>：${esc((m.titles || []).join('、'))}</li>`).join('');
+    const ms = (p.milestones || []).map((m) => this.stageItem(m, true)).join('');
     const plugins = (p.plugins || []).length ? `<p class="sc-hint">建议给 dsh 装的插件：${esc(p.plugins.join('、'))}（底部「调研」里点「申请装上」）</p>` : '';
     return `<h4 class="bg-h4">方案</h4>
-      ${ms ? `<ol class="bg-list bg-ms">${ms}</ol>` : ''}
+      ${p.kind_label && p.kind !== 'other' ? `<p class="sc-hint bg-kind">按「${esc(p.kind_label.split('（')[0])}」的做法做</p>` : ''}
+      ${ms ? `<ol class="bg-flow bg-ms bg-stages">${ms}</ol>` : ''}
+      ${fold(`建议池（你没要，这次不做，${(p.pool || []).length} 条）`, list(p.pool))}
       ${fold(`窗口（${(p.windows || []).length} 个）`, wins ? `<ul class="bg-list bg-wins">${wins}</ul>` : '', true)}
       ${fold('窗口之间怎么联动', list(p.links))}
       ${fold('共用信息', list(p.shared))}
@@ -588,16 +658,39 @@ export class BenchGenPanel {
         const n = m.n || i + 1;
         const now = g.kind === `m${n}`;
         const cls = done.has(n) ? 'past' : now ? 'now' : '';
-        return `<li class="${cls}"><b>段 ${n} · ${esc(m.title)}</b><span class="sc-sub">${esc((m.titles || []).join('、'))}</span></li>`;
+        return this.stageItem({ ...m, n }, now || (!done.has(n) && n === (b.stage || 1) && !g.kind), cls);
       })
       .join('');
     const m = (b.milestones || []).find((x) => `m${x.n}` === g.kind);
     const demos = m ? m.demos || [] : [];
     const shots = demos
       .slice(-2)
-      .map((list, i, arr) => `<figure class="bg-demo"><figcaption>${arr.length > 1 && i === 0 ? '改之前' : arr.length > 1 ? '改之后' : '演示截图'}</figcaption>${(list || []).map((p) => `<a href="/bench/${encodeURIComponent(b.id)}/${p.split(/[\\/]/).map(encodeURIComponent).join('/')}" target="_blank" rel="noopener"><img src="/bench/${encodeURIComponent(b.id)}/${p.split(/[\\/]/).map(encodeURIComponent).join('/')}" alt="里程碑截图" loading="lazy"></a>`).join('')}</figure>`)
+      .map((list, i, arr) => `<figure class="bg-demo"><figcaption>${arr.length > 1 && i === 0 ? '改之前' : arr.length > 1 ? '改之后' : '演示截图'}</figcaption>${(list || []).map((p) => `<a href="/bench/${encodeURIComponent(b.id)}/${p.split(/[\\/]/).map(encodeURIComponent).join('/')}" target="_blank" rel="noopener"><img src="/bench/${encodeURIComponent(b.id)}/${p.split(/[\\/]/).map(encodeURIComponent).join('/')}" alt="这一段的截图" loading="lazy"></a>`).join('')}</figure>`)
       .join('');
-    return `<h4 class="bg-h4">分段</h4><ol class="bg-flow bg-ms">${items}</ol>${shots ? `<div class="bg-demos">${shots}</div>` : ''}`;
+    const checks = m ? m.checks || [] : [];
+    const okN = checks.filter((x) => x.ok).length;
+    const auto = checks.length ? `<p class="sc-sub bg-autochk">这一段自动检查：${okN}/${checks.length} 条做到${(b.baseline || []).length ? ` · 已锁定 ${b.baseline.length} 条，后面不许改坏` : ''}</p>` : (b.baseline || []).length ? `<p class="sc-sub bg-autochk">已锁定 ${b.baseline.length} 条验收，后面不许改坏</p>` : '';
+    return `<h4 class="bg-h4">分段</h4><ol class="bg-flow bg-ms bg-stages">${items}</ol>${auto}${shots ? `<div class="bg-demos">${shots}</div>` : ''}`;
+  }
+
+  /** 一段：名字和目标；展开时加「你能试」、窗口、验收几条、这段不做什么、风险。 */
+  stageItem(m, open, cls = '') {
+    const bits = open
+      ? [
+          (m.try || []).length ? `<span class="sc-sub">你能试：${esc(m.try.join(' → '))}</span>` : '',
+          `<span class="sc-sub">${esc((m.titles || []).join('、'))}${this.acceptLabel(m)}</span>`,
+          m.skip ? `<span class="sc-sub">不做：${esc(m.skip)}</span>` : '',
+          m.risk ? `<span class="sc-sub">风险：${esc(m.risk)}</span>` : '',
+        ].join('')
+      : '';
+    return `<li class="${cls}"><b>第 ${m.n} 段 · ${esc(m.title)}</b>${m.goal && m.goal !== m.title ? `<span class="sc-sub">${esc(m.goal)}</span>` : ''}${bits}</li>`;
+  }
+
+  acceptLabel(m) {
+    const acc = m.accept || [];
+    const own = acc.filter((a) => a.startsWith('r')).length;
+    const base = acc.length - own;
+    return [own ? ` · 你的要求 ${own} 条` : '', base ? ' · 底线全验' : ''].join('');
   }
 
   /** 最近一轮：质检分、验收几条做到、评审各项分（全部轮次在底部「质检」里）。 */
@@ -1064,12 +1157,13 @@ export class BenchGenPanel {
       const qs = ((b.interview || {}).questions || [])
         .map(
           (q) => `<li><label><b>${esc(q.q)}</b>${q.why ? `<span class="sc-sub">${esc(q.why)}</span>` : ''}
-            ${(q.options || []).length ? `<span class="bg-opts">${q.options.map((o) => `<button type="button" class="chip" data-opt="${esc(q.id)}">${esc(o)}</button>`).join('')}</span>` : ''}
+            ${(q.options || []).length ? `<span class="bg-opts">${q.options.map((o) => `<button type="button" class="chip${o === q.recommend ? ' rec' : ''}" data-opt="${esc(q.id)}" data-val="${esc(o)}">${esc(o)}${o === q.recommend ? '<small>推荐</small>' : ''}</button>`).join('')}</span>` : ''}
+            ${q.effect ? `<span class="sc-sub">${esc(q.effect)}</span>` : ''}
             <textarea data-q="${esc(q.id)}" rows="2" aria-label="${esc(q.q)}" placeholder="可以不填"></textarea></label></li>`,
         )
         .join('');
       return `<div class="bg-gate" data-form>${head}<ol class="bg-qs">${qs}</ol>
-        <div class="sc-row"><button type="button" class="btn primary" data-answer>交回答，开始做方案</button><button type="button" class="btn" data-skip>全部跳过</button>${end}</div></div>`;
+        <div class="sc-row"><button type="button" class="btn primary" data-answer>交回答，开始做方案</button><button type="button" class="btn" data-skip>全部按推荐</button>${end}</div></div>`;
     }
     if (g.kind === 'sign') {
       const p = b.proposal || {};
@@ -1205,7 +1299,8 @@ export class BenchGenPanel {
     const opt = t.closest('[data-opt]');
     if (opt && form) {
       const ta = form.querySelector(`textarea[data-q="${opt.dataset.opt}"]`);
-      ta.value = ta.value ? `${ta.value}、${opt.textContent}` : opt.textContent;
+      const val = opt.dataset.val || opt.textContent;
+      ta.value = ta.value ? `${ta.value}、${val}` : val;
       this.dirty = true;
       return;
     }

@@ -843,9 +843,10 @@ async def test_project_room_full_flow(tmp_path):
     await b.wait()
     assert build["gate"]["kind"] == "sign"
     plan_prompt = next(json.loads(p) for p in sc.prompts if json.loads(p)["role"] == "bench_plan")
-    assert "访谈时补充的情况" in plan_prompt["request"] and "自己和家人" in plan_prompt["request"]
+    assert "访谈时的取舍" in plan_prompt["request"] and "自己和家人" in plan_prompt["request"]
     prop = build["proposal"]
-    assert [m["windows"] for m in prop["milestones"]] == [["map-view"], ["plan", "budget"]]
+    # 没给分段：主视觉 + 第一条要求的窗口先做（最小可用），其余是主要功能
+    assert [m["windows"] for m in prop["milestones"]] == [["map-view", "plan"], ["budget"]]
     assert [r["text"] for r in prop["requirements"]] == ["能换目的地", "婚礼场景有宾客"]
     assert (tmp_path / build["id"] / "方案书.md").is_file()
     assert all(w["status"] == "waiting" for w in build["windows"])  # 签字前一个窗口都不写
@@ -864,7 +865,7 @@ async def test_project_room_full_flow(tmp_path):
     assert spec["requirements"][0]["check"] == "改目的地后行程变"  # 改了字，检查方法保留
     assert build["gate"]["kind"] == "m1"
     status = {w["id"]: w["status"] for w in build["windows"]}
-    assert status == {"map-view": "done", "plan": "waiting", "budget": "waiting"}
+    assert status == {"map-view": "done", "plan": "done", "budget": "waiting"}
     assert len(build["milestones"][0]["demos"]) == 1
 
     with pytest.raises(ValueError):
@@ -898,7 +899,7 @@ async def test_project_room_full_flow(tmp_path):
     fb = next(c for c in sc.calls if c["role"] == "bench_evolve")["feedback"]
     assert "地图再大一点" in fb and "整体配色太暗" in fb
     stages = [(t["stage"], t["title"]) for t in build["timeline"]]
-    assert stages[0] == ("立项", "需求访谈") and ("交付", "你验收通过") in stages
+    assert stages[0] == ("立项", "要你取舍") and ("交付", "你验收通过") in stages
     assert stages[-1] == ("革新", "下一版提案")
     # 重启圆桌后从磁盘读回来也一样
     again = json.loads((tmp_path / build["id"] / "build.json").read_text(encoding="utf-8"))
@@ -1069,3 +1070,217 @@ def test_thumb_of_picks_latest_desk_light_shot():
         ]
     }
     assert thumb_of(b) == "report/round-2/电脑_light.png"
+
+
+# --- 第 2 批：意图理解、分段规划、意图追踪表 ------------------------------------------------
+
+STAGED_PLAN = PROJECT_PLAN | {
+    "requirements": [
+        {"text": "能换目的地", "voices": ["v1"], "windows": ["plan"]},
+        {"text": "给爸妈看得清", "voices": ["v2"], "windows": ["plan"]},
+    ],
+    "stages": [
+        {
+            "title": "最小可用",
+            "goal": "地图和行程走通",
+            "try": ["换目的地", "看行程"],
+            "windows": ["Map View", "plan"],
+            "accept": ["r1"],
+            "skip": "预算",
+        },
+        {
+            "title": "主要功能",
+            "goal": "补预算，行程加大字",
+            "windows": ["plan", "budget"],
+            "accept": ["r2"],
+        },
+    ],
+    "pool": ["离线地图"],
+}
+
+
+class IntentSC(ProjectSC):
+    def __init__(self, **kw):
+        super().__init__(**kw)
+        self.plan = STAGED_PLAN
+
+    async def step(self, kind, prompt, **kw):
+        p = json.loads(prompt)
+        if p["role"] == "bench_interview":
+            self.calls.append({"role": p["role"], "who": "a", "look": p["look"]})
+            out = {
+                "intent": {
+                    "ideal": "带爸妈出游也不手忙脚乱",
+                    "who": {"text": "自己", "level": "推断"},
+                    "task": {"text": "排三天行程", "level": "确定"},
+                    "expect": [{"text": "离线也能看", "from": "使用者"}],
+                },
+                "questions": [
+                    {
+                        "q": "主要给谁用？",
+                        "options": ["自己", "爸妈"],
+                        "recommend": "自己",
+                        "about": "who",
+                        "effect": "爸妈用要大字",
+                    },
+                    {"q": "手机还是电脑？", "options": ["手机", "电脑"], "recommend": "手机"},
+                ],
+            }
+            return W("a"), RunResult(0, json.dumps(out, ensure_ascii=False))
+        return await super().step(kind, prompt, **kw)
+
+
+async def test_intent_stages_and_trace_full_flow(tmp_path):
+    sc = IntentSC()
+    b = project(tmp_path, sc)
+    build = b.submit("帮我做一个旅行台")
+    await b.wait()
+    assert build["intent"]["ideal"] == "带爸妈出游也不手忙脚乱"
+    assert build["gate"]["kind"] == "interview"
+    assert build["interview"]["questions"][0]["recommend"] == "自己"
+
+    b.answer(build["id"], {"q1": "爸妈", "q2": ""})
+    await b.wait()
+    assert build["intent"]["who"] == {"text": "爸妈", "level": "确定"}
+    assert any("按推荐「手机」" in a["text"] for a in build["intent"]["assume"])
+    assert [v["src"] for v in build["voices"]] == ["开工", "访谈"]
+    plan = next(json.loads(p) for p in sc.prompts if json.loads(p)["role"] == "bench_plan")
+    assert "理想画像" in plan["request"] and "给谁用：爸妈（确定）" in plan["request"]
+    assert "v2（访谈）主要给谁用？ —— 爸妈" in plan["voices"]
+    prop = build["proposal"]
+    ms = prop["milestones"]
+    assert [m["windows"] for m in ms] == [["map-view", "plan"], ["plan", "budget"]]
+    assert ms[0]["try"] == ["换目的地", "看行程"] and ms[0]["skip"] == "预算"
+    assert ms[1]["accept"][0] == "r2" and prop["pool"] == ["离线地图"]
+    md = (tmp_path / build["id"] / "方案书.md").read_text(encoding="utf-8")
+    assert "第 1 段 · 最小可用" in md and "建议池" in md
+    assert {r["id"]: r["state"] for r in build["trace"]} == {"v1": "待做", "v2": "待做"}
+
+    b.sign(build["id"], note="字大一点")
+    await b.wait()
+    assert build["gate"]["kind"] == "m1" and "第 1 段" in build["gate"]["title"]
+    writes = [json.loads(p) for p in sc.prompts if json.loads(p)["role"] == "bench_window"]
+    assert "第 1/2 段「最小可用」" in writes[0]["stage"] and "这段不做：预算" in writes[0]["stage"]
+
+    n_before = len(sc.prompts)
+    b.review(build["id"], "pass")
+    await b.wait()
+    later = [json.loads(p) for p in sc.prompts[n_before:]]
+    # 第 2 段：预算新写，行程（第 1 段写过）交回作者往里加功能
+    assert [p["file"] for p in later if p["role"] == "bench_window"] == ["windows/budget.js"]
+    add = next(p for p in later if p["role"] == "bench_rework")
+    assert add["file"] == "windows/plan.js" and "[本段任务]" in add["problems"]
+    assert "第 2/2 段「主要功能」" in add["stage"]
+    assert build["gate"]["kind"] == "accept"
+    rows = {r["id"]: r for r in build["trace"]}
+    assert rows["v1"]["state"] == "做到" and rows["v1"]["stage"] == 1
+    assert rows["v3"]["src"] == "签字" and rows["v3"]["state"] == "已参考"
+
+    b.review(build["id"], "change", [{"text": "预算加个汇率"}])
+    await b.wait()
+    rows = {r["id"]: r for r in build["trace"]}
+    assert rows["v4"]["src"] == "变更单" and rows["v4"]["state"] == "改好了"
+
+
+# --- 第 3 批：防倒退（分段基线）、写手自看截图 ----------------------------------------------
+
+PROBE = {"steps": [{"do": "click", "target": "换目的地"}], "expect": ["京都"]}
+
+
+def probe_plan():
+    plan = json.loads(json.dumps(STAGED_PLAN))
+    plan["requirements"][0]["probe"] = PROBE
+    return plan
+
+
+async def test_stage_checks_fix_once_then_baseline_catches_regression(tmp_path):
+    sc = IntentSC()
+    sc.plan = probe_plan()
+    answers = iter([False, True, False, True, True, True, True, True])
+    calls: list[list[str]] = []
+
+    def probe(target, probes, allow=()):
+        calls.append([p["id"] for p in probes])
+        return [{"id": p["id"], "ok": next(answers), "why": "没出现「京都」"} for p in probes]
+
+    b = BenchBuilder(
+        BenchRules(project={"enabled": True, "interview": False}, max_rounds=3),
+        root=tmp_path,
+        supercomputer=sc,
+        render=render,
+        check=fake_check(),
+        probe=probe,
+        seed=7,
+    )
+    build = b.submit("旅行台")
+    await b.wait()
+    b.sign(build["id"])
+    await b.wait()
+    assert build["gate"]["kind"] == "m1"
+    # 第 1 段演示前：r1 没做到 → 交回负责的窗口改一次 → 再查做到了
+    assert calls[:2] == [["r1"], ["r1"]]
+    fix = next(json.loads(p) for p in sc.prompts if json.loads(p)["role"] == "bench_rework")
+    assert "验收自动检查没过" in fix["problems"] and fix["file"] == "windows/plan.js"
+    assert "[自看] 改之前的截图：report/m1-1/电脑_light.png" in fix["problems"]
+    assert build["milestones"][0]["checks"] == [{"id": "r1", "ok": True, "why": "没出现「京都」"}]
+
+    b.review(build["id"], "pass")
+    assert build["baseline"] == ["r1"]
+    await b.wait()
+    # 第 2 段做完进质检：r1 又坏了 → 记成「倒退」交回
+    later = [json.loads(p) for p in sc.prompts if json.loads(p)["role"] == "bench_rework"]
+    assert any("[自动质检·必须修·自动检查] 倒退" in p["problems"] for p in later)
+    assert any("防倒退：r1" in x["text"] for x in build["log"])
+
+
+# --- 第 4 批：地基技能（短版常驻、长版按步骤、按工作台类型挑） ------------------------------
+
+
+def fake_skill(name):
+    return f"短·{name}", f"长·{name}"
+
+
+async def test_skills_short_and_long_by_step_and_kind(tmp_path):
+    sc = FakeSC(plan=PLAN | {"kind": "editor"})
+    b = BenchBuilder(
+        BenchRules(
+            skills={
+                "steps": {
+                    "plan": {"short": ["manager"], "long": ["layout"]},
+                    "window": {"short": ["manager", "layout"], "long": ["no_ai"]},
+                    "review": {"short": ["no_ai"], "long": ["visual_review"]},
+                },
+                "kinds": {"editor": {"label": "编辑器类", "skills": ["editor"]}},
+            }
+        ),
+        root=tmp_path,
+        supercomputer=sc,
+        render=render,
+        check=fake_check(),
+        seed=7,
+        skill=fake_skill,
+    )
+    build = b.submit("修图台")
+    await b.wait()
+    assert build["status"] == "done", build["log"]
+    by_role = {}
+    for p in sc.prompts:
+        d = json.loads(p)
+        by_role.setdefault(d["role"], d)
+    plan = by_role["bench_plan"]
+    assert plan["skills"] == "短·manager\n\n长·layout" and "- editor：编辑器类" in plan["kinds"]
+    assert json.loads((tmp_path / build["id"] / "spec.json").read_text())["kind"] == "editor"
+    win = by_role["bench_window"]["skills"]
+    assert win == "短·manager\n\n短·layout\n\n长·no_ai\n\n长·editor"  # 品类技能给长版
+    assert by_role["bench_review"]["skills"] == "短·no_ai\n\n长·visual_review\n\n长·editor"
+
+
+def test_skills_off_or_unknown_kind():
+    b = BenchBuilder(BenchRules(), root=None, supercomputer=FakeSC(), render=render)
+    assert "没有额外的技能说明" in b._skills("window", "editor")  # 没有技能文字来源
+    b.skill = fake_skill
+    b.rules = BenchRules(skills={"enabled": False})
+    assert "没有额外的技能说明" in b._skills("window")
+    b.rules = BenchRules(skills={"steps": {"window": {"short": ["team"]}}})
+    assert b._skills("window", "不认得") == "短·team"
+    assert normalize(PLAN | {"kind": "hacker"}, max_windows=8, kinds={"editor"}).kind == ""

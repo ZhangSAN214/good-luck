@@ -332,6 +332,7 @@ class RoundtableService:
             scout=self._build_scout(runtime.config.roundtable.bench),
             researcher=self._build_researcher(runtime.config.roundtable.bench),
             whitelist=self._dsh_whitelist,
+            skill=self._bench_skill,
         )
         self.bench_status_fetch = http_status()  # 联网自检用（测试换成假的）
         self._chat_tasks: set[asyncio.Task[Any]] = set()
@@ -386,6 +387,12 @@ class RoundtableService:
             min_stars=rules.min_stars,
             max_kb=rules.max_repo_mb * 1024,
         )
+
+    def _bench_skill(self, name: str) -> tuple[str, str]:
+        """工作台地基技能：prompts/bench_skill_<名字>/ 的 system 段是短版、user 段是长版。"""
+        role = f"bench_skill_{name}"
+        tpl = self.rt.prompts.get(role, self.rt.config.roundtable.prompts[role])
+        return tpl.system, tpl.user
 
     def _super_render(self, role: str, **values: str) -> str:
         """超级电脑和工作台生成器发给助手的全文：系统和用户两段拼在一起（命令行助手只收一段）。"""

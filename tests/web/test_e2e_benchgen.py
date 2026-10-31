@@ -177,8 +177,8 @@ def test_benchgen_flow(serve, page, monkeypatch, tmp_path):
 
 
 def test_benchgen_project_room(serve, page, monkeypatch, tmp_path):
-    """项目室：回答访谈 → 改验收清单签字 → 里程碑演示提意见 → 通过 → 交付验收 → 下一版提案。"""
-    from ..core.benchkit.test_builder import ProjectSC
+    """项目室：理想画像 + 取舍 → 改验收清单签字 → 分段演示提意见 → 通过 → 交付验收 → 下一版提案。"""
+    from ..core.benchkit.test_builder import IntentSC
 
     def factory(rules, *, root, **kw):
         return BenchBuilder(
@@ -190,7 +190,7 @@ def test_benchgen_project_room(serve, page, monkeypatch, tmp_path):
                 }
             ),
             root=tmp_path / "bench",
-            supercomputer=ProjectSC(),
+            supercomputer=IntentSC(),
             render=fake_render,
             check=check,
             seed=3,
@@ -207,11 +207,20 @@ def test_benchgen_project_room(serve, page, monkeypatch, tmp_path):
     gate = pane.locator(".bg-gate")
     gate.locator("textarea[data-q]").first.wait_for(timeout=15000)
     assert "问取舍" in pane.locator(".bg-flow li.now").text_content()
+    ideal = pane.locator(".bg-stage .bg-idealpage")  # 还没成品时理想画像放大摆在中间
+    assert "带爸妈出游也不手忙脚乱" in ideal.locator(".bg-idealbig").text_content()
+    assert ideal.locator('.bg-lv[data-lv="确定"]').count() == 1  # 排三天行程（原话）
+    assert "推荐" in gate.locator(".chip.rec").first.text_content()
     gate.locator("[data-opt]").first.click()  # 点选项填进回答
     assert gate.locator("textarea[data-q]").first.input_value() == "自己"
     gate.locator("[data-answer]").click()
 
     gate.locator("[data-sign]").wait_for(timeout=15000)
+    intent = pane.locator(".bg-client .bg-intent")  # 签字时中间是选型预览，理想画像回到左栏
+    assert intent.locator('.bg-lv[data-lv="确定"]').count() == 2  # 选了「自己」：给谁用变成确定
+    assert pane.locator(".bg-stages li").count() == 2  # 方案里的分段
+    assert "你能试：换目的地 → 看行程" in pane.locator(".bg-stages li").first.text_content()
+    assert pane.locator(".bg-trace li").count() == 2  # 开工那句 + 访谈回答
     assert gate.locator("li[data-req]").count() == 2
     gate.locator("li[data-req]").nth(1).locator("[data-delreq]").click()
     gate.locator("[data-addreq]").click()
@@ -226,12 +235,13 @@ def test_benchgen_project_room(serve, page, monkeypatch, tmp_path):
     gate.locator("[data-comments]").fill("地图再大一点")
     gate.locator("[data-cwin]").select_option("map-view")
     gate.locator("[data-change]").click()
-    pane.locator(".bg-changes li", has_text="改好了").wait_for(timeout=15000)
+    pane.locator('.bg-trace li[data-state="改好了"]').wait_for(state="attached", timeout=15000)
     gate.locator("[data-pass]").wait_for(timeout=15000)
     assert pane.locator(".bg-demo figcaption", has_text="改之后").count() == 1
     gate.locator("[data-pass]").click()
 
     pane.locator(".bg-gate [data-pass]", has_text="验收通过").wait_for(timeout=15000)
+    assert pane.locator(".bg-stages li", has_text="第 2 段 · 主要功能").count() == 1
     assert "交付" in pane.locator(".bg-steps li.now").text_content()
     pane.locator(".bg-gate [data-pass]").click()
     pane.locator("[data-evolve]").click()

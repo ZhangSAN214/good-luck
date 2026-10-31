@@ -13,6 +13,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
+from roundtable.core.benchkit.intent import MAX_STAGES, stages_of
 from roundtable.core.benchkit.quality import KIT_DIR
 
 _ID = re.compile(r"[^a-z0-9-]+")
@@ -81,6 +82,13 @@ class Spec:
     # 设计选型（版型、配色、材质、密度、圆角、字体气质、参考作品）：拆需求的助手给推荐和理由，
     # 签字时按你在选型台上点的定下来。外壳按它排窗口、加样式（<html data-k-*>）
     design: dict[str, Any] = field(default_factory=dict)
+    # 分段计划（竖着切，每段都能走通）：n、title、goal、try、windows、accept、skip、risk
+    # （intent.stages_of）
+    stages: list[dict[str, Any]] = field(default_factory=list)
+    # 建议池：用户没要、以后可以加的功能（追溯不到原话的不做，放这里）
+    pool: list[str] = field(default_factory=list)
+    # 工作台类型（编辑器、游戏模拟、看板……，见 bench.skills.kinds）：写窗口时按那一类的做法来
+    kind: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -542,6 +550,17 @@ def apply_design(
                 e["from"] = ""
         for r in spec.requirements:
             r["windows"] = [x for x in r.get("windows") or [] if x not in drop]
+        for st in spec.stages:
+            st["windows"] = [x for x in st["windows"] if x not in drop]
+        # 某段的窗口全去掉了：那段并进下一段（最后一段并进前一段），段号重排
+        keep = [st for st in spec.stages if st["windows"]]
+        for st in spec.stages:
+            if not st["windows"] and keep:
+                into = next((k for k in keep if k["n"] > st["n"]), keep[-1])
+                into["accept"] = list(dict.fromkeys(st["accept"] + into["accept"]))
+        for n, st in enumerate(keep, 1):
+            st["n"] = n
+        spec.stages = keep
     order = layout_spans(spec, picks.get("layout", "plan"))
     spans = choice.get("spans") if isinstance(choice.get("spans"), dict) else {}
     by_id = {w.id: w for w in spec.windows}
@@ -660,6 +679,8 @@ def normalize(
     max_windows: int,
     baseline: list[str] | None = None,
     max_requirements: int = 12,
+    max_stages: int = MAX_STAGES,
+    kinds: set[str] | None = None,
 ) -> Spec:
     """校验并修正：id 规范且不重复、零件和图标只留认得的、span 限在 3～12、窗口数不超上限。"""
     m = manifest()
@@ -746,6 +767,10 @@ def normalize(
         raw.get("requirements"), seen, list(baseline or []), max_requirements
     )
     theme = theme if theme in themes else "ink"
+    stages = stages_of(
+        raw.get("stages"), [w.id for w in windows], requirements, hero=hero, max_stages=max_stages
+    )
+    pool = [_text(x, 60) for x in (raw.get("pool") or []) if _text(x, 60)][:8]
     return Spec(
         title=title,
         subtitle=_text(raw.get("subtitle"), 60),
@@ -759,6 +784,9 @@ def normalize(
         requirements=requirements,
         hero=hero,
         design=design_of(raw.get("design"), theme, themes),
+        stages=stages,
+        pool=pool,
+        kind=kind if (kind := str(raw.get("kind") or "")) in (kinds or set()) else "",
     )
 
 

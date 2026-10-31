@@ -285,3 +285,36 @@
 .bg-app button.link{background:none;border:0;padding:0 2px;color:rgba(190,208,240,.95);font:inherit;font-size:13px;text-decoration:underline;text-underline-offset:3px;cursor:pointer}
 .bg-app a.link{color:rgba(190,208,240,.95)}
 .bg-drop{border-color:rgba(255,255,255,.16);border-radius:16px;padding:10px 12px}
+
+/* 第 2 批：理想画像、把握等级、意图追踪表、分段 */
+.bg-intent{margin:12px 0 4px;padding:10px 12px;border-radius:12px;background:rgba(255,255,255,.04);box-shadow:var(--hb-edge)}
+.bg-ideal{margin:2px 0 8px;font-size:14px;line-height:1.55;font-weight:600}
+.bg-five{list-style:none;margin:0;padding:0;display:grid;gap:4px}
+.bg-five li{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:8px;align-items:baseline;font-size:13px;line-height:1.5}
+.bg-five.bg-more li{grid-template-columns:minmax(0,1fr) auto}
+.bg-five .bg-k{min-width:3.6em}
+.bg-lv{font-size:11px;padding:0 7px;border-radius:999px;line-height:18px;white-space:nowrap;border:1px solid currentColor;opacity:.85}
+.bg-lv[data-lv="确定"]{color:#7fd6a4}
+.bg-lv[data-lv="推断"]{color:#9fb8ff}
+.bg-lv[data-lv="假设"]{color:#f2c46b}
+.bg-opts .chip.rec{border-width:2px;font-weight:600}
+.bg-opts .chip small{margin-left:4px;font-size:10px;opacity:.75}
+.bg-trace{margin-top:10px}
+.bg-trlist{list-style:none;margin:6px 0 0;padding:0;display:grid;gap:6px}
+.bg-trlist li{display:grid;grid-template-columns:auto minmax(0,1fr);gap:8px;align-items:start;font-size:13px;line-height:1.5}
+.bg-tr-tx{display:grid;gap:2px;min-width:0;overflow-wrap:anywhere}
+.bg-tr-tx .bg-k{margin-right:6px}
+.bg-tr-st{font-size:11px;padding:0 7px;border-radius:999px;line-height:18px;white-space:nowrap;background:rgba(255,255,255,.08)}
+.bg-trlist li[data-state="做到"] .bg-tr-st,.bg-trlist li[data-state="改好了"] .bg-tr-st{background:rgba(92,190,132,.22);color:#a8e8c2}
+.bg-trlist li[data-state="没做到"] .bg-tr-st,.bg-trlist li[data-state="没改成"] .bg-tr-st,.bg-trlist li[data-state="没对上"] .bg-tr-st{background:rgba(232,110,96,.24);color:#ffb9ae}
+.bg-stages li .sc-sub{display:block}
+.bg-idealpage{flex:1;overflow:auto;padding:28px 32px;display:flex;flex-direction:column;gap:14px}
+.bg-idealbig{margin:0;font-family:var(--hb-serif);font-size:26px;line-height:1.4;letter-spacing:.02em}
+.bg-tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px}
+.bg-tile{padding:12px 14px;border-radius:12px;background:rgba(255,255,255,.05);box-shadow:var(--hb-edge);display:flex;flex-direction:column;gap:6px;align-items:flex-start}
+.bg-tile p{margin:0;font-size:14px;line-height:1.5}
+.bg-tile.none p{opacity:.5}
+.bg-idealcols{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px}
+.bg-idealpage .bg-live{margin-top:auto}
+@media (max-width:760px){.bg-idealpage{padding:16px}.bg-idealbig{font-size:20px}}
+.bg-idealcols .sc-sub{margin-left:8px}
