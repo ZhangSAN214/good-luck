@@ -38,6 +38,7 @@ from roundtable.core.member.bus import PERCEIVE, Event, EventBus
 from roundtable.core.member.care import Care
 from roundtable.core.member.circle import Circle
 from roundtable.core.member.feel import Feelings
+from roundtable.core.member.firsts import Firsts
 from roundtable.core.member.human import Human
 from roundtable.core.member.lingo import Lingo
 from roundtable.core.member.love import USER, Heart
@@ -148,6 +149,7 @@ class Brain:
         self.memes = MemeSense(rt)
         self.phrases = Phrasebook(rt, bus)
         self.circle = Circle(rt, bus)  # 圈外熟人名册：她提过的室友、老同学，免得说反
+        self.firsts = Firsts(rt, bus)  # 「第一次」纪念：你亲口说的第一次，整月 / 整年那天轻轻提
         # 爱与复合情绪（love.py）：传了 bus 时订阅聊天和生活事件；names：成员 id → 称呼
         self.heart = Heart(rt, bus, names)
         # 人味（human.py）：知识边界、自己的时间、自我一致、八卦、时间纵深、小毛病、主动约人
@@ -1019,6 +1021,14 @@ class Brain:
         if circle:  # 对方提到她说过的圈外人（室友、老同学……）：照之前说的来
             text = f"{text}\n{circle}"
             tags.append("circle")
+        first = (
+            self.firsts.line(member, at, random.Random(f"firsts:{member}:{iso(at)}:{seed}"))
+            if to == USER
+            else None
+        )
+        if first is not None:
+            text = f"{text}\n{first[1]}"
+            tags.append(first[0])
         extra = self.human.lines(
             member,
             to=to,
@@ -1282,6 +1292,7 @@ class Brain:
         if not card.silent:
             self.memes.after(card.member, card.tags, at)
             self.phrases.after(card.member, card.tags, at)
+            self.firsts.after(card.member, card.tags)
 
 
 def _num(x: Any) -> float:

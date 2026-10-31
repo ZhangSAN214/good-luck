@@ -2273,6 +2273,28 @@ class PhrasebookRules(_Strict):
     first_line: str = ""
 
 
+class FirstsRules(_Strict):
+    """「第一次」纪念（2026-10-31 拟人插件调研第 10 项）：你在私聊亲口说的「第一次……」记下来，
+    过整月、整年那天她可能轻轻提一句，只提一次、不要你回应。全程序。"""
+
+    enabled: bool = True
+    pattern: str = "第一次(.{2,18}?)(?:[。！？!?，,~～\\n]|$)"
+    milestones: list[int] = Field(default_factory=lambda: [1, 12], max_length=10)  # 几个月后
+    chance: float = Field(default=0.5, ge=0, le=1)
+    max_keep: int = Field(default=30, ge=1, le=200)
+    line: str = (
+        "{when}的今天，他第一次{what}（他原话：「{quote}」）：想提就轻轻带一句，"
+        "只提这一次，别要他回应；没合适的时机就不提"
+    )
+
+    @field_validator("pattern")
+    @classmethod
+    def _pattern(cls, v: str) -> str:
+        if re.compile(v).groups < 1:
+            raise ValueError("pattern 要有一个分组（那件事）")
+        return v
+
+
 class CircleRules(_Strict):
     """圈外熟人名册（2026-10-31 拟人插件调研第 9 项）：人物卡和她自己说过的「我室友小林」记下来，
     对方提到时意图卡里带一句，免得前后说反。全程序。"""
@@ -2583,6 +2605,7 @@ class EngineRules(_Strict):
     floor: FloorRules = FloorRules()
     phase: PhaseRules = PhaseRules()
     circle: CircleRules = CircleRules()
+    firsts: FirstsRules = FirstsRules()
     reach: ReachRules = ReachRules()
     feel: FeelRules = FeelRules()
 
