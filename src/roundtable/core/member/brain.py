@@ -954,10 +954,19 @@ class Brain:
         )
         first = [x for x in extra if x[0] in FIRST]
         if self.feel.enabled():  # 此刻在场的情绪：她自己的理解 + 上回真有这种情绪是为了什么
-            emo = self.feel.active(member, mood=mood, last=last, at=at)
-            felt = self.feel.line(member, emo, at)
+            hints = self.feel.hints(
+                heart=heart[0] if heart else "",
+                tense=any(t.source == "expect" and t.strength >= 0.55 for t in mine),
+                novelty=s.drives.get("novelty", 0.3),
+            )
+            if heart and heart[0] == "jealous":  # 吃醋没有别处记：写进卡时就算有过一次
+                self.feel.record(
+                    member, self.feel.rules.love["jealous"], heart[1].split("，")[0], at
+                )
+            emos = self.feel.active(member, mood=mood, last=last, at=at, hints=hints)
+            felt = self.feel.line(member, emos, at)
             if felt:
-                first.insert(0, ("feel", felt))
+                first.insert(0, ("feel:mix" if "\n" in felt else "feel", felt))
         rest = lines + [x for x in extra if x[0] not in FIRST]
         rng.shuffle(rest)
         for tag, line in first + rest:  # 人味里要紧的先给，其余和特质句一起随机
