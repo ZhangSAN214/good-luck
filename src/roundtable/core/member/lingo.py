@@ -505,6 +505,7 @@ class Lingo:
         h = self.habits(member)
         out = self.colloquial(text, asked)
         out = self.own_voice(member, out, rng)
+        out = self.show(member, out, rng)
         out = _LAUGH.sub(lambda m: self._laugh(m.group(0), h, rng), out)
         out = "\n".join(self._end(line, h, rng) for line in out.split("\n"))
         fixed = self._typo(member, out, energy, rng)
@@ -539,6 +540,51 @@ class Lingo:
                 out = out.replace(their_me, me or "我")
         return out
 
+    def show(self, member: str, text: str, rng: random.Random) -> str:
+        """心情别直说：「好开心」「无语了」这类换成她自己的颜文字或符号（2026-10-31 用户定）。
+        那一小句只剩这个词时整句换掉；还有别的话就去掉这个词，表情接在句末。"""
+        r = self.rules.show
+        if not r.enabled:
+            return text
+        mine = self.kaomoji(member)
+        groups = self.rules.kaomoji
+        lines = []
+        for line in text.split("\n"):
+            clauses = _CLAUSE.findall(line) or [line]
+            out, tail = [], ""
+            for c in clauses:
+                hit = next(
+                    ((rule, w) for rule in r.feelings.values() for w in rule.words if w in c),
+                    None,
+                )
+                if hit is None:
+                    out.append(c)
+                    continue
+                rule, word = hit
+                fit = [
+                    k
+                    for v in rule.vibes
+                    for k in (groups[v].items if v in groups else ())
+                    if k in mine
+                ]
+                if fit and (not rule.marks or rng.random() < r.kaomoji):
+                    face = rng.choice(fit)  # 她分到的、气质对得上的颜文字
+                elif rule.marks:
+                    face = rng.choice(rule.marks)
+                else:
+                    face = rng.choice(mine) if mine else ""
+                rest = re.sub(
+                    r"^[啊呀，,\s]+|[啊呀]+(?=[，,。！!？?～~…]*$)", "", c.replace(word, "")
+                )
+                if re.sub(r"[，,。！!？?～~…\s了的啊呀吧呢真太好超]", "", rest):
+                    out.append(rest)
+                    tail = tail or face
+                else:
+                    out.append(face)
+            joined = "".join(out).strip()
+            lines.append(f"{joined}{tail}" if tail else joined)
+        return "\n".join(lines)
+
     @staticmethod
     def _drop_clause(text: str, phrase: str) -> str:
         """删掉含 phrase 的那一小句；删光了就只去掉这个词组本身，还不行就原样。"""
@@ -547,7 +593,11 @@ class Lingo:
             if phrase not in line:
                 lines.append(line)
                 continue
-            keep = [c for c in _CLAUSE.findall(line) if phrase not in c]
+            keep = []
+            for c in _CLAUSE.findall(line):  # 只去掉这个词组；那一小句只剩它时整句去掉
+                left = c.replace(phrase, "").strip(" ") if phrase in c else c
+                if re.sub(r"[，,。！!？?～~…\s]", "", left):
+                    keep.append(left)
             rest = "".join(keep).rstrip("，,")
             residue = line.replace(phrase, "").strip(" ，,")
             meaningful = re.sub(r"[，,。！!？?～~…\s]", "", residue)
