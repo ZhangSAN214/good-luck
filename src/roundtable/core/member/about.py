@@ -156,8 +156,16 @@ class AboutYou:
 
     # --- 聊天时带几条（只在生活模式） ---------------------------------------------------
 
-    def lines(self, query: str, mode: Mode | str = Mode.LIFE, today: date | None = None) -> str:
-        """和当前对话相关的几条（8 位相同的条数和字数）；没有相关的返回空串。"""
+    def lines(
+        self,
+        query: str,
+        mode: Mode | str = Mode.LIFE,
+        today: date | None = None,
+        member: str | None = None,
+        names: dict[str, str] | None = None,
+    ) -> str:
+        """和当前对话相关的几条（8 位相同的条数和字数）；没有相关的返回空串。
+        member：这位成员知道的才带（知情范围）；听别人说的标「听 X 说的」。"""
         require_life(mode)
         r = self.rules
         if not self.enabled() or r.inject_max == 0 or r.context_chars == 0:
@@ -165,9 +173,12 @@ class AboutYou:
         today = today or self.today()
         off = set(self.switches()["domains_off"])
         query = (query or "")[-QUERY_CHARS:]
+        rooms = self._rooms() if member is not None and r.scope else {}
         scored = []
         for f in self.facts():
             if f["domain"] in off or self.faded(f, today):
+                continue
+            if member is not None and r.scope and not self.knows(member, f, rooms):
                 continue
             rel = relevance(f["text"], query)
             if rel < r.min_relevance:
@@ -179,6 +190,9 @@ class AboutYou:
         used = 0
         for _, _, f, conf in scored[: r.inject_max]:
             maybe = "（可能）" if f["source"] == INFERRED and conf < r.maybe_below else ""
+            told = (f.get("told") or {}).get(member or "")
+            if told and member is not None and not self._direct(member, f, rooms):
+                maybe += f"（听{(names or {}).get(told, told)}说的）"
             line = f"- {f['text']}{maybe}"
             need = len(line) + (1 if out else 0)
             if used + need > r.context_chars:
@@ -186,6 +200,73 @@ class AboutYou:
             out.append(line)
             used += need
         return f"{r.header}\n" + "\n".join(out) if out else ""
+
+    # --- 知情范围（谁知道这件事） -------------------------------------------------------
+
+    def _rooms(self) -> dict[str, dict[str, Any]]:
+        return {room["id"]: room for room in self.rt.repo.chat_rooms()}
+
+    def _direct(self, member: str, fact: dict[str, Any], rooms: dict[str, dict[str, Any]]) -> bool:
+        """不靠传话就知道：你在画像页写的、你在她在场时说的、她自己注意到的。"""
+        if fact["source"] == USER:
+            return True
+        for ev in fact.get("evidence") or []:
+            if ev.get("by") == member:
+                return True
+            room = str(ev.get("room") or "")
+            if room.startswith("dm:"):
+                if room[3:] == member:
+                    return True
+                continue
+            info = rooms.get(room)
+            members = (info or {}).get("members") or []
+            if info is None or not members or member in members:
+                return True  # 群里说的：群里的人都知道（没写成员名单的是全员群）
+        return member in (fact.get("noticed") or [])
+
+    def knows(
+        self, member: str, fact: dict[str, Any], rooms: dict[str, dict[str, Any]] | None = None
+    ) -> bool:
+        if not self.rules.scope:
+            return True
+        rooms = self._rooms() if rooms is None else rooms
+        return self._direct(member, fact, rooms) or member in (fact.get("told") or {})
+
+    def secret(self, fact: dict[str, Any]) -> bool:
+        return any(ev.get("secret") for ev in fact.get("evidence") or [])
+
+    def gossip(self, members: list[str], rng: Any, today: date | None = None) -> list[tuple]:
+        """几位成员私下聊天时，你的事可能传过去（每次最多 gossip_max 条，每条按 gossip_chance）。
+        只传没变淡、没关掉的领域；「别告诉别人」的、推测的不传。
+        返回 [(事实 id, 从, 到)]。"""
+        r = self.rules
+        if not self.enabled() or not r.scope or r.gossip_max == 0 or len(members) < 2:
+            return []
+        today = today or self.today()
+        data = self._load()
+        off = set(self.switches()["domains_off"])
+        rooms = self._rooms()
+        moved: list[tuple] = []
+        for f in data["facts"]:
+            if len(moved) >= r.gossip_max:
+                break
+            if (
+                f["domain"] in off
+                or f["source"] == INFERRED
+                or self.faded(f, today)
+                or self.secret(f)
+            ):
+                continue
+            knowers = [m for m in members if self.knows(m, f, rooms)]
+            others = [m for m in members if m not in knowers]
+            if not knowers or not others or rng.random() >= r.gossip_chance:
+                continue
+            src, dst = rng.choice(knowers), rng.choice(others)
+            f.setdefault("told", {})[dst] = src
+            moved.append((f["id"], src, dst))
+        if moved:
+            self._save(data)
+        return moved
 
     # --- 夜间整理交来的线索 -----------------------------------------------------------
 
@@ -248,10 +329,13 @@ class AboutYou:
             if ev is None:
                 out["unverified"] += 1
                 continue
-            if self.blocked(ev.pop("full")):  # 原话整句里有敏感的事也不记
+            full = ev.pop("full")
+            if self.blocked(full):  # 原话整句里有敏感的事也不记
                 out["blocked"] += 1
                 continue
             ev["by"] = member
+            if str(ev["room"]).startswith("dm:") and any(w in full for w in r.secret_words):
+                ev["secret"] = True  # 「别告诉别人」：永远不传
             source = SAID if clue.get("said") else INFERRED
             old = self._match(data["facts"], text, domain)
             if old is not None:
@@ -602,10 +686,25 @@ class AboutYou:
 
     # --- 看和导出 ---------------------------------------------------------------------
 
+    def _everyone(self, fact: dict[str, Any], rooms: dict[str, dict[str, Any]]) -> bool:
+        if not self.rules.scope or fact["source"] == USER:
+            return True
+        for ev in fact.get("evidence") or []:
+            room = str(ev.get("room") or "")
+            if not room.startswith("dm:") and not (rooms.get(room) or {}).get("members"):
+                return True
+        return False
+
     def view(self, today: date | None = None) -> dict[str, Any]:
+        from roundtable.core.chat import chat_members  # chat 依赖本模块
+
         today = today or self.today()
         data = self._load()
         off = self.switches()["domains_off"]
+        rooms = self._rooms()
+        everyone = chat_members(self.rt.config, set())
+        members = [m.id for m in everyone]
+        names = {m.id: m.name for m in everyone}
         facts = []
         for f in data["facts"]:
             facts.append(
@@ -615,6 +714,9 @@ class AboutYou:
                     "faded": self.faded(f, today),
                     "off": f["domain"] in off,
                     "source_label": SOURCES[f["source"]],
+                    "everyone": self._everyone(f, rooms),
+                    "known_by": [m for m in members if self.knows(m, f, rooms)],
+                    "known_names": [names[m] for m in members if self.knows(m, f, rooms)],
                 }
             )
         facts.sort(

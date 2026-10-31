@@ -1295,7 +1295,32 @@ class AboutRules(_Strict):
     inject_max: int = Field(default=3, ge=0, le=10)
     context_chars: int = Field(default=100, ge=0, le=400)
     min_relevance: float = Field(default=0.1, ge=0, le=1)
-    header: str = "【关于用户（大家共知的事实，用得上再提）】"
+    header: str = "【关于用户（你知道的事，用得上再提）】"
+    # 知情范围（2026-10-31 拟人插件调研第 1 项）：你在私聊里只告诉 A 的事只有 A 知道；在群里说的
+    # 群里的人都知道；你在画像页写的大家都知道。别人只能经同事私下聊天「听 A 说」辗转知道，
+    # 每次两人聊天最多传 gossip_max 条、每条按 gossip_chance；说了「别告诉别人」之类的永远不传。
+    scope: bool = True
+    gossip_chance: float = Field(default=0.15, ge=0, le=1)
+    gossip_max: int = Field(default=1, ge=0, le=5)
+    secret_words: list[str] = Field(
+        default=[
+            "别告诉别人",
+            "别跟别人说",
+            "别和别人说",
+            "不要告诉别人",
+            "不要跟别人说",
+            "只告诉你",
+            "只跟你说",
+            "帮我保密",
+            "替我保密",
+            "要保密",
+            "别说出去",
+            "不要说出去",
+            "我们的秘密",
+            "咱俩的秘密",
+        ],
+        max_length=60,
+    )
     maybe_below: float = Field(default=0.6, ge=0, le=1)  # 把握度低于这个的在聊天里标「可能」
     # 第二块：用户状态（正在放的歌、电脑空闲、在玩游戏、课表 DDL、邮件栏），每项默认关
     status_header: str = "【用户此刻（用户自己打开的，自然带出，别直接念）】"

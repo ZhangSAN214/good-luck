@@ -127,14 +127,21 @@ def member_memory(rt: Any, member: str, query: str = "", conversation: str | Non
     return memory_context(rt, member, rules.context_chars, query, conversation)
 
 
-def with_about_you(rt: Any, memory: str, query: str) -> str:
+def with_about_you(
+    rt: Any,
+    memory: str,
+    query: str,
+    member: str | None = None,
+    names: dict[str, str] | None = None,
+) -> str:
     """私聊和生活群：记忆后面接上「关于你」画像里和当前对话相关的几条，和你打开了的
     「此刻」状态（成员系统 P8；8 位相同的条数和字数，没有就不接）。工作群不调用。"""
     from roundtable.core.member.about import AboutYou  # about 依赖记忆模块
     from roundtable.core.memory import NONE
 
     status = getattr(rt, "user_status", None)  # 第二块：你打开了的「此刻」状态
-    parts = [AboutYou(rt).lines(query), status.line() if status is not None else ""]
+    about = AboutYou(rt).lines(query, member=member, names=names)  # 只带她知道的（知情范围）
+    parts = [about, status.line() if status is not None else ""]
     about = "\n".join(p for p in parts if p)
     if not about:
         return memory
@@ -687,7 +694,7 @@ class GroupChat:
         if "care" in wants:  # 工作群也要危机关心（chat_work v4 起；生活里由意图卡给关心卡）
             variables["care"] = self._work_care(reply_to)
         if self.kind in ABOUT_KINDS:  # 关于你（P8）：只在私聊和生活群
-            variables["memory"] = with_about_you(rt, variables["memory"], history)
+            variables["memory"] = with_about_you(rt, variables["memory"], history, member.id, names)
             variables["memory"] = with_views(rt, variables["memory"], member.id)
         if self.kind == "dm":
             variables["memory"] = with_group_today(rt, variables["memory"], self.room, names)
