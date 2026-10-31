@@ -381,11 +381,19 @@ class WatchQuietBody(BaseModel):
     quiet: bool
 
 
+class BenchProfileBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    text: str = Field(min_length=1, max_length=200)
+    src: str = Field(default="", max_length=40)
+
+
 class BenchBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     request: str = Field(min_length=1, max_length=2000)
     materials: list[str] = Field(default_factory=list, max_length=64)  # 先收下的素材编号
+    from_product: bool = False  # 从成品反推：拖进来的是成品，要能做出类似成品的台
 
 
 class BenchAttachBody(BaseModel):
@@ -893,7 +901,9 @@ def create_app(service: RoundtableService | None = None, lan: LanAccess | None =
 
     @app.post("/api/bench")
     async def bench_submit(request: Request, body: BenchBody) -> dict[str, Any]:
-        return svc(request).bench_submit(body.request, body.materials)
+        return svc(request).bench_submit(
+            body.request, body.materials, from_product=body.from_product
+        )
 
     @app.post("/api/bench/materials", status_code=201)
     async def bench_material(request: Request, name: str, of: str = "") -> dict[str, Any]:
@@ -918,6 +928,26 @@ def create_app(service: RoundtableService | None = None, lan: LanAccess | None =
     @app.get("/api/bench/net-check")
     async def bench_net_check(request: Request) -> dict[str, Any]:
         return await svc(request).bench_net_check()
+
+    @app.post("/api/bench/profile")
+    async def bench_profile_add(request: Request, body: BenchProfileBody) -> dict[str, Any]:
+        return svc(request).bench_profile_add(body.text, body.src)
+
+    @app.delete("/api/bench/profile/{pid}")
+    async def bench_profile_remove(request: Request, pid: str) -> dict[str, Any]:
+        return svc(request).bench_profile_remove(pid)
+
+    @app.get("/api/bench/desk")
+    async def bench_desk(request: Request) -> dict[str, Any]:
+        return svc(request).bench_desk()
+
+    @app.post("/api/bench/desk/refresh")
+    async def bench_desk_refresh(request: Request) -> dict[str, Any]:
+        return svc(request).bench_desk(refresh=True)
+
+    @app.post("/api/bench/desk/suggest/{sid}")
+    async def bench_desk_suggest(request: Request, sid: str, accept: bool = True) -> dict[str, Any]:
+        return svc(request).bench_desk_suggest(sid, accept)
 
     @app.get("/api/bench/{bench_id}")
     async def bench_get(request: Request, bench_id: str) -> dict[str, Any]:

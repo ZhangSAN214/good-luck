@@ -909,14 +909,51 @@ prompts:
   super_split: v1        # 超级电脑：把一件活拆成能并行的小活
   super_work: v1         # 超级电脑：一位助手在共享工作文件夹里干一件小活
   super_merge: v1        # 超级电脑：合并各件小活的成果并写交付说明
-  bench_plan: v7         # 工作台生成器：一句话拆成窗口、数据、操作（v7：选型十几项按 <design> 的项名给推荐、主色 accent、贴近参考素材；v6：设计选型（版型、材质、密度、圆角、字体气质）给推荐和理由、参考作品；v5：能自动检查的要求写 probe，程序打开成品真的去填、去点；v4：验收清单与底线、主视觉、联网数据、按用户条件现场生成；v3：几个窗口共用的用户数据 state、手机首屏；v2：共用信息 shared、窗口消息约定 events、必须用零件库、手机长度、不画简笔画）
+  bench_plan: v8         # 工作台生成器：一句话拆成窗口、数据、操作（v8：每条要求标出自哪句原话、分段计划 stages 竖着切、建议池、不写标语；v7：选型十几项按 <design> 的项名给推荐、主色 accent、贴近参考素材；v6：设计选型（版型、材质、密度、圆角、字体气质）给推荐和理由、参考作品；v5：能自动检查的要求写 probe，程序打开成品真的去填、去点；v4：验收清单与底线、主视觉、联网数据、按用户条件现场生成；v3：几个窗口共用的用户数据 state、手机首屏；v2：共用信息 shared、窗口消息约定 events、必须用零件库、手机长度、不画简笔画）
   bench_look: v1         # 工作台生成器：看用户拖进来的参考图和视频截帧（版型、配色、材质、风格、借鉴点）
-  bench_window: v5       # 工作台生成器：按规格用零件库写一个窗口（v5：本地示例素材包、不要 AI 味、按用途排版不套卡片；v4：验收清单与底线、主视觉、联网数据、按用户条件现场生成；v3：ctx.state 共用数据、不轮询、手机首屏、一个主按钮；v2：共用信息 shared、窗口消息约定 events、必须用零件库、手机长度、不画简笔画）
-  bench_review: v5       # 工作台生成器：看截图按商业标准打分（不评自己写的窗口）（v5：AI 味扣分、编辑器做成卡片看板压分、素材打不开压分、用户意见优先；v4：验收清单与底线、主视觉、联网数据、按用户条件现场生成；v3：先核对上一轮问题、同样问题每轮扣一样多；v2：查共用信息和联动是否一致，质检压分只限出问题的窗口）
-  bench_rework: v5       # 工作台生成器：按评审和质检返工（v5：本地示例素材包、不要 AI 味、用户意见优先照办；v4：验收清单与底线、主视觉、联网数据、按用户条件现场生成；v3：ctx.state、不轮询、手机首屏；v2：共用信息 shared、窗口消息约定 events、必须用零件库、手机长度、不画简笔画）
+  bench_window: v6       # 工作台生成器：按规格用零件库写一个窗口（v6：分段做 <stage>、拿不准时的优先级；v5：本地示例素材包、不要 AI 味、按用途排版不套卡片；v4：验收清单与底线、主视觉、联网数据、按用户条件现场生成；v3：ctx.state 共用数据、不轮询、手机首屏、一个主按钮；v2：共用信息 shared、窗口消息约定 events、必须用零件库、手机长度、不画简笔画）
+  bench_review: v6       # 工作台生成器：看截图按商业标准打分（不评自己写的窗口）（v6：地基技能 <skills>；v5：AI 味扣分、编辑器做成卡片看板压分、素材打不开压分、用户意见优先；v4：验收清单与底线、主视觉、联网数据、按用户条件现场生成；v3：先核对上一轮问题、同样问题每轮扣一样多；v2：查共用信息和联动是否一致，质检压分只限出问题的窗口）
+  bench_rework: v6       # 工作台生成器：按评审和质检返工（v6：本段任务 <stage>、拿不准时的优先级；v5：本地示例素材包、不要 AI 味、用户意见优先照办；v4：验收清单与底线、主视觉、联网数据、按用户条件现场生成；v3：ctx.state、不轮询、手机首屏；v2：共用信息 shared、窗口消息约定 events、必须用零件库、手机长度、不画简笔画）
   bench_ask: v1          # 工作台生成器：成品里的对话窗，按台的用途和数据回答
   bench_research: v1     # 工作台生成器：开工前调研，给英文搜索词并联网查资讯、视频、发布会
-  bench_interview: v1    # 工作台生成器·项目室：开工前问用户几个关键问题
+  bench_interview: v2    # 工作台生成器·项目室：开工前问用户几个关键问题（v2：意图理解——理想画像五要素、隐含期待、假设，标把握；最多 3 个取舍，带推荐项和后果；先看素材）
+  bench_skill_manager: v1     # 工作台地基技能·经理 / 项目统筹（短版：优先级、变更单优先、不倒退；长版：立项到交付的检查单）
+  bench_skill_intent: v1      # 工作台地基技能·意图拆解与分段规划
+  bench_skill_layout: v1      # 工作台地基技能·版型与界面设计（按用途定版型）
+  bench_skill_no_ai: v1       # 工作台地基技能·去 AI 味
+  bench_skill_assets: v1      # 工作台地基技能·素材与版权（本地素材优先、兜底、许可证）
+  bench_skill_testing: v1     # 工作台地基技能·测试验收（真打开真点、逐条验收）
+  bench_skill_report: v1      # 工作台地基技能·向甲方汇报（大白话、结论先行、带推荐的选项）
+  bench_skill_team: v1        # 工作台地基技能·多助手协作协议
+  bench_skill_visual_review: v1  # 工作台地基技能·视觉评审（先看截图再打分）
+  bench_skill_data: v1        # 工作台地基技能·数据接入与兜底
+  bench_skill_editor: v1      # 工作台地基技能·编辑器类（品类）
+  bench_skill_game: v1        # 工作台地基技能·游戏与模拟类（品类）
+  bench_skill_dashboard: v1   # 工作台地基技能·看板与数据类（品类）
+  bench_skill_ai_features: v1   # 工作台地基技能（第 6 批）
+  bench_skill_attack: v1   # 工作台地基技能（第 6 批）
+  bench_skill_audio: v1   # 工作台地基技能（第 6 批）
+  bench_skill_brand: v1   # 工作台地基技能（第 6 批）
+  bench_skill_chat_role: v1   # 工作台地基技能（第 6 批）
+  bench_skill_cjk_type: v1   # 工作台地基技能（第 6 批）
+  bench_skill_coding: v1   # 工作台地基技能（第 6 批）
+  bench_skill_commercial: v1   # 工作台地基技能（第 6 批）
+  bench_skill_content: v1   # 工作台地基技能（第 6 批）
+  bench_skill_education: v1   # 工作台地基技能（第 6 批）
+  bench_skill_estimate: v1   # 工作台地基技能（第 6 批）
+  bench_skill_handoff: v1   # 工作台地基技能（第 6 批）
+  bench_skill_interaction: v1   # 工作台地基技能（第 6 批）
+  bench_skill_interview: v1   # 工作台地基技能（第 6 批）
+  bench_skill_mobile: v1   # 工作台地基技能（第 6 批）
+  bench_skill_motion3d: v1   # 工作台地基技能（第 6 批）
+  bench_skill_onboarding: v1   # 工作台地基技能（第 6 批）
+  bench_skill_product: v1   # 工作台地基技能（第 6 批）
+  bench_skill_productivity: v1   # 工作台地基技能（第 6 批）
+  bench_skill_research: v1   # 工作台地基技能（第 6 批）
+  bench_skill_retro: v1   # 工作台地基技能（第 6 批）
+  bench_skill_security: v1   # 工作台地基技能（第 6 批）
+  bench_skill_sim: v1   # 工作台地基技能（第 6 批）
+  bench_skill_storage: v1   # 工作台地基技能（第 6 批）
   bench_evolve: v1       # 工作台生成器·项目室：交付后按用户意见和新资料出下一版提案
   bench_pitch: v1        # 工作台生成器·方案会：每位助手各提一份做法
   bench_vote: v1         # 工作台生成器·方案会：看别人的方案投一票（不投自己），写要借的点
@@ -1778,7 +1815,8 @@ bench:
   project:
     enabled: true
     interview: true
-    max_questions: 6
+    max_questions: 3       # 意图理解只问会改结构的取舍，每问带推荐项（不答就按推荐）
+    max_stages: 4          # 分段做：每段都能从头走通，段与段之间演示给你试
     gate_auto_hours: 0
   # 三位助手协作（2026-10-30 用户批）：方案会各提方案、互投（不投自己），得票最多的当主案；
   # 每轮评审后派一位对抗手专门找毛病（尽量不是作者），严重问题不修完不算过线
@@ -1799,6 +1837,67 @@ bench:
     max_files: 16
     max_image_mb: 15
     max_video_mb: 200
+  # 地基技能（2026-10-31 工作台大更新第 4 批）：生成任何工作台之前都要会的「做事方法」，不对应具体项目。
+  # 每个技能一份带版本的提示词 prompts/bench_skill_<名字>/：短版常驻、长版只在用得上的那一步给（省上下文）。
+  # 拿不准时的优先级写在「经理」里：用户原话 > 理想画像 > 经理和品牌、版型 > 其他技能 > 机器评审。
+  skills:
+    enabled: true
+    steps:
+      interview: {short: [manager, report], long: [intent, interview]}
+      plan: {short: [manager, no_ai, assets, data, estimate, security, commercial], long: [intent, layout, brand, research]}
+      window: {short: [manager, intent, layout, team, testing, brand, interaction, mobile, cjk_type, storage, security, ai_features, onboarding, coding], long: [no_ai, assets, data]}
+      rework: {short: [manager, team, assets, data, testing, layout, coding, mobile, cjk_type], long: [no_ai, retro]}
+      review: {short: [manager, no_ai, layout, interaction, mobile, cjk_type, commercial, handoff], long: [visual_review, testing, attack]}
+    # 拆需求时判断的工作台类型 → 写窗口、返工、评审时加上的品类技能（长版）。没有对得上的就是 other
+    kinds:
+      editor: {label: 编辑器类（修图、视频剪辑、画图、排版）, skills: [editor]}
+      motion3d: {label: 3D 与动画类（3D 展示和建模、动画、Live2D、动图）, skills: [editor, motion3d]}
+      game: {label: 游戏类（麻将、跑团、剧本杀、桌游、小游戏）, skills: [game]}
+      sim: {label: 模拟经营与金融模拟（模拟炒股、模拟经营）, skills: [game, sim]}
+      dashboard: {label: 看板与数据类（旅行、生活和工作日常、数据看板）, skills: [dashboard]}
+      productivity: {label: 效率工具类（表单、清单、日程、记账）, skills: [productivity, storage]}
+      content: {label: 内容创作类（写作、海报、视频脚本）, skills: [content]}
+      education: {label: 学习教育类（题库、闪卡、背单词）, skills: [education]}
+      audio: {label: 音频音乐类（编曲、音效、播放器）, skills: [audio]}
+      chat: {label: 聊天与角色类（角色陪练、客服、Live2D 角色）, skills: [chat_role]}
+      other: {label: 都不像（按通用技能做）, skills: []}
+    # 从成品反推（第 6 批）：你拖进一个成品、要能做出类似东西的台时，每一步都加这些（长版）
+    product: [product]
+    # 技能里能机器查的规则：质检会自动查这些（名字要和质检里的一致，测试核对）
+    checks:
+      no_ai: [表情符号当图标, 空话]
+      assets: [素材打不开, 图片打不开, 图片没有说明]
+      testing: [页面报错, 点了报错, 横向溢出, 按钮没有名字, 图表空白, 验收自动检查没过, 倒退]
+      data: [数据文件看不懂, 坏字]
+      layout: [窗口太长, 手机上按钮太小]
+      mobile: [手机上按钮太小, 横向溢出]
+      security: [页面报错]
+  # 资料台（2026-10-31 工作台大更新第 5 批）：工作台底部抽屉「资料」。全部免费、不要 key、只读 GET。
+  # GitHub 榜单每类前 10（总榜按星数、新星只看最近 30 天新建的），每日论文和订阅，能力地图
+  # （config/bench_capabilities.yaml，刷新时核实星数和许可证），每周按关注主题出建议卡（你点「加进地图」才加）
+  desk:
+    enabled: true
+    refresh_hours: 24
+    top: 10
+    rising_days: 30
+    github_gap_s: 7
+    topics: [3d rendering, animation, live2d, image editing, game engine, gaussian splatting]
+    categories:
+      - {id: 3d, label: 3D 建模与渲染, query: topic:3d topic:webgl, kinds: [motion3d]}
+      - {id: animation, label: 动画与动效, query: topic:animation topic:javascript, kinds: [motion3d]}
+      - {id: live2d, label: Live2D 与虚拟形象, query: "live2d in:name,description,topics", kinds: [motion3d, chat]}
+      - {id: image, label: 修图与图像处理, query: topic:image-processing, kinds: [editor]}
+      - {id: game, label: 游戏引擎与模拟, query: topic:game-engine, kinds: [game, sim]}
+      - {id: agent, label: AI 智能体, query: topic:ai-agents}
+      - {id: local-llm, label: 大模型本地运行, query: topic:llm-inference}
+      - {id: ui, label: 前端界面组件, query: topic:ui-components topic:javascript, kinds: [dashboard]}
+      - {id: dataviz, label: 数据可视化, query: topic:data-visualization, kinds: [dashboard]}
+      - {id: media, label: 音视频处理, query: topic:video-processing, kinds: [editor, content]}
+    feeds:
+      - {name: Hacker News 首页, url: "https://hnrss.org/frontpage", kind: news}
+      - {name: three.js 发布, url: "https://github.com/mrdoob/three.js/releases.atom", kind: news}
+      - {name: Godot 新闻, url: "https://godotengine.org/rss.xml", kind: news}
+      - {name: Blender 开发者博客, url: "https://code.blender.org/feed/", kind: news}
 
 # 日历底座（docs/CALENDAR.md）：只算「今天是什么日子」，每天发事件给成员系统（怎么过节由生活引擎决定）。
 # 全部离线计算：法定假日用开源库 holidays，农历和节气查预先算好的表；不调模型、不联网、不花钱。

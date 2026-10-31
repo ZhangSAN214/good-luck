@@ -111,6 +111,13 @@ export const FLOW = [
   ['deliver', '交付', '你试用验收；之后按你的意见出下一版'],
 ];
 // 窄屏时三栏变成三屏，用这排按钮切
+const INTENT_FIVE = [
+  ['who', '给谁用'],
+  ['where', '在哪用'],
+  ['task', '要办成'],
+  ['feel', '感觉'],
+  ['avoid', '不要'],
+];
 const PANES = [
   ['client', '甲方'],
   ['stage', '成品'],
@@ -189,6 +196,13 @@ export class BenchGenPanel {
     this.composing = false; // 点了「新项目」：左边写想法，中间是项目墙
     this.device = 'desk'; // 中间成品按电脑还是手机宽度看
     this.drawer = ''; // 底部抽屉开着哪一格（空 = 收起）
+    this.desk = null; // 资料台（GitHub 榜单 / 动态 / 能力地图 / 建议卡）
+    this.deskTab = 'rank';
+    this.deskCat = '';
+    this.deskMode = 'total';
+    this.deskKind = '';
+    this.deskAsked = false; // 这次打开页面已经叫过一次刷新
+    this.fromProduct = false; // 拖进来的是成品：要能做出类似东西的台
     this.pane = 'client'; // 窄屏时显示哪一栏
     this.err = '';
     this.draft = '';
@@ -433,7 +447,7 @@ export class BenchGenPanel {
     if (!b) return `<h3 class="bg-h">说想法</h3>${notes.join('')}${this.askHtml(st)}`;
     const req = `<div class="bg-said"><span class="bg-k">你说的</span><p>${esc((b.request || '').slice(0, 400))}</p></div>`;
     const mats = this.matsStrip(b);
-    const changes = (b.changes || [])
+    const changes = (b.trace || []).length ? '' : (b.changes || [])
       .map(
         (c) => `<li class="bg-ch-${esc(c.status)}"><b>${esc(c.id)}</b> ${esc(c.text)}${c.window ? `（${esc(this.winTitle(b, c.window))}）` : ''} · ${esc({ open: '处理中', done: '改好了', failed: '没改成' }[c.status] || c.status)}${c.reply ? `<div class="sc-sub">${esc(c.reply.slice(-160))}</div>` : ''}</li>`,
       )
@@ -444,7 +458,43 @@ export class BenchGenPanel {
     const waiting = !b.gate && !stuck && !evolve && !old && busy ? '<p class="sc-hint bg-quiet">正在做，不用管。中间会实时刷新；需要你时这里会出现要做的事。</p>' : '';
     return `<h3 class="bg-h">甲方 · 你</h3>${notes.join('')}${req}${mats}
       ${this.gateHtml(b)}${stuck}${evolve}${old}${waiting}
+      ${this.hasProduct(b) || (b.gate || {}).kind === 'sign' ? this.intentHtml(b) : ''}${this.traceHtml(b)}
       ${changes ? `<h4 class="bg-h4">变更单（${(b.changes || []).length} 张）</h4><ul class="bg-list bg-changes">${changes}</ul>` : ''}`;
+  }
+
+  /** 理想画像：一句话理想 + 五要素（每条标把握：确定 / 推断 / 假设），隐含期待和假设收起。 */
+  intentHtml(b) {
+    const it = b.intent;
+    if (!it) return '';
+    const lv = (x) => `<span class="bg-lv" data-lv="${esc(x.level)}">${esc(x.level)}</span>`;
+    const rows = INTENT_FIVE.filter(([k]) => it[k])
+      .map(([k, label]) => `<li><span class="bg-k">${esc(label)}</span><span>${esc(it[k].text)}</span>${lv(it[k])}</li>`)
+      .join('');
+    const more = [...(it.expect || []).map((x) => `<li>${esc(x.text)}<span class="sc-sub">来自${esc(x.from)}</span>${lv(x)}</li>`), ...(it.assume || []).map((x) => `<li>${esc(x.text)}${lv(x)}</li>`)].join('');
+    const n = (it.expect || []).length + (it.assume || []).length;
+    return `<section class="bg-intent" aria-label="理想画像"><h4 class="bg-h4">理想画像</h4>
+      ${it.ideal ? `<p class="bg-ideal">${esc(it.ideal)}</p>` : ''}
+      ${rows ? `<ul class="bg-five">${rows}</ul>` : ''}
+      ${n ? `<details class="bg-fold"><summary>隐含期待和假设（${n} 条，假设会在第 1 段请你确认）</summary><ul class="bg-five bg-more">${more}</ul></details>` : ''}</section>`;
+  }
+
+  /** 意图追踪表：你说的每句话去了哪一段、对上哪几条验收、现在什么状态。 */
+  traceHtml(b) {
+    const rows = b.trace || [];
+    if (!rows.length) return '';
+    const changes = Object.fromEntries((b.changes || []).map((c) => [c.id, c]));
+    const voices = Object.fromEntries((b.voices || []).map((v) => [v.id, v]));
+    const open = rows.filter((r) => ['没做到', '没改成', '没对上'].includes(r.state)).length;
+    const kept = new Set(((this.st || {}).profile || []).map((x) => x.text));
+    const items = rows
+      .map((r) => {
+        const v = voices[r.id] || {};
+        const c = r.src === '变更单' ? changes[v.ref] : null;
+        const where = [r.stage ? `第 ${r.stage} 段` : '', (r.reqs || []).join(' ')].filter(Boolean).join(' · ');
+        return `<li data-state="${esc(r.state)}"><span class="bg-tr-st">${esc(r.state)}</span><span class="bg-tr-tx"><span class="bg-k">${esc(r.src)}</span>${esc(r.text.slice(0, 120))}${where ? `<span class="sc-sub">${esc(where)}</span>` : ''}${c && c.reply ? `<span class="sc-sub">${esc(c.reply.slice(-140))}</span>` : ''}</span>${kept.has(r.text.slice(0, 200).replace(/\s+/g, ' ').trim()) ? '<span class="bg-src">记住了</span>' : ['访谈', '签字', '变更单', '风格'].includes(r.src) ? `<button type="button" class="link bg-remember" data-remember="${esc(r.text.slice(0, 200))}" data-src="${esc(b.title || b.id)}" title="以后每个新项目都带上这句">记住</button>` : ''}</li>`;
+      })
+      .join('');
+    return `<details class="bg-fold bg-trace" ${open ? 'open' : ''}><summary>你说的话去哪了（${rows.length} 句${open ? `，${open} 句要你看` : ''}）</summary><ul class="bg-trlist">${items}</ul></details>`;
   }
 
   askHtml(st) {
@@ -457,11 +507,22 @@ export class BenchGenPanel {
       })
       .join('');
     const drop = `<div class="bg-drop" data-drop="submit"><span>参考图、视频拖到这里</span><button type="button" class="link" data-pick="submit">选文件</button>
-      ${this.uploading ? `<span class="sc-sub">正在上传 ${this.uploading} 个…</span>` : ''}${mats ? `<ul class="bg-mats">${mats}</ul>` : ''}</div>`;
+      ${this.uploading ? `<span class="sc-sub">正在上传 ${this.uploading} 个…</span>` : ''}${mats ? `<ul class="bg-mats">${mats}</ul>` : ''}</div>
+      ${mats ? `<label class="bg-fromprod"><input type="checkbox" data-fromprod ${this.fromProduct ? 'checked' : ''}><span><b>这是成品，照着它做一个台</b><span class="sc-sub">先拆出哪些固定（画风、尺寸、节奏）、哪些能换（角色、动作、文字），做成能批量出类似东西的台</span></span></label>` : ''}`;
     return `<div class="sc-ask bg-ask"><textarea data-text rows="5" aria-label="想要什么样的工作台" placeholder="一句话说你想要什么台。比如：管理我租的三套房子，看租金、到期、维修和水电" ${busy ? 'disabled' : ''}>${esc(this.draft)}</textarea>
       ${busy ? '<p class="sc-hint">上一个还在做，做完或叫停后才能开新的。</p>' : drop}
       <button type="button" class="btn primary bg-go" data-submit ${busy || st.unavailable ? 'disabled' : ''}>生成工作台</button>
+      ${this.profileHtml(st)}
       <p class="sc-hint">${st.project ? '先问你几个取舍，再出样子和计划给你签字；之后自动搭，每段做完给你试用。停下来等你时不花次数。' : `自动拆需求、分头写、质检和评审，不过线就返工，最多 ${esc(st.max_rounds || 3)} 轮。`}花的是订阅次数。</p></div>`;
+  }
+
+  /** 甲方档案：你的长期偏好，每个新项目都带上（只存本机，可删）。 */
+  profileHtml(st) {
+    const items = st.profile || [];
+    const rows = items.map((x) => `<li><span>${esc(x.text)}</span>${x.src ? `<span class="bg-src">${esc(x.src)}</span>` : ''}<button type="button" class="link" data-unprofile="${esc(x.id)}" aria-label="删掉：${esc(x.text)}">删掉</button></li>`).join('');
+    return `<details class="bg-fold bg-profile"${items.length ? '' : ' open'}><summary>你的偏好（${items.length} 条，每个新项目都会带上）</summary>
+      ${rows ? `<ul class="bg-list bg-prof">${rows}</ul>` : '<p class="sc-hint">还没有。比如「给小白用，别堆专业参数」「深色、不要表情符号」。项目里你说过的话也能点「记住」。</p>'}
+      <div class="bg-profadd"><input type="text" data-profile-text maxlength="200" aria-label="写一条偏好" placeholder="写一条偏好"><button type="button" class="btn" data-profile-add>记下</button></div></details>`;
   }
 
   /** 素材缩略图一排（你拖进来的图和视频）。 */
@@ -489,9 +550,8 @@ export class BenchGenPanel {
         <div class="bg-design-view"><div class="bg-dframe" data-dframe><iframe data-dpreview title="工作台预览" srcdoc="${esc('<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><link rel="stylesheet" href="/kit/kit.css"></head><body class="k-root"></body></html>')}"></iframe></div></div>
         <p class="sc-hint bg-cap">样子的实时预览：左边改一项，这里马上变，不花次数。窗口里的内容开工后才写。</p>`;
     }
-    const finished = ['done', 'needs_you', 'delivered'].includes(b.status) || g.kind === 'accept';
-    const draft = !finished && (b.windows || []).some((w) => w.status === 'done');
-    if (finished || draft) {
+    if (this.hasProduct(b)) {
+      const finished = ['done', 'needs_you', 'delivered'].includes(b.status) || g.kind === 'accept';
       const ver = `${(b.rounds || []).length}-${(b.windows || []).filter((w) => w.status === 'done').length}-${(b.changes || []).filter((c) => c.status === 'done').length}`;
       const dev = this.device === 'phone' ? 'phone' : 'desk';
       const seg = [['desk', '电脑'], ['phone', '手机']].map(([v, t]) => `<button type="button" class="chip" data-device="${v}" aria-pressed="${dev === v}">${t}</button>`).join('');
@@ -499,10 +559,37 @@ export class BenchGenPanel {
           <a class="link" href="/bench/${encodeURIComponent(b.id)}/index.html" target="_blank" rel="noopener">在新窗口打开</a></div>
         <div class="bg-shell" data-device="${dev}"><iframe class="bg-frame" data-preview="${esc(b.id)}" title="${esc(b.title || '成品')}" sandbox="allow-scripts allow-forms allow-popups allow-downloads" src="/bench/${encodeURIComponent(b.id)}/index.html?v=${esc(ver)}"></iframe></div>`;
     }
-    // 还没有能看的：说清楚现在在干什么，最近几件事一直滚动
+    // 还没有能看的：有理想画像就把它放大摆在中间（看得见的复述），否则说清楚现在在干什么
     const log = (b.log || []).slice(-6).reverse().map((l) => `<li><span class="bg-src">${esc((l.at || '').slice(11, 16))}</span> ${esc(l.text)}</li>`).join('');
+    if (b.intent) return this.idealPage(b, log);
     return `<div class="bg-empty"><p class="bg-empty-h">${esc(STATUS[b.status] || b.status)}</p>
       <p class="sc-hint">${esc(FLOW[flowIndex(b)][2])}</p>${log ? `<ol class="bg-live" aria-label="最近在做的">${log}</ol>` : ''}</div>`;
+  }
+
+  /** 成品或草稿已经能看了吗（中间放 iframe）。 */
+  hasProduct(b) {
+    const g = b.gate || {};
+    if (g.kind === 'sign' && ((b.proposal || {}).design || {}).dims) return false;
+    const finished = ['done', 'needs_you', 'delivered'].includes(b.status) || g.kind === 'accept';
+    return finished || (b.windows || []).some((w) => w.status === 'done');
+  }
+
+  /** 中间的理想画像页：一句话理想、五要素（标把握）、隐含期待和假设；底下滚动最近在做的。 */
+  idealPage(b, log) {
+    const it = b.intent;
+    const lv = (x) => `<span class="bg-lv" data-lv="${esc(x.level)}">${esc(x.level)}</span>`;
+    const tiles = INTENT_FIVE.map(([k, label]) => `<div class="bg-tile${it[k] ? '' : ' none'}"><span class="bg-k">${esc(label)}</span><p>${esc(it[k] ? it[k].text : '还不知道')}</p>${it[k] ? lv(it[k]) : ''}</div>`).join('');
+    const ex = (it.expect || []).map((x) => `<li>${esc(x.text)}<span class="sc-sub">来自${esc(x.from)}</span></li>`).join('');
+    const as = (it.assume || []).map((x) => `<li>${esc(x.text)}</li>`).join('');
+    return `<div class="bg-idealpage" aria-label="理想画像">
+      <span class="bg-k">理想画像 · 我们理解的你想要的</span>
+      <p class="bg-idealbig">${esc(it.ideal || b.request || '')}</p>
+      <div class="bg-tiles">${tiles}</div>
+      <div class="bg-idealcols">
+        ${ex ? `<section><h4 class="bg-h4">理所当然要有的</h4><ul class="bg-list">${ex}</ul></section>` : ''}
+        ${as ? `<section><h4 class="bg-h4">先替你定的（第 1 段演示时请你确认）</h4><ul class="bg-list">${as}</ul></section>` : ''}
+      </div>
+      ${log ? `<ol class="bg-live" aria-label="最近在做的">${log}</ol>` : ''}</div>`;
   }
 
   /** 项目墙：最近的项目，每个一张缩略图 + 状态。 */
@@ -564,10 +651,12 @@ export class BenchGenPanel {
       )
       .join('');
     const list = (xs) => ((xs || []).length ? `<ul class="bg-list">${xs.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>` : '');
-    const ms = (p.milestones || []).map((m) => `<li><b>${esc(m.title)}</b>：${esc((m.titles || []).join('、'))}</li>`).join('');
+    const ms = (p.milestones || []).map((m) => this.stageItem(m, true)).join('');
     const plugins = (p.plugins || []).length ? `<p class="sc-hint">建议给 dsh 装的插件：${esc(p.plugins.join('、'))}（底部「调研」里点「申请装上」）</p>` : '';
     return `<h4 class="bg-h4">方案</h4>
-      ${ms ? `<ol class="bg-list bg-ms">${ms}</ol>` : ''}
+      ${p.kind_label && p.kind !== 'other' ? `<p class="sc-hint bg-kind">按「${esc(p.kind_label.split('（')[0])}」的做法做</p>` : ''}
+      ${ms ? `<ol class="bg-flow bg-ms bg-stages">${ms}</ol>` : ''}
+      ${fold(`建议池（你没要，这次不做，${(p.pool || []).length} 条）`, list(p.pool))}
       ${fold(`窗口（${(p.windows || []).length} 个）`, wins ? `<ul class="bg-list bg-wins">${wins}</ul>` : '', true)}
       ${fold('窗口之间怎么联动', list(p.links))}
       ${fold('共用信息', list(p.shared))}
@@ -588,16 +677,39 @@ export class BenchGenPanel {
         const n = m.n || i + 1;
         const now = g.kind === `m${n}`;
         const cls = done.has(n) ? 'past' : now ? 'now' : '';
-        return `<li class="${cls}"><b>段 ${n} · ${esc(m.title)}</b><span class="sc-sub">${esc((m.titles || []).join('、'))}</span></li>`;
+        return this.stageItem({ ...m, n }, now || (!done.has(n) && n === (b.stage || 1) && !g.kind), cls);
       })
       .join('');
     const m = (b.milestones || []).find((x) => `m${x.n}` === g.kind);
     const demos = m ? m.demos || [] : [];
     const shots = demos
       .slice(-2)
-      .map((list, i, arr) => `<figure class="bg-demo"><figcaption>${arr.length > 1 && i === 0 ? '改之前' : arr.length > 1 ? '改之后' : '演示截图'}</figcaption>${(list || []).map((p) => `<a href="/bench/${encodeURIComponent(b.id)}/${p.split(/[\\/]/).map(encodeURIComponent).join('/')}" target="_blank" rel="noopener"><img src="/bench/${encodeURIComponent(b.id)}/${p.split(/[\\/]/).map(encodeURIComponent).join('/')}" alt="里程碑截图" loading="lazy"></a>`).join('')}</figure>`)
+      .map((list, i, arr) => `<figure class="bg-demo"><figcaption>${arr.length > 1 && i === 0 ? '改之前' : arr.length > 1 ? '改之后' : '演示截图'}</figcaption>${(list || []).map((p) => `<a href="/bench/${encodeURIComponent(b.id)}/${p.split(/[\\/]/).map(encodeURIComponent).join('/')}" target="_blank" rel="noopener"><img src="/bench/${encodeURIComponent(b.id)}/${p.split(/[\\/]/).map(encodeURIComponent).join('/')}" alt="这一段的截图" loading="lazy"></a>`).join('')}</figure>`)
       .join('');
-    return `<h4 class="bg-h4">分段</h4><ol class="bg-flow bg-ms">${items}</ol>${shots ? `<div class="bg-demos">${shots}</div>` : ''}`;
+    const checks = m ? m.checks || [] : [];
+    const okN = checks.filter((x) => x.ok).length;
+    const auto = checks.length ? `<p class="sc-sub bg-autochk">这一段自动检查：${okN}/${checks.length} 条做到${(b.baseline || []).length ? ` · 已锁定 ${b.baseline.length} 条，后面不许改坏` : ''}</p>` : (b.baseline || []).length ? `<p class="sc-sub bg-autochk">已锁定 ${b.baseline.length} 条验收，后面不许改坏</p>` : '';
+    return `<h4 class="bg-h4">分段</h4><ol class="bg-flow bg-ms bg-stages">${items}</ol>${auto}${shots ? `<div class="bg-demos">${shots}</div>` : ''}`;
+  }
+
+  /** 一段：名字和目标；展开时加「你能试」、窗口、验收几条、这段不做什么、风险。 */
+  stageItem(m, open, cls = '') {
+    const bits = open
+      ? [
+          (m.try || []).length ? `<span class="sc-sub">你能试：${esc(m.try.join(' → '))}</span>` : '',
+          `<span class="sc-sub">${esc((m.titles || []).join('、'))}${this.acceptLabel(m)}</span>`,
+          m.skip ? `<span class="sc-sub">不做：${esc(m.skip)}</span>` : '',
+          m.risk ? `<span class="sc-sub">风险：${esc(m.risk)}</span>` : '',
+        ].join('')
+      : '';
+    return `<li class="${cls}"><b>第 ${m.n} 段 · ${esc(m.title)}</b>${m.goal && m.goal !== m.title ? `<span class="sc-sub">${esc(m.goal)}</span>` : ''}${bits}</li>`;
+  }
+
+  acceptLabel(m) {
+    const acc = m.accept || [];
+    const own = acc.filter((a) => a.startsWith('r')).length;
+    const base = acc.length - own;
+    return [own ? ` · 你的要求 ${own} 条` : '', base ? ' · 底线全验' : ''].join('');
   }
 
   /** 最近一轮：质检分、验收几条做到、评审各项分（全部轮次在底部「质检」里）。 */
@@ -627,6 +739,7 @@ export class BenchGenPanel {
       ['log', '过程', b ? (b.log || []).length : 0],
       ['net', '联网', this.net && this.net !== 'busy' ? this.net.ok : 0],
       ['lib', '零件库', ((st.library || {}).parts || []).length],
+      ['desk', '资料', this.desk ? (this.desk.suggest || []).length : 0],
     ];
     const open = this.drawer;
     const bar = tabs
@@ -639,12 +752,114 @@ export class BenchGenPanel {
     else if (open === 'team') body = (b && this.teamHtml(b)) || '<p class="sc-hint">还没开始协作。</p>';
     else if (open === 'log') body = b ? this.logHtml(b) : '<p class="sc-hint">还没有项目。</p>';
     else if (open === 'net') body = `${this.netHtml() || '<p class="sc-hint">点右上「联网自检」，看成品要用的公开数据和调研来源通不通。</p>'}`;
+    else if (open === 'desk') body = this.deskHtml();
     else if (open === 'lib') {
       const parts = ((st.library || {}).parts || []).map((p) => `<li><b>${esc(p.name)}</b>：${esc(p.use)}</li>`).join('');
       body = parts ? `<p class="sc-hint">做台的过程中自己长出来的零件，下次直接用。</p><ul class="bg-list">${parts}</ul>` : '<p class="sc-hint">零件库还没有新长出来的零件。</p>';
     }
     return `<div class="bg-dbar" role="tablist" aria-label="资料">${bar}<span class="sc-gap"></span>${open ? '<button type="button" class="link" data-drawer="">收起</button>' : ''}</div>
       ${open ? `<div class="bg-dbody" role="tabpanel">${body}</div>` : ''}`;
+  }
+
+  /** 资料台：榜单（每类前 10，总榜 / 新星）、动态（论文和订阅）、能力地图（按工作台类型筛）、建议卡。 */
+  deskHtml() {
+    const d = this.desk;
+    if (!d) return '<p class="sc-hint">正在读资料台…</p>';
+    if (!d.enabled) return '<p class="sc-hint">资料台在配置里关着（bench.desk.enabled）。</p>';
+    const tabs = [
+      ['rank', '榜单'],
+      ['feed', '动态', (d.feed || []).length],
+      ['caps', '能力地图', (d.caps || []).length],
+      ['suggest', '建议', (d.suggest || []).length],
+    ]
+      .map(([k, t, n]) => `<button type="button" class="chip" data-desk-tab="${k}" aria-pressed="${this.deskTab === k}">${t}${n ? ` ${esc(n)}` : ''}</button>`)
+      .join('');
+    const when = d.updated_at ? `${d.updated_at.slice(5, 16).replace('T', ' ')} 更新` : '还没刷新过';
+    const head = `<div class="bg-deskbar"><div class="bg-chips" role="group" aria-label="资料分类">${tabs}</div><span class="sc-gap"></span>
+      <span class="bg-src" data-desk-when>${d.busy ? '正在刷新（GitHub 每分钟限 10 次，约 3～5 分钟）…' : esc(when)}</span>
+      <button type="button" class="link" data-desk-refresh ${d.busy ? 'disabled' : ''}>刷新</button></div>`;
+    let body = '';
+    if (this.deskTab === 'rank') body = this.deskRankHtml(d);
+    else if (this.deskTab === 'feed') body = this.deskFeedHtml(d);
+    else if (this.deskTab === 'caps') body = this.deskCapsHtml(d);
+    else body = this.deskSuggestHtml(d);
+    const notes = (d.notes || []).length ? `<details class="bg-fold"><summary>这次有 ${d.notes.length} 处没取到</summary><ul class="bg-list">${d.notes.map((n) => `<li>${esc(n)}</li>`).join('')}</ul></details>` : '';
+    return head + body + notes;
+  }
+
+  deskRankHtml(d) {
+    const cats = d.categories || [];
+    if (!cats.length) return '<p class="sc-hint">配置里还没写榜单分类（bench.desk.categories）。</p>';
+    const cat = cats.find((c) => c.id === this.deskCat) || cats[0];
+    const nav = cats.map((c) => `<button type="button" role="tab" data-desk-cat="${esc(c.id)}" aria-selected="${c.id === cat.id}">${esc(c.label)}</button>`).join('');
+    const mode = ['total', 'rising'].map((m) => `<button type="button" class="chip" data-desk-mode="${m}" aria-pressed="${this.deskMode === m}">${m === 'total' ? '总榜' : `新星（${d.rising_days || 30} 天内新建）`}</button>`).join('');
+    const rows = (((d.rank || {})[cat.id] || {})[this.deskMode] || [])
+      .map(
+        (r, i) => `<li><span class="bg-rk">${i + 1}</span><div><a href="${esc(r.url)}" target="_blank" rel="noopener noreferrer"><b>${esc(r.repo)}</b></a>${r.new ? ' <span class="bg-tag">新</span>' : ''}
+          <span class="bg-src">★ ${esc(r.stars.toLocaleString())} · ${esc(r.license || '许可证未写')} · ${esc(r.pushed || '')} 更新</span><p>${esc(r.desc || '（没写简介）')}</p></div></li>`,
+      )
+      .join('');
+    return `<div class="bg-desk2"><nav class="bg-desknav" role="tablist" aria-label="榜单分类">${nav}</nav>
+      <div><div class="bg-chips" role="group" aria-label="榜单">${mode}</div>
+      ${rows ? `<ol class="bg-rank">${rows}</ol>` : '<p class="sc-hint">这一类还没取到，点右上「刷新」。</p>'}</div></div>`;
+  }
+
+  deskFeedHtml(d) {
+    const kinds = { paper: '论文', news: '资讯', video: '视频', model: '模型' };
+    const rows = (d.feed || [])
+      .map(
+        (x) => `<li><span class="bg-tag" data-kind="${esc(x.kind)}">${esc(kinds[x.kind] || x.kind)}</span><div><a href="${esc(x.url)}" target="_blank" rel="noopener noreferrer"><b>${esc(x.title)}</b></a>
+          <span class="bg-src">${esc(x.source)}${x.date ? ` · ${esc(x.date)}` : ''}${x.score ? ` · 👍 ${esc(x.score)}` : ''}</span>${x.summary ? `<p>${esc(x.summary)}</p>` : ''}</div></li>`,
+      )
+      .join('');
+    const topics = (d.topics || []).length ? `<p class="sc-hint">关注主题：${esc(d.topics.join('、'))}（改 bench.desk.topics）</p>` : '';
+    return topics + (rows ? `<ul class="bg-feed">${rows}</ul>` : '<p class="sc-hint">还没有动态，点右上「刷新」。</p>');
+  }
+
+  deskCapsHtml(d) {
+    const names = { editor: '编辑器', motion3d: '3D 与动画', game: '游戏', sim: '模拟经营', dashboard: '看板', productivity: '效率工具', content: '内容创作', education: '学习', audio: '音频', chat: '聊天角色' };
+    const used = [...new Set((d.caps || []).flatMap((c) => c.kinds || []))];
+    const kinds = { '': '全部', ...Object.fromEntries(used.map((k) => [k, names[k] || k])) };
+    const pick = Object.entries(kinds).map(([k, t]) => `<button type="button" class="chip" data-desk-kind="${k}" aria-pressed="${this.deskKind === k}">${t}</button>`).join('');
+    const caps = (d.caps || []).filter((c) => !this.deskKind || (c.kinds || []).includes(this.deskKind));
+    const rows = caps
+      .map(
+        (c) => `<tr><th scope="row">${c.repo ? `<a href="https://github.com/${esc(c.repo)}" target="_blank" rel="noopener noreferrer">${esc(c.name)}</a>` : esc(c.name)}${c.added ? ' <span class="bg-tag">你加的</span>' : ''}<span class="bg-src">${esc(c.direction)}</span></th>
+          <td>${esc(c.use)}${c.note ? `<span class="bg-src">${esc(c.note)}</span>` : ''}</td><td>${esc(c.license_seen || c.license || '未写')}</td>
+          <td>${c.stars ? `★ ${esc(c.stars.toLocaleString())}` : '—'}</td><td>${esc(c.cost || '$0')}</td><td data-lv="${esc(c.difficulty)}">${esc(c.difficulty)}</td><td>${esc(c.status)}</td></tr>`,
+      )
+      .join('');
+    return `<div class="bg-chips" role="group" aria-label="工作台类型">${pick}</div>
+      <p class="sc-hint">写窗口时会按工作台类型挑几样附给助手。星数和许可证每次刷新从 GitHub 核实。</p>
+      <div class="bg-tablewrap"><table class="bg-caps"><thead><tr><th>工具</th><th>用途</th><th>许可证</th><th>星数</th><th>花费</th><th>接入难度</th><th>状态</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  }
+
+  deskSuggestHtml(d) {
+    const rows = (d.suggest || [])
+      .map(
+        (s) => `<li><div><a href="${esc(s.url)}" target="_blank" rel="noopener noreferrer"><b>${esc(s.repo)}</b></a> <span class="bg-src">★ ${esc(s.stars.toLocaleString())} · ${esc(s.license)} · 主题「${esc(s.direction)}」</span><p>${esc(s.desc || '（没写简介）')}</p></div>
+          <div class="bg-acts"><button type="button" class="primary" data-desk-sug="${esc(s.id)}" data-accept="1">加进地图</button><button type="button" data-desk-sug="${esc(s.id)}" data-accept="0">不要</button></div></li>`,
+      )
+      .join('');
+    return rows
+      ? `<p class="sc-hint">按关注主题每周找一次：星数够、许可证宽松、地图里还没有的。你点了才加；「不要」的以后不再推。</p><ul class="bg-sugg">${rows}</ul>`
+      : '<p class="sc-hint">这周没有新的建议。</p>';
+  }
+
+  /** 打开「资料」时读一次；过期了叫后台刷新，刷新中每 5 秒看一眼。 */
+  async loadDesk(refresh = false) {
+    try {
+      this.desk = await this.api.desk(refresh);
+      if (!refresh && this.desk.due && !this.deskAsked && this.desk.enabled) {
+        this.deskAsked = true;
+        this.desk = await this.api.desk(true);
+      }
+    } catch (x) {
+      this.err = `资料台没读到：${x.message}`;
+    }
+    this.paint('drawer', this.drawerHtml(this.st || {}, this.shownBuild()), true);
+    clearTimeout(this.deskTimer);
+    if (this.desk && this.desk.busy && this.drawer === 'desk') this.deskTimer = setTimeout(() => this.loadDesk(), 5000);
   }
 
   logHtml(b) {
@@ -1064,12 +1279,13 @@ export class BenchGenPanel {
       const qs = ((b.interview || {}).questions || [])
         .map(
           (q) => `<li><label><b>${esc(q.q)}</b>${q.why ? `<span class="sc-sub">${esc(q.why)}</span>` : ''}
-            ${(q.options || []).length ? `<span class="bg-opts">${q.options.map((o) => `<button type="button" class="chip" data-opt="${esc(q.id)}">${esc(o)}</button>`).join('')}</span>` : ''}
+            ${(q.options || []).length ? `<span class="bg-opts">${q.options.map((o) => `<button type="button" class="chip${o === q.recommend ? ' rec' : ''}" data-opt="${esc(q.id)}" data-val="${esc(o)}">${esc(o)}${o === q.recommend ? '<small>推荐</small>' : ''}</button>`).join('')}</span>` : ''}
+            ${q.effect ? `<span class="sc-sub">${esc(q.effect)}</span>` : ''}
             <textarea data-q="${esc(q.id)}" rows="2" aria-label="${esc(q.q)}" placeholder="可以不填"></textarea></label></li>`,
         )
         .join('');
       return `<div class="bg-gate" data-form>${head}<ol class="bg-qs">${qs}</ol>
-        <div class="sc-row"><button type="button" class="btn primary" data-answer>交回答，开始做方案</button><button type="button" class="btn" data-skip>全部跳过</button>${end}</div></div>`;
+        <div class="sc-row"><button type="button" class="btn primary" data-answer>交回答，开始做方案</button><button type="button" class="btn" data-skip>全部按推荐</button>${end}</div></div>`;
     }
     if (g.kind === 'sign') {
       const p = b.proposal || {};
@@ -1183,10 +1399,32 @@ export class BenchGenPanel {
       this.drawer = '';
       this.paint('drawer', this.drawerHtml(this.st || {}, this.shownBuild()), true);
     }
+    if (t.closest('[data-fromprod]')) {
+      this.fromProduct = t.closest('[data-fromprod]').checked;
+      return;
+    }
+    const rem = t.closest('[data-remember]');
+    if (rem) {
+      return this.act(() => this.api.profileAdd(rem.dataset.remember, rem.dataset.src || ''));
+    }
+    if (t.closest('[data-profile-add]')) {
+      const box = this.el.querySelector('[data-profile-text]');
+      const text = (box?.value || '').trim();
+      if (!text) return box?.focus();
+      return this.act(() => this.api.profileAdd(text));
+    }
+    const unp = t.closest('[data-unprofile]');
+    if (unp) {
+      return this.act(() => this.api.profileRemove(unp.dataset.unprofile));
+    }
     if (t.closest('[data-submit]')) {
       const ids = this.mats.map((m) => m.id);
-      const done = await this.act(() => this.api.submit(this.draft, ids), true);
-      if (!this.err) this.mats = [];
+      const fromProduct = this.fromProduct && ids.length > 0;
+      const done = await this.act(() => this.api.submit(this.draft, ids, fromProduct), true);
+      if (!this.err) {
+        this.mats = [];
+        this.fromProduct = false;
+      }
       return done;
     }
     const pickBtn = t.closest('[data-pick]');
@@ -1205,7 +1443,8 @@ export class BenchGenPanel {
     const opt = t.closest('[data-opt]');
     if (opt && form) {
       const ta = form.querySelector(`textarea[data-q="${opt.dataset.opt}"]`);
-      ta.value = ta.value ? `${ta.value}、${opt.textContent}` : opt.textContent;
+      const val = opt.dataset.val || opt.textContent;
+      ta.value = ta.value ? `${ta.value}、${val}` : val;
       this.dirty = true;
       return;
     }
@@ -1321,7 +1560,26 @@ export class BenchGenPanel {
     const dr = t.closest('[data-drawer]');
     if (dr) {
       this.drawer = this.drawer === dr.dataset.drawer ? '' : dr.dataset.drawer;
+      if (this.drawer === 'desk') this.loadDesk();
       return this.render(true);
+    }
+    const dsk = t.closest('[data-desk-tab],[data-desk-cat],[data-desk-mode],[data-desk-kind]');
+    if (dsk) {
+      if (dsk.dataset.deskTab) this.deskTab = dsk.dataset.deskTab;
+      if (dsk.dataset.deskCat) this.deskCat = dsk.dataset.deskCat;
+      if (dsk.dataset.deskMode) this.deskMode = dsk.dataset.deskMode;
+      if (dsk.dataset.deskKind !== undefined) this.deskKind = dsk.dataset.deskKind;
+      return this.paint('drawer', this.drawerHtml(this.st || {}, this.shownBuild()), true);
+    }
+    if (t.closest('[data-desk-refresh]')) return this.loadDesk(true);
+    const sug = t.closest('[data-desk-sug]');
+    if (sug) {
+      try {
+        this.desk = await this.api.deskSuggest(sug.dataset.deskSug, sug.dataset.accept === '1');
+      } catch (x) {
+        this.err = `没处理成：${x.message}`;
+      }
+      return this.paint('drawer', this.drawerHtml(this.st || {}, this.shownBuild()), true);
     }
     const go = t.closest('[data-pane-go]');
     if (go) {

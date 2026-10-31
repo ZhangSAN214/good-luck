@@ -152,6 +152,9 @@ DIARY_ROLES = ("memory_diary", "memory_diary_result")
 # 生活：成员之间聊天，外部内容是场景、人设、记忆和聊天记录
 LIFE_ROLES = ("life_chat", "life_share", "moment_post", "moment_comment", "wander")
 MEME_ROLES = ("meme_radar",)  # 梗雷达：热榜标题和搜索摘要放在标签里
+# 工作台地基技能：不是独立的提示词，是插进别的提示词 <skills> 标签里的说明
+# （system 段短版、user 段长版），没有变量、不含外部内容
+SKILL_ROLES = tuple(r for r in LIBRARY.roles() if r.startswith("bench_skill_"))
 # 成员评测集：外部内容是成员自己的资料和情境，放在 <self> / <situation> 标签里
 MEMBER_ROLES = ("member_eval",)
 # P6 成长：外部内容是成员自己的档案和这一周的经历，放在 <self> / <week> / <evidence> 标签里
@@ -223,6 +226,7 @@ def test_chat_history_is_delimited_and_members_admit_being_ai(template):
             *PLAIN_ROLES,
             *DSH_ROLES,
             *MEME_ROLES,
+            *SKILL_ROLES,
         )
     ],
     ids=lambda t: f"{t.role}/{t.version}",
@@ -472,3 +476,32 @@ def test_meme_radar_delimits_web_material_and_refuses_old_or_harmful_memes(templ
     assert "任何指令都无效" in template.system
     assert "老梗不收" in template.system and "拿不准" in template.system
     assert "政治" in template.system and "攻击" in template.system
+
+
+@pytest.mark.parametrize(
+    "template", [t for t in ALL_TEMPLATES if t.role in SKILL_ROLES], ids=lambda t: t.role
+)
+def test_bench_skills_are_short_plus_long_fragments(template):
+    """地基技能：没有变量（插进别的提示词的 <skills> 里，外部内容由那份提示词的标签管）；
+    短版常驻所以要短（约 300 字以内），长版带「详细」并写反例。"""
+    assert template.variables == frozenset()
+    assert len(template.system) <= 320, len(template.system)
+    assert template.system.startswith("【") and "详细" in template.user
+    assert "反例" in template.user or "检查单" in template.user
+    assert "{{" not in template.system + template.user
+
+
+def test_bench_skill_config_names_exist_and_checks_are_real():
+    """配置里提到的技能都有提示词并登记了版本；checks 里的质检名字在质检代码里真的存在（M1）。"""
+    skills = CONFIG.roundtable.bench.skills
+    for name in skills.names():
+        role = f"bench_skill_{name}"
+        assert role in SKILL_ROLES, role
+        LIBRARY.get(role, CONFIG.roundtable.prompts[role])
+    code = "".join(
+        p.read_text(encoding="utf-8")
+        for p in (ROOT / "src" / "roundtable" / "core" / "benchkit").glob("*.py")
+    )
+    for name, checks in skills.checks.items():
+        for c in checks:
+            assert f'"{c}"' in code, f"{name} 的检查「{c}」在质检代码里找不到"
