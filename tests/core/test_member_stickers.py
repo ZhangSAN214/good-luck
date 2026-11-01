@@ -451,3 +451,120 @@ def test_imported_animated_sticker_takes_a_four_panel_sheet_or_a_gif(tmp_path):
     stickers.import_image("OpenAI", "扑翅膀", buf.getvalue())
     with Image.open(io.BytesIO(stickers.file("OpenAI", "扑翅膀"))) as gif:
         assert gif.n_frames == 3
+
+
+# --- 本地出图（ComfyUI，image_prompt: tags）------------------------------------------
+
+
+def build_local(tmp_path, **photos):
+    """打开仓库里默认关掉的本地绘图模型（渠道 comfyui，价格 0，吃标签）。"""
+    config = load_config()
+    policy = config.roundtable.request.model_copy(update={"backoff_s": 0, "failover_rounds": 1})
+    media = config.roundtable.media
+    media = media.model_copy(
+        update={"moment_photos": media.moment_photos.model_copy(update=photos)}
+    )
+    models = config.models.model_copy(
+        update={
+            "models": [
+                m.model_copy(update={"enabled": True}) if m.image_prompt == "tags" else m
+                for m in config.models.models
+            ]
+        }
+    )
+    config = config.model_copy(
+        update={
+            "models": models,
+            "roundtable": config.roundtable.model_copy(update={"request": policy, "media": media}),
+        }
+    )
+    cloud, local = FakeProvider("openrouter", default=OK), FakeProvider("comfyui")
+    members_dir = tmp_path / "art"
+    write_assets(members_dir, "OpenAI")
+    rt = Runtime.build(
+        config=config,
+        providers={"openrouter": cloud, "comfyui": local},
+        db_path=":memory:",
+        members_dir=members_dir,
+    )
+    return rt, cloud, local, MemberStickers(rt, tmp_path / "stickers")
+
+
+def test_free_local_model_is_tried_first_but_stickers_skip_tag_models(tmp_path):
+    _, _, _, stickers = build_local(tmp_path)
+    order = stickers.draw_models()
+    assert order[0].image_prompt == "tags"  # 价格 0 排最前（只看价格，不看名字）
+    assert all(m.image_prompt == "text" for m in order[1:])
+    assert stickers.sticker_models() == order[1:]  # 表情包没有标签版提示词
+
+
+def test_moment_photo_on_the_local_model_uses_the_tag_prompt(tmp_path):
+    rt, cloud, local, stickers = build_local(tmp_path)
+    card = rt.config.personas.sticker_cards["OpenAI"]
+    asyncio.run(
+        stickers.photo(
+            "OpenAI", "天台", "<b>星星</b>", "a selfie", her="full", shot_tags="selfie, from above"
+        )
+    )
+    assert image_calls(cloud) == []
+    [(_, model, prompt, _, refs, _)] = image_calls(local)
+    assert model.endswith(".json") and refs  # 路由的 model 是工作流模板；带设定图
+    positive, negative = prompt.split("\n")
+    assert positive.startswith("positive: ") and negative.startswith("negative: ")
+    assert "1girl, solo" in positive and "selfie, from above" in positive
+    assert card.look_tags and card.look_tags in positive
+    assert "星星" not in prompt and ", ," not in prompt  # 中文正文不进标签；空变量不留空项
+    assert "weapon" in negative and "photorealistic" in negative
+    assert stickers.month_spent() == 0  # 本地不花钱
+
+
+def test_local_tag_prompt_without_her_drops_the_look(tmp_path):
+    rt, _, local, stickers = build_local(tmp_path)
+    asyncio.run(stickers.photo("OpenAI", "食堂", "饭", "only the food", refs=False))
+    [(_, _, prompt, _, refs, _)] = image_calls(local)
+    card = rt.config.personas.sticker_cards["OpenAI"]
+    assert refs == () and "no humans" in prompt and card.look_tags not in prompt
+
+
+def test_local_failure_falls_back_to_a_cloud_model_unless_local_only(tmp_path):
+    _, cloud, local, stickers = build_local(tmp_path)
+    local.broken_models.update(r.model for r in stickers.draw_models()[0].routes)
+    asyncio.run(stickers.photo("OpenAI", "天台", "好看", "a selfie"))
+    assert len(image_calls(local)) == 1 and len(image_calls(cloud)) == 1
+    [(_, _, prompt, _, _, _)] = image_calls(cloud)
+    assert "<post>好看</post>" in prompt  # 云端模型照旧用自然语言提示词
+
+    _, cloud, local, stickers = build_local(tmp_path / "b", local_only=True)
+    local.broken_models.update(r.model for r in stickers.draw_models()[0].routes)
+    with pytest.raises(StickerUnavailable):
+        asyncio.run(stickers.photo("OpenAI", "天台", "好看", "a selfie"))
+    assert image_calls(cloud) == []  # 只用本地：画不出来就只发文字，不花钱
+
+
+def test_local_only_without_a_local_model_draws_nothing(tmp_path):
+    _, fake, stickers = build(tmp_path)
+    rt = stickers.rt
+    media = rt.config.roundtable.media
+    photos = media.moment_photos.model_copy(update={"local_only": True})
+    rt.config = rt.config.model_copy(
+        update={
+            "roundtable": rt.config.roundtable.model_copy(
+                update={"media": media.model_copy(update={"moment_photos": photos})}
+            )
+        }
+    )
+    with pytest.raises(StickerUnavailable):
+        asyncio.run(stickers.photo("OpenAI", "天台", "好看", "a selfie"))
+    assert image_calls(fake) == []
+
+
+def test_tidy_tags_drops_empty_items():
+    from roundtable.core.member_stickers import tidy_tags
+
+    assert tidy_tags("positive: a, , b,  ,c\nnegative: x,") == "positive: a, b, c\nnegative: x"
+
+
+def test_every_card_has_english_look_tags():
+    for vendor, card in load_config().personas.sticker_cards.items():
+        assert card.look_tags, vendor
+        assert card.look_tags.isascii(), vendor  # 标签模型读不懂中文

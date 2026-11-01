@@ -2273,7 +2273,7 @@ class RoundtableService:
         return {
             "members": members,
             "stash": self._stash_listing(names),
-            "available": bool(self.stickers.draw_models()),
+            "available": bool(self.stickers.sticker_models()),
             "review": rules.review,
             "month_spent_usd": round(self.stickers.month_spent(), 4),
             "monthly_usd": rules.monthly_usd,

@@ -227,7 +227,7 @@ README.md      安装、.env、加模型 / 步骤 / 提示词版本、上传、�
 install_desktop.bat / install_desktop.command   安装并生成桌面版图标（docs/DESKTOP.md）
 .github/workflows/android.yml   打包安卓外壳 APK（只在改了 mobile/ 的 PR 上跑）
 mobile/        安卓外壳（Capacitor）：www/ 连接页（记住电脑地址、依次试家里 / 离家地址）、build-android.mjs；android/ 不进 git（docs/MOBILE.md）
-config/        models.yaml  roundtable.yaml  personas.yaml  routing.yaml  plugin_board.yaml（插件榜数据，不属于运行配置）  dsh_plugins.yaml（dsh 工作台的运行时版本与插件白名单）  changelog.yaml（公告栏的版本更新说明，每合并一个 PR 在最上面追加一条；版本号「代.大功能.小改」由代码按合并先后自动算，条目只写 level）
+config/        models.yaml  roundtable.yaml  personas.yaml  routing.yaml  plugin_board.yaml（插件榜数据，不属于运行配置）  dsh_plugins.yaml（dsh 工作台的运行时版本与插件白名单）  comfyui/（本地 ComfyUI 出图的工作流模板，API 格式 JSON；本机改的存成 *.local.json，不进 git，docs/COMFYUI.md）  changelog.yaml（公告栏的版本更新说明，每合并一个 PR 在最上面追加一条；版本号「代.大功能.小改」由代码按合并先后自动算，条目只写 level）
 prompts/       planner/ answer/ answer_quick/ review/ revise/ synthesize/ redo/
                attachments/ describe_image/ transcribe/ tools/（v4） image_gen/ web_search/ web_fetch/
                decompose/（v4） decompose_retry/ volunteer/ assign/（v3） work/ work_<类型>/ cross_review/ rework/ merge/
@@ -237,7 +237,7 @@ prompts/       planner/ answer/ answer_quick/ review/ revise/ synthesize/ redo/
 src/roundtable/
   core/
     config/        配置加载与校验
-    providers/     Provider 基类、适配器（openai_compat/anthropic/gemini/fake）、渠道路由、密钥与脱敏、计费
+    providers/     Provider 基类、适配器（openai_compat/anthropic/gemini/comfyui（本地出图）/fake）、渠道路由、密钥与脱敏、计费
     prompts/       提示词加载与渲染
     allocation/    按档位/标签抽取、代号、互评分配（排除自评）、乱序、身份遮蔽
     routing/       规则判断、规划员、方案与阵容、花费预估、用户模式、升级、每题记录
