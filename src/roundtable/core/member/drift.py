@@ -73,7 +73,7 @@ class Drift:
         """换过的：旧 → 现在用的（换了几次就顺着找到最新的）。"""
         out: dict[str, str] = {}
         for s in self._load(member)["swaps"]:
-            if s.get("new"):
+            if s.get("new") and not s.get("undone"):
                 out = {k: (s["new"] if v == s["old"] else v) for k, v in out.items()}
                 out[s["old"]] = s["new"]
         return out
@@ -84,6 +84,31 @@ class Drift:
             return items
         m = self.mapping(member)
         return tuple(dict.fromkeys(m.get(x, x) for x in items))
+
+    def undo(self, member: str, at_stamp: str, kind: str, old: str) -> bool:
+        """你在成长总账里撤回一次变化（按时间、种类、原来那个找）：换掉的颜文字 / 短回复换回来，
+        歇着的口头禅马上能用，学来转正的那个不算她的了。找不到或已经撤回过返回 False。"""
+        data = self._load(member)
+        hit = next(
+            (
+                s
+                for s in data["swaps"]
+                if s.get("at") == at_stamp
+                and s.get("kind") == kind
+                and s.get("old") == old
+                and not s.get("undone")
+            ),
+            None,
+        )
+        if hit is None:
+            return False
+        hit["undone"] = True
+        if kind == "rest":
+            data["rested"].pop(old, None)
+        elif kind == "promote":
+            data["promoted"].pop(old, None)
+        self._save(member, data)
+        return True
 
     def resting(self, member: str, at: datetime) -> set[str]:
         """说腻了、正在歇着的口头禅。"""

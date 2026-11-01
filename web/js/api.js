@@ -141,6 +141,7 @@ export const revertMemberProfile = (id, version) => api(`/api/chat/profiles/${en
 export const memberGrowth = (id) => api(`/api/chat/growth/${encodeURIComponent(id)}`);
 export const runMemberGrowth = (id) => api(`/api/chat/growth/${encodeURIComponent(id)}/run`, { method: 'POST' });
 export const revertMemberGrowth = (id, entry) => api(`/api/chat/growth/${encodeURIComponent(id)}/revert`, { method: 'POST', body: { id: entry } });
+export const undoMemberGrowth = (id, token) => api(`/api/chat/growth/${encodeURIComponent(id)}/undo`, { method: 'POST', body: { token } });
 export const clearMemberGrowth = (id) => api(`/api/chat/growth/${encodeURIComponent(id)}`, { method: 'DELETE' });
 export const memberRelation = (id) => api(`/api/chat/relation/${encodeURIComponent(id)}`);
 export const thinkMemberRelation = (id) => api(`/api/chat/relation/${encodeURIComponent(id)}/insight`, { method: 'POST' });

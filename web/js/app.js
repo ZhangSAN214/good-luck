@@ -176,6 +176,7 @@ const people = new People($('#people'), {
     growth: API.memberGrowth,
     growthRun: API.runMemberGrowth,
     growthRevert: API.revertMemberGrowth,
+    growthUndo: API.undoMemberGrowth,
     growthClear: API.clearMemberGrowth,
     relation: API.memberRelation,
     relationClear: API.clearMemberRelation,
