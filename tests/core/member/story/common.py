@@ -15,10 +15,14 @@ NAMES = {f"V{i}": f"阿{'零一二三四五六七'[i]}" for i in range(1, 7)}
 
 
 def story_env(**update: Any) -> Env:
-    """改 chat.life.story 的几项（stories 可整个换掉）。"""
+    """改 chat.life.story 的几项（stories 可整个换掉；换了且没给 progress 时爱好进度关掉）。"""
     base = Env().config.roundtable.chat
     if not update:
         return Env()
+    if "stories" in update and "progress" not in update:
+        # 换了事件库的测试只看事件库：爱好进度（L1）关掉，免得混进来
+        off = base.life.story.progress.model_copy(update={"enabled": False})
+        update = {**update, "progress": off}
     story = base.life.story.model_copy(update=update)
     life = base.life.model_copy(update={"story": story})
     return Env(rt_update={"chat": base.model_copy(update={"life": life})})

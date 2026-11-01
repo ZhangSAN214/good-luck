@@ -986,6 +986,33 @@ class TalentRules(_Strict):
     texts: TalentTexts = TalentTexts()
 
 
+class ProgressKind(_Strict):
+    """一种爱好的进度（L1）：读到哪、追到哪、打到哪。
+
+    在做的东西优先从她档案的「最爱」里挑（含 words 里的词），没有再从 things 里挑；
+    生活里做了 acts 里的事（或每天按 daily 的机会）就往前推 per 格，到 total 就「看完了」，
+    隔 gap_days 天再开始下一样。mid_chance：推进那天顺嘴记一句「看到第几章」的机会。"""
+
+    words: list[str] = Field(default_factory=list, max_length=20)
+    things: list[str] = Field(min_length=1, max_length=30)
+    acts: list[str] = Field(default_factory=list, max_length=10)
+    daily: float = Field(default=0.0, ge=0, le=1)
+    unit: str = Field(default="章", max_length=4)
+    total: list[int] = Field(default_factory=lambda: [10, 30], min_length=2, max_length=2)
+    per: list[int] = Field(default_factory=lambda: [1, 3], min_length=2, max_length=2)
+    gap_days: int = Field(default=2, ge=0, le=60)
+    mid_chance: float = Field(default=0.25, ge=0, le=1)
+    domain: str = Field(default="", max_length=20)
+    start: str = Field(default="开始看{thing}", max_length=60)
+    mid: str = Field(default="{thing}看到第{n}{unit}了", max_length=60)
+    done: str = Field(default="把{thing}看完了", max_length=60)
+
+
+class ProgressRules(_Strict):
+    enabled: bool = True
+    kinds: dict[str, ProgressKind] = Field(default_factory=dict)
+
+
 class StoryRules(_Strict):
     """生活事件库 + 长线剧情（P7 生活引擎 L0，docs/LIFE_STORY.md）。
 
@@ -1004,6 +1031,7 @@ class StoryRules(_Strict):
     stories: list[StorySpec] = Field(default_factory=list, max_length=300)
     way: LifeWayRules = LifeWayRules()
     talent: TalentRules = TalentRules()
+    progress: ProgressRules = ProgressRules()  # 爱好进度（L1）
 
     @model_validator(mode="after")
     def _unique(self) -> StoryRules:
@@ -1011,10 +1039,13 @@ class StoryRules(_Strict):
         dup = sorted({i for i in ids if ids.count(i) > 1})
         if dup:
             raise ValueError(f"生活事件 id 重复：{'、'.join(dup)}")
-        reserved = sorted(i for i in ids if i.startswith("talent_"))
+        reserved = sorted(i for i in ids if i.startswith(("talent_", "progress_")))
         if reserved:
-            raise ValueError(f"talent_ 开头的 id 留给擅长觉醒用：{'、'.join(reserved)}")
-        bad = sorted({s.domain for s in self.stories if s.domain} - set(self.talent.domains))
+            raise ValueError(f"talent_ / progress_ 开头的 id 留给程序用：{'、'.join(reserved)}")
+        domains = {s.domain for s in self.stories} | {
+            k.domain for k in self.progress.kinds.values()
+        }
+        bad = sorted({d for d in domains if d} - set(self.talent.domains))
         if bad:
             raise ValueError(f"生活事件的 domain 不在 talent.domains 里：{'、'.join(bad)}")
         return self

@@ -62,11 +62,13 @@ class Talents:
             mark = parse_mark(topic)
             if mark is None:
                 return []
-            story, _, domain = mark
+            story, step, domain = mark
             if not domain or domain not in self.rules.domains:
                 return []
             if story.startswith("talent_") and story != "talent_ask":
                 return []  # 觉醒、卡住这些本身不算练习
+            if story.startswith("progress_") and step == 0:
+                return []  # 刚开始看还不算练过
             return [(domain, "做过相关的事")]
         if kind not in ("gather", "solo"):
             return []

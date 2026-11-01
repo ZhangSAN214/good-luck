@@ -223,3 +223,24 @@ def test_state_view_has_no_scores():
     view = StoryEngine(env.rt).state("V1", {"V1": "阿一"})
     assert view["recent"] and view["upcoming"]
     assert "score" not in str(view) and "分" not in str(view["recent"])
+
+
+def test_l1_daily_details_cover_sleep_food_chores_and_seasons():
+    rules = Env().config.roundtable.chat.life.story
+    ids = {s.id: s for s in rules.stories}
+    assert {"oversleep", "nap", "insomnia", "dream"} <= set(ids)  # 作息
+    assert {"takeout", "cook_dinner", "spicy_food", "sweet_treat", "new_place"} <= set(ids)  # 饮食
+    assert {"laundry", "clean_room", "rearrange"} <= set(ids)  # 家务
+    assert ids["hotpot"].months and 7 not in ids["hotpot"].months  # 季节：夏天不涮火锅
+    assert 7 in ids["ice_cream"].months and 12 not in ids["ice_cream"].months
+    # 失眠第二天犯困（P3 接 story.tired）
+    assert ids["insomnia"].steps[1].tags == ["story.tired"]
+    # 口味只发生在档案里提到的人身上
+    assert ids["spicy_food"].need_likes and ids["sweet_treat"].need_likes
+
+
+def test_seasonal_story_only_in_its_months():
+    pot = spec(id="pot", chance=1.0, months=[1], steps=[{"text": "涮火锅"}])
+    env = story_env(stories=[pot])
+    got = run_daily(env, 20, {"V1": "阿一"})  # 11 月
+    assert not got
