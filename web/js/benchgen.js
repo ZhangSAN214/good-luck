@@ -448,7 +448,11 @@ export class BenchGenPanel {
     if (st.unavailable) notes.push(`<p class="sc-warn">${esc(st.unavailable)}</p>`);
     if (this.err) notes.push(`<p class="sc-warn" role="alert">${esc(this.err)}</p>`);
     if (!b) return `<h3 class="bg-h">说想法</h3>${notes.join('')}${this.askHtml(st)}`;
-    const req = `<div class="bg-said"><span class="bg-k">你说的</span><p>${esc((b.request || '').slice(0, 400))}</p></div>`;
+    const label = Object.fromEntries((st.form_fields || []).map((f) => [f.id, f.label]));
+    const formed = Object.entries(b.form || {});
+    const req = `<div class="bg-said"><span class="bg-k">你说的</span><p>${esc((b.said || b.request || '').slice(0, 400))}</p>${
+      formed.length ? `<dl class="bg-saidform">${formed.map(([k, v]) => `<dt>${esc(label[k] || k)}</dt><dd>${esc(v)}</dd>`).join('')}</dl>` : ''
+    }</div>`;
     const mats = this.matsStrip(b);
     const changes = (b.trace || []).length ? '' : (b.changes || [])
       .map(

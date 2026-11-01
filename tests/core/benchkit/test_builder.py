@@ -1477,6 +1477,7 @@ async def test_structured_form_goes_into_request_and_trace(tmp_path):
     build = b.submit("旅行台", form={"who": "爸妈", "net": "只用本地", "ai": "自动", "x": "y"})
     await b.wait()
     assert build["form"] == {"who": "爸妈", "net": "只用本地"}
+    assert build["said"] == "旅行台"  # 界面「你说的」只显示这句，表单另列
     assert build["request"].startswith("旅行台\n\n【基础信息】\n- 给谁用：爸妈")
     srcs = [(v["src"], v["text"]) for v in build["voices"]]
     assert srcs[:3] == [("开工", "旅行台"), ("表单", "给谁用：爸妈"), ("表单", "联网：只用本地")]

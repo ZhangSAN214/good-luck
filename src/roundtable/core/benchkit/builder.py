@@ -380,6 +380,7 @@ class BenchBuilder:
         self.build = {
             "id": bid,
             "request": request[:2000],
+            "said": said[:2000],  # 只有你写的那句（界面「你说的」显示这句，表单另列）
             "status": "planning",
             "created_at": _iso(now),
             "finished_at": None,

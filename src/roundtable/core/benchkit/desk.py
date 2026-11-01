@@ -141,6 +141,20 @@ def parse_hf(data: Any, limit: int) -> list[dict[str, Any]]:
     return out[:limit]
 
 
+def _plain_why(exc: Exception) -> str:
+    """读不到的原因说成大白话（原始报错可能带网址参数等，不往界面上放）。"""
+    text = str(exc).lower()
+    if "404" in text or "not found" in text:
+        return "仓库找不到了（可能改名或删了）"
+    if any(k in text for k in ("403", "429", "rate limit")):
+        return "GitHub 限速或拒绝访问，过一阵再刷新"
+    if any(k in text for k in ("timeout", "timed out")):
+        return "连 GitHub 超时"
+    if any(k in text for k in ("connect", "network", "name resolution", "ssl")):
+        return "连不上 GitHub"
+    return "GitHub 返回出错"
+
+
 class Desk:
     """资料台：刷新（联网、免费）、读缓存、处理建议卡、给写窗口的助手挑工具。"""
 
@@ -297,7 +311,7 @@ class Desk:
                 got = repo_of(await self.fetch_json(f"{GITHUB}/repos/{cap.repo}"))
                 why = "" if got else "GitHub 返回的内容看不懂"
             except Exception as exc:  # noqa: BLE001
-                got, why = None, str(exc)[:80] or "连不上"
+                got, why = None, _plain_why(exc)
                 notes.append(f"核实 {cap.repo} 没成：{why}")
             if got:
                 caps[cap.id] = {

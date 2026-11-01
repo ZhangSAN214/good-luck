@@ -283,3 +283,4 @@ def test_unreadable_capability_says_unprobed_with_reason(tmp_path):
     asyncio.run(later.refresh())
     v = {c["id"]: c for c in later.view()["caps"]}
     assert "这次没读到" in v["threejs"]["unprobed"] and v["threejs"]["stars"] == 12345
+    assert "限速" in v["threejs"]["unprobed"] and "token" not in v["threejs"]["unprobed"]

@@ -684,3 +684,6 @@ def test_benchgen_profile_and_from_product(serve, page, monkeypatch, tmp_path):
     assert any(v["src"] == "档案" and "小白" in v["text"] for v in b["voices"])
     assert b["form"] == {"who": "我自己", "net": "只用本地"}
     assert "【工具策略】\n- 联网：只用本地" in b["request"]
+    said = pane.locator(".bg-said")
+    said.locator(".bg-saidform dd", has_text="只用本地").wait_for()
+    assert "【" not in said.locator("p").inner_text()  # 原话和表单分开显示
