@@ -383,7 +383,50 @@ def test_moment_photo_without_her_sends_no_reference_images(tmp_path):
     _, fake, stickers = build(tmp_path)
     asyncio.run(stickers.photo("OpenAI", "食堂", "饭好香", "only the food", refs=False))
     [(_, _, prompt, _, refs, _)] = image_calls(fake)
-    assert refs == () and "only the food" in prompt and "do not act out the post" in prompt
+    assert refs == () and "only the food" in prompt and "never a photoreal stock photo" in prompt
+
+
+def test_moment_photo_attaches_the_room_last_and_names_the_place(tmp_path):
+    """11-01：场景必须在八人公寓里——按事件地点附上那间房的场景图（最后一张）。"""
+    _, fake, stickers = build(tmp_path)
+    asyncio.run(stickers.photo("OpenAI", "宿舍", "看书", "a selfie", place="dorm:OpenAI"))
+    asyncio.run(stickers.photo("OpenAI", "宿舍", "看书", "a view", refs=False, place="dorm"))
+    rooms = tmp_path / "art" / "rooms"
+    rooms.mkdir()
+    (rooms / "canteen_day.png").write_bytes(png("green"))
+    (rooms / "rooms.json").write_text('{"canteen": {"day": "canteen_day.png"}}', encoding="utf-8")
+    asyncio.run(stickers.photo("OpenAI", "食堂", "饭好香", "a selfie", place="canteen"))
+    asyncio.run(stickers.photo("OpenAI", "天台", "风好大", "a selfie", place="rooftop"))
+    asyncio.run(stickers.photo("OpenAI", "?", "?", "a selfie", place="somewhere"))
+    dorm, view, canteen, rooftop, other = image_calls(fake)
+    assert dorm[4][-1].name == "room_day.webp" and len(dorm[4]) >= 2
+    assert "她自己的宿舍（最后一张参考图就是这间房）" in dorm[2]
+    assert [m.name for m in view[4]] == ["room_day.webp"]  # 她不入镜也照这间房画
+    assert canteen[4][-1].name == "canteen_day.png" and "公寓楼食堂（最后一张" in canteen[2]
+    # 天台没有场景图：只写地点，不附图
+    assert "公寓楼天台" in rooftop[2] and all("rooftop" not in m.name for m in rooftop[4])
+    assert "公寓楼里（看今天的事在哪间房）" in other[2]
+
+
+def test_moment_photo_uses_cues_and_the_daily_must():
+    """日常照不扛巨斧；每人有标志小物件，只露手时也认得出（如小鲸鱼发卡）。"""
+    cards = load_config().personas.sticker_cards
+    assert all(card.cues for card in cards.values())
+    assert "小鲸鱼发卡" in cards["DeepSeek"].cues
+    assert "黑金巨斧" in cards["xAI"].must
+    assert cards["xAI"].daily_must and "黑金巨斧" not in cards["xAI"].daily_must
+
+
+def test_moment_photo_prompt_carries_cues_and_daily_must(tmp_path):
+    rt, fake, stickers = build(tmp_path)
+    card = rt.config.personas.sticker_cards["OpenAI"]
+    daily = card.model_copy(update={"daily_must": ["白色长发"], "cues": ["小金铃"]})
+    cards = {**rt.config.personas.sticker_cards, "OpenAI": daily}
+    rt.config.personas.__dict__["sticker_cards"] = cards
+    asyncio.run(stickers.photo("OpenAI", "宿舍", "看书", "a selfie"))
+    [(_, _, prompt, _, _, _)] = image_calls(fake)
+    assert "must be visible: 白色长发." in prompt and "小金铃" in prompt
+    assert "龙翼" not in prompt.split("must be visible:")[1].split("\n")[0]
 
 
 def test_phone_look_is_deterministic_and_changes_the_image():
@@ -524,6 +567,18 @@ def test_local_tag_prompt_without_her_drops_the_look(tmp_path):
     [(_, _, prompt, _, refs, _)] = image_calls(local)
     card = rt.config.personas.sticker_cards["OpenAI"]
     assert refs == () and "no humans" in prompt and card.look_tags not in prompt
+
+
+def test_room_image_goes_to_the_cloud_model_but_not_the_local_tag_model(tmp_path):
+    """房间图只给看得懂"最后一张是房间"的云端模型；本地标签模型把参考图都当人物参考。"""
+    _, cloud, local, stickers = build_local(tmp_path)
+    asyncio.run(stickers.photo("OpenAI", "宿舍", "看书", "a selfie", place="dorm"))
+    [(_, _, _, _, refs, _)] = image_calls(local)
+    assert refs and all(m.name != "room_day.webp" for m in refs)
+    local.broken_models.update(r.model for r in stickers.draw_models()[0].routes)
+    asyncio.run(stickers.photo("OpenAI", "宿舍", "看书", "a selfie", place="dorm", seed="2"))
+    [(_, _, _, _, refs, _)] = image_calls(cloud)
+    assert refs[-1].name == "room_day.webp"
 
 
 def test_local_failure_falls_back_to_a_cloud_model_unless_local_only(tmp_path):

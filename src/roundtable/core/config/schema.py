@@ -665,36 +665,41 @@ class MomentPhotoRules(_Strict):
             "full": "1girl, solo, candid",
         }
     )
-    # 拍法：每张按权重抽一种。真人发朋友圈多半拍东西和风景，很少拍自己（10-31 用户嫌配图 AI 感太强）
+    # 拍法：每张按权重抽一种。朋友圈是让人看到她们的生活：多数她本人入镜、是主角；去 AI 感靠抓拍和
+    # 日常背景，不靠躲开人物（11-01 用户：要看她们的生活，不要剩饭）
     shots: list[MomentShot] = Field(
         default_factory=lambda: [
             MomentShot(
-                text="only the thing or view in front of her (food, cup, desk, window, sky); "
-                "she does not appear",
-                weight=6,
-                her="none",
+                text="a friend caught her in the middle of doing it, candid, "
+                "she is the main subject",
+                weight=4,
             ),
             MomentShot(
-                text="her point of view: only her hand, sleeve or tail at the edge of the frame "
-                "next to the thing she is looking at",
+                text="a casual selfie at arm's length, maybe with whoever she is with",
+                weight=2,
+            ),
+            MomentShot(
+                text="her and the people she is with, snapped together while hanging out",
+                weight=1,
+            ),
+            MomentShot(
+                text="something worth showing off in front of her (a nice meal just served, "
+                "the view, a cute object), with her hand or sleeve at the edge of the frame",
                 weight=2,
                 her="part",
             ),
             MomentShot(
-                text="a friend snapped her without warning from a few meters away or from behind; "
-                "she is small in the frame and doing her own thing",
+                text="only a view or thing worth showing off (rooftop night sky, a pretty dish "
+                "just served); she does not appear",
                 weight=1,
-            ),
-            MomentShot(
-                text="a quick selfie at arm's length, awkward angle, "
-                "half her face cut off by the edge",
-                weight=1,
+                her="none",
             ),
         ],
         min_length=1,
         max_length=8,
     )
     phone_look: bool = True  # 画完在本机加一层手机味：轻微裁歪、压暗饱和度、噪点、压缩（不花钱）
+    room_refs: bool = True  # 按事件地点附上那间房的场景图当最后一张参考图（公寓里拍）
 
 
 class SpeechRules(_Strict):
@@ -3983,6 +3988,10 @@ class StickerCard(_Strict):
     # 不写时用 members.json 里的立绘 / 小人 / 头像
     refs: list[str] = Field(default_factory=list, max_length=3)
     stickers: list[StickerSpec] = Field(default_factory=list, max_length=24)
+    # 朋友圈配图用：标志小物件（只露手、背影时也认得出是谁，如小鲸鱼发卡）
+    cues: list[str] = Field(default_factory=list, max_length=4)
+    # 朋友圈日常照必须画到的细节；不写时用 must（日常照不扛武器等大道具时在这里去掉）
+    daily_must: list[str] | None = Field(default=None, max_length=8)
 
     @field_validator("stickers")
     @classmethod
