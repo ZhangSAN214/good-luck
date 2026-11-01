@@ -449,7 +449,7 @@ export class BenchGenPanel {
     const mats = this.matsStrip(b);
     const changes = (b.trace || []).length ? '' : (b.changes || [])
       .map(
-        (c) => `<li class="bg-ch-${esc(c.status)}"><b>${esc(c.id)}</b> ${esc(c.text)}${c.window ? `（${esc(this.winTitle(b, c.window))}）` : ''} · ${esc({ open: '处理中', done: '改好了', failed: '没改成' }[c.status] || c.status)}${c.reply ? `<div class="sc-sub">${esc(c.reply.slice(-160))}</div>` : ''}</li>`,
+        (c) => `<li class="bg-ch-${esc(c.status)}"><b>${esc(c.id)}</b> ${esc(c.text)}${c.window ? `（${esc(this.winTitle(b, c.window))}）` : ''} · ${esc({ open: '处理中', done: '改完了，等你看', accepted: '改好了', failed: '没改成' }[c.status] || c.status)}${c.reply ? `<div class="sc-sub">${esc(c.reply.slice(-160))}</div>` : ''}</li>`,
       )
       .join('');
     const stuck = b.stuck && b.status === 'needs_you' ? this.stuckForm(b) : '';
@@ -484,7 +484,7 @@ export class BenchGenPanel {
     if (!rows.length) return '';
     const changes = Object.fromEntries((b.changes || []).map((c) => [c.id, c]));
     const voices = Object.fromEntries((b.voices || []).map((v) => [v.id, v]));
-    const open = rows.filter((r) => ['没做到', '没改成', '没对上'].includes(r.state)).length;
+    const open = rows.filter((r) => ['没做到', '没改成', '没对上', '待你看'].includes(r.state)).length;
     const kept = new Set(((this.st || {}).profile || []).map((x) => x.text));
     const items = rows
       .map((r) => {
@@ -514,6 +514,15 @@ export class BenchGenPanel {
       <button type="button" class="btn primary bg-go" data-submit ${busy || st.unavailable ? 'disabled' : ''}>生成工作台</button>
       ${this.profileHtml(st)}
       <p class="sc-hint">${st.project ? '先问你几个取舍，再出样子和计划给你签字；之后自动搭，每段做完给你试用。停下来等你时不花次数。' : `自动拆需求、分头写、质检和评审，不过线就返工，最多 ${esc(st.max_rounds || 3)} 轮。`}花的是订阅次数。</p></div>`;
+  }
+
+  /** 一卡一会话：这张卡最近一次会话是不是假完成（说做好了，文件没动）。 */
+  fakeNote(w) {
+    const runs = w.runs || [];
+    const fakes = runs.filter((r) => r.fake).length;
+    if (!fakes) return '';
+    const last = runs[runs.length - 1];
+    return `<span class="bg-fake" title="助手说做好了，但文件一个字没动，不算数">${last.fake ? '最近一次是假完成' : `有过 ${fakes} 次假完成`}</span>`;
   }
 
   /** 甲方档案：你的长期偏好，每个新项目都带上（只存本机，可删）。 */
@@ -628,7 +637,7 @@ export class BenchGenPanel {
       const wins = (b.windows || [])
         .map(
           (w) => `<tr><td>${esc(w.title)}</td><td>${esc(w.author ? this.label(w.author) : '—')}</td>
-            <td class="sc-st-${esc(w.status)}">${esc(WSTATUS[w.status] || w.status)}${(w.rework || []).length ? `（返工 ${w.rework.length} 次）` : ''}</td></tr>`,
+            <td class="sc-st-${esc(w.status)}">${esc(WSTATUS[w.status] || w.status)}${(w.rework || []).length ? `（返工 ${w.rework.length} 次）` : ''}${this.fakeNote(w)}</td></tr>`,
         )
         .join('');
       if (wins) body.push(`<h4 class="bg-h4">分工</h4><table class="sc-subs bg-wintable"><thead><tr><th>窗口</th><th>谁写</th><th>状态</th></tr></thead><tbody>${wins}</tbody></table>`);
@@ -1306,7 +1315,8 @@ export class BenchGenPanel {
     return `<div class="bg-gate" data-form>${head}
       <p class="sc-hint">${accept ? '中间就是成品，逐条试一遍验收清单。' : '中间是这一段做好的部分，可以直接点着试。'}</p>
       <div class="sc-row"><button type="button" class="btn primary" data-pass>${accept ? '验收通过' : '通过，做下一段'}</button></div>
-      <label class="bg-note">要改的地方（一条一行）<textarea data-comments rows="3" placeholder="例如：地图再大一点"></textarea></label>
+      <label class="bg-note">哪里不对（一条一行）<textarea data-comments rows="3" placeholder="例如：地图太小，看不清路线"></textarea></label>
+      <label class="bg-note">想改成什么样（可不写，写了更不容易改偏）<input type="text" data-cwant maxlength="300" placeholder="例如：地图占右边一半，路线加粗"></label>
       <label class="bg-note">针对哪个窗口 <select data-cwin><option value="">这一段的全部窗口</option>${opts}</select></label>
       <div class="sc-row"><button type="button" class="btn" data-change>提意见，让他们改</button>${end}</div></div>`;
   }
@@ -1496,12 +1506,13 @@ export class BenchGenPanel {
     if (t.closest('[data-pass]')) return this.act(() => this.api.review(b.id, 'pass'));
     if (t.closest('[data-change]')) {
       const win = form.querySelector('[data-cwin]').value;
+      const want = (form.querySelector('[data-cwant]')?.value || '').trim();
       const comments = form
         .querySelector('[data-comments]')
         .value.split('\n')
         .map((x) => x.trim())
         .filter(Boolean)
-        .map((text) => ({ text, window: win }));
+        .map((text) => ({ text: want ? `问题：${text}；想要：${want}` : text, window: win }));
       if (!comments.length) {
         this.err = '写一下哪里要改';
         return this.render(true);
