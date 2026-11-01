@@ -293,6 +293,12 @@ class ProfileRevertBody(BaseModel):
     version: int = Field(ge=1)
 
 
+class GrowthUndoBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    token: str = Field(min_length=1, max_length=200)  # 成长总账里那一条的 undo
+
+
 class GrowthRevertBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -1471,6 +1477,12 @@ def create_app(service: RoundtableService | None = None, lan: LanAccess | None =
         request: Request, member: str, body: GrowthRevertBody
     ) -> dict[str, Any]:
         return svc(request).member_growth_revert(member, body.id)
+
+    @app.post("/api/chat/growth/{member}/undo")
+    async def member_growth_undo(
+        request: Request, member: str, body: GrowthUndoBody
+    ) -> dict[str, Any]:
+        return svc(request).member_growth_undo(member, body.token)
 
     @app.delete("/api/chat/growth/{member}")
     async def member_growth_clear(request: Request, member: str) -> dict[str, Any]:
