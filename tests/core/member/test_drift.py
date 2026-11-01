@@ -118,3 +118,42 @@ def test_drift_can_be_switched_off():
     lingo = Lingo(env.rt, names=NAMES)
     word = lingo.kaomoji("V1")[0]
     assert chatter(env, lingo, "V1", word, days=20) == []
+
+
+def test_catchphrases_never_all_rest_at_once():
+    """三句一起用得勤也不会一起歇：歇着的不超过一半（半年快进发现的）。"""
+    env, lingo = world()
+    phrases = ["这笔先记着", "问题不大", "稳了"]
+    card(env, "V1", style={"口头禅": phrases})
+    eager(env)
+    lingo = Lingo(env.rt, names=NAMES)
+    chatter(env, lingo, "V1", "".join(phrases), days=40)
+    later = NOON + timedelta(days=40)
+    rested = Drift(env.rt).resting("V1", later)
+    assert len(rested) == 1  # 3 句里至少留 2 句（ceil(3 × 0.5)）
+
+
+def test_swapped_faces_never_collapse_into_one():
+    """一格换来的颜文字被再换掉时，只换那一格；太旧的记录并进底子，顺着找不断（半年快进发现）。"""
+    from roundtable.core.member.drift import _fold
+
+    swaps = [
+        {"old": "A", "new": "Z"},  # A 那格 → Z
+        {"old": "B", "new": "A"},  # B 那格 → A（A 本来的那格还是 Z）
+        {"old": "A", "new": "W"},  # 现在显示成 A 的是 B 那格：只换它
+    ]
+    assert _fold({}, swaps) == {"A": "Z", "B": "W"}
+    assert _fold(_fold({}, swaps[:2]), swaps[2:]) == _fold({}, swaps)  # 分两段叠结果一样
+    env, _ = world()
+    card(env, "V1", (5, 3, 3, 5, 3))
+    rules = env.rt.config.roundtable.chat.engine.lingo.drift.model_copy(
+        update={"chance": 1.0, "min_days": 0, "wear_uses": 2, "keep_swaps": 5, "return_days": 0}
+    )
+    _lingo(env, drift=rules)
+    lingo = Lingo(env.rt, names=NAMES)
+    start = len(lingo.kaomoji("V1"))
+    chatter(env, lingo, "V1", "", days=120, per_day=3)
+    data = Drift(env.rt)._load("V1")
+    assert len(data["swaps"]) <= 5 and data["base"]  # 旧记录并进了底子
+    now = Lingo(env.rt, names=NAMES).kaomoji("V1")
+    assert len(now) == start  # 换了几十次，个数一个不少
