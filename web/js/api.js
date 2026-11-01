@@ -87,6 +87,7 @@ export const memberVoices = () => api('/api/chat/voices');
 // 成员专属表情包：列表、画一张（新画的待审）、审（approved / rejected / pending）
 export const memberStickers = () => api('/api/stickers');
 export const chatStickers = () => api('/api/chat/stickers');
+export const emojiStyle = () => api('/api/emoji');
 // 成员从你那收来的表情包：删一张、清空（member 省略时所有人）
 export const delStash = (id, n) => api(`/api/stickers/stash/${encodeURIComponent(id)}/${n}`, { method: 'DELETE' });
 export const clearStash = (id = null) => api(`/api/stickers/stash${id ? `?member=${encodeURIComponent(id)}` : ''}`, { method: 'DELETE' });

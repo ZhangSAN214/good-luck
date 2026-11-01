@@ -89,3 +89,20 @@ def test_stash_listing_delete_and_clear():
         assert c.delete("/api/stickers/stash/V1/1").status_code == 404
         assert c.delete("/api/stickers/stash").json() == {"cleared": 1}
         assert c.get("/api/stickers").json()["stash"] == []
+
+
+def test_emoji_image_api(tmp_path):
+    from roundtable.core.emoji_images import EmojiImages
+
+    env = Env()
+    service = RoundtableService(env.rt)
+    png = b"\x89PNG\r\n\x1a\n" + b"y" * 8
+    service.emoji = EmojiImages(env.rt, tmp_path, lambda url: png if "1f602" in url else None)
+    with TestClient(create_app(service)) as c:
+        assert c.get("/api/emoji").json() == {"enabled": True, "style": "apple"}
+        r = c.get("/api/emoji/1f602.png")
+        assert (
+            r.status_code == 200 and r.content == png and r.headers["content-type"] == "image/png"
+        )
+        assert c.get("/api/emoji/1f9ff.png").status_code == 404
+        assert c.get("/api/emoji/abc..png").status_code == 404

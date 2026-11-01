@@ -129,7 +129,8 @@ class MemeRadar:
     def searches_today(self) -> int:
         from roundtable.core.budget.guard import day_window
 
-        start, end = day_window(self.rt.budget.now())
+        # 和调用记录用同一个时钟（repo.clock）：不然测试钉住日期、真实日期一过就对不上
+        start, end = day_window(datetime.fromisoformat(self.rt.repo.clock()))
         return self.rt.repo.count_in_steps("chat", (SEARCH_STEP,), start, end)
 
     async def search(self, query: str) -> list[str]:
