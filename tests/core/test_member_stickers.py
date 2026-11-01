@@ -383,7 +383,7 @@ def test_moment_photo_without_her_sends_no_reference_images(tmp_path):
     _, fake, stickers = build(tmp_path)
     asyncio.run(stickers.photo("OpenAI", "食堂", "饭好香", "only the food", refs=False))
     [(_, _, prompt, _, refs, _)] = image_calls(fake)
-    assert refs == () and "only the food" in prompt and "do not act out the post" in prompt
+    assert refs == () and "only the food" in prompt and "Never leftovers" in prompt
 
 
 def test_phone_look_is_deterministic_and_changes_the_image():

@@ -262,8 +262,8 @@ async def test_post_gets_a_photo_by_chance_with_daily_caps(tmp_path, monkeypatch
     assert kw["refs"] == (by_text[shot].her != "none") and kw["seed"].startswith("100:")
 
 
-def test_photo_shots_mostly_leave_her_out():
-    """真人发朋友圈多半拍东西和风景：默认拍法按权重抽，她不入镜的占多数（10-31 用户嫌 AI 感强）。"""
+def test_photo_shots_mostly_show_her():
+    """朋友圈是看她们的生活：默认拍法按权重抽，多数她本人入镜（11-01 用户：不要剩饭）。"""
     import random
 
     from roundtable.core.config.schema import MomentPhotoRules
@@ -271,5 +271,5 @@ def test_photo_shots_mostly_leave_her_out():
     shots = MomentPhotoRules().shots
     rng = random.Random(1)
     picks = [rng.choices(shots, [s.weight for s in shots])[0].her for _ in range(2000)]
-    assert 0.5 < picks.count("none") / len(picks) < 0.7
-    assert picks.count("full") / len(picks) < 0.3
+    assert 0.6 < picks.count("full") / len(picks) < 0.8
+    assert picks.count("none") / len(picks) < 0.2

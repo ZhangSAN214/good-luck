@@ -695,7 +695,7 @@ def phone_look(data: bytes, rng: random.Random) -> bytes:
             im = im.rotate(angle, resample=Image.BICUBIC, expand=False)
             m = int(max(cw, ch) * abs(angle) / 57.3) + 1
             im = im.crop((m, m, cw - m, ch - m))
-        im = ImageEnhance.Color(im).enhance(rng.uniform(0.78, 0.92))
+        im = ImageEnhance.Color(im).enhance(rng.uniform(0.88, 0.97))
         im = ImageEnhance.Contrast(im).enhance(rng.uniform(0.9, 0.97))
         r, g, b = im.split()
         warm = rng.uniform(-6, 6)

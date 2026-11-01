@@ -617,30 +617,34 @@ class MomentPhotoRules(_Strict):
     per_member_day: int = Field(default=1, ge=0, le=5)  # 每位成员每天最多几张
     per_day: int = Field(default=3, ge=0, le=20)  # 所有成员加起来每天最多几张（控制花费）
     max_side: int = Field(default=1024, ge=256, le=2048)  # 存下来的长边（像素，JPEG）
-    # 拍法：每张按权重抽一种。真人发朋友圈多半拍东西和风景，很少拍自己（10-31 用户嫌配图 AI 感太强）
+    # 拍法：每张按权重抽一种。朋友圈是让人看到她们的生活：多数她本人入镜、是主角；去 AI 感靠抓拍和
+    # 日常背景，不靠躲开人物（11-01 用户：要看她们的生活，不要剩饭）
     shots: list[MomentShot] = Field(
         default_factory=lambda: [
             MomentShot(
-                text="only the thing or view in front of her (food, cup, desk, window, sky); "
-                "she does not appear",
-                weight=6,
-                her="none",
+                text="a friend caught her in the middle of doing it, candid, "
+                "she is the main subject",
+                weight=4,
             ),
             MomentShot(
-                text="her point of view: only her hand, sleeve or tail at the edge of the frame "
-                "next to the thing she is looking at",
+                text="a casual selfie at arm's length, maybe with whoever she is with",
+                weight=2,
+            ),
+            MomentShot(
+                text="her and the people she is with, snapped together while hanging out",
+                weight=1,
+            ),
+            MomentShot(
+                text="something worth showing off in front of her (a nice meal just served, "
+                "the view, a cute object), with her hand or sleeve at the edge of the frame",
                 weight=2,
                 her="part",
             ),
             MomentShot(
-                text="a friend snapped her without warning from a few meters away or from behind; "
-                "she is small in the frame and doing her own thing",
+                text="only a view or thing worth showing off (rooftop night sky, a pretty dish "
+                "just served); she does not appear",
                 weight=1,
-            ),
-            MomentShot(
-                text="a quick selfie at arm's length, awkward angle, "
-                "half her face cut off by the edge",
-                weight=1,
+                her="none",
             ),
         ],
         min_length=1,
