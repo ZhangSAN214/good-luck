@@ -16,7 +16,7 @@ from collections import Counter
 from datetime import date, datetime, timedelta
 from typing import Any
 
-from roundtable.core.member.profile import ProfileStore
+from roundtable.core.member.story import store
 from roundtable.core.office.apartment import ACTIVITIES, DAYTIME_LABELS
 from roundtable.core.storage.repository import iso
 
@@ -26,7 +26,6 @@ _SCENE = re.compile(r"^地点：[^\n]*（([^\n（）]+)）\s*$", re.M)
 _ACT_IDS = {label: aid for aid, label in ACTIVITIES.items()} | {
     label: aid for aid, label in DAYTIME_LABELS.items()
 }
-_STAR = re.compile(r"[★☆⭐\s]+")
 
 
 def tags_of(step: int) -> list[str]:
@@ -67,14 +66,8 @@ class Progress:
 
     # --- 推进 ---------------------------------------------------------------------
 
-    def _favorites(self, member: str) -> list[str]:
-        fav = (ProfileStore(self.rt).current(member).data.get("likes") or {}).get("最爱") or []
-        if isinstance(fav, str):
-            fav = re.split(r"[、，,／/；;]", fav)
-        return [_STAR.sub("", str(x)) for x in fav if _STAR.sub("", str(x))]
-
     def _pick(self, member: str, name: str, spec: Any, rng: random.Random, last: str) -> str:
-        mine = [f for f in self._favorites(member) if any(w in f for w in spec.words)]
+        mine = [f for f in store.favorites(self.rt, member) if any(w in f for w in spec.words)]
         pool = [t for t in mine if t != last] or [t for t in spec.things if t != last]
         return rng.choice(pool or list(spec.things))
 
@@ -116,9 +109,7 @@ class Progress:
 
     @staticmethod
     def _fill(text: str, cur: dict[str, Any], words: dict[str, str]) -> str:
-        from roundtable.core.member.story.store import fill
-
-        return fill(text, thing=cur["thing"], n=str(cur["n"]), **words)[:78]
+        return store.fill(text, thing=cur["thing"], n=str(cur["n"]), **words)[:78]
 
     def view(self, st: dict[str, Any]) -> list[dict[str, Any]]:
         """在做的东西和进度（自然话，给接口和生活页看）。"""

@@ -1013,6 +1013,36 @@ class ProgressRules(_Strict):
     kinds: dict[str, ProgressKind] = Field(default_factory=dict)
 
 
+class FestivalSpec(_Strict):
+    """一个节日怎么过（L2）。match：日历条目的名字（含这几个字之一就算）。
+
+    提前 prep_days 天有一位去准备（prep，一个人）；当天大家一起过（day，在场的全员）。
+    origin：来历词（档案里提到这些词的成员是「家乡的节日」：当天她领头，还会有点想家 homesick）；
+    空 = 谁都一样。"""
+
+    match: list[str] = Field(min_length=1, max_length=10)
+    origin: list[str] = Field(default_factory=list, max_length=20)
+    prep_days: int = Field(default=1, ge=0, le=7)
+    prep: str = Field(default="", max_length=60)
+    day: str = Field(max_length=80)
+    homesick: str = Field(default="", max_length=60)
+    hours: list[int] = Field(default_factory=lambda: [18, 21], min_length=2, max_length=2)
+    place: str = Field(default="lounge", max_length=20)
+
+
+class FestivalRules(_Strict):
+    """节日纪念日（L2，读日历 core/almanac，不另算日子）：节日提前准备、当天一起过；成员生日前一天
+    有人偷偷准备礼物（礼物从寿星的「最爱」里挑）、当天大家给她过；入住周年翻翻刚来时的照片。"""
+
+    enabled: bool = True
+    festivals: list[FestivalSpec] = Field(default_factory=list, max_length=60)
+    birthday_prep: str = Field(default="{other}偷偷给{name}准备了生日礼物", max_length=60)
+    birthday: str = Field(default="大家给{name}过了生日，{other}送了{gift}", max_length=80)
+    gifts: list[str] = Field(default_factory=lambda: ["一束花"], min_length=1, max_length=30)
+    like_gift: str = Field(default="一个和{like}有关的小礼物", max_length=40)  # 寿星有「最爱」时
+    joined: str = Field(default="搬进公寓{years}年了，翻了翻刚来时的照片", max_length=60)
+
+
 class StoryRules(_Strict):
     """生活事件库 + 长线剧情（P7 生活引擎 L0，docs/LIFE_STORY.md）。
 
@@ -1032,6 +1062,7 @@ class StoryRules(_Strict):
     way: LifeWayRules = LifeWayRules()
     talent: TalentRules = TalentRules()
     progress: ProgressRules = ProgressRules()  # 爱好进度（L1）
+    festival: FestivalRules = FestivalRules()  # 节日纪念日（L2）
 
     @model_validator(mode="after")
     def _unique(self) -> StoryRules:
@@ -1039,9 +1070,10 @@ class StoryRules(_Strict):
         dup = sorted({i for i in ids if ids.count(i) > 1})
         if dup:
             raise ValueError(f"生活事件 id 重复：{'、'.join(dup)}")
-        reserved = sorted(i for i in ids if i.startswith(("talent_", "progress_")))
+        reserved = sorted(i for i in ids if i.startswith(("talent_", "progress_", "fest_")))
         if reserved:
-            raise ValueError(f"talent_ / progress_ 开头的 id 留给程序用：{'、'.join(reserved)}")
+            used = "、".join(reserved)
+            raise ValueError(f"talent_ / progress_ / fest_ 开头的 id 留给程序用：{used}")
         domains = {s.domain for s in self.stories} | {
             k.domain for k in self.progress.kinds.values()
         }

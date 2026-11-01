@@ -24,8 +24,10 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta
 from typing import Any
 
+from roundtable.core.member.story import festival as fest
 from roundtable.core.member.story import progress as prog
 from roundtable.core.member.story import store
+from roundtable.core.member.story.festival import Festivals
 from roundtable.core.member.story.progress import Progress
 from roundtable.core.member.story.talent import TALENT_STORIES, TALENT_TAGS, Talents
 
@@ -78,6 +80,8 @@ def story_meta(rt: Any, topic: str) -> dict[str, Any]:
         tags = list(TALENT_TAGS.get((story, step), []))
     elif story.startswith(prog.PREFIX):
         tags = prog.tags_of(step)
+    elif story.startswith(fest.PREFIX):
+        tags = fest.tags_of(story)
     else:
         stories = rt.config.roundtable.chat.life.story.stories
         spec = next((s for s in stories if s.id == story), None)
@@ -91,6 +95,7 @@ class StoryEngine:
         self.rt = rt
         self.talents = Talents(rt)
         self.progress = Progress(rt)
+        self.festivals = Festivals(rt, self.text)
         self._texts: dict[str, str] = {}
         self._did: Counter[str] = Counter()
 
@@ -165,6 +170,27 @@ class StoryEngine:
         days = [first + timedelta(days=i) for i in range((last - first).days + 1)]
         states = {m: store.load(self.rt, m) for m in members}
         for day in days:
+            if self.festivals.due(
+                day
+            ):  # L2：节日、生日、入住周年（一天排一次，排进领头那位的日程）
+                for p in self.festivals.plan(day, names):
+                    rng = random.Random(f"fest:{p.story}:{p.lead}:{day.isoformat()}")
+                    self._once(
+                        p.lead,
+                        p.story,
+                        0,
+                        p.text,
+                        day,
+                        rng,
+                        states[p.lead],
+                        start,
+                        end,
+                        "",
+                        hours=p.hours,
+                        place=p.place,
+                        tags=fest.tags_of(p.story),
+                        members=p.members,
+                    )
             practice, did = None, None
             for m in members:
                 st = states[m]
@@ -404,6 +430,7 @@ class StoryEngine:
         hours: tuple[int, int] = (9, 23),
         place: str = "dorm",
         tags: list[str] | None = None,
+        members: list[str] | None = None,
     ) -> None:
         """程序生成的一步（爱好进度、节日……）：排进今天的日程。"""
         tz = end.tzinfo
@@ -419,7 +446,7 @@ class StoryEngine:
                 "story": story,
                 "group": "",
                 "step": step,
-                "members": [member],
+                "members": list(members or [member]),
                 "text": text,
                 "place": place,
                 "rest": False,
