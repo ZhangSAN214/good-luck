@@ -1113,6 +1113,7 @@ prompts:
   merge: v5              # v5：已被下游接手的上游成果只给开头摘录
   attachments: v1        # 题目附件（文字版 / 随附图片）
   describe_image: v1     # 图片文字版
+  describe_video: v1     # 视频文字版（工作模式附件）
   transcribe: v1         # 音频转写
   tools: v5              # 工具说明与工具结果（v2：联网搜索；v3：图表中文；v4：转述的网页正文；v5：in/ 上游文件与参考图）
   image_gen: v1          # 图像生成工具

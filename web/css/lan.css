@@ -48,3 +48,6 @@
 .fa-item.bad .fa-fix{color:var(--bad)}
 .fa-acts{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0 6px}
 .fa-report{width:100%;box-sizing:border-box;font-family:var(--f-mono);font-size:12px;padding:8px;border:1px solid var(--line);border-radius:var(--r);background:var(--surface-2);color:inherit;resize:vertical}
+/* 顶栏按钮：宽屏写全「出问题点这里」，平板竖屏等窄屏只写「自检」，免得顶栏多折一行 */
+#firstaidbtn .fa-short{display:none}
+@media (max-width:1199px){#firstaidbtn .fa-long{display:none}#firstaidbtn .fa-short{display:inline}}

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 import random
 
 from roundtable.core.allocation import eligible
@@ -17,14 +18,21 @@ from .model import Attachment
 from .store import FileStore
 
 # 需要模型处理的类型 → 所需能力标签与说明
-MODEL_TAGS = {"image": "vision", "audio": "transcribe"}
+MODEL_TAGS = {"image": "vision", "audio": "transcribe", "video": "vision"}
 MISSING_MODEL = {
     "image": "没有可用的识图模型（需要带 vision 标签且有可用渠道的模型），无法上传图片",
     "audio": (
         "没有可用的转写模型（需要带 stt 标签的语音转文字模型，或带 transcribe 标签的对话模型，"
         "且有可用渠道），无法上传音频"
     ),
+    "video": "没有可用的识图模型（需要带 vision 标签且有可用渠道的模型），无法上传视频",
 }
+NO_VIDEO_TOOLS = '处理视频需要可选组件：在项目目录运行 pip install -e ".[media]"'
+
+
+def video_tools() -> bool:
+    """视频取帧、抽声音要用的可选依赖（av + pillow）是否装了。"""
+    return all(importlib.util.find_spec(m) is not None for m in ("av", "PIL"))
 
 
 def capable(router: ChannelRouter, tag: str) -> list:
@@ -55,6 +63,8 @@ def ingest(
     file_type = detect(name, data)
     if file_type.kind in MODEL_TAGS and not can_process(router, file_type.kind):
         raise UploadError(MISSING_MODEL[file_type.kind])
+    if file_type.kind == "video" and not video_tools():
+        raise UploadError(NO_VIDEO_TOOLS)
     extracted = extract(file_type, data, rules)
     key = store.save(data, file_type.ext)
     attachment_id = repo.add_attachment(
