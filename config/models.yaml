@@ -76,6 +76,13 @@ channels:
     kind: local
     base_url: http://127.0.0.1:8188
     key_env: null
+  # 本地配音服务（只配音，不花钱，不需要 key），如自己电脑上的 IndexTTS2 网页服务：装好后在
+  # config/models.local.yaml 写 model_switches: {pc-tts: true} 打开下面的 pc-tts（见 docs/LOCAL_TTS.md）
+  local_tts:
+    adapter: local_tts
+    kind: local
+    base_url: http://127.0.0.1:7860
+    key_env: null
   # 本地模型示例（OpenAI 兼容端点，不需要 key）：
   # local:
   #   adapter: openai_compat
@@ -528,6 +535,24 @@ models:
     enabled: true
     routes:
       - {channel: openrouter, model: minimax/speech-2.8-hd}
+  # 本地配音（自己电脑上的服务，0 元）：成员语音先试不花钱的，服务没开 / 出错时换下一个语音模型。
+  # 音色 = 服务里存好的参考音频预设名（personas.yaml 的 voices；参考音频用合成音色，不克隆真人）。
+  # 接口各家不同：path / request / fields / audio_field / url_field 按实际接口在 models.local.yaml 的
+  # model_params: {pc-tts: {...}} 里改（只覆盖写到的几项）。
+  - id: pc-tts
+    vendor: LocalTTS
+    seat: false
+    tier: budget
+    media_price: {unit: char, usd: 0}
+    tags: [tts, zh]
+    enabled: false
+    params:
+      path: tts
+      request: json
+      fields: {text: "{{text}}", voice: "{{voice}}"}
+      timeout_s: 300
+    routes:
+      - {channel: local_tts, model: preset-voice}   # 不用（本地服务只认请求字段）
   # --- 视频（异步任务：提交 → 轮询 → 下载）---
   - id: alibaba-wan-video
     vendor: Alibaba

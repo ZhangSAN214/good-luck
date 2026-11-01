@@ -522,6 +522,23 @@ def test_model_switches_reject_unknown_ids(config_dir):
     expect_error(config_dir, "model_switches", "no-such-model")
 
 
+def test_model_params_override_one_models_params_from_the_local_file(config_dir, monkeypatch):
+    monkeypatch.delenv(NO_LOCAL_ENV)
+    (config_dir / "models.local.yaml").write_text(
+        "model_switches:\n  pc-tts: true\n"
+        "model_params:\n  pc-tts:\n    path: api/v1/tts\n    request: form\n",
+        encoding="utf-8",
+    )
+    model = load_config(config_dir).models.get("pc-tts")
+    assert model.enabled and model.params["path"] == "api/v1/tts"
+    assert model.params["request"] == "form" and model.params["timeout_s"] == 300  # 其余保留
+
+
+def test_model_params_reject_unknown_ids(config_dir):
+    edit(config_dir, "models.yaml", lambda d: d.update(model_params={"no-such-model": {"a": 1}}))
+    expect_error(config_dir, "model_params", "no-such-model")
+
+
 def test_moment_photos_local_only_defaults_off():
     rules = load_config().roundtable.media.moment_photos
     assert rules.local_only is False
