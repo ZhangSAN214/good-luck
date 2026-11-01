@@ -42,6 +42,7 @@ import { Exporter, exportHref } from './exporter.js';
 import { Moments } from './moments.js';
 import { BootSettings } from './bootcfg.js';
 import { LanPanel } from './lan.js';
+import { BackupPanel } from './backup.js';
 import { Watch } from './watch.js';
 import { Wander } from './wander.js';
 import { Workbench } from './workbench.js';
@@ -57,7 +58,7 @@ import { Mail } from './mail.js';
 import { Evolution } from './evolution.js';
 import { Usage } from './usage.js';
 import { Deck } from './deck.js';
-import { setMemberPacks } from './stickers.js';
+import { setEmojiImages, setMemberPacks } from './stickers.js';
 
 const $ = (q) => document.querySelector(q);
 const RESTING = new Set(['completed', 'stopped', 'failed', 'awaiting_confirmation', 'paused']);
@@ -211,6 +212,9 @@ new LanPanel($('#landlg'), $('#lanbtn'), {
     logout: API.lanLogout,
   },
 });
+new BackupPanel($('#backupdlg'), $('#backupbtn'), {
+  api: { status: API.backupStatus, checkpoint: API.backupCheckpoint, restore: API.backupRestore },
+});
 new Watch($('#watchdlg'), $('#watchbtn'), {
   api: {
     status: API.watchStatus,
@@ -328,6 +332,11 @@ const gchat = new GroupChat($('#gchat'), {
 });
 // 成员专属表情（审过的）：装进表情面板，聊天和朋友圈里的记号画成图；在成员设定里审完后再取一次
 async function loadMemberStickers() {
+  try {
+    setEmojiImages((await API.emojiStyle()).enabled);
+  } catch {
+    /* 取不到就用系统字体显示 emoji */
+  }
   try {
     setMemberPacks((await API.chatStickers()).packs);
   } catch {

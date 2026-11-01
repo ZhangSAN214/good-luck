@@ -18,3 +18,8 @@
 .lan-warn{margin:12px 0 6px;color:var(--warn);font-size:13px}
 .lan-msg{min-height:1.4em;margin:6px 0 0;color:var(--brass-ink)}
 .lan-tag{font-size:12px;padding:2px 8px;border-radius:999px;background:var(--glass-2, rgba(255,255,255,.08));opacity:.85}
+.bk-list li{gap:8px}
+.bk-when{font-family:var(--f-mono);font-size:13px}
+.bk-size{color:var(--muted);font-size:12px}
+.bk-ask{color:var(--warn);font-size:13px}
+.bk-list .btn.danger{color:var(--bad,#c0392b)}

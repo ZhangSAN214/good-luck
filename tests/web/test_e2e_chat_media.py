@@ -43,19 +43,19 @@ def test_sticker_image_and_lightbox_in_dm(serve, page, tmp_path):
     page.click("#gc-tools .cm-emo >> nth=0")
     assert page.input_value("#chat-input") == "😀"
     page.fill("#chat-input", "")
-    page.click("#gc-tools [data-tab='pack:猫猫']")  # 点 Emoji 后面板还开着
-    page.click("#gc-tools [data-stk='猫猫·蹭蹭']")
-    page.wait_for_selector(".gc-msg.me .gc-bub.stk-only svg.stk.big")
+    page.click("#gc-tools [data-tab='pack:小黄脸']")  # 点 Emoji 后面板还开着
+    page.click("#gc-tools [data-stk='小黄脸·抱抱']")
+    page.wait_for_selector(".gc-msg.me .gc-bub.stk-only .stk.big")
     wait_until(
         lambda: (
             repo.chat_messages("dm:V1")
-            and repo.chat_messages("dm:V1")[0]["text"] == "[表情:猫猫·蹭蹭]"
+            and repo.chat_messages("dm:V1")[0]["text"] == "[表情:小黄脸·抱抱]"
         )
     )
     # 最近使用里有它
     page.click("#gc-tools [data-cm='panel']")
     page.click("#gc-tools [data-tab='recent']")
-    page.wait_for_selector("#gc-tools [data-stk='猫猫·蹭蹭']")
+    page.wait_for_selector("#gc-tools [data-stk='小黄脸·抱抱']")
     page.keyboard.press("Escape")
     page.click("#gc-feed")
     # 选两张图 + 文字一起发
@@ -129,24 +129,24 @@ def test_moment_with_photos_and_sticker_comment(serve, page, tmp_path):
     )
     page.wait_for_selector("#mo-new .cm-thumb.done >> nth=3")
     page.click("#mo-new [data-cm='panel']")
-    page.click("#mo-new [data-tab='pack:团子']")
-    page.click("#mo-new [data-stk='团子·开心']")  # 发动态时表情包插进文字里
+    page.click("#mo-new [data-tab='pack:小黄脸']")
+    page.click("#mo-new [data-stk='小黄脸·开心']")  # 发动态时表情包插进文字里
     page.keyboard.type("周末")
     page.click("#mo-new [type=submit]")
     page.wait_for_selector(".mo .cm-grid.moment.four .cm-cell >> nth=3")
-    assert page.locator(".mo .mo-text svg.stk").count() == 1
+    assert page.locator(".mo .mo-text .stk").count() == 1
     row = repo.moments(author="user", limit=5)[0]
-    assert row["text"].startswith("[表情:团子·开心]周末") and len(row["meta"]["media"]) == 4
+    assert row["text"].startswith("[表情:小黄脸·开心]周末") and len(row["meta"]["media"]) == 4
     # 评论：表情包插进评论框
     mid = row["id"]
     page.click(f"[data-menu='{mid}']")
     page.click(f"[data-reply='{mid}:']")
     page.click(f".mo-cf[data-mid='{mid}'] [data-cm='panel']")
     page.click(f".mo-cf[data-mid='{mid}'] [data-tab='pack:文字']")
-    page.click(f".mo-cf[data-mid='{mid}'] [data-stk='文字·好耶']")
-    assert page.input_value(f".mo-cf[data-mid='{mid}'] input[name=text]") == "[表情:文字·好耶]"
+    page.click(f".mo-cf[data-mid='{mid}'] [data-stk='文字·笑死']")
+    assert page.input_value(f".mo-cf[data-mid='{mid}'] input[name=text]") == "[表情:文字·笑死]"
     page.click(f".mo-cf[data-mid='{mid}'] button[type=submit]")
-    page.wait_for_selector(".mo-comments svg.stk")
+    page.wait_for_selector(".mo-comments .stk")
 
 
 def test_seen_mark_and_look_closer(serve, page, tmp_path):

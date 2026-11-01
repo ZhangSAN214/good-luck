@@ -87,6 +87,7 @@ export const memberVoices = () => api('/api/chat/voices');
 // 成员专属表情包：列表、画一张（新画的待审）、审（approved / rejected / pending）
 export const memberStickers = () => api('/api/stickers');
 export const chatStickers = () => api('/api/chat/stickers');
+export const emojiStyle = () => api('/api/emoji');
 // 成员从你那收来的表情包：删一张、清空（member 省略时所有人）
 export const delStash = (id, n) => api(`/api/stickers/stash/${encodeURIComponent(id)}/${n}`, { method: 'DELETE' });
 export const clearStash = (id = null) => api(`/api/stickers/stash${id ? `?member=${encodeURIComponent(id)}` : ''}`, { method: 'DELETE' });
@@ -265,6 +266,11 @@ export const lanSetPassword = (password) => api('/api/lan/password', { method: '
 export const lanPair = (base) => api('/api/lan/pair', { method: 'POST', body: { base } });
 export const lanSignOut = () => api('/api/lan/signout', { method: 'POST' });
 export const lanLogout = () => api('/api/lan/logout', { method: 'POST' });
+
+// 整库备份（docs/BACKUP.md）：只能在电脑本机上调用
+export const backupStatus = () => api('/api/backup');
+export const backupCheckpoint = (label) => api('/api/backup/checkpoint', { method: 'POST', body: { label } });
+export const backupRestore = (name) => api('/api/backup/restore', { method: 'POST', body: { name } });
 
 // 投屏陪伴（docs/WATCH.md）：开始 / 预览只能在电脑本机上；平板上能聊天和停止
 export const watchStatus = (devices = false) => api(`/api/watch${devices ? '?devices=true' : ''}`);
