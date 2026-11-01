@@ -75,7 +75,7 @@ export const getOffice = () => api('/api/office');
 export const resetPerformance = () => api('/api/office/performance/reset', { method: 'POST' });
 export const getChat = (after = 0, q = '', room = 'main') =>
   api(`/api/chat?room=${encodeURIComponent(room)}&after=${after}${q ? `&q=${encodeURIComponent(q)}` : ''}`);
-export const postChat = (text, room = 'main', media = [], quote = null) => api('/api/chat', { method: 'POST', body: { text, room, media, quote } });
+export const postChat = (text, room = 'main', media = [], quote = null, files = []) => api('/api/chat', { method: 'POST', body: { text, room, media, quote, files } });
 export const patChat = (member, room = 'main') => api('/api/chat/pat', { method: 'POST', body: { member, room } });
 export const forwardChat = (id, room = 'main') => api('/api/chat/forward', { method: 'POST', body: { id, room } });
 export const recallChat = (id, room = 'main') => api('/api/chat/recall', { method: 'POST', body: { id, room } });
@@ -84,6 +84,16 @@ export const getChatRooms = () => api('/api/chat/rooms');
 export const chatPersonas = () => api('/api/chat/personas');
 export const setChatPersona = (id, persona) => api(`/api/chat/personas/${encodeURIComponent(id)}`, { method: 'PUT', body: { persona } });
 export const memberVoices = () => api('/api/chat/voices');
+// 成员专属表情包：列表、画一张（新画的待审）、审（approved / rejected / pending）
+export const memberStickers = () => api('/api/stickers');
+export const chatStickers = () => api('/api/chat/stickers');
+export const emojiStyle = () => api('/api/emoji');
+// 成员从你那收来的表情包：删一张、清空（member 省略时所有人）
+export const delStash = (id, n) => api(`/api/stickers/stash/${encodeURIComponent(id)}/${n}`, { method: 'DELETE' });
+export const clearStash = (id = null) => api(`/api/stickers/stash${id ? `?member=${encodeURIComponent(id)}` : ''}`, { method: 'DELETE' });
+export const drawSticker = (id, name) => api(`/api/stickers/${encodeURIComponent(id)}/${encodeURIComponent(name)}/draw`, { method: 'POST' });
+export const reviewSticker = (id, name, status) =>
+  api(`/api/stickers/${encodeURIComponent(id)}/${encodeURIComponent(name)}/review`, { method: 'POST', body: { status } });
 // 用成员的固定音色念一句（text 省略时念试听句）：返回音频 Blob
 export async function memberVoice(id, text = null) {
   const r = await fetch(`/api/chat/voices/${encodeURIComponent(id)}`, {
@@ -103,11 +113,41 @@ export async function memberVoice(id, text = null) {
   }
   return r.blob();
 }
+// 关于你（成员系统 P8）：8 位共用的用户画像
+export const aboutYou = () => api('/api/chat/about');
+export const aboutAdd = (text, domain) => api('/api/chat/about/facts', { method: 'POST', body: { text, domain } });
+export const aboutEdit = (id, text) => api(`/api/chat/about/facts/${id}`, { method: 'PATCH', body: { text } });
+export const aboutDel = (id) => api(`/api/chat/about/facts/${id}`, { method: 'DELETE' });
+export const aboutReject = (id) => api(`/api/chat/about/facts/${id}/reject`, { method: 'POST' });
+export const aboutLock = (id, locked) => api(`/api/chat/about/facts/${id}/lock`, { method: 'POST', body: { locked } });
+export const aboutDomain = (domain, on) => api('/api/chat/about/domains', { method: 'POST', body: { domain, on } });
+export const aboutForget = (i) => api(`/api/chat/about/rejected/${i}`, { method: 'DELETE' });
+export const aboutClear = (rejected = false) => api(`/api/chat/about${rejected ? '?rejected=true' : ''}`, { method: 'DELETE' });
+export const aboutStatus = () => api('/api/chat/about/status');
+export const aboutSetStatus = (kind, on) => api('/api/chat/about/status', { method: 'POST', body: { kind, on } });
+export const aboutPlayer = (player) => api('/api/chat/about/status/player', { method: 'POST', body: { player } });
+export const aboutAddGame = (exe, name) => api('/api/chat/about/games', { method: 'POST', body: { exe, name } });
+export const aboutDelGame = (exe) => api(`/api/chat/about/games?exe=${encodeURIComponent(exe)}`, { method: 'DELETE' });
+export const aboutAddClass = (weekday, start, end, name) => api('/api/chat/about/schedule/classes', { method: 'POST', body: { weekday, start, end, name } });
+export const aboutAddDdl = (name, due) => api('/api/chat/about/schedule/ddls', { method: 'POST', body: { name, due } });
+export const aboutDelSchedule = (kind, id) => api(`/api/chat/about/schedule/${kind}/${id}`, { method: 'DELETE' });
+export const aboutClearSchedule = () => api('/api/chat/about/schedule', { method: 'DELETE' });
+export const aboutExportUrl = (fmt) => `/api/chat/about/export?fmt=${encodeURIComponent(fmt)}`;
 export const memberProfiles = () => api('/api/chat/profiles');
 export const memberProfile = (id) => api(`/api/chat/profiles/${encodeURIComponent(id)}`);
 export const changeMemberProfile = (id, patch, reason = '') => api(`/api/chat/profiles/${encodeURIComponent(id)}`, { method: 'PATCH', body: { patch, reason } });
 export const lockMemberProfile = (id, path, locked = true) => api(`/api/chat/profiles/${encodeURIComponent(id)}/lock`, { method: 'POST', body: { path, locked } });
 export const revertMemberProfile = (id, version) => api(`/api/chat/profiles/${encodeURIComponent(id)}/revert`, { method: 'POST', body: { version } });
+export const memberGrowth = (id) => api(`/api/chat/growth/${encodeURIComponent(id)}`);
+export const runMemberGrowth = (id) => api(`/api/chat/growth/${encodeURIComponent(id)}/run`, { method: 'POST' });
+export const revertMemberGrowth = (id, entry) => api(`/api/chat/growth/${encodeURIComponent(id)}/revert`, { method: 'POST', body: { id: entry } });
+export const undoMemberGrowth = (id, token) => api(`/api/chat/growth/${encodeURIComponent(id)}/undo`, { method: 'POST', body: { token } });
+export const clearMemberGrowth = (id) => api(`/api/chat/growth/${encodeURIComponent(id)}`, { method: 'DELETE' });
+export const memberRelation = (id) => api(`/api/chat/relation/${encodeURIComponent(id)}`);
+export const thinkMemberRelation = (id) => api(`/api/chat/relation/${encodeURIComponent(id)}/insight`, { method: 'POST' });
+export const replyMemberView = (id, index, text) => api(`/api/chat/relation/${encodeURIComponent(id)}/views/${index}/reply`, { method: 'PUT', body: { text } });
+export const dropMemberView = (id, index) => api(`/api/chat/relation/${encodeURIComponent(id)}/views/${index}`, { method: 'DELETE' });
+export const clearMemberRelation = (id) => api(`/api/chat/relation?member=${encodeURIComponent(id)}`, { method: 'DELETE' });
 export const clearMemberProfile = (id) => api(`/api/chat/profiles/${encodeURIComponent(id)}`, { method: 'DELETE' });
 export const importMemberCards = (text, mapping = null, dry_run = false) => api('/api/chat/profiles/import', { method: 'POST', body: { text, mapping, dry_run } });
 export const chatMemories = (id) => api(`/api/chat/memories${id ? `?member=${encodeURIComponent(id)}` : ''}`);
@@ -137,6 +177,10 @@ export const lifeReports = () => api('/api/life/reports');
 export const chatFeeds = () => api('/api/chat/feeds');
 export const setChatFeeds = (feeds) => api('/api/chat/feeds', { method: 'PUT', body: { feeds } });
 export const refreshChatFeeds = () => api('/api/chat/feeds/refresh', { method: 'POST' });
+export const chatMemes = () => api('/api/chat/memes');
+export const addChatMeme = (meme) => api('/api/chat/memes', { method: 'POST', body: meme });
+export const removeChatMeme = (phrase) => api(`/api/chat/memes?phrase=${encodeURIComponent(phrase)}`, { method: 'DELETE' });
+export const refreshChatMemes = () => api('/api/chat/memes/refresh', { method: 'POST' });
 export const getEvolution = () => api('/api/evolution');
 export const evolutionMeet = (kind = null, theme = null) =>
   api('/api/evolution/meetings', { method: 'POST', body: { kind, theme } });
@@ -150,6 +194,9 @@ export const evolutionDecide = (sid, idea, decision) =>
   api(`/api/evolution/meetings/${encodeURIComponent(sid)}/ideas/${encodeURIComponent(idea)}`, { method: 'POST', body: { decision } });
 export const chatHandoff = (text) => api('/api/chat/handoff', { method: 'POST', body: { text } });
 // 「细看」：按精细模式重新看这条消息里的图片 / 视频 / 语音，再请一位成员回应
+// 成员挂的「交给办公室」卡片：开工（会花钱）/ 先不用
+export const chatHandoffStart = (id, room = 'main') => api(`/api/chat/handoff/${id}/start?room=${encodeURIComponent(room)}`, { method: 'POST' });
+export const chatHandoffDismiss = (id, room = 'main') => api(`/api/chat/handoff/${id}/dismiss?room=${encodeURIComponent(room)}`, { method: 'POST' });
 export const chatLook = (id, room = 'main') => api(`/api/chat/messages/${id}/look?room=${encodeURIComponent(room)}`, { method: 'POST' });
 export const getApartment = (hour, weekday) => api(`/api/apartment?hour=${hour}&weekday=${weekday}`);
 export const getCandidates = () => api('/api/models/candidates');
@@ -213,6 +260,8 @@ export async function streamEvents(id, onEvent, signal) {
 }
 // 余额与用量：本机账本汇总（range = day / week / month / all）与渠道账户余额（只读）
 export const getUsage = (range = 'month') => api(`/api/usage?range=${encodeURIComponent(range)}`);
+export const getChannelPriority = () => api('/api/channels/priority');
+export const setChannelPriority = (body) => api('/api/channels/priority', { method: 'PUT', body });
 export const getUsageBalance = (refresh = false) => api(`/api/usage/balance${refresh ? '?refresh=1' : ''}`);
 
 // 局域网访问（平板）：只能在电脑本机上调用
@@ -221,6 +270,11 @@ export const lanSetPassword = (password) => api('/api/lan/password', { method: '
 export const lanPair = (base) => api('/api/lan/pair', { method: 'POST', body: { base } });
 export const lanSignOut = () => api('/api/lan/signout', { method: 'POST' });
 export const lanLogout = () => api('/api/lan/logout', { method: 'POST' });
+
+// 整库备份（docs/BACKUP.md）：只能在电脑本机上调用
+export const backupStatus = () => api('/api/backup');
+export const backupCheckpoint = (label) => api('/api/backup/checkpoint', { method: 'POST', body: { label } });
+export const backupRestore = (name) => api('/api/backup/restore', { method: 'POST', body: { name } });
 
 // 投屏陪伴（docs/WATCH.md）：开始 / 预览只能在电脑本机上；平板上能聊天和停止
 export const watchStatus = (devices = false) => api(`/api/watch${devices ? '?devices=true' : ''}`);
@@ -231,10 +285,68 @@ export const watchQuiet = (quiet) => api('/api/watch/quiet', { method: 'POST', b
 export const watchMessages = (after = 0) => api(`/api/watch/messages?after=${after}`);
 export const watchSay = (text) => api('/api/watch/say', { method: 'POST', body: { text } });
 export const watchScrcpy = (source) => api('/api/watch/scrcpy', { method: 'POST', body: { source } });
+export const watchOverlay = () => api('/api/watch/overlay', { method: 'POST' });
 export const watchFrameUrl = () => `/api/watch/frame?t=${Date.now()}`;
+export const watchAdbPair = (host, port, code) =>
+  api('/api/watch/adb/pair', { method: 'POST', body: { host, port, code } });
+export const watchAdbConnect = (host, port) =>
+  api('/api/watch/adb/connect', { method: 'POST', body: { host, port } });
+export const watchAdbQr = () => api('/api/watch/adb/qr', { method: 'POST' });
+export const watchAdbQrPoll = () => api('/api/watch/adb/qr');
 export const wanderStatus = () => api('/api/wander');
 export const wanderStart = (member, site) => api('/api/wander/start', { method: 'POST', body: { member, site } });
 export const wanderStop = () => api('/api/wander/stop', { method: 'POST' });
 export const wanderLog = (member, after = 0) =>
   api(`/api/wander/log?member=${encodeURIComponent(member)}&after=${after}`);
 export const wanderFrameUrl = () => `/api/wander/frame?t=${Date.now()}`;
+// 工作台（dsh 边车，docs/DSH.md）
+export const dshStatus = () => api('/api/dsh');
+export const dshStart = () => api('/api/dsh/start', { method: 'POST' });
+export const dshStop = () => api('/api/dsh/stop', { method: 'POST' });
+export const dshCheck = () => api('/api/dsh/check', { method: 'POST' });
+
+// 超级电脑：几位编程助手平级、按分数派活（docs/SUPERCOMPUTER.md）
+export const benchStatus = () => api('/api/bench');
+export const benchSubmit = (request, materials = [], fromProduct = false) => api('/api/bench', { method: 'POST', body: { request, materials, from_product: fromProduct } });
+// 甲方档案：长期偏好（只存本机），每个新项目都带上
+export const benchProfileAdd = (text, src = '') => api('/api/bench/profile', { method: 'POST', body: { text, src } });
+export const benchProfileRemove = (pid) => api(`/api/bench/profile/${encodeURIComponent(pid)}`, { method: 'DELETE' });
+/** 拖进来的一份素材（图片、视频或视频截帧，of 是视频编号）：原始字节上传。 */
+export async function benchMaterial(file, of = '') {
+  const q = `name=${encodeURIComponent(file.name)}${of ? `&of=${encodeURIComponent(of)}` : ''}`;
+  const r = await fetch(`/api/bench/materials?${q}`, { method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: file });
+  let data = null;
+  try {
+    data = await r.json();
+  } catch {
+    data = null;
+  }
+  if (!r.ok) throw new ApiError(errorText(data, r.status), r.status);
+  return data;
+}
+export const benchCancel = () => api('/api/bench/cancel', { method: 'POST' });
+export const benchGet = (id) => api(`/api/bench/${encodeURIComponent(id)}`);
+export const benchAsk = (id, question, json = false) =>
+  api(`/api/bench/${encodeURIComponent(id)}/ask`, { method: 'POST', body: { question, as_json: json } });
+export const benchNetCheck = () => api('/api/bench/net-check');
+// 资料台（工作台抽屉「资料」）：GitHub 榜单、论文动态、能力地图、建议卡
+export const benchDesk = (refresh = false) => (refresh ? api('/api/bench/desk/refresh', { method: 'POST' }) : api('/api/bench/desk'));
+export const benchDeskSuggest = (sid, accept) => api(`/api/bench/desk/suggest/${encodeURIComponent(sid)}?accept=${accept ? 'true' : 'false'}`, { method: 'POST' });
+// 项目室的关口：回答访谈、签字开工、里程碑 / 交付通过或提变更单、出下一版提案
+const benchPost = (id, what, body) => api(`/api/bench/${encodeURIComponent(id)}/${what}`, { method: 'POST', body });
+export const benchAnswer = (id, answers) => benchPost(id, 'answer', { answers });
+export const benchSign = (id, requirements, note, design) => benchPost(id, 'sign', { requirements, note, design });
+export const benchReview = (id, decision, comments = []) => benchPost(id, 'review', { decision, comments });
+export const benchEvolve = (id) => benchPost(id, 'evolve', {});
+export const benchDecide = (id, action, requirements) => benchPost(id, 'decide', { action, requirements });
+export const benchPlugin = (id, name) => benchPost(id, 'plugin', { name });
+export const benchAttach = (id, ids) => benchPost(id, 'materials', { ids });
+export const benchLook = (id) => benchPost(id, 'look', {});
+export const superStatus = () => api('/api/super');
+export const superSubmit = (text) => api('/api/super/tasks', { method: 'POST', body: { text } });
+export const superCancel = () => api('/api/super/cancel', { method: 'POST' });
+export const superTask = (id) => api(`/api/super/tasks/${encodeURIComponent(id)}`);
+export const superLimit = (worker, limit) =>
+  api(`/api/super/workers/${encodeURIComponent(worker)}/limit`, { method: 'PUT', body: { limit } });
+export const superWake = (worker) =>
+  api(`/api/super/workers/${encodeURIComponent(worker)}/wake`, { method: 'POST' });

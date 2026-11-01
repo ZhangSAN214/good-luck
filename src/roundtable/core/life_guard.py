@@ -22,9 +22,11 @@ from typing import Any
 
 from roundtable.core.budget.guard import day_window as utc_day_window
 from roundtable.core.budget.guard import month_window
+from roundtable.core.member.slop import Slop
 from roundtable.core.moments import similarity
 from roundtable.core.storage.repository import iso
 
+ERRORS = "连续 "  # 因为连续出错停掉的原因以它开头（记忆整理这时也不跑）
 HALT_KEY = "life.halt"  # {"day": "2026-10-29", "reason": "…"}：当天停掉
 STALE, CAP, HALT = "stale", "cap", "halt"
 
@@ -125,7 +127,7 @@ class LifeGuard:
         start, end = self._day()
         recent = self.rt.repo.recent_call_errors("chat", self.steps, start, end, rules.max_failures)
         if len(recent) >= rules.max_failures and all(recent):
-            return f"连续 {rules.max_failures} 次调用出错"
+            return f"{ERRORS}{rules.max_failures} 次调用出错"
         if life.daily_usd > 0 and spent_today >= life.daily_usd * rules.budget_alarm:
             return f"生活今天已花 ${spent_today:.3f}，接近每日上限 ${life.daily_usd:.2f}"
         limit = self.rt.config.roundtable.chat.budget.monthly_usd
@@ -238,5 +240,10 @@ class LifeGuard:
         if any(r["week"] == week for r in self.rt.repo.life_reports(limit=1)):
             return None
         report = self.report(start, this_week, names)
+        slop = Slop(self.rt).weekly(start, this_week)
+        if slop:
+            report["slop"] = slop
+            note = f"大家一起说多了：{'、'.join(f['phrase'] for f in slop[:6])}（之后少说）"
+            report["notes"] = [n for n in report["notes"] if n != "一切正常"] + [note]
         self.rt.repo.save_life_report(week, report)
         return {"week": week, **report}

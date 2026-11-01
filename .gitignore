@@ -26,3 +26,7 @@ htmlcov/
 check_result.txt
 # 首页默认背景是用户本机提供的图片，版权未确认，不进仓库（缺了自动落到夜景）
 web/img/ark/default_bg.jpg
+# 本机设置覆盖（docs/ARCHITECTURE.md §2.1），更新代码时不冲突
+config/*.local.yaml
+config/comfyui/*.local.json
+sim_runs/

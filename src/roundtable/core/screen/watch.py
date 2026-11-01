@@ -6,9 +6,14 @@
   ``describes_per_hour`` 次，才交给最便宜的识图模型写成一段文字（提示词 describe_screen）。
   成员读的是这段文字；所有陪看的成员拿到同一段文字、同一套提示词和参数（中立）。
 - 前台是敏感窗口 / 应用（``sensitive`` 关键字：支付、银行、密码管理器……）时暂停：不截、不看。
+- 看画面不思考（``describe_reasoning``，默认关）：思考会把字数花光、交回空白；看失败了隔
+  ``fail_gap_seconds`` 再试，不每次截图都重试。每次带上当前窗口标题和上一段描述，写出变化。
 - 成员说话（提示词 watch）：用户说话时被 @ 的或随机一位回应（@全员 / 大家 时全体依次回应）；
   没人说话、画面变了时，离上次大家说话至少 ``room_gap_seconds``、离自己上次至少
-  ``react_gap_seconds`` 的成员随机一位「想说才说」（模型回「…」就不说）。「安静看」时不主动说。
+  ``react_gap_seconds`` 的成员随机一位「想说才说」（模型回「…」就不说），这次往哪个方向说从
+  ``angles`` 随机抽。一位说完后，别的陪看成员按 ``followup_chance``（每多接一句减半）接她的话，
+  最多 ``max_followups`` 句，也可以选择不接。都带各自的说话习惯（成员系统 P5）。
+  「安静看」时不主动说，也不互相接话。
 - 每次投屏一个 ``watch:<开始时间>`` 会话（成员 = 这次陪看的人，不出现在群聊列表），之后照常进
   陪看成员的记忆整理。每段画面描述作为感知事件
   ``perceive.screen`` 发到成员引擎的总线（每位陪看的成员一条），截图本身不存。
@@ -42,7 +47,9 @@ from roundtable.core.chat import (
     member_memory,
     mentioned,
 )
+from roundtable.core.member.voice import voice_for
 from roundtable.core.persona import chat_persona
+from roundtable.core.plain_talk import before_speaking, plain_prompt
 from roundtable.core.providers import (
     AllChannelsFailed,
     Media,
@@ -60,6 +67,8 @@ WORKFLOW = "watch"
 DESCRIBE_STEP = "watch_describe"
 SPEAK_STEP = "watch"
 SILENT = ("…", "...", "……", "。。。")
+# 提示词 watch v2 的 <turn>：这次为什么轮到她
+TURN_USER, TURN_FRIEND, TURN_SCREEN = "用户", "朋友", "画面"
 MAX_SAY_CHARS = 1000
 
 
@@ -99,6 +108,7 @@ class ScreenWatch:
         self.running = False
         self.source_id = ""
         self.source_title = ""
+        self.title = ""  # 当前窗口标题（每次截图时更新；拿不到时用开始时的名字）
         self.watchers: list[str] = []
         self.quiet = False
         self.started = 0.0
@@ -152,7 +162,11 @@ class ScreenWatch:
         return {
             "enabled": self.rules.enabled,
             "running": self.running,
-            "source": {"id": self.source_id, "title": self.source_title} if self.running else None,
+            "source": (
+                {"id": self.source_id, "title": self.title or self.source_title}
+                if self.running
+                else None
+            ),
             "watchers": [{"id": w, "name": names.get(w, w)} for w in self.watchers],
             "quiet": self.quiet,
             "paused": self.paused,
@@ -267,6 +281,8 @@ class ScreenWatch:
         assert src is not None
         fg = await asyncio.to_thread(src.foreground, self.source_id)
         hit = is_sensitive(fg, rules.sensitive)
+        if not hit:
+            self.title = await asyncio.to_thread(self._current_title, src, fg)
         if hit:
             if not self.paused:
                 self.paused = "前台是支付、银行或密码之类的窗口，先暂停，切走后自动继续"
@@ -304,7 +320,8 @@ class ScreenWatch:
             self.stop(f"本月一起看的额度（${rules.monthly_usd:.2f}）用完了，先停在这里")
             return "stopped"
         text = await self.describe(frame)
-        if text is None:
+        if text is None:  # 看失败了：隔一会儿再看，不每次截图都重试
+            self.last_look = now - rules.describe_gap_seconds + rules.fail_gap_seconds
             return "failed"
         self.seen_sig, self.last_look = frame.signature, now
         self.looks.append(now)
@@ -325,14 +342,19 @@ class ScreenWatch:
         model = cheapest(pool, self.rng, input_tokens=1200, output_tokens=rules.describe_max_tokens)
         role = "describe_screen"
         prompt = self.rt.prompts.render(
-            role, self.rt.config.roundtable.prompts[role], source=self.source_title
+            role,
+            self.rt.config.roundtable.prompts[role],
+            source=self.title or self.source_title,
+            previous=self.screens[-1].text if self.screens else "（这是第一张）",
         )
         media = Media("image", "image/jpeg", frame.jpeg, "screen.jpg")
         messages = tuple(
             Message(m.role, m.content, (media,)) if m.role == "user" else m for m in prompt.messages
         )
         session = self.rt.repo.watch_session()
-        params = {"max_tokens": rules.describe_max_tokens, "reasoning": {"effort": "low"}}
+        params: dict[str, Any] = {"max_tokens": rules.describe_max_tokens}
+        if rules.describe_reasoning:
+            params["reasoning"] = dict(rules.describe_reasoning)
         try:
             completion = await self.rt.router.complete(model.id, messages, params)
         except (AllChannelsFailed, NoChannelAvailable, ProviderError) as exc:
@@ -357,7 +379,24 @@ class ScreenWatch:
             completion=completion,
         )
         text = completion.text.strip()
-        return text[:600] if text else None
+        if not text:
+            self.error = "看画面的模型交回了空白，过一会儿再看"
+            return None
+        self.error = ""
+        return text[:600]
+
+    def _current_title(self, src: ScreenSource, fg: str) -> str:
+        """当前窗口标题：窗口来源读那个窗口，整屏读前台窗口；安卓（包名）不用。"""
+        if self.source_id.startswith("android:"):
+            return ""
+        title = ""
+        reader = getattr(src, "title", None)
+        if reader is not None:
+            with contextlib.suppress(Exception):
+                title = reader(self.source_id) or ""
+        if not title and self.source_id == "pc":
+            title = fg.split(" | ")[0]
+        return title.strip()[:120]
 
     def _perceive(self, text: str) -> None:
         if self.publish is None:
@@ -388,8 +427,31 @@ class ScreenWatch:
         if not ready:
             return False
         member = self.rng.choice(ready)
-        said = await self._speak(member, reply_to=None)
+        angle = self.rng.choice(rules.angles)
+        said = await self._speak(member, reply_to=None, turn=TURN_SCREEN, angle=angle)
+        if said:
+            await self._follow(said, member)
         return bool(said)
+
+    async def _follow(self, said: dict[str, Any], speaker: ChatMember) -> list[dict[str, Any]]:
+        """一位刚说完：别的陪看成员按几率接她的话（每多接一句几率减半），最多 max_followups 句。
+        每次接的是上一句；被接的人也可能再接回来。「安静看」时不接。"""
+        rules, out = self.rules, []
+        chance, last, last_by = rules.followup_chance, said, speaker.id
+        for _ in range(rules.max_followups):
+            if self.quiet or not self.running:
+                break
+            others = [m for m in self._watchers() if m.id != last_by]
+            if not others or self.rng.random() >= chance:
+                break
+            member = self.rng.choice(others)
+            reply = await self._speak(member, reply_to=last["id"], turn=TURN_FRIEND)
+            if not reply:
+                break
+            out.append(reply)
+            last, last_by = reply, member.id
+            chance /= 2
+        return out
 
     def pick(self, text: str) -> list[ChatMember]:
         watching = self._watchers()
@@ -419,11 +481,13 @@ class ScreenWatch:
     async def replies(self, reply_to: int, speakers: list[ChatMember]) -> list[dict[str, Any]]:
         out = []
         for m in speakers:
-            said = await self._speak(m, reply_to=reply_to)
+            said = await self._speak(m, reply_to=reply_to, turn=TURN_USER)
             if said is None:
                 break
             if said:
                 out.append(said)
+        if len(speakers) == 1 and out:  # 只有一位回了你：别人可能接一句（全员回过就不再接）
+            out += await self._follow(out[-1], speakers[0])
         return out
 
     def _screen_text(self) -> str:
@@ -450,7 +514,9 @@ class ScreenWatch:
         params.setdefault("max_tokens", self.rules.max_tokens)
         return params
 
-    async def _speak(self, member: ChatMember, reply_to: int | None) -> dict[str, Any] | None:
+    async def _speak(
+        self, member: ChatMember, reply_to: int | None, *, turn: str, angle: str = ""
+    ) -> dict[str, Any] | None:
         """一位成员说一句。返回消息；选择不说或调用失败返回 {}；额度用完返回 None。"""
         rules, rt = self.rules, self.rt
         async with self._speaking:
@@ -463,6 +529,7 @@ class ScreenWatch:
                 return None
             everyone = self.members()
             names = {m.id: m.name for m in everyone}
+            now = self.clock()
             screen = self._screen_text()
             history = self._history(names)
             others = "、".join(names.get(w, w) for w in self.watchers if w != member.id) or "用户"
@@ -471,11 +538,16 @@ class ScreenWatch:
                 rt.config.roundtable.prompts["watch"],
                 name=member.name,
                 persona=chat_persona(rt, member.id),
+                voice=voice_for(rt, member.id, "watch", seed=len(self.spoke) + int(now)),
                 memory=member_memory(rt, member.id, f"{screen}\n{history}"),
+                title=self.title or self.source_title or "（不知道）",
                 screen=screen,
                 history=history,
                 others=others,
+                turn=turn,
+                angle=angle or "（不限）",
             )
+            prompt = plain_prompt(rt.prompts, rt.config, prompt)
             session = rt.repo.watch_session()
             self.typing.append(member.name)
             self.on_change()
@@ -511,6 +583,9 @@ class ScreenWatch:
             text = clean_reply(completion.text, member.name, rules.max_chars)
             if not text or text.strip() in SILENT:
                 return {}
+            text = await before_speaking(
+                rt, text, room=self.room, name=member.name, model_id=member.model_id
+            )
             self.room_spoke = now
             if not self.running:
                 return None

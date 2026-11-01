@@ -122,6 +122,8 @@ def _group_line(mode: str, group: dict[str, Any]) -> str:
     return f"{MODE_LABELS[mode]}（{people} 人）约 {span}"
 
 
+IMAGE_EXTS = ("png", "jpg", "jpeg", "webp", "gif")
+STICKER_LABELS = {"missing": "还没画", "pending": "待审", "approved": "可以用", "rejected": "不要"}
 MEDIA_NAMES = {"image": "图片", "speech": "语音", "video": "视频", "music": "音乐"}
 JOB_STATE = {
     "submitted": "已提交",
@@ -1417,7 +1419,8 @@ class CLI:
             self.p(str(exc))
             return 2
         info = svc.evolution()
-        state = "开启" if info["enabled"] else "关闭（config/roundtable.yaml 的 evolution.enabled）"
+        off = "关闭（evolution.enabled，本机设置写在 config/roundtable.local.yaml）"
+        state = "开启" if info["enabled"] else off
         self.p(f"革新例会：{state}")
         if info["enabled"] and info["auto"]:
             sch = info["schedule"]
@@ -1477,6 +1480,190 @@ class CLI:
                     f"平均 ${d['avg_cost_usd']:.4f} / {d['avg_seconds']:.0f} 秒"
                 )
         return 0
+
+    def cmd_sticker_packs(
+        self,
+        action: str,
+        target: str | None,
+        owner: str | None,
+        label: str | None,
+        file: str | None,
+    ) -> int:
+        """外部表情包（dsh-meme 格式）：list 已装 / catalog 目录 / install / assign / remove。"""
+        from roundtable.core.chat_actions import sticker_packs
+        from roundtable.core.sticker_packs import PackError
+
+        packs = sticker_packs(self.rt)
+
+        def who(owner: str) -> str:
+            return owner or "通用"
+
+        try:
+            if action == "catalog":
+                for p in packs.catalog():
+                    size = f"{p['bytes'] / 1048576:.1f} MB" if p["bytes"] else "?"
+                    flag = "已装" if p["installed"] else ("" if p["installable"] else "不能直接装")
+                    self.p(
+                        f"{p['id']:24} {p['name']}（{p['count']} 张，{size}，{p['license']}）{flag}"
+                    )
+                return 0
+            if action == "list":
+                rows = packs.installed()
+                if not rows:
+                    self.p("还没装外部表情包：roundtable sticker-packs catalog 看在线目录")
+                for p in rows:
+                    s = packs.summary(p)
+                    self.p(
+                        f"{s['id']:24} 「{s['label']}」{s['count']} 张，给 {who(s['owner'])} 用"
+                        f"（{s['license']}）例：{'、'.join(s['sample'][:5])}"
+                    )
+                return 0
+            if not target:
+                self.p("要给出包 id（install 也可以用 --file 给压缩包）")
+                return 1
+            if action == "install":
+                data = Path(file).read_bytes() if file else None
+                s = packs.install(target, owner, label or "", data)
+                self.p(f"装好了「{s['label']}」{s['count']} 张，给 {who(s['owner'])} 用")
+                return 0
+            if action == "assign":
+                s = packs.assign(target, owner, label)
+                self.p(f"「{s['label']}」现在给 {who(s['owner'])} 用")
+                return 0
+            if action == "remove":
+                packs.remove(target)
+                self.p(f"删掉了 {target}")
+                return 0
+        except (PackError, OSError) as exc:
+            self.p(str(exc))
+            return 1
+        self.p(f"不认识的操作 {action}")
+        return 1
+
+    async def cmd_stickers(
+        self,
+        member: str | None,
+        draw: list[str],
+        draw_all: bool,
+        output: str | None,
+        whiten: bool = False,
+        prompts: str | None = None,
+        import_dir: str | None = None,
+    ) -> int:
+        """成员专属表情包：列出状态；--draw / --all 画（新画的待审，到网页成员设定里审）；
+        --prompts 导出提示词和参考图拿去别处画，--import 把画好的收进来（待审）。"""
+        from roundtable.core.member_stickers import (
+            MemberStickers,
+            StickerBudgetExceeded,
+            StickerError,
+            StickerUnavailable,
+        )
+
+        stickers = MemberStickers(self.rt, self.rt.sticker_dir)
+        cards = self.rt.config.personas.sticker_cards
+        members = [member] if member else list(cards)
+        if member and member not in cards:
+            self.p(f"{member} 还没有形象卡和表情清单（personas.yaml 的 sticker_cards）")
+            return 1
+        names = (
+            {
+                m: draw or [r["name"] for r in stickers.listing(m) if r["status"] == "missing"]
+                for m in members
+            }
+            if (draw or draw_all) and not prompts  # 导出提示词时 --draw 只用来挑哪几张
+            else {}
+        )
+        if whiten:
+            self.p(f"底色刷白了 {stickers.whiten(member)} 张（没重画，审核状态不变）")
+        failed = 0
+        if prompts:
+            self._sticker_prompts(stickers, members, draw, Path(prompts))
+        if import_dir:
+            failed += self._sticker_import(stickers, members, Path(import_dir))
+        for m, todo in names.items():
+            for name in todo:
+                try:
+                    row = await stickers.draw(m, name)
+                except StickerBudgetExceeded as exc:
+                    self.p(str(exc))
+                    return 1
+                except (StickerError, StickerUnavailable) as exc:
+                    self.p(f"  {m}·{name}：{exc}")
+                    failed += 1
+                    continue
+                note = f"（{row['problems']}）" if row.get("problems") else ""
+                self.p(f"  {m}·{name} 画好了，{STICKER_LABELS[row['status']]}{note}")
+        for m in members:
+            self.p(f"{m}")
+            for row in stickers.listing(m):
+                stale = "，形象卡改过，建议重画" if row.get("stale") else ""
+                self.p(
+                    f"  {row['name']}「{row['caption']}」 {STICKER_LABELS[row['status']]}{stale}"
+                )
+        self.p(f"本月表情包花费 ${stickers.month_spent():.4f}")
+        if output:
+            folder = Path(output)
+            folder.mkdir(parents=True, exist_ok=True)
+            saved = 0
+            for m in members:
+                for row in stickers.listing(m):
+                    data = stickers.file(m, row["name"])
+                    if data:
+                        ext = "gif" if data[:3] == b"GIF" else "png"
+                        (folder / f"{m}_{row['name']}.{ext}").write_bytes(data)
+                        saved += 1
+            self.p(f"已保存 {saved} 张到 {folder}")
+        return 1 if failed else 0
+
+    def _sticker_prompts(
+        self, stickers: Any, members: list[str], names: list[str], folder: Path
+    ) -> None:
+        """每位成员一个子目录：参考图 + 每张一个「名字.txt」提示词（只导出还没画的或指定的）。"""
+        count = 0
+        for m in members:
+            todo = names or [r["name"] for r in stickers.listing(m) if r["status"] == "missing"]
+            if not todo:
+                continue
+            sub = folder / m
+            sub.mkdir(parents=True, exist_ok=True)
+            for i, ref in enumerate(stickers.references(m, stickers.card(m)), 1):
+                (sub / f"参考图{i}_{ref.name}").write_bytes(ref.data)
+            for name in todo:
+                (sub / f"{name}.txt").write_text(stickers.prompt_text(m, name), encoding="utf-8")
+                count += 1
+        self.p(
+            f"导出了 {count} 张的提示词到 {folder}：把参考图和提示词一起发给画图工具，"
+            f"画好的图存成「表情名.png」放回同一个成员目录，再运行 --import {folder}"
+        )
+
+    def _sticker_import(self, stickers: Any, members: list[str], folder: Path) -> int:
+        """收图：成员目录里（或直接在 folder 里，只有一位成员时）与表情同名的图片。"""
+        from roundtable.core.member_stickers import StickerError
+
+        failed = 0
+        for m in members:
+            sub = folder / m if (folder / m).is_dir() else folder if len(members) == 1 else None
+            if sub is None:
+                continue
+            for row in stickers.listing(m):
+                path = next(
+                    (
+                        sub / f"{row['name']}.{ext}"
+                        for ext in IMAGE_EXTS
+                        if (sub / f"{row['name']}.{ext}").is_file()
+                    ),
+                    None,
+                )
+                if path is None:
+                    continue
+                try:
+                    stickers.import_image(m, row["name"], path.read_bytes())
+                except StickerError as exc:
+                    self.p(f"  {m}·{row['name']}：{exc}")
+                    failed += 1
+                    continue
+                self.p(f"  {m}·{row['name']} 导入了，待审")
+        return failed
 
     def cmd_note(self, session_id: str, text: str) -> int:
         """讨论进行中补充意见（可在另一个终端运行）：下一个步骤开始时被带上。"""
@@ -1593,6 +1780,37 @@ def build_parser() -> argparse.ArgumentParser:
     bench.add_argument("--report", metavar="BATCH", help="只查看某次实验的汇总")
     bench.add_argument("-o", "--output", help="导出 CSV 或 JSON（按后缀）")
     sub.add_parser("stats", help="各模型的历史贡献（被采纳、有效问题、敷衍次数等）")
+    stickers = sub.add_parser("stickers", help="成员专属表情包：查看状态、画（新画的待审）")
+    stickers.add_argument("member", nargs="?", help="成员（personas.yaml 里的键，如 OpenAI）")
+    stickers.add_argument(
+        "--draw", action="append", default=[], metavar="表情名", help="画这一张（可重复）"
+    )
+    stickers.add_argument("--all", action="store_true", help="画所有还没画的")
+    stickers.add_argument("-o", "--output", help="把画好的图保存到这个目录")
+    stickers.add_argument(
+        "--whiten", action="store_true", help="把已画好的表情浅灰底色统一刷成纯白（不重画）"
+    )
+    stickers.add_argument(
+        "--prompts", metavar="目录", help="导出提示词和参考图，拿去别处画（不花钱）"
+    )
+    stickers.add_argument(
+        "--import",
+        dest="import_dir",
+        metavar="目录",
+        help="把别处画好的图收进来（文件名=表情名，动图给四格图），待审",
+    )
+    spacks = sub.add_parser(
+        "sticker-packs",
+        help="外部表情包（dsh-meme 格式）：在线目录、装到本机、给某位成员专用或通用",
+    )
+    spacks.add_argument(
+        "action", choices=["list", "catalog", "install", "assign", "remove"], help="操作"
+    )
+    spacks.add_argument("pack", nargs="?", help="包 id（如 whale-girl-emoji）")
+    spacks.add_argument("--for", dest="owner", metavar="成员", help="给这位成员专用（如 DeepSeek）")
+    spacks.add_argument("--common", action="store_true", help="改成大家通用")
+    spacks.add_argument("--as", dest="label", metavar="名字", help="聊天里的套装名（1～6 字）")
+    spacks.add_argument("--file", metavar="压缩包", help="装本地的 zip（不用下载）")
     perf = sub.add_parser("performance", help="办公室模式的员工绩效（件数、退回、通过率等）")
     perf.add_argument("--reset", action="store_true", help="清零：之后只统计从现在起的会话")
     evolve = sub.add_parser("evolve", help="革新例会：成员读资料卡提建议、投票，导出采纳单")
@@ -1627,6 +1845,57 @@ def build_parser() -> argparse.ArgumentParser:
             cmd.add_argument("--details", action="store_true")
             cmd.add_argument("--raw", action="store_true")
             cmd.add_argument("--costs", action="store_true", help="显示每步与每次调用的花费")
+    sim = sub.add_parser(
+        "sim",
+        help="成员系统加速时间模拟：临时数据库里快进几天到几个月，出报告（默认假模型，不花钱）",
+    )
+    sim.add_argument("--days", type=int, default=30, help="模拟多少天（默认 30）")
+    sim.add_argument("--out", help="输出目录（默认 sim_runs/<时间>；不能在 data/ 下）")
+    sim.add_argument("--seed", type=int, default=0)
+    sim.add_argument("--start", help="从哪天开始（YYYY-MM-DD，默认 2026-11-02 星期一）")
+    sim.add_argument("--tz", default="Asia/Shanghai", help="模拟用的主时区")
+    sim.add_argument("--user-per-day", type=float, default=6.0, help="模拟用户每天大约发几条")
+    sim.add_argument("--cards", help="人物卡 Markdown（导入成员自我档案；不给就没有档案）")
+    sim.add_argument("--real", action="store_true", help="用 .env 里的真实 key（会花钱）")
+    sim.add_argument("--max-usd", type=float, default=0.0, help="真模型的花费硬上限（必填）")
+    sim.add_argument(
+        "--resume", action="store_true", help="接着上次断开的地方跑（要给同一个 --out）"
+    )
+    sim.add_argument(
+        "--scenario",
+        help="开跑前摆好的场景（sim.yaml 的 scenarios，如 birthday：认识一个月、你过生日）",
+    )
+    longrun = sub.add_parser(
+        "sim-growth",
+        help="半年快进：只推进成长相关的部件，几分钟跑完 90～180 天，看会不会越长越像、走极端、"
+        "被你带偏、口癖用光（假模型，不花钱）",
+    )
+    longrun.add_argument("--days", type=int, default=180, help="快进多少天（默认 180）")
+    longrun.add_argument("--out", help="输出目录（默认 sim_runs/growth-<时间>；不能在 data/ 下）")
+    longrun.add_argument("--seed", type=int, default=0)
+    longrun.add_argument(
+        "--pressure",
+        default="push",
+        choices=["push", "none"],
+        help="push：假模型每周都想把她们往同一个方向改（默认）；none：随手改改",
+    )
+    longrun.add_argument("--cards", help="人物卡 Markdown（不给就用编的 8 份起始档案）")
+    backup = sub.add_parser(
+        "backup", help="整库备份：看列表、马上备份、存档点、恢复（docs/BACKUP.md，不花钱）"
+    )
+    backup.add_argument(
+        "action", nargs="?", default="list", choices=["list", "now", "checkpoint", "restore"]
+    )
+    backup.add_argument(
+        "target", nargs="?", default="", help="checkpoint 的标签 / restore 的文件名"
+    )
+    backup.add_argument("--yes", action="store_true", help="恢复时不再问一遍")
+    kit = sub.add_parser(
+        "kit-check", help="工作台质检：三种屏宽 × 浅色 / 深色，量出不达标的地方（不调用模型）"
+    )
+    kit.add_argument("target", help="本地 .html 文件或 http(s) 地址")
+    kit.add_argument("-o", "--output", help="截图和 report.json 存到这个目录")
+    kit.add_argument("--json", action="store_true", help="只输出 JSON 报告")
     estimate = sub.add_parser("estimate", help="提交前预估：各模式 × 各档位的上桌人数与预计花费")
     estimate.add_argument("question", nargs="?", help="题目；省略时从 --file 读取")
     estimate.add_argument("--file", help="从 UTF-8 文本文件读取题目")
@@ -1672,6 +1941,12 @@ async def run(
     ask: Callable[[str], str] = input,
 ) -> int:
     args = build_parser().parse_args(argv)
+    if args.command == "kit-check":  # 不需要配置和模型
+        return await asyncio.to_thread(cmd_kit_check, args, out)
+    if args.command == "sim":  # 自己建临时数据库，不打开真实数据
+        return await cmd_sim(args, out)
+    if args.command == "sim-growth":  # 同上
+        return await cmd_sim_growth(args, out)
     try:
         rt = runtime or Runtime.build()
     except ConfigError as exc:
@@ -1685,6 +1960,8 @@ async def run(
         plain_math=not getattr(args, "raw", False),
     )
     try:
+        if args.command == "backup":
+            return cmd_backup(rt, args, out, ask)
         if args.command == "ask":
             question = args.question
             if args.file:
@@ -1729,6 +2006,19 @@ async def run(
             return cli.cmd_models()
         if args.command == "stats":
             return cli.cmd_stats()
+        if args.command == "stickers":
+            return await cli.cmd_stickers(
+                args.member,
+                args.draw,
+                args.all,
+                args.output,
+                args.whiten,
+                args.prompts,
+                args.import_dir,
+            )
+        if args.command == "sticker-packs":
+            owner = "" if args.common else args.owner
+            return cli.cmd_sticker_packs(args.action, args.pack, owner, args.label, args.file)
         if args.command == "performance":
             return cli.cmd_performance(args.reset)
         if args.command == "evolve":
@@ -1804,6 +2094,106 @@ async def run(
     return 0
 
 
+async def cmd_sim(args: argparse.Namespace, out: TextIO) -> int:
+    from datetime import datetime as _dt
+
+    from roundtable.core.simlab import SimError, Simulation
+
+    if args.resume and not args.out:
+        print("接着跑要用 --out 指定上次的输出目录", file=out)
+        return 2
+    folder = args.out or f"sim_runs/{_dt.now():%Y%m%d-%H%M%S}"
+    start = _dt.fromisoformat(args.start).replace(hour=7) if args.start else None
+    try:
+        sim = Simulation(
+            Path(folder),
+            days=args.days,
+            seed=args.seed,
+            start=start,
+            tz=args.tz,
+            real=args.real,
+            max_usd=args.max_usd,
+            user_per_day=args.user_per_day,
+            cards=Path(args.cards).read_text(encoding="utf-8") if args.cards else None,
+            resume=args.resume,
+            scenario=args.scenario,
+        )
+        print(f"模拟 {args.days} 天（{'真模型' if args.real else '假模型'}）……", file=out)
+        res = await sim.run()
+    except (SimError, ConfigError, OSError) as exc:
+        print(f"模拟没跑成：{exc}", file=out)
+        return 2
+    m = res.meta
+    passed = sum(c["ok"] for c in res.checks)
+    print(
+        f"完成：{m['days']} 天，用时 {m['wall_seconds']} 秒，花费 ${m['spent_usd']}"
+        f"（每天约 ${m['usd_per_day']}），检查 {passed}/{len(res.checks)} 通过",
+        file=out,
+    )
+    if m.get("stopped"):
+        print(f"提前停了：{m['stopped']}（修好后可用 --resume 接着跑）", file=out)
+    exams = [e for e in res.exams if e["ok"] is not None]
+    if exams:
+        print(f"考题 {sum(e['ok'] for e in exams)}/{len(exams)} 通过", file=out)
+    if res.problems:
+        print(f"问题清单 {len(res.problems)} 条（要紧的在前）", file=out)
+    print(f"报告：{sim.out / 'report.md'}", file=out)
+    return 0 if res.ok else 1
+
+
+async def cmd_sim_growth(args: argparse.Namespace, out: TextIO) -> int:
+    """半年快进：全部指标正常返回 0，有超标或出错返回 1，没跑成返回 2。"""
+    from datetime import datetime as _dt
+
+    from roundtable.core.simlab import SimError
+    from roundtable.core.simlong import LongRun
+
+    folder = args.out or f"sim_runs/growth-{_dt.now():%Y%m%d-%H%M%S}"
+    try:
+        run = LongRun(
+            Path(folder),
+            days=args.days,
+            seed=args.seed,
+            pressure=args.pressure,
+            cards=Path(args.cards).read_text(encoding="utf-8") if args.cards else None,
+        )
+        print(
+            f"快进 {args.days} 天（假模型，{'施压' if args.pressure == 'push' else '不施压'}）……",
+            file=out,
+        )
+        res = await run.run()
+    except (SimError, ConfigError, OSError) as exc:
+        print(f"快进没跑成：{exc}", file=out)
+        return 2
+    print(f"完成：{res.days} 天，用时 {res.seconds:.0f} 秒", file=out)
+    for p in res.problems:
+        print(f"  超标：{p}", file=out)
+    if res.errors:
+        print(f"  出错 {len(res.errors)} 次（见报告）", file=out)
+    if res.ok:
+        print("全部指标正常", file=out)
+    print(f"报告：{res.out / 'report.md'}", file=out)
+    return 0 if res.ok else 1
+
+
+def cmd_kit_check(args: argparse.Namespace, out: TextIO) -> int:
+    """工作台质检：通过返回 0，不通过返回 1，没法检查返回 2。"""
+    from roundtable.core.benchkit.quality import QualityError, run_check
+
+    try:
+        report = run_check(args.target, args.output)
+    except QualityError as exc:
+        print(f"没法质检：{exc}", file=out)
+        return 2
+    if args.json:
+        print(json.dumps(report.to_dict(), ensure_ascii=False, indent=2), file=out)
+    else:
+        print(report.summary(), file=out)
+        if args.output:
+            print(f"截图和报告在：{args.output}", file=out)
+    return 0 if report.passed else 1
+
+
 def _utf8_streams() -> None:
     """输出统一用 UTF-8（Windows 终端、PowerShell 管道重定向时也是）。
 
@@ -1813,6 +2203,60 @@ def _utf8_streams() -> None:
         if hasattr(stream, "reconfigure"):
             with contextlib.suppress(OSError, ValueError):
                 stream.reconfigure(encoding="utf-8", errors="replace")
+
+
+def cmd_backup(
+    rt: Runtime, args: argparse.Namespace, out: TextIO, ask: Callable[[str], str]
+) -> int:
+    """整库备份（docs/BACKUP.md）。恢复前先关掉网页服务，恢复后再打开。"""
+    from roundtable.core.backup import BackupError, DbBackup
+
+    rules = rt.config.roundtable.backup
+    box = DbBackup(
+        rt.repo.conn,
+        rt.backup_dir,
+        enabled=True,  # 命令行里手动「now」不看自动备份开关
+        keep_daily=rules.keep_daily,
+        keep_checkpoints=rules.keep_checkpoints,
+    )
+    now = datetime.now()
+    try:
+        if args.action == "now":
+            got = box.daily(now) or box.checkpoint("手动", now)
+            print(f"已备份：{got.name}", file=out)
+            return 0
+        if args.action == "checkpoint":
+            got = box.checkpoint(args.target or "手动", now)
+            print(f"已存档点：{got.name}", file=out)
+            return 0
+        if args.action == "restore":
+            if not args.target:
+                print("要恢复哪一份？先用 roundtable backup 看列表，再写文件名。", file=out)
+                return 2
+            f = box.check(args.target)
+            if not args.yes:
+                print("恢复会用这份备份覆盖现在的全部数据。", file=out)
+                print("（会先自动存一个「恢复前」存档点，反悔可以再恢复它。）", file=out)
+                print("请先关掉圆桌网页服务。", file=out)
+                if ask(f"确定恢复 {f.name}？输入 yes 继续：").strip().lower() != "yes":
+                    print("没有恢复。", file=out)
+                    return 1
+            got = box.restore(f.name, now)
+            print(f"已恢复：{got['restored']['name']}", file=out)
+            print(f"恢复前的数据存在：{got['before']['name']}（反悔可以再恢复它）", file=out)
+            print("请重新打开圆桌。", file=out)
+            return 0
+    except BackupError as exc:
+        print(f"备份出错：{exc}", file=out)
+        return 1
+    files = box.files()
+    print(f"备份目录：{box.folder or '（内存数据库，不备份）'}", file=out)
+    if not files:
+        print("还没有备份。", file=out)
+    for f in files:
+        kind = "每天" if f.kind == "daily" else f"存档点·{f.label}"
+        print(f"  {f.name}  {kind}  {f.size / 1048576:.1f} MB", file=out)
+    return 0
 
 
 def main(argv: list[str] | None = None) -> int:

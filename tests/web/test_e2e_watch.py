@@ -6,6 +6,8 @@
 
 from __future__ import annotations
 
+import re
+
 import pytest
 
 PIL = pytest.importorskip("PIL")
@@ -51,3 +53,162 @@ def test_watch_panel_flow(serve, page):
     dlg.locator("[data-stop]").click()
     dlg.locator("[data-start]").wait_for()
     assert btn.text_content() == "一起看"
+
+
+DECODE_QR = """async () => {
+  await new Promise((r) => {
+    const s = document.createElement('script');
+    s.src = 'boot/assets/jsqr.js';
+    s.onload = r;
+    document.head.appendChild(s);
+  });
+  const svg = new XMLSerializer().serializeToString(document.querySelector('svg.wt-qr'));
+  const img = new Image();
+  img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+  await img.decode();
+  const c = document.createElement('canvas');
+  c.width = c.height = 400;
+  const g = c.getContext('2d');
+  g.imageSmoothingEnabled = false;
+  g.drawImage(img, 0, 0, 400, 400);
+  return jsQR(g.getImageData(0, 0, 400, 400).data, 400, 400)?.data || '';
+}"""
+
+
+class _WirelessAdb:
+    def available(self):
+        return None
+
+    def sources(self):
+        return []
+
+    def pair(self, host, port, code):
+        from roundtable.core.screen import ScreenUnavailable
+
+        if code != "123456":
+            raise ScreenUnavailable("配对没成功：配对码不对或已过期")
+        return "配对成功"
+
+    def connect(self, host="", port=0):
+        return ["192.168.1.5:37000"]
+
+    polls = 0
+
+    def qr_ready(self):
+        pass
+
+    def qr_pair(self, name, password):
+        self.polls += 1  # 第二次问的时候「手机扫了」
+        return "192.168.1.5:40021" if self.polls >= 2 else None
+
+
+def setup_phone(env) -> None:
+    setup(env)
+    env.rt.screen_sources["android"] = _WirelessAdb()
+
+
+def test_watch_pair_android_wirelessly(serve, page):
+    srv = serve(confirm_threshold_usd=100.0, setup=setup_phone)
+    page.goto(srv.url)
+    page.locator("#watchbtn").click()
+    dlg = page.locator("#watchdlg")
+    dlg.get_by_text("连接安卓手机 / 平板（无线，不用插线）").click()
+    dlg.get_by_text("使用配对码配对设备").wait_for()
+    dlg.locator("[data-adb-host]").fill("192.168.1.5")
+    dlg.locator("[data-adb-port]").fill("41234")
+    dlg.locator("[data-adb-code]").fill("12")
+    dlg.locator("[data-pair]").click()
+    dlg.get_by_text("请填 IP 地址、端口和 6 位配对码").wait_for()
+    dlg.locator("[data-adb-code]").fill("000000")
+    dlg.locator("[data-pair]").click()
+    dlg.get_by_text("配对码不对或已过期").wait_for()
+    dlg.locator("[data-adb-code]").fill("123456")
+    dlg.locator("[data-pair]").click()
+    dlg.get_by_text("配对成功，已连上 192.168.1.5:37000").wait_for()
+    # 面板重画后折叠区保持展开、IP 还在
+    assert dlg.locator("[data-adb-host]").input_value() == "192.168.1.5"
+    # 填成配对端口点连接：自动改用连接端口
+    dlg.locator("[data-adb-port]").fill("40021")
+    dlg.locator("[data-connect]").click()
+    dlg.get_by_text("已自动改用手机的连接端口").wait_for()
+    assert dlg.locator("[data-adb-port]").input_value() == "37000"
+    # 方式一：扫二维码
+    dlg.locator("[data-qr]").click()
+    dlg.locator("svg.wt-qr").wait_for()
+    # 画出来的二维码能被识别，内容是安卓扫码配对的格式
+    text = page.evaluate(DECODE_QR)
+    assert re.fullmatch(r"WIFI:T:ADB;S:roundtable-[a-z0-9]{8};P:[a-z0-9]{12};;", text)
+    dlg.get_by_text("使用二维码配对设备」→ 扫上面这张图").wait_for()
+    dlg.get_by_text("扫码配对成功，已连上 192.168.1.5:37000").wait_for(timeout=10000)
+    assert dlg.locator("svg.wt-qr").count() == 0
+    dlg.get_by_text("iPhone 怎么投").click()
+    dlg.get_by_text("屏幕镜像").wait_for()
+
+
+def test_watch_overlay_button_and_pip(serve, page, monkeypatch):
+    """投屏中：「悬浮窗」按钮请电脑开置顶小窗（不切屏也能看她们说话）；浏览器支持时有「画中画」。"""
+    import roundtable.core.service as service_mod
+
+    started = []
+
+    class Proc:
+        def poll(self):
+            return None
+
+    def popen(cmd, **kw):
+        started.append(cmd)
+        return Proc()
+
+    monkeypatch.setattr(service_mod.subprocess, "Popen", popen)
+    monkeypatch.setattr(service_mod, "_has_tk", lambda: True)
+    srv = serve(confirm_threshold_usd=100.0, setup=setup)
+    page.goto(srv.url)
+    page.locator("#watchbtn").click()
+    dlg = page.locator("#watchdlg")
+    dlg.get_by_text("哔哩哔哩").click()
+    dlg.locator("[data-member='V1']").check()
+    dlg.locator("[data-consent]").check()
+    dlg.locator("[data-start]").click()
+    dlg.locator(".wt-on").wait_for()
+    dlg.locator("[data-overlay]").click()
+    dlg.get_by_text("悬浮窗打开了").wait_for()
+    dlg.locator("[data-overlay]").click()
+    dlg.get_by_text("悬浮窗已经开着了").wait_for()
+    assert len(started) == 1 and "roundtable.desktop.overlay" in started[0]
+    has_pip = page.evaluate("'documentPictureInPicture' in window")
+    assert dlg.locator("[data-pip]").count() == (1 if has_pip else 0)
+    dlg.locator("[data-stop]").click()
+    dlg.locator("[data-start]").wait_for()
+
+
+def test_overlay_page_shows_chat_and_replies_to_a_member(serve, page):
+    """悬浮窗页面（应用小窗和画中画共用）：显示她们说的话；点一条消息就回那个人；收起成胶囊。"""
+    srv = serve(confirm_threshold_usd=100.0, setup=setup)
+    page.goto(srv.url)
+    page.locator("#watchbtn").click()
+    dlg = page.locator("#watchdlg")
+    dlg.get_by_text("哔哩哔哩").click()
+    dlg.locator("[data-member='V1']").check()
+    dlg.locator("[data-consent]").check()
+    dlg.locator("[data-start]").click()
+    dlg.locator(".wt-msg b", has_text="阿一").first.wait_for()
+
+    ov = page.context.new_page()
+    ov.goto(srv.url + "/overlay.html")
+    ov.locator(".ov-title", has_text="一起看").wait_for()
+    msg = ov.locator(".ov-msg[data-reply='阿一']").first
+    msg.wait_for()
+    msg.click()
+    ov.locator(".ov-to b", has_text="阿一").wait_for()
+    ov.locator(".ov-row input").fill("你怎么看")
+    ov.locator(".ov-row input").press("Enter")
+    ov.locator(".ov-msg.me", has_text="@阿一 你怎么看").wait_for()
+    assert ov.locator(".ov-to").is_hidden()
+    # 她回的这句标着是回我的
+    ov.locator(".ov-quote", has_text="我：@阿一 你怎么看").wait_for()
+    ov.locator("[data-small]").click()
+    ov.locator(".ov-pill").wait_for()
+    ov.locator("[data-expand]").click()
+    ov.locator(".ov-feed").wait_for()
+    dlg.locator("[data-stop]").click()
+    ov.get_by_text("投屏已停止").wait_for(timeout=10000)

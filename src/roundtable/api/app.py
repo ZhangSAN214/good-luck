@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import mimetypes
 import re
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -37,6 +38,59 @@ WEB_DIR = Path(__file__).resolve().parents[3] / "web"
 INLINE_IMAGES = frozenset({"image/png", "image/jpeg", "image/gif", "image/webp"})
 # 生成的音频 / 视频可以在页面里播放（支持 Range，便于拖动进度条）
 INLINE_MEDIA = frozenset({"audio/mpeg", "audio/wav", "audio/ogg", "video/mp4", "video/webm"})
+
+
+class ViewReplyBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    text: str = Field(default="", max_length=300)
+
+
+class AboutFactBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    text: str | None = Field(default=None, max_length=300)
+    domain: str | None = Field(default=None, max_length=40)
+
+
+class AboutLockBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    locked: bool = True
+
+
+class AboutDomainBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    domain: str = Field(max_length=40)
+    on: bool
+
+
+class AboutStatusBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    kind: str = Field(max_length=20)
+    on: bool
+
+
+class AboutPlayerBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    player: str = Field(max_length=20)
+
+
+class AboutGameBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    exe: str = Field(max_length=80)
+    name: str = Field(max_length=30)
+
+
+class AboutClassBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    weekday: int = Field(ge=0, le=6)
+    start: str = Field(max_length=5)
+    end: str = Field(max_length=5)
+    name: str = Field(max_length=30)
+
+
+class AboutDdlBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: str = Field(max_length=30)
+    due: str = Field(max_length=16)
 
 
 class CreateSession(BaseModel):
@@ -98,6 +152,16 @@ class ThemeBody(BaseModel):
     theme: str | None = None
 
 
+class ChannelPriorityBody(BaseModel):
+    """渠道优先顺序：auto 按配置 / custom 按 order；credits 为每月额度（null = 不设）。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    strategy: str
+    order: list[str] | None = None
+    credits: dict[str, float | None] | None = None
+
+
 class Note(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -111,6 +175,7 @@ class ChatBody(BaseModel):
     room: str = "main"
     media: list[dict[str, Any]] = Field(default_factory=list)  # POST /api/chat/media 返回的 id
     quote: int | None = None  # 引用的消息 id
+    files: list[str] = Field(default_factory=list, max_length=5)  # POST /api/uploads 返回的附件 id
 
 
 class PatBody(BaseModel):
@@ -142,6 +207,20 @@ class HandoffBody(BaseModel):
 
 class VoiceBody(BaseModel):
     text: str | None = Field(default=None, max_length=2000)  # 省略：念一句试听
+
+
+class StickerPackBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(default="", max_length=64)  # 装的时候用：目录里的包 id
+    owner: str | None = Field(default=None, max_length=40)  # 专用的成员；空串 = 通用；不传 = 不变
+    label: str | None = Field(default=None, max_length=6)  # 聊天里的套装名
+
+
+class StickerReviewBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    status: Literal["pending", "approved", "rejected"]
 
 
 class PersonaBody(BaseModel):
@@ -214,10 +293,34 @@ class ProfileRevertBody(BaseModel):
     version: int = Field(ge=1)
 
 
+class GrowthUndoBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    token: str = Field(min_length=1, max_length=200)  # 成长总账里那一条的 undo
+
+
+class GrowthRevertBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: int = Field(ge=1)
+
+
 class FeedsBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     feeds: list[dict[str, Any]] | None = None  # None：恢复为配置文件里的
+
+
+class MemeBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    phrase: str = Field(min_length=1, max_length=20)
+    aliases: list[str] = Field(default_factory=list, max_length=6)
+    meaning: str = Field(default="", max_length=80)
+    cue: str = Field(default="", max_length=40)
+    reply: str = Field(default="", max_length=40)
+    example: str = Field(default="", max_length=80)
+    classic: bool = True
 
 
 class MemoryBody(BaseModel):
@@ -293,10 +396,155 @@ class WatchQuietBody(BaseModel):
     quiet: bool
 
 
+class BenchProfileBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    text: str = Field(min_length=1, max_length=200)
+    src: str = Field(default="", max_length=40)
+
+
+class BenchBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    request: str = Field(min_length=1, max_length=2000)
+    materials: list[str] = Field(default_factory=list, max_length=64)  # 先收下的素材编号
+    from_product: bool = False  # 从成品反推：拖进来的是成品，要能做出类似成品的台
+
+
+class BenchAttachBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    ids: list[str] = Field(min_length=1, max_length=64)
+
+
+class BenchAnswerBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    answers: dict[str, str] = Field(default_factory=dict)
+
+
+class BenchReqItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(default="", max_length=10)
+    text: str = Field(max_length=300)
+
+
+class BenchDesignBody(BaseModel):
+    """选型台上点的：每项一个选项 id（程序会再按目录核对），参考作品、窗口宽窄、去掉的窗口。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    layout: str = Field(default="", max_length=20)
+    theme: str = Field(default="", max_length=20)
+    material: str = Field(default="", max_length=20)
+    density: str = Field(default="", max_length=20)
+    corner: str = Field(default="", max_length=20)
+    type: str = Field(default="", max_length=20)
+    width: str = Field(default="", max_length=20)
+    topbar: str = Field(default="", max_length=20)
+    herosize: str = Field(default="", max_length=20)
+    bg: str = Field(default="", max_length=20)
+    shadow: str = Field(default="", max_length=20)
+    size: str = Field(default="", max_length=20)
+    tone: str = Field(default="", max_length=20)
+    button: str = Field(default="", max_length=20)
+    cardhead: str = Field(default="", max_length=20)
+    motion: str = Field(default="", max_length=20)
+    accent: str | None = Field(default=None, max_length=7)  # #rrggbb；空字符串 = 用配色里的主色
+    note: str | None = Field(default=None, max_length=200)  # 自己写一条风格要求
+    assets: dict[str, str] = Field(default_factory=dict, max_length=64)  # 素材编号 → 用处
+    refs: list[str] | None = Field(default=None, max_length=12)
+    spans: dict[str, int] = Field(default_factory=dict, max_length=12)
+    drop: list[str] = Field(default_factory=list, max_length=12)
+
+
+class BenchSignBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    requirements: list[BenchReqItem] | None = Field(default=None, max_length=30)
+    note: str = Field(default="", max_length=1000)
+    design: BenchDesignBody | None = None
+
+
+class BenchDecideBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    action: Literal["more", "edit", "accept"]  # 再跑一轮 / 改要求再跑 / 就这样
+    requirements: list[BenchReqItem] | None = Field(default=None, max_length=30)
+
+
+class BenchComment(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    text: str = Field(min_length=1, max_length=1000)
+    window: str = Field(default="", max_length=60)
+
+
+class BenchReviewBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    decision: Literal["pass", "change"]
+    comments: list[BenchComment] = Field(default_factory=list, max_length=20)
+
+
+class BenchPluginBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=200)  # 调研报告里列出的插件（仓库名）
+
+
+class BenchAskBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    question: str = Field(min_length=1, max_length=8000)
+    as_json: bool = False  # 要结构化的结果（成品按用户的输入现场生成内容）
+
+
+# 生成的工作台在「沙箱」里运行：浏览器把它当成一个陌生网站，碰不到圆桌的接口、存储和登录状态
+# 能联网取的只有配置里那几项公开数据（地图底图、天气、汇率……），其余网址一律拦下
+def bench_csp(origins: list[str]) -> str:
+    extra = "".join(f" {o}" for o in origins)
+    return (
+        "sandbox allow-scripts allow-forms allow-popups allow-downloads; "
+        "default-src 'self' data: blob:; script-src 'self' 'unsafe-inline'; "
+        f"style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:{extra}; "
+        "media-src 'self' data: blob:; "
+        f"connect-src 'self'{extra}; frame-ancestors 'self'"
+    )
+
+
+class SuperTaskBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    text: str = Field(min_length=1, max_length=8000)
+
+
+class SuperLimitBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    limit: int = Field(ge=0, le=1000)
+
+
 class WatchSayBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     text: str = Field(min_length=1, max_length=1000)
+
+
+class AdbPairBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    host: str = Field(min_length=1, max_length=100)
+    port: int = Field(ge=1, le=65535)
+    code: str = Field(min_length=6, max_length=6)
+
+
+class AdbConnectBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    host: str = Field(default="", max_length=100)  # 空 = 自动找已配对的设备
+    port: int = Field(default=0, ge=0, le=65535)
 
 
 class WatchScrcpyBody(BaseModel):
@@ -358,6 +606,18 @@ class LanPassword(BaseModel):
     password: str = Field(max_length=256)
 
 
+class BackupPoint(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    label: str = Field(default="手动", max_length=40)
+
+
+class BackupRestore(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=120)  # 备份列表里的文件名
+
+
 class LanPair(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -409,6 +669,9 @@ class WebFiles(StaticFiles):
     ) -> Response:
         resp = super().file_response(full_path, stat_result, scope, *args, **kwargs)
         resp.headers["Cache-Control"] = "no-cache"
+        if "/kit/" in str(full_path).replace("\\", "/"):
+            # 设计套件：沙箱里的工作台（来源是「陌生网站」）也要能用 import 载入
+            resp.headers["Access-Control-Allow-Origin"] = "*"
         if (
             str(full_path).endswith(".html")
             and Request(scope).cookies.get(WEB_CACHE_COOKIE) != WEB_CACHE_EPOCH
@@ -512,8 +775,10 @@ def create_app(service: RoundtableService | None = None, lan: LanAccess | None =
 
         app.state.service = RoundtableService(Runtime.build())
         app.state.service.reconcile()
+        app.state.service.start_backup()
         app.state.service.start_life()
         app.state.service.start_evolution()
+        app.state.service.start_dsh()
         try:
             yield
         finally:
@@ -545,6 +810,16 @@ def create_app(service: RoundtableService | None = None, lan: LanAccess | None =
     @app.get("/api/usage/balance")
     async def usage_balance(request: Request, refresh: int = 0) -> dict[str, Any]:
         return await svc(request).account_balance(refresh=bool(refresh))
+
+    @app.get("/api/channels/priority")
+    async def channel_priority(request: Request) -> dict[str, Any]:
+        return svc(request).channel_priority()
+
+    @app.put("/api/channels/priority")
+    async def set_channel_priority(request: Request, body: ChannelPriorityBody) -> dict[str, Any]:
+        return svc(request).set_channel_priority(
+            strategy=body.strategy, order=body.order, credits=body.credits
+        )
 
     @app.get("/api/members")
     async def members(request: Request) -> dict[str, Any]:
@@ -625,6 +900,182 @@ def create_app(service: RoundtableService | None = None, lan: LanAccess | None =
     async def watch_say(request: Request, body: WatchSayBody) -> dict[str, Any]:
         return await svc(request).watch_say(body.text)
 
+    # dsh 工作台：网页地址带一次性口令，只给电脑本机（dsh 只监听 127.0.0.1，平板也打不开）
+    def dsh_out(request: Request, out: dict[str, Any]) -> dict[str, Any]:
+        if out.get("url") and not is_local(_client(request.scope)):
+            out = {**out, "url": None, "local_only": True}
+        return out
+
+    @app.get("/api/dsh")
+    async def dsh_status(request: Request) -> dict[str, Any]:
+        return dsh_out(request, svc(request).dsh_status())
+
+    @app.post("/api/dsh/start")
+    async def dsh_start(request: Request) -> dict[str, Any]:
+        return dsh_out(request, await svc(request).dsh_start())
+
+    @app.post("/api/dsh/stop")
+    async def dsh_stop(request: Request) -> dict[str, Any]:
+        return dsh_out(request, await svc(request).dsh_stop())
+
+    @app.post("/api/dsh/check")
+    async def dsh_check(request: Request) -> dict[str, Any]:
+        return dsh_out(request, await svc(request).dsh_check())
+
+    # 超级电脑：几位编程助手平级、按分数派活（docs/SUPERCOMPUTER.md）
+    @app.get("/api/bench")
+    async def bench_status(request: Request) -> dict[str, Any]:
+        return svc(request).bench_status()
+
+    @app.post("/api/bench")
+    async def bench_submit(request: Request, body: BenchBody) -> dict[str, Any]:
+        return svc(request).bench_submit(
+            body.request, body.materials, from_product=body.from_product
+        )
+
+    @app.post("/api/bench/materials", status_code=201)
+    async def bench_material(request: Request, name: str, of: str = "") -> dict[str, Any]:
+        """拖进来的一份素材：请求体是原始字节，?name= 文件名，?of= 视频编号（浏览器截的帧）。"""
+        service = svc(request)
+        limit = service.bench_material_limit
+        declared = request.headers.get("content-length")
+        if declared and declared.isdigit() and int(declared) > limit:
+            raise ServiceError("文件超过大小上限", 413)
+        chunks, size = [], 0
+        async for chunk in request.stream():
+            size += len(chunk)
+            if size > limit:
+                raise ServiceError("文件超过大小上限", 413)
+            chunks.append(chunk)
+        return service.bench_material(name, b"".join(chunks), of)
+
+    @app.post("/api/bench/cancel")
+    async def bench_cancel(request: Request) -> dict[str, Any]:
+        return await svc(request).bench_cancel()
+
+    @app.get("/api/bench/net-check")
+    async def bench_net_check(request: Request) -> dict[str, Any]:
+        return await svc(request).bench_net_check()
+
+    @app.post("/api/bench/profile")
+    async def bench_profile_add(request: Request, body: BenchProfileBody) -> dict[str, Any]:
+        return svc(request).bench_profile_add(body.text, body.src)
+
+    @app.delete("/api/bench/profile/{pid}")
+    async def bench_profile_remove(request: Request, pid: str) -> dict[str, Any]:
+        return svc(request).bench_profile_remove(pid)
+
+    @app.get("/api/bench/desk")
+    async def bench_desk(request: Request) -> dict[str, Any]:
+        return svc(request).bench_desk()
+
+    @app.post("/api/bench/desk/refresh")
+    async def bench_desk_refresh(request: Request) -> dict[str, Any]:
+        return svc(request).bench_desk(refresh=True)
+
+    @app.post("/api/bench/desk/suggest/{sid}")
+    async def bench_desk_suggest(request: Request, sid: str, accept: bool = True) -> dict[str, Any]:
+        return svc(request).bench_desk_suggest(sid, accept)
+
+    @app.get("/api/bench/{bench_id}")
+    async def bench_get(request: Request, bench_id: str) -> dict[str, Any]:
+        return svc(request).bench_get(bench_id)
+
+    @app.post("/api/bench/{bench_id}/answer")
+    async def bench_answer(
+        request: Request, bench_id: str, body: BenchAnswerBody
+    ) -> dict[str, Any]:
+        return await svc(request).bench_project(bench_id, "answer", answers=body.answers)
+
+    @app.post("/api/bench/{bench_id}/decide")
+    async def bench_decide(
+        request: Request, bench_id: str, body: BenchDecideBody
+    ) -> dict[str, Any]:
+        reqs = [r.model_dump() for r in body.requirements or []]
+        return await svc(request).bench_project(
+            bench_id, "decide", choice=body.action, requirements=reqs
+        )
+
+    @app.post("/api/bench/{bench_id}/sign")
+    async def bench_sign(request: Request, bench_id: str, body: BenchSignBody) -> dict[str, Any]:
+        reqs = (
+            [r.model_dump() for r in body.requirements] if body.requirements is not None else None
+        )
+        design = body.design.model_dump(exclude_none=True) if body.design is not None else None
+        return await svc(request).bench_project(
+            bench_id, "sign", requirements=reqs, note=body.note, design=design
+        )
+
+    @app.post("/api/bench/{bench_id}/review")
+    async def bench_review(
+        request: Request, bench_id: str, body: BenchReviewBody
+    ) -> dict[str, Any]:
+        return await svc(request).bench_project(
+            bench_id,
+            "review",
+            decision=body.decision,
+            comments=[c.model_dump() for c in body.comments],
+        )
+
+    @app.post("/api/bench/{bench_id}/materials")
+    async def bench_attach(
+        request: Request, bench_id: str, body: BenchAttachBody
+    ) -> dict[str, Any]:
+        return await svc(request).bench_project(bench_id, "attach", ids=body.ids)
+
+    @app.post("/api/bench/{bench_id}/look")
+    async def bench_look(request: Request, bench_id: str) -> dict[str, Any]:
+        return await svc(request).bench_project(bench_id, "look")
+
+    @app.post("/api/bench/{bench_id}/evolve")
+    async def bench_evolve(request: Request, bench_id: str) -> dict[str, Any]:
+        return await svc(request).bench_project(bench_id, "evolve")
+
+    @app.post("/api/bench/{bench_id}/plugin")
+    async def bench_plugin(
+        request: Request, bench_id: str, body: BenchPluginBody
+    ) -> dict[str, Any]:
+        return await svc(request).bench_project(bench_id, "plugin", name=body.name)
+
+    @app.post("/api/bench/{bench_id}/ask")
+    async def bench_ask(request: Request, bench_id: str, body: BenchAskBody) -> dict[str, Any]:
+        return await svc(request).bench_ask(bench_id, body.question, body.as_json)
+
+    @app.get("/bench/{bench_id}/{path:path}")
+    async def bench_file(request: Request, bench_id: str, path: str) -> Response:
+        full = svc(request).bench_file(bench_id, path)
+        mime = mimetypes.guess_type(full.name)[0] or "application/octet-stream"
+        if full.suffix in (".js", ".mjs"):
+            mime = "text/javascript"
+        csp = bench_csp(svc(request).bench_net_origins())
+        headers = {"Cache-Control": "no-cache", "Content-Security-Policy": csp}
+        headers["Access-Control-Allow-Origin"] = "*"  # 沙箱页面载入自己的模块和数据
+        return Response(content=full.read_bytes(), media_type=mime, headers=headers)
+
+    @app.get("/api/super")
+    async def super_status(request: Request) -> dict[str, Any]:
+        return svc(request).super_status()
+
+    @app.post("/api/super/tasks")
+    async def super_submit(request: Request, body: SuperTaskBody) -> dict[str, Any]:
+        return svc(request).super_submit(body.text)
+
+    @app.post("/api/super/cancel")
+    async def super_cancel(request: Request) -> dict[str, Any]:
+        return await svc(request).super_cancel()
+
+    @app.get("/api/super/tasks/{task_id}")
+    async def super_task(request: Request, task_id: str) -> dict[str, Any]:
+        return svc(request).super_task(task_id)
+
+    @app.put("/api/super/workers/{worker}/limit")
+    async def super_limit(request: Request, worker: str, body: SuperLimitBody) -> dict[str, Any]:
+        return svc(request).super_set_limit(worker, body.limit)
+
+    @app.post("/api/super/workers/{worker}/wake")
+    async def super_wake(request: Request, worker: str) -> dict[str, Any]:
+        return svc(request).super_clear_cooldown(worker)
+
     @app.get("/api/wander")
     async def wander_status(request: Request) -> dict[str, Any]:
         return svc(request).wander_status()
@@ -648,6 +1099,32 @@ def create_app(service: RoundtableService | None = None, lan: LanAccess | None =
         if frame is None:
             return Response(status_code=204, headers=headers)
         return Response(content=frame, media_type="image/jpeg", headers=headers)
+
+    @app.post("/api/watch/adb/pair")
+    async def watch_adb_pair(request: Request, body: AdbPairBody) -> dict[str, Any]:
+        watch_local(request)
+        return await asyncio.to_thread(svc(request).watch_adb_pair, body.host, body.port, body.code)
+
+    @app.post("/api/watch/adb/connect")
+    async def watch_adb_connect(request: Request, body: AdbConnectBody) -> dict[str, Any]:
+        watch_local(request)
+        return await asyncio.to_thread(svc(request).watch_adb_connect, body.host, body.port)
+
+    @app.post("/api/watch/overlay")
+    async def watch_overlay(request: Request) -> dict[str, Any]:
+        watch_local(request)
+        port = request.url.port or (443 if request.url.scheme == "https" else 80)
+        return svc(request).watch_overlay(port)
+
+    @app.post("/api/watch/adb/qr")
+    async def watch_adb_qr(request: Request) -> dict[str, Any]:
+        watch_local(request)
+        return await asyncio.to_thread(svc(request).watch_adb_qr)
+
+    @app.get("/api/watch/adb/qr")
+    async def watch_adb_qr_poll(request: Request) -> dict[str, Any]:
+        watch_local(request)
+        return await asyncio.to_thread(svc(request).watch_adb_qr_poll)
 
     @app.post("/api/watch/scrcpy")
     async def watch_scrcpy(request: Request, body: WatchScrcpyBody) -> dict[str, Any]:
@@ -684,7 +1161,9 @@ def create_app(service: RoundtableService | None = None, lan: LanAccess | None =
 
     @app.post("/api/chat", status_code=202)
     async def chat_post(request: Request, body: ChatBody) -> dict[str, Any]:
-        return await svc(request).chat_post(body.text, body.room, body.media, body.quote)
+        return await svc(request).chat_post(
+            body.text, body.room, body.media, body.quote, files=body.files
+        )
 
     @app.post("/api/chat/pat", status_code=202)
     async def chat_pat(request: Request, body: PatBody) -> dict[str, Any]:
@@ -747,6 +1226,19 @@ def create_app(service: RoundtableService | None = None, lan: LanAccess | None =
     async def chat_handoff(request: Request, body: HandoffBody) -> dict[str, Any]:
         return svc(request).chat_handoff(body.text)
 
+    @app.post("/api/chat/handoff/{message_id}/start", status_code=202)
+    async def chat_handoff_start(
+        request: Request, message_id: int, room: str = "main"
+    ) -> dict[str, Any]:
+        """聊天里成员交办的事：你点了「交给办公室」才开工（docs/CHAT.md G14）。"""
+        return svc(request).chat_handoff_start(room, message_id)
+
+    @app.post("/api/chat/handoff/{message_id}/dismiss")
+    async def chat_handoff_dismiss(
+        request: Request, message_id: int, room: str = "main"
+    ) -> dict[str, Any]:
+        return svc(request).chat_handoff_dismiss(room, message_id)
+
     @app.get("/api/chat/voices")
     async def chat_voices(request: Request) -> dict[str, Any]:
         return svc(request).member_voices()
@@ -764,6 +1256,85 @@ def create_app(service: RoundtableService | None = None, lan: LanAccess | None =
         if clip.seconds is not None:
             headers["X-Voice-Seconds"] = f"{clip.seconds:.2f}"
         return Response(content=clip.data, media_type=clip.mime, headers=headers)
+
+    @app.get("/api/stickers")
+    async def stickers(request: Request) -> dict[str, Any]:
+        return svc(request).member_stickers()
+
+    @app.delete("/api/stickers/stash")
+    async def sticker_stash_clear(request: Request, member: str | None = None) -> dict[str, Any]:
+        """清空成员从你那收来的表情包（member 省略时所有人）。"""
+        return svc(request).stash_clear(member)
+
+    @app.delete("/api/stickers/stash/{member}/{n}")
+    async def sticker_stash_delete(request: Request, member: str, n: int) -> dict[str, Any]:
+        return svc(request).stash_delete(member, n)
+
+    @app.post("/api/stickers/{member}/{name}/draw")
+    async def sticker_draw(request: Request, member: str, name: str) -> dict[str, Any]:
+        """画（或重画）一张专属表情；新画的是「待审」。花费计入表情包与创作输出的月上限。"""
+        return await svc(request).draw_sticker(member, name)
+
+    @app.post("/api/stickers/{member}/{name}/review")
+    async def sticker_review(
+        request: Request, member: str, name: str, body: StickerReviewBody
+    ) -> dict[str, Any]:
+        return svc(request).review_sticker(member, name, body.status)
+
+    @app.get("/api/stickers/{member}/{name}/image")
+    async def sticker_image(request: Request, member: str, name: str) -> Response:
+        data = svc(request).sticker_file(member, name)
+        headers = {"X-Content-Type-Options": "nosniff", "Cache-Control": "private, max-age=86400"}
+        mime = "image/gif" if data[:3] == b"GIF" else "image/png"
+        return Response(content=data, media_type=mime, headers=headers)
+
+    @app.get("/api/emoji")
+    async def emoji_status(request: Request) -> dict[str, Any]:
+        """网页里的 emoji 显示成哪套图。"""
+        return svc(request).emoji_status()
+
+    @app.get("/api/emoji/{code}.png")
+    def emoji_image(request: Request, code: str) -> Response:
+        """一个 emoji 的图（用到才下载到本机）；没有时 404，网页退回系统字体。"""
+        data = svc(request).emoji_image(code)
+        headers = {"X-Content-Type-Options": "nosniff", "Cache-Control": "private, max-age=2592000"}
+        return Response(content=data, media_type="image/png", headers=headers)
+
+    @app.get("/api/sticker-packs")
+    async def sticker_packs(request: Request) -> dict[str, Any]:
+        """本机装的外部表情包（dsh-meme 格式）。"""
+        return svc(request).sticker_packs()
+
+    @app.get("/api/sticker-packs/catalog")
+    def sticker_pack_catalog(request: Request) -> dict[str, Any]:
+        """在线目录里的包（要联网）。"""
+        return svc(request).sticker_pack_catalog()
+
+    @app.post("/api/sticker-packs")
+    def sticker_pack_install(request: Request, body: StickerPackBody) -> dict[str, Any]:
+        """从在线目录装一个包（下载、核对 sha256）；owner 为空 = 通用。"""
+        return svc(request).install_sticker_pack(body.id, body.owner, body.label or "")
+
+    @app.patch("/api/sticker-packs/{pack_id}")
+    async def sticker_pack_assign(
+        request: Request, pack_id: str, body: StickerPackBody
+    ) -> dict[str, Any]:
+        return svc(request).assign_sticker_pack(pack_id, body.owner, body.label)
+
+    @app.delete("/api/sticker-packs/{pack_id}")
+    async def sticker_pack_remove(request: Request, pack_id: str) -> dict[str, Any]:
+        return svc(request).remove_sticker_pack(pack_id)
+
+    @app.get("/api/sticker-packs/{pack_id}/{n}")
+    async def sticker_pack_image(request: Request, pack_id: str, n: int) -> Response:
+        data, mime = svc(request).sticker_pack_image(pack_id, n)
+        headers = {"X-Content-Type-Options": "nosniff", "Cache-Control": "private, max-age=2592000"}
+        return Response(content=data, media_type=mime, headers=headers)
+
+    @app.get("/api/chat/stickers")
+    async def chat_stickers(request: Request) -> dict[str, Any]:
+        """聊天里显示的成员专属表情（审过的那些）。"""
+        return svc(request).chat_sticker_packs()
 
     @app.get("/api/chat/personas")
     async def chat_personas(request: Request) -> dict[str, Any]:
@@ -892,6 +1463,147 @@ def create_app(service: RoundtableService | None = None, lan: LanAccess | None =
     async def member_profile_clear(request: Request, member: str) -> dict[str, Any]:
         return svc(request).member_profile_clear(member)
 
+    # 成员成长（P6）：时间线、马上反思上一周、撤回一条、清空时间线
+    @app.get("/api/chat/growth/{member}")
+    async def member_growth(request: Request, member: str) -> dict[str, Any]:
+        return svc(request).member_growth(member)
+
+    @app.post("/api/chat/growth/{member}/run")
+    async def member_growth_run(request: Request, member: str) -> dict[str, Any]:
+        return await svc(request).member_growth_run(member)
+
+    @app.post("/api/chat/growth/{member}/revert")
+    async def member_growth_revert(
+        request: Request, member: str, body: GrowthRevertBody
+    ) -> dict[str, Any]:
+        return svc(request).member_growth_revert(member, body.id)
+
+    @app.post("/api/chat/growth/{member}/undo")
+    async def member_growth_undo(
+        request: Request, member: str, body: GrowthUndoBody
+    ) -> dict[str, Any]:
+        return svc(request).member_growth_undo(member, body.token)
+
+    @app.delete("/api/chat/growth/{member}")
+    async def member_growth_clear(request: Request, member: str) -> dict[str, Any]:
+        return svc(request).member_growth_clear(member)
+
+    # 成员关系（P4）：和你的阶段、同事之间的亲近度与看法；清空
+    @app.get("/api/chat/relation/{member}")
+    async def member_relation(request: Request, member: str) -> dict[str, Any]:
+        return svc(request).member_relation(member)
+
+    @app.post("/api/chat/relation/{member}/insight")
+    async def member_relation_insight(request: Request, member: str) -> dict[str, Any]:
+        return await svc(request).member_relation_insight(member)
+
+    @app.delete("/api/chat/relation/{member}/views/{index}")
+    async def member_relation_drop_view(
+        request: Request, member: str, index: int
+    ) -> dict[str, Any]:
+        return svc(request).member_relation_drop_view(member, index)
+
+    @app.put("/api/chat/relation/{member}/views/{index}/reply")
+    async def member_relation_reply_view(
+        request: Request, member: str, index: int, body: ViewReplyBody
+    ) -> dict[str, Any]:
+        return svc(request).member_relation_reply_view(member, index, body.text)
+
+    @app.delete("/api/chat/relation")
+    async def member_relation_clear(request: Request, member: str | None = None) -> dict[str, Any]:
+        return svc(request).member_relation_clear(member)
+
+    @app.get("/api/chat/engine/state")
+    async def member_states(request: Request) -> dict[str, Any]:
+        return svc(request).member_states()
+
+    @app.delete("/api/chat/engine/state")
+    async def member_states_clear(request: Request, member: str | None = None) -> dict[str, Any]:
+        return svc(request).member_states_clear(member)
+
+    # 关于你（成员系统 P8）：8 位共用的用户画像
+    @app.get("/api/chat/about")
+    async def about_view(request: Request) -> dict[str, Any]:
+        return svc(request).about_view()
+
+    @app.post("/api/chat/about/facts", status_code=201)
+    async def about_add(request: Request, body: AboutFactBody) -> dict[str, Any]:
+        return svc(request).about_add(body.text or "", body.domain)
+
+    @app.patch("/api/chat/about/facts/{fact_id}")
+    async def about_edit(request: Request, fact_id: int, body: AboutFactBody) -> dict[str, Any]:
+        return svc(request).about_edit(fact_id, body.text, body.domain)
+
+    @app.delete("/api/chat/about/facts/{fact_id}")
+    async def about_delete(request: Request, fact_id: int) -> dict[str, Any]:
+        return svc(request).about_delete(fact_id)
+
+    @app.post("/api/chat/about/facts/{fact_id}/reject")
+    async def about_reject(request: Request, fact_id: int) -> dict[str, Any]:
+        return svc(request).about_reject(fact_id)
+
+    @app.post("/api/chat/about/facts/{fact_id}/lock")
+    async def about_lock(request: Request, fact_id: int, body: AboutLockBody) -> dict[str, Any]:
+        return svc(request).about_lock(fact_id, body.locked)
+
+    @app.delete("/api/chat/about/rejected/{index}")
+    async def about_forget_rejected(request: Request, index: int) -> dict[str, Any]:
+        return svc(request).about_forget_rejected(index)
+
+    @app.post("/api/chat/about/domains")
+    async def about_domain(request: Request, body: AboutDomainBody) -> dict[str, Any]:
+        return svc(request).about_domain(body.domain, body.on)
+
+    @app.delete("/api/chat/about")
+    async def about_clear(request: Request, rejected: bool = False) -> dict[str, Any]:
+        return svc(request).about_clear(rejected)
+
+    @app.get("/api/chat/about/export")
+    async def about_export(request: Request, fmt: str = "json") -> Response:
+        data, media, name = svc(request).about_export(fmt)
+        return Response(
+            data,
+            media_type=media,
+            headers={"Content-Disposition": f'attachment; filename="{name}"'},
+        )
+
+    # 关于你 · 你的状态（P8 第二块；每项默认关）
+    @app.get("/api/chat/about/status")
+    async def about_status(request: Request) -> dict[str, Any]:
+        return svc(request).about_status()
+
+    @app.post("/api/chat/about/status")
+    async def about_status_set(request: Request, body: AboutStatusBody) -> dict[str, Any]:
+        return svc(request).about_status_set(body.kind, body.on)
+
+    @app.post("/api/chat/about/status/player")
+    async def about_music_player(request: Request, body: AboutPlayerBody) -> dict[str, Any]:
+        return svc(request).about_music_player(body.player)
+
+    @app.post("/api/chat/about/games")
+    async def about_game_add(request: Request, body: AboutGameBody) -> dict[str, Any]:
+        return svc(request).about_game_add(body.exe, body.name)
+
+    @app.delete("/api/chat/about/games")
+    async def about_game_del(request: Request, exe: str) -> dict[str, Any]:
+        return svc(request).about_game_del(exe)
+
+    @app.post("/api/chat/about/schedule/classes")
+    async def about_class_add(request: Request, body: AboutClassBody) -> dict[str, Any]:
+        return svc(request).about_class_add(body.weekday, body.start, body.end, body.name)
+
+    @app.post("/api/chat/about/schedule/ddls")
+    async def about_ddl_add(request: Request, body: AboutDdlBody) -> dict[str, Any]:
+        return svc(request).about_ddl_add(body.name, body.due)
+
+    @app.delete("/api/chat/about/schedule/{kind}/{item_id}")
+    async def about_schedule_del(request: Request, kind: str, item_id: int) -> dict[str, Any]:
+        return svc(request).about_schedule_del(kind, item_id)
+
+    @app.delete("/api/chat/about/schedule")
+    async def about_schedule_clear(request: Request) -> dict[str, Any]:
+        return svc(request).about_schedule_clear()
+
     @app.get("/api/chat/engine/events")
     async def member_events_count(request: Request) -> dict[str, Any]:
         return svc(request).member_events_count()
@@ -911,6 +1623,22 @@ def create_app(service: RoundtableService | None = None, lan: LanAccess | None =
     @app.put("/api/chat/feeds")
     async def chat_set_feeds(request: Request, body: FeedsBody) -> dict[str, Any]:
         return svc(request).chat_set_feeds(body.feeds)
+
+    @app.get("/api/chat/memes")
+    async def chat_memes(request: Request) -> dict[str, Any]:
+        return svc(request).chat_memes()
+
+    @app.post("/api/chat/memes")
+    async def chat_add_meme(request: Request, body: MemeBody) -> dict[str, Any]:
+        return svc(request).chat_add_meme(body.model_dump())
+
+    @app.delete("/api/chat/memes")
+    async def chat_remove_meme(request: Request, phrase: str) -> dict[str, Any]:
+        return svc(request).chat_remove_meme(phrase)
+
+    @app.post("/api/chat/memes/refresh")
+    async def chat_refresh_memes(request: Request) -> dict[str, Any]:
+        return await svc(request).chat_refresh_memes()
 
     @app.post("/api/chat/feeds/refresh")
     async def chat_refresh_feeds(request: Request) -> dict[str, Any]:
@@ -1336,6 +2064,23 @@ def create_app(service: RoundtableService | None = None, lan: LanAccess | None =
         resp = JSONResponse({"ok": True})
         resp.delete_cookie(LAN_COOKIE, path="/")
         return resp
+
+    # ---- 整库备份（docs/BACKUP.md）：恢复会覆盖全部数据，只能在电脑上做 ----
+
+    @app.get("/api/backup")
+    async def backup_status(request: Request) -> dict[str, Any]:
+        local_only(request)
+        return svc(request).backup_status()
+
+    @app.post("/api/backup/checkpoint")
+    async def backup_checkpoint(request: Request, body: BackupPoint) -> dict[str, Any]:
+        local_only(request)
+        return svc(request).backup_checkpoint(body.label)  # 同一连接，不放到别的线程
+
+    @app.post("/api/backup/restore")
+    async def backup_restore(request: Request, body: BackupRestore) -> dict[str, Any]:
+        local_only(request)
+        return svc(request).backup_restore(body.name)
 
     @app.get("/lan/pair")
     async def lan_pair_open(c: str = "") -> Response:

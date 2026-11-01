@@ -91,3 +91,121 @@ def test_tablet_can_chat_and_stop_but_not_start_or_preview(tmp_path):
         assert pad.get("/api/watch/frame").status_code == 403
         assert pad.get("/api/watch").json()["running"]
         assert pad.post("/api/watch/stop").json()["running"] is False
+        pair = {"host": "192.168.1.5", "port": 41234, "code": "123456"}
+        assert pad.post("/api/watch/adb/pair", json=pair).status_code == 403
+        assert pad.post("/api/watch/adb/connect", json={}).status_code == 403
+        assert pad.post("/api/watch/adb/qr").status_code == 403
+        assert pad.get("/api/watch/adb/qr").status_code == 403
+
+
+class FakeWirelessAdb:
+    """只有配对 / 连接的假安卓来源。"""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple] = []
+
+    def available(self):
+        return None
+
+    def sources(self):
+        return []
+
+    def pair(self, host, port, code):
+        from roundtable.core.screen import ScreenUnavailable
+
+        self.calls.append(("pair", host, port, code))
+        if code != "123456":
+            raise ScreenUnavailable("配对没成功")
+        return "配对成功"
+
+    def connect(self, host="", port=0):
+        self.calls.append(("connect", host, port))
+        return [f"{host or '192.168.1.5'}:{port or 37000}"]
+
+    def qr_ready(self):
+        self.calls.append(("qr_ready",))
+
+    def qr_pair(self, name, password):
+        self.calls.append(("qr_pair", name, password))
+        return "192.168.1.5:40021" if self.scanned else None
+
+    scanned = False
+
+
+def test_adb_pair_and_connect_from_the_pc():
+    env = env_with_screen()
+    adb = FakeWirelessAdb()
+    env.rt.screen_sources["android"] = adb
+    with TestClient(create_app(RoundtableService(env.rt))) as c:
+        r = c.post(
+            "/api/watch/adb/pair", json={"host": "192.168.1.5", "port": 41234, "code": "123456"}
+        )
+        assert r.status_code == 200 and r.json() == {
+            "message": "配对成功",
+            "connected": ["192.168.1.5:37000"],
+        }
+        bad = c.post(
+            "/api/watch/adb/pair", json={"host": "192.168.1.5", "port": 1, "code": "000000"}
+        )
+        assert bad.status_code == 400 and "配对没成功" in bad.json()["detail"]
+        assert (
+            c.post("/api/watch/adb/pair", json={"host": "x", "port": 1, "code": "1"}).status_code
+            == 422
+        )
+        r = c.post("/api/watch/adb/connect", json={"host": "192.168.1.5", "port": 37001})
+        assert r.json() == {"connected": ["192.168.1.5:37001"]}
+
+
+def test_overlay_starts_once_and_only_on_the_pc(monkeypatch):
+    """悬浮窗：另起一个进程连本机圆桌；开着时不重复开；没在投屏或平板上不能开。"""
+    import roundtable.core.service as service_mod
+
+    started: list[list[str]] = []
+
+    class Proc:
+        def poll(self):
+            return None
+
+    def popen(cmd, **kw):
+        started.append(cmd)
+        return Proc()
+
+    monkeypatch.setattr(service_mod.subprocess, "Popen", popen)
+    monkeypatch.setattr(service_mod, "_has_tk", lambda: True)
+    env = env_with_screen()
+    with TestClient(create_app(RoundtableService(env.rt)), base_url="http://127.0.0.1:8123") as c:
+        r = c.post("/api/watch/overlay")
+        assert r.status_code == 400 and "没在投屏" in r.json()["detail"]
+        c.post("/api/watch/start", json={"source": "pc", "watchers": ["V1"], "consent": True})
+        assert c.post("/api/watch/overlay").json() == {"started": True, "already": False}
+        assert c.post("/api/watch/overlay").json() == {"started": False, "already": True}
+        assert len(started) == 1
+        cmd = started[0]
+        assert cmd[1:3] == ["-m", "roundtable.desktop.overlay"]
+        assert cmd[cmd.index("--url") + 1] == "http://127.0.0.1:8123"
+        assert cmd[cmd.index("--state") + 1].endswith("watch_overlay.json")
+        c.post("/api/watch/stop")
+
+
+def test_adb_qr_pairing_from_the_pc():
+    env = env_with_screen()
+    adb = FakeWirelessAdb()
+    env.rt.screen_sources["android"] = adb
+    with TestClient(create_app(RoundtableService(env.rt))) as c:
+        assert c.get("/api/watch/adb/qr").json() == {"state": "none", "connected": []}
+        r = c.post("/api/watch/adb/qr").json()
+        assert r["payload"].startswith("WIFI:T:ADB;S:roundtable-") and r["expires_s"] == 180
+        name = r["payload"].split(";S:")[1].split(";")[0]
+        password = r["payload"].split(";P:")[1].split(";")[0]
+        assert c.get("/api/watch/adb/qr").json()["state"] == "waiting"
+        assert adb.calls[-1] == ("qr_pair", name, password)
+        adb.scanned = True
+        assert c.get("/api/watch/adb/qr").json() == {
+            "state": "connected",
+            "connected": ["192.168.1.5:37000"],
+        }
+        assert adb.calls[-1] == ("connect", "192.168.1.5", 0)
+        assert c.get("/api/watch/adb/qr").json()["state"] == "none"  # 用过就作废
+        # 新生成一张，旧的密码不再用
+        r2 = c.post("/api/watch/adb/qr").json()
+        assert r2["payload"] != r["payload"]

@@ -143,6 +143,24 @@ async def test_daily_limit_stops_calls_but_keeps_events():
     assert not env.fake.calls  # 生活和记忆整理都不调用
 
 
+def test_daytime_life_leaves_room_for_the_night_memory():
+    env = life_env(daily_usd=0.10, memory_reserve_usd=0.02)
+    life = engine(env)
+    assert life.allowed(0.08) and not life.allowed(0.09)  # 白天只能花到 $0.08
+    assert life.memory.allow(0.09) and not life.memory.allow(0.11)  # 记忆整理能用满上限
+
+
+def test_night_memory_still_runs_after_the_near_cap_halt_but_not_after_errors():
+    """10-31 第 3 次试跑：整理了 3 位就「接近每日上限」熔断，剩下 5 位一天什么都没记住。"""
+    env = life_env(daily_usd=0.10, memory_reserve_usd=0.03)
+    life = engine(env)
+    life.guard.halt("生活今天已花 $0.096，接近每日上限 $0.10")
+    assert not life.allowed(0.001)  # 白天的生活停了
+    assert life.memory.allow(0.005)  # 记忆整理照跑（不超上限）
+    life.guard.halt("连续 3 次调用出错")
+    assert not life.memory.allow(0.005)
+
+
 async def test_disabled_does_nothing():
     env = life_env(enabled=False)
     out = await engine(env).tick(NOW)
@@ -191,3 +209,59 @@ async def test_unwritten_life_events_feed_the_day_memory():
     log = life.memory.day_log(member, day.date(), UTC)
     assert "食堂" in log or "办公室" in log
     assert all(line[5:7] == " （" for line in log.splitlines())  # 「时:分 （地点）」
+
+
+# --- 分享后接着聊（2026-10-31 用户：分享是甩过去让大家看，看了再讨论）------------------
+
+
+async def _shared(env: Env) -> tuple[LifeEngine, dict]:
+    from roundtable.core.browse import set_feeds
+    from roundtable.core.persona import set_persona
+
+    from .test_browse import FEEDS, fake_fetch
+
+    set_feeds(env.rt, FEEDS)
+    life = engine(env)
+    for m in life.hub.everyone():
+        set_persona(env.rt, m.id, {"interests": ["游戏"]})
+    life.browse.fetch = fake_fetch([])
+    assert await life.browse.tick(NOW) == 1
+    (row,) = life.browse.posted
+    return life, row
+
+
+async def test_after_a_share_one_or_two_others_open_it_and_talk():
+    env = chatty(Env())
+    life, row = await _shared(env)
+    said = await life.react(row, NOW)
+    assert 1 <= said <= env.rt.config.roundtable.chat.browse.react_turns
+    calls = life_calls(env)
+    assert calls and all("甩了一条[帖子] Game launch" in c.messages[-1].content for c in calls)
+    after = [m for m in env.rt.repo.chat_messages(ROOM) if m["id"] > row["id"]]
+    assert len(after) == said and after[0]["author"] != row["author"]
+
+
+async def test_no_one_follows_up_a_share_when_it_is_turned_off():
+    rules = Env().config.roundtable.chat
+    env = Env(
+        rt_update={
+            "chat": rules.model_copy(
+                update={"browse": rules.browse.model_copy(update={"react_members": 0})}
+            )
+        }
+    )
+    life, row = await _shared(chatty(env))
+    assert await life.react(row, NOW) == 0
+    assert not life_calls(env)
+
+
+async def test_live_scene_lines_get_distinct_times_before_now():
+    env = chatty(Env())
+    life = engine(env)
+    room = pair_room("V2", "V1")
+    plan = life.plan(NOW - timedelta(hours=1), NOW)[0]
+    plan.kind, plan.members, plan.room = "pair", ["V1", "V2"], room
+    await life.write(plan, offline=False, now=NOW)
+    stamps = [m["created_at"] for m in env.rt.repo.chat_messages(room, limit=10)]
+    assert len(stamps) == len(set(stamps)) >= 2  # 不再同一毫秒
+    assert stamps == sorted(stamps) and all(s <= iso(NOW) for s in stamps)

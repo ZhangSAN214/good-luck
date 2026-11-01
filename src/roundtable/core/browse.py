@@ -24,6 +24,7 @@ from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
 from email.utils import parsedate_to_datetime
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 from pydantic import TypeAdapter, ValidationError
@@ -40,6 +41,8 @@ from roundtable.core.chat import (
 )
 from roundtable.core.chat_actions import card_from_item
 from roundtable.core.config.schema import FeedSpec
+from roundtable.core.member.memes import strip_stale
+from roundtable.core.member.voice import Said, before_voice, recent_words, voice_for
 from roundtable.core.office.apartment import schedule
 from roundtable.core.persona import chat_persona, persona_of
 from roundtable.core.plain_talk import before_speaking, plain_prompt
@@ -60,8 +63,30 @@ _FEEDS = TypeAdapter(list[FeedSpec])
 Fetch = Callable[[str, float, int], Awaitable[bytes]]
 
 
+def cut_title(title: str) -> bool:
+    """标题是不是被截断了（以省略号收尾）。"""
+    return str(title or "").rstrip().endswith(("…", "...", "……"))
+
+
 class FeedError(ValueError):
     pass
+
+
+_HUB_PATH = re.compile(
+    r"/(?:index|default|home|list|lists|news|channel|channels|category|categories|tag|tags|"
+    r"topic|topics|search|section|column|rolling|roll|latest|archive|archives)"
+    r"(?:[_-]?\d*)?(?:\.s?html?|\.php|\.aspx?)?/?$",
+    re.IGNORECASE,
+)
+_HUB_TITLE = re.compile(r"首页|频道|栏目|滚动|列表|新闻中心|资讯中心|官网|官方网站|汇总|大全")
+
+
+def looks_like_article(url: str, title: str) -> bool:
+    """搜索结果是一篇具体的内容（文章、帖子、视频），不是网站首页或栏目列表页。"""
+    path = urlparse(url).path
+    if path in ("", "/") or _HUB_PATH.search(path):
+        return False
+    return not _HUB_TITLE.search(title or "")
 
 
 def strip_html(text: str | None) -> str:
@@ -161,6 +186,32 @@ async def http_fetch(url: str, timeout_s: float, max_bytes: int) -> bytes:
         return b"".join(chunks)
 
 
+def record_search(rt: Any, room: str, step: str, query: str, call: Any) -> None:
+    """把一次联网搜索记进 calls 表（挂在隐藏聊天会话 room 上，按 step 统计花费和次数）。"""
+    completion = Completion(
+        text="",
+        model_id=f"search:{call.provider}",
+        channel=call.provider,
+        channel_kind="search",
+        route_model="search",
+        input_tokens=0,
+        output_tokens=0,
+        cached_tokens=0,
+        cost_usd=call.cost_usd,
+        cost_source=call.cost_source,
+        latency_s=call.latency_s,
+        attempts=call.attempts,
+    )
+    rt.repo.record_call(
+        rt.repo.chat_session(room),
+        step=step,
+        role="tool",
+        model_id=completion.model_id,
+        messages=[Message("user", f"search: {query}")],
+        completion=completion,
+    )
+
+
 def feeds_of(rt: Any) -> tuple[list[FeedSpec], str]:
     """(订阅源清单, 来源)：网页里改过的（local）优先，否则配置文件里的（config）。"""
     stored = rt.repo.setting(FEEDS_KEY)
@@ -193,6 +244,7 @@ class Browser:
         fetch: Fetch | None = None,
     ) -> None:
         self.rt = rt
+        self.posted: list[dict[str, Any]] = []  # 这次推进里发出的分享（消息行）
         self.hub = hub
         self.allow = allow  # 生活每日上限
         self.fetch = fetch  # 为空时用模块里的 http_fetch（测试里整体替换，不联网）
@@ -294,34 +346,15 @@ class Browser:
             return None
         query = f"{interest} 最新消息"
         try:
-            result, call = await rt.search.search(query, 3)
+            result, call = await rt.search.search(query, 6)
         except SearchUnavailable:
             return None
-        completion = Completion(
-            text="",
-            model_id=f"search:{call.provider}",
-            channel=call.provider,
-            channel_kind="search",
-            route_model="search",
-            input_tokens=0,
-            output_tokens=0,
-            cached_tokens=0,
-            cost_usd=call.cost_usd,
-            cost_source=call.cost_source,  # type: ignore[arg-type]
-            latency_s=call.latency_s,
-            attempts=call.attempts,
-        )
-        rt.repo.record_call(
-            rt.repo.chat_session(BROWSE_ROOM),
-            step=SEARCH_STEP,
-            role="tool",
-            model_id=completion.model_id,
-            messages=[Message("user", f"search: {query}")],
-            completion=completion,
-        )
+        record_search(rt, BROWSE_ROOM, SEARCH_STEP, query, call)
         for hit in result.hits:
             if not hit.url.startswith(("http://", "https://")):
                 continue
+            if not looks_like_article(hit.url, strip_html(hit.title)):
+                continue  # 栏目首页、列表页：点开什么都看不到（10-31 第 3 次试跑 6 条全是这种）
             if rt.repo.add_web_item(
                 f"搜索：{interest}",
                 hit.url,
@@ -335,19 +368,47 @@ class Browser:
 
     # --- 分享 --------------------------------------------------------------------
 
+    async def _self_check(self, member: ChatMember, text: str, names: dict[str, str]) -> str:
+        """说出口前自查（成员系统 P5）：和大家最近的分享比开头句式、相似度，和她自己最近说的比；
+        查出问题改写一次（分享不会因此不发）。"""
+        rt = self.rt
+        rows = [
+            r
+            for r in rt.repo.chat_messages(ROOM, limit=200)
+            if (r["meta"] or {}).get("share") and r["author"] in names
+        ][-12:]
+        said = Said(
+            own=tuple(r["text"] for r in rows if r["author"] == member.id),
+            others=tuple((names[r["author"]], r["text"]) for r in rows if r["author"] != member.id),
+            long=recent_words(rt, member.id, rt.budget.now()),
+        )
+        return await before_voice(
+            rt,
+            text,
+            said,
+            member=member.id,
+            room=ROOM,
+            room_kind="share",
+            named=True,
+            name=member.name,
+            model_id=member.model_id,
+        )
+
     async def share(
         self, member: ChatMember, item: dict[str, Any], interest: str
     ) -> dict[str, Any] | None:
         rt, rules = self.rt, self.rules
         if not self.allow(rules.estimate_usd):
             return None
+        if cut_title(item["title"]) and not (item["summary"] or "").strip():
+            return None  # 标题被截断、又没有正文：看不懂就不拿来聊（11-01 第 4 次真跑）
         everyone = {m.id: m.name for m in self.hub.everyone()}
         chat = self.hub.room(ROOM)
         when = item["published"] or "未知"
         source = f"来源：{item['feed']}；发布时间：{when}"
         if item["unverified"]:
-            source += "；未核实（论坛、博客或搜索结果）"
-        article = f"标题：{item['title']}\n摘要：{item['summary'] or '（没有摘要）'}"
+            source += "；未核实（论坛、博客或网上搜到的）"
+        article = f"标题：{item['title']}\n内容：{item['summary'] or '（只有标题）'}"
         prompt = rt.prompts.render(
             "life_share",
             rt.config.roundtable.prompts["life_share"],
@@ -356,6 +417,7 @@ class Browser:
             source=source,
             article=article,
             persona=chat_persona(rt, member.id),
+            voice=voice_for(rt, member.id, "share", seed=item["id"]),
             memory=member_memory(rt, member.id, f"{interest}\n{article}"),
             history=chat.history(everyone),
         )
@@ -376,9 +438,16 @@ class Browser:
         text = clean_reply(completion.text, member.name, rt.config.roundtable.chat.max_chars)
         if not text:
             return None
+        text = await self._self_check(member, text, everyone) or text
         text = await before_speaking(
             rt, text, room=ROOM, name=member.name, model_id=member.model_id
         )
+        # 说话的样子：书面词换口语、句尾标点、笑法、心情别直说（和群聊同一套收尾）
+        from roundtable.core.member.lingo import Lingo  # lingo 依赖成员档案
+
+        text = Lingo(rt, names=everyone).finish(
+            member.id, text, rng=random.Random(f"share:{item['id']}:{member.id}")
+        )[0] or strip_stale(text, rt.config.roundtable.chat.memes.stale)
         rt.repo.mark_web_shared(item["id"], member.id)
         kinds = {f.name: f.kind for f in feeds_of(rt)[0]}
         card = card_from_item(
@@ -418,6 +487,7 @@ class Browser:
         ]
         rng.shuffle(awake)
         shared = 0
+        self.posted = []
         for member in awake:
             if shared >= rules.shares_per_tick:
                 break
@@ -430,7 +500,9 @@ class Browser:
                 found = (item, interest) if item else None
             if found is None:
                 continue
-            if await self.share(member, *found) is None:
+            row = await self.share(member, *found)
+            if row is None:
                 break  # 预算不够或调用失败：这次不再试
+            self.posted.append(row)  # 生活引擎接着让一两位看了说两句
             shared += 1
         return shared

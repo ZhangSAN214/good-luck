@@ -60,6 +60,7 @@ def test_pick_without_mentions_is_one_or_two_available_members():
 def test_clean_reply():
     assert clean_reply("阿二：「好的」", "阿二", 100) == "好的"
     assert clean_reply("x" * 20, "阿二", 10) == "x" * 10 + "…"
+    assert clean_reply("心虚 (〃&gt;＿&lt;;〃)", "阿二", 100) == "心虚 (〃>＿<;〃)"
 
 
 async def test_replies_are_recorded_and_think_independently():
@@ -140,10 +141,39 @@ async def test_search_messages():
 def test_everyone_words_ask_all_available_members():
     env = Env()
     n = len(chat(env).members())
+    for _ in range(6):  # 你在群里说过不少话了（刚进群另算，见下一个测试）
+        env.rt.repo.add_chat_message("main", "user", "在吗")
     for text in ("所有人自我介绍一下自己", "大家觉得呢", "各位早"):
         assert len(chat(env).pick(text)) == n
     # 点了名就只叫被点名的人
     assert [m.id for m in chat(env).pick("@阿二 大家说的对吗")] == ["V2"]
+
+
+def test_a_newcomer_saying_hi_to_everyone_gets_two_or_three_answers():
+    """10-31 用户反向找问题：新人进群 8 个人轮流自我介绍像机器人。"""
+    env = Env()
+    n = len(chat(env).members())
+    for seed in range(10):
+        room = chat(env, seed)
+        msg, speakers = room.post("大家好，我是新来的")
+        assert 1 <= len(speakers) <= min(3, n)
+        env.rt.repo.conn.execute("DELETE FROM chat_messages WHERE id = ?", (msg["id"],))
+    assert [m.id for m in chat(env).pick("@阿二 大家好")] == ["V2"]  # 点名照旧
+
+
+async def test_same_shape_replies_in_one_round_are_trimmed():
+    from roundtable.core.chat import Thought
+    from roundtable.core.chat_actions import Segment
+
+    env = Env()
+    room = chat(env)
+    a, b = room.members()[:2]
+    shapes: list = []
+    segs = [Segment("你好呀新邻居"), Segment("我是谁谁"), Segment("住几楼呀")]
+    first = room._unshape(Thought(a, segs, 0.0), shapes)
+    second = room._unshape(Thought(b, [Segment("你好呀！"), *segs[1:]], 0.0), shapes)
+    third = room._unshape(Thought(b, [Segment("哈喽"), *segs[1:]], 0.0), shapes)
+    assert len(first.segments) == 3 and len(second.segments) == 2 and len(third.segments) == 3
 
 
 async def test_empty_reply_is_explained_and_low_effort_params_are_used():
@@ -235,6 +265,24 @@ async def test_dm_only_the_member_replies_with_the_dm_prompt():
     assert [r["text"] for r in env.rt.repo.chat_messages("main")] == []
 
 
+async def test_dm_knows_what_was_just_said_in_the_family_group():
+    env = Env()
+    hub = ChatHub(env.rt, rng=random.Random(0))
+    env.rt.repo.add_chat_message("main", "V1", "今天阿三生日，谁去买蛋糕")
+    env.rt.repo.add_chat_message("main", "V3", "我买好了")
+    dm = hub.room(dm_room("V2"))
+    msg, speakers = dm.post("今天有啥事吗")
+    await dm.replies(msg["id"], speakers)
+    sent = env.fake.calls[-1].messages[-1].content
+    assert "大家庭群里最近说过" in sent
+    assert "阿一：今天阿三生日" in sent and "阿三：我买好了" in sent
+    # 群里自己说话时不重复带
+    group = hub.room("main")
+    msg, _ = group.post("@阿二 你买了没")
+    await group.replies(msg["id"], group.pick("@阿二 你买了没"))
+    assert "大家庭群里最近说过" not in env.fake.calls[-1].messages[-1].content
+
+
 async def test_work_group_uses_its_own_prompt():
     env = Env()
     work = ChatHub(env.rt).room("work")
@@ -317,3 +365,91 @@ async def test_work_group_never_carries_the_pocket_card():
 
 def json_text(call) -> str:
     return "\n".join(m.content for m in call.messages)
+
+
+async def test_crisis_words_in_a_dm_reach_the_member_as_a_care_card():
+    """危机应对（2026-10-30）：私聊里说出想不开的话，成员拿到的是关心卡（求助电话按主时区）；
+    工作群里也一样（chat_work v4 的 <care>，不带人设），平常的工作消息不带。"""
+    from roundtable.core.hometz import home_zone
+
+    env = Env()
+    home_zone(env.rt).set("Asia/Shanghai")
+    dm = ChatHub(env.rt, rng=random.Random(0)).room(dm_room("V2"))
+    msg, speakers = dm.post("我真的不想活了")
+    await dm.replies(msg["id"], speakers)
+    text = json_text(env.fake.calls[-1])
+    assert "12356" in text and "不挽留" in text
+    work = ChatHub(env.rt).room("work")
+    msg, _ = work.post("@阿三 我不想活了")
+    await work.replies(msg["id"], work.pick("@阿三 我不想活了"))
+    assert "12356" in json_text(env.fake.calls[-1])
+    env.rt.repo.set_setting("member_care", "")
+    msg, _ = work.post("@阿三 进度怎么样")
+    await work.replies(msg["id"], work.pick("@阿三 进度怎么样"))
+    assert "12356" not in json_text(env.fake.calls[-1])
+
+
+def test_group_history_hides_what_she_slept_through_except_the_last_few(real_rhythm):
+    from datetime import UTC, datetime, timedelta
+
+    from roundtable.core.office.apartment import schedule
+    from roundtable.core.storage.repository import iso
+
+    env = Env()
+    room = chat(env)
+    member = room.members()[0]
+    base = datetime(2026, 11, 2, tzinfo=UTC)
+    zone_hours = [h for h in range(24) if schedule(member.id, h, base.weekday())[1] == "sleep"]
+    if not zone_hours:
+        return
+    from roundtable.core.hometz import home_zone
+
+    local = home_zone(env.rt).local(base).replace(hour=zone_hours[0], minute=0)
+    for i in range(6):
+        env.rt.repo.add_chat_message(
+            "main",
+            "V2" if member.id != "V2" else "V3",
+            f"夜里第{i}条",
+            created_at=iso(local + timedelta(minutes=i)),
+        )
+    names = {m.id: m.name for m in room.everyone()}
+    seen = room.history(names, viewer=member.id)
+    assert "夜里第5条" in seen and "夜里第3条" in seen and "夜里第2条" not in seen
+    assert "还有 3 条没看到" in seen
+    assert "夜里第0条" in room.history(names)  # 不指定谁在看：全给
+
+
+def test_member_asked_by_a_colleague_answers_first_next_round():
+    """11-01 用户：有人问了没人回。阿一问了阿三还没回，你再说话时阿三先接。"""
+    env = Env()
+    room = chat(env)
+    env.rt.repo.add_chat_message(room.room, "V1", "阿三你昨天那家店好吃吗？")
+    for seed in range(10):
+        picked = chat(env, seed).pick("今天吃什么")
+        assert picked[0].id == "V3"
+    env.rt.repo.add_chat_message(room.room, "V3", "还行吧")
+    assert chat(env).owed(chat(env).members()) is None
+
+
+async def test_handoff_and_choices_ride_on_the_last_bubble_or_their_own():
+    from roundtable.core.chat import Thought
+    from roundtable.core.chat_actions import Segment
+
+    env = Env()
+    room = ChatHub(env.rt, rng=random.Random(0)).room(dm_room("V1"))
+    room.sleep = _nosleep
+    member = room.members()[0]
+    ask = env.rt.repo.add_chat_message(room.room, "user", "帮我做个表")
+    t = Thought(member, [Segment("行，我去弄", None)], 0.0, "", "做一张十月花销表", ["要", "不要"])
+    await room._post(t, ask["id"], None, set())
+    last = env.rt.repo.chat_messages(room.room, limit=5)[-1]
+    assert last["meta"]["handoff"] == {"task": "做一张十月花销表", "state": "pending"}
+    assert last["meta"]["choices"] == ["要", "不要"]
+    # 话都没说出来：单独发一张交办卡片
+    await room._post(Thought(member, [], 0.0, "", "画一张猫"), ask["id"], None, set())
+    card = env.rt.repo.chat_messages(room.room, limit=5)[-1]
+    assert card["meta"]["handoff"]["task"] == "画一张猫" and card["meta"]["auto_text"]
+
+
+async def _nosleep(_s: float) -> None:
+    return None

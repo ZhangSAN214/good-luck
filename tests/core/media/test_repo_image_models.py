@@ -7,7 +7,8 @@ from roundtable.core.providers import image_cost
 
 from .conftest import Rig
 
-BUDGET_MAX_USD = 0.02  # 节电档只放每张 ≤ $0.02 的画图模型
+# 节电档只放每张 ≤ $0.025 的画图模型（混元 3.5 实测每张约 $0.024，中文配文最准）
+BUDGET_MAX_USD = 0.025
 
 
 def image_models():

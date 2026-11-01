@@ -17,8 +17,12 @@ if not exist ".venv\Scripts\activate.bat" (
 )
 call ".venv\Scripts\activate.bat" || goto :error
 
-echo [2/5] git pull ...
-git pull || goto :error
+echo [2/5] Saving a database checkpoint, then git pull ...
+rem Whole-database checkpoint before updating (docs/BACKUP.md). A failure here only warns.
+python -m roundtable backup checkpoint update
+if errorlevel 1 echo [warn] Could not save the database checkpoint, updating anyway.
+rem --autostash: settings you edited in tracked files are set aside and put back after the update
+git pull --autostash || goto :error
 
 echo [3/5] pip install -e ".[dev,media]" ...
 python -m pip install -e ".[dev,media]" || goto :error

@@ -10,6 +10,7 @@ import pytest
 import yaml
 
 from roundtable.core.config import DEFAULT_CONFIG_DIR, ConfigError, load_config
+from roundtable.core.config.loader import NO_LOCAL_ENV, deep_merge
 
 
 @pytest.fixture
@@ -45,6 +46,11 @@ def test_repo_config_loads_with_defaults():
     assert rt.channel_mode == "auto"
     assert rt.pipeline == ["answer", "review", "revise", "synthesize", "reveal"]
     assert set(rt.prompts) == {
+        "sticker_draw",
+        "sticker_check",
+        "sticker_anim",
+        "moment_photo",
+        "moment_photo_tags",
         "planner",
         "panel",
         "ideate",
@@ -85,6 +91,7 @@ def test_repo_config_loads_with_defaults():
         "memory_diary_result",
         "life_chat",
         "life_share",
+        "meme_radar",
         "moment_post",
         "moment_comment",
         "office_fix",
@@ -132,10 +139,69 @@ def test_repo_config_loads_with_defaults():
         "perceive_fast",
         "perceive_fine",
         "member_eval",
+        "growth_reflect",
+        "growth_review",
+        "relation_insight",
         "plain_talk",
         "plain_rewrite",
+        "voice_rewrite",
         "watch",
         "wander",
+        "dsh_workbench",
+        "super_split",
+        "super_work",
+        "super_merge",
+        "bench_plan",
+        "bench_window",
+        "bench_review",
+        "bench_rework",
+        "bench_ask",
+        "bench_ask_json",
+        "bench_research",
+        "bench_learn",
+        "bench_interview",
+        "bench_skill_manager",
+        "bench_skill_intent",
+        "bench_skill_layout",
+        "bench_skill_no_ai",
+        "bench_skill_assets",
+        "bench_skill_testing",
+        "bench_skill_report",
+        "bench_skill_team",
+        "bench_skill_visual_review",
+        "bench_skill_data",
+        "bench_skill_editor",
+        "bench_skill_game",
+        "bench_skill_dashboard",
+        "bench_skill_ai_features",
+        "bench_skill_attack",
+        "bench_skill_audio",
+        "bench_skill_brand",
+        "bench_skill_chat_role",
+        "bench_skill_cjk_type",
+        "bench_skill_coding",
+        "bench_skill_commercial",
+        "bench_skill_content",
+        "bench_skill_education",
+        "bench_skill_estimate",
+        "bench_skill_handoff",
+        "bench_skill_interaction",
+        "bench_skill_interview",
+        "bench_skill_mobile",
+        "bench_skill_motion3d",
+        "bench_skill_onboarding",
+        "bench_skill_product",
+        "bench_skill_productivity",
+        "bench_skill_research",
+        "bench_skill_retro",
+        "bench_skill_security",
+        "bench_skill_sim",
+        "bench_skill_storage",
+        "bench_evolve",
+        "bench_pitch",
+        "bench_vote",
+        "bench_attack",
+        "bench_look",
         "describe_screen",
     }
     assert rt.collab_pipeline == [
@@ -162,8 +228,11 @@ def test_repo_config_has_both_channel_kinds():
     cfg = load_config()
     kinds = {c.kind for c in cfg.models.channels.values()}
     assert {"aggregator", "direct"} <= kinds
-    # 每个模型都至少能经由 OpenRouter 调用
+    # 每个模型都至少能经由 OpenRouter 调用（只在本机跑的本地模型除外，如 ComfyUI 出图）
     for m in cfg.models.models:
+        if all(cfg.models.channels[r.channel].kind == "local" for r in m.routes):
+            assert not m.enabled, m.id  # 本地模型默认关，装好后在本机打开
+            continue
         assert any(r.channel == "openrouter" for r in m.routes), m.id
 
 
@@ -402,3 +471,59 @@ def test_default_tts_voices_are_set_per_model():
 def test_member_voices_must_name_speech_models(config_dir):
     edit(config_dir, "personas.yaml", lambda d: d["voices"].update(Google={"gpt-image-2": "Kore"}))
     expect_error(config_dir, "voices.Google", "gpt-image-2")
+
+
+# --- 本机覆盖文件 <名字>.local.yaml -----------------------------------------------
+
+
+def test_local_override_merges_over_repo_config(config_dir, monkeypatch):
+    monkeypatch.delenv(NO_LOCAL_ENV)
+    base = load_config(config_dir).roundtable.evolution
+    (config_dir / "roundtable.local.yaml").write_text(
+        "evolution:\n  enabled: true\n  implement:\n    enabled: true\n", encoding="utf-8"
+    )
+    merged = load_config(config_dir).roundtable.evolution
+    assert merged.enabled and merged.implement.enabled
+    # 没写的字段保持仓库里的值
+    assert merged.topic == base.topic
+    assert merged.implement.base_branch == base.implement.base_branch
+
+
+def test_local_override_errors_name_both_files(config_dir, monkeypatch):
+    monkeypatch.delenv(NO_LOCAL_ENV)
+    (config_dir / "roundtable.local.yaml").write_text("evolution:\n  bogus: 1\n", encoding="utf-8")
+    expect_error(config_dir, "roundtable.local.yaml", "evolution.bogus")
+
+
+def test_local_override_ignored_in_tests(config_dir):
+    (config_dir / "roundtable.local.yaml").write_text("evolution:\n  bogus: 1\n", encoding="utf-8")
+    load_config(config_dir)
+
+
+def test_deep_merge_replaces_lists_and_scalars():
+    merged = deep_merge({"a": {"b": 1, "c": [1, 2]}, "d": 1}, {"a": {"c": [3]}, "d": 2})
+    assert merged == {"a": {"b": 1, "c": [3]}, "d": 2}
+
+
+def test_model_switches_turn_a_model_on_from_the_local_file(config_dir, monkeypatch):
+    monkeypatch.delenv(NO_LOCAL_ENV)
+    off = [m.id for m in load_config(config_dir).models.models if not m.enabled]
+    assert off  # 仓库里有默认关掉的模型（如本地出图）
+    (config_dir / "models.local.yaml").write_text(
+        f"model_switches:\n  {off[0]}: true\n", encoding="utf-8"
+    )
+    models = load_config(config_dir).models
+    assert models.get(off[0]).enabled
+    # 只改开关，模型列表的其他内容不受影响（列表合并时整体替换的问题不会出现）
+    assert len(models.models) == len(load_config().models.models)
+
+
+def test_model_switches_reject_unknown_ids(config_dir):
+    edit(config_dir, "models.yaml", lambda d: d.update(model_switches={"no-such-model": True}))
+    expect_error(config_dir, "model_switches", "no-such-model")
+
+
+def test_moment_photos_local_only_defaults_off():
+    rules = load_config().roundtable.media.moment_photos
+    assert rules.local_only is False
+    assert set(rules.tag_subjects) == {"none", "part", "full"}

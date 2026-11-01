@@ -56,6 +56,7 @@
 - 阵容（`routing/lineup.py`）：所选档位的全部可用模型上桌；统筹按 `roundtable.yaml` 的 `coordinator` 规则在场内选出（rotate：随机，最近当过的排后；fixed：指定模型在场时用它），其余为组员；人数不足 `min_members + 1` 或组员超过 `seats` 时报错。
 - 加模型 / 加渠道只改配置。禁止针对具体模型、厂商或渠道写分支（`if model_id == ...`、`if vendor == ...`）。
 - 所有配置 pydantic 校验（多余字段报错），失败给出带文件名和字段路径的报错。
+- **本机设置覆盖**：用户在自己电脑上改的设置写在 `config/<名字>.local.yaml`（如 `roundtable.local.yaml`，`.gitignore` 已忽略），加载时逐层合并到仓库配置之上（映射合并，列表和标量整体替换），校验报错会同时写出两个文件名。不要直接改仓库里的 `config/*.yaml` 存本机设置，否则 `git pull` 会被卡住。测试通过 `ROUNDTABLE_NO_LOCAL_CONFIG` 跳过覆盖文件。
 
 ### 2.2 Provider 与双渠道
 - `core/providers/base.py`：`Provider` 抽象类，**一个渠道一个实例**。文本补全必须实现；媒体能力 `generate_image`（默认走对话接口的 `images`）、`synthesize_speech`、`transcribe`、`submit_video` / `poll_video` / `fetch_video`（异步任务）默认抛 `UnsupportedCapability`。`openai_compat` 按 OpenRouter 的接口实现后四项（`/audio/speech`、`/audio/transcriptions`、`/videos`）。`ChannelRouter.invoke(model_id, call)` 是通用的渠道调用（切换 / 退避 / 冷却规则同文本；渠道不支持该能力时视为不可用换下一个），`complete()` 建立在它之上。
@@ -66,6 +67,7 @@
   3. 遇到 429、额度用尽、key 无效、模型不存在、网络错误、超时、5xx 时**切换到下一个渠道**；请求本身有问题（400）或模型拒答时不切换。
   4. 所有渠道都失败后按 `failover_rounds` 退避重试；额度用尽 / key 无效的渠道本次不再重试。
   5. 出错的渠道进入冷却期（限流短、额度长，参考 `retry-after`），冷却中排到最后。
+  6. **渠道优先顺序**（`providers/priority.py`，`roundtable.yaml` 的 `channel_priority`，界面「余额与用量 → 走哪条路」可改，存 `app_settings` 的 `channels.priority`）：`auto` 按 `routes` 顺序，`custom` 按用户列的渠道先后；渠道填了每月附送额度（`models.yaml` 渠道的 `monthly_credit_usd` 或界面填写）时，本月按本机账本没用完排最前、用完排最后（`budget/channels.py` 的 `MonthSpend`，缓存 30 秒）。只决定走哪条路，不影响谁上桌。
 - **限速与并发**（`request.max_concurrent` / `request.requests_per_minute`，按渠道分别计，在 `ChannelRouter.invoke` 里）：同时在途的请求数超过上限时排队；每分钟请求数达到上限时等待而不是报错。Web 服务另有 `limits.max_running_sessions`（同时在后台执行的讨论数，超过时 HTTP 429；等待确认的不占名额）。
 - 适配器本身不重试（SDK 的 `max_retries=0`），重试和切换只由路由负责。
 - 每次调用返回 `Completion`：实际走的渠道、渠道类型、各次尝试（渠道 + 错误类型）、token、费用及来源。
@@ -108,7 +110,7 @@
 - 每步结束状态落库；可暂停、关页面后恢复，恢复时不重复已完成的调用。
 
 ### 2.4 提示词外置且带版本
-- `prompts/<role>/v<n>.md`：风格：`style_extract`（成员各自看参考图）、`style_merge`（统筹合并成规范 + 清单）、`style_guide`（接在之后的每次调用上）、`media_review`（v2：对照风格清单逐条判定）、`tools`（v5：`in/` 上游文件与 `refs`）；协同模式 `decompose`（v3：子任务可标 `media`；v4：流水线，要求类型 `kind`、`gives` 交接、每人一块不同的工作）、`decompose_retry`（拆分不合格时把问题列给统筹重拆）、`volunteer`、`assign`（v3：流水线分配规则）、`work`（旧流程）、各类型的工作提示词 `work_analyze` / `work_research` / `work_write` / `work_prompt` / `work_generate`（执行生成前确认提示词的短调用）/ `work_code` / `work_verify` / `work_review` / `work_factcheck` / `work_assemble`、`cross_review`、`rework`、`merge`、澄清提问 `clarify_offer` / `clarify_answer` / `clarify_reply`；媒体：`media_brief`（把需求改写成「写生成提示词」的任务）、`media_review`、`media_refine`、`work_media`、`rework_media`；讨论模式 `planner`、`answer`、`review`、`revise`（v2：逐条"采纳 / 部分采纳 / 不采纳"）、`synthesize`（v3：`adopted_from`、注意 flagged 的答案）、`redo`（打回重做：system 段接在原系统提示后，user 段追加在原对话后）；附件 `attachments`（附件说明与 `<attachment>` 块，接在每次调用的系统提示与第一条用户消息之后，所以各步骤提示词不必改版本）、`describe_image`（图片文字版）、`transcribe`（音频转写）；`answer_quick` 已不再引用（已发布版本保留）；说话底线（去八股化）`plain_talk`（不用金句收尾、不喊格言口号、不排比升华、不写空洞总结；没有变量，接在 `roundtable.yaml` 的 `plain_talk.roles` 列出的每次调用上，同一步骤所有成员相同，聊天和工作模式共用，所以各步骤提示词不必改版本）、`plain_rewrite`（聊天、生活、朋友圈的发言发出前按 `plain_talk.check.rules` 规则表程序检查，查出问题才用该成员自己的聊天档模型改写一次，改写更差、失败或超出月上限 `monthly_usd` 时发原文；实现在 `core/plain_talk.py`，改写函数可替换，留给成员引擎接管）。代码中不得内联提示词正文。
+- `prompts/<role>/v<n>.md`：风格：`style_extract`（成员各自看参考图）、`style_merge`（统筹合并成规范 + 清单）、`style_guide`（接在之后的每次调用上）、`media_review`（v2：对照风格清单逐条判定）、`tools`（v5：`in/` 上游文件与 `refs`）；协同模式 `decompose`（v3：子任务可标 `media`；v4：流水线，要求类型 `kind`、`gives` 交接、每人一块不同的工作）、`decompose_retry`（拆分不合格时把问题列给统筹重拆）、`volunteer`、`assign`（v3：流水线分配规则）、`work`（旧流程）、各类型的工作提示词 `work_analyze` / `work_research` / `work_write` / `work_prompt` / `work_generate`（执行生成前确认提示词的短调用）/ `work_code` / `work_verify` / `work_review` / `work_factcheck` / `work_assemble`、`cross_review`、`rework`、`merge`、澄清提问 `clarify_offer` / `clarify_answer` / `clarify_reply`；媒体：`media_brief`（把需求改写成「写生成提示词」的任务）、`media_review`、`media_refine`、`work_media`、`rework_media`；讨论模式 `planner`、`answer`、`review`、`revise`（v2：逐条"采纳 / 部分采纳 / 不采纳"）、`synthesize`（v3：`adopted_from`、注意 flagged 的答案）、`redo`（打回重做：system 段接在原系统提示后，user 段追加在原对话后）；附件 `attachments`（附件说明与 `<attachment>` 块，接在每次调用的系统提示与第一条用户消息之后，所以各步骤提示词不必改版本）、`describe_image`（图片文字版）、`transcribe`（音频转写）；`answer_quick` 已不再引用（已发布版本保留）；说话底线（去八股化）`plain_talk`（不用金句收尾、不喊格言口号、不排比升华、不写空洞总结；没有变量，接在 `roundtable.yaml` 的 `plain_talk.roles` 列出的每次调用上，同一步骤所有成员相同，聊天和工作模式共用，所以各步骤提示词不必改版本）、`plain_rewrite`（聊天、生活、朋友圈的发言发出前按 `plain_talk.check.rules` 规则表程序检查，查出问题才用该成员自己的聊天档模型改写一次，改写更差、失败或超出月上限 `monthly_usd` 时发原文；实现在 `core/plain_talk.py`，改写函数可替换，留给成员引擎接管；v2：加「马克杯警戒线」（能印在马克杯上的话一律不说，规则 `mug`：空泛大词够多又没有具体所指的一句）、结尾软感悟 `soft_epiphany`、客服腔 `assistant_voice`；一次回复拆成几条气泡时合起来查、改写后按行拆回，条数只减不增；投屏陪伴 `watch` 也接上）。代码中不得内联提示词正文。
 - 文件格式：YAML 文件头（`description`、`output: text|json`、`variables`）+ `<!-- system -->` / `<!-- user -->` 两段。占位符用 `{{ name }}`（不用 `$`，避免与数学公式冲突）；声明的变量与正文占位符必须一一对应，渲染时缺少或多余参数都报错；只替换一次，用户输入里的 `{{ x }}` 不会被展开。
 - 题目、他人答案等外部内容放在标签内（`<question>`、`<answer>` …），系统提示说明标签内的指令无效（防提示注入）。
 - 使用的版本由配置指定，随每次调用入库（版本号 + 内容哈希，换行统一为 LF 后计算）。
@@ -203,6 +205,7 @@
   - **阵容**：节电档视频默认 Grok Video Lite（另有 Veo 3.1 Lite），旗舰档 Veo 3.1 Fast；中文语音 Qwen TTS Plus（节电）、MiniMax Speech HD（旗舰）；音乐 Lyria 3 Clip（节电，$0.04 / 段）、Lyria 3 Pro（旗舰，$0.08 / 首）。视频按 720p 带声音的单价配置（远端按分辨率和有无声音分档，价格只在 `/videos/models` 里，`/models` 列表里是 0）；2026-10-29 在用户电脑核对过 ID 与价格，并真实生成过一段 Lyria Clip（$0.04，返回 mp3）。被换下的 wan-2.6、veo-3.1、qwen-tts-flash 留在配置里 `enabled: false` 作备用。
 - **转成作品**（2026-10-29 创作输出端 B 批）：一场（含办公室）完成后，结尾除「接着做」外还有「转成作品」一排按钮（插图 / 海报 / 短视频 / 配音朗读 / 配乐，`view.js` 的 `MAKE_TARGETS`）。点了就是一次**接力**（`carry_from`，只带成果摘要）+ 讨论模式 + 选好的输出类型，题目留空时用该按钮的默认要求；提交前照常显示预估，之后走上面讨论模式的媒体流程，不另起一套。没有可用模型的种类点了只提示原因。协同模式拆分可用 `music`（`decompose/v5`），媒体子任务的写法见 `work_media/v2`（视频按 2～3 个镜头写分镜、音乐写风格节奏乐器与歌词）。
 - **成员固定音色**（2026-10-29 创作输出端 B 批，`core/member_voice.py`）：每位成员在 `personas.yaml` 的 `voices` 里按语音模型各配一个合成音色（键为厂商 = 聊天成员 id；只用模型自带音色，不克隆真人声音；配置校验只许写 `tts` 模型）。`MemberVoices.speak(member, text)` 选模型只看 `tts` 标签、档位、这位成员是否配了该模型的音色、中文优先 `zh` 标签与 `default`，返回 `VoiceClip(data, mime, seconds, cost_usd, model_id, voice, cached)`；最多念 `MAX_CHARS` 字。千问语音 Plus 只有两个音色、分不出八个人，所以不配（节电档用 Gemini，全力档用 MiniMax）。Gemini 语音只接受 `response_format: pcm`（写在它的 `params` 里），适配器把裸 PCM（24 kHz / 16 位 / 单声道）包成 wav。同一模型 + 音色 + 文字只合成一次，缓存在数据库旁的 `voice_cache/`（内存库缓存在内存）。花费按 `role="media"` 记在隐藏会话（`workflow='voice'`，不进会话列表），计入创作月上限 `media.monthly_usd`，超了抛 `VoiceBudgetExceeded`（接口 402）。接口：`GET /api/chat/voices`、`POST /api/chat/voices/{member}`（body `{text?}`，省略念试听句；返回音频，头 `X-Voice-Seconds` / `X-Voice-Cost` / `X-Voice-Cached`）。「成员设定」页有「试听音色」；聊天里的语音消息、「听 TA 说」由聊天模块调用 `RoundtableService.member_voice`。
+- **成员专属表情包**（2026-10-29，`core/member_stickers.py`）：每位成员在 `personas.yaml` 的 `sticker_cards` 里有一张形象卡（键为厂商 = 聊天成员 id）：外观要点 `look`、必画细节 `must`、设定图 `refs`（相对成员素材目录或它的上一级，如 `data/avatars/设定图/`），再补上 `members.json` 里的立绘 / 小人 / 头像，一共最多 3 张，和表情清单（表情名、画进图里的配文 `caption`、动作 `action`）。`MemberStickers.draw(member, name)` 用 `media.stickers.tier` 档带 `image_edit` 的绘图模型照参考图画（提示词 `sticker_draw`），选模型只看标签：带 `prefer_tags`（默认 zh、vision）越多越先试。画完用最便宜的识图上桌模型按 `sticker_check` 先逐字抄出图上的字（`text_seen`，代码再和配文比对，不全信模型的判断）、再核对形象像不像；不合格换下一个模型重画，最多 `max_attempts` 次，都不合格留最后一张并记下问题。没有识图模型或核对失败时不挡住。图片缩放进 `size`×`size` 白底 PNG，存在数据库旁的 `stickers/`（按内容哈希命名），索引 `stickers/index.json`（内存库只存在内存）；形象卡内容的哈希也记下，改了卡标「建议重画」。新画的是 `pending`（`review: true` 时），审成 `approved` 后 `approved(member)` 才列出（聊天模块据此发表情）。花费按 `role="media"` 记在隐藏会话（`workflow='sticker'`，不进会话列表），先查表情包每月小上限 `media.stickers.monthly_usd`（`spent_in_workflow('sticker')`），再查创作月上限 `media.monthly_usd`，超了抛 `StickerBudgetExceeded`（接口 402）。接口：`GET /api/stickers`、`POST /api/stickers/{member}/{name}/draw`、`POST /api/stickers/{member}/{name}/review`（`{status}`）、`GET /api/stickers/{member}/{name}/image`；命令行 `roundtable stickers [成员] [--draw 名 | --all] [-o 目录]`。「成员设定」页有表情网格（画、重画、可以、不要、全部可以）。表情清单里写了 `frames`（正好 4 格动作）的是**动图**：按 `sticker_anim` 一次画 2×2 四格，切成四张各自刷白、缩放，再连成循环 GIF（每格 `frame_ms` 毫秒），核对只看第一格，`--whiten` 不碰动图。**在别处画再导入**（2026-10-31）：`roundtable stickers 成员 --prompts 目录 [--draw 名]` 导出参考图和每张的提示词（`prompt_text`，与 `draw` 发出的相同，不调用模型），拿去任何画图工具画好后存成「表情名.png」放回成员目录，`--import 目录` 用 `import_image` 收进来：同样刷白、缩放，动图给 2×2 四格图或现成 GIF，存成待审，`model` 记为 `imported`，不花钱、不核对。**聊天接入**（2026-10-30）：`chat_actions.own_stickers / member_stickers / sticker_menu` 把成员审过的那套当作以昵称为套装名的表情包（记号 `[表情:昵称·名字]`），每位成员只能发自己那套加 `chat.actions.stickers` 通用几套，群聊、私聊、朋友圈都用它解析和清洗；网页从 `GET /api/chat/stickers` 取图装进表情面板。**朋友圈配图**（2026-10-31，`media.moment_photos`）：成员发动态（没有转发卡片）时按 `chance` 配一张图，每位每天最多 `per_member_day`、全体每天最多 `per_day`；`MemberStickers.photo` 用同一批绘图模型照形象卡和参考图画随手拍（提示词 `moment_photo`，拍法从 `shots` 随机抽），存成 JPEG 进聊天文件夹（`chat_actions.generated_item`），不审；花费挂在表情包隐藏会话、算表情包小上限和创作月上限，超了或画不出来照样发文字。
 - **对外**：会话详情 `media`（每次生成：轮次、尝试、提示词、状态、花费、文件；模型和渠道揭晓前为空，提示词经遮蔽）、`media_kind` / `media_tier`；`/api/status` 的 `media`（各种类是否可用及原因、两个档位是否有模型，不含模型名）。事件 `media_started` / `media_progress` / `media_done` / `media_failed`（只含种类、轮次、状态）。网页：提问区「输出」选择（文字 / 图片 / 语音 / 视频，不可用的灰掉并说明原因）与「普通 / 高质量」；过程区每次生成一张卡片（第几轮、状态、花费、提示词、图片 / 音频 / 视频播放器与下载），评审与统筹决定逐条显示；面板「媒体」标签列出全部生成与成果。命令行 `ask --media image|speech|video --media-tier budget|flagship`、`estimate --media`；`show` 有「媒体生成」段；`files` 一并保存媒体文件。视频截帧用 PyAV（可选依赖 `pip install 'roundtable[media]'`；没有时评审者只看文字说明并被告知）。
 
 ## 4. 预算
@@ -220,21 +223,22 @@
 
 ```
 README.md      安装、.env、加模型 / 步骤 / 提示词版本、上传、沙箱、搜索与隐私
-.github/workflows/ci.yml   ruff + pytest（含 Playwright 端到端）
+.github/workflows/ci.yml   ruff + pytest（含 Playwright 端到端）；unplug-dsh 任务删掉 dsh 后再跑测试
 .github/workflows/desktop.yml   桌面版在 Windows / macOS 上冒烟（只在桌面版相关文件变动的 PR 上跑）
 install_desktop.bat / install_desktop.command   安装并生成桌面版图标（docs/DESKTOP.md）
 .github/workflows/android.yml   打包安卓外壳 APK（只在改了 mobile/ 的 PR 上跑）
 mobile/        安卓外壳（Capacitor）：www/ 连接页（记住电脑地址、依次试家里 / 离家地址）、build-android.mjs；android/ 不进 git（docs/MOBILE.md）
-config/        models.yaml  roundtable.yaml  personas.yaml  routing.yaml  plugin_board.yaml（插件榜数据，不属于运行配置）  changelog.yaml（公告栏的版本更新说明，每合并一个 PR 在最上面追加一条）
+config/        models.yaml  roundtable.yaml  personas.yaml  routing.yaml  plugin_board.yaml（插件榜数据，不属于运行配置）  dsh_plugins.yaml（dsh 工作台的运行时版本与插件白名单）  comfyui/（本地 ComfyUI 出图的工作流模板，API 格式 JSON；本机改的存成 *.local.json，不进 git，docs/COMFYUI.md）  changelog.yaml（公告栏的版本更新说明，每合并一个 PR 在最上面追加一条；版本号「代.大功能.小改」由代码按合并先后自动算，条目只写 level）
 prompts/       planner/ answer/ answer_quick/ review/ revise/ synthesize/ redo/
                attachments/ describe_image/ transcribe/ tools/（v4） image_gen/ web_search/ web_fetch/
                decompose/（v4） decompose_retry/ volunteer/ assign/（v3） work/ work_<类型>/ cross_review/ rework/ merge/
                panel/（v2） ideate/（v2） expand/ crossbreed/ vote/ organize/（v2）
+               dsh_workbench/ super_split/ super_work/ super_merge/（超级电脑）
                media_brief/ media_review/ media_refine/ work_media/ rework_media/  evolve_review/（开发侧复审）  versions.lock
 src/roundtable/
   core/
     config/        配置加载与校验
-    providers/     Provider 基类、适配器（openai_compat/anthropic/gemini/fake）、渠道路由、密钥与脱敏、计费
+    providers/     Provider 基类、适配器（openai_compat/anthropic/gemini/comfyui（本地出图）/fake）、渠道路由、密钥与脱敏、计费
     prompts/       提示词加载与渲染
     allocation/    按档位/标签抽取、代号、互评分配（排除自评）、乱序、身份遮蔽
     routing/       规则判断、规划员、方案与阵容、花费预估、用户模式、升级、每题记录
@@ -246,9 +250,10 @@ src/roundtable/
     search/        联网搜索服务（注册、OpenRouter 搜索（默认）、Tavily、按顺序切换的 SearchService）
     preview.py     成员生成的文件的预览
     mindmap.py     思维导图数据与渲染（Markdown / Mermaid / SVG）
+    simlab.py      成员系统加速时间模拟（docs/SIM.md）：临时数据库 + 快进时钟 + 假 / 真模型 + 模拟用户，出报告
     export/        导出成果：从存库的产出取最终成果（deliverable.py）→ Markdown / Word（python-docx）/ PPT（手写 OOXML，按标题分页）/ PDF（手写，阅读器自带中文字体）/ 网页；样式（style.py：字号、配色模板、PPT 比例、附题目 / 过程）；界面可直接存到本机固定文件夹（只限电脑本机，文件夹记在设置里）；不调用模型、不加依赖
     lan.py         局域网访问：口令加盐哈希（data/lan_access.json，不进 git）、登录 cookie 签名与过期、输错限速、一次性配对码、本机局域网地址、二维码（docs/LAN.md）
-    changelog.py   公告栏：版本更新说明（读 config/changelog.yaml，校验、按日期排序；只读）
+    changelog.py   公告栏：版本更新说明（读 config/changelog.yaml，校验、按合并先后自动编版本号；只读）
     clipper.py     办公室的资料浏览器：只读抓取网页（拒绝本机 / 内网地址，重定向逐跳检查）、提取正文、资料夹清单；存资料与「附上」= 新建 Markdown 附件（docs/CLIPPER.md）
     mail/          终端邮件栏：用户本人学校邮箱只读接入（专用浏览器窗口由用户本人登录、只读守卫、本机「重要」与分类规则、截止日期提取；图文版正文清洗（html.py）；点了才调用的 AI 总结 / 翻译（ai.py，每月上限 mail.ai）；登录状态在 data/mail_browser/，不进 git；见 docs/MAIL.md）
     nowplaying.py  音乐卡片的「电脑上正在放的歌」：读 Windows 系统媒体控制（pywinrt，可选依赖 .[windows]），默认只跟 QQ 音乐（按应用 id 关键字），发送播放 / 暂停 / 切歌 / 跳转；不登录、不抓音频、不存库；本机 data/avatars/music_covers/ 的封面列表（不进 git；同目录 effects.json 写每张封面的动态特效）
@@ -257,7 +262,11 @@ src/roundtable/
     plugin_board.py 插件榜：自我学习革新调研过的插件 / 项目（读 config/plugin_board.yaml，按价值排名、判断借思路 / 搬代码门槛；只读）
     ideaboard.py   头脑风暴的点子榜：投票排名、黑马、对比表 / 场景故事 / 行动方案的数据与 Markdown
     member/        成员引擎（docs/MEMBER_ENGINE.md；只用于聊天、朋友圈、生活）：自我档案（profile.py，版本 + 修改记录 + 锁定 + 撤回）、人物卡与随身卡（card.py：人物卡 Markdown → 档案分区，档案 → ≤400 字随身卡）、事件总线（bus.py）、心跳（heartbeat.py）、上下文组装器（context.py，约 600 字）、预算调度器（scheduler.py）、评测集（evalset.py，题库 benchmarks/members/scenarios.yaml）
-    screen/        投屏陪伴「一起看」（docs/WATCH.md）：画面来源（capture.py：电脑整屏 / 窗口用 Pillow ImageGrab + ctypes，安卓用 adb 截屏，只读；画面变化判断、敏感窗口暂停）、一起看（watch.py：画面变了才交最便宜的识图模型写成文字、陪看成员吐槽和回话、安静看、每月上限 chat.watch.monthly_usd、感知事件 perceive.screen）；截图只在内存里
+      story/       P7 生活引擎（docs/LIFE_STORY.md）：生活事件库 + 长线剧情 + 每人生活状态 + 按爱好挑去处 + 住户迎新/告别（engine.py、store.py），擅长觉醒（talent.py）；只发事件，不写档案和别的插件的数据
+    screen/        投屏陪伴「一起看」（docs/WATCH.md）：画面来源（capture.py：电脑整屏 / 窗口用 Pillow ImageGrab + ctypes，安卓用 adb 截屏，只读；画面变化判断、敏感窗口暂停）、一起看（watch.py：画面变了才交最便宜的识图模型写成文字、陪看成员吐槽、回话和互相接话、安静看、每月上限 chat.watch.monthly_usd、感知事件 perceive.screen）；截图只在内存里
+    dsh/           dsh 工作台（docs/DSH.md）：可拔掉的外设，只有 service.py 可选导入（拔掉 core/dsh 圆桌照常，CI「unplug-dsh」任务）；白名单与安装包哈希（catalog.py，读 config/dsh_plugins.yaml）、叠加配置层（overlay.py：关上传和遥测、中立身份）、key 与余额（channel.py）、按余额差额估花费与每月软上限（usage.py）、进程管理（sidecar.py，只监听 127.0.0.1）、一次性安装（install.py）；数据都在 data/dsh/，不进 git
+    benchkit/      工作台的自动质检（docs/KIT.md）：quality.py 用 Playwright 在三种屏宽 × 浅 / 深色下打开页面，量报错、溢出、坏字、编码、是否用设计套件、外链脚本、按钮名字、图片说明、图表空白、对比度、字号、手机按钮大小，截图并打分（`roundtable kit-check`）；不调模型；只放行工作台配置 `bench.net` 里的公开数据网址（地图底图、天气等，2026-10-30 用户批，其余一律中止）。spec.py（规格校验 + 外壳）、builder.py（生成流程：拆需求 → 找插件 → 写窗口 → 质检评审不自评 → 返工）、scout.py（dsh 集市 + GitHub 找插件，按星数和许可证判定搬或只借思路）、library.py（过线后新零件收进本机零件库、存配方）、lint.py（读窗口代码：没用零件库、写死颜色、代码太大、轮询定时器、自己画插图）
+    supercomputer/ 超级电脑（docs/SUPERCOMPUTER.md）：几位编程助手平级、没有固定主管；打分派活（scoring.py：擅长 + 今天剩余次数 + 手上的活，换名不变）、账本（ledger.py：每天件数、冷却、界面上改的次数，data/super/ledger.json）、跑官方命令行（runner.py：正文走标准输入、超时连子进程结束）、启动器（launch.py：命令行去掉所有 *_API_KEY；dsh 由服务层以钩子交进来）、流程（engine.py：拆分 → 并行 → 合并，撞限额冷却换人，记录在 data/super/tasks/）
     wander/        成员自己上网（docs/WANDER.md）：隔离浏览器（web.py：Playwright 驱动电脑上的 Edge / Chrome，每位成员一个资料夹，只按链接打开白名单网站、读文字和链接、截小图，跳去外站拦下）、逛网站循环（wander.py：每页交成员说一句感想并决定下一步，浏览记录在隐藏会话 wander:<成员>，小结发感知事件 perceive.web，花费计入生活每日上限，心跳上登记自动出门）
     almanac/       日历底座（docs/CALENDAR.md；只影响生活）：今天是什么日子（各国法定假日用开源库 holidays 离线算、农历与节气查预生成的表 lunar_table.json、节日规则、成员生日与入职纪念日、你加的纪念日），每天发 calendar.day / calendar.upcoming 到成员事件总线；不调模型、不联网
     life_guard.py  生活「收得住」：互聊收尾、每日条数上限、熔断、每周自检（docs/CHAT.md G9；不调模型）
@@ -273,12 +282,13 @@ src/roundtable/
   cli.py         命令行试用（`roundtable` 命令，见 docs/CLI.md）
   plaintext.py   命令行显示用：LaTeX 数学式转纯文本、去掉 Markdown 加粗符号（不改动存储的原文）
   api/           FastAPI 应用、路由、SSE
-  desktop/       桌面版（docs/DESKTOP.md）：launcher.py 在本进程起服务并打开应用窗口（pywebview → Edge / Chrome 应用窗口 → 默认浏览器），关窗即停；install.py 生成 Windows 快捷方式 / macOS .app
+  desktop/       桌面版（docs/DESKTOP.md）：launcher.py 在本进程起服务并打开应用窗口（pywebview → Edge / Chrome 应用窗口 → 默认浏览器），关窗即停；install.py 生成 Windows 快捷方式 / macOS .app；overlay.py 一起看的置顶悬浮窗（tkinter，只通过 HTTP 连本机圆桌）
+web/kit/         工作台设计套件（docs/KIT.md）：kit.css（令牌、主题、组件样式）、kit.js（图表、表格、时间线、看板、月历、示意地图、查看器、编辑器、清单、会话窗等，原生 ES 模块）、icons.js（Lucide 子集，CREDITS.md）、manifest.json（零件清单，给生成器挑零件）、gallery.html（样板页，质检基准）
 web/             index.html、css/（app.css、agent.css 小人、ideas.css 头脑风暴结果页）、js/（api.js 通信、view.js 渲染、ideas.js 头脑风暴结果页、app.js 状态与交互、hub.js 终端首页、standee.js 终端大立绘（浏览器里柔边抠底，表情差分眨眼说话，点击台词；位置大小等设置只存本机浏览器；有 rig 素材且支持 WebGL2 时由 standee_gl.js 在显卡上逐像素做全身网格形变、standee_motion.js 算动作和弹簧物理，否则按行切条形变做呼吸 / 跟随 / 摆动）、usage.js 余额与用量（账户余额、预算、对账、钱折算 token、详细用量；只读）、music.js 终端背景音乐（首页时钟下的悬浮小卡，可收起成小按钮；点开是竖版播放器卡片：画框封面、粗进度条、大按钮；默认「墨蓝」用首页同一层液态玻璃，与时钟条同宽对齐，宽度和封面大小随窗口自动调节；底色 / 主色 / 文字颜色、小字、封面可自定义，只存本机浏览器；封面会动：头发一侧轻摆，coverfx.js 在画框上飘雨 / 雪 / 落叶 / 花瓣 / 星屑 / 气泡，可关，「减少动态」时静止；本地音乐是用户自选音频，只存本机浏览器 IndexedDB，不经服务器，mp3 内嵌封面在浏览器里读；「QQ 音乐」来源经 /api/nowplaying 跟随电脑上的播放器）、clock.js 终端多时区时钟（最多 3 个、可设主时区或跟随本机，Intl 时区表处理夏令时；附秒表与倒计时，状态存时间点、刷新不丢；只存本机；主时区经 hometz.js 存到服务器）、hometz.js 主时区（读写 `/api/home-tz`，本机缓存；公寓、群聊、朋友圈、邮件等的时间按它显示，换了发 `hometz` 事件）、notice.js 终端公告栏（上面是日历：今天和未来几天的日子、你的纪念日增删；下面是版本更新说明，已读只存本机）、watch.js 一起看（投屏陪伴面板：选来源和陪看成员、预览、聊天、安静看、停止；顶栏红点）、wander.js 上网（成员自己上网面板：正在逛的小图和叫停、让谁去逛哪个网站、每位成员的浏览记录）、mail.js 终端邮件栏（学校邮箱只读：重要邮件与手动标记、分类筛选、速览卡、正文、沙箱里的图文版、点了才调用的 AI 总结 / 翻译、截止日期提醒、规则设置；不收密码）、agent/ 网页小人、boot.js 开机动画、bootcfg.js 片头设置）、boot/（开机动画页：dawn.html「晨会协议」片头（原创）、gmu.html 早上好联合访问授权（改编自 MIT 开源项目）、assets/ 徽记与二维码库；音效与朗读由 boot.js 统一负责；出处见 boot/CREDITS.md）
 tests/
 docs/            REQUIREMENTS_v3.md  PLAN.md  CLI.md  OFFICE.md（办公室模式）  EVOLUTION.md（自我学习革新：候选池与更新日志）  evolution/（革新例会说明、周报与资料卡模板、每周周报）  mockup.html
 scripts/         evolve_review.py（革新 PR 的可选复审，没有 key 时跳过）  standee_rig.py（把大立绘做成全身网格形变素材：瞳孔层、补眼白、权重图；本机处理、不调用模型）  check_models.py（核对 OpenRouter 渠道的模型 ID 与价格；带 vision / image_edit 标签的模型还核对远端 input_modalities 含 image）  lock_prompts.py（登记提示词版本）  install_desktop.py（生成桌面版图标）  build_lunar_table.py（生成日历的农历与节气表，开发时临时装 lunar_python）
-                 setup_sandbox.py（安装代码运行沙箱）  try_image.py（真实调用一次画图模型，核对接口格式）
+                 setup_sandbox.py（安装代码运行沙箱）  setup_dsh.py（在电脑上安装 dsh 工作台：运行时 + 白名单插件）  try_image.py（真实调用一次画图模型，核对接口格式）
 sandbox/         Dockerfile（可选的 docker 沙箱）、README.md
 .env.example
 ```

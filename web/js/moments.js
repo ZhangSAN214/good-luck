@@ -44,7 +44,7 @@ export class Moments {
     f.id = 'mo-new';
     f.className = 'mo-new';
     f.innerHTML = `<textarea name="text" rows="3" maxlength="500" placeholder="这一刻的想法…（成员会来评论）" aria-label="发动态"></textarea>
-      <div class="mo-newbar"><p class="hint">成员每天最多发一条，写的是公寓楼里当天真实发生的事；点赞不花钱，评论计入每天的生活花费上限。成员看不到图片和视频本身，只知道你发了。</p><button class="btn primary" type="submit">发表</button></div>
+      <div class="mo-newbar"><p class="hint">成员写的是公寓楼里当天真实发生的事，没事就不发；点赞不花钱，评论计入每天的生活花费上限。成员会先看一遍你发的图片、视频和语音再评论（感官额度用完时只知道你发了）。</p><button class="btn primary" type="submit">发表</button></div>
       <div class="mo-tools"></div><div class="mo-tray" hidden></div>`;
     this.newForm = f;
     this.newMedia = new MediaComposer({

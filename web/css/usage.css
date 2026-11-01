@@ -103,3 +103,13 @@ button.hb-res:focus-visible{outline:2px solid rgba(160,185,230,.85);outline-offs
   .grp-row.us-bar>span.us-bn,.grp-row.us-bar>.us-sw+span.us-bn{width:auto;flex:1 1 0}
   .us-bt{order:3;flex-basis:100%}
 }
+/* 走哪条路：渠道优先顺序 */
+.us-prow{padding:10px 14px;border-top:1px solid var(--line)}
+.us-prow:first-child{border-top:0}
+.us-prow.off{opacity:.6}
+.us-pno{min-width:1.4em;color:var(--muted)}
+.us-pmove{margin-left:auto;display:flex;gap:4px}
+.us-pmove .sheet-icon[disabled]{opacity:.3}
+.us-credit{display:flex;align-items:center;gap:4px}
+.us-credit input{width:110px;padding:3px 8px}
+.us-psave{display:flex;align-items:center;gap:10px;margin:8px 4px 0}

@@ -3,7 +3,8 @@
 - 会话：生活群（``main``，全体成员）、工作群（``work``）、和每位成员的私聊（``dm:<成员>``）。
 - 成员 = 每个厂商一位（昵称相同的全力 / 节电模型算一位），发言用 ``chat.tier`` 档位的模型，
   没有就用该成员最便宜的可用模型。
-- 成员不主动找用户：只在用户发言后回应。群里 ``@昵称`` 指定谁回应，``@全员`` 大家都说；
+- 成员平时在用户发言后回应；按心情偶尔主动找用户（core/member/reach.py，有边界），
+  睡着时晚点回（rhythm.py）。群里 ``@昵称`` 指定谁回应，``@全员`` 大家都说；
   没有 @ 时随机一两位回应，后发言的人能看到前面的回应。私聊里只有那一位回应。
 - 每次发言都记在 calls 表（挂在该会话的隐藏会话上，workflow = 'chat'），计入总预算和工资；
   另有聊天的月预算（``chat.budget.monthly_usd``），用完就不再调用。
@@ -15,33 +16,47 @@
 from __future__ import annotations
 
 import asyncio
+import html
 import random
 import re
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
+from datetime import datetime, timedelta
 from typing import Any
 
 from roundtable.core.attachments.model import append_to_messages
 from roundtable.core.budget.guard import EPS, month_window
 from roundtable.core.chat_actions import (
+    STICKER_RE,
     ActionPolicy,
     DefaultPolicy,
     Segment,
     card_text,
     clean_card,
+    drop_own_repeats,
     is_recalled,
+    member_stickers,
     parse,
     quote_meta,
-    sticker_list,
+    sticker_echo,
+    sticker_menu,
     swap_repeated_stickers,
 )
+from roundtable.core.chat_handoff import LIFE_ROOMS
+from roundtable.core.chat_handoff import choices as extract_choices
+from roundtable.core.chat_handoff import extract as extract_handoff
+from roundtable.core.chat_handoff import pending as handoff_pending
 from roundtable.core.hometz import home_zone
+from roundtable.core.member.brain import Brain, intent_text
 from roundtable.core.member.memory.diary import TOOL, DiaryTool
-from roundtable.core.office.apartment import ACTIVITIES, PUBLIC_ROOMS, schedule
+from roundtable.core.office.apartment import PUBLIC_ROOMS, activity_label, schedule
 from roundtable.core.persona import EMPTY, chat_persona
-from roundtable.core.plain_talk import before_speaking, plain_prompt
+from roundtable.core.plain_talk import before_speaking_all, plain_prompt
 from roundtable.core.providers import AllChannelsFailed, Message, NoChannelAvailable, ProviderError
+from roundtable.core.storage.repository import iso
 from roundtable.core.tools.protocol import parse_calls, strip_calls
+
+OWED_LOOKBACK = 6  # 往回看几条找「被问了还没回」的人
 
 ROOM = "main"  # 生活群
 WORK = "work"  # 工作群
@@ -62,24 +77,35 @@ EVERYONE_WORDS = (
     "你们每",
 )
 USER_LABEL = "用户"
+VOICE_NONE = "（没写：用你自己的说话风格）"
+INTENT_NONE = "（没有特别的念头：照平时的你接话）"
 # 不在群聊列表里、不能从群聊发言的会话（投屏陪伴「一起看」有自己的面板，docs/WATCH.md）
 HIDDEN_KINDS = frozenset({"watch", "wander"})
 # 会话类型 → 提示词角色（roundtable.yaml 的 prompts）
 PROMPT_ROLES = {"group": "chat", "work": "chat_work", "dm": "chat_dm"}
 # 能翻日记的会话（生活模式的私聊和生活群；工作群不带）
 DIARY_KINDS = frozenset({"group", "dm"})
+ABOUT_KINDS = frozenset({"group", "dm"})  # 带「关于你」画像的会话（工作群不带）
 _WEEK = "一二三四五六日"
 
 
 def life_clock(rt: Any, member_id: str) -> str:
     """按主时区说现在几点、这位成员这会儿通常在干什么（公寓作息，不调用模型）。"""
-    now = home_zone(rt).local(rt.budget.now())
+    at = rt.budget.now()
+    now = home_zone(rt).local(at)
+    head = f"{now.month}月{now.day}日 周{_WEEK[now.weekday()]} {now:%H:%M}，"
+    # 生活里刚发生过的（大脑分区自己挑的去处）为准，和生活群里说的对得上；没有再按作息表
+    recent = [
+        e
+        for e in rt.repo.life_events_between(iso(at - timedelta(minutes=90)), iso(at))
+        if member_id in e["members"]
+    ]
+    spot = re.search(r"地点：(.+)", recent[-1]["topic"] or "") if recent else None
+    if spot:
+        return f"{head}你刚才在{spot.group(1).strip()}"
     room, act = schedule(member_id, now.hour, now.weekday())
     where = "自己房间" if room == "dorm" else PUBLIC_ROOMS.get(room, room)
-    return (
-        f"{now.month}月{now.day}日 周{_WEEK[now.weekday()]} {now:%H:%M}，"
-        f"你这会儿一般在{where}{ACTIVITIES.get(act, act)}"
-    )
+    return f"{head}你这会儿一般在{where}{activity_label(act, now.hour)}"
 
 
 def with_diary_tool(rt: Any, prompt: Any, remaining: int) -> Any:
@@ -106,6 +132,71 @@ def member_memory(rt: Any, member: str, query: str = "", conversation: str | Non
     if not rules.enabled or rules.context_chars == 0:
         return NONE
     return memory_context(rt, member, rules.context_chars, query, conversation)
+
+
+def with_about_you(
+    rt: Any,
+    memory: str,
+    query: str,
+    member: str | None = None,
+    names: dict[str, str] | None = None,
+) -> str:
+    """私聊和生活群：记忆后面接上「关于你」画像里和当前对话相关的几条，和你打开了的
+    「此刻」状态（成员系统 P8；8 位相同的条数和字数，没有就不接）。工作群不调用。"""
+    from roundtable.core.member.about import AboutYou  # about 依赖记忆模块
+    from roundtable.core.memory import NONE
+
+    status = getattr(rt, "user_status", None)  # 第二块：你打开了的「此刻」状态
+    about = AboutYou(rt).lines(query, member=member, names=names)  # 只带她知道的（知情范围）
+    rules = rt.config.roundtable.chat.engine.about
+    who = f"【对方是谁】{rules.identity}" if rules.enabled and rules.identity else ""
+    hush = ""
+    if member:  # 他说过别再提的事：不主动提
+        from roundtable.core.member.hush import Hush
+
+        hush = Hush(rt).line(member)
+    parts = [who, about, hush, status.line() if status is not None else ""]
+    about = "\n".join(p for p in parts if p)
+    if not about:
+        return memory
+    return about if memory == NONE else f"{memory}\n{about}"
+
+
+def with_views(rt: Any, memory: str, member: str) -> str:
+    """私聊和生活群：再接上她自己对你的见解（成员系统 P4，每周想一次；8 位相同的字数上限，
+    没有就不接）。工作群不调用。"""
+    from roundtable.core.member.relation import RelationPlugin  # relation 经人设被本模块间接引用
+    from roundtable.core.memory import NONE
+
+    views = RelationPlugin(rt).views_text(member)
+    if not views:
+        return memory
+    return views if memory == NONE else f"{memory}\n{views}"
+
+
+def with_group_today(rt: Any, memory: str, room: str, names: dict[str, str]) -> str:
+    """私聊（和你、成员之间）：再接上大家庭群里最近半天的几句。群里刚聊过的事，私聊时
+    不会说成「没人提」（2026-10-31 真模型试跑）。8 位相同的条数和字数；群里没说话就不接。"""
+    from roundtable.core.memory import NONE
+
+    rules = rt.config.roundtable.chat.memory
+    if room in (ROOM, WORK) or rules.group_lines == 0:
+        return memory
+    since = iso(rt.budget.now() - timedelta(hours=rules.group_hours))
+    rows = [
+        r
+        for r in rt.repo.chat_messages(ROOM, limit=60)
+        if r["created_at"] >= since and r["author"] != SYSTEM and not is_recalled(r)
+    ][-rules.group_lines :]
+    if not rows:
+        return memory
+    lines = [
+        f"{USER_LABEL if r['author'] == USER else names.get(r['author'], r['author'])}："
+        f"{str(r['text'] or '')[: rules.group_chars]}"
+        for r in rows
+    ]
+    block = "大家庭群里最近说过（你也看到了）：\n" + "\n".join(lines)
+    return block if memory == NONE else f"{memory}\n{block}"
 
 
 def dm_room(member_id: str) -> str:
@@ -152,6 +243,9 @@ class Thought:
     member: ChatMember
     segments: list[Segment]
     cost_usd: float
+    memory: str = ""  # 这次带的记忆（说出口前自查用：记忆为空时「上次我们……」算编造）
+    task: str | None = None  # 交办记号里要交给办公室的事（``chat_handoff``）
+    options: list[str] = field(default_factory=list)  # 选项记号：显示成按钮
 
 
 def _price(m: Any) -> tuple[float, float]:
@@ -207,8 +301,9 @@ def mentioned(text: str, members: list[ChatMember]) -> list[ChatMember]:
 
 
 def clean_reply(text: str, name: str, max_chars: int) -> str:
-    """去掉模型自己加的「名字：」前缀和包裹的引号，截断过长的消息。"""
-    t = text.strip()
+    """去掉模型自己加的「名字：」前缀和包裹的引号，截断过长的消息；有的模型会把颜文字里的
+    ``<`` ``>`` 写成 ``&lt;`` ``&gt;``，换回原字（10-31 真模型试跑）。"""
+    t = html.unescape(text).strip()
     t = re.sub(rf"^\s*{re.escape(name)}\s*[:：]\s*", "", t)
     if len(t) >= 2 and t[0] in '"“「' and t[-1] in '"”」':
         t = t[1:-1].strip()
@@ -284,6 +379,7 @@ class GroupChat:
         self.typing: list[str] = []
         self.queued: list[str] = []  # 这一轮还没开口的成员名
         self.round = 0  # 用户每发一条（或撤回）加一；旧回合据此作废
+        self.notes: dict[str, str] = {}  # 这一轮写进意图卡的作息提示（刚被吵醒、刚醒才看到）
         self._lock = asyncio.Lock()
         ensure_default_rooms(rt)
         info = rt.repo.chat_room(room)
@@ -328,21 +424,96 @@ class GroupChat:
         if addresses_everyone(text) and not named:
             named = list(online)
             self.rng.shuffle(named)
+            if self._newcomer():  # 你刚进群说「大家好」：两三位搭话，其余潜水
+                named = named[: self.rng.randint(min(2, len(named)), self.rules.newcomer_max)]
         if named:
             return named[: self.rules.max_mentioned]
         if not online:
             return []
         k = self.rng.randint(1, min(self.rules.max_repliers, len(online)))
-        return self.rng.sample(online, k)
+        if self.kind != "group":
+            return self.rng.sample(online, k)
+        picked = self._floor_pick(online, k)
+        owed = self.owed(online)
+        if owed is not None and owed not in picked:  # 刚才被同事问了还没回：这轮先接上
+            picked = [owed, *picked[: max(0, k - 1)]]
+        elif owed is not None:
+            picked = [owed, *[m for m in picked if m is not owed]]
+        return picked
+
+    def owed(self, online: list[ChatMember]) -> ChatMember | None:
+        """群里最近一位成员问了另一位成员（提到名字、以问号收尾），被问的人之后还没说过话：
+        返回被问的人（11-01 用户：有人问了没人回）。只往回看几条。"""
+        rows = [r for r in self.recent() if not is_recalled(r)][-OWED_LOOKBACK:]
+        spoke: set[str] = set()
+        for r in reversed(rows):
+            who = r["author"]
+            if who in (USER, SYSTEM):
+                continue
+            text = STICKER_RE.sub("", str(r["text"] or "")).strip()
+            if text.endswith(("？", "?")):
+                for m in online:
+                    if (
+                        m.id != who
+                        and m.id not in spoke
+                        and (m.name in text or f"@{m.name}" in text)
+                    ):
+                        return m
+            spoke.add(who)
+        return None
+
+    def _floor_pick(self, online: list[ChatMember], k: int) -> list[ChatMember]:
+        """群聊分寸（``core/member/floor``）：刚聊过的人更可能接，说超了、嘴累的少接；
+        成员今天说的远多于你时只挑一位。大家都一样时和原来一样随机挑。"""
+        from roundtable.core.member.floor import Floor
+
+        floor = Floor(self.rt)
+        if not floor.enabled():
+            return self.rng.sample(online, k)
+        at = self.rt.budget.now()
+        rows = floor.rows(self.room)
+        if floor.flooded(rows, at):
+            k = 1
+        weights = [floor.weight(m.id, rows, at, m.name) for m in online]
+        if len(set(weights)) <= 1:
+            return self.rng.sample(online, k)
+        pool, out = list(zip(online, weights, strict=True)), []
+        for _ in range(k):
+            total = sum(w for _, w in pool)
+            if total <= 0:
+                break
+            x, acc = self.rng.random() * total, 0.0
+            for i, (m, w) in enumerate(pool):
+                acc += w
+                if x < acc or i == len(pool) - 1:
+                    out.append(m)
+                    pool.pop(i)
+                    break
+        return out or self.rng.sample(online, 1)
+
+    def _newcomer(self) -> bool:
+        """你在这个群里说过的话还不到 newcomer_messages 条（含刚发的这条）。"""
+        n = self.rules.newcomer_messages
+        if self.kind != "group" or n <= 0:
+            return False
+        rows = self.rt.repo.chat_messages(self.room, limit=200)
+        return sum(1 for r in rows if r["author"] == USER) <= n
 
     def recent(self) -> list[dict[str, Any]]:
         return self.rt.repo.chat_messages(self.room, limit=self.rules.history_messages)
 
-    def history(self, names: dict[str, str], numbered: bool = False) -> str:
+    def history(
+        self, names: dict[str, str], numbered: bool = False, viewer: str | None = None
+    ) -> str:
         """最近的聊天记录，每行「名字：内容」。numbered：行首带消息编号「#12」，
-        引用写成「名字（回复 #8）：内容」，拍一拍写成「（用户拍了拍 某某）」。撤回的消息不出现。"""
+        引用写成「名字（回复 #8）：内容」，拍一拍写成「（用户拍了拍 某某）」。撤回的消息不出现。
+        viewer：生活群里是谁在看——她睡着时的消息只看得到最后几条（不在场就看不到）。"""
         lines = []
-        for r in self.recent():
+        rows, missed = self._seen_by(viewer)
+        if missed:
+            note = self.rt.config.roundtable.chat.engine.rhythm.missed_note
+            lines.append(note.format(n=missed))
+        for r in rows:
             if is_recalled(r):
                 continue
             meta = r["meta"] or {}
@@ -368,6 +539,30 @@ class GroupChat:
 
                 lines.append(media_block(who, cards))
         return "\n".join(lines)
+
+    def _seen_by(self, viewer: str | None) -> tuple[list[dict[str, Any]], int]:
+        """她看得到的记录和没看到的条数：生活群里她睡着时别人发的，只留最后 missed_keep 条。"""
+        rows = self.recent()
+        if viewer is None or self.kind != "group":
+            return rows, 0
+        from roundtable.core.member.rhythm import Rhythm  # rhythm 读聊天记录
+
+        rhythm = Rhythm(self.rt)
+        if not rhythm.enabled():
+            return rows, 0
+        slept = []
+        for i, r in enumerate(rows):
+            if r["author"] in (viewer, SYSTEM):
+                continue
+            try:
+                at = datetime.fromisoformat(r["created_at"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            if rhythm.asleep(viewer, at):
+                slept.append(i)
+        keep = rhythm.rules.missed_keep
+        hidden = set(slept[: max(0, len(slept) - keep)])
+        return [r for i, r in enumerate(rows) if i not in hidden], len(hidden)
 
     def pat_words(self, pat: dict[str, Any], names: dict[str, str], for_model: bool = False) -> str:
         """「你拍了拍 阿一」；for_model 时把「你」写成「用户」。"""
@@ -401,7 +596,36 @@ class GroupChat:
             meta["quote"] = quote_meta(row)
         self.round += 1
         msg = self.rt.repo.add_chat_message(self.room, USER, text, meta=meta or None)
-        return msg, self.pick(text)
+        return msg, self.awake(msg, self.pick(text))
+
+    def awake(self, msg: dict[str, Any], speakers: list[ChatMember]) -> list[ChatMember]:
+        """作息（生活群和私聊）：睡着的人多数没看到——私聊和点了名的记下来醒了再回，群里没点名
+        就不回；有时被吵醒，回的时候意图卡里写上。"""
+        if self.kind not in ("dm", "group"):
+            return speakers
+        from roundtable.core.member.rhythm import LATER, WOKEN, Rhythm  # rhythm 读聊天记录
+
+        rhythm, at = Rhythm(self.rt), self.rt.budget.now()
+        out = []
+        for m in speakers:
+            named = self.kind == "dm" or self.named(m, msg["id"])
+            gate = rhythm.gate(
+                m.id,
+                room=self.room,
+                text=msg["text"],
+                meta=msg["meta"],
+                named=named,
+                msg_id=msg["id"],
+                at=at,
+            )
+            if gate.kind == LATER:
+                if named:
+                    rhythm.defer(m.id, self.room, msg["id"], at)
+                continue
+            if gate.kind == WOKEN:
+                self.notes[m.id] = gate.note
+            out.append(m)
+        return out
 
     def send_as(
         self,
@@ -456,8 +680,13 @@ class GroupChat:
         （省略为当前）；用户之后又发了消息或撤回时（且策略允许作废），还没发出的不再发。
         返回每位成员的第一条消息。"""
         round_no = self.round if round_no is None else round_no
+        if self.kind == "group" and speakers:  # 跟队形：这一轮只跟着发同一个，然后就停
+            followed = await self._formation(reply_to, speakers, round_no)
+            if followed:
+                return followed
         self.queued.extend(m.name for m in speakers)
         used: set[str] = set()  # 这一轮已经有人发过的表情包
+        shapes: list[tuple[str, int]] = []  # 这一轮已经发出的「开头两个字、条数」
         tasks = [asyncio.create_task(self._think(m, reply_to)) for m in speakers]
         out: list[dict[str, Any]] = []
         try:
@@ -469,6 +698,7 @@ class GroupChat:
                     break
                 if not isinstance(thought, Thought):
                     continue
+                thought = self._unshape(thought, shapes)
                 async with self._lock:
                     if self.stale(round_no):
                         continue
@@ -483,6 +713,68 @@ class GroupChat:
             for m in speakers:
                 self._unqueue(m.name)
             self.on_change()
+
+    async def _formation(
+        self, reply_to: int, speakers: list[ChatMember], round_no: int
+    ) -> list[dict[str, Any]]:
+        """群里两个人先后发了同一句短话 / 同一个表情包：这一轮该回话的人按性格可能跟一个
+        一模一样的（程序直接发、不调模型）。关心时段不跟。返回发出的消息（没人跟时为空）。"""
+        from roundtable.core.member.care import Care
+        from roundtable.core.member.stash import Formation, Stash
+
+        rt = self.rt
+        msg = rt.repo.chat_message(reply_to)
+        if msg is None or Care(rt).active(self.room, rt.budget.now()):
+            return []
+        stash = Stash(rt)
+        followers = Formation(rt).followers(
+            self.room,
+            msg,
+            [m.id for m in speakers],
+            stickers={m.id: member_stickers(rt, m.id, m.name) for m in speakers},
+            traits={m.id: stash._traits(m.id) for m in speakers},
+        )
+        if not followers:
+            return []
+        by_id = {m.id: m for m in speakers}
+        out: list[dict[str, Any]] = []
+        for i, (member, what) in enumerate(followers):
+            if i:
+                await self.sleep(self.policy().segment_gap(member, what["text"]))
+            if self.stale(round_no):
+                break
+            meta = None
+            if what.get("media"):
+                ids = {it["id"] for it in what["media"]}
+                cards = [
+                    c for c in (msg["meta"] or {}).get("perception") or [] if c.get("id") in ids
+                ]
+                meta = {"media": what["media"], "auto_text": True}
+                if cards:
+                    meta["perception"] = cards
+            out.append(
+                rt.repo.add_chat_message(
+                    self.room,
+                    member,
+                    what["text"],
+                    model_id=by_id[member].model_id,
+                    reply_to=reply_to,
+                    meta=meta,
+                )
+            )
+            self.on_change()
+        return out
+
+    def _unshape(self, thought: Thought, shapes: list[tuple[str, int]]) -> Thought:
+        """同一轮群聊里结构撞车（开头两个字一样、条数一样且 3 条以上）：后说的只发前 2 条。"""
+        if self.kind != "group" or not thought.segments:
+            return thought
+        head = re.sub(r"[^\u4e00-\u9fffA-Za-z0-9]", "", thought.segments[0].text)[:2]
+        shape = (head, len(thought.segments))
+        if self.rules.same_shape_trim and shape[1] >= 3 and head and shape in shapes:
+            thought = replace(thought, segments=thought.segments[:2])
+        shapes.append(shape)
+        return thought
 
     def _unqueue(self, name: str) -> None:
         if name in self.queued:
@@ -551,6 +843,11 @@ class GroupChat:
         没说出话返回 {}（没说出话时在群里说明）；预算用完返回 None。"""
         self._unqueue(member.name)
         rt, rules = self.rt, self.rules
+        if self.kind == "dm":  # 回话节拍：互道晚安后你只回了句「嗯嗯」，就不接了
+            from roundtable.core.member.pace import Pace
+
+            if Pace(rt).wrapup(member.id, self.room, reply_to):
+                return {}
         if not rt.budget.check(rules.estimate_usd).allowed:
             rt.repo.add_chat_message(self.room, SYSTEM, "预算用完了，大家先不说话了。")
             self.on_change()
@@ -563,6 +860,10 @@ class GroupChat:
             )
             self.on_change()
             return None
+        if self.kind in ("dm", "group"):  # 你发的表情包：看过的人按性格可能存下来自己用
+            from roundtable.core.member.stash import Stash
+
+            Stash(rt).consider(member.id, rt.repo.chat_message(reply_to))
         everyone = self.everyone()
         names = {m.id: m.name for m in everyone}
         role = PROMPT_ROLES[self.kind]
@@ -574,7 +875,7 @@ class GroupChat:
         wants = set(rt.prompts.get(role, version).variables)
         numbered = "stickers" in wants  # 带动作说明的提示词版本（chat / chat_dm v4 起）
         recent = self.recent()
-        history = self.history(names, numbered=numbered)
+        history = self.history(names, numbered=numbered, viewer=member.id)
         variables: dict[str, str] = {
             "name": member.name,
             # 工作群不带人物卡和人设（2026-10-29 用户：工作与生活分开）
@@ -582,16 +883,45 @@ class GroupChat:
             "memory": member_memory(rt, member.id, history, self.room),
             "history": history,
         }
+        if "care" in wants:  # 工作群也要危机关心（chat_work v4 起；生活里由意图卡给关心卡）
+            variables["care"] = self._work_care(reply_to)
+        if self.kind in ABOUT_KINDS:  # 关于你（P8）：只在私聊和生活群
+            variables["memory"] = with_about_you(rt, variables["memory"], history, member.id, names)
+            variables["memory"] = with_views(rt, variables["memory"], member.id)
+        if self.kind == "dm":
+            variables["memory"] = with_group_today(rt, variables["memory"], self.room, names)
         if self.kind != "dm":
             variables["members"] = (
                 "、".join(m.name for m in self.members() if m.id != member.id) or "（没有别人）"
             )
         if "clock" in wants:
             variables["clock"] = life_clock(rt, member.id)
+        if "voice" in wants:  # 说话习惯（chat / chat_dm v6 起；成员系统 P5 给，没接管时为空）
+            habit = policy.voice(member.id, self.kind, reply_to) if self.kind != "work" else ""
+            variables["voice"] = habit or VOICE_NONE
+        card = None
+        if "intent" in wants:  # 大脑分区（chat / chat_dm v7 起）：说话前程序综合出此刻的想法
+            card = self._intent(member, reply_to, names)
+            if card is not None and card.silent and skip:
+                return {}
+            if (
+                card is not None and card.quick and member.id not in self.notes
+            ):  # 万能短回复：只回一句，不调模型
+                return Thought(member, [Segment(card.quick, None)], 0.0, variables["memory"])
+            variables["intent"] = intent_text(card, INTENT_NONE)
+            note = self.notes.pop(member.id, "")
+            if note:  # 作息：刚被吵醒 / 刚醒才看到
+                variables["intent"] = f"{variables['intent']}\n{note}"
         if numbered:
             variables |= {
-                "stickers": sticker_list(acts.stickers) if acts.enabled else "（这里不用表情包）",
-                "kaomoji": "　".join(acts.kaomoji) if acts.enabled else "（这里不用颜文字）",
+                "stickers": (
+                    sticker_menu(rt, member.id, member.name)
+                    if acts.enabled
+                    else "（这里不用表情包）"
+                ),
+                "kaomoji": "　".join(self._kaomoji(member.id) or acts.kaomoji)
+                if acts.enabled
+                else "（这里不用颜文字）",
                 "segments": str(segments),
                 "skip": "可以" if skip else "不要",
             }
@@ -655,22 +985,81 @@ class GroupChat:
             completion=completion,
         )
         text = clean_reply(strip_calls(completion.text), member.name, rules.max_chars)
+        task, options = None, []
+        if self.kind in LIFE_ROOMS:  # 交办、选项记号：先取出来，别让后面的改写弄丢
+            text, task = extract_handoff(text)
+            text, options = extract_choices(text)
         parsed = parse(
             text,
-            stickers=acts.stickers if acts.enabled else {},
+            stickers=member_stickers(rt, member.id, member.name),
             max_segments=segments if numbered else 1,
             quotable={r["id"] for r in recent} if numbered else set(),
             allow_no_reply=skip and numbered,
         )
         if parsed.no_reply:
             return {}
+        if not parsed.segments and task:
+            return Thought(
+                member, [], completion.cost_usd or 0.0, variables["memory"], task, options
+            )
         if not parsed.segments:
             # 没说出话（多半是思考把输出上限用完了）：在群里说明，不静默跳过
             why = "想得太久，没来得及写完" if completion.finish_reason == "length" else "回复是空的"
             rt.repo.add_chat_message(self.room, SYSTEM, f"{member.name} 没有回复（{why}）。")
             self.on_change()
             return {}
-        return Thought(member, parsed.segments, completion.cost_usd or 0.0)
+        # 说话底线：几条连发的消息合起来查，有问题整段改写一次（改写后条数可能变少）
+        said = await before_speaking_all(
+            rt,
+            [seg.text for seg in parsed.segments],
+            room=self.room,
+            name=member.name,
+            model_id=member.model_id,
+        )
+        if len(said) == len(parsed.segments):
+            kept = [Segment(t, seg.quote) for t, seg in zip(said, parsed.segments, strict=True)]
+        else:
+            kept = [
+                Segment(t, parsed.segments[0].quote if i == 0 else None) for i, t in enumerate(said)
+            ]
+        if card is not None and "phrase:初见" in card.tags:  # 第一次见你：最多发 first_max 条
+            kept = kept[: rt.config.roundtable.chat.engine.phrasebook.first_max]
+        return Thought(member, kept, completion.cost_usd or 0.0, variables["memory"], task, options)
+
+    def _work_care(self, reply_to: int) -> str:
+        """工作群里用户说出让人担心的话：进入关心时段，给关心卡（不带人设，8 位相同）。"""
+        from roundtable.core.member.care import Care  # care 只依赖主时区和存储
+
+        care, now = Care(self.rt), self.rt.budget.now()
+        row = self.rt.repo.chat_message(reply_to) if reply_to else None
+        if row is not None and row["author"] == USER:
+            care.note(self.room, row["text"] or "", now)
+        level = care.active(self.room, now)
+        return care.card(level, now) if level else EMPTY
+
+    def _intent(self, member: ChatMember, reply_to: int, names: dict[str, str]) -> Any:
+        """这次说话前的意图卡（工作群不算；大脑分区没开时为 None）。"""
+        if self.kind == "work":
+            return None
+        row = self.rt.repo.chat_message(reply_to) if reply_to else None
+        last, speaker = "", None
+        if row is not None and row["author"] != SYSTEM:
+            last = row["text"]
+            speaker = None if row["author"] == USER else row["author"]
+        brain = Brain(self.rt, names=names)
+        card = brain.intent(
+            member.id,
+            last=last,
+            speaker=speaker,
+            named=self.named(member, reply_to) if row is not None else self.kind == "dm",
+            group=self.kind != "dm",
+            seed=f"{self.room}:{reply_to}",
+            room=self.room,
+            present={m.id for m in self.members()} | {"user"},
+            meta=(row["meta"] or {}) if row is not None else None,
+        )
+        brain.after(card, self.rt.budget.now())
+        return card
 
     async def _complete(self, session: str, member: ChatMember, prompt: Any) -> Any:
         """调用模型。思考把输出上限用光、几乎没有正文时（finish_reason=length），关掉思考、
@@ -703,8 +1092,20 @@ class GroupChat:
         （免得大家都发同一个）。用户又发了消息时还没发出的气泡作废。返回第一条消息。"""
         rt, member = self.rt, thought.member
         policy = self.policy()
-        stickers = rt.config.roundtable.chat.actions.stickers
+        stickers = member_stickers(rt, member.id, member.name)
         first: dict[str, Any] = {}
+        posted: list[str] = []
+        recent = self.recent()  # 发之前再取一次：并行思考时别人可能刚发过
+        window = rt.config.roundtable.chat.engine.lingo.cadence.window
+        own = [r for r in recent if r["author"] == member.id][-window:]
+        mine = {  # 她自己最近几条发过的表情包：别连着发同一个（11-01：6 条→看 cadence.window 条）
+            f"[表情:{m.group(1)}·{m.group(2)}]"
+            for r in own
+            for m in STICKER_RE.finditer(r["text"] or "")
+        }
+        means = self._sticker_means(member)
+        used.update(mine)
+        attached = False  # 交办卡片、选项按钮已经挂到某条消息上了
         for i, seg in enumerate(thought.segments):
             if i:
                 if round_no is not None and self.stale(round_no):
@@ -717,28 +1118,207 @@ class GroupChat:
                     self.typing.remove(member.name)
                 if round_no is not None and self.stale(round_no):
                     break
-            text = swap_repeated_stickers(seg.text, used, stickers, self.rng)
-            words = await before_speaking(
-                rt, text, room=self.room, name=member.name, model_id=member.model_id
+            text = sticker_echo(seg.text, means)
+            text = drop_own_repeats(text, mine)
+            text = swap_repeated_stickers(text, used, stickers, self.rng)
+            text, stashed = self._stashed(member, text)
+            words = (
+                await self._self_check(member, text, recent, reply_to, posted, thought.memory)
+                if text.strip()
+                else ""
             )
-            if not words.strip():
+            if not words.strip() and not stashed:
                 continue
             meta: dict[str, Any] = {}
-            row = self.quotable(seg.quote) if seg.quote is not None else None
+            quote = seg.quote
+            if quote is None and not first and self.kind in ("dm", "group"):
+                from roundtable.core.member.pace import Pace
+
+                if Pace(rt).quote(member.id, self.room, reply_to):
+                    quote = reply_to  # 后面已经又有几条话了：引用一下她回的是哪条
+            row = self.quotable(quote) if quote is not None else None
             if row is not None:
                 meta["quote"] = quote_meta(row)
+            last = i == len(thought.segments) - 1
+            if last:  # 交办卡片、选项按钮挂在最后一条上
+                meta |= self._extras(thought)
+            pieces = self._finish(member, words, reply_to) if words.strip() else []
+            for n, piece in enumerate(pieces):
+                if n:  # 打错字后补的「*正字」：隔一小会儿单独发一条
+                    await self.sleep(policy.segment_gap(member.id, piece))
+                msg = rt.repo.add_chat_message(
+                    self.room,
+                    member.id,
+                    piece,
+                    model_id=member.model_id,
+                    reply_to=reply_to,
+                    cost_usd=0.0 if first else thought.cost_usd,
+                    meta=(meta or None) if not n else None,
+                )
+                attached = attached or (last and not n)
+                first = first or msg
+                posted.append(piece)
+                self.on_change()
+            if stashed:  # 她收藏的表情包：单独发一张图（和别的表情包一样）
+                if pieces:
+                    await self.sleep(policy.segment_gap(member.id, "[表情]"))
+                msg = rt.repo.add_chat_message(
+                    self.room,
+                    member.id,
+                    "[表情]",
+                    model_id=member.model_id,
+                    reply_to=reply_to,
+                    cost_usd=0.0 if first else thought.cost_usd,
+                    meta=self._stash_meta(member, stashed, None if pieces else meta),
+                )
+                first = first or msg
+                self.on_change()
+        if (thought.task or thought.options) and not attached:
+            label = f"[交办] {thought.task}" if thought.task else "[选项]"
             msg = rt.repo.add_chat_message(
                 self.room,
                 member.id,
-                words,
+                label,
                 model_id=member.model_id,
                 reply_to=reply_to,
                 cost_usd=0.0 if first else thought.cost_usd,
-                meta=meta or None,
+                meta=self._extras(thought) | {"auto_text": True},
             )
             first = first or msg
             self.on_change()
         return first
+
+    @staticmethod
+    def _extras(thought: Thought) -> dict[str, Any]:
+        out: dict[str, Any] = {}
+        if thought.task:
+            out["handoff"] = handoff_pending(thought.task)
+        if thought.options:
+            out["choices"] = list(thought.options)
+        return out
+
+    def _sticker_means(self, member: ChatMember) -> dict[str, list[str]]:
+        """她审过的专属表情包和本机装的外部表情包各自的意思（外部包的键是「套·名」）；
+        读不到就只按表情名比。"""
+        from roundtable.core.chat_actions import sticker_packs
+        from roundtable.core.member_stickers import MemberStickers
+
+        out: dict[str, list[str]] = {}
+        for read in (
+            lambda: MemberStickers(self.rt, self.rt.sticker_dir).means(member.id),
+            lambda: sticker_packs(self.rt).means(member.id),
+        ):
+            try:
+                out |= read()
+            except Exception:  # noqa: BLE001 - 去重只是锦上添花
+                continue
+        return out
+
+    def _stashed(self, member: ChatMember, text: str) -> tuple[str, list[dict[str, Any]]]:
+        if self.kind not in ("dm", "group"):
+            return text, []
+        from roundtable.core.member.stash import Stash
+
+        return Stash(self.rt).extract(member.id, text)
+
+    def _stash_meta(
+        self, member: ChatMember, items: list[dict[str, Any]], extra: dict[str, Any] | None
+    ) -> dict[str, Any]:
+        """收藏的表情包消息：图片清单 + 一张感知卡（别人读聊天记录时知道这是什么图）。"""
+        from roundtable.core.member.stash import Stash
+
+        stash = Stash(self.rt)
+        cards = [
+            {"id": it["id"], "kind": "image", "mode": "fast", "text": label}
+            for it in items
+            if (label := stash.label_of(member.id, it["id"]))
+        ]
+        meta: dict[str, Any] = dict(extra or {}) | {"media": items, "auto_text": True}
+        if cards:
+            meta["perception"] = cards
+        return meta
+
+    def _kaomoji(self, member: str) -> tuple[str, ...]:
+        """她自己常用的几个颜文字（说话的样子没开或工作群时为空，用公共的）。"""
+        if self.kind == "work":
+            return ()
+        from roundtable.core.member.lingo import Lingo  # lingo 依赖成员档案
+
+        return Lingo(self.rt, names={m.id: m.name for m in self.everyone()}).kaomoji(member)
+
+    def _finish(self, member: ChatMember, words: str, reply_to: int) -> list[str]:
+        """发出前收尾（``core/member/lingo``）：书面词换口语、删解释和复述、句尾标点、笑法、
+        偶尔打错字。工作群和关心时段原样发。"""
+        if self.kind == "work":
+            return [words]
+        from roundtable.core.member.care import Care  # care 只依赖主时区和存储
+        from roundtable.core.member.lingo import Lingo
+
+        now = self.rt.budget.now()
+        if Care(self.rt).active(self.room, now):
+            return [words]
+        try:
+            from roundtable.core.member.state import StatePlugin
+
+            energy = StatePlugin(self.rt).read(member.id, now).energy
+        except Exception:  # noqa: BLE001 - 读不到精力就当平常
+            energy = 0.6
+        row = self.rt.repo.chat_message(reply_to) if reply_to else None
+        asked = str(row["text"] or "") if row is not None and row["author"] != member.id else ""
+        lingo = Lingo(self.rt, names={m.id: m.name for m in self.everyone()})
+        rng = random.Random(f"{self.room}:{reply_to}:{member.id}:{words}")
+        return [p for p in lingo.finish(member.id, words, asked=asked, energy=energy, rng=rng) if p]
+
+    async def _self_check(
+        self,
+        member: ChatMember,
+        text: str,
+        recent: list[dict[str, Any]],
+        reply_to: int,
+        posted: list[str],
+        memory: str,
+    ) -> str:
+        """说出口前自查（成员系统 P5，``core/member/voice``）：和自己最近说的、别人这一轮说的比；
+        返回要发的话，空串表示这条不发。工作群和关闭时原样返回。"""
+        from roundtable.core.member.voice import (  # voice 依赖本模块
+            Said,
+            before_voice,
+            recent_words,
+        )
+        from roundtable.core.memory import NONE  # memory 依赖本模块
+
+        names = {m.id: m.name for m in self.everyone()}
+        rows = [r for r in recent if not is_recalled(r)]
+        rows += [
+            r
+            for r in self.rt.repo.chat_messages(self.room, limit=self.rules.history_messages)
+            if r["id"] > max((x["id"] for x in rows), default=0) and not is_recalled(r)
+        ]
+        own = tuple(r["text"] for r in rows if r["author"] == member.id) + tuple(posted)
+        others = tuple(
+            (names.get(r["author"], r["author"]), r["text"])
+            for r in rows
+            if r["id"] > reply_to and r["author"] not in (member.id, USER, SYSTEM)
+        )
+        said = Said(
+            own=own,
+            others=others,
+            has_memory=memory.strip() not in ("", NONE),
+            long=recent_words(self.rt, member.id, self.rt.budget.now()) + tuple(posted),
+            asked=next((r["text"] for r in rows if r["id"] == reply_to), ""),
+        )
+        return await before_voice(
+            self.rt,
+            text,
+            said,
+            member=member.id,
+            room=self.room,
+            room_kind=self.kind,
+            named=self.named(member, reply_to),
+            name=member.name,
+            model_id=member.model_id,
+            voice=self.policy().voice(member.id, self.kind, reply_to),
+        )
 
 
 def live_title(kind: str, members: list[str], stored: str, names: dict[str, str]) -> str:

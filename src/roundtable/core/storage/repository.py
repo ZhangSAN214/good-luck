@@ -38,6 +38,13 @@ class NotFound(LookupError):
     pass
 
 
+STATE_KEY = "member_state:"  # 成员状态（P3）在 app_settings 里的键前缀
+ABOUT_KEY = "about_you:"  # 关于你（P8）在 app_settings 里的键前缀：画像、开关
+GROWTH_KEY = "member_growth:"  # 成员成长（P6）在 app_settings 里的键前缀
+RELATION_KEY = "member_relation:"  # 成员关系（P4）在 app_settings 里的键前缀
+RELATION_TRACKER = "relation.tracker"  # 关系插件认「一来一回」用的房间游标（P4）
+
+
 def iso(moment: datetime) -> str:
     """库中时间戳的统一格式（UTC，毫秒），可按字符串比较先后。"""
     if moment.tzinfo is None:
@@ -156,6 +163,34 @@ _ROUTING_PRIVATE = (
 )
 
 
+class _Rows:
+    """锁内已取完的查询结果；用法和 sqlite3.Cursor 相同（fetchone / fetchall / 遍历）。"""
+
+    __slots__ = ("_rows", "_pos", "lastrowid", "rowcount")
+
+    def __init__(self, rows: list[sqlite3.Row], lastrowid: int | None, rowcount: int) -> None:
+        self._rows = rows
+        self._pos = 0
+        self.lastrowid = lastrowid
+        self.rowcount = rowcount
+
+    def fetchone(self) -> sqlite3.Row | None:
+        if self._pos >= len(self._rows):
+            return None
+        row = self._rows[self._pos]
+        self._pos += 1
+        return row
+
+    def fetchall(self) -> list[sqlite3.Row]:
+        rest = self._rows[self._pos :]
+        self._pos = len(self._rows)
+        return rest
+
+    def __iter__(self):
+        while (row := self.fetchone()) is not None:
+            yield row
+
+
 @dataclass
 class Repository:
     conn: sqlite3.Connection
@@ -164,9 +199,16 @@ class Repository:
 
     # --- 内部 ------------------------------------------------------------------
 
-    def _exec(self, sql: str, params: Sequence[Any] = ()) -> sqlite3.Cursor:
+    def _exec(self, sql: str, params: Sequence[Any] = ()) -> _Rows:
+        """执行并在锁内取完全部结果。
+
+        连接是多线程共用的（服务线程、后台任务、测试线程）。sqlite3 的游标是边取边读的：
+        只把 execute 放进锁、fetchone 留在锁外，别的线程同时在这条连接上执行或开事务时，
+        会读到 None（行明明在）或读串。所以结果在锁内一次取完再交出去。
+        """
         with self._lock:
-            return self.conn.execute(sql, params)
+            cur = self.conn.execute(sql, params)
+            return _Rows(cur.fetchall(), cur.lastrowid, cur.rowcount)
 
     def _tx(self):
         repo = self
@@ -1018,6 +1060,15 @@ class Repository:
             (iso(start), iso(end)),
         ).fetchone()[0]
 
+    def spent_by_channel_between(self, start: datetime, end: datetime) -> dict[str, float]:
+        """[start, end) 内按渠道的花费（按调用记录时间）。"""
+        rows = self._exec(
+            "SELECT channel, COALESCE(SUM(cost_usd), 0) AS cost FROM calls"
+            " WHERE channel IS NOT NULL AND created_at >= ? AND created_at < ? GROUP BY channel",
+            (iso(start), iso(end)),
+        ).fetchall()
+        return {r["channel"]: r["cost"] for r in rows}
+
     def spent_in_sessions(
         self, session_ids: Sequence[str], start: datetime, end: datetime
     ) -> float:
@@ -1091,6 +1142,14 @@ class Repository:
         if row:
             return row["id"]
         return self.create_session("成员音色：念给你听", seed=0, anonymous=False, workflow="voice")
+
+    def sticker_session(self) -> str:
+        """成员表情包的隐藏会话（workflow = 'sticker'）：画表情和核对配文的调用挂在这里，
+        计入总预算、创作输出的每月上限和表情包的每月小上限（role = media）；不出现在会话列表里。"""
+        row = self._exec("SELECT id FROM sessions WHERE workflow = 'sticker' LIMIT 1").fetchone()
+        if row:
+            return row["id"]
+        return self.create_session("成员表情包", seed=0, anonymous=False, workflow="sticker")
 
     def watch_session(self) -> str:
         """投屏陪伴的隐藏会话（workflow = 'watch'）：画面转文字和成员陪看发言的调用挂在这里，
@@ -1906,6 +1965,130 @@ class Repository:
     def prune_member_events(self, before: str) -> int:
         return self._exec("DELETE FROM member_events WHERE at < ?", (before,)).rowcount
 
+    def trim_chat_prompts(self, before: str, keep_chars: int) -> int:
+        """聊天 / 生活隐藏会话（workflow = 'chat'）里 before 以前的调用：整段提示词换成一条说明
+        加最后一段的开头。回复、花费、token 都不动。返回精简了几条。"""
+        rows = self._exec(
+            "SELECT c.id, c.input FROM calls c JOIN sessions s ON s.id = c.session_id"
+            " WHERE s.workflow = 'chat' AND c.created_at < ? AND LENGTH(c.input) > ?",
+            (before, keep_chars + 200),
+        ).fetchall()
+        trimmed = 0
+        with self._tx():
+            for row in rows:
+                messages = json.loads(row["input"])
+                if not messages or messages[0].get("role") == "trimmed":
+                    continue
+                size = sum(len(str(m.get("content", ""))) for m in messages)
+                last = messages[-1]
+                note = f"（提示词已精简：原来 {len(messages)} 段、{size} 字）"
+                head = str(last.get("content", ""))[:keep_chars]
+                short = [
+                    {"role": "trimmed", "content": note},
+                    {"role": last.get("role", "user"), "content": head},
+                ]
+                self.conn.execute(
+                    "UPDATE calls SET input = ? WHERE id = ?", (_json(short), row["id"])
+                )
+                trimmed += 1
+        return trimmed
+
+    # --- 成员状态（P3；app_settings 的 member_state:<成员> 键，只有 member/state.py 写）
+
+    def member_state(self, member: str) -> dict[str, Any] | None:
+        row = self._exec(
+            "SELECT value, updated_at FROM app_settings WHERE key = ?", (STATE_KEY + member,)
+        ).fetchone()
+        return None if row is None else {"data": json.loads(row["value"]), "at": row["updated_at"]}
+
+    def save_member_state(self, member: str, data: dict[str, Any]) -> None:
+        self.set_setting(STATE_KEY + member, json.dumps(data, ensure_ascii=False))
+
+    def member_state_members(self) -> list[str]:
+        rows = self._exec(
+            "SELECT key FROM app_settings WHERE key LIKE ? ORDER BY key", (STATE_KEY + "%",)
+        ).fetchall()
+        return [r["key"][len(STATE_KEY) :] for r in rows]
+
+    def clear_member_state(self, member: str | None = None) -> int:
+        if member is None:
+            return self._exec(
+                "DELETE FROM app_settings WHERE key LIKE ?", (STATE_KEY + "%",)
+            ).rowcount
+        return self._exec("DELETE FROM app_settings WHERE key = ?", (STATE_KEY + member,)).rowcount
+
+    # --- 关于你（P8；app_settings 的 about_you:<名字> 键，只有 member/about.py 写）
+
+    def about_you(self, name: str) -> dict[str, Any] | None:
+        row = self._exec(
+            "SELECT value FROM app_settings WHERE key = ?", (ABOUT_KEY + name,)
+        ).fetchone()
+        return None if row is None else json.loads(row["value"])
+
+    def save_about_you(self, name: str, data: dict[str, Any]) -> None:
+        self.set_setting(ABOUT_KEY + name, json.dumps(data, ensure_ascii=False))
+
+    def clear_about_you(self, name: str | None = None) -> int:
+        if name is None:
+            return self._exec(
+                "DELETE FROM app_settings WHERE key LIKE ?", (ABOUT_KEY + "%",)
+            ).rowcount
+        return self._exec("DELETE FROM app_settings WHERE key = ?", (ABOUT_KEY + name,)).rowcount
+
+    # --- 成员成长（P6；app_settings 的 member_growth:<成员> 键，只有 member/growth 写）
+
+    def growth_data(self, member: str) -> dict[str, Any] | None:
+        value = self.setting(GROWTH_KEY + member)
+        return None if value is None else json.loads(value)
+
+    def save_growth_data(self, member: str, data: dict[str, Any]) -> None:
+        self.set_setting(GROWTH_KEY + member, json.dumps(data, ensure_ascii=False))
+
+    def growth_members(self) -> list[str]:
+        rows = self._exec(
+            "SELECT key FROM app_settings WHERE key LIKE ? ORDER BY key", (GROWTH_KEY + "%",)
+        ).fetchall()
+        return [r["key"][len(GROWTH_KEY) :] for r in rows]
+
+    def clear_growth_data(self, member: str | None = None) -> int:
+        if member is None:
+            return self._exec(
+                "DELETE FROM app_settings WHERE key LIKE ?", (GROWTH_KEY + "%",)
+            ).rowcount
+        return self._exec("DELETE FROM app_settings WHERE key = ?", (GROWTH_KEY + member,)).rowcount
+
+    # --- 成员关系（P4；app_settings 的 member_relation:<成员> 键，只有 member/relation.py 写）
+
+    def relation_data(self, member: str) -> dict[str, Any] | None:
+        value = self.setting(RELATION_KEY + member)
+        return None if value is None else json.loads(value)
+
+    def save_relation_data(self, member: str, data: dict[str, Any]) -> None:
+        self.set_setting(RELATION_KEY + member, json.dumps(data, ensure_ascii=False))
+
+    def relation_members(self) -> list[str]:
+        rows = self._exec(
+            "SELECT key FROM app_settings WHERE key LIKE ? ORDER BY key", (RELATION_KEY + "%",)
+        ).fetchall()
+        return [r["key"][len(RELATION_KEY) :] for r in rows]
+
+    def relation_tracker(self) -> dict[str, Any]:
+        value = self.setting(RELATION_TRACKER)
+        return {} if value is None else json.loads(value)
+
+    def save_relation_tracker(self, data: dict[str, Any]) -> None:
+        self.set_setting(RELATION_TRACKER, json.dumps(data, ensure_ascii=False))
+
+    def clear_relation_data(self, member: str | None = None) -> int:
+        if member is None:
+            self._exec("DELETE FROM app_settings WHERE key = ?", (RELATION_TRACKER,))
+            return self._exec(
+                "DELETE FROM app_settings WHERE key LIKE ?", (RELATION_KEY + "%",)
+            ).rowcount
+        return self._exec(
+            "DELETE FROM app_settings WHERE key = ?", (RELATION_KEY + member,)
+        ).rowcount
+
     def spent_in_steps(
         self, workflow: str, steps: Sequence[str], start: datetime, end: datetime
     ) -> float:
@@ -2178,6 +2361,18 @@ class Repository:
             " ON s.id = c.session_id WHERE s.workflow = ? AND c.created_at >= ?"
             " AND c.created_at < ?",
             (workflow, iso(start), iso(end)),
+        ).fetchone()[0]
+
+    def spent_on_channels(self, channels: Sequence[str], start: datetime, end: datetime) -> float:
+        """[start, end) 内走这些渠道的调用花费（dsh 工作台从余额差值里扣掉圆桌自己用掉的）。"""
+        names = list(channels)
+        if not names:
+            return 0.0
+        marks = ",".join("?" * len(names))
+        return self._exec(
+            f"SELECT COALESCE(SUM(cost_usd), 0) FROM calls WHERE channel IN ({marks})"
+            " AND created_at >= ? AND created_at < ?",
+            (*names, iso(start), iso(end)),
         ).fetchone()[0]
 
     def spent_in_role(self, role: str, start: datetime, end: datetime) -> float:
@@ -2545,7 +2740,8 @@ class Repository:
             " r.difficulty, r.plan,"
             " (SELECT COALESCE(SUM(cost_usd), 0) FROM calls c WHERE c.session_id = s.id) AS cost"
             " FROM sessions s LEFT JOIN routing_records r ON r.session_id = s.id"
-            " WHERE s.workflow NOT IN ('chat', 'evolution_scout', 'mail', 'watch', 'voice')"
+            " WHERE s.workflow NOT IN"
+            " ('chat', 'evolution_scout', 'mail', 'watch', 'voice', 'sticker')"
             " ORDER BY s.created_at DESC LIMIT ?",
             (limit,),
         ).fetchall()

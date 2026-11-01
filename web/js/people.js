@@ -1,13 +1,18 @@
 // 成员设定与记忆：聊天里每位成员的自我档案（人物卡，profile.js）、简单人设（性格、说话风格、口头禅、兴趣）和 TA 的记忆。
 // 人设和记忆只用于私聊、群聊、朋友圈，工作模式与办公室不读取；记忆只存在你电脑上，可以改、删、清空。
 
+import { AboutPanel } from './about.js';
+import { GrowthPanel } from './growth.js';
+import { RelationPanel } from './relation.js';
 import { ProfilePanel } from './profile.js';
 
 const esc = (s) =>
   String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 
+const STICKER = { missing: '还没画', pending: '待审', approved: '可以用', rejected: '不要' };
 const LAYER = { note: '记下的', day: '日记', week: '一周', month: '一个月', profile: '长期档案' };
 const SOURCE = { local: '你改过的设定', config: '配置文件里的设定', empty: '没有设定（用模型本身的风格）' };
+const ABOUT = '__about'; // 成员条最前面的「关于你」（8 位共用的用户画像，about.js）
 const BACK = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>';
 const list = (s) =>
   String(s || '')
@@ -16,7 +21,7 @@ const list = (s) =>
     .filter(Boolean);
 
 export class People {
-  constructor(dialog, { api, now = () => Date.now(), avatar = null } = {}) {
+  constructor(dialog, { api, now = () => Date.now(), avatar = null, goto = null } = {}) {
     this.dlg = dialog;
     this.api = api; // {personas(), setPersona(id, p), memories(id), addMemory(id, text), editMemory(mid, text), delMemory(mid), clearMemories(id?), tidy(), profile…（见 profile.js）}
     this.now = now;
@@ -42,6 +47,22 @@ export class People {
           },
         })
       : null;
+    this.about = api?.about
+      ? new AboutPanel({
+          now,
+          api: api.about,
+          goto: goto
+            ? (room, id) => {
+                this.close();
+                goto(room, id);
+              }
+            : null,
+        })
+      : null;
+    this.growth = api?.growth
+      ? new GrowthPanel({ now, api: { get: api.growth, run: api.growthRun, revert: api.growthRevert, undo: api.growthUndo, clear: api.growthClear } })
+      : null;
+    this.relation = api?.relation ? new RelationPanel({ now, api: { get: api.relation, clear: api.relationClear, think: api.relationThink, dropView: api.relationDropView, replyView: api.relationReplyView } }) : null;
     this.dlg.addEventListener('click', (e) => this.onClick(e));
     this.dlg.addEventListener('submit', (e) => this.onSubmit(e));
   }
@@ -62,6 +83,7 @@ export class People {
   async loadMembers() {
     try {
       this.members = (await this.api.personas()).members || [];
+      if (this.api.stickers) this.stickers = await this.api.stickers();
       if (this.api.voices) {
         const v = (await this.api.voices()).members || [];
         this.voices = Object.fromEntries(v.map((x) => [x.id, x]));
@@ -72,7 +94,7 @@ export class People {
   }
 
   async loadMemories() {
-    if (!this.member) return;
+    if (!this.member || this.member === ABOUT) return;
     try {
       this.memories = (await this.api.memories(this.member)).memories || [];
       this.mind = this.api.items ? await this.api.items(this.member, this.itemQuery) : null;
@@ -116,6 +138,66 @@ export class People {
       : '<p class="grp-foot pp-voice">TA 还没有可用的音色（没配，或语音模型都不可用）。</p>';
   }
 
+  // 专属表情包：照形象参考图画的 Q 版贴纸；新画的待审，点「可以」后 TA 才会用
+  stickerHtml(m) {
+    const card = this.stickers?.members?.find((x) => x.id === m.id);
+    if (!card) return '';
+    const s = this.stickers;
+    const items = card.stickers
+      .map((x) => {
+        const img =
+          x.status === 'missing'
+            ? '<span class="pp-stk-empty">未画</span>'
+            : `<img src="/api/stickers/${encodeURIComponent(m.id)}/${encodeURIComponent(x.name)}/image?v=${esc(x.version)}" alt="${esc(x.caption)}" loading="lazy">`;
+        const acts =
+          x.status === 'missing'
+            ? `<button type="button" class="link" data-sdraw="${esc(x.name)}">画</button>`
+            : `${x.status !== 'approved' ? `<button type="button" class="link" data-sok="${esc(x.name)}">可以</button>` : ''}${x.status !== 'rejected' ? `<button type="button" class="link" data-sno="${esc(x.name)}">不要</button>` : ''}<button type="button" class="link" data-sdraw="${esc(x.name)}">重画</button>`;
+        const note = x.problems ? `<small class="pp-stk-warn">核对：${esc(x.problems)}</small>` : x.stale ? '<small class="pp-stk-warn">形象卡改过，建议重画</small>' : '';
+        return `<li class="pp-stk ${x.status}" data-sname="${esc(x.name)}">${img}<div class="pp-stk-cap">「${esc(x.caption)}」${x.animated ? '<small class="pp-stk-gif">动图</small>' : ''}</div><div class="pp-stk-st">${STICKER[x.status] || ''}</div>${note}<div class="pp-stk-acts">${acts}</div></li>`;
+      })
+      .join('');
+    const missing = card.stickers.filter((x) => x.status === 'missing').length;
+    const pending = card.stickers.filter((x) => x.status === 'pending').length;
+    return `<section class="pp-stickers grp" aria-label="专属表情包">
+      <h4 class="grp-h">${esc(m.name)} 的专属表情 <small>本月 $${Number(s.month_spent_usd).toFixed(2)} / $${Number(s.monthly_usd).toFixed(2)}</small></h4>
+      <ul class="pp-stk-grid grp-box">${items}</ul>
+      <p class="grp-foot">照 TA 的形象图画的贴纸，存在你电脑上，画一次一直用。${s.review ? '新画的先待审，点「可以」后 TA 才会在聊天里用。' : ''}${s.available ? '' : '现在没有可用的绘图模型。'}</p>
+      <div class="pp-row grp-end">${pending ? `<button type="button" class="btn" data-sokall>全部可以（${pending}）</button>` : ''}${missing && s.available ? `<button type="button" class="btn primary" data-sdrawall>画还没画的 ${missing} 张</button>` : ''}</div>
+    </section>`;
+  }
+
+  // 从你那收来的表情包：你发的动图 / 小图，TA 按性格存下来自己用；用腻了、很久没用会自己丢
+  stashHtml(m) {
+    const mine = this.stickers?.stash?.find((x) => x.id === m.id);
+    if (!mine?.items?.length || !this.api.delStash) return '';
+    const items = mine.items
+      .map((x) => `<li class="pp-stk approved"><img src="/api/chat/media/${encodeURIComponent(x.id)}" alt="${esc(x.label)}" loading="lazy"><div class="pp-stk-cap">${esc(x.label)}</div><div class="pp-stk-st">${x.uses ? `用过 ${x.uses} 次` : '还没用过'}</div><div class="pp-stk-acts"><button type="button" class="link" data-stdel="${x.n}">删</button></div></li>`)
+      .join('');
+    return `<section class="pp-stickers grp" aria-label="收来的表情包">
+      <h4 class="grp-h">${esc(m.name)} 从你那收来的表情包</h4>
+      <ul class="pp-stk-grid grp-box">${items}</ul>
+      <p class="grp-foot">你发的动图和小图，TA 看了喜欢就存下来自己用；用腻了或很久没用会自己丢掉。只存在你电脑上。</p>
+      <div class="pp-row grp-end"><button type="button" class="btn" data-stclear>清空</button></div>
+    </section>`;
+  }
+
+  async drawStickers(names) {
+    for (const [i, name] of names.entries()) {
+      this.msg = `正在画「${name}」（${i + 1}/${names.length}），每张约半分钟…`;
+      this.render();
+      try {
+        await this.api.drawSticker(this.member, name);
+      } catch (e) {
+        this.msg = e.message;
+        break;
+      }
+      this.stickers = await this.api.stickers().catch(() => this.stickers);
+    }
+    if (this.msg.startsWith('正在画')) this.msg = '画好了，看看合不合适';
+    this.render();
+  }
+
   current() {
     return this.members.find((m) => m.id === this.member) || null;
   }
@@ -128,7 +210,10 @@ export class People {
   render() {
     const m = this.current();
     const p = m?.persona || {};
-    const tabs = this.members
+    const aboutTab = this.about
+      ? `<button type="button" class="pp-who${this.member === ABOUT ? ' cur' : ''}" data-member="${ABOUT}"${this.member === ABOUT ? ' aria-current="true"' : ''}><span class="pp-face ini ab-face">你</span><span class="pp-nm">关于你</span></button>`
+      : '';
+    const tabs = aboutTab + this.members
       .map((x) => `<button type="button" class="pp-who${x.id === this.member ? ' cur' : ''}" data-member="${esc(x.id)}"${x.id === this.member ? ' aria-current="true"' : ''}>${this.face(x)}<span class="pp-nm">${esc(x.name)}</span></button>`)
       .join('');
     const mems = this.memories.length
@@ -147,7 +232,9 @@ export class People {
       <div class="vb pp">
         <nav class="pp-members pp-strip" aria-label="成员">${tabs}</nav>
         ${
-          m
+          this.member === ABOUT && this.about
+            ? '<section class="pp-about grp" id="pp-about" aria-label="关于你"></section>'
+            : m
             ? `${this.profile ? '<section class="pp-prof grp" id="pp-prof" aria-label="自我档案"></section>' : ''}
         <form id="pp-persona" class="pp-form grp">
           <h4 class="grp-h">${esc(m.name)} 的人设 <small>${esc(SOURCE[m.source] || '')}</small></h4>
@@ -161,19 +248,29 @@ export class People {
           ${this.voiceHtml(m)}
           <div class="pp-row grp-end"><button type="button" class="btn" data-reset>恢复默认</button><button class="btn primary" type="submit">保存人设</button></div>
         </form>
+        ${this.stickerHtml(m)}
+        ${this.stashHtml(m)}
         <section class="pp-mem grp" aria-label="记忆">
           <h4 class="grp-h">${esc(m.name)} 的记忆 <small>只存在你电脑上</small></h4>
           <form id="pp-add" class="grp-box"><div class="grp-row"><input name="text" maxlength="300" placeholder="替 TA 记一条，比如：我下周三考试" aria-label="记一条"><button class="btn" type="submit">记下</button></div></form>
           <ul class="pp-list grp-box">${mems}</ul>
           ${this.mindHtml()}
           <div class="grp-box grp-acts"><button type="button" class="grp-btn" data-tidy>现在整理</button><button type="button" class="grp-btn danger" id="pp-clear-one" data-clear="one">清空 TA 的记忆</button><button type="button" class="grp-btn danger" id="pp-clear-all" data-clear="all">清空全部成员的记忆</button></div>
-        </section>`
+        </section>
+        ${this.growth ? '<section class="pp-grow grp" id="pp-grow" aria-label="成长"></section>' : ''}
+        ${this.relation ? '<section class="pp-rel grp" id="pp-rel" aria-label="关系"></section>' : ''}`
             : '<p class="hint">没有成员。</p>'
         }
         <p class="hint pp-msg" role="status">${esc(this.msg)}</p>
       </div>`;
     const prof = this.dlg.querySelector('#pp-prof');
     if (prof && m) this.profile.mount(prof, m.id);
+    const about = this.dlg.querySelector('#pp-about');
+    if (about) this.about.mount(about);
+    const grow = this.dlg.querySelector('#pp-grow');
+    if (grow && m) this.growth.mount(grow, m.id);
+    const rel = this.dlg.querySelector('#pp-rel');
+    if (rel && m) this.relation.mount(rel, m.id);
   }
 
   async listen() {
@@ -225,7 +322,7 @@ export class People {
 
   async onClick(e) {
     const t = e.target;
-    if (t.closest('#pp-prof')) return; // 自我档案自己处理（profile.js）
+    if (t.closest('#pp-prof') || t.closest('#pp-about') || t.closest('#pp-grow')) return; // 自我档案、关于你、成长自己处理
     if (t.closest('[data-close]')) return this.close();
     const who = t.closest('[data-member]');
     if (who) {
@@ -237,6 +334,30 @@ export class People {
       return this.render();
     }
     if (t.closest('[data-voice]')) return this.listen();
+    const sdraw = t.closest('[data-sdraw]');
+    if (sdraw) return this.drawStickers([sdraw.dataset.sdraw]);
+    if (t.closest('[data-sdrawall]')) {
+      const card = this.stickers.members.find((x) => x.id === this.member);
+      return this.drawStickers(card.stickers.filter((x) => x.status === 'missing').map((x) => x.name));
+    }
+    const sok = t.closest('[data-sok]');
+    const sno = t.closest('[data-sno]');
+    if (sok || sno) return this.act(() => this.api.reviewSticker(this.member, (sok || sno).dataset[sok ? 'sok' : 'sno'], sok ? 'approved' : 'rejected'), '');
+    if (t.closest('[data-sokall]')) {
+      const card = this.stickers.members.find((x) => x.id === this.member);
+      return this.act(async () => {
+        for (const x of card.stickers.filter((y) => y.status === 'pending')) await this.api.reviewSticker(this.member, x.name, 'approved');
+      }, '都可以用了');
+    }
+    const stdel = t.closest('[data-stdel]');
+    if (stdel) return this.act(async () => {
+      await this.api.delStash(this.member, Number(stdel.dataset.stdel));
+      this.stickers = await this.api.stickers().catch(() => this.stickers);
+    }, '删掉了');
+    if (t.closest('[data-stclear]')) return this.act(async () => {
+      await this.api.clearStash(this.member);
+      this.stickers = await this.api.stickers().catch(() => this.stickers);
+    }, '清空了');
     if (t.closest('[data-reset]')) return this.act(() => this.api.setPersona(this.member, null), '已恢复默认人设');
     if (t.closest('[data-tidy]')) {
       this.msg = '正在整理…';
@@ -279,7 +400,7 @@ export class People {
 
   async onSubmit(e) {
     const f = e.target;
-    if (f.closest('#pp-prof')) return; // 自我档案自己处理（profile.js）
+    if (f.closest('#pp-prof') || f.closest('#pp-about')) return; // 自我档案、关于你自己处理
     e.preventDefault();
     const data = new FormData(f);
     if (f.id === 'pp-persona') {

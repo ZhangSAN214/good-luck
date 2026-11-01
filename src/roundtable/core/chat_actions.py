@@ -62,6 +62,8 @@ class ActionPolicy(Protocol):
 
     def pat_suffix(self, member: str) -> str: ...
 
+    def voice(self, member: str, room_kind: str, seed: int = 0) -> str: ...
+
     def moment_forward(self, member: str, key: str) -> bool: ...
 
 
@@ -100,6 +102,10 @@ class DefaultPolicy:
     def pat_suffix(self, member: str) -> str:
         return ""
 
+    def voice(self, member: str, room_kind: str, seed: int = 0) -> str:
+        """提示词里这位成员的「说话习惯」（成员系统接管时给，seed 用来轮换示范句）；默认没有。"""
+        return ""
+
     def moment_forward(self, member: str, key: str) -> bool:
         """今天上网分享过东西的成员发朋友圈时，要不要发成「一句话 + 转发卡片」。
         key 由调用方给（如事件 id），随机数由它派生，可复现。"""
@@ -109,9 +115,78 @@ class DefaultPolicy:
         return r.enabled and random.Random(f"forward:{key}:{member}").random() < r.moment_forward
 
 
-def sticker_list(stickers: dict[str, list[str]]) -> str:
-    """提示词里的表情包清单：「[表情:团子·开心]、……」。"""
-    return "、".join(f"[表情:{pack}·{name}]" for pack, names in stickers.items() for name in names)
+def own_stickers(rt: Any, member: str, name: str) -> dict[str, list[str]]:
+    """成员自己那套审过的专属表情：{昵称: [表情名]}（套装名就是昵称）。
+
+    没有、聊天动作关着、昵称放不进记号（太长或带分隔符）时为空。"""
+    from roundtable.core.member_stickers import MemberStickers
+
+    acts = rt.config.roundtable.chat.actions
+    if not acts.enabled or not STICKER_RE.fullmatch(f"[表情:{name}·x]") or name in acts.stickers:
+        return {}
+    names = [s["name"] for s in MemberStickers(rt, rt.sticker_dir).approved(member)]
+    names = [n for n in names if STICKER_RE.fullmatch(f"[表情:{name}·{n}]")]
+    return {name: names} if names else {}
+
+
+def member_stickers(rt: Any, member: str, name: str) -> dict[str, list[str]]:
+    """这位成员能发的表情包：自己的专属那套在前，再加通用的几套和她从别人那收来的；
+    聊天动作关着时为空。"""
+    from roundtable.core.member.stash import Stash  # 收藏读成员档案，用到再导入
+
+    acts = rt.config.roundtable.chat.actions
+    if not acts.enabled:
+        return {}
+    ext_own, ext_common = sticker_packs(rt).stickers(member)
+    return (
+        own_stickers(rt, member, name)
+        | ext_own
+        | acts.stickers
+        | ext_common
+        | Stash(rt).pack(member)
+    )
+
+
+def sticker_packs(rt: Any) -> Any:
+    """本机装的外部表情包（dsh-meme 格式，在数据库旁的 sticker_packs/）。"""
+    from roundtable.core.sticker_packs import PACK_DIR, StickerPacks
+
+    return StickerPacks(rt, rt.sticker_dir.parent / PACK_DIR if rt.sticker_dir else None)
+
+
+def sticker_menu(rt: Any, member: str, name: str) -> str:
+    """提示词里给这位成员的表情包清单：有专属表情时分成「你的专属」和「通用」两段。"""
+    from roundtable.core.member.stash import Stash
+    from roundtable.core.member_stickers import MemberStickers
+
+    own = own_stickers(rt, member, name)
+    packs = sticker_packs(rt)
+    # 外部包一套可能上百张：提示词里每套只列几张，按小时轮换（聊天里认得整套）
+    ext_own, ext_common = packs.menu(member, rt.repo.clock()[:13])
+    ext_uses = packs.uses(member) if ext_own or ext_common else {}
+    common = sticker_list(rt.config.roundtable.chat.actions.stickers | ext_common, ext_uses)
+    # 专属表情名多是她的梗（如记仇的「记着」），光给名字模型会望文生义，所以带上什么时候发
+    uses = MemberStickers(rt, rt.sticker_dir).uses(member) if own else {}
+    mine = own | ext_own
+    menu = f"你的专属：{sticker_list(mine, uses | ext_uses)}；通用：{common}" if mine else common
+    stash = Stash(rt).menu(member)
+    return f"{menu}；{stash}" if stash else menu
+
+
+def sticker_list(stickers: dict[str, list[str]], uses: dict[str, str] | None = None) -> str:
+    """提示词里的表情包清单：「[表情:团子·开心]、……」；给了 uses 时写成「[表情:套·名]（用法）」。
+    uses 的键是「套·名」或只是名字（专属那套）。"""
+    uses = uses or {}
+
+    def use(pack: str, name: str) -> str:
+        u = uses.get(f"{pack}·{name}") or uses.get(name)
+        return f"（{u}）" if u else ""
+
+    return "、".join(
+        f"[表情:{pack}·{name}]{use(pack, name)}"
+        for pack, names in stickers.items()
+        for name in names
+    )
 
 
 def clean_stickers(text: str, stickers: dict[str, list[str]]) -> str:
@@ -141,6 +216,52 @@ def swap_repeated_stickers(
         return token
 
     return STICKER_RE.sub(swap, text)
+
+
+def drop_own_repeats(text: str, mine: set[str]) -> str:
+    """她最近刚发过的表情包又跟在一句话后面：去掉（10-31 第 3 次试跑：连着 3 条同一个「疑惑」）。
+    只发了一个表情包的不动（交给 swap_repeated_stickers 换一个）。"""
+    if not mine or not STICKER_RE.search(text):
+        return text
+    bare = STICKER_RE.sub("", text).strip()
+    if not bare:
+        return text
+
+    def drop(m: re.Match[str]) -> str:
+        return "" if f"[表情:{m.group(1)}·{m.group(2)}]" in mine else m.group(0)
+
+    return re.sub(r"[ \t]+$", "", STICKER_RE.sub(drop, text), flags=re.M)
+
+
+_ECHO_FILL = re.compile(
+    r"[\s，,。.！!？?～~…、\U0001f300-\U0001faff☀-➿]|[啦咯哦噢呀啊嗯呢吧嘛哈]+$"
+)
+
+
+def _bare(text: str) -> str:
+    out = _ECHO_FILL.sub("", text)
+    return re.sub(r"[啦咯哦噢呀啊嗯呢吧嘛]+$", "", out)
+
+
+def sticker_echo(text: str, means: dict[str, list[str]]) -> str:
+    """字和表情包一个意思（「明白咯。[表情:收到]」）：只留表情包；表情包排在字前面的挪到后面
+    （先说事再甩图）。``means`` 是 {表情名: [意思等于的词]}，没写的用表情名本身。（11-01 用户批）"""
+    tokens = [m.group(0) for m in STICKER_RE.finditer(text)]
+    if not tokens:
+        return text
+    words = STICKER_RE.sub("", text).strip()
+    if not words:
+        return text
+    bare = _bare(words)
+    for m in STICKER_RE.finditer(text):
+        name = m.group(2)
+        hit = means.get(f"{m.group(1)}·{name}") or means.get(name)  # 外部包的键是「套·名」
+        same = [_bare(w) for w in (hit or [name])]
+        if bare and any(bare == w for w in same if w):
+            return m.group(0)
+    if text.lstrip().startswith(tokens[0]):
+        return f"{words}{''.join(tokens)}"
+    return text
 
 
 def parse(

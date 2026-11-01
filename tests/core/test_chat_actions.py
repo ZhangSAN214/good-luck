@@ -76,17 +76,17 @@ async def test_reply_is_split_into_bubbles_with_quote_and_cost_on_first():
     env = Env()
     r = room(env)
     msg, _ = r.post("@阿一 今天吃什么")
-    env.fake.queue("b1", f"[引用#{msg['id']}] 火锅！\n\n[表情:团子·开心]")
+    env.fake.queue("b1", f"[引用#{msg['id']}] 火锅！\n\n[表情:小黄脸·开心]")
     first = (await r.replies(msg["id"], r.pick("@阿一 今天吃什么")))[0]
     rows = [m for m in env.rt.repo.chat_messages("main") if m["author"] == "V1"]
-    assert [m["text"] for m in rows] == ["火锅！", "[表情:团子·开心]"]
+    assert [m["text"] for m in rows] == ["火锅！", "[表情:小黄脸·开心]"]
     quote = {"id": msg["id"], "author": "user", "text": "@阿一 今天吃什么"}
     assert rows[0]["meta"]["quote"] == quote
     assert first["id"] == rows[0]["id"]
     assert rows[1]["cost_usd"] == 0.0
     # 提示词里带上表情清单和编号的聊天记录
     sent = env.fake.calls[-1].messages
-    assert "[表情:团子·开心]" in sent[0].content
+    assert "[表情:小黄脸·开心]" in sent[0].content
     assert f"#{msg['id']} 用户：@阿一 今天吃什么" in sent[-1].content
 
 
@@ -150,7 +150,9 @@ async def test_same_action_prompt_for_every_member():
     msg, _ = r.post("@全员 早")
     await r.replies(msg["id"], r.pick("@全员 早"))
     systems = {
-        c.messages[0].content.split("能发的东西")[1].split("你的人物卡")[0] for c in env.fake.calls
+        c.messages[0].content.split("能发的东西")[1].split("你的人物卡")[0]
+        for c in env.fake.calls
+        if "能发的东西" in c.messages[0].content  # 说出口前自查的改写调用不算
     }
     assert len(systems) == 1
 
@@ -301,3 +303,114 @@ async def test_member_who_thinks_too_long_is_skipped_without_blocking_others(mon
     assert [m["author"] for m in out] == ["V2"]
     assert "阿一 想太久了" in " ".join(m["text"] for m in env.rt.repo.chat_messages("main"))
     assert r.typing == []
+
+
+# --- 成员专属表情 -------------------------------------------------------------------
+
+
+def give_stickers(
+    env: Env, tmp_path: Path, member: str, approved: list[str], pending=(), uses=None
+):
+    """给成员放几张专属表情（approved 审过、pending 待审；uses 各自的用法），存在临时文件夹里。"""
+    from roundtable.core.config.schema import StickerCard, StickerSpec
+    from roundtable.core.member_stickers import MemberStickers
+
+    rt = env.rt
+    uses = uses or {}
+    specs = [
+        StickerSpec(name=n, caption=n, action="挥手", use=uses.get(n, ""))
+        for n in [*approved, *pending]
+    ]
+    cards = rt.config.personas.sticker_cards | {member: StickerCard(look="测试", stickers=specs)}
+    personas = rt.config.personas.model_copy(update={"sticker_cards": cards})
+    rt.config = rt.config.model_copy(update={"personas": personas})
+    env.rt.sticker_dir = tmp_path / "stickers"
+    stickers = MemberStickers(env.rt, env.rt.sticker_dir)
+    data = stickers._index.load()
+    for i, name in enumerate([*approved, *pending]):
+        file = f"{member}{i}.png"
+        stickers._index.write(file, b"\x89PNG")
+        data["items"].setdefault(member, {})[name] = {
+            "caption": name + "！",
+            "file": file,
+            "status": "approved" if name in approved else "pending",
+        }
+    stickers._index.save(data)
+
+
+def test_member_gets_own_approved_pack_first_in_the_prompt(tmp_path):
+    from roundtable.core.chat_actions import member_stickers, own_stickers, sticker_menu
+
+    env = Env()
+    give_stickers(env, tmp_path, "V1", ["晚安", "收到"], pending=["没审"])
+    assert own_stickers(env.rt, "V1", "阿一") == {"阿一": ["晚安", "收到"]}
+    assert own_stickers(env.rt, "V2", "阿二") == {}
+    common = env.rt.config.roundtable.chat.actions.stickers
+    every = member_stickers(env.rt, "V1", "阿一")
+    assert list(every)[0] == "阿一" and set(every) > set(common)
+    menu = sticker_menu(env.rt, "V1", "阿一")
+    assert menu.startswith("你的专属：[表情:阿一·晚安]、[表情:阿一·收到]；通用：")
+    assert "没审" not in menu
+    # 没有专属表情的成员：只有通用清单
+    assert sticker_menu(env.rt, "V2", "阿二") == sticker_list(common)
+    # 昵称放不进记号（太长）时不给专属
+    assert own_stickers(env.rt, "V1", "一个很长很长的昵称") == {}
+
+
+def test_sticker_menu_says_when_to_send_each_own_sticker(tmp_path):
+    """10-31 试用：清单只有名字，记仇的「记着」被当成「好的」连用 6 次；带上用法。"""
+    from roundtable.core.chat_actions import sticker_menu
+
+    env = Env()
+    uses = {"记着": "被调侃时记小仇", "没审": "不该出现"}
+    give_stickers(env, tmp_path, "V1", ["记着", "晚安"], pending=["没审"], uses=uses)
+    menu = sticker_menu(env.rt, "V1", "阿一")
+    assert menu.startswith("你的专属：[表情:阿一·记着]（被调侃时记小仇）、[表情:阿一·晚安]；通用：")
+    assert "不该出现" not in menu
+
+
+async def test_member_may_send_only_her_own_pack(tmp_path):
+    env = Env()
+    give_stickers(env, tmp_path, "V1", ["晚安"])
+    give_stickers(env, tmp_path, "V2", ["收到"])
+    r = room(env)
+    msg, _ = r.post("@阿一 晚安")
+    env.fake.queue("b1", "[表情:阿一·晚安]\n\n[表情:阿二·收到]好")
+    await r.replies(msg["id"], r.pick("@阿一 晚安"))
+    rows = [m["text"] for m in env.rt.repo.chat_messages("main") if m["author"] == "V1"]
+    assert rows == ["[表情:阿一·晚安]", "好"]
+    assert "你的专属：[表情:阿一·晚安]" in env.fake.calls[-1].messages[0].content
+
+
+def test_noto_pack_images_exist_and_old_packs_stay_drawable():
+    """小黄脸每张都有本地动图；早先的团子、猫猫和旧文字还在 stickers.js 里（旧消息照样能显示）。"""
+    js = (ROOT / "web/js/stickers.js").read_text(encoding="utf-8")
+    block = js[js.index("const NOTO = [") : js.index("];", js.index("const NOTO = ["))]
+    codes = re.findall(r"\['[^']+', '([0-9a-f_]+)'\]", block)
+    assert len(codes) == 40
+    for cp in codes:
+        assert (ROOT / f"web/img/stickers/noto/{cp}.webp").is_file(), cp
+    for old in ("id: '团子'", "id: '猫猫'", "['收到！'", "['哈哈哈'"):
+        assert old in js
+    stickers = load_config(ROOT / "config").roundtable.chat.actions.stickers
+    assert set(stickers) == {"小黄脸", "文字"}
+
+
+def test_sticker_that_says_the_same_as_the_words_replaces_them():
+    from roundtable.core.chat_actions import sticker_echo
+
+    means = {"收到": ["收到", "好的", "明白", "了解"]}
+    assert sticker_echo("明白咯。[表情:小克·收到]", means) == "[表情:小克·收到]"
+    assert sticker_echo("好嘞[表情:团子·好嘞]", {}) == "[表情:团子·好嘞]"
+    # 意思不一样：留着，但表情包挪到字后面（先说事再甩图）
+    assert sticker_echo("[表情:小克·记着]这笔先记上", means) == "这笔先记上[表情:小克·记着]"
+    assert sticker_echo("行，那就开始[表情:小克·记着]", means) == "行，那就开始[表情:小克·记着]"
+    assert sticker_echo("[表情:小克·收到]", means) == "[表情:小克·收到]"
+
+
+def test_sticker_echo_reads_pack_qualified_means_first():
+    from roundtable.core.chat_actions import sticker_echo
+
+    means = {"猫猫·好的": ["收到", "好嘞"], "好的": ["不相干"]}
+    assert sticker_echo("收到！[表情:猫猫·好的]", means) == "[表情:猫猫·好的]"
+    assert sticker_echo("不相干[表情:别的·好的]", means) == "[表情:别的·好的]"

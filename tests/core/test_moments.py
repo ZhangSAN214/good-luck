@@ -166,3 +166,112 @@ async def test_old_posts_outside_window_do_not_block():
     repo.add_life_event(iso(NOW - timedelta(hours=1)), "solo", [a.id], topic="地点：天台")
     out = await mo.tick(NOW)
     assert out["posts"] == 1 and out["skipped"] == 0
+
+
+async def test_member_stops_writing_posts_after_daily_misses():
+    env = Env()
+    mo = moments(env)
+    (a, b) = one_awake(env, mo, 2)
+    repo = env.rt.repo
+    repo.add_moment(b.id, FAKE_POST)  # 她写什么都和这条太像
+    for hour in (1, 2, 3, 4):
+        repo.add_life_event(
+            iso(NOW - timedelta(hours=hour)), "solo", [a.id], topic=f"地点：天台 {hour}"
+        )
+    for minute in range(0, 60, 10):
+        await mo.tick(NOW + timedelta(minutes=minute))
+    limit = env.config.roundtable.chat.moments.post_misses
+    assert len(calls(env, "想发一条朋友圈")) == limit
+    assert mo.misses("posts") == {a.id: limit}
+
+
+async def test_failed_comment_is_not_rewritten_and_moment_gives_up_after_misses():
+    env = Env()
+    mo = moments(env)
+
+    async def nothing_new(*args, **kwargs):
+        return ""  # 自查都没过：说的话和别人差不多
+
+    mo._self_check = nothing_new
+    awake = mo.awake(NOW)
+    moment = env.rt.repo.add_moment("user", "今天下雨了", created_at=iso(NOW))
+    for minute in range(0, 60, 10):
+        out = await mo.tick(NOW + timedelta(minutes=minute))
+        assert out["comments"] == 0
+    limit = env.config.roundtable.chat.moments.comment_misses
+    assert len(awake) > limit
+    assert len(calls(env, "想在下面留一条评论")) == limit
+    assert mo.misses("comments") == {str(moment["id"]): limit}
+    assert len(mo.comment_skipped()) == limit
+
+
+async def test_post_gets_a_photo_by_chance_with_daily_caps(tmp_path, monkeypatch):
+    import io
+
+    from PIL import Image
+
+    from roundtable.core.config.schema import StickerCard
+    from roundtable.core.member_stickers import MemberStickers, StickerBudgetExceeded
+
+    env = Env()
+    rt = env.rt
+    rt.chat_media_dir = tmp_path / "media"
+    members = [m.id for m in ChatHub(rt).everyone()]
+    cards = {m: StickerCard(look="测试") for m in members}
+    media = rt.config.roundtable.media
+    photos = media.moment_photos.model_copy(update={"chance": 1.0, "per_day": 2})
+    media = media.model_copy(update={"enabled": True, "moment_photos": photos})
+    rt.config = rt.config.model_copy(
+        update={
+            "personas": rt.config.personas.model_copy(update={"sticker_cards": cards}),
+            "roundtable": rt.config.roundtable.model_copy(update={"media": media}),
+        }
+    )
+    buf = io.BytesIO()
+    Image.new("RGB", (40, 30), "skyblue").save(buf, "JPEG")
+    asked = []
+
+    async def photo(self, member, scene, post, shot, **kw):
+        asked.append((member, scene, post, shot, kw))
+        if len(asked) > 2:
+            raise StickerBudgetExceeded("快超了")
+        return buf.getvalue(), "image/jpeg"
+
+    monkeypatch.setattr(MemberStickers, "photo", photo)
+    seed_events(env)
+    mo = moments(env)
+    hub = ChatHub(rt)
+    everyone = hub.everyone()
+    for i, member in enumerate([everyone[0], everyone[0], everyone[1], everyone[2], everyone[3]]):
+        event = {"id": 100 + i, "topic": f"地点：公寓楼天台（看星星）第 {i} 次"}
+        await mo.post(member, event, [])
+    posts = env.rt.repo.moments(limit=50)
+    with_photo = [p for p in posts if p["meta"].get("photo")]
+    # 每人每天最多 1 张、所有人每天最多 2 张；超了或画不出来照样发文字
+    assert len(with_photo) == 2 and len(posts) > len(with_photo)
+    assert len({p["author"] for p in with_photo}) == 2
+    for p in with_photo:
+        [item] = p["meta"]["media"]
+        assert item["kind"] == "image" and item["generated"]
+        assert p["text"].endswith("\n[图片]") and p["meta"]["caption"] in p["text"]
+        assert (tmp_path / "media").exists()
+    member, scene, post, shot, kw = asked[0]
+    by_text = {s.text: s for s in photos.shots}
+    assert "天台" in scene and shot in by_text
+    # 她不入镜的拍法不传参考图；种子由事件和成员派生
+    assert kw["refs"] == (by_text[shot].her != "none") and kw["seed"].startswith("100:")
+    # 吃标签的本地绘图模型用：拍法的 her 和标签版拍法
+    assert kw["her"] == by_text[shot].her and kw["shot_tags"] == by_text[shot].tags
+
+
+def test_photo_shots_mostly_leave_her_out():
+    """真人发朋友圈多半拍东西和风景：默认拍法按权重抽，她不入镜的占多数（10-31 用户嫌 AI 感强）。"""
+    import random
+
+    from roundtable.core.config.schema import MomentPhotoRules
+
+    shots = MomentPhotoRules().shots
+    rng = random.Random(1)
+    picks = [rng.choices(shots, [s.weight for s in shots])[0].her for _ in range(2000)]
+    assert 0.5 < picks.count("none") / len(picks) < 0.7
+    assert picks.count("full") / len(picks) < 0.3

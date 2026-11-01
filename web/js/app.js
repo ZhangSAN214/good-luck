@@ -42,8 +42,13 @@ import { Exporter, exportHref } from './exporter.js';
 import { Moments } from './moments.js';
 import { BootSettings } from './bootcfg.js';
 import { LanPanel } from './lan.js';
+import { BackupPanel } from './backup.js';
 import { Watch } from './watch.js';
 import { Wander } from './wander.js';
+import { Workbench } from './workbench.js';
+import { SuperPanel } from './supercomputer.js';
+import { Bench } from './bench.js';
+import { BenchGenPanel } from './benchgen.js';
 import { Hub } from './hub.js';
 import { Standee } from './standee.js';
 import { Music } from './music.js';
@@ -53,6 +58,7 @@ import { Mail } from './mail.js';
 import { Evolution } from './evolution.js';
 import { Usage } from './usage.js';
 import { Deck } from './deck.js';
+import { setEmojiImages, setMemberPacks } from './stickers.js';
 
 const $ = (q) => document.querySelector(q);
 const RESTING = new Set(['completed', 'stopped', 'failed', 'awaiting_confirmation', 'paused']);
@@ -106,6 +112,11 @@ function freshLive() {
 // 网页小人：匿名且未揭晓的会话里不出现（启动时先不显示，确定当前会话后再决定）
 const pet = new Pet({ labels: STEP_LABELS, goto: gotoDiscussion });
 const people = new People($('#people'), {
+  goto: async (room, id) => {
+    await setEntry('chat');
+    await gchat.openRoom(room);
+    setTimeout(() => gchat.flash(id), 300);
+  },
   avatar: (id, name) => {
     const m = gchat.everyone?.find((x) => x.id === id);
     return m ? gchat.avatar(m, name) : '';
@@ -115,6 +126,15 @@ const people = new People($('#people'), {
     setPersona: API.setChatPersona,
     voices: API.memberVoices,
     voice: API.memberVoice,
+    stickers: API.memberStickers,
+    drawSticker: API.drawSticker,
+    delStash: API.delStash,
+    clearStash: API.clearStash,
+    reviewSticker: async (...args) => {
+      const r = await API.reviewSticker(...args);
+      loadMemberStickers();
+      return r;
+    },
     memories: API.chatMemories,
     addMemory: API.addChatMemory,
     editMemory: API.editChatMemory,
@@ -132,9 +152,43 @@ const people = new People($('#people'), {
     revert: API.revertMemberProfile,
     clearProfile: API.clearMemberProfile,
     importCards: API.importMemberCards,
+    about: {
+      get: API.aboutYou,
+      add: API.aboutAdd,
+      edit: API.aboutEdit,
+      del: API.aboutDel,
+      reject: API.aboutReject,
+      lock: API.aboutLock,
+      domain: API.aboutDomain,
+      forget: API.aboutForget,
+      clear: API.aboutClear,
+      exportUrl: API.aboutExportUrl,
+      status: API.aboutStatus,
+      setStatus: API.aboutSetStatus,
+      player: API.aboutPlayer,
+      addGame: API.aboutAddGame,
+      delGame: API.aboutDelGame,
+      addClass: API.aboutAddClass,
+      addDdl: API.aboutAddDdl,
+      delSchedule: API.aboutDelSchedule,
+      clearSchedule: API.aboutClearSchedule,
+    },
+    growth: API.memberGrowth,
+    growthRun: API.runMemberGrowth,
+    growthRevert: API.revertMemberGrowth,
+    growthUndo: API.undoMemberGrowth,
+    growthClear: API.clearMemberGrowth,
+    relation: API.memberRelation,
+    relationClear: API.clearMemberRelation,
+    relationThink: API.thinkMemberRelation,
+    relationDropView: API.dropMemberView,
+    relationReplyView: API.replyMemberView,
   },
 });
-const feeds = new Feeds($('#feeds'), { api: { get: API.chatFeeds, set: API.setChatFeeds, refresh: API.refreshChatFeeds } });
+const feeds = new Feeds($('#feeds'), {
+  api: { get: API.chatFeeds, set: API.setChatFeeds, refresh: API.refreshChatFeeds },
+  memes: { get: API.chatMemes, add: API.addChatMeme, remove: API.removeChatMeme, refresh: API.refreshChatMemes },
+});
 const exporter = new Exporter($('#exportdlg'), { api: { options: API.exportOptions, save: API.exportSave } });
 const clipper = new Clipper($('#clipdlg'), {
   api: {
@@ -159,6 +213,9 @@ new LanPanel($('#landlg'), $('#lanbtn'), {
     logout: API.lanLogout,
   },
 });
+new BackupPanel($('#backupdlg'), $('#backupbtn'), {
+  api: { status: API.backupStatus, checkpoint: API.backupCheckpoint, restore: API.backupRestore },
+});
 new Watch($('#watchdlg'), $('#watchbtn'), {
   api: {
     status: API.watchStatus,
@@ -168,6 +225,11 @@ new Watch($('#watchdlg'), $('#watchbtn'), {
     messages: API.watchMessages,
     say: API.watchSay,
     scrcpy: API.watchScrcpy,
+    overlay: API.watchOverlay,
+    adbPair: API.watchAdbPair,
+    adbConnect: API.watchAdbConnect,
+    adbQr: API.watchAdbQr,
+    adbQrPoll: API.watchAdbQrPoll,
     frameUrl: API.watchFrameUrl,
     members: () => API.api('/api/chat?after=2147483647'),
   },
@@ -181,6 +243,50 @@ new Wander($('#wanderdlg'), $('#wanderbtn'), {
     frameUrl: API.wanderFrameUrl,
   },
 });
+// 「工作台」页（分段栏第五个入口）：生成器 + 超级电脑 + dsh
+const bench = new Bench($('#bench'));
+const workbench = new Workbench(bench.pane('dsh'), bench.tabButton('dsh'), {
+  api: { status: API.dshStatus, start: API.dshStart, stop: API.dshStop, check: API.dshCheck },
+  isOpen: () => bench.visible('dsh'),
+});
+const superPanel = new SuperPanel(bench.pane('super'), document.querySelector('#entries [data-m="bench"]'), {
+  api: {
+    status: API.superStatus,
+    submit: API.superSubmit,
+    cancel: API.superCancel,
+    task: API.superTask,
+    limit: API.superLimit,
+    wake: API.superWake,
+  },
+  isOpen: () => bench.visible('super'),
+});
+const benchGen = new BenchGenPanel(bench.pane('gen'), {
+  api: {
+    status: API.benchStatus,
+    submit: API.benchSubmit,
+    cancel: API.benchCancel,
+    get: API.benchGet,
+    ask: API.benchAsk,
+    netCheck: API.benchNetCheck,
+    desk: API.benchDesk,
+    profileAdd: API.benchProfileAdd,
+    profileRemove: API.benchProfileRemove,
+    deskSuggest: API.benchDeskSuggest,
+    answer: API.benchAnswer,
+    sign: API.benchSign,
+    review: API.benchReview,
+    evolve: API.benchEvolve,
+    plugin: API.benchPlugin,
+    decide: API.benchDecide,
+    material: API.benchMaterial,
+    attach: API.benchAttach,
+    look: API.benchLook,
+  },
+  isOpen: () => bench.visible('gen'),
+  label: (id) => superPanel.label(id),
+});
+bench.onSelect = (name) =>
+  name === 'dsh' ? workbench.open() : name === 'gen' ? benchGen.open() : superPanel.open();
 $('#skin').addEventListener('click', () => {
   const next = document.documentElement.dataset.skin === 'ark' ? 'classic' : 'ark';
   document.documentElement.dataset.skin = next;
@@ -207,7 +313,9 @@ const evolution = new Evolution($('#evolvedlg'), {
   },
 });
 $('#evolve').addEventListener('click', () => evolution.open());
-const usage = new Usage($('#usagedlg'), { api: { usage: API.getUsage, balance: API.getUsageBalance } });
+const usage = new Usage($('#usagedlg'), {
+  api: { usage: API.getUsage, balance: API.getUsageBalance, priority: API.getChannelPriority, setPriority: API.setChannelPriority },
+});
 const moments = new Moments($('#moments'), {
   api: { list: API.getMoments, post: API.postMoment, like: API.likeMoment, comment: API.commentMoment, del: API.delMoment, delComment: API.delMomentComment },
   onSeen: () => gchat.markMomentsSeen(),
@@ -217,12 +325,28 @@ const gchat = new GroupChat($('#gchat'), {
   openPeople: (member) => people.open(member),
   openFeeds: () => feeds.open(),
   openMoments: (author) => moments.open(author),
-  api: { get: API.getChat, post: API.postChat, pat: API.patChat, recall: API.recallChat, forward: API.forwardChat, clear: API.clearChat, rooms: API.getChatRooms, handoff: API.chatHandoff, lifeReports: API.lifeReports, look: API.chatLook },
+  api: { get: API.getChat, post: API.postChat, pat: API.patChat, recall: API.recallChat, forward: API.forwardChat, clear: API.clearChat, rooms: API.getChatRooms, handoff: API.chatHandoff, handoffStart: API.chatHandoffStart, handoffDismiss: API.chatHandoffDismiss, upload: API.upload, lifeReports: API.lifeReports, look: API.chatLook },
   openSession: async (sid) => {
     await setEntry('work');
     await open(sid);
   },
 });
+// 成员专属表情（审过的）：装进表情面板，聊天和朋友圈里的记号画成图；在成员设定里审完后再取一次
+async function loadMemberStickers() {
+  try {
+    setEmojiImages((await API.emojiStyle()).enabled);
+  } catch {
+    /* 取不到就用系统字体显示 emoji */
+  }
+  try {
+    setMemberPacks((await API.chatStickers()).packs);
+  } catch {
+    return; // 取不到就只用通用表情
+  }
+  if (gchat.built) gchat.renderAll();
+  if ($('#moments').open) moments.render();
+}
+loadMemberStickers();
 const home = new Apartment($('#home'), {
   api: API.getApartment,
   budget: API.getBudget,
@@ -1176,9 +1300,9 @@ function typing(el) {
   return !!el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName));
 }
 
-// --- 入口：办公室 / 公寓楼 / 群聊 ------------------------------------------------------------
+// --- 入口：办公室 / 公寓楼 / 群聊 / 终端 / 工作台 ------------------------------------------------------------
 
-const ENTRIES = ['work', 'home', 'chat', 'hub'];
+const ENTRIES = ['work', 'home', 'chat', 'hub', 'bench'];
 let entry = 'work';
 
 /** 打开网页时进哪个入口：默认终端首页；终端里可以勾选直接进办公室（存在本机）。本机存储不能用时进办公室。 */
@@ -1191,7 +1315,7 @@ function landing() {
 }
 
 /** 切换入口。终端是首页；办公室是原来的界面；公寓楼是只读的基建式剖面图；群聊和成员聊天。地址栏 #m=hub / #m=home / #m=chat 刷新后回到原入口。 */
-const VIEW_OF = { work: '#main', home: '#home', chat: '#gchat', hub: '#hub' };
+const VIEW_OF = { work: '#main', home: '#home', chat: '#gchat', hub: '#hub', bench: '#bench' };
 
 /**
  * 切换入口，带过渡（仿 iPhone 打开 App，不回弹）：背景和顶栏不动，只有页面在动。
@@ -1305,6 +1429,8 @@ function applyEntry(m) {
   else gchat.hide();
   if (m === 'hub') shown = hub.show();
   else hub.hide();
+  if (m === 'bench') shown = bench.show();
+  else bench.hide();
   document.documentElement.dataset.entry = m;
   syncPet();
   if (m !== 'work') history.replaceState(null, '', `#m=${m}`);
@@ -1315,7 +1441,7 @@ function applyEntry(m) {
 /**
  * 全局快捷键（不在输入框里时）：
  * / 或 Ctrl+K 聚焦题目输入框；Esc 离开输入框；1～9 选择等待确认卡片的对应选项；
- * N 新题目；Alt+1 / 2 / 3 / 4 切换办公室 / 公寓楼 / 群聊 / 终端。输入框里只处理 Esc、Ctrl+K 与 Alt+数字。
+ * N 新题目；Alt+1 / 2 / 3 / 4 / 5 切换办公室 / 公寓楼 / 群聊 / 终端 / 工作台。输入框里只处理 Esc、Ctrl+K 与 Alt+数字。
  */
 function shortcut(e) {
   if (composing(e) || e.defaultPrevented) return;

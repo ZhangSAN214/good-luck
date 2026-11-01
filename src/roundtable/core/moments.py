@@ -11,7 +11,8 @@
 - 去重（不花钱）：别人 ``dedupe_hours`` 小时内已经发过的同一件事（同一条生活事件）不再发，改挑
   当天另一件事，没有就跳过；写出来的正文和近期任何人的动态太像（字符二元组 Jaccard ≥
   ``similarity_max``）也不发，并记下这位成员的这件事，之后不再为它花钱。
-- 配图暂不做（默认关闭的选项留到以后）。
+- 配图（``media.moment_photos``）：按概率画一张手机随手拍；拍法按权重抽，多数只拍东西 / 风景、
+  她不入镜（不传形象参考图），画完在本机加一层手机味（``member_stickers.phone_look``）。
 """
 
 from __future__ import annotations
@@ -38,18 +39,27 @@ from roundtable.core.chat_actions import (
     card_text,
     clean_card,
     clean_stickers,
-    sticker_list,
+    generated_item,
+    member_stickers,
+    sticker_menu,
 )
+from roundtable.core.member.brain import Brain
+from roundtable.core.member.voice import Said, before_voice, recent_words
 from roundtable.core.office.apartment import schedule
 from roundtable.core.persona import chat_persona
 from roundtable.core.plain_talk import before_speaking, plain_prompt
 from roundtable.core.storage.repository import iso
 
 MOMENT_ROOM = "moments"
+NOTHING = "没有特别的事"  # 生活场景里「今天的事」为空时的写法（life.scene）
 MOMENT_STEP = "moment"
 SEEN_KEY = "moments.seen"
 SKIPPED_KEY = "moments.skipped"  # 写出来太像而放弃的「成员:事件」，之后不再为它花钱
 SKIPPED_KEEP = 200
+COMMENT_SKIPPED_KEY = "moments.comment_skipped"  # 自查没过的「动态:成员」：不再让这位重写
+MISSES_KEY = (
+    "moments.misses"  # 当天没发出去的次数：{"day", "posts": {成员: n}, "comments": {动态: n}}
+)
 NONE = "（暂无）"
 _RANK = {"pair": 3, "gather": 2, "solo": 1}
 _NOISE = re.compile(r"[\W_]+")
@@ -108,6 +118,29 @@ class Moments:
         keep = [*self.skipped(), f"{member.id}:{event_id}"][-SKIPPED_KEEP:]
         self.rt.repo.set_setting(SKIPPED_KEY, json.dumps(keep))
 
+    def comment_skipped(self) -> set[str]:
+        raw = self.rt.repo.setting(COMMENT_SKIPPED_KEY)
+        return set(json.loads(raw)) if raw else set()
+
+    def skip_comment(self, member: ChatMember, moment_id: int) -> None:
+        raw = self.rt.repo.setting(COMMENT_SKIPPED_KEY)
+        keep = [*(json.loads(raw) if raw else []), f"{moment_id}:{member.id}"][-SKIPPED_KEEP:]
+        self.rt.repo.set_setting(COMMENT_SKIPPED_KEY, json.dumps(keep))
+        self._miss("comments", str(moment_id))
+
+    def misses(self, kind: str) -> dict[str, int]:
+        """今天（UTC 日）没发出去的次数：posts 按成员、comments 按动态。"""
+        raw = self.rt.repo.setting(MISSES_KEY)
+        data = json.loads(raw) if raw else {}
+        today = iso(utc_day_window(self.rt.budget.now())[0])
+        return data.get(kind, {}) if data.get("day") == today else {}
+
+    def _miss(self, kind: str, key: str) -> None:
+        today = iso(utc_day_window(self.rt.budget.now())[0])
+        data = {"day": today, "posts": self.misses("posts"), "comments": self.misses("comments")}
+        data[kind][key] = data[kind].get(key, 0) + 1
+        self.rt.repo.set_setting(MISSES_KEY, json.dumps(data))
+
     def event_for(
         self, member: ChatMember, now: datetime, recent: list[dict[str, Any]] | None = None
     ) -> dict[str, Any] | None:
@@ -123,10 +156,19 @@ class Moments:
             and e["topic"]
             and e["id"] not in posted
             and f"{member.id}:{e['id']}" not in skipped
+            and self.worth_posting(e)
         ]
         if not events:
             return None
         return max(events, key=lambda e: (e["written"], _RANK.get(e["kind"], 0), e["at"]))
+
+    def worth_posting(self, event: dict[str, Any]) -> bool:
+        """有事可说：碰到了人、聊过天、或者今天办了活。一个人待着、什么也没发生的日子不发
+        （``chat.engine.voice.check.moments_need_event``，成员系统 P5）。"""
+        engine = self.rt.config.roundtable.chat.engine
+        if not (engine.enabled and engine.voice.enabled and engine.voice.check.moments_need_event):
+            return True
+        return bool(event["written"]) or event["kind"] != "solo" or NOTHING not in event["topic"]
 
     def too_similar(self, text: str, recent: list[dict[str, Any]]) -> bool:
         return any(similarity(text, p["text"]) >= self.rules.similarity_max for p in recent)
@@ -160,7 +202,7 @@ class Moments:
         acts = rt.config.roundtable.chat.actions
         if "stickers" in wants:  # v3 起：能用表情包
             variables["stickers"] = (
-                sticker_list(acts.stickers) if acts.enabled else "（不用表情包）"
+                sticker_menu(rt, member.id, member.name) if acts.enabled else "（不用表情包）"
             )
         variables = {k: v for k, v in variables.items() if k in wants}
         prompt = rt.prompts.render(
@@ -186,7 +228,7 @@ class Moments:
         if completion is None:
             return None
         text = clean_reply(completion.text, member.name, rules.max_chars)
-        text = clean_stickers(text, acts.stickers if acts.enabled else {}).strip()
+        text = clean_stickers(text, member_stickers(rt, member.id, member.name)).strip()
         if not text:
             return None
         return await before_speaking(
@@ -209,17 +251,24 @@ class Moments:
         if card:
             summary = card["summary"] or "（没有）"
             forward = f"{card_text(card)}\n来源：{card['source']}\n摘要：{summary}"
+        scene = event["topic"]
+        musing = Brain(self.rt, names=self.names()).musing(member.id, self.rt.budget.now())
+        if musing:  # 朋友圈读大脑：和聊天里是同一个人、同一些心事
+            scene = f"{scene}\n你这阵子心里挂着：{musing}"
         text = await self._write(
             member,
             "moment_post",
-            scene=event["topic"],
+            scene=scene,
             recent=self.recent_text(member),
             forward=forward,
         )
         if not text:
             return None
-        if self.too_similar(text, recent):
+        if self.too_similar(text, recent) or not await self._self_check(
+            member, text, "moment", own=self._own_posts(member), others=self._others(member, recent)
+        ):
             self.skip(member, event["id"])
+            self._miss("posts", member.id)
             return {}
         meta: dict[str, Any] = {"life": True, "event": event["id"]}
         if (
@@ -230,7 +279,53 @@ class Moments:
             ).variables
         ):
             meta["card"] = card
+        item = None if card else await self.photo(member, event, text)
+        if item is not None:  # 配图：文字照旧给成员看，图片只多一个「[图片]」占位
+            meta |= {"media": [item], "caption": text, "photo": True}
+            text = f"{text}\n[图片]"
         return self.rt.repo.add_moment(member.id, text, meta=meta, offline=offline)
+
+    async def photo(
+        self, member: ChatMember, event: dict[str, Any], text: str
+    ) -> dict[str, Any] | None:
+        """按概率给这条动态画一张配图（不用审）；不配、超了每天的张数或画不出来时为 None。"""
+        from roundtable.core.chat_media import ChatMediaStore, MediaError
+        from roundtable.core.member_stickers import (
+            MemberStickers,
+            StickerBudgetExceeded,
+            StickerError,
+            StickerUnavailable,
+        )
+
+        rt = self.rt
+        rules = rt.config.roundtable.media.moment_photos
+        if not (rt.config.roundtable.media.enabled and rules.enabled) or rt.chat_media_dir is None:
+            return None
+        if member.id not in rt.config.personas.sticker_cards:
+            return None
+        rng = random.Random(f"photo:{event['id']}:{member.id}")
+        if rng.random() >= rules.chance:
+            return None
+        day_start = iso(utc_day_window(rt.budget.now())[0])
+        today = [m for m in rt.repo.moments(since=day_start, limit=200) if m["meta"].get("photo")]
+        mine = sum(m["author"] == member.id for m in today)
+        if len(today) >= rules.per_day or mine >= rules.per_member_day:
+            return None
+        try:
+            shot = rng.choices(rules.shots, [s.weight for s in rules.shots])[0]
+            data, mime = await MemberStickers(rt, rt.sticker_dir).photo(
+                member.id,
+                event["topic"],
+                text,
+                shot.text,
+                refs=shot.her != "none",
+                seed=f"{event['id']}:{member.id}",
+                her=shot.her,
+                shot_tags=shot.tags,
+            )
+            return generated_item(ChatMediaStore(rt.chat_media_dir), data, mime)
+        except (StickerBudgetExceeded, StickerError, StickerUnavailable, MediaError, ValueError):
+            return None  # 没钱、没参考图、画不出来：照样发文字
 
     def forward_card(self, member: ChatMember, event: dict[str, Any]) -> dict[str, Any] | None:
         rt = self.rt
@@ -294,8 +389,82 @@ class Moments:
         )
         if not text:
             return None
+        text = await self._self_check(
+            member,
+            text,
+            "comment",
+            own=self._own_comments(member),
+            others=self._recent_comments(member, moment),
+            named=reply_to is not None or moment["author"] == USER,
+        )
+        if not text:
+            self.skip_comment(member, moment["id"])
+            return {}  # 自查：和别人的评论差不多（「挺治愈」）——不评了，也不再让她重写
         return self.rt.repo.add_moment_comment(
             moment["id"], member.id, text, reply_to=reply_to, offline=offline
+        )
+
+    # --- 说出口前自查（成员系统 P5，core/member/voice）--------------------------------
+
+    def _own_posts(self, member: ChatMember) -> tuple[str, ...]:
+        return tuple(r["text"] for r in reversed(self.rt.repo.moments(author=member.id, limit=7)))
+
+    def _others(self, member: ChatMember, recent: list[dict[str, Any]]) -> tuple:
+        names = self.names()
+        return tuple(
+            (names.get(p["author"], p["author"]), p["text"])
+            for p in recent
+            if p["author"] not in (member.id, USER)
+        )
+
+    def _comment_rows(self) -> list[dict[str, Any]]:
+        rows = [c for m in self.rt.repo.moments(limit=20) for c in m["comments"]]
+        return sorted(rows, key=lambda c: c["id"])[-40:]
+
+    def _own_comments(self, member: ChatMember) -> tuple[str, ...]:
+        return tuple(c["text"] for c in self._comment_rows() if c["author"] == member.id)[-10:]
+
+    def _recent_comments(self, member: ChatMember, moment: dict[str, Any]) -> tuple:
+        names = self.names()
+        rows = {c["id"]: c for c in [*self._comment_rows(), *moment["comments"]]}
+        return tuple(
+            (names.get(c["author"], c["author"]), c["text"])
+            for c in sorted(rows.values(), key=lambda c: c["id"])
+            if c["author"] not in (member.id, USER)
+        )[-20:]
+
+    async def _self_check(
+        self,
+        member: ChatMember,
+        text: str,
+        kind: str,
+        *,
+        own: tuple[str, ...],
+        others: tuple,
+        named: bool = False,
+    ) -> str:
+        """返回要发的话；空串表示不发（和自己最近的动态 / 别人的评论太像、套同一个开头……）。"""
+        rt = self.rt
+        said = Said(
+            own=own,
+            others=others,
+            long=recent_words(rt, member.id, rt.budget.now()),
+            repeat_similarity=(
+                rt.config.roundtable.chat.engine.voice.check.post_repeat_similarity
+                if kind == "moment"
+                else None
+            ),
+        )
+        return await before_voice(
+            rt,
+            text,
+            said,
+            member=member.id,
+            room=MOMENT_ROOM,
+            room_kind=kind,
+            named=named,
+            name=member.name,
+            model_id=member.model_id,
         )
 
     # --- 推进 --------------------------------------------------------------------
@@ -333,6 +502,8 @@ class Moments:
                 break
             if repo.moments_by(member.id, day_start) >= rules.posts_per_member:
                 continue
+            if self.misses("posts").get(member.id, 0) >= rules.post_misses:
+                continue  # 今天写了几次都没过自查：今天不发了（省钱）
             recent = self.recent_posts(now)
             event = self.event_for(member, now, recent)
             if event is None:
@@ -347,20 +518,31 @@ class Moments:
         recent = repo.moments(since=iso(now - timedelta(hours=rules.react_hours)), limit=50)
         out["likes"] = self.like_round(recent, awake)
         pairs = []
+        skipped = self.comment_skipped()
+        missed = self.misses("comments")
         for moment in sorted(recent, key=lambda r: r["author"] != USER):  # 用户的动态优先
             said = {c["author"] for c in moment["comments"]}
             by_members = sum(c["author"] != USER for c in moment["comments"])
             room = rules.max_comments - by_members
-            options = [m for m in awake if m.id != moment["author"] and m.id not in said]
+            if missed.get(str(moment["id"]), 0) >= rules.comment_misses:
+                continue  # 这条底下已经写废了几条：大家都没什么新话可说
+            options = [
+                m
+                for m in awake
+                if m.id != moment["author"]
+                and m.id not in said
+                and f"{moment['id']}:{m.id}" not in skipped
+            ]
             rng.shuffle(options)
             pairs += [(moment, m) for m in options[: max(room, 0)]]
         for moment, member in pairs[: rules.comments_per_tick]:
             fresh = repo.moment(moment["id"])
             if fresh is None:
                 continue
-            if await self.comment(member, fresh, offline=offline) is None:
+            done = await self.comment(member, fresh, offline=offline)
+            if done is None:
                 break
-            out["comments"] += 1
+            out["comments"] += bool(done)
         return out
 
     # --- 回应用户 ------------------------------------------------------------------
@@ -376,9 +558,10 @@ class Moments:
         n = 0
         for member in online[: min(2, self.rules.max_comments)]:
             fresh = self.rt.repo.moment(moment_id)
-            if fresh is None or await self.comment(member, fresh) is None:
+            done = None if fresh is None else await self.comment(member, fresh)
+            if done is None:
                 break
-            n += 1
+            n += bool(done)
         return n
 
     async def reply_to_user_comment(self, comment_id: int) -> dict[str, Any] | None:

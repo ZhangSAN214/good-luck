@@ -129,6 +129,9 @@
 .mo-media .cm-voice{margin-top:6px}
 
 /* 表情包画法与动效（stickers.js） */
+.stk.pic{object-fit:contain;border-radius:12px;background:#fff}
+.gc-bub .stk.pic,.mo-text .stk.pic,.mo-comments .stk.pic{width:3.2em;height:3.2em;vertical-align:middle}
+.stk.pic.big{width:132px!important;height:132px!important;filter:drop-shadow(0 6px 10px rgba(0,0,0,.22))}
 .stk{overflow:visible;--stk-cut:drop-shadow(1.6px 0 0 #fff) drop-shadow(-1.6px 0 0 #fff) drop-shadow(0 1.6px 0 #fff) drop-shadow(0 -1.6px 0 #fff)}
 /* 像贴纸一样描一圈白边（面板里和单独发出的大号表情） */
 .cm-stk .stk{filter:var(--stk-cut)}
@@ -274,3 +277,9 @@ video.cm-lb-item{cursor:auto;background:#000}
 :root[data-skin="ark"] .gc-menu{background:rgba(22,30,46,.94);-webkit-backdrop-filter:blur(18px);backdrop-filter:blur(18px)}
 .gc-menu button{flex:none}
 #gc-err.ok{color:var(--ok,#2a7);border-color:transparent}
+/* emoji 显示成图（如苹果样式）：和文字一样高；面板里大一点 */
+img.emo{width:1.25em;height:1.25em;vertical-align:-.25em;margin:0 .03em;display:inline-block}
+.cm-emo img.emo{width:26px;height:26px;vertical-align:middle}
+.cm-tabemo img.emo{width:20px;height:20px}
+/* 小黄脸（动态表情图）：透明底，不要白底圆角 */
+.stk.pic.anim{background:none;border-radius:0}

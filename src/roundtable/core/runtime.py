@@ -12,6 +12,7 @@ from typing import Any
 from roundtable.core.allocation import IdentityScrubber
 from roundtable.core.attachments import FileStore
 from roundtable.core.budget import BudgetGuard
+from roundtable.core.budget.channels import MonthSpend, load_priority
 from roundtable.core.catalog import Fetch, ModelCatalog
 from roundtable.core.changelog import CHANGELOG_FILE
 from roundtable.core.config import AppConfig, load_config
@@ -50,6 +51,9 @@ WANDER_DIR = "wander"
 PERCEPTION_DIR = "perception"
 # 成员音色念过的语音缓存（放在数据库旁边，不进 git）
 VOICE_CACHE_DIR = "voice_cache"
+STICKER_DIR = "stickers"
+GROWTH_DIR = "growth_backups"  # 成员成长（P6）每周的本地备份
+BACKUP_DIR = "db_backups"  # 整库备份（docs/BACKUP.md）
 
 
 def data_dir(environ: Mapping[str, str] | None = None) -> Path:
@@ -97,6 +101,10 @@ class Runtime:
     mail_source: Any | None = None
     # 音乐卡片的「电脑上正在放的歌」（测试中注入假的；为空时用 Windows 系统媒体控制）
     nowplaying_source: Any | None = None
+    # 「关于你」的电脑状态（空闲、前台游戏；测试中注入假的，为空时读 Windows）
+    pc_source: Any | None = None
+    # 「关于你」的用户状态（服务启动时装上；为空时聊天不带用户状态）
+    user_status: Any | None = None
     # 投屏陪伴的画面来源 {"pc": ..., "android": ...}（测试中注入假的；为空时用电脑截屏和 adb）
     screen_sources: dict[str, Any] | None = None
     # 成员自己上网的浏览器（测试中注入一个返回假浏览器的函数；为空时用电脑上的 Edge / Chrome）
@@ -107,6 +115,12 @@ class Runtime:
     perception_dir: Path | None = None
     # 成员音色念过的语音缓存；为空时只缓存在内存里（内存数据库）
     voice_cache_dir: Path | None = None
+    # 成员表情包的图片与索引（数据库旁边的 stickers/）；为空时只存在内存里
+    sticker_dir: Path | None = None
+    # 成员成长（P6）每周的本地备份（数据库旁边的 growth_backups/）；为空时不写备份
+    growth_dir: Path | None = None
+    # 整库备份（数据库旁边的 db_backups/，docs/BACKUP.md）；为空（内存数据库）时不备份
+    backup_dir: Path | None = None
 
     @classmethod
     def build(
@@ -184,6 +198,7 @@ class Runtime:
             evolution_dir = Path(db_path).parent / EVOLUTION_DIR
         repo = Repository(connect(db_path))
         guard = BudgetGuard(config.roundtable.budget, repo, **({"now": now} if now else {}))
+        router.set_priority(load_priority(config, repo), MonthSpend(repo, guard.now))
         return cls(
             config=config,
             router=router,
@@ -219,6 +234,9 @@ class Runtime:
             voice_cache_dir=None
             if str(db_path) == ":memory:"
             else Path(db_path).parent / VOICE_CACHE_DIR,
+            sticker_dir=None if str(db_path) == ":memory:" else Path(db_path).parent / STICKER_DIR,
+            growth_dir=None if str(db_path) == ":memory:" else Path(db_path).parent / GROWTH_DIR,
+            backup_dir=None if str(db_path) == ":memory:" else Path(db_path).parent / BACKUP_DIR,
         )
 
     def sandbox(self) -> tuple[Sandbox | None, str | None]:

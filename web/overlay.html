@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>一起看</title>
+<link rel="stylesheet" href="css/overlay.css">
+</head>
+<!-- 一起看的置顶悬浮窗（docs/WATCH.md「悬浮窗」）：电脑上由 roundtable.desktop.overlay 用应用窗口打开；
+     和画中画小窗共用 js/overlay.js 与 css/overlay.css，样式跟终端首页的墨蓝液态玻璃一致 -->
+<body class="ov-page">
+<div id="ov"></div>
+<script type="module">
+  import { OverlayView, pywebviewHost } from './js/overlay.js';
+  const start = () => new OverlayView(document.getElementById('ov'), { host: pywebviewHost() }).start();
+  if (window.pywebview?.api) start();
+  else {
+    let started = false;
+    const once = () => { if (!started) { started = true; start(); } };
+    window.addEventListener('pywebviewready', once);
+    setTimeout(once, 800); // 在普通浏览器里直接打开时没有 pywebview：照样能用（只是不能调透明度）
+  }
+</script>
+</body>
+</html>

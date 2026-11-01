@@ -15,6 +15,7 @@ import re
 import secrets
 import shutil
 import subprocess
+import time
 from collections.abc import AsyncIterator, Sequence
 from dataclasses import asdict
 from datetime import date, datetime, timedelta, tzinfo
@@ -22,23 +23,34 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import quote
 
+from roundtable.core import chat_handoff as handoff
 from roundtable.core import clipper
 from roundtable.core.allocation import coordinator_name, display_name
 from roundtable.core.almanac import Almanac
 from roundtable.core.attachments import Attachment, UploadError, ingest
 from roundtable.core.attachments.detect import TYPES as UPLOAD_TYPES
+from roundtable.core.backup import BackupError, DbBackup
+from roundtable.core.benchkit.builder import BenchBuilder
+from roundtable.core.benchkit.desk import Desk
+from roundtable.core.benchkit.netcheck import http_status, net_check
+from roundtable.core.benchkit.research import Researcher
+from roundtable.core.benchkit.research import http_fetchers as research_fetchers
+from roundtable.core.benchkit.scout import Scout as PluginScout
+from roundtable.core.benchkit.scout import http_fetchers
 from roundtable.core.browse import REFRESH_KEY, feeds_of, set_feeds
 from roundtable.core.budget import report as usage_report
+from roundtable.core.budget.channels import MonthSpend, save_priority
 from roundtable.core.budget.guard import day_window, month_window
 from roundtable.core.carry import carry_question, compact
 from roundtable.core.changelog import changelog_view, load_changelog
-from roundtable.core.chat import ROOM, WORK, ChatHub, chat_budget
-from roundtable.core.chat_actions import card_from_url, is_bare_url
+from roundtable.core.chat import ROOM, WORK, ChatHub, chat_budget, dm_room
+from roundtable.core.chat_actions import card_from_url, is_bare_url, own_stickers, sticker_packs
 from roundtable.core.chat_actions import card_text as chat_card_text
 from roundtable.core.chat_media import MAX_BYTES as CHAT_MEDIA_MAX
 from roundtable.core.chat_media import ChatMediaStore, MediaError, clean_items, placeholder
-from roundtable.core.chat_work import WORK_EVENTS, post_handoff, post_office_event
-from roundtable.core.config.loader import ConfigError
+from roundtable.core.chat_work import WORK_EVENTS, post_handoff, post_office_event, short_title
+from roundtable.core.config.loader import DEFAULT_CONFIG_DIR, ConfigError
+from roundtable.core.emoji_images import EMOJI_DIR, EmojiImages
 from roundtable.core.evolution import (
     DECISIONS,
     DECISIONS_KEY,
@@ -80,14 +92,17 @@ from roundtable.core.export import Style as ExportStyle
 from roundtable.core.export import deliverable
 from roundtable.core.export import filename as export_filename
 from roundtable.core.export import options as export_choices
+from roundtable.core.growth import GrowthKeeper
 from roundtable.core.hometz import home_zone
 from roundtable.core.ideaboard import Board
+from roundtable.core.insight import InsightKeeper
 from roundtable.core.lan import COOKIE as LAN_COOKIE
 from roundtable.core.lan import LanAccess, is_local, is_remote, qr_svg
 from roundtable.core.life import LIFE_STEPS, LifeEngine
 from roundtable.core.mail import MailAI, MailAIError, MailBox, MailBusy, OwaBrowser
 from roundtable.core.media import KIND_LABELS, KINDS, MediaService
 from roundtable.core.member import MemberEngine, ProfileError
+from roundtable.core.member.about import AboutError, AboutMissing
 from roundtable.core.member.bus import Event as MemberEvent
 from roundtable.core.member.card import (
     card_patch,
@@ -96,8 +111,22 @@ from roundtable.core.member.card import (
     source_title,
     without_locked,
 )
+from roundtable.core.member.growth import monday, week_id
+from roundtable.core.member.growth.book import SOURCES as BOOK_SOURCES
+from roundtable.core.member.growth.book import BookError
+from roundtable.core.member.growth.plastic import plasticity
+from roundtable.core.member.growth.report import lines as report_lines
 from roundtable.core.member.memory import DiaryTool
 from roundtable.core.member.memory.store import query_terms
+from roundtable.core.member.relation import view_live
+from roundtable.core.member.voice import VoicePolicy
+from roundtable.core.member.yourstate import UserStatus
+from roundtable.core.member_stickers import (
+    MemberStickers,
+    StickerBudgetExceeded,
+    StickerError,
+    StickerUnavailable,
+)
 from roundtable.core.member_voice import MAX_CHARS as VOICE_MAX_CHARS
 from roundtable.core.member_voice import (
     SAMPLE_TEXT,
@@ -111,7 +140,7 @@ from roundtable.core.memory import LAYERS, MemoryKeeper, clean_memory, prepare_i
 from roundtable.core.moments import SEEN_KEY as MOMENTS_SEEN
 from roundtable.core.notes import NoteError, check_can_add, clean_note
 from roundtable.core.nowplaying import COVERS_DIR, NowPlaying, SmtcSource, list_covers, read_cover
-from roundtable.core.office import building, payslip, roster
+from roundtable.core.office import building, life_spots, payslip, roster
 from roundtable.core.office import collect as collect_performance
 from roundtable.core.office import reset as reset_performance
 from roundtable.core.orchestrator import Orchestrator, OrchestratorError, RunResult
@@ -140,14 +169,30 @@ from roundtable.core.routing import (
     preview_estimates,
 )
 from roundtable.core.runtime import PROJECT_ROOT, WANDER_DIR, Runtime, data_dir
-from roundtable.core.screen import AdbSource, PcSource, ScreenWatch
+from roundtable.core.screen import (
+    AdbSource,
+    PcSource,
+    ScreenUnavailable,
+    ScreenWatch,
+    new_qr_pairing,
+    qr_pairing_payload,
+)
 from roundtable.core.search import SearchUnavailable
 from roundtable.core.standee import load_standee
 from roundtable.core.standee import standee_file as read_standee_file
 from roundtable.core.steps import Event, restore_state
 from roundtable.core.steps.office import group_estimates
-from roundtable.core.storage import NotFound
+from roundtable.core.sticker_packs import PackError
+from roundtable.core.storage import NotFound, iso
+from roundtable.core.supercomputer import Supercomputer
+from roundtable.core.supercomputer.launch import CommandLauncher, HookLauncher
 from roundtable.core.wander import Wanderer
+from roundtable.core.yourpc import WindowsPc, game_of
+
+try:  # dsh 工作台是可拔掉的外设：删掉整个 core/dsh/ 圆桌照常运行（docs/DSH.md，CI「拔掉 dsh」任务）
+    from roundtable.core.dsh import DshManager
+except ImportError:  # pragma: no cover - 只在拔掉 dsh 时走到
+    DshManager = None  # type: ignore[assignment,misc]
 
 log = logging.getLogger(__name__)
 
@@ -157,7 +202,9 @@ REVEALABLE = frozenset({"completed", "stopped", "failed"})
 ORPHANED_ERROR = "服务上次意外退出，做到一半中断了，可以点「继续」接着做"
 MAX_QUESTION_CHARS = 20_000
 MAX_CHAT_CHARS = 2000
+HANDOFF_FILES = 5  # 交办时最多带几个你在聊天里发的文件
 MAX_MOMENT_CHARS = 500
+ADB_QR_TTL_S = 180  # 配对二维码几秒内有效（手机上的扫码页面本身也会超时）
 # 公寓楼：进行中的会话这么久没有更新就不算在上班（服务意外退出后留下的 running）
 WORKING_WINDOW_H = 3
 
@@ -180,6 +227,13 @@ __all__ = [
 EXPORT_FOLDER_KEY = "export.folder"  # 导出时「存到固定文件夹」记住的文件夹
 
 
+def _has_tk() -> bool:
+    """这台电脑的 Python 带不带 tkinter（一起看的悬浮窗要用）。"""
+    import importlib.util
+
+    return importlib.util.find_spec("tkinter") is not None
+
+
 class ServiceError(ValueError):
     """请求不合法（参数错误、状态不允许等）。status 为建议的 HTTP 状态码。"""
 
@@ -200,14 +254,60 @@ class RoundtableService:
         self._tasks: dict[str, asyncio.Task[None]] = {}
         self._art_names_cache: tuple[int | None, dict[str, str]] | None = None
         self.chats = ChatHub(runtime, names=self._art_names)
+        if runtime.config.roundtable.chat.engine.voice.enabled:  # P5 表达：照人物卡说话风格
+            self.chats.policy = VoicePolicy(runtime)
         self.voices = MemberVoices(runtime, runtime.voice_cache_dir)
+        self.stickers = MemberStickers(runtime, runtime.sticker_dir)
+        emoji_dir = runtime.sticker_dir.parent / EMOJI_DIR if runtime.sticker_dir else None
+        self.emoji = EmojiImages(runtime, emoji_dir)
+        self.packs = sticker_packs(runtime)
         self.memory = MemoryKeeper(runtime, self.chats.everyone)
         self.life = LifeEngine(runtime, self.chats, self.memory)
         self.perceiver = Perceiver(runtime, PerceptionCache(runtime.perception_dir))
-        self.engine = MemberEngine(runtime, lambda: [m.id for m in self.chats.everyone()])
+        self.engine = MemberEngine(
+            runtime,
+            lambda: [m.id for m in self.chats.everyone()],
+            lambda: {m.id: m.name for m in self.chats.everyone()},
+        )
         state = getattr(self.engine, "state", None)  # 状态插件（心情）装上后，夜间整理按心情改语气
         if state is not None:
             self.memory.mood_of = state.mood_of
+        about = getattr(self.engine, "about", None)  # P8 关于你：夜间整理交来的线索写进画像
+        if about is not None:
+            self.memory.on_clues = about.observe
+        # P6 成长：每周一用成员自己的模型反思上一周，程序把关后才写档案；花费计入生活每天的上限
+        self.growth = GrowthKeeper(runtime, self.chats.everyone, folder=runtime.growth_dir)
+        self.growth.allow = self.life.allowed
+        # 整库备份（docs/BACKUP.md）：每天一份 + 存档点，不花钱
+        rules = runtime.config.roundtable.backup
+        self.backup = DbBackup(
+            runtime.repo.conn,
+            runtime.backup_dir,
+            enabled=rules.enabled,
+            keep_daily=rules.keep_daily,
+            keep_checkpoints=rules.keep_checkpoints,
+        )
+        self._backup_task: asyncio.Task[None] | None = None
+        # P4 关系·对你的见解：和成长同一天，每位按自己的性格读一遍画像；花费计入生活每天的上限
+        self.insight = InsightKeeper(runtime, self.chats.everyone)
+        self.insight.allow = self.life.allowed
+        # P8 第二块：你的状态（每项默认关）；聊天时现问一次，读到的不写库
+        self._pc = runtime.pc_source if runtime.pc_source is not None else WindowsPc()
+        runtime.user_status = UserStatus(
+            runtime,
+            {
+                "music": self._say_music,
+                "idle": self._say_idle,
+                "game": self._say_game,
+                "mail": self._say_mail,
+            },
+            {
+                "music": lambda: self._np().source.available(),
+                "idle": self._pc.available,
+                "game": self._pc.available,
+                "mail": lambda: None if self.mail.enabled() else "邮件栏还没打开",
+            },
+        )
         self.calendar = Almanac(runtime, self.chats.everyone)
         self.mail = MailBox(runtime.repo)
         self.mail_ai = MailAI(runtime, self.mail)
@@ -226,9 +326,13 @@ class RoundtableService:
             self.chats.everyone,
             runtime.screen_sources
             if runtime.screen_sources is not None
-            else {"pc": PcSource(), "android": AdbSource(watch_rules.adb)},
+            else {
+                "pc": PcSource(watch_rules.ignore_windows),
+                "android": AdbSource(watch_rules.adb),
+            },
             publish=self.engine.bus.publish,
         )
+        self._adb_qr: dict[str, Any] | None = None  # 正在等手机扫的配对二维码（只在内存里）
         base = runtime.mail_dir.parent if runtime.mail_dir is not None else data_dir()
         self.wander = Wanderer(
             runtime,
@@ -238,11 +342,134 @@ class RoundtableService:
             publish=self.engine.bus.publish,
         )
         self.engine.heartbeat.register("wander", self.wander.want)
+        self.dsh = self._build_dsh(runtime, base if runtime.mail_dir is not None else None)
+        self.supercomputer = self._build_super(
+            runtime, base if runtime.mail_dir is not None else None
+        )
+        self.desk = self._build_desk(
+            runtime.config.roundtable.bench,
+            (base / "bench") if runtime.mail_dir is not None else None,
+        )
+        self.bench = BenchBuilder(
+            runtime.config.roundtable.bench,
+            root=(base / "bench") if runtime.mail_dir is not None else None,
+            supercomputer=self.supercomputer,
+            render=self._super_render,
+            scout=self._build_scout(runtime.config.roundtable.bench),
+            researcher=self._build_researcher(runtime.config.roundtable.bench),
+            whitelist=self._dsh_whitelist,
+            skill=self._bench_skill,
+            desk=self.desk,
+        )
+        self.bench_status_fetch = http_status()  # 联网自检用（测试换成假的）
         self._chat_tasks: set[asyncio.Task[Any]] = set()
         self._life_task: asyncio.Task[None] | None = None
         self._evolution_task: asyncio.Task[None] | None = None
         self._dev_tasks: dict[str, asyncio.Task[None]] = {}  # 「做这条」后正在实现的建议
         self.dev_run: DevRun = run_process  # 叫外部命令（测试换成假的）
+
+    @staticmethod
+    def _build_dsh(runtime: Runtime, base: Path | None) -> Any:
+        """dsh 工作台（可选）：core/dsh 不在时为 None，其余功能不受影响。"""
+        if DshManager is None:
+            return None
+        version = runtime.config.roundtable.prompts.get("dsh_workbench")
+
+        def persona() -> str:
+            if version is None:
+                return ""
+            return runtime.prompts.render("dsh_workbench", version).messages[0].content
+
+        return DshManager(
+            runtime.config.roundtable.dsh,
+            catalog_path=DEFAULT_CONFIG_DIR / "dsh_plugins.yaml",
+            root=base / "dsh" if base is not None else None,
+            persona=persona,
+            shared_spend=runtime.repo.spent_on_channels,
+            dotenv_path=PROJECT_ROOT / ".env",
+        )
+
+    @staticmethod
+    def _build_scout(rules: Any) -> PluginScout:
+        fetch_json, fetch_bytes = http_fetchers()
+        return PluginScout(
+            fetch_json=fetch_json,
+            fetch_bytes=fetch_bytes,
+            min_stars=rules.min_stars,
+            max_kb=rules.max_repo_mb * 1024,
+        )
+
+    @staticmethod
+    def _build_researcher(rules: Any) -> Researcher:
+        fetch_json, fetch_text, check_url = research_fetchers()
+        r = rules.research
+        return Researcher(
+            fetch_json=fetch_json,
+            fetch_text=fetch_text,
+            check_url=check_url,
+            min_github=r.min_github,
+            max_github=r.max_github,
+            papers=r.papers,
+            news=r.news,
+            min_stars=rules.min_stars,
+            max_kb=rules.max_repo_mb * 1024,
+        )
+
+    @staticmethod
+    def _build_desk(rules: Any, root: Path | None) -> Desk:
+        """资料台（工作台抽屉「资料」）：GitHub 榜单、论文动态、能力地图、建议卡；免费只读。"""
+        fetch_json, fetch_text, _ = research_fetchers()
+        return Desk(
+            rules.desk,
+            root,
+            fetch_json=fetch_json,
+            fetch_text=fetch_text,
+            min_stars=rules.min_stars,
+        )
+
+    def bench_desk(self, *, refresh: bool = False) -> dict[str, Any]:
+        """资料台的内容。refresh=True 时在后台刷新（联网、免费），先给旧的；
+        读不联网，过期了由界面决定要不要刷（打开抽屉时 due 就刷一次）。"""
+        if refresh:
+            self.desk.start_refresh()
+        return self.desk.view()
+
+    def bench_desk_suggest(self, sid: str, accept: bool) -> dict[str, Any]:
+        try:
+            return self.desk.decide(sid, accept)
+        except LookupError as exc:
+            raise ServiceError(str(exc), 404) from None
+
+    def _bench_skill(self, name: str) -> tuple[str, str]:
+        """工作台地基技能：prompts/bench_skill_<名字>/ 的 system 段是短版、user 段是长版。"""
+        role = f"bench_skill_{name}"
+        tpl = self.rt.prompts.get(role, self.rt.config.roundtable.prompts[role])
+        return tpl.system, tpl.user
+
+    def _super_render(self, role: str, **values: str) -> str:
+        """超级电脑和工作台生成器发给助手的全文：系统和用户两段拼在一起（命令行助手只收一段）。"""
+        rendered = self.rt.prompts.render(role, self.rt.config.roundtable.prompts[role], **values)
+        return "\n\n".join(m.content for m in rendered.messages)
+
+    def _build_super(self, runtime: Runtime, base: Path | None) -> Supercomputer:
+        """超级电脑（docs/SUPERCOMPUTER.md）：命令行助手 + dsh（带了 dsh 才有）。"""
+        config = runtime.config
+        keys = [c.key_env for c in config.models.channels.values() if c.key_env]
+        keys += [p.key_env for p in config.models.search_providers.values() if p.key_env]
+        if config.roundtable.dsh.key_env:
+            keys.append(config.roundtable.dsh.key_env)
+        launchers: dict[str, Any] = {"command": CommandLauncher(drop_env=keys)}
+        if self.dsh is not None:
+            dsh = self.dsh
+            launchers["dsh"] = HookLauncher(
+                dsh.job_blocked, dsh.job_launch, dsh.job_started, dsh.job_finished
+            )
+        return Supercomputer(
+            config.roundtable.supercomputer,
+            root=base / "super" if base is not None else None,
+            render=self._super_render,
+            launchers=launchers,
+        )
 
     def reconcile(self) -> list[str]:
         """开机对账：上次服务意外退出（或被关掉）时还在跑的讨论，数据库里会一直留着「进行中」。
@@ -266,6 +493,45 @@ class RoundtableService:
             with contextlib.suppress(Exception):  # 生活出错不影响其他功能，下次再试
                 await self.life_tick()
             await asyncio.sleep(self.rt.config.roundtable.chat.life.tick_minutes * 60)
+
+    def start_backup(self) -> None:
+        """后台每天备份一次整库（只在正式启动的服务里调用；测试直接调 backup_tick）。"""
+        if self._backup_task is None and self.backup.enabled:
+            self._backup_task = asyncio.get_running_loop().create_task(self._backup_loop())
+
+    async def _backup_loop(self) -> None:
+        while True:
+            try:
+                self.backup_tick()  # 同一个数据库连接，在事件循环里做（整库一两秒）
+            except Exception:  # noqa: BLE001 - 备份出错不影响其他功能，下次再试
+                log.exception("整库备份：没备份成")
+            await asyncio.sleep(self.rt.config.roundtable.backup.check_minutes * 60)
+
+    def backup_tick(self) -> dict[str, Any] | None:
+        """今天还没备份就备一份（按本地日期）。"""
+        got = self.backup.daily(self._local_now())
+        if got is not None:
+            log.info("整库备份：已备份 %s", got.name)
+        return got.view() if got is not None else None
+
+    def backup_status(self) -> dict[str, Any]:
+        return self.backup.status()
+
+    def backup_checkpoint(self, label: str) -> dict[str, Any]:
+        try:
+            got = self.backup.checkpoint(label, self._local_now())
+        except BackupError as exc:
+            raise ServiceError(str(exc)) from None
+        return {"saved": got.view(), **self.backup.status()}
+
+    def backup_restore(self, name: str) -> dict[str, Any]:
+        """把一份备份写回数据库（先自动存「恢复前」存档点）；之后要重启圆桌。"""
+        try:
+            out = self.backup.restore(name, self._local_now())
+        except BackupError as exc:
+            raise ServiceError(str(exc)) from None
+        log.warning("整库备份：已恢复 %s（恢复前存档点 %s）", name, out["before"]["name"])
+        return {**out, **self.backup.status()}
 
     def start_evolution(self) -> None:
         """后台按时开革新例会（只在正式启动的服务里调用；测试直接调 evolution_tick）。"""
@@ -291,13 +557,71 @@ class RoundtableService:
             self.calendar.tick(now, self.engine.bus.publish)
         with contextlib.suppress(Exception):  # 引擎出错不影响生活
             await self.engine.tick(now)
+        with contextlib.suppress(Exception):  # 醒来回消息出错不影响生活
+            await self.member_turns(now)
+        with contextlib.suppress(Exception):  # 成长出错不影响生活，下次推进再试
+            await self.growth.tick(now)
+        with contextlib.suppress(Exception):  # 见解出错不影响生活，下次推进再试
+            await self.insight.tick(now)
         return out
+
+    async def member_turns(self, now: datetime) -> int:
+        """成员自己开口的时候（不是回应你刚发的那条）：睡着没看到你的消息、醒了来回。
+        返回开口的人数。"""
+        from roundtable.core.member.rhythm import Rhythm
+
+        rhythm, n = Rhythm(self.rt), 0
+        for entry in rhythm.due(now):
+            try:
+                chat = self.chats.room(entry["room"])
+            except KeyError:
+                continue
+            member = next((m for m in chat.members() if m.id == entry["member"]), None)
+            mine = [r for r in chat.recent() if r["author"] == "user" and r["id"] >= entry["msg"]]
+            if member is None or not member.available or not mine:
+                continue
+            chat.notes[member.id] = rhythm.late_note(entry)
+            said = await chat.replies(mine[-1]["id"], [member])
+            n += bool(said)
+        return n + await self._reach_out(now)
+
+    async def _reach_out(self, now: datetime) -> int:
+        """主动找你：这次推进最多一位，有真事由才开口（core/member/reach.py 挑时机）。"""
+        from roundtable.core.member.reach import Reach
+
+        reach = Reach(self.rt)
+        members = {m.id: m for m in self.chats.everyone() if m.available}
+        urge = reach.pick(list(members), dm_room, now)
+        if urge is None:
+            return 0
+        chat = self.chats.room(dm_room(urge.member))
+        rows = chat.recent()
+        chat.notes[urge.member] = f"{urge.note}\n{reach.rules.tail}"
+        if urge.reason == "longing":  # 想念记成她的一段情绪经历（意图卡会带上她自己理解的想念）
+            from roundtable.core.member.feel import Feelings
+
+            feel = Feelings(self.rt)
+            feel.record(urge.member, feel.rules.missing, feel.rules.reach_miss, now)
+        said = await chat.replies(rows[-1]["id"] if rows else 0, [members[urge.member]])
+        chat.notes.pop(urge.member, None)
+        if not said:
+            return 0
+        reach.sent(urge, said[0]["id"], now)
+        return 1
 
     async def aclose(self) -> None:
         self.watch.stop("服务关闭，投屏停了")
+        with contextlib.suppress(Exception):
+            await self.bench.aclose()
+            await self.supercomputer.aclose()
+        if self.dsh is not None:
+            with contextlib.suppress(Exception):
+                await self.dsh.aclose()
         await self.wander.aclose()
         tasks = [*self._tasks.values(), *self._chat_tasks]
-        tasks += [t for t in (self._life_task, self._evolution_task) if t is not None]
+        tasks += [
+            t for t in (self._life_task, self._evolution_task, self._backup_task) if t is not None
+        ]
         for task in tasks:
             task.cancel()
             with contextlib.suppress(asyncio.CancelledError, Exception):
@@ -499,6 +823,69 @@ class RoundtableService:
             out["scrcpy"] = shutil.which(self.rt.config.roundtable.chat.watch.scrcpy) is not None
         return out
 
+    def _adb(self) -> Any:
+        src = self.watch.sources.get("android")
+        if src is None or not hasattr(src, "pair"):
+            raise ServiceError("这台电脑不能连安卓设备")
+        return src
+
+    def watch_adb_pair(self, host: str, port: int, code: str) -> dict[str, Any]:
+        """安卓无线调试：用配对码配对（只建立 adb 连接）。配对后自动试着连上。"""
+        src = self._adb()
+        try:
+            msg = src.pair(host, port, code)
+        except ScreenUnavailable as e:
+            raise ServiceError(str(e)) from None
+        try:
+            connected = src.connect()
+        except ScreenUnavailable:
+            connected = []
+        return {"message": msg, "connected": connected}
+
+    def watch_adb_connect(self, host: str = "", port: int = 0) -> dict[str, Any]:
+        try:
+            return {"connected": self._adb().connect(host, port)}
+        except ScreenUnavailable as e:
+            raise ServiceError(str(e)) from None
+
+    def watch_adb_qr(self) -> dict[str, Any]:
+        """安卓扫码配对：生成新的配对二维码（旧的作废），再用 watch_adb_qr_poll 等扫码。"""
+        src = self._adb()
+        try:
+            src.qr_ready()
+        except ScreenUnavailable as e:
+            raise ServiceError(str(e)) from None
+        name, password = new_qr_pairing()
+        self._adb_qr = {"name": name, "password": password, "at": time.monotonic()}
+        return {"payload": qr_pairing_payload(name, password), "expires_s": ADB_QR_TTL_S}
+
+    def watch_adb_qr_poll(self) -> dict[str, Any]:
+        """看手机扫了没有，扫了就配对并连上。state：waiting / connected / paired / expired / none"""
+        qr = self._adb_qr
+        if qr is None:
+            return {"state": "none", "connected": []}
+        if time.monotonic() - qr["at"] > ADB_QR_TTL_S:
+            self._adb_qr = None
+            return {"state": "expired", "connected": []}
+        src = self._adb()
+        try:
+            addr = src.qr_pair(qr["name"], qr["password"])
+        except ScreenUnavailable as e:
+            self._adb_qr = None
+            raise ServiceError(str(e)) from None
+        if addr is None:
+            return {"state": "waiting", "connected": []}
+        self._adb_qr = None
+        host = addr.rsplit(":", 1)[0]
+        connected: list[str] = []
+        for _ in range(3):  # 刚配对完手机要一两秒才广播连接端口
+            try:
+                connected = src.connect(host, 0)
+                break
+            except ScreenUnavailable:
+                time.sleep(1.5)
+        return {"state": "connected" if connected else "paired", "connected": connected}
+
     async def watch_start(self, source: str, watchers: list[str], consent: bool) -> dict[str, Any]:
         devices = await asyncio.to_thread(self.watch.devices)
         infos = {s["id"]: s for d in devices.values() for s in d["sources"]}
@@ -555,6 +942,34 @@ class RoundtableService:
             raise ServiceError("scrcpy 启动失败") from None
         return {"started": True}
 
+    def watch_overlay(self, port: int) -> dict[str, Any]:
+        """打开一起看的置顶悬浮窗（另一个进程，tkinter；只通过 HTTP 连本机圆桌，docs/WATCH.md）。"""
+        import sys
+
+        if not self.watch.running:
+            raise ServiceError("现在没在投屏")
+        proc = getattr(self, "_overlay", None)
+        if proc is not None and proc.poll() is None:
+            return {"started": False, "already": True}
+        if not _has_tk():
+            raise ServiceError("这台电脑的 Python 没带 tkinter，开不了悬浮窗；可以用「画中画」小窗")
+        state = data_dir() / "desktop" / "watch_overlay.json"
+        cmd = [
+            sys.executable,
+            "-m",
+            "roundtable.desktop.overlay",
+            "--url",
+            f"http://127.0.0.1:{int(port)}",
+            "--state",
+            str(state),
+        ]
+        flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        try:
+            self._overlay = subprocess.Popen(cmd, creationflags=flags)  # noqa: S603
+        except OSError:
+            raise ServiceError("悬浮窗启动失败") from None
+        return {"started": True, "already": False}
+
     # --- 成员自己上网 ---------------------------------------------------------------------
 
     def wander_status(self) -> dict[str, Any]:
@@ -578,6 +993,211 @@ class RoundtableService:
 
     def wander_frame(self) -> bytes | None:
         return self.wander.frame()
+
+    # --- dsh 工作台（docs/DSH.md）：可拔掉的外设 ---------------------------------------
+
+    NO_DSH = "这份圆桌没有带 dsh 工作台（core/dsh 不在），其他功能不受影响"
+
+    def dsh_status(self) -> dict[str, Any]:
+        if self.dsh is None:
+            return {
+                "enabled": False,
+                "installed": False,
+                "unavailable": self.NO_DSH,
+                "state": "stopped",
+            }
+        return self.dsh.status()
+
+    async def dsh_start(self) -> dict[str, Any]:
+        if self.dsh is None:
+            raise ServiceError(self.NO_DSH, 409)
+        try:
+            return await self.dsh.start()
+        except ValueError as exc:
+            raise ServiceError(str(exc), 409) from None
+
+    async def dsh_stop(self) -> dict[str, Any]:
+        if self.dsh is None:
+            return self.dsh_status()
+        return await self.dsh.stop()
+
+    async def dsh_check(self) -> dict[str, Any]:
+        if self.dsh is None:
+            return self.dsh_status()
+        return await self.dsh.check_now()
+
+    # --- 超级电脑（docs/SUPERCOMPUTER.md） ----------------------------------------------
+
+    def super_status(self) -> dict[str, Any]:
+        return self.supercomputer.status()
+
+    def super_submit(self, text: str) -> dict[str, Any]:
+        try:
+            self.supercomputer.submit(text)
+        except RuntimeError as exc:
+            raise ServiceError(str(exc), 409) from None
+        except ValueError as exc:
+            raise ServiceError(str(exc), 400) from None
+        return self.super_status()
+
+    async def super_cancel(self) -> dict[str, Any]:
+        await self.supercomputer.cancel()
+        return self.super_status()
+
+    def super_task(self, task_id: str) -> dict[str, Any]:
+        task = self.supercomputer.get(task_id)
+        if task is None:
+            raise ServiceError("没有这件活", 404)
+        return task
+
+    def super_set_limit(self, worker: str, limit: int) -> dict[str, Any]:
+        try:
+            self.supercomputer.set_limit(worker, limit)
+        except ValueError as exc:
+            raise ServiceError(str(exc), 400) from None
+        return self.super_status()
+
+    def super_clear_cooldown(self, worker: str) -> dict[str, Any]:
+        try:
+            self.supercomputer.clear_cooldown(worker)
+        except ValueError as exc:
+            raise ServiceError(str(exc), 400) from None
+        return self.super_status()
+
+    # --- 工作台生成器（docs/KIT.md） --------------------------------------------------
+
+    def bench_status(self) -> dict[str, Any]:
+        return self.bench.status()
+
+    def bench_profile_add(self, text: str, src: str = "") -> dict[str, Any]:
+        """甲方档案：记下一条长期偏好（只存本机），以后每个新项目都带上。"""
+        try:
+            self.bench.profile_add(text, src)
+        except ValueError as exc:
+            raise ServiceError(str(exc), 400) from None
+        except RuntimeError as exc:
+            raise ServiceError(str(exc), 409) from None
+        return self.bench_status()
+
+    def bench_profile_remove(self, pid: str) -> dict[str, Any]:
+        try:
+            self.bench.profile_remove(pid)
+        except LookupError as exc:
+            raise ServiceError(str(exc), 404) from None
+        return self.bench_status()
+
+    def bench_material(self, name: str, data: bytes, of: str = "") -> dict[str, Any]:
+        """拖进来的素材先收下（开工或加进工作台时再给编号）。"""
+        try:
+            return self.bench.stage_material(name, data, of)
+        except ValueError as exc:
+            raise ServiceError(str(exc), 400) from None
+
+    @property
+    def bench_material_limit(self) -> int:
+        return self.bench.rules.materials.max_video_mb * 1024 * 1024
+
+    def bench_submit(
+        self, request: str, materials: list[str] | None = None, *, from_product: bool = False
+    ) -> dict[str, Any]:
+        try:
+            self.bench.submit(request, materials, from_product=from_product)
+        except RuntimeError as exc:
+            raise ServiceError(str(exc), 409) from None
+        except ValueError as exc:
+            raise ServiceError(str(exc), 400) from None
+        return self.bench_status()
+
+    async def bench_cancel(self) -> dict[str, Any]:
+        await self.bench.cancel()
+        return self.bench_status()
+
+    def bench_get(self, bench_id: str) -> dict[str, Any]:
+        b = self.bench.get(bench_id)
+        if b is None:
+            raise ServiceError("没有这个工作台", 404)
+        return b
+
+    async def bench_ask(self, bench_id: str, question: str, json: bool = False) -> dict[str, Any]:
+        try:
+            if json:
+                return await self.bench.ask_json(bench_id, question)
+            return {"text": await self.bench.ask(bench_id, question)}
+        except LookupError as exc:
+            raise ServiceError(str(exc), 404) from None
+        except ValueError as exc:
+            raise ServiceError(str(exc), 400) from None
+
+    async def bench_project(self, bench_id: str, action: str, **kw: Any) -> dict[str, Any]:
+        """项目室的关口：回答访谈、签字开工、里程碑 / 交付通过或提变更单、出下一版提案。"""
+        try:
+            if action == "answer":
+                self.bench.answer(bench_id, kw.get("answers") or {})
+            elif action == "sign":
+                self.bench.sign(
+                    bench_id, kw.get("requirements"), kw.get("note") or "", kw.get("design")
+                )
+            elif action == "review":
+                self.bench.review(bench_id, kw.get("decision") or "", kw.get("comments"))
+            elif action == "evolve":
+                await self.bench.evolve(bench_id)
+            elif action == "attach":
+                self.bench.attach(bench_id, kw.get("ids") or [])
+            elif action == "look":
+                self.bench.look(bench_id)
+            elif action == "decide":
+                self.bench.decide(bench_id, kw.get("choice") or "", kw.get("requirements"))
+            elif action == "plugin":
+                self.bench.request_plugin(bench_id, kw.get("name") or "")
+            else:
+                raise ValueError("不认得这个操作")
+        except LookupError as exc:
+            raise ServiceError(str(exc), 404) from None
+        except RuntimeError as exc:
+            raise ServiceError(str(exc), 409) from None
+        except ValueError as exc:
+            raise ServiceError(str(exc), 400) from None
+        return self.bench_status()
+
+    def _dsh_whitelist(self) -> dict[str, str]:
+        """dsh 插件白名单里审过的仓库（没带 dsh 或名单读不了就是空的）。"""
+        catalog = getattr(self.dsh, "catalog", None) if self.dsh is not None else None
+        return {p.repo: p.id for p in catalog.plugins if p.repo} if catalog else {}
+
+    async def bench_net_check(self) -> dict[str, Any]:
+        """联网自检：成品要用的公开数据和调研接口各试一次（只读 GET）。"""
+        items = await net_check(list(self.bench.rules.net), self.bench_status_fetch)
+        return {"items": items, "ok": sum(1 for x in items if x["ok"]), "total": len(items)}
+
+    def bench_net_origins(self) -> list[str]:
+        """生成的工作台能联网访问的网址（配置里的公开数据名单）；沙箱只放行这些。"""
+        out: list[str] = []
+        for svc in self.bench.rules.net:
+            out += [o for o in svc.origins if o not in out]
+        return out
+
+    def bench_file(self, bench_id: str, path: str) -> Path:
+        """生成的工作台里的一个文件（只读；不许跳出它自己的文件夹）。"""
+        if self.bench.root is None or self.bench.get(bench_id) is None:
+            raise ServiceError("没有这个工作台", 404)
+        base = self.bench.folder(bench_id).resolve()
+        full = (base / (path or "index.html")).resolve()
+        if not full.is_relative_to(base) or not full.is_file() or full.name == "build.json":
+            raise ServiceError("没有这个文件", 404)
+        return full
+
+    def start_dsh(self) -> None:
+        """服务启动时：配置了 autostart 才顺带启动 dsh（默认不启动）。失败只记日志。"""
+        if self.dsh is None or not self.rt.config.roundtable.dsh.autostart:
+            return
+
+        async def boot() -> None:
+            try:
+                await self.dsh.start()
+            except Exception as exc:  # noqa: BLE001 - dsh 起不来不影响圆桌
+                log.warning("dsh 工作台自动启动失败：%s", exc)
+
+        self._background(boot())
 
     def _covers_dir(self) -> Path | None:
         sf = self.rt.standee_file
@@ -813,6 +1433,63 @@ class RoundtableService:
         self._balance_cache = (now, result)
         return result
 
+    # --- 渠道优先顺序（同一成员有多条路时先走哪条；不影响谁上桌） ---------------------------
+
+    def channel_priority(self) -> dict[str, Any]:
+        cfg = self.rt.config
+        prio = self.rt.router.priority
+        spent = MonthSpend(self.rt.repo, self.rt.budget.now, ttl_s=0).all()
+        names = list(cfg.models.channels)
+        if prio.strategy == "custom":
+            names = [*prio.order, *(n for n in names if n not in prio.order)]
+        rows = []
+        for name in names:
+            spec = cfg.models.channels[name]
+            credit = prio.credits.get(name)
+            used = spent.get(name, 0.0)
+            left = None if credit is None else round(max(0.0, credit - used), 6)
+            members = [
+                display_name(m.id, cfg)
+                for m in cfg.models.enabled
+                if m.seat and any(r.channel == name for r in m.routes)
+            ]
+            rows.append(
+                {
+                    "channel": name,
+                    "kind": spec.kind,
+                    "available": name not in self.rt.unavailable_channels,
+                    "reason": self.rt.unavailable_channels.get(name),
+                    "credit_usd": credit,
+                    "spent_month_usd": round(used, 6),
+                    "credit_left_usd": left,
+                    "members": list(dict.fromkeys(members)),
+                }
+            )
+        return {"strategy": prio.strategy, "channels": rows}
+
+    def set_channel_priority(
+        self,
+        *,
+        strategy: str,
+        order: list[str] | None = None,
+        credits: dict[str, float | None] | None = None,
+    ) -> dict[str, Any]:
+        cfg = self.rt.config
+        prio = self.rt.router.priority
+        current: dict[str, float | None] = {n: prio.credits.get(n) for n in cfg.models.channels}
+        try:
+            saved = save_priority(
+                cfg,
+                self.rt.repo,
+                strategy=strategy,
+                order=order if order is not None else list(prio.order),
+                credits={**current, **(credits or {})},
+            )
+        except ValueError as exc:
+            raise ServiceError(str(exc)) from None
+        self.rt.router.set_priority(saved)
+        return self.channel_priority()
+
     # --- 插件榜 ------------------------------------------------------------------
 
     def plugin_board(self) -> dict[str, Any]:
@@ -996,11 +1673,19 @@ class RoundtableService:
     def apartment(self, hour: int, weekday: int) -> dict[str, Any]:
         """公寓楼：住户按作息在各房间活动，正在办事的在办公室 / 会议室。
 
-        hour / weekday 用浏览器的本地时间。匿名未揭晓的会话只计数，不说是谁。
+        hour / weekday 用浏览器的本地时间（按主时区）。匿名未揭晓的会话只计数，不说是谁。
+        问的正是主时区的这一小时时，生活系统这一小时记下的去处优先（和生活群、朋友圈对得上）。
         """
         if not (0 <= hour < 24 and 0 <= weekday < 7):
             raise ServiceError("hour 应为 0～23，weekday 应为 0～6")
         now = self.rt.budget.now()
+        local = home_zone(self.rt).local(now)
+        spots = None
+        if (local.hour, local.weekday()) == (hour, weekday):
+            slot = local.replace(minute=0, second=0, microsecond=0)
+            spots = life_spots(
+                self.rt.repo.life_events_between(iso(slot), iso(slot + timedelta(hours=1)))
+            )
         start, end = month_window(now)
         working = self.rt.repo.working_seats(now - timedelta(hours=WORKING_WINDOW_H))
         b = building(
@@ -1010,6 +1695,7 @@ class RoundtableService:
             working=working,
             month_usage=self.rt.repo.spent_by_model(start, end),
             meetings=self._office_meetings(working),
+            life=spots,
         )
         return {
             "floors": b.floors,
@@ -1133,14 +1819,42 @@ class RoundtableService:
             return tag, meta
         return f"{text}\n{tag}", meta | {"caption": text}
 
+    def _file_meta(
+        self, text: str, meta: dict | None, files: Sequence[str]
+    ) -> tuple[str, dict | None]:
+        """聊天里发的文件（先 upload 得到附件 id）：meta.files 记名字和大小，
+        文字后面补「[文件 名字]」。"""
+        if not files:
+            return text, meta
+        items = []
+        for fid in list(dict.fromkeys(files))[:HANDOFF_FILES]:
+            try:
+                row = self.rt.repo.attachment(fid)
+            except NotFound:
+                raise ServiceError("文件不存在，请重新上传") from None
+            items.append({"id": fid, "name": row["name"], "kind": row["kind"], "size": row["size"]})
+        tags = " ".join(f"[文件 {it['name']}]" for it in items)
+        out = dict(meta or {})
+        out["files"] = items
+        if not text:
+            out.setdefault("auto_text", True)
+            return tags, out
+        if "caption" not in out:
+            out["caption"] = text
+        return f"{text}\n{tags}", out
+
     async def chat_post(
         self,
         text: str,
         room: str = ROOM,
         media: list[dict] | None = None,
         quote: int | None = None,
+        *,
+        files: Sequence[str] = (),
     ) -> dict[str, Any]:
-        """用户发一条消息（可带图片 / 视频 / 语音，可引用一条消息）；被选中的成员在后台依次回应。"""
+        """用户发一条消息（可带图片 / 视频 / 语音、文件，可引用一条消息）；被选中的成员在后台
+        依次回应。文件先用 upload() 上传；成员只看到文件名，要读里面的内容时交给办公室
+        （带着文件一起）。"""
         chat = self._chat_room(room)
         if chat.kind == "pair":
             raise ServiceError("这是成员之间的私聊，你只能看，不能发言")
@@ -1148,6 +1862,7 @@ class RoundtableService:
         if len(text) > MAX_CHAT_CHARS:
             raise ServiceError(f"消息太长（最多 {MAX_CHAT_CHARS} 字）")
         text, meta = self._media_meta(text, media)
+        text, meta = self._file_meta(text, meta, files)
         if not text:
             raise ServiceError("消息不能为空")
         if meta is None and is_bare_url(text):  # 只发了一个链接：显示成卡片
@@ -1159,6 +1874,8 @@ class RoundtableService:
         except ValueError as exc:
             raise ServiceError(str(exc)) from None
         self.rt.repo.mark_chat_read(chat.room, msg["id"])
+        with contextlib.suppress(Exception):  # 状态出错不影响聊天
+            self.engine.observe(self.rt.budget.now())  # 被 @、被批评的反射在回应前算进状态
         mode = self.perceiver.mode_for(text) if meta else None
         if mode:
             self._background(self._look_and_reply(chat, msg["id"], speakers, mode, chat.round))
@@ -1236,10 +1953,37 @@ class RoundtableService:
     def _chat_replies(self, chat: Any, reply_to: int, speakers: list[Any]) -> None:
         if not speakers:
             return
-        coro = chat.replies(reply_to, speakers, chat.round)
+        if chat.kind == "dm":  # 回话节拍：等你说完、她在忙时晚一会儿
+            coro = self._paced_replies(chat, reply_to, speakers, chat.round)
+        else:
+            coro = chat.replies(reply_to, speakers, chat.round)
         task = asyncio.get_running_loop().create_task(coro)
         self._chat_tasks.add(task)
         task.add_done_callback(self._chat_tasks.discard)
+
+    async def _paced_replies(
+        self, chat: Any, reply_to: int, speakers: list[Any], round_no: int
+    ) -> list[dict[str, Any]]:
+        """私聊：你连着发时先等一小会儿看你说完没（又发了就交给新的那一轮）；她在忙时再晚一会儿。"""
+        from roundtable.core.member.pace import Pace
+
+        pace = Pace(self.rt)
+        wait = pace.debounce(chat.room, self.rt.budget.now())
+        if wait:
+            await chat.sleep(wait)
+            if chat.round != round_no:
+                return []
+        row = self.rt.repo.chat_message(reply_to)
+        text = str(row["text"] or "") if row is not None else ""
+        delay = max(
+            (pace.busy_delay(m.id, chat.room, text, self.rt.budget.now()) for m in speakers),
+            default=0.0,
+        )
+        if delay:
+            await chat.sleep(delay)
+            if chat.round != round_no:
+                return []
+        return await chat.replies(reply_to, speakers, round_no)
 
     async def chat_pat(self, member: str, room: str = ROOM) -> dict[str, Any]:
         """拍一拍会话里的一位成员：发 chat.pat 事件给成员系统，按策略（默认回一句）让 TA 回应。"""
@@ -1302,6 +2046,107 @@ class RoundtableService:
         self.rt.repo.mark_chat_read(WORK, msg["id"])
         return {"id": msg["id"], "session_id": sid}
 
+    # --- 聊天里的活交给办公室（docs/CHAT.md G14） ------------------------------------
+
+    def chat_handoff_start(self, room: str, message_id: int) -> dict[str, Any]:
+        """你点了交办卡片上的「交给办公室」：按办公室模式开一件事（题目只有要做的事和你的原话，
+        不带人设和聊天记忆），你在这段聊天里刚发的文件一起带上。做完以那位成员的名义发回来。"""
+        chat = self._chat_room(room)
+        row = self.rt.repo.chat_message(message_id)
+        if row is None or row["room"] != chat.room:
+            raise ServiceError("消息不存在", 404)
+        card = (row.get("meta") or {}).get("handoff") or {}
+        if not card:
+            raise ServiceError("这条消息没有要交给办公室的事")
+        if card.get("state") != handoff.PENDING:
+            raise ServiceError("这件事已经处理过了")
+        request = self._handoff_request(chat.room, row)
+        files = self._handoff_files(chat.room, row)
+        sid = self.create(
+            handoff.question(card["task"], request), workflow="office", attachments=files
+        )
+        handoff.remember(self.rt, sid, room=chat.room, member=row["author"], message_id=row["id"])
+        handoff.mark(self.rt, row["id"], state=handoff.RUNNING, session_id=sid)
+        chat.on_change()
+        return {"session_id": sid}
+
+    def chat_handoff_dismiss(self, room: str, message_id: int) -> dict[str, Any]:
+        """「先不用」：卡片收起，不花钱。"""
+        chat = self._chat_room(room)
+        row = self.rt.repo.chat_message(message_id)
+        if row is None or row["room"] != chat.room:
+            raise ServiceError("消息不存在", 404)
+        card = (row.get("meta") or {}).get("handoff") or {}
+        if card.get("state") != handoff.PENDING:
+            raise ServiceError("这件事已经处理过了")
+        handoff.mark(self.rt, row["id"], state=handoff.DISMISSED)
+        chat.on_change()
+        return {"ok": True}
+
+    def _handoff_request(self, room: str, row: dict[str, Any]) -> str:
+        """成员交办时回的是你哪句话（她回应的那条，或者她之前你说的最后一句）。"""
+        if row.get("reply_to"):
+            asked = self.rt.repo.chat_message(row["reply_to"])
+            if asked is not None and asked["author"] == "user":
+                return str(asked["text"] or "")
+        before = [
+            r
+            for r in self.rt.repo.chat_messages(room, limit=30)
+            if r["id"] < row["id"] and r["author"] == "user"
+        ]
+        return str(before[-1]["text"] or "") if before else ""
+
+    def _handoff_files(self, room: str, row: dict[str, Any]) -> list[str]:
+        """你在这段聊天里（交办前最近几条）发的文件：作为附件交给办公室。"""
+        out: list[str] = []
+        for r in self.rt.repo.chat_messages(room, limit=30):
+            if r["id"] >= row["id"] or r["author"] != "user":
+                continue
+            for f in (r.get("meta") or {}).get("files") or []:
+                if isinstance(f, dict) and f.get("id") and f["id"] not in out:
+                    out.append(str(f["id"]))
+        return out[-HANDOFF_FILES:]
+
+    def _handoff_back(self, sid: str, type_: str) -> None:
+        """办公室做完（或没办成）：以交办的那位成员的名义，把结果卡片发回原来的会话。"""
+        where = handoff.origin(self.rt, sid)
+        if where is None or type_ not in ("completed", "failed"):
+            return
+        handoff.forget(self.rt, sid)
+        row = self.rt.repo.session_row(sid)
+        ok = type_ == "completed"
+        text = (self.orc.final_answer(sid) or "") if ok else ""
+        files: list[dict[str, Any]] = []
+        with contextlib.suppress(Exception):
+            files = [
+                {
+                    "id": f["id"],
+                    "name": f["path"].rsplit("/", 1)[-1],
+                    "kind": f["kind"],
+                    "mime": f["mime"],
+                }
+                for f in self._files(sid)
+                if f["latest"]
+            ]
+        card = handoff.result_card(
+            sid=sid,
+            title=short_title(row["question"].split("\n\n")[0]),
+            ok=ok,
+            text=text,
+            files=files,
+            cost=self.rt.repo.session_cost(sid),
+        )
+        handoff.mark(self.rt, where["message_id"], state=handoff.DONE if ok else handoff.FAILED)
+        try:
+            chat = self._chat_room(where["room"])
+            chat.send_as(
+                where["member"],
+                "[办公室做好了]" if ok else "[办公室没办成]",
+                meta={"work_card": card, "auto_text": True},
+            )
+        except (ServiceError, ValueError):
+            log.warning("会话 %s：结果没能发回聊天 %s", sid, where["room"])
+
     # --- 成员设定与记忆（只用于聊天） ------------------------------------------------
 
     def _chat_member(self, member: str) -> Any:
@@ -1336,6 +2181,139 @@ class RoundtableService:
             raise ServiceError(str(exc), 402) from None
         except VoiceUnavailable as exc:
             raise ServiceError(str(exc), 503) from None
+
+    def member_stickers(self) -> dict[str, Any]:
+        """每位有形象卡的成员的专属表情：画了没有、待审还是可以用（不含模型名）。"""
+        names = {m.id: m.name for m in self.chats.everyone()}
+        rules = self.rt.config.roundtable.media.stickers
+        members = [
+            {
+                "id": member,
+                "name": names.get(member, member),
+                "stickers": self.stickers.listing(member),
+            }
+            for member in self.rt.config.personas.sticker_cards
+        ]
+        return {
+            "members": members,
+            "stash": self._stash_listing(names),
+            "available": bool(self.stickers.sticker_models()),
+            "review": rules.review,
+            "month_spent_usd": round(self.stickers.month_spent(), 4),
+            "monthly_usd": rules.monthly_usd,
+        }
+
+    def _stash_listing(self, names: dict[str, str]) -> list[dict[str, Any]]:
+        """成员从你那收来的表情包（只存本机）：谁收了哪几张、用过几次。"""
+        from roundtable.core.member.stash import Stash
+
+        return [
+            {"id": member, "name": names.get(member, member), "items": items}
+            for member, items in Stash(self.rt).listing().items()
+            if items
+        ]
+
+    def stash_delete(self, member: str, n: int) -> dict[str, Any]:
+        """删掉成员收藏的一张表情包（图片本身还在聊天记录里）。"""
+        from roundtable.core.member.stash import Stash
+
+        if not Stash(self.rt).delete(member, n):
+            raise ServiceError("没有这张收藏", 404)
+        return {"deleted": n}
+
+    def stash_clear(self, member: str | None = None) -> dict[str, Any]:
+        """一键清空成员收藏的表情包（member 为空时清空所有人的）。"""
+        from roundtable.core.member.stash import Stash
+
+        return {"cleared": Stash(self.rt).clear(member)}
+
+    async def draw_sticker(self, member: str, name: str) -> dict[str, Any]:
+        """画（或重画）成员的一个专属表情；花费计入表情包和创作输出的每月上限。"""
+        try:
+            return await self.stickers.draw(member, name)
+        except StickerError as exc:
+            raise ServiceError(str(exc), 404) from None
+        except StickerBudgetExceeded as exc:
+            raise ServiceError(str(exc), 402) from None
+        except StickerUnavailable as exc:
+            raise ServiceError(str(exc), 503) from None
+
+    def review_sticker(self, member: str, name: str, status: str) -> dict[str, Any]:
+        try:
+            return self.stickers.review(member, name, status)
+        except StickerError as exc:
+            raise ServiceError(str(exc)) from None
+
+    def sticker_file(self, member: str, name: str) -> bytes:
+        data = self.stickers.file(member, name)
+        if data is None:
+            raise ServiceError("这个表情还没画", 404)
+        return data
+
+    def emoji_status(self) -> dict[str, Any]:
+        """网页里的 emoji 显示成哪套图：{enabled, style}。"""
+        return self.emoji.status()
+
+    def emoji_image(self, code: str) -> bytes:
+        """一个 emoji 的图（用到才下载，存本机）；没有时 404，网页用系统字体。"""
+        data = self.emoji.image(code)
+        if data is None:
+            raise ServiceError("没有这个表情图", 404)
+        return data
+
+    def chat_sticker_packs(self) -> dict[str, Any]:
+        """聊天里能显示的成员专属表情（审过的）：套装名是昵称，图从 /api/stickers/… 取。"""
+        packs = []
+        for m in self.chats.everyone():
+            own = own_stickers(self.rt, m.id, m.name).get(m.name, [])
+            if not own:
+                continue
+            files = {s["name"]: s for s in self.stickers.approved(m.id)}
+            items = [
+                {
+                    "name": n,
+                    "caption": files[n]["caption"],
+                    "url": f"/api/stickers/{quote(m.id)}/{quote(n)}/image?v={files[n]['file'][:8]}",
+                }
+                for n in own
+            ]
+            packs.append({"pack": m.name, "member": m.id, "items": items})
+        packs += self.packs.chat_packs({m.id: m.name for m in self.chats.everyone()})
+        return {"packs": packs}
+
+    # --- 外部表情包（dsh-meme 格式） -------------------------------------------------------
+
+    def _packs_call(self, fn: Any, *args: Any, **kw: Any) -> Any:
+        try:
+            return fn(*args, **kw)
+        except PackError as exc:
+            raise ServiceError(str(exc)) from None
+
+    def sticker_packs(self) -> dict[str, Any]:
+        """本机装的外部表情包。"""
+        return {"packs": [self.packs.summary(p) for p in self.packs.installed()]}
+
+    def sticker_pack_catalog(self) -> dict[str, Any]:
+        return {"packs": self._packs_call(self.packs.catalog)}
+
+    def install_sticker_pack(
+        self, source: str, owner: str | None = None, label: str = "", data: bytes | None = None
+    ) -> dict[str, Any]:
+        return self._packs_call(self.packs.install, source, owner, label, data)
+
+    def assign_sticker_pack(
+        self, pack_id: str, owner: str | None = None, label: str | None = None
+    ) -> dict[str, Any]:
+        return self._packs_call(self.packs.assign, pack_id, owner, label)
+
+    def remove_sticker_pack(self, pack_id: str) -> dict[str, Any]:
+        return self._packs_call(self.packs.remove, pack_id)
+
+    def sticker_pack_image(self, pack_id: str, n: int) -> tuple[bytes, str]:
+        try:
+            return self.packs.image(pack_id, n)
+        except PackError as exc:
+            raise ServiceError(str(exc), 404) from None
 
     def chat_personas(self) -> dict[str, Any]:
         """每位成员的聊天人设；source：local 网页里改过 / config 配置文件 / empty 没有设定。"""
@@ -1888,6 +2866,318 @@ class RoundtableService:
         n = self.engine.profiles.clear(member)
         return {"member": member, "deleted": n}
 
+    def member_states(self) -> dict[str, Any]:
+        """每位成员此刻的心情（-1～1）和精力（0～1）、基线、最近的本能反射（P3 状态，只读）。"""
+        state = self.engine.state
+        out = []
+        for m in self.chats.everyone():
+            r = state.read(m.id)
+            b = r.baseline
+            out.append(
+                {
+                    "member": m.id,
+                    "name": m.name,
+                    "mood": round(r.mood, 3),
+                    "energy": round(r.energy, 3),
+                    "line": state.line(m.id, r.at),
+                    "baseline": {
+                        "mood": b.mood,
+                        "sensitivity": b.sensitivity,
+                        "wake": b.wake,
+                        "sleep": b.sleep,
+                        "night_owl": b.night_owl,
+                    },
+                    "recent": r.recent,
+                }
+            )
+        return {"members": out, "enabled": state.enabled()}
+
+    def member_states_clear(self, member: str | None = None) -> dict[str, Any]:
+        """清空状态（全部或某一位），回到基线。"""
+        return {"deleted": self.engine.state.clear(member)}
+
+    # --- 成员关系（P4，docs/MEMBER_ENGINE.md「P4 关系」） ------------------------------
+
+    def member_relation(self, member: str) -> dict[str, Any]:
+        """和你的阶段、亲近度，和每位同事的亲近度与看法（程序按共同经历算，只读）。"""
+        member = self._profile_member(member)
+        rel = self.engine.relation
+        rules = self.rt.config.roundtable.chat.engine.relation
+        data = rel.data(member)
+        live = {f["id"] for f in self.engine.about.facts()}
+        facts = {f["id"]: f["text"] for f in self.engine.about.facts()}
+        views = [
+            {
+                **v,
+                "index": i,
+                "live": view_live(v, live),
+                "facts_text": [facts[n] for n in v.get("facts") or [] if n in facts],
+            }
+            for i, v in enumerate(data.get("views") or [])
+        ]
+        due = self.insight.due(self._local_now().date())
+        depth = rules.insight.at(rel.level(member))
+        return {
+            **rel.summary(member),
+            "depth": {"views": depth.views, "chars": depth.chars},
+            "enabled": rel.enabled(),
+            "stages": [s.model_dump() for s in rules.stages],
+            "views": views,
+            "views_week": rel.views_week(member),
+            "views_log": list(reversed(data.get("views_log") or []))[:5],
+            "insight_due": week_id(due) if due else None,
+            "insight_enabled": self.insight.enabled(),
+        }
+
+    async def member_relation_insight(self, member: str) -> dict[str, Any]:
+        """马上让她想一次上一周对你的看法（每周一次；已想过返回 409）。"""
+        member = self._profile_member(member)
+        due = self.insight.due(self._local_now().date())
+        if due is None or not self.insight.enabled():
+            raise ServiceError("还没到每周想一想的那天", 409)
+        wid = week_id(due)
+        if self.engine.relation.views_week(member) == wid:
+            raise ServiceError(f"{wid} 已经想过了", 409)
+        m = next(m for m in self.chats.everyone() if m.id == member)
+        got = await self.insight.run(m, wid, today=self._local_now().date())
+        if got is None:
+            raise ServiceError("今天生活的额度不够了，下次再想", 409)
+        return {"result": got, **self.member_relation(member)}
+
+    def member_relation_drop_view(self, member: str, index: int) -> dict[str, Any]:
+        """删掉她的一句见解。"""
+        member = self._profile_member(member)
+        if not self.engine.relation.drop_view(member, index):
+            raise ServiceError("没有这一句", 404)
+        return self.member_relation(member)
+
+    def member_relation_reply_view(self, member: str, index: int, text: str) -> dict[str, Any]:
+        """你在她的一句看法下随手回一句（空串＝撤回）；她下周自己琢磨你的意思。"""
+        member = self._profile_member(member)
+        if not self.engine.relation.reply_view(member, index, text):
+            raise ServiceError("没有这一句", 404)
+        return self.member_relation(member)
+
+    def member_relation_clear(self, member: str | None = None) -> dict[str, Any]:
+        """清空关系（全部或某一位），从头再按经历累积。"""
+        if member is not None:
+            member = self._profile_member(member)
+        return {"deleted": self.engine.relation.clear(member)}
+
+    # --- 关于你（成员系统 P8：8 位共用的用户画像，只存本机） --------------------------------
+
+    def _about(self, fn: Any) -> Any:
+        try:
+            return fn()
+        except AboutMissing as e:
+            raise ServiceError(str(e), 404) from None
+        except AboutError as e:
+            raise ServiceError(str(e)) from None
+
+    def about_view(self) -> dict[str, Any]:
+        """画像：每条的领域、来源、把握度、变淡 / 锁定，证据（原话、会话、时间、谁注意到的）。"""
+        v = self.engine.about.view()
+        names = {m.id: m.name for m in self.chats.everyone()}
+        rooms = {r["id"]: r for r in self.rt.repo.chat_rooms()}
+        for f in v["facts"]:
+            for e in f["evidence"]:
+                room = rooms.get(e["room"])
+                e["room_title"] = (
+                    "私聊" if room and room["kind"] == "dm" else (room or {}).get("title", "")
+                )
+                e["by_name"] = names.get(e.get("by"), e.get("by") or "")
+            f["noticed"] = [names.get(x, x) for x in f.get("noticed", [])]
+        return v
+
+    # 你的状态的来源（每项只在开关打开、成员要回话时才问；读到的不写库）
+
+    def _say_music(self, now: datetime) -> str | None:
+        v = self._np().view(self.engine.about.switches()["music_player"])
+        cur = v.get("now")
+        if not v["available"] or not cur or cur["status"] != "playing" or not cur["title"]:
+            return None
+        who = f"（{cur['artist']}）" if cur["artist"] else ""
+        return f"用户正在听《{cur['title']}》{who}"
+
+    def _say_idle(self, now: datetime) -> str | None:
+        if self._pc.available():
+            return None
+        idle = self._pc.read().idle_seconds
+        if idle is None:
+            return None
+        minutes = int(idle // 60)
+        if minutes >= self.engine.about.rules.idle_minutes:
+            return f"用户的电脑已经 {minutes} 分钟没人动了（可能走开了）"
+        return "用户正在用电脑"
+
+    def _say_game(self, now: datetime) -> str | None:
+        if self._pc.available():
+            return None
+        game = game_of(self._pc.read().foreground, self.engine.about.games())
+        return f"用户在玩{game}" if game else None
+
+    def _say_mail(self, now: datetime) -> str | None:
+        if not self.mail.enabled():
+            return None
+        d = self.mail.view()["digest"]
+        text = f"用户邮箱今天收到 {d['today']} 封，重要未读 {d['important_unread']} 封"
+        if d["due"]:
+            first = d["due"][0]
+            text += f"；最近截止 {first['due'][5:10]}「{' '.join(first['snippet'].split())[:16]}」"
+        return text
+
+    def about_status(self) -> dict[str, Any]:
+        return self.rt.user_status.view()
+
+    def about_status_set(self, kind: str, on: bool) -> dict[str, Any]:
+        self._about(lambda: self.engine.about.set_status(kind, on))
+        return self.about_status()
+
+    def about_music_player(self, player: str) -> dict[str, Any]:
+        self._about(lambda: self.engine.about.set_music_player(player))
+        return self.about_status()
+
+    def about_game_add(self, exe: str, name: str) -> dict[str, Any]:
+        self._about(lambda: self.engine.about.add_game(exe, name))
+        return self.about_status()
+
+    def about_game_del(self, exe: str) -> dict[str, Any]:
+        self._about(lambda: self.engine.about.del_game(exe))
+        return self.about_status()
+
+    def about_class_add(self, weekday: int, start: str, end: str, name: str) -> dict[str, Any]:
+        self._about(lambda: self.engine.about.add_class(weekday, start, end, name))
+        return self.about_status()
+
+    def about_ddl_add(self, name: str, due: str) -> dict[str, Any]:
+        self._about(lambda: self.engine.about.add_ddl(name, due))
+        return self.about_status()
+
+    def about_schedule_del(self, kind: str, item_id: int) -> dict[str, Any]:
+        self._about(lambda: self.engine.about.del_schedule(kind, item_id))
+        return self.about_status()
+
+    def about_schedule_clear(self) -> dict[str, Any]:
+        return {"deleted": self.engine.about.clear_schedule()}
+
+    def about_add(self, text: str, domain: str | None = None) -> dict[str, Any]:
+        self._about(lambda: self.engine.about.add(text, domain))
+        return self.about_view()
+
+    def about_edit(
+        self, fact_id: int, text: str | None = None, domain: str | None = None
+    ) -> dict[str, Any]:
+        self._about(lambda: self.engine.about.edit(fact_id, text, domain))
+        return self.about_view()
+
+    def about_delete(self, fact_id: int) -> dict[str, Any]:
+        self._about(lambda: self.engine.about.delete(fact_id))
+        return self.about_view()
+
+    def about_reject(self, fact_id: int) -> dict[str, Any]:
+        """「不对」：删掉，之后像它的线索不再记。"""
+        self._about(lambda: self.engine.about.reject(fact_id))
+        return self.about_view()
+
+    def about_forget_rejected(self, index: int) -> dict[str, Any]:
+        self._about(lambda: self.engine.about.forget_rejected(index))
+        return self.about_view()
+
+    def about_lock(self, fact_id: int, locked: bool = True) -> dict[str, Any]:
+        self._about(lambda: self.engine.about.lock(fact_id, locked))
+        return self.about_view()
+
+    def about_domain(self, domain: str, on: bool) -> dict[str, Any]:
+        self._about(lambda: self.engine.about.set_domain(domain, on))
+        return self.about_view()
+
+    def about_clear(self, rejected: bool = False) -> dict[str, Any]:
+        return {"deleted": self.engine.about.clear(rejected)}
+
+    def about_export(self, fmt: str = "json") -> tuple[bytes, str, str]:
+        """导出画像：(内容, 类型, 文件名)；fmt = json / md。"""
+        if fmt not in ("json", "md"):
+            raise ServiceError("格式只能是 json 或 md")
+        text = self.engine.about.export(fmt)
+        media = "application/json" if fmt == "json" else "text/markdown"
+        return text.encode("utf-8"), f"{media}; charset=utf-8", f"about_you.{fmt}"
+
+    # --- 成员成长（P6，docs/MEMBER_ENGINE.md「P6 成长」） ------------------------------
+
+    def member_growth(self, member: str) -> dict[str, Any]:
+        """成长时间线（新的在前）、上次反思的是哪一周、下一次反思哪一周。"""
+        member = self._profile_member(member)
+        rules = self.rt.config.roundtable.chat.engine.growth
+        due = self.growth.due(self._local_now().date())
+        names = {m.id: m.name for m in self.chats.everyone()}
+        entries = []
+        for e in self.growth.log.entries(member):
+            e = dict(e)
+            if e.get("clash"):
+                e["clash_name"] = names.get(e["clash"], e["clash"])
+            entries.append(e)
+        return {
+            "member": member,
+            "enabled": rules.enabled,
+            "week": self.growth.log.done_week(member),
+            "due": week_id(due) if due else None,
+            "rules": {
+                "max_changes": rules.max_changes,
+                "core_monthly_steps": rules.core_monthly_steps,
+                "user_share": rules.user_share,
+                "min_days": rules.min_days,
+            },
+            "timeline": entries,
+            # 成长总账：设定、口癖、和你的阶段、对你的看法、收藏排成一条（新的在前）
+            "book": self.growth.book.changes(member) if rules.book.enabled else [],
+            "book_sources": BOOK_SOURCES,
+            "habits": self.growth.habits(member),
+            "skills": self.growth.skills(member),
+            # 发育期可塑性（成长 G2）：新来的变得快，待久了变得慢
+            "plastic": plasticity(
+                self.rt, member, self._local_now().date(), self.growth.profiles.current(member).data
+            ).line()
+            if rules.plastic.enabled
+            else "",
+            "reports": [
+                {**r, "lines": report_lines(r)}
+                for _, r in sorted(self.growth.log.load(member)["reports"].items(), reverse=True)
+            ],
+        }
+
+    async def member_growth_run(self, member: str) -> dict[str, Any]:
+        """马上让这位成员反思上一周（每周只反思一次；上周已经反思过就不再调用）。"""
+        member = self._profile_member(member)
+        now = self._local_now()
+        start = monday(now.date()) - timedelta(days=7)
+        if self.growth.log.done_week(member) == week_id(start):
+            raise ServiceError("上一周已经反思过了，每周只反思一次", 409)
+        m = next(x for x in self.chats.everyone() if x.id == member)
+        got = await self.growth.run(m, start, now.tzinfo, today=now.date())
+        if got is None:
+            raise ServiceError("今天生活的额度或聊天预算不够，下次推进时再试", 409)
+        return {"result": got, **self.member_growth(member)}
+
+    def member_growth_undo(self, member: str, token: str) -> dict[str, Any]:
+        """在成长总账里撤回一条（交回原来那个模块撤：设定、口癖、收藏）。"""
+        member = self._profile_member(member)
+        try:
+            self.growth.book.undo(member, token)
+        except (BookError, ProfileError) as e:
+            raise ServiceError(str(e)) from None
+        return self.member_growth(member)
+
+    def member_growth_revert(self, member: str, entry_id: int) -> dict[str, Any]:
+        """撤回一条成长改动（以你的身份存成档案的新版本）。"""
+        member = self._profile_member(member)
+        self._profile_do(lambda: self.growth.log.revert(member, entry_id))
+        return self.member_growth(member)
+
+    def member_growth_clear(self, member: str) -> dict[str, Any]:
+        """清空这位成员的成长时间线（档案本身和它的修改记录不动）。"""
+        member = self._profile_member(member)
+        return {"member": member, "deleted": self.growth.log.clear(member)}
+
     def member_events_count(self) -> dict[str, Any]:
         return {"events": self.rt.repo.count_member_events()}
 
@@ -1961,6 +3251,61 @@ class RoundtableService:
         """马上抓一遍订阅源（不调用模型、不花钱）。"""
         result = await self.life.browse.refresh(self._local_now(), force=True)
         return {**result, **self.chat_feeds()}
+
+    def chat_memes(self) -> dict[str, Any]:
+        """网络梗：梗库（经典梗在前）、每个梗哪几位懂、上次更新、热榜抓没抓到。"""
+        from roundtable.core.chat import chat_members
+        from roundtable.core.member.memes import MemeBook
+
+        book, now = MemeBook(self.rt), self._local_now()
+        rules = book.rules
+        members = chat_members(self.rt.config, set())
+        memes = [
+            {
+                **{
+                    k: m.get(k, "")
+                    for k in ("phrase", "meaning", "cue", "reply", "example", "since")
+                },
+                "aliases": list(m.get("aliases") or []),
+                "classic": bool(m.get("classic")),
+                "source": m.get("source", ""),
+                "last_seen": m.get("last_seen") or None,
+                "known_by": [x.name for x in members if book.knows(x.id, m, now)],
+            }
+            for m in book.all(now)
+        ]
+        return {
+            "enabled": rules.enabled,
+            "memes": memes,
+            "status": self.life.memes.status(),
+            "sources": [s.name for s in rules.sources if s.enabled],
+            "fresh_days": rules.fresh_days,
+            "stale": list(rules.stale),
+            "search_used_today": self.life.memes.searches_today(),
+            "search_per_day": rules.search_per_day,
+        }
+
+    def chat_add_meme(self, data: dict[str, Any]) -> dict[str, Any]:
+        """你手动加一个梗（或改一个已有的）；classic=True 时永远不下架。"""
+        from roundtable.core.member.memes import MemeBook
+
+        try:
+            MemeBook(self.rt).add(data, self._local_now())
+        except ValueError as exc:
+            raise ServiceError(str(exc)) from None
+        return self.chat_memes()
+
+    def chat_remove_meme(self, phrase: str) -> dict[str, Any]:
+        from roundtable.core.member.memes import MemeBook
+
+        if not MemeBook(self.rt).remove(phrase):
+            raise ServiceError(f"没有这个梗：{phrase}")
+        return self.chat_memes()
+
+    async def chat_refresh_memes(self) -> dict[str, Any]:
+        """马上更新一次梗库（抓热榜不花钱；提炼和搜索约 $0.01～0.03，算生活每日上限）。"""
+        result = await self.life.memes.refresh(self._local_now(), force=True)
+        return {**result, **self.chat_memes()}
 
     def chat_clear(self, room: str = ROOM) -> dict[str, Any]:
         """一键清空这个会话的聊天记录（花费记录保留，预算照算）。"""
@@ -2610,6 +3955,10 @@ class RoundtableService:
                 post_office_event(self.rt, session_id, event.type, event.data, event.code)
             except Exception:  # noqa: BLE001
                 log.exception("会话 %s：写工作群消息失败", session_id)
+            try:  # 聊天里交过来的活：结果发回原来的会话（旁路，出错不影响办公室）
+                self._handoff_back(session_id, event.type)
+            except Exception:  # noqa: BLE001
+                log.exception("会话 %s：交办结果发回聊天失败", session_id)
         payload = {
             "type": event.type,
             "step": event.step or None,
@@ -2680,7 +4029,8 @@ class RoundtableService:
         rules = self.rt.config.roundtable.evolution
         if not rules.enabled:
             raise ServiceError(
-                "革新例会没有开启：在 config/roundtable.yaml 里把 evolution.enabled 改成 true", 409
+                "革新例会没有开启：在 config/roundtable.local.yaml 里写 evolution: {enabled: true}",
+                409,
             )
         inbox, _ = self._evolution_dirs()
         if inbox is None:
@@ -2859,7 +4209,8 @@ class RoundtableService:
         rules = self.rt.config.roundtable.evolution
         if not rules.enabled:
             raise ServiceError(
-                "革新例会没有开启：在 config/roundtable.yaml 里把 evolution.enabled 改成 true", 409
+                "革新例会没有开启：在 config/roundtable.local.yaml 里写 evolution: {enabled: true}",
+                409,
             )
         if rules.plan not in self.rt.config.routing.plans:
             raise ServiceError(f"evolution.plan 不是已有的档位：{rules.plan!r}")
@@ -3061,7 +4412,8 @@ class RoundtableService:
         rules = self.rt.config.roundtable.evolution
         if not rules.enabled:
             raise ServiceError(
-                "革新例会没有开启：在 config/roundtable.yaml 里把 evolution.enabled 改成 true", 409
+                "革新例会没有开启：在 config/roundtable.local.yaml 里写 evolution: {enabled: true}",
+                409,
             )
         meetings = self._meetings()
         meeting = next((m for m in meetings if m.session_id == session_id), None)

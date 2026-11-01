@@ -9,7 +9,7 @@
   不够就停。调用记在对应会话的隐藏聊天会话上（step = life）。
 - 开机补算：记下上次推进的时刻，启动后补上中间的时间（最多往回 ``catch_up_hours`` 小时），
   补出来的消息标「你不在时」（meta.offline），时间按事件发生的时刻。
-- 成员不主动找用户：生活只发生在生活群和成员之间的私聊里，不进用户的私聊，不推送。
+- 生活只发生在生活群和成员之间的私聊里，不进用户的私聊、不推送（主动找用户由 reach.py 管）。
 - 收得住（``core/life_guard.py``）：没新内容就收尾、成员之间每天的条数上限、连续出错或预算告急
   当天停掉、每周自检。
 """
@@ -23,21 +23,51 @@ from typing import Any
 
 from roundtable.core.browse import SEARCH_STEP, SHARE_STEP, Browser
 from roundtable.core.budget.guard import day_window as utc_day_window
-from roundtable.core.chat import ROOM, ChatHub, ChatMember, call_member, clean_reply, member_memory
+from roundtable.core.chat import (
+    ROOM,
+    ChatHub,
+    ChatMember,
+    call_member,
+    clean_reply,
+    member_memory,
+    with_group_today,
+)
+from roundtable.core.chat_actions import card_text, clean_stickers, member_stickers, sticker_menu
 from roundtable.core.chat_work import short_title
-from roundtable.core.life_guard import LifeGuard
+from roundtable.core.life_guard import ERRORS, LifeGuard
+from roundtable.core.member.about import AboutYou
+from roundtable.core.member.brain import Brain, intent_text
+from roundtable.core.member.relation import RelationPlugin
+from roundtable.core.member.story import STORY, StoryEngine
+from roundtable.core.member.voice import Said, before_voice, recent_words, voice_for
+from roundtable.core.meme_radar import SEARCH_STEP as MEME_SEARCH_STEP
+from roundtable.core.meme_radar import STEP as MEME_STEP
+from roundtable.core.meme_radar import MemeRadar
 from roundtable.core.memory import MemoryKeeper
-from roundtable.core.moments import MOMENT_STEP, Moments
-from roundtable.core.office.apartment import ACTIVITIES, PUBLIC_ROOMS, schedule
+from roundtable.core.moments import MOMENT_STEP, NOTHING, Moments
+from roundtable.core.office.apartment import PUBLIC_ROOMS, activity_label, schedule
 from roundtable.core.persona import chat_persona
 from roundtable.core.plain_talk import before_speaking, plain_prompt
 from roundtable.core.storage.repository import iso
+
+LIVE_GAP_SECONDS = 40  # 现场互聊相邻两句隔多久（只影响显示的时间）
 
 LAST_TICK_KEY = "life.last_tick"
 PAIR_PREFIX = "pair:"
 GATHER = frozenset({"eat", "exercise", "chat", "game", "stargaze"})
 WEEKDAYS = "一二三四五六日"
-LIFE_STEPS = ("life", "memory", SHARE_STEP, SEARCH_STEP, MOMENT_STEP, "wander")
+LIFE_STEPS = (
+    "life",
+    "memory",
+    MEME_STEP,
+    MEME_SEARCH_STEP,
+    SHARE_STEP,
+    SEARCH_STEP,
+    MOMENT_STEP,
+    "wander",
+    "growth",
+    "relation",
+)
 
 
 def pair_room(a: str, b: str) -> str:
@@ -63,9 +93,14 @@ class LifeEngine:
         self.hub = hub
         self.memory = memory
         self.guard = LifeGuard(rt, LIFE_STEPS)
-        memory.allow = self.allowed  # 记忆整理也算进生活的每日上限
+        # 记忆整理也算进生活的每日上限，但能用到为它留的那笔（10-31 试跑：白天花满，夜里没钱记）
+        memory.allow = lambda estimate_usd: self.allowed(estimate_usd, reserve=False)
         self.browse = Browser(rt, hub, self.allowed)
+        self.memes = MemeRadar(rt, self.allowed)
         self.moments = Moments(rt, hub, self.allowed)
+        # P7 生活引擎（L0 / L10）：事件库 + 长线剧情 + 按爱好挑去处 + 擅长觉醒（程序挑，不花钱）
+        self.story = StoryEngine(rt)
+        self._planned: Brain | None = None
 
     @property
     def rules(self) -> Any:
@@ -77,10 +112,20 @@ class LifeEngine:
         start, end = utc_day_window(self.rt.budget.now())
         return self.rt.repo.spent_in_steps("chat", LIFE_STEPS, start, end)
 
-    def allowed(self, estimate_usd: float) -> bool:
-        if self.guard.halted():
+    def allowed(self, estimate_usd: float, *, reserve: bool = True) -> bool:
+        """reserve：给记忆整理留出 ``memory_reserve_usd``（记忆整理自己调用时为 False）。
+        记忆整理不受「接近上限」的熔断（10-31 第 3 次试跑：整理了 3 位就熔断，
+        5 位一天什么都没记住），
+        但照样不超每日上限、不超总预算，连续出错停掉时也不跑。"""
+        halted = self.guard.halted()
+        if halted and (reserve or halted.startswith(ERRORS)):
             return False
-        return self.spent_today() + estimate_usd <= self.rules.daily_usd + 1e-9
+        if not reserve and not self.rt.budget.check(estimate_usd).allowed:
+            return False
+        cap = self.rules.daily_usd
+        if reserve:
+            cap = max(cap - self.rules.memory_reserve_usd, 0.0)
+        return self.spent_today() + estimate_usd <= cap + 1e-9
 
     # --- 事件 --------------------------------------------------------------------
 
@@ -103,6 +148,11 @@ class LifeEngine:
         if not members:
             return []
         names = {m.id: m.name for m in members}
+        self.story.reset()
+        relation = RelationPlugin(self.rt, names=lambda: names)
+        weights = self._weights(relation, list(names), end)
+        brain = Brain(self.rt, buffer={})  # 排日程只写内存；tick 里真发生了才落库
+        self._planned = brain
         slot = start.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
         plans: list[Plan] = []
         while slot <= end:
@@ -113,6 +163,10 @@ class LifeEngine:
             acts: dict[str, str] = {}
             for m in members:
                 place, act = schedule(m.id, slot.hour, slot.weekday())
+                # 生活引擎：空闲时段按各自爱好挑去处（不按编号轮换），生病那天在宿舍歇着
+                place, act = self.story.prefer(m.id, slot, place, act)
+                # 大脑分区：空闲时段按驱力和在做的事自己挑去哪、做什么（不是空闲时段照作息表）
+                place, act = brain.choose_activity(m.id, slot, place, act)
                 acts[m.id] = act
                 if act == "sleep":
                     continue
@@ -121,9 +175,9 @@ class LifeEngine:
             for place, ids in sorted(where.items()):
                 act = acts[ids[0]]
                 at = slot + timedelta(minutes=rng.randrange(5, 50))
-                if len(ids) >= 2 and act in GATHER:
+                if len(ids) >= 2 and all(acts[i] == act for i in ids) and act in GATHER:
                     rng.shuffle(ids)
-                    group = ids[:3]
+                    group = self._closest(ids, 3, weights, rng)
                     done = [f"{names[i]} 今天办了{'、'.join(work[i])}" for i in group if i in work]
                     plans.append(
                         Plan(
@@ -142,7 +196,7 @@ class LifeEngine:
                         plans.append(Plan(at, "solo", place, [i], acts[i]))
             awake = [m.id for m in members if acts[m.id] != "sleep"]
             if 18 <= slot.hour < 23 and len(awake) >= 2 and rng.random() < self.rules.pair_chance:
-                a, b = rng.sample(awake, 2)
+                a, b = self._pair(awake, weights, rng)
                 done = [f"{names[i]} 今天办了{'、'.join(work[i])}" for i in (a, b) if i in work]
                 plans.append(
                     Plan(
@@ -159,16 +213,60 @@ class LifeEngine:
             slot += timedelta(hours=1)
         for p in plans:
             p.topic = self.scene(p, names)
+            if weights and p.kind != "solo":
+                bond = relation.scene_line(p.members, end)
+                if bond:
+                    p.topic += f"\n{bond}"
         return plans
+
+    # --- 关系（P4）：谁和谁更常聊 ------------------------------------------------------
+
+    @staticmethod
+    def _weights(
+        relation: RelationPlugin, ids: list[str], at: datetime
+    ) -> dict[tuple[str, str], float]:
+        """两两之间挑人的权重（1 + 偏向 × 亲近度）；谁和谁都没来往过时为空（照旧均匀随机）。"""
+        out = {(a, b): relation.weight(a, b, at) for a in ids for b in ids if a != b}
+        return out if any(w > 1 for w in out.values()) else {}
+
+    @staticmethod
+    def _closest(
+        ids: list[str], k: int, weights: dict[tuple[str, str], float], rng: random.Random
+    ) -> list[str]:
+        """从打乱后的 ids 里挑 k 位：第一位随机，其余按和已选的人的亲近度加权抽（不放回）。"""
+        if len(ids) <= k or not weights:
+            return ids[:k]
+        group, pool = ids[:1], ids[1:]
+        while len(group) < k:
+            w = [sum(weights[(g, c)] for g in group) / len(group) for c in pool]
+            pick = rng.choices(pool, w)[0]
+            group.append(pick)
+            pool.remove(pick)
+        return group
+
+    @staticmethod
+    def _pair(
+        awake: list[str], weights: dict[tuple[str, str], float], rng: random.Random
+    ) -> tuple[str, str]:
+        if not weights:
+            a, b = rng.sample(awake, 2)
+            return a, b
+        a = rng.choice(awake)
+        others = [x for x in awake if x != a]
+        return a, rng.choices(others, [weights[(a, x)] for x in others])[0]
 
     def scene(self, p: Plan, names: dict[str, str]) -> str:
         place = "私聊" if p.kind == "pair" else self.place_name(p.place)
         lines = [
             f"时间：星期{WEEKDAYS[p.at.weekday()]} {p.at.hour} 点 {p.at.minute} 分",
-            f"地点：{place}（{ACTIVITIES.get(p.activity, p.activity)}）",
+            f"地点：{place}（{activity_label(p.activity, p.at.hour)}）",
             f"在场：{'、'.join(names.get(i, i) for i in p.members)}",
-            f"今天的事：{'；'.join(p.work) if p.work else '没有特别的事'}",
+            f"今天的事：{'；'.join(p.work) if p.work else NOTHING}",
         ]
+        if p.kind != "solo":  # 在场的人最近几天的生活（感冒了、刚学会一道菜……）：背景，不是台词
+            recent = self.story.recent(p.members, p.at, names)
+            if recent:
+                lines.append(recent)
         return "\n".join(lines)
 
     @staticmethod
@@ -196,7 +294,13 @@ class LifeEngine:
         if start >= now:
             return out
         offline = now - start > tick * 2
+        # 生活事件库先挑好这几天的事（生病歇着的那天，下面排去处时不出门）
+        everyone = {m.id: m.name for m in self.hub.everyone()}
+        live = {m.id: m.name for m in self.hub.everyone() if m.available}
+        happenings = self.story.advance(start, now, live, everyone)
         plans = self.plan(start, now)
+        if self._planned is not None:
+            self._planned.flush()  # 这段时间里她们自己挑的去处、练的事算数了
         limit = self.rules.max_written_catch_up if offline else self.rules.max_written_per_tick
         if self.guard.check(self.spent_today()):
             limit = 0  # 熔断：当天只记一行
@@ -209,6 +313,9 @@ class LifeEngine:
             written = 0
             if id(p) in chosen and not self.guard.check(self.spent_today()):
                 written = await self.write(p, offline=offline, now=now)
+            if written and len(p.members) >= 2:  # 私下聊天：你的事可能传过去（知情范围）
+                rng = random.Random(f"gossip:{iso(p.at)}:{','.join(p.members)}")
+                AboutYou(self.rt).gossip(list(p.members), rng)
             repo.add_life_event(
                 iso(p.at),
                 p.kind,
@@ -222,18 +329,77 @@ class LifeEngine:
             out["events"] += 1
             out["written"] += int(bool(written))
             out["messages"] += written
+        for h in happenings:  # 只记一行（kind = story）；心情、记忆由 P3 / P2 从这里接
+            repo.add_life_event(
+                iso(h.at), STORY, h.members, place=h.place, topic=h.topic, offline=offline
+            )
+        out["stories"] = len(happenings)
         repo.set_setting(LAST_TICK_KEY, now.isoformat())
         out["memories"] = await self.memory.catch_up(now, offline=offline)
         if self.guard.room_left() > 0:
+            out["memes"] = (await self.memes.refresh(now))["added"]  # 梗雷达：每天一次
             out["shares"] = await self.browse.tick(now)
+            for row in self.browse.posted:  # 分享是甩过去让大家看：一两位看了接着说两句
+                out["messages"] += await self.react(row, now)
         m = await self.moments.tick(now, offline=offline)
         out["moments"] = m["posts"] + m["comments"]
         names = {m.id: m.name for m in self.hub.everyone()}
         out["reports"] = int(self.guard.weekly(self.rt.budget.now(), names) is not None)
         return out
 
-    async def write(self, p: Plan, *, offline: bool, now: datetime) -> int:
-        """把一件事写成几句聊天。返回写出的句数（预算不够或调用失败时停在中途）。"""
+    async def react(self, row: dict[str, Any], now: datetime) -> int:
+        """有人在群里甩了一条链接 / 视频：醒着的一两位点开看了，接着说两句（分享的人也可能接话）。
+        2026-10-31 用户：人分享东西一般不介绍，直接甩过去让别人看，然后大家讨论。"""
+        rules = self.rt.config.roundtable.chat.browse
+        if not (rules.react_members and rules.react_turns):
+            return 0
+        if self.guard.check(self.spent_today()) or self.guard.room_left() == 0:
+            return 0
+        everyone = {m.id: m for m in self.hub.everyone()}
+        sharer = row["author"]
+        if sharer not in everyone:
+            return 0
+        awake = [
+            m.id
+            for m in everyone.values()
+            if m.available
+            and m.id != sharer
+            and schedule(m.id, now.hour, now.weekday())[1] != "sleep"
+        ]
+        rng = random.Random(f"react:{row['id']}")
+        rng.shuffle(awake)
+        group = [sharer, *awake[: rules.react_members]]
+        if len(group) < 2:
+            return 0
+        names = {i: m.name for i, m in everyone.items()}
+        card = (row.get("meta") or {}).get("card") or {}
+        shown = f"{row['text']} {card_text(card)}".strip() if card else row["text"]
+        about = f"（大概是：{card['summary'][:60]}）" if card.get("summary") else ""
+        p = Plan(now, "gather", "group", group, "chat", room=ROOM)
+        p.topic = "\n".join(
+            [
+                f"时间：星期{WEEKDAYS[now.weekday()]} {now.hour} 点 {now.minute} 分",
+                "地点：生活群（大家各自在手机上看）",
+                f"在场：{'、'.join(names[i] for i in group)}",
+                f"刚才：{names[sharer]} 在群里甩了一条{card_text(card) if card else '消息'}"
+                f"{about}，你点开看了",
+            ]
+        )
+        return await self.write(
+            p, offline=False, now=now, turns=rules.react_turns, opener=(sharer, shown)
+        )
+
+    async def write(
+        self,
+        p: Plan,
+        *,
+        offline: bool,
+        now: datetime,
+        turns: int | None = None,
+        opener: tuple[str, str] | None = None,
+    ) -> int:
+        """把一件事写成几句聊天。返回写出的句数（预算不够或调用失败时停在中途）。
+        opener：这段是接着谁的哪句话说的（分享后接话）；turns：最多几句（默认按生活规则）。"""
         rt, rules = self.rt, self.rules
         everyone = {m.id: m for m in self.hub.everyone()}
         speakers = [everyone[i] for i in p.members if i in everyone]
@@ -254,58 +420,176 @@ class LifeEngine:
         params["max_tokens"] = rules.max_tokens
         said = 0
         earlier = self.guard.recent_lines(chat.room)
-        for turn in range(rules.turns):
-            member: ChatMember = speakers[turn % len(speakers)]
+        spoken: list[tuple[str, str]] = [opener] if opener else []  # 谁说了什么（自查比对用）
+        brain = Brain(self.rt, names=names)
+        last_by: str | None = opener[0] if opener else None
+        for turn in range(rules.turns if turns is None else turns):
+            # 补算：按事件发生的时刻，且不晚于现在（整点那件事的分钟数可能落到现在之后）
+            at = min(p.at, now - timedelta(minutes=rules.turns)) + timedelta(minutes=turn)
+            # 现场：几句错开几十秒落在「现在」之前（11-01：同一毫秒的几条在界面上会一起蹦出来）
+            at = at if offline else now - timedelta(seconds=LIVE_GAP_SECONDS * (rules.turns - turn))
+            pick = self.next_speaker(
+                brain,
+                speakers,
+                spoken,
+                last_by,
+                at,
+                f"{p.room}:{turn}",
+                invited=opener is not None and len(spoken) == 1,
+            )
+            if pick is None:
+                break  # 大家都没什么想说的：这段自然收尾
+            member, card = pick
             if not self.allowed(rules.estimate_usd):
                 break
             if self.guard.room_left() == 0:
                 self.guard.note_cap()
                 break
-            others = "、".join(s.name for s in speakers if s.id != member.id)
-            prompt = rt.prompts.render(
-                "life_chat",
-                rt.config.roundtable.prompts["life_chat"],
-                name=member.name,
-                others=others,
-                scene=p.topic,
-                persona=chat_persona(rt, member.id),
-                memory=member_memory(
-                    rt, member.id, f"{p.topic}\n{chat.history(names)}", p.room or ROOM
-                ),
-                history=chat.history(names),
-            )
-            prompt = plain_prompt(rt.prompts, rt.config, prompt)
-            completion = await call_member(
-                rt,
-                room=chat.room,
-                model_id=member.model_id,
-                prompt=prompt,
-                step="life",
-                params=params,
-                estimate_usd=rules.estimate_usd,
-            )
-            if completion is None:
-                break
-            text = clean_reply(completion.text, member.name, rt.config.roundtable.chat.max_chars)
+            cost = 0.0
+            if card is not None and card.quick:  # 万能短回复：只回一句，不调模型
+                text = card.quick
+            else:
+                others = "、".join(s.name for s in speakers if s.id != member.id)
+                prompt = rt.prompts.render(
+                    "life_chat",
+                    rt.config.roundtable.prompts["life_chat"],
+                    name=member.name,
+                    others=others,
+                    scene=p.topic,
+                    persona=chat_persona(rt, member.id),
+                    voice=voice_for(rt, member.id, "life", seed=turn + len(earlier)),
+                    memory=with_group_today(
+                        rt,
+                        member_memory(
+                            rt, member.id, f"{p.topic}\n{chat.history(names)}", p.room or ROOM
+                        ),
+                        p.room or ROOM,
+                        names,
+                    ),
+                    history=chat.history(names),
+                    **self.intent_vars(card),
+                    **self.sticker_vars(member),
+                )
+                prompt = plain_prompt(rt.prompts, rt.config, prompt)
+                completion = await call_member(
+                    rt,
+                    room=chat.room,
+                    model_id=member.model_id,
+                    prompt=prompt,
+                    step="life",
+                    params=params,
+                    estimate_usd=rules.estimate_usd,
+                )
+                if completion is None:
+                    break
+                limit = rt.config.roundtable.chat.max_chars
+                text = clean_reply(completion.text, member.name, limit)
+                text = clean_stickers(text, member_stickers(rt, member.id, member.name)).strip()
+                cost = completion.cost_usd or 0.0
             text = self.guard.clip(text)
             if not text:
                 break
             if self.guard.is_stale(text, earlier):
                 self.guard.note_stale(member.id, text)  # 没有新内容：这句不发，这段收尾
                 break
+            text = await before_voice(
+                rt,
+                text,
+                Said(
+                    own=tuple(t for who, t in spoken if who == member.id),
+                    others=tuple((names.get(w, w), t) for w, t in spoken if w != member.id),
+                    long=recent_words(rt, member.id, now),
+                ),
+                member=member.id,
+                room=chat.room,
+                room_kind="life",
+                named=False,
+                name=member.name,
+                model_id=member.model_id,
+            )
+            if not text:
+                self.guard.note_stale(member.id, "（自查：跟风或重复，不发）")
+                break  # 说出口前自查：跟风、附和接龙、反复提同一件事——这句不发，这段收尾
             text = await before_speaking(
                 rt, text, room=chat.room, name=member.name, model_id=member.model_id
             )
+            # 说话的样子：书面词换口语、删解释和复述、句尾标点、笑法（互聊里不补「*正字」）
+            asked = spoken[-1][1] if spoken else ""
+            text = brain.lingo.finish(
+                member.id, text, asked=asked, rng=random.Random(f"{p.room}:{turn}:{member.id}")
+            )[0]
+            if not text:
+                break  # 收尾后只剩残句：这句不发，这段收尾
+            spoken.append((member.id, text))
             earlier.append(text)
-            when = p.at + timedelta(minutes=turn) if offline else now
+            brain.after(card, at)
+            last_by = member.id
+            when = at
             rt.repo.add_chat_message(
                 chat.room,
                 member.id,
                 text,
                 model_id=member.model_id,
-                cost_usd=completion.cost_usd or 0.0,
+                cost_usd=cost,
                 meta={"life": True, "offline": offline},
                 created_at=iso(when),
             )
             said += 1
         return said
+
+    # --- 大脑分区：谁接话、带上此刻的想法 -------------------------------------------------
+
+    def intent_vars(self, card: Any) -> dict[str, str]:
+        """life_chat v4 起带 <intent>；旧版本提示词没有这个变量就不传。"""
+        version = self.rt.config.roundtable.prompts["life_chat"]
+        if "intent" not in self.rt.prompts.get("life_chat", version).variables:
+            return {}
+        return {"intent": intent_text(card, "（没有特别的念头：照平时的你接话）")}
+
+    def sticker_vars(self, member: ChatMember) -> dict[str, str]:
+        """life_chat v7 起带 <stickers>（她能发的表情包）；旧版本没有这个变量就不传。"""
+        version = self.rt.config.roundtable.prompts["life_chat"]
+        if "stickers" not in self.rt.prompts.get("life_chat", version).variables:
+            return {}
+        acts = self.rt.config.roundtable.chat.actions
+        menu = sticker_menu(self.rt, member.id, member.name) if acts.enabled else ""
+        return {"stickers": menu or "（这里不用表情包）"}
+
+    @staticmethod
+    def next_speaker(
+        brain: Brain,
+        speakers: list[ChatMember],
+        spoken: list[tuple[str, str]],
+        last_by: str | None,
+        at: datetime,
+        seed: str,
+        invited: bool = False,
+    ) -> tuple[ChatMember, Any] | None:
+        """下一句谁说：除了刚说完的人，每位算一张意图卡，不接的跳过，按显著性 + 想说的劲儿
+        挑最想说的；没人想说就返回 None。大脑分区没开时照旧轮流。
+        invited：刚有人甩了链接、大家点开看了——第一个接话的算被招呼到（不会全员沉默）。"""
+        others = [m for m in speakers if m.id != last_by] or speakers
+        if not brain.enabled():
+            return others[len(spoken) % len(others)], None
+        last = spoken[-1][1] if spoken else ""
+        best: tuple[float, ChatMember, Any] | None = None
+        for m in others:
+            card = brain.intent(
+                m.id,
+                last=last,
+                speaker=last_by,
+                named=invited or not spoken or len(speakers) == 2,
+                group=len(speakers) > 2,
+                at=at,
+                seed=seed,
+                present={s.id for s in speakers},
+            )
+            if card is None:
+                return m, None
+            if card.silent:
+                continue
+            drives = brain.snapshot(m.id, at)["drives"]
+            score = card.salience + drives.get("social", 0.3) + drives.get("express", 0.3)
+            if best is None or score > best[0]:
+                best = (score, m, card)
+        return (best[1], best[2]) if best else None

@@ -406,3 +406,91 @@ def test_member_voice_api():
         assert said[-1] == ("V2", "在吗")
         assert c.post("/api/chat/voices/V2", json={"text": "超了"}).status_code == 402
         assert c.post("/api/chat/voices/V2", json={"text": "x" * 2001}).status_code == 422
+
+
+def test_memes_round_trip():
+    """网络梗：经典梗在前、谁懂；加、删（删过的经典梗也不显示）；老梗加不进去；马上更新一次（测试里抓取一律失败）。"""
+    env = Env()
+    with TestClient(create_app(RoundtableService(env.rt))) as c:
+        data = c.get("/api/chat/memes").json()
+        assert data["enabled"] and data["fresh_days"] == 14 and "绝绝子" in data["stale"]
+        assert [m["phrase"] for m in data["memes"]][:2] == ["虾爹", "我chovey"]
+        meme = {
+            "phrase": "康神开播",
+            "meaning": "康神开直播了",
+            "cue": "康神开播了",
+            "reply": "真的假的？！",
+        }
+        data = c.post("/api/chat/memes", json=meme).json()
+        (got,) = [m for m in data["memes"] if m["phrase"] == "康神开播"]
+        assert (
+            got["classic"] and got["reply"] == "真的假的？！" and isinstance(got["known_by"], list)
+        )
+        assert (
+            c.post("/api/chat/memes", json={"phrase": "绝绝子", "classic": False}).status_code
+            == 400
+        )
+        data = c.delete("/api/chat/memes", params={"phrase": "虾爹"}).json()
+        assert "虾爹" not in [m["phrase"] for m in data["memes"]]
+        assert c.delete("/api/chat/memes", params={"phrase": "没有"}).status_code == 400
+        r = c.post("/api/chat/memes/refresh").json()
+        assert r["titles"] == 0 and r["failed"] == 4 and r["status"]["at"]
+
+
+def test_member_handoff_card_starts_office_and_result_comes_back():
+    """聊天里成员交办：点了才开工，做完以她的名义把结果卡片发回原来的会话（docs/CHAT.md G14）。"""
+    from roundtable.core.chat_handoff import pending
+
+    env = Env(confirm_threshold_usd=100.0)
+    with TestClient(create_app(RoundtableService(env.rt))) as c:
+        ask = env.rt.repo.add_chat_message("dm:V1", "user", "帮我模拟一下 10 月炒股")
+        msg = env.rt.repo.add_chat_message(
+            "dm:V1", "V1", "行，我去弄", reply_to=ask["id"], meta={"handoff": pending("模拟炒股")}
+        )
+        assert (
+            c.post(f"/api/chat/handoff/{msg['id']}/dismiss", params={"room": "main"}).status_code
+            == 404
+        )
+        r = c.post(f"/api/chat/handoff/{msg['id']}/start", params={"room": "dm:V1"})
+        assert r.status_code == 202
+        sid = r.json()["session_id"]
+        q = c.get(f"/api/sessions/{sid}").json()
+        assert q["workflow"] == "office" and q["question"].startswith("模拟炒股")
+        assert "帮我模拟一下 10 月炒股" in q["question"]
+        # 再点一次：已经处理过了
+        assert (
+            c.post(f"/api/chat/handoff/{msg['id']}/start", params={"room": "dm:V1"}).status_code
+            == 400
+        )
+        deadline = time.monotonic() + 10
+        card = None
+        while time.monotonic() < deadline and card is None:
+            rows = c.get("/api/chat", params={"room": "dm:V1"}).json()["messages"]
+            card = next((m for m in rows if (m.get("meta") or {}).get("work_card")), None)
+            time.sleep(0.05)
+        assert card is not None and card["author"] == "V1"
+        assert card["meta"]["work_card"]["session_id"] == sid and card["meta"]["work_card"]["ok"]
+        first = env.rt.repo.chat_message(msg["id"])["meta"]["handoff"]
+        assert first["state"] == "done" and first["session_id"] == sid
+
+
+def test_handoff_dismiss_and_files_in_chat():
+    from roundtable.core.chat_handoff import pending
+
+    env = Env()
+    with TestClient(create_app(RoundtableService(env.rt))) as c:
+        msg = env.rt.repo.add_chat_message(
+            "main", "V1", "要我弄吗", meta={"handoff": pending("做表")}
+        )
+        assert c.post(f"/api/chat/handoff/{msg['id']}/dismiss").json() == {"ok": True}
+        assert env.rt.repo.chat_message(msg["id"])["meta"]["handoff"]["state"] == "dismissed"
+        assert c.post(f"/api/chat/handoff/{msg['id']}/start").status_code == 400
+        up = c.post("/api/uploads", params={"name": "账单.txt"}, content="十月花销 300".encode())
+        assert up.status_code == 201
+        fid = up.json()["id"]
+        r = c.post("/api/chat", json={"text": "看看这个", "room": "dm:V1", "files": [fid]})
+        assert r.status_code == 202
+        rows = c.get("/api/chat", params={"room": "dm:V1"}).json()["messages"]
+        mine = next(m for m in rows if m["author"] == "user")
+        assert "[文件 账单.txt]" in mine["text"] and mine["meta"]["files"][0]["id"] == fid
+        assert c.post("/api/chat", json={"text": "x", "files": ["nope"]}).status_code == 400

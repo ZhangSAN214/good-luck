@@ -65,10 +65,11 @@
 
 ## 5.1 产品原则（日常模式与群聊，适用于 `docs/PLAN.md` 的 v3 方案）
 1. 成员**不否认自己是 AI**：AI 身份当普通身份，平时不刻意提、不说「我只是个 AI」；被认真问到时如实承认。人物卡里的身世和日常发生在圆桌世界，不冒充现实世界的真人、不编造现实世界的经历（2026-10-29 用户定）。
-2. **不设计制造依赖的机制**（连续打卡、挽留、情感绑架、制造焦虑）；适时鼓励用户与现实中的朋友、家人联系。
+2. **不设计制造依赖的机制**（连续打卡、情感绑架、制造焦虑）；适时鼓励用户与现实中的朋友、家人联系。成员可以按自己的性格挽留、责怪用户没来（2026-10-30 用户定），但有边界：只留一次，用户坚持要走就放手，用户说要睡觉、上课、工作、陪家人朋友时不留；责怪只针对具体的事、一两句就消气、不翻旧账不升级；不说「你只有我」「没你活不下去」，不拿伤心、生病要挟；有开关可关。
 3. **不一味附和**：有不同意见或发现错误时直说，并给出理由。
 4. **记忆和聊天记录只存本地**（SQLite），不上传、不用于训练；用户可随时查看、修改、删除、一键清空。
 5. 工作模式继续使用中立提示词，**不受任何人设影响**（有测试）；人设只用于群聊。
+6. **感情可以是真的**（2026-10-30 用户定）：成员之间可以慢慢心动；对用户可以有偏爱、依赖、只给用户的特权，也可以发展成恋人。每位按自己的性格和与用户的相处去爱，不千篇一律、不是每位都会动心，也不会一味要求用户和她在一起。仍守第 2 条的边界，不吃用户现实中朋友和家人的醋；被认真问到时仍按第 1 条承认是 AI。
 
 ## 6. 工作流程
 - **每个阶段完成后 git 提交**，提交信息注明阶段（如 `phase 4: allocation`）。
@@ -100,6 +101,9 @@ roundtable models --check-updates   # 人才市场：价格变动、下架、同
 roundtable stats                    # 各模型的历史贡献
 roundtable performance [--reset]    # 办公室模式的员工绩效（--reset 清零）
 roundtable bench --max-usd 2          # 对比实验：个人 / 讨论 / 协同各跑同一批题，比正确率、花费、耗时
+roundtable sim-growth --days 180       # 半年快进：只推进成长，看会不会越长越像、走极端、被你带偏、口癖用光（假模型，约 75 秒）
+roundtable kit-check 页面.html -o 目录  # 工作台质检：三种屏宽 × 浅 / 深色，报错、溢出、对比度等（docs/KIT.md）
+roundtable backup [now|checkpoint 标签|restore 文件名]   # 整库备份：看列表 / 马上备份 / 存档点 / 恢复（docs/BACKUP.md）
 roundtable show <id> --costs        # 每步预估与实际花费、每次调用的 token
 roundtable export <id> [-o 文件]     # 导出完整记录（UTF-8 带 BOM，含花费明细）
 roundtable export <id> --format docx  # 只导出成果：md / docx / pptx / pdf / html（本地转换，不调用模型）
@@ -111,8 +115,12 @@ roundtable mindmap <id> -o 导图.svg  # 保存头脑风暴的导图（.svg / .m
 roundtable evolve [meet|export <id>] # 革新例会：成员读资料卡提建议、投票，导出采纳单（默认关，docs/evolution/）
 roundtable ask --attach 图.png --attach 讲义.pdf '题目'   # 带附件
 roundtable files <id> [-o 目录]      # 保存成员生成的文件（含图片 / 音频 / 视频）
+roundtable stickers OpenAI --all -o 目录   # 成员专属表情包：画还没画的（新画的待审，到「成员设定」里审）
+roundtable stickers OpenAI --prompts 目录   # 导出提示词和参考图拿去别处画；画好后 --import 目录 收回来（待审，不花钱）
+roundtable sticker-packs catalog         # 外部表情包（dsh-meme 格式）：install <id> --for DeepSeek 装到本机给某位成员专用（--common 通用）
 roundtable ask --media image '画一只猫'   # 输出图片（--media speech / video；--media-tier flagship 用高质量档）
 python scripts/setup_sandbox.py     # 一次性安装代码运行沙箱（--check 只检查）
+python scripts/setup_dsh.py         # 在电脑上安装 dsh 工作台（需要 Node 22+ 和 pnpm；--check 只检查，见 docs/DSH.md）
 uvicorn roundtable.api.app:app --reload   # 浏览器打开 http://127.0.0.1:8000
 start_lan.bat                       # Windows：同时对家里局域网开放（平板 / 手机，须设访问口令，见 docs/LAN.md）
 playwright install chromium        # 首次运行前端端到端测试前

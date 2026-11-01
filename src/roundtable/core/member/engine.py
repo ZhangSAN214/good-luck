@@ -14,12 +14,17 @@ from collections.abc import Callable
 from datetime import datetime, timedelta
 from typing import Any
 
+from roundtable.core.member.about import AboutYou
+from roundtable.core.member.brain import Brain
 from roundtable.core.member.bus import Event, EventBus
 from roundtable.core.member.context import Context, Piece, assemble
 from roundtable.core.member.heartbeat import Heartbeat
 from roundtable.core.member.mode import Mode, require_life
 from roundtable.core.member.profile import ProfileStore
+from roundtable.core.member.relation import RelationPlugin
 from roundtable.core.member.scheduler import BudgetScheduler
+from roundtable.core.member.state import StatePlugin
+from roundtable.core.member.story import STORY, story_meta
 from roundtable.core.storage.repository import iso
 
 LAST_KEY = "engine.last_tick"
@@ -27,13 +32,26 @@ PRUNED_KEY = "engine.pruned_day"
 
 
 class MemberEngine:
-    def __init__(self, rt: Any, members: Callable[[], list[str]]) -> None:
+    def __init__(
+        self,
+        rt: Any,
+        members: Callable[[], list[str]],
+        names: Callable[[], dict[str, str]] | None = None,
+    ) -> None:
         self.rt = rt
         self.members = members  # 现在有哪些成员（id）
         self.profiles = ProfileStore(rt)
         self.bus = EventBus(rt)
         self.scheduler = BudgetScheduler(rt)
         self.heartbeat = Heartbeat(rt, self.bus, self.scheduler)
+        # P3 状态：订阅总线，按事件算心情和精力（names：成员 id → 称呼，认 @ 用）
+        self.state = StatePlugin(rt, self.bus, names or (lambda: {m: m for m in self.members()}))
+        # P4 关系：订阅总线，按共同经历累积和你的阶段、同事之间的亲近度
+        self.relation = RelationPlugin(rt, self.bus, names)
+        # P8 关于你：8 位共用的用户画像（线索由夜间整理交来，每周在这里整合一次）
+        self.about = AboutYou(rt)
+        # 大脑分区：订阅总线结算驱力（说了话、和人待在一起）；意图卡由聊天和生活说话前现算
+        self.brain = Brain(rt, self.bus, members=members, names=names)
 
     @property
     def rules(self) -> Any:
@@ -50,6 +68,8 @@ class MemberEngine:
         repo, n = self.rt.repo, 0
         for e in repo.life_events_between(iso(start), iso(end)):
             data = {k: e[k] for k in ("kind", "place", "members", "room", "written")}
+            if e["kind"] == STORY:  # 生活事件库的事：带上这一步的标签，P3 按反射表接
+                data |= story_meta(self.rt, e["topic"] or "")
             for member in e["members"]:
                 self.bus.publish(Event("life.event", datetime.fromisoformat(e["at"]), member, data))
                 n += 1
@@ -80,6 +100,22 @@ class MemberEngine:
             n += 1
         return n
 
+    def observe(self, now: datetime) -> int:
+        """只把上次以来的事件发到总线（不心跳、不花钱）。用户发了消息、成员回应前调一次，
+        这样被 @、被批评的反射马上算进状态。返回发了几个事件。"""
+        if not self.rules.enabled:
+            return 0
+        repo = self.rt.repo
+        end = now + timedelta(milliseconds=1)  # 含 now 这一刻的消息
+        last = repo.setting(LAST_KEY)
+        start = datetime.fromisoformat(last) if last else now - timedelta(hours=1)
+        start = max(start, end - timedelta(days=self.rules.bus.catch_up_days))
+        if start >= end:
+            return 0
+        n = self.bridge(start, end)
+        repo.set_setting(LAST_KEY, end.isoformat())
+        return n
+
     async def tick(self, now: datetime) -> dict[str, int]:
         """推进到 now（带时区）。返回 事件 / 醒着 / 意图 / 做了 / 降级 / 清掉 的数量。"""
         out = {"events": 0, "awake": 0, "intents": 0, "done": 0, "noted": 0, "pruned": 0}
@@ -92,9 +128,18 @@ class MemberEngine:
         if start < now:
             out["events"] = self.bridge(start, now)
         repo.set_setting(LAST_KEY, now.isoformat())
+        for member in self.members():  # 大脑分区：盼头到期见分晓，攒下的奖赏信号发给 P3
+            out["signals"] = out.get("signals", 0) + self.brain.flush_signals(member, self.bus, now)
+        out["missed"] = self.brain.heart.tick(now)  # 爱：同事私聊里找对方说话没人接，记一点委屈
         out |= await self.heartbeat.beat(self.members(), now)
         today = now.date().isoformat()
         if repo.setting(PRUNED_KEY) != today:
             out["pruned"] = self.bus.prune(now)
+            bus = self.rules.bus
+            if bus.prompt_keep_days is not None:  # 旧调用的整段提示词只留开头（库不再越滚越大）
+                before = iso(now - timedelta(days=bus.prompt_keep_days))
+                out["trimmed"] = repo.trim_chat_prompts(before, bus.prompt_keep_chars)
             repo.set_setting(PRUNED_KEY, today)
+        if self.about.weekly(now) is not None:
+            out["about_week"] = 1
         return out

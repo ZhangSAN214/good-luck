@@ -151,6 +151,16 @@ class Env:
                     ],
                     "hanging": {"add": ["周末爬山要带水"], "done": [1]},
                     "retell": [{"id": 1, "tone": "想起来还是挺开心的", "importance": 3}],
+                    "about": [  # P8：关于用户的线索（原话对得上才记）
+                        {
+                            "text": "用户周末喜欢爬山",
+                            "domain": "兴趣爱好",
+                            "quote": "周末只想去爬山",
+                            "said": True,
+                        },
+                        {"text": "用户最近在吃药", "domain": "其他", "quote": "在吃药"},
+                        {"text": "用户爱吃辣", "domain": "口味", "quote": "我无辣不欢"},
+                    ],
                 },
                 ensure_ascii=False,
             )

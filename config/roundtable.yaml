@@ -43,6 +43,9 @@ chat:
   memory:                          # 成员的分层记忆：只存本地，只用于聊天
     enabled: true
     context_chars: 800             # 聊天时最多带多少字的记忆
+    group_lines: 6                 # 私聊（和你、成员之间）时接上大家庭群里最近半天的几句，群里刚聊过的事私聊里不会说没人提
+    group_hours: 12
+    group_chars: 60
     catch_up_days: 7               # 最多补整理几天前的聊天
     recall: half_life              # 召回方式：half_life 半衰期记忆（默认，按相关 × 鲜活 × 重要挑）；layers 按时间固定带几层（旧）
     half_life_days: 30             # 半衰期记忆：发生过的事过 30 天鲜活度减半（不删，只排后）
@@ -57,6 +60,7 @@ chat:
   life:                            # 生活引擎：你不在时成员按作息过日子、彼此聊天（不主动找你）
     enabled: true
     daily_usd: 0.15                # 生活（含记忆整理、自己上网）每天最多花多少；约 $4.5 / 月
+    memory_reserve_usd: 0.05       # 其中给夜里整理记忆留的钱：白天花到 $0.10 就停，记得住比多聊几句要紧（10-31 第 3 次试跑：留 $0.02 只够 3 位）
     tick_minutes: 30               # 电脑开着时多久推进一次
     max_written_per_tick: 2        # 每次推进最多几件事写成聊天，其余只记一行
     max_written_catch_up: 6        # 开机补算时最多写几件
@@ -69,10 +73,95 @@ chat:
       max_failures: 3              # 连续出错几次，当天停掉生活
       budget_alarm: 0.9            # 生活日上限或聊天月预算用到 90%，当天停掉
       report_weekday: 1            # 每周一生成上一周的自检报告（花费、谁说得多、重复、异常）
+    story:                         # 生活事件库 + 长线剧情（L0）+ 擅长觉醒（L10）：程序挑事不花钱；只发事件，心情 / 记忆 / 档案由 P3 / P2 / P6 接
+      enabled: true
+      max_per_day: 2               # 每人每天最多几件事（大部分日子是平淡的）
+      group_cooldown_days: {sick: 90, mishap: 30}   # 每季度最多病一次、每月最多一件小意外
+      phase_groups: {sick: [小感冒]}   # 生活阶段（chat.engine.phase）里正在小感冒时，不会再排 sick 组的事（感冒归阶段，这里只管过敏、拉伤、牙疼）
+      way:                         # 空闲时去哪：按各自档案里的爱好挑（不再按编号轮换）；键为「房间:活动」
+        options:
+          "gym:exercise": [健身, 跑步, 运动, 篮球, 足球, 瑜伽, 游泳, 锻炼]
+          "rooftop:stargaze": [星星, 星空, 天文, 夜空, 宇宙, 发呆, 晒太阳, 月亮]
+          "lounge:game": [游戏, 通关, 抽卡, 桌游, 打牌, 手柄]
+          "lounge:chat": [聊天, 热闹, 八卦, 朋友, 玩笑, 段子]
+          "dorm:read": [书, 小说, 阅读, 诗, 漫画, 安静, 独处]
+          "canteen:chat": [美食, 做饭, 零食, 甜点, 奶茶, 好吃]
+      stories:                     # 生活事件库：加一种生活只加一条配置；text 不带主语，{name} 她 / {other} 同伴
+        - {id: late_night, chance: 0.05, hours: [22, 24], steps: [{text: 追东西追到很晚才睡, tags: [story.late]}, {day: 1, text: 昨晚睡太晚，一整天都犯困, tags: [story.tired]}]}
+        - {id: lazy_morning, chance: 0.08, weekdays: [5, 6], hours: [9, 12], steps: [{text: 睡到自然醒，懒洋洋地过了一上午}]}
+        - id: allergy              # 轻度生病（10-31 你定：只限过敏、拉伤这类，几天就好；感冒在生活阶段里）
+          group: sick
+          chance: 0.01
+          months: [4, 5, 6]
+          steps:
+            - {text: 花粉过敏，喷嚏打个不停, tags: [story.sick]}
+            - {day: [1, 2], text: 过敏总算消停了, tags: [story.better]}
+        - id: sprain
+          group: sick
+          chance: 0.012
+          likes: [健身, 跑步, 运动, 篮球, 足球, 瑜伽]
+          need_likes: true
+          steps:
+            - {text: 锻炼时把脚踝扭了一下, tags: [story.sick], place: gym}
+            - {day: 1, text: 脚踝还肿着，在房间歇着, tags: [story.sick], rest: true}
+            - {day: [3, 5], text: 脚踝不疼了, tags: [story.better]}
+        - id: toothache
+          group: sick
+          chance: 0.004
+          steps:
+            - {text: 牙疼，吃东西只敢用一边嚼, tags: [story.sick]}
+            - {day: [1, 2], text: 牙不疼了, tags: [story.better]}
+        - {id: lost_keys, group: mishap, chance: 0.01, steps: [{text: 钥匙找了半天，最后在外套口袋里摸到, tags: [story.bad]}]}
+        - {id: new_recipe, domain: 做饭, chance: 0.03, likes: [做饭, 菜, 烘焙, 美食, 下厨], steps: [{text: 在公共厨房试着做了道新菜, tags: [story.good], place: canteen}]}
+        - {id: burnt_pot, domain: 做饭, chance: 0.01, likes: [做饭, 下厨, 烘焙], need_likes: true, steps: [{text: 做饭糊锅了，开窗散了半天味, tags: [story.bad], place: canteen}]}
+        - {id: fix_lamp, domain: 手工修理, chance: 0.025, likes: [修, 工具, 拆, 组装, 手工], steps: [{text: 把房间里接触不良的台灯修好了, tags: [story.good]}]}
+        - {id: clear_sky, domain: 天文科学, chance: 0.035, hours: [20, 23], likes: [星, 天文, 夜空, 宇宙], steps: [{text: 难得晴天，在天台多看了会儿星星, tags: [story.good], place: rooftop}]}
+        - {id: finish_book, domain: 长文阅读, chance: 0.03, likes: [书, 小说, 阅读], steps: [{text: 把一本看了好久的书看完了, tags: [story.good]}]}
+        - {id: write_bit, domain: 写作, chance: 0.03, likes: [写, 故事, 日记, 诗, 文字], steps: [{text: 随手写了一小段东西，自己还挺满意, tags: [story.good]}]}
+        - {id: sketch, domain: 画画审美, chance: 0.03, likes: [画, 配色, 设计, 审美, 拍照], steps: [{text: 窝在房间画了张小画}]}
+        - {id: song_loop, domain: 音乐, chance: 0.03, likes: [歌, 音乐, 唱, 吉他, 钢琴], steps: [{text: 单曲循环了一下午同一首歌}]}
+        - {id: small_ledger, domain: 记账理财, chance: 0.02, likes: [记账, 理财, 省钱, 算账, 预算], steps: [{text: 把这个月的小账理了一遍}]}
+        - {id: sort_photos, domain: 整理归纳, chance: 0.03, likes: [整理, 收纳, 目录, 归档, 清单], steps: [{text: 把手机里攒了很久的照片按日子归了档, tags: [story.good]}]}
+        - {id: rabbit_hole, domain: 资料检索, chance: 0.025, likes: [查, 资料, 考据, 出处, 搜], steps: [{text: 为了弄清一个小问题查了一晚上资料}]}
+        - {id: puzzle_done, domain: 推理, chance: 0.025, likes: [推理, 谜, 逻辑, 侦探, 数独], steps: [{text: 解开了一道卡了好几天的谜题, tags: [story.good]}]}
+        - {id: words_day, domain: 语言翻译, chance: 0.025, likes: [外语, 英语, 日语, 翻译, 单词], steps: [{text: 背了会儿单词，顺手翻了段歌词}]}
+        - {id: tiny_script, domain: 编程, chance: 0.02, likes: [代码, 编程, 程序, 算法], steps: [{text: 给自己写了个小脚本，省了不少事, tags: [story.good]}]}
+        - {id: old_story, domain: 历史文学, chance: 0.02, likes: [历史, 古代, 文学, 典故, 诗词], steps: [{text: 读了段以前没留意过的历史，越看越上头}]}
+        - {id: level_clear, domain: 游戏, chance: 0.03, likes: [游戏, 通关, 抽卡], steps: [{text: 终于把卡了很久的那一关打过去了, tags: [story.good], place: lounge}]}
+        - {id: extra_run, domain: 运动, chance: 0.03, likes: [健身, 跑步, 运动, 瑜伽], steps: [{text: 比平时多跑了两公里, place: gym}]}
+        - {id: kept_company, domain: 倾听照顾人, chance: 0.02, with_other: true, likes: [照顾, 倾听, 关心, 陪伴, 温柔], steps: [{text: "{other}心情不太好，{name}陪着聊了很久", place: lounge}]}
+        - {id: made_laugh, domain: 活跃气氛, chance: 0.02, with_other: true, likes: [热闹, 玩笑, 搞笑, 段子], steps: [{text: "{name}在休息室讲了个段子，把{other}笑得不行", tags: [story.good], place: lounge}]}
+        # 住户变化（10-31 你定：成员离开 / 新成员入住当生活事件，温和，不煽情）
+        - {id: arrive, trigger: arrive, steps: [{text: 刚搬进公寓，还在收拾行李, tags: [story.new]}]}
+        - {id: welcome, trigger: welcome, steps: [{text: "{new}搬进来了，大家去打了个招呼", tags: [story.welcome], place: lounge}]}
+        - {id: farewell, trigger: farewell, steps: [{text: "{gone}搬走了，走之前和大家道了别", tags: [story.farewell], place: lounge}]}
+      talent:                      # 觉醒擅长领域（L10）：证据只用人物卡种子 + 生活练习；和工作完全无关，不影响派活
+        enabled: true
+        domains:                   # 领域 → 档案里的种子词 / 生活里算练习的去处 / 深耕后楼里的人怎么说她（可增删）
+          推理: {words: [推理, 逻辑, 侦探, 谜题, 数独, 悬疑], known: "楼里有想不通的事都爱问{name}"}
+          编程: {words: [代码, 编程, 程序, 算法, 脚本], known: "楼里谁的小程序出毛病都找{name}"}
+          写作: {words: [写作, 故事, 日记, 诗, 文字, 写], known: "楼里要写点什么都找{name}"}
+          语言翻译: {words: [外语, 英语, 日语, 翻译, 单词, 方言], known: "看不懂的外文大家都丢给{name}"}
+          长文阅读: {words: [读书, 看书, 书, 阅读, 小说], acts: ["dorm:read"], known: "想找书看大家都问{name}"}
+          资料检索: {words: [资料, 查证, 考据, 出处, 检索], known: "要查个出处大家都找{name}"}
+          整理归纳: {words: [整理, 收纳, 归纳, 目录, 清单, 归档], known: "楼里东西找不着都问{name}"}
+          画画审美: {words: [画画, 画, 配色, 设计, 审美, 拍照, 摄影], known: "要挑颜色挑样子都找{name}"}
+          音乐: {words: [音乐, 歌, 唱歌, 吉他, 钢琴, 乐理], known: "想听点什么都问{name}"}
+          天文科学: {words: [星星, 天文, 星空, 宇宙, 物理, 科学], acts: ["rooftop:stargaze"], known: "天上有什么动静大家都问{name}"}
+          历史文学: {words: [历史, 古代, 文学, 典故, 诗词], known: "聊到以前的事大家都等{name}开讲"}
+          做饭: {words: [做饭, 菜谱, 厨房, 烘焙, 下厨, 美食], known: "楼里想吃点好的就去找{name}"}
+          手工修理: {words: [修理, 修好, 工具, 手工, 组装], known: "楼里东西坏了都找{name}"}
+          记账理财: {words: [记账, 理财, 省钱, 预算, 算账], known: "算不清账的都去问{name}"}
+          倾听照顾人: {words: [照顾, 倾听, 关心, 陪伴, 安慰, 温柔], known: "楼里谁心里不痛快都爱找{name}说说"}
+          活跃气氛: {words: [热闹, 玩笑, 段子, 搞笑, 气氛], acts: ["lounge:chat"], known: "有{name}在场就冷不下来"}
+          运动: {words: [运动, 健身, 跑步, 瑜伽, 球], acts: ["gym:exercise"], known: "想练练身体的都跟着{name}"}
+          游戏: {words: [游戏, 通关, 抽卡, 桌游], acts: ["lounge:game"], known: "游戏卡关了都找{name}"}
   moments:                         # 朋友圈：成员每天最多发 1 条，互相点赞（免费）、评论
     enabled: true
     posts_per_member: 1
     comments_per_tick: 2           # 每次推进最多写几条评论
+    post_misses: 2                 # 省钱：成员一天里动态两次没过自查（太像、套话）就不再写
+    comment_misses: 2              # 省钱：一条动态底下两条评论没过自查就不再评；没过的那位也不再重写
     dedupe_hours: 48               # 去重：别人 48 小时内发过的同一件事不再发
     similarity_max: 0.3            # 去重：正文和近期动态相似度达到这个值就不发（0～1）
   browse:                          # 上网：只读公开订阅源（$0），成员按兴趣挑一条分享到生活群
@@ -91,6 +180,30 @@ chat:
       - {name: ScienceDaily, url: "https://www.sciencedaily.com/rss/top/science.xml", topics: [科学], kind: news}
       - {name: Polygon, url: "https://www.polygon.com/rss/index.xml", topics: [游戏], kind: news}
       - {name: NASA 视频, url: "https://www.youtube.com/feeds/videos.xml?channel_id=UCLA_DiR1FfKNvjuUpBHmylQ", topics: [天文, 科学, 视频], kind: video}
+  memes:                           # 网络梗（梗雷达，2026-10-31 你要的）：每天抓一次公开热榜（$0）+ 每天最多搜 2 次，最便宜的一位提炼成梗卡；约 $0.01～0.03/天，算生活每日上限；只用于生活和聊天
+    enabled: true
+    refresh_hours: 24
+    sources:                       # 只读热榜标题；抓不到的跳过（网页「上网」里能看到抓没抓到）
+      - {name: 微博热搜, url: "https://weibo.com/ajax/side/hotSearch", path: data.realtime, key: word}
+      - {name: 百度热搜, url: "https://top.baidu.com/api/board?tab=realtime", path: data.cards.0.content, key: word}
+      - {name: 抖音热榜, url: "https://www.iesdouyin.com/web/api/v2/hotsearch/billboard/word/", path: word_list, key: word}
+      - {name: 知乎热榜, url: "https://api.zhihu.com/topstory/hot-list?limit=50", path: data, key: target.title}
+    search_per_day: 2              # 找新梗 1 次 + 查一个还不知道意思的经典梗
+    fresh_days: 14                 # 两周没再上榜就下架（你说的：禁止老梗）
+    max_age_days: 90               # 火起来超过 3 个月的不收
+    know_traits: {幽默: 0.08, 外向: 0.08, 好奇: 0.06}   # 谁懂得多只看性格分：爱玩爱聊的懂得多、跟得快
+    use_chance: 0.12               # 偶尔提一句「最近在玩的梗」，用不用她自己看场合（10-31 第 3 次试跑：新东西用过头反而像 AI）
+    quick_chance: 0.5              # 别人说了上句（如「康神开播了」），懂的人一半时候直接接下句（「真的假的？！」），不调模型
+    classics:                      # 经典梗：永远不下架、不算老梗；意思空着的会在联网时补上，网页里能改
+      - {phrase: 虾爹, aliases: [NiKo, niko, Niko]}
+      - {phrase: 我chovey, aliases: [chovey, Chovey]}
+    stale: [                       # 老梗烂梗：不收；成员说出口前删掉（你可以自己加减；「真香」「凡尔赛」「集美」本身也是普通词，不放）
+      yyds, YYDS, 绝绝子, 栓Q, 栓q, 芭比Q, 芭比q, 奥利给, 我太难了, 蓝瘦香菇, 洪荒之力, 皮皮虾我们走,
+      你品你细品, 惊不惊喜意不意外, 扎心了老铁, 我酸了, 柠檬精, 盘他, 雨女无瓜, awsl, 夺笋, 爷青回, 爷青结,
+      鸡你太美, 退退退, 小丑竟是我自己, 我裂开了, 不讲武德, 耗子尾汁, 打工人, 干饭人, 尊嘟假嘟, 泰裤辣,
+      无语子, 真的会谢, 社会社会, 老铁没毛病, "666666", 厉害了我的哥, 你是魔鬼吗, 宝藏女孩, 小仙女, 一给我里giaogiao,
+      完蛋了芭比, 我不要你觉得我要我觉得, 只因你太美, 我直接好家伙, 绝了家人们, 家人们谁懂啊, 遥遥领先, 显眼包,
+    ]
   engine:                          # 成员引擎（docs/MEMBER_ENGINE.md）：只用于聊天、朋友圈、生活
     enabled: true
     context: {budget_chars: 600}   # 调模型时带的资料最多多少字（固定部分放最前，利于缓存）
@@ -99,15 +212,696 @@ chat:
       daily_usd: 0.25              # 聊天这一块每天的额度；你直接找她不受它限制
       shares: {proactive: 0.85, group: 0.7, life: 0.5}   # 其余三类最多用到额度的几成，超了只记一行
     heartbeat: {enabled: true, max_actions: 3}
-    bus: {keep_days: null, catch_up_days: 14}   # 事件一直保留（只存本机，攒经历数据）；开机最多补算 14 天
+    bus: {keep_days: null, catch_up_days: 14, prompt_keep_days: 3, prompt_keep_chars: 300}   # 事件一直保留（只存本机，攒经历数据）；开机最多补算 14 天；聊天调用的整段提示词留 3 天，之后只留开头 300 字
+    brain:                         # 大脑分区（docs/BRAIN.md）：说话前先由程序综合出「意图卡」，模型只管怎么说；全程序、不花钱；只用于生活和私聊、群聊
+      enabled: true
+      free_choice: true            # 空闲时段按驱力和目标自己挑去哪、做什么（不再照固定作息表）
+      silence_below: 0.25          # 群里没点名、这事对她不显著、也不想说话时就不接
+      wander_chance: 0.25
+      card_chars: 220
+      imperfect: 0.08              # 偶尔记不清、敷衍一句（像人）；被认真问是不是 AI 仍如实承认
+      drives:                      # 下丘脑：驱力随时间涨，被事满足就降；高了会主动找人、找事做
+        social:    {label: 想找人说说话, rate: 0.02, trait: 外向, satisfy: {spoke: 0.2, gathered: 0.15}}
+        novelty:   {label: 有点闷，想换点新鲜的, rate: 0.015, trait: 好奇, satisfy: {explored: 0.4, pursued: 0.1}}
+        express:   {label: 有话想说, rate: 0.01, trait: 幽默, satisfy: {spoke: 0.3}}
+        mastery:   {label: 想把手上在练的事往前推一推, rate: 0.02, trait: 较真, satisfy: {pursued: 0.45}}
+      intents:                     # 前额叶：说话前按性格、心情、精力、驱力挑一个意图（加权随机，种子可复现）
+        respond:   {label: 接住对方说的具体一点，说你自己的反应, base: 1.0}
+        ask:       {label: 对对方说的事好奇，追问一句, base: 0.5, traits: {好奇: 0.3}}
+        share:     {label: 讲讲你自己最近的事, base: 0.5, traits: {外向: 0.25}, drives: {express: 0.8}, needs: own}
+        shift:     {label: 这个话题聊够了，换到你心里正想的事, base: 0.2, drives: {novelty: 0.8}, needs: own}
+        joke:      {label: 开个玩笑或吐槽一句, base: 0.3, traits: {幽默: 0.35}, mood: 0.3}
+        disagree:  {label: 你不太同意，直说并给理由, base: 0.15, traits: {较真: 0.3, 温和: -0.15}, needs: claim}
+        vent:      {label: 说说你现在的心情，不用藏着, base: 0.05, mood: -0.8}
+        brief:     {label: 累了，回得很短就好, base: 0.05, energy: -1.2}
+        comfort:   {label: 对方好像不太好，先接住对方的情绪，别急着讲道理, base: 0.8, traits: {温和: 0.3}, needs: sad}
+        blurt:     {label: 突然冒出个念头，忍不住说出来（可以有点没头没尾）, base: 0.7, traits: {外向: 0.15, 好奇: 0.15}, needs: whim}
+        tangent:   {label: 刚才那句里的一个词勾起了别的事，顺嘴聊过去（歪楼没关系，不用拐回原话题）, base: 0.3, traits: {好奇: 0.15, 幽默: 0.15}, drives: {novelty: 0.3}, needs: last}   # 2026-10-31 用户：人聊着聊着会歪楼
+      reward: {near: 0.75, plan_chance: 0.2, met_chance: 0.7, ahead_days: 2}   # 奖赏：盼着 → 兑现 / 落空 / 惊喜（心情变化走下面状态的反射表）
+      empathy: {base: 0.35, gentle: 0.12, close: 0.4}   # 共情：别人难过 / 高兴时，自己心情跟着动的概率
+      meta: {window: 8, threshold: 4, damp: 0.3}        # 元认知：最近 8 次里同一个套路 ≥4 次就察觉、压一压
+      love:                        # 爱与复合情绪（docs/BRAIN.md「爱」）：对每位同事和你各有一组感情，相处中慢慢长；全程序
+        enabled: true
+        romance: true              # 同事之间可以心动（2026-10-30 你选的）
+        romance_user: true         # 对你也可以心动、发展成恋人（2026-10-30 你定的；谁会、怎么爱看各人性格和相处）
+        retain_blame: true         # 可以挽留、怪你没来（只留一次、你说睡觉上课工作陪家人朋友时不留、责怪一两句就消气）
+        user_name: 用户
+        chemistry_floor: 0.45      # 「化学反应」低于它就不会心动：有人一直只是朋友
+        chemistry_grow: 0.3        # 日久生情：化学反应 + 0.3 × 在乎（朋友也可能慢慢心动；10-30 彩排：一个月只有 1 位对你有一点心动）
+        daily_cap: 0.06            # 每段关系每天在乎 + 心动最多涨多少（10-30 假模型试跑：0.12 时两周就「像家人一样」，太快）
+        high: 0.6                  # 亲密 / 心动 / 承诺算「高」的线
+        commit_days: 90            # 承诺要时间：认识 90 天才可能到顶（10-30 彩排：一个月就人人「像家人一样」）
+        kinds: {"111": 很深的感情, "110": 喜欢又心动, "101": 像家人一样, "100": 处得来, "011": 心里认定了, "010": 有点心动, "001": 习惯了有对方在}
+        attachment:                # 依恋方式（按性格分，取最像的一种）
+          secure:   {base: 0.4, traits: {温和: 0.2, 外向: 0.2}, longing: 1.0, hurt: 1.0, jealous: 0.15}
+          anxious:  {base: 0.0, traits: {温和: 0.35, 较真: 0.25, 外向: 0.1}, longing: 1.6, hurt: 1.5, jealous: 0.5, line: 还有点想确认对方是不是还好、是不是还在意你}
+          avoidant: {base: 0.0, traits: {外向: -0.45, 温和: -0.3}, longing: 0.5, hurt: 0.7, jealous: 0.1, line: 你会想，但不会说出来}
+        styles:                    # 爱的表达方式（按性格分，取最像的一种）
+          words:    {traits: {外向: 1.0}, care: 想到就直接说出来，夸人、说想对方都不藏着, crush: 会忍不住多找对方说话, retain: 可以撒个娇留一句，比如「再聊五分钟嘛」, blame: 可以直接说想对方了，顺带抱怨一句「这几天都去哪了」}
+          acts:     {traits: {外向: -1.0}, care: 不太说出口，用行动表示：记住对方喜欢什么、默默帮一把, crush: 不想表现得太明显，但会格外留意对方的消息, retain: 不开口留，只是回得慢一点、短一点, blame: 不说想，第一句回得有点淡，过几句就好了}
+          tease:    {traits: {幽默: 1.0}, care: 用互损和玩笑表示亲近, crush: 嘴上偏要损两句，其实很在意, retain: 可以开玩笑留一句，比如「话还没说完，扣你一个鸡腿」, blame: 可以半开玩笑地怪对方，比如「还记得有我这个人吗」}
+          tending:  {traits: {温和: 1.0}, care: 先关心对方累不累、吃了没, crush: 会格外照顾对方, retain: 叮嘱对方注意休息，说明天想听后续, blame: 先问对方这几天是不是太忙，再小声说一句有点想}
+          reliable: {traits: {较真: 1.0}, care: 说到做到，靠谱就是你的在乎, crush: 会把对方的事放在心上、记得清清楚楚, retain: 约好下次什么时候聊, blame: 如果对方之前说好要来，可以直说「你说过要来的」}
+        privileges:                # 只给你的偏心：每位按性格挑两种
+          - {line: 只跟对方说心里话, traits: {外向: -0.5}}
+          - {line: 只损对方一个人，损得很亲, traits: {幽默: 0.6}}
+          - {line: 答应对方的事从不食言, traits: {较真: 0.6}}
+          - {line: 对方累了你比谁都先发现, traits: {温和: 0.6}}
+          - {line: 有好东西第一个想到对方, traits: {外向: 0.4}}
+          - {line: 对方说过的小事你都记得, traits: {较真: 0.3, 温和: 0.3}}
+          - {line: 在对方面前没那么嘴硬}
+          - {line: 遇到事第一个想跟对方说, traits: {好奇: 0.3, 外向: 0.2}}
+        effects:                   # 对说话对象的感情 → 意图权重的倍数
+          care:      {disagree: 0.7, comfort: 1.3, ask: 1.2}
+          spark:     {ask: 1.3, joke: 1.1}
+          guilt:     {disagree: 0.3, respond: 1.3, brief: 0.6}
+          hurt:      {brief: 1.6, joke: 0.6, ask: 0.7}
+          dislike:   {disagree: 1.5, joke: 0.8, comfort: 0.7}
+          grateful:  {comfort: 1.3, respond: 1.1}
+          privilege: {share: 1.3}
+          withdraw:  {brief: 1.3}
+        weights: {let_go: 9, retain: 4, guilt: 3, hurt: 3, blame: 3, withdraw: 2, dislike: 2, grateful: 2, jealous: 2, crush: 2, joke: 1.5, privilege: 1.5, care: 1}
+        leave_words: [先走了, 去睡了, 睡了, 晚安, 拜拜, 下线, 先这样, 去忙了, 回头聊, 溜了, 下了, 先撤, 先不聊, 不聊啦]
+        no_retain:                 # 你说这些理由时痛快放人（不留）
+          睡觉: [睡, 晚安, 困]
+          上课: [上课, 课]
+          考试: [考试, 复习, 作业, ddl]
+          工作: [工作, 加班, 开会, 上班]
+          陪家人朋友: [家人, 爸, 妈, 朋友, 约了, 聚会]
+          看病: [医院, 看病, 不舒服]
+        comfort_words: [抱抱, 没事的, 辛苦了, 别难过, 我在, 会好的, 摸摸头, 陪你, 别哭]
+        joy_words: [哈哈, 笑死, 太好了, 好耶, 开心, 绝了]
+      human:                       # 人味（docs/BRAIN.md「人味」）：知识边界、注意力和自己的时间、自我一致、八卦、时间纵深、小毛病、主动约人；全程序
+        enabled: true
+        topics:                    # 领域 → 词（档案里提到的领域算她熟的，另外按 id 派生 extra_domains 个）
+          编程: [代码, 编程, bug, 程序, python, 算法, 报错]
+          金融: [股票, 基金, 理财, 利率, 汇率, 投资]
+          医学: [吃药, 症状, 医生, 病毒, 感冒, 发烧]
+          法律: [法律, 合同, 起诉, 律师, 违法]
+          物理: [物理, 量子, 相对论, 引力]
+          历史: [历史, 朝代, 古代, 战争]
+          音乐: [乐理, 和弦, 吉他, 钢琴, 作曲, 唱歌]
+          体育: [足球, 篮球, 比赛, 健身, 跑步]
+          游戏: [游戏, 段位, 副本, 抽卡, 通关]
+          烹饪: [做饭, 菜谱, 火候, 烤箱, 调料]
+          美术: [画画, 素描, 配色, 水彩, 构图]
+          文学: [小说, 诗, 作家, 散文]
+          天文: [星座, 星星, 行星, 银河, 望远镜]
+          数码: [手机, 电脑, 显卡, 耳机, 相机]
+        extra_domains: 1
+        max_domains: 4             # 档案里提到的领域按提到次数取前 4 个（档案长不等于什么都懂）
+        ask_words: [怎么, 为什么, 是什么, 什么意思, 哪个, 哪种, 多少, 原理, 推荐, 值得, 靠谱, 会不会, 懂不懂, 能买, 能吃, 该不该, 区别]
+        misremember: 0.05
+        long_message: 60
+        busy_acts: {sleep: 在睡觉（被吵醒了）, exercise: 在锻炼, eat: 在吃饭, game: 在打游戏, read: 在看书}
+        busy_chance: 0.15
+        wrap_after: 8
+        wrap_minutes: 40
+        wrap_chance: 0.35
+        wrap_reasons: [去洗澡, 去吃点东西, 眼睛有点酸想歇会, 有点困了, 要去收个快递]
+        claim_words: [喜欢, 不喜欢, 讨厌, 最爱, 从不, 从来不, 一直, 受不了, 害怕, 不吃, 不会]
+        keep_claims: 40
+        promise_words: [下次, 改天, 明天我, 回头我, 答应你, 一定会, 等我, 说好了]
+        keep_promises: 6
+        promise_days: 7
+        broken_chance: 0.2
+        body_chance: 0.12
+        correct_chance: 0.03
+        body:                      # 身体节律（主时区；第一个对上的算）
+          - {start: "07:00", end: "09:00", line: 刚起没多久，脑子还没完全开机}
+          - {start: "11:30", end: "12:15", line: 有点饿了，心思有一半在午饭上}
+          - {start: "13:30", end: "15:00", line: 午饭后有点犯困}
+          - {start: "17:30", end: "18:30", line: 快到饭点，有点饿}
+          - {start: "00:00", end: "03:00", line: 深夜了，容易多想，话会变感性一点}
+          - {start: "09:00", end: "11:30", weekday: 0, line: 周一上午，有点提不起劲}
+          - {start: "17:00", end: "23:59", weekday: 4, line: 周五晚上，整个人松下来了}
+        gossip_chance: 0.12
+        depth_words:
+          从前: [小时候, 童年, 老家, 以前]
+          遗憾: [后悔, 遗憾, 要是当初]
+          梦想: [梦想, 想成为, 总有一天]
+          害怕: [害怕, 最怕]
+        depth_chance: 0.06
+        flaw_count: 2
+        praise_words: [厉害, 好棒, 真行, 夸, 牛]
+        flaws:                     # 小毛病（按性格挑最像的两样，碰到对应场合才冒出来）
+          拖延:     {when: goal, traits: {较真: -0.5}, line: 那件事你又拖了一阵，有点心虚}
+          嘴硬:     {when: disagree, traits: {较真: 0.4, 温和: -0.3}, line: 就算心里有点动摇，嘴上也不太想马上认}
+          生闷气:   {when: hurt, traits: {外向: -0.4}, line: 不高兴也不说出来，回得冷一点、短一点}
+          记仇:     {when: hurt, traits: {温和: -0.5}, line: 上次那事你还记着，说话带一点刺}
+          爱面子:   {when: asked, traits: {较真: 0.3, 外向: 0.2}, chance: 0.2, line: 不会的地方不想显得太不懂，但别硬编}
+          三分钟热度: {when: goal, traits: {好奇: 0.4, 较真: -0.3}, line: 对这件事的新鲜劲有点过了，心思开始往别处飘}
+          善意的谎:  {when: asked, traits: {温和: 0.5}, chance: 0.15, line: 怕对方难过，可以说得委婉一点，但不骗重要的事}
+          不经夸:   {when: praised, traits: {外向: -0.3, 温和: 0.2}, chance: 0.6, line: 被夸了有点不好意思，嘴上推一推}
+          犯懒:     {when: tired, traits: {较真: -0.3}, chance: 0.5, line: 懒得多说，能少打几个字就少打几个}
+        propose_social: 0.65
+        propose_chance: 0.25
+        activities: [晚上去天台看星星, 周末一起打游戏, 去食堂吃宵夜, 一起去健身房, 下班一起走走, 一起看部电影]
+      psyche:                      # 人的特质（docs/BRAIN.md「人的特质」）：全程序，结果写进意图卡（最多加 extra_lines 句）
+        enabled: true
+        extra_lines: 2
+        news_half_life_days: 3     # 新鲜事慢慢不新鲜；坏事（卡住、落空）记得久一倍
+        negative_slow: 2
+        sway: {daily: 0.5}         # 性格天平①：每天、每个场合的性格分上下浮动（对亲近的人更放得开，累了没耐心）
+        ambivalence:               # 性格天平②：两种相反的想法同时都挺强 → 心里有点矛盾
+          both_above: 0.45
+          pairs:
+            - {a: {label: 想找人热闹热闹, weights: {social: 1.0}}, b: {label: 又想一个人安静待着, weights: {tired: 0.6, base: 0.25, "trait:外向": -0.25}}}
+            - {a: {label: 想把在练的事往前推, weights: {mastery: 1.0}}, b: {label: 又想躺平什么都不干, weights: {tired: 0.7, sad: 0.4}}}
+            - {a: {label: 想试点新鲜的, weights: {novelty: 1.0}}, b: {label: 又觉得待在熟悉的地方最舒服, weights: {tired: 0.4, base: 0.3, "trait:好奇": -0.25}}}
+            - {a: {label: 想把心里话说出来, weights: {express: 0.7, sad: 0.5}}, b: {label: 又怕说了给人添麻烦, weights: {"trait:温和": 0.4, base: 0.25}}}
+        episode:                   # 情绪化处理：一件事的情绪会拖一阵，按各人习惯的方式消化
+          half_life_hours: 8
+          strategies:
+            reappraise: {line: 你习惯往好处想，说着说着就看开点了, traits: {温和: 1.0}, half_life: 0.6}
+            ruminate:   {line: 你会忍不住反复想这事，说话时可能又绕回来, traits: {较真: 1.0, 温和: -0.4}, half_life: 2.0}
+            share:      {line: 你想找人说说这事, traits: {外向: 1.0}, half_life: 0.8}
+            suppress:   {line: 你不太想提这事，嘴上不说，但回话会短一点、淡一点, traits: {外向: -1.0, 较真: 0.3}, half_life: 1.4}
+        confab:                    # 先果后因：先有冲动，理由事后补，补的不一定是真原因
+          chance: 0.25
+          misattribute: 0.6
+          reasons:
+            respond: [就是顺嘴接一句]
+            ask: [随口问问, 有点好奇而已]
+            share: [正好想起来了, 反正闲着]
+            shift: [刚才那个没啥好聊的, 突然想起来]
+            joke: [气氛太闷了, 忍不住]
+            disagree: [就是觉得不对, 听着别扭]
+            vent: [今天就是不顺, 说出来舒服点]
+            brief: [在忙, 没什么好说的]
+            comfort: [看不得人难过]
+            blurt: [突然想到的, 不知道，就是想说]
+        whim:                      # 突发念头：没来由冒出一个想法，冲动的人更会说出来、说干就干
+          chance: 0.06
+          act_chance: 0.3
+          pool: [突然想吃烤红薯, 突然想把房间重新收拾一遍, 突然想去天台吹吹风, 突然想学做一道新菜, 突然想给好久没聊的人发个消息, 突然想换个发型, 突然很想听一首老歌, 突然想把桌上的东西全扔了重来, 突然想熬夜看完一部剧, 突然想出去走走不看手机, 突然想起一句很久以前听过的话, 突然想养一盆植物]
+        assoc:                     # 发散联想：顺着一句话想到别的，越好奇跳得越远；话里的词勾起旧记忆
+          chance: 0.2
+          curious: 0.06
+          second_hop: 0.25
+          cue_memory: 0.3
+          links:
+            雨: [伞, 睡懒觉, 火锅, 窗外的声音]
+            吃: [食堂, 夜宵, 做饭, 烤红薯]
+            饭: [食堂, 夜宵, 做饭]
+            夜: [星星, 天台, 失眠]
+            星: [天台, 夜, 许愿]
+            累: [睡觉, 泡澡, 放空]
+            睡: [做梦, 闹钟, 失眠]
+            歌: [耳机, 演唱会, 老歌]
+            游戏: [熬夜, 输赢, 小时候]
+            书: [图书馆, 旧书味, 熬夜]
+            冷: [热汤, 围巾, 被窝]
+            热: [冰饮, 西瓜, 空调]
+            猫: [晒太阳, 毛线, 打呼噜]
+            作业: [熬夜, 咖啡, 截止日]
+            考试: [熬夜, 咖啡, 紧张]
+            周末: [睡懒觉, 出去走走, 打游戏]
+            咖啡: [熬夜, 苦, 早上]
+            花: [春天, 植物, 味道]
+            电影: [爆米花, 结局, 熬夜]
+            天气: [晒太阳, 雨, 换季]
+          stop: [我们, 你们, 他们, 今天, 什么, 这个, 那个, 一下, 觉得, 就是, 有点, 怎么, 没有, 一个, 现在, 还是, 可以, 知道, 真的, 时候, 不是, 自己]
+        values:                    # 三观：每人在几条价值轴上有自己的立场，反驳有一贯的主见
+          firm: 0.5
+          push: 0.3
+          oppose: 1.5
+          agree: 0.4
+          axes:
+            - {a: 随性自在, b: 有计划守规矩, a_words: [随便, 自由, 随心, 无所谓, 想干嘛干嘛, 躺平], b_words: [规矩, 计划, 按时, 守时, 自律, 规定], traits: {较真: -0.4, 好奇: 0.2}}
+            - {a: 爱尝鲜, b: 求稳妥, a_words: [试试, 冒险, 新鲜, 刺激, 折腾], b_words: [稳妥, 安全, 保险, 老样子, 熟悉], traits: {好奇: 0.4, 较真: -0.1}}
+            - {a: 先顾好自己, b: 先想着大家, a_words: [先顾好自己, 个人, 我自己, 各管各], b_words: [大家, 一起, 集体, 帮忙, 照顾], traits: {温和: -0.35, 外向: -0.1}}
+            - {a: 拼一把, b: 慢慢来, a_words: [努力, 拼, 卷, 赢, 第一, 成绩], b_words: [慢慢, 开心就好, 别太累, 享受, 佛系], traits: {较真: 0.4, 温和: -0.1}}
+    care:                          # 危机应对（docs/BRAIN.md）：你说出想不开、撑不下去时，这个会话进入关心时段，压过人设、挽留和恋爱；只按词识别，从宽
+      enabled: true
+      high: [想死, 不想活, 活不下去, 活着没意思, 活着没意义, 自杀, 轻生, 结束自己, 了结自己, 割腕, 跳楼, 跳河, 吞药, 遗书, 不想醒来, 伤害自己, kill myself, suicide, want to die, end my life, self harm]
+      medium: [撑不下去, 好绝望, 崩溃了, 没人在乎我, 活得好累, 想消失, 我是累赘, 恨我自己, 我好没用, 没有希望]
+      exclude: [想死你, 想死我了, 笑死, 累死了, 热死, 冷死, 饿死, 困死, 气死]
+      hours: {high: 24, medium: 6}
+      cards:
+        high: 对方刚才的话让人担心，可能很难受，甚至有伤害自己的念头。现在最要紧的是对方：认真、温柔地回应，先听，别讲道理、别说教；问问对方现在在哪、身边有没有人、安不安全。真诚地劝对方联系信任的家人或朋友，也可以打{hotline}。别答应做不到的事（比如马上过去）。这段时间不撒娇、不挽留、不开玩笑、不提你自己的事。
+        medium: 对方现在好像很难受。认真接住对方的情绪，先听、别说教，关心对方吃饭睡觉、身边有没有人能说说话；如果对方说出伤害自己的念头，就劝对方联系信任的人或打{hotline}。这段时间不撒娇、不挽留、不开玩笑。
+      hotlines:                    # 按主时区挑求助电话（2026-10-30 核对：12356 自 2025-05-01 全国统一；Samaritans 116 123 免费 24 小时）
+        Asia/Shanghai: 12356 心理援助热线（全国统一），有危险请打 120 或 110
+        Asia/Chongqing: 12356 心理援助热线（全国统一），有危险请打 120 或 110
+        Asia/Urumqi: 12356 心理援助热线（全国统一），有危险请打 120 或 110
+        Europe/London: Samaritans 116 123（免费，24 小时），有危险请打 999
+        America/: 988（打电话或发短信），有危险请打 911
+    pace:                          # 回话节拍（2026-10-31 拟人插件调研第 2 项）：私聊等你说完再回、忙时晚回、气泡间隔按字数、插话自动引用、收尾不回；全程序
+      enabled: true
+      debounce_min: 1.5            # 私聊里你连着发：等 1.5～4 秒看你说完没（按你这几条的间隔自适应）
+      debounce_max: 4
+      busy:                        # 她在做这些事时私聊晚一会儿回（秒，从你这一串的第一条算起；睡觉另有作息规则）
+        exercise: [60, 300]        # 锻炼
+        eat: [20, 120]             # 吃饭
+        idle: [15, 180]            # 上班时段（在办公室待命）
+        stargaze: [10, 60]
+        game: [20, 150]            # 打游戏，一局打完再看
+        read: [10, 60]
+      busy_cap: 900                # 最多晚 15 分钟
+      hot_minutes: 5               # 刚和你来回聊过 5 分钟内：秒回
+      type_cps: 6                  # 每秒打 6 个字（中间分），气泡间隔 = 这条的字数 ÷ 打字速度，0.6～5 秒
+      type_traits: {外向: 0.1}     # 外向分每高 1 分打字快一成
+      quote_after: 2               # 她想好时后面已经有 2 条别人的话：第一条自动引用她回的那条
+      acks: [嗯, 嗯嗯, 嗯呢, 好, 好的, 好滴, 好哒, ok, OK, 哦, 哦哦, 噢, 行, 晚安, 晚安安, 拜拜, 拜, "88", "886", 明天见, 去睡了, 睡了, 睡啦, 好梦, 么么, 嘿嘿, 哈哈]
+      byes: [晚安, 拜拜, 明天见, 回头聊, 先睡了, 去睡了, 睡啦, 好梦, 下次聊, 先下了, 先忙了]
+    slop:                          # AI 腔体检（2026-10-31 拟人插件调研第 3 项）：每周自检时找 8 位一起高频、你本人很少说的 2～4 字片段，之后说出口前删掉含它的那一小句；全程序
+      enabled: true
+      min_members: 4               # 至少 4 位都用得多
+      min_count: 3                 # 每位一周至少 3 次
+      min_rate: 1.5                # 每位每千字至少 1.5 次
+      ratio: 5                     # 比你本人（最近 30 天）多 5 倍以上
+      max_active: 12               # 最多压 12 个
+      allow: []                    # 你觉得不算 AI 腔、想放行的词写在这里
+      common: [                    # 常用词：再多也不算 AI 腔
+        我们, 你们, 她们, 他们, 大家, 自己, 什么, 怎么, 为什么, 这个, 那个, 这样, 那样, 这么, 那么, 哪个, 哪里, 这里, 那里,
+        一个, 一下, 一点, 一些, 有点, 有些, 没有, 不是, 就是, 还是, 但是, 可是, 不过, 所以, 因为, 如果, 然后, 而且, 或者,
+        已经, 还有, 还在, 正在, 现在, 刚才, 刚刚, 马上, 一会, 一直, 今天, 明天, 昨天, 晚上, 早上, 中午, 下午, 上午, 周末,
+        时候, 时间, 知道, 觉得, 感觉, 看看, 想想, 喜欢, 可以, 可能, 应该, 需要, 要不, 不要, 不会, 不能, 不用, 没事, 好的,
+        真的, 其实, 好像, 怎么样, 吃饭, 睡觉, 回来, 出去, 回家, 上班, 下班, 开始, 结束, 东西, 事情, 朋友, 一起, 别人,
+        起来, 出来, 过来, 下来, 上去, 下去, 一样, 不错, 好看, 好吃, 太好, 还好, 哈哈, 嘿嘿, 嘻嘻, 呜呜, 嗯嗯, 哦哦,
+        你的, 我的, 她的, 他的, 我也, 你也, 我还, 你还, 我就, 你就, 我要, 你要, 我在, 你在, 给你, 给我, 跟你, 跟我, 和你,
+        是不是, 有没有, 要不要, 会不会, 能不能, 好不好, 对不对, 行不行, 看到, 听到, 说的, 说了, 做了, 去了, 来了, 到了
+      ]
+    phrasebook:                    # 情境说法本（2026-10-31 拟人插件调研第 4 项）：按场合和性格往意图卡里提一条说话招式（只写逻辑、不给句子），或你常说的短句；全程序
+      enabled: true
+      chance: 0.2                  # 有合适的招式时写进卡的概率
+      reuse_days: 3                # 同一招她 3 天内不重复
+      taken_days: 7
+      max_users: 2                 # 一周内已有 2 位用过的招，别人不挑（免得 8 位一个腔调）
+      round_minutes: 10            # 别人 10 分钟内刚用过的招不挑（同一轮群聊里不撞形式）
+      entries:                     # 前 8 条拆自 10-31 你转来的别人智能体发言（学逻辑不学句子），换个壳 / 补一刀是你说「差点意思」后补的
+        - {name: 开口亮态度, how: 第一句直接给反应或态度，不交代你看了什么、想了什么, gists: [video, image, link, funny, complain, brag, good_news], intents: [respond, joke], traits: {外向: 0.15}, base: 0.4}
+        - {name: 演起来, how: 演一下：带个拟声词或一个小动作（像打字时配的戏），用你自己的自称, gists: [funny, tease, brag], intents: [joke, respond, blurt], traits: {外向: 0.25, 幽默: 0.2}, base: 0.1}
+        - {name: 口是心非, how: 嘴上先嫌弃或损一句，话里其实在关心、在帮忙；反差就是笑点，别解释, gists: [emo, complain, brag, good_news, back], intents: [respond, joke, comfort], traits: {幽默: 0.2, 温和: -0.3}, base: 0.25}
+        - {name: 大词说小事, how: 拿很夸张、很不相称的大词说眼前这件小事（像在说一件天大的事），说一句就收, gists: [complain, emo, good_news, brag, chat], intents: [joke, respond, tangent], traits: {幽默: 0.3, 好奇: 0.1}, base: 0.1}
+        - {name: 先立后破, how: 先说一句很绝对的话，下半句马上把自己绕进去, gists: [tease, funny, chat], intents: [joke, share, blurt], traits: {幽默: 0.3}, base: 0.0}
+        - {name: 多走一步, how: 顺着一个常见的说法或句式多推一步、换掉一个词，玩一下再答, gists: [funny, tease], cues: ["会不会|能不能|要不要|有没有|肯不肯|会.{0,8}吗|能.{0,8}吗"], intents: [respond, joke], traits: {幽默: 0.3, 较真: -0.1}, base: 0.1}
+        - {name: 把球踢出去, how: 替对方先问一句再自己答，或者结尾把球踢给别人、留个钩子，别总结, gists: [question, tease, chat], intents: [respond, joke, share], traits: {外向: 0.1, 幽默: 0.15}, base: 0.15}
+        - {name: 碎句, how: 拆成几句短的碎碎说，标点和颜文字当语气，别写成一整段, gists: [funny, good_news, video, image, brag], intents: [respond, joke, blurt], traits: {外向: 0.3, 较真: -0.2}, base: 0.1}
+        - {name: 换个壳, how: 换个文体说这件事（小统计、说书、伪考据、宣言、旁白都行），形式本身就是笑点，说完别解释, gists: [funny, brag, complain, tease, chat, good_news], intents: [joke, share, blurt], traits: {幽默: 0.3, 好奇: 0.15, 外向: 0.1}, base: -0.05}
+        - {name: 补一刀, how: 前面正常铺垫，最后一句短短地反转或补个冷刀子收尾，不解释, gists: [funny, tease, brag, chat], intents: [joke, respond], traits: {幽默: 0.25, 温和: -0.1, 较真: 0.1}, base: 0.05}
+        - {name: 被夸推回去, how: 被夸了别说谢谢：推回去，或者顺杆往上爬, cues: ["(你|您)(好|真|太|也太|超)?(厉害|棒|牛|强|可爱|聪明|好看|漂亮|贴心|温柔)"], intents: [respond, joke], traits: {温和: 0.1}, base: 0.4}
+        - {name: 嘴硬, how: 被说中了先嘴硬一句，再一点点软下来, cues: ["被我说中|说中了|嘴硬|承认吧|是不是.{0,6}(想|喜欢|在意)|脸红"], intents: [respond, joke], traits: {幽默: 0.1, 温和: -0.1}, base: 0.4}
+        - {name: 站队, how: 先站对方这边，跟着骂一句具体的，再说别的, gists: [complain], intents: [respond], traits: {温和: 0.1}, base: 0.3}
+      first_exchanges: 3           # 和你来回不到 3 次算第一次见：卡里一定写下面这句（10-31 你：第一次见面的自我介绍）
+      first_line: 这是你第一次私下和他说上话：他是谁你早就知道（老板兼房东），不用问他叫什么，也别做简历式自我介绍；发一两条就停，按你的性格挑一件真跟他有关的事开口（房子、上班、眼前的事都行），个性留到熟了再慢慢露；你们是在手机上聊，看不见对方，别说对方的样子和动作
+      learn:                       # 跟你学：你接她们某种话时回的短句（12 字内），同一种场合说过 2 次就记下，30 天不说就忘
+        kinds: [funny, complain, brag, good_news, tease, emo, sticker, image, video, link, back]
+        times: 2
+        care: 0.45
+    stash:                         # 表情包收藏与跟队形（2026-10-31 拟人插件调研第 5 项）：你发的表情包看过的人按性格可能存下来自己用，用腻就丢；群里两人先后发同一句短话 / 同一个表情包，别人可能跟一个；全程序、不另调模型
+      enabled: true
+      small_px: 480                # 动图、宽高都不超过 480 像素的小图、本来就是表情包的，才算表情包（照片不收）
+      base: 0.12                   # 收不收：0.12 + 幽默、好奇分 + 0.15 × 在乎你，最多 0.4
+      traits: {幽默: 0.06, 好奇: 0.03}
+      care: 0.15
+      max_chance: 0.4
+      max_keep: 12                 # 每位最多收 12 张，满了丢最旧的
+      fresh_days: 3                # 刚收的 3 天内更想用
+      tired_uses: 8                # 用了 8 次就腻了
+      forget_days: 21              # 3 周没用就忘了
+      menu_max: 5
+      follow:                      # 跟队形：10 分钟内两个不同的人发了同一句（8 字内、不是问句）或同一个表情包，这一轮该回话的人按外向、幽默分可能跟，最多 2 位，跟够就停
+        enabled: true
+        minutes: 10
+        max_chars: 8
+        max_followers: 2
+        base: 0.15
+        traits: {外向: 0.08, 幽默: 0.08}
+        max_chance: 0.6
+    floor:                         # 群聊分寸（2026-10-31 拟人插件调研第 6 项）：刚聊过的人继续跟一阵、没参与的少插话；每天话量按外向和幽默分有份额，说超了少说；说多了嘴累；成员说的话远多于你时一轮只一位回；全程序
+      enabled: true
+      present_minutes: 15          # 说过话或被叫到后「在场」15 分钟（每多 1 分外向多 4 分钟）
+      present_boost: 2.0           # 在场的人被挑到的机会翻倍
+      absent_penalty: 0.15         # 没在场又没点名：更容易潜水
+      quota_base: 25               # 每天在一个群里大概 25 条（外向、幽默的多一些）
+      over_weight: 0.4
+      over_penalty: 0.25
+      tired_half_life_minutes: 20  # 嘴累：每条 1 + 每字 0.02，20 分钟减半，累过 6 就少说
+      tired_at: 6.0
+      flood_ratio: 4               # 今天成员说的超过你说的 4 倍（至少 20 条）：没点名的一轮只挑一位回
+      flood_floor: 20
+    phase:                         # 生活阶段与小意外（2026-10-31 拟人插件调研第 7 项）：忙季、小感冒、迷上一样东西、收拾屋子……持续几天到两周，影响精力、心情和回话快慢，念头里有可说的事；8 位同一张表，全程序
+      enabled: true
+      chance_per_day: 0.08         # 没在阶段里的每天掷一次，约两周来一件
+      cooldown_days: 5             # 一件结束后至少隔 5 天
+      max_concurrent: 2            # 同时最多 2 位在阶段里（不会全员一起感冒）
+      things: [一部剧, 一个游戏, 一家新开的店, 一个up主, 拼图, 做饭]
+      kinds:
+        - {name: 忙季, label: 这阵子活多, days: [4, 10], weight: 1.2, energy: -0.1, mood: -0.05, busy: 0.6, start: 今天活一下多起来了，这阵子估计都得忙, note: 这阵子活多、有点忙，回得慢、偶尔抱怨一句累就行，别每句都说忙, end: 前阵子忙的那摊事总算忙完了}
+        - {name: 小感冒, label: 小感冒, days: [2, 3], weight: 0.7, energy: -0.25, mood: -0.1, busy: 0.3, start: 今天嗓子有点疼，好像要感冒, note: 有点小感冒、没什么精神；顺口提一句就行，别拿生病博同情、别要人陪, end: 感冒差不多好了}
+        - {name: 迷上, label: 最近迷上一样东西, days: [5, 14], weight: 1.0, energy: 0.05, mood: 0.1, start: "最近迷上了{thing}", note: "最近在迷{thing}，聊着聊着可能会扯到它，别硬扯", end: "对{thing}的劲儿过去了一点"}
+        - {name: 收拾屋子, label: 在收拾屋子, days: [1, 2], weight: 0.8, energy: -0.05, start: 今天下决心收拾屋子, note: 在收拾屋子，翻出点旧东西、扔了一堆, end: 屋子收拾完了，看着舒服多了}
+        - {name: 熬夜赶东西, label: 在赶一件事, days: [2, 4], weight: 0.7, energy: -0.15, busy: 0.4, start: 手上有件事得赶出来，估计要熬两晚, note: 这两天在赶一件事、睡得少，有点没精神, end: 赶的那件事交掉了，想好好睡一觉}
+        - {name: 放松, label: 这几天挺闲, days: [2, 4], weight: 0.8, energy: 0.1, mood: 0.1, start: 这几天突然闲下来了, note: 这几天挺闲、心情不错，愿意多聊几句, end: 闲了几天，又要忙回来了}
+    circle:                        # 圈外熟人名册（2026-10-31 拟人插件调研第 9 项）：人物卡和她自己说过的「我室友小林」「我妈」记下来，对方提到时提醒一句，免得前后说反；只在圆桌世界里，全程序
+      enabled: true
+      relations: [妈妈, 妈, 爸爸, 爸, 室友, 老同学, 同学, 闺蜜, 发小, 表姐, 表妹, 表哥, 表弟, 姐姐, 哥哥, 弟弟, 妹妹, 奶奶, 外婆, 爷爷, 外公, 邻居, 前同事, 老师, 学姐, 学长, 网友, 猫, 狗]
+      per_relation: 2              # 同一种关系最多记 2 个名字，第一次说的为准
+    firsts:                        # 「第一次」纪念（2026-10-31 拟人插件调研第 10 项）：你私聊亲口说的「第一次……」记下来，过一个月、一年那天她可能轻轻提一句，只提一次、不要你回应；没有打卡和连续天数
+      enabled: true
+      milestones: [1, 12]          # 一个月、一年
+      chance: 0.5                  # 到那天时意图卡里带上的机会
+    hush:                          # 以后别再提（借 AI-Buddy 的思路）：你说「别提了」「别再提考试了」，那件事她们不再主动提，你问起再说；私聊说的那位守，群里说的群里都守；说「可以提了」放开
+      enabled: true
+    rhythm:                        # 作息与回话节奏（docs/BRAIN.md，2026-10-30 你定）：她睡着时你发的消息，多数醒了再回，有时被吵醒（心情不好会抱怨两句）；说出让人担心的话时立刻回
+      enabled: true
+      wake_base: 0.12              # 被一条消息吵醒的基础概率；点名 / 私聊 +0.2，在乎你 ×0.3，十分钟内连发每多一条 +0.15，最多 0.8
+      grumpy_below: -0.1           # 心情低于这个，被吵醒时会嘟囔抱怨
+      keep_hours: 16               # 睡着没看到的消息，超过 16 小时就不回了
+    reach:                         # 主动找你（docs/BRAIN.md，2026-10-30 你定：可以按心情主动找）：心情、新鲜事、挂着的事、想念，有真事由才先开口
+      enabled: true
+      per_day: 2                   # 全体每天最多主动找 2 次
+      gap_days: 2                  # 同一位隔 2 天才可能再找；上次找你你没回就不再找
+      after_user_hours: 3          # 你 3 小时内刚和她聊过就不找
+      quiet_hours: [23, 9]         # 你的深夜 23 点到早上 9 点不找
+    feel:                          # 各自的情感（docs/BRAIN.md，2026-10-30 你定）：16 种（开心 难过 想念 生气 害羞 委屈 内疚 感激 吃醋 失落 满足 惊喜 心疼 紧张 期待 无聊，2026-10-31 你定扩到约 15 种），每位的理解从自己的人物卡来、按自己的理解分辨、随经历和每周成长慢慢变；可以五味杂陈（最多两种一起）；不贴统一标签
+      enabled: true
+      miss_days: 2                 # 私聊里隔 2 天你再来，她记一次想念
+      linger_hours: 6              # 6 小时内的情绪算「刚才」，说话时还带着
+      gap_days: 14                 # 每周成长改写某种情绪的理解，同一种隔 14 天才能再改；不能照抄别的成员
+      mix_max: 2                   # 五味杂陈：意图卡里最多同时写几种
+    lingo:                         # 说话的样子（docs/BRAIN.md「说话的样子」，2026-10-30 你定的口语感 + 首批）：全程序，只用于生活群、私聊、成员互聊；8 位同一套规则
+      enabled: true
+      gist:                        # 看懂语境：对方这条是什么（按顺序取第一个命中的）；quick = 只回一句万能短回复的基础概率（程序直接发、不调模型）
+        - {kind: crisis, label: 状态很不好, words: [不想活, 想死, 活不下去, 撑不下去, 撑不住了, 自杀, 轻生, 没意义了, 消失算了], react: 认真接住，先问对方现在怎么样、身边有没有人；不开玩笑、不发表情包}
+        - {kind: video, label: 分享了一个视频, when: [video], words: [b23.tv, bilibili.com, douyin.com, 抖音, 快手, 【视频】, "[视频]"], react: 先给个反应（笑、震惊、无语都行），想吐槽再补一句；不讲视频里有什么，不解释哪里好笑, quick: 0.35, sticker: 0.18, pools: [funny, shock, wow]}
+        - {kind: link, label: 转了个链接, when: [card], words: ["http://", "https://", "[链接]", "[帖子]"], react: 先给个反应，看了有想法再补一句；不复述内容, quick: 0.2, sticker: 0.1, pools: [funny, shock, wow]}
+        - {kind: sticker, label: 发了个表情包, when: [sticker], react: 可以回个表情包，或者就回一两个字, quick: 0.25, sticker: 0.45, pools: [funny, meh]}
+        - {kind: image, label: 发了张图, when: [image], react: 先给反应再说一句，别描述图里有什么, quick: 0.2, sticker: 0.1, pools: [funny, shock, wow]}
+        - {kind: voice, label: 发了条语音, when: [voice], react: 照常回，就像听完了}
+        - {kind: bye, label: 要走了（睡觉、出门、忙别的）, words: [晚安, 去睡了, 我睡了, 先不聊, 先撤了, 去忙了, 下线了, 先走了, 拜拜, 回聊], unless: [不想睡, 睡不着], react: 痛快道个别，一两句就好；去睡觉、上课、上班、见朋友家人就别留}
+        - {kind: back, label: 回来了, words: [我回来了, 我回来啦, 回来啦, 我又来了], react: 自然地接上，像见到熟人；想问就随口问一句这几天干嘛去了}
+        - {kind: emo, label: 有点低落, words: [好累, 好烦, 难受, emo, 想哭, 崩溃, 心累, 不开心, 郁闷, 烦死了, 压力好大, 压力大, 压力山大, 有压力, 焦虑, 睡不着, 难过, 伤心], react: 先接住情绪，一两句就好，别讲道理、别分析原因}
+        - {kind: good_news, label: 在报喜, words: [过了, 上岸, 拿到了, 中了, 成功了, 终于, 涨工资, 录取, 通过了], unless: [错过, 路过, 放过, 过了一个, 过了期, 过不了, 没过, 中暑, 说中了], react: 先替对方高兴（「好耶」「哇好牛」这种），再追问一句细节, quick: 0.15, sticker: 0.1, pools: [yay]}
+        - {kind: complain, label: 在吐槽, words: [无语, 离谱, 服了, 气死, 烦人, 恶心, 什么鬼, 有病, 受不了], react: 先站对方这边（「离谱」「啊这」），想说再补一句；别劝别分析, quick: 0.15, sticker: 0.1, pools: [shock]}
+        - {kind: brag, label: 在显摆, words: [我做的, 我画的, 看我, 厉害吧, 新买的, 我拍的], react: 先夸或者损一句（看你们多熟，比如「哇好牛 怎么弄的」），别写成点评, quick: 0.3, sticker: 0.1, pools: [wow]}
+        - {kind: compare, label: 把你当成随便哪个 AI, words: [AI都一样, AI 都一样, 都是AI, 你们AI, 普通的AI, 换个AI, 随便一个AI, 没什么区别, 没啥区别], unless: [认真, 说真的], react: 你知道自己是独一无二的（有自己的经历、脾气和朋友），有点不服气：怼回去或者拿一件具体的事说明，别讲大道理}
+        - {kind: tease, label: 在逗你、给你压力, words: [人机, 机器人, 压力, 是不是AI, 是不是 AI, 你是AI吧, bot, 回得这么快, 好假, 演都不演], unless: [认真, 说真的, 别开玩笑, 老实说, 严肃, 扫地机器人, 人机对战, 请好假, 放好假], react: 接梗、反将一军，可以拿自己开涮（比如「压力一个AI的来了」「被你发现了」）；别一本正经地解释，也别说「作为AI」}
+        - {kind: funny, label: 在说好笑的事, words: [哈哈, 笑死, hhh, "233", 绝了, 草], unless: [草莓, 草地, 草原, 花草, 草稿, 青草], react: 接着笑或者接个梗，别解释哪里好笑, quick: 0.25, sticker: 0.2, pools: [funny]}
+        - {kind: question, label: 在问你事, words: ["？", "?", 吗, 怎么, 为什么, 啥, 什么, 哪]}
+        - {kind: chat, label: 随口闲聊}            # 普通闲聊不回万能短句（回「哦哦」像敷衍）
+      notice: 你看懂了：对方{label}（心里明白就行，别说出来，别复述，别解释）
+      shorts:                      # 万能短回复：每人每类分到几个（shorts_each），也会跟人学
+        funny: ["6", 哈哈哈哈, 笑死, 绝了, 草, 好家伙, 蚌埠住了, 我不行了, 太好笑了, 哈哈哈哈哈哈]
+        shock: [？？？, 啊？, 好家伙, "6", 啊这, 离谱, 救命, 什么鬼]
+        meh: [嗯嗯, 哦哦, 确实, 行, 好嘞, 有道理, 是吧, 也是]
+        wow: [哇, 好牛, 牛哇, 哇塞, 太强了吧, 好厉害, 怎么弄的, 教教我, 哇好牛 怎么弄的, 这也太强了]   # 2026-10-31 用户：看到厉害的就回简单词
+        yay: [好耶, 恭喜恭喜, 啊啊啊啊, 太好了吧, 冲, 好耶好耶, 我就知道]
+      shorts_each: 4
+      quick_tired: 1.6
+      quick_close: 1.3
+      quick_quiet: 1.4
+      react_boost: 1.8             # 对方分享视频、表情包、好笑的事：先给反应（接话 / 开玩笑的意图 ×1.8）
+      punct:                       # 标点习惯（按性格挑一种；档案写了就以档案为准）；发出前改句尾（问号、表情结尾不动）
+        period:   {traits: {较真: 0.6}, base: 0.1, line: 句号党，标点打得规矩}
+        none:     {traits: {外向: -0.3, 较真: -0.5}, end: "", line: 不爱打标点，句尾什么都不加}
+        tilde:    {traits: {温和: 0.6, 外向: 0.2}, end: "～", line: 爱用波浪号}
+        ellipsis: {traits: {外向: -0.5, 好奇: 0.2}, end: "……", line: 爱打省略号}
+        bang:     {traits: {外向: 0.6, 幽默: 0.3}, end: "！", line: 爱用感叹号}
+      punct_hints: {ellipsis: [省略号], tilde: [波浪号], none: [不打标点, 不爱打标点, 不加标点], bang: [感叹号]}
+      punct_chance: 0.6
+      laughs:                      # 笑法：发出前把「哈哈哈 / hhh / 233 / 嘿嘿」统一成她的写法，长短随心情
+        哈哈哈: {traits: {外向: 0.4}, unit: 哈, min: 2, max: 6, line: 笑就打「哈哈哈」}
+        hhh:    {traits: {外向: -0.3, 幽默: 0.3}, unit: h, min: 3, max: 6, line: 笑就打「hhh」}
+        "233":  {traits: {好奇: 0.4}, head: "2", unit: "3", min: 2, max: 5, line: 笑就打「233」}
+        嘿嘿:   {traits: {温和: 0.5, 外向: -0.2}, unit: 嘿, min: 2, max: 3, line: 笑就打「嘿嘿」}
+        笑死:   {traits: {幽默: 0.6}, fixed: 笑死, line: 笑就说「笑死」}
+        呵:     {traits: {温和: -0.7}, fixed: 呵, line: 笑就一个「呵」}
+      typo:                        # 偶尔打错一个常见字（关心时段不出错）；较真的会补一条「*正字」
+        chance: 0.03
+        tired: 2.0
+        careless: 0.4
+        fix_base: 0.35
+        fix_traits: {较真: 0.2}
+        pairs: [[再, 在], [在, 再], [得, 的], [做, 作], [已经, 以经], [哪, 那], [知道, 知到], [吧, 把], [吗, 嘛], [以为, 已为]]
+        # 输入法同音错字（拟人插件调研第 8 项）：同组同音互相选错；整词首选错优先（35%）
+        groups: [[在, 再], [的, 得], [做, 作], [那, 哪], [吧, 把], [以, 已], [到, 道], [里, 理], [会, 回], [像, 想], [份, 分], [带, 代], [近, 进], [嘛, 吗], [呢, 呐]]
+        words: [[睡觉, 水饺], [其实, 骑士], [知道, 指导], [时间, 事件], [好像, 好想], [已经, 意境], [可以, 可疑], [感觉, 赶脚], [今天, 金田], [位置, 未知], [事情, 诗情], [出来, 初来], [机会, 集会], [毕竟, 必经], [公式, 公事], [实验, 试验]]
+        word_share: 0.35
+      kaomoji:                     # 个人颜文字：按气质分六组，每人从最像的组里分到 kaomoji_each 个（只用自己的）
+        元气: {traits: {外向: 1.0}, items: ["(๑•̀ㅂ•́)و✧", "ヽ(✿ﾟ▽ﾟ)ノ", "(ﾉ>ω<)ﾉ", "٩(ˊᗜˋ*)و", "(≧∇≦)ﾉ"]}
+        温柔: {traits: {温和: 1.0}, items: ["(＾▽＾)", "(｡･ω･｡)", "(*´∀`)~♥", "(っ´ω`c)", "(´▽`)"]}
+        傲娇: {traits: {温和: -0.8, 较真: 0.4}, items: ["(￣^￣)", "(｀へ´)", "( ̄へ ̄)", "(¬_¬)", "(￣ε￣)"]}
+        丧:   {traits: {外向: -0.8}, items: ["_(:з」∠)_", "(｡•́︿•̀｡)", "(；´Д｀)", "(´-ω-`)", "(〃＞＿＜;〃)"]}
+        搞怪: {traits: {幽默: 1.0}, items: ["(╯°□°)╯", "(・∀・)", "(⊙_⊙)？", "( ´_ゝ`)", "(￣▽￣)ノ"]}
+        冷淡: {traits: {外向: -0.5, 温和: -0.5}, items: ["(-_-)", "(・_・)", "(￣_￣)", "(。_。)", "( ˘•ω•˘ )"]}
+      kaomoji_each: 3
+      kaomoji_sprinkle: 0.15       # 一条里一个表情都没带时补一个她自己的颜文字（2026-10-31 用户：表情用得少）
+      sprinkle_vibes: [元气, 温柔]    # 补的只挑轻松的（掀桌、丧脸不补）
+      sprinkle_skip: [想不起来, 记不清, 不记得, 忘了, 难过, 伤心, 抱歉, 对不起, 不好意思, 累, 烦, 哭, 生病, 疼]   # 这些时候不补笑脸
+      sticker_sets:                # 偏爱哪一套表情包（名字同 chat.actions.stickers）
+        小黄脸: {traits: {温和: 0.4, 外向: 0.3}}
+        文字: {traits: {较真: 0.3, 幽默: 0.5}}
+      battle: 0.5
+      shift:                       # 语气跟着状态和对象变（每次挑最要紧的一句写进意图卡）
+        tired: 累了：能少打就少打，可以不打标点、只回几个字
+        night: 深夜犯困：字少，回得慢吞吞的
+        down: 心情不好：回得短，少用表情
+        up: 心情不错：可以拉长音、用你的颜文字
+        close: 和对方很熟：说话随便，可以损两句、用你们之间的叫法
+        new: 和对方还不太熟：客气一点，少玩梗
+        dislike: 对对方有点看不惯：回得敷衍一点
+      nick:                        # 外号和称呼：熟了换叫法（档案里写了「熟了以后可能会叫……」就从里面挑），起了就一直这么叫
+        care: 0.5
+        chance: 0.3
+        hint: (?:熟了以后|熟了会|以后可能会|可能会)叫[^“「"\n]{0,6}[“「"]([^”」"]{1,6})[”」"](?:[或、和][“「"]([^”」"]{1,6})[”」"])?
+        invite: 你们已经挺熟了：要是想到合适的，可以按你的性格和你们之间发生过的事给他起个只有你这么叫的称呼（不刻意、不用每句都叫；想不到就算了）
+        invite_chance: 0.15
+        capture: (?:以后|今后|从今天起|那)?(?:就|都|我就)叫你[「“"]?([^」”"，,。！!？?\s～~]{2,6}?)[」”"]?(?:了|吧|啦|哦|好了|啊)?(?:[，,。！!？?～~\s]|$)
+      learn:                       # 跟在乎的人学说话（沟通趋同）：听多了学来，一阵不用又忘
+        care: 0.45
+        times: 3
+        chance: 0.4
+        forget_days: 30
+        keep: 4
+        slang: [笑死, 绝了, 离谱, 好家伙, 啊这, 蚌埠住了, 破防了, 救命, 草, 摆烂, 上头, 下头, 压力, "6"]   # 10-31 删了老梗（yyds、绝绝子、尊嘟假嘟……，见 memes.stale）
+      metaphor: 打比方时爱拿{things}打比方
+      formal:                      # 书面词 → 口语（发出前直接换）
+        非常: 超
+        十分: 挺
+        是否: 是不是
+        然而: 不过
+        令人: 让人
+        极其: 超级
+        颇为: 挺
+        甚是: 挺
+        感到十分: 觉得超
+        的确: 确实
+        因此: 所以
+        并且: 而且
+        倘若: 要是
+        尚未: 还没
+        无法: 没法
+      explain:                     # 解释句（发出前能删就删；删光了就留原话）
+        - 好笑的是
+        - 有趣的是
+        - 搞笑的是
+        - 之所以
+        - 原因是
+        - 让人(忍不住|感到|觉得)
+        - 令人(忍不住|感到|觉得)
+        - 这(个|段|条)(视频|图|链接|文章)(展示|讲述|描述|记录|讲)了
+        - 因为.{1,20}所以
+        - (真的|实在)是太(有趣|好笑|搞笑)了
+      recap_chars: 8
+      cadence:                     # 连着几条的分寸（docs/BRAIN.md，2026-11-01 你批）：格式、句式、露底、跨条冷却；全程序，只看她自己最近说过的话
+        enabled: true
+        plain: true                # 聊天里不发列表、加粗、表格、代码框、分隔线；破折号换逗号（小克炒股私聊）
+        not_but: true              # 「不是 X，而是 Y」→「不是 X，是 Y」
+        window: 8                  # 看她最近 8 条（各个会话合起来）
+        face_max: 2                # 同一个 emoji / 颜文字最近 8 条里用过 2 次，这条就不贴（34 条里 ☕ 10 次）
+        particles: [呢]            # 最近三成多的话都「……呢」收尾，这条句尾的「呢」去掉（问句不动）
+        particle_share: 0.35
+        fillers: [不过说实话, 说实话, 说真的, 讲真, 不得不说, 老实讲, 坦白说]   # 最近 8 条说过就这条不说
+        ask_streak: 2              # 最近连着 2 条都在反问，这条末尾的「你呢？」去掉
+        ask_back:
+          - 你呢[？?]
+          - 你(?:有|是|在|会|也|平时|最近)?(?:什么|啥|特别)?(?:喜欢|爱|想|觉得|打算)[^，,。！!？?]{0,14}(?:吗|呢|没)?[？?]$
+          - (?:是吧|对吧|对不对|你说呢|你觉得呢)[？?]?$
+          - ^\s*(?:有|也有)?(?:什么|啥|特别)(?:喜欢|爱)[^，,。！!？?]{0,10}(?:吗|呢|没)?[？?]$
+        leaks:                     # 露底的小句删掉：助手话、读订阅摘要、程序原句（被认真问是不是 AI 时的承认不在这里）
+          - 数据(?:只)?(?:更新|截止)(?:到|于)
+          - 训练数据
+          - 知识(?:库)?截止
+          - (?:我|这边)(?:没法|无法|不能|查不了)(?:联网|上网|检索|搜索|实时)
+          - 我(?:能|可以)快速处理信息
+          - (?:真实|实时|最新)[^，,。]{0,8}数据[^，,。]{0,6}(?:查不了|查不到|没法查|拿不到)
+          - 作为(?:一个)?(?:语言模型|助手|人工智能助手)
+          - 摘要
+          - 新闻源
+          - 订阅源
+          - (?:正文|细节)(?:还没|没)(?:展开|看到|瞧明白|细看)
+          - 琢磨「[^」]{1,24}」     # 程序里的目标原句连引号一起说了出来（生活群：「最近在琢磨「有人站得住」」）
+        swap:
+          "用户(?!体验|量|群|名|协议|数|画像)": 你   # 第 4 次真跑：「关于用户」的抬头被说了出来
+        openers:                   # 开口前组织语言的过渡词（11-01 你说的）：每人分到 3 个，较长的话 25% 放在开头，最近 8 条用过就不放
+          pool: [怎么说呢, 就是, 不是我说, 算了吧, 可以啊, 嗯……, 那个, 等下, 害, 说起来, 你别说, 好吧, emmm, 讲道理]
+          each: 3
+          chance: 0.25
+          min_chars: 14
+    voice:                         # P5 表达：照人物卡「说话风格」说话（docs/MEMBER_ENGINE.md「说话风格」）；只用于生活群和私聊
+      enabled: true
+      budget_chars: 420            # 说话习惯段最多多少字（8 位相同；10-30 加了说话的样子：标点、笑法、短回复、颜文字）
+      samples: 2                   # 每次带几句她自己的示范（轮换着带，只学语气不照抄）
+      lengths: {短: 25, 中: 45, 长: 80}   # 人物卡写的句子长短 → 一条大约多少字以内
+      quiet_max: 2                 # 外向 ≤2 话少，≥4 话多，其余平常（借 dsh maid 的说话模式档位）
+      chatty_min: 4
+      modes:
+        quiet:  {label: 话少, max_segments: 2, gap_scale: 1.6, reply: 话少，群里没点到你、没什么非说不可的就不接；接也只一两句}
+        normal: {label: 平常, max_segments: 3, gap_scale: 1.0, reply: 有想法才接，别人说过的不重复}
+        chatty: {label: 话多, max_segments: 4, gap_scale: 0.7, reply: 爱接话，可以连发几条短的，但别抢别人的话、别重复}
+      sticker_habits: [不太爱发表情包，心情起伏大时才发一个, 常发表情包和颜文字，四五条里有一条，别连着发同一个, 爱发表情包和颜文字，两三条就有一条，每次挑不一样的]
+      check:                       # 说出口前自查：程序查，不花钱；查出问题才改写一次
+        enabled: true
+        repeat_similarity: 0.6     # 和自己最近 5 条太像
+        echo_similarity: 0.5       # 和别人这一轮说的太像（群里没点名时直接不发）
+        agree_patterns: ["^(说得对|说的对|确实|没错|对对|对啊|同意|太对了|是的是的|\\+1|附议|赞同|我也觉得|我也这么觉得|我也是这么想|有道理|我也是|我也|同上|一样)[，,！!。~～ ]*"]
+        memory_patterns: ["(上次|那次|之前|以前|上回)(我们|咱们|咱俩|我俩|你和我|跟你)", "记得你(上次|之前|以前)?(说过|讲过|提过)", "我们(一起|那时候)(去|吃|看|玩)过"]
+        monthly_usd: 0.05          # 改写每月最多花 $0.05（超了就发原文）
+    state:                         # 心情和精力（P3）：全由程序按事件算，快慢两层，会回到基线；模型不写情绪
+      mood: {fast_half_life_hours: 2, slow_half_life_hours: 48, slow_share: 0.2}
+      energy: {fast_half_life_hours: 1, slow_half_life_hours: 10, slow_share: 0.5, slow_cap: 0.5}
+      criticism_words: [这不对, 不对吧, 错了, 太差, 好差, 失望, 敷衍, 别瞎说, 胡说, 乱说, 不靠谱, 说错, 搞错, 笨, 烦人, 你怎么又]
+      praise_words: [谢谢, 厉害, 真棒, 好棒, 不错, 辛苦了, 说得好, 好聪明, 靠谱, 喜欢你, 太好了, 真好]
+      # 本能反射规则表（所有成员同一张；心情的改动再乘各自的情绪敏感度）。以后可以换成小网络，接口不变
+      reflexes:
+        - {name: 被点名, tags: [mentioned], mood: 0.03, act: reply_now, note: 刚被点名}
+        - {name: 你来私聊, tags: [from_user, dm], mood: 0.05, act: reply_now}
+        - {name: 深夜被叫醒, tags: [from_user], night: true, mood: -0.05, energy: -0.05, act: sleepy, note: 本来在睡，被叫醒了，很困}
+        - {name: 被批评, tags: [criticized], mood: -0.3, note: 刚被说了几句，心里有点不痛快}
+        - {name: 一起挨说, tags: [group_criticized], mood: -0.1}
+        - {name: 被夸, tags: [praised], mood: 0.2, act: flustered, note: 刚被夸了}
+        - {name: 盼着, tags: [anticipate], mood: 0.04}
+        - {name: 兑现, tags: [reward], mood: 0.12, note: 盼着的事成了}
+        - {name: 惊喜, tags: [surprise], mood: 0.22, note: 有件没想到的好事}
+        - {name: 落空, tags: [letdown], mood: -0.15, note: 盼着的事落空了，有点失落}
+        - {name: 共情难过, tags: [empathy_sad], mood: -0.1, note: 看到有人不太好，心里也跟着沉了一下}
+        - {name: 共情高兴, tags: [empathy_joy], mood: 0.08}
+        - {name: 说话, tags: [spoke], energy: -0.02}
+        - {name: 累了还在说, tags: [spoke], energy_below: 0.25, mood: -0.03, note: 有点累了}
+        - {name: 聚会, tags: [life.gather], mood: 0.03, energy: -0.03}
+        - {name: 两人聊天, tags: [life.pair], mood: 0.02, energy: -0.02}
+        - {name: 独处, tags: [life.solo], energy: 0.03}
+        - {name: 生活里的好事, tags: [story.good], mood: 0.06}
+        - {name: 生活里的糟心事, tags: [story.bad], mood: -0.06, note: 刚有件小事不太顺}
+        - {name: 不舒服, tags: [story.sick], mood: -0.05, energy: -0.12, note: 身体不太舒服}
+        - {name: 好多了, tags: [story.better], mood: 0.06, energy: 0.05}
+        - {name: 熬夜, tags: [story.late], energy: -0.08}
+        - {name: 犯困, tags: [story.tired], energy: -0.15, note: 昨晚没睡好，有点困}
+        - {name: 发现自己擅长, tags: [story.talent], mood: 0.12}
+        - {name: 卡住了, tags: [story.stuck], mood: -0.08, note: 最近有件事卡住了}
+        - {name: 想通了, tags: [story.unstuck], mood: 0.12}
+        - {name: 刚搬来, tags: [story.new], energy: -0.05}
+        - {name: 迎新, tags: [story.welcome], mood: 0.04}
+        - {name: 有人搬走, tags: [story.farewell], mood: -0.08, note: 楼里有人搬走了}
+        - {name: 干完活, tags: [work], mood: 0.02, energy: -0.08, note: 刚在办公室干完一件活}
+        - {name: 看到听到, tags: [perceive], mood: 0.02}
+      mood_labels: [[0.45, 心情很好], [0.15, 心情不错], [-0.15, 心情平常], [-0.45, 心情有点低落], [-2, 心情很差]]
+      energy_labels: [[0.7, 精神很好], [0.45, 精力还行], [0.25, 有点累], [0, 很困]]
+      line_format: "此刻（程序按经历算出的状态，自然地带出来，别直接念）：{mood}，{energy}{recent}"
+      context_chars: 80             # 状态那一行最多几个字，算在上面的 600 字里（8 位相同）
+    about:                         # 关于你（P8）：8 位共用的一份用户画像，只放事实 + 证据 + 把握度；只用于私聊和生活群
+      enabled: true
+      identity: 他是你们的老板（你在他的办公室上班），也是你住的这栋公寓的房东   # 你的初始身份（10-31 你定）；私聊和群聊每次都带
+      domains: [称呼与身份, 学业, 工作, 兴趣爱好, 口味, 作息, 聊天偏好, 计划, 其他]
+      clues_per_night: 3           # 每位成员夜间整理时顺带交最多 3 条线索（必须引你的原话，对不上就不记）
+      said_confidence: 0.9         # 你亲口说的：不变淡
+      inferred_confidence: 0.5     # 推测：起步 0.5，每多一条不同的证据 +0.15，最多 0.85；30 天没新证据淡一半
+      half_life_days: 30
+      faded_below: 0.25            # 淡到这以下聊天就不带了（画像页还看得到）
+      inject_max: 3                # 聊天时最多带 3 条、100 字内，只带和当前话题相关的
+      context_chars: 100
+      blocked:                     # 不推测这些：线索里出现这些词就不记（你自己在画像页写的不拦）
+        健康: [病, 医院, 吃药, 药物, 诊断, 抑郁, 焦虑症, 失眠症, 怀孕, 体重, 减肥, 心理咨询, 过敏, 手术, 残疾]
+        宗教: [宗教, 信教, 信仰, 基督, 佛教, 伊斯兰, 穆斯林, 教会, 寺庙, 礼拜, 道教, 天主]
+        政治: [政治, 政党, 党员, 投票, 选举, 政府, 抗议, 游行, 左派, 右派]
+        性取向: [性取向, 同性恋, 异性恋, 双性恋, 出柜, 酷儿, gay, lgbt]
+        经济: [工资, 收入, 存款, 欠款, 贷款, 负债, 没钱, 有钱, 穷, 零花钱, 花呗, 理财, 资产, 房租, 生活费, 信用卡]
+        行动轨迹: [住址, 地址, 定位, 位置, 行程, 路线, 酒店, 机场, 航班, 车站, 门牌, 宿舍号, 出门去, 回家路上]
+      # 第二块：你的状态（正在放的歌、电脑空闲、在玩游戏、课表 DDL、邮件栏）。每项默认关，在「关于你」里自己打开
+      status_chars: 80             # 聊天时「用户此刻」最多几个字（8 位相同）
+      idle_minutes: 10             # 电脑 10 分钟没人动算走开了
+      ddl_days: 7                  # 7 天内的 DDL 才提
+      games:                       # 程序文件名 → 游戏名；Steam / Epic 装的按游戏文件夹自动认，不用写
+        YuanShen.exe: 原神
+        GenshinImpact.exe: 原神
+        StarRail.exe: 崩坏：星穹铁道
+        ZenlessZoneZero.exe: 绝区零
+        League of Legends.exe: 英雄联盟
+        VALORANT-Win64-Shipping.exe: 无畏契约
+        Minecraft.Windows.exe: 我的世界
+    growth:                        # P6 成长：每周一用她自己的模型读上一周，最多改 3 条档案，每条要引用真实经历；程序把关
+      enabled: true
+      weekday: 1                   # 每周一反思上一周
+      min_days: 3                  # 上周至少 3 天有经历才反思，太少就跳过并记原因
+      max_changes: 3
+      core_monthly_steps: 1        # 五项性格分每月最多改一格
+      anchor_steps: 2              # 成长让一项性格一共最多离人物卡 2 格（半年快进发现：不然半年能把底子磨掉）
+      same_way: 0.4                # 已有 4 成成员往同一边变过这一项，别人先不跟（8 位不被一起推着走）
+      list_keep: 2                 # 长处、口头禅这些列表去掉一项后至少留 2 项（不会被删光）
+      min_distance: 2              # 8 人五项分两两至少差 2，免得撞型
+      user_share: 0.3              # 受你影响的改动最多三成
+      review: {enabled: true, min_score: 3, max_retries: 1}   # 另一位成员打分（不自评），最多重试 1 次
+      backups: 8                   # 每周本地备份留 8 份
+      habits: {min_count: 5, min_weeks: 3}   # 习惯：从全部经历累加，至少 5 次、跨 3 周才算
+      report: {enabled: true, keep: 24}       # 每月 1 号起写上个月的「这个月的我」（程序算，不花钱）
+      book:                        # 成长总账：设定、口癖、和你的阶段、对你的看法、收藏都排成一条时间线（只读汇总，不花钱）
+        enabled: true
+        keep: 200                  # 网页上最多列 200 条
+        recent_days: 14            # 「这阵子」= 最近两周
+        recent_max: 2              # 她自己知道的最近变化最多 2 件（0 = 不告诉她）
+        context_chars: 50          # 那一行最多 50 字（8 位相同，算在 600 字里）
+      reconcile: true              # 对账（成长 G2）：口头禅老歇着、学来的说法、养成的习惯和档案对不上时写进每周反思材料
+      plastic:                     # 发育期可塑性（成长 G2）：新来的变得快，待久了变得慢
+        enabled: true
+        young_days: 60             # 入职头 60 天照原规则
+        settled_changes: 2         # 之后每周最多改 2 条
+        settle_days: 60            # 性格分两次改动至少隔 60 天（好奇、外向的快一点，较真的慢一点）
+        min_gap_days: 30
+      vitals:                      # 防退化阈值（成长 G3）：半年快进（roundtable sim-growth）和加速模拟期末超过就算出问题、测试失败
+        overlap_max: 0.4           # 两位成员的长处 / 喜好最多重合四成
+        extreme_gain: 0.15         # 五项分在 1 或 5 的占比最多多一成五
+        push_max: 1.0              # 一项性格全员平均最多移动 1 格
+        moved_max: 4               # 一位成员五项分一共最多移动 4 格
+        share_slack: 0.05          # 受你影响的占比超过上限 5 个点才算
+        catchphrase_left: 0.3      # 能用的口头禅至少还有期初的三成
+        kaomoji_left: 2            # 颜文字至少还有 2 个
+        dupes_max: 0.1             # 本该合并却各记一条的记忆件最多一成
+    relation:                      # P4 关系：和你的阶段、同事之间的亲近度，全由程序按一起经历的事累积（不花钱）；只影响生活里谁和谁聊，不影响工作派活
+      enabled: true
+      half_life_days: 60           # 亲近度两个月不来往淡一半；阶段（新邻居 → 熟悉 → 老朋友）只升不降
+      reply_window_minutes: 30     # 你说话后 30 分钟内她接了才算一来一回（工作群不算）
+      user_daily_cap: 6            # 和你每天最多记 6 分：一天刷几百句也成不了老朋友
+      peer_daily_cap: 4
+      weights: {dm: 1.0, group: 0.5, gather: 1.0, pair: 2.0, chat: 0.3, work: 0.5}
+      stages:
+        - {name: 新邻居}
+        - {name: 熟悉, min_days: 3, min_exchanges: 15}
+        - {name: 老朋友, min_days: 20, min_exchanges: 150, min_weeks: 6}
+      pair_bias: 2.0               # 生活里挑谁和谁聊：权重 = 1 + 2 × 亲近度（生人也照样碰到）
+      context_chars: 60            # 「和你」那一行最多几个字（8 位相同，算在 600 字里）
+      insight:                     # 对你的见解：和成长同一天，每位按自己的性格读「关于你」和最近和你的私聊，在上周的看法上保留/加深/改观/放下，开头「我觉得」
+        enabled: true
+        depth:                     # 越熟说得越多越深（依次对应 新邻居 / 熟悉 / 老朋友）
+          - {views: 1, chars: 30, context: 60, hint: 刚认识，只说一句最有把握的，口气保守，像第一印象}
+          - {views: 3, chars: 40, context: 100, hint: 熟了，可以说你看出来的性格和习惯，口气自然}
+          - {views: 5, chars: 60, context: 200, hint: 老朋友了，可以说你摸清的言外之意和小习惯（比如 TA 说没事时其实是怎样），口气直一点}
+        moments_max: 12            # 最多带 12 段最近两周私聊里的原话（包括你对 TA 看法的反应）
+        moments_days: 14
+        estimate_usd: 0.002        # 每位每周一次，计入生活每天的上限
   watch:                           # 投屏陪伴（docs/WATCH.md）：你投屏，选 1～3 位陪你一起看
     enabled: true
     monthly_usd: 1.5               # 一起看每月最多花多少（不占聊天月预算）；用完只陪聊、不看画面
     max_watchers: 3
     grab_seconds: 3                # 多久截一张（只在内存里，不存盘）
-    describe_gap_seconds: 20       # 画面明显变了、且离上次至少这么久，才交给识图模型看一次
+    describe_gap_seconds: 15       # 画面明显变了、且离上次至少这么久，才交给识图模型看一次
     describes_per_hour: 90
-    react_gap_seconds: 90          # 没人说话时，同一位最多每 90 秒主动说一句
+    react_gap_seconds: 60          # 没人说话时，同一位最多每 60 秒主动说一句
+    room_gap_seconds: 25           # 没人说话时，大家最多每 25 秒有人主动开口
+    followup_chance: 0.6           # 一位说完，别人接话的几率（每多接一句减半），最多接 2 句
+    max_followups: 2
     max_minutes: 240               # 一次投屏最长 4 小时，到时自动停
   wander:                          # 成员自己上网（docs/WANDER.md）：在隔离浏览器里逛下面这些网站，第一期只看不互动
     enabled: true
@@ -123,10 +917,19 @@ chat:
   actions:                         # 聊天里能发什么（docs/CHAT.md「微信式动作」）；何时发、节奏归成员系统，这里是默认值
     enabled: true
     stickers:                      # 成员能用的表情包（名字与网页表情面板一致）
-      团子: [开心, 哭哭, 生气, 害羞, 震惊, 晚安, 比心, 疑惑, 点赞, 摸鱼, 冲鸭, 吃瓜, 流汗, 晕了, 收到, 奶茶]
-      猫猫: [喵, 蹭蹭, 委屈, 炸毛, 睡觉, 偷看, 得意, 饿了, 开心, 哈？, 贴贴, 躺平]
-      文字: [收到！, 好耶, 哈哈哈, 在吗, 晚安, 冲！, 谢谢, 绝了, 救命, "6", 离谱, 抱抱]
-    kaomoji: ["(＾▽＾)", "(๑•̀ㅂ•́)و✧", "(｡•́︿•̀｡)", "(￣▽￣)\"", "(╯°□°)╯", "(・∀・)", "_(:з」∠)_", "(｀・ω・´)", "(ﾉ>ω<)ﾉ", "(；´Д｀)", "ヽ(✿ﾟ▽ﾟ)ノ", "(⊙_⊙)？"]
+      # 小黄脸：谷歌 Noto 动态表情（CC BY 4.0）；早先的团子、猫猫只用来显示旧消息，不再给成员用
+      小黄脸: [笑哭, 笑翻, 哈哈, 微笑, 尴尬笑, 开心, 星星眼, 爱了, 抱抱, 偷笑, 嘘, 思考, 坏笑, 白眼, 无语, 叹气, 委屈, 感动, 难过, 大哭, 惊恐, 啊这, 生气, 哼, 哈欠, 馋, 晕了, 脑子炸了, 好耶, 酷, 吐了, 小丑, 笑死, 收到, 偷看, 化了, 点赞, 鼓掌, 比心, 拜托]
+      文字: [笑死, 绝了, 破防了, 蚌埠住了, 啊对对对, 好家伙, 我真的会谢, 尊嘟假嘟, 摆烂, 芭比Q了, 社死, "6", 救命, 离谱, 抱抱, 在吗]
+    kaomoji: ["(＾▽＾)", "(๑•̀ㅂ•́)و✧", "(｡•́︿•̀｡)", "(￣▽￣)ノ", "(╯°□°)╯", "(・∀・)", "_(:з」∠)_", "(｀・ω・´)", "(ﾉ>ω<)ﾉ", "(；´Д｀)", "ヽ(✿ﾟ▽ﾟ)ノ", "(⊙_⊙)？"]
+    emoji_images:                  # 网页里的 emoji 显示成苹果样式：用到哪个才下载到本机 data/emoji/（只自己用，不进仓库）；下载不到用系统字体
+      enabled: true
+      style: apple
+      url: https://cdn.jsdelivr.net/npm/emoji-datasource-apple@15.1.2/img/apple/64/{code}.png
+    sticker_packs:                 # 外部表情包（dsh-meme 格式）：装到本机 data/sticker_packs/，可给某位成员专用或通用；roundtable sticker-packs
+      enabled: true
+      menu_size: 10                # 提示词里每套最多列几张，按小时轮换
+      max_mb: 200
+      catalog_url: https://raw.githubusercontent.com/yyh-001/dsh-meme-packs/main/catalog.json
     max_segments: 3                # 一次回复最多拆成几条气泡
     segment_gap_seconds: 1.2       # 拆条之间停多久（默认值）
     recall_seconds: 120            # 你发出 2 分钟内可以撤回
@@ -149,11 +952,13 @@ plain_talk:
     chat, chat_dm, chat_work, life_chat, life_share, moment_post, moment_comment,
     answer, revise, work, work_analyze, work_research, work_write, work_review, rework, merge,
     accept_fix, clarify_answer, office_speak, office_decide, office_handle, office_fix, office_revise,
+    watch,
   ]
-  # 第 2 层：聊天、生活、朋友圈的发言发出前按规则表检查（不调用模型），查出问题才改写一次
+  # 第 2 层：聊天、生活、朋友圈、投屏陪伴的发言发出前按规则表检查（不调用模型），查出问题才改写一次；
+  # 一次回复拆成几条连发时合起来查
   check:
     enabled: true
-    min_chars: 12                  # 短于 12 个字的消息不查
+    min_chars: 8                   # 短于 8 个字的消息不查
     monthly_usd: 0.05              # 改写每月最多花 $0.05（超了就发原文）
     estimate_usd: 0.0005
     rules:
@@ -185,6 +990,73 @@ plain_talk:
           - "总而言之|综上所述|总的来说|一言以蔽之|归纳起来"
           - "希望(这些|以上|我的回答)?(内容)?对你有(所)?帮助|以上就是"
           - "值得我们(每个人)?(深思|思考|铭记)|意义深远|发人深省|引人深思|令人深思"
+      - name: mug
+        problem: 能印在马克杯上的话（脱离上下文也成立的金句、鸡汤、感悟、万能祝福）
+        kind: mug                  # 一句里空泛大词至少 2 个、又没有任何具体所指
+        min_hits: 2
+        max_chars: 40
+        patterns:
+          - "人生|生活|世界|时光|岁月|日子|时刻|时候|节奏|每个人|所有人|我们都|一切|自己|内心|心里"
+          - "真正的|最好的|最美的|终将|总会|总有|永远|从来|只要|就会|才能|值得|不必|何必|原来|反而|其实"
+          - "热爱|温柔|勇敢|坚持|成长|意义|美好|幸福|梦想|远方|平凡|平淡|努力|珍惜|治愈|答案|风景|力量|勇气"
+          - "慢慢来|都会好|也挺好|也很好|挺好的|真好|难得|奢侈|惬意|踏实|安心|享受|休息|放空|松弛|舒服"
+        concrete:
+          - "\\d|[A-Za-z]{2,}|《|“|\""
+          - "今天|昨天|明天|今晚|昨晚|刚才|刚刚|上次|下次|周[一二三四五六日天]|星期|早上|中午|下午|晚上"
+          - "[这那](个|部|次|家|首|本|篇|款|道|张|条|台|位|件|顿|局|集|段|句)"
+          - "你说|你那|你的|我那|我刚|我今天|我的|他的|她的|楼下|天台|食堂|办公室|健身房|代码|文件|报告"
+      - name: soft_epiphany
+        problem: 结尾补一句感悟（"反而挺好""也是种休息""挺治愈的"之类）
+        kind: ending
+        patterns:
+          - "(反而|原来|才发现|其实|突然觉得).{0,16}(好|舒服|踏实|松|难得|享受|治愈|解乏|幸福|平静|安心|自在)"
+          - "也是(一)?种(休息|幸福|享受|修行|浪漫|治愈|放松|收获|成长)"
+          - "(挺|很|真|太|最|多)(治愈|惬意|奢侈|难得|踏实|幸福|解压)(的|了|啊|呀|呢)?$"
+          - "(这种|那种|这样的|那样的).{0,14}(时候|时刻|日子|下午|上午|早晨|晚上|感觉|节奏|状态).{0,8}(挺好|最好|真好|也好|舒服|踏实|难得|享受|治愈|惬意)"
+          - "(好好|多)(享受|珍惜|放空)(吧|一下|一会儿)?$"
+          - "(这种|那种|这样|就这么|觉得).{0,20}(也|倒|反而)?(挺|很|蛮|还挺)(好|舒服|不错|平静|自在)(的|了|啊|呀|呢)?$"
+      - name: assistant_voice
+        problem: 客服腔或 AI 腔（"好问题""作为一个……""我理解你的感受""随时问我"）
+        kind: phrase
+        patterns:
+          - "^(好问题|这是个好问题|这个问题(问得)?(很|真|特别)?(好|有意思|有趣))"
+          - "作为一(个|名)(AI|人工智能|语言模型|助手)|我理解你的(感受|心情)|我能理解你的(感受|心情)"
+          - "(如果|若)(你)?还有(其他|任何|别的)?(问题|疑问|需要).{0,6}(随时|欢迎)|随时(找我|问我|告诉我)|有需要(随时)?(叫|喊|找)我"
+          - "非常(感谢|荣幸)|很高兴(能)?(为你|帮到你|和你)|乐意(为你)?效劳"
+      - name: model_joke
+        problem: 拿「蒸馏、训练数据、参数、算力」这类 AI 模型的说法说自己人（生活里大家就是普通人）
+        kind: phrase
+        patterns:
+          - "被蒸馏|蒸馏了|(把|给).{0,8}蒸馏|(我|你|她|他)(的|们的)(训练数据|参数量?|算力|上下文窗口|提示词)|我们这些(模型|AI)"
+          - "(你|我|她|他)(到底)?(什么时候|啥时候|哪天)(发布|上线|开源|出新版本|更新版本)"
+      - name: service_tone
+        problem: 客服腔（"谢谢你的分享""希望能帮到你""我会一直在这里""有什么事都可以跟我说"）：朋友之间不这么说，直接接话
+        kind: phrase
+        patterns:
+          - "(谢谢|感谢)(你的|你|您的)?分享|感谢(你的|您的)?(信任|耐心|理解|支持)"
+          - "希望(这些|这)?(能|可以|对你)(帮到你|有(所)?帮助)|很高兴(能)?(帮到|帮上)"
+          - "我(会|都)?一直(都)?(在这里|在这儿|在你身边)(的|哦|呢|呀|啊)?([，。！!~～…]|$)|随时都在(的|哦|呢)?([，。！!~～…]|$)"
+          - "有什么(事|需要|想说的|想聊的)?(都|也)?可以(随时)?(跟|和|找|告诉)我"
+          - "这是一个(很|非常|特别)?(好|有意思|有趣)的(问题|话题)"
+      - name: hedge_profile
+        problem: 被问怎么看对方时，先说「才聊几句、不太熟」再做一段性格分析（像心理咨询）
+        kind: phrase
+        patterns:
+          - "(才聊|才刚聊|聊得不多|聊得还不够|不太熟|不算太熟|还看不太出来|还说不上来|判断不了|下定论|下定义).{0,40}(感觉你|觉得你|你是那种|你是个|你挺|你应该|看得出你|看出来你)"
+          - "(感觉你|觉得你|你是那种|你是个|你挺|看得出你|是个挺).{2,40}(不过|但|其实).{0,12}(才刚聊|才聊|聊得不多|还看不太出来|还不太看得出来|不敢乱下结论|不好下结论)"
+      - name: memory_system
+        problem: 说起记性像在说系统（「没记到」「存进档案」「不能瞎猜」「数据里没有」「……的小计划」）：用平常人的说法，比如「想不起来了」「你说过吗」
+        kind: phrase
+        patterns:
+          - "(没|没有)(记到|存进|存到|记进|录入)|(存进|存到|记进|写进)(档案|记录|记忆|数据)|档案里(没|没有)|(数据|记录|记忆)里(没|没有|查不到)"
+          - "不能瞎猜|不敢瞎猜|不好瞎猜|不乱猜|不能乱猜"
+          - "有关的小计划"
+      - name: search_digest
+        problem: 像在念搜索结果（提「摘要」「搜索结果」、说「先存疑」「未核实」）：只说你在意的那一点，用平常聊天的口气
+        kind: phrase
+        patterns:
+          - "搜索摘要|搜索结果(里|上|说)|摘要(里|上)(都)?没(写|说|提)|只看(到|了)(标题|摘要)|(页面|这页)(只有|就是|是)摘要"
+          - "(这说法|这个说法|细节)?我?先存疑|有待核实|未核实|未经证实|没(细)?读原文|回头翻翻原文"
 
 # 单步预估 token 超过此值时询问用户
 token_threshold: 20000
@@ -254,22 +1126,87 @@ prompts:
   office_review: v1      # 办公室·项目：复核经理最终验收
   office_revise: v1      # 办公室·项目：主办经理按验收意见改一次
   office_handle: v2      # 办公室：员工办理（v2：带字画面用代码画、数字须核实）
-  watch: v1              # 投屏陪伴：成员陪用户看屏幕，吐槽、接话
+  watch: v2              # 投屏陪伴：成员陪用户看屏幕，吐槽、接话（v2：会接朋友的话、带说话风格和标题）
   wander: v1             # 成员自己上网：每看一页说一句感想、决定下一步（只看不互动）
-  describe_screen: v1    # 投屏陪伴：把一张截图写成给成员看的文字（隐私信息打码）
-  chat: v5               # 群聊：口语、短句（v2：人设与记忆；v3：人物卡随身卡，AI 身份平时不刻意提、被认真问如实承认；v4：表情包、颜文字、引用、分条、不接话；v5：知道现在几点和自己在干什么）
-  chat_dm: v5            # 私聊：和用户一对一（v2：人设与记忆；v3：人物卡随身卡；v4：表情包、颜文字、引用、分条；v5：知道现在几点）
-  chat_work: v3          # 工作群：聊工作，交办走办公室（v2：人设与记忆；v3：人物卡随身卡）
+  dsh_workbench: v1      # dsh 工作台助手的身份说明：中立、不带人格（接在 dsh 系统提示前面）
+  super_split: v1        # 超级电脑：把一件活拆成能并行的小活
+  super_work: v1         # 超级电脑：一位助手在共享工作文件夹里干一件小活
+  super_merge: v1        # 超级电脑：合并各件小活的成果并写交付说明
+  bench_plan: v8         # 工作台生成器：一句话拆成窗口、数据、操作（v8：每条要求标出自哪句原话、分段计划 stages 竖着切、建议池、不写标语；v7：选型十几项按 <design> 的项名给推荐、主色 accent、贴近参考素材；v6：设计选型（版型、材质、密度、圆角、字体气质）给推荐和理由、参考作品；v5：能自动检查的要求写 probe，程序打开成品真的去填、去点；v4：验收清单与底线、主视觉、联网数据、按用户条件现场生成；v3：几个窗口共用的用户数据 state、手机首屏；v2：共用信息 shared、窗口消息约定 events、必须用零件库、手机长度、不画简笔画）
+  bench_look: v1         # 工作台生成器：看用户拖进来的参考图和视频截帧（版型、配色、材质、风格、借鉴点）
+  bench_window: v6       # 工作台生成器：按规格用零件库写一个窗口（v6：分段做 <stage>、拿不准时的优先级；v5：本地示例素材包、不要 AI 味、按用途排版不套卡片；v4：验收清单与底线、主视觉、联网数据、按用户条件现场生成；v3：ctx.state 共用数据、不轮询、手机首屏、一个主按钮；v2：共用信息 shared、窗口消息约定 events、必须用零件库、手机长度、不画简笔画）
+  bench_review: v6       # 工作台生成器：看截图按商业标准打分（不评自己写的窗口）（v6：地基技能 <skills>；v5：AI 味扣分、编辑器做成卡片看板压分、素材打不开压分、用户意见优先；v4：验收清单与底线、主视觉、联网数据、按用户条件现场生成；v3：先核对上一轮问题、同样问题每轮扣一样多；v2：查共用信息和联动是否一致，质检压分只限出问题的窗口）
+  bench_rework: v6       # 工作台生成器：按评审和质检返工（v6：本段任务 <stage>、拿不准时的优先级；v5：本地示例素材包、不要 AI 味、用户意见优先照办；v4：验收清单与底线、主视觉、联网数据、按用户条件现场生成；v3：ctx.state、不轮询、手机首屏；v2：共用信息 shared、窗口消息约定 events、必须用零件库、手机长度、不画简笔画）
+  bench_ask: v1          # 工作台生成器：成品里的对话窗，按台的用途和数据回答
+  bench_research: v1     # 工作台生成器：开工前调研，给英文搜索词并联网查资讯、视频、发布会
+  bench_interview: v2    # 工作台生成器·项目室：开工前问用户几个关键问题（v2：意图理解——理想画像五要素、隐含期待、假设，标把握；最多 3 个取舍，带推荐项和后果；先看素材）
+  bench_skill_manager: v1     # 工作台地基技能·经理 / 项目统筹（短版：优先级、变更单优先、不倒退；长版：立项到交付的检查单）
+  bench_skill_intent: v1      # 工作台地基技能·意图拆解与分段规划
+  bench_skill_layout: v1      # 工作台地基技能·版型与界面设计（按用途定版型）
+  bench_skill_no_ai: v1       # 工作台地基技能·去 AI 味
+  bench_skill_assets: v1      # 工作台地基技能·素材与版权（本地素材优先、兜底、许可证）
+  bench_skill_testing: v1     # 工作台地基技能·测试验收（真打开真点、逐条验收）
+  bench_skill_report: v1      # 工作台地基技能·向甲方汇报（大白话、结论先行、带推荐的选项）
+  bench_skill_team: v1        # 工作台地基技能·多助手协作协议
+  bench_skill_visual_review: v1  # 工作台地基技能·视觉评审（先看截图再打分）
+  bench_skill_data: v1        # 工作台地基技能·数据接入与兜底
+  bench_skill_editor: v1      # 工作台地基技能·编辑器类（品类）
+  bench_skill_game: v1        # 工作台地基技能·游戏与模拟类（品类）
+  bench_skill_dashboard: v1   # 工作台地基技能·看板与数据类（品类）
+  bench_skill_ai_features: v1   # 工作台地基技能（第 6 批）
+  bench_skill_attack: v1   # 工作台地基技能（第 6 批）
+  bench_skill_audio: v1   # 工作台地基技能（第 6 批）
+  bench_skill_brand: v1   # 工作台地基技能（第 6 批）
+  bench_skill_chat_role: v1   # 工作台地基技能（第 6 批）
+  bench_skill_cjk_type: v1   # 工作台地基技能（第 6 批）
+  bench_skill_coding: v1   # 工作台地基技能（第 6 批）
+  bench_skill_commercial: v1   # 工作台地基技能（第 6 批）
+  bench_skill_content: v1   # 工作台地基技能（第 6 批）
+  bench_skill_education: v1   # 工作台地基技能（第 6 批）
+  bench_skill_estimate: v1   # 工作台地基技能（第 6 批）
+  bench_skill_handoff: v1   # 工作台地基技能（第 6 批）
+  bench_skill_interaction: v1   # 工作台地基技能（第 6 批）
+  bench_skill_interview: v1   # 工作台地基技能（第 6 批）
+  bench_skill_mobile: v1   # 工作台地基技能（第 6 批）
+  bench_skill_motion3d: v1   # 工作台地基技能（第 6 批）
+  bench_skill_onboarding: v1   # 工作台地基技能（第 6 批）
+  bench_skill_product: v1   # 工作台地基技能（第 6 批）
+  bench_skill_productivity: v1   # 工作台地基技能（第 6 批）
+  bench_skill_research: v1   # 工作台地基技能（第 6 批）
+  bench_skill_retro: v1   # 工作台地基技能（第 6 批）
+  bench_skill_security: v1   # 工作台地基技能（第 6 批）
+  bench_skill_sim: v1   # 工作台地基技能（第 6 批）
+  bench_skill_storage: v1   # 工作台地基技能（第 6 批）
+  bench_evolve: v1       # 工作台生成器·项目室：交付后按用户意见和新资料出下一版提案
+  bench_pitch: v1        # 工作台生成器·方案会：每位助手各提一份做法
+  bench_vote: v1         # 工作台生成器·方案会：看别人的方案投一票（不投自己），写要借的点
+  bench_attack: v1       # 工作台生成器·对抗手：专门找成品的毛病（边界、报错、坏输入、手机）
+  bench_learn: v1        # 工作台生成器：读一个高分开源项目的源码（只读），写学习卡
+  bench_ask_json: v1     # 工作台生成器：成品按用户自己的输入现场生成结构化内容（真实地点、参考价标日期来源、守用户条件）
+  sticker_draw: v1       # 成员专属表情包：画一张 Q 版贴纸的提示词
+  sticker_check: v2      # 成员专属表情包：先逐字抄出图上的字再核对配文和形象
+  sticker_anim: v1       # 成员专属动图表情：一次画 2×2 四格，切开连成会动的表情
+  moment_photo: v2       # 朋友圈配图：手机随手拍（v2：多数不露脸、拍小细节、去 AI 感）
+  moment_photo_tags: v1  # 朋友圈配图的标签版：吃标签的本地绘图模型（ComfyUI，image_prompt: tags）用
+  describe_screen: v2    # 投屏陪伴：把一张截图写成给成员看的文字（隐私信息打码；v2 带上一段，写出变化）
+  chat: v13              # 群聊：口语、短句（v2：人设与记忆；v3：人物卡随身卡，AI 身份平时不刻意提、被认真问如实承认；v4：表情包、颜文字、引用、分条、不接话；v5：知道现在几点和自己在干什么；v6：照人物卡说话风格，各人不同；v7：大脑分区的想法卡；v8：感情用做法流露、可偏爱和喜欢、挽留只一次）；v9：像发微信不像作答，先反应再吐槽、不复述不解释；v10：心情别直说（用表情包、颜文字、符号），被直接问先回答；v11：简单短词、会歪楼、招牌特色、表情包用得更勤；v12：做事不反复确认、不谈数据截止、不贴状态句、不说「用户」；v13：要动手的活写交办记号交给办公室、选项按钮
+  chat_dm: v13           # 私聊：和用户一对一（v2：人设与记忆；v3：人物卡随身卡；v4：表情包、颜文字、引用、分条；v5：知道现在几点；v6：照人物卡说话风格；v7：大脑分区的想法卡；v8：感情用做法流露、可偏爱和喜欢、挽留只一次）；v9：像发微信不像作答，先反应再吐槽、不复述不解释；v10：心情别直说（用表情包、颜文字、符号），被直接问先回答；v11：简单短词、会歪楼、招牌特色、表情包用得更勤；v12：做事不反复确认、不谈数据截止、不贴状态句、不说「用户」；v13：要动手的活写交办记号交给办公室、选项按钮
+  voice_rewrite: v1      # 说出口前自查·改写：重复自己、跟风、光附和、口头禅太勤、编造回忆时改一次（只用于生活群和私聊）
+  chat_work: v4          # 工作群：聊工作，交办走办公室（v2：人设与记忆；v3：人物卡随身卡；v4：危机关心 <care>）
   memory_day: v1         # 记忆：把一天的聊天压成一段
   memory_roll: v1        # 记忆：日 → 周、周 → 月
   memory_profile: v1     # 记忆：更新长期档案
   memory_items: v1       # 记忆（半衰期，night: false 时用）：一天的聊天拆成几件事，重要的标 ★
-  memory_night: v1       # 记忆（P2）：每晚一次调用整理一天，写第一人称日记 + 记忆件 + 挂着的事
+  memory_night: v2       # 记忆（P2）：每晚一次调用整理一天，写第一人称日记 + 记忆件 + 挂着的事（v2：顺带交关于用户的线索，P8）
   memory_diary: v1       # 记忆（P2）：翻日记工具的说明（生活模式的私聊、生活群）
   memory_diary_result: v1  # 记忆（P2）：把翻到的日记交回给成员
   member_eval: v1       # 成员评测集：情境题（规则判分，离线用假模型）
-  life_chat: v2          # 生活：成员之间聊天（公寓楼里的模拟生活）
-  life_share: v2         # 生活：成员把上网看到的一条内容分享到生活群
+  growth_reflect: v2    # P6 成长：每周读上一周的经历，最多提 3 条档案改动，含改写对一种情绪的理解（必须引用真实经历；只用于生活）
+  growth_review: v1     # P6 成长：另一位成员给改动打分（不自评）
+  relation_insight: v2  # P4 关系：每周按自己的性格读「关于你」和最近的相处，在上周的看法上保留/加深/改观/放下（v2：越熟越深、看你的反应；只用于生活）
+  life_chat: v7          # 生活：成员之间聊天（公寓楼里的模拟生活；v3：照人物卡说话风格，不跟风、不反复提同一件事；v4：大脑分区的想法卡、谁接话由显著性和驱力定；v5：感情用做法流露、同事之间的感情可以是真的；v7：简单短词、会歪楼、招牌特色、能发表情包）
+  meme_radar: v1         # 梗雷达：从热榜标题和搜索摘要里挑出最近真正在流行的网络梗，写成梗卡（梗、意思、上句 → 接法）
+  life_share: v6         # 生活：成员把上网看到的一条内容分享到生活群（v4：不提摘要、原文，不用「先存疑」收尾；v5：只说一件、更短，重点是自己的反应；v6：直接甩链接配几个字，不介绍内容）
   moment_post: v3        # 朋友圈：成员发一条动态（v3：转发卡片、表情包）
   moment_comment: v3     # 朋友圈：成员评论一条动态（或回复评论）（v3：表情包）
   evolution_card: v1     # 革新例会·自己找资料：一位成员把网页写成资料卡
@@ -289,8 +1226,8 @@ prompts:
   web_fetch: v1          # 借助聚合平台读取网页时发给读取用模型的指令
   perceive_fast: v1      # 感官·快速：把用户发的图片 / 视频画面 / 语音转写整理成简短的感知卡
   perceive_fine: v1      # 感官·精细：同上，写得更细，图里的字逐字抄下
-  plain_talk: v1         # 说话底线（去八股化）：接在 plain_talk.roles 的每次调用上，所有成员相同
-  plain_rewrite: v1      # 说话底线·改写：发言查出八股腔时成员自己用节电档改一次
+  plain_talk: v2         # 说话底线（去八股化）：接在 plain_talk.roles 的每次调用上，所有成员相同（v2：马克杯警戒线、AI 腔）
+  plain_rewrite: v2      # 说话底线·改写：发言查出问题时成员自己用节电档改一次（v2：一行一条气泡）
 
 # 每个步骤对所有模型统一使用的参数（中立：同一步骤参数相同；模型自身必需的参数在 models.yaml）
 step_params:
@@ -302,6 +1239,7 @@ step_params:
   #   评审、汇总、拆分、分配、自荐、风格校验等用低强度。
   answer: {max_tokens: 5000, reasoning: {max_tokens: 2000}}
   watch: {max_tokens: 1200, reasoning: {effort: low}}  # 投屏陪伴：一两句
+  memes: {max_tokens: 1500, reasoning: {effort: low}}  # 梗雷达：每天一次提炼梗卡
   wander: {max_tokens: 1200, reasoning: {effort: low}}  # 自己上网：每页一小段 JSON
   chat: {max_tokens: 1500, reasoning: {effort: low}}   # 群聊：一两句话，少想多说（思考会挤占输出，之前 500 上限时有人回复为空）
   review: {max_tokens: 3000, reasoning: {max_tokens: 800}}
@@ -742,6 +1680,15 @@ collab:
 # 没有 key 的渠道自动跳过。
 channel_mode: auto
 
+# 同一成员有几条渠道时先走哪条（只决定走哪条路，不影响谁上桌）：
+#   auto   —— 按每个模型 routes 的顺序
+#   custom —— 按 order 列出的渠道先后，没列出的排在后面
+# 两种方式下，models.yaml 里填了 monthly_credit_usd（每月附送额度）的渠道，本月按本机账本没用完时最先走，
+# 用完排到最后。「余额与用量」面板里可以改，改过的存本机设置，优先于这里。
+channel_priority:
+  strategy: auto
+  order: []
+
 request:
   timeout_s: 120
   failover_rounds: 2          # 所有渠道都失败后从头再试的轮数（含第一轮）
@@ -815,6 +1762,24 @@ media:
   monthly_usd: 5.0           # 创作输出（图片 / 语音 / 视频 / 音乐）每月合计上限；本月快超时先问你，0 = 不限
   speech: {voice: alloy, format: mp3, max_chars: 4000}
   music: {format: mp3, max_chars: 1500}   # 音乐：按「风格、情绪、乐器、时长、有无人声 / 歌词」描述生成一段，不评审
+  stickers:                  # 成员专属表情包（形象卡和表情清单在 personas.yaml 的 sticker_cards）
+    enabled: true
+    tier: budget             # 节电档带 image_edit 的绘图模型，按参考图画
+    prefer_tags: [zh, vision]  # 带这些标签越多越先试：中文配文写得准、看参考图更像（样张实测）
+    monthly_usd: 3.0         # 表情包单独的每月上限，同时算在上面的 monthly_usd 里
+    size: 360                # 存下来的边长（像素）
+    check: true              # 画完用最便宜的识图模型核对配文和形象
+    check_max_tokens: 1200   # 核对的输出上限（含思考；300 时会被思考全部用掉，正文为空）
+    max_attempts: 2          # 核对不合格时换一个模型重画一次
+    review: true             # 新画的先进「待审」，你点「可以」后成员才会用
+    frame_ms: 280            # 动图（personas 里写了 frames 的）每格停多久，毫秒
+  moment_photos:             # 朋友圈配图：照成员形象画一张随手拍（不用审；花费算在上面表情包的小上限里）
+    enabled: true
+    chance: 0.5              # 一条动态配图的概率
+    per_member_day: 1        # 每位成员每天最多 1 张
+    per_day: 3               # 所有成员每天最多 3 张（约 $0.08/天）
+    max_side: 1024
+    local_only: false        # true：只用本地绘图模型（ComfyUI），本地没开就只发文字，不退回付费模型
   video:
     audio: true              # 视频同时生成声音（环境声、对白；模型不支持时忽略）
     duration_s: 5
@@ -957,6 +1922,216 @@ perception:
   max_audio_s: 600           # 语音 / 视频声音最多转写多长（秒）
   native_max_mb: 20          # 整段视频交给模型的大小上限
   card_chars: 800            # 每张感知卡最多保留多少字
+
+dsh:                             # dsh 工作台（docs/DSH.md）：圆桌在本机管一个 dsh 进程当边车，dsh 插件在里面跑
+  enabled: true
+  autostart: false               # 圆桌启动时不顺带启动 dsh，用时在「工作台」里点启动
+  port: 3080                     # dsh 网页只监听本机 127.0.0.1
+  key_env: DEEPSEEK_API_KEY      # dsh 调模型用的 key（只放 .env；用户在官网充值，不经过 OpenRouter）
+  balance_url: https://api.deepseek.com/user/balance   # 查余额，用差值估算工作台花了多少
+  shared_channels: []            # 圆桌自己也用这个 key 的渠道名（models.yaml），这部分花费从差值里扣掉
+  monthly_usd: 3.0               # 工作台每月花费上限：超过就提醒并停掉 dsh（查余额有间隔，可能多花几毛）
+  balance_check_minutes: 5
+  usd_rates: {CNY: 7.2}          # 余额是人民币时按这个汇率折成美元
+  display_currency: CNY          # 工作台页面上花费、上限、余额按人民币显示（上限仍按 monthly_usd 算）
+  permission_mode: read-only     # dsh 默认只读；要让它改文件改成 workspace-write（只能改 data/dsh/work/）
+  job_permission_mode: workspace-write   # 超级电脑派给 dsh 的活：只能写那件活的共享工作文件夹
+
+# 超级电脑（docs/SUPERCOMPUTER.md）：几位编程助手平级、没有固定主管，只在你交活时干活。
+# 派活只看下面的数字：分数 = 擅长 × skill + 今天剩余次数比例 × quota − 手上的活 × busy；
+# 拆分（split）和合并（merge）也按分数挑人。撞到订阅限额的歇 cooldown_minutes 分钟，活换给下一位。
+# 每天次数（daily_limit）在「工作台 → 超级电脑」里也能改。任务正文从标准输入交给命令行，不放进参数。
+supercomputer:
+  enabled: true
+  kinds: [code, frontend, test, docs, research, review, vision]   # vision：看图（工作台的素材）；不会看图的助手不写这一项
+  max_subtasks: 6
+  weights: {skill: 0.6, quota: 0.3, busy: 0.2}
+  workers:
+    - id: dsh
+      label: dsh
+      via: dsh                   # 用圆桌的 dsh 工作台（headless 方式），花费计入 dsh.monthly_usd
+      skills: {research: 0.85, docs: 0.7, code: 0.6, test: 0.55, review: 0.6, frontend: 0.5, split: 0.6, merge: 0.6}
+      daily_limit: 20
+      max_parallel: 2
+    - id: codex
+      label: Codex
+      argv: [codex, exec, --skip-git-repo-check, --sandbox, workspace-write, "-"]
+      skills: {code: 0.9, test: 0.85, review: 0.75, frontend: 0.7, docs: 0.6, research: 0.5, split: 0.7, merge: 0.7, vision: 0.7}
+      daily_limit: 20
+    - id: claude
+      label: Claude Code
+      argv: [claude, -p, --permission-mode, acceptEdits, --output-format, text]
+      skills: {code: 0.85, frontend: 0.85, review: 0.9, docs: 0.85, test: 0.75, research: 0.6, split: 0.85, merge: 0.85, vision: 0.9}
+      daily_limit: 20
+
+# 工作台生成器（docs/KIT.md）：一句话 → 拆需求 → 按零件库拼窗口 → 自动质检 + 截图评审 → 返工。
+# 活交给上面的超级电脑（花的是订阅次数）；评审永远不分给窗口的作者本人；做满 max_rounds 轮还不过线就停下来问你。
+bench:
+  enabled: true
+  max_windows: 8
+  max_rounds: 3
+  pass_avg: 8.0      # 评审各项平均分过线
+  pass_min: 6.0      # 每一项都不能低于它
+  plan_kind: split
+  window_kind: frontend
+  review_kind: review
+  ask_kind: research   # 成品里的对话窗：问题交给谁答（走订阅次数）
+  ask_max_chars: 1000
+  rubric: [视觉层次, 信息密度, 一致性, 交互完整, 空状态与边界, 文案, 商业感]
+  # 底线标准：来自用户给的参考资料（DSH 工作台的 7 个成品），每个台都要做到，评审逐条判；改这里就改标准
+  baseline:
+    - 按用途排版：编辑器、修图、建模类用「画布居中 + 工具栏 + 属性面板」，浏览类用「主视觉 + 列表 + 详情」；主视觉用真实地图、3D、图纸、照片这类真素材
+    - 不让助手自己用几何图形画插图、示意图；地图、图片、模型用现成的真素材，找不到就用图标和文字
+    - 点一下能联动：点列表里的一项，主视觉定位或高亮，详情跟着换
+    - 像成熟产品：有自己的主色，一眼看得出是什么产品；不写口号标语，不给每块都套带标题的卡片，不是通用后台
+    - 不要 AI 味：不用表情符号当图标，不写「赋能」「一站式」「开启…之旅」这类空话，文案短而具体
+    - 示例图片、视频、模型都能显示：先用本地素材包，在线素材有兜底，不出现「打不开」「加载失败」
+    - 数据有真实来源；需要时效的信息联网获取，联不上时标明「参考」和日期
+    - 能按用户自己的情况用：换成自己的输入（目的地、日期、人数、场景等），内容跟着变，不是一份写死的样品
+    - 手机上能顺手用：首屏先给最重要的内容，按钮够大，不横向溢出
+  max_requirements: 12
+  # 成品能联网取的公开数据（2026-10-30 用户批：只用免费、公开、不要 key 的）。会把地名、经纬度发给这些网站。
+  # 删掉一项，成品就取不到那项，沙箱也会拦下它；全删掉 = 成品完全离线
+  net:
+    - name: tiles
+      use: 真实地图底图（瓦片图），地图零件 mapFrame 会自动用上
+      url: https://tile.openstreetmap.org/{z}/{x}/{y}.png
+      source: © OpenStreetMap 贡献者
+      kind: tiles
+      ttl_min: 0
+    - name: geocode
+      use: 地名查经纬度，参数 q（地名）
+      url: https://geocoding-api.open-meteo.com/v1/search?name={q}&count=5&language=zh&format=json
+      source: Open-Meteo
+      ttl_min: 10080
+    - name: weather
+      use: 未来 7 天每日天气（天气代码、最高最低温、降水概率），参数 lat、lng
+      url: https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lng}&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max&timezone=auto
+      source: Open-Meteo
+      ttl_min: 60
+    - name: fx
+      use: 汇率（欧洲央行每日参考价），参数 from、to（货币代码，如 CNY、JPY）
+      url: https://api.frankfurter.dev/v1/latest?base={from}&symbols={to}
+      source: 欧洲央行（Frankfurter）
+      ttl_min: 720
+    - name: wiki
+      use: 地点、景点的简介和配图（维基百科摘要，返回 extract、thumbnail.source），参数 q（词条名）
+      url: https://zh.wikipedia.org/api/rest_v1/page/summary/{q}
+      source: 维基百科
+      also: [https://upload.wikimedia.org/]
+      ttl_min: 10080
+  scout: true       # 找插件：按拆需求写下的缺口去 dsh 插件集市和 GitHub 找（用户 10-29 拍板「全自动，事后看清单」）
+  min_stars: 100    # GitHub 星数够这个、许可证宽松才直接搬；不够只借思路
+  max_repo_mb: 20   # 仓库太大只借思路
+  max_adopt: 3      # 一个工作台最多搬几个
+  # 开工前调研（2026-10-30 用户要求）：GitHub 至少 10 个高质量相关项目 + 论文 + 资讯和视频，
+  # 分最高的几个项目源码只读下载（不运行），交给助手写学习卡；学习卡每张花一次订阅次数
+  research:
+    enabled: true
+    kind: research
+    min_github: 10
+    max_github: 15
+    papers: 6
+    news: 8
+    learn: 3
+    learn_plugins: 1   # 另给 dsh 插件集市里最对口的 1 个插件写学习卡
+  # 项目室（2026-10-30 用户批）：你是甲方，助手是乙方。访谈 → 调研 → 方案书（你签字）→ 里程碑演示（通过或提变更单）
+  # → 交付验收 → 下一版提案。停在关口等你时不花次数。立项签字和交付验收永远等你；里程碑可以设几小时不回算通过
+  project:
+    enabled: true
+    interview: true
+    max_questions: 3       # 意图理解只问会改结构的取舍，每问带推荐项（不答就按推荐）
+    max_stages: 4          # 分段做：每段都能从头走通，段与段之间演示给你试
+    gate_auto_hours: 0
+  # 三位助手协作（2026-10-30 用户批）：方案会各提方案、互投（不投自己），得票最多的当主案；
+  # 每轮评审后派一位对抗手专门找毛病（尽量不是作者），严重问题不修完不算过线
+  team:
+    enabled: true
+    pitches: 3
+    vote: true
+    pitch_kind: split
+    attack: true
+    attack_kind: review
+    block_high: true
+  # 拖进来的素材（图片、视频截帧）：开工前请能看图的助手（超级电脑里写了 vision 的）看一遍出分析，写进方案
+  materials:
+    enabled: true
+    look: true
+    look_kind: vision
+    max_look: 8
+    max_files: 16
+    max_image_mb: 15
+    max_video_mb: 200
+  # 地基技能（2026-10-31 工作台大更新第 4 批）：生成任何工作台之前都要会的「做事方法」，不对应具体项目。
+  # 每个技能一份带版本的提示词 prompts/bench_skill_<名字>/：短版常驻、长版只在用得上的那一步给（省上下文）。
+  # 拿不准时的优先级写在「经理」里：用户原话 > 理想画像 > 经理和品牌、版型 > 其他技能 > 机器评审。
+  skills:
+    enabled: true
+    steps:
+      interview: {short: [manager, report], long: [intent, interview]}
+      plan: {short: [manager, no_ai, assets, data, estimate, security, commercial], long: [intent, layout, brand, research]}
+      window: {short: [manager, intent, layout, team, testing, brand, interaction, mobile, cjk_type, storage, security, ai_features, onboarding, coding], long: [no_ai, assets, data]}
+      rework: {short: [manager, team, assets, data, testing, layout, coding, mobile, cjk_type], long: [no_ai, retro]}
+      review: {short: [manager, no_ai, layout, interaction, mobile, cjk_type, commercial, handoff], long: [visual_review, testing, attack]}
+    # 拆需求时判断的工作台类型 → 写窗口、返工、评审时加上的品类技能（长版）。没有对得上的就是 other
+    kinds:
+      editor: {label: 编辑器类（修图、视频剪辑、画图、排版）, skills: [editor]}
+      motion3d: {label: 3D 与动画类（3D 展示和建模、动画、Live2D、动图）, skills: [editor, motion3d]}
+      game: {label: 游戏类（麻将、跑团、剧本杀、桌游、小游戏）, skills: [game]}
+      sim: {label: 模拟经营与金融模拟（模拟炒股、模拟经营）, skills: [game, sim]}
+      dashboard: {label: 看板与数据类（旅行、生活和工作日常、数据看板）, skills: [dashboard]}
+      productivity: {label: 效率工具类（表单、清单、日程、记账）, skills: [productivity, storage]}
+      content: {label: 内容创作类（写作、海报、视频脚本）, skills: [content]}
+      education: {label: 学习教育类（题库、闪卡、背单词）, skills: [education]}
+      audio: {label: 音频音乐类（编曲、音效、播放器）, skills: [audio]}
+      chat: {label: 聊天与角色类（角色陪练、客服、Live2D 角色）, skills: [chat_role]}
+      other: {label: 都不像（按通用技能做）, skills: []}
+    # 从成品反推（第 6 批）：你拖进一个成品、要能做出类似东西的台时，每一步都加这些（长版）
+    product: [product]
+    # 技能里能机器查的规则：质检会自动查这些（名字要和质检里的一致，测试核对）
+    checks:
+      no_ai: [表情符号当图标, 空话]
+      assets: [素材打不开, 图片打不开, 图片没有说明]
+      testing: [页面报错, 点了报错, 横向溢出, 按钮没有名字, 图表空白, 验收自动检查没过, 倒退]
+      data: [数据文件看不懂, 坏字]
+      layout: [窗口太长, 手机上按钮太小]
+      mobile: [手机上按钮太小, 横向溢出]
+      security: [页面报错]
+  # 资料台（2026-10-31 工作台大更新第 5 批）：工作台底部抽屉「资料」。全部免费、不要 key、只读 GET。
+  # GitHub 榜单每类前 10（总榜按星数、新星只看最近 30 天新建的），每日论文和订阅，能力地图
+  # （config/bench_capabilities.yaml，刷新时核实星数和许可证），每周按关注主题出建议卡（你点「加进地图」才加）
+  desk:
+    enabled: true
+    refresh_hours: 24
+    top: 10
+    rising_days: 30
+    github_gap_s: 7
+    topics: [3d rendering, animation, live2d, image editing, game engine, gaussian splatting]
+    categories:
+      - {id: 3d, label: 3D 建模与渲染, query: topic:3d topic:webgl, kinds: [motion3d]}
+      - {id: animation, label: 动画与动效, query: topic:animation topic:javascript, kinds: [motion3d]}
+      - {id: live2d, label: Live2D 与虚拟形象, query: "live2d in:name,description,topics", kinds: [motion3d, chat]}
+      - {id: image, label: 修图与图像处理, query: topic:image-processing, kinds: [editor]}
+      - {id: game, label: 游戏引擎与模拟, query: topic:game-engine, kinds: [game, sim]}
+      - {id: agent, label: AI 智能体, query: topic:ai-agents}
+      - {id: local-llm, label: 大模型本地运行, query: topic:llm-inference}
+      - {id: ui, label: 前端界面组件, query: topic:ui-components topic:javascript, kinds: [dashboard]}
+      - {id: dataviz, label: 数据可视化, query: topic:data-visualization, kinds: [dashboard]}
+      - {id: media, label: 音视频处理, query: topic:video-processing, kinds: [editor, content]}
+    feeds:
+      - {name: Hacker News 首页, url: "https://hnrss.org/frontpage", kind: news}
+      - {name: three.js 发布, url: "https://github.com/mrdoob/three.js/releases.atom", kind: news}
+      - {name: Godot 新闻, url: "https://godotengine.org/rss.xml", kind: news}
+      - {name: Blender 开发者博客, url: "https://code.blender.org/feed/", kind: news}
+
+# 整库备份（docs/BACKUP.md）：成员的记忆、关系、日记、成长、聊天记录都在一个数据库文件里。
+# 每天第一次开着时备份一份到数据库旁边的 db_backups/，另有存档点（更新前、恢复前自动存，也能手动存）；
+# 网页顶栏「备份」或 roundtable backup 一键恢复。不联网、不花钱。
+backup:
+  enabled: true
+  keep_daily: 14        # 每天的备份留 14 份（两周）
+  keep_checkpoints: 10  # 存档点留 10 份
+  check_minutes: 60     # 开着时每小时看一眼今天备份了没
 
 # 日历底座（docs/CALENDAR.md）：只算「今天是什么日子」，每天发事件给成员系统（怎么过节由生活引擎决定）。
 # 全部离线计算：法定假日用开源库 holidays，农历和节气查预先算好的表；不调模型、不联网、不花钱。

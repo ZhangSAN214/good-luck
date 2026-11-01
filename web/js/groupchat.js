@@ -7,6 +7,7 @@
 // 成员一次回复可能拆成几条气泡陆续出现；私聊顶部显示「对方正在输入…」。
 
 import { tzOpt } from './hometz.js';
+import { choicesHTML, enhance, filesHTML, handoffHTML, workCardHTML } from './workcard.js';
 import { MediaComposer, bindMedia, cardHTML, mediaHTML, richText, soloSticker, stickerSVG, visibleText } from './chatmedia.js';
 
 const esc = (s) =>
@@ -128,6 +129,8 @@ export class GroupChat {
           <div class="gc-quotebar" id="gc-quotebar" hidden></div>
           <div id="gc-tools"></div>
           <div id="gc-tray" hidden></div>
+          <div class="gc-filebar" id="gc-filebar" hidden></div>
+          <input type="file" id="gc-file-input" multiple hidden>
           <textarea id="chat-input" rows="2" maxlength="2000" placeholder="说点什么：Enter 发送，Shift+Enter 换行；输入 @ 点名" aria-label="聊天消息"></textarea>
           <button class="btn" type="button" id="gc-handoff" hidden title="把输入框里的事按办公室模式交办（经理分诊派活），进度会发到工作群">交给办公室</button>
           <button class="btn primary" type="submit" id="gc-send">发送</button>
@@ -207,6 +210,23 @@ export class GroupChat {
       if (open && this.openSession) this.openSession(open.dataset.session);
       const look = e.target.closest('[data-look]');
       if (look) this.lookCloser(Number(look.dataset.look), look);
+      const go = e.target.closest('[data-handoff-start]');
+      if (go) this.handoffCard(Number(go.dataset.handoffStart), 'start', go);
+      const no = e.target.closest('[data-handoff-dismiss]');
+      if (no) this.handoffCard(Number(no.dataset.handoffDismiss), 'dismiss', no);
+      const pick = e.target.closest('[data-choice]');
+      if (pick && !this.sending) {
+        pick.closest('.wc-choices')?.querySelectorAll('button').forEach((b) => (b.disabled = true));
+        this.send({ text: pick.dataset.choice, media: [] });
+      }
+    });
+    this.$('#gc-file-input').addEventListener('change', (e) => this.addFiles(e.target));
+    this.$('#gc-filebar').addEventListener('click', (e) => {
+      const x = e.target.closest('[data-unfile]');
+      if (x) {
+        this.files = (this.files || []).filter((f) => f.id !== x.dataset.unfile);
+        this.renderFiles();
+      }
     });
     this.$('#gc-handoff').addEventListener('click', () => this.handoff());
     this.$('#gc-people').hidden = !this.openPeople;
@@ -234,6 +254,18 @@ export class GroupChat {
         this.renderError();
       },
     });
+    if (this.api.upload) {
+      // 「文件」：表格、文档、压缩包……成员只看到文件名；交给办公室时作为附件一起交过去
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'cm-tool';
+      btn.id = 'gc-file';
+      btn.title = '文件（成员只看到文件名，交给办公室时一起交过去）';
+      btn.innerHTML = '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5 12.5 20a5 5 0 0 1-7-7L14 4.5a3.5 3.5 0 0 1 5 5L10.5 18a2 2 0 0 1-3-3L15 7.5"/></svg><span>文件</span>';
+      btn.addEventListener('click', () => this.$('#gc-file-input').click());
+      const panel = this.$('#gc-tools').querySelector('.cm-panel');
+      this.$('#gc-tools').insertBefore(btn, panel || null);
+    }
     bindMedia(this.$('#gc-feed'));
     this.renderAll();
   }
@@ -347,7 +379,8 @@ export class GroupChat {
     const input = this.$('#chat-input');
     const text = direct ? direct.text : input.value.trim();
     const media = direct ? direct.media : this.composer?.ready() || [];
-    if ((!text && !media.length) || this.sending) return;
+    const files = direct ? [] : (this.files || []).map((f) => f.id);
+    if ((!text && !media.length && !files.length) || this.sending) return;
     if (!direct && this.composer?.busy()) {
       this.error = '附件还在上传，稍等一下';
       return this.renderError();
@@ -356,7 +389,7 @@ export class GroupChat {
     this.$('#gc-send').disabled = true;
     try {
       const quote = this.quote?.id ?? null;
-      const res = await this.api.post(text, this.room, media, quote);
+      const res = files.length ? await this.api.post(text, this.room, media, quote, files) : await this.api.post(text, this.room, media, quote);
       this.setQuote(null);
       if (res && res.look) this.watchSeen = { id: res.id, mode: res.look, until: this.now() + 60_000 };
       // 排队等着回应的人：收到 TA 的消息（或系统说明 TA 为什么没回）后划掉
@@ -364,6 +397,8 @@ export class GroupChat {
       if (!direct) {
         input.value = '';
         this.composer?.clear();
+        this.files = [];
+        this.renderFiles();
       }
       this.closeSuggest();
       this.fastUntil = this.now() + FAST_FOR_MS;
@@ -689,6 +724,72 @@ export class GroupChat {
     return `<span class="gc-av ini" style="background:${esc(color)}">${esc((name || '?').slice(0, 1))}</span>`;
   }
 
+  /** 选项按钮只在你还没接话时显示（之后你说过话就收起）。 */
+  lastOf(msg) {
+    const i = this.messages.indexOf(msg);
+    return i >= 0 && !this.messages.slice(i + 1).some((x) => x.author === 'user');
+  }
+
+  /** 成员挂的「交给办公室」卡片：开工 / 先不用；改完整页重拉（卡片状态在原消息上）。 */
+  async handoffCard(id, act, btn) {
+    if (!id || btn.disabled) return;
+    btn.closest('.wc-acts')?.querySelectorAll('button').forEach((b) => (b.disabled = true));
+    try {
+      await (act === 'start' ? this.api.handoffStart(id, this.room) : this.api.handoffDismiss(id, this.room));
+      this.error = '';
+    } catch (e) {
+      this.error = e.message || '没交出去';
+      btn.closest('.wc-acts')?.querySelectorAll('button').forEach((b) => (b.disabled = false));
+    }
+    await this.reload();
+    this.renderError();
+  }
+
+  async reload() {
+    const room = this.room;
+    try {
+      const all = await this.api.get(0, '', room);
+      if (room !== this.room) return;
+      this.messages = all.messages || [];
+      this.lastId = this.messages.length ? this.messages[this.messages.length - 1].id : 0;
+      this.renderAll();
+    } catch {
+      /* 下次轮询再说 */
+    }
+  }
+
+  /** 「文件」按钮：先传上去，发消息时一起带上（成员只看到文件名，交给办公室时作为附件）。 */
+  async addFiles(input) {
+    const picked = [...(input.files || [])];
+    input.value = '';
+    if (!picked.length || !this.api.upload) return;
+    this.files ||= [];
+    for (const f of picked) {
+      if (this.files.length >= 5) {
+        this.error = '一次最多带 5 个文件';
+        break;
+      }
+      try {
+        const up = await this.api.upload(f);
+        this.files.push({ id: up.id, name: up.name || f.name, size: up.size ?? f.size });
+        this.error = '';
+      } catch (e) {
+        this.error = e.message || '上传失败';
+      }
+      this.renderFiles();
+    }
+    this.renderError();
+    this.syncSend();
+  }
+
+  renderFiles() {
+    const bar = this.$('#gc-filebar');
+    if (!bar) return;
+    const list = this.files || [];
+    bar.hidden = !list.length;
+    bar.innerHTML = list.map((f) => `<span class="wc-file"><b>${esc(f.name)}</b><button type="button" class="link" data-unfile="${esc(f.id)}" aria-label="不带这个文件">×</button></span>`).join('');
+  }
+
   /** prev：上一条消息。同一个人三分钟内连续发言时不再重复头像和名字。 */
   bubble(msg, prev) {
     const sid = msg.meta?.session_id;
@@ -697,15 +798,21 @@ export class GroupChat {
     if (msg.meta?.recalled) return `<div class="gc-sys recalled" data-id="${msg.id}"><span>${msg.author === 'user' ? '你' : esc(msg.name)}撤回了一条消息</span></div>`;
     const at = new Date(msg.created_at);
     const time = at.toLocaleTimeString('zh-CN', tzOpt({ hour: '2-digit', minute: '2-digit', hour12: false }));
-    const shown = visibleText(msg.text, msg.meta);
+    const m = msg.meta || {};
+    const extra = m.work_card || m.handoff || m.choices?.length;
+    let shown = m.auto_text && extra ? '' : visibleText(msg.text, msg.meta);
+    if (m.files?.length) shown = shown.replace(/\[文件 [^\]\n]*\]/g, '').trim();
     const solo = !msg.meta?.media?.length && !msg.meta?.card && soloSticker(msg.text);
     const media = mediaHTML(msg.meta?.media, { group: `m${msg.id}`, mine: msg.author === 'user' });
     const words = shown ? `<div class="gc-words">${richText(shown, { mentions: true })}</div>` : '';
-    const card = cardHTML(msg.meta?.card);
+    const canOpen = Boolean(this.openSession);
+    const shareCard = cardHTML(msg.meta?.card);
+    const card = shareCard + workCardHTML(m.work_card, canOpen) + filesHTML(m.files);
+    const after = handoffHTML(m.handoff, msg.id, canOpen) + (msg === this.messages[this.messages.length - 1] || this.lastOf(msg) ? choicesHTML(m.choices) : '');
     const fwd = msg.meta?.forwarded ? '<small class="gc-fwd">转发</small>' : '';
     const text = solo ? stickerSVG(solo.pack, solo.name, { big: true }) : `${fwd}${words}${media}${card}`;
     const stkOnly = msg.meta?.media?.length && msg.meta.media.every((m) => m.sticker) && !shown;
-    const kindCls = solo || stkOnly ? ' stk-only' : msg.meta?.media?.length ? (shown ? ' has-media' : ' media-only') : card && !shown ? ' card-only' : '';
+    const kindCls = solo || stkOnly ? ' stk-only' : msg.meta?.media?.length ? (shown ? ' has-media' : ' media-only') : shareCard && !shown && !m.work_card && !m.files?.length ? ' card-only' : '';
     const follow = prev && prev.author === msg.author && at - new Date(prev.created_at) < 180000;
     const cls = `gc-msg${msg.author === 'user' ? ' me' : ''}${follow ? ' follow' : ''}`;
     const stamp = `<time datetime="${esc(msg.created_at)}">${esc(time)}</time>`;
@@ -715,7 +822,7 @@ export class GroupChat {
     if (msg.author === 'user') return `<div class="${cls}" data-id="${msg.id}"><div class="gc-body"><div class="gc-meta">${tag}${seen}${stamp}</div><div class="gc-bub${kindCls}">${text}</div>${quote}</div></div>`;
     const member = this.members.find((m) => m.id === msg.author);
     const away = msg.meta?.offline ? '<span class="gc-tag away" title="你不在的时候发生的">你不在时</span>' : '';
-    return `<div class="${cls}" data-id="${msg.id}" data-author="${esc(msg.author)}">${this.avatar(member, msg.name)}<div class="gc-body"><div class="gc-meta"><span class="gc-name">${esc(msg.name)}</span>${away}${stamp}</div><div class="gc-bub${kindCls}">${text}${card ? '' : this.source(msg.meta?.share)}</div>${quote}</div></div>`;
+    return `<div class="${cls}" data-id="${msg.id}" data-author="${esc(msg.author)}">${this.avatar(member, msg.name)}<div class="gc-body"><div class="gc-meta"><span class="gc-name">${esc(msg.name)}</span>${away}${stamp}</div><div class="gc-bub${kindCls}${m.work_card ? ' work' : ''}">${text}${card ? '' : this.source(msg.meta?.share)}</div>${after}${quote}</div></div>`;
   }
 
   /** 微信式引用框：放在气泡下面，灰底一行「名字：开头一段」；原消息已撤回时说明。点击跳到原消息。 */
@@ -767,19 +874,25 @@ export class GroupChat {
     const feed = this.$('#gc-feed');
     if (this.search) {
       const r = this.search.results;
+      this.feedHTML = null;
       feed.innerHTML = `<div class="gc-sys">搜索「${esc(this.search.q)}」：${r.length} 条 <button type="button" class="link" id="gc-exit-search">返回聊天</button></div>${r.map((m) => this.bubble(m)).join('')}`;
       return;
     }
     const near = feed.scrollHeight - feed.scrollTop - feed.clientHeight < 80;
-    feed.innerHTML = this.messages.length
+    const html = this.messages.length
       ? this.messages.map((m, i) => this.bubble(m, this.messages[i - 1])).join('')
       : this.kind() === 'pair'
         ? '<div class="gc-empty"><b>还没有消息</b><p>成员私下聊过的话会出现在这里。</p></div>'
         : this.isDm()
         ? '<div class="gc-empty"><b>还没有消息</b><p>打个招呼吧。对方是 AI，被问到时会直说；只在你发消息后回复。</p></div>'
         : '<div class="gc-empty"><b>还没有消息</b><p>打个招呼，或者写「大家自我介绍一下」。成员都是 AI，被问到时会直说。</p></div>';
+    // 内容没变就不重写：重写会让正点着的按钮失效、展开的卡片收回去、画好的图重画
+    if (html === this.feedHTML && feed.childElementCount) return;
+    this.feedHTML = html;
+    feed.innerHTML = html;
     if (near || this.stick !== false) feed.scrollTop = feed.scrollHeight;
     this.stick = near;
+    enhance(feed);
   }
 
   kind(id = null) {
