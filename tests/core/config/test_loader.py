@@ -50,6 +50,7 @@ def test_repo_config_loads_with_defaults():
         "sticker_check",
         "sticker_anim",
         "moment_photo",
+        "moment_photo_tags",
         "planner",
         "panel",
         "ideate",
@@ -226,8 +227,11 @@ def test_repo_config_has_both_channel_kinds():
     cfg = load_config()
     kinds = {c.kind for c in cfg.models.channels.values()}
     assert {"aggregator", "direct"} <= kinds
-    # 每个模型都至少能经由 OpenRouter 调用
+    # 每个模型都至少能经由 OpenRouter 调用（只在本机跑的本地模型除外，如 ComfyUI 出图）
     for m in cfg.models.models:
+        if all(cfg.models.channels[r.channel].kind == "local" for r in m.routes):
+            assert not m.enabled, m.id  # 本地模型默认关，装好后在本机打开
+            continue
         assert any(r.channel == "openrouter" for r in m.routes), m.id
 
 
@@ -498,3 +502,27 @@ def test_local_override_ignored_in_tests(config_dir):
 def test_deep_merge_replaces_lists_and_scalars():
     merged = deep_merge({"a": {"b": 1, "c": [1, 2]}, "d": 1}, {"a": {"c": [3]}, "d": 2})
     assert merged == {"a": {"b": 1, "c": [3]}, "d": 2}
+
+
+def test_model_switches_turn_a_model_on_from_the_local_file(config_dir, monkeypatch):
+    monkeypatch.delenv(NO_LOCAL_ENV)
+    off = [m.id for m in load_config(config_dir).models.models if not m.enabled]
+    assert off  # 仓库里有默认关掉的模型（如本地出图）
+    (config_dir / "models.local.yaml").write_text(
+        f"model_switches:\n  {off[0]}: true\n", encoding="utf-8"
+    )
+    models = load_config(config_dir).models
+    assert models.get(off[0]).enabled
+    # 只改开关，模型列表的其他内容不受影响（列表合并时整体替换的问题不会出现）
+    assert len(models.models) == len(load_config().models.models)
+
+
+def test_model_switches_reject_unknown_ids(config_dir):
+    edit(config_dir, "models.yaml", lambda d: d.update(model_switches={"no-such-model": True}))
+    expect_error(config_dir, "model_switches", "no-such-model")
+
+
+def test_moment_photos_local_only_defaults_off():
+    rules = load_config().roundtable.media.moment_photos
+    assert rules.local_only is False
+    assert set(rules.tag_subjects) == {"none", "part", "full"}

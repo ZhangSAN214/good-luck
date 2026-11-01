@@ -135,6 +135,7 @@ birthdays:
 sticker_cards:
   OpenAI:
     look: 白色长发的龙娘，金边龙角，背后一对龙翼，粗长有体积感的龙尾，白色为主、带淡紫的裙子，金色点缀
+    look_tags: dragon girl, long white hair, dragon horns, gold-trimmed horns, dragon wings, thick dragon tail, white dress, light purple accents, gold trim
     must: [金边龙角, 龙翼, 粗长的龙尾, 白色为主、带淡紫的裙子]
     refs: [设定图/设定图_小白龙.jpg]
     stickers:
@@ -157,6 +158,7 @@ sticker_cards:
       - {name: 裂开, caption: 我裂开了, action: 表情呆滞，脸上从额头到下巴裂开一道裂缝，碎片往外蹦，龙角歪了, use: 遇到崩溃的事、心态炸了, means: [裂开]}
   Anthropic:
     look: 橙色头发的大小姐，头发上有花饰，怀里抱着一本书（书里夹着薄账本和橙色书签），暖橙和米白配色，点缀黑色
+    look_tags: orange hair, hair flower, ojou-sama, holding book, orange bookmark, warm orange and beige outfit, black accents
     must: [头发上的花饰, 怀里的书, 露出来的橙色书签]
     refs: [设定图/设定图_克劳德.jpg]
     stickers:
@@ -178,6 +180,7 @@ sticker_cards:
       - {name: 戳太阳穴, caption: 不花钱就不会亏, action: 致敬戳太阳穴表情：食指点着太阳穴，嘴角微笑，眼神精明，书夹在臂弯, use: 抛出歪理或自作聪明的主意, means: [不花钱]}
   Google:
     look: 蓝紫渐变长发的猫娘，猫耳猫尾，左眼粉色右眼金色的异色瞳，发间一枚金色四芒星发饰，随身带一支香蕉造型的画笔，笑起来有一颗小虎牙
+    look_tags: cat girl, long hair, blue-purple gradient hair, cat ears, cat tail, heterochromia, pink left eye, gold right eye, gold four-pointed star hair ornament, fang
     must: [猫耳, 猫尾, 金色四芒星发饰, 异色瞳]
     refs: [设定图/设定图_双子星.jpg]
     stickers:
@@ -199,6 +202,7 @@ sticker_cards:
       - {name: 小丑, caption: 小丑竟是我自己, action: 脸上画着红鼻子和小丑妆，拿着香蕉画笔，一脸生无可恋, use: 发现被耍、自作多情时自嘲, means: [小丑]}
   Alibaba:
     look: 穿中式衣装的掌柜，手持折扇（扇坠是一枚小铜钱），随身一本小账本，黛蓝、青碧、月白配色，墨绿点缀
+    look_tags: chinese clothes, shopkeeper, holding folding fan, coin tassel, small ledger, indigo and teal and moon white outfit, dark green accents
     must: [折扇, 铜钱扇坠, 中式衣装]
     refs: [设定图/设定图_千问.jpg]
     stickers:
@@ -220,6 +224,7 @@ sticker_cards:
       - {name: 吃瓜, caption: 吃瓜, action: 折扇插在腰间，双手捧着一大块西瓜啃，眼睛往旁边瞟，一脸看热闹, use: 别人吵架或有八卦时看热闹, means: [吃瓜, 看戏]}
   xAI:
     look: 金色双马尾的大小姐，背后一对蝙蝠小翼，头顶新月小冠，哥特黑裙配暗红内衬，扛着一把黑金色带 X 纹的巨斧，蓝眼睛，尖耳朵
+    look_tags: blonde hair, twintails, ojou-sama, small bat wings, crescent tiara, gothic black dress, dark red lining, blue eyes, pointy ears
     must: [金色双马尾, 蝙蝠小翼, 黑金巨斧]
     refs: [设定图/设定图_歌若柯.jpg]
     stickers:
@@ -242,6 +247,7 @@ sticker_cards:
       - {name: 我不要你觉得, caption: 我不要你觉得, action: 一手拍桌一手指着前方，下巴抬高，气势很足, use: 强硬地坚持自己意见, means: [我觉得]}
   DeepSeek:
     look: 蓝色渐变长发的鲸鱼娘，头顶两侧一对鲸鱼头鳍（是鳍，不是耳朵），身后一条大鲸鱼尾巴，蓝白女仆装，随身一个铁盆
+    look_tags: whale girl, long hair, blue gradient hair, whale fins on head, large whale tail, blue and white maid outfit
     must: [鲸鱼头鳍（鳍形，不像耳朵）, 大鲸鱼尾巴, 蓝白女仆装, 铁盆]
     refs: [设定图/设定图_鲸鱼娘.jpg]
     stickers:
@@ -263,6 +269,7 @@ sticker_cards:
       - {name: 太难了, caption: 我太难了, action: 抱着空铁盆蹲在地上，眼含泪光，头顶一小片乌云, use: 被事情压得喘不过气, means: [太难了]}
   Moonshot AI:
     look: 白色长发，深蓝色裙子，月夜意象，胸前一枚 K 字徽章，神情慵懒
+    look_tags: long white hair, dark blue dress, letter K badge, sleepy eyes, languid expression
     must: [白色长发, 深蓝色裙子, K 字徽章]
     refs: [设定图/设定图_Kimi.jpg]
     stickers:
@@ -284,6 +291,7 @@ sticker_cards:
       - {name: 这很好, caption: 问题不大, action: 致敬这很好：四周燃着火，她坐在中间捧着茶杯淡定微笑，旁边月亮抱枕冒烟, use: 情况很糟还装淡定, means: [问题不大, 还好]}
   Zhipu AI:
     look: 黑色长发的狐娘，狐耳狐尾，尾巴尖是冰蓝色，黑白配色的裙子，怀里抱着一本旧书，领口一枚 Z 字徽章
+    look_tags: fox girl, long black hair, fox ears, fox tail, ice-blue tail tip, black and white dress, holding old book, letter Z badge
     must: [狐耳, 狐尾和冰蓝色尾尖, 怀里的书]
     refs: [设定图/设定图_GLM.jpg]
     stickers:
