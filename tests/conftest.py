@@ -7,6 +7,7 @@ import os
 import pytest
 
 import roundtable.core.browse as browse
+import roundtable.core.emoji_images as emoji_images
 from roundtable.core.config.loader import NO_LOCAL_ENV
 
 # 本机的 config/*.local.yaml 不影响测试。导入时就设：子目录的 conftest 会在
@@ -22,6 +23,12 @@ def _no_feed_network(monkeypatch):
         raise browse.FeedError("测试不联网")
 
     monkeypatch.setattr(browse, "http_fetch", offline)
+
+
+@pytest.fixture(autouse=True)
+def _no_emoji_network(monkeypatch):
+    """emoji 图一律下载不到（网页退回系统字体）；要测下载的测试自己注入 fetch。"""
+    monkeypatch.setattr(emoji_images, "_http_fetch", lambda url: None)
 
 
 @pytest.fixture(autouse=True)

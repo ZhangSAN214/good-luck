@@ -48,6 +48,7 @@ from roundtable.core.chat_media import MAX_BYTES as CHAT_MEDIA_MAX
 from roundtable.core.chat_media import ChatMediaStore, MediaError, clean_items, placeholder
 from roundtable.core.chat_work import WORK_EVENTS, post_handoff, post_office_event
 from roundtable.core.config.loader import DEFAULT_CONFIG_DIR, ConfigError
+from roundtable.core.emoji_images import EMOJI_DIR, EmojiImages
 from roundtable.core.evolution import (
     DECISIONS,
     DECISIONS_KEY,
@@ -250,6 +251,8 @@ class RoundtableService:
             self.chats.policy = VoicePolicy(runtime)
         self.voices = MemberVoices(runtime, runtime.voice_cache_dir)
         self.stickers = MemberStickers(runtime, runtime.sticker_dir)
+        emoji_dir = runtime.sticker_dir.parent / EMOJI_DIR if runtime.sticker_dir else None
+        self.emoji = EmojiImages(runtime, emoji_dir)
         self.memory = MemoryKeeper(runtime, self.chats.everyone)
         self.life = LifeEngine(runtime, self.chats, self.memory)
         self.perceiver = Perceiver(runtime, PerceptionCache(runtime.perception_dir))
@@ -2056,6 +2059,17 @@ class RoundtableService:
         data = self.stickers.file(member, name)
         if data is None:
             raise ServiceError("这个表情还没画", 404)
+        return data
+
+    def emoji_status(self) -> dict[str, Any]:
+        """网页里的 emoji 显示成哪套图：{enabled, style}。"""
+        return self.emoji.status()
+
+    def emoji_image(self, code: str) -> bytes:
+        """一个 emoji 的图（用到才下载，存本机）；没有时 404，网页用系统字体。"""
+        data = self.emoji.image(code)
+        if data is None:
+            raise ServiceError("没有这个表情图", 404)
         return data
 
     def chat_sticker_packs(self) -> dict[str, Any]:

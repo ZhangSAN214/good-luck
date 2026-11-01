@@ -1245,6 +1245,18 @@ def create_app(service: RoundtableService | None = None, lan: LanAccess | None =
         mime = "image/gif" if data[:3] == b"GIF" else "image/png"
         return Response(content=data, media_type=mime, headers=headers)
 
+    @app.get("/api/emoji")
+    async def emoji_status(request: Request) -> dict[str, Any]:
+        """网页里的 emoji 显示成哪套图。"""
+        return svc(request).emoji_status()
+
+    @app.get("/api/emoji/{code}.png")
+    def emoji_image(request: Request, code: str) -> Response:
+        """一个 emoji 的图（用到才下载到本机）；没有时 404，网页退回系统字体。"""
+        data = svc(request).emoji_image(code)
+        headers = {"X-Content-Type-Options": "nosniff", "Cache-Control": "private, max-age=2592000"}
+        return Response(content=data, media_type="image/png", headers=headers)
+
     @app.get("/api/chat/stickers")
     async def chat_stickers(request: Request) -> dict[str, Any]:
         """聊天里显示的成员专属表情（审过的那些）。"""
