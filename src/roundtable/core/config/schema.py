@@ -1536,6 +1536,20 @@ class GrowthBookRules(_Strict):
     context_chars: int = Field(default=50, ge=0, le=200)  # 那一行最多几个字（算在 600 字里）
 
 
+class GrowthPlasticRules(_Strict):
+    """发育期可塑性（成长 G2）：新来的变得快，待久了变得慢。
+
+    8 位同一套规则，差别只来自入职时间和性格。"""
+
+    enabled: bool = True
+    young_days: int = Field(default=60, ge=0, le=3650)  # 入职头这么多天是发育期（照原规则）
+    settled_changes: int = Field(default=2, ge=1, le=5)  # 定型以后每周最多改几条
+    settle_days: int = Field(default=60, ge=1, le=730)  # 定型以后性格分两次改动至少隔几天
+    min_gap_days: int = Field(default=30, ge=1, le=730)  # 再快也至少隔这么多天
+    # 每比 3 分高一分，间隔乘上 (1 + 系数)：好奇、外向变得快，较真变得慢
+    trait_speed: dict[str, float] = {"好奇": -0.1, "外向": -0.05, "较真": 0.1}
+
+
 class GrowthVitalsRules(_Strict):
     """成长的防退化阈值（成长 G3，docs/MEMBER_ENGINE.md「半年快进与防退化」）：半年快进和加速模拟
     期末超过这些就算出问题（测试失败、报告里标红）。全程序算，不花钱。"""
@@ -1562,6 +1576,8 @@ class GrowthRules(_Strict):
     min_days: int = Field(default=3, ge=1, le=7)  # 上周至少几天有经历才反思，否则跳过并记原因
     book: GrowthBookRules = GrowthBookRules()
     vitals: GrowthVitalsRules = GrowthVitalsRules()
+    plastic: GrowthPlasticRules = GrowthPlasticRules()
+    reconcile: bool = True  # 对账（成长 G2）：口癖、学来的说法、习惯和档案对不上时写进每周经历
     min_lines: int = Field(default=5, ge=1, le=100)  # 上周至少几条经历（日记、记忆件、你说的话）
     max_changes: int = Field(default=3, ge=1, le=5)  # 每周最多改几条
     material_chars: int = Field(default=4000, ge=500, le=20000)  # 周总结最多多少字

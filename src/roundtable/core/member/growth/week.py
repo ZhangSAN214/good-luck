@@ -5,6 +5,7 @@
 - 记下的事：这一周的记忆件（含工作领域的经历，生活只读自己的工作记录由 P2 负责）。
 - 用户说的话：这一周用户在 TA 在场的私聊、群聊里说过的最近几句（工作群不算）。
 - 情绪：这一周真有过的开心、难过、想念、生气，为了什么（``feel.py`` 记的），改写对情绪的理解时引用。
+- 对账（成长 G2，``reconcile.py``）：口头禅老歇着、学来的说法、养成的习惯和档案对不上的地方。
 - 每行标「是否受用户影响」：用户说的话，以及提到用户的日记和记忆件。
 - 只读这些表，不写任何东西；所有成员同一套规则（中立）。
 """
@@ -19,8 +20,15 @@ from typing import Any
 from roundtable.core.member.feel import Feelings
 from roundtable.core.storage.repository import iso
 
-DIARY, ITEM, USER, WORK, FEEL = "diary", "item", "user", "work", "feel"
-SOURCE_NAMES = {DIARY: "日记", ITEM: "记下的事", USER: "用户说", WORK: "工作", FEEL: "情绪"}
+DIARY, ITEM, USER, WORK, FEEL, RECON = "diary", "item", "user", "work", "feel", "recon"
+SOURCE_NAMES = {
+    DIARY: "日记",
+    ITEM: "记下的事",
+    USER: "用户说",
+    WORK: "工作",
+    FEEL: "情绪",
+    RECON: "对账",
+}
 SENTENCE = re.compile(r"[^。！？!?\n]+[。！？!?]?")
 NONE = "（没有）"
 
@@ -107,6 +115,12 @@ def build(
         raw.append((it["day"], source, it["text"], user_label in it["text"]))
     for day, text in Feelings(rt).week_lines(member, start, start + timedelta(days=7)):
         raw.append((day, FEEL, text, user_label in text))
+    if rules.reconcile:  # 对账（成长 G2）：档案和她实际的样子对不上的地方，记在这周最后一天
+        from roundtable.core.member.growth.reconcile import notes
+
+        last = (start + timedelta(days=6)).isoformat()
+        for text in notes(rt, member, start, start + timedelta(days=7)):
+            raw.append((last, RECON, text, user_label in text))
     a, b = _window(start, 7, tz)
     rooms = {r["id"]: r for r in repo.chat_rooms()}
     said = []
@@ -120,7 +134,7 @@ def build(
         said.append((at.date().isoformat(), USER, msg["text"], True))
     if rules.user_lines:
         raw += said[-rules.user_lines :]
-    order = {DIARY: 0, ITEM: 1, FEEL: 2, WORK: 3, USER: 4}
+    order = {DIARY: 0, ITEM: 1, FEEL: 2, WORK: 3, USER: 4, RECON: 5}
     raw.sort(key=lambda r: (r[0], order[r[1]]))
     week = Week(member, week_id(start), start)
     room = rules.material_chars

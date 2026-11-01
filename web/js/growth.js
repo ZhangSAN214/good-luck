@@ -103,7 +103,8 @@ export class GrowthPanel {
     const report = r
       ? `<details class="pf-sec gr-report"><summary><b>这个月的我</b><span>${esc(r.month)} · 共 ${g.reports.length} 份</span></summary><ul class="pp-list grp-box">${r.lines.map((x) => `<li><p>${esc(x)}</p></li>`).join('')}</ul></details>`
       : '';
-    return `${habits}<p class="grp-foot">熟练度：${skills}</p>${report}`;
+    const plastic = g.plastic ? `<p class="grp-foot">${esc(g.plastic)}</p>` : '';
+    return `${plastic}${habits}<p class="grp-foot">熟练度：${skills}</p>${report}`;
   }
 
   render() {
