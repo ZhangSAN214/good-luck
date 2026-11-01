@@ -19,10 +19,10 @@
 1. **schema**：在 `MomentPhotoRules` 加通用维度表，例如：
    ```python
    class PhotoOption(_Strict):
-       name: str            # 稳定标识，供个人 boost 引用
-       text: str            # 英文短语，直接进提示词
+       name: str  # 稳定标识，供个人 boost 引用
+       text: str  # 英文短语，直接进提示词
        weight: float = 1.0
-       when: list[str] = [] # 可选条件：时间段（morning/day/evening/night）或地点标签；空 = 都可用
+       when: list[str] = []  # 可选条件：时间段（morning/day/evening/night）或地点标签；空 = 都可用
    ```
    `angles` / `lights` / `moments` / `lenses` / `filters` 各一张 `list[PhotoOption]`；`MomentShot` 也补一个 `name`。
    `StickerCard` 加可选 `photo: PhotoHabit | None`（`subjects`、`boost`、`quirk`），校验 `boost` 里引用的名字存在于对应表。
