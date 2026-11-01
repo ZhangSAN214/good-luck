@@ -310,7 +310,7 @@ def stage_task(stage: dict[str, Any], reqs: list[dict[str, Any]], total: int) ->
 
 # --- 意图追踪表 ---------------------------------------------------------------------
 
-STATES = ("待做", "做到", "没做到", "改好了", "没改成", "已参考", "没对上")
+STATES = ("待做", "做到", "没做到", "待你看", "改好了", "没改成", "已参考", "没对上")
 
 
 def _stage_of(rid: str, stages: list[dict[str, Any]]) -> int | None:
@@ -336,7 +336,9 @@ def trace(b: dict[str, Any]) -> list[dict[str, Any]]:
         stage = next((n for n in (_stage_of(r, stages) for r in linked) if n), None)
         if v["src"] == "变更单":
             c = changes.get(v.get("ref") or "")
-            state = {"done": "改好了", "failed": "没改成"}.get((c or {}).get("status"), "待做")
+            state = {"done": "待你看", "accepted": "改好了", "failed": "没改成"}.get(
+                (c or {}).get("status"), "待做"
+            )
         elif linked:
             got = [met.get(r) for r in linked]
             if any(x is False for x in got):
