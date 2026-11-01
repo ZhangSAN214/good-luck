@@ -47,7 +47,18 @@ NOREF = {k: v for k, v in WORKFLOW.items() if k not in ("4", "5")}
 class FakeComfy:
     """模拟 ComfyUI 的 /upload/image、/prompt、/history、/view、/queue。"""
 
-    def __init__(self, *, pending: int = 1, history=None, prompt_status=200, prompt_body=None):
+    def __init__(
+        self,
+        *,
+        pending: int = 1,
+        history=None,
+        prompt_status=200,
+        prompt_body=None,
+        queue=None,
+        vram_free_mb=None,
+    ):
+        self.queue = queue or {"queue_running": [], "queue_pending": []}
+        self.vram_free_mb = vram_free_mb
         self.pending = pending  # 前几次 /history 返回 {}（还在排队）
         self.history = history
         self.prompt_status = prompt_status
@@ -82,6 +93,11 @@ class FakeComfy:
         if path == "/view":
             self.views.append(dict(request.url.params))
             return httpx.Response(200, content=FAKE_PNG, headers={"content-type": "image/png"})
+        if path == "/queue" and request.method == "GET":
+            return httpx.Response(200, json=self.queue)
+        if path == "/system_stats" and self.vram_free_mb is not None:
+            free = self.vram_free_mb * 1024 * 1024
+            return httpx.Response(200, json={"devices": [{"name": "gpu", "vram_free": free}]})
         if path == "/queue":
             self.cancelled.extend(json.loads(request.content)["delete"])
             return httpx.Response(200, json={})
@@ -336,3 +352,42 @@ async def test_a_local_copy_of_the_template_wins(tmp_path):
     (tmp_path / "noref.local.json").write_text(json.dumps(mine), encoding="utf-8")
     await p.generate_image("noref.json", "1girl", {})
     assert comfy.graph["1"]["inputs"]["text"] == "mine 1girl"
+
+
+async def test_busy_queue_is_a_rate_limit_and_nothing_is_submitted(tmp_path):
+    comfy = FakeComfy(pending=0, queue={"queue_running": [["x"]], "queue_pending": []})
+    with pytest.raises(ProviderError) as exc:
+        await make(tmp_path, comfy).generate_image("wf.json", PROMPT, {}, [ref()])
+    assert exc.value.kind == ErrorKind.RATE_LIMIT and "显卡在忙" in str(exc.value)
+    assert comfy.graph is None and comfy.uploads == []
+    # busy_queue 放宽后照常画
+    comfy = FakeComfy(pending=0, queue={"queue_running": [["x"]], "queue_pending": []})
+    out = await make(tmp_path, comfy).generate_image("wf.json", PROMPT, {"busy_queue": 1}, [ref()])
+    assert out.images
+
+
+async def test_low_free_vram_is_busy_only_when_a_minimum_is_set(tmp_path):
+    comfy = FakeComfy(pending=0, vram_free_mb=500)
+    with pytest.raises(ProviderError) as exc:
+        await make(tmp_path, comfy).generate_image(
+            "wf.json", PROMPT, {"min_free_vram_mb": 2000}, [ref()]
+        )
+    assert exc.value.kind == ErrorKind.RATE_LIMIT and "500 MB" in str(exc.value)
+    out = await make(tmp_path, FakeComfy(pending=0, vram_free_mb=500)).generate_image(
+        "wf.json", PROMPT, {}, [ref()]
+    )
+    assert out.images
+
+
+async def test_old_comfyui_without_queue_endpoint_is_not_blocked(tmp_path):
+    comfy = FakeComfy(pending=0)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/queue" and request.method == "GET":
+            return httpx.Response(404, text="not found")
+        return comfy(request)
+
+    out = await make(tmp_path, handler).generate_image(
+        "wf.json", PROMPT, {"min_free_vram_mb": 2000}, [ref()]
+    )
+    assert out.images  # /system_stats 也没有：不挡

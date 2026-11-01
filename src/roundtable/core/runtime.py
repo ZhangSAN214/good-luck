@@ -17,6 +17,7 @@ from roundtable.core.catalog import Fetch, ModelCatalog
 from roundtable.core.changelog import CHANGELOG_FILE
 from roundtable.core.config import AppConfig, load_config
 from roundtable.core.config.loader import DEFAULT_CONFIG_DIR
+from roundtable.core.media.draw_order import load_draw_prefs
 from roundtable.core.model_directory import ModelDirectory
 from roundtable.core.plugin_board import BOARD_FILE
 from roundtable.core.prompts import PromptLibrary
@@ -199,6 +200,7 @@ class Runtime:
         repo = Repository(connect(db_path))
         guard = BudgetGuard(config.roundtable.budget, repo, **({"now": now} if now else {}))
         router.set_priority(load_priority(config, repo), MonthSpend(repo, guard.now))
+        router.set_draw_prefs(load_draw_prefs(config, repo))
         return cls(
             config=config,
             router=router,

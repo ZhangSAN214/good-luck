@@ -262,6 +262,8 @@ export async function streamEvents(id, onEvent, signal) {
 export const getUsage = (range = 'month') => api(`/api/usage?range=${encodeURIComponent(range)}`);
 export const getChannelPriority = () => api('/api/channels/priority');
 export const setChannelPriority = (body) => api('/api/channels/priority', { method: 'PUT', body });
+export const getDrawChannels = () => api('/api/media/draw-channels');
+export const setDrawChannels = (body) => api('/api/media/draw-channels', { method: 'PUT', body });
 export const getUsageBalance = (refresh = false) => api(`/api/usage/balance${refresh ? '?refresh=1' : ''}`);
 
 // 局域网访问（平板）：只能在电脑本机上调用

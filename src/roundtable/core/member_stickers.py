@@ -31,6 +31,7 @@ from roundtable.core.budget.guard import EPS, month_window
 from roundtable.core.config import ModelSpec
 from roundtable.core.config.schema import StickerCard, StickerSpec
 from roundtable.core.jsonout import JSONOutputError, extract_json_object
+from roundtable.core.media.draw_order import rank_draw_models
 from roundtable.core.media.select import media_group
 from roundtable.core.members_art import load_members, mime_of, resolve_file
 from roundtable.core.providers import (
@@ -160,7 +161,7 @@ class MemberStickers:
         raise StickerError(f"没有叫「{name}」的表情")
 
     def draw_models(self) -> list[ModelSpec]:
-        """能看参考图的绘图模型：带的偏好标签（prefer_tags）越多越先试，同样多时保持配置顺序。"""
+        """能看参考图的绘图模型，按出图顺序排（本地 → 不花钱 → 按价，在歇的放最后）。"""
         media = self.rt.config.roundtable.media
         if not media.enabled or not self.rules.enabled:
             return []
@@ -169,12 +170,8 @@ class MemberStickers:
             for m in media_group(self.rt.router, "image", self.rules.tier)
             if "image_edit" in m.tags
         ]
-        prefer = self.rules.prefer_tags
-        # 不花钱的（本地，如 ComfyUI）先试；同样时带的偏好标签越多越先试（只看价格和标签）
-        return sorted(
-            group,
-            key=lambda m: (image_cost(m, None, 1) > 0, -sum(t in m.tags for t in prefer)),
-        )
+        # 出图顺序：本地 → 不花钱 → 按价；同档里带的偏好标签越多越先试（见 media/draw_order.py）
+        return rank_draw_models(self.rt.router, group, self.rules.prefer_tags)
 
     def sticker_models(self) -> list[ModelSpec]:
         """画表情包用的：只要吃自然语言提示词的（表情包没有标签版提示词）。"""
