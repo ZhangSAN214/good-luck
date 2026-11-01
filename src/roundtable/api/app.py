@@ -518,6 +518,22 @@ class SuperTaskBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     text: str = Field(min_length=1, max_length=8000)
+    queue: bool = False  # 超级电脑在忙时排进队（不然报「在忙」）
+
+
+class SuperScheduleBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    text: str = Field(min_length=1, max_length=4000)
+    at: str = Field(pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
+    days: list[int] = Field(default_factory=list, max_length=7)  # 0=周一；空=每天
+    once: str | None = Field(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$")
+
+
+class SuperToggleBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool
 
 
 class SuperLimitBody(BaseModel):
@@ -779,6 +795,7 @@ def create_app(service: RoundtableService | None = None, lan: LanAccess | None =
         app.state.service.start_life()
         app.state.service.start_evolution()
         app.state.service.start_dsh()
+        app.state.service.start_butler()
         try:
             yield
         finally:
@@ -1058,7 +1075,7 @@ def create_app(service: RoundtableService | None = None, lan: LanAccess | None =
 
     @app.post("/api/super/tasks")
     async def super_submit(request: Request, body: SuperTaskBody) -> dict[str, Any]:
-        return svc(request).super_submit(body.text)
+        return svc(request).super_submit(body.text, body.queue)
 
     @app.post("/api/super/cancel")
     async def super_cancel(request: Request) -> dict[str, Any]:
@@ -1075,6 +1092,44 @@ def create_app(service: RoundtableService | None = None, lan: LanAccess | None =
     @app.post("/api/super/workers/{worker}/wake")
     async def super_wake(request: Request, worker: str) -> dict[str, Any]:
         return svc(request).super_clear_cooldown(worker)
+
+    @app.post("/api/super/schedules")
+    async def super_add_schedule(request: Request, body: SuperScheduleBody) -> dict[str, Any]:
+        return svc(request).super_add_schedule(body.text, body.at, body.days, body.once)
+
+    @app.put("/api/super/schedules/{item_id}")
+    async def super_toggle_schedule(
+        request: Request, item_id: str, body: SuperToggleBody
+    ) -> dict[str, Any]:
+        return svc(request).super_toggle_schedule(item_id, body.enabled)
+
+    @app.delete("/api/super/schedules/{item_id}")
+    async def super_remove_schedule(request: Request, item_id: str) -> dict[str, Any]:
+        return svc(request).super_remove_schedule(item_id)
+
+    @app.post("/api/super/schedules/{item_id}/run")
+    async def super_run_schedule(request: Request, item_id: str) -> dict[str, Any]:
+        return svc(request).super_run_schedule(item_id)
+
+    @app.post("/api/super/pending/{item_id}/approve")
+    async def super_approve(request: Request, item_id: str) -> dict[str, Any]:
+        return svc(request).super_approve(item_id)
+
+    @app.post("/api/super/pending/{item_id}/reject")
+    async def super_reject(request: Request, item_id: str) -> dict[str, Any]:
+        return svc(request).super_reject(item_id)
+
+    @app.delete("/api/super/queue/{item_id}")
+    async def super_unqueue(request: Request, item_id: str) -> dict[str, Any]:
+        return svc(request).super_unqueue(item_id)
+
+    @app.get("/api/super/report")
+    async def super_report(request: Request, day: str | None = None) -> dict[str, Any]:
+        return svc(request).super_report(day)
+
+    @app.get("/api/super/audit")
+    async def super_audit(request: Request) -> dict[str, Any]:
+        return svc(request).super_audit()
 
     @app.get("/api/wander")
     async def wander_status(request: Request) -> dict[str, Any]:
