@@ -1556,6 +1556,17 @@ class GrowthReportRules(_Strict):
     keep: int = Field(default=24, ge=1, le=120)  # 每人最多留几份
 
 
+class GrowthBookRules(_Strict):
+    """成长总账（docs/MEMBER_ENGINE.md「成长总账」）：把各模块记下的变化排成一条时间线（只读汇总，
+    各模块仍各写各的），月报算全量，最近的变化给她自己一行。不花钱。"""
+
+    enabled: bool = True
+    keep: int = Field(default=200, ge=10, le=2000)  # 网页上最多列多少条
+    recent_days: int = Field(default=14, ge=1, le=90)  # 「这阵子」算最近几天
+    recent_max: int = Field(default=2, ge=0, le=5)  # 给她自己的那一行最多带几件（0 = 不带）
+    context_chars: int = Field(default=50, ge=0, le=200)  # 那一行最多几个字（算在 600 字里）
+
+
 class GrowthRules(_Strict):
     """P6 成长（docs/MEMBER_ENGINE.md「P6 成长」）：每周用成员自己的模型读一遍上周的经历，
     最多提几条对自我档案的改动，每条必须引用真实经历；程序把关后才写进档案（author = growth）。
@@ -1566,6 +1577,7 @@ class GrowthRules(_Strict):
     enabled: bool = True
     weekday: int = Field(default=1, ge=1, le=7)  # 每周几（ISO，1 = 周一）反思上一周
     min_days: int = Field(default=3, ge=1, le=7)  # 上周至少几天有经历才反思，否则跳过并记原因
+    book: GrowthBookRules = GrowthBookRules()
     min_lines: int = Field(default=5, ge=1, le=100)  # 上周至少几条经历（日记、记忆件、你说的话）
     max_changes: int = Field(default=3, ge=1, le=5)  # 每周最多改几条
     material_chars: int = Field(default=4000, ge=500, le=20000)  # 周总结最多多少字
