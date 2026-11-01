@@ -64,6 +64,14 @@ def data_dir(environ: Mapping[str, str] | None = None) -> Path:
     return (PROJECT_ROOT / configured).parent
 
 
+def db_file(environ: Mapping[str, str] | None = None) -> Path | None:
+    """正在用的数据库文件（内存数据库为 None）。和 Runtime.build 的默认值一致。"""
+    configured = (os.environ if environ is None else environ).get(DB_ENV)
+    if configured == ":memory:":
+        return None
+    return PROJECT_ROOT / configured if configured else DEFAULT_DB
+
+
 @dataclass
 class Runtime:
     config: AppConfig

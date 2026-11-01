@@ -2082,6 +2082,18 @@ def create_app(service: RoundtableService | None = None, lan: LanAccess | None =
         local_only(request)
         return svc(request).backup_restore(body.name)
 
+    # ---- 「出问题点这里」自检（docs/FIRSTAID.md）：只读；报告里有本机路径等信息，只在电脑上看 ----
+
+    @app.get("/api/firstaid")
+    async def firstaid(request: Request) -> dict[str, Any]:
+        local_only(request)
+        return svc(request).firstaid()
+
+    @app.get("/api/firstaid/report")
+    async def firstaid_report(request: Request) -> dict[str, Any]:
+        local_only(request)
+        return svc(request).firstaid_report()
+
     @app.get("/lan/pair")
     async def lan_pair_open(c: str = "") -> Response:
         token = lan.redeem_pair_code(c)

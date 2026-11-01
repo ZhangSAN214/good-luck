@@ -18,13 +18,13 @@ import subprocess
 import time
 from collections.abc import AsyncIterator, Sequence
 from dataclasses import asdict
-from datetime import date, datetime, timedelta, tzinfo
+from datetime import UTC, date, datetime, timedelta, tzinfo
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
 
 from roundtable.core import chat_handoff as handoff
-from roundtable.core import clipper
+from roundtable.core import clipper, firstaid
 from roundtable.core.allocation import coordinator_name, display_name
 from roundtable.core.almanac import Almanac
 from roundtable.core.attachments import Attachment, UploadError, ingest
@@ -42,7 +42,7 @@ from roundtable.core.budget import report as usage_report
 from roundtable.core.budget.channels import MonthSpend, save_priority
 from roundtable.core.budget.guard import day_window, month_window
 from roundtable.core.carry import carry_question, compact
-from roundtable.core.changelog import changelog_view, load_changelog
+from roundtable.core.changelog import changelog_view, load_changelog, numbered
 from roundtable.core.chat import ROOM, WORK, ChatHub, chat_budget, dm_room
 from roundtable.core.chat_actions import card_from_url, is_bare_url, own_stickers, sticker_packs
 from roundtable.core.chat_actions import card_text as chat_card_text
@@ -150,6 +150,7 @@ from roundtable.core.plugin_board import board_view, load_board
 from roundtable.core.preview import render_preview
 from roundtable.core.providers import (
     Completion,
+    KeyRing,
     Message,
     ProviderError,
     UnsupportedCapability,
@@ -532,6 +533,81 @@ class RoundtableService:
             raise ServiceError(str(exc)) from None
         log.warning("整库备份：已恢复 %s（恢复前存档点 %s）", name, out["before"]["name"])
         return {**out, **self.backup.status()}
+
+    # ---- 「出问题点这里」自检（docs/FIRSTAID.md）：只读，不改任何东西 ----
+
+    def _db_path(self) -> Path | None:
+        row = self.rt.repo.conn.execute("PRAGMA database_list").fetchone()
+        path = row[2] if row is not None else ""
+        return Path(path) if path else None
+
+    def _app_version(self) -> str | None:
+        try:
+            rows = numbered(load_changelog(self.rt.changelog))
+        except (ConfigError, OSError, ValueError):
+            return None
+        return rows[-1][0] if rows else None
+
+    def firstaid_findings(self) -> list[firstaid.Finding]:
+        now = self._local_now()
+        cfg = self.rt.config
+        db_path = self._db_path()
+        names = [c.key_env for c in cfg.models.channels.values() if c.key_env]
+        names += [p.key_env for p in cfg.models.search_providers.values() if p.key_env]
+        keys = KeyRing.from_env(names, dotenv_path=DEFAULT_CONFIG_DIR.parent / ".env")
+        channels = self.status()["channels"]
+        found = firstaid.offline_findings(
+            db_path=db_path,
+            data=db_path.parent if db_path is not None else None,
+            config_error=None,
+            keys_present=[n for n in names if keys.has(n)],
+            keys_missing=[n for n in names if not keys.has(n)],
+            channels_ok=any(c["available"] for c in channels.values()),
+            backup_files=[f.view() for f in self.backup.files()],
+            backup_folder=self.backup.folder,
+            backup_enabled=self.backup.enabled,
+            now=now,
+        )
+        found += firstaid.check_tasks(
+            {
+                "每天备份": self._backup_task,
+                "成员生活": self._life_task,
+                "革新例会": self._evolution_task,
+            }
+        )
+        found += firstaid.check_channels(channels)
+        month, day = self.rt.budget.status()
+        found += firstaid.check_budget(
+            {
+                "spent_usd": month.spent_usd,
+                "limit_usd": month.limit_usd,
+                "warn": month.warn,
+                "exhausted": month.exhausted,
+            },
+            None
+            if day is None
+            else {
+                "spent_usd": day.spent_usd,
+                "limit_usd": day.limit_usd,
+                "warn": day.warn,
+                "exhausted": day.exhausted,
+            },
+        )
+        since = datetime.now(UTC) - timedelta(days=1)
+        found += firstaid.check_calls(*firstaid.recent_call_errors(self.rt.repo.conn, since))
+        found += firstaid.check_sandbox(self.rt.sandbox()[1])
+        found += firstaid.check_dsh(self.dsh_status() if self.dsh is not None else None)
+        return found
+
+    def firstaid(self) -> dict[str, Any]:
+        """自检结果：整体结论、四类现场、每一项（红黄绿 + 一句话怎么办）。"""
+        return firstaid.summarize(self.firstaid_findings())
+
+    def firstaid_report(self) -> dict[str, Any]:
+        """可以整段转交的体检报告（纯文本，不含聊天内容和 key）。"""
+        summary = self.firstaid()
+        meta = firstaid.meta_info(self._app_version(), self._local_now())
+        return {"text": firstaid.render_report(summary, meta), "level": summary["level"]}
 
     def start_evolution(self) -> None:
         """后台按时开革新例会（只在正式启动的服务里调用；测试直接调 evolution_tick）。"""
