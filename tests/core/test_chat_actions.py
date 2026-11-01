@@ -394,3 +394,15 @@ def test_noto_pack_images_exist_and_old_packs_stay_drawable():
         assert old in js
     stickers = load_config(ROOT / "config").roundtable.chat.actions.stickers
     assert set(stickers) == {"小黄脸", "文字"}
+
+
+def test_sticker_that_says_the_same_as_the_words_replaces_them():
+    from roundtable.core.chat_actions import sticker_echo
+
+    means = {"收到": ["收到", "好的", "明白", "了解"]}
+    assert sticker_echo("明白咯。[表情:小克·收到]", means) == "[表情:小克·收到]"
+    assert sticker_echo("好嘞[表情:团子·好嘞]", {}) == "[表情:团子·好嘞]"
+    # 意思不一样：留着，但表情包挪到字后面（先说事再甩图）
+    assert sticker_echo("[表情:小克·记着]这笔先记上", means) == "这笔先记上[表情:小克·记着]"
+    assert sticker_echo("行，那就开始[表情:小克·记着]", means) == "行，那就开始[表情:小克·记着]"
+    assert sticker_echo("[表情:小克·收到]", means) == "[表情:小克·收到]"
