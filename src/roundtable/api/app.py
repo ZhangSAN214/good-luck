@@ -409,6 +409,7 @@ class BenchBody(BaseModel):
     request: str = Field(min_length=1, max_length=2000)
     materials: list[str] = Field(default_factory=list, max_length=64)  # 先收下的素材编号
     from_product: bool = False  # 从成品反推：拖进来的是成品，要能做出类似成品的台
+    form: dict[str, str] = Field(default_factory=dict, max_length=20)  # 按表填的需求（可选）
 
 
 class BenchAttachBody(BaseModel):
@@ -930,7 +931,7 @@ def create_app(service: RoundtableService | None = None, lan: LanAccess | None =
     @app.post("/api/bench")
     async def bench_submit(request: Request, body: BenchBody) -> dict[str, Any]:
         return svc(request).bench_submit(
-            body.request, body.materials, from_product=body.from_product
+            body.request, body.materials, from_product=body.from_product, form=body.form
         )
 
     @app.post("/api/bench/materials", status_code=201)

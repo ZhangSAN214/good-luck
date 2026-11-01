@@ -262,3 +262,24 @@ def test_repo_capability_map_is_valid_and_covers_every_kind(tmp_path):
     with pytest.raises(ConfigError, match="重复"):
         load_caps(dup)
     assert load_caps(tmp_path / "none.yaml").capabilities == []
+
+
+def test_unreadable_capability_says_unprobed_with_reason(tmp_path):
+    """只读面板读不到就写「不可探测 + 原因」，不装作有数；上次核实的数留着。"""
+    caps = CapabilityMap(
+        capabilities=[
+            *CAPS.capabilities,
+            Capability(id="local", direction="x", name="本地", use="u"),
+        ]
+    )
+    net = Net()
+    desk = make(tmp_path, net, caps=caps)
+    asyncio.run(desk.refresh())
+    v = {c["id"]: c for c in desk.view()["caps"]}
+    assert v["threejs"]["stars"] == 12345 and "unprobed" not in v["threejs"]
+    assert "没有 GitHub 仓库" in v["local"]["unprobed"]
+    net.fail = ("/repos/",)
+    later = make(tmp_path, net, now=NOW + timedelta(days=2), caps=caps)
+    asyncio.run(later.refresh())
+    v = {c["id"]: c for c in later.view()["caps"]}
+    assert "这次没读到" in v["threejs"]["unprobed"] and v["threejs"]["stars"] == 12345

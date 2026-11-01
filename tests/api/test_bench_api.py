@@ -314,3 +314,13 @@ def test_profile_endpoints_and_from_product_flag(tmp_path):
         assert c.delete(f"/api/bench/profile/{pid}").json()["profile"] == []
         r = c.post("/api/bench", json={"request": "照着做", "from_product": True})
         assert r.status_code == 400 and "成品" in r.json()["detail"]
+
+
+def test_submit_with_structured_form(tmp_path):
+    with TestClient(create_app(service_with(tmp_path))) as c:
+        st = c.get("/api/bench").json()
+        assert {f["group"] for f in st["form_fields"]} >= {"基础信息", "输出与兜底"}
+        r = c.post("/api/bench", json={"request": "旅行台", "form": {"who": "爸妈"}})
+        assert r.status_code == 200
+        assert r.json()["current"]["form"] == {"who": "爸妈"}
+        wait_done(c)

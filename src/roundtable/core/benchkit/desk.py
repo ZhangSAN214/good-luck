@@ -289,13 +289,16 @@ class Desk:
             rank[c.id] = {"label": c.label, "total": total, "rising": rising}
         caps = dict(old.get("caps") or {})
         for cap in self.caps.capabilities:
+            # 只读核实：读不到不装作有数，写明「不可探测」和原因（上次核实到的数留着、标日期）
             if not cap.repo:
+                caps[cap.id] = {"unprobed": "没有 GitHub 仓库，星数和许可证没法核实"}
                 continue
             try:
                 got = repo_of(await self.fetch_json(f"{GITHUB}/repos/{cap.repo}"))
+                why = "" if got else "GitHub 返回的内容看不懂"
             except Exception as exc:  # noqa: BLE001
-                notes.append(f"核实 {cap.repo} 没成：{str(exc)[:80]}")
-                got = None
+                got, why = None, str(exc)[:80] or "连不上"
+                notes.append(f"核实 {cap.repo} 没成：{why}")
             if got:
                 caps[cap.id] = {
                     "stars": got["stars"],
@@ -303,6 +306,8 @@ class Desk:
                     "pushed": got["pushed"],
                     "verified": _iso(now),
                 }
+            else:
+                caps[cap.id] = dict(caps.get(cap.id) or {}) | {"unprobed": f"这次没读到：{why}"}
         feed = await self._feed(notes)
         suggest = (
             await self._suggest(old, notes) if self._suggest_due(old) else old.get("suggest") or []

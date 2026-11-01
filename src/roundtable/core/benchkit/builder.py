@@ -30,8 +30,12 @@ from typing import Any
 
 from roundtable.core.benchkit.intent import (
     FIVE_KEYS,
+    FORM,
     add_voice,
     answer_intent,
+    clean_form,
+    form_text,
+    form_voices,
     intent_counts,
     intent_of,
     intent_text,
@@ -335,6 +339,7 @@ class BenchBuilder:
             "current": self.build,
             "recent": self.recent(),
             "profile": self.profile(),
+            "form_fields": list(FORM),
             "library": {
                 "parts": self.library.parts() if self.library else [],
                 "recipes": self.library.recipes()[:RECENT] if self.library else [],
@@ -344,7 +349,12 @@ class BenchBuilder:
     # --- 交活 -------------------------------------------------------------------
 
     def submit(
-        self, request: str, materials: list[str] | None = None, *, from_product: bool = False
+        self,
+        request: str,
+        materials: list[str] | None = None,
+        *,
+        from_product: bool = False,
+        form: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """开工：一句话，可以带拖进来的素材（先用 stage_material 收下，这里给编号）。
 
@@ -355,6 +365,10 @@ class BenchBuilder:
             raise ValueError("想要什么样的工作台？写一句话就行")
         if from_product and not materials:
             raise ValueError("从成品反推要先把成品（图片、动图或视频）拖进来")
+        said = request  # 你写的那一句（原话表里单独一行）
+        filled = clean_form(form)  # 按表填的需求（可选）：拼进需求，每格记成一句原话
+        if filled:
+            request = f"{request[:1500]}\n\n{form_text(filled)}"
         reason = self.unavailable_reason()
         if reason:
             raise ValueError(reason)
@@ -387,12 +401,14 @@ class BenchBuilder:
             "voices": [],
             "intent": None,
             "from_product": bool(from_product),
+            "form": filled,
             "rounds": [],
             "score": None,
             "result": None,
             "log": [],
         }
-        add_voice(self.build, "开工", request, _iso(now))
+        add_voice(self.build, "开工", said[:2000], _iso(now))
+        form_voices(self.build, filled, _iso(now))
         for item in self.profile():  # 甲方档案：以前定下的偏好，每个新项目都带上
             add_voice(self.build, "档案", item["text"], _iso(now), item["id"])
         self._take_materials(self.build, materials or [])

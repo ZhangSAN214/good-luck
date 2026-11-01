@@ -365,3 +365,11 @@
 .bg-fake{display:block;margin-top:2px;font-size:12px;color:#ffb9ae}
 .bg-trlist li[data-state="待你看"] .bg-tr-st{background:rgba(224,160,80,.24);color:#ffd9a6}
 .bg-ch-accepted{color:var(--ok,#7fc79a)}
+/* 结构化需求表单（2026-11-01） */
+.bg-ffs{display:grid;gap:6px;margin-top:4px}
+.bg-ffg{margin:6px 0 0;font-size:12px;font-weight:400;color:var(--hb-muted);letter-spacing:.06em}
+.bg-ff{display:grid;grid-template-columns:96px minmax(0,1fr);gap:8px;align-items:center;font-size:13px}
+.bg-ff input,.bg-ff select,.bg-ff textarea{min-width:0;background:rgba(255,255,255,.05);border:0;border-radius:10px;padding:6px 10px;color:#eceff3;box-shadow:var(--hb-edge);font:inherit}
+.bg-ff select option{color:#111}
+@media (max-width:720px){.bg-ff{grid-template-columns:1fr}}
+.bg-unprobed{display:block;font-size:12px;color:#ffd9a6}

@@ -1098,10 +1098,15 @@ class RoundtableService:
         return self.bench.rules.materials.max_video_mb * 1024 * 1024
 
     def bench_submit(
-        self, request: str, materials: list[str] | None = None, *, from_product: bool = False
+        self,
+        request: str,
+        materials: list[str] | None = None,
+        *,
+        from_product: bool = False,
+        form: dict[str, str] | None = None,
     ) -> dict[str, Any]:
         try:
-            self.bench.submit(request, materials, from_product=from_product)
+            self.bench.submit(request, materials, from_product=from_product, form=form)
         except RuntimeError as exc:
             raise ServiceError(str(exc), 409) from None
         except ValueError as exc:

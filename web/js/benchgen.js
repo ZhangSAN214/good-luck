@@ -203,6 +203,7 @@ export class BenchGenPanel {
     this.deskKind = '';
     this.deskAsked = false; // 这次打开页面已经叫过一次刷新
     this.fromProduct = false; // 拖进来的是成品：要能做出类似东西的台
+    this.form = {}; // 按表填的需求（字段清单来自后端 form_fields）
     this.pane = 'client'; // 窄屏时显示哪一栏
     this.err = '';
     this.draft = '';
@@ -225,11 +226,13 @@ export class BenchGenPanel {
     });
     el.addEventListener('input', (e) => {
       if (e.target.matches('[data-text]')) this.draft = e.target.value;
+      if (e.target.matches('[data-ff]')) this.form[e.target.dataset.ff] = e.target.value;
       if (e.target.closest('[data-form]')) this.dirty = true;
     });
     el.addEventListener('change', (e) => {
       const x = e.target;
       if (x.matches('[data-switch]')) return this.switchTo(x.value);
+      if (x.matches('select[data-ff]')) this.form[x.dataset.ff] = x.value;
       if (!this.pick) return;
       if (x.matches('[data-dref]')) this.pick.refs[x.checked ? 'add' : 'delete'](x.dataset.dref);
       else if (x.matches('[data-dspan]')) {
@@ -512,8 +515,29 @@ export class BenchGenPanel {
     return `<div class="sc-ask bg-ask"><textarea data-text rows="5" aria-label="想要什么样的工作台" placeholder="一句话说你想要什么台。比如：管理我租的三套房子，看租金、到期、维修和水电" ${busy ? 'disabled' : ''}>${esc(this.draft)}</textarea>
       ${busy ? '<p class="sc-hint">上一个还在做，做完或叫停后才能开新的。</p>' : drop}
       <button type="button" class="btn primary bg-go" data-submit ${busy || st.unavailable ? 'disabled' : ''}>生成工作台</button>
-      ${this.profileHtml(st)}
+      ${this.formHtml(st)}${this.profileHtml(st)}
       <p class="sc-hint">${st.project ? '先问你几个取舍，再出样子和计划给你签字；之后自动搭，每段做完给你试用。停下来等你时不花次数。' : `自动拆需求、分头写、质检和评审，不过线就返工，最多 ${esc(st.max_rounds || 3)} 轮。`}花的是订阅次数。</p></div>`;
+  }
+
+  /** 结构化需求表单（可选）：四组固定字段，清单来自后端，拼成文字也在后端（同一个构建器）。 */
+  formHtml(st) {
+    const fields = st.form_fields || [];
+    if (!fields.length) return '';
+    const filled = fields.filter((f) => (this.form[f.id] || '').trim() && !(f.options && this.form[f.id] === f.options[0])).length;
+    let group = '';
+    const rows = fields
+      .map((f) => {
+        const head = f.group !== group ? `<h5 class="bg-ffg">${esc((group = f.group))}</h5>` : '';
+        const v = this.form[f.id] || '';
+        const input = f.options
+          ? `<select data-ff="${esc(f.id)}">${f.options.map((o) => `<option ${o === v ? 'selected' : ''}>${esc(o)}</option>`).join('')}</select>`
+          : f.id === 'must'
+            ? `<textarea data-ff="${esc(f.id)}" rows="2" maxlength="400" placeholder="${esc(f.hint || '')}">${esc(v)}</textarea>`
+            : `<input type="text" data-ff="${esc(f.id)}" maxlength="400" value="${esc(v)}" placeholder="${esc(f.hint || '')}">`;
+        return `${head}<label class="bg-ff"><span>${esc(f.label)}</span>${input}</label>`;
+      })
+      .join('');
+    return `<details class="bg-fold bg-form"${filled ? ' open' : ''}><summary>按表填（可选，填了更准${filled ? `，已填 ${filled} 格` : ''}）</summary><div class="bg-ffs">${rows}</div></details>`;
   }
 
   /** 一卡一会话：这张卡最近一次会话是不是假完成（说做好了，文件没动）。 */
@@ -835,7 +859,7 @@ export class BenchGenPanel {
       .map(
         (c) => `<tr><th scope="row">${c.repo ? `<a href="https://github.com/${esc(c.repo)}" target="_blank" rel="noopener noreferrer">${esc(c.name)}</a>` : esc(c.name)}${c.added ? ' <span class="bg-tag">你加的</span>' : ''}<span class="bg-src">${esc(c.direction)}</span></th>
           <td>${esc(c.use)}${c.note ? `<span class="bg-src">${esc(c.note)}</span>` : ''}</td><td>${esc(c.license_seen || c.license || '未写')}</td>
-          <td>${c.stars ? `★ ${esc(c.stars.toLocaleString())}` : '—'}</td><td>${esc(c.cost || '$0')}</td><td data-lv="${esc(c.difficulty)}">${esc(c.difficulty)}</td><td>${esc(c.status)}</td></tr>`,
+          <td>${c.stars ? `★ ${esc(c.stars.toLocaleString())}${c.unprobed && c.verified ? `<span class="bg-src">${esc(c.verified.slice(0, 10))} 核实的</span>` : ''}` : ''}${c.unprobed ? `<span class="bg-unprobed" title="${esc(c.unprobed)}">不可探测：${esc(c.unprobed)}</span>` : c.stars ? '' : '<span class="bg-src">还没核实</span>'}</td><td>${esc(c.cost || '$0')}</td><td data-lv="${esc(c.difficulty)}">${esc(c.difficulty)}</td><td>${esc(c.status)}</td></tr>`,
       )
       .join('');
     return `<div class="bg-chips" role="group" aria-label="工作台类型">${pick}</div>
@@ -1430,10 +1454,11 @@ export class BenchGenPanel {
     if (t.closest('[data-submit]')) {
       const ids = this.mats.map((m) => m.id);
       const fromProduct = this.fromProduct && ids.length > 0;
-      const done = await this.act(() => this.api.submit(this.draft, ids, fromProduct), true);
+      const done = await this.act(() => this.api.submit(this.draft, ids, fromProduct, this.form), true);
       if (!this.err) {
         this.mats = [];
         this.fromProduct = false;
+        this.form = {};
       }
       return done;
     }

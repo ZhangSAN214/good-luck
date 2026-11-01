@@ -30,7 +30,7 @@ FIVE = (
 )
 FIVE_KEYS = tuple(k for k, _ in FIVE)
 EXPECT_FROM = ("对标", "使用者", "常识", "素材", "档案")
-VOICE_SRC = ("开工", "访谈", "签字", "变更单", "风格", "素材", "档案")
+VOICE_SRC = ("开工", "表单", "访谈", "签字", "变更单", "风格", "素材", "档案")
 MAX_QUESTIONS = 3
 MAX_STAGES = 5
 MIN_STAGES = 2
@@ -70,6 +70,82 @@ def add_voice(b: dict[str, Any], src: str, text: str, at: str = "", ref: str = "
     }
     voices.append(v)
     return v
+
+
+# --- 结构化需求表单（2026-11-01，借 dsh-plugin-structured-prompt 的思路，只学思路） -----------
+# 一句话旁边可以按表填：四组固定字段。界面按这份清单画表，拼成文字也只用 form_text 这一个构建器，
+# 金样本测试锁住输出（tests/core/benchkit/golden/）。
+
+FORM: tuple[dict[str, Any], ...] = (
+    {"id": "who", "group": "基础信息", "label": "给谁用", "hint": "例如：爸妈，不太会用电脑"},
+    {
+        "id": "goal",
+        "group": "基础信息",
+        "label": "拿来做什么",
+        "hint": "例如：排三天行程",
+    },
+    {"id": "like", "group": "基础信息", "label": "对标或参考", "hint": "例如：像某个你用惯的软件"},
+    {"id": "must", "group": "约束与规则", "label": "一定要有", "hint": "一条一行"},
+    {"id": "avoid", "group": "约束与规则", "label": "不要什么", "hint": "例如：不要专业参数"},
+    {
+        "id": "net",
+        "group": "工具策略",
+        "label": "联网",
+        "options": ["自动", "只用本地", "联网"],
+    },
+    {"id": "ai", "group": "工具策略", "label": "台里的 AI 功能", "options": ["自动", "不要", "要"]},
+    {
+        "id": "output",
+        "group": "输出与兜底",
+        "label": "交付成什么",
+        "hint": "例如：导出 PDF",
+    },
+    {
+        "id": "fallback",
+        "group": "输出与兜底",
+        "label": "取不到数据时",
+        "hint": "例如：用示例数据",
+    },
+)
+FORM_MAX = 400  # 每格最多字数
+
+
+def clean_form(raw: Any) -> dict[str, str]:
+    """只收清单里的字段；选择题只收给定选项，「自动」等于没填；去掉空的。"""
+    if not isinstance(raw, dict):
+        return {}
+    out: dict[str, str] = {}
+    for f in FORM:
+        v = raw.get(f["id"])
+        if not isinstance(v, str):
+            continue
+        v = "\n".join(line.strip() for line in v.strip().splitlines() if line.strip())[:FORM_MAX]
+        if not v or (f.get("options") and (v not in f["options"] or v == f["options"][0])):
+            continue
+        out[f["id"]] = v
+    return out
+
+
+def form_text(form: dict[str, str]) -> str:
+    """表单 → 交给助手的文字：按组排，固定顺序；空表返回空串。"""
+    lines: list[str] = []
+    group = ""
+    for f in FORM:
+        v = form.get(f["id"])
+        if not v:
+            continue
+        if f["group"] != group:
+            group = f["group"]
+            lines.append(f"【{group}】")
+        lines.append(f"- {f['label']}：{v.replace(chr(10), '；')}")
+    return "\n".join(lines)
+
+
+def form_voices(b: dict[str, Any], form: dict[str, str], at: str = "") -> None:
+    """表单每一格记成一句原话（来源「表单」），追踪表里能看到落在哪。"""
+    for f in FORM:
+        if form.get(f["id"]):
+            add_voice(b, "表单", f"{f['label']}：{form[f['id']]}", at, f["id"])
 
 
 def voices_text(b: dict[str, Any]) -> str:
@@ -347,7 +423,7 @@ def trace(b: dict[str, Any]) -> list[dict[str, Any]]:
                 state = "做到"
             else:
                 state = "待做"
-        elif v["src"] in ("访谈", "素材", "签字", "风格", "档案"):
+        elif v["src"] in ("表单", "访谈", "素材", "签字", "风格", "档案"):
             state = "已参考"
         elif not reqs:
             state = "待做"  # 还没拆出验收清单
