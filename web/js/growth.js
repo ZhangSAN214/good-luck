@@ -28,7 +28,7 @@ export const describe = (e) => {
 
 export class GrowthPanel {
   constructor({ api, now = () => Date.now() } = {}) {
-    this.api = api; // {get(id), run(id), revert(id, entryId), clear(id)}
+    this.api = api; // {get(id), run(id), revert(id, entryId), undo(id, token), clear(id)}
     this.now = now;
     this.member = null;
     this.g = null;
@@ -77,6 +77,22 @@ export class GrowthPanel {
     return `<li class="gr-${esc(e.kind)}"><div class="pp-mh"><b>${esc(KIND[e.kind] || e.kind)}</b>${tags}${undo}</div><p>${esc(describe(e))}${why}${reason}${quote}</p></li>`;
   }
 
+  // 成长总账：设定、口癖、和你的阶段、对你的看法、收藏排成一条（新的在前），能撤回的给「撤回」
+  book(g) {
+    const rows = g.book || [];
+    if (!rows.length) return '';
+    const names = g.book_sources || {};
+    const day = (at) => String(at || '').slice(0, 10);
+    const items = rows
+      .slice(0, 60)
+      .map(
+        (c) =>
+          `<li class="gr-book${c.undone ? ' gr-undone' : ''}"><div class="pp-mh"><b>${esc(names[c.source] || c.source)}</b><span>${esc(day(c.at))}</span>${c.undone ? '<span>已撤回</span>' : ''}${c.undo ? `<button type="button" class="link" data-gundo="${esc(c.undo)}">撤回</button>` : ''}</div><p>${esc(c.text)}${c.why ? `<br><small>${esc(c.why)}</small>` : ''}</p></li>`,
+      )
+      .join('');
+    return `<details class="pf-sec gr-bookbox" open><summary><b>全部变化</b><span>设定、口癖、和你、看法、收藏 · 共 ${rows.length} 条</span></summary><ul class="pp-list grp-box">${items}</ul></details>`;
+  }
+
   // 习惯（全部经历累积）、熟练度、最近一份「这个月的我」
   extras(g) {
     const habits = (g.habits || []).length
@@ -103,6 +119,8 @@ export class GrowthPanel {
     this.el.innerHTML = `<h4 class="grp-h">成长 <small>每周一反思上一周${g.week ? ` · 上次：${esc(g.week)}` : ''}</small></h4>
       <p class="grp-foot">每周最多改 ${r.max_changes ?? 3} 条，每条都要引用这一周真实发生的事；性格分每月最多变 ${r.core_monthly_steps ?? 1} 格，受你影响的改动不超过 ${Math.round((r.user_share ?? 0.3) * 100)}%，你锁住的项不动。另一位成员评审打分，低于 3 分的不改。</p>
       ${this.extras(g)}
+      ${this.book(g)}
+      ${(g.book || []).length ? '<p class="grp-foot"><b>每周反思明细</b>：评审几分、引用的经历、没改的原因</p>' : ''}
       <ul class="pp-list grp-box">${rows}</ul>
       <div class="grp-box grp-acts">${canRun ? `<button type="button" class="grp-btn" data-grun${this.busy ? ' disabled' : ''}>${this.busy ? '正在反思…' : `现在反思 ${esc(g.due)}`}</button>` : ''}<button type="button" class="grp-btn danger" id="gr-clear" data-gclear>清空成长记录</button></div>
       <p class="hint" role="status">${esc(this.msg)}</p>`;
@@ -120,6 +138,8 @@ export class GrowthPanel {
 
   async onClick(e) {
     const t = e.target;
+    const ud = t.closest('[data-gundo]');
+    if (ud) return this.act(() => this.api.undo(this.member, ud.dataset.gundo), '撤回了');
     const rv = t.closest('[data-grevert]');
     if (rv) return this.act(() => this.api.revert(this.member, Number(rv.dataset.grevert)), '撤回了，档案存成了一个新版本');
     if (t.closest('[data-grun]')) {

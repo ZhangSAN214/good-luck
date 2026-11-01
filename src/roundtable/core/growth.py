@@ -43,6 +43,7 @@ from roundtable.core.member.growth import (
 )
 from roundtable.core.member.growth import habits as hb
 from roundtable.core.member.growth import report as rp
+from roundtable.core.member.growth.book import for_rt as book_for
 from roundtable.core.member.growth.gate import fresh_patch
 from roundtable.core.member.growth.timeline import CHANGE, REJECTED, SKIP
 from roundtable.core.member.mode import Mode, require_life
@@ -100,6 +101,7 @@ class GrowthKeeper:
         self.log = GrowthLog(rt)
         self.gate = Gate(rt)
         self.profiles = ProfileStore(rt)
+        self.book = book_for(rt)  # 成长总账：各模块的变化排成一条（只读）
 
     @property
     def rules(self) -> Any:
@@ -255,6 +257,7 @@ class GrowthKeeper:
             skills=self.skills(member),
             diary_days=len(days),
             items=sum(1 for it in items if it["day"].startswith(month)),
+            others=self.book.month_counts(member, month) if self.rules.book.enabled else {},
         )
 
     def reports(self, today: date) -> int:
