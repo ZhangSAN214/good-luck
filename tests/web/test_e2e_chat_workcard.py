@@ -8,6 +8,35 @@ from roundtable.core.chat import GroupChat
 from tests.web.conftest import wait_until
 
 
+def _body(r):
+    try:
+        return r.text()[:160]
+    except Exception:  # noqa: BLE001 - 只是诊断
+        return ""
+
+
+def click_until(page, sel, done, tries=5, extra=None):
+    """点一下等结果；轮询刷新正好把按钮换掉时点击会落空，再点一次。"""
+    for _ in range(tries):
+        if page.locator(sel).count() and page.locator(sel).first.is_enabled():
+            page.click(sel)
+        try:
+            wait_until(done, timeout=2)
+            return
+        except AssertionError:
+            continue
+    loc = page.locator(sel)
+    seen = {
+        "found": loc.count(),
+        "enabled": loc.count() and loc.first.is_enabled(),
+        "error": page.locator("#gc-err").inner_text() if page.locator("#gc-err").count() else "",
+        "responses": getattr(page, "handoff_log", []),
+        "js_errors": getattr(page, "js_errors", []),
+        "extra": extra() if extra else None,
+    }
+    raise AssertionError(f"点了 {sel} 没有反应：{seen}")
+
+
 def open_chat(srv, page):
     page.goto(srv.url + "/#m=chat")
     page.wait_for_selector("#gc-members button[data-name]")
@@ -23,17 +52,35 @@ def test_handoff_card_dismiss_and_choice_buttons(serve, page):
         meta={"handoff": {"task": "按九月数据模拟十月收益", "state": "pending"}},
     )
     pick = chat.send_as("V2", "你想先看哪个", meta={"choices": ["收益曲线", "持仓明细"]})
+    page.handoff_log = []
+    page.on(
+        "response",
+        lambda r: (
+            "/api/chat/handoff" in r.url
+            and page.handoff_log.append(f"{r.status} {r.url.split('/api/')[-1]} {_body(r)}")
+        ),
+    )
     open_chat(srv, page)
     card = f".gc-msg[data-id='{msg['id']}'] .wc-handoff"
     page.wait_for_selector(card)
     assert "按九月数据模拟十月收益" in page.inner_text(card)
     assert "[交办" not in page.inner_text("#gc-feed")
-    page.click(f"{card} [data-handoff-dismiss]")
-    wait_until(lambda: repo.chat_message(msg["id"])["meta"]["handoff"]["state"] == "dismissed")
+
+    def state():
+        row = repo.chat_message(msg["id"]) or {}
+        return ((row.get("meta") or {}).get("handoff") or {}).get("state")
+
+    def rows():
+        return [
+            (m["id"], m["author"], m["text"][:20], m["meta"]) for m in repo.chat_messages("main")
+        ]
+
+    dismiss = f"{card} [data-handoff-dismiss]"
+    click_until(page, dismiss, lambda: state() == "dismissed", extra=rows)
     page.wait_for_selector(f"{card}.off")
-    page.click(f".gc-msg[data-id='{pick['id']}'] [data-choice='持仓明细']")
     mine = lambda: [m["text"] for m in repo.chat_messages("main") if m["author"] == "user"]  # noqa: E731
-    wait_until(lambda: "持仓明细" in mine())
+    choice = f".gc-msg[data-id='{pick['id']}'] [data-choice='持仓明细']"
+    click_until(page, choice, lambda: "持仓明细" in mine())
     gone = f".gc-msg[data-id='{pick['id']}'] .wc-choices"
     page.wait_for_function(f'!document.querySelector("{gone}")')
 

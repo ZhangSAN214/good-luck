@@ -406,3 +406,11 @@ def test_sticker_that_says_the_same_as_the_words_replaces_them():
     assert sticker_echo("[表情:小克·记着]这笔先记上", means) == "这笔先记上[表情:小克·记着]"
     assert sticker_echo("行，那就开始[表情:小克·记着]", means) == "行，那就开始[表情:小克·记着]"
     assert sticker_echo("[表情:小克·收到]", means) == "[表情:小克·收到]"
+
+
+def test_sticker_echo_reads_pack_qualified_means_first():
+    from roundtable.core.chat_actions import sticker_echo
+
+    means = {"猫猫·好的": ["收到", "好嘞"], "好的": ["不相干"]}
+    assert sticker_echo("收到！[表情:猫猫·好的]", means) == "[表情:猫猫·好的]"
+    assert sticker_echo("不相干[表情:别的·好的]", means) == "[表情:别的·好的]"

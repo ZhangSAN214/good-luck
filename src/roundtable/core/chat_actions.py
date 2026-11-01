@@ -255,7 +255,8 @@ def sticker_echo(text: str, means: dict[str, list[str]]) -> str:
     bare = _bare(words)
     for m in STICKER_RE.finditer(text):
         name = m.group(2)
-        same = [_bare(w) for w in (means.get(name) or [name])]
+        hit = means.get(f"{m.group(1)}·{name}") or means.get(name)  # 外部包的键是「套·名」
+        same = [_bare(w) for w in (hit or [name])]
         if bare and any(bare == w for w in same if w):
             return m.group(0)
     if text.lstrip().startswith(tokens[0]):
