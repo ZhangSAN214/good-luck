@@ -24,6 +24,7 @@ from roundtable.core.member.profile import ProfileStore
 from roundtable.core.member.relation import RelationPlugin
 from roundtable.core.member.scheduler import BudgetScheduler
 from roundtable.core.member.state import StatePlugin
+from roundtable.core.member.story import STORY, story_meta
 from roundtable.core.storage.repository import iso
 
 LAST_KEY = "engine.last_tick"
@@ -67,6 +68,8 @@ class MemberEngine:
         repo, n = self.rt.repo, 0
         for e in repo.life_events_between(iso(start), iso(end)):
             data = {k: e[k] for k in ("kind", "place", "members", "room", "written")}
+            if e["kind"] == STORY:  # 生活事件库的事：带上这一步的标签，P3 按反射表接
+                data |= story_meta(self.rt, e["topic"] or "")
             for member in e["members"]:
                 self.bus.publish(Event("life.event", datetime.fromisoformat(e["at"]), member, data))
                 n += 1

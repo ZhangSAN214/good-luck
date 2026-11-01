@@ -50,6 +50,7 @@ from roundtable.core.member.profile import ProfileStore
 from roundtable.core.storage.repository import iso
 
 ROOM = "growth"
+TALENT_PATH = ("likes", "likes.擅长")  # 擅长（L10）写在档案的这一项
 STEP = "growth"
 AUTHOR = "growth"
 NONE = "（没有）"
@@ -139,6 +140,8 @@ class GrowthKeeper:
         out = {"members": 0, "changes": 0, "rejected": 0, "skipped": 0, "reports": 0}
         if not self.rules.enabled:
             return out
+        if talents := self.talents(now):
+            out["talents"] = talents
         self.count(now)
         out["reports"] = self.reports(now.date())
         start = self.due(now.date())
@@ -160,6 +163,60 @@ class GrowthKeeper:
         if ran:
             self.log.backup(self.folder, wid, [m.id for m in everyone])
         return out
+
+    # --- 擅长（L10）：生活引擎发现的擅长由成长写进档案（不花钱） --------------------------
+
+    def talents(self, now: datetime) -> int:
+        """把生活里觉醒 / 生疏了的擅长写进档案 ``likes.擅长``（以成长的身份，一项一个版本），
+        并记进成长时间线（能一条条撤回）。证据只来自人物卡种子和生活练习，和工作无关。
+        返回写了几条。用户锁住的 likes.擅长 不动。"""
+        from roundtable.core.member.growth.gate import ADD, REMOVE
+        from roundtable.core.member.profile import ProfileError
+        from roundtable.core.member.story import Talents
+
+        tal, n = Talents(self.rt), 0
+        week = week_id(now.date())
+        for m in self.members():
+            for item in tal.take(m.id):
+                domain = str(item.get("domain") or "")
+                cur = self.profiles.current(m.id).get(TALENT_PATH[1])
+                old = [str(x) for x in cur] if isinstance(cur, list) else []
+                add = item.get("op") == "add"
+                if not domain or (domain in old) == add:
+                    continue
+                new = [*old, domain] if add else [x for x in old if x != domain]
+                why = str(item.get("why") or "")
+                try:
+                    p = self.profiles.change(
+                        m.id,
+                        {"likes": {"擅长": new or None}},
+                        author=AUTHOR,
+                        reason=f"生活里{'发现自己擅长' if add else '生疏了'}：{domain}",
+                    )
+                except ProfileError:
+                    continue
+                entry = {
+                    "week": week,
+                    "kind": CHANGE,
+                    "op": ADD if add else REMOVE,
+                    "path": TALENT_PATH[1],
+                    "value": domain,
+                    "delta": 0,
+                    "old": old,
+                    "new": new,
+                    "why": why or ("好久没碰了" if not add else ""),
+                    "quote": "",
+                    "evidence": [why] if why else [],
+                    "user": False,
+                    "score": None,
+                    "reason": "生活里发现的擅长（L10）" if add else "生活里生疏了（L10）",
+                    "clash": "",
+                    "version": p.version,
+                    "reverted": False,
+                }
+                self.log.add(m.id, [entry])
+                n += 1
+        return n
 
     # --- 习惯、熟练度、月度报告（程序算，不花钱） ----------------------------------------
 

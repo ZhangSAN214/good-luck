@@ -308,13 +308,19 @@ async def test_member_who_thinks_too_long_is_skipped_without_blocking_others(mon
 # --- 成员专属表情 -------------------------------------------------------------------
 
 
-def give_stickers(env: Env, tmp_path: Path, member: str, approved: list[str], pending=()):
-    """给成员放几张专属表情（approved 审过、pending 待审），存在临时文件夹里。"""
+def give_stickers(
+    env: Env, tmp_path: Path, member: str, approved: list[str], pending=(), uses=None
+):
+    """给成员放几张专属表情（approved 审过、pending 待审；uses 各自的用法），存在临时文件夹里。"""
     from roundtable.core.config.schema import StickerCard, StickerSpec
     from roundtable.core.member_stickers import MemberStickers
 
     rt = env.rt
-    specs = [StickerSpec(name=n, caption=n, action="挥手") for n in [*approved, *pending]]
+    uses = uses or {}
+    specs = [
+        StickerSpec(name=n, caption=n, action="挥手", use=uses.get(n, ""))
+        for n in [*approved, *pending]
+    ]
     cards = rt.config.personas.sticker_cards | {member: StickerCard(look="测试", stickers=specs)}
     personas = rt.config.personas.model_copy(update={"sticker_cards": cards})
     rt.config = rt.config.model_copy(update={"personas": personas})
@@ -349,6 +355,18 @@ def test_member_gets_own_approved_pack_first_in_the_prompt(tmp_path):
     assert sticker_menu(env.rt, "V2", "阿二") == sticker_list(common)
     # 昵称放不进记号（太长）时不给专属
     assert own_stickers(env.rt, "V1", "一个很长很长的昵称") == {}
+
+
+def test_sticker_menu_says_when_to_send_each_own_sticker(tmp_path):
+    """10-31 试用：清单只有名字，记仇的「记着」被当成「好的」连用 6 次；带上用法。"""
+    from roundtable.core.chat_actions import sticker_menu
+
+    env = Env()
+    uses = {"记着": "被调侃时记小仇", "没审": "不该出现"}
+    give_stickers(env, tmp_path, "V1", ["记着", "晚安"], pending=["没审"], uses=uses)
+    menu = sticker_menu(env.rt, "V1", "阿一")
+    assert menu.startswith("你的专属：[表情:阿一·记着]（被调侃时记小仇）、[表情:阿一·晚安]；通用：")
+    assert "不该出现" not in menu
 
 
 async def test_member_may_send_only_her_own_pack(tmp_path):

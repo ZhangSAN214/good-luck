@@ -135,7 +135,7 @@ from roundtable.core.memory import LAYERS, MemoryKeeper, clean_memory, prepare_i
 from roundtable.core.moments import SEEN_KEY as MOMENTS_SEEN
 from roundtable.core.notes import NoteError, check_can_add, clean_note
 from roundtable.core.nowplaying import COVERS_DIR, NowPlaying, SmtcSource, list_covers, read_cover
-from roundtable.core.office import building, payslip, roster
+from roundtable.core.office import building, life_spots, payslip, roster
 from roundtable.core.office import collect as collect_performance
 from roundtable.core.office import reset as reset_performance
 from roundtable.core.orchestrator import Orchestrator, OrchestratorError, RunResult
@@ -177,7 +177,7 @@ from roundtable.core.standee import load_standee
 from roundtable.core.standee import standee_file as read_standee_file
 from roundtable.core.steps import Event, restore_state
 from roundtable.core.steps.office import group_estimates
-from roundtable.core.storage import NotFound
+from roundtable.core.storage import NotFound, iso
 from roundtable.core.supercomputer import Supercomputer
 from roundtable.core.supercomputer.launch import CommandLauncher, HookLauncher
 from roundtable.core.wander import Wanderer
@@ -1663,11 +1663,19 @@ class RoundtableService:
     def apartment(self, hour: int, weekday: int) -> dict[str, Any]:
         """公寓楼：住户按作息在各房间活动，正在办事的在办公室 / 会议室。
 
-        hour / weekday 用浏览器的本地时间。匿名未揭晓的会话只计数，不说是谁。
+        hour / weekday 用浏览器的本地时间（按主时区）。匿名未揭晓的会话只计数，不说是谁。
+        问的正是主时区的这一小时时，生活系统这一小时记下的去处优先（和生活群、朋友圈对得上）。
         """
         if not (0 <= hour < 24 and 0 <= weekday < 7):
             raise ServiceError("hour 应为 0～23，weekday 应为 0～6")
         now = self.rt.budget.now()
+        local = home_zone(self.rt).local(now)
+        spots = None
+        if (local.hour, local.weekday()) == (hour, weekday):
+            slot = local.replace(minute=0, second=0, microsecond=0)
+            spots = life_spots(
+                self.rt.repo.life_events_between(iso(slot), iso(slot + timedelta(hours=1)))
+            )
         start, end = month_window(now)
         working = self.rt.repo.working_seats(now - timedelta(hours=WORKING_WINDOW_H))
         b = building(
@@ -1677,6 +1685,7 @@ class RoundtableService:
             working=working,
             month_usage=self.rt.repo.spent_by_model(start, end),
             meetings=self._office_meetings(working),
+            life=spots,
         )
         return {
             "floors": b.floors,

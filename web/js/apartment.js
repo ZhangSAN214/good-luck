@@ -1,8 +1,8 @@
 // 公寓楼：员工下班后住的地方。基建式剖面图：深色金属楼体、两侧电梯井、空房是暗槽，每个房间是一幕有自己主题和灯光的场景。
 // 住户按作息在各房间活动，正在办事的在办公室 / 会议室；另有俯视「布局图」，点房间放大看详情。
-// 数据来自 /api/apartment（按浏览器本地时间）；小人用 /api/members 的 chibi，没有素材时用昵称首字。
+// 数据来自 /api/apartment（按主时区）：这一小时生活系统记下的去处优先（和生活群、朋友圈对得上），没有才按作息表；小人用 /api/members 的 chibi，没有素材时用昵称首字。
 // 匿名未揭晓的会话：服务端只给数量，这里只在会议室门上挂牌，不显示是谁。
-// 所有图形都在这里（宿舍的伪 3D 场景在 rooms3d.js）用 SVG / CSS 自绘，不用外部美术素材。
+// 素材目录里有房间场景图（房间包，scripts/room_art.py 安装）时用图，没有时用这里和 rooms3d.js 的 SVG / CSS 自绘。
 // 互动：拖小人到别的房间（落地弹跳、按房间换动作、串门打招呼）、点小人（摸头 / 聊一句 / 看状态）、放大后点家具。
 // 这些都只在浏览器里：不调用模型、不花钱、不改真实作息，几分钟后小人自己回到按作息的位置。
 
@@ -72,6 +72,9 @@ const ACT_LINES = {
   idle: ['发会儿呆。', '这里好舒服。', '嗯～', '歇一下。'],
   chat: ['我有个想法！', '你们觉得呢？', '我们来对一下。'],
 };
+// 白天在天台：不说看星星（和后端白天把「看星星」叫「晒太阳」一致）
+const DAY_SKY = ['太阳好暖和。', '晒得人都懒了。', '风好舒服。', '从这儿能看好远。'];
+const daytime = (h) => h != null && h >= 6 && h < 18;
 const TOGETHER = ['一起吗？', '给我挪个位置～', '你也在这儿呀。'];
 const WELCOME = ['来呀～', '好呀！', '坐这儿吧。'];
 // 聊一句：按正在做的事；成员设定里有口头禅时一半概率说口头禅
@@ -1263,6 +1266,7 @@ export class Apartment {
     const h = this.hour ?? 12;
     if (Math.random() < 0.3 && (h >= 23 || h < 5)) return '这么晚了，早点休息呀。';
     if (Math.random() < 0.3 && h >= 5 && h < 10) return '早上好！';
+    if (r.activity === 'stargaze' && daytime(h)) return pick(DAY_SKY);
     return pick(TALK[r.activity] || TALK.idle);
   }
 
@@ -1459,7 +1463,8 @@ export class Apartment {
     if (spot) this.burst(spot, h.fx, 2);
     // 自己去用的不每次都说话，免得满屏气泡
     if (auto && Math.random() < 0.5) return;
-    const own = h.say?.length && Math.random() < 0.6 ? h.say : ACT_LINES[h.act] || h.say || [];
+    let own = h.say?.length && Math.random() < 0.6 ? h.say : ACT_LINES[h.act] || h.say || [];
+    if (h.act === 'stargaze' && daytime(this.hour)) own = DAY_SKY;
     this.say(who.id, mate && Math.random() < 0.6 ? pick(TOGETHER) : pick(own));
     if (mate && mate.activity !== 'sleep') setTimeout(() => this.say(mate.id, pick(WELCOME)), 900);
   }

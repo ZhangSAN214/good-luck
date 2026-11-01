@@ -51,7 +51,7 @@ DISTILLED = {
 def env_with(**update) -> Env:
     env = Env()
     env.rt.budget.now = lambda: NOW
-    env.rt.repo.clock = lambda: iso(NOW)  # 调用记录也按 NOW 记，不跟着真实日期跨天
+    env.rt.repo.clock = lambda: iso(NOW)  # 调用记录也记在 NOW 那天（不随真实日期变）
     cfg = env.rt.config.roundtable
     rules = cfg.chat.memes.model_copy(
         update={
