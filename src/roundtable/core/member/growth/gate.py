@@ -13,6 +13,7 @@
    至少 ``evidence_overlap`` 出现在所引的经历里（照抄为 1）。
 4. **核心性格每月最多一格**：这个月（本地日历月）已经改过的格数（没撤回的）加上这次，
    不超过 ``core_monthly_steps``。
+   **定型以后变得慢**：入职过了发育期，性格分两次改动要隔够天数（``member/growth/plastic.py``）。
    **离人物卡不远**：成长让一项性格一共最多移动 ``anchor_steps`` 格（入职以来，没撤回的）。
    **不随大流**：别的成员里已经有 ``same_way``（按 8 人的比例）那么多位往同一边变过这一项，
    这次先不跟（防止 8 位被同一种偏好一起推着走）。这两条是成长 G3 半年快进加的。
@@ -165,6 +166,7 @@ class Ledger:
     life_total: int = 0  # 入职以来没撤回的改动（不只最近几周）
     life_user: int = 0
     moved: dict[str, int] = field(default_factory=dict)  # 成长让每项性格一共移动了几格（带正负）
+    core_wait: int = 0  # 定型以后离下一次能改性格分还有几天（发育期可塑性，成长 G2）
 
 
 class Gate:
@@ -287,6 +289,9 @@ class Gate:
         # 4. 核心性格每月最多一格
         if p.op == SCORE and ledger.core_steps + 1 > r.core_monthly_steps:
             return self._no(v, f"性格分这个月已经改过 {ledger.core_steps} 格了")
+        # 4a. 定型以后性格变得慢（发育期可塑性）
+        if p.op == SCORE and ledger.core_wait > 0:
+            return self._no(v, f"入职久了，性格变得慢：还要等 {ledger.core_wait} 天才能再动一格")
         # 4b. 离人物卡不远：成长让一项性格一共最多移动 anchor_steps 格（半年快进发现：每月一格、
         #     半年就能把一项从 3 推到 5 再推回来，人物卡的底子会被磨掉）
         if p.op == SCORE:

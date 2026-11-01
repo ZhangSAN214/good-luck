@@ -853,6 +853,13 @@ chat:
         recent_days: 14            # 「这阵子」= 最近两周
         recent_max: 2              # 她自己知道的最近变化最多 2 件（0 = 不告诉她）
         context_chars: 50          # 那一行最多 50 字（8 位相同，算在 600 字里）
+      reconcile: true              # 对账（成长 G2）：口头禅老歇着、学来的说法、养成的习惯和档案对不上时写进每周反思材料
+      plastic:                     # 发育期可塑性（成长 G2）：新来的变得快，待久了变得慢
+        enabled: true
+        young_days: 60             # 入职头 60 天照原规则
+        settled_changes: 2         # 之后每周最多改 2 条
+        settle_days: 60            # 性格分两次改动至少隔 60 天（好奇、外向的快一点，较真的慢一点）
+        min_gap_days: 30
       vitals:                      # 防退化阈值（成长 G3）：半年快进（roundtable sim-growth）和加速模拟期末超过就算出问题、测试失败
         overlap_max: 0.4           # 两位成员的长处 / 喜好最多重合四成
         extreme_gain: 0.15         # 五项分在 1 或 5 的占比最多多一成五
