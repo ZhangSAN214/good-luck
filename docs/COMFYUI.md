@@ -98,6 +98,10 @@ roundtable models
 | `timeout_s` | 300 | 提交后最多等多久，超时会把排队的任务删掉 |
 | `poll_interval_s` | 1.0 | 多久问一次画完没有 |
 | `workflow_without_refs` | `moment_photo_sdxl_noref.json` | 没有参考图时用的模板 |
+| `busy_queue` | 0 | ComfyUI 里已有多少个任务就算「显卡在忙」（超过就跳过、换下一个绘图模型，不排队） |
+| `min_free_vram_mb` | 0（不查） | 空闲显存低于这个数（MB）也算在忙，比如正在打游戏；8GB 显卡可以填 4000 |
+
+显卡在忙或 ComfyUI 没开时，这次先用别的绘图模型，ComfyUI 歇一会儿（约 30 秒）再试。「余额与用量」里的「出图先用谁」能看到每个出图模型能不能用、上次为什么被跳过，也能手动关掉某个或自己排先后。
 
 ## 常见问题
 

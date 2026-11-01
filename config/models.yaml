@@ -654,6 +654,8 @@ models:
       timeout_s: 300             # 首次加载底模较慢
       poll_interval_s: 1.0
       workflow_without_refs: moment_photo_sdxl_noref.json
+      busy_queue: 0              # ComfyUI 里已有任务就算显卡在忙：跳过、换下一个绘图模型
+      min_free_vram_mb: 0        # >0 时空闲显存低于它也算在忙（比如在打游戏）
     routes:
       - {channel: comfyui, model: moment_photo_sdxl.json}
 
