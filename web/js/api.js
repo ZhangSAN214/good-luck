@@ -343,10 +343,27 @@ export const benchPlugin = (id, name) => benchPost(id, 'plugin', { name });
 export const benchAttach = (id, ids) => benchPost(id, 'materials', { ids });
 export const benchLook = (id) => benchPost(id, 'look', {});
 export const superStatus = () => api('/api/super');
-export const superSubmit = (text) => api('/api/super/tasks', { method: 'POST', body: { text } });
+export const superSubmit = (text, queue = false) =>
+  api('/api/super/tasks', { method: 'POST', body: { text, queue } });
 export const superCancel = () => api('/api/super/cancel', { method: 'POST' });
 export const superTask = (id) => api(`/api/super/tasks/${encodeURIComponent(id)}`);
 export const superLimit = (worker, limit) =>
   api(`/api/super/workers/${encodeURIComponent(worker)}/limit`, { method: 'PUT', body: { limit } });
 export const superWake = (worker) =>
   api(`/api/super/workers/${encodeURIComponent(worker)}/wake`, { method: 'POST' });
+// 超级电脑的管家：定时活、等你确认、排队、日报、审计
+export const superAddSchedule = (body) => api('/api/super/schedules', { method: 'POST', body });
+export const superToggleSchedule = (id, enabled) =>
+  api(`/api/super/schedules/${encodeURIComponent(id)}`, { method: 'PUT', body: { enabled } });
+export const superRemoveSchedule = (id) =>
+  api(`/api/super/schedules/${encodeURIComponent(id)}`, { method: 'DELETE' });
+export const superRunSchedule = (id) =>
+  api(`/api/super/schedules/${encodeURIComponent(id)}/run`, { method: 'POST' });
+export const superApprove = (id) =>
+  api(`/api/super/pending/${encodeURIComponent(id)}/approve`, { method: 'POST' });
+export const superReject = (id) =>
+  api(`/api/super/pending/${encodeURIComponent(id)}/reject`, { method: 'POST' });
+export const superUnqueue = (id) => api(`/api/super/queue/${encodeURIComponent(id)}`, { method: 'DELETE' });
+export const superReport = (day = '') =>
+  api(`/api/super/report${day ? `?day=${encodeURIComponent(day)}` : ''}`);
+export const superAudit = () => api('/api/super/audit');

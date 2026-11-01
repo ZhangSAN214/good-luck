@@ -1113,6 +1113,7 @@ prompts:
   merge: v5              # v5：已被下游接手的上游成果只给开头摘录
   attachments: v1        # 题目附件（文字版 / 随附图片）
   describe_image: v1     # 图片文字版
+  describe_video: v1     # 视频文字版（工作模式附件）
   transcribe: v1         # 音频转写
   tools: v5              # 工具说明与工具结果（v2：联网搜索；v3：图表中文；v4：转述的网页正文；v5：in/ 上游文件与参考图）
   image_gen: v1          # 图像生成工具
@@ -1962,6 +1963,18 @@ supercomputer:
       argv: [claude, -p, --permission-mode, acceptEdits, --output-format, text]
       skills: {code: 0.85, frontend: 0.85, review: 0.9, docs: 0.85, test: 0.75, research: 0.6, split: 0.85, merge: 0.85, vision: 0.9}
       daily_limit: 20
+  # 管家（docs/SUPERCOMPUTER.md「管家」）：你建的定时活、排队、自治闸门、日报、哈希链审计。
+  # 只调度你建好的定时活和你排进队的活，不会自己找活干；不调模型、不花钱。
+  butler:
+    enabled: true
+    tick_seconds: 60        # 多久看一次表
+    catch_up_hours: 12      # 电脑关着错过了点：开机后 12 小时内补跑一次，再晚记为「错过」
+    max_schedules: 20
+    queue_max: 10
+    report_days: 14         # 开机补写最近几天的日报
+    gate:
+      autonomy: low         # off：定时活一律等你确认；low：低风险的自己跑；medium：低、中风险的自己跑（高风险永远等你）
+      max_auto_per_day: 3   # 每天最多自己跑几件（按本机日期）
 
 # 工作台生成器（docs/KIT.md）：一句话 → 拆需求 → 按零件库拼窗口 → 自动质检 + 截图评审 → 返工。
 # 活交给上面的超级电脑（花的是订阅次数）；评审永远不分给窗口的作者本人；做满 max_rounds 轮还不过线就停下来问你。

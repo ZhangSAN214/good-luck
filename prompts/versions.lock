@@ -125,6 +125,7 @@
   "describe_image/v1": "893662b0825d519d58ad3bdd6c21c43d671ac80e2e555ee623bef3c95271b58c",
   "describe_screen/v1": "e6a0253722c14b15823c9e8016105fffaf4be5030923b27d10d87a609a576dff",
   "describe_screen/v2": "404f852b79e8f5b9cc8ee417d0aede8d07ff55059bda87a8602c1523dd6460d0",
+  "describe_video/v1": "3c2e90125d771b195c94848ac27d6f69574b75f5d7fb14ae2dd80e94b9faf784",
   "discuss/v1": "1bb484c782b0493c3d542dddbaf4bdf4140202c79c7f0f5a52feadf324de0247",
   "dsh_workbench/v1": "bd75c03ad8dc911914816bb593ec3d1acc23db1b72d9ad7d247522ea524e49dd",
   "evolution_card/v1": "cbe656ecf908dd7dc337869aeff72f82e9bc28bf13e1dd7b44d70549dae36e92",

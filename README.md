@@ -111,7 +111,7 @@ roundtable performance                        # 办公室模式的员工绩效�
 
 ## 附件
 
-支持图片、PDF、Word `.docx`、文本和 mp3 / wav 音频（`roundtable.yaml` 的 `uploads` 配置数量和大小）。类型同时按扩展名和文件头判断；PDF 直接提取文字（扫描件不做 OCR，会提示）；`.doc`、HEIC 等给出转换办法。图片由带 `vision` 标签的模型直接看原图，其他成员看到由最便宜的识图模型生成的文字版；音频优先用 `stt`（Whisper 系列）模型转写。没有对应的模型时拒绝上传并说明原因。上传的文件按内容哈希存在 `data/uploads/`，文件名只用于显示，不参与路径。
+支持图片、PDF、Word `.docx`、文本、mp3 / wav 音频和 mp4 / mov / webm 视频（`roundtable.yaml` 的 `uploads` 配置数量和大小）。类型同时按扩展名和文件头判断；PDF 直接提取文字（扫描件不做 OCR，会提示）；`.doc`、HEIC 等给出转换办法。图片由带 `vision` 标签的模型直接看原图，其他成员看到由最便宜的识图模型生成的文字版；音频优先用 `stt`（Whisper 系列）模型转写；视频先转写声音、按时间取帧，再写成带时间线的文字版（需要 `pip install -e ".[media]"`）。没有对应的模型时拒绝上传并说明原因。上传的文件按内容哈希存在 `data/uploads/`，文件名只用于显示，不参与路径。
 
 ## 代码运行沙箱（可选）
 
