@@ -75,7 +75,7 @@ export const getOffice = () => api('/api/office');
 export const resetPerformance = () => api('/api/office/performance/reset', { method: 'POST' });
 export const getChat = (after = 0, q = '', room = 'main') =>
   api(`/api/chat?room=${encodeURIComponent(room)}&after=${after}${q ? `&q=${encodeURIComponent(q)}` : ''}`);
-export const postChat = (text, room = 'main', media = [], quote = null) => api('/api/chat', { method: 'POST', body: { text, room, media, quote } });
+export const postChat = (text, room = 'main', media = [], quote = null, files = []) => api('/api/chat', { method: 'POST', body: { text, room, media, quote, files } });
 export const patChat = (member, room = 'main') => api('/api/chat/pat', { method: 'POST', body: { member, room } });
 export const forwardChat = (id, room = 'main') => api('/api/chat/forward', { method: 'POST', body: { id, room } });
 export const recallChat = (id, room = 'main') => api('/api/chat/recall', { method: 'POST', body: { id, room } });
@@ -193,6 +193,9 @@ export const evolutionDecide = (sid, idea, decision) =>
   api(`/api/evolution/meetings/${encodeURIComponent(sid)}/ideas/${encodeURIComponent(idea)}`, { method: 'POST', body: { decision } });
 export const chatHandoff = (text) => api('/api/chat/handoff', { method: 'POST', body: { text } });
 // 「细看」：按精细模式重新看这条消息里的图片 / 视频 / 语音，再请一位成员回应
+// 成员挂的「交给办公室」卡片：开工（会花钱）/ 先不用
+export const chatHandoffStart = (id, room = 'main') => api(`/api/chat/handoff/${id}/start?room=${encodeURIComponent(room)}`, { method: 'POST' });
+export const chatHandoffDismiss = (id, room = 'main') => api(`/api/chat/handoff/${id}/dismiss?room=${encodeURIComponent(room)}`, { method: 'POST' });
 export const chatLook = (id, room = 'main') => api(`/api/chat/messages/${id}/look?room=${encodeURIComponent(room)}`, { method: 'POST' });
 export const getApartment = (hour, weekday) => api(`/api/apartment?hour=${hour}&weekday=${weekday}`);
 export const getCandidates = () => api('/api/models/candidates');

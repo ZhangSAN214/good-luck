@@ -175,6 +175,7 @@ class ChatBody(BaseModel):
     room: str = "main"
     media: list[dict[str, Any]] = Field(default_factory=list)  # POST /api/chat/media 返回的 id
     quote: int | None = None  # 引用的消息 id
+    files: list[str] = Field(default_factory=list, max_length=5)  # POST /api/uploads 返回的附件 id
 
 
 class PatBody(BaseModel):
@@ -1146,7 +1147,9 @@ def create_app(service: RoundtableService | None = None, lan: LanAccess | None =
 
     @app.post("/api/chat", status_code=202)
     async def chat_post(request: Request, body: ChatBody) -> dict[str, Any]:
-        return await svc(request).chat_post(body.text, body.room, body.media, body.quote)
+        return await svc(request).chat_post(
+            body.text, body.room, body.media, body.quote, files=body.files
+        )
 
     @app.post("/api/chat/pat", status_code=202)
     async def chat_pat(request: Request, body: PatBody) -> dict[str, Any]:
@@ -1208,6 +1211,19 @@ def create_app(service: RoundtableService | None = None, lan: LanAccess | None =
     @app.post("/api/chat/handoff", status_code=202)
     async def chat_handoff(request: Request, body: HandoffBody) -> dict[str, Any]:
         return svc(request).chat_handoff(body.text)
+
+    @app.post("/api/chat/handoff/{message_id}/start", status_code=202)
+    async def chat_handoff_start(
+        request: Request, message_id: int, room: str = "main"
+    ) -> dict[str, Any]:
+        """聊天里成员交办的事：你点了「交给办公室」才开工（docs/CHAT.md G14）。"""
+        return svc(request).chat_handoff_start(room, message_id)
+
+    @app.post("/api/chat/handoff/{message_id}/dismiss")
+    async def chat_handoff_dismiss(
+        request: Request, message_id: int, room: str = "main"
+    ) -> dict[str, Any]:
+        return svc(request).chat_handoff_dismiss(room, message_id)
 
     @app.get("/api/chat/voices")
     async def chat_voices(request: Request) -> dict[str, Any]:
