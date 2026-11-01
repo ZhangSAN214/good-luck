@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import hashlib
 import json
 import os
 import random
@@ -71,6 +72,9 @@ from roundtable.core.supercomputer.scoring import excluded
 
 PROFILE_FILE = "_client/profile.json"  # 甲方档案（只存本机）
 PROFILE_MAX = 40
+FAKE_DONE = "说写好了，但窗口文件没写出来（假完成，不算数）"
+FAKE_REDO = "说改好了，但文件一个字没动（假完成，不算数）"
+RUNS_KEPT = 12
 RECENT = 10
 # 写完自测：只开一种屏宽，只管这几项低级错误
 SELFTEST_VIEWPORTS = (("电脑", 1280, 860),)
@@ -220,6 +224,18 @@ def thumb_of(b: dict[str, Any]) -> str | None:
 INTENT_HEAD = "理想画像（访谈时整理，括号里是把握）："
 ONE_GO = "（这个项目不分段：一次把这个窗口完整做好。）"
 ALL_DONE = "（各段都做完了，现在是整体质检后的返工：按 <problems> 改，别把做好的地方改坏。）"
+
+
+def fingerprint(folder: Path, files: list[str]) -> str:
+    """窗口文件的指纹：识别「说写好了 / 改好了，文件其实没动」的假完成。没有文件就是空串。"""
+    h = hashlib.sha256()
+    seen = False
+    for f in files:
+        p = folder / f
+        if f and p.is_file():
+            seen = True
+            h.update(f.encode("utf-8") + b"\0" + p.read_bytes() + b"\0")
+    return h.hexdigest() if seen else ""
 
 
 class BenchBuilder:
@@ -1509,7 +1525,12 @@ class BenchBuilder:
         await self._rework(b, spec, 0, rng, rnd=rnd, only_flagged=True, stage=task)
 
     def review(
-        self, bid: str, decision: str, comments: list[dict[str, str]] | None = None
+        self,
+        bid: str,
+        decision: str,
+        comments: list[dict[str, str]] | None = None,
+        *,
+        auto: bool = False,
     ) -> dict[str, Any]:
         """里程碑演示或交付成品：通过，或提意见（变更单，可指定窗口）。"""
         b = self.get(bid)
@@ -1522,6 +1543,10 @@ class BenchBuilder:
             raise RuntimeError("正在做另一个工作台，等它停下来再继续")
         if decision == "pass":
             b["gate"] = None
+            if not auto:  # 你点了通过：改完待你看的变更单才算真的改好了
+                for c in b.get("changes") or []:
+                    if c["status"] == "done":
+                        c["status"] = "accepted"
             if kind == "accept":
                 b["status"] = "delivered"
                 self._mark(b, "交付", "你验收通过", "")
@@ -1605,9 +1630,17 @@ class BenchBuilder:
                 for w in b["windows"]
                 if w["id"] in targets and len(w.get("rework") or []) > before[w["id"]]
             ]
-            ok = done and all(w["status"] == "done" for w in done)
+            # 真改了才算：这次返工有记录、助手说成了，而且至少一个窗口文件真的变了
+            real = [w for w in done if (w["rework"][-1] or {}).get("changed")]
+            ok = bool(real) and all(w["status"] == "done" for w in done)
+            fake = bool(done) and not real
             c["status"] = "done" if ok else "failed"
-            c["reply"] = (done[0]["summary"] or "")[-300:] if ok else "这次没改成（没有助手能接）"
+            if ok:
+                c["reply"] = (real[0]["summary"] or "")[-300:]
+            elif fake:
+                c["reply"] = FAKE_REDO
+            else:
+                c["reply"] = "这次没改成（没有助手能接）"
         self._mark(
             b,
             "执行" if kind != "accept" else "交付",
@@ -1712,7 +1745,7 @@ class BenchBuilder:
         if datetime.fromisoformat(gate["auto_at"]) <= self.now():
             self._mark(b, "执行", f"{gate['title']}：到点没回，按通过处理", "")
             with contextlib.suppress(Exception):
-                self.review(b["id"], "pass")
+                self.review(b["id"], "pass", auto=True)
 
     async def _plan(self, b: dict[str, Any], rng: random.Random) -> Spec:
         m = manifest()
@@ -2113,16 +2146,24 @@ class BenchBuilder:
             stage=stage or ONE_GO,
             skills=self._skills("window", spec.kind, b),
         )
+        folder = self.folder(b["id"])
+        before = fingerprint(folder, [w.file])
         chosen, result = await self._step(
             b, self.rules.window_kind, prompt, rng, rec, role="实施", task=f"写窗口「{w.title}」"
         )
         rec["author"] = chosen.id if chosen else None
+        changed = fingerprint(folder, [w.file]) not in ("", before)
         if chosen is None or result is None or not result.ok:
             rec["status"] = "failed"
             rec["summary"] = "没有人能写这个窗口" if result is None else "写的时候出错了"
+        elif not changed:
+            # 假完成：助手说写好了，窗口文件却没写出来（或一个字没动）
+            rec["status"] = "failed"
+            rec["summary"] = FAKE_DONE
         else:
             rec["status"] = "done"
             rec["summary"] = result.output.strip()[-2000:] or "（没有说明）"
+        self._run_card(rec, "写", chosen, result, changed)
         self._log(b, f"窗口「{w.title}」{'写好了' if rec['status'] == 'done' else '没写成'}")
 
     async def _round(self, b: dict[str, Any], spec: Spec, n: int, rng: random.Random) -> bool:
@@ -2484,6 +2525,23 @@ class BenchBuilder:
             jobs.append(self._redo(b, rec, prompt, rng, n))
         await asyncio.gather(*jobs)
 
+    def _run_card(
+        self, rec: dict[str, Any], kind: str, chosen: Any, result: Any, changed: bool
+    ) -> None:
+        """一张卡记每一次真实会话：谁做的、助手说成没成、文件有没有真的改动。"""
+        ok = result is not None and result.ok
+        rec.setdefault("runs", []).append(
+            {
+                "at": _iso(self.now()),
+                "kind": kind,
+                "worker": chosen.id if chosen is not None else None,
+                "ok": ok,
+                "changed": changed,
+                "fake": ok and not changed,
+            }
+        )
+        del rec["runs"][:-RUNS_KEPT]
+
     async def _redo(
         self, b: dict[str, Any], rec: dict[str, Any], prompt: str, rng: random.Random, n: int
     ) -> None:
@@ -2494,6 +2552,9 @@ class BenchBuilder:
         author = rec["author"]
         w = self.sc.worker(author) if author else None
         preset = author if w is not None and not excluded(self.sc.state(w)) else None
+        folder = self.folder(b["id"])
+        files = [f"windows/{rec['id']}.js", f"data/{rec['id']}.json"]  # 改代码或改数据都算动了
+        before = fingerprint(folder, files)
         chosen, result = await self._step(
             b,
             self.rules.window_kind,
@@ -2504,9 +2565,17 @@ class BenchBuilder:
             role="实施",
             task=f"返工「{rec['title']}」",
         )
-        if chosen is not None and result is not None and result.ok:
+        changed = fingerprint(folder, files) not in ("", before)
+        record["changed"] = changed
+        ok = chosen is not None and result is not None and result.ok
+        if ok and changed:
             rec["author"], rec["status"] = chosen.id, "done"
             rec["summary"] = result.output.strip()[-2000:] or rec["summary"]
-        done = "完成" if rec["status"] == "done" else "没成"
+        elif ok:
+            # 假完成：说改好了，文件一个字没动。不算数，也不顶掉原来的说明
+            record["fake"] = True
+            self._log(b, f"「{rec['title']}」{FAKE_REDO}")
+        self._run_card(rec, "返工", chosen, result, changed)
+        done = "完成" if rec["status"] == "done" and changed else "没成"
         stage = f"第 {n} 轮返工" if n else "自测后返工"
         self._log(b, f"{stage}「{rec['title']}」{done}")
