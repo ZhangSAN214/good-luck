@@ -8,6 +8,7 @@ import pytest
 
 from roundtable.core.media import Placement
 from roundtable.core.providers import ErrorKind, Media
+from roundtable.core.providers.cost import image_cost
 
 from .conftest import Rig
 
@@ -60,7 +61,12 @@ async def test_tier_selects_models_by_tag_and_tier_only(rig: Rig):
         flagship.add(
             rig.service().__class__(**{**_kw(rig), "seed": seed}).model_for("image", "flagship").id
         )
-    assert flagship == {"gpt-image-2", "gemini-3.1-flash-image"}  # 同档内随机
+    # 出图按价：同档里每张更便宜的先用（只在同样便宜的里随机，见 media/draw_order.py）
+    cheaper = min(
+        (rig.config.models.get(i) for i in ("gpt-image-2", "gemini-3.1-flash-image")),
+        key=lambda m: image_cost(m, None, 1),
+    )
+    assert flagship == {cheaper.id}
 
 
 def _kw(rig: Rig) -> dict:

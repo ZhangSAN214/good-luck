@@ -16,6 +16,9 @@
 提示词里有一行以「negative:」开头时，这行之后是负向、之前是正向（行首「positive:」去掉）；
 没有时整段都是正向，负向用参数 negative。
 
+显卡在忙（ComfyUI 队列里已有任务，或空闲显存低于 min_free_vram_mb）时不排队，直接报
+RATE_LIMIT「显卡在忙」：路由让这个渠道歇一会儿，调用方换下一个绘图模型（见 media/draw_order.py）。
+
 规则同其他适配器：不重试（失败抛 ProviderError，换模型由调用方负责）；外部错误文本脱敏截断、
 用 from None 切断异常链。
 """
@@ -54,6 +57,10 @@ DEFAULTS: dict[str, Any] = {
     "negative": "",
     "seed": None,  # 不填时按提示词算一个（同一提示词可复现）
     "workflow_without_refs": None,  # 没有参考图时用的模板（去掉 IPAdapter 分支的变体）
+    # 显卡在忙就跳过（交给下一个绘图模型）：ComfyUI 队列里已有的任务数超过 busy_queue 时，
+    # 或 min_free_vram_mb > 0 且空闲显存低于它时（比如正在打游戏）
+    "busy_queue": 0,
+    "min_free_vram_mb": 0,
 }
 
 _PLACEHOLDER = re.compile(r"\{\{\s*([a-z_0-9]+)\s*\}\}")
@@ -230,6 +237,7 @@ class ComfyUIProvider(Provider):
         api: str = "chat",
     ) -> ImageOutput:
         opts = {**DEFAULTS, **{k: v for k, v in params.items() if k in DEFAULTS}}
+        await self._check_idle(int(opts["busy_queue"]), float(opts["min_free_vram_mb"]))
         refs = [m for m in images if m.kind == "image"]
         workflow = self._template(model)
         slots = ref_slots(workflow)
@@ -264,6 +272,38 @@ class ComfyUIProvider(Provider):
         entry = await self._wait(str(prompt_id), float(opts["timeout_s"]), opts["poll_interval_s"])
         image = await self._fetch(entry, save_nodes(graph))
         return ImageOutput((image,), cost_usd=0.0)
+
+    async def _check_idle(self, busy_queue: int, min_free_vram_mb: float) -> None:
+        """显卡在忙就报 RATE_LIMIT。连不上照常报 NETWORK；老版本没有这两个接口时不挡。"""
+        queue = await self._probe("queue")
+        if isinstance(queue, dict):
+            waiting = len(queue.get("queue_running") or []) + len(queue.get("queue_pending") or [])
+            if waiting > busy_queue:
+                detail = f"显卡在忙：ComfyUI 里还有 {waiting} 个任务"
+                raise self._error(ErrorKind.RATE_LIMIT, detail)
+        if min_free_vram_mb <= 0:
+            return
+        stats = await self._probe("system_stats")
+        devices = stats.get("devices") if isinstance(stats, dict) else None
+        free = [
+            d["vram_free"] / 1024 / 1024
+            for d in devices or []
+            if isinstance(d, dict) and isinstance(d.get("vram_free"), int | float)
+        ]
+        if free and max(free) < min_free_vram_mb:
+            raise self._error(ErrorKind.RATE_LIMIT, f"显卡在忙：空闲显存只有 {max(free):.0f} MB")
+
+    async def _probe(self, path: str) -> Any:
+        try:
+            response = await self._send("GET", path)
+        except ProviderError as exc:
+            if exc.kind in (ErrorKind.NETWORK, ErrorKind.TIMEOUT):
+                raise
+            return None  # 404 等：这个版本没有这个接口，不挡
+        try:
+            return response.json()
+        except ValueError:
+            return None
 
     async def _wait(self, prompt_id: str, timeout_s: float, interval: float) -> dict[str, Any]:
         deadline = self._clock() + timeout_s

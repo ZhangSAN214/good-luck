@@ -323,7 +323,7 @@ const evolution = new Evolution($('#evolvedlg'), {
 });
 $('#evolve').addEventListener('click', () => evolution.open());
 const usage = new Usage($('#usagedlg'), {
-  api: { usage: API.getUsage, balance: API.getUsageBalance, priority: API.getChannelPriority, setPriority: API.setChannelPriority },
+  api: { usage: API.getUsage, balance: API.getUsageBalance, priority: API.getChannelPriority, setPriority: API.setChannelPriority, draw: API.getDrawChannels, setDraw: API.setDrawChannels },
 });
 const moments = new Moments($('#moments'), {
   api: { list: API.getMoments, post: API.postMoment, like: API.likeMoment, comment: API.commentMoment, del: API.delMoment, delComment: API.delMomentComment },
