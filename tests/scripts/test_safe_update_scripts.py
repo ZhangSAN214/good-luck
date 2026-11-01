@@ -38,3 +38,11 @@ def test_safe_update_smoke_and_undo_entry(tmp_path, monkeypatch, capsys):
     assert "SMOKE OK" in capsys.readouterr().out
     assert mod.main(["undo"]) == 1  # 没有通过的更新可撤销
     assert "没有可以撤销的更新" in capsys.readouterr().out
+
+
+def test_real_smoke_on_a_copy(tmp_path):
+    mod = load("safe_update")
+    db = tmp_path / "rt.db"
+    connect(db).close()
+    assert mod.run_smoke(db) == []
+    assert mod.smoke_main([]) == 2

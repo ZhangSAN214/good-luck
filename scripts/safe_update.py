@@ -13,12 +13,13 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+from collections.abc import Sequence
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from roundtable.core.safe_update import SafeUpdate, smoke_main  # noqa: E402
+from roundtable.core.safe_update import SafeUpdate  # noqa: E402
 
 DB_ENV = "ROUNDTABLE_DB_PATH"  # 和 core/runtime.py 一致
 
@@ -28,6 +29,52 @@ def db_path() -> Path:
     if configured and configured != ":memory:":
         return ROOT / configured
     return ROOT / "data" / "roundtable.db"
+
+
+# ---- 冒烟测试本体（在新代码、数据库副本上运行；用到 fastapi，所以放在脚本里而不是 core/）----
+
+
+def run_smoke(db: Path) -> list[str]:
+    """建运行时（会在副本上迁移）、建服务、打开首页和几个只读接口。返回问题列表。"""
+    problems: list[str] = []
+    from fastapi.testclient import TestClient
+
+    from roundtable.api.app import create_app
+    from roundtable.core.runtime import Runtime
+    from roundtable.core.service import RoundtableService
+
+    rt = Runtime.build(providers={}, db_path=db, dotenv_path=None)
+    try:
+        svc = RoundtableService(rt)
+        with TestClient(create_app(svc), client=("127.0.0.1", 50000)) as client:
+            for path in ("/", "/api/status", "/api/budget", "/api/members", "/api/firstaid"):
+                r = client.get(path)
+                if r.status_code != 200:
+                    problems.append(f"GET {path} 返回 {r.status_code}")
+        rt.repo.list_sessions(limit=5)
+    finally:
+        rt.repo.conn.close()
+    return problems
+
+
+def smoke_main(argv: Sequence[str]) -> int:
+    """scripts/safe_update.py smoke --db 副本：打印结果，过了返回 0。"""
+    db = Path(argv[argv.index("--db") + 1]) if "--db" in argv else None
+    if db is None:
+        print("缺少 --db")
+        return 2
+    try:
+        problems = run_smoke(db)
+    except Exception as exc:  # noqa: BLE001 - 任何异常都算冒烟没过
+        from roundtable.core.providers.secrets import redact
+
+        print(redact(f"{type(exc).__name__}: {exc}")[:600])
+        return 1
+    if problems:
+        print("；".join(problems))
+        return 1
+    print("SMOKE OK")
+    return 0
 
 
 def main(argv: list[str] | None = None) -> int:

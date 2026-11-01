@@ -224,11 +224,3 @@ def test_checkpoints_are_pruned(repos):
     for _ in range(5):
         b.checkpoint("update")
     assert len(points(pc)) == 3
-
-
-def test_real_smoke_on_a_copy(tmp_path):
-    db = tmp_path / "rt.db"
-    connect(db).close()
-    assert su.run_smoke(db) == []
-    assert su.smoke_main(["--db", str(db)]) == 0
-    assert su.smoke_main([]) == 2
