@@ -309,7 +309,7 @@ export const dshCheck = () => api('/api/dsh/check', { method: 'POST' });
 
 // 超级电脑：几位编程助手平级、按分数派活（docs/SUPERCOMPUTER.md）
 export const benchStatus = () => api('/api/bench');
-export const benchSubmit = (request, materials = [], fromProduct = false) => api('/api/bench', { method: 'POST', body: { request, materials, from_product: fromProduct } });
+export const benchSubmit = (request, materials = [], fromProduct = false, form = {}) => api('/api/bench', { method: 'POST', body: { request, materials, from_product: fromProduct, form } });
 // 甲方档案：长期偏好（只存本机），每个新项目都带上
 export const benchProfileAdd = (text, src = '') => api('/api/bench/profile', { method: 'POST', body: { text, src } });
 export const benchProfileRemove = (pid) => api(`/api/bench/profile/${encodeURIComponent(pid)}`, { method: 'DELETE' });
