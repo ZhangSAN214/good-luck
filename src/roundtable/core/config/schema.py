@@ -177,29 +177,35 @@ class ModelsConfig(_Strict):
     # 模型开关：模型 id → 是否启用，覆盖条目里的 enabled。写在 config/models.local.yaml 里
     # 就能在本机打开 / 关掉某个模型，不用把整张 models 列表抄过去（列表合并时整体替换）
     model_switches: dict[str, bool] = Field(default_factory=dict)
+    # 模型参数：模型 id → 要覆盖的 params（逐项合并进条目的 params）。同样写在 models.local.yaml，
+    # 用来按本机实际情况改某个模型的参数（如本地配音服务的接口路径和字段）
+    model_params: dict[str, dict[str, Any]] = Field(default_factory=dict)
 
     @model_validator(mode="before")
     @classmethod
     def _apply_switches(cls, data: Any) -> Any:
-        if not isinstance(data, dict) or not data.get("model_switches"):
+        if not isinstance(data, dict):
             return data
-        switches = data["model_switches"]
-        if not isinstance(switches, dict):
+        switches = data.get("model_switches") or {}
+        extra = data.get("model_params") or {}
+        if not isinstance(switches, dict) or not isinstance(extra, dict):
             return data  # 交给字段校验报错
+        if not switches and not extra:
+            return data
         models = data.get("models") or []
         known = {m.get("id") for m in models if isinstance(m, dict)}
-        unknown = sorted(str(k) for k in switches if k not in known)
-        if unknown:
-            raise ValueError(f"model_switches 里有不存在的模型：{unknown}")
-        return {
-            **data,
-            "models": [
-                {**m, "enabled": switches[m["id"]]}
-                if isinstance(m, dict) and m.get("id") in switches
-                else m
-                for m in models
-            ],
-        }
+        for field, given in (("model_switches", switches), ("model_params", extra)):
+            unknown = sorted(str(k) for k in given if k not in known)
+            if unknown:
+                raise ValueError(f"{field} 里有不存在的模型：{unknown}")
+        out = []
+        for m in models:
+            if isinstance(m, dict) and m.get("id") in switches:
+                m = {**m, "enabled": switches[m["id"]]}
+            if isinstance(m, dict) and isinstance(extra.get(m.get("id")), dict):
+                m = {**m, "params": {**(m.get("params") or {}), **extra[m["id"]]}}
+            out.append(m)
+        return {**data, "models": out}
 
     @model_validator(mode="after")
     def _cross_check(self) -> ModelsConfig:
