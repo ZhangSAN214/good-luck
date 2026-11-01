@@ -73,7 +73,10 @@ def test_score_and_list_changes_pass():
     }
     assert v2.ok and v2.patch == {"likes": {"最爱": ["红茶", "看星星"]}}
     v = check(env, gate, [add(value="红茶", op="remove")])[0]
-    assert v.ok and v.patch == {"likes": {"最爱": []}}
+    assert not v.ok and "只剩 1 项了，不能再去掉" in v.reason  # 列表不会被删光（list_keep）
+    ProfileStore(env.rt).change("V1", {"likes": {"最爱": ["红茶", "绿茶", "乌龙"]}}, author="user")
+    v = check(env, gate, [add(value="红茶", op="remove")])[0]
+    assert v.ok and v.patch == {"likes": {"最爱": ["绿茶", "乌龙"]}}
 
 
 def test_only_allowed_shapes():
@@ -174,3 +177,51 @@ def test_fresh_patch_recomputes_from_current_profile():
     assert fresh_patch({"personality": {"五项": {"好奇": 2, "外向": 1}}}, s) == {
         "personality": {"五项": {"好奇": 3, "外向": 1}}
     }
+
+
+def test_trait_stays_near_the_card():
+    """成长让一项性格一共最多离人物卡 anchor_steps（2）格；往回变不受限。"""
+    env, gate = env_and_gate()
+    v = check(env, gate, [score()], Ledger(moved={"好奇": 2}))[0]
+    assert not v.ok and "比人物卡高了 2 格" in v.reason
+    assert check(env, gate, [score(delta=-1)], Ledger(moved={"好奇": 2}))[0].ok
+    assert check(env, gate, [score()], Ledger(moved={"好奇": 1}))[0].ok
+
+
+def test_not_everyone_pushed_the_same_way():
+    """别的成员里已经有 4 成（6 人里 2 位）往同一边变过这一项，就先不跟；往另一边可以。"""
+    from roundtable.core.member.growth.timeline import GrowthLog
+
+    env, gate = env_and_gate()
+    log = GrowthLog(env.rt)
+    for m in ("V2", "V3"):
+        entry = {"week": WEEK, "kind": "change", "op": "score", "delta": 1, "user": False}
+        log.add(m, [entry | {"path": "personality.五项.好奇", "reverted": False}])
+    v = check(env, gate, [score()])[0]
+    assert not v.ok and "已经有 2 位成员变得更好奇了" in v.reason
+    assert check(env, gate, [score(delta=-1)])[0].ok
+    log.add(
+        "V3",
+        [
+            {
+                "week": WEEK,
+                "kind": "change",
+                "op": "score",
+                "delta": -1,
+                "user": False,
+                "path": "personality.五项.好奇",
+                "reverted": False,
+            }
+        ],
+    )
+    assert check(env, gate, [score()])[0].ok  # 阿三又变回去了：只剩 1 位
+
+
+def test_user_influence_capped_over_whole_tenure():
+    """最近几周的窗口里没超，入职以来超了也拦（半年快进发现的漏洞）。"""
+    env, gate = env_and_gate()
+    user_add = add(ev=(2,), quote="特别爱看星星")
+    life = Ledger(total=0, user=0, life_total=9, life_user=3)
+    v = check(env, gate, [user_add], life)[0]
+    assert not v.ok and "入职以来" in v.reason
+    assert check(env, gate, [user_add], Ledger(life_total=19, life_user=5))[0].ok

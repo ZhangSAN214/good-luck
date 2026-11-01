@@ -1865,6 +1865,21 @@ def build_parser() -> argparse.ArgumentParser:
         "--scenario",
         help="开跑前摆好的场景（sim.yaml 的 scenarios，如 birthday：认识一个月、你过生日）",
     )
+    longrun = sub.add_parser(
+        "sim-growth",
+        help="半年快进：只推进成长相关的部件，几分钟跑完 90～180 天，看会不会越长越像、走极端、"
+        "被你带偏、口癖用光（假模型，不花钱）",
+    )
+    longrun.add_argument("--days", type=int, default=180, help="快进多少天（默认 180）")
+    longrun.add_argument("--out", help="输出目录（默认 sim_runs/growth-<时间>；不能在 data/ 下）")
+    longrun.add_argument("--seed", type=int, default=0)
+    longrun.add_argument(
+        "--pressure",
+        default="push",
+        choices=["push", "none"],
+        help="push：假模型每周都想把她们往同一个方向改（默认）；none：随手改改",
+    )
+    longrun.add_argument("--cards", help="人物卡 Markdown（不给就用编的 8 份起始档案）")
     backup = sub.add_parser(
         "backup", help="整库备份：看列表、马上备份、存档点、恢复（docs/BACKUP.md，不花钱）"
     )
@@ -1930,6 +1945,8 @@ async def run(
         return await asyncio.to_thread(cmd_kit_check, args, out)
     if args.command == "sim":  # 自己建临时数据库，不打开真实数据
         return await cmd_sim(args, out)
+    if args.command == "sim-growth":  # 同上
+        return await cmd_sim_growth(args, out)
     try:
         rt = runtime or Runtime.build()
     except ConfigError as exc:
@@ -2121,6 +2138,41 @@ async def cmd_sim(args: argparse.Namespace, out: TextIO) -> int:
     if res.problems:
         print(f"问题清单 {len(res.problems)} 条（要紧的在前）", file=out)
     print(f"报告：{sim.out / 'report.md'}", file=out)
+    return 0 if res.ok else 1
+
+
+async def cmd_sim_growth(args: argparse.Namespace, out: TextIO) -> int:
+    """半年快进：全部指标正常返回 0，有超标或出错返回 1，没跑成返回 2。"""
+    from datetime import datetime as _dt
+
+    from roundtable.core.simlab import SimError
+    from roundtable.core.simlong import LongRun
+
+    folder = args.out or f"sim_runs/growth-{_dt.now():%Y%m%d-%H%M%S}"
+    try:
+        run = LongRun(
+            Path(folder),
+            days=args.days,
+            seed=args.seed,
+            pressure=args.pressure,
+            cards=Path(args.cards).read_text(encoding="utf-8") if args.cards else None,
+        )
+        print(
+            f"快进 {args.days} 天（假模型，{'施压' if args.pressure == 'push' else '不施压'}）……",
+            file=out,
+        )
+        res = await run.run()
+    except (SimError, ConfigError, OSError) as exc:
+        print(f"快进没跑成：{exc}", file=out)
+        return 2
+    print(f"完成：{res.days} 天，用时 {res.seconds:.0f} 秒", file=out)
+    for p in res.problems:
+        print(f"  超标：{p}", file=out)
+    if res.errors:
+        print(f"  出错 {len(res.errors)} 次（见报告）", file=out)
+    if res.ok:
+        print("全部指标正常", file=out)
+    print(f"报告：{res.out / 'report.md'}", file=out)
     return 0 if res.ok else 1
 
 

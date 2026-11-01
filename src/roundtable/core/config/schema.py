@@ -1536,6 +1536,20 @@ class GrowthBookRules(_Strict):
     context_chars: int = Field(default=50, ge=0, le=200)  # 那一行最多几个字（算在 600 字里）
 
 
+class GrowthVitalsRules(_Strict):
+    """成长的防退化阈值（成长 G3，docs/MEMBER_ENGINE.md「半年快进与防退化」）：半年快进和加速模拟
+    期末超过这些就算出问题（测试失败、报告里标红）。全程序算，不花钱。"""
+
+    overlap_max: float = Field(default=0.4, ge=0, le=1)  # 两位成员的长处 / 喜好最多重合几成
+    extreme_gain: float = Field(default=0.15, ge=0, le=1)  # 五项分在 1 或 5 的占比最多多几成
+    push_max: float = Field(default=1.0, ge=0, le=4)  # 一项性格全员平均最多移动几格
+    moved_max: int = Field(default=4, ge=0, le=20)  # 一位成员五项分一共最多移动几格
+    share_slack: float = Field(default=0.05, ge=0, le=1)  # 受你影响的占比比上限多出这么多才算
+    catchphrase_left: float = Field(default=0.3, ge=0, le=1)  # 能用的口头禅至少还有期初的几成
+    kaomoji_left: int = Field(default=2, ge=0, le=20)  # 颜文字至少还有几个
+    dupes_max: float = Field(default=0.1, ge=0, le=1)  # 本该合并却各记一条的记忆件最多占几成
+
+
 class GrowthRules(_Strict):
     """P6 成长（docs/MEMBER_ENGINE.md「P6 成长」）：每周用成员自己的模型读一遍上周的经历，
     最多提几条对自我档案的改动，每条必须引用真实经历；程序把关后才写进档案（author = growth）。
@@ -1547,6 +1561,7 @@ class GrowthRules(_Strict):
     weekday: int = Field(default=1, ge=1, le=7)  # 每周几（ISO，1 = 周一）反思上一周
     min_days: int = Field(default=3, ge=1, le=7)  # 上周至少几天有经历才反思，否则跳过并记原因
     book: GrowthBookRules = GrowthBookRules()
+    vitals: GrowthVitalsRules = GrowthVitalsRules()
     min_lines: int = Field(default=5, ge=1, le=100)  # 上周至少几条经历（日记、记忆件、你说的话）
     max_changes: int = Field(default=3, ge=1, le=5)  # 每周最多改几条
     material_chars: int = Field(default=4000, ge=500, le=20000)  # 周总结最多多少字
@@ -1564,9 +1579,14 @@ class GrowthRules(_Strict):
         }
     )
     list_max: int = Field(default=8, ge=1, le=30)  # 每个列表最多几项
+    list_keep: int = Field(default=2, ge=0, le=30)  # 去掉一项后至少还留几项（不会被删光）
     item_chars: int = Field(default=20, ge=2, le=60)  # 新加的一项最多多少字
     unique_lists: list[str] = Field(default_factory=lambda: ["style.口头禅"])  # 不和别人重样的列表
     core_monthly_steps: int = Field(default=1, ge=0, le=5)  # 核心性格（五项）每月最多改几格
+    anchor_steps: int = Field(default=2, ge=0, le=4)  # 成长让一项性格一共最多离人物卡几格
+    same_way: float = Field(
+        default=0.4, gt=0, le=1
+    )  # 这么多成员（按 8 人比例）往同一边变过这一项，别人先不跟
     min_distance: int = Field(default=2, ge=0, le=20)  # 8 人五项分两两至少差几（各项差的和）
     user_share: float = Field(default=0.3, ge=0, le=1)  # 受你影响的改动最多占几成
     share_window_weeks: int = Field(default=8, ge=1, le=52)  # 按最近几周的改动算占比
@@ -2731,6 +2751,8 @@ class DriftRules(_Strict):
     crowd: int = Field(default=2, ge=1, le=10)  # 已经有这么多位在用的不挑（不越聊越像）
     return_days: int = Field(default=60, ge=0, le=365)  # 换掉的这么久以内不挑回来
     rest_days: int = Field(default=21, ge=1, le=365)  # 口头禅说腻了歇几天
+    # 歇掉一句后，档案上的口头禅至少还有这么多能用（不会一起歇光；成长 G3 半年快进发现的）
+    keep_catchphrases: float = Field(default=0.5, ge=0, le=1)
     promote_uses: int = Field(default=6, ge=1, le=100)  # 学来的说法自己用够几次就成了自己的
     keep_swaps: int = Field(default=30, ge=5, le=500)
     mood_high: float = Field(default=0.35, ge=0, le=1)
