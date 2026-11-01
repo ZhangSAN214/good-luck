@@ -11,6 +11,7 @@ from roundtable.core.providers import (
     register_adapter,
 )
 from roundtable.core.providers.anthropic_adapter import AnthropicProvider
+from roundtable.core.providers.comfyui import ComfyUIProvider
 from roundtable.core.providers.gemini import GeminiProvider
 from roundtable.core.providers.openai_compat import OpenAICompatProvider
 
@@ -47,6 +48,7 @@ def test_repo_config_with_all_keys_builds_expected_adapters():
         "deepseek": OpenAICompatProvider,
         "anthropic": AnthropicProvider,
         "google": GeminiProvider,
+        "comfyui": ComfyUIProvider,  # 本地，不需要 key
     }
     assert {name: type(p) for name, p in providers.items()} == expected
 
@@ -55,7 +57,7 @@ def test_repo_config_with_only_openrouter_key():
     cfg = load_config()
     keys = KeyRing.from_env(list(FAKE_KEYS), environ={"OPENROUTER_API_KEY": "placeholder-123"})
     providers, unavailable = build_providers(cfg.models, keys, 30)
-    assert list(providers) == ["openrouter"]
+    assert list(providers) == ["openrouter", "comfyui"]  # comfyui 不需要 key
     assert set(unavailable) == {"openai", "anthropic", "google", "xai", "deepseek"}
 
 

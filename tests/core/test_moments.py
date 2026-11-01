@@ -261,6 +261,8 @@ async def test_post_gets_a_photo_by_chance_with_daily_caps(tmp_path, monkeypatch
     # 她不入镜的拍法不传参考图；种子由事件和成员派生
     assert kw["refs"] == (by_text[shot].her != "none") and kw["seed"].startswith("100:")
     assert kw["place"] == "rooftop"  # 按地点附那间房的场景图
+    # 吃标签的本地绘图模型用：拍法的 her 和标签版拍法
+    assert kw["her"] == by_text[shot].her and kw["shot_tags"] == by_text[shot].tags
 
 
 def test_photo_shots_mostly_show_her():

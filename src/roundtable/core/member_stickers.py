@@ -174,7 +174,20 @@ class MemberStickers:
             if "image_edit" in m.tags
         ]
         prefer = self.rules.prefer_tags
-        return sorted(group, key=lambda m: -sum(t in m.tags for t in prefer))
+        # 不花钱的（本地，如 ComfyUI）先试；同样时带的偏好标签越多越先试（只看价格和标签）
+        return sorted(
+            group,
+            key=lambda m: (image_cost(m, None, 1) > 0, -sum(t in m.tags for t in prefer)),
+        )
+
+    def sticker_models(self) -> list[ModelSpec]:
+        """画表情包用的：只要吃自然语言提示词的（表情包没有标签版提示词）。"""
+        return [m for m in self.draw_models() if m.image_prompt == "text"]
+
+    def local_only(self, models: list[ModelSpec]) -> list[ModelSpec]:
+        """只留渠道全是本地（kind: local）的模型。"""
+        channels = self.rt.config.models.channels
+        return [m for m in models if all(channels[r.channel].kind == "local" for r in m.routes)]
 
     # --- 查看 ------------------------------------------------------------------------
 
@@ -415,7 +428,7 @@ class MemberStickers:
         """画（或重画）一张。返回这张的状态；花费计入两个每月上限。"""
         card = self.card(member)
         spec = self.spec(member, name)
-        models = self.draw_models()
+        models = self.sticker_models()
         if not models:
             raise StickerUnavailable("没有能看参考图的绘图模型")
         refs = self.references(member, card)
@@ -489,22 +502,28 @@ class MemberStickers:
         refs: bool = True,
         seed: str = "",
         place: str = "",
+        her: str = "",
+        shot_tags: str = "",
     ) -> tuple[bytes, str]:
         """照成员的形象卡和参考图画一张朋友圈配图（随手拍，不审、不存进表情索引）。
         她不入镜的拍法传 ``refs=False``：不给形象参考图，免得模型硬把她画进去。
         ``place`` 是生活事件的地点（canteen、dorm:成员 …）：有那间房的场景图时附在最后。
+        吃标签的绘图模型（``image_prompt: tags``）改用标签版提示词：人物标签按拍法的 ``her``
+        （none / part / full，不传时按 ``refs`` 当 full / none），拍法标签用 ``shot_tags``。
         返回 (JPEG, mime)；花费和表情包算在同一个隐藏会话和每月上限里。"""
         rules = self.rt.config.roundtable.media.moment_photos
         card = self.card(member)
         models = self.draw_models()
+        if rules.local_only:
+            models = self.local_only(models)
         if not rules.enabled or not models:
             raise StickerUnavailable("没有能看参考图的绘图模型")
         images = self.references(member, card) if refs else []
         if refs and not images:
             raise StickerUnavailable("找不到这位成员的形象参考图")
         room, room_image = self.room(member, place) if rules.room_refs else (ROOM_UNKNOWN, None)
-        if room_image is not None:
-            images = [*images, room_image]  # 房间图放最后，提示词里按"最后一张"引用
+        # 房间图放最后，提示词里按"最后一张"引用；吃标签的本地模型把参考图都当人物参考，不给房间图
+        with_room = [*images, room_image] if room_image is not None else images
         must = card.must if card.daily_must is None else card.daily_must
         prompt = self.rt.prompts.render(
             "moment_photo",
@@ -518,17 +537,21 @@ class MemberStickers:
             room=room,
         )
         text = "\n\n".join(m.content for m in prompt.messages)
+        subject = rules.tag_subjects.get(her or ("full" if refs else "none"), "")
+        tags = self._photo_tags(card, subject, shot_tags, refs)
         session = self.rt.repo.sticker_session()
         for model in models[: self.rules.max_attempts]:  # 画不出来时换下一个模型
             self._check_budget(image_cost(model, None, 1))
+            body = tags if model.image_prompt == "tags" else text
+            refs_out = tuple(images if model.image_prompt == "tags" else with_room)
             try:
                 inv = await self.rt.router.invoke(
                     model.id,
-                    lambda prov, route, m: prov.generate_image(
+                    lambda prov, route, m, body=body, refs_out=refs_out: prov.generate_image(
                         route.model,
-                        text,
+                        body,
                         dict(m.params_for(route)),
-                        images=tuple(images),
+                        images=refs_out,
                         api=m.image_api_for(route),
                     ),
                 )
@@ -540,13 +563,25 @@ class MemberStickers:
                 if out.cost_usd is not None
                 else image_cost(model, inv.route, 1, out.input_tokens, out.output_tokens)
             )
-            self._record(session, PHOTO_STEP, model, text, inv, cost, out.cost_usd is not None)
+            self._record(session, PHOTO_STEP, model, body, inv, cost, out.cost_usd is not None)
             if out.images:
                 data = out.images[0].data
                 if rules.phone_look:
                     data = phone_look(data, random.Random(f"phone:{seed or post}"))
                 return _jpeg(data, rules.max_side), "image/jpeg"
         raise StickerUnavailable("画图失败（所有模型都没画出来）")
+
+    def _photo_tags(self, card: StickerCard, subject: str, shot_tags: str, her_in: bool) -> str:
+        """标签版配图提示词（只取 user 段：正向一行 + negative 一行）。她不入镜时不放外观标签；
+        形象卡没写 look_tags 时也不放（中文外观描述标签模型读不懂，靠参考图认人）。"""
+        prompt = self.rt.prompts.render(
+            "moment_photo_tags",
+            self.rt.config.roundtable.prompts["moment_photo_tags"],
+            subject=subject,
+            shot=shot_tags,
+            look=card.look_tags if her_in else "",
+        )
+        return tidy_tags(prompt.messages[-1].content)
 
     # --- 核对 ------------------------------------------------------------------------
 
@@ -725,6 +760,17 @@ def _square(data: bytes, size: int) -> bytes:
             return buf.getvalue()
     except Exception:  # noqa: BLE001 - 读不了的图：原样存
         return data
+
+
+def tidy_tags(text: str) -> str:
+    """去掉标签提示词里因变量为空留下的空项（", ,"），每行各自整理。"""
+    lines = []
+    for line in text.splitlines():
+        head, sep, rest = line.partition(":")
+        items = [t.strip() for t in (rest if sep else head).split(",")]
+        joined = ", ".join(t for t in items if t)
+        lines.append(f"{head}: {joined}" if sep else joined)
+    return "\n".join(lines)
 
 
 def phone_look(data: bytes, rng: random.Random) -> bytes:

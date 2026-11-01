@@ -322,6 +322,8 @@ class Moments:
                 refs=shot.her != "none",
                 seed=f"{event['id']}:{member.id}",
                 place=str(event.get("place") or ""),
+                her=shot.her,
+                shot_tags=shot.tags,
             )
             return generated_item(ChatMediaStore(rt.chat_media_dir), data, mime)
         except (StickerBudgetExceeded, StickerError, StickerUnavailable, MediaError, ValueError):
