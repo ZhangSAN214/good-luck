@@ -2461,6 +2461,27 @@ class HushRules(_Strict):
         return v
 
 
+class HooksRules(_Strict):
+    """话头本（2026-11-01）：你说过要做的事过了那天问一句后来怎样；她问你你没回，下次顺口再提。
+    全程序。"""
+
+    enabled: bool = True
+    min_chars: int = Field(default=5, ge=2, le=50)  # 太短的「明天见」不算打算
+    max_chars: int = Field(default=60, ge=10, le=300)
+    stale_days: int = Field(default=4, ge=1, le=30)  # 那天过了几天内还会问
+    chance: float = Field(default=0.5, ge=0, le=1)
+    gap_hours: float = Field(default=3.0, ge=0, le=72)  # 她问了你，隔这么久你才回来才算「没回」
+    q_chance: float = Field(default=0.3, ge=0, le=1)
+    max_keep: int = Field(default=20, ge=1, le=200)
+    line: str = (
+        "【话头】他之前说过「{quote}」，那天已经过了：想起来就像朋友那样随口问一句后来怎么样"
+        "（只问这一次；他正说着别的要紧事就先不问）"
+    )
+    q_line: str = (
+        "【话头】你上次问他「{quote}」，他没接这茬：可以顺口再提一句，也可以算了，别追着要答案"
+    )
+
+
 class FirstsRules(_Strict):
     """「第一次」纪念（2026-10-31 拟人插件调研第 10 项）：你在私聊亲口说的「第一次……」记下来，
     过整月、整年那天她可能轻轻提一句，只提一次、不要你回应。全程序。"""
@@ -2625,9 +2646,10 @@ class ReachRules(_Strict):
 
     enabled: bool = True
     per_day_chance: float = Field(default=0.6, ge=0, le=5)  # 想找的劲儿为 1 时，一天里先开口的概率
-    per_day: int = Field(default=2, ge=0, le=10)  # 全体每天最多主动找几次
-    gap_days: float = Field(default=2.0, ge=0, le=30)  # 同一位隔几天才可能再主动找
-    after_user_hours: float = Field(default=3.0, ge=0, le=72)  # 你几小时内刚和她聊过就不找
+    per_day: int = Field(default=4, ge=0, le=10)  # 全体每天最多主动找几次
+    gap_days: float = Field(default=1.0, ge=0, le=30)  # 同一位隔几天才可能再主动找
+    after_user_hours: float = Field(default=2.0, ge=0, le=72)  # 你几小时内刚和她聊过就不找
+    extrovert: float = Field(default=0.25, ge=0, le=1)  # 外向分每高 1 分，先开口的机会多这么多
     quiet_hours: tuple[int, int] = (23, 9)  # 你的深夜（主时区钟点，[开始, 结束)）不找
     care_min: float = Field(default=0.3, ge=0, le=1)  # 心情不好 / 想念才找你，要这么在乎你
     mood_low: float = Field(default=-0.35, ge=-1, le=0)
@@ -2641,6 +2663,7 @@ class ReachRules(_Strict):
             "news": "你想主动跟对方说说：{what}",
             "hanging": "你一直惦记着：{what}，想问问对方后来怎么样了",
             "longing": "好几天没和对方聊了，有点想对方：你先开口，随便找个由头",
+            "hook": "他之前说过「{what}」，那天已经过了，你想问问他后来怎么样：随手问一句",
         }
     )
     tail: str = (
@@ -2799,6 +2822,7 @@ class EngineRules(_Strict):
     phase: PhaseRules = PhaseRules()
     circle: CircleRules = CircleRules()
     firsts: FirstsRules = FirstsRules()
+    hooks: HooksRules = HooksRules()
     hush: HushRules = HushRules()
     reach: ReachRules = ReachRules()
     feel: FeelRules = FeelRules()
