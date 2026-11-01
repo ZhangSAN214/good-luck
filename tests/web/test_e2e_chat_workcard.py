@@ -18,7 +18,15 @@ def click_until(page, sel, done, tries=5):
             return
         except AssertionError:
             continue
-    raise AssertionError(f"点了 {sel} 没有反应")
+    loc = page.locator(sel)
+    seen = {
+        "found": loc.count(),
+        "enabled": loc.count() and loc.first.is_enabled(),
+        "error": page.locator("#gc-err").inner_text() if page.locator("#gc-err").count() else "",
+        "responses": getattr(page, "handoff_log", []),
+        "js_errors": getattr(page, "js_errors", []),
+    }
+    raise AssertionError(f"点了 {sel} 没有反应：{seen}")
 
 
 def open_chat(srv, page):
@@ -36,6 +44,14 @@ def test_handoff_card_dismiss_and_choice_buttons(serve, page):
         meta={"handoff": {"task": "按九月数据模拟十月收益", "state": "pending"}},
     )
     pick = chat.send_as("V2", "你想先看哪个", meta={"choices": ["收益曲线", "持仓明细"]})
+    page.handoff_log = []
+    page.on(
+        "response",
+        lambda r: (
+            "/api/chat/handoff" in r.url
+            and page.handoff_log.append(f"{r.status} {r.url.split('/api/')[-1]} {r.text()[:120]}")
+        ),
+    )
     open_chat(srv, page)
     card = f".gc-msg[data-id='{msg['id']}'] .wc-handoff"
     page.wait_for_selector(card)
