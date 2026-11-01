@@ -2,7 +2,7 @@
 // 文件只存在本机（POST /api/chat/media → data/chat_media/），发消息时带上返回的 id。
 // 成员只看到「[图片]」「[语音 5 秒]」这样的文字占位，看不到文件本身。
 
-import { EMOJI, STICKERS, TOKEN_RE, findSticker, recent, remember, setMemberPacks, soloSticker, stickerSVG, token } from './stickers.js';
+import { EMOJI, TOKEN_RE, emojiHTML, emojify, findSticker, panelPacks, recent, remember, setMemberPacks, soloSticker, stickerSVG, token } from './stickers.js';
 import { ApiError } from './api.js';
 
 const esc = (s) =>
@@ -42,7 +42,7 @@ export function richText(text, { mentions = false } = {}) {
   let html = esc(text);
   if (mentions) html = html.replace(/@(\S{1,12})/g, '<b class="at">@$1</b>');
   html = html.replace(/\[表情:([^\]·]{1,6})·([^\]]{1,6})\]/g, (all, pack, name) => stickerSVG(pack, name) || all);
-  return html.replace(/\n/g, '<br>');
+  return emojify(html).replace(/\n/g, '<br>');
 }
 
 /** 消息 / 动态里真正给人看的文字：只发了图片时不显示占位，有说明文字时只显示说明。 */
@@ -437,10 +437,11 @@ export class MediaComposer {
   }
 
   renderPanel() {
+    const packs = panelPacks();
     const tabs = [
       { id: 'recent', label: I.clock, title: '最近使用' },
-      ...EMOJI.map((c) => ({ id: c.id, label: `<span class="cm-tabemo">${c.icon}</span>`, title: c.name })),
-      ...STICKERS.map((p) => ({ id: `pack:${p.id}`, label: `<span class="cm-tabstk">${stickerSVG(p.id, p.items[0].name, { label: false })}</span>`, title: p.id, pack: true })),
+      ...EMOJI.map((c) => ({ id: c.id, label: `<span class="cm-tabemo">${emojiHTML(c.icon)}</span>`, title: c.name })),
+      ...packs.map((p) => ({ id: `pack:${p.id}`, label: `<span class="cm-tabstk">${stickerSVG(p.id, p.items[0].name, { label: false })}</span>`, title: p.id, pack: true })),
     ];
     let body = '';
     let title = '';
@@ -450,14 +451,14 @@ export class MediaComposer {
       body = list.length
         ? `<div class="cm-grid-emo mixed">${list
             .map((r) => {
-              if (r.startsWith('e:')) return `<button type="button" class="cm-emo" data-emoji="${esc(r.slice(2))}">${esc(r.slice(2))}</button>`;
+              if (r.startsWith('e:')) return `<button type="button" class="cm-emo" data-emoji="${esc(r.slice(2))}">${emojiHTML(r.slice(2))}</button>`;
               const [pack, name] = r.slice(2).split('·');
               return findSticker(pack, name) ? `<button type="button" class="cm-stk sm" data-stk="${esc(`${pack}·${name}`)}" title="${esc(name)}">${stickerSVG(pack, name, { label: false })}</button>` : '';
             })
             .join('')}</div>`
         : '<p class="cm-empty">还没用过表情。挑一个试试吧。</p>';
     } else if (this.tab.startsWith('pack:')) {
-      const pack = STICKERS.find((p) => `pack:${p.id}` === this.tab) || STICKERS[0];
+      const pack = packs.find((p) => `pack:${p.id}` === this.tab) || packs[0];
       title = `${pack.id}${this.onSticker ? ' · 点一下直接发送' : ''}`;
       body = `<div class="cm-grid-stk">${pack.items
         .map((s) => `<button type="button" class="cm-stk" data-stk="${esc(`${pack.id}·${s.name}`)}" title="${esc(s.name)}">${stickerSVG(pack.id, s.name, { label: false })}<small>${esc(s.name)}</small></button>`)
@@ -465,7 +466,7 @@ export class MediaComposer {
     } else {
       const cat = EMOJI.find((c) => c.id === this.tab) || EMOJI[0];
       title = cat.name;
-      body = `<div class="cm-grid-emo">${cat.list.map((e) => `<button type="button" class="cm-emo" data-emoji="${esc(e)}">${esc(e)}</button>`).join('')}</div>`;
+      body = `<div class="cm-grid-emo">${cat.list.map((e) => `<button type="button" class="cm-emo" data-emoji="${esc(e)}">${emojiHTML(e)}</button>`).join('')}</div>`;
     }
     this.panel.innerHTML = `<div class="cm-ptitle">${esc(title)}</div><div class="cm-pbody" data-tabkey="${esc(this.tab)}">${body}</div>
       <nav class="cm-tabs" aria-label="表情分类">${tabs

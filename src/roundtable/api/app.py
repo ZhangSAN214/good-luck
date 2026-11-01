@@ -591,6 +591,18 @@ class LanPassword(BaseModel):
     password: str = Field(max_length=256)
 
 
+class BackupPoint(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    label: str = Field(default="手动", max_length=40)
+
+
+class BackupRestore(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=120)  # 备份列表里的文件名
+
+
 class LanPair(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -748,6 +760,7 @@ def create_app(service: RoundtableService | None = None, lan: LanAccess | None =
 
         app.state.service = RoundtableService(Runtime.build())
         app.state.service.reconcile()
+        app.state.service.start_backup()
         app.state.service.start_life()
         app.state.service.start_evolution()
         app.state.service.start_dsh()
@@ -1244,6 +1257,18 @@ def create_app(service: RoundtableService | None = None, lan: LanAccess | None =
         headers = {"X-Content-Type-Options": "nosniff", "Cache-Control": "private, max-age=86400"}
         mime = "image/gif" if data[:3] == b"GIF" else "image/png"
         return Response(content=data, media_type=mime, headers=headers)
+
+    @app.get("/api/emoji")
+    async def emoji_status(request: Request) -> dict[str, Any]:
+        """网页里的 emoji 显示成哪套图。"""
+        return svc(request).emoji_status()
+
+    @app.get("/api/emoji/{code}.png")
+    def emoji_image(request: Request, code: str) -> Response:
+        """一个 emoji 的图（用到才下载到本机）；没有时 404，网页退回系统字体。"""
+        data = svc(request).emoji_image(code)
+        headers = {"X-Content-Type-Options": "nosniff", "Cache-Control": "private, max-age=2592000"}
+        return Response(content=data, media_type="image/png", headers=headers)
 
     @app.get("/api/chat/stickers")
     async def chat_stickers(request: Request) -> dict[str, Any]:
@@ -1972,6 +1997,23 @@ def create_app(service: RoundtableService | None = None, lan: LanAccess | None =
         resp = JSONResponse({"ok": True})
         resp.delete_cookie(LAN_COOKIE, path="/")
         return resp
+
+    # ---- 整库备份（docs/BACKUP.md）：恢复会覆盖全部数据，只能在电脑上做 ----
+
+    @app.get("/api/backup")
+    async def backup_status(request: Request) -> dict[str, Any]:
+        local_only(request)
+        return svc(request).backup_status()
+
+    @app.post("/api/backup/checkpoint")
+    async def backup_checkpoint(request: Request, body: BackupPoint) -> dict[str, Any]:
+        local_only(request)
+        return svc(request).backup_checkpoint(body.label)  # 同一连接，不放到别的线程
+
+    @app.post("/api/backup/restore")
+    async def backup_restore(request: Request, body: BackupRestore) -> dict[str, Any]:
+        local_only(request)
+        return svc(request).backup_restore(body.name)
 
     @app.get("/lan/pair")
     async def lan_pair_open(c: str = "") -> Response:

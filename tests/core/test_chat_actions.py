@@ -76,17 +76,17 @@ async def test_reply_is_split_into_bubbles_with_quote_and_cost_on_first():
     env = Env()
     r = room(env)
     msg, _ = r.post("@阿一 今天吃什么")
-    env.fake.queue("b1", f"[引用#{msg['id']}] 火锅！\n\n[表情:团子·开心]")
+    env.fake.queue("b1", f"[引用#{msg['id']}] 火锅！\n\n[表情:小黄脸·开心]")
     first = (await r.replies(msg["id"], r.pick("@阿一 今天吃什么")))[0]
     rows = [m for m in env.rt.repo.chat_messages("main") if m["author"] == "V1"]
-    assert [m["text"] for m in rows] == ["火锅！", "[表情:团子·开心]"]
+    assert [m["text"] for m in rows] == ["火锅！", "[表情:小黄脸·开心]"]
     quote = {"id": msg["id"], "author": "user", "text": "@阿一 今天吃什么"}
     assert rows[0]["meta"]["quote"] == quote
     assert first["id"] == rows[0]["id"]
     assert rows[1]["cost_usd"] == 0.0
     # 提示词里带上表情清单和编号的聊天记录
     sent = env.fake.calls[-1].messages
-    assert "[表情:团子·开心]" in sent[0].content
+    assert "[表情:小黄脸·开心]" in sent[0].content
     assert f"#{msg['id']} 用户：@阿一 今天吃什么" in sent[-1].content
 
 
@@ -380,3 +380,17 @@ async def test_member_may_send_only_her_own_pack(tmp_path):
     rows = [m["text"] for m in env.rt.repo.chat_messages("main") if m["author"] == "V1"]
     assert rows == ["[表情:阿一·晚安]", "好"]
     assert "你的专属：[表情:阿一·晚安]" in env.fake.calls[-1].messages[0].content
+
+
+def test_noto_pack_images_exist_and_old_packs_stay_drawable():
+    """小黄脸每张都有本地动图；早先的团子、猫猫和旧文字还在 stickers.js 里（旧消息照样能显示）。"""
+    js = (ROOT / "web/js/stickers.js").read_text(encoding="utf-8")
+    block = js[js.index("const NOTO = [") : js.index("];", js.index("const NOTO = ["))]
+    codes = re.findall(r"\['[^']+', '([0-9a-f_]+)'\]", block)
+    assert len(codes) == 40
+    for cp in codes:
+        assert (ROOT / f"web/img/stickers/noto/{cp}.webp").is_file(), cp
+    for old in ("id: '团子'", "id: '猫猫'", "['收到！'", "['哈哈哈'"):
+        assert old in js
+    stickers = load_config(ROOT / "config").roundtable.chat.actions.stickers
+    assert set(stickers) == {"小黄脸", "文字"}

@@ -61,8 +61,8 @@ def test_reads_what_kind_of_message_it_is():
     env, lingo = world()
     assert lingo.gist("", {"media": [{"kind": "video"}]}).kind == "video"
     assert lingo.gist("看这个 https://b23.tv/x").kind == "video"
-    assert lingo.gist("[表情:团子·开心]").kind == "sticker"
-    assert lingo.gist("今天真的累死了不过[表情:团子·开心]").kind != "sticker"
+    assert lingo.gist("[表情:小黄脸·开心]").kind == "sticker"
+    assert lingo.gist("今天真的累死了不过[表情:小黄脸·开心]").kind != "sticker"
     assert lingo.gist("这老师也太离谱了吧").kind == "complain"
     assert lingo.gist("我上岸了！！").kind == "good_news"
     assert lingo.gist("晚上吃了碗面").kind == "chat"
@@ -130,7 +130,7 @@ def test_punctuation_and_laughs_follow_her_habits():
     rng = random.Random(0)
     assert lingo.finish("V2", "我觉得还行。", rng=rng)[0] == "我觉得还行……"
     assert lingo.finish("V2", "你吃了吗？", rng=rng)[0] == "你吃了吗？"  # 问号不动
-    assert lingo.finish("V2", "[表情:团子·开心]", rng=rng)[0] == "[表情:团子·开心]"
+    assert lingo.finish("V2", "[表情:小黄脸·开心]", rng=rng)[0] == "[表情:小黄脸·开心]"
     assert lingo.finish("V2", "6", rng=rng)[0] == "6"  # 一两个字的短回复不加标点
     laugh = lingo.habits("V2").laugh
     said = lingo.finish("V2", "哈哈哈哈哈太好笑了", rng=rng)[0]

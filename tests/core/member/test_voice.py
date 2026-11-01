@@ -121,7 +121,7 @@ def test_self_check_rules():
     assert rule("上次我们一起去的那家店不错") == {"memory"}
     has_memory = Said(own=said.own, others=said.others, has_memory=True)
     assert voice_hits("上次我们一起去的那家店不错", has_memory, v, c) == []
-    assert voice_hits("[表情:团子·开心]", said, v, c) == []  # 太短不查
+    assert voice_hits("[表情:小黄脸·开心]", said, v, c) == []  # 太短不查
 
 
 def test_drop_only_echo_or_agree_in_group_when_not_named():

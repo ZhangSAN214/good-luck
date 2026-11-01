@@ -39,7 +39,7 @@ def test_quote_then_recall_own_message(serve, page):
 def test_pat_and_split_reply_with_sticker(serve, page):
     srv = serve(confirm_threshold_usd=100.0)
     srv.env.rt.repo.add_chat_message("main", "V2", "在呢")
-    srv.env.fake.queue("b2", "干嘛拍我\n\n[表情:团子·疑惑]")
+    srv.env.fake.queue("b2", "干嘛拍我\n\n[表情:小黄脸·思考]")
     open_chat(srv, page)
     page.dblclick(".gc-msg[data-author='V2'] .gc-av")
     page.wait_for_selector(".gc-sys.pat")

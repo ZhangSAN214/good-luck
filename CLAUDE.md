@@ -102,6 +102,7 @@ roundtable stats                    # 各模型的历史贡献
 roundtable performance [--reset]    # 办公室模式的员工绩效（--reset 清零）
 roundtable bench --max-usd 2          # 对比实验：个人 / 讨论 / 协同各跑同一批题，比正确率、花费、耗时
 roundtable kit-check 页面.html -o 目录  # 工作台质检：三种屏宽 × 浅 / 深色，报错、溢出、对比度等（docs/KIT.md）
+roundtable backup [now|checkpoint 标签|restore 文件名]   # 整库备份：看列表 / 马上备份 / 存档点 / 恢复（docs/BACKUP.md）
 roundtable show <id> --costs        # 每步预估与实际花费、每次调用的 token
 roundtable export <id> [-o 文件]     # 导出完整记录（UTF-8 带 BOM，含花费明细）
 roundtable export <id> --format docx  # 只导出成果：md / docx / pptx / pdf / html（本地转换，不调用模型）
