@@ -11,8 +11,9 @@
 - 去重（不花钱）：别人 ``dedupe_hours`` 小时内已经发过的同一件事（同一条生活事件）不再发，改挑
   当天另一件事，没有就跳过；写出来的正文和近期任何人的动态太像（字符二元组 Jaccard ≥
   ``similarity_max``）也不发，并记下这位成员的这件事，之后不再为它花钱。
-- 配图（``media.moment_photos``）：按概率画一张手机随手拍；拍法按权重抽，多数只拍东西 / 风景、
-  她不入镜（不传形象参考图），画完在本机加一层手机味（``member_stickers.phone_look``）。
+- 配图（``media.moment_photos``）：按概率画一张；拍法按权重抽，多数她本人入镜、抓拍不摆拍，
+  拍东西时只拍值得炫的（她不入镜时不传形象参考图），画完在本机加一层手机味
+  （``member_stickers.phone_look``）。
 """
 
 from __future__ import annotations
@@ -320,6 +321,7 @@ class Moments:
                 shot.text,
                 refs=shot.her != "none",
                 seed=f"{event['id']}:{member.id}",
+                place=str(event.get("place") or ""),
                 her=shot.her,
                 shot_tags=shot.tags,
             )
