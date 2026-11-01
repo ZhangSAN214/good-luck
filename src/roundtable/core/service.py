@@ -184,7 +184,7 @@ from roundtable.core.steps import Event, restore_state
 from roundtable.core.steps.office import group_estimates
 from roundtable.core.sticker_packs import PackError
 from roundtable.core.storage import NotFound, iso
-from roundtable.core.supercomputer import Supercomputer
+from roundtable.core.supercomputer import Butler, Supercomputer
 from roundtable.core.supercomputer.launch import CommandLauncher, HookLauncher
 from roundtable.core.wander import Wanderer
 from roundtable.core.yourpc import WindowsPc, game_of
@@ -288,6 +288,8 @@ class RoundtableService:
             keep_checkpoints=rules.keep_checkpoints,
         )
         self._backup_task: asyncio.Task[None] | None = None
+        self._butler: Butler | None = None
+        self._butler_task: asyncio.Task[None] | None = None
         # P4 关系·对你的见解：和成长同一天，每位按自己的性格读一遍画像；花费计入生活每天的上限
         self.insight = InsightKeeper(runtime, self.chats.everyone)
         self.insight.allow = self.life.allowed
@@ -620,7 +622,9 @@ class RoundtableService:
         await self.wander.aclose()
         tasks = [*self._tasks.values(), *self._chat_tasks]
         tasks += [
-            t for t in (self._life_task, self._evolution_task, self._backup_task) if t is not None
+            t
+            for t in (self._life_task, self._evolution_task, self._backup_task, self._butler_task)
+            if t is not None
         ]
         for task in tasks:
             task.cancel()
@@ -1028,21 +1032,91 @@ class RoundtableService:
 
     # --- 超级电脑（docs/SUPERCOMPUTER.md） ----------------------------------------------
 
-    def super_status(self) -> dict[str, Any]:
-        return self.supercomputer.status()
+    @property
+    def butler(self) -> Butler:
+        """超级电脑的管家（定时活、排队、自治闸门、日报、审计），跟着当前的超级电脑走。"""
+        sc = self.supercomputer
+        if self._butler is None or self._butler.sc is not sc:
+            self._butler = Butler(sc, sc.rules.butler, root=sc.root, now=self._local_now)
+        return self._butler
 
-    def super_submit(self, text: str) -> dict[str, Any]:
+    def start_butler(self) -> None:
+        """后台每隔一会儿看一次表（只在正式启动的服务里调用；测试直接调 super_tick）。"""
+        if self._butler_task is None and self.butler.rules.enabled:
+            self._butler_task = asyncio.get_running_loop().create_task(self._butler_loop())
+
+    async def _butler_loop(self) -> None:
+        while True:
+            try:
+                self.super_tick()
+            except Exception:  # noqa: BLE001 - 管家出错不影响其他功能，下次再看
+                log.exception("超级电脑管家：看表出错")
+            await asyncio.sleep(self.butler.rules.tick_seconds)
+
+    def super_tick(self) -> dict[str, int]:
+        if self.supercomputer.unavailable_reason():
+            return {}
+        return self.butler.tick()
+
+    def super_status(self) -> dict[str, Any]:
+        return {**self.supercomputer.status(), "butler": self.butler.status()}
+
+    def _butler_call(self, fn: Any, *args: Any, **kwargs: Any) -> Any:
         try:
-            self.supercomputer.submit(text)
+            return fn(*args, **kwargs)
+        except LookupError as exc:
+            raise ServiceError(str(exc), 404) from None
         except RuntimeError as exc:
             raise ServiceError(str(exc), 409) from None
         except ValueError as exc:
             raise ServiceError(str(exc), 400) from None
+
+    def super_submit(self, text: str, queue: bool = False) -> dict[str, Any]:
+        self._butler_call(self.butler.submit, text, queue=queue)
         return self.super_status()
 
     async def super_cancel(self) -> dict[str, Any]:
-        await self.supercomputer.cancel()
+        await self.butler.cancel()
         return self.super_status()
+
+    def super_add_schedule(
+        self, text: str, at: str, days: list[int] | None = None, once: str | None = None
+    ) -> dict[str, Any]:
+        self._butler_call(self.butler.add_schedule, text, at, days=days, once=once)
+        return self.super_status()
+
+    def super_remove_schedule(self, item_id: str) -> dict[str, Any]:
+        self._butler_call(self.butler.remove_schedule, item_id)
+        return self.super_status()
+
+    def super_toggle_schedule(self, item_id: str, enabled: bool) -> dict[str, Any]:
+        self._butler_call(self.butler.toggle_schedule, item_id, enabled)
+        return self.super_status()
+
+    def super_run_schedule(self, item_id: str) -> dict[str, Any]:
+        if self.supercomputer.unavailable_reason():
+            raise ServiceError(self.supercomputer.unavailable_reason() or "", 400)
+        self._butler_call(self.butler.run_schedule, item_id)
+        return self.super_status()
+
+    def super_approve(self, item_id: str) -> dict[str, Any]:
+        self._butler_call(self.butler.approve, item_id)
+        return self.super_status()
+
+    def super_reject(self, item_id: str) -> dict[str, Any]:
+        self._butler_call(self.butler.reject, item_id)
+        return self.super_status()
+
+    def super_unqueue(self, item_id: str) -> dict[str, Any]:
+        self._butler_call(self.butler.unqueue, item_id)
+        return self.super_status()
+
+    def super_report(self, day: str | None = None) -> dict[str, Any]:
+        rep = self._butler_call(self.butler.report, day)
+        return {**rep, "days": self.butler.reports()}
+
+    def super_audit(self) -> dict[str, Any]:
+        return self.butler.audit_view()
 
     def super_task(self, task_id: str) -> dict[str, Any]:
         task = self.supercomputer.get(task_id)
@@ -1051,17 +1125,11 @@ class RoundtableService:
         return task
 
     def super_set_limit(self, worker: str, limit: int) -> dict[str, Any]:
-        try:
-            self.supercomputer.set_limit(worker, limit)
-        except ValueError as exc:
-            raise ServiceError(str(exc), 400) from None
+        self._butler_call(self.butler.set_limit, worker, limit)
         return self.super_status()
 
     def super_clear_cooldown(self, worker: str) -> dict[str, Any]:
-        try:
-            self.supercomputer.clear_cooldown(worker)
-        except ValueError as exc:
-            raise ServiceError(str(exc), 400) from None
+        self._butler_call(self.butler.wake, worker)
         return self.super_status()
 
     # --- 工作台生成器（docs/KIT.md） --------------------------------------------------

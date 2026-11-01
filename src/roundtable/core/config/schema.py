@@ -3458,6 +3458,91 @@ class SuperWeights(_Strict):
     busy: float = Field(default=0.2, ge=0)
 
 
+class SuperGate(_Strict):
+    """自治闸门：定时活到点时能不能自己开干（docs/SUPERCOMPUTER.md「管家」）。
+
+    你在面板上亲手交的活、点「现在跑」、点「批准」都算你发起的，直接干；闸门只管定时活到点那一下。
+    风险按活的文字判：碰到 high_words 是高，只碰到 low_words 是低，其余是中。高风险永远等你点头。"""
+
+    # off：定时活到点一律等你确认；low：低风险的自己跑；medium：低、中风险的自己跑
+    autonomy: Literal["off", "low", "medium"] = "low"
+    max_auto_per_day: int = Field(default=3, ge=0, le=100)  # 每天最多自己跑几件（按本地日期）
+    high_words: list[str] = Field(
+        default_factory=lambda: [
+            "删除",
+            "删掉",
+            "清空",
+            "rm -rf",
+            "push",
+            "推送",
+            "合并分支",
+            "git merge",
+            "发布",
+            "部署",
+            "上线",
+            "生产",
+            "付款",
+            "支付",
+            "转账",
+            "安装",
+            "卸载",
+            "发邮件",
+            "发消息",
+            "密钥",
+            ".env",
+            "force",
+            "drop table",
+            "格式化",
+        ]
+    )
+    write_words: list[str] = Field(
+        default_factory=lambda: [
+            "改",
+            "写",
+            "加",
+            "修",
+            "删",
+            "重构",
+            "提交",
+            "commit",
+            "生成",
+            "创建",
+            "替换",
+            "升级",
+        ]
+    )
+    low_words: list[str] = Field(
+        default_factory=lambda: [
+            "查",
+            "调研",
+            "总结",
+            "汇总",
+            "审查",
+            "检查",
+            "看看",
+            "列出",
+            "统计",
+            "评估",
+            "对比",
+        ]
+    )
+
+
+class SuperButler(_Strict):
+    """超级电脑的管家：定时活、排队、自治闸门、日报、哈希链审计（docs/SUPERCOMPUTER.md「管家」）。
+
+    只调度你建好的定时活和你排进队的活，不会自己找活干；不调模型、不花钱。"""
+
+    enabled: bool = True
+    tick_seconds: int = Field(default=60, ge=5, le=3600)  # 多久看一次表
+    # 电脑关着错过了点：开机后这么多小时之内补跑一次（只补一次），再晚就记为「错过」
+    catch_up_hours: float = Field(default=12, ge=0, le=168)
+    max_schedules: int = Field(default=20, ge=0, le=200)
+    queue_max: int = Field(default=10, ge=1, le=100)
+    report_days: int = Field(default=14, ge=1, le=90)  # 开机补写最近几天的日报
+    gate: SuperGate = SuperGate()
+
+
 class SupercomputerRules(_Strict):
     """超级电脑（docs/SUPERCOMPUTER.md）：几位编程助手平级，没有固定主管。
 
@@ -3471,6 +3556,7 @@ class SupercomputerRules(_Strict):
     max_subtasks: int = Field(default=6, ge=1, le=20)
     weights: SuperWeights = SuperWeights()
     workers: list[SuperWorker] = Field(default_factory=list)
+    butler: SuperButler = SuperButler()
 
     @model_validator(mode="after")
     def _check(self) -> SupercomputerRules:
