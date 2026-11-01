@@ -175,6 +175,7 @@ class ChatBody(BaseModel):
     room: str = "main"
     media: list[dict[str, Any]] = Field(default_factory=list)  # POST /api/chat/media 返回的 id
     quote: int | None = None  # 引用的消息 id
+    files: list[str] = Field(default_factory=list, max_length=5)  # POST /api/uploads 返回的附件 id
 
 
 class PatBody(BaseModel):
@@ -206,6 +207,14 @@ class HandoffBody(BaseModel):
 
 class VoiceBody(BaseModel):
     text: str | None = Field(default=None, max_length=2000)  # 省略：念一句试听
+
+
+class StickerPackBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(default="", max_length=64)  # 装的时候用：目录里的包 id
+    owner: str | None = Field(default=None, max_length=40)  # 专用的成员；空串 = 通用；不传 = 不变
+    label: str | None = Field(default=None, max_length=6)  # 聊天里的套装名
 
 
 class StickerReviewBody(BaseModel):
@@ -282,6 +291,12 @@ class ProfileRevertBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     version: int = Field(ge=1)
+
+
+class GrowthUndoBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    token: str = Field(min_length=1, max_length=200)  # 成长总账里那一条的 undo
 
 
 class GrowthRevertBody(BaseModel):
@@ -1146,7 +1161,9 @@ def create_app(service: RoundtableService | None = None, lan: LanAccess | None =
 
     @app.post("/api/chat", status_code=202)
     async def chat_post(request: Request, body: ChatBody) -> dict[str, Any]:
-        return await svc(request).chat_post(body.text, body.room, body.media, body.quote)
+        return await svc(request).chat_post(
+            body.text, body.room, body.media, body.quote, files=body.files
+        )
 
     @app.post("/api/chat/pat", status_code=202)
     async def chat_pat(request: Request, body: PatBody) -> dict[str, Any]:
@@ -1209,6 +1226,19 @@ def create_app(service: RoundtableService | None = None, lan: LanAccess | None =
     async def chat_handoff(request: Request, body: HandoffBody) -> dict[str, Any]:
         return svc(request).chat_handoff(body.text)
 
+    @app.post("/api/chat/handoff/{message_id}/start", status_code=202)
+    async def chat_handoff_start(
+        request: Request, message_id: int, room: str = "main"
+    ) -> dict[str, Any]:
+        """聊天里成员交办的事：你点了「交给办公室」才开工（docs/CHAT.md G14）。"""
+        return svc(request).chat_handoff_start(room, message_id)
+
+    @app.post("/api/chat/handoff/{message_id}/dismiss")
+    async def chat_handoff_dismiss(
+        request: Request, message_id: int, room: str = "main"
+    ) -> dict[str, Any]:
+        return svc(request).chat_handoff_dismiss(room, message_id)
+
     @app.get("/api/chat/voices")
     async def chat_voices(request: Request) -> dict[str, Any]:
         return svc(request).member_voices()
@@ -1269,6 +1299,37 @@ def create_app(service: RoundtableService | None = None, lan: LanAccess | None =
         data = svc(request).emoji_image(code)
         headers = {"X-Content-Type-Options": "nosniff", "Cache-Control": "private, max-age=2592000"}
         return Response(content=data, media_type="image/png", headers=headers)
+
+    @app.get("/api/sticker-packs")
+    async def sticker_packs(request: Request) -> dict[str, Any]:
+        """本机装的外部表情包（dsh-meme 格式）。"""
+        return svc(request).sticker_packs()
+
+    @app.get("/api/sticker-packs/catalog")
+    def sticker_pack_catalog(request: Request) -> dict[str, Any]:
+        """在线目录里的包（要联网）。"""
+        return svc(request).sticker_pack_catalog()
+
+    @app.post("/api/sticker-packs")
+    def sticker_pack_install(request: Request, body: StickerPackBody) -> dict[str, Any]:
+        """从在线目录装一个包（下载、核对 sha256）；owner 为空 = 通用。"""
+        return svc(request).install_sticker_pack(body.id, body.owner, body.label or "")
+
+    @app.patch("/api/sticker-packs/{pack_id}")
+    async def sticker_pack_assign(
+        request: Request, pack_id: str, body: StickerPackBody
+    ) -> dict[str, Any]:
+        return svc(request).assign_sticker_pack(pack_id, body.owner, body.label)
+
+    @app.delete("/api/sticker-packs/{pack_id}")
+    async def sticker_pack_remove(request: Request, pack_id: str) -> dict[str, Any]:
+        return svc(request).remove_sticker_pack(pack_id)
+
+    @app.get("/api/sticker-packs/{pack_id}/{n}")
+    async def sticker_pack_image(request: Request, pack_id: str, n: int) -> Response:
+        data, mime = svc(request).sticker_pack_image(pack_id, n)
+        headers = {"X-Content-Type-Options": "nosniff", "Cache-Control": "private, max-age=2592000"}
+        return Response(content=data, media_type=mime, headers=headers)
 
     @app.get("/api/chat/stickers")
     async def chat_stickers(request: Request) -> dict[str, Any]:
@@ -1416,6 +1477,12 @@ def create_app(service: RoundtableService | None = None, lan: LanAccess | None =
         request: Request, member: str, body: GrowthRevertBody
     ) -> dict[str, Any]:
         return svc(request).member_growth_revert(member, body.id)
+
+    @app.post("/api/chat/growth/{member}/undo")
+    async def member_growth_undo(
+        request: Request, member: str, body: GrowthUndoBody
+    ) -> dict[str, Any]:
+        return svc(request).member_growth_undo(member, body.token)
 
     @app.delete("/api/chat/growth/{member}")
     async def member_growth_clear(request: Request, member: str) -> dict[str, Any]:

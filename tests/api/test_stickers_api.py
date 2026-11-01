@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 from fastapi.testclient import TestClient
 
 from roundtable.api.app import create_app
@@ -18,7 +20,7 @@ def test_stickers_api():
         data = c.get("/api/stickers").json()
         assert data["review"] is True and data["month_spent_usd"] == 0
         first = data["members"][0]
-        assert first["id"] == "OpenAI" and len(first["stickers"]) == 14
+        assert first["id"] == "OpenAI" and len(first["stickers"]) == 17  # 14 + 3 张名梗
         assert {s["status"] for s in first["stickers"]} == {"missing"}
         assert data["monthly_usd"] == env.rt.config.roundtable.media.stickers.monthly_usd
         # 没有形象卡：404
@@ -106,3 +108,32 @@ def test_emoji_image_api(tmp_path):
         )
         assert c.get("/api/emoji/1f9ff.png").status_code == 404
         assert c.get("/api/emoji/abc..png").status_code == 404
+
+
+def test_sticker_pack_api(tmp_path):
+    from ..core.test_sticker_packs import make_pack
+
+    env = Env()
+    env.rt.sticker_dir = tmp_path / "stickers"
+    service = RoundtableService(env.rt)
+    zipped = make_pack(tmp_path)
+    catalog = {"packs": [{"id": "whale", "name": "鲸鱼", "archiveUrl": "https://x/w.zip"}]}
+    service.packs._fetch = lambda url, limit: (
+        json.dumps(catalog).encode() if url.endswith("catalog.json") else zipped
+    )
+    with TestClient(create_app(service)) as c:
+        assert c.get("/api/sticker-packs").json() == {"packs": []}
+        assert c.get("/api/sticker-packs/catalog").json()["packs"][0]["id"] == "whale"
+        r = c.post("/api/sticker-packs", json={"id": "whale", "owner": "V1"})
+        assert r.status_code == 200 and r.json()["label"] == "鲸鱼"
+        assert c.post("/api/sticker-packs", json={"id": "nope"}).status_code == 400
+        [pack] = c.get("/api/chat/stickers").json()["packs"]
+        assert pack["pack"] == "鲸鱼" and pack["member"] == "V1"
+        img = c.get(pack["items"][2]["url"])
+        assert img.status_code == 200 and img.headers["content-type"] == "image/gif"
+        assert c.get("/api/sticker-packs/whale/99").status_code == 404
+        r = c.patch("/api/sticker-packs/whale", json={"owner": ""})
+        assert r.json()["owner"] == ""
+        assert c.get("/api/chat/stickers").json()["packs"][0]["member"] == "*"
+        assert c.delete("/api/sticker-packs/whale").json()["removed"]
+        assert c.get("/api/chat/stickers").json()["packs"] == []

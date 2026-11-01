@@ -1481,6 +1481,65 @@ class CLI:
                 )
         return 0
 
+    def cmd_sticker_packs(
+        self,
+        action: str,
+        target: str | None,
+        owner: str | None,
+        label: str | None,
+        file: str | None,
+    ) -> int:
+        """外部表情包（dsh-meme 格式）：list 已装 / catalog 目录 / install / assign / remove。"""
+        from roundtable.core.chat_actions import sticker_packs
+        from roundtable.core.sticker_packs import PackError
+
+        packs = sticker_packs(self.rt)
+
+        def who(owner: str) -> str:
+            return owner or "通用"
+
+        try:
+            if action == "catalog":
+                for p in packs.catalog():
+                    size = f"{p['bytes'] / 1048576:.1f} MB" if p["bytes"] else "?"
+                    flag = "已装" if p["installed"] else ("" if p["installable"] else "不能直接装")
+                    self.p(
+                        f"{p['id']:24} {p['name']}（{p['count']} 张，{size}，{p['license']}）{flag}"
+                    )
+                return 0
+            if action == "list":
+                rows = packs.installed()
+                if not rows:
+                    self.p("还没装外部表情包：roundtable sticker-packs catalog 看在线目录")
+                for p in rows:
+                    s = packs.summary(p)
+                    self.p(
+                        f"{s['id']:24} 「{s['label']}」{s['count']} 张，给 {who(s['owner'])} 用"
+                        f"（{s['license']}）例：{'、'.join(s['sample'][:5])}"
+                    )
+                return 0
+            if not target:
+                self.p("要给出包 id（install 也可以用 --file 给压缩包）")
+                return 1
+            if action == "install":
+                data = Path(file).read_bytes() if file else None
+                s = packs.install(target, owner, label or "", data)
+                self.p(f"装好了「{s['label']}」{s['count']} 张，给 {who(s['owner'])} 用")
+                return 0
+            if action == "assign":
+                s = packs.assign(target, owner, label)
+                self.p(f"「{s['label']}」现在给 {who(s['owner'])} 用")
+                return 0
+            if action == "remove":
+                packs.remove(target)
+                self.p(f"删掉了 {target}")
+                return 0
+        except (PackError, OSError) as exc:
+            self.p(str(exc))
+            return 1
+        self.p(f"不认识的操作 {action}")
+        return 1
+
     async def cmd_stickers(
         self,
         member: str | None,
@@ -1740,6 +1799,18 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="目录",
         help="把别处画好的图收进来（文件名=表情名，动图给四格图），待审",
     )
+    spacks = sub.add_parser(
+        "sticker-packs",
+        help="外部表情包（dsh-meme 格式）：在线目录、装到本机、给某位成员专用或通用",
+    )
+    spacks.add_argument(
+        "action", choices=["list", "catalog", "install", "assign", "remove"], help="操作"
+    )
+    spacks.add_argument("pack", nargs="?", help="包 id（如 whale-girl-emoji）")
+    spacks.add_argument("--for", dest="owner", metavar="成员", help="给这位成员专用（如 DeepSeek）")
+    spacks.add_argument("--common", action="store_true", help="改成大家通用")
+    spacks.add_argument("--as", dest="label", metavar="名字", help="聊天里的套装名（1～6 字）")
+    spacks.add_argument("--file", metavar="压缩包", help="装本地的 zip（不用下载）")
     perf = sub.add_parser("performance", help="办公室模式的员工绩效（件数、退回、通过率等）")
     perf.add_argument("--reset", action="store_true", help="清零：之后只统计从现在起的会话")
     evolve = sub.add_parser("evolve", help="革新例会：成员读资料卡提建议、投票，导出采纳单")
@@ -1794,6 +1865,21 @@ def build_parser() -> argparse.ArgumentParser:
         "--scenario",
         help="开跑前摆好的场景（sim.yaml 的 scenarios，如 birthday：认识一个月、你过生日）",
     )
+    longrun = sub.add_parser(
+        "sim-growth",
+        help="半年快进：只推进成长相关的部件，几分钟跑完 90～180 天，看会不会越长越像、走极端、"
+        "被你带偏、口癖用光（假模型，不花钱）",
+    )
+    longrun.add_argument("--days", type=int, default=180, help="快进多少天（默认 180）")
+    longrun.add_argument("--out", help="输出目录（默认 sim_runs/growth-<时间>；不能在 data/ 下）")
+    longrun.add_argument("--seed", type=int, default=0)
+    longrun.add_argument(
+        "--pressure",
+        default="push",
+        choices=["push", "none"],
+        help="push：假模型每周都想把她们往同一个方向改（默认）；none：随手改改",
+    )
+    longrun.add_argument("--cards", help="人物卡 Markdown（不给就用编的 8 份起始档案）")
     backup = sub.add_parser(
         "backup", help="整库备份：看列表、马上备份、存档点、恢复（docs/BACKUP.md，不花钱）"
     )
@@ -1859,6 +1945,8 @@ async def run(
         return await asyncio.to_thread(cmd_kit_check, args, out)
     if args.command == "sim":  # 自己建临时数据库，不打开真实数据
         return await cmd_sim(args, out)
+    if args.command == "sim-growth":  # 同上
+        return await cmd_sim_growth(args, out)
     try:
         rt = runtime or Runtime.build()
     except ConfigError as exc:
@@ -1928,6 +2016,9 @@ async def run(
                 args.prompts,
                 args.import_dir,
             )
+        if args.command == "sticker-packs":
+            owner = "" if args.common else args.owner
+            return cli.cmd_sticker_packs(args.action, args.pack, owner, args.label, args.file)
         if args.command == "performance":
             return cli.cmd_performance(args.reset)
         if args.command == "evolve":
@@ -2047,6 +2138,41 @@ async def cmd_sim(args: argparse.Namespace, out: TextIO) -> int:
     if res.problems:
         print(f"问题清单 {len(res.problems)} 条（要紧的在前）", file=out)
     print(f"报告：{sim.out / 'report.md'}", file=out)
+    return 0 if res.ok else 1
+
+
+async def cmd_sim_growth(args: argparse.Namespace, out: TextIO) -> int:
+    """半年快进：全部指标正常返回 0，有超标或出错返回 1，没跑成返回 2。"""
+    from datetime import datetime as _dt
+
+    from roundtable.core.simlab import SimError
+    from roundtable.core.simlong import LongRun
+
+    folder = args.out or f"sim_runs/growth-{_dt.now():%Y%m%d-%H%M%S}"
+    try:
+        run = LongRun(
+            Path(folder),
+            days=args.days,
+            seed=args.seed,
+            pressure=args.pressure,
+            cards=Path(args.cards).read_text(encoding="utf-8") if args.cards else None,
+        )
+        print(
+            f"快进 {args.days} 天（假模型，{'施压' if args.pressure == 'push' else '不施压'}）……",
+            file=out,
+        )
+        res = await run.run()
+    except (SimError, ConfigError, OSError) as exc:
+        print(f"快进没跑成：{exc}", file=out)
+        return 2
+    print(f"完成：{res.days} 天，用时 {res.seconds:.0f} 秒", file=out)
+    for p in res.problems:
+        print(f"  超标：{p}", file=out)
+    if res.errors:
+        print(f"  出错 {len(res.errors)} 次（见报告）", file=out)
+    if res.ok:
+        print("全部指标正常", file=out)
+    print(f"报告：{res.out / 'report.md'}", file=out)
     return 0 if res.ok else 1
 
 

@@ -429,3 +429,27 @@ def test_member_asked_by_a_colleague_answers_first_next_round():
         assert picked[0].id == "V3"
     env.rt.repo.add_chat_message(room.room, "V3", "还行吧")
     assert chat(env).owed(chat(env).members()) is None
+
+
+async def test_handoff_and_choices_ride_on_the_last_bubble_or_their_own():
+    from roundtable.core.chat import Thought
+    from roundtable.core.chat_actions import Segment
+
+    env = Env()
+    room = ChatHub(env.rt, rng=random.Random(0)).room(dm_room("V1"))
+    room.sleep = _nosleep
+    member = room.members()[0]
+    ask = env.rt.repo.add_chat_message(room.room, "user", "帮我做个表")
+    t = Thought(member, [Segment("行，我去弄", None)], 0.0, "", "做一张十月花销表", ["要", "不要"])
+    await room._post(t, ask["id"], None, set())
+    last = env.rt.repo.chat_messages(room.room, limit=5)[-1]
+    assert last["meta"]["handoff"] == {"task": "做一张十月花销表", "state": "pending"}
+    assert last["meta"]["choices"] == ["要", "不要"]
+    # 话都没说出来：单独发一张交办卡片
+    await room._post(Thought(member, [], 0.0, "", "画一张猫"), ask["id"], None, set())
+    card = env.rt.repo.chat_messages(room.room, limit=5)[-1]
+    assert card["meta"]["handoff"]["task"] == "画一张猫" and card["meta"]["auto_text"]
+
+
+async def _nosleep(_s: float) -> None:
+    return None

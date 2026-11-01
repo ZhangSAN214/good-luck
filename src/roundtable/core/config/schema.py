@@ -1530,6 +1530,45 @@ class GrowthReportRules(_Strict):
     keep: int = Field(default=24, ge=1, le=120)  # 每人最多留几份
 
 
+class GrowthBookRules(_Strict):
+    """成长总账（docs/MEMBER_ENGINE.md「成长总账」）：把各模块记下的变化排成一条时间线（只读汇总，
+    各模块仍各写各的），月报算全量，最近的变化给她自己一行。不花钱。"""
+
+    enabled: bool = True
+    keep: int = Field(default=200, ge=10, le=2000)  # 网页上最多列多少条
+    recent_days: int = Field(default=14, ge=1, le=90)  # 「这阵子」算最近几天
+    recent_max: int = Field(default=2, ge=0, le=5)  # 给她自己的那一行最多带几件（0 = 不带）
+    context_chars: int = Field(default=50, ge=0, le=200)  # 那一行最多几个字（算在 600 字里）
+
+
+class GrowthPlasticRules(_Strict):
+    """发育期可塑性（成长 G2）：新来的变得快，待久了变得慢。
+
+    8 位同一套规则，差别只来自入职时间和性格。"""
+
+    enabled: bool = True
+    young_days: int = Field(default=60, ge=0, le=3650)  # 入职头这么多天是发育期（照原规则）
+    settled_changes: int = Field(default=2, ge=1, le=5)  # 定型以后每周最多改几条
+    settle_days: int = Field(default=60, ge=1, le=730)  # 定型以后性格分两次改动至少隔几天
+    min_gap_days: int = Field(default=30, ge=1, le=730)  # 再快也至少隔这么多天
+    # 每比 3 分高一分，间隔乘上 (1 + 系数)：好奇、外向变得快，较真变得慢
+    trait_speed: dict[str, float] = {"好奇": -0.1, "外向": -0.05, "较真": 0.1}
+
+
+class GrowthVitalsRules(_Strict):
+    """成长的防退化阈值（成长 G3，docs/MEMBER_ENGINE.md「半年快进与防退化」）：半年快进和加速模拟
+    期末超过这些就算出问题（测试失败、报告里标红）。全程序算，不花钱。"""
+
+    overlap_max: float = Field(default=0.4, ge=0, le=1)  # 两位成员的长处 / 喜好最多重合几成
+    extreme_gain: float = Field(default=0.15, ge=0, le=1)  # 五项分在 1 或 5 的占比最多多几成
+    push_max: float = Field(default=1.0, ge=0, le=4)  # 一项性格全员平均最多移动几格
+    moved_max: int = Field(default=4, ge=0, le=20)  # 一位成员五项分一共最多移动几格
+    share_slack: float = Field(default=0.05, ge=0, le=1)  # 受你影响的占比比上限多出这么多才算
+    catchphrase_left: float = Field(default=0.3, ge=0, le=1)  # 能用的口头禅至少还有期初的几成
+    kaomoji_left: int = Field(default=2, ge=0, le=20)  # 颜文字至少还有几个
+    dupes_max: float = Field(default=0.1, ge=0, le=1)  # 本该合并却各记一条的记忆件最多占几成
+
+
 class GrowthRules(_Strict):
     """P6 成长（docs/MEMBER_ENGINE.md「P6 成长」）：每周用成员自己的模型读一遍上周的经历，
     最多提几条对自我档案的改动，每条必须引用真实经历；程序把关后才写进档案（author = growth）。
@@ -1540,6 +1579,10 @@ class GrowthRules(_Strict):
     enabled: bool = True
     weekday: int = Field(default=1, ge=1, le=7)  # 每周几（ISO，1 = 周一）反思上一周
     min_days: int = Field(default=3, ge=1, le=7)  # 上周至少几天有经历才反思，否则跳过并记原因
+    book: GrowthBookRules = GrowthBookRules()
+    vitals: GrowthVitalsRules = GrowthVitalsRules()
+    plastic: GrowthPlasticRules = GrowthPlasticRules()
+    reconcile: bool = True  # 对账（成长 G2）：口癖、学来的说法、习惯和档案对不上时写进每周经历
     min_lines: int = Field(default=5, ge=1, le=100)  # 上周至少几条经历（日记、记忆件、你说的话）
     max_changes: int = Field(default=3, ge=1, le=5)  # 每周最多改几条
     material_chars: int = Field(default=4000, ge=500, le=20000)  # 周总结最多多少字
@@ -1557,9 +1600,14 @@ class GrowthRules(_Strict):
         }
     )
     list_max: int = Field(default=8, ge=1, le=30)  # 每个列表最多几项
+    list_keep: int = Field(default=2, ge=0, le=30)  # 去掉一项后至少还留几项（不会被删光）
     item_chars: int = Field(default=20, ge=2, le=60)  # 新加的一项最多多少字
     unique_lists: list[str] = Field(default_factory=lambda: ["style.口头禅"])  # 不和别人重样的列表
     core_monthly_steps: int = Field(default=1, ge=0, le=5)  # 核心性格（五项）每月最多改几格
+    anchor_steps: int = Field(default=2, ge=0, le=4)  # 成长让一项性格一共最多离人物卡几格
+    same_way: float = Field(
+        default=0.4, gt=0, le=1
+    )  # 这么多成员（按 8 人比例）往同一边变过这一项，别人先不跟
     min_distance: int = Field(default=2, ge=0, le=20)  # 8 人五项分两两至少差几（各项差的和）
     user_share: float = Field(default=0.3, ge=0, le=1)  # 受你影响的改动最多占几成
     share_window_weeks: int = Field(default=8, ge=1, le=52)  # 按最近几周的改动算占比
@@ -2724,6 +2772,8 @@ class DriftRules(_Strict):
     crowd: int = Field(default=2, ge=1, le=10)  # 已经有这么多位在用的不挑（不越聊越像）
     return_days: int = Field(default=60, ge=0, le=365)  # 换掉的这么久以内不挑回来
     rest_days: int = Field(default=21, ge=1, le=365)  # 口头禅说腻了歇几天
+    # 歇掉一句后，档案上的口头禅至少还有这么多能用（不会一起歇光；成长 G3 半年快进发现的）
+    keep_catchphrases: float = Field(default=0.5, ge=0, le=1)
     promote_uses: int = Field(default=6, ge=1, le=100)  # 学来的说法自己用够几次就成了自己的
     keep_swaps: int = Field(default=30, ge=5, le=500)
     mood_high: float = Field(default=0.35, ge=0, le=1)
@@ -2970,6 +3020,24 @@ class EmojiImageRules(_Strict):
         return url
 
 
+class StickerPackRules(_Strict):
+    """外部表情包（dsh-meme 格式的压缩包，``core/sticker_packs.py``）：
+    装在本机 data/sticker_packs/，不进仓库；可以给某位成员专用或大家通用。"""
+
+    enabled: bool = True
+    # 提示词里每套最多列几张（按小时轮换）；聊天里认得整套
+    menu_size: int = Field(default=10, ge=1, le=40)
+    max_mb: int = Field(default=200, ge=1, le=1000)  # 一个包压缩包 / 解压后的上限
+    catalog_url: str = Field(default="", max_length=300)  # 在线目录（catalog.json）
+
+    @field_validator("catalog_url")
+    @classmethod
+    def _https(cls, url: str) -> str:
+        if url and not url.startswith("https://"):
+            raise ValueError("catalog_url 要以 https:// 开头")
+        return url
+
+
 class ChatActionRules(_Strict):
     """聊天里能发什么（docs/CHAT.md「微信式动作」）：表情包、颜文字、引用、拆条、拍一拍、撤回。
 
@@ -2982,6 +3050,7 @@ class ChatActionRules(_Strict):
     stickers: dict[str, list[str]] = Field(default_factory=dict)
     kaomoji: list[str] = Field(default_factory=list, max_length=40)  # 颜文字示例
     emoji_images: EmojiImageRules = EmojiImageRules()  # 网页里的 emoji 显示成哪套图
+    sticker_packs: StickerPackRules = StickerPackRules()  # 本机装的外部表情包
     max_segments: int = Field(default=3, ge=1, le=6)  # 一次回复最多拆成几条
     segment_gap_seconds: float = Field(default=1.2, ge=0, le=10)  # 拆条之间的固定间隔（默认值）
     recall_seconds: int = Field(default=120, ge=0, le=3600)  # 你发出后多久内可以撤回

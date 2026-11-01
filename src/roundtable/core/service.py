@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import quote
 
+from roundtable.core import chat_handoff as handoff
 from roundtable.core import clipper
 from roundtable.core.allocation import coordinator_name, display_name
 from roundtable.core.almanac import Almanac
@@ -43,11 +44,11 @@ from roundtable.core.budget.guard import day_window, month_window
 from roundtable.core.carry import carry_question, compact
 from roundtable.core.changelog import changelog_view, load_changelog
 from roundtable.core.chat import ROOM, WORK, ChatHub, chat_budget, dm_room
-from roundtable.core.chat_actions import card_from_url, is_bare_url, own_stickers
+from roundtable.core.chat_actions import card_from_url, is_bare_url, own_stickers, sticker_packs
 from roundtable.core.chat_actions import card_text as chat_card_text
 from roundtable.core.chat_media import MAX_BYTES as CHAT_MEDIA_MAX
 from roundtable.core.chat_media import ChatMediaStore, MediaError, clean_items, placeholder
-from roundtable.core.chat_work import WORK_EVENTS, post_handoff, post_office_event
+from roundtable.core.chat_work import WORK_EVENTS, post_handoff, post_office_event, short_title
 from roundtable.core.config.loader import DEFAULT_CONFIG_DIR, ConfigError
 from roundtable.core.emoji_images import EMOJI_DIR, EmojiImages
 from roundtable.core.evolution import (
@@ -111,6 +112,9 @@ from roundtable.core.member.card import (
     without_locked,
 )
 from roundtable.core.member.growth import monday, week_id
+from roundtable.core.member.growth.book import SOURCES as BOOK_SOURCES
+from roundtable.core.member.growth.book import BookError
+from roundtable.core.member.growth.plastic import plasticity
 from roundtable.core.member.growth.report import lines as report_lines
 from roundtable.core.member.memory import DiaryTool
 from roundtable.core.member.memory.store import query_terms
@@ -178,6 +182,7 @@ from roundtable.core.standee import load_standee
 from roundtable.core.standee import standee_file as read_standee_file
 from roundtable.core.steps import Event, restore_state
 from roundtable.core.steps.office import group_estimates
+from roundtable.core.sticker_packs import PackError
 from roundtable.core.storage import NotFound, iso
 from roundtable.core.supercomputer import Supercomputer
 from roundtable.core.supercomputer.launch import CommandLauncher, HookLauncher
@@ -197,6 +202,7 @@ REVEALABLE = frozenset({"completed", "stopped", "failed"})
 ORPHANED_ERROR = "服务上次意外退出，做到一半中断了，可以点「继续」接着做"
 MAX_QUESTION_CHARS = 20_000
 MAX_CHAT_CHARS = 2000
+HANDOFF_FILES = 5  # 交办时最多带几个你在聊天里发的文件
 MAX_MOMENT_CHARS = 500
 ADB_QR_TTL_S = 180  # 配对二维码几秒内有效（手机上的扫码页面本身也会超时）
 # 公寓楼：进行中的会话这么久没有更新就不算在上班（服务意外退出后留下的 running）
@@ -254,6 +260,7 @@ class RoundtableService:
         self.stickers = MemberStickers(runtime, runtime.sticker_dir)
         emoji_dir = runtime.sticker_dir.parent / EMOJI_DIR if runtime.sticker_dir else None
         self.emoji = EmojiImages(runtime, emoji_dir)
+        self.packs = sticker_packs(runtime)
         self.memory = MemoryKeeper(runtime, self.chats.everyone)
         self.life = LifeEngine(runtime, self.chats, self.memory)
         self.perceiver = Perceiver(runtime, PerceptionCache(runtime.perception_dir))
@@ -1812,14 +1819,42 @@ class RoundtableService:
             return tag, meta
         return f"{text}\n{tag}", meta | {"caption": text}
 
+    def _file_meta(
+        self, text: str, meta: dict | None, files: Sequence[str]
+    ) -> tuple[str, dict | None]:
+        """聊天里发的文件（先 upload 得到附件 id）：meta.files 记名字和大小，
+        文字后面补「[文件 名字]」。"""
+        if not files:
+            return text, meta
+        items = []
+        for fid in list(dict.fromkeys(files))[:HANDOFF_FILES]:
+            try:
+                row = self.rt.repo.attachment(fid)
+            except NotFound:
+                raise ServiceError("文件不存在，请重新上传") from None
+            items.append({"id": fid, "name": row["name"], "kind": row["kind"], "size": row["size"]})
+        tags = " ".join(f"[文件 {it['name']}]" for it in items)
+        out = dict(meta or {})
+        out["files"] = items
+        if not text:
+            out.setdefault("auto_text", True)
+            return tags, out
+        if "caption" not in out:
+            out["caption"] = text
+        return f"{text}\n{tags}", out
+
     async def chat_post(
         self,
         text: str,
         room: str = ROOM,
         media: list[dict] | None = None,
         quote: int | None = None,
+        *,
+        files: Sequence[str] = (),
     ) -> dict[str, Any]:
-        """用户发一条消息（可带图片 / 视频 / 语音，可引用一条消息）；被选中的成员在后台依次回应。"""
+        """用户发一条消息（可带图片 / 视频 / 语音、文件，可引用一条消息）；被选中的成员在后台
+        依次回应。文件先用 upload() 上传；成员只看到文件名，要读里面的内容时交给办公室
+        （带着文件一起）。"""
         chat = self._chat_room(room)
         if chat.kind == "pair":
             raise ServiceError("这是成员之间的私聊，你只能看，不能发言")
@@ -1827,6 +1862,7 @@ class RoundtableService:
         if len(text) > MAX_CHAT_CHARS:
             raise ServiceError(f"消息太长（最多 {MAX_CHAT_CHARS} 字）")
         text, meta = self._media_meta(text, media)
+        text, meta = self._file_meta(text, meta, files)
         if not text:
             raise ServiceError("消息不能为空")
         if meta is None and is_bare_url(text):  # 只发了一个链接：显示成卡片
@@ -2010,6 +2046,107 @@ class RoundtableService:
         self.rt.repo.mark_chat_read(WORK, msg["id"])
         return {"id": msg["id"], "session_id": sid}
 
+    # --- 聊天里的活交给办公室（docs/CHAT.md G14） ------------------------------------
+
+    def chat_handoff_start(self, room: str, message_id: int) -> dict[str, Any]:
+        """你点了交办卡片上的「交给办公室」：按办公室模式开一件事（题目只有要做的事和你的原话，
+        不带人设和聊天记忆），你在这段聊天里刚发的文件一起带上。做完以那位成员的名义发回来。"""
+        chat = self._chat_room(room)
+        row = self.rt.repo.chat_message(message_id)
+        if row is None or row["room"] != chat.room:
+            raise ServiceError("消息不存在", 404)
+        card = (row.get("meta") or {}).get("handoff") or {}
+        if not card:
+            raise ServiceError("这条消息没有要交给办公室的事")
+        if card.get("state") != handoff.PENDING:
+            raise ServiceError("这件事已经处理过了")
+        request = self._handoff_request(chat.room, row)
+        files = self._handoff_files(chat.room, row)
+        sid = self.create(
+            handoff.question(card["task"], request), workflow="office", attachments=files
+        )
+        handoff.remember(self.rt, sid, room=chat.room, member=row["author"], message_id=row["id"])
+        handoff.mark(self.rt, row["id"], state=handoff.RUNNING, session_id=sid)
+        chat.on_change()
+        return {"session_id": sid}
+
+    def chat_handoff_dismiss(self, room: str, message_id: int) -> dict[str, Any]:
+        """「先不用」：卡片收起，不花钱。"""
+        chat = self._chat_room(room)
+        row = self.rt.repo.chat_message(message_id)
+        if row is None or row["room"] != chat.room:
+            raise ServiceError("消息不存在", 404)
+        card = (row.get("meta") or {}).get("handoff") or {}
+        if card.get("state") != handoff.PENDING:
+            raise ServiceError("这件事已经处理过了")
+        handoff.mark(self.rt, row["id"], state=handoff.DISMISSED)
+        chat.on_change()
+        return {"ok": True}
+
+    def _handoff_request(self, room: str, row: dict[str, Any]) -> str:
+        """成员交办时回的是你哪句话（她回应的那条，或者她之前你说的最后一句）。"""
+        if row.get("reply_to"):
+            asked = self.rt.repo.chat_message(row["reply_to"])
+            if asked is not None and asked["author"] == "user":
+                return str(asked["text"] or "")
+        before = [
+            r
+            for r in self.rt.repo.chat_messages(room, limit=30)
+            if r["id"] < row["id"] and r["author"] == "user"
+        ]
+        return str(before[-1]["text"] or "") if before else ""
+
+    def _handoff_files(self, room: str, row: dict[str, Any]) -> list[str]:
+        """你在这段聊天里（交办前最近几条）发的文件：作为附件交给办公室。"""
+        out: list[str] = []
+        for r in self.rt.repo.chat_messages(room, limit=30):
+            if r["id"] >= row["id"] or r["author"] != "user":
+                continue
+            for f in (r.get("meta") or {}).get("files") or []:
+                if isinstance(f, dict) and f.get("id") and f["id"] not in out:
+                    out.append(str(f["id"]))
+        return out[-HANDOFF_FILES:]
+
+    def _handoff_back(self, sid: str, type_: str) -> None:
+        """办公室做完（或没办成）：以交办的那位成员的名义，把结果卡片发回原来的会话。"""
+        where = handoff.origin(self.rt, sid)
+        if where is None or type_ not in ("completed", "failed"):
+            return
+        handoff.forget(self.rt, sid)
+        row = self.rt.repo.session_row(sid)
+        ok = type_ == "completed"
+        text = (self.orc.final_answer(sid) or "") if ok else ""
+        files: list[dict[str, Any]] = []
+        with contextlib.suppress(Exception):
+            files = [
+                {
+                    "id": f["id"],
+                    "name": f["path"].rsplit("/", 1)[-1],
+                    "kind": f["kind"],
+                    "mime": f["mime"],
+                }
+                for f in self._files(sid)
+                if f["latest"]
+            ]
+        card = handoff.result_card(
+            sid=sid,
+            title=short_title(row["question"].split("\n\n")[0]),
+            ok=ok,
+            text=text,
+            files=files,
+            cost=self.rt.repo.session_cost(sid),
+        )
+        handoff.mark(self.rt, where["message_id"], state=handoff.DONE if ok else handoff.FAILED)
+        try:
+            chat = self._chat_room(where["room"])
+            chat.send_as(
+                where["member"],
+                "[办公室做好了]" if ok else "[办公室没办成]",
+                meta={"work_card": card, "auto_text": True},
+            )
+        except (ServiceError, ValueError):
+            log.warning("会话 %s：结果没能发回聊天 %s", sid, where["room"])
+
     # --- 成员设定与记忆（只用于聊天） ------------------------------------------------
 
     def _chat_member(self, member: str) -> Any:
@@ -2141,7 +2278,42 @@ class RoundtableService:
                 for n in own
             ]
             packs.append({"pack": m.name, "member": m.id, "items": items})
+        packs += self.packs.chat_packs({m.id: m.name for m in self.chats.everyone()})
         return {"packs": packs}
+
+    # --- 外部表情包（dsh-meme 格式） -------------------------------------------------------
+
+    def _packs_call(self, fn: Any, *args: Any, **kw: Any) -> Any:
+        try:
+            return fn(*args, **kw)
+        except PackError as exc:
+            raise ServiceError(str(exc)) from None
+
+    def sticker_packs(self) -> dict[str, Any]:
+        """本机装的外部表情包。"""
+        return {"packs": [self.packs.summary(p) for p in self.packs.installed()]}
+
+    def sticker_pack_catalog(self) -> dict[str, Any]:
+        return {"packs": self._packs_call(self.packs.catalog)}
+
+    def install_sticker_pack(
+        self, source: str, owner: str | None = None, label: str = "", data: bytes | None = None
+    ) -> dict[str, Any]:
+        return self._packs_call(self.packs.install, source, owner, label, data)
+
+    def assign_sticker_pack(
+        self, pack_id: str, owner: str | None = None, label: str | None = None
+    ) -> dict[str, Any]:
+        return self._packs_call(self.packs.assign, pack_id, owner, label)
+
+    def remove_sticker_pack(self, pack_id: str) -> dict[str, Any]:
+        return self._packs_call(self.packs.remove, pack_id)
+
+    def sticker_pack_image(self, pack_id: str, n: int) -> tuple[bytes, str]:
+        try:
+            return self.packs.image(pack_id, n)
+        except PackError as exc:
+            raise ServiceError(str(exc), 404) from None
 
     def chat_personas(self) -> dict[str, Any]:
         """每位成员的聊天人设；source：local 网页里改过 / config 配置文件 / empty 没有设定。"""
@@ -2956,8 +3128,17 @@ class RoundtableService:
                 "min_days": rules.min_days,
             },
             "timeline": entries,
+            # 成长总账：设定、口癖、和你的阶段、对你的看法、收藏排成一条（新的在前）
+            "book": self.growth.book.changes(member) if rules.book.enabled else [],
+            "book_sources": BOOK_SOURCES,
             "habits": self.growth.habits(member),
             "skills": self.growth.skills(member),
+            # 发育期可塑性（成长 G2）：新来的变得快，待久了变得慢
+            "plastic": plasticity(
+                self.rt, member, self._local_now().date(), self.growth.profiles.current(member).data
+            ).line()
+            if rules.plastic.enabled
+            else "",
             "reports": [
                 {**r, "lines": report_lines(r)}
                 for _, r in sorted(self.growth.log.load(member)["reports"].items(), reverse=True)
@@ -2976,6 +3157,15 @@ class RoundtableService:
         if got is None:
             raise ServiceError("今天生活的额度或聊天预算不够，下次推进时再试", 409)
         return {"result": got, **self.member_growth(member)}
+
+    def member_growth_undo(self, member: str, token: str) -> dict[str, Any]:
+        """在成长总账里撤回一条（交回原来那个模块撤：设定、口癖、收藏）。"""
+        member = self._profile_member(member)
+        try:
+            self.growth.book.undo(member, token)
+        except (BookError, ProfileError) as e:
+            raise ServiceError(str(e)) from None
+        return self.member_growth(member)
 
     def member_growth_revert(self, member: str, entry_id: int) -> dict[str, Any]:
         """撤回一条成长改动（以你的身份存成档案的新版本）。"""
@@ -3765,6 +3955,10 @@ class RoundtableService:
                 post_office_event(self.rt, session_id, event.type, event.data, event.code)
             except Exception:  # noqa: BLE001
                 log.exception("会话 %s：写工作群消息失败", session_id)
+            try:  # 聊天里交过来的活：结果发回原来的会话（旁路，出错不影响办公室）
+                self._handoff_back(session_id, event.type)
+            except Exception:  # noqa: BLE001
+                log.exception("会话 %s：交办结果发回聊天失败", session_id)
         payload = {
             "type": event.type,
             "step": event.step or None,

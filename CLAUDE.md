@@ -101,6 +101,7 @@ roundtable models --check-updates   # 人才市场：价格变动、下架、同
 roundtable stats                    # 各模型的历史贡献
 roundtable performance [--reset]    # 办公室模式的员工绩效（--reset 清零）
 roundtable bench --max-usd 2          # 对比实验：个人 / 讨论 / 协同各跑同一批题，比正确率、花费、耗时
+roundtable sim-growth --days 180       # 半年快进：只推进成长，看会不会越长越像、走极端、被你带偏、口癖用光（假模型，约 75 秒）
 roundtable kit-check 页面.html -o 目录  # 工作台质检：三种屏宽 × 浅 / 深色，报错、溢出、对比度等（docs/KIT.md）
 roundtable backup [now|checkpoint 标签|restore 文件名]   # 整库备份：看列表 / 马上备份 / 存档点 / 恢复（docs/BACKUP.md）
 roundtable show <id> --costs        # 每步预估与实际花费、每次调用的 token
@@ -116,6 +117,7 @@ roundtable ask --attach 图.png --attach 讲义.pdf '题目'   # 带附件
 roundtable files <id> [-o 目录]      # 保存成员生成的文件（含图片 / 音频 / 视频）
 roundtable stickers OpenAI --all -o 目录   # 成员专属表情包：画还没画的（新画的待审，到「成员设定」里审）
 roundtable stickers OpenAI --prompts 目录   # 导出提示词和参考图拿去别处画；画好后 --import 目录 收回来（待审，不花钱）
+roundtable sticker-packs catalog         # 外部表情包（dsh-meme 格式）：install <id> --for DeepSeek 装到本机给某位成员专用（--common 通用）
 roundtable ask --media image '画一只猫'   # 输出图片（--media speech / video；--media-tier flagship 用高质量档）
 python scripts/setup_sandbox.py     # 一次性安装代码运行沙箱（--check 只检查）
 python scripts/setup_dsh.py         # 在电脑上安装 dsh 工作台（需要 Node 22+ 和 pnpm；--check 只检查，见 docs/DSH.md）

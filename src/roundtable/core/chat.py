@@ -20,7 +20,7 @@ import html
 import random
 import re
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -42,6 +42,10 @@ from roundtable.core.chat_actions import (
     sticker_menu,
     swap_repeated_stickers,
 )
+from roundtable.core.chat_handoff import LIFE_ROOMS
+from roundtable.core.chat_handoff import choices as extract_choices
+from roundtable.core.chat_handoff import extract as extract_handoff
+from roundtable.core.chat_handoff import pending as handoff_pending
 from roundtable.core.hometz import home_zone
 from roundtable.core.member.brain import Brain, intent_text
 from roundtable.core.member.memory.diary import TOOL, DiaryTool
@@ -240,6 +244,8 @@ class Thought:
     segments: list[Segment]
     cost_usd: float
     memory: str = ""  # 这次带的记忆（说出口前自查用：记忆为空时「上次我们……」算编造）
+    task: str | None = None  # 交办记号里要交给办公室的事（``chat_handoff``）
+    options: list[str] = field(default_factory=list)  # 选项记号：显示成按钮
 
 
 def _price(m: Any) -> tuple[float, float]:
@@ -979,6 +985,10 @@ class GroupChat:
             completion=completion,
         )
         text = clean_reply(strip_calls(completion.text), member.name, rules.max_chars)
+        task, options = None, []
+        if self.kind in LIFE_ROOMS:  # 交办、选项记号：先取出来，别让后面的改写弄丢
+            text, task = extract_handoff(text)
+            text, options = extract_choices(text)
         parsed = parse(
             text,
             stickers=member_stickers(rt, member.id, member.name),
@@ -988,6 +998,10 @@ class GroupChat:
         )
         if parsed.no_reply:
             return {}
+        if not parsed.segments and task:
+            return Thought(
+                member, [], completion.cost_usd or 0.0, variables["memory"], task, options
+            )
         if not parsed.segments:
             # 没说出话（多半是思考把输出上限用完了）：在群里说明，不静默跳过
             why = "想得太久，没来得及写完" if completion.finish_reason == "length" else "回复是空的"
@@ -1010,7 +1024,7 @@ class GroupChat:
             ]
         if card is not None and "phrase:初见" in card.tags:  # 第一次见你：最多发 first_max 条
             kept = kept[: rt.config.roundtable.chat.engine.phrasebook.first_max]
-        return Thought(member, kept, completion.cost_usd or 0.0, variables["memory"])
+        return Thought(member, kept, completion.cost_usd or 0.0, variables["memory"], task, options)
 
     def _work_care(self, reply_to: int) -> str:
         """工作群里用户说出让人担心的话：进入关心时段，给关心卡（不带人设，8 位相同）。"""
@@ -1091,6 +1105,7 @@ class GroupChat:
         }
         means = self._sticker_means(member)
         used.update(mine)
+        attached = False  # 交办卡片、选项按钮已经挂到某条消息上了
         for i, seg in enumerate(thought.segments):
             if i:
                 if round_no is not None and self.stale(round_no):
@@ -1124,6 +1139,9 @@ class GroupChat:
             row = self.quotable(quote) if quote is not None else None
             if row is not None:
                 meta["quote"] = quote_meta(row)
+            last = i == len(thought.segments) - 1
+            if last:  # 交办卡片、选项按钮挂在最后一条上
+                meta |= self._extras(thought)
             pieces = self._finish(member, words, reply_to) if words.strip() else []
             for n, piece in enumerate(pieces):
                 if n:  # 打错字后补的「*正字」：隔一小会儿单独发一条
@@ -1137,6 +1155,7 @@ class GroupChat:
                     cost_usd=0.0 if first else thought.cost_usd,
                     meta=(meta or None) if not n else None,
                 )
+                attached = attached or (last and not n)
                 first = first or msg
                 posted.append(piece)
                 self.on_change()
@@ -1154,16 +1173,46 @@ class GroupChat:
                 )
                 first = first or msg
                 self.on_change()
+        if (thought.task or thought.options) and not attached:
+            label = f"[交办] {thought.task}" if thought.task else "[选项]"
+            msg = rt.repo.add_chat_message(
+                self.room,
+                member.id,
+                label,
+                model_id=member.model_id,
+                reply_to=reply_to,
+                cost_usd=0.0 if first else thought.cost_usd,
+                meta=self._extras(thought) | {"auto_text": True},
+            )
+            first = first or msg
+            self.on_change()
         return first
 
+    @staticmethod
+    def _extras(thought: Thought) -> dict[str, Any]:
+        out: dict[str, Any] = {}
+        if thought.task:
+            out["handoff"] = handoff_pending(thought.task)
+        if thought.options:
+            out["choices"] = list(thought.options)
+        return out
+
     def _sticker_means(self, member: ChatMember) -> dict[str, list[str]]:
-        """她审过的专属表情包各自的意思；读不到就只按表情名比。"""
+        """她审过的专属表情包和本机装的外部表情包各自的意思（外部包的键是「套·名」）；
+        读不到就只按表情名比。"""
+        from roundtable.core.chat_actions import sticker_packs
         from roundtable.core.member_stickers import MemberStickers
 
-        try:
-            return MemberStickers(self.rt, self.rt.sticker_dir).means(member.id)
-        except Exception:  # noqa: BLE001 - 去重只是锦上添花
-            return {}
+        out: dict[str, list[str]] = {}
+        for read in (
+            lambda: MemberStickers(self.rt, self.rt.sticker_dir).means(member.id),
+            lambda: sticker_packs(self.rt).means(member.id),
+        ):
+            try:
+                out |= read()
+            except Exception:  # noqa: BLE001 - 去重只是锦上添花
+                continue
+        return out
 
     def _stashed(self, member: ChatMember, text: str) -> tuple[str, list[dict[str, Any]]]:
         if self.kind not in ("dm", "group"):

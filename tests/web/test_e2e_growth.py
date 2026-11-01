@@ -29,3 +29,39 @@ def test_people_dialog_shows_growth_timeline_and_reverts(serve, page):
     page.click("#pp-grow li.gr-change [data-grevert]")
     page.wait_for_selector("#pp-grow li.gr-revert")
     assert "已撤回" in page.inner_text("#pp-grow")
+
+
+def prepare_book(env):
+    from datetime import timedelta
+
+    from roundtable.core.member.drift import Drift
+    from roundtable.core.storage.repository import iso
+
+    prepare(env)
+    Drift(env.rt)._save(
+        "V1",
+        {
+            "swaps": [
+                {
+                    "kind": "kaomoji",
+                    "old": "(^_^)",
+                    "new": "(￣▽￣)",
+                    "at": iso(NOW - timedelta(days=2)),
+                    "why": "最近两周用了 6 次，用腻了",
+                }
+            ]
+        },
+    )
+
+
+def test_growth_book_lists_all_changes_and_undoes_a_lingo_swap(serve, page):
+    srv = serve(confirm_threshold_usd=100.0, setup=prepare_book)
+    open_chat(srv, page)
+    page.click(".gc-room[data-room='dm:V1']")
+    page.click("#gc-people")
+    page.wait_for_selector("#people[open] #pp-grow .gr-bookbox")
+    text = page.inner_text("#pp-grow .gr-bookbox")
+    assert "全部变化" in text and "颜文字「(^_^)」换成了「(￣▽￣)」" in text
+    page.click("#pp-grow .gr-bookbox [data-gundo]")
+    page.wait_for_selector("#pp-grow .gr-bookbox li.gr-undone")
+    assert "已撤回" in page.inner_text("#pp-grow .gr-bookbox")
