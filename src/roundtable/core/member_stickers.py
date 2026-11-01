@@ -47,6 +47,10 @@ INDEX_FILE = "index.json"
 DRAW_STEP = "member_sticker"
 CHECK_STEP = "sticker_check"
 PHOTO_STEP = "moment_photo"
+# 朋友圈配图的地点说明（填进提示词的 room 变量）
+ROOM_DORM = "她自己的宿舍"
+ROOM_FRIEND_DORM = "室友的宿舍"
+ROOM_UNKNOWN = "公寓楼里（看今天的事在哪间房）"
 IMPORTED = "imported"  # 在别处画好、导入进来的（model 字段）
 STATUSES = ("pending", "approved", "rejected")
 # members.json 里当参考图用的图片，按顺序取（找不到 refs 时）
@@ -308,6 +312,37 @@ class MemberStickers:
             out.append(Media("image", mime, data, path.name))
         return out
 
+    def room(self, member: str, place: str) -> tuple[str, Media | None]:
+        """生活事件地点 → (给模型的地点说明, 那间房的场景图或 None)。
+        公共房间用素材目录 rooms/ 的白天图；宿舍用房主的 room_day。"""
+        from roundtable.core.office.apartment import PUBLIC_ROOMS  # office 依赖较多，用时再导
+
+        root = self.rt.members_dir
+        kind, _, owner = place.partition(":")
+        art = load_members(root)
+        rel: Any = None
+        if kind == "dorm":
+            owner = owner or member
+            mine = owner.strip().lower() == member.strip().lower()
+            text = ROOM_DORM if mine else ROOM_FRIEND_DORM
+            for m in art.members:
+                if m.vendor.strip().lower() == owner.strip().lower():
+                    rel = m.images.get("room_day")
+                    break
+        elif kind in PUBLIC_ROOMS:
+            text = f"公寓楼{PUBLIC_ROOMS[kind]}"
+            rel = art.rooms.get(kind, {}).get("day")
+        else:
+            return ROOM_UNKNOWN, None
+        path = resolve_file(root, rel) if isinstance(rel, str) else None
+        if path is None:
+            return text, None
+        try:
+            data, mime = _shrink(path.read_bytes(), mime_of(path))
+        except OSError:
+            return text, None
+        return f"{text}（最后一张参考图就是这间房）", Media("image", mime, data, path.name)
+
     def _prompt(self, card: StickerCard, spec: StickerSpec) -> Any:
         if spec.frames:  # 动图：一次画 2×2 四格，切开后连起来
             frames = "\n".join(f"Panel {i}: {f}" for i, f in enumerate(spec.frames, 1))
@@ -445,10 +480,19 @@ class MemberStickers:
     # --- 朋友圈配图 --------------------------------------------------------------------
 
     async def photo(
-        self, member: str, scene: str, post: str, shot: str, *, refs: bool = True, seed: str = ""
+        self,
+        member: str,
+        scene: str,
+        post: str,
+        shot: str,
+        *,
+        refs: bool = True,
+        seed: str = "",
+        place: str = "",
     ) -> tuple[bytes, str]:
         """照成员的形象卡和参考图画一张朋友圈配图（随手拍，不审、不存进表情索引）。
-        她不入镜的拍法传 ``refs=False``：不给参考图，免得模型硬把她画进去。
+        她不入镜的拍法传 ``refs=False``：不给形象参考图，免得模型硬把她画进去。
+        ``place`` 是生活事件的地点（canteen、dorm:成员 …）：有那间房的场景图时附在最后。
         返回 (JPEG, mime)；花费和表情包算在同一个隐藏会话和每月上限里。"""
         rules = self.rt.config.roundtable.media.moment_photos
         card = self.card(member)
@@ -458,14 +502,20 @@ class MemberStickers:
         images = self.references(member, card) if refs else []
         if refs and not images:
             raise StickerUnavailable("找不到这位成员的形象参考图")
+        room, room_image = self.room(member, place) if rules.room_refs else (ROOM_UNKNOWN, None)
+        if room_image is not None:
+            images = [*images, room_image]  # 房间图放最后，提示词里按"最后一张"引用
+        must = card.must if card.daily_must is None else card.daily_must
         prompt = self.rt.prompts.render(
             "moment_photo",
             self.rt.config.roundtable.prompts["moment_photo"],
             look=card.look,
-            must="、".join(card.must) or "无",
+            must="、".join(must) or "无",
+            cues="、".join(card.cues) or "无",
             shot=shot,
             scene=scene,
             post=post,
+            room=room,
         )
         text = "\n\n".join(m.content for m in prompt.messages)
         session = self.rt.repo.sticker_session()

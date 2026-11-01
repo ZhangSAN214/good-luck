@@ -651,6 +651,7 @@ class MomentPhotoRules(_Strict):
         max_length=8,
     )
     phone_look: bool = True  # 画完在本机加一层手机味：轻微裁歪、压暗饱和度、噪点、压缩（不花钱）
+    room_refs: bool = True  # 按事件地点附上那间房的场景图当最后一张参考图（公寓里拍）
 
 
 class SpeechRules(_Strict):
@@ -3837,6 +3838,10 @@ class StickerCard(_Strict):
     # 不写时用 members.json 里的立绘 / 小人 / 头像
     refs: list[str] = Field(default_factory=list, max_length=3)
     stickers: list[StickerSpec] = Field(default_factory=list, max_length=24)
+    # 朋友圈配图用：标志小物件（只露手、背影时也认得出是谁，如小鲸鱼发卡）
+    cues: list[str] = Field(default_factory=list, max_length=4)
+    # 朋友圈日常照必须画到的细节；不写时用 must（日常照不扛武器等大道具时在这里去掉）
+    daily_must: list[str] | None = Field(default=None, max_length=8)
 
     @field_validator("stickers")
     @classmethod

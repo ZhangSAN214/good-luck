@@ -243,7 +243,7 @@ async def test_post_gets_a_photo_by_chance_with_daily_caps(tmp_path, monkeypatch
     hub = ChatHub(rt)
     everyone = hub.everyone()
     for i, member in enumerate([everyone[0], everyone[0], everyone[1], everyone[2], everyone[3]]):
-        event = {"id": 100 + i, "topic": f"地点：公寓楼天台（看星星）第 {i} 次"}
+        event = {"id": 100 + i, "topic": f"地点：公寓楼天台（看星星）第 {i} 次", "place": "rooftop"}
         await mo.post(member, event, [])
     posts = env.rt.repo.moments(limit=50)
     with_photo = [p for p in posts if p["meta"].get("photo")]
@@ -260,6 +260,7 @@ async def test_post_gets_a_photo_by_chance_with_daily_caps(tmp_path, monkeypatch
     assert "天台" in scene and shot in by_text
     # 她不入镜的拍法不传参考图；种子由事件和成员派生
     assert kw["refs"] == (by_text[shot].her != "none") and kw["seed"].startswith("100:")
+    assert kw["place"] == "rooftop"  # 按地点附那间房的场景图
 
 
 def test_photo_shots_mostly_show_her():
