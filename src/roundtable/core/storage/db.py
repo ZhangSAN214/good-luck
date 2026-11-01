@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
+from collections.abc import Callable
 from pathlib import Path
 
 from .migrations import MIGRATIONS
@@ -14,8 +15,16 @@ class MigrationError(RuntimeError):
     """数据库版本比代码新，或迁移失败。"""
 
 
-def connect(path: str | Path = MEMORY) -> sqlite3.Connection:
-    """打开数据库并应用迁移。文件所在目录不存在时自动创建。"""
+def connect(
+    path: str | Path = MEMORY,
+    *,
+    before_migrate: Callable[[sqlite3.Connection], None] | None = None,
+) -> sqlite3.Connection:
+    """打开数据库并应用迁移。文件所在目录不存在时自动创建。
+
+    before_migrate：已有数据、又有待执行的迁移时先调用它（存「迁移前」存档点）；
+    它抛异常就不迁移、关掉连接，把异常交给调用方（宁可不启动也不冒险改数据）。
+    """
     if str(path) != MEMORY:
         Path(path).parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(path), check_same_thread=False, isolation_level=None)
@@ -23,8 +32,22 @@ def connect(path: str | Path = MEMORY) -> sqlite3.Connection:
     conn.execute("PRAGMA foreign_keys = ON")
     if str(path) != MEMORY:
         conn.execute("PRAGMA journal_mode = WAL")
+    if before_migrate is not None and pending(conn):
+        try:
+            before_migrate(conn)
+        except BaseException:
+            conn.close()
+            raise
     migrate(conn)
     return conn
+
+
+def pending(conn: sqlite3.Connection) -> list[int]:
+    """已有数据（版本 > 0）时还没执行的迁移编号；新库返回空（新库不用存档）。"""
+    version = current_version(conn)
+    if version == 0:
+        return []
+    return [number for number, _, _ in MIGRATIONS if number > version]
 
 
 def current_version(conn: sqlite3.Connection) -> int:
