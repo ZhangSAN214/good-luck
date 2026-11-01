@@ -209,6 +209,14 @@ class VoiceBody(BaseModel):
     text: str | None = Field(default=None, max_length=2000)  # 省略：念一句试听
 
 
+class StickerPackBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(default="", max_length=64)  # 装的时候用：目录里的包 id
+    owner: str | None = Field(default=None, max_length=40)  # 专用的成员；空串 = 通用；不传 = 不变
+    label: str | None = Field(default=None, max_length=6)  # 聊天里的套装名
+
+
 class StickerReviewBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -1291,6 +1299,37 @@ def create_app(service: RoundtableService | None = None, lan: LanAccess | None =
         data = svc(request).emoji_image(code)
         headers = {"X-Content-Type-Options": "nosniff", "Cache-Control": "private, max-age=2592000"}
         return Response(content=data, media_type="image/png", headers=headers)
+
+    @app.get("/api/sticker-packs")
+    async def sticker_packs(request: Request) -> dict[str, Any]:
+        """本机装的外部表情包（dsh-meme 格式）。"""
+        return svc(request).sticker_packs()
+
+    @app.get("/api/sticker-packs/catalog")
+    def sticker_pack_catalog(request: Request) -> dict[str, Any]:
+        """在线目录里的包（要联网）。"""
+        return svc(request).sticker_pack_catalog()
+
+    @app.post("/api/sticker-packs")
+    def sticker_pack_install(request: Request, body: StickerPackBody) -> dict[str, Any]:
+        """从在线目录装一个包（下载、核对 sha256）；owner 为空 = 通用。"""
+        return svc(request).install_sticker_pack(body.id, body.owner, body.label or "")
+
+    @app.patch("/api/sticker-packs/{pack_id}")
+    async def sticker_pack_assign(
+        request: Request, pack_id: str, body: StickerPackBody
+    ) -> dict[str, Any]:
+        return svc(request).assign_sticker_pack(pack_id, body.owner, body.label)
+
+    @app.delete("/api/sticker-packs/{pack_id}")
+    async def sticker_pack_remove(request: Request, pack_id: str) -> dict[str, Any]:
+        return svc(request).remove_sticker_pack(pack_id)
+
+    @app.get("/api/sticker-packs/{pack_id}/{n}")
+    async def sticker_pack_image(request: Request, pack_id: str, n: int) -> Response:
+        data, mime = svc(request).sticker_pack_image(pack_id, n)
+        headers = {"X-Content-Type-Options": "nosniff", "Cache-Control": "private, max-age=2592000"}
+        return Response(content=data, media_type=mime, headers=headers)
 
     @app.get("/api/chat/stickers")
     async def chat_stickers(request: Request) -> dict[str, Any]:

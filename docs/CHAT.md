@@ -175,3 +175,13 @@
 - **结论排版**（`web/js/workcard.js`）：表格照常显示；` ```mermaid ` 代码块画成图，`$$…$$` / `\[…\]` 排成公式。Mermaid 11.9.0 和 KaTeX 0.16.9 放在 `web/vendor/`（MIT，见 `web/vendor/LICENSES.md`），卡片里有图或公式时才加载，不联网。Mermaid 用 `securityLevel: strict`，KaTeX 用 `trust: false`。模型写的内容一律转义后再排版，不执行模型写的脚本或网页。这里借了 dsh-raw-html 的思路（让聊天能显示富内容），但不让模型直接写 HTML，字体也不照搬（有商用字体）。
 - **选项记号** `[选项:甲|乙|丙]`：显示成 2～4 个按钮（每个最多 24 字），你点哪个就替你发哪句。你接过话之后按钮收起。
 - **聊天发文件**：输入框工具栏的「文件」按钮先把文件传上去，发消息时一起带上（`POST /api/chat` 的 `files`，最多 5 个）。消息里显示成文件小卡片。成员只看到「[文件 名字]」，不读内容；要处理内容就交给办公室。
+
+## G15 外部表情包（2026-11-01，dsh-meme 格式）
+
+- **是什么**：别人做好的表情包压缩包（`manifest.json` + `index.db` + `memes/<分类>/图`，dsh-meme-packs 仓库的格式）。圆桌自己读这个格式，**不依赖 dsh**（`core/sticker_packs.py`）。
+- **装在哪**：本机 `data/sticker_packs/<包 id>/`（图片 + `pack.json`），不进仓库；许可证照原样记下（不少包只许非商业使用，个人用没问题）。在线目录 `chat.actions.sticker_packs.catalog_url`，下载后按目录里的 sha256 核对；压缩包里只收 `memes/` 下真是图片的文件（拒绝绝对路径、`..`、超大文件），总大小不超过 `max_mb`。
+- **给谁用**：每个包可以给某位成员专用（她提示词里的「你的专属」）或大家通用（「通用」）。套装名 1～6 字，不和通用套装、成员昵称、别的包重名（默认用包名去掉「表情包」，重了加「包」）。
+- **名字、用法、意思词**：文件名像词就用文件名，否则用第一个关键词；说明（caption）≤24 字当用法，否则用关键词（整包大半都有的词、同分类大半都有的词排后面）。
+- **提示词**：一套可能上百张，每套只列 `menu_size`（10）张，按（小时, 成员, 套装）轮换，可复现；聊天里认得整套（`member_stickers` 含全部）。
+- **网页**：`/api/chat/stickers` 里一并给出（专用的 `member` 是成员 id，通用的是 `*`），图从 `/api/sticker-packs/<id>/<序号>` 取。管理：`GET /api/sticker-packs`、`GET /api/sticker-packs/catalog`、`POST /api/sticker-packs {id, owner, label}`、`PATCH`、`DELETE`。
+- **命令行**：`roundtable sticker-packs catalog | list | install <id> [--for 成员] [--as 名字] [--file 压缩包] | assign <id> --for 成员 | --common | remove <id>`。
