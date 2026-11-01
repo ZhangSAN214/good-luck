@@ -64,6 +64,9 @@ def test_landscape_hub_top_bar_does_not_cover_cards(serve, browser):
         pg.add_init_script("try { localStorage.setItem('roundtable.landing', 'hub') } catch {}")
         pg.goto(srv.url)
         pg.wait_for_selector("#hub .hb-hero")
+        pg.wait_for_selector("#hub .hb-lead .ck-time")  # 时钟、主时区都填进来以后顶栏才是最终高度
+        pg.wait_for_load_state("networkidle")
+        pg.wait_for_timeout(300)
         top = pg.locator("#hub .hb-top").bounding_box()
         hero = pg.locator("#hub .hb-hero").bounding_box()
         assert top["y"] + top["height"] <= hero["y"] + 1
