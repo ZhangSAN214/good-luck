@@ -874,17 +874,22 @@ export class GroupChat {
     const feed = this.$('#gc-feed');
     if (this.search) {
       const r = this.search.results;
+      this.feedHTML = null;
       feed.innerHTML = `<div class="gc-sys">搜索「${esc(this.search.q)}」：${r.length} 条 <button type="button" class="link" id="gc-exit-search">返回聊天</button></div>${r.map((m) => this.bubble(m)).join('')}`;
       return;
     }
     const near = feed.scrollHeight - feed.scrollTop - feed.clientHeight < 80;
-    feed.innerHTML = this.messages.length
+    const html = this.messages.length
       ? this.messages.map((m, i) => this.bubble(m, this.messages[i - 1])).join('')
       : this.kind() === 'pair'
         ? '<div class="gc-empty"><b>还没有消息</b><p>成员私下聊过的话会出现在这里。</p></div>'
         : this.isDm()
         ? '<div class="gc-empty"><b>还没有消息</b><p>打个招呼吧。对方是 AI，被问到时会直说；只在你发消息后回复。</p></div>'
         : '<div class="gc-empty"><b>还没有消息</b><p>打个招呼，或者写「大家自我介绍一下」。成员都是 AI，被问到时会直说。</p></div>';
+    // 内容没变就不重写：重写会让正点着的按钮失效、展开的卡片收回去、画好的图重画
+    if (html === this.feedHTML && feed.childElementCount) return;
+    this.feedHTML = html;
+    feed.innerHTML = html;
     if (near || this.stick !== false) feed.scrollTop = feed.scrollHeight;
     this.stick = near;
     enhance(feed);

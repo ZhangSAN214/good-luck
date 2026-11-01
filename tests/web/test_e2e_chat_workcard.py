@@ -8,6 +8,19 @@ from roundtable.core.chat import GroupChat
 from tests.web.conftest import wait_until
 
 
+def click_until(page, sel, done, tries=5):
+    """点一下等结果；轮询刷新正好把按钮换掉时点击会落空，再点一次。"""
+    for _ in range(tries):
+        if page.locator(sel).count() and page.locator(sel).first.is_enabled():
+            page.click(sel)
+        try:
+            wait_until(done, timeout=2)
+            return
+        except AssertionError:
+            continue
+    raise AssertionError(f"点了 {sel} 没有反应")
+
+
 def open_chat(srv, page):
     page.goto(srv.url + "/#m=chat")
     page.wait_for_selector("#gc-members button[data-name]")
@@ -28,12 +41,12 @@ def test_handoff_card_dismiss_and_choice_buttons(serve, page):
     page.wait_for_selector(card)
     assert "按九月数据模拟十月收益" in page.inner_text(card)
     assert "[交办" not in page.inner_text("#gc-feed")
-    page.click(f"{card} [data-handoff-dismiss]")
-    wait_until(lambda: repo.chat_message(msg["id"])["meta"]["handoff"]["state"] == "dismissed")
+    state = lambda: repo.chat_message(msg["id"])["meta"]["handoff"]["state"]  # noqa: E731
+    click_until(page, f"{card} [data-handoff-dismiss]", lambda: state() == "dismissed")
     page.wait_for_selector(f"{card}.off")
-    page.click(f".gc-msg[data-id='{pick['id']}'] [data-choice='持仓明细']")
     mine = lambda: [m["text"] for m in repo.chat_messages("main") if m["author"] == "user"]  # noqa: E731
-    wait_until(lambda: "持仓明细" in mine())
+    choice = f".gc-msg[data-id='{pick['id']}'] [data-choice='持仓明细']"
+    click_until(page, choice, lambda: "持仓明细" in mine())
     gone = f".gc-msg[data-id='{pick['id']}'] .wc-choices"
     page.wait_for_function(f'!document.querySelector("{gone}")')
 
