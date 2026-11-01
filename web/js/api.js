@@ -277,6 +277,8 @@ export const lanLogout = () => api('/api/lan/logout', { method: 'POST' });
 export const backupStatus = () => api('/api/backup');
 export const backupCheckpoint = (label) => api('/api/backup/checkpoint', { method: 'POST', body: { label } });
 export const backupRestore = (name) => api('/api/backup/restore', { method: 'POST', body: { name } });
+export const firstAid = () => api('/api/firstaid');
+export const firstAidReport = () => api('/api/firstaid/report');
 
 // 投屏陪伴（docs/WATCH.md）：开始 / 预览只能在电脑本机上；平板上能聊天和停止
 export const watchStatus = (devices = false) => api(`/api/watch${devices ? '?devices=true' : ''}`);

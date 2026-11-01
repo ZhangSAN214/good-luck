@@ -23,3 +23,31 @@
 .bk-size{color:var(--muted);font-size:12px}
 .bk-ask{color:var(--warn);font-size:13px}
 .bk-list .btn.danger{color:var(--bad,#c0392b)}
+/* 「出问题点这里」自检面板（js/firstaid.js） */
+.fa-head.ok{background:var(--ok-bg)}
+.fa-head.info{background:var(--surface-2)}
+.fa-head.warn{background:color-mix(in srgb,var(--warn) 22%,var(--surface-2))}
+.fa-head.bad{background:var(--bad-bg)}
+.fa-head.bad{font-weight:600}
+.fa-scenes{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0}
+.fa-scene{border:1px solid var(--line);background:var(--surface);color:inherit;border-radius:999px;padding:4px 12px;font-size:13px;cursor:pointer;display:inline-flex;align-items:center;gap:6px}
+.fa-scene::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--ok)}
+.fa-scene.info::before{background:var(--muted)}
+.fa-scene.warn::before{background:var(--warn)}
+.fa-scene.bad::before{background:var(--bad)}
+.fa-scene.on{border-color:currentColor;background:var(--surface-2)}
+.fa-list{margin:0;padding:0;list-style:none;display:grid;gap:8px}
+.fa-item{display:flex;gap:10px;align-items:flex-start}
+.fa-item>div{min-width:0;overflow-wrap:anywhere}
+.fa-dot{flex:none;width:10px;height:10px;border-radius:50%;margin-top:6px;background:var(--ok)}
+.fa-item.info .fa-dot{background:var(--muted)}
+.fa-item.warn .fa-dot{background:var(--warn)}
+.fa-item.bad .fa-dot{background:var(--bad)}
+.fa-detail{display:block;color:var(--muted);font-size:13px}
+.fa-fix{margin:2px 0 0;font-size:13px;color:var(--warn)}
+.fa-item.bad .fa-fix{color:var(--bad)}
+.fa-acts{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0 6px}
+.fa-report{width:100%;box-sizing:border-box;font-family:var(--f-mono);font-size:12px;padding:8px;border:1px solid var(--line);border-radius:var(--r);background:var(--surface-2);color:inherit;resize:vertical}
+/* 顶栏按钮：宽屏写全「出问题点这里」，平板竖屏等窄屏只写「自检」，免得顶栏多折一行 */
+#firstaidbtn .fa-short{display:none}
+@media (max-width:1199px){#firstaidbtn .fa-long{display:none}#firstaidbtn .fa-short{display:inline}}

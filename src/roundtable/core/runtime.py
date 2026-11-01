@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import sqlite3
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -11,6 +12,7 @@ from typing import Any
 
 from roundtable.core.allocation import IdentityScrubber
 from roundtable.core.attachments import FileStore
+from roundtable.core.backup import BackupError, DbBackup
 from roundtable.core.budget import BudgetGuard
 from roundtable.core.budget.channels import MonthSpend, load_priority
 from roundtable.core.catalog import Fetch, ModelCatalog
@@ -25,6 +27,7 @@ from roundtable.core.providers import ChannelRouter, KeyRing, Provider, build_pr
 from roundtable.core.search import SearchService
 from roundtable.core.steps import check_pipelines
 from roundtable.core.storage import Repository, connect
+from roundtable.core.storage.db import MigrationError
 from roundtable.core.tools import Sandbox, pick_sandbox
 
 PROJECT_ROOT = DEFAULT_CONFIG_DIR.parent
@@ -63,6 +66,36 @@ def data_dir(environ: Mapping[str, str] | None = None) -> Path:
     if not configured or configured == ":memory:":
         return DEFAULT_DB.parent
     return (PROJECT_ROOT / configured).parent
+
+
+def db_file(environ: Mapping[str, str] | None = None) -> Path | None:
+    """正在用的数据库文件（内存数据库为 None）。和 Runtime.build 的默认值一致。"""
+    configured = (os.environ if environ is None else environ).get(DB_ENV)
+    if configured == ":memory:":
+        return None
+    return PROJECT_ROOT / configured if configured else DEFAULT_DB
+
+
+BEFORE_MIGRATE = "迁移前"
+
+
+def _checkpoint_before_migrate(
+    folder: Path | None, keep: int
+) -> Callable[[sqlite3.Connection], None] | None:
+    """数据库要升级时先存「迁移前」存档点（docs/BACKUP.md）；存不成就不升级、不启动。"""
+    if folder is None:
+        return None
+
+    def save(conn: sqlite3.Connection) -> None:
+        try:
+            DbBackup(conn, folder, keep_checkpoints=keep).checkpoint(BEFORE_MIGRATE, datetime.now())
+        except (BackupError, OSError, sqlite3.Error) as exc:
+            raise MigrationError(
+                f"数据库要升级，但「迁移前」存档点没存成，为保护数据先不升级：{exc}"
+                "（腾出磁盘空间后再启动；运行 roundtable doctor 看详情）"
+            ) from None
+
+    return save
 
 
 @dataclass
@@ -197,7 +230,11 @@ class Runtime:
             standee_file = PROJECT_ROOT / configured if configured else DEFAULT_STANDEE_FILE
         if evolution_dir is None and str(db_path) != ":memory:":
             evolution_dir = Path(db_path).parent / EVOLUTION_DIR
-        repo = Repository(connect(db_path))
+        backup_dir = None if str(db_path) == ":memory:" else Path(db_path).parent / BACKUP_DIR
+        keep = config.roundtable.backup.keep_checkpoints
+        repo = Repository(
+            connect(db_path, before_migrate=_checkpoint_before_migrate(backup_dir, keep))
+        )
         guard = BudgetGuard(config.roundtable.budget, repo, **({"now": now} if now else {}))
         router.set_priority(load_priority(config, repo), MonthSpend(repo, guard.now))
         router.set_draw_prefs(load_draw_prefs(config, repo))
@@ -238,7 +275,7 @@ class Runtime:
             else Path(db_path).parent / VOICE_CACHE_DIR,
             sticker_dir=None if str(db_path) == ":memory:" else Path(db_path).parent / STICKER_DIR,
             growth_dir=None if str(db_path) == ":memory:" else Path(db_path).parent / GROWTH_DIR,
-            backup_dir=None if str(db_path) == ":memory:" else Path(db_path).parent / BACKUP_DIR,
+            backup_dir=backup_dir,
         )
 
     def sandbox(self) -> tuple[Sandbox | None, str | None]:

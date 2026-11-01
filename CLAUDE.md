@@ -104,6 +104,9 @@ roundtable bench --max-usd 2          # 对比实验：个人 / 讨论 / 协同�
 roundtable sim-growth --days 180       # 半年快进：只推进成长，看会不会越长越像、走极端、被你带偏、口癖用光（假模型，约 75 秒）
 roundtable kit-check 页面.html -o 目录  # 工作台质检：三种屏宽 × 浅 / 深色，报错、溢出、对比度等（docs/KIT.md）
 roundtable backup [now|checkpoint 标签|restore 文件名]   # 整库备份：看列表 / 马上备份 / 存档点 / 恢复（docs/BACKUP.md）
+roundtable doctor [--report]          # 出问题点这里：只读自检 + 体检报告（服务起不来也能用，docs/FIRSTAID.md）
+python scripts/safe_update.py update|undo   # 安全更新：先存档点、白名单、冒烟测试不过就退回（start.bat 自动调用，docs/SAFE_UPDATE.md）
+python scripts/install_check.py      # 装后核对：逐项核对是否真的装好（启动脚本自动调用）
 roundtable show <id> --costs        # 每步预估与实际花费、每次调用的 token
 roundtable export <id> [-o 文件]     # 导出完整记录（UTF-8 带 BOM，含花费明细）
 roundtable export <id> --format docx  # 只导出成果：md / docx / pptx / pdf / html（本地转换，不调用模型）
