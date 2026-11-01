@@ -50,6 +50,8 @@ from roundtable.core.persona import chat_persona
 from roundtable.core.plain_talk import before_speaking, plain_prompt
 from roundtable.core.storage.repository import iso
 
+LIVE_GAP_SECONDS = 40  # 现场互聊相邻两句隔多久（只影响显示的时间）
+
 LAST_TICK_KEY = "life.last_tick"
 PAIR_PREFIX = "pair:"
 GATHER = frozenset({"eat", "exercise", "chat", "game", "stargaze"})
@@ -424,7 +426,8 @@ class LifeEngine:
         for turn in range(rules.turns if turns is None else turns):
             # 补算：按事件发生的时刻，且不晚于现在（整点那件事的分钟数可能落到现在之后）
             at = min(p.at, now - timedelta(minutes=rules.turns)) + timedelta(minutes=turn)
-            at = at if offline else now
+            # 现场：几句错开几十秒落在「现在」之前（11-01：同一毫秒的几条在界面上会一起蹦出来）
+            at = at if offline else now - timedelta(seconds=LIVE_GAP_SECONDS * (rules.turns - turn))
             pick = self.next_speaker(
                 brain,
                 speakers,

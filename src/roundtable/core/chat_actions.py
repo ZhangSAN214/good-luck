@@ -208,6 +208,36 @@ def drop_own_repeats(text: str, mine: set[str]) -> str:
     return re.sub(r"[ \t]+$", "", STICKER_RE.sub(drop, text), flags=re.M)
 
 
+_ECHO_FILL = re.compile(
+    r"[\s，,。.！!？?～~…、\U0001f300-\U0001faff☀-➿]|[啦咯哦噢呀啊嗯呢吧嘛哈]+$"
+)
+
+
+def _bare(text: str) -> str:
+    out = _ECHO_FILL.sub("", text)
+    return re.sub(r"[啦咯哦噢呀啊嗯呢吧嘛]+$", "", out)
+
+
+def sticker_echo(text: str, means: dict[str, list[str]]) -> str:
+    """字和表情包一个意思（「明白咯。[表情:收到]」）：只留表情包；表情包排在字前面的挪到后面
+    （先说事再甩图）。``means`` 是 {表情名: [意思等于的词]}，没写的用表情名本身。（11-01 用户批）"""
+    tokens = [m.group(0) for m in STICKER_RE.finditer(text)]
+    if not tokens:
+        return text
+    words = STICKER_RE.sub("", text).strip()
+    if not words:
+        return text
+    bare = _bare(words)
+    for m in STICKER_RE.finditer(text):
+        name = m.group(2)
+        same = [_bare(w) for w in (means.get(name) or [name])]
+        if bare and any(bare == w for w in same if w):
+            return m.group(0)
+    if text.lstrip().startswith(tokens[0]):
+        return f"{words}{''.join(tokens)}"
+    return text
+
+
 def parse(
     text: str,
     *,

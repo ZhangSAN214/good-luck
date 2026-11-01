@@ -35,6 +35,7 @@ from typing import Any
 from roundtable.core.chat_actions import STICKER_RE
 from roundtable.core.hometz import home_zone
 from roundtable.core.member.bus import Event, EventBus
+from roundtable.core.member.cadence import Cadence, with_opener
 from roundtable.core.member.memes import strip_stale
 from roundtable.core.member.profile import ProfileStore
 from roundtable.core.member.slop import Slop, strip_phrases, strip_stage
@@ -572,25 +573,41 @@ class Lingo:
         text = strip_stale(text, stale)  # 老梗烂梗：含老梗的那一小句不说（10-31 用户）
         text = strip_phrases(text, Slop(self.rt).active())  # AI 腔：8 位一起高频、你很少说的
         text = strip_stage(text)  # 括号里的动作描写（「（合上折扇）」）：聊天软件里没人这么打字
+        cadence = Cadence(self.rules.cadence)
+        text = cadence.prepare(text)  # 列表加粗破折号、「不是而是」、露底的小句（11-01）
         if not text.strip():
             return [""]
+        recent = self._recent(member)
+        faces = (*self.rules_kaomoji_all(), *self.kaomoji(member))
         if not self.styled(member):  # 没有人物卡：只补她的招牌小尾巴（配置里写了的话）
-            return [_tidy(self.signature_tail(member, text, rng))]
+            out = cadence.after(self.signature_tail(member, text, rng), recent, kaomoji=faces)
+            return [_tidy(out)]
         h = self.habits(member)
         out = _BARE_FIX.sub("", text, count=1) or text  # 一开口就「不对，是……」：改口没有对象
         out = self.colloquial(out, asked)
+        out = with_opener(self.rules.cadence, member, out, recent, rng)  # 「怎么说呢，……」
         out = self.own_voice(member, out, rng)
         out = self.show(member, out, rng)
         out = _LAUGH.sub(lambda m: self._laugh(m.group(0), h, rng), out)
         out = "\n".join(self._end(line, h, rng) for line in out.split("\n"))
         out = self.signature_tail(member, out, rng)
         out = self._sprinkle(out, h, rng)
+        out = cadence.after(out, recent, kaomoji=faces)  # 连着几条：招牌符号、「呢」、反问的冷却
         out = self._cap(member, out)
         out = _tidy(out)
         if not out:
             return [""]
         fixed = self._typo(member, out, energy, rng)
         return fixed if fixed else [out]
+
+    def _recent(self, member: str) -> tuple[str, ...]:
+        """她最近说过的话（各个会话 + 朋友圈，旧的在前）；读不到就当没有。"""
+        from roundtable.core.member.voice import recent_words  # voice 只在函数里引用本模块
+
+        try:
+            return recent_words(self.rt, member, self.rt.budget.now())
+        except Exception:  # noqa: BLE001 - 冷却只是锦上添花
+            return ()
 
     def _cap(self, member: str, text: str) -> str:
         """特色限量（10-31 用户反向找问题：口头禅、表情、颜文字、自称全堆一条里像在完成清单）：

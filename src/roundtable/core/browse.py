@@ -63,6 +63,11 @@ _FEEDS = TypeAdapter(list[FeedSpec])
 Fetch = Callable[[str, float, int], Awaitable[bytes]]
 
 
+def cut_title(title: str) -> bool:
+    """标题是不是被截断了（以省略号收尾）。"""
+    return str(title or "").rstrip().endswith(("…", "...", "……"))
+
+
 class FeedError(ValueError):
     pass
 
@@ -395,6 +400,8 @@ class Browser:
         rt, rules = self.rt, self.rules
         if not self.allow(rules.estimate_usd):
             return None
+        if cut_title(item["title"]) and not (item["summary"] or "").strip():
+            return None  # 标题被截断、又没有正文：看不懂就不拿来聊（11-01 第 4 次真跑）
         everyone = {m.id: m.name for m in self.hub.everyone()}
         chat = self.hub.room(ROOM)
         when = item["published"] or "未知"

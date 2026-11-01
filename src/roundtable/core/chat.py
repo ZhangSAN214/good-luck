@@ -38,6 +38,7 @@ from roundtable.core.chat_actions import (
     member_stickers,
     parse,
     quote_meta,
+    sticker_echo,
     sticker_menu,
     swap_repeated_stickers,
 )
@@ -50,6 +51,8 @@ from roundtable.core.plain_talk import before_speaking_all, plain_prompt
 from roundtable.core.providers import AllChannelsFailed, Message, NoChannelAvailable, ProviderError
 from roundtable.core.storage.repository import iso
 from roundtable.core.tools.protocol import parse_calls, strip_calls
+
+OWED_LOOKBACK = 6  # 往回看几条找「被问了还没回」的人
 
 ROOM = "main"  # 生活群
 WORK = "work"  # 工作群
@@ -424,7 +427,34 @@ class GroupChat:
         k = self.rng.randint(1, min(self.rules.max_repliers, len(online)))
         if self.kind != "group":
             return self.rng.sample(online, k)
-        return self._floor_pick(online, k)
+        picked = self._floor_pick(online, k)
+        owed = self.owed(online)
+        if owed is not None and owed not in picked:  # 刚才被同事问了还没回：这轮先接上
+            picked = [owed, *picked[: max(0, k - 1)]]
+        elif owed is not None:
+            picked = [owed, *[m for m in picked if m is not owed]]
+        return picked
+
+    def owed(self, online: list[ChatMember]) -> ChatMember | None:
+        """群里最近一位成员问了另一位成员（提到名字、以问号收尾），被问的人之后还没说过话：
+        返回被问的人（11-01 用户：有人问了没人回）。只往回看几条。"""
+        rows = [r for r in self.recent() if not is_recalled(r)][-OWED_LOOKBACK:]
+        spoke: set[str] = set()
+        for r in reversed(rows):
+            who = r["author"]
+            if who in (USER, SYSTEM):
+                continue
+            text = STICKER_RE.sub("", str(r["text"] or "")).strip()
+            if text.endswith(("？", "?")):
+                for m in online:
+                    if (
+                        m.id != who
+                        and m.id not in spoke
+                        and (m.name in text or f"@{m.name}" in text)
+                    ):
+                        return m
+            spoke.add(who)
+        return None
 
     def _floor_pick(self, online: list[ChatMember], k: int) -> list[ChatMember]:
         """群聊分寸（``core/member/floor``）：刚聊过的人更可能接，说超了、嘴累的少接；
@@ -1052,11 +1082,14 @@ class GroupChat:
         first: dict[str, Any] = {}
         posted: list[str] = []
         recent = self.recent()  # 发之前再取一次：并行思考时别人可能刚发过
-        mine = {  # 她自己最近几条发过的表情包：别连着发同一个
+        window = rt.config.roundtable.chat.engine.lingo.cadence.window
+        own = [r for r in recent if r["author"] == member.id][-window:]
+        mine = {  # 她自己最近几条发过的表情包：别连着发同一个（11-01：6 条→看 cadence.window 条）
             f"[表情:{m.group(1)}·{m.group(2)}]"
-            for r in [r for r in recent if r["author"] == member.id][-6:]
+            for r in own
             for m in STICKER_RE.finditer(r["text"] or "")
         }
+        means = self._sticker_means(member)
         used.update(mine)
         for i, seg in enumerate(thought.segments):
             if i:
@@ -1070,7 +1103,8 @@ class GroupChat:
                     self.typing.remove(member.name)
                 if round_no is not None and self.stale(round_no):
                     break
-            text = drop_own_repeats(seg.text, mine)
+            text = sticker_echo(seg.text, means)
+            text = drop_own_repeats(text, mine)
             text = swap_repeated_stickers(text, used, stickers, self.rng)
             text, stashed = self._stashed(member, text)
             words = (
@@ -1121,6 +1155,15 @@ class GroupChat:
                 first = first or msg
                 self.on_change()
         return first
+
+    def _sticker_means(self, member: ChatMember) -> dict[str, list[str]]:
+        """她审过的专属表情包各自的意思；读不到就只按表情名比。"""
+        from roundtable.core.member_stickers import MemberStickers
+
+        try:
+            return MemberStickers(self.rt, self.rt.sticker_dir).means(member.id)
+        except Exception:  # noqa: BLE001 - 去重只是锦上添花
+            return {}
 
     def _stashed(self, member: ChatMember, text: str) -> tuple[str, list[dict[str, Any]]]:
         if self.kind not in ("dm", "group"):

@@ -216,3 +216,11 @@ def test_hub_and_list_pages_are_not_shared_as_cards():
     assert not looks_like_article("https://game.test/news/", "游戏")
     assert not looks_like_article("https://astro.test/a/b", "天文视界首页")
     assert not looks_like_article("https://x.test/roll/123", "滚动新闻")
+
+
+def test_cut_off_titles_are_recognised():
+    from roundtable.core.browse import cut_title
+
+    assert cut_title("某地出台新规，涉及……")
+    assert cut_title("Big news about...")
+    assert not cut_title("完整的标题")

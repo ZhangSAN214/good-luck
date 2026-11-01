@@ -253,3 +253,15 @@ async def test_no_one_follows_up_a_share_when_it_is_turned_off():
     life, row = await _shared(chatty(env))
     assert await life.react(row, NOW) == 0
     assert not life_calls(env)
+
+
+async def test_live_scene_lines_get_distinct_times_before_now():
+    env = chatty(Env())
+    life = engine(env)
+    room = pair_room("V2", "V1")
+    plan = life.plan(NOW - timedelta(hours=1), NOW)[0]
+    plan.kind, plan.members, plan.room = "pair", ["V1", "V2"], room
+    await life.write(plan, offline=False, now=NOW)
+    stamps = [m["created_at"] for m in env.rt.repo.chat_messages(room, limit=10)]
+    assert len(stamps) == len(set(stamps)) >= 2  # 不再同一毫秒
+    assert stamps == sorted(stamps) and all(s <= iso(NOW) for s in stamps)

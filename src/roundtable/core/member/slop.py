@@ -103,6 +103,7 @@ class Slop:
         lingo = cfg.roundtable.chat.engine.lingo
         for words in lingo.shorts.values():
             keep.update(words)
+        keep.update(lingo.cadence.openers.pool)  # 开口前的过渡词不是 AI 腔（11-01）
         memes = cfg.roundtable.chat.memes
         keep.update(c.phrase for c in memes.classics)
         keep.update(memes.stale)
