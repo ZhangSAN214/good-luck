@@ -328,6 +328,7 @@ class Simulation:
         sleep: Callable[[float], Any] | None = None,
         resume: bool = False,
         scenario: str | None = None,
+        mind: Callable[..., FakeMind] | None = None,
     ) -> None:
         out = Path(out).resolve()
         if out.is_relative_to(DEFAULT_DB.parent.resolve()):
@@ -355,6 +356,7 @@ class Simulation:
         self._sleep = sleep or asyncio.sleep
         self.transcript = ""
         self.resume = resume
+        self.mind_cls = mind or FakeMind  # 假模型（半年快进换成会「施压」的那种）
         self.cards: list[dict[str, Any]] = []  # 说出口的意图卡（考题判分用）
         self.exams = simexam.exams(self.material)
         self.done: set[str] = set()  # 考过的题（「题号:天」）
@@ -378,7 +380,7 @@ class Simulation:
         self.mind: FakeMind | None = None
         providers = None
         if not self.real:
-            self.mind = FakeMind(self.config, prompts, self.material, self.seed)
+            self.mind = self.mind_cls(self.config, prompts, self.material, self.seed)
             providers = {
                 name: FakeProvider(name, default=self.mind) for name in self.config.models.channels
             }
@@ -601,6 +603,10 @@ class Simulation:
     async def _loop(self, svc: Any) -> None:
         rt = self.rt = svc.rt
         members = svc.chats.everyone()
+        from roundtable.core.member.profile import ProfileStore
+
+        store = ProfileStore(rt)  # 期初档案：期末和它比，算防退化指标（成长 G3）
+        self.base = {m.id: store.current(m.id).data for m in members}
         tick = timedelta(minutes=self.config.roundtable.chat.life.tick_minutes)
         begin = self.begin
         end = begin + timedelta(days=self.days)
@@ -716,6 +722,12 @@ class Simulation:
             "usd_per_day": round(total / max(1, len(res.days)), 4),
             "calls": dict(self.mind.roles) if self.mind else None,
         }
+        from roundtable.core.member.growth import vitals as vt
+
+        base = getattr(self, "base", None) or {}
+        ids = [m.id for m in members]
+        res.meta["vitals"] = vt.vitals(rt, ids, base)
+        res.meta["vitals_problems"] = vt.problems(res.meta["vitals"], rt, names)
         res.checks = checks(self.config, res)
         res.problems = simexam.problems(res)
 
@@ -957,6 +969,13 @@ def checks(config: AppConfig, res: SimResult) -> list[dict[str, Any]]:
         d for d in res.days for v in d["moods"].values() if v is not None and abs(v[0]) > 0.01
     ]
     add("心情会变", bool(moving) or not res.days, "有起伏" if moving else "一直不变")
+    if len(res.days) >= 28 and "vitals_problems" in res.meta:  # 防退化（成长 G3）：一个月以上才看
+        bad = res.meta["vitals_problems"]
+        add(
+            "成长不退化",
+            not bad,
+            "；".join(bad[:3]) if bad else "相似度、极端、受你影响、口癖、记忆都正常",
+        )
     return out
 
 
