@@ -163,6 +163,34 @@ _ROUTING_PRIVATE = (
 )
 
 
+class _Rows:
+    """锁内已取完的查询结果；用法和 sqlite3.Cursor 相同（fetchone / fetchall / 遍历）。"""
+
+    __slots__ = ("_rows", "_pos", "lastrowid", "rowcount")
+
+    def __init__(self, rows: list[sqlite3.Row], lastrowid: int | None, rowcount: int) -> None:
+        self._rows = rows
+        self._pos = 0
+        self.lastrowid = lastrowid
+        self.rowcount = rowcount
+
+    def fetchone(self) -> sqlite3.Row | None:
+        if self._pos >= len(self._rows):
+            return None
+        row = self._rows[self._pos]
+        self._pos += 1
+        return row
+
+    def fetchall(self) -> list[sqlite3.Row]:
+        rest = self._rows[self._pos :]
+        self._pos = len(self._rows)
+        return rest
+
+    def __iter__(self):
+        while (row := self.fetchone()) is not None:
+            yield row
+
+
 @dataclass
 class Repository:
     conn: sqlite3.Connection
@@ -171,9 +199,16 @@ class Repository:
 
     # --- 内部 ------------------------------------------------------------------
 
-    def _exec(self, sql: str, params: Sequence[Any] = ()) -> sqlite3.Cursor:
+    def _exec(self, sql: str, params: Sequence[Any] = ()) -> _Rows:
+        """执行并在锁内取完全部结果。
+
+        连接是多线程共用的（服务线程、后台任务、测试线程）。sqlite3 的游标是边取边读的：
+        只把 execute 放进锁、fetchone 留在锁外，别的线程同时在这条连接上执行或开事务时，
+        会读到 None（行明明在）或读串。所以结果在锁内一次取完再交出去。
+        """
         with self._lock:
-            return self.conn.execute(sql, params)
+            cur = self.conn.execute(sql, params)
+            return _Rows(cur.fetchall(), cur.lastrowid, cur.rowcount)
 
     def _tx(self):
         repo = self
