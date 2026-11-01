@@ -120,6 +120,7 @@ export class GrowthPanel {
       <p class="grp-foot">每周最多改 ${r.max_changes ?? 3} 条，每条都要引用这一周真实发生的事；性格分每月最多变 ${r.core_monthly_steps ?? 1} 格，受你影响的改动不超过 ${Math.round((r.user_share ?? 0.3) * 100)}%，你锁住的项不动。另一位成员评审打分，低于 3 分的不改。</p>
       ${this.extras(g)}
       ${this.book(g)}
+      ${(g.book || []).length ? '<p class="grp-foot"><b>每周反思明细</b>：评审几分、引用的经历、没改的原因</p>' : ''}
       <ul class="pp-list grp-box">${rows}</ul>
       <div class="grp-box grp-acts">${canRun ? `<button type="button" class="grp-btn" data-grun${this.busy ? ' disabled' : ''}>${this.busy ? '正在反思…' : `现在反思 ${esc(g.due)}`}</button>` : ''}<button type="button" class="grp-btn danger" id="gr-clear" data-gclear>清空成长记录</button></div>
       <p class="hint" role="status">${esc(this.msg)}</p>`;
