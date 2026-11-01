@@ -2733,6 +2733,36 @@ class DriftRules(_Strict):
     mood_line: str = "这会儿想用{face}"
 
 
+class OpenerRules(_Strict):
+    """开口前组织语言的过渡词（11-01 用户：人说话前会有「怎么说呢」「就是」「算了吧」这种片刻）。
+    每人从词池里分到几个（按 id 稳定地分，8 位规则相同），较长的话按概率放在开头，
+    最近几条用过就不放。"""
+
+    pool: list[str] = []
+    each: int = Field(default=3, ge=1, le=10)
+    chance: float = Field(default=0.0, ge=0, le=1)
+    min_chars: int = Field(default=14, ge=0, le=200)  # 这么长的话才放（短回复不放）
+
+
+class CadenceRules(_Strict):
+    """连着几条的分寸（docs/BRAIN.md「连着几条的分寸」，2026-11-01 用户批）：格式、句式、露底、
+    跨条冷却。全程序；8 位同一套规则，只看她自己最近说过的话。"""
+
+    enabled: bool = True
+    plain: bool = True  # 去掉 Markdown、破折号、【标题】
+    not_but: bool = True  # 「不是 X，而是 Y」→「不是 X，是 Y」
+    window: int = Field(default=8, ge=2, le=40)  # 看她最近几条
+    face_max: int = Field(default=2, ge=1, le=20)  # 同一个 emoji / 颜文字最近几条里用过几次就停
+    particles: list[str] = ["呢"]  # 句尾语气词
+    particle_share: float = Field(default=0.5, gt=0, le=1)  # 最近几条里这么收尾的比例到这个就停
+    fillers: list[str] = []  # 口头填充词：最近几条说过就这条不说
+    ask_streak: int = Field(default=2, ge=1, le=10)  # 最近连着几条都在反问
+    ask_back: list[str] = []  # 「反问对方」的正则（只删末尾那一小句）
+    leaks: list[str] = []  # 露底的正则：命中的小句删掉
+    swap: dict[str, str] = {}  # 正则 → 换成的词（如「用户」→「你」）
+    openers: OpenerRules = OpenerRules()
+
+
 class LingoRules(_Strict):
     """说话的样子（docs/BRAIN.md「说话的样子」）：看懂语境、万能短回复、先反应再吐槽、
     书面腔过滤、标点和笑法、打错字、个人颜文字、表情包脾气、语气变调、外号、跟人学、打比方。
@@ -2774,6 +2804,7 @@ class LingoRules(_Strict):
     own_voice: bool = True
     # 特色限量：一条里颜文字 / emoji、招牌自称、口头禅最多几样（0 = 不管；10-31 用户反向找问题）
     max_traits: int = Field(default=2, ge=0, le=5)
+    cadence: CadenceRules = CadenceRules()
 
 
 class EngineRules(_Strict):
