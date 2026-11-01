@@ -8,7 +8,14 @@ from roundtable.core.chat import GroupChat
 from tests.web.conftest import wait_until
 
 
-def click_until(page, sel, done, tries=5):
+def _body(r):
+    try:
+        return r.text()[:160]
+    except Exception:  # noqa: BLE001 - 只是诊断
+        return ""
+
+
+def click_until(page, sel, done, tries=5, extra=None):
     """点一下等结果；轮询刷新正好把按钮换掉时点击会落空，再点一次。"""
     for _ in range(tries):
         if page.locator(sel).count() and page.locator(sel).first.is_enabled():
@@ -25,6 +32,7 @@ def click_until(page, sel, done, tries=5):
         "error": page.locator("#gc-err").inner_text() if page.locator("#gc-err").count() else "",
         "responses": getattr(page, "handoff_log", []),
         "js_errors": getattr(page, "js_errors", []),
+        "extra": extra() if extra else None,
     }
     raise AssertionError(f"点了 {sel} 没有反应：{seen}")
 
@@ -49,7 +57,7 @@ def test_handoff_card_dismiss_and_choice_buttons(serve, page):
         "response",
         lambda r: (
             "/api/chat/handoff" in r.url
-            and page.handoff_log.append(f"{r.status} {r.url.split('/api/')[-1]} {r.text()[:120]}")
+            and page.handoff_log.append(f"{r.status} {r.url.split('/api/')[-1]} {_body(r)}")
         ),
     )
     open_chat(srv, page)
@@ -57,8 +65,18 @@ def test_handoff_card_dismiss_and_choice_buttons(serve, page):
     page.wait_for_selector(card)
     assert "按九月数据模拟十月收益" in page.inner_text(card)
     assert "[交办" not in page.inner_text("#gc-feed")
-    state = lambda: repo.chat_message(msg["id"])["meta"]["handoff"]["state"]  # noqa: E731
-    click_until(page, f"{card} [data-handoff-dismiss]", lambda: state() == "dismissed")
+
+    def state():
+        row = repo.chat_message(msg["id"]) or {}
+        return ((row.get("meta") or {}).get("handoff") or {}).get("state")
+
+    def rows():
+        return [
+            (m["id"], m["author"], m["text"][:20], m["meta"]) for m in repo.chat_messages("main")
+        ]
+
+    dismiss = f"{card} [data-handoff-dismiss]"
+    click_until(page, dismiss, lambda: state() == "dismissed", extra=rows)
     page.wait_for_selector(f"{card}.off")
     mine = lambda: [m["text"] for m in repo.chat_messages("main") if m["author"] == "user"]  # noqa: E731
     choice = f".gc-msg[data-id='{pick['id']}'] [data-choice='持仓明细']"
