@@ -676,9 +676,8 @@ chat:
       sprinkle_vibes: [元气, 温柔]    # 补的只挑轻松的（掀桌、丧脸不补）
       sprinkle_skip: [想不起来, 记不清, 不记得, 忘了, 难过, 伤心, 抱歉, 对不起, 不好意思, 累, 烦, 哭, 生病, 疼]   # 这些时候不补笑脸
       sticker_sets:                # 偏爱哪一套表情包（名字同 chat.actions.stickers）
-        团子: {traits: {温和: 0.6, 外向: 0.2}}
-        猫猫: {traits: {外向: -0.4, 幽默: 0.2}}
-        文字: {traits: {较真: 0.4, 幽默: 0.3}}
+        小黄脸: {traits: {温和: 0.4, 外向: 0.3}}
+        文字: {traits: {较真: 0.3, 幽默: 0.5}}
       battle: 0.5
       shift:                       # 语气跟着状态和对象变（每次挑最要紧的一句写进意图卡）
         tired: 累了：能少打就少打，可以不打标点、只回几个字
@@ -882,10 +881,14 @@ chat:
   actions:                         # 聊天里能发什么（docs/CHAT.md「微信式动作」）；何时发、节奏归成员系统，这里是默认值
     enabled: true
     stickers:                      # 成员能用的表情包（名字与网页表情面板一致）
-      团子: [开心, 哭哭, 生气, 害羞, 震惊, 晚安, 比心, 疑惑, 点赞, 摸鱼, 冲鸭, 吃瓜, 流汗, 晕了, 收到, 奶茶]
-      猫猫: [喵, 蹭蹭, 委屈, 炸毛, 睡觉, 偷看, 得意, 饿了, 开心, 哈？, 贴贴, 躺平]
-      文字: [收到！, 好耶, 哈哈哈, 在吗, 晚安, 冲！, 谢谢, 绝了, 救命, "6", 离谱, 抱抱]
+      # 小黄脸：谷歌 Noto 动态表情（CC BY 4.0）；早先的团子、猫猫只用来显示旧消息，不再给成员用
+      小黄脸: [笑哭, 笑翻, 哈哈, 微笑, 尴尬笑, 开心, 星星眼, 爱了, 抱抱, 偷笑, 嘘, 思考, 坏笑, 白眼, 无语, 叹气, 委屈, 感动, 难过, 大哭, 惊恐, 啊这, 生气, 哼, 哈欠, 馋, 晕了, 脑子炸了, 好耶, 酷, 吐了, 小丑, 笑死, 收到, 偷看, 化了, 点赞, 鼓掌, 比心, 拜托]
+      文字: [笑死, 绝了, 破防了, 蚌埠住了, 啊对对对, 好家伙, 我真的会谢, 尊嘟假嘟, 摆烂, 芭比Q了, 社死, "6", 救命, 离谱, 抱抱, 在吗]
     kaomoji: ["(＾▽＾)", "(๑•̀ㅂ•́)و✧", "(｡•́︿•̀｡)", "(￣▽￣)ノ", "(╯°□°)╯", "(・∀・)", "_(:з」∠)_", "(｀・ω・´)", "(ﾉ>ω<)ﾉ", "(；´Д｀)", "ヽ(✿ﾟ▽ﾟ)ノ", "(⊙_⊙)？"]
+    emoji_images:                  # 网页里的 emoji 显示成苹果样式：用到哪个才下载到本机 data/emoji/（只自己用，不进仓库）；下载不到用系统字体
+      enabled: true
+      style: apple
+      url: https://cdn.jsdelivr.net/npm/emoji-datasource-apple@15.1.2/img/apple/64/{code}.png
     max_segments: 3                # 一次回复最多拆成几条气泡
     segment_gap_seconds: 1.2       # 拆条之间停多久（默认值）
     recall_seconds: 120            # 你发出 2 分钟内可以撤回
@@ -2076,6 +2079,15 @@ bench:
       - {name: three.js 发布, url: "https://github.com/mrdoob/three.js/releases.atom", kind: news}
       - {name: Godot 新闻, url: "https://godotengine.org/rss.xml", kind: news}
       - {name: Blender 开发者博客, url: "https://code.blender.org/feed/", kind: news}
+
+# 整库备份（docs/BACKUP.md）：成员的记忆、关系、日记、成长、聊天记录都在一个数据库文件里。
+# 每天第一次开着时备份一份到数据库旁边的 db_backups/，另有存档点（更新前、恢复前自动存，也能手动存）；
+# 网页顶栏「备份」或 roundtable backup 一键恢复。不联网、不花钱。
+backup:
+  enabled: true
+  keep_daily: 14        # 每天的备份留 14 份（两周）
+  keep_checkpoints: 10  # 存档点留 10 份
+  check_minutes: 60     # 开着时每小时看一眼今天备份了没
 
 # 日历底座（docs/CALENDAR.md）：只算「今天是什么日子」，每天发事件给成员系统（怎么过节由生活引擎决定）。
 # 全部离线计算：法定假日用开源库 holidays，农历和节气查预先算好的表；不调模型、不联网、不花钱。

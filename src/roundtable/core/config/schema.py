@@ -2949,6 +2949,22 @@ class WatchRules(_Strict):
     scrcpy: str = Field(default="scrcpy", min_length=1, max_length=300)  # 流畅投屏窗口（可选）
 
 
+class EmojiImageRules(_Strict):
+    """网页里的 emoji 显示成哪套图（只改显示，消息文字和发给模型的仍是 emoji 字符）。
+    用到哪个才下载、存在本机 data/emoji/，不进仓库；下载不到时用系统字体。"""
+
+    enabled: bool = False
+    style: str = Field(default="", max_length=20)  # 给网页看的样式名（只做标记）
+    url: str = Field(default="", max_length=300)  # 图的地址，{code} 换成码点文件名（如 1f602）
+
+    @field_validator("url")
+    @classmethod
+    def _template(cls, url: str) -> str:
+        if url and (not url.startswith("https://") or "{code}" not in url):
+            raise ValueError("url 要以 https:// 开头并含 {code}")
+        return url
+
+
 class ChatActionRules(_Strict):
     """聊天里能发什么（docs/CHAT.md「微信式动作」）：表情包、颜文字、引用、拆条、拍一拍、撤回。
 
@@ -2960,6 +2976,7 @@ class ChatActionRules(_Strict):
     # 成员能用的表情包：套装 → 名字（与 web/js/stickers.js 同名，有测试）
     stickers: dict[str, list[str]] = Field(default_factory=dict)
     kaomoji: list[str] = Field(default_factory=list, max_length=40)  # 颜文字示例
+    emoji_images: EmojiImageRules = EmojiImageRules()  # 网页里的 emoji 显示成哪套图
     max_segments: int = Field(default=3, ge=1, le=6)  # 一次回复最多拆成几条
     segment_gap_seconds: float = Field(default=1.2, ge=0, le=10)  # 拆条之间的固定间隔（默认值）
     recall_seconds: int = Field(default=120, ge=0, le=3600)  # 你发出后多久内可以撤回
@@ -3672,6 +3689,15 @@ class CalendarRules(_Strict):
     max_user_dates: int = Field(default=100, ge=0, le=1000)  # 你能加的纪念日上限
 
 
+class BackupRules(_Strict):
+    """整库备份（docs/BACKUP.md）：每天一份 + 存档点，坏了一键恢复；不花钱。"""
+
+    enabled: bool = True  # 每天自动备份（关掉后仍能手动存档点、恢复）
+    keep_daily: int = Field(default=14, ge=1, le=365)  # 每天的备份留几份
+    keep_checkpoints: int = Field(default=10, ge=1, le=100)  # 存档点留几份（和每天的分开数）
+    check_minutes: int = Field(default=60, ge=5, le=1440)  # 开着时每隔多久看一眼「今天备份了没」
+
+
 class RoundtableConfig(_Strict):
     seats: int = Field(ge=2)
     min_members: int = Field(default=2, ge=2)
@@ -3719,6 +3745,7 @@ class RoundtableConfig(_Strict):
     supercomputer: SupercomputerRules = SupercomputerRules()
     bench: BenchRules = BenchRules()
     calendar: CalendarRules = CalendarRules()
+    backup: BackupRules = BackupRules()
 
     @field_validator("prompts")
     @classmethod
