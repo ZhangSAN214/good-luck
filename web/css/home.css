@@ -722,3 +722,37 @@ input.switch:checked::after{transform:translateX(18px)}
 .gc-sys.recalled span,.gc-sys.pat span{font-style:normal}
 .gc-msg.flash .gc-bub{animation:gc-flash 1.2s ease}
 @keyframes gc-flash{0%,60%{box-shadow:0 0 0 3px var(--brass-ink)}100%{box-shadow:none}}
+
+/* 聊天里的活交给办公室（workcard.js）：交办卡片、结果卡片、选项按钮、文件 */
+.wc-kicker{display:block;font-size:11px;letter-spacing:.04em;color:var(--brass-ink,var(--muted))}
+.wc-handoff{margin-top:6px;max-width:min(420px,100%);padding:9px 12px;border:1px solid var(--line,rgba(127,127,127,.3));border-radius:12px;background:var(--panel,rgba(127,127,127,.06))}
+.wc-handoff p{margin:3px 0 6px;font-size:13px;line-height:1.5;overflow-wrap:anywhere}
+.wc-handoff.off{opacity:.6}
+.wc-acts{display:flex;gap:8px;flex-wrap:wrap}
+.wc-acts .btn{height:28px;padding:0 12px;font-size:12px}
+.wc-state{font-size:12px;color:var(--muted)}
+.wc-state .link{border:0;background:none;color:var(--brass-ink);padding:0;text-decoration:underline;text-underline-offset:2px;cursor:pointer}
+.wc-choices{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
+.wc-choices .btn{height:28px;padding:0 12px;border-radius:999px;font-size:12px}
+.gc-bub.work{max-width:min(560px,100%)}
+.wc-card{display:block;min-width:min(280px,100%)}
+.wc-card header b{display:block;font-size:14px;margin:2px 0 4px;overflow-wrap:anywhere}
+.wc-card.bad .wc-kicker{color:var(--danger,#c0392b)}
+.wc-body summary{cursor:pointer;font-size:12px;color:var(--muted);margin-bottom:4px}
+.wc-body .wc-md{font-size:13px;line-height:1.6;overflow-wrap:anywhere}
+.wc-body .wc-md table{border-collapse:collapse;display:block;max-width:100%;overflow-x:auto;font-size:12px}
+.wc-body .wc-md th,.wc-body .wc-md td{border:1px solid var(--line,rgba(127,127,127,.3));padding:3px 6px;text-align:left}
+.wc-code,.wc-mermaid{max-width:100%;overflow-x:auto;font-size:12px;padding:8px;border-radius:8px;background:var(--code,rgba(127,127,127,.1));white-space:pre}
+.wc-mermaid.bad{outline:1px dashed var(--line,rgba(127,127,127,.4))}
+.wc-chart{max-width:100%;overflow-x:auto;margin:6px 0}
+.wc-chart svg{max-width:100%;height:auto}
+.wc-math{max-width:100%;overflow-x:auto;margin:6px 0;font-size:13px}
+.wc-files{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+.wc-file{display:inline-flex;align-items:center;gap:6px;max-width:100%;padding:5px 9px;border:1px solid var(--line,rgba(127,127,127,.3));border-radius:10px;font-size:12px;color:inherit;text-decoration:none}
+.wc-file b{font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:200px}
+.wc-file small{color:var(--muted)}
+.wc-file .link{border:0;background:none;color:var(--muted);cursor:pointer;padding:0 2px}
+.wc-img img{display:block;max-width:min(240px,100%);border-radius:8px}
+.wc-card footer{display:flex;gap:10px;align-items:center;justify-content:space-between;margin-top:6px;font-size:12px;color:var(--muted)}
+.wc-card footer .link{border:0;background:none;color:var(--brass-ink);padding:0;text-decoration:underline;text-underline-offset:2px;cursor:pointer}
+.gc-filebar{display:flex;flex-wrap:wrap;gap:6px;flex-basis:100%;padding:2px 0}
