@@ -90,6 +90,7 @@
 - 网页：聊天左栏最上面「朋友圈」（新动态红点），弹窗里按人筛选、发动态、赞、评论、回复、删除；公寓楼住户卡片多了「朋友圈」按钮。
 - 配图（2026-10-31，#120）：发动态时按 `media.moment_photos.chance`（默认一半，按事件和成员派生种子）照成员形象画一张随手拍，每人每天 1 张、全员 3 张；转发卡片的动态不配图；画不出来照常发文字。
 - 配图去 AI 感（2026-10-31 用户反馈「作画 AI 感太强」）：`moment_photo/v2` 要求像手机随手拍——拍正文旁边的小细节而不是把正文演一遍，歪一点、切边、普通光线、杂乱背景；拍法 `media.moment_photos.shots` 按权重抽（默认约六成只拍东西 / 风景、两成只露手袖尾巴、一成被抓拍、一成歪角度自拍），她不入镜时不传形象参考图；画完在本机加一层手机味（`phone_look`：轻微裁歪、压饱和度、偏色、噪点、压缩，`phone_look: false` 可关），不花钱。
+- 本地出图（2026-11-01）：可以交给自己电脑上的 ComfyUI 画（渠道 `comfyui`，模型 `comfyui-local`，默认关，步骤见 `docs/COMFYUI.md`）。它价格 0，自然排在付费绘图模型前面；吃标签式提示词（`image_prompt: tags`），走它时改用 `moment_photo_tags`（正向 / 负向两行：人物标签按拍法的 `her` 取 `media.moment_photos.tag_subjects`，拍法标签取 `shots[].tags`，外观取形象卡的英文 `look_tags`；她不入镜时不放外观；负向固定排除写实、武器、卖弄身材），走云端模型时照旧用 `moment_photo`。ComfyUI 没开或画失败时换下一个绘图模型；`media.moment_photos.local_only: true` 时只用本地模型，画不出来只发文字。表情包不用吃标签的模型（没有标签版提示词）。
 - 提示词现为 `moment_post/v3`、`moment_comment/v3`（转发卡片、表情包）；发帖带「心里挂着的事」（`Brain.musing`）；说出口前过成员自查（`core/member/voice`）。
 - 现状与后续待办（长期线程「长期负责成员朋友圈」）：`/mnt/project-files/汇报/成员朋友圈_现状与待办_10-31.md`。
 

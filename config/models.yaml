@@ -68,6 +68,14 @@ channels:
     kind: direct
     base_url: https://api.deepseek.com/v1
     key_env: DEEPSEEK_API_KEY
+  # 本地 ComfyUI（只出图，不花钱，不需要 key）：装好后在 config/models.local.yaml 写
+  #   model_switches: {comfyui-local: true}
+  # 就能打开下面的 comfyui-local 模型（步骤见 docs/COMFYUI.md）
+  comfyui:
+    adapter: comfyui
+    kind: local
+    base_url: http://127.0.0.1:8188
+    key_env: null
   # 本地模型示例（OpenAI 兼容端点，不需要 key）：
   # local:
   #   adapter: openai_compat
@@ -600,6 +608,29 @@ models:
     enabled: true
     routes:
       - {channel: openrouter, model: google/lyria-3-pro-preview}
+  # --- 本地出图（ComfyUI，默认关；步骤见 docs/COMFYUI.md）---
+  # 价格 0：同档里自然排在付费绘图模型前面；ComfyUI 没开 / 画不出来时换下一个绘图模型
+  # （media.moment_photos.local_only: true 时不换，只发文字）。
+  # 路由的 model 是 config/comfyui/ 下的工作流模板文件名（ComfyUI 里「导出 API 格式」的 JSON）。
+  # image_edit：模板里接了 IPAdapter，用成员设定图做参考；没有参考图时换 workflow_without_refs 模板。
+  # image_prompt: tags：SDXL 二次元底模吃标签，朋友圈配图用 moment_photo_tags 提示词。
+  - id: comfyui-local
+    vendor: ComfyUI
+    seat: false
+    tier: budget
+    price: {input: 0, output: 0}
+    media_price: {unit: image, usd: 0}   # 每张 0 元（只花自己电脑的电）
+    tags: [image_gen, image_edit]
+    image_prompt: tags
+    enabled: false
+    params:
+      width: 832                 # 竖版，像手机照片；8GB 显存 SDXL 不要超过约 1MP
+      height: 1216
+      timeout_s: 300             # 首次加载底模较慢
+      poll_interval_s: 1.0
+      workflow_without_refs: moment_photo_sdxl_noref.json
+    routes:
+      - {channel: comfyui, model: moment_photo_sdxl.json}
 
 # 联网搜索服务（成员的 search / fetch 工具），按顺序优先使用；没有 key 的自动跳过
 search_providers:
