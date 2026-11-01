@@ -1043,6 +1043,38 @@ class FestivalRules(_Strict):
     joined: str = Field(default="搬进公寓{years}年了，翻了翻刚来时的照片", max_length=60)
 
 
+class LowRules(_Strict):
+    """健康与低谷（L4）。全程序：病了有朋友照顾，接连不顺会低落几天、有人陪、再缓过来，
+    累了好几天会想好好歇一天。证据只看她自己的生活（生活事件、生活阶段），不看办公室。
+
+    - care：她不舒服的那几天（生活阶段的小感冒，或事件库里 story.sick 的那步），常一起玩的朋友
+      照顾一下（care_texts 里挑），一场病一次。
+    - low：最近 window_days 天里接连有 need_bad 件不顺（story.bad / sick / stuck / farewell /
+      homesick），掷 low_chance：低落 → 第 1～2 天有人陪 → 第 3～5 天缓过来。说得出原因（low_text
+      里的 {cause} 是那几件事），冷却 low_cooldown_days。
+    - rest：最近累（story.late / tired，加上生活阶段压精力的）达到 need_tired，掷 rest_chance：
+      最近的周末歇一天（那天空闲时段在宿舍）。"""
+
+    enabled: bool = True
+    window_days: int = Field(default=7, ge=2, le=30)
+    care_chance: float = Field(default=0.7, ge=0, le=1)
+    care_texts: list[str] = Field(
+        default_factory=lambda: ["{other}给{name}带了碗热粥"], min_length=1, max_length=20
+    )
+    need_bad: int = Field(default=2, ge=1, le=10)
+    low_chance: float = Field(default=0.35, ge=0, le=1)
+    low_cooldown_days: int = Field(default=30, ge=0, le=365)
+    low_text: str = Field(default="最近{cause}，这几天有点提不起劲", max_length=60)
+    comfort_texts: list[str] = Field(
+        default_factory=lambda: ["{other}拉{name}出去走了走"], min_length=1, max_length=20
+    )
+    better_text: str = Field(default="心情慢慢缓过来了", max_length=60)
+    need_tired: int = Field(default=3, ge=1, le=20)
+    rest_chance: float = Field(default=0.5, ge=0, le=1)
+    rest_cooldown_days: int = Field(default=14, ge=0, le=365)
+    rest_text: str = Field(default="累了好几天，决定今天什么都不干，好好睡一觉", max_length=60)
+
+
 class StoryRules(_Strict):
     """生活事件库 + 长线剧情（P7 生活引擎 L0，docs/LIFE_STORY.md）。
 
@@ -1063,6 +1095,7 @@ class StoryRules(_Strict):
     talent: TalentRules = TalentRules()
     progress: ProgressRules = ProgressRules()  # 爱好进度（L1）
     festival: FestivalRules = FestivalRules()  # 节日纪念日（L2）
+    lows: LowRules = LowRules()  # 健康与低谷（L4）
 
     @model_validator(mode="after")
     def _unique(self) -> StoryRules:
@@ -1070,10 +1103,10 @@ class StoryRules(_Strict):
         dup = sorted({i for i in ids if ids.count(i) > 1})
         if dup:
             raise ValueError(f"生活事件 id 重复：{'、'.join(dup)}")
-        reserved = sorted(i for i in ids if i.startswith(("talent_", "progress_", "fest_")))
+        reserved = sorted(i for i in ids if i.startswith(("talent_", "progress_", "fest_", "low_")))
         if reserved:
             used = "、".join(reserved)
-            raise ValueError(f"talent_ / progress_ / fest_ 开头的 id 留给程序用：{used}")
+            raise ValueError(f"talent_ / progress_ / fest_ / low_ 开头的 id 留给程序用：{used}")
         domains = {s.domain for s in self.stories} | {
             k.domain for k in self.progress.kinds.values()
         }

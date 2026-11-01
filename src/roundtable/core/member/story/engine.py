@@ -25,9 +25,11 @@ from datetime import date, datetime, time, timedelta
 from typing import Any
 
 from roundtable.core.member.story import festival as fest
+from roundtable.core.member.story import lows as low
 from roundtable.core.member.story import progress as prog
 from roundtable.core.member.story import store
 from roundtable.core.member.story.festival import Festivals
+from roundtable.core.member.story.lows import Lows
 from roundtable.core.member.story.progress import Progress
 from roundtable.core.member.story.talent import TALENT_STORIES, TALENT_TAGS, Talents
 
@@ -82,6 +84,8 @@ def story_meta(rt: Any, topic: str) -> dict[str, Any]:
         tags = prog.tags_of(step)
     elif story.startswith(fest.PREFIX):
         tags = fest.tags_of(story)
+    elif story.startswith(low.PREFIX):
+        tags = low.tags_of(story, step)
     else:
         stories = rt.config.roundtable.chat.life.story.stories
         spec = next((s for s in stories if s.id == story), None)
@@ -96,6 +100,7 @@ class StoryEngine:
         self.talents = Talents(rt)
         self.progress = Progress(rt)
         self.festivals = Festivals(rt, self.text)
+        self.lows = Lows(rt)
         self._texts: dict[str, str] = {}
         self._did: Counter[str] = Counter()
 
@@ -126,8 +131,8 @@ class StoryEngine:
         """作息表的空闲时段：按她的爱好和擅长挑去处；生病歇着那天在宿舍。其余照原样。"""
         if not self.enabled() or act not in FREE_ACTS:
             return place, act
-        if self.resting(member, slot.date()):
-            return "dorm", REST
+        if self.resting(member, slot.date()) or self.lows.phase_sick(member, slot.date()):
+            return "dorm", REST  # 生病（事件库的或生活阶段的小感冒）、累了歇一天：空闲时段不出门
         way = self.rules.way
         if not way.enabled or not way.options or slot.hour >= 22:
             return place, act
@@ -247,6 +252,12 @@ class StoryEngine:
         rng = random.Random(f"story:{member}:{d}")
         used = sum(1 for p in st["pending"] if p.get("date") == d)
         others = [m for m in sorted(names) if m != member]
+        # L4：病了有人照顾、接连不顺的低谷、累久了歇一天（排在前面，占当天名额）
+        for spec, other, fmt in self.lows.step(member, day, st, others, rng, end.tzinfo):
+            if used >= r.max_per_day:
+                break
+            self._start(member, spec, day, rng, st, names, others, start, end, fmt=fmt, other=other)
+            used += 1
         # L10：擅长的阶段（觉醒、有人来请教、卡住 / 想通、生疏）
         for story, domain, why in self.talents.step(member, day, st, self.text(member), practice):
             if used >= r.max_per_day:
@@ -371,11 +382,14 @@ class StoryEngine:
         *,
         domain: str = "",
         fmt: dict[str, str] | None = None,
+        other: str = "",
     ) -> None:
-        """开始一件事：把每一步排好日子和钟点，放进日程。"""
+        """开始一件事：把每一步排好日子和钟点，放进日程。other：指定同伴（L4 照顾她的朋友）。"""
         tz = end.tzinfo
         crew = [member]
-        if spec.with_other and others:
+        if other:
+            crew.append(other)
+        elif spec.with_other and others:
             crew.append(rng.choice(others))
         words = {"name": names.get(member, member), "domain": domain} | (fmt or {})
         if len(crew) > 1:

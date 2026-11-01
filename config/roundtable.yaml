@@ -170,6 +170,12 @@ chat:
           - {match: [圣诞], prep_days: 3, prep: "{name}去买了棵小圣诞树放在休息室", day: "大家在休息室交换了圣诞礼物", hours: [17, 21]}
           - {match: [元旦], prep_days: 0, day: "新年第一天，大家睡到中午才起，一起吃了顿早午饭", hours: [11, 14], place: canteen}
         gifts: [一束花, 一条围巾, 一个手作蛋糕, 一盏小夜灯, 一张手写贺卡, 一盒巧克力]
+      lows:                        # 健康与低谷（L4）：病了常一起玩的朋友照顾一下；接连不顺会低落几天、有人陪、再缓过来；累久了周末歇一天。只看生活，不看办公室
+        care_texts: ["{other}给{name}带了碗热粥", "{other}顺路帮{name}买了药", "{other}发消息问{name}好点没，还送来一袋橘子", "{other}帮{name}把晾着的衣服收了"]
+        low_text: "最近{cause}，这几天有点提不起劲，话也少了"
+        comfort_texts: ["{other}拉{name}出去走了走，买了杯热饮", "{other}找{name}打了两局游戏，没多问", "{other}陪{name}在天台坐了一会儿"]
+        better_text: 心情慢慢缓过来了，又开始跟大家贫嘴
+        rest_text: 累了好几天，决定今天什么都不干，好好睡一觉
       talent:                      # 觉醒擅长领域（L10）：证据只用人物卡种子 + 生活练习；和工作完全无关，不影响派活
         enabled: true
         domains:                   # 领域 → 档案里的种子词 / 生活里算练习的去处 / 深耕后楼里的人怎么说她（可增删）
@@ -798,6 +804,10 @@ chat:
         - {name: 迎新, tags: [story.welcome], mood: 0.04}
         - {name: 有人搬走, tags: [story.farewell], mood: -0.08, note: 楼里有人搬走了}
         - {name: 想家, tags: [story.homesick], mood: -0.05, note: 有点想家}
+        - {name: 被照顾, tags: [story.cared], mood: 0.08}
+        - {name: 低落, tags: [story.low], mood: -0.12, energy: -0.05, note: 这几天有点提不起劲}
+        - {name: 有人陪, tags: [story.comforted], mood: 0.08}
+        - {name: 歇了一天, tags: [story.rest], energy: 0.2, mood: 0.04}
         - {name: 干完活, tags: [work], mood: 0.02, energy: -0.08, note: 刚在办公室干完一件活}
         - {name: 看到听到, tags: [perceive], mood: 0.02}
       mood_labels: [[0.45, 心情很好], [0.15, 心情不错], [-0.15, 心情平常], [-0.45, 心情有点低落], [-2, 心情很差]]
