@@ -267,6 +267,11 @@ export const lanPair = (base) => api('/api/lan/pair', { method: 'POST', body: { 
 export const lanSignOut = () => api('/api/lan/signout', { method: 'POST' });
 export const lanLogout = () => api('/api/lan/logout', { method: 'POST' });
 
+// 整库备份（docs/BACKUP.md）：只能在电脑本机上调用
+export const backupStatus = () => api('/api/backup');
+export const backupCheckpoint = (label) => api('/api/backup/checkpoint', { method: 'POST', body: { label } });
+export const backupRestore = (name) => api('/api/backup/restore', { method: 'POST', body: { name } });
+
 // 投屏陪伴（docs/WATCH.md）：开始 / 预览只能在电脑本机上；平板上能聊天和停止
 export const watchStatus = (devices = false) => api(`/api/watch${devices ? '?devices=true' : ''}`);
 export const watchStart = (source, watchers, consent) =>

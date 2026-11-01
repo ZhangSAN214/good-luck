@@ -53,6 +53,7 @@ PERCEPTION_DIR = "perception"
 VOICE_CACHE_DIR = "voice_cache"
 STICKER_DIR = "stickers"
 GROWTH_DIR = "growth_backups"  # 成员成长（P6）每周的本地备份
+BACKUP_DIR = "db_backups"  # 整库备份（docs/BACKUP.md）
 
 
 def data_dir(environ: Mapping[str, str] | None = None) -> Path:
@@ -118,6 +119,8 @@ class Runtime:
     sticker_dir: Path | None = None
     # 成员成长（P6）每周的本地备份（数据库旁边的 growth_backups/）；为空时不写备份
     growth_dir: Path | None = None
+    # 整库备份（数据库旁边的 db_backups/，docs/BACKUP.md）；为空（内存数据库）时不备份
+    backup_dir: Path | None = None
 
     @classmethod
     def build(
@@ -233,6 +236,7 @@ class Runtime:
             else Path(db_path).parent / VOICE_CACHE_DIR,
             sticker_dir=None if str(db_path) == ":memory:" else Path(db_path).parent / STICKER_DIR,
             growth_dir=None if str(db_path) == ":memory:" else Path(db_path).parent / GROWTH_DIR,
+            backup_dir=None if str(db_path) == ":memory:" else Path(db_path).parent / BACKUP_DIR,
         )
 
     def sandbox(self) -> tuple[Sandbox | None, str | None]:
