@@ -726,10 +726,9 @@ class Brain:
                 out.append(Thought("expect", f"{e['text']}，快见分晓了，有点紧张", 0.55))
             else:
                 out.append(Thought("expect", e["text"], 0.5))
-        for g in self._goals(member, s):
-            out.append(
-                Thought("goal", f"最近在琢磨「{g['name']}」，{self._stage(g['level'])}", 0.35)
-            )
+        for g in self._goals(member, s):  # 不带引号：带了模型会把目标原句照抄出口（11-01）
+            stage = self._stage(g["level"])
+            out.append(Thought("goal", f"最近在琢磨的一件事：{g['name']}（{stage}）", 0.35))
         try:
             for h in self.rt.repo.memory_hanging(member)[:3]:
                 out.append(Thought("hanging", f"心里挂着：{h['text']}", 0.5))

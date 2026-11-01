@@ -253,3 +253,36 @@ async def test_no_one_follows_up_a_share_when_it_is_turned_off():
     life, row = await _shared(chatty(env))
     assert await life.react(row, NOW) == 0
     assert not life_calls(env)
+
+
+def test_calls_and_asks():
+    from roundtable.core.chat import ChatMember
+    from roundtable.core.life import asks, calls
+
+    m = ChatMember("V1", "Claude", "m", True)
+    assert calls("claude 你从哪儿看到的", m) and not calls("今天好累", m)
+    assert asks("你从哪儿看到的？") and not asks("我先睡了")
+
+
+def test_whoever_is_named_answers_first():
+    from roundtable.core.member.brain import Brain
+
+    env = Env()
+    ms = ChatHub(env.rt).everyone()
+    a, b, c = ms[:3]
+    brain = Brain(env.rt, names={m.id: m.name for m in ms})
+    spoken = [(a.id, f"{c.name}，你从哪儿看到的？")]
+    for seed in ("s1", "s2", "s3"):
+        got = LifeEngine.next_speaker(brain, [a, b, c], spoken, a.id, NOW, seed)
+        assert got is not None and got[0].id == c.id
+
+
+async def test_a_question_at_the_end_gets_one_more_line():
+    env = chatty(Env())
+    asking = env.fake._default
+    env.fake._default = lambda model, messages: asking(model, messages) + "？"
+    life = engine(env)
+    plan = life.plan(NOW - timedelta(hours=1), NOW)[0]
+    plan.kind, plan.members, plan.room = "pair", ["V1", "V2"], pair_room("V1", "V2")
+    turns = env.config.roundtable.chat.life.turns
+    assert await life.write(plan, offline=False, now=NOW) == turns + 1  # 只多一句，不会一直问下去
