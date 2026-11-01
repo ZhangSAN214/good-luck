@@ -18,7 +18,7 @@
 start: 3
 releases:
   - date: 2026-11-01
-    pr: [0]
+    pr: [167]
     level: minor
     title: 超级电脑有了「管家」：定时活、排队、闸门、日报和防改记录
     added:
