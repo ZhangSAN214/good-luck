@@ -140,7 +140,8 @@
 .hb-hint{margin:0;font-size:12px;color:var(--hb-muted);line-height:1.6}
 .hb-err{display:block;color:#e4a59b}
 
-.hb-col{position:absolute;right:28px;top:64px;bottom:24px;width:min(500px,44%);z-index:2;display:flex;flex-direction:column;gap:22px}
+/* 顶栏有两个时区的时钟时高约 53px（16 + 53 = 69）：卡片列从 80px 开始，不被顶栏盖住 */
+.hb-col{position:absolute;right:28px;top:80px;bottom:24px;width:min(500px,44%);z-index:2;display:flex;flex-direction:column;gap:22px}
 .hb-layer{will-change:transform}
 .hb-row2{display:grid;grid-template-columns:1fr 1fr;gap:18px}
 .hb-row3{display:grid;grid-template-columns:repeat(3,1fr);gap:18px}
