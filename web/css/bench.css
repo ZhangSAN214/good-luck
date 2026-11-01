@@ -361,3 +361,7 @@
 .bg-profadd{display:flex;gap:6px;margin-top:6px}
 .bg-profadd input{flex:1;min-width:0;background:rgba(255,255,255,.05);border:0;border-radius:12px;padding:8px 12px;color:#eceff3;box-shadow:var(--hb-edge);font:inherit}
 .bg-trlist .bg-remember,.bg-trlist li>.bg-src:last-child{margin-left:auto;flex:none;font-size:12px}
+/* 假完成识别（2026-11-01）：说做好了、文件没动的标出来；改完先「待你看」，你点通过才「改好了」 */
+.bg-fake{display:block;margin-top:2px;font-size:12px;color:#ffb9ae}
+.bg-trlist li[data-state="待你看"] .bg-tr-st{background:rgba(224,160,80,.24);color:#ffd9a6}
+.bg-ch-accepted{color:var(--ok,#7fc79a)}

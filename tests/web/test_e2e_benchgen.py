@@ -232,13 +232,17 @@ def test_benchgen_project_room(serve, page, monkeypatch, tmp_path):
     assert "自动搭" in pane.locator(".bg-steps li.now").text_content()
     assert pane.locator(".bg-plan .bg-demo img").count() >= 1  # 演示截图在右栏
     page.frame_locator("iframe.bg-frame").locator("body").wait_for()  # 中间是这一段的草稿
-    gate.locator("[data-comments]").fill("地图再大一点")
+    gate.locator("[data-comments]").fill("地图太小")
+    gate.locator("[data-cwant]").fill("地图占一半")  # 填表：哪里不对 + 想改成什么样
     gate.locator("[data-cwin]").select_option("map-view")
     gate.locator("[data-change]").click()
-    pane.locator('.bg-trace li[data-state="改好了"]').wait_for(state="attached", timeout=15000)
+    # 真改了文件也只是「待你看」，你点了通过才算「改好了」
+    pane.locator('.bg-trace li[data-state="待你看"]').wait_for(state="attached", timeout=15000)
     gate.locator("[data-pass]").wait_for(timeout=15000)
     assert pane.locator(".bg-demo figcaption", has_text="改之后").count() == 1
     gate.locator("[data-pass]").click()
+    pane.locator('.bg-trace li[data-state="改好了"]').wait_for(state="attached", timeout=15000)
+    assert "问题：地图太小；想要：地图占一半" in pane.locator(".bg-trace").text_content()
 
     pane.locator(".bg-gate [data-pass]", has_text="验收通过").wait_for(timeout=15000)
     assert pane.locator(".bg-stages li", has_text="第 2 段 · 主要功能").count() == 1

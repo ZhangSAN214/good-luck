@@ -169,8 +169,13 @@ def test_trace_follows_each_voice_to_its_state():
     rows = {r["id"]: r for r in it.trace(b)}
     assert rows["v1"]["state"] == "待做" and rows["v1"]["stage"] == 1
     assert rows["v1"]["reqs"] == ["r1", "r2"]
-    assert rows["v2"]["state"] == "已参考" and rows["v3"]["state"] == "改好了"
+    assert rows["v2"]["state"] == "已参考" and rows["v3"]["state"] == "待你看"  # 改完等你看
     assert rows["v4"]["state"] == "没对上" and rows["v5"]["stage"] == 2
+    b["changes"][0]["status"] = "accepted"  # 你点了通过才算改好了
+    assert {r["id"]: r for r in it.trace(b)}["v3"]["state"] == "改好了"
+    b["changes"][0]["status"] = "failed"
+    assert {r["id"]: r for r in it.trace(b)}["v3"]["state"] == "没改成"
+    b["changes"][0]["status"] = "done"
     b["rounds"] = [
         {
             "requirements": [
