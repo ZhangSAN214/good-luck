@@ -18,7 +18,7 @@
 start: 3
 releases:
   - date: 2026-11-01
-    pr: [PRNUM]
+    pr: [155]
     level: minor
     title: 聊天里的活可以交给办公室，做好了发回聊天里
     added:
