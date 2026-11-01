@@ -18,7 +18,7 @@ import subprocess
 import time
 from collections.abc import AsyncIterator, Sequence
 from dataclasses import asdict
-from datetime import date, datetime, timedelta, tzinfo
+from datetime import UTC, date, datetime, timedelta, tzinfo
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
@@ -1562,6 +1562,82 @@ class RoundtableService:
             raise ServiceError(str(exc)) from None
         self.rt.router.set_priority(saved)
         return self.channel_priority()
+
+    # --- 出图渠道（多渠道自动挑选：本地 → 不花钱 → 按价；见 media/draw_order.py） ----------------
+
+    def draw_channels(self) -> dict[str, Any]:
+        """每个出图模型一行：能不能用、属于哪一档、单价、剩余额度、在不在歇、上次跳过原因、
+        有没有被手动关掉；按现在的出图顺序排（关掉的、用不了的在后面）。"""
+        from roundtable.core.media.draw_order import band, draw_key, resting
+        from roundtable.core.providers.cost import image_cost
+
+        router = self.rt.router
+        prefs = router.draw_prefs
+        spent = MonthSpend(self.rt.repo, self.rt.budget.now, ttl_s=0).all()
+        enabled = self.rt.config.models.enabled
+        drawable = [m for m in enabled if not m.seat and "image_gen" in m.tags]
+        rows = []
+        for m in drawable:
+            plan = router.plan(m.id)
+            usable = [r.channel for r in plan.usable]
+            channels = []
+            for name in dict.fromkeys(r.channel for r in m.routes):
+                credit = router.priority.credits.get(name)
+                note = router.last_skip(name)
+                channels.append(
+                    {
+                        "channel": name,
+                        "kind": router.channels[name].kind,
+                        "usable": name in usable,
+                        "reason": plan.skipped.get(name),
+                        "credit_left_usd": None
+                        if credit is None
+                        else round(max(0.0, credit - spent.get(name, 0.0)), 6),
+                        "resting_s": round(router.cooling_s(name), 1),
+                        "last_skip": None
+                        if note is None
+                        else {
+                            "at": datetime.fromtimestamp(note.wall_ts, UTC).isoformat(),
+                            "kind": note.kind,
+                            "reason": note.reason,
+                        },
+                    }
+                )
+            rows.append(
+                {
+                    "id": m.id,
+                    "tier": m.tier,
+                    "band": band(router, m),
+                    "price_usd": round(image_cost(m, None, 1), 6),
+                    "available": bool(usable),
+                    "resting": resting(router, m),
+                    "disabled": m.id in prefs.disabled,
+                    "manual_rank": prefs.order.index(m.id) if m.id in prefs.order else None,
+                    "references": "image_edit" in m.tags,
+                    "channels": channels,
+                    "_key": (m.id in prefs.disabled, not usable, draw_key(router, m)),
+                }
+            )
+        rows.sort(key=lambda r: r.pop("_key"))
+        return {"order": list(prefs.order), "disabled": list(prefs.disabled), "models": rows}
+
+    def set_draw_channels(
+        self, *, disabled: list[str] | None = None, order: list[str] | None = None
+    ) -> dict[str, Any]:
+        from roundtable.core.media.draw_order import save_draw_prefs
+
+        prefs = self.rt.router.draw_prefs
+        try:
+            saved = save_draw_prefs(
+                self.rt.config,
+                self.rt.repo,
+                disabled=disabled if disabled is not None else list(prefs.disabled),
+                order=order if order is not None else list(prefs.order),
+            )
+        except ValueError as exc:
+            raise ServiceError(str(exc)) from None
+        self.rt.router.set_draw_prefs(saved)
+        return self.draw_channels()
 
     # --- 插件榜 ------------------------------------------------------------------
 

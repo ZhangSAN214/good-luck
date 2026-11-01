@@ -323,7 +323,7 @@ const evolution = new Evolution($('#evolvedlg'), {
 });
 $('#evolve').addEventListener('click', () => evolution.open());
 const usage = new Usage($('#usagedlg'), {
-  api: { usage: API.getUsage, balance: API.getUsageBalance, priority: API.getChannelPriority, setPriority: API.setChannelPriority },
+  api: { usage: API.getUsage, balance: API.getUsageBalance, priority: API.getChannelPriority, setPriority: API.setChannelPriority, draw: API.getDrawChannels, setDraw: API.setDrawChannels },
 });
 const moments = new Moments($('#moments'), {
   api: { list: API.getMoments, post: API.postMoment, like: API.likeMoment, comment: API.commentMoment, del: API.delMoment, delComment: API.delMomentComment },
@@ -560,7 +560,7 @@ function welcomeHTML() {
 <dl><dt>办公室</dt><dd>经理分诊，派一位员工办理，经理过目后交付。花费最少，默认用这个。</dd>
 <dt>讨论</dt><dd>所选档位的成员都上桌：各自作答、互相评审、修订，最后由统筹汇总共识与分歧。</dd>
 <dt>协同</dt><dd>把题目拆成子任务分给不同成员，做完再合并。适合篇幅长、分工明确的作业。</dd>
-<dt>附件</dt><dd>图片、PDF、Word、文本、音频，拖进输入框即可。成员可以运行代码、写文件、画图和联网搜索，生成的文件在过程区和「工具」里预览、下载。</dd>
+<dt>附件</dt><dd>图片、PDF、Word、文本、音频、视频，拖进输入框即可。成员可以运行代码、写文件、画图和联网搜索，生成的文件在过程区和「工具」里预览、下载。</dd>
 <dt>匿名</dt><dd>成员用塔罗牌代号（愚者、魔术师…），结束后再揭晓身份；不匿名时用「昵称·模式」，如「昵称·全力」。发给模型的内容不含模型 id 和厂商名。</dd></dl></div>`;
 }
 

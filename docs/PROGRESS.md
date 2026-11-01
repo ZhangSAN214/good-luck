@@ -242,6 +242,12 @@
 - 接口：`GET /api/sessions/{id}/carry`（预览摘要）；`POST /api/sessions`、`POST /api/estimate` 多一个 `carry_from`。
 - 测试：`tests/core/test_carry.py`、`tests/api/test_carry_api.py`、`tests/web/test_e2e_carry.py`。
 
+### 成员感官 K2 第二部分：工作模式的视频附件（2026-10-29，预估 1.5～2.5 小时，实际约 1 小时）
+
+- 附件新增 mp4 / mov / webm 视频：声音转写 + 按时间取帧（或整段给 `video_in` 模型），由最便宜的模型按新提示词 `describe_video/v1` 写成文字版（时间线、画面文字、声音转写），所有成员收到同一份文字版。
+- 没装 `av` + `pillow` 或没有看图模型时拒绝上传；转写或文字版失败时整场失败（同音频）。
+- 详见 `docs/PERCEPTION.md`、`docs/ARCHITECTURE.md` §2.8；测试 `tests/core/orchestrator/test_attachments.py`、`tests/core/attachments/`。
+
 ### 成员感官 K2 第一部分：聊天里真看真听（2026-10-29，预估 4～5 小时，实际约 1.5 小时）
 
 用户要求成员真正能看视频、听声音、看图（从 DSH 插件找灵感），并加入「快速 / 精细」两种模式、尽量省 token：

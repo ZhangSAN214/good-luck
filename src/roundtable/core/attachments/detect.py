@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from pathlib import PurePath
 from typing import Literal
 
-Kind = Literal["image", "pdf", "docx", "text", "audio"]
+Kind = Literal["image", "pdf", "docx", "text", "audio", "video"]
 
 
 class UploadError(ValueError):
@@ -36,6 +36,9 @@ TYPES: dict[str, tuple[Kind, str]] = {
     "csv": ("text", "text/csv"),
     "mp3": ("audio", "audio/mpeg"),
     "wav": ("audio", "audio/wav"),
+    "mp4": ("video", "video/mp4"),
+    "mov": ("video", "video/quicktime"),
+    "webm": ("video", "video/webm"),
 }
 
 UNSUPPORTED_HINTS = {
@@ -74,6 +77,9 @@ def _matches(ext: str, data: bytes) -> bool:
         "docx": lambda: head.startswith(b"PK\x03\x04") and _is_docx(data),
         "mp3": lambda: _is_mp3(head),
         "wav": lambda: head[:4] == b"RIFF" and head[8:12] == b"WAVE",
+        "mp4": lambda: head[4:8] == b"ftyp",
+        "mov": lambda: head[4:8] in (b"ftyp", b"moov", b"wide", b"mdat"),
+        "webm": lambda: head.startswith(b"\x1a\x45\xdf\xa3"),
     }
     return checks.get(ext, lambda: _is_text(data))()
 

@@ -152,6 +152,15 @@ class ThemeBody(BaseModel):
     theme: str | None = None
 
 
+class DrawChannelsBody(BaseModel):
+    """出图渠道的手动设置：disabled 关掉的模型 id；order 手动先后（不传 = 不改）。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    disabled: list[str] | None = None
+    order: list[str] | None = None
+
+
 class ChannelPriorityBody(BaseModel):
     """渠道优先顺序：auto 按配置 / custom 按 order；credits 为每月额度（null = 不设）。"""
 
@@ -838,6 +847,14 @@ def create_app(service: RoundtableService | None = None, lan: LanAccess | None =
         return svc(request).set_channel_priority(
             strategy=body.strategy, order=body.order, credits=body.credits
         )
+
+    @app.get("/api/media/draw-channels")
+    async def draw_channels(request: Request) -> dict[str, Any]:
+        return svc(request).draw_channels()
+
+    @app.put("/api/media/draw-channels")
+    async def set_draw_channels(request: Request, body: DrawChannelsBody) -> dict[str, Any]:
+        return svc(request).set_draw_channels(disabled=body.disabled, order=body.order)
 
     @app.get("/api/members")
     async def members(request: Request) -> dict[str, Any]:
