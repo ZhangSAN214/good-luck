@@ -1481,6 +1481,65 @@ class CLI:
                 )
         return 0
 
+    def cmd_sticker_packs(
+        self,
+        action: str,
+        target: str | None,
+        owner: str | None,
+        label: str | None,
+        file: str | None,
+    ) -> int:
+        """外部表情包（dsh-meme 格式）：list 已装 / catalog 目录 / install / assign / remove。"""
+        from roundtable.core.chat_actions import sticker_packs
+        from roundtable.core.sticker_packs import PackError
+
+        packs = sticker_packs(self.rt)
+
+        def who(owner: str) -> str:
+            return owner or "通用"
+
+        try:
+            if action == "catalog":
+                for p in packs.catalog():
+                    size = f"{p['bytes'] / 1048576:.1f} MB" if p["bytes"] else "?"
+                    flag = "已装" if p["installed"] else ("" if p["installable"] else "不能直接装")
+                    self.p(
+                        f"{p['id']:24} {p['name']}（{p['count']} 张，{size}，{p['license']}）{flag}"
+                    )
+                return 0
+            if action == "list":
+                rows = packs.installed()
+                if not rows:
+                    self.p("还没装外部表情包：roundtable sticker-packs catalog 看在线目录")
+                for p in rows:
+                    s = packs.summary(p)
+                    self.p(
+                        f"{s['id']:24} 「{s['label']}」{s['count']} 张，给 {who(s['owner'])} 用"
+                        f"（{s['license']}）例：{'、'.join(s['sample'][:5])}"
+                    )
+                return 0
+            if not target:
+                self.p("要给出包 id（install 也可以用 --file 给压缩包）")
+                return 1
+            if action == "install":
+                data = Path(file).read_bytes() if file else None
+                s = packs.install(target, owner, label or "", data)
+                self.p(f"装好了「{s['label']}」{s['count']} 张，给 {who(s['owner'])} 用")
+                return 0
+            if action == "assign":
+                s = packs.assign(target, owner, label)
+                self.p(f"「{s['label']}」现在给 {who(s['owner'])} 用")
+                return 0
+            if action == "remove":
+                packs.remove(target)
+                self.p(f"删掉了 {target}")
+                return 0
+        except (PackError, OSError) as exc:
+            self.p(str(exc))
+            return 1
+        self.p(f"不认识的操作 {action}")
+        return 1
+
     async def cmd_stickers(
         self,
         member: str | None,
@@ -1740,6 +1799,18 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="目录",
         help="把别处画好的图收进来（文件名=表情名，动图给四格图），待审",
     )
+    spacks = sub.add_parser(
+        "sticker-packs",
+        help="外部表情包（dsh-meme 格式）：在线目录、装到本机、给某位成员专用或通用",
+    )
+    spacks.add_argument(
+        "action", choices=["list", "catalog", "install", "assign", "remove"], help="操作"
+    )
+    spacks.add_argument("pack", nargs="?", help="包 id（如 whale-girl-emoji）")
+    spacks.add_argument("--for", dest="owner", metavar="成员", help="给这位成员专用（如 DeepSeek）")
+    spacks.add_argument("--common", action="store_true", help="改成大家通用")
+    spacks.add_argument("--as", dest="label", metavar="名字", help="聊天里的套装名（1～6 字）")
+    spacks.add_argument("--file", metavar="压缩包", help="装本地的 zip（不用下载）")
     perf = sub.add_parser("performance", help="办公室模式的员工绩效（件数、退回、通过率等）")
     perf.add_argument("--reset", action="store_true", help="清零：之后只统计从现在起的会话")
     evolve = sub.add_parser("evolve", help="革新例会：成员读资料卡提建议、投票，导出采纳单")
@@ -1928,6 +1999,9 @@ async def run(
                 args.prompts,
                 args.import_dir,
             )
+        if args.command == "sticker-packs":
+            owner = "" if args.common else args.owner
+            return cli.cmd_sticker_packs(args.action, args.pack, owner, args.label, args.file)
         if args.command == "performance":
             return cli.cmd_performance(args.reset)
         if args.command == "evolve":

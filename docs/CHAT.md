@@ -164,3 +164,13 @@
 - **经典梗**：配置的 `classics`（现在有「虾爹」「我chovey」）和你在网页里标「经典」的永远不下架、不算老梗；意思空着的，梗雷达联网时会搜一下补上。
 - **懂梗、玩梗**（`core/member/memes.py`，只用于生活模式）：谁懂哪个梗由（成员, 梗）派生的随机数和懂梗概率比，概率只看性格分（爱玩爱聊的懂得多），新梗刚出来几天懂的人少。大脑分区的意图卡里写一句：对方说了上句或梗——懂就接住（有固定接法时一半时候程序直接接，不调模型），不懂就问一句是啥梗；平时偶尔（`use_chance`）提一句最近在玩的梗，用不用她自己看场合，同一个梗隔 `reuse_days` 天才再主动用。梗用自己的随机数，不打乱别的区。
 - **网页**：「上网」里的「网络梗」一节：看梗库（意思、上句 → 接法、懂的人）、加梗、删梗、马上更新一次。数据在 `app_settings`（`memes.*`，不加迁移），只存本机。
+
+## G14 外部表情包（2026-11-01，dsh-meme 格式）
+
+- **是什么**：别人做好的表情包压缩包（`manifest.json` + `index.db` + `memes/<分类>/图`，dsh-meme-packs 仓库的格式）。圆桌自己读这个格式，**不依赖 dsh**（`core/sticker_packs.py`）。
+- **装在哪**：本机 `data/sticker_packs/<包 id>/`（图片 + `pack.json`），不进仓库；许可证照原样记下（不少包只许非商业使用，个人用没问题）。在线目录 `chat.actions.sticker_packs.catalog_url`，下载后按目录里的 sha256 核对；压缩包里只收 `memes/` 下真是图片的文件（拒绝绝对路径、`..`、超大文件），总大小不超过 `max_mb`。
+- **给谁用**：每个包可以给某位成员专用（她提示词里的「你的专属」）或大家通用（「通用」）。套装名 1～6 字，不和通用套装、成员昵称、别的包重名（默认用包名去掉「表情包」，重了加「包」）。
+- **名字、用法、意思词**：文件名像词就用文件名，否则用第一个关键词；说明（caption）≤24 字当用法，否则用关键词（整包大半都有的词、同分类大半都有的词排后面）。
+- **提示词**：一套可能上百张，每套只列 `menu_size`（10）张，按（小时, 成员, 套装）轮换，可复现；聊天里认得整套（`member_stickers` 含全部）。
+- **网页**：`/api/chat/stickers` 里一并给出（专用的 `member` 是成员 id，通用的是 `*`），图从 `/api/sticker-packs/<id>/<序号>` 取。管理：`GET /api/sticker-packs`、`GET /api/sticker-packs/catalog`、`POST /api/sticker-packs {id, owner, label}`、`PATCH`、`DELETE`。
+- **命令行**：`roundtable sticker-packs catalog | list | install <id> [--for 成员] [--as 名字] [--file 压缩包] | assign <id> --for 成员 | --common | remove <id>`。

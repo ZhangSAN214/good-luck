@@ -865,6 +865,11 @@ chat:
       enabled: true
       style: apple
       url: https://cdn.jsdelivr.net/npm/emoji-datasource-apple@15.1.2/img/apple/64/{code}.png
+    sticker_packs:                 # 外部表情包（dsh-meme 格式）：装到本机 data/sticker_packs/，可给某位成员专用或通用；roundtable sticker-packs
+      enabled: true
+      menu_size: 10                # 提示词里每套最多列几张，按小时轮换
+      max_mb: 200
+      catalog_url: https://raw.githubusercontent.com/yyh-001/dsh-meme-packs/main/catalog.json
     max_segments: 3                # 一次回复最多拆成几条气泡
     segment_gap_seconds: 1.2       # 拆条之间停多久（默认值）
     recall_seconds: 120            # 你发出 2 分钟内可以撤回

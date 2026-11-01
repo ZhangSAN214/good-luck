@@ -43,7 +43,7 @@ from roundtable.core.budget.guard import day_window, month_window
 from roundtable.core.carry import carry_question, compact
 from roundtable.core.changelog import changelog_view, load_changelog
 from roundtable.core.chat import ROOM, WORK, ChatHub, chat_budget, dm_room
-from roundtable.core.chat_actions import card_from_url, is_bare_url, own_stickers
+from roundtable.core.chat_actions import card_from_url, is_bare_url, own_stickers, sticker_packs
 from roundtable.core.chat_actions import card_text as chat_card_text
 from roundtable.core.chat_media import MAX_BYTES as CHAT_MEDIA_MAX
 from roundtable.core.chat_media import ChatMediaStore, MediaError, clean_items, placeholder
@@ -178,6 +178,7 @@ from roundtable.core.standee import load_standee
 from roundtable.core.standee import standee_file as read_standee_file
 from roundtable.core.steps import Event, restore_state
 from roundtable.core.steps.office import group_estimates
+from roundtable.core.sticker_packs import PackError
 from roundtable.core.storage import NotFound, iso
 from roundtable.core.supercomputer import Supercomputer
 from roundtable.core.supercomputer.launch import CommandLauncher, HookLauncher
@@ -254,6 +255,7 @@ class RoundtableService:
         self.stickers = MemberStickers(runtime, runtime.sticker_dir)
         emoji_dir = runtime.sticker_dir.parent / EMOJI_DIR if runtime.sticker_dir else None
         self.emoji = EmojiImages(runtime, emoji_dir)
+        self.packs = sticker_packs(runtime)
         self.memory = MemoryKeeper(runtime, self.chats.everyone)
         self.life = LifeEngine(runtime, self.chats, self.memory)
         self.perceiver = Perceiver(runtime, PerceptionCache(runtime.perception_dir))
@@ -2141,7 +2143,42 @@ class RoundtableService:
                 for n in own
             ]
             packs.append({"pack": m.name, "member": m.id, "items": items})
+        packs += self.packs.chat_packs({m.id: m.name for m in self.chats.everyone()})
         return {"packs": packs}
+
+    # --- 外部表情包（dsh-meme 格式） -------------------------------------------------------
+
+    def _packs_call(self, fn: Any, *args: Any, **kw: Any) -> Any:
+        try:
+            return fn(*args, **kw)
+        except PackError as exc:
+            raise ServiceError(str(exc)) from None
+
+    def sticker_packs(self) -> dict[str, Any]:
+        """本机装的外部表情包。"""
+        return {"packs": [self.packs.summary(p) for p in self.packs.installed()]}
+
+    def sticker_pack_catalog(self) -> dict[str, Any]:
+        return {"packs": self._packs_call(self.packs.catalog)}
+
+    def install_sticker_pack(
+        self, source: str, owner: str | None = None, label: str = "", data: bytes | None = None
+    ) -> dict[str, Any]:
+        return self._packs_call(self.packs.install, source, owner, label, data)
+
+    def assign_sticker_pack(
+        self, pack_id: str, owner: str | None = None, label: str | None = None
+    ) -> dict[str, Any]:
+        return self._packs_call(self.packs.assign, pack_id, owner, label)
+
+    def remove_sticker_pack(self, pack_id: str) -> dict[str, Any]:
+        return self._packs_call(self.packs.remove, pack_id)
+
+    def sticker_pack_image(self, pack_id: str, n: int) -> tuple[bytes, str]:
+        try:
+            return self.packs.image(pack_id, n)
+        except PackError as exc:
+            raise ServiceError(str(exc), 404) from None
 
     def chat_personas(self) -> dict[str, Any]:
         """每位成员的聊天人设；source：local 网页里改过 / config 配置文件 / empty 没有设定。"""

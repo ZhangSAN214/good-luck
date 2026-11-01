@@ -2934,6 +2934,24 @@ class EmojiImageRules(_Strict):
         return url
 
 
+class StickerPackRules(_Strict):
+    """外部表情包（dsh-meme 格式的压缩包，``core/sticker_packs.py``）：
+    装在本机 data/sticker_packs/，不进仓库；可以给某位成员专用或大家通用。"""
+
+    enabled: bool = True
+    # 提示词里每套最多列几张（按小时轮换）；聊天里认得整套
+    menu_size: int = Field(default=10, ge=1, le=40)
+    max_mb: int = Field(default=200, ge=1, le=1000)  # 一个包压缩包 / 解压后的上限
+    catalog_url: str = Field(default="", max_length=300)  # 在线目录（catalog.json）
+
+    @field_validator("catalog_url")
+    @classmethod
+    def _https(cls, url: str) -> str:
+        if url and not url.startswith("https://"):
+            raise ValueError("catalog_url 要以 https:// 开头")
+        return url
+
+
 class ChatActionRules(_Strict):
     """聊天里能发什么（docs/CHAT.md「微信式动作」）：表情包、颜文字、引用、拆条、拍一拍、撤回。
 
@@ -2946,6 +2964,7 @@ class ChatActionRules(_Strict):
     stickers: dict[str, list[str]] = Field(default_factory=dict)
     kaomoji: list[str] = Field(default_factory=list, max_length=40)  # 颜文字示例
     emoji_images: EmojiImageRules = EmojiImageRules()  # 网页里的 emoji 显示成哪套图
+    sticker_packs: StickerPackRules = StickerPackRules()  # 本机装的外部表情包
     max_segments: int = Field(default=3, ge=1, le=6)  # 一次回复最多拆成几条
     segment_gap_seconds: float = Field(default=1.2, ge=0, le=10)  # 拆条之间的固定间隔（默认值）
     recall_seconds: int = Field(default=120, ge=0, le=3600)  # 你发出后多久内可以撤回
