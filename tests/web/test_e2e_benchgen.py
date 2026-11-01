@@ -664,6 +664,10 @@ def test_benchgen_profile_and_from_product(serve, page, monkeypatch, tmp_path):
     pane.locator(".bg-prof li", has_text="给小白用").wait_for()
 
     pane.locator("[data-text]").fill("照着这个动图做一个能换角色和动作的台")
+    form = pane.locator(".bg-form")  # 按表填（可选）：字段清单来自后端
+    form.locator("summary").click()
+    form.locator('[data-ff="who"]').fill("我自己")
+    form.locator('select[data-ff="net"]').select_option("只用本地")
     assert pane.locator("[data-fromprod]").count() == 0  # 没有素材时不出现
     files = page.locator("input[data-benchfile]")
     files.set_input_files([{"name": "鲸鱼女孩.png", "mimeType": "image/png", "buffer": PNG}])
@@ -678,3 +682,8 @@ def test_benchgen_profile_and_from_product(serve, page, monkeypatch, tmp_path):
     b = built["b"].build
     assert b["from_product"] is True
     assert any(v["src"] == "档案" and "小白" in v["text"] for v in b["voices"])
+    assert b["form"] == {"who": "我自己", "net": "只用本地"}
+    assert "【工具策略】\n- 联网：只用本地" in b["request"]
+    said = pane.locator(".bg-said")
+    said.locator(".bg-saidform dd", has_text="只用本地").wait_for()
+    assert "【" not in said.locator("p").inner_text()  # 原话和表单分开显示

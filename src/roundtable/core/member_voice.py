@@ -101,21 +101,32 @@ class MemberVoices:
     def model_for(
         self, member: str, text: str = "", tier: str | None = None
     ) -> tuple[ModelSpec, str] | None:
-        """这位成员这次用的语音模型和音色；没有可用的返回 None。"""
+        """这位成员这次先用的语音模型和音色；没有可用的返回 None。"""
+        picks = self.candidates(member, text, tier)
+        return picks[0] if picks else None
+
+    def candidates(
+        self, member: str, text: str = "", tier: str | None = None
+    ) -> list[tuple[ModelSpec, str]]:
+        """按先后排好的 (语音模型, 音色)：不花钱的（如本地配音）先试，其次中文偏好 zh 标签，
+        再其次 default；前一个合成失败时换下一个。"""
         if not self.rules.enabled:
-            return None
+            return []
         mine = self.voices_of(member)
         group = [
             m
             for m in media_group(self.rt.router, "speech", tier or self.rules.default_tier)
             if m.id in mine
         ]
-        if not group:
-            return None
-        if mostly_cjk(text):
-            group = [m for m in group if "zh" in m.tags] or group
-        model = ([m for m in group if m.default] or group)[0]
-        return model, mine[model.id]
+        cjk = mostly_cjk(text)
+        group.sort(
+            key=lambda m: (
+                speech_cost(m, None, 100) > 0,
+                cjk and "zh" not in m.tags,
+                not m.default,
+            )
+        )
+        return [(m, mine[m.id]) for m in group]
 
     def month_spent(self) -> float:
         start, end = month_window(datetime.fromisoformat(self.rt.repo.clock()))
@@ -126,15 +137,26 @@ class MemberVoices:
         text = " ".join(text.split())[:MAX_CHARS]
         if not text:
             raise ValueError("要念的文字是空的")
-        pick = self.model_for(member, text, tier)
-        if pick is None:
+        picks = self.candidates(member, text, tier)
+        if not picks:
             raise VoiceUnavailable("这位成员没有可用的音色（没有配置，或没有可用的语音模型）")
-        model, voice = pick
+        for model, voice in picks:
+            key = hashlib.sha256(f"{model.id}\n{voice}\n{text}".encode()).hexdigest()
+            hit = self._cache.get(key)
+            if hit is not None:
+                data, meta = hit
+                return VoiceClip(
+                    data, meta["mime"], meta.get("seconds"), 0.0, model.id, voice, True
+                )
+        for model, voice in picks:
+            try:
+                return await self._synthesize(model, voice, text)
+            except VoiceUnavailable:
+                continue  # 换下一个语音模型（如本地配音服务没开）
+        raise VoiceUnavailable("合成失败（所有语音模型都不可用）")
+
+    async def _synthesize(self, model: ModelSpec, voice: str, text: str) -> VoiceClip:
         key = hashlib.sha256(f"{model.id}\n{voice}\n{text}".encode()).hexdigest()
-        hit = self._cache.get(key)
-        if hit is not None:
-            data, meta = hit
-            return VoiceClip(data, meta["mime"], meta.get("seconds"), 0.0, model.id, voice, True)
         estimate = speech_cost(model, None, len(text))
         limit = self.rules.monthly_usd
         if limit > 0 and self.month_spent() + estimate > limit + EPS:

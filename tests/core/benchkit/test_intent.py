@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
+import pytest
+
 from roundtable.core.benchkit import intent as it
 
 REQS = [
@@ -193,3 +198,31 @@ def test_trace_follows_each_voice_to_its_state():
 def test_trace_before_plan_is_pending_not_unmatched():
     b = {"voices": [{"id": "v1", "src": "开工", "text": "修图台"}]}
     assert it.trace(b)[0]["state"] == "待做"
+
+
+# --- 结构化需求表单（2026-11-01）：金样本锁住输出 -------------------------------------------
+
+GOLDEN = Path(__file__).parent / "golden" / "form_cases.json"
+
+
+@pytest.mark.parametrize("case", json.loads(GOLDEN.read_text("utf-8")), ids=lambda c: c["name"])
+def test_form_golden(case):
+    """改了表单或构建器，金样本对不上就得想清楚再更新 golden/form_cases.json。"""
+    assert it.clean_form(case["form"]) == case["clean"]
+    assert it.form_text(case["clean"]) == case["text"]
+
+
+def test_form_fields_are_well_formed_and_voices_are_traced():
+    ids = [f["id"] for f in it.FORM]
+    assert len(ids) == len(set(ids))
+    assert {f["group"] for f in it.FORM} == {"基础信息", "约束与规则", "工具策略", "输出与兜底"}
+    assert all(f["options"][0] == "自动" for f in it.FORM if "options" in f)
+    assert it.clean_form("不是字典") == {} and it.clean_form({"who": 3}) == {}
+    b = {"voices": []}
+    it.form_voices(b, {"who": "爸妈", "net": "只用本地"})
+    assert [(v["src"], v["text"], v["ref"]) for v in b["voices"]] == [
+        ("表单", "给谁用：爸妈", "who"),
+        ("表单", "联网：只用本地", "net"),
+    ]
+    b["proposal"] = {"requirements": [{"id": "r1", "voices": []}]}
+    assert {r["state"] for r in it.trace(b)} == {"已参考"}

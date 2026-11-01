@@ -1,7 +1,7 @@
 """Provider 基类、注册表、各渠道适配器、渠道路由与计费。"""
 
 # 导入适配器模块以完成注册
-from . import anthropic_adapter, comfyui, fake, gemini, openai_compat  # noqa: F401
+from . import anthropic_adapter, comfyui, fake, gemini, local_tts, openai_compat  # noqa: F401
 from .base import (
     VIDEO_FINAL,
     AccountBalance,

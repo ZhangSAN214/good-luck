@@ -87,32 +87,41 @@ signatures:
 # 成员固定音色：键是 vendor，值是「语音模型 id → 音色名」。只用模型自带的合成音色，不克隆真人声音。
 # 中文文字优先用带 zh 标签的语音模型；没给某个模型配音色，这位成员就不用那个模型。
 # 千问语音 Plus 只有两个音色，分不出八个人，所以不配（节电档用 Gemini，全力档用 MiniMax）。
+# pc-tts 的值是本地配音服务里的预设名（参考音频用上面合成音色念一段生成，见 docs/LOCAL_TTS.md）。
 # 「成员设定」页可以试听；聊天里的语音消息、「听 TA 说」也用这里的音色（花费计入创作输出月上限）。
 voices:
   OpenAI:
     gemini-3.8-flash-tts: Kore
     minimax-speech-2.8-hd: female-yujie
+    pc-tts: rt-openai
   Anthropic:
     gemini-3.8-flash-tts: Leda
     minimax-speech-2.8-hd: female-chengshu
+    pc-tts: rt-anthropic
   xAI:
     gemini-3.8-flash-tts: Zephyr
     minimax-speech-2.8-hd: female-shaonv-jingpin
+    pc-tts: rt-xai
   DeepSeek:
     gemini-3.8-flash-tts: Despina
     minimax-speech-2.8-hd: female-tianmei-jingpin
+    pc-tts: rt-deepseek
   Google:
     gemini-3.8-flash-tts: Aoede
     minimax-speech-2.8-hd: female-yujie-jingpin
+    pc-tts: rt-google
   Alibaba:
     gemini-3.8-flash-tts: Laomedeia
     minimax-speech-2.8-hd: female-tianmei
+    pc-tts: rt-alibaba
   Moonshot AI:
     gemini-3.8-flash-tts: Callirrhoe
     minimax-speech-2.8-hd: female-shaonv
+    pc-tts: rt-moonshot
   Zhipu AI:
     gemini-3.8-flash-tts: Gacrux
     minimax-speech-2.8-hd: female-chengshu-jingpin
+    pc-tts: rt-zhipu
 
 # 成员生日（日历用，只影响生活：聊天、朋友圈、生活；工作模式不读）。键是 models.yaml 的 vendor，
 # 值是 MM-DD。默认取各自模型首次公开发布的日子（公开报道的日期，可能有一两天出入），想改直接改。
