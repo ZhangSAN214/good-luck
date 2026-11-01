@@ -116,7 +116,6 @@ chat:
         - {id: burnt_pot, domain: 做饭, chance: 0.01, likes: [做饭, 下厨, 烘焙], need_likes: true, steps: [{text: 做饭糊锅了，开窗散了半天味, tags: [story.bad], place: canteen}]}
         - {id: fix_lamp, domain: 手工修理, chance: 0.025, likes: [修, 工具, 拆, 组装, 手工], steps: [{text: 把房间里接触不良的台灯修好了, tags: [story.good]}]}
         - {id: clear_sky, domain: 天文科学, chance: 0.035, hours: [20, 23], likes: [星, 天文, 夜空, 宇宙], steps: [{text: 难得晴天，在天台多看了会儿星星, tags: [story.good], place: rooftop}]}
-        - {id: finish_book, domain: 长文阅读, chance: 0.03, likes: [书, 小说, 阅读], steps: [{text: 把一本看了好久的书看完了, tags: [story.good]}]}
         - {id: write_bit, domain: 写作, chance: 0.03, likes: [写, 故事, 日记, 诗, 文字], steps: [{text: 随手写了一小段东西，自己还挺满意, tags: [story.good]}]}
         - {id: sketch, domain: 画画审美, chance: 0.03, likes: [画, 配色, 设计, 审美, 拍照], steps: [{text: 窝在房间画了张小画}]}
         - {id: song_loop, domain: 音乐, chance: 0.03, likes: [歌, 音乐, 唱, 吉他, 钢琴], steps: [{text: 单曲循环了一下午同一首歌}]}
@@ -127,14 +126,39 @@ chat:
         - {id: words_day, domain: 语言翻译, chance: 0.025, likes: [外语, 英语, 日语, 翻译, 单词], steps: [{text: 背了会儿单词，顺手翻了段歌词}]}
         - {id: tiny_script, domain: 编程, chance: 0.02, likes: [代码, 编程, 程序, 算法], steps: [{text: 给自己写了个小脚本，省了不少事, tags: [story.good]}]}
         - {id: old_story, domain: 历史文学, chance: 0.02, likes: [历史, 古代, 文学, 典故, 诗词], steps: [{text: 读了段以前没留意过的历史，越看越上头}]}
-        - {id: level_clear, domain: 游戏, chance: 0.03, likes: [游戏, 通关, 抽卡], steps: [{text: 终于把卡了很久的那一关打过去了, tags: [story.good], place: lounge}]}
         - {id: extra_run, domain: 运动, chance: 0.03, likes: [健身, 跑步, 运动, 瑜伽], steps: [{text: 比平时多跑了两公里, place: gym}]}
         - {id: kept_company, domain: 倾听照顾人, chance: 0.02, with_other: true, likes: [照顾, 倾听, 关心, 陪伴, 温柔], steps: [{text: "{other}心情不太好，{name}陪着聊了很久", place: lounge}]}
         - {id: made_laugh, domain: 活跃气氛, chance: 0.02, with_other: true, likes: [热闹, 玩笑, 搞笑, 段子], steps: [{text: "{name}在休息室讲了个段子，把{other}笑得不行", tags: [story.good], place: lounge}]}
+        # L1 日常细节：作息（赖床、午睡、失眠、做梦发呆）、饮食（口味、做饭、外卖、尝新）、家务、季节
+        - {id: oversleep, chance: 0.03, weekdays: [0, 1, 2, 3, 4], hours: [7, 9], steps: [{text: 闹钟响了三遍才爬起来，早饭是在路上啃的}]}
+        - {id: nap, chance: 0.04, weekdays: [5, 6], hours: [13, 16], steps: [{text: 午饭后眯了一会儿，一睁眼天都快黑了}]}
+        - {id: insomnia, chance: 0.01, cooldown_days: 10, hours: [23, 24], steps: [{text: 躺下翻来覆去睡不着，数羊数到两点, tags: [story.late]}, {day: 1, text: 昨晚没睡好，白天一直打哈欠, tags: [story.tired]}]}
+        - {id: dream, chance: 0.02, hours: [7, 10], steps: [{text: 做了个很怪的梦，醒来只记得一半}]}
+        - {id: daydream, chance: 0.02, hours: [14, 22], steps: [{text: 一个人对着窗外发了好一会儿呆}]}
+        - {id: takeout, chance: 0.025, hours: [18, 21], steps: [{text: 懒得出门，点了外卖}]}
+        - {id: night_snack, chance: 0.015, hours: [21, 24], likes: [零食, 夜宵, 吃], steps: [{text: 半夜饿了，翻出包零食吃完了}]}
+        - {id: cook_dinner, domain: 做饭, chance: 0.015, hours: [17, 20], likes: [做饭, 下厨, 菜], steps: [{text: 自己做了顿晚饭，比食堂好吃, tags: [story.good], place: canteen}]}
+        - {id: new_place, chance: 0.01, with_other: true, cooldown_days: 14, hours: [11, 21], steps: [{text: "{name}拉着{other}去尝了家新开的店", tags: [story.good], place: out}]}
+        - {id: spicy_food, chance: 0.015, likes: [辣, 川菜, 火锅, 湘菜], need_likes: true, hours: [11, 21], steps: [{text: 吃了顿很辣的，辣得直吸气但很过瘾, tags: [story.good], place: out}]}
+        - {id: sweet_treat, chance: 0.015, likes: [甜, 甜点, 蛋糕, 奶茶], need_likes: true, hours: [13, 21], steps: [{text: 买了块小蛋糕犒劳自己, tags: [story.good]}]}
+        - {id: laundry, chance: 0.025, weekdays: [5, 6], hours: [10, 18], steps: [{text: 攒了一周的衣服终于洗了}]}
+        - {id: clean_room, chance: 0.015, weekdays: [5, 6], hours: [10, 18], cooldown_days: 10, steps: [{text: 把房间里外打扫了一遍，地板亮得能照人, tags: [story.good]}]}
+        - {id: rearrange, chance: 0.005, cooldown_days: 45, hours: [10, 20], likes: [布置, 装饰, 收纳, 家居], steps: [{text: 把书桌挪到了窗边，房间像换了一间}]}
+        - {id: hotpot, chance: 0.01, months: [11, 12, 1, 2], with_other: true, cooldown_days: 14, hours: [17, 21], steps: [{text: "天冷，{name}和{other}在食堂角落涮了顿火锅", tags: [story.good], place: canteen}]}
+        - {id: first_frost, chance: 0.01, months: [11, 12, 1, 2], cooldown_days: 30, hours: [7, 10], steps: [{text: 早上出门冻得一哆嗦，翻出了厚外套}]}
+        - {id: autumn_leaves, chance: 0.01, months: [9, 10, 11], cooldown_days: 20, hours: [10, 18], steps: [{text: 去公园踩了会儿落叶, place: out}]}
+        - {id: spring_walk, chance: 0.01, months: [3, 4, 5], cooldown_days: 20, hours: [10, 18], steps: [{text: 路边的花开了，绕远路多走了一段, place: out}]}
+        - {id: ice_cream, chance: 0.015, months: [6, 7, 8], hours: [12, 21], steps: [{text: 热得不行，买了根冰棍边走边吃, place: out}]}
+        - {id: long_evening, chance: 0.01, months: [6, 7], cooldown_days: 20, hours: [20, 22], steps: [{text: 九点多天还亮着，在天台坐到天黑, place: rooftop}]}
         # 住户变化（10-31 你定：成员离开 / 新成员入住当生活事件，温和，不煽情）
         - {id: arrive, trigger: arrive, steps: [{text: 刚搬进公寓，还在收拾行李, tags: [story.new]}]}
         - {id: welcome, trigger: welcome, steps: [{text: "{new}搬进来了，大家去打了个招呼", tags: [story.welcome], place: lounge}]}
         - {id: farewell, trigger: farewell, steps: [{text: "{gone}搬走了，走之前和大家道了别", tags: [story.farewell], place: lounge}]}
+      progress:                    # 爱好进度（L1）：书读到哪、剧追到哪、游戏打到哪；在做的东西优先从她「最爱」里挑
+        kinds:
+          book: {words: [书, 小说, 漫画, 散文, 诗], things: [一本推理小说, 一套科幻小说, 一本散文集, 一部长篇漫画, 一本旅行随笔], acts: ["dorm:read"], unit: 章, total: [12, 30], per: [1, 4], mid_chance: 0.2, domain: 长文阅读, start: "开始看{thing}", mid: "{thing}看到第{n}{unit}了", done: "把{thing}看完了"}
+          show: {words: [剧, 番, 动画, 纪录片], things: [一部悬疑剧, 一部新番, 一部美食纪录片, 一部老动画], daily: 0.25, mid_chance: 0.15, unit: 集, total: [8, 24], per: [1, 3], start: "开始追{thing}", mid: "{thing}追到第{n}{unit}了", done: "把{thing}追完了"}
+          game: {words: [游戏, 通关, 主机, 手游], things: [一个解谜游戏, 一个像素冒险游戏, 一个种田游戏, 一个横版动作游戏], acts: ["lounge:game"], unit: 关, total: [6, 15], per: [1, 2], domain: 游戏, start: "开始玩{thing}", mid: "{thing}打到第{n}{unit}了", done: "把{thing}通关了"}
       talent:                      # 觉醒擅长领域（L10）：证据只用人物卡种子 + 生活练习；和工作完全无关，不影响派活
         enabled: true
         domains:                   # 领域 → 档案里的种子词 / 生活里算练习的去处 / 深耕后楼里的人怎么说她（可增删）
