@@ -417,3 +417,15 @@ def test_group_history_hides_what_she_slept_through_except_the_last_few(real_rhy
     assert "夜里第5条" in seen and "夜里第3条" in seen and "夜里第2条" not in seen
     assert "还有 3 条没看到" in seen
     assert "夜里第0条" in room.history(names)  # 不指定谁在看：全给
+
+
+def test_member_asked_by_a_colleague_answers_first_next_round():
+    """11-01 用户：有人问了没人回。阿一问了阿三还没回，你再说话时阿三先接。"""
+    env = Env()
+    room = chat(env)
+    env.rt.repo.add_chat_message(room.room, "V1", "阿三你昨天那家店好吃吗？")
+    for seed in range(10):
+        picked = chat(env, seed).pick("今天吃什么")
+        assert picked[0].id == "V3"
+    env.rt.repo.add_chat_message(room.room, "V3", "还行吧")
+    assert chat(env).owed(chat(env).members()) is None
