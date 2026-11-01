@@ -881,6 +881,145 @@ class LifeGuardRules(_Strict):
     report_examples: int = Field(default=3, ge=0, le=10)  # 自检报告里最多举几个重复的例子
 
 
+class StoryStep(_Strict):
+    """长线剧情的一步：开始后第几天（整数或 [最少, 最多]）发生什么。
+
+    text 是不带主语的自然话（「嗓子有点疼，泡了杯蜂蜜水」），可用 {name}（她）、{other}（同伴）、
+    {domain}（擅长领域）、{new}（新住户）、{gone}（搬走的人）。tags 交给状态插件（P3）按反射表改
+    心情精力；本系统不直接改。rest：这天宅在宿舍歇着（生病时），空闲时段不出门。"""
+
+    day: int | list[int] = 0
+    text: str = Field(min_length=1, max_length=80)
+    tags: list[str] = Field(default_factory=list, max_length=6)
+    place: str = Field(default="dorm", max_length=20)  # dorm / 公共房间 id / out（外面）
+    rest: bool = False
+
+    @field_validator("day")
+    @classmethod
+    def _day(cls, v: int | list[int]) -> int | list[int]:
+        days = v if isinstance(v, list) else [v]
+        if not 1 <= len(days) <= 2 or any(d < 0 or d > 60 for d in days) or days != sorted(days):
+            raise ValueError("day 写 0～60 的整数，或 [最少, 最多]")
+        return v
+
+
+class StorySpec(_Strict):
+    """生活事件库里的一件事（可以是一步，也可以是有前因后果、持续几天的长线剧情）。
+
+    挑不挑全由程序按时刻派生的随机数决定（可复现、不花钱）：每天的基础概率 chance，档案里提到
+    likes 里的词时乘 boost（need_likes 时没提到就不会发生），算 domain 擅长练习，觉醒后再乘。
+    trigger：daily 每天挑；arrive / welcome / farewell 由住户变化触发（新成员入住、模型下架）。"""
+
+    id: str = Field(pattern=r"^[a-z][a-z0-9_]{0,39}$")
+    trigger: Literal["daily", "arrive", "welcome", "farewell"] = "daily"
+    group: str = Field(default="", max_length=20)  # 频率上限的分组（如 sick：每季度最多一次）
+    chance: float = Field(default=0.0, ge=0, le=1)
+    hours: list[int] = Field(default_factory=lambda: [9, 22], min_length=2, max_length=2)
+    weekdays: list[int] = Field(default_factory=list)  # 0 = 周一；空 = 每天
+    months: list[int] = Field(default_factory=list)  # 空 = 全年
+    likes: list[str] = Field(default_factory=list, max_length=20)
+    boost: float = Field(default=2.0, ge=1, le=10)
+    need_likes: bool = False
+    domain: str = Field(default="", max_length=20)
+    with_other: bool = False  # 找一位同伴一起（两人都记一笔）
+    cooldown_days: int = Field(default=7, ge=0, le=400)
+    steps: list[StoryStep] = Field(min_length=1, max_length=8)
+
+    @field_validator("hours")
+    @classmethod
+    def _hours(cls, v: list[int]) -> list[int]:
+        if not 0 <= v[0] < v[1] <= 24:
+            raise ValueError("hours 写 [开始, 结束)，0～24")
+        return v
+
+
+class LifeWayRules(_Strict):
+    """空闲时去哪（L0）：按各自档案里的爱好挑，不再按编号轮换。option 键为「房间:活动」。"""
+
+    enabled: bool = True
+    options: dict[str, list[str]] = Field(default_factory=dict)  # 去处 → 档案里提到就更想去的词
+    like_weight: float = Field(default=3.0, ge=0, le=20)  # 档案里提到得多的去处，权重最多加这么多
+    talent_weight: float = Field(default=2.0, ge=0, le=20)  # 觉醒了的擅长相关的去处再加这么多
+
+
+class TalentDomain(_Strict):
+    """一个擅长领域：档案里的种子词、生活里哪些活动算练习、深耕后楼里的人怎么说她。"""
+
+    words: list[str] = Field(min_length=1, max_length=30)
+    acts: list[str] = Field(default_factory=list, max_length=10)  # 去处「房间:活动」或活动 id
+    known: str = Field(default="", max_length=40)  # 深耕后的一句自然话，{name} 为她
+
+
+class TalentTexts(_Strict):
+    """擅长各阶段写进生活事件的话（{domain} 领域、{evidence} 依据、{other} 来请教的人）。"""
+
+    awake: str = "突然意识到自己好像挺会{domain}的：{evidence}"
+    ask: str = "{other}来找{name}问{domain}上的事，{name}讲了好一会儿"
+    stuck: str = "{domain}上卡住了，怎么弄都不对，有点泄气"
+    unstuck: str = "{domain}上那个坎忽然想通了"
+    rusty: str = "好久没碰{domain}了，手有点生"
+
+
+class TalentRules(_Strict):
+    """觉醒擅长领域（L10）：证据只用人物卡种子 + 生活练习，不看办公室表现、不影响派活。
+
+    萌芽（证据开始聚在一个领域，她自己还没说）→ 觉醒（种子 + 练习够了，说得出依据，经 P6 写进
+    档案 likes.擅长，可在成长时间线撤回）→ 深耕（觉醒后一直在练：更常去做、楼里有人来请教）→
+    瓶颈与突破（偶尔卡住几天再想通）；长期不练会生疏（经 P6 从档案去掉）。所有成员同一套规则。"""
+
+    enabled: bool = True
+    window_days: int = Field(default=30, ge=7, le=120)  # 练习看最近几天
+    seed_cap: int = Field(default=3, ge=0, le=10)  # 档案提到的次数最多算几次
+    seed_weight: float = Field(default=1.5, ge=0, le=10)
+    sprout: float = Field(default=4, ge=1)  # 证据分到这儿算萌芽
+    awake: float = Field(default=10, ge=1)  # 证据分到这儿、练习也够才觉醒
+    awake_practice: int = Field(default=6, ge=1)  # 觉醒至少练过几回（只有种子不算）
+    deep_days: int = Field(default=14, ge=1, le=120)  # 觉醒后再练这么多天进深耕
+    deep_practice: int = Field(default=8, ge=1)
+    ask_chance: float = Field(default=0.06, ge=0, le=1)  # 深耕后每天有人来请教的概率
+    stuck_chance: float = Field(default=0.03, ge=0, le=1)  # 深耕后每天卡住的概率
+    stuck_days: list[int] = Field(default_factory=lambda: [2, 5], min_length=2, max_length=2)
+    rusty_practice: int = Field(default=1, ge=0)  # 窗口里练习不超过这么多回算生疏
+    max_talents: int = Field(default=3, ge=1, le=6)
+    story_boost: float = Field(default=1.6, ge=1, le=5)  # 觉醒后相关生活事件的概率乘几
+    domains: dict[str, TalentDomain] = Field(default_factory=dict)
+    texts: TalentTexts = TalentTexts()
+
+
+class StoryRules(_Strict):
+    """生活事件库 + 长线剧情（P7 生活引擎 L0，docs/LIFE_STORY.md）。
+
+    程序挑事（不花钱，可复现）；只发事件：心情精力 P3、记忆 P2、关系 P4、成长 P6 各自接。
+    大部分日子是平淡的：每人每天最多 max_per_day 件，非日常的事有分组冷却（每季度最多病一次）。"""
+
+    enabled: bool = True
+    max_per_day: int = Field(default=2, ge=0, le=6)
+    group_cooldown_days: dict[str, int] = Field(default_factory=dict)
+    # 分组 → 生活阶段（chat.engine.phase）的名字：她正在这些阶段里时不排这一组的事（不会感冒又过敏）
+    phase_groups: dict[str, list[str]] = Field(default_factory=dict)
+    keep_days: int = Field(default=7, ge=2, le=60)  # 已过去的日程留几天（场景里「最近的事」用）
+    scene_days: int = Field(default=2, ge=0, le=7)  # 群聊 / 私聊场景里带最近几天的事
+    scene_items: int = Field(default=2, ge=0, le=5)
+    scene_chars: int = Field(default=80, ge=0, le=300)
+    stories: list[StorySpec] = Field(default_factory=list, max_length=300)
+    way: LifeWayRules = LifeWayRules()
+    talent: TalentRules = TalentRules()
+
+    @model_validator(mode="after")
+    def _unique(self) -> StoryRules:
+        ids = [s.id for s in self.stories]
+        dup = sorted({i for i in ids if ids.count(i) > 1})
+        if dup:
+            raise ValueError(f"生活事件 id 重复：{'、'.join(dup)}")
+        reserved = sorted(i for i in ids if i.startswith("talent_"))
+        if reserved:
+            raise ValueError(f"talent_ 开头的 id 留给擅长觉醒用：{'、'.join(reserved)}")
+        bad = sorted({s.domain for s in self.stories if s.domain} - set(self.talent.domains))
+        if bad:
+            raise ValueError(f"生活事件的 domain 不在 talent.domains 里：{'、'.join(bad)}")
+        return self
+
+
 class LifeRules(_Strict):
     """生活引擎（docs/CHAT.md G4）：成员在用户不在时按作息过日子、彼此聊天。"""
 
@@ -897,6 +1036,7 @@ class LifeRules(_Strict):
     estimate_usd: float = Field(default=0.002, ge=0)  # 每句的预估花费（预算检查用）
     max_tokens: int = Field(default=800, ge=64)
     guard: LifeGuardRules = LifeGuardRules()
+    story: StoryRules = StoryRules()  # 生活事件库 + 长线剧情 + 擅长觉醒（L0 / L10）
 
 
 class FeedSpec(_Strict):

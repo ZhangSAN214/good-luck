@@ -261,6 +261,7 @@ src/roundtable/
     plugin_board.py 插件榜：自我学习革新调研过的插件 / 项目（读 config/plugin_board.yaml，按价值排名、判断借思路 / 搬代码门槛；只读）
     ideaboard.py   头脑风暴的点子榜：投票排名、黑马、对比表 / 场景故事 / 行动方案的数据与 Markdown
     member/        成员引擎（docs/MEMBER_ENGINE.md；只用于聊天、朋友圈、生活）：自我档案（profile.py，版本 + 修改记录 + 锁定 + 撤回）、人物卡与随身卡（card.py：人物卡 Markdown → 档案分区，档案 → ≤400 字随身卡）、事件总线（bus.py）、心跳（heartbeat.py）、上下文组装器（context.py，约 600 字）、预算调度器（scheduler.py）、评测集（evalset.py，题库 benchmarks/members/scenarios.yaml）
+      story/       P7 生活引擎（docs/LIFE_STORY.md）：生活事件库 + 长线剧情 + 每人生活状态 + 按爱好挑去处 + 住户迎新/告别（engine.py、store.py），擅长觉醒（talent.py）；只发事件，不写档案和别的插件的数据
     screen/        投屏陪伴「一起看」（docs/WATCH.md）：画面来源（capture.py：电脑整屏 / 窗口用 Pillow ImageGrab + ctypes，安卓用 adb 截屏，只读；画面变化判断、敏感窗口暂停）、一起看（watch.py：画面变了才交最便宜的识图模型写成文字、陪看成员吐槽、回话和互相接话、安静看、每月上限 chat.watch.monthly_usd、感知事件 perceive.screen）；截图只在内存里
     dsh/           dsh 工作台（docs/DSH.md）：可拔掉的外设，只有 service.py 可选导入（拔掉 core/dsh 圆桌照常，CI「unplug-dsh」任务）；白名单与安装包哈希（catalog.py，读 config/dsh_plugins.yaml）、叠加配置层（overlay.py：关上传和遥测、中立身份）、key 与余额（channel.py）、按余额差额估花费与每月软上限（usage.py）、进程管理（sidecar.py，只监听 127.0.0.1）、一次性安装（install.py）；数据都在 data/dsh/，不进 git
     benchkit/      工作台的自动质检（docs/KIT.md）：quality.py 用 Playwright 在三种屏宽 × 浅 / 深色下打开页面，量报错、溢出、坏字、编码、是否用设计套件、外链脚本、按钮名字、图片说明、图表空白、对比度、字号、手机按钮大小，截图并打分（`roundtable kit-check`）；不调模型；只放行工作台配置 `bench.net` 里的公开数据网址（地图底图、天气等，2026-10-30 用户批，其余一律中止）。spec.py（规格校验 + 外壳）、builder.py（生成流程：拆需求 → 找插件 → 写窗口 → 质检评审不自评 → 返工）、scout.py（dsh 集市 + GitHub 找插件，按星数和许可证判定搬或只借思路）、library.py（过线后新零件收进本机零件库、存配方）、lint.py（读窗口代码：没用零件库、写死颜色、代码太大、轮询定时器、自己画插图）
