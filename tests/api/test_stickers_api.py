@@ -20,7 +20,7 @@ def test_stickers_api():
         data = c.get("/api/stickers").json()
         assert data["review"] is True and data["month_spent_usd"] == 0
         first = data["members"][0]
-        assert first["id"] == "OpenAI" and len(first["stickers"]) == 14
+        assert first["id"] == "OpenAI" and len(first["stickers"]) == 17  # 14 + 3 张名梗
         assert {s["status"] for s in first["stickers"]} == {"missing"}
         assert data["monthly_usd"] == env.rt.config.roundtable.media.stickers.monthly_usd
         # 没有形象卡：404

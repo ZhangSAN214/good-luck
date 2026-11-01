@@ -53,7 +53,7 @@ def test_every_member_has_twelve_stills_and_two_animated():
     cards = load_config().personas.sticker_cards
     assert len(cards) == 8
     for card in cards.values():
-        assert len([s for s in card.stickers if not s.frames]) == 12
+        assert len([s for s in card.stickers if not s.frames]) >= 12  # 12 张基础 + 11-01 起的名梗
         assert len([s for s in card.stickers if s.frames]) == 2
     vendors = {m.vendor for m in load_config().models.models if m.seat}
     assert set(cards) <= vendors
@@ -121,7 +121,7 @@ def test_index_and_files_survive_a_new_instance(tmp_path):
     assert row["status"] == "pending"
     assert fresh.file("OpenAI", "晚安") == stickers.file("OpenAI", "晚安")
     missing = [r for r in fresh.listing("OpenAI") if r["status"] == "missing"]
-    assert len(missing) == 13
+    assert len(missing) == 16  # 17 张（含 3 张名梗）画了 1 张
 
 
 def test_failed_check_redraws_with_another_model_and_keeps_the_problem(tmp_path):
