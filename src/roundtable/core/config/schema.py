@@ -113,6 +113,9 @@ class ModelSpec(_Strict):
     # 画图模型调用的接口：chat = 对话接口（返回图片，如 Gemini 图像模型）；
     # images = 专门的图像接口（OpenRouter 的 /api/v1/images，OpenAI 的 gpt-image 系列只能走这个）
     image_api: ImageApi = "chat"
+    # 画图模型吃哪种提示词：text = 自然语言（对话式 / 云端绘图模型）；tags = 逗号分隔的标签
+    # （本地 SDXL 二次元底模）。朋友圈配图据此选提示词（moment_photo / moment_photo_tags）
+    image_prompt: Literal["text", "tags"] = "text"
     # 产品名、中文名等别称；转发给其他模型前会被遮蔽（见 allocation.identity）
     aliases: list[str] = Field(default_factory=list)
     # 按优先顺序排列的渠道
@@ -171,6 +174,32 @@ class ModelsConfig(_Strict):
     channels: dict[str, ChannelSpec]
     models: list[ModelSpec]
     search_providers: dict[str, SearchProviderSpec] = Field(default_factory=dict)
+    # 模型开关：模型 id → 是否启用，覆盖条目里的 enabled。写在 config/models.local.yaml 里
+    # 就能在本机打开 / 关掉某个模型，不用把整张 models 列表抄过去（列表合并时整体替换）
+    model_switches: dict[str, bool] = Field(default_factory=dict)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _apply_switches(cls, data: Any) -> Any:
+        if not isinstance(data, dict) or not data.get("model_switches"):
+            return data
+        switches = data["model_switches"]
+        if not isinstance(switches, dict):
+            return data  # 交给字段校验报错
+        models = data.get("models") or []
+        known = {m.get("id") for m in models if isinstance(m, dict)}
+        unknown = sorted(str(k) for k in switches if k not in known)
+        if unknown:
+            raise ValueError(f"model_switches 里有不存在的模型：{unknown}")
+        return {
+            **data,
+            "models": [
+                {**m, "enabled": switches[m["id"]]}
+                if isinstance(m, dict) and m.get("id") in switches
+                else m
+                for m in models
+            ],
+        }
 
     @model_validator(mode="after")
     def _cross_check(self) -> ModelsConfig:
@@ -606,6 +635,8 @@ class MomentShot(_Strict):
     text: str = Field(min_length=1)
     weight: float = Field(default=1.0, gt=0)
     her: Literal["none", "part", "full"] = "full"
+    # 标签版（吃标签的本地绘图模型用，见 moment_photo_tags）；不写时用 text
+    tags: str = ""
 
 
 class MomentPhotoRules(_Strict):
@@ -617,6 +648,17 @@ class MomentPhotoRules(_Strict):
     per_member_day: int = Field(default=1, ge=0, le=5)  # 每位成员每天最多几张
     per_day: int = Field(default=3, ge=0, le=20)  # 所有成员加起来每天最多几张（控制花费）
     max_side: int = Field(default=1024, ge=256, le=2048)  # 存下来的长边（像素，JPEG）
+    # 只用本地绘图模型（渠道全是 kind: local 的，如 ComfyUI）：本地没开 / 画不出来时只发文字，
+    # 不退回云端付费模型
+    local_only: bool = False
+    # 吃标签的本地绘图模型（image_prompt: tags）：按拍法的 her 给的人物标签，接在拍法标签前面
+    tag_subjects: dict[Literal["none", "part", "full"], str] = Field(
+        default_factory=lambda: {
+            "none": "no humans, still life, scenery",
+            "part": "pov, pov hands, 1girl, out of frame",
+            "full": "1girl, solo, candid",
+        }
+    )
     # 拍法：每张按权重抽一种。真人发朋友圈多半拍东西和风景，很少拍自己（10-31 用户嫌配图 AI 感太强）
     shots: list[MomentShot] = Field(
         default_factory=lambda: [
@@ -3929,6 +3971,8 @@ class StickerCard(_Strict):
 
     look: str = Field(min_length=1, max_length=400)  # 外观要点
     must: list[str] = Field(default_factory=list, max_length=8)  # 每张都必须画到的细节
+    # 外观的英文标签（逗号分隔，给吃标签的本地绘图模型用，见 moment_photo_tags）；不写时用 look
+    look_tags: str = Field(default="", max_length=400)
     # 形象参考图：素材目录（members.json 所在目录）里的相对路径，最多 3 张；
     # 不写时用 members.json 里的立绘 / 小人 / 头像
     refs: list[str] = Field(default_factory=list, max_length=3)

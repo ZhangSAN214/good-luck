@@ -13,7 +13,7 @@ async def test_build_from_environment(tmp_path):
         environ={"OPENROUTER_API_KEY": "placeholder-key-123", DB_ENV: str(tmp_path / "x.db")},
         dotenv_path=None,
     )
-    assert list(rt.router._providers) == ["openrouter"]
+    assert list(rt.router._providers) == ["openrouter", "comfyui"]  # 本地渠道不需要 key
     assert set(rt.unavailable_channels) == {"openai", "anthropic", "google", "xai", "deepseek"}
     assert len(rt.router.available_models()) == len(rt.config.models.enabled)
     assert (tmp_path / "x.db").exists()

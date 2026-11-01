@@ -169,8 +169,15 @@ PLUGIN_ROLES = ("evolution_plugins",)
 MAIL_ROLES = ("mail_summary", "mail_translate", "mail_digest")
 # 感官：外部内容是用户发的图片 / 视频 / 语音本身（随附）和声音转写（<items> / <transcript>）
 PERCEPTION_ROLES = ("perceive_fast", "perceive_fine")
-# 成员表情包：变量都是你自己写的形象卡（不是外部内容）；核对时图里的字只是画面
-STICKER_ROLES = ("sticker_draw", "sticker_check", "sticker_anim", "moment_photo")
+# 成员表情包：变量都是你自己写的形象卡（不是外部内容）；核对时图里的字只是画面。
+# moment_photo_tags 只填配置里的标签（拍法、形象卡），不放动态正文等外部内容
+STICKER_ROLES = (
+    "sticker_draw",
+    "sticker_check",
+    "sticker_anim",
+    "moment_photo",
+    "moment_photo_tags",
+)
 # dsh 工作台的身份说明：接在 dsh 自己的系统提示前面，不经圆桌转交任何外部内容（docs/DSH.md）
 DSH_ROLES = ("dsh_workbench",)
 
