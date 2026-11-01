@@ -1,4 +1,5 @@
-// 表情：Emoji 分类 + 三套自绘动态表情包（团子、猫猫、文字）。全部是内联 SVG + CSS 动画，不用外部图片。
+// 表情：Emoji 分类 + 通用表情包（小黄脸：谷歌 Noto 动态表情，CC BY 4.0，图在 img/stickers/noto/；文字：内联 SVG + CSS 动画）。
+// 早先的团子、猫猫和旧文字仍能显示（旧消息里有），只是不再出现在面板里（legacy / hidden）。
 // 另有成员专属表情（setMemberPacks 装入，是后端给的图片）。
 // 表情包在消息里写成文字记号「[表情:团子·开心]」：成员看得懂（是一段文字），界面把它画成动态表情。
 
@@ -71,6 +72,7 @@ const BODY = {
 const STK_PACKS = [
   {
     id: '团子',
+    legacy: true,
     body: 'blob',
     color: '#ffe3b8',
     items: [
@@ -94,6 +96,7 @@ const STK_PACKS = [
   },
   {
     id: '猫猫',
+    legacy: true,
     body: 'cat',
     color: '#f2c38b',
     items: [
@@ -113,28 +116,57 @@ const STK_PACKS = [
   },
 ];
 
+// 文字表情：前面是面板里的流行梗；hidden 的是早先那批，旧消息里还有，照样能显示
 const WORDS = [
-  ['收到！', 'stamp', '#1f8a5b', '#d7f6e6'],
-  ['好耶', 'jump', '#ff7a45', '#fff1e0'],
-  ['哈哈哈', 'wave', '#ffb400', '#fff8db'],
-  ['在吗', 'blink', '#4c7dff', '#e2ebff'],
-  ['晚安', 'glow', '#8a7dff', '#1d1b3a'],
-  ['冲！', 'dash', '#ff3d5a', '#ffe3e8'],
-  ['谢谢', 'float', '#e0568f', '#ffe6f1'],
+  ['笑死', 'wave', '#ffb400', '#fff8db'],
   ['绝了', 'neon', '#2ee6d6', '#0e2a2c'],
-  ['救命', 'shake', '#ff4d4d', '#fff0f0'],
+  ['破防了', 'shake', '#ff4d4d', '#fff0f0'],
+  ['蚌埠住了', 'jump', '#ff7a45', '#fff1e0'],
+  ['啊对对对', 'float', '#4c7dff', '#e2ebff'],
+  ['好家伙', 'stamp', '#1f8a5b', '#d7f6e6'],
+  ['我真的会谢', 'tilt', '#e0568f', '#ffe6f1'],
+  ['尊嘟假嘟', 'blink', '#8a7dff', '#efe8ff'],
+  ['摆烂', 'glow', '#8a7dff', '#1d1b3a'],
+  ['芭比Q了', 'dash', '#ff3d5a', '#ffe3e8'],
+  ['社死', 'shake', '#7c4dff', '#efe8ff'],
   ['6', 'spin', '#111', '#ffe14d'],
+  ['救命', 'shake', '#ff4d4d', '#fff0f0'],
   ['离谱', 'tilt', '#7c4dff', '#efe8ff'],
   ['抱抱', 'beat', '#ff6f91', '#fff0f4'],
+  ['在吗', 'blink', '#4c7dff', '#e2ebff'],
+  ['收到！', 'stamp', '#1f8a5b', '#d7f6e6', true],
+  ['好耶', 'jump', '#ff7a45', '#fff1e0', true],
+  ['哈哈哈', 'wave', '#ffb400', '#fff8db', true],
+  ['晚安', 'glow', '#8a7dff', '#1d1b3a', true],
+  ['冲！', 'dash', '#ff3d5a', '#ffe3e8', true],
+  ['谢谢', 'float', '#e0568f', '#ffe6f1', true],
+];
+
+// 小黄脸：谷歌 Noto 动态表情（CC BY 4.0，https://googlefonts.github.io/noto-emoji-animation/），[名字, 码点]
+const NOTO = [
+  ['笑哭', '1f602'], ['笑翻', '1f923'], ['哈哈', '1f606'], ['微笑', '1f642'], ['尴尬笑', '1f605'], ['开心', '1f60a'],
+  ['星星眼', '1f929'], ['爱了', '1f60d'], ['抱抱', '1f917'], ['偷笑', '1f92d'], ['嘘', '1f92b'], ['思考', '1f914'],
+  ['坏笑', '1f60f'], ['白眼', '1f644'], ['无语', '1f611'], ['叹气', '1f62e_200d_1f4a8'], ['委屈', '1f97a'], ['感动', '1f979'],
+  ['难过', '1f622'], ['大哭', '1f62d'], ['惊恐', '1f631'], ['啊这', '1f633'], ['生气', '1f620'], ['哼', '1f624'],
+  ['哈欠', '1f971'], ['馋', '1f924'], ['晕了', '1f635_200d_1f4ab'], ['脑子炸了', '1f92f'], ['好耶', '1f973'], ['酷', '1f60e'],
+  ['吐了', '1f92e'], ['小丑', '1f921'], ['笑死', '1f480'], ['收到', '1fae1'], ['偷看', '1fae3'], ['化了', '1fae0'],
+  ['点赞', '1f44d'], ['鼓掌', '1f44f'], ['比心', '1faf6'], ['拜托', '1f64f'],
 ];
 
 export const STICKERS = [
+  { id: '小黄脸', items: NOTO.map(([name, cp]) => ({ name, img: `img/stickers/noto/${cp}.webp`, anim: true })) },
+  { id: '文字', items: WORDS.map(([name, anim, ink, bg, hidden]) => ({ name, anim, ink, bg, word: true, hidden: !!hidden })) },
   ...STK_PACKS.map((p) => ({
     id: p.id,
+    legacy: !!p.legacy,
     items: p.items.map(([name, eyes, mouth, extras, anim, color]) => ({ name, eyes, mouth, extras, anim, color: color || p.color, body: p.body })),
   })),
-  { id: '文字', items: WORDS.map(([name, anim, ink, bg]) => ({ name, anim, ink, bg, word: true })) },
 ];
+
+/** 表情面板里列出的表情包：不含早先的旧套装和旧文字（它们只用来显示旧消息） */
+export function panelPacks() {
+  return STICKERS.filter((p) => !p.legacy).map((p) => ({ ...p, items: p.items.filter((s) => !s.hidden) }));
+}
 
 /** 成员专属表情（审过的那些，后端 /api/chat/stickers）：套装名是成员昵称，每张是一张图。重复装入时先换掉旧的。 */
 export function setMemberPacks(packs) {
@@ -143,6 +175,34 @@ export function setMemberPacks(packs) {
     if (!p?.pack || !p.items?.length || STICKERS.some((x) => x.id === p.pack)) continue;
     STICKERS.push({ id: p.pack, member: p.member, items: p.items.map((x) => ({ name: x.name, caption: x.caption, img: x.url })) });
   }
+}
+
+// --- emoji 显示成图（如苹果样式，后端用到才下载到本机）；只改显示，文字里仍是 emoji 字符 ------------
+
+let EMOJI_IMG = false;
+export function setEmojiImages(on) {
+  EMOJI_IMG = !!on;
+}
+
+const EMOJI_RE = /\p{Extended_Pictographic}(?:\uFE0F|\p{Emoji_Modifier}|\u200D\p{Extended_Pictographic}\uFE0F?)*|[\u{1F1E6}-\u{1F1FF}]{2}/gu;
+
+/** emoji 的码点文件名：1f602、2764-fe0f */
+export const emojiCode = (e) => [...e].map((c) => c.codePointAt(0).toString(16)).join('-');
+
+/** 一个 emoji 的 HTML：开着图就是 <img>（加载失败退回文字），否则就是文字本身 */
+export function emojiHTML(e) {
+  const t = escAttr(e);
+  if (!EMOJI_IMG) return t;
+  return `<img class="emo" src="api/emoji/${emojiCode(e)}.png" alt="${t}" draggable="false" loading="lazy" onerror="this.replaceWith(this.alt)">`;
+}
+
+/** 已转义的 HTML 里，标签外面的 emoji 换成图（标签和属性里的不动） */
+export function emojify(html) {
+  if (!EMOJI_IMG || !html) return html;
+  return String(html)
+    .split(/(<[^>]*>)/)
+    .map((part) => (part.startsWith('<') ? part : part.replace(EMOJI_RE, (e) => emojiHTML(e))))
+    .join('');
 }
 
 export const token = (pack, name) => `[表情:${pack}·${name}]`;
@@ -156,7 +216,8 @@ const escAttr = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<'
 
 function wordSvg(s) {
   const chars = [...s.name];
-  const size = chars.length <= 1 ? 64 : chars.length === 2 ? 44 : 34;
+  // 字多时缩小，免得冒出框（框内宽约 96）
+  const size = chars.length <= 1 ? 64 : chars.length === 2 ? 44 : Math.min(34, 94 / (chars.length * 0.92));
   const span = chars.length * size * 0.92;
   const start = 60 - span / 2 + (size * 0.92) / 2;
   const letters = chars
@@ -172,7 +233,7 @@ export function stickerSVG(pack, name, { big = false, label = true } = {}) {
   if (!s) return null;
   if (s.img) {
     const alt = label ? escAttr(`${pack}：${s.caption || name}`) : '';
-    return `<img class="stk pic${big ? ' big' : ''}" src="${escAttr(s.img)}" alt="${alt}" title="${escAttr(s.caption || name)}" loading="lazy" decoding="async">`;
+    return `<img class="stk pic${s.anim ? ' anim' : ''}${big ? ' big' : ''}" src="${escAttr(s.img)}" alt="${alt}" title="${escAttr(s.caption || name)}" loading="lazy" decoding="async">`;
   }
   const inner = s.word
     ? wordSvg(s)

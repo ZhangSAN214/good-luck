@@ -1794,6 +1794,16 @@ def build_parser() -> argparse.ArgumentParser:
         "--scenario",
         help="开跑前摆好的场景（sim.yaml 的 scenarios，如 birthday：认识一个月、你过生日）",
     )
+    backup = sub.add_parser(
+        "backup", help="整库备份：看列表、马上备份、存档点、恢复（docs/BACKUP.md，不花钱）"
+    )
+    backup.add_argument(
+        "action", nargs="?", default="list", choices=["list", "now", "checkpoint", "restore"]
+    )
+    backup.add_argument(
+        "target", nargs="?", default="", help="checkpoint 的标签 / restore 的文件名"
+    )
+    backup.add_argument("--yes", action="store_true", help="恢复时不再问一遍")
     kit = sub.add_parser(
         "kit-check", help="工作台质检：三种屏宽 × 浅色 / 深色，量出不达标的地方（不调用模型）"
     )
@@ -1862,6 +1872,8 @@ async def run(
         plain_math=not getattr(args, "raw", False),
     )
     try:
+        if args.command == "backup":
+            return cmd_backup(rt, args, out, ask)
         if args.command == "ask":
             question = args.question
             if args.file:
@@ -2065,6 +2077,60 @@ def _utf8_streams() -> None:
         if hasattr(stream, "reconfigure"):
             with contextlib.suppress(OSError, ValueError):
                 stream.reconfigure(encoding="utf-8", errors="replace")
+
+
+def cmd_backup(
+    rt: Runtime, args: argparse.Namespace, out: TextIO, ask: Callable[[str], str]
+) -> int:
+    """整库备份（docs/BACKUP.md）。恢复前先关掉网页服务，恢复后再打开。"""
+    from roundtable.core.backup import BackupError, DbBackup
+
+    rules = rt.config.roundtable.backup
+    box = DbBackup(
+        rt.repo.conn,
+        rt.backup_dir,
+        enabled=True,  # 命令行里手动「now」不看自动备份开关
+        keep_daily=rules.keep_daily,
+        keep_checkpoints=rules.keep_checkpoints,
+    )
+    now = datetime.now()
+    try:
+        if args.action == "now":
+            got = box.daily(now) or box.checkpoint("手动", now)
+            print(f"已备份：{got.name}", file=out)
+            return 0
+        if args.action == "checkpoint":
+            got = box.checkpoint(args.target or "手动", now)
+            print(f"已存档点：{got.name}", file=out)
+            return 0
+        if args.action == "restore":
+            if not args.target:
+                print("要恢复哪一份？先用 roundtable backup 看列表，再写文件名。", file=out)
+                return 2
+            f = box.check(args.target)
+            if not args.yes:
+                print("恢复会用这份备份覆盖现在的全部数据。", file=out)
+                print("（会先自动存一个「恢复前」存档点，反悔可以再恢复它。）", file=out)
+                print("请先关掉圆桌网页服务。", file=out)
+                if ask(f"确定恢复 {f.name}？输入 yes 继续：").strip().lower() != "yes":
+                    print("没有恢复。", file=out)
+                    return 1
+            got = box.restore(f.name, now)
+            print(f"已恢复：{got['restored']['name']}", file=out)
+            print(f"恢复前的数据存在：{got['before']['name']}（反悔可以再恢复它）", file=out)
+            print("请重新打开圆桌。", file=out)
+            return 0
+    except BackupError as exc:
+        print(f"备份出错：{exc}", file=out)
+        return 1
+    files = box.files()
+    print(f"备份目录：{box.folder or '（内存数据库，不备份）'}", file=out)
+    if not files:
+        print("还没有备份。", file=out)
+    for f in files:
+        kind = "每天" if f.kind == "daily" else f"存档点·{f.label}"
+        print(f"  {f.name}  {kind}  {f.size / 1048576:.1f} MB", file=out)
+    return 0
 
 
 def main(argv: list[str] | None = None) -> int:

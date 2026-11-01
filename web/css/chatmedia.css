@@ -277,3 +277,9 @@ video.cm-lb-item{cursor:auto;background:#000}
 :root[data-skin="ark"] .gc-menu{background:rgba(22,30,46,.94);-webkit-backdrop-filter:blur(18px);backdrop-filter:blur(18px)}
 .gc-menu button{flex:none}
 #gc-err.ok{color:var(--ok,#2a7);border-color:transparent}
+/* emoji 显示成图（如苹果样式）：和文字一样高；面板里大一点 */
+img.emo{width:1.25em;height:1.25em;vertical-align:-.25em;margin:0 .03em;display:inline-block}
+.cm-emo img.emo{width:26px;height:26px;vertical-align:middle}
+.cm-tabemo img.emo{width:20px;height:20px}
+/* 小黄脸（动态表情图）：透明底，不要白底圆角 */
+.stk.pic.anim{background:none;border-radius:0}

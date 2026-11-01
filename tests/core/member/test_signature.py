@@ -28,8 +28,8 @@ def test_the_tail_goes_after_the_last_han_character_before_marks_and_stickers():
     sign(env, "V2", tails=["喵"], tail_chance=1.0)
     out = lingo.signature_tail("V2", "好耶！", random.Random(0))
     assert out == "好耶喵！"
-    out = lingo.signature_tail("V2", "我也要[表情:团子·开心]", random.Random(0))
-    assert out == "我也要喵[表情:团子·开心]"
+    out = lingo.signature_tail("V2", "我也要[表情:小黄脸·开心]", random.Random(0))
+    assert out == "我也要喵[表情:小黄脸·开心]"
     assert lingo.signature_tail("V2", "好困喵", random.Random(0)) == "好困喵"  # 已经带了
     assert lingo.signature_tail("V2", "666", random.Random(0)) == "666"  # 没有汉字不补
     two = lingo.signature_tail("V2", "吃了喵\n还想吃喵", random.Random(0))
@@ -105,7 +105,7 @@ def test_a_kaomoji_is_sometimes_added_when_a_message_has_no_face_at_all():
     assert out.startswith("今天去跑步了") and out[len("今天去跑步了") :] in faces
     h = lingo.habits("V2")
     assert lingo._sprinkle("你吃了吗？", h, random.Random(0)) == "你吃了吗？"
-    assert lingo._sprinkle("好耶[表情:团子·开心]", h, random.Random(0)).count("[") == 1
+    assert lingo._sprinkle("好耶[表情:小黄脸·开心]", h, random.Random(0)).count("[") == 1
     face = faces[0]
     assert lingo._sprinkle(f"今天去跑步了{face}", h, random.Random(0)) == f"今天去跑步了{face}"
     _, plain = world(kaomoji_sprinkle=0.0)
@@ -165,9 +165,9 @@ def _all_vibes():
 def test_her_own_recent_sticker_is_not_repeated_after_a_sentence():
     from roundtable.core.chat_actions import drop_own_repeats
 
-    mine = {"[表情:团子·疑惑]"}
-    assert drop_own_repeats("叫什么呀 [表情:团子·疑惑]", mine) == "叫什么呀"
+    mine = {"[表情:小黄脸·思考]"}
+    assert drop_own_repeats("叫什么呀 [表情:小黄脸·思考]", mine) == "叫什么呀"
     assert (
-        drop_own_repeats("[表情:团子·疑惑]", mine) == "[表情:团子·疑惑]"
+        drop_own_repeats("[表情:小黄脸·思考]", mine) == "[表情:小黄脸·思考]"
     )  # 只发表情包的交给换一个
-    assert drop_own_repeats("叫什么呀 [表情:团子·开心]", mine) == "叫什么呀 [表情:团子·开心]"
+    assert drop_own_repeats("叫什么呀 [表情:小黄脸·开心]", mine) == "叫什么呀 [表情:小黄脸·开心]"
