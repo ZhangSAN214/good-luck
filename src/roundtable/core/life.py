@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import random
+import re
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Any
@@ -68,6 +69,16 @@ LIFE_STEPS = (
     "growth",
     "relation",
 )
+
+
+def calls(text: str, member: Any) -> bool:
+    """这句话点到了她（叫了名字或 @ 她）。"""
+    return bool(text) and member.name.lower() in text.lower()
+
+
+def asks(text: str) -> bool:
+    """这句是在问人。"""
+    return bool(re.search(r"[？?]", text or ""))
 
 
 def pair_room(a: str, b: str) -> str:
@@ -423,7 +434,10 @@ class LifeEngine:
         spoken: list[tuple[str, str]] = [opener] if opener else []  # 谁说了什么（自查比对用）
         brain = Brain(self.rt, names=names)
         last_by: str | None = opener[0] if opener else None
-        for turn in range(rules.turns if turns is None else turns):
+        most = rules.turns if turns is None else turns
+        turn, extended = -1, False
+        while turn + 1 < most:
+            turn += 1
             # 补算：按事件发生的时刻，且不晚于现在（整点那件事的分钟数可能落到现在之后）
             at = min(p.at, now - timedelta(minutes=rules.turns)) + timedelta(minutes=turn)
             # 现场：几句错开几十秒落在「现在」之前（11-01：同一毫秒的几条在界面上会一起蹦出来）
@@ -535,6 +549,9 @@ class LifeEngine:
                 created_at=iso(when),
             )
             said += 1
+            if turn + 1 == most and not extended and asks(text):
+                most += 1  # 最后一句是问句：再给一句，让被问的人回完再收（11-01 你说问了没人回）
+                extended = True
         return said
 
     # --- 大脑分区：谁接话、带上此刻的想法 -------------------------------------------------
@@ -572,6 +589,9 @@ class LifeEngine:
         if not brain.enabled():
             return others[len(spoken) % len(others)], None
         last = spoken[-1][1] if spoken else ""
+        called = [m for m in others if calls(last, m)]
+        if called:  # 话里点到谁就是在问谁：她先接（11-01 你说问了没人回）
+            others, invited = called, True
         best: tuple[float, ChatMember, Any] | None = None
         for m in others:
             card = brain.intent(

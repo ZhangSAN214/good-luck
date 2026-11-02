@@ -203,6 +203,7 @@ export class BenchGenPanel {
     this.deskKind = '';
     this.deskAsked = false; // 这次打开页面已经叫过一次刷新
     this.fromProduct = false; // 拖进来的是成品：要能做出类似东西的台
+    this.form = {}; // 按表填的需求（字段清单来自后端 form_fields）
     this.pane = 'client'; // 窄屏时显示哪一栏
     this.err = '';
     this.draft = '';
@@ -225,11 +226,13 @@ export class BenchGenPanel {
     });
     el.addEventListener('input', (e) => {
       if (e.target.matches('[data-text]')) this.draft = e.target.value;
+      if (e.target.matches('[data-ff]')) this.form[e.target.dataset.ff] = e.target.value;
       if (e.target.closest('[data-form]')) this.dirty = true;
     });
     el.addEventListener('change', (e) => {
       const x = e.target;
       if (x.matches('[data-switch]')) return this.switchTo(x.value);
+      if (x.matches('select[data-ff]')) this.form[x.dataset.ff] = x.value;
       if (!this.pick) return;
       if (x.matches('[data-dref]')) this.pick.refs[x.checked ? 'add' : 'delete'](x.dataset.dref);
       else if (x.matches('[data-dspan]')) {
@@ -445,11 +448,15 @@ export class BenchGenPanel {
     if (st.unavailable) notes.push(`<p class="sc-warn">${esc(st.unavailable)}</p>`);
     if (this.err) notes.push(`<p class="sc-warn" role="alert">${esc(this.err)}</p>`);
     if (!b) return `<h3 class="bg-h">说想法</h3>${notes.join('')}${this.askHtml(st)}`;
-    const req = `<div class="bg-said"><span class="bg-k">你说的</span><p>${esc((b.request || '').slice(0, 400))}</p></div>`;
+    const label = Object.fromEntries((st.form_fields || []).map((f) => [f.id, f.label]));
+    const formed = Object.entries(b.form || {});
+    const req = `<div class="bg-said"><span class="bg-k">你说的</span><p>${esc((b.said || b.request || '').slice(0, 400))}</p>${
+      formed.length ? `<dl class="bg-saidform">${formed.map(([k, v]) => `<dt>${esc(label[k] || k)}</dt><dd>${esc(v)}</dd>`).join('')}</dl>` : ''
+    }</div>`;
     const mats = this.matsStrip(b);
     const changes = (b.trace || []).length ? '' : (b.changes || [])
       .map(
-        (c) => `<li class="bg-ch-${esc(c.status)}"><b>${esc(c.id)}</b> ${esc(c.text)}${c.window ? `（${esc(this.winTitle(b, c.window))}）` : ''} · ${esc({ open: '处理中', done: '改好了', failed: '没改成' }[c.status] || c.status)}${c.reply ? `<div class="sc-sub">${esc(c.reply.slice(-160))}</div>` : ''}</li>`,
+        (c) => `<li class="bg-ch-${esc(c.status)}"><b>${esc(c.id)}</b> ${esc(c.text)}${c.window ? `（${esc(this.winTitle(b, c.window))}）` : ''} · ${esc({ open: '处理中', done: '改完了，等你看', accepted: '改好了', failed: '没改成' }[c.status] || c.status)}${c.reply ? `<div class="sc-sub">${esc(c.reply.slice(-160))}</div>` : ''}</li>`,
       )
       .join('');
     const stuck = b.stuck && b.status === 'needs_you' ? this.stuckForm(b) : '';
@@ -484,7 +491,7 @@ export class BenchGenPanel {
     if (!rows.length) return '';
     const changes = Object.fromEntries((b.changes || []).map((c) => [c.id, c]));
     const voices = Object.fromEntries((b.voices || []).map((v) => [v.id, v]));
-    const open = rows.filter((r) => ['没做到', '没改成', '没对上'].includes(r.state)).length;
+    const open = rows.filter((r) => ['没做到', '没改成', '没对上', '待你看'].includes(r.state)).length;
     const kept = new Set(((this.st || {}).profile || []).map((x) => x.text));
     const items = rows
       .map((r) => {
@@ -512,8 +519,38 @@ export class BenchGenPanel {
     return `<div class="sc-ask bg-ask"><textarea data-text rows="5" aria-label="想要什么样的工作台" placeholder="一句话说你想要什么台。比如：管理我租的三套房子，看租金、到期、维修和水电" ${busy ? 'disabled' : ''}>${esc(this.draft)}</textarea>
       ${busy ? '<p class="sc-hint">上一个还在做，做完或叫停后才能开新的。</p>' : drop}
       <button type="button" class="btn primary bg-go" data-submit ${busy || st.unavailable ? 'disabled' : ''}>生成工作台</button>
-      ${this.profileHtml(st)}
+      ${this.formHtml(st)}${this.profileHtml(st)}
       <p class="sc-hint">${st.project ? '先问你几个取舍，再出样子和计划给你签字；之后自动搭，每段做完给你试用。停下来等你时不花次数。' : `自动拆需求、分头写、质检和评审，不过线就返工，最多 ${esc(st.max_rounds || 3)} 轮。`}花的是订阅次数。</p></div>`;
+  }
+
+  /** 结构化需求表单（可选）：四组固定字段，清单来自后端，拼成文字也在后端（同一个构建器）。 */
+  formHtml(st) {
+    const fields = st.form_fields || [];
+    if (!fields.length) return '';
+    const filled = fields.filter((f) => (this.form[f.id] || '').trim() && !(f.options && this.form[f.id] === f.options[0])).length;
+    let group = '';
+    const rows = fields
+      .map((f) => {
+        const head = f.group !== group ? `<h5 class="bg-ffg">${esc((group = f.group))}</h5>` : '';
+        const v = this.form[f.id] || '';
+        const input = f.options
+          ? `<select data-ff="${esc(f.id)}">${f.options.map((o) => `<option ${o === v ? 'selected' : ''}>${esc(o)}</option>`).join('')}</select>`
+          : f.id === 'must'
+            ? `<textarea data-ff="${esc(f.id)}" rows="2" maxlength="400" placeholder="${esc(f.hint || '')}">${esc(v)}</textarea>`
+            : `<input type="text" data-ff="${esc(f.id)}" maxlength="400" value="${esc(v)}" placeholder="${esc(f.hint || '')}">`;
+        return `${head}<label class="bg-ff"><span>${esc(f.label)}</span>${input}</label>`;
+      })
+      .join('');
+    return `<details class="bg-fold bg-form"${filled ? ' open' : ''}><summary>按表填（可选，填了更准${filled ? `，已填 ${filled} 格` : ''}）</summary><div class="bg-ffs">${rows}</div></details>`;
+  }
+
+  /** 一卡一会话：这张卡最近一次会话是不是假完成（说做好了，文件没动）。 */
+  fakeNote(w) {
+    const runs = w.runs || [];
+    const fakes = runs.filter((r) => r.fake).length;
+    if (!fakes) return '';
+    const last = runs[runs.length - 1];
+    return `<span class="bg-fake" title="助手说做好了，但文件一个字没动，不算数">${last.fake ? '最近一次是假完成' : `有过 ${fakes} 次假完成`}</span>`;
   }
 
   /** 甲方档案：你的长期偏好，每个新项目都带上（只存本机，可删）。 */
@@ -628,7 +665,7 @@ export class BenchGenPanel {
       const wins = (b.windows || [])
         .map(
           (w) => `<tr><td>${esc(w.title)}</td><td>${esc(w.author ? this.label(w.author) : '—')}</td>
-            <td class="sc-st-${esc(w.status)}">${esc(WSTATUS[w.status] || w.status)}${(w.rework || []).length ? `（返工 ${w.rework.length} 次）` : ''}</td></tr>`,
+            <td class="sc-st-${esc(w.status)}">${esc(WSTATUS[w.status] || w.status)}${(w.rework || []).length ? `（返工 ${w.rework.length} 次）` : ''}${this.fakeNote(w)}</td></tr>`,
         )
         .join('');
       if (wins) body.push(`<h4 class="bg-h4">分工</h4><table class="sc-subs bg-wintable"><thead><tr><th>窗口</th><th>谁写</th><th>状态</th></tr></thead><tbody>${wins}</tbody></table>`);
@@ -826,7 +863,7 @@ export class BenchGenPanel {
       .map(
         (c) => `<tr><th scope="row">${c.repo ? `<a href="https://github.com/${esc(c.repo)}" target="_blank" rel="noopener noreferrer">${esc(c.name)}</a>` : esc(c.name)}${c.added ? ' <span class="bg-tag">你加的</span>' : ''}<span class="bg-src">${esc(c.direction)}</span></th>
           <td>${esc(c.use)}${c.note ? `<span class="bg-src">${esc(c.note)}</span>` : ''}</td><td>${esc(c.license_seen || c.license || '未写')}</td>
-          <td>${c.stars ? `★ ${esc(c.stars.toLocaleString())}` : '—'}</td><td>${esc(c.cost || '$0')}</td><td data-lv="${esc(c.difficulty)}">${esc(c.difficulty)}</td><td>${esc(c.status)}</td></tr>`,
+          <td>${c.stars ? `★ ${esc(c.stars.toLocaleString())}${c.unprobed && c.verified ? `<span class="bg-src">${esc(c.verified.slice(0, 10))} 核实的</span>` : ''}` : ''}${c.unprobed ? `<span class="bg-unprobed" title="${esc(c.unprobed)}">不可探测：${esc(c.unprobed)}</span>` : c.stars ? '' : '<span class="bg-src">还没核实</span>'}</td><td>${esc(c.cost || '$0')}</td><td data-lv="${esc(c.difficulty)}">${esc(c.difficulty)}</td><td>${esc(c.status)}</td></tr>`,
       )
       .join('');
     return `<div class="bg-chips" role="group" aria-label="工作台类型">${pick}</div>
@@ -1306,7 +1343,8 @@ export class BenchGenPanel {
     return `<div class="bg-gate" data-form>${head}
       <p class="sc-hint">${accept ? '中间就是成品，逐条试一遍验收清单。' : '中间是这一段做好的部分，可以直接点着试。'}</p>
       <div class="sc-row"><button type="button" class="btn primary" data-pass>${accept ? '验收通过' : '通过，做下一段'}</button></div>
-      <label class="bg-note">要改的地方（一条一行）<textarea data-comments rows="3" placeholder="例如：地图再大一点"></textarea></label>
+      <label class="bg-note">哪里不对（一条一行）<textarea data-comments rows="3" placeholder="例如：地图太小，看不清路线"></textarea></label>
+      <label class="bg-note">想改成什么样（可不写，写了更不容易改偏）<input type="text" data-cwant maxlength="300" placeholder="例如：地图占右边一半，路线加粗"></label>
       <label class="bg-note">针对哪个窗口 <select data-cwin><option value="">这一段的全部窗口</option>${opts}</select></label>
       <div class="sc-row"><button type="button" class="btn" data-change>提意见，让他们改</button>${end}</div></div>`;
   }
@@ -1420,10 +1458,11 @@ export class BenchGenPanel {
     if (t.closest('[data-submit]')) {
       const ids = this.mats.map((m) => m.id);
       const fromProduct = this.fromProduct && ids.length > 0;
-      const done = await this.act(() => this.api.submit(this.draft, ids, fromProduct), true);
+      const done = await this.act(() => this.api.submit(this.draft, ids, fromProduct, this.form), true);
       if (!this.err) {
         this.mats = [];
         this.fromProduct = false;
+        this.form = {};
       }
       return done;
     }
@@ -1496,12 +1535,13 @@ export class BenchGenPanel {
     if (t.closest('[data-pass]')) return this.act(() => this.api.review(b.id, 'pass'));
     if (t.closest('[data-change]')) {
       const win = form.querySelector('[data-cwin]').value;
+      const want = (form.querySelector('[data-cwant]')?.value || '').trim();
       const comments = form
         .querySelector('[data-comments]')
         .value.split('\n')
         .map((x) => x.trim())
         .filter(Boolean)
-        .map((text) => ({ text, window: win }));
+        .map((text) => ({ text: want ? `问题：${text}；想要：${want}` : text, window: win }));
       if (!comments.length) {
         this.err = '写一下哪里要改';
         return this.render(true);

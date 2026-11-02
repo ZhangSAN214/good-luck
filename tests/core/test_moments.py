@@ -526,6 +526,7 @@ async def test_post_gets_a_photo_by_chance_with_daily_caps(tmp_path, monkeypatch
     from PIL import Image
 
     from roundtable.core.config.schema import StickerCard
+    from roundtable.core.hometz import home_zone
     from roundtable.core.member_stickers import MemberStickers, StickerBudgetExceeded
 
     env = Env()
@@ -554,11 +555,17 @@ async def test_post_gets_a_photo_by_chance_with_daily_caps(tmp_path, monkeypatch
 
     monkeypatch.setattr(MemberStickers, "photo", photo)
     seed_events(env)
+    home_zone(rt).set("UTC")
     mo = moments(env)
     hub = ChatHub(rt)
     everyone = hub.everyone()
     for i, member in enumerate([everyone[0], everyone[0], everyone[1], everyone[2], everyone[3]]):
-        event = {"id": 100 + i, "topic": f"地点：公寓楼天台（看星星）第 {i} 次"}
+        event = {
+            "id": 100 + i,
+            "topic": f"地点：公寓楼天台（看星星）第 {i} 次",
+            "place": "rooftop",
+            "at": "2026-11-01T22:00:00+00:00",  # 主时区 UTC 的夜里
+        }
         await mo.post(member, event, [])
     posts = env.rt.repo.moments(limit=50)
     with_photo = [p for p in posts if p["meta"].get("photo")]
@@ -575,20 +582,66 @@ async def test_post_gets_a_photo_by_chance_with_daily_caps(tmp_path, monkeypatch
     assert "天台" in scene and shot in by_text
     # 她不入镜的拍法不传参考图；种子由事件和成员派生
     assert kw["refs"] == (by_text[shot].her != "none") and kw["seed"].startswith("100:")
+    assert kw["place"] == "rooftop"  # 按地点附那间房的场景图
+    # 吃标签的本地绘图模型用：拍法的 her 和标签版拍法
+    assert kw["her"] == by_text[shot].her and kw["shot_tags"] == by_text[shot].tags
+    # 摄影参数：拍法就是抽到的那种；夜里天台只会抽到夜里户外的光
+    spec = kw["spec"]
+    assert spec.shot == by_text[shot]
+    if "lights" in spec.picks:
+        assert spec.picks["lights"].name in {"blue_hour", "night_city", "flash"}
+    assert kw["others"] == []  # 事件没写在场的人：没有室友
     # 会配图的那条，提示词里说了可以只发图
     first = calls(env, "想发一条朋友圈")[0].messages[-1].content
     assert "随手拍的照片" in first
 
 
-def test_photo_shots_mostly_leave_her_out():
-    """真人发朋友圈多半拍东西和风景：默认拍法按权重抽，她不入镜的占多数（10-31 用户嫌 AI 感强）。"""
+async def test_photo_passes_housemates_and_skips_places_outside_the_building(tmp_path, monkeypatch):
+    """11-02 用户：配图只画公寓里、只画公寓里的人；室友按她们的样子画。"""
+    from roundtable.core.config.schema import StickerCard
+    from roundtable.core.member_stickers import MemberStickers
+
+    env = Env()
+    rt = env.rt
+    rt.chat_media_dir = tmp_path / "media"
+    everyone = ChatHub(rt).everyone()
+    cards = {m.id: StickerCard(look="测试") for m in everyone}
+    media = rt.config.roundtable.media
+    caps = {"chance": 1.0, "per_day": 9, "per_member_day": 9}
+    photos = media.moment_photos.model_copy(update=caps)
+    media = media.model_copy(update={"enabled": True, "moment_photos": photos})
+    rt.config = rt.config.model_copy(
+        update={
+            "personas": rt.config.personas.model_copy(update={"sticker_cards": cards}),
+            "roundtable": rt.config.roundtable.model_copy(update={"media": media}),
+        }
+    )
+    asked = []
+
+    async def photo(self, member, scene, post, shot, **kw):
+        asked.append(kw)
+        raise ValueError("不真画")
+
+    monkeypatch.setattr(MemberStickers, "photo", photo)
+    mo = moments(env)
+    a, b = everyone[0], everyone[1]
+    event = {"id": 7, "topic": "食堂", "place": "canteen", "at": None, "members": [a.id, b.id]}
+    assert await mo.photo(a, event, "饭") is None
+    assert asked[-1]["others"] == [(b.id, b.name)]
+    for place in ("trip:beach", "group"):
+        assert await mo.photo(a, {**event, "id": 8, "place": place}, "外面") is None
+    assert len(asked) == 1  # 公寓楼外的事不配图
+
+
+def test_photo_shots_mostly_show_her():
+    """朋友圈是看她们的生活：默认拍法按权重抽，多数她本人入镜（11-01 用户：不要剩饭）。"""
     from roundtable.core.config.schema import MomentPhotoRules
 
     shots = MomentPhotoRules().shots
     rng = random.Random(1)
     picks = [rng.choices(shots, [s.weight for s in shots])[0].her for _ in range(2000)]
-    assert 0.5 < picks.count("none") / len(picks) < 0.7
-    assert picks.count("full") / len(picks) < 0.3
+    assert 0.6 < picks.count("full") / len(picks) < 0.8
+    assert picks.count("none") / len(picks) < 0.2
 
 
 async def test_photo_only_post_without_a_photo_is_not_retried():

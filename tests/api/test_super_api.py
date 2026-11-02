@@ -80,3 +80,51 @@ def test_service_wiring():
     lau = sc.launchers["command"]
     assert "DEEPSEEK_API_KEY" in lau.drop
     assert ("dsh" in sc.launchers) == (service.dsh is not None)
+
+
+def test_butler_endpoints(tmp_path):
+    """管家：定时活、等你确认、批准、排队、日报、审计。"""
+    service = service_with(tmp_path, Agents(delay=0.3))
+    with TestClient(create_app(service)) as c:
+        st = c.get("/api/super").json()["butler"]
+        assert st["autonomy"] == "low" and st["schedules"] == [] and st["audit"]["count"] == 0
+        assert c.post("/api/super/schedules", json={"text": "x", "at": "9点"}).status_code == 422
+        r = c.post("/api/super/schedules", json={"text": "给接口加分页", "at": "09:00"})
+        sched = r.json()["butler"]["schedules"][0]
+        assert sched["risk"] == "medium" and sched["when"] == "每天 09:00"
+        sid = sched["id"]
+        r = c.put(f"/api/super/schedules/{sid}", json={"enabled": False})
+        assert r.json()["butler"]["schedules"][0]["enabled"] is False
+        assert c.put("/api/super/schedules/nope", json={"enabled": True}).status_code == 404
+        # 现在跑：你发起的，直接干；再交一件选排队
+        assert c.post(f"/api/super/schedules/{sid}/run").json()["busy"]
+        assert c.post("/api/super/tasks", json={"text": "又一件"}).status_code == 409
+        r = c.post("/api/super/tasks", json={"text": "又一件", "queue": True})
+        q = r.json()["butler"]["queue"]
+        assert q[0]["text"] == "又一件"
+        assert c.delete(f"/api/super/queue/{q[0]['id']}").json()["butler"]["queue"] == []
+        assert c.delete("/api/super/queue/nope").status_code == 404
+        wait_done(c)
+        # 等你确认的：直接塞一条，批准后开干
+        service.butler.data["pending"].append(
+            {"id": "p1", "ref": sid, "text": "改登录页", "risk": "medium", "why": "测试"}
+        )
+        assert c.post("/api/super/pending/p1/approve").json()["busy"]
+        assert c.post("/api/super/pending/p1/reject").status_code == 404
+        wait_done(c)
+        rep = c.get("/api/super/report").json()
+        assert rep["tasks"] == 2 and "超级电脑日报" in rep["markdown"]
+        assert c.get("/api/super/report?day=昨天").status_code == 400
+        audit = c.get("/api/super/audit").json()
+        assert audit["check"]["ok"] and audit["recent"][0]["act"] == "finish"
+        assert {"schedule_add", "schedule_run", "queue", "approve"} <= {
+            e["act"] for e in audit["recent"]
+        }
+        assert c.delete(f"/api/super/schedules/{sid}").json()["butler"]["schedules"] == []
+        assert service.super_tick() is not None
+
+
+def test_butler_memory_db():
+    with TestClient(create_app(RoundtableService(Env().rt))) as c:
+        assert c.get("/api/super").json()["butler"]["schedules"] == []
+        assert RoundtableService(Env().rt).super_tick() == {}

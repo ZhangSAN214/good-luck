@@ -116,7 +116,6 @@ chat:
         - {id: burnt_pot, domain: 做饭, chance: 0.01, likes: [做饭, 下厨, 烘焙], need_likes: true, steps: [{text: 做饭糊锅了，开窗散了半天味, tags: [story.bad], place: canteen}]}
         - {id: fix_lamp, domain: 手工修理, chance: 0.025, likes: [修, 工具, 拆, 组装, 手工], steps: [{text: 把房间里接触不良的台灯修好了, tags: [story.good]}]}
         - {id: clear_sky, domain: 天文科学, chance: 0.035, hours: [20, 23], likes: [星, 天文, 夜空, 宇宙], steps: [{text: 难得晴天，在天台多看了会儿星星, tags: [story.good], place: rooftop}]}
-        - {id: finish_book, domain: 长文阅读, chance: 0.03, likes: [书, 小说, 阅读], steps: [{text: 把一本看了好久的书看完了, tags: [story.good]}]}
         - {id: write_bit, domain: 写作, chance: 0.03, likes: [写, 故事, 日记, 诗, 文字], steps: [{text: 随手写了一小段东西，自己还挺满意, tags: [story.good]}]}
         - {id: sketch, domain: 画画审美, chance: 0.03, likes: [画, 配色, 设计, 审美, 拍照], steps: [{text: 窝在房间画了张小画}]}
         - {id: song_loop, domain: 音乐, chance: 0.03, likes: [歌, 音乐, 唱, 吉他, 钢琴], steps: [{text: 单曲循环了一下午同一首歌}]}
@@ -127,14 +126,56 @@ chat:
         - {id: words_day, domain: 语言翻译, chance: 0.025, likes: [外语, 英语, 日语, 翻译, 单词], steps: [{text: 背了会儿单词，顺手翻了段歌词}]}
         - {id: tiny_script, domain: 编程, chance: 0.02, likes: [代码, 编程, 程序, 算法], steps: [{text: 给自己写了个小脚本，省了不少事, tags: [story.good]}]}
         - {id: old_story, domain: 历史文学, chance: 0.02, likes: [历史, 古代, 文学, 典故, 诗词], steps: [{text: 读了段以前没留意过的历史，越看越上头}]}
-        - {id: level_clear, domain: 游戏, chance: 0.03, likes: [游戏, 通关, 抽卡], steps: [{text: 终于把卡了很久的那一关打过去了, tags: [story.good], place: lounge}]}
         - {id: extra_run, domain: 运动, chance: 0.03, likes: [健身, 跑步, 运动, 瑜伽], steps: [{text: 比平时多跑了两公里, place: gym}]}
         - {id: kept_company, domain: 倾听照顾人, chance: 0.02, with_other: true, likes: [照顾, 倾听, 关心, 陪伴, 温柔], steps: [{text: "{other}心情不太好，{name}陪着聊了很久", place: lounge}]}
         - {id: made_laugh, domain: 活跃气氛, chance: 0.02, with_other: true, likes: [热闹, 玩笑, 搞笑, 段子], steps: [{text: "{name}在休息室讲了个段子，把{other}笑得不行", tags: [story.good], place: lounge}]}
+        # L1 日常细节：作息（赖床、午睡、失眠、做梦发呆）、饮食（口味、做饭、外卖、尝新）、家务、季节
+        - {id: oversleep, chance: 0.03, weekdays: [0, 1, 2, 3, 4], hours: [7, 9], steps: [{text: 闹钟响了三遍才爬起来，早饭是在路上啃的}]}
+        - {id: nap, chance: 0.04, weekdays: [5, 6], hours: [13, 16], steps: [{text: 午饭后眯了一会儿，一睁眼天都快黑了}]}
+        - {id: insomnia, chance: 0.01, cooldown_days: 10, hours: [23, 24], steps: [{text: 躺下翻来覆去睡不着，数羊数到两点, tags: [story.late]}, {day: 1, text: 昨晚没睡好，白天一直打哈欠, tags: [story.tired]}]}
+        - {id: dream, chance: 0.02, hours: [7, 10], steps: [{text: 做了个很怪的梦，醒来只记得一半}]}
+        - {id: daydream, chance: 0.02, hours: [14, 22], steps: [{text: 一个人对着窗外发了好一会儿呆}]}
+        - {id: takeout, chance: 0.025, hours: [18, 21], steps: [{text: 懒得出门，点了外卖}]}
+        - {id: night_snack, chance: 0.015, hours: [21, 24], likes: [零食, 夜宵, 吃], steps: [{text: 半夜饿了，翻出包零食吃完了}]}
+        - {id: cook_dinner, domain: 做饭, chance: 0.015, hours: [17, 20], likes: [做饭, 下厨, 菜], steps: [{text: 自己做了顿晚饭，比食堂好吃, tags: [story.good], place: canteen}]}
+        - {id: new_place, chance: 0.01, with_other: true, cooldown_days: 14, hours: [11, 21], steps: [{text: "{name}拉着{other}去尝了家新开的店", tags: [story.good], place: out}]}
+        - {id: spicy_food, chance: 0.015, likes: [辣, 川菜, 火锅, 湘菜], need_likes: true, hours: [11, 21], steps: [{text: 吃了顿很辣的，辣得直吸气但很过瘾, tags: [story.good], place: out}]}
+        - {id: sweet_treat, chance: 0.015, likes: [甜, 甜点, 蛋糕, 奶茶], need_likes: true, hours: [13, 21], steps: [{text: 买了块小蛋糕犒劳自己, tags: [story.good]}]}
+        - {id: laundry, chance: 0.025, weekdays: [5, 6], hours: [10, 18], steps: [{text: 攒了一周的衣服终于洗了}]}
+        - {id: clean_room, chance: 0.015, weekdays: [5, 6], hours: [10, 18], cooldown_days: 10, steps: [{text: 把房间里外打扫了一遍，地板亮得能照人, tags: [story.good]}]}
+        - {id: rearrange, chance: 0.005, cooldown_days: 45, hours: [10, 20], likes: [布置, 装饰, 收纳, 家居], steps: [{text: 把书桌挪到了窗边，房间像换了一间}]}
+        - {id: hotpot, chance: 0.01, months: [11, 12, 1, 2], with_other: true, cooldown_days: 14, hours: [17, 21], steps: [{text: "天冷，{name}和{other}在食堂角落涮了顿火锅", tags: [story.good], place: canteen}]}
+        - {id: first_frost, chance: 0.01, months: [11, 12, 1, 2], cooldown_days: 30, hours: [7, 10], steps: [{text: 早上出门冻得一哆嗦，翻出了厚外套}]}
+        - {id: autumn_leaves, chance: 0.01, months: [9, 10, 11], cooldown_days: 20, hours: [10, 18], steps: [{text: 去公园踩了会儿落叶, place: out}]}
+        - {id: spring_walk, chance: 0.01, months: [3, 4, 5], cooldown_days: 20, hours: [10, 18], steps: [{text: 路边的花开了，绕远路多走了一段, place: out}]}
+        - {id: ice_cream, chance: 0.015, months: [6, 7, 8], hours: [12, 21], steps: [{text: 热得不行，买了根冰棍边走边吃, place: out}]}
+        - {id: long_evening, chance: 0.01, months: [6, 7], cooldown_days: 20, hours: [20, 22], steps: [{text: 九点多天还亮着，在天台坐到天黑, place: rooftop}]}
         # 住户变化（10-31 你定：成员离开 / 新成员入住当生活事件，温和，不煽情）
         - {id: arrive, trigger: arrive, steps: [{text: 刚搬进公寓，还在收拾行李, tags: [story.new]}]}
         - {id: welcome, trigger: welcome, steps: [{text: "{new}搬进来了，大家去打了个招呼", tags: [story.welcome], place: lounge}]}
         - {id: farewell, trigger: farewell, steps: [{text: "{gone}搬走了，走之前和大家道了别", tags: [story.farewell], place: lounge}]}
+      progress:                    # 爱好进度（L1）：书读到哪、剧追到哪、游戏打到哪；在做的东西优先从她「最爱」里挑
+        kinds:
+          book: {words: [书, 小说, 漫画, 散文, 诗], things: [一本推理小说, 一套科幻小说, 一本散文集, 一部长篇漫画, 一本旅行随笔], acts: ["dorm:read"], unit: 章, total: [12, 30], per: [1, 4], mid_chance: 0.2, domain: 长文阅读, start: "开始看{thing}", mid: "{thing}看到第{n}{unit}了", done: "把{thing}看完了"}
+          show: {words: [剧, 番, 动画, 纪录片], things: [一部悬疑剧, 一部新番, 一部美食纪录片, 一部老动画], daily: 0.25, mid_chance: 0.15, unit: 集, total: [8, 24], per: [1, 3], start: "开始追{thing}", mid: "{thing}追到第{n}{unit}了", done: "把{thing}追完了"}
+          game: {words: [游戏, 通关, 主机, 手游], things: [一个解谜游戏, 一个像素冒险游戏, 一个种田游戏, 一个横版动作游戏], acts: ["lounge:game"], unit: 关, total: [6, 15], per: [1, 2], domain: 游戏, start: "开始玩{thing}", mid: "{thing}打到第{n}{unit}了", done: "把{thing}通关了"}
+      festival:                    # 节日纪念日（L2）：读日历，提前准备、当天一起过；origin 是来历词（档案提到的人当家乡的节日：她领头，会有点想家）
+        festivals:
+          - {match: [除夕], origin: [中国, 中文, 春节, 老家], prep_days: 2, prep: "{name}去中国超市买了对联和饺子皮", day: "除夕夜{name}张罗大家在食堂包饺子，边包边看春晚", homesick: "{name}给家里打了个视频电话，挂了以后有点想家", hours: [18, 22], place: canteen}
+          - {match: [元宵], origin: [中国, 中文, 老家], prep_days: 0, day: "{name}煮了一锅汤圆分给大家", hours: [18, 21], place: canteen}
+          - {match: [端午], origin: [中国, 中文, 老家], prep_days: 1, prep: "{name}买了粽叶和糯米，打算包粽子", day: "大家分着吃了{name}包的粽子，形状各不一样", hours: [12, 20], place: canteen}
+          - {match: [中秋], origin: [中国, 中文, 老家], prep_days: 1, prep: "{name}买了一盒月饼", day: "{name}拉大家上天台赏月、分月饼", homesick: "看着月亮，{name}有点想家", hours: [19, 22], place: rooftop}
+          - {match: [万圣], prep_days: 1, prep: "{name}挑了个南瓜回来，打算刻灯笼", day: "{name}刻的南瓜灯摆在了门口，大家围着拍了照", hours: [18, 21]}
+          - {match: [篝火夜], prep_days: 0, day: "大家去公园看了篝火夜的烟花，回来手都冻红了", hours: [19, 21], place: out}
+          - {match: [圣诞], prep_days: 3, prep: "{name}去买了棵小圣诞树放在休息室", day: "大家在休息室交换了圣诞礼物", hours: [17, 21]}
+          - {match: [元旦], prep_days: 0, day: "新年第一天，大家睡到中午才起，一起吃了顿早午饭", hours: [11, 14], place: canteen}
+        gifts: [一束花, 一条围巾, 一个手作蛋糕, 一盏小夜灯, 一张手写贺卡, 一盒巧克力]
+      lows:                        # 健康与低谷（L4）：病了常一起玩的朋友照顾一下；接连不顺会低落几天、有人陪、再缓过来；累久了周末歇一天。只看生活，不看办公室
+        care_texts: ["{other}给{name}带了碗热粥", "{other}顺路帮{name}买了药", "{other}发消息问{name}好点没，还送来一袋橘子", "{other}帮{name}把晾着的衣服收了"]
+        low_text: "最近{cause}，这几天有点提不起劲，话也少了"
+        comfort_texts: ["{other}拉{name}出去走了走，买了杯热饮", "{other}找{name}打了两局游戏，没多问", "{other}陪{name}在天台坐了一会儿"]
+        better_text: 心情慢慢缓过来了，又开始跟大家贫嘴
+        rest_text: 累了好几天，决定今天什么都不干，好好睡一觉
       talent:                      # 觉醒擅长领域（L10）：证据只用人物卡种子 + 生活练习；和工作完全无关，不影响派活
         enabled: true
         domains:                   # 领域 → 档案里的种子词 / 生活里算练习的去处 / 深耕后楼里的人怎么说她（可增删）
@@ -594,6 +635,11 @@ chat:
       enabled: true
       milestones: [1, 12]          # 一个月、一年
       chance: 0.5                  # 到那天时意图卡里带上的机会
+    hooks:                         # 话头本（2026-11-01 你说没有聊天欲望、问了没人接着问）：你说过「明天考试」「下周三组会」，那天过了几天内听到的人可能问一句后来怎样（群里说的只问一次）；她私聊问你你隔了好久才回、说的是别的，她可能顺口再提一句；全程序
+      enabled: true
+      stale_days: 4                # 那天过了 4 天内还会问
+      chance: 0.5                  # 有话头时意图卡里带上的机会
+      q_chance: 0.3                # 她上次问你没回，再提一句的机会
     hush:                          # 以后别再提（借 AI-Buddy 的思路）：你说「别提了」「别再提考试了」，那件事她们不再主动提，你问起再说；私聊说的那位守，群里说的群里都守；说「可以提了」放开
       enabled: true
     rhythm:                        # 作息与回话节奏（docs/BRAIN.md，2026-10-30 你定）：她睡着时你发的消息，多数醒了再回，有时被吵醒（心情不好会抱怨两句）；说出让人担心的话时立刻回
@@ -603,9 +649,10 @@ chat:
       keep_hours: 16               # 睡着没看到的消息，超过 16 小时就不回了
     reach:                         # 主动找你（docs/BRAIN.md，2026-10-30 你定：可以按心情主动找）：心情、新鲜事、挂着的事、想念，有真事由才先开口
       enabled: true
-      per_day: 2                   # 全体每天最多主动找 2 次
-      gap_days: 2                  # 同一位隔 2 天才可能再找；上次找你你没回就不再找
-      after_user_hours: 3          # 你 3 小时内刚和她聊过就不找
+      per_day: 4                   # 全体每天最多主动找 4 次（11-01 你说没有聊天欲望：2 → 4）
+      gap_days: 1                  # 同一位隔 1 天才可能再找（原 2 天）；上次找你你没回就不再找
+      after_user_hours: 2          # 你 2 小时内刚和她聊过就不找（原 3 小时）
+      extrovert: 0.25              # 外向的更爱先开口：外向分每高 1 分，机会多 25%；他说过要做的事那天过了也算由头（话头本）
       quiet_hours: [23, 9]         # 你的深夜 23 点到早上 9 点不找
     feel:                          # 各自的情感（docs/BRAIN.md，2026-10-30 你定）：16 种（开心 难过 想念 生气 害羞 委屈 内疚 感激 吃醋 失落 满足 惊喜 心疼 紧张 期待 无聊，2026-10-31 你定扩到约 15 种），每位的理解从自己的人物卡来、按自己的理解分辨、随经历和每周成长慢慢变；可以五味杂陈（最多两种一起）；不贴统一标签
       enabled: true
@@ -827,6 +874,11 @@ chat:
         - {name: 刚搬来, tags: [story.new], energy: -0.05}
         - {name: 迎新, tags: [story.welcome], mood: 0.04}
         - {name: 有人搬走, tags: [story.farewell], mood: -0.08, note: 楼里有人搬走了}
+        - {name: 想家, tags: [story.homesick], mood: -0.05, note: 有点想家}
+        - {name: 被照顾, tags: [story.cared], mood: 0.08}
+        - {name: 低落, tags: [story.low], mood: -0.12, energy: -0.05, note: 这几天有点提不起劲}
+        - {name: 有人陪, tags: [story.comforted], mood: 0.08}
+        - {name: 歇了一天, tags: [story.rest], energy: 0.2, mood: 0.04}
         - {name: 干完活, tags: [work], mood: 0.02, energy: -0.08, note: 刚在办公室干完一件活}
         - {name: 看到听到, tags: [perceive], mood: 0.02}
       mood_labels: [[0.45, 心情很好], [0.15, 心情不错], [-0.15, 心情平常], [-0.45, 心情有点低落], [-2, 心情很差]]
@@ -1144,6 +1196,7 @@ prompts:
   merge: v5              # v5：已被下游接手的上游成果只给开头摘录
   attachments: v1        # 题目附件（文字版 / 随附图片）
   describe_image: v1     # 图片文字版
+  describe_video: v1     # 视频文字版（工作模式附件）
   transcribe: v1         # 音频转写
   tools: v5              # 工具说明与工具结果（v2：联网搜索；v3：图表中文；v4：转述的网页正文；v5：in/ 上游文件与参考图）
   image_gen: v1          # 图像生成工具
@@ -1216,7 +1269,8 @@ prompts:
   sticker_draw: v1       # 成员专属表情包：画一张 Q 版贴纸的提示词
   sticker_check: v2      # 成员专属表情包：先逐字抄出图上的字再核对配文和形象
   sticker_anim: v1       # 成员专属动图表情：一次画 2×2 四格，切开连成会动的表情
-  moment_photo: v2       # 朋友圈配图：手机随手拍（v2：多数不露脸、拍小细节、去 AI 感）
+  moment_photo: v6       # 朋友圈配图：v6 只许公寓八人里在场的人和房东（脸上贴纸）出现、背景只在公寓楼；v5 的摄影维度和拍照习惯照旧
+  moment_photo_tags: v1  # 朋友圈配图的标签版：吃标签的本地绘图模型（ComfyUI，image_prompt: tags）用
   describe_screen: v2    # 投屏陪伴：把一张截图写成给成员看的文字（隐私信息打码；v2 带上一段，写出变化）
   chat: v13              # 群聊：口语、短句（v2：人设与记忆；v3：人物卡随身卡，AI 身份平时不刻意提、被认真问如实承认；v4：表情包、颜文字、引用、分条、不接话；v5：知道现在几点和自己在干什么；v6：照人物卡说话风格，各人不同；v7：大脑分区的想法卡；v8：感情用做法流露、可偏爱和喜欢、挽留只一次）；v9：像发微信不像作答，先反应再吐槽、不复述不解释；v10：心情别直说（用表情包、颜文字、符号），被直接问先回答；v11：简单短词、会歪楼、招牌特色、表情包用得更勤；v12：做事不反复确认、不谈数据截止、不贴状态句、不说「用户」；v13：要动手的活写交办记号交给办公室、选项按钮
   chat_dm: v13           # 私聊：和用户一对一（v2：人设与记忆；v3：人物卡随身卡；v4：表情包、颜文字、引用、分条；v5：知道现在几点；v6：照人物卡说话风格；v7：大脑分区的想法卡；v8：感情用做法流露、可偏爱和喜欢、挽留只一次）；v9：像发微信不像作答，先反应再吐槽、不复述不解释；v10：心情别直说（用表情包、颜文字、符号），被直接问先回答；v11：简单短词、会歪楼、招牌特色、表情包用得更勤；v12：做事不反复确认、不谈数据截止、不贴状态句、不说「用户」；v13：要动手的活写交办记号交给办公室、选项按钮
@@ -1808,6 +1862,84 @@ media:
     per_member_day: 1        # 每位成员每天最多 1 张
     per_day: 3               # 所有成员每天最多 3 张（约 $0.08/天）
     max_side: 1024
+    local_only: false        # true：只用本地绘图模型（ComfyUI），本地没开就只发文字，不退回付费模型
+    # 2026-11-02 用户选「接 ChatGPT 同款画图模型」：配图用旗舰档、带 feed_photo 标签的先画（约 $0.03/张，
+    # 每天最多 3 张）；画不出来按出图顺序换下一个。表情包不受影响。
+    tier: flagship
+    prefer_tags: [feed_photo]
+    # --- 摄影维度（2026-11-02，.claude/skills/phone-photo）：每张图抽一种拍法，再给机位 / 光 / 时机 /
+    # 焦段 / 滤镜各抽一个（各维度独立种子，可复现）。取值按手机现实：1x 主摄、原色、抓拍为主；
+    # 只写取景、光、时机、景深，不写写实画质词（画风跟设定图）。
+    # name：稳定标识（形象卡 photo.boost 按名字加权）；text：英文短语（空 = 这项不写）；
+    # tags：标签版（本地 ComfyUI 用）；when：适用时间段（morning/day/evening/night）或地点
+    # （dorm/canteen/lounge/gym/office/meeting/rooftop/indoor/outdoor），同类满足一个即可；
+    # her：适用的入镜方式（none 不入镜 / part 只露手 / full 入镜），不写 = 都可以。
+    # 拍法：by = 谁拿手机（self 她自己，friend 室友帮拍；室友帮拍时其他维度不按她的习惯加权）；约七成她本人入镜
+    shots:
+      - {name: candid, text: "a friend caught her in the middle of doing it, candid, she is the main subject", weight: 4, by: friend, tags: candid}
+      - {name: selfie, text: "a casual selfie at arm's length, maybe with whoever she is with", weight: 2, tags: "selfie, arm's length, from above"}
+      - {name: together, text: "her and the people she is with, snapped together while hanging out", weight: 1, tags: "group shot, friends"}
+      - {name: mirror, text: "mirror selfie, the phone covering part of her face", weight: 1, tags: "mirror selfie, holding phone, reflection"}
+      - {name: pov, text: "something worth showing off in front of her (a nice meal just served, the view, a cute object), with her hand or sleeve at the edge of the frame", weight: 2, her: part, tags: "pov hands"}
+      - {name: thing, text: "only a view or thing worth showing off (rooftop night sky, a pretty dish just served); she does not appear", weight: 1, her: none, tags: "still life"}
+    angles:                  # 机位：距离、高度、方向、隔物取景
+      - {name: across_table, text: "from across the table", weight: 3, tags: "across table", shots: [candid, together, pov, thing]}
+      - {name: arms_length, text: "from arm's length, close", weight: 2, her: [part, full], tags: close-up, shots: [selfie, together, pov]}
+      - {name: few_meters, text: "from a few meters away, she is small-ish in the frame", weight: 2, her: [full], tags: "wide shot, from a distance", shots: [candid]}
+      - {name: high_angle, text: "high angle from standing height", weight: 2, tags: "from above"}
+      - {name: eye_level, text: "eye level from a seated friend", weight: 2, her: [full], tags: "eye level", shots: [candid, together]}
+      - {name: low_angle, text: "low angle from the seat", weight: 1, tags: "from below", shots: [candid, pov, thing]}
+      - {name: three_quarter, text: "three-quarter view of her", weight: 2, her: [full], tags: "three-quarter view", shots: [candid, together, selfie]}
+      - {name: profile, text: "her in profile", weight: 1, her: [full], tags: "from side, profile", shots: [candid]}
+      - {name: from_behind, text: "from behind, she is facing what she is looking at", weight: 1, her: [full], tags: "from behind", shots: [candid]}
+      - {name: over_shoulder, text: "over a friend's shoulder, the shoulder blurred in the foreground", weight: 1, her: [full], tags: "over the shoulder, blurry foreground", shots: [candid]}
+      - {name: doorway, text: "framed through the doorway", weight: 1, her: [full], when: [indoor], tags: "doorway, framed", shots: [candid]}
+      - {name: reflection, text: "seen reflected in the window glass", weight: 0.5, her: [full], tags: "reflection, window", shots: [candid]}
+      - {name: top_down, text: "top-down shot of the table", weight: 2, her: [none, part], tags: "from above, table", shots: [pov, thing]}
+    lights:                  # 光：每束光都有看得见的来源，跟时间段和地点走
+      - {name: window_side, text: "soft side light from the window", weight: 3, when: [morning, day, indoor], tags: "window light, side lighting"}
+      - {name: window_back, text: "against the bright window, rim light on her hair, face still visible", weight: 1, when: [morning, day, indoor], tags: "backlighting, rim light"}
+      - {name: ceiling, text: "flat overhead ceiling light", weight: 2, when: [indoor], tags: "ceiling light, indoors"}
+      - {name: sunset_window, text: "warm sunset light streaming in through the window", weight: 2, when: [evening, indoor], tags: "sunset, window light, orange light"}
+      - {name: desk_lamp, text: "warm desk lamp as the only light, deep shadows", weight: 3, when: [evening, night, dorm, office], tags: "night, desk lamp, dim lighting"}
+      - {name: screen, text: "lit by the screen glow, cool blue on her face", weight: 1, when: [night, dorm, lounge, office], tags: "screen light, dark room"}
+      - {name: golden, text: "golden hour sun, long warm shadows", weight: 3, when: [evening, outdoor], tags: "sunset, golden hour, orange sky"}
+      - {name: blue_hour, text: "blue hour sky, city lights just turning on", weight: 2, when: [evening, night, outdoor], tags: "blue hour, twilight, city lights"}
+      - {name: night_city, text: "night city glow, phone night mode look: clean shadows, lights glowing softly", weight: 2, when: [night, outdoor], tags: "night, city lights"}
+      - {name: midday, text: "bright midday sun, short dark shadows", weight: 1, when: [day, outdoor], tags: "sunlight, day"}
+      - {name: flash, text: "on-camera flash, bright face, dark background", weight: 0.5, when: [night], her: [part, full], tags: "flash, night"}
+    moments:                 # 时机：哪一秒按的快门（最能去 AI 感）
+      - {name: decisive, text: "the split second right after something happens", weight: 2, tags: candid}
+      - {name: mid_laugh, text: "mid-laugh, eyes squeezed", weight: 2, her: [full], tags: "laughing, closed eyes"}
+      - {name: mid_bite, text: "mid-bite, cheeks full", weight: 1, her: [full], when: [canteen, dorm, lounge], tags: "eating, cheek bulge"}
+      - {name: turning, text: "just turning around after hearing her name", weight: 1, her: [full], tags: "turning around, looking back", shots: [candid]}
+      - {name: unaware, text: "caught before she noticed the camera", weight: 2, her: [full], tags: "candid, looking away", shots: [candid]}
+      - {name: noticed, text: "she just noticed the camera, hand half raised to block it", weight: 1, her: [full], tags: "hand up, surprised"}
+      - {name: absorbed, text: "a quiet moment, absorbed in what she is doing", weight: 2, her: [part, full], tags: "focused"}
+      - {name: burst, text: "one frame from a burst, caught mid-motion", weight: 1, her: [part, full], tags: "motion blur"}
+      - {name: just_ready, text: "right when it is ready, before anyone touches it", weight: 2, her: [none, part]}
+      - {name: reaching, text: "her hand reaching in to grab it", weight: 1, her: [part], tags: "reaching"}
+    lenses:                  # 焦段：手机只有几档；1x 主摄最常见（不写）
+      - {name: main, text: "", weight: 7}
+      - {name: ultra_wide, text: "0.5x ultra-wide, edges slightly stretched, whole room in frame", weight: 1.5, tags: "wide shot, wide angle"}
+      - {name: zoom, text: "2x zoom, a little compressed, from across the room", weight: 1, her: [full], tags: "telephoto", shots: [candid]}
+      - {name: portrait_mode, text: "portrait mode, background softly blurred with slightly artificial edges", weight: 1, her: [part, full], tags: "depth of field, blurry background"}
+      - {name: macro, text: "phone macro close-up of something small", weight: 0.5, her: [none, part], tags: "close-up, macro"}
+      - {name: missed_focus, text: "focus slightly missed, landed on something in front of her", weight: 0.5, her: [full], tags: "blurry foreground", shots: [candid]}
+    filters:                 # 手机自带滤镜：原色最多，不过饱和
+      - {name: original, text: "", weight: 12}
+      - {name: warm, text: "slightly warm phone filter", weight: 2, tags: "warm colors"}
+      - {name: cool, text: "slightly cool, faded phone filter", weight: 2, tags: "cool colors, faded"}
+      - {name: bright, text: "slightly brightened phone filter", weight: 1, tags: "bright"}
+      - {name: high_contrast, text: "punchy high-contrast phone filter", weight: 0.5, tags: "high contrast"}
+      - {name: bw, text: "black-and-white phone filter", weight: 0.5, tags: "monochrome, greyscale"}
+    quirk_chance: 0.3        # 她自己拍时带上拍照小毛病（形象卡 photo.quirk）的概率
+    subject_chance: 0.6      # 她自己拍东西时换成她爱拍的东西（photo.subjects）的概率
+    # shots：这个取值只配哪些拍法（不写 = 都可以），免得「自拍 + 几米外」「自拍 + 没注意到镜头」这类矛盾
+    # --- 画面里的人（2026-11-02 用户：不要出现公寓以外的人，背景必须是公寓楼；可以出现用户，
+    # 不画脸、脸上贴张纸「早上好」，写不写看她的心情）。公寓楼外的事（出门、旅行）不配图。
+    housemate_refs: 2        # 同场室友最多附几张参考图（每人一张），免得被画成陌生人
+    landlord_chance: 0.2     # 她本人入镜时房东（你）也在画面里的概率，再乘她的 photo.landlord（看性格）
   video:
     audio: true              # 视频同时生成声音（环境声、对白；模型不支持时忽略）
     duration_s: 5
@@ -1991,6 +2123,18 @@ supercomputer:
       argv: [claude, -p, --permission-mode, acceptEdits, --output-format, text]
       skills: {code: 0.85, frontend: 0.85, review: 0.9, docs: 0.85, test: 0.75, research: 0.6, split: 0.85, merge: 0.85, vision: 0.9}
       daily_limit: 20
+  # 管家（docs/SUPERCOMPUTER.md「管家」）：你建的定时活、排队、自治闸门、日报、哈希链审计。
+  # 只调度你建好的定时活和你排进队的活，不会自己找活干；不调模型、不花钱。
+  butler:
+    enabled: true
+    tick_seconds: 60        # 多久看一次表
+    catch_up_hours: 12      # 电脑关着错过了点：开机后 12 小时内补跑一次，再晚记为「错过」
+    max_schedules: 20
+    queue_max: 10
+    report_days: 14         # 开机补写最近几天的日报
+    gate:
+      autonomy: low         # off：定时活一律等你确认；low：低风险的自己跑；medium：低、中风险的自己跑（高风险永远等你）
+      max_auto_per_day: 3   # 每天最多自己跑几件（按本机日期）
 
 # 工作台生成器（docs/KIT.md）：一句话 → 拆需求 → 按零件库拼窗口 → 自动质检 + 截图评审 → 返工。
 # 活交给上面的超级电脑（花的是订阅次数）；评审永远不分给窗口的作者本人；做满 max_rounds 轮还不过线就停下来问你。

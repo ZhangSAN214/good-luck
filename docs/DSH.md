@@ -16,8 +16,8 @@
 需要 Node 22 以上、npm、pnpm（`npm install -g pnpm`）。
 
 ```bash
-python scripts/setup_dsh.py --check   # 只检查 Node / npm / pnpm 和是否已装好
-python scripts/setup_dsh.py           # 装 dsh 运行时（约 0.9 GB）和白名单插件
+python scripts/setup_dsh.py --check   # 只核对 Node / npm / pnpm、运行时文件和版本、插件安装包
+python scripts/setup_dsh.py           # 装 dsh 运行时（约 0.9 GB）和白名单插件；装完逐项核对，没过就把运行时整批退回（docs/FIRSTAID.md）
 ```
 
 安装时不使用任何 key。装好后在 `.env` 里放 `DEEPSEEK_API_KEY`（在 DeepSeek 官网充值；不经过 OpenRouter），重启圆桌，点分段栏「工作台」→「dsh」→「启动」。

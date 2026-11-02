@@ -1890,6 +1890,14 @@ def build_parser() -> argparse.ArgumentParser:
         "target", nargs="?", default="", help="checkpoint 的标签 / restore 的文件名"
     )
     backup.add_argument("--yes", action="store_true", help="恢复时不再问一遍")
+    doctor = sub.add_parser(
+        "doctor",
+        help="出问题点这里：只读自检（起不来 / 卡住 / 撤销更新 / 数据不见了），不改任何东西",
+    )
+    doctor.add_argument(
+        "--report", action="store_true", help="输出可以整段转交的体检报告（不含聊天内容和 key）"
+    )
+    doctor.add_argument("-o", "--output", help="把体检报告存到这个文件（UTF-8）")
     kit = sub.add_parser(
         "kit-check", help="工作台质检：三种屏宽 × 浅色 / 深色，量出不达标的地方（不调用模型）"
     )
@@ -1943,6 +1951,8 @@ async def run(
     args = build_parser().parse_args(argv)
     if args.command == "kit-check":  # 不需要配置和模型
         return await asyncio.to_thread(cmd_kit_check, args, out)
+    if args.command == "doctor":  # 圆桌起不来时也要能用：不建运行时、不迁移数据库
+        return cmd_doctor(args, out)
     if args.command == "sim":  # 自己建临时数据库，不打开真实数据
         return await cmd_sim(args, out)
     if args.command == "sim-growth":  # 同上
@@ -2257,6 +2267,66 @@ def cmd_backup(
         kind = "每天" if f.kind == "daily" else f"存档点·{f.label}"
         print(f"  {f.name}  {kind}  {f.size / 1048576:.1f} MB", file=out)
     return 0
+
+
+def cmd_doctor(args: argparse.Namespace, out: TextIO) -> int:
+    """离线自检（docs/FIRSTAID.md）：服务开着时网页上「出问题点这里」看到的更全。"""
+    from roundtable.core import firstaid
+    from roundtable.core.changelog import load_changelog, numbered
+    from roundtable.core.config import load_config
+    from roundtable.core.providers import KeyRing
+    from roundtable.core.runtime import BACKUP_DIR, data_dir, db_file
+
+    error = None
+    names: list[str] = []
+    enabled = True
+    try:
+        cfg = load_config()
+        names = [c.key_env for c in cfg.models.channels.values() if c.key_env]
+        names += [p.key_env for p in cfg.models.search_providers.values() if p.key_env]
+        enabled = cfg.roundtable.backup.enabled
+    except ConfigError as exc:
+        error = str(exc)
+    keys = KeyRing.from_env(names, dotenv_path=PROJECT_ROOT / ".env")
+    db = db_file()
+    folder = db.parent / BACKUP_DIR if db is not None else None
+    now = datetime.now().astimezone()
+    found = firstaid.offline_findings(
+        db_path=db,
+        data=db.parent if db is not None else data_dir(),
+        config_error=error,
+        keys_present=[n for n in names if keys.has(n)],
+        keys_missing=[n for n in names if not keys.has(n)],
+        backup_files=firstaid.list_backups(folder),
+        backup_folder=folder,
+        backup_enabled=enabled,
+        now=now.replace(tzinfo=None),
+    )
+    summary = firstaid.summarize(found)
+    try:
+        rows = numbered(load_changelog())
+        version = rows[-1][0] if rows else None
+    except (ConfigError, OSError, ValueError):
+        version = None
+    report = firstaid.render_report(summary, firstaid.meta_info(version, now))
+    if args.output:
+        Path(args.output).write_text(report + "\n", encoding="utf-8")
+        print(f"体检报告已存到 {args.output}", file=out)
+    if args.report:
+        print(report, file=out)
+    elif not args.output:
+        mark = {"ok": "✓", "info": "·", "warn": "!", "bad": "✗"}
+        print(f"圆桌自检：{summary['headline']}", file=out)
+        for f in summary["findings"]:
+            line = f"  {mark[f['level']]} {f['title']}"
+            if f["detail"]:
+                line += f"：{f['detail']}"
+            print(line, file=out)
+            if f["fix"] and f["level"] in ("warn", "bad"):
+                print(f"      怎么办：{f['fix']}", file=out)
+        print("服务开着时，网页顶栏「出问题点这里」能看到更多（后台任务、渠道、预算）。", file=out)
+        print("要发给我们：roundtable doctor --report", file=out)
+    return 1 if summary["level"] == "bad" else 0
 
 
 def main(argv: list[str] | None = None) -> int:

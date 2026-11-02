@@ -14,8 +14,8 @@ from ..core.orchestrator.conftest import MEDIUM, Env
 from .test_app import FAKE_KEY, leaks, sse_events
 
 
-def client(balance=None) -> tuple[Env, TestClient]:
-    env = Env(confirm_threshold_usd=100.0)
+def client(balance=None, with_media=False) -> tuple[Env, TestClient]:
+    env = Env(confirm_threshold_usd=100.0, with_media=with_media)
     if balance is not None:
         channels = env.rt.config.models.channels
         channels["c"] = channels["c"].model_copy(update={"balance": "credits"})
@@ -127,3 +127,25 @@ def test_channel_priority_get_and_put():
 
         assert c.put("/api/channels/priority", json={"strategy": "x"}).status_code == 400
         assert c.put("/api/channels/priority", json={"strategy": "auto", "x": 1}).status_code == 422
+
+
+def test_draw_channels_get_and_put():
+    env, c = client(with_media=True)
+    with c:
+        d = c.get("/api/media/draw-channels").json()
+        rows = d["models"]
+        assert rows and all(not r["disabled"] for r in rows)
+        first = rows[0]
+        assert {"id", "band", "price_usd", "available", "resting", "channels"} <= set(first)
+        assert first["channels"][0]["last_skip"] is None
+        last = rows[-1]["id"]
+        r = c.put("/api/media/draw-channels", json={"disabled": [first["id"]], "order": [last]})
+        assert r.status_code == 200
+        d = r.json()
+        assert d["disabled"] == [first["id"]] and d["order"] == [last]
+        assert d["models"][0]["id"] == last and d["models"][-1]["id"] == first["id"]
+        assert env.rt.router.draw_prefs.disabled == (first["id"],)
+        assert FAKE_KEY not in r.text
+        bad = c.put("/api/media/draw-channels", json={"disabled": ["nope"]})
+        assert bad.status_code == 400
+        assert c.put("/api/media/draw-channels", json={"x": 1}).status_code == 422

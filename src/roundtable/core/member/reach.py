@@ -34,6 +34,7 @@ class Urge:
     reason: str  # mood_low / mood_high / news / hanging / longing
     note: str  # 写进意图卡的一句
     strength: float
+    tag: str = ""  # 话头本的标记：真找了就划掉
 
 
 class Reach:
@@ -103,6 +104,12 @@ class Reach:
         if hanging:
             text = str(hanging[-1]["text"])
             options.append(Urge(member, "hanging", r.notes["hanging"].format(what=text), 0.6))
+        from roundtable.core.member.hooks import Hooks  # 话头本不依赖本模块
+
+        plans = Hooks(self.rt).due(member, at)
+        if plans:  # 他说过要做的事那天过了：想问问后来怎样（11-01 你说没有聊天欲望）
+            note = r.notes["hook"].format(what=plans[0]["quote"])
+            options.append(Urge(member, "hook", note, 0.7, f"hook:p:{plans[0]['id']}"))
         last_user = self._last_user(room)
         if last_user and care >= r.care_min:
             days = (at - datetime.fromisoformat(last_user["created_at"])).total_seconds() / 86400
@@ -157,9 +164,20 @@ class Reach:
             if urge is None:
                 continue
             roll = random.Random(f"reach:{member}:{slot}").random()
-            if roll < r.per_day_chance * urge.strength / ticks:
+            if roll < r.per_day_chance * urge.strength * self.outgoing(member) / ticks:
                 return urge
         return None
+
+    def outgoing(self, member: str) -> float:
+        """外向的更爱先开口（11-01 你说没有聊天欲望）：外向分每高 1 分 × (1 + extrovert)。"""
+        from roundtable.core.member.profile import ProfileStore  # 档案依赖较多，用到再导入
+
+        try:
+            data = ProfileStore(self.rt).current(member).data
+            score = float(((data.get("personality") or {}).get("五项") or {}).get("外向", 3))
+        except Exception:  # noqa: BLE001 — 没有档案：按中间分
+            score = 3.0
+        return max(0.3, 1 + self.rules.extrovert * (score - 3))
 
     def sent(self, urge: Urge, msg_id: int, at: datetime) -> None:
         data = self._load()
@@ -167,3 +185,7 @@ class Reach:
         today = home_zone(self.rt).local(at).date().isoformat()
         data["days"][today] = data["days"].get(today, 0) + 1
         self._save(data)
+        if urge.tag:
+            from roundtable.core.member.hooks import Hooks
+
+            Hooks(self.rt).after(urge.member, [urge.tag])

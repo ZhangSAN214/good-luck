@@ -18,6 +18,7 @@ const RANGES = [
 const FEATURE_ORDER = ['work', 'office', 'chat', 'life', 'evolution'];
 const BASIS_KEY = 'roundtable.usage.basis';
 const KIND_LABEL = { direct: '官方直连', aggregator: '中转站', local: '本机' };
+const BAND_LABEL = { local: '本机', free: '不花钱', paid: '花钱' };
 
 /** 美元：小额多给几位小数，免得全是 $0.00。 */
 export function usd(v) {
@@ -67,7 +68,7 @@ export function reconcileLine(row) {
 export class Usage {
   /**
    * @param {HTMLDialogElement} dialog
-   * @param {{api:{usage:Function, balance:Function, priority?:Function, setPriority?:Function}}} opts
+   * @param {{api:{usage:Function, balance:Function, priority?:Function, setPriority?:Function, draw?:Function, setDraw?:Function}}} opts
    */
   constructor(dialog, { api }) {
     this.dlg = dialog;
@@ -80,13 +81,40 @@ export class Usage {
     this.basis = load(BASIS_KEY) === 'budget' ? 'budget' : 'balance';
     this.pri = null; // 渠道优先顺序（编辑中的草稿）
     this.priMsg = '';
+    this.draw = null; // 出图渠道（编辑中的草稿）
+    this.drawMsg = '';
     this.dlg.addEventListener('click', (e) => this.onClick(e));
   }
 
   async open() {
     if (!this.dlg.open) this.dlg.showModal();
     this.render();
-    await Promise.all([this.loadUsage(), this.loadBalance(false), this.loadPriority()]);
+    await Promise.all([this.loadUsage(), this.loadBalance(false), this.loadPriority(), this.loadDraw()]);
+  }
+
+  async loadDraw() {
+    if (!this.api.draw) return;
+    try {
+      this.draw = await this.api.draw();
+      this.drawMsg = '';
+    } catch (e) {
+      this.drawMsg = e.message;
+    }
+    if (this.dlg.open) this.render();
+  }
+
+  async saveDraw() {
+    const rows = this.draw.models;
+    try {
+      this.draw = await this.api.setDraw({
+        disabled: rows.filter((m) => m.disabled).map((m) => m.id),
+        order: this.draw.manual ? rows.filter((m) => !m.disabled).map((m) => m.id) : [],
+      });
+      this.drawMsg = '已保存，下一张图起生效。';
+    } catch (e) {
+      this.drawMsg = `没保存成功：${e.message}`;
+    }
+    this.render();
   }
 
   async loadPriority() {
@@ -167,6 +195,7 @@ export class Usage {
         ${this.msg ? `<p class="pp-msg" role="alert">${esc(this.msg)}</p>` : ''}
         ${this.balanceSection()}
         ${this.prioritySection()}
+        ${this.drawSection()}
         ${d ? this.budgetSection(d) : '<p class="hint us-wait">正在读本机账本…</p>'}
         ${d ? this.tokenSection(d) : ''}
         ${d ? this.detailSection(d) : ''}
@@ -246,6 +275,52 @@ export class Usage {
       <div class="grp-box">${rows}</div>
       <p class="grp-foot">${custom ? '按上面的先后走；' : '按各成员配置里的顺序走（一般官方直连在前、中转站兜底）；'}填了每月附送额度的渠道（比如会员送的 API 额度），本月没用完时最先走，用完自动排到最后。出错的渠道会临时排后。只决定走哪条路，不影响谁上桌。</p>
       <div class="us-psave"><button type="button" class="btn" data-psave>保存</button>${this.priMsg ? `<span class="hint">${esc(this.priMsg)}</span>` : ''}</div>
+    </section>`;
+  }
+
+  drawSection() {
+    const p = this.draw;
+    if (!p) return this.drawMsg ? `<section class="grp"><h4 class="grp-h">出图先用谁</h4><div class="grp-box"><div class="grp-row us-bad">${esc(this.drawMsg)}</div></div></section>` : '';
+    if (p.manual === undefined) p.manual = p.order.length > 0;
+    if (!p.models.length) return '';
+    const rows = p.models
+      .map((m, i) => {
+        const state = m.disabled
+          ? '<span class="us-pill bad">已关</span>'
+          : !m.available
+            ? `<span class="us-pill bad">${esc(m.channels.map((c) => c.reason).filter(Boolean)[0] || '用不了')}</span>`
+            : m.resting
+              ? '<span class="us-pill warn">在歇</span>'
+              : '<span class="us-pill">能用</span>';
+        const move = p.manual
+          ? `<span class="us-pmove"><button type="button" class="sheet-icon" data-dmove="${i}:-1" aria-label="往前"${i ? '' : ' disabled'}>↑</button><button type="button" class="sheet-icon" data-dmove="${i}:1" aria-label="往后"${i < p.models.length - 1 ? '' : ' disabled'}>↓</button></span>`
+          : '';
+        const notes = m.channels
+          .map((c) => {
+            const bits = [];
+            if (c.credit_left_usd != null) bits.push(c.credit_left_usd > 0 ? `赠送额度还剩 ${usd(c.credit_left_usd)}` : '赠送额度已用完');
+            if (c.resting_s > 0) bits.push(`还要歇约 ${Math.ceil(c.resting_s)} 秒`);
+            if (c.last_skip) bits.push(`上次跳过：${c.last_skip.reason}（${new Date(c.last_skip.at).toLocaleTimeString('zh-CN', tzOpt({ hour12: false }))}）`);
+            return bits.length ? `<p class="us-sub">${esc(c.channel)}：${esc(bits.join(' · '))}</p>` : '';
+          })
+          .join('');
+        return `<div class="us-prow${m.disabled || !m.available ? ' off' : ''}">
+          <div class="us-acct-h"><small class="us-pno">${i + 1}</small><b>${esc(m.id)}</b><span class="us-pill">${esc(BAND_LABEL[m.band] || m.band)}</span>${state}${move}</div>
+          <p class="us-sub">每张约 ${usd(m.price_usd)}${m.references ? ' · 能看参考图' : ''}</p>
+          ${notes}
+          <label class="us-sub"><input type="checkbox" data-duse="${i}"${m.disabled ? '' : ' checked'}> 用它出图</label>
+        </div>`;
+      })
+      .join('');
+    return `<section class="grp">
+      <h4 class="grp-h">出图先用谁 <small>画图、表情包、朋友圈配图共用</small></h4>
+      <div class="us-tabs" role="group" aria-label="出图顺序">
+        <button type="button" class="us-tab" data-dstrat="auto" aria-pressed="${!p.manual}">自动挑</button>
+        <button type="button" class="us-tab" data-dstrat="manual" aria-pressed="${p.manual}">我来排</button>
+      </div>
+      <div class="grp-box">${rows}</div>
+      <p class="grp-foot">${p.manual ? '按上面的先后试；' : '先用这台电脑上的（本机画图，不花钱），再用不花钱的（免费模型、本月还有赠送额度的渠道），最后按每张价格从便宜到贵；'}限速、额度用完、显卡在忙或没开的会自动跳过、过一会儿再试。没配 key 的自动不用。花钱的照旧算进创作输出的月上限。</p>
+      <div class="us-psave"><button type="button" class="btn" data-dsave>保存</button>${this.drawMsg ? `<span class="hint">${esc(this.drawMsg)}</span>` : ''}</div>
     </section>`;
   }
 
@@ -414,6 +489,27 @@ export class Usage {
       return this.render();
     }
     if (t.closest('[data-psave]') && this.pri) return this.savePriority();
+    const ds = t.closest('[data-dstrat]');
+    if (ds && this.draw) {
+      this.draw.manual = ds.dataset.dstrat === 'manual';
+      this.drawMsg = '';
+      return this.render();
+    }
+    const dm = t.closest('[data-dmove]');
+    if (dm && !dm.disabled && this.draw) {
+      const [i, d] = dm.dataset.dmove.split(':').map(Number);
+      const list = this.draw.models;
+      [list[i], list[i + d]] = [list[i + d], list[i]];
+      this.drawMsg = '';
+      return this.render();
+    }
+    const du = t.closest('[data-duse]');
+    if (du && this.draw) {
+      this.draw.models[Number(du.dataset.duse)].disabled = !du.checked;
+      this.drawMsg = '';
+      return this.render();
+    }
+    if (t.closest('[data-dsave]') && this.draw) return this.saveDraw();
     const b = t.closest('[data-basis]');
     if (b && !b.disabled) {
       this.basis = b.dataset.basis;

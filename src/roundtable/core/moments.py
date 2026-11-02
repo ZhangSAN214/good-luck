@@ -11,6 +11,7 @@
 - 去重（不花钱）：别人 ``dedupe_hours`` 小时内已经发过的同一件事（同一条生活事件）不再发，改挑
   当天另一件事，没有就跳过；写出来的正文和近期任何人的动态太像（字符二元组 Jaccard ≥
   ``similarity_max``）也不发，并记下这位成员的这件事，之后不再为它花钱。
+<<<<<<< HEAD
 - 配图（``media.moment_photos``）：按概率画一张手机随手拍；拍法按权重抽，多数只拍东西 / 风景、
   她不入镜（不传形象参考图），画完在本机加一层手机味（``member_stickers.phone_look``）。
 - 说话像人（M2，2026-11-02）：写成聊天的事件把那段聊天的原话节选喂给发帖（``<talk>``）；每条按
@@ -22,6 +23,11 @@
   到点后 ``post_window_hours`` 内有事才发；评论按 ``comment_counts`` 抽 0～4 条，谁来按 P4 亲近度
   加权，几分钟到几小时陆续到（计划存在设置 ``moments.plan``）；成员的评论楼主可能回一句、
   楼主不回时别人可能接一句，只回 1 轮。时间戳记在计划的时刻（不是推进的那一刻）。
+=======
+- 配图（``media.moment_photos``）：按概率画一张；拍法按权重抽，多数她本人入镜、抓拍不摆拍，
+  拍东西时只拍值得炫的（她不入镜时不传形象参考图），画完在本机加一层手机味
+  （``member_stickers.phone_look``）。
+>>>>>>> origin/ccr-86975127-sv4cvy
 """
 
 from __future__ import annotations
@@ -57,6 +63,7 @@ from roundtable.core.hometz import home_zone
 from roundtable.core.member.brain import Brain
 from roundtable.core.member.lingo import Lingo
 from roundtable.core.member.voice import Said, before_voice, recent_words
+from roundtable.core.moment_shots import event_time, pick_shot, pick_spec, place_tags
 from roundtable.core.office.apartment import schedule
 from roundtable.core.persona import chat_persona
 from roundtable.core.plain_talk import before_speaking, plain_prompt
@@ -453,6 +460,9 @@ class Moments:
             return False
         if member.id not in rt.config.personas.sticker_cards:
             return False
+        place = str(event.get("place") or "")
+        if place and not place_tags(place):
+            return False  # 公寓楼外的事（出门、旅行）不配图：配图只画公寓里（11-02 用户）
         if random.Random(f"photo:{event['id']}:{member.id}").random() >= rules.chance:
             return False
         day_start = iso(utc_day_window(rt.budget.now())[0])
@@ -476,10 +486,23 @@ class Moments:
         rules = rt.config.roundtable.media.moment_photos
         if not self.photo_planned(member, event):
             return None
+        place = str(event.get("place") or "")
         rng = random.Random(f"photo:{event['id']}:{member.id}")
         rng.random()  # 和 photo_planned 掷的是同一次
         try:
-            shot = rng.choices(rules.shots, [s.weight for s in rules.shots])[0]
+            habit = rt.config.personas.sticker_cards[member.id].photo
+            shot = pick_shot(rules, habit, rng)
+            names = self.names()
+            others = [(i, names.get(i, i)) for i in event.get("members") or [] if i != member.id]
+            spec = pick_spec(
+                rules,
+                habit,
+                shot,
+                event_id=event["id"],
+                member_id=member.id,
+                time=event_time(event.get("at"), home_zone(rt).tz()),
+                place=place,
+            )
             data, mime = await MemberStickers(rt, rt.sticker_dir).photo(
                 member.id,
                 event["topic"],
@@ -487,6 +510,11 @@ class Moments:
                 shot.text,
                 refs=shot.her != "none",
                 seed=f"{event['id']}:{member.id}",
+                place=place,
+                her=shot.her,
+                shot_tags=shot.tags,
+                spec=spec,
+                others=others,
             )
             return generated_item(ChatMediaStore(rt.chat_media_dir), data, mime)
         except (StickerBudgetExceeded, StickerError, StickerUnavailable, MediaError, ValueError):

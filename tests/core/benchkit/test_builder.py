@@ -58,6 +58,7 @@ class FakeSC:
         self.turn = 0
         self.parts: dict[str, str] = {}
         self.window_code = "export default (el, ctx) => { el.innerHTML = ctx.kit.esc('ok'); };"
+        self.lazy = False
 
     def worker(self, wid):
         return W(wid) if wid in self.workers else None
@@ -82,7 +83,12 @@ class FakeSC:
         if p["role"] == "bench_plan":
             return W(who), RunResult(0, json.dumps(self.plan, ensure_ascii=False))
         if p["role"] in ("bench_window", "bench_rework"):
-            (folder / p["file"]).write_text(self.window_code)
+            if self.lazy:  # 假完成：说写好了，一个字没动
+                return W(who), RunResult(0, f"{who} 写好了 {p['file']}")
+            code = self.window_code
+            if p["role"] == "bench_rework":  # 返工真的改了文件（每次都不一样）
+                code += f"\n// 第 {self.turn} 次改"
+            (folder / p["file"]).write_text(code)
             (folder / p["data_file"]).write_text("{}")
             for name, text in self.parts.items():
                 (folder / "parts").mkdir(exist_ok=True)
@@ -1179,7 +1185,10 @@ async def test_intent_stages_and_trace_full_flow(tmp_path):
     b.review(build["id"], "change", [{"text": "预算加个汇率"}])
     await b.wait()
     rows = {r["id"]: r for r in build["trace"]}
-    assert rows["v4"]["src"] == "变更单" and rows["v4"]["state"] == "改好了"
+    assert rows["v4"]["src"] == "变更单" and rows["v4"]["state"] == "待你看"  # 改完等你看
+    b.review(build["id"], "pass")  # 你验收通过，才算改好了
+    rows = {r["id"]: r for r in build["trace"]}
+    assert rows["v4"]["state"] == "改好了" and build["changes"][0]["status"] == "accepted"
 
 
 # --- 第 3 批：防倒退（分段基线）、写手自看截图 ----------------------------------------------
@@ -1403,3 +1412,74 @@ async def test_from_product_needs_a_product_and_adds_trace_skill_everywhere(tmp_
     await b.wait()
     plan = next(json.loads(p) for p in sc2.prompts if json.loads(p)["role"] == "bench_plan")
     assert plan["skills"] == "短·manager"
+
+
+# --- 假完成识别（2026-11-01，借 kira905 任务看板「人验收了才算完成」的思路） ---
+
+
+async def test_fake_done_is_not_done(tmp_path):
+    """说写好了，文件一个字没动：窗口算没写成；每张卡记下每一次会话。"""
+    sc = FakeSC()
+    sc.lazy = True
+    b = make(tmp_path, sc)
+    build = b.submit("修图台")
+    await b.wait()
+    rec = build["windows"][0]
+    assert rec["status"] == "failed" and "假完成" in rec["summary"]
+    run = rec["runs"][0]
+    assert run["kind"] == "写" and run["ok"] and not run["changed"] and run["fake"]
+
+
+async def test_fake_rework_does_not_close_a_change_request(tmp_path):
+    sc = ProjectSC()
+    b = project(tmp_path, sc, interview=False)
+    build = b.submit("旅行台")
+    await b.wait()
+    b.sign(build["id"], None, "")
+    await b.wait()
+    assert build["gate"]["kind"].startswith("m")
+    sc.lazy = True  # 这次返工偷懒：说改了，文件没动
+    b.review(build["id"], "change", [{"text": "地图再大一点"}])
+    await b.wait()
+    c = build["changes"][-1]
+    assert c["status"] == "failed" and "假完成" in c["reply"]
+    assert any(r.get("fake") for w in build["windows"] for r in w.get("runs") or [])
+    row = next(r for r in build["trace"] if r["src"] == "变更单")
+    assert row["state"] == "没改成"
+    sc.lazy = False  # 再提一次，这回真改了：先是「待你看」，你点通过才「改好了」
+    b.review(build["id"], "change", [{"text": "地图再大一点"}])
+    await b.wait()
+    assert build["changes"][-1]["status"] == "done"
+    b.review(build["id"], "pass")
+    assert build["changes"][-1]["status"] == "accepted"
+    assert build["changes"][-2]["status"] == "failed"  # 假完成那张不会被一起算成改好
+
+
+def test_auto_pass_does_not_count_as_your_acceptance(tmp_path):
+    b = BenchBuilder(BenchRules(), root=tmp_path, supercomputer=FakeSC(), render=render)
+    build = {
+        "id": "x",
+        "gate": {"kind": "m1"},
+        "changes": [{"id": "c1", "status": "done"}],
+        "milestones": [],
+        "proposal": {"milestones": [{"n": 1, "windows": []}]},
+    }
+    b.build = build
+    b._start_job = lambda *a, **k: None
+    b.review("x", "pass", auto=True)
+    assert build["changes"][0]["status"] == "done"
+
+
+async def test_structured_form_goes_into_request_and_trace(tmp_path):
+    sc = FakeSC()
+    b = make(tmp_path, sc)
+    assert [f["id"] for f in b.status()["form_fields"]][:2] == ["who", "goal"]
+    build = b.submit("旅行台", form={"who": "爸妈", "net": "只用本地", "ai": "自动", "x": "y"})
+    await b.wait()
+    assert build["form"] == {"who": "爸妈", "net": "只用本地"}
+    assert build["said"] == "旅行台"  # 界面「你说的」只显示这句，表单另列
+    assert build["request"].startswith("旅行台\n\n【基础信息】\n- 给谁用：爸妈")
+    srcs = [(v["src"], v["text"]) for v in build["voices"]]
+    assert srcs[:3] == [("开工", "旅行台"), ("表单", "给谁用：爸妈"), ("表单", "联网：只用本地")]
+    plan = next(json.loads(p) for p in sc.prompts if json.loads(p)["role"] == "bench_plan")
+    assert "联网：只用本地" in plan["request"]

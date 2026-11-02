@@ -39,6 +39,7 @@ from roundtable.core.member.care import Care
 from roundtable.core.member.circle import Circle
 from roundtable.core.member.feel import Feelings
 from roundtable.core.member.firsts import Firsts
+from roundtable.core.member.hooks import Hooks
 from roundtable.core.member.human import Human
 from roundtable.core.member.hush import Hush
 from roundtable.core.member.lingo import Lingo
@@ -161,6 +162,7 @@ class Brain:
         self.circle = Circle(rt, bus)  # 圈外熟人名册：她提过的室友、老同学，免得说反
         self.hush = Hush(rt, bus)  # 以后别再提：你说别提了的事不再主动提
         self.firsts = Firsts(rt, bus)  # 「第一次」纪念：你亲口说的第一次，整月 / 整年那天轻轻提
+        self.hooks = Hooks(rt, bus)  # 话头本：你说过要做的事过了那天问一句；她问你没回顺口再提
         # 爱与复合情绪（love.py）：传了 bus 时订阅聊天和生活事件；names：成员 id → 称呼
         self.heart = Heart(rt, bus, names)
         # 人味（human.py）：知识边界、自己的时间、自我一致、八卦、时间纵深、小毛病、主动约人
@@ -726,10 +728,9 @@ class Brain:
                 out.append(Thought("expect", f"{e['text']}，快见分晓了，有点紧张", 0.55))
             else:
                 out.append(Thought("expect", e["text"], 0.5))
-        for g in self._goals(member, s):
-            out.append(
-                Thought("goal", f"最近在琢磨「{g['name']}」，{self._stage(g['level'])}", 0.35)
-            )
+        for g in self._goals(member, s):  # 不带引号：带了模型会把目标原句照抄出口（11-01）
+            stage = self._stage(g["level"])
+            out.append(Thought("goal", f"最近在琢磨的一件事：{g['name']}（{stage}）", 0.35))
         try:
             for h in self.rt.repo.memory_hanging(member)[:3]:
                 out.append(Thought("hanging", f"心里挂着：{h['text']}", 0.5))
@@ -1040,6 +1041,14 @@ class Brain:
         if first is not None:
             text = f"{text}\n{first[1]}"
             tags.append(first[0])
+        hook = (
+            self.hooks.line(member, at, random.Random(f"hooks:{member}:{iso(at)}:{seed}"), room)
+            if to == USER and not asked
+            else None
+        )
+        if hook is not None:  # 话头：你说过的事后来怎样、她上次问你没回的那句
+            text = f"{text}\n{hook[1]}"
+            tags.append(hook[0])
         extra = self.human.lines(
             member,
             to=to,
@@ -1304,6 +1313,7 @@ class Brain:
             self.memes.after(card.member, card.tags, at)
             self.phrases.after(card.member, card.tags, at)
             self.firsts.after(card.member, card.tags)
+            self.hooks.after(card.member, card.tags)
 
 
 def _num(x: Any) -> float:

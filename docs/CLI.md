@@ -57,7 +57,7 @@ roundtable ask '求函数 f(x)=x^3-3x 在 [-2,2] 上的最大值和最小值'
 |---|---|
 | `--tier flagship` | 全力模式（旗舰档全员）上桌（默认 `budget` 节电模式） |
 | `--models gpt-6-luna,qwen3.8-flash,deepseek-v4.1-flash --coordinator deepseek-v4.1-flash` | 自选上桌的模型（至少 3 个），可指定其中一个当统筹（id 见 `roundtable models`） |
-| `--attach 文件` | 附件，可重复使用：图片（png / jpg / webp / gif）、PDF、Word `.docx`、文本（txt / md / csv）、mp3 / wav 音频。图片会给能看图的模型发原图、给其他模型发文字版；音频先转写成文字 |
+| `--attach 文件` | 附件，可重复使用：图片（png / jpg / webp / gif）、PDF、Word `.docx`、文本（txt / md / csv）、mp3 / wav 音频、mp4 / mov / webm 视频。图片会给能看图的模型发原图、给其他模型发文字版；音频先转写成文字；视频转成文字版（时间线 + 画面文字 + 声音转写，需要 `pip install -e ".[media]"`） |
 | `--mode office` | 办公室模式（默认）：经理分诊后单人办、开会或项目分工，见上 |
 | `--mode collab` | 协同模式：统筹拆分子任务 → 成员自荐 → 分配（每人至少一块）→ 分工完成 → 交叉审查 → 修改 → 合并成完整成果（默认 `discussion` 讨论模式：全员各自作答再互评汇总） |
 | `--anonymous` | 匿名：结束前成员只显示塔罗牌代号（愚者、魔术师…），结束后可揭晓（默认不匿名：成员叫"昵称·模式"，如 鲸鱼娘·全力，同时显示模型名）；token 用量显示为"大米"（粒 / 勺 / 碗），金额仍是美元 |

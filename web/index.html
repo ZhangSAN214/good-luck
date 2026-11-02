@@ -47,7 +47,7 @@
 <script src="js/boot.js"></script>
 <div class="app">
   <header class="top">
-    <div class="brand"><h1>圆桌</h1><button type="button" class="link bt-open" id="bootcfg" title="开机动画设置">片头</button><button type="button" class="link bt-open" id="skin" title="在方舟式外观和原来的外观之间切换">外观</button><button type="button" class="link bt-open" id="lanbtn" title="在家里的平板 / 手机上用圆桌">平板</button><button type="button" class="link bt-open" id="backupbtn" title="整库备份：成员的记忆、关系、成长和聊天记录，坏了一键恢复">备份</button><button type="button" class="link bt-open" id="watchbtn" title="投屏陪伴：把屏幕给成员看，她们陪你一起看">一起看</button><button type="button" class="link bt-open" id="wanderbtn" title="成员自己上网：看她们逛了什么">上网</button></div>
+    <div class="brand"><h1>圆桌</h1><button type="button" class="link bt-open" id="bootcfg" title="开机动画设置">片头</button><button type="button" class="link bt-open" id="skin" title="在方舟式外观和原来的外观之间切换">外观</button><button type="button" class="link bt-open" id="lanbtn" title="在家里的平板 / 手机上用圆桌">平板</button><button type="button" class="link bt-open" id="firstaidbtn" title="出问题点这里：一键自检，生成可以发给我们的体检报告" aria-label="出问题点这里"><span class="fa-long">出问题点这里</span><span class="fa-short">自检</span></button><button type="button" class="link bt-open" id="backupbtn" title="整库备份：成员的记忆、关系、成长和聊天记录，坏了一键恢复">备份</button><button type="button" class="link bt-open" id="watchbtn" title="投屏陪伴：把屏幕给成员看，她们陪你一起看">一起看</button><button type="button" class="link bt-open" id="wanderbtn" title="成员自己上网：看她们逛了什么">上网</button></div>
     <nav class="seg entries" id="entries" aria-label="入口（Alt+4 / 1 / 2 / 3 / 5）">
       <button type="button" data-m="hub" aria-pressed="false">终端</button>
       <button type="button" data-m="work" aria-pressed="true">办公室</button>
@@ -147,6 +147,7 @@
 <dialog class="viewer" id="bootdlg" aria-label="开机动画"></dialog>
 <dialog class="viewer" id="landlg" aria-label="平板"></dialog>
 <dialog class="viewer" id="backupdlg" aria-label="备份"></dialog>
+<dialog class="viewer" id="firstaiddlg" aria-label="自检"></dialog>
 <dialog class="viewer sheet" id="watchdlg" aria-label="一起看"></dialog>
 <dialog class="viewer sheet" id="wanderdlg" aria-label="她们在上网"></dialog>
 <dialog class="viewer sheet" id="evolvedlg" aria-label="革新例会"></dialog>

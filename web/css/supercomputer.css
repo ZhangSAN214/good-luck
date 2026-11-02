@@ -27,3 +27,24 @@
 .sc-recent{font-size:12px;margin:0;padding-left:18px}
 .sc-recent button{font-size:12px}
 @media (max-width:640px){.sc-subs td.sc-why{display:none}}
+/* 管家：等你确认、排队、定时活、日报、审计 */
+.sc-box{padding:10px 12px;border-radius:var(--r);background:var(--surface-2);display:flex;flex-direction:column;gap:6px;font-size:13px}
+.sc-box ul,.sc-box ol{margin:0;padding-left:0;list-style:none;display:flex;flex-direction:column;gap:6px}
+.sc-pending{border:1px solid var(--warn,#c77)}
+.sc-pend,.sc-sched{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+.sc-ptext{min-width:0;overflow-wrap:anywhere}
+.sc-risk{font-size:11px;padding:1px 6px;border-radius:999px;background:var(--surface-2);white-space:nowrap}
+.sc-risk-low{color:var(--ok)}
+.sc-risk-medium{color:var(--muted)}
+.sc-risk-high{color:var(--warn,#c77)}
+.sc-butler{display:flex;flex-direction:column;gap:6px}
+.sc-butler details{font-size:13px}
+.sc-scheds{margin:6px 0;padding-left:0;list-style:none;display:flex;flex-direction:column;gap:6px}
+.sc-sched.off{opacity:.55}
+.sc-form{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:6px}
+.sc-form input[type="text"]{flex:1 1 220px;min-width:0}
+.sc-report{max-height:420px;overflow:auto;font-size:13px;margin:4px 0 0}
+.sc-report h4{margin:6px 0 4px;font-size:14px}
+.sc-report h5{margin:10px 0 4px;font-size:13px;color:var(--muted)}
+.sc-report-sum,.sc-li{margin:4px 0 0}
+.sc-audit{font-size:11px;max-height:200px;overflow:auto;margin:4px 0 0;padding-left:18px}
