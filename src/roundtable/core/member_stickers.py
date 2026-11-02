@@ -511,6 +511,7 @@ class MemberStickers:
         shot_tags: str = "",
         spec: PhotoSpec | None = None,
         others: Sequence[tuple[str, str]] = (),
+        brief: str = "",
     ) -> tuple[bytes, str]:
         """照成员的形象卡和参考图画一张朋友圈配图（随手拍，不审、不存进表情索引）。
         她不入镜的拍法传 ``refs=False``：不给形象参考图，免得模型硬把她画进去。
@@ -551,6 +552,7 @@ class MemberStickers:
             "post": post,
             "room": room,
             "others": mates,
+            "brief": brief or SPEC_NONE,
             "user": rules.landlord_in if spec is not None and spec.landlord else rules.landlord_out,
             **(spec.variables() if spec else dict.fromkeys(SPEC_VARIABLES, SPEC_NONE)),
         }
@@ -595,6 +597,18 @@ class MemberStickers:
                     data = look(data, random.Random(f"phone:{seed or post}"))
                 return _jpeg(data, rules.max_side), "image/jpeg"
         raise StickerUnavailable("画图失败（所有模型都没画出来）")
+
+    def people(
+        self, member: str, name: str, others: Sequence[tuple[str, str]], *, landlord: bool = False
+    ) -> tuple[str, list[Media]]:
+        """拍摄脚本用的人物名单：她自己、同场室友（每人一行外观）、房东（出镜时）。"""
+        rules = self.rt.config.roundtable.media.moment_photos
+        card = self.card(member)
+        mates, images = self._housemates(member, others, 0)
+        lines = [f"{name} (the one posting): {card.look}"]
+        lines.append(f"Housemates: {mates.strip()}")
+        lines.append(f"Landlord: {rules.landlord_in if landlord else rules.landlord_out}")
+        return "\n".join(lines), images
 
     def _housemates(
         self, member: str, others: Sequence[tuple[str, str]], first: int

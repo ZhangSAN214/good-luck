@@ -786,3 +786,13 @@ def test_film_look_keeps_the_frame_and_light():
         assert abs(r - r0) < 25 and abs(g - g0) < 25  # 颜色基本不变
     assert film_look(b"not an image", random.Random(1)) == b"not an image"
     assert load_config().roundtable.media.moment_photos.post_look == "film"
+
+
+def test_moment_photo_v7_follows_her_brief(tmp_path):
+    _, fake, stickers = build(tmp_path)
+    plan = "Gemini snatches the last piece; DeepSeek on the right third laughs."
+    asyncio.run(stickers.photo("OpenAI", "食堂", "饭", "a selfie", brief=plan))
+    asyncio.run(stickers.photo("OpenAI", "食堂", "饭", "a selfie"))
+    planned, unplanned = (c[2] for c in image_calls(fake))
+    assert "(follow it closely: the action, who is where in the frame" in planned
+    assert plan in planned and "the state of things): none" in unplanned
