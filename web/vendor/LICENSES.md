@@ -14,6 +14,22 @@ https://github.com/KaTeX/KaTeX
 MIT License. Copyright (c) 2014 - 2022 Knut Sveidqvist.
 https://github.com/mermaid-js/mermaid
 
+## PixiJS 6.5.10 — `pixi/`
+
+MIT License. Copyright (c) 2013-2017 Mathew Groves, Chad Engler. https://github.com/pixijs/pixijs
+（Live2D 样机播放页 web/live2d/ 用；取自 npm 包 pixi.js@6.5.10 的 dist/browser/pixi.min.js，未改动，
+许可原文在 `pixi/LICENSE`。）
+
+## pixi-live2d-display 0.4.0 — `pixi-live2d-display/`
+
+MIT License. Copyright (c) 2020 Guan. https://github.com/guansss/pixi-live2d-display
+（Live2D 样机播放页用；取自 npm 包 pixi-live2d-display@0.4.0 的 dist/cubism4.min.js，未改动，许可原文在
+`pixi-live2d-display/LICENSE`。它内含 Live2D Cubism SDK for Web 的 Framework 部分，那部分按
+Live2D Open Software License 发布：https://www.live2d.com/eula/live2d-open-software-license-agreement_en.html 。
+**Cubism Core 不在仓库里**：它是 Live2D 的专有组件（Live2D Proprietary Software License），播放页运行时从
+Live2D 官方地址加载。用两个开源工具生成的 .moc3 只供个人样机；商用前要先确认 Live2D 的条款
+（https://www.live2d.com/en/sdk/license/ ）。）
+
 ---
 
 Permission is hereby granted, free of charge, to any person obtaining a copy of this software and

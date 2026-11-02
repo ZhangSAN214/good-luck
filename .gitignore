@@ -29,3 +29,6 @@ web/img/ark/default_bg.jpg
 # 本机设置覆盖（docs/ARCHITECTURE.md §2.1），更新代码时不冲突
 config/*.local.yaml
 sim_runs/
+
+# Live2D 样机的模型（在 assets/claude-live2d 分支，不进开发分支）
+web/live2d/models/
