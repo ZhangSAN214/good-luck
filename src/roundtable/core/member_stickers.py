@@ -547,21 +547,27 @@ class MemberStickers:
         subject = rules.tag_subjects.get(her or ("full" if refs else "none"), "")
         if spec is not None:
             shot_tags = spec.tags() or shot_tags
-        tags = self._photo_tags(card, subject, shot_tags, refs)
+        tags = self._photo_tags(card, subject, shot_tags, refs, place=place, scene=scene)
         session = self.rt.repo.sticker_session()
         for model in models[: self.rules.max_attempts]:  # 画不出来时换下一个模型
             self._check_budget(image_cost(model, None, 1))
             body = tags if model.image_prompt == "tags" else text
             refs_out = tuple(images if model.image_prompt == "tags" else with_room)
+            extra: dict[str, Any] = {}
+            if model.image_prompt == "tags" and seed:
+                # 本地模型的种子默认按提示词算：提示词一样就出同一张，所以按这条动态派生一个
+                extra["seed"] = random.Random(f"seed:{seed}").randrange(2**32)
             try:
                 inv = await self.rt.router.invoke(
                     model.id,
-                    lambda prov, route, m, body=body, refs_out=refs_out: prov.generate_image(
-                        route.model,
-                        body,
-                        dict(m.params_for(route)),
-                        images=refs_out,
-                        api=m.image_api_for(route),
+                    lambda prov, route, m, body=body, refs_out=refs_out, extra=extra: (
+                        prov.generate_image(
+                            route.model,
+                            body,
+                            {**m.params_for(route), **extra},
+                            images=refs_out,
+                            api=m.image_api_for(route),
+                        )
                     ),
                 )
             except (AllChannelsFailed, NoChannelAvailable):
@@ -580,15 +586,35 @@ class MemberStickers:
                 return _jpeg(data, rules.max_side), "image/jpeg"
         raise StickerUnavailable("画图失败（所有模型都没画出来）")
 
-    def _photo_tags(self, card: StickerCard, subject: str, shot_tags: str, her_in: bool) -> str:
+    def _photo_tags(
+        self,
+        card: StickerCard,
+        subject: str,
+        shot_tags: str,
+        her_in: bool,
+        *,
+        place: str = "",
+        scene: str = "",
+    ) -> str:
         """标签版配图提示词（只取 user 段：正向一行 + negative 一行）。她不入镜时不放外观标签；
         形象卡没写 look_tags 时也不放（中文外观描述标签模型读不懂，靠参考图认人）。"""
+        rules = self.rt.config.roundtable.media.moment_photos
+        version = self.rt.config.roundtable.prompts["moment_photo_tags"]
+        wanted = self.rt.prompts.get("moment_photo_tags", version).variables  # v1 没有场景变量
         prompt = self.rt.prompts.render(
             "moment_photo_tags",
-            self.rt.config.roundtable.prompts["moment_photo_tags"],
+            version,
             subject=subject,
-            shot=shot_tags,
-            look=card.look_tags if her_in else "",
+            **{
+                k: v
+                for k, v in {
+                    "shot": shot_tags,
+                    "look": card.look_tags if her_in else "",
+                    "place": rules.place_tags.get(place.partition(":")[0], ""),
+                    "activity": ", ".join(activity_tags(scene, rules.activity_tags)),
+                }.items()
+                if k in wanted
+            },
         )
         return tidy_tags(prompt.messages[-1].content)
 
@@ -769,6 +795,17 @@ def _square(data: bytes, size: int) -> bytes:
             return buf.getvalue()
     except Exception:  # noqa: BLE001 - 读不了的图：原样存
         return data
+
+
+def activity_tags(scene: str, table: dict[str, str], limit: int = 2) -> list[str]:
+    """今天的事（中文）里出现的词 → 动作标签（按表的顺序，最多 limit 条，不重复）。"""
+    out: list[str] = []
+    for words, tags in table.items():
+        if len(out) >= limit:
+            break
+        if any(w and w in scene for w in words.split("|")) and tags not in out:
+            out.append(tags)
+    return out
 
 
 def tidy_tags(text: str) -> str:

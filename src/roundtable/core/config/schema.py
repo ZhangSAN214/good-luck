@@ -714,6 +714,33 @@ class MomentPhotoRules(_Strict):
             "full": "1girl, solo, candid",
         }
     )
+    # 吃标签的本地绘图模型读不懂中文场景：生活事件的地点（canteen、dorm:成员 …取冒号前）→ 场景标签
+    place_tags: dict[str, str] = Field(
+        default_factory=lambda: {
+            "canteen": "cafeteria, indoors, dining table, food",
+            "lounge": "living room, indoors, sofa",
+            "gym": "gym, indoors, exercise equipment",
+            "office": "office, indoors, desk, computer",
+            "meeting": "meeting room, indoors, table",
+            "rooftop": "rooftop, outdoors, railing, city skyline",
+            "dorm": "bedroom, indoors, bed, desk",
+        }
+    )
+    # 今天的事（中文）里出现某个词 → 加上动作标签；键可以用 | 分隔多个词，按顺序最多取两条
+    activity_tags: dict[str, str] = Field(
+        default_factory=lambda: {
+            "吃饭|吃早饭|吃午饭|吃晚饭|扒饭|夜宵": "eating, holding chopsticks, bowl",
+            "做饭|下厨|烘焙": "cooking, apron",
+            "看星星|星空": "night sky, starry sky, looking up",
+            "晒太阳": "sunlight, relaxing",
+            "健身|锻炼|跑步|瑜伽": "exercising",
+            "看书|读书": "reading, holding book",
+            "游戏|通关|抽卡": "playing video games, holding controller",
+            "聊天|说话|段子": "talking, chatting, smile",
+            "工作|待命|加班": "working, laptop",
+            "睡|躺": "lying on bed",
+        }
+    )
     # 拍法：每张按权重抽一种。朋友圈是让人看到她们的生活：多数她本人入镜、是主角；去 AI 感靠抓拍和
     # 日常背景，不靠躲开人物（11-01 用户：要看她们的生活，不要剩饭）
     shots: list[MomentShot] = Field(
