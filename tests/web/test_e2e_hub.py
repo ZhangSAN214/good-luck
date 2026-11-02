@@ -11,9 +11,6 @@ def test_hub_is_the_default_landing_and_links_to_every_entry(serve, page):
     sid = repo.create_session("等你拍板的事", seed=1, anonymous=False)
     repo.set_status(sid, "awaiting_confirmation")
     page.add_init_script(LAND_HUB)
-    # 首页卡片有进场动画、背景跟着鼠标微动：机器慢时一直「没停稳」点不上。这里测的是跳转，
-    # 按「减少动态」打开（和平板、公寓楼的测试一样）
-    page.emulate_media(reduced_motion="reduce")
     page.goto(srv.url)
     page.wait_for_selector("#hub .hb-hero")
     assert page.is_hidden("#main") and page.url.endswith("#m=hub")

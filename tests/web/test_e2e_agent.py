@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from ..core.members_samples import PNG_1PX
 from ..core.orchestrator.conftest import MEDIUM
 from .test_e2e import ask, wait_done
@@ -137,10 +139,13 @@ def test_broken_chibi_is_not_shown(serve, page, tmp_path):
     root = assets(tmp_path)
     (root / "m1" / "chibi.png").write_bytes(b"not an image")
     srv = serve(members_dir=root)
-    page.goto(srv.url)
+    # 小人先建出来、去取图，图坏了才撤掉：等图取回来之后再等它消失（一打开页面时本来就还没有
+    # 小人，直接查「没有」会白过，机器慢时之后才建出来）
+    with page.expect_response(lambda r: "chibi.png" in r.url):
+        page.goto(srv.url)
     page.wait_for_function("() => !document.querySelector('.pet')")
     page.wait_for_timeout(300)
-    assert page.locator(PET).count() == 0
+    assert page.locator(PET).count() == 0  # 不会再冒出来
 
 
 def test_storage_errors_do_not_break_the_page(serve, page, tmp_path):
@@ -259,7 +264,9 @@ def test_no_bubbles_leak_for_anonymous_unrevealed_session(serve, page, tmp_path)
 
 def special_assets(tmp_path, *, probability=0.0, after_s=5):
     root = assets(tmp_path)
-    clips = {"idle": 2, "curtsy": 3, "letter": 2, "gift": 2}
+    # 行礼 25 帧 = 2.5 秒（和真实素材差不多长）：以前只有 3 帧 0.3 秒，「行礼时点她不理」要在
+    # 0.3 秒内点上第二下，机器稍慢就点在行礼结束之后了
+    clips = {"idle": 2, "curtsy": 25, "letter": 2, "gift": 2}
     for name, n in clips.items():
         (root / "m1" / name).mkdir(exist_ok=True)
         for i in range(n):
@@ -295,11 +302,34 @@ def test_head_pat_curtsies_and_ignores_taps_while_it_plays(serve, page, tmp_path
     srv = serve(members_dir=special_assets(tmp_path))
     page.goto(srv.url)
     wait_pet(page)
-    tap_head(page)
-    page.wait_for_selector(f"{PET}[data-action='curtsy']")
-    tap_body(page)  # 行礼中：忽略
-    assert page.get_attribute(PET, "data-action") == "curtsy"
-    page.wait_for_selector(f"{PET}[data-action='idle']")
+    # 行礼 2.5 秒（按她自己的时钟算，从摸头松手那一刻起）；机器很慢时戳身体可能已经过了这段。
+    # 在页面里记下每次松手的时刻和之后每次换动作：戳身体离摸头不到 1.5 秒才判断，不然重来
+    page.evaluate(
+        """(sel) => {
+          const pet = document.querySelector(sel);
+          window.__acts = [];
+          window.__ups = [];
+          new MutationObserver(() => window.__acts.push(pet.dataset.action))
+            .observe(pet, { attributes: true, attributeFilter: ['data-action'] });
+          document.addEventListener('pointerup', () => {
+            window.__ups.push(performance.now());
+            window.__acts = [];
+          }, true);
+        }""",
+        PET,
+    )
+    for _ in range(3):
+        page.evaluate("window.__ups = []")
+        tap_head(page)
+        page.wait_for_selector(f"{PET}[data-action='curtsy']")
+        tap_body(page)  # 行礼中：忽略
+        page.wait_for_selector(f"{PET}[data-action='idle']")
+        head, body = page.evaluate("window.__ups.slice(-2)")
+        if body - head < 1500:
+            assert "jump" not in page.evaluate("window.__acts")
+            break
+    else:
+        pytest.fail("三次都没能在行礼途中点上（机器太慢）")
     tap_body(page)  # 播完后恢复响应
     page.wait_for_selector(f"{PET}[data-action='jump']")
 

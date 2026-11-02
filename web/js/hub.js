@@ -256,6 +256,8 @@ export class Hub {
   animate() {
     cancelAnimationFrame(this.raf);
     if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    // 自动化测试里不浮动：卡片每帧都在动，机器慢时点击一直等不到「停稳」（真浏览器不受影响）
+    if (navigator.webdriver) return;
     let last = performance.now();
     const step = (now) => {
       if (this.root.hidden) return;

@@ -34,6 +34,14 @@ def tablet(browser, size):
     return ctx, pg, errors
 
 
+def settle_hub(pg) -> None:
+    """等首页卡片的进场动画放完（位置和大小不再变）。"""
+    pg.wait_for_function(
+        "() => { const c = document.querySelector('#hub .hb-col');"
+        " return c && c.getAnimations({subtree: true}).every(a => a.playState !== 'running') }"
+    )
+
+
 @pytest.mark.parametrize("name", list(TABLETS))
 def test_tablet_pages_fit_the_screen(serve, browser, name):
     srv = serve(confirm_threshold_usd=100.0)
@@ -67,10 +75,7 @@ def test_landscape_hub_top_bar_does_not_cover_cards(serve, browser):
         # 等时钟填进顶栏再量（两个时区时顶栏约 53px 高；没填之前量会漏掉重叠）
         pg.wait_for_selector("#hub .hb-top .ck-face")
         # 卡片有进场动画（位置和大小在变）：等动画放完，量的是最后停下来的位置
-        pg.wait_for_function(
-            "() => document.querySelector('#hub .hb-col').getAnimations({subtree: true})"
-            ".every(a => a.playState !== 'running')"
-        )
+        settle_hub(pg)
         top = pg.locator("#hub .hb-top").bounding_box()
         hero = pg.locator("#hub .hb-hero").bounding_box()
         assert top["y"] + top["height"] <= hero["y"] + 1
@@ -93,8 +98,13 @@ def test_portrait_pad_uses_full_width(serve, browser):
         pg.add_init_script("try { localStorage.setItem('roundtable.landing', 'hub') } catch {}")
         pg.goto(srv.url)
         pg.wait_for_selector("#hub .hb-hero")
-        hero = pg.locator("#hub .hb-hero").bounding_box()
-        assert hero["width"] > w * 0.8
+        # 卡片有进场动画、首页会重画：等动画放完，再在页面里一次量出宽度（量的时候不会刚好被换掉）
+        settle_hub(pg)
+        width = pg.wait_for_function(
+            "() => { const r = document.querySelector('#hub .hb-hero')?.getBoundingClientRect();"
+            " return r && r.width > 0 ? r.width : null }"
+        ).json_value()
+        assert width > w * 0.8
         heights = pg.eval_on_selector_all(
             "#hub .hb-row3 .hb-zh, #hub .hb-row2 .hb-zh",
             "els => els.map(e => e.getBoundingClientRect().height)",

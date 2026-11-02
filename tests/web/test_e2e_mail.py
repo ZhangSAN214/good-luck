@@ -198,14 +198,20 @@ def test_late_answer_to_an_earlier_request_does_not_roll_the_panel_back(serve, p
     held = []
 
     def hold(route):
+        if held:  # 只扣第一次；之后的照常放行（扣住不放会让网页的轮询停下）
+            route.continue_()
+            return
         # 照常向服务端要（拿到的是「还没打开」的旧状态），但先不交给网页
         held.append((route, route.fetch()))
 
     page.route("**/api/mail", hold)
     page.click("#hub .ml-btn")  # 打开面板会刷新一次：被扣下
     page.wait_for_selector("#hub .ml-panel:not([hidden]) [data-enable]")
+    for _ in range(200):  # 等拦截处理完（等的时候 Playwright 才处理拦截）
+        if held:
+            break
+        page.wait_for_timeout(50)
     assert len(held) == 1
-    page.unroute("**/api/mail")
 
     page.click("#hub [data-enable]")
     page.wait_for_selector("#hub [data-login]:not([disabled])")
