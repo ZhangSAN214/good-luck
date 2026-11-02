@@ -50,3 +50,12 @@ def order_routes(
         return band[state], custom, i
 
     return [r for _, r in sorted(enumerate(routes), key=key)]
+
+
+@dataclass(frozen=True)
+class DrawPrefs:
+    """出图模型的手动设置（界面「出图渠道」里改）：disabled 手动关掉的模型 id；
+    order 手动排的先后（没列出的排在后面，按自动规则）。见 media/draw_order.py。"""
+
+    disabled: tuple[str, ...] = ()
+    order: tuple[str, ...] = ()

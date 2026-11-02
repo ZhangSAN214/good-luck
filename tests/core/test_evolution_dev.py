@@ -85,7 +85,8 @@ async def test_do_starts_dev_in_workspace_and_records_pr(tmp_path):
     assert "clone" in kinds[1] and kinds[2][0].lower().endswith(("python", "python.exe"))
     agent_cwd, brief = run.calls[2][1], run.calls[2][2]
     assert agent_cwd.endswith("工作区") and idea["text"] in brief
-    assert "evolve/2026-w44-" in brief and "origin/dev" in brief and "不要合并" in brief
+    week = svc.evolution()["meetings"][0]["week"].lower()  # 按例会那周，不写死周号
+    assert f"evolve/{week}-" in brief and "origin/dev" in brief and "不要合并" in brief
     # 再点一次「做这条」不会重复叫
     assert not svc.evolution_decide(sid, idea["id"], "do")["dev_started"]
     assert len(run.calls) == 3

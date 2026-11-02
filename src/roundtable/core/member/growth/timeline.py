@@ -96,7 +96,8 @@ class GrowthLog:
         }
 
     def ledger(self, member: str, today: date) -> Ledger:
-        """这个月已改的格数、最近几周没撤回的改动和其中受用户影响的条数。"""
+        """这个月已改的格数、最近几周和入职以来没撤回的改动（及其中受用户影响的条数）、
+        成长让每项性格一共移动了几格。"""
         month = today.isoformat()[:7]
         horizon = today.toordinal() - 7 * self.rules.share_window_weeks
         out = Ledger()
@@ -106,6 +107,11 @@ class GrowthLog:
             at = datetime.fromisoformat(e["at"]).date()
             if e["op"] == SCORE and e["at"][:7] == month:
                 out.core_steps += 1
+            out.life_total += 1
+            out.life_user += int(bool(e.get("user")))
+            if e["op"] == SCORE:  # 成长让每项性格一共移动了几格（离人物卡多远）
+                trait = e["path"].rsplit(".", 1)[-1]
+                out.moved[trait] = out.moved.get(trait, 0) + int(e.get("delta") or 0)
             if at.toordinal() >= horizon:
                 out.total += 1
                 out.user += int(bool(e.get("user")))

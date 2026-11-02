@@ -6,7 +6,7 @@
 - **用腻了就换**：她在生活群、私聊、互聊里发出去的话，程序数一数用了几次自己的颜文字、短回复、
   口头禅。最近两周用得太勤、又已经用了一阵子，每天有一定机会腻了：颜文字和短回复换成一个新的，
   只从**她自己的风格**里挑（颜文字只在和她性格最像的几组里挑），而且**别人正在用的不挑**
-  （不越聊越像）；口头禅不换，歇几周再用。好奇、外向的人更容易腻，较真的人更念旧。
+  （不越聊越像）；口头禅不换，歇几周再用（同时歇着的不超过一半）。好奇、外向的人更容易腻，较真的人更念旧。
 - **学来的变成自己的**：跟人学的说法（``lingo`` 的「跟人学」）她自己用够几次，就成了她的口头禅，
   不会再忘。
 - **心情不同用的表情不同**：心情明显好时，她分到的颜文字里挑开心那组的；心情差时挑丧气、冷淡那组的
@@ -19,6 +19,7 @@
 from __future__ import annotations
 
 import json
+import math
 import random
 from datetime import datetime, timedelta
 from typing import Any
@@ -51,7 +52,7 @@ class Drift:
         except ValueError:
             data = {}
         data = data if isinstance(data, dict) else {}
-        for k in ("uses", "since", "rested", "promoted", "rolled"):
+        for k in ("uses", "since", "rested", "promoted", "rolled", "base"):
             if not isinstance(data.get(k), dict):
                 data[k] = {}
         if not isinstance(data.get("swaps"), list):
@@ -70,13 +71,12 @@ class Drift:
         return list(self._load(member)["swaps"])
 
     def mapping(self, member: str) -> dict[str, str]:
-        """换过的：旧 → 现在用的（换了几次就顺着找到最新的）。"""
-        out: dict[str, str] = {}
-        for s in self._load(member)["swaps"]:
-            if s.get("new"):
-                out = {k: (s["new"] if v == s["old"] else v) for k, v in out.items()}
-                out[s["old"]] = s["new"]
-        return out
+        """换过的：原来那个 → 现在用的（换了几次就顺着找到最新的；太旧的记录已并进 base）。
+
+        半年快进发现两处会让两格换成同一个、颜文字越换越少：把「原来那个 old」已经换成的别的也改掉；
+        只留最近 keep_swaps 条记录时把最早的直接丢掉，顺着找就断了。"""
+        data = self._load(member)
+        return _fold(dict(data["base"]), data["swaps"])
 
     def apply(self, member: str, items: tuple[str, ...]) -> tuple[str, ...]:
         """把一组颜文字 / 短回复换成她现在用的（换过的替掉，去重保持顺序）。"""
@@ -84,6 +84,31 @@ class Drift:
             return items
         m = self.mapping(member)
         return tuple(dict.fromkeys(m.get(x, x) for x in items))
+
+    def undo(self, member: str, at_stamp: str, kind: str, old: str) -> bool:
+        """你在成长总账里撤回一次变化（按时间、种类、原来那个找）：换掉的颜文字 / 短回复换回来，
+        歇着的口头禅马上能用，学来转正的那个不算她的了。找不到或已经撤回过返回 False。"""
+        data = self._load(member)
+        hit = next(
+            (
+                s
+                for s in data["swaps"]
+                if s.get("at") == at_stamp
+                and s.get("kind") == kind
+                and s.get("old") == old
+                and not s.get("undone")
+            ),
+            None,
+        )
+        if hit is None:
+            return False
+        hit["undone"] = True
+        if kind == "rest":
+            data["rested"].pop(old, None)
+        elif kind == "promote":
+            data["promoted"].pop(old, None)
+        self._save(member, data)
+        return True
 
     def resting(self, member: str, at: datetime) -> set[str]:
         """说腻了、正在歇着的口头禅。"""
@@ -147,7 +172,13 @@ class Drift:
             change = self._maybe(member, key, mine[key], data, at, lingo)
             if change:
                 changes.append(change)
-        data["swaps"] = data["swaps"][-r.keep_swaps :]
+                if change["kind"] in ("kaomoji", "short"):  # 同一句里下一个再换，先按换过的算
+                    self._save(member, data)
+                    getattr(lingo, "_cache", {}).pop("habits:" + member, None)
+        if len(data["swaps"]) > r.keep_swaps:  # 太旧的记录并进底子（不然顺着找会断，越换越乱）
+            gone = data["swaps"][: -r.keep_swaps]
+            data["base"] = _fold(dict(data["base"]), gone)
+            data["swaps"] = data["swaps"][-r.keep_swaps :]
         self._save(member, data)
         return changes
 
@@ -178,6 +209,8 @@ class Drift:
             return None
         why = f"最近两周用了 {n} 次，用腻了"
         if kind == "catchphrase":
+            if not self._can_rest(member, word, data, at):
+                return None  # 再歇就剩不下几句了：这句先接着说
             until = at + timedelta(days=r.rest_days)
             data["rested"][word] = iso(until)
             data["uses"].pop(key, None)
@@ -190,6 +223,18 @@ class Drift:
         data["since"].pop(key, None)
         data["since"][f"{key[0]}:{new}"] = iso(at)
         return self._log(data, kind, word, new, at, why)
+
+    def _can_rest(self, member: str, word: str, data: dict[str, Any], at: datetime) -> bool:
+        """歇掉这句之后，她档案上的口头禅还能用的至少要占 ``keep_catchphrases``（半年快进发现：
+        三句一起用得勤，会一起歇，几周里一句口头禅都没有）。"""
+        row = self.rt.repo.member_profile(member)
+        style = ((row or {}).get("data") or {}).get("style") or {}
+        own = [str(p).strip("。.！!？?～~ ") for p in style.get("口头禅") or [] if str(p).strip()]
+        if word not in own:
+            return True
+        rest = {p for p, until in data["rested"].items() if until > iso(at)} | {word}
+        left = sum(1 for p in own if p not in rest)
+        return left >= math.ceil(len(own) * self.rules.keep_catchphrases)
 
     def _pick(
         self, member: str, kind: str, old: str, data: dict[str, Any], at: datetime, lingo: Any
@@ -247,6 +292,18 @@ class Drift:
         mine = lingo.kaomoji(member)
         fit = [k for v in vibes if v in groups for k in groups[v].items if k in mine]
         return fit[0] if fit else ""
+
+
+def _fold(out: dict[str, str], swaps: list[dict[str, Any]]) -> dict[str, str]:
+    """把一串换法叠到 out（原来那个 → 现在用的）上。一次换掉的是「现在显示成 old 的那一格」：
+    old 本来就是她原来的一个（还没被换过）时换它自己；old 是别的格换来的时只换那一格。"""
+    for s in swaps:
+        if s.get("new") and not s.get("undone"):
+            old, new = s["old"], s["new"]
+            out = {k: (new if v == old else v) for k, v in out.items()}
+            if old not in out:
+                out[old] = new
+    return out
 
 
 def _num(x: Any, default: float = 3.0) -> float:

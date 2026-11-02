@@ -180,3 +180,59 @@ async def test_every_call_carries_attachments_once(workflow):
     assert_attached_once(env)
     if workflow == "discussion":
         assert [c for c in env.fake.calls if c.model == "b1" and len(c.messages) > 2]
+
+
+# --- 视频附件（K2 第二部分，docs/PERCEPTION.md）------------------------------------
+
+
+async def test_video_becomes_a_text_version_with_timeline_and_transcript():
+    from ..perception.media import make_video
+
+    env = Env(confirm_threshold_usd=100.0, with_media=True)
+    clip = upload(env, "lecture.mp4", make_video(3))
+    assert (clip.kind, clip.status) == ("video", "pending")
+    r = await env.orc.start(Question(MEDIUM), CUSTOM, seed=4, attachments=[clip.id])
+    assert r.status == "completed"
+    # 声音先转写（stt），画面取帧后由最便宜的 vision 模型一次写成文字版
+    assert [c[0] for c in env.fake.media_calls] == ["transcribe"]
+    (describe,) = [c for c in env.fake.calls if "视频转写成" in c.messages[0].content]
+    assert describe.model == "b2"
+    frames = env.config.roundtable.perception.fine.video_frames
+    media = describe.messages[1].media
+    assert len(media) == frames and all(m.kind == "image" for m in media)
+    assert "<transcript>" in describe.messages[1].content
+    stored = env.rt.repo.session_attachments(r.session_id)[0]
+    assert (stored["status"], stored["text_source"]) == ("ready", "vision")
+    assert "黑板上写着" in stored["text"] and "【声音转写】" in stored["text"]
+    # 所有成员收到同一份文字版（视频不随消息发出）
+    for call in answer_calls(env).values():
+        user = call.messages[1]
+        assert 'type="video"' in user.content and "黑板上写着" in user.content
+        assert not any(m.kind == "video" for m in user.media)
+
+
+async def test_video_goes_whole_to_a_video_in_model():
+    from ..perception.media import make_video
+
+    pool = [(*p[:3], [*p[3], "video_in"], *p[4:]) if p[0] == "f1" else p for p in POOL]
+    env = Env(pool=pool, confirm_threshold_usd=100.0, with_media=True)
+    clip = upload(env, "lecture.mp4", make_video(2))
+    r = await env.orc.start(Question(MEDIUM), CUSTOM, seed=5, attachments=[clip.id])
+    assert r.status == "completed"
+    (describe,) = [c for c in env.fake.calls if "视频转写成" in c.messages[0].content]
+    assert describe.model == "f1"  # 只看标签：能看整段视频又能看图
+    assert [m.kind for m in describe.messages[1].media] == ["video"]
+
+
+def test_video_upload_checks_header_and_tools(monkeypatch):
+    import importlib
+
+    ingest_module = importlib.import_module("roundtable.core.attachments.ingest")
+
+    env = Env()
+    with pytest.raises(UploadError, match="不符"):
+        upload(env, "fake.mp4", b"not a video at all, just text")
+    monkeypatch.setattr(ingest_module, "video_tools", lambda: False)
+    head = b"\x00\x00\x00\x18ftypmp42" + b"\x00" * 32
+    with pytest.raises(UploadError, match=r"\.\[media\]"):
+        upload(env, "clip.mp4", head)

@@ -60,7 +60,7 @@ export class People {
         })
       : null;
     this.growth = api?.growth
-      ? new GrowthPanel({ now, api: { get: api.growth, run: api.growthRun, revert: api.growthRevert, clear: api.growthClear } })
+      ? new GrowthPanel({ now, api: { get: api.growth, run: api.growthRun, revert: api.growthRevert, undo: api.growthUndo, clear: api.growthClear } })
       : null;
     this.relation = api?.relation ? new RelationPanel({ now, api: { get: api.relation, clear: api.relationClear, think: api.relationThink, dropView: api.relationDropView, replyView: api.relationReplyView } }) : null;
     this.dlg.addEventListener('click', (e) => this.onClick(e));

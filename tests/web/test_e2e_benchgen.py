@@ -232,13 +232,17 @@ def test_benchgen_project_room(serve, page, monkeypatch, tmp_path):
     assert "自动搭" in pane.locator(".bg-steps li.now").text_content()
     assert pane.locator(".bg-plan .bg-demo img").count() >= 1  # 演示截图在右栏
     page.frame_locator("iframe.bg-frame").locator("body").wait_for()  # 中间是这一段的草稿
-    gate.locator("[data-comments]").fill("地图再大一点")
+    gate.locator("[data-comments]").fill("地图太小")
+    gate.locator("[data-cwant]").fill("地图占一半")  # 填表：哪里不对 + 想改成什么样
     gate.locator("[data-cwin]").select_option("map-view")
     gate.locator("[data-change]").click()
-    pane.locator('.bg-trace li[data-state="改好了"]').wait_for(state="attached", timeout=15000)
+    # 真改了文件也只是「待你看」，你点了通过才算「改好了」
+    pane.locator('.bg-trace li[data-state="待你看"]').wait_for(state="attached", timeout=15000)
     gate.locator("[data-pass]").wait_for(timeout=15000)
     assert pane.locator(".bg-demo figcaption", has_text="改之后").count() == 1
     gate.locator("[data-pass]").click()
+    pane.locator('.bg-trace li[data-state="改好了"]').wait_for(state="attached", timeout=15000)
+    assert "问题：地图太小；想要：地图占一半" in pane.locator(".bg-trace").text_content()
 
     pane.locator(".bg-gate [data-pass]", has_text="验收通过").wait_for(timeout=15000)
     assert pane.locator(".bg-stages li", has_text="第 2 段 · 主要功能").count() == 1
@@ -660,6 +664,10 @@ def test_benchgen_profile_and_from_product(serve, page, monkeypatch, tmp_path):
     pane.locator(".bg-prof li", has_text="给小白用").wait_for()
 
     pane.locator("[data-text]").fill("照着这个动图做一个能换角色和动作的台")
+    form = pane.locator(".bg-form")  # 按表填（可选）：字段清单来自后端
+    form.locator("summary").click()
+    form.locator('[data-ff="who"]').fill("我自己")
+    form.locator('select[data-ff="net"]').select_option("只用本地")
     assert pane.locator("[data-fromprod]").count() == 0  # 没有素材时不出现
     files = page.locator("input[data-benchfile]")
     files.set_input_files([{"name": "鲸鱼女孩.png", "mimeType": "image/png", "buffer": PNG}])
@@ -674,3 +682,8 @@ def test_benchgen_profile_and_from_product(serve, page, monkeypatch, tmp_path):
     b = built["b"].build
     assert b["from_product"] is True
     assert any(v["src"] == "档案" and "小白" in v["text"] for v in b["voices"])
+    assert b["form"] == {"who": "我自己", "net": "只用本地"}
+    assert "【工具策略】\n- 联网：只用本地" in b["request"]
+    said = pane.locator(".bg-said")
+    said.locator(".bg-saidform dd", has_text="只用本地").wait_for()
+    assert "【" not in said.locator("p").inner_text()  # 原话和表单分开显示

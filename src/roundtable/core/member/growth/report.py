@@ -42,6 +42,7 @@ def build(
     skills: list[dict[str, Any]],
     diary_days: int,
     items: int,
+    others: dict[str, int] | None = None,
 ) -> dict[str, Any]:
     """这位成员 month（YYYY-MM）的报告。blob：成长数据（时间线、习惯计数、上次的熟练度）。"""
     tl = [e for e in blob.get("timeline") or [] if _in(e, month)]
@@ -78,6 +79,7 @@ def build(
         "lists": lists,
         "habits": [h["label"] for h in habit_list(blob, rules.habits)[:5]],
         "skill_ups": ups,
+        "others": dict(others or {}),  # 成长总账：口癖、和你、看法、收藏各变了几次
         "note": NOTE,
     }
 
@@ -103,5 +105,7 @@ def lines(r: dict[str, Any]) -> list[str]:
             "熟练度："
             + "、".join(f"{u['domain']} {u['from']} → {u['to']} 级" for u in r["skill_ups"])
         )
+    if r.get("others"):
+        out.append("别的变化：" + "、".join(f"{k} {v} 处" for k, v in r["others"].items()))
     out.append(r["note"])
     return out

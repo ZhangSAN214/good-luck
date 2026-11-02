@@ -1,6 +1,7 @@
 // 「超级电脑」：几位编程助手平级、没有固定主管（docs/SUPERCOMPUTER.md）。
 // 在「工作台」页的标签里，干活时分段栏「工作台」加一个绿点。面板：每位助手今天的次数（可改）、是否可用；交活；
 // 当前这件活拆成了哪些小活、各自分给了谁、为什么（当时的分数）；结果和最近几件活。
+// 管家：等你确认的定时活、排队、定时活（建 / 停 / 删 / 现在跑）、日报、审计链校验。
 // 助手的名字、擅长的种类都来自接口，不写死。
 
 const esc = (s) =>
@@ -18,6 +19,26 @@ const STATUS = {
   cancelled: '已叫停',
   waiting: '等着',
   running: '在干',
+};
+const RISK = { low: '低', medium: '中', high: '高' };
+const REPEAT = { daily: [], workdays: [0, 1, 2, 3, 4], weekend: [5, 6] };
+const ACT = {
+  submit: '交活',
+  finish: '活结束',
+  queue: '排队',
+  unqueue: '移出队',
+  queue_wait: '队里等着',
+  schedule_add: '建定时活',
+  schedule_remove: '删定时活',
+  schedule_toggle: '停用/启用定时活',
+  schedule_run: '现在跑定时活',
+  gate: '闸门判断',
+  approve: '你批准',
+  reject: '你没批',
+  missed: '错过',
+  limit: '改每天次数',
+  wake: '叫醒',
+  cancel: '叫停',
 };
 const KIND = { code: '写代码', frontend: '前端', test: '测试', docs: '文档', research: '查资料', review: '审查', split: '拆分', merge: '合并' };
 
@@ -43,12 +64,33 @@ export class SuperPanel {
     this.err = '';
     this.draft = '';
     this.timer = null;
+    this.form = { text: '', at: '09:00', repeat: 'daily', date: '' }; // 新定时活的草稿
+    this.opened = new Set(); // 用户展开着的折叠块（重画时保持）
+    this.reportDay = '';
+    this.reportData = null;
+    this.auditData = null;
     button?.addEventListener('click', () => this.open());
     dlg.addEventListener('click', (e) => this.onClick(e));
     dlg.addEventListener('change', (e) => this.onChange(e));
     dlg.addEventListener('input', (e) => {
       if (e.target.matches('[data-text]')) this.draft = e.target.value;
+      const f = e.target.dataset && e.target.dataset.form;
+      if (f) this.form[f] = e.target.value;
     });
+    dlg.addEventListener(
+      'toggle',
+      (e) => {
+        const k = e.target.dataset && e.target.dataset.k;
+        if (!k) return;
+        // 重画时带着 open 属性插进来的也会触发 toggle：只认真正的展开 / 收起
+        if (e.target.open && !this.opened.has(k)) {
+          this.opened.add(k);
+          if (k === 'report') this.loadReport(this.reportDay);
+          if (k === 'audit') this.loadAudit();
+        } else if (!e.target.open) this.opened.delete(k);
+      },
+      true,
+    );
     dlg.addEventListener('close', () => this.schedule());
     this.refresh();
     this.schedule();
@@ -67,7 +109,7 @@ export class SuperPanel {
       return;
     }
     this.paintButton();
-    if (this.isOpen() && !this.dlg.contains(document.activeElement?.closest('input,textarea') || null)) this.render();
+    if (this.isOpen() && !this.dlg.contains(document.activeElement?.closest('input,textarea,select') || null)) this.render();
   }
 
   paintButton() {
@@ -123,8 +165,8 @@ export class SuperPanel {
           <div class="sc-skills">最擅长：${esc(top || '—')}</div></div>`;
       })
       .join('');
-    const ask = `<div class="sc-ask"><textarea data-text placeholder="要交的活，比如：给这个项目加一个导出 CSV 的命令，并补上测试" ${busy ? 'disabled' : ''}>${esc(this.draft)}</textarea>
-      <div class="sc-row"><button type="button" class="btn primary" data-submit ${busy || st.unavailable ? 'disabled' : ''}>交给超级电脑</button>
+    const ask = `<div class="sc-ask"><textarea data-text placeholder="要交的活，比如：给这个项目加一个导出 CSV 的命令，并补上测试">${esc(this.draft)}</textarea>
+      <div class="sc-row"><button type="button" class="btn primary" data-submit ${st.unavailable ? 'disabled' : ''}>${busy ? '排进队' : '交给超级电脑'}</button>
       <span class="sc-hint">没有主管：拆分、每件小活、合并都按「擅长 + 今天剩余次数 + 手上的活」打分挑人，大家在同一个文件夹里同时干。只在你交活时干活。</span></div></div>`;
     const task = this.viewing || st.task;
     const recent = (st.recent || [])
@@ -133,10 +175,141 @@ export class SuperPanel {
       .join('');
     this.dlg.innerHTML = `${head}<div class="vb sc">${notes.join('')}
       <div class="sc-workers">${workers}</div>
+      ${this.pendingHtml(st.butler)}
       ${ask}
+      ${this.queueHtml(st.butler)}
       ${task ? this.taskHtml(task) : ''}
+      ${this.butlerHtml(st.butler)}
       ${recent ? `<details><summary>最近几件活</summary><ul class="sc-recent">${recent}</ul></details>` : ''}
     </div>`;
+  }
+
+  fold(k, summary, body) {
+    return `<details data-k="${k}" ${this.opened.has(k) ? 'open' : ''}><summary>${summary}</summary>${body}</details>`;
+  }
+
+  /** 等你确认的定时活：放在最上面，批准就排进队。 */
+  pendingHtml(b) {
+    const items = (b && b.pending) || [];
+    if (!items.length) return '';
+    const rows = items
+      .map(
+        (p) => `<li class="sc-pend" data-pend="${esc(p.id)}"><span class="sc-risk sc-risk-${esc(p.risk)}">风险${esc(RISK[p.risk] || p.risk)}</span>
+        <span class="sc-ptext">${esc((p.text || '').slice(0, 120))}</span>
+        <span class="sc-hint">${esc(p.why || '')}</span>
+        <span class="sc-gap"></span>
+        <button type="button" class="btn primary" data-approve="${esc(p.id)}">批准</button>
+        <button type="button" class="btn" data-reject="${esc(p.id)}">不批</button></li>`,
+      )
+      .join('');
+    return `<div class="sc-box sc-pending"><b>等你确认（${items.length}）</b><ul>${rows}</ul></div>`;
+  }
+
+  queueHtml(b) {
+    const items = (b && b.queue) || [];
+    if (!items.length) return '';
+    const rows = items
+      .map(
+        (q, i) => `<li data-queue="${esc(q.id)}">${i + 1}. ${esc((q.text || '').slice(0, 80))}
+        <span class="sc-hint">${esc(q.why || '')}${q.error ? ` · 还没开始：${esc(q.error)}` : ''}</span>
+        <button type="button" class="link" data-unqueue="${esc(q.id)}">移出</button></li>`,
+      )
+      .join('');
+    return `<div class="sc-box"><b>排队（${items.length}）</b><span class="sc-hint">前一件干完就接着干</span><ol class="sc-queue">${rows}</ol></div>`;
+  }
+
+  /** 管家：闸门说明、定时活、日报、审计。 */
+  butlerHtml(b) {
+    if (!b) return '';
+    const gate = `<p class="sc-hint">自治闸门：定时活到点时「${esc(b.autonomy_text)}」，高风险永远等你点头；今天自己跑了 ${b.auto_used} / ${b.auto_max} 件。你亲手交的、点「现在跑」的都直接干。</p>`;
+    const rows = (b.schedules || [])
+      .map((s) => {
+        const next = s.next ? `下次 ${esc(s.next.slice(5, 16).replace('T', ' '))}` : s.enabled ? '不会再跑' : '已停用';
+        return `<li class="sc-sched ${s.enabled ? '' : 'off'}" data-sched="${esc(s.id)}">
+          <b>${esc(s.when)}</b> <span class="sc-risk sc-risk-${esc(s.risk)}">风险${esc(RISK[s.risk] || s.risk)}</span>
+          <span class="sc-ptext">${esc((s.text || '').slice(0, 80))}</span>
+          <span class="sc-hint">${next}${s.last_result ? ` · 上次：${esc(s.last_result)}` : ''}</span>
+          <span class="sc-gap"></span>
+          <button type="button" class="link" data-run="${esc(s.id)}">现在跑</button>
+          <button type="button" class="link" data-toggle="${esc(s.id)}" data-on="${s.enabled ? '0' : '1'}">${s.enabled ? '停用' : '启用'}</button>
+          <button type="button" class="link" data-remove="${esc(s.id)}">删除</button></li>`;
+      })
+      .join('');
+    const f = this.form;
+    const opt = (v, t) => `<option value="${v}" ${f.repeat === v ? 'selected' : ''}>${t}</option>`;
+    const form = `<div class="sc-row sc-form">
+      <input type="text" data-form="text" placeholder="定时干什么，比如：每天检查依赖有没有安全更新，列个清单" value="${esc(f.text)}" aria-label="定时活的内容">
+      <select data-form="repeat" aria-label="重复">${opt('daily', '每天')}${opt('workdays', '工作日')}${opt('weekend', '周末')}${opt('once', '只一次')}</select>
+      ${f.repeat === 'once' ? `<input type="date" data-form="date" value="${esc(f.date)}" aria-label="哪一天">` : ''}
+      <input type="time" data-form="at" value="${esc(f.at)}" aria-label="几点">
+      <button type="button" class="btn" data-add-sched>加定时活</button></div>`;
+    const sched = this.fold(
+      'sched',
+      `定时活（${(b.schedules || []).length}）`,
+      `${gate}${rows ? `<ul class="sc-scheds">${rows}</ul>` : '<p class="sc-hint">还没有定时活。电脑关着错过了点，开机后 12 小时内补跑一次。</p>'}${form}`,
+    );
+    const r = this.reportData;
+    const days = r ? [''].concat(r.days || []) : [''];
+    const dayOpts = days
+      .map((d) => `<option value="${esc(d)}" ${d === this.reportDay ? 'selected' : ''}>${d ? esc(d) : '今天（现算）'}</option>`)
+      .join('');
+    const report = this.fold(
+      'report',
+      '日报',
+      `<div class="sc-row"><select data-report-day aria-label="哪天的日报">${dayOpts}</select>
+       <span class="sc-hint">程序按记录汇总，不调模型、不花钱；每天的存在 data/super/reports/。</span></div>
+       ${r ? `<div class="sc-report">${reportHtml(r.markdown)}</div>` : '<p class="sc-hint">加载中…</p>'}`,
+    );
+    const a = this.auditData;
+    const chk = a ? a.check : null;
+    const head = chk
+      ? chk.ok
+        ? `<span class="sc-ok">完好</span>，共 ${chk.count} 条`
+        : `<span class="sc-warn">第 ${chk.broken_at} 条对不上：${esc(chk.why)}</span>`
+      : `共 ${b.audit.count} 条`;
+    const lines = a
+      ? a.recent
+          .map((e) => `<li>${esc(String(e.at).slice(5, 16).replace('T', ' '))} ${esc(ACT[e.act] || e.act)} <span class="sc-hint">${esc(auditLine(e.data))}</span></li>`)
+          .join('')
+      : '';
+    const audit = this.fold(
+      'audit',
+      `审计链（${head}）`,
+      `<p class="sc-hint">交活、批准、改次数、闸门判断、每件活的结局都记一条，前后用 hash 串起来；改了、删了、调换了都能查出来。日报还记下每天的锚点，整条重写也能发现。</p>
+       ${lines ? `<ol class="sc-audit">${lines}</ol>` : ''}`,
+    );
+    return `<div class="sc-butler"><b>管家</b>${sched}${report}${audit}</div>`;
+  }
+
+  async loadReport(day) {
+    try {
+      this.reportData = await this.api.report(day);
+      this.reportDay = day;
+    } catch (x) {
+      this.err = x.message;
+    }
+    this.render();
+  }
+
+  async loadAudit() {
+    try {
+      this.auditData = await this.api.audit();
+    } catch (x) {
+      this.err = x.message;
+    }
+    this.render();
+  }
+
+  addSchedule() {
+    const f = this.form;
+    const body = { text: f.text.trim(), at: f.at };
+    if (f.repeat === 'once') body.once = f.date;
+    else body.days = REPEAT[f.repeat] || [];
+    return this.act(async () => {
+      const st = await this.api.addSchedule(body);
+      this.form.text = '';
+      return st;
+    });
   }
 
   taskHtml(t) {
@@ -166,7 +339,19 @@ export class SuperPanel {
   async onClick(e) {
     const t = e.target;
     if (t.closest('[data-close]')) return this.dlg.close();
-    if (t.closest('[data-submit]')) return this.act(() => this.api.submit(this.draft), true);
+    if (t.closest('[data-submit]')) return this.act(() => this.api.submit(this.draft, !!(this.st && this.st.busy)), true);
+    const pick = (attr) => t.closest(`[${attr}]`)?.getAttribute(attr);
+    let id;
+    if ((id = pick('data-approve'))) return this.act(() => this.api.approve(id));
+    if ((id = pick('data-reject'))) return this.act(() => this.api.reject(id));
+    if ((id = pick('data-unqueue'))) return this.act(() => this.api.unqueue(id));
+    if ((id = pick('data-run'))) return this.act(() => this.api.runSchedule(id));
+    if ((id = pick('data-remove'))) return this.act(() => this.api.removeSchedule(id));
+    if ((id = pick('data-toggle'))) {
+      const on = t.closest('[data-toggle]').dataset.on === '1';
+      return this.act(() => this.api.toggleSchedule(id, on));
+    }
+    if (t.closest('[data-add-sched]')) return this.addSchedule();
     if (t.closest('[data-cancel]')) return this.act(() => this.api.cancel());
     const wake = t.closest('[data-wake]');
     if (wake) return this.act(() => this.api.wake(wake.dataset.wake));
@@ -186,6 +371,13 @@ export class SuperPanel {
   }
 
   onChange(e) {
+    if (e.target.matches('[data-report-day]')) return this.loadReport(e.target.value);
+    const f = e.target.dataset && e.target.dataset.form;
+    if (f) {
+      this.form[f] = e.target.value;
+      if (f === 'repeat') this.render();
+      return;
+    }
     const input = e.target.closest('[data-limit]');
     if (!input) return;
     const n = Math.max(0, Math.min(1000, Math.round(Number(input.value) || 0)));
@@ -203,8 +395,53 @@ export class SuperPanel {
     } catch (x) {
       this.err = x.message;
     }
+    if (this.opened.has('audit')) this.auditData = null;
+    if (this.opened.has('report')) this.reportData = null;
     this.paintButton();
     this.render();
     this.schedule();
+    if (this.opened.has('audit')) this.loadAudit();
+    if (this.opened.has('report')) this.loadReport(this.reportDay);
   }
+}
+
+/** 日报的 Markdown 画成网页：只认标题、表格、列表和段落（日报是程序写的，格式固定）。 */
+export function reportHtml(md) {
+  const out = [];
+  let table = null;
+  const flush = () => {
+    if (!table) return;
+    const [head, ...body] = table.filter((r) => !/^\|[-|\s]+\|$/.test(r));
+    const cells = (r, tag) =>
+      r.slice(1, -1).split('|').map((c) => `<${tag}>${esc(c.trim())}</${tag}>`).join('');
+    out.push(`<table class="sc-subs"><thead><tr>${cells(head, 'th')}</tr></thead><tbody>${body.map((r) => `<tr>${cells(r, 'td')}</tr>`).join('')}</tbody></table>`);
+    table = null;
+  };
+  for (const line of String(md || '').split('\n')) {
+    if (line.startsWith('|')) {
+      (table = table || []).push(line.trim());
+      continue;
+    }
+    flush();
+    if (line.startsWith('# ')) out.push(`<h4>${esc(line.slice(2))}</h4>`);
+    else if (line.startsWith('## ')) out.push(`<h5>${esc(line.slice(3))}</h5>`);
+    else if (line.startsWith('- ')) out.push(`<p class="sc-li">· ${esc(line.slice(2))}</p>`);
+    else if (line.trim()) out.push(`<p class="sc-report-sum">${esc(line)}</p>`);
+  }
+  flush();
+  return out.join('');
+}
+
+/** 审计记录的一句话：只挑能看懂的几项。 */
+function auditLine(d) {
+  if (!d) return '';
+  const parts = [];
+  if (d.text) parts.push(`「${String(d.text).slice(0, 40)}」`);
+  if (d.status) parts.push(STATUS[d.status] || d.status);
+  if (d.why) parts.push(d.why);
+  if (d.when) parts.push(d.when);
+  if (d.worker) parts.push(d.worker);
+  if (d.limit !== undefined) parts.push(`每天 ${d.limit} 件`);
+  if (d.task) parts.push(d.task);
+  return parts.join(' · ');
 }

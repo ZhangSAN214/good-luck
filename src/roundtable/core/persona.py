@@ -110,4 +110,9 @@ def chat_persona(rt: Any, member: str) -> str:
     relation = RelationPlugin(rt).line(member)  # P4：和你到了哪一步（程序按共同经历算）
     if relation:
         pieces.append(Piece(RELATION, relation, score=0.9))
+    from roundtable.core.member.growth.book import recent_text  # 成长总账依赖记忆、关系等模块
+
+    recent = recent_text(rt, member)  # P6：这阵子她自己变了什么（口癖换了、和你熟了……）
+    if recent:
+        pieces.append(Piece("growth", recent, score=0.5))
     return assemble(pieces, r.budget_chars, r.per_source, r.min_piece_chars).text

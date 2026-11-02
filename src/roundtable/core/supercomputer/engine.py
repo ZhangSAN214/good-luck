@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+import logging
 import os
 import random
 import secrets
@@ -28,6 +29,7 @@ from roundtable.core.supercomputer.runner import RunResult, hit_limit, run
 from roundtable.core.supercomputer.scoring import WorkerState, excluded, pick
 
 RECENT = 10
+log = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -86,6 +88,8 @@ class Supercomputer:
         self.task: dict[str, Any] | None = None
         self._job: asyncio.Task[None] | None = None
         self._recent: list[dict[str, Any]] = []
+        # 一件活结束（完成、失败、叫停）时调用：管家用它记审计账；出错不影响活本身
+        self.on_finish: Callable[[dict[str, Any]], None] | None = None
 
     # --- 状态 -------------------------------------------------------------------
 
@@ -163,7 +167,8 @@ class Supercomputer:
                     t = json.loads((d / "task.json").read_text(encoding="utf-8"))
                 except (OSError, ValueError):
                     continue
-                items.append({k: t.get(k) for k in ("id", "text", "status", "created_at")})
+                keys = ("id", "text", "status", "created_at", "source")
+                items.append({k: t.get(k) for k in keys})
         return items
 
     def get(self, task_id: str) -> dict[str, Any] | None:
@@ -191,7 +196,11 @@ class Supercomputer:
 
     # --- 交活与叫停 -----------------------------------------------------------------
 
-    def submit(self, text: str) -> dict[str, Any]:
+    def submit(
+        self, text: str, *, source: str = "manual", ref: str | None = None
+    ) -> dict[str, Any]:
+        """source：manual（你在面板上交的）/ schedule（定时活）/ queue（你排进队的）；
+        ref：定时活或排队项的编号。都只用来记账和写日报，不影响派活。"""
         text = text.strip()
         if not text:
             raise ValueError("要交的活是空的")
@@ -212,6 +221,8 @@ class Supercomputer:
             "created_at": _iso(now),
             "finished_at": None,
             "seed": seed,
+            "source": source,
+            "ref": ref,
             "folder": str(self.folder(task_id)),
             "split": None,
             "subtasks": [],
@@ -309,6 +320,11 @@ class Supercomputer:
                     task["result"], encoding="utf-8"
                 )
             self._save()
+            if self.on_finish is not None:
+                try:
+                    self.on_finish(task)
+                except Exception:  # noqa: BLE001 - 记账出错不影响活本身
+                    log.exception("超级电脑：活结束后的记账出错")
 
     async def _attempt(
         self,

@@ -89,7 +89,9 @@
 - 接口：`GET /api/moments`（`author` 只看某人，`before` 翻页，每页 20 条；看第一页全部时标为已读）、`POST /api/moments`（用户发，最多 500 字）、`POST /api/moments/{id}/like`（点赞 / 取消）、`POST /api/moments/{id}/comments`（`reply_to` 可选，必须是这条动态下的评论）、`DELETE /api/moments/{id}`、`DELETE /api/moments/comments/{id}`。`GET /api/chat/rooms` 多了 `moments_unseen`（成员的新动态条数）。
 - 网页：聊天左栏最上面「朋友圈」（新动态红点），弹窗里按人筛选、发动态、赞、评论、回复、删除；公寓楼住户卡片多了「朋友圈」按钮。
 - 配图（2026-10-31，#120）：发动态时按 `media.moment_photos.chance`（默认一半，按事件和成员派生种子）照成员形象画一张随手拍，每人每天 1 张、全员 3 张；转发卡片的动态不配图；画不出来照常发文字。
-- 配图去 AI 感（2026-10-31 用户反馈「作画 AI 感太强」）：`moment_photo/v2` 要求像手机随手拍——拍正文旁边的小细节而不是把正文演一遍，歪一点、切边、普通光线、杂乱背景；拍法 `media.moment_photos.shots` 按权重抽（默认约六成只拍东西 / 风景、两成只露手袖尾巴、一成被抓拍、一成歪角度自拍），她不入镜时不传形象参考图；画完在本机加一层手机味（`phone_look`：轻微裁歪、压饱和度、偏色、噪点、压缩，`phone_look: false` 可关），不花钱。
+- 配图去 AI 感（2026-10-31 用户反馈「作画 AI 感太强」；11-01 又说「要看她们的生活，不要剩饭」）：`moment_photo/v3` 要求拍她的生活里最讨喜的一刻——抓拍、有动作、不站桩不居中、日常光线和公寓里的背景，画风保持设定图；拍东西时只拍值得炫的（刚端上来的饭、夜景、可爱小物），不拍剩饭和空角落。11-01 看了 v3 试画后升到 `moment_photo/v4`：场景必须在八人公寓里（户外除外），按生活事件的地点把那间房的场景图（公共房间用 `rooms/` 白天图，宿舍用房主的 `room_day`）附在最后一张参考图，`media.moment_photos.room_refs: false` 可关；形象卡加 `cues`（标志小物件，如小鲸鱼发卡，只露手时也认得出）和 `daily_must`（日常照必须画到的细节，不写用 `must`；歌若柯的日常照不扛巨斧）；面部照设定图、真实光影和材质、机位轮换、抓拍和三分法等构图（借鉴 MIT 许可的 cinematic-video-prompt-skill 的术语思路）。拍法 `media.moment_photos.shots` 按权重抽（默认约七成她入镜：抓拍、自拍、和朋友合照；两成露手拍好东西；一成只拍风景），她不入镜时不传形象参考图；画完在本机加一层轻微的手机味（`phone_look`：轻微裁歪、偏色、噪点、压缩，`phone_look: false` 可关），不花钱。
+- 本地出图（2026-11-01）：可以交给自己电脑上的 ComfyUI 画（渠道 `comfyui`，模型 `comfyui-local`，默认关，步骤见 `docs/COMFYUI.md`）。它价格 0，自然排在付费绘图模型前面；吃标签式提示词（`image_prompt: tags`），走它时改用 `moment_photo_tags`（正向 / 负向两行：人物标签按拍法的 `her` 取 `media.moment_photos.tag_subjects`，拍法标签取 `shots[].tags`，外观取形象卡的英文 `look_tags`；她不入镜时不放外观；负向固定排除写实、武器、卖弄身材），走云端模型时照旧用 `moment_photo`。ComfyUI 没开或画失败时换下一个绘图模型；`media.moment_photos.local_only: true` 时只用本地模型，画不出来只发文字。表情包不用吃标签的模型（没有标签版提示词）。
+- 摄影维度与拍照习惯（2026-11-02，`moment_photo/v5`，技能 `.claude/skills/phone-photo`）：每张图先按权重抽拍法（`media.moment_photos.shots`，带 `name` 和 `by`：她自己拍 / 室友帮拍），再给机位（`angles`）、光（`lights`）、时机（`moments`）、焦段（`lenses`）、手机滤镜（`filters`）各抽一个英文短语（`core/moment_shots.py`，纯函数）。各维度用独立种子（`photo:<维度>:<事件>:<成员>`），同一条动态结果固定；按事件时间在主时区的时间段（morning / day / evening / night）和地点（宿舍、食堂……天台算户外）过滤（夜里没有窗外阳光），按拍法的入镜方式过滤（她不入镜时没有人像机位和表情时机）；取值按手机现实（1x 主摄、原色最多、默认大景深）。每位成员在形象卡 `photo` 里有自己的拍照习惯：`boost` 按名字给通用表乘倍数（小白龙爱自拍、0.5x、偏暖；克劳德桌面俯拍、窗光；GLM 偶尔黑白……），`subjects` 是她爱拍的东西（她自己拍东西时按 `subject_chance` 换成其中一样），`quirk` 是一句拍照小毛病（按 `quirk_chance` 出现）；`boost.shots` 总是生效（她发哪种照片多），其他维度只有她自己拍时才按她的习惯加权。`boost` 引用不存在的名字时配置校验报错。v5 在 v4 上加 `camera` / `light` / `moment` / `touches` 四个变量（和场景冲突时以场景为准），v4 的规定全部保留；吃标签的本地模型接上各维度的 `tags`。工作模式不读这些配置。
 - 提示词现为 `moment_post/v3`、`moment_comment/v3`（转发卡片、表情包）；发帖带「心里挂着的事」（`Brain.musing`）；说出口前过成员自查（`core/member/voice`）。
 - 现状与后续待办（长期线程「长期负责成员朋友圈」）：`/mnt/project-files/汇报/成员朋友圈_现状与待办_10-31.md`。
 
@@ -175,3 +177,13 @@
 - **结论排版**（`web/js/workcard.js`）：表格照常显示；` ```mermaid ` 代码块画成图，`$$…$$` / `\[…\]` 排成公式。Mermaid 11.9.0 和 KaTeX 0.16.9 放在 `web/vendor/`（MIT，见 `web/vendor/LICENSES.md`），卡片里有图或公式时才加载，不联网。Mermaid 用 `securityLevel: strict`，KaTeX 用 `trust: false`。模型写的内容一律转义后再排版，不执行模型写的脚本或网页。这里借了 dsh-raw-html 的思路（让聊天能显示富内容），但不让模型直接写 HTML，字体也不照搬（有商用字体）。
 - **选项记号** `[选项:甲|乙|丙]`：显示成 2～4 个按钮（每个最多 24 字），你点哪个就替你发哪句。你接过话之后按钮收起。
 - **聊天发文件**：输入框工具栏的「文件」按钮先把文件传上去，发消息时一起带上（`POST /api/chat` 的 `files`，最多 5 个）。消息里显示成文件小卡片。成员只看到「[文件 名字]」，不读内容；要处理内容就交给办公室。
+
+## G15 外部表情包（2026-11-01，dsh-meme 格式）
+
+- **是什么**：别人做好的表情包压缩包（`manifest.json` + `index.db` + `memes/<分类>/图`，dsh-meme-packs 仓库的格式）。圆桌自己读这个格式，**不依赖 dsh**（`core/sticker_packs.py`）。
+- **装在哪**：本机 `data/sticker_packs/<包 id>/`（图片 + `pack.json`），不进仓库；许可证照原样记下（不少包只许非商业使用，个人用没问题）。在线目录 `chat.actions.sticker_packs.catalog_url`，下载后按目录里的 sha256 核对；压缩包里只收 `memes/` 下真是图片的文件（拒绝绝对路径、`..`、超大文件），总大小不超过 `max_mb`。
+- **给谁用**：每个包可以给某位成员专用（她提示词里的「你的专属」）或大家通用（「通用」）。套装名 1～6 字，不和通用套装、成员昵称、别的包重名（默认用包名去掉「表情包」，重了加「包」）。
+- **名字、用法、意思词**：文件名像词就用文件名，否则用第一个关键词；说明（caption）≤24 字当用法，否则用关键词（整包大半都有的词、同分类大半都有的词排后面）。
+- **提示词**：一套可能上百张，每套只列 `menu_size`（10）张，按（小时, 成员, 套装）轮换，可复现；聊天里认得整套（`member_stickers` 含全部）。
+- **网页**：`/api/chat/stickers` 里一并给出（专用的 `member` 是成员 id，通用的是 `*`），图从 `/api/sticker-packs/<id>/<序号>` 取。管理：`GET /api/sticker-packs`、`GET /api/sticker-packs/catalog`、`POST /api/sticker-packs {id, owner, label}`、`PATCH`、`DELETE`。
+- **命令行**：`roundtable sticker-packs catalog | list | install <id> [--for 成员] [--as 名字] [--file 压缩包] | assign <id> --for 成员 | --common | remove <id>`。
