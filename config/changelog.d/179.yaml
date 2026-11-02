@@ -1,0 +1,8 @@
+date: 2026-11-02
+pr: [179]
+level: minor
+title: 朋友圈配图开机时用 ChatGPT 网页画，不花钱
+added:
+  - 电脑开着时，朋友圈配图先用你自己的 ChatGPT 会员在网页里自动画，不另花钱
+  - 网页画不了（没登录、次数用完、网页改版）时自动改用 GPT Image 2.5，朋友圈照常发
+howto: 在电脑上运行一次 roundtable chatgpt-login，在弹出的窗口里自己登录 ChatGPT，再重启圆桌

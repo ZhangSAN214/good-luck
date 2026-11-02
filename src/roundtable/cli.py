@@ -34,7 +34,7 @@ import json
 import secrets
 import sys
 from collections import defaultdict
-from collections.abc import Callable, Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from datetime import datetime
 from pathlib import Path
 from typing import Any, TextIO
@@ -1898,6 +1898,16 @@ def build_parser() -> argparse.ArgumentParser:
         "--report", action="store_true", help="输出可以整段转交的体检报告（不含聊天内容和 key）"
     )
     doctor.add_argument("-o", "--output", help="把体检报告存到这个文件（UTF-8）")
+    gptlogin = sub.add_parser(
+        "chatgpt-login",
+        help="朋友圈配图用 ChatGPT 网页：弹出浏览器，你自己登录一次（圆桌不经手账号密码）",
+    )
+    gptlogin.add_argument(
+        "--wait", type=float, default=600.0, help="最多等你登录多少秒（默认 600）"
+    )
+    gptlogin.add_argument(
+        "--off", action="store_true", help="关掉 ChatGPT 网页出图（不删登录状态）"
+    )
     kit = sub.add_parser(
         "kit-check", help="工作台质检：三种屏宽 × 浅色 / 深色，量出不达标的地方（不调用模型）"
     )
@@ -1953,6 +1963,8 @@ async def run(
         return await asyncio.to_thread(cmd_kit_check, args, out)
     if args.command == "doctor":  # 圆桌起不来时也要能用：不建运行时、不迁移数据库
         return cmd_doctor(args, out)
+    if args.command == "chatgpt-login":  # 只开浏览器、改本机开关，不建运行时
+        return await cmd_chatgpt_login(args, out)
     if args.command == "sim":  # 自己建临时数据库，不打开真实数据
         return await cmd_sim(args, out)
     if args.command == "sim-growth":  # 同上
@@ -2266,6 +2278,54 @@ def cmd_backup(
     for f in files:
         kind = "每天" if f.kind == "daily" else f"存档点·{f.label}"
         print(f"  {f.name}  {kind}  {f.size / 1048576:.1f} MB", file=out)
+    return 0
+
+
+async def cmd_chatgpt_login(
+    args: argparse.Namespace,
+    out: TextIO,
+    *,
+    login: Callable[..., Awaitable[bool]] | None = None,
+    config_dir: Path | None = None,
+) -> int:
+    """ChatGPT 网页出图的一次性登录（docs/CHATGPT_WEB.md）：你自己在弹出的浏览器里登录，
+    成功后在 config/models.local.yaml 打开 chatgpt-web。"""
+    from roundtable.core.config import load_config
+    from roundtable.core.config.loader import DEFAULT_CONFIG_DIR
+    from roundtable.core.providers import chatgpt_web
+
+    folder = config_dir or DEFAULT_CONFIG_DIR
+    local = folder / "models.local.yaml"
+    if args.off:
+        chatgpt_web.switch_on(local, value=False)
+        print("已关掉 ChatGPT 网页出图（朋友圈配图改用 GPT Image 2.5）。重启圆桌后生效。", file=out)
+        return 0
+    try:
+        cfg = load_config(folder)
+    except ConfigError as exc:
+        print(f"配置错误：{exc}", file=out)
+        return 2
+    model = next((m for m in cfg.models.models if m.id == chatgpt_web.MODEL_ID), None)
+    channel = cfg.models.channels.get("chatgpt_web")
+    if model is None or channel is None:
+        print("配置里没有 chatgpt-web 模型或 chatgpt_web 渠道。", file=out)
+        return 2
+    print("马上弹出一个浏览器窗口：请你自己登录 ChatGPT（圆桌不经手账号密码）。", file=out)
+    print(f"登录好、看到对话输入框后窗口会自动关闭；最多等 {args.wait:g} 秒。", file=out)
+    try:
+        do_login = login or chatgpt_web.login
+        ok = await do_login(channel.base_url, dict(model.params), wait_s=args.wait)
+    except ImportError:
+        print("没装 playwright：先运行 pip install playwright", file=out)
+        print("再运行 playwright install chromium，然后再试一次。", file=out)
+        return 1
+    if not ok:
+        print("没等到登录成功。可以再运行一次 roundtable chatgpt-login。", file=out)
+        return 1
+    chatgpt_web.switch_on(local)
+    print("登录成功，已打开 ChatGPT 网页出图：电脑开着时朋友圈配图先用网页画，", file=out)
+    print("画不了（没登录、次数用完、网页改版）时自动改用 GPT Image 2.5。", file=out)
+    print("重启圆桌后生效。", file=out)
     return 0
 
 

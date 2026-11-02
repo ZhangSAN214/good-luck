@@ -17,6 +17,7 @@ async def test_build_from_environment(tmp_path):
         "openrouter",
         "comfyui",
         "local_tts",
+        "chatgpt_web",
     ]  # 本地渠道不需要 key
     assert set(rt.unavailable_channels) == {"openai", "anthropic", "google", "xai", "deepseek"}
     assert len(rt.router.available_models()) == len(rt.config.models.enabled)
