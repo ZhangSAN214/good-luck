@@ -1896,7 +1896,8 @@ media:
     # 2026-11-02 用户选「接 ChatGPT 同款画图模型」：配图用旗舰档、带 feed_photo 标签的先画（带参考图约 $0.078/张，
     # 见上面 per_day）；画不出来按出图顺序换下一个。表情包不受影响。
     tier: flagship
-    prefer_tags: [feed_photo, plans_image]  # 先 ChatGPT 对话出图（会先理解改写再画，和网页一样），再 GPT Image 2.5
+    # 先 GPT Image 2.5（约 $0.08/张）。ChatGPT 对话出图（plans_image）实测约 $0.30/张，想用它就在这里加上 plans_image
+    prefer_tags: [feed_photo]
     # --- 摄影维度（2026-11-02，.claude/skills/phone-photo）：每张图抽一种拍法，再给机位 / 光 / 时机 /
     # 焦段 / 色调 / 风格参照各抽一个（各维度独立种子，可复现）。机位和光写得具体（前景、引导线、光的方向和质感），
     # 11-02 起按摄影技能加胶片色调和大师风格参照；不写写实画质词和相机型号（画风跟设定图）。

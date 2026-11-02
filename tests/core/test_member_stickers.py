@@ -744,10 +744,11 @@ def test_moment_photos_prefer_the_feed_photo_model_and_stickers_do_not(tmp_path)
     assert tagged
     order = [m.id for m in stickers.draw_models(rules.tier, rules.prefer_tags)]
     assert order[0] in tagged
-    # 11-02 用户要「让 ChatGPT 负责出图」：先理解改写再画的对话出图模型最先，纯画图模型其次
+    # 11-02 试画：ChatGPT 对话出图（plans_image）带参考图约 $0.30/张，GPT Image 2.5 约 $0.08，
+    # 配图首选回到 2.5；对话出图模型仍在顺序里当备用
     by_id = {m.id: m for m in rt.config.models.models}
-    first, second = (by_id[i] for i in order[:2])
-    assert "plans_image" in first.tags and "feed_photo" in second.tags
+    assert "plans_image" not in by_id[order[0]].tags
+    assert any("plans_image" in by_id[i].tags for i in order[1:])
     assert "feed_photo" not in stickers.rules.prefer_tags
 
 

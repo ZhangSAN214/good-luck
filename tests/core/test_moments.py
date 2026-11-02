@@ -635,6 +635,8 @@ async def test_photo_passes_housemates_and_skips_places_outside_the_building(tmp
     [brief_call] = calls(env, "write its shooting brief")
     assert "<post>饭</post>" in brief_call.messages[1].content
     assert b.name in brief_call.messages[1].content  # 室友在人物名单里
+    # 不思考：思考模型会把上限花光、正文为空（11-02 试画时 DeepSeek 就是空的）
+    assert brief_call.params["reasoning"] == {"enabled": False}
     assert isinstance(asked[0]["brief"], str) and asked[0]["brief"]
 
 
@@ -684,3 +686,12 @@ async def test_photo_only_post_without_a_photo_is_not_retried():
     event = env.rt.repo.add_life_event(iso(NOW - timedelta(hours=1)), "solo", [a.id], topic="天台")
     assert await mo.post(a, event, []) == {}
     assert env.rt.repo.moments() == [] and mo.event_for(a, NOW) is None
+
+
+def test_brief_is_cut_at_a_whole_sentence():
+    from roundtable.core.moments import whole_sentences
+
+    text = "Gemini holds the right third. DeepSeek lunges from the left. Qwen laughs behind"
+    want = "Gemini holds the right third. DeepSeek lunges from the left."
+    assert whole_sentences(text, 70) == want
+    assert whole_sentences("short.", 70) == "short."
