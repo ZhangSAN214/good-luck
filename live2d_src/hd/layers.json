@@ -1,0 +1,289 @@
+{
+  "source": "full_hi.png",
+  "canvas": [
+    4096,
+    6144
+  ],
+  "from": "E:\\good-luck\\data\\avatars\\_codex\\claude_live2d\\live2d_src\\web_run\\layers.json",
+  "draw_order": "order 0 = bottom",
+  "rule": "visible pixels from AI-upscaled original, hidden (inpainted) pixels from split layer; 1.5px feather",
+  "count": 23,
+  "layers": [
+    {
+      "order": 0,
+      "name": "back hair",
+      "file": "layers_hd/00_back_hair.png",
+      "bbox": [
+        832,
+        52,
+        3244,
+        3236
+      ],
+      "inpainted_ratio": 0.666
+    },
+    {
+      "order": 1,
+      "name": "footwear",
+      "file": "layers_hd/01_footwear.png",
+      "bbox": [
+        1660,
+        5348,
+        2224,
+        6096
+      ],
+      "inpainted_ratio": 0.11
+    },
+    {
+      "order": 2,
+      "name": "neck",
+      "file": "layers_hd/02_neck.png",
+      "bbox": [
+        2012,
+        692,
+        2264,
+        1080
+      ],
+      "inpainted_ratio": 0.858
+    },
+    {
+      "order": 3,
+      "name": "bottomwear",
+      "file": "layers_hd/03_bottomwear.png",
+      "bbox": [
+        552,
+        2052,
+        3496,
+        5484
+      ],
+      "inpainted_ratio": 0.029
+    },
+    {
+      "order": 4,
+      "name": "topwear",
+      "file": "layers_hd/04_topwear.png",
+      "bbox": [
+        1612,
+        900,
+        2540,
+        2160
+      ],
+      "inpainted_ratio": 0.377
+    },
+    {
+      "order": 5,
+      "name": "handwear-l",
+      "file": "layers_hd/05_handwear-l.png",
+      "bbox": [
+        2252,
+        1160,
+        2800,
+        3444
+      ],
+      "inpainted_ratio": 0.0
+    },
+    {
+      "order": 6,
+      "name": "ears-r",
+      "file": "layers_hd/06_ears-r.png",
+      "bbox": [
+        1772,
+        668,
+        1908,
+        808
+      ],
+      "inpainted_ratio": 0.837
+    },
+    {
+      "order": 7,
+      "name": "eyebrow-r",
+      "file": "layers_hd/07_eyebrow-r.png",
+      "bbox": [
+        1756,
+        556,
+        1888,
+        616
+      ],
+      "inpainted_ratio": 1.0
+    },
+    {
+      "order": 8,
+      "name": "ears-l",
+      "file": "layers_hd/08_ears-l.png",
+      "bbox": [
+        2264,
+        500,
+        2360,
+        688
+      ],
+      "inpainted_ratio": 0.174
+    },
+    {
+      "order": 9,
+      "name": "eyebrow-l",
+      "file": "layers_hd/09_eyebrow-l.png",
+      "bbox": [
+        1992,
+        460,
+        2172,
+        512
+      ],
+      "inpainted_ratio": 1.0
+    },
+    {
+      "order": 10,
+      "name": "face",
+      "file": "layers_hd/10_face.png",
+      "bbox": [
+        1728,
+        328,
+        2268,
+        924
+      ],
+      "inpainted_ratio": 0.519
+    },
+    {
+      "order": 11,
+      "name": "nose",
+      "file": "layers_hd/11_nose.png",
+      "bbox": [
+        1968,
+        676,
+        2020,
+        748
+      ],
+      "inpainted_ratio": 0.0
+    },
+    {
+      "order": 12,
+      "name": "mouth",
+      "file": "layers_hd/12_mouth.png",
+      "bbox": [
+        2004,
+        772,
+        2096,
+        816
+      ],
+      "inpainted_ratio": 0.0
+    },
+    {
+      "order": 13,
+      "name": "eyewhite-r",
+      "file": "layers_hd/13_eyewhite-r.png",
+      "bbox": [
+        1808,
+        640,
+        1928,
+        716
+      ],
+      "inpainted_ratio": 0.732
+    },
+    {
+      "order": 14,
+      "name": "irides-r",
+      "file": "layers_hd/14_irides-r.png",
+      "bbox": [
+        1840,
+        640,
+        1928,
+        708
+      ],
+      "inpainted_ratio": 0.156
+    },
+    {
+      "order": 15,
+      "name": "eyelash-r",
+      "file": "layers_hd/15_eyelash-r.png",
+      "bbox": [
+        1752,
+        616,
+        1936,
+        716
+      ],
+      "inpainted_ratio": 0.19
+    },
+    {
+      "order": 16,
+      "name": "eyewhite-l",
+      "file": "layers_hd/16_eyewhite-l.png",
+      "bbox": [
+        2060,
+        532,
+        2196,
+        616
+      ],
+      "inpainted_ratio": 0.793
+    },
+    {
+      "order": 17,
+      "name": "handwear-r",
+      "file": "layers_hd/17_handwear-r.png",
+      "bbox": [
+        1268,
+        1088,
+        1924,
+        2092
+      ],
+      "inpainted_ratio": 0.0
+    },
+    {
+      "order": 18,
+      "name": "irides-l",
+      "file": "layers_hd/18_irides-l.png",
+      "bbox": [
+        2080,
+        532,
+        2172,
+        616
+      ],
+      "inpainted_ratio": 0.179
+    },
+    {
+      "order": 19,
+      "name": "eyelash-l",
+      "file": "layers_hd/19_eyelash-l.png",
+      "bbox": [
+        2028,
+        504,
+        2228,
+        620
+      ],
+      "inpainted_ratio": 0.073
+    },
+    {
+      "order": 20,
+      "name": "earwear",
+      "file": "layers_hd/20_earwear.png",
+      "bbox": [
+        2280,
+        644,
+        2344,
+        911
+      ],
+      "inpainted_ratio": 0.092
+    },
+    {
+      "order": 21,
+      "name": "front hair",
+      "file": "layers_hd/21_front_hair.png",
+      "bbox": [
+        1620,
+        100,
+        2372,
+        2460
+      ],
+      "inpainted_ratio": 0.006
+    },
+    {
+      "order": 22,
+      "name": "headwear",
+      "file": "layers_hd/22_headwear.png",
+      "bbox": [
+        2168,
+        152,
+        2488,
+        868
+      ],
+      "inpainted_ratio": 0.0
+    }
+  ]
+}

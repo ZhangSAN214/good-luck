@@ -1,0 +1,333 @@
+{
+  "source": "layers.psd",
+  "canvas": [
+    1536,
+    1536
+  ],
+  "draw_order": "order 0 = bottom",
+  "count": 23,
+  "layers": [
+    {
+      "order": 0,
+      "name": "back hair",
+      "group": "",
+      "file": "layers/00_back_hair.png",
+      "bbox": [
+        464,
+        13,
+        1067,
+        809
+      ],
+      "visible": true,
+      "opaque_pixels": 260742
+    },
+    {
+      "order": 1,
+      "name": "footwear",
+      "group": "",
+      "file": "layers/01_footwear.png",
+      "bbox": [
+        671,
+        1337,
+        812,
+        1524
+      ],
+      "visible": true,
+      "opaque_pixels": 16357
+    },
+    {
+      "order": 2,
+      "name": "neck",
+      "group": "",
+      "file": "layers/02_neck.png",
+      "bbox": [
+        759,
+        173,
+        822,
+        270
+      ],
+      "visible": true,
+      "opaque_pixels": 4685
+    },
+    {
+      "order": 3,
+      "name": "bottomwear",
+      "group": "",
+      "file": "layers/03_bottomwear.png",
+      "bbox": [
+        394,
+        513,
+        1130,
+        1371
+      ],
+      "visible": true,
+      "opaque_pixels": 418897
+    },
+    {
+      "order": 4,
+      "name": "topwear",
+      "group": "",
+      "file": "layers/04_topwear.png",
+      "bbox": [
+        659,
+        225,
+        891,
+        540
+      ],
+      "visible": true,
+      "opaque_pixels": 50368
+    },
+    {
+      "order": 5,
+      "name": "handwear-l",
+      "group": "",
+      "file": "layers/05_handwear-l.png",
+      "bbox": [
+        819,
+        290,
+        956,
+        861
+      ],
+      "visible": true,
+      "opaque_pixels": 36149
+    },
+    {
+      "order": 6,
+      "name": "ears-r",
+      "group": "",
+      "file": "layers/06_ears-r.png",
+      "bbox": [
+        699,
+        167,
+        733,
+        202
+      ],
+      "visible": true,
+      "opaque_pixels": 626
+    },
+    {
+      "order": 7,
+      "name": "eyebrow-r",
+      "group": "",
+      "file": "layers/07_eyebrow-r.png",
+      "bbox": [
+        695,
+        139,
+        728,
+        154
+      ],
+      "visible": true,
+      "opaque_pixels": 107
+    },
+    {
+      "order": 8,
+      "name": "ears-l",
+      "group": "",
+      "file": "layers/08_ears-l.png",
+      "bbox": [
+        822,
+        125,
+        846,
+        172
+      ],
+      "visible": true,
+      "opaque_pixels": 785
+    },
+    {
+      "order": 9,
+      "name": "eyebrow-l",
+      "group": "",
+      "file": "layers/09_eyebrow-l.png",
+      "bbox": [
+        754,
+        115,
+        799,
+        128
+      ],
+      "visible": true,
+      "opaque_pixels": 137
+    },
+    {
+      "order": 10,
+      "name": "face",
+      "group": "",
+      "file": "layers/10_face.png",
+      "bbox": [
+        688,
+        82,
+        823,
+        231
+      ],
+      "visible": true,
+      "opaque_pixels": 14527
+    },
+    {
+      "order": 11,
+      "name": "nose",
+      "group": "",
+      "file": "layers/11_nose.png",
+      "bbox": [
+        748,
+        169,
+        761,
+        187
+      ],
+      "visible": true,
+      "opaque_pixels": 137
+    },
+    {
+      "order": 12,
+      "name": "mouth",
+      "group": "",
+      "file": "layers/12_mouth.png",
+      "bbox": [
+        757,
+        193,
+        780,
+        204
+      ],
+      "visible": true,
+      "opaque_pixels": 90
+    },
+    {
+      "order": 13,
+      "name": "eyewhite-r",
+      "group": "",
+      "file": "layers/13_eyewhite-r.png",
+      "bbox": [
+        708,
+        160,
+        738,
+        179
+      ],
+      "visible": true,
+      "opaque_pixels": 425
+    },
+    {
+      "order": 14,
+      "name": "irides-r",
+      "group": "",
+      "file": "layers/14_irides-r.png",
+      "bbox": [
+        716,
+        160,
+        738,
+        177
+      ],
+      "visible": true,
+      "opaque_pixels": 288
+    },
+    {
+      "order": 15,
+      "name": "eyelash-r",
+      "group": "",
+      "file": "layers/15_eyelash-r.png",
+      "bbox": [
+        694,
+        154,
+        740,
+        179
+      ],
+      "visible": true,
+      "opaque_pixels": 476
+    },
+    {
+      "order": 16,
+      "name": "eyewhite-l",
+      "group": "",
+      "file": "layers/16_eyewhite-l.png",
+      "bbox": [
+        771,
+        133,
+        805,
+        154
+      ],
+      "visible": true,
+      "opaque_pixels": 508
+    },
+    {
+      "order": 17,
+      "name": "handwear-r",
+      "group": "",
+      "file": "layers/17_handwear-r.png",
+      "bbox": [
+        573,
+        272,
+        737,
+        523
+      ],
+      "visible": true,
+      "opaque_pixels": 26387
+    },
+    {
+      "order": 18,
+      "name": "irides-l",
+      "group": "",
+      "file": "layers/18_irides-l.png",
+      "bbox": [
+        776,
+        133,
+        799,
+        154
+      ],
+      "visible": true,
+      "opaque_pixels": 369
+    },
+    {
+      "order": 19,
+      "name": "eyelash-l",
+      "group": "",
+      "file": "layers/19_eyelash-l.png",
+      "bbox": [
+        763,
+        126,
+        813,
+        155
+      ],
+      "visible": true,
+      "opaque_pixels": 549
+    },
+    {
+      "order": 20,
+      "name": "earwear",
+      "group": "",
+      "file": "layers/20_earwear.png",
+      "bbox": [
+        826,
+        161,
+        842,
+        228
+      ],
+      "visible": true,
+      "opaque_pixels": 610
+    },
+    {
+      "order": 21,
+      "name": "front hair",
+      "group": "",
+      "file": "layers/21_front_hair.png",
+      "bbox": [
+        661,
+        25,
+        849,
+        615
+      ],
+      "visible": true,
+      "opaque_pixels": 28622
+    },
+    {
+      "order": 22,
+      "name": "headwear",
+      "group": "",
+      "file": "layers/22_headwear.png",
+      "bbox": [
+        798,
+        38,
+        878,
+        217
+      ],
+      "visible": true,
+      "opaque_pixels": 6988
+    }
+  ]
+}
