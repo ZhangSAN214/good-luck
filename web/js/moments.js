@@ -2,6 +2,7 @@
 // 只存在你电脑上；成员只在你发动态或评论后回应你，不会主动来找你。
 // 发动态可带图片（最多 9 张）、视频、语音和表情；评论可用 Emoji 和表情包。
 // 版式照真实朋友圈：顶部封面 + 头像，下面一列动态；赞和评论收在每条右下角的「··」里，看谁的动态从右上角的小入口选。
+// 成员的评论是陆续到的（几分钟到几小时），按评论的时间排；成员之间会楼中楼回一句（「A 回复 B」）。
 
 import { homeDay, tzOpt } from './hometz.js';
 import { MediaComposer, bindMedia, cardHTML, mediaHTML, richText, soloSticker, stickerSVG, visibleText } from './chatmedia.js';
@@ -14,6 +15,10 @@ const when = (iso) => {
   const day = homeDay(d) === homeDay() ? '今天' : d.toLocaleDateString('zh-CN', tzOpt({ month: 'numeric', day: 'numeric' }));
   return `${day} ${d.toLocaleTimeString('zh-CN', tzOpt({ hour: '2-digit', minute: '2-digit', hour12: false }))}`;
 };
+
+// 评论按时间先后（成员的评论记在计划的时刻，不一定按写入顺序），同一时刻按 id
+const byTime = (list) =>
+  [...list].sort((a, b) => (a.created_at < b.created_at ? -1 : a.created_at > b.created_at ? 1 : a.id - b.id));
 
 export class Moments {
   constructor(dialog, { api, onSeen = null, avatar = null } = {}) {
@@ -132,9 +137,9 @@ export class Moments {
 
   item(m) {
     const likes = m.likes.length ? `<p class="mo-likes"><span class="mo-heart" aria-hidden="true">♡</span> ${m.likes.map((l) => `<b>${esc(l.name)}</b>`).join('，')}</p>` : '';
-    const comments = m.comments
+    const comments = byTime(m.comments)
       .map(
-        (c) => `<li><b>${esc(c.name)}</b>${c.reply_name ? `回复<b>${esc(c.reply_name)}</b>` : ''}：${richText(c.text)}${c.offline ? ' <span class="gc-tag away">你不在时</span>' : ''}
+        (c) => `<li title="${esc(when(c.created_at))}"><b>${esc(c.name)}</b>${c.reply_name ? `回复<b>${esc(c.reply_name)}</b>` : ''}：${richText(c.text)}${c.offline ? ' <span class="gc-tag away">你不在时</span>' : ''}
           ${c.author !== 'user' ? `<button type="button" class="link" data-reply="${m.id}:${c.id}" data-name="${esc(c.name)}">回复</button>` : ''}<button type="button" class="link" data-delc="${c.id}">删除</button></li>`,
       )
       .join('');

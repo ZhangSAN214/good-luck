@@ -219,14 +219,45 @@ chat:
           活跃气氛: {words: [热闹, 玩笑, 段子, 搞笑, 气氛], acts: ["lounge:chat"], known: "有{name}在场就冷不下来"}
           运动: {words: [运动, 健身, 跑步, 瑜伽, 球], acts: ["gym:exercise"], known: "想练练身体的都跟着{name}"}
           游戏: {words: [游戏, 通关, 抽卡, 桌游], acts: ["lounge:game"], known: "游戏卡关了都找{name}"}
-  moments:                         # 朋友圈：成员每天最多发 1 条，互相点赞（免费）、评论
+  moments:                         # 朋友圈：每天 0～2 条随机（平均不到 1 条）、晚上多；评论陆续到、0～4 条，看亲疏；成员之间楼中楼回 1 轮
     enabled: true
-    posts_per_member: 1
-    comments_per_tick: 2           # 每次推进最多写几条评论
+    posts_per_member: 2            # 硬上限
+    post_counts: [0.4, 0.4, 0.2]   # 每天发 0 / 1 / 2 条的权重（平均 0.8 条；没事可说的那天照样不发）
+    post_window_hours: 3           # 抽到的时间点之后 3 小时内没发出去（睡着了、没事）就算了
+    posts_per_tick: 2
+    comments_per_tick: 4           # 每次推进最多写几条评论（含楼中楼）
+    max_comments: 4
+    comment_counts: [0.15, 0.3, 0.3, 0.15, 0.1]   # 一条动态 0～4 条评论的权重（平均约 1.8 条）
+    comment_delay_minutes: [3, 240]                # 发出后几分钟到 4 小时内陆续到（越短越常见）
+    closeness_bias: 3.0            # 谁来评论：关系越近越可能（P4 亲近度）
+    reply_author: 0.45             # 楼主回评论的概率（越熟越常回）
+    reply_close: 0.3
+    reply_peer: 0.2                # 楼主没回时，另一位成员接一句
+    reply_delay_minutes: [2, 120]
     post_misses: 2                 # 省钱：成员一天里动态两次没过自查（太像、套话）就不再写
     comment_misses: 2              # 省钱：一条动态底下两条评论没过自查就不再评；没过的那位也不再重写
     dedupe_hours: 48               # 去重：别人 48 小时内发过的同一件事不再发
     similarity_max: 0.3            # 去重：正文和近期动态相似度达到这个值就不发（0～1）
+    post_max_chars: 40             # 动态最多 40 字、评论最多 20 字（在句子边界截）
+    comment_max_chars: 20
+    post_forms:                    # 这一条的样子：按权重抽（种子由事件和成员派生）
+      - {text: "就一句话，十来个字，像随手发的。", weight: 3}
+      - {text: "吐槽一句今天的事，带点情绪，别讲道理。", weight: 2}
+      - {text: "随口一句碎碎念，像自言自语，不用交代前因后果。", weight: 2}
+      - {text: "说一句跟你的爱好有关的（看人物卡里的喜好），可以和今天的事无关。", weight: 1}
+      - {text: "只发一个表情包或颜文字，不写字。", weight: 1}
+    forward_form: "分享就是直接甩：不介绍、不总结，要么只输出「不配字」，要么两三个字（「绝了」「笑死」「蹲」）。"
+    photo_form: "这条会配一张你随手拍的照片：可以只输出「不配字」只发图，或者配几个字。"
+    comment_forms:                 # 评论的样子
+      - {text: "就回一两个字或一个词，比如「6」「笑死」「绝了」「啊这」「羡慕」。", weight: 3}
+      - {text: "问一句，比如「怎么弄的」「在哪」「好吃吗」「带我」。", weight: 2}
+      - {text: "接着吐槽或开个玩笑，一句。", weight: 2}
+      - {text: "只回一个表情包或颜文字。", weight: 1}
+      - {text: "真有不同看法就直说，一句。", weight: 0.5}
+    reply_forms:                   # 楼中楼：回别人的评论
+      - {text: "就回几个字，像「哈哈哈对」「下次带你」「你懂」。", weight: 3}
+      - {text: "接着对方的话开个玩笑或怼回去，一句。", weight: 2}
+      - {text: "只回一个表情包或颜文字。", weight: 1}
   browse:                          # 上网：只读公开订阅源（$0），成员按兴趣挑一条分享到生活群
     enabled: true
     refresh_hours: 3               # 多久重新抓一次订阅源
@@ -1288,8 +1319,8 @@ prompts:
   checkin_card: v1       # 旅行打卡·判定卡（L5）：这一刻值不值得站进去打卡，只输出 JSON；不值得就不打（只用于生活）
   travel_journal: v1     # 旅行打卡·旅行日记（L5）：第一人称小作文，带前 3 天打卡的上下文
   bili_share: v1         # B 站：看完视频后给用户的私信、自己的动态（只存本机列表，不发到外部网站）
-  moment_post: v3        # 朋友圈：成员发一条动态（v3：转发卡片、表情包）
-  moment_comment: v3     # 朋友圈：成员评论一条动态（或回复评论）（v3：表情包）
+  moment_post: v4        # 朋友圈：成员发一条动态（v4：说话像人：一句话 / 吐槽 / 只发表情，喂聊天原话，没事不发）
+  moment_comment: v4     # 朋友圈：成员评论一条动态（或回复评论）（v4：短评「6」「笑死」、楼中楼、昵称）
   evolution_card: v1     # 革新例会·自己找资料：一位成员把网页写成资料卡
   evolution_check: v1    # 革新例会·自己找资料：另一位成员复核资料卡
   evolution_plugins: v1  # 革新例会·插件清单：一位成员根据资料卡和点子榜写给用户看的插件清单
