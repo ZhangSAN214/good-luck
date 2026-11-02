@@ -648,7 +648,7 @@ PHOTO_PLACES = (
     "indoor",
     "outdoor",
 )
-PHOTO_DIMS = ("angles", "lights", "moments", "lenses", "filters")
+PHOTO_DIMS = ("angles", "lights", "moments", "lenses", "filters", "styles")
 
 
 class PhotoOption(_Strict):
@@ -759,7 +759,11 @@ class MomentPhotoRules(_Strict):
         min_length=1,
         max_length=8,
     )
-    phone_look: bool = True  # 画完在本机加一层手机味：轻微裁歪、压暗饱和度、噪点、压缩（不花钱）
+    phone_look: bool = True  # 画完在本机加一层后期（不花钱），样式见 post_look
+    # phone：轻微裁歪、压饱和、噪点、压缩（10-31 去 AI 感）；
+    # film：只加一点胶片颗粒和柔和的色调曲线，不裁不压饱和，保住光影
+    # （11-02 用户：GPT 画的已经够自然，「最多差一点滤镜，优化一下光影」）
+    post_look: Literal["phone", "film"] = "film"
     room_refs: bool = True  # 按事件地点附上那间房的场景图当最后一张参考图（公寓里拍）
     # 摄影维度（每张图每个维度按权重抽一个，各维度用独立种子；按时间段、地点、入镜方式过滤）。
     # 取值按手机现实：1x 主摄、原色、抓拍为主（完整默认表在 config/roundtable.yaml）
@@ -786,6 +790,10 @@ class MomentPhotoRules(_Strict):
     filters: list[PhotoOption] = Field(
         default_factory=lambda: [PhotoOption(name="original", text="", weight=6)]
     )
+    # 摄影风格参照（借构图、光、色彩；画风仍照设定图）
+    styles: list[PhotoOption] = Field(
+        default_factory=lambda: [PhotoOption(name="none", text="", weight=3)]
+    )
     quirk_chance: float = Field(default=0.3, ge=0, le=1)  # 她自己拍时带上拍照小毛病的概率
     subject_chance: float = Field(default=0.6, ge=0, le=1)  # 拍东西时换成她爱拍的东西的概率
     # --- 画面里的人（2026-11-02 用户：不要出现公寓以外的人；可以出现用户，不画脸、脸上贴张纸）---
@@ -799,7 +807,7 @@ class MomentPhotoRules(_Strict):
     landlord_chance: float = Field(default=0.2, ge=0, le=1)
     landlord_in: str = (
         "the landlord (the user, who lives in the building with them) is in this photo: an "
-        "ordinary young adult in casual home clothes whose face is completely covered by a sheet "
+        "ordinary young man in casual home clothes whose face is completely covered by a sheet "
         "of paper taped over it, never draw the face; she wrote 早上好 on the paper if that fits "
         "her mood today, otherwise it is blank or has a small doodle of hers"
     )
@@ -4311,7 +4319,8 @@ class PhotoHabit(_Strict):
 
     subjects: list[str] = Field(default_factory=list, max_length=8)
     boost: dict[
-        Literal["shots", "angles", "lights", "moments", "lenses", "filters"], dict[str, float]
+        Literal["shots", "angles", "lights", "moments", "lenses", "filters", "styles"],
+        dict[str, float],
     ] = Field(default_factory=dict)
     quirk: str = Field(default="", max_length=200)
     # 她想不想把房东（用户）拉进画面（看她的性格）：乘在 media.moment_photos.landlord_chance 上

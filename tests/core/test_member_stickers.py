@@ -645,7 +645,8 @@ def test_moment_photo_v5_carries_the_shooting_notes(tmp_path):
     v = spec.variables()
     for key, label in (("camera", "Camera"), ("light", "Light"), ("moment", "The moment")):
         assert f"{label}: {v[key]}" in prompt
-    assert f"Small touches: {v['touches']}" in prompt
+    assert f"Color and small touches: {v['touches']}" in prompt
+    assert f"Photo style: {v['style']}" in prompt
     assert "Her face: copy it exactly from the reference images" in prompt  # v4 的规定还在
 
 
@@ -743,3 +744,45 @@ def test_moment_photos_prefer_the_feed_photo_model_and_stickers_do_not(tmp_path)
     assert tagged
     assert stickers.draw_models(rules.tier, rules.prefer_tags)[0].id in tagged
     assert "feed_photo" not in stickers.rules.prefer_tags
+
+
+def test_v7_keeps_every_v6_rule_and_adds_the_trial_fixes():
+    """11-02 v6 试画：抓拍三人都看镜头笑、桌下多出一双腿、房东用手扶着纸。"""
+    from roundtable.core.prompts.library import DEFAULT_PROMPTS_DIR
+
+    def body(v):
+        text = (DEFAULT_PROMPTS_DIR / "moment_photo" / f"{v}.md").read_text(encoding="utf-8")
+        return text.split("---", 2)[2]
+
+    v6, v7 = body("v6"), body("v7")
+    changed = (
+        "Housemates are usually from behind",
+        "Pick the most likeable moment",
+        "Camera, light, moment and small touches above",
+        "Small touches: {{ touches }}",
+    )
+    for line in v6.splitlines():
+        if line.strip() and not any(c in line for c in changed):
+            assert line in v7, line
+    assert "nobody looks at the camera" in v7 and "Count the people" in v7
+    assert "taped flat over the face" in v7
+    assert "These shooting notes are requirements" in v7
+    assert v7.index("These shooting notes") < v7.index("What happened today")
+
+
+def test_film_look_keeps_the_frame_and_light():
+    """11-02 用户：GPT 画的已经够自然，只差一点滤镜——胶片后期不裁、不压饱和。"""
+    import random
+
+    from roundtable.core.member_stickers import film_look
+
+    src = png("orange", (400, 300))
+    a = film_look(src, random.Random("x"))
+    assert a == film_look(src, random.Random("x")) and a != src
+    with Image.open(io.BytesIO(a)) as im, Image.open(io.BytesIO(src)) as orig:
+        assert im.size == (400, 300)  # 不裁
+        r, g, b = im.convert("RGB").resize((1, 1)).getpixel((0, 0))
+        r0, g0, b0 = orig.convert("RGB").getpixel((0, 0))
+        assert abs(r - r0) < 25 and abs(g - g0) < 25  # 颜色基本不变
+    assert film_look(b"not an image", random.Random(1)) == b"not an image"
+    assert load_config().roundtable.media.moment_photos.post_look == "film"

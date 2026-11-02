@@ -51,7 +51,7 @@ INDEX_FILE = "index.json"
 DRAW_STEP = "member_sticker"
 CHECK_STEP = "sticker_check"
 PHOTO_STEP = "moment_photo"
-SPEC_VARIABLES = ("camera", "light", "moment", "touches")  # 没传摄影参数时这些变量写 none
+SPEC_VARIABLES = ("camera", "light", "moment", "touches", "style")  # 没传摄影参数时这些变量写 none
 # 朋友圈配图的地点说明（填进提示词的 room 变量）
 ROOM_DORM = "她自己的宿舍"
 ROOM_FRIEND_DORM = "室友的宿舍"
@@ -591,7 +591,8 @@ class MemberStickers:
             if out.images:
                 data = out.images[0].data
                 if rules.phone_look:
-                    data = phone_look(data, random.Random(f"phone:{seed or post}"))
+                    look = film_look if rules.post_look == "film" else phone_look
+                    data = look(data, random.Random(f"phone:{seed or post}"))
                 return _jpeg(data, rules.max_side), "image/jpeg"
         raise StickerUnavailable("画图失败（所有模型都没画出来）")
 
@@ -824,6 +825,36 @@ def tidy_tags(text: str) -> str:
         joined = ", ".join(t for t in items if t)
         lines.append(f"{head}: {joined}" if sep else joined)
     return "\n".join(lines)
+
+
+def film_look(data: bytes, rng: random.Random) -> bytes:
+    """轻度胶片后期（不花钱）：柔和的 S 形色调曲线、一点冷暖偏移和细颗粒，不裁、不压饱和，
+    保住画出来的光影。读不了时原样返回。"""
+    try:
+        from PIL import Image, ImageFilter
+
+        with Image.open(io.BytesIO(data)) as src:
+            im = src.convert("RGB")
+        lift, roll = rng.uniform(6, 12), rng.uniform(0.92, 0.97)  # 暗部微抬、高光微压
+        curve = [
+            int(lift + (255 - lift) * ((v / 255) ** 1.05) * roll + v * (1 - roll))
+            for v in range(256)
+        ]
+        curve = [max(0, min(255, c)) for c in curve]
+        warm = rng.uniform(-4, 4)
+        r, g, b = im.split()
+        r = r.point([max(0, min(255, int(c + warm))) for c in curve])
+        g = g.point(curve)
+        b = b.point([max(0, min(255, int(c - warm))) for c in curve])
+        im = Image.merge("RGB", (r, g, b))
+        grain = Image.frombytes("L", im.size, rng.randbytes(im.width * im.height))
+        grain = grain.filter(ImageFilter.GaussianBlur(0.6)).convert("RGB")
+        im = Image.blend(im, grain, rng.uniform(0.03, 0.05))
+        out = io.BytesIO()
+        im.save(out, "JPEG", quality=92)
+        return out.getvalue()
+    except Exception:  # noqa: BLE001 — 后期失败不挡出图
+        return data
 
 
 def phone_look(data: bytes, rng: random.Random) -> bytes:

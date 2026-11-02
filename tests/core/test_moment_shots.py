@@ -188,18 +188,32 @@ def test_repo_tables_follow_phone_reality():
         table = getattr(RULES, dim)
         assert table, dim
         assert all(o.name for o in table)
-    # 1x 主摄、原色是最常见的（不写）
+    # 1x 主摄是最常见的（不写）；11-02 起色调多用胶片感（用户看技能版样张最满意）
     assert max(RULES.lenses, key=lambda o: o.weight).text == ""
-    assert max(RULES.filters, key=lambda o: o.weight).text == ""
+    assert max(RULES.filters, key=lambda o: o.weight).text != ""
     # 约七成她本人入镜
     full = sum(s.weight for s in RULES.shots if s.her == "full")
     assert 0.6 <= full / sum(s.weight for s in RULES.shots) <= 0.8
     # 画风跟设定图：不写写实画质 / 相机型号词
-    banned = ("photorealistic", "realistic", "8k", "4k", "dslr", "leica", "sony", "iphone", "film")
+    banned = ("photorealistic", "realistic", "8k", "4k", "dslr", "leica", "sony", "iphone")
     for dim in ("shots", *PHOTO_DIMS):
         for o in getattr(RULES, dim):
             text = f"{o.text} {o.tags}".lower()
             assert not any(b in text for b in banned), (dim, o.name)
+
+
+def test_style_references_fit_the_shot_and_time():
+    """技能版：大师风格参照只配合得上的拍法和时间（闪光快照只在晚上、决定性瞬间只配抓拍）。"""
+    seen = Counter()
+    for event in range(400):
+        s = spec("selfie", event=event, time="day")
+        name = s.picks["styles"].name
+        seen[name] += 1
+        assert name not in {"cartier_bresson", "nan_goldin", "rembrandt", "eggleston"}
+        c = spec("candid", event=event, time="night")
+        seen[c.picks["styles"].name] += 1
+    assert seen["cartier_bresson"] and seen["nan_goldin"] and seen["rembrandt"]
+    assert spec("candid", event=1).style == spec("candid", event=1).variables()["style"]
 
 
 def test_every_member_has_a_photo_habit():
@@ -279,3 +293,10 @@ def test_landlord_only_with_her_in_frame_and_scaled_by_her_wish():
     assert not any(spec("candid", shy, event=e).landlord for e in range(300))
     keen = PhotoHabit(landlord=3)
     assert sum(spec("candid", keen, event=e).landlord for e in range(2000)) > 2 * sum(full)
+
+
+def test_mid_bite_only_in_the_canteen():
+    """11-02 试画：宿舍看书的动态抽到「正咬一口」，画成啃面包。"""
+    for event in range(300):
+        s = spec("candid", event=event, place="dorm:x")
+        assert s.picks.get("moments") is None or s.picks["moments"].name != "mid_bite"

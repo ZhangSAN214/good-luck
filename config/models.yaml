@@ -424,7 +424,7 @@ models:
         model: google/gemini-2.5-flash-image
         params: {modalities: [image, text]}
   - id: gpt-image-2.5-sunburst
-    # 中等质量每张约 $0.03（高质量约 $0.21）；当前绘图排行第一，图中文字最清楚
+    # 中等质量每张约 $0.03（高质量约 $0.21）；带参考图时更贵（11-02 朋友圈配图实测 4 张参考图 $0.078）；当前绘图排行第一，图中文字最清楚
     vendor: OpenAI
     aliases: [GPT Image 2.5, Sunburst]
     seat: false

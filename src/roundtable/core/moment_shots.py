@@ -121,6 +121,11 @@ class PhotoSpec:
             parts.append(f"her photo habit: {self.quirk}")
         return "; ".join(parts) or NONE
 
+    @property
+    def style(self) -> str:
+        """摄影风格参照（没有时为 none）。"""
+        return self._text("styles")
+
     def variables(self) -> dict[str, str]:
         """填进 moment_photo 提示词的摄影变量。"""
         return {
@@ -128,6 +133,7 @@ class PhotoSpec:
             "light": self.light,
             "moment": self.moment,
             "touches": self.touches,
+            "style": self.style,
         }
 
     def tags(self) -> str:
