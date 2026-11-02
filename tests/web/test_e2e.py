@@ -276,12 +276,19 @@ def test_live_progress_highlights_speakers(serve, page):
     srv = serve(delay=0.6, confirm_threshold_usd=100.0)
     page.goto(srv.url)
     ask(page, MEDIUM)
-    page.wait_for_selector("#stage .seat.speaking", timeout=15000)
-    page.wait_for_selector("#typing:not([hidden])")
-    assert "正在" in page.inner_text("#typing")
-    step = page.inner_text("#plate-step")
-    assert step in {"作答", "互评", "修订", "汇总"}
-    assert page.inner_text("#pstate") == "进行中"
+    # 两步之间（上一步刚结束、下一步还没开始）牌子会短暂显示状态「进行中」；
+    # 所以要在「有人在说话」的同一时刻一起读，不能先等再分几次读（并行跑测试时会读到空档）
+    page.wait_for_function(
+        """() => {
+          const t = document.querySelector('#typing');
+          return document.querySelector('#stage .seat.speaking') && t && !t.hidden
+            && t.textContent.includes('正在')
+            && ['作答', '互评', '修订', '汇总'].includes(
+              document.querySelector('#plate-step')?.textContent.trim())
+            && document.querySelector('#pstate')?.textContent.trim() === '进行中';
+        }""",
+        timeout=15000,
+    )
     page.wait_for_selector(".pn.now")
     assert not page.is_enabled("#reveal")  # 讨论结束前不能揭晓
     wait_done(page)

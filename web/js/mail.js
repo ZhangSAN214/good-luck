@@ -135,7 +135,7 @@ export class Mail {
   take(data) {
     this.data = data;
     if (this.view === 'detail' && this.detail && !data.enabled) this.view = 'list';
-    this.paint();
+    this.paint(true);
     clearTimeout(this.timer);
     if (data.busy) this.timer = setTimeout(() => this.poll(), POLL_MS);
   }
@@ -377,7 +377,8 @@ export class Mail {
     </form>`;
   }
 
-  paint() {
+  /** keepSame：内容和上次一模一样就不重画（后台轮询时不打断正在点的按钮、不丢焦点）。 */
+  paint(keepSame = false) {
     const d = this.data;
     let body = '';
     if (d && !d.available) body = '<p class="hb-hint">这里用不了邮件栏（没有本机数据目录）。</p>';
@@ -385,7 +386,7 @@ export class Mail {
     else if (d) body = this.view === 'detail' ? this.detailView() : this.view === 'settings' ? this.settingsView() : this.listView();
     const canRefresh = d?.enabled && (d.status === 'connected' || d.status === 'error') && !d.busy;
     const inner = this.view !== 'list';
-    this.el.innerHTML = `
+    const html = `
       <button type="button" class="ml-btn" aria-expanded="${this.open}">${icon('mail')}<span>邮件</span><span class="ml-dot" hidden></span></button>
       <div class="ml-panel" role="dialog" aria-label="邮件栏：学校邮箱（只读）"${this.open ? '' : ' hidden'}>
         <div class="ml-head">
@@ -401,6 +402,8 @@ export class Mail {
         ${!d && !this.error ? '<p class="hb-hint">正在读取…</p>' : ''}
         ${body}
       </div>`;
+    if (!keepSame || html !== this.painted) this.el.innerHTML = html;
+    this.painted = html;
     this.paintButton();
   }
 
@@ -416,10 +419,11 @@ export class Mail {
 
   async showDetail(id) {
     this.view = 'detail';
+    this.wantDetail = id;
     if (this.detail?.id !== id) this.detail = null;
     this.paint();
     const m = await this.call(this.api.message, id);
-    if (!m) return;
+    if (!m || this.view !== 'detail' || this.wantDetail !== id) return; // 等的时候已经返回或换了一封
     this.detail = m;
     this.watchDetail();
   }
@@ -512,7 +516,8 @@ export class Mail {
     const sel = e.target.closest('[data-category]');
     if (!sel || !this.detail) return;
     const m = this.detail;
-    if (await this.act(this.api.category, m.id, sel.value)) this.showDetail(m.id);
+    // 保存期间点了「返回」或打开了别的信：不再把人拽回这封
+    if ((await this.act(this.api.category, m.id, sel.value)) && this.view === 'detail' && this.detail?.id === m.id) this.showDetail(m.id);
   }
 
   /** AI 总结 / 翻译 / 汇总：没同意过先问；同一时间只跑一个。 */

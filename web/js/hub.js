@@ -233,7 +233,7 @@ export class Hub {
         <div class="hb-layer hb-row2" data-depth="0.7">
           <button type="button" class="hb-glass hb-t hb-daily" disabled title="日常模式还没开放">${icon('daily')}<span class="hb-zh">日常</span><span class="hb-en">未开放</span></button>
           <button type="button" class="hb-glass hb-t hb-chat" data-go="chat">${icon('chat')}<span class="hb-zh">群聊</span><span class="hb-en">${c.unread ? `${c.unread > 99 ? '99+' : c.unread} 条未读` : '没有未读'}</span>${c.unread ? `<span class="hb-dot" aria-hidden="true">${c.unread > 99 ? '99+' : c.unread}</span>` : ''}${icon('more', 'hb-ar')}</button>
-          ${this.openUsage ? `<button type="button" class="hb-glass hb-t hb-bal" data-act="usage">${icon('wallet')}<span class="hb-zh">余额</span><span class="hb-en">${month ? `剩 $${Math.max(0, month.limit_usd - month.spent_usd).toFixed(2)}` : '用量与花费'}</span></button>` : ''}
+          ${this.openUsage ? `<button type="button" class="hb-glass hb-t hb-bal" data-act="usage" title="圆桌给自己定的本月花费上限还剩多少；账户真实余额点开看">${icon('wallet')}<span class="hb-zh">本月预算</span><span class="hb-en">${month ? `还能花 $${Math.max(0, month.limit_usd - month.spent_usd).toFixed(2)}` : '用量与花费'}</span></button>` : ''}
         </div>
         <div class="hb-layer hb-row3" data-depth="0.5">
           <button type="button" class="hb-glass hb-t hb-home" data-go="home">${icon('home')}<span class="hb-zh">公寓</span><span class="hb-en">看看大家</span>${icon('more', 'hb-ar')}</button>

@@ -115,6 +115,15 @@ def test_pair_link_logs_in_once(tmp_path):
         assert pad.get("/api/status").status_code == 401
 
 
+def test_pair_refused_when_lan_not_open(tmp_path):
+    app, lan = app_with(tmp_path, enabled=False)
+    lan.set_password(PW)
+    pc, _ = clients(app)
+    with pc:
+        r = pc.post("/api/lan/pair", json={"base": BASE})
+        assert r.status_code == 400 and "start_lan.bat" in r.json()["detail"]
+
+
 def test_dns_rebinding_host_refused_when_open(tmp_path):
     app, _ = app_with(tmp_path, enabled=True)
     pc = TestClient(app, client=PC, base_url="http://evil.example:8000")

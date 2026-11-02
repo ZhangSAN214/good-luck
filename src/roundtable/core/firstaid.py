@@ -299,6 +299,15 @@ def check_keys(
     return [Finding("keys", START, OK, "key 已填", detail)]
 
 
+def _same_tz(at: datetime, now: datetime) -> datetime:
+    """备份时间可能没带时区（按本地时间记），now 可能带时区：对齐后才能相减。"""
+    if at.tzinfo is None and now.tzinfo is not None:
+        return at.replace(tzinfo=now.tzinfo)
+    if at.tzinfo is not None and now.tzinfo is None:
+        return at.astimezone().replace(tzinfo=None)
+    return at
+
+
 def check_backups(files: list[Mapping[str, Any]], enabled: bool, now: datetime) -> list[Finding]:
     if not files:
         return [
@@ -311,7 +320,7 @@ def check_backups(files: list[Mapping[str, Any]], enabled: bool, now: datetime) 
                 "在「备份」里点「现在存」",
             )
         ]
-    latest = max(datetime.fromisoformat(str(f["at"])) for f in files)
+    latest = max(_same_tz(datetime.fromisoformat(str(f["at"])), now) for f in files)
     days = (now - latest).total_seconds() / 86400
     text = f"共 {len(files)} 份，最近一份 {latest:%m-%d %H:%M}"
     if days > BACKUP_WARN_DAYS:
@@ -404,7 +413,9 @@ def check_update(state: Mapping[str, Any] | None, now: datetime) -> list[Finding
         started = state.get("started_at")
         stale = True
         with contextlib.suppress(TypeError, ValueError):
-            stale = now - datetime.fromisoformat(str(started)) > timedelta(minutes=30)
+            stale = now - _same_tz(datetime.fromisoformat(str(started)), now) > timedelta(
+                minutes=30
+            )
         if stale:
             return [
                 Finding(

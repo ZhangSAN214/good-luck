@@ -36,6 +36,10 @@ MIN_PASSWORD = 6
 MAX_PASSWORD = 128
 SESSION_DAYS = 30
 PAIR_SECONDS = 600
+NOT_OPEN = (
+    "圆桌现在只对这台电脑开放，手机扫了也打不开："
+    "请用「圆桌（平板可连）」图标或 start_lan.bat 重新启动"
+)
 # 连续输错 FREE_TRIES 次后开始锁定：60 秒起每次翻倍，最多 15 分钟
 FREE_TRIES = 5
 LOCK_BASE_S = 60
@@ -264,6 +268,7 @@ class LanAccess:
             "urls": home + ts,
             "tailscale_urls": ts,
             "firewall": firewall_command(port),
+            "firewall_public": public_firewall_command(port),
             "tailscale_firewall": tailscale_firewall_command(port),
             "session_days": SESSION_DAYS,
             "pair_minutes": PAIR_SECONDS // 60,
@@ -272,6 +277,8 @@ class LanAccess:
     # ---- 一次性配对链接 ----
 
     def new_pair_code(self) -> str:
+        if not self.enabled:
+            raise ValueError(NOT_OPEN)
         if not self.has_password:
             raise ValueError("先设访问口令")
         now = self.clock()
@@ -315,6 +322,16 @@ def firewall_command(port: int) -> str:
     return (
         f'New-NetFirewallRule -DisplayName "Roundtable LAN {port}" -Direction Inbound '
         f"-Protocol TCP -LocalPort {port} -Action Allow -Profile Private"
+    )
+
+
+def public_firewall_command(port: int) -> str:
+    """家里 Wi-Fi 在 Windows 里被认成「公用网络」时用：只放行同一子网来的连接。
+
+    「专用」规则在公用网络下不生效；推荐还是把网络改成「专用」，这条是不想改时的退路。"""
+    return (
+        f'New-NetFirewallRule -DisplayName "Roundtable LAN {port} (Public)" -Direction Inbound '
+        f"-Protocol TCP -LocalPort {port} -RemoteAddress LocalSubnet -Action Allow -Profile Public"
     )
 
 
