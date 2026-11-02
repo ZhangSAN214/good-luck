@@ -4476,6 +4476,9 @@ class StickerCard(_Strict):
     """一位成员的形象卡 + 专属表情清单（只用于聊天、朋友圈；工作模式不读）。"""
 
     look: str = Field(min_length=1, max_length=400)  # 外观要点
+    # 朋友圈配图用：她自己的五官（眼睛颜色和形状、表情习惯、痣、虎牙……），接在 look 后面写进提示词，
+    # 免得几位画成同一张脸（11-02 用户看对比图：角色面部有些雷同）
+    face: str = Field(default="", max_length=300)
     must: list[str] = Field(default_factory=list, max_length=8)  # 每张都必须画到的细节
     # 外观的英文标签（逗号分隔，给吃标签的本地绘图模型用，见 moment_photo_tags）；不写时用 look
     look_tags: str = Field(default="", max_length=400)
