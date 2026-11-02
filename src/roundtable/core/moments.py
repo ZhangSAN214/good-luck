@@ -55,6 +55,7 @@ from roundtable.core.storage.repository import iso
 MOMENT_ROOM = "moments"
 NOTHING = "没有特别的事"  # 生活场景里「今天的事」为空时的写法（life.scene）
 MOMENT_STEP = "moment"
+PHOTO_BRIEF_STEP = "moment_photo_brief"  # 配图前她自己写的拍摄脚本
 SEEN_KEY = "moments.seen"
 SKIPPED_KEY = "moments.skipped"  # 写出来太像而放弃的「成员:事件」，之后不再为它花钱
 SKIPPED_KEEP = 200
@@ -331,6 +332,7 @@ class Moments:
                 time=event_time(event.get("at"), home_zone(rt).tz()),
                 place=place,
             )
+            brief = await self.photo_brief(member, event, text, shot.text, spec, others, place)
             data, mime = await MemberStickers(rt, rt.sticker_dir).photo(
                 member.id,
                 event["topic"],
@@ -343,10 +345,61 @@ class Moments:
                 shot_tags=shot.tags,
                 spec=spec,
                 others=others,
+                brief=brief,
             )
             return generated_item(ChatMediaStore(rt.chat_media_dir), data, mime)
         except (StickerBudgetExceeded, StickerError, StickerUnavailable, MediaError, ValueError):
             return None  # 没钱、没参考图、画不出来：照样发文字
+
+    async def photo_brief(
+        self,
+        member: ChatMember,
+        event: dict[str, Any],
+        text: str,
+        shot: str,
+        spec: Any,
+        others: list[tuple[str, str]],
+        place: str,
+    ) -> str:
+        """画图前由她自己（用她的模型）把这条动态写成一段具体的拍摄脚本：谁在做什么、在画面哪一格、
+        前景和引导线、关键道具的状态（11-02 用户看手写脚本的样张后要求）。关掉、没钱或失败时为空
+        （照旧只用抽好的拍摄要求）。"""
+        rt = self.rt
+        rules = rt.config.roundtable.media.moment_photos
+        role = "moment_photo_brief"
+        version = rt.config.roundtable.prompts.get(role)
+        if not rules.brief or version is None or not self.allow(rules.brief_estimate_usd):
+            return ""
+        from roundtable.core.member_stickers import MemberStickers
+
+        stickers = MemberStickers(rt, rt.sticker_dir)
+        people, _ = stickers.people(member.id, member.name, others, landlord=spec.landlord)
+        room, _ = stickers.room(member.id, place)
+        prompt = rt.prompts.render(
+            role,
+            version,
+            name=member.name,
+            scene=event["topic"],
+            post=text,
+            shot=shot,
+            room=room,
+            people=people,
+            **spec.variables(),
+        )
+        params = dict(rt.config.roundtable.step_params.get("chat", {}))
+        params["max_tokens"] = rules.brief_max_tokens
+        completion = await call_member(
+            rt,
+            room=MOMENT_ROOM,
+            model_id=member.model_id,
+            prompt=prompt,
+            step=PHOTO_BRIEF_STEP,
+            params=params,
+            estimate_usd=rules.brief_estimate_usd,
+        )
+        if completion is None:
+            return ""
+        return " ".join(completion.text.split())[: rules.brief_max_chars]
 
     def forward_card(self, member: ChatMember, event: dict[str, Any]) -> dict[str, Any] | None:
         rt = self.rt

@@ -51,7 +51,7 @@ INDEX_FILE = "index.json"
 DRAW_STEP = "member_sticker"
 CHECK_STEP = "sticker_check"
 PHOTO_STEP = "moment_photo"
-SPEC_VARIABLES = ("camera", "light", "moment", "touches")  # 没传摄影参数时这些变量写 none
+SPEC_VARIABLES = ("camera", "light", "moment", "touches", "style")  # 没传摄影参数时这些变量写 none
 # 朋友圈配图的地点说明（填进提示词的 room 变量）
 ROOM_DORM = "她自己的宿舍"
 ROOM_FRIEND_DORM = "室友的宿舍"
@@ -511,6 +511,7 @@ class MemberStickers:
         shot_tags: str = "",
         spec: PhotoSpec | None = None,
         others: Sequence[tuple[str, str]] = (),
+        brief: str = "",
     ) -> tuple[bytes, str]:
         """照成员的形象卡和参考图画一张朋友圈配图（随手拍，不审、不存进表情索引）。
         她不入镜的拍法传 ``refs=False``：不给形象参考图，免得模型硬把她画进去。
@@ -551,6 +552,7 @@ class MemberStickers:
             "post": post,
             "room": room,
             "others": mates,
+            "brief": brief or SPEC_NONE,
             "user": rules.landlord_in if spec is not None and spec.landlord else rules.landlord_out,
             **(spec.variables() if spec else dict.fromkeys(SPEC_VARIABLES, SPEC_NONE)),
         }
@@ -591,9 +593,22 @@ class MemberStickers:
             if out.images:
                 data = out.images[0].data
                 if rules.phone_look:
-                    data = phone_look(data, random.Random(f"phone:{seed or post}"))
+                    look = film_look if rules.post_look == "film" else phone_look
+                    data = look(data, random.Random(f"phone:{seed or post}"))
                 return _jpeg(data, rules.max_side), "image/jpeg"
         raise StickerUnavailable("画图失败（所有模型都没画出来）")
+
+    def people(
+        self, member: str, name: str, others: Sequence[tuple[str, str]], *, landlord: bool = False
+    ) -> tuple[str, list[Media]]:
+        """拍摄脚本用的人物名单：她自己、同场室友（每人一行外观）、房东（出镜时）。"""
+        rules = self.rt.config.roundtable.media.moment_photos
+        card = self.card(member)
+        mates, images = self._housemates(member, others, 0)
+        lines = [f"{name} (the one posting): {card.look}"]
+        lines.append(f"Housemates: {mates.strip()}")
+        lines.append(f"Landlord: {rules.landlord_in if landlord else rules.landlord_out}")
+        return "\n".join(lines), images
 
     def _housemates(
         self, member: str, others: Sequence[tuple[str, str]], first: int
@@ -824,6 +839,33 @@ def tidy_tags(text: str) -> str:
         joined = ", ".join(t for t in items if t)
         lines.append(f"{head}: {joined}" if sep else joined)
     return "\n".join(lines)
+
+
+def film_look(data: bytes, rng: random.Random) -> bytes:
+    """轻度调色（不花钱）：柔和的色调曲线和一点冷暖偏移，不加颗粒、不裁、不压饱和，
+    保住画出来的光影。读不了时原样返回。"""
+    try:
+        from PIL import Image
+
+        with Image.open(io.BytesIO(data)) as src:
+            im = src.convert("RGB")
+        lift, roll = rng.uniform(6, 12), rng.uniform(0.92, 0.97)  # 暗部微抬、高光微压
+        curve = [
+            int(lift + (255 - lift) * ((v / 255) ** 1.05) * roll + v * (1 - roll))
+            for v in range(256)
+        ]
+        curve = [max(0, min(255, c)) for c in curve]
+        warm = rng.uniform(-4, 4)
+        r, g, b = im.split()
+        r = r.point([max(0, min(255, int(c + warm))) for c in curve])
+        g = g.point(curve)
+        b = b.point([max(0, min(255, int(c - warm))) for c in curve])
+        im = Image.merge("RGB", (r, g, b))  # 不加颗粒噪点（11-02 用户：画面发脏）
+        out = io.BytesIO()
+        im.save(out, "JPEG", quality=92)
+        return out.getvalue()
+    except Exception:  # noqa: BLE001 — 后期失败不挡出图
+        return data
 
 
 def phone_look(data: bytes, rng: random.Random) -> bytes:
