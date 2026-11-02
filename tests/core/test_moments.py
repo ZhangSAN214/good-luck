@@ -211,6 +211,7 @@ async def test_post_gets_a_photo_by_chance_with_daily_caps(tmp_path, monkeypatch
     from PIL import Image
 
     from roundtable.core.config.schema import StickerCard
+    from roundtable.core.hometz import home_zone
     from roundtable.core.member_stickers import MemberStickers, StickerBudgetExceeded
 
     env = Env()
@@ -239,11 +240,17 @@ async def test_post_gets_a_photo_by_chance_with_daily_caps(tmp_path, monkeypatch
 
     monkeypatch.setattr(MemberStickers, "photo", photo)
     seed_events(env)
+    home_zone(rt).set("UTC")
     mo = moments(env)
     hub = ChatHub(rt)
     everyone = hub.everyone()
     for i, member in enumerate([everyone[0], everyone[0], everyone[1], everyone[2], everyone[3]]):
-        event = {"id": 100 + i, "topic": f"地点：公寓楼天台（看星星）第 {i} 次", "place": "rooftop"}
+        event = {
+            "id": 100 + i,
+            "topic": f"地点：公寓楼天台（看星星）第 {i} 次",
+            "place": "rooftop",
+            "at": "2026-11-01T22:00:00+00:00",  # 主时区 UTC 的夜里
+        }
         await mo.post(member, event, [])
     posts = env.rt.repo.moments(limit=50)
     with_photo = [p for p in posts if p["meta"].get("photo")]
@@ -263,6 +270,11 @@ async def test_post_gets_a_photo_by_chance_with_daily_caps(tmp_path, monkeypatch
     assert kw["place"] == "rooftop"  # 按地点附那间房的场景图
     # 吃标签的本地绘图模型用：拍法的 her 和标签版拍法
     assert kw["her"] == by_text[shot].her and kw["shot_tags"] == by_text[shot].tags
+    # 摄影参数：拍法就是抽到的那种；夜里天台只会抽到夜里户外的光
+    spec = kw["spec"]
+    assert spec.shot == by_text[shot]
+    if "lights" in spec.picks:
+        assert spec.picks["lights"].name in {"blue_hour", "night_city", "flash"}
 
 
 def test_photo_shots_mostly_show_her():

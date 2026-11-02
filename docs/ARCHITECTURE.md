@@ -251,6 +251,7 @@ src/roundtable/
     search/        联网搜索服务（注册、OpenRouter 搜索（默认）、Tavily、按顺序切换的 SearchService）
     preview.py     成员生成的文件的预览
     mindmap.py     思维导图数据与渲染（Markdown / Mermaid / SVG）
+    moment_shots.py 朋友圈配图的摄影参数：拍法 + 机位 / 光 / 时机 / 焦段 / 滤镜各抽一个（按时间段、地点、入镜方式过滤，成员拍照习惯加权；纯函数，可复现）
     simlab.py      成员系统加速时间模拟（docs/SIM.md）：临时数据库 + 快进时钟 + 假 / 真模型 + 模拟用户，出报告
     export/        导出成果：从存库的产出取最终成果（deliverable.py）→ Markdown / Word（python-docx）/ PPT（手写 OOXML，按标题分页）/ PDF（手写，阅读器自带中文字体）/ 网页；样式（style.py：字号、配色模板、PPT 比例、附题目 / 过程）；界面可直接存到本机固定文件夹（只限电脑本机，文件夹记在设置里）；不调用模型、不加依赖
     lan.py         局域网访问：口令加盐哈希（data/lan_access.json，不进 git）、登录 cookie 签名与过期、输错限速、一次性配对码、本机局域网地址、二维码（docs/LAN.md）

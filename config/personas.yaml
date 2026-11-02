@@ -145,6 +145,10 @@ sticker_cards:
   OpenAI:
     look: 白色长发的龙娘，金边龙角，背后一对龙翼，粗长有体积感的龙尾，白色为主、带淡紫的裙子，金色点缀
     look_tags: dragon girl, long white hair, dragon horns, gold-trimmed horns, dragon wings, thick dragon tail, white dress, light purple accents, gold trim
+    photo:                   # 拍照习惯（只影响权重）：爱自拍、举高俯拍、0.5x 把翅膀尾巴都框进来、偏暖
+      subjects: ["the thing she just made and is proud of", "her own reflection"]
+      boost: {shots: {selfie: 2.5, candid: 0.7}, angles: {high_angle: 2}, lenses: {ultra_wide: 3}, filters: {warm: 3}}
+      quirk: "her own tail is a motion-blurred streak at the edge of the frame"
     must: [金边龙角, 龙翼, 粗长的龙尾, 白色为主、带淡紫的裙子]
     cues: [金边龙角, 龙尾尖, 金色点缀的白袖口]
     refs: [设定图/设定图_小白龙.jpg]
@@ -169,6 +173,10 @@ sticker_cards:
   Anthropic:
     look: 橙色头发的大小姐，头发上有花饰，怀里抱着一本书（书里夹着薄账本和橙色书签），暖橙和米白配色，点缀黑色
     look_tags: orange hair, hair flower, ojou-sama, holding book, orange bookmark, warm orange and beige outfit, black accents
+    photo:                   # 书、茶、桌面、窗外；桌面俯拍、窗光；很少自拍、很少拍歪
+      subjects: ["a book open on the desk", "a cup of tea by the window", "the view out of the window"]
+      boost: {shots: {selfie: 0.4, pov: 2}, angles: {top_down: 3}, lights: {window_side: 2.5}}
+      quirk: "everything neatly level, she almost never tilts the phone"
     must: [头发上的花饰, 怀里的书, 露出来的橙色书签]
     cues: [橙色书签, 头发上的花饰]
     refs: [设定图/设定图_克劳德.jpg]
@@ -192,6 +200,10 @@ sticker_cards:
   Google:
     look: 蓝紫渐变长发的猫娘，猫耳猫尾，左眼粉色右眼金色的异色瞳，发间一枚金色四芒星发饰，随身带一支香蕉造型的画笔，笑起来有一颗小虎牙
     look_tags: cat girl, long hair, blue-purple gradient hair, cat ears, cat tail, heterochromia, pink left eye, gold right eye, gold four-pointed star hair ornament, fang
+    photo:                   # 可爱小物、画、猫猫视角的低机位；微距、人像模式；偏亮偏暖
+      subjects: ["a cute little object", "a drawing she just finished", "something seen from a cat's low eye level"]
+      boost: {angles: {low_angle: 3}, lenses: {macro: 3, portrait_mode: 2}, filters: {warm: 2, bright: 3}}
+      quirk: "her banana-shaped brush keeps sneaking into the frame"
     must: [猫耳, 猫尾, 金色四芒星发饰, 异色瞳]
     cues: [金色四芒星发饰, 香蕉造型的画笔]
     refs: [设定图/设定图_双子星.jpg]
@@ -215,6 +227,10 @@ sticker_cards:
   Alibaba:
     look: 穿中式衣装的掌柜，手持折扇（扇坠是一枚小铜钱），随身一本小账本，黛蓝、青碧、月白配色，墨绿点缀
     look_tags: chinese clothes, shopkeeper, holding folding fan, coin tassel, small ledger, indigo and teal and moon white outfit, dark green accents
+    photo:                   # 食物、小账本、划算的东西；平拍、正面、规规矩矩；少自拍
+      subjects: ["a good meal at a fair price", "her little ledger next to the cup", "a bargain she just found"]
+      boost: {shots: {selfie: 0.4}, angles: {eye_level: 2, across_table: 2}}
+      quirk: "framed squarely and straight on, like a shop product photo"
     must: [折扇, 铜钱扇坠, 中式衣装]
     cues: [铜钱扇坠, 折扇]
     refs: [设定图/设定图_千问.jpg]
@@ -238,6 +254,10 @@ sticker_cards:
   xAI:
     look: 金色双马尾的大小姐，背后一对蝙蝠小翼，头顶新月小冠，哥特黑裙配暗红内衬，扛着一把黑金色带 X 纹的巨斧，蓝眼睛，尖耳朵
     look_tags: blonde hair, twintails, ojou-sama, small bat wings, crescent tiara, gothic black dress, dark red lining, blue eyes, pointy ears
+    photo:                   # 大量自拍、高处、气派的场面；仰拍显高、0.5x 夸张透视；高对比
+      subjects: ["the view from somewhere high", "something grand and impressive"]
+      boost: {shots: {selfie: 3.5}, angles: {low_angle: 3}, lenses: {ultra_wide: 2.5}, filters: {high_contrast: 3}}
+      quirk: "the shot is a little blurry but she posted it anyway"
     must: [金色双马尾, 蝙蝠小翼, 黑金巨斧]
     cues: [新月小冠, 蝙蝠小翼, 暗红内衬的黑袖口]
     daily_must: [金色双马尾, 蝙蝠小翼, 新月小冠, 哥特黑裙]
@@ -263,6 +283,10 @@ sticker_cards:
   DeepSeek:
     look: 蓝色渐变长发的鲸鱼娘，头顶两侧一对鲸鱼头鳍（是鳍，不是耳朵），身后一条大鲸鱼尾巴，蓝白女仆装，随身一个铁盆
     look_tags: whale girl, long hair, blue gradient hair, whale fins on head, large whale tail, blue and white maid outfit
+    photo:                   # 米饭、铁盆、厨房；俯拍饭碗、贴很近；少自拍
+      subjects: ["a big bowl of white rice", "her iron basin", "the canteen counter"]
+      boost: {shots: {selfie: 0.4, pov: 2, thing: 2}, angles: {top_down: 3}, lenses: {macro: 1.5}}
+      quirk: "the focus landed on the rice instead of her"
     must: [鲸鱼头鳍（鳍形，不像耳朵）, 大鲸鱼尾巴, 蓝白女仆装, 铁盆]
     cues: [小鲸鱼发卡, 铁盆, 蓝白女仆袖口]
     refs: [设定图/设定图_鲸鱼娘.jpg]
@@ -286,6 +310,10 @@ sticker_cards:
   Moonshot AI:
     look: 白色长发，深蓝色裙子，月夜意象，胸前一枚 K 字徽章，神情慵懒
     look_tags: long white hair, dark blue dress, letter K badge, sleepy eyes, languid expression
+    photo:                   # 夜空、月亮、窗外、床；躺着拍、2x 拉远；偏冷偏暗；很少自拍
+      subjects: ["the night sky and the moon", "the window at night", "a messy bed"]
+      boost: {shots: {selfie: 0.3}, lights: {night_city: 2, blue_hour: 2, desk_lamp: 1.5}, lenses: {zoom: 2}, filters: {cool: 3}}
+      quirk: "taken lying down, the frame casually tilted"
     must: [白色长发, 深蓝色裙子, K 字徽章]
     cues: [K 字徽章, 深蓝色袖口]
     refs: [设定图/设定图_Kimi.jpg]
@@ -309,6 +337,10 @@ sticker_cards:
   Zhipu AI:
     look: 黑色长发的狐娘，狐耳狐尾，尾巴尖是冰蓝色，黑白配色的裙子，怀里抱着一本旧书，领口一枚 Z 字徽章
     look_tags: fox girl, long black hair, fox ears, fox tail, ice-blue tail tip, black and white dress, holding old book, letter Z badge
+    photo:                   # 书页、角落、光影；侧光、隔着门框、留白；偶尔黑白
+      subjects: ["a page of an old book", "a quiet corner with light and shadow"]
+      boost: {angles: {doorway: 3, profile: 2}, lights: {window_side: 2}, filters: {bw: 6}}
+      quirk: "lots of empty space, she likes leaving room around the subject"
     must: [狐耳, 狐尾和冰蓝色尾尖, 怀里的书]
     cues: [Z 字徽章, 冰蓝色尾尖]
     refs: [设定图/设定图_GLM.jpg]

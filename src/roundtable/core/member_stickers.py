@@ -34,6 +34,8 @@ from roundtable.core.jsonout import JSONOutputError, extract_json_object
 from roundtable.core.media.draw_order import rank_draw_models
 from roundtable.core.media.select import media_group
 from roundtable.core.members_art import load_members, mime_of, resolve_file
+from roundtable.core.moment_shots import NONE as SPEC_NONE
+from roundtable.core.moment_shots import PhotoSpec
 from roundtable.core.providers import (
     AllChannelsFailed,
     Completion,
@@ -48,6 +50,7 @@ INDEX_FILE = "index.json"
 DRAW_STEP = "member_sticker"
 CHECK_STEP = "sticker_check"
 PHOTO_STEP = "moment_photo"
+SPEC_VARIABLES = ("camera", "light", "moment", "touches")  # 没传摄影参数时这些变量写 none
 # 朋友圈配图的地点说明（填进提示词的 room 变量）
 ROOM_DORM = "她自己的宿舍"
 ROOM_FRIEND_DORM = "室友的宿舍"
@@ -501,12 +504,15 @@ class MemberStickers:
         place: str = "",
         her: str = "",
         shot_tags: str = "",
+        spec: PhotoSpec | None = None,
     ) -> tuple[bytes, str]:
         """照成员的形象卡和参考图画一张朋友圈配图（随手拍，不审、不存进表情索引）。
         她不入镜的拍法传 ``refs=False``：不给形象参考图，免得模型硬把她画进去。
         ``place`` 是生活事件的地点（canteen、dorm:成员 …）：有那间房的场景图时附在最后。
         吃标签的绘图模型（``image_prompt: tags``）改用标签版提示词：人物标签按拍法的 ``her``
         （none / part / full，不传时按 ``refs`` 当 full / none），拍法标签用 ``shot_tags``。
+        ``spec`` 是抽好的摄影参数（机位、光、时机、焦段、滤镜、拍照习惯，见 moment_shots）：
+        提示词版本有这些变量时填进去，标签版接上各维度的标签。
         返回 (JPEG, mime)；花费和表情包算在同一个隐藏会话和每月上限里。"""
         rules = self.rt.config.roundtable.media.moment_photos
         card = self.card(member)
@@ -522,19 +528,25 @@ class MemberStickers:
         # 房间图放最后，提示词里按"最后一张"引用；吃标签的本地模型把参考图都当人物参考，不给房间图
         with_room = [*images, room_image] if room_image is not None else images
         must = card.must if card.daily_must is None else card.daily_must
+        version = self.rt.config.roundtable.prompts["moment_photo"]
+        values = {
+            "look": card.look,
+            "must": "、".join(must) or "无",
+            "cues": "、".join(card.cues) or "无",
+            "shot": shot,
+            "scene": scene,
+            "post": post,
+            "room": room,
+            **(spec.variables() if spec else dict.fromkeys(SPEC_VARIABLES, SPEC_NONE)),
+        }
+        wanted = self.rt.prompts.get("moment_photo", version).variables  # 旧版本没有摄影变量
         prompt = self.rt.prompts.render(
-            "moment_photo",
-            self.rt.config.roundtable.prompts["moment_photo"],
-            look=card.look,
-            must="、".join(must) or "无",
-            cues="、".join(card.cues) or "无",
-            shot=shot,
-            scene=scene,
-            post=post,
-            room=room,
+            "moment_photo", version, **{k: v for k, v in values.items() if k in wanted}
         )
         text = "\n\n".join(m.content for m in prompt.messages)
         subject = rules.tag_subjects.get(her or ("full" if refs else "none"), "")
+        if spec is not None:
+            shot_tags = spec.tags() or shot_tags
         tags = self._photo_tags(card, subject, shot_tags, refs)
         session = self.rt.repo.sticker_session()
         for model in models[: self.rules.max_attempts]:  # 画不出来时换下一个模型

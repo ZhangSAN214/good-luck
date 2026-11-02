@@ -634,13 +634,62 @@ class StickerRules(_Strict):
     frame_ms: int = Field(default=280, ge=60, le=2000)  # 动图每格停多久（毫秒）
 
 
+HerInPhoto = Literal["none", "part", "full"]
+# 摄影维度表项的适用条件：时间段（按事件时间在主时区的钟点）或地点（生活事件的 place）
+PHOTO_TIMES = ("morning", "day", "evening", "night")
+PHOTO_PLACES = (
+    "dorm",
+    "canteen",
+    "lounge",
+    "gym",
+    "office",
+    "meeting",
+    "rooftop",
+    "indoor",
+    "outdoor",
+)
+PHOTO_DIMS = ("angles", "lights", "moments", "lenses", "filters")
+
+
+class PhotoOption(_Strict):
+    """朋友圈配图的一个摄影维度取值（机位、光、时机、焦段、滤镜各一张表，每张图每个维度抽一个）。
+    name：稳定标识，供成员拍照习惯的 boost 引用；text：英文短语，直接进提示词（空 = 这一项不写，
+    如 1x 主摄、原色）；tags：标签版（吃标签的本地绘图模型用）；when：适用的时间段 / 地点（空 =
+    都可用；同类条件里满足一个即可，拿不到时间或地点时不按它过滤）；her：适用于哪种入镜方式。"""
+
+    name: str = Field(min_length=1, pattern=r"^[a-z0-9_]+$")
+    text: str = ""
+    weight: float = Field(default=1.0, gt=0)
+    when: list[str] = Field(default_factory=list)
+    her: list[HerInPhoto] = Field(default_factory=lambda: ["none", "part", "full"], min_length=1)
+    tags: str = ""
+
+    @field_validator("when")
+    @classmethod
+    def _known(cls, when: list[str]) -> list[str]:
+        bad = sorted(set(when) - set(PHOTO_TIMES) - set(PHOTO_PLACES))
+        if bad:
+            raise ValueError(f"when 只能写时间段 {PHOTO_TIMES} 或地点 {PHOTO_PLACES}，收到 {bad}")
+        return when
+
+
+def _unique_names(items: list[Any], what: str) -> None:
+    names = [i.name for i in items if i.name]
+    dup = sorted({n for n in names if names.count(n) > 1})
+    if dup:
+        raise ValueError(f"{what} 的 name 重复：{dup}")
+
+
 class MomentShot(_Strict):
     """朋友圈配图的一种拍法。her：none 她不入镜（不传形象参考图）/ part 只露手、袖子、
-    尾巴 / full 入镜。"""
+    尾巴 / full 入镜。by：谁拿手机——self 她自己（自拍、第一人称、拍东西），friend 室友帮拍；
+    只有她自己拍时其他摄影维度才按她的拍照习惯加权。"""
 
+    name: str = Field(default="", pattern=r"^[a-z0-9_]*$")  # 稳定标识，供拍照习惯的 boost 引用
     text: str = Field(min_length=1)
     weight: float = Field(default=1.0, gt=0)
-    her: Literal["none", "part", "full"] = "full"
+    her: HerInPhoto = "full"
+    by: Literal["self", "friend"] = "self"
     # 标签版（吃标签的本地绘图模型用，见 moment_photo_tags）；不写时用 text
     tags: str = ""
 
@@ -670,25 +719,31 @@ class MomentPhotoRules(_Strict):
     shots: list[MomentShot] = Field(
         default_factory=lambda: [
             MomentShot(
+                name="candid",
                 text="a friend caught her in the middle of doing it, candid, "
                 "she is the main subject",
                 weight=4,
+                by="friend",
             ),
             MomentShot(
+                name="selfie",
                 text="a casual selfie at arm's length, maybe with whoever she is with",
                 weight=2,
             ),
             MomentShot(
+                name="together",
                 text="her and the people she is with, snapped together while hanging out",
                 weight=1,
             ),
             MomentShot(
+                name="pov",
                 text="something worth showing off in front of her (a nice meal just served, "
                 "the view, a cute object), with her hand or sleeve at the edge of the frame",
                 weight=2,
                 her="part",
             ),
             MomentShot(
+                name="thing",
                 text="only a view or thing worth showing off (rooftop night sky, a pretty dish "
                 "just served); she does not appear",
                 weight=1,
@@ -700,6 +755,44 @@ class MomentPhotoRules(_Strict):
     )
     phone_look: bool = True  # 画完在本机加一层手机味：轻微裁歪、压暗饱和度、噪点、压缩（不花钱）
     room_refs: bool = True  # 按事件地点附上那间房的场景图当最后一张参考图（公寓里拍）
+    # 摄影维度（每张图每个维度按权重抽一个，各维度用独立种子；按时间段、地点、入镜方式过滤）。
+    # 取值按手机现实：1x 主摄、原色、抓拍为主（完整默认表在 config/roundtable.yaml）
+    angles: list[PhotoOption] = Field(
+        default_factory=lambda: [
+            PhotoOption(name="across_table", text="from across the table", weight=3),
+            PhotoOption(name="top_down", text="top-down shot of the table", her=["none", "part"]),
+        ]
+    )
+    lights: list[PhotoOption] = Field(
+        default_factory=lambda: [
+            PhotoOption(name="window", text="soft side light from the window", when=["day"]),
+            PhotoOption(name="ceiling", text="flat overhead ceiling light", when=["indoor"]),
+        ]
+    )
+    moments: list[PhotoOption] = Field(
+        default_factory=lambda: [
+            PhotoOption(name="absorbed", text="a quiet moment, absorbed in what she is doing"),
+        ]
+    )
+    lenses: list[PhotoOption] = Field(
+        default_factory=lambda: [PhotoOption(name="main", text="", weight=6)]
+    )
+    filters: list[PhotoOption] = Field(
+        default_factory=lambda: [PhotoOption(name="original", text="", weight=6)]
+    )
+    quirk_chance: float = Field(default=0.3, ge=0, le=1)  # 她自己拍时带上拍照小毛病的概率
+    subject_chance: float = Field(default=0.6, ge=0, le=1)  # 拍东西时换成她爱拍的东西的概率
+
+    @model_validator(mode="after")
+    def _names(self) -> MomentPhotoRules:
+        _unique_names(self.shots, "shots")
+        for dim in PHOTO_DIMS:
+            _unique_names(getattr(self, dim), dim)
+        return self
+
+    def names(self, dim: str) -> set[str]:
+        """某个维度表（shots / angles / lights / moments / lenses / filters）里的名字。"""
+        return {o.name for o in getattr(self, dim) if o.name}
 
 
 class SpeechRules(_Strict):
@@ -4063,6 +4156,28 @@ class StickerSpec(_Strict):
         return frames
 
 
+class PhotoHabit(_Strict):
+    """一位成员自己拍照时的习惯（只影响权重，不排除任何选项；只用于朋友圈配图，工作模式不读）。
+    subjects：爱拍的东西（英文短语），拍东西时按概率换成其中一样；boost：对通用维度表的权重倍数
+    （维度 → {表项 name: 倍数}，维度是 shots / angles / lights / moments / lenses / filters）；
+    quirk：一句英文小毛病，她自己拍时按概率出现。"""
+
+    subjects: list[str] = Field(default_factory=list, max_length=8)
+    boost: dict[
+        Literal["shots", "angles", "lights", "moments", "lenses", "filters"], dict[str, float]
+    ] = Field(default_factory=dict)
+    quirk: str = Field(default="", max_length=200)
+
+    @field_validator("boost")
+    @classmethod
+    def _positive(cls, boost: dict[str, dict[str, float]]) -> dict[str, dict[str, float]]:
+        for dim, table in boost.items():
+            bad = sorted(k for k, v in table.items() if v <= 0)
+            if bad:
+                raise ValueError(f"boost.{dim} 的倍数必须大于 0：{bad}")
+        return boost
+
+
 class StickerCard(_Strict):
     """一位成员的形象卡 + 专属表情清单（只用于聊天、朋友圈；工作模式不读）。"""
 
@@ -4076,6 +4191,8 @@ class StickerCard(_Strict):
     stickers: list[StickerSpec] = Field(default_factory=list, max_length=24)
     # 朋友圈配图用：标志小物件（只露手、背影时也认得出是谁，如小鲸鱼发卡）
     cues: list[str] = Field(default_factory=list, max_length=4)
+    # 朋友圈配图：她自己拍照时的习惯（爱拍什么、爱用的机位 / 焦段 / 滤镜、小毛病）；不写时用通用权重
+    photo: PhotoHabit | None = None
     # 朋友圈日常照必须画到的细节；不写时用 must（日常照不扛武器等大道具时在这里去掉）
     daily_must: list[str] | None = Field(default=None, max_length=8)
 
@@ -4389,7 +4506,22 @@ class AppConfig(_Strict):
                 raise ValueError(f"voices.{member} 里有不是语音模型（tts 标签）的 id：{bad}")
         self._check_routing()
         self._check_collab()
+        self._check_photo_habits()
         return self
+
+    def _check_photo_habits(self) -> None:
+        """拍照习惯的 boost 只能引用朋友圈配图维度表里有的名字。"""
+        rules = self.roundtable.media.moment_photos
+        for member, card in self.personas.sticker_cards.items():
+            if card.photo is None:
+                continue
+            for dim, table in card.photo.boost.items():
+                unknown = sorted(set(table) - rules.names(dim))
+                if unknown:
+                    raise ValueError(
+                        f"sticker_cards.{member}.photo.boost.{dim} 引用了不存在的名字：{unknown}"
+                        f"（见 media.moment_photos.{dim}）"
+                    )
 
     def _check_collab(self) -> None:
         rt = self.roundtable

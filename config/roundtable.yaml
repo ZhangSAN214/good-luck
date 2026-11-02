@@ -1186,7 +1186,7 @@ prompts:
   sticker_draw: v1       # 成员专属表情包：画一张 Q 版贴纸的提示词
   sticker_check: v2      # 成员专属表情包：先逐字抄出图上的字再核对配文和形象
   sticker_anim: v1       # 成员专属动图表情：一次画 2×2 四格，切开连成会动的表情
-  moment_photo: v4       # 朋友圈配图：v4 在八人公寓里（附房间图）、露手带标志小物、面部照设定图、真实光影质感、机位多样
+  moment_photo: v5       # 朋友圈配图：v5 在 v4（公寓里、标志小物、面部照设定图、真实光影、机位多样）上加摄影维度和成员拍照习惯
   moment_photo_tags: v1  # 朋友圈配图的标签版：吃标签的本地绘图模型（ComfyUI，image_prompt: tags）用
   describe_screen: v2    # 投屏陪伴：把一张截图写成给成员看的文字（隐私信息打码；v2 带上一段，写出变化）
   chat: v13              # 群聊：口语、短句（v2：人设与记忆；v3：人物卡随身卡，AI 身份平时不刻意提、被认真问如实承认；v4：表情包、颜文字、引用、分条、不接话；v5：知道现在几点和自己在干什么；v6：照人物卡说话风格，各人不同；v7：大脑分区的想法卡；v8：感情用做法流露、可偏爱和喜欢、挽留只一次）；v9：像发微信不像作答，先反应再吐槽、不复述不解释；v10：心情别直说（用表情包、颜文字、符号），被直接问先回答；v11：简单短词、会歪楼、招牌特色、表情包用得更勤；v12：做事不反复确认、不谈数据截止、不贴状态句、不说「用户」；v13：要动手的活写交办记号交给办公室、选项按钮
@@ -1780,6 +1780,74 @@ media:
     per_day: 3               # 所有成员每天最多 3 张（约 $0.08/天）
     max_side: 1024
     local_only: false        # true：只用本地绘图模型（ComfyUI），本地没开就只发文字，不退回付费模型
+    # --- 摄影维度（2026-11-02，.claude/skills/phone-photo）：每张图抽一种拍法，再给机位 / 光 / 时机 /
+    # 焦段 / 滤镜各抽一个（各维度独立种子，可复现）。取值按手机现实：1x 主摄、原色、抓拍为主；
+    # 只写取景、光、时机、景深，不写写实画质词（画风跟设定图）。
+    # name：稳定标识（形象卡 photo.boost 按名字加权）；text：英文短语（空 = 这项不写）；
+    # tags：标签版（本地 ComfyUI 用）；when：适用时间段（morning/day/evening/night）或地点
+    # （dorm/canteen/lounge/gym/office/meeting/rooftop/indoor/outdoor），同类满足一个即可；
+    # her：适用的入镜方式（none 不入镜 / part 只露手 / full 入镜），不写 = 都可以。
+    # 拍法：by = 谁拿手机（self 她自己，friend 室友帮拍；室友帮拍时其他维度不按她的习惯加权）；约七成她本人入镜
+    shots:
+      - {name: candid, text: "a friend caught her in the middle of doing it, candid, she is the main subject", weight: 4, by: friend, tags: candid}
+      - {name: selfie, text: "a casual selfie at arm's length, maybe with whoever she is with", weight: 2, tags: "selfie, arm's length, from above"}
+      - {name: together, text: "her and the people she is with, snapped together while hanging out", weight: 1, tags: "group shot, friends"}
+      - {name: mirror, text: "mirror selfie, the phone covering part of her face", weight: 1, tags: "mirror selfie, holding phone, reflection"}
+      - {name: pov, text: "something worth showing off in front of her (a nice meal just served, the view, a cute object), with her hand or sleeve at the edge of the frame", weight: 2, her: part, tags: "pov hands"}
+      - {name: thing, text: "only a view or thing worth showing off (rooftop night sky, a pretty dish just served); she does not appear", weight: 1, her: none, tags: "still life"}
+    angles:                  # 机位：距离、高度、方向、隔物取景
+      - {name: across_table, text: "from across the table", weight: 3, tags: "across table"}
+      - {name: arms_length, text: "from arm's length, close", weight: 2, her: [part, full], tags: close-up}
+      - {name: few_meters, text: "from a few meters away, she is small-ish in the frame", weight: 2, her: [full], tags: "wide shot, from a distance"}
+      - {name: high_angle, text: "high angle from standing height", weight: 2, tags: "from above"}
+      - {name: eye_level, text: "eye level from a seated friend", weight: 2, her: [full], tags: "eye level"}
+      - {name: low_angle, text: "low angle from the seat", weight: 1, tags: "from below"}
+      - {name: three_quarter, text: "three-quarter view of her", weight: 2, her: [full], tags: "three-quarter view"}
+      - {name: profile, text: "her in profile", weight: 1, her: [full], tags: "from side, profile"}
+      - {name: from_behind, text: "from behind, she is facing what she is looking at", weight: 1, her: [full], tags: "from behind"}
+      - {name: over_shoulder, text: "over a friend's shoulder, the shoulder blurred in the foreground", weight: 1, her: [full], tags: "over the shoulder, blurry foreground"}
+      - {name: doorway, text: "framed through the doorway", weight: 1, her: [full], when: [indoor], tags: "doorway, framed"}
+      - {name: reflection, text: "seen reflected in the window glass", weight: 0.5, her: [full], tags: "reflection, window"}
+      - {name: top_down, text: "top-down shot of the table", weight: 2, her: [none, part], tags: "from above, table"}
+    lights:                  # 光：每束光都有看得见的来源，跟时间段和地点走
+      - {name: window_side, text: "soft side light from the window", weight: 3, when: [morning, day, indoor], tags: "window light, side lighting"}
+      - {name: window_back, text: "against the bright window, rim light on her hair, face still visible", weight: 1, when: [morning, day, indoor], tags: "backlighting, rim light"}
+      - {name: ceiling, text: "flat overhead ceiling light", weight: 2, when: [indoor], tags: "ceiling light, indoors"}
+      - {name: sunset_window, text: "warm sunset light streaming in through the window", weight: 2, when: [evening, indoor], tags: "sunset, window light, orange light"}
+      - {name: desk_lamp, text: "warm desk lamp as the only light, deep shadows", weight: 3, when: [evening, night, dorm, office], tags: "night, desk lamp, dim lighting"}
+      - {name: screen, text: "lit by the screen glow, cool blue on her face", weight: 1, when: [night, dorm, lounge, office], tags: "screen light, dark room"}
+      - {name: golden, text: "golden hour sun, long warm shadows", weight: 3, when: [evening, outdoor], tags: "sunset, golden hour, orange sky"}
+      - {name: blue_hour, text: "blue hour sky, city lights just turning on", weight: 2, when: [evening, night, outdoor], tags: "blue hour, twilight, city lights"}
+      - {name: night_city, text: "night city glow, phone night mode look: clean shadows, lights glowing softly", weight: 2, when: [night, outdoor], tags: "night, city lights"}
+      - {name: midday, text: "bright midday sun, short dark shadows", weight: 1, when: [day, outdoor], tags: "sunlight, day"}
+      - {name: flash, text: "on-camera flash, bright face, dark background", weight: 0.5, when: [night], her: [part, full], tags: "flash, night"}
+    moments:                 # 时机：哪一秒按的快门（最能去 AI 感）
+      - {name: decisive, text: "the split second right after something happens", weight: 2, tags: candid}
+      - {name: mid_laugh, text: "mid-laugh, eyes squeezed", weight: 2, her: [full], tags: "laughing, closed eyes"}
+      - {name: mid_bite, text: "mid-bite, cheeks full", weight: 1, her: [full], when: [canteen, dorm, lounge], tags: "eating, cheek bulge"}
+      - {name: turning, text: "just turning around after hearing her name", weight: 1, her: [full], tags: "turning around, looking back"}
+      - {name: unaware, text: "caught before she noticed the camera", weight: 2, her: [full], tags: "candid, looking away"}
+      - {name: noticed, text: "she just noticed the camera, hand half raised to block it", weight: 1, her: [full], tags: "hand up, surprised"}
+      - {name: absorbed, text: "a quiet moment, absorbed in what she is doing", weight: 2, her: [part, full], tags: "focused"}
+      - {name: burst, text: "one frame from a burst, caught mid-motion", weight: 1, her: [part, full], tags: "motion blur"}
+      - {name: just_ready, text: "right when it is ready, before anyone touches it", weight: 2, her: [none, part]}
+      - {name: reaching, text: "her hand reaching in to grab it", weight: 1, her: [part], tags: "reaching"}
+    lenses:                  # 焦段：手机只有几档；1x 主摄最常见（不写）
+      - {name: main, text: "", weight: 7}
+      - {name: ultra_wide, text: "0.5x ultra-wide, edges slightly stretched, whole room in frame", weight: 1.5, tags: "wide shot, wide angle"}
+      - {name: zoom, text: "2x zoom, a little compressed, from across the room", weight: 1, her: [full], tags: "telephoto"}
+      - {name: portrait_mode, text: "portrait mode, background softly blurred with slightly artificial edges", weight: 1, her: [part, full], tags: "depth of field, blurry background"}
+      - {name: macro, text: "phone macro close-up of something small", weight: 0.5, her: [none, part], tags: "close-up, macro"}
+      - {name: missed_focus, text: "focus slightly missed, landed on something in front of her", weight: 0.5, her: [full], tags: "blurry foreground"}
+    filters:                 # 手机自带滤镜：原色最多，不过饱和
+      - {name: original, text: "", weight: 12}
+      - {name: warm, text: "slightly warm phone filter", weight: 2, tags: "warm colors"}
+      - {name: cool, text: "slightly cool, faded phone filter", weight: 2, tags: "cool colors, faded"}
+      - {name: bright, text: "slightly brightened phone filter", weight: 1, tags: "bright"}
+      - {name: high_contrast, text: "punchy high-contrast phone filter", weight: 0.5, tags: "high contrast"}
+      - {name: bw, text: "black-and-white phone filter", weight: 0.5, tags: "monochrome, greyscale"}
+    quirk_chance: 0.3        # 她自己拍时带上拍照小毛病（形象卡 photo.quirk）的概率
+    subject_chance: 0.6      # 她自己拍东西时换成她爱拍的东西（photo.subjects）的概率
   video:
     audio: true              # 视频同时生成声音（环境声、对白；模型不支持时忽略）
     duration_s: 5

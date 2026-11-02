@@ -623,3 +623,63 @@ def test_every_card_has_english_look_tags():
     for vendor, card in load_config().personas.sticker_cards.items():
         assert card.look_tags, vendor
         assert card.look_tags.isascii(), vendor  # 标签模型读不懂中文
+
+
+# --- 摄影维度（moment_photo v5）--------------------------------------------------------
+
+
+def a_spec(rt, shot="selfie", habit=None, **kw):
+    from roundtable.core.moment_shots import pick_spec
+
+    rules = rt.config.roundtable.media.moment_photos
+    [s] = [x for x in rules.shots if x.name == shot]
+    return pick_spec(rules, habit, s, event_id=5, member_id="OpenAI", **kw)
+
+
+def test_moment_photo_v5_carries_the_shooting_notes(tmp_path):
+    rt, fake, stickers = build(tmp_path)
+    spec = a_spec(rt, time="night", place="dorm:OpenAI")
+    asyncio.run(stickers.photo("OpenAI", "宿舍", "熬夜", spec.shot.text, spec=spec))
+    [(_, _, prompt, _, _, _)] = image_calls(fake)
+    v = spec.variables()
+    for key, label in (("camera", "Camera"), ("light", "Light"), ("moment", "The moment")):
+        assert f"{label}: {v[key]}" in prompt
+    assert f"Small touches: {v['touches']}" in prompt
+    assert "Her face: copy it exactly from the reference images" in prompt  # v4 的规定还在
+
+
+def test_moment_photo_without_a_spec_fills_none_and_old_versions_still_render(tmp_path):
+    rt, fake, stickers = build(tmp_path)
+    asyncio.run(stickers.photo("OpenAI", "天台", "好看", "a selfie"))
+    [(_, _, prompt, _, _, _)] = image_calls(fake)
+    assert "Camera: none" in prompt
+    prompts = {**rt.config.roundtable.prompts, "moment_photo": "v4"}  # 退回旧版本也能画
+    rt.config = rt.config.model_copy(
+        update={"roundtable": rt.config.roundtable.model_copy(update={"prompts": prompts})}
+    )
+    spec = a_spec(rt)
+    asyncio.run(stickers.photo("OpenAI", "天台", "好看", spec.shot.text, spec=spec))
+    assert "Camera:" not in image_calls(fake)[-1][2]
+
+
+def test_local_tag_model_gets_the_dimension_tags(tmp_path):
+    rt, _, local, stickers = build_local(tmp_path)
+    spec = a_spec(rt, "selfie")
+    asyncio.run(stickers.photo("OpenAI", "天台", "好看", spec.shot.text, her="full", spec=spec))
+    [(_, _, prompt, _, _, _)] = image_calls(local)
+    assert spec.tags() and spec.tags() in prompt and "selfie, arm's length" in prompt
+
+
+def test_v5_keeps_every_v4_rule():
+    from roundtable.core.prompts.library import DEFAULT_PROMPTS_DIR
+
+    def body(v):
+        text = (DEFAULT_PROMPTS_DIR / "moment_photo" / f"{v}.md").read_text(encoding="utf-8")
+        return text.split("---", 2)[2]
+
+    v5 = body("v5")
+    changed = "Vary the camera like real feed photos:"
+    for line in body("v4").splitlines():
+        if line.strip() and changed not in line:
+            assert line in v5, line
+    assert "Unless the camera note fixes it, vary the camera like real feed photos:" in v5
