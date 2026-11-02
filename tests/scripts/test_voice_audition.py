@@ -133,4 +133,4 @@ def test_candidate_params_go_into_request(config, tmp_path):
     provider = FakeProvider()
     asyncio.run(va.run_jobs(provider, config, jobs[:2], tmp_path, max_usd=0))
     assert provider.calls[1][2]["speed"] == 1.1
-    assert provider.calls[1][2]["response_format"] == "wav"
+    assert provider.calls[1][2]["response_format"] == "mp3"
