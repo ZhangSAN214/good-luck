@@ -1,0 +1,1543 @@
+{
+  "source": "hd/ + refine_hd.py + refine_parts.py",
+  "canvas": [
+    4096,
+    6144
+  ],
+  "draw_order": "order 0 = bottom",
+  "light": "upper left",
+  "count": 108,
+  "part_layers": 49,
+  "effect_layers": 59,
+  "blend_modes": "multiply = *_shadow / *_fold_shadow / face_blush; screen = *_rim / *_hl (hair, metal, fold); normal = eye-*_hl",
+  "fixes": [
+    "face ghost lines inpainted",
+    "stray hair moved from clothes/arms into hair layers",
+    "white background removed from soft edges, specks dropped",
+    "bangs / side hair split into strands, back hair split upper/lower",
+    "cuffs, collar ruffle, jabot, cravat, brooch, skirt bows, hair flower split off",
+    "skirt split into inner pleated skirt / overskirt / hem ruffle, holes filled",
+    "procedural contact + secondary cel shadows, rim light, hair / eye / metal highlights, blush, fold shading"
+  ],
+  "report": {
+    "face_pixels_repaired": 36477,
+    "stray_hair_moved_px": {
+      "topwear": 18331,
+      "handwear-r": 52391
+    }
+  },
+  "layers": [
+    {
+      "order": 0,
+      "name": "back hair-upper",
+      "file": "layers/000_back_hair-upper.png",
+      "bbox": [
+        1512,
+        52,
+        2652,
+        1206
+      ],
+      "blend_mode": "normal",
+      "type": "part",
+      "clip_to": null
+    },
+    {
+      "order": 1,
+      "name": "back hair-upper_rim",
+      "file": "layers/001_back_hair-upper_rim.png",
+      "bbox": [
+        1516,
+        152,
+        2651,
+        1206
+      ],
+      "blend_mode": "screen",
+      "type": "effect",
+      "clip_to": "back hair-upper"
+    },
+    {
+      "order": 2,
+      "name": "back hair-lower",
+      "file": "layers/002_back_hair-lower.png",
+      "bbox": [
+        832,
+        1126,
+        3243,
+        3236
+      ],
+      "blend_mode": "normal",
+      "type": "part",
+      "clip_to": null
+    },
+    {
+      "order": 3,
+      "name": "back hair-lower_rim",
+      "file": "layers/003_back_hair-lower_rim.png",
+      "bbox": [
+        836,
+        1126,
+        3242,
+        3236
+      ],
+      "blend_mode": "screen",
+      "type": "effect",
+      "clip_to": "back hair-lower"
+    },
+    {
+      "order": 4,
+      "name": "footwear",
+      "file": "layers/004_footwear.png",
+      "bbox": [
+        1660,
+        5348,
+        2223,
+        6094
+      ],
+      "blend_mode": "normal",
+      "type": "part",
+      "clip_to": null
+    },
+    {
+      "order": 5,
+      "name": "footwear_shadow (inner skirt+overskirt+skirt hem ruffle)",
+      "file": "layers/005_footwear_shadow_inner_skirt-overskirt-skirt_hem_ruffle.png",
+      "bbox": [
+        1856,
+        5431,
+        2178,
+        5524
+      ],
+      "blend_mode": "multiply",
+      "type": "effect",
+      "clip_to": "footwear"
+    },
+    {
+      "order": 6,
+      "name": "footwear_shadow2",
+      "file": "layers/006_footwear_shadow2.png",
+      "bbox": [
+        1668,
+        5358,
+        2220,
+        6091
+      ],
+      "blend_mode": "multiply",
+      "type": "effect",
+      "clip_to": "footwear"
+    },
+    {
+      "order": 7,
+      "name": "neck",
+      "file": "layers/007_neck.png",
+      "bbox": [
+        2012,
+        692,
+        2264,
+        1080
+      ],
+      "blend_mode": "normal",
+      "type": "part",
+      "clip_to": null
+    },
+    {
+      "order": 8,
+      "name": "neck_shadow (bangs+side hair)",
+      "file": "layers/008_neck_shadow_bangs-side_hair.png",
+      "bbox": [
+        2183,
+        692,
+        2241,
+        788
+      ],
+      "blend_mode": "multiply",
+      "type": "effect",
+      "clip_to": "neck"
+    },
+    {
+      "order": 9,
+      "name": "neck_shadow (face)",
+      "file": "layers/009_neck_shadow_face.png",
+      "bbox": [
+        2044,
+        715,
+        2241,
+        964
+      ],
+      "blend_mode": "multiply",
+      "type": "effect",
+      "clip_to": "neck"
+    },
+    {
+      "order": 10,
+      "name": "neck_shadow2",
+      "file": "layers/010_neck_shadow2.png",
+      "bbox": [
+        2046,
+        698,
+        2258,
+        1077
+      ],
+      "blend_mode": "multiply",
+      "type": "effect",
+      "clip_to": "neck"
+    },
+    {
+      "order": 11,
+      "name": "inner skirt",
+      "file": "layers/011_inner_skirt.png",
+      "bbox": [
+        564,
+        2053,
+        3481,
+        5272
+      ],
+      "blend_mode": "normal",
+      "type": "part",
+      "clip_to": null
+    },
+    {
+      "order": 12,
+      "name": "inner skirt_shadow (overskirt)",
+      "file": "layers/012_inner_skirt_shadow_overskirt.png",
+      "bbox": [
+        631,
+        2112,
+        3481,
+        5272
+      ],
+      "blend_mode": "multiply",
+      "type": "effect",
+      "clip_to": "inner skirt"
+    },
+    {
+      "order": 13,
+      "name": "inner skirt_rim",
+      "file": "layers/013_inner_skirt_rim.png",
+      "bbox": [
+        564,
+        2055,
+        3481,
+        5272
+      ],
+      "blend_mode": "screen",
+      "type": "effect",
+      "clip_to": "inner skirt"
+    },
+    {
+      "order": 14,
+      "name": "inner skirt_fold_shadow",
+      "file": "layers/014_inner_skirt_fold_shadow.png",
+      "bbox": [
+        612,
+        2061,
+        2306,
+        4656
+      ],
+      "blend_mode": "multiply",
+      "type": "effect",
+      "clip_to": "inner skirt"
+    },
+    {
+      "order": 15,
+      "name": "inner skirt_pleat_hl",
+      "file": "layers/015_inner_skirt_pleat_hl.png",
+      "bbox": [
+        1193,
+        2055,
+        3468,
+        4651
+      ],
+      "blend_mode": "screen",
+      "type": "effect",
+      "clip_to": "inner skirt"
+    },
+    {
+      "order": 16,
+      "name": "overskirt",
+      "file": "layers/016_overskirt.png",
+      "bbox": [
+        592,
+        2053,
+        3492,
+        5462
+      ],
+      "blend_mode": "normal",
+      "type": "part",
+      "clip_to": null
+    },
+    {
+      "order": 17,
+      "name": "overskirt_shadow (skirt bow)",
+      "file": "layers/017_overskirt_shadow_skirt_bow.png",
+      "bbox": [
+        1009,
+        3149,
+        2733,
+        3994
+      ],
+      "blend_mode": "multiply",
+      "type": "effect",
+      "clip_to": "overskirt"
+    },
+    {
+      "order": 18,
+      "name": "overskirt_shadow2",
+      "file": "layers/018_overskirt_shadow2.png",
+      "bbox": [
+        596,
+        2109,
+        3489,
+        5457
+      ],
+      "blend_mode": "multiply",
+      "type": "effect",
+      "clip_to": "overskirt"
+    },
+    {
+      "order": 19,
+      "name": "overskirt_rim",
+      "file": "layers/019_overskirt_rim.png",
+      "bbox": [
+        597,
+        2125,
+        3491,
+        5461
+      ],
+      "blend_mode": "screen",
+      "type": "effect",
+      "clip_to": "overskirt"
+    },
+    {
+      "order": 20,
+      "name": "overskirt_trim_hl",
+      "file": "layers/020_overskirt_trim_hl.png",
+      "bbox": [
+        610,
+        2430,
+        3476,
+        5252
+      ],
+      "blend_mode": "screen",
+      "type": "effect",
+      "clip_to": "overskirt"
+    },
+    {
+      "order": 21,
+      "name": "skirt bow-l",
+      "file": "layers/021_skirt_bow-l.png",
+      "bbox": [
+        995,
+        3078,
+        1459,
+        3793
+      ],
+      "blend_mode": "normal",
+      "type": "part",
+      "clip_to": null
+    },
+    {
+      "order": 22,
+      "name": "skirt bow-l_metal_hl",
+      "file": "layers/022_skirt_bow-l_metal_hl.png",
+      "bbox": [
+        1262,
+        3138,
+        1279,
+        3155
+      ],
+      "blend_mode": "screen",
+      "type": "effect",
+      "clip_to": "skirt bow-l"
+    },
+    {
+      "order": 23,
+      "name": "skirt bow-r",
+      "file": "layers/023_skirt_bow-r.png",
+      "bbox": [
+        2152,
+        3198,
+        2723,
+        3974
+      ],
+      "blend_mode": "normal",
+      "type": "part",
+      "clip_to": null
+    },
+    {
+      "order": 24,
+      "name": "skirt hem ruffle",
+      "file": "layers/024_skirt_hem_ruffle.png",
+      "bbox": [
+        552,
+        4820,
+        3496,
+        5483
+      ],
+      "blend_mode": "normal",
+      "type": "part",
+      "clip_to": null
+    },
+    {
+      "order": 25,
+      "name": "skirt hem ruffle_fold_shadow",
+      "file": "layers/025_skirt_hem_ruffle_fold_shadow.png",
+      "bbox": [
+        555,
+        4826,
+        3496,
+        5479
+      ],
+      "blend_mode": "multiply",
+      "type": "effect",
+      "clip_to": "skirt hem ruffle"
+    },
+    {
+      "order": 26,
+      "name": "skirt hem ruffle_fold_hl",
+      "file": "layers/026_skirt_hem_ruffle_fold_hl.png",
+      "bbox": [
+        552,
+        4841,
+        3493,
+        5478
+      ],
+      "blend_mode": "screen",
+      "type": "effect",
+      "clip_to": "skirt hem ruffle"
+    },
+    {
+      "order": 27,
+      "name": "topwear",
+      "file": "layers/027_topwear.png",
+      "bbox": [
+        1612,
+        900,
+        2539,
+        2160
+      ],
+      "blend_mode": "normal",
+      "type": "part",
+      "clip_to": null
+    },
+    {
+      "order": 28,
+      "name": "topwear_shadow (side hair+hair strands)",
+      "file": "layers/028_topwear_shadow_side_hair-hair_strands.png",
+      "bbox": [
+        1616,
+        933,
+        2332,
+        2144
+      ],
+      "blend_mode": "multiply",
+      "type": "effect",
+      "clip_to": "topwear"
+    },
+    {
+      "order": 29,
+      "name": "topwear_shadow (cravat+brooch)",
+      "file": "layers/029_topwear_shadow_cravat-brooch.png",
+      "bbox": [
+        1751,
+        1017,
+        2166,
+        1551
+      ],
+      "blend_mode": "multiply",
+      "type": "effect",
+      "clip_to": "topwear"
+    },
+    {
+      "order": 30,
+      "name": "topwear_shadow (handwear-r)",
+      "file": "layers/030_topwear_shadow_handwear-r.png",
+      "bbox": [
+        1657,
+        1160,
+        1935,
+        1950
+      ],
+      "blend_mode": "multiply",
+      "type": "effect",
+      "clip_to": "topwear"
+    },
+    {
+      "order": 31,
+      "name": "topwear_shadow2",
+      "file": "layers/031_topwear_shadow2.png",
+      "bbox": [
+        1665,
+        903,
+        2535,
+        2160
+      ],
+      "blend_mode": "multiply",
+      "type": "effect",
+      "clip_to": "topwear"
+    },
+    {
+      "order": 32,
+      "name": "topwear_rim",
+      "file": "layers/032_topwear_rim.png",
+      "bbox": [
+        1654,
+        916,
+        2538,
+        2160
+      ],
+      "blend_mode": "screen",
+      "type": "effect",
+      "clip_to": "topwear"
+    },
+    {
+      "order": 33,
+      "name": "collar ruffle",
+      "file": "layers/033_collar_ruffle.png",
+      "bbox": [
+        1972,
+        905,
+        2251,
+        1131
+      ],
+      "blend_mode": "normal",
+      "type": "part",
+      "clip_to": null
+    },
+    {
+      "order": 34,
+      "name": "collar ruffle_fold_shadow",
+      "file": "layers/034_collar_ruffle_fold_shadow.png",
+      "bbox": [
+        1973,
+        912,
+        2251,
+        1131
+      ],
+      "blend_mode": "multiply",
+      "type": "effect",
+      "clip_to": "collar ruffle"
+    },
+    {
+      "order": 35,
+      "name": "collar ruffle_fold_hl",
+      "file": "layers/035_collar_ruffle_fold_hl.png",
+      "bbox": [
+        1995,
+        907,
+        2249,
+        1128
+      ],
+      "blend_mode": "screen",
+      "type": "effect",
+      "clip_to": "collar ruffle"
+    },
+    {
+      "order": 36,
+      "name": "jabot",
+      "file": "layers/036_jabot.png",
+      "bbox": [
+        1814,
+        1464,
+        2035,
+        1771
+      ],
+      "blend_mode": "normal",
+      "type": "part",
+      "clip_to": null
+    },
+    {
+      "order": 37,
+      "name": "jabot_fold_shadow",
+      "file": "layers/037_jabot_fold_shadow.png",
+      "bbox": [
+        1816,
+        1471,
+        2024,
+        1771
+      ],
+      "blend_mode": "multiply",
+      "type": "effect",
+      "clip_to": "jabot"
+    },
+    {
+      "order": 38,
+      "name": "jabot_fold_hl",
+      "file": "layers/038_jabot_fold_hl.png",
+      "bbox": [
+        1815,
+        1465,
+        2016,
+        1768
+      ],
+      "blend_mode": "screen",
+      "type": "effect",
+      "clip_to": "jabot"
+    },
+    {
+      "order": 39,
+      "name": "cravat",
+      "file": "layers/039_cravat.png",
+      "bbox": [
+        1739,
+        1270,
+        2054,
+        1529
+      ],
+      "blend_mode": "normal",
+      "type": "part",
+      "clip_to": null
+    },
+    {
+      "order": 40,
+      "name": "brooch",
+      "file": "layers/040_brooch.png",
+      "bbox": [
+        1945,
+        985,
+        2160,
+        1195
+      ],
+      "blend_mode": "normal",
+      "type": "part",
+      "clip_to": null
+    },
+    {
+      "order": 41,
+      "name": "handwear-l",
+      "file": "layers/041_handwear-l.png",
+      "bbox": [
+        2252,
+        1160,
+        2800,
+        3444
+      ],
+      "blend_mode": "normal",
+      "type": "part",
+      "clip_to": null
+    },
+    {
+      "order": 42,
+      "name": "handwear-l_shadow (cuff-l)",
+      "file": "layers/042_handwear-l_shadow_cuff-l.png",
+      "bbox": [
+        2419,
+        2812,
+        2705,
+        3008
+      ],
+      "blend_mode": "multiply",
+      "type": "effect",
+      "clip_to": "handwear-l"
+    },
+    {
+      "order": 43,
+      "name": "handwear-l_shadow2",
+      "file": "layers/043_handwear-l_shadow2.png",
+      "bbox": [
+        2290,
+        1176,
+        2796,
+        3441
+      ],
+      "blend_mode": "multiply",
+      "type": "effect",
+      "clip_to": "handwear-l"
+    },
+    {
+      "order": 44,
+      "name": "handwear-l_rim",
+      "file": "layers/044_handwear-l_rim.png",
+      "bbox": [
+        2288,
+        1182,
+        2799,
+        3444
+      ],
+      "blend_mode": "screen",
+      "type": "effect",
+      "clip_to": "handwear-l"
+    },
+    {
+      "order": 45,
+      "name": "cuff-l",
+      "file": "layers/045_cuff-l.png",
+      "bbox": [
+        2412,
+        2788,
+        2703,
+        2988
+      ],
+      "blend_mode": "normal",
+      "type": "part",
+      "clip_to": null
+    },
+    {
+      "order": 46,
+      "name": "cuff-l_fold_shadow",
+      "file": "layers/046_cuff-l_fold_shadow.png",
+      "bbox": [
+        2415,
+        2795,
+        2703,
+        2988
+      ],
+      "blend_mode": "multiply",
+      "type": "effect",
+      "clip_to": "cuff-l"
+    },
+    {
+      "order": 47,
+      "name": "cuff-l_fold_hl",
+      "file": "layers/047_cuff-l_fold_hl.png",
+      "bbox": [
+        2414,
+        2788,
+        2701,
+        2985
+      ],
+      "blend_mode": "screen",
+      "type": "effect",
+      "clip_to": "cuff-l"
+    },
+    {
+      "order": 48,
+      "name": "ears-r",
+      "file": "layers/048_ears-r.png",
+      "bbox": [
+        1772,
+        668,
+        1908,
+        808
+      ],
+      "blend_mode": "normal",
+      "type": "part",
+      "clip_to": null
+    },
+    {
+      "order": 49,
+      "name": "eyebrow-r",
+      "file": "layers/049_eyebrow-r.png",
+      "bbox": [
+        1758,
+        555,
+        1883,
+        611
+      ],
+      "blend_mode": "normal",
+      "type": "part",
+      "clip_to": null
+    },
+    {
+      "order": 50,
+      "name": "ears-l",
+      "file": "layers/050_ears-l.png",
+      "bbox": [
+        2265,
+        500,
+        2358,
+        688
+      ],
+      "blend_mode": "normal",
+      "type": "part",
+      "clip_to": null
+    },
+    {
+      "order": 51,
+      "name": "eyebrow-l",
+      "file": "layers/051_eyebrow-l.png",
+      "bbox": [
+        1998,
+        459,
+        2193,
+        514
+      ],
+      "blend_mode": "normal",
+      "type": "part",
+      "clip_to": null
+    },
+    {
+      "order": 52,
+      "name": "face",
+      "file": "layers/052_face.png",
+      "bbox": [
+        1718,
+        306,
+        2260,
+        920
+      ],
+      "blend_mode": "normal",
+      "type": "part",
+      "clip_to": null
+    },
+    {
+      "order": 53,
+      "name": "face_shadow (bangs)",
+      "file": "layers/053_face_shadow_bangs.png",
+      "bbox": [
+        1744,
+        310,
+        2245,
+        825
+      ],
+      "blend_mode": "multiply",
+      "type": "effect",
+      "clip_to": "face"
+    },
+    {
+      "order": 54,
+      "name": "face_shadow2",
+      "file": "layers/054_face_shadow2.png",
+      "bbox": [
+        1888,
+        408,
+        2259,
+        918
+      ],
+      "blend_mode": "multiply",
+      "type": "effect",
+      "clip_to": "face"
+    },
+    {
+      "order": 55,
+      "name": "face_blush",
+      "file": "layers/055_face_blush.png",
+      "bbox": [
+        1809,
+        601,
+        2220,
+        809
+      ],
+      "blend_mode": "multiply",
+      "type": "effect",
+      "clip_to": "face"
+    },
+    {
+      "order": 56,
+      "name": "beauty mark",
+      "file": "layers/056_beauty_mark.png",
+      "bbox": [
+        1821,
+        717,
+        1836,
+        732
+      ],
+      "blend_mode": "normal",
+      "type": "part",
+      "clip_to": null
+    },
+    {
+      "order": 57,
+      "name": "nose",
+      "file": "layers/057_nose.png",
+      "bbox": [
+        1978,
+        688,
+        2014,
+        743
+      ],
+      "blend_mode": "normal",
+      "type": "part",
+      "clip_to": null
+    },
+    {
+      "order": 58,
+      "name": "mouth",
+      "file": "layers/058_mouth.png",
+      "bbox": [
+        2003,
+        762,
+        2101,
+        812
+      ],
+      "blend_mode": "normal",
+      "type": "part",
+      "clip_to": null
+    },
+    {
+      "order": 59,
+      "name": "eyewhite-r",
+      "file": "layers/059_eyewhite-r.png",
+      "bbox": [
+        1811,
+        638,
+        1934,
+        711
+      ],
+      "blend_mode": "normal",
+      "type": "part",
+      "clip_to": null
+    },
+    {
+      "order": 60,
+      "name": "irides-r",
+      "file": "layers/060_irides-r.png",
+      "bbox": [
+        1845,
+        636,
+        1929,
+        702
+      ],
+      "blend_mode": "normal",
+      "type": "part",
+      "clip_to": null
+    },
+    {
+      "order": 61,
+      "name": "eyelash-r",
+      "file": "layers/061_eyelash-r.png",
+      "bbox": [
+        1750,
+        614,
+        1945,
+        714
+      ],
+      "blend_mode": "normal",
+      "type": "part",
+      "clip_to": null
+    },
+    {
+      "order": 62,
+      "name": "eye-r_hl",
+      "file": "layers/062_eye-r_hl.png",
+      "bbox": [
+        1863,
+        645,
+        1906,
+        689
+      ],
+      "blend_mode": "normal",
+      "type": "effect",
+      "clip_to": "irides-r"
+    },
+    {
+      "order": 63,
+      "name": "eyewhite-l",
+      "file": "layers/063_eyewhite-l.png",
+      "bbox": [
+        2059,
+        534,
+        2195,
+        614
+      ],
+      "blend_mode": "normal",
+      "type": "part",
+      "clip_to": null
+    },
+    {
+      "order": 64,
+      "name": "handwear-r",
+      "file": "layers/064_handwear-r.png",
+      "bbox": [
+        1269,
+        1088,
+        1923,
+        2091
+      ],
+      "blend_mode": "normal",
+      "type": "part",
+      "clip_to": null
+    },
+    {
+      "order": 65,
+      "name": "handwear-r_shadow (cuff-r)",
+      "file": "layers/065_handwear-r_shadow_cuff-r.png",
+      "bbox": [
+        1293,
+        1387,
+        1597,
+        1615
+      ],
+      "blend_mode": "multiply",
+      "type": "effect",
+      "clip_to": "handwear-r"
+    },
+    {
+      "order": 66,
+      "name": "handwear-r_shadow2",
+      "file": "layers/066_handwear-r_shadow2.png",
+      "bbox": [
+        1396,
+        1143,
+        1919,
+        2089
+      ],
+      "blend_mode": "multiply",
+      "type": "effect",
+      "clip_to": "handwear-r"
+    },
+    {
+      "order": 67,
+      "name": "handwear-r_rim",
+      "file": "layers/067_handwear-r_rim.png",
+      "bbox": [
+        1406,
+        1135,
+        1922,
+        2091
+      ],
+      "blend_mode": "screen",
+      "type": "effect",
+      "clip_to": "handwear-r"
+    },
+    {
+      "order": 68,
+      "name": "cuff-r",
+      "file": "layers/068_cuff-r.png",
+      "bbox": [
+        1285,
+        1310,
+        1595,
+        1595
+      ],
+      "blend_mode": "normal",
+      "type": "part",
+      "clip_to": null
+    },
+    {
+      "order": 69,
+      "name": "cuff-r_fold_shadow",
+      "file": "layers/069_cuff-r_fold_shadow.png",
+      "bbox": [
+        1288,
+        1316,
+        1595,
+        1595
+      ],
+      "blend_mode": "multiply",
+      "type": "effect",
+      "clip_to": "cuff-r"
+    },
+    {
+      "order": 70,
+      "name": "cuff-r_fold_hl",
+      "file": "layers/070_cuff-r_fold_hl.png",
+      "bbox": [
+        1286,
+        1338,
+        1587,
+        1592
+      ],
+      "blend_mode": "screen",
+      "type": "effect",
+      "clip_to": "cuff-r"
+    },
+    {
+      "order": 71,
+      "name": "irides-l",
+      "file": "layers/071_irides-l.png",
+      "bbox": [
+        2087,
+        531,
+        2167,
+        608
+      ],
+      "blend_mode": "normal",
+      "type": "part",
+      "clip_to": null
+    },
+    {
+      "order": 72,
+      "name": "eyelash-l",
+      "file": "layers/072_eyelash-l.png",
+      "bbox": [
+        2029,
+        509,
+        2227,
+        615
+      ],
+      "blend_mode": "normal",
+      "type": "part",
+      "clip_to": null
+    },
+    {
+      "order": 73,
+      "name": "eye-l_hl",
+      "file": "layers/073_eye-l_hl.png",
+      "bbox": [
+        2104,
+        544,
+        2145,
+        592
+      ],
+      "blend_mode": "normal",
+      "type": "effect",
+      "clip_to": "irides-l"
+    },
+    {
+      "order": 74,
+      "name": "earwear",
+      "file": "layers/074_earwear.png",
+      "bbox": [
+        2282,
+        644,
+        2343,
+        911
+      ],
+      "blend_mode": "normal",
+      "type": "part",
+      "clip_to": null
+    },
+    {
+      "order": 75,
+      "name": "earwear_metal_hl",
+      "file": "layers/075_earwear_metal_hl.png",
+      "bbox": [
+        2301,
+        794,
+        2315,
+        807
+      ],
+      "blend_mode": "screen",
+      "type": "effect",
+      "clip_to": "earwear"
+    },
+    {
+      "order": 76,
+      "name": "bangs-1",
+      "file": "layers/076_bangs-1.png",
+      "bbox": [
+        1625,
+        150,
+        1893,
+        932
+      ],
+      "blend_mode": "normal",
+      "type": "part",
+      "clip_to": null
+    },
+    {
+      "order": 77,
+      "name": "bangs-1_rim",
+      "file": "layers/077_bangs-1_rim.png",
+      "bbox": [
+        1653,
+        158,
+        1892,
+        932
+      ],
+      "blend_mode": "screen",
+      "type": "effect",
+      "clip_to": "bangs-1"
+    },
+    {
+      "order": 78,
+      "name": "bangs-2",
+      "file": "layers/078_bangs-2.png",
+      "bbox": [
+        1723,
+        177,
+        1874,
+        691
+      ],
+      "blend_mode": "normal",
+      "type": "part",
+      "clip_to": null
+    },
+    {
+      "order": 79,
+      "name": "bangs-2_rim",
+      "file": "layers/079_bangs-2_rim.png",
+      "bbox": [
+        1751,
+        178,
+        1874,
+        691
+      ],
+      "blend_mode": "screen",
+      "type": "effect",
+      "clip_to": "bangs-2"
+    },
+    {
+      "order": 80,
+      "name": "bangs-3",
+      "file": "layers/080_bangs-3.png",
+      "bbox": [
+        1811,
+        215,
+        2005,
+        656
+      ],
+      "blend_mode": "normal",
+      "type": "part",
+      "clip_to": null
+    },
+    {
+      "order": 81,
+      "name": "bangs-3_rim",
+      "file": "layers/081_bangs-3_rim.png",
+      "bbox": [
+        1835,
+        215,
+        2005,
+        656
+      ],
+      "blend_mode": "screen",
+      "type": "effect",
+      "clip_to": "bangs-3"
+    },
+    {
+      "order": 82,
+      "name": "bangs-4",
+      "file": "layers/082_bangs-4.png",
+      "bbox": [
+        1848,
+        183,
+        2028,
+        633
+      ],
+      "blend_mode": "normal",
+      "type": "part",
+      "clip_to": null
+    },
+    {
+      "order": 83,
+      "name": "bangs-4_rim",
+      "file": "layers/083_bangs-4_rim.png",
+      "bbox": [
+        1881,
+        183,
+        2026,
+        633
+      ],
+      "blend_mode": "screen",
+      "type": "effect",
+      "clip_to": "bangs-4"
+    },
+    {
+      "order": 84,
+      "name": "bangs-5",
+      "file": "layers/084_bangs-5.png",
+      "bbox": [
+        1890,
+        157,
+        2184,
+        502
+      ],
+      "blend_mode": "normal",
+      "type": "part",
+      "clip_to": null
+    },
+    {
+      "order": 85,
+      "name": "bangs-5_rim",
+      "file": "layers/085_bangs-5_rim.png",
+      "bbox": [
+        1890,
+        187,
+        2184,
+        502
+      ],
+      "blend_mode": "screen",
+      "type": "effect",
+      "clip_to": "bangs-5"
+    },
+    {
+      "order": 86,
+      "name": "bangs-6",
+      "file": "layers/086_bangs-6.png",
+      "bbox": [
+        1884,
+        109,
+        2219,
+        524
+      ],
+      "blend_mode": "normal",
+      "type": "part",
+      "clip_to": null
+    },
+    {
+      "order": 87,
+      "name": "bangs-6_rim",
+      "file": "layers/087_bangs-6_rim.png",
+      "bbox": [
+        1884,
+        144,
+        2219,
+        524
+      ],
+      "blend_mode": "screen",
+      "type": "effect",
+      "clip_to": "bangs-6"
+    },
+    {
+      "order": 88,
+      "name": "bangs-7",
+      "file": "layers/088_bangs-7.png",
+      "bbox": [
+        1931,
+        219,
+        2227,
+        529
+      ],
+      "blend_mode": "normal",
+      "type": "part",
+      "clip_to": null
+    },
+    {
+      "order": 89,
+      "name": "bangs-7_rim",
+      "file": "layers/089_bangs-7_rim.png",
+      "bbox": [
+        1970,
+        224,
+        2227,
+        529
+      ],
+      "blend_mode": "screen",
+      "type": "effect",
+      "clip_to": "bangs-7"
+    },
+    {
+      "order": 90,
+      "name": "bangs-8",
+      "file": "layers/090_bangs-8.png",
+      "bbox": [
+        2155,
+        229,
+        2286,
+        761
+      ],
+      "blend_mode": "normal",
+      "type": "part",
+      "clip_to": null
+    },
+    {
+      "order": 91,
+      "name": "bangs-8_rim",
+      "file": "layers/091_bangs-8_rim.png",
+      "bbox": [
+        2155,
+        229,
+        2285,
+        761
+      ],
+      "blend_mode": "screen",
+      "type": "effect",
+      "clip_to": "bangs-8"
+    },
+    {
+      "order": 92,
+      "name": "side hair-r-1",
+      "file": "layers/092_side_hair-r-1.png",
+      "bbox": [
+        1544,
+        1313,
+        1751,
+        2003
+      ],
+      "blend_mode": "normal",
+      "type": "part",
+      "clip_to": null
+    },
+    {
+      "order": 93,
+      "name": "side hair-r-1_rim",
+      "file": "layers/093_side_hair-r-1_rim.png",
+      "bbox": [
+        1544,
+        1313,
+        1751,
+        2003
+      ],
+      "blend_mode": "screen",
+      "type": "effect",
+      "clip_to": "side hair-r-1"
+    },
+    {
+      "order": 94,
+      "name": "side hair-r-2",
+      "file": "layers/094_side_hair-r-2.png",
+      "bbox": [
+        1603,
+        1320,
+        1703,
+        1837
+      ],
+      "blend_mode": "normal",
+      "type": "part",
+      "clip_to": null
+    },
+    {
+      "order": 95,
+      "name": "side hair-r-2_rim",
+      "file": "layers/095_side_hair-r-2_rim.png",
+      "bbox": [
+        1603,
+        1320,
+        1703,
+        1837
+      ],
+      "blend_mode": "screen",
+      "type": "effect",
+      "clip_to": "side hair-r-2"
+    },
+    {
+      "order": 96,
+      "name": "side hair-r-3",
+      "file": "layers/096_side_hair-r-3.png",
+      "bbox": [
+        1628,
+        1221,
+        1832,
+        1407
+      ],
+      "blend_mode": "normal",
+      "type": "part",
+      "clip_to": null
+    },
+    {
+      "order": 97,
+      "name": "side hair-r-3_rim",
+      "file": "layers/097_side_hair-r-3_rim.png",
+      "bbox": [
+        1628,
+        1221,
+        1832,
+        1407
+      ],
+      "blend_mode": "screen",
+      "type": "effect",
+      "clip_to": "side hair-r-3"
+    },
+    {
+      "order": 98,
+      "name": "side hair-l-1",
+      "file": "layers/098_side_hair-l-1.png",
+      "bbox": [
+        2104,
+        1685,
+        2347,
+        2457
+      ],
+      "blend_mode": "normal",
+      "type": "part",
+      "clip_to": null
+    },
+    {
+      "order": 99,
+      "name": "side hair-l-1_rim",
+      "file": "layers/099_side_hair-l-1_rim.png",
+      "bbox": [
+        2104,
+        1685,
+        2347,
+        2457
+      ],
+      "blend_mode": "screen",
+      "type": "effect",
+      "clip_to": "side hair-l-1"
+    },
+    {
+      "order": 100,
+      "name": "side hair-l-2",
+      "file": "layers/100_side_hair-l-2.png",
+      "bbox": [
+        2065,
+        884,
+        2334,
+        2327
+      ],
+      "blend_mode": "normal",
+      "type": "part",
+      "clip_to": null
+    },
+    {
+      "order": 101,
+      "name": "side hair-l-2_rim",
+      "file": "layers/101_side_hair-l-2_rim.png",
+      "bbox": [
+        2065,
+        886,
+        2333,
+        2327
+      ],
+      "blend_mode": "screen",
+      "type": "effect",
+      "clip_to": "side hair-l-2"
+    },
+    {
+      "order": 102,
+      "name": "side hair-l-2_hl",
+      "file": "layers/102_side_hair-l-2_hl.png",
+      "bbox": [
+        2295,
+        901,
+        2326,
+        947
+      ],
+      "blend_mode": "screen",
+      "type": "effect",
+      "clip_to": "side hair-l-2"
+    },
+    {
+      "order": 103,
+      "name": "side hair-l-3",
+      "file": "layers/103_side_hair-l-3.png",
+      "bbox": [
+        2158,
+        871,
+        2324,
+        1761
+      ],
+      "blend_mode": "normal",
+      "type": "part",
+      "clip_to": null
+    },
+    {
+      "order": 104,
+      "name": "side hair-l-3_rim",
+      "file": "layers/104_side_hair-l-3_rim.png",
+      "bbox": [
+        2158,
+        885,
+        2324,
+        1761
+      ],
+      "blend_mode": "screen",
+      "type": "effect",
+      "clip_to": "side hair-l-3"
+    },
+    {
+      "order": 105,
+      "name": "side hair-l-3_hl",
+      "file": "layers/105_side_hair-l-3_hl.png",
+      "bbox": [
+        2238,
+        880,
+        2319,
+        1047
+      ],
+      "blend_mode": "screen",
+      "type": "effect",
+      "clip_to": "side hair-l-3"
+    },
+    {
+      "order": 106,
+      "name": "headwear",
+      "file": "layers/106_headwear.png",
+      "bbox": [
+        2170,
+        152,
+        2488,
+        868
+      ],
+      "blend_mode": "normal",
+      "type": "part",
+      "clip_to": null
+    },
+    {
+      "order": 107,
+      "name": "hair flower",
+      "file": "layers/107_hair_flower.png",
+      "bbox": [
+        2170,
+        152,
+        2443,
+        453
+      ],
+      "blend_mode": "normal",
+      "type": "part",
+      "clip_to": null
+    }
+  ]
+}
