@@ -419,10 +419,11 @@ export class Mail {
 
   async showDetail(id) {
     this.view = 'detail';
+    this.wantDetail = id;
     if (this.detail?.id !== id) this.detail = null;
     this.paint();
     const m = await this.call(this.api.message, id);
-    if (!m) return;
+    if (!m || this.view !== 'detail' || this.wantDetail !== id) return; // 等的时候已经返回或换了一封
     this.detail = m;
     this.watchDetail();
   }
@@ -515,7 +516,8 @@ export class Mail {
     const sel = e.target.closest('[data-category]');
     if (!sel || !this.detail) return;
     const m = this.detail;
-    if (await this.act(this.api.category, m.id, sel.value)) this.showDetail(m.id);
+    // 保存期间点了「返回」或打开了别的信：不再把人拽回这封
+    if ((await this.act(this.api.category, m.id, sel.value)) && this.view === 'detail' && this.detail?.id === m.id) this.showDetail(m.id);
   }
 
   /** AI 总结 / 翻译 / 汇总：没同意过先问；同一时间只跑一个。 */

@@ -138,12 +138,22 @@ def test_mail_categories_marks_ai_and_images(serve, page):
     page.click("#hub [data-mark]")
     page.wait_for_selector("#hub [data-mark][aria-pressed='true']")
     assert "你标为重要" in page.inner_text("#hub .ml-detail")
+    # 改分类还没存完就点「返回」：存完后不能把人拽回那封信（以前会，测试偶发超时）
+    held = []
+    page.route("**/api/mail/category", lambda route: held.append(route))
     page.select_option("#hub [data-category]", "event")
     page.wait_for_function(
         "document.querySelector('#hub [data-category]').value === 'event'"
         " && document.querySelector('#hub .ml-detail')"
     )
     page.click("#hub [data-back]")
+    page.wait_for_selector("#hub .ml-cats")
+    assert len(held) == 1
+    with page.expect_response("**/api/mail/category"):
+        held[0].continue_()
+    page.unroute("**/api/mail/category")
+    page.wait_for_timeout(300)  # 让旧的「重新打开那封」有机会跑（修好后不该跑）
+    assert page.locator("#hub .ml-detail").count() == 0
     page.click("#hub [data-cat='personal']")  # 取消分类筛选
     page.click("#hub [data-cat='event']")
     assert page.locator("#hub .ml-row").count() == 1
