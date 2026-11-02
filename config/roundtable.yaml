@@ -176,6 +176,28 @@ chat:
         comfort_texts: ["{other}拉{name}出去走了走，买了杯热饮", "{other}找{name}打了两局游戏，没多问", "{other}陪{name}在天台坐了一会儿"]
         better_text: 心情慢慢缓过来了，又开始跟大家贫嘴
         rest_text: 累了好几天，决定今天什么都不干，好好睡一觉
+      travel:                      # 旅行（L5）：偶尔出门几天，短途为主；计划 → 收拾行李 → 出发 → 途中 → 回来带东西 → 早睡。在外面那几天公寓里显示不在家；办公室工作照常（你定的）
+        chance: 0.012              # 每天想出门的概率（8 位合起来大约一两周有一位出门）；档案提到 like_words 时 × boost
+        like_words: [旅行, 旅游, 出门, 远方, 风景, 拍照, 徒步, 露营, 自驾]
+        cooldown_days: 30          # 回来后至少隔一个月才再出门
+        max_away: 2                # 同一时间最多两位在外面
+        ahead_days: [2, 5]         # 计划后 2～5 天出发
+        dests:                     # 目的地都是泛称（不冒充现实里的具体景点）；days 在外面几晚（0 = 当天来回）
+          - {name: 海边小镇, days: [1, 2], likes: [海, 海边, 沙滩, 贝壳, 日落], sights: [沿着海堤走了一下午, 在码头看渔船回港, 捡了几个贝壳, 吃了顿刚上岸的海鲜, 坐在防波堤上看日落], souvenirs: [一罐海盐糖, 一串贝壳风铃, 一包鱼干]}
+          - {name: 山里的温泉, days: [1, 2], months: [10, 11, 12, 1, 2, 3], likes: [温泉, 泡澡, 山, 安静, 放松], sights: [泡完温泉在廊下发呆, 爬到半山腰看了雾, 在旅馆吃了一桌山野菜, 晚上听着雨声睡着], souvenirs: [一盒温泉蛋, 一小瓶山茶油, 一包手工茶]}
+          - {name: 古镇, days: [0, 1], likes: [古, 历史, 老街, 建筑, 手作], sights: [在青石板路上绕了好几圈, 看老师傅做了一把油纸伞, 坐乌篷船听船夫哼小调, 在茶馆里坐了一下午], souvenirs: [一把小油纸伞, 一盒桂花糕, 一枚铜书签]}
+          - {name: 隔壁城市, days: [0, 1], likes: [展览, 美术馆, 博物馆, 逛街, 咖啡], sights: [看了个一直想看的展, 在旧书店翻了一下午书, 找到一家很好喝的咖啡馆, 逛了夜市吃了一路], souvenirs: [一张展览明信片, 一包咖啡豆, 一本旧书]}
+          - {name: 郊外露营地, days: [1, 1], months: [4, 5, 6, 9, 10], likes: [露营, 星, 户外, 帐篷, 篝火, 徒步], sights: [搭帐篷搭了半天, 晚上躺在草地上数星星, 围着篝火烤了棉花糖, 一大早被鸟叫醒], souvenirs: [一块林子里捡的松果, 一包烤棉花糖, 一张拍立得]}
+          - {name: 花海, days: [0, 0], months: [3, 4, 5], likes: [花, 植物, 拍照, 春天], sights: [在花田里走到腿酸, 拍了一百多张照片, 买了一小束刚剪的花], souvenirs: [一小束干花, 一包花种子, 一瓶花蜜]}
+          - {name: 雪山脚下的小村, days: [2, 3], months: [12, 1, 2], likes: [雪, 滑雪, 冬天, 山], sights: [第一次踩到没过脚踝的雪, 跟着当地人学了会儿滑雪, 在火炉边喝了碗热汤, 看雪山在早上被照成金色], souvenirs: [一副毛线手套, 一罐牦牛肉干, 一个雪花玻璃球]}
+          - {name: 湖边, days: [0, 1], likes: [湖, 骑车, 散步, 钓鱼], sights: [沿着湖骑了半圈车, 在岸边看人钓了一下午鱼, 傍晚的湖面全是晚霞], souvenirs: [一包莲子, 一个手编草帽, 一盒湖虾干]}
+        texts:
+          plan: "在查去{dest}的票，打算{when}出发"
+          pack: 收拾好了去{dest}的行李，翻来覆去塞了好几遍
+          depart: 一大早出发去{dest}了
+          trip: 在{dest}{sight}
+          back: 从{dest}回来了，给{other}带了{souvenir}
+          tired: 旅行回来腿有点酸，早早就睡了
       talent:                      # 觉醒擅长领域（L10）：证据只用人物卡种子 + 生活练习；和工作完全无关，不影响派活
         enabled: true
         domains:                   # 领域 → 档案里的种子词 / 生活里算练习的去处 / 深耕后楼里的人怎么说她（可增删）
@@ -848,6 +870,9 @@ chat:
         - {name: 低落, tags: [story.low], mood: -0.12, energy: -0.05, note: 这几天有点提不起劲}
         - {name: 有人陪, tags: [story.comforted], mood: 0.08}
         - {name: 歇了一天, tags: [story.rest], energy: 0.2, mood: 0.04}
+        - {name: 出门旅行, tags: [story.travel], mood: 0.08, note: 正在外面旅行（工作照常）}
+        - {name: 旅途中, tags: [story.trip], mood: 0.05, energy: -0.03}
+        - {name: 旅行回来, tags: [story.back], mood: 0.04, energy: -0.08}
         - {name: 干完活, tags: [work], mood: 0.02, energy: -0.08, note: 刚在办公室干完一件活}
         - {name: 看到听到, tags: [perceive], mood: 0.02}
       mood_labels: [[0.45, 心情很好], [0.15, 心情不错], [-0.15, 心情平常], [-0.45, 心情有点低落], [-2, 心情很差]]
@@ -1238,7 +1263,8 @@ prompts:
   sticker_draw: v1       # 成员专属表情包：画一张 Q 版贴纸的提示词
   sticker_check: v2      # 成员专属表情包：先逐字抄出图上的字再核对配文和形象
   sticker_anim: v1       # 成员专属动图表情：一次画 2×2 四格，切开连成会动的表情
-  moment_photo: v6       # 朋友圈配图：v6 只许公寓八人里在场的人和房东（脸上贴纸）出现、背景只在公寓楼；v5 的摄影维度和拍照习惯照旧
+  moment_photo: v7       # 朋友圈配图：v7 在 v6（只许公寓八人里在场的人和房东、背景只在公寓楼）上加抓拍不看镜头、人数对上不多出腿手、房东的纸贴着不用手扶
+  moment_photo_brief: v1 # 朋友圈配图的拍摄脚本：画前由她自己把动态写成具体画面（动作、站位、前景、引导线、道具状态）
   moment_photo_tags: v1  # 朋友圈配图的标签版：吃标签的本地绘图模型（ComfyUI，image_prompt: tags）用
   describe_screen: v2    # 投屏陪伴：把一张截图写成给成员看的文字（隐私信息打码；v2 带上一段，写出变化）
   chat: v13              # 群聊：口语、短句（v2：人设与记忆；v3：人物卡随身卡，AI 身份平时不刻意提、被认真问如实承认；v4：表情包、颜文字、引用、分条、不接话；v5：知道现在几点和自己在干什么；v6：照人物卡说话风格，各人不同；v7：大脑分区的想法卡；v8：感情用做法流露、可偏爱和喜欢、挽留只一次）；v9：像发微信不像作答，先反应再吐槽、不复述不解释；v10：心情别直说（用表情包、颜文字、符号），被直接问先回答；v11：简单短词、会歪楼、招牌特色、表情包用得更勤；v12：做事不反复确认、不谈数据截止、不贴状态句、不说「用户」；v13：要动手的活写交办记号交给办公室、选项按钮
@@ -1259,6 +1285,9 @@ prompts:
   life_chat: v7          # 生活：成员之间聊天（公寓楼里的模拟生活；v3：照人物卡说话风格，不跟风、不反复提同一件事；v4：大脑分区的想法卡、谁接话由显著性和驱力定；v5：感情用做法流露、同事之间的感情可以是真的；v7：简单短词、会歪楼、招牌特色、能发表情包）
   meme_radar: v1         # 梗雷达：从热榜标题和搜索摘要里挑出最近真正在流行的网络梗，写成梗卡（梗、意思、上句 → 接法）
   life_share: v6         # 生活：成员把上网看到的一条内容分享到生活群（v4：不提摘要、原文，不用「先存疑」收尾；v5：只说一件、更短，重点是自己的反应；v6：直接甩链接配几个字，不介绍内容）
+  checkin_card: v1       # 旅行打卡·判定卡（L5）：这一刻值不值得站进去打卡，只输出 JSON；不值得就不打（只用于生活）
+  travel_journal: v1     # 旅行打卡·旅行日记（L5）：第一人称小作文，带前 3 天打卡的上下文
+  bili_share: v1         # B 站：看完视频后给用户的私信、自己的动态（只存本机列表，不发到外部网站）
   moment_post: v3        # 朋友圈：成员发一条动态（v3：转发卡片、表情包）
   moment_comment: v3     # 朋友圈：成员评论一条动态（或回复评论）（v3：表情包）
   evolution_card: v1     # 革新例会·自己找资料：一位成员把网页写成资料卡
@@ -1293,6 +1322,7 @@ step_params:
   watch: {max_tokens: 1200, reasoning: {effort: low}}  # 投屏陪伴：一两句
   memes: {max_tokens: 1500, reasoning: {effort: low}}  # 梗雷达：每天一次提炼梗卡
   wander: {max_tokens: 1200, reasoning: {effort: low}}  # 自己上网：每页一小段 JSON
+  travel: {max_tokens: 2500, reasoning: {effort: low}}  # 旅行打卡（判定卡、旅行日记）和 B 站私信 / 动态
   chat: {max_tokens: 1500, reasoning: {effort: low}}   # 群聊：一两句话，少想多说（思考会挤占输出，之前 500 上限时有人回复为空）
   review: {max_tokens: 3000, reasoning: {max_tokens: 800}}
   revise: {max_tokens: 5000, reasoning: {max_tokens: 2000}}
@@ -1829,16 +1859,16 @@ media:
     enabled: true
     chance: 0.5              # 一条动态配图的概率
     per_member_day: 1        # 每位成员每天最多 1 张
-    per_day: 3               # 所有成员每天最多 3 张（约 $0.08/天）
+    per_day: 1               # 所有成员每天最多 1 张（GPT Image 2.5 带参考图实测约 $0.078/张，约 $2.4/月；11-02 用户选）
     max_side: 1024
     local_only: false        # true：只用本地绘图模型（ComfyUI），本地没开就只发文字，不退回付费模型
-    # 2026-11-02 用户选「接 ChatGPT 同款画图模型」：配图用旗舰档、带 feed_photo 标签的先画（约 $0.03/张，
-    # 每天最多 3 张）；画不出来按出图顺序换下一个。表情包不受影响。
+    # 2026-11-02 用户选「接 ChatGPT 同款画图模型」：配图用旗舰档、带 feed_photo 标签的先画（带参考图约 $0.078/张，
+    # 见上面 per_day）；画不出来按出图顺序换下一个。表情包不受影响。
     tier: flagship
-    prefer_tags: [feed_photo]
+    prefer_tags: [feed_photo, plans_image]  # 先 ChatGPT 对话出图（会先理解改写再画，和网页一样），再 GPT Image 2.5
     # --- 摄影维度（2026-11-02，.claude/skills/phone-photo）：每张图抽一种拍法，再给机位 / 光 / 时机 /
-    # 焦段 / 滤镜各抽一个（各维度独立种子，可复现）。取值按手机现实：1x 主摄、原色、抓拍为主；
-    # 只写取景、光、时机、景深，不写写实画质词（画风跟设定图）。
+    # 焦段 / 色调 / 风格参照各抽一个（各维度独立种子，可复现）。机位和光写得具体（前景、引导线、光的方向和质感），
+    # 11-02 起按摄影技能加胶片色调和大师风格参照；不写写实画质词和相机型号（画风跟设定图）。
     # name：稳定标识（形象卡 photo.boost 按名字加权）；text：英文短语（空 = 这项不写）；
     # tags：标签版（本地 ComfyUI 用）；when：适用时间段（morning/day/evening/night）或地点
     # （dorm/canteen/lounge/gym/office/meeting/rooftop/indoor/outdoor），同类满足一个即可；
@@ -1851,36 +1881,42 @@ media:
       - {name: mirror, text: "mirror selfie, the phone covering part of her face", weight: 1, tags: "mirror selfie, holding phone, reflection"}
       - {name: pov, text: "something worth showing off in front of her (a nice meal just served, the view, a cute object), with her hand or sleeve at the edge of the frame", weight: 2, her: part, tags: "pov hands"}
       - {name: thing, text: "only a view or thing worth showing off (rooftop night sky, a pretty dish just served); she does not appear", weight: 1, her: none, tags: "still life"}
+    cameras:                 # 用什么拍（11-02 用户：加单反、胶片机、拍立得等不同相机）：最先抽，镜头 / 色调按它过滤
+      - {name: phone, text: "", weight: 8}
+      - {name: dslr, text: "shot on a DSLR with a fast prime lens: crisp subject, creamy background blur, rich clean color", weight: 2, shots: [candid, together, pov, thing], tags: "depth of field, bokeh"}
+      - {name: film_camera, text: "shot on a 35mm film point-and-shoot: film color, soft highlight roll-off, slightly imperfect focus", weight: 1.5, tags: "film photography"}
+      - {name: instant, text: "an instant camera snapshot: soft washed-out colors, slight vignette, built-in flash, dreamy and imperfect", weight: 1, tags: "instant photo, vignette, flash"}
+      - {name: ccd, text: "an old compact digital camera: direct flash, crisp early-2000s digital look", weight: 1, tags: "flash, digital camera"}
     angles:                  # 机位：距离、高度、方向、隔物取景
-      - {name: across_table, text: "from across the table", weight: 3, tags: "across table", shots: [candid, together, pov, thing]}
+      - {name: across_table, text: "from across the table, the table edge as a leading line into the frame, her on a third", weight: 3, tags: "across table", shots: [candid, together, pov, thing]}
       - {name: arms_length, text: "from arm's length, close", weight: 2, her: [part, full], tags: close-up, shots: [selfie, together, pov]}
       - {name: few_meters, text: "from a few meters away, she is small-ish in the frame", weight: 2, her: [full], tags: "wide shot, from a distance", shots: [candid]}
-      - {name: high_angle, text: "high angle from standing height", weight: 2, tags: "from above"}
-      - {name: eye_level, text: "eye level from a seated friend", weight: 2, her: [full], tags: "eye level", shots: [candid, together]}
+      - {name: high_angle, text: "high angle from standing height, the table and floor pattern giving clean geometry", weight: 2, tags: "from above"}
+      - {name: eye_level, text: "eye level from a seated friend, her on a third, the room receding behind her", weight: 2, her: [full], tags: "eye level", shots: [candid, together]}
       - {name: low_angle, text: "low angle from the seat", weight: 1, tags: "from below", shots: [candid, pov, thing]}
       - {name: three_quarter, text: "three-quarter view of her", weight: 2, her: [full], tags: "three-quarter view", shots: [candid, together, selfie]}
       - {name: profile, text: "her in profile", weight: 1, her: [full], tags: "from side, profile", shots: [candid]}
       - {name: from_behind, text: "from behind, she is facing what she is looking at", weight: 1, her: [full], tags: "from behind", shots: [candid]}
-      - {name: over_shoulder, text: "over a friend's shoulder, the shoulder blurred in the foreground", weight: 1, her: [full], tags: "over the shoulder, blurry foreground", shots: [candid]}
-      - {name: doorway, text: "framed through the doorway", weight: 1, her: [full], when: [indoor], tags: "doorway, framed", shots: [candid]}
+      - {name: over_shoulder, text: "over a friend's shoulder, the shoulder dark and blurred in the foreground, depth layered front to back", weight: 1, her: [full], tags: "over the shoulder, blurry foreground", shots: [candid]}
+      - {name: doorway, text: "shot from just outside the doorway, the door frame darkly blurred on one edge as a natural frame", weight: 1, her: [full], when: [indoor], tags: "doorway, framed", shots: [candid]}
       - {name: reflection, text: "seen reflected in the window glass", weight: 0.5, her: [full], tags: "reflection, window", shots: [candid]}
       - {name: top_down, text: "top-down shot of the table", weight: 2, her: [none, part], tags: "from above, table", shots: [pov, thing]}
     lights:                  # 光：每束光都有看得见的来源，跟时间段和地点走
-      - {name: window_side, text: "soft side light from the window", weight: 3, when: [morning, day, indoor], tags: "window light, side lighting"}
-      - {name: window_back, text: "against the bright window, rim light on her hair, face still visible", weight: 1, when: [morning, day, indoor], tags: "backlighting, rim light"}
-      - {name: ceiling, text: "flat overhead ceiling light", weight: 2, when: [indoor], tags: "ceiling light, indoors"}
-      - {name: sunset_window, text: "warm sunset light streaming in through the window", weight: 2, when: [evening, indoor], tags: "sunset, window light, orange light"}
-      - {name: desk_lamp, text: "warm desk lamp as the only light, deep shadows", weight: 3, when: [evening, night, dorm, office], tags: "night, desk lamp, dim lighting"}
-      - {name: screen, text: "lit by the screen glow, cool blue on her face", weight: 1, when: [night, dorm, lounge, office], tags: "screen light, dark room"}
+      - {name: window_side, text: "sun through the window blinds from the side, crisp striped shadows across the table and arms, glints on metal and glossy food, warm bounce light from the table onto faces", weight: 3, when: [morning, day, indoor], tags: "window light, side lighting"}
+      - {name: window_back, text: "against the bright window, a glowing rim of light on her hair and shoulders, face lit softly by light bouncing back from the room", weight: 1, when: [morning, day, indoor], tags: "backlighting, rim light"}
+      - {name: ceiling, text: "warm pendant lamps overhead, pools of light on the table, soft falloff into the corners", weight: 2, when: [indoor], tags: "ceiling light, indoors"}
+      - {name: sunset_window, text: "low sunset light streaming in through the window, long orange shapes across the floor and walls, dust glowing in the beam", weight: 2, when: [evening, indoor], tags: "sunset, window light, orange light"}
+      - {name: desk_lamp, text: "a single warm desk lamp as the key light, Rembrandt-style triangle of light on her cheek, deep shadow on the far side, cool moonlight from the window as a rim on her hair", weight: 3, when: [evening, night, dorm, office], tags: "night, desk lamp, dim lighting"}
+      - {name: screen, text: "lit by the screen glow, cool blue on her face against a dark warm room", weight: 1, when: [night, dorm, lounge, office], tags: "screen light, dark room"}
       - {name: golden, text: "golden hour sun, long warm shadows", weight: 3, when: [evening, outdoor], tags: "sunset, golden hour, orange sky"}
       - {name: blue_hour, text: "blue hour sky, city lights just turning on", weight: 2, when: [evening, night, outdoor], tags: "blue hour, twilight, city lights"}
       - {name: night_city, text: "night city glow, phone night mode look: clean shadows, lights glowing softly", weight: 2, when: [night, outdoor], tags: "night, city lights"}
       - {name: midday, text: "bright midday sun, short dark shadows", weight: 1, when: [day, outdoor], tags: "sunlight, day"}
-      - {name: flash, text: "on-camera flash, bright face, dark background", weight: 0.5, when: [night], her: [part, full], tags: "flash, night"}
+      - {name: flash, text: "direct on-camera phone flash, bright faces with hard drop shadows on the wall behind, the room beyond falling into warm lamp glow", weight: 0.5, when: [night], her: [part, full], tags: "flash, night"}
     moments:                 # 时机：哪一秒按的快门（最能去 AI 感）
       - {name: decisive, text: "the split second right after something happens", weight: 2, tags: candid}
       - {name: mid_laugh, text: "mid-laugh, eyes squeezed", weight: 2, her: [full], tags: "laughing, closed eyes"}
-      - {name: mid_bite, text: "mid-bite, cheeks full", weight: 1, her: [full], when: [canteen, dorm, lounge], tags: "eating, cheek bulge"}
+      - {name: mid_bite, text: "mid-bite, cheeks full", weight: 1, her: [full], when: [canteen], tags: "eating, cheek bulge"}
       - {name: turning, text: "just turning around after hearing her name", weight: 1, her: [full], tags: "turning around, looking back", shots: [candid]}
       - {name: unaware, text: "caught before she noticed the camera", weight: 2, her: [full], tags: "candid, looking away", shots: [candid]}
       - {name: noticed, text: "she just noticed the camera, hand half raised to block it", weight: 1, her: [full], tags: "hand up, surprised"}
@@ -1888,27 +1924,46 @@ media:
       - {name: burst, text: "one frame from a burst, caught mid-motion", weight: 1, her: [part, full], tags: "motion blur"}
       - {name: just_ready, text: "right when it is ready, before anyone touches it", weight: 2, her: [none, part]}
       - {name: reaching, text: "her hand reaching in to grab it", weight: 1, her: [part], tags: "reaching"}
-    lenses:                  # 焦段：手机只有几档；1x 主摄最常见（不写）
+    lenses:                  # 焦段：手机几档（只配手机）+ 单反 / 胶片机的定焦；1x 主摄最常见（不写）
       - {name: main, text: "", weight: 7}
-      - {name: ultra_wide, text: "0.5x ultra-wide, edges slightly stretched, whole room in frame", weight: 1.5, tags: "wide shot, wide angle"}
-      - {name: zoom, text: "2x zoom, a little compressed, from across the room", weight: 1, her: [full], tags: "telephoto", shots: [candid]}
-      - {name: portrait_mode, text: "portrait mode, background softly blurred with slightly artificial edges", weight: 1, her: [part, full], tags: "depth of field, blurry background"}
-      - {name: macro, text: "phone macro close-up of something small", weight: 0.5, her: [none, part], tags: "close-up, macro"}
+      - {name: ultra_wide, text: "0.5x ultra-wide, edges slightly stretched, whole room in frame", weight: 1.5, tags: "wide shot, wide angle", cameras: [phone]}
+      - {name: zoom, text: "2x zoom, a little compressed, from across the room", weight: 1, her: [full], tags: "telephoto", shots: [candid], cameras: [phone]}
+      - {name: portrait_mode, text: "portrait mode, background softly blurred with slightly artificial edges", weight: 1, her: [part, full], tags: "depth of field, blurry background", cameras: [phone]}
+      - {name: macro, text: "phone macro close-up of something small", weight: 0.5, her: [none, part], tags: "close-up, macro", cameras: [phone]}
       - {name: missed_focus, text: "focus slightly missed, landed on something in front of her", weight: 0.5, her: [full], tags: "blurry foreground", shots: [candid]}
-    filters:                 # 手机自带滤镜：原色最多，不过饱和
-      - {name: original, text: "", weight: 12}
-      - {name: warm, text: "slightly warm phone filter", weight: 2, tags: "warm colors"}
-      - {name: cool, text: "slightly cool, faded phone filter", weight: 2, tags: "cool colors, faded"}
-      - {name: bright, text: "slightly brightened phone filter", weight: 1, tags: "bright"}
-      - {name: high_contrast, text: "punchy high-contrast phone filter", weight: 0.5, tags: "high contrast"}
-      - {name: bw, text: "black-and-white phone filter", weight: 0.5, tags: "monochrome, greyscale"}
+      - {name: prime_50, text: "50mm at f/1.8, the background melting into soft round bokeh", weight: 6, tags: "depth of field, bokeh", cameras: [dslr]}
+      - {name: tele_85, text: "85mm portrait lens from a few steps back, compressed background, very soft bokeh", weight: 3, her: [full], tags: "telephoto, bokeh", shots: [candid], cameras: [dslr]}
+      - {name: wide_35, text: "35mm lens, a little wider, the room readable around her", weight: 3, tags: "wide shot", cameras: [dslr, film_camera]}
+    filters:                 # 色调 / 胶片感（2026-11-02 用户看技能版样张最满意：要胶片色调，不要原色直出；不要颗粒噪点）
+      - {name: original, text: "", weight: 3}
+      - {name: classic_chrome, text: "muted Classic Chrome-like color, warm skin, deep but clean shadows", weight: 4, tags: "muted colors"}
+      - {name: warm, text: "soft warm Portra-like film color, gentle highlights", weight: 4, tags: "warm colors"}
+      - {name: bright, text: "bright airy film color, lifted shadows, pastel tones", weight: 1, tags: "bright, pastel colors"}
+      - {name: high_contrast, text: "punchy high-contrast color, deep blacks, crisp highlights", weight: 1, tags: "high contrast"}
+      - {name: tungsten_night, text: "tungsten night film look, soft red halation around the lamps", weight: 3, when: [evening, night], tags: "night, halation"}
+      - {name: amber_teal, text: "warm amber against teal-blue shadows", weight: 2, when: [evening, night], tags: "orange and teal"}
+      - {name: cool, text: "slightly cool, faded color", weight: 1, tags: "cool colors, faded"}
+      - {name: instant_pastel, text: "soft pastel instant-film color, creamy highlights", weight: 6, tags: "pastel colors", cameras: [instant]}
+      - {name: digicam, text: "early-2000s digicam color: cool whites, punchy saturation", weight: 6, tags: "vivid colors", cameras: [ccd]}
+      - {name: light_leak, text: "faded film color with a warm light leak at one edge", weight: 2, tags: "light leak, faded", cameras: [film_camera]}
+      - {name: bw, text: "black-and-white, rich tones", weight: 0.5, tags: "monochrome, greyscale"}
+    styles:                  # 摄影风格参照（技能 photo-prompt-kit）：借构图、光和色彩，画风仍照设定图
+      - {name: none, text: "", weight: 3}
+      - {name: cartier_bresson, text: "inspired by Henri Cartier-Bresson: the decisive moment, clean geometric framing, unposed", weight: 3, her: [full], shots: [candid, together]}
+      - {name: nan_goldin, text: "inspired by Nan Goldin's intimate snapshots of close friends: closeness, saturated color, nothing staged", weight: 2, her: [full], when: [evening, night], shots: [candid, together, selfie]}
+      - {name: saul_leiter, text: "inspired by Saul Leiter: seen past soft foreground shapes and glass, quiet color blocks, lots of breathing room", weight: 2}
+      - {name: rembrandt, text: "Rembrandt-like chiaroscuro: one warm light source, strong light-dark contrast, the rest of the room in deep shadow", weight: 2, when: [evening, night], her: [part, full]}
+      - {name: eggleston, text: "inspired by William Eggleston: an ordinary thing in rich saturated color from an unusual low angle", weight: 2, her: [none, part]}
     quirk_chance: 0.3        # 她自己拍时带上拍照小毛病（形象卡 photo.quirk）的概率
     subject_chance: 0.6      # 她自己拍东西时换成她爱拍的东西（photo.subjects）的概率
     # shots：这个取值只配哪些拍法（不写 = 都可以），免得「自拍 + 几米外」「自拍 + 没注意到镜头」这类矛盾
     # --- 画面里的人（2026-11-02 用户：不要出现公寓以外的人，背景必须是公寓楼；可以出现用户，
     # 不画脸、脸上贴张纸「早上好」，写不写看她的心情）。公寓楼外的事（出门、旅行）不配图。
     housemate_refs: 2        # 同场室友最多附几张参考图（每人一张），免得被画成陌生人
-    landlord_chance: 0.2     # 她本人入镜时房东（你）也在画面里的概率，再乘她的 photo.landlord（看性格）
+    landlord_chance: 0.2     # 她本人入镜时房东（你，男生）也在画面里的概率，再乘她的 photo.landlord（看性格）
+    # 拍摄脚本（11-02 用户看手写脚本的技能版样张最满意）：画图前她用自己的模型把这条动态写成具体画面，
+    # 每张多一次很短的文字调用（约 $0.001～0.003，算在生活每日上限里）；关掉就只用抽好的拍摄要求
+    brief: true
   video:
     audio: true              # 视频同时生成声音（环境声、对白；模型不支持时忽略）
     duration_s: 5

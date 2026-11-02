@@ -42,6 +42,16 @@
 | GET | `/api/wander/log?member=&after=` | 浏览记录 |
 | GET | `/api/wander/frame` | 正在看的页面小图（JPEG；没人在逛时 204） |
 
+## 旅行与 B 站（L5）
+
+面板下半部分「旅行与 B 站」：谁在外面旅行、看过的 B 站视频（几帧 + 看到了什么）、看完写的私信和动态（只存本机，不发到 B 站）、打卡记录、「B 站全部自动」总开关和「打卡配图」开关、贴链接让她看一个视频。见 `docs/LIFE_STORY.md`「B 站」。
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/api/trips` | 旅行、打卡、B 站看过的视频和私信 / 动态、开关和额度 |
+| POST | `/api/trips/switches` | `{auto?, photo?}`：B 站一键总开关、打卡配图开关 |
+| POST | `/api/trips/bili/watch` | `{member, url}`：让她看一个 B 站视频 |
+
 ## 后续（不在第一期）
 
 - 看不懂时截图交识图（走感官接口）、B站读字幕和弹幕。

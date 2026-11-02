@@ -45,6 +45,7 @@ import { LanPanel } from './lan.js';
 import { BackupPanel } from './backup.js';
 import { FirstAidPanel } from './firstaid.js';
 import { Watch } from './watch.js';
+import { Trips } from './trips.js';
 import { Wander } from './wander.js';
 import { Workbench } from './workbench.js';
 import { SuperPanel } from './supercomputer.js';
@@ -246,6 +247,7 @@ new Wander($('#wanderdlg'), $('#wanderbtn'), {
     log: API.wanderLog,
     frameUrl: API.wanderFrameUrl,
   },
+  trips: new Trips({ trips: API.trips, switches: API.tripSwitches, watch: API.biliWatch }),
 });
 // 「工作台」页（分段栏第五个入口）：生成器 + 超级电脑 + dsh
 const bench = new Bench($('#bench'));
