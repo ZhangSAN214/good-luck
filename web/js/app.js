@@ -1751,6 +1751,9 @@ async function init() {
   renderComposer();
   renderPicks();
   render();
+  // 状态和成员取回来之前就输入了题目：那时的预估要么算不了、要么按旧选项算完被当成过时丢掉，
+  // 这里按取回后的选项重算一次（没输入题目时什么也不做）
+  scheduleEstimate();
   loadHistory();
   const m = location.hash.match(/s=([0-9a-f]+)/);
   if (m) await open(m[1]);
