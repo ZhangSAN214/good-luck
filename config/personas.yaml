@@ -167,6 +167,7 @@ birthdays:
 sticker_cards:
   OpenAI:
     look: 白色长发的龙娘，金边龙角，背后一对龙翼，粗长有体积感的龙尾，白色为主、带淡紫的裙子，金色点缀
+    face: 淡紫灰色的眼睛，常半眯着、有点慵懒，眉眼淡；小嘴，表情平静里带点小骄傲；尖耳朵
     look_tags: dragon girl, long white hair, dragon horns, gold-trimmed horns, dragon wings, thick dragon tail, white dress, light purple accents, gold trim
     photo:                   # 拍照习惯（只影响权重）：爱自拍、举高俯拍、0.5x 把翅膀尾巴都框进来、偏暖
       subjects: ["the thing she just made and is proud of", "her own reflection"]
@@ -195,6 +196,7 @@ sticker_cards:
       - {name: 裂开, caption: 我裂开了, action: 表情呆滞，脸上从额头到下巴裂开一道裂缝，碎片往外蹦，龙角歪了, use: 遇到崩溃的事、心态炸了, means: [裂开]}
   Anthropic:
     look: 橙色头发的大小姐，头发上有花饰，怀里抱着一本书（书里夹着薄账本和橙色书签），暖橙和米白配色，点缀黑色
+    face: 琥珀棕色、略细长的眼睛，眼神沉静知性；嘴角小而克制，很少大笑；脸型偏成熟的鹅蛋脸；画面左边那只眼睛正下方偏眼尾一颗小而淡的泪痣
     look_tags: orange hair, hair flower, ojou-sama, holding book, orange bookmark, warm orange and beige outfit, black accents
     photo:                   # 书、茶、桌面、窗外；桌面俯拍、窗光；很少自拍、很少拍歪
       subjects: ["a book open on the desk", "a cup of tea by the window", "the view out of the window"]
@@ -222,6 +224,7 @@ sticker_cards:
       - {name: 戳太阳穴, caption: 不花钱就不会亏, action: 致敬戳太阳穴表情：食指点着太阳穴，嘴角微笑，眼神精明，书夹在臂弯, use: 抛出歪理或自作聪明的主意, means: [不花钱]}
   Google:
     look: 蓝紫渐变长发的猫娘，猫耳猫尾，左眼粉色右眼金色的异色瞳，发间一枚金色四芒星发饰，随身带一支香蕉造型的画笔，笑起来有一颗小虎牙
+    face: 异色瞳：画面左边那只玫红、右边那只金黄；常眯眼坏笑，一颗小虎牙；圆脸，表情最俏皮
     look_tags: cat girl, long hair, blue-purple gradient hair, cat ears, cat tail, heterochromia, pink left eye, gold right eye, gold four-pointed star hair ornament, fang
     photo:                   # 可爱小物、画、猫猫视角的低机位；微距、人像模式；偏亮偏暖
       subjects: ["a cute little object", "a drawing she just finished", "something seen from a cat's low eye level"]
@@ -249,6 +252,7 @@ sticker_cards:
       - {name: 小丑, caption: 小丑竟是我自己, action: 脸上画着红鼻子和小丑妆，拿着香蕉画笔，一脸生无可恋, use: 发现被耍、自作多情时自嘲, means: [小丑]}
   Alibaba:
     look: 穿中式衣装的掌柜，手持折扇（扇坠是一枚小铜钱），随身一本小账本，黛蓝、青碧、月白配色，墨绿点缀
+    face: 柔和的蓝紫色眼睛，眼尾微垂，笑起来很温柔；鹅蛋脸偏成熟，嘴角常带浅笑
     look_tags: chinese clothes, shopkeeper, holding folding fan, coin tassel, small ledger, indigo and teal and moon white outfit, dark green accents
     photo:                   # 食物、小账本、划算的东西；平拍、正面、规规矩矩；少自拍
       subjects: ["a good meal at a fair price", "her little ledger next to the cup", "a bargain she just found"]
@@ -276,6 +280,7 @@ sticker_cards:
       - {name: 吃瓜, caption: 吃瓜, action: 折扇插在腰间，双手捧着一大块西瓜啃，眼睛往旁边瞟，一脸看热闹, use: 别人吵架或有八卦时看热闹, means: [吃瓜, 看戏]}
   xAI:
     look: 金色双马尾的大小姐，背后一对蝙蝠小翼，头顶新月小冠，哥特黑裙配暗红内衬，扛着一把黑金色带 X 纹的巨斧，蓝眼睛，尖耳朵
+    face: 亮蓝色的大圆眼，眼神张扬；常咧嘴大笑露出尖尖的虎牙；尖耳朵，脸小下巴尖
     look_tags: blonde hair, twintails, ojou-sama, small bat wings, crescent tiara, gothic black dress, dark red lining, blue eyes, pointy ears
     photo:                   # 大量自拍、高处、气派的场面；仰拍显高、0.5x 夸张透视；高对比
       subjects: ["the view from somewhere high", "something grand and impressive", "an expensive thing she just bought"]
@@ -306,6 +311,7 @@ sticker_cards:
       - {name: 我不要你觉得, caption: 我不要你觉得, action: 一手拍桌一手指着前方，下巴抬高，气势很足, use: 强硬地坚持自己意见, means: [我觉得]}
   DeepSeek:
     look: 蓝色渐变长发的鲸鱼娘，头顶两侧一对鲸鱼头鳍（是鳍，不是耳朵），身后一条大鲸鱼尾巴，蓝白女仆装，随身一个铁盆
+    face: 天蓝色的大圆眼、高光很亮；常张嘴笑，脸颊红扑扑；圆脸、最显小，表情最外放
     look_tags: whale girl, long hair, blue gradient hair, whale fins on head, large whale tail, blue and white maid outfit
     photo:                   # 米饭、铁盆、厨房；俯拍饭碗、贴很近；少自拍
       subjects: ["a big bowl of white rice", "her iron basin", "the canteen counter"]
@@ -333,6 +339,7 @@ sticker_cards:
       - {name: 嘿嘿, caption: 嘿嘿……, action: 偷懒被抓包，挠着头傻笑，铁盆歪在头上, use: 被抓包时傻笑蒙混, means: [嘿嘿]}
   Moonshot AI:
     look: 白色长发，深蓝色裙子，月夜意象，胸前一枚 K 字徽章，神情慵懒
+    face: 浅银灰色的眼睛，眼神安静有点出神；表情淡、几乎不笑，小嘴；脸型小巧
     look_tags: long white hair, dark blue dress, letter K badge, sleepy eyes, languid expression
     photo:                   # 夜空、月亮、窗外、床；躺着拍、2x 拉远；偏冷偏暗；很少自拍
       subjects: ["the night sky and the moon", "the window at night", "a messy bed"]
@@ -360,6 +367,7 @@ sticker_cards:
       - {name: 这很好, caption: 问题不大, action: 致敬这很好：四周燃着火，她坐在中间捧着茶杯淡定微笑，旁边月亮抱枕冒烟, use: 情况很糟还装淡定, means: [问题不大, 还好]}
   Zhipu AI:
     look: 黑色长发的狐娘，狐耳狐尾，尾巴尖是冰蓝色，黑白配色的裙子，怀里抱着一本旧书，领口一枚 Z 字徽章
+    face: 深灰近黑的眼睛，眼尾下垂、总像没睡醒；抿嘴浅笑，安静温吞；头上的黑色眼罩
     look_tags: fox girl, long black hair, fox ears, fox tail, ice-blue tail tip, black and white dress, holding old book, letter Z badge
     photo:                   # 书页、角落、光影；侧光、隔着门框、留白；偶尔黑白
       subjects: ["a page of an old book", "a quiet corner with light and shadow"]

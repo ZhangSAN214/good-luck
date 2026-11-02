@@ -101,6 +101,11 @@ def card_hash(card: StickerCard, spec: StickerSpec) -> str:
     return hashlib.sha256(raw.encode()).hexdigest()[:16]
 
 
+def with_face(card: StickerCard) -> str:
+    """朋友圈配图里的外观：look 加上她自己的五官（形象卡 face），几位才不会画成同一张脸。"""
+    return f"{card.look}；脸：{card.face}" if card.face else card.look
+
+
 class _Index:
     """index.json：{"items": {成员: {表情名: 条目}}}。目录为空时只存在内存里。"""
 
@@ -544,7 +549,7 @@ class MemberStickers:
         must = card.must if card.daily_must is None else card.daily_must
         version = self.rt.config.roundtable.prompts["moment_photo"]
         values = {
-            "look": card.look,
+            "look": with_face(card),
             "must": "、".join(must) or "无",
             "cues": "、".join(card.cues) or "无",
             "shot": shot,
@@ -605,7 +610,7 @@ class MemberStickers:
         rules = self.rt.config.roundtable.media.moment_photos
         card = self.card(member)
         mates, images = self._housemates(member, others, 0)
-        lines = [f"{name} (the one posting): {card.look}"]
+        lines = [f"{name} (the one posting): {with_face(card)}"]
         lines.append(f"Housemates: {mates.strip()}")
         lines.append(f"Landlord: {rules.landlord_in if landlord else rules.landlord_out}")
         return "\n".join(lines), images
@@ -632,7 +637,7 @@ class MemberStickers:
             must = card.must if card.daily_must is None else card.daily_must
             lines.append(
                 rules.housemate_line.format(
-                    name=name or mate, look=card.look, must="、".join(must) or "无", ref=ref
+                    name=name or mate, look=with_face(card), must="、".join(must) or "无", ref=ref
                 )
             )
         if not lines:

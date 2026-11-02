@@ -807,3 +807,14 @@ def test_moment_photo_v7_follows_her_brief(tmp_path):
     planned, unplanned = (c[2] for c in image_calls(fake))
     assert "(follow it closely: the action, who is where in the frame" in planned
     assert plan in planned and "the state of things): none" in unplanned
+
+
+def test_every_member_has_her_own_face_in_photo_prompts(tmp_path):
+    """11-02 用户看对比图：角色面部有些雷同。每位写自己的五官，接在外观后面给画图和拍摄脚本。"""
+    cards = load_config().personas.sticker_cards
+    faces = [card.face for card in cards.values()]
+    assert all(faces) and len(set(faces)) == len(faces)
+    assert "泪痣" in cards["Anthropic"].face  # 用户定的克劳德泪痣
+    rt, _, stickers = build(tmp_path)
+    people, _ = stickers.people("OpenAI", "小白", [("Anthropic", "克劳德")])
+    assert cards["OpenAI"].face in people and cards["Anthropic"].face in people
