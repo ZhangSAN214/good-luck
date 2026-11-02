@@ -24,6 +24,7 @@ tag_vocabulary:
   - stt             # 语音转文字（Whisper 系列）
   - video_gen       # 视频生成（异步）
   - music_gen       # 音乐生成（配乐、片头、整首歌；同步返回音频）
+  - feed_photo      # 朋友圈配图优先用（2026-11-02 用户看样张后选定：画日常照最像随手拍、最像本人）
 
 # 调用渠道。key 只从 .env 读取，这里只写环境变量名。
 #   adapter: 适配器实现（openai_compat / anthropic / gemini）
@@ -430,7 +431,7 @@ models:
     tier: flagship
     price: {input: 8.0, output: 30.0}
     image_tokens: 1056
-    tags: [image_gen, image_edit]
+    tags: [image_gen, image_edit, feed_photo]
     image_api: images
     enabled: true
     routes:

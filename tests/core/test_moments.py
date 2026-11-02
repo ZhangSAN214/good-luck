@@ -275,6 +275,44 @@ async def test_post_gets_a_photo_by_chance_with_daily_caps(tmp_path, monkeypatch
     assert spec.shot == by_text[shot]
     if "lights" in spec.picks:
         assert spec.picks["lights"].name in {"blue_hour", "night_city", "flash"}
+    assert kw["others"] == []  # 事件没写在场的人：没有室友
+
+
+async def test_photo_passes_housemates_and_skips_places_outside_the_building(tmp_path, monkeypatch):
+    """11-02 用户：配图只画公寓里、只画公寓里的人；室友按她们的样子画。"""
+    from roundtable.core.config.schema import StickerCard
+    from roundtable.core.member_stickers import MemberStickers
+
+    env = Env()
+    rt = env.rt
+    rt.chat_media_dir = tmp_path / "media"
+    everyone = ChatHub(rt).everyone()
+    cards = {m.id: StickerCard(look="测试") for m in everyone}
+    media = rt.config.roundtable.media
+    caps = {"chance": 1.0, "per_day": 9, "per_member_day": 9}
+    photos = media.moment_photos.model_copy(update=caps)
+    media = media.model_copy(update={"enabled": True, "moment_photos": photos})
+    rt.config = rt.config.model_copy(
+        update={
+            "personas": rt.config.personas.model_copy(update={"sticker_cards": cards}),
+            "roundtable": rt.config.roundtable.model_copy(update={"media": media}),
+        }
+    )
+    asked = []
+
+    async def photo(self, member, scene, post, shot, **kw):
+        asked.append(kw)
+        raise ValueError("不真画")
+
+    monkeypatch.setattr(MemberStickers, "photo", photo)
+    mo = moments(env)
+    a, b = everyone[0], everyone[1]
+    event = {"id": 7, "topic": "食堂", "place": "canteen", "at": None, "members": [a.id, b.id]}
+    assert await mo.photo(a, event, "饭") is None
+    assert asked[-1]["others"] == [(b.id, b.name)]
+    for place in ("trip:beach", "group"):
+        assert await mo.photo(a, {**event, "id": 8, "place": place}, "外面") is None
+    assert len(asked) == 1  # 公寓楼外的事不配图
 
 
 def test_photo_shots_mostly_show_her():

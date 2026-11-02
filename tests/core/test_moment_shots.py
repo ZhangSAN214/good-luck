@@ -250,3 +250,32 @@ def test_work_mode_does_not_read_photo_habits():
         if "moment_shots" in p.read_text(encoding="utf-8") and p.name != "moment_shots.py"
     }
     assert users == {"core/moments.py", "core/member_stickers.py"}
+
+
+def test_dimension_values_only_go_with_their_shots():
+    """11-02 样张：自拍配「几米外 / 从背后 / 没注意到镜头」互相矛盾。"""
+    third_person = {"few_meters", "from_behind", "over_shoulder", "doorway", "reflection", "zoom"}
+    for event in range(300):
+        s = spec("selfie", event=event)
+        assert not {o.name for o in s.picks.values()} & third_person
+        m = spec("mirror", event=event)
+        assert "unaware" not in {o.name for o in m.picks.values()}
+    assert fits(PhotoOption(name="x", shots=["candid"]), None, frozenset(), "selfie") is False
+    assert fits(PhotoOption(name="x", shots=["candid"]), None, frozenset(), "candid")
+    assert fits(PhotoOption(name="x", shots=["candid"]), None, frozenset(), "")  # 无名拍法不过滤
+
+
+def test_unknown_shot_names_in_a_dimension_are_rejected():
+    with pytest.raises(ValidationError, match="不存在的拍法"):
+        MomentPhotoRules(angles=[PhotoOption(name="x", shots=["nope"])])
+
+
+def test_landlord_only_with_her_in_frame_and_scaled_by_her_wish():
+    full = [spec("candid", event=e).landlord for e in range(2000)]
+    assert 0.15 < sum(full) / len(full) < 0.25
+    assert not any(spec("thing", event=e).landlord for e in range(300))
+    assert not any(spec("pov", event=e).landlord for e in range(300))
+    shy = PhotoHabit(landlord=0)
+    assert not any(spec("candid", shy, event=e).landlord for e in range(300))
+    keen = PhotoHabit(landlord=3)
+    assert sum(spec("candid", keen, event=e).landlord for e in range(2000)) > 2 * sum(full)

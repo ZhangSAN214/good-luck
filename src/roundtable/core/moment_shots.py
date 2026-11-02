@@ -7,6 +7,8 @@
   ``boost``，室友帮拍用通用权重。
 - 她自己拍、拍的是东西（her 不是 full）时，按 ``subject_chance`` 换成她爱拍的东西；
   按 ``quirk_chance`` 带上她的拍照小毛病。
+- 维度取值写了 ``shots`` 的只配那几种拍法（「几米外」不配自拍）。
+- 她本人入镜时按 ``landlord_chance`` × 她的 ``photo.landlord`` 决定房东（用户）出不出镜。
 
 差异全部来自配置（``media.moment_photos`` 和形象卡的 ``photo``），代码不看是哪位成员。
 只在生活 / 聊天侧使用，工作模式不读。
@@ -64,8 +66,11 @@ def place_tags(place: str) -> frozenset[str]:
     return frozenset({kind, "outdoor" if kind == "rooftop" else "indoor"})
 
 
-def fits(option: PhotoOption, time: str | None, places: frozenset[str]) -> bool:
-    """同类条件里满足一个即可；没写这类条件、或拿不到时间 / 地点时不按它过滤。"""
+def fits(option: PhotoOption, time: str | None, places: frozenset[str], shot: str = "") -> bool:
+    """同类条件里满足一个即可；没写这类条件、或拿不到时间 / 地点时不按它过滤。
+    写了 ``shots`` 的取值只配那几种拍法（拍法没有 name 时不按它过滤）。"""
+    if option.shots and shot and shot not in option.shots:
+        return False
     times = set(option.when) & set(PHOTO_TIMES)
     where = set(option.when) & set(PHOTO_PLACES)
     if times and time is not None and time not in times:
@@ -88,6 +93,7 @@ class PhotoSpec:
     picks: dict[str, PhotoOption] = field(default_factory=dict)
     subject: str = ""
     quirk: str = ""
+    landlord: bool = False  # 房东（用户）在画面里（脸上贴纸，不画脸）
 
     def _text(self, *dims: str) -> str:
         parts = [self.picks[d].text for d in dims if d in self.picks and self.picks[d].text]
@@ -145,7 +151,9 @@ def pick_spec(
     places = place_tags(place)
     picks: dict[str, PhotoOption] = {}
     for dim in PHOTO_DIMS:
-        options = [o for o in getattr(rules, dim) if shot.her in o.her and fits(o, time, places)]
+        options = [
+            o for o in getattr(rules, dim) if shot.her in o.her and fits(o, time, places, shot.name)
+        ]
         if not options:
             continue
         boost = mine.boost.get(dim, {}) if mine else {}
@@ -159,4 +167,9 @@ def pick_spec(
             subject = rng.choice(mine.subjects)
         if mine.quirk and roll_quirk < rules.quirk_chance:
             quirk = mine.quirk
-    return PhotoSpec(shot, picks, subject, quirk)
+    landlord = False
+    if shot.her == "full":
+        rng = random.Random(f"photo:landlord:{event_id}:{member_id}")
+        willing = habit.landlord if habit else 1.0  # 她想不想拉房东入镜，与谁拿手机无关
+        landlord = rng.random() < rules.landlord_chance * willing
+    return PhotoSpec(shot, picks, subject, quirk, landlord)

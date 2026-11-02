@@ -663,6 +663,9 @@ class PhotoOption(_Strict):
     when: list[str] = Field(default_factory=list)
     her: list[HerInPhoto] = Field(default_factory=lambda: ["none", "part", "full"], min_length=1)
     tags: str = ""
+    # 只配这些拍法（拍法的 name；空 = 都可以）：如「几米外」「从背后」只能是室友帮拍，
+    # 不能配自拍（11-02 样张：自拍 + 隔着房间拍互相矛盾）
+    shots: list[str] = Field(default_factory=list)
 
     @field_validator("when")
     @classmethod
@@ -706,6 +709,9 @@ class MomentPhotoRules(_Strict):
     # 只用本地绘图模型（渠道全是 kind: local 的，如 ComfyUI）：本地没开 / 画不出来时只发文字，
     # 不退回云端付费模型
     local_only: bool = False
+    # 用哪一档的绘图模型、带哪些标签的先试（不写 = 跟表情包 media.stickers 一样）
+    tier: Tier | None = None
+    prefer_tags: list[str] | None = Field(default=None, max_length=6)
     # 吃标签的本地绘图模型（image_prompt: tags）：按拍法的 her 给的人物标签，接在拍法标签前面
     tag_subjects: dict[Literal["none", "part", "full"], str] = Field(
         default_factory=lambda: {
@@ -782,12 +788,33 @@ class MomentPhotoRules(_Strict):
     )
     quirk_chance: float = Field(default=0.3, ge=0, le=1)  # 她自己拍时带上拍照小毛病的概率
     subject_chance: float = Field(default=0.6, ge=0, le=1)  # 拍东西时换成她爱拍的东西的概率
+    # --- 画面里的人（2026-11-02 用户：不要出现公寓以外的人；可以出现用户，不画脸、脸上贴张纸）---
+    # 同场室友（生活事件的在场成员）：每位一行外观说明，最多附 housemate_refs 张她们的形象参考图
+    # （每人一张，放在主角的参考图后面、房间图前面）。占位：{name} {look} {must} {ref}
+    housemate_refs: int = Field(default=2, ge=0, le=4)
+    housemate_line: str = "{name}: {look}; always visible: {must}{ref}"
+    housemate_ref: str = " (reference image {n} is her)"
+    housemate_none: str = "nobody else is in the photo"
+    # 用户（房东）出镜：她本人入镜（her: full）的拍法按这个概率 × 她的拍照习惯 photo.landlord 出现
+    landlord_chance: float = Field(default=0.2, ge=0, le=1)
+    landlord_in: str = (
+        "the landlord (the user, who lives in the building with them) is in this photo: an "
+        "ordinary young adult in casual home clothes whose face is completely covered by a sheet "
+        "of paper taped over it, never draw the face; she wrote 早上好 on the paper if that fits "
+        "her mood today, otherwise it is blank or has a small doodle of hers"
+    )
+    landlord_out: str = "not in this photo"
 
     @model_validator(mode="after")
     def _names(self) -> MomentPhotoRules:
         _unique_names(self.shots, "shots")
+        shots = {s.name for s in self.shots if s.name}
         for dim in PHOTO_DIMS:
             _unique_names(getattr(self, dim), dim)
+            for option in getattr(self, dim):
+                bad = sorted(set(option.shots) - shots)
+                if bad:
+                    raise ValueError(f"{dim}.{option.name}.shots 里有不存在的拍法：{bad}")
         return self
 
     def names(self, dim: str) -> set[str]:
@@ -4263,6 +4290,8 @@ class PhotoHabit(_Strict):
         Literal["shots", "angles", "lights", "moments", "lenses", "filters"], dict[str, float]
     ] = Field(default_factory=dict)
     quirk: str = Field(default="", max_length=200)
+    # 她想不想把房东（用户）拉进画面（看她的性格）：乘在 media.moment_photos.landlord_chance 上
+    landlord: float = Field(default=1.0, ge=0, le=5)
 
     @field_validator("boost")
     @classmethod
