@@ -49,6 +49,11 @@ members:
       - {model: gemini-3.8-flash-tts, voice: Leda, style: 青涩的猫系少女，开头无奈地叹一口气，想通后语调一下子上扬，句尾带一点撒娇的鼻音, note: 年轻音色 + 猫系语气}
       - {model: gemini-3.8-flash-tts, voice: Zephyr, style: 青涩的猫系少女，开头无奈地叹一口气，想通后语调一下子上扬，句尾带一点撒娇的鼻音, note: 明亮音色 + 猫系语气}
       - {model: minimax-speech-2.8-hd, voice: tianxin_xiaoling, line: "(sighs)哈……等一下等一下，我脑子里突然有两个小人在打架。<#0.4#>啊！想通了想通了！(laughs)今天的故事超好看的喵～", note: 带感情版：1 号音色 + 语气词、停顿、笑 / 叹气标记}
+      # 11-02 用户要的「阳角」方向：活泼、傲娇（声线参照只作听感方向，不用任何真人录音）
+      - {model: minimax-speech-2.8-hd, voice: qiaopi_mengmei, line: "哼哼，本喵早就想到啦！什么？你说我刚才在发呆？才、才没有呢！快走快走，今天的故事超好看的喵～", note: 阳角版：俏皮萌妹}
+      - {model: minimax-speech-2.8-hd, voice: "Chinese (Mandarin)_Crisp_Girl", line: "哼哼，本喵早就想到啦！什么？你说我刚才在发呆？才、才没有呢！快走快走，今天的故事超好看的喵～", note: 阳角版：清脆少女}
+      - {model: gemini-3.8-flash-tts, voice: Leda, line: "哼哼，本喵早就想到啦！什么？你说我刚才在发呆？才、才没有呢！快走快走，今天的故事超好看的喵～", style: 清透甜亮的少女音，活泼开朗的阳角，嘴硬傲娇时语速变快、句尾上扬，被戳穿时又慌张又得意, note: 阳角版：年轻音色 + 活泼傲娇语气}
+      - {model: gemini-3.8-flash-tts, voice: Zephyr, line: "哼哼，本喵早就想到啦！什么？你说我刚才在发呆？才、才没有呢！快走快走，今天的故事超好看的喵～", style: 清透甜亮的少女音，活泼开朗的阳角，嘴硬傲娇时语速变快、句尾上扬，被戳穿时又慌张又得意, note: 阳角版：明亮音色 + 活泼傲娇语气}
   Alibaba:
     name: Qwen（千姐）
     persona: 二十后半到三十出头的书铺小掌柜，账要清、心要软；不急不慢，越平静越认真
