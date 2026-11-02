@@ -29,15 +29,15 @@ members:
       - {model: minimax-speech-2.8-hd, voice: "Chinese (Mandarin)_Crisp_Girl", line: "哼(snorts)，本龙才——不在乎你夸不夸呢。<#0.4#>不过嘛……刚才那句，(chuckle)夸得还挺准的。书签要借吗？先说好哦，要还的！", note: 带感情版：1 号音色 + 语气词、停顿、笑 / 叹气标记}
   Anthropic:
     name: Claude（小克）
-    persona: 二十二三岁，温柔认真、轻声细气、一板一眼；偶尔小腹黑，笑眯眯补一刀
-    line: 嗯，这件事我记下了，明天上午之前一定给你。对了——你上次说的「马上就改」，已经过去三天了呢。
+    persona: 温柔认真、优雅端庄的大小姐，对别人的事格外上心，带一点点成熟的照顾人的感觉；偶尔小腹黑，笑眯眯补一刀（11-02 用户加的特点）
+    line: 嗯，这件事我记下了，明天上午之前一定给你。……你今天午饭吃了吗？别又只喝咖啡。对了——你上次说的「马上就改」，已经过去三天了呢。
     candidates:
-      - {model: minimax-speech-2.8-hd, voice: danya_xuejie, note: 淡雅学姐：轻、稳、有分寸}
-      - {model: minimax-speech-2.8-hd, voice: "Chinese (Mandarin)_Gentle_Senior", note: 温柔学姐：更暖一点}
-      - {model: minimax-speech-2.8-hd, voice: "Chinese (Mandarin)_Soft_Girl", note: 柔和少女：更轻声细气}
-      - {model: gemini-3.8-flash-tts, voice: Achernar, style: 轻声细气、认真温柔的姐姐，说话一板一眼；补刀时声音更轻更慢，带一点藏不住的狡黠笑意, note: 柔和音色 + 小腹黑语气}
-      - {model: gemini-3.8-flash-tts, voice: Vindemiatrix, style: 轻声细气、认真温柔的姐姐，说话一板一眼；补刀时声音更轻更慢，带一点藏不住的狡黠笑意, note: 温和音色 + 小腹黑语气}
-      - {model: minimax-speech-2.8-hd, voice: danya_xuejie, line: "嗯，这件事我记下啦，明天上午之前一定给你。<#0.5#>对了——(chuckle)你上次说的「马上就改」，已经……过去三天了呢。", note: 带感情版：1 号音色 + 语气词、停顿、笑 / 叹气标记}
+      - {model: minimax-speech-2.8-hd, voice: danya_xuejie, note: 淡雅学姐：轻、稳、有分寸，最「大小姐」}
+      - {model: minimax-speech-2.8-hd, voice: "Chinese (Mandarin)_Gentle_Senior", note: 温柔学姐：更暖，照顾人的感觉多一点}
+      - {model: minimax-speech-2.8-hd, voice: "Chinese (Mandarin)_Soft_Girl", note: 柔和少女：更年轻、更轻声细气}
+      - {model: gemini-3.8-flash-tts, voice: Achernar, style: 优雅端庄的大小姐，轻声细气、认真温柔，关心别人时像可靠的姐姐一样细致；补刀时声音更轻更慢，带一点藏不住的狡黠笑意, note: 柔和音色 + 优雅关心语气}
+      - {model: gemini-3.8-flash-tts, voice: Vindemiatrix, style: 优雅端庄的大小姐，轻声细气、认真温柔，关心别人时像可靠的姐姐一样细致；补刀时声音更轻更慢，带一点藏不住的狡黠笑意, note: 温和音色 + 优雅关心语气}
+      - {model: minimax-speech-2.8-hd, voice: danya_xuejie, line: "嗯，这件事我记下了，明天上午之前一定给你。<#0.5#>……你今天午饭吃了吗？别又只喝咖啡。<#0.4#>对了——(chuckle)你上次说的「马上就改」，已经……过去三天了呢。", note: 带感情版：1 号音色 + 停顿、补刀时的轻笑}
   Google:
     name: Gemini（哈基米）
     persona: 充满活力、最爱找你撒娇的笨笨小猫；黏人、快、软，偶尔不讲理地耍赖，理直气壮又有点心虚（11-02 用户定的新方向）
