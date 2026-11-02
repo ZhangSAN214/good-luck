@@ -118,6 +118,16 @@ def trim(text: str, cap: int) -> str:
     return text[:cap].strip()
 
 
+def whole_sentences(text: str, cap: int) -> str:
+    """英文段落截到 cap 个字符以内，停在最后一个完整句子（拍摄脚本不停在半句）。"""
+    text = text.strip()
+    if len(text) <= cap:
+        return text
+    head = text[: cap + 1]
+    cut = max(head.rfind(". "), head.rfind("! "), head.rfind("? "), head.rfind("。"))
+    return head[: cut + 1].strip() if cut >= cap // 3 else trim(text, cap)
+
+
 def one_name(text: str, names: dict[str, str], nicks: dict[str, str]) -> str:
     """同一条里一个人只用一种叫法：起了昵称的人，把正式名字都换成昵称。"""
     for who, nick in nicks.items():
@@ -559,7 +569,9 @@ class Moments:
             **spec.variables(),
         )
         params = dict(rt.config.roundtable.step_params.get("chat", {}))
+        # 不思考：思考模型会把上限全花在思考上、正文为空（11-02 试画 DeepSeek 400 / 2000 都空）
         params["max_tokens"] = rules.brief_max_tokens
+        params["reasoning"] = {"enabled": False}
         completion = await call_member(
             rt,
             room=MOMENT_ROOM,
@@ -571,7 +583,7 @@ class Moments:
         )
         if completion is None:
             return ""
-        return " ".join(completion.text.split())[: rules.brief_max_chars]
+        return whole_sentences(" ".join(completion.text.split()), rules.brief_max_chars)
 
     def forward_card(self, member: ChatMember, event: dict[str, Any]) -> dict[str, Any] | None:
         rt = self.rt

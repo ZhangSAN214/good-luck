@@ -458,7 +458,7 @@ models:
     tier: flagship
     price: {input: 8.0, output: 30.0}
     image_tokens: 1056
-    tags: [image_gen, image_edit, vision, feed_photo, plans_image]
+    tags: [image_gen, image_edit, vision, plans_image]  # 11-02 带参考图实测约 $0.30/张（GPT Image 2.5 的约 4 倍），不进配图首选
     image_api: chat
     enabled: true
     routes:
