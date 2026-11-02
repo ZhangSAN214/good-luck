@@ -37,7 +37,14 @@ def test_supercomputer_flow(serve, page, monkeypatch, tmp_path):
     dlg.locator(".sc-worker", has_text="K").wait_for()
     assert dlg.locator(".sc-worker").count() == 3
     dlg.locator("[data-text]").fill("给项目加一个接口，附文档和测试")
-    dlg.locator("[data-submit]").click()
+
+    # 等到「交活」的请求真的发出去并回来：再失败时能分清是点没生效，还是状态不对
+    def submitted(r) -> bool:
+        return r.url.endswith("/api/super/tasks") and r.request.method == "POST"
+
+    with page.expect_response(submitted) as sent:
+        dlg.locator("[data-submit]").click()
+    assert sent.value.ok and sent.value.json()["busy"], sent.value.text()[:300]
     on = "document.querySelector('#entries [data-m=\"bench\"]').classList.contains('sc-on')"
     page.wait_for_function(on)
     dlg.get_by_role("cell", name="2. 写文档").wait_for(timeout=10000)

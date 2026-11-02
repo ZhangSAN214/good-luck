@@ -173,7 +173,7 @@ export class SuperPanel {
       .filter((t) => !task || t.id !== task.id)
       .map((t) => `<li><button type="button" class="link" data-view="${esc(t.id)}">${esc((t.text || '').slice(0, 40))}</button> · ${esc(STATUS[t.status] || t.status)} · ${esc((t.created_at || '').slice(0, 16).replace('T', ' '))}</li>`)
       .join('');
-    this.dlg.innerHTML = `${head}<div class="vb sc">${notes.join('')}
+    const html = `${head}<div class="vb sc">${notes.join('')}
       <div class="sc-workers">${workers}</div>
       ${this.pendingHtml(st.butler)}
       ${ask}
@@ -182,6 +182,10 @@ export class SuperPanel {
       ${this.butlerHtml(st.butler)}
       ${recent ? `<details><summary>最近几件活</summary><ul class="sc-recent">${recent}</ul></details>` : ''}
     </div>`;
+    // 内容没变就不重写：定时刷新时整块换掉，正好点在按钮上的那一下会落空（点到被换下来的旧按钮）
+    if (html === this.shown && this.dlg.firstElementChild) return;
+    this.shown = html;
+    this.dlg.innerHTML = html;
   }
 
   fold(k, summary, body) {
