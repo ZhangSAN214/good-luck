@@ -70,6 +70,8 @@ _ACT_IDS = {label: aid for aid, label in ACTIVITIES.items()} | {
     label: aid for aid, label in DAYTIME_LABELS.items()
 }
 
+AWAY = "away"  # 生活系统记下的「外地」（旅行在外，L5）
+
 # 住户 → (房间, 活动 id, 显示文字)
 Spots = Mapping[str, tuple[str, str, str]]
 
@@ -85,7 +87,9 @@ def life_spots(events: Iterable[Mapping[str, Any]]) -> dict[str, tuple[str, str,
             continue
         place = str(e.get("place") or "")
         room = "dorm" if place == "dorm" or place.startswith("dorm:") else place
-        if room != "dorm" and room not in PUBLIC_ROOMS:
+        if place == AWAY or place.startswith(AWAY + ":"):
+            room = AWAY  # 旅行在外：不在楼里（网页上只在名册里显示「去某地旅行了，不在家」）
+        if room not in ("dorm", AWAY) and room not in PUBLIC_ROOMS:
             continue
         found = _SCENE_ACT.search(str(e.get("topic") or ""))
         label = found.group(1).strip() if found else ""

@@ -181,7 +181,8 @@ class LifeEngine:
                 acts[m.id] = act
                 if act == "sleep":
                     continue
-                key = f"dorm:{m.id}" if place == "dorm" else place
+                # 宿舍和外地（旅行）都是各待各的，不会「碰到一起」
+                key = f"{place}:{m.id}" if place in ("dorm", "away") else place
                 where.setdefault(key, []).append(m.id)
             for place, ids in sorted(where.items()):
                 act = acts[ids[0]]
@@ -284,6 +285,8 @@ class LifeEngine:
     def place_name(place: str) -> str:
         if place.startswith("dorm"):
             return "自己的宿舍"
+        if place.startswith("away"):
+            return "外地"
         return f"公寓楼{PUBLIC_ROOMS.get(place, place)}"
 
     # --- 推进 --------------------------------------------------------------------

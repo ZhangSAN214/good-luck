@@ -20,8 +20,9 @@ def story_env(**update: Any) -> Env:
     if not update:
         return Env()
     if "stories" in update:
-        # 换了事件库的测试只看事件库：爱好进度（L1）、节日（L2）、低谷（L4）没给就关掉，免得混进来
-        for key in ("progress", "festival", "lows"):
+        # 换了事件库的测试只看事件库：爱好进度（L1）、节日（L2）、低谷（L4）、旅行（L5）
+        # 没给就关掉，免得混进来
+        for key in ("progress", "festival", "lows", "travel"):
             if key not in update:
                 off = getattr(base.life.story, key).model_copy(update={"enabled": False})
                 update = {**update, key: off}
