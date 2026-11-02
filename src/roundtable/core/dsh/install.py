@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 import shutil
 import subprocess
@@ -170,3 +171,87 @@ def install(
         if out.returncode != 0:
             raise InstallError(f"{plugin.id} 安装失败：{(out.stderr or out.stdout or '')[-400:]}")
     say("装好了。打开圆桌 →「工作台」→ 启动。")
+
+
+# ---- 装后核对 + 整批回滚（docs/DSH.md）：装完逐项核对是否真生效，没过就退回装之前的样子 ----
+
+PREVIOUS = "runtime.prev"
+
+
+def runtime_version(paths: DshPaths) -> str | None:
+    """装好的 dsh 运行时的版本（读 npm 包的 package.json）。"""
+    try:
+        data = json.loads((paths.bin_js.parent.parent / "package.json").read_text("utf-8"))
+    except (OSError, ValueError):
+        return None
+    version = data.get("version") if isinstance(data, dict) else None
+    return str(version) if version else None
+
+
+def verify(catalog: DshCatalog, paths: DshPaths, run: Run = subprocess.run) -> list[Check]:
+    """逐项核对：工具、运行时文件、版本是不是钉死的那个、白名单插件的安装包是不是核对过的那份。"""
+    checks = check_tools(catalog, run)
+    checks.append(
+        Check(
+            "runtime",
+            paths.installed,
+            "dsh 运行时文件在" if paths.installed else f"没找到 dsh 运行时（{paths.bin_js}）",
+        )
+    )
+    got = runtime_version(paths)
+    want = catalog.runtime.version
+    checks.append(
+        Check(
+            "runtime_version",
+            got == want,
+            f"运行时版本 {got}" if got == want else f"运行时版本是 {got or '未知'}，应该是 {want}",
+        )
+    )
+    for plugin in catalog.enabled:
+        pkg = paths.cache / f"{plugin.id}-{plugin.version}.tgz"
+        ok = pkg.is_file() and sha256_of(pkg) == plugin.sha256.lower()
+        checks.append(
+            Check(
+                f"plugin_{plugin.id}",
+                ok,
+                f"插件 {plugin.id} {plugin.version} 安装包核对通过"
+                if ok
+                else f"插件 {plugin.id} 的安装包不在或哈希不对",
+            )
+        )
+    return checks
+
+
+def install_safely(
+    catalog: DshCatalog,
+    paths: DshPaths,
+    env: dict[str, str],
+    *,
+    run: Run = subprocess.run,
+    fetch: Callable[[DshPlugin, Path], Path] = download,
+    say: Callable[[str], None] = print,
+) -> list[Check]:
+    """安装 + 装后核对；任何一步没过，运行时整批退回到装之前（原来没有就删掉），再把异常抛出去。
+    抛出的 InstallError 带 ``checks``（核对结果，没走到核对时为空）。"""
+    previous = paths.root / PREVIOUS
+    had = paths.runtime.exists()
+    if had:
+        shutil.rmtree(previous, ignore_errors=True)
+        paths.runtime.rename(previous)
+    checks: list[Check] = []
+    try:
+        install(catalog, paths, env, run=run, fetch=fetch, say=say)
+        checks = verify(catalog, paths, run)
+        bad = [c for c in checks if not c.ok]
+        if bad:
+            raise InstallError("装完核对没过：" + "；".join(c.detail for c in bad))
+    except BaseException as exc:
+        shutil.rmtree(paths.runtime, ignore_errors=True)
+        if had:
+            previous.rename(paths.runtime)
+        say("已退回到安装之前的样子。" if had else "已删掉装了一半的运行时。")
+        if isinstance(exc, InstallError):
+            exc.checks = checks  # type: ignore[attr-defined]
+        raise
+    shutil.rmtree(previous, ignore_errors=True)
+    return checks

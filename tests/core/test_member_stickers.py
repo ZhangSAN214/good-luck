@@ -53,7 +53,7 @@ def test_every_member_has_twelve_stills_and_two_animated():
     cards = load_config().personas.sticker_cards
     assert len(cards) == 8
     for card in cards.values():
-        assert len([s for s in card.stickers if not s.frames]) == 12
+        assert len([s for s in card.stickers if not s.frames]) >= 12  # 12 张基础 + 11-01 起的名梗
         assert len([s for s in card.stickers if s.frames]) == 2
     vendors = {m.vendor for m in load_config().models.models if m.seat}
     assert set(cards) <= vendors
@@ -121,7 +121,7 @@ def test_index_and_files_survive_a_new_instance(tmp_path):
     assert row["status"] == "pending"
     assert fresh.file("OpenAI", "晚安") == stickers.file("OpenAI", "晚安")
     missing = [r for r in fresh.listing("OpenAI") if r["status"] == "missing"]
-    assert len(missing) == 13
+    assert len(missing) == 16  # 17 张（含 3 张名梗）画了 1 张
 
 
 def test_failed_check_redraws_with_another_model_and_keeps_the_problem(tmp_path):
@@ -383,7 +383,50 @@ def test_moment_photo_without_her_sends_no_reference_images(tmp_path):
     _, fake, stickers = build(tmp_path)
     asyncio.run(stickers.photo("OpenAI", "食堂", "饭好香", "only the food", refs=False))
     [(_, _, prompt, _, refs, _)] = image_calls(fake)
-    assert refs == () and "only the food" in prompt and "do not act out the post" in prompt
+    assert refs == () and "only the food" in prompt and "never a photoreal stock photo" in prompt
+
+
+def test_moment_photo_attaches_the_room_last_and_names_the_place(tmp_path):
+    """11-01：场景必须在八人公寓里——按事件地点附上那间房的场景图（最后一张）。"""
+    _, fake, stickers = build(tmp_path)
+    asyncio.run(stickers.photo("OpenAI", "宿舍", "看书", "a selfie", place="dorm:OpenAI"))
+    asyncio.run(stickers.photo("OpenAI", "宿舍", "看书", "a view", refs=False, place="dorm"))
+    rooms = tmp_path / "art" / "rooms"
+    rooms.mkdir()
+    (rooms / "canteen_day.png").write_bytes(png("green"))
+    (rooms / "rooms.json").write_text('{"canteen": {"day": "canteen_day.png"}}', encoding="utf-8")
+    asyncio.run(stickers.photo("OpenAI", "食堂", "饭好香", "a selfie", place="canteen"))
+    asyncio.run(stickers.photo("OpenAI", "天台", "风好大", "a selfie", place="rooftop"))
+    asyncio.run(stickers.photo("OpenAI", "?", "?", "a selfie", place="somewhere"))
+    dorm, view, canteen, rooftop, other = image_calls(fake)
+    assert dorm[4][-1].name == "room_day.webp" and len(dorm[4]) >= 2
+    assert "她自己的宿舍（最后一张参考图就是这间房）" in dorm[2]
+    assert [m.name for m in view[4]] == ["room_day.webp"]  # 她不入镜也照这间房画
+    assert canteen[4][-1].name == "canteen_day.png" and "公寓楼食堂（最后一张" in canteen[2]
+    # 天台没有场景图：只写地点，不附图
+    assert "公寓楼天台" in rooftop[2] and all("rooftop" not in m.name for m in rooftop[4])
+    assert "公寓楼里（看今天的事在哪间房）" in other[2]
+
+
+def test_moment_photo_uses_cues_and_the_daily_must():
+    """日常照不扛巨斧；每人有标志小物件，只露手时也认得出（如小鲸鱼发卡）。"""
+    cards = load_config().personas.sticker_cards
+    assert all(card.cues for card in cards.values())
+    assert "小鲸鱼发卡" in cards["DeepSeek"].cues
+    assert "黑金巨斧" in cards["xAI"].must
+    assert cards["xAI"].daily_must and "黑金巨斧" not in cards["xAI"].daily_must
+
+
+def test_moment_photo_prompt_carries_cues_and_daily_must(tmp_path):
+    rt, fake, stickers = build(tmp_path)
+    card = rt.config.personas.sticker_cards["OpenAI"]
+    daily = card.model_copy(update={"daily_must": ["白色长发"], "cues": ["小金铃"]})
+    cards = {**rt.config.personas.sticker_cards, "OpenAI": daily}
+    rt.config.personas.__dict__["sticker_cards"] = cards
+    asyncio.run(stickers.photo("OpenAI", "宿舍", "看书", "a selfie"))
+    [(_, _, prompt, _, _, _)] = image_calls(fake)
+    assert "must be visible: 白色长发." in prompt and "小金铃" in prompt
+    assert "龙翼" not in prompt.split("must be visible:")[1].split("\n")[0]
 
 
 def test_phone_look_is_deterministic_and_changes_the_image():
@@ -451,3 +494,192 @@ def test_imported_animated_sticker_takes_a_four_panel_sheet_or_a_gif(tmp_path):
     stickers.import_image("OpenAI", "扑翅膀", buf.getvalue())
     with Image.open(io.BytesIO(stickers.file("OpenAI", "扑翅膀"))) as gif:
         assert gif.n_frames == 3
+
+
+# --- 本地出图（ComfyUI，image_prompt: tags）------------------------------------------
+
+
+def build_local(tmp_path, **photos):
+    """打开仓库里默认关掉的本地绘图模型（渠道 comfyui，价格 0，吃标签）。"""
+    config = load_config()
+    policy = config.roundtable.request.model_copy(update={"backoff_s": 0, "failover_rounds": 1})
+    media = config.roundtable.media
+    media = media.model_copy(
+        update={"moment_photos": media.moment_photos.model_copy(update=photos)}
+    )
+    models = config.models.model_copy(
+        update={
+            "models": [
+                m.model_copy(update={"enabled": True}) if m.image_prompt == "tags" else m
+                for m in config.models.models
+            ]
+        }
+    )
+    config = config.model_copy(
+        update={
+            "models": models,
+            "roundtable": config.roundtable.model_copy(update={"request": policy, "media": media}),
+        }
+    )
+    cloud, local = FakeProvider("openrouter", default=OK), FakeProvider("comfyui")
+    members_dir = tmp_path / "art"
+    write_assets(members_dir, "OpenAI")
+    rt = Runtime.build(
+        config=config,
+        providers={"openrouter": cloud, "comfyui": local},
+        db_path=":memory:",
+        members_dir=members_dir,
+    )
+    return rt, cloud, local, MemberStickers(rt, tmp_path / "stickers")
+
+
+def test_free_local_model_is_tried_first_but_stickers_skip_tag_models(tmp_path):
+    _, _, _, stickers = build_local(tmp_path)
+    order = stickers.draw_models()
+    assert order[0].image_prompt == "tags"  # 价格 0 排最前（只看价格，不看名字）
+    assert all(m.image_prompt == "text" for m in order[1:])
+    assert stickers.sticker_models() == order[1:]  # 表情包没有标签版提示词
+
+
+def test_moment_photo_on_the_local_model_uses_the_tag_prompt(tmp_path):
+    rt, cloud, local, stickers = build_local(tmp_path)
+    card = rt.config.personas.sticker_cards["OpenAI"]
+    asyncio.run(
+        stickers.photo(
+            "OpenAI", "天台", "<b>星星</b>", "a selfie", her="full", shot_tags="selfie, from above"
+        )
+    )
+    assert image_calls(cloud) == []
+    [(_, model, prompt, _, refs, _)] = image_calls(local)
+    assert model.endswith(".json") and refs  # 路由的 model 是工作流模板；带设定图
+    positive, negative = prompt.split("\n")
+    assert positive.startswith("positive: ") and negative.startswith("negative: ")
+    assert "1girl, solo" in positive and "selfie, from above" in positive
+    assert card.look_tags and card.look_tags in positive
+    assert "星星" not in prompt and ", ," not in prompt  # 中文正文不进标签；空变量不留空项
+    assert "weapon" in negative and "photorealistic" in negative
+    assert stickers.month_spent() == 0  # 本地不花钱
+
+
+def test_local_tag_prompt_without_her_drops_the_look(tmp_path):
+    rt, _, local, stickers = build_local(tmp_path)
+    asyncio.run(stickers.photo("OpenAI", "食堂", "饭", "only the food", refs=False))
+    [(_, _, prompt, _, refs, _)] = image_calls(local)
+    card = rt.config.personas.sticker_cards["OpenAI"]
+    assert refs == () and "no humans" in prompt and card.look_tags not in prompt
+
+
+def test_room_image_goes_to_the_cloud_model_but_not_the_local_tag_model(tmp_path):
+    """房间图只给看得懂"最后一张是房间"的云端模型；本地标签模型把参考图都当人物参考。"""
+    _, cloud, local, stickers = build_local(tmp_path)
+    asyncio.run(stickers.photo("OpenAI", "宿舍", "看书", "a selfie", place="dorm"))
+    [(_, _, _, _, refs, _)] = image_calls(local)
+    assert refs and all(m.name != "room_day.webp" for m in refs)
+    local.broken_models.update(r.model for r in stickers.draw_models()[0].routes)
+    asyncio.run(stickers.photo("OpenAI", "宿舍", "看书", "a selfie", place="dorm", seed="2"))
+    [(_, _, _, _, refs, _)] = image_calls(cloud)
+    assert refs[-1].name == "room_day.webp"
+
+
+def test_local_failure_falls_back_to_a_cloud_model_unless_local_only(tmp_path):
+    _, cloud, local, stickers = build_local(tmp_path)
+    local.broken_models.update(r.model for r in stickers.draw_models()[0].routes)
+    asyncio.run(stickers.photo("OpenAI", "天台", "好看", "a selfie"))
+    assert len(image_calls(local)) == 1 and len(image_calls(cloud)) == 1
+    [(_, _, prompt, _, _, _)] = image_calls(cloud)
+    assert "<post>好看</post>" in prompt  # 云端模型照旧用自然语言提示词
+
+    _, cloud, local, stickers = build_local(tmp_path / "b", local_only=True)
+    local.broken_models.update(r.model for r in stickers.draw_models()[0].routes)
+    with pytest.raises(StickerUnavailable):
+        asyncio.run(stickers.photo("OpenAI", "天台", "好看", "a selfie"))
+    assert image_calls(cloud) == []  # 只用本地：画不出来就只发文字，不花钱
+
+
+def test_local_only_without_a_local_model_draws_nothing(tmp_path):
+    _, fake, stickers = build(tmp_path)
+    rt = stickers.rt
+    media = rt.config.roundtable.media
+    photos = media.moment_photos.model_copy(update={"local_only": True})
+    rt.config = rt.config.model_copy(
+        update={
+            "roundtable": rt.config.roundtable.model_copy(
+                update={"media": media.model_copy(update={"moment_photos": photos})}
+            )
+        }
+    )
+    with pytest.raises(StickerUnavailable):
+        asyncio.run(stickers.photo("OpenAI", "天台", "好看", "a selfie"))
+    assert image_calls(fake) == []
+
+
+def test_tidy_tags_drops_empty_items():
+    from roundtable.core.member_stickers import tidy_tags
+
+    assert tidy_tags("positive: a, , b,  ,c\nnegative: x,") == "positive: a, b, c\nnegative: x"
+
+
+def test_every_card_has_english_look_tags():
+    for vendor, card in load_config().personas.sticker_cards.items():
+        assert card.look_tags, vendor
+        assert card.look_tags.isascii(), vendor  # 标签模型读不懂中文
+
+
+# --- 摄影维度（moment_photo v5）--------------------------------------------------------
+
+
+def a_spec(rt, shot="selfie", habit=None, **kw):
+    from roundtable.core.moment_shots import pick_spec
+
+    rules = rt.config.roundtable.media.moment_photos
+    [s] = [x for x in rules.shots if x.name == shot]
+    return pick_spec(rules, habit, s, event_id=5, member_id="OpenAI", **kw)
+
+
+def test_moment_photo_v5_carries_the_shooting_notes(tmp_path):
+    rt, fake, stickers = build(tmp_path)
+    spec = a_spec(rt, time="night", place="dorm:OpenAI")
+    asyncio.run(stickers.photo("OpenAI", "宿舍", "熬夜", spec.shot.text, spec=spec))
+    [(_, _, prompt, _, _, _)] = image_calls(fake)
+    v = spec.variables()
+    for key, label in (("camera", "Camera"), ("light", "Light"), ("moment", "The moment")):
+        assert f"{label}: {v[key]}" in prompt
+    assert f"Small touches: {v['touches']}" in prompt
+    assert "Her face: copy it exactly from the reference images" in prompt  # v4 的规定还在
+
+
+def test_moment_photo_without_a_spec_fills_none_and_old_versions_still_render(tmp_path):
+    rt, fake, stickers = build(tmp_path)
+    asyncio.run(stickers.photo("OpenAI", "天台", "好看", "a selfie"))
+    [(_, _, prompt, _, _, _)] = image_calls(fake)
+    assert "Camera: none" in prompt
+    prompts = {**rt.config.roundtable.prompts, "moment_photo": "v4"}  # 退回旧版本也能画
+    rt.config = rt.config.model_copy(
+        update={"roundtable": rt.config.roundtable.model_copy(update={"prompts": prompts})}
+    )
+    spec = a_spec(rt)
+    asyncio.run(stickers.photo("OpenAI", "天台", "好看", spec.shot.text, spec=spec))
+    assert "Camera:" not in image_calls(fake)[-1][2]
+
+
+def test_local_tag_model_gets_the_dimension_tags(tmp_path):
+    rt, _, local, stickers = build_local(tmp_path)
+    spec = a_spec(rt, "selfie")
+    asyncio.run(stickers.photo("OpenAI", "天台", "好看", spec.shot.text, her="full", spec=spec))
+    [(_, _, prompt, _, _, _)] = image_calls(local)
+    assert spec.tags() and spec.tags() in prompt and "selfie, arm's length" in prompt
+
+
+def test_v5_keeps_every_v4_rule():
+    from roundtable.core.prompts.library import DEFAULT_PROMPTS_DIR
+
+    def body(v):
+        text = (DEFAULT_PROMPTS_DIR / "moment_photo" / f"{v}.md").read_text(encoding="utf-8")
+        return text.split("---", 2)[2]
+
+    v5 = body("v5")
+    changed = "Vary the camera like real feed photos:"
+    for line in body("v4").splitlines():
+        if line.strip() and changed not in line:
+            assert line in v5, line
+    assert "Unless the camera note fixes it, vary the camera like real feed photos:" in v5

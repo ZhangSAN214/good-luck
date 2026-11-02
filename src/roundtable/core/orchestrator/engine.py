@@ -272,8 +272,9 @@ class Orchestrator:
         for a in files:
             if a.status != "failed":
                 continue
-            if a.kind == "audio":
-                error = f"音频「{a.name}」转写失败：{a.error}"
+            if a.kind in ("audio", "video"):
+                what = "音频" if a.kind == "audio" else "视频"
+                error = f"{what}「{a.name}」转写失败：{a.error}"
                 repo.set_status(sid, "failed", error=error)
                 self._emit(sid, "failed", error=error)
                 return False

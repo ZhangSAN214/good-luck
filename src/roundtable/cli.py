@@ -1481,6 +1481,65 @@ class CLI:
                 )
         return 0
 
+    def cmd_sticker_packs(
+        self,
+        action: str,
+        target: str | None,
+        owner: str | None,
+        label: str | None,
+        file: str | None,
+    ) -> int:
+        """外部表情包（dsh-meme 格式）：list 已装 / catalog 目录 / install / assign / remove。"""
+        from roundtable.core.chat_actions import sticker_packs
+        from roundtable.core.sticker_packs import PackError
+
+        packs = sticker_packs(self.rt)
+
+        def who(owner: str) -> str:
+            return owner or "通用"
+
+        try:
+            if action == "catalog":
+                for p in packs.catalog():
+                    size = f"{p['bytes'] / 1048576:.1f} MB" if p["bytes"] else "?"
+                    flag = "已装" if p["installed"] else ("" if p["installable"] else "不能直接装")
+                    self.p(
+                        f"{p['id']:24} {p['name']}（{p['count']} 张，{size}，{p['license']}）{flag}"
+                    )
+                return 0
+            if action == "list":
+                rows = packs.installed()
+                if not rows:
+                    self.p("还没装外部表情包：roundtable sticker-packs catalog 看在线目录")
+                for p in rows:
+                    s = packs.summary(p)
+                    self.p(
+                        f"{s['id']:24} 「{s['label']}」{s['count']} 张，给 {who(s['owner'])} 用"
+                        f"（{s['license']}）例：{'、'.join(s['sample'][:5])}"
+                    )
+                return 0
+            if not target:
+                self.p("要给出包 id（install 也可以用 --file 给压缩包）")
+                return 1
+            if action == "install":
+                data = Path(file).read_bytes() if file else None
+                s = packs.install(target, owner, label or "", data)
+                self.p(f"装好了「{s['label']}」{s['count']} 张，给 {who(s['owner'])} 用")
+                return 0
+            if action == "assign":
+                s = packs.assign(target, owner, label)
+                self.p(f"「{s['label']}」现在给 {who(s['owner'])} 用")
+                return 0
+            if action == "remove":
+                packs.remove(target)
+                self.p(f"删掉了 {target}")
+                return 0
+        except (PackError, OSError) as exc:
+            self.p(str(exc))
+            return 1
+        self.p(f"不认识的操作 {action}")
+        return 1
+
     async def cmd_stickers(
         self,
         member: str | None,
@@ -1740,6 +1799,18 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="目录",
         help="把别处画好的图收进来（文件名=表情名，动图给四格图），待审",
     )
+    spacks = sub.add_parser(
+        "sticker-packs",
+        help="外部表情包（dsh-meme 格式）：在线目录、装到本机、给某位成员专用或通用",
+    )
+    spacks.add_argument(
+        "action", choices=["list", "catalog", "install", "assign", "remove"], help="操作"
+    )
+    spacks.add_argument("pack", nargs="?", help="包 id（如 whale-girl-emoji）")
+    spacks.add_argument("--for", dest="owner", metavar="成员", help="给这位成员专用（如 DeepSeek）")
+    spacks.add_argument("--common", action="store_true", help="改成大家通用")
+    spacks.add_argument("--as", dest="label", metavar="名字", help="聊天里的套装名（1～6 字）")
+    spacks.add_argument("--file", metavar="压缩包", help="装本地的 zip（不用下载）")
     perf = sub.add_parser("performance", help="办公室模式的员工绩效（件数、退回、通过率等）")
     perf.add_argument("--reset", action="store_true", help="清零：之后只统计从现在起的会话")
     evolve = sub.add_parser("evolve", help="革新例会：成员读资料卡提建议、投票，导出采纳单")
@@ -1794,6 +1865,21 @@ def build_parser() -> argparse.ArgumentParser:
         "--scenario",
         help="开跑前摆好的场景（sim.yaml 的 scenarios，如 birthday：认识一个月、你过生日）",
     )
+    longrun = sub.add_parser(
+        "sim-growth",
+        help="半年快进：只推进成长相关的部件，几分钟跑完 90～180 天，看会不会越长越像、走极端、"
+        "被你带偏、口癖用光（假模型，不花钱）",
+    )
+    longrun.add_argument("--days", type=int, default=180, help="快进多少天（默认 180）")
+    longrun.add_argument("--out", help="输出目录（默认 sim_runs/growth-<时间>；不能在 data/ 下）")
+    longrun.add_argument("--seed", type=int, default=0)
+    longrun.add_argument(
+        "--pressure",
+        default="push",
+        choices=["push", "none"],
+        help="push：假模型每周都想把她们往同一个方向改（默认）；none：随手改改",
+    )
+    longrun.add_argument("--cards", help="人物卡 Markdown（不给就用编的 8 份起始档案）")
     backup = sub.add_parser(
         "backup", help="整库备份：看列表、马上备份、存档点、恢复（docs/BACKUP.md，不花钱）"
     )
@@ -1804,6 +1890,14 @@ def build_parser() -> argparse.ArgumentParser:
         "target", nargs="?", default="", help="checkpoint 的标签 / restore 的文件名"
     )
     backup.add_argument("--yes", action="store_true", help="恢复时不再问一遍")
+    doctor = sub.add_parser(
+        "doctor",
+        help="出问题点这里：只读自检（起不来 / 卡住 / 撤销更新 / 数据不见了），不改任何东西",
+    )
+    doctor.add_argument(
+        "--report", action="store_true", help="输出可以整段转交的体检报告（不含聊天内容和 key）"
+    )
+    doctor.add_argument("-o", "--output", help="把体检报告存到这个文件（UTF-8）")
     kit = sub.add_parser(
         "kit-check", help="工作台质检：三种屏宽 × 浅色 / 深色，量出不达标的地方（不调用模型）"
     )
@@ -1857,8 +1951,12 @@ async def run(
     args = build_parser().parse_args(argv)
     if args.command == "kit-check":  # 不需要配置和模型
         return await asyncio.to_thread(cmd_kit_check, args, out)
+    if args.command == "doctor":  # 圆桌起不来时也要能用：不建运行时、不迁移数据库
+        return cmd_doctor(args, out)
     if args.command == "sim":  # 自己建临时数据库，不打开真实数据
         return await cmd_sim(args, out)
+    if args.command == "sim-growth":  # 同上
+        return await cmd_sim_growth(args, out)
     try:
         rt = runtime or Runtime.build()
     except ConfigError as exc:
@@ -1928,6 +2026,9 @@ async def run(
                 args.prompts,
                 args.import_dir,
             )
+        if args.command == "sticker-packs":
+            owner = "" if args.common else args.owner
+            return cli.cmd_sticker_packs(args.action, args.pack, owner, args.label, args.file)
         if args.command == "performance":
             return cli.cmd_performance(args.reset)
         if args.command == "evolve":
@@ -2050,6 +2151,41 @@ async def cmd_sim(args: argparse.Namespace, out: TextIO) -> int:
     return 0 if res.ok else 1
 
 
+async def cmd_sim_growth(args: argparse.Namespace, out: TextIO) -> int:
+    """半年快进：全部指标正常返回 0，有超标或出错返回 1，没跑成返回 2。"""
+    from datetime import datetime as _dt
+
+    from roundtable.core.simlab import SimError
+    from roundtable.core.simlong import LongRun
+
+    folder = args.out or f"sim_runs/growth-{_dt.now():%Y%m%d-%H%M%S}"
+    try:
+        run = LongRun(
+            Path(folder),
+            days=args.days,
+            seed=args.seed,
+            pressure=args.pressure,
+            cards=Path(args.cards).read_text(encoding="utf-8") if args.cards else None,
+        )
+        print(
+            f"快进 {args.days} 天（假模型，{'施压' if args.pressure == 'push' else '不施压'}）……",
+            file=out,
+        )
+        res = await run.run()
+    except (SimError, ConfigError, OSError) as exc:
+        print(f"快进没跑成：{exc}", file=out)
+        return 2
+    print(f"完成：{res.days} 天，用时 {res.seconds:.0f} 秒", file=out)
+    for p in res.problems:
+        print(f"  超标：{p}", file=out)
+    if res.errors:
+        print(f"  出错 {len(res.errors)} 次（见报告）", file=out)
+    if res.ok:
+        print("全部指标正常", file=out)
+    print(f"报告：{res.out / 'report.md'}", file=out)
+    return 0 if res.ok else 1
+
+
 def cmd_kit_check(args: argparse.Namespace, out: TextIO) -> int:
     """工作台质检：通过返回 0，不通过返回 1，没法检查返回 2。"""
     from roundtable.core.benchkit.quality import QualityError, run_check
@@ -2131,6 +2267,66 @@ def cmd_backup(
         kind = "每天" if f.kind == "daily" else f"存档点·{f.label}"
         print(f"  {f.name}  {kind}  {f.size / 1048576:.1f} MB", file=out)
     return 0
+
+
+def cmd_doctor(args: argparse.Namespace, out: TextIO) -> int:
+    """离线自检（docs/FIRSTAID.md）：服务开着时网页上「出问题点这里」看到的更全。"""
+    from roundtable.core import firstaid
+    from roundtable.core.changelog import load_changelog, numbered
+    from roundtable.core.config import load_config
+    from roundtable.core.providers import KeyRing
+    from roundtable.core.runtime import BACKUP_DIR, data_dir, db_file
+
+    error = None
+    names: list[str] = []
+    enabled = True
+    try:
+        cfg = load_config()
+        names = [c.key_env for c in cfg.models.channels.values() if c.key_env]
+        names += [p.key_env for p in cfg.models.search_providers.values() if p.key_env]
+        enabled = cfg.roundtable.backup.enabled
+    except ConfigError as exc:
+        error = str(exc)
+    keys = KeyRing.from_env(names, dotenv_path=PROJECT_ROOT / ".env")
+    db = db_file()
+    folder = db.parent / BACKUP_DIR if db is not None else None
+    now = datetime.now().astimezone()
+    found = firstaid.offline_findings(
+        db_path=db,
+        data=db.parent if db is not None else data_dir(),
+        config_error=error,
+        keys_present=[n for n in names if keys.has(n)],
+        keys_missing=[n for n in names if not keys.has(n)],
+        backup_files=firstaid.list_backups(folder),
+        backup_folder=folder,
+        backup_enabled=enabled,
+        now=now.replace(tzinfo=None),
+    )
+    summary = firstaid.summarize(found)
+    try:
+        rows = numbered(load_changelog())
+        version = rows[-1][0] if rows else None
+    except (ConfigError, OSError, ValueError):
+        version = None
+    report = firstaid.render_report(summary, firstaid.meta_info(version, now))
+    if args.output:
+        Path(args.output).write_text(report + "\n", encoding="utf-8")
+        print(f"体检报告已存到 {args.output}", file=out)
+    if args.report:
+        print(report, file=out)
+    elif not args.output:
+        mark = {"ok": "✓", "info": "·", "warn": "!", "bad": "✗"}
+        print(f"圆桌自检：{summary['headline']}", file=out)
+        for f in summary["findings"]:
+            line = f"  {mark[f['level']]} {f['title']}"
+            if f["detail"]:
+                line += f"：{f['detail']}"
+            print(line, file=out)
+            if f["fix"] and f["level"] in ("warn", "bad"):
+                print(f"      怎么办：{f['fix']}", file=out)
+        print("服务开着时，网页顶栏「出问题点这里」能看到更多（后台任务、渠道、预算）。", file=out)
+        print("要发给我们：roundtable doctor --report", file=out)
+    return 1 if summary["level"] == "bad" else 0
 
 
 def main(argv: list[str] | None = None) -> int:

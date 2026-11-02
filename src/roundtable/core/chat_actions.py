@@ -137,7 +137,21 @@ def member_stickers(rt: Any, member: str, name: str) -> dict[str, list[str]]:
     acts = rt.config.roundtable.chat.actions
     if not acts.enabled:
         return {}
-    return own_stickers(rt, member, name) | acts.stickers | Stash(rt).pack(member)
+    ext_own, ext_common = sticker_packs(rt).stickers(member)
+    return (
+        own_stickers(rt, member, name)
+        | ext_own
+        | acts.stickers
+        | ext_common
+        | Stash(rt).pack(member)
+    )
+
+
+def sticker_packs(rt: Any) -> Any:
+    """本机装的外部表情包（dsh-meme 格式，在数据库旁的 sticker_packs/）。"""
+    from roundtable.core.sticker_packs import PACK_DIR, StickerPacks
+
+    return StickerPacks(rt, rt.sticker_dir.parent / PACK_DIR if rt.sticker_dir else None)
 
 
 def sticker_menu(rt: Any, member: str, name: str) -> str:
@@ -146,19 +160,30 @@ def sticker_menu(rt: Any, member: str, name: str) -> str:
     from roundtable.core.member_stickers import MemberStickers
 
     own = own_stickers(rt, member, name)
-    common = sticker_list(rt.config.roundtable.chat.actions.stickers)
+    packs = sticker_packs(rt)
+    # 外部包一套可能上百张：提示词里每套只列几张，按小时轮换（聊天里认得整套）
+    ext_own, ext_common = packs.menu(member, rt.repo.clock()[:13])
+    ext_uses = packs.uses(member) if ext_own or ext_common else {}
+    common = sticker_list(rt.config.roundtable.chat.actions.stickers | ext_common, ext_uses)
     # 专属表情名多是她的梗（如记仇的「记着」），光给名字模型会望文生义，所以带上什么时候发
     uses = MemberStickers(rt, rt.sticker_dir).uses(member) if own else {}
-    menu = f"你的专属：{sticker_list(own, uses)}；通用：{common}" if own else common
+    mine = own | ext_own
+    menu = f"你的专属：{sticker_list(mine, uses | ext_uses)}；通用：{common}" if mine else common
     stash = Stash(rt).menu(member)
     return f"{menu}；{stash}" if stash else menu
 
 
 def sticker_list(stickers: dict[str, list[str]], uses: dict[str, str] | None = None) -> str:
-    """提示词里的表情包清单：「[表情:团子·开心]、……」；给了 uses 时写成「[表情:套·名]（用法）」。"""
+    """提示词里的表情包清单：「[表情:团子·开心]、……」；给了 uses 时写成「[表情:套·名]（用法）」。
+    uses 的键是「套·名」或只是名字（专属那套）。"""
     uses = uses or {}
+
+    def use(pack: str, name: str) -> str:
+        u = uses.get(f"{pack}·{name}") or uses.get(name)
+        return f"（{u}）" if u else ""
+
     return "、".join(
-        f"[表情:{pack}·{name}]" + (f"（{uses[name]}）" if name in uses else "")
+        f"[表情:{pack}·{name}]{use(pack, name)}"
         for pack, names in stickers.items()
         for name in names
     )
@@ -230,7 +255,8 @@ def sticker_echo(text: str, means: dict[str, list[str]]) -> str:
     bare = _bare(words)
     for m in STICKER_RE.finditer(text):
         name = m.group(2)
-        same = [_bare(w) for w in (means.get(name) or [name])]
+        hit = means.get(f"{m.group(1)}·{name}") or means.get(name)  # 外部包的键是「套·名」
+        same = [_bare(w) for w in (hit or [name])]
         if bare and any(bare == w for w in same if w):
             return m.group(0)
     if text.lstrip().startswith(tokens[0]):

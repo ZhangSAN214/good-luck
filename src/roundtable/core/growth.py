@@ -45,6 +45,7 @@ from roundtable.core.member.growth import habits as hb
 from roundtable.core.member.growth import report as rp
 from roundtable.core.member.growth.book import for_rt as book_for
 from roundtable.core.member.growth.gate import fresh_patch
+from roundtable.core.member.growth.plastic import plasticity
 from roundtable.core.member.growth.timeline import CHANGE, REJECTED, SKIP
 from roundtable.core.member.mode import Mode, require_life
 from roundtable.core.member.profile import ProfileStore
@@ -301,6 +302,8 @@ class GrowthKeeper:
             out["skipped"] = 1
             return out
         profile = self.profiles.current(member.id)
+        plastic = plasticity(self.rt, member.id, today, profile.data)  # 新来的变得快，待久了慢
+        limit = plastic.max_changes
         variables = {
             "name": member.name,
             "week": f"{week.week}（{start.isoformat()} 起的 7 天）",
@@ -310,7 +313,7 @@ class GrowthKeeper:
             "habits": self._habits(member.id),
             "lines": week.text(),
             "feedback": "没有",
-            "max_changes": str(r.max_changes),
+            "max_changes": str(limit),
             "lists": "；".join(f"{s}.{k}" for s, keys in r.lists.items() for k in keys),
             "item_chars": str(r.item_chars),
             "emotions": "、".join(self.rt.config.roundtable.chat.engine.feel.names),
@@ -325,8 +328,9 @@ class GrowthKeeper:
             text = await self._call(member, "growth_reflect", variables)
             if text is None:
                 return None
-            proposals, skip = parse(text, r.max_changes)
+            proposals, skip = parse(text, limit)
             ledger = self.log.ledger(member.id, today)
+            ledger.core_wait = plastic.core_wait
             verdicts = (
                 self.gate.check(member.id, proposals, week, ledger, others) if proposals else []
             )

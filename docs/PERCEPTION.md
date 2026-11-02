@@ -62,7 +62,16 @@
 
 `tests/core/perception/`、`tests/api/test_chat_api.py`（感知卡进聊天记录、细看、缓存清空、关键词直接精细）、`tests/web/test_e2e_chat_media.py::test_seen_mark_and_look_closer`、`tests/core/providers/`（`video_url`）。
 
+## K2 第二部分：工作模式的视频附件（2026-10-29）
+
+办公室、讨论、协同提问时可以上传 mp4 / mov / webm 视频（大小上限同其他附件，`uploads.max_file_mb`）。提交后、路由前由 `prepare_attachments()` 转成**文字版**：
+
+1. 声音转写（`stt` 模型，没有时用带 `transcribe` 标签的对话模型）；没有声音轨就跳过。
+2. 画面：有带 `video_in` 标签又能看图的模型、文件不超过 `perception.native_max_mb` 时整段发给它；否则按 `perception.fine` 均匀取帧（默认 24 帧，长边 768 像素），每帧一张随附图片。
+3. 最便宜的合适模型按提示词 `describe_video/v1` 写成文字版：概括、按时间的时间线、画面里的文字逐字抄下；末尾附上声音转写稿。
+
+所有成员（含统筹、经理）都只收到这份文字版，同一步骤完全相同。调用记在本场（`step="attachments"`、`role="preprocess"`），计入本场花费，不占感官的月上限。转写或文字版失败时整场失败（同音频）。没装 `av` + `pillow` 或没有看图模型时拒绝上传并说明原因。测试：`tests/core/orchestrator/test_attachments.py`（视频部分）、`tests/core/attachments/`。
+
 ### 还没做
 
-- 工作模式的附件支持视频（K2 第二部分）。
-- 读网页全文（K3）、天气与地图（K4）、时事与开放授权媒体源（K5）、接成员引擎的事件总线（K1，等引擎合并）。
+- 读网页全文（K3）、天气与地图（K4）、时事与开放授权媒体源（K5）、接成员引擎的事件总线（K1）。

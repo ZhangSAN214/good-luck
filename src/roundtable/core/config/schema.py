@@ -113,6 +113,9 @@ class ModelSpec(_Strict):
     # 画图模型调用的接口：chat = 对话接口（返回图片，如 Gemini 图像模型）；
     # images = 专门的图像接口（OpenRouter 的 /api/v1/images，OpenAI 的 gpt-image 系列只能走这个）
     image_api: ImageApi = "chat"
+    # 画图模型吃哪种提示词：text = 自然语言（对话式 / 云端绘图模型）；tags = 逗号分隔的标签
+    # （本地 SDXL 二次元底模）。朋友圈配图据此选提示词（moment_photo / moment_photo_tags）
+    image_prompt: Literal["text", "tags"] = "text"
     # 产品名、中文名等别称；转发给其他模型前会被遮蔽（见 allocation.identity）
     aliases: list[str] = Field(default_factory=list)
     # 按优先顺序排列的渠道
@@ -171,6 +174,38 @@ class ModelsConfig(_Strict):
     channels: dict[str, ChannelSpec]
     models: list[ModelSpec]
     search_providers: dict[str, SearchProviderSpec] = Field(default_factory=dict)
+    # 模型开关：模型 id → 是否启用，覆盖条目里的 enabled。写在 config/models.local.yaml 里
+    # 就能在本机打开 / 关掉某个模型，不用把整张 models 列表抄过去（列表合并时整体替换）
+    model_switches: dict[str, bool] = Field(default_factory=dict)
+    # 模型参数：模型 id → 要覆盖的 params（逐项合并进条目的 params）。同样写在 models.local.yaml，
+    # 用来按本机实际情况改某个模型的参数（如本地配音服务的接口路径和字段）
+    model_params: dict[str, dict[str, Any]] = Field(default_factory=dict)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _apply_switches(cls, data: Any) -> Any:
+        if not isinstance(data, dict):
+            return data
+        switches = data.get("model_switches") or {}
+        extra = data.get("model_params") or {}
+        if not isinstance(switches, dict) or not isinstance(extra, dict):
+            return data  # 交给字段校验报错
+        if not switches and not extra:
+            return data
+        models = data.get("models") or []
+        known = {m.get("id") for m in models if isinstance(m, dict)}
+        for field, given in (("model_switches", switches), ("model_params", extra)):
+            unknown = sorted(str(k) for k in given if k not in known)
+            if unknown:
+                raise ValueError(f"{field} 里有不存在的模型：{unknown}")
+        out = []
+        for m in models:
+            if isinstance(m, dict) and m.get("id") in switches:
+                m = {**m, "enabled": switches[m["id"]]}
+            if isinstance(m, dict) and isinstance(extra.get(m.get("id")), dict):
+                m = {**m, "params": {**(m.get("params") or {}), **extra[m["id"]]}}
+            out.append(m)
+        return {**data, "models": out}
 
     @model_validator(mode="after")
     def _cross_check(self) -> ModelsConfig:
@@ -599,13 +634,64 @@ class StickerRules(_Strict):
     frame_ms: int = Field(default=280, ge=60, le=2000)  # 动图每格停多久（毫秒）
 
 
+HerInPhoto = Literal["none", "part", "full"]
+# 摄影维度表项的适用条件：时间段（按事件时间在主时区的钟点）或地点（生活事件的 place）
+PHOTO_TIMES = ("morning", "day", "evening", "night")
+PHOTO_PLACES = (
+    "dorm",
+    "canteen",
+    "lounge",
+    "gym",
+    "office",
+    "meeting",
+    "rooftop",
+    "indoor",
+    "outdoor",
+)
+PHOTO_DIMS = ("angles", "lights", "moments", "lenses", "filters")
+
+
+class PhotoOption(_Strict):
+    """朋友圈配图的一个摄影维度取值（机位、光、时机、焦段、滤镜各一张表，每张图每个维度抽一个）。
+    name：稳定标识，供成员拍照习惯的 boost 引用；text：英文短语，直接进提示词（空 = 这一项不写，
+    如 1x 主摄、原色）；tags：标签版（吃标签的本地绘图模型用）；when：适用的时间段 / 地点（空 =
+    都可用；同类条件里满足一个即可，拿不到时间或地点时不按它过滤）；her：适用于哪种入镜方式。"""
+
+    name: str = Field(min_length=1, pattern=r"^[a-z0-9_]+$")
+    text: str = ""
+    weight: float = Field(default=1.0, gt=0)
+    when: list[str] = Field(default_factory=list)
+    her: list[HerInPhoto] = Field(default_factory=lambda: ["none", "part", "full"], min_length=1)
+    tags: str = ""
+
+    @field_validator("when")
+    @classmethod
+    def _known(cls, when: list[str]) -> list[str]:
+        bad = sorted(set(when) - set(PHOTO_TIMES) - set(PHOTO_PLACES))
+        if bad:
+            raise ValueError(f"when 只能写时间段 {PHOTO_TIMES} 或地点 {PHOTO_PLACES}，收到 {bad}")
+        return when
+
+
+def _unique_names(items: list[Any], what: str) -> None:
+    names = [i.name for i in items if i.name]
+    dup = sorted({n for n in names if names.count(n) > 1})
+    if dup:
+        raise ValueError(f"{what} 的 name 重复：{dup}")
+
+
 class MomentShot(_Strict):
     """朋友圈配图的一种拍法。her：none 她不入镜（不传形象参考图）/ part 只露手、袖子、
-    尾巴 / full 入镜。"""
+    尾巴 / full 入镜。by：谁拿手机——self 她自己（自拍、第一人称、拍东西），friend 室友帮拍；
+    只有她自己拍时其他摄影维度才按她的拍照习惯加权。"""
 
+    name: str = Field(default="", pattern=r"^[a-z0-9_]*$")  # 稳定标识，供拍照习惯的 boost 引用
     text: str = Field(min_length=1)
     weight: float = Field(default=1.0, gt=0)
-    her: Literal["none", "part", "full"] = "full"
+    her: HerInPhoto = "full"
+    by: Literal["self", "friend"] = "self"
+    # 标签版（吃标签的本地绘图模型用，见 moment_photo_tags）；不写时用 text
+    tags: str = ""
 
 
 class MomentPhotoRules(_Strict):
@@ -617,36 +703,96 @@ class MomentPhotoRules(_Strict):
     per_member_day: int = Field(default=1, ge=0, le=5)  # 每位成员每天最多几张
     per_day: int = Field(default=3, ge=0, le=20)  # 所有成员加起来每天最多几张（控制花费）
     max_side: int = Field(default=1024, ge=256, le=2048)  # 存下来的长边（像素，JPEG）
-    # 拍法：每张按权重抽一种。真人发朋友圈多半拍东西和风景，很少拍自己（10-31 用户嫌配图 AI 感太强）
+    # 只用本地绘图模型（渠道全是 kind: local 的，如 ComfyUI）：本地没开 / 画不出来时只发文字，
+    # 不退回云端付费模型
+    local_only: bool = False
+    # 吃标签的本地绘图模型（image_prompt: tags）：按拍法的 her 给的人物标签，接在拍法标签前面
+    tag_subjects: dict[Literal["none", "part", "full"], str] = Field(
+        default_factory=lambda: {
+            "none": "no humans, still life, scenery",
+            "part": "pov, pov hands, 1girl, out of frame",
+            "full": "1girl, solo, candid",
+        }
+    )
+    # 拍法：每张按权重抽一种。朋友圈是让人看到她们的生活：多数她本人入镜、是主角；去 AI 感靠抓拍和
+    # 日常背景，不靠躲开人物（11-01 用户：要看她们的生活，不要剩饭）
     shots: list[MomentShot] = Field(
         default_factory=lambda: [
             MomentShot(
-                text="only the thing or view in front of her (food, cup, desk, window, sky); "
-                "she does not appear",
-                weight=6,
-                her="none",
+                name="candid",
+                text="a friend caught her in the middle of doing it, candid, "
+                "she is the main subject",
+                weight=4,
+                by="friend",
             ),
             MomentShot(
-                text="her point of view: only her hand, sleeve or tail at the edge of the frame "
-                "next to the thing she is looking at",
+                name="selfie",
+                text="a casual selfie at arm's length, maybe with whoever she is with",
+                weight=2,
+            ),
+            MomentShot(
+                name="together",
+                text="her and the people she is with, snapped together while hanging out",
+                weight=1,
+            ),
+            MomentShot(
+                name="pov",
+                text="something worth showing off in front of her (a nice meal just served, "
+                "the view, a cute object), with her hand or sleeve at the edge of the frame",
                 weight=2,
                 her="part",
             ),
             MomentShot(
-                text="a friend snapped her without warning from a few meters away or from behind; "
-                "she is small in the frame and doing her own thing",
+                name="thing",
+                text="only a view or thing worth showing off (rooftop night sky, a pretty dish "
+                "just served); she does not appear",
                 weight=1,
-            ),
-            MomentShot(
-                text="a quick selfie at arm's length, awkward angle, "
-                "half her face cut off by the edge",
-                weight=1,
+                her="none",
             ),
         ],
         min_length=1,
         max_length=8,
     )
     phone_look: bool = True  # 画完在本机加一层手机味：轻微裁歪、压暗饱和度、噪点、压缩（不花钱）
+    room_refs: bool = True  # 按事件地点附上那间房的场景图当最后一张参考图（公寓里拍）
+    # 摄影维度（每张图每个维度按权重抽一个，各维度用独立种子；按时间段、地点、入镜方式过滤）。
+    # 取值按手机现实：1x 主摄、原色、抓拍为主（完整默认表在 config/roundtable.yaml）
+    angles: list[PhotoOption] = Field(
+        default_factory=lambda: [
+            PhotoOption(name="across_table", text="from across the table", weight=3),
+            PhotoOption(name="top_down", text="top-down shot of the table", her=["none", "part"]),
+        ]
+    )
+    lights: list[PhotoOption] = Field(
+        default_factory=lambda: [
+            PhotoOption(name="window", text="soft side light from the window", when=["day"]),
+            PhotoOption(name="ceiling", text="flat overhead ceiling light", when=["indoor"]),
+        ]
+    )
+    moments: list[PhotoOption] = Field(
+        default_factory=lambda: [
+            PhotoOption(name="absorbed", text="a quiet moment, absorbed in what she is doing"),
+        ]
+    )
+    lenses: list[PhotoOption] = Field(
+        default_factory=lambda: [PhotoOption(name="main", text="", weight=6)]
+    )
+    filters: list[PhotoOption] = Field(
+        default_factory=lambda: [PhotoOption(name="original", text="", weight=6)]
+    )
+    quirk_chance: float = Field(default=0.3, ge=0, le=1)  # 她自己拍时带上拍照小毛病的概率
+    subject_chance: float = Field(default=0.6, ge=0, le=1)  # 拍东西时换成她爱拍的东西的概率
+
+    @model_validator(mode="after")
+    def _names(self) -> MomentPhotoRules:
+        _unique_names(self.shots, "shots")
+        for dim in PHOTO_DIMS:
+            _unique_names(getattr(self, dim), dim)
+        return self
+
+    def names(self, dim: str) -> set[str]:
+        """某个维度表（shots / angles / lights / moments / lenses / filters）里的名字。"""
+        return {o.name for o in getattr(self, dim) if o.name}
 
 
 class SpeechRules(_Strict):
@@ -1632,6 +1778,34 @@ class GrowthBookRules(_Strict):
     context_chars: int = Field(default=50, ge=0, le=200)  # 那一行最多几个字（算在 600 字里）
 
 
+class GrowthPlasticRules(_Strict):
+    """发育期可塑性（成长 G2）：新来的变得快，待久了变得慢。
+
+    8 位同一套规则，差别只来自入职时间和性格。"""
+
+    enabled: bool = True
+    young_days: int = Field(default=60, ge=0, le=3650)  # 入职头这么多天是发育期（照原规则）
+    settled_changes: int = Field(default=2, ge=1, le=5)  # 定型以后每周最多改几条
+    settle_days: int = Field(default=60, ge=1, le=730)  # 定型以后性格分两次改动至少隔几天
+    min_gap_days: int = Field(default=30, ge=1, le=730)  # 再快也至少隔这么多天
+    # 每比 3 分高一分，间隔乘上 (1 + 系数)：好奇、外向变得快，较真变得慢
+    trait_speed: dict[str, float] = {"好奇": -0.1, "外向": -0.05, "较真": 0.1}
+
+
+class GrowthVitalsRules(_Strict):
+    """成长的防退化阈值（成长 G3，docs/MEMBER_ENGINE.md「半年快进与防退化」）：半年快进和加速模拟
+    期末超过这些就算出问题（测试失败、报告里标红）。全程序算，不花钱。"""
+
+    overlap_max: float = Field(default=0.4, ge=0, le=1)  # 两位成员的长处 / 喜好最多重合几成
+    extreme_gain: float = Field(default=0.15, ge=0, le=1)  # 五项分在 1 或 5 的占比最多多几成
+    push_max: float = Field(default=1.0, ge=0, le=4)  # 一项性格全员平均最多移动几格
+    moved_max: int = Field(default=4, ge=0, le=20)  # 一位成员五项分一共最多移动几格
+    share_slack: float = Field(default=0.05, ge=0, le=1)  # 受你影响的占比比上限多出这么多才算
+    catchphrase_left: float = Field(default=0.3, ge=0, le=1)  # 能用的口头禅至少还有期初的几成
+    kaomoji_left: int = Field(default=2, ge=0, le=20)  # 颜文字至少还有几个
+    dupes_max: float = Field(default=0.1, ge=0, le=1)  # 本该合并却各记一条的记忆件最多占几成
+
+
 class GrowthRules(_Strict):
     """P6 成长（docs/MEMBER_ENGINE.md「P6 成长」）：每周用成员自己的模型读一遍上周的经历，
     最多提几条对自我档案的改动，每条必须引用真实经历；程序把关后才写进档案（author = growth）。
@@ -1643,6 +1817,9 @@ class GrowthRules(_Strict):
     weekday: int = Field(default=1, ge=1, le=7)  # 每周几（ISO，1 = 周一）反思上一周
     min_days: int = Field(default=3, ge=1, le=7)  # 上周至少几天有经历才反思，否则跳过并记原因
     book: GrowthBookRules = GrowthBookRules()
+    vitals: GrowthVitalsRules = GrowthVitalsRules()
+    plastic: GrowthPlasticRules = GrowthPlasticRules()
+    reconcile: bool = True  # 对账（成长 G2）：口癖、学来的说法、习惯和档案对不上时写进每周经历
     min_lines: int = Field(default=5, ge=1, le=100)  # 上周至少几条经历（日记、记忆件、你说的话）
     max_changes: int = Field(default=3, ge=1, le=5)  # 每周最多改几条
     material_chars: int = Field(default=4000, ge=500, le=20000)  # 周总结最多多少字
@@ -1660,9 +1837,14 @@ class GrowthRules(_Strict):
         }
     )
     list_max: int = Field(default=8, ge=1, le=30)  # 每个列表最多几项
+    list_keep: int = Field(default=2, ge=0, le=30)  # 去掉一项后至少还留几项（不会被删光）
     item_chars: int = Field(default=20, ge=2, le=60)  # 新加的一项最多多少字
     unique_lists: list[str] = Field(default_factory=lambda: ["style.口头禅"])  # 不和别人重样的列表
     core_monthly_steps: int = Field(default=1, ge=0, le=5)  # 核心性格（五项）每月最多改几格
+    anchor_steps: int = Field(default=2, ge=0, le=4)  # 成长让一项性格一共最多离人物卡几格
+    same_way: float = Field(
+        default=0.4, gt=0, le=1
+    )  # 这么多成员（按 8 人比例）往同一边变过这一项，别人先不跟
     min_distance: int = Field(default=2, ge=0, le=20)  # 8 人五项分两两至少差几（各项差的和）
     user_share: float = Field(default=0.3, ge=0, le=1)  # 受你影响的改动最多占几成
     share_window_weeks: int = Field(default=8, ge=1, le=52)  # 按最近几周的改动算占比
@@ -2827,6 +3009,8 @@ class DriftRules(_Strict):
     crowd: int = Field(default=2, ge=1, le=10)  # 已经有这么多位在用的不挑（不越聊越像）
     return_days: int = Field(default=60, ge=0, le=365)  # 换掉的这么久以内不挑回来
     rest_days: int = Field(default=21, ge=1, le=365)  # 口头禅说腻了歇几天
+    # 歇掉一句后，档案上的口头禅至少还有这么多能用（不会一起歇光；成长 G3 半年快进发现的）
+    keep_catchphrases: float = Field(default=0.5, ge=0, le=1)
     promote_uses: int = Field(default=6, ge=1, le=100)  # 学来的说法自己用够几次就成了自己的
     keep_swaps: int = Field(default=30, ge=5, le=500)
     mood_high: float = Field(default=0.35, ge=0, le=1)
@@ -3073,6 +3257,24 @@ class EmojiImageRules(_Strict):
         return url
 
 
+class StickerPackRules(_Strict):
+    """外部表情包（dsh-meme 格式的压缩包，``core/sticker_packs.py``）：
+    装在本机 data/sticker_packs/，不进仓库；可以给某位成员专用或大家通用。"""
+
+    enabled: bool = True
+    # 提示词里每套最多列几张（按小时轮换）；聊天里认得整套
+    menu_size: int = Field(default=10, ge=1, le=40)
+    max_mb: int = Field(default=200, ge=1, le=1000)  # 一个包压缩包 / 解压后的上限
+    catalog_url: str = Field(default="", max_length=300)  # 在线目录（catalog.json）
+
+    @field_validator("catalog_url")
+    @classmethod
+    def _https(cls, url: str) -> str:
+        if url and not url.startswith("https://"):
+            raise ValueError("catalog_url 要以 https:// 开头")
+        return url
+
+
 class ChatActionRules(_Strict):
     """聊天里能发什么（docs/CHAT.md「微信式动作」）：表情包、颜文字、引用、拆条、拍一拍、撤回。
 
@@ -3085,6 +3287,7 @@ class ChatActionRules(_Strict):
     stickers: dict[str, list[str]] = Field(default_factory=dict)
     kaomoji: list[str] = Field(default_factory=list, max_length=40)  # 颜文字示例
     emoji_images: EmojiImageRules = EmojiImageRules()  # 网页里的 emoji 显示成哪套图
+    sticker_packs: StickerPackRules = StickerPackRules()  # 本机装的外部表情包
     max_segments: int = Field(default=3, ge=1, le=6)  # 一次回复最多拆成几条
     segment_gap_seconds: float = Field(default=1.2, ge=0, le=10)  # 拆条之间的固定间隔（默认值）
     recall_seconds: int = Field(default=120, ge=0, le=3600)  # 你发出后多久内可以撤回
@@ -3450,6 +3653,91 @@ class SuperWeights(_Strict):
     busy: float = Field(default=0.2, ge=0)
 
 
+class SuperGate(_Strict):
+    """自治闸门：定时活到点时能不能自己开干（docs/SUPERCOMPUTER.md「管家」）。
+
+    你在面板上亲手交的活、点「现在跑」、点「批准」都算你发起的，直接干；闸门只管定时活到点那一下。
+    风险按活的文字判：碰到 high_words 是高，只碰到 low_words 是低，其余是中。高风险永远等你点头。"""
+
+    # off：定时活到点一律等你确认；low：低风险的自己跑；medium：低、中风险的自己跑
+    autonomy: Literal["off", "low", "medium"] = "low"
+    max_auto_per_day: int = Field(default=3, ge=0, le=100)  # 每天最多自己跑几件（按本地日期）
+    high_words: list[str] = Field(
+        default_factory=lambda: [
+            "删除",
+            "删掉",
+            "清空",
+            "rm -rf",
+            "push",
+            "推送",
+            "合并分支",
+            "git merge",
+            "发布",
+            "部署",
+            "上线",
+            "生产",
+            "付款",
+            "支付",
+            "转账",
+            "安装",
+            "卸载",
+            "发邮件",
+            "发消息",
+            "密钥",
+            ".env",
+            "force",
+            "drop table",
+            "格式化",
+        ]
+    )
+    write_words: list[str] = Field(
+        default_factory=lambda: [
+            "改",
+            "写",
+            "加",
+            "修",
+            "删",
+            "重构",
+            "提交",
+            "commit",
+            "生成",
+            "创建",
+            "替换",
+            "升级",
+        ]
+    )
+    low_words: list[str] = Field(
+        default_factory=lambda: [
+            "查",
+            "调研",
+            "总结",
+            "汇总",
+            "审查",
+            "检查",
+            "看看",
+            "列出",
+            "统计",
+            "评估",
+            "对比",
+        ]
+    )
+
+
+class SuperButler(_Strict):
+    """超级电脑的管家：定时活、排队、自治闸门、日报、哈希链审计（docs/SUPERCOMPUTER.md「管家」）。
+
+    只调度你建好的定时活和你排进队的活，不会自己找活干；不调模型、不花钱。"""
+
+    enabled: bool = True
+    tick_seconds: int = Field(default=60, ge=5, le=3600)  # 多久看一次表
+    # 电脑关着错过了点：开机后这么多小时之内补跑一次（只补一次），再晚就记为「错过」
+    catch_up_hours: float = Field(default=12, ge=0, le=168)
+    max_schedules: int = Field(default=20, ge=0, le=200)
+    queue_max: int = Field(default=10, ge=1, le=100)
+    report_days: int = Field(default=14, ge=1, le=90)  # 开机补写最近几天的日报
+    gate: SuperGate = SuperGate()
+
+
 class SupercomputerRules(_Strict):
     """超级电脑（docs/SUPERCOMPUTER.md）：几位编程助手平级，没有固定主管。
 
@@ -3463,6 +3751,7 @@ class SupercomputerRules(_Strict):
     max_subtasks: int = Field(default=6, ge=1, le=20)
     weights: SuperWeights = SuperWeights()
     workers: list[SuperWorker] = Field(default_factory=list)
+    butler: SuperButler = SuperButler()
 
     @model_validator(mode="after")
     def _check(self) -> SupercomputerRules:
@@ -3963,15 +4252,45 @@ class StickerSpec(_Strict):
         return frames
 
 
+class PhotoHabit(_Strict):
+    """一位成员自己拍照时的习惯（只影响权重，不排除任何选项；只用于朋友圈配图，工作模式不读）。
+    subjects：爱拍的东西（英文短语），拍东西时按概率换成其中一样；boost：对通用维度表的权重倍数
+    （维度 → {表项 name: 倍数}，维度是 shots / angles / lights / moments / lenses / filters）；
+    quirk：一句英文小毛病，她自己拍时按概率出现。"""
+
+    subjects: list[str] = Field(default_factory=list, max_length=8)
+    boost: dict[
+        Literal["shots", "angles", "lights", "moments", "lenses", "filters"], dict[str, float]
+    ] = Field(default_factory=dict)
+    quirk: str = Field(default="", max_length=200)
+
+    @field_validator("boost")
+    @classmethod
+    def _positive(cls, boost: dict[str, dict[str, float]]) -> dict[str, dict[str, float]]:
+        for dim, table in boost.items():
+            bad = sorted(k for k, v in table.items() if v <= 0)
+            if bad:
+                raise ValueError(f"boost.{dim} 的倍数必须大于 0：{bad}")
+        return boost
+
+
 class StickerCard(_Strict):
     """一位成员的形象卡 + 专属表情清单（只用于聊天、朋友圈；工作模式不读）。"""
 
     look: str = Field(min_length=1, max_length=400)  # 外观要点
     must: list[str] = Field(default_factory=list, max_length=8)  # 每张都必须画到的细节
+    # 外观的英文标签（逗号分隔，给吃标签的本地绘图模型用，见 moment_photo_tags）；不写时用 look
+    look_tags: str = Field(default="", max_length=400)
     # 形象参考图：素材目录（members.json 所在目录）里的相对路径，最多 3 张；
     # 不写时用 members.json 里的立绘 / 小人 / 头像
     refs: list[str] = Field(default_factory=list, max_length=3)
     stickers: list[StickerSpec] = Field(default_factory=list, max_length=24)
+    # 朋友圈配图用：标志小物件（只露手、背影时也认得出是谁，如小鲸鱼发卡）
+    cues: list[str] = Field(default_factory=list, max_length=4)
+    # 朋友圈配图：她自己拍照时的习惯（爱拍什么、爱用的机位 / 焦段 / 滤镜、小毛病）；不写时用通用权重
+    photo: PhotoHabit | None = None
+    # 朋友圈日常照必须画到的细节；不写时用 must（日常照不扛武器等大道具时在这里去掉）
+    daily_must: list[str] | None = Field(default=None, max_length=8)
 
     @field_validator("stickers")
     @classmethod
@@ -4283,7 +4602,22 @@ class AppConfig(_Strict):
                 raise ValueError(f"voices.{member} 里有不是语音模型（tts 标签）的 id：{bad}")
         self._check_routing()
         self._check_collab()
+        self._check_photo_habits()
         return self
+
+    def _check_photo_habits(self) -> None:
+        """拍照习惯的 boost 只能引用朋友圈配图维度表里有的名字。"""
+        rules = self.roundtable.media.moment_photos
+        for member, card in self.personas.sticker_cards.items():
+            if card.photo is None:
+                continue
+            for dim, table in card.photo.boost.items():
+                unknown = sorted(set(table) - rules.names(dim))
+                if unknown:
+                    raise ValueError(
+                        f"sticker_cards.{member}.photo.boost.{dim} 引用了不存在的名字：{unknown}"
+                        f"（见 media.moment_photos.{dim}）"
+                    )
 
     def _check_collab(self) -> None:
         rt = self.roundtable

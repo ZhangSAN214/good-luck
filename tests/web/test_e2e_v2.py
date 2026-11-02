@@ -294,3 +294,22 @@ def test_estimate_calls_no_model(serve, page):
     page.fill("#ask", MEDIUM)
     page.wait_for_selector("#estimate table")
     assert not [c for c in srv.env.fake.calls if ANSWER in c.messages[0].content]
+
+
+def test_upload_video_members_read_its_text_version(serve, page):
+    """视频附件（K2 第二部分）：网页上传后提问，每位成员都收到同一份视频文字版。"""
+    from ..core.perception.media import make_video
+
+    srv = serve(confirm_threshold_usd=100.0, with_media=True)
+    page.goto(srv.url)
+    page.wait_for_selector("#attach")
+    upload(page, "讲课.mp4", make_video(2), "video/mp4")
+    page.wait_for_selector("#attachments .chip[data-att]:has-text('讲课.mp4')")
+    ask(page, MEDIUM)
+    wait_done(page)
+    answers = [c for c in srv.env.fake.calls if ANSWER in c.messages[0].content]
+    assert answers
+    for c in answers:
+        user = " ".join(m.content for m in c.messages)
+        assert 'type="video"' in user and "黑板上写着" in user
+        assert not any(x.kind == "video" for m in c.messages for x in m.media)

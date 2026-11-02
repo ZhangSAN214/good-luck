@@ -152,6 +152,15 @@ class ThemeBody(BaseModel):
     theme: str | None = None
 
 
+class DrawChannelsBody(BaseModel):
+    """出图渠道的手动设置：disabled 关掉的模型 id；order 手动先后（不传 = 不改）。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    disabled: list[str] | None = None
+    order: list[str] | None = None
+
+
 class ChannelPriorityBody(BaseModel):
     """渠道优先顺序：auto 按配置 / custom 按 order；credits 为每月额度（null = 不设）。"""
 
@@ -207,6 +216,14 @@ class HandoffBody(BaseModel):
 
 class VoiceBody(BaseModel):
     text: str | None = Field(default=None, max_length=2000)  # 省略：念一句试听
+
+
+class StickerPackBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(default="", max_length=64)  # 装的时候用：目录里的包 id
+    owner: str | None = Field(default=None, max_length=40)  # 专用的成员；空串 = 通用；不传 = 不变
+    label: str | None = Field(default=None, max_length=6)  # 聊天里的套装名
 
 
 class StickerReviewBody(BaseModel):
@@ -401,6 +418,7 @@ class BenchBody(BaseModel):
     request: str = Field(min_length=1, max_length=2000)
     materials: list[str] = Field(default_factory=list, max_length=64)  # 先收下的素材编号
     from_product: bool = False  # 从成品反推：拖进来的是成品，要能做出类似成品的台
+    form: dict[str, str] = Field(default_factory=dict, max_length=20)  # 按表填的需求（可选）
 
 
 class BenchAttachBody(BaseModel):
@@ -510,6 +528,22 @@ class SuperTaskBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     text: str = Field(min_length=1, max_length=8000)
+    queue: bool = False  # 超级电脑在忙时排进队（不然报「在忙」）
+
+
+class SuperScheduleBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    text: str = Field(min_length=1, max_length=4000)
+    at: str = Field(pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
+    days: list[int] = Field(default_factory=list, max_length=7)  # 0=周一；空=每天
+    once: str | None = Field(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$")
+
+
+class SuperToggleBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool
 
 
 class SuperLimitBody(BaseModel):
@@ -771,6 +805,7 @@ def create_app(service: RoundtableService | None = None, lan: LanAccess | None =
         app.state.service.start_life()
         app.state.service.start_evolution()
         app.state.service.start_dsh()
+        app.state.service.start_butler()
         try:
             yield
         finally:
@@ -812,6 +847,14 @@ def create_app(service: RoundtableService | None = None, lan: LanAccess | None =
         return svc(request).set_channel_priority(
             strategy=body.strategy, order=body.order, credits=body.credits
         )
+
+    @app.get("/api/media/draw-channels")
+    async def draw_channels(request: Request) -> dict[str, Any]:
+        return svc(request).draw_channels()
+
+    @app.put("/api/media/draw-channels")
+    async def set_draw_channels(request: Request, body: DrawChannelsBody) -> dict[str, Any]:
+        return svc(request).set_draw_channels(disabled=body.disabled, order=body.order)
 
     @app.get("/api/members")
     async def members(request: Request) -> dict[str, Any]:
@@ -922,7 +965,7 @@ def create_app(service: RoundtableService | None = None, lan: LanAccess | None =
     @app.post("/api/bench")
     async def bench_submit(request: Request, body: BenchBody) -> dict[str, Any]:
         return svc(request).bench_submit(
-            body.request, body.materials, from_product=body.from_product
+            body.request, body.materials, from_product=body.from_product, form=body.form
         )
 
     @app.post("/api/bench/materials", status_code=201)
@@ -1050,7 +1093,7 @@ def create_app(service: RoundtableService | None = None, lan: LanAccess | None =
 
     @app.post("/api/super/tasks")
     async def super_submit(request: Request, body: SuperTaskBody) -> dict[str, Any]:
-        return svc(request).super_submit(body.text)
+        return svc(request).super_submit(body.text, body.queue)
 
     @app.post("/api/super/cancel")
     async def super_cancel(request: Request) -> dict[str, Any]:
@@ -1067,6 +1110,44 @@ def create_app(service: RoundtableService | None = None, lan: LanAccess | None =
     @app.post("/api/super/workers/{worker}/wake")
     async def super_wake(request: Request, worker: str) -> dict[str, Any]:
         return svc(request).super_clear_cooldown(worker)
+
+    @app.post("/api/super/schedules")
+    async def super_add_schedule(request: Request, body: SuperScheduleBody) -> dict[str, Any]:
+        return svc(request).super_add_schedule(body.text, body.at, body.days, body.once)
+
+    @app.put("/api/super/schedules/{item_id}")
+    async def super_toggle_schedule(
+        request: Request, item_id: str, body: SuperToggleBody
+    ) -> dict[str, Any]:
+        return svc(request).super_toggle_schedule(item_id, body.enabled)
+
+    @app.delete("/api/super/schedules/{item_id}")
+    async def super_remove_schedule(request: Request, item_id: str) -> dict[str, Any]:
+        return svc(request).super_remove_schedule(item_id)
+
+    @app.post("/api/super/schedules/{item_id}/run")
+    async def super_run_schedule(request: Request, item_id: str) -> dict[str, Any]:
+        return svc(request).super_run_schedule(item_id)
+
+    @app.post("/api/super/pending/{item_id}/approve")
+    async def super_approve(request: Request, item_id: str) -> dict[str, Any]:
+        return svc(request).super_approve(item_id)
+
+    @app.post("/api/super/pending/{item_id}/reject")
+    async def super_reject(request: Request, item_id: str) -> dict[str, Any]:
+        return svc(request).super_reject(item_id)
+
+    @app.delete("/api/super/queue/{item_id}")
+    async def super_unqueue(request: Request, item_id: str) -> dict[str, Any]:
+        return svc(request).super_unqueue(item_id)
+
+    @app.get("/api/super/report")
+    async def super_report(request: Request, day: str | None = None) -> dict[str, Any]:
+        return svc(request).super_report(day)
+
+    @app.get("/api/super/audit")
+    async def super_audit(request: Request) -> dict[str, Any]:
+        return svc(request).super_audit()
 
     @app.get("/api/wander")
     async def wander_status(request: Request) -> dict[str, Any]:
@@ -1291,6 +1372,37 @@ def create_app(service: RoundtableService | None = None, lan: LanAccess | None =
         data = svc(request).emoji_image(code)
         headers = {"X-Content-Type-Options": "nosniff", "Cache-Control": "private, max-age=2592000"}
         return Response(content=data, media_type="image/png", headers=headers)
+
+    @app.get("/api/sticker-packs")
+    async def sticker_packs(request: Request) -> dict[str, Any]:
+        """本机装的外部表情包（dsh-meme 格式）。"""
+        return svc(request).sticker_packs()
+
+    @app.get("/api/sticker-packs/catalog")
+    def sticker_pack_catalog(request: Request) -> dict[str, Any]:
+        """在线目录里的包（要联网）。"""
+        return svc(request).sticker_pack_catalog()
+
+    @app.post("/api/sticker-packs")
+    def sticker_pack_install(request: Request, body: StickerPackBody) -> dict[str, Any]:
+        """从在线目录装一个包（下载、核对 sha256）；owner 为空 = 通用。"""
+        return svc(request).install_sticker_pack(body.id, body.owner, body.label or "")
+
+    @app.patch("/api/sticker-packs/{pack_id}")
+    async def sticker_pack_assign(
+        request: Request, pack_id: str, body: StickerPackBody
+    ) -> dict[str, Any]:
+        return svc(request).assign_sticker_pack(pack_id, body.owner, body.label)
+
+    @app.delete("/api/sticker-packs/{pack_id}")
+    async def sticker_pack_remove(request: Request, pack_id: str) -> dict[str, Any]:
+        return svc(request).remove_sticker_pack(pack_id)
+
+    @app.get("/api/sticker-packs/{pack_id}/{n}")
+    async def sticker_pack_image(request: Request, pack_id: str, n: int) -> Response:
+        data, mime = svc(request).sticker_pack_image(pack_id, n)
+        headers = {"X-Content-Type-Options": "nosniff", "Cache-Control": "private, max-age=2592000"}
+        return Response(content=data, media_type=mime, headers=headers)
 
     @app.get("/api/chat/stickers")
     async def chat_stickers(request: Request) -> dict[str, Any]:
@@ -2042,6 +2154,18 @@ def create_app(service: RoundtableService | None = None, lan: LanAccess | None =
     async def backup_restore(request: Request, body: BackupRestore) -> dict[str, Any]:
         local_only(request)
         return svc(request).backup_restore(body.name)
+
+    # ---- 「出问题点这里」自检（docs/FIRSTAID.md）：只读；报告里有本机路径等信息，只在电脑上看 ----
+
+    @app.get("/api/firstaid")
+    async def firstaid(request: Request) -> dict[str, Any]:
+        local_only(request)
+        return svc(request).firstaid()
+
+    @app.get("/api/firstaid/report")
+    async def firstaid_report(request: Request) -> dict[str, Any]:
+        local_only(request)
+        return svc(request).firstaid_report()
 
     @app.get("/lan/pair")
     async def lan_pair_open(c: str = "") -> Response:

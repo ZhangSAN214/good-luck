@@ -5,6 +5,9 @@
 @media (pointer:coarse){
   /* 顶栏的小链接（片头 / 外观 / 平板）和入口切换：触摸目标不小于 40px */
   .top .bt-open{display:inline-flex;align-items:center;min-height:40px;padding:0 6px}
+  /* 顶栏小链接多了「自检」：触屏上收窄间距，iPad mini 竖屏不多折一行（群聊输入框留在第一屏） */
+  .top .brand{gap:4px}
+  .top .bt-open{padding:0 4px}
   .entries button{min-height:40px}
   /* iPad / iPhone 的 Safari 在字号小于 16px 的输入框获得焦点时会自动放大页面 */
   input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),select,textarea{font-size:16px}

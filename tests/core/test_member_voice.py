@@ -149,3 +149,48 @@ def test_repo_voice_table_only_names_speech_models():
     tts = {m.id for m in config.models.models if "tts" in m.tags}
     for vendor, voices in config.personas.voices.items():
         assert set(voices) <= tts, vendor
+
+
+def build_local(tmp_path=None):
+    """打开本地配音模型：local_tts 渠道是另一个假渠道。"""
+    config = load_config()
+    models = [
+        m.model_copy(update={"enabled": True}) if m.id == "pc-tts" else m
+        for m in config.models.models
+    ]
+    config = config.model_copy(
+        update={"models": config.models.model_copy(update={"models": models})}
+    )
+    policy = config.roundtable.request.model_copy(update={"backoff_s": 0, "failover_rounds": 1})
+    config = config.model_copy(
+        update={"roundtable": config.roundtable.model_copy(update={"request": policy})}
+    )
+    fake, local = FakeProvider("openrouter"), FakeProvider("local_tts")
+    rt = Runtime.build(
+        config=config, providers={"openrouter": fake, "local_tts": local}, db_path=":memory:"
+    )
+    return rt, fake, local, MemberVoices(rt, tmp_path)
+
+
+def test_local_tts_is_tried_first_with_the_members_preset_and_costs_nothing():
+    rt, fake, local, voices = build_local()
+    model, voice = voices.model_for("OpenAI", "你好", "budget")
+    assert model.id == "pc-tts" and voice == "rt-openai"
+    # 全力档要高质量：本地配音在节电档，不进全力档
+    assert voices.model_for("OpenAI", "你好", "flagship")[0].id != "pc-tts"
+    clip = asyncio.run(voices.speak("OpenAI", "你好呀"))
+    assert clip.model_id == "pc-tts" and clip.cost_usd == 0
+    [(_, route, text, params)] = speech_calls(local)
+    assert route == "preset-voice" and params["voice"] == "rt-openai" and params["path"] == "tts"
+    assert speech_calls(fake) == []
+
+
+def test_local_tts_down_falls_back_to_the_next_voice_model():
+    rt, fake, local, voices = build_local()
+    local.submit_errors.extend([ErrorKind.NETWORK] * 5)
+    clip = asyncio.run(voices.speak("OpenAI", "你好呀"))
+    assert clip.model_id != "pc-tts" and clip.voice in rt.config.personas.voices["OpenAI"].values()
+    assert speech_calls(local) and speech_calls(fake)
+    # 再念同一句：命中缓存，不再去试本地服务
+    again = asyncio.run(voices.speak("OpenAI", "你好呀"))
+    assert again.cached and len(speech_calls(local)) == len(local.media_calls)

@@ -19,11 +19,16 @@ if not exist ".venv\Scripts\activate.bat" (
 )
 call ".venv\Scripts\activate.bat" || goto :error
 
-echo [1/4] git pull ...
-git pull --ff-only --autostash || echo [warn] git pull failed, starting with the local code.
+rem Safe update (docs/SAFE_UPDATE.md): checkpoint the database, git pull, pip install -e ".[dev,windows]",
+rem then a smoke test on a copy of the database. If anything fails, the code goes back to the previous version.
+echo [1/4] Safe update: checkpoint, git pull, pip install, smoke test ...
+python scripts\safe_update.py update --extras dev,windows --ff-only
+set UPD_RC=%errorlevel%
+if "%UPD_RC%"=="1" goto :error
+if "%UPD_RC%"=="2" echo [warn] The new version failed the smoke test and was rolled back. Your data was not touched. See the "first aid" button on the page.
+if "%UPD_RC%"=="3" echo [warn] Could not update, starting with the local code.
 
-echo [2/4] pip install -e ".[dev,windows]" ...
-python -m pip install -e ".[dev,windows]" || goto :error
+echo [2/4] Checking the code sandbox ...
 
 rem Code sandbox for the python tool (one-time download, then offline)
 python scripts\setup_sandbox.py --check >nul 2>&1
@@ -36,6 +41,10 @@ if not exist ".env" echo [warn] .env not found: copy .env.example to .env and fi
 
 echo [3/4] Stopping an old server on port 8000, if any ...
 call :stop_old || goto :error
+
+rem Post-install check (docs/FIRSTAID.md): did everything really install? Results show on the page.
+python scripts\install_check.py --source start --extras dev,windows
+if errorlevel 1 echo [warn] Post-install check found problems, see above. Starting anyway.
 
 echo [4/4] Starting server at http://127.0.0.1:8000  (Ctrl+C or close this window to stop)
 if not "%RT_HOST%"=="127.0.0.1" echo [lan] Open to tablets on this Wi-Fi: click the Tablet button on the page for the address and QR code.

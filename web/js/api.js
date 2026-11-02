@@ -262,6 +262,8 @@ export async function streamEvents(id, onEvent, signal) {
 export const getUsage = (range = 'month') => api(`/api/usage?range=${encodeURIComponent(range)}`);
 export const getChannelPriority = () => api('/api/channels/priority');
 export const setChannelPriority = (body) => api('/api/channels/priority', { method: 'PUT', body });
+export const getDrawChannels = () => api('/api/media/draw-channels');
+export const setDrawChannels = (body) => api('/api/media/draw-channels', { method: 'PUT', body });
 export const getUsageBalance = (refresh = false) => api(`/api/usage/balance${refresh ? '?refresh=1' : ''}`);
 
 // 局域网访问（平板）：只能在电脑本机上调用
@@ -275,6 +277,8 @@ export const lanLogout = () => api('/api/lan/logout', { method: 'POST' });
 export const backupStatus = () => api('/api/backup');
 export const backupCheckpoint = (label) => api('/api/backup/checkpoint', { method: 'POST', body: { label } });
 export const backupRestore = (name) => api('/api/backup/restore', { method: 'POST', body: { name } });
+export const firstAid = () => api('/api/firstaid');
+export const firstAidReport = () => api('/api/firstaid/report');
 
 // 投屏陪伴（docs/WATCH.md）：开始 / 预览只能在电脑本机上；平板上能聊天和停止
 export const watchStatus = (devices = false) => api(`/api/watch${devices ? '?devices=true' : ''}`);
@@ -307,7 +311,7 @@ export const dshCheck = () => api('/api/dsh/check', { method: 'POST' });
 
 // 超级电脑：几位编程助手平级、按分数派活（docs/SUPERCOMPUTER.md）
 export const benchStatus = () => api('/api/bench');
-export const benchSubmit = (request, materials = [], fromProduct = false) => api('/api/bench', { method: 'POST', body: { request, materials, from_product: fromProduct } });
+export const benchSubmit = (request, materials = [], fromProduct = false, form = {}) => api('/api/bench', { method: 'POST', body: { request, materials, from_product: fromProduct, form } });
 // 甲方档案：长期偏好（只存本机），每个新项目都带上
 export const benchProfileAdd = (text, src = '') => api('/api/bench/profile', { method: 'POST', body: { text, src } });
 export const benchProfileRemove = (pid) => api(`/api/bench/profile/${encodeURIComponent(pid)}`, { method: 'DELETE' });
@@ -343,10 +347,27 @@ export const benchPlugin = (id, name) => benchPost(id, 'plugin', { name });
 export const benchAttach = (id, ids) => benchPost(id, 'materials', { ids });
 export const benchLook = (id) => benchPost(id, 'look', {});
 export const superStatus = () => api('/api/super');
-export const superSubmit = (text) => api('/api/super/tasks', { method: 'POST', body: { text } });
+export const superSubmit = (text, queue = false) =>
+  api('/api/super/tasks', { method: 'POST', body: { text, queue } });
 export const superCancel = () => api('/api/super/cancel', { method: 'POST' });
 export const superTask = (id) => api(`/api/super/tasks/${encodeURIComponent(id)}`);
 export const superLimit = (worker, limit) =>
   api(`/api/super/workers/${encodeURIComponent(worker)}/limit`, { method: 'PUT', body: { limit } });
 export const superWake = (worker) =>
   api(`/api/super/workers/${encodeURIComponent(worker)}/wake`, { method: 'POST' });
+// 超级电脑的管家：定时活、等你确认、排队、日报、审计
+export const superAddSchedule = (body) => api('/api/super/schedules', { method: 'POST', body });
+export const superToggleSchedule = (id, enabled) =>
+  api(`/api/super/schedules/${encodeURIComponent(id)}`, { method: 'PUT', body: { enabled } });
+export const superRemoveSchedule = (id) =>
+  api(`/api/super/schedules/${encodeURIComponent(id)}`, { method: 'DELETE' });
+export const superRunSchedule = (id) =>
+  api(`/api/super/schedules/${encodeURIComponent(id)}/run`, { method: 'POST' });
+export const superApprove = (id) =>
+  api(`/api/super/pending/${encodeURIComponent(id)}/approve`, { method: 'POST' });
+export const superReject = (id) =>
+  api(`/api/super/pending/${encodeURIComponent(id)}/reject`, { method: 'POST' });
+export const superUnqueue = (id) => api(`/api/super/queue/${encodeURIComponent(id)}`, { method: 'DELETE' });
+export const superReport = (day = '') =>
+  api(`/api/super/report${day ? `?day=${encodeURIComponent(day)}` : ''}`);
+export const superAudit = () => api('/api/super/audit');

@@ -24,7 +24,7 @@ from .errors import (
     ProviderError,
     UnsupportedCapability,
 )
-from .priority import ChannelPriority, order_routes
+from .priority import ChannelPriority, DrawPrefs, credit_state, order_routes
 
 T = TypeVar("T")
 
@@ -37,6 +37,29 @@ MODE_KINDS: dict[str, frozenset[ChannelKind]] = {
     "auto": frozenset({"aggregator", "direct", "local"}),
 }
 REASON_MODE = "渠道模式不包含"
+
+# 渠道状态表里「上次跳过原因」的说法
+KIND_TEXT: dict[ErrorKind, str] = {
+    ErrorKind.RATE_LIMIT: "限速或在忙",
+    ErrorKind.QUOTA: "额度用完",
+    ErrorKind.AUTH: "key 无效",
+    ErrorKind.NOT_FOUND: "没有这个模型",
+    ErrorKind.NETWORK: "连不上",
+    ErrorKind.TIMEOUT: "超时",
+    ErrorKind.SERVER: "对方出错",
+    ErrorKind.BAD_REQUEST: "请求有问题",
+    ErrorKind.REFUSAL: "拒绝了",
+    ErrorKind.INVALID_RESPONSE: "返回看不懂",
+}
+
+
+@dataclass(frozen=True)
+class SkipNote:
+    """渠道上一次失败（被跳过）的记录：wall_ts 是墙钟时间（time.time），给界面显示用。"""
+
+    wall_ts: float
+    kind: str
+    reason: str
 
 
 @dataclass(frozen=True)
@@ -73,6 +96,7 @@ class ChannelRouter:
         unavailable: Mapping[str, str] | None = None,
         clock: Callable[[], float] = time.monotonic,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+        wall: Callable[[], float] = time.time,
     ) -> None:
         self._models = models
         self._providers = dict(providers)
@@ -82,10 +106,13 @@ class ChannelRouter:
         self._clock = clock
         self._sleep = sleep
         self._cooldown_until: dict[str, float] = {}
+        self._wall = wall
+        self._last_skip: dict[str, SkipNote] = {}
         # 限速与并发：每个渠道一个信号量（同时在途的请求数）和最近一分钟的请求时间
         self._slots: dict[str, asyncio.Semaphore] = {}
         self._recent: dict[str, deque[float]] = {}
         self._priority = ChannelPriority()
+        self._draw_prefs = DrawPrefs()
         self._spent: Callable[[str], float] = lambda _channel: 0.0
 
     @property
@@ -103,6 +130,25 @@ class ChannelRouter:
         self._priority = priority
         if spent is not None:
             self._spent = spent
+
+    @property
+    def channels(self) -> Mapping[str, Any]:
+        """渠道配置（名字 → ChannelSpec）。"""
+        return self._models.channels
+
+    @property
+    def draw_prefs(self) -> DrawPrefs:
+        return self._draw_prefs
+
+    def set_draw_prefs(self, prefs: DrawPrefs) -> None:
+        """出图模型的手动关闭与先后（只影响出图时先试谁，不影响谁上桌）。"""
+        self._draw_prefs = prefs
+
+    def credit_left(self, channel: str) -> bool:
+        """渠道填了每月额度（赠送额度等）且本月还没用完。"""
+        credit = self._priority.credits.get(channel)
+        spent = self._spent(channel) if credit is not None else 0.0
+        return credit_state(credit, spent) == "left"
 
     # --- 可用性 ----------------------------------------------------------------
 
@@ -167,7 +213,21 @@ class ChannelRouter:
         ranked = order_routes(routes, self._priority, self._spent)
         return sorted(ranked, key=lambda r: self._cooldown_until.get(r.channel, 0) > now)
 
+    def cooling_s(self, channel: str) -> float:
+        """渠道还要歇多少秒（限速、额度用完、连不上之后）；0 = 没在歇。"""
+        return max(0.0, self._cooldown_until.get(channel, 0.0) - self._clock())
+
+    def last_skip(self, channel: str) -> SkipNote | None:
+        """渠道上一次失败被跳过的原因（成功一次后清掉）。"""
+        return self._last_skip.get(channel)
+
+    def _note_skip(self, error: ProviderError) -> None:
+        text = KIND_TEXT.get(error.kind, error.kind.value)
+        reason = f"{text}：{error.detail}" if error.detail else text
+        self._last_skip[error.channel] = SkipNote(self._wall(), error.kind.value, reason[:200])
+
     def _cool_down(self, error: ProviderError) -> None:
+        self._note_skip(error)
         p = self._policy
         if error.kind in (ErrorKind.QUOTA, ErrorKind.AUTH):
             seconds = p.cooldown_quota_s
@@ -244,6 +304,7 @@ class ChannelRouter:
                 latency = self._clock() - started
                 attempts.append(Attempt(route.channel, True, latency))
                 self._cooldown_until.pop(route.channel, None)
+                self._last_skip.pop(route.channel, None)
                 if attempts[0].channel != route.channel:
                     log.info("模型 %s 已切换到渠道 %s", model_id, route.channel)
                 return Invocation(

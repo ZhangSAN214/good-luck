@@ -56,3 +56,52 @@ def test_supercomputer_flow(serve, page, monkeypatch, tmp_path):
         "fetch('/api/super').then(r => r.json())"
         ".then(j => j.workers.find(w => w.id === 'k').limit === 5)"
     )
+
+
+def test_butler_panel(serve, page, monkeypatch, tmp_path):
+    """管家：加定时活 → 列表里看到「每天 09:00」；忙时再交一件 → 排队；日报和审计链能展开。"""
+    lau = Launcher()
+
+    def build(self, runtime, base):
+        return Supercomputer(
+            rules(),
+            root=tmp_path / "super",
+            render=render,
+            launchers={"command": lau, "dsh": lau},
+            runner=Agents(delay=1.5),
+            seed=7,
+        )
+
+    monkeypatch.setattr(service_mod.RoundtableService, "_build_super", build)
+    srv = serve(confirm_threshold_usd=100.0)
+    page.goto(srv.url)
+    page.locator('#entries [data-m="bench"]').click()
+    page.locator('#bench [data-tab="super"]').click()
+    dlg = page.locator('#bench [data-pane="super"]')
+    dlg.locator(".sc-worker", has_text="K").wait_for()
+    dlg.locator("details[data-k='sched'] > summary").click()
+    dlg.locator("[data-form='text']").fill("调研一下依赖有没有安全更新")
+    dlg.locator("[data-add-sched]").click()
+    sched = dlg.locator(".sc-sched", has_text="调研一下依赖")
+    sched.wait_for()
+    assert "每天 09:00" in sched.text_content() and "风险低" in sched.text_content()
+    dlg.locator("[data-text]").fill("给项目加一个接口")
+    dlg.locator("[data-submit]").click()
+    dlg.locator("[data-submit]", has_text="排进队").wait_for()
+    dlg.locator("[data-text]").fill("再补一份文档")
+    dlg.locator("[data-submit]").click()
+    dlg.locator(".sc-queue li", has_text="再补一份文档").wait_for()
+    dlg.locator("details[data-k='report'] > summary").click()
+    dlg.locator(".sc-report-sum", has_text="交了").wait_for()
+    dlg.locator("details[data-k='audit'] > summary").click()
+    dlg.locator("details[data-k='audit'] .sc-ok", has_text="完好").wait_for()
+    assert dlg.locator(".sc-audit li", has_text="建定时活").count() == 1
+    if shots := os.environ.get("ROUNDTABLE_SHOTS"):
+        page.screenshot(path=str(Path(shots) / "supercomputer_butler.png"), full_page=True)
+    # 前一件干完，队里的马上接着干
+    page.wait_for_function(
+        "fetch('/api/super').then(r => r.json())"
+        ".then(j => j.task && j.task.text === '再补一份文档')",
+        timeout=30000,
+    )
+    dlg.locator(".sc-queue").wait_for(state="detached", timeout=10000)
