@@ -40,20 +40,15 @@ members:
       - {model: minimax-speech-2.8-hd, voice: danya_xuejie, line: "嗯，这件事我记下啦，明天上午之前一定给你。<#0.5#>对了——(chuckle)你上次说的「马上就改」，已经……过去三天了呢。", note: 带感情版：1 号音色 + 语气词、停顿、笑 / 叹气标记}
   Google:
     name: Gemini（哈基米）
-    persona: 十八九岁的内耗猫娘，常「哈…」地叹气；想通了就语速变快、句尾上扬带鼻音，偶尔「喵」
-    line: 哈……等一下，我脑子里突然有两个小人在打架。好啦好啦，想通了！今天的故事超好看的喵～
+    persona: 充满活力、最爱找你撒娇的笨笨小猫；黏人、快、软，偶尔不讲理地耍赖，理直气壮又有点心虚（11-02 用户定的新方向）
+    line: 诶嘿嘿，你回来啦！陪我玩嘛～不要，就要现在！……唔，你说我又把茶打翻了？那、那是杯子先动的！本喵才没有错喵～
     candidates:
-      - {model: minimax-speech-2.8-hd, voice: tianxin_xiaoling, note: 甜心小玲：甜、软、年纪小}
+      - {model: minimax-speech-2.8-hd, voice: tianxin_xiaoling, note: 甜心小玲：甜、黏、年纪小}
+      - {model: minimax-speech-2.8-hd, voice: qiaopi_mengmei, note: 俏皮萌妹：活力和耍赖的劲}
       - {model: minimax-speech-2.8-hd, voice: diadia_xuemei, note: 嗲嗲学妹：撒娇感最强}
-      - {model: minimax-speech-2.8-hd, voice: lovely_girl, note: 萌萌少女：最萌的一版，可能偏小}
-      - {model: gemini-3.8-flash-tts, voice: Leda, style: 青涩的猫系少女，开头无奈地叹一口气，想通后语调一下子上扬，句尾带一点撒娇的鼻音, note: 年轻音色 + 猫系语气}
-      - {model: gemini-3.8-flash-tts, voice: Zephyr, style: 青涩的猫系少女，开头无奈地叹一口气，想通后语调一下子上扬，句尾带一点撒娇的鼻音, note: 明亮音色 + 猫系语气}
-      - {model: minimax-speech-2.8-hd, voice: tianxin_xiaoling, line: "(sighs)哈……等一下等一下，我脑子里突然有两个小人在打架。<#0.4#>啊！想通了想通了！(laughs)今天的故事超好看的喵～", note: 带感情版：1 号音色 + 语气词、停顿、笑 / 叹气标记}
-      # 11-02 用户要的「阳角」方向：活泼、傲娇（声线参照只作听感方向，不用任何真人录音）
-      - {model: minimax-speech-2.8-hd, voice: qiaopi_mengmei, line: "哼哼，本喵早就想到啦！什么？你说我刚才在发呆？才、才没有呢！快走快走，今天的故事超好看的喵～", note: 阳角版：俏皮萌妹}
-      - {model: minimax-speech-2.8-hd, voice: "Chinese (Mandarin)_Crisp_Girl", line: "哼哼，本喵早就想到啦！什么？你说我刚才在发呆？才、才没有呢！快走快走，今天的故事超好看的喵～", note: 阳角版：清脆少女}
-      - {model: gemini-3.8-flash-tts, voice: Leda, line: "哼哼，本喵早就想到啦！什么？你说我刚才在发呆？才、才没有呢！快走快走，今天的故事超好看的喵～", style: 清透甜亮的少女音，活泼开朗的阳角，嘴硬傲娇时语速变快、句尾上扬，被戳穿时又慌张又得意, note: 阳角版：年轻音色 + 活泼傲娇语气}
-      - {model: gemini-3.8-flash-tts, voice: Zephyr, line: "哼哼，本喵早就想到啦！什么？你说我刚才在发呆？才、才没有呢！快走快走，今天的故事超好看的喵～", style: 清透甜亮的少女音，活泼开朗的阳角，嘴硬傲娇时语速变快、句尾上扬，被戳穿时又慌张又得意, note: 阳角版：明亮音色 + 活泼傲娇语气}
+      - {model: gemini-3.8-flash-tts, voice: Leda, style: 活力满满的笨笨小猫少女，又甜又黏、爱撒娇，语速快、拖着撒娇的尾音；耍赖不讲理时带点哼唧的鼻音，理直气壮又有点心虚, note: 年轻音色 + 撒娇小猫语气}
+      - {model: gemini-3.8-flash-tts, voice: Zephyr, style: 活力满满的笨笨小猫少女，又甜又黏、爱撒娇，语速快、拖着撒娇的尾音；耍赖不讲理时带点哼唧的鼻音，理直气壮又有点心虚, note: 明亮音色 + 撒娇小猫语气}
+      - {model: minimax-speech-2.8-hd, voice: tianxin_xiaoling, line: "(laughs)诶嘿嘿，你回来啦！<#0.2#>陪我玩嘛～不要不要，就要现在！<#0.4#>唔……(sniffs)你说我又把茶打翻了？那、那是杯子先动的！<#0.3#>本喵才没有错——喵～", note: 带感情版：1 号音色 + 笑声、吸鼻子、停顿}
   Alibaba:
     name: Qwen（千姐）
     persona: 二十后半到三十出头的书铺小掌柜，账要清、心要软；不急不慢，越平静越认真
@@ -67,15 +62,15 @@ members:
       - {model: minimax-speech-2.8-hd, voice: "Chinese (Mandarin)_Wise_Women", line: "不急，(breath)先问清楚。<#0.3#>这笔账呢，我先记一笔——你欠我一杯茶。(chuckle)好了，坐下慢慢说吧。", note: 带感情版：1 号音色 + 语气词、停顿、笑 / 叹气标记}
   xAI:
     name: Grok（大小姐）
-    persona: 二十出头，夜市坡道出身，豪横娇蛮、口气大底气足；嗓门压得住夜市，锐不软
-    line: 小意思，包在本小姐身上。谁敢不服？说完了？那就别磨蹭，跟上！
+    persona: 娇蛮自负的暴发户傲娇大小姐；表面目中无人、居高临下，关心全藏在行动里，嘴上从不承认（11-02 用户定的新方向）
+    line: 哼，这点小钱也值得你发愁？本小姐随手就够了。……喏，伞给你。别多想，只是这把颜色太土，本小姐不想要而已。
     candidates:
       - {model: minimax-speech-2.8-hd, voice: "Chinese (Mandarin)_Arrogant_Miss", note: 嚣张小姐：最贴「本小姐」}
-      - {model: minimax-speech-2.8-hd, voice: female-yujie-jingpin, note: 御姐：底气足、压得住场}
-      - {model: minimax-speech-2.8-hd, voice: "Chinese (Mandarin)_Stubborn_Friend", note: 倔强朋友：不服就怼的劲}
-      - {model: gemini-3.8-flash-tts, voice: Pulcherrima, style: 豪横娇蛮的大小姐，底气十足、语速偏快，句首常带一声「哼」，带点不耐烦又藏不住得意, note: 直爽音色 + 大小姐语气}
-      - {model: gemini-3.8-flash-tts, voice: Kore, style: 豪横娇蛮的大小姐，底气十足、语速偏快，句首常带一声「哼」，带点不耐烦又藏不住得意, note: 坚定音色 + 大小姐语气}
-      - {model: minimax-speech-2.8-hd, voice: "Chinese (Mandarin)_Arrogant_Miss", line: "(snorts)小意思！包在本小姐身上。谁敢不服？<#0.3#>说完了？说完了就别磨蹭——跟上！", note: 带感情版：1 号音色 + 语气词、停顿、笑 / 叹气标记}
+      - {model: minimax-speech-2.8-hd, voice: female-yujie-jingpin, note: 御姐：居高临下、压得住场}
+      - {model: minimax-speech-2.8-hd, voice: wumei_yujie, note: 妩媚御姐：更「有钱人」的慵懒傲慢，作对照}
+      - {model: gemini-3.8-flash-tts, voice: Pulcherrima, style: 娇蛮自负的暴发户大小姐，居高临下、慢条斯理地炫耀，带一声轻蔑的「哼」；说到关心对方的话时突然变短、故意装作不耐烦, note: 直爽音色 + 暴发户大小姐语气}
+      - {model: gemini-3.8-flash-tts, voice: Kore, style: 娇蛮自负的暴发户大小姐，居高临下、慢条斯理地炫耀，带一声轻蔑的「哼」；说到关心对方的话时突然变短、故意装作不耐烦, note: 坚定音色 + 暴发户大小姐语气}
+      - {model: minimax-speech-2.8-hd, voice: "Chinese (Mandarin)_Arrogant_Miss", line: "(snorts)哼，这点小钱也值得你发愁？本小姐随手就够了。<#0.6#>……喏，伞给你。<#0.3#>别多想！只是这把颜色太土，本小姐不想要而已。", note: 带感情版：1 号音色 + 轻蔑的哼、停顿}
   DeepSeek:
     name: DeepSeek（小鲸鱼）
     persona: 二十出头的深海鱼，潜着想、想好了才冒泡；温和但执着，句子偏长爱说「嘛」，惦记大白饭
