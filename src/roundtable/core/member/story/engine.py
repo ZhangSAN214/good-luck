@@ -19,11 +19,18 @@
 from __future__ import annotations
 
 import random
+from collections import Counter
 from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta
 from typing import Any
 
+from roundtable.core.member.story import festival as fest
+from roundtable.core.member.story import lows as low
+from roundtable.core.member.story import progress as prog
 from roundtable.core.member.story import store
+from roundtable.core.member.story.festival import Festivals
+from roundtable.core.member.story.lows import Lows
+from roundtable.core.member.story.progress import Progress
 from roundtable.core.member.story.talent import TALENT_STORIES, TALENT_TAGS, Talents
 
 STORY = "story"  # life_events 的 kind
@@ -73,6 +80,12 @@ def story_meta(rt: Any, topic: str) -> dict[str, Any]:
     tags: list[str] = []
     if story in TALENT_STORIES:
         tags = list(TALENT_TAGS.get((story, step), []))
+    elif story.startswith(prog.PREFIX):
+        tags = prog.tags_of(step)
+    elif story.startswith(fest.PREFIX):
+        tags = fest.tags_of(story)
+    elif story.startswith(low.PREFIX):
+        tags = low.tags_of(story, step)
     else:
         stories = rt.config.roundtable.chat.life.story.stories
         spec = next((s for s in stories if s.id == story), None)
@@ -85,7 +98,11 @@ class StoryEngine:
     def __init__(self, rt: Any) -> None:
         self.rt = rt
         self.talents = Talents(rt)
+        self.progress = Progress(rt)
+        self.festivals = Festivals(rt, self.text)
+        self.lows = Lows(rt)
         self._texts: dict[str, str] = {}
+        self._did: Counter[str] = Counter()
 
     @property
     def rules(self) -> Any:
@@ -114,8 +131,8 @@ class StoryEngine:
         """作息表的空闲时段：按她的爱好和擅长挑去处；生病歇着那天在宿舍。其余照原样。"""
         if not self.enabled() or act not in FREE_ACTS:
             return place, act
-        if self.resting(member, slot.date()):
-            return "dorm", REST
+        if self.resting(member, slot.date()) or self.lows.phase_sick(member, slot.date()):
+            return "dorm", REST  # 生病（事件库的或生活阶段的小感冒）、累了歇一天：空闲时段不出门
         way = self.rules.way
         if not way.enabled or not way.options or slot.hour >= 22:
             return place, act
@@ -158,13 +175,37 @@ class StoryEngine:
         days = [first + timedelta(days=i) for i in range((last - first).days + 1)]
         states = {m: store.load(self.rt, m) for m in members}
         for day in days:
-            practice = None
+            if self.festivals.due(
+                day
+            ):  # L2：节日、生日、入住周年（一天排一次，排进领头那位的日程）
+                for p in self.festivals.plan(day, names):
+                    rng = random.Random(f"fest:{p.story}:{p.lead}:{day.isoformat()}")
+                    self._once(
+                        p.lead,
+                        p.story,
+                        0,
+                        p.text,
+                        day,
+                        rng,
+                        states[p.lead],
+                        start,
+                        end,
+                        "",
+                        hours=p.hours,
+                        place=p.place,
+                        tags=fest.tags_of(p.story),
+                        members=p.members,
+                    )
+            practice, did = None, None
             for m in members:
                 st = states[m]
                 if day.isoformat() in st["planned"]:
                     continue
                 if practice is None and self.talents.enabled():
                     practice = self.talents.practice(members, day, tz)
+                if did is None and self.progress.enabled():
+                    did = self.progress.yesterday(members, day, tz)
+                self._did = (did or {}).get(m) or Counter()
                 self._plan_day(m, day, st, names, (practice or {}).get(m) or {}, start, end)
         for m in members:
             st = states[m]
@@ -211,6 +252,12 @@ class StoryEngine:
         rng = random.Random(f"story:{member}:{d}")
         used = sum(1 for p in st["pending"] if p.get("date") == d)
         others = [m for m in sorted(names) if m != member]
+        # L4：病了有人照顾、接连不顺的低谷、累久了歇一天（排在前面，占当天名额）
+        for spec, other, fmt in self.lows.step(member, day, st, others, rng, end.tzinfo):
+            if used >= r.max_per_day:
+                break
+            self._start(member, spec, day, rng, st, names, others, start, end, fmt=fmt, other=other)
+            used += 1
         # L10：擅长的阶段（觉醒、有人来请教、卡住 / 想通、生疏）
         for story, domain, why in self.talents.step(member, day, st, self.text(member), practice):
             if used >= r.max_per_day:
@@ -219,6 +266,12 @@ class StoryEngine:
             if spec.with_other and not others:
                 continue
             self._start(member, spec, day, rng, st, names, others, start, end, domain=domain)
+            used += 1
+        # L1：爱好进度（读到哪、追到哪；进度照推，记不记一笔看今天还有没有余量）
+        for story, step, text, domain in self.progress.step(member, day, st, self._did):
+            if used >= r.max_per_day:
+                continue
+            self._once(member, story, step, text, day, rng, st, start, end, domain)
             used += 1
         # 事件库：按条件和概率挑
         awake = self.talents.awakened(st)
@@ -329,11 +382,14 @@ class StoryEngine:
         *,
         domain: str = "",
         fmt: dict[str, str] | None = None,
+        other: str = "",
     ) -> None:
-        """开始一件事：把每一步排好日子和钟点，放进日程。"""
+        """开始一件事：把每一步排好日子和钟点，放进日程。other：指定同伴（L4 照顾她的朋友）。"""
         tz = end.tzinfo
         crew = [member]
-        if spec.with_other and others:
+        if other:
+            crew.append(other)
+        elif spec.with_other and others:
             crew.append(rng.choice(others))
         words = {"name": names.get(member, member), "domain": domain} | (fmt or {})
         if len(crew) > 1:
@@ -371,6 +427,48 @@ class StoryEngine:
         st["last"][spec.id] = day.isoformat()
         if spec.group:
             st["group_last"][spec.group] = day.isoformat()
+
+    def _once(
+        self,
+        member: str,
+        story: str,
+        step: int,
+        text: str,
+        day: date,
+        rng: random.Random,
+        st: dict[str, Any],
+        start: datetime,
+        end: datetime,
+        domain: str,
+        *,
+        hours: tuple[int, int] = (9, 23),
+        place: str = "dorm",
+        tags: list[str] | None = None,
+        members: list[str] | None = None,
+    ) -> None:
+        """程序生成的一步（爱好进度、节日……）：排进今天的日程。"""
+        tz = end.tzinfo
+        at = datetime.combine(
+            day, time(rng.randrange(*hours), rng.randrange(60)), tzinfo=tz
+        ).astimezone(tz)
+        if at <= start:
+            at = start + (end - start) * (0.1 + 0.8 * rng.random())
+        st["pending"].append(
+            {
+                "date": at.date().isoformat(),
+                "at": at.isoformat(),
+                "story": story,
+                "group": "",
+                "step": step,
+                "members": list(members or [member]),
+                "text": text,
+                "place": place,
+                "rest": False,
+                "domain": domain,
+                "tags": list(tags if tags is not None else prog.tags_of(step)),
+                "done": False,
+            }
+        )
 
     def _prune(self, st: dict[str, Any], today: date) -> None:
         keep = (today - timedelta(days=self.rules.keep_days)).isoformat()
@@ -464,6 +562,7 @@ class StoryEngine:
                 for d, v in sorted((st.get("talents") or {}).items())
             ],
             "known": self.talents.known(st, name),
+            "progress": self.progress.view(st),
         }
 
     def clear(self, member: str) -> None:

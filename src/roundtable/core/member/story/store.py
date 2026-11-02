@@ -11,12 +11,14 @@ from __future__ import annotations
 
 import copy
 import json
+import re
 from collections import defaultdict
 from typing import Any
 
 from roundtable.core.member.profile import ProfileStore
 from roundtable.core.office.apartment import PUBLIC_ROOMS
 
+_STAR = re.compile(r"[★☆⭐\s]+")
 KEY = "member_life:"
 ROSTER_KEY = "member_life_roster"
 TALENT_KEY = "擅长"  # 档案 likes.擅长（由 P6 写）；算种子时不算它，免得自己证明自己
@@ -65,6 +67,14 @@ def profile_text(rt: Any, member: str) -> str:
     if isinstance(likes, dict):
         likes.pop(TALENT_KEY, None)
     return json.dumps(data, ensure_ascii=False)
+
+
+def favorites(rt: Any, member: str) -> list[str]:
+    """她档案里的「最爱」（去掉星号）。"""
+    fav = (ProfileStore(rt).current(member).data.get("likes") or {}).get("最爱") or []
+    if isinstance(fav, str):
+        fav = re.split(r"[、，,／/；;]", fav)
+    return [_STAR.sub("", str(x)) for x in fav if _STAR.sub("", str(x))]
 
 
 def hits(text: str, words: list[str], cap: int = 3) -> int:
