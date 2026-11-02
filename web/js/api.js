@@ -303,6 +303,10 @@ export const wanderStop = () => api('/api/wander/stop', { method: 'POST' });
 export const wanderLog = (member, after = 0) =>
   api(`/api/wander/log?member=${encodeURIComponent(member)}&after=${after}`);
 export const wanderFrameUrl = () => `/api/wander/frame?t=${Date.now()}`;
+// 旅行与 B 站（私信、动态只存本机，不发到外部网站）
+export const trips = () => api('/api/trips');
+export const tripSwitches = (body) => api('/api/trips/switches', { method: 'POST', body });
+export const biliWatch = (member, url) => api('/api/trips/bili/watch', { method: 'POST', body: { member, url } });
 // 工作台（dsh 边车，docs/DSH.md）
 export const dshStatus = () => api('/api/dsh');
 export const dshStart = () => api('/api/dsh/start', { method: 'POST' });

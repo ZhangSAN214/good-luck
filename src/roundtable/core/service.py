@@ -1074,6 +1074,52 @@ class RoundtableService:
     def wander_frame(self) -> bytes | None:
         return self.wander.frame()
 
+    # --- 旅行与 B 站（L5，docs/LIFE_STORY.md）-------------------------------------------
+
+    def trips(self) -> dict[str, Any]:
+        """旅行、打卡、B 站看过的视频和私信 / 动态（只存本机，不发到外部网站）。"""
+        life = self.life
+        today = home_zone(self.rt).local(self.rt.budget.now()).date()
+        members = self.chats.everyone()
+        from roundtable.core.member.story import store as life_store
+
+        travel = {
+            m.id: life.story.travel.view(life_store.load(self.rt, m.id), today) for m in members
+        }
+        return {
+            "enabled": life.checkin.enabled(),
+            "names": {m.id: m.name for m in members},
+            "travel": travel,
+            "checkins": life.checkin.records(limit=40),
+            "bili": life.bili.view(),
+        }
+
+    def set_trip_switches(self, *, auto: bool | None = None, photo: bool | None = None) -> dict:
+        """B 站一键总开关（自动看、自动写私信 / 动态）；打卡配图开关（默认关）。"""
+        from roundtable.core.member.checkin import store as ck_store
+
+        if auto is not None:
+            ck_store.set_switch(self.rt, ck_store.AUTO_KEY, auto)
+        if photo is not None:
+            ck_store.set_switch(self.rt, ck_store.PHOTO_KEY, photo)
+        return self.trips()
+
+    async def bili_watch(self, member: str, url: str) -> dict[str, Any]:
+        """你让她看一个 B 站视频（不受自动开关影响，照样算生活每日上限）。"""
+        from roundtable.core.member.checkin.bili import bv_of
+
+        if member not in {m.id for m in self.chats.everyone()}:
+            raise ServiceError("没有这位成员")
+        if not bv_of(url):
+            raise ServiceError("不是 B 站视频链接（要带 BV 号）")
+        now = home_zone(self.rt).local(self.rt.budget.now())
+        rec = await self.life.bili.watch(member, url, now)
+        if rec is None:
+            raise ServiceError(
+                "没看成：电脑上没有 yt-dlp、视频超过 10 分钟，或今天生活的钱用完了", 409
+            )
+        return rec
+
     # --- dsh 工作台（docs/DSH.md）：可拔掉的外设 ---------------------------------------
 
     NO_DSH = "这份圆桌没有带 dsh 工作台（core/dsh 不在），其他功能不受影响"

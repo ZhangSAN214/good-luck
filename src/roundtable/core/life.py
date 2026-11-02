@@ -38,6 +38,7 @@ from roundtable.core.chat_work import short_title
 from roundtable.core.life_guard import ERRORS, LifeGuard
 from roundtable.core.member.about import AboutYou
 from roundtable.core.member.brain import Brain, intent_text
+from roundtable.core.member.checkin import Bili, Checkin, Scene
 from roundtable.core.member.relation import RelationPlugin
 from roundtable.core.member.story import STORY, StoryEngine
 from roundtable.core.member.voice import Said, before_voice, recent_words, voice_for
@@ -68,6 +69,7 @@ LIFE_STEPS = (
     "wander",
     "growth",
     "relation",
+    "travel",  # L5 旅行打卡、B 站看视频和私信 / 动态
 )
 
 
@@ -111,6 +113,9 @@ class LifeEngine:
         self.moments = Moments(rt, hub, self.allowed)
         # P7 生活引擎（L0 / L10）：事件库 + 长线剧情 + 按爱好挑去处 + 擅长觉醒（程序挑，不花钱）
         self.story = StoryEngine(rt)
+        # L5：旅行打卡（判定卡 → 旅行日记）、B 站看过视频后的私信 / 动态（只存本机列表）
+        self.checkin = Checkin(rt, self.allowed)
+        self.bili = Bili(rt, self.allowed, self.checkin, hub.everyone)
         self._planned: Brain | None = None
 
     @property
@@ -355,11 +360,27 @@ class LifeEngine:
             out["shares"] = await self.browse.tick(now)
             for row in self.browse.posted:  # 分享是甩过去让大家看：一两位看了接着说两句
                 out["messages"] += await self.react(row, now)
+        if self.guard.room_left() > 0 and not self.guard.check(self.spent_today()):
+            out["checkins"] = await self.trip_checkins(happenings)
+            out["bili"] = await self.bili.tick(now)
         m = await self.moments.tick(now, offline=offline)
         out["moments"] = m["posts"] + m["comments"]
         names = {m.id: m.name for m in self.hub.everyone()}
         out["reports"] = int(self.guard.weekly(self.rt.budget.now(), names) is not None)
         return out
+
+    async def trip_checkins(self, happenings: list[Any]) -> int:
+        """旅行途中的事（travel_trip）：值不值得打卡交给判定卡；额度和花费由打卡自己管。"""
+        everyone = {m.id: m for m in self.hub.everyone()}
+        n = 0
+        for h in happenings:
+            member = everyone.get(h.members[0]) if h.story == "travel_trip" else None
+            if member is None or not member.available:
+                continue
+            dest = self.story.travel.away(member.id, h.at.date()) or "旅途"
+            scene = Scene(member.id, "trip", dest, [h.text], h.at, ref=f"{h.story}:{h.at}")
+            n += int(bool(await self.checkin.run(member, scene)))
+        return n
 
     async def react(self, row: dict[str, Any], now: datetime) -> int:
         """有人在群里甩了一条链接 / 视频：醒着的一两位点开看了，接着说两句（分享的人也可能接话）。

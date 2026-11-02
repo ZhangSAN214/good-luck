@@ -1284,6 +1284,9 @@ prompts:
   life_chat: v7          # 生活：成员之间聊天（公寓楼里的模拟生活；v3：照人物卡说话风格，不跟风、不反复提同一件事；v4：大脑分区的想法卡、谁接话由显著性和驱力定；v5：感情用做法流露、同事之间的感情可以是真的；v7：简单短词、会歪楼、招牌特色、能发表情包）
   meme_radar: v1         # 梗雷达：从热榜标题和搜索摘要里挑出最近真正在流行的网络梗，写成梗卡（梗、意思、上句 → 接法）
   life_share: v6         # 生活：成员把上网看到的一条内容分享到生活群（v4：不提摘要、原文，不用「先存疑」收尾；v5：只说一件、更短，重点是自己的反应；v6：直接甩链接配几个字，不介绍内容）
+  checkin_card: v1       # 旅行打卡·判定卡（L5）：这一刻值不值得站进去打卡，只输出 JSON；不值得就不打（只用于生活）
+  travel_journal: v1     # 旅行打卡·旅行日记（L5）：第一人称小作文，带前 3 天打卡的上下文
+  bili_share: v1         # B 站：看完视频后给用户的私信、自己的动态（只存本机列表，不发到外部网站）
   moment_post: v3        # 朋友圈：成员发一条动态（v3：转发卡片、表情包）
   moment_comment: v3     # 朋友圈：成员评论一条动态（或回复评论）（v3：表情包）
   evolution_card: v1     # 革新例会·自己找资料：一位成员把网页写成资料卡
@@ -1318,6 +1321,7 @@ step_params:
   watch: {max_tokens: 1200, reasoning: {effort: low}}  # 投屏陪伴：一两句
   memes: {max_tokens: 1500, reasoning: {effort: low}}  # 梗雷达：每天一次提炼梗卡
   wander: {max_tokens: 1200, reasoning: {effort: low}}  # 自己上网：每页一小段 JSON
+  travel: {max_tokens: 2500, reasoning: {effort: low}}  # 旅行打卡（判定卡、旅行日记）和 B 站私信 / 动态
   chat: {max_tokens: 1500, reasoning: {effort: low}}   # 群聊：一两句话，少想多说（思考会挤占输出，之前 500 上限时有人回复为空）
   review: {max_tokens: 3000, reasoning: {max_tokens: 800}}
   revise: {max_tokens: 5000, reasoning: {max_tokens: 2000}}
