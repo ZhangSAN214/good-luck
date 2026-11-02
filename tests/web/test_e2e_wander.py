@@ -57,3 +57,12 @@ def test_wander_panel_flow(serve, page):
     page.wait_for_function(idle, timeout=15000)
     assert btn.text_content() == "上网"
     dlg.locator(".wd-tab.on span", has_text="1").wait_for()
+    # 旅行与 B 站：私信 / 动态只在本机，开关能点
+    trips = dlg.locator(".tp")
+    trips.get_by_text("不会发到 B 站").wait_for()
+    trips.get_by_text("现在没人出门旅行").wait_for()
+    sw = trips.locator("[data-tsw=auto]")
+    assert sw.get_attribute("aria-pressed") == "true"
+    sw.click()
+    trips.locator("[data-tsw=auto][aria-pressed=false]").wait_for()
+    assert "关" in trips.locator("[data-tsw=auto]").text_content()
