@@ -51,15 +51,15 @@ members:
       - {model: minimax-speech-2.8-hd, voice: tianxin_xiaoling, line: "(laughs)诶嘿嘿，你回来啦！<#0.2#>陪我玩嘛～不要不要，就要现在！<#0.4#>唔……(sniffs)你说我又把茶打翻了？那、那是杯子先动的！<#0.3#>本喵才没有错——喵～", note: 带感情版：1 号音色 + 笑声、吸鼻子、停顿}
   Alibaba:
     name: Qwen（千姐）
-    persona: 二十后半到三十出头的书铺小掌柜，账要清、心要软；不急不慢，越平静越认真
-    line: 不急，先问清楚。这笔账我先记一笔：你欠我一杯茶。好了，坐下慢慢说吧。
+    persona: 表面是精明优雅、有文学素养的中式大家闺秀，其实是努力端着的少女；亲戚多、被大家族宠着，偶尔露馅的小反差（11-02 用户定的新方向）
+    line: 这本书呀，在左手第三格——「众里寻他千百度」，可不就在灯火阑珊处嘛。……诶，楼下新开了奶茶店？咳，我、我就问问。小姑姑昨天还说我嘴馋呢。
     candidates:
-      - {model: minimax-speech-2.8-hd, voice: "Chinese (Mandarin)_Wise_Women", note: 知性女声：稳、有主见}
-      - {model: minimax-speech-2.8-hd, voice: female-chengshu-jingpin, note: 成熟女性：沉稳}
-      - {model: minimax-speech-2.8-hd, voice: "Chinese (Mandarin)_Sweet_Lady", note: 温柔女士：心软的一面}
-      - {model: gemini-3.8-flash-tts, voice: Gacrux, style: 沉稳利落的掌柜姐姐，说话不紧不慢有收有放，像在算账，又带一点温和的笑意, note: 成熟音色 + 掌柜语气}
-      - {model: gemini-3.8-flash-tts, voice: Sulafat, style: 沉稳利落的掌柜姐姐，说话不紧不慢有收有放，像在算账，又带一点温和的笑意, note: 温暖音色 + 掌柜语气}
-      - {model: minimax-speech-2.8-hd, voice: "Chinese (Mandarin)_Wise_Women", line: "不急，(breath)先问清楚。<#0.3#>这笔账呢，我先记一笔——你欠我一杯茶。(chuckle)好了，坐下慢慢说吧。", note: 带感情版：1 号音色 + 语气词、停顿、笑 / 叹气标记}
+      - {model: minimax-speech-2.8-hd, voice: "Chinese (Mandarin)_Sweet_Lady", note: 温柔女士：端庄温婉的表面}
+      - {model: minimax-speech-2.8-hd, voice: "Chinese (Mandarin)_Wise_Women", note: 知性女声：精明、有书卷气}
+      - {model: minimax-speech-2.8-hd, voice: female-tianmei-jingpin, note: 甜美女性：更年轻，露馅时的少女感更足}
+      - {model: gemini-3.8-flash-tts, voice: Gacrux, style: 端庄的大家闺秀，说话文雅、从容、有书卷气；但这是努力维持的样子，底下是个被全家宠着的少女，一说到好吃好玩的就露馅，慌忙再端回来, note: 成熟音色 + 闺秀露馅语气}
+      - {model: gemini-3.8-flash-tts, voice: Laomedeia, style: 端庄的大家闺秀，说话文雅、从容、有书卷气；但这是努力维持的样子，底下是个被全家宠着的少女，一说到好吃好玩的就露馅，慌忙再端回来, note: 活泼音色 + 闺秀露馅语气}
+      - {model: minimax-speech-2.8-hd, voice: "Chinese (Mandarin)_Sweet_Lady", line: "这本书呀，在左手第三格——<#0.3#>「众里寻他千百度」，可不就在灯火阑珊处嘛。<#0.6#>……诶？楼下新开了奶茶店？(gasps)咳，我、我就问问。<#0.3#>小姑姑昨天还说我嘴馋呢。", note: 带感情版：1 号音色 + 倒吸气、停顿}
   xAI:
     name: Grok（大小姐）
     persona: 娇蛮自负的暴发户傲娇大小姐；表面目中无人、居高临下，关心全藏在行动里，嘴上从不承认（11-02 用户定的新方向）
