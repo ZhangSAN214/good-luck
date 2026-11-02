@@ -20,6 +20,7 @@ import hashlib
 import io
 import json
 import random
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -167,18 +168,22 @@ class MemberStickers:
                 return s
         raise StickerError(f"没有叫「{name}」的表情")
 
-    def draw_models(self) -> list[ModelSpec]:
-        """能看参考图的绘图模型，按出图顺序排（本地 → 不花钱 → 按价，在歇的放最后）。"""
+    def draw_models(
+        self, tier: str | None = None, prefer_tags: Sequence[str] | None = None
+    ) -> list[ModelSpec]:
+        """能看参考图的绘图模型，按出图顺序排（本地 → 不花钱 → 按价，在歇的放最后）。
+        ``tier`` / ``prefer_tags`` 不传时用表情包的设置（朋友圈配图可以单独指定）。"""
         media = self.rt.config.roundtable.media
         if not media.enabled or not self.rules.enabled:
             return []
         group = [
             m
-            for m in media_group(self.rt.router, "image", self.rules.tier)
+            for m in media_group(self.rt.router, "image", tier or self.rules.tier)
             if "image_edit" in m.tags
         ]
+        prefer = self.rules.prefer_tags if prefer_tags is None else prefer_tags
         # 出图顺序：本地 → 不花钱 → 按价；同档里带的偏好标签越多越先试（见 media/draw_order.py）
-        return rank_draw_models(self.rt.router, group, self.rules.prefer_tags)
+        return rank_draw_models(self.rt.router, group, prefer)
 
     def sticker_models(self) -> list[ModelSpec]:
         """画表情包用的：只要吃自然语言提示词的（表情包没有标签版提示词）。"""
@@ -505,6 +510,7 @@ class MemberStickers:
         her: str = "",
         shot_tags: str = "",
         spec: PhotoSpec | None = None,
+        others: Sequence[tuple[str, str]] = (),
     ) -> tuple[bytes, str]:
         """照成员的形象卡和参考图画一张朋友圈配图（随手拍，不审、不存进表情索引）。
         她不入镜的拍法传 ``refs=False``：不给形象参考图，免得模型硬把她画进去。
@@ -513,10 +519,15 @@ class MemberStickers:
         （none / part / full，不传时按 ``refs`` 当 full / none），拍法标签用 ``shot_tags``。
         ``spec`` 是抽好的摄影参数（机位、光、时机、焦段、滤镜、拍照习惯，见 moment_shots）：
         提示词版本有这些变量时填进去，标签版接上各维度的标签。
+        ``others`` 是同场室友 (成员 id, 昵称)：每位写一行外观，最多附 ``housemate_refs`` 张她们的
+        参考图（每人一张，在她的参考图后面、房间图前面），免得被画成陌生人。
         返回 (JPEG, mime)；花费和表情包算在同一个隐藏会话和每月上限里。"""
         rules = self.rt.config.roundtable.media.moment_photos
         card = self.card(member)
-        models = self.draw_models()
+        models = self.draw_models(rules.tier, rules.prefer_tags)
+        # 本地绘图模型（不花钱）不管在哪一档都排最前：开了本地就先用本地
+        local = [m for m in self.local_only(self.draw_models()) if m not in models]
+        models = [*local, *models]
         if rules.local_only:
             models = self.local_only(models)
         if not rules.enabled or not models:
@@ -525,8 +536,10 @@ class MemberStickers:
         if refs and not images:
             raise StickerUnavailable("找不到这位成员的形象参考图")
         room, room_image = self.room(member, place) if rules.room_refs else (ROOM_UNKNOWN, None)
-        # 房间图放最后，提示词里按"最后一张"引用；吃标签的本地模型把参考图都当人物参考，不给房间图
-        with_room = [*images, room_image] if room_image is not None else images
+        mates, mate_images = self._housemates(member, others, len(images) if refs else 0)
+        # 房间图放最后，提示词里按"最后一张"引用；吃标签的本地模型把参考图都当人物参考，
+        # 不给房间图和室友图
+        with_room = [*images, *mate_images, *([room_image] if room_image is not None else [])]
         must = card.must if card.daily_must is None else card.daily_must
         version = self.rt.config.roundtable.prompts["moment_photo"]
         values = {
@@ -537,6 +550,8 @@ class MemberStickers:
             "scene": scene,
             "post": post,
             "room": room,
+            "others": mates,
+            "user": rules.landlord_in if spec is not None and spec.landlord else rules.landlord_out,
             **(spec.variables() if spec else dict.fromkeys(SPEC_VARIABLES, SPEC_NONE)),
         }
         wanted = self.rt.prompts.get("moment_photo", version).variables  # 旧版本没有摄影变量
@@ -579,6 +594,35 @@ class MemberStickers:
                     data = phone_look(data, random.Random(f"phone:{seed or post}"))
                 return _jpeg(data, rules.max_side), "image/jpeg"
         raise StickerUnavailable("画图失败（所有模型都没画出来）")
+
+    def _housemates(
+        self, member: str, others: Sequence[tuple[str, str]], first: int
+    ) -> tuple[str, list[Media]]:
+        """同场室友的外观说明（每人一行）和参考图（每人一张，编号接在她的 ``first`` 张后面）。
+        没有形象卡的（如工作模型）不写、不附图。"""
+        rules = self.rt.config.roundtable.media.moment_photos
+        cards = self.rt.config.personas.sticker_cards
+        lines: list[str] = []
+        images: list[Media] = []
+        for mate, name in others:
+            if mate == member or mate not in cards:
+                continue
+            card = cards[mate]
+            ref = ""
+            if len(images) < rules.housemate_refs:
+                found = self.references(mate, card)[:1]
+                if found:
+                    images.append(found[0])
+                    ref = rules.housemate_ref.format(n=first + len(images))
+            must = card.must if card.daily_must is None else card.daily_must
+            lines.append(
+                rules.housemate_line.format(
+                    name=name or mate, look=card.look, must="、".join(must) or "无", ref=ref
+                )
+            )
+        if not lines:
+            return rules.housemate_none, images
+        return "\n" + "\n".join(f"- {line}" for line in lines), images
 
     def _photo_tags(self, card: StickerCard, subject: str, shot_tags: str, her_in: bool) -> str:
         """标签版配图提示词（只取 user 段：正向一行 + negative 一行）。她不入镜时不放外观标签；

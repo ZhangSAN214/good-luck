@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import io
 import json
+from dataclasses import replace
 
 import pytest
 from PIL import Image
@@ -683,3 +684,62 @@ def test_v5_keeps_every_v4_rule():
         if line.strip() and changed not in line:
             assert line in v5, line
     assert "Unless the camera note fixes it, vary the camera like real feed photos:" in v5
+
+
+def test_moment_photo_v6_draws_housemates_as_themselves_and_no_one_else(tmp_path):
+    """11-02 用户：不要出现公寓以外的人；样张里室友只写名字，被画成陌生人。"""
+    rt, fake, stickers = build(tmp_path)
+    art = tmp_path / "art"
+    (art / "m2").mkdir()
+    (art / "m2" / "chibi.png").write_bytes(png("red"))
+    data = json.loads((art / "members.json").read_text(encoding="utf-8"))
+    data["members"].append(
+        {
+            "id": "m2",
+            "name": "二",
+            "vendor": "DeepSeek",
+            "nickname": "小二",
+            "theme_color": "#000",
+            "order": 2,
+            "status": "active",
+            "images": {"chibi_transparent": "m2/chibi.png"},
+        }
+    )
+    (art / "members.json").write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+    others = [("DeepSeek", "鲸鲸"), ("OpenAI", "我自己"), ("nobody", "路人"), ("xAI", "歌若柯")]
+    asyncio.run(stickers.photo("OpenAI", "食堂", "饭", "a selfie", others=others))
+    asyncio.run(stickers.photo("OpenAI", "食堂", "饭", "a selfie"))
+    (_, _, with_mates, _, refs, _), (_, _, alone, _, alone_refs, _) = image_calls(fake)
+    cards = rt.config.personas.sticker_cards
+    mates = with_mates.split("Housemates in the photo:")[1].split("The landlord:")[0]
+    assert "鲸鲸: " + cards["DeepSeek"].look in mates
+    assert f"(reference image {len(alone_refs) + 1} is her)" in mates
+    assert "歌若柯: " + cards["xAI"].look in mates and mates.count("reference image") == 1
+    assert "我自己" not in mates and "路人" not in mates
+    assert len(refs) == len(alone_refs) + 1 and refs[len(alone_refs)].name == "chibi.png"
+    assert "Housemates in the photo: nobody else is in the photo" in alone
+    assert "no strangers, staff, passers-by" in alone and "Never a street" in alone
+    assert "one consistent perspective" in alone  # 空间结构不许矛盾
+
+
+def test_moment_photo_v6_landlord_has_a_paper_over_the_face(tmp_path):
+    rt, fake, stickers = build(tmp_path)
+    spec = a_spec(rt, "together")
+    hidden = replace(spec, landlord=False)
+    asyncio.run(stickers.photo("OpenAI", "休息室", "打牌", spec.shot.text, spec=hidden))
+    shown = replace(spec, landlord=True)
+    asyncio.run(stickers.photo("OpenAI", "休息室", "打牌", spec.shot.text, spec=shown))
+    off, on = (c[2] for c in image_calls(fake))
+    assert "The landlord: not in this photo" in off
+    assert "face is completely covered by a sheet of paper" in on and "早上好" in on
+
+
+def test_moment_photos_prefer_the_feed_photo_model_and_stickers_do_not(tmp_path):
+    """11-02 用户选「接 ChatGPT 同款画图模型」：配图走带 feed_photo 标签的；表情包不变。"""
+    rt, _, stickers = build(tmp_path)
+    rules = rt.config.roundtable.media.moment_photos
+    assert rules.tier == "flagship" and "feed_photo" in (rules.prefer_tags or [])
+    tagged = [m.id for m in rt.config.models.models if "feed_photo" in m.tags]
+    assert tagged
+    assert stickers.draw_models(rules.tier, rules.prefer_tags)[0].id in tagged
+    assert "feed_photo" not in stickers.rules.prefer_tags

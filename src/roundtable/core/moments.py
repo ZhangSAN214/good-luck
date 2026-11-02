@@ -46,7 +46,7 @@ from roundtable.core.chat_actions import (
 )
 from roundtable.core.member.brain import Brain
 from roundtable.core.member.voice import Said, before_voice, recent_words
-from roundtable.core.moment_shots import event_time, pick_shot, pick_spec
+from roundtable.core.moment_shots import event_time, pick_shot, pick_spec, place_tags
 from roundtable.core.office.apartment import schedule
 from roundtable.core.persona import chat_persona
 from roundtable.core.plain_talk import before_speaking, plain_prompt
@@ -306,6 +306,9 @@ class Moments:
             return None
         if member.id not in rt.config.personas.sticker_cards:
             return None
+        place = str(event.get("place") or "")
+        if place and not place_tags(place):
+            return None  # 公寓楼外的事（出门、旅行）不配图：配图只画公寓里（11-02 用户）
         rng = random.Random(f"photo:{event['id']}:{member.id}")
         if rng.random() >= rules.chance:
             return None
@@ -317,7 +320,8 @@ class Moments:
         try:
             habit = rt.config.personas.sticker_cards[member.id].photo
             shot = pick_shot(rules, habit, rng)
-            place = str(event.get("place") or "")
+            names = self.names()
+            others = [(i, names.get(i, i)) for i in event.get("members") or [] if i != member.id]
             spec = pick_spec(
                 rules,
                 habit,
@@ -338,6 +342,7 @@ class Moments:
                 her=shot.her,
                 shot_tags=shot.tags,
                 spec=spec,
+                others=others,
             )
             return generated_item(ChatMediaStore(rt.chat_media_dir), data, mime)
         except (StickerBudgetExceeded, StickerError, StickerUnavailable, MediaError, ValueError):
