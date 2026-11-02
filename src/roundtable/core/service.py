@@ -37,6 +37,7 @@ from roundtable.core.benchkit.research import Researcher
 from roundtable.core.benchkit.research import http_fetchers as research_fetchers
 from roundtable.core.benchkit.scout import Scout as PluginScout
 from roundtable.core.benchkit.scout import http_fetchers
+from roundtable.core.benchkit.weekly import Weekly
 from roundtable.core.browse import REFRESH_KEY, feeds_of, set_feeds
 from roundtable.core.budget import report as usage_report
 from roundtable.core.budget.channels import MonthSpend, save_priority
@@ -353,6 +354,9 @@ class RoundtableService:
             runtime.config.roundtable.bench,
             (base / "bench") if runtime.mail_dir is not None else None,
         )
+        self.weekly = Weekly(self.desk, now=self._local_now)
+        self._weekly_task: asyncio.Task[None] | None = None
+        self._weekly_force: asyncio.Task[Any] | None = None
         self.bench = BenchBuilder(
             runtime.config.roundtable.bench,
             root=(base / "bench") if runtime.mail_dir is not None else None,
@@ -436,6 +440,44 @@ class RoundtableService:
         if refresh:
             self.desk.start_refresh()
         return self.desk.view()
+
+    # --- 资料台周报（core/benchkit/weekly.py） -------------------------------------------
+
+    def start_desk_weekly(self) -> None:
+        """后台每半小时看一次表，到点出周报（只在正式启动的服务里调用）。"""
+        if self._weekly_task is None and self.weekly.rules.weekly:
+            self._weekly_task = asyncio.get_running_loop().create_task(self._weekly_loop())
+
+    async def _weekly_loop(self) -> None:
+        while True:
+            try:
+                await self.weekly.tick()
+            except Exception:  # noqa: BLE001 - 周报出错不影响其他功能，下次再看
+                log.exception("资料台周报：生成出错")
+            await asyncio.sleep(1800)
+
+    def bench_weekly(self, week: str | None = None) -> dict[str, Any]:
+        """周报概况（历史周、最新一份、是否到点、是否在生成）；给了 week 就只要那一份。"""
+        if week is None:
+            return self.weekly.view() | {"building": self._weekly_building}
+        rep = self.weekly.get(week)
+        if rep is None:
+            raise ServiceError("没有这一周的周报", 404)
+        return rep
+
+    @property
+    def _weekly_building(self) -> bool:
+        return self._weekly_force is not None and not self._weekly_force.done()
+
+    def bench_weekly_build(self) -> dict[str, Any]:
+        """现在就出本周的周报（后台：资料过期先刷新，约 3～5 分钟；不调模型、不花钱）。"""
+        if not self.weekly.view()["enabled"]:
+            raise ServiceError("周报在配置里关着（bench.desk.weekly）", 409)
+        if not self._weekly_building:
+            self._weekly_force = asyncio.get_running_loop().create_task(
+                self.weekly.tick(force=True)
+            )
+        return self.bench_weekly()
 
     def bench_desk_suggest(self, sid: str, accept: bool) -> dict[str, Any]:
         try:
@@ -699,7 +741,14 @@ class RoundtableService:
         tasks = [*self._tasks.values(), *self._chat_tasks]
         tasks += [
             t
-            for t in (self._life_task, self._evolution_task, self._backup_task, self._butler_task)
+            for t in (
+                self._life_task,
+                self._evolution_task,
+                self._backup_task,
+                self._butler_task,
+                self._weekly_task,
+                self._weekly_force,
+            )
             if t is not None
         ]
         for task in tasks:

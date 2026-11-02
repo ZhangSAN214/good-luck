@@ -2334,6 +2334,11 @@ bench:
     top: 10
     rising_days: 30
     github_gap_s: 7
+    # 周报：每周一 9 点（主时区）之后出一份，抽屉「资料 → 周报」看，另存 data/bench/_desk/weekly/*.md
+    weekly: true
+    weekly_weekday: 0
+    weekly_hour: 9
+    weekly_max: 25
     topics: [3d rendering, animation, live2d, image editing, game engine, gaussian splatting]
     categories:
       - {id: 3d, label: 3D 建模与渲染, query: topic:3d topic:webgl, kinds: [motion3d]}

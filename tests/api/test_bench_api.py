@@ -304,6 +304,30 @@ def test_desk_endpoints_read_without_network_and_refresh_on_request(tmp_path):
         assert v["suggest"] == []
 
 
+def test_weekly_endpoints_build_list_and_read(tmp_path):
+    from roundtable.core.benchkit.weekly import Weekly
+
+    from ..core.benchkit.test_desk import Net, gh, make
+
+    service = service_with(tmp_path)
+    net = Net(rank={"topic%3A3d": [gh("a/one", 900)]})
+    service.desk = make(tmp_path, net)
+    service.weekly = Weekly(service.desk, now=service._local_now)
+    with TestClient(create_app(service)) as c:
+        v = c.get("/api/bench/desk/weekly").json()
+        assert v["enabled"] and v["latest"] is None and v["weeks"] == [] and not net.urls
+        assert c.post("/api/bench/desk/weekly/build").status_code == 200
+        end = time.monotonic() + 5
+        while not c.get("/api/bench/desk/weekly").json()["weeks"] and time.monotonic() < end:
+            time.sleep(0.02)
+        v = c.get("/api/bench/desk/weekly").json()
+        week = v["weeks"][0]
+        assert v["latest"]["week"] == week and v["latest"]["sections"]
+        assert c.get(f"/api/bench/desk/weekly/{week}").json()["week"] == week
+        assert c.get("/api/bench/desk/weekly/2001-W01").status_code == 404
+        assert c.get("/api/bench/desk/weekly/..%2F..").status_code == 404
+
+
 def test_profile_endpoints_and_from_product_flag(tmp_path):
     with TestClient(create_app(service_with(tmp_path))) as c:
         st = c.post("/api/bench/profile", json={"text": "给小白用", "src": "修图台"}).json()

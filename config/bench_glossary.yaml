@@ -1,0 +1,181 @@
+# 资料台榜单的中文说明词表（2026-11-02）：GitHub 仓库的主题词、英文简介里的词 → 中文说法。
+# 程序按这张表给每个上榜项目拼一行「大概做什么」，不调模型；认不出的就说认不出、叫你看英文简介。
+# 加词只改这里：左边小写英文（空格或连字符都行），右边中文 1～30 字。不要写模型名或厂商名。
+terms:
+  # --- 3D 与渲染 ---
+  3d: 3D
+  webgl: 网页 3D 渲染
+  webgpu: 网页 GPU 渲染
+  three.js: three.js 网页 3D
+  threejs: three.js 网页 3D
+  rendering: 渲染
+  renderer: 渲染器
+  ray tracing: 光线追踪
+  path tracing: 路径追踪
+  gaussian splatting: 高斯泼溅（照片重建 3D）
+  3d gaussian splatting: 高斯泼溅（照片重建 3D）
+  nerf: 神经辐射场（照片重建 3D）
+  point cloud: 点云
+  mesh: 网格模型
+  3d reconstruction: 照片重建 3D
+  photogrammetry: 摄影测量建模
+  gltf: glTF 模型格式
+  cad: 工程制图
+  3d modeling: 3D 建模
+  shader: 着色器特效
+  shaders: 着色器特效
+  voxel: 体素
+  blender: Blender 插件或工具
+  # --- 动画与动效 ---
+  animation: 动画
+  motion graphics: 动态图形
+  css animation: CSS 动画
+  svg: SVG 矢量图
+  lottie: Lottie 矢量动画
+  tween: 补间动画
+  keyframe: 关键帧动画
+  scroll animation: 滚动动效
+  particles: 粒子特效
+  canvas: 画布绘图
+  motion capture: 动作捕捉
+  # --- Live2D 与虚拟形象 ---
+  live2d: Live2D 立绘
+  vtuber: 虚拟主播
+  avatar: 虚拟形象
+  virtual character: 虚拟角色
+  face tracking: 面部捕捉
+  lip sync: 口型同步
+  vrm: VRM 3D 形象
+  mmd: MMD 3D 形象
+  # --- 修图与图像 ---
+  image processing: 图像处理
+  image editing: 修图
+  image editor: 修图工具
+  photo editor: 修图工具
+  background removal: 去背景
+  remove background: 去背景
+  segmentation: 图像分割（抠图）
+  image segmentation: 图像分割（抠图）
+  super resolution: 图片放大变清晰
+  upscaling: 图片放大
+  inpainting: 局部重绘、去瑕疵
+  face restoration: 人脸修复
+  ocr: 图片识字
+  computer vision: 计算机视觉
+  opencv: OpenCV 图像处理
+  image generation: AI 画图
+  text to image: 文字生成图片
+  stable diffusion: 扩散模型画图
+  diffusion: 扩散模型
+  style transfer: 风格迁移
+  color grading: 调色
+  filters: 滤镜
+  # --- 游戏与模拟 ---
+  game engine: 游戏引擎
+  game development: 游戏开发
+  gamedev: 游戏开发
+  2d game: 2D 游戏
+  physics engine: 物理引擎
+  physics: 物理模拟
+  simulation: 模拟
+  pixel art: 像素画
+  tilemap: 瓦片地图
+  ecs: 实体组件系统
+  godot: Godot 游戏引擎
+  unity: Unity 游戏引擎
+  multiplayer: 多人联机
+  # --- AI 智能体与大模型 ---
+  ai agents: AI 智能体
+  ai agent: AI 智能体
+  agents: AI 智能体
+  agent: AI 智能体
+  multi agent: 多智能体协作
+  llm: 大模型
+  llms: 大模型
+  large language models: 大模型
+  llm inference: 大模型推理
+  inference: 模型推理
+  local llm: 在自己电脑上跑大模型
+  quantization: 模型压缩（量化）
+  rag: 检索增强（让模型查资料）
+  retrieval augmented generation: 检索增强（让模型查资料）
+  vector database: 向量数据库
+  embeddings: 文本向量
+  fine tuning: 模型微调
+  mcp: MCP 工具接口
+  model context protocol: MCP 工具接口
+  prompt engineering: 提示词
+  chatbot: 聊天机器人
+  coding agent: 编程助手
+  code generation: 自动写代码
+  browser automation: 浏览器自动操作
+  workflow automation: 工作流自动化
+  workflow: 工作流
+  automation: 自动化
+  speech recognition: 语音转文字
+  text to speech: 文字转语音
+  tts: 文字转语音
+  voice cloning: 声音克隆
+  machine learning: 机器学习
+  deep learning: 深度学习
+  # --- 前端界面 ---
+  ui components: 界面组件
+  ui: 界面
+  component library: 组件库
+  design system: 设计规范
+  react: React 前端
+  vue: Vue 前端
+  svelte: Svelte 前端
+  tailwindcss: Tailwind 样式
+  css: 样式
+  dashboard: 看板
+  admin dashboard: 管理后台
+  icons: 图标
+  drag and drop: 拖拽
+  rich text editor: 富文本编辑器
+  markdown: Markdown
+  whiteboard: 白板
+  desktop app: 桌面应用
+  electron: Electron 桌面应用
+  # --- 数据可视化 ---
+  data visualization: 数据可视化
+  visualization: 可视化
+  charts: 图表
+  chart: 图表
+  d3: D3 图表
+  maps: 地图
+  map: 地图
+  gis: 地理信息
+  graph: 关系图
+  network graph: 关系网络图
+  timeline: 时间线
+  spreadsheet: 表格
+  # --- 音视频 ---
+  video processing: 视频处理
+  video editing: 剪视频
+  video editor: 剪视频工具
+  ffmpeg: FFmpeg 音视频转码
+  audio: 音频
+  audio processing: 音频处理
+  music: 音乐
+  streaming: 直播推流
+  subtitles: 字幕
+  screen recording: 录屏
+  video generation: AI 生成视频
+  # --- 其他常见 ---
+  cli: 命令行工具
+  self hosted: 可以自己部署
+  awesome: 资源合集
+  awesome list: 资源合集
+  tutorial: 教程
+  education: 学习教程
+  wasm: 浏览器里跑的 WASM
+  webassembly: 浏览器里跑的 WASM
+# 编程语言的中文写法（不写的照原样显示）
+languages:
+  JavaScript: JavaScript
+  TypeScript: TypeScript
+  Python: Python
+  C++: C++
+  Jupyter Notebook: Python 笔记本
+  Shell: 命令行脚本

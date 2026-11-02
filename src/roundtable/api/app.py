@@ -820,6 +820,7 @@ def create_app(service: RoundtableService | None = None, lan: LanAccess | None =
         app.state.service.start_evolution()
         app.state.service.start_dsh()
         app.state.service.start_butler()
+        app.state.service.start_desk_weekly()
         try:
             yield
         finally:
@@ -1025,6 +1026,18 @@ def create_app(service: RoundtableService | None = None, lan: LanAccess | None =
     @app.post("/api/bench/desk/suggest/{sid}")
     async def bench_desk_suggest(request: Request, sid: str, accept: bool = True) -> dict[str, Any]:
         return svc(request).bench_desk_suggest(sid, accept)
+
+    @app.get("/api/bench/desk/weekly")
+    async def bench_weekly(request: Request) -> dict[str, Any]:
+        return svc(request).bench_weekly()
+
+    @app.post("/api/bench/desk/weekly/build")
+    async def bench_weekly_build(request: Request) -> dict[str, Any]:
+        return svc(request).bench_weekly_build()
+
+    @app.get("/api/bench/desk/weekly/{week}")
+    async def bench_weekly_get(request: Request, week: str) -> dict[str, Any]:
+        return svc(request).bench_weekly(week)
 
     @app.get("/api/bench/{bench_id}")
     async def bench_get(request: Request, bench_id: str) -> dict[str, Any]:

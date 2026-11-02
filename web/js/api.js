@@ -339,6 +339,8 @@ export const benchAsk = (id, question, json = false) =>
 export const benchNetCheck = () => api('/api/bench/net-check');
 // 资料台（工作台抽屉「资料」）：GitHub 榜单、论文动态、能力地图、建议卡
 export const benchDesk = (refresh = false) => (refresh ? api('/api/bench/desk/refresh', { method: 'POST' }) : api('/api/bench/desk'));
+export const benchWeekly = (week = '') => api(week ? `/api/bench/desk/weekly/${encodeURIComponent(week)}` : '/api/bench/desk/weekly');
+export const benchWeeklyBuild = () => api('/api/bench/desk/weekly/build', { method: 'POST' });
 export const benchDeskSuggest = (sid, accept) => api(`/api/bench/desk/suggest/${encodeURIComponent(sid)}?accept=${accept ? 'true' : 'false'}`, { method: 'POST' });
 // 项目室的关口：回答访谈、签字开工、里程碑 / 交付通过或提变更单、出下一版提案
 const benchPost = (id, what, body) => api(`/api/bench/${encodeURIComponent(id)}/${what}`, { method: 'POST', body });
