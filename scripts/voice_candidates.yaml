@@ -95,12 +95,12 @@ members:
       - {model: minimax-speech-2.8-hd, voice: "Chinese (Mandarin)_Lyrical_Voice", line: "(inhale)嗯……再躺五分钟嘛。<#0.6#>慢慢来，月亮又不会跑。<#0.4#>急事？(sighs)好吧好吧，我坐起来了。", note: 带感情版：1 号音色 + 语气词、停顿、笑 / 叹气标记}
   Zhipu AI:
     name: GLM（小狐）
-    persona: 二十二三岁的图书馆狐狸，节奏慢像一页页翻书；「本狐只知道这些」「……大概吧」
-    line: 这个嘛……让我想想。第三排左数第二本，应该在那里。再多的，本狐只知道这些……大概吧。
+    persona: 图书馆狐狸，慵懒、懒得多说，像眯着眼看戏；腹黑是装傻挖坑——「本狐只知道这些」其实什么都知道（11-02 用户加的特点）
+    line: 这个嘛……让我想想。第三排左数第二本，应该在那里——大概吧。哦？你已经找了半小时了呀。嗯……本狐只知道这些。
     candidates:
-      - {model: minimax-speech-2.8-hd, voice: audiobook_female_2, note: 有声书女声：像翻书一样慢}
-      - {model: minimax-speech-2.8-hd, voice: presenter_female, note: 播报女声：清楚、冷静}
+      - {model: minimax-speech-2.8-hd, voice: audiobook_female_2, note: 有声书女声：慢、松弛}
       - {model: minimax-speech-2.8-hd, voice: female-chengshu, note: 成熟女性：书卷气、沉静}
-      - {model: gemini-3.8-flash-tts, voice: Vindemiatrix, style: 安静的图书馆少女，慢条斯理、像一页页翻书一样说话，句尾轻轻往下落，带一点不确定, note: 温和音色 + 翻书语气}
-      - {model: gemini-3.8-flash-tts, voice: Despina, style: 安静的图书馆少女，慢条斯理、像一页页翻书一样说话，句尾轻轻往下落，带一点不确定, note: 柔顺音色 + 翻书语气}
-      - {model: minimax-speech-2.8-hd, voice: audiobook_female_2, line: "这个嘛……(emm)让我想想。<#0.5#>第三排，左数第二本，应该在那里。再多的……本狐只知道这些。(chuckle)大概吧。", note: 带感情版：1 号音色 + 语气词、停顿、笑 / 叹气标记}
+      - {model: minimax-speech-2.8-hd, voice: presenter_female, note: 播报女声：冷静，装傻时最「一本正经」}
+      - {model: gemini-3.8-flash-tts, voice: Vindemiatrix, style: 慵懒的狐狸少女，慢悠悠、懒洋洋，像眯着眼看戏；装傻挖坑时声音更轻，带一点狡黠的笑, note: 温和音色 + 慵懒腹黑语气}
+      - {model: gemini-3.8-flash-tts, voice: Despina, style: 慵懒的狐狸少女，慢悠悠、懒洋洋，像眯着眼看戏；装傻挖坑时声音更轻，带一点狡黠的笑, note: 柔顺音色 + 慵懒腹黑语气}
+      - {model: minimax-speech-2.8-hd, voice: audiobook_female_2, line: "(exhale)这个嘛……让我想想。<#0.6#>第三排左数第二本，应该在那里——大概吧。<#0.5#>哦？(chuckle)你已经找了半小时了呀。<#0.4#>嗯……本狐只知道这些。", note: 带感情版：1 号音色 + 呼气、偷笑、停顿}
