@@ -1,0 +1,153 @@
+{
+  "Version": 3,
+  "FileReferences": {
+    "Moc": "model.moc3",
+    "Textures": [
+      "textures/texture_00.png"
+    ],
+    "Physics": "model.physics3.json",
+    "DisplayInfo": "model.cdi3.json",
+    "Motions": {
+      "Idle": [
+        {
+          "File": "motions/idle.motion3.json"
+        }
+      ],
+      "Smile": [
+        {
+          "File": "motions/smile.motion3.json"
+        },
+        {
+          "File": "motions/smile.motion3.json"
+        }
+      ],
+      "Surprise": [
+        {
+          "File": "motions/surprise.motion3.json"
+        }
+      ],
+      "Sad": [
+        {
+          "File": "motions/sad.motion3.json"
+        }
+      ],
+      "Angry": [
+        {
+          "File": "motions/angry.motion3.json"
+        }
+      ],
+      "Shy": [
+        {
+          "File": "motions/shy.motion3.json"
+        }
+      ],
+      "Head_yaw": [
+        {
+          "File": "motions/head_yaw.motion3.json"
+        }
+      ],
+      "Head_pitch": [
+        {
+          "File": "motions/head_pitch.motion3.json"
+        }
+      ],
+      "Head_roll": [
+        {
+          "File": "motions/head_roll.motion3.json"
+        }
+      ],
+      "Head_shake": [
+        {
+          "File": "motions/head_shake.motion3.json"
+        }
+      ],
+      "Body_sway": [
+        {
+          "File": "motions/body_sway.motion3.json"
+        }
+      ],
+      "Body_bow": [
+        {
+          "File": "motions/body_bow.motion3.json"
+        }
+      ],
+      "Arms_raise": [
+        {
+          "File": "motions/arms_raise.motion3.json"
+        }
+      ],
+      "Arms_swing": [
+        {
+          "File": "motions/arms_swing.motion3.json"
+        }
+      ],
+      "Talk": [
+        {
+          "File": "motions/talk.motion3.json"
+        }
+      ],
+      "Smirk": [
+        {
+          "File": "motions/smirk.motion3.json"
+        }
+      ],
+      "Cheek": [
+        {
+          "File": "motions/cheek.motion3.json"
+        }
+      ],
+      "Look": [
+        {
+          "File": "motions/look.motion3.json"
+        }
+      ],
+      "Blink": [
+        {
+          "File": "motions/blink.motion3.json"
+        }
+      ],
+      "Brows": [
+        {
+          "File": "motions/brows.motion3.json"
+        }
+      ],
+      "Brow_form": [
+        {
+          "File": "motions/brow_form.motion3.json"
+        }
+      ],
+      "Sweep": [
+        {
+          "File": "motions/sweep.motion3.json"
+        }
+      ]
+    }
+  },
+  "Groups": [
+    {
+      "Target": "Parameter",
+      "Name": "EyeBlink",
+      "Ids": [
+        "ParamEyeLOpen",
+        "ParamEyeROpen"
+      ]
+    },
+    {
+      "Target": "Parameter",
+      "Name": "LipSync",
+      "Ids": [
+        "ParamMouthOpenY"
+      ]
+    }
+  ],
+  "HitAreas": [
+    {
+      "Id": "009_torso",
+      "Name": "Body"
+    },
+    {
+      "Id": "020_face_base",
+      "Name": "Head"
+    }
+  ]
+}

@@ -1,0 +1,87 @@
+{
+	"Version": 3,
+	"FileReferences": {
+		"Moc": "psd2live.moc3",
+		"Textures": [
+			"psd2live.4096/texture_00.png",
+			"psd2live.4096/texture_01.png",
+			"psd2live.4096/texture_02.png"
+		],
+		"Physics": "psd2live.physics3.json",
+		"DisplayInfo": "psd2live.cdi3.json",
+		"Expressions": [
+			{
+				"Name": "Smile",
+				"File": "psd2live.smile.exp3.json"
+			},
+			{
+				"Name": "Sad",
+				"File": "psd2live.sad.exp3.json"
+			},
+			{
+				"Name": "Angry",
+				"File": "psd2live.angry.exp3.json"
+			},
+			{
+				"Name": "Surprised",
+				"File": "psd2live.surprised.exp3.json"
+			},
+			{
+				"Name": "Shy",
+				"File": "psd2live.shy.exp3.json"
+			},
+			{
+				"Name": "Sleepy",
+				"File": "psd2live.sleepy.exp3.json"
+			},
+			{
+				"Name": "Gloomy",
+				"File": "psd2live.gloom.exp3.json"
+			}
+		],
+		"Motions": {
+			"Idle": [
+				{
+					"File": "psd2live.idle.motion3.json"
+				}
+			],
+			"Blink": [
+				{
+					"File": "psd2live.blink.motion3.json"
+				}
+			],
+			"Nod": [
+				{
+					"File": "psd2live.nod.motion3.json"
+				}
+			],
+			"Shake": [
+				{
+					"File": "psd2live.shake.motion3.json"
+				}
+			],
+			"Talk": [
+				{
+					"File": "psd2live.talk.motion3.json"
+				}
+			]
+		}
+	},
+	"Groups": [
+		{
+			"Target": "Parameter",
+			"Name": "EyeBlink",
+			"Ids": [
+				"ParamEyeLOpen",
+				"ParamEyeROpen"
+			]
+		},
+		{
+			"Target": "Parameter",
+			"Name": "LipSync",
+			"Ids": [
+				"ParamMouthOpenY"
+			]
+		}
+	]
+}
