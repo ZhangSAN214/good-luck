@@ -126,8 +126,13 @@ def test_stopwatch_and_countdown(serve, page):
     assert page.inner_text("#hub [data-ro='cd']") == paused  # 暂停时不走
     page.click("#hub [data-cd='resume']")
     page.clock.fast_forward(31_000)
-    page.wait_for_selector("#hub .ck-big.ring")
+    page.clock.run_for(1000)  # 再让每 0.25 秒一次的检查跑几轮（只拨 1 秒，很快）
+    # 钟面旁边的「时间到」不管面板开没开都会画；面板可能被首页别的刷新重画过，从它点进去看
+    page.wait_for_selector("#hub .ck-run.ring")
     assert page.inner_text("#hub .ck-run.ring") == "时间到"
+    if not page.is_visible("#hub .ck-big.ring"):
+        page.click("#hub .ck-run.ring")
+    page.wait_for_selector("#hub .ck-big.ring")
     page.click("#hub [data-cd='reset']")
     assert page.locator("#hub .ck-run.ring").count() == 0
 

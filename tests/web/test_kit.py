@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import os
+from concurrent.futures import ThreadPoolExecutor
+
 import pytest
 
 pytest.importorskip("playwright.sync_api")
@@ -15,13 +18,24 @@ BAD = """<!doctype html><html><head><meta charset="utf-8"><title>坏页</title>
 <script>document.body.append('体重 ' + undefined)</script></body></html>"""
 
 
+def _own_thread(fn, *args, **kw):
+    """在单独的线程里跑质检。
+
+    同一个进程里别的端到端测试已经开着 Playwright（共用的 browser 夹具）时，在这个线程里再开
+    会报「Sync API inside the asyncio loop」，以前就被当成没有浏览器整个跳过了（看着是绿的，
+    其实没测）。换个线程就没有这个冲突。CI 上（ROUNDTABLE_E2E_REQUIRED）浏览器起不来算失败。
+    """
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        try:
+            return pool.submit(fn, *args, **kw).result()
+        except QualityError as exc:
+            if "浏览器启动失败" in str(exc) and not os.environ.get("ROUNDTABLE_E2E_REQUIRED"):
+                pytest.skip(str(exc))
+            raise
+
+
 def _check(target, **kw):
-    try:
-        return run_check(target, **kw)
-    except QualityError as exc:
-        if "浏览器启动失败" in str(exc):
-            pytest.skip(str(exc))
-        raise
+    return _own_thread(run_check, target, **kw)
 
 
 def test_gallery_passes(tmp_path):
@@ -250,12 +264,7 @@ def test_run_probes_fills_clicks_and_reads_the_page(tmp_path):
         {"id": "r3", "steps": [click("导出 PDF")], "expect": ["已导出"]},
         {"id": "r4", "steps": [fill, click("智能推荐")], "expect": ["推荐结果"]},
     ]
-    try:
-        got = {x["id"]: x for x in run_probes(str(index), probes)}
-    except QualityError as exc:
-        if "浏览器启动失败" in str(exc):
-            pytest.skip(str(exc))
-        raise
+    got = {x["id"]: x for x in _own_thread(run_probes, str(index), probes)}
     assert got["r1"]["ok"] is True, got
     assert got["r2"]["ok"] is False and "一点没变" in got["r2"]["why"]  # 空输入点生成：没变
     assert got["r3"]["ok"] is False and "找不到「导出 PDF」" in got["r3"]["why"]
