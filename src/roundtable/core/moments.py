@@ -46,6 +46,7 @@ from roundtable.core.chat_actions import (
 )
 from roundtable.core.member.brain import Brain
 from roundtable.core.member.voice import Said, before_voice, recent_words
+from roundtable.core.moment_shots import event_time, pick_shot, pick_spec
 from roundtable.core.office.apartment import schedule
 from roundtable.core.persona import chat_persona
 from roundtable.core.plain_talk import before_speaking, plain_prompt
@@ -291,6 +292,7 @@ class Moments:
     ) -> dict[str, Any] | None:
         """按概率给这条动态画一张配图（不用审）；不配、超了每天的张数或画不出来时为 None。"""
         from roundtable.core.chat_media import ChatMediaStore, MediaError
+        from roundtable.core.hometz import home_zone
         from roundtable.core.member_stickers import (
             MemberStickers,
             StickerBudgetExceeded,
@@ -313,7 +315,18 @@ class Moments:
         if len(today) >= rules.per_day or mine >= rules.per_member_day:
             return None
         try:
-            shot = rng.choices(rules.shots, [s.weight for s in rules.shots])[0]
+            habit = rt.config.personas.sticker_cards[member.id].photo
+            shot = pick_shot(rules, habit, rng)
+            place = str(event.get("place") or "")
+            spec = pick_spec(
+                rules,
+                habit,
+                shot,
+                event_id=event["id"],
+                member_id=member.id,
+                time=event_time(event.get("at"), home_zone(rt).tz()),
+                place=place,
+            )
             data, mime = await MemberStickers(rt, rt.sticker_dir).photo(
                 member.id,
                 event["topic"],
@@ -321,9 +334,10 @@ class Moments:
                 shot.text,
                 refs=shot.her != "none",
                 seed=f"{event['id']}:{member.id}",
-                place=str(event.get("place") or ""),
+                place=place,
                 her=shot.her,
                 shot_tags=shot.tags,
+                spec=spec,
             )
             return generated_item(ChatMediaStore(rt.chat_media_dir), data, mime)
         except (StickerBudgetExceeded, StickerError, StickerUnavailable, MediaError, ValueError):
