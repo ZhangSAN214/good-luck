@@ -143,6 +143,12 @@ class LifeEngine:
             cap = max(cap - self.rules.memory_reserve_usd, 0.0)
         return self.spent_today() + estimate_usd <= cap + 1e-9
 
+    def weekly_allowed(self, estimate_usd: float) -> bool:
+        """每周一次的反思（P6 成长、P4 见解）：和记忆整理一样能用到留的那笔、不受「接近上限」熔断，
+        但照样不超每日上限和总预算。11-02 第一次真反思：开机补跑的白天生活先把额度花到留的那笔，
+        8 位只反思了 1 位。"""
+        return self.allowed(estimate_usd, reserve=False)
+
     # --- 事件 --------------------------------------------------------------------
 
     def _work(self, start: datetime, end: datetime) -> dict[str, list[str]]:
