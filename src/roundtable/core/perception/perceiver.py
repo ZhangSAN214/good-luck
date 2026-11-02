@@ -98,10 +98,19 @@ def parse_cards(text: str, count: int) -> dict[int, str]:
 
 
 class Perceiver:
-    def __init__(self, rt: Any, cache: PerceptionCache, rng: random.Random | None = None) -> None:
+    def __init__(
+        self,
+        rt: Any,
+        cache: PerceptionCache,
+        rng: random.Random | None = None,
+        *,
+        step: str = STEP,
+    ) -> None:
         self.rt = rt
         self.cache = cache
         self.rng = rng or random.Random()
+        # 调用记在哪个步骤上：默认 perceive；成员自己看 B 站视频时记在生活的步骤上（算生活每日上限）
+        self.step = step
 
     @property
     def rules(self) -> Any:
@@ -199,7 +208,7 @@ class Perceiver:
         except (AllChannelsFailed, NoChannelAvailable) as exc:
             self.rt.repo.record_call(
                 session,
-                step=STEP,
+                step=self.step,
                 role="preprocess",
                 model_id=model.id,
                 messages=[Message("user", audio.name)],
@@ -228,7 +237,7 @@ class Perceiver:
         )
         self.rt.repo.record_call(
             session,
-            step=STEP,
+            step=self.step,
             role="preprocess",
             model_id=model.id,
             messages=[Message("user", audio.name, (audio,))],
@@ -347,7 +356,7 @@ class Perceiver:
         except (AllChannelsFailed, NoChannelAvailable, ProviderError) as exc:
             self.rt.repo.record_call(
                 session,
-                step=STEP,
+                step=self.step,
                 role="preprocess",
                 model_id=model_id,
                 messages=messages,
@@ -358,7 +367,7 @@ class Perceiver:
             return None
         self.rt.repo.record_call(
             session,
-            step=STEP,
+            step=self.step,
             role="preprocess",
             model_id=model_id,
             messages=messages,

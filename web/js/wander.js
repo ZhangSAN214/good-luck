@@ -16,8 +16,8 @@ export class Wander {
    * @param {HTMLButtonElement} button 顶栏按钮
    * @param {{api: Record<string, Function>}} opts
    */
-  constructor(dlg, button, { api }) {
-    Object.assign(this, { dlg, button, api });
+  constructor(dlg, button, { api, trips = null }) {
+    Object.assign(this, { dlg, button, api, trips });
     this.st = null;
     this.member = null; // 正在看谁的记录
     this.site = '';
@@ -73,7 +73,7 @@ export class Wander {
       this.member = this.st?.running?.member || members.find((m) => m.available)?.id || members[0]?.id || null;
     }
     this.resetLog();
-    await this.pull();
+    await Promise.all([this.pull(), this.trips?.load()]);
     this.render();
   }
 
@@ -125,6 +125,7 @@ export class Wander {
         <h4>浏览记录</h4>
         <div class="wd-tabs" role="tablist">${tabs}</div>
         <div class="wd-log" aria-live="polite"></div>
+        <div class="wd-trips">${this.trips ? this.trips.html() : ''}</div>
       </div>`;
     this.renderLive();
     this.renderLog();
@@ -198,6 +199,15 @@ export class Wander {
       return this.render();
     }
     if (t.closest('[data-go]')) return this.go();
+    const box = this.dlg.querySelector('.wd-trips');
+    if (this.trips && box && box.contains(t)) {
+      const watching = t.closest('[data-twatch]');
+      if (watching) {
+        this.trips.busy = true;
+        box.innerHTML = this.trips.html();
+      }
+      if (await this.trips.onClick(t, watching ? this.dlg : box)) box.innerHTML = this.trips.html();
+    }
   }
 
   onChange(e) {

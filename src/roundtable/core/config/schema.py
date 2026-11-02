@@ -1271,6 +1271,56 @@ class LowRules(_Strict):
     rest_text: str = Field(default="累了好几天，决定今天什么都不干，好好睡一觉", max_length=60)
 
 
+class TravelDest(_Strict):
+    """一个旅行目的地（L5）。days：在外面待几天（[最少, 最多]，0 = 当天来回）；likes：档案里提到这些
+    词的人更想去；months：只在这几个月去（空 = 全年）；sights：途中每天做的事（不带主语）；
+    souvenirs：回来给朋友带的东西。"""
+
+    name: str = Field(min_length=1, max_length=12)
+    days: list[int] = Field(default_factory=lambda: [1, 2], min_length=2, max_length=2)
+    likes: list[str] = Field(default_factory=list, max_length=20)
+    months: list[int] = Field(default_factory=list)
+    sights: list[str] = Field(min_length=1, max_length=12)
+    souvenirs: list[str] = Field(min_length=1, max_length=12)
+
+    @field_validator("days")
+    @classmethod
+    def _days(cls, v: list[int]) -> list[int]:
+        if not 0 <= v[0] <= v[1] <= 10:
+            raise ValueError("days 写 [最少, 最多]，0～10")
+        return v
+
+
+class TravelTexts(_Strict):
+    """旅行各步写进生活事件的话：{dest} 目的地、{sight} 途中的事、{other} 收礼物的朋友、
+    {souvenir} 带回来的东西、{when} 哪天出发（「周六」）。"""
+
+    plan: str = Field(default="在查去{dest}的车票，打算{when}出发", max_length=60)
+    pack: str = Field(default="收拾好了去{dest}的行李", max_length=60)
+    depart: str = Field(default="出发去{dest}了", max_length=60)
+    trip: str = Field(default="在{dest}{sight}", max_length=70)
+    back: str = Field(default="从{dest}回来了，给{other}带了{souvenir}", max_length=70)
+    tired: str = Field(default="旅行回来腿有点酸，早早睡了", max_length=60)
+
+
+class TravelRules(_Strict):
+    """旅行（L5，docs/LIFE_STORY.md「旅行」）：偶尔出门几天，短途为主。全程序、不调用模型。
+
+    计划（第 0 天）→ 前一天收拾行李 → 出发 → 途中每天一件事 → 回来给常一起玩的朋友带东西 → 回来
+    当晚有点累。在外面那几天公寓里显示「不在家」、空闲时段不在楼里；**办公室工作照常**（用户定）。
+    chance 是每天想出门的概率（档案提到 like_words 时 × boost）；同时最多 max_away 位在外面。"""
+
+    enabled: bool = True
+    chance: float = Field(default=0.012, ge=0, le=1)
+    like_words: list[str] = Field(default_factory=list, max_length=20)
+    boost: float = Field(default=2.0, ge=1, le=10)
+    cooldown_days: int = Field(default=30, ge=0, le=365)
+    max_away: int = Field(default=2, ge=1, le=8)
+    ahead_days: list[int] = Field(default_factory=lambda: [2, 5], min_length=2, max_length=2)
+    dests: list[TravelDest] = Field(default_factory=list, max_length=60)
+    texts: TravelTexts = TravelTexts()
+
+
 class StoryRules(_Strict):
     """生活事件库 + 长线剧情（P7 生活引擎 L0，docs/LIFE_STORY.md）。
 
@@ -1292,6 +1342,7 @@ class StoryRules(_Strict):
     progress: ProgressRules = ProgressRules()  # 爱好进度（L1）
     festival: FestivalRules = FestivalRules()  # 节日纪念日（L2）
     lows: LowRules = LowRules()  # 健康与低谷（L4）
+    travel: TravelRules = TravelRules()  # 旅行（L5）
 
     @model_validator(mode="after")
     def _unique(self) -> StoryRules:
@@ -1299,10 +1350,14 @@ class StoryRules(_Strict):
         dup = sorted({i for i in ids if ids.count(i) > 1})
         if dup:
             raise ValueError(f"生活事件 id 重复：{'、'.join(dup)}")
-        reserved = sorted(i for i in ids if i.startswith(("talent_", "progress_", "fest_", "low_")))
+        reserved = sorted(
+            i for i in ids if i.startswith(("talent_", "progress_", "fest_", "low_", "travel_"))
+        )
         if reserved:
             used = "、".join(reserved)
-            raise ValueError(f"talent_ / progress_ / fest_ / low_ 开头的 id 留给程序用：{used}")
+            raise ValueError(
+                f"talent_ / progress_ / fest_ / low_ / travel_ 开头的 id 留给程序用：{used}"
+            )
         domains = {s.domain for s in self.stories} | {
             k.domain for k in self.progress.kinds.values()
         }
