@@ -118,7 +118,9 @@ def test_mail_categories_marks_ai_and_images(serve, page):
     page.add_init_script(LAND_HUB)
     page.goto(srv.url)
     page.click("#hub .ml-btn")
+    page.wait_for_selector("#hub .ml-panel:not([hidden]) [data-enable]")
     page.click("#hub [data-enable]")
+    page.wait_for_selector("#hub [data-login]:not([disabled])")
     page.click("#hub [data-login]")
     page.wait_for_selector("#hub .ml-digest")
     assert "重要未读 1 封" in page.inner_text("#hub .ml-digest")
@@ -181,3 +183,41 @@ def test_mail_categories_marks_ai_and_images(serve, page):
     page.click("#hub [data-ai='digest']")
     page.wait_for_selector("#hub .ml-digest .ml-ai-text")
     assert "今天 3/20 次" in page.inner_text("#hub .ml-digest")
+
+
+def test_late_answer_to_an_earlier_request_does_not_roll_the_panel_back(serve, page):
+    """打开面板时发的刷新晚于「打开邮件栏」「登录」回来：不能把面板退回没打开、也不能停掉轮询。
+
+    以前偶发：CI 慢时先发的刷新最后才回来，面板退回介绍页，速览一直等不到。"""
+    src = source()
+    srv = serve(confirm_threshold_usd=100.0, setup=lambda env: setattr(env.rt, "mail_source", src))
+    page.add_init_script(LAND_HUB)
+    page.goto(srv.url)
+    page.wait_for_selector("#hub .ml-btn")
+
+    held = []
+
+    def hold(route):
+        # 照常向服务端要（拿到的是「还没打开」的旧状态），但先不交给网页
+        held.append((route, route.fetch()))
+
+    page.route("**/api/mail", hold)
+    page.click("#hub .ml-btn")  # 打开面板会刷新一次：被扣下
+    page.wait_for_selector("#hub .ml-panel:not([hidden]) [data-enable]")
+    assert len(held) == 1
+    page.unroute("**/api/mail")
+
+    page.click("#hub [data-enable]")
+    page.wait_for_selector("#hub [data-login]:not([disabled])")
+    page.click("#hub [data-login]")
+    page.wait_for_selector("#hub .ml-digest")
+
+    # 旧回答现在才到
+    route, stale = held[0]
+    assert stale.json()["enabled"] is False
+    with page.expect_request_finished(lambda r: r.url.endswith("/api/mail")):
+        route.fulfill(response=stale)
+    page.evaluate("() => new Promise((r) => setTimeout(r, 50))")
+    assert page.locator("#hub [data-enable]").count() == 0
+    assert page.locator("#hub .ml-digest").count() == 1
+    assert "重要未读 1 封" in page.inner_text("#hub .ml-digest")

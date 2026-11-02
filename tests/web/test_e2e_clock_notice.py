@@ -6,7 +6,9 @@
 
 from __future__ import annotations
 
-import yaml
+from datetime import UTC, datetime, timedelta
+
+from roundtable.core.changelog import load_changelog
 
 LAND_HUB = "try { localStorage.setItem('roundtable.landing', 'hub') } catch {}"
 
@@ -89,17 +91,22 @@ def test_main_zone_is_saved_for_the_whole_roundtable(serve, page):
 
 def test_stopwatch_and_countdown(serve, page):
     srv = serve(confirm_threshold_usd=100.0)
-    page.clock.install()
+    # 假时钟停住，只由测试往前拨：不停的话假时间跟着真时间走，CI 慢时秒表会多走一两秒。
+    # 往前拨用 fast_forward（到点的定时器各跑一次），不用 run_for（把首页的动画和轮询
+    # 每一帧都重放一遍，一个测试要两三分钟）
+    start = datetime(2026, 11, 2, 9, 0, tzinfo=UTC)
+    page.clock.install(time=start)
     page.add_init_script(LAND_HUB)
     page.goto(srv.url)
+    page.clock.pause_at(start + timedelta(minutes=1))
     page.wait_for_selector("#hub .ck-face")
     page.click("#hub .ck-btn")
 
     page.click("#hub [data-tab='sw']")
     page.click("#hub [data-sw='start']")
-    page.clock.run_for(3000)
+    page.clock.fast_forward(3000)
     page.click("#hub [data-sw='lap']")
-    page.clock.run_for(2000)
+    page.clock.fast_forward(2000)
     page.click("#hub [data-sw='pause']")
     assert page.inner_text("#hub [data-ro='sw']").startswith("00:05")
     assert page.locator("#hub .ck-laps li").count() == 1
@@ -111,14 +118,14 @@ def test_stopwatch_and_countdown(serve, page):
     page.click("#hub .ck-btn")
     page.click("#hub [data-tab='cd']")
     page.click("#hub [data-preset='1']")
-    page.clock.run_for(30_000)
+    page.clock.fast_forward(30_000)
     assert page.inner_text("#hub [data-ro='cd']") in ("00:29", "00:30", "00:31")
     page.click("#hub [data-cd='pause']")
     paused = page.inner_text("#hub [data-ro='cd']")
-    page.clock.run_for(60_000)
+    page.clock.fast_forward(60_000)
     assert page.inner_text("#hub [data-ro='cd']") == paused  # 暂停时不走
     page.click("#hub [data-cd='resume']")
-    page.clock.run_for(31_000)
+    page.clock.fast_forward(31_000)
     page.wait_for_selector("#hub .ck-big.ring")
     assert page.inner_text("#hub .ck-run.ring") == "时间到"
     page.click("#hub [data-cd='reset']")
@@ -133,7 +140,7 @@ def test_stopwatch_and_countdown(serve, page):
 
 def test_notice_board_marks_read(serve, page):
     srv = serve(confirm_threshold_usd=100.0)
-    total = len(yaml.safe_load(srv.env.rt.changelog.read_text("utf-8"))["releases"])
+    total = len(load_changelog(srv.env.rt.changelog).releases)
     page.add_init_script(LAND_HUB)
     page.goto(srv.url)
     page.wait_for_selector("#hub .nt-btn.has-new")

@@ -4,10 +4,31 @@ on:
   push:
   pull_request:
 
+# 同一分支（同一事件）又推了新提交时，旧的那次直接取消，不排队空跑
+concurrency:
+  group: ci-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: true
+
+# 测试不联网、不需要任何 key；代码沙箱相关的越权测试在没有 Deno 时自动跳过。
+# 用 pytest-xdist 并行（-n auto，按 CPU 核数开进程）；--durations 打出最慢的测试方便以后优化。
 jobs:
-  test:
+  lint:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+      - run: pip install "ruff>=0.5"
+      - run: ruff check .
+      - run: ruff format --check .
+
+  # 后端（core / api / cli / 架构守卫……），不含 tests/web 的前端端到端
+  backend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
@@ -19,17 +40,63 @@ jobs:
           python-version: ${{ matrix.python }}
           cache: pip
       - run: pip install -e ".[dev]"
-      - run: ruff check .
-      - run: ruff format --check .
-      - name: Playwright browser (frontend end-to-end tests)
+      # tests/ 下另有几处真浏览器的冒烟测试（上网、邮件登录窗口、工作台质检），也要有 Chromium
+      - name: Playwright 版本（浏览器缓存的键）
+        id: pw
+        run: echo "version=$(python -c 'import importlib.metadata as m; print(m.version("playwright"))')" >> "$GITHUB_OUTPUT"
+      - name: 缓存 Chromium
+        id: pw-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.pw.outputs.version }}-chromium
+      - name: 下载 Chromium 和系统依赖（没命中缓存）
+        if: steps.pw-cache.outputs.cache-hit != 'true'
         run: playwright install --with-deps chromium
-      # 不联网、不需要任何 key；代码沙箱相关的越权测试在没有 Deno 时自动跳过
-      - run: pytest -q
+      - name: 只装系统依赖（命中缓存）
+        if: steps.pw-cache.outputs.cache-hit == 'true'
+        run: playwright install-deps chromium
+      - run: pytest -q -n auto --ignore=tests/web --durations=20
+
+  # 前端端到端（Playwright + Chromium，Fake 模型的服务跑在真实 uvicorn 上）
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.11", "3.13"]
+    env:
+      # CI 上浏览器起不来要报错，不能悄悄整目录跳过
+      ROUNDTABLE_E2E_REQUIRED: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+      - run: pip install -e ".[dev]"
+      - name: Playwright 版本（浏览器缓存的键）
+        id: pw
+        run: echo "version=$(python -c 'import importlib.metadata as m; print(m.version("playwright"))')" >> "$GITHUB_OUTPUT"
+      - name: 缓存 Chromium
+        id: pw-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.pw.outputs.version }}-chromium
+      - name: 下载 Chromium 和系统依赖（没命中缓存）
+        if: steps.pw-cache.outputs.cache-hit != 'true'
+        run: playwright install --with-deps chromium
+      - name: 只装系统依赖（命中缓存）
+        if: steps.pw-cache.outputs.cache-hit == 'true'
+        run: playwright install-deps chromium
+      - run: pytest -q -n auto tests/web --durations=20
 
   # dsh 工作台是可拔掉的外设（docs/DSH.md）：整个删掉后圆桌的测试照样全过
   unplug-dsh:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -39,4 +106,4 @@ jobs:
       - run: pip install -e ".[dev]"
       - name: 拔掉 dsh
         run: rm -rf src/roundtable/core/dsh tests/core/dsh config/dsh_plugins.yaml scripts/setup_dsh.py
-      - run: pytest -q --ignore=tests/web
+      - run: pytest -q -n auto --ignore=tests/web

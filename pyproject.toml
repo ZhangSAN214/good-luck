@@ -62,6 +62,8 @@ dev = [
     "ruff>=0.5",
     # 前端端到端测试（tests/web）；还需要 `playwright install chromium`，没有浏览器时自动跳过
     "playwright>=1.40",
+    # 并行跑测试：pytest -n auto（CI 也这样跑）
+    "pytest-xdist>=3.5",
 ]
 
 [tool.setuptools.packages.find]

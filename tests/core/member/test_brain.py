@@ -9,6 +9,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
+from roundtable.core.hometz import home_zone
 from roundtable.core.member import WorkModeError
 from roundtable.core.member.brain import KEY, Brain
 from roundtable.core.member.bus import Event, EventBus
@@ -24,6 +25,8 @@ TRAITS = ("外向", "较真", "好奇", "温和", "幽默")
 def setup(scores=(3, 3, 3, 3, 3), likes=("弹吉他", "下围棋")) -> tuple[Env, Brain]:
     env = Env()
     env.rt.budget.now = lambda: NOON
+    # 主时区钉成 UTC：默认「跟随本机」，在东八区的电脑上跑时「晚上 7 点」会变成半夜
+    home_zone(env.rt).set("UTC")
     traits = dict(zip(TRAITS, scores, strict=True))
     ProfileStore(env.rt).change(
         "V1", {"personality": {"五项": traits}, "likes": {"最爱": list(likes)}}, author="user"
