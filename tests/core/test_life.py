@@ -150,6 +150,21 @@ def test_daytime_life_leaves_room_for_the_night_memory():
     assert life.memory.allow(0.09) and not life.memory.allow(0.11)  # 记忆整理能用满上限
 
 
+def test_memory_already_done_today_frees_its_reserve_for_daytime():
+    """11-02：早上开机先补整理了昨晚的记忆，留的那笔还照样扣着，白天 10 点就停了一整天。"""
+    env = life_env(daily_usd=0.15, memory_reserve_usd=0.05)
+    life = engine(env)
+    spent = {"memory": 0.0, "all": 0.0}
+    life.spent_today = lambda steps=None: spent["memory"] if steps == ("memory",) else spent["all"]
+    spent["all"] = 0.099  # 和那天一样
+    assert not life.allowed(0.002)  # 记忆还没整理：照旧留着那笔
+    spent["memory"] = 0.039
+    assert life.held_for_memory() == pytest.approx(0.011)
+    assert life.allowed(0.002) and life.allowed(0.04) and not life.allowed(0.041)
+    spent["memory"] = 0.06  # 整理花得比留的多：不再留，但不超上限
+    assert life.allowed(0.051) and not life.allowed(0.052)
+
+
 def test_weekly_reflection_can_use_the_reserve_but_not_beyond_the_cap():
     """11-02 第一次真反思：开机补跑的白天生活花到留的那笔，8 位只反思了 1 位。"""
     env = life_env(daily_usd=0.10, memory_reserve_usd=0.03)

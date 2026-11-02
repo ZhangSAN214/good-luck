@@ -124,9 +124,15 @@ class LifeEngine:
 
     # --- 预算 --------------------------------------------------------------------
 
-    def spent_today(self) -> float:
+    def spent_today(self, steps: tuple[str, ...] = LIFE_STEPS) -> float:
         start, end = utc_day_window(self.rt.budget.now())
-        return self.rt.repo.spent_in_steps("chat", LIFE_STEPS, start, end)
+        return self.rt.repo.spent_in_steps("chat", steps, start, end)
+
+    def held_for_memory(self) -> float:
+        """白天还要给记忆整理留多少：留的那笔减去今天记忆整理已经花掉的。
+        11-02：电脑夜里关机，早上开机先补整理昨晚的记忆（$0.039），这笔钱已经花了，
+        却还照样从白天的额度里再留一整笔，10 点就把朋友圈、群聊、私聊全停了一整天。"""
+        return max(self.rules.memory_reserve_usd - self.spent_today(("memory",)), 0.0)
 
     def allowed(self, estimate_usd: float, *, reserve: bool = True) -> bool:
         """reserve：给记忆整理留出 ``memory_reserve_usd``（记忆整理自己调用时为 False）。
@@ -140,7 +146,7 @@ class LifeEngine:
             return False
         cap = self.rules.daily_usd
         if reserve:
-            cap = max(cap - self.rules.memory_reserve_usd, 0.0)
+            cap = max(cap - self.held_for_memory(), 0.0)
         return self.spent_today() + estimate_usd <= cap + 1e-9
 
     def weekly_allowed(self, estimate_usd: float) -> bool:

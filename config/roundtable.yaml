@@ -34,7 +34,7 @@ office:
   # min_jobs：某类活至少办过几件才显示 / 参考（太少不说明问题）
   performance: {enabled: true, min_jobs: 3}
 
-# 群聊：成员只回应你，不主动发消息；没有 @ 人时随机一两位回应
+# 群聊：没有 @ 人时随机一两位回应；成员也会按心情偶尔主动找你（chat.engine.reach，每天有上限）
 chat:
   life_title: 大家庭               # 生活群
   work_title: 工作群
@@ -57,7 +57,7 @@ chat:
     hanging_max: 5                 # 脑子里挂着的事最多几件
     links: {enabled: true, assoc_max: 1}         # 联想网：一起出现就连得更紧，想起一件顺带想到一件；夜里随便走几步
     diary: {enabled: true, daily_reads: 3}       # 翻日记：只在生活模式，每位成员每天最多翻 3 次
-  life:                            # 生活引擎：你不在时成员按作息过日子、彼此聊天（不主动找你）
+  life:                            # 生活引擎：你不在时成员按作息过日子、彼此聊天（主动找你由 chat.engine.reach 管）
     enabled: true
     daily_usd: 0.15                # 生活（含记忆整理、自己上网）每天最多花多少；约 $4.5 / 月
     memory_reserve_usd: 0.05       # 其中给夜里整理记忆留的钱：白天花到 $0.10 就停，记得住比多聊几句要紧（10-31 第 3 次试跑：留 $0.02 只够 3 位）
