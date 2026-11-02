@@ -11,6 +11,9 @@ def test_channel_priority_panel(serve, page):
     srv = serve(confirm_threshold_usd=100.0)
     page.add_init_script(LAND_HUB)
     page.goto(srv.url)
+    # 这张卡是本月预算还剩多少，不是账户余额（用户会看混）
+    card = page.inner_text("#hub .hb-bal")
+    assert "本月预算" in card and "余额" not in card
     page.click("#hub .hb-bal")
     page.wait_for_selector("#usagedlg [data-pstrat]")
     text = page.inner_text("#usagedlg")

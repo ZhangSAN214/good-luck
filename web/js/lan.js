@@ -64,11 +64,17 @@ export class LanPanel {
           : '<p class="lan-state on">已对家里的局域网开放：平板在同一个 Wi-Fi 里打开下面的地址，输入口令或扫二维码即可。</p>'
         : '<p class="lan-state warn">已对局域网开放，但<b>还没设访问口令</b>：设好之前平板进不来。</p>';
     const ts = new Set(i.tailscale_urls || []);
+    const canPair = i.enabled && i.has_password;
+    const whyNot = !i.enabled
+      ? '现在只对这台电脑开放，生成了二维码手机也打不开：先用「圆桌（平板可连）」图标重新启动。'
+      : !i.has_password
+        ? '先在上面设访问口令，才能生成二维码。'
+        : '';
     const addr = urls.length
       ? `<ul class="lan-urls">${urls
           .map(
             (u) =>
-              `<li><span class="lan-tag">${ts.has(u) ? 'Tailscale（离家也能用）' : '家里 Wi-Fi'}</span><code>${esc(u)}</code> <button type="button" class="btn" data-pair="${esc(u)}" ${i.has_password ? '' : 'disabled'}>生成二维码</button></li>`,
+              `<li><span class="lan-tag">${ts.has(u) ? 'Tailscale（离家也能用）' : '家里 Wi-Fi'}</span><code>${esc(u)}</code> <button type="button" class="btn" data-pair="${esc(u)}" ${canPair ? '' : 'disabled'}>生成二维码</button></li>`,
           )
           .join('')}</ul>`
       : '<p class="lan-hint">没找到这台电脑的局域网地址：确认电脑连着 Wi-Fi 或网线。</p>';
@@ -87,6 +93,7 @@ export class LanPanel {
         <p class="lan-hint">口令只在电脑上存加盐哈希；改口令会让所有平板退出。连续输错 5 次会暂时锁定那台设备。</p>
         <h4>2. 平板打开的地址</h4>
         ${addr}
+        ${whyNot ? `<p class="lan-hint lan-why" data-why>二维码按钮是灰的：${whyNot}</p>` : ''}
         ${qr}
         <h4>3. 平板上「添加到主屏幕」</h4>
         <p class="lan-hint">iPad：Safari 打开后点「分享」→「添加到主屏幕」。安卓：Chrome 菜单 →「添加到主屏幕」。之后像 App 一样从桌面打开。</p>
@@ -94,6 +101,8 @@ export class LanPanel {
         <p class="lan-hint">第一次用 <code>start_lan.bat</code> 启动时，Windows 会弹窗问是否允许 Python 访问网络：勾「专用网络」并允许。如果之前点了拒绝，在<b>管理员 PowerShell</b> 里运行下面这一条（只放行专用网络的这个端口）：</p>
         <pre class="lan-cmd">${esc(i.firewall || '')}</pre>
         <p class="lan-hint">另外家里的 Wi-Fi 在 Windows 里要是「专用网络」（设置 → 网络和 Internet → Wi-Fi → 网络配置文件类型）。学校 eduroam 等公共网络一般会隔离设备，平板连不到电脑。</p>
+        <p class="lan-hint">如果家里 Wi-Fi 显示的是<b>「公用网络」</b>，上面那条规则不会生效。推荐把它改成「专用网络」；不想改的话，在管理员 PowerShell 里改运行下面这条（只放行同一个 Wi-Fi 里的设备）：</p>
+        <pre class="lan-cmd" data-fw-public>${esc(i.firewall_public || '')}</pre>
         <h4>5. 离开家也想用：Tailscale</h4>
         <p class="lan-hint">${
           ts.size

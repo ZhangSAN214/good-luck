@@ -183,7 +183,11 @@ def test_pc_lan_panel_sets_password(serve, page):
     assert "New-NetFirewallRule" in cmds[0]
     # 离家用的 Tailscale：只放行 100.64.0.0/10
     assert "Tailscale" in page.inner_text("#landlg")
-    assert "-RemoteAddress 100.64.0.0/10" in cmds[1]
+    assert any("-RemoteAddress 100.64.0.0/10" in c for c in cmds)
+    # Wi-Fi 是「公用网络」时专用规则不生效：另给一条只放行同一子网的
+    assert any("-Profile Public" in c and "LocalSubnet" in c for c in cmds)
+    # 二维码按钮为什么是灰的要说出来
+    assert "只对这台电脑开放" in page.inner_text("#landlg [data-why]")
     page.fill("#landlg input[name=pw]", "home-" + "pass")
     page.click("#landlg .lan-pw button")
     page.wait_for_function(

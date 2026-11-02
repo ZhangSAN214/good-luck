@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import sqlite3
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from roundtable.core import firstaid as fa
 from roundtable.core.backup import DbBackup
@@ -75,6 +75,12 @@ def test_backup_age_and_data_drop(tmp_path):
     old = [{"at": (NOW - timedelta(days=9)).isoformat(), "name": "x"}]
     assert levels(fa.check_backups(fresh, True, NOW)) == {"backup": "ok"}
     assert levels(fa.check_backups(old, False, NOW)) == {"backup": "warn"}
+    # 网页传的 now 带时区、备份时间不带时区（也可能反过来）：不能报错
+    aware = NOW.replace(tzinfo=timezone(timedelta(hours=8)))
+    assert levels(fa.check_backups(fresh, True, aware)) == {"backup": "ok"}
+    assert levels(fa.check_backups(old, True, aware)) == {"backup": "warn"}
+    aware_at = [{"at": aware.isoformat(), "name": "x"}]
+    assert levels(fa.check_backups(aware_at, True, NOW)) == {"backup": "ok"}
 
     db = tmp_path / "rt.db"
     conn = connect(db)
@@ -194,3 +200,18 @@ def test_service_firstaid_and_report():
     assert {"config", "keys", "db", "channels", "budget", "calls", "sandbox"} <= ids
     report = svc.firstaid_report()
     assert report["text"].startswith("# 圆桌体检报告")
+
+
+def test_service_firstaid_with_naive_backup_times(tmp_path, monkeypatch):
+    """网页自检传的 now 带时区，备份文件名里的时间不带时区：以前这里 500。"""
+    from roundtable.core.backup import BackupFile
+
+    svc = RoundtableService(Env().rt)
+    files = [BackupFile("x.db", "daily", datetime(2026, 11, 2, 22, 45, 23), "", 1)]
+    monkeypatch.setattr(svc.backup, "files", lambda: files)
+    monkeypatch.setattr(svc, "_db_path", lambda: tmp_path / "rt.db")
+    (tmp_path / "rt.db").write_bytes(b"")
+    assert svc._local_now().tzinfo is not None
+    ids = {f["id"] for f in svc.firstaid()["findings"]}
+    assert "backup" in ids
+    assert svc.firstaid_report()["text"].startswith("# 圆桌体检报告")

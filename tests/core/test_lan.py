@@ -19,6 +19,7 @@ from roundtable.core.lan import (
     lan_addresses,
     lan_enabled,
     lan_mode,
+    public_firewall_command,
     qr_svg,
     tailscale_addresses,
     tailscale_firewall_command,
@@ -104,8 +105,22 @@ def test_wrong_password_rate_limited_per_device(tmp_path):
     assert lan.login("wrong-pass", "10.0.0.9").reason == "wrong"  # 登录成功后计数清零
 
 
+def test_pair_code_refused_when_only_this_pc(tmp_path):
+    """服务只听 127.0.0.1 时出的码手机扫了也打不开：干脆不出，并说清楚怎么办。"""
+    lan, _ = access(tmp_path)
+    lan.set_password(PW)
+    with pytest.raises(ValueError, match="start_lan.bat"):
+        lan.new_pair_code()
+
+
+def test_public_wifi_firewall_rule_only_opens_local_subnet():
+    cmd = public_firewall_command(8000)
+    assert "-Profile Public" in cmd and "-RemoteAddress LocalSubnet" in cmd
+    assert "-LocalPort 8000" in cmd
+
+
 def test_pair_code_single_use_and_expires(tmp_path):
-    lan, clock = access(tmp_path)
+    lan, clock = access(tmp_path, enabled=True)
     with pytest.raises(ValueError):
         lan.new_pair_code()
     lan.set_password(PW)
@@ -142,6 +157,7 @@ def test_enabled_flag_and_status(tmp_path):
     assert st["enabled"] and not st["has_password"] and not st["tailscale_only"]
     assert st["urls"] == ["http://192.168.1.5:8000"] and st["tailscale_urls"] == []
     assert "-LocalPort 8000" in st["firewall"] and "-Profile Private" in st["firewall"]
+    assert "-Profile Public" in st["firewall_public"]
     assert firewall_command(8799).count("8799") == 2
 
 
