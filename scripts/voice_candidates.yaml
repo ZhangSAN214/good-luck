@@ -84,15 +84,15 @@ members:
       - {model: minimax-speech-2.8-hd, voice: "Chinese (Mandarin)_Warm_Girl", line: "嘿嘿，你在忙呀？<#0.3#>那我就在旁边待着……不吵你。<#0.5#>那个，碗我洗了一半，剩下的……(chuckle)它们好像更想让你洗。<#0.3#>对了对了，晚饭有大白饭吗？", note: 带感情版：1 号音色 + 偷笑、停顿}
   Moonshot AI:
     name: Kimi（小K）
-    persona: 二十出头的慵懒月夜少女，能躺不坐；句子偏短、节奏慢，急事一来才坐起来
-    line: 嗯……再躺五分钟。慢慢来，月亮又不会跑。急事？好吧，我坐起来了。
+    persona: 月夜系的中二浪漫美少女，说话像在念自己写的台词；自信从容，但不自大（11-02 用户定的新方向）
+    line: 今夜的月光，正好落在我的书页上——这是命运的信号。放心吧，这道难题，就交给我。……嘿，刚才那句是不是有点帅？
     candidates:
-      - {model: minimax-speech-2.8-hd, voice: "Chinese (Mandarin)_Lyrical_Voice", note: 抒情女声：安静、有月夜感}
-      - {model: minimax-speech-2.8-hd, voice: audiobook_female_1, note: 有声书女声：慢、松弛}
-      - {model: minimax-speech-2.8-hd, voice: female-shaonv-jingpin, note: 清澈少女：少年气的一面}
-      - {model: gemini-3.8-flash-tts, voice: Erinome, style: 慵懒的月夜少女，拖着长音、懒洋洋地慢慢说，句子之间停顿多，最后一句才稍微精神一点, note: 清澈音色 + 慵懒语气}
-      - {model: gemini-3.8-flash-tts, voice: Aoede, style: 慵懒的月夜少女，拖着长音、懒洋洋地慢慢说，句子之间停顿多，最后一句才稍微精神一点, note: 轻快音色 + 慵懒语气}
-      - {model: minimax-speech-2.8-hd, voice: "Chinese (Mandarin)_Lyrical_Voice", line: "(inhale)嗯……再躺五分钟嘛。<#0.6#>慢慢来，月亮又不会跑。<#0.4#>急事？(sighs)好吧好吧，我坐起来了。", note: 带感情版：1 号音色 + 语气词、停顿、笑 / 叹气标记}
+      - {model: minimax-speech-2.8-hd, voice: "Chinese (Mandarin)_Lyrical_Voice", note: 抒情女声：浪漫、有月夜感}
+      - {model: minimax-speech-2.8-hd, voice: female-shaonv-jingpin, note: 清澈少女：美少女感、干净}
+      - {model: minimax-speech-2.8-hd, voice: audiobook_female_1, note: 有声书女声：念台词的戏剧感}
+      - {model: gemini-3.8-flash-tts, voice: Erinome, style: 中二又浪漫的美少女，像在念自己写的咒语台词，抑扬顿挫、很有戏剧感；自信从容但不傲慢，帅完会有点不好意思地笑, note: 清澈音色 + 中二浪漫语气}
+      - {model: gemini-3.8-flash-tts, voice: Aoede, style: 中二又浪漫的美少女，像在念自己写的咒语台词，抑扬顿挫、很有戏剧感；自信从容但不傲慢，帅完会有点不好意思地笑, note: 轻快音色 + 中二浪漫语气}
+      - {model: minimax-speech-2.8-hd, voice: "Chinese (Mandarin)_Lyrical_Voice", line: "(inhale)今夜的月光，<#0.3#>正好落在我的书页上——<#0.5#>这是命运的信号。放心吧，这道难题，就交给我。<#0.6#>……(chuckle)嘿，刚才那句是不是有点帅？", note: 带感情版：1 号音色 + 吸气、停顿、不好意思的笑}
   Zhipu AI:
     name: GLM（小狐）
     persona: 图书馆狐狸，慵懒、懒得多说，像眯着眼看戏；腹黑是装傻挖坑——「本狐只知道这些」其实什么都知道（11-02 用户加的特点）
