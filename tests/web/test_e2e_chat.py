@@ -250,6 +250,33 @@ def test_moments_dialog_post_like_comment(serve, page):
     assert page.locator("#gc-moments .gc-unread").count() == 0
 
 
+def test_moment_comments_show_in_time_order_with_threads(serve, page):
+    """成员的评论记在计划的时刻、陆续写入：按时间排，楼中楼显示「A 回复 B」。"""
+    srv = serve(confirm_threshold_usd=100.0)
+    repo = srv.env.rt.repo
+    post = repo.add_moment("V2", "蛋挞烤糊了", created_at="2026-10-23T12:00:00.000+00:00")
+    late = repo.add_moment_comment(
+        post["id"], "V1", "笑死", created_at="2026-10-23T14:00:00.000+00:00"
+    )
+    repo.add_moment_comment(post["id"], "V3", "带我", created_at="2026-10-23T12:05:00.000+00:00")
+    repo.add_moment_comment(
+        post["id"],
+        "V2",
+        "下次一定",
+        reply_to=late["id"],
+        created_at="2026-10-23T14:30:00.000+00:00",
+    )
+    open_chat(srv, page)
+    page.click("#gc-moments")
+    page.wait_for_selector("#moments .mo-comments li")
+    rows = page.locator("#moments .mo-comments li").all_inner_texts()
+    said = [r.split("：", 1)[1] for r in rows]
+    assert [s.startswith(w) for s, w in zip(said, ["带我", "笑死", "下次一定"], strict=True)] == [
+        True
+    ] * 3
+    assert rows[2].startswith("阿二回复阿一")
+
+
 def test_life_self_check_dialog(serve, page):
     srv = serve(confirm_threshold_usd=100.0)
     repo = srv.env.rt.repo

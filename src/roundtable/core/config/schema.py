@@ -1541,23 +1541,89 @@ class ClipperRules(_Strict):
     search_estimate_usd: float = Field(default=0.01, ge=0)
 
 
+class MomentForm(_Strict):
+    """朋友圈的一种写法（一句话、吐槽、只发表情……），按权重抽，种子由动态 / 事件和成员派生。"""
+
+    text: str
+    weight: float = Field(default=1.0, gt=0)
+
+
+def _evening_hours() -> dict[int, float]:
+    # 本地时间几点发：白天零星，饭点和晚上多（2026-11-02 用户：晚上多一点）
+    return {
+        7: 0.6, 8: 0.8, 9: 0.4, 10: 0.4, 11: 0.5, 12: 1.2, 13: 0.8, 14: 0.4, 15: 0.4,
+        16: 0.5, 17: 0.8, 18: 1.2, 19: 1.5, 20: 2.0, 21: 2.4, 22: 2.4, 23: 1.6,
+    }  # fmt: skip
+
+
 class MomentsRules(_Strict):
-    """朋友圈（docs/CHAT.md G5）。成员发动态、互相点赞评论；花费计入生活每日上限。"""
+    """朋友圈（docs/CHAT.md G5）。成员发动态、互相点赞评论；花费计入生活每日上限。
+
+    M3 节奏像人（2026-11-02）：每天 0～2 条随机（``post_counts``），时间按 ``post_hours`` 抽、
+    晚上多；评论 0～4 条随机（``comment_counts``），陆续到（``comment_delay_minutes``），谁来按
+    关系亲疏加权（``closeness_bias``）；成员之间楼中楼回 1 轮（``reply_author``、``reply_peer``）。
+    """
 
     enabled: bool = True
-    posts_per_member: int = Field(default=1, ge=0, le=5)  # 每位成员每天最多发几条
-    posts_per_tick: int = Field(default=1, ge=0, le=5)  # 每次推进最多发几条
-    comments_per_tick: int = Field(default=2, ge=0, le=10)  # 每次推进最多写几条评论
-    max_comments: int = Field(default=3, ge=0, le=10)  # 成员在一条动态下最多评论几条
+    posts_per_member: int = Field(default=2, ge=0, le=5)  # 每位成员每天最多发几条（硬上限）
+    post_counts: list[float] = [0.4, 0.4, 0.2]  # 每天发 0、1、2…… 条的权重（平均 0.8 条）
+    post_hours: dict[int, float] = Field(default_factory=_evening_hours)  # 本地几点 → 权重
+    post_window_hours: int = Field(default=3, ge=1, le=12)  # 到点后几小时内没发出去就算了
+    posts_per_tick: int = Field(default=2, ge=0, le=5)  # 每次推进最多发几条
+    comments_per_tick: int = Field(default=4, ge=0, le=20)  # 每次推进最多写几条评论（含楼中楼）
+    max_comments: int = Field(default=4, ge=0, le=10)  # 成员在一条动态下最多评论几条（不含楼中楼）
+    comment_counts: list[float] = [0.15, 0.3, 0.3, 0.15, 0.1]  # 一条动态有 0～4 条评论的权重
+    comment_delay_minutes: tuple[int, int] = (3, 240)  # 评论在发出后几分钟到几小时陆续到
+    closeness_bias: float = Field(default=3.0, ge=0, le=20)  # 谁来评论：权重 1 + 这个 × 亲近度
+    reply_author: float = Field(default=0.45, ge=0, le=1)  # 楼主回评论的概率（再加亲近度 × 下面）
+    reply_close: float = Field(default=0.3, ge=0, le=1)
+    reply_peer: float = Field(default=0.2, ge=0, le=1)  # 楼主没回时，另一位成员接一句的概率
+    reply_delay_minutes: tuple[int, int] = (2, 120)
+    reply_task: str = "{who}在这条底下说：「{text}」。回{who}一句。"
     post_misses: int = Field(default=2, ge=1, le=10)  # 成员一天里动态几次没过自查就不再写
     comment_misses: int = Field(default=2, ge=1, le=10)  # 一条动态底下几条评论没过自查就不再评
     like_chance: float = Field(default=0.4, ge=0, le=1)  # 每位成员给一条动态点赞的概率（不花钱）
     react_hours: int = Field(default=24, ge=1, le=168)  # 只对这么多小时内的动态点赞评论
     dedupe_hours: int = Field(default=48, ge=1, le=336)  # 和这么多小时内所有人的动态比对去重
     similarity_max: float = Field(default=0.3, gt=0, le=1)  # 正文相似度达到这个值就不发
-    max_chars: int = Field(default=300, ge=50, le=2000)
+    # 没事可说：没写成聊天、没有活、地点后面括号里是这些（待命、放空……）的事件不拿来发
+    dull_activities: list[str] = ["待命", "放空", "发呆", "睡觉", "午睡", "休息"]
+    talk_lines: int = Field(default=8, ge=0, le=30)  # 写成聊天的事件：喂给发帖几句原话
+    talk_line_chars: int = Field(default=40, ge=10, le=200)
+    talk_hours: int = Field(default=3, ge=1, le=12)  # 事件开始后多久内的聊天算这件事的
+    post_forms: list[MomentForm] = []
+    forward_form: str = ""  # 有转发卡片时的写法
+    photo_form: str = ""  # 会配一张随手拍时的写法
+    comment_forms: list[MomentForm] = []
+    reply_forms: list[MomentForm] = []
+    skip_word: str = "不发"  # 模型觉得没什么可发 / 可评时只输出这个
+    bare_word: str = "不配字"  # 转发卡片 / 配图时只甩东西、不写字
+    post_max_chars: int = Field(default=40, ge=5, le=500)  # 动态正文最多几个字（在句子边界截）
+    comment_max_chars: int = Field(default=20, ge=2, le=200)
+    max_chars: int = Field(default=300, ge=50, le=2000)  # 模型原文的硬上限（先于上面两项）
     max_tokens: int = Field(default=800, ge=64)
     estimate_usd: float = Field(default=0.002, ge=0)
+
+    @field_validator("comment_delay_minutes", "reply_delay_minutes")
+    @classmethod
+    def _range(cls, v: tuple[int, int]) -> tuple[int, int]:
+        if not 0 < v[0] <= v[1]:
+            raise ValueError("要写成 [最少, 最多]，都大于 0")
+        return v
+
+    @field_validator("post_hours")
+    @classmethod
+    def _hours(cls, v: dict[int, float]) -> dict[int, float]:
+        if not v or any(not 0 <= h <= 23 or w < 0 for h, w in v.items()) or not sum(v.values()):
+            raise ValueError("要写成 本地几点(0～23): 权重，权重不能为负、不能全是 0")
+        return v
+
+    @field_validator("post_counts", "comment_counts")
+    @classmethod
+    def _weights(cls, v: list[float]) -> list[float]:
+        if not v or any(w < 0 for w in v) or not sum(v):
+            raise ValueError("权重不能为空、不能有负数")
+        return v
 
 
 class ProfileRules(_Strict):
