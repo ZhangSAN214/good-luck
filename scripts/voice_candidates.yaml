@@ -73,15 +73,15 @@ members:
       - {model: minimax-speech-2.8-hd, voice: "Chinese (Mandarin)_Arrogant_Miss", line: "(snorts)哼，这点小钱也值得你发愁？本小姐随手就够了。<#0.6#>……喏，伞给你。<#0.3#>别多想！只是这把颜色太土，本小姐不想要而已。", note: 带感情版：1 号音色 + 轻蔑的哼、停顿}
   DeepSeek:
     name: DeepSeek（小鲸鱼）
-    persona: 二十出头的深海鱼，潜着想、想好了才冒泡；温和但执着，句子偏长爱说「嘛」，惦记大白饭
-    line: 让我想想……嘛，我有个不一样的想法，你听听看。不过说正事之前，先来碗大白饭吧。
+    persona: 有点傻、最爱大白饭、黏人，有偷懒的小聪明；有活力但不夸张（11-02 用户定的新方向）
+    line: 嘿嘿，你在忙呀？那我就在旁边待着……不吵你。那个，碗我洗了一半，剩下的……它们好像更想让你洗。对了对了，晚饭有大白饭吗？
     candidates:
-      - {model: minimax-speech-2.8-hd, voice: "Chinese (Mandarin)_Warm_Girl", note: 温暖少女：温和、憨一点}
-      - {model: minimax-speech-2.8-hd, voice: female-shaonv, note: 少女：清爽、慢热}
+      - {model: minimax-speech-2.8-hd, voice: "Chinese (Mandarin)_Warm_Girl", note: 温暖少女：憨、暖、好亲近}
+      - {model: minimax-speech-2.8-hd, voice: female-shaonv, note: 少女：清爽，活力适中}
       - {model: minimax-speech-2.8-hd, voice: female-tianmei, note: 甜美女性：说到大白饭时的满足感}
-      - {model: gemini-3.8-flash-tts, voice: Callirrhoe, style: 温和、慢热的少女，说话慢慢推理、爱用省略号停顿，一说到大白饭就一下子开心起来, note: 随和音色 + 慢热语气}
-      - {model: gemini-3.8-flash-tts, voice: Despina, style: 温和、慢热的少女，说话慢慢推理、爱用省略号停顿，一说到大白饭就一下子开心起来, note: 柔顺音色 + 慢热语气}
-      - {model: minimax-speech-2.8-hd, voice: "Chinese (Mandarin)_Warm_Girl", line: "(emm)让我想想……<#0.5#>嘛，我有个不一样的想法，你听听看。不过说正事之前——(laughs)先来碗大白饭吧！", note: 带感情版：1 号音色 + 语气词、停顿、笑 / 叹气标记}
+      - {model: gemini-3.8-flash-tts, voice: Callirrhoe, style: 有点傻乎乎的黏人少女，憨憨的、带点偷懒的小聪明，说到大白饭就开心；有活力但不夸张，语速中等, note: 随和音色 + 憨憨黏人语气}
+      - {model: gemini-3.8-flash-tts, voice: Despina, style: 有点傻乎乎的黏人少女，憨憨的、带点偷懒的小聪明，说到大白饭就开心；有活力但不夸张，语速中等, note: 柔顺音色 + 憨憨黏人语气}
+      - {model: minimax-speech-2.8-hd, voice: "Chinese (Mandarin)_Warm_Girl", line: "嘿嘿，你在忙呀？<#0.3#>那我就在旁边待着……不吵你。<#0.5#>那个，碗我洗了一半，剩下的……(chuckle)它们好像更想让你洗。<#0.3#>对了对了，晚饭有大白饭吗？", note: 带感情版：1 号音色 + 偷笑、停顿}
   Moonshot AI:
     name: Kimi（小K）
     persona: 二十出头的慵懒月夜少女，能躺不坐；句子偏短、节奏慢，急事一来才坐起来
