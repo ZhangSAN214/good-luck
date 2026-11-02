@@ -183,14 +183,16 @@ def test_frontend_has_no_brand_or_channel_names():
     from roundtable.core.config import load_config
 
     terms = identity_terms() | {c.lower() for c in load_config().models.channels}
+    # 所有名字合成一个正则扫一遍（逐个名字搜每个文件要慢几十倍）。放在前瞻里：
+    # 某处有任何一个名字前后都不挨着字母数字，就一定会被找到（与逐个搜的判定相同）
+    alts = "|".join(re.escape(t) for t in sorted(terms, key=len, reverse=True))
+    pattern = re.compile(rf"(?<![0-9a-z])(?=({alts})(?![0-9a-z]))")
     hits = {}
     for path in (ROOT / "web").rglob("*"):
         if path.suffix not in {".html", ".js", ".css"}:
             continue
         text = path.read_text(encoding="utf-8").lower()
-        found = sorted(
-            t for t in terms if re.search(rf"(?<![0-9a-z]){re.escape(t)}(?![0-9a-z])", text)
-        )
+        found = sorted(set(pattern.findall(text)))
         if found:
             hits[str(path.relative_to(ROOT))] = found
     assert hits == {}

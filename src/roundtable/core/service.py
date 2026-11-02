@@ -1774,7 +1774,7 @@ class RoundtableService:
     # --- 公告栏 ------------------------------------------------------------------
 
     def changelog(self) -> dict[str, Any]:
-        """版本更新说明（只读；每次重新读 config/changelog.yaml）。"""
+        """版本更新说明（只读；每次重新读 config/changelog.yaml 和 config/changelog.d/）。"""
         try:
             log = load_changelog(self.rt.changelog)
         except ConfigError as exc:

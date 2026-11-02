@@ -59,7 +59,14 @@ def test_card_shows_and_message_can_be_forwarded(serve, page):
     page.click(f".gc-msg[data-id='{src['id']}'] .gc-words", button="right")
     page.click("#gc-menu [data-act='forward']")
     page.click("#gc-menu [data-act='to:main']")
-    wait_until(lambda: any(m["author"] == "user" for m in repo.chat_messages("main")), timeout=10)
-    fwd = [m for m in repo.chat_messages("main") if m["author"] == "user"][0]
+    mine: list[dict] = []
+
+    def forwarded() -> bool:
+        # 等到和用到的是同一次读出来的结果（不再读第二遍）
+        mine[:] = [m for m in repo.chat_messages("main") if m["author"] == "user"]
+        return bool(mine)
+
+    wait_until(forwarded, timeout=10)
+    fwd = mine[0]
     assert fwd["meta"]["card"]["title"] == "土星环延时" and fwd["meta"]["forwarded"]
     page.wait_for_selector(".gc-msg.me .gc-fwd")

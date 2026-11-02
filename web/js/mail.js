@@ -69,6 +69,10 @@ export class Mail {
     this.el = document.createElement('div');
     this.el.className = 'ml';
     this.data = null;
+    // 请求编号：先发的请求晚回来时不能盖掉后发的结果（比如打开面板时的刷新晚于「登录」回来，
+    // 会把面板退回未登录、还停掉轮询）
+    this.sent = 0;
+    this.shown = 0;
     this.error = '';
     this.open = false;
     this.view = 'list'; // list / detail / settings
@@ -113,9 +117,19 @@ export class Mail {
     }
   }
 
+  /** 调接口拿整份状态并显示；比已显示的更早发出的请求，回来了也不用。 */
+  async fetchState(fn, ...args) {
+    const n = ++this.sent;
+    const data = await this.call(fn, ...args);
+    if (data && n > this.shown) {
+      this.shown = n;
+      this.take(data);
+    }
+    return data;
+  }
+
   async reload() {
-    const data = await this.call(this.api.load);
-    if (data) this.take(data);
+    await this.fetchState(this.api.load);
   }
 
   take(data) {
@@ -144,8 +158,7 @@ export class Mail {
   async auto() {
     const d = this.data;
     if (!d?.enabled || d.status !== 'connected' || d.busy) return;
-    const data = await this.call(this.api.refresh, false);
-    if (data) this.take(data);
+    await this.fetchState(this.api.refresh, false);
   }
 
   count() {
@@ -412,9 +425,7 @@ export class Mail {
   }
 
   async act(fn, ...args) {
-    const data = await this.call(fn, ...args);
-    if (data) this.take(data);
-    return data;
+    return this.fetchState(fn, ...args);
   }
 
   async onClick(e) {
@@ -515,10 +526,14 @@ export class Mail {
     if (kind !== 'digest' && !id) return;
     this.aiBusy = kind === 'digest' ? 'digest' : `${kind}:${id}`;
     this.paint();
+    if (kind === 'digest') {
+      await this.fetchState(this.api.ai, kind, id, again);
+      this.aiBusy = '';
+      return this.paint();
+    }
     const got = await this.call(this.api.ai, kind, id, again);
     this.aiBusy = '';
     if (!got) return this.paint();
-    if (kind === 'digest') return this.take(got);
     if (this.detail?.id === id) this.detail = got;
     this.data = { ...this.data, ai: got.ai };
     this.paint();

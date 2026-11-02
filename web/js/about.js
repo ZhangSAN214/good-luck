@@ -167,10 +167,16 @@ export class AboutPanel {
       <div class="grp-box grp-acts">
         <a class="grp-btn" href="${esc(this.api.exportUrl('md'))}" download>导出（Markdown）</a>
         <a class="grp-btn" href="${esc(this.api.exportUrl('json'))}" download>导出（JSON）</a>
-        <button type="button" class="grp-btn danger" id="ab-clear" data-clear="0">清空画像</button>
-        <button type="button" class="grp-btn danger" id="ab-clear-all" data-clear="1">连「不对」名单一起清</button>
+        ${this.clearBtn('ab-clear', 0, '清空画像')}
+        ${this.clearBtn('ab-clear-all', 1, '连「不对」名单一起清')}
       </div>
       <p class="hint" role="status">${esc(this.msg)}</p>`;
+  }
+
+  /** 两步清空的按钮：重画时也照着「点过一次、等你确认」的状态画（不然重画后看着没点过，再点就直接清了）。 */
+  clearBtn(id, all, label) {
+    const armed = this.now() <= (this.armed[id] || 0);
+    return `<button type="button" class="grp-btn danger${armed ? ' gold' : ''}" id="${id}" data-clear="${all}">${armed ? '再点一次确认' : esc(label)}</button>`;
   }
 
   armedOk(id, label) {
@@ -182,9 +188,11 @@ export class AboutPanel {
         b.classList.add('gold');
       }
       setTimeout(() => {
-        if (b && this.now() > (this.armed[id] || 0)) {
-          b.textContent = label;
-          b.classList.remove('gold');
+        // 这期间可能重画过：找现在页面上的那个按钮
+        const cur = this.el.querySelector(`#${id}`);
+        if (cur && this.now() > (this.armed[id] || 0)) {
+          cur.textContent = label;
+          cur.classList.remove('gold');
         }
       }, 5100);
       return false;

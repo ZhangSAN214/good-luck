@@ -23,10 +23,13 @@ from roundtable.core.service import RoundtableService  # noqa: E402
 from ..core.orchestrator.conftest import Env  # noqa: E402
 
 
-def _free_port() -> int:
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
+def _bound_socket() -> socket.socket:
+    """绑好一个空闲端口并一直拿着，直接交给 uvicorn。
+
+    不能「绑上、关掉、再让 uvicorn 绑」：pytest-xdist 并行时别的进程可能在中间抢走这个端口。"""
+    s = socket.socket()
+    s.bind(("127.0.0.1", 0))
+    return s
 
 
 class Server:
@@ -36,7 +39,8 @@ class Server:
         """setup(env)：在创建服务之前改运行时（比如注入假的邮箱来源）。"""
         self.delay = delay
         self.setup = setup
-        self.port = _free_port()
+        self._sock = _bound_socket()
+        self.port = self._sock.getsockname()[1]
         self.url = f"http://127.0.0.1:{self.port}"
         self.env: Env | None = None
         self._ready = threading.Event()
@@ -55,7 +59,7 @@ class Server:
             app = create_app(RoundtableService(self.env.rt))
             config = uvicorn.Config(app, port=self.port, log_level="warning", lifespan="on")
             self._server = uvicorn.Server(config)
-            serve = asyncio.create_task(self._server.serve())
+            serve = asyncio.create_task(self._server.serve(sockets=[self._sock]))
             while not self._server.started:
                 await asyncio.sleep(0.01)
             self._ready.set()
@@ -146,6 +150,7 @@ class Server:
         if self._server is not None:
             self._server.should_exit = True
         self._thread.join(5)
+        self._sock.close()
 
     def identity_terms(self) -> set[str]:
         assert self.env is not None
@@ -168,6 +173,9 @@ def browser():
             path = os.environ.get("ROUNDTABLE_CHROMIUM") or None
             b = p.chromium.launch(executable_path=path)
         except Exception as exc:  # noqa: BLE001 - 没有浏览器时跳过
+            # CI 设了 ROUNDTABLE_E2E_REQUIRED：浏览器起不来算失败，免得端到端测试悄悄全被跳过
+            if os.environ.get("ROUNDTABLE_E2E_REQUIRED"):
+                raise
             pytest.skip(f"无法启动 Chromium：{exc}")
         yield b
         b.close()

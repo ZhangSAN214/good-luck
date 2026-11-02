@@ -200,3 +200,25 @@ def test_collab_media_subtask_shows_generation_note_and_player(serve, page):
     assert page.locator(".filebar-wrap img.thumb").count() >= 1
     page.click('#tabs button[data-t="media"]')
     assert "T2" in page.inner_text("#pbody") and "第 2 轮" in page.inner_text("#pbody")
+
+
+def test_estimate_shows_when_typing_before_the_script_has_loaded(serve, page):
+    """网页脚本还没跑起来就输入了题目（平板走局域网、CI 机器慢时都会这样）：预估照样出来。
+
+    以前偶发：输入发生在脚本挂上「输入就重算」之前，之后没人再算，预估区一直空着。"""
+    srv = serve(confirm_threshold_usd=100.0, with_media=True)
+    held = []
+    page.route("**/js/app.js", lambda route: held.append(route))
+    page.goto(srv.url, wait_until="commit")
+    page.wait_for_selector("#ask", state="attached")
+    for _ in range(200):  # 等脚本请求被扣下（等的时候 Playwright 才处理拦截）
+        if held:
+            break
+        page.wait_for_timeout(50)
+    assert held
+    page.eval_on_selector(
+        "#ask", "(el, q) => { el.value = q; el.dispatchEvent(new Event('input')) }", MEDIUM
+    )
+    page.unroute("**/js/app.js")
+    held[0].continue_()
+    page.wait_for_selector("#estimate table")

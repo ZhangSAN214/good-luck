@@ -74,6 +74,8 @@
 ## 6. 工作流程
 - **每个阶段完成后 git 提交**，提交信息注明阶段（如 `phase 4: allocation`）。
 - 提交前必须：`ruff check`、`ruff format --check`、`pytest` 全部通过。
+- **公告（版本更新说明）每个 PR 一个小文件**：开 PR 拿到编号后新建 `config/changelog.d/<PR 编号>.yaml`（写法见该目录 `README.md`），不要再往 `config/changelog.yaml` 里加条目、不要改别人的文件；版本号由程序按「日期 → PR 编号」自动算，条目只写 `level`。
+- 本地跑得快：`pytest -n auto`（pytest-xdist 并行；CI 也这样跑，后端和前端端到端分两项并行）。
 - **每个模块都要有测试**，`tests/` 结构与 `src/` 对应；功能与测试同一提交。
 - 测试不联网、不依赖真实 key；数据库测试用临时文件或 `:memory:`。
 - 前端端到端测试在 `tests/web/`（Playwright + Chromium，Fake 模型的服务跑在真实 uvicorn 上）；没有安装 playwright 或浏览器时自动跳过。
@@ -93,7 +95,7 @@
 ```bash
 pip install -e ".[dev]"
 ruff check . && ruff format --check .
-pytest
+pytest                              # 或 pytest -n auto 并行（快几倍）
 python scripts/lock_prompts.py      # 新增提示词版本后登记
 roundtable estimate '题目'           # 提交前预估：各模式 × 各档位的上桌人数与花费（不调用模型）
 roundtable models                   # 查看模型、档位、可用渠道与预算

@@ -12,6 +12,7 @@ from pathlib import Path
 import pytest
 
 from roundtable.core.chat import ChatHub
+from roundtable.core.hometz import home_zone
 from roundtable.core.life import LifeEngine
 from roundtable.core.member import WorkModeError
 from roundtable.core.member.bus import Event, EventBus
@@ -30,6 +31,8 @@ SRC = Path(__file__).resolve().parents[3] / "src" / "roundtable"
 
 def plugin(env: Env, now: datetime = T0) -> tuple[RelationPlugin, EventBus]:
     env.rt.budget.now = lambda: now
+    # 「哪一天」按主时区算：钉成 UTC，免得在东八区的电脑上一天的聊天跨过零点算成两天
+    home_zone(env.rt).set("UTC")
     bus = EventBus(env.rt)
     return RelationPlugin(env.rt, bus, lambda: {"A": "阿一", "B": "阿二", "C": "阿三"}), bus
 
@@ -194,6 +197,7 @@ def test_close_members_meet_more_often_in_life_but_strangers_still_do():
     env = Env()
     end = datetime(2026, 10, 23, 22, tzinfo=UTC)
     env.rt.budget.now = lambda: end
+    home_zone(env.rt).set("UTC")  # 生活里几点醒着按主时区：不随跑测试的电脑变
     life = life_engine(env)
     ids = [m.id for m in life.hub.everyone() if m.available]
     before = pairs(life, end)

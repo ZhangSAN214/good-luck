@@ -428,7 +428,8 @@ def test_guesses_are_not_passed_on_and_scope_off_means_everyone_knows():
         "V1", DAY.isoformat(), WINDOW, [clue("用户常熬夜", "又熬夜了", "作息", said=False)]
     )
     assert about.gossip(["V1", "V2"], _Always()) == []
-    assert "熬夜" not in about.lines("熬夜", member="V2")
+    # today 钉在观察那天：不给的话按真实日期算，过些天这条记录褪色了，下面两句一个白过、一个必挂
+    assert "熬夜" not in about.lines("熬夜", member="V2", today=DAY)
     cfg = env.rt.config.roundtable
     rules = cfg.chat.engine.about.model_copy(update={"scope": False})
     engine = cfg.chat.engine.model_copy(update={"about": rules})
@@ -436,7 +437,7 @@ def test_guesses_are_not_passed_on_and_scope_off_means_everyone_knows():
     env.rt.config = env.rt.config.model_copy(
         update={"roundtable": cfg.model_copy(update={"chat": chat})}
     )
-    assert "熬夜" in AboutYou(env.rt).lines("熬夜", member="V2")
+    assert "熬夜" in AboutYou(env.rt).lines("熬夜", member="V2", today=DAY)
 
 
 def test_your_identity_comes_first_in_dm_and_group_chat():

@@ -178,7 +178,12 @@ def test_permit_page_takes_over_the_seal_from_the_intro(serve, page):
     srv = serve(confirm_threshold_usd=100.0)
     page.goto(srv.url + "/boot/gmu.html?handoff=1&audio=0&auto=0")
     assert "handoff" in page.get_attribute("#stage", "class")
-    opacity = page.eval_on_selector("#sealWrap .seal", "e => getComputedStyle(e).opacity")
+    # 量「一开始」的样子：把动画拨回 0 再读（徽记 620ms 后会淡出，机器慢时读得晚就读到淡出中）。
+    # 不接手的片头从中心擦出，0 时刻是透明的；接手的这里 0 时刻就是满的
+    opacity = page.evaluate(
+        "() => { document.getAnimations().forEach((a) => { a.pause(); a.currentTime = 0 });"
+        " return getComputedStyle(document.querySelector('#sealWrap .seal')).opacity }"
+    )
     assert float(opacity) > 0.9
     page.goto(srv.url + "/boot/gmu.html?audio=0&auto=0")
     assert "handoff" not in page.get_attribute("#stage", "class")

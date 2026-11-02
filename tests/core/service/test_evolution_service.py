@@ -206,6 +206,8 @@ async def test_auto_picks_major_first_then_minor_by_time(tmp_path):
 
 async def test_user_theme_wins_and_manual_override(tmp_path):
     env, svc = make(tmp_path, major_themes=["群聊更自然"])
+    # 「下一场开大还是开小」按当下时间算：钉在 11-02，不跟着跑测试那天走
+    env.rt.budget.now = lambda: NOV_2
     with pytest.raises(ServiceError, match="太长"):
         svc.evolution_set_theme("长" * 500)
     plan = svc.evolution_set_theme("  让朋友圈更有意思 ")

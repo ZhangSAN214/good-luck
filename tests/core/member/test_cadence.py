@@ -5,12 +5,14 @@
 from __future__ import annotations
 
 import random
+from datetime import timedelta
 
 from roundtable.core.config.loader import load_config
 from roundtable.core.member.cadence import Cadence, faces_in, not_but, plain
 from roundtable.core.member.lingo import Lingo
+from roundtable.core.storage.repository import iso
 
-from .test_brain import setup
+from .test_brain import NOON, setup
 
 RULES = load_config().roundtable.chat.engine.lingo.cadence
 CAD = Cadence(RULES)
@@ -92,8 +94,10 @@ def test_stickers_are_never_dropped_with_a_clause():
 def test_lingo_finish_cools_against_what_she_said_in_any_room():
     env, _ = setup()
     rt = env.rt
-    rt.repo.add_chat_message("main", "V1", "在呢 ☕")
-    rt.repo.add_chat_message("dm:V1", "V1", "我也是 ☕")
+    # 按钉住的「现在」（NOON）往前几分钟写：不写时间就用真实时间，日子一过就不算「刚说过」了
+    at = iso(NOON - timedelta(minutes=5))
+    rt.repo.add_chat_message("main", "V1", "在呢 ☕", created_at=at)
+    rt.repo.add_chat_message("dm:V1", "V1", "我也是 ☕", created_at=at)
     out = Lingo(rt, names={"V1": "小一"}).finish(
         "V1", "**白天**在看书——挺好的 ☕", rng=random.Random(1)
     )
