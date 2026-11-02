@@ -821,7 +821,7 @@ class MomentPhotoRules(_Strict):
     # 拍摄脚本：画图前由她自己（她的模型）把动态写成具体画面（moment_photo_brief），交给画图提示词
     brief: bool = True
     brief_max_tokens: int = Field(default=1500, ge=50, le=6000)
-    brief_max_chars: int = Field(default=1200, ge=100, le=4000)
+    brief_max_chars: int = Field(default=1600, ge=100, le=4000)
     brief_estimate_usd: float = Field(default=0.003, ge=0)
 
     @model_validator(mode="after")

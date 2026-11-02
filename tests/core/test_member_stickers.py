@@ -779,6 +779,26 @@ def test_v7_keeps_every_v6_rule_and_adds_the_trial_fixes():
     assert v7.index("These shooting notes") < v7.index("What happened today")
 
 
+def test_v8_puts_the_key_action_first_and_keeps_v7():
+    """11-02 v10 试画：站起来、偷看没画出来 → 脚本先写 KEY ACTION，画图当头号要求。"""
+    from roundtable.core.prompts.library import DEFAULT_PROMPTS_DIR
+
+    def body(role, v):
+        text = (DEFAULT_PROMPTS_DIR / role / f"{v}.md").read_text(encoding="utf-8")
+        return text.split("---", 2)[2]
+
+    v7, v8 = body("moment_photo", "v7"), body("moment_photo", "v8")
+    for line in v7.splitlines():
+        if line.strip() and "The photo as she planned it" not in line:
+            assert line in v8, line
+    assert v8.index("KEY ACTION") < v8.index("What the photo shows")
+    assert "Never turn it into everyone sitting still" in v8
+    brief = body("moment_photo_brief", "v2")
+    assert '"KEY ACTION:"' in brief and "at least waist-up" in brief
+    prompts = load_config().roundtable.prompts
+    assert prompts["moment_photo"] == "v8" and prompts["moment_photo_brief"] == "v2"
+
+
 def test_film_look_keeps_the_frame_and_light():
     """11-02 用户：GPT 画的已经够自然，只差一点滤镜——胶片后期不裁、不压饱和。"""
     import random
@@ -799,14 +819,15 @@ def test_film_look_keeps_the_frame_and_light():
     assert load_config().roundtable.media.moment_photos.post_look == "film"
 
 
-def test_moment_photo_v7_follows_her_brief(tmp_path):
+def test_moment_photo_follows_her_brief(tmp_path):
     _, fake, stickers = build(tmp_path)
     plan = "Gemini snatches the last piece; DeepSeek on the right third laughs."
     asyncio.run(stickers.photo("OpenAI", "食堂", "饭", "a selfie", brief=plan))
     asyncio.run(stickers.photo("OpenAI", "食堂", "饭", "a selfie"))
     planned, unplanned = (c[2] for c in image_calls(fake))
-    assert "(follow it closely: the action, who is where in the frame" in planned
-    assert plan in planned and "the state of things): none" in unplanned
+    assert "The KEY ACTION in her plan is the most important thing" in planned
+    assert f"The photo as she planned it: {plan}" in planned
+    assert "The photo as she planned it: none" in unplanned
 
 
 def test_every_member_has_her_own_face_in_photo_prompts(tmp_path):
