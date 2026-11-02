@@ -1132,6 +1132,95 @@ class TalentRules(_Strict):
     texts: TalentTexts = TalentTexts()
 
 
+class ProgressKind(_Strict):
+    """一种爱好的进度（L1）：读到哪、追到哪、打到哪。
+
+    在做的东西优先从她档案的「最爱」里挑（含 words 里的词），没有再从 things 里挑；
+    生活里做了 acts 里的事（或每天按 daily 的机会）就往前推 per 格，到 total 就「看完了」，
+    隔 gap_days 天再开始下一样。mid_chance：推进那天顺嘴记一句「看到第几章」的机会。"""
+
+    words: list[str] = Field(default_factory=list, max_length=20)
+    things: list[str] = Field(min_length=1, max_length=30)
+    acts: list[str] = Field(default_factory=list, max_length=10)
+    daily: float = Field(default=0.0, ge=0, le=1)
+    unit: str = Field(default="章", max_length=4)
+    total: list[int] = Field(default_factory=lambda: [10, 30], min_length=2, max_length=2)
+    per: list[int] = Field(default_factory=lambda: [1, 3], min_length=2, max_length=2)
+    gap_days: int = Field(default=2, ge=0, le=60)
+    mid_chance: float = Field(default=0.25, ge=0, le=1)
+    domain: str = Field(default="", max_length=20)
+    start: str = Field(default="开始看{thing}", max_length=60)
+    mid: str = Field(default="{thing}看到第{n}{unit}了", max_length=60)
+    done: str = Field(default="把{thing}看完了", max_length=60)
+
+
+class ProgressRules(_Strict):
+    enabled: bool = True
+    kinds: dict[str, ProgressKind] = Field(default_factory=dict)
+
+
+class FestivalSpec(_Strict):
+    """一个节日怎么过（L2）。match：日历条目的名字（含这几个字之一就算）。
+
+    提前 prep_days 天有一位去准备（prep，一个人）；当天大家一起过（day，在场的全员）。
+    origin：来历词（档案里提到这些词的成员是「家乡的节日」：当天她领头，还会有点想家 homesick）；
+    空 = 谁都一样。"""
+
+    match: list[str] = Field(min_length=1, max_length=10)
+    origin: list[str] = Field(default_factory=list, max_length=20)
+    prep_days: int = Field(default=1, ge=0, le=7)
+    prep: str = Field(default="", max_length=60)
+    day: str = Field(max_length=80)
+    homesick: str = Field(default="", max_length=60)
+    hours: list[int] = Field(default_factory=lambda: [18, 21], min_length=2, max_length=2)
+    place: str = Field(default="lounge", max_length=20)
+
+
+class FestivalRules(_Strict):
+    """节日纪念日（L2，读日历 core/almanac，不另算日子）：节日提前准备、当天一起过；成员生日前一天
+    有人偷偷准备礼物（礼物从寿星的「最爱」里挑）、当天大家给她过；入住周年翻翻刚来时的照片。"""
+
+    enabled: bool = True
+    festivals: list[FestivalSpec] = Field(default_factory=list, max_length=60)
+    birthday_prep: str = Field(default="{other}偷偷给{name}准备了生日礼物", max_length=60)
+    birthday: str = Field(default="大家给{name}过了生日，{other}送了{gift}", max_length=80)
+    gifts: list[str] = Field(default_factory=lambda: ["一束花"], min_length=1, max_length=30)
+    like_gift: str = Field(default="一个和{like}有关的小礼物", max_length=40)  # 寿星有「最爱」时
+    joined: str = Field(default="搬进公寓{years}年了，翻了翻刚来时的照片", max_length=60)
+
+
+class LowRules(_Strict):
+    """健康与低谷（L4）。全程序：病了有朋友照顾，接连不顺会低落几天、有人陪、再缓过来，
+    累了好几天会想好好歇一天。证据只看她自己的生活（生活事件、生活阶段），不看办公室。
+
+    - care：她不舒服的那几天（生活阶段的小感冒，或事件库里 story.sick 的那步），常一起玩的朋友
+      照顾一下（care_texts 里挑），一场病一次。
+    - low：最近 window_days 天里接连有 need_bad 件不顺（story.bad / sick / stuck / farewell /
+      homesick），掷 low_chance：低落 → 第 1～2 天有人陪 → 第 3～5 天缓过来。说得出原因（low_text
+      里的 {cause} 是那几件事），冷却 low_cooldown_days。
+    - rest：最近累（story.late / tired，加上生活阶段压精力的）达到 need_tired，掷 rest_chance：
+      最近的周末歇一天（那天空闲时段在宿舍）。"""
+
+    enabled: bool = True
+    window_days: int = Field(default=7, ge=2, le=30)
+    care_chance: float = Field(default=0.7, ge=0, le=1)
+    care_texts: list[str] = Field(
+        default_factory=lambda: ["{other}给{name}带了碗热粥"], min_length=1, max_length=20
+    )
+    need_bad: int = Field(default=2, ge=1, le=10)
+    low_chance: float = Field(default=0.35, ge=0, le=1)
+    low_cooldown_days: int = Field(default=30, ge=0, le=365)
+    low_text: str = Field(default="最近{cause}，这几天有点提不起劲", max_length=60)
+    comfort_texts: list[str] = Field(
+        default_factory=lambda: ["{other}拉{name}出去走了走"], min_length=1, max_length=20
+    )
+    better_text: str = Field(default="心情慢慢缓过来了", max_length=60)
+    need_tired: int = Field(default=3, ge=1, le=20)
+    rest_chance: float = Field(default=0.5, ge=0, le=1)
+    rest_cooldown_days: int = Field(default=14, ge=0, le=365)
+    rest_text: str = Field(default="累了好几天，决定今天什么都不干，好好睡一觉", max_length=60)
+
+
 class StoryRules(_Strict):
     """生活事件库 + 长线剧情（P7 生活引擎 L0，docs/LIFE_STORY.md）。
 
@@ -1150,6 +1239,9 @@ class StoryRules(_Strict):
     stories: list[StorySpec] = Field(default_factory=list, max_length=300)
     way: LifeWayRules = LifeWayRules()
     talent: TalentRules = TalentRules()
+    progress: ProgressRules = ProgressRules()  # 爱好进度（L1）
+    festival: FestivalRules = FestivalRules()  # 节日纪念日（L2）
+    lows: LowRules = LowRules()  # 健康与低谷（L4）
 
     @model_validator(mode="after")
     def _unique(self) -> StoryRules:
@@ -1157,10 +1249,14 @@ class StoryRules(_Strict):
         dup = sorted({i for i in ids if ids.count(i) > 1})
         if dup:
             raise ValueError(f"生活事件 id 重复：{'、'.join(dup)}")
-        reserved = sorted(i for i in ids if i.startswith("talent_"))
+        reserved = sorted(i for i in ids if i.startswith(("talent_", "progress_", "fest_", "low_")))
         if reserved:
-            raise ValueError(f"talent_ 开头的 id 留给擅长觉醒用：{'、'.join(reserved)}")
-        bad = sorted({s.domain for s in self.stories if s.domain} - set(self.talent.domains))
+            used = "、".join(reserved)
+            raise ValueError(f"talent_ / progress_ / fest_ / low_ 开头的 id 留给程序用：{used}")
+        domains = {s.domain for s in self.stories} | {
+            k.domain for k in self.progress.kinds.values()
+        }
+        bad = sorted({d for d in domains if d} - set(self.talent.domains))
         if bad:
             raise ValueError(f"生活事件的 domain 不在 talent.domains 里：{'、'.join(bad)}")
         return self
