@@ -1896,16 +1896,16 @@ media:
       - {name: portrait_mode, text: "portrait mode, background softly blurred with slightly artificial edges", weight: 1, her: [part, full], tags: "depth of field, blurry background"}
       - {name: macro, text: "phone macro close-up of something small", weight: 0.5, her: [none, part], tags: "close-up, macro"}
       - {name: missed_focus, text: "focus slightly missed, landed on something in front of her", weight: 0.5, her: [full], tags: "blurry foreground", shots: [candid]}
-    filters:                 # 色调 / 胶片感（2026-11-02 用户看技能版样张最满意：要胶片色调和颗粒，不要原色直出）
+    filters:                 # 色调 / 胶片感（2026-11-02 用户看技能版样张最满意：要胶片色调，不要原色直出；不要颗粒噪点）
       - {name: original, text: "", weight: 3}
-      - {name: classic_chrome, text: "muted Classic Chrome-like color, warm skin, deep but clean shadows, fine film grain", weight: 4, tags: "muted colors, film grain"}
-      - {name: warm, text: "soft warm Portra-like film color, gentle highlights, visible fine grain", weight: 4, tags: "warm colors, film grain"}
+      - {name: classic_chrome, text: "muted Classic Chrome-like color, warm skin, deep but clean shadows", weight: 4, tags: "muted colors"}
+      - {name: warm, text: "soft warm Portra-like film color, gentle highlights", weight: 4, tags: "warm colors"}
       - {name: bright, text: "bright airy film color, lifted shadows, pastel tones", weight: 1, tags: "bright, pastel colors"}
       - {name: high_contrast, text: "punchy high-contrast color, deep blacks, crisp highlights", weight: 1, tags: "high contrast"}
-      - {name: tungsten_night, text: "tungsten night film look, soft red halation around the lamps, visible grain", weight: 3, when: [evening, night], tags: "night, film grain, halation"}
+      - {name: tungsten_night, text: "tungsten night film look, soft red halation around the lamps", weight: 3, when: [evening, night], tags: "night, halation"}
       - {name: amber_teal, text: "warm amber against teal-blue shadows", weight: 2, when: [evening, night], tags: "orange and teal"}
       - {name: cool, text: "slightly cool, faded color", weight: 1, tags: "cool colors, faded"}
-      - {name: bw, text: "black-and-white with rich grain", weight: 0.5, tags: "monochrome, greyscale"}
+      - {name: bw, text: "black-and-white, rich tones", weight: 0.5, tags: "monochrome, greyscale"}
     styles:                  # 摄影风格参照（技能 photo-prompt-kit）：借构图、光和色彩，画风仍照设定图
       - {name: none, text: "", weight: 3}
       - {name: cartier_bresson, text: "inspired by Henri Cartier-Bresson: the decisive moment, clean geometric framing, unposed", weight: 3, her: [full], shots: [candid, together]}

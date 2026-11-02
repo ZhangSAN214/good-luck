@@ -760,12 +760,14 @@ def test_v7_keeps_every_v6_rule_and_adds_the_trial_fixes():
         "Pick the most likeable moment",
         "Camera, light, moment and small touches above",
         "Small touches: {{ touches }}",
+        "Rendering: physically based lighting",
     )
     for line in v6.splitlines():
         if line.strip() and not any(c in line for c in changed):
             assert line in v7, line
     assert "nobody looks at the camera" in v7 and "Count the people" in v7
     assert "taped flat over the face" in v7
+    assert "no grain or noise" in v7 and "slight noise" not in v7
     assert "These shooting notes are requirements" in v7
     assert v7.index("These shooting notes") < v7.index("What happened today")
 
@@ -784,6 +786,8 @@ def test_film_look_keeps_the_frame_and_light():
         r, g, b = im.convert("RGB").resize((1, 1)).getpixel((0, 0))
         r0, g0, b0 = orig.convert("RGB").getpixel((0, 0))
         assert abs(r - r0) < 25 and abs(g - g0) < 25  # 颜色基本不变
+        corner = im.convert("L").crop((0, 0, 80, 80)).getextrema()
+        assert corner[1] - corner[0] <= 3  # 纯色区域还是纯色：不加颗粒噪点（11-02 用户）
     assert film_look(b"not an image", random.Random(1)) == b"not an image"
     assert load_config().roundtable.media.moment_photos.post_look == "film"
 

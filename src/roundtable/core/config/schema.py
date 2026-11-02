@@ -761,7 +761,7 @@ class MomentPhotoRules(_Strict):
     )
     phone_look: bool = True  # 画完在本机加一层后期（不花钱），样式见 post_look
     # phone：轻微裁歪、压饱和、噪点、压缩（10-31 去 AI 感）；
-    # film：只加一点胶片颗粒和柔和的色调曲线，不裁不压饱和，保住光影
+    # film：只调一点柔和的色调曲线和冷暖，不加颗粒、不裁、不压饱和，保住光影
     # （11-02 用户：GPT 画的已经够自然，「最多差一点滤镜，优化一下光影」）
     post_look: Literal["phone", "film"] = "film"
     room_refs: bool = True  # 按事件地点附上那间房的场景图当最后一张参考图（公寓里拍）

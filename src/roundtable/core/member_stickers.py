@@ -842,10 +842,10 @@ def tidy_tags(text: str) -> str:
 
 
 def film_look(data: bytes, rng: random.Random) -> bytes:
-    """轻度胶片后期（不花钱）：柔和的 S 形色调曲线、一点冷暖偏移和细颗粒，不裁、不压饱和，
+    """轻度调色（不花钱）：柔和的色调曲线和一点冷暖偏移，不加颗粒、不裁、不压饱和，
     保住画出来的光影。读不了时原样返回。"""
     try:
-        from PIL import Image, ImageFilter
+        from PIL import Image
 
         with Image.open(io.BytesIO(data)) as src:
             im = src.convert("RGB")
@@ -860,10 +860,7 @@ def film_look(data: bytes, rng: random.Random) -> bytes:
         r = r.point([max(0, min(255, int(c + warm))) for c in curve])
         g = g.point(curve)
         b = b.point([max(0, min(255, int(c - warm))) for c in curve])
-        im = Image.merge("RGB", (r, g, b))
-        grain = Image.frombytes("L", im.size, rng.randbytes(im.width * im.height))
-        grain = grain.filter(ImageFilter.GaussianBlur(0.6)).convert("RGB")
-        im = Image.blend(im, grain, rng.uniform(0.03, 0.05))
+        im = Image.merge("RGB", (r, g, b))  # 不加颗粒噪点（11-02 用户：画面发脏）
         out = io.BytesIO()
         im.save(out, "JPEG", quality=92)
         return out.getvalue()

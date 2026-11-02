@@ -50,6 +50,7 @@ def test_repo_config_loads_with_defaults():
         "sticker_check",
         "sticker_anim",
         "moment_photo",
+        "moment_photo_brief",
         "moment_photo_tags",
         "planner",
         "panel",
