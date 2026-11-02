@@ -125,3 +125,12 @@ def test_auth_error_stops_the_run(config, tmp_path):
     provider = NoKey()
     assert asyncio.run(va.run_jobs(provider, config, jobs, tmp_path, max_usd=0)) == 0
     assert len(provider.calls) == 1
+
+
+def test_candidate_params_go_into_request(config, tmp_path):
+    data = va.load_candidates(ROOT / "scripts" / "voice_candidates_hakimi_r2.yaml")
+    jobs = va.plan(data, config)
+    provider = FakeProvider()
+    asyncio.run(va.run_jobs(provider, config, jobs[:2], tmp_path, max_usd=0))
+    assert provider.calls[1][2]["speed"] == 1.1
+    assert provider.calls[1][2]["response_format"] == "wav"

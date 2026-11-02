@@ -22,7 +22,7 @@ import json
 import os
 import re
 import sys
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -46,6 +46,7 @@ class Job:
     note: str
     text: str
     estimate_usd: float
+    params: dict[str, Any] = field(default_factory=dict)  # 额外请求参数（如 speed）
     status: str = "planned"  # planned / ok / failed / skipped
     file: str = ""
     cost_usd: float = 0.0
@@ -106,6 +107,7 @@ def plan(data: dict[str, Any], config: Any, only: list[str] | None = None) -> li
                     note=str(cand.get("note", "")),
                     text=text,
                     estimate_usd=speech_cost(model, route, len(text)),
+                    params=dict(cand.get("params") or {}),
                 )
             )
     return jobs
@@ -123,6 +125,7 @@ async def synthesize(provider: Any, config: Any, job: Job) -> tuple[bytes, str, 
     params = {
         "response_format": config.roundtable.media.speech.format,
         **model.params_for(route),
+        **job.params,
         "voice": job.voice,
     }
     out = await provider.synthesize_speech(route.model, job.text, params)
@@ -166,7 +169,9 @@ def render_html(jobs: list[Job], spent: float) -> str:
                 rows.append("</section>")
             current = job.member
             rows.append(f"<section><h2>{html.escape(job.name)}</h2>")
-        label = f"#{job.index} {html.escape(job.voice)}（{html.escape(job.model)}）"
+        extra = " ".join(f"{k}={v}" for k, v in job.params.items())
+        voice = html.escape(f"{job.voice} {extra}".strip())
+        label = f"#{job.index} {voice}（{html.escape(job.model)}）"
         note = html.escape(job.note)
         style = f"<div class=s>语气：{html.escape(job.style)}</div>" if job.style else ""
         style += f"<div class=s>念的是：{html.escape(job.text)}</div>"

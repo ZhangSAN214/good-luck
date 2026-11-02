@@ -1,0 +1,16 @@
+# 哈基米第二轮试音（2026-11-02）：用户给的参考片段只用来量「音高 / 亮度 / 语速」，不拿去克隆。
+# 量出来的方向：音高中位约 360 Hz（范围约 230～560 Hz）、更亮、起伏更大；上一轮 Gemini 音色约 230 Hz，偏低偏闷。
+# 所以这轮只挑偏高偏亮的 MiniMax 合成音色，部分加 speed / pitch 参数往上调（参数名是否被接受，跑了才知道）。
+# 统一要 wav，方便量音高。用法：python scripts/voice_audition.py --candidates scripts/voice_candidates_hakimi_r2.yaml
+style_template: "用{style}的语气说：{line}"
+members:
+  Google:
+    name: Gemini（哈基米）第二轮
+    line: 嗨嗨～我是哈基米，住在 03 号房喵！最喜欢找你玩啦，陪我嘛陪我嘛～什么？你说我又把颜料蹭到你袖子上了？那、那是颜料自己跳过去的喵！……嘿嘿，原谅我嘛～
+    candidates:
+      - {model: minimax-speech-2.8-hd, voice: lovely_girl, params: {response_format: wav}, note: 萌萌少女：最高最亮的一档}
+      - {model: minimax-speech-2.8-hd, voice: tianxin_xiaoling, params: {response_format: wav, speed: 1.1}, note: 甜心小玲，语速加快}
+      - {model: minimax-speech-2.8-hd, voice: qiaopi_mengmei, params: {response_format: wav, speed: 1.1}, note: 俏皮萌妹，语速加快}
+      - {model: minimax-speech-2.8-hd, voice: diadia_xuemei, params: {response_format: wav}, note: 嗲嗲学妹（wav 版，方便量音高）}
+      - {model: minimax-speech-2.8-hd, voice: "Chinese (Mandarin)_Crisp_Girl", params: {response_format: wav, speed: 1.1}, note: 清脆少女，语速加快}
+      - {model: minimax-speech-2.8-hd, voice: tianxin_xiaoling, params: {response_format: wav, pitch: 3}, note: 甜心小玲，音高 +3（试 pitch 参数）}
