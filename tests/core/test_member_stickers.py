@@ -742,7 +742,12 @@ def test_moment_photos_prefer_the_feed_photo_model_and_stickers_do_not(tmp_path)
     assert rules.tier == "flagship" and "feed_photo" in (rules.prefer_tags or [])
     tagged = [m.id for m in rt.config.models.models if "feed_photo" in m.tags]
     assert tagged
-    assert stickers.draw_models(rules.tier, rules.prefer_tags)[0].id in tagged
+    order = [m.id for m in stickers.draw_models(rules.tier, rules.prefer_tags)]
+    assert order[0] in tagged
+    # 11-02 用户要「让 ChatGPT 负责出图」：先理解改写再画的对话出图模型最先，纯画图模型其次
+    by_id = {m.id: m for m in rt.config.models.models}
+    first, second = (by_id[i] for i in order[:2])
+    assert "plans_image" in first.tags and "feed_photo" in second.tags
     assert "feed_photo" not in stickers.rules.prefer_tags
 
 
@@ -761,6 +766,7 @@ def test_v7_keeps_every_v6_rule_and_adds_the_trial_fixes():
         "Camera, light, moment and small touches above",
         "Small touches: {{ touches }}",
         "Rendering: physically based lighting",
+        "Camera, light, moment and small touches above",
     )
     for line in v6.splitlines():
         if line.strip() and not any(c in line for c in changed):

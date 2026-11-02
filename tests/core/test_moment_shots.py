@@ -195,7 +195,7 @@ def test_repo_tables_follow_phone_reality():
     full = sum(s.weight for s in RULES.shots if s.her == "full")
     assert 0.6 <= full / sum(s.weight for s in RULES.shots) <= 0.8
     # 画风跟设定图：不写写实画质 / 相机型号词
-    banned = ("photorealistic", "realistic", "8k", "4k", "dslr", "leica", "sony", "iphone")
+    banned = ("photorealistic", "realistic", "8k", "4k", "leica", "sony", "canon", "iphone")
     for dim in ("shots", *PHOTO_DIMS):
         for o in getattr(RULES, dim):
             text = f"{o.text} {o.tags}".lower()
@@ -250,7 +250,7 @@ def test_schema_rejects_bad_options():
     with pytest.raises(ValidationError):
         PhotoHabit(boost={"lenses": {"main": 0}})
     with pytest.raises(ValidationError):
-        PhotoHabit(boost={"cameras": {"main": 2}})
+        PhotoHabit(boost={"bogus": {"main": 2}})
     with pytest.raises(ValidationError, match="重复"):
         MomentPhotoRules(lenses=[PhotoOption(name="a"), PhotoOption(name="a")])
 
@@ -300,3 +300,27 @@ def test_mid_bite_only_in_the_canteen():
     for event in range(300):
         s = spec("candid", event=event, place="dorm:x")
         assert s.picks.get("moments") is None or s.picks["moments"].name != "mid_bite"
+
+
+def test_camera_is_picked_first_and_lenses_follow_it():
+    """11-02 用户：加单反、胶片机、拍立得等相机；0.5x、人像模式只有手机，50mm 定焦只有单反。"""
+    seen = Counter()
+    for event in range(600):
+        s = spec("candid", event=event, time="night")
+        device = s.picks["cameras"].name
+        seen[device] += 1
+        lens = s.picks.get("lenses")
+        if lens and lens.cameras:
+            assert device in lens.cameras, (device, lens.name)
+        if device == "instant" and "filters" in s.picks:
+            assert s.picks["filters"].cameras in ([], ["instant"])
+        assert s.picks["cameras"].text in s.camera or s.picks["cameras"].text == ""
+    assert {"phone", "dslr", "film_camera", "instant", "ccd"} <= set(seen)
+    assert seen["phone"] == max(seen.values())  # 手机还是最多
+    for event in range(300):  # 单反不配自拍
+        assert spec("selfie", event=event).picks["cameras"].name != "dslr"
+
+
+def test_unknown_camera_names_are_rejected():
+    with pytest.raises(ValidationError, match="不存在的相机"):
+        MomentPhotoRules(lenses=[PhotoOption(name="x", cameras=["nope"])])

@@ -25,6 +25,7 @@ tag_vocabulary:
   - video_gen       # 视频生成（异步）
   - music_gen       # 音乐生成（配乐、片头、整首歌；同步返回音频）
   - feed_photo      # 朋友圈配图优先用（2026-11-02 用户看样张后选定：画日常照最像随手拍、最像本人）
+  - plans_image     # 对话模型直接出图：先自己理解、改写提示词再画（和 ChatGPT 网页一样），复杂构图更稳
 
 # 调用渠道。key 只从 .env 读取，这里只写环境变量名。
 #   adapter: 适配器实现（openai_compat / anthropic / gemini）
@@ -450,14 +451,14 @@ models:
     routes:
       - {channel: openrouter, model: openai/gpt-image-2.5-flare}
   - id: gpt-5.4-image-2
-    # 每张约 $0.03 起（会先思考，token 多时更贵）；对话模型直接出图，适合复杂构图说明
+    # 每张约 $0.03 起（会先思考，token 多时更贵）；对话模型直接出图，适合复杂构图说明；11-02 用户要「让 ChatGPT 负责出图」，设为朋友圈配图首选
     vendor: OpenAI
     aliases: [GPT-5.4 Image, GPT]
     seat: false
     tier: flagship
     price: {input: 8.0, output: 30.0}
     image_tokens: 1056
-    tags: [image_gen, image_edit, vision]
+    tags: [image_gen, image_edit, vision, feed_photo, plans_image]
     image_api: chat
     enabled: true
     routes:

@@ -1836,7 +1836,7 @@ media:
     # 2026-11-02 用户选「接 ChatGPT 同款画图模型」：配图用旗舰档、带 feed_photo 标签的先画（带参考图约 $0.078/张，
     # 见上面 per_day）；画不出来按出图顺序换下一个。表情包不受影响。
     tier: flagship
-    prefer_tags: [feed_photo]
+    prefer_tags: [feed_photo, plans_image]  # 先 ChatGPT 对话出图（会先理解改写再画，和网页一样），再 GPT Image 2.5
     # --- 摄影维度（2026-11-02，.claude/skills/phone-photo）：每张图抽一种拍法，再给机位 / 光 / 时机 /
     # 焦段 / 色调 / 风格参照各抽一个（各维度独立种子，可复现）。机位和光写得具体（前景、引导线、光的方向和质感），
     # 11-02 起按摄影技能加胶片色调和大师风格参照；不写写实画质词和相机型号（画风跟设定图）。
@@ -1852,6 +1852,12 @@ media:
       - {name: mirror, text: "mirror selfie, the phone covering part of her face", weight: 1, tags: "mirror selfie, holding phone, reflection"}
       - {name: pov, text: "something worth showing off in front of her (a nice meal just served, the view, a cute object), with her hand or sleeve at the edge of the frame", weight: 2, her: part, tags: "pov hands"}
       - {name: thing, text: "only a view or thing worth showing off (rooftop night sky, a pretty dish just served); she does not appear", weight: 1, her: none, tags: "still life"}
+    cameras:                 # 用什么拍（11-02 用户：加单反、胶片机、拍立得等不同相机）：最先抽，镜头 / 色调按它过滤
+      - {name: phone, text: "", weight: 8}
+      - {name: dslr, text: "shot on a DSLR with a fast prime lens: crisp subject, creamy background blur, rich clean color", weight: 2, shots: [candid, together, pov, thing], tags: "depth of field, bokeh"}
+      - {name: film_camera, text: "shot on a 35mm film point-and-shoot: film color, soft highlight roll-off, slightly imperfect focus", weight: 1.5, tags: "film photography"}
+      - {name: instant, text: "an instant camera snapshot: soft washed-out colors, slight vignette, built-in flash, dreamy and imperfect", weight: 1, tags: "instant photo, vignette, flash"}
+      - {name: ccd, text: "an old compact digital camera: direct flash, crisp early-2000s digital look", weight: 1, tags: "flash, digital camera"}
     angles:                  # 机位：距离、高度、方向、隔物取景
       - {name: across_table, text: "from across the table, the table edge as a leading line into the frame, her on a third", weight: 3, tags: "across table", shots: [candid, together, pov, thing]}
       - {name: arms_length, text: "from arm's length, close", weight: 2, her: [part, full], tags: close-up, shots: [selfie, together, pov]}
@@ -1889,13 +1895,16 @@ media:
       - {name: burst, text: "one frame from a burst, caught mid-motion", weight: 1, her: [part, full], tags: "motion blur"}
       - {name: just_ready, text: "right when it is ready, before anyone touches it", weight: 2, her: [none, part]}
       - {name: reaching, text: "her hand reaching in to grab it", weight: 1, her: [part], tags: "reaching"}
-    lenses:                  # 焦段：手机只有几档；1x 主摄最常见（不写）
+    lenses:                  # 焦段：手机几档（只配手机）+ 单反 / 胶片机的定焦；1x 主摄最常见（不写）
       - {name: main, text: "", weight: 7}
-      - {name: ultra_wide, text: "0.5x ultra-wide, edges slightly stretched, whole room in frame", weight: 1.5, tags: "wide shot, wide angle"}
-      - {name: zoom, text: "2x zoom, a little compressed, from across the room", weight: 1, her: [full], tags: "telephoto", shots: [candid]}
-      - {name: portrait_mode, text: "portrait mode, background softly blurred with slightly artificial edges", weight: 1, her: [part, full], tags: "depth of field, blurry background"}
-      - {name: macro, text: "phone macro close-up of something small", weight: 0.5, her: [none, part], tags: "close-up, macro"}
+      - {name: ultra_wide, text: "0.5x ultra-wide, edges slightly stretched, whole room in frame", weight: 1.5, tags: "wide shot, wide angle", cameras: [phone]}
+      - {name: zoom, text: "2x zoom, a little compressed, from across the room", weight: 1, her: [full], tags: "telephoto", shots: [candid], cameras: [phone]}
+      - {name: portrait_mode, text: "portrait mode, background softly blurred with slightly artificial edges", weight: 1, her: [part, full], tags: "depth of field, blurry background", cameras: [phone]}
+      - {name: macro, text: "phone macro close-up of something small", weight: 0.5, her: [none, part], tags: "close-up, macro", cameras: [phone]}
       - {name: missed_focus, text: "focus slightly missed, landed on something in front of her", weight: 0.5, her: [full], tags: "blurry foreground", shots: [candid]}
+      - {name: prime_50, text: "50mm at f/1.8, the background melting into soft round bokeh", weight: 6, tags: "depth of field, bokeh", cameras: [dslr]}
+      - {name: tele_85, text: "85mm portrait lens from a few steps back, compressed background, very soft bokeh", weight: 3, her: [full], tags: "telephoto, bokeh", shots: [candid], cameras: [dslr]}
+      - {name: wide_35, text: "35mm lens, a little wider, the room readable around her", weight: 3, tags: "wide shot", cameras: [dslr, film_camera]}
     filters:                 # 色调 / 胶片感（2026-11-02 用户看技能版样张最满意：要胶片色调，不要原色直出；不要颗粒噪点）
       - {name: original, text: "", weight: 3}
       - {name: classic_chrome, text: "muted Classic Chrome-like color, warm skin, deep but clean shadows", weight: 4, tags: "muted colors"}
@@ -1905,6 +1914,9 @@ media:
       - {name: tungsten_night, text: "tungsten night film look, soft red halation around the lamps", weight: 3, when: [evening, night], tags: "night, halation"}
       - {name: amber_teal, text: "warm amber against teal-blue shadows", weight: 2, when: [evening, night], tags: "orange and teal"}
       - {name: cool, text: "slightly cool, faded color", weight: 1, tags: "cool colors, faded"}
+      - {name: instant_pastel, text: "soft pastel instant-film color, creamy highlights", weight: 6, tags: "pastel colors", cameras: [instant]}
+      - {name: digicam, text: "early-2000s digicam color: cool whites, punchy saturation", weight: 6, tags: "vivid colors", cameras: [ccd]}
+      - {name: light_leak, text: "faded film color with a warm light leak at one edge", weight: 2, tags: "light leak, faded", cameras: [film_camera]}
       - {name: bw, text: "black-and-white, rich tones", weight: 0.5, tags: "monochrome, greyscale"}
     styles:                  # 摄影风格参照（技能 photo-prompt-kit）：借构图、光和色彩，画风仍照设定图
       - {name: none, text: "", weight: 3}

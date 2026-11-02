@@ -648,7 +648,7 @@ PHOTO_PLACES = (
     "indoor",
     "outdoor",
 )
-PHOTO_DIMS = ("angles", "lights", "moments", "lenses", "filters", "styles")
+PHOTO_DIMS = ("cameras", "angles", "lights", "moments", "lenses", "filters", "styles")
 
 
 class PhotoOption(_Strict):
@@ -666,6 +666,8 @@ class PhotoOption(_Strict):
     # 只配这些拍法（拍法的 name；空 = 都可以）：如「几米外」「从背后」只能是室友帮拍，
     # 不能配自拍（11-02 样张：自拍 + 隔着房间拍互相矛盾）
     shots: list[str] = Field(default_factory=list)
+    # 只配这些相机（cameras 表的 name；空 = 都可以）：如 0.5x 超广角、人像模式只有手机才有
+    cameras: list[str] = Field(default_factory=list)
 
     @field_validator("when")
     @classmethod
@@ -790,6 +792,10 @@ class MomentPhotoRules(_Strict):
     filters: list[PhotoOption] = Field(
         default_factory=lambda: [PhotoOption(name="original", text="", weight=6)]
     )
+    # 用什么拍（手机 / 单反 / 胶片机 / 拍立得 / 卡片机）：最先抽，其他维度按它的 cameras 过滤
+    cameras: list[PhotoOption] = Field(
+        default_factory=lambda: [PhotoOption(name="phone", text="", weight=6)]
+    )
     # 摄影风格参照（借构图、光、色彩；画风仍照设定图）
     styles: list[PhotoOption] = Field(
         default_factory=lambda: [PhotoOption(name="none", text="", weight=3)]
@@ -822,12 +828,16 @@ class MomentPhotoRules(_Strict):
     def _names(self) -> MomentPhotoRules:
         _unique_names(self.shots, "shots")
         shots = {s.name for s in self.shots if s.name}
+        cameras = {c.name for c in self.cameras}
         for dim in PHOTO_DIMS:
             _unique_names(getattr(self, dim), dim)
             for option in getattr(self, dim):
                 bad = sorted(set(option.shots) - shots)
                 if bad:
                     raise ValueError(f"{dim}.{option.name}.shots 里有不存在的拍法：{bad}")
+                bad = sorted(set(option.cameras) - cameras)
+                if bad:
+                    raise ValueError(f"{dim}.{option.name}.cameras 里有不存在的相机：{bad}")
         return self
 
     def names(self, dim: str) -> set[str]:
@@ -4324,7 +4334,7 @@ class PhotoHabit(_Strict):
 
     subjects: list[str] = Field(default_factory=list, max_length=8)
     boost: dict[
-        Literal["shots", "angles", "lights", "moments", "lenses", "filters", "styles"],
+        Literal["shots", "cameras", "angles", "lights", "moments", "lenses", "filters", "styles"],
         dict[str, float],
     ] = Field(default_factory=dict)
     quirk: str = Field(default="", max_length=200)
