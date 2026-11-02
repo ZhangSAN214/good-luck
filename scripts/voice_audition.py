@@ -200,7 +200,8 @@ def write_report(jobs: list[Job], out: Path, spent: float) -> None:
 async def run(args: argparse.Namespace) -> int:
     from roundtable.core.config import load_config
 
-    config = load_config(ROOT / "config")
+    root = Path(args.root)
+    config = load_config(root / "config")
     data = load_candidates(Path(args.candidates))
     jobs = plan(data, config, args.member)
     total = sum(j.estimate_usd for j in jobs)
@@ -215,13 +216,13 @@ async def run(args: argparse.Namespace) -> int:
     from roundtable.core.providers import Secret
     from roundtable.core.providers.openai_compat import OpenAICompatProvider
 
-    load_dotenv(ROOT / ".env")
+    load_dotenv(root / ".env")
     spec = config.models.channels[CHANNEL]
     key = os.environ.get(spec.key_env or "")
     if not key:
         print(f"缺少 {spec.key_env}（写在 .env 里）", file=sys.stderr)
         return 1
-    out = Path(args.out)
+    out = Path(args.out) if args.out else root / "data" / "_check" / "voices" / "试音"
     provider = OpenAICompatProvider(CHANNEL, spec, Secret(key), timeout_s=120)
     try:
         spent = await run_jobs(provider, config, jobs, out, args.max_usd)
@@ -236,8 +237,11 @@ async def run(args: argparse.Namespace) -> int:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--candidates", default=str(CANDIDATES), help="候选文件")
+    parser.add_argument(
+        "--root", default=str(ROOT), help="项目根目录（读 config/ 和 .env；脚本放在别处时用）"
+    )
     parser.add_argument("--member", action="append", help="只试这位成员（vendor，可写多次）")
-    parser.add_argument("--out", default=str(OUT), help="输出目录")
+    parser.add_argument("--out", help="输出目录（默认 <root>/data/_check/voices/试音）")
     parser.add_argument("--max-usd", type=float, default=0.5, help="花费上限（0 = 不限）")
     parser.add_argument("--dry-run", action="store_true", help="只列计划和预计花费")
     return asyncio.run(run(parser.parse_args(argv)))
