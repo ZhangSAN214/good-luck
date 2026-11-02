@@ -9,7 +9,8 @@
 和 results.json（成功 / 失败、实际花费）。音色名不存在时那一条记为失败，接着试下一条。
 
 请求和正式运行走同一段适配器代码（OpenRouter 的 audio/speech）；只用语音模型自带的合成音色，
-不克隆真人声音。带 style 的候选按 style_template 把语气描述放在台词前面一起发给语音模型。
+不克隆真人声音。带 style 的候选按 style_template 把语气描述放在台词前面一起发给语音模型；
+带 line 的候选念自己的台词（如加了语气词、笑声叹气标记和停顿的「带感情」版本）。
 """
 
 from __future__ import annotations
@@ -92,7 +93,8 @@ def plan(data: dict[str, Any], config: Any, only: list[str] | None = None) -> li
             if route is None:
                 raise ValueError(f"{cand['model']} 没有 {CHANNEL} 路由")
             style = str(cand.get("style", "") or "")
-            text = spoken_text(data, item["line"], style)
+            line = str(cand.get("line") or item["line"])  # 候选自己的台词：如加了语气词和停顿的版本
+            text = spoken_text(data, line, style)
             jobs.append(
                 Job(
                     member=vendor,
@@ -167,6 +169,7 @@ def render_html(jobs: list[Job], spent: float) -> str:
         label = f"#{job.index} {html.escape(job.voice)}（{html.escape(job.model)}）"
         note = html.escape(job.note)
         style = f"<div class=s>语气：{html.escape(job.style)}</div>" if job.style else ""
+        style += f"<div class=s>念的是：{html.escape(job.text)}</div>"
         if job.status == "ok":
             player = f'<audio controls preload="none" src="{html.escape(job.file)}"></audio>'
         else:

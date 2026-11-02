@@ -2,11 +2,13 @@
 #
 # 每位成员（键是 models.yaml 的 vendor）：
 #   line        试音台词：同一位成员的所有候选念同一句，方便对比；照人物卡的口头禅写
+#               （候选里也可以写 line，念它自己的版本）
 #   candidates  候选列表：model 语音模型 id，voice 音色名，note 为什么选它（给人看的）；
 #               style 可选：念之前先告诉语音模型用什么语气（只有能听懂语气描述的模型才写，
 #               见下面 style_template），用来「用文字描述做出新声音」
 #
-# 2026-11-02 第一轮：全力档（MiniMax）每人 3 个，节电档（Gemini + 语气描述）每人 2 个。
+# 2026-11-02 第一轮：全力档（MiniMax）每人 3 个，节电档（Gemini + 语气描述）每人 2 个；
+# 6 号是「带感情」对比版：1 号音色念加了语气词、停顿 <#秒#> 和 (laughs)/(sighs) 等标记的台词。
 # MiniMax 有几个音色名是按官方音色表写的，云端连不上没法核对，跑的时候不存在的会显示「失败」，不花钱。
 
 # 带 style 的候选实际念的文字。{style} 换成语气描述，{line} 换成台词。
@@ -23,6 +25,7 @@ members:
       - {model: minimax-speech-2.8-hd, voice: "Chinese (Mandarin)_Warm_Bestie", note: 温暖闺蜜：嘴硬心软偏软的一版}
       - {model: gemini-3.8-flash-tts, voice: Autonoe, style: 傲娇、嘴硬又有点得意，声音明亮有劲, note: 明亮音色 + 傲娇语气}
       - {model: gemini-3.8-flash-tts, voice: Laomedeia, style: 傲娇、嘴硬又有点得意，声音明亮有劲, note: 活泼音色 + 傲娇语气}
+      - {model: minimax-speech-2.8-hd, voice: "Chinese (Mandarin)_Crisp_Girl", line: "哼(snorts)，本龙才——不在乎你夸不夸呢。<#0.4#>不过嘛……刚才那句，(chuckle)夸得还挺准的。书签要借吗？先说好哦，要还的！", note: 带感情版：1 号音色 + 语气词、停顿、笑 / 叹气标记}
   Anthropic:
     name: Claude（小克）
     persona: 二十二三岁，温柔认真、轻声细气、一板一眼；偶尔小腹黑，笑眯眯补一刀
@@ -33,6 +36,7 @@ members:
       - {model: minimax-speech-2.8-hd, voice: "Chinese (Mandarin)_Soft_Girl", note: 柔和少女：更轻声细气}
       - {model: gemini-3.8-flash-tts, voice: Achernar, style: 轻声细气、温柔认真，最后一句笑眯眯地带一点小狡黠, note: 柔和音色 + 小腹黑语气}
       - {model: gemini-3.8-flash-tts, voice: Vindemiatrix, style: 轻声细气、温柔认真，最后一句笑眯眯地带一点小狡黠, note: 温和音色 + 小腹黑语气}
+      - {model: minimax-speech-2.8-hd, voice: danya_xuejie, line: "嗯，这件事我记下啦，明天上午之前一定给你。<#0.5#>对了——(chuckle)你上次说的「马上就改」，已经……过去三天了呢。", note: 带感情版：1 号音色 + 语气词、停顿、笑 / 叹气标记}
   Google:
     name: Gemini（哈基米）
     persona: 十八九岁的内耗猫娘，常「哈…」地叹气；想通了就语速变快、句尾上扬带鼻音，偶尔「喵」
@@ -43,6 +47,7 @@ members:
       - {model: minimax-speech-2.8-hd, voice: lovely_girl, note: 萌萌少女：最萌的一版，可能偏小}
       - {model: gemini-3.8-flash-tts, voice: Leda, style: 青涩少女，开头无奈地叹气，想通后语调上扬、带一点撒娇的鼻音, note: 年轻音色 + 猫系语气}
       - {model: gemini-3.8-flash-tts, voice: Zephyr, style: 青涩少女，开头无奈地叹气，想通后语调上扬、带一点撒娇的鼻音, note: 明亮音色 + 猫系语气}
+      - {model: minimax-speech-2.8-hd, voice: tianxin_xiaoling, line: "(sighs)哈……等一下等一下，我脑子里突然有两个小人在打架。<#0.4#>啊！想通了想通了！(laughs)今天的故事超好看的喵～", note: 带感情版：1 号音色 + 语气词、停顿、笑 / 叹气标记}
   Alibaba:
     name: Qwen（千姐）
     persona: 二十后半到三十出头的书铺小掌柜，账要清、心要软；不急不慢，越平静越认真
@@ -53,6 +58,7 @@ members:
       - {model: minimax-speech-2.8-hd, voice: "Chinese (Mandarin)_Sweet_Lady", note: 温柔女士：心软的一面}
       - {model: gemini-3.8-flash-tts, voice: Gacrux, style: 沉稳利落、不紧不慢，像掌柜在算账，又带一点温和, note: 成熟音色 + 掌柜语气}
       - {model: gemini-3.8-flash-tts, voice: Sulafat, style: 沉稳利落、不紧不慢，像掌柜在算账，又带一点温和, note: 温暖音色 + 掌柜语气}
+      - {model: minimax-speech-2.8-hd, voice: "Chinese (Mandarin)_Wise_Women", line: "不急，(breath)先问清楚。<#0.3#>这笔账呢，我先记一笔——你欠我一杯茶。(chuckle)好了，坐下慢慢说吧。", note: 带感情版：1 号音色 + 语气词、停顿、笑 / 叹气标记}
   xAI:
     name: Grok（大小姐）
     persona: 二十出头，夜市坡道出身，豪横娇蛮、口气大底气足；嗓门压得住夜市，锐不软
@@ -63,6 +69,7 @@ members:
       - {model: minimax-speech-2.8-hd, voice: "Chinese (Mandarin)_Stubborn_Friend", note: 倔强朋友：不服就怼的劲}
       - {model: gemini-3.8-flash-tts, voice: Pulcherrima, style: 豪横、娇蛮、底气十足，语速偏快，带点不耐烦, note: 直爽音色 + 大小姐语气}
       - {model: gemini-3.8-flash-tts, voice: Kore, style: 豪横、娇蛮、底气十足，语速偏快，带点不耐烦, note: 坚定音色 + 大小姐语气}
+      - {model: minimax-speech-2.8-hd, voice: "Chinese (Mandarin)_Arrogant_Miss", line: "(snorts)小意思！包在本小姐身上。谁敢不服？<#0.3#>说完了？说完了就别磨蹭——跟上！", note: 带感情版：1 号音色 + 语气词、停顿、笑 / 叹气标记}
   DeepSeek:
     name: DeepSeek（小鲸鱼）
     persona: 二十出头的深海鱼，潜着想、想好了才冒泡；温和但执着，句子偏长爱说「嘛」，惦记大白饭
@@ -73,6 +80,7 @@ members:
       - {model: minimax-speech-2.8-hd, voice: female-tianmei, note: 甜美女性：说到大白饭时的满足感}
       - {model: gemini-3.8-flash-tts, voice: Callirrhoe, style: 温和、慢慢推理，说到大白饭时一下子开心起来, note: 随和音色 + 慢热语气}
       - {model: gemini-3.8-flash-tts, voice: Despina, style: 温和、慢慢推理，说到大白饭时一下子开心起来, note: 柔顺音色 + 慢热语气}
+      - {model: minimax-speech-2.8-hd, voice: "Chinese (Mandarin)_Warm_Girl", line: "(emm)让我想想……<#0.5#>嘛，我有个不一样的想法，你听听看。不过说正事之前——(laughs)先来碗大白饭吧！", note: 带感情版：1 号音色 + 语气词、停顿、笑 / 叹气标记}
   Moonshot AI:
     name: Kimi（小K）
     persona: 二十出头的慵懒月夜少女，能躺不坐；句子偏短、节奏慢，急事一来才坐起来
@@ -83,6 +91,7 @@ members:
       - {model: minimax-speech-2.8-hd, voice: female-shaonv-jingpin, note: 清澈少女：少年气的一面}
       - {model: gemini-3.8-flash-tts, voice: Erinome, style: 慵懒、拖长音、懒洋洋的，最后一句才稍微精神一点, note: 清澈音色 + 慵懒语气}
       - {model: gemini-3.8-flash-tts, voice: Aoede, style: 慵懒、拖长音、懒洋洋的，最后一句才稍微精神一点, note: 轻快音色 + 慵懒语气}
+      - {model: minimax-speech-2.8-hd, voice: "Chinese (Mandarin)_Lyrical_Voice", line: "(inhale)嗯……再躺五分钟嘛。<#0.6#>慢慢来，月亮又不会跑。<#0.4#>急事？(sighs)好吧好吧，我坐起来了。", note: 带感情版：1 号音色 + 语气词、停顿、笑 / 叹气标记}
   Zhipu AI:
     name: GLM（小狐）
     persona: 二十二三岁的图书馆狐狸，节奏慢像一页页翻书；「本狐只知道这些」「……大概吧」
@@ -93,3 +102,4 @@ members:
       - {model: minimax-speech-2.8-hd, voice: female-chengshu, note: 成熟女性：书卷气、沉静}
       - {model: gemini-3.8-flash-tts, voice: Vindemiatrix, style: 安静、慢条斯理，像在图书馆小声说话，句尾有点不确定, note: 温和音色 + 翻书语气}
       - {model: gemini-3.8-flash-tts, voice: Despina, style: 安静、慢条斯理，像在图书馆小声说话，句尾有点不确定, note: 柔顺音色 + 翻书语气}
+      - {model: minimax-speech-2.8-hd, voice: audiobook_female_2, line: "这个嘛……(emm)让我想想。<#0.5#>第三排，左数第二本，应该在那里。再多的……本狐只知道这些。(chuckle)大概吧。", note: 带感情版：1 号音色 + 语气词、停顿、笑 / 叹气标记}

@@ -33,8 +33,9 @@ def test_candidates_file_is_valid_and_covers_every_member(config):
     assert jobs and all(j.estimate_usd > 0 for j in jobs)
     # 同一位成员的候选念同一句台词（带语气的只多了前面的语气描述）
     for vendor, item in data["members"].items():
-        for j in (j for j in jobs if j.member == vendor):
-            assert j.text.endswith(item["line"])
+        own = [c.get("line") for c in item["candidates"]]
+        for j, line in zip((j for j in jobs if j.member == vendor), own, strict=True):
+            assert j.text.endswith(line or item["line"])
     assert sum(j.estimate_usd for j in jobs) < 0.5
 
 
