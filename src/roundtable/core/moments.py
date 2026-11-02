@@ -13,11 +13,21 @@
   ``similarity_max``）也不发，并记下这位成员的这件事，之后不再为它花钱。
 - 配图（``media.moment_photos``）：按概率画一张手机随手拍；拍法按权重抽，多数只拍东西 / 风景、
   她不入镜（不传形象参考图），画完在本机加一层手机味（``member_stickers.phone_look``）。
+- 说话像人（M2，2026-11-02）：写成聊天的事件把那段聊天的原话节选喂给发帖（``<talk>``）；每条按
+  权重抽一种样子（一句话、吐槽、碎碎念、按爱好、只发表情；评论「6」「笑死」「怎么弄的」）；
+  动态 ``post_max_chars``、评论 ``comment_max_chars`` 字以内（在句子边界截）；发出前走口语收尾
+  （``Lingo.finish``）；用大家互相起的昵称，同一条里一个人只留一种叫法（``one_name``）；
+  模型觉得没什么可发 / 可评时输出 ``skip_word``，不发也不再为它花钱；待命、放空这种事不拿来发。
+- 节奏像人（M3）：每人每天按 ``post_counts`` 抽 0～2 条、按 ``post_hours`` 抽本地时间（晚上多），
+  到点后 ``post_window_hours`` 内有事才发；评论按 ``comment_counts`` 抽 0～4 条，谁来按 P4 亲近度
+  加权，几分钟到几小时陆续到（计划存在设置 ``moments.plan``）；成员的评论楼主可能回一句、
+  楼主不回时别人可能接一句，只回 1 轮。时间戳记在计划的时刻（不是推进的那一刻）。
 """
 
 from __future__ import annotations
 
 import json
+import math
 import random
 import re
 from collections.abc import Callable
@@ -43,7 +53,9 @@ from roundtable.core.chat_actions import (
     member_stickers,
     sticker_menu,
 )
+from roundtable.core.hometz import home_zone
 from roundtable.core.member.brain import Brain
+from roundtable.core.member.lingo import Lingo
 from roundtable.core.member.voice import Said, before_voice, recent_words
 from roundtable.core.office.apartment import schedule
 from roundtable.core.persona import chat_persona
@@ -60,7 +72,13 @@ COMMENT_SKIPPED_KEY = "moments.comment_skipped"  # 自查没过的「动态:成�
 MISSES_KEY = (
     "moments.misses"  # 当天没发出去的次数：{"day", "posts": {成员: n}, "comments": {动态: n}}
 )
+PLAN_KEY = (
+    "moments.plan"  # 评论计划：{动态 id: [{"m": 成员, "due": 时刻, "to": 回哪条评论, "done"}]}
+)
 NONE = "（暂无）"
+PASS = "\x00pass"  # 模型说「不发」：不发，也不再为这件事 / 这条动态花钱
+_SENTENCE_END = "。！？!?~～…\n"
+_CLAUSE_END = "，,；;、 "
 _RANK = {"pair": 3, "gather": 2, "solo": 1}
 _NOISE = re.compile(r"[\W_]+")
 
@@ -77,6 +95,52 @@ def similarity(a: str, b: str) -> float:
     if not x or not y:
         return 0.0
     return len(x & y) / len(x | y)
+
+
+def trim(text: str, cap: int) -> str:
+    """截到 cap 个字以内：优先在句子结尾断，其次在逗号断，都没有时硬截（不加省略号）。"""
+    text = text.strip()
+    if len(text) <= cap:
+        return text
+    head = text[: cap + 1]
+    for marks in (_SENTENCE_END, _CLAUSE_END):
+        cut = max(head.rfind(c) for c in marks)
+        if cut >= cap // 3:
+            return head[: cut + (1 if head[cut] in _SENTENCE_END else 0)].strip()
+    return text[:cap].strip()
+
+
+def one_name(text: str, names: dict[str, str], nicks: dict[str, str]) -> str:
+    """同一条里一个人只用一种叫法：起了昵称的人，把正式名字都换成昵称。"""
+    for who, nick in nicks.items():
+        name = names.get(who, "")
+        if nick and name and name != nick and name in text and name not in nick:
+            text = text.replace(name, nick)
+    return text
+
+
+def pick_form(forms: list[Any], seed: str) -> str:
+    if not forms:
+        return NONE
+    rng = random.Random(seed)
+    return rng.choices([f.text for f in forms], [f.weight for f in forms])[0]
+
+
+def post_slots(rules: Any, member: str, day: datetime) -> list[datetime]:
+    """这一天（本地日，day 是当天 0 点、带时区）这位成员打算几点发：0～N 个时刻，按先后。
+    种子由成员和日期派生，同一天算几次都一样；所有成员同一套规则。"""
+    rng = random.Random(f"moment-day:{member}:{day.date().isoformat()}")
+    n = min(
+        rng.choices(range(len(rules.post_counts)), rules.post_counts)[0], rules.posts_per_member
+    )
+    hours = sorted(rules.post_hours)
+    picked = rng.choices(hours, [rules.post_hours[h] for h in hours], k=n) if n else []
+    return sorted(day + timedelta(hours=h, minutes=rng.randrange(60)) for h in picked)
+
+
+def spread_minutes(rng: random.Random, low: int, high: int) -> float:
+    """几分钟到几小时：对数均匀（短的常见，长的也有）。"""
+    return math.exp(rng.uniform(math.log(low), math.log(high)))
 
 
 def post_with_media(moment: dict[str, Any], names: dict[str, str]) -> str:
@@ -164,11 +228,51 @@ class Moments:
 
     def worth_posting(self, event: dict[str, Any]) -> bool:
         """有事可说：碰到了人、聊过天、或者今天办了活。一个人待着、什么也没发生的日子不发
-        （``chat.engine.voice.check.moments_need_event``，成员系统 P5）。"""
+        （``chat.engine.voice.check.moments_need_event``，成员系统 P5）；没写成聊天、也没办活的
+        「待命」「放空」这类事也不发（M2：用户那边 65% 的动态是这种）。"""
+        if not event.get("written") and NOTHING in event["topic"]:
+            place = next((ln for ln in event["topic"].split("\n") if ln.startswith("地点")), "")
+            if any(f"（{w}" in place for w in self.rules.dull_activities):
+                return False
         engine = self.rt.config.roundtable.chat.engine
         if not (engine.enabled and engine.voice.enabled and engine.voice.check.moments_need_event):
             return True
-        return bool(event["written"]) or event["kind"] != "solo" or NOTHING not in event["topic"]
+        return (
+            bool(event.get("written"))
+            or event.get("kind") != "solo"
+            or NOTHING not in event["topic"]
+        )
+
+    def talk_text(self, event: dict[str, Any]) -> str:
+        """写成聊天的事件：那段聊天的原话节选（「名字：原话」，每句截短）；没写成聊天时为（暂无）。"""
+        rules = self.rules
+        if not (event.get("written") and event.get("room") and rules.talk_lines):
+            return NONE
+        start = datetime.fromisoformat(event["at"])
+        rows = [
+            r
+            for r in self.rt.repo.chat_messages_between(
+                event["at"], iso(start + timedelta(hours=rules.talk_hours))
+            )
+            if r["room"] == event["room"] and r["text"]
+        ][: rules.talk_lines]
+        names = self.names()
+        return (
+            "\n".join(
+                f"{names.get(r['author'], r['author'])}：{trim(r['text'], rules.talk_line_chars)}"
+                for r in rows
+            )
+            or NONE
+        )
+
+    def calls_text(self, member: ChatMember) -> str:
+        """她平时对大家的叫法（大家互相起的昵称）；没起过时为（暂无）。"""
+        names = self.names()
+        nicks = self.nicks(member)
+        return "\n".join(f"{names.get(k, k)} → {v}" for k, v in nicks.items() if k in names) or NONE
+
+    def nicks(self, member: ChatMember) -> dict[str, str]:
+        return {k: v for k, v in Lingo(self.rt, names=self.names()).nicks(member.id).items() if v}
 
     def too_similar(self, text: str, recent: list[dict[str, Any]]) -> bool:
         return any(similarity(text, p["text"]) >= self.rules.similarity_max for p in recent)
@@ -193,7 +297,8 @@ class Moments:
 
     # --- 写 ----------------------------------------------------------------------
 
-    async def _write(self, member: ChatMember, role: str, **variables: str) -> str | None:
+    async def _write(self, member: ChatMember, role: str, cap: int, **variables: str) -> str | None:
+        """写一条。None：没钱或调用失败；PASS：她说不发；空串：只甩卡片 / 照片不写字。"""
         rt, rules = self.rt, self.rules
         if not self.allow(rules.estimate_usd):
             return None
@@ -204,6 +309,9 @@ class Moments:
             variables["stickers"] = (
                 sticker_menu(rt, member.id, member.name) if acts.enabled else "（不用表情包）"
             )
+        if "calls" in wants:  # v4 起：大家互相起的昵称
+            variables["calls"] = self.calls_text(member)
+        variables.setdefault("skip", rules.skip_word)
         variables = {k: v for k, v in variables.items() if k in wants}
         prompt = rt.prompts.render(
             role,
@@ -228,12 +336,24 @@ class Moments:
         if completion is None:
             return None
         text = clean_reply(completion.text, member.name, rules.max_chars)
+        word = _NOISE.sub("", text)
+        if word == _NOISE.sub("", rules.skip_word):
+            return PASS
+        if rules.bare_word and word == _NOISE.sub("", rules.bare_word):
+            return ""
+        text = trim(text, cap)
         text = clean_stickers(text, member_stickers(rt, member.id, member.name)).strip()
         if not text:
-            return None
+            return PASS
         return await before_speaking(
             rt, text, room=MOMENT_ROOM, name=member.name, model_id=member.model_id
         )
+
+    def finish(self, member: ChatMember, text: str, seed: str) -> str:
+        """口语收尾（和群聊同一套，只调用）+ 同一条里一个人只用一种叫法。"""
+        names = self.names()
+        out = Lingo(self.rt, names=names).finish(member.id, text, rng=random.Random(seed))[0]
+        return one_name(out or text, names, self.nicks(member))
 
     async def post(
         self,
@@ -242,35 +362,67 @@ class Moments:
         recent: list[dict[str, Any]],
         *,
         offline: bool = False,
+        at: datetime | None = None,
+        slot: int | None = None,
     ) -> dict[str, Any] | None:
-        """发一条；调用失败为 None，写出来和近期动态太像时不发、返回 {}。
+        """发一条；调用失败为 None，写出来和近期动态太像、或她说不发时不发、返回 {}。
 
-        今天上网分享过东西、且策略同意时（默认一半），发成「一句话 + 转发卡片」。"""
+        今天上网分享过东西、且策略同意时（默认一半），发成「一句话 + 转发卡片」（可以不写字）；
+        会配照片时也可以只发图。at：记在哪个时刻（计划发的时间），slot：今天第几条。"""
+        rules = self.rules
         card = self.forward_card(member, event)
         forward = NONE
         if card:
             summary = card["summary"] or "（没有）"
             forward = f"{card_text(card)}\n来源：{card['source']}\n摘要：{summary}"
+        snap = card is None and self.photo_planned(member, event)
         scene = event["topic"]
         musing = Brain(self.rt, names=self.names()).musing(member.id, self.rt.budget.now())
         if musing:  # 朋友圈读大脑：和聊天里是同一个人、同一些心事
             scene = f"{scene}\n你这阵子心里挂着：{musing}"
+        seed = f"{event['id']}:{member.id}"
+        form = (
+            rules.forward_form
+            if card
+            else rules.photo_form
+            if snap
+            else pick_form(rules.post_forms, f"post-form:{seed}")
+        ) or NONE
+        bare = f"，或「{rules.bare_word}」" if (card or snap) and rules.bare_word else ""
         text = await self._write(
             member,
             "moment_post",
+            rules.post_max_chars,
             scene=scene,
+            talk=self.talk_text(event),
+            form=form,
             recent=self.recent_text(member),
             forward=forward,
+            bare=bare,
         )
-        if not text:
+        if text is None:
             return None
-        if self.too_similar(text, recent) or not await self._self_check(
-            member, text, "moment", own=self._own_posts(member), others=self._others(member, recent)
+        if text == PASS or (not text and not (card or snap)):
+            self.skip(member, event["id"])  # 她觉得没什么可发：这件事不再花钱
+            return {}
+        if text and (
+            self.too_similar(text, recent)
+            or not await self._self_check(
+                member,
+                text,
+                "moment",
+                own=self._own_posts(member),
+                others=self._others(member, recent),
+            )
         ):
             self.skip(member, event["id"])
             self._miss("posts", member.id)
             return {}
+        if text:
+            text = self.finish(member, text, f"moment:{seed}")
         meta: dict[str, Any] = {"life": True, "event": event["id"]}
+        if slot is not None:
+            meta["slot"] = slot
         if (
             card
             and "forward"
@@ -279,11 +431,34 @@ class Moments:
             ).variables
         ):
             meta["card"] = card
-        item = None if card else await self.photo(member, event, text)
+        item = await self.photo(member, event, text or event["topic"]) if snap else None
         if item is not None:  # 配图：文字照旧给成员看，图片只多一个「[图片]」占位
-            meta |= {"media": [item], "caption": text, "photo": True}
-            text = f"{text}\n[图片]"
-        return self.rt.repo.add_moment(member.id, text, meta=meta, offline=offline)
+            meta |= {"media": [item], "photo": True}
+            meta["caption" if text else "auto_text"] = text or True
+            text = f"{text}\n[图片]" if text else "[图片]"
+        elif not text:
+            if not card:  # 只想发图却没画出来：这次不发，这件事也不再花钱
+                self.skip(member, event["id"])
+                return {}
+            text = card_text(card)
+        return self.rt.repo.add_moment(
+            member.id, text, meta=meta, offline=offline, created_at=iso(at) if at else None
+        )
+
+    def photo_planned(self, member: ChatMember, event: dict[str, Any]) -> bool:
+        """这条会不会配图（和 ``photo`` 同一个种子；没开、没参考卡、超了张数时为 False）。"""
+        rt = self.rt
+        rules = rt.config.roundtable.media.moment_photos
+        if not (rt.config.roundtable.media.enabled and rules.enabled) or rt.chat_media_dir is None:
+            return False
+        if member.id not in rt.config.personas.sticker_cards:
+            return False
+        if random.Random(f"photo:{event['id']}:{member.id}").random() >= rules.chance:
+            return False
+        day_start = iso(utc_day_window(rt.budget.now())[0])
+        today = [m for m in rt.repo.moments(since=day_start, limit=200) if m["meta"].get("photo")]
+        mine = sum(m["author"] == member.id for m in today)
+        return len(today) < rules.per_day and mine < rules.per_member_day
 
     async def photo(
         self, member: ChatMember, event: dict[str, Any], text: str
@@ -299,18 +474,10 @@ class Moments:
 
         rt = self.rt
         rules = rt.config.roundtable.media.moment_photos
-        if not (rt.config.roundtable.media.enabled and rules.enabled) or rt.chat_media_dir is None:
-            return None
-        if member.id not in rt.config.personas.sticker_cards:
+        if not self.photo_planned(member, event):
             return None
         rng = random.Random(f"photo:{event['id']}:{member.id}")
-        if rng.random() >= rules.chance:
-            return None
-        day_start = iso(utc_day_window(rt.budget.now())[0])
-        today = [m for m in rt.repo.moments(since=day_start, limit=200) if m["meta"].get("photo")]
-        mine = sum(m["author"] == member.id for m in today)
-        if len(today) >= rules.per_day or mine >= rules.per_member_day:
-            return None
+        rng.random()  # 和 photo_planned 掷的是同一次
         try:
             shot = rng.choices(rules.shots, [s.weight for s in rules.shots])[0]
             data, mime = await MemberStickers(rt, rt.sticker_dir).photo(
@@ -375,18 +542,28 @@ class Moments:
         task: str = "评论这条动态。",
         reply_to: int | None = None,
         offline: bool = False,
+        at: datetime | None = None,
     ) -> dict[str, Any] | None:
+        """写一条评论（reply_to：楼中楼）。None：没钱或调用失败；{}：不评（自查没过或她说不评）。"""
         names = self.names()
+        rules = self.rules
+        forms = rules.reply_forms if reply_to is not None else rules.comment_forms
+        seed = f"{moment['id']}:{member.id}:{reply_to or ''}"
         text = await self._write(
             member,
             "moment_comment",
+            rules.comment_max_chars,
             author=names.get(moment["author"], moment["author"]),
             post=post_with_media({**moment, "text": self.post_text(moment)}, names),
             comments=self.comments_text(moment),
             task=task,
+            form=pick_form(forms, f"comment-form:{seed}"),
         )
-        if not text:
+        if text is None:
             return None
+        if not text or text == PASS:  # 她没什么想说的：这条不评，也不算写废
+            self._skip_quietly(member, moment["id"])
+            return {}
         text = await self._self_check(
             member,
             text,
@@ -398,9 +575,160 @@ class Moments:
         if not text:
             self.skip_comment(member, moment["id"])
             return {}  # 自查：和别人的评论差不多（「挺治愈」）——不评了，也不再让她重写
+        text = self.finish(member, text, f"comment:{seed}")
         return self.rt.repo.add_moment_comment(
-            moment["id"], member.id, text, reply_to=reply_to, offline=offline
+            moment["id"],
+            member.id,
+            text,
+            reply_to=reply_to,
+            offline=offline,
+            created_at=iso(at) if at else None,
         )
+
+    def _skip_quietly(self, member: ChatMember, moment_id: int) -> None:
+        raw = self.rt.repo.setting(COMMENT_SKIPPED_KEY)
+        keep = [*(json.loads(raw) if raw else []), f"{moment_id}:{member.id}"][-SKIPPED_KEEP:]
+        self.rt.repo.set_setting(COMMENT_SKIPPED_KEY, json.dumps(keep))
+
+    # --- 评论计划（M3：陆续到、看亲疏、楼中楼 1 轮）----------------------------------
+
+    def plans(self) -> dict[str, list[dict[str, Any]]]:
+        raw = self.rt.repo.setting(PLAN_KEY)
+        return json.loads(raw) if raw else {}
+
+    def save_plans(self, plans: dict[str, list[dict[str, Any]]]) -> None:
+        self.rt.repo.set_setting(PLAN_KEY, json.dumps(plans, ensure_ascii=False))
+
+    def closeness(self, member: str, other: str) -> float:
+        from roundtable.core.member.relation import RelationPlugin  # relation 不依赖本模块
+
+        try:
+            return RelationPlugin(self.rt).closeness(member, other, self.rt.budget.now())
+        except Exception:  # 关系插件关着或数据坏了：当生人
+            return 0.0
+
+    def plan_comments(self, moment: dict[str, Any]) -> list[dict[str, Any]]:
+        """这条动态会有几条评论、谁来、各隔多久到（种子由动态派生，结果固定）。
+
+        条数按 ``comment_counts`` 抽（0～4，用户的动态至少 1 条）；人按权重
+        1 + ``closeness_bias`` × 和作者的亲近度不放回地抽；时间是发出后几分钟到几小时。"""
+        rules = self.rules
+        rng = random.Random(f"moment-plan:{moment['id']}")
+        k = rng.choices(range(len(rules.comment_counts)), rules.comment_counts)[0]
+        if moment["author"] == USER:
+            k = max(k, 1)
+        pool = sorted(
+            (m for m in self.hub.everyone() if m.available and m.id != moment["author"]),
+            key=lambda m: m.id,
+        )
+        weights = [1 + rules.closeness_bias * self.closeness(m.id, moment["author"]) for m in pool]
+        chosen: list[str] = []
+        while pool and len(chosen) < min(k, rules.max_comments):
+            i = rng.choices(range(len(pool)), weights)[0]
+            chosen.append(pool.pop(i).id)
+            weights.pop(i)
+        start = datetime.fromisoformat(moment["created_at"])
+        low, high = rules.comment_delay_minutes
+        delays = sorted(spread_minutes(rng, low, high) for _ in chosen)
+        return [
+            {"m": who, "due": iso(start + timedelta(minutes=d)), "to": None}
+            for who, d in zip(chosen, delays, strict=True)
+        ]
+
+    def plan_reply(self, moment: dict[str, Any], comment: dict[str, Any]) -> dict[str, Any] | None:
+        """成员的一条评论有没有人回（楼中楼，只回 1 轮）：楼主按 ``reply_author`` + 亲近度回；
+        楼主不回时另一位按 ``reply_peer`` 接一句（越熟越可能是 TA）。"""
+        rules = self.rules
+        by, author = comment["author"], moment["author"]
+        if by == USER or comment.get("reply_to"):
+            return None
+        rng = random.Random(f"moment-reply:{comment['id']}")
+        live = {m.id for m in self.hub.everyone() if m.available}
+        who = None
+        if author != USER and author != by and author in live:
+            chance = rules.reply_author + rules.reply_close * self.closeness(author, by)
+            if rng.random() < chance:
+                who = author
+        if who is None and rng.random() < rules.reply_peer:
+            pool = sorted(live - {by, author})
+            if pool:
+                weights = [1 + rules.closeness_bias * self.closeness(m, by) for m in pool]
+                who = rng.choices(pool, weights)[0]
+        if who is None:
+            return None
+        low, high = rules.reply_delay_minutes
+        due = datetime.fromisoformat(comment["created_at"]) + timedelta(
+            minutes=spread_minutes(rng, low, high)
+        )
+        return {"m": who, "due": iso(due), "to": comment["id"]}
+
+    def reply_task(self, member: ChatMember, comment: dict[str, Any]) -> str:
+        names = self.names()
+        who = self.nicks(member).get(comment["author"]) or names.get(
+            comment["author"], comment["author"]
+        )
+        return self.rules.reply_task.format(who=who, text=comment["text"])
+
+    def asleep(self, member: str, at: datetime) -> bool:
+        local = home_zone(self.rt).local(at)
+        return schedule(member, local.hour, local.weekday())[1] == "sleep"
+
+    async def run_plans(
+        self, now: datetime, recent: list[dict[str, Any]], *, offline: bool = False
+    ) -> int:
+        """到点的评论写出来（按计划的时刻先后，每次推进最多 ``comments_per_tick`` 条）。"""
+        rules, repo = self.rules, self.rt.repo
+        plans = self.plans()
+        live = {str(m["id"]) for m in recent}
+        plans = {k: v for k, v in plans.items() if k in live}  # 过了 react_hours 的不再管
+        for moment in recent:
+            if str(moment["id"]) not in plans:  # 用户的动态一般已由 react_to_user_post 排好
+                plans[str(moment["id"])] = self.plan_comments(moment)
+        members = {m.id: m for m in self.hub.everyone()}
+        due = sorted(
+            ((e["due"], mid, e) for mid, es in plans.items() for e in es if not e.get("done")),
+            key=lambda x: x[0],
+        )
+        written = 0
+        for when, mid, entry in due:
+            if when > iso(now) or written >= rules.comments_per_tick:
+                break
+            moment = repo.moment(int(mid))
+            member = members.get(entry["m"])
+            entry["done"] = True
+            if moment is None or member is None or not member.available:
+                continue
+            at = datetime.fromisoformat(when)
+            if self.asleep(member.id, at):
+                continue  # 到点时她睡着了：这条就没有了
+            if self.misses("comments").get(mid, 0) >= rules.comment_misses:
+                continue  # 这条底下已经写废了几条：大家都没什么新话可说
+            if f"{mid}:{member.id}" in self.comment_skipped():
+                continue
+            if entry["to"] is None:
+                said = {c["author"] for c in moment["comments"] if not c["reply_to"]}
+                tops = sum(c["author"] != USER and not c["reply_to"] for c in moment["comments"])
+                if member.id in said or tops >= rules.max_comments:
+                    continue
+                done = await self.comment(member, moment, offline=offline, at=at)
+            else:
+                parent = repo.moment_comment(entry["to"])
+                if parent is None:
+                    continue
+                task = self.reply_task(member, parent)
+                done = await self.comment(
+                    member, moment, task=task, reply_to=entry["to"], offline=offline, at=at
+                )
+            if done is None:
+                entry.pop("done")  # 没钱或调用失败：下次再说
+                break
+            if done:
+                written += 1
+                follow = self.plan_reply(moment, done)
+                if follow is not None:
+                    plans[mid].append(follow)
+        self.save_plans(plans)
+        return written
 
     # --- 说出口前自查（成员系统 P5，core/member/voice）--------------------------------
 
@@ -485,81 +813,82 @@ class Moments:
             if m.available and schedule(m.id, now.hour, now.weekday())[1] != "sleep"
         ]
 
+    def due_slot(self, member: ChatMember, now: datetime) -> tuple[int, datetime] | None:
+        """今天（本地日）到点、还没发过、也没过期的那一条：（第几条, 计划的时刻）。"""
+        rules = self.rules
+        local = home_zone(self.rt).local(now)
+        day = local.replace(hour=0, minute=0, second=0, microsecond=0)
+        mine = self.rt.repo.moments(author=member.id, since=iso(day), limit=20)
+        if len(mine) >= rules.posts_per_member:
+            return None
+        used = {(m["meta"] or {}).get("slot") for m in mine}
+        window = timedelta(hours=rules.post_window_hours)
+        for i, at in enumerate(post_slots(rules, member.id, day)):
+            if i not in used and at <= local < at + window:
+                return i, at
+        return None
+
     async def tick(self, now: datetime, *, offline: bool = False) -> dict[str, int]:
         out = {"posts": 0, "comments": 0, "likes": 0, "skipped": 0}
         rules = self.rules
         if not rules.enabled:
             return out
         repo = self.rt.repo
-        day_start = iso(utc_day_window(self.rt.budget.now())[0])
         rng = random.Random(f"moments:{now.replace(minute=0, second=0, microsecond=0)}")
         awake = self.awake(now)
         rng.shuffle(awake)
         for member in awake:
             if out["posts"] >= rules.posts_per_tick:
                 break
-            if repo.moments_by(member.id, day_start) >= rules.posts_per_member:
-                continue
+            slot = self.due_slot(member, now)
+            if slot is None:
+                continue  # 今天不发 / 还没到点 / 已经发过
             if self.misses("posts").get(member.id, 0) >= rules.post_misses:
                 continue  # 今天写了几次都没过自查：今天不发了（省钱）
             recent = self.recent_posts(now)
             event = self.event_for(member, now, recent)
             if event is None:
-                continue
-            posted = await self.post(member, event, recent, offline=offline)
+                continue  # 到点了但没事可说：不发
+            at = max(slot[1], datetime.fromisoformat(event["at"]))
+            posted = await self.post(
+                member, event, recent, offline=offline, at=min(at, now), slot=slot[0]
+            )
             if posted is None:
                 return out  # 预算不够或调用失败：这次不再试
             if not posted:
-                out["skipped"] += 1  # 和近期动态太像：不发，也不再换人重写（省钱）
-                break
+                out["skipped"] += 1  # 和近期动态太像 / 她说不发：不发，也不再换人重写（省钱）
+                continue
             out["posts"] += 1
         recent = repo.moments(since=iso(now - timedelta(hours=rules.react_hours)), limit=50)
         out["likes"] = self.like_round(recent, awake)
-        pairs = []
-        skipped = self.comment_skipped()
-        missed = self.misses("comments")
-        for moment in sorted(recent, key=lambda r: r["author"] != USER):  # 用户的动态优先
-            said = {c["author"] for c in moment["comments"]}
-            by_members = sum(c["author"] != USER for c in moment["comments"])
-            room = rules.max_comments - by_members
-            if missed.get(str(moment["id"]), 0) >= rules.comment_misses:
-                continue  # 这条底下已经写废了几条：大家都没什么新话可说
-            options = [
-                m
-                for m in awake
-                if m.id != moment["author"]
-                and m.id not in said
-                and f"{moment['id']}:{m.id}" not in skipped
-            ]
-            rng.shuffle(options)
-            pairs += [(moment, m) for m in options[: max(room, 0)]]
-        for moment, member in pairs[: rules.comments_per_tick]:
-            fresh = repo.moment(moment["id"])
-            if fresh is None:
-                continue
-            done = await self.comment(member, fresh, offline=offline)
-            if done is None:
-                break
-            out["comments"] += bool(done)
+        out["comments"] = await self.run_plans(now, recent, offline=offline)
         return out
 
     # --- 回应用户 ------------------------------------------------------------------
 
     async def react_to_user_post(self, moment_id: int) -> int:
-        """用户发了动态：一两位在线成员评论（谁来由随机决定）。"""
+        """用户发了动态：最先来的那位马上评论，其余的按计划陆续到（推进时写）。
+        谁来、几条按 ``plan_comments``（看和用户的亲疏）。"""
         moment = self.rt.repo.moment(moment_id)
         if moment is None:
             return 0
-        online = [m for m in self.hub.everyone() if m.available]
-        rng = random.Random(f"user-moment:{moment_id}")
-        rng.shuffle(online)
+        plans = self.plans()
+        plan = plans.get(str(moment_id)) or self.plan_comments(moment)
+        members = {m.id: m for m in self.hub.everyone()}
         n = 0
-        for member in online[: min(2, self.rules.max_comments)]:
-            fresh = self.rt.repo.moment(moment_id)
-            done = None if fresh is None else await self.comment(member, fresh)
+        first = next((e for e in plan if not e.get("done")), None)
+        if first is not None and first["m"] in members:
+            first["done"] = True
+            done = await self.comment(members[first["m"]], moment)
             if done is None:
-                break
+                first.pop("done")
             n += bool(done)
+            if done:
+                follow = self.plan_reply(moment, done)
+                if follow is not None:
+                    plan.append(follow)
+        plans[str(moment_id)] = plan
+        self.save_plans(plans)
         return n
 
     async def reply_to_user_comment(self, comment_id: int) -> dict[str, Any] | None:
