@@ -48,3 +48,5 @@
 .sc-report h5{margin:10px 0 4px;font-size:13px;color:var(--muted)}
 .sc-report-sum,.sc-li{margin:4px 0 0}
 .sc-audit{font-size:11px;max-height:200px;overflow:auto;margin:4px 0 0;padding-left:18px}
+#entries [data-m="bench"][data-weekly]{position:relative}
+#entries [data-m="bench"][data-weekly]::before{content:"";position:absolute;top:6px;right:16px;width:7px;height:7px;border-radius:50%;background:var(--bad,#e5484d)}

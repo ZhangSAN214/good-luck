@@ -5,6 +5,8 @@ AI 摘要默认关、每周拓展、先上零成本网页库）。全部免费�
 
 - **GitHub 榜单**：配置里的每一类（3D、动画、Live2D、修图、游戏……）各取前 N，「总榜」按星数，
   「新星」只看最近 N 天新建的。简介用仓库自己的英文简介，不调模型。新进榜的标「新」。
+  每项另有一行中文「大概做什么」（``zh_blurb``，2026-11-02）：按分类、语言、主题词和简介里认出的词
+  （词表 config/bench_glossary.yaml）、许可证、最近更新拼出来，不调模型。
 - **动态**：Hugging Face 每日论文、arXiv 按关注主题的最新论文、配置里的 RSS / Atom 订阅。
 - **能力地图**（config/bench_capabilities.yaml）：能给生成的工作台加本事的工具，每项写用途、许可证、
   花费、接入难度、适合哪类工作台。刷新时程序去 GitHub 核实星数、许可证和最近更新。
@@ -23,7 +25,7 @@ import json
 import os
 import re
 from collections.abc import Awaitable, Callable
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
@@ -45,6 +47,7 @@ FetchText = Callable[[str], Awaitable[str]]
 Sleep = Callable[[float], Awaitable[None]]
 
 CAPS_FILE = "bench_capabilities.yaml"
+GLOSSARY_FILE = "bench_glossary.yaml"
 DESK_DIR = "_desk"
 GITHUB = "https://api.github.com"
 HF_PAPERS = "https://huggingface.co/api/daily_papers"
@@ -88,6 +91,93 @@ def load_caps(path: Path | str = DEFAULT_CONFIG_DIR / CAPS_FILE) -> CapabilityMa
     return got
 
 
+class Glossary(BaseModel):
+    """榜单中文说明用的词表：英文主题词 / 简介里的词 → 中文说法（config/bench_glossary.yaml）。"""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    terms: dict[str, str] = {}
+    languages: dict[str, str] = {}
+
+
+def load_glossary(path: Path | str = DEFAULT_CONFIG_DIR / GLOSSARY_FILE) -> Glossary:
+    path = Path(path)
+    if not path.is_file():
+        return Glossary()
+    try:
+        got = Glossary.model_validate(_read_yaml(path) or {})
+    except ValidationError as exc:
+        raise ConfigError(_format_errors(path.name, exc)) from None
+    for k, v in got.terms.items():
+        if not re.fullmatch(r"[a-z0-9][a-z0-9 .+-]{0,40}", k) or not 0 < len(v) <= 30:
+            raise ConfigError(f"{path.name}：terms.{k} 词条要用小写英文、中文说法 1～30 字")
+    return got
+
+
+def _norm(word: str) -> str:
+    return re.sub(r"[\s_-]+", " ", word.lower()).strip()
+
+
+def _stars_text(n: int) -> str:
+    if n >= 10000:
+        return f"{n / 10000:.1f}".rstrip("0").rstrip(".") + " 万星"
+    return f"{n} 星"
+
+
+def zh_blurb(r: dict[str, Any], glossary: Glossary, *, label: str = "", today: str = "") -> str:
+    """一行中文「大概做什么」：分类、语言、认出的用途词、许可证、活跃度。只用仓库自带的信息，不调模型。
+
+    认不出用途时如实说，叫你看英文简介，不编。"""
+    terms = {_norm(k): v for k, v in glossary.terms.items()}
+    found: list[str] = []
+
+    def add(zh: str) -> None:
+        # 「3D」和「网页 3D 渲染」只留说得更具体的那个
+        if any(zh in f for f in found):
+            return
+        found[:] = [f for f in found if f not in zh] + [zh]
+
+    for t in r.get("topics") or []:
+        zh = terms.get(_norm(str(t)))
+        if zh:
+            add(zh)
+    text = " " + _norm(re.sub(r"[^\w\s.+-]|\.(?!\w)", " ", str(r.get("desc") or ""))) + " "
+    for k in sorted(terms, key=len, reverse=True):  # 长词先认（image editing 先于 image）
+        if len(found) >= 3:
+            break
+        if f" {k} " in text:
+            add(terms[k])
+            text = text.replace(f" {k} ", " ")
+    parts = [f"「{label}」类" if label else ""]
+    lang = str(r.get("lang") or "")
+    if lang:
+        parts.append(f"用 {glossary.languages.get(lang, lang)} 写的")
+    if found:
+        parts.append("主要做：" + "、".join(found[:3]))
+    else:
+        parts.append("用途词表里没认出来，看下面的英文简介")
+    lic = str(r.get("license") or "")
+    if not lic:
+        parts.append("没写许可证，代码别直接搬")
+    elif lic in PERMISSIVE:
+        parts.append(f"{lic} 许可，可以放心用")
+    elif lic.startswith(("GPL", "AGPL", "LGPL")):
+        parts.append(f"{lic} 许可，改了要开源，一般只借思路")
+    else:
+        parts.append(f"{lic} 许可")
+    pushed = str(r.get("pushed") or "")
+    if pushed and today:
+        try:
+            days = (date.fromisoformat(today) - date.fromisoformat(pushed)).days
+        except ValueError:
+            days = -1
+        if 0 <= days <= 7:
+            parts.append("最近一周还在更新")
+        elif days > 365:
+            parts.append("一年多没更新了")
+    return "，".join(p for p in parts if p) + "。"
+
+
 def _iso(t: datetime) -> str:
     return t.astimezone(UTC).isoformat(timespec="seconds")
 
@@ -113,7 +203,8 @@ def repo_of(x: dict[str, Any]) -> dict[str, Any] | None:
         "license": "" if lic == "NOASSERTION" else str(lic),
         "pushed": str(x.get("pushed_at") or "")[:10],
         "created": str(x.get("created_at") or "")[:10],
-        "topics": [str(t) for t in (x.get("topics") or [])][:5],
+        "topics": [str(t) for t in (x.get("topics") or [])][:8],
+        "lang": _text(x.get("language"), 30),
     }
 
 
@@ -166,6 +257,7 @@ class Desk:
         fetch_json: FetchJSON,
         fetch_text: FetchText,
         caps: CapabilityMap | None = None,
+        glossary: Glossary | None = None,
         sleep: Sleep = asyncio.sleep,
         now: Callable[[], datetime] = lambda: datetime.now(UTC),
         min_stars: int = 100,
@@ -180,6 +272,12 @@ class Desk:
             except ConfigError:
                 caps = CapabilityMap()
         self.caps = caps
+        if glossary is None:
+            try:
+                glossary = load_glossary()
+            except ConfigError:
+                glossary = Glossary()
+        self.glossary = glossary
         self.sleep = sleep
         self.now = now
         self.min_stars = min_stars
@@ -242,13 +340,21 @@ class Desk:
             {"id": c.id, "label": c.label, "kinds": list(c.kinds)} for c in self.rules.categories
         ]
         due = self.due()
+        today = self.now().date().isoformat()
+        rank = d.get("rank") or {}
+        for block in rank.values():
+            for key in ("total", "rising"):
+                for r in block.get(key) or []:
+                    r["zh"] = zh_blurb(r, self.glossary, label=block.get("label", ""), today=today)
+        for s in d.get("suggest") or []:
+            s["zh"] = zh_blurb(s, self.glossary, today=today)
         return {
             "enabled": self.rules.enabled,
             "updated_at": d.get("updated_at"),
             "busy": self.busy,
             "due": due,
             "categories": cats,
-            "rank": d.get("rank") or {},
+            "rank": rank,
             "feed": d.get("feed") or [],
             "caps": caps,
             "suggest": [s for s in d.get("suggest") or [] if s.get("state") == "open"],

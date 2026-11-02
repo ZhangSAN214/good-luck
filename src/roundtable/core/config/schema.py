@@ -4124,6 +4124,12 @@ class BenchDesk(_Strict):
     )  # 关注主题（英文，论文和建议卡用）
     categories: list[BenchDeskCategory] = Field(default_factory=list, max_length=20)
     feeds: list[BenchDeskFeed] = Field(default_factory=list, max_length=30)
+    # 周报（2026-11-02 用户要）：每周这天这点（主时区）之后出一份「这周值得看的」
+    # 电脑关着就开机补上
+    weekly: bool = True
+    weekly_weekday: int = Field(default=0, ge=0, le=6)  # 0 = 周一
+    weekly_hour: int = Field(default=9, ge=0, le=23)
+    weekly_max: int = Field(default=25, ge=5, le=60)  # 一份最多几条
 
 
 class BenchRules(_Strict):

@@ -184,6 +184,32 @@ export function shotUrl(bid, n, path) {
   return `/bench/${encodeURIComponent(bid)}/report/round-${n}/${encodeURIComponent(name)}`;
 }
 
+const WEEK_SEEN = 'rt.bench.weekly.seen';
+
+/** 最新一期周报你还没看过（只记在这个浏览器里）。 */
+export function weeklyUnread(w) {
+  const latest = w && w.latest && w.latest.week;
+  if (!latest) return false;
+  try {
+    return localStorage.getItem(WEEK_SEEN) !== latest;
+  } catch {
+    return false;
+  }
+}
+
+/** 看过了：记下这一期，去掉顶栏「工作台」上的红点。 */
+export function markWeeklySeen(w) {
+  const latest = w && w.latest && w.latest.week;
+  if (!latest) return;
+  try {
+    localStorage.setItem(WEEK_SEEN, latest);
+  } catch {
+    /* 存不了就算了，下次还亮 */
+  }
+  const nav = document.querySelector('#entries [data-m="bench"]');
+  if (nav) nav.removeAttribute('data-weekly');
+}
+
 export class BenchGenPanel {
   /**
    * @param {HTMLElement} el 画在哪里（「工作台」页的一块）
@@ -202,6 +228,9 @@ export class BenchGenPanel {
     this.deskMode = 'total';
     this.deskKind = '';
     this.deskAsked = false; // 这次打开页面已经叫过一次刷新
+    this.weekly = null; // 资料台周报（每周一份「这周值得看的」）
+    this.weekWant = ''; // 正在看哪一周（空 = 最新）
+    this.weekShown = null;
     this.fromProduct = false; // 拖进来的是成品：要能做出类似东西的台
     this.form = {}; // 按表填的需求（字段清单来自后端 form_fields）
     this.pane = 'client'; // 窄屏时显示哪一栏
@@ -808,6 +837,7 @@ export class BenchGenPanel {
       ['feed', '动态', (d.feed || []).length],
       ['caps', '能力地图', (d.caps || []).length],
       ['suggest', '建议', (d.suggest || []).length],
+      ['weekly', '周报', weeklyUnread(this.weekly) ? '新' : 0],
     ]
       .map(([k, t, n]) => `<button type="button" class="chip" data-desk-tab="${k}" aria-pressed="${this.deskTab === k}">${t}${n ? ` ${esc(n)}` : ''}</button>`)
       .join('');
@@ -819,6 +849,7 @@ export class BenchGenPanel {
     if (this.deskTab === 'rank') body = this.deskRankHtml(d);
     else if (this.deskTab === 'feed') body = this.deskFeedHtml(d);
     else if (this.deskTab === 'caps') body = this.deskCapsHtml(d);
+    else if (this.deskTab === 'weekly') body = this.weeklyHtml();
     else body = this.deskSuggestHtml(d);
     const notes = (d.notes || []).length ? `<details class="bg-fold"><summary>这次有 ${d.notes.length} 处没取到</summary><ul class="bg-list">${d.notes.map((n) => `<li>${esc(n)}</li>`).join('')}</ul></details>` : '';
     return head + body + notes;
@@ -833,7 +864,7 @@ export class BenchGenPanel {
     const rows = (((d.rank || {})[cat.id] || {})[this.deskMode] || [])
       .map(
         (r, i) => `<li><span class="bg-rk">${i + 1}</span><div><a href="${esc(r.url)}" target="_blank" rel="noopener noreferrer"><b>${esc(r.repo)}</b></a>${r.new ? ' <span class="bg-tag">新</span>' : ''}
-          <span class="bg-src">★ ${esc(r.stars.toLocaleString())} · ${esc(r.license || '许可证未写')} · ${esc(r.pushed || '')} 更新</span><p>${esc(r.desc || '（没写简介）')}</p></div></li>`,
+          <span class="bg-src">★ ${esc(r.stars.toLocaleString())} · ${esc(r.license || '许可证未写')} · ${esc(r.pushed || '')} 更新</span>${r.zh ? `<p class="bg-zh">${esc(r.zh)}</p>` : ''}<p class="bg-en">${esc(r.desc || '（没写简介）')}</p></div></li>`,
       )
       .join('');
     return `<div class="bg-desk2"><nav class="bg-desknav" role="tablist" aria-label="榜单分类">${nav}</nav>
@@ -874,7 +905,7 @@ export class BenchGenPanel {
   deskSuggestHtml(d) {
     const rows = (d.suggest || [])
       .map(
-        (s) => `<li><div><a href="${esc(s.url)}" target="_blank" rel="noopener noreferrer"><b>${esc(s.repo)}</b></a> <span class="bg-src">★ ${esc(s.stars.toLocaleString())} · ${esc(s.license)} · 主题「${esc(s.direction)}」</span><p>${esc(s.desc || '（没写简介）')}</p></div>
+        (s) => `<li><div><a href="${esc(s.url)}" target="_blank" rel="noopener noreferrer"><b>${esc(s.repo)}</b></a> <span class="bg-src">★ ${esc(s.stars.toLocaleString())} · ${esc(s.license)} · 主题「${esc(s.direction)}」</span>${s.zh ? `<p class="bg-zh">${esc(s.zh)}</p>` : ''}<p class="bg-en">${esc(s.desc || '（没写简介）')}</p></div>
           <div class="bg-acts"><button type="button" class="primary" data-desk-sug="${esc(s.id)}" data-accept="1">加进地图</button><button type="button" data-desk-sug="${esc(s.id)}" data-accept="0">不要</button></div></li>`,
       )
       .join('');
@@ -883,8 +914,49 @@ export class BenchGenPanel {
       : '<p class="sc-hint">这周没有新的建议。</p>';
   }
 
+  /** 周报：每周一份「这周值得看的」，每条一句为什么值得看；能翻看往期、现在就出本周的。 */
+  weeklyHtml() {
+    const w = this.weekly;
+    if (!w) return '<p class="sc-hint">正在读周报…</p>';
+    if (!w.enabled) return '<p class="sc-hint">周报在配置里关着（bench.desk.weekly）。</p>';
+    const rep = this.weekShown || w.latest;
+    const weeks = (w.weeks || []).slice(0, 8).map((k) => `<button type="button" class="chip" data-week="${esc(k)}" aria-pressed="${rep && rep.week === k}">${esc(k.replace('-W', ' 第 '))} 周</button>`).join('');
+    const building = w.building || (w.busy && w.due);
+    const bar = `<div class="bg-deskbar"><div class="bg-chips" role="group" aria-label="往期周报">${weeks}</div><span class="sc-gap"></span>
+      <span class="bg-src">${esc(w.when)}自动出，电脑关着就开机补上</span>
+      <button type="button" class="link" data-week-build ${building ? 'disabled' : ''}>${building ? '正在生成（先刷新资料，约 3～5 分钟）…' : '现在生成本周的'}</button></div>`;
+    if (!rep) return `${bar}<p class="sc-hint">还没有周报。到点会自动出，也可以点「现在生成本周的」。</p>`;
+    const kinds = { repo: 'GitHub', paper: '论文', news: '资讯', video: '视频', model: '模型' };
+    const secs = (rep.sections || [])
+      .map(
+        (sec) => `<h4 class="bg-h4">${esc(sec.title)}</h4><ul class="bg-feed bg-weekly">${sec.items
+          .map(
+            (x) => `<li><span class="bg-tag" data-kind="${esc(x.kind)}">${esc(kinds[x.kind] || x.kind)}</span><div><a href="${esc(x.url)}" target="_blank" rel="noopener noreferrer"><b>${esc(x.title)}</b></a>
+              <p class="bg-why">${esc(x.why)}</p>${x.zh ? `<p class="bg-zh">${esc(x.zh)}</p>` : ''}${x.desc ? `<p class="bg-en">${esc(x.desc.slice(0, 160))}</p>` : ''}</div></li>`,
+          )
+          .join('')}</ul>`,
+      )
+      .join('');
+    return `${bar}<p class="bg-intro"><b>${esc(rep.week)}</b>　${esc(rep.intro)}</p>${secs}
+      <p class="sc-hint">另存了一份 Markdown：data/bench/_desk/weekly/${esc(rep.week)}.md。全部由程序整理，不调模型、不花钱。</p>`;
+  }
+
+  async loadWeekly(week = '') {
+    try {
+      if (week) this.weekShown = await this.api.weekly(week);
+      else this.weekly = await this.api.weekly();
+    } catch (x) {
+      this.err = `周报没读到：${x.message}`;
+    }
+    if (this.deskTab === 'weekly') markWeeklySeen(this.weekly);
+    this.paint('drawer', this.drawerHtml(this.st || {}, this.shownBuild()), true);
+    clearTimeout(this.weekTimer);
+    if (this.weekly && (this.weekly.building || (this.weekly.busy && this.weekly.due)) && this.drawer === 'desk') this.weekTimer = setTimeout(() => this.loadWeekly(), 5000);
+  }
+
   /** 打开「资料」时读一次；过期了叫后台刷新，刷新中每 5 秒看一眼。 */
   async loadDesk(refresh = false) {
+    if (!refresh) this.loadWeekly();
     try {
       this.desk = await this.api.desk(refresh);
       if (!refresh && this.desk.due && !this.deskAsked && this.desk.enabled) {
@@ -1606,12 +1678,24 @@ export class BenchGenPanel {
     const dsk = t.closest('[data-desk-tab],[data-desk-cat],[data-desk-mode],[data-desk-kind]');
     if (dsk) {
       if (dsk.dataset.deskTab) this.deskTab = dsk.dataset.deskTab;
+      if (this.deskTab === 'weekly') markWeeklySeen(this.weekly);
       if (dsk.dataset.deskCat) this.deskCat = dsk.dataset.deskCat;
       if (dsk.dataset.deskMode) this.deskMode = dsk.dataset.deskMode;
       if (dsk.dataset.deskKind !== undefined) this.deskKind = dsk.dataset.deskKind;
       return this.paint('drawer', this.drawerHtml(this.st || {}, this.shownBuild()), true);
     }
     if (t.closest('[data-desk-refresh]')) return this.loadDesk(true);
+    const wk = t.closest('[data-week]');
+    if (wk) return this.loadWeekly(wk.dataset.week);
+    if (t.closest('[data-week-build]')) {
+      try {
+        this.weekly = await this.api.weeklyBuild();
+        this.weekShown = null;
+      } catch (x) {
+        this.err = `周报没生成：${x.message}`;
+      }
+      return this.loadWeekly();
+    }
     const sug = t.closest('[data-desk-sug]');
     if (sug) {
       try {

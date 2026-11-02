@@ -50,7 +50,7 @@ import { Wander } from './wander.js';
 import { Workbench } from './workbench.js';
 import { SuperPanel } from './supercomputer.js';
 import { Bench } from './bench.js';
-import { BenchGenPanel } from './benchgen.js';
+import { BenchGenPanel, weeklyUnread } from './benchgen.js';
 import { Hub } from './hub.js';
 import { Standee } from './standee.js';
 import { Music } from './music.js';
@@ -287,6 +287,8 @@ const benchGen = new BenchGenPanel(bench.pane('gen'), {
     profileAdd: API.benchProfileAdd,
     profileRemove: API.benchProfileRemove,
     deskSuggest: API.benchDeskSuggest,
+    weekly: API.benchWeekly,
+    weeklyBuild: API.benchWeeklyBuild,
     answer: API.benchAnswer,
     sign: API.benchSign,
     review: API.benchReview,
@@ -1722,6 +1724,17 @@ function bind() {
   });
 }
 
+/** 有新一期资料周报还没看：顶栏「工作台」上亮红点（看过就灭，只记在这个浏览器里）。 */
+async function weeklyDot() {
+  try {
+    const w = await API.benchWeekly();
+    const nav = document.querySelector('#entries [data-m="bench"]');
+    if (nav && weeklyUnread(w)) nav.setAttribute('data-weekly', 'new');
+  } catch {
+    /* 读不到就不亮 */
+  }
+}
+
 async function init() {
   bind();
   try {
@@ -1762,6 +1775,7 @@ async function init() {
   else if (!m && landing() === 'hub') setEntry('hub');
   petReady = true;
   syncPet();
+  weeklyDot();
   (window.requestIdleCallback || setTimeout)(() => {
     warmFonts();
     // 自动化测试会在刚打开时检查哪些页面是藏着的，预热会短暂把页面放出来，测试里不预热

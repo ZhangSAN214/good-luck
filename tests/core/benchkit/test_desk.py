@@ -284,3 +284,92 @@ def test_unreadable_capability_says_unprobed_with_reason(tmp_path):
     v = {c["id"]: c for c in later.view()["caps"]}
     assert "这次没读到" in v["threejs"]["unprobed"] and v["threejs"]["stars"] == 12345
     assert "限速" in v["threejs"]["unprobed"] and "token" not in v["threejs"]["unprobed"]
+
+
+def test_zh_blurb_says_what_it_does_without_a_model():
+    from roundtable.core.benchkit.desk import Glossary, zh_blurb
+
+    g = Glossary(
+        terms={
+            "image-processing": "图像处理",
+            "background removal": "去背景",
+            "image": "图片",
+            "super resolution": "图片放大变清晰",
+        },
+        languages={"Jupyter Notebook": "Python 笔记本"},
+    )
+    r = {
+        "desc": "Fast background removal and super-resolution.",
+        "topics": ["image-processing"],
+        "license": "MIT",
+        "pushed": "2026-10-30",
+        "lang": "Jupyter Notebook",
+    }
+    zh = zh_blurb(r, g, label="修图", today="2026-11-02")
+    assert zh.startswith(
+        "「修图」类，用 Python 笔记本 写的，主要做：图像处理、去背景、图片放大变清晰"
+    )
+    assert "MIT 许可，可以放心用" in zh and "最近一周还在更新" in zh
+    # 长词先认：image 不会和 background removal 重复算；认不出就照实说
+    unknown = zh_blurb(
+        {"desc": "hello", "license": "", "pushed": "2024-01-01"}, g, today="2026-11-02"
+    )
+    assert "没认出来" in unknown and "没写许可证" in unknown and "一年多没更新" in unknown
+    gpl = zh_blurb({"desc": "", "license": "GPL-3.0"}, g)
+    assert "改了要开源" in gpl
+
+
+def test_view_adds_chinese_line_to_rank_and_suggestions(tmp_path):
+    from roundtable.core.benchkit.desk import Glossary
+
+    net = Net(
+        rank={
+            "topic%3A3d": [gh("a/one", 900, desc="A 3D renderer")],
+            "topic%3Alive2d": [gh("y/good", 500, "Apache-2.0", desc="live2d viewer")],
+        }
+    )
+    desk = Desk(
+        RULES,
+        tmp_path,
+        fetch_json=net.json,
+        fetch_text=net.text,
+        caps=CAPS,
+        glossary=Glossary(terms={"renderer": "渲染器", "live2d": "Live2D 立绘"}),
+        sleep=net.sleep,
+        now=lambda: NOW,
+    )
+    asyncio.run(desk.refresh())
+    v = desk.view()
+    assert (
+        "「3D」类" in v["rank"]["3d"]["total"][0]["zh"]
+        and "渲染器" in v["rank"]["3d"]["total"][0]["zh"]
+    )
+    assert "Live2D 立绘" in v["suggest"][0]["zh"]
+    # 中文说明是看的时候拼的，不存进缓存（换词表马上生效）
+    assert "zh" not in json.dumps(
+        json.loads((tmp_path / "_desk" / "desk.json").read_text("utf-8"))["rank"]
+    )
+
+
+def test_repo_glossary_is_valid_and_has_no_model_or_vendor_names():
+    from roundtable.core.benchkit.desk import load_glossary
+
+    from ...test_architecture import identity_terms
+
+    g = load_glossary()
+    assert len(g.terms) >= 100
+    words = {w for k, v in g.terms.items() for w in (k, v.lower())}
+    hits = sorted(t for t in identity_terms() if any(t == w or t in w.split() for w in words))
+    assert not hits
+
+
+def test_bad_glossary_names_the_file(tmp_path):
+    from roundtable.core.benchkit.desk import load_glossary
+
+    p = tmp_path / "bench_glossary.yaml"
+    p.write_text("terms:\n  Bad Key: x\n", encoding="utf-8")
+    with pytest.raises(ConfigError, match="bench_glossary.yaml"):
+        load_glossary(p)
+    p.write_text("terms: {}\nextra: 1\n", encoding="utf-8")
+    with pytest.raises(ConfigError, match="bench_glossary.yaml"):
+        load_glossary(p)

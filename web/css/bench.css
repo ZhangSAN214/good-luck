@@ -331,6 +331,11 @@
 .bg-rank li>div,.bg-feed li>div,.bg-sugg li>div:first-child{min-width:0;flex:1}
 .bg-rank p,.bg-feed p,.bg-sugg p{margin:2px 0 0;color:var(--hb-muted);overflow-wrap:anywhere}
 .bg-rank a,.bg-feed a,.bg-sugg a,.bg-caps a{color:#eceff3;overflow-wrap:anywhere}
+.bg-rank p.bg-zh,.bg-feed p.bg-zh,.bg-sugg p.bg-zh{color:#d9dde3}
+.bg-rank p.bg-en,.bg-feed p.bg-en,.bg-sugg p.bg-en{font-size:12px}
+.bg-feed p.bg-why{color:var(--brass,#d8b46a);font-weight:600}
+.bg-intro{margin:10px 0 4px;font-size:13px;line-height:1.6}
+.bg-weekly{margin-bottom:6px}
 .bg-rk{flex:none;width:24px;height:24px;border-radius:50%;display:grid;place-items:center;background:var(--hb-ink);font-size:12px;font-variant-numeric:tabular-nums}
 .bg-rank li:nth-child(-n+3) .bg-rk{background:var(--hb-ink-hi);box-shadow:var(--hb-edge)}
 .bg-rank .bg-src,.bg-feed .bg-src,.bg-sugg .bg-src{display:block}

@@ -239,6 +239,16 @@ roundtable kit-check 页面.html -o 质检结果/      # 也可以是 http(s) �
 - 接口：`GET /api/bench/desk`（只读、不联网）、`POST /api/bench/desk/refresh`、`POST /api/bench/desk/suggest/{id}?accept=true|false`。
 - 测试：`tests/core/benchkit/test_desk.py` 用假的 GitHub、论文和订阅，覆盖总榜、新星、新进榜、核实、失败记笔记、建议卡门槛和点选、按类型挑工具。另有 `tests/api/test_bench_api.py` 和 `tests/web/test_e2e_benchgen.py` 的资料抽屉用例。
 
+## 资料台：榜单中文说明 + 每周周报（2026-11-02）
+
+用户要：榜单每项「大概说明一下是做什么的」，每周出一份周报，看看有什么值得看的（不限插件）。都不调模型、不花钱。
+
+- **中文说明**（`desk.zh_blurb`）：每个上榜项目和建议卡多一行中文，按分类、编程语言、主题词和英文简介里认出的词、许可证（能不能放心用）、最近更新拼出来。词表在 `config/bench_glossary.yaml`（约 170 条，加词只改这里，不写模型名或厂商名，有测试）。认不出用途就照实说「看下面的英文简介」，不编。说明是看的时候拼的，不存进缓存，换词表马上生效。
+- **周报**（`benchkit/weekly.py`）：每周 `weekly_weekday`（默认周一）`weekly_hour`（默认 9）点（主时区）之后出一份；电脑那时关着就在当周第一次开着时补上，一周只出一份。资料超过 `refresh_hours` 没刷新的先刷新（约 3～5 分钟）。五块：新进榜（和上周周报的总榜比；第一期列各类榜首）、新冒头的项目（新星里星数最高的）、论文（Hugging Face 点赞最高的 3 篇 + 每个关注主题一周内的新论文）、资讯与发布（一周内的订阅）、可以加进能力地图的工具（建议卡）。每条一句「为什么值得看」，仓库再带中文说明；上周写过的不重复；一份最多 `weekly_max` 条。
+- **在哪看**：工作台抽屉「资料 → 周报」，可翻往期、可点「现在生成本周的」；有新一期没看时顶栏「工作台」亮红点（看过就灭，只记在这个浏览器里）。另存 `data/bench/_desk/weekly/<年>-W<周>.json` 和 `.md`（Markdown 带 BOM，Windows 记事本直接打开不乱码）。
+- 接口：`GET /api/bench/desk/weekly`、`GET /api/bench/desk/weekly/{周}`、`POST /api/bench/desk/weekly/build`。服务启动后每半小时看一次表（`start_desk_weekly`）。
+- 测试：`tests/core/benchkit/test_desk.py`（中文说明、词表校验）、`tests/core/benchkit/test_weekly.py`（到点、补出、先刷新、新进榜、不重复、上限、Markdown）、`tests/api/test_bench_api.py`、`tests/web/test_e2e_benchgen.py`。
+
 ## 工作台大更新 · 第 6 批：其余技能、从成品反推、甲方档案（2026-10-31）
 
 - **技能补齐到 37 个**（第 4 批 13 个 + 这批 24 个）：

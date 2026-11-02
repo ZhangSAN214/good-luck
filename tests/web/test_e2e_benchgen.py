@@ -627,6 +627,54 @@ def test_benchgen_desk_drawer_rank_feed_caps_and_suggestions(serve, page, monkey
     assert "你加的" in pane.locator(".bg-caps").inner_text()
 
 
+def test_benchgen_desk_chinese_blurb_and_weekly(serve, page, monkeypatch, tmp_path):
+    """榜单每项有中文「大概做什么」；「周报」页点「现在生成本周的」→ 每条带一句为什么值得看。"""
+    from roundtable.core.benchkit.desk import Desk
+
+    from ..core.benchkit.test_desk import Net, gh
+
+    net = Net(
+        rank={
+            "topic%3A3d": [
+                gh("mrdoob/three.js", 105000, desc="JavaScript 3D library")
+                | {"topics": ["webgl"], "language": "JavaScript"}
+            ],
+        }
+    )
+
+    def desk_factory(rules, root, **kw):
+        return Desk(
+            rules, tmp_path / "desk", fetch_json=net.json, fetch_text=net.text, sleep=net.sleep
+        )
+
+    monkeypatch.setattr(service_mod, "Desk", desk_factory)
+    srv = serve(confirm_threshold_usd=100.0)
+    page.goto(srv.url)
+    page.locator('#entries [data-m="bench"]').click()
+    pane = page.locator('#bench [data-pane="gen"]')
+    pane.locator("[data-text]").wait_for()
+    pane.locator('[data-drawer="desk"]').click()
+    zh = pane.locator(".bg-rank li .bg-zh").first
+    zh.wait_for(timeout=15000)
+    assert "网页 3D 渲染" in zh.inner_text() and "JavaScript" in zh.inner_text()
+    assert "JavaScript 3D library" in pane.locator(".bg-rank li .bg-en").first.inner_text()
+    shots = os.environ.get("ROUNDTABLE_SHOTS")
+    if shots:
+        pane.locator(".bg-dbody").screenshot(path=str(Path(shots) / "desk_rank_zh.png"))
+
+    pane.locator('[data-desk-tab="weekly"]').click()
+    pane.locator("[data-week-build]").click()
+    item = pane.locator(".bg-weekly li").first
+    item.wait_for(timeout=15000)
+    assert "总榜第 1" in pane.locator(".bg-weekly .bg-why").first.inner_text()
+    assert "这周有" in pane.locator(".bg-intro").inner_text()
+    assert pane.locator("[data-week]").count() == 1
+    assert page.locator('#entries [data-m="bench"]').get_attribute("data-weekly") is None
+    assert next((tmp_path / "desk" / "_desk" / "weekly").glob("*.md"))
+    if shots:
+        pane.locator(".bg-dbody").screenshot(path=str(Path(shots) / "desk_weekly.png"))
+
+
 def test_benchgen_profile_and_from_product(serve, page, monkeypatch, tmp_path):
     """第 6 批：「你的偏好」写一条、删一条；拖进成品后勾「这是成品」，开工时带上反推。"""
     from ..core.benchkit.test_builder import BlindSC
