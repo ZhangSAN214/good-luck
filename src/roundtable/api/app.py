@@ -392,6 +392,20 @@ class WatchStartBody(BaseModel):
     consent: bool = False  # 用户点了「同意把截图发给识图模型」
 
 
+class TripSwitchBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    auto: bool | None = None  # B 站一键总开关
+    photo: bool | None = None  # 打卡配图（默认关）
+
+
+class BiliWatchBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    member: str = Field(min_length=1, max_length=60)
+    url: str = Field(min_length=10, max_length=300)
+
+
 class WanderStartBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -1148,6 +1162,18 @@ def create_app(service: RoundtableService | None = None, lan: LanAccess | None =
     @app.get("/api/super/audit")
     async def super_audit(request: Request) -> dict[str, Any]:
         return svc(request).super_audit()
+
+    @app.get("/api/trips")
+    async def trips(request: Request) -> dict[str, Any]:
+        return svc(request).trips()
+
+    @app.post("/api/trips/switches")
+    async def trip_switches(request: Request, body: TripSwitchBody) -> dict[str, Any]:
+        return svc(request).set_trip_switches(auto=body.auto, photo=body.photo)
+
+    @app.post("/api/trips/bili/watch")
+    async def bili_watch(request: Request, body: BiliWatchBody) -> dict[str, Any]:
+        return await svc(request).bili_watch(body.member, body.url)
 
     @app.get("/api/wander")
     async def wander_status(request: Request) -> dict[str, Any]:

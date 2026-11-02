@@ -53,7 +53,13 @@ def test_picking_is_reproducible_and_most_days_are_plain():
     per_day = Counter((h.members[0], h.at.date()) for h in first)
     assert max(per_day.values()) <= Env().config.roundtable.chat.life.story.max_per_day + 1
     # 大部分日子是平淡的：60 天 × 6 人里，大多数「人·天」什么都没发生
-    assert len(per_day) < 60 * 6 * 0.5
+    # （L5 旅行：一趟旅行是计划那天定下的一件事，后面收拾、出发、途中、回来是它的后续，不另算）
+    started = Counter(
+        (h.members[0], h.at.date())
+        for h in first
+        if not h.story.startswith("travel_") or h.story == "travel_plan"
+    )
+    assert len(started) < 60 * 6 * 0.5
 
 
 def test_a_story_unfolds_over_days_and_rest_day_keeps_her_in():

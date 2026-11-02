@@ -52,6 +52,8 @@ def place_label(place: str) -> str:
         return "自己的宿舍"
     if place == "out":
         return "外面"
+    if place == "away":
+        return "外地"
     return f"公寓楼{PUBLIC_ROOMS.get(place, place)}"
 
 

@@ -66,10 +66,18 @@ def place_tags(place: str) -> frozenset[str]:
     return frozenset({kind, "outdoor" if kind == "rooftop" else "indoor"})
 
 
-def fits(option: PhotoOption, time: str | None, places: frozenset[str], shot: str = "") -> bool:
+def fits(
+    option: PhotoOption,
+    time: str | None,
+    places: frozenset[str],
+    shot: str = "",
+    camera: str = "",
+) -> bool:
     """同类条件里满足一个即可；没写这类条件、或拿不到时间 / 地点时不按它过滤。
-    写了 ``shots`` 的取值只配那几种拍法（拍法没有 name 时不按它过滤）。"""
+    写了 ``shots`` 的取值只配那几种拍法、写了 ``cameras`` 的只配那几种相机（没有名字时不过滤）。"""
     if option.shots and shot and shot not in option.shots:
+        return False
+    if option.cameras and camera and camera not in option.cameras:
         return False
     times = set(option.when) & set(PHOTO_TIMES)
     where = set(option.when) & set(PHOTO_PLACES)
@@ -101,7 +109,8 @@ class PhotoSpec:
 
     @property
     def camera(self) -> str:
-        return self._text("angles", "lenses")
+        """用什么拍 + 机位构图 + 镜头。"""
+        return self._text("cameras", "angles", "lenses")
 
     @property
     def light(self) -> str:
@@ -121,6 +130,11 @@ class PhotoSpec:
             parts.append(f"her photo habit: {self.quirk}")
         return "; ".join(parts) or NONE
 
+    @property
+    def style(self) -> str:
+        """摄影风格参照（没有时为 none）。"""
+        return self._text("styles")
+
     def variables(self) -> dict[str, str]:
         """填进 moment_photo 提示词的摄影变量。"""
         return {
@@ -128,6 +142,7 @@ class PhotoSpec:
             "light": self.light,
             "moment": self.moment,
             "touches": self.touches,
+            "style": self.style,
         }
 
     def tags(self) -> str:
@@ -150,9 +165,12 @@ def pick_spec(
     mine = habit if shot.by == "self" else None  # 室友帮拍：不用她的习惯
     places = place_tags(place)
     picks: dict[str, PhotoOption] = {}
-    for dim in PHOTO_DIMS:
+    for dim in PHOTO_DIMS:  # cameras 排第一：先定相机，其他维度按它过滤
+        device = picks["cameras"].name if "cameras" in picks else ""
         options = [
-            o for o in getattr(rules, dim) if shot.her in o.her and fits(o, time, places, shot.name)
+            o
+            for o in getattr(rules, dim)
+            if shot.her in o.her and fits(o, time, places, shot.name, device)
         ]
         if not options:
             continue

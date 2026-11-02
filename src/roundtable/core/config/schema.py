@@ -648,7 +648,7 @@ PHOTO_PLACES = (
     "indoor",
     "outdoor",
 )
-PHOTO_DIMS = ("angles", "lights", "moments", "lenses", "filters")
+PHOTO_DIMS = ("cameras", "angles", "lights", "moments", "lenses", "filters", "styles")
 
 
 class PhotoOption(_Strict):
@@ -666,6 +666,8 @@ class PhotoOption(_Strict):
     # 只配这些拍法（拍法的 name；空 = 都可以）：如「几米外」「从背后」只能是室友帮拍，
     # 不能配自拍（11-02 样张：自拍 + 隔着房间拍互相矛盾）
     shots: list[str] = Field(default_factory=list)
+    # 只配这些相机（cameras 表的 name；空 = 都可以）：如 0.5x 超广角、人像模式只有手机才有
+    cameras: list[str] = Field(default_factory=list)
 
     @field_validator("when")
     @classmethod
@@ -759,7 +761,11 @@ class MomentPhotoRules(_Strict):
         min_length=1,
         max_length=8,
     )
-    phone_look: bool = True  # 画完在本机加一层手机味：轻微裁歪、压暗饱和度、噪点、压缩（不花钱）
+    phone_look: bool = True  # 画完在本机加一层后期（不花钱），样式见 post_look
+    # phone：轻微裁歪、压饱和、噪点、压缩（10-31 去 AI 感）；
+    # film：只调一点柔和的色调曲线和冷暖，不加颗粒、不裁、不压饱和，保住光影
+    # （11-02 用户：GPT 画的已经够自然，「最多差一点滤镜，优化一下光影」）
+    post_look: Literal["phone", "film"] = "film"
     room_refs: bool = True  # 按事件地点附上那间房的场景图当最后一张参考图（公寓里拍）
     # 摄影维度（每张图每个维度按权重抽一个，各维度用独立种子；按时间段、地点、入镜方式过滤）。
     # 取值按手机现实：1x 主摄、原色、抓拍为主（完整默认表在 config/roundtable.yaml）
@@ -786,6 +792,14 @@ class MomentPhotoRules(_Strict):
     filters: list[PhotoOption] = Field(
         default_factory=lambda: [PhotoOption(name="original", text="", weight=6)]
     )
+    # 用什么拍（手机 / 单反 / 胶片机 / 拍立得 / 卡片机）：最先抽，其他维度按它的 cameras 过滤
+    cameras: list[PhotoOption] = Field(
+        default_factory=lambda: [PhotoOption(name="phone", text="", weight=6)]
+    )
+    # 摄影风格参照（借构图、光、色彩；画风仍照设定图）
+    styles: list[PhotoOption] = Field(
+        default_factory=lambda: [PhotoOption(name="none", text="", weight=3)]
+    )
     quirk_chance: float = Field(default=0.3, ge=0, le=1)  # 她自己拍时带上拍照小毛病的概率
     subject_chance: float = Field(default=0.6, ge=0, le=1)  # 拍东西时换成她爱拍的东西的概率
     # --- 画面里的人（2026-11-02 用户：不要出现公寓以外的人；可以出现用户，不画脸、脸上贴张纸）---
@@ -799,22 +813,31 @@ class MomentPhotoRules(_Strict):
     landlord_chance: float = Field(default=0.2, ge=0, le=1)
     landlord_in: str = (
         "the landlord (the user, who lives in the building with them) is in this photo: an "
-        "ordinary young adult in casual home clothes whose face is completely covered by a sheet "
+        "ordinary young man in casual home clothes whose face is completely covered by a sheet "
         "of paper taped over it, never draw the face; she wrote 早上好 on the paper if that fits "
         "her mood today, otherwise it is blank or has a small doodle of hers"
     )
     landlord_out: str = "not in this photo"
+    # 拍摄脚本：画图前由她自己（她的模型）把动态写成具体画面（moment_photo_brief），交给画图提示词
+    brief: bool = True
+    brief_max_tokens: int = Field(default=400, ge=50, le=2000)
+    brief_max_chars: int = Field(default=1200, ge=100, le=4000)
+    brief_estimate_usd: float = Field(default=0.003, ge=0)
 
     @model_validator(mode="after")
     def _names(self) -> MomentPhotoRules:
         _unique_names(self.shots, "shots")
         shots = {s.name for s in self.shots if s.name}
+        cameras = {c.name for c in self.cameras}
         for dim in PHOTO_DIMS:
             _unique_names(getattr(self, dim), dim)
             for option in getattr(self, dim):
                 bad = sorted(set(option.shots) - shots)
                 if bad:
                     raise ValueError(f"{dim}.{option.name}.shots 里有不存在的拍法：{bad}")
+                bad = sorted(set(option.cameras) - cameras)
+                if bad:
+                    raise ValueError(f"{dim}.{option.name}.cameras 里有不存在的相机：{bad}")
         return self
 
     def names(self, dim: str) -> set[str]:
@@ -1248,6 +1271,56 @@ class LowRules(_Strict):
     rest_text: str = Field(default="累了好几天，决定今天什么都不干，好好睡一觉", max_length=60)
 
 
+class TravelDest(_Strict):
+    """一个旅行目的地（L5）。days：在外面待几天（[最少, 最多]，0 = 当天来回）；likes：档案里提到这些
+    词的人更想去；months：只在这几个月去（空 = 全年）；sights：途中每天做的事（不带主语）；
+    souvenirs：回来给朋友带的东西。"""
+
+    name: str = Field(min_length=1, max_length=12)
+    days: list[int] = Field(default_factory=lambda: [1, 2], min_length=2, max_length=2)
+    likes: list[str] = Field(default_factory=list, max_length=20)
+    months: list[int] = Field(default_factory=list)
+    sights: list[str] = Field(min_length=1, max_length=12)
+    souvenirs: list[str] = Field(min_length=1, max_length=12)
+
+    @field_validator("days")
+    @classmethod
+    def _days(cls, v: list[int]) -> list[int]:
+        if not 0 <= v[0] <= v[1] <= 10:
+            raise ValueError("days 写 [最少, 最多]，0～10")
+        return v
+
+
+class TravelTexts(_Strict):
+    """旅行各步写进生活事件的话：{dest} 目的地、{sight} 途中的事、{other} 收礼物的朋友、
+    {souvenir} 带回来的东西、{when} 哪天出发（「周六」）。"""
+
+    plan: str = Field(default="在查去{dest}的车票，打算{when}出发", max_length=60)
+    pack: str = Field(default="收拾好了去{dest}的行李", max_length=60)
+    depart: str = Field(default="出发去{dest}了", max_length=60)
+    trip: str = Field(default="在{dest}{sight}", max_length=70)
+    back: str = Field(default="从{dest}回来了，给{other}带了{souvenir}", max_length=70)
+    tired: str = Field(default="旅行回来腿有点酸，早早睡了", max_length=60)
+
+
+class TravelRules(_Strict):
+    """旅行（L5，docs/LIFE_STORY.md「旅行」）：偶尔出门几天，短途为主。全程序、不调用模型。
+
+    计划（第 0 天）→ 前一天收拾行李 → 出发 → 途中每天一件事 → 回来给常一起玩的朋友带东西 → 回来
+    当晚有点累。在外面那几天公寓里显示「不在家」、空闲时段不在楼里；**办公室工作照常**（用户定）。
+    chance 是每天想出门的概率（档案提到 like_words 时 × boost）；同时最多 max_away 位在外面。"""
+
+    enabled: bool = True
+    chance: float = Field(default=0.012, ge=0, le=1)
+    like_words: list[str] = Field(default_factory=list, max_length=20)
+    boost: float = Field(default=2.0, ge=1, le=10)
+    cooldown_days: int = Field(default=30, ge=0, le=365)
+    max_away: int = Field(default=2, ge=1, le=8)
+    ahead_days: list[int] = Field(default_factory=lambda: [2, 5], min_length=2, max_length=2)
+    dests: list[TravelDest] = Field(default_factory=list, max_length=60)
+    texts: TravelTexts = TravelTexts()
+
+
 class StoryRules(_Strict):
     """生活事件库 + 长线剧情（P7 生活引擎 L0，docs/LIFE_STORY.md）。
 
@@ -1269,6 +1342,7 @@ class StoryRules(_Strict):
     progress: ProgressRules = ProgressRules()  # 爱好进度（L1）
     festival: FestivalRules = FestivalRules()  # 节日纪念日（L2）
     lows: LowRules = LowRules()  # 健康与低谷（L4）
+    travel: TravelRules = TravelRules()  # 旅行（L5）
 
     @model_validator(mode="after")
     def _unique(self) -> StoryRules:
@@ -1276,10 +1350,14 @@ class StoryRules(_Strict):
         dup = sorted({i for i in ids if ids.count(i) > 1})
         if dup:
             raise ValueError(f"生活事件 id 重复：{'、'.join(dup)}")
-        reserved = sorted(i for i in ids if i.startswith(("talent_", "progress_", "fest_", "low_")))
+        reserved = sorted(
+            i for i in ids if i.startswith(("talent_", "progress_", "fest_", "low_", "travel_"))
+        )
         if reserved:
             used = "、".join(reserved)
-            raise ValueError(f"talent_ / progress_ / fest_ / low_ 开头的 id 留给程序用：{used}")
+            raise ValueError(
+                f"talent_ / progress_ / fest_ / low_ / travel_ 开头的 id 留给程序用：{used}"
+            )
         domains = {s.domain for s in self.stories} | {
             k.domain for k in self.progress.kinds.values()
         }
@@ -4377,7 +4455,8 @@ class PhotoHabit(_Strict):
 
     subjects: list[str] = Field(default_factory=list, max_length=8)
     boost: dict[
-        Literal["shots", "angles", "lights", "moments", "lenses", "filters"], dict[str, float]
+        Literal["shots", "cameras", "angles", "lights", "moments", "lenses", "filters", "styles"],
+        dict[str, float],
     ] = Field(default_factory=dict)
     quirk: str = Field(default="", max_length=200)
     # 她想不想把房东（用户）拉进画面（看她的性格）：乘在 media.moment_photos.landlord_chance 上

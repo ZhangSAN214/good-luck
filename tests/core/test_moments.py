@@ -631,6 +631,32 @@ async def test_photo_passes_housemates_and_skips_places_outside_the_building(tmp
     for place in ("trip:beach", "group"):
         assert await mo.photo(a, {**event, "id": 8, "place": place}, "外面") is None
     assert len(asked) == 1  # 公寓楼外的事不配图
+    # 画前她自己写了拍摄脚本（用她自己的模型），交给画图
+    [brief_call] = calls(env, "write its shooting brief")
+    assert "<post>饭</post>" in brief_call.messages[1].content
+    assert b.name in brief_call.messages[1].content  # 室友在人物名单里
+    assert isinstance(asked[0]["brief"], str) and asked[0]["brief"]
+
+
+async def test_photo_brief_can_be_switched_off(tmp_path):
+    from roundtable.core.moment_shots import pick_spec
+
+    env = Env()
+    rt = env.rt
+    media = rt.config.roundtable.media
+    photos = media.moment_photos.model_copy(update={"brief": False})
+    rt.config = rt.config.model_copy(
+        update={
+            "roundtable": rt.config.roundtable.model_copy(
+                update={"media": media.model_copy(update={"moment_photos": photos})}
+            )
+        }
+    )
+    a = ChatHub(rt).everyone()[0]
+    spec = pick_spec(photos, None, photos.shots[0], event_id=1, member_id=a.id)
+    event = {"id": 1, "topic": "食堂", "place": "canteen"}
+    assert await moments(env).photo_brief(a, event, "饭", "x", spec, [], "canteen") == ""
+    assert calls(env, "write its shooting brief") == []
 
 
 def test_photo_shots_mostly_show_her():

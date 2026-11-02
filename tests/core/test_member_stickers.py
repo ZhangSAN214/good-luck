@@ -645,7 +645,8 @@ def test_moment_photo_v5_carries_the_shooting_notes(tmp_path):
     v = spec.variables()
     for key, label in (("camera", "Camera"), ("light", "Light"), ("moment", "The moment")):
         assert f"{label}: {v[key]}" in prompt
-    assert f"Small touches: {v['touches']}" in prompt
+    assert f"Color and small touches: {v['touches']}" in prompt
+    assert f"Photo style: {v['style']}" in prompt
     assert "Her face: copy it exactly from the reference images" in prompt  # v4 的规定还在
 
 
@@ -741,5 +742,67 @@ def test_moment_photos_prefer_the_feed_photo_model_and_stickers_do_not(tmp_path)
     assert rules.tier == "flagship" and "feed_photo" in (rules.prefer_tags or [])
     tagged = [m.id for m in rt.config.models.models if "feed_photo" in m.tags]
     assert tagged
-    assert stickers.draw_models(rules.tier, rules.prefer_tags)[0].id in tagged
+    order = [m.id for m in stickers.draw_models(rules.tier, rules.prefer_tags)]
+    assert order[0] in tagged
+    # 11-02 用户要「让 ChatGPT 负责出图」：先理解改写再画的对话出图模型最先，纯画图模型其次
+    by_id = {m.id: m for m in rt.config.models.models}
+    first, second = (by_id[i] for i in order[:2])
+    assert "plans_image" in first.tags and "feed_photo" in second.tags
     assert "feed_photo" not in stickers.rules.prefer_tags
+
+
+def test_v7_keeps_every_v6_rule_and_adds_the_trial_fixes():
+    """11-02 v6 试画：抓拍三人都看镜头笑、桌下多出一双腿、房东用手扶着纸。"""
+    from roundtable.core.prompts.library import DEFAULT_PROMPTS_DIR
+
+    def body(v):
+        text = (DEFAULT_PROMPTS_DIR / "moment_photo" / f"{v}.md").read_text(encoding="utf-8")
+        return text.split("---", 2)[2]
+
+    v6, v7 = body("v6"), body("v7")
+    changed = (
+        "Housemates are usually from behind",
+        "Pick the most likeable moment",
+        "Camera, light, moment and small touches above",
+        "Small touches: {{ touches }}",
+        "Rendering: physically based lighting",
+        "Camera, light, moment and small touches above",
+    )
+    for line in v6.splitlines():
+        if line.strip() and not any(c in line for c in changed):
+            assert line in v7, line
+    assert "nobody looks at the camera" in v7 and "Count the people" in v7
+    assert "taped flat over the face" in v7
+    assert "no grain or noise" in v7 and "slight noise" not in v7
+    assert "These shooting notes are requirements" in v7
+    assert v7.index("These shooting notes") < v7.index("What happened today")
+
+
+def test_film_look_keeps_the_frame_and_light():
+    """11-02 用户：GPT 画的已经够自然，只差一点滤镜——胶片后期不裁、不压饱和。"""
+    import random
+
+    from roundtable.core.member_stickers import film_look
+
+    src = png("orange", (400, 300))
+    a = film_look(src, random.Random("x"))
+    assert a == film_look(src, random.Random("x")) and a != src
+    with Image.open(io.BytesIO(a)) as im, Image.open(io.BytesIO(src)) as orig:
+        assert im.size == (400, 300)  # 不裁
+        r, g, b = im.convert("RGB").resize((1, 1)).getpixel((0, 0))
+        r0, g0, b0 = orig.convert("RGB").getpixel((0, 0))
+        assert abs(r - r0) < 25 and abs(g - g0) < 25  # 颜色基本不变
+        corner = im.convert("L").crop((0, 0, 80, 80)).getextrema()
+        assert corner[1] - corner[0] <= 3  # 纯色区域还是纯色：不加颗粒噪点（11-02 用户）
+    assert film_look(b"not an image", random.Random(1)) == b"not an image"
+    assert load_config().roundtable.media.moment_photos.post_look == "film"
+
+
+def test_moment_photo_v7_follows_her_brief(tmp_path):
+    _, fake, stickers = build(tmp_path)
+    plan = "Gemini snatches the last piece; DeepSeek on the right third laughs."
+    asyncio.run(stickers.photo("OpenAI", "食堂", "饭", "a selfie", brief=plan))
+    asyncio.run(stickers.photo("OpenAI", "食堂", "饭", "a selfie"))
+    planned, unplanned = (c[2] for c in image_calls(fake))
+    assert "(follow it closely: the action, who is where in the frame" in planned
+    assert plan in planned and "the state of things): none" in unplanned

@@ -143,6 +143,8 @@ class Runtime:
     screen_sources: dict[str, Any] | None = None
     # 成员自己上网的浏览器（测试中注入一个返回假浏览器的函数；为空时用电脑上的 Edge / Chrome）
     wander_web: Any | None = None
+    # 成员看 B 站视频时的下载函数（测试中注入假的；为空时用电脑上的 yt-dlp）
+    bili_fetch: Any | None = None
     # 聊天 / 朋友圈的图片、视频、语音所在目录；为空表示不能存（内存数据库）
     chat_media_dir: Path | None = None
     # 感官的感知卡与转写稿缓存（docs/PERCEPTION.md）；为空时只缓存在内存里（内存数据库）
