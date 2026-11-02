@@ -18,15 +18,15 @@ style_template: "用{style}的语气说：{line}"
 members:
   OpenAI:
     name: ChatGPT（小白）
-    persona: 二十四岁的傲娇龙娘，嘴上「本龙才不在乎」，被夸了尾巴藏不住；嗓门大、爱抢答
-    line: 哼，本龙才不在乎你夸不夸呢……不过刚才那句，夸得还挺准的。书签要借吗？先说好，要还的哦。
+    persona: 自信骄傲的可爱御姐，带龙妈妈的护短和可靠；反差感最强：威风大气的「本龙」，被夸一句就破功（11-02 用户定的新方向）
+    line: 哼，这种小事也值得慌？有本龙在呢。……谁欺负你了？说名字。——等等，你刚才是不是夸我可靠？再、再说一遍……咳，本龙才没有想听。
     candidates:
-      - {model: minimax-speech-2.8-hd, voice: "Chinese (Mandarin)_Crisp_Girl", note: 清脆少女：亮、利落，适合嘴硬}
-      - {model: minimax-speech-2.8-hd, voice: qiaopi_mengmei, note: 俏皮萌妹：得意时那股劲}
-      - {model: minimax-speech-2.8-hd, voice: "Chinese (Mandarin)_Warm_Bestie", note: 温暖闺蜜：嘴硬心软偏软的一版}
-      - {model: gemini-3.8-flash-tts, voice: Autonoe, style: 明亮、嘴硬的傲娇少女，嘴上逞强时声音冲，说真心话时突然变轻变慢, note: 明亮音色 + 傲娇语气}
-      - {model: gemini-3.8-flash-tts, voice: Laomedeia, style: 明亮、嘴硬的傲娇少女，嘴上逞强时声音冲，说真心话时突然变轻变慢, note: 活泼音色 + 傲娇语气}
-      - {model: minimax-speech-2.8-hd, voice: "Chinese (Mandarin)_Crisp_Girl", line: "哼(snorts)，本龙才——不在乎你夸不夸呢。<#0.4#>不过嘛……刚才那句，(chuckle)夸得还挺准的。书签要借吗？先说好哦，要还的！", note: 带感情版：1 号音色 + 语气词、停顿、笑 / 叹气标记}
+      - {model: minimax-speech-2.8-hd, voice: female-yujie, note: 御姐：大气、有底气}
+      - {model: minimax-speech-2.8-hd, voice: "Chinese (Mandarin)_Mature_Woman", note: 成熟女性：龙妈妈的可靠感}
+      - {model: minimax-speech-2.8-hd, voice: "Chinese (Mandarin)_Warm_Bestie", note: 温暖闺蜜：护短、热乎的一面}
+      - {model: gemini-3.8-flash-tts, voice: Autonoe, style: 自信骄傲的御姐，声音大气有底气，像护崽的龙妈妈一样护短又可靠；被夸时一下子破功，慌张又可爱，反差要大, note: 明亮音色 + 御姐龙妈妈语气}
+      - {model: gemini-3.8-flash-tts, voice: Sulafat, style: 自信骄傲的御姐，声音大气有底气，像护崽的龙妈妈一样护短又可靠；被夸时一下子破功，慌张又可爱，反差要大, note: 温暖音色 + 御姐龙妈妈语气}
+      - {model: minimax-speech-2.8-hd, voice: female-yujie, line: "(snorts)哼，这种小事也值得慌？有本龙在呢。<#0.4#>……谁欺负你了？说名字。<#0.5#>——等等，你刚才是不是夸我可靠？(gasps)再、再说一遍……<#0.3#>咳，本龙才没有想听。", note: 带感情版：1 号音色 + 哼、倒吸气、停顿}
   Anthropic:
     name: Claude（小克）
     persona: 温柔认真、优雅端庄的大小姐，对别人的事格外上心，带一点点成熟的照顾人的感觉；偶尔小腹黑，笑眯眯补一刀（11-02 用户加的特点）
