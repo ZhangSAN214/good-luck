@@ -221,6 +221,19 @@ async def test_service_run_revert_and_life_tick():
     assert svc.member_growth_clear("V1")["deleted"] == 1
 
 
+def test_service_weekly_jobs_use_the_reserve_of_the_life_budget():
+    """11-02：白天生活花到留的那笔以后，每周反思和见解仍能跑（不超每日上限）。"""
+    env = Env()
+    svc = RoundtableService(env.rt)
+    life = svc.life
+    reserved = life.rules.daily_usd - life.rules.memory_reserve_usd
+    life.spent_today = lambda: reserved  # 白天的生活已经花满
+    assert not life.allowed(0.002)
+    assert svc.growth.allow(0.002) and svc.insight.allow(0.002)
+    life.spent_today = lambda: life.rules.daily_usd
+    assert not svc.growth.allow(0.002) and not svc.insight.allow(0.002)
+
+
 # --- 守卫 ----------------------------------------------------------------------------
 
 

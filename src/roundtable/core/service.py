@@ -278,7 +278,7 @@ class RoundtableService:
             self.memory.on_clues = about.observe
         # P6 成长：每周一用成员自己的模型反思上一周，程序把关后才写档案；花费计入生活每天的上限
         self.growth = GrowthKeeper(runtime, self.chats.everyone, folder=runtime.growth_dir)
-        self.growth.allow = self.life.allowed
+        self.growth.allow = self.life.weekly_allowed
         # 整库备份（docs/BACKUP.md）：每天一份 + 存档点，不花钱
         rules = runtime.config.roundtable.backup
         self.backup = DbBackup(
@@ -293,7 +293,7 @@ class RoundtableService:
         self._butler_task: asyncio.Task[None] | None = None
         # P4 关系·对你的见解：和成长同一天，每位按自己的性格读一遍画像；花费计入生活每天的上限
         self.insight = InsightKeeper(runtime, self.chats.everyone)
-        self.insight.allow = self.life.allowed
+        self.insight.allow = self.life.weekly_allowed
         # P8 第二块：你的状态（每项默认关）；聊天时现问一次，读到的不写库
         self._pc = runtime.pc_source if runtime.pc_source is not None else WindowsPc()
         runtime.user_status = UserStatus(
