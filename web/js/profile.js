@@ -2,8 +2,7 @@
 // 档案只存在你电脑上；每次修改都是一个新版本，可以撤回；你锁住的项成长机制改不了。
 // 只用于私聊、群聊、朋友圈和生活；工作和办公室不读取。
 
-const esc = (s) =>
-  String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+import { esc } from './util.js';
 
 const SECTION = { identity: '身份', personality: '性格', values: '三观', style: '说话', likes: '喜好', state: '状态' };
 const WHO = { user: '你', growth: '成长', program: '程序' };

@@ -33,19 +33,13 @@ from typing import Any
 
 from roundtable.core.member.bus import Event, EventBus
 from roundtable.core.storage.repository import iso
+from roundtable.core.textutil import to_float as _num
 
 USER = "user"
 LIFE_KINDS = frozenset({"group", "dm", "pair"})
 LEARNED_KEY = "phrasebook:learned"
 USED_KEY = "phrasebook:used"
 TAG = "phrase:"
-
-
-def _num(x: Any) -> float:
-    try:
-        return float(x)
-    except (TypeError, ValueError):
-        return 3.0
 
 
 def _load(rt: Any, key: str) -> dict[str, Any]:

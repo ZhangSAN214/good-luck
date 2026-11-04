@@ -7,6 +7,7 @@
 
 import { THEMES, Scene3D, loadLib, onOrbit, webglOK } from './starmap3d.js';
 import { iconSvg } from './starmap_icons.js';
+import { esc } from './util.js';
 
 const THEME_KEY = 'roundtable.starmap.theme';
 const ACCENT_KEY = 'roundtable.starmap.accent';
@@ -19,8 +20,6 @@ export const ACCENTS = [
   ['#c9962e', '金'],
   ['#e0457b', '玫红'],
 ];
-const esc = (s) =>
-  String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 
 // 星域的色相（HSL），圆桌和人生星图共用一张表；没列到的按名字散列
 const HUE = {

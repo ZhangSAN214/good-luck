@@ -31,6 +31,7 @@ from roundtable.core.member.mode import Mode, require_life
 from roundtable.core.member.profile import ProfileStore
 from roundtable.core.office.apartment import schedule
 from roundtable.core.storage.repository import iso
+from roundtable.core.textutil import half_life as decay
 
 log = logging.getLogger(__name__)
 
@@ -40,10 +41,6 @@ BRAIN = "brain."  # 大脑分区发来的信号（奖赏、共情）：data["tag
 WATCH = ("chat.message", "life.event", "work.done", f"{PERCEIVE}*", f"{BRAIN}*")
 DM_PREFIX = "dm:"
 EVERYONE = "全员"
-
-
-def decay(hours: float, half_life: float) -> float:
-    return 0.5 ** (max(hours, 0.0) / half_life)
 
 
 def _clip(x: float, lo: float, hi: float) -> float:

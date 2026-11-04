@@ -85,6 +85,7 @@ from roundtable.core.config.loader import ConfigError
 from roundtable.core.config.schema import BenchRules
 from roundtable.core.jsonout import JSONOutputError, extract_json_object
 from roundtable.core.supercomputer.scoring import excluded
+from roundtable.core.textutil import iso_seconds as _iso
 
 PROFILE_FILE = "_client/profile.json"  # 甲方档案（只存本机）
 PROFILE_MAX = 40
@@ -103,10 +104,6 @@ SELFTEST_CHECKS = (
     *("数据文件看不懂", "地址为空", "占位数据", "和共用信息矛盾"),
 )
 Check = Callable[..., Report]
-
-
-def _iso(t: datetime) -> str:
-    return t.astimezone(UTC).isoformat(timespec="seconds")
 
 
 def passes(report_ok: bool, scores: dict[str, float], rules: BenchRules) -> bool:

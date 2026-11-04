@@ -30,6 +30,8 @@ from roundtable.core.providers import (
 )
 from roundtable.core.search import SearchCall, SearchService, SearchUnavailable
 from roundtable.core.storage import Repository
+from roundtable.core.textutil import attr_text as _attr
+from roundtable.core.textutil import neutralize
 
 from .files import TEXT_EXTS, Workspace, clean_path
 from .protocol import ToolRequest
@@ -62,14 +64,8 @@ class ToolResult:
         return f'<tool_result tool="{self.tool}" status="{state}">\n{body.strip()}\n</tool_result>'
 
 
-def _attr(text: str) -> str:
-    return " ".join(text.split()).replace('"', "'").replace("<", "‹").replace(">", "›")
-
-
 def _neutral(text: str) -> str:
-    for tag in ("search_result", "tool_result", "tool_call"):
-        text = text.replace(f"</{tag}", f"<\u200b/{tag}").replace(f"<{tag}", f"<\u200b{tag}")
-    return text
+    return neutralize(text, ("search_result", "tool_result", "tool_call"), opening=True)
 
 
 def _clip(text: str, limit: int) -> str:

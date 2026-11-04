@@ -270,16 +270,6 @@ def estimate_pipeline(
     )
 
 
-def average_price(prices: Sequence[Price]) -> Price:
-    if not prices:
-        raise ValueError("没有可用于估价的模型")
-    k = len(prices)
-    return Price(
-        input=sum(p.input for p in prices) / k,
-        output=sum(p.output for p in prices) / k,
-    )
-
-
 def attachment_tokens(rows: Sequence[Mapping[str, Any]], params: EstimateParams) -> int:
     """附件计入题目长度的 token 数：文字按长度；图片取原图（固定值）与文字版的较大者。"""
     total = 0

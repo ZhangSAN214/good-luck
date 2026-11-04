@@ -355,8 +355,4 @@ def render(res: LongResult) -> str:
     return "\n".join(lines)
 
 
-def names_of(members: Sequence[Any]) -> dict[str, str]:
-    return {m.id: m.name for m in members}
-
-
 __all__ = ["LongResult", "LongRun", "StressMind", "render", "tags"]

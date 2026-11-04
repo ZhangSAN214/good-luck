@@ -23,16 +23,10 @@ from typing import Any
 
 from roundtable.core.hometz import home_zone
 from roundtable.core.office.apartment import schedule
+from roundtable.core.textutil import to_float as _num
 
 USER = "user"
 _STRIP = re.compile(r"[\s，,。.！!？?~～…、]+|\[表情:[^\]]*\]")
-
-
-def _num(x: Any) -> float:
-    try:
-        return float(x)
-    except (TypeError, ValueError):
-        return 3.0
 
 
 class Pace:

@@ -30,6 +30,7 @@ from roundtable.core.member.bus import Event, EventBus
 from roundtable.core.member.mode import Mode, require_life
 from roundtable.core.office.apartment import PUBLIC_ROOMS
 from roundtable.core.storage.repository import iso
+from roundtable.core.textutil import half_life as _decay
 
 log = logging.getLogger(__name__)
 
@@ -42,10 +43,6 @@ WORK_KINDS = frozenset({"work"})  # 工作群（会话种类，也是它的房�
 KINDS = ("gather", "pair", "chat", "work")
 KEEP_SESSIONS = 200  # 记住最近多少场工作（认谁和谁一起干过）
 KEEP_DAYS = 60  # 每段关系记住最近多少天各记了几分（认「新的一天」、每天上限）
-
-
-def _decay(days: float, half_life: float) -> float:
-    return 0.5 ** (max(days, 0.0) / half_life)
 
 
 def _new_bond(at: str) -> dict[str, Any]:

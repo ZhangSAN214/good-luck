@@ -2,8 +2,7 @@
 // 电脑上：设访问口令、看平板该打开的地址、生成一次性二维码、让所有平板退出。
 // 平板上：这个按钮变成「退出」。设置只能在电脑本机上做（服务端也会拒绝别的设备）。
 
-const esc = (s) =>
-  String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+import { esc } from './util.js';
 
 export class LanPanel {
   constructor(dlg, button, { api }) {

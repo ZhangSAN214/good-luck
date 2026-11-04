@@ -7,9 +7,7 @@
 // 浏览器支持时还有「画中画」小窗（同样总在最前面）。两种小窗里都能直接打字。
 
 import { OverlayView } from './overlay.js';
-
-const esc = (s) =>
-  String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+import { esc } from './util.js';
 
 const STATUS_MS = 3000;
 const MESSAGES_MS = 1500;

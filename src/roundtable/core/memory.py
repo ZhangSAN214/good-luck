@@ -29,6 +29,7 @@ from roundtable.core.member.memory.night import apply, materials, nightly_links,
 from roundtable.core.member.memory.store import WORK_WORKFLOWS, headless
 from roundtable.core.recall import STAR
 from roundtable.core.storage.repository import iso
+from roundtable.core.textutil import iso_week as week_id
 
 MEMORY_ROOM = "memory"
 LAYERS = ("note", "day", "week", "month", "profile")
@@ -45,11 +46,6 @@ def clean_memory(text: str, max_chars: int) -> str:
     kept = [ln for ln in lines if ln and not SENSITIVE.search(ln)]
     out = "\n".join(kept)
     return out if len(out) <= max_chars else out[:max_chars].rstrip() + "…"
-
-
-def week_id(day: date) -> str:
-    y, w, _ = day.isocalendar()
-    return f"{y}-W{w:02d}"
 
 
 def month_id(day: date) -> str:

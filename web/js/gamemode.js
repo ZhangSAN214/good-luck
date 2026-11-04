@@ -2,8 +2,8 @@
 // 自动识别（在跑游戏、前台全屏、显卡占用 / 显存）+ 这里的手动开关；显卡连续空闲几分钟后补跑排队的活。
 // 按钮上的小点：亮着 = 正在让路。每 30 秒看一次状态（只读一个小接口，不调模型）。
 
-const esc = (s) =>
-  String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+import { esc } from './util.js';
+
 const mins = (s) => Math.max(1, Math.round(Number(s || 0) / 60));
 const when = (t) => new Date(Number(t || 0) * 1000).toLocaleString('zh-CN', { hour12: false }).slice(5, 16);
 

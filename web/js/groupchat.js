@@ -9,9 +9,7 @@
 import { tzOpt } from './hometz.js';
 import { choicesHTML, enhance, filesHTML, handoffHTML, workCardHTML } from './workcard.js';
 import { MediaComposer, bindMedia, cardHTML, mediaHTML, richText, soloSticker, stickerSVG, visibleText } from './chatmedia.js';
-
-const esc = (s) =>
-  String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+import { esc } from './util.js';
 
 const snip = (t, n = 40) => {
   const s = String(t || '').replace(/\s+/g, ' ');

@@ -37,6 +37,7 @@ from roundtable.core.providers import (
 )
 from roundtable.core.routing import Question
 from roundtable.core.storage import Repository
+from roundtable.core.textutil import neutralize  # noqa: F401  （各步骤从这里导入）
 from roundtable.core.tools import TEXT_EXTS, ToolBox
 
 from .brain_schemas import restore_brain
@@ -617,13 +618,6 @@ _VIDEO_FILE = re.compile(r'<file id="([0-9a-f]{32})" [^<>]*type="video"[^<>]*/>'
 
 def _size(n: int) -> str:
     return f"{n / 1024:.1f} KB" if n < 2**20 else f"{n / 2**20:.1f} MB"
-
-
-def neutralize(text: str, tags: Sequence[str]) -> str:
-    """防止内容中出现的结束标签提前闭合外层标签（提示注入）。"""
-    for tag in tags:
-        text = text.replace(f"</{tag}", f"<​/{tag}")
-    return text
 
 
 TAGS = ("answer", "review", "question", "your_answer")

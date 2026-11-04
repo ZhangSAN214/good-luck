@@ -62,11 +62,6 @@ def style_references_named(ctx: TableContext) -> str:
     return "、".join(names) or "（无）"
 
 
-def wants_style(ctx_attachments, drawing: bool, enabled: bool) -> bool:
-    """有标注为风格参考的图片附件、而且会用到画图时才提取风格规范。"""
-    return enabled and drawing and any(a.kind == "image" and a.style_ref for a in ctx_attachments)
-
-
 class StyleStep:
     name = STEP
 

@@ -89,10 +89,6 @@ class KeyRing:
     def has(self, name: str | None) -> bool:
         return self.get(name) is not None
 
-    def secret_values(self) -> list[str]:
-        """供脱敏使用。"""
-        return [s.reveal() for s in self._keys.values()]
-
     def __repr__(self) -> str:
         return f"KeyRing(names={sorted(self._keys)})"
 

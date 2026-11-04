@@ -15,6 +15,9 @@ from pathlib import Path
 from typing import Any
 
 from roundtable.core.ideaboard import Board, Ranked, to_markdown
+from roundtable.core.textutil import (
+    load_json_dict as load_decisions,  # noqa: F401  （外部从这里导入）
+)
 
 MEETINGS_KEY = "evolution.meetings"  # app_settings：开过的例会（会话 id、周、是否已导出）
 NEXT_THEME_KEY = "evolution.next_theme"  # app_settings：你定的下次大版本主题（空 = 轮换）
@@ -267,14 +270,6 @@ def adoptable(board: Board) -> list[Ranked]:
 DECISIONS_KEY = "evolution.decisions"  # app_settings：{"会话 id:点子 id": {...}}
 DECISIONS = {"do": "做", "skip": "不做"}
 TODO_FILE = "待实现.md"  # 数据目录 evolution/ 下：你点了「做这条」的建议，开发侧照这个实现
-
-
-def load_decisions(raw: str | None) -> dict[str, dict[str, Any]]:
-    try:
-        data = json.loads(raw) if raw else {}
-    except ValueError:
-        return {}
-    return data if isinstance(data, dict) else {}
 
 
 def decision_key(session_id: str, idea_id: str) -> str:

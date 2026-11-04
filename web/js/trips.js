@@ -2,8 +2,8 @@
 // 谁在外面旅行、打卡记录（判定卡过没过、旅行日记）、看过的 B 站视频（几帧 + 看到了什么）、
 // 看完写的私信和动态（只存在这台电脑上给你看，不会发到 B 站）、一键总开关、让她看一个视频。
 
-const esc = (s) =>
-  String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+import { esc } from './util.js';
+
 const safeUrl = (u) => (/^https?:\/\//i.test(u || '') ? u : '');
 const day = (s) => String(s || '').slice(5, 10);
 const when = (s) => String(s || '').replace('T', ' ').slice(5, 16);

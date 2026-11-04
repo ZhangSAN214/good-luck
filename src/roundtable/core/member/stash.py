@@ -30,6 +30,7 @@ from typing import Any
 
 from roundtable.core.chat_actions import STICKER_RE
 from roundtable.core.storage.repository import iso
+from roundtable.core.textutil import to_float as _num
 
 USER = "user"
 STASH_KEY = "sticker_stash"
@@ -37,13 +38,6 @@ PACK = "收藏"
 LIFE_KINDS = frozenset({"group", "dm"})
 _TOKEN = re.compile(r"\[表情[:：]" + PACK + r"·(\d{1,3})\]")
 _DROP = re.compile(r"[\[\]【】<>\n\r\t「」\"']")
-
-
-def _num(x: Any) -> float:
-    try:
-        return float(x)
-    except (TypeError, ValueError):
-        return 3.0
 
 
 def sticker_like(item: dict[str, Any], small_px: int) -> bool:

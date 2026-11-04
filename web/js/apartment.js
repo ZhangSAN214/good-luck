@@ -9,9 +9,7 @@
 import { cutout } from './cutout.js';
 import { homeParts } from './hometz.js';
 import { THEMES, bedAnchor, dormScene } from './rooms3d.js';
-
-const esc = (s) =>
-  String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+import { esc } from './util.js';
 
 const REFRESH_MS = 30_000;
 const VIEW_KEY = 'roundtable.apartment.view';

@@ -32,6 +32,7 @@ from roundtable.core.providers import (
     NoChannelAvailable,
     ProviderError,
 )
+from roundtable.core.textutil import neutralize
 
 from .senses import (
     PerceptionCache,
@@ -59,9 +60,7 @@ _TAGS = ("items", "transcript", "media", "chat")
 
 
 def _neutralize(text: str) -> str:
-    for tag in _TAGS:
-        text = text.replace(f"</{tag}", f"<​/{tag}")
-    return text
+    return neutralize(text, _TAGS)
 
 
 @dataclass(frozen=True)

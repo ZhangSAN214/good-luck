@@ -25,15 +25,10 @@ from collections.abc import Iterable
 from datetime import datetime
 from typing import Any
 
+from roundtable.core.textutil import to_float as num
+
 TRAITS = ("外向", "较真", "好奇", "温和", "幽默")
 _CJK2 = re.compile("(?=([\u4e00-\u9fff]{2}))")  # 相邻两字（可重叠）
-
-
-def num(x: Any, default: float = 3.0) -> float:
-    try:
-        return float(x)
-    except (TypeError, ValueError):
-        return default
 
 
 def sway(

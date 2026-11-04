@@ -19,6 +19,8 @@ from typing import Any
 
 from roundtable.core.member.feel import Feelings
 from roundtable.core.storage.repository import iso
+from roundtable.core.textutil import ellipsize
+from roundtable.core.textutil import iso_week as week_id
 
 DIARY, ITEM, USER, WORK, FEEL, RECON = "diary", "item", "user", "work", "feel", "recon"
 SOURCE_NAMES = {
@@ -66,11 +68,6 @@ class Week:
         )
 
 
-def week_id(day: date) -> str:
-    y, w, _ = day.isocalendar()
-    return f"{y}-W{w:02d}"
-
-
 def monday(day: date) -> date:
     return day - timedelta(days=day.isoweekday() - 1)
 
@@ -82,8 +79,7 @@ def _window(start: date, days: int, tz: tzinfo | None) -> tuple[str, str]:
 
 
 def _cut(text: str, limit: int) -> str:
-    text = re.sub(r"\s+", " ", text or "").strip()
-    return text if len(text) <= limit else text[: limit - 1].rstrip() + "…"
+    return ellipsize(text, limit, rstrip=True)
 
 
 def build(

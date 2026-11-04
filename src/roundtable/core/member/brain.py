@@ -49,6 +49,7 @@ from roundtable.core.member.mode import Mode, require_life
 from roundtable.core.member.phrasebook import Phrasebook
 from roundtable.core.member.profile import ProfileStore
 from roundtable.core.storage.repository import iso
+from roundtable.core.textutil import to_float as _num
 
 KEY = "member_brain:"
 FREE_ACTS = frozenset({"exercise", "chat", "stargaze", "game", "read"})
@@ -1314,13 +1315,6 @@ class Brain:
             self.phrases.after(card.member, card.tags, at)
             self.firsts.after(card.member, card.tags)
             self.hooks.after(card.member, card.tags)
-
-
-def _num(x: Any) -> float:
-    try:
-        return float(x)
-    except (TypeError, ValueError):
-        return 3.0
 
 
 def seeds(growth: str) -> list[str]:

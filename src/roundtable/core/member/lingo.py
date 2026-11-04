@@ -40,6 +40,7 @@ from roundtable.core.member.memes import strip_stale
 from roundtable.core.member.profile import ProfileStore
 from roundtable.core.member.slop import Slop, strip_phrases, strip_stage
 from roundtable.core.storage.repository import iso
+from roundtable.core.textutil import to_float as _num
 
 KEY = "member_lingo:"
 USER = "user"
@@ -54,13 +55,6 @@ _NO = type("_NoVibe", (), {"items": ()})()  # 没有这种气质时的空组
 _EMOJI = re.compile(r"[\U0001f300-\U0001faff☀-➿]")
 _LAST_HAN = re.compile(r"[\u4e00-\u9fff](?=[^\u4e00-\u9fff]*$)")  # 一行里最后一个汉字
 _SKIP = re.compile(r"\[表情[:：][^\]]*\]|\[引用[^\]]*\]|https?://\S+")
-
-
-def _num(x: Any, default: float = 3.0) -> float:
-    try:
-        return float(x)
-    except (TypeError, ValueError):
-        return default
 
 
 _ORPHAN = re.compile(

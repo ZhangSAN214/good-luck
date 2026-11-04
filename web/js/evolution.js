@@ -3,8 +3,7 @@
 // 默认关闭（config/roundtable.yaml 的 evolution.enabled）；每场、每月都有花费上限。
 // 版式照「成员设定」那套 iPhone 设置式分组卡片：最重要的（下一场、本场结论）在上，其余收进「更多」。
 
-const esc = (s) =>
-  String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+import { esc } from './util.js';
 
 const STATUS = {
   created: '准备中',

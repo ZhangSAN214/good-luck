@@ -4,8 +4,7 @@
 // 另有 TA 对你的见解：每周按 TA 自己的性格读「关于你」和最近的聊天，在上周的看法上接着想（可以和别人不同、可以不同意你）；
 // 你可以在一句看法下随手回一句，没有打分按钮。
 
-const esc = (s) =>
-  String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+import { esc } from './util.js';
 
 const pct = (x) => `${Math.round((x || 0) * 100)}%`;
 const day = (s) => (s ? String(s).slice(0, 10) : '');

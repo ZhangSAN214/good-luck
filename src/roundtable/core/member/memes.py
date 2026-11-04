@@ -23,6 +23,7 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from roundtable.core.storage.repository import iso
+from roundtable.core.textutil import to_float as _num
 
 ITEMS_KEY = "memes.items"
 REMOVED_KEY = "memes.removed"
@@ -34,13 +35,6 @@ FIELDS = ("phrase", "aliases", "meaning", "cue", "reply", "example", "since")
 
 def norm(text: str) -> str:
     return _NORM.sub("", text or "").lower()
-
-
-def _num(x: Any) -> float:
-    try:
-        return float(x)
-    except (TypeError, ValueError):
-        return 3.0
 
 
 def strip_stale(text: str, stale: list[str] | tuple[str, ...]) -> str:

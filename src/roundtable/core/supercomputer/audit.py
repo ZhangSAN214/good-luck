@@ -24,13 +24,10 @@ from pathlib import Path
 from typing import Any
 
 from roundtable.core.providers.secrets import redact
+from roundtable.core.textutil import utcnow as _utcnow
 
 GENESIS = "0" * 64
 MAX_TEXT = 500  # 每段文字最多记多少字（交的活很长时只记开头）
-
-
-def _utcnow() -> datetime:
-    return datetime.now(UTC)
 
 
 def _clean(value: Any) -> Any:

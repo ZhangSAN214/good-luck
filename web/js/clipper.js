@@ -1,9 +1,7 @@
 // 资料浏览器（办公室）：搜索、打开网页看正文、把全文或选中的段落存进资料夹，提问时附上。
 // 网页由后端只读抓取并提取正文（不花钱）；搜索走联网搜索（有花费）。资料只存在这台电脑上。
 import { tzOpt } from './hometz.js';
-
-const esc = (s) =>
-  String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+import { esc } from './util.js';
 
 const BACK = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>';
 // 像网址：带协议，或「xxx.yy/…」且没有空格

@@ -3,10 +3,9 @@
 // 恢复会用备份覆盖现在的全部数据：先在面板里再确认一次，服务端会先存「恢复前」存档点；恢复后要重启圆桌。
 // 只能在电脑本机上用（服务端也会拒绝平板）。
 
-const esc = (s) =>
-  String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
-
 // update_and_start.bat 存的标签是英文（批处理里不写中文），界面上显示成中文
+import { esc } from './util.js';
+
 const LABEL = { update: '更新前' };
 const mb = (n) => `${(Number(n || 0) / 1048576).toFixed(1)} MB`;
 const when = (iso) => String(iso || '').replace('T', ' ').slice(0, 16);
