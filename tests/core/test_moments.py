@@ -9,6 +9,8 @@ import random
 from collections import Counter
 from datetime import UTC, datetime, timedelta
 
+import pytest
+
 from roundtable.core.chat import ChatHub
 from roundtable.core.moments import (
     PLAN_KEY,
@@ -695,3 +697,40 @@ def test_brief_is_cut_at_a_whole_sentence():
     want = "Gemini holds the right third. DeepSeek lunges from the left."
     assert whole_sentences(text, 70) == want
     assert whole_sentences("short.", 70) == "short."
+
+
+async def test_game_mode_posts_the_text_and_queues_the_photo_for_later():
+    """游戏模式（docs/GAMEMODE.md）：显卡让路时先发文字，图排队；显卡空了补画，挂回原来那条。"""
+    from roundtable.core.gamemode import StillBusy
+    from roundtable.core.moments import DEFERRED, PHOTO_JOB
+
+    env = Env()
+    answer(env, post="天台的星星好亮")
+    mo = moments(env)
+    (a,) = one_awake(env, mo)
+    mo.photo_planned = lambda member, event: True
+    results = [DEFERRED]
+
+    async def photo(member, event, text, planned=False):
+        return results.pop(0)
+
+    mo.photo = photo
+    event = env.rt.repo.add_life_event(iso(NOW - timedelta(hours=1)), "solo", [a.id], topic="天台")
+    posted = await mo.post(a, event, [])
+    assert posted["meta"].get("photo_pending") is True and "media" not in posted["meta"]
+    gm = env.rt.gamemode
+    assert gm is not None
+    [job] = gm.queue()
+    assert job.kind == PHOTO_JOB and a.name in job.label
+    assert job.payload["moment"] == posted["id"] and job.payload["event"]["topic"] == "天台"
+
+    results.append(DEFERRED)  # 补画时显卡又忙了：放回去
+    with pytest.raises(StillBusy):
+        await mo.finish_photo(job.payload)
+    results.append({"id": "img1", "kind": "image", "generated": True})
+    await mo.finish_photo(job.payload)
+    meta = env.rt.repo.moment(posted["id"])["meta"]
+    assert meta["photo"] is True and meta["media"][0]["id"] == "img1"
+    assert "photo_pending" not in meta
+    await mo.finish_photo(job.payload)  # 已经补过：什么都不做
+    assert results == []

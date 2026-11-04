@@ -43,6 +43,7 @@ import { Moments } from './moments.js';
 import { BootSettings } from './bootcfg.js';
 import { LanPanel } from './lan.js';
 import { BackupPanel } from './backup.js';
+import { GameModePanel } from './gamemode.js';
 import { FirstAidPanel } from './firstaid.js';
 import { Watch } from './watch.js';
 import { Trips } from './trips.js';
@@ -217,6 +218,9 @@ new LanPanel($('#landlg'), $('#lanbtn'), {
 });
 new BackupPanel($('#backupdlg'), $('#backupbtn'), {
   api: { status: API.backupStatus, checkpoint: API.backupCheckpoint, restore: API.backupRestore },
+});
+new GameModePanel($('#gamemodedlg'), $('#gamemodebtn'), {
+  api: { status: API.gameMode, set: API.setGameMode },
 });
 new FirstAidPanel($('#firstaiddlg'), $('#firstaidbtn'), {
   api: { check: API.firstAid, report: API.firstAidReport },

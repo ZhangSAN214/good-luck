@@ -19,6 +19,7 @@ from roundtable.core.catalog import Fetch, ModelCatalog
 from roundtable.core.changelog import CHANGELOG_FILE
 from roundtable.core.config import AppConfig, load_config
 from roundtable.core.config.loader import DEFAULT_CONFIG_DIR
+from roundtable.core.gamemode import QUEUE_FILE, FakeGpu, FakeProcesses, GameMode
 from roundtable.core.media.draw_order import load_draw_prefs
 from roundtable.core.model_directory import ModelDirectory
 from roundtable.core.plugin_board import BOARD_FILE
@@ -157,6 +158,8 @@ class Runtime:
     growth_dir: Path | None = None
     # 整库备份（数据库旁边的 db_backups/，docs/BACKUP.md）；为空（内存数据库）时不备份
     backup_dir: Path | None = None
+    # 游戏模式（docs/GAMEMODE.md）：玩游戏 / 别的程序用显卡时让出显卡；为空表示不管
+    gamemode: GameMode | None = None
 
     @classmethod
     def build(
@@ -183,6 +186,7 @@ class Runtime:
         prompts.check_config(config.roundtable)
         check_pipelines(config)
 
+        real_pc = providers is None
         if providers is None:
             names = [c.key_env for c in config.models.channels.values() if c.key_env]
             names += [p.key_env for p in config.models.search_providers.values() if p.key_env]
@@ -240,6 +244,15 @@ class Runtime:
         guard = BudgetGuard(config.roundtable.budget, repo, **({"now": now} if now else {}))
         router.set_priority(load_priority(config, repo), MonthSpend(repo, guard.now))
         router.set_draw_prefs(load_draw_prefs(config, repo))
+        gamemode = GameMode(
+            config.roundtable.gamemode,
+            # 测试传入假渠道时也用假的电脑状态（不列本机程序、不读显卡）
+            **({} if real_pc else {"gpu": FakeGpu(), "procs": FakeProcesses()}),
+            load=repo.setting,
+            save=repo.set_setting,
+            queue_file=None if str(db_path) == ":memory:" else Path(db_path).parent / QUEUE_FILE,
+        )
+        router.set_gpu_guard(gamemode)
         return cls(
             config=config,
             router=router,
@@ -278,6 +291,7 @@ class Runtime:
             sticker_dir=None if str(db_path) == ":memory:" else Path(db_path).parent / STICKER_DIR,
             growth_dir=None if str(db_path) == ":memory:" else Path(db_path).parent / GROWTH_DIR,
             backup_dir=backup_dir,
+            gamemode=gamemode,
         )
 
     def sandbox(self) -> tuple[Sandbox | None, str | None]:

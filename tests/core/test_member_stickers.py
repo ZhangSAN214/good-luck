@@ -13,6 +13,7 @@ from roundtable.core.member_stickers import (
     CHECK_STEP,
     DRAW_STEP,
     MemberStickers,
+    PhotoDeferred,
     StickerBudgetExceeded,
     StickerError,
     StickerUnavailable,
@@ -595,6 +596,23 @@ def test_local_failure_falls_back_to_a_cloud_model_unless_local_only(tmp_path):
     with pytest.raises(StickerUnavailable):
         asyncio.run(stickers.photo("OpenAI", "天台", "好看", "a selfie"))
     assert image_calls(cloud) == []  # 只用本地：画不出来就只发文字，不花钱
+
+
+def test_game_mode_defers_the_photo_instead_of_paying_for_a_cloud_model(tmp_path):
+    """游戏模式：本地显卡让路时不改走付费模型，抛 PhotoDeferred 排队（docs/GAMEMODE.md）。"""
+    rt, cloud, local, stickers = build_local(tmp_path)
+    assert rt.gamemode is not None
+    rt.gamemode.set_manual(True)
+    with pytest.raises(PhotoDeferred, match="游戏模式"):
+        asyncio.run(stickers.photo("OpenAI", "天台", "好看", "a selfie"))
+    assert image_calls(local) == [] and image_calls(cloud) == []
+
+    rt, cloud, local, stickers = build_local(tmp_path / "b")
+    assert rt.gamemode is not None
+    rt.gamemode.rules = rt.gamemode.rules.model_copy(update={"photos_when_busy": "cloud"})
+    rt.gamemode.set_manual(True)
+    asyncio.run(stickers.photo("OpenAI", "天台", "好看", "a selfie"))
+    assert image_calls(local) == [] and len(image_calls(cloud)) == 1  # 照旧换云端
 
 
 def test_local_only_without_a_local_model_draws_nothing(tmp_path):
