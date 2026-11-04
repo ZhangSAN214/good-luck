@@ -74,6 +74,8 @@ NOTHING = "没有特别的事"  # 生活场景里「今天的事」为空时的�
 MOMENT_STEP = "moment"
 PHOTO_BRIEF_STEP = "moment_photo_brief"  # 配图前她自己写的拍摄脚本
 SEEN_KEY = "moments.seen"
+PHOTO_JOB = "moment_photo"  # 游戏模式排队的朋友圈配图（docs/GAMEMODE.md）
+DEFERRED = {"deferred": True}  # photo() 的返回：显卡让路，这张排队补画
 SKIPPED_KEY = "moments.skipped"  # 写出来太像而放弃的「成员:事件」，之后不再为它花钱
 SKIPPED_KEEP = 200
 COMMENT_SKIPPED_KEY = "moments.comment_skipped"  # 自查没过的「动态:成员」：不再让这位重写
@@ -450,6 +452,11 @@ class Moments:
         ):
             meta["card"] = card
         item = await self.photo(member, event, text or event["topic"]) if snap else None
+        deferred = item is DEFERRED
+        if deferred:  # 游戏模式：先发文字，图排队，显卡空了补上（只想发图的这次照旧不发）
+            item = None
+            if text:
+                meta["photo_pending"] = True
         if item is not None:  # 配图：文字照旧给成员看，图片只多一个「[图片]」占位
             meta |= {"media": [item], "photo": True}
             meta["caption" if text else "auto_text"] = text or True
@@ -459,9 +466,22 @@ class Moments:
                 self.skip(member, event["id"])
                 return {}
             text = card_text(card)
-        return self.rt.repo.add_moment(
+        posted = self.rt.repo.add_moment(
             member.id, text, meta=meta, offline=offline, created_at=iso(at) if at else None
         )
+        gamemode = getattr(self.rt, "gamemode", None)
+        if meta.get("photo_pending") and gamemode is not None and posted.get("id"):
+            gamemode.defer(
+                PHOTO_JOB,
+                f"{member.name}的朋友圈配图",
+                {
+                    "moment": posted["id"],
+                    "member": member.id,
+                    "text": text,
+                    "event": {k: event.get(k) for k in ("id", "topic", "place", "at", "members")},
+                },
+            )
+        return posted
 
     def photo_planned(self, member: ChatMember, event: dict[str, Any]) -> bool:
         """这条会不会配图（和 ``photo`` 同一个种子；没开、没参考卡、超了张数时为 False）。"""
@@ -477,17 +497,23 @@ class Moments:
         if random.Random(f"photo:{event['id']}:{member.id}").random() >= rules.chance:
             return False
         day_start = iso(utc_day_window(rt.budget.now())[0])
-        today = [m for m in rt.repo.moments(since=day_start, limit=200) if m["meta"].get("photo")]
+        today = [
+            m
+            for m in rt.repo.moments(since=day_start, limit=200)
+            if m["meta"].get("photo") or m["meta"].get("photo_pending")
+        ]
         mine = sum(m["author"] == member.id for m in today)
         return len(today) < rules.per_day and mine < rules.per_member_day
 
     async def photo(
-        self, member: ChatMember, event: dict[str, Any], text: str
+        self, member: ChatMember, event: dict[str, Any], text: str, *, planned: bool = False
     ) -> dict[str, Any] | None:
-        """按概率给这条动态画一张配图（不用审）；不配、超了每天的张数或画不出来时为 None。"""
+        """按概率给这条动态画一张配图（不用审）；不配、超了每天的张数或画不出来时为 None；
+        游戏模式下显卡让路、要排队时为 ``DEFERRED``。planned：已经定了要配（补画时）。"""
         from roundtable.core.chat_media import ChatMediaStore, MediaError
         from roundtable.core.member_stickers import (
             MemberStickers,
+            PhotoDeferred,
             StickerBudgetExceeded,
             StickerError,
             StickerUnavailable,
@@ -495,7 +521,7 @@ class Moments:
 
         rt = self.rt
         rules = rt.config.roundtable.media.moment_photos
-        if not self.photo_planned(member, event):
+        if not planned and not self.photo_planned(member, event):
             return None
         place = str(event.get("place") or "")
         rng = random.Random(f"photo:{event['id']}:{member.id}")
@@ -530,8 +556,29 @@ class Moments:
                 brief=brief,
             )
             return generated_item(ChatMediaStore(rt.chat_media_dir), data, mime)
+        except PhotoDeferred:
+            return DEFERRED
         except (StickerBudgetExceeded, StickerError, StickerUnavailable, MediaError, ValueError):
             return None  # 没钱、没参考图、画不出来：照样发文字
+
+    async def finish_photo(self, payload: dict[str, Any]) -> None:
+        """补画排队的配图（游戏模式结束、显卡连续空闲后，由 GameMode 逐件调用）。
+        动态删了、成员不在了就算了；显卡又忙了抛 StillBusy 放回队首；画不出来就去掉「待配图」。"""
+        from roundtable.core.gamemode import StillBusy
+
+        repo = self.rt.repo
+        moment = repo.moment(int(payload["moment"]))
+        member = next((m for m in self.hub.everyone() if m.id == payload.get("member")), None)
+        if moment is None or member is None or not moment["meta"].get("photo_pending"):
+            return
+        text = str(payload.get("text") or "")
+        item = await self.photo(member, dict(payload["event"]), text, planned=True)
+        if item is DEFERRED:
+            raise StillBusy
+        meta = {k: v for k, v in moment["meta"].items() if k != "photo_pending"}
+        if item is not None:
+            meta |= {"media": [*meta.get("media", []), item], "photo": True, "caption": text}
+        repo.set_moment_meta(moment["id"], meta)
 
     async def photo_brief(
         self,

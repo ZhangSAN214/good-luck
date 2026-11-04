@@ -48,9 +48,11 @@ def router_kinds(router: ChannelRouter) -> dict[str, str]:
 
 
 def resting(router: ChannelRouter, model: ModelSpec) -> bool:
-    """能走的渠道全都在歇（限速、额度用完、显卡在忙、连不上之后的冷却）。"""
+    """能走的渠道全都在歇（限速、额度用完、显卡在忙、连不上之后的冷却、游戏模式让路）。"""
     channels = usable_channels(router, model)
-    return bool(channels) and all(router.cooling_s(c) > 0 for c in channels)
+    return bool(channels) and all(
+        router.cooling_s(c) > 0 or router.gpu_blocked(c) for c in channels
+    )
 
 
 def draw_key(

@@ -255,6 +255,7 @@ src/roundtable/
     simlab.py      成员系统加速时间模拟（docs/SIM.md）：临时数据库 + 快进时钟 + 假 / 真模型 + 模拟用户，出报告
     export/        导出成果：从存库的产出取最终成果（deliverable.py）→ Markdown / Word（python-docx）/ PPT（手写 OOXML，按标题分页）/ PDF（手写，阅读器自带中文字体）/ 网页；样式（style.py：字号、配色模板、PPT 比例、附题目 / 过程）；界面可直接存到本机固定文件夹（只限电脑本机，文件夹记在设置里）；不调用模型、不加依赖
     lan.py         局域网访问：口令加盐哈希（data/lan_access.json，不进 git）、登录 cookie 签名与过期、输错限速、一次性配对码、本机局域网地址、二维码（docs/LAN.md）
+    gamemode.py    游戏模式（docs/GAMEMODE.md）：玩游戏 / 前台全屏 / 显卡被别的程序占用（NVML）时让出显卡：路由不调 gpu: true 的渠道，朋友圈配图排队（data/gpu_queue.json），连续空闲 5 分钟后补跑；忙时降 CPU 优先级
     changelog.py   公告栏：版本更新说明（读 config/changelog.yaml 与 config/changelog.d/*.yaml 合并，校验、按合并先后自动编版本号；只读）
     clipper.py     办公室的资料浏览器：只读抓取网页（拒绝本机 / 内网地址，重定向逐跳检查）、提取正文、资料夹清单；存资料与「附上」= 新建 Markdown 附件（docs/CLIPPER.md）
     mail/          终端邮件栏：用户本人学校邮箱只读接入（专用浏览器窗口由用户本人登录、只读守卫、本机「重要」与分类规则、截止日期提取；图文版正文清洗（html.py）；点了才调用的 AI 总结 / 翻译（ai.py，每月上限 mail.ai）；登录状态在 data/mail_browser/，不进 git；见 docs/MAIL.md）

@@ -277,6 +277,9 @@ export const lanLogout = () => api('/api/lan/logout', { method: 'POST' });
 export const backupStatus = () => api('/api/backup');
 export const backupCheckpoint = (label) => api('/api/backup/checkpoint', { method: 'POST', body: { label } });
 export const backupRestore = (name) => api('/api/backup/restore', { method: 'POST', body: { name } });
+// 游戏模式（docs/GAMEMODE.md）
+export const gameMode = () => api('/api/gamemode');
+export const setGameMode = (manual) => api('/api/gamemode', { method: 'PUT', body: { manual } });
 export const firstAid = () => api('/api/firstaid');
 export const firstAidReport = () => api('/api/firstaid/report');
 

@@ -138,6 +138,7 @@ from roundtable.core.member_voice import (
 )
 from roundtable.core.members_art import MEMBERS_FILE, load_members, mime_of, resolve_file
 from roundtable.core.memory import LAYERS, MemoryKeeper, clean_memory, prepare_items
+from roundtable.core.moments import PHOTO_JOB
 from roundtable.core.moments import SEEN_KEY as MOMENTS_SEEN
 from roundtable.core.notes import NoteError, check_can_add, clean_note
 from roundtable.core.nowplaying import COVERS_DIR, NowPlaying, SmtcSource, list_covers, read_cover
@@ -292,6 +293,12 @@ class RoundtableService:
         self._backup_task: asyncio.Task[None] | None = None
         self._butler: Butler | None = None
         self._butler_task: asyncio.Task[None] | None = None
+        # 游戏模式（docs/GAMEMODE.md）：游戏表用「关于你」的；排队补跑朋友圈配图
+        self._gamemode_task: asyncio.Task[None] | None = None
+        if runtime.gamemode is not None:
+            if about is not None:
+                runtime.gamemode.set_games(about.games)
+            runtime.gamemode.register(PHOTO_JOB, self._deferred_moment_photo)
         # P4 关系·对你的见解：和成长同一天，每位按自己的性格读一遍画像；花费计入生活每天的上限
         self.insight = InsightKeeper(runtime, self.chats.everyone)
         self.insight.allow = self.life.weekly_allowed
@@ -451,7 +458,8 @@ class RoundtableService:
     async def _weekly_loop(self) -> None:
         while True:
             try:
-                await self.weekly.tick()
+                if not self._background_paused():
+                    await self.weekly.tick()
             except Exception:  # noqa: BLE001 - 周报出错不影响其他功能，下次再看
                 log.exception("资料台周报：生成出错")
             await asyncio.sleep(1800)
@@ -528,6 +536,56 @@ class RoundtableService:
             log.info("开机对账：%d 场讨论在上次退出时中断，已改为暂停", len(ids))
         return ids
 
+    # --- 游戏模式（core/gamemode.py，docs/GAMEMODE.md） ---------------------------------
+
+    def _background_paused(self) -> bool:
+        gm = self.rt.gamemode
+        return gm is not None and gm.background_paused()
+
+    def start_gamemode(self) -> None:
+        """后台每隔几秒看一次：忙不忙、调 CPU 优先级、显卡空了补跑排队的活（只在正式启动时）。"""
+        if self._gamemode_task is None and self.rt.gamemode is not None:
+            self._gamemode_task = asyncio.get_running_loop().create_task(self._gamemode_loop())
+
+    async def _gamemode_loop(self) -> None:
+        gm = self.rt.gamemode
+        assert gm is not None
+        while True:
+            try:
+                await self.gamemode_tick()
+            except Exception:  # noqa: BLE001 - 出错不影响其他功能，下次再看
+                log.exception("游戏模式：检查出错")
+            await asyncio.sleep(gm.rules.poll_seconds)
+
+    async def gamemode_tick(self) -> dict[str, Any]:
+        """看一次（列程序在线程里做，不卡网页）→ 调 CPU 优先级 → 能用显卡就补跑一件。"""
+        gm = self.rt.gamemode
+        if gm is None:
+            return {}
+        await asyncio.to_thread(gm.poll)
+        gm.apply_priority()
+        ran = await gm.drain_one()
+        return gm.view() | {"ran": ran}
+
+    def gamemode(self) -> dict[str, Any]:
+        gm = self.rt.gamemode
+        if gm is None:
+            raise ServiceError("游戏模式不可用", 409)
+        return gm.view()
+
+    def set_gamemode(self, manual: bool) -> dict[str, Any]:
+        """网页上的手动开关：开了马上让出显卡，关了以后照常等显卡连续空闲几分钟。"""
+        gm = self.rt.gamemode
+        if gm is None:
+            raise ServiceError("游戏模式不可用", 409)
+        gm.set_manual(bool(manual))
+        gm.apply_priority()
+        return gm.view()
+
+    async def _deferred_moment_photo(self, payload: dict[str, Any]) -> None:
+        """排队的朋友圈配图：显卡空了补画，画好挂到原来那条动态上。"""
+        await self.life.moments.finish_photo(payload)
+
     def start_life(self) -> None:
         """后台推进成员的生活（只在正式启动的服务里调用；测试直接调 life_tick）。"""
         if self._life_task is None and self.rt.config.roundtable.chat.life.enabled:
@@ -536,7 +594,8 @@ class RoundtableService:
     async def _life_loop(self) -> None:
         while True:
             with contextlib.suppress(Exception):  # 生活出错不影响其他功能，下次再试
-                await self.life_tick()
+                if not self._background_paused():
+                    await self.life_tick()
             await asyncio.sleep(self.rt.config.roundtable.chat.life.tick_minutes * 60)
 
     def start_backup(self) -> None:
@@ -662,9 +721,10 @@ class RoundtableService:
     async def _evolution_loop(self) -> None:
         while True:
             try:
-                await self.evolution_scout_tick()
-                await self.evolution_plugins_tick()
-                self.evolution_tick()
+                if not self._background_paused():
+                    await self.evolution_scout_tick()
+                    await self.evolution_plugins_tick()
+                    self.evolution_tick()
             except Exception:  # noqa: BLE001 - 例会出错不影响其他功能，下次再试
                 log.exception("革新例会：自动检查出错")
             await asyncio.sleep(self.rt.config.roundtable.evolution.tick_minutes * 60)
@@ -1219,7 +1279,8 @@ class RoundtableService:
     async def _butler_loop(self) -> None:
         while True:
             try:
-                self.super_tick()
+                if not self._background_paused():
+                    self.super_tick()
             except Exception:  # noqa: BLE001 - 管家出错不影响其他功能，下次再看
                 log.exception("超级电脑管家：看表出错")
             await asyncio.sleep(self.butler.rules.tick_seconds)
