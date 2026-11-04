@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import dataclasses
 import json
 import logging
 import os
@@ -384,7 +385,7 @@ class Supercomputer:
                 launch = launcher.launch(w)
                 await launcher.before(w)
                 try:
-                    return await self.runner(
+                    result = await self.runner(
                         launch.argv,
                         stdin_text=prompt,
                         cwd=Path(task["folder"]),
@@ -394,8 +395,35 @@ class Supercomputer:
                     )
                 finally:
                     await launcher.after(w)
+                return self._unwrap(w, result)
         finally:
             self.running[w.id] -= 1
+
+    def _unwrap(self, w: SuperWorker, result: RunResult) -> RunResult:
+        """按 JSON 输出的命令行：取出回答，花费记进账本（看不懂就原样交回）。"""
+        spec = w.json_output
+        if spec is None or not result.output.strip():
+            return result
+        try:
+            data = json.loads(result.output.strip().splitlines()[-1])
+        except (ValueError, IndexError):
+            try:
+                data = json.loads(result.output)
+            except ValueError:
+                return result
+        if not isinstance(data, dict):
+            return result
+        if spec.cost_usd:
+            cost = data.get(spec.cost_usd)
+            if isinstance(cost, int | float) and cost > 0:
+                self.ledger.add_spend(w.id, float(cost), self.now())
+        code = result.code
+        if spec.error and data.get(spec.error) and code == 0:
+            code = 1
+        text = data.get(spec.text)
+        if not isinstance(text, str):
+            return dataclasses.replace(result, code=code)
+        return dataclasses.replace(result, code=code, output=text)
 
     async def _split(self, task: dict[str, Any], rng: random.Random) -> list[dict[str, Any]]:
         record: dict[str, Any] = {}

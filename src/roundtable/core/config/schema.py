@@ -3861,6 +3861,14 @@ class LengthGuard(_Strict):
         return out
 
 
+class SuperJsonOutput(_Strict):
+    """命令行按 JSON 输出时（如 ``--output-format json``）：回答、花费（美元）各在哪个字段。"""
+
+    text: str = "result"
+    cost_usd: str | None = None
+    error: str | None = None  # 这个字段为真时算失败（命令行退出码是 0 也算）
+
+
 class SuperWorker(_Strict):
     """超级电脑的一位「员工」：一个在电脑上用官方命令行跑的编程助手（docs/SUPERCOMPUTER.md）。
 
@@ -3869,8 +3877,14 @@ class SuperWorker(_Strict):
     id: str = Field(pattern=r"^[a-z][a-z0-9_-]{0,23}$")
     label: str = Field(min_length=1, max_length=24)  # 界面上的称呼
     # 怎么启动：command = 按 argv 直接运行；dsh = 交给圆桌的 dsh 工作台
-    # （用它的运行时、叠加配置和 key）
-    via: Literal["command", "dsh"] = "command"
+    # （用它的运行时、叠加配置和 key）；credit = 按 argv 运行，但带上 credit_channel
+    # 那个渠道的 key，花的是那个渠道的预付 / 赠送额度
+    # （2026-11-04 用户批：会员每月送的 Claude API 额度给工作台用）
+    via: Literal["command", "dsh", "credit"] = "command"
+    # via=credit：models.yaml 里哪个渠道（用它的 key_env，花费计入它的 monthly_cap_usd）
+    credit_channel: str | None = None
+    # 命令行按 JSON 输出：从里面取回答和这次的花费（花费记进超级电脑账本）
+    json_output: SuperJsonOutput | None = None
     # 命令行（via=command）；任务正文从标准输入交给它，不放进参数
     argv: list[str] = Field(default_factory=list)
     # 额外的环境变量（via=command），如 OpenCode 的权限设置；不能放 key（名字以 _API_KEY、
@@ -3890,8 +3904,10 @@ class SuperWorker(_Strict):
 
     @model_validator(mode="after")
     def _argv(self) -> SuperWorker:
-        if self.via == "command" and not self.argv:
-            raise ValueError(f"{self.id}：via=command 时要写 argv")
+        if self.via in ("command", "credit") and not self.argv:
+            raise ValueError(f"{self.id}：via={self.via} 时要写 argv")
+        if self.via == "credit" and not self.credit_channel:
+            raise ValueError(f"{self.id}：via=credit 时要写 credit_channel")
         for name in self.env:
             if name.upper().endswith(("_API_KEY", "_TOKEN", "_SECRET", "_KEY")):
                 raise ValueError(f"{self.id}.env.{name}：key 不能写进配置，让助手自己登录")
@@ -3900,13 +3916,22 @@ class SuperWorker(_Strict):
                 raise ValueError(f"{self.id}.skills.{kind} 要在 0～1 之间")
         return self
 
+    @property
+    def tier(self) -> int:
+        """派活先后：0 = 包月订阅，1 = 预付 / 赠送的 API 额度，2 = 按用量花钱。"""
+        if self.metered:
+            return 2
+        return 1 if self.via == "credit" else 0
+
 
 class SuperWeights(_Strict):
     """派活打分的权重：分数 = 擅长 × skill + 剩余额度比例 × quota − 手上的活 × busy。
 
     ``metered_last``（2026-11-04 用户定「优先让 Claude 或 Codex 做」）：按用量花钱的助手
     （``metered: true``）排在后面，只有走订阅的都不能用（没装、冷却中、今天次数用完、
-    被排除在外，比如不评自己的活）时才补位。只看配置里的 metered，不看是谁。"""
+    被排除在外，比如不评自己的活）时才补位。只看配置里的 metered，不看是谁。
+    2026-11-04 起分三档（``SuperWorker.tier``）：包月订阅 → 预付 / 赠送的 API 额度（via=credit）
+    → 按用量花钱；前一档都用不了才轮到下一档。"""
 
     skill: float = Field(default=0.6, ge=0)
     quota: float = Field(default=0.3, ge=0)

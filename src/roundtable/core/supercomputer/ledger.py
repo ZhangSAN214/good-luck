@@ -1,4 +1,4 @@
-"""超级电脑的账本：每位助手今天派了几件、冷却到什么时候、界面上改过的每天次数。
+"""超级电脑的账本：每位助手今天派了几件、冷却到什么时候、界面上改过的每天次数、每月花了多少。
 
 存在 ``data/super/ledger.json``；日期按 UTC 算（和预算一致）。没有目录（内存数据库）时只在内存里。
 """
@@ -15,7 +15,13 @@ from typing import Any
 class Ledger:
     def __init__(self, path: Path | None) -> None:
         self.path = path
-        self.data: dict[str, Any] = {"day": "", "used": {}, "cooldown": {}, "limits": {}}
+        self.data: dict[str, Any] = {
+            "day": "",
+            "used": {},
+            "cooldown": {},
+            "limits": {},
+            "spend": {},  # 月份（UTC，如 2026-11）→ 助手 → 美元（命令行自己报的花费）
+        }
         if path is not None and path.is_file():
             try:
                 loaded = json.loads(path.read_text(encoding="utf-8"))
@@ -64,6 +70,16 @@ class Ledger:
 
     def cool(self, worker: str, until: datetime) -> None:
         self.data["cooldown"][worker] = until.isoformat()
+        self._save()
+
+    def month_spent(self, worker: str, now: datetime) -> float:
+        month = now.astimezone(UTC).strftime("%Y-%m")
+        return float(self.data["spend"].get(month, {}).get(worker, 0.0))
+
+    def add_spend(self, worker: str, usd: float, now: datetime) -> None:
+        month = now.astimezone(UTC).strftime("%Y-%m")
+        bucket = self.data["spend"].setdefault(month, {})
+        bucket[worker] = round(float(bucket.get(worker, 0.0)) + max(0.0, usd), 6)
         self._save()
 
     def clear_cooldown(self, worker: str) -> None:

@@ -255,3 +255,62 @@ async def test_step_excludes_and_logs_to_caller(tmp_path):
     assert chosen is not None and chosen.id != first
     assert result.ok and folder.is_dir()
     assert record["worker"] == chosen.id
+
+
+class JsonAgents(Agents):
+    """像 ``claude -p --output-format json``：一行 JSON，回答在 result，花费在 total_cost_usd。"""
+
+    def __init__(self, error=False, **kw) -> None:
+        super().__init__(**kw)
+        self.error = error
+
+    async def __call__(self, argv, **kw):
+        res = await super().__call__(argv, **kw)
+        if not argv[0].endswith("/api"):
+            return res
+        body = {"result": res.output, "total_cost_usd": 0.12, "is_error": self.error}
+        return RunResult(res.code, "进度…\n" + json.dumps(body, ensure_ascii=False))
+
+
+def credit_build(tmp_path, agents):
+    from roundtable.core.config.schema import SuperJsonOutput
+
+    api = SuperWorker(
+        id="api",
+        label="API",
+        via="credit",
+        credit_channel="anthropic",
+        argv=["api"],
+        skills={"code": 0.9, "docs": 0.9, "test": 0.9, "split": 0.9, "merge": 0.9},
+        json_output=SuperJsonOutput(cost_usd="total_cost_usd", error="is_error"),
+    )
+    lau = Launcher()
+    sc = Supercomputer(
+        SupercomputerRules(workers=[api]),
+        root=tmp_path / "super",
+        render=render,
+        launchers={"credit": lau},
+        now=Clock(),
+        runner=agents,
+        seed=7,
+    )
+    return sc
+
+
+async def test_json_output_is_unwrapped_and_spend_recorded(tmp_path):
+    agents = JsonAgents()
+    sc = credit_build(tmp_path, agents)
+    task = sc.submit("加一个接口")
+    await sc.wait()
+    assert task["status"] == "done"
+    assert "total_cost_usd" not in json.dumps(task, ensure_ascii=False)
+    spent = sc.ledger.month_spent("api", sc.now())
+    assert spent == pytest.approx(0.12 * len(agents.calls))  # 每次调用自己报的花费都记上
+
+
+async def test_json_error_flag_counts_as_failure(tmp_path):
+    sc = credit_build(tmp_path, JsonAgents(error=True))
+    task = sc.submit("加一个接口")
+    await sc.wait()
+    assert all(not a["ok"] for st in task["subtasks"] for a in st["attempts"])
+    assert task["subtasks"][0]["status"] == "failed"

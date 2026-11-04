@@ -172,3 +172,21 @@ def test_monthly_caps_from_config(config, repo):
         for n, c in config.models.channels.items()
         if c.monthly_cap_usd is not None
     }
+
+
+def test_monthly_cap_adds_workbench_credit_spend(repo):
+    """工作台用 API 额度的 Claude Code 自己报的花费也算进每月上限；外部账本坏了不挡。"""
+    from roundtable.core.budget.channels import WeeklyCap
+
+    cap = WeeklyCap({}, repo, lambda: datetime.now(UTC), ttl_s=0, monthly={"direct": 1.0})
+    cap.monthly_extra["direct"] = lambda: 0.6
+    _channel_spend(repo, "direct", 0.5)
+    assert cap.month_spent("direct") == pytest.approx(1.1)
+    assert "每月上限" in (cap.blocked("direct") or "")
+
+    def broken():
+        raise OSError("账本读不到")
+
+    cap.monthly_extra["direct"] = broken
+    assert cap.month_spent("direct") == pytest.approx(0.5)
+    assert cap.blocked("direct") is None

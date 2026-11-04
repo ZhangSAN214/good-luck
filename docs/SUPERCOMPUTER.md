@@ -16,7 +16,7 @@
 - **今天剩余次数**：每位每天最多派 `daily_limit` 件（默认 20，日期按 UTC 算）。在面板里可以直接改，改动存在 `data/super/ledger.json`。
 - **手上的活**：已经分到、还没干完的件数。同时分好几件小活时，每分一件都算进去，活就会自然分散开。
 - 权重在 `supercomputer.weights` 里改。同分时用这件活的随机种子决定，种子写在记录里，可以复现。
-- **订阅优先**（2026-11-04 用户定）：包月订阅的（Claude Code、Codex）先上；按用量花钱的（`workers[].metered: true`，现在只有 dsh）排在最后，只在订阅的都用不了（冷却、次数用完、没装、审查不能给作者本人）时才补位。宁可排队等订阅的，也不多花钱。轮到它时，面板「为什么是他」一栏会写「按用量花钱，只补位」。想回到纯按分数派，把 `weights.metered_last` 改成 `false`。
+- **订阅优先**（2026-11-04 用户定）：包月订阅的（Claude Code、Codex）先上；按用量花钱的（`workers[].metered: true`，现在只有 dsh）排在最后，只在订阅的都用不了（冷却、次数用完、没装、审查不能给作者本人）时才补位。用 API 额度的（`via: credit`，见「API 额度」）排在两者中间。宁可排队等订阅的，也不多花钱。轮到它时，面板「为什么是他」一栏会写「按用量花钱，只补位」。想回到纯按分数派，把 `weights.metered_last` 改成 `false`。
 
 以下情况不参加打分：
 - 没装、没找到命令。
@@ -44,6 +44,12 @@
   - OpenCode 默认参数：`opencode run -m <方案/模型>`，权限用这位的 `env`（`OPENCODE_PERMISSION`）设置，见下一节。
   - 每位可以在 `env` 里加环境变量，但名字以 `_KEY`、`_TOKEN`、`_SECRET` 结尾的会被拒绝。key 只能由助手自己登录保存。
   - 命令行的参数以后变了，只改配置就行。
+- **dsh**（`via: dsh`）：交给圆桌的 dsh 工作台，以 headless 方式运行（`--profile headless … -`）。
+  - 用工作台的运行时、叠加配置（关上传和遥测、中立身份）和 DeepSeek key。
+  - 权限是 `dsh.job_permission_mode`（默认 `workspace-write`，只能写这件活的工作文件夹）。
+  - 花费按余额差额计入 `dsh.monthly_usd`。
+  - 没带 dsh 时，这位显示为不可用，其余照常。
+- **API 额度**（`via: credit`）：和命令行一样按 `argv` 运行，但把 `credit_channel` 那个渠道（`models.yaml`）的 key 交给它，花的是那个渠道的预付 / 赠送额度，见下面「API 额度」。
 
 ## OpenCode 和其他包月方案
 
@@ -63,11 +69,16 @@
 - 换 Go 里的另一个模型：把 `-m opencode-go/deepseek-v4.1-flash` 换成别的，比如 `opencode-go/glm-5.2`、`opencode-go/qwen3.7-plus`。
 - 加一家别的编程包月（智谱、Kimi、千问等 OpenCode 支持的方案）：先 `opencode auth login` 登录那一家，再照抄一位 OpenCode，改 `id`、`label` 和 `-m` 后面的「方案/模型」。
 - 不想用某一位：删掉那一段，或者把 `daily_limit` 改成 0。
-- **dsh**（`via: dsh`）：交给圆桌的 dsh 工作台，以 headless 方式运行（`--profile headless … -`）。
-  - 用工作台的运行时、叠加配置（关上传和遥测、中立身份）和 DeepSeek key。
-  - 权限是 `dsh.job_permission_mode`（默认 `workspace-write`，只能写这件活的工作文件夹）。
-  - 花费按余额差额计入 `dsh.monthly_usd`。
-  - 没带 dsh 时，这位显示为不可用，其余照常。
+
+## API 额度
+
+2026-11-04 用户定：会员每月送的 $100 Claude API 额度也给工作台用（「两步都做」）。配置里的 `claude-api`（Claude Code·API额度）就是它。
+
+- **派活顺序：** 包月的（Claude Code、Codex、OpenCode 五位）先上；它们都用不了（冷却、次数用完、没装）才轮到 `claude-api`；dsh 按用量花钱，排在最后。面板「为什么是他」会写「走 API 额度，包月的都用不了时才上」。
+- **key：** 只从 `.env` 的 `ANTHROPIC_API_KEY` 读，只交给这一位的子进程（输出里出现会换成 `***`）。其他助手照旧拿不到任何 key。没填 key 时这位显示「没有 ANTHROPIC_API_KEY 的 key」。
+- **花费：** 它用 `--output-format json`，每件活自己报花了多少（`total_cost_usd`），记进工作台账本，和群聊走这个渠道的花费一起算进 `models.yaml` 里 anthropic 的 `monthly_cap_usd`（$100）。到了上限这位就歇着，下月 1 号恢复。
+- **模型：** 默认 `--model sonnet`，想换就改 `argv`。
+- **换成别家的 API 额度：** 照抄这一段，改 `credit_channel` 和 `argv`。
 
 ## 安全
 

@@ -2244,6 +2244,19 @@ supercomputer:
       skills: {frontend: 0.8, code: 0.8, review: 0.8, research: 0.75, docs: 0.75, test: 0.65, split: 0.75, merge: 0.75}
       daily_limit: 8
       limit_patterns: *opencode_limits
+    # 用 API 额度的 Claude Code（2026-11-04 用户定「两步都做」）：同一个 claude 命令行，但把 .env 里
+    # anthropic 渠道的 key 交给它，花的是会员每月送的 API 额度（不占 Max 订阅的用量）。
+    # 包月的几位都用不了时才轮到它，dsh 再往后；渠道到了每月上限（models.yaml 的 monthly_cap_usd）就停。
+    # 它每件活自己报花了多少，记进工作台账本并算进那个上限。没填 key 时显示不可用。
+    - id: claude-api
+      label: Claude Code·API额度
+      via: credit
+      credit_channel: anthropic
+      argv: [claude, -p, --model, sonnet, --permission-mode, acceptEdits, --output-format, json]
+      json_output: {text: result, cost_usd: total_cost_usd, error: is_error}
+      skills: {code: 0.85, frontend: 0.85, review: 0.9, docs: 0.85, test: 0.75, research: 0.6, split: 0.85, merge: 0.85, vision: 0.9}
+      daily_limit: 20
+      limit_patterns: [usage limit, rate limit, limit reached, quota, credit balance]
   # 管家（docs/SUPERCOMPUTER.md「管家」）：你建的定时活、排队、自治闸门、日报、哈希链审计。
   # 只调度你建好的定时活和你排进队的活，不会自己找活干；不调模型、不花钱。
   butler:

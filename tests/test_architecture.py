@@ -22,6 +22,8 @@ REVEAL_ALLOWED = {
     "src/roundtable/core/search/openrouter.py",
     # dsh 工作台：启动时把模型 key 放进 dsh 子进程的环境变量、查余额时放进请求头（docs/DSH.md）
     "src/roundtable/core/dsh/channel.py",
+    # 超级电脑用 API 额度的助手：把那个渠道的 key 放进命令行子进程（2026-11-04 用户批准）
+    "src/roundtable/core/supercomputer/credit.py",
 }
 
 SECRET_PATTERNS = [
