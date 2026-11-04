@@ -322,3 +322,80 @@ async def test_balance_not_configured_is_unsupported():
     with pytest.raises(UnsupportedCapability):
         await provider.account_balance()
     await provider.aclose()
+
+
+async def test_stream_param_joins_chunks_and_reads_usage():
+    seen = {}
+    chunks = [
+        {"choices": [{"delta": {"content": "你"}}]},
+        {"choices": [{"delta": {"content": "好"}, "finish_reason": "stop"}]},
+        {"choices": [], "usage": {"prompt_tokens": 50, "completion_tokens": 2}},
+    ]
+    sse = "".join(f"data: {json.dumps(c)}\n\n" for c in chunks) + "data: [DONE]\n\n"
+
+    def handler(request: httpx.Request):
+        seen["body"] = json.loads(request.content)
+        return httpx.Response(200, text=sse, headers={"content-type": "text/event-stream"})
+
+    raw = await make(handler).complete("m", MESSAGES, {"stream": True})
+    assert seen["body"]["stream"] is True
+    assert seen["body"]["stream_options"] == {"include_usage": True}
+    assert (raw.text, raw.input_tokens, raw.output_tokens) == ("你好", 50, 2)
+
+
+async def test_stream_error_chunk_and_empty_stream_raise():
+    def bad(request):
+        body = 'data: {"error": {"code": "429", "message": "slow down"}}\n\n'
+        return httpx.Response(200, text=body)
+
+    with pytest.raises(ProviderError) as err:
+        await make(bad).complete("m", MESSAGES, {"stream": True})
+    assert err.value.kind == ErrorKind.RATE_LIMIT
+
+    def empty(request):
+        return httpx.Response(200, text="data: [DONE]\n\n")
+
+    with pytest.raises(ProviderError) as err:
+        await make(empty).complete("m", MESSAGES, {"stream": True})
+    assert err.value.kind == ErrorKind.INVALID_RESPONSE
+
+
+async def test_media_data_uri_channel_prefixes_audio():
+    import base64
+
+    from roundtable.core.providers import Media
+
+    seen = {}
+
+    def handler(request: httpx.Request):
+        seen["body"] = json.loads(request.content)
+        return httpx.Response(200, json=ok_body())
+
+    msgs = [Message("user", "听", (Media("audio", "audio/mpeg", b"MP3"),))]
+    await make(handler, media_data_uri=True).complete("m", msgs, {})
+    part = seen["body"]["messages"][0]["content"][1]
+    assert part["input_audio"]["data"] == "data:;base64," + base64.b64encode(b"MP3").decode()
+
+
+@pytest.mark.parametrize(
+    ("reasoning", "sent"),
+    [
+        ({"effort": "low"}, {"enable_thinking": False}),
+        ({"effort": "none"}, {"enable_thinking": False}),
+        ({"enabled": False}, {"enable_thinking": False}),
+        ({"effort": "medium"}, {"enable_thinking": True}),
+        ({"max_tokens": 800}, {"enable_thinking": True, "thinking_budget": 800}),
+    ],
+)
+async def test_toggle_reasoning_style_switches_thinking(reasoning, sent):
+    seen = {}
+
+    def handler(request: httpx.Request):
+        seen["body"] = json.loads(request.content)
+        return httpx.Response(200, json=ok_body())
+
+    await make(handler, reasoning="toggle").complete("m", MESSAGES, {"reasoning": reasoning})
+    body = seen["body"]
+    assert "reasoning" not in body and "reasoning_effort" not in body
+    assert {k: body[k] for k in sent} == sent
+    assert ("thinking_budget" in body) == ("thinking_budget" in sent)

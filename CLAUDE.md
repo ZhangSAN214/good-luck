@@ -56,7 +56,7 @@
 11. **工具对所有成员相同**：同一步骤可用的工具、限额、工具说明完全一样（只看配置和当前可用性，不看是哪个模型）；工具模型（`seat: false`，如图像生成）从不上桌。
 
 ## 5. 安全与密钥
-- API key **只能**放在项目根目录 `.env`（在 `.gitignore` 中），仓库只提交 `.env.example`。所有 key 都可选：`OPENROUTER_API_KEY`、`OPENAI_API_KEY`、`ANTHROPIC_API_KEY`、`GEMINI_API_KEY`、`XAI_API_KEY`、`DEEPSEEK_API_KEY`、`TAVILY_API_KEY`（联网搜索备选；默认的搜索用 `OPENROUTER_API_KEY`）。
+- API key **只能**放在项目根目录 `.env`（在 `.gitignore` 中），仓库只提交 `.env.example`。所有 key 都可选：`OPENROUTER_API_KEY`、`OPENAI_API_KEY`、`ANTHROPIC_API_KEY`、`GEMINI_API_KEY`、`XAI_API_KEY`、`DEEPSEEK_API_KEY`、`DASHSCOPE_API_KEY`（阿里云百炼，感官的看视频 / 听歌工具模型）、`TAVILY_API_KEY`（联网搜索备选；默认的搜索用 `OPENROUTER_API_KEY`）。
 - key 不得出现在代码、YAML、提示词、日志、异常信息、SQLite、测试快照、前端代码与 API 响应中。
 - 读入的 key 一律包成 `Secret`：`repr` / `str` / 格式化只显示 `***`，不可序列化；**只有适配器（模型渠道与搜索服务）在组装请求头时调用 `reveal()`**（架构测试限定了允许的文件）。
 - 外部返回的错误文本先脱敏、截断再放进异常；异常用 `from None` 切断原始异常链。

@@ -17,6 +17,7 @@ tag_vocabulary:
   # 媒体类
   - vision          # 能看图（图片、视频截帧）
   - video_in        # 能直接看整段视频（画面连声音，作为消息附件发送）
+  - audio_in        # 能听懂音乐和环境声（不只是转写说话；整段音频作为消息附件发送），感官听歌用
   - transcribe      # 能直接接收音频的对话模型（旧的转写方式；有 stt 模型时优先用 stt）
   - image_gen       # 图像生成
   - image_edit      # 支持以参考图为输入的图像生成 / 编辑（风格参考图用）
@@ -70,6 +71,15 @@ channels:
     kind: direct
     base_url: https://api.deepseek.com/v1
     key_env: DEEPSEEK_API_KEY
+  # 阿里云百炼（OpenAI 兼容模式，北京地域）：感官看视频、听歌用的工具模型走这里（docs/PERCEPTION.md）。
+  # 在百炼控制台实名、建 key 后写进 .env 的 DASHSCOPE_API_KEY；没填时这些模型自动不可用，感官照旧
+  bailian:
+    adapter: openai_compat
+    kind: direct
+    base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
+    key_env: DASHSCOPE_API_KEY
+    media_data_uri: true       # 兼容模式要求音频写成 data URI
+    reasoning: toggle          # 默认开着思考：少想 / 不想时发 enable_thinking: false（真跑发现开着思考会把歌听错、输出多好几倍）
   # 本地 ComfyUI（只出图，不花钱，不需要 key）：装好后在 config/models.local.yaml 写
   #   model_switches: {comfyui-local: true}
   # 就能打开下面的 comfyui-local 模型（步骤见 docs/COMFYUI.md）
@@ -172,7 +182,7 @@ models:
     tier: budget
     price: {input: 0.75, output: 3.75}
     # transcribe：能直接接收音频，用于把上传的音频转写成文字（普通对话调用）
-    tags: [design, research, long_context, vision, transcribe, video_in]
+    tags: [design, research, long_context, vision, transcribe, video_in, audio_in]
     enabled: true
     routes:
       - {channel: google, model: gemini-3.8-flash}
@@ -185,7 +195,9 @@ models:
     price: {input: 2.00, output: 6.00}   # 已由用户核对
     tags: [math, derivation, science, code]
     enabled: true
+    # 百炼北京官方价 ¥12 / ¥36 每百万（约 $1.67 / $5），比 OpenRouter 便宜；没填 DASHSCOPE_API_KEY 时走 OpenRouter
     routes:
+      - {channel: bailian, model: qwen3.8-max-0902}
       - {channel: openrouter, model: qwen/qwen3.8-max-0902}
 
   # OpenRouter 上的固定版本为 qwen/qwen3.8-flash-20260826；
@@ -197,7 +209,10 @@ models:
     price: {input: 0.15, output: 0.47}
     tags: [math, code, long_context, vision]
     enabled: true
+    # 百炼北京有新人免费额度（100 万 token、90 天），用完后官方价 ¥0.8 / ¥2.7 也比 OpenRouter 便宜；
+    # 没填 DASHSCOPE_API_KEY 时自动走 OpenRouter
     routes:
+      - {channel: bailian, model: qwen3.8-flash}
       - {channel: openrouter, model: qwen/qwen3.8-flash}
 
   - id: grok-4.7
@@ -487,6 +502,34 @@ models:
     enabled: true
     routes:
       - {channel: openrouter, model: tencent/hy-image-v3.5-preview}
+  # --- 感官的看与听（不上桌，只把视频、歌整理成感知卡给成员读；docs/PERCEPTION.md）---
+  # 走百炼北京地域，优先用有「新人免费额度」的新模型（每个模型 100 万 token、90 天；
+  # 2026-10-29 起 qwen3-vl / qwen3-omni 等旧模型不再送）。价格按北京官方价折美元（1 美元 ≈ 7.2 元），
+  # 百炼不返回实际费用，记账按这里的价估算；免费额度内实际不扣钱。
+  # 看视频和图：qwen3.7-flash 原生支持图片、视频输入，0～32K 档 ¥0.2 / ¥0.8 每百万，有免费额度
+  - id: qwen3.7-flash
+    vendor: Alibaba
+    aliases: [Qwen, 通义千问, 千问, 通义]
+    seat: false
+    tier: budget
+    price: {input: 0.028, output: 0.111}
+    tags: [vision, video_in, zh]
+    enabled: true
+    routes:
+      - {channel: bailian, model: qwen3.7-flash}
+  # 听歌、听环境声（也能看视频）：Qwen3.8-Omni-Flash（2026-09 新模型，不在免费额度下架名单里）。
+  # 价格为第三方报价 $0.15 / $0.47，官方分模态价未核实；按流式调用（旧版 Omni 只支持流式）
+  - id: qwen3.8-omni-flash
+    vendor: Alibaba
+    aliases: [Qwen, 通义千问, 千问, 通义]
+    seat: false
+    tier: budget
+    price: {input: 0.15, output: 0.47}
+    tags: [audio_in, vision, video_in, zh]
+    params: {stream: true}
+    enabled: true
+    routes:
+      - {channel: bailian, model: qwen3.8-omni-flash}
   # --- 语音转文字（上传音频的转写；优先于带 transcribe 标签的对话模型）---
   - id: whisper-large-v3-turbo
     vendor: OpenAI

@@ -15,6 +15,7 @@ FAKE_KEYS = {
     "GEMINI_API_KEY": "AIza" + "x" * 35,
     "XAI_API_KEY": "xai-" + "q" * 40,
     "DEEPSEEK_API_KEY": "sk-" + "d" * 32,
+    "DASHSCOPE_API_KEY": "sk-" + "b" * 32,
 }
 
 

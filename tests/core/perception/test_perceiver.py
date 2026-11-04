@@ -13,6 +13,7 @@ from roundtable.core.perception import (
     media_block,
     parse_cards,
 )
+from roundtable.core.providers import ErrorKind, ProviderError
 
 from ..orchestrator.conftest import Env
 from ..routing.conftest import POOL
@@ -39,7 +40,10 @@ def test_mode_follows_the_users_words():
 
 
 def test_parse_cards_by_number():
-    assert parse_cards("【1】猫\n【2】狗\n【9】多余", 2) == {1: "猫", 2: "狗"}
+    assert parse_cards("【1】猫\n【2】狗\n【9】多余", 2) == {1: "猫", 2: "狗\n多余"}
+    # 模型把一张卡的小标题也编了号：接回这张卡，不丢内容（真跑时只剩「概况」）
+    card = parse_cards("【1】概况：录屏\n【2】时间线：\n0:00 a\n【3】镜头：固定", 1)
+    assert card == {1: "概况：录屏\n时间线：\n0:00 a\n镜头：固定"}
     assert parse_cards("只有一段", 1) == {1: "只有一段"}
     assert parse_cards("没有编号", 2) == {}
 
@@ -94,7 +98,7 @@ def test_fast_video_sends_two_grid_images_plus_transcript_and_fine_reuses_the_tr
     assert "橘猫" in card.text
     (call,) = look_calls(env)
     media = call.messages[-1].media
-    assert [m.kind for m in media] == ["image", "image"]  # 8 帧拼成 2 张宫格图
+    assert [m.kind for m in media] == ["image"] * 4  # 16 帧拼成 4 张宫格图
     text = call.messages[-1].content
     assert "宫格图" in text and "<transcript" in text and "这是一段测试转写" in text
     # 精细：没有能看整段视频的模型 → 取 24 帧、不拼图；声音不再转写
@@ -116,9 +120,10 @@ def test_fine_video_goes_whole_to_a_video_in_model():
     assert call.model == "f1"  # 只看标签：能看整段视频又能看图
     assert [m.kind for m in call.messages[-1].media] == ["video"]
     assert "画面连声音" in call.messages[-1].content
-    # 快速仍然取帧（不用贵的整段）
+    # 快速（默认）也整段交给它；发送前压成小的 mp4
     run(p, [SenseItem("d.mp4", "video", make_video(3), "video/mp4")])
-    assert look_calls(env)[-1].model == "b2"
+    call = look_calls(env)[-1]
+    assert call.model == "f1" and [m.kind for m in call.messages[-1].media] == ["video"]
 
 
 def test_monthly_cap_and_switch_stop_new_calls_but_cache_still_works():
@@ -152,3 +157,75 @@ def test_chat_history_shows_cards_in_media_tags():
     assert media_block("阿一", [{"kind": "voice", "text": "你好"}]) == (
         '<media from="阿一" kind="语音">你好</media>'
     )
+
+
+# 不上桌的感官工具模型：只能听和看（没有档位 → seat: false）
+EAR = ("ear", "V6", None, ["audio_in", "vision", "video_in"], 0.05, 0.5)
+SONG = b"ID3" + b"\x00" * (25 * 16000)  # 解不开时按字节数估时长：约 25 秒
+
+
+def test_pool_has_sense_tool_models_but_not_media_makers():
+    env = Env(pool=[*POOL, EAR], with_media=True)
+    p = perceiver(env)
+    assert [m.id for m in p.pool("audio_in")] == ["ear"]
+    assert "ear" in {m.id for m in p.pool("vision")}
+    assert not {"mi1", "mi2"} & {m.id for m in p.pool("vision")}  # 画图模型不拿来看
+
+
+def test_song_file_goes_whole_to_an_audio_in_model():
+    env = Env(pool=[*POOL, EAR], with_media=True)
+    p = perceiver(env)
+    (card,) = run(p, [SenseItem("s.mp3", "voice", SONG, "audio/mpeg")])
+    listen = [c for c in env.fake.calls if c.model == "ear"]
+    assert len(listen) == 1 and card.text
+    msg = listen[0].messages[-1]
+    assert [m.kind for m in msg.media] == ["audio"] and msg.media[0].mime == "audio/mpeg"
+    assert "耳朵" in listen[0].messages[0].content and "这是一段测试转写" in msg.content
+    assert listen[0].params["max_tokens"] == env.config.roundtable.perception.listen.max_tokens
+
+
+def test_recorded_voice_and_short_clips_are_only_transcribed():
+    env = Env(pool=[*POOL, EAR], with_media=True)
+    p = perceiver(env)
+    run(p, [SenseItem("v.weba", "voice", WEBM, "audio/webm")])  # 录音式语音
+    run(p, [SenseItem("t.mp3", "voice", b"ID3" + b"\x00" * 1000, "audio/mpeg")])  # 太短
+    assert [c for c in env.fake.calls if c.model == "ear"] == []
+
+
+def test_song_without_an_ear_falls_back_to_the_transcript():
+    env = Env(with_media=True)
+    (card,) = run(perceiver(env), [SenseItem("s.mp3", "voice", SONG, "audio/mpeg")])
+    assert card.text.startswith("语音转写：")
+
+
+def test_native_video_is_shrunk_to_mp4_and_failure_falls_back_to_frames():
+    pool = [*POOL, EAR]
+    env = Env(pool=pool, with_media=True)
+    p = perceiver(env)
+    data = make_video(3)
+    run(p, [SenseItem("c.mp4", "video", data, "video/mp4")])
+    (call,) = look_calls(env)
+    assert call.model == "ear"
+    (video,) = call.messages[-1].media
+    assert video.kind == "video" and video.mime == "video/mp4"
+
+    # 整段看失败 → 改为取帧拼宫格
+    def broken(model, messages):
+        if any(m.kind == "video" for m in messages[-1].media):
+            raise ProviderError(ErrorKind.REFUSAL, "c", "fake")
+        return env.reply(model, messages)
+
+    env2 = Env(pool=pool, with_media=True)
+    env2.fake._default = broken
+    (card,) = run(perceiver(env2), [SenseItem("d.mp4", "video", make_video(2), "video/mp4")])
+    assert "橘猫" in card.text
+    assert [m.kind for m in look_calls(env2)[-1].messages[-1].media] == ["image"] * 4
+
+
+def test_video_card_marks_screen_text_as_unreliable():
+    env = Env()
+    p = perceiver(env)
+    card = p._mark_screen_text("概况：录屏\n屏幕上的字：0:00 标题\n声音和配乐：无")
+    note = env.rt.config.roundtable.perception.screen_text_note
+    assert note and f"屏幕上的字：{note}0:00 标题" in card
+    assert p._mark_screen_text("没有这一节") == "没有这一节"

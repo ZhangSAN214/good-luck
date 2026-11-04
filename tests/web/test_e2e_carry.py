@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import time
+
 from ..core.orchestrator.conftest import MEDIUM
 from .test_e2e import ask, wait_done
 
@@ -68,7 +70,13 @@ def test_make_buttons_turn_the_result_into_a_media_session(serve, page):
     page.wait_for_function(f"location.hash !== {first!r}", timeout=10000)
     wait_done(page)
     sid = page.evaluate("location.hash").split("=", 1)[1]
-    sv = page.request.get(f"{srv.url}/api/sessions/{sid}").json()
+    # 换了会话后，旧会话的「完成」提示可能还在页面上，wait_done 会提前返回：以接口为准等音乐任务出现
+    deadline = time.monotonic() + 15
+    while True:
+        sv = page.request.get(f"{srv.url}/api/sessions/{sid}").json()
+        if sv["media"] or time.monotonic() > deadline:
+            break
+        page.wait_for_timeout(200)
     assert sv["media_kind"] == "music" and "配一段契合主题" in sv["question"]
     assert "previous_result" in sv["question"]
     assert [j["kind"] for j in sv["media"]] == ["music"]

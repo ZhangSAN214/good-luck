@@ -12,6 +12,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import logging
 import random
@@ -19,8 +20,7 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
-from roundtable.core.allocation import cheapest
-from roundtable.core.attachments.ingest import capable
+from roundtable.core.allocation import cheapest, eligible
 from roundtable.core.budget.guard import month_window
 from roundtable.core.chat import chat_budget
 from roundtable.core.media import pick_stt_model, shrink_image, unit_cost
@@ -40,6 +40,7 @@ from .senses import (
     extract_audio,
     grids,
     sample_frames,
+    shrink_video,
     video_duration,
 )
 
@@ -49,6 +50,9 @@ STEP = "perceive"
 WORKFLOW = "chat"
 LABELS = {"image": "图片", "video": "视频", "voice": "语音"}
 ROLES = {"fast": "perceive_fast", "fine": "perceive_fine"}
+LISTEN_ROLE = "perceive_listen"
+# 不上桌的工具模型里，这些是「产出媒体」的（画图、配音、做视频、作曲），不拿来看和听
+_MAKERS = {"image_gen", "image_edit", "tts", "video_gen", "music_gen", "stt"}
 BYTES_PER_SECOND = 16000  # 没有时长信息时按 128 kbps 估计语音长度
 _SPLIT = re.compile(r"【\s*(\d+)\s*】")
 _TAGS = ("items", "transcript", "media", "chat")
@@ -84,14 +88,24 @@ class Card:
 
 
 def parse_cards(text: str, count: int) -> dict[int, str]:
-    """按【编号】拆开模型输出；只有一项又没写编号时整段算第 1 项。"""
+    """按【编号】拆开模型输出；只有一项又没写编号时整段算第 1 项。
+
+    模型有时把一张卡里的小标题也编成【2】【3】……（编号超出项数或重复）：这些段落接回上一张卡，
+    不丢内容。
+    """
     parts = _SPLIT.split(text)
     out: dict[int, str] = {}
+    last: int | None = None
     for i in range(1, len(parts) - 1, 2):
         n = int(parts[i])
         body = parts[i + 1].strip()
-        if 1 <= n <= count and body:
+        if not body:
+            continue
+        if 1 <= n <= count and n not in out and (last is None or n > last):
             out[n] = body
+            last = n
+        elif last is not None:
+            out[last] += "\n" + body
     if not out and count == 1 and text.strip():
         out[1] = text.strip()
     return out
@@ -150,7 +164,15 @@ class Perceiver:
                 if it.kind in ("voice", "video"):
                     transcripts[it.id] = await self.transcript(room, it)
             for it in todo:
-                if it.kind == "voice" and transcripts.get(it.id) is not None:
+                if it.kind != "voice":
+                    continue
+                if self._is_song(it):
+                    heard = await self._listen(room, it, transcripts.get(it.id))
+                    if heard:
+                        self.cache.put_card(it.sha, mode, heard)
+                        cards[it.id] = Card(it.id, it.kind, mode, heard)
+                        continue
+                if transcripts.get(it.id) is not None:
                     said = transcripts[it.id] or "（听不清，或者没有说话）"
                     card = self._clip(f"语音转写：{said}")
                     self.cache.put_card(it.sha, mode, card)
@@ -164,8 +186,18 @@ class Perceiver:
                         cards[it.id] = Card(it.id, it.kind, mode, looked[it.id])
         return [cards[it.id] for it in items if it.id in cards]
 
-    def _clip(self, text: str) -> str:
-        limit = self.rules.card_chars
+    def pool(self, tag: str) -> list[Any]:
+        """能做这件事的模型：上桌模型和不上桌的感官工具模型（docs/PERCEPTION.md），只看标签。
+
+        工具模型（seat: false）专门用来看和听，从不上桌；画图、配音这类产出媒体的模型不算。
+        """
+        models = [
+            m for m in self.rt.router.available_models() if m.seat or not (_MAKERS & set(m.tags))
+        ]
+        return eligible(models, required_tags=[tag])
+
+    def _clip(self, text: str, limit: int | None = None) -> str:
+        limit = limit or self.rules.card_chars
         text = text.strip()
         return text if len(text) <= limit else text[:limit].rstrip() + "…"
 
@@ -247,7 +279,7 @@ class Perceiver:
 
     async def _chat_transcribe(self, room: str, audio: Media) -> str | None:
         """没有 stt 模型时：最便宜的带 transcribe 标签的对话模型（音频作为消息附件）。"""
-        pool = capable(self.rt.router, "transcribe")
+        pool = [m for m in self.pool("transcribe") if m.seat]
         if not pool:
             return None
         rules = self.rt.config.roundtable.uploads
@@ -262,6 +294,56 @@ class Perceiver:
         completion = await self._call(room, model.id, messages, prompt, params)
         return completion.text if completion is not None else None
 
+    # --- 听歌 ---------------------------------------------------------------------
+
+    def _is_song(self, it: SenseItem) -> bool:
+        """音频文件（不是录音式语音）、够长、有能听音乐的模型时才去听。"""
+        rules = self.rules.listen
+        if not rules.enabled or it.mime.lower() not in {m.lower() for m in rules.mimes}:
+            return False
+        try:
+            length = video_duration(it.data)
+        except SenseUnavailable:
+            length = None
+        if length is None:
+            length = len(it.data) / BYTES_PER_SECOND
+        return length >= rules.min_s and bool(self.pool("audio_in"))
+
+    async def _listen(self, room: str, it: SenseItem, transcript: str | None) -> str | None:
+        """整段音频交给最便宜的能听音乐的模型，写一张听歌卡（客观：曲风、配器、结构、歌词）。"""
+        rules = self.rules.listen
+        pool = self.pool("audio_in")
+        if not pool or not self.allowed(rules.estimate_usd):
+            return None
+        try:
+            length = video_duration(it.data)
+        except SenseUnavailable:
+            length = None
+        seconds = min(length or len(it.data) / BYTES_PER_SECOND, rules.max_s)
+        model = cheapest(
+            pool,
+            self.rng,
+            input_tokens=int(25 * seconds) + 1500,
+            output_tokens=rules.max_tokens // 2,
+        )
+        prompt = self.rt.prompts.render(
+            LISTEN_ROLE,
+            self.rt.config.roundtable.prompts[LISTEN_ROLE],
+            name=it.id,
+            length=clock(length or 0),
+            transcript=_neutralize(transcript or "（没有转写稿）"),
+        )
+        ext = it.id.rsplit(".", 1)[-1]
+        audio = Media("audio", it.mime, it.data, f"song.{ext}")
+        messages = tuple(
+            Message(m.role, m.content, (audio,)) if m.role == "user" else m for m in prompt.messages
+        )
+        params = {"max_tokens": rules.max_tokens, "reasoning": {"effort": "low"}}
+        completion = await self._call(room, model.id, messages, prompt, params)
+        if completion is None or not completion.text.strip():
+            return None
+        return self._clip(completion.text, self.rules.long_card_chars)
+
     # --- 看 -----------------------------------------------------------------------
 
     def _native_ok(self, items: list[SenseItem], mode: str) -> list[Any]:
@@ -272,7 +354,7 @@ class Perceiver:
             return []
         if any(len(it.data) > self.rules.native_max_mb * 2**20 for it in videos):
             return []
-        return [m for m in capable(self.rt.router, "video_in") if "vision" in m.tags]
+        return [m for m in self.pool("video_in") if "vision" in m.tags]
 
     async def _look(
         self,
@@ -281,9 +363,24 @@ class Perceiver:
         transcripts: dict[str, str | None],
         mode: str,
     ) -> dict[str, str]:
-        cfg = getattr(self.rules, mode)
         native = self._native_ok(items, mode)
-        pool = native or capable(self.rt.router, "vision")
+        if native:
+            looked = await self._look_once(room, items, transcripts, mode, native)
+            if looked:
+                return looked
+            log.info("整段看视频没成功，改用取帧")
+        return await self._look_once(room, items, transcripts, mode, [])
+
+    async def _look_once(
+        self,
+        room: str,
+        items: list[SenseItem],
+        transcripts: dict[str, str | None],
+        mode: str,
+        native: list[Any],
+    ) -> dict[str, str]:
+        cfg = getattr(self.rules, mode)
+        pool = native or self.pool("vision")
         if not pool:
             log.info("没有可用的看图模型，感官跳过")
             return {}
@@ -302,8 +399,19 @@ class Perceiver:
                 else ("（这段视频没有声音或听不清）" if heard == "" else "（声音没能转写）")
             )
             if native:
-                media.append(Media("video", it.mime, it.data, f"video{n}"))
-                lines.append(f"{n}. 视频：随附视频（画面连声音）。{sound}")
+                try:
+                    small = shrink_video(
+                        it.data, cfg.native_side, cfg.native_fps, self.rules.max_audio_s
+                    )
+                except SenseUnavailable:
+                    small = None
+                data, mime = (small, "video/mp4") if small else (it.data, it.mime)
+                media.append(Media("video", mime, data, f"video{n}"))
+                length = None
+                with contextlib.suppress(SenseUnavailable):
+                    length = video_duration(it.data)
+                about = f"（约 {clock(length)}）" if length else ""
+                lines.append(f"{n}. 视频{about}：随附视频（画面连声音）。{sound}")
                 continue
             try:
                 frames = sample_frames(it.data, cfg.video_frames, cfg.frame_side)
@@ -345,7 +453,23 @@ class Perceiver:
         if completion is None:
             return {}
         found = parse_cards(completion.text, len(items))
-        return {it.id: self._clip(found[n]) for n, it in enumerate(items, 1) if n in found}
+        return {
+            it.id: self._clip(
+                self._mark_screen_text(found[n]) if it.kind == "video" else found[n],
+                self.rules.long_card_chars if it.kind == "video" else None,
+            )
+            for n, it in enumerate(items, 1)
+            if n in found
+        }
+
+    def _mark_screen_text(self, card: str) -> str:
+        """视频卡「屏幕上的字」一节后面加一句固定提醒：真跑时界面小字屡次抄错，提示词压不住。"""
+        note = self.rules.screen_text_note
+        head = self.rules.screen_text_heading
+        if not note or head not in card:
+            return card
+        at = card.index(head) + len(head)
+        return f"{card[:at]}{note}{card[at:]}"
 
     async def _call(
         self, room: str, model_id: str, messages: Any, prompt: Any, params: dict[str, Any]

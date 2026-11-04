@@ -70,3 +70,18 @@ def test_cache_fine_satisfies_fast_and_transcripts_are_shared(tmp_path):
     memory_only = PerceptionCache(None)
     memory_only.put_card(sha, "fast", "x")
     assert memory_only.card(sha, "fast") == "x" and memory_only.clear() == 0
+
+
+def test_shrink_video_makes_a_smaller_mp4_with_fewer_frames():
+    from roundtable.core.perception.senses import shrink_video
+
+    av = pytest.importorskip("av")
+    data = make_video(4)
+    small = shrink_video(data, 32, 2, 600)
+    if small is None:  # 有的环境没有可用的编码器，或者已经够小
+        pytest.skip("无法压得更小")
+    with av.open(io.BytesIO(small)) as c:
+        v = next(s for s in c.streams if s.type == "video")
+        assert max(v.codec_context.width, v.codec_context.height) <= 32
+        assert sum(1 for _ in c.decode(v)) <= 10
+    assert shrink_video(b"not a video", 32, 2, 600) is None

@@ -19,8 +19,20 @@ async def test_build_from_environment(tmp_path):
         "local_tts",
         "chatgpt_web",
     ]  # 本地渠道不需要 key
-    assert set(rt.unavailable_channels) == {"openai", "anthropic", "google", "xai", "deepseek"}
-    assert len(rt.router.available_models()) == len(rt.config.models.enabled)
+    assert set(rt.unavailable_channels) == {
+        "openai",
+        "anthropic",
+        "google",
+        "xai",
+        "deepseek",
+        "bailian",
+    }
+    reachable = [  # 只走百炼的感官工具模型没有 key 时不可用
+        m
+        for m in rt.config.models.enabled
+        if any(r.channel not in rt.unavailable_channels for r in m.routes)
+    ]
+    assert len(rt.router.available_models()) == len(reachable) == len(rt.config.models.enabled) - 2
     assert (tmp_path / "x.db").exists()
     await rt.aclose()
 

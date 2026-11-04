@@ -292,7 +292,8 @@ def test_look_closer_uses_fine_mode_and_one_member_replies(tmp_path):
         assert data[0]["meta"]["perception"][0]["mode"] == "fine"
         assert data[-1]["reply_to"] == user_id and data[-1]["author"] == "V1"
         fine = [x for x in env.fake.calls if "仔细看看" in x.messages[0].content]
-        assert len(fine) == 1 and fine[0].params["max_tokens"] == 2000
+        fine_cap = env.rt.config.roundtable.perception.fine.max_tokens
+        assert len(fine) == 1 and fine[0].params["max_tokens"] == fine_cap
         # 再细看一次：缓存里已有精细的卡，不再调用看图模型
         c.post(f"/api/chat/messages/{user_id}/look", params={"room": "dm:V1"})
         wait_for(c, 0, 4, room="dm:V1")

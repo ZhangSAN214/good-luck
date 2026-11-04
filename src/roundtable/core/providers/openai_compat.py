@@ -52,6 +52,7 @@ class OpenAICompatProvider(Provider):
         self._extra_body = dict(spec.extra_body)
         self._aliases = dict(spec.param_aliases)
         self._reasoning = spec.reasoning_style
+        self._data_uri = spec.media_data_uri
         self._balance = spec.balance
         self._client = httpx.AsyncClient(
             base_url=spec.base_url, headers=headers, timeout=timeout_s, transport=transport
@@ -60,8 +61,7 @@ class OpenAICompatProvider(Provider):
     def _error(self, kind: ErrorKind, detail: str = "", **kw: Any) -> ProviderError:
         return ProviderError(kind, self.channel, safe_detail(detail, self._secrets), **kw)
 
-    @staticmethod
-    def _message(m: Message) -> dict[str, Any]:
+    def _message(self, m: Message) -> dict[str, Any]:
         if not m.media:
             return {"role": m.role, "content": m.content}
         parts: list[dict[str, Any]] = [{"type": "text", "text": m.content}]
@@ -75,6 +75,8 @@ class OpenAICompatProvider(Provider):
                 parts.append({"type": "video_url", "video_url": {"url": url}})
             else:
                 fmt = AUDIO_FORMATS.get(media.mime, media.mime.split("/")[-1])
+                if self._data_uri:
+                    data = f"data:;base64,{data}"
                 parts.append({"type": "input_audio", "input_audio": {"data": data, "format": fmt}})
         return {"role": m.role, "content": parts}
 
@@ -87,6 +89,8 @@ class OpenAICompatProvider(Provider):
             params["reasoning"] = reasoning
         elif reasoning and self._reasoning == "effort" and reasoning.get("effort"):
             params["reasoning_effort"] = reasoning["effort"]
+        elif reasoning and self._reasoning == "toggle":
+            params.update(_thinking_toggle(reasoning))
         params = {self._aliases.get(k, k): v for k, v in params.items()}
         body = {
             **params,
@@ -94,6 +98,10 @@ class OpenAICompatProvider(Provider):
             "model": model,
             "messages": [self._message(m) for m in messages],
         }
+        if body.get("stream"):
+            # 有的模型只支持流式输出（如百炼的全模态模型）：
+            # 在模型 / 路由的 params 里写 stream: true，这里收完整段再拼成一次结果
+            return await self._complete_stream(body)
         try:
             response = await self._client.post("chat/completions", json=body)
         except httpx.TimeoutException:
@@ -138,6 +146,54 @@ class OpenAICompatProvider(Provider):
         if choice.get("finish_reason") == "content_filter":
             raise self._error(ErrorKind.REFUSAL, "内容被过滤")
         return result
+
+    async def _complete_stream(self, body: dict[str, Any]) -> RawCompletion:
+        """流式补全：逐段拼 delta.content，最后一段带 usage（stream_options.include_usage）。"""
+        body = {**body, "stream": True}
+        body.setdefault("stream_options", {"include_usage": True})
+        response = await self._send("POST", "chat/completions", json=body)
+        text: list[str] = []
+        usage: dict[str, Any] = {}
+        finish: str | None = None
+        for line in response.text.splitlines():
+            if not line.startswith("data:"):
+                continue
+            payload = line[5:].strip()
+            if not payload or payload == "[DONE]":
+                continue
+            try:
+                chunk = json.loads(payload)
+            except ValueError:
+                continue
+            if not isinstance(chunk, dict):
+                continue
+            if chunk.get("error"):
+                code, message = error_fields(chunk)
+                status = int(code) if code and code.isdigit() else 500
+                raise self._error(kind_for_status(status, code), message or "生成失败")
+            for choice in chunk.get("choices") or ():
+                delta = (choice or {}).get("delta") or {}
+                if isinstance(delta.get("content"), str):
+                    text.append(delta["content"])
+                finish = (choice or {}).get("finish_reason") or finish
+            if isinstance(chunk.get("usage"), dict):
+                usage = chunk["usage"]
+        if finish == "content_filter":
+            raise self._error(ErrorKind.REFUSAL, "内容被过滤")
+        if not text and not usage:
+            raise self._error(ErrorKind.INVALID_RESPONSE, "无法解析返回内容")
+        details = usage.get("prompt_tokens_details") or {}
+        out_details = usage.get("completion_tokens_details") or {}
+        return RawCompletion(
+            text="".join(text),
+            input_tokens=int(usage.get("prompt_tokens") or 0),
+            output_tokens=int(usage.get("completion_tokens") or 0),
+            cached_tokens=int(details.get("cached_tokens") or 0),
+            reported_cost_usd=_float_or_none(usage.get("cost")),
+            truncated=finish == "length",
+            finish_reason=finish,
+            reasoning_tokens=int(out_details.get("reasoning_tokens") or 0),
+        )
 
     # --- 媒体：语音合成 / 转写 / 异步视频（OpenRouter 的接口格式）----------------------
 
@@ -463,3 +519,16 @@ def pcm_to_wav(data: bytes, rate: int = PCM_RATE) -> bytes:
         w.setframerate(rate)
         w.writeframes(data[: len(data) // 2 * 2])
     return buf.getvalue()
+
+
+_QUIET = {"none", "minimal", "low"}
+
+
+def _thinking_toggle(reasoning: dict[str, Any]) -> dict[str, Any]:
+    """中立的思考参数 → 开关式（enable_thinking / thinking_budget）。少想、不想时直接关掉思考。"""
+    budget = reasoning.get("max_tokens")
+    if reasoning.get("enabled") is False or reasoning.get("effort") in _QUIET:
+        return {"enable_thinking": False}
+    if isinstance(budget, int) and budget > 0:
+        return {"enable_thinking": True, "thinking_budget": budget}
+    return {"enable_thinking": True}

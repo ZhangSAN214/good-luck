@@ -243,6 +243,13 @@
 - 接口：`GET /api/sessions/{id}/carry`（预览摘要）；`POST /api/sessions`、`POST /api/estimate` 多一个 `carry_from`。
 - 测试：`tests/core/test_carry.py`、`tests/api/test_carry_api.py`、`tests/web/test_e2e_carry.py`。
 
+### 感官项目 1.0 第一步：千问看视频、听歌（2026-11-04，预估 3～4 小时，实际约 3 小时）
+
+- 新渠道百炼（`bailian`，`DASHSCOPE_API_KEY`）和两个不上桌的感官工具模型（千问 VL 看视频、Omni 听歌），只按标签和价格选；没有 key 时照旧。
+- 提示词 `perceive_fast/v2`、`perceive_fine/v2`、`perceive_listen/v1`：客观、按时间不遗漏、不评价，视频卡含镜头语言记录，听歌卡含曲风配器节奏结构歌词。
+- 视频整段看前先压小（PyAV），失败退回取帧；歌文件整段交给 `audio_in` 模型，失败退回转写。适配器支持流式和音频 data URI。
+- 详见 `docs/PERCEPTION.md`；测试 `tests/core/perception/`、`tests/core/providers/test_openai_compat.py`。还没用真 key 跑过。
+
 ### 成员感官 K2 第二部分：工作模式的视频附件（2026-10-29，预估 1.5～2.5 小时，实际约 1 小时）
 
 - 附件新增 mp4 / mov / webm 视频：声音转写 + 按时间取帧（或整段给 `video_in` 模型），由最便宜的模型按新提示词 `describe_video/v1` 写成文字版（时间线、画面文字、声音转写），所有成员收到同一份文字版。

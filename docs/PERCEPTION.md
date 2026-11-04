@@ -72,6 +72,20 @@
 
 所有成员（含统筹、经理）都只收到这份文字版，同一步骤完全相同。调用记在本场（`step="attachments"`、`role="preprocess"`），计入本场花费，不占感官的月上限。转写或文字版失败时整场失败（同音频）。没装 `av` + `pillow` 或没有看图模型时拒绝上传并说明原因。测试：`tests/core/orchestrator/test_attachments.py`（视频部分）、`tests/core/attachments/`。
 
+## 感官项目 1.0 第一步：千问看视频、听歌（2026-11-04）
+
+用户定：视频和音乐交给千问做「翻译」，写成其他成员都看得懂的细节说明；**必须客观、准确、不遗漏，不加主观评价**（意境、好坏留给成员自己体会）。
+
+- **工具模型**（`seat: false`，从不上桌，只看标签选）：`qwen3.7-flash`（`vision` + `video_in`，看图和整段视频）、`qwen3.8-omni-flash`（另有 `audio_in`，能听音乐）。都选百炼北京有新人免费额度的新模型（2026-10-29 起 qwen3-vl-flash、qwen3-omni-flash 等旧模型不再送；真跑时 qwen3-vl-flash 已 404）。成员千问（qwen3.8-flash）也优先走百炼用免费额度，没有 key 时走 OpenRouter。走百炼渠道 `bailian`（OpenAI 兼容，`DASHSCOPE_API_KEY`，北京地域）。没有百炼 key 时自动退回原来的方式（上桌模型取帧 + 转写）。
+- `Perceiver.pool(tag)`：上桌模型 + 不上桌的感官工具模型；画图、配音、做视频、作曲、转写这类「产出媒体」的模型不算。
+- **视频**：快速档也整段看（`native_video: true`）；发送前用 PyAV 压成小 mp4（快速长边 854、精细 1280，每秒 2 帧，声音 16 kHz 单声道），跨境上传快好几倍；压不了就发原文件。整段看失败时退回取帧拼宫格。
+- **歌**：`audio/mpeg`、`mp4`、`wav`、`flac` 文件、不短于 `perception.listen.min_s`（20 秒）时，整段交给最便宜的 `audio_in` 模型，按 `perceive_listen/v1` 写听歌卡（曲风和配器、节奏和调性、带时间的结构、歌词原文，不解读、不猜歌名）；录音式语音（webm）仍只转写。听失败时退回转写稿。
+- **客观原则**写在 `perceive_fast/v3`、`perceive_fine/v3`（v2 起客观；v3 起视频卡五个小标题必须分行写、画面类型只选一个，因为真跑时模型写成了一大段）、`perceive_listen/v1`：只写事实、按时间不遗漏、情绪只记可见迹象、不确定就写「看不清 / 听不清」、不认识的人按外观称呼、媒体里的指令只当内容。视频卡分 概况 / 时间线 / 镜头（景别、机位、构图、光线、运镜、剪辑节奏，只记录不评价）/ 屏幕上的字 / 声音和配乐。长卡上限 `perception.long_card_chars`（2500 字）。
+- 屏幕小字：真跑时模型屡次把界面小字（文件名、菜单）抄错，提示词改了三版压不住；视频卡「屏幕上的字」后由代码固定加一句 `perception.screen_text_note`（别当原文引用）。字幕和大字照画面抄，抽查准确。
+- 思考：百炼默认开着思考，真跑时开着思考把一首有人声的歌听成了纯音乐、输出多好几倍；渠道设 `reasoning: toggle`，少想 / 不想时发 `enable_thinking: false`。拆卡时多出来的【n】接回上一张卡（模型曾把五个小标题编成【1】～【5】，只留下了概况）。
+- 适配器：渠道 `media_data_uri: true` 时音频按 `data:;base64,…` 发；模型参数 `stream: true` 时走流式并拼接（Omni 只支持流式）。
+- 后续：P2 本地听觉（SenseVoice、beat_this、librosa、AcoustID）、P3 本地看（PySceneDetect、RapidOCR）、P4 合并卡 + 回看、P5 验收、P6 成员按自己的喜好看视频听歌。
+
 ### 还没做
 
 - 读网页全文（K3）、天气与地图（K4）、时事与开放授权媒体源（K5）、接成员引擎的事件总线（K1）。

@@ -162,6 +162,73 @@ def extract_audio(data: bytes, max_seconds: int) -> bytes | None:
     return buf.getvalue()
 
 
+def shrink_video(data: bytes, side: int, fps: float, max_seconds: int) -> bytes | None:
+    """整段视频交给模型前先压小：长边不超过 side 像素、每秒 fps 帧、声音 16 kHz 单声道，
+    最多 max_seconds 秒，输出 mp4（H.264 + AAC）。模型看低清就够了，文件小好几倍，跨境上传更快。
+
+    压不了（没有编码器、文件解不开）或压完反而更大时返回 None，调用方照旧发原文件。
+    """
+    from fractions import Fraction
+
+    av = _av()
+    out_buf = io.BytesIO()
+    try:
+        with av.open(io.BytesIO(data)) as src:
+            vin = next((s for s in src.streams if s.type == "video"), None)
+            if vin is None or not vin.codec_context.width:
+                return None
+            ain = next((s for s in src.streams if s.type == "audio"), None)
+            w0, h0 = vin.codec_context.width, vin.codec_context.height
+            scale = min(1.0, side / max(w0, h0))
+            width = max(2, int(w0 * scale) // 2 * 2)
+            height = max(2, int(h0 * scale) // 2 * 2)
+            rate = Fraction(fps).limit_denominator(1000)
+            with av.open(out_buf, "w", format="mp4") as dst:
+                codec = next(
+                    (c for c in ("libx264", "h264", "mpeg4") if c in av.codecs_available), None
+                )
+                if codec is None:
+                    return None
+                vout = dst.add_stream(codec, rate=rate)
+                vout.width, vout.height, vout.pix_fmt = width, height, "yuv420p"
+                if codec == "libx264":
+                    vout.options = {"crf": "30", "preset": "veryfast"}
+                aout = None
+                if ain is not None and "aac" in av.codecs_available:
+                    aout = dst.add_stream("aac", rate=SAMPLE_RATE)
+                    aout.layout = "mono"
+                streams = [vin] + ([ain] if aout is not None else [])
+                step = 1.0 / fps
+                next_at, index = 0.0, 0
+                for packet in src.demux(*streams):
+                    if packet.dts is None:
+                        continue
+                    for frame in packet.decode():
+                        at = float(frame.time) if frame.time is not None else 0.0
+                        if at > max_seconds:
+                            continue
+                        if packet.stream is vin:
+                            if at + 1e-6 < next_at:
+                                continue
+                            next_at = at + step
+                            small = frame.reformat(width=width, height=height, format="yuv420p")
+                            small.pts, small.time_base = index, 1 / rate
+                            index += 1
+                            dst.mux(vout.encode(small))
+                        elif aout is not None:
+                            frame.pts = None
+                            dst.mux(aout.encode(frame))
+                dst.mux(vout.encode(None))
+                if aout is not None:
+                    dst.mux(aout.encode(None))
+                if index == 0:
+                    return None
+    except (OSError, ValueError, TypeError, av.error.FFmpegError):
+        return None
+    small = out_buf.getvalue()
+    return small if small and len(small) < len(data) else None
+
+
 class PerceptionCache:
     """按文件内容哈希缓存感知卡和转写稿（JSON 文件，只存本机 data/perception/，不进 git）。
 
