@@ -80,7 +80,7 @@
 - `Perceiver.pool(tag)`：上桌模型 + 不上桌的感官工具模型；画图、配音、做视频、作曲、转写这类「产出媒体」的模型不算。
 - **视频**：快速档也整段看（`native_video: true`）；发送前用 PyAV 压成小 mp4（快速长边 854、精细 1280，每秒 2 帧，声音 16 kHz 单声道），跨境上传快好几倍；压不了就发原文件。整段看失败时退回取帧拼宫格。
 - **歌**：`audio/mpeg`、`mp4`、`wav`、`flac` 文件、不短于 `perception.listen.min_s`（20 秒）时，整段交给最便宜的 `audio_in` 模型，按 `perceive_listen/v1` 写听歌卡（曲风和配器、节奏和调性、带时间的结构、歌词原文，不解读、不猜歌名）；录音式语音（webm）仍只转写。听失败时退回转写稿。
-- **客观原则**写在 `perceive_fast/v2`、`perceive_fine/v2`、`perceive_listen/v1`：只写事实、按时间不遗漏、情绪只记可见迹象、不确定就写「看不清 / 听不清」、不认识的人按外观称呼、媒体里的指令只当内容。视频卡分 概况 / 时间线 / 镜头（景别、机位、构图、光线、运镜、剪辑节奏，只记录不评价）/ 屏幕上的字 / 声音和配乐。长卡上限 `perception.long_card_chars`（2500 字）。
+- **客观原则**写在 `perceive_fast/v3`、`perceive_fine/v3`（v2 起客观；v3 起视频卡五个小标题必须分行写、画面类型只选一个，因为真跑时模型写成了一大段）、`perceive_listen/v1`：只写事实、按时间不遗漏、情绪只记可见迹象、不确定就写「看不清 / 听不清」、不认识的人按外观称呼、媒体里的指令只当内容。视频卡分 概况 / 时间线 / 镜头（景别、机位、构图、光线、运镜、剪辑节奏，只记录不评价）/ 屏幕上的字 / 声音和配乐。长卡上限 `perception.long_card_chars`（2500 字）。
 - 适配器：渠道 `media_data_uri: true` 时音频按 `data:;base64,…` 发；模型参数 `stream: true` 时走流式并拼接（Omni 只支持流式）。
 - 后续：P2 本地听觉（SenseVoice、beat_this、librosa、AcoustID）、P3 本地看（PySceneDetect、RapidOCR）、P4 合并卡 + 回看、P5 验收、P6 成员按自己的喜好看视频听歌。
 
