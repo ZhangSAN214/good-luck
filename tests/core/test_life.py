@@ -325,3 +325,11 @@ async def test_live_scene_lines_get_distinct_times_before_now():
     stamps = [m["created_at"] for m in env.rt.repo.chat_messages(room, limit=10)]
     assert len(stamps) == len(set(stamps)) >= 2  # 不再同一毫秒
     assert stamps == sorted(stamps) and all(s <= iso(NOW) for s in stamps)
+
+
+def test_life_cap_follows_month_pacing():
+    env = life_env(daily_usd=0.15, memory_reserve_usd=0.0)
+    env.rt.budget.now = lambda: datetime(2026, 10, 30, 12, tzinfo=UTC)  # 含今天还剩 2 天
+    env.rt.repo.spent_in_workflow = lambda wf, start, end: 4.9  # 聊天月预算 $5 还剩 $0.10
+    life = engine(env)
+    assert life.allowed(0.05) and not life.allowed(0.051)  # $0.10 / 2 天，比每日上限 $0.15 紧

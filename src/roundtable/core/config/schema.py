@@ -995,6 +995,9 @@ class ChatBudgetRules(_Strict):
     """聊天这一块（私聊、群聊，以后的生活与上网）每月最多花多少（UTC 自然月）；也计入总预算。"""
 
     monthly_usd: float = Field(default=5.0, gt=0)
+    # 按剩余天数平摊：成员自己的活动（生活、主动找你、群聊）每天最多用到
+    # 「本月还剩的钱 ÷ 本月还剩的天数」，月初花不光、月底不断档；你直接找她不受它限制
+    pace: bool = True
 
 
 class MemoryLinkRules(_Strict):
