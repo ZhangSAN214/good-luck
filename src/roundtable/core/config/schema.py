@@ -1558,7 +1558,7 @@ class PerceptionRules(_Strict):
     native_max_mb: float = Field(default=20, gt=0, le=60)  # 整段视频交给模型的大小上限
     card_chars: int = Field(default=800, ge=100, le=4000)  # 每张感知卡最多保留多少字
     # 视频卡和听歌卡写得细（时间线、原话、镜头手法），单独的字数上限
-    long_card_chars: int = Field(default=2500, ge=100, le=8000)
+    long_card_chars: int = Field(default=5000, ge=100, le=8000)
     listen: PerceptionListen = PerceptionListen()
 
 

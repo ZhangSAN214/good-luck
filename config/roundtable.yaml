@@ -1336,9 +1336,9 @@ prompts:
   evolve_review: v1      # 革新 PR 的对抗式复审（开发侧脚本 scripts/evolve_review.py，可选）
   web_search: v1         # 借助聚合平台联网搜索时发给搜索用模型的指令
   web_fetch: v1          # 借助聚合平台读取网页时发给读取用模型的指令
-  perceive_fast: v4      # 感官·快速：把用户发的图片 / 视频画面 / 语音转写整理成感知卡（v3：视频卡五个小标题分行写，画面类型只选一个；v4：小标题不另编号）
-  perceive_fine: v4      # 感官·精细：同上，写得更细，图里的字逐字抄下
-  perceive_listen: v2    # 感官·听歌：整段歌交给能听声音的工具模型，客观写曲风、配器、节奏、结构和歌词
+  perceive_fast: v5      # 感官·快速：把用户发的图片 / 视频画面 / 语音转写整理成感知卡（v3：视频卡五个小标题分行写，画面类型只选一个；v4：小标题不另编号；v5：小字看不清不猜、声音一节必写）
+  perceive_fine: v5      # 感官·精细：同上，写得更细，图里的字逐字抄下
+  perceive_listen: v3    # 感官·听歌：整段歌交给能听声音的工具模型，客观写曲风、配器、节奏、结构和歌词
   plain_talk: v2         # 说话底线（去八股化）：接在 plain_talk.roles 的每次调用上，所有成员相同（v2：马克杯警戒线、AI 腔）
   plain_rewrite: v2      # 说话底线·改写：发言查出问题时成员自己用节电档改一次（v2：一行一条气泡）
 
@@ -2140,7 +2140,7 @@ perception:
   max_audio_s: 600           # 语音 / 视频声音最多转写多长（秒）
   native_max_mb: 20          # 整段视频交给模型的大小上限
   card_chars: 800            # 每张感知卡最多保留多少字（图片、语音）
-  long_card_chars: 2500      # 视频卡、听歌卡写得细（时间线、原话、镜头手法），单独的上限
+  long_card_chars: 5000      # 视频卡、听歌卡写得细（时间线、原话、镜头手法），单独的上限（2500 时 45 秒录屏的「声音和配乐」被截掉）
   listen:                    # 听歌：音频文件（歌、配乐）整段交给能听音乐的模型（audio_in）写听歌卡
     enabled: true
     mimes: [audio/mpeg, audio/mp4, audio/wav, audio/x-wav, audio/flac]   # 录音式语音（webm / ogg）只转写
