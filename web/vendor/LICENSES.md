@@ -14,6 +14,24 @@ https://github.com/KaTeX/KaTeX
 MIT License. Copyright (c) 2014 - 2022 Knut Sveidqvist.
 https://github.com/mermaid-js/mermaid
 
+## three.js 0.187.0 — `three/three-starmap.js`
+
+星图（docs/STARMAP.md）的立体画法用它。取自 npm 包 three@0.187.0，把核心库和用到的几个示例模块
+（OrbitControls、EffectComposer、RenderPass、UnrealBloomPass、OutputPass、CSS2DRenderer、RoomEnvironment）
+用 esbuild 打成一个文件，未改源码。只在打开星图时下载。
+
+MIT License. Copyright © 2010-2026 three.js authors. https://github.com/mrdoob/three.js
+
+## Geist 字体 — `geist/`
+
+星图的西文和数字字体。Vercel 出品，取自 npm 包 geist@1.9.0 的可变字体（Geist / Geist Mono），未改动。
+SIL Open Font License 1.1，全文见 `geist/OFL.txt`。https://github.com/vercel/geist-font
+
+## Material Symbols — `web/js/starmap_icons.js`
+
+星图星域的线稿图标。Google 出品，取自 npm 包 @material-symbols/svg-300@0.48.3（Outlined），只摘了用到的
+19 个图标的路径，未改形状。Apache License 2.0。https://github.com/google/material-design-icons
+
 ---
 
 Permission is hereby granted, free of charge, to any person obtaining a copy of this software and

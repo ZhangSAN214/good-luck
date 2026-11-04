@@ -83,7 +83,9 @@ dialog#starmapdlg::backdrop{background:rgba(3,5,12,.7)}
   .sm-top{flex-wrap:wrap;gap:8px;padding:10px 16px}
   .sm-tabs{order:3;width:100%;margin-left:0}
   .sm-x{margin-left:auto}
-  .sm-fold{display:block;margin-left:auto}
+  .sm-title{flex:1 1 100%}
+  .sm-theme{margin-left:auto;max-width:120px}
+  .sm-fold{display:block}
   .sm-fold+.sm-x{margin-left:0}
   .sm-legend{display:none;top:auto;bottom:118px;left:16px;right:16px;width:auto;max-height:52vh}
   .sm.legend-open .sm-legend{display:block}
@@ -95,3 +97,102 @@ dialog#starmapdlg::backdrop{background:rgba(3,5,12,.7)}
   .sm-hint{display:none}
 }
 @media (prefers-reduced-motion:reduce){.sm-card{animation:none}}
+
+/* ---- WebGL 画法（starmap3d.js）与四种画风 ---- */
+.sm-gl{position:absolute;inset:0}
+.sm3-gl{position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none;cursor:grab}
+.sm3-labels{position:absolute;inset:0;pointer-events:none;overflow:hidden}
+.sm.gl .sm-canvas,.sm.gl .sm-tip{display:none}
+.sm-theme{flex:none;border:1px solid var(--glass-line);background:var(--glass);color:inherit;border-radius:999px;padding:5px 10px;font:inherit;font-size:12px;cursor:pointer}
+.sm-theme option{color:#111}
+.sm3-l{white-space:nowrap;font-size:11px;letter-spacing:.04em;color:var(--lab,#cfd8f4);opacity:0;transition:opacity .25s,color .25s;text-shadow:0 1px 6px rgba(0,0,0,.7)}
+.sm3-l.k-core,.sm3-l.k-domain,.sm3-l.k-member,.sm3-l.hover,.sm3-l.sel,.sm3-l.near{opacity:1}
+.sm3-l.k-core{font-size:16px;font-weight:600;letter-spacing:.12em;color:#fff}
+.sm3-l.k-domain,.sm3-l.k-member{font-size:12.5px;font-weight:600;color:#f1f4ff}
+.sm3-l.k-gap{color:#ffb2a8}
+.sm3-l.sel{color:#fff;font-weight:600}
+.sm3-l.dim{opacity:.18}
+.sm3-l.dim:not(.k-core):not(.k-domain):not(.k-member){opacity:0}
+
+/* 霓虹星云：标签带一点同色光 */
+.sm3-neon .sm3-l.k-domain,.sm3-neon .sm3-l.k-member{text-shadow:0 0 10px var(--c),0 1px 4px #000}
+
+/* 星座金线：衬线字、金色、字距大 */
+.sm[data-theme="gold"]{--glass:rgba(10,15,36,.62);--glass-line:rgba(217,178,106,.22);--dim:#b9a985}
+.sm[data-theme="gold"] .sm-title h2{color:#f0d9a2}
+.sm3-gold .sm3-l{font-family:"Noto Serif SC",serif;color:#cdb98d;letter-spacing:.18em}
+.sm3-gold .sm3-l.k-core{color:#f6e3b4;font-size:17px;letter-spacing:.3em}
+.sm3-gold .sm3-l.k-domain,.sm3-gold .sm3-l.k-member{color:#efd9a6;font-weight:500}
+
+/* 极简线稿：米白纸面、墨黑细线、一点橙红 */
+dialog#starmapdlg:has(.sm[data-theme="mono"]){background:#f3f1ec;color:#141414}
+.sm[data-theme="mono"]{--glass:rgba(255,255,255,.72);--glass-line:rgba(20,20,20,.14);--dim:#77736b;color:#141414}
+.sm[data-theme="mono"] .sm-top{background:linear-gradient(#f3f1ecee,#f3f1ec00)}
+.sm[data-theme="mono"] .sm-title h2{font-family:"Noto Serif SC",serif;font-weight:500;letter-spacing:.2em}
+.sm[data-theme="mono"] .sm-legend,.sm[data-theme="mono"] .sm-card{box-shadow:0 10px 30px rgba(0,0,0,.08);border-radius:4px}
+.sm[data-theme="mono"] .sm-tabs button,.sm[data-theme="mono"] .sm-x,.sm[data-theme="mono"] .sm-fold{color:#141414;border-radius:2px}
+.sm[data-theme="mono"] .sm-tabs button[aria-pressed="true"]{background:#141414;color:#f3f1ec}
+.sm[data-theme="mono"] .sm-detail,.sm[data-theme="mono"] .sm-changes li,.sm[data-theme="mono"] .sm-rel li{color:#2a2a2a}
+.sm[data-theme="mono"] .sm-gaps li{color:#c2401f}
+.sm[data-theme="mono"] .sm-enter,.sm[data-theme="mono"] .sm-play{background:#ff5a3c;color:#fff;border-radius:2px}
+.sm[data-theme="mono"] .sm-changes li{background:rgba(255,255,255,.7)}
+.sm[data-theme="mono"] .sm-changes time,.sm[data-theme="mono"] .sm-tl output{color:#ff5a3c}
+.sm[data-theme="mono"] .sm-tl input{accent-color:#141414}
+.sm[data-theme="mono"] .sm-hint,.sm[data-theme="mono"] .sm-sub{color:#8a857c}
+.sm3-mono .sm3-l{color:#3a3732;text-shadow:none;font-family:"Noto Serif SC",serif}
+.sm3-mono .sm3-l.k-core{color:#111;font-size:17px;letter-spacing:.3em}
+.sm3-mono .sm3-l.k-domain,.sm3-mono .sm3-l.k-member{color:#111;font-weight:500;border-bottom:1px solid #111;padding-bottom:1px}
+.sm3-mono .sm3-l.k-gap{color:#ff5a3c}
+.sm3-mono .sm3-l.sel{color:#ff5a3c}
+
+/* 玻璃星球：奶油渐变底、白色毛玻璃标签 */
+dialog#starmapdlg:has(.sm[data-theme="glass"]){background:radial-gradient(120% 90% at 20% 10%,#fde6f0 0%,#e9e3ff 40%,#d6ecff 75%,#cfe9f2 100%);color:#1d2340}
+.sm[data-theme="glass"]{--glass:rgba(255,255,255,.45);--glass-line:rgba(255,255,255,.7);--dim:#5d6688;color:#1d2340}
+.sm[data-theme="glass"] .sm-top{background:none}
+.sm[data-theme="glass"] .sm-legend,.sm[data-theme="glass"] .sm-card{box-shadow:0 20px 50px rgba(80,90,160,.18)}
+.sm[data-theme="glass"] .sm-tabs button,.sm[data-theme="glass"] .sm-x,.sm[data-theme="glass"] .sm-fold{color:#1d2340}
+.sm[data-theme="glass"] .sm-detail,.sm[data-theme="glass"] .sm-changes li,.sm[data-theme="glass"] .sm-rel li{color:#26304f}
+.sm[data-theme="glass"] .sm-gaps li{color:#c0392b}
+.sm[data-theme="glass"] .sm-changes li{background:rgba(255,255,255,.55)}
+.sm[data-theme="glass"] .sm-changes time,.sm[data-theme="glass"] .sm-tl output{color:#7a4fd0}
+.sm[data-theme="glass"] .sm-play{background:#7a4fd0;color:#fff}
+.sm[data-theme="glass"] .sm-hint,.sm[data-theme="glass"] .sm-sub{color:#6c7392}
+.sm3-glass .sm3-l{color:#2b3150;text-shadow:none}
+.sm3-glass .sm3-l.k-domain,.sm3-glass .sm3-l.k-member,.sm3-glass .sm3-l.k-core{color:#1d2340;background:rgba(255,255,255,.55);border:1px solid rgba(255,255,255,.8);padding:2px 9px;border-radius:999px;backdrop-filter:blur(6px)}
+
+/* ---- 字体与图标：Geist 字体（OFL）、Material Symbols 图标（Apache-2.0），来源见 vendor/LICENSES.md，都在本地 vendor ---- */
+@font-face{font-family:"Geist";src:url("../vendor/geist/Geist-Variable.woff2") format("woff2");font-weight:100 900;font-display:swap}
+@font-face{font-family:"Geist Mono";src:url("../vendor/geist/GeistMono-Variable.woff2") format("woff2");font-weight:100 900;font-display:swap}
+.sm{font-family:"Geist","Noto Sans SC",system-ui,sans-serif}
+.sm-sub,.sm-g b,.sm-tl output,.sm-changes time,.sm h3 small,.sm-card h4 small{font-family:"Geist Mono","IBM Plex Mono",monospace}
+.sm-score b{font-family:"Geist",sans-serif;font-weight:300;letter-spacing:-.02em}
+.sm-ic{width:100%;height:100%;fill:currentColor;display:block}
+.sm-g i{width:16px;height:16px;border-radius:0;background:none;box-shadow:none;color:var(--c)}
+.sm-g{grid-template-columns:16px 1fr auto}
+.sm-g.empty i{border:0;color:#ff8a80;opacity:.7}
+.sm-dot{width:20px;height:20px;margin-top:2px;background:none;box-shadow:none;color:var(--c)}
+.sm-dot.gap{width:11px;height:11px;margin-top:5px}
+
+/* 极简线稿（默认）再细一点：黑色图标、细分隔线、大字号标题 */
+.sm[data-theme="mono"] .sm-g i,.sm[data-theme="mono"] .sm-dot{color:#141414}
+.sm[data-theme="mono"] .sm-g.empty i{color:#ff5a3c}
+.sm[data-theme="mono"] .sm-g em{background:rgba(0,0,0,.08)}
+.sm[data-theme="mono"] .sm-g em::after{background:#141414}
+.sm[data-theme="mono"] .sm-g:hover,.sm[data-theme="mono"] .sm-g.on{background:rgba(0,0,0,.04)}
+.sm[data-theme="mono"] .sm-legend,.sm[data-theme="mono"] .sm-card{backdrop-filter:blur(10px);border:1px solid rgba(20,20,20,.12)}
+.sm[data-theme="mono"] .sm-card{border-top:2px solid #141414}
+.sm[data-theme="mono"] .sm-title h2{font-size:22px}
+.sm[data-theme="mono"] h3,.sm[data-theme="mono"] .sm-card h4{color:#8a857c;letter-spacing:.3em}
+.sm[data-theme="mono"] .sm-score circle{stroke:rgba(0,0,0,.08)}
+.sm[data-theme="mono"] .sm-score circle+circle{stroke:#141414}
+.sm[data-theme="mono"] .sm-score b{color:#141414}
+.sm[data-theme="mono"] .sm-tl{border-radius:2px;background:rgba(255,255,255,.8)}
+.sm[data-theme="mono"] .sm-changes li{border-radius:2px}
+.sm[data-theme="mono"] .sm-rel li{border-radius:2px;border-color:rgba(0,0,0,.12)}
+.sm[data-theme="mono"] .sm-rel li i{background:#141414}
+.sm[data-theme="mono"] .sm-rel li em{color:#ff5a3c}
+.sm[data-theme="mono"] .sm-new{background:#ff5a3c;color:#fff}
+.sm[data-theme="mono"] .sm-theme{border-radius:2px;color:#141414}
+.sm3-mono .sm3-l{font-family:"Geist","Noto Serif SC",serif}
+.sm3-mono .sm3-l.k-domain,.sm3-mono .sm3-l.k-member,.sm3-mono .sm3-l.k-core{font-family:"Noto Serif SC",serif;border-bottom:0;letter-spacing:.24em;font-size:12px}
+.sm3-mono .sm3-l.k-core{font-size:16px;letter-spacing:.4em}

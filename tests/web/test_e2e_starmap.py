@@ -10,7 +10,7 @@ def test_starmap(serve, page):
     page.wait_for_selector("#starmapdlg[open] .sm-groups li")
     assert page.inner_text("#starmapdlg [data-title]") == "圆桌星图"
     assert page.locator("#starmapdlg .sm-g").count() >= 7
-    assert page.locator("#starmapdlg canvas").count() == 1
+    assert page.locator("#starmapdlg canvas").count() >= 1
     page.locator("#starmapdlg .sm-gaps li").first.click()
     page.wait_for_selector("#starmapdlg .sm-card:not([hidden])")
     tabs = page.locator("#starmapdlg .sm-tabs button")

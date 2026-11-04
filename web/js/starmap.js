@@ -5,6 +5,10 @@
 // - 底部时间轴：拖回过去，看圆桌 / 成员一路是怎么长出来的；「播放」从头放一遍。
 // - 不用第三方库：canvas 2D + 自己的透视投影（几百颗星，普通电脑和平板都流畅）。
 
+import { THEMES, Scene3D, loadLib, webglOK } from './starmap3d.js';
+import { iconSvg } from './starmap_icons.js';
+
+const THEME_KEY = 'roundtable.starmap.theme';
 const esc = (s) =>
   String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 
@@ -105,6 +109,13 @@ export class StarMap {
     this.shift = 0;
     this.raf = 0;
     this.reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    this.theme = 'mono';
+    try {
+      const t = localStorage.getItem(THEME_KEY);
+      if (t && (THEMES[t] || t === 'flat')) this.theme = t;
+    } catch {
+      /* 本机存不了就用默认 */
+    }
     const t = rng(7);
     this.dust = Array.from({ length: DUST }, () => {
       const u = t() * 2 - 1;
@@ -130,10 +141,14 @@ export class StarMap {
       <header class="sm-top">
         <div class="sm-title"><h2 data-title>星图</h2><span class="sm-sub" data-sub></span></div>
         <nav class="sm-tabs" data-tabs aria-label="切换星图"></nav>
+        <select class="sm-theme" data-skin aria-label="画风">${Object.entries(THEMES)
+          .map(([k, t]) => `<option value="${k}">${t.label}</option>`)
+          .join('')}<option value="flat">平面（省电）</option></select>
         <button type="button" class="sm-fold" data-fold aria-expanded="false">星域</button>
         <button type="button" class="sm-x" data-close aria-label="关闭">×</button>
       </header>
       <div class="sm-stage" data-stage>
+        <div class="sm-gl" data-gl></div>
         <canvas class="sm-canvas" aria-label="立体星图：拖动转动，滚轮缩放，点星看详情"></canvas>
         <div class="sm-tip" data-tip hidden></div>
         <div class="sm-hint">拖动转动 · 滚轮缩放 · 点星看相关</div>
@@ -145,6 +160,59 @@ export class StarMap {
     this.canvas = this.dlg.querySelector('canvas');
     this.ctx = this.canvas.getContext('2d');
     this.bindPointer();
+    this.dlg.querySelector('[data-skin]').addEventListener('change', (e) => this.setTheme(e.target.value));
+  }
+
+  async setTheme(t) {
+    this.theme = t;
+    try {
+      localStorage.setItem(THEME_KEY, t);
+    } catch {
+      /* 存不了也照样切 */
+    }
+    this.dropGl();
+    if (this.map) {
+      await this.draw();
+      this.select(this.sel);
+    }
+  }
+
+  dropGl() {
+    if (this.gl) this.gl.dispose();
+    this.gl = null;
+  }
+
+  // 画：能用 WebGL 就用 three.js 的立体画法，否则（或选了「平面」）用 canvas 2D
+  async draw() {
+    const box = this.dlg.querySelector('.sm');
+    box.dataset.theme = this.theme;
+    this.dlg.querySelector('[data-skin]').value = this.theme;
+    if (this.theme !== 'flat' && webglOK()) {
+      try {
+        await loadLib();
+        if (!this.gl) {
+          this.gl = new Scene3D(this.dlg.querySelector('[data-gl]'), {
+            theme: this.theme,
+            onPick: (id, e, dbl) => this.picked(id, dbl),
+          });
+        }
+        this.gl.setMap(this.map, this.pos, this.orbit);
+        box.classList.add('gl');
+        this.stop2d();
+        return;
+      } catch (err) {
+        console.warn('星图：WebGL 画不了，改用平面', err);
+        this.dropGl();
+      }
+    }
+    box.classList.remove('gl');
+    this.start();
+  }
+
+  picked(id, dbl) {
+    const n = id && this.byId.get(id);
+    if (n && n.kind === 'member' && (dbl || id === this.sel)) this.load(n.member);
+    else this.select(id);
   }
 
   async load(view) {
@@ -168,7 +236,7 @@ export class StarMap {
     this.cam.goal = [0, 0, 0];
     this.cam.goalDist = this.home;
     this.renderPanels();
-    this.start();
+    await this.draw();
   }
 
   index() {
@@ -208,7 +276,7 @@ export class StarMap {
         const pct = g.total ? Math.round((g.filled / Math.max(g.total, 1)) * 100) : null;
         const empty = g.total === null && !g.count;
         return `<li class="sm-g${empty ? ' empty' : ''}" data-node="${esc(this.domainId(g.key))}" style="--c:${col(g.key, 66)}">
-          <i></i><span>${esc(g.label)}</span><b>${empty ? '缺' : pct !== null ? `${g.filled}/${g.total}` : g.count}</b>
+          <i>${iconSvg(g.key)}</i><span>${esc(g.label)}</span><b>${empty ? '缺' : pct !== null ? `${g.filled}/${g.total}` : g.count}</b>
           ${pct !== null ? `<em style="--p:${pct}%"></em>` : ''}</li>`;
       })
       .join('');
@@ -258,7 +326,7 @@ export class StarMap {
     card.hidden = false;
     card.style.setProperty('--c', col(n.group, 68));
     card.innerHTML = `
-      <div class="sm-ch"><span class="sm-dot ${n.kind}"></span><div><b>${esc(n.label)}</b><small>${esc([groupLabel, kindName].filter(Boolean).join(' · '))}${n.fresh ? ' · <i class="sm-new">新</i>' : ''}</small></div>
+      <div class="sm-ch"><span class="sm-dot ${n.kind}">${n.kind === 'gap' ? '' : iconSvg(n.kind === 'core' ? 'core' : n.group)}</span><div><b>${esc(n.label)}</b><small>${esc([groupLabel, kindName].filter(Boolean).join(' · '))}${n.fresh ? ' · <i class="sm-new">新</i>' : ''}</small></div>
         <button type="button" class="sm-x" data-unsel aria-label="取消选择">×</button></div>
       ${n.detail ? `<p class="sm-detail">${esc(n.detail)}</p>` : ''}
       ${n.kind === 'member' ? `<button type="button" class="sm-enter" data-view="${esc(n.member)}">进入${esc(n.label)}的人生星图 →</button>` : ''}
@@ -284,6 +352,7 @@ export class StarMap {
       this.cam.goalDist = n.kind === 'core' ? this.home : n.kind === 'domain' || n.kind === 'member' ? 600 : 500;
     }
     this.idle = 0;
+    if (this.gl) this.gl.select(this.sel, new Set(this.sel ? [this.sel, ...(this.adj.get(this.sel) || []).map((x) => x.id)] : []));
     this.renderCard();
     for (const li of this.dlg.querySelectorAll('[data-node]')) li.classList.toggle('on', li.dataset.node === this.sel);
   }
@@ -321,6 +390,7 @@ export class StarMap {
     if (!r) return;
     if (setRange) r.value = this.cut ? this.times.indexOf(this.cut) : this.times.length;
     label.textContent = this.cut ? this.cut : '现在';
+    if (this.gl) this.gl.setVisible((n) => this.visible(n));
     if (this.sel && !this.visible(this.byId.get(this.sel))) this.select(null);
     else this.renderCard();
   }
@@ -455,9 +525,14 @@ export class StarMap {
   }
 
   stop() {
+    this.stop2d();
+    clearInterval(this.playing);
+    this.dropGl();
+  }
+
+  stop2d() {
     cancelAnimationFrame(this.raf);
     this.raf = 0;
-    clearInterval(this.playing);
   }
 
   project(p, W, H) {
