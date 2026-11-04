@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from datetime import UTC, datetime
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -4333,6 +4334,42 @@ class DshRules(_Strict):
     job_permission_mode: Literal["read-only", "workspace-write", "danger-full-access"] = (
         "workspace-write"
     )
+    # 每件活的步数和上下文（2026-11-04 用户回「做」，docs/DSH.md「每件活的步数和上下文」）：
+    # 调一次工具算一步，超过 job_max_steps 先停，再接着同一段对话用最多 wrapup_steps 步收尾
+    # （提示词 dsh_wrapup）。0 = 不限
+    job_max_steps: int = Field(default=60, ge=0, le=1000)
+    wrapup_steps: int = Field(default=3, ge=0, le=20)
+    # 上下文涨到模型窗口的这个比例就把旧的历史压成摘要（dsh 自己默认 0.8），近期的原样留这么多
+    job_context_ratio: float = Field(default=0.25, gt=0, le=0.9)
+    job_retain_ratio: float = Field(default=0.05, gt=0, lt=0.9)
+    # 工具输出超过这么多字只留开头和结尾（dsh 自己默认 8192）
+    job_tool_chars: int = Field(default=4096, ge=1024, le=65536)
+    # 错峰：DeepSeek 2026-08 起高峰时段贵一倍（工作日 UTC 01:00–04:00、06:00–10:00，周末全天闲时）。
+    # avoid_peak 打开时高峰时段不派活给 dsh（包月的照常），过了高峰再补位
+    avoid_peak: bool = False  # 仓库配置里打开；默认关，测试不随真实时间变
+    peak_utc: list[str] = Field(default_factory=lambda: ["01:00-04:00", "06:00-10:00"])
+
+    @field_validator("peak_utc")
+    @classmethod
+    def _peak_ranges(cls, v: list[str]) -> list[str]:
+        for item in v:
+            if not re.fullmatch(r"([01]\d|2[0-3]):[0-5]\d-([01]\d|2[0-4]):[0-5]\d", item):
+                raise ValueError(f"peak_utc 要写成 HH:MM-HH:MM（UTC），{item!r} 不对")
+        return v
+
+    def in_peak(self, now: datetime) -> bool:
+        """现在（UTC）是不是 DeepSeek 的高峰时段：只算工作日。"""
+        now = now.astimezone(UTC)
+        if not self.avoid_peak or now.weekday() >= 5:
+            return False
+        minute = now.hour * 60 + now.minute
+        for item in self.peak_utc:
+            start, end = item.split("-")
+            a = int(start[:2]) * 60 + int(start[3:])
+            b = int(end[:2]) * 60 + int(end[3:])
+            if a <= minute < b:
+                return True
+        return False
 
     @field_validator("key_env")
     @classmethod
@@ -4348,6 +4385,10 @@ class DshRules(_Strict):
 
     @model_validator(mode="after")
     def _known_display(self) -> DshRules:
+        if self.job_retain_ratio >= self.job_context_ratio:
+            raise ValueError(
+                "job_retain_ratio 要小于 job_context_ratio（留下的不能比压缩的门槛还多）"
+            )
         cur = self.display_currency
         if cur != "USD" and cur not in {k.upper() for k in self.usd_rates}:
             raise ValueError(f"display_currency {cur} 没有汇率：在 usd_rates 里加上它")

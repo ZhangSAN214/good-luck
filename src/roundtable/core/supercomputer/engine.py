@@ -40,6 +40,8 @@ class Launch:
     argv: list[str]
     env: dict[str, str]
     secrets: list[str] = field(default_factory=list)
+    # 边跑边看输出（如 dsh 数步数）：有 feed / followup / finish，见 core/dsh/stream.py
+    watch: Any = None
 
 
 class Launcher(Protocol):
@@ -379,19 +381,45 @@ class Supercomputer:
                 launch = launcher.launch(w)
                 await launcher.before(w)
                 try:
-                    result = await self.runner(
-                        launch.argv,
-                        stdin_text=prompt,
-                        cwd=Path(task["folder"]),
-                        env=launch.env,
-                        timeout_s=w.timeout_s,
-                        secrets=launch.secrets,
-                    )
+                    result = await self._run_launch(launch, prompt, Path(task["folder"]), w)
                 finally:
                     await launcher.after(w)
                 return self._unwrap(w, result)
         finally:
             self.running[w.id] -= 1
+
+    async def _run_launch(
+        self, launch: Launch, prompt: str, cwd: Path, w: SuperWorker
+    ) -> RunResult:
+        watch = launch.watch
+        kw: dict[str, Any] = {"watch": watch} if watch is not None else {}
+        result = await self.runner(
+            launch.argv,
+            stdin_text=prompt,
+            cwd=cwd,
+            env=launch.env,
+            timeout_s=w.timeout_s,
+            secrets=launch.secrets,
+            **kw,
+        )
+        if watch is None:
+            return result
+        wrapped = None
+        follow = watch.followup()
+        if follow is not None:  # 到了上限：接着同一段对话收尾一次
+            argv, text, inner = follow
+            wrapped = inner.finish(
+                await self.runner(
+                    argv,
+                    stdin_text=text,
+                    cwd=cwd,
+                    env=launch.env,
+                    timeout_s=min(w.timeout_s, 600),
+                    secrets=launch.secrets,
+                    watch=inner,
+                )
+            )
+        return watch.finish(result, wrapped)
 
     def _unwrap(self, w: SuperWorker, result: RunResult) -> RunResult:
         """按 JSON 输出的命令行：取出回答，花费记进账本（看不懂就原样交回）。"""

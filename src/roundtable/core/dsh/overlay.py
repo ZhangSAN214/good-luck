@@ -31,11 +31,32 @@ def overlay_rows(persona: str) -> list[dict[str, Any]]:
     return rows
 
 
-def write_overlay(path: Path, persona: str) -> Path:
+# 一次性活额外收紧的行（dsh 官方配置里的行 id，0.2.1-rc.3 实测）
+COMPACTION_ROW = "compaction-basic"
+PRUNER_ROW = "tool-result-pruner"
+
+
+def job_rows(context_ratio: float, retain_ratio: float, tool_chars: int) -> list[dict[str, Any]]:
+    """超级电脑派的活：上下文更早压缩、工具输出更早截断（省 token，见 docs/DSH.md）。"""
+    head, tail = tool_chars // 2, tool_chars // 8
+    return [
+        {
+            "id": COMPACTION_ROW,
+            "config": {"thresholdRatio": context_ratio, "retainRatio": retain_ratio},
+        },
+        {
+            "id": PRUNER_ROW,
+            "config": {"thresholdChars": tool_chars, "headChars": head, "tailChars": tail},
+        },
+    ]
+
+
+def write_overlay(path: Path, persona: str, extra: list[dict[str, Any]] | None = None) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     head = (
         "# 圆桌自动生成，每次启动 dsh 时重写，不要手改（见 src/roundtable/core/dsh/overlay.py）\n"
     )
-    body = yaml.safe_dump(overlay_rows(persona), allow_unicode=True, sort_keys=False)
+    rows = overlay_rows(persona) + (extra or [])
+    body = yaml.safe_dump(rows, allow_unicode=True, sort_keys=False)
     path.write_text(head + body, encoding="utf-8")
     return path

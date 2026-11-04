@@ -1238,6 +1238,7 @@ prompts:
   watch: v2              # 投屏陪伴：成员陪用户看屏幕，吐槽、接话（v2：会接朋友的话、带说话风格和标题）
   wander: v1             # 成员自己上网：每看一页说一句感想、决定下一步（只看不互动）
   dsh_workbench: v1      # dsh 工作台助手的身份说明：中立、不带人格（接在 dsh 系统提示前面）
+  dsh_wrapup: v1         # dsh 一件活到了步数上限：停下工具，交代做了什么、还差什么
   super_split: v1        # 超级电脑：把一件活拆成能并行的小活
   super_work: v1         # 超级电脑：一位助手在共享工作文件夹里干一件小活
   super_merge: v1        # 超级电脑：合并各件小活的成果并写交付说明
@@ -2170,6 +2171,18 @@ dsh:                             # dsh 工作台（docs/DSH.md）：圆桌在本
   display_currency: CNY          # 工作台页面上花费、上限、余额按人民币显示（上限仍按 monthly_usd 算）
   permission_mode: read-only     # dsh 默认只读；要让它改文件改成 workspace-write（只能改 data/dsh/work/）
   job_permission_mode: workspace-write   # 超级电脑派给 dsh 的活：只能写那件活的共享工作文件夹
+  # 每件活的步数和上下文（2026-11-04 用户回「做」，docs/DSH.md「每件活的步数和上下文」）：
+  # 调一次工具算一步，超过 60 步先停，再用最多 3 步交代做了什么、还差什么；上下文涨到模型窗口的
+  # 25% 就把旧历史压成摘要（dsh 默认 80%），工具输出超过 4096 字只留头尾。只管超级电脑派的活，网页不变
+  job_max_steps: 60
+  wrapup_steps: 3
+  job_context_ratio: 0.25
+  job_retain_ratio: 0.05
+  job_tool_chars: 4096
+  # 错峰：DeepSeek 2026-08 起高峰时段贵一倍（工作日 UTC 01:00-04:00、06:00-10:00，即北京时间
+  # 9～12 点、14～18 点；周末全天闲时）。打开时高峰时段不派活给 dsh，包月的照常
+  avoid_peak: true
+  peak_utc: ["01:00-04:00", "06:00-10:00"]
 
 # 超级电脑（docs/SUPERCOMPUTER.md）：几位编程助手平级、没有固定主管，只在你交活时干活。
 # 派活只看下面的数字：分数 = 擅长 × skill + 今天剩余次数比例 × quota − 手上的活 × busy；

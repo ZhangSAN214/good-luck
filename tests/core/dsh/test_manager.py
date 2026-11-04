@@ -201,7 +201,12 @@ async def test_headless_jobs_for_supercomputer(tmp_path, fake_dsh):
     assert mgr.job_blocked() is None
     argv, env, secrets = mgr.job_launch()
     assert argv[2:4] == ["--profile", "headless"] and argv[-1] == "-"
-    assert argv[argv.index("--patch") + 1] == str(mgr.paths.overlay)
+    patch = mgr.paths.overlay.with_name("job-patch.yml")
+    assert argv[argv.index("--patch") + 1] == str(patch) and "--json" in argv
+    rows = {r["id"]: r for r in yaml.safe_load(patch.read_text(encoding="utf-8"))}
+    assert rows["compaction-basic"]["config"]["thresholdRatio"] == 0.25  # 活里更早压缩上下文
+    assert rows["tool-result-pruner"]["config"]["thresholdChars"] == 4096
+    assert "session-log-deepseek" in rows  # 不上传日志那几行照样在
     assert env["DSH_PERMISSION_MODE"] == "workspace-write" and env["DSH_TEST_KEY"] == KEY
     assert "OPENROUTER_API_KEY" not in env and secrets == [KEY]
     await mgr.job_started()  # 记起点 10.0
@@ -292,3 +297,42 @@ def test_ledger_counts_spend_per_week(tmp_path):
     led.observe(9.5, mon + timedelta(days=2), "USD", 9.5)
     assert led.week_spent(mon + timedelta(days=3)) == pytest.approx(0.5)
     assert led.week_spent(mon + timedelta(days=7)) == 0.0  # 下周一清零
+
+
+def test_job_watch_wraps_up_in_same_session(tmp_path, fake_dsh):
+    """到了步数上限：接着同一段对话收尾，提示词由服务层渲染好交进来。"""
+    mgr, _ = build(tmp_path, fake_dsh)
+    mgr.rules = DshRules(job_max_steps=2, wrapup_steps=1)
+    mgr.wrapup = lambda n: f"停下交代（{n} 步）"
+    mgr.job_launch()
+    watch = mgr.job_watch()
+    watch.feed('{"type": "session", "sessionId": "s-1"}')
+    for _ in range(3):
+        watch.feed('{"type": "tool_call", "tool": "bash"}')
+    argv, text, inner = watch.followup()
+    assert argv[argv.index("--session-id") + 1] == "s-1" and argv[-1] == "-"
+    assert text == "停下交代（2 步）" and inner.max_steps == 1
+    mgr.wrapup = None
+    assert mgr.job_watch().wrapup is None  # 没有提示词就只停不收尾
+
+
+def test_peak_hours_keep_jobs_off_dsh(tmp_path, fake_dsh):
+    """DeepSeek 高峰时段贵一倍（2026-08 起）：工作日高峰不派活给 dsh，周末和闲时照常。"""
+    from datetime import UTC, datetime
+
+    mgr, _ = build(tmp_path, fake_dsh, avoid_peak=True)
+    mgr.now = lambda: datetime(2026, 11, 4, 2, 30, tzinfo=UTC)  # 周三北京时间 10:30
+    assert "高峰" in (mgr.job_blocked() or "")
+    mgr.now = lambda: datetime(2026, 11, 4, 5, 0, tzinfo=UTC)  # 午间闲时
+    assert mgr.job_blocked() is None
+    mgr.now = lambda: datetime(2026, 11, 7, 2, 30, tzinfo=UTC)  # 周六
+    assert mgr.job_blocked() is None
+    mgr.rules = DshRules(avoid_peak=False)
+    assert not mgr.rules.in_peak(datetime(2026, 11, 4, 2, 30, tzinfo=UTC))
+
+
+def test_peak_ranges_are_validated():
+    with pytest.raises(ValueError, match="HH:MM"):
+        DshRules(peak_utc=["9点-12点"])
+    with pytest.raises(ValueError, match="job_retain_ratio"):
+        DshRules(job_context_ratio=0.1, job_retain_ratio=0.2)

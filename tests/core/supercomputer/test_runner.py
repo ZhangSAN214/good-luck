@@ -54,3 +54,40 @@ async def test_timeout_kills(tmp_path):
 async def test_missing_executable(tmp_path):
     r = await run([str(tmp_path / "nope")], stdin_text="", cwd=tmp_path, env={}, timeout_s=5)
     assert r.error and "启动不了" in r.error and not r.ok
+
+
+STREAM = textwrap.dedent(
+    """
+    import json, sys, time
+    sys.stdin.read()
+    print(json.dumps({"type": "session", "sessionId": "s"}), flush=True)
+    for i in range(int(sys.argv[1])):
+        print(json.dumps({"type": "tool_call", "tool": "bash"}), flush=True)
+    print(json.dumps({"type": "final", "text": "完成 S3CRET"}), flush=True)
+    if len(sys.argv) > 2:
+        time.sleep(30)  # 停不下来就会超时
+    """
+)
+
+
+class Counter:
+    def __init__(self, cap):
+        self.cap, self.n = cap, 0
+
+    def feed(self, line):
+        if '"tool_call"' in line:
+            self.n += 1
+            return "够了" if self.n > self.cap else None
+        return None
+
+
+async def test_watch_reads_lines_and_can_stop(tmp_path):
+    script = tmp_path / "stream.py"
+    script.write_text(STREAM, encoding="utf-8")
+    kw = dict(stdin_text="x", cwd=tmp_path / "w", env={"PATH": ""}, secrets=["S3CRET"])
+    watch = Counter(100)
+    r = await run([sys.executable, str(script), "3"], timeout_s=20, watch=watch, **kw)
+    assert r.ok and watch.n == 3 and '"final"' in r.output and "S3CRET" not in r.output
+    watch = Counter(2)
+    r = await run([sys.executable, str(script), "50", "hang"], timeout_s=20, watch=watch, **kw)
+    assert r.code == 0 and not r.timed_out and watch.n == 3  # 第 3 步就结束了进程

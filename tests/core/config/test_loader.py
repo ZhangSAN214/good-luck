@@ -153,6 +153,7 @@ def test_repo_config_loads_with_defaults():
         "watch",
         "wander",
         "dsh_workbench",
+        "dsh_wrapup",
         "super_split",
         "super_work",
         "super_merge",
