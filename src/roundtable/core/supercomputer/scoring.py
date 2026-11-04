@@ -75,10 +75,10 @@ def pick(
     free_ok = any(not w.metered for w in eligible)
     for w in eligible:
         s = score(w, kind, states[w.id], weights)
-        standby = weights.metered_last and w.metered and free_ok
-        if standby:
+        standby = weights.metered_last and w.metered
+        if standby:  # 面板上标「补位」：排在后面时、或订阅的都用不了而轮到它时
             s = Score(s.worker, s.total, s.skill, s.quota, s.busy, standby=True)
-        scored.append((0 if standby else 1, s.total, rng.random(), w, s))
+        scored.append((0 if standby and free_ok else 1, s.total, rng.random(), w, s))
     scored.sort(key=lambda t: (t[0], t[1], t[2]), reverse=True)
     ranking = [t[4] for t in scored]
     return (scored[0][3] if scored else None), ranking

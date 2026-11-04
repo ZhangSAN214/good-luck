@@ -67,7 +67,7 @@ def test_metered_worker_only_fills_in():
     states["a"] = WorkerState(used=20, limit=20)
     states["b"] = WorkerState(blocked="冷却中")
     chosen, ranking = pick(ws, "research", states, W, random.Random(1))
-    assert chosen.id == "paid" and not ranking[0].standby
+    assert chosen.id == "paid" and ranking[0].standby  # 面板显示「补位」
     # 被排除在外（比如不评自己的活）也算用不了
     states["b"] = WorkerState()
     assert pick(ws, "review", states, W, random.Random(1), exclude=["b"])[0].id == "paid"
