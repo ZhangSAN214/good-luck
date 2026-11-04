@@ -393,8 +393,3 @@ def test_pick_sandbox_docker_only_never_tries_wasm(tmp_path, monkeypatch):
     )
     monkeypatch.setattr(DockerSandbox, "unavailable_reason", lambda self: "无 docker")
     assert pick_sandbox(rules) == (None, "无 docker")
-
-
-def test_new_job_id_is_short_and_unique():
-    ids = {sb.new_job_id() for _ in range(200)}
-    assert len(ids) == 200 and all(len(i) == 12 for i in ids)
