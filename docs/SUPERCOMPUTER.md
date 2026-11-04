@@ -1,6 +1,6 @@
 # 超级电脑
 
-几位编程助手平级干活，没有固定主管。现在是三位：dsh（走圆桌的 dsh 工作台）、Codex（ChatGPT 订阅）、Claude Code（Claude 订阅）。你交一件活，圆桌的程序按分数决定谁拆分、每件小活给谁、谁来合并。大家在同一个文件夹里同时干。
+几位编程助手平级干活，没有固定主管。现在配了五位：dsh（走圆桌的 dsh 工作台）、Codex（ChatGPT 订阅）、Claude Code（Claude 订阅），以及 OpenCode 的两位（OpenCode Go 包月，DeepSeek 和 Kimi 各一位）。没装的那位显示不可用，其余照常。你交一件活，圆桌的程序按分数决定谁拆分、每件小活给谁、谁来合并。大家在同一个文件夹里同时干。
 
 只在你交活时干活，不会自己找活干。入口在顶部分段栏「工作台」（Alt+5）的「超级电脑」标签，干活时「工作台」上有个绿点。
 
@@ -41,7 +41,28 @@
   - 环境变量照搬当前进程，但去掉圆桌的所有 key 和一切 `*_API_KEY`。这样助手一定用自己登录的订阅额度，不会因为环境里有 key 就改走按量计费。
   - Codex 默认参数：`codex exec --skip-git-repo-check --sandbox workspace-write -`。
   - Claude Code 默认参数：`claude -p --permission-mode acceptEdits --output-format text`。
+  - OpenCode 默认参数：`opencode run -m <方案/模型>`，权限用这位的 `env`（`OPENCODE_PERMISSION`）设置，见下一节。
+  - 每位可以在 `env` 里加环境变量，但名字以 `_KEY`、`_TOKEN`、`_SECRET` 结尾的会被拒绝。key 只能由助手自己登录保存。
   - 命令行的参数以后变了，只改配置就行。
+
+## OpenCode 和其他包月方案
+
+2026-11-04 用户定接入 OpenCode Go（$10/月）。它的条款允许编程助手的流量，所以只给超级电脑和工作台生成器用，群聊不走它。
+
+**第一次用（开机时做一次，约 5 分钟）：**
+1. 装 OpenCode 命令行（见官网 <https://opencode.ai>），在终端里能运行 `opencode` 就行。
+2. 运行 `opencode auth login`，选 OpenCode Go，粘贴控制台里的 key。key 存在 OpenCode 自己的文件里，圆桌不经手。
+3. 在 OpenCode 控制台的 Go 页面把 Regions 选成 Global（DeepSeek 模型要这个），「Extra Usage」保持关闭，超出额度就停，不会多扣钱。
+4. 重启圆桌，「工作台 → 超级电脑」里能看到两位 OpenCode。
+
+**为什么分成两位：** Go 每个模型的额度各算各的（5 小时最多用掉月额度的 20%，一周 50%）。一位撞到限额会歇 `cooldown_minutes`，另一位照常接活，Claude Code、Codex 也照常排在一起按分数派。dsh 按用量花钱，仍然只补位。
+
+**权限：** `OPENCODE_PERMISSION` 允许改文件、跑命令、查网页，碰工作文件夹以外的文件一律拒绝，其余要确认的请求在非交互模式下自动拒绝。它没有 Codex 那样的系统沙箱，命令仍在你的电脑上跑。
+
+**换模型或换方案：** 只改配置，不用改代码。
+- 换 Go 里的另一个模型：把 `-m opencode-go/deepseek-v4.1-flash` 换成别的，比如 `opencode-go/glm-5.2`、`opencode-go/qwen3.7-plus`。
+- 加一家别的编程包月（智谱、Kimi、千问等 OpenCode 支持的方案）：先 `opencode auth login` 登录那一家，再照抄一位 OpenCode，改 `id`、`label` 和 `-m` 后面的「方案/模型」。
+- 不想用某一位：删掉那一段，或者把 `daily_limit` 改成 0。
 - **dsh**（`via: dsh`）：交给圆桌的 dsh 工作台，以 headless 方式运行（`--profile headless … -`）。
   - 用工作台的运行时、叠加配置（关上传和遥测、中立身份）和 DeepSeek key。
   - 权限是 `dsh.job_permission_mode`（默认 `workspace-write`，只能写这件活的工作文件夹）。

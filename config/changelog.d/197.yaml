@@ -1,0 +1,7 @@
+date: 2026-11-04
+pr: [197]
+title: 超级电脑多了 OpenCode 包月助手
+added:
+  - 工作台的超级电脑接入 OpenCode Go（$10/月包月），DeepSeek 和 Kimi 各一位，和 Claude Code、Codex 一起接活；按用量花钱的 dsh 仍然只补位
+  - 想换 Go 里的模型或加别家的编程包月，只改配置就行
+howto: 开机时装好 OpenCode 命令行，运行 opencode auth login 选 OpenCode Go 并粘贴 key，重启圆桌，在「工作台 → 超级电脑」里能看到两位 OpenCode。
