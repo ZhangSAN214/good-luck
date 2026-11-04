@@ -1,0 +1,97 @@
+/* 星图（docs/STARMAP.md）：全屏深空，玻璃质感的侧栏与卡片。星图本身总是深色（星空），不跟随浅色主题。 */
+dialog#starmapdlg{width:100vw;height:100dvh;max-width:none;max-height:none;margin:0;border:0;border-radius:0;padding:0;background:#05070f;color:#e9edf8;overflow:hidden}
+dialog#starmapdlg::backdrop{background:rgba(3,5,12,.7)}
+.sm{--glass:rgba(16,22,44,.58);--glass-line:rgba(170,190,255,.14);--dim:#97a3c4;position:relative;width:100%;height:100%;font-family:"Noto Sans SC",system-ui,sans-serif}
+.sm-stage{position:absolute;inset:0}
+.sm-canvas{width:100%;height:100%;display:block;cursor:grab;touch-action:none}
+.sm-hint{position:absolute;left:50%;top:70px;transform:translateX(-50%);font-size:11px;letter-spacing:.12em;color:rgba(190,200,235,.45);pointer-events:none;white-space:nowrap}
+.sm-tip{position:absolute;left:0;top:0;pointer-events:none;padding:4px 9px;border-radius:999px;font-size:12px;background:rgba(10,14,30,.85);border:1px solid var(--glass-line);color:#fff;white-space:nowrap}
+
+.sm-top{position:absolute;z-index:2;left:0;right:0;top:0;display:flex;align-items:center;gap:18px;padding:14px 18px;background:linear-gradient(#05070fdd,#05070f00)}
+.sm-title h2{margin:0;font-size:20px;font-weight:600;letter-spacing:.06em;font-family:"Noto Serif SC","Noto Sans SC",serif}
+.sm-sub{display:block;margin-top:2px;font:500 11px/1.3 "IBM Plex Mono",ui-monospace,monospace;color:var(--dim);letter-spacing:.04em}
+.sm-tabs{display:flex;gap:6px;flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;margin-left:auto;padding:2px}
+.sm-tabs::-webkit-scrollbar{display:none}
+.sm-tabs button{flex:none;border:1px solid var(--glass-line);background:var(--glass);color:#cfd6ee;border-radius:999px;padding:5px 13px;font:inherit;font-size:13px;cursor:pointer;backdrop-filter:blur(10px);transition:background .2s,border-color .2s}
+.sm-tabs button:hover{border-color:rgba(200,215,255,.4)}
+.sm-tabs button[aria-pressed="true"]{background:linear-gradient(135deg,#f3d9a0,#e9b8d8);color:#141826;border-color:transparent;font-weight:600}
+.sm-fold{display:none;flex:none;border:1px solid var(--glass-line);background:var(--glass);color:#dfe5f8;border-radius:999px;padding:5px 12px;font:inherit;font-size:13px;cursor:pointer}
+.sm-x{flex:none;width:32px;height:32px;border-radius:50%;border:1px solid var(--glass-line);background:var(--glass);color:#dfe5f8;font-size:18px;line-height:1;cursor:pointer}
+.sm-x:hover{background:rgba(255,255,255,.12)}
+
+.sm-legend,.sm-card{position:absolute;z-index:2;background:var(--glass);border:1px solid var(--glass-line);border-radius:18px;backdrop-filter:blur(16px) saturate(1.2);box-shadow:0 18px 50px rgba(0,0,0,.35)}
+.sm-legend{left:18px;top:84px;width:216px;max-height:calc(100% - 200px);overflow:auto;padding:14px 14px 10px;scrollbar-width:thin}
+.sm h3{margin:12px 0 8px;font-size:11px;font-weight:600;letter-spacing:.2em;color:var(--dim)}
+.sm h3 small{font-family:"IBM Plex Mono",monospace;color:#ff9f95;letter-spacing:0;margin-left:4px}
+.sm-legend h3:first-child{margin-top:0}
+.sm-groups,.sm-gaps,.sm-rel,.sm-changes{list-style:none;margin:0;padding:0}
+.sm-g{position:relative;display:grid;grid-template-columns:10px 1fr auto;align-items:center;gap:8px;padding:6px 8px;border-radius:10px;font-size:13px;cursor:pointer}
+.sm-g:hover,.sm-g.on{background:rgba(255,255,255,.06)}
+.sm-g i{width:8px;height:8px;border-radius:50%;background:var(--c);box-shadow:0 0 10px var(--c)}
+.sm-g b{font:500 11px "IBM Plex Mono",monospace;color:var(--dim)}
+.sm-g em{grid-column:2/4;height:2px;border-radius:2px;background:rgba(255,255,255,.08);position:relative;overflow:hidden}
+.sm-g em::after{content:"";position:absolute;inset:0;width:var(--p);background:var(--c)}
+.sm-g.empty span{color:var(--dim)}
+.sm-g.empty i{background:none;border:1px dashed #ff8a80;box-shadow:none}
+.sm-g.empty b{color:#ff9f95}
+.sm-gaps li{position:relative;padding:5px 8px 5px 20px;font-size:12px;color:#ffc7c0;border-radius:8px;cursor:pointer;line-height:1.45}
+.sm-gaps li::before{content:"";position:absolute;left:6px;top:10px;width:7px;height:7px;border-radius:50%;border:1px dashed #ff8a80}
+.sm-gaps li:hover,.sm-gaps li.on{background:rgba(255,138,128,.1)}
+.sm-none{margin:0;font-size:12px;color:var(--dim)}
+.sm-score{display:flex;align-items:center;gap:10px;margin-bottom:6px}
+.sm-score svg{width:46px;height:46px;transform:rotate(-90deg)}
+.sm-score circle{fill:none;stroke:rgba(255,255,255,.1);stroke-width:2.6}
+.sm-score circle+circle{stroke:#f0cf94;stroke-linecap:round}
+.sm-score b{font:600 22px "Barlow Condensed","IBM Plex Mono",sans-serif}
+.sm-score b small{font-size:12px;color:var(--dim)}
+.sm-score span{font-size:11px;color:var(--dim);letter-spacing:.2em}
+
+.sm-card{right:18px;top:84px;width:300px;max-height:calc(100% - 200px);overflow:auto;padding:14px 16px 12px;border-top:2px solid var(--c);animation:sm-in .28s ease}
+@keyframes sm-in{from{opacity:0;transform:translateY(6px)}}
+.sm-ch{display:flex;align-items:flex-start;gap:10px}
+.sm-ch>div{flex:1;min-width:0}
+.sm-ch b{display:block;font-size:16px;font-weight:600;overflow-wrap:anywhere}
+.sm-ch small{font-size:11px;color:var(--dim);letter-spacing:.06em}
+.sm-ch .sm-x{width:26px;height:26px;font-size:15px}
+.sm-dot{flex:none;margin-top:5px;width:11px;height:11px;border-radius:50%;background:var(--c);box-shadow:0 0 12px var(--c)}
+.sm-dot.gap{background:none;border:1.5px dashed #ff8a80;box-shadow:none}
+.sm-new{font-style:normal;color:#141826;background:#f0cf94;border-radius:4px;padding:0 4px}
+.sm-detail{margin:10px 0 0;white-space:pre-wrap;font-size:13px;line-height:1.65;color:#d5dbef;overflow-wrap:anywhere}
+.sm-enter{display:block;width:100%;margin-top:12px;padding:8px 10px;border-radius:12px;border:1px solid transparent;background:linear-gradient(135deg,rgba(243,217,160,.92),rgba(233,184,216,.92));color:#141826;font:inherit;font-size:13px;font-weight:600;cursor:pointer}
+.sm-card h4{margin:14px 0 6px;font-size:11px;font-weight:600;letter-spacing:.2em;color:var(--dim)}
+.sm-card h4 small{font-family:"IBM Plex Mono",monospace;letter-spacing:0}
+.sm-rel{display:flex;flex-wrap:wrap;gap:6px}
+.sm-rel li{display:inline-flex;align-items:center;gap:6px;max-width:100%;padding:4px 10px;border-radius:999px;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.04);font-size:12px;cursor:pointer;overflow-wrap:anywhere}
+.sm-rel li:hover{border-color:var(--c)}
+.sm-rel li i{flex:none;width:6px;height:6px;border-radius:50%;background:var(--c)}
+.sm-rel li i.gap{background:none;border:1px dashed #ff8a80}
+.sm-rel li em{font-style:normal;font-size:10px;color:#f0cf94}
+
+.sm-time{position:absolute;z-index:2;left:50%;bottom:16px;transform:translateX(-50%);width:min(760px,calc(100% - 32px));display:flex;flex-direction:column;gap:8px}
+.sm-tl{display:flex;align-items:center;gap:12px;padding:8px 14px;border-radius:999px;background:var(--glass);border:1px solid var(--glass-line);backdrop-filter:blur(14px)}
+.sm-play{flex:none;width:28px;height:28px;border-radius:50%;border:0;background:#f0cf94;color:#141826;font-size:11px;cursor:pointer}
+.sm-play:disabled{opacity:.35;cursor:default}
+.sm-tl input{flex:1;accent-color:#f0cf94;min-width:0}
+.sm-tl output{flex:none;min-width:76px;text-align:right;font:500 12px "IBM Plex Mono",monospace;color:#f0cf94}
+.sm-changes{display:flex;gap:8px;overflow-x:auto;scrollbar-width:none;mask-image:linear-gradient(90deg,#000 85%,transparent)}
+.sm-changes::-webkit-scrollbar{display:none}
+.sm-changes li{flex:none;max-width:240px;padding:4px 10px;border-radius:999px;background:rgba(10,14,30,.6);border:1px solid var(--glass-line);font-size:12px;color:#cdd5ee;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer}
+.sm-changes li:hover,.sm-changes li.on{border-color:#f0cf94}
+.sm-changes time{font:500 11px "IBM Plex Mono",monospace;color:#f0cf94;margin-right:6px}
+
+@media (max-width:760px){
+  .sm-top{flex-wrap:wrap;gap:8px;padding:10px 16px}
+  .sm-tabs{order:3;width:100%;margin-left:0}
+  .sm-x{margin-left:auto}
+  .sm-fold{display:block;margin-left:auto}
+  .sm-fold+.sm-x{margin-left:0}
+  .sm-legend{display:none;top:auto;bottom:118px;left:16px;right:16px;width:auto;max-height:52vh}
+  .sm.legend-open .sm-legend{display:block}
+  .sm.legend-open .sm-card{display:none}
+  .sm-legend .sm-groups{display:flex;flex-wrap:wrap;gap:2px}
+  .sm-legend .sm-g{grid-template-columns:10px auto auto}
+  .sm-legend .sm-g em{display:none}
+  .sm-card{top:auto;bottom:118px;left:16px;right:16px;width:auto;max-height:46vh}
+  .sm-hint{display:none}
+}
+@media (prefers-reduced-motion:reduce){.sm-card{animation:none}}

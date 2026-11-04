@@ -24,7 +24,7 @@ from typing import Any
 from urllib.parse import quote
 
 from roundtable.core import chat_handoff as handoff
-from roundtable.core import clipper, firstaid
+from roundtable.core import clipper, firstaid, starmap
 from roundtable.core.allocation import coordinator_name, display_name
 from roundtable.core.almanac import Almanac
 from roundtable.core.attachments import Attachment, UploadError, ingest
@@ -3525,6 +3525,40 @@ class RoundtableService:
                 for _, r in sorted(self.growth.log.load(member)["reports"].items(), reverse=True)
             ],
         }
+
+    # --- 星图（docs/STARMAP.md）：圆桌星图与成员的人生星图，只读、不调模型 ----------------
+
+    def star_map_member(self, member: str) -> dict[str, Any]:
+        """一位成员的人生星图：身份、性格、三观、喜好、能力、记忆、关系、情绪、表达、成长。"""
+        member = self._profile_member(member)
+        m = next(x for x in self.chats.everyone() if x.id == member)
+        states = {s["member"]: s for s in self.member_states()["members"]}
+        return starmap.life_map(
+            member={"id": m.id, "name": m.name},
+            profile=self.member_profile(member),
+            growth=self.member_growth(member),
+            relation=self.member_relation(member),
+            memory=self.chat_memory_items(member, None, 200),
+            state=states.get(member),
+            today=self._local_now().date(),
+        )
+
+    def star_map(self) -> dict[str, Any]:
+        """圆桌星图：版本更新挂在各部门下、成员（完整度与缺的星域）、体检里没过的项。"""
+        members, peers = [], {}
+        for m in self.chats.everyone():
+            life = self.star_map_member(m.id)
+            members.append(
+                {"id": m.id, "name": m.name, "score": life["score"], "missing": life["missing"]}
+            )
+            peers[m.id] = self.engine.relation.summary(m.id)["peers"]
+        return starmap.roundtable_map(
+            changelog=self.changelog(),
+            members=members,
+            findings=[f.view() for f in self.firstaid_findings()],
+            peers=peers,
+            today=self._local_now().date(),
+        )
 
     async def member_growth_run(self, member: str) -> dict[str, Any]:
         """马上让这位成员反思上一周（每周只反思一次；上周已经反思过就不再调用）。"""

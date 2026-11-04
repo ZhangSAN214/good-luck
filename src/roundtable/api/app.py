@@ -1583,6 +1583,15 @@ def create_app(service: RoundtableService | None = None, lan: LanAccess | None =
     async def member_profile_clear(request: Request, member: str) -> dict[str, Any]:
         return svc(request).member_profile_clear(member)
 
+    # 星图（docs/STARMAP.md）：圆桌星图、成员的人生星图（只读）
+    @app.get("/api/starmap")
+    async def star_map(request: Request) -> dict[str, Any]:
+        return svc(request).star_map()
+
+    @app.get("/api/starmap/{member}")
+    async def star_map_member(request: Request, member: str) -> dict[str, Any]:
+        return svc(request).star_map_member(member)
+
     # 成员成长（P6）：时间线、马上反思上一周、撤回一条、清空时间线
     @app.get("/api/chat/growth/{member}")
     async def member_growth(request: Request, member: str) -> dict[str, Any]:
