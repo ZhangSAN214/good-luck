@@ -15,6 +15,7 @@ import roundtable.core.service as service_mod
 from roundtable.core.benchkit.builder import BenchBuilder
 from roundtable.core.benchkit.quality import Report
 from roundtable.core.benchkit.scout import Candidate
+from roundtable.core.benchkit.spec import layout_css, layout_grid
 from roundtable.core.config.schema import BenchProject, BenchTeam
 from roundtable.core.supercomputer.runner import RunResult
 
@@ -415,19 +416,28 @@ def test_benchgen_design_board_live_preview(serve, page, monkeypatch, tmp_path):
     board = gate.locator(".bg-design")
     board.wait_for(timeout=15000)
     rec = board.locator('[data-dz="layout"][aria-pressed="true"]')
-    assert "主视觉 + 侧栏" in rec.text_content() and "推荐" in rec.text_content()
+    assert "主视觉 + 侧栏列表 + 详情" in rec.text_content() and "推荐" in rec.text_content()
     assert "边看地图边改行程" in board.text_content()
     view = page.frame_locator("[data-dpreview]")
     cards = view.locator("[data-pw]")
     cards.first.wait_for(timeout=10000)
     assert cards.count() == 3
     assert cards.first.get_attribute("data-span") == "8"
+    main = view.locator("main")
+    assert main.get_attribute("data-k-layout") == "hero-side"
+    assert cards.first.get_attribute("data-slot") == "hero"
     assert "说走就走" in view.locator(".k-display").text_content()
     root = view.locator("html")
     assert root.get_attribute("data-k-material") == "paper"
 
     gate.locator("li[data-req] input").first.fill("能换目的地和日期")  # 先改要求，再点选型也不丢
-    board.locator('[data-dz="layout"]', has_text="主视觉通栏").click()
+    board.locator('[data-dz="layout"]', has_text="四分屏").click()
+    assert main.get_attribute("data-k-layout") == "quad"
+    # 预览和后端用同一套格子（layout_grid）
+    want = layout_grid(["map-view", "plan", "budget"], "map-view", "quad")
+    assert main.get_attribute("style") == layout_css(want)
+    assert "右上" in board.locator('[data-dzone="plan"]').text_content()
+    board.locator('[data-dz="layout"]', has_text="主视觉 + 底部数据条").click()
     assert cards.first.get_attribute("data-span") == "12"
     board.locator(".bg-dgroup summary", has_text="质感").click()  # 前两组默认展开，其余点开
     board.locator('[data-dz="material"]', has_text="液态玻璃").click()
@@ -438,8 +448,8 @@ def test_benchgen_design_board_live_preview(serve, page, monkeypatch, tmp_path):
     assert root.get_attribute("data-k-mode") == "dark"
     board.locator('[data-ddrop="plan"]').uncheck()
     assert cards.count() == 2
-    board.locator('[data-dspan="budget"]').select_option("6")
-    assert view.locator('[data-pw="budget"]').get_attribute("data-span") == "6"
+    assert view.locator('[data-pw="budget"]').get_attribute("data-span") == "12"
+    assert board.locator('[data-dspan="budget"]').count() == 0  # 固定模板不单调宽窄
     pane.locator('[data-dz="device"][data-v="phone"]').click()
     assert pane.locator("[data-dframe]").get_attribute("data-device") == "phone"
     assert gate.locator("li[data-req] input").first.input_value() == "能换目的地和日期"
@@ -453,7 +463,9 @@ def test_benchgen_design_board_live_preview(serve, page, monkeypatch, tmp_path):
     folder = next((tmp_path / "bench").glob("*/spec.json")).parent
     spec = json.loads((folder / "spec.json").read_text(encoding="utf-8"))
     assert spec["theme"] == "forest" and spec["design"]["picks"]["material"] == "glass"
-    assert [(w["id"], w["span"]) for w in spec["windows"]] == [("map-view", 12), ("budget", 6)]
+    assert [(w["id"], w["span"]) for w in spec["windows"]] == [("map-view", 12), ("budget", 12)]
+    assert spec["design"]["picks"]["layout"] == "hero-strip"
+    assert 'data-k-layout="hero-strip"' in (folder / "index.html").read_text(encoding="utf-8")
     assert spec["requirements"][0]["text"] == "能换目的地和日期"
     assert 'data-k-material="glass"' in (folder / "index.html").read_text(encoding="utf-8")
 

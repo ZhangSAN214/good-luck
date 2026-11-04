@@ -49,6 +49,8 @@ class Window:
     parts: list[str] = field(default_factory=list)
     data: str = ""
     actions: list[str] = field(default_factory=list)
+    # 在版型里的位置（D 布局模板）：「侧栏列表（电脑上在主视觉右边）」这类大白话，写窗口时照着排
+    zone: str = ""
 
     @property
     def file(self) -> str:
@@ -155,11 +157,15 @@ DESIGN_DIMS: dict[str, tuple[str, str, list[tuple[str, str, str]]]] = {
         "版型",
         "结构",
         [
-            ("plan", "按方案", "照拆需求时排的宽窄和顺序"),
-            ("hero-side", "主视觉 + 侧栏", "大画面在左占三分之二，列表和详情在右"),
-            ("hero-wide", "主视觉通栏", "大画面占满一整行，其余窗口排在下面"),
-            ("dashboard", "仪表盘", "窗口差不多大，一行三个，一眼看全"),
-            ("workspace", "编辑器三栏", "左边工具、中间画布、右边属性，像修图和设计软件"),
+            (
+                "hero-side",
+                "主视觉 + 侧栏列表 + 详情",
+                "大画面在左占三分之二，右边上面列表、下面详情",
+            ),
+            ("hero-strip", "主视觉 + 底部数据条", "大画面占满一整行，下面一排数字、图表小窗"),
+            ("quad", "四分屏", "四块一样大，两行两列，主视觉在左上"),
+            ("flow", "流程四区", "按步骤从左到右：准备 → 主画面 → 检查，下面一整条是交付"),
+            ("workspace", "编辑器三栏", "左边窄工具栏、中间画布、右边属性，像修图和设计软件"),
             ("stream", "单列阅读", "从上到下一列，像文档、报告、教程"),
         ],
     ),
@@ -296,7 +302,7 @@ DESIGN_DIMS: dict[str, tuple[str, str, list[tuple[str, str, str]]]] = {
 }
 DESIGN_GROUPS = ("结构", "色彩", "质感", "文字", "控件")
 DESIGN_DEFAULTS = {
-    "layout": "plan",
+    "layout": "hero-side",
     "width": "normal",
     "topbar": "normal",
     "herosize": "normal",
@@ -465,6 +471,8 @@ def design_of(raw: Any, theme: str, themes: list[str]) -> dict[str, Any]:
         v = str(got.get(d["key"]) or "")
         if d["key"] == "theme":
             v = theme
+        if d["key"] == "layout":
+            v = layout_id(v)
         picks[d["key"]] = v if v in ids else DESIGN_DEFAULTS.get(d["key"], ids[0])
         if text:
             why[d["key"]] = text
@@ -495,27 +503,159 @@ def _rows(ids: list[str], per: int) -> list[tuple[str, int]]:
     return out
 
 
-def layout_spans(spec: Spec, layout: str) -> list[tuple[str, int]]:
-    """某个版型下窗口的顺序和宽度（12 列里占几列）。选型台预览和签字后写回规格用同一份。"""
-    plan = [(w.id, w.span) for w in spec.windows]
-    ids = [w.id for w in spec.windows]
-    hero = spec.hero if spec.hero in ids else ids[0]
-    rest = [w for w in ids if w != hero]
+# --- D 布局模板（2026-11-04）：6 种固定布局，电脑 / 平板 / 手机三种屏宽都按模板排 ---
+# 每个窗口在 12 列的网格里有自己的格子（grid-template-areas），主视觉叫 hero，其余按顺序 a1、a2……
+# 电脑按模板；平板主视觉占一整行、其余两个一行；手机一列、主视觉在最上面（外壳里主视觉排第一个）。
+# 选型台的预览（web/js/benchgen.js 的 layoutGrid）和这里算法一样，端到端测试核对。
+LAYOUT_TEMPLATES = ("hero-side", "hero-strip", "quad", "flow", "workspace", "stream")
+LAYOUT_ALIAS = {"hero-wide": "hero-strip", "dashboard": "quad"}  # 旧规格里的版型名
+# 拆需求的助手没挑版型时，按工作台类型给一个（类型名来自 bench.skills.kinds）
+KIND_LAYOUT = {
+    "editor": "workspace",
+    "motion3d": "workspace",
+    "content": "workspace",
+    "audio": "workspace",
+    "dashboard": "quad",
+    "sim": "quad",
+}
+# 每个模板里格子的名字（主视觉以外按顺序），超出的排在下面
+LAYOUT_ZONES = {
+    "hero-side": ("侧栏列表（电脑上在主视觉右边上半）", "详情（电脑上在主视觉右边下半）"),
+    "hero-strip": tuple(f"底部数据条第 {i} 格（主视觉下面一排）" for i in range(1, 5)),
+    "quad": ("右上", "左下", "右下"),
+    "flow": ("第 1 步（左边）", "第 3 步（右边）", "第 4 步（下面一整条，交付）"),
+    "workspace": ("左侧工具栏（窄）", "右侧属性面板"),
+    "stream": (),
+}
+HERO_ZONE = {
+    "hero-side": "主视觉（左边占三分之二）",
+    "hero-strip": "主视觉（占满一整行）",
+    "quad": "主视觉（左上）",
+    "flow": "第 2 步·主画面（中间）",
+    "workspace": "中间画布（最宽）",
+    "stream": "主视觉（最上面）",
+}
+
+
+def layout_id(v: Any) -> str:
+    """认得的版型 id（旧名换成新名）；不认得就空。"""
+    v = LAYOUT_ALIAS.get(str(v or ""), str(v or ""))
+    return v if v in LAYOUT_TEMPLATES else ""
+
+
+def default_layout(kind: str) -> str:
+    return KIND_LAYOUT.get(kind, "hero-side")
+
+
+def _row(ws: list[str], widths: list[int] | None = None) -> list[tuple[str, int]]:
+    widths = widths or [12 // len(ws)] * len(ws)
+    return list(zip(ws, widths, strict=True))
+
+
+def _chunk(ws: list[str], per: int) -> list[list[tuple[str, int]]]:
+    return [_row(ws[i : i + per]) for i in range(0, len(ws), per)]
+
+
+def layout_grid(ids: list[str], hero: str, layout: str) -> dict[str, Any] | None:
+    """某个模板下每个窗口的格子：电脑和平板的 grid-template-areas、每个窗口的格子名、宽度（列）、
+    在版型里的位置、流程模板的步骤号。不是模板（旧规格的「按方案」）返回 None。"""
+    layout = layout_id(layout)
+    if not layout or not ids:
+        return None
+    h = hero if hero in ids else ids[0]
+    rest = [w for w in ids if w != h]
+    n = len(rest)
+    rows: list[list[tuple[str, int]]]
     if layout == "hero-side":
-        if not rest:
-            return [(hero, 12)]
-        return [(hero, 8), (rest[0], 4), *_rows(rest[1:], 3)]
-    if layout == "hero-wide":
-        return [(hero, 12), *_rows(rest, 3)]
-    if layout == "dashboard":
-        return _rows([hero, *rest], 3)
-    if layout == "workspace":
-        if len(rest) < 2:
-            return layout_spans(spec, "hero-side")
-        return [(rest[0], 3), (hero, 6), (rest[1], 3), *_rows(rest[2:], 2)]
+        if n == 0:
+            rows, used = [_row([h])], 0
+        elif n == 1:
+            rows, used = [_row([h, rest[0]], [8, 4])] * 2, 1
+        else:
+            rows, used = [_row([h, rest[0]], [8, 4]), _row([h, rest[1]], [8, 4])], 2
+        rows += _chunk(rest[used:], 3)
+    elif layout == "hero-strip":
+        rows = [_row([h])] + _chunk(rest, 4)
+    elif layout == "quad":
+        rows = _chunk([h, *rest], 2)
+    elif layout == "flow":
+        if n == 0:
+            rows, used = [_row([h])], 0
+        elif n == 1:
+            rows, used = [_row([rest[0], h], [4, 8])], 1
+        else:
+            rows, used = [_row([rest[0], h, rest[1]], [3, 6, 3])], 2
+            if n >= 3:
+                rows.append(_row([rest[2]]))
+                used = 3
+        rows += _chunk(rest[used:], 3)
+    elif layout == "workspace":
+        if n == 0:
+            rows, used = [_row([h])], 0
+        elif n == 1:
+            rows, used = [_row([h, rest[0]], [9, 3])], 1
+        else:
+            rows, used = [_row([rest[0], h, rest[1]], [2, 7, 3])], 2
+        rows += _chunk(rest[used:], 2)
+    else:  # stream
+        rows = [_row([w]) for w in [h, *rest]]
+    area = {h: "hero"} | {w: f"a{i}" for i, w in enumerate(rest, 1)}
+    zones = LAYOUT_ZONES[layout]
+    zone = {h: HERO_ZONE[layout]} | {
+        w: zones[i] if i < len(zones) else "下面（按顺序排）" for i, w in enumerate(rest)
+    }
     if layout == "stream":
-        return [(w, 12) for w in [hero, *rest]]
-    return plan
+        zone |= {w: f"往下第 {i} 个" for i, w in enumerate(rest, 2)}
+    if layout == "workspace" and n == 1:
+        zone[rest[0]] = zones[1]  # 只有一个配角：放在画布右边当属性面板
+    spans: dict[str, int] = {}
+    for row in rows:
+        for w, c in row:
+            spans.setdefault(w, c)
+    tab = [_row([h])] + _chunk(rest, 2)
+    step = {}
+    if layout == "flow":
+        step = {w: k for k, w in enumerate([*rest[:1], h, *rest[1:3]], 1)}
+
+    def areas(rs: list[list[tuple[str, int]]]) -> list[str]:
+        return [" ".join(area[w] for w, c in r for _ in range(c)) for r in rs]
+
+    return {
+        "layout": layout,
+        "order": [h, *rest],
+        "desk": areas(rows),
+        "tab": areas(tab),
+        "area": area,
+        "zone": zone,
+        "spans": spans,
+        "step": step,
+    }
+
+
+def layout_css(grid: dict[str, Any]) -> str:
+    """外壳 <main> 的样式变量：电脑和平板各一套 grid-template-areas（手机一列，不用）。"""
+
+    def q(rows: list[str]) -> str:
+        return " ".join(f'"{r}"' for r in rows)
+
+    return f"--k-areas: {q(grid['desk'])}; --k-areas-tab: {q(grid['tab'])}"
+
+
+def layout_spans(spec: Spec, layout: str) -> list[tuple[str, int]]:
+    """某个版型下窗口的顺序（主视觉第一个）和电脑上的宽度（12 列里占几列）。
+    旧规格的「按方案」照拆需求时排的。选型台预览和签字后写回规格用同一份。"""
+    grid = layout_grid([w.id for w in spec.windows], spec.hero, layout)
+    if grid is None:
+        return [(w.id, w.span) for w in spec.windows]
+    return [(w, grid["spans"][w]) for w in grid["order"]]
+
+
+def set_zones(spec: Spec) -> None:
+    """按现在的版型给每个窗口写上它在哪一格（写窗口的助手照着排）。"""
+    layout = ((spec.design or {}).get("picks") or {}).get("layout", "")
+    grid = layout_grid([w.id for w in spec.windows], spec.hero, layout)
+    for w in spec.windows:
+        w.zone = grid["zone"][w.id] if grid else ""
 
 
 def apply_design(
@@ -532,6 +672,8 @@ def apply_design(
                 picks[d["key"]] = hex_color(choice.get(d["key"]))
             continue
         v = str(choice.get(d["key"]) or "")
+        if d["key"] == "layout":
+            v = layout_id(v)
         if v in {o["id"] for o in d["options"]}:
             picks[d["key"]] = v
     if "note" in choice:
@@ -565,8 +707,10 @@ def apply_design(
         for n, st in enumerate(keep, 1):
             st["n"] = n
         spec.stages = keep
-    order = layout_spans(spec, picks.get("layout", "plan"))
-    spans = choice.get("spans") if isinstance(choice.get("spans"), dict) else {}
+    order = layout_spans(spec, picks.get("layout", ""))
+    # 固定模板按格子排，宽窄跟模板走；只有旧规格的「按方案」还能单独调宽度
+    templated = bool(layout_id(picks.get("layout", "")))
+    spans = choice.get("spans") if isinstance(choice.get("spans"), dict) and not templated else {}
     by_id = {w.id: w for w in spec.windows}
     windows = []
     for wid, n in order:
@@ -582,6 +726,7 @@ def apply_design(
         keep = {str(x) for x in choice.get("refs") or []}
         design["refs"] = [r for r in design.get("refs") or [] if r["name"] in keep]
     spec.design = design | {"picks": picks, "chosen": True}
+    set_zones(spec)
     return drop
 
 
@@ -802,7 +947,13 @@ def normalize(
     base = base if base in BASES else ""
     if base:
         hero = ""  # 应用型：画布就是主体，没有「主视觉窗口」
-    return Spec(
+    raw_design = raw.get("design") if isinstance(raw.get("design"), dict) else {}
+    raw_picks = raw_design.get("picks") if isinstance(raw_design.get("picks"), dict) else {}
+    design = design_of(raw_design, theme, themes)
+    if not layout_id(raw_picks.get("layout")):
+        # 助手没挑版型（或挑了不认得的）：按工作台类型给一个
+        design["picks"]["layout"] = design["recommend"]["layout"] = default_layout(kind)
+    spec = Spec(
         title=title,
         subtitle=_text(raw.get("subtitle"), 60),
         icon=icon if icon in icons else "layers",
@@ -814,13 +965,15 @@ def normalize(
         state=state,
         requirements=requirements,
         hero=hero,
-        design=design_of(raw.get("design"), theme, themes),
+        design=design,
         stages=stages,
         pool=pool,
         kind=kind,
         output="app" if base else "page",
         base=base,
     )
+    set_zones(spec)
+    return spec
 
 
 # 外壳和卡片的模板（shell.html、card.html）：只引零件库，按规格排卡片；每个窗口的模块单独加载，
@@ -933,17 +1086,36 @@ def shell_html(spec: Spec, bench_id: str) -> str:
         return app_html(spec, bench_id)
     e = html.escape
     card = _HERE("card.html").read_text(encoding="utf-8").rstrip("\n")
+    layout = ((spec.design or {}).get("picks") or {}).get("layout", "")
+    grid = layout_grid([w.id for w in spec.windows], spec.hero, layout)
+    by_id = {w.id: w for w in spec.windows}
+    windows = [by_id[x] for x in grid["order"]] if grid else spec.windows
+
+    def slot(w: Window) -> str:
+        if grid is None:
+            return ""
+        out = f' data-slot="{grid["area"][w.id]}" style="--k-area: {grid["area"][w.id]}"'
+        if w.id in grid["step"]:
+            out += f' data-step="{grid["step"][w.id]}"'
+        return out
+
     cards = "\n".join(
         _fill(
             card,
             span=w.span,
+            slot=slot(w),
             hero=" k-hero" if w.id == spec.hero else "",
             id=w.id,
             icon=e(w.icon),
             title=e(w.title),
             sub=f'<div class="k-sub">{e(w.sub)}</div>' if w.sub else "",
         )
-        for w in spec.windows
+        for w in windows
+    )
+    main = (
+        f' data-k-layout="{grid["layout"]}" style="{e(layout_css(grid))}"'
+        if grid is not None
+        else ""
     )
     attrs, roles = _design_attrs(spec)
     logo = (
@@ -959,6 +1131,7 @@ def shell_html(spec: Spec, bench_id: str) -> str:
         title=e(spec.title),
         subtitle=e(spec.subtitle),
         cards=cards,
+        main=main,
         bench_id=json.dumps(bench_id),
     )
 

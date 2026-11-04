@@ -960,6 +960,9 @@ class OfficeProject(_Strict):
     )
     reviews_per_item: int = Field(default=1, ge=1)
     step_params: dict[str, dict[str, Any]] = Field(default_factory=dict)
+    # M 办公室交接（2026-11-04）：经理决定项目分工时，先问老板要不要交给工作台（项目室）。
+    # 只在工作台和项目室都开着时问；同意后直接生成项目室的需求书，做完把成品和验收结果回报到这场对话
+    bench_handoff: bool = True
 
     @model_validator(mode="after")
     def _range(self) -> OfficeProject:
@@ -4014,6 +4017,9 @@ class BenchResearch(_Strict):
     news: int = Field(default=8, ge=0, le=20)  # 资讯、视频、发布会、官方博客合计
     learn: int = Field(default=3, ge=0, le=6)  # 写几张学习卡（每张花一次订阅次数）
     learn_plugins: int = Field(default=1, ge=0, le=3)  # 另给几个 dsh 插件写学习卡（供助手学习）
+    # I3 方案书引用调研：调研之后请一位助手把技术选择写清楚，每条指向调研报告里的某一条（g1、k1……）
+    cite: bool = True
+    cite_kind: str = "split"
 
 
 class BenchProject(_Strict):
@@ -4029,6 +4035,17 @@ class BenchProject(_Strict):
     max_stages: int = Field(default=4, ge=2, le=5)
     # 里程碑几小时不回就算通过（0 = 一直等）
     gate_auto_hours: float = Field(default=0, ge=0, le=24 * 7)
+
+
+class BenchHero(_Strict):
+    """主视觉先行（B2，2026-11-04 用户要求）：有主视觉时先只写它，截图单独评审（真素材、占大半屏、
+    有自己的样子），过了再写其余窗口。最多返工 ``max_rework`` 次，还不过就按「卡在哪」停下来。"""
+
+    enabled: bool = True
+    max_rework: int = Field(default=2, ge=0, le=2)
+    rubric: list[str] = Field(default_factory=lambda: ["真素材", "占大半屏", "有自己的样子"])
+    pass_min: float = Field(default=7.0, ge=0, le=10)  # 每一项都要到这个分
+    kind: str = "review"  # 按哪种活挑评审（不会是主视觉的作者）
 
 
 class BenchMaterials(_Strict):
@@ -4177,6 +4194,7 @@ class BenchRules(_Strict):
     max_adopt: int = Field(default=3, ge=0, le=10)  # 一个工作台最多搬几个
     research: BenchResearch = Field(default_factory=BenchResearch)
     project: BenchProject = Field(default_factory=BenchProject)
+    hero: BenchHero = Field(default_factory=BenchHero)
     team: BenchTeam = Field(default_factory=BenchTeam)
     materials: BenchMaterials = Field(default_factory=BenchMaterials)
     skills: BenchSkills = Field(default_factory=BenchSkills)
