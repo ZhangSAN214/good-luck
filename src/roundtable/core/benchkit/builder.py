@@ -81,6 +81,7 @@ from roundtable.core.benchkit.spec import (
     write_app_manifest,
     write_shell,
 )
+from roundtable.core.benchkit.tree import PHASES, THREADS_KEPT, node_of, tree_view
 from roundtable.core.config.loader import ConfigError
 from roundtable.core.config.schema import BenchRules
 from roundtable.core.jsonout import JSONOutputError, extract_json_object
@@ -376,6 +377,7 @@ class BenchBuilder:
         self.seed = seed
         self.build: dict[str, Any] | None = None
         self._job: asyncio.Task[None] | None = None
+        self._unpaused = asyncio.Event()  # 你点「继续」时叫醒在等的线程
 
     # --- 状态 -------------------------------------------------------------------
 
@@ -729,21 +731,185 @@ class BenchBuilder:
                 "确定要从头再做一遍，10 分钟内再点一次开工"
             )
 
-    async def _step(self, b, kind, prompt, rng, record, *, role: str = "", task: str = "", **kw):
+    async def _step(
+        self,
+        b,
+        kind,
+        prompt,
+        rng,
+        record,
+        *,
+        role: str = "",
+        task: str = "",
+        window: str = "",
+        **kw,
+    ):
         if skip := self._metered_exclude(b):
             kw["exclude"] = tuple(dict.fromkeys((*kw.get("exclude", ()), *skip)))
-        chosen, result = await self.sc.step(
-            kind,
-            prompt,
-            folder=self.folder(b["id"]),
-            rng=rng,
-            record=record,
-            log=lambda t: self._log(b, t),
-            **kw,
-        )
+        thread = self._thread_start(b, role, task or kind, window)
+        await self._wait_unpaused(b, thread)
+        thread["status"], thread["started_at"] = "running", _iso(self.now())
+        self._save()
+        chosen, result = None, None
+        try:
+            chosen, result = await self.sc.step(
+                kind,
+                prompt,
+                folder=self.folder(b["id"]),
+                rng=rng,
+                record=record,
+                log=lambda t: self._log(b, t),
+                **kw,
+            )
+        finally:
+            self._thread_end(thread, record, chosen, result)
         if role and chosen is not None:
             self._card(b, chosen, role, task, bool(result is not None and result.ok))
         return chosen, result
+
+    # --- 三层分工树（benchkit/tree.py）：每一件派给助手的活记一条线程 ---------------------
+
+    def _thread_start(
+        self, b: dict[str, Any], role: str, title: str, window: str
+    ) -> dict[str, Any]:
+        phase, project = node_of(b, role)
+        threads = b.setdefault("threads", [])
+        thread = {
+            "id": f"t{len(threads) + 1 + int(b.get('threads_dropped', 0))}",
+            "phase": phase,
+            "project": project,
+            "role": role or "其他",
+            "title": title[:120],
+            "window": window or None,
+            "worker": None,
+            "label": None,
+            "status": "waiting",
+            "started_at": None,
+            "finished_at": None,
+            "attempts": 0,
+            "summary": "",
+        }
+        threads.append(thread)
+        if len(threads) > THREADS_KEPT:
+            drop = len(threads) - THREADS_KEPT
+            del threads[:drop]
+            b["threads_dropped"] = int(b.get("threads_dropped", 0)) + drop
+        return thread
+
+    def _thread_end(self, thread: dict[str, Any], record: Any, chosen: Any, result: Any) -> None:
+        ok = chosen is not None and result is not None and result.ok
+        attempts = record.get("attempts") if isinstance(record, dict) else None
+        used = len(attempts) if isinstance(attempts, list) else int(chosen is not None)
+        thread["attempts"] = used
+        thread["worker"] = chosen.id if chosen is not None else None
+        thread["label"] = _who(chosen) if chosen is not None else None
+        thread["status"] = "done" if ok else "failed"
+        thread["finished_at"] = _iso(self.now())
+        if result is not None:
+            thread["summary"] = (result.output or "").strip()[-600:]
+        elif chosen is None:
+            thread["summary"] = "没有能干这件活的助手"
+
+    def _paused_here(self, b: dict[str, Any], thread: dict[str, Any]) -> bool:
+        paused = b.get("paused") or []
+        return "*" in paused or f"{thread['phase']}/{thread['project']}" in paused
+
+    async def _wait_unpaused(self, b: dict[str, Any], thread: dict[str, Any]) -> None:
+        """这个小项目（或整个项目）被你暂停了：线程排着队，等你点「继续」再开工。"""
+        while self._paused_here(b, thread):
+            thread["status"] = "paused"
+            self._save()
+            self._unpaused.clear()
+            with contextlib.suppress(TimeoutError):
+                await asyncio.wait_for(self._unpaused.wait(), timeout=30)
+
+    def tree(self, bid: str) -> dict[str, Any] | None:
+        b = self.get(bid)
+        return tree_view(b) if b is not None else None
+
+    def pause(self, bid: str, key: str = "*") -> dict[str, Any]:
+        """暂停一个小项目（``大阶段/小项目``）或整个项目（``*``）：正在跑的这一件跑完，
+        之后这里的新线程排队等你继续。"""
+        b = self._editable(bid)
+        if key != "*" and key.split("/", 1)[0] not in PHASES:
+            raise ValueError("暂停要写「大阶段/小项目」，或者 * 暂停整个项目")
+        paused = b.setdefault("paused", [])
+        if key not in paused:
+            paused.append(key)
+        self._log(b, f"你暂停了{'整个项目' if key == '*' else '「' + key + '」'}")
+        self._save(b)
+        return tree_view(b)
+
+    def resume(self, bid: str, key: str | None = None) -> dict[str, Any]:
+        b = self._editable(bid)
+        b["paused"] = [k for k in b.get("paused") or [] if key is not None and k != key]
+        self._log(b, "你点了继续")
+        self._unpaused.set()
+        self._save(b)
+        return tree_view(b)
+
+    def _editable(self, bid: str) -> dict[str, Any]:
+        b = self.get(bid)
+        if b is None:
+            raise KeyError(bid)
+        return b
+
+    def rerun_thread(
+        self, bid: str, tid: str, reason: str, worker: str | None = None
+    ) -> dict[str, Any]:
+        """单独重跑一条写窗口的线程：带上「上次哪里不对」（不原样再发）；可以指定换谁来做。"""
+        b = self._editable(bid)
+        if self.busy:
+            raise RuntimeError("生成器正在干活，等这一步停下（或先暂停）再单独重跑")
+        reason = reason.strip()
+        if not reason:
+            raise ValueError("写一句上次哪里不对，重跑时交给助手")
+        thread = next((t for t in b.get("threads") or [] if t["id"] == tid), None)
+        if thread is None:
+            raise KeyError(tid)
+        rec = next((w for w in b.get("windows") or [] if w["id"] == thread.get("window")), None)
+        if rec is None:
+            raise ValueError("这条线程不是写窗口的活，暂时只能单独重跑写窗口的线程")
+        if worker is not None and self.sc.worker(worker) is None:
+            raise ValueError(f"没有这位助手：{worker}")
+        spec = load_spec(self.folder(bid))
+        rng = self._rng(b, f"rerun-{tid}")
+        prompt = self._rerun_prompt(b, spec, rec, thread, reason)
+        if worker is not None:
+            rec["author"] = worker  # 换人：交给你指定的这位（_redo 优先交回作者）
+        b["status"] = "reworking"
+        self._log(b, f"你让「{rec['title']}」单独重跑" + (f"，换给 {worker}" if worker else ""))
+
+        async def go() -> None:
+            await self._redo(b, rec, prompt, rng, 0)
+            b["status"] = "waiting" if b.get("gate") else "needs_you"
+
+        self._start_job(b, go)
+        self._save(b)
+        return tree_view(b)
+
+    def _rerun_prompt(
+        self, b: dict[str, Any], spec: Spec, rec: dict[str, Any], thread: dict[str, Any], why: str
+    ) -> str:
+        w = spec.window(rec["id"])
+        assert w is not None
+        last = (thread.get("summary") or "").strip() or "（上次没有留下说明）"
+        return self.render(
+            "bench_rework",
+            request=self._brief(b),
+            spec=json.dumps(spec.to_dict(), ensure_ascii=False, indent=1),
+            window=json.dumps(w.__dict__, ensure_ascii=False, indent=1),
+            file=w.file,
+            data_file=w.data_file,
+            problems=f"用户说上次哪里不对：{why}\n\n上次交回的说明：\n{last}",
+            kit=self._kit_text(),
+            sources=self._sources_text(b),
+            net=self._net_text(),
+            samples=self._samples_text(b),
+            stage=b.get("stage_task") or ALL_DONE,
+            skills=self._skills("rework", spec.kind, b),
+            app=self._app_text(spec),
+        )
 
     def _card(self, b: dict[str, Any], who: Any, role: str, task: str, ok: bool) -> None:
         """协作看板：谁、当什么角色、干了哪件事、成没成。界面按人分栏显示。"""
@@ -2805,7 +2971,14 @@ class BenchBuilder:
         folder = self.folder(b["id"])
         before = fingerprint(folder, [w.file])
         chosen, result = await self._step(
-            b, self.rules.window_kind, prompt, rng, rec, role="实施", task=f"写窗口「{w.title}」"
+            b,
+            self.rules.window_kind,
+            prompt,
+            rng,
+            rec,
+            role="实施",
+            task=f"写窗口「{w.title}」",
+            window=rec["id"],
         )
         rec["author"] = chosen.id if chosen else None
         changed = fingerprint(folder, [w.file]) not in ("", before)
@@ -3259,6 +3432,7 @@ class BenchBuilder:
             preset=preset,
             role="实施",
             task=f"返工「{rec['title']}」",
+            window=rec["id"],
         )
         changed = fingerprint(folder, files) not in ("", before)
         record["changed"] = changed

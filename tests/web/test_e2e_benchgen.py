@@ -248,6 +248,17 @@ def test_benchgen_project_room(serve, page, monkeypatch, tmp_path):
     pane.locator(".bg-gate [data-pass]", has_text="验收通过").wait_for(timeout=15000)
     assert pane.locator(".bg-stages li", has_text="第 2 段 · 主要功能").count() == 1
     assert "交付" in pane.locator(".bg-steps li.now").text_content()
+    # 生成器第二版 · 第 1 块：右栏的三层分工树，能暂停 / 继续整个项目
+    tree = pane.locator(".bg-plan .bg-tree")
+    assert tree.locator(".bg-tph").count() >= 3
+    assert tree.locator(".bg-tp", has_text="访谈").count() == 1
+    assert tree.locator(".bg-tp", has_text="你的验收").count() == 1
+    pane.locator('[data-tree-pause="*"]').click()
+    pane.locator('[data-tree-resume="*"]').click()
+    pane.locator('[data-tree-pause="*"]').wait_for(timeout=15000)
+    if shots := os.environ.get("ROUNDTABLE_SHOTS"):
+        tree.locator("details").first.evaluate("d => d.open = true")
+        pane.locator(".bg-plan").screenshot(path=str(Path(shots) / "benchgen_tree.png"))
     pane.locator(".bg-gate [data-pass]").click()
     pane.locator("[data-evolve]").click()
     pane.locator(".bg-evolve li", has_text="加离线地图").wait_for(timeout=15000)

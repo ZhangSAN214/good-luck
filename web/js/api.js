@@ -357,6 +357,9 @@ export const benchDecide = (id, action, requirements) => benchPost(id, 'decide',
 export const benchPlugin = (id, name) => benchPost(id, 'plugin', { name });
 export const benchAttach = (id, ids) => benchPost(id, 'materials', { ids });
 export const benchLook = (id) => benchPost(id, 'look', {});
+export const benchPause = (id, key = '*') => benchPost(id, 'pause', { key });
+export const benchResume = (id, key = null) => benchPost(id, 'resume', { key });
+export const benchRerun = (id, thread, reason, worker = null) => benchPost(id, 'rerun', { thread, reason, worker });
 export const superStatus = () => api('/api/super');
 export const superSubmit = (text, queue = false) =>
   api('/api/super/tasks', { method: 'POST', body: { text, queue } });
