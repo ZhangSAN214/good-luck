@@ -227,6 +227,7 @@ README.md      安装、.env、加模型 / 步骤 / 提示词版本、上传、�
 .github/workflows/ci.yml   ruff + pytest（含 Playwright 端到端）；unplug-dsh 任务删掉 dsh 后再跑测试
 .github/workflows/desktop.yml   桌面版在 Windows / macOS 上冒烟（只在桌面版相关文件变动的 PR 上跑）
 install_desktop.bat / install_desktop.command   安装并生成桌面版图标（docs/DESKTOP.md）
+deploy/server/  云服务器部署：install.sh（Ubuntu 一键安装 + Tailscale + 防火墙）、roundtable.service（systemd，只对 Tailscale 开放）、update.sh（安全更新）；电脑上打包数据用 scripts/pack_server_data.py（docs/SERVER.md）
 .github/workflows/android.yml   打包安卓外壳 APK（只在改了 mobile/ 的 PR 上跑）
 mobile/        安卓外壳（Capacitor）：www/ 连接页（记住电脑地址、依次试家里 / 离家地址）、build-android.mjs；android/ 不进 git（docs/MOBILE.md）
 config/        models.yaml  roundtable.yaml  personas.yaml  routing.yaml  plugin_board.yaml（插件榜数据，不属于运行配置）  dsh_plugins.yaml（dsh 工作台的运行时版本与插件白名单）  bench_capabilities.yaml（工作台资料台的能力地图）  bench_glossary.yaml（资料台榜单中文说明的词表）  comfyui/（本地 ComfyUI 出图的工作流模板，API 格式 JSON；本机改的存成 *.local.json，不进 git，docs/COMFYUI.md）  changelog.yaml（公告栏：只放 `start` 和拆分前的旧条目，不再往里加）  changelog.d/<PR 编号>.yaml（公告栏的版本更新说明，每个 PR 新建自己的一个小文件，几个 PR 同时开也不冲突；程序读时与旧条目合并排序，版本号「代.大功能.小改」按合并先后（日期 → PR 编号）自动算，条目只写 level）
@@ -256,6 +257,7 @@ src/roundtable/
     export/        导出成果：从存库的产出取最终成果（deliverable.py）→ Markdown / Word（python-docx）/ PPT（手写 OOXML，按标题分页）/ PDF（手写，阅读器自带中文字体）/ 网页；样式（style.py：字号、配色模板、PPT 比例、附题目 / 过程）；界面可直接存到本机固定文件夹（只限电脑本机，文件夹记在设置里）；不调用模型、不加依赖
     lan.py         局域网访问：口令加盐哈希（data/lan_access.json，不进 git）、登录 cookie 签名与过期、输错限速、一次性配对码、本机局域网地址、二维码（docs/LAN.md）
     gamemode.py    游戏模式（docs/GAMEMODE.md）：玩游戏 / 前台全屏 / 显卡被别的程序占用（NVML）时让出显卡：路由不调 gpu: true 的渠道，朋友圈配图排队（data/gpu_queue.json），连续空闲 5 分钟后补跑；忙时降 CPU 优先级
+    starmap.py     星图（docs/STARMAP.md）：圆桌星图（更新按关键词挂到五个部门、成员完整度、体检缺口）与成员人生星图（十个星域、缺口、相关线）的数据；纯函数、只读、不调模型，前端 web/js/starmap.js 用 canvas 自己做透视投影画立体星图
     changelog.py   公告栏：版本更新说明（读 config/changelog.yaml 与 config/changelog.d/*.yaml 合并，校验、按合并先后自动编版本号；只读）
     clipper.py     办公室的资料浏览器：只读抓取网页（拒绝本机 / 内网地址，重定向逐跳检查）、提取正文、资料夹清单；存资料与「附上」= 新建 Markdown 附件（docs/CLIPPER.md）
     mail/          终端邮件栏：用户本人学校邮箱只读接入（专用浏览器窗口由用户本人登录、只读守卫、本机「重要」与分类规则、截止日期提取；图文版正文清洗（html.py）；点了才调用的 AI 总结 / 翻译（ai.py，每月上限 mail.ai）；登录状态在 data/mail_browser/，不进 git；见 docs/MAIL.md）
@@ -268,7 +270,7 @@ src/roundtable/
       story/       P7 生活引擎（docs/LIFE_STORY.md）：生活事件库 + 长线剧情 + 每人生活状态 + 按爱好挑去处 + 住户迎新/告别（engine.py、store.py），擅长觉醒（talent.py）；只发事件，不写档案和别的插件的数据
     screen/        投屏陪伴「一起看」（docs/WATCH.md）：画面来源（capture.py：电脑整屏 / 窗口用 Pillow ImageGrab + ctypes，安卓用 adb 截屏，只读；画面变化判断、敏感窗口暂停）、一起看（watch.py：画面变了才交最便宜的识图模型写成文字、陪看成员吐槽、回话和互相接话、安静看、每月上限 chat.watch.monthly_usd、感知事件 perceive.screen）；截图只在内存里
     dsh/           dsh 工作台（docs/DSH.md）：可拔掉的外设，只有 service.py 可选导入（拔掉 core/dsh 圆桌照常，CI「unplug-dsh」任务）；白名单与安装包哈希（catalog.py，读 config/dsh_plugins.yaml）、叠加配置层（overlay.py：关上传和遥测、中立身份）、key 与余额（channel.py）、按余额差额估花费与每月软上限（usage.py）、进程管理（sidecar.py，只监听 127.0.0.1）、一次性安装（install.py）；数据都在 data/dsh/，不进 git
-    benchkit/      工作台的自动质检（docs/KIT.md）：quality.py 用 Playwright 在三种屏宽 × 浅 / 深色下打开页面，量报错、溢出、坏字、编码、是否用设计套件、外链脚本、按钮名字、图片说明、图表空白、对比度、字号、手机按钮大小，截图并打分（`roundtable kit-check`）；不调模型；只放行工作台配置 `bench.net` 里的公开数据网址（地图底图、天气等，2026-10-30 用户批，其余一律中止）。spec.py（规格校验 + 外壳）、builder.py（生成流程：拆需求 → 找插件 → 写窗口 → 质检评审不自评 → 返工）、scout.py（dsh 集市 + GitHub 找插件，按星数和许可证判定搬或只借思路）、library.py（过线后新零件收进本机零件库、存配方）、lint.py（读窗口代码：没用零件库、写死颜色、代码太大、轮询定时器、自己画插图）、desk.py（资料台：榜单、动态、能力地图、建议卡、中文说明）、weekly.py（资料台周报：每周一份「这周值得看的」，不调模型）
+    benchkit/      工作台的自动质检（docs/KIT.md）：quality.py 用 Playwright 在三种屏宽 × 浅 / 深色下打开页面，量报错、溢出、坏字、编码、是否用设计套件、外链脚本、按钮名字、图片说明、图表空白、对比度、字号、手机按钮大小，截图并打分（`roundtable kit-check`）；不调模型；只放行工作台配置 `bench.net` 里的公开数据网址（地图底图、天气等，2026-10-30 用户批，其余一律中止）。spec.py（规格校验 + 外壳）、builder.py（生成流程：拆需求 → 找插件 → 写窗口 → 质检评审不自评 → 返工）、scout.py（dsh 集市 + GitHub 找插件，按星数和许可证判定搬或只借思路）、library.py（过线后新零件收进本机零件库、存配方）、lint.py（读窗口代码：没用零件库、写死颜色、代码太大、轮询定时器、自己画插图）、appcheck.py（应用型产出的企业级验收 K5：真浏览器跑底座的页内自检和功能自带的测试、截图）、app_shell.html / app_tests.md（应用型产出的首页模板和自带测试说明；`bench.apps.bases` 里的工作台类型在底座上做成多文件应用）、desk.py（资料台：榜单、动态、能力地图、建议卡、中文说明）、weekly.py（资料台周报：每周一份「这周值得看的」，不调模型）
     supercomputer/ 超级电脑（docs/SUPERCOMPUTER.md）：几位编程助手平级、没有固定主管；打分派活（scoring.py：擅长 + 今天剩余次数 + 手上的活，换名不变）、账本（ledger.py：每天件数、冷却、界面上改的次数，data/super/ledger.json）、跑官方命令行（runner.py：正文走标准输入、超时连子进程结束）、启动器（launch.py：命令行去掉所有 *_API_KEY；dsh 由服务层以钩子交进来）、流程（engine.py：拆分 → 并行 → 合并，撞限额冷却换人，记录在 data/super/tasks/）
     wander/        成员自己上网（docs/WANDER.md）：隔离浏览器（web.py：Playwright 驱动电脑上的 Edge / Chrome，每位成员一个资料夹，只按链接打开白名单网站、读文字和链接、截小图，跳去外站拦下）、逛网站循环（wander.py：每页交成员说一句感想并决定下一步，浏览记录在隐藏会话 wander:<成员>，小结发感知事件 perceive.web，花费计入生活每日上限，心跳上登记自动出门）
     almanac/       日历底座（docs/CALENDAR.md；只影响生活）：今天是什么日子（各国法定假日用开源库 holidays 离线算、农历与节气查预生成的表 lunar_table.json、节日规则、成员生日与入职纪念日、你加的纪念日），每天发 calendar.day / calendar.upcoming 到成员事件总线；不调模型、不联网
@@ -286,12 +288,12 @@ src/roundtable/
   plaintext.py   命令行显示用：LaTeX 数学式转纯文本、去掉 Markdown 加粗符号（不改动存储的原文）
   api/           FastAPI 应用、路由、SSE
   desktop/       桌面版（docs/DESKTOP.md）：launcher.py 在本进程起服务并打开应用窗口（pywebview → Edge / Chrome 应用窗口 → 默认浏览器），关窗即停；install.py 生成 Windows 快捷方式 / macOS .app；overlay.py 一起看的置顶悬浮窗（tkinter，只通过 HTTP 连本机圆桌）
-web/kit/         工作台设计套件（docs/KIT.md）：kit.css（令牌、主题、组件样式）、kit.js（图表、表格、时间线、看板、月历、示意地图、查看器、编辑器、清单、会话窗等，原生 ES 模块）、icons.js（Lucide 子集，CREDITS.md）、manifest.json（零件清单，给生成器挑零件）、gallery.html（样板页，质检基准）
+web/kit/         工作台设计套件（docs/KIT.md）：kit.css（令牌、主题、组件样式）、kit.js（图表、表格、时间线、看板、月历、示意地图、查看器、编辑器、清单、会话窗等，原生 ES 模块）、icons.js（Lucide 子集，CREDITS.md）、manifest.json（零件清单，给生成器挑零件；`bases` 登记底座）、gallery.html（样板页，质检基准）、editor/（编辑器底座：editor.js 画布 / 图层 / 撤销重做 / 工具栏 / 属性面板 / 导入导出 / 快捷键，editor.css，selftest.js 页内自检，API.md 给写功能的助手看）
 web/             index.html、css/（app.css、agent.css 小人、ideas.css 头脑风暴结果页）、js/（api.js 通信、view.js 渲染、ideas.js 头脑风暴结果页、app.js 状态与交互、hub.js 终端首页、standee.js 终端大立绘（浏览器里柔边抠底，表情差分眨眼说话，点击台词；位置大小等设置只存本机浏览器；有 rig 素材且支持 WebGL2 时由 standee_gl.js 在显卡上逐像素做全身网格形变、standee_motion.js 算动作和弹簧物理，否则按行切条形变做呼吸 / 跟随 / 摆动）、usage.js 余额与用量（账户余额、预算、对账、钱折算 token、详细用量；只读）、music.js 终端背景音乐（首页时钟下的悬浮小卡，可收起成小按钮；点开是竖版播放器卡片：画框封面、粗进度条、大按钮；默认「墨蓝」用首页同一层液态玻璃，与时钟条同宽对齐，宽度和封面大小随窗口自动调节；底色 / 主色 / 文字颜色、小字、封面可自定义，只存本机浏览器；封面会动：头发一侧轻摆，coverfx.js 在画框上飘雨 / 雪 / 落叶 / 花瓣 / 星屑 / 气泡，可关，「减少动态」时静止；本地音乐是用户自选音频，只存本机浏览器 IndexedDB，不经服务器，mp3 内嵌封面在浏览器里读；「QQ 音乐」来源经 /api/nowplaying 跟随电脑上的播放器）、clock.js 终端多时区时钟（最多 3 个、可设主时区或跟随本机，Intl 时区表处理夏令时；附秒表与倒计时，状态存时间点、刷新不丢；只存本机；主时区经 hometz.js 存到服务器）、hometz.js 主时区（读写 `/api/home-tz`，本机缓存；公寓、群聊、朋友圈、邮件等的时间按它显示，换了发 `hometz` 事件）、notice.js 终端公告栏（上面是日历：今天和未来几天的日子、你的纪念日增删；下面是版本更新说明，已读只存本机）、watch.js 一起看（投屏陪伴面板：选来源和陪看成员、预览、聊天、安静看、停止；顶栏红点）、wander.js 上网（成员自己上网面板：正在逛的小图和叫停、让谁去逛哪个网站、每位成员的浏览记录）、mail.js 终端邮件栏（学校邮箱只读：重要邮件与手动标记、分类筛选、速览卡、正文、沙箱里的图文版、点了才调用的 AI 总结 / 翻译、截止日期提醒、规则设置；不收密码）、agent/ 网页小人、boot.js 开机动画、bootcfg.js 片头设置）、boot/（开机动画页：dawn.html「晨会协议」片头（原创）、gmu.html 早上好联合访问授权（改编自 MIT 开源项目）、assets/ 徽记与二维码库；音效与朗读由 boot.js 统一负责；出处见 boot/CREDITS.md）
 tests/
 docs/            REQUIREMENTS_v3.md  PLAN.md  CLI.md  OFFICE.md（办公室模式）  EVOLUTION.md（自我学习革新：候选池与更新日志）  evolution/（革新例会说明、周报与资料卡模板、每周周报）  mockup.html
 scripts/         evolve_review.py（革新 PR 的可选复审，没有 key 时跳过）  standee_rig.py（把大立绘做成全身网格形变素材：瞳孔层、补眼白、权重图；本机处理、不调用模型）  check_models.py（核对 OpenRouter 渠道的模型 ID 与价格；带 vision / image_edit 标签的模型还核对远端 input_modalities 含 image）  lock_prompts.py（登记提示词版本）  install_desktop.py（生成桌面版图标）  build_lunar_table.py（生成日历的农历与节气表，开发时临时装 lunar_python）
-                 setup_sandbox.py（安装代码运行沙箱）  setup_dsh.py（在电脑上安装 dsh 工作台：运行时 + 白名单插件）  try_image.py（真实调用一次画图模型，核对接口格式）
+                 setup_sandbox.py（安装代码运行沙箱）  setup_dsh.py（在电脑上安装 dsh 工作台：运行时 + 白名单插件）  try_image.py（真实调用一次画图模型，核对接口格式）  demo_photo_bench.py（把测试里的样例修图台装进本机 data/bench/demo-photo/，不调模型）
 sandbox/         Dockerfile（可选的 docker 沙箱）、README.md
 .env.example
 ```

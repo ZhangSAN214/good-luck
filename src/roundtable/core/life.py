@@ -40,6 +40,7 @@ from roundtable.core.member.about import AboutYou
 from roundtable.core.member.brain import Brain, intent_text
 from roundtable.core.member.checkin import Bili, Checkin, Scene
 from roundtable.core.member.relation import RelationPlugin
+from roundtable.core.member.scheduler import chat_paced_daily
 from roundtable.core.member.story import STORY, StoryEngine
 from roundtable.core.member.voice import Said, before_voice, recent_words, voice_for
 from roundtable.core.meme_radar import SEARCH_STEP as MEME_SEARCH_STEP
@@ -145,6 +146,9 @@ class LifeEngine:
         if not reserve and not self.rt.budget.check(estimate_usd).allowed:
             return False
         cap = self.rules.daily_usd
+        paced = chat_paced_daily(self.rt)  # 按剩余天数平摊（chat.budget.pace）
+        if paced is not None:
+            cap = min(cap, paced)
         if reserve:
             cap = max(cap - self.held_for_memory(), 0.0)
         return self.spent_today() + estimate_usd <= cap + 1e-9

@@ -1,0 +1,16 @@
+{
+  "title": "修图台",
+  "subtitle": "打开照片、调色、裁剪、去背景，导出原尺寸 PNG",
+  "icon": "aperture",
+  "theme": "ink",
+  "kind": "editor",
+  "windows": [
+    {"id": "adjust", "title": "亮度与对比度", "icon": "sun", "purpose": "调当前图层的亮度、对比度、饱和度", "actions": ["拖滑块", "应用", "复位"]},
+    {"id": "crop", "title": "裁剪", "icon": "crop", "purpose": "用选区框出要保留的范围后裁剪", "actions": ["框选", "裁剪到选区"]},
+    {"id": "background", "title": "去背景", "icon": "wand-sparkles", "purpose": "去掉和四角颜色接近的纯色背景", "actions": ["调容差", "去掉背景"]}
+  ],
+  "requirements": [
+    {"text": "能打开一张照片，导出的尺寸和原图一样", "windows": ["adjust"]},
+    {"text": "调亮度后能撤销回原样", "windows": ["adjust"]}
+  ]
+}

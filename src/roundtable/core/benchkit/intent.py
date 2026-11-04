@@ -30,7 +30,7 @@ FIVE = (
 )
 FIVE_KEYS = tuple(k for k, _ in FIVE)
 EXPECT_FROM = ("对标", "使用者", "常识", "素材", "档案")
-VOICE_SRC = ("开工", "表单", "访谈", "签字", "变更单", "风格", "素材", "档案")
+VOICE_SRC = ("开工", "表单", "访谈", "签字", "变更单", "风格", "素材", "档案", "办公室")
 MAX_QUESTIONS = 3
 MAX_STAGES = 5
 MIN_STAGES = 2
@@ -423,7 +423,7 @@ def trace(b: dict[str, Any]) -> list[dict[str, Any]]:
                 state = "做到"
             else:
                 state = "待做"
-        elif v["src"] in ("表单", "访谈", "素材", "签字", "风格", "档案"):
+        elif v["src"] in ("表单", "访谈", "素材", "签字", "风格", "档案", "办公室"):
             state = "已参考"
         elif not reqs:
             state = "待做"  # 还没拆出验收清单
@@ -465,3 +465,36 @@ def link_voices(reqs: list[dict[str, Any]], raw_reqs: Any, voices: list[dict[str
     for r in own:
         if not r.get("voices") and "v1" in known:
             r["voices"] = ["v1"]
+
+
+# --- M 办公室交接：办公室里已经答过的不再问 ---
+_PUNCT = re.compile(r"[\s，。？！、：；,.?!:;（）()\"'“”‘’「」…—-]+")
+_COMMON = {"什么", "怎么", "哪个", "哪些", "是否", "还是", "需要", "要不", "不要", "一个", "这个"}
+
+
+def _bigrams(text: str) -> set[str]:
+    t = _PUNCT.sub("", text)
+    return {t[i : i + 2] for i in range(len(t) - 1)} - _COMMON
+
+
+def drop_answered(
+    questions: list[dict[str, Any]], answered: str
+) -> tuple[list[dict[str, Any]], list[str]]:
+    """访谈的问题里，办公室那场对话已经答过的去掉：某个选项原样出现在那里，或者问题的字大半都在
+    那里出现过。返回 (留下的问题，重新编号；去掉的问题原文)。"""
+    text = _PUNCT.sub("", answered or "")
+    if not text:
+        return questions, []
+    grams = _bigrams(text)
+    kept: list[dict[str, Any]] = []
+    dropped: list[str] = []
+    for q in questions:
+        opts = [o for o in q.get("options") or [] if len(_PUNCT.sub("", o)) >= 2]
+        hit_opt = any(_PUNCT.sub("", o) in text for o in opts)
+        qg = _bigrams(q["q"])
+        cover = len(qg & grams) / len(qg) if qg else 0.0
+        if hit_opt or cover >= 0.6:
+            dropped.append(q["q"])
+        else:
+            kept.append(dict(q) | {"id": f"q{len(kept) + 1}"})
+    return kept, dropped

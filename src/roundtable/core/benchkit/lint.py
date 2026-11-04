@@ -15,6 +15,9 @@ USES_KIT = re.compile(
     r"ctx\.kit\b|\bkit\.\w+\(|from\s+['\"]/kit/kit\.js['\"]"
     # 解构：const { kit } = ctx、const { seg } = kit、mount(el, { kit, store })
     r"|\{[^{}]*\bkit\b[^{}]*\}\s*=\s*ctx\b|\}\s*=\s*kit\b|\(\s*\w+\s*,\s*\{[^{}]*\bkit\b"
+    # 应用型产出：功能是编辑器底座（零件库的一部分）上的，用 ctx.editor 也算用了零件库
+    r"|ctx\.editor\b|\{[^{}]*\beditor\b[^{}]*\}\s*=\s*ctx\b|\(\s*\w+\s*,\s*\{[^{}]*\beditor\b"
+    r"|from\s+['\"]/kit/editor/"
 )
 POLL = re.compile(r"\bsetInterval\s*\(")
 # 自己用 svg 拼图形（参考资料里 UP 主的原话：不要让模型自己去画内容）：地图、图表、照片都有现成的
@@ -107,6 +110,32 @@ def lint_windows(folder: Path, window_ids: list[str]) -> list[Finding]:
             )
         )
     return out
+
+
+# --- 主视觉先行（B2）：程序先看主视觉用没用真素材，交给评审当事实 ---
+REAL = re.compile(
+    r"assets/|samples/|ctx\.net\b|\bnet\.get\s*\(|mapFrame|\bviewer\s*\(|k-media|<img\b|<video\b"
+    r"|model-viewer|thumbnail|\.(?:png|jpe?g|webp|gif|mp4|webm|glb|gltf)\b",
+    re.I,
+)
+
+
+def hero_facts(folder: Path, wid: str) -> dict[str, object]:
+    """主视觉窗口的代码和数据里：引用了哪些真素材（底图、照片、模型、视频、联网数据）、
+    画了几处 svg 图形、用没用零件库。没有文件时全是空的。"""
+    text = ""
+    for rel in (f"windows/{wid}.js", f"data/{wid}.json"):
+        try:
+            text += (folder / rel).read_text(encoding="utf-8") + "\n"
+        except (OSError, UnicodeDecodeError):
+            continue
+    real = sorted({m.group(0).lower() for m in REAL.finditer(text)})
+    return {
+        "real": real[:8],
+        "draw": len(DRAW.findall(text)),
+        "uses_kit": bool(USES_KIT.search(text)),
+        "written": bool(text.strip()),
+    }
 
 
 # --- 查数据（2026-10-31，项目室方案 C4）---

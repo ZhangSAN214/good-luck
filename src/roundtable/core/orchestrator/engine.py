@@ -97,6 +97,8 @@ class Orchestrator:
         self.on_event = on_event
         self._locks: dict[str, asyncio.Lock] = {}
         self._warnings: dict[str, list[str]] = {}
+        # 工作台现在能不能接活（M 办公室交接）：服务按工作台的开关和忙闲设置；默认不能，不问老板
+        self.bench_ready: Callable[[], bool] = lambda: False
 
     # --- 对外接口 ------------------------------------------------------------------
 
@@ -675,6 +677,7 @@ class Orchestrator:
             ),
         )
         ctx.file_store = self.rt.files
+        ctx.bench_ready = self.bench_ready
         if "office_review" in table["pipeline"]:  # 办公室模式的项目组桌子
             project = cfg.roundtable.office.project
             ctx.step_overrides = {k: dict(v) for k, v in project.step_params.items()}

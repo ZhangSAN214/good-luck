@@ -41,6 +41,9 @@
     {"name": "persist", "kind": "js", "use": "本机存储个人便利设置（读写失败当作没有）", "api": "persist(ns) → { get(k, d), set(k, v) }"},
     {"name": "format", "kind": "js", "use": "数字格式、刻度、滚动数字、主题和明暗", "api": "fmt(n, { digits?, unit? }); niceTicks(min, max, count?); countUp(el, to, opts?); setTheme(name); setMode('auto'|'light'|'dark')"}
   ],
+  "bases": [
+    {"name": "editor", "use": "编辑器底座（修图、画图、Live2D 这类以画布为中心的应用）：画布、图层（显示 / 隐藏 / 排序 / 不透明度）、撤销重做（至少 20 步）、工具栏、属性面板、导入图片、导出 PNG、快捷键、出错提示、页内自检。应用型产出整页就是它，窗口变成它上面的功能", "js": "/kit/editor/editor.js", "css": "/kit/editor/editor.css", "selftest": "/kit/editor/selftest.js", "api": "/kit/editor/API.md", "entry": "createEditor(root, { title?, icon?, logo? }) → editor：addPanel / addAction / addTool / addTest / paint / applyFilter / crop / on（详见 API.md）"}
+  ],
   "rules": [
     "颜色只用 --k-* 变量，不写死色值（图片和插画除外）",
     "每个窗口都要有没数据时的样子（empty）",

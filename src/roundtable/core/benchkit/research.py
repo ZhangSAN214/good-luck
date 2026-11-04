@@ -384,6 +384,105 @@ class Researcher:
         return report
 
 
+# --- I3 方案书引用调研：调研报告每一条都有编号，方案书的技术选择要指向它 ---
+REF_KINDS = (("github", "g", "GitHub"), ("plugins", "d", "dsh 插件"), ("cards", "k", "学习卡"))
+REF_KINDS += (("papers", "p", "论文"), ("news", "n", "资讯"))
+MAX_CHOICES = 10
+
+
+def research_refs(r: dict[str, Any]) -> list[dict[str, str]]:
+    """调研报告里的每一条：编号（g1 GitHub、d1 dsh 插件、k1 学习卡、p1 论文、n1 资讯）、类别、名字、
+    一句话。编号只看在报告里的位置，同一份报告每次算出来都一样。"""
+    out = []
+    for key, prefix, label in REF_KINDS:
+        for i, x in enumerate(r.get(key) or [], 1):
+            name = str(x.get("title") or x.get("repo") or "")
+            note = str(x.get("summary") or x.get("what") or "")[:140]
+            out.append(
+                {
+                    "id": f"{prefix}{i}",
+                    "kind": label,
+                    "title": name,
+                    "url": str(x.get("url") or ""),
+                    "note": note,
+                }
+            )
+    return out
+
+
+def refs_text(refs: list[dict[str, str]]) -> str:
+    """给整理方案书的助手看的调研条目清单。"""
+    return (
+        "\n".join(f"- {x['id']}（{x['kind']}）{x['title']}：{x['note']}" for x in refs)
+        or "（这次调研什么都没找到）"
+    )
+
+
+def cite_of(raw: Any, refs: list[dict[str, str]], window_ids: list[str]) -> dict[str, Any]:
+    """整理助手交回来的技术选择：每条必须指向调研里真有的编号（没有的标「没有出处」）；
+    一条调研都没用上时必须写原因（没写的程序记「没写原因」）。"""
+    raw = raw if isinstance(raw, dict) else {}
+    known = {x["id"]: x for x in refs}
+    choices = []
+    for item in raw.get("choices") or []:
+        if not isinstance(item, dict):
+            continue
+        text = " ".join(str(item.get("choice") or "").split())[:160]
+        if not text:
+            continue
+        ids = [str(x).strip().lower() for x in item.get("refs") or []]
+        good = list(dict.fromkeys(x for x in ids if x in known))[:4]
+        choices.append(
+            {
+                "id": f"t{len(choices) + 1}",
+                "choice": text,
+                "why": " ".join(str(item.get("why") or "").split())[:200],
+                "refs": good,
+                "borrow": " ".join(str(item.get("borrow") or "").split())[:200],
+                "windows": [w for w in item.get("windows") or [] if w in window_ids][:4],
+                "sourced": bool(good),
+            }
+        )
+        if len(choices) >= MAX_CHOICES:
+            break
+    used = {x for c in choices for x in c["refs"]}
+    skipped = []
+    for item in raw.get("skipped") or []:
+        if isinstance(item, dict) and str(item.get("id") or "").lower() in known:
+            rid = str(item["id"]).lower()
+            if rid not in used and rid not in {x["id"] for x in skipped}:
+                skipped.append(
+                    {"id": rid, "why": " ".join(str(item.get("why") or "").split())[:160]}
+                )
+    reason = " ".join(str(raw.get("unused_reason") or "").split())[:300]
+    none_used = bool(refs) and not used
+    return {
+        "choices": choices,
+        "used": sorted(used, key=lambda x: [r["id"] for r in refs].index(x)),
+        "skipped": skipped,
+        "none_used": none_used,
+        "unused_reason": reason if none_used else "",
+        "missing_reason": none_used and not reason,
+        "unsourced": [c["id"] for c in choices if not c["sourced"]],
+    }
+
+
+def cite_lines(cite: dict[str, Any], refs: list[dict[str, str]]) -> list[str]:
+    """方案书和给写窗口的助手看的技术选择（大白话，每条后面跟着出处）。"""
+    known = {x["id"]: x for x in refs}
+    out = []
+    for c in cite.get("choices") or []:
+        src = "；".join(f"[{x}] {known[x]['title']}" for x in c["refs"] if x in known)
+        line = f"{c['id']} {c['choice']}"
+        line += f" ← 调研 {src}" if src else " ← ⚠ 没有指向调研里的哪一条"
+        if c["borrow"]:
+            line += f"，借鉴：{c['borrow']}"
+        out.append(line)
+    if cite.get("none_used"):
+        out.append("调研里一条都没用上：" + (cite.get("unused_reason") or "⚠ 助手没写原因"))
+    return out
+
+
 def report_markdown(title: str, request: str, r: dict[str, Any]) -> str:
     """给人看的调研报告（存在工作台文件夹里，项目室也显示它）。"""
     mark = {True: "", False: "（链接打不开，没核实）", None: "（没核实）"}
@@ -397,34 +496,37 @@ def report_markdown(title: str, request: str, r: dict[str, Any]) -> str:
         lines.append(f"搜索词：{'、'.join(r['queries'])}")
     for note in r.get("notes") or []:
         lines.append(f"> {note}")
+    lines.append("每条前面的编号（g1、k1、p1……）是方案书里技术选择引用的出处。")
     lines += ["", "## GitHub"]
-    for g in r.get("github") or []:
+    for i, g in enumerate(r.get("github") or [], 1):
         verdict = {"adopt": "能直接搬", "idea": "只借思路", "skip": "不用"}.get(g["verdict"], "")
         lines.append(
-            f"- [{g['title']}]({g['url']}) ★{g['stars']} · {g['license'] or '没写许可证'}"
+            f"- g{i} [{g['title']}]({g['url']}) ★{g['stars']} · {g['license'] or '没写许可证'}"
             f" · 最近更新 {g['date'] or '不详'} · {verdict}：{g['summary']}"
         )
     if r.get("plugins"):
         lines += ["", "## dsh 插件（建议安装，你点同意才装）"]
-        for g in r["plugins"]:
-            lines.append(f"- [{g['title']}]({g['url']}) ★{g['stars']} · {g['summary']}")
+        for i, g in enumerate(r["plugins"], 1):
+            lines.append(f"- d{i} [{g['title']}]({g['url']}) ★{g['stars']} · {g['summary']}")
     if r.get("cards"):
         lines += ["", "## 学习卡"]
-        for card in r["cards"]:
-            lines.append(f"### {card['repo']}")
+        for i, card in enumerate(r["cards"], 1):
+            lines.append(f"### k{i} {card['repo']}")
             lines.append(card.get("what") or "")
             for b in card.get("borrow") or []:
                 lines.append(f"- 借：{b}")
             for a in card.get("avoid") or []:
                 lines.append(f"- 别学：{a}")
     lines += ["", "## 论文"]
-    for p in r.get("papers") or []:
-        lines.append(f"- [{p['title']}]({p['url']}) · {p['source']} {p['date']} · {p['summary']}")
+    for i, p in enumerate(r.get("papers") or [], 1):
+        lines.append(
+            f"- p{i} [{p['title']}]({p['url']}) · {p['source']} {p['date']} · {p['summary']}"
+        )
     lines += ["", "## 资讯和视频"]
     kinds = {"news": "资讯", "video": "视频", "launch": "发布会", "blog": "官方博客"}
-    for n in r.get("news") or []:
+    for i, n in enumerate(r.get("news") or [], 1):
         lines.append(
-            f"- {kinds.get(n['kind'], '资讯')}：[{n['title']}]({n['url']}) · {n['source']}"
+            f"- n{i} {kinds.get(n['kind'], '资讯')}：[{n['title']}]({n['url']}) · {n['source']}"
             f" {n['date']}{mark[n.get('verified')]} · {n['summary']}"
         )
     return "\n".join(lines) + "\n"

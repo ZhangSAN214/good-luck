@@ -965,6 +965,9 @@ class OfficeProject(_Strict):
     )
     reviews_per_item: int = Field(default=1, ge=1)
     step_params: dict[str, dict[str, Any]] = Field(default_factory=dict)
+    # M 办公室交接（2026-11-04）：经理决定项目分工时，先问老板要不要交给工作台（项目室）。
+    # 只在工作台和项目室都开着时问；同意后直接生成项目室的需求书，做完把成品和验收结果回报到这场对话
+    bench_handoff: bool = True
 
     @model_validator(mode="after")
     def _range(self) -> OfficeProject:
@@ -997,6 +1000,9 @@ class ChatBudgetRules(_Strict):
     """聊天这一块（私聊、群聊，以后的生活与上网）每月最多花多少（UTC 自然月）；也计入总预算。"""
 
     monthly_usd: float = Field(default=5.0, gt=0)
+    # 按剩余天数平摊：成员自己的活动（生活、主动找你、群聊）每天最多用到
+    # 「本月还剩的钱 ÷ 本月还剩的天数」，月初花不光、月底不断档；你直接找她不受它限制
+    pace: bool = True
 
 
 class MemoryLinkRules(_Strict):
@@ -3859,6 +3865,8 @@ class SuperWorker(_Strict):
     argv: list[str] = Field(default_factory=list)
     skills: dict[str, float] = Field(default_factory=dict)  # 活的种类 → 擅长程度 0～1
     daily_limit: int = Field(default=20, ge=0, le=1000)  # 每天最多派几件（界面上可改）
+    # 按用量花钱（不是包月订阅）：weights.metered_last 打开时只在不花钱的都用不了时补位
+    metered: bool = False
     max_parallel: int = Field(default=1, ge=1, le=8)  # 同时最多干几件
     timeout_s: float = Field(default=1800, gt=0, le=7200)
     cooldown_minutes: float = Field(default=60, ge=0, le=1440)  # 撞到订阅限额后歇多久
@@ -3878,11 +3886,16 @@ class SuperWorker(_Strict):
 
 
 class SuperWeights(_Strict):
-    """派活打分的权重：分数 = 擅长 × skill + 剩余额度比例 × quota − 手上的活 × busy。"""
+    """派活打分的权重：分数 = 擅长 × skill + 剩余额度比例 × quota − 手上的活 × busy。
+
+    ``metered_last``（2026-11-04 用户定「优先让 Claude 或 Codex 做」）：按用量花钱的助手
+    （``metered: true``）排在后面，只有走订阅的都不能用（没装、冷却中、今天次数用完、
+    被排除在外，比如不评自己的活）时才补位。只看配置里的 metered，不看是谁。"""
 
     skill: float = Field(default=0.6, ge=0)
     quota: float = Field(default=0.3, ge=0)
     busy: float = Field(default=0.2, ge=0)
+    metered_last: bool = True
 
 
 class SuperGate(_Strict):
@@ -4042,6 +4055,9 @@ class BenchResearch(_Strict):
     news: int = Field(default=8, ge=0, le=20)  # 资讯、视频、发布会、官方博客合计
     learn: int = Field(default=3, ge=0, le=6)  # 写几张学习卡（每张花一次订阅次数）
     learn_plugins: int = Field(default=1, ge=0, le=3)  # 另给几个 dsh 插件写学习卡（供助手学习）
+    # I3 方案书引用调研：调研之后请一位助手把技术选择写清楚，每条指向调研报告里的某一条（g1、k1……）
+    cite: bool = True
+    cite_kind: str = "split"
 
 
 class BenchProject(_Strict):
@@ -4057,6 +4073,17 @@ class BenchProject(_Strict):
     max_stages: int = Field(default=4, ge=2, le=5)
     # 里程碑几小时不回就算通过（0 = 一直等）
     gate_auto_hours: float = Field(default=0, ge=0, le=24 * 7)
+
+
+class BenchHero(_Strict):
+    """主视觉先行（B2，2026-11-04 用户要求）：有主视觉时先只写它，截图单独评审（真素材、占大半屏、
+    有自己的样子），过了再写其余窗口。最多返工 ``max_rework`` 次，还不过就按「卡在哪」停下来。"""
+
+    enabled: bool = True
+    max_rework: int = Field(default=2, ge=0, le=2)
+    rubric: list[str] = Field(default_factory=lambda: ["真素材", "占大半屏", "有自己的样子"])
+    pass_min: float = Field(default=7.0, ge=0, le=10)  # 每一项都要到这个分
+    kind: str = "review"  # 按哪种活挑评审（不会是主视觉的作者）
 
 
 class BenchMaterials(_Strict):
@@ -4131,6 +4158,19 @@ class BenchSkills(_Strict):
         return out | set(self.checks) | set(self.product)
 
 
+class BenchApps(_Strict):
+    """应用型产出（docs/KIT.md「K 通用底座」，2026-11-04）：``bases`` 里的工作台类型不拼卡片窗口，
+    而是在底座（``web/kit/<底座>/``，如编辑器底座）上做成一个多文件应用，规格里的窗口变成底座上的功能。
+    每轮质检之外再跑企业级验收（K5）：撤销至少 ``undo_min`` 步、打开 ``big_px`` 像素宽的大图
+    ``big_max_s`` 秒内完成、导出尺寸不变、出错有提示、快捷键能用、各功能自带的测试。"""
+
+    enabled: bool = True
+    bases: dict[str, str] = Field(default_factory=lambda: {"editor": "editor"})
+    undo_min: int = Field(default=20, ge=1, le=200)
+    big_px: int = Field(default=4000, ge=256, le=12000)
+    big_max_s: float = Field(default=8.0, gt=0, le=120)
+
+
 class BenchDeskCategory(_Strict):
     id: str = Field(pattern=r"^[a-z0-9][a-z0-9-]{0,30}$")
     label: str = Field(min_length=1, max_length=20)
@@ -4192,10 +4232,12 @@ class BenchRules(_Strict):
     max_adopt: int = Field(default=3, ge=0, le=10)  # 一个工作台最多搬几个
     research: BenchResearch = Field(default_factory=BenchResearch)
     project: BenchProject = Field(default_factory=BenchProject)
+    hero: BenchHero = Field(default_factory=BenchHero)
     team: BenchTeam = Field(default_factory=BenchTeam)
     materials: BenchMaterials = Field(default_factory=BenchMaterials)
     skills: BenchSkills = Field(default_factory=BenchSkills)
     desk: BenchDesk = Field(default_factory=BenchDesk)
+    apps: BenchApps = Field(default_factory=BenchApps)
     rubric: list[str] = Field(
         default_factory=lambda: [
             *("视觉层次", "信息密度", "一致性", "交互完整"),

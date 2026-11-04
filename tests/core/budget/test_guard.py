@@ -251,3 +251,16 @@ def test_card_and_warning_include_local_time():
     card = guard.check(0.2).card()
     assert "2026-10-16 00:00 UTC（本地时间 2026-10-16 08:00，UTC+8）" in card.reason
     assert "UTC+8" in card.situation  # 每日 / 每月状态行同样带本地时间
+
+
+def test_paced_daily_spreads_what_is_left_over_the_days_left():
+    from roundtable.core.budget.guard import paced_daily
+
+    # 11 月 30 天：1 号一分没花，每天 $5 / 30
+    assert paced_daily(5.0, 0.0, datetime(2026, 11, 1, 3, tzinfo=UTC)) == pytest.approx(5 / 30)
+    # 21 号已花 $4，还剩 10 天（含今天）
+    assert paced_daily(5.0, 4.0, datetime(2026, 11, 21, 23, tzinfo=UTC)) == pytest.approx(0.1)
+    # 最后一天：剩多少都能用
+    assert paced_daily(5.0, 4.5, datetime(2026, 11, 30, 12, tzinfo=UTC)) == pytest.approx(0.5)
+    # 已超支：0，不为负
+    assert paced_daily(5.0, 6.0, datetime(2026, 11, 10, tzinfo=UTC)) == 0.0

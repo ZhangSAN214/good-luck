@@ -382,3 +382,8 @@
 .bg-saidform dd{margin:0;overflow-wrap:anywhere}
 @media (max-width:720px){.bg-ff{grid-template-columns:1fr}}
 .bg-unprobed{display:block;font-size:12px;color:#ffd9a6}
+/* 方案书引用调研（I3）、主视觉先行（B2） */
+.bg-warn{color:var(--warn);font-weight:600}
+.bg-cite li{margin-bottom:6px}
+.bg-cite .sc-sub{display:block}
+.bg-hero-check .bg-demo img{max-width:48%;margin-right:4px}

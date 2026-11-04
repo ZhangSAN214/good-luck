@@ -24,7 +24,7 @@ from typing import Any
 from urllib.parse import quote
 
 from roundtable.core import chat_handoff as handoff
-from roundtable.core import clipper, firstaid
+from roundtable.core import clipper, firstaid, starmap
 from roundtable.core.allocation import coordinator_name, display_name
 from roundtable.core.almanac import Almanac
 from roundtable.core.attachments import Attachment, UploadError, ingest
@@ -206,6 +206,7 @@ ORPHANED_ERROR = "服务上次意外退出，做到一半中断了，可以点�
 MAX_QUESTION_CHARS = 20_000
 MAX_CHAT_CHARS = 2000
 HANDOFF_FILES = 5  # 交办时最多带几个你在聊天里发的文件
+BENCH_HANDOFF_KEY = "office_bench:"  # 设置表：哪些办公室会话已经交给了工作台（只交一次）
 MAX_MOMENT_CHARS = 500
 ADB_QR_TTL_S = 180  # 配对二维码几秒内有效（手机上的扫码页面本身也会超时）
 # 公寓楼：进行中的会话这么久没有更新就不算在上班（服务意外退出后留下的 running）
@@ -374,6 +375,13 @@ class RoundtableService:
             whitelist=self._dsh_whitelist,
             skill=self._bench_skill,
             desk=self.desk,
+            report=self._bench_report,
+        )
+        # 办公室交接（M）：工作台开着、项目室开着、有本机数据目录、没在做别的台时，大项目才问老板
+        self.orc.bench_ready = lambda: (
+            self.bench.unavailable_reason() is None
+            and self.bench.rules.project.enabled
+            and not self.bench.busy
         )
         self.bench_status_fetch = http_status()  # 联网自检用（测试换成假的）
         self._chat_tasks: set[asyncio.Task[Any]] = set()
@@ -2488,6 +2496,61 @@ class RoundtableService:
                     out.append(str(f["id"]))
         return out[-HANDOFF_FILES:]
 
+    # --- 办公室交给工作台（M，docs/KIT.md「M 办公室交接」）------------------------------
+
+    def _bench_handoff(self, sid: str, type_: str) -> None:
+        """办公室那场对话做完、老板选了「交给工作台」：用这场对话里说清楚的内容开一个项目室
+        （访谈里答过的不再问），工作台做完把成品和验收结果回报到这里。只交一次。"""
+        if type_ != "completed" or self.rt.repo.setting(BENCH_HANDOFF_KEY + sid):
+            return
+        row = self.rt.repo.session_row(sid)
+        if row["workflow"] != "office":
+            return
+        o = restore_state(self.rt.repo, sid, 0).office
+        if not o.bench:
+            return
+        self.rt.repo.set_setting(BENCH_HANDOFF_KEY + sid, "1")
+        question = str(row["question"] or "").strip()
+        intake = o.intake or {}
+        said = [f"用户的要求：{question}"]
+        if intake.get("brief"):
+            said.append(f"经理整理的工作说明：{intake['brief']}")
+        if intake.get("reason"):
+            said.append(f"经理判断的理由：{intake['reason']}")
+        notes = [n["text"] for n in self.rt.repo.notes(sid) if n.get("text")]
+        if notes:
+            said.append("用户在办公室里补充的：" + "；".join(notes))
+        files = [a["name"] for a in self.rt.repo.session_attachments(sid) if a.get("name")]
+        if files:
+            said.append("用户给的附件：" + "、".join(files))
+        title = short_title(question.split("\n\n")[0])
+        try:
+            b = self.bench.submit(
+                question,
+                handoff={"session_id": sid, "title": title, "answered": "\n".join(said)},
+            )
+        except (ValueError, RuntimeError) as exc:
+            content = {"started": False, "error": str(exc)[:300], "title": title}
+        else:
+            content = {"started": True, "bench_id": b["id"], "title": title}
+        self.rt.repo.save_output(
+            sid, table_no=0, step="bench", kind="office_bench", code=None, content=content
+        )
+        self._publish(sid, Event("office_bench", "bench", 0, None, content))
+
+    def _bench_report(self, rep: dict[str, Any]) -> None:
+        """工作台做完办公室交过来的项目：成品、交付没有、验收结果写进那场对话。"""
+        sid = str(rep.get("session_id") or "")
+        try:
+            self.rt.repo.session_row(sid)
+        except NotFound:
+            return
+        content = {k: v for k, v in rep.items() if k != "session_id"}
+        self.rt.repo.save_output(
+            sid, table_no=0, step="bench", kind="office_bench_report", code=None, content=content
+        )
+        self._publish(sid, Event("office_bench_report", "bench", 0, None, content))
+
     def _handoff_back(self, sid: str, type_: str) -> None:
         """办公室做完（或没办成）：以交办的那位成员的名义，把结果卡片发回原来的会话。"""
         where = handoff.origin(self.rt, sid)
@@ -3526,6 +3589,40 @@ class RoundtableService:
             ],
         }
 
+    # --- 星图（docs/STARMAP.md）：圆桌星图与成员的人生星图，只读、不调模型 ----------------
+
+    def star_map_member(self, member: str) -> dict[str, Any]:
+        """一位成员的人生星图：身份、性格、三观、喜好、能力、记忆、关系、情绪、表达、成长。"""
+        member = self._profile_member(member)
+        m = next(x for x in self.chats.everyone() if x.id == member)
+        states = {s["member"]: s for s in self.member_states()["members"]}
+        return starmap.life_map(
+            member={"id": m.id, "name": m.name},
+            profile=self.member_profile(member),
+            growth=self.member_growth(member),
+            relation=self.member_relation(member),
+            memory=self.chat_memory_items(member, None, 200),
+            state=states.get(member),
+            today=self._local_now().date(),
+        )
+
+    def star_map(self) -> dict[str, Any]:
+        """圆桌星图：版本更新挂在各部门下、成员（完整度与缺的星域）、体检里没过的项。"""
+        members, peers = [], {}
+        for m in self.chats.everyone():
+            life = self.star_map_member(m.id)
+            members.append(
+                {"id": m.id, "name": m.name, "score": life["score"], "missing": life["missing"]}
+            )
+            peers[m.id] = self.engine.relation.summary(m.id)["peers"]
+        return starmap.roundtable_map(
+            changelog=self.changelog(),
+            members=members,
+            findings=[f.view() for f in self.firstaid_findings()],
+            peers=peers,
+            today=self._local_now().date(),
+        )
+
     async def member_growth_run(self, member: str) -> dict[str, Any]:
         """马上让这位成员反思上一周（每周只反思一次；上周已经反思过就不再调用）。"""
         member = self._profile_member(member)
@@ -4340,6 +4437,10 @@ class RoundtableService:
                 self._handoff_back(session_id, event.type)
             except Exception:  # noqa: BLE001
                 log.exception("会话 %s：交办结果发回聊天失败", session_id)
+            try:  # 老板同意交给工作台的大项目：开一个项目室（旁路，出错写进这场对话）
+                self._bench_handoff(session_id, event.type)
+            except Exception:  # noqa: BLE001
+                log.exception("会话 %s：交给工作台失败", session_id)
         payload = {
             "type": event.type,
             "step": event.step or None,
