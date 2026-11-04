@@ -427,6 +427,12 @@ export function feedItems(sv, ctx) {
       }
     }
   }
+  // 交给工作台（M）：开了哪个项目室；工作台做完回报的成品和验收结果
+  const benchOuts = outputs.filter((o) => o.step === 'bench');
+  if (benchOuts.length) {
+    push('bench', '<div class="phase">工作台</div>');
+    benchOuts.forEach((o, i) => push(`bench${i}:${o.kind}`, benchOutput(o)));
+  }
   cpAt(() => true);
 
   for (const [i, w] of (ctx.live.warnings || []).entries()) {
@@ -672,7 +678,26 @@ function collabOutput(o, sp, data, names, sources = null) {
   return null;
 }
 
-const OFFICE_MODES = { single: '单人办', meeting: '开会', project: '项目分工' };
+const OFFICE_MODES = { single: '单人办', meeting: '开会', project: '项目分工', bench: '交给工作台' };
+
+/** 交给工作台（M）：开了项目室 / 回报成品和验收结果。 */
+function benchOutput(o) {
+  const d = parse(o.content) || {};
+  const open = (id) => `<a class="link" href="/bench/${encodeURIComponent(id)}/index.html" target="_blank" rel="noopener">打开成品</a>`;
+  if (o.kind === 'office_bench') {
+    return d.started
+      ? sys('工作台', `开了项目室「${esc(d.title || '')}」：按这里说清楚的要求生成需求书，办公室里答过的不再问。到顶部「工作台」看进度、签字、试用、验收。`)
+      : sys('工作台', `没能交给工作台：${esc(d.error || '')}。可以稍后在「工作台」里自己开工，或重新提问选「办公室自己做」。`, 'bad');
+  }
+  if (o.kind === 'office_bench_report') {
+    const ok = d.status === 'delivered' || d.status === 'done';
+    const reqs = (d.requirements || []).map((r) => `<li>${tag(r.met ? '做到' : '没做到', r.met ? 'ok' : 'bad')} <b>${esc(r.id)}</b> ${esc(r.text)}</li>`).join('');
+    const facts = [d.total ? `验收 ${d.met}/${d.total}` : '', d.score != null ? `评审 ${d.score} 分` : '', d.rounds ? `${d.rounds} 轮` : '', d.changes ? `变更单 ${d.changes} 张` : ''].filter(Boolean).join(' · ');
+    return `<div class="final" data-bench-report><h3>工作台回报<small>${esc(d.outcome || d.status || '')}</small></h3>
+<div class="answer"><p><b>${esc(d.title || '成品')}</b>${facts ? ` · ${esc(facts)}` : ''} ${ok && d.bench_id ? open(d.bench_id) : ''}</p>${d.error ? `<p class="meta">${esc(d.error)}</p>` : ''}${reqs ? `<ul class="bench-reqs">${reqs}</ul>` : ''}</div></div>`;
+  }
+  return '';
+}
 
 function officeOutput(o, sp, data, names, sources = null) {
   if (o.kind === 'office_intake') {
@@ -722,7 +747,10 @@ function officeOutput(o, sp, data, names, sources = null) {
     return `<div class="final"><h3>交付<small>主办经理按验收意见修改后的版本</small></h3>
 <div class="answer">${md(data.text || '')}</div></div>`;
   }
-  if (o.kind === 'office_approval') return data.declined ? sys('老板', `不${OFFICE_MODES[data.declined] || ''}，改为单人办`) : '';
+  if (o.kind === 'office_approval') {
+    if (data.mode === 'bench') return sys('老板', '交给工作台（项目室）去做，办公室这边不再派活；做完把成品和验收结果回报到这里');
+    return data.declined ? sys('老板', `不${OFFICE_MODES[data.declined] || ''}，改为单人办`) : '';
+  }
   return null;
 }
 

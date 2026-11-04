@@ -1,0 +1,90 @@
+/* 编辑器底座的样式（docs/KIT.md「K2 编辑器底座」）：画布居中，左边工具，右边图层 / 属性 / 功能面板。
+   只用 --k-* 变量；手机宽度下改成上下排：工具一行、画布、面板。 */
+
+.k-root.k-app { padding: 0; min-height: 100vh; min-height: 100dvh; }
+.k-ie { display: grid; grid-template-rows: auto auto 1fr auto; height: 100vh; height: 100dvh; min-width: 0; background: var(--k-bg); color: var(--k-fg); position: relative; }
+
+.k-ie-bar { display: flex; align-items: center; gap: 6px 12px; flex-wrap: wrap; padding: 8px 12px; border-bottom: 1px solid var(--k-line); background: var(--k-surface); min-width: 0; }
+.k-ie-brand { display: flex; align-items: center; gap: 8px; font-weight: 650; font-size: 14.5px; margin-right: 4px; min-width: 0; }
+.k-ie-brand h1 { font-size: 14.5px; font-weight: 650; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.k-ie-brand .k-logo { width: 28px; height: 28px; flex: none; border-radius: 8px; display: grid; place-items: center; background: var(--k-accent); color: var(--k-accent-fg); overflow: hidden; }
+.k-ie-brand .k-logo img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.k-ie-group { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; min-width: 0; }
+.k-ie-actions:empty { display: none; }
+.k-ie-zoom { margin-left: auto; }
+.k-ie-pct { min-width: 46px; text-align: center; font-size: 12.5px; color: var(--k-fg-2); }
+
+.k-ie-alert { display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: color-mix(in srgb, var(--k-bad) 12%, var(--k-surface)); color: var(--k-fg); border-bottom: 1px solid color-mix(in srgb, var(--k-bad) 40%, var(--k-line)); font-size: 13.5px; }
+.k-ie-alert[hidden] { display: none; }
+.k-ie-alert > svg { color: var(--k-bad); flex: none; }
+.k-ie-alert > span { flex: 1; min-width: 0; }
+
+.k-ie-main { display: grid; grid-template-columns: 52px minmax(0, 1fr) 300px; min-height: 0; min-width: 0; }
+.k-ie-tools { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 8px 0; border-right: 1px solid var(--k-line); background: var(--k-surface); }
+.k-ie-tools .k-btn[aria-pressed="true"] { background: var(--k-accent-soft); color: var(--k-accent); border-color: var(--k-accent-line); }
+
+.k-ie-stage { position: relative; min-width: 0; min-height: 0; overflow: hidden; background: var(--k-surface-2); }
+.k-ie-view { display: block; width: 100%; height: 100%; touch-action: none; }
+.k-ie-stage[data-tool="move"] .k-ie-view { cursor: move; }
+.k-ie-stage[data-tool="select"] .k-ie-view, .k-ie-stage[data-tool="brush"] .k-ie-view, .k-ie-stage[data-tool="eraser"] .k-ie-view { cursor: crosshair; }
+.k-ie-drop { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; padding: 16px; }
+.k-ie-stage.k-ie-empty .k-ie-drop { display: flex; }
+.k-ie-drop .k-empty { border: 1.5px dashed var(--k-line-strong); border-radius: var(--k-r); padding: 28px 24px; background: var(--k-surface); max-width: 360px; width: 100%; }
+.k-ie-stage.k-ie-over .k-ie-drop .k-empty, .k-ie-stage.k-ie-over { outline: 2px dashed var(--k-accent); outline-offset: -8px; }
+.k-ie-busy { position: absolute; left: 50%; top: 16px; transform: translateX(-50%); display: flex; align-items: center; gap: 8px; padding: 8px 14px; border-radius: 999px; background: var(--k-surface); box-shadow: var(--k-shadow-lg); font-size: 13.5px; }
+.k-ie-busy[hidden] { display: none; }
+.k-ie-spin { display: inline-flex; animation: k-ie-spin 1s linear infinite; color: var(--k-accent); }
+@keyframes k-ie-spin { to { transform: rotate(360deg); } }
+
+.k-ie-side { border-left: 1px solid var(--k-line); background: var(--k-surface); overflow-y: auto; min-height: 0; }
+.k-ie-panel { padding: 12px 14px; border-bottom: 1px solid var(--k-line); display: flex; flex-direction: column; gap: 10px; }
+.k-ie-ph { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 28px; }
+.k-ie-ph h2 { font-size: 13px; font-weight: 650; color: var(--k-fg-2); display: flex; align-items: center; gap: 6px; }
+.k-ie-pb { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.k-ie-layers { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; max-height: 280px; overflow-y: auto; }
+.k-ie-layer { display: flex; align-items: center; gap: 2px; border-radius: var(--k-r-sm); padding: 2px; border: 1px solid transparent; }
+.k-ie-layer.k-on { background: var(--k-accent-soft); border-color: var(--k-accent-line); }
+.k-ie-lname { flex: 1; min-width: 0; display: flex; justify-content: space-between; align-items: center; gap: 6px; min-height: 30px; padding: 0 6px; border: 0; background: none; text-align: left; cursor: pointer; font-size: 13.5px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; border-radius: var(--k-r-xs); }
+.k-ie-lname .k-muted { font-size: 12px; flex: none; }
+.k-ie-none { font-size: 13px; padding: 6px 2px; }
+.k-ie-props-b { display: flex; flex-direction: column; gap: 10px; }
+.k-ie-props-b > p { font-size: 13px; }
+.k-ie-xy { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.k-ie-xy .k-input { width: 100%; }
+.k-ie-topt { display: flex; flex-direction: column; gap: 10px; padding-top: 10px; border-top: 1px solid var(--k-line); }
+.k-ie-color { width: 100%; height: 34px; border: 1px solid var(--k-line-strong); border-radius: var(--k-r-sm); background: var(--k-surface); padding: 2px; cursor: pointer; }
+
+.k-ie-status { padding: 5px 12px; font-size: 12px; color: var(--k-fg-3); border-top: 1px solid var(--k-line); background: var(--k-surface); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.k-ie-keys { position: absolute; right: 12px; top: 52px; z-index: 20; width: min(320px, calc(100vw - 24px)); padding: 12px 14px; border-radius: var(--k-r); background: var(--k-surface); box-shadow: var(--k-shadow-lg); border: 1px solid var(--k-line); display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
+.k-ie-keys[hidden] { display: none; }
+.k-ie-keys div { display: flex; justify-content: space-between; gap: 12px; }
+.k-ie-keys kbd { font: 12px var(--k-mono); padding: 1px 6px; border-radius: var(--k-r-xs); background: var(--k-surface-3); color: var(--k-fg); }
+
+.k-ie-report { position: fixed; right: 12px; bottom: 12px; z-index: 30; width: min(420px, calc(100vw - 24px)); max-height: 60vh; overflow-y: auto; padding: 14px; border-radius: var(--k-r); background: var(--k-surface); color: var(--k-fg); box-shadow: var(--k-shadow-lg); border: 1px solid var(--k-line); font-size: 13px; }
+.k-ie-report h2 { font-size: 14px; margin-bottom: 8px; }
+.k-ie-report ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.k-ie-report li { display: flex; flex-wrap: wrap; gap: 4px 8px; }
+.k-ie-report li.k-ie-ok strong { color: var(--k-good); }
+.k-ie-report li.k-ie-no strong { color: var(--k-bad); }
+.k-ie-report .k-muted { flex-basis: 100%; font-size: 12px; }
+
+@media (max-width: 1000px) {
+  .k-ie-main { grid-template-columns: 52px minmax(0, 1fr) 260px; }
+}
+@media (max-width: 760px) {
+  .k-ie { height: auto; min-height: 100dvh; grid-template-rows: auto auto auto auto; }
+  .k-ie-bar { padding: 8px 10px; }
+  .k-ie-zoom { margin-left: 0; }
+  .k-ie-main { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto 62vh auto; }
+  .k-ie-tools { flex-direction: row; justify-content: flex-start; padding: 6px 10px; border-right: 0; border-bottom: 1px solid var(--k-line); overflow-x: auto; }
+  .k-ie-side { border-left: 0; border-top: 1px solid var(--k-line); overflow: visible; }
+  .k-ie .k-btn.k-sm { min-height: 36px; }
+  .k-ie .k-btn.k-icon.k-sm { width: 36px; }
+  .k-ie-lname { min-height: 36px; }
+  .k-ie-layers { max-height: none; }
+}
+
+/* 面板里的表单：标题和数值同一行，控件占满下一行；按钮不拉伸 */
+.k-ie-side .k-field { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 5px 8px; }
+.k-ie-side .k-field > input, .k-ie-side .k-field > select, .k-ie-side .k-field > textarea { grid-column: 1 / -1; }
+.k-ie-pb > .k-btn, .k-ie-props-b > .k-btn { align-self: flex-start; }

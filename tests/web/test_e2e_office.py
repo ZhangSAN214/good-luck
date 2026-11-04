@@ -204,3 +204,71 @@ def test_model_directory_filters_and_offers_disabled_snippet(serve, page):
     page.click("#mdir-refresh")
     page.wait_for_function("() => !document.querySelector('#mdir-refresh').disabled")
     assert srv.directory_calls == 2
+
+
+def test_office_big_project_hands_to_bench_and_shows_the_report(serve, page, monkeypatch, tmp_path):
+    """M 办公室交接：项目分工先问要不要交给工作台；交了以后这场对话里出现「工作台」，
+    项目室验收通过后回报成品和验收结果。只用假助手。"""
+    import time
+
+    from roundtable.core import service as service_mod
+    from roundtable.core.benchkit.builder import BenchBuilder
+    from roundtable.core.config.schema import BenchProject, BenchTeam
+
+    from ..core.benchkit.test_builder import ProjectSC, fake_check
+    from ..core.benchkit.test_builder import render as fake_render
+
+    def factory(rules, *, root, report=None, **kw):
+        return BenchBuilder(
+            rules.model_copy(
+                update={
+                    "baseline": [],
+                    "project": BenchProject(enabled=True),
+                    "team": BenchTeam(enabled=False),
+                }
+            ),
+            root=tmp_path / "bench",
+            supercomputer=ProjectSC(),
+            render=fake_render,
+            check=fake_check(),
+            seed=3,
+            report=report,
+        )
+
+    monkeypatch.setattr(service_mod, "BenchBuilder", factory)
+    srv = serve(confirm_threshold_usd=100.0)
+    srv.env.office_mode = "project"
+    _office_page(srv, page)
+    ask(page, "帮我做一个给家人用的旅行规划台")
+    card = page.wait_for_selector(".card[data-kind='office']:not(.resolved)", timeout=15000)
+    assert "交给工作台" in card.inner_text()
+    page.click(".card:not(.resolved) .opt[data-opt='bench']")
+    wait_done(page)
+    chat = page.inner_text("#chat")
+    assert "交给工作台（项目室）去做" in chat and "开了项目室" in chat
+
+    api = page.request
+
+    def gate(bid):
+        for _ in range(200):
+            g = (api.get(f"{srv.url}/api/bench/{bid}").json().get("gate") or {}).get("kind")
+            if g:
+                return g
+            time.sleep(0.05)
+        b = api.get(f"{srv.url}/api/bench/{bid}").json()
+        raise AssertionError(f"工作台没停在关口：{b.get('status')} {b.get('log', [])[-3:]}")
+
+    bid = api.get(f"{srv.url}/api/bench").json()["current"]["id"]
+    assert gate(bid) == "interview"
+    api.post(f"{srv.url}/api/bench/{bid}/answer", data={"answers": {}})
+    assert gate(bid) == "sign"
+    api.post(f"{srv.url}/api/bench/{bid}/sign", data={})
+    while gate(bid) != "accept":
+        api.post(f"{srv.url}/api/bench/{bid}/review", data={"decision": "pass"})
+        time.sleep(0.1)
+    api.post(f"{srv.url}/api/bench/{bid}/review", data={"decision": "pass"})
+    page.reload()
+    report = page.wait_for_selector("[data-bench-report]", timeout=15000)
+    text = report.inner_text()
+    assert "工作台回报" in text and "你验收通过，已交付" in text and "验收" in text
+    assert report.query_selector("a[href$='/index.html']") is not None

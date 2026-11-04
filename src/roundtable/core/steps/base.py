@@ -133,6 +133,8 @@ class TableContext:
     # 办公室模式的项目组桌子（O4）：覆盖的步骤参数（同一步骤所有人相同）、每份成果的审查人数
     step_overrides: dict[str, dict[str, Any]] = field(default_factory=dict)
     reviews_per_item: int | None = None
+    # 工作台现在能不能接活（M 办公室交接：大项目先问老板要不要交给工作台）；默认不能
+    bench_ready: Callable[[], bool] = lambda: False
 
     @property
     def effort_rule(self):

@@ -51,6 +51,11 @@ def test_supercomputer_flow(serve, page, monkeypatch, tmp_path):
     dlg.locator(".sc-result", has_text="合并好了").wait_for(timeout=15000)
     row = dlg.locator(".sc-subs tr", has_text="2. 写文档").first
     assert "D" in row.text_content() and "分：擅长" in row.text_content()
+    # 按用量花钱的助手补位时，「为什么是他」写明只补位
+    why = "s => import('/js/supercomputer.js').then(m => m.whyLine(s))"
+    fill = page.evaluate(why, {"total": 0.5, "skill": 0.5, "quota": 1, "busy": 0, "standby": True})
+    assert "只补位" in fill
+    assert "只补位" not in page.evaluate(why, {"total": 0.5, "skill": 0.5, "quota": 1, "busy": 0})
     assert dlg.locator(".sc-st-done").count() == 3
     page.wait_for_function(f"!{on}")
     assert page.evaluate("location.hash") == "#m=bench"

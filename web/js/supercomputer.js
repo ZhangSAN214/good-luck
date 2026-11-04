@@ -46,7 +46,8 @@ const KIND = { code: '写代码', frontend: '前端', test: '测试', docs: '文
 export function whyLine(score) {
   if (!score) return '';
   const pct = (x) => `${Math.round(Number(x) * 100)}%`;
-  return `${Number(score.total).toFixed(2)} 分：擅长 ${pct(score.skill)} · 今天剩 ${pct(score.quota)} · 手上 ${score.busy} 件`;
+  const fill = score.standby ? ' · 按用量花钱，只补位' : '';
+  return `${Number(score.total).toFixed(2)} 分：擅长 ${pct(score.skill)} · 今天剩 ${pct(score.quota)} · 手上 ${score.busy} 件${fill}`;
 }
 
 export class SuperPanel {
