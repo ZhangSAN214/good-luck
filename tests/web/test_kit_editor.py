@@ -8,7 +8,9 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import shutil
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
@@ -45,10 +47,13 @@ def build_photo_bench(folder: Path, extra: dict[str, str] | None = None) -> Path
 
 
 def _run(fn, *a, **kw):
+    """在自己的线程里跑（同一进程里的端到端测试已经开着 asyncio 循环，同步 Playwright 会报错，
+    以前会被当成没有浏览器而跳过）。"""
     try:
-        return fn(*a, **kw)
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            return pool.submit(fn, *a, **kw).result()
     except QualityError as exc:
-        if "浏览器启动失败" in str(exc):
+        if "浏览器启动失败" in str(exc) and not os.environ.get("ROUNDTABLE_E2E_REQUIRED"):
             pytest.skip(str(exc))
         raise
 
@@ -285,7 +290,10 @@ def test_control_room_builds_and_opens_the_photo_bench(serve, page, monkeypatch,
     assert "应用 · 电脑" in rnd.locator(".bg-shots").text_content()
     page.keyboard.press("Escape")
     frame = page.frame_locator("iframe.bg-frame")
-    frame.locator(".k-ie-tools [data-tool='brush']").wait_for(timeout=10000)
+    frame.locator("html[data-app='ready']").wait_for(
+        state="attached", timeout=15000
+    )  # 功能都装好了
+    assert frame.locator(".k-ie-tools [data-tool='brush']").count() == 1
     assert frame.locator(".k-ie-brand h1").text_content() == "修图台"
     assert frame.locator('[data-window="background"] [data-do="strip"]').count() == 1
     assert frame.locator(".k-grid").count() == 0
