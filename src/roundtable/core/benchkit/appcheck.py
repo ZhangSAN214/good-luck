@@ -39,6 +39,7 @@ CHECK_NAMES = {
 FEATURE_FAIL = "应用自带测试没过"
 NOT_READY = "底座没起来"
 SHOT_IMAGE = (1200, 800)  # 截图前先放进去的测试图
+SHOT_WAIT_MS = 15000  # 放测试图最多等这么久
 WHERE = "企业级验收"
 
 
@@ -197,12 +198,16 @@ def run_app_check(
                 return _save(report, out)
             with contextlib.suppress(PwError):
                 page.evaluate(
-                    """async ([w, h]) => {
-                      const { sampleBlob } = await import('/kit/editor/selftest.js');
-                      const blob = await sampleBlob(w, h);
-                      await window.__editor.importFile(blob, { name: '截图用的测试图' });
-                    }""",
-                    list(SHOT_IMAGE),
+                    # 页面卡住时 evaluate 自己不会超时：最多等 SHOT_WAIT_MS，截图照截
+                    """async ([w, h, ms]) => Promise.race([
+                      (async () => {
+                        const { sampleBlob } = await import('/kit/editor/selftest.js');
+                        const blob = await sampleBlob(w, h);
+                        await window.__editor.importFile(blob, { name: '截图用的测试图' });
+                      })(),
+                      new Promise((r) => setTimeout(r, ms)),
+                    ])""",
+                    [*SHOT_IMAGE, SHOT_WAIT_MS],
                 )
                 page.wait_for_timeout(300)
             if out:

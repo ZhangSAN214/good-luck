@@ -11,6 +11,7 @@ import json
 import os
 import shutil
 from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FutureTimeout
 from pathlib import Path
 
 import pytest
@@ -30,6 +31,7 @@ from ..core.benchkit.test_builder import render as fake_render  # noqa: E402
 
 HERE = Path(__file__).with_name("photo_bench")
 CHECKS = {"undoMin": 20, "bigPx": 4000, "bigMaxMs": 8000}
+RUN_LIMIT_S = 240  # 一次质检 / 企业级验收最多等这么久
 
 
 def build_photo_bench(folder: Path, extra: dict[str, str] | None = None) -> Path:
@@ -49,13 +51,18 @@ def build_photo_bench(folder: Path, extra: dict[str, str] | None = None) -> Path
 def _run(fn, *a, **kw):
     """在自己的线程里跑（同一进程里的端到端测试已经开着 asyncio 循环，同步 Playwright 会报错，
     以前会被当成没有浏览器而跳过）。"""
+    pool = ThreadPoolExecutor(max_workers=1)
     try:
-        with ThreadPoolExecutor(max_workers=1) as pool:
-            return pool.submit(fn, *a, **kw).result()
+        # 浏览器卡住时别把整个 CI 拖到超时：限时等结果，超时直接算失败
+        return pool.submit(fn, *a, **kw).result(timeout=RUN_LIMIT_S)
     except QualityError as exc:
         if "浏览器启动失败" in str(exc) and not os.environ.get("ROUNDTABLE_E2E_REQUIRED"):
             pytest.skip(str(exc))
         raise
+    except FutureTimeout:
+        pytest.fail(f"{fn.__name__} 超过 {RUN_LIMIT_S} 秒没跑完（浏览器可能卡住了）")
+    finally:
+        pool.shutdown(wait=False)
 
 
 def png(w: int, h: int) -> bytes:
