@@ -133,17 +133,17 @@ dialog#starmapdlg:has(.sm[data-theme="mono"]){background:#f3f1ec;color:#141414}
 .sm[data-theme="mono"] .sm-tabs button,.sm[data-theme="mono"] .sm-x,.sm[data-theme="mono"] .sm-fold{color:#141414;border-radius:2px}
 .sm[data-theme="mono"] .sm-tabs button[aria-pressed="true"]{background:#141414;color:#f3f1ec}
 .sm[data-theme="mono"] .sm-detail,.sm[data-theme="mono"] .sm-changes li,.sm[data-theme="mono"] .sm-rel li{color:#2a2a2a}
-.sm[data-theme="mono"] .sm-gaps li{color:#c2401f}
-.sm[data-theme="mono"] .sm-enter,.sm[data-theme="mono"] .sm-play{background:#ff5a3c;color:#fff;border-radius:2px}
+.sm[data-theme="mono"] .sm-gaps li{color:var(--acc,#c2401f)}
+.sm[data-theme="mono"] .sm-enter,.sm[data-theme="mono"] .sm-play{background:var(--acc,#ff5a3c);color:#fff;border-radius:2px}
 .sm[data-theme="mono"] .sm-changes li{background:rgba(255,255,255,.7)}
-.sm[data-theme="mono"] .sm-changes time,.sm[data-theme="mono"] .sm-tl output{color:#ff5a3c}
+.sm[data-theme="mono"] .sm-changes time,.sm[data-theme="mono"] .sm-tl output{color:var(--acc,#ff5a3c)}
 .sm[data-theme="mono"] .sm-tl input{accent-color:#141414}
 .sm[data-theme="mono"] .sm-hint,.sm[data-theme="mono"] .sm-sub{color:#8a857c}
 .sm3-mono .sm3-l{color:#3a3732;text-shadow:none;font-family:"Noto Serif SC",serif}
 .sm3-mono .sm3-l.k-core{color:#111;font-size:17px;letter-spacing:.3em}
 .sm3-mono .sm3-l.k-domain,.sm3-mono .sm3-l.k-member{color:#111;font-weight:500;border-bottom:1px solid #111;padding-bottom:1px}
-.sm3-mono .sm3-l.k-gap{color:#ff5a3c}
-.sm3-mono .sm3-l.sel{color:#ff5a3c}
+.sm3-mono .sm3-l.k-gap{color:var(--acc,#ff5a3c)}
+.sm3-mono .sm3-l.sel{color:var(--acc,#ff5a3c)}
 
 /* 玻璃星球：奶油渐变底、白色毛玻璃标签 */
 dialog#starmapdlg:has(.sm[data-theme="glass"]){background:radial-gradient(120% 90% at 20% 10%,#fde6f0 0%,#e9e3ff 40%,#d6ecff 75%,#cfe9f2 100%);color:#1d2340}
@@ -175,7 +175,7 @@ dialog#starmapdlg:has(.sm[data-theme="glass"]){background:radial-gradient(120% 9
 
 /* 极简线稿（默认）再细一点：黑色图标、细分隔线、大字号标题 */
 .sm[data-theme="mono"] .sm-g i,.sm[data-theme="mono"] .sm-dot{color:#141414}
-.sm[data-theme="mono"] .sm-g.empty i{color:#ff5a3c}
+.sm[data-theme="mono"] .sm-g.empty i{color:var(--acc,#ff5a3c)}
 .sm[data-theme="mono"] .sm-g em{background:rgba(0,0,0,.08)}
 .sm[data-theme="mono"] .sm-g em::after{background:#141414}
 .sm[data-theme="mono"] .sm-g:hover,.sm[data-theme="mono"] .sm-g.on{background:rgba(0,0,0,.04)}
@@ -190,9 +190,28 @@ dialog#starmapdlg:has(.sm[data-theme="glass"]){background:radial-gradient(120% 9
 .sm[data-theme="mono"] .sm-changes li{border-radius:2px}
 .sm[data-theme="mono"] .sm-rel li{border-radius:2px;border-color:rgba(0,0,0,.12)}
 .sm[data-theme="mono"] .sm-rel li i{background:#141414}
-.sm[data-theme="mono"] .sm-rel li em{color:#ff5a3c}
-.sm[data-theme="mono"] .sm-new{background:#ff5a3c;color:#fff}
+.sm[data-theme="mono"] .sm-rel li em{color:var(--acc,#ff5a3c)}
+.sm[data-theme="mono"] .sm-new{background:var(--acc,#ff5a3c);color:#fff}
 .sm[data-theme="mono"] .sm-theme{border-radius:2px;color:#141414}
 .sm3-mono .sm3-l{font-family:"Geist","Noto Serif SC",serif}
 .sm3-mono .sm3-l.k-domain,.sm3-mono .sm3-l.k-member,.sm3-mono .sm3-l.k-core{font-family:"Noto Serif SC",serif;border-bottom:0;letter-spacing:.24em;font-size:12px}
 .sm3-mono .sm3-l.k-core{font-size:16px;letter-spacing:.4em}
+
+/* ---- 主题色色块 ---- */
+.sm{--acc:#ff5a3c}
+.sm-acc{flex:none;display:flex;align-items:center;gap:6px;padding:4px 8px;border:1px solid var(--glass-line);background:var(--glass);border-radius:999px}
+.sm-acc button{width:16px;height:16px;padding:0;border-radius:50%;border:0;background:var(--sw);cursor:pointer;box-shadow:0 0 0 1px rgba(0,0,0,.08);transition:transform .15s}
+.sm-acc button:hover{transform:scale(1.15)}
+.sm-acc button[aria-pressed="true"]{box-shadow:0 0 0 2px var(--glass),0 0 0 3.5px var(--sw)}
+.sm-acc-pick{position:relative;width:16px;height:16px;border-radius:50%;background:conic-gradient(#f44,#fd4,#4f6,#4cf,#64f,#f4c,#f44);cursor:pointer;overflow:hidden}
+.sm-acc-pick input{position:absolute;inset:-6px;opacity:0;cursor:pointer}
+.sm[data-theme="mono"] .sm-acc{border-radius:2px}
+/* 别的画风也用主题色做高亮 */
+.sm .sm-tabs button[aria-pressed="true"]{background:var(--acc);color:#fff}
+.sm[data-theme="mono"] .sm-tabs button[aria-pressed="true"]{background:#141414;color:#f3f1ec;box-shadow:inset 0 -2px 0 var(--acc)}
+.sm .sm-enter{background:var(--acc);color:#fff}
+.sm .sm-play{background:var(--acc);color:#fff}
+.sm .sm-tl input{accent-color:var(--acc)}
+.sm .sm-new{background:var(--acc);color:#fff}
+.sm-card{border-top-color:var(--acc)!important}
+@media (max-width:760px){.sm-acc{order:2;gap:5px;padding:4px 6px}.sm-acc button,.sm-acc-pick{width:14px;height:14px}}

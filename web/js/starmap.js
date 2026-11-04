@@ -9,6 +9,16 @@ import { THEMES, Scene3D, loadLib, webglOK } from './starmap3d.js';
 import { iconSvg } from './starmap_icons.js';
 
 const THEME_KEY = 'roundtable.starmap.theme';
+const ACCENT_KEY = 'roundtable.starmap.accent';
+// 主题色：一排色块 + 自选颜色；点一下全图（线、光点、缺口、按钮）一起换，记在本机
+export const ACCENTS = [
+  ['#ff5a3c', '橙红'],
+  ['#2b4bff', '克莱因蓝'],
+  ['#1f8a64', '墨绿'],
+  ['#8a4fe0', '紫'],
+  ['#c9962e', '金'],
+  ['#e0457b', '玫红'],
+];
 const esc = (s) =>
   String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 
@@ -110,9 +120,12 @@ export class StarMap {
     this.raf = 0;
     this.reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
     this.theme = 'mono';
+    this.accent = ACCENTS[0][0];
     try {
       const t = localStorage.getItem(THEME_KEY);
       if (t && (THEMES[t] || t === 'flat')) this.theme = t;
+      const a = localStorage.getItem(ACCENT_KEY);
+      if (a && /^#[0-9a-f]{6}$/i.test(a)) this.accent = a;
     } catch {
       /* 本机存不了就用默认 */
     }
@@ -141,6 +154,9 @@ export class StarMap {
       <header class="sm-top">
         <div class="sm-title"><h2 data-title>星图</h2><span class="sm-sub" data-sub></span></div>
         <nav class="sm-tabs" data-tabs aria-label="切换星图"></nav>
+        <div class="sm-acc" role="group" aria-label="主题色">${ACCENTS.map(
+          ([c, name]) => `<button type="button" data-acc="${c}" style="--sw:${c}" title="${name}" aria-label="主题色：${name}"></button>`,
+        ).join('')}<label class="sm-acc-pick" title="自己调颜色"><input type="color" data-accpick aria-label="自己调主题色"></label></div>
         <select class="sm-theme" data-skin aria-label="画风">${Object.entries(THEMES)
           .map(([k, t]) => `<option value="${k}">${t.label}</option>`)
           .join('')}<option value="flat">平面（省电）</option></select>
@@ -161,6 +177,25 @@ export class StarMap {
     this.ctx = this.canvas.getContext('2d');
     this.bindPointer();
     this.dlg.querySelector('[data-skin]').addEventListener('change', (e) => this.setTheme(e.target.value));
+    this.dlg.querySelector('[data-accpick]').addEventListener('input', (e) => this.setAccent(e.target.value));
+    this.setAccent(this.accent, false);
+  }
+
+  setAccent(hex, save = true) {
+    this.accent = hex;
+    const box = this.dlg.querySelector('.sm');
+    box.style.setProperty('--acc', hex);
+    for (const b of this.dlg.querySelectorAll('[data-acc]')) b.setAttribute('aria-pressed', String(b.dataset.acc === hex));
+    const pick = this.dlg.querySelector('[data-accpick]');
+    if (pick.value !== hex) pick.value = hex;
+    if (this.gl) this.gl.setAccent(hex);
+    if (save) {
+      try {
+        localStorage.setItem(ACCENT_KEY, hex);
+      } catch {
+        /* 存不了也照样换 */
+      }
+    }
   }
 
   async setTheme(t) {
@@ -193,6 +228,7 @@ export class StarMap {
         if (!this.gl) {
           this.gl = new Scene3D(this.dlg.querySelector('[data-gl]'), {
             theme: this.theme,
+            accent: this.accent,
             onPick: (id, e, dbl) => this.picked(id, dbl),
           });
         }
@@ -358,9 +394,10 @@ export class StarMap {
   }
 
   onClick(e) {
-    const t = e.target.closest('[data-close],[data-view],[data-node],[data-unsel],[data-play],[data-fold]');
+    const t = e.target.closest('[data-close],[data-view],[data-node],[data-unsel],[data-play],[data-fold],[data-acc]');
     if (!t) return;
-    if (t.matches('[data-fold]')) {
+    if (t.matches('[data-acc]')) this.setAccent(t.dataset.acc);
+    else if (t.matches('[data-fold]')) {
       const box = this.dlg.querySelector('.sm');
       const open = !box.classList.contains('legend-open');
       box.classList.toggle('legend-open', open);
@@ -567,7 +604,7 @@ export class StarMap {
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     const cam = this.cam;
     this.idle += 1;
-    if (!this.reduce && this.idle > 90 && !this.hover && !this.sel) cam.yaw += 0.0011;
+    if (this.idle > 90 && !this.hover) cam.yaw += (this.reduce ? 0.0004 : 0.0011) * (this.sel ? 0.4 : 1);
     const e = 0.08;
     if (cam.goalYaw !== null && cam.goalYaw !== undefined) {
       const d = Math.atan2(Math.sin(cam.goalYaw - cam.yaw), Math.cos(cam.goalYaw - cam.yaw));

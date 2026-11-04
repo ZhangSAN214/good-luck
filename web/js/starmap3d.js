@@ -113,20 +113,20 @@ function texture(T, kind) {
 }
 
 // 极简线稿的星域 / 中心 / 成员：白底细黑圈 + 图标（或名字的第一个字）
-function badge(T, { icon, text, accent = false }) {
+function badge(T, { icon, text, accent = null }) {
   const s = 256;
   const c = document.createElement('canvas');
   c.width = c.height = s;
   const g = c.getContext('2d');
   const m = s / 2;
   g.fillStyle = '#f7f5f0';
-  g.strokeStyle = accent ? '#ff5a3c' : '#141414';
+  g.strokeStyle = accent || '#141414';
   g.lineWidth = 5;
   g.beginPath();
   g.arc(m, m, m - 8, 0, Math.PI * 2);
   g.fill();
   g.stroke();
-  g.fillStyle = accent ? '#ff5a3c' : '#141414';
+  g.fillStyle = accent || '#141414';
   if (icon && ICONS[icon]) {
     g.save();
     const k = (s * 0.5) / 960;
@@ -150,7 +150,7 @@ function badge(T, { icon, text, accent = false }) {
 const SIZE = { core: 30, domain: 15, member: 13, star: 6, gap: 9 };
 
 export class Scene3D {
-  constructor(host, { theme = 'neon', onPick, onHover } = {}) {
+  constructor(host, { theme = 'neon', accent = '#ff5a3c', onPick, onHover } = {}) {
     this.host = host;
     this.themeName = THEMES[theme] ? theme : 'neon';
     this.th = THEMES[this.themeName];
@@ -159,6 +159,8 @@ export class Scene3D {
     const L = lib;
     const T = L.THREE;
     this.T = T;
+    this.acc = new T.Color(accent);
+    this.accMats = [];
     this.renderer = new T.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
     this.renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
     this.renderer.toneMapping = this.th.star === 'dot' ? T.NoToneMapping : T.ACESFilmicToneMapping;
@@ -176,8 +178,10 @@ export class Scene3D {
     this.controls = new L.OrbitControls(this.camera, this.renderer.domElement);
     this.controls.enableDamping = true;
     this.controls.dampingFactor = 0.07;
-    this.controls.autoRotate = !matchMedia('(prefers-reduced-motion: reduce)').matches;
-    this.controls.autoRotateSpeed = 0.35;
+    // 一直在动：自动缓慢旋转（系统要求减少动态时转得更慢，但不停）
+    this.calm = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    this.controls.autoRotate = true;
+    this.controls.autoRotateSpeed = this.calm ? 0.12 : 0.35;
     this.controls.minDistance = 140;
     this.controls.maxDistance = 2400;
     this.tex = {};
@@ -276,6 +280,7 @@ export class Scene3D {
     }
     this.map = map;
     this.pos = pos;
+    this.accMats = [];
     this.root = new T.Group();
     this.scene.add(this.root);
     this.nodes = new Map();
@@ -301,17 +306,19 @@ export class Scene3D {
       const col = this.color(n.group, n.kind === 'core' ? 0.85 : undefined);
       const parts = [];
       if (n.kind === 'gap') {
-        const m = new T.SpriteMaterial({ map: this.tex.dash, color: th.accent ?? 0xff8a80, transparent: true, depthWrite: false });
+        const m = this.accMat(new T.SpriteMaterial({ map: this.tex.dash, transparent: true, depthWrite: false }));
         const sp = new T.Sprite(m);
         sp.scale.setScalar(size * 2.2);
         g.add(sp);
         parts.push(sp);
       } else if (th.star === 'dot' && n.kind !== 'star') {
         const icon = n.kind === 'member' || (n.kind === 'core' && map.kind === 'life') ? null : n.kind === 'core' ? 'core' : n.group;
-        const sp = new T.Sprite(new T.SpriteMaterial({ map: badge(T, { icon, text: [...n.label][0], accent: Boolean(n.missing) }), transparent: true, depthWrite: false }));
+        const look = { icon, text: [...n.label][0] };
+        const sp = new T.Sprite(new T.SpriteMaterial({ map: badge(T, { ...look, accent: n.missing ? this.accCss() : null }), transparent: true, depthWrite: false }));
         sp.scale.setScalar(size * (n.kind === 'core' ? 1.9 : 2.1));
         g.add(sp);
         parts.push(sp);
+        g.userData.badge = { sp, look, missing: Boolean(n.missing), scale: sp.scale.x };
       } else if (th.star === 'glass' && n.kind !== 'star') {
         const mesh = new T.Mesh(
           new T.SphereGeometry(size * 0.55, 48, 32),
@@ -343,13 +350,13 @@ export class Scene3D {
         g.userData.ring = ring;
       }
       if (n.missing && th.star !== 'dot') {
-        const sp = new T.Sprite(new T.SpriteMaterial({ map: this.tex.dash, color: th.accent ?? 0xff8a80, transparent: true, depthWrite: false }));
+        const sp = new T.Sprite(this.accMat(new T.SpriteMaterial({ map: this.tex.dash, transparent: true, depthWrite: false })));
         sp.scale.setScalar(size * 3.2);
         g.add(sp);
         parts.push(sp);
       }
       if (n.fresh) {
-        const sp = new T.Sprite(new T.SpriteMaterial({ map: this.tex.ring, color: th.accent ?? col, transparent: true, depthWrite: false, blending: add }));
+        const sp = new T.Sprite(this.accMat(new T.SpriteMaterial({ map: this.tex.ring, transparent: true, depthWrite: false, blending: add })));
         sp.scale.setScalar(size * 2);
         g.add(sp);
         g.userData.pulse = sp;
@@ -369,7 +376,9 @@ export class Scene3D {
       g.add(lo);
       this.labelObjs.push(lo);
       this.root.add(g);
-      this.nodes.set(n.id, { n, g, parts, el, size });
+      const ph = ((hash(n.id) % 1000) / 1000) * Math.PI * 2;
+      const amp = { core: 0, domain: 1.6, member: 2.2, star: 3.2, gap: 3.2 }[n.kind] ?? 2;
+      this.nodes.set(n.id, { n, g, parts, el, size, base: g.position.clone(), ph, amp });
     }
     // 连线：从属线一束，相关 / 亲近画弧线虚线
     const tree = [];
@@ -390,13 +399,14 @@ export class Scene3D {
         const curve = new T.QuadraticBezierCurve3(a.g.position.clone(), mid, b.g.position.clone());
         const geo = new T.BufferGeometry().setFromPoints(curve.getPoints(40));
         const mat = new T.LineDashedMaterial({
-          color: th.gold ? 0xf3dca4 : th.sat === 0 ? th.accent : th.line ?? this.color(a.n.group, 0.75),
+          color: th.gold ? 0xf3dca4 : th.sat === 0 ? this.acc.getHex() : th.line ?? this.color(a.n.group, 0.75),
           dashSize: l.kind === 'peer' ? 9 : 4, gapSize: 5, transparent: true,
           opacity: l.kind === 'peer' ? 0.25 + l.w * 0.5 : 0.6, depthWrite: false,
         });
+        if (th.sat === 0) this.accMat(mat);
         const line = new T.Line(geo, mat);
         line.computeLineDistances();
-        line.userData = { a: l.a, b: l.b, base: mat.opacity };
+        line.userData = { a: l.a, b: l.b, base: mat.opacity, curve };
         this.root.add(line);
         this.curves.push(line);
       }
@@ -408,8 +418,71 @@ export class Scene3D {
     this.treeLinks = map.links.filter((l) => l.kind === 'tree' && this.nodes.has(l.a) && this.nodes.has(l.b));
     this.tree = new T.LineSegments(geo, new T.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: th.lineAlpha, depthWrite: false }));
     this.root.add(this.tree);
+    this.buildFlow();
     this.home(orbit);
     this.select(null);
+  }
+
+  accCss() {
+    return `#${this.acc.getHexString()}`;
+  }
+
+  accMat(m) {
+    m.color = this.acc.clone();
+    this.accMats.push(m);
+    return m;
+  }
+
+  // 换主题色：所有用主题色的线、光圈、缺口、流动光点和「有缺口」的徽章一起换，不重建场景
+  setAccent(hex) {
+    this.acc.set(hex);
+    for (const m of this.accMats) m.color.copy(this.acc);
+    for (const o of this.nodes ? this.nodes.values() : []) {
+      const b = o.g.userData.badge;
+      if (b && b.missing) {
+        b.sp.material.map.dispose();
+        b.sp.material.map = badge(this.T, { ...b.look, accent: this.accCss() });
+        b.sp.material.needsUpdate = true;
+      }
+    }
+  }
+
+  // 连线上流动的光点：平时散在所有从属线上，选中一颗星时都跑到和它相连的线上
+  buildFlow() {
+    const T = this.T;
+    if (this.flow) this.root.remove(this.flow);
+    const n = 260;
+    const geo = new T.BufferGeometry();
+    geo.setAttribute('position', new T.BufferAttribute(new Float32Array(n * 3), 3));
+    const mat = this.accMat(
+      new T.PointsMaterial({
+        size: this.th.star === 'dot' ? 5 : 5,
+        map: this.tex[this.th.star === 'dot' ? 'dot' : 'glow'],
+        transparent: true,
+        opacity: 0.9,
+        depthWrite: false,
+        blending: this.th.blend === 'add' ? T.AdditiveBlending : T.NormalBlending,
+      }),
+    );
+    this.flow = new T.Points(geo, mat);
+    this.flow.frustumCulled = false;
+    this.root.add(this.flow);
+    this.sparks = Array.from({ length: n }, (_, i) => ({ k: i, t: (i * 0.618) % 1, v: 0.0016 + ((i * 37) % 10) * 0.00028 }));
+    this.aimFlow(null);
+  }
+
+  aimFlow(id) {
+    if (!this.sparks || !this.map) return;
+    const all = this.map.links.filter((l) => this.nodes.has(l.a) && this.nodes.has(l.b));
+    let links = id ? all.filter((l) => l.a === id || l.b === id) : all.filter((l) => l.kind === 'tree');
+    if (!links.length) links = all;
+    this.flowLinks = links;
+    const many = id ? 1 : 0.55; // 平时只放一半光点，安静一些
+    this.sparks.forEach((s, i) => {
+      s.on = i < this.sparks.length * many;
+      s.link = links[i % Math.max(links.length, 1)];
+      s.back = Boolean(id) && s.link && s.link.b === id; // 选中时光点都流向选中的星
+    });
   }
 
   home(orbit) {
@@ -445,19 +518,19 @@ export class Scene3D {
     if (this.tree) {
       this.tree.material.opacity = id ? this.th.lineAlpha * 0.25 : this.th.lineAlpha;
       if (this.hot) {
+        this.accMats = this.accMats.filter((m) => m !== this.hot.material);
         this.root.remove(this.hot);
         this.hot = null;
       }
       if (id) {
         const T = this.T;
         const pts = [];
-        for (const l of this.treeLinks) {
-          if (l.a === id || l.b === id) pts.push(this.nodes.get(l.a).g.position, this.nodes.get(l.b).g.position);
-        }
+        this.hotLinks = this.treeLinks.filter((l) => l.a === id || l.b === id);
+        for (const l of this.hotLinks) pts.push(this.nodes.get(l.a).g.position, this.nodes.get(l.b).g.position);
         if (pts.length) {
           this.hot = new T.LineSegments(
             new T.BufferGeometry().setFromPoints(pts),
-            new T.LineBasicMaterial({ color: this.th.sat === 0 ? this.th.accent : this.th.gold ? 0xf3dca4 : 0xffffff, transparent: true, opacity: 0.9 }),
+            this.accMat(new T.LineBasicMaterial({ transparent: true, opacity: 0.9 })),
           );
           this.root.add(this.hot);
         }
@@ -467,7 +540,9 @@ export class Scene3D {
       const lit = !id || c.userData.a === id || c.userData.b === id;
       c.material.opacity = lit ? (id ? 0.95 : c.userData.base) : 0.05;
     }
-    this.controls.autoRotate = !id && !matchMedia('(prefers-reduced-motion: reduce)').matches;
+    // 选中后也不停：绕着选中的星慢慢转
+    this.controls.autoRotateSpeed = (this.calm ? 0.12 : 0.35) * (id ? 0.45 : 1);
+    this.aimFlow(id);
     if (id && this.nodes.has(id)) {
       const o = this.nodes.get(id);
       const p = o.g.position;
@@ -535,7 +610,16 @@ export class Scene3D {
       this.camera.position.lerp(this.fly.cam, 0.08);
       if (this.camera.position.distanceTo(this.fly.cam) < 1) this.fly = null;
     }
+    const t = now / 1000;
     for (const o of this.nodes ? this.nodes.values() : []) {
+      // 漂浮：每颗星绕自己的位置轻轻晃（相位按 id 定，彼此不同步）
+      o.g.position.set(
+        o.base.x + Math.sin(t * 0.55 + o.ph) * o.amp * 0.7,
+        o.base.y + Math.sin(t * 0.8 + o.ph * 1.3) * o.amp,
+        o.base.z + Math.cos(t * 0.5 + o.ph) * o.amp * 0.7,
+      );
+      const b = o.g.userData.badge;
+      if (b) b.sp.scale.setScalar(b.scale * (1 + 0.04 * Math.sin(t * 1.6 + o.ph)));
       const p = o.g.userData.pulse;
       if (p) {
         const k = ((now / 1600 + (hash(o.n.id) % 100) / 100) % 1);
@@ -545,10 +629,65 @@ export class Scene3D {
       if (o.g.userData.ring) o.g.userData.ring.rotation.z += 0.004;
     }
     if (this.dust) this.dust.rotation.y += 0.00012;
+    this.follow();
     this.controls.update();
     if (this.composer) this.composer.render();
     else this.renderer.render(this.scene, this.camera);
     this.labels.render(this.scene, this.camera);
+  }
+
+  // 星在漂浮，连线、高亮线、弧线和光点跟着走
+  follow() {
+    if (!this.nodes) return;
+    const P = (id) => this.nodes.get(id).g.position;
+    const seg = (line, links) => {
+      if (!line || !links) return;
+      const a = line.geometry.attributes.position;
+      links.forEach((l, i) => {
+        const p = P(l.a);
+        const q = P(l.b);
+        a.setXYZ(i * 2, p.x, p.y, p.z);
+        a.setXYZ(i * 2 + 1, q.x, q.y, q.z);
+      });
+      a.needsUpdate = true;
+    };
+    seg(this.tree, this.treeLinks);
+    seg(this.hot, this.hotLinks);
+    this.tick = (this.tick || 0) + 1;
+    if (this.tick % 2 === 0) {
+      for (const c of this.curves || []) {
+        const { a, b, curve } = c.userData;
+        curve.v0.copy(P(a));
+        curve.v2.copy(P(b));
+        curve.v1.copy(curve.v0).add(curve.v2).multiplyScalar(0.5);
+        curve.v1.y += curve.v0.distanceTo(curve.v2) * 0.22;
+        c.geometry.setFromPoints(curve.getPoints(40));
+        c.computeLineDistances();
+      }
+    }
+    if (this.flow && this.sparks) {
+      const arr = this.flow.geometry.attributes.position;
+      const T = this.T;
+      const m = this.mid || (this.mid = new T.Vector3());
+      for (const s of this.sparks) {
+        const l = s.link;
+        if (!s.on || !l || !this.nodes.get(l.a).g.visible || !this.nodes.get(l.b).g.visible) {
+          arr.setXYZ(s.k, 0, -99999, 0);
+          continue;
+        }
+        s.t = (s.t + s.v * (this.sel ? 1.8 : 1)) % 1;
+        const u = s.back ? 1 - s.t : s.t;
+        const p = P(l.a);
+        const q = P(l.b);
+        m.copy(p).add(q).multiplyScalar(0.5);
+        if (l.kind !== 'tree') m.y += p.distanceTo(q) * 0.22;
+        const w0 = (1 - u) * (1 - u);
+        const w1 = 2 * (1 - u) * u;
+        const w2 = u * u;
+        arr.setXYZ(s.k, w0 * p.x + w1 * m.x + w2 * q.x, w0 * p.y + w1 * m.y + w2 * q.y, w0 * p.z + w1 * m.z + w2 * q.z);
+      }
+      arr.needsUpdate = true;
+    }
   }
 
   dispose() {
