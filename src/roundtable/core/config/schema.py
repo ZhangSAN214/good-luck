@@ -1559,6 +1559,9 @@ class PerceptionRules(_Strict):
     card_chars: int = Field(default=800, ge=100, le=4000)  # 每张感知卡最多保留多少字
     # 视频卡和听歌卡写得细（时间线、原话、镜头手法），单独的字数上限
     long_card_chars: int = Field(default=5000, ge=100, le=8000)
+    # 视频卡里这一节小标题后面插入的固定提醒（空字符串表示不加）
+    screen_text_heading: str = "屏幕上的字："
+    screen_text_note: str = ""
     listen: PerceptionListen = PerceptionListen()
 
 

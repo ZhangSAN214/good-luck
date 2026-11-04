@@ -220,3 +220,12 @@ def test_native_video_is_shrunk_to_mp4_and_failure_falls_back_to_frames():
     (card,) = run(perceiver(env2), [SenseItem("d.mp4", "video", make_video(2), "video/mp4")])
     assert "橘猫" in card.text
     assert [m.kind for m in look_calls(env2)[-1].messages[-1].media] == ["image"] * 4
+
+
+def test_video_card_marks_screen_text_as_unreliable():
+    env = Env()
+    p = perceiver(env)
+    card = p._mark_screen_text("概况：录屏\n屏幕上的字：0:00 标题\n声音和配乐：无")
+    note = env.rt.config.roundtable.perception.screen_text_note
+    assert note and f"屏幕上的字：{note}0:00 标题" in card
+    assert p._mark_screen_text("没有这一节") == "没有这一节"

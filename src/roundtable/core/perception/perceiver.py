@@ -454,10 +454,22 @@ class Perceiver:
             return {}
         found = parse_cards(completion.text, len(items))
         return {
-            it.id: self._clip(found[n], self.rules.long_card_chars if it.kind == "video" else None)
+            it.id: self._clip(
+                self._mark_screen_text(found[n]) if it.kind == "video" else found[n],
+                self.rules.long_card_chars if it.kind == "video" else None,
+            )
             for n, it in enumerate(items, 1)
             if n in found
         }
+
+    def _mark_screen_text(self, card: str) -> str:
+        """视频卡「屏幕上的字」一节后面加一句固定提醒：真跑时界面小字屡次抄错，提示词压不住。"""
+        note = self.rules.screen_text_note
+        head = self.rules.screen_text_heading
+        if not note or head not in card:
+            return card
+        at = card.index(head) + len(head)
+        return f"{card[:at]}{note}{card[at:]}"
 
     async def _call(
         self, room: str, model_id: str, messages: Any, prompt: Any, params: dict[str, Any]
