@@ -12,9 +12,11 @@ import sys
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Protocol
 
 OUTPUT_LIMIT = 200_000  # 最多保留多少字的输出
 DIAG_LIMIT = 4000  # 标准错误只留最后这么多字
+LINE_LIMIT = 16 * 1024 * 1024  # 一行最长多少字节（dsh 事件流最后的 final 一行不限长）
 
 
 @dataclass(frozen=True)
@@ -28,6 +30,12 @@ class RunResult:
     @property
     def ok(self) -> bool:
         return self.code == 0 and not self.timed_out and self.error is None
+
+
+class LineWatch(Protocol):
+    """边跑边看标准输出的每一行（如 dsh 的事件流）；返回原因就结束进程。"""
+
+    def feed(self, line: str) -> str | None: ...
 
 
 def hit_limit(text: str, patterns: Sequence[str]) -> bool:
@@ -50,6 +58,7 @@ async def run(
     env: dict[str, str],
     timeout_s: float,
     secrets: Sequence[str] = (),
+    watch: LineWatch | None = None,
 ) -> RunResult:
     cwd.mkdir(parents=True, exist_ok=True)
     kwargs: dict[str, object] = {}
@@ -67,14 +76,24 @@ async def run(
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            limit=LINE_LIMIT,
             **kwargs,  # type: ignore[arg-type]
         )
     except OSError as exc:
         return RunResult(None, "", error=f"启动不了：{exc.strerror or type(exc).__name__}")
     try:
-        out, err = await asyncio.wait_for(
-            proc.communicate(stdin_text.encode("utf-8")), timeout=timeout_s
-        )
+        if watch is None:
+            out, err = await asyncio.wait_for(
+                proc.communicate(stdin_text.encode("utf-8")), timeout=timeout_s
+            )
+        else:
+            out, err, stopped = await asyncio.wait_for(
+                _watched(proc, stdin_text, watch), timeout=timeout_s
+            )
+            if stopped:
+                text = out.decode("utf-8", errors="replace")[-OUTPUT_LIMIT:]
+                diag = err.decode("utf-8", errors="replace")[-DIAG_LIMIT:]
+                return RunResult(0, _clean(text, secrets), _clean(diag, secrets))
     except TimeoutError:
         _kill(proc)
         with contextlib.suppress(TimeoutError):
@@ -86,6 +105,38 @@ async def run(
     text = out.decode("utf-8", errors="replace")[-OUTPUT_LIMIT:]
     diag = err.decode("utf-8", errors="replace")[-DIAG_LIMIT:]
     return RunResult(proc.returncode, _clean(text, secrets), _clean(diag, secrets))
+
+
+async def _watched(
+    proc: asyncio.subprocess.Process, stdin_text: str, watch: LineWatch
+) -> tuple[bytes, bytes, bool]:
+    """一行一行读标准输出交给 watch；它喊停就结束进程。返回（输出, 标准错误, 是否喊停）。"""
+    assert proc.stdin is not None and proc.stdout is not None and proc.stderr is not None
+    proc.stdin.write(stdin_text.encode("utf-8"))
+    with contextlib.suppress(BrokenPipeError, ConnectionResetError):
+        await proc.stdin.drain()
+    proc.stdin.close()
+    err_task = asyncio.ensure_future(proc.stderr.read())
+    lines: list[bytes] = []
+    stopped = False
+    try:
+        while line := await proc.stdout.readline():
+            lines.append(line)
+            if watch.feed(line.decode("utf-8", errors="replace")):
+                stopped = True
+                _kill(proc)
+                break
+        if stopped:
+            with contextlib.suppress(TimeoutError):
+                await asyncio.wait_for(proc.wait(), timeout=5)
+            err_task.cancel()
+            return b"".join(lines), b"", True
+        err = await err_task
+        await proc.wait()
+        return b"".join(lines), err, False
+    except BaseException:
+        err_task.cancel()
+        raise
 
 
 def _kill(proc: asyncio.subprocess.Process) -> None:

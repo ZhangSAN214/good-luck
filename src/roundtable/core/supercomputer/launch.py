@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import Awaitable, Callable, Iterable, Mapping
+from typing import Any
 
 from roundtable.core.config.schema import SuperWorker
 from roundtable.core.evolution_dev import resolve
@@ -63,15 +64,17 @@ class HookLauncher:
         launch: Callable[[], tuple[list[str], dict[str, str], list[str]]],
         before: Callable[[], Awaitable[None]],
         after: Callable[[], Awaitable[None]],
+        watch: Callable[[], Any] | None = None,
     ) -> None:
         self._blocked, self._launch, self._before, self._after = blocked, launch, before, after
+        self._watch = watch  # 每次启动给一个新的输出计数器（dsh 数步数）
 
     def blocked(self, worker: SuperWorker) -> str | None:
         return self._blocked()
 
     def launch(self, worker: SuperWorker) -> Launch:
         argv, env, secrets = self._launch()
-        return Launch(argv, env, secrets)
+        return Launch(argv, env, secrets, self._watch() if self._watch else None)
 
     async def before(self, worker: SuperWorker) -> None:
         await self._before()

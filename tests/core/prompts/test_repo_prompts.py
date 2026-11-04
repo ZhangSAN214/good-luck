@@ -183,7 +183,7 @@ STICKER_ROLES = (
     "moment_photo_brief",
 )
 # dsh 工作台的身份说明：接在 dsh 自己的系统提示前面，不经圆桌转交任何外部内容（docs/DSH.md）
-DSH_ROLES = ("dsh_workbench",)
+DSH_ROLES = ("dsh_workbench", "dsh_wrapup")  # 不含外部内容（只有步数）
 
 
 def test_moment_photo_brief_keeps_post_in_tags():

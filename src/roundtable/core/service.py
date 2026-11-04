@@ -410,11 +410,19 @@ class RoundtableService:
                 return ""
             return runtime.prompts.render("dsh_workbench", version).messages[0].content
 
+        wrap_version = runtime.config.roundtable.prompts.get("dsh_wrapup")
+
+        def wrapup(max_steps: int) -> str:
+            assert wrap_version is not None
+            rendered = runtime.prompts.render("dsh_wrapup", wrap_version, max_steps=str(max_steps))
+            return "\n\n".join(m.content for m in rendered.messages)
+
         dsh = DshManager(
             runtime.config.roundtable.dsh,
             catalog_path=DEFAULT_CONFIG_DIR / "dsh_plugins.yaml",
             root=base / "dsh" if base is not None else None,
             persona=persona,
+            wrapup=wrapup if wrap_version is not None else None,
             shared_spend=runtime.repo.spent_on_channels,
             dotenv_path=PROJECT_ROOT / ".env",
         )
@@ -538,7 +546,7 @@ class RoundtableService:
         if self.dsh is not None:
             dsh = self.dsh
             launchers["dsh"] = HookLauncher(
-                dsh.job_blocked, dsh.job_launch, dsh.job_started, dsh.job_finished
+                dsh.job_blocked, dsh.job_launch, dsh.job_started, dsh.job_finished, dsh.job_watch
             )
         rules = config.roundtable.supercomputer
         credit = {w.credit_channel for w in rules.workers if w.via == "credit" and w.credit_channel}

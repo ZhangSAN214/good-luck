@@ -138,6 +138,7 @@
   "describe_video/v1": "3c2e90125d771b195c94848ac27d6f69574b75f5d7fb14ae2dd80e94b9faf784",
   "discuss/v1": "1bb484c782b0493c3d542dddbaf4bdf4140202c79c7f0f5a52feadf324de0247",
   "dsh_workbench/v1": "bd75c03ad8dc911914816bb593ec3d1acc23db1b72d9ad7d247522ea524e49dd",
+  "dsh_wrapup/v1": "998af75c7d3754cf957e93c0e5853e319c4e4d9e700b02a38d7c034a1464f3b8",
   "evolution_card/v1": "cbe656ecf908dd7dc337869aeff72f82e9bc28bf13e1dd7b44d70549dae36e92",
   "evolution_check/v1": "13bc50fcad9591f814b49ffd052bf1593dc24b0a4da7da47cca80f6a4e6613c9",
   "evolution_plugins/v1": "54fc9e9d5138dbd92b4d85eba53bc6276446454dffdb3061e39c6888e068d54e",

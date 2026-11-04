@@ -19,9 +19,10 @@ import httpx
 from roundtable.core.config.schema import DshRules
 from roundtable.core.dsh.catalog import CatalogError, DshCatalog, load_catalog
 from roundtable.core.dsh.channel import BalanceError, ModelKey
-from roundtable.core.dsh.overlay import write_overlay
+from roundtable.core.dsh.overlay import job_rows, write_overlay
 from roundtable.core.dsh.paths import DshPaths
 from roundtable.core.dsh.sidecar import Sidecar
+from roundtable.core.dsh.stream import DshWatch
 from roundtable.core.dsh.usage import UsageLedger
 
 EPS = 1e-9
@@ -43,6 +44,7 @@ class DshManager:
         catalog_path: Path,
         root: Path | None,
         persona: Callable[[], str],
+        wrapup: Callable[[int], str] | None = None,
         shared_spend: SharedSpend | None = None,
         environ: Mapping[str, str] | None = None,
         dotenv_path: Path | str | None = None,
@@ -53,6 +55,7 @@ class DshManager:
     ) -> None:
         self.rules = rules
         self.persona = persona
+        self.wrapup = wrapup  # 到了步数上限时收尾的任务正文（提示词 dsh_wrapup）
         self.shared_spend = shared_spend
         self.environ = environ
         self.now = now
@@ -259,6 +262,8 @@ class DshManager:
             return f"本月 dsh 已花约 ${self.ledger.spent(self.now()):.2f}，到了上限"
         if week := self.week_blocked():
             return f"DeepSeek 额度{week}"
+        if self.rules.in_peak(self.now()):
+            return "DeepSeek 高峰时段（贵一倍），先给包月的做，过了高峰再接活"
         return None
 
     def week_blocked(self) -> str | None:
@@ -274,16 +279,11 @@ class DshManager:
         """一次性活的启动参数：headless 方式，任务正文从标准输入给（最后的 ``-``）。"""
         assert self.paths is not None
         self.paths.ensure()
-        write_overlay(self.paths.overlay, self.persona())
-        argv = [
-            self._node() or "node",
-            str(self.paths.bin_js),
-            "--profile",
-            "headless",
-            "--patch",
-            str(self.paths.overlay),
-            "-",
-        ]
+        rules = self.rules
+        patch = self.paths.overlay.with_name("job-patch.yml")  # 网页用的那份不收紧
+        extra = job_rows(rules.job_context_ratio, rules.job_retain_ratio, rules.job_tool_chars)
+        write_overlay(patch, self.persona(), extra)
+        argv = self._job_argv(patch)
         extra = {
             "DSH_HOME": str(self.paths.home),
             "DSH_TELEMETRY_DISABLED": "1",
@@ -292,6 +292,27 @@ class DshManager:
         env = self.key.child_env(extra, self.environ)
         secrets = [env[self.rules.key_env]] if self.rules.key_env in env else []
         return argv, env, secrets
+
+    def _job_argv(self, patch: Path, session_id: str | None = None) -> list[str]:
+        assert self.paths is not None
+        argv = [self._node() or "node", str(self.paths.bin_js), "--profile", "headless"]
+        argv += ["--patch", str(patch), "--json"]
+        if session_id:
+            argv += ["--session-id", session_id]
+        return [*argv, "-"]
+
+    def job_watch(self) -> DshWatch:
+        """每件活一个计数器：数步数，到了上限先停，再接着同一段对话收尾。"""
+        rules = self.rules
+        if not (rules.wrapup_steps and self.wrapup and self.paths is not None):
+            return DshWatch(rules.job_max_steps)
+        patch = self.paths.overlay.with_name("job-patch.yml")
+        text = self.wrapup(rules.job_max_steps)
+
+        def wrapup(session_id: str) -> tuple[list[str], str, DshWatch]:
+            return self._job_argv(patch, session_id), text, DshWatch(rules.wrapup_steps)
+
+        return DshWatch(rules.job_max_steps, wrapup)
 
     async def job_started(self) -> None:
         """活开始前：没有别的活、网页也没开时，先记一次余额当起点。"""
