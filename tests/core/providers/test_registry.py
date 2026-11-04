@@ -48,6 +48,7 @@ def test_repo_config_with_all_keys_builds_expected_adapters():
         "openai": OpenAICompatProvider,
         "xai": OpenAICompatProvider,
         "deepseek": OpenAICompatProvider,
+        "bailian": OpenAICompatProvider,
         "anthropic": AnthropicProvider,
         "google": GeminiProvider,
         "comfyui": ComfyUIProvider,  # 本地，不需要 key
@@ -63,7 +64,7 @@ def test_repo_config_with_only_openrouter_key():
     providers, unavailable = build_providers(cfg.models, keys, 30)
     # 本地渠道不需要 key
     assert list(providers) == ["openrouter", "comfyui", "local_tts", "chatgpt_web"]
-    assert set(unavailable) == {"openai", "anthropic", "google", "xai", "deepseek"}
+    assert set(unavailable) == {"openai", "anthropic", "google", "xai", "deepseek", "bailian"}
 
 
 def test_keyless_channel_built_without_key():

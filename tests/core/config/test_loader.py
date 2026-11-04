@@ -142,6 +142,7 @@ def test_repo_config_loads_with_defaults():
         "mail_digest",
         "perceive_fast",
         "perceive_fine",
+        "perceive_listen",
         "member_eval",
         "growth_reflect",
         "growth_review",
@@ -237,6 +238,8 @@ def test_repo_config_has_both_channel_kinds():
         if all(cfg.models.channels[r.channel].kind == "local" for r in m.routes):
             assert not m.enabled, m.id  # 本地模型默认关，装好后在本机打开
             continue
+        if not m.seat and not set(m.tags) & MAKER_TAGS:
+            continue  # 感官的看 / 听工具模型：只在官方渠道有，没有 key 时感官退回上桌模型
         assert any(r.channel == "openrouter" for r in m.routes), m.id
 
 
@@ -440,9 +443,22 @@ def test_gemini_pro_prefers_google_direct():
     assert [r.channel for r in pro.routes] == ["google", "openrouter"]
 
 
+MAKER_TAGS = {"image_gen", "image_edit", "tts", "stt", "video_gen", "music_gen"}
+SENSE_TAGS = {"vision", "video_in", "audio_in", "zh"}
+
+
+def test_perception_tool_models_only_look_and_listen():
+    """不上桌的感官工具模型（docs/PERCEPTION.md）：只有看 / 听标签，按 token 计价。"""
+    all_tools = [m for m in load_config().models.models if not m.seat]
+    sense = [m for m in all_tools if not set(m.tags) & MAKER_TAGS]
+    assert sense and all(set(m.tags) <= SENSE_TAGS and m.price and m.tier for m in sense)
+    assert any("audio_in" in m.tags for m in sense) and any("video_in" in m.tags for m in sense)
+
+
 def test_tool_models_have_no_seat_and_image_gen():
-    tools = [m for m in load_config().models.models if not m.seat]
-    media_tags = {"image_gen", "image_edit", "tts", "stt", "video_gen", "music_gen"}
+    all_tools = [m for m in load_config().models.models if not m.seat]
+    tools = [m for m in all_tools if set(m.tags) & MAKER_TAGS]
+    media_tags = MAKER_TAGS
     assert tools and all(media_tags & set(m.tags) and m.tier for m in tools)
     # 媒体模型按秒 / 分钟 / 字符计价，或（图像）按 token 计价并给出一张图的典型 token 数
     assert all(m.media_price or m.image_tokens or m.speech_tokens_per_char for m in tools)

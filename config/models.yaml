@@ -17,6 +17,7 @@ tag_vocabulary:
   # 媒体类
   - vision          # 能看图（图片、视频截帧）
   - video_in        # 能直接看整段视频（画面连声音，作为消息附件发送）
+  - audio_in        # 能听懂音乐和环境声（不只是转写说话；整段音频作为消息附件发送），感官听歌用
   - transcribe      # 能直接接收音频的对话模型（旧的转写方式；有 stt 模型时优先用 stt）
   - image_gen       # 图像生成
   - image_edit      # 支持以参考图为输入的图像生成 / 编辑（风格参考图用）
@@ -70,6 +71,14 @@ channels:
     kind: direct
     base_url: https://api.deepseek.com/v1
     key_env: DEEPSEEK_API_KEY
+  # 阿里云百炼（OpenAI 兼容模式，北京地域）：感官看视频、听歌用的工具模型走这里（docs/PERCEPTION.md）。
+  # 在百炼控制台实名、建 key 后写进 .env 的 DASHSCOPE_API_KEY；没填时这些模型自动不可用，感官照旧
+  bailian:
+    adapter: openai_compat
+    kind: direct
+    base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
+    key_env: DASHSCOPE_API_KEY
+    media_data_uri: true       # 兼容模式要求音频写成 data URI
   # 本地 ComfyUI（只出图，不花钱，不需要 key）：装好后在 config/models.local.yaml 写
   #   model_switches: {comfyui-local: true}
   # 就能打开下面的 comfyui-local 模型（步骤见 docs/COMFYUI.md）
@@ -170,7 +179,7 @@ models:
     tier: budget
     price: {input: 0.75, output: 3.75}
     # transcribe：能直接接收音频，用于把上传的音频转写成文字（普通对话调用）
-    tags: [design, research, long_context, vision, transcribe, video_in]
+    tags: [design, research, long_context, vision, transcribe, video_in, audio_in]
     enabled: true
     routes:
       - {channel: google, model: gemini-3.8-flash}
@@ -485,6 +494,32 @@ models:
     enabled: true
     routes:
       - {channel: openrouter, model: tencent/hy-image-v3.5-preview}
+  # --- 感官的看与听（不上桌，只把视频、歌整理成感知卡给成员读；docs/PERCEPTION.md）---
+  # 价格按百炼北京地域官方价折美元（1 美元 ≈ 7.2 元）。百炼不返回实际费用，记账按这里的价估算。
+  # 看视频：输入多在 32K～128K 档（¥0.3 / ¥3 每百万），按这一档填
+  - id: qwen3-vl-flash
+    vendor: Alibaba
+    aliases: [Qwen, 通义千问, 千问, 通义]
+    seat: false
+    tier: budget
+    price: {input: 0.042, output: 0.417}
+    tags: [vision, video_in, zh]
+    enabled: true
+    routes:
+      - {channel: bailian, model: qwen3-vl-flash}
+  # 听歌、听环境声（也能看视频）：按音频输入价填（¥15.8 / 百万；画面 ¥3.3、文字输出 ¥12.7）。
+  # 只支持流式输出。新版 Qwen3.8-Omni-Flash 据报道输入降到 ¥0.8，官方价格页核实后再换
+  - id: qwen3-omni-flash
+    vendor: Alibaba
+    aliases: [Qwen, 通义千问, 千问, 通义]
+    seat: false
+    tier: budget
+    price: {input: 2.19, output: 1.76}
+    tags: [audio_in, vision, video_in, zh]
+    params: {stream: true}
+    enabled: true
+    routes:
+      - {channel: bailian, model: qwen3-omni-flash}
   # --- 语音转文字（上传音频的转写；优先于带 transcribe 标签的对话模型）---
   - id: whisper-large-v3-turbo
     vendor: OpenAI

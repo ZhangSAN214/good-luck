@@ -66,6 +66,9 @@ class ChannelSpec(_Strict):
     # 每月赠送 / 包含的额度（美元，如会员附送的 API 额度）。渠道优先顺序据此判断：
     # 本月按本机账本还没用完时排在前面，用完后排到最后。可在界面里改（存 app_settings）
     monthly_credit_usd: float | None = Field(default=None, ge=0)
+    # 随消息发的音频（input_audio.data）写成 data URI（"data:;base64,…"）而不是纯 base64：
+    # 有的 OpenAI 兼容渠道（如百炼的兼容模式）只认这种写法
+    media_data_uri: bool = False
 
     @property
     def reasoning_style(self) -> str:
@@ -1489,8 +1492,32 @@ class PerceptionMode(_Strict):
     frame_side: int = Field(ge=128, le=2048)  # 每帧缩到长边不超过这么多像素
     grid: bool = False  # 每 4 帧拼成一张 2×2 宫格图（看图 token 约为原来的 1/4）
     native_video: bool = False  # 有带 video_in 标签的模型时，整段视频连声音直接交给它
+    native_side: int = Field(default=854, ge=128, le=4096)  # 整段发送前压到长边不超过这么多像素
+    native_fps: float = Field(default=2.0, gt=0, le=30)  # 整段发送前压到每秒这么多帧
     max_tokens: int = Field(ge=64, le=8000)  # 感知卡（一条消息的全部内容合计）的输出上限
     estimate_usd: float = Field(ge=0)  # 一条消息的预估花费（预算检查用）
+
+
+class PerceptionListen(_Strict):
+    """感官·听歌：用户发来的音频文件（歌、配乐、环境声）除了转写，再整段交给能听音乐的模型
+    （``audio_in`` 标签）写一张听歌卡。录音式的语音消息不走这里。"""
+
+    enabled: bool = True
+    # 哪些格式算「音频文件」（歌）；浏览器录的语音一般是 webm / ogg，不在其中
+    mimes: list[str] = Field(
+        default_factory=lambda: [
+            "audio/mpeg",
+            "audio/mp4",
+            "audio/wav",
+            "audio/x-wav",
+            "audio/flac",
+        ],
+        max_length=20,
+    )
+    min_s: float = Field(default=20, ge=0, le=600)  # 短于这么多秒的音频只转写（多半是语音）
+    max_s: int = Field(default=600, ge=10, le=3600)  # 超过这么长只截前面这段去听
+    max_tokens: int = Field(default=2000, ge=64, le=8000)
+    estimate_usd: float = Field(default=0.02, ge=0)  # 听一首歌的预估花费（预算检查用）
 
 
 class PerceptionRules(_Strict):
@@ -1526,6 +1553,9 @@ class PerceptionRules(_Strict):
     max_audio_s: int = Field(default=600, ge=10, le=3600)  # 语音 / 视频声音最多转写多长
     native_max_mb: float = Field(default=20, gt=0, le=60)  # 整段视频交给模型的大小上限
     card_chars: int = Field(default=800, ge=100, le=4000)  # 每张感知卡最多保留多少字
+    # 视频卡和听歌卡写得细（时间线、原话、镜头手法），单独的字数上限
+    long_card_chars: int = Field(default=2500, ge=100, le=8000)
+    listen: PerceptionListen = PerceptionListen()
 
 
 class ClipperRules(_Strict):
