@@ -546,7 +546,11 @@ class RoundtableService:
         if self.dsh is not None:
             dsh = self.dsh
             launchers["dsh"] = HookLauncher(
-                dsh.job_blocked, dsh.job_launch, dsh.job_started, dsh.job_finished, dsh.job_watch
+                dsh.job_blocked,
+                dsh.job_launch,
+                dsh.job_started,
+                dsh.job_finished,
+                getattr(dsh, "job_watch", None),  # 没有就不数步数（如测试里的假 dsh）
             )
         rules = config.roundtable.supercomputer
         credit = {w.credit_channel for w in rules.workers if w.via == "credit" and w.credit_channel}
