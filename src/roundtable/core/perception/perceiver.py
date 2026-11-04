@@ -88,14 +88,24 @@ class Card:
 
 
 def parse_cards(text: str, count: int) -> dict[int, str]:
-    """按【编号】拆开模型输出；只有一项又没写编号时整段算第 1 项。"""
+    """按【编号】拆开模型输出；只有一项又没写编号时整段算第 1 项。
+
+    模型有时把一张卡里的小标题也编成【2】【3】……（编号超出项数或重复）：这些段落接回上一张卡，
+    不丢内容。
+    """
     parts = _SPLIT.split(text)
     out: dict[int, str] = {}
+    last: int | None = None
     for i in range(1, len(parts) - 1, 2):
         n = int(parts[i])
         body = parts[i + 1].strip()
-        if 1 <= n <= count and body:
+        if not body:
+            continue
+        if 1 <= n <= count and n not in out and (last is None or n > last):
             out[n] = body
+            last = n
+        elif last is not None:
+            out[last] += "\n" + body
     if not out and count == 1 and text.strip():
         out[1] = text.strip()
     return out

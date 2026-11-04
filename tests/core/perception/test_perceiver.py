@@ -40,7 +40,10 @@ def test_mode_follows_the_users_words():
 
 
 def test_parse_cards_by_number():
-    assert parse_cards("【1】猫\n【2】狗\n【9】多余", 2) == {1: "猫", 2: "狗"}
+    assert parse_cards("【1】猫\n【2】狗\n【9】多余", 2) == {1: "猫", 2: "狗\n多余"}
+    # 模型把一张卡的小标题也编了号：接回这张卡，不丢内容（真跑时只剩「概况」）
+    card = parse_cards("【1】概况：录屏\n【2】时间线：\n0:00 a\n【3】镜头：固定", 1)
+    assert card == {1: "概况：录屏\n时间线：\n0:00 a\n镜头：固定"}
     assert parse_cards("只有一段", 1) == {1: "只有一段"}
     assert parse_cards("没有编号", 2) == {}
 

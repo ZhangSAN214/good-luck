@@ -89,6 +89,8 @@ class OpenAICompatProvider(Provider):
             params["reasoning"] = reasoning
         elif reasoning and self._reasoning == "effort" and reasoning.get("effort"):
             params["reasoning_effort"] = reasoning["effort"]
+        elif reasoning and self._reasoning == "toggle":
+            params.update(_thinking_toggle(reasoning))
         params = {self._aliases.get(k, k): v for k, v in params.items()}
         body = {
             **params,
@@ -517,3 +519,16 @@ def pcm_to_wav(data: bytes, rate: int = PCM_RATE) -> bytes:
         w.setframerate(rate)
         w.writeframes(data[: len(data) // 2 * 2])
     return buf.getvalue()
+
+
+_QUIET = {"none", "minimal", "low"}
+
+
+def _thinking_toggle(reasoning: dict[str, Any]) -> dict[str, Any]:
+    """中立的思考参数 → 开关式（enable_thinking / thinking_budget）。少想、不想时直接关掉思考。"""
+    budget = reasoning.get("max_tokens")
+    if reasoning.get("enabled") is False or reasoning.get("effort") in _QUIET:
+        return {"enable_thinking": False}
+    if isinstance(budget, int) and budget > 0:
+        return {"enable_thinking": True, "thinking_budget": budget}
+    return {"enable_thinking": True}

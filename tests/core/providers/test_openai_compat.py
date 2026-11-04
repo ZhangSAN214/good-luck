@@ -375,3 +375,27 @@ async def test_media_data_uri_channel_prefixes_audio():
     await make(handler, media_data_uri=True).complete("m", msgs, {})
     part = seen["body"]["messages"][0]["content"][1]
     assert part["input_audio"]["data"] == "data:;base64," + base64.b64encode(b"MP3").decode()
+
+
+@pytest.mark.parametrize(
+    ("reasoning", "sent"),
+    [
+        ({"effort": "low"}, {"enable_thinking": False}),
+        ({"effort": "none"}, {"enable_thinking": False}),
+        ({"enabled": False}, {"enable_thinking": False}),
+        ({"effort": "medium"}, {"enable_thinking": True}),
+        ({"max_tokens": 800}, {"enable_thinking": True, "thinking_budget": 800}),
+    ],
+)
+async def test_toggle_reasoning_style_switches_thinking(reasoning, sent):
+    seen = {}
+
+    def handler(request: httpx.Request):
+        seen["body"] = json.loads(request.content)
+        return httpx.Response(200, json=ok_body())
+
+    await make(handler, reasoning="toggle").complete("m", MESSAGES, {"reasoning": reasoning})
+    body = seen["body"]
+    assert "reasoning" not in body and "reasoning_effort" not in body
+    assert {k: body[k] for k in sent} == sent
+    assert ("thinking_budget" in body) == ("thinking_budget" in sent)

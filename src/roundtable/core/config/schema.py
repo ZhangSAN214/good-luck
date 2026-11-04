@@ -58,8 +58,10 @@ class ChannelSpec(_Strict):
     param_aliases: dict[str, str] = Field(default_factory=dict)
     # 步骤参数里的中立参数 reasoning（思考强度 / 预算）怎么发给该渠道：
     # object = {"reasoning": {...}}（OpenRouter）；effort = {"reasoning_effort": "low"}；
+    # toggle = {"enable_thinking": true/false}（少想 low / 不想 none 时关掉，medium / high 时开；
+    # 给了思考 token 预算时另发 thinking_budget；如百炼兼容模式，默认开着思考）；
     # none = 不发送（渠道不支持时忽略，不报错）。不填：聚合平台 object，其余 none
-    reasoning: Literal["object", "effort", "none"] | None = None
+    reasoning: Literal["object", "effort", "toggle", "none"] | None = None
     # 账户余额查询（只读，供「余额与用量」面板）：credits = GET {base_url}/credits（账户充值与已用）
     # 加 GET {base_url}/key（这个 key 的额度与今天 / 本周 / 本月已用）。不填表示该渠道不查余额
     balance: Literal["credits"] | None = None
