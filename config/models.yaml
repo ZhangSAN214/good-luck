@@ -71,6 +71,9 @@ channels:
     kind: direct
     base_url: https://api.deepseek.com/v1
     key_env: DEEPSEEK_API_KEY
+    # 每周最多 ¥10（2026-11-04 用户定：聊天的 DeepSeek 和工作台 dsh 合起来算，dsh.cap_channel 指向这里）。
+    # 到了以后这周不再走 DeepSeek 官方渠道：同一模型换 OpenRouter 接着用，dsh 停到下周一
+    weekly_cap_usd: 1.39
   # 阿里云百炼（OpenAI 兼容模式，北京地域）：感官看视频、听歌用的工具模型走这里（docs/PERCEPTION.md）。
   # 在百炼控制台实名、建 key 后写进 .env 的 DASHSCOPE_API_KEY；没填时这些模型自动不可用，感官照旧
   bailian:

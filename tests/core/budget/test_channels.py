@@ -80,3 +80,71 @@ def test_month_spend_counts_this_month_only_and_caches():
     assert spent("c") == 3.0
     clock.now = datetime(2026, 11, 1, 0, 1, tzinfo=UTC)  # 新的月份
     assert spent("c") == 0.0
+
+
+# --- 每周上限（2026-11-04：DeepSeek 聊天 + 工作台一周合计 ¥10） ------------------
+
+
+def _channel_spend(repo, channel, usd):
+    from roundtable.core.providers import Completion, Message
+
+    repo.record_call(
+        repo.create_session("q", seed=1),
+        step="answer",
+        role="member",
+        model_id="m",
+        messages=[Message("user", "q")],
+        completion=Completion(
+            text="x",
+            model_id="m",
+            channel=channel,
+            channel_kind="direct",
+            route_model="m",
+            input_tokens=1,
+            output_tokens=1,
+            cached_tokens=0,
+            cost_usd=usd,
+            cost_source="reported",
+            latency_s=0.1,
+        ),
+    )
+
+
+def test_weekly_cap_adds_workbench_spend_and_blocks(repo):
+    from roundtable.core.budget.channels import WeeklyCap
+
+    now = datetime.now(UTC)
+    cap = WeeklyCap({"direct": 1.0}, repo, lambda: now, rate=7.2, unit="CNY", ttl_s=0)
+    _channel_spend(repo, "direct", 0.6)
+    _channel_spend(repo, "other", 5.0)  # 别的渠道不算
+    assert cap.spent("direct") == pytest.approx(0.6)
+    assert cap.blocked("direct") is None
+    cap.extra["direct"] = lambda: 0.5  # 工作台花的
+    assert cap.spent("direct") == pytest.approx(1.1)
+    reason = cap.blocked("direct")
+    assert reason and "CNY" in reason and "下周一" in reason
+    assert cap.blocked("other") is None  # 没设上限
+
+
+def test_weekly_cap_ignores_broken_extra_ledger(repo):
+    from roundtable.core.budget.channels import WeeklyCap
+
+    cap = WeeklyCap({"direct": 1.0}, repo, lambda: datetime.now(UTC), ttl_s=0)
+
+    def boom():
+        raise OSError("账本读不到")
+
+    cap.extra["direct"] = boom
+    assert cap.spent("direct") == 0.0 and cap.blocked("direct") is None
+
+
+def test_weekly_cap_from_config_reads_channels(config, repo):
+    from roundtable.core.budget.channels import WeeklyCap
+
+    cap = WeeklyCap.from_config(config, repo, lambda: datetime.now(UTC))
+    expected = {
+        n: c.weekly_cap_usd
+        for n, c in config.models.channels.items()
+        if c.weekly_cap_usd is not None
+    }
+    assert cap.caps == expected

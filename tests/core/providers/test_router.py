@@ -373,3 +373,26 @@ async def test_limits_do_not_apply_across_channels():
     await router.complete("gemini", MSG)  # google
     await router.complete("claude", MSG)  # anthropic：各渠道分别计
     assert sleeper.calls == []
+
+
+# --- 每周花费上限：到了就跳过这个渠道，换下一个 ----------------------------------
+
+
+async def test_spend_gate_skips_capped_channel_without_cooldown():
+    router, p, *_ = make_router()
+    router.set_spend_gate(lambda ch: "本周到上限" if ch == "google" else None)
+    c = await router.complete("gemini", MSG)
+    assert c.channel == "openrouter"
+    assert p["google"].calls == []
+    assert router.channel_blocked("google") == "本周到上限"
+    router.set_spend_gate(None)  # 下周一恢复：立刻又走直连
+    c = await router.complete("gemini", MSG)
+    assert c.channel == "google"
+
+
+async def test_spend_gate_on_only_channel_fails():
+    router, p, *_ = make_router()
+    router.set_spend_gate(lambda ch: "到上限")
+    with pytest.raises((AllChannelsFailed, NoChannelAvailable)):
+        await router.complete("qwen", MSG)
+    assert p["openrouter"].calls == []

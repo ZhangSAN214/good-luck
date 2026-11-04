@@ -125,6 +125,8 @@ class ChannelRouter:
         self._draw_prefs = DrawPrefs()
         self._spent: Callable[[str], float] = lambda _channel: 0.0
         self._gpu: GpuGuard | None = None
+        # 渠道每周花费上限（budget/channels.py 的 WeeklyCap.blocked）：到了就不走这个渠道
+        self._spend_gate: Callable[[str], str | None] = lambda _channel: None
 
     @property
     def mode(self) -> ChannelMode:
@@ -206,6 +208,14 @@ class ChannelRouter:
         if self._gpu is None or spec is None or not spec.gpu:
             return None
         return self._gpu.blocked()
+
+    def set_spend_gate(self, gate: Callable[[str], str | None] | None) -> None:
+        """装上渠道每周上限：调用前先问它，到了上限不调用、换下一个渠道（不冷却）。"""
+        self._spend_gate = gate or (lambda _channel: None)
+
+    def channel_blocked(self, channel: str) -> str | None:
+        """这个渠道现在不能用的原因（游戏模式、每周上限）；能用时为 None。"""
+        return self.gpu_blocked(channel) or self._spend_gate(channel)
 
     def model_gpu_blocked(self, model_id: str) -> str | None:
         """模型能走的渠道全都因为游戏模式不能用时，返回原因。"""
@@ -313,9 +323,11 @@ class ChannelRouter:
             if round_no:
                 await self._sleep(self._policy.backoff_s * round_no)
             for route in self._ordered(remaining):
-                blocked = self.gpu_blocked(route.channel)
-                if blocked:  # 游戏模式：不调用，换下一个渠道（不算这个渠道出错，不冷却）
-                    error = ProviderError(ErrorKind.RATE_LIMIT, route.channel, blocked)
+                gpu = self.gpu_blocked(route.channel)
+                blocked = gpu or self._spend_gate(route.channel)
+                if blocked:  # 游戏模式 / 每周上限：不调用，换下一个渠道（不算出错，不冷却）
+                    kind = ErrorKind.RATE_LIMIT if gpu else ErrorKind.QUOTA
+                    error = ProviderError(kind, route.channel, blocked)
                     attempts.append(Attempt(route.channel, False, 0.0, error.kind))
                     self._note_skip(error)
                     last_error = error
