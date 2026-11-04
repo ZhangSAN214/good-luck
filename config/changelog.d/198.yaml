@@ -1,0 +1,8 @@
+date: 2026-11-04
+pr: [198]
+title: 克劳德用上会员每月送的 $100 API 额度
+added:
+  - 在 .env 里填好 ANTHROPIC_API_KEY 以后，克劳德自动走 Claude 官方直连，花的是会员每月送的 $100 额度
+  - 开了提示缓存：重复的人设和聊天记录第二次起只收约一成的钱
+  - 每月最多花 $100，到了自动改走 OpenRouter 接着聊，下月 1 号恢复
+howto: 在 Claude Console 点「获取 API 密钥」新建一个 key，填进圆桌文件夹的 .env：ANTHROPIC_API_KEY=你的key，然后重启圆桌。
