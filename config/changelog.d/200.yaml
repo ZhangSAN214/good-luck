@@ -1,0 +1,7 @@
+date: 2026-11-04
+pr: [200]
+title: 超级电脑能用会员送的 Claude API 额度
+added:
+  - 超级电脑多了一位「Claude Code·API额度」：包月的助手都忙不过来或用完时才轮到它，花的是会员每月送的 Claude API 额度，每月最多 $100，到了就停
+howto:
+  - 在 .env 里填好 ANTHROPIC_API_KEY 并重启圆桌，「工作台 → 超级电脑」里这位就能用了
