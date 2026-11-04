@@ -409,7 +409,7 @@ class RoundtableService:
                 return ""
             return runtime.prompts.render("dsh_workbench", version).messages[0].content
 
-        return DshManager(
+        dsh = DshManager(
             runtime.config.roundtable.dsh,
             catalog_path=DEFAULT_CONFIG_DIR / "dsh_plugins.yaml",
             root=base / "dsh" if base is not None else None,
@@ -417,6 +417,12 @@ class RoundtableService:
             shared_spend=runtime.repo.spent_on_channels,
             dotenv_path=PROJECT_ROOT / ".env",
         )
+        # 和渠道共用每周上限（2026-11-04 用户：聊天的 DeepSeek 加工作台每周最多 ¥10）
+        weekly, ch = runtime.weekly, runtime.config.roundtable.dsh.cap_channel
+        if weekly is not None and ch and ch in weekly.caps:
+            weekly.extra[ch] = lambda: dsh.ledger.week_spent(dsh.now())
+            dsh.weekly_gate = lambda: weekly.blocked(ch)
+        return dsh
 
     @staticmethod
     def _build_scout(rules: Any) -> PluginScout:

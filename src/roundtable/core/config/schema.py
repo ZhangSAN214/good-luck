@@ -73,6 +73,10 @@ class ChannelSpec(_Strict):
     media_data_uri: bool = False
     # 这个渠道用本机显卡（本地出图、本地配音）：游戏模式下不调用（docs/GAMEMODE.md）
     gpu: bool = False
+    # 每周花费上限（美元，UTC 周一 0 点起算，2026-11-04 用户定 DeepSeek 一周 ¥10）：
+    # 本周按本机账本走这个渠道的花费，加上和它共用 key 的 dsh 工作台（dsh.cap_channel）花的，
+    # 到了就不再走这个渠道，同一模型有别的渠道就换过去；dsh 也停到下周
+    weekly_cap_usd: float | None = Field(default=None, ge=0)
 
     @property
     def reasoning_style(self) -> str:
@@ -4279,6 +4283,9 @@ class DshRules(_Strict):
     # dsh 停下或活干完以后这么多分钟内，余额继续往下掉仍算工作台的（扣掉共用渠道），
     # 下一件活开始时也不重置起点，接着记
     settle_minutes: float = Field(default=180, ge=0, le=1440)
+    # 和哪个渠道（models.yaml）共用一份每周上限（weekly_cap_usd）：dsh 本周花的算进那个渠道，
+    # 合计到了上限 dsh 停到下周。为空或渠道没设每周上限时不管
+    cap_channel: str | None = None
     # 余额币种换算成美元：{币种: 1 美元合多少}，美元本身不用写
     usd_rates: dict[str, float] = Field(default_factory=lambda: {"CNY": 7.2})
     # 页面上花费、上限、余额用什么币种显示（USD 或 usd_rates 里有的）；上限仍按 monthly_usd 算

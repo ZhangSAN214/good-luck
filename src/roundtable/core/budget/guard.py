@@ -32,6 +32,13 @@ def month_window(now: datetime) -> tuple[datetime, datetime]:
     return start, end
 
 
+def week_window(now: datetime) -> tuple[datetime, datetime]:
+    """本周：UTC 周一 0 点到下周一 0 点。"""
+    now = now.astimezone(UTC)
+    start = (now - timedelta(days=now.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
+    return start, start + timedelta(days=7)
+
+
 def day_window(now: datetime) -> tuple[datetime, datetime]:
     now = now.astimezone(UTC)
     start = now.replace(hour=0, minute=0, second=0, microsecond=0)

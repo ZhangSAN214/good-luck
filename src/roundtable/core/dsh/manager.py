@@ -73,6 +73,8 @@ class DshManager:
         self.sidecar: Sidecar | None = None
         self.balance_error: str | None = None
         self.stopped_for_budget: str | None = None
+        # 和渠道共用的每周上限（服务注入 WeeklyCap.blocked）：到了返回原因，dsh 停到下周
+        self.weekly_gate: Callable[[], str | None] | None = None
         self._watch: asyncio.Task[None] | None = None
         self._lock = asyncio.Lock()
         self._jobs = 0  # 超级电脑派来的一次性活（headless），正在跑几件
@@ -181,6 +183,8 @@ class DshManager:
                 raise ValueError(reason)
             if self.running:
                 return self.status()
+            if week := self.week_blocked():
+                raise ValueError(f"DeepSeek 额度{week}")
             if self.over_budget():
                 raise ValueError(
                     f"本月工作台已花约 ${self.ledger.spent(self.now()):.2f}，到了上限"
@@ -253,7 +257,18 @@ class DshManager:
             return f"没有配置 {self.rules.key_env}，dsh 调不了模型"
         if self.over_budget():
             return f"本月 dsh 已花约 ${self.ledger.spent(self.now()):.2f}，到了上限"
+        if week := self.week_blocked():
+            return f"DeepSeek 额度{week}"
         return None
+
+    def week_blocked(self) -> str | None:
+        """和渠道共用的每周上限到了的原因（没设时为 None）。"""
+        if self.weekly_gate is None:
+            return None
+        try:
+            return self.weekly_gate()
+        except Exception:  # 账本读不到不挡工作台
+            return None
 
     def job_launch(self) -> tuple[list[str], dict[str, str], list[str]]:
         """一次性活的启动参数：headless 方式，任务正文从标准输入给（最后的 ``-``）。"""
@@ -329,6 +344,10 @@ class DshManager:
         return self.status()
 
     async def _enforce(self) -> None:
+        if self.running and (week := self.week_blocked()):
+            self.stopped_for_budget = f"DeepSeek 额度{week}，已停止 dsh"
+            await self._stop(self.stopped_for_budget)
+            return
         if self.running and self.over_budget():
             why = (
                 f"本月工作台已花约 ${self.ledger.spent(self.now()):.2f}，"

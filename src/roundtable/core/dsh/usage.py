@@ -13,12 +13,17 @@ from __future__ import annotations
 
 import json
 from dataclasses import asdict, dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 
 def month_key(at: datetime) -> str:
     return at.strftime("%Y-%m")
+
+
+def week_key(at: datetime) -> str:
+    """UTC 周一的日期，如 2026-11-02。"""
+    return (at.astimezone(UTC) - timedelta(days=at.astimezone(UTC).weekday())).strftime("%Y-%m-%d")
 
 
 @dataclass
@@ -31,6 +36,8 @@ class UsageState:
     last_raw: float | None = None
     checks: int = 0
     history: dict[str, float] = field(default_factory=dict)  # 往月：{"2026-09": 1.23}
+    week: str = ""  # 本周（UTC 周一的日期），和渠道每周上限一起算
+    week_usd: float = 0.0
     active_until: str | None = None  # ISO 时间：到这之前余额变少仍算工作台的（扣费延迟）
 
 
@@ -64,6 +71,9 @@ class UsageLedger:
 
     def spent(self, now: datetime) -> float:
         return self.state.spent_usd if self.state.month == month_key(now) else 0.0
+
+    def week_spent(self, now: datetime) -> float:
+        return self.state.week_usd if self.state.week == week_key(now) else 0.0
 
     def total(self) -> float:
         """开始记账以来一共花了多少（往月加本月），用来算一次生成花了多少。"""
@@ -99,6 +109,9 @@ class UsageLedger:
             if drop > 0:
                 added = max(0.0, drop - max(0.0, shared_usd))
                 self.state.spent_usd += added
+                if self.state.week != week_key(now):
+                    self.state.week, self.state.week_usd = week_key(now), 0.0
+                self.state.week_usd += added
         self._mark(balance_usd, now, currency, raw)
         self._save()
         return added

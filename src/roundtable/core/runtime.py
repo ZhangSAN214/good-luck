@@ -14,7 +14,7 @@ from roundtable.core.allocation import IdentityScrubber
 from roundtable.core.attachments import FileStore
 from roundtable.core.backup import BackupError, DbBackup
 from roundtable.core.budget import BudgetGuard
-from roundtable.core.budget.channels import MonthSpend, load_priority
+from roundtable.core.budget.channels import MonthSpend, WeeklyCap, load_priority
 from roundtable.core.catalog import Fetch, ModelCatalog
 from roundtable.core.changelog import CHANGELOG_FILE
 from roundtable.core.config import AppConfig, load_config
@@ -160,6 +160,7 @@ class Runtime:
     backup_dir: Path | None = None
     # 游戏模式（docs/GAMEMODE.md）：玩游戏 / 别的程序用显卡时让出显卡；为空表示不管
     gamemode: GameMode | None = None
+    weekly: WeeklyCap | None = None  # 渠道每周花费上限（dsh 工作台把自己花的登记进去）
 
     @classmethod
     def build(
@@ -253,6 +254,8 @@ class Runtime:
             queue_file=None if str(db_path) == ":memory:" else Path(db_path).parent / QUEUE_FILE,
         )
         router.set_gpu_guard(gamemode)
+        weekly = WeeklyCap.from_config(config, repo, guard.now)
+        router.set_spend_gate(weekly.blocked if weekly.caps else None)
         return cls(
             config=config,
             router=router,
@@ -292,6 +295,7 @@ class Runtime:
             growth_dir=None if str(db_path) == ":memory:" else Path(db_path).parent / GROWTH_DIR,
             backup_dir=backup_dir,
             gamemode=gamemode,
+            weekly=weekly,
         )
 
     def sandbox(self) -> tuple[Sandbox | None, str | None]:

@@ -263,3 +263,32 @@ async def test_stopping_the_web_keeps_watching_for_late_charges(tmp_path, fake_d
     finally:
         await mgr.aclose()
     assert mgr._watch is None
+
+
+async def test_weekly_cap_shared_with_chat_blocks_workbench(tmp_path, fake_dsh):
+    """聊天的 DeepSeek 和工作台一周合计上限（2026-11-04）：到了就不派活、不启动。"""
+    mgr, _ = build(tmp_path, fake_dsh)
+    assert mgr.week_blocked() is None
+    mgr.weekly_gate = lambda: "本周已花约 10.00 CNY"
+    assert "10.00 CNY" in mgr.job_blocked()
+    with pytest.raises(Exception, match="额度"):
+        await mgr.start()
+
+    def boom():
+        raise OSError
+
+    mgr.weekly_gate = boom  # 账本读不到不挡
+    assert mgr.week_blocked() is None
+
+
+def test_ledger_counts_spend_per_week(tmp_path):
+    from datetime import UTC, datetime, timedelta
+
+    from roundtable.core.dsh.usage import UsageLedger
+
+    led = UsageLedger(tmp_path / "usage.json")
+    mon = datetime(2026, 11, 2, 1, tzinfo=UTC)
+    led.observe(10.0, mon, "USD", 10.0)
+    led.observe(9.5, mon + timedelta(days=2), "USD", 9.5)
+    assert led.week_spent(mon + timedelta(days=3)) == pytest.approx(0.5)
+    assert led.week_spent(mon + timedelta(days=7)) == 0.0  # 下周一清零
