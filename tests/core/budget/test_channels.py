@@ -148,3 +148,27 @@ def test_weekly_cap_from_config_reads_channels(config, repo):
         if c.weekly_cap_usd is not None
     }
     assert cap.caps == expected
+
+
+def test_monthly_cap_blocks_until_next_month(repo):
+    """会员送的 API 额度每月 $100 不超（2026-11-04）：到了本月上限就不再走这个渠道。"""
+    from roundtable.core.budget.channels import WeeklyCap
+
+    cap = WeeklyCap({}, repo, lambda: datetime.now(UTC), ttl_s=0, monthly={"direct": 1.0})
+    assert cap.active and cap.blocked("direct") is None
+    _channel_spend(repo, "direct", 1.2)
+    reason = cap.blocked("direct")
+    assert reason and "每月上限" in reason and "下月 1 号" in reason
+    assert cap.blocked("other") is None
+    assert not WeeklyCap({}, repo, lambda: datetime.now(UTC)).active
+
+
+def test_monthly_caps_from_config(config, repo):
+    from roundtable.core.budget.channels import WeeklyCap
+
+    cap = WeeklyCap.from_config(config, repo, lambda: datetime.now(UTC))
+    assert cap.monthly == {
+        n: c.monthly_cap_usd
+        for n, c in config.models.channels.items()
+        if c.monthly_cap_usd is not None
+    }

@@ -56,6 +56,11 @@ channels:
     kind: direct
     base_url: https://api.anthropic.com
     key_env: ANTHROPIC_API_KEY
+    # 会员每月送的 API 额度 $100（2026-11-04）：本月没用完时这个渠道排在前面；
+    # 到了 monthly_cap_usd 就不再走它，同一模型改走 OpenRouter，下月 1 号恢复
+    monthly_credit_usd: 100
+    monthly_cap_usd: 100
+    prompt_cache: true           # 提示缓存：重复的人设和聊天记录第二次起约一成价
   google:
     adapter: gemini
     kind: direct

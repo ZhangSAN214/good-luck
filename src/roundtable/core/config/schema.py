@@ -77,6 +77,12 @@ class ChannelSpec(_Strict):
     # 本周按本机账本走这个渠道的花费，加上和它共用 key 的 dsh 工作台（dsh.cap_channel）花的，
     # 到了就不再走这个渠道，同一模型有别的渠道就换过去；dsh 也停到下周
     weekly_cap_usd: float | None = Field(default=None, ge=0)
+    # 每月花费上限（美元，UTC 每月 1 号起算，2026-11-04 用户：会员每月送的 Claude API 额度
+    # $100 不超）：本月按本机账本走这个渠道的花费到了就不再走它，同一模型有别的渠道就换过去
+    monthly_cap_usd: float | None = Field(default=None, ge=0)
+    # 提示缓存（anthropic 适配器）：请求带顶层 cache_control，重复的开头（人设、聊天记录）
+    # 第二次起按缓存价计费；开头太短时接口自己不缓存，不报错
+    prompt_cache: bool = False
 
     @property
     def reasoning_style(self) -> str:

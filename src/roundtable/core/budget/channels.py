@@ -104,8 +104,9 @@ class MonthSpend:
 
 
 class WeeklyCap:
-    """渠道每周花费上限（``weekly_cap_usd``）：本周走这个渠道的花费（本机账本）加上 ``extra``
-    里登记的同 key 外部花费（如 dsh 工作台），到了就不再走它。只看配置，不看渠道名。"""
+    """渠道每周 / 每月花费上限（``weekly_cap_usd`` / ``monthly_cap_usd``）：本周走这个渠道的
+    花费（本机账本）加上 ``extra`` 里登记的同 key 外部花费（如 dsh 工作台），或本月走这个渠道
+    的花费，到了就不再走它。只看配置，不看渠道名。"""
 
     def __init__(
         self,
@@ -116,13 +117,16 @@ class WeeklyCap:
         rate: float = 7.2,
         unit: str = "CNY",
         ttl_s: float = 30.0,
+        monthly: Mapping[str, float] | None = None,
     ) -> None:
         self.caps = {k: float(v) for k, v in caps.items()}
+        self.monthly = {k: float(v) for k, v in (monthly or {}).items()}
         self._repo = repo
         self._now = now
         self._ttl = ttl_s
         self._rate, self._unit = rate, unit  # 提醒文字里按什么币种显示
         self._cache: tuple[datetime, dict[str, float]] | None = None
+        self._month_cache: tuple[datetime, dict[str, float]] | None = None
         self.extra: dict[str, Callable[[], float]] = {}  # 渠道 → 本周别处花的（美元）
 
     @classmethod
@@ -132,10 +136,28 @@ class WeeklyCap:
             for name, spec in config.models.channels.items()
             if spec.weekly_cap_usd is not None
         }
+        monthly = {
+            name: spec.monthly_cap_usd
+            for name, spec in config.models.channels.items()
+            if spec.monthly_cap_usd is not None
+        }
         dsh = config.roundtable.dsh
         unit = dsh.display_currency
         rate = 1.0 if unit == "USD" else dsh.usd_rates.get(unit, 1.0)
-        return cls(caps, repo, now, rate=rate, unit=unit if rate != 1.0 else "USD")
+        return cls(caps, repo, now, rate=rate, unit=unit if rate != 1.0 else "USD", monthly=monthly)
+
+    @property
+    def active(self) -> bool:
+        """配置里有没有设任何上限（没有就不用挡路由）。"""
+        return bool(self.caps or self.monthly)
+
+    def month_spent(self, channel: str) -> float:
+        now = self._now()
+        if self._month_cache and (now - self._month_cache[0]).total_seconds() < self._ttl:
+            return self._month_cache[1].get(channel, 0.0)
+        spent = self._repo.spent_by_channel_between(*month_window(now)) if self.monthly else {}
+        self._month_cache = (now, spent)
+        return spent.get(channel, 0.0)
 
     def _own(self) -> dict[str, float]:
         now = self._now()
@@ -158,7 +180,12 @@ class WeeklyCap:
         return f"{usd * self._rate:.2f} {self._unit}"
 
     def blocked(self, channel: str) -> str | None:
-        """到了本周上限时返回原因；没设上限或还有余量时为 None。"""
+        """到了本周或本月上限时返回原因；没设上限或还有余量时为 None。"""
+        mcap = self.monthly.get(channel)
+        if mcap is not None:
+            mspent = self.month_spent(channel)
+            if mspent >= mcap:
+                return f"本月已花约 ${mspent:.2f}，到了每月上限 ${mcap:.2f}，下月 1 号恢复"
         cap = self.caps.get(channel)
         if cap is None:
             return None
@@ -176,3 +203,4 @@ class WeeklyCap:
 
     def invalidate(self) -> None:
         self._cache = None
+        self._month_cache = None
