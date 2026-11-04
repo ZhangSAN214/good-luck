@@ -15,7 +15,7 @@ from collections.abc import Awaitable, Callable, Iterable, Mapping
 from typing import Any
 
 from roundtable.core.config.schema import SuperWorker
-from roundtable.core.evolution_dev import resolve
+from roundtable.core.evolution.dev import resolve
 from roundtable.core.supercomputer.engine import Launch
 
 

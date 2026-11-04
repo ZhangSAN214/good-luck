@@ -313,7 +313,7 @@ def give_stickers(
 ):
     """给成员放几张专属表情（approved 审过、pending 待审；uses 各自的用法），存在临时文件夹里。"""
     from roundtable.core.config.schema import StickerCard, StickerSpec
-    from roundtable.core.member_stickers import MemberStickers
+    from roundtable.core.stickers.member import MemberStickers
 
     rt = env.rt
     uses = uses or {}

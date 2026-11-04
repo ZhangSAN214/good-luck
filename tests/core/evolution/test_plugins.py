@@ -8,7 +8,7 @@ import pytest
 from pydantic import ValidationError
 
 from roundtable.core.config.schema import EvolutionPluginRules
-from roundtable.core.evolution_plugins import (
+from roundtable.core.evolution.plugins import (
     Plugin,
     by_scene,
     cards_text,

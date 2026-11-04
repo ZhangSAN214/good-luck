@@ -14,7 +14,7 @@
   却各记一条的占比（夜间整理的合并坏了会越记越多）。
 
 ``problems()`` 按 ``chat.engine.growth.vitals`` 的阈值挑出超标的项（大白话）；半年快进
-（``core/simlong.py``）和加速模拟（``core/simlab.py``）都用它，超标测试失败。只用于生活模式。
+（``core/sim/long.py``）和加速模拟（``core/sim/lab.py``）都用它，超标测试失败。只用于生活模式。
 """
 
 from __future__ import annotations

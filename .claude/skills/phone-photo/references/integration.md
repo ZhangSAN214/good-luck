@@ -5,7 +5,7 @@
 数据流：
 1. `Moments.post()`（`core/moments.py`）发动态时调 `photo(member, event, text)`。
 2. `photo()` 判断开关、概率 `chance`、每日上限 `per_day` / `per_member_day`，用 `random.Random(f"photo:{event['id']}:{member.id}")` 按权重从 `rules.shots` 抽一种拍法。
-3. 调 `MemberStickers.photo(member_id, scene, post, shot_text, refs=..., seed=...)`（`core/member_stickers.py`）：
+3. 调 `MemberStickers.photo(member_id, scene, post, shot_text, refs=..., seed=...)`（`core/stickers/member.py`）：
    读形象卡 `card(member)`（`look`、`must`、`daily_must`、`cues`），附形象参考图（`her != "none"` 时）和房间图（`room_refs`，放最后一张），
    `rt.prompts.render("moment_photo", version, look=…, must=…, cues=…, shot=…, scene=…, post=…, room=…)` 拼提示词，按 `draw_models()` 顺序调绘图模型，
    成功后 `phone_look()` 加手机味、`_jpeg()` 压到 `max_side`。

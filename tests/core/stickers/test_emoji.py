@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from roundtable.core.emoji_images import EmojiImages, candidates
+from roundtable.core.stickers.emoji import EmojiImages, candidates
 
-from .orchestrator.conftest import Env
+from ..orchestrator.conftest import Env
 
 PNG = b"\x89PNG\r\n\x1a\n" + b"x" * 10
 

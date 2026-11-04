@@ -13,7 +13,7 @@ from roundtable.core.config import load_config
 from roundtable.core.prompts import PromptLibrary
 from roundtable.core.providers import Message
 from roundtable.core.runtime import DEFAULT_DB
-from roundtable.core.simlab import (
+from roundtable.core.sim.lab import (
     SIM_FILE,
     FakeMind,
     SimClock,
@@ -59,7 +59,7 @@ def test_fake_mind_identifies_prompts_and_answers_valid_json():
 
 
 def test_attribution_tells_distinct_voices():
-    from roundtable.core.simlab import attribution
+    from roundtable.core.sim.lab import attribution
 
     distinct = {
         "a": ["喵喵今天好开心喵", "喵喵想吃鱼喵", "喵喵困了喵", "喵喵晒太阳喵"],

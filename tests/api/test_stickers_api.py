@@ -7,8 +7,8 @@ import json
 from fastapi.testclient import TestClient
 
 from roundtable.api.app import create_app
-from roundtable.core.member_stickers import StickerBudgetExceeded, StickerError
 from roundtable.core.service import RoundtableService
+from roundtable.core.stickers.member import StickerBudgetExceeded, StickerError
 
 from ..core.orchestrator.conftest import Env
 
@@ -94,7 +94,7 @@ def test_stash_listing_delete_and_clear():
 
 
 def test_emoji_image_api(tmp_path):
-    from roundtable.core.emoji_images import EmojiImages
+    from roundtable.core.stickers.emoji import EmojiImages
 
     env = Env()
     service = RoundtableService(env.rt)
@@ -111,7 +111,7 @@ def test_emoji_image_api(tmp_path):
 
 
 def test_sticker_pack_api(tmp_path):
-    from ..core.test_sticker_packs import make_pack
+    from ..core.stickers.test_packs import make_pack
 
     env = Env()
     env.rt.sticker_dir = tmp_path / "stickers"

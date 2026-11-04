@@ -461,7 +461,7 @@ class CommandsMixin:
     ) -> int:
         """外部表情包（dsh-meme 格式）：list 已装 / catalog 目录 / install / assign / remove。"""
         from roundtable.core.chat_actions import sticker_packs
-        from roundtable.core.sticker_packs import PackError
+        from roundtable.core.stickers.packs import PackError
 
         packs = sticker_packs(self.rt)
 
@@ -522,7 +522,7 @@ class CommandsMixin:
     ) -> int:
         """成员专属表情包：列出状态；--draw / --all 画（新画的待审，到网页成员设定里审）；
         --prompts 导出提示词和参考图拿去别处画，--import 把画好的收进来（待审）。"""
-        from roundtable.core.member_stickers import (
+        from roundtable.core.stickers.member import (
             MemberStickers,
             StickerBudgetExceeded,
             StickerError,
@@ -608,7 +608,7 @@ class CommandsMixin:
 
     def _sticker_import(self, stickers: Any, members: list[str], folder: Path) -> int:
         """收图：成员目录里（或直接在 folder 里，只有一位成员时）与表情同名的图片。"""
-        from roundtable.core.member_stickers import StickerError
+        from roundtable.core.stickers.member import StickerError
 
         failed = 0
         for m in members:

@@ -7,7 +7,7 @@ import os
 import pytest
 
 import roundtable.core.browse as browse
-import roundtable.core.emoji_images as emoji_images
+import roundtable.core.stickers.emoji as emoji_images
 from roundtable.core.config.loader import NO_LOCAL_ENV
 
 # 本机的 config/*.local.yaml 不影响测试。导入时就设：子目录的 conftest 会在

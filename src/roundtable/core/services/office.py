@@ -22,7 +22,8 @@ from roundtable.core.budget.guard import month_window
 from roundtable.core.carry import carry_question, compact
 from roundtable.core.chat_work import WORK_EVENTS, post_office_event
 from roundtable.core.config.loader import ConfigError
-from roundtable.core.evolution import (
+from roundtable.core.evolution.dev import DevAgent, DevError
+from roundtable.core.evolution.meeting import (
     DECISIONS,
     DECISIONS_KEY,
     MEETINGS_KEY,
@@ -44,9 +45,8 @@ from roundtable.core.evolution import (
     week_key,
     week_slot,
 )
-from roundtable.core.evolution import KINDS as MEETING_KINDS
-from roundtable.core.evolution_dev import DevAgent, DevError
-from roundtable.core.evolution_plugins import (
+from roundtable.core.evolution.meeting import KINDS as MEETING_KINDS
+from roundtable.core.evolution.plugins import (
     PLUGINS_KEY,
     PluginError,
     PluginWriter,
@@ -56,7 +56,7 @@ from roundtable.core.evolution_plugins import (
     plugins_from,
     plugins_markdown,
 )
-from roundtable.core.evolution_scout import SCOUT_WEEK_KEY, Scout, ScoutError
+from roundtable.core.evolution.scout import SCOUT_WEEK_KEY, Scout, ScoutError
 from roundtable.core.export import FORMATS as EXPORT_FORMATS
 from roundtable.core.export import Style as ExportStyle
 from roundtable.core.export import deliverable

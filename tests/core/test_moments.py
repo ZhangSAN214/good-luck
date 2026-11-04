@@ -529,7 +529,7 @@ async def test_post_gets_a_photo_by_chance_with_daily_caps(tmp_path, monkeypatch
 
     from roundtable.core.config.schema import StickerCard
     from roundtable.core.hometz import home_zone
-    from roundtable.core.member_stickers import MemberStickers, StickerBudgetExceeded
+    from roundtable.core.stickers.member import MemberStickers, StickerBudgetExceeded
 
     env = Env()
     rt = env.rt
@@ -601,7 +601,7 @@ async def test_post_gets_a_photo_by_chance_with_daily_caps(tmp_path, monkeypatch
 async def test_photo_passes_housemates_and_skips_places_outside_the_building(tmp_path, monkeypatch):
     """11-02 用户：配图只画公寓里、只画公寓里的人；室友按她们的样子画。"""
     from roundtable.core.config.schema import StickerCard
-    from roundtable.core.member_stickers import MemberStickers
+    from roundtable.core.stickers.member import MemberStickers
 
     env = Env()
     rt = env.rt

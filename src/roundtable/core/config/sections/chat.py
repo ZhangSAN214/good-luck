@@ -807,7 +807,7 @@ class EmojiImageRules(_Strict):
 
 
 class StickerPackRules(_Strict):
-    """外部表情包（dsh-meme 格式的压缩包，``core/sticker_packs.py``）：
+    """外部表情包（dsh-meme 格式的压缩包，``core/stickers/packs.py``）：
     装在本机 data/sticker_packs/，不进仓库；可以给某位成员专用或大家通用。"""
 
     enabled: bool = True

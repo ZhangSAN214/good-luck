@@ -36,13 +36,14 @@ from zoneinfo import ZoneInfo
 import yaml
 
 import roundtable.core.browse as browse
-from roundtable.core import simexam, simscene
 from roundtable.core.chat import ROOM, dm_room
 from roundtable.core.config import AppConfig, load_config
 from roundtable.core.prompts import PromptLibrary
 from roundtable.core.providers import FakeProvider, Message
 from roundtable.core.providers.base import RawCompletion
 from roundtable.core.runtime import DEFAULT_DB, PROJECT_ROOT, Runtime
+from roundtable.core.sim import exam as simexam
+from roundtable.core.sim import scene as simscene
 from roundtable.core.storage.repository import iso
 
 log = logging.getLogger(__name__)

@@ -263,7 +263,7 @@ def test_work_mode_does_not_read_photo_habits():
         for p in src.rglob("*.py")
         if "moment_shots" in p.read_text(encoding="utf-8") and p.name != "moment_shots.py"
     }
-    assert users == {"core/moments.py", "core/member_stickers.py"}
+    assert users == {"core/moments.py", "core/stickers/member.py"}
 
 
 def test_dimension_values_only_go_with_their_shots():

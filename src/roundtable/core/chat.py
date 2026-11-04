@@ -1201,7 +1201,7 @@ class GroupChat:
         """她审过的专属表情包和本机装的外部表情包各自的意思（外部包的键是「套·名」）；
         读不到就只按表情名比。"""
         from roundtable.core.chat_actions import sticker_packs
-        from roundtable.core.member_stickers import MemberStickers
+        from roundtable.core.stickers.member import MemberStickers
 
         out: dict[str, list[str]] = {}
         for read in (

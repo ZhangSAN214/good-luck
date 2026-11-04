@@ -8,7 +8,7 @@ import re
 
 import pytest
 
-from roundtable.core.evolution_plugins import PLUGINS_KEY
+from roundtable.core.evolution.plugins import PLUGINS_KEY
 from roundtable.core.service import ServiceError
 
 from .test_evolution_service import make

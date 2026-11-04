@@ -12,9 +12,9 @@ from pathlib import Path
 import pytest
 
 from roundtable.core.chat_actions import member_stickers, sticker_menu, sticker_packs
-from roundtable.core.sticker_packs import PackError, StickerPacks, describe
+from roundtable.core.stickers.packs import PackError, StickerPacks, describe
 
-from .orchestrator.conftest import Env
+from ..orchestrator.conftest import Env
 
 PNG = b"\x89PNG\r\n\x1a\n" + b"p" * 16
 GIF = b"GIF89a" + b"g" * 16

@@ -39,7 +39,7 @@ from roundtable.core.member.profile import ProfileStore
 from roundtable.core.providers import Message
 from roundtable.core.providers.base import RawCompletion
 from roundtable.core.runtime import PROJECT_ROOT
-from roundtable.core.simlab import FakeMind, SimError, Simulation, tags
+from roundtable.core.sim.lab import FakeMind, SimError, Simulation, tags
 
 SEED_FILE = PROJECT_ROOT / "benchmarks" / "members" / "longrun.yaml"
 PUSH, NONE = "push", "none"

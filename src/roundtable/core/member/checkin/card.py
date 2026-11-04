@@ -267,7 +267,7 @@ class Checkin:
         """配图（默认关）：结构化拍法 + 成员形象参考图，走朋友圈配图同一套绘图和每月上限。"""
         from roundtable.core.chat_actions import generated_item
         from roundtable.core.chat_media import ChatMediaStore, MediaError
-        from roundtable.core.member_stickers import (
+        from roundtable.core.stickers.member import (
             MemberStickers,
             StickerBudgetExceeded,
             StickerError,

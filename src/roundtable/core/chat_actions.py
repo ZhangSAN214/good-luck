@@ -119,7 +119,7 @@ def own_stickers(rt: Any, member: str, name: str) -> dict[str, list[str]]:
     """成员自己那套审过的专属表情：{昵称: [表情名]}（套装名就是昵称）。
 
     没有、聊天动作关着、昵称放不进记号（太长或带分隔符）时为空。"""
-    from roundtable.core.member_stickers import MemberStickers
+    from roundtable.core.stickers.member import MemberStickers
 
     acts = rt.config.roundtable.chat.actions
     if not acts.enabled or not STICKER_RE.fullmatch(f"[表情:{name}·x]") or name in acts.stickers:
@@ -149,7 +149,7 @@ def member_stickers(rt: Any, member: str, name: str) -> dict[str, list[str]]:
 
 def sticker_packs(rt: Any) -> Any:
     """本机装的外部表情包（dsh-meme 格式，在数据库旁的 sticker_packs/）。"""
-    from roundtable.core.sticker_packs import PACK_DIR, StickerPacks
+    from roundtable.core.stickers.packs import PACK_DIR, StickerPacks
 
     return StickerPacks(rt, rt.sticker_dir.parent / PACK_DIR if rt.sticker_dir else None)
 
@@ -157,7 +157,7 @@ def sticker_packs(rt: Any) -> Any:
 def sticker_menu(rt: Any, member: str, name: str) -> str:
     """提示词里给这位成员的表情包清单：有专属表情时分成「你的专属」和「通用」两段。"""
     from roundtable.core.member.stash import Stash
-    from roundtable.core.member_stickers import MemberStickers
+    from roundtable.core.stickers.member import MemberStickers
 
     own = own_stickers(rt, member, name)
     packs = sticker_packs(rt)

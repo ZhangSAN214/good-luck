@@ -36,7 +36,6 @@ from roundtable.core.member.growth.report import lines as report_lines
 from roundtable.core.member.memory import DiaryTool
 from roundtable.core.member.memory.store import query_terms
 from roundtable.core.member.relation import view_live
-from roundtable.core.member_stickers import StickerBudgetExceeded, StickerError, StickerUnavailable
 from roundtable.core.member_voice import MAX_CHARS as VOICE_MAX_CHARS
 from roundtable.core.member_voice import (
     SAMPLE_TEXT,
@@ -54,7 +53,8 @@ from roundtable.core.services.common import (
     MAX_CHAT_CHARS,
     ServiceError,
 )
-from roundtable.core.sticker_packs import PackError
+from roundtable.core.stickers.member import StickerBudgetExceeded, StickerError, StickerUnavailable
+from roundtable.core.stickers.packs import PackError
 from roundtable.core.storage import NotFound
 from roundtable.core.yourpc import game_of
 

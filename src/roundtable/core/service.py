@@ -38,9 +38,8 @@ from roundtable.core.chat_actions import sticker_packs
 from roundtable.core.chat_media import MAX_BYTES as CHAT_MEDIA_MAX
 from roundtable.core.chat_work import short_title
 from roundtable.core.config.loader import DEFAULT_CONFIG_DIR
-from roundtable.core.emoji_images import EMOJI_DIR, EmojiImages
-from roundtable.core.evolution_dev import Run as DevRun
-from roundtable.core.evolution_dev import run_process
+from roundtable.core.evolution.dev import Run as DevRun
+from roundtable.core.evolution.dev import run_process
 from roundtable.core.growth import GrowthKeeper
 from roundtable.core.insight import InsightKeeper
 from roundtable.core.lan import COOKIE as LAN_COOKIE
@@ -50,9 +49,6 @@ from roundtable.core.mail import MailAI, MailBox, OwaBrowser
 from roundtable.core.member import MemberEngine
 from roundtable.core.member.voice import VoicePolicy
 from roundtable.core.member.yourstate import UserStatus
-from roundtable.core.member_stickers import (
-    MemberStickers,
-)
 from roundtable.core.member_voice import (
     MemberVoices,
 )
@@ -90,6 +86,10 @@ from roundtable.core.services.terminal import TerminalService
 from roundtable.core.standee import load_standee
 from roundtable.core.standee import standee_file as read_standee_file
 from roundtable.core.steps import Event, restore_state
+from roundtable.core.stickers.emoji import EMOJI_DIR, EmojiImages
+from roundtable.core.stickers.member import (
+    MemberStickers,
+)
 from roundtable.core.storage import NotFound
 from roundtable.core.supercomputer import Butler, Supercomputer
 from roundtable.core.supercomputer.credit import CreditLauncher
