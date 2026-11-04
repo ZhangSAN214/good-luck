@@ -1,0 +1,30 @@
+# 圆桌在云服务器上的常驻服务（docs/SERVER.md）。install.sh 会把它装到 /etc/systemd/system/。
+# 只对 Tailscale 里的设备开放：ROUNDTABLE_LAN=tailscale 时公网来的请求一律 403；
+# 防火墙（ufw）也不对公网放行 8000 端口。不要改成 Tailscale Serve / Funnel 或 nginx 反向代理：
+# 经本机转发时所有请求看起来都来自本机，会绕过登录。
+[Unit]
+Description=Roundtable
+After=network-online.target tailscaled.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=roundtable
+Group=roundtable
+WorkingDirectory=/opt/roundtable
+Environment=ROUNDTABLE_LAN=tailscale
+Environment=PYTHONIOENCODING=utf-8
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/roundtable/.venv/bin/python -m uvicorn roundtable.api.app:app --host 0.0.0.0 --port 8000
+Restart=on-failure
+RestartSec=5
+# 2 GiB 内存的小机器：超过 1.4 GiB 先被压回（用 swap），不直接杀进程
+MemoryHigh=1400M
+Nice=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target

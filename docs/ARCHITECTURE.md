@@ -227,6 +227,7 @@ README.md      安装、.env、加模型 / 步骤 / 提示词版本、上传、�
 .github/workflows/ci.yml   ruff + pytest（含 Playwright 端到端）；unplug-dsh 任务删掉 dsh 后再跑测试
 .github/workflows/desktop.yml   桌面版在 Windows / macOS 上冒烟（只在桌面版相关文件变动的 PR 上跑）
 install_desktop.bat / install_desktop.command   安装并生成桌面版图标（docs/DESKTOP.md）
+deploy/server/  云服务器部署：install.sh（Ubuntu 一键安装 + Tailscale + 防火墙）、roundtable.service（systemd，只对 Tailscale 开放）、update.sh（安全更新）；电脑上打包数据用 scripts/pack_server_data.py（docs/SERVER.md）
 .github/workflows/android.yml   打包安卓外壳 APK（只在改了 mobile/ 的 PR 上跑）
 mobile/        安卓外壳（Capacitor）：www/ 连接页（记住电脑地址、依次试家里 / 离家地址）、build-android.mjs；android/ 不进 git（docs/MOBILE.md）
 config/        models.yaml  roundtable.yaml  personas.yaml  routing.yaml  plugin_board.yaml（插件榜数据，不属于运行配置）  dsh_plugins.yaml（dsh 工作台的运行时版本与插件白名单）  bench_capabilities.yaml（工作台资料台的能力地图）  bench_glossary.yaml（资料台榜单中文说明的词表）  comfyui/（本地 ComfyUI 出图的工作流模板，API 格式 JSON；本机改的存成 *.local.json，不进 git，docs/COMFYUI.md）  changelog.yaml（公告栏：只放 `start` 和拆分前的旧条目，不再往里加）  changelog.d/<PR 编号>.yaml（公告栏的版本更新说明，每个 PR 新建自己的一个小文件，几个 PR 同时开也不冲突；程序读时与旧条目合并排序，版本号「代.大功能.小改」按合并先后（日期 → PR 编号）自动算，条目只写 level）
