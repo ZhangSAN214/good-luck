@@ -857,7 +857,7 @@ export class BenchGenPanel {
       .join('');
     const miss = reqs.filter((x) => !x.met).slice(0, 4).map((x) => `<li class="bg-miss"><span class="bg-mark" aria-hidden="true">✗</span><b>${esc(x.id)}</b> ${esc(x.text)}</li>`).join('');
     return `<h4 class="bg-h4">第 ${r.n} 轮 · ${r.passed ? '过线' : '没过线'}</h4>
-      <p class="sc-sub">质检${c.passed ? '通过' : '不通过'} ${esc(c.score ?? '—')} 分${reqs.length ? ` · 验收 ${met}/${reqs.length}` : ''}</p>
+      <p class="sc-sub">质检${c.passed ? '通过' : '不通过'} ${esc(c.score ?? '—')} 分${reqs.length ? ` · 验收 ${met}/${reqs.length}` : ''}${r.app ? ` · 企业级验收 ${esc(r.app.ok)}/${esc(r.app.total)}` : ''}</p>
       ${miss ? `<ul class="bg-reqs">${miss}</ul>` : ''}${scores ? `<ul class="bg-scores bg-scores-s">${scores}</ul>` : ''}${this.borrowHtml(r)}`;
   }
 
@@ -1588,6 +1588,12 @@ export class BenchGenPanel {
         (x) => `<li class="${x.met ? 'bg-met' : 'bg-miss'}"><span class="bg-mark" role="img" aria-label="${x.met ? '做到了' : '没做到'}">${x.met ? '✓' : '✗'}</span><b>${esc(x.id)}</b> <span class="bg-src">${esc(x.source)}</span> ${esc(x.text)}${!x.met && x.why?.length ? `<div class="sc-sub">${esc(x.why.join('；'))}</div>` : ''}</li>`,
       )
       .join('');
+    // 应用型产出的企业级验收（撤销步数、大图、导出尺寸、出错提示、快捷键、功能自带的测试）
+    const app = r.app
+      ? `<ul class="bg-reqs bg-app" aria-label="企业级验收">${(r.app.results || [])
+          .map((x) => `<li class="${x.ok ? 'bg-met' : 'bg-miss'}"><span class="bg-mark" role="img" aria-label="${x.ok ? '通过' : '没过'}">${x.ok ? '✓' : '✗'}</span>${esc(x.name)}<div class="sc-sub">${esc(x.detail || '')}</div></li>`)
+          .join('')}</ul>`
+      : '';
     const atk = r.attack || null;
     const bugs = atk
       ? (atk.bugs || [])
@@ -1601,8 +1607,9 @@ export class BenchGenPanel {
       .map(([id, [a, z]]) => `${esc(id)}（${esc(a)} → ${esc(z)}）`)
       .join('、');
     return `<details class="bg-round" ${r === b.rounds[b.rounds.length - 1] ? 'open' : ''}>
-      <summary>第 ${r.n} 轮：质检${c.passed ? '通过' : '不通过'} ${esc(c.score ?? '—')} 分${reqs.length ? ` · 验收 ${metN}/${reqs.length}` : ''} · ${r.passed ? '过线' : '没过线'}</summary>
+      <summary>第 ${r.n} 轮：质检${c.passed ? '通过' : '不通过'} ${esc(c.score ?? '—')} 分${reqs.length ? ` · 验收 ${metN}/${reqs.length}` : ''}${r.app ? ` · 企业级验收 ${esc(r.app.ok)}/${esc(r.app.total)}` : ''} · ${r.passed ? '过线' : '没过线'}</summary>
       ${reqList ? `<ul class="bg-reqs" aria-label="验收清单">${reqList}</ul>` : ''}
+      ${app}
       ${back ? `<p class="sc-sub bg-back">分数降了，退回上一版：${back}</p>` : ''}
       ${scores ? `<ul class="bg-scores">${scores}</ul>` : ''}
       ${findings ? `<ul class="bg-findings">${findings}</ul>` : ''}

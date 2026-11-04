@@ -15,6 +15,9 @@ USES_KIT = re.compile(
     r"ctx\.kit\b|\bkit\.\w+\(|from\s+['\"]/kit/kit\.js['\"]"
     # 解构：const { kit } = ctx、const { seg } = kit、mount(el, { kit, store })
     r"|\{[^{}]*\bkit\b[^{}]*\}\s*=\s*ctx\b|\}\s*=\s*kit\b|\(\s*\w+\s*,\s*\{[^{}]*\bkit\b"
+    # 应用型产出：功能是编辑器底座（零件库的一部分）上的，用 ctx.editor 也算用了零件库
+    r"|ctx\.editor\b|\{[^{}]*\beditor\b[^{}]*\}\s*=\s*ctx\b|\(\s*\w+\s*,\s*\{[^{}]*\beditor\b"
+    r"|from\s+['\"]/kit/editor/"
 )
 POLL = re.compile(r"\bsetInterval\s*\(")
 # 自己用 svg 拼图形（参考资料里 UP 主的原话：不要让模型自己去画内容）：地图、图表、照片都有现成的
