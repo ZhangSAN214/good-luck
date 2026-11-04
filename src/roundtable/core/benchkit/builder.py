@@ -49,7 +49,14 @@ from roundtable.core.benchkit.intent import (
 from roundtable.core.benchkit.library import Library
 from roundtable.core.benchkit.lint import hero_facts, lint_data, lint_windows
 from roundtable.core.benchkit.quality import Finding, QualityError, Report, run_check, run_probes
-from roundtable.core.benchkit.research import Researcher, report_markdown
+from roundtable.core.benchkit.research import (
+    Researcher,
+    cite_lines,
+    cite_of,
+    refs_text,
+    report_markdown,
+    research_refs,
+)
 from roundtable.core.benchkit.samples import SampleCatalog, install, load_catalog, samples_text
 from roundtable.core.benchkit.scout import Candidate, Scout
 from roundtable.core.benchkit.spec import (
@@ -144,6 +151,29 @@ def merge_checks(
                 "windows": r["windows"],
                 "met": bool(got) and all(g["met"] for g in got),
                 "why": list(dict.fromkeys(g["why"] for g in got if not g["met"] and g["why"]))[:3],
+            }
+        )
+    return out
+
+
+def merge_borrow(
+    choices: list[dict[str, Any]], reviews: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """方案书的技术选择（t1…）几位评审各核对一遍：至少一位判过、且判过的都说做到才算做到。
+    没人判的记「没核对」（不交回作者，只给你看）。"""
+    out = []
+    for c in choices:
+        got = [rec["borrow"][c["id"]] for rec in reviews if c["id"] in (rec.get("borrow") or {})]
+        out.append(
+            {
+                "id": c["id"],
+                "choice": c["choice"],
+                "borrow": c["borrow"],
+                "refs": c["refs"],
+                "windows": c["windows"],
+                "judged": bool(got),
+                "done": bool(got) and all(g["done"] for g in got),
+                "why": list(dict.fromkeys(g["why"] for g in got if not g["done"] and g["why"]))[:3],
             }
         )
     return out
@@ -842,6 +872,9 @@ class BenchBuilder:
         if self.rules.team.enabled:
             b["status"] = "meeting"
             await self._meeting(b, spec, rng)
+        if b.get("research") and self.rules.research.cite:
+            b["status"] = "citing"
+            await self._cite(b, spec, rng)
         if self.rules.project.enabled:
             self._proposal(b, spec)
             self._gate(b, "sign", "看方案书，改好了签字开工")
@@ -1558,6 +1591,7 @@ class BenchBuilder:
             "tech": tech[:12],
             "plugins": [p["title"] for p in r.get("plugins") or []],
             "meeting": self._meeting_lines(b),
+            "cite": self._cite_view(b),
         }
         b["milestones"] = []
         folder = self.folder(b["id"])
@@ -1594,6 +1628,12 @@ class BenchBuilder:
             lines += ["", "## 建议池（你没要，这次不做）"] + [f"- {t}" for t in spec.pool]
         if b["proposal"]["meeting"]:
             lines += ["", "## 方案会"] + [f"- {t}" for t in b["proposal"]["meeting"]]
+        cv = b["proposal"]["cite"]
+        if cv:
+            lines += ["", "## 技术选择（每条都指向调研报告的编号，见 调研报告.md）"]
+            lines += [f"- {t}" for t in cv["lines"]]
+            if cv["skipped"]:
+                lines += ["", "## 调研里没用上的"] + [f"- {t}" for t in cv["skipped"]]
         if tech:
             lines += ["", "## 借鉴的项目"] + [f"- {t}" for t in tech]
         (folder / "方案书.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
@@ -1604,6 +1644,34 @@ class BenchBuilder:
             f"验收清单 {len(spec.requirements)} 条、{len(spec.windows)} 个窗口、"
             f"分 {len(milestones)} 段",
         )
+
+    def _cite_view(self, b: dict[str, Any]) -> dict[str, Any] | None:
+        """方案书里的技术选择：每条带出处（调研编号和名字），没出处的标出来；没用上的调研和原因。"""
+        cite = b.get("cite")
+        r = b.get("research")
+        if not cite or not r:
+            return None
+        refs = research_refs(r)
+        known = {x["id"]: x for x in refs}
+        return {
+            "choices": [
+                c | {"sources": [known[x] for x in c["refs"] if x in known]}
+                for c in cite["choices"]
+            ],
+            "lines": cite_lines(cite, refs),
+            "skipped": [
+                f"[{x['id']}] {known[x['id']]['title']}：{x['why'] or '没写原因'}"
+                for x in cite["skipped"]
+                if x["id"] in known
+            ],
+            "used": len(cite["used"]),
+            "total": len(refs),
+            "none_used": cite["none_used"],
+            "unused_reason": cite["unused_reason"],
+            "missing_reason": cite["missing_reason"],
+            "unsourced": cite["unsourced"],
+            "error": cite.get("error") or "",
+        }
 
     @staticmethod
     def _stages(spec: Spec) -> list[dict[str, Any]]:
@@ -2196,6 +2264,74 @@ class BenchBuilder:
             f"dsh 插件 {c['plugins']} 个、学习卡 {len(report['cards'])} 张",
         )
 
+    def _cited_text(self, b: dict[str, Any], wids: list[str]) -> str:
+        """给评审核对的技术选择：和这组窗口有关的（没写负责窗口的大家都核对）。"""
+        cite = b.get("cite") or {}
+        if not cite.get("choices") or not b.get("research"):
+            return "（方案书没有引用调研的技术选择）"
+        known = {x["id"]: x for x in research_refs(b["research"])}
+        lines = []
+        for c in cite["choices"]:
+            if c["windows"] and not set(c["windows"]) & set(wids):
+                continue
+            src = "；".join(f"{x} {known[x]['title']}" for x in c["refs"] if x in known)
+            lines.append(
+                f"- {c['id']} {c['choice']}｜借鉴：{c['borrow'] or '（没写）'}"
+                + (f"｜出处：{src}" if src else "｜没有出处")
+                + (f"｜负责窗口：{'、'.join(c['windows'])}" if c["windows"] else "")
+            )
+        return "\n".join(lines) or "（和你评的窗口无关）"
+
+    async def _cite(self, b: dict[str, Any], spec: Spec, rng: random.Random) -> None:
+        """方案书引用调研（I3）：一位助手把技术选择写清楚，每条指向调研报告里的编号（g1、k1……），
+        说清借鉴了什么；没用上的写原因，一条都没用上必须写原因。程序核对编号是真的。"""
+        r = b["research"]
+        refs = research_refs(r)
+        m = b.get("meeting") or {}
+        lead = next((p for p in m.get("pitches") or [] if p["worker"] == m.get("lead")), None)
+        prompt = self.render(
+            "bench_cite",
+            request=self._brief(b),
+            spec=json.dumps(spec.to_dict(), ensure_ascii=False, indent=1),
+            refs=refs_text(refs),
+            lead=(f"{lead['idea']}" + "".join(f"\n- {x}" for x in lead["plan"]))
+            if lead
+            else "（没有开方案会）",
+            skills=self._skills("plan", spec.kind, b),
+        )
+        record: dict[str, Any] = {}
+        chosen, result = await self._step(
+            b,
+            self.rules.research.cite_kind,
+            prompt,
+            rng,
+            record,
+            role="调研",
+            task="方案书的技术选择指向调研",
+        )
+        raw: Any = {}
+        error = ""
+        if chosen is None or result is None or not result.ok:
+            error = "没有助手能整理技术选择"
+        else:
+            try:
+                raw = extract_json_object(result.output)
+            except JSONOutputError:
+                error = "整理技术选择的结果看不懂"
+        cite = cite_of(raw, refs, [w.id for w in spec.windows])
+        cite["error"] = error
+        cite["worker"] = record.get("worker")
+        b["cite"] = cite
+        if error:
+            self._log(b, f"{error}，方案书里的技术选择先空着")
+            return
+        self._log(
+            b,
+            f"技术选择 {len(cite['choices'])} 条，用到调研 {len(cite['used'])} 条"
+            + (f"，{len(cite['unsourced'])} 条没有出处" if cite["unsourced"] else "")
+            + ("，调研一条都没用上" if cite["none_used"] else ""),
+        )
+
     async def _learn(
         self,
         b: dict[str, Any],
@@ -2278,6 +2414,10 @@ class BenchBuilder:
 
     def _sources_text(self, b: dict[str, Any]) -> str:
         lines = []
+        cite = b.get("cite")
+        if cite and cite.get("choices") and b.get("research"):
+            lines.append("- 方案书定下的技术选择（照着做，评审会核对借鉴的东西做到没有）：")
+            lines += ["  · " + t for t in cite_lines(cite, research_refs(b["research"]))]
         m = b.get("meeting") or {}
         lead = next((p for p in m.get("pitches") or [] if p["worker"] == m.get("lead")), None)
         if lead:
@@ -2513,6 +2653,7 @@ class BenchBuilder:
                 check=report.summary(),
                 previous=self._previous(last, wids),
                 requirements=requirements_text(spec),
+                cited=self._cited_text(b, wids),
                 skills=self._skills("review", spec.kind, b),
             )
             chosen, result = await self._step(
@@ -2550,6 +2691,14 @@ class BenchBuilder:
                 for x in (data.get("checks") or [])
                 if isinstance(x, dict) and x.get("id")
             }
+            rec["borrow"] = {
+                str(x.get("id")): {
+                    "done": x.get("done") is True,
+                    "why": str(x.get("why") or "")[:300],
+                }
+                for x in (data.get("borrow") or [])
+                if isinstance(x, dict) and x.get("id")
+            }
             rec["problems"] = {
                 str(x.get("id")): {
                     "problems": [str(p)[:300] for p in (x.get("problems") or [])][:10],
@@ -2569,6 +2718,10 @@ class BenchBuilder:
             for wid in r["windows"]
         }
         rnd["requirements"] = merge_checks(spec.requirements, rnd["reviews"])
+        rnd["borrow"] = merge_borrow((b.get("cite") or {}).get("choices") or [], rnd["reviews"])
+        if rnd["borrow"]:
+            done = sum(1 for x in rnd["borrow"] if x["done"])
+            self._log(b, f"第 {n} 轮核对借鉴：{done}/{len(rnd['borrow'])} 条做到")
         # 程序真的去填、去点没做到的：评审说做到了也不算
         failed = {x["id"]: x["why"] for x in rnd["probes"] if x["ok"] is False}
         for r in rnd["requirements"]:
@@ -2752,6 +2905,13 @@ class BenchBuilder:
                 continue
             why = "；".join(r["why"]) or "评审判为没做到"
             lines.append(f"- [验收·必须做到·{r['id']}] {r['text']}：{why}")
+        for x in rnd.get("borrow") or []:
+            if x["done"] or (x["windows"] and wid not in x["windows"]) or not x["judged"]:
+                continue
+            why = "；".join(x["why"]) or "评审没在代码和截图里看到"
+            lines.append(
+                f"- [借鉴·没做到·{x['id']}] 方案书说：{x['choice']}（借鉴：{x['borrow']}）：{why}"
+            )
         check = rnd.get("check") or {}
         for f in check.get("findings", []):
             # 知道出在哪几个窗口的，只交给那几个窗口的作者；不知道的大家都看

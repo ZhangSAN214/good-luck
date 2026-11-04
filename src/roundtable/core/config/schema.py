@@ -4014,6 +4014,9 @@ class BenchResearch(_Strict):
     news: int = Field(default=8, ge=0, le=20)  # 资讯、视频、发布会、官方博客合计
     learn: int = Field(default=3, ge=0, le=6)  # 写几张学习卡（每张花一次订阅次数）
     learn_plugins: int = Field(default=1, ge=0, le=3)  # 另给几个 dsh 插件写学习卡（供助手学习）
+    # I3 方案书引用调研：调研之后请一位助手把技术选择写清楚，每条指向调研报告里的某一条（g1、k1……）
+    cite: bool = True
+    cite_kind: str = "split"
 
 
 class BenchProject(_Strict):

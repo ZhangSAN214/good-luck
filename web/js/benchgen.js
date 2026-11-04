@@ -14,6 +14,7 @@ export const STATUS = {
   researching: '正在调研',
   scouting: '正在找插件',
   meeting: '方案会',
+  citing: '整理技术选择（指向调研）',
   building: '分头写窗口',
   checking: '质检和评审',
   reworking: '打回返工',
@@ -173,7 +174,7 @@ const PANES = [
   ['stage', '成品'],
   ['plan', '计划'],
 ];
-const PREP = ['planning', 'researching', 'scouting', 'meeting', 'looking'];
+const PREP = ['planning', 'researching', 'scouting', 'meeting', 'citing', 'looking'];
 
 /** 项目走到 7 步里的第几步（从 0 数）。 */
 export function flowIndex(b) {
@@ -778,6 +779,7 @@ export class BenchGenPanel {
       ${fold('窗口之间怎么联动', list(p.links))}
       ${fold('共用信息', list(p.shared))}
       ${fold('方案会：谁提了什么、为什么采纳', list(p.meeting))}
+      ${this.citeHtml(p.cite, fold)}
       ${fold('借鉴的项目', list(p.tech))}
       ${plugins}
       <a class="link" href="/bench/${encodeURIComponent(b.id)}/${encodeURIComponent('方案书.md')}" target="_blank" rel="noopener">方案书全文</a>`;
@@ -830,6 +832,20 @@ export class BenchGenPanel {
   }
 
   /** 最近一轮：质检分、验收几条做到、评审各项分（全部轮次在底部「质检」里）。 */
+  /** 方案书的技术选择（I3）：每条指向调研报告的编号，没出处的标出来；没用上的调研和原因。 */
+  citeHtml(cv, fold) {
+    if (!cv) return '';
+    if (cv.error && !(cv.choices || []).length) return fold('技术选择（指向调研）', `<p class="sc-sub">${esc(cv.error)}</p>`);
+    const items = (cv.choices || [])
+      .map((c) => `<li data-cite="${esc(c.id)}"><b>${esc(c.id)}</b> ${esc(c.choice)}${c.why ? `<span class="sc-sub">${esc(c.why)}</span>` : ''}
+        <span class="sc-sub">${(c.sources || []).length ? `出处：${c.sources.map((x) => `${x.url ? `<a href="${esc(x.url)}" target="_blank" rel="noopener">[${esc(x.id)}] ${esc(x.title)}</a>` : `[${esc(x.id)}] ${esc(x.title)}`}`).join('；')}` : '<span class="bg-warn">没有指向调研里的哪一条</span>'}${c.borrow ? ` · 借鉴：${esc(c.borrow)}` : ''}</span></li>`)
+      .join('');
+    const skipped = (cv.skipped || []).map((x) => `<li>${esc(x)}</li>`).join('');
+    const none = cv.none_used ? `<p class="sc-sub">调研里一条都没用上：${cv.unused_reason ? esc(cv.unused_reason) : '<span class="bg-warn">助手没写原因</span>'}</p>` : '';
+    const head = `技术选择（用到调研 ${esc(cv.used)}/${esc(cv.total)} 条${(cv.unsourced || []).length ? `，${esc(cv.unsourced.length)} 条没出处` : ''}）`;
+    return fold(head, `${items ? `<ul class="bg-list bg-cite">${items}</ul>` : ''}${none}${skipped ? `<p class="sc-sub">没用上的调研：</p><ul class="bg-list">${skipped}</ul>` : ''}`);
+  }
+
   lastRoundHtml(b) {
     const r = (b.rounds || []).slice(-1)[0];
     if (!r) return '';
@@ -842,7 +858,16 @@ export class BenchGenPanel {
     const miss = reqs.filter((x) => !x.met).slice(0, 4).map((x) => `<li class="bg-miss"><span class="bg-mark" aria-hidden="true">✗</span><b>${esc(x.id)}</b> ${esc(x.text)}</li>`).join('');
     return `<h4 class="bg-h4">第 ${r.n} 轮 · ${r.passed ? '过线' : '没过线'}</h4>
       <p class="sc-sub">质检${c.passed ? '通过' : '不通过'} ${esc(c.score ?? '—')} 分${reqs.length ? ` · 验收 ${met}/${reqs.length}` : ''}</p>
-      ${miss ? `<ul class="bg-reqs">${miss}</ul>` : ''}${scores ? `<ul class="bg-scores bg-scores-s">${scores}</ul>` : ''}`;
+      ${miss ? `<ul class="bg-reqs">${miss}</ul>` : ''}${scores ? `<ul class="bg-scores bg-scores-s">${scores}</ul>` : ''}${this.borrowHtml(r)}`;
+  }
+
+  /** 评审核对「借鉴了什么」：方案书的每条技术选择做到没有。 */
+  borrowHtml(r) {
+    const xs = (r.borrow || []).filter((x) => x.judged);
+    if (!xs.length) return '';
+    const done = xs.filter((x) => x.done).length;
+    const miss = xs.filter((x) => !x.done).map((x) => `<li class="bg-miss"><b>${esc(x.id)}</b> ${esc(x.choice)}${(x.why || []).length ? `<span class="sc-sub">${esc(x.why.join('；'))}</span>` : ''}</li>`).join('');
+    return `<p class="sc-sub" data-borrow>核对借鉴 ${done}/${xs.length} 条做到</p>${miss ? `<ul class="bg-reqs">${miss}</ul>` : ''}`;
   }
 
   /** 底部抽屉：调研、插件、质检、团队、过程、联网、零件库。拉起来盖在三栏上，不换页。 */

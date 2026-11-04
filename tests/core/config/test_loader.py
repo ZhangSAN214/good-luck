@@ -206,6 +206,7 @@ def test_repo_config_loads_with_defaults():
         "bench_vote",
         "bench_attack",
         "bench_hero",
+        "bench_cite",
         "bench_look",
         "describe_screen",
     }
