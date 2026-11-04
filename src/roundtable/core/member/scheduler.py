@@ -6,6 +6,8 @@
 - 其余三类：今天聊天这一块（``workflow = 'chat'``）已花的钱加上这次的预估，超过
   ``daily_usd × 该优先级的份额``（``shares``，越低的份额越小，给高优先级留出余地）时降级为
   「只记一行」（``note``），不调用模型。生活另外还受生活每日上限（``chat.life.daily_usd``）限制。
+- 按剩余天数平摊（``chat.budget.pace``，默认开）：其余三类的每日额度再取
+  ``min(daily_usd, (聊天月预算 − 今天之前已花) ÷ 本月剩余天数)``，月初不会把一个月的钱花光。
 - 一批请求用 ``plan()`` 先按优先级、再按交上来的顺序排好，依次占用额度。
 - 所有成员的额度和规则完全相同（中立）。
 """
@@ -16,7 +18,7 @@ from dataclasses import dataclass
 from enum import IntEnum
 from typing import Any
 
-from roundtable.core.budget.guard import EPS, day_window, month_window
+from roundtable.core.budget.guard import EPS, day_window, month_window, paced_daily
 
 
 class Priority(IntEnum):
@@ -46,6 +48,18 @@ class Request:
     label: str = ""
 
 
+def chat_paced_daily(rt: Any) -> float | None:
+    """聊天这一块按剩余天数平摊的今日额度；没开平摊时为 None。"""
+    budget = rt.config.roundtable.chat.budget
+    if not budget.pace:
+        return None
+    now = rt.budget.now()
+    month_start, _ = month_window(now)
+    day_start, _ = day_window(now)
+    before = rt.repo.spent_in_workflow("chat", month_start, day_start)
+    return paced_daily(budget.monthly_usd, before, now)
+
+
 class BudgetScheduler:
     def __init__(self, rt: Any) -> None:
         self.rt = rt
@@ -63,11 +77,19 @@ class BudgetScheduler:
         limit = self.rt.config.roundtable.chat.budget.monthly_usd
         return limit - self.rt.repo.spent_in_workflow("chat", start, end)
 
+    def paced_daily(self) -> float | None:
+        return chat_paced_daily(self.rt)
+
+    def daily_budget(self) -> float:
+        """今天聊天这一块的额度：配置的每日额度，开了平摊时再和平摊额度取小。"""
+        paced = self.paced_daily()
+        return self.rules.daily_usd if paced is None else min(self.rules.daily_usd, paced)
+
     def limit_for(self, priority: Priority) -> float | None:
         """这个优先级今天最多能用到的聊天花费；用户直接找她时为 None（不设每日额度）。"""
         if priority == Priority.USER:
             return None
-        return self.rules.daily_usd * getattr(self.rules.shares, SHARE_KEYS[priority])
+        return self.daily_budget() * getattr(self.rules.shares, SHARE_KEYS[priority])
 
     def decide(self, priority: Priority, estimate_usd: float, *, pending: float = 0.0) -> Decision:
         """pending：同一批里排在前面、已经占用的预估花费。"""

@@ -70,3 +70,33 @@ def test_plan_orders_by_priority_and_never_overspends():
 def test_negative_estimate_rejected():
     with pytest.raises(ValueError):
         make().decide(Priority.LIFE, -1)
+
+
+def paced(before: float, *, pace: bool = True, monthly: float = 5.0) -> BudgetScheduler:
+    from ..orchestrator.conftest import Env as _Env
+
+    chat = _Env().config.roundtable.chat
+    budget = chat.budget.model_copy(update={"pace": pace, "monthly_usd": monthly})
+    env = _Env(rt_update={"chat": chat.model_copy(update={"budget": budget})})
+    env.rt.budget.now = lambda: NOW  # 10 月 29 日：含今天还剩 3 天
+    env.rt.repo.spent_in_workflow = lambda wf, start, end: before
+    s = BudgetScheduler(env.rt)
+    s.spent_today = lambda: 0.0
+    s._monthly_left = lambda: monthly - before
+    return s
+
+
+def test_pacing_spreads_what_is_left_of_the_month():
+    s = paced(before=4.7)  # 还剩 $0.30 / 3 天 = $0.10 一天，小于每日额度 $0.25
+    assert s.daily_budget() == pytest.approx(0.10)
+    assert s.limit_for(Priority.LIFE) == pytest.approx(0.10 * s.rules.shares.life)
+    assert s.decide(Priority.PROACTIVE, 0.09).action == "note"
+    assert s.decide(Priority.USER, 0.09).call  # 你直接找她不受平摊限制
+    # 月初钱多：照旧按配置的每日额度
+    assert paced(before=0.0).daily_budget() == pytest.approx(s.rules.daily_usd)
+
+
+def test_pacing_can_be_turned_off():
+    s = paced(before=4.7, pace=False)
+    assert s.paced_daily() is None
+    assert s.daily_budget() == pytest.approx(s.rules.daily_usd)

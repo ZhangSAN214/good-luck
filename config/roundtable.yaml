@@ -40,6 +40,7 @@ chat:
   work_title: 工作群
   budget:
     monthly_usd: 5.0               # 聊天这一块每月最多花多少（私聊 + 群聊；也计入上面的总预算）
+    pace: true                     # 按剩余天数平摊：成员自己的活动每天最多用「本月还剩的钱 ÷ 还剩几天」；你直接找她不受限
   memory:                          # 成员的分层记忆：只存本地，只用于聊天
     enabled: true
     context_chars: 800             # 聊天时最多带多少字的记忆

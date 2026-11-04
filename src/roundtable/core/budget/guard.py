@@ -38,6 +38,17 @@ def day_window(now: datetime) -> tuple[datetime, datetime]:
     return start, start + timedelta(days=1)
 
 
+def paced_daily(limit: float, spent_before_today: float, now: datetime) -> float:
+    """按剩余天数平摊的今日额度：(本月上限 − 今天之前已花) ÷ 本月还剩几天（含今天）。
+
+    某天花少了，省下的自动摊到后面几天；某天花多了，后面每天少一点。纯函数。
+    """
+    day_start, _ = day_window(now)
+    _, month_end = month_window(now)
+    days_left = max((month_end - day_start).days, 1)
+    return max(limit - spent_before_today, 0.0) / days_left
+
+
 def reset_text(moment: datetime, tz: tzinfo | None = None) -> str:
     """重置时间：先写 UTC，再写本地时间（tz 为空时用本机时区；与 UTC 相同时不重复）。"""
     utc = moment.astimezone(UTC)
