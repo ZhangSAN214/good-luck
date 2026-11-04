@@ -2199,6 +2199,28 @@ supercomputer:
       argv: [claude, -p, --permission-mode, acceptEdits, --output-format, text]
       skills: {code: 0.85, frontend: 0.85, review: 0.9, docs: 0.85, test: 0.75, research: 0.6, split: 0.85, merge: 0.85, vision: 0.9}
       daily_limit: 20
+    # OpenCode（2026-11-04 用户定接入，docs/SUPERCOMPUTER.md「OpenCode 和其他包月方案」）：
+    # 电脑上装好 opencode 并 `opencode auth login` 登录包月方案（默认 OpenCode Go，$10/月）。
+    # Go 每个模型的额度各算各的，所以按模型分成几位：一位撞到限额歇着，另一位照常接活。
+    # 想换模型或换别的方案（智谱、Kimi、千问的编程包月等），改 -m 后面的「方案/模型」或照抄一位改 id。
+    # 没装 opencode 时这几位显示不可用，其余照常。Go 网页上的「Extra Usage」保持关闭，就不会多扣钱。
+    - id: opencode-ds
+      label: OpenCode·DeepSeek
+      argv: [opencode, run, -m, opencode-go/deepseek-v4.1-flash]
+      env: &opencode_env
+        # 只能改工作文件夹里的文件、跑命令、查网页；碰工作文件夹以外的一律拒绝，别的请求也拒绝
+        OPENCODE_PERMISSION: '{"edit":"allow","bash":"allow","webfetch":"allow","external_directory":"deny"}'
+      skills: {research: 0.8, docs: 0.7, code: 0.75, test: 0.65, review: 0.65, frontend: 0.6, split: 0.65, merge: 0.65}
+      daily_limit: 30
+      max_parallel: 2
+      limit_patterns: &opencode_limits [usage limit, rate limit, limit reached, quota, exceeded, insufficient balance]
+    - id: opencode-kimi
+      label: OpenCode·Kimi
+      argv: [opencode, run, -m, opencode-go/kimi-k2.7-code]
+      env: *opencode_env
+      skills: {code: 0.8, frontend: 0.7, test: 0.7, review: 0.65, docs: 0.6, research: 0.55, split: 0.65, merge: 0.65}
+      daily_limit: 20
+      limit_patterns: *opencode_limits
   # 管家（docs/SUPERCOMPUTER.md「管家」）：你建的定时活、排队、自治闸门、日报、哈希链审计。
   # 只调度你建好的定时活和你排进队的活，不会自己找活干；不调模型、不花钱。
   butler:

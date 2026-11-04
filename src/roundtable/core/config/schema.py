@@ -3867,6 +3867,9 @@ class SuperWorker(_Strict):
     via: Literal["command", "dsh"] = "command"
     # 命令行（via=command）；任务正文从标准输入交给它，不放进参数
     argv: list[str] = Field(default_factory=list)
+    # 额外的环境变量（via=command），如 OpenCode 的权限设置；不能放 key（名字以 _API_KEY、
+    # _TOKEN、_SECRET 结尾的一律拒绝），key 只能由助手自己登录保存
+    env: dict[str, str] = Field(default_factory=dict)
     skills: dict[str, float] = Field(default_factory=dict)  # 活的种类 → 擅长程度 0～1
     daily_limit: int = Field(default=20, ge=0, le=1000)  # 每天最多派几件（界面上可改）
     # 按用量花钱（不是包月订阅）：weights.metered_last 打开时只在不花钱的都用不了时补位
@@ -3883,6 +3886,9 @@ class SuperWorker(_Strict):
     def _argv(self) -> SuperWorker:
         if self.via == "command" and not self.argv:
             raise ValueError(f"{self.id}：via=command 时要写 argv")
+        for name in self.env:
+            if name.upper().endswith(("_API_KEY", "_TOKEN", "_SECRET", "_KEY")):
+                raise ValueError(f"{self.id}.env.{name}：key 不能写进配置，让助手自己登录")
         for kind, v in self.skills.items():
             if not 0 <= v <= 1:
                 raise ValueError(f"{self.id}.skills.{kind} 要在 0～1 之间")

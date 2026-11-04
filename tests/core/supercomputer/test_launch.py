@@ -64,3 +64,38 @@ async def test_hook_launcher():
     await lau.before(w)
     await lau.after(w)
     assert calls == ["before", "after"]
+
+
+def test_command_launcher_adds_worker_env():
+    """OpenCode 这类助手的权限设置写在配置的 env 里，启动时带上（2026-11-04 接入 OpenCode）。"""
+    w = SuperWorker(id="a", label="A", argv=["agent"], env={"AGENT_PERMISSION": '{"edit":"allow"}'})
+    lau = CommandLauncher(environ={"PATH": "/bin"}, which=lambda name: f"/usr/bin/{name}")
+    assert lau.launch(w).env == {"PATH": "/bin", "AGENT_PERMISSION": '{"edit":"allow"}'}
+
+
+def test_worker_env_refuses_keys():
+    import pytest
+    from pydantic import ValidationError
+
+    for name in ("OPENCODE_API_KEY", "GH_TOKEN", "CLIENT_SECRET", "deepseek_key"):
+        with pytest.raises(ValidationError, match="key 不能写进配置"):
+            SuperWorker(id="a", label="A", argv=["agent"], env={name: "x"})
+
+
+def test_opencode_workers_in_config_are_subscription_workers():
+    """配置里的 OpenCode 助手：走包月（不是按量补位），不带 key，碰工作文件夹以外一律拒绝。"""
+    import json
+
+    from roundtable.core.config import load_config
+
+    workers = [
+        w
+        for w in load_config().roundtable.supercomputer.workers
+        if w.argv[:2] == ["opencode", "run"]
+    ]
+    assert len(workers) >= 2
+    for w in workers:
+        assert not w.metered and "-m" in w.argv
+        perm = json.loads(w.env["OPENCODE_PERMISSION"])
+        assert perm["external_directory"] == "deny"
+    assert len({w.argv[w.argv.index("-m") + 1] for w in workers}) == len(workers)  # 每位一个模型
