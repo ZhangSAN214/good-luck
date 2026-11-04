@@ -5,6 +5,17 @@
 
 import { ICONS } from './starmap_icons.js';
 
+// 倾斜轨道上的一点：先在水平圆上取角 a，再绕「升交点方向」转 inc
+export function onOrbit(r, inc, node, a) {
+  const x = Math.cos(a) * r;
+  const z = Math.sin(a) * r;
+  const cn = Math.cos(node);
+  const sn = Math.sin(node);
+  const u = x * cn + z * sn; // 沿升交点方向的分量（不动）
+  const v = -x * sn + z * cn; // 垂直方向的分量（抬起 inc）
+  return [u * cn - v * Math.cos(inc) * sn, v * Math.sin(inc), u * sn + v * Math.cos(inc) * cn];
+}
+
 const LIB = '../vendor/three/three-starmap.js';
 let lib = null;
 export async function loadLib() {
@@ -342,12 +353,15 @@ export class Scene3D {
     this.map = map;
     this.pos = pos;
     this.accMats = [];
+    this.fades = new Set();
+    this.t0 = performance.now();
     this.root = new T.Group();
     this.scene.add(this.root);
     this.nodes = new Map();
     this.labelObjs = [];
     this.pickables = [];
     const add = th.blend === 'add' ? T.AdditiveBlending : T.NormalBlending;
+    this.orbitOf = new Map();
     if (this.orbits) {
       this.orbits.clear();
       const fine = th.star === 'dot';
@@ -355,8 +369,9 @@ export class Scene3D {
         // 手绘轨道：每圈两笔，半径带一点起伏，首尾不完全接上
         let seed = 11;
         const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
-        for (const [r, op] of [[orbit, 0.5], [orbit * 0.5, 0.28], [orbit * 1.55, 0.2]]) {
-          for (let k = 0; k < 2; k += 1) {
+        const specs = pos.orbits ? [...pos.orbits.map((o) => [o.r, 0.13, o]), [orbit * 1.55, 0.2, null]] : [[orbit, 0.5, null], [orbit * 0.5, 0.28, null], [orbit * 1.55, 0.2, null]];
+        for (const [r, op, tilt] of specs) {
+          for (let k = 0; k < (tilt ? 1 : 2); k += 1) {
             const pts = [];
             const a0 = rnd() * Math.PI * 2;
             const ph = rnd() * 6;
@@ -364,13 +379,26 @@ export class Scene3D {
             for (let i = 0; i <= 240; i += 1) {
               const a = a0 + (i / 240) * span;
               const rr = r * (1 + 0.006 * Math.sin(a * 2 + ph) + 0.003 * Math.sin(a * 5 + ph * 2)) + (k ? 2.2 : 0);
-              pts.push(new T.Vector3(Math.cos(a) * rr, Math.sin(a * 3 + ph) * 1.2, Math.sin(a) * rr));
+              const p = tilt ? onOrbit(rr, tilt.inc, tilt.node, a) : [Math.cos(a) * rr, 0, Math.sin(a) * rr];
+              pts.push(new T.Vector3(p[0], p[1] + Math.sin(a * 3 + ph) * 1.2, p[2]));
             }
-            this.orbits.add(new T.Line(new T.BufferGeometry().setFromPoints(pts), new T.LineBasicMaterial({ color: th.line, transparent: true, opacity: op * (k ? 0.45 : 1), depthWrite: false })));
+            const line = new T.Line(new T.BufferGeometry().setFromPoints(pts), new T.LineBasicMaterial({ color: th.line, transparent: true, opacity: op * (k ? 0.45 : 1), depthWrite: false }));
+            if (tilt) this.orbitOf.set(tilt.id, line);
+            this.orbits.add(line);
           }
         }
       }
-      for (const [r, op] of th.sketch ? [] : [[orbit, fine ? 0.42 : 0.5], [orbit * 0.5, fine ? 0.2 : 0.25], [orbit * 1.55, fine ? 0.12 : 0.18]]) {
+      if (!th.sketch && pos.orbits) {
+        // 每个星域自己的倾斜轨道
+        for (const o of pos.orbits) {
+          const pts = [];
+          for (let i = 0; i <= 200; i += 1) pts.push(new T.Vector3(...onOrbit(o.r, o.inc, o.node, (i / 200) * Math.PI * 2)));
+          const line = new T.Line(new T.BufferGeometry().setFromPoints(pts), new T.LineBasicMaterial({ color: th.line ?? 0x8fa2ff, transparent: true, opacity: 0.13, depthWrite: false }));
+          this.orbitOf.set(o.id, line);
+          this.orbits.add(line);
+        }
+      }
+      for (const [r, op] of th.sketch ? [] : pos.orbits ? [[orbit * 1.55, fine ? 0.12 : 0.18]] : [[orbit, fine ? 0.42 : 0.5], [orbit * 0.5, fine ? 0.2 : 0.25], [orbit * 1.55, fine ? 0.12 : 0.18]]) {
         const w = fine ? 0.35 : 0.6;
         const ring = new T.Mesh(
           new T.RingGeometry(r - w, r + w, 256),
@@ -379,6 +407,7 @@ export class Scene3D {
         ring.rotation.x = -Math.PI / 2;
         this.orbits.add(ring);
       }
+      this.galaxy(orbit);
       if (fine) {
         // 外圈刻度：像仪表盘一样的细刻度，每 30° 一根长的
         const pts = [];
@@ -479,7 +508,10 @@ export class Scene3D {
       this.root.add(g);
       const ph = ((hash(n.id) % 1000) / 1000) * Math.PI * 2;
       const amp = { core: 0, domain: 1.6, member: 2.2, star: 3.2, gap: 3.2 }[n.kind] ?? 2;
-      this.nodes.set(n.id, { n, g, parts, el, size, base: g.position.clone(), ph, amp });
+      for (const q of parts) q.userData.op0 = q.material.opacity;
+      // 开场：从中心按远近依次展开（近的先出来），之后亮暗、显隐、悬停都是渐变
+      const far = Math.hypot(p[0], p[1], p[2]);
+      this.nodes.set(n.id, { n, g, parts, el, size, base: g.position.clone(), ph, amp, born: this.t0 + (n.kind === 'core' ? 0 : 140 + far * 0.9), lit: 1, litGoal: 1, vis: 1, visGoal: 1, hov: 0 });
     }
     // 连线：从属线一束，相关 / 亲近画弧线虚线
     const tree = [];
@@ -525,6 +557,47 @@ export class Scene3D {
     this.buildFlow();
     this.home(orbit);
     this.select(null);
+  }
+
+  // 星系盘：两条对数螺旋旋臂 + 中心隆起，点的厚度中间厚、外面薄；整盘慢慢自转
+  galaxy(orbit) {
+    const T = this.T;
+    const th = this.th;
+    let seed = 97;
+    const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+    const gauss = () => (rnd() + rnd() + rnd() - 1.5) / 1.5;
+    const arms = th.star === 'dot' ? 2600 : 3400;
+    const bulge = 700;
+    const arr = new Float32Array((arms + bulge) * 3);
+    for (let i = 0; i < arms; i += 1) {
+      const t = Math.pow(rnd(), 0.8);
+      const r = orbit * (0.16 + t * 1.5);
+      const arm = i % 2;
+      const theta = arm * Math.PI + Math.log(r / (orbit * 0.16)) * 2.1 + gauss() * (0.42 - t * 0.18);
+      const rr = r * (1 + gauss() * 0.08);
+      arr.set([Math.cos(theta) * rr, gauss() * (26 * (1 - t) + 7), Math.sin(theta) * rr], i * 3);
+    }
+    for (let i = 0; i < bulge; i += 1) {
+      const r = Math.abs(gauss()) * orbit * 0.24;
+      const a = rnd() * Math.PI * 2;
+      const u = rnd() * 2 - 1;
+      const c = Math.sqrt(1 - u * u);
+      arr.set([Math.cos(a) * c * r, u * r * 0.55, Math.sin(a) * c * r], (arms + i) * 3);
+    }
+    const geo = new T.BufferGeometry();
+    geo.setAttribute('position', new T.BufferAttribute(arr, 3));
+    const mono = th.star === 'dot';
+    const pts = new T.Points(geo, new T.PointsMaterial({
+      size: mono ? 3 : th.gold ? 2.6 : 3.4,
+      map: this.tex[mono ? 'dot' : 'glow'],
+      color: mono ? 0x57524b : th.dustColor ?? 0xc9d6ff,
+      transparent: true,
+      opacity: mono ? 0.62 : 0.75,
+      depthWrite: false,
+      blending: th.blend === 'add' ? T.AdditiveBlending : T.NormalBlending,
+    }));
+    this.disc = pts;
+    this.orbits.add(pts);
   }
 
   // 手绘线：每条连线两笔，每笔分 SEG 段，中间按固定的随机方向轻轻鼓出去（像铅笔描了两遍）
@@ -615,18 +688,24 @@ export class Scene3D {
       const p = o.g.position;
       const h = Math.max(p.y - this.floorY, 0);
       const vis = o.g.visible;
-      const lit = !this.sel || o.el.classList.contains('near') || o.n.id === this.sel;
+      const lit = o.lit * o.grow;
       const k = o.n.kind === 'star' || o.n.kind === 'gap' ? 2.4 : 3.4;
       o.shadow.visible = vis;
       o.shadow.position.set(p.x, this.floorY, p.z);
-      o.shadow.scale.setScalar(o.size * k * (1 + h / 260));
-      o.shadow.material.opacity = Math.max(0.16, 0.85 - h / 420) * (lit ? 1 : 0.25);
+      o.shadow.scale.setScalar(o.size * k * (1 + h / 260) * Math.max(o.grow, 0.01));
+      o.shadow.material.opacity = Math.max(0.16, 0.85 - h / 420) * (0.25 + 0.75 * lit) * o.grow;
       const top = vis && o.n.kind !== 'star' ? p.y - o.size : this.floorY;
       a.setXYZ(i * 2, p.x, top, p.z);
       a.setXYZ(i * 2 + 1, p.x, this.floorY, p.z);
       i += 1;
     }
     a.needsUpdate = true;
+  }
+
+  // 渐变到目标透明度（每帧按时间平滑逼近，不跳变）
+  fadeTo(mat, goal) {
+    mat.userData.goal = goal;
+    this.fades.add(mat);
   }
 
   accCss() {
@@ -712,7 +791,11 @@ export class Scene3D {
       const out = new T.Vector3(target[0], 0, target[2]).normalize();
       dir.copy(out.multiplyScalar(0.85).add(new T.Vector3(0, 0.45, 0))).normalize();
     }
-    this.fly = { t, cam: t.clone().add(dir.multiplyScalar(dist)) };
+    const cam = t.clone().add(dir.multiplyScalar(dist));
+    const now = performance.now();
+    const far = this.camera.position.distanceTo(cam) + this.controls.target.distanceTo(t);
+    // 缓入缓出的镜头飞行：时长按距离定（0.9～1.8 秒），途中轻轻抬高一点，像镜头摇臂
+    this.fly = { t, cam, t0: now, dur: (this.calm ? 500 : 900) + Math.min(900, far * 0.5), fromT: this.controls.target.clone(), fromC: this.camera.position.clone(), lift: Math.min(160, far * 0.12) };
   }
 
   select(id, near = new Set()) {
@@ -721,15 +804,13 @@ export class Scene3D {
     const on = (nid) => !id || near.has(nid);
     for (const [nid, o] of this.nodes) {
       const lit = on(nid);
-      for (const p of o.parts) {
-        p.material.opacity = (p === o.g.userData.ring ? 0.6 : 1) * (lit ? 1 : 0.12);
-      }
+      o.litGoal = lit ? 1 : 0;
       o.el.classList.toggle('dim', !lit);
       o.el.classList.toggle('near', Boolean(id) && lit && nid !== id);
       o.el.classList.toggle('sel', nid === id);
     }
     if (this.tree) {
-      this.tree.material.opacity = id ? this.th.lineAlpha * 0.25 : this.th.lineAlpha;
+      this.fadeTo(this.tree.material, id ? this.th.lineAlpha * 0.25 : this.th.lineAlpha);
       if (this.hot) {
         this.accMats = this.accMats.filter((m) => m !== this.hot.material);
         this.root.remove(this.hot);
@@ -741,7 +822,8 @@ export class Scene3D {
         this.hotLinks = this.treeLinks.filter((l) => l.a === id || l.b === id);
         for (const l of this.hotLinks) pts.push(this.nodes.get(l.a).g.position, this.nodes.get(l.b).g.position);
         if (pts.length) {
-          const mat = this.accMat(new T.LineBasicMaterial({ transparent: true, opacity: 0.9 }));
+          const mat = this.accMat(new T.LineBasicMaterial({ transparent: true, opacity: 0 }));
+          this.fadeTo(mat, 0.9);
           this.hot = this.th.sketch ? this.sketchLines(this.hotLinks, mat) : new T.LineSegments(new T.BufferGeometry().setFromPoints(pts), mat);
           this.root.add(this.hot);
         }
@@ -749,7 +831,17 @@ export class Scene3D {
     }
     for (const c of this.curves || []) {
       const lit = !id || c.userData.a === id || c.userData.b === id;
-      c.material.opacity = lit ? (id ? 0.95 : c.userData.base) : 0.05;
+      this.fadeTo(c.material, lit ? (id ? 0.95 : c.userData.base) : 0.05);
+    }
+    // 选中星域（或它下面的星）时，它的轨道亮起来
+    let dom = id && this.orbitOf.has(id) ? id : null;
+    if (id && !dom) {
+      const l = (this.treeLinks || []).find((x) => (x.a === id && this.orbitOf.has(x.b)) || (x.b === id && this.orbitOf.has(x.a)));
+      if (l) dom = this.orbitOf.has(l.a) ? l.a : l.b;
+    }
+    for (const [oid, line] of this.orbitOf) {
+      line.userData.base = line.userData.base ?? line.material.opacity;
+      this.fadeTo(line.material, oid === dom ? 0.75 : id ? line.userData.base * 0.6 : line.userData.base);
     }
     // 选中后也不停：绕着选中的星慢慢转
     this.controls.autoRotateSpeed = (this.calm ? 0.12 : 0.35) * (id ? 0.45 : 1);
@@ -784,7 +876,7 @@ export class Scene3D {
   }
 
   setVisible(fn) {
-    for (const o of this.nodes ? this.nodes.values() : []) o.g.visible = fn(o.n);
+    for (const o of this.nodes ? this.nodes.values() : []) o.visGoal = fn(o.n) ? 1 : 0;
   }
 
   bindPointer() {
@@ -834,18 +926,46 @@ export class Scene3D {
 
   frame() {
     const now = performance.now();
-    if (this.fly) {
-      this.controls.target.lerp(this.fly.t, 0.08);
-      this.camera.position.lerp(this.fly.cam, 0.08);
-      if (this.camera.position.distanceTo(this.fly.cam) < 1) this.fly = null;
+    const dt = Math.min(0.05, Math.max(0, (now - (this.last || now)) / 1000));
+    this.last = now;
+    const k = 1 - Math.exp(-dt * 7); // 平滑逼近的步长，和帧率无关
+    if (this.fly && this.fly.t0 !== undefined) {
+      const f = this.fly;
+      const u = Math.min(1, (now - f.t0) / f.dur);
+      const e = u < 0.5 ? 4 * u * u * u : 1 - Math.pow(-2 * u + 2, 3) / 2;
+      this.controls.target.lerpVectors(f.fromT, f.t, e);
+      this.camera.position.lerpVectors(f.fromC, f.cam, e);
+      this.camera.position.y += Math.sin(Math.PI * u) * f.lift;
+      if (u >= 1) this.fly = null;
+    }
+    this.controls.autoRotate = !this.fly;
+    for (const m of this.fades || []) {
+      m.opacity += (m.userData.goal - m.opacity) * k;
+      if (Math.abs(m.userData.goal - m.opacity) < 0.002) {
+        m.opacity = m.userData.goal;
+        this.fades.delete(m);
+      }
     }
     const t = now / 1000;
     for (const o of this.nodes ? this.nodes.values() : []) {
-      // 漂浮：每颗星绕自己的位置轻轻晃（相位按 id 定，彼此不同步）
+      const bu = Math.min(1, Math.max(0, (now - o.born) / (this.calm ? 400 : 1100)));
+      const birth = 1 - Math.pow(1 - bu, 4); // 缓出：冲出去再轻轻停稳
+      o.lit += (o.litGoal - o.lit) * k;
+      o.vis += (o.visGoal - o.vis) * k;
+      o.hov += ((this.hoverId === o.n.id ? 1 : 0) - o.hov) * Math.min(1, k * 1.6);
+      o.grow = birth * o.vis;
+      const shown = o.grow > 0.02;
+      if (shown !== o.g.visible) {
+        o.g.visible = shown;
+        o.el.style.visibility = shown ? '' : 'hidden'; // DOM 标签不跟着父节点隐藏，要自己藏
+      }
+      for (const q of o.parts) q.material.opacity = q.userData.op0 * (0.1 + 0.9 * o.lit);
+      o.g.scale.setScalar(Math.max(o.grow, 0.001) * (1 + 0.2 * o.hov));
+      // 漂浮：每颗星绕自己的位置轻轻晃（相位按 id 定，彼此不同步）；开场时从中心沿直线飞出
       o.g.position.set(
-        o.base.x + Math.sin(t * 0.55 + o.ph) * o.amp * 0.7,
-        o.base.y + Math.sin(t * 0.8 + o.ph * 1.3) * o.amp,
-        o.base.z + Math.cos(t * 0.5 + o.ph) * o.amp * 0.7,
+        (o.base.x + Math.sin(t * 0.55 + o.ph) * o.amp * 0.7) * birth,
+        (o.base.y + Math.sin(t * 0.8 + o.ph * 1.3) * o.amp) * birth,
+        (o.base.z + Math.cos(t * 0.5 + o.ph) * o.amp * 0.7) * birth,
       );
       const b = o.g.userData.badge;
       if (b) b.sp.scale.setScalar(b.scale * (1 + 0.04 * Math.sin(t * 1.6 + o.ph)));
@@ -858,11 +978,20 @@ export class Scene3D {
       if (o.g.userData.ring) o.g.userData.ring.rotation.z += 0.004;
     }
     if (this.dust) this.dust.rotation.y += 0.00012;
+    if (this.disc) {
+      this.disc.rotation.y -= this.calm ? 0.0001 : 0.0004;
+      const du = Math.min(1, (now - (this.t0 || 0)) / 1800);
+      const de = 1 - Math.pow(1 - du, 3);
+      this.disc.scale.setScalar(0.55 + 0.45 * de);
+      this.disc.material.opacity = (this.disc.userData.op0 ?? (this.disc.userData.op0 = this.disc.material.opacity)) * de;
+    }
     if (this.halo && this.halo.parent) {
       const s = this.halo.userData.size;
       const k = ((now - this.halo.userData.t0) / 1800) % 1;
       const [a, b] = this.halo.children;
-      a.scale.setScalar(s * (1.32 + 0.04 * Math.sin(t * 2.4)));
+      const pu = Math.min(1, (now - this.halo.userData.t0) / 600);
+      const pop = 1 + 2.7 * Math.pow(pu - 1, 3) + 1.7 * Math.pow(pu - 1, 2); // 回弹：先放大一点再收回
+      a.scale.setScalar(s * pop * (1.32 + 0.04 * Math.sin(t * 2.4)));
       a.material.opacity = 0.95;
       b.scale.setScalar(s * (1.3 + k * 1.1));
       b.material.opacity = (1 - k) * 0.55;

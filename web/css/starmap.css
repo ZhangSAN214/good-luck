@@ -105,7 +105,7 @@ dialog#starmapdlg::backdrop{background:rgba(3,5,12,.7)}
 .sm.gl .sm-canvas,.sm.gl .sm-tip{display:none}
 .sm-theme{flex:none;border:1px solid var(--glass-line);background:var(--glass);color:inherit;border-radius:999px;padding:5px 10px;font:inherit;font-size:12px;cursor:pointer}
 .sm-theme option{color:#111}
-.sm3-l{white-space:nowrap;font-size:11px;letter-spacing:.04em;color:var(--lab,#cfd8f4);opacity:0;transition:opacity .25s,color .25s;text-shadow:0 1px 6px rgba(0,0,0,.7)}
+.sm3-l{white-space:nowrap;font-size:11px;letter-spacing:.04em;color:var(--lab,#cfd8f4);opacity:0;transition:opacity .6s cubic-bezier(.22,1,.36,1),color .4s;text-shadow:0 1px 6px rgba(0,0,0,.7)}
 .sm3-l.k-core,.sm3-l.k-domain,.sm3-l.k-member,.sm3-l.hover,.sm3-l.sel,.sm3-l.near{opacity:1}
 .sm3-l.k-core{font-size:16px;font-weight:600;letter-spacing:.12em;color:#fff}
 .sm3-l.k-domain,.sm3-l.k-member{font-size:12.5px;font-weight:600;color:#f1f4ff}
@@ -343,3 +343,15 @@ dialog#starmapdlg:has(.sm[data-theme="mono"]){background:
   .sm[data-theme="mono"] .sm-acc{padding:0 10px;gap:6px}
   .sm[data-theme="mono"] .sm-fold{border:0;border-radius:10px;background:var(--panel);box-shadow:var(--shadow);height:32px;color:var(--ink)}
 }
+
+/* 丝滑过渡：面板、卡片、标签都用同一条缓出曲线 */
+.sm{--ease:cubic-bezier(.22,1,.36,1)}
+.sm-legend,.sm-time{animation:sm-rise .9s var(--ease) both}
+.sm-time{animation-delay:.12s}
+@keyframes sm-rise{from{opacity:0;transform:translateY(14px)}}
+.sm-time{animation-name:sm-rise-c}
+@keyframes sm-rise-c{from{opacity:0;transform:translate(-50%,14px)}}
+.sm-g,.sm-gaps li,.sm-rel li,.sm-changes li{transition:background .35s var(--ease),color .35s var(--ease),box-shadow .35s var(--ease),padding .35s var(--ease)}
+.sm-g em::after{transition:width .9s var(--ease)}
+.sm-score circle+circle{transition:stroke-dasharray 1.2s var(--ease)}
+@media (prefers-reduced-motion:reduce){.sm-legend,.sm-time{animation:none}}

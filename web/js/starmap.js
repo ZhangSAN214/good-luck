@@ -5,7 +5,7 @@
 // - 底部时间轴：拖回过去，看圆桌 / 成员一路是怎么长出来的；「播放」从头放一遍。
 // - 不用第三方库：canvas 2D + 自己的透视投影（几百颗星，普通电脑和平板都流畅）。
 
-import { THEMES, Scene3D, loadLib, webglOK } from './starmap3d.js';
+import { THEMES, Scene3D, loadLib, onOrbit, webglOK } from './starmap3d.js';
 import { iconSvg } from './starmap_icons.js';
 
 const THEME_KEY = 'roundtable.starmap.theme';
@@ -71,10 +71,17 @@ export function layout(map) {
     if (!kids.has(p)) kids.set(p, []);
     kids.get(p).push(c);
   }
+  // 像真正的星系：每个星域走自己的轨道，半径有大有小、轨道面各自倾斜（倾角 8°～34°，升交点各不相同），
+  // 所以星域分布在上下不同的高度，转起来能看出纵深
+  pos.orbits = [];
   domains.forEach((d, i) => {
+    const t = rng(hash(d.id));
     const a = (i / domains.length) * Math.PI * 2 + 0.35;
-    const y = (i % 2 ? 1 : -1) * 46 + Math.sin(a * 2) * 22;
-    pos.set(d.id, [Math.cos(a) * orbit, y, Math.sin(a) * orbit]);
+    const r = orbit * (0.68 + ((i * 0.618) % 1) * 0.58);
+    const inc = ((i % 2 ? 1 : -1) * (8 + t() * 26) * Math.PI) / 180;
+    const node = t() * Math.PI * 2;
+    pos.orbits.push({ id: d.id, r, inc, node });
+    pos.set(d.id, onOrbit(r, inc, node, a));
   });
   for (const d of domains) {
     const base = pos.get(d.id);
@@ -91,7 +98,7 @@ export function layout(map) {
       const j = r * (0.82 + t() * 0.3);
       pos.set(id, [
         base[0] + out[0] + Math.cos(phi) * rr * j,
-        base[1] + y * j * 0.8,
+        base[1] + y * j,
         base[2] + out[2] + Math.sin(phi) * rr * j,
       ]);
     });
