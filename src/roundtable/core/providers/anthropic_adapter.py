@@ -36,6 +36,7 @@ class AnthropicProvider(Provider):
             raise ConfigError(f"渠道 {channel} 使用 anthropic 适配器，必须配置 key_env")
         self._secrets = [key.reveal()]
         self._extra_body = dict(spec.extra_body)
+        self._cache = spec.prompt_cache  # 顶层 cache_control：自动缓存最后一个能缓存的块
         self._client = anthropic.AsyncAnthropic(
             api_key=key.reveal(),
             base_url=spec.base_url,
@@ -75,6 +76,8 @@ class AnthropicProvider(Provider):
         system = "\n\n".join(m.content for m in messages if m.role == "system")
         if system:
             kwargs["system"] = system
+        if self._cache:
+            kwargs.setdefault("cache_control", {"type": "ephemeral"})
         if self._extra_body:
             kwargs["extra_body"] = self._extra_body
 

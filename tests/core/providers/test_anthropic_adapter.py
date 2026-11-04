@@ -169,3 +169,26 @@ async def test_image_blocks_and_audio_rejected():
         await provider.complete("claude-test", [Message("user", "看", (video,))], {})
     assert info.value.kind == ErrorKind.BAD_REQUEST
     await provider.aclose()
+
+
+async def test_prompt_cache_adds_top_level_cache_control():
+    """渠道开了 prompt_cache：请求带顶层 cache_control（2026-11-04 用 Claude API 额度时开）。"""
+    seen = []
+
+    def handler(request: httpx2.Request):
+        seen.append(json.loads(request.content))
+        return httpx2.Response(200, json=ok_body())
+
+    for cache in (True, False):
+        spec = channel(
+            "anthropic",
+            base_url="https://anthropic.example.test",
+            key_env="ANTHROPIC_API_KEY",
+            prompt_cache=cache,
+        )
+        client = anthropic.DefaultAsyncHttpxClient(transport=httpx2.MockTransport(handler))
+        provider = AnthropicProvider("anthropic", spec, Secret(KEY), 30, http_client=client)
+        await provider.complete("claude-test", MESSAGES, {})
+        await provider.aclose()
+    assert seen[0]["cache_control"] == {"type": "ephemeral"}
+    assert "cache_control" not in seen[1]

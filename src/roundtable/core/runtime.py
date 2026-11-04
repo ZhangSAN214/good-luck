@@ -255,7 +255,7 @@ class Runtime:
         )
         router.set_gpu_guard(gamemode)
         weekly = WeeklyCap.from_config(config, repo, guard.now)
-        router.set_spend_gate(weekly.blocked if weekly.caps else None)
+        router.set_spend_gate(weekly.blocked if weekly.active else None)
         return cls(
             config=config,
             router=router,
