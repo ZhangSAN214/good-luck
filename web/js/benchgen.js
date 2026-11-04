@@ -698,6 +698,7 @@ export class BenchGenPanel {
         )
         .join('');
       if (wins) body.push(`<h4 class="bg-h4">分工</h4><table class="sc-subs bg-wintable"><thead><tr><th>窗口</th><th>谁写</th><th>状态</th></tr></thead><tbody>${wins}</tbody></table>`);
+      body.push(this.heroInfo(b));
       body.push(this.lastRoundHtml(b));
       if (b.stuck) body.push(this.stuckInfo(b));
     }
@@ -1085,6 +1086,20 @@ export class BenchGenPanel {
     </details>`;
   }
 
+  /** 主视觉先行（B2）：先只写主视觉，单独评审（真素材、占大半屏、有自己的样子），过了再写其余窗口。 */
+  heroInfo(b) {
+    const hc = b.hero_check;
+    if (!hc || (b.stuck || {}).hero) return '';
+    const label = { running: '评审中', passed: '过了', accepted: '你说就这样', skipped: '跳过了', stuck: '没过' }[hc.status] || hc.status;
+    const last = (hc.rounds || []).slice(-1)[0] || {};
+    const scores = Object.entries(last.scores || {}).map(([k, v]) => `${esc(k)} ${esc(v)}`).join('、');
+    const rel = (p) => `/bench/${encodeURIComponent(b.id)}/${String(p).split(/[\\/]/).map(encodeURIComponent).join('/')}`;
+    const shots = (last.shots || []).map((p) => `<a href="${rel(p)}" target="_blank" rel="noopener"><img src="${rel(p)}" alt="主视觉截图" loading="lazy"></a>`).join('');
+    return `<details class="bg-fold bg-hero-check"><summary>主视觉先行「${esc(hc.title || '')}」：${esc(label)}${(hc.rounds || []).length ? `（评了 ${esc(hc.rounds.length)} 次${scores ? `，${scores}` : ''}）` : ''}</summary>
+      ${hc.why ? `<p class="sc-sub">${esc(hc.why)}</p>` : ''}${last.summary ? `<p class="sc-sub">评审：${esc(last.summary)}</p>` : ''}
+      ${shots ? `<figure class="bg-demo"><figcaption>主视觉单独截图（电脑、手机）</figcaption>${shots}</figure>` : ''}</details>`;
+  }
+
   /** 做满轮数没过线（右栏）：哪几条没做到、卡在哪、建议。 */
   stuckInfo(b) {
     const k = b.stuck;
@@ -1093,11 +1108,18 @@ export class BenchGenPanel {
       .map((m) => `<li class="bg-miss"><b>${esc(m.id)}</b> ${esc(m.text)}<span class="sc-sub">${m.missed > 1 ? `连续 ${esc(m.missed)} 轮没做到` : '这轮没做到'}${(m.why || []).length ? `：${esc(m.why.join('；'))}` : ''}</span></li>`)
       .join('');
     const advice = (k.advice || []).map((a) => `<li>${esc(a)}</li>`).join('');
+    const rel = (p) => `/bench/${encodeURIComponent(b.id)}/${String(p).split(/[\\/]/).map(encodeURIComponent).join('/')}`;
+    const shots = (k.shots || []).map((p) => `<a href="${rel(p)}" target="_blank" rel="noopener"><img src="${rel(p)}" alt="主视觉截图" loading="lazy"></a>`).join('');
+    const head = k.hero
+      ? `主视觉「${esc((b.hero_check || {}).title || '')}」评了 ${esc(((b.hero_check || {}).rounds || []).length)} 次还没过（其余窗口还没写）`
+      : (b.status === 'needs_you' ? '做满了还没过线' : '交付前没过线的地方');
     return `<div class="bg-stuck">
-      <p><b>${b.status === 'needs_you' ? '做满了还没过线' : '交付前没过线的地方'}</b>${(k.trend || []).length ? ` · 评审分 ${esc(k.trend.join(' → '))}` : ''}</p>
+      <p><b>${head}</b>${(k.trend || []).length ? ` · 评审分 ${esc(k.trend.join(' → '))}` : ''}</p>
       ${missing ? `<ul class="bg-reqs">${missing}</ul>` : ''}
       ${(k.blocks || []).length ? `<p class="sc-sub">质检必须修：${esc(k.blocks.join('、'))}</p>` : ''}
       ${(k.high || []).length ? `<p class="sc-sub">对抗手的严重问题：${esc(k.high.join('；'))}</p>` : ''}
+      ${k.summary ? `<p class="sc-sub">评审：${esc(k.summary)}</p>` : ''}
+      ${shots ? `<figure class="bg-demo"><figcaption>最后一次的主视觉（电脑、手机）</figcaption>${shots}</figure>` : ''}
       ${advice ? `<h4 class="bg-h4">建议</h4><ul class="bg-list">${advice}</ul>` : ''}
     </div>`;
   }
@@ -1105,9 +1127,11 @@ export class BenchGenPanel {
   /** 做满轮数没过线（左栏）：你来定——再跑一轮 / 改要求再跑 / 就这样收下。 */
   stuckForm(b) {
     const last = (b.rounds || []).slice(-1)[0] || {};
-    const reqs = (last.requirements || []).map((r) => this.reqRow(r)).join('');
-    return `<div class="bg-gate bg-stuck-form" data-form><p class="bg-gate-title"><b>等你：</b>做满了还没过线，你来定（右边写了卡在哪）</p>
-      <div class="sc-row"><button type="button" class="btn primary" data-decide="more">再跑一轮</button><button type="button" class="btn" data-decide="accept">就这样，收下</button></div>
+    const hero = !!(b.stuck || {}).hero;
+    const reqs = (hero ? ((b.proposal || {}).requirements || []) : (last.requirements || [])).map((r) => this.reqRow(r)).join('');
+    const title = hero ? '主视觉还没过，其余窗口先不写，你来定（右边写了卡在哪）' : '做满了还没过线，你来定（右边写了卡在哪）';
+    return `<div class="bg-gate bg-stuck-form" data-form><p class="bg-gate-title"><b>等你：</b>${title}</p>
+      <div class="sc-row"><button type="button" class="btn primary" data-decide="more">${hero ? '主视觉再改一次' : '再跑一轮'}</button><button type="button" class="btn" data-decide="accept">${hero ? '主视觉就这样，往下写' : '就这样，收下'}</button></div>
       <details class="bg-edit"><summary>改要求再跑</summary><ul class="bg-reqs bg-sign-reqs">${reqs}</ul>
         <button type="button" class="link" data-addreq>加一条要求</button>
         <div class="sc-row"><button type="button" class="btn" data-decide="edit">按改好的要求再跑一轮</button></div></details>

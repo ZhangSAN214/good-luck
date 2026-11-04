@@ -47,7 +47,7 @@ from roundtable.core.benchkit.intent import (
     voices_text,
 )
 from roundtable.core.benchkit.library import Library
-from roundtable.core.benchkit.lint import lint_data, lint_windows
+from roundtable.core.benchkit.lint import hero_facts, lint_data, lint_windows
 from roundtable.core.benchkit.quality import Finding, QualityError, Report, run_check, run_probes
 from roundtable.core.benchkit.research import Researcher, report_markdown
 from roundtable.core.benchkit.samples import SampleCatalog, install, load_catalog, samples_text
@@ -82,6 +82,9 @@ RUNS_KEPT = 12
 RECENT = 10
 # 写完自测：只开一种屏宽，只管这几项低级错误
 SELFTEST_VIEWPORTS = (("电脑", 1280, 860),)
+# 主视觉先行（B2）：电脑和手机各截一张，评审只看主视觉那一格
+HERO_VIEWPORTS = (("电脑", 1280, 860), ("手机", 390, 844))
+HERO_DONE = ("passed", "accepted", "skipped")
 REVERT_MARGIN = 0.3  # 一组窗口的评审均分比上一轮低这么多以上，就退回上一版
 SELFTEST_CHECKS = (
     *("页面报错", "点了报错", "窗口没用零件库", "自己画插图"),
@@ -201,6 +204,50 @@ def stuck_report(rounds: list[dict[str, Any]]) -> dict[str, Any]:
             "建议改要求或就这样收下"
         )
     return {"missing": missing, "blocks": blocks, "high": high, "trend": trend, "advice": advice}
+
+
+def hero_stuck(hc: dict[str, Any], rubric: list[str], pass_min: float) -> dict[str, Any]:
+    """主视觉返工满了还没过：和「卡在哪」同一个样子（哪几项没到、评审说的原因、分数走势、建议），
+    多一个 hero 标记和最后一次的截图。"""
+    rounds = [r for r in hc.get("rounds") or [] if r.get("scores")]
+    last = rounds[-1] if rounds else {}
+    missing = []
+    for k in rubric:
+        v = (last.get("scores") or {}).get(k, 0)
+        if v >= pass_min:
+            continue
+        missed = sum(1 for r in rounds if r["scores"].get(k, 0) < pass_min)
+        missing.append(
+            {
+                "id": k,
+                "text": f"主视觉·{k}：{v:g} 分（要 {pass_min:g}）",
+                "why": list(last.get("problems") or [])[:2],
+                "missed": missed,
+            }
+        )
+    trend = [round(mean(r["scores"].values()), 2) for r in rounds]
+    advice = []
+    for m in missing:
+        if m["missed"] >= 2 and m["missed"] == len(rounds):
+            advice.append(
+                f"「{m['id']}」连续 {m['missed']} 次没到：可能缺真素材或要求太笼统，"
+                "可以拖一张图进来当主视觉图，或者在要求里写清楚主视觉放什么"
+            )
+    if len(trend) >= 2 and trend[-1] - trend[0] >= 0.5:
+        advice.append(f"分数在涨（{trend[0]:g} → {trend[-1]:g}），再改一次有希望过")
+    elif len(trend) >= 2:
+        advice.append(f"分数没怎么涨（{trend[0]:g} → {trend[-1]:g}），再改多半也一样，建议改要求")
+    advice.append("其余窗口还没写：选「主视觉就这样」会按现在的主视觉接着写其余窗口")
+    return {
+        "hero": True,
+        "missing": missing,
+        "blocks": [],
+        "high": [],
+        "trend": trend,
+        "advice": advice,
+        "shots": list(last.get("shots") or []),
+        "summary": last.get("summary") or "",
+    }
 
 
 def _short(v: Any, limit: int = 80) -> str:
@@ -805,9 +852,224 @@ class BenchBuilder:
         """不走项目室时：一口气写完所有窗口，再按轮质检评审。"""
         b["status"] = "building"
         self._log(b, f"规格：{spec.title}，{len(spec.windows)} 个窗口")
-        await asyncio.gather(*(self._write(b, spec, w, rng) for w in b["windows"]))
+        due = self._hero_due(b, spec, [w["id"] for w in b["windows"]])
+        if due and not await self._hero_first(b, spec, rng, stage="", where="build"):
+            return
+        todo = [w for w in b["windows"] if w["status"] == "waiting"]
+        await asyncio.gather(*(self._write(b, spec, w, rng) for w in todo))
         await self._selftest(b, spec, rng)
         await self._rounds(b, spec, rng)
+
+    # --- 主视觉先行（B2）---------------------------------------------------------------
+
+    def _hero_due(self, b: dict[str, Any], spec: Spec, wids: list[str]) -> bool:
+        """这一批里有还没写的主视觉、而且主视觉还没过关：先只写它、单独评审。"""
+        if not self.rules.hero.enabled or not spec.hero or spec.hero not in wids:
+            return False
+        rec = next((w for w in b["windows"] if w["id"] == spec.hero), None)
+        hc = b.get("hero_check") or {}
+        return rec is not None and rec["status"] == "waiting" and hc.get("status") not in HERO_DONE
+
+    async def _hero_first(
+        self, b: dict[str, Any], spec: Spec, rng: random.Random, *, stage: str, where: str
+    ) -> bool:
+        """先只写主视觉，电脑 + 手机截图交给不是作者的人评（真素材、占大半屏、有自己的样子），
+        三项都到线才往下写；最多返工 ``max_rework`` 次。返回 False = 停下来等你（「卡在哪」）。"""
+        rec = next(w for w in b["windows"] if w["id"] == spec.hero)
+        b["hero_check"] = {
+            "window": spec.hero,
+            "title": rec["title"],
+            "status": "running",
+            "where": where,
+            "stage": stage,
+            "rounds": [],
+        }
+        self._log(b, f"主视觉先行：先只写「{rec['title']}」，评审过了再写其余窗口")
+        await self._write(b, spec, rec, rng, stage=stage)
+        if rec["status"] != "done":
+            b["hero_check"]["status"] = "skipped"
+            b["hero_check"]["why"] = "主视觉没写成，先往下做，交给后面的质检和返工"
+            self._log(b, "主视觉没写成，先往下做")
+            return True
+        return await self._hero_loop(b, spec, rec, rng, self.rules.hero.max_rework + 1)
+
+    async def _hero_loop(
+        self,
+        b: dict[str, Any],
+        spec: Spec,
+        rec: dict[str, Any],
+        rng: random.Random,
+        tries: int,
+        rework_first: bool = False,
+    ) -> bool:
+        hc = b["hero_check"]
+        hc["status"] = "running"
+        for k in range(tries):
+            if k or rework_first:
+                b["status"] = "reworking"
+                await self._hero_rework(b, spec, rec, rng)
+            b["status"] = "checking"
+            verdict = await self._hero_review(b, spec, rec, rng)
+            if verdict is None:
+                hc["status"] = "skipped"
+                return True
+            if verdict["passed"]:
+                hc["status"] = "passed"
+                self._log(b, f"主视觉过了（{self._hero_scores(verdict)}），接着写其余窗口")
+                if self.rules.project.enabled:
+                    self._mark(b, "执行", "主视觉过了", self._hero_scores(verdict))
+                b["status"] = "building"
+                return True
+        hc["status"] = "stuck"
+        b["stuck"] = hero_stuck(hc, self.rules.hero.rubric, self.rules.hero.pass_min)
+        b["status"] = "needs_you"
+        n = len(hc["rounds"])
+        self._log(b, f"主视觉评了 {n} 次还没过，其余窗口先不写，停下来等你决定")
+        if self.rules.project.enabled:
+            self._mark(b, "执行", "主视觉没过，等你决定", self._hero_scores(hc["rounds"][-1]))
+        return False
+
+    @staticmethod
+    def _hero_scores(r: dict[str, Any]) -> str:
+        return "、".join(f"{k} {v:g}" for k, v in (r.get("scores") or {}).items()) or "没评成"
+
+    async def _hero_review(
+        self, b: dict[str, Any], spec: Spec, rec: dict[str, Any], rng: random.Random
+    ) -> dict[str, Any] | None:
+        """单独评主视觉。没有能评的人（作者不能评自己）或评审结果看不懂时返回 None：不挡流程。"""
+        cfg = self.rules.hero
+        hc = b["hero_check"]
+        folder = self.folder(b["id"])
+        n = len(hc["rounds"]) + 1
+        shots = await self._selftest(
+            b, spec, rng, only=[rec["id"]], out=f"hero-{n}", viewports=HERO_VIEWPORTS
+        )
+        w = spec.window(rec["id"])
+        assert w is not None
+        facts = hero_facts(folder, w.id)
+        order = [x.id for x in spec.windows]
+        lines = [
+            f"排在第 {order.index(w.id) + 1} 个（共 {len(order)} 个窗口），"
+            f"电脑上占 12 列里的 {w.span} 列；外壳给它加了 k-hero（贴边、更高）",
+            "代码和数据里引用的真素材："
+            + ("、".join(facts["real"]) if facts["real"] else "没有（真素材一项不超过 4 分）"),
+            f"svg 图形 {facts['draw']} 处"
+            + ("（超过 12 处，算自己画插图）" if facts["draw"] > 12 else ""),
+            "用了零件库" if facts["uses_kit"] else "没用零件库",
+        ]
+        last = hc["rounds"][-1] if hc["rounds"] else {}
+        previous = "\n".join(f"- {p}" for p in last.get("problems") or []) or "（第一次评）"
+        prompt = self.render(
+            "bench_hero",
+            request=self._brief(b),
+            spec=json.dumps(spec.to_dict(), ensure_ascii=False, indent=1),
+            window=json.dumps(w.__dict__, ensure_ascii=False, indent=1),
+            shots="\n".join(shots) or "（这次没有截图）",
+            facts="\n".join(lines),
+            rubric="、".join(cfg.rubric),
+            previous=previous,
+            skills=self._skills("review", spec.kind, b),
+        )
+        record: dict[str, Any] = {"n": n, "shots": shots, "facts": facts}
+        chosen, result = await self._step(
+            b,
+            cfg.kind,
+            prompt,
+            rng,
+            record,
+            exclude=(rec["author"],) if rec.get("author") else (),
+            role="评审",
+            task=f"评主视觉「{w.title}」",
+        )
+        if chosen is None or result is None or not result.ok:
+            hc["why"] = "没有能评主视觉的人（作者不能评自己写的），先往下做"
+            self._log(b, hc["why"])
+            return None
+        try:
+            data = extract_json_object(result.output)
+        except JSONOutputError:
+            hc["why"] = "主视觉的评审结果看不懂，先往下做"
+            self._log(b, hc["why"])
+            return None
+        raw = data.get("scores") if isinstance(data.get("scores"), dict) else {}
+        scores: dict[str, float] = {}
+        for k in cfg.rubric:
+            try:
+                scores[k] = max(0.0, min(10.0, float(raw.get(k, 0))))
+            except (TypeError, ValueError):
+                scores[k] = 0.0
+        if not facts["real"] and "真素材" in scores:
+            scores["真素材"] = min(scores["真素材"], 4.0)  # 代码里一样真素材都没有：程序压分
+        record |= {
+            "reviewer": chosen.id,
+            "scores": scores,
+            "problems": [str(x)[:300] for x in (data.get("problems") or [])][:6],
+            "fixes": [str(x)[:300] for x in (data.get("fixes") or [])][:6],
+            "summary": str(data.get("summary") or "")[:400],
+            "passed": all(v >= cfg.pass_min for v in scores.values()),
+        }
+        hc["rounds"].append(record)
+        self._log(b, f"主视觉第 {n} 次评审：{self._hero_scores(record)}")
+        self._save()
+        return record
+
+    async def _hero_rework(
+        self, b: dict[str, Any], spec: Spec, rec: dict[str, Any], rng: random.Random
+    ) -> None:
+        """按主视觉评审的意见交回作者重做（只改主视觉这一格）。"""
+        hc = b["hero_check"]
+        last = hc["rounds"][-1] if hc["rounds"] else {}
+        lines = [
+            "- [主视觉先行·必须做到] 其余窗口还没写，要照着你这一格的样子来：先把主视觉做到"
+            f"{'、'.join(self.rules.hero.rubric)}都过线"
+        ]
+        for i, p in enumerate(last.get("problems") or []):
+            lines.append(f"- [主视觉评审] {p}")
+            fixes = last.get("fixes") or []
+            if i < len(fixes):
+                lines.append(f"  建议：{fixes[i]}")
+        if last.get("summary"):
+            lines.append(f"- [评审总评] {last['summary']}")
+        shot = desk_shot(list(last.get("shots") or []))
+        if shot:
+            lines.append(
+                f'- [自看] 改之前的截图：{shot}（你的窗口是 data-window="{rec["id"]}" 那一格；'
+                "别的格子还没写，不用管）"
+            )
+        w = spec.window(rec["id"])
+        assert w is not None
+        prompt = self.render(
+            "bench_rework",
+            request=self._brief(b),
+            spec=json.dumps(spec.to_dict(), ensure_ascii=False, indent=1),
+            window=json.dumps(w.__dict__, ensure_ascii=False, indent=1),
+            file=w.file,
+            data_file=w.data_file,
+            problems="\n".join(lines),
+            kit=self._kit_text(),
+            sources=self._sources_text(b),
+            net=self._net_text(),
+            samples=self._samples_text(b),
+            stage=hc.get("stage") or ONE_GO,
+            skills=self._skills("rework", spec.kind, b),
+        )
+        await self._redo(b, rec, prompt, rng, 0)
+
+    async def _hero_more(self, b: dict[str, Any]) -> None:
+        """「卡在哪」时选再改一次（或改了要求）：按上次的意见改一次、再评一次。"""
+        spec = load_spec(self.folder(b["id"]))
+        rng = random.Random(f"{b['seed']}-hero-{len(b['hero_check']['rounds'])}")
+        rec = next(w for w in b["windows"] if w["id"] == b["hero_check"]["window"])
+        if await self._hero_loop(b, spec, rec, rng, 1, rework_first=True):
+            await self._after_hero(b)
+
+    async def _after_hero(self, b: dict[str, Any]) -> None:
+        """主视觉过了（或你说就这样）：接着写其余窗口，回到停下来的地方。"""
+        where = b["hero_check"]["where"]
+        if where.startswith("m") and where[1:].isdigit():
+            await self._milestone(b, int(where[1:]))
+            return
+        await self._build_all(b, load_spec(self.folder(b["id"])), random.Random(b["seed"]))
 
     async def _rounds(
         self, b: dict[str, Any], spec: Spec, rng: random.Random, limit: int | None = None
@@ -1070,6 +1332,8 @@ class BenchBuilder:
             raise ValueError("现在不需要你决定")
         if self.busy:
             raise RuntimeError("正在做另一个工作台，等它停下来再继续")
+        if (b.get("hero_check") or {}).get("status") == "stuck":
+            return self._decide_hero(b, action, requirements)
         if action == "accept":
             b["status"], b["accepted_as_is"], b["stuck"] = "done", True, None
             self._log(b, "你选了「就这样」，按现在的样子收下")
@@ -1087,6 +1351,30 @@ class BenchBuilder:
         else:
             self._log(b, "你选了再跑一轮")
         self._start_job(b, lambda: self._more(b, spec))
+        return b
+
+    def _decide_hero(
+        self, b: dict[str, Any], action: str, requirements: list[dict[str, str]] | None
+    ) -> dict[str, Any]:
+        """主视觉卡住时你来定：再改一次（more）、改要求再改一次（edit）、主视觉就这样往下写（accept）。"""
+        if action not in ("more", "edit", "accept"):
+            raise ValueError("不认得这个操作")
+        hc = b["hero_check"]
+        if action == "edit":
+            if not requirements:
+                raise ValueError("改要求要给出新的验收清单")
+            spec = load_spec(self.folder(b["id"]))
+            self._edit_requirements(b, spec, requirements)
+            self._log(b, f"你改了要求（{len(spec.requirements)} 条），主视觉再改一次")
+        b["stuck"] = None
+        if action == "accept":
+            hc["status"] = "accepted"
+            self._log(b, "你选了「主视觉就这样」，接着写其余窗口")
+            self._start_job(b, lambda: self._after_hero(b))
+        else:
+            if action == "more":
+                self._log(b, "你选了主视觉再改一次")
+            self._start_job(b, lambda: self._hero_more(b))
         return b
 
     async def _more(self, b: dict[str, Any], spec: Spec) -> None:
@@ -1465,7 +1753,12 @@ class BenchBuilder:
         task = stage_task(m, spec.requirements, len(ms))
         b["stage_task"] = task  # 这一段里的自测返工、变更单返工也带上
         wids = m["windows"] or [w["id"] for w in b["windows"]]
-        recs = [w for w in b["windows"] if w["id"] in wids]
+        due = self._hero_due(b, spec, wids)
+        if due and not await self._hero_first(b, spec, rng, stage=task, where=f"m{n}"):
+            return
+        hc = b.get("hero_check") or {}
+        first = hc.get("window") if hc.get("where") == f"m{n}" else None  # 这一段先写过的主视觉
+        recs = [w for w in b["windows"] if w["id"] in wids and w["id"] != first]
         new = [w for w in recs if w["status"] == "waiting"]
         old = [w for w in recs if w["status"] != "waiting"]
         self._log(
@@ -2376,6 +2669,7 @@ class BenchBuilder:
         rng: random.Random,
         only: list[str] | None = None,
         out: str = "selftest",
+        viewports: tuple[tuple[str, int, int], ...] = SELFTEST_VIEWPORTS,
     ) -> list[str]:
         """写完先自测一遍（只开电脑·浅色，几秒钟）：脚本报错、没用零件库这种低级问题当场交回作者改，
         不占评审轮次，也不让评审拿着坏页面打分。``only``：只管这几个窗口（里程碑只写了一部分）。
@@ -2386,7 +2680,7 @@ class BenchBuilder:
                 self.check,
                 str(folder / "index.html"),
                 folder / "report" / out,
-                viewports=SELFTEST_VIEWPORTS,
+                viewports=viewports,
                 modes=("light",),
                 allow=self._allow(),
             )

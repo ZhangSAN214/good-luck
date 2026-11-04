@@ -4031,6 +4031,17 @@ class BenchProject(_Strict):
     gate_auto_hours: float = Field(default=0, ge=0, le=24 * 7)
 
 
+class BenchHero(_Strict):
+    """主视觉先行（B2，2026-11-04 用户要求）：有主视觉时先只写它，截图单独评审（真素材、占大半屏、
+    有自己的样子），过了再写其余窗口。最多返工 ``max_rework`` 次，还不过就按「卡在哪」停下来。"""
+
+    enabled: bool = True
+    max_rework: int = Field(default=2, ge=0, le=2)
+    rubric: list[str] = Field(default_factory=lambda: ["真素材", "占大半屏", "有自己的样子"])
+    pass_min: float = Field(default=7.0, ge=0, le=10)  # 每一项都要到这个分
+    kind: str = "review"  # 按哪种活挑评审（不会是主视觉的作者）
+
+
 class BenchMaterials(_Strict):
     """拖进来的素材（2026-10-31 用户：要能从外部拖进素材，并识别图片或视频来出方案）。
 
@@ -4164,6 +4175,7 @@ class BenchRules(_Strict):
     max_adopt: int = Field(default=3, ge=0, le=10)  # 一个工作台最多搬几个
     research: BenchResearch = Field(default_factory=BenchResearch)
     project: BenchProject = Field(default_factory=BenchProject)
+    hero: BenchHero = Field(default_factory=BenchHero)
     team: BenchTeam = Field(default_factory=BenchTeam)
     materials: BenchMaterials = Field(default_factory=BenchMaterials)
     skills: BenchSkills = Field(default_factory=BenchSkills)

@@ -57,8 +57,13 @@ class FakeSC:
         self.review_n = 0
         self.turn = 0
         self.parts: dict[str, str] = {}
-        self.window_code = "export default (el, ctx) => { el.innerHTML = ctx.kit.esc('ok'); };"
+        self.window_code = (
+            "export default (el, ctx) => { el.innerHTML = ctx.kit.esc('ok'); };"
+            " // 照片 assets/samples/astronaut.jpg"
+        )
         self.lazy = False
+        self.hero_scores = lambda n: 9  # 主视觉先行的评审分（第 n 次评）
+        self.hero_n = 0
 
     def worker(self, wid):
         return W(wid) if wid in self.workers else None
@@ -102,6 +107,16 @@ class FakeSC:
                 "scores": {k: s for k in p["rubric"].split("、")},
                 "windows": [{"id": wids[0], "problems": ["标题太挤"], "fixes": ["加大间距"]}],
                 "summary": "还行",
+            }
+            return W(who), RunResult(0, json.dumps(out, ensure_ascii=False))
+        if p["role"] == "bench_hero":
+            self.hero_n += 1
+            v = self.hero_scores(self.hero_n)
+            out = {
+                "scores": {k: v for k in p["rubric"].split("、")},
+                "problems": [] if v >= 7 else ["主视觉只有一张小图，被说明文字挤到下面"],
+                "fixes": [] if v >= 7 else ["照片铺满整格，说明收进折叠"],
+                "summary": "主视觉" + ("可以" if v >= 7 else "还不行"),
             }
             return W(who), RunResult(0, json.dumps(out, ensure_ascii=False))
         if p["role"] == "bench_ask":
@@ -1483,3 +1498,122 @@ async def test_structured_form_goes_into_request_and_trace(tmp_path):
     assert srcs[:3] == [("开工", "旅行台"), ("表单", "给谁用：爸妈"), ("表单", "联网：只用本地")]
     plan = next(json.loads(p) for p in sc.prompts if json.loads(p)["role"] == "bench_plan")
     assert "联网：只用本地" in plan["request"]
+
+
+# --- 主视觉先行（B2）-------------------------------------------------------------------
+
+HERO_PLAN = {**PLAN, "hero": "Map View"}
+
+
+def _roles(sc):
+    return [c["role"] for c in sc.calls]
+
+
+async def test_hero_is_written_and_reviewed_alone_before_other_windows(tmp_path):
+    sc = FakeSC(plan=HERO_PLAN)
+    b = make(tmp_path, sc)
+    b.submit("旅行台")
+    await b.wait()
+    build = b.build
+    assert build["status"] == "done"
+    roles = _roles(sc)
+    first_hero = roles.index("bench_hero")
+    # 主视觉评审之前只写了一个窗口（主视觉），其余窗口在它过了之后才写
+    assert roles[:first_hero].count("bench_window") == 1
+    assert roles.count("bench_window") == 3
+    hero_call = sc.calls[first_hero]
+    author = next(w["author"] for w in build["windows"] if w["id"] == "map-view")
+    assert hero_call["exclude"] == (author,) and hero_call["who"] != author  # 不自评
+    hc = build["hero_check"]
+    assert hc["status"] == "passed" and hc["where"] == "build" and len(hc["rounds"]) == 1
+    prompt = json.loads(sc.prompts[first_hero])
+    assert prompt["rubric"] == "真素材、占大半屏、有自己的样子"
+    assert "assets/" in prompt["facts"]  # 程序看到的真素材交给评审
+    assert "hero-1" in prompt["shots"]  # 主视觉单独截图
+
+
+async def test_hero_without_real_assets_is_capped_and_stops_after_two_reworks(tmp_path):
+    sc = FakeSC(plan=HERO_PLAN)
+    sc.window_code = "export default (el, ctx) => { el.innerHTML = ctx.kit.esc('ok'); };"
+    b = make(tmp_path, sc)
+    b.submit("旅行台")
+    await b.wait()
+    build = b.build
+    hc = build["hero_check"]
+    # 评审给 9 分，但代码里一样真素材都没有：程序把「真素材」压到 4，三次都过不了
+    assert [r["scores"]["真素材"] for r in hc["rounds"]] == [4.0, 4.0, 4.0]
+    assert build["status"] == "needs_you" and hc["status"] == "stuck"
+    assert _roles(sc).count("bench_hero") == 3 and _roles(sc).count("bench_rework") == 2
+    status = {w["id"]: w["status"] for w in build["windows"]}
+    assert status == {"map-view": "done", "plan": "waiting", "budget": "waiting"}
+    stuck = build["stuck"]
+    assert stuck["hero"] and stuck["missing"][0]["id"] == "真素材"
+    assert stuck["missing"][0]["missed"] == 3 and stuck["advice"]
+    assert not build["rounds"]  # 整体质检评审还没开始
+
+    # 你选「主视觉就这样」：接着写其余窗口，走完整体评审
+    b.decide(build["id"], "accept")
+    await b.wait()
+    assert hc["status"] == "accepted" and build["status"] == "done"
+    assert all(w["status"] == "done" for w in build["windows"])
+    assert _roles(sc).count("bench_window") == 3  # 主视觉没有重写
+
+
+async def test_hero_stuck_then_one_more_try_passes_and_continues(tmp_path):
+    sc = FakeSC(plan=HERO_PLAN)
+    sc.hero_scores = lambda n: 9 if n >= 4 else 5
+    b = make(tmp_path, sc)
+    b.submit("旅行台")
+    await b.wait()
+    build = b.build
+    assert build["status"] == "needs_you" and build["stuck"]["hero"]
+    rework = [json.loads(p) for p in sc.prompts if json.loads(p)["role"] == "bench_rework"]
+    assert "主视觉先行" in rework[0]["problems"] and "被说明文字挤到下面" in rework[0]["problems"]
+    assert rework[0]["file"] == "windows/map-view.js"
+    with pytest.raises(ValueError):
+        b.decide(build["id"], "edit")  # 改要求要给清单
+    b.decide(build["id"], "more")
+    await b.wait()
+    assert build["hero_check"]["status"] == "passed" and len(build["hero_check"]["rounds"]) == 4
+    assert build["status"] == "done" and build["stuck"] is None
+
+
+async def test_hero_single_worker_cannot_be_reviewed_so_it_moves_on(tmp_path):
+    sc = FakeSC(workers=("a",), plan=HERO_PLAN)
+    b = make(tmp_path, sc)
+    b.submit("旅行台")
+    await b.wait()
+    hc = b.build["hero_check"]
+    assert hc["status"] == "skipped" and "作者不能评" in hc["why"]
+    assert all(w["status"] == "done" for w in b.build["windows"])
+
+
+async def test_hero_off_or_no_hero_keeps_old_flow(tmp_path):
+    sc = FakeSC()
+    b = make(tmp_path, sc)
+    b.submit("旅行台")
+    await b.wait()
+    assert "bench_hero" not in _roles(sc) and b.build.get("hero_check") is None
+    sc = FakeSC(plan=HERO_PLAN)
+    b = make(tmp_path / "off", sc, hero={"enabled": False})
+    b.submit("旅行台")
+    await b.wait()
+    assert "bench_hero" not in _roles(sc) and b.build["status"] == "done"
+
+
+async def test_project_first_stage_writes_hero_first_and_does_not_rework_it(tmp_path):
+    sc = ProjectSC()
+    sc.hero_scores = lambda n: 9 if n >= 2 else 6
+    b = project(tmp_path, sc, interview=False)
+    build = b.submit("旅行台")
+    await b.wait()
+    b.sign(build["id"])
+    await b.wait()
+    assert build["gate"]["kind"] == "m1"
+    roles = _roles(sc)
+    first = roles.index("bench_hero")
+    assert roles[:first].count("bench_window") == 1
+    # 第 1 次没过 → 返工 1 次 → 第 2 次过；同一段里的主视觉不再按「本段任务」返工
+    assert roles.count("bench_hero") == 2 and roles.count("bench_rework") == 1
+    assert roles.count("bench_window") == 2  # 主视觉 + 第 1 段的另一个窗口
+    assert any(t["title"] == "主视觉过了" for t in build["timeline"])
