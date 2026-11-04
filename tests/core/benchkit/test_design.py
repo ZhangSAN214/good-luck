@@ -6,12 +6,14 @@ import json
 
 from roundtable.core.benchkit.spec import (
     DESIGN_DIMS,
+    LAYOUT_TEMPLATES,
     apply_design,
     assets_of,
     design_brief,
     design_catalog,
     design_lines,
     design_of,
+    layout_grid,
     layout_spans,
     look_of,
     normalize,
@@ -87,25 +89,72 @@ def test_design_of_keeps_only_known_values():
     assert len(d["why"]["layout"]) == 120 and "material" not in d["why"]
     assert d["refs"] == [{"name": "Photoshop", "borrow": "左工具栏", "from": "方案"}]
     assert d["tagline"] == "修图，一步到位"
-    assert design_of(None, "ink", THEMES)["picks"]["layout"] == "plan"
+    assert design_of(None, "ink", THEMES)["picks"]["layout"] == "hero-side"
+    # 旧规格里的版型名换成新模板
+    assert design_of({"picks": {"layout": "dashboard"}}, "ink", THEMES)["picks"]["layout"] == "quad"
+    assert design_of({"picks": {"layout": "plan"}}, "ink", THEMES)["picks"]["layout"] == "hero-side"
 
 
 def test_normalize_keeps_design_and_spans_fill_rows():
     spec = spec_with({"picks": {"layout": "hero-side"}})
     assert spec.design["picks"]["layout"] == "hero-side"
-    for lay, *_ in DESIGN_DIMS["layout"][2]:
+    assert [lay for lay, *_ in DESIGN_DIMS["layout"][2]] == list(LAYOUT_TEMPLATES)
+    for lay in LAYOUT_TEMPLATES:
         got = layout_spans(spec, lay)
+        assert got[0][0] == "canvas", lay  # 主视觉总排第一个（手机上在最上面）
         assert sorted(w for w, _ in got) == sorted(w.id for w in spec.windows)
-        if lay != "plan":
-            assert sum(n for _, n in got) % 12 == 0, lay
-    assert layout_spans(spec, "hero-side")[:2] == [("canvas", 8), ("w1", 4)]
-    assert layout_spans(spec, "workspace")[:3] == [("w1", 3), ("canvas", 6), ("w2", 3)]
-    assert layout_spans(spec, "hero-wide")[0] == ("canvas", 12)
+    assert layout_spans(spec, "hero-side")[:3] == [("canvas", 8), ("w1", 4), ("w2", 4)]
+    assert layout_spans(spec, "workspace")[:3] == [("canvas", 7), ("w1", 2), ("w2", 3)]
+    assert layout_spans(spec, "hero-wide")[0] == ("canvas", 12)  # 旧名照样认
     assert {n for _, n in layout_spans(spec, "stream")} == {12}
-    assert layout_spans(spec, "dashboard")[0] == ("canvas", 4)
-    # 窗口太少就退回主视觉 + 侧栏
+    assert layout_spans(spec, "quad")[0] == ("canvas", 6)
+    # 窗口太少：编辑器三栏变成画布 + 右侧属性
     small = spec_with(n=2)
-    assert layout_spans(small, "workspace") == [("canvas", 8), ("w1", 4)]
+    assert layout_spans(small, "workspace") == [("canvas", 9), ("w1", 3)]
+    # 旧规格的「按方案」照原样
+    assert layout_spans(spec, "plan") == [(w.id, w.span) for w in spec.windows]
+
+
+def test_layout_templates_fill_every_row_and_put_hero_first_on_tablet():
+    """每个模板在电脑上每一行正好 12 格、每个窗口的格子是连着的长方形；平板主视觉一整行。"""
+    for n in range(1, 8):
+        ids = ["hero-w"] + [f"w{i}" for i in range(1, n)]
+        for lay in LAYOUT_TEMPLATES:
+            g = layout_grid(ids, "hero-w", lay)
+            assert g["order"][0] == "hero-w" and set(g["area"]) == set(ids)
+            for rows in (g["desk"], g["tab"]):
+                cells = [r.split(" ") for r in rows]
+                assert all(len(r) == 12 for r in cells), (lay, n, rows)
+                assert {c for r in cells for c in r} == set(g["area"].values())
+                for name in g["area"].values():  # 格子要是长方形（CSS grid 的要求）
+                    pos = [
+                        (y, x) for y, r in enumerate(cells) for x, c in enumerate(r) if c == name
+                    ]
+                    ys, xs = {y for y, _ in pos}, {x for _, x in pos}
+                    assert len(pos) == len(ys) * len(xs), (lay, n, name)
+                    assert max(ys) - min(ys) + 1 == len(ys) and max(xs) - min(xs) + 1 == len(xs)
+            assert g["tab"][0] == " ".join(["hero"] * 12)
+    g = layout_grid(["c", "a", "b", "d"], "c", "flow")
+    assert g["step"] == {"a": 1, "c": 2, "b": 3, "d": 4}
+    assert g["desk"] == ["a1 a1 a1 hero hero hero hero hero hero a2 a2 a2", " ".join(["a3"] * 12)]
+    assert layout_grid(["a"], "a", "plan") is None
+
+
+def test_normalize_picks_layout_by_kind_and_tells_each_window_its_zone():
+    raw = {
+        "title": "修图台",
+        "kind": "editor",
+        "hero": "canvas",
+        "windows": [{"id": "canvas", "title": "画布"}, {"id": "tools", "title": "工具"}],
+    }
+    spec = normalize(raw, max_windows=8, kinds={"editor"})
+    assert spec.design["picks"]["layout"] == "workspace"  # 没挑版型：编辑器类用三栏
+    assert spec.window("canvas").zone.startswith("中间画布")
+    assert spec.window("tools").zone.startswith("右侧属性")
+    html = shell_html(spec, "x")
+    assert 'data-k-layout="workspace"' in html and "--k-areas:" in html
+    assert 'data-slot="hero" style="--k-area: hero"' in html
+    assert html.index('data-window="canvas"') < html.index('data-window="tools"')
 
 
 def test_apply_design_writes_picks_order_spans_and_drops():
@@ -118,7 +167,7 @@ def test_apply_design_writes_picks_order_spans_and_drops():
             "material": "glass",
             "type": "没有这个",
             "refs": ["Figma"],
-            "spans": {"w3": 12, "w4": 5, "canvas": "x"},
+            "spans": {"w3": 12, "w4": 5, "canvas": "x"},  # 固定模板：宽窄跟模板走，不认单调的
             "drop": ["w4", "canvas", "nope", "w4"],
         },
     )
@@ -128,20 +177,22 @@ def test_apply_design_writes_picks_order_spans_and_drops():
     assert spec.design["chosen"] is True
     assert [r["name"] for r in spec.design["refs"]] == ["Figma"]
     assert [(w.id, w.span) for w in spec.windows] == [
-        ("w1", 3),
-        ("canvas", 6),
+        ("canvas", 7),
+        ("w1", 2),
         ("w2", 3),
-        ("w3", 12),  # 你调的宽度盖过版型
+        ("w3", 12),  # 下面一行只剩它，占满
     ]
+    assert spec.window("w1").zone.startswith("左侧工具栏")
     assert spec.events[0]["to"] == ["canvas", "w2"]
     assert spec.requirements[0]["windows"] == ["w2", "canvas"]
     lines = design_lines(spec)
-    assert "版型：编辑器三栏（左边工具、中间画布、右边属性，像修图和设计软件）" in lines
+    assert "版型：编辑器三栏（左边窄工具栏、中间画布、右边属性，像修图和设计软件）" in lines
     assert "配色：纸本（暖白纸感，适合阅读、手账、学习）" in lines
     assert lines[-1] == "参考：Figma"
     html = shell_html(spec, "x1")
     assert 'data-k-theme="paper" data-k-material="glass">' in html  # 默认值不写
-    assert html.index('data-window="w1"') < html.index('data-window="canvas"')
+    assert html.index('data-window="canvas"') < html.index('data-window="w1"')  # 手机上主视觉在最上
+    assert 'data-k-layout="workspace"' in html and 'data-slot="a1"' in html
 
 
 def test_apply_design_keeps_at_least_two_windows():
@@ -174,7 +225,8 @@ async def test_sign_with_design_rewrites_spec_shell_and_brief(tmp_path):
     prop = b.build["proposal"]
     assert prop["windows"][0]["parts"] == ["mapFrame"] and "actions" in prop["windows"][0]
     book = (tmp_path / bid / "方案书.md").read_text(encoding="utf-8")
-    assert "## 设计选型" in book and "版型：主视觉 + 侧栏" in book and "### 地图（主视觉）" in book
+    assert "## 设计选型" in book and "版型：主视觉 + 侧栏列表 + 详情" in book
+    assert "### 地图（主视觉）" in book
 
     b.sign(
         bid,
@@ -197,7 +249,8 @@ async def test_sign_with_design_rewrites_spec_shell_and_brief(tmp_path):
     assert 'data-k-material="paper"' in html  # 没改的保留推荐
     assert [w["id"] for w in b.build["windows"]] == ["map-view", "budget"]
     assert [m["windows"] for m in b.build["proposal"]["milestones"]] == [["map-view"], ["budget"]]
-    assert "设计选型（你在选型台上定的）" in b.build["brief"] and "主视觉通栏" in b.build["brief"]
+    assert "设计选型（你在选型台上定的）" in b.build["brief"]
+    assert "主视觉 + 底部数据条" in b.build["brief"]  # 旧名 hero-wide 换成新模板
     assert any(t["title"] == "你定了设计" for t in b.build["timeline"])
 
 
@@ -230,7 +283,8 @@ def test_shell_writes_every_style_accent_note_and_assets():
     ]
     html = shell_html(spec, "x")
     assert 'data-k-bg="image"' in html and 'data-k-button="pill"' in html
-    assert "data-k-tone" not in html and "data-k-layout" not in html  # 只影响文案的不写
+    assert "data-k-tone" not in html and "<html" in html  # 只影响文案的不写
+    assert 'data-k-layout="hero-side"' not in html.split("<body")[0]  # 版型写在 <main> 上
     assert "--k-accent: #ffd400; --k-accent-fg: #111418" in html  # 亮黄上用深色字
     assert "--k-bg-image: url(&#x27;assets/a2.jpg&#x27;)" in html
     assert '<img src="assets/a1.png" alt="标志">' in html

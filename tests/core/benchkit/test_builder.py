@@ -57,8 +57,27 @@ class FakeSC:
         self.review_n = 0
         self.turn = 0
         self.parts: dict[str, str] = {}
-        self.window_code = "export default (el, ctx) => { el.innerHTML = ctx.kit.esc('ok'); };"
+        self.window_code = (
+            "export default (el, ctx) => { el.innerHTML = ctx.kit.esc('ok'); };"
+            " // 照片 assets/samples/astronaut.jpg"
+        )
         self.lazy = False
+        self.hero_scores = lambda n: 9  # 主视觉先行的评审分（第 n 次评）
+        self.hero_n = 0
+        # 方案书引用调研（I3）：技术选择指向调研编号
+        self.cite = {
+            "choices": [
+                {
+                    "choice": "地图用真实瓦片底图当主视觉",
+                    "why": "一眼看到在哪",
+                    "refs": ["g1", "zz9"],
+                    "borrow": "点列表高亮地图上的点",
+                    "windows": ["map-view"],
+                },
+                {"choice": "行程用零件库时间线", "refs": []},
+            ],
+            "skipped": [{"id": "g2", "why": "要登录"}],
+        }
 
     def worker(self, wid):
         return W(wid) if wid in self.workers else None
@@ -102,6 +121,18 @@ class FakeSC:
                 "scores": {k: s for k in p["rubric"].split("、")},
                 "windows": [{"id": wids[0], "problems": ["标题太挤"], "fixes": ["加大间距"]}],
                 "summary": "还行",
+            }
+            return W(who), RunResult(0, json.dumps(out, ensure_ascii=False))
+        if p["role"] == "bench_cite":
+            return W(who), RunResult(0, json.dumps(self.cite, ensure_ascii=False))
+        if p["role"] == "bench_hero":
+            self.hero_n += 1
+            v = self.hero_scores(self.hero_n)
+            out = {
+                "scores": {k: v for k in p["rubric"].split("、")},
+                "problems": [] if v >= 7 else ["主视觉只有一张小图，被说明文字挤到下面"],
+                "fixes": [] if v >= 7 else ["照片铺满整格，说明收进折叠"],
+                "summary": "主视觉" + ("可以" if v >= 7 else "还不行"),
             }
             return W(who), RunResult(0, json.dumps(out, ensure_ascii=False))
         if p["role"] == "bench_ask":
@@ -799,6 +830,7 @@ class ProjectSC(FakeSC):
     async def step(self, kind, prompt, **kw):
         p = json.loads(prompt)
         if p["role"] == "bench_interview":
+            self.prompts.append(prompt)
             self.calls.append({"role": p["role"], "who": "a"})
             out = {
                 "questions": [
@@ -1483,3 +1515,264 @@ async def test_structured_form_goes_into_request_and_trace(tmp_path):
     assert srcs[:3] == [("开工", "旅行台"), ("表单", "给谁用：爸妈"), ("表单", "联网：只用本地")]
     plan = next(json.loads(p) for p in sc.prompts if json.loads(p)["role"] == "bench_plan")
     assert "联网：只用本地" in plan["request"]
+
+
+# --- 主视觉先行（B2）-------------------------------------------------------------------
+
+HERO_PLAN = {**PLAN, "hero": "Map View"}
+
+
+def _roles(sc):
+    return [c["role"] for c in sc.calls]
+
+
+async def test_hero_is_written_and_reviewed_alone_before_other_windows(tmp_path):
+    sc = FakeSC(plan=HERO_PLAN)
+    b = make(tmp_path, sc)
+    b.submit("旅行台")
+    await b.wait()
+    build = b.build
+    assert build["status"] == "done"
+    roles = _roles(sc)
+    first_hero = roles.index("bench_hero")
+    # 主视觉评审之前只写了一个窗口（主视觉），其余窗口在它过了之后才写
+    assert roles[:first_hero].count("bench_window") == 1
+    assert roles.count("bench_window") == 3
+    hero_call = sc.calls[first_hero]
+    author = next(w["author"] for w in build["windows"] if w["id"] == "map-view")
+    assert hero_call["exclude"] == (author,) and hero_call["who"] != author  # 不自评
+    hc = build["hero_check"]
+    assert hc["status"] == "passed" and hc["where"] == "build" and len(hc["rounds"]) == 1
+    prompt = json.loads(sc.prompts[first_hero])
+    assert prompt["rubric"] == "真素材、占大半屏、有自己的样子"
+    assert "assets/" in prompt["facts"]  # 程序看到的真素材交给评审
+    assert "hero-1" in prompt["shots"]  # 主视觉单独截图
+
+
+async def test_hero_without_real_assets_is_capped_and_stops_after_two_reworks(tmp_path):
+    sc = FakeSC(plan=HERO_PLAN)
+    sc.window_code = "export default (el, ctx) => { el.innerHTML = ctx.kit.esc('ok'); };"
+    b = make(tmp_path, sc)
+    b.submit("旅行台")
+    await b.wait()
+    build = b.build
+    hc = build["hero_check"]
+    # 评审给 9 分，但代码里一样真素材都没有：程序把「真素材」压到 4，三次都过不了
+    assert [r["scores"]["真素材"] for r in hc["rounds"]] == [4.0, 4.0, 4.0]
+    assert build["status"] == "needs_you" and hc["status"] == "stuck"
+    assert _roles(sc).count("bench_hero") == 3 and _roles(sc).count("bench_rework") == 2
+    status = {w["id"]: w["status"] for w in build["windows"]}
+    assert status == {"map-view": "done", "plan": "waiting", "budget": "waiting"}
+    stuck = build["stuck"]
+    assert stuck["hero"] and stuck["missing"][0]["id"] == "真素材"
+    assert stuck["missing"][0]["missed"] == 3 and stuck["advice"]
+    assert not build["rounds"]  # 整体质检评审还没开始
+
+    # 你选「主视觉就这样」：接着写其余窗口，走完整体评审
+    b.decide(build["id"], "accept")
+    await b.wait()
+    assert hc["status"] == "accepted" and build["status"] == "done"
+    assert all(w["status"] == "done" for w in build["windows"])
+    assert _roles(sc).count("bench_window") == 3  # 主视觉没有重写
+
+
+async def test_hero_stuck_then_one_more_try_passes_and_continues(tmp_path):
+    sc = FakeSC(plan=HERO_PLAN)
+    sc.hero_scores = lambda n: 9 if n >= 4 else 5
+    b = make(tmp_path, sc)
+    b.submit("旅行台")
+    await b.wait()
+    build = b.build
+    assert build["status"] == "needs_you" and build["stuck"]["hero"]
+    rework = [json.loads(p) for p in sc.prompts if json.loads(p)["role"] == "bench_rework"]
+    assert "主视觉先行" in rework[0]["problems"] and "被说明文字挤到下面" in rework[0]["problems"]
+    assert rework[0]["file"] == "windows/map-view.js"
+    with pytest.raises(ValueError):
+        b.decide(build["id"], "edit")  # 改要求要给清单
+    b.decide(build["id"], "more")
+    await b.wait()
+    assert build["hero_check"]["status"] == "passed" and len(build["hero_check"]["rounds"]) == 4
+    assert build["status"] == "done" and build["stuck"] is None
+
+
+async def test_hero_single_worker_cannot_be_reviewed_so_it_moves_on(tmp_path):
+    sc = FakeSC(workers=("a",), plan=HERO_PLAN)
+    b = make(tmp_path, sc)
+    b.submit("旅行台")
+    await b.wait()
+    hc = b.build["hero_check"]
+    assert hc["status"] == "skipped" and "作者不能评" in hc["why"]
+    assert all(w["status"] == "done" for w in b.build["windows"])
+
+
+async def test_hero_off_or_no_hero_keeps_old_flow(tmp_path):
+    sc = FakeSC()
+    b = make(tmp_path, sc)
+    b.submit("旅行台")
+    await b.wait()
+    assert "bench_hero" not in _roles(sc) and b.build.get("hero_check") is None
+    sc = FakeSC(plan=HERO_PLAN)
+    b = make(tmp_path / "off", sc, hero={"enabled": False})
+    b.submit("旅行台")
+    await b.wait()
+    assert "bench_hero" not in _roles(sc) and b.build["status"] == "done"
+
+
+async def test_project_first_stage_writes_hero_first_and_does_not_rework_it(tmp_path):
+    sc = ProjectSC()
+    sc.hero_scores = lambda n: 9 if n >= 2 else 6
+    b = project(tmp_path, sc, interview=False)
+    build = b.submit("旅行台")
+    await b.wait()
+    b.sign(build["id"])
+    await b.wait()
+    assert build["gate"]["kind"] == "m1"
+    roles = _roles(sc)
+    first = roles.index("bench_hero")
+    assert roles[:first].count("bench_window") == 1
+    # 第 1 次没过 → 返工 1 次 → 第 2 次过；同一段里的主视觉不再按「本段任务」返工
+    assert roles.count("bench_hero") == 2 and roles.count("bench_rework") == 1
+    assert roles.count("bench_window") == 2  # 主视觉 + 第 1 段的另一个窗口
+    assert any(t["title"] == "主视觉过了" for t in build["timeline"])
+
+
+# --- 方案书引用调研（I3）-------------------------------------------------------------
+
+
+def test_cite_of_keeps_real_refs_flags_unsourced_and_needs_a_reason():
+    from roundtable.core.benchkit.research import cite_lines, cite_of
+
+    refs = [
+        {"id": "g1", "kind": "GitHub", "title": "o/r0", "url": "", "note": ""},
+        {"id": "k1", "kind": "学习卡", "title": "o/r0", "url": "", "note": ""},
+    ]
+    got = cite_of(
+        {
+            "choices": [
+                {"choice": "用瓦片底图", "refs": ["G1", "x9", "g1"], "windows": ["map", "nope"]},
+                {"choice": "  ", "refs": ["g1"]},
+                {"choice": "自己写时间线", "refs": []},
+            ],
+            "skipped": [{"id": "k1", "why": "太重"}, {"id": "g1", "why": "用了还写没用"}],
+        },
+        refs,
+        ["map"],
+    )
+    assert [c["id"] for c in got["choices"]] == ["t1", "t2"]
+    assert got["choices"][0]["refs"] == ["g1"] and got["choices"][0]["windows"] == ["map"]
+    assert got["unsourced"] == ["t2"] and got["used"] == ["g1"]
+    assert got["skipped"] == [{"id": "k1", "why": "太重"}]  # 用上了的不算「没用」
+    assert not got["none_used"] and not got["missing_reason"]
+    lines = cite_lines(got, refs)
+    assert lines[0] == "t1 用瓦片底图 ← 调研 [g1] o/r0"
+    assert "⚠ 没有指向调研里的哪一条" in lines[1]
+    # 一条都没用上：必须写原因，没写就标出来
+    none = cite_of({"choices": [{"choice": "全用零件库"}]}, refs, [])
+    assert none["none_used"] and none["missing_reason"]
+    assert cite_lines(none, refs)[-1] == "调研里一条都没用上：⚠ 助手没写原因"
+    why = cite_of({"choices": [], "unused_reason": "都要服务器"}, refs, [])
+    assert why["unused_reason"] == "都要服务器" and not why["missing_reason"]
+    assert cite_of({}, [], [])["none_used"] is False  # 没调研到东西就不要求
+
+
+class BorrowSC(ResearchSC):
+    """评审核对借鉴：第一轮说 t1 没做到，之后做到。"""
+
+    async def step(self, kind, prompt, **kw):
+        p = json.loads(prompt)
+        if p["role"] == "bench_review":
+            chosen, result = await super().step(kind, prompt, **kw)
+            out = json.loads(result.output)
+            if "t1" in p["cited"]:
+                done = self.review_n > 2
+                out["borrow"] = [{"id": "t1", "done": done, "why": "" if done else "没有高亮"}]
+            return chosen, RunResult(0, json.dumps(out, ensure_ascii=False))
+        return await super().step(kind, prompt, **kw)
+
+
+async def test_proposal_cites_research_and_reviewers_check_what_was_borrowed(tmp_path):
+    sc = BorrowSC(plan=PROJECT_PLAN)
+    sc.scores = lambda n: 9
+    b = BenchBuilder(
+        BenchRules(project={"enabled": True, "interview": False}),
+        root=tmp_path,
+        supercomputer=sc,
+        render=render,
+        check=fake_check(),
+        researcher=FakeResearcher(),
+        scout=LearnScout(),
+        seed=7,
+    )
+    build = b.submit("旅行台")
+    await b.wait()
+    roles = _roles(sc)
+    assert roles.index("bench_research") < roles.index("bench_cite")
+    cite_prompt = next(json.loads(p) for p in sc.prompts if json.loads(p)["role"] == "bench_cite")
+    assert "- g1（GitHub）o/r0" in cite_prompt["refs"]
+    assert "- k1（学习卡）o/r0" in cite_prompt["refs"]
+    cv = build["proposal"]["cite"]
+    assert cv["choices"][0]["refs"] == ["g1"] and cv["choices"][0]["sources"][0]["title"] == "o/r0"
+    assert cv["unsourced"] == ["t2"] and cv["used"] == 1 and cv["total"] > 10
+    assert cv["skipped"] == ["[g2] o/r1：要登录"]
+    folder = tmp_path / build["id"]
+    book = (folder / "方案书.md").read_text(encoding="utf-8")
+    assert "## 技术选择（每条都指向调研报告的编号" in book
+    assert "- t1 地图用真实瓦片底图当主视觉 ← 调研 [g1] o/r0，借鉴：点列表高亮地图上的点" in book
+    assert "## 调研里没用上的" in book and "[g2] o/r1：要登录" in book
+    report = (folder / "调研报告.md").read_text(encoding="utf-8")
+    assert "- g1 [o/r0]" in report and "### k1 o/r0" in report and "- p1 [Trip Planning]" in report
+
+    b.sign(build["id"])
+    await b.wait()
+    window = next(json.loads(p) for p in sc.prompts if json.loads(p)["role"] == "bench_window")
+    assert "方案书定下的技术选择" in window["sources"]
+    assert "t1 地图用真实瓦片底图" in window["sources"]
+    while build["gate"]["kind"] != "accept":
+        b.review(build["id"], "pass")
+        await b.wait()
+    first = build["rounds"][0]
+    t1 = next(x for x in first["borrow"] if x["id"] == "t1")
+    assert t1["judged"] and not t1["done"] and t1["why"] == ["没有高亮"]
+    t2 = next(x for x in first["borrow"] if x["id"] == "t2")
+    assert t2["judged"] is False  # 没人核对的不交回作者
+    review = next(json.loads(p) for p in sc.prompts if json.loads(p)["role"] == "bench_review")
+    want = "t1 地图用真实瓦片底图当主视觉｜借鉴：点列表高亮地图上的点｜出处：g1 o/r0"
+    assert want in review["cited"]
+    # 借鉴没做到不压分、不挡过线，但交回负责的窗口
+    assert b._problems_for(first, "map-view").count("[借鉴·没做到·t1]") == 1
+    assert "[借鉴·没做到" not in b._problems_for(first, "budget")
+    assert any("核对借鉴" in x["text"] for x in build["log"])
+
+
+async def test_handoff_without_project_room_reports_once_when_it_passes(tmp_path):
+    got = []
+    sc = FakeSC()
+    b = BenchBuilder(
+        BenchRules(),
+        root=tmp_path,
+        supercomputer=sc,
+        render=render,
+        check=fake_check(),
+        seed=7,
+        report=got.append,
+    )
+    b.submit("旅行台", handoff={"session_id": "s1", "title": "旅行台", "answered": "给爸妈用"})
+    await b.wait()
+    assert b.build["status"] == "done"
+    assert len(got) == 1 and got[0]["session_id"] == "s1" and got[0]["status"] == "done"
+    assert got[0]["outcome"] == "过线" and got[0]["url"].endswith("/index.html")
+    plan = next(json.loads(p) for p in sc.prompts if json.loads(p)["role"] == "bench_plan")
+    assert "办公室里已经和用户说清楚的" in plan["request"] and "给爸妈用" in plan["request"]
+    # 不是办公室交过来的：不回报
+    b2 = BenchBuilder(
+        BenchRules(),
+        root=tmp_path / "x",
+        supercomputer=FakeSC(),
+        render=render,
+        check=fake_check(),
+        seed=7,
+        report=got.append,
+    )
+    b2.submit("旅行台")
+    await b2.wait()
+    assert len(got) == 1

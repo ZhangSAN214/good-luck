@@ -14,6 +14,7 @@ export const STATUS = {
   researching: '正在调研',
   scouting: '正在找插件',
   meeting: '方案会',
+  citing: '整理技术选择（指向调研）',
   building: '分头写窗口',
   checking: '质检和评审',
   reworking: '打回返工',
@@ -27,25 +28,75 @@ export const STATUS = {
   delivered: '已交付',
   evolving: '正在出下一版提案',
 };
-// 选型台：某个版型下窗口的顺序和宽度（和后端 spec.py 的 layout_spans 一样算，签字后成品照这个排）
-const rows = (ids, per) => {
+// 布局模板（D）：每个窗口在 12 列网格里的格子（和后端 spec.py 的 layout_grid 一样算，签字后成品照这个排）。
+// 电脑按模板，平板主视觉一整行、其余两个一行，手机一列、主视觉在最上面。
+const LAYOUT_ALIAS = { 'hero-wide': 'hero-strip', dashboard: 'quad' };
+const TEMPLATES = ['hero-side', 'hero-strip', 'quad', 'flow', 'workspace', 'stream'];
+const ZONES = {
+  'hero-side': ['侧栏列表', '详情'],
+  'hero-strip': ['数据条', '数据条', '数据条', '数据条'],
+  quad: ['右上', '左下', '右下'],
+  flow: ['第 1 步', '第 3 步', '第 4 步·交付'],
+  workspace: ['左侧工具栏', '右侧属性'],
+  stream: [],
+};
+const HERO_ZONE = { 'hero-side': '主视觉', 'hero-strip': '主视觉', quad: '左上', flow: '第 2 步·主画面', workspace: '中间画布', stream: '最上面' };
+export const layoutId = (v) => {
+  const x = LAYOUT_ALIAS[v] || v;
+  return TEMPLATES.includes(x) ? x : '';
+};
+const row = (ws, widths) => ws.map((w, i) => [w, widths ? widths[i] : 12 / ws.length]);
+const chunk = (ws, per) => {
   const out = [];
-  for (let i = 0; i < ids.length; i += per) {
-    const row = ids.slice(i, i + per);
-    row.forEach((id) => out.push([id, 12 / row.length]));
-  }
+  for (let i = 0; i < ws.length; i += per) out.push(row(ws.slice(i, i + per)));
   return out;
 };
-export function layoutSpans(wins, hero, layout) {
-  const ids = wins.map((w) => w.id);
+export function layoutGrid(ids, hero, layout) {
+  const lay = layoutId(layout);
+  if (!lay || !ids.length) return null;
   const h = ids.includes(hero) ? hero : ids[0];
   const rest = ids.filter((x) => x !== h);
-  if (layout === 'hero-side') return rest.length ? [[h, 8], [rest[0], 4], ...rows(rest.slice(1), 3)] : [[h, 12]];
-  if (layout === 'hero-wide') return [[h, 12], ...rows(rest, 3)];
-  if (layout === 'dashboard') return rows([h, ...rest], 3);
-  if (layout === 'workspace') return rest.length < 2 ? layoutSpans(wins, hero, 'hero-side') : [[rest[0], 3], [h, 6], [rest[1], 3], ...rows(rest.slice(2), 2)];
-  if (layout === 'stream') return [h, ...rest].map((x) => [x, 12]);
-  return wins.map((w) => [w.id, w.span]);
+  const n = rest.length;
+  let rows;
+  let used = 0;
+  if (lay === 'hero-side') {
+    if (!n) rows = [row([h])];
+    else if (n === 1) [rows, used] = [[row([h, rest[0]], [8, 4]), row([h, rest[0]], [8, 4])], 1];
+    else [rows, used] = [[row([h, rest[0]], [8, 4]), row([h, rest[1]], [8, 4])], 2];
+    rows.push(...chunk(rest.slice(used), 3));
+  } else if (lay === 'hero-strip') rows = [row([h]), ...chunk(rest, 4)];
+  else if (lay === 'quad') rows = chunk([h, ...rest], 2);
+  else if (lay === 'flow') {
+    if (!n) rows = [row([h])];
+    else if (n === 1) [rows, used] = [[row([rest[0], h], [4, 8])], 1];
+    else {
+      [rows, used] = [[row([rest[0], h, rest[1]], [3, 6, 3])], 2];
+      if (n >= 3) [rows, used] = [[...rows, row([rest[2]])], 3];
+    }
+    rows.push(...chunk(rest.slice(used), 3));
+  } else if (lay === 'workspace') {
+    if (!n) rows = [row([h])];
+    else if (n === 1) [rows, used] = [[row([h, rest[0]], [9, 3])], 1];
+    else [rows, used] = [[row([rest[0], h, rest[1]], [2, 7, 3])], 2];
+    rows.push(...chunk(rest.slice(used), 2));
+  } else rows = [h, ...rest].map((w) => row([w]));
+  const area = { [h]: 'hero' };
+  rest.forEach((w, i) => { area[w] = `a${i + 1}`; });
+  const zone = { [h]: HERO_ZONE[lay] };
+  rest.forEach((w, i) => { zone[w] = lay === 'stream' ? `往下第 ${i + 2} 个` : ZONES[lay][i] || '下面'; });
+  if (lay === 'workspace' && n === 1) zone[rest[0]] = ZONES.workspace[1];
+  const spans = {};
+  rows.forEach((r) => r.forEach(([w, c]) => { if (!(w in spans)) spans[w] = c; }));
+  const step = {};
+  if (lay === 'flow') [...rest.slice(0, 1), h, ...rest.slice(1, 3)].forEach((w, k) => { step[w] = k + 1; });
+  const areas = (rs) => rs.map((r) => r.flatMap(([w, c]) => Array(c).fill(area[w])).join(' '));
+  return { layout: lay, order: [h, ...rest], desk: areas(rows), tab: areas([row([h]), ...chunk(rest, 2)]), area, zone, spans, step };
+}
+/** <main> 的样式变量（和 spec.py 的 layout_css 一样）。 */
+export const layoutCss = (g) => `--k-areas: ${g.desk.map((r) => `"${r}"`).join(' ')}; --k-areas-tab: ${g.tab.map((r) => `"${r}"`).join(' ')}`;
+export function layoutSpans(wins, hero, layout) {
+  const g = layoutGrid(wins.map((w) => w.id), hero, layout);
+  return g ? g.order.map((id) => [id, g.spans[id]]) : wins.map((w) => [w.id, w.span]);
 }
 const SPANS = [3, 4, 6, 8, 12];
 const SPAN_NAME = { 3: '窄', 4: '三分之一', 6: '一半', 8: '三分之二', 12: '通栏' };
@@ -123,7 +174,7 @@ const PANES = [
   ['stage', '成品'],
   ['plan', '计划'],
 ];
-const PREP = ['planning', 'researching', 'scouting', 'meeting', 'looking'];
+const PREP = ['planning', 'researching', 'scouting', 'meeting', 'citing', 'looking'];
 
 /** 项目走到 7 步里的第几步（从 0 数）。 */
 export function flowIndex(b) {
@@ -698,6 +749,7 @@ export class BenchGenPanel {
         )
         .join('');
       if (wins) body.push(`<h4 class="bg-h4">分工</h4><table class="sc-subs bg-wintable"><thead><tr><th>窗口</th><th>谁写</th><th>状态</th></tr></thead><tbody>${wins}</tbody></table>`);
+      body.push(this.heroInfo(b));
       body.push(this.lastRoundHtml(b));
       if (b.stuck) body.push(this.stuckInfo(b));
     }
@@ -727,6 +779,7 @@ export class BenchGenPanel {
       ${fold('窗口之间怎么联动', list(p.links))}
       ${fold('共用信息', list(p.shared))}
       ${fold('方案会：谁提了什么、为什么采纳', list(p.meeting))}
+      ${this.citeHtml(p.cite, fold)}
       ${fold('借鉴的项目', list(p.tech))}
       ${plugins}
       <a class="link" href="/bench/${encodeURIComponent(b.id)}/${encodeURIComponent('方案书.md')}" target="_blank" rel="noopener">方案书全文</a>`;
@@ -779,6 +832,20 @@ export class BenchGenPanel {
   }
 
   /** 最近一轮：质检分、验收几条做到、评审各项分（全部轮次在底部「质检」里）。 */
+  /** 方案书的技术选择（I3）：每条指向调研报告的编号，没出处的标出来；没用上的调研和原因。 */
+  citeHtml(cv, fold) {
+    if (!cv) return '';
+    if (cv.error && !(cv.choices || []).length) return fold('技术选择（指向调研）', `<p class="sc-sub">${esc(cv.error)}</p>`);
+    const items = (cv.choices || [])
+      .map((c) => `<li data-cite="${esc(c.id)}"><b>${esc(c.id)}</b> ${esc(c.choice)}${c.why ? `<span class="sc-sub">${esc(c.why)}</span>` : ''}
+        <span class="sc-sub">${(c.sources || []).length ? `出处：${c.sources.map((x) => `${x.url ? `<a href="${esc(x.url)}" target="_blank" rel="noopener">[${esc(x.id)}] ${esc(x.title)}</a>` : `[${esc(x.id)}] ${esc(x.title)}`}`).join('；')}` : '<span class="bg-warn">没有指向调研里的哪一条</span>'}${c.borrow ? ` · 借鉴：${esc(c.borrow)}` : ''}</span></li>`)
+      .join('');
+    const skipped = (cv.skipped || []).map((x) => `<li>${esc(x)}</li>`).join('');
+    const none = cv.none_used ? `<p class="sc-sub">调研里一条都没用上：${cv.unused_reason ? esc(cv.unused_reason) : '<span class="bg-warn">助手没写原因</span>'}</p>` : '';
+    const head = `技术选择（用到调研 ${esc(cv.used)}/${esc(cv.total)} 条${(cv.unsourced || []).length ? `，${esc(cv.unsourced.length)} 条没出处` : ''}）`;
+    return fold(head, `${items ? `<ul class="bg-list bg-cite">${items}</ul>` : ''}${none}${skipped ? `<p class="sc-sub">没用上的调研：</p><ul class="bg-list">${skipped}</ul>` : ''}`);
+  }
+
   lastRoundHtml(b) {
     const r = (b.rounds || []).slice(-1)[0];
     if (!r) return '';
@@ -791,7 +858,16 @@ export class BenchGenPanel {
     const miss = reqs.filter((x) => !x.met).slice(0, 4).map((x) => `<li class="bg-miss"><span class="bg-mark" aria-hidden="true">✗</span><b>${esc(x.id)}</b> ${esc(x.text)}</li>`).join('');
     return `<h4 class="bg-h4">第 ${r.n} 轮 · ${r.passed ? '过线' : '没过线'}</h4>
       <p class="sc-sub">质检${c.passed ? '通过' : '不通过'} ${esc(c.score ?? '—')} 分${reqs.length ? ` · 验收 ${met}/${reqs.length}` : ''}</p>
-      ${miss ? `<ul class="bg-reqs">${miss}</ul>` : ''}${scores ? `<ul class="bg-scores bg-scores-s">${scores}</ul>` : ''}`;
+      ${miss ? `<ul class="bg-reqs">${miss}</ul>` : ''}${scores ? `<ul class="bg-scores bg-scores-s">${scores}</ul>` : ''}${this.borrowHtml(r)}`;
+  }
+
+  /** 评审核对「借鉴了什么」：方案书的每条技术选择做到没有。 */
+  borrowHtml(r) {
+    const xs = (r.borrow || []).filter((x) => x.judged);
+    if (!xs.length) return '';
+    const done = xs.filter((x) => x.done).length;
+    const miss = xs.filter((x) => !x.done).map((x) => `<li class="bg-miss"><b>${esc(x.id)}</b> ${esc(x.choice)}${(x.why || []).length ? `<span class="sc-sub">${esc(x.why.join('；'))}</span>` : ''}</li>`).join('');
+    return `<p class="sc-sub" data-borrow>核对借鉴 ${done}/${xs.length} 条做到</p>${miss ? `<ul class="bg-reqs">${miss}</ul>` : ''}`;
   }
 
   /** 底部抽屉：调研、插件、质检、团队、过程、联网、零件库。拉起来盖在三栏上，不换页。 */
@@ -1085,6 +1161,20 @@ export class BenchGenPanel {
     </details>`;
   }
 
+  /** 主视觉先行（B2）：先只写主视觉，单独评审（真素材、占大半屏、有自己的样子），过了再写其余窗口。 */
+  heroInfo(b) {
+    const hc = b.hero_check;
+    if (!hc || (b.stuck || {}).hero) return '';
+    const label = { running: '评审中', passed: '过了', accepted: '你说就这样', skipped: '跳过了', stuck: '没过' }[hc.status] || hc.status;
+    const last = (hc.rounds || []).slice(-1)[0] || {};
+    const scores = Object.entries(last.scores || {}).map(([k, v]) => `${esc(k)} ${esc(v)}`).join('、');
+    const rel = (p) => `/bench/${encodeURIComponent(b.id)}/${String(p).split(/[\\/]/).map(encodeURIComponent).join('/')}`;
+    const shots = (last.shots || []).map((p) => `<a href="${rel(p)}" target="_blank" rel="noopener"><img src="${rel(p)}" alt="主视觉截图" loading="lazy"></a>`).join('');
+    return `<details class="bg-fold bg-hero-check"><summary>主视觉先行「${esc(hc.title || '')}」：${esc(label)}${(hc.rounds || []).length ? `（评了 ${esc(hc.rounds.length)} 次${scores ? `，${scores}` : ''}）` : ''}</summary>
+      ${hc.why ? `<p class="sc-sub">${esc(hc.why)}</p>` : ''}${last.summary ? `<p class="sc-sub">评审：${esc(last.summary)}</p>` : ''}
+      ${shots ? `<figure class="bg-demo"><figcaption>主视觉单独截图（电脑、手机）</figcaption>${shots}</figure>` : ''}</details>`;
+  }
+
   /** 做满轮数没过线（右栏）：哪几条没做到、卡在哪、建议。 */
   stuckInfo(b) {
     const k = b.stuck;
@@ -1093,11 +1183,18 @@ export class BenchGenPanel {
       .map((m) => `<li class="bg-miss"><b>${esc(m.id)}</b> ${esc(m.text)}<span class="sc-sub">${m.missed > 1 ? `连续 ${esc(m.missed)} 轮没做到` : '这轮没做到'}${(m.why || []).length ? `：${esc(m.why.join('；'))}` : ''}</span></li>`)
       .join('');
     const advice = (k.advice || []).map((a) => `<li>${esc(a)}</li>`).join('');
+    const rel = (p) => `/bench/${encodeURIComponent(b.id)}/${String(p).split(/[\\/]/).map(encodeURIComponent).join('/')}`;
+    const shots = (k.shots || []).map((p) => `<a href="${rel(p)}" target="_blank" rel="noopener"><img src="${rel(p)}" alt="主视觉截图" loading="lazy"></a>`).join('');
+    const head = k.hero
+      ? `主视觉「${esc((b.hero_check || {}).title || '')}」评了 ${esc(((b.hero_check || {}).rounds || []).length)} 次还没过（其余窗口还没写）`
+      : (b.status === 'needs_you' ? '做满了还没过线' : '交付前没过线的地方');
     return `<div class="bg-stuck">
-      <p><b>${b.status === 'needs_you' ? '做满了还没过线' : '交付前没过线的地方'}</b>${(k.trend || []).length ? ` · 评审分 ${esc(k.trend.join(' → '))}` : ''}</p>
+      <p><b>${head}</b>${(k.trend || []).length ? ` · 评审分 ${esc(k.trend.join(' → '))}` : ''}</p>
       ${missing ? `<ul class="bg-reqs">${missing}</ul>` : ''}
       ${(k.blocks || []).length ? `<p class="sc-sub">质检必须修：${esc(k.blocks.join('、'))}</p>` : ''}
       ${(k.high || []).length ? `<p class="sc-sub">对抗手的严重问题：${esc(k.high.join('；'))}</p>` : ''}
+      ${k.summary ? `<p class="sc-sub">评审：${esc(k.summary)}</p>` : ''}
+      ${shots ? `<figure class="bg-demo"><figcaption>最后一次的主视觉（电脑、手机）</figcaption>${shots}</figure>` : ''}
       ${advice ? `<h4 class="bg-h4">建议</h4><ul class="bg-list">${advice}</ul>` : ''}
     </div>`;
   }
@@ -1105,9 +1202,11 @@ export class BenchGenPanel {
   /** 做满轮数没过线（左栏）：你来定——再跑一轮 / 改要求再跑 / 就这样收下。 */
   stuckForm(b) {
     const last = (b.rounds || []).slice(-1)[0] || {};
-    const reqs = (last.requirements || []).map((r) => this.reqRow(r)).join('');
-    return `<div class="bg-gate bg-stuck-form" data-form><p class="bg-gate-title"><b>等你：</b>做满了还没过线，你来定（右边写了卡在哪）</p>
-      <div class="sc-row"><button type="button" class="btn primary" data-decide="more">再跑一轮</button><button type="button" class="btn" data-decide="accept">就这样，收下</button></div>
+    const hero = !!(b.stuck || {}).hero;
+    const reqs = (hero ? ((b.proposal || {}).requirements || []) : (last.requirements || [])).map((r) => this.reqRow(r)).join('');
+    const title = hero ? '主视觉还没过，其余窗口先不写，你来定（右边写了卡在哪）' : '做满了还没过线，你来定（右边写了卡在哪）';
+    return `<div class="bg-gate bg-stuck-form" data-form><p class="bg-gate-title"><b>等你：</b>${title}</p>
+      <div class="sc-row"><button type="button" class="btn primary" data-decide="more">${hero ? '主视觉再改一次' : '再跑一轮'}</button><button type="button" class="btn" data-decide="accept">${hero ? '主视觉就这样，往下写' : '就这样，收下'}</button></div>
       <details class="bg-edit"><summary>改要求再跑</summary><ul class="bg-reqs bg-sign-reqs">${reqs}</ul>
         <button type="button" class="link" data-addreq>加一条要求</button>
         <div class="sc-row"><button type="button" class="btn" data-decide="edit">按改好的要求再跑一轮</button></div></details>
@@ -1129,6 +1228,7 @@ export class BenchGenPanel {
     this.pick = {
       bid: b.id,
       ...picks,
+      ...(layoutId(picks.layout) ? { layout: layoutId(picks.layout) } : {}),
       refs: new Set((d.refs || []).map((r) => r.name)),
       assets: {},
       accent: picks.accent || '',
@@ -1157,7 +1257,8 @@ export class BenchGenPanel {
     const pick = this.pick;
     const wins = (p.windows || []).filter((w) => !pick.drop.has(w.id));
     const byId = Object.fromEntries(wins.map((w) => [w.id, w]));
-    return layoutSpans(wins, p.hero, pick.layout || 'plan').map(([id, n]) => ({ ...byId[id], span: pick.spans[id] || n }));
+    const fixed = !!layoutId(pick.layout);
+    return layoutSpans(wins, p.hero, pick.layout || 'plan').map(([id, n]) => ({ ...byId[id], span: (!fixed && pick.spans[id]) || n }));
   }
 
   viewBar(pick) {
@@ -1196,10 +1297,16 @@ export class BenchGenPanel {
       .map((r) => `<li><label><input type="checkbox" data-dref="${esc(r.name)}" ${pick.refs.has(r.name) ? 'checked' : ''}> <b>${esc(r.name)}</b> <span class="bg-src">${esc(r.from || '')}</span> ${esc(r.borrow || '')}</label></li>`)
       .join('');
     const p = b.proposal || {};
-    const auto = Object.fromEntries(layoutSpans((p.windows || []).filter((w) => !pick.drop.has(w.id)), p.hero, pick.layout || 'plan'));
+    const kept = (p.windows || []).filter((w) => !pick.drop.has(w.id));
+    const auto = Object.fromEntries(layoutSpans(kept, p.hero, pick.layout || 'plan'));
+    const grid = layoutGrid(kept.map((w) => w.id), p.hero, pick.layout);
     const wins = (p.windows || [])
       .map((w) => {
         const off = pick.drop.has(w.id);
+        if (grid) {
+          return `<li class="${off ? 'bg-off' : ''}"><label><input type="checkbox" data-ddrop="${esc(w.id)}" ${off ? '' : 'checked'} ${w.id === p.hero ? 'disabled' : ''} aria-label="要「${esc(w.title)}」"> ${esc(w.title)}${w.id === p.hero ? '（主视觉）' : ''}</label>
+          <span class="sc-sub" data-dzone="${esc(w.id)}">${off ? '不做' : esc(grid.zone[w.id] || '')}</span></li>`;
+        }
         const opts = [`<option value="">跟版型（${esc(SPAN_NAME[auto[w.id]] || '—')}）</option>`, ...SPANS.map((n) => `<option value="${n}" ${pick.spans[w.id] === n ? 'selected' : ''}>${SPAN_NAME[n]}</option>`)].join('');
         return `<li class="${off ? 'bg-off' : ''}"><label><input type="checkbox" data-ddrop="${esc(w.id)}" ${off ? '' : 'checked'} ${w.id === p.hero ? 'disabled' : ''} aria-label="要「${esc(w.title)}」"> ${esc(w.title)}${w.id === p.hero ? '（主视觉）' : ''}</label>
           <select data-dspan="${esc(w.id)}" aria-label="「${esc(w.title)}」的宽度" ${off ? 'disabled' : ''}>${opts}</select></li>`;
@@ -1208,7 +1315,7 @@ export class BenchGenPanel {
     return `${this.materialsHtml(b, d, pick)}${dims}
       <label class="bg-dim"><b>还想要的风格（自己写，助手照着做）</b><textarea data-dnote rows="2" maxlength="200" placeholder="比如：像老式胶片相机的质感、按钮要大、别用紫色">${esc(pick.note || '')}</textarea></label>
       ${refs ? `<div class="bg-dim"><b>参考作品（勾上的写进规格，助手照着借鉴）</b><ul class="bg-drefs">${refs}</ul></div>` : ''}
-      <div class="bg-dim"><b>窗口（去掉勾就不做，宽度可调）</b><ul class="bg-dwins">${wins}</ul></div>
+      <div class="bg-dim"><b>${grid ? '窗口（去掉勾就不做；位置跟着版型走，换版型就换排法）' : '窗口（去掉勾就不做，宽度可调）'}</b><ul class="bg-dwins">${wins}</ul></div>
       <button type="button" class="link" data-dreset>恢复推荐</button>`;
   }
 
@@ -1335,7 +1442,9 @@ export class BenchGenPanel {
     }
     if (roles.bg) root.style.setProperty('--k-bg-image', `url("${matUrl(b.id, roles.bg)}")`);
     const ic = (name, size = 17) => this.icons(name, { size });
-    const cards = this.arranged(b)
+    const shown = this.arranged(b);
+    const grid = layoutGrid(shown.map((w) => w.id), p.hero, pick.layout);
+    const cards = shown
       .map((w) => {
         const hero = w.id === p.hero;
         const acts = (w.actions || []).slice(0, 3).map((a, i) => `<button type="button" class="k-btn${i === 0 ? ' k-primary' : ''}">${esc(a)}</button>`).join('');
@@ -1348,10 +1457,11 @@ export class BenchGenPanel {
         const body = hero
           ? `<div class="k-stack" style="position:relative;padding:22px 22px 18px;flex:1;justify-content:flex-end;background:linear-gradient(160deg,var(--k-accent-soft),transparent 70%)">${media}<div class="k-stack" style="position:relative;${media ? 'background:color-mix(in srgb,var(--k-surface) 82%,transparent);padding:14px;border-radius:var(--k-r-sm)' : ''}"><span class="k-kicker">${esc(w.title)}</span><p class="k-display">${esc(d.tagline || p.subtitle || w.title)}</p><p class="k-muted">${esc(w.purpose)}</p><div class="k-row">${parts}</div><div class="k-row">${acts}</div></div></div>`
           : `<div class="k-stack"><p class="k-muted">${esc(w.purpose)}</p><div class="k-row">${parts}</div><div class="k-row">${acts}</div></div>`;
-        return `<section class="k-card k-span-${w.span}${hero ? ' k-hero' : ''}" data-pw="${esc(w.id)}" data-span="${w.span}"><div class="k-card-h"><span class="k-ico-wrap">${ic(w.icon || 'layout-grid')}</span><div><h2>${esc(w.title)}</h2>${w.sub ? `<div class="k-sub">${esc(w.sub)}</div>` : ''}</div></div><div class="k-card-b">${body}</div></section>`;
+        const slot = grid ? ` data-slot="${grid.area[w.id]}" style="--k-area: ${grid.area[w.id]}"${grid.step[w.id] ? ` data-step="${grid.step[w.id]}"` : ''}` : '';
+        return `<section class="k-card k-span-${w.span}${hero ? ' k-hero' : ''}" data-pw="${esc(w.id)}" data-span="${w.span}"${slot}><div class="k-card-h"><span class="k-ico-wrap">${ic(w.icon || 'layout-grid')}</span><div><h2>${esc(w.title)}</h2>${w.sub ? `<div class="k-sub">${esc(w.sub)}</div>` : ''}</div></div><div class="k-card-b">${body}</div></section>`;
       })
       .join('');
-    doc.body.innerHTML = `<div class="k-page"><header class="k-topbar"><div class="k-brand">${roles.logo ? `<span class="k-logo k-logo-img"><img src="${esc(matUrl(b.id, roles.logo))}" alt="标志"></span>` : `<span class="k-logo">${ic(p.icon || 'layers', 20)}</span>`}<div><h1>${esc(p.title || '')}</h1><div class="k-sub">${esc(p.subtitle || '')}</div></div></div></header><main class="k-grid">${cards}</main></div>`;
+    doc.body.innerHTML = `<div class="k-page"><header class="k-topbar"><div class="k-brand">${roles.logo ? `<span class="k-logo k-logo-img"><img src="${esc(matUrl(b.id, roles.logo))}" alt="标志"></span>` : `<span class="k-logo">${ic(p.icon || 'layers', 20)}</span>`}<div><h1>${esc(p.title || '')}</h1><div class="k-sub">${esc(p.subtitle || '')}</div></div></div></header><main class="k-grid"${grid ? ` data-k-layout="${grid.layout}" style="${esc(layoutCss(grid))}"` : ''}>${cards}</main></div>`;
     this.fitPreview();
   }
 

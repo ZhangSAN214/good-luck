@@ -111,7 +111,7 @@ STEP_NAMES = {
     "office_review": "复核经理验收",
     "office_revise": "按复核修改",
 }
-MODE_LABELS = {"single": "单人办", "meeting": "开会", "project": "项目分工"}
+MODE_LABELS = {"single": "单人办", "meeting": "开会", "project": "项目分工", "bench": "交给工作台"}
 
 
 def _group_line(mode: str, group: dict[str, Any]) -> str:

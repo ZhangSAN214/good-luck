@@ -34,6 +34,7 @@ from roundtable.core.benchkit.intent import (
     add_voice,
     answer_intent,
     clean_form,
+    drop_answered,
     form_text,
     form_voices,
     intent_counts,
@@ -47,9 +48,16 @@ from roundtable.core.benchkit.intent import (
     voices_text,
 )
 from roundtable.core.benchkit.library import Library
-from roundtable.core.benchkit.lint import lint_data, lint_windows
+from roundtable.core.benchkit.lint import hero_facts, lint_data, lint_windows
 from roundtable.core.benchkit.quality import Finding, QualityError, Report, run_check, run_probes
-from roundtable.core.benchkit.research import Researcher, report_markdown
+from roundtable.core.benchkit.research import (
+    Researcher,
+    cite_lines,
+    cite_of,
+    refs_text,
+    report_markdown,
+    research_refs,
+)
 from roundtable.core.benchkit.samples import SampleCatalog, install, load_catalog, samples_text
 from roundtable.core.benchkit.scout import Candidate, Scout
 from roundtable.core.benchkit.spec import (
@@ -82,6 +90,9 @@ RUNS_KEPT = 12
 RECENT = 10
 # 写完自测：只开一种屏宽，只管这几项低级错误
 SELFTEST_VIEWPORTS = (("电脑", 1280, 860),)
+# 主视觉先行（B2）：电脑和手机各截一张，评审只看主视觉那一格
+HERO_VIEWPORTS = (("电脑", 1280, 860), ("手机", 390, 844))
+HERO_DONE = ("passed", "accepted", "skipped")
 REVERT_MARGIN = 0.3  # 一组窗口的评审均分比上一轮低这么多以上，就退回上一版
 SELFTEST_CHECKS = (
     *("页面报错", "点了报错", "窗口没用零件库", "自己画插图"),
@@ -146,6 +157,29 @@ def merge_checks(
     return out
 
 
+def merge_borrow(
+    choices: list[dict[str, Any]], reviews: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """方案书的技术选择（t1…）几位评审各核对一遍：至少一位判过、且判过的都说做到才算做到。
+    没人判的记「没核对」（不交回作者，只给你看）。"""
+    out = []
+    for c in choices:
+        got = [rec["borrow"][c["id"]] for rec in reviews if c["id"] in (rec.get("borrow") or {})]
+        out.append(
+            {
+                "id": c["id"],
+                "choice": c["choice"],
+                "borrow": c["borrow"],
+                "refs": c["refs"],
+                "windows": c["windows"],
+                "judged": bool(got),
+                "done": bool(got) and all(g["done"] for g in got),
+                "why": list(dict.fromkeys(g["why"] for g in got if not g["done"] and g["why"]))[:3],
+            }
+        )
+    return out
+
+
 def _who(w: Any) -> str:
     """助手的显示名（Codex、Claude Code、dsh……）。"""
     return str(getattr(w, "label", None) or w.id)
@@ -203,6 +237,50 @@ def stuck_report(rounds: list[dict[str, Any]]) -> dict[str, Any]:
     return {"missing": missing, "blocks": blocks, "high": high, "trend": trend, "advice": advice}
 
 
+def hero_stuck(hc: dict[str, Any], rubric: list[str], pass_min: float) -> dict[str, Any]:
+    """主视觉返工满了还没过：和「卡在哪」同一个样子（哪几项没到、评审说的原因、分数走势、建议），
+    多一个 hero 标记和最后一次的截图。"""
+    rounds = [r for r in hc.get("rounds") or [] if r.get("scores")]
+    last = rounds[-1] if rounds else {}
+    missing = []
+    for k in rubric:
+        v = (last.get("scores") or {}).get(k, 0)
+        if v >= pass_min:
+            continue
+        missed = sum(1 for r in rounds if r["scores"].get(k, 0) < pass_min)
+        missing.append(
+            {
+                "id": k,
+                "text": f"主视觉·{k}：{v:g} 分（要 {pass_min:g}）",
+                "why": list(last.get("problems") or [])[:2],
+                "missed": missed,
+            }
+        )
+    trend = [round(mean(r["scores"].values()), 2) for r in rounds]
+    advice = []
+    for m in missing:
+        if m["missed"] >= 2 and m["missed"] == len(rounds):
+            advice.append(
+                f"「{m['id']}」连续 {m['missed']} 次没到：可能缺真素材或要求太笼统，"
+                "可以拖一张图进来当主视觉图，或者在要求里写清楚主视觉放什么"
+            )
+    if len(trend) >= 2 and trend[-1] - trend[0] >= 0.5:
+        advice.append(f"分数在涨（{trend[0]:g} → {trend[-1]:g}），再改一次有希望过")
+    elif len(trend) >= 2:
+        advice.append(f"分数没怎么涨（{trend[0]:g} → {trend[-1]:g}），再改多半也一样，建议改要求")
+    advice.append("其余窗口还没写：选「主视觉就这样」会按现在的主视觉接着写其余窗口")
+    return {
+        "hero": True,
+        "missing": missing,
+        "blocks": [],
+        "high": [],
+        "trend": trend,
+        "advice": advice,
+        "shots": list(last.get("shots") or []),
+        "summary": last.get("summary") or "",
+    }
+
+
 def _short(v: Any, limit: int = 80) -> str:
     text = v if isinstance(v, str) else json.dumps(v, ensure_ascii=False)
     return text if len(text) <= limit else text[: limit - 1] + "…"
@@ -226,6 +304,7 @@ def thumb_of(b: dict[str, Any]) -> str | None:
 
 
 INTENT_HEAD = "理想画像（访谈时整理，括号里是把握）："
+HANDOFF_HEAD = "办公室里已经和用户说清楚的（需求书照这个写，不要再问）："
 ONE_GO = "（这个项目不分段：一次把这个窗口完整做好。）"
 ALL_DONE = "（各段都做完了，现在是整体质检后的返工：按 <problems> 改，别把做好的地方改坏。）"
 
@@ -260,8 +339,11 @@ class BenchBuilder:
         samples: SampleCatalog | None = None,
         skill: Callable[[str], tuple[str, str]] | None = None,
         desk: Any = None,
+        report: Callable[[dict[str, Any]], None] | None = None,
     ) -> None:
         self.rules = rules
+        # 办公室交过来的项目（M）：做完把成品和验收结果回报到办公室那场对话（服务注入）
+        self.report = report
         self.desk = desk  # 资料台（能力地图 + 榜单），写窗口时按工作台类型挑工具附上
         if samples is None:
             try:
@@ -355,6 +437,7 @@ class BenchBuilder:
         *,
         from_product: bool = False,
         form: dict[str, Any] | None = None,
+        handoff: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """开工：一句话，可以带拖进来的素材（先用 stage_material 收下，这里给编号）。
 
@@ -410,6 +493,20 @@ class BenchBuilder:
         }
         add_voice(self.build, "开工", said[:2000], _iso(now))
         form_voices(self.build, filled, _iso(now))
+        if handoff:
+            # 办公室交过来的大项目：办公室里已经说清楚的写进需求书，访谈不再问
+            answered = str(handoff.get("answered") or "").strip()[:4000]
+            self.build["handoff"] = {
+                "from": "office",
+                "session_id": str(handoff.get("session_id") or ""),
+                "title": str(handoff.get("title") or "")[:80],
+                "answered": answered,
+                "reported": None,
+            }
+            if answered:
+                self.build["brief"] = f"{request[:2000]}\n\n{HANDOFF_HEAD}\n{answered}"
+                add_voice(self.build, "办公室", answered[:1000], _iso(now))
+            self._mark(self.build, "立项", "办公室交过来的项目", self.build["handoff"]["title"])
         for item in self.profile():  # 甲方档案：以前定下的偏好，每个新项目都带上
             add_voice(self.build, "档案", item["text"], _iso(now), item["id"])
         self._take_materials(self.build, materials or [])
@@ -488,6 +585,7 @@ class BenchBuilder:
             b["status"] = "cancelled"
             b["finished_at"] = _iso(self.now())
             self._log(b, "你结束了这个项目")
+            self._report_back(b)
         return self.build
 
     async def aclose(self) -> None:
@@ -500,6 +598,57 @@ class BenchBuilder:
                 await self._job
 
     # --- 流程 -------------------------------------------------------------------
+
+    def report_of(self, b: dict[str, Any]) -> dict[str, Any]:
+        """交回办公室的回报：成品在哪、交付没有、验收逐条做到没有、评审分、变更单、用了几轮。"""
+        last = b["rounds"][-1] if b.get("rounds") else {}
+        reqs = [
+            {"id": r["id"], "text": r["text"], "met": bool(r["met"])}
+            for r in last.get("requirements") or []
+        ]
+        outcome = {
+            "delivered": "你验收通过，已交付",
+            "done": "过线" + ("（你选了就这样收下）" if b.get("accepted_as_is") else ""),
+            "failed": "没做成：出错了",
+            "cancelled": "没做完：你结束了这个项目",
+        }.get(b["status"], b["status"])
+        changes = b.get("changes") or []
+        error = ""
+        if b["status"] == "failed":
+            error = next(
+                (x["text"] for x in reversed(b.get("log") or []) if x["text"].startswith("出错了")),
+                "",
+            )
+        return {
+            "bench_id": b["id"],
+            "title": b.get("title") or (b.get("handoff") or {}).get("title") or "",
+            "status": b["status"],
+            "outcome": outcome,
+            "url": f"/bench/{b['id']}/index.html",
+            "score": b.get("score"),
+            "rounds": len(b.get("rounds") or []),
+            "requirements": reqs,
+            "met": sum(1 for r in reqs if r["met"]),
+            "total": len(reqs),
+            "changes": len(changes),
+            "error": error[:300],
+            "at": _iso(self.now()),
+        }
+
+    def _report_back(self, b: dict[str, Any]) -> None:
+        """办公室交过来的项目做完（交付、收下、出错、结束）：把成品和验收结果回报到那场对话。
+        只回报一次；回报出错不影响工作台。"""
+        h = b.get("handoff")
+        if not h or h.get("reported") or self.report is None:
+            return
+        rep = self.report_of(b)
+        try:
+            self.report(rep | {"session_id": h["session_id"]})
+        except Exception as exc:  # noqa: BLE001 - 回报是旁路，出错只记一句
+            self._log(b, f"回报办公室没成：{type(exc).__name__}")
+            return
+        h["reported"] = rep["at"]
+        self._log(b, "已把成品和验收结果回报到办公室那场对话")
 
     def _log(self, b: dict[str, Any], text: str) -> None:
         b["log"].append({"at": _iso(self.now()), "text": text})
@@ -585,6 +734,7 @@ class BenchBuilder:
             b["status"] = "failed"
             b["gate"] = None
             self._log(b, f"出错了：{type(exc).__name__}: {exc}")
+            self._report_back(b)
         finally:
             if b.get("gate") is None:
                 b["finished_at"] = _iso(self.now())
@@ -795,6 +945,9 @@ class BenchBuilder:
         if self.rules.team.enabled:
             b["status"] = "meeting"
             await self._meeting(b, spec, rng)
+        if b.get("research") and self.rules.research.cite:
+            b["status"] = "citing"
+            await self._cite(b, spec, rng)
         if self.rules.project.enabled:
             self._proposal(b, spec)
             self._gate(b, "sign", "看方案书，改好了签字开工")
@@ -805,9 +958,226 @@ class BenchBuilder:
         """不走项目室时：一口气写完所有窗口，再按轮质检评审。"""
         b["status"] = "building"
         self._log(b, f"规格：{spec.title}，{len(spec.windows)} 个窗口")
-        await asyncio.gather(*(self._write(b, spec, w, rng) for w in b["windows"]))
+        due = self._hero_due(b, spec, [w["id"] for w in b["windows"]])
+        if due and not await self._hero_first(b, spec, rng, stage="", where="build"):
+            return
+        todo = [w for w in b["windows"] if w["status"] == "waiting"]
+        await asyncio.gather(*(self._write(b, spec, w, rng) for w in todo))
         await self._selftest(b, spec, rng)
         await self._rounds(b, spec, rng)
+
+    # --- 主视觉先行（B2）---------------------------------------------------------------
+
+    def _hero_due(self, b: dict[str, Any], spec: Spec, wids: list[str]) -> bool:
+        """这一批里有还没写的主视觉、而且主视觉还没过关：先只写它、单独评审。"""
+        if not self.rules.hero.enabled or not spec.hero or spec.hero not in wids:
+            return False
+        rec = next((w for w in b["windows"] if w["id"] == spec.hero), None)
+        hc = b.get("hero_check") or {}
+        return rec is not None and rec["status"] == "waiting" and hc.get("status") not in HERO_DONE
+
+    async def _hero_first(
+        self, b: dict[str, Any], spec: Spec, rng: random.Random, *, stage: str, where: str
+    ) -> bool:
+        """先只写主视觉，电脑 + 手机截图交给不是作者的人评（真素材、占大半屏、有自己的样子），
+        三项都到线才往下写；最多返工 ``max_rework`` 次。返回 False = 停下来等你（「卡在哪」）。"""
+        rec = next(w for w in b["windows"] if w["id"] == spec.hero)
+        b["hero_check"] = {
+            "window": spec.hero,
+            "title": rec["title"],
+            "status": "running",
+            "where": where,
+            "stage": stage,
+            "rounds": [],
+        }
+        self._log(b, f"主视觉先行：先只写「{rec['title']}」，评审过了再写其余窗口")
+        await self._write(b, spec, rec, rng, stage=stage)
+        if rec["status"] != "done":
+            b["hero_check"]["status"] = "skipped"
+            b["hero_check"]["why"] = "主视觉没写成，先往下做，交给后面的质检和返工"
+            self._log(b, "主视觉没写成，先往下做")
+            return True
+        return await self._hero_loop(b, spec, rec, rng, self.rules.hero.max_rework + 1)
+
+    async def _hero_loop(
+        self,
+        b: dict[str, Any],
+        spec: Spec,
+        rec: dict[str, Any],
+        rng: random.Random,
+        tries: int,
+        rework_first: bool = False,
+    ) -> bool:
+        hc = b["hero_check"]
+        hc["status"] = "running"
+        for k in range(tries):
+            if k or rework_first:
+                b["status"] = "reworking"
+                await self._hero_rework(b, spec, rec, rng)
+            b["status"] = "checking"
+            verdict = await self._hero_review(b, spec, rec, rng)
+            if verdict is None:
+                hc["status"] = "skipped"
+                return True
+            if verdict["passed"]:
+                hc["status"] = "passed"
+                self._log(b, f"主视觉过了（{self._hero_scores(verdict)}），接着写其余窗口")
+                if self.rules.project.enabled:
+                    self._mark(b, "执行", "主视觉过了", self._hero_scores(verdict))
+                b["status"] = "building"
+                return True
+        hc["status"] = "stuck"
+        b["stuck"] = hero_stuck(hc, self.rules.hero.rubric, self.rules.hero.pass_min)
+        b["status"] = "needs_you"
+        n = len(hc["rounds"])
+        self._log(b, f"主视觉评了 {n} 次还没过，其余窗口先不写，停下来等你决定")
+        if self.rules.project.enabled:
+            self._mark(b, "执行", "主视觉没过，等你决定", self._hero_scores(hc["rounds"][-1]))
+        return False
+
+    @staticmethod
+    def _hero_scores(r: dict[str, Any]) -> str:
+        return "、".join(f"{k} {v:g}" for k, v in (r.get("scores") or {}).items()) or "没评成"
+
+    async def _hero_review(
+        self, b: dict[str, Any], spec: Spec, rec: dict[str, Any], rng: random.Random
+    ) -> dict[str, Any] | None:
+        """单独评主视觉。没有能评的人（作者不能评自己）或评审结果看不懂时返回 None：不挡流程。"""
+        cfg = self.rules.hero
+        hc = b["hero_check"]
+        folder = self.folder(b["id"])
+        n = len(hc["rounds"]) + 1
+        shots = await self._selftest(
+            b, spec, rng, only=[rec["id"]], out=f"hero-{n}", viewports=HERO_VIEWPORTS
+        )
+        w = spec.window(rec["id"])
+        assert w is not None
+        facts = hero_facts(folder, w.id)
+        order = [x.id for x in spec.windows]
+        lines = [
+            f"排在第 {order.index(w.id) + 1} 个（共 {len(order)} 个窗口），"
+            f"电脑上占 12 列里的 {w.span} 列"
+            + (f"，版型里的位置：{w.zone}" if w.zone else "")
+            + "；外壳给它加了 k-hero（贴边、更高）",
+            "代码和数据里引用的真素材："
+            + ("、".join(facts["real"]) if facts["real"] else "没有（真素材一项不超过 4 分）"),
+            f"svg 图形 {facts['draw']} 处"
+            + ("（超过 12 处，算自己画插图）" if facts["draw"] > 12 else ""),
+            "用了零件库" if facts["uses_kit"] else "没用零件库",
+        ]
+        last = hc["rounds"][-1] if hc["rounds"] else {}
+        previous = "\n".join(f"- {p}" for p in last.get("problems") or []) or "（第一次评）"
+        prompt = self.render(
+            "bench_hero",
+            request=self._brief(b),
+            spec=json.dumps(spec.to_dict(), ensure_ascii=False, indent=1),
+            window=json.dumps(w.__dict__, ensure_ascii=False, indent=1),
+            shots="\n".join(shots) or "（这次没有截图）",
+            facts="\n".join(lines),
+            rubric="、".join(cfg.rubric),
+            previous=previous,
+            skills=self._skills("review", spec.kind, b),
+        )
+        record: dict[str, Any] = {"n": n, "shots": shots, "facts": facts}
+        chosen, result = await self._step(
+            b,
+            cfg.kind,
+            prompt,
+            rng,
+            record,
+            exclude=(rec["author"],) if rec.get("author") else (),
+            role="评审",
+            task=f"评主视觉「{w.title}」",
+        )
+        if chosen is None or result is None or not result.ok:
+            hc["why"] = "没有能评主视觉的人（作者不能评自己写的），先往下做"
+            self._log(b, hc["why"])
+            return None
+        try:
+            data = extract_json_object(result.output)
+        except JSONOutputError:
+            hc["why"] = "主视觉的评审结果看不懂，先往下做"
+            self._log(b, hc["why"])
+            return None
+        raw = data.get("scores") if isinstance(data.get("scores"), dict) else {}
+        scores: dict[str, float] = {}
+        for k in cfg.rubric:
+            try:
+                scores[k] = max(0.0, min(10.0, float(raw.get(k, 0))))
+            except (TypeError, ValueError):
+                scores[k] = 0.0
+        if not facts["real"] and "真素材" in scores:
+            scores["真素材"] = min(scores["真素材"], 4.0)  # 代码里一样真素材都没有：程序压分
+        record |= {
+            "reviewer": chosen.id,
+            "scores": scores,
+            "problems": [str(x)[:300] for x in (data.get("problems") or [])][:6],
+            "fixes": [str(x)[:300] for x in (data.get("fixes") or [])][:6],
+            "summary": str(data.get("summary") or "")[:400],
+            "passed": all(v >= cfg.pass_min for v in scores.values()),
+        }
+        hc["rounds"].append(record)
+        self._log(b, f"主视觉第 {n} 次评审：{self._hero_scores(record)}")
+        self._save()
+        return record
+
+    async def _hero_rework(
+        self, b: dict[str, Any], spec: Spec, rec: dict[str, Any], rng: random.Random
+    ) -> None:
+        """按主视觉评审的意见交回作者重做（只改主视觉这一格）。"""
+        hc = b["hero_check"]
+        last = hc["rounds"][-1] if hc["rounds"] else {}
+        lines = [
+            "- [主视觉先行·必须做到] 其余窗口还没写，要照着你这一格的样子来：先把主视觉做到"
+            f"{'、'.join(self.rules.hero.rubric)}都过线"
+        ]
+        for i, p in enumerate(last.get("problems") or []):
+            lines.append(f"- [主视觉评审] {p}")
+            fixes = last.get("fixes") or []
+            if i < len(fixes):
+                lines.append(f"  建议：{fixes[i]}")
+        if last.get("summary"):
+            lines.append(f"- [评审总评] {last['summary']}")
+        shot = desk_shot(list(last.get("shots") or []))
+        if shot:
+            lines.append(
+                f'- [自看] 改之前的截图：{shot}（你的窗口是 data-window="{rec["id"]}" 那一格；'
+                "别的格子还没写，不用管）"
+            )
+        w = spec.window(rec["id"])
+        assert w is not None
+        prompt = self.render(
+            "bench_rework",
+            request=self._brief(b),
+            spec=json.dumps(spec.to_dict(), ensure_ascii=False, indent=1),
+            window=json.dumps(w.__dict__, ensure_ascii=False, indent=1),
+            file=w.file,
+            data_file=w.data_file,
+            problems="\n".join(lines),
+            kit=self._kit_text(),
+            sources=self._sources_text(b),
+            net=self._net_text(),
+            samples=self._samples_text(b),
+            stage=hc.get("stage") or ONE_GO,
+            skills=self._skills("rework", spec.kind, b),
+        )
+        await self._redo(b, rec, prompt, rng, 0)
+
+    async def _hero_more(self, b: dict[str, Any]) -> None:
+        """「卡在哪」时选再改一次（或改了要求）：按上次的意见改一次、再评一次。"""
+        spec = load_spec(self.folder(b["id"]))
+        rng = random.Random(f"{b['seed']}-hero-{len(b['hero_check']['rounds'])}")
+        rec = next(w for w in b["windows"] if w["id"] == b["hero_check"]["window"])
+        if await self._hero_loop(b, spec, rec, rng, 1, rework_first=True):
+            await self._after_hero(b)
+
+    async def _after_hero(self, b: dict[str, Any]) -> None:
+        """主视觉过了（或你说就这样）：接着写其余窗口，回到停下来的地方。"""
+        where = b["hero_check"]["where"]
+        if where.startswith("m") and where[1:].isdigit():
+            await self._milestone(b, int(where[1:]))
+            return
+        await self._build_all(b, load_spec(self.folder(b["id"])), random.Random(b["seed"]))
 
     async def _rounds(
         self, b: dict[str, Any], spec: Spec, rng: random.Random, limit: int | None = None
@@ -823,6 +1193,8 @@ class BenchBuilder:
                 b["status"] = "done"
                 self._log(b, f"第 {n} 轮过线")
                 self._grow(b, spec)
+                if not self.rules.project.enabled:  # 项目室要等你验收了才算交付
+                    self._report_back(b)
                 break
             self._revert(b, n)
             if k == limit:
@@ -1070,10 +1442,13 @@ class BenchBuilder:
             raise ValueError("现在不需要你决定")
         if self.busy:
             raise RuntimeError("正在做另一个工作台，等它停下来再继续")
+        if (b.get("hero_check") or {}).get("status") == "stuck":
+            return self._decide_hero(b, action, requirements)
         if action == "accept":
             b["status"], b["accepted_as_is"], b["stuck"] = "done", True, None
             self._log(b, "你选了「就这样」，按现在的样子收下")
             self.build = b
+            self._report_back(b)
             self._save()
             return b
         if action not in ("more", "edit"):
@@ -1087,6 +1462,30 @@ class BenchBuilder:
         else:
             self._log(b, "你选了再跑一轮")
         self._start_job(b, lambda: self._more(b, spec))
+        return b
+
+    def _decide_hero(
+        self, b: dict[str, Any], action: str, requirements: list[dict[str, str]] | None
+    ) -> dict[str, Any]:
+        """主视觉卡住时你来定：再改一次（more）、改要求再改一次（edit）、主视觉就这样往下写（accept）。"""
+        if action not in ("more", "edit", "accept"):
+            raise ValueError("不认得这个操作")
+        hc = b["hero_check"]
+        if action == "edit":
+            if not requirements:
+                raise ValueError("改要求要给出新的验收清单")
+            spec = load_spec(self.folder(b["id"]))
+            self._edit_requirements(b, spec, requirements)
+            self._log(b, f"你改了要求（{len(spec.requirements)} 条），主视觉再改一次")
+        b["stuck"] = None
+        if action == "accept":
+            hc["status"] = "accepted"
+            self._log(b, "你选了「主视觉就这样」，接着写其余窗口")
+            self._start_job(b, lambda: self._after_hero(b))
+        else:
+            if action == "more":
+                self._log(b, "你选了主视觉再改一次")
+            self._start_job(b, lambda: self._hero_more(b))
         return b
 
     async def _more(self, b: dict[str, Any], spec: Spec) -> None:
@@ -1146,9 +1545,11 @@ class BenchBuilder:
         b["status"] = "interviewing"
         record: dict[str, Any] = {}
         look = b.get("look") or {}
+        answered = (b.get("handoff") or {}).get("answered") or ""
         prompt = self.render(
             "bench_interview",
             request=b["request"],
+            answered=answered or "（没有，这是第一次和用户聊这件事）",
             look=(
                 f"{look.get('summary') or ''}\n配色：{'、'.join(look.get('palette') or [])}\n"
                 + "\n".join(
@@ -1176,6 +1577,12 @@ class BenchBuilder:
                 raw = extract_json_object(result.output)
         intent = intent_of(raw.get("intent"))
         qs = questions_of(raw.get("questions"), self.rules.project.max_questions)
+        if answered:
+            qs, dropped = drop_answered(qs, answered)
+            if dropped:
+                self._log(
+                    b, f"办公室里已经答过的 {len(dropped)} 个问题不再问：" + "；".join(dropped)
+                )
         useful = intent.get("ideal") or any(intent.get(k) for k in FIVE_KEYS)
         b["intent"] = intent if useful else None
         b["interview"] = {"questions": qs, "answers": {}, "worker": record.get("worker")}
@@ -1191,7 +1598,12 @@ class BenchBuilder:
             )
             b["brief"] = f"{b['brief_pre']}\n\n{INTENT_HEAD}\n" + intent_text(b["intent"])
         if not qs:
-            self._log(b, "没有需要你取舍的地方，直接按理想画像往下做")
+            self._log(
+                b,
+                "办公室里都说清楚了，直接生成需求书往下做"
+                if answered
+                else "没有需要你取舍的地方，直接按理想画像往下做",
+            )
             return
         self._mark(b, "立项", "要你取舍", f"{len(qs)} 个问题")
         self._gate(b, "interview", "回答几个取舍（可以跳过，跳过按推荐）")
@@ -1268,6 +1680,7 @@ class BenchBuilder:
             "tech": tech[:12],
             "plugins": [p["title"] for p in r.get("plugins") or []],
             "meeting": self._meeting_lines(b),
+            "cite": self._cite_view(b),
         }
         b["milestones"] = []
         folder = self.folder(b["id"])
@@ -1304,6 +1717,12 @@ class BenchBuilder:
             lines += ["", "## 建议池（你没要，这次不做）"] + [f"- {t}" for t in spec.pool]
         if b["proposal"]["meeting"]:
             lines += ["", "## 方案会"] + [f"- {t}" for t in b["proposal"]["meeting"]]
+        cv = b["proposal"]["cite"]
+        if cv:
+            lines += ["", "## 技术选择（每条都指向调研报告的编号，见 调研报告.md）"]
+            lines += [f"- {t}" for t in cv["lines"]]
+            if cv["skipped"]:
+                lines += ["", "## 调研里没用上的"] + [f"- {t}" for t in cv["skipped"]]
         if tech:
             lines += ["", "## 借鉴的项目"] + [f"- {t}" for t in tech]
         (folder / "方案书.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
@@ -1314,6 +1733,34 @@ class BenchBuilder:
             f"验收清单 {len(spec.requirements)} 条、{len(spec.windows)} 个窗口、"
             f"分 {len(milestones)} 段",
         )
+
+    def _cite_view(self, b: dict[str, Any]) -> dict[str, Any] | None:
+        """方案书里的技术选择：每条带出处（调研编号和名字），没出处的标出来；没用上的调研和原因。"""
+        cite = b.get("cite")
+        r = b.get("research")
+        if not cite or not r:
+            return None
+        refs = research_refs(r)
+        known = {x["id"]: x for x in refs}
+        return {
+            "choices": [
+                c | {"sources": [known[x] for x in c["refs"] if x in known]}
+                for c in cite["choices"]
+            ],
+            "lines": cite_lines(cite, refs),
+            "skipped": [
+                f"[{x['id']}] {known[x['id']]['title']}：{x['why'] or '没写原因'}"
+                for x in cite["skipped"]
+                if x["id"] in known
+            ],
+            "used": len(cite["used"]),
+            "total": len(refs),
+            "none_used": cite["none_used"],
+            "unused_reason": cite["unused_reason"],
+            "missing_reason": cite["missing_reason"],
+            "unsourced": cite["unsourced"],
+            "error": cite.get("error") or "",
+        }
 
     @staticmethod
     def _stages(spec: Spec) -> list[dict[str, Any]]:
@@ -1465,7 +1912,12 @@ class BenchBuilder:
         task = stage_task(m, spec.requirements, len(ms))
         b["stage_task"] = task  # 这一段里的自测返工、变更单返工也带上
         wids = m["windows"] or [w["id"] for w in b["windows"]]
-        recs = [w for w in b["windows"] if w["id"] in wids]
+        due = self._hero_due(b, spec, wids)
+        if due and not await self._hero_first(b, spec, rng, stage=task, where=f"m{n}"):
+            return
+        hc = b.get("hero_check") or {}
+        first = hc.get("window") if hc.get("where") == f"m{n}" else None  # 这一段先写过的主视觉
+        recs = [w for w in b["windows"] if w["id"] in wids and w["id"] != first]
         new = [w for w in recs if w["status"] == "waiting"]
         old = [w for w in recs if w["status"] != "waiting"]
         self._log(
@@ -1570,6 +2022,7 @@ class BenchBuilder:
                 self._log(b, "你验收通过，项目交付")
                 self.build = b
                 b["finished_at"] = _iso(self.now())
+                self._report_back(b)
                 self._save()
                 return b
             n = int(kind[1:])
@@ -1901,6 +2354,74 @@ class BenchBuilder:
             f"dsh 插件 {c['plugins']} 个、学习卡 {len(report['cards'])} 张",
         )
 
+    def _cited_text(self, b: dict[str, Any], wids: list[str]) -> str:
+        """给评审核对的技术选择：和这组窗口有关的（没写负责窗口的大家都核对）。"""
+        cite = b.get("cite") or {}
+        if not cite.get("choices") or not b.get("research"):
+            return "（方案书没有引用调研的技术选择）"
+        known = {x["id"]: x for x in research_refs(b["research"])}
+        lines = []
+        for c in cite["choices"]:
+            if c["windows"] and not set(c["windows"]) & set(wids):
+                continue
+            src = "；".join(f"{x} {known[x]['title']}" for x in c["refs"] if x in known)
+            lines.append(
+                f"- {c['id']} {c['choice']}｜借鉴：{c['borrow'] or '（没写）'}"
+                + (f"｜出处：{src}" if src else "｜没有出处")
+                + (f"｜负责窗口：{'、'.join(c['windows'])}" if c["windows"] else "")
+            )
+        return "\n".join(lines) or "（和你评的窗口无关）"
+
+    async def _cite(self, b: dict[str, Any], spec: Spec, rng: random.Random) -> None:
+        """方案书引用调研（I3）：一位助手把技术选择写清楚，每条指向调研报告里的编号（g1、k1……），
+        说清借鉴了什么；没用上的写原因，一条都没用上必须写原因。程序核对编号是真的。"""
+        r = b["research"]
+        refs = research_refs(r)
+        m = b.get("meeting") or {}
+        lead = next((p for p in m.get("pitches") or [] if p["worker"] == m.get("lead")), None)
+        prompt = self.render(
+            "bench_cite",
+            request=self._brief(b),
+            spec=json.dumps(spec.to_dict(), ensure_ascii=False, indent=1),
+            refs=refs_text(refs),
+            lead=(f"{lead['idea']}" + "".join(f"\n- {x}" for x in lead["plan"]))
+            if lead
+            else "（没有开方案会）",
+            skills=self._skills("plan", spec.kind, b),
+        )
+        record: dict[str, Any] = {}
+        chosen, result = await self._step(
+            b,
+            self.rules.research.cite_kind,
+            prompt,
+            rng,
+            record,
+            role="调研",
+            task="方案书的技术选择指向调研",
+        )
+        raw: Any = {}
+        error = ""
+        if chosen is None or result is None or not result.ok:
+            error = "没有助手能整理技术选择"
+        else:
+            try:
+                raw = extract_json_object(result.output)
+            except JSONOutputError:
+                error = "整理技术选择的结果看不懂"
+        cite = cite_of(raw, refs, [w.id for w in spec.windows])
+        cite["error"] = error
+        cite["worker"] = record.get("worker")
+        b["cite"] = cite
+        if error:
+            self._log(b, f"{error}，方案书里的技术选择先空着")
+            return
+        self._log(
+            b,
+            f"技术选择 {len(cite['choices'])} 条，用到调研 {len(cite['used'])} 条"
+            + (f"，{len(cite['unsourced'])} 条没有出处" if cite["unsourced"] else "")
+            + ("，调研一条都没用上" if cite["none_used"] else ""),
+        )
+
     async def _learn(
         self,
         b: dict[str, Any],
@@ -1983,6 +2504,10 @@ class BenchBuilder:
 
     def _sources_text(self, b: dict[str, Any]) -> str:
         lines = []
+        cite = b.get("cite")
+        if cite and cite.get("choices") and b.get("research"):
+            lines.append("- 方案书定下的技术选择（照着做，评审会核对借鉴的东西做到没有）：")
+            lines += ["  · " + t for t in cite_lines(cite, research_refs(b["research"]))]
         m = b.get("meeting") or {}
         lead = next((p for p in m.get("pitches") or [] if p["worker"] == m.get("lead")), None)
         if lead:
@@ -2218,6 +2743,7 @@ class BenchBuilder:
                 check=report.summary(),
                 previous=self._previous(last, wids),
                 requirements=requirements_text(spec),
+                cited=self._cited_text(b, wids),
                 skills=self._skills("review", spec.kind, b),
             )
             chosen, result = await self._step(
@@ -2255,6 +2781,14 @@ class BenchBuilder:
                 for x in (data.get("checks") or [])
                 if isinstance(x, dict) and x.get("id")
             }
+            rec["borrow"] = {
+                str(x.get("id")): {
+                    "done": x.get("done") is True,
+                    "why": str(x.get("why") or "")[:300],
+                }
+                for x in (data.get("borrow") or [])
+                if isinstance(x, dict) and x.get("id")
+            }
             rec["problems"] = {
                 str(x.get("id")): {
                     "problems": [str(p)[:300] for p in (x.get("problems") or [])][:10],
@@ -2274,6 +2808,10 @@ class BenchBuilder:
             for wid in r["windows"]
         }
         rnd["requirements"] = merge_checks(spec.requirements, rnd["reviews"])
+        rnd["borrow"] = merge_borrow((b.get("cite") or {}).get("choices") or [], rnd["reviews"])
+        if rnd["borrow"]:
+            done = sum(1 for x in rnd["borrow"] if x["done"])
+            self._log(b, f"第 {n} 轮核对借鉴：{done}/{len(rnd['borrow'])} 条做到")
         # 程序真的去填、去点没做到的：评审说做到了也不算
         failed = {x["id"]: x["why"] for x in rnd["probes"] if x["ok"] is False}
         for r in rnd["requirements"]:
@@ -2376,6 +2914,7 @@ class BenchBuilder:
         rng: random.Random,
         only: list[str] | None = None,
         out: str = "selftest",
+        viewports: tuple[tuple[str, int, int], ...] = SELFTEST_VIEWPORTS,
     ) -> list[str]:
         """写完先自测一遍（只开电脑·浅色，几秒钟）：脚本报错、没用零件库这种低级问题当场交回作者改，
         不占评审轮次，也不让评审拿着坏页面打分。``only``：只管这几个窗口（里程碑只写了一部分）。
@@ -2386,7 +2925,7 @@ class BenchBuilder:
                 self.check,
                 str(folder / "index.html"),
                 folder / "report" / out,
-                viewports=SELFTEST_VIEWPORTS,
+                viewports=viewports,
                 modes=("light",),
                 allow=self._allow(),
             )
@@ -2456,6 +2995,13 @@ class BenchBuilder:
                 continue
             why = "；".join(r["why"]) or "评审判为没做到"
             lines.append(f"- [验收·必须做到·{r['id']}] {r['text']}：{why}")
+        for x in rnd.get("borrow") or []:
+            if x["done"] or (x["windows"] and wid not in x["windows"]) or not x["judged"]:
+                continue
+            why = "；".join(x["why"]) or "评审没在代码和截图里看到"
+            lines.append(
+                f"- [借鉴·没做到·{x['id']}] 方案书说：{x['choice']}（借鉴：{x['borrow']}）：{why}"
+            )
         check = rnd.get("check") or {}
         for f in check.get("findings", []):
             # 知道出在哪几个窗口的，只交给那几个窗口的作者；不知道的大家都看
