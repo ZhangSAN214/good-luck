@@ -2221,6 +2221,29 @@ supercomputer:
       skills: {code: 0.8, frontend: 0.7, test: 0.7, review: 0.65, docs: 0.6, research: 0.55, split: 0.65, merge: 0.65}
       daily_limit: 20
       limit_patterns: *opencode_limits
+    # 2026-11-04 用户要 GLM、Grok、Gemini 也上（Go 里实测都能回复）。Grok、Gemini 是贵模型，
+    # Go 每月只给约 845 / 2120 次，每天次数设低，主要留给审查和拆分合并这类要判断力的活
+    - id: opencode-glm
+      label: OpenCode·GLM
+      argv: [opencode, run, -m, opencode-go/glm-5.2]
+      env: *opencode_env
+      skills: {code: 0.8, frontend: 0.7, test: 0.7, review: 0.7, docs: 0.7, research: 0.65, split: 0.7, merge: 0.7}
+      daily_limit: 20
+      limit_patterns: *opencode_limits
+    - id: opencode-grok
+      label: OpenCode·Grok
+      argv: [opencode, run, -m, opencode-go/grok-4.7]
+      env: *opencode_env
+      skills: {code: 0.8, review: 0.8, research: 0.75, test: 0.65, frontend: 0.6, docs: 0.65, split: 0.75, merge: 0.7}
+      daily_limit: 5
+      limit_patterns: *opencode_limits
+    - id: opencode-gemini
+      label: OpenCode·Gemini
+      argv: [opencode, run, -m, opencode-go/gemini-4-argon]
+      env: *opencode_env
+      skills: {frontend: 0.8, code: 0.8, review: 0.8, research: 0.75, docs: 0.75, test: 0.65, split: 0.75, merge: 0.75}
+      daily_limit: 8
+      limit_patterns: *opencode_limits
   # 管家（docs/SUPERCOMPUTER.md「管家」）：你建的定时活、排队、自治闸门、日报、哈希链审计。
   # 只调度你建好的定时活和你排进队的活，不会自己找活干；不调模型、不花钱。
   butler:

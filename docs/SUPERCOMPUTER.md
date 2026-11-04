@@ -1,6 +1,6 @@
 # 超级电脑
 
-几位编程助手平级干活，没有固定主管。现在配了五位：dsh（走圆桌的 dsh 工作台）、Codex（ChatGPT 订阅）、Claude Code（Claude 订阅），以及 OpenCode 的两位（OpenCode Go 包月，DeepSeek 和 Kimi 各一位）。没装的那位显示不可用，其余照常。你交一件活，圆桌的程序按分数决定谁拆分、每件小活给谁、谁来合并。大家在同一个文件夹里同时干。
+几位编程助手平级干活，没有固定主管。现在配了五位：dsh（走圆桌的 dsh 工作台）、Codex（ChatGPT 订阅）、Claude Code（Claude 订阅），以及 OpenCode 的五位（OpenCode Go 包月，DeepSeek、Kimi、GLM、Grok、Gemini 各一位）。没装的那位显示不可用，其余照常。你交一件活，圆桌的程序按分数决定谁拆分、每件小活给谁、谁来合并。大家在同一个文件夹里同时干。
 
 只在你交活时干活，不会自己找活干。入口在顶部分段栏「工作台」（Alt+5）的「超级电脑」标签，干活时「工作台」上有个绿点。
 
@@ -53,9 +53,9 @@
 1. 装 OpenCode 命令行（见官网 <https://opencode.ai>），在终端里能运行 `opencode` 就行。
 2. 运行 `opencode auth login`，选 OpenCode Go，粘贴控制台里的 key。key 存在 OpenCode 自己的文件里，圆桌不经手。
 3. 在 OpenCode 控制台的 Go 页面把 Regions 选成 Global（DeepSeek 模型要这个），「Extra Usage」保持关闭，超出额度就停，不会多扣钱。
-4. 重启圆桌，「工作台 → 超级电脑」里能看到两位 OpenCode。
+4. 重启圆桌，「工作台 → 超级电脑」里能看到五位 OpenCode。
 
-**为什么分成两位：** Go 每个模型的额度各算各的（5 小时最多用掉月额度的 20%，一周 50%）。一位撞到限额会歇 `cooldown_minutes`，另一位照常接活，Claude Code、Codex 也照常排在一起按分数派。dsh 按用量花钱，仍然只补位。
+**为什么按模型分成几位：** Go 每个模型的额度各算各的（5 小时最多用掉月额度的 20%，一周 50%）。一位撞到限额会歇 `cooldown_minutes`，其他几位照常接活。Grok、Gemini 是贵模型，Go 每月只给约 845 / 2120 次，所以每天次数设得低（5 / 8），Claude Code、Codex 也照常排在一起按分数派。dsh 按用量花钱，仍然只补位。
 
 **权限：** `OPENCODE_PERMISSION` 允许改文件、跑命令、查网页，碰工作文件夹以外的文件一律拒绝，其余要确认的请求在非交互模式下自动拒绝。它没有 Codex 那样的系统沙箱，命令仍在你的电脑上跑。
 
