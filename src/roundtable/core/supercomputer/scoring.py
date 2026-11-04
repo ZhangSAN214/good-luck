@@ -2,8 +2,8 @@
 
 分数 = 擅长 × skill + 今天剩余次数比例 × quota − 手上的活 × busy。
 不可用、冷却中、今天次数用完的不参加；同分时用可复现的随机数决定。
-``weights.metered_last`` 打开时，按用量花钱的（``metered``）只在走订阅的都不能参加时补位：
-它们照样打分、列在排名里（标 standby），但排在所有走订阅的后面。
+``weights.metered_last`` 打开时按档派：包月订阅 → API 额度（via=credit）→ 按用量花钱（metered），
+前一档都不能参加才轮到下一档。后两档照样打分、列在排名里（标 standby），但排在前一档后面。
 """
 
 from __future__ import annotations
@@ -30,7 +30,8 @@ class Score:
     skill: float
     quota: float
     busy: float
-    standby: bool = False  # 按用量花钱、这次只补位
+    standby: bool = False  # 不是包月的：排在包月后面，只补位
+    credit: bool = False  # 走预付 / 赠送的 API 额度（界面上的说明不同）
 
     def as_dict(self) -> dict[str, float | str | bool]:
         out: dict[str, float | str | bool] = {
@@ -42,6 +43,8 @@ class Score:
         }
         if self.standby:
             out["standby"] = True
+        if self.credit:
+            out["credit"] = True
         return out
 
 
@@ -72,13 +75,13 @@ def pick(
     """挑分数最高的一位；返回（人选，所有参加者的分数从高到低）。没人可用时人选为 None。"""
     scored: list[tuple[int, float, float, SuperWorker, Score]] = []
     eligible = [w for w in workers if w.id not in exclude and not excluded(states[w.id])]
-    free_ok = any(not w.metered for w in eligible)
     for w in eligible:
         s = score(w, kind, states[w.id], weights)
-        standby = weights.metered_last and w.metered
-        if standby:  # 面板上标「补位」：排在后面时、或订阅的都用不了而轮到它时
-            s = Score(s.worker, s.total, s.skill, s.quota, s.busy, standby=True)
-        scored.append((0 if standby and free_ok else 1, s.total, rng.random(), w, s))
+        standby = weights.metered_last and w.tier > 0
+        if standby:  # 面板上标「补位」：排在后面时、或前一档都用不了而轮到它时
+            s = Score(s.worker, s.total, s.skill, s.quota, s.busy, True, w.tier == 1)
+        group = -w.tier if weights.metered_last else 0
+        scored.append((group, s.total, rng.random(), w, s))
     scored.sort(key=lambda t: (t[0], t[1], t[2]), reverse=True)
     ranking = [t[4] for t in scored]
     return (scored[0][3] if scored else None), ranking

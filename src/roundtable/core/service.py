@@ -188,6 +188,7 @@ from roundtable.core.steps.office import group_estimates
 from roundtable.core.sticker_packs import PackError
 from roundtable.core.storage import NotFound, iso
 from roundtable.core.supercomputer import Butler, Supercomputer
+from roundtable.core.supercomputer.credit import CreditLauncher
 from roundtable.core.supercomputer.launch import CommandLauncher, HookLauncher
 from roundtable.core.wander import Wanderer
 from roundtable.core.yourpc import WindowsPc, game_of
@@ -532,18 +533,48 @@ class RoundtableService:
         keys += [p.key_env for p in config.models.search_providers.values() if p.key_env]
         if config.roundtable.dsh.key_env:
             keys.append(config.roundtable.dsh.key_env)
-        launchers: dict[str, Any] = {"command": CommandLauncher(drop_env=keys)}
+        command = CommandLauncher(drop_env=keys)
+        launchers: dict[str, Any] = {"command": command}
         if self.dsh is not None:
             dsh = self.dsh
             launchers["dsh"] = HookLauncher(
                 dsh.job_blocked, dsh.job_launch, dsh.job_started, dsh.job_finished
             )
-        return Supercomputer(
-            config.roundtable.supercomputer,
+        rules = config.roundtable.supercomputer
+        credit = {w.credit_channel for w in rules.workers if w.via == "credit" and w.credit_channel}
+        weekly = runtime.weekly
+        if credit:
+            # 用 API 额度的助手：key 只从 .env 读（内存数据库 / 测试里不读，这几位显示没有 key）
+            names = {
+                ch: config.models.channels[ch].key_env or ""
+                for ch in credit
+                if ch in config.models.channels
+            }
+            ring = (
+                KeyRing.from_env(
+                    [n for n in names.values() if n], dotenv_path=PROJECT_ROOT / ".env"
+                )
+                if base is not None
+                else KeyRing({})
+            )
+            launchers["credit"] = CreditLauncher(
+                command,
+                {ch: (names.get(ch, ""), ring.get(names.get(ch))) for ch in credit},
+                weekly.blocked if weekly is not None and weekly.active else None,
+            )
+        sc = Supercomputer(
+            rules,
             root=base / "super" if base is not None else None,
             render=self._super_render,
             launchers=launchers,
         )
+        if weekly is not None:
+            for ch in credit:  # 这几位自己报的花费算进渠道的每月上限
+                ids = [w.id for w in rules.workers if w.credit_channel == ch]
+                weekly.monthly_extra[ch] = lambda ids=ids: sum(
+                    sc.ledger.month_spent(i, sc.now()) for i in ids
+                )
+        return sc
 
     def reconcile(self) -> list[str]:
         """开机对账：上次服务意外退出（或被关掉）时还在跑的讨论，数据库里会一直留着「进行中」。

@@ -128,6 +128,8 @@ class WeeklyCap:
         self._cache: tuple[datetime, dict[str, float]] | None = None
         self._month_cache: tuple[datetime, dict[str, float]] | None = None
         self.extra: dict[str, Callable[[], float]] = {}  # 渠道 → 本周别处花的（美元）
+        # 渠道 → 本月别处花的（美元），如工作台用这个渠道 key 的 Claude Code 自己报的花费
+        self.monthly_extra: dict[str, Callable[[], float]] = {}
 
     @classmethod
     def from_config(cls, config: AppConfig, repo: Repository, now: Callable[[], datetime]):
@@ -151,13 +153,20 @@ class WeeklyCap:
         """配置里有没有设任何上限（没有就不用挡路由）。"""
         return bool(self.caps or self.monthly)
 
-    def month_spent(self, channel: str) -> float:
+    def _month_own(self) -> dict[str, float]:
         now = self._now()
         if self._month_cache and (now - self._month_cache[0]).total_seconds() < self._ttl:
-            return self._month_cache[1].get(channel, 0.0)
+            return self._month_cache[1]
         spent = self._repo.spent_by_channel_between(*month_window(now)) if self.monthly else {}
         self._month_cache = (now, spent)
-        return spent.get(channel, 0.0)
+        return spent
+
+    def month_spent(self, channel: str) -> float:
+        total = self._month_own().get(channel, 0.0)
+        if channel in self.monthly_extra:
+            with contextlib.suppress(Exception):  # 外部账本读不到：只按本机账本算
+                total += max(0.0, float(self.monthly_extra[channel]()))
+        return total
 
     def _own(self) -> dict[str, float]:
         now = self._now()

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import random
 
+import pytest
+
 from roundtable.core.config.schema import SuperWeights, SuperWorker
 from roundtable.core.supercomputer.scoring import WorkerState, pick, score
 
@@ -85,3 +87,42 @@ def test_repo_config_marks_only_the_pay_per_use_worker():
     paid = [w for w in sc.workers if w.metered]
     assert [w.via for w in paid] == ["dsh"]  # dsh 按用量扣余额；命令行助手走订阅
     assert any(not w.metered for w in sc.workers)
+
+
+def credit(wid, **skills):
+    return SuperWorker(
+        id=wid, label=wid.upper(), via="credit", credit_channel="ch", argv=["x"], skills=skills
+    )
+
+
+def test_credit_worker_sits_between_plan_and_metered():
+    """2026-11-04 用户定：包月的先干，用 API 额度的其次，按用量花钱的（dsh）最后。"""
+    ws = [metered("paid", code=0.99), credit("api", code=0.95), worker("plan", code=0.3)]
+    states = {w.id: WorkerState() for w in ws}
+    chosen, ranking = pick(ws, "code", states, W, random.Random(1))
+    assert chosen.id == "plan"
+    assert [s.worker for s in ranking] == ["plan", "api", "paid"]
+    assert ranking[1].as_dict()["credit"] is True and ranking[1].standby
+    assert "credit" not in ranking[2].as_dict()
+    states["plan"] = WorkerState(blocked="冷却中")
+    assert pick(ws, "code", states, W, random.Random(1))[0].id == "api"
+    states["api"] = WorkerState(used=20, limit=20)
+    assert pick(ws, "code", states, W, random.Random(1))[0].id == "paid"
+
+
+def test_credit_worker_needs_channel_and_argv():
+    with pytest.raises(ValueError, match="credit_channel"):
+        SuperWorker(id="a", label="A", via="credit", argv=["x"])
+    with pytest.raises(ValueError, match="argv"):
+        SuperWorker(id="a", label="A", via="credit", credit_channel="ch")
+    assert credit("a").tier == 1 and worker("b").tier == 0 and metered("c").tier == 2
+
+
+def test_repo_config_has_credit_worker_on_a_real_channel():
+    from roundtable.core.config import load_config
+
+    cfg = load_config()
+    api = [w for w in cfg.roundtable.supercomputer.workers if w.via == "credit"]
+    assert api and all(w.credit_channel in cfg.models.channels for w in api)
+    assert all(cfg.models.channels[w.credit_channel].key_env for w in api)
+    assert all(w.json_output and w.json_output.cost_usd for w in api)

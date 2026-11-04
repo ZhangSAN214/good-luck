@@ -37,3 +37,14 @@ def test_memory_only_and_corrupt_file(tmp_path):
     bad = tmp_path / "bad.json"
     bad.write_text("{not json", encoding="utf-8")
     assert Ledger(bad).used("a", T) == 0
+
+
+def test_spend_by_month(tmp_path):
+    led = Ledger(tmp_path / "l.json")
+    led.add_spend("a", 0.25, T)
+    led.add_spend("a", 0.5, T)
+    led.add_spend("b", 1.0, T)
+    again = Ledger(tmp_path / "l.json")
+    assert again.month_spent("a", T) == 0.75
+    assert again.month_spent("b", T) == 1.0
+    assert again.month_spent("a", T + timedelta(days=40)) == 0  # 下个月重新算
