@@ -69,6 +69,8 @@ class ChannelSpec(_Strict):
     # 随消息发的音频（input_audio.data）写成 data URI（"data:;base64,…"）而不是纯 base64：
     # 有的 OpenAI 兼容渠道（如百炼的兼容模式）只认这种写法
     media_data_uri: bool = False
+    # 这个渠道用本机显卡（本地出图、本地配音）：游戏模式下不调用（docs/GAMEMODE.md）
+    gpu: bool = False
 
     @property
     def reasoning_style(self) -> str:
@@ -4326,6 +4328,48 @@ class BackupRules(_Strict):
     check_minutes: int = Field(default=60, ge=5, le=1440)  # 开着时每隔多久看一眼「今天备份了没」
 
 
+class GameModeRules(_Strict):
+    """游戏模式（docs/GAMEMODE.md）：你在玩游戏或别的程序在用显卡时，圆桌让出显卡。
+
+    忙的判断（任一）：手动开关；在跑游戏（「关于你」的游戏表 + Steam / Epic 装的）；前台是全屏程序；
+    显卡占用或别的程序占的显存超过门槛（读 NVIDIA 驱动，只在电脑上）。
+    忙时：用显卡的渠道（渠道配置 ``gpu: true``，如本地出图、本地配音）一律不调用，换下一个模型；
+    朋友圈配图不改走付费模型，先排队；连续空闲 ``idle_minutes`` 分钟后逐个补跑。
+    云端聊天不受影响。"""
+
+    auto: bool = True  # 自动识别（关掉后只认手动开关）
+    poll_seconds: float = Field(default=10.0, ge=2, le=300)  # 多久看一次
+    idle_minutes: float = Field(default=5.0, ge=0, le=120)  # 连续空闲多久才重新用显卡、补跑排队的活
+    detect_games: bool = True  # 认在跑的游戏（不管在不在前台）
+    detect_fullscreen: bool = True  # 前台是全屏程序（看视频全屏也算）
+    # Steam / Epic 目录里不算游戏的（启动器、壁纸、运行库）：按游戏文件夹名，不分大小写
+    not_games: list[str] = Field(
+        default_factory=lambda: [
+            "Launcher",
+            "wallpaper_engine",
+            "Steamworks Shared",
+            "Epic Online Services",
+            "DirectXRedist",
+        ],
+        max_length=50,
+    )
+    busy_util_pct: int = Field(default=40, ge=0, le=100)  # 显卡占用达到它算忙（0 = 不看）
+    busy_vram_mb: int = Field(default=1500, ge=0)  # 别的程序占的显存达到它算忙（0 = 不看）
+    # 算自己人的程序（本地出图、本地配音都是 Python 服务）：它们占的显存不算「别的程序」
+    own_processes: list[str] = Field(
+        default_factory=lambda: ["python.exe", "pythonw.exe", "python", "python3"],
+        max_length=20,
+    )
+    # 自己的显卡活刚做完，这么久内不看占用
+    own_grace_seconds: float = Field(default=60.0, ge=0, le=600)
+    # 忙时圆桌自己的 CPU：low = 降到最低优先级（只在 Windows 上）；pause = 再停掉后台的生活、
+    # 例会、管家、周报（聊天和讨论照常）；normal = 不管
+    cpu_when_busy: Literal["low", "pause", "normal"] = "low"
+    # 忙时朋友圈配图：defer = 不花钱的模型能画就画，否则排队等显卡空了补画；cloud = 照旧换付费模型
+    photos_when_busy: Literal["defer", "cloud"] = "defer"
+    queue_max: int = Field(default=50, ge=1, le=500)  # 排队最多几件（满了最早的丢掉）
+
+
 class RoundtableConfig(_Strict):
     seats: int = Field(ge=2)
     min_members: int = Field(default=2, ge=2)
@@ -4374,6 +4418,7 @@ class RoundtableConfig(_Strict):
     bench: BenchRules = BenchRules()
     calendar: CalendarRules = CalendarRules()
     backup: BackupRules = BackupRules()
+    gamemode: GameModeRules = GameModeRules()
 
     @field_validator("prompts")
     @classmethod

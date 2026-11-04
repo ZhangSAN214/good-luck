@@ -87,6 +87,7 @@ channels:
     kind: local
     base_url: http://127.0.0.1:8188
     key_env: null
+    gpu: true        # 用本机显卡：游戏模式下让路（docs/GAMEMODE.md）
   # 本地配音服务（只配音，不花钱，不需要 key），如自己电脑上的 IndexTTS2 网页服务：装好后在
   # config/models.local.yaml 写 model_switches: {pc-tts: true} 打开下面的 pc-tts（见 docs/LOCAL_TTS.md）
   local_tts:
@@ -94,6 +95,7 @@ channels:
     kind: local
     base_url: http://127.0.0.1:7860
     key_env: null
+    gpu: true
   # ChatGPT 网页出图（只出图，用你自己的 ChatGPT 会员，不花 API 的钱）：在电脑上运行一次
   # roundtable chatgpt-login 并自己登录，就会打开下面的 chatgpt-web（见 docs/CHATGPT_WEB.md）
   chatgpt_web:

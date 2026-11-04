@@ -2376,6 +2376,16 @@ backup:
   keep_checkpoints: 10  # 存档点留 10 份
   check_minutes: 60     # 开着时每小时看一眼今天备份了没
 
+# 游戏模式（docs/GAMEMODE.md）：你玩游戏或别的程序在用显卡时，圆桌让出显卡；连续空闲 5 分钟后补跑。
+# 只管用本机显卡的渠道（models.yaml 里 gpu: true 的：本地出图、本地配音）；云端聊天照常。
+gamemode:
+  auto: true              # 自动识别；关掉后只认网页上的手动开关
+  idle_minutes: 5         # 显卡连续空闲多久才重新用、补跑排队的活
+  busy_util_pct: 40       # 显卡占用达到 40% 算忙
+  busy_vram_mb: 1500      # 别的程序占了 1.5 GB 显存算忙
+  cpu_when_busy: low      # 忙时圆桌降到最低 CPU 优先级；pause = 再停掉后台的生活 / 例会 / 管家
+  photos_when_busy: defer # 忙时朋友圈配图先排队，不改走付费模型
+
 # 日历底座（docs/CALENDAR.md）：只算「今天是什么日子」，每天发事件给成员系统（怎么过节由生活引擎决定）。
 # 全部离线计算：法定假日用开源库 holidays，农历和节气查预先算好的表；不调模型、不联网、不花钱。
 # 只影响生活（聊天、朋友圈、生活）；工作模式不挂载。你加的纪念日只存本机。

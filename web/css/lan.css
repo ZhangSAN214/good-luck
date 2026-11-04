@@ -51,3 +51,4 @@
 /* 顶栏按钮：宽屏写全「出问题点这里」，平板竖屏等窄屏只写「自检」，免得顶栏多折一行 */
 #firstaidbtn .fa-short{display:none}
 @media (max-width:1199px){#firstaidbtn .fa-long{display:none}#firstaidbtn .fa-short{display:inline}}
+.gm-on::after{content:"";display:inline-block;width:6px;height:6px;margin-left:4px;border-radius:50%;background:var(--warn,#d98b00);vertical-align:middle}

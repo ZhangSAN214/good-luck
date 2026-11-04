@@ -339,6 +339,13 @@ class MemoryBody(BaseModel):
     member: str | None = None  # 新建时必填
 
 
+class GameModeBody(BaseModel):
+    """游戏模式的手动开关（docs/GAMEMODE.md）。"""
+
+    model_config = ConfigDict(extra="forbid")
+    manual: bool
+
+
 class HomeTzBody(BaseModel):
     """主时区：IANA 名字（如 Europe/London）或 local（跟随电脑）。"""
 
@@ -821,6 +828,7 @@ def create_app(service: RoundtableService | None = None, lan: LanAccess | None =
         app.state.service.start_dsh()
         app.state.service.start_butler()
         app.state.service.start_desk_weekly()
+        app.state.service.start_gamemode()
         try:
             yield
         finally:
@@ -1837,6 +1845,14 @@ def create_app(service: RoundtableService | None = None, lan: LanAccess | None =
     @app.get("/api/changelog")
     async def changelog(request: Request) -> dict[str, Any]:
         return svc(request).changelog()
+
+    @app.get("/api/gamemode")
+    async def gamemode(request: Request) -> dict[str, Any]:
+        return svc(request).gamemode()
+
+    @app.put("/api/gamemode")
+    async def set_gamemode(request: Request, body: GameModeBody) -> dict[str, Any]:
+        return svc(request).set_gamemode(body.manual)
 
     @app.get("/api/home-tz")
     async def home_tz(request: Request) -> dict[str, Any]:

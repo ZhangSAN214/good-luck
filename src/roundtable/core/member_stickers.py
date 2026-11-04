@@ -77,6 +77,10 @@ class StickerUnavailable(Exception):
     """没有可用的绘图模型、没有参考图，或画图失败。"""
 
 
+class PhotoDeferred(StickerUnavailable):
+    """游戏模式：本地显卡让路，又没有不花钱的模型能画，这张先排队（docs/GAMEMODE.md）。"""
+
+
 class StickerBudgetExceeded(Exception):
     """再画就会超过表情包或创作输出的每月上限。"""
 
@@ -536,6 +540,7 @@ class MemberStickers:
         models = [*local, *models]
         if rules.local_only:
             models = self.local_only(models)
+        models = self._gpu_wait(models)
         if not rules.enabled or not models:
             raise StickerUnavailable("没有能看参考图的绘图模型")
         images = self.references(member, card) if refs else []
@@ -602,6 +607,21 @@ class MemberStickers:
                     data = look(data, random.Random(f"phone:{seed or post}"))
                 return _jpeg(data, rules.max_side), "image/jpeg"
         raise StickerUnavailable("画图失败（所有模型都没画出来）")
+
+    def _gpu_wait(self, models: list[ModelSpec]) -> list[ModelSpec]:
+        """游戏模式（photos_when_busy: defer）：本地显卡模型在让路时，只留不花钱、不用显卡的
+        （如 ChatGPT 网页）；一个都没有就抛 PhotoDeferred，等显卡空了再补画。"""
+        gm = getattr(self.rt, "gamemode", None)
+        if gm is None or gm.rules.photos_when_busy != "defer":
+            return models
+        router = self.rt.router
+        waiting = [m for m in models if router.model_gpu_blocked(m.id)]
+        if not waiting:
+            return models
+        rest = [m for m in models if m not in waiting and image_cost(m, None, 1) <= 0]
+        if not rest:
+            raise PhotoDeferred(router.model_gpu_blocked(waiting[0].id) or "游戏模式")
+        return rest
 
     def people(
         self, member: str, name: str, others: Sequence[tuple[str, str]], *, landlord: bool = False

@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import time
 from collections import deque
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Any, Generic, TypeVar
+from typing import Any, Generic, Protocol, TypeVar
 
 from roundtable.core.config import ChannelMode, ModelsConfig, ModelSpec, Route
 from roundtable.core.config.schema import ChannelKind, RequestPolicy
@@ -27,6 +28,15 @@ from .errors import (
 from .priority import ChannelPriority, DrawPrefs, credit_state, order_routes
 
 T = TypeVar("T")
+
+
+class GpuGuard(Protocol):
+    """游戏模式（core/gamemode.py 的 GameMode）：路由只用这两样。"""
+
+    def blocked(self) -> str | None: ...
+
+    def hold(self) -> contextlib.AbstractContextManager[None]: ...
+
 
 log = logging.getLogger(__name__)
 
@@ -114,6 +124,7 @@ class ChannelRouter:
         self._priority = ChannelPriority()
         self._draw_prefs = DrawPrefs()
         self._spent: Callable[[str], float] = lambda _channel: 0.0
+        self._gpu: GpuGuard | None = None
 
     @property
     def mode(self) -> ChannelMode:
@@ -182,6 +193,33 @@ class ChannelRouter:
             if not plan.usable:
                 result[m.id] = plan.skipped
         return result
+
+    # --- 游戏模式（docs/GAMEMODE.md） -------------------------------------------------
+
+    def set_gpu_guard(self, guard: GpuGuard | None) -> None:
+        """装上游戏模式：``gpu: true`` 的渠道调用前先问它，忙时不调用、换下一个渠道。"""
+        self._gpu = guard
+
+    def gpu_blocked(self, channel: str) -> str | None:
+        """这个渠道现在因为游戏模式不能用的原因；能用（或不是显卡渠道）时为 None。"""
+        spec = self._models.channels.get(channel)
+        if self._gpu is None or spec is None or not spec.gpu:
+            return None
+        return self._gpu.blocked()
+
+    def model_gpu_blocked(self, model_id: str) -> str | None:
+        """模型能走的渠道全都因为游戏模式不能用时，返回原因。"""
+        channels = [r.channel for r in self.plan(model_id).usable]
+        reasons = [self.gpu_blocked(c) for c in channels]
+        if channels and all(reasons):
+            return reasons[0]
+        return None
+
+    def _gpu_hold(self, channel: str) -> contextlib.AbstractContextManager[None]:
+        spec = self._models.channels.get(channel)
+        if self._gpu is None or spec is None or not spec.gpu:
+            return contextlib.nullcontext()
+        return self._gpu.hold()
 
     # --- 限速与并发 ----------------------------------------------------------------
 
@@ -275,11 +313,20 @@ class ChannelRouter:
             if round_no:
                 await self._sleep(self._policy.backoff_s * round_no)
             for route in self._ordered(remaining):
+                blocked = self.gpu_blocked(route.channel)
+                if blocked:  # 游戏模式：不调用，换下一个渠道（不算这个渠道出错，不冷却）
+                    error = ProviderError(ErrorKind.RATE_LIMIT, route.channel, blocked)
+                    attempts.append(Attempt(route.channel, False, 0.0, error.kind))
+                    self._note_skip(error)
+                    last_error = error
+                    given_up.add(route.channel)
+                    continue
                 try:
                     async with self._slot(route.channel):
                         await self._throttle(route.channel)
                         started = self._clock()
-                        result = await call(self._providers[route.channel], route, plan.model)
+                        with self._gpu_hold(route.channel):
+                            result = await call(self._providers[route.channel], route, plan.model)
                 except UnsupportedCapability:
                     error = ProviderError(ErrorKind.NOT_FOUND, route.channel, "渠道不支持该能力")
                     attempts.append(
