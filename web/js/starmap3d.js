@@ -40,8 +40,11 @@ export const THEMES = {
     star: 'glow', blend: 'add', line: null, lineAlpha: 0.22, dust: 900, nebula: true, ring: true,
   },
   mono: {
-    label: '极简线稿', bg: 0xf3f1ec, bloom: null, sat: 0, light: 0.12, accent: 0xff5a3c,
-    star: 'dot', blend: 'normal', line: 0x1b1b1b, lineAlpha: 0.28, dust: 260, dustColor: 0x9a968e, nebula: false, ring: true,
+    // 背景透明，纸面、暗角和点阵由 CSS 画；远处的线和星用雾淡进纸色，近实远虚出层次
+    label: '极简线稿', bg: null, fog: 0xf1efe9, bloom: null, sat: 0, light: 0.12, accent: 0xff5a3c,
+    star: 'dot', blend: 'normal', line: 0x1b1b1b, lineAlpha: 0.3, dust: 320, dustColor: 0xa7a299, nebula: false, ring: true,
+    // 立体：小星是有光影的小球，地面有投影和垂线；手绘：线和轨道是铅笔抖两笔
+    clay: true, sketch: true, floor: true,
   },
   glass: {
     label: '玻璃星球', bg: null, bloom: null, sat: 0.7, light: 0.66,
@@ -100,6 +103,30 @@ function texture(T, kind) {
     g.beginPath();
     g.arc(m, m, m * 0.78, 0, Math.PI * 2);
     g.stroke();
+  } else if (kind === 'pencil') {
+    // 手绘圈：两笔不完全重合、首尾略出头
+    g.strokeStyle = '#fff';
+    g.lineCap = 'round';
+    for (const [w, r0, a0, ph] of [[4, 0.78, -0.3, 0.4], [2.4, 0.81, 2.6, 1.9]]) {
+      g.lineWidth = w;
+      g.beginPath();
+      for (let i = 0; i <= 64; i += 1) {
+        const a = a0 + (i / 64) * Math.PI * 2.12;
+        const r = m * (r0 + 0.025 * Math.sin(a * 3 + ph) + 0.012 * Math.sin(a * 7));
+        const x = m + Math.cos(a) * r;
+        const y = m + Math.sin(a) * r;
+        if (i) g.lineTo(x, y);
+        else g.moveTo(x, y);
+      }
+      g.stroke();
+    }
+  } else if (kind === 'shadow') {
+    const r = g.createRadialGradient(m, m, 0, m, m, m);
+    r.addColorStop(0, 'rgba(40,30,15,.55)');
+    r.addColorStop(0.45, 'rgba(40,30,15,.22)');
+    r.addColorStop(1, 'rgba(40,30,15,0)');
+    g.fillStyle = r;
+    g.fillRect(0, 0, s, s);
   } else if (kind === 'soft') {
     const r = g.createRadialGradient(m, m, 0, m, m, m);
     r.addColorStop(0, 'rgba(255,255,255,.55)');
@@ -119,17 +146,42 @@ function badge(T, { icon, text, accent = null }) {
   c.width = c.height = s;
   const g = c.getContext('2d');
   const m = s / 2;
-  g.fillStyle = '#f7f5f0';
-  g.strokeStyle = accent || '#141414';
-  g.lineWidth = 5;
+  // 像一颗立体按钮：左上受光、右下暗一点，底部一圈内阴影
+  const R0 = m - 14;
+  const fill = g.createRadialGradient(m - R0 * 0.35, m - R0 * 0.4, R0 * 0.1, m, m, R0 * 1.05);
+  fill.addColorStop(0, '#ffffff');
+  fill.addColorStop(0.6, '#f6f3ed');
+  fill.addColorStop(1, '#e4dfd5');
+  g.fillStyle = fill;
   g.beginPath();
-  g.arc(m, m, m - 8, 0, Math.PI * 2);
+  g.arc(m, m, R0, 0, Math.PI * 2);
   g.fill();
+  const rim = g.createLinearGradient(0, m - R0, 0, m + R0);
+  rim.addColorStop(0, 'rgba(255,255,255,.9)');
+  rim.addColorStop(1, 'rgba(120,105,80,.25)');
+  g.strokeStyle = rim;
+  g.lineWidth = 6;
+  g.beginPath();
+  g.arc(m, m, R0 - 4, 0, Math.PI * 2);
   g.stroke();
-  g.fillStyle = accent || '#141414';
+  // 铅笔描边：两笔、轻微抖动、首尾出头
+  g.strokeStyle = accent || '#1b1a18';
+  g.lineCap = 'round';
+  for (const [w, r0, a0, ph] of [[4.2, 1, -0.6, 0.3], [2, 1.035, 2.2, 1.7]]) {
+    g.lineWidth = w;
+    g.beginPath();
+    for (let i = 0; i <= 72; i += 1) {
+      const a = a0 + (i / 72) * Math.PI * 2.08;
+      const r = R0 * (r0 + 0.018 * Math.sin(a * 3 + ph) + 0.008 * Math.sin(a * 8 + ph));
+      if (i) g.lineTo(m + Math.cos(a) * r, m + Math.sin(a) * r);
+      else g.moveTo(m + Math.cos(a) * r, m + Math.sin(a) * r);
+    }
+    g.stroke();
+  }
+  g.fillStyle = accent || '#1b1a18';
   if (icon && ICONS[icon]) {
     g.save();
-    const k = (s * 0.5) / 960;
+    const k = (s * 0.44) / 960;
     g.translate(m - 480 * k, m - 480 * k);
     g.scale(k, k);
     g.translate(0, 960);
@@ -172,7 +224,8 @@ export class Scene3D {
     host.classList.add(`sm3-host-${this.themeName}`);
     this.scene = new T.Scene();
     if (this.th.bg !== null) this.scene.background = new T.Color(this.th.bg);
-    if (this.th.bg !== null && this.themeName !== 'mono') this.scene.fog = new T.FogExp2(this.th.bg, 0.00055);
+    if (this.th.bg !== null) this.scene.fog = new T.FogExp2(this.th.bg, 0.00055);
+    if (this.th.fog) this.scene.fog = new T.Fog(this.th.fog, 500, 2300);
     this.camera = new T.PerspectiveCamera(48, 1, 1, 6000);
     this.camera.position.set(0, 320, 900);
     this.controls = new L.OrbitControls(this.camera, this.renderer.domElement);
@@ -185,7 +238,15 @@ export class Scene3D {
     this.controls.minDistance = 140;
     this.controls.maxDistance = 2400;
     this.tex = {};
-    for (const k of ['glow', 'spark', 'dot', 'ring', 'dash', 'soft']) this.tex[k] = texture(T, k);
+    for (const k of ['glow', 'spark', 'dot', 'ring', 'dash', 'soft', 'pencil', 'shadow']) this.tex[k] = texture(T, k);
+    if (this.th.sketch) this.tex.ring = this.tex.pencil;
+    if (this.th.clay) {
+      // 柔和的棚拍光：天光 + 一盏左上方的主光，小球有明暗和高光
+      this.scene.add(new T.HemisphereLight(0xffffff, 0xcfc6b4, 2.2));
+      const key = new T.DirectionalLight(0xffffff, 2.4);
+      key.position.set(-400, 900, 500);
+      this.scene.add(key);
+    }
     if (this.themeName === 'glass') {
       const pm = new T.PMREMGenerator(this.renderer);
       this.scene.environment = pm.fromScene(new L.RoomEnvironment(), 0.04).texture;
@@ -289,13 +350,45 @@ export class Scene3D {
     const add = th.blend === 'add' ? T.AdditiveBlending : T.NormalBlending;
     if (this.orbits) {
       this.orbits.clear();
-      for (const [r, op] of [[orbit, 0.5], [orbit * 0.5, 0.25], [orbit * 1.55, 0.18]]) {
+      const fine = th.star === 'dot';
+      if (th.sketch) {
+        // 手绘轨道：每圈两笔，半径带一点起伏，首尾不完全接上
+        let seed = 11;
+        const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+        for (const [r, op] of [[orbit, 0.5], [orbit * 0.5, 0.28], [orbit * 1.55, 0.2]]) {
+          for (let k = 0; k < 2; k += 1) {
+            const pts = [];
+            const a0 = rnd() * Math.PI * 2;
+            const ph = rnd() * 6;
+            const span = Math.PI * 2 * (1.015 + rnd() * 0.03);
+            for (let i = 0; i <= 240; i += 1) {
+              const a = a0 + (i / 240) * span;
+              const rr = r * (1 + 0.006 * Math.sin(a * 2 + ph) + 0.003 * Math.sin(a * 5 + ph * 2)) + (k ? 2.2 : 0);
+              pts.push(new T.Vector3(Math.cos(a) * rr, Math.sin(a * 3 + ph) * 1.2, Math.sin(a) * rr));
+            }
+            this.orbits.add(new T.Line(new T.BufferGeometry().setFromPoints(pts), new T.LineBasicMaterial({ color: th.line, transparent: true, opacity: op * (k ? 0.45 : 1), depthWrite: false })));
+          }
+        }
+      }
+      for (const [r, op] of th.sketch ? [] : [[orbit, fine ? 0.42 : 0.5], [orbit * 0.5, fine ? 0.2 : 0.25], [orbit * 1.55, fine ? 0.12 : 0.18]]) {
+        const w = fine ? 0.35 : 0.6;
         const ring = new T.Mesh(
-          new T.RingGeometry(r - 0.6, r + 0.6, 256),
+          new T.RingGeometry(r - w, r + w, 256),
           new T.MeshBasicMaterial({ color: th.line ?? 0x8fa2ff, transparent: true, opacity: op * (th.sat === 0 ? 0.6 : 0.5), side: T.DoubleSide, depthWrite: false }),
         );
         ring.rotation.x = -Math.PI / 2;
         this.orbits.add(ring);
+      }
+      if (fine) {
+        // 外圈刻度：像仪表盘一样的细刻度，每 30° 一根长的
+        const pts = [];
+        for (let i = 0; i < 120; i += 1) {
+          const a = (i / 120) * Math.PI * 2;
+          const r0 = orbit * 1.55;
+          const r1 = r0 + (i % 10 === 0 ? 22 : 8);
+          pts.push(new T.Vector3(Math.cos(a) * r0, 0, Math.sin(a) * r0), new T.Vector3(Math.cos(a) * r1, 0, Math.sin(a) * r1));
+        }
+        this.orbits.add(new T.LineSegments(new T.BufferGeometry().setFromPoints(pts), new T.LineBasicMaterial({ color: th.line, transparent: true, opacity: 0.22, depthWrite: false })));
       }
     }
     for (const n of map.nodes) {
@@ -311,6 +404,14 @@ export class Scene3D {
         sp.scale.setScalar(size * 2.2);
         g.add(sp);
         parts.push(sp);
+      } else if (th.clay && n.kind === 'star') {
+        // 陶瓷白小球 + 墨线描边（背面放大一圈画成黑色），立体又像手绘
+        const ball = new T.SphereGeometry(size * 0.6, 32, 20);
+        const mesh = new T.Mesh(ball, new T.MeshStandardMaterial({ color: 0xf7f4ee, roughness: 0.42, metalness: 0, transparent: true }));
+        const ink = new T.Mesh(ball, n.missing ? this.accMat(new T.MeshBasicMaterial({ side: T.BackSide, transparent: true })) : new T.MeshBasicMaterial({ color: 0x1b1a18, side: T.BackSide, transparent: true }));
+        ink.scale.setScalar(1.16);
+        g.add(ink, mesh);
+        parts.push(ink, mesh);
       } else if (th.star === 'dot' && n.kind !== 'star') {
         const icon = n.kind === 'member' || (n.kind === 'core' && map.kind === 'life') ? null : n.kind === 'core' ? 'core' : n.group;
         const look = { icon, text: [...n.label][0] };
@@ -416,11 +517,116 @@ export class Scene3D {
     tcol.forEach((c, i) => colors.set([c.r, c.g, c.b], i * 3));
     geo.setAttribute('color', new T.BufferAttribute(colors, 3));
     this.treeLinks = map.links.filter((l) => l.kind === 'tree' && this.nodes.has(l.a) && this.nodes.has(l.b));
-    this.tree = new T.LineSegments(geo, new T.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: th.lineAlpha, depthWrite: false }));
+    this.tree = th.sketch
+      ? this.sketchLines(this.treeLinks, new T.LineBasicMaterial({ color: th.line, transparent: true, opacity: th.lineAlpha, depthWrite: false }))
+      : new T.LineSegments(geo, new T.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: th.lineAlpha, depthWrite: false }));
     this.root.add(this.tree);
+    if (th.floor) this.buildFloor();
     this.buildFlow();
     this.home(orbit);
     this.select(null);
+  }
+
+  // 手绘线：每条连线两笔，每笔分 SEG 段，中间按固定的随机方向轻轻鼓出去（像铅笔描了两遍）
+  sketchLines(links, mat) {
+    const T = this.T;
+    const SEG = 10;
+    this.skOff = this.skOff || new WeakMap();
+    for (const l of links) {
+      if (this.skOff.has(l)) continue;
+      let seed = hash(`${l.a}>${l.b}`) || 1;
+      const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647) * 2 - 1;
+      const strokes = [0, 1].map((k) => {
+        const dir = new T.Vector3(rnd(), rnd(), rnd()).normalize();
+        const dir2 = new T.Vector3(rnd(), rnd(), rnd()).normalize();
+        const bow = 0.6 + Math.abs(rnd()) * 0.8;
+        const over = k ? [-0.025, 1.03] : [0.01, 1];
+        return { dir, dir2, bow, over, ph: rnd() * 3 };
+      });
+      this.skOff.set(l, strokes);
+    }
+    const geo = new T.BufferGeometry();
+    geo.setAttribute('position', new T.BufferAttribute(new Float32Array(Math.max(links.length, 1) * 2 * SEG * 2 * 3), 3));
+    const line = new T.LineSegments(geo, mat);
+    line.frustumCulled = false;
+    line.userData.sketch = SEG;
+    this.writeSketch(line, links);
+    return line;
+  }
+
+  writeSketch(line, links) {
+    const SEG = line.userData.sketch;
+    const a = line.geometry.attributes.position;
+    const P = (id) => this.nodes.get(id).g.position;
+    let v = 0;
+    const put = (p, q, st, u) => {
+      const len = p.distanceTo(q);
+      const amp = Math.min(7, len * 0.018) * st.bow;
+      const w = Math.sin(Math.PI * Math.min(Math.max(u, 0), 1));
+      const j = Math.sin(u * 9 + st.ph) * 0.35;
+      a.setXYZ(
+        v,
+        p.x + (q.x - p.x) * u + (st.dir.x * w + st.dir2.x * j) * amp,
+        p.y + (q.y - p.y) * u + (st.dir.y * w + st.dir2.y * j) * amp,
+        p.z + (q.z - p.z) * u + (st.dir.z * w + st.dir2.z * j) * amp,
+      );
+      v += 1;
+    };
+    for (const l of links) {
+      const p = P(l.a);
+      const q = P(l.b);
+      for (const st of this.skOff.get(l)) {
+        const [u0, u1] = st.over;
+        for (let i = 0; i < SEG; i += 1) {
+          put(p, q, st, u0 + ((u1 - u0) * i) / SEG);
+          put(p, q, st, u0 + ((u1 - u0) * (i + 1)) / SEG);
+        }
+      }
+    }
+    a.needsUpdate = true;
+  }
+
+  // 地面：每颗星在下方地面上有一团软投影，再拉一根很淡的垂线，一眼看出高低远近
+  buildFloor() {
+    const T = this.T;
+    let low = Infinity;
+    for (const o of this.nodes.values()) low = Math.min(low, o.base.y);
+    this.floorY = (Number.isFinite(low) ? low : 0) - 110;
+    const plane = new T.PlaneGeometry(1, 1);
+    for (const o of this.nodes.values()) {
+      const m = new T.Mesh(plane, new T.MeshBasicMaterial({ map: this.tex.shadow, transparent: true, depthWrite: false, opacity: 0.5 }));
+      m.rotation.x = -Math.PI / 2;
+      m.renderOrder = -1;
+      this.root.add(m);
+      o.shadow = m;
+    }
+    const geo = new T.BufferGeometry();
+    geo.setAttribute('position', new T.BufferAttribute(new Float32Array(this.nodes.size * 6), 3));
+    this.drops = new T.LineSegments(geo, new T.LineBasicMaterial({ color: this.th.line, transparent: true, opacity: 0.1, depthWrite: false }));
+    this.drops.frustumCulled = false;
+    this.root.add(this.drops);
+  }
+
+  floor() {
+    if (!this.drops) return;
+    const a = this.drops.geometry.attributes.position;
+    let i = 0;
+    for (const o of this.nodes.values()) {
+      const p = o.g.position;
+      const h = Math.max(p.y - this.floorY, 0);
+      const vis = o.g.visible;
+      const lit = !this.sel || o.el.classList.contains('near') || o.n.id === this.sel;
+      const k = o.n.kind === 'star' || o.n.kind === 'gap' ? 2.4 : 3.4;
+      o.shadow.visible = vis;
+      o.shadow.position.set(p.x, this.floorY, p.z);
+      o.shadow.scale.setScalar(o.size * k * (1 + h / 260));
+      o.shadow.material.opacity = Math.max(0.16, 0.85 - h / 420) * (lit ? 1 : 0.25);
+      const top = vis && o.n.kind !== 'star' ? p.y - o.size : this.floorY;
+      a.setXYZ(i * 2, p.x, top, p.z);
+      a.setXYZ(i * 2 + 1, p.x, this.floorY, p.z);
+      i += 1;
+    }
+    a.needsUpdate = true;
   }
 
   accCss() {
@@ -488,7 +694,13 @@ export class Scene3D {
   home(orbit) {
     this.homeDist = orbit ? orbit * 3.2 : this.homeDist;
     // 竖屏（手机）横向视角窄：退远一点，整张图都放得下
-    this.flyTo([0, 0, 0], this.homeDist * Math.max(1, 0.95 / (this.camera.aspect || 1)));
+    const d = this.homeDist * Math.max(1, 0.95 / (this.camera.aspect || 1));
+    if (this.th.fog && this.scene.fog) {
+      // 雾跟着镜头远近走：手机上镜头退得远，雾也推远，不会整张图都发白
+      this.scene.fog.near = d * 0.55;
+      this.scene.fog.far = d * 2.1;
+    }
+    this.flyTo([0, 0, 0], d);
   }
 
   flyTo(target, dist) {
@@ -505,6 +717,7 @@ export class Scene3D {
 
   select(id, near = new Set()) {
     this.sel = id;
+    this.haloOn(id);
     const on = (nid) => !id || near.has(nid);
     for (const [nid, o] of this.nodes) {
       const lit = on(nid);
@@ -528,10 +741,8 @@ export class Scene3D {
         this.hotLinks = this.treeLinks.filter((l) => l.a === id || l.b === id);
         for (const l of this.hotLinks) pts.push(this.nodes.get(l.a).g.position, this.nodes.get(l.b).g.position);
         if (pts.length) {
-          this.hot = new T.LineSegments(
-            new T.BufferGeometry().setFromPoints(pts),
-            this.accMat(new T.LineBasicMaterial({ transparent: true, opacity: 0.9 })),
-          );
+          const mat = this.accMat(new T.LineBasicMaterial({ transparent: true, opacity: 0.9 }));
+          this.hot = this.th.sketch ? this.sketchLines(this.hotLinks, mat) : new T.LineSegments(new T.BufferGeometry().setFromPoints(pts), mat);
           this.root.add(this.hot);
         }
       }
@@ -552,6 +763,24 @@ export class Scene3D {
     } else if (this.map) {
       this.home();
     }
+  }
+
+  // 选中的星外面一圈主题色光环，慢慢呼吸、外面再荡开一圈涟漪
+  haloOn(id) {
+    const T = this.T;
+    if (!this.halo) {
+      this.halo = new T.Group();
+      for (const k of ['ring', 'ring']) {
+        const sp = new T.Sprite(this.accMat(new T.SpriteMaterial({ map: this.tex[k], transparent: true, depthWrite: false })));
+        this.halo.add(sp);
+      }
+    }
+    if (this.halo.parent) this.halo.parent.remove(this.halo);
+    const o = id && this.nodes && this.nodes.get(id);
+    if (!o) return;
+    this.halo.userData.size = o.size * (o.n.kind === 'core' ? 1.9 : o.g.userData.badge ? 2.1 : 1.6);
+    this.halo.userData.t0 = performance.now();
+    o.g.add(this.halo);
   }
 
   setVisible(fn) {
@@ -629,6 +858,15 @@ export class Scene3D {
       if (o.g.userData.ring) o.g.userData.ring.rotation.z += 0.004;
     }
     if (this.dust) this.dust.rotation.y += 0.00012;
+    if (this.halo && this.halo.parent) {
+      const s = this.halo.userData.size;
+      const k = ((now - this.halo.userData.t0) / 1800) % 1;
+      const [a, b] = this.halo.children;
+      a.scale.setScalar(s * (1.32 + 0.04 * Math.sin(t * 2.4)));
+      a.material.opacity = 0.95;
+      b.scale.setScalar(s * (1.3 + k * 1.1));
+      b.material.opacity = (1 - k) * 0.55;
+    }
     this.follow();
     this.controls.update();
     if (this.composer) this.composer.render();
@@ -651,8 +889,14 @@ export class Scene3D {
       });
       a.needsUpdate = true;
     };
-    seg(this.tree, this.treeLinks);
-    seg(this.hot, this.hotLinks);
+    if (this.th.sketch) {
+      if (this.tree) this.writeSketch(this.tree, this.treeLinks);
+      if (this.hot) this.writeSketch(this.hot, this.hotLinks);
+    } else {
+      seg(this.tree, this.treeLinks);
+      seg(this.hot, this.hotLinks);
+    }
+    this.floor();
     this.tick = (this.tick || 0) + 1;
     if (this.tick % 2 === 0) {
       for (const c of this.curves || []) {

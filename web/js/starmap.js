@@ -153,6 +153,7 @@ export class StarMap {
     this.dlg.innerHTML = `<div class="sm">
       <header class="sm-top">
         <div class="sm-title"><h2 data-title>星图</h2><span class="sm-sub" data-sub></span></div>
+        <div class="sm-bar">
         <nav class="sm-tabs" data-tabs aria-label="切换星图"></nav>
         <div class="sm-acc" role="group" aria-label="主题色">${ACCENTS.map(
           ([c, name]) => `<button type="button" data-acc="${c}" style="--sw:${c}" title="${name}" aria-label="主题色：${name}"></button>`,
@@ -160,8 +161,9 @@ export class StarMap {
         <select class="sm-theme" data-skin aria-label="画风">${Object.entries(THEMES)
           .map(([k, t]) => `<option value="${k}">${t.label}</option>`)
           .join('')}<option value="flat">平面（省电）</option></select>
+        </div>
         <button type="button" class="sm-fold" data-fold aria-expanded="false">星域</button>
-        <button type="button" class="sm-x" data-close aria-label="关闭">×</button>
+        <button type="button" class="sm-x" data-close aria-label="关闭"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
       </header>
       <div class="sm-stage" data-stage>
         <div class="sm-gl" data-gl></div>
@@ -363,7 +365,7 @@ export class StarMap {
     card.style.setProperty('--c', col(n.group, 68));
     card.innerHTML = `
       <div class="sm-ch"><span class="sm-dot ${n.kind}">${n.kind === 'gap' ? '' : iconSvg(n.kind === 'core' ? 'core' : n.group)}</span><div><b>${esc(n.label)}</b><small>${esc([groupLabel, kindName].filter(Boolean).join(' · '))}${n.fresh ? ' · <i class="sm-new">新</i>' : ''}</small></div>
-        <button type="button" class="sm-x" data-unsel aria-label="取消选择">×</button></div>
+        <button type="button" class="sm-x" data-unsel aria-label="取消选择"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
       ${n.detail ? `<p class="sm-detail">${esc(n.detail)}</p>` : ''}
       ${n.kind === 'member' ? `<button type="button" class="sm-enter" data-view="${esc(n.member)}">进入${esc(n.label)}的人生星图 →</button>` : ''}
       ${n.peer && this.view !== 'roundtable' ? `<button type="button" class="sm-enter" data-view="${esc(n.peer)}">去看${esc(n.label.split(' · ')[0])}的星图 →</button>` : ''}
