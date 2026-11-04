@@ -217,7 +217,9 @@ def test_api_only_uses_service():
     """Web 层只能通过 core.service 访问核心逻辑（构建运行时除外）。"""
     allowed = {"roundtable.core.service", "roundtable.core.runtime"}
     for path in (ROOT / "src" / "roundtable" / "api").rglob("*.py"):
-        extra = roundtable_imports(path.read_text(encoding="utf-8")) - allowed
+        found = roundtable_imports(path.read_text(encoding="utf-8"))
+        # 接口层内部互相导入（api/routes/ 用 api/common.py、api/bodies.py）不算越层
+        extra = {n for n in found - allowed if not n.startswith("roundtable.api")}
         assert extra == set(), f"{path.name} 直接导入了 {sorted(extra)}"
 
 
