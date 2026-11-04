@@ -950,7 +950,9 @@ class BenchBuilder:
         order = [x.id for x in spec.windows]
         lines = [
             f"排在第 {order.index(w.id) + 1} 个（共 {len(order)} 个窗口），"
-            f"电脑上占 12 列里的 {w.span} 列；外壳给它加了 k-hero（贴边、更高）",
+            f"电脑上占 12 列里的 {w.span} 列"
+            + (f"，版型里的位置：{w.zone}" if w.zone else "")
+            + "；外壳给它加了 k-hero（贴边、更高）",
             "代码和数据里引用的真素材："
             + ("、".join(facts["real"]) if facts["real"] else "没有（真素材一项不超过 4 分）"),
             f"svg 图形 {facts['draw']} 处"

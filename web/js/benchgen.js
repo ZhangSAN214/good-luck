@@ -27,25 +27,75 @@ export const STATUS = {
   delivered: '已交付',
   evolving: '正在出下一版提案',
 };
-// 选型台：某个版型下窗口的顺序和宽度（和后端 spec.py 的 layout_spans 一样算，签字后成品照这个排）
-const rows = (ids, per) => {
+// 布局模板（D）：每个窗口在 12 列网格里的格子（和后端 spec.py 的 layout_grid 一样算，签字后成品照这个排）。
+// 电脑按模板，平板主视觉一整行、其余两个一行，手机一列、主视觉在最上面。
+const LAYOUT_ALIAS = { 'hero-wide': 'hero-strip', dashboard: 'quad' };
+const TEMPLATES = ['hero-side', 'hero-strip', 'quad', 'flow', 'workspace', 'stream'];
+const ZONES = {
+  'hero-side': ['侧栏列表', '详情'],
+  'hero-strip': ['数据条', '数据条', '数据条', '数据条'],
+  quad: ['右上', '左下', '右下'],
+  flow: ['第 1 步', '第 3 步', '第 4 步·交付'],
+  workspace: ['左侧工具栏', '右侧属性'],
+  stream: [],
+};
+const HERO_ZONE = { 'hero-side': '主视觉', 'hero-strip': '主视觉', quad: '左上', flow: '第 2 步·主画面', workspace: '中间画布', stream: '最上面' };
+export const layoutId = (v) => {
+  const x = LAYOUT_ALIAS[v] || v;
+  return TEMPLATES.includes(x) ? x : '';
+};
+const row = (ws, widths) => ws.map((w, i) => [w, widths ? widths[i] : 12 / ws.length]);
+const chunk = (ws, per) => {
   const out = [];
-  for (let i = 0; i < ids.length; i += per) {
-    const row = ids.slice(i, i + per);
-    row.forEach((id) => out.push([id, 12 / row.length]));
-  }
+  for (let i = 0; i < ws.length; i += per) out.push(row(ws.slice(i, i + per)));
   return out;
 };
-export function layoutSpans(wins, hero, layout) {
-  const ids = wins.map((w) => w.id);
+export function layoutGrid(ids, hero, layout) {
+  const lay = layoutId(layout);
+  if (!lay || !ids.length) return null;
   const h = ids.includes(hero) ? hero : ids[0];
   const rest = ids.filter((x) => x !== h);
-  if (layout === 'hero-side') return rest.length ? [[h, 8], [rest[0], 4], ...rows(rest.slice(1), 3)] : [[h, 12]];
-  if (layout === 'hero-wide') return [[h, 12], ...rows(rest, 3)];
-  if (layout === 'dashboard') return rows([h, ...rest], 3);
-  if (layout === 'workspace') return rest.length < 2 ? layoutSpans(wins, hero, 'hero-side') : [[rest[0], 3], [h, 6], [rest[1], 3], ...rows(rest.slice(2), 2)];
-  if (layout === 'stream') return [h, ...rest].map((x) => [x, 12]);
-  return wins.map((w) => [w.id, w.span]);
+  const n = rest.length;
+  let rows;
+  let used = 0;
+  if (lay === 'hero-side') {
+    if (!n) rows = [row([h])];
+    else if (n === 1) [rows, used] = [[row([h, rest[0]], [8, 4]), row([h, rest[0]], [8, 4])], 1];
+    else [rows, used] = [[row([h, rest[0]], [8, 4]), row([h, rest[1]], [8, 4])], 2];
+    rows.push(...chunk(rest.slice(used), 3));
+  } else if (lay === 'hero-strip') rows = [row([h]), ...chunk(rest, 4)];
+  else if (lay === 'quad') rows = chunk([h, ...rest], 2);
+  else if (lay === 'flow') {
+    if (!n) rows = [row([h])];
+    else if (n === 1) [rows, used] = [[row([rest[0], h], [4, 8])], 1];
+    else {
+      [rows, used] = [[row([rest[0], h, rest[1]], [3, 6, 3])], 2];
+      if (n >= 3) [rows, used] = [[...rows, row([rest[2]])], 3];
+    }
+    rows.push(...chunk(rest.slice(used), 3));
+  } else if (lay === 'workspace') {
+    if (!n) rows = [row([h])];
+    else if (n === 1) [rows, used] = [[row([h, rest[0]], [9, 3])], 1];
+    else [rows, used] = [[row([rest[0], h, rest[1]], [2, 7, 3])], 2];
+    rows.push(...chunk(rest.slice(used), 2));
+  } else rows = [h, ...rest].map((w) => row([w]));
+  const area = { [h]: 'hero' };
+  rest.forEach((w, i) => { area[w] = `a${i + 1}`; });
+  const zone = { [h]: HERO_ZONE[lay] };
+  rest.forEach((w, i) => { zone[w] = lay === 'stream' ? `往下第 ${i + 2} 个` : ZONES[lay][i] || '下面'; });
+  if (lay === 'workspace' && n === 1) zone[rest[0]] = ZONES.workspace[1];
+  const spans = {};
+  rows.forEach((r) => r.forEach(([w, c]) => { if (!(w in spans)) spans[w] = c; }));
+  const step = {};
+  if (lay === 'flow') [...rest.slice(0, 1), h, ...rest.slice(1, 3)].forEach((w, k) => { step[w] = k + 1; });
+  const areas = (rs) => rs.map((r) => r.flatMap(([w, c]) => Array(c).fill(area[w])).join(' '));
+  return { layout: lay, order: [h, ...rest], desk: areas(rows), tab: areas([row([h]), ...chunk(rest, 2)]), area, zone, spans, step };
+}
+/** <main> 的样式变量（和 spec.py 的 layout_css 一样）。 */
+export const layoutCss = (g) => `--k-areas: ${g.desk.map((r) => `"${r}"`).join(' ')}; --k-areas-tab: ${g.tab.map((r) => `"${r}"`).join(' ')}`;
+export function layoutSpans(wins, hero, layout) {
+  const g = layoutGrid(wins.map((w) => w.id), hero, layout);
+  return g ? g.order.map((id) => [id, g.spans[id]]) : wins.map((w) => [w.id, w.span]);
 }
 const SPANS = [3, 4, 6, 8, 12];
 const SPAN_NAME = { 3: '窄', 4: '三分之一', 6: '一半', 8: '三分之二', 12: '通栏' };
@@ -1153,6 +1203,7 @@ export class BenchGenPanel {
     this.pick = {
       bid: b.id,
       ...picks,
+      ...(layoutId(picks.layout) ? { layout: layoutId(picks.layout) } : {}),
       refs: new Set((d.refs || []).map((r) => r.name)),
       assets: {},
       accent: picks.accent || '',
@@ -1181,7 +1232,8 @@ export class BenchGenPanel {
     const pick = this.pick;
     const wins = (p.windows || []).filter((w) => !pick.drop.has(w.id));
     const byId = Object.fromEntries(wins.map((w) => [w.id, w]));
-    return layoutSpans(wins, p.hero, pick.layout || 'plan').map(([id, n]) => ({ ...byId[id], span: pick.spans[id] || n }));
+    const fixed = !!layoutId(pick.layout);
+    return layoutSpans(wins, p.hero, pick.layout || 'plan').map(([id, n]) => ({ ...byId[id], span: (!fixed && pick.spans[id]) || n }));
   }
 
   viewBar(pick) {
@@ -1220,10 +1272,16 @@ export class BenchGenPanel {
       .map((r) => `<li><label><input type="checkbox" data-dref="${esc(r.name)}" ${pick.refs.has(r.name) ? 'checked' : ''}> <b>${esc(r.name)}</b> <span class="bg-src">${esc(r.from || '')}</span> ${esc(r.borrow || '')}</label></li>`)
       .join('');
     const p = b.proposal || {};
-    const auto = Object.fromEntries(layoutSpans((p.windows || []).filter((w) => !pick.drop.has(w.id)), p.hero, pick.layout || 'plan'));
+    const kept = (p.windows || []).filter((w) => !pick.drop.has(w.id));
+    const auto = Object.fromEntries(layoutSpans(kept, p.hero, pick.layout || 'plan'));
+    const grid = layoutGrid(kept.map((w) => w.id), p.hero, pick.layout);
     const wins = (p.windows || [])
       .map((w) => {
         const off = pick.drop.has(w.id);
+        if (grid) {
+          return `<li class="${off ? 'bg-off' : ''}"><label><input type="checkbox" data-ddrop="${esc(w.id)}" ${off ? '' : 'checked'} ${w.id === p.hero ? 'disabled' : ''} aria-label="要「${esc(w.title)}」"> ${esc(w.title)}${w.id === p.hero ? '（主视觉）' : ''}</label>
+          <span class="sc-sub" data-dzone="${esc(w.id)}">${off ? '不做' : esc(grid.zone[w.id] || '')}</span></li>`;
+        }
         const opts = [`<option value="">跟版型（${esc(SPAN_NAME[auto[w.id]] || '—')}）</option>`, ...SPANS.map((n) => `<option value="${n}" ${pick.spans[w.id] === n ? 'selected' : ''}>${SPAN_NAME[n]}</option>`)].join('');
         return `<li class="${off ? 'bg-off' : ''}"><label><input type="checkbox" data-ddrop="${esc(w.id)}" ${off ? '' : 'checked'} ${w.id === p.hero ? 'disabled' : ''} aria-label="要「${esc(w.title)}」"> ${esc(w.title)}${w.id === p.hero ? '（主视觉）' : ''}</label>
           <select data-dspan="${esc(w.id)}" aria-label="「${esc(w.title)}」的宽度" ${off ? 'disabled' : ''}>${opts}</select></li>`;
@@ -1232,7 +1290,7 @@ export class BenchGenPanel {
     return `${this.materialsHtml(b, d, pick)}${dims}
       <label class="bg-dim"><b>还想要的风格（自己写，助手照着做）</b><textarea data-dnote rows="2" maxlength="200" placeholder="比如：像老式胶片相机的质感、按钮要大、别用紫色">${esc(pick.note || '')}</textarea></label>
       ${refs ? `<div class="bg-dim"><b>参考作品（勾上的写进规格，助手照着借鉴）</b><ul class="bg-drefs">${refs}</ul></div>` : ''}
-      <div class="bg-dim"><b>窗口（去掉勾就不做，宽度可调）</b><ul class="bg-dwins">${wins}</ul></div>
+      <div class="bg-dim"><b>${grid ? '窗口（去掉勾就不做；位置跟着版型走，换版型就换排法）' : '窗口（去掉勾就不做，宽度可调）'}</b><ul class="bg-dwins">${wins}</ul></div>
       <button type="button" class="link" data-dreset>恢复推荐</button>`;
   }
 
@@ -1359,7 +1417,9 @@ export class BenchGenPanel {
     }
     if (roles.bg) root.style.setProperty('--k-bg-image', `url("${matUrl(b.id, roles.bg)}")`);
     const ic = (name, size = 17) => this.icons(name, { size });
-    const cards = this.arranged(b)
+    const shown = this.arranged(b);
+    const grid = layoutGrid(shown.map((w) => w.id), p.hero, pick.layout);
+    const cards = shown
       .map((w) => {
         const hero = w.id === p.hero;
         const acts = (w.actions || []).slice(0, 3).map((a, i) => `<button type="button" class="k-btn${i === 0 ? ' k-primary' : ''}">${esc(a)}</button>`).join('');
@@ -1372,10 +1432,11 @@ export class BenchGenPanel {
         const body = hero
           ? `<div class="k-stack" style="position:relative;padding:22px 22px 18px;flex:1;justify-content:flex-end;background:linear-gradient(160deg,var(--k-accent-soft),transparent 70%)">${media}<div class="k-stack" style="position:relative;${media ? 'background:color-mix(in srgb,var(--k-surface) 82%,transparent);padding:14px;border-radius:var(--k-r-sm)' : ''}"><span class="k-kicker">${esc(w.title)}</span><p class="k-display">${esc(d.tagline || p.subtitle || w.title)}</p><p class="k-muted">${esc(w.purpose)}</p><div class="k-row">${parts}</div><div class="k-row">${acts}</div></div></div>`
           : `<div class="k-stack"><p class="k-muted">${esc(w.purpose)}</p><div class="k-row">${parts}</div><div class="k-row">${acts}</div></div>`;
-        return `<section class="k-card k-span-${w.span}${hero ? ' k-hero' : ''}" data-pw="${esc(w.id)}" data-span="${w.span}"><div class="k-card-h"><span class="k-ico-wrap">${ic(w.icon || 'layout-grid')}</span><div><h2>${esc(w.title)}</h2>${w.sub ? `<div class="k-sub">${esc(w.sub)}</div>` : ''}</div></div><div class="k-card-b">${body}</div></section>`;
+        const slot = grid ? ` data-slot="${grid.area[w.id]}" style="--k-area: ${grid.area[w.id]}"${grid.step[w.id] ? ` data-step="${grid.step[w.id]}"` : ''}` : '';
+        return `<section class="k-card k-span-${w.span}${hero ? ' k-hero' : ''}" data-pw="${esc(w.id)}" data-span="${w.span}"${slot}><div class="k-card-h"><span class="k-ico-wrap">${ic(w.icon || 'layout-grid')}</span><div><h2>${esc(w.title)}</h2>${w.sub ? `<div class="k-sub">${esc(w.sub)}</div>` : ''}</div></div><div class="k-card-b">${body}</div></section>`;
       })
       .join('');
-    doc.body.innerHTML = `<div class="k-page"><header class="k-topbar"><div class="k-brand">${roles.logo ? `<span class="k-logo k-logo-img"><img src="${esc(matUrl(b.id, roles.logo))}" alt="标志"></span>` : `<span class="k-logo">${ic(p.icon || 'layers', 20)}</span>`}<div><h1>${esc(p.title || '')}</h1><div class="k-sub">${esc(p.subtitle || '')}</div></div></div></header><main class="k-grid">${cards}</main></div>`;
+    doc.body.innerHTML = `<div class="k-page"><header class="k-topbar"><div class="k-brand">${roles.logo ? `<span class="k-logo k-logo-img"><img src="${esc(matUrl(b.id, roles.logo))}" alt="标志"></span>` : `<span class="k-logo">${ic(p.icon || 'layers', 20)}</span>`}<div><h1>${esc(p.title || '')}</h1><div class="k-sub">${esc(p.subtitle || '')}</div></div></div></header><main class="k-grid"${grid ? ` data-k-layout="${grid.layout}" style="${esc(layoutCss(grid))}"` : ''}>${cards}</main></div>`;
     this.fitPreview();
   }
 

@@ -269,3 +269,86 @@ def test_run_probes_fills_clicks_and_reads_the_page(tmp_path):
     assert got["r2"]["ok"] is False and "一点没变" in got["r2"]["why"]  # 空输入点生成：没变
     assert got["r3"]["ok"] is False and "找不到「导出 PDF」" in got["r3"]["why"]
     assert got["r4"]["ok"] is None and "现场生成" in got["r4"]["why"]
+
+
+def _layout_boxes(folder, sizes):
+    """在真浏览器里量外壳每个窗口的位置：{(屏宽): {窗口 id: (x, y, 宽)}, 页面宽, 网格宽}。"""
+    from playwright.sync_api import sync_playwright
+
+    from roundtable.core.benchkit.quality import _serve
+
+    out = {}
+    with _serve(folder) as base, sync_playwright() as p:
+        b = p.chromium.launch(executable_path=os.environ.get("ROUNDTABLE_CHROMIUM") or None)
+        try:
+            for w, h in sizes:
+                page = b.new_page(viewport={"width": w, "height": h})
+                page.goto(f"{base}/index.html")
+                page.wait_for_selector('[data-window="hero"] > *', timeout=10000)
+                out[w] = page.evaluate(
+                    """() => {
+                      const g = document.querySelector('main.k-grid').getBoundingClientRect();
+                      const boxes = {};
+                      for (const el of document.querySelectorAll('[data-window]')) {
+                        const r = el.closest('section').getBoundingClientRect();
+                        boxes[el.dataset.window] = [r.x, r.y, r.width];
+                      }
+                      const page = document.documentElement.scrollWidth;
+                      return { boxes, grid: g.width, page, vw: innerWidth };
+                    }"""
+                )
+                page.close()
+        finally:
+            b.close()
+    return out
+
+
+@pytest.mark.parametrize(
+    "layout", ["hero-side", "hero-strip", "quad", "flow", "workspace", "stream"]
+)
+def test_layout_templates_hold_on_desk_tablet_and_phone(tmp_path, layout):
+    """D 布局模板：6 种版型在电脑 1280 / 平板 820 / 手机 390 都过质检（不横向溢出），
+    电脑上照模板摆，平板主视觉一整行，手机一列、主视觉在最上面。"""
+    from roundtable.core.benchkit.spec import layout_grid, normalize, write_shell
+
+    ids = ["hero", "a", "b", "c", "d"]
+    spec = normalize(
+        {
+            "title": "版型台",
+            "hero": "hero",
+            "design": {"picks": {"layout": layout}},
+            "windows": [{"id": i, "title": f"窗口{i}", "icon": "map"} for i in ids],
+        },
+        max_windows=8,
+    )
+    index = write_shell(tmp_path, spec, "lay")
+    for i in ids:
+        (tmp_path / "windows" / f"{i}.js").write_text(
+            "export default (el, ctx) => ctx.kit.timeline(el, { items: ["
+            "{ time: '09:00', title: '第一项', meta: '说明' },"
+            " { time: '10:00', title: '第二项' }] });",
+            encoding="utf-8",
+        )
+    r = _check(
+        str(index),
+        viewports=(("电脑", 1280, 860), ("平板", 820, 1100), ("手机", 390, 844)),
+        modes=("light",),
+    )
+    assert r.passed, r.summary()
+    m = _own_thread(_layout_boxes, tmp_path, [(1280, 860), (820, 1100), (390, 844)])
+    grid = layout_grid(ids, "hero", layout)
+    for w, got in m.items():
+        assert got["page"] <= got["vw"], (layout, w)  # 不横向溢出
+    desk, tab, phone = m[1280], m[820], m[390]
+    # 电脑：主视觉的宽度和模板一致（12 列里占几列，容许间距误差）
+    want = grid["spans"]["hero"] / 12 * desk["grid"]
+    assert abs(desk["boxes"]["hero"][2] - want) < 40, (layout, desk["boxes"]["hero"], want)
+    if layout in ("workspace", "flow"):  # 主视觉在中间：左边有一格
+        assert desk["boxes"]["a"][0] < desk["boxes"]["hero"][0]
+    # 平板：主视觉占一整行、排最上面
+    assert tab["boxes"]["hero"][2] > tab["grid"] - 4
+    assert tab["boxes"]["hero"][1] == min(v[1] for v in tab["boxes"].values())
+    # 手机：一列，主视觉在最上面
+    ys = {k: v[1] for k, v in phone["boxes"].items()}
+    assert ys["hero"] == min(ys.values())
+    assert all(v[2] > phone["grid"] - 4 for v in phone["boxes"].values())
