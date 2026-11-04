@@ -76,7 +76,7 @@
 
 用户定：视频和音乐交给千问做「翻译」，写成其他成员都看得懂的细节说明；**必须客观、准确、不遗漏，不加主观评价**（意境、好坏留给成员自己体会）。
 
-- **工具模型**（`seat: false`，从不上桌，只看标签选）：`qwen3-vl-flash`（`vision` + `video_in`，看整段视频）、`qwen3-omni-flash`（另有 `audio_in`，能听音乐）。走百炼渠道 `bailian`（OpenAI 兼容，`DASHSCOPE_API_KEY`，北京地域）。没有百炼 key 时自动退回原来的方式（上桌模型取帧 + 转写）。
+- **工具模型**（`seat: false`，从不上桌，只看标签选）：`qwen3.7-flash`（`vision` + `video_in`，看图和整段视频）、`qwen3.8-omni-flash`（另有 `audio_in`，能听音乐）。都选百炼北京有新人免费额度的新模型（2026-10-29 起 qwen3-vl-flash、qwen3-omni-flash 等旧模型不再送；真跑时 qwen3-vl-flash 已 404）。成员千问（qwen3.8-flash）也优先走百炼用免费额度，没有 key 时走 OpenRouter。走百炼渠道 `bailian`（OpenAI 兼容，`DASHSCOPE_API_KEY`，北京地域）。没有百炼 key 时自动退回原来的方式（上桌模型取帧 + 转写）。
 - `Perceiver.pool(tag)`：上桌模型 + 不上桌的感官工具模型；画图、配音、做视频、作曲、转写这类「产出媒体」的模型不算。
 - **视频**：快速档也整段看（`native_video: true`）；发送前用 PyAV 压成小 mp4（快速长边 854、精细 1280，每秒 2 帧，声音 16 kHz 单声道），跨境上传快好几倍；压不了就发原文件。整段看失败时退回取帧拼宫格。
 - **歌**：`audio/mpeg`、`mp4`、`wav`、`flac` 文件、不短于 `perception.listen.min_s`（20 秒）时，整段交给最便宜的 `audio_in` 模型，按 `perceive_listen/v1` 写听歌卡（曲风和配器、节奏和调性、带时间的结构、歌词原文，不解读、不猜歌名）；录音式语音（webm）仍只转写。听失败时退回转写稿。

@@ -206,7 +206,10 @@ models:
     price: {input: 0.15, output: 0.47}
     tags: [math, code, long_context, vision]
     enabled: true
+    # 百炼北京有新人免费额度（100 万 token、90 天），用完后官方价 ¥0.8 / ¥2.7 也比 OpenRouter 便宜；
+    # 没填 DASHSCOPE_API_KEY 时自动走 OpenRouter
     routes:
+      - {channel: bailian, model: qwen3.8-flash}
       - {channel: openrouter, model: qwen/qwen3.8-flash}
 
   - id: grok-4.7
@@ -497,31 +500,33 @@ models:
     routes:
       - {channel: openrouter, model: tencent/hy-image-v3.5-preview}
   # --- 感官的看与听（不上桌，只把视频、歌整理成感知卡给成员读；docs/PERCEPTION.md）---
-  # 价格按百炼北京地域官方价折美元（1 美元 ≈ 7.2 元）。百炼不返回实际费用，记账按这里的价估算。
-  # 看视频：输入多在 32K～128K 档（¥0.3 / ¥3 每百万），按这一档填
-  - id: qwen3-vl-flash
+  # 走百炼北京地域，优先用有「新人免费额度」的新模型（每个模型 100 万 token、90 天；
+  # 2026-10-29 起 qwen3-vl / qwen3-omni 等旧模型不再送）。价格按北京官方价折美元（1 美元 ≈ 7.2 元），
+  # 百炼不返回实际费用，记账按这里的价估算；免费额度内实际不扣钱。
+  # 看视频和图：qwen3.7-flash 原生支持图片、视频输入，0～32K 档 ¥0.2 / ¥0.8 每百万，有免费额度
+  - id: qwen3.7-flash
     vendor: Alibaba
     aliases: [Qwen, 通义千问, 千问, 通义]
     seat: false
     tier: budget
-    price: {input: 0.042, output: 0.417}
+    price: {input: 0.028, output: 0.111}
     tags: [vision, video_in, zh]
     enabled: true
     routes:
-      - {channel: bailian, model: qwen3-vl-flash}
-  # 听歌、听环境声（也能看视频）：按音频输入价填（¥15.8 / 百万；画面 ¥3.3、文字输出 ¥12.7）。
-  # 只支持流式输出。新版 Qwen3.8-Omni-Flash 据报道输入降到 ¥0.8，官方价格页核实后再换
-  - id: qwen3-omni-flash
+      - {channel: bailian, model: qwen3.7-flash}
+  # 听歌、听环境声（也能看视频）：Qwen3.8-Omni-Flash（2026-09 新模型，不在免费额度下架名单里）。
+  # 价格为第三方报价 $0.15 / $0.47，官方分模态价未核实；按流式调用（旧版 Omni 只支持流式）
+  - id: qwen3.8-omni-flash
     vendor: Alibaba
     aliases: [Qwen, 通义千问, 千问, 通义]
     seat: false
     tier: budget
-    price: {input: 2.19, output: 1.76}
+    price: {input: 0.15, output: 0.47}
     tags: [audio_in, vision, video_in, zh]
     params: {stream: true}
     enabled: true
     routes:
-      - {channel: bailian, model: qwen3-omni-flash}
+      - {channel: bailian, model: qwen3.8-omni-flash}
   # --- 语音转文字（上传音频的转写；优先于带 transcribe 标签的对话模型）---
   - id: whisper-large-v3-turbo
     vendor: OpenAI
