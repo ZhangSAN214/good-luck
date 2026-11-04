@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="zh-CN" data-k-theme="%%theme%%"%%design%%>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>%%title%%</title>
+<link rel="stylesheet" href="/kit/kit.css">
+<link rel="stylesheet" href="%%base_css%%">
+</head>
+<body class="k-root k-app">
+<div id="app"></div>
+<script type="module">
+// 应用型产出（docs/KIT.md「K 通用底座」）：整页是底座，规格里的每个窗口是底座上的一个功能模块
+// （windows/<id>.js：export default async function mount(el, ctx)，ctx.editor 是底座；
+// 可以再导出 test(t)，作为这个功能自带的测试，验收时自动跑）。
+import * as kit from '/kit/kit.js';
+const { createEditor } = await import(%%base_js%%);
+const BENCH = %%bench_id%%;
+const FEATURES = %%features%%;
+const app = await fetch('./app.json').then((r) => (r.ok ? r.json() : {})).catch(() => ({}));
+const editor = createEditor(document.getElementById('app'), %%options%%);
+const bus = new EventTarget();
+// 对话：在圆桌的工作台里打开时，问题交给外层（postMessage），外层接真会话后把回答送回来
+const call = (q, json) => new Promise((done) => {
+  const fail = (text) => done(json ? { data: null, text } : text);
+  if (window.parent === window) { fail('要在圆桌的工作台里打开才能用。'); return; }
+  const id = Math.random().toString(36).slice(2);
+  const onMsg = (ev) => {
+    if (!ev.data || ev.data.type !== 'bench-answer' || ev.data.id !== id) return;
+    removeEventListener('message', onMsg); clearTimeout(t);
+    done(json ? { data: ev.data.data ?? null, text: String(ev.data.text || '') } : String(ev.data.text || ''));
+  };
+  const t = setTimeout(() => { removeEventListener('message', onMsg); fail('这次没等到结果，稍后再试。'); }, json ? 300000 : 120000);
+  addEventListener('message', onMsg);
+  window.parent.postMessage({ type: 'bench-ask', bench: BENCH, id, q: String(q), json: !!json }, '*');
+});
+const ask = (q) => call(q, false);
+const askJson = (q) => call(q, true);
+const shared = await fetch('./data/_shared.json').then((r) => (r.ok ? r.json() : {})).catch(() => ({}));
+kit.setNet(await fetch('./data/_net.json').then((r) => (r.ok ? r.json() : [])).catch(() => []));
+const state = kit.sharedState(`bench:${BENCH}:_state`, bus);
+for (const f of FEATURES) {
+  const el = editor.addPanel({ id: f.id, title: f.title, icon: f.icon });
+  el.dataset.window = f.id;
+  try {
+    const [mod, data] = await Promise.all([
+      import(`./windows/${f.id}.js`),
+      fetch(`./data/${f.id}.json`).then((r) => (r.ok ? r.json() : null)).catch(() => null),
+    ]);
+    await mod.default(el, { kit, editor, data, shared, store: kit.persist(`bench:${BENCH}:${f.id}`), state, bus, ask, askJson, net: kit.net });
+    if (typeof mod.test === 'function') editor.addTest(f.title, mod.test, { feature: f.id });
+  } catch (err) {
+    console.error(`窗口 ${f.id} 出错：`, err);
+    el.innerHTML = kit.empty({ icon: 'triangle-alert', title: '这个功能还没做好', hint: String(err && err.message || err).slice(0, 120) });
+  }
+}
+const params = new URLSearchParams(location.search);
+if (params.has('selftest')) {
+  const { showSelftest } = await import(%%selftest_js%%);
+  window.__selftest = await showSelftest(editor, app.checks || {});
+} else if (app.sample && !params.has('blank')) {
+  await editor.open(`./${app.sample}`, { name: '示例图' });
+}
+document.documentElement.dataset.app = 'ready';
+</script>
+</body>
+</html>

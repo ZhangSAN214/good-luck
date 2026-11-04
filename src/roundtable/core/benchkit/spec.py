@@ -89,6 +89,10 @@ class Spec:
     pool: list[str] = field(default_factory=list)
     # 工作台类型（编辑器、游戏模拟、看板……，见 bench.skills.kinds）：写窗口时按那一类的做法来
     kind: str = ""
+    # 产出形式（K1）：page = 一页卡片窗口拼盘；app = 在底座（BASES）上做的多文件应用，
+    # 窗口变成底座上的功能（面板 + 按钮 + 工具）。由程序按 kind 和配置 bench.apps.bases 定
+    output: str = "page"
+    base: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -673,6 +677,26 @@ def _requirements(
     return out
 
 
+# 应用型产出的底座（K2）：名字 → 零件库里的文件。加底座 = 在 web/kit/ 下放一个目录 + 在这里登记
+BASES: dict[str, dict[str, str]] = {
+    "editor": {
+        "label": "编辑器底座",
+        "js": "/kit/editor/editor.js",
+        "css": "/kit/editor/editor.css",
+        "selftest": "/kit/editor/selftest.js",
+        "api": "editor/API.md",
+    },
+}
+
+
+def base_api(base: str) -> str:
+    """底座的接口说明（给写功能的助手看）。"""
+    info = BASES.get(base)
+    if not info:
+        return ""
+    return (KIT_DIR / info["api"]).read_text(encoding="utf-8")
+
+
 def normalize(
     raw: dict[str, Any],
     *,
@@ -681,6 +705,7 @@ def normalize(
     max_requirements: int = 12,
     max_stages: int = MAX_STAGES,
     kinds: set[str] | None = None,
+    apps: dict[str, str] | None = None,
 ) -> Spec:
     """校验并修正：id 规范且不重复、零件和图标只留认得的、span 限在 3～12、窗口数不超上限。"""
     m = manifest()
@@ -771,6 +796,12 @@ def normalize(
         raw.get("stages"), [w.id for w in windows], requirements, hero=hero, max_stages=max_stages
     )
     pool = [_text(x, 60) for x in (raw.get("pool") or []) if _text(x, 60)][:8]
+    kind = str(raw.get("kind") or "")
+    kind = kind if kind in (kinds or set()) else ""
+    base = (apps or {}).get(kind, "") if kind else ""
+    base = base if base in BASES else ""
+    if base:
+        hero = ""  # 应用型：画布就是主体，没有「主视觉窗口」
     return Spec(
         title=title,
         subtitle=_text(raw.get("subtitle"), 60),
@@ -786,7 +817,9 @@ def normalize(
         design=design_of(raw.get("design"), theme, themes),
         stages=stages,
         pool=pool,
-        kind=kind if (kind := str(raw.get("kind") or "")) in (kinds or set()) else "",
+        kind=kind,
+        output="app" if base else "page",
+        base=base,
     )
 
 
@@ -799,21 +832,9 @@ def _fill(template: str, **values: object) -> str:
     return re.sub(r"%%(\w+)%%", lambda m: str(values[m.group(1)]), template)
 
 
-def shell_html(spec: Spec, bench_id: str) -> str:
+def _design_attrs(spec: Spec) -> tuple[str, dict[str, Any]]:
+    """选型写到 <html> 上的属性（data-k-*、主色），以及标了用处的素材（logo、背景……）。"""
     e = html.escape
-    card = _HERE("card.html").read_text(encoding="utf-8").rstrip("\n")
-    cards = "\n".join(
-        _fill(
-            card,
-            span=w.span,
-            hero=" k-hero" if w.id == spec.hero else "",
-            id=w.id,
-            icon=e(w.icon),
-            title=e(w.title),
-            sub=f'<div class="k-sub">{e(w.sub)}</div>' if w.sub else "",
-        )
-        for w in spec.windows
-    )
     design = spec.design or {}
     picks = design.get("picks") or {}
     roles = {a["role"]: a for a in design.get("assets") or []}
@@ -833,6 +854,98 @@ def shell_html(spec: Spec, bench_id: str) -> str:
         style.append(f"--k-bg-image: url('{roles['bg']['file']}')")
     if style:
         attrs += f' style="{e("; ".join(style))}"'
+    return attrs, roles
+
+
+def _js(value: Any) -> str:
+    """嵌进 <script> 的 JSON：</ 写成 <\\/，标题里有 </script> 也不会提前结束脚本。"""
+    return json.dumps(value, ensure_ascii=False).replace("</", "<\\/")
+
+
+def app_html(spec: Spec, bench_id: str) -> str:
+    """应用型产出的首页（K1）：整页是底座（编辑器），每个窗口是底座上的一个功能模块。"""
+    e = html.escape
+    info = BASES[spec.base]
+    attrs, roles = _design_attrs(spec)
+    features = [{"id": w.id, "title": w.title, "icon": w.icon} for w in spec.windows]
+    logo = (
+        f'<span class="k-logo"><img src="{e(roles["logo"]["file"])}" alt="标志"></span>'
+        if "logo" in roles
+        else ""
+    )
+    return _fill(
+        _HERE("app_shell.html").read_text(encoding="utf-8"),
+        design=attrs,
+        theme=e(spec.theme),
+        title=e(spec.title),
+        base_css=e(info["css"]),
+        base_js=_js(info["js"]),
+        selftest_js=_js(info["selftest"]),
+        bench_id=_js(bench_id),
+        options=_js({"title": spec.title, "icon": spec.icon, "logo": logo, "fileName": spec.title}),
+        features=_js(features),
+    )
+
+
+def app_manifest(
+    spec: Spec, *, checks: dict[str, Any] | None = None, samples: list[dict[str, Any]] | None = None
+) -> dict[str, Any]:
+    """应用的清单 app.json：底座、功能、示例图、企业级验收的门槛、怎么自检。"""
+    photo = next((s["file"] for s in samples or [] if s.get("kind") == "photo"), "")
+    return {
+        "version": 1,
+        "title": spec.title,
+        "kind": spec.kind,
+        "base": spec.base,
+        "features": [
+            {"id": w.id, "title": w.title, "file": w.file, "data": w.data_file}
+            for w in spec.windows
+        ],
+        "sample": photo,
+        "checks": checks or {},
+        "selftest": "index.html?selftest=1",
+        "report": "report/",
+    }
+
+
+def write_app_manifest(
+    folder: Path,
+    spec: Spec,
+    *,
+    checks: dict[str, Any] | None = None,
+    samples: list[dict[str, Any]] | None = None,
+) -> None:
+    old: dict[str, Any] = {}
+    p = folder / "app.json"
+    if p.is_file():
+        try:
+            old = json.loads(p.read_text(encoding="utf-8"))
+        except ValueError:
+            old = {}
+    data = app_manifest(spec, checks=checks or old.get("checks"), samples=samples)
+    if samples is None:
+        data["sample"] = old.get("sample", "")
+    p.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def shell_html(spec: Spec, bench_id: str) -> str:
+    if spec.output == "app" and spec.base in BASES:
+        return app_html(spec, bench_id)
+    e = html.escape
+    card = _HERE("card.html").read_text(encoding="utf-8").rstrip("\n")
+    cards = "\n".join(
+        _fill(
+            card,
+            span=w.span,
+            hero=" k-hero" if w.id == spec.hero else "",
+            id=w.id,
+            icon=e(w.icon),
+            title=e(w.title),
+            sub=f'<div class="k-sub">{e(w.sub)}</div>' if w.sub else "",
+        )
+        for w in spec.windows
+    )
+    attrs, roles = _design_attrs(spec)
     logo = (
         f'<span class="k-logo k-logo-img"><img src="{e(roles["logo"]["file"])}" alt="标志"></span>'
         if "logo" in roles
@@ -851,7 +964,12 @@ def shell_html(spec: Spec, bench_id: str) -> str:
 
 
 def write_shell(
-    folder: Path, spec: Spec, bench_id: str, net: list[dict[str, Any]] | None = None
+    folder: Path,
+    spec: Spec,
+    bench_id: str,
+    net: list[dict[str, Any]] | None = None,
+    *,
+    app_checks: dict[str, Any] | None = None,
 ) -> Path:
     folder.mkdir(parents=True, exist_ok=True)
     (folder / "windows").mkdir(exist_ok=True)
@@ -866,6 +984,13 @@ def write_shell(
     (folder / "data" / "_net.json").write_text(
         json.dumps(net or [], ensure_ascii=False, indent=2), encoding="utf-8"
     )
+    if spec.output == "app":
+        # 应用型：自带清单（底座、功能、验收门槛）和测试说明，报告和截图在 report/ 下
+        write_app_manifest(folder, spec, checks=app_checks)
+        (folder / "tests").mkdir(exist_ok=True)
+        (folder / "tests" / "README.md").write_text(
+            _HERE("app_tests.md").read_text("utf-8"), "utf-8"
+        )
     path = folder / "index.html"
     path.write_text(shell_html(spec, bench_id), encoding="utf-8")
     return path

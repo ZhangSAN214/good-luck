@@ -28,6 +28,7 @@ from pathlib import Path
 from statistics import mean
 from typing import Any
 
+from roundtable.core.benchkit.appcheck import run_app_check
 from roundtable.core.benchkit.intent import (
     FIVE_KEYS,
     FORM,
@@ -54,10 +55,12 @@ from roundtable.core.benchkit.samples import SampleCatalog, install, load_catalo
 from roundtable.core.benchkit.scout import Candidate, Scout
 from roundtable.core.benchkit.spec import (
     ASSET_ROLES,
+    BASES,
     MATERIAL_EXT,
     Spec,
     SpecError,
     apply_design,
+    base_api,
     design_brief,
     design_catalog,
     design_lines,
@@ -67,6 +70,7 @@ from roundtable.core.benchkit.spec import (
     normalize,
     parts_brief,
     shell_html,
+    write_app_manifest,
     write_shell,
 )
 from roundtable.core.config.loader import ConfigError
@@ -260,8 +264,10 @@ class BenchBuilder:
         samples: SampleCatalog | None = None,
         skill: Callable[[str], tuple[str, str]] | None = None,
         desk: Any = None,
+        app_check: Callable[..., Any] | None = run_app_check,
     ) -> None:
         self.rules = rules
+        self.app_check = app_check  # 应用型产出的企业级验收（K5；测试换成假的）
         self.desk = desk  # 资料台（能力地图 + 榜单），写窗口时按工作台类型挑工具附上
         if samples is None:
             try:
@@ -773,11 +779,20 @@ class BenchBuilder:
                 x.model_dump(exclude={"also", "ttl_min", "probe"}) | {"ttl": x.ttl_min}
                 for x in self.rules.net
             ],
+            app_checks=self._app_checks(),
         )
         if self.library is not None:
             self.library.seed(self.folder(b["id"]))
         if self.root is not None:
             b["samples"] = install(self.root, self.folder(b["id"]), self.samples)
+        if spec.output == "app":
+            # 应用型：示例照片写进 app.json，打开就有一张图可以试
+            write_app_manifest(self.folder(b["id"]), spec, samples=b.get("samples") or [])
+            self._log(
+                b,
+                f"按应用型做：在{BASES[spec.base]['label']}上加 {len(spec.windows)} 个功能"
+                f"（{'、'.join(w.title for w in spec.windows)}）",
+            )
         if self.researcher is not None and self.rules.research.enabled:
             b["status"] = "researching"
             await self._research(b, spec, rng)
@@ -1784,6 +1799,7 @@ class BenchBuilder:
             skills=self._skills("plan", b=b),
             kinds="\n".join(f"- {k}：{v.label}" for k, v in self.rules.skills.kinds.items())
             or "- other：通用",
+            apps=self._apps_text(),
         )
         chosen, result = await self._step(
             b, self.rules.plan_kind, prompt, rng, record, role="拆需求", task="把一句话拆成规格"
@@ -1799,11 +1815,13 @@ class BenchBuilder:
                 max_requirements=self.rules.max_requirements,
                 max_stages=self.rules.project.max_stages,
                 kinds=set(self.rules.skills.kinds),
+                apps=self.rules.apps.bases if self.rules.apps.enabled else {},
             )
         except (JSONOutputError, SpecError) as exc:
             raise RuntimeError(f"拆需求的结果看不懂：{exc}") from None
         link_voices(spec.requirements, raw.get("requirements"), b.get("voices") or [])
         b["title"] = spec.title
+        b["output"] = {"kind": spec.output, "base": spec.base}
         b["windows"] = [
             {"id": w.id, "title": w.title, "author": None, "status": "waiting", "summary": None}
             for w in spec.windows
@@ -2131,6 +2149,42 @@ class BenchBuilder:
             parts.append(full if name in long else brief)
         return "\n\n".join(parts) or "（这一步没有额外的技能说明）"
 
+    def _app_checks(self) -> dict[str, Any]:
+        """企业级验收的门槛（写进成品 app.json，页内自检照着跑）。"""
+        a = self.rules.apps
+        return {"undoMin": a.undo_min, "bigPx": a.big_px, "bigMaxMs": round(a.big_max_s * 1000)}
+
+    def _apps_text(self) -> str:
+        """给拆需求的助手看：哪些类型做成应用型、底座已经有什么。"""
+        a = self.rules.apps
+        lines = [
+            f"- {kind}：做成应用型，用{BASES[base]['label']}"
+            for kind, base in a.bases.items()
+            if a.enabled and base in BASES
+        ]
+        if not lines:
+            return "（这次都做成单页窗口）"
+        return (
+            "\n".join(lines)
+            + "\n\n"
+            + "\n\n".join(
+                base_api(base) for base in dict.fromkeys(a.bases.values()) if base in BASES
+            )
+        )
+
+    def _app_text(self, spec: Spec) -> str:
+        """给写功能 / 返工的助手看：应用型时是底座的接口说明和企业级验收门槛，单页窗口时一句话。"""
+        if spec.output != "app" or spec.base not in BASES:
+            return "（这个台是单页窗口，不是应用型：按上面的窗口规矩写）"
+        c = self._app_checks()
+        return (
+            f"这个台是应用型：整页是{BASES[spec.base]['label']}，你的窗口是底座上的一个功能"
+            "（右侧给你一块面板 el，ctx.editor 是底座）。\n"
+            f"企业级验收（每轮自动跑，没过直接打回）：撤销至少 {c['undoMin']} 步、"
+            f"打开 {c['bigPx']} 像素宽的大图 {c['bigMaxMs'] / 1000:g} 秒内完成、导出尺寸不变、"
+            "出错有提示、快捷键能用、你导出的 test(t) 通过。\n\n" + base_api(spec.base)
+        )
+
     def _samples_text(self, b: dict[str, Any]) -> str:
         return samples_text(b.get("samples") or [])
 
@@ -2162,6 +2216,7 @@ class BenchBuilder:
             samples=self._samples_text(b),
             stage=stage or ONE_GO,
             skills=self._skills("window", spec.kind, b),
+            app=self._app_text(spec),
         )
         folder = self.folder(b["id"])
         before = fingerprint(folder, [w.file])
@@ -2197,6 +2252,23 @@ class BenchBuilder:
         # 读代码就能看出来的问题（没用零件库、写死颜色、代码太大）一起算进质检
         report.findings += lint_windows(folder, [w["id"] for w in b["windows"]])
         report.findings += lint_data(folder, [w["id"] for w in b["windows"]], spec.shared)
+        if spec.output == "app" and self.app_check is not None:
+            # 应用型：企业级验收（撤销步数、大图、导出尺寸、出错提示、快捷键、功能自带的测试）
+            try:
+                app = await asyncio.to_thread(
+                    self.app_check, str(folder / "index.html"), out, allow=self._allow()
+                )
+            except QualityError as exc:
+                self._log(b, f"企业级验收没法进行：{exc}")
+            else:
+                report.findings += app.findings
+                report.shots += app.shots
+                rnd["app"] = app.to_dict()
+                self._log(
+                    b,
+                    f"第 {n} 轮企业级验收：{rnd['app']['ok']}/{rnd['app']['total']} 项通过"
+                    + ("" if app.passed else "，没过的交回功能的作者"),
+                )
         rnd["probes"] = await self._probes(b, spec, report)
         rnd["check"] = report.to_dict()
         b["last_shot"] = desk_shot([os.path.relpath(x, folder) for x in report.shots])
@@ -2538,6 +2610,7 @@ class BenchBuilder:
                 samples=self._samples_text(b),
                 stage=stage or b.get("stage_task") or ALL_DONE,
                 skills=self._skills("rework", spec.kind, b),
+                app=self._app_text(spec),
             )
             jobs.append(self._redo(b, rec, prompt, rng, n))
         await asyncio.gather(*jobs)

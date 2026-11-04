@@ -4103,6 +4103,19 @@ class BenchSkills(_Strict):
         return out | set(self.checks) | set(self.product)
 
 
+class BenchApps(_Strict):
+    """应用型产出（docs/KIT.md「K 通用底座」，2026-11-04）：``bases`` 里的工作台类型不拼卡片窗口，
+    而是在底座（``web/kit/<底座>/``，如编辑器底座）上做成一个多文件应用，规格里的窗口变成底座上的功能。
+    每轮质检之外再跑企业级验收（K5）：撤销至少 ``undo_min`` 步、打开 ``big_px`` 像素宽的大图
+    ``big_max_s`` 秒内完成、导出尺寸不变、出错有提示、快捷键能用、各功能自带的测试。"""
+
+    enabled: bool = True
+    bases: dict[str, str] = Field(default_factory=lambda: {"editor": "editor"})
+    undo_min: int = Field(default=20, ge=1, le=200)
+    big_px: int = Field(default=4000, ge=256, le=12000)
+    big_max_s: float = Field(default=8.0, gt=0, le=120)
+
+
 class BenchDeskCategory(_Strict):
     id: str = Field(pattern=r"^[a-z0-9][a-z0-9-]{0,30}$")
     label: str = Field(min_length=1, max_length=20)
@@ -4168,6 +4181,7 @@ class BenchRules(_Strict):
     materials: BenchMaterials = Field(default_factory=BenchMaterials)
     skills: BenchSkills = Field(default_factory=BenchSkills)
     desk: BenchDesk = Field(default_factory=BenchDesk)
+    apps: BenchApps = Field(default_factory=BenchApps)
     rubric: list[str] = Field(
         default_factory=lambda: [
             *("视觉层次", "信息密度", "一致性", "交互完整"),
