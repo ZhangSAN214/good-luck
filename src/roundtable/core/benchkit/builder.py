@@ -345,8 +345,15 @@ class BenchBuilder:
         desk: Any = None,
         app_check: Callable[..., Any] | None = run_app_check,
         report: Callable[[dict[str, Any]], None] | None = None,
+        metered_spent: Callable[[], float | None] | None = None,
     ) -> None:
         self.rules = rules
+        # 按用量花钱的助手（dsh）开始记账以来一共花了多少美元（估算，服务注入；None = 记不了）。
+        # 一次生成开头和每一步各读一次，差值就是这次花的；到了 metered_usd_per_build 就不再派给它们
+        self.metered_spent = metered_spent
+        self._dup_warned: dict[
+            str, datetime
+        ] = {}  # 同一需求重复开做：提醒过一次，10 分钟内再点就放行
         self.app_check = app_check  # 应用型产出的企业级验收（K5；测试换成假的）
         # 办公室交过来的项目（M）：做完把成品和验收结果回报到办公室那场对话（服务注入）
         self.report = report
@@ -464,6 +471,7 @@ class BenchBuilder:
         if self.busy:
             raise RuntimeError("正在生成上一个工作台，等它做完或先叫停")
         now = self.now()
+        self._warn_duplicate(request, now)
         bid = f"{now:%Y%m%d-%H%M%S}-{secrets.token_hex(2)}"
         seed = self.seed if self.seed is not None else random.SystemRandom().randrange(2**31)
         self.build = {
@@ -497,6 +505,9 @@ class BenchBuilder:
             "result": None,
             "log": [],
         }
+        start = self._metered_total()
+        if start is not None:
+            self.build["metered"] = {"start_usd": start, "usd": 0.0, "capped": False}
         add_voice(self.build, "开工", said[:2000], _iso(now))
         form_voices(self.build, filled, _iso(now))
         if handoff:
@@ -672,7 +683,58 @@ class BenchBuilder:
         tmp.write_text(json.dumps(b, ensure_ascii=False, indent=1), encoding="utf-8")
         os.replace(tmp, path)
 
+    def _metered_total(self) -> float | None:
+        if self.metered_spent is None:
+            return None
+        with contextlib.suppress(Exception):  # 记不了账不挡生成
+            return self.metered_spent()
+        return None
+
+    def _metered_exclude(self, b: dict[str, Any]) -> tuple[str, ...]:
+        """这次生成里按用量花钱的助手花到了单次上限：后面的活不再派给它们（只派订阅的）。"""
+        m = b.get("metered")
+        cap = self.rules.metered_usd_per_build
+        if not m or cap <= 0:
+            return ()
+        total = self._metered_total()
+        if total is not None:
+            m["usd"] = round(max(0.0, total - m["start_usd"]), 4)
+        if m["usd"] >= cap and not m["capped"]:
+            m["capped"] = True
+            self._log(
+                b,
+                f"按用量花钱的助手这次已花约 ${m['usd']:.2f}，到了单次上限 ${cap:.2f}，"
+                "后面的活只派给包月订阅的助手",
+            )
+        if not m["capped"]:
+            return ()
+        workers = getattr(getattr(self.sc, "rules", None), "workers", ())
+        return tuple(w.id for w in workers if getattr(w, "metered", False))
+
+    def _warn_duplicate(self, request: str, now: datetime) -> None:
+        """两周内做过一模一样的需求：先提醒一次（2026-11-04 查账：旅行台同一句话跑了两遍）。
+        10 分钟内再点一次开工就放行。"""
+        key = " ".join(request.split())
+        warned = self._dup_warned.get(key)
+        if warned is not None and now - warned <= timedelta(minutes=10):
+            return
+        for old in self.recent():
+            if " ".join(str(old.get("request") or "").split()) != key:
+                continue
+            with contextlib.suppress(ValueError, TypeError):
+                if now - datetime.fromisoformat(str(old["created_at"])) > timedelta(days=14):
+                    continue
+            self._dup_warned[key] = now
+            day = str(old.get("created_at") or "")[:10]
+            raise ValueError(
+                f"{day} 已经做过一模一样的需求（「{old.get('title') or old['id']}」）。"
+                "想在那个台上改进，打开它提意见或按提案做下一版更省；"
+                "确定要从头再做一遍，10 分钟内再点一次开工"
+            )
+
     async def _step(self, b, kind, prompt, rng, record, *, role: str = "", task: str = "", **kw):
+        if skip := self._metered_exclude(b):
+            kw["exclude"] = tuple(dict.fromkeys((*kw.get("exclude", ()), *skip)))
         chosen, result = await self.sc.step(
             kind,
             prompt,

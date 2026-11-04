@@ -10,7 +10,7 @@ import contextlib
 import shutil
 import time
 from collections.abc import Callable, Mapping, Sequence
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -206,7 +206,7 @@ class DshManager:
             except RuntimeError as exc:
                 raise ValueError(str(exc)) from None
             await self._check_balance(rebase=self._jobs == 0)  # 有活在跑时接着记，不重置
-            self._watch = asyncio.get_running_loop().create_task(self._watch_loop())
+            self._ensure_watch()
             return self.status()
 
     async def stop(self, why: str = "你停止了 dsh") -> dict[str, Any]:
@@ -215,17 +215,32 @@ class DshManager:
             return self.status()
 
     async def _stop(self, why: str) -> None:
+        if self.sidecar is not None and self.sidecar.state != "stopped":
+            await self._check_balance()  # 停之前把最后一段花费记上
+            await self.sidecar.stop(why)
+            self._settle()  # 停了以后扣费还会晚到一阵：接着查余额（_watch_loop）
+
+    async def aclose(self) -> None:
+        await self.stop("圆桌关闭，dsh 也停了")
         task, self._watch = self._watch, None
         if task is not None and task is not asyncio.current_task():
             task.cancel()
             with contextlib.suppress(asyncio.CancelledError, Exception):
                 await task
-        if self.sidecar is not None and self.sidecar.state != "stopped":
-            await self._check_balance()  # 停之前把最后一段花费记上
-            await self.sidecar.stop(why)
 
-    async def aclose(self) -> None:
-        await self.stop("圆桌关闭，dsh 也停了")
+    def _settle(self) -> None:
+        """dsh 停下或活干完：扣费延迟窗口往后推，查余额的循环继续跑到窗口结束。"""
+        if self.rules.settle_minutes > 0:
+            self.ledger.touch(self.now() + timedelta(minutes=self.rules.settle_minutes))
+        self._ensure_watch()
+
+    def _ensure_watch(self) -> None:
+        if self._watch is None or self._watch.done():
+            with contextlib.suppress(RuntimeError):  # 没有事件循环（同步调用）就不查
+                self._watch = asyncio.get_running_loop().create_task(self._watch_loop())
+
+    def _watching(self) -> bool:
+        return self.running or self._jobs > 0 or self.ledger.settling(self.now())
 
     # --- 超级电脑派来的一次性活（dsh headless） --------------------------------------
 
@@ -268,11 +283,13 @@ class DshManager:
         if self._jobs == 0 and not self.running:
             await self._check_balance(rebase=True)
         self._jobs += 1
+        self._ensure_watch()  # 活可能跑很久：期间照样定时查余额，到了上限就不再派新活
 
     async def job_finished(self) -> None:
         """活干完：记上这段花费；超了上限就停掉网页（之后的活也不再派给 dsh）。"""
         self._jobs = max(0, self._jobs - 1)
         await self._check_balance()
+        self._settle()
         async with self._lock:
             await self._enforce()
 
@@ -293,6 +310,8 @@ class DshManager:
             return
         self.balance_error = None
         now = self.now()
+        if rebase and self.ledger.settling(now):
+            rebase = False  # 上一段的扣费可能还没到齐：接着记，不重置起点
         if rebase:
             self.ledger.rebase(bal.amount, now, bal.currency, bal.raw)
             return
@@ -320,9 +339,10 @@ class DshManager:
 
     async def _watch_loop(self) -> None:
         interval = self.rules.balance_check_minutes * 60
-        while self.running:
+        # 网页开着、有活在跑、或者刚停下还在扣费延迟窗口里，都定时查余额
+        while self._watching():
             await asyncio.sleep(interval)
-            if not self.running:
+            if not self._watching():
                 break
             await self._check_balance()
             async with self._lock:

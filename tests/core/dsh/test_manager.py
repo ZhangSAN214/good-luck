@@ -214,3 +214,52 @@ def test_job_blocked_without_key(tmp_path, fake_dsh):
     mgr, _ = build(tmp_path, fake_dsh)
     mgr.key = type(mgr.key)("DSH_TEST_KEY", None)
     assert "DSH_TEST_KEY" in mgr.job_blocked()
+
+
+async def test_late_charges_after_a_job_still_count(tmp_path, fake_dsh):
+    """扣费有延迟（2026-11-04 查账漏记大半）：活干完后窗口里余额继续掉仍算工作台的，
+    下一件活开始也不重置起点；窗口过了才重新以当前余额为起点。"""
+    from datetime import timedelta
+
+    bal = Balances(10.0, 9.8, 9.0, 9.0, 8.0)
+    mgr, _ = build(tmp_path, fake_dsh, balances=bal, monthly=5.0)
+    try:
+        await mgr.job_started()  # 起点 10.0
+        await mgr.job_finished()  # 9.8：先到了 0.2
+        assert mgr.budget()["spent_usd"] == pytest.approx(0.2)
+        assert mgr._watching()  # 刚干完：还在扣费延迟窗口里，接着查余额
+        mgr.now.t += timedelta(minutes=30)
+        await mgr.job_started()  # 9.0：晚到的 0.8 也记上，不重置起点
+        assert mgr.budget()["spent_usd"] == pytest.approx(1.0)
+        await mgr.job_finished()  # 9.0
+        mgr.now.t += timedelta(minutes=mgr.rules.settle_minutes + 1)
+        assert not mgr._watching()
+        await mgr.job_started()  # 8.0：窗口过了，别处花的不算，重新起点
+        assert mgr.budget()["spent_usd"] == pytest.approx(1.0)
+        await mgr.job_finished()
+    finally:
+        await mgr.aclose()
+
+
+async def test_settle_window_can_be_turned_off(tmp_path, fake_dsh):
+    mgr, _ = build(tmp_path, fake_dsh, balances=Balances(10.0, 9.8, 9.0), settle_minutes=0)
+    try:
+        await mgr.job_started()
+        await mgr.job_finished()
+        await mgr.job_started()  # 不等扣费：重新起点，晚到的 0.8 不算（旧行为）
+        assert mgr.budget()["spent_usd"] == pytest.approx(0.2)
+        await mgr.job_finished()
+    finally:
+        await mgr.aclose()
+
+
+async def test_stopping_the_web_keeps_watching_for_late_charges(tmp_path, fake_dsh):
+    mgr, _ = build(tmp_path, fake_dsh, balances=Balances(10.0, 9.9))
+    await mgr.start()
+    await mgr.stop()
+    try:
+        assert mgr.status()["state"] == "stopped"
+        assert mgr._watching() and mgr._watch is not None and not mgr._watch.done()
+    finally:
+        await mgr.aclose()
+    assert mgr._watch is None
