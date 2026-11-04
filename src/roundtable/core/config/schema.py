@@ -3824,6 +3824,8 @@ class SuperWorker(_Strict):
     argv: list[str] = Field(default_factory=list)
     skills: dict[str, float] = Field(default_factory=dict)  # 活的种类 → 擅长程度 0～1
     daily_limit: int = Field(default=20, ge=0, le=1000)  # 每天最多派几件（界面上可改）
+    # 按用量花钱（不是包月订阅）：weights.metered_last 打开时只在不花钱的都用不了时补位
+    metered: bool = False
     max_parallel: int = Field(default=1, ge=1, le=8)  # 同时最多干几件
     timeout_s: float = Field(default=1800, gt=0, le=7200)
     cooldown_minutes: float = Field(default=60, ge=0, le=1440)  # 撞到订阅限额后歇多久
@@ -3843,11 +3845,16 @@ class SuperWorker(_Strict):
 
 
 class SuperWeights(_Strict):
-    """派活打分的权重：分数 = 擅长 × skill + 剩余额度比例 × quota − 手上的活 × busy。"""
+    """派活打分的权重：分数 = 擅长 × skill + 剩余额度比例 × quota − 手上的活 × busy。
+
+    ``metered_last``（2026-11-04 用户定「优先让 Claude 或 Codex 做」）：按用量花钱的助手
+    （``metered: true``）排在后面，只有走订阅的都不能用（没装、冷却中、今天次数用完、
+    被排除在外，比如不评自己的活）时才补位。只看配置里的 metered，不看是谁。"""
 
     skill: float = Field(default=0.6, ge=0)
     quota: float = Field(default=0.3, ge=0)
     busy: float = Field(default=0.2, ge=0)
+    metered_last: bool = True
 
 
 class SuperGate(_Strict):

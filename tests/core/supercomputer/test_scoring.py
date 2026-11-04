@@ -49,3 +49,39 @@ def test_rename_invariance():
         ca = pick(a, "code", sa, W, random.Random(seed))[0]
         cb = pick(b, "code", sb, W, random.Random(seed))[0]
         assert a.index(ca) == b.index(cb)
+
+
+def metered(wid, **skills):
+    return SuperWorker(id=wid, label=wid.upper(), argv=["x"], skills=skills, metered=True)
+
+
+def test_metered_worker_only_fills_in():
+    """2026-11-04 用户定：走订阅的先干，按用量花钱的只补位（就算它更擅长、更闲）。"""
+    ws = [metered("paid", research=0.95), worker("a", research=0.5), worker("b", research=0.4)]
+    states = {"paid": WorkerState(), "a": WorkerState(running=3), "b": WorkerState(running=3)}
+    chosen, ranking = pick(ws, "research", states, W, random.Random(1))
+    assert chosen.id == "a"
+    assert [s.worker for s in ranking] == ["a", "b", "paid"]
+    assert ranking[-1].as_dict()["standby"] is True and "standby" not in ranking[0].as_dict()
+    # 走订阅的都用不了（次数用完、冷却）才轮到它
+    states["a"] = WorkerState(used=20, limit=20)
+    states["b"] = WorkerState(blocked="冷却中")
+    chosen, ranking = pick(ws, "research", states, W, random.Random(1))
+    assert chosen.id == "paid" and not ranking[0].standby
+    # 被排除在外（比如不评自己的活）也算用不了
+    states["b"] = WorkerState()
+    assert pick(ws, "review", states, W, random.Random(1), exclude=["b"])[0].id == "paid"
+    # 关掉 metered_last 就回到纯打分
+    off = SuperWeights(skill=0.6, quota=0.3, busy=0.2, metered_last=False)
+    states["a"] = WorkerState()
+    assert pick(ws, "research", states, off, random.Random(1))[0].id == "paid"
+
+
+def test_repo_config_marks_only_the_pay_per_use_worker():
+    from roundtable.core.config import load_config
+
+    sc = load_config().roundtable.supercomputer
+    assert sc.weights.metered_last
+    paid = [w for w in sc.workers if w.metered]
+    assert [w.via for w in paid] == ["dsh"]  # dsh 按用量扣余额；命令行助手走订阅
+    assert any(not w.metered for w in sc.workers)

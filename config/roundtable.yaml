@@ -2161,11 +2161,13 @@ supercomputer:
   enabled: true
   kinds: [code, frontend, test, docs, research, review, vision]   # vision：看图（工作台的素材）；不会看图的助手不写这一项
   max_subtasks: 6
-  weights: {skill: 0.6, quota: 0.3, busy: 0.2}
+  # metered_last（2026-11-04 用户定）：按用量花钱的助手（metered: true）只在走订阅的都用不了时补位
+  weights: {skill: 0.6, quota: 0.3, busy: 0.2, metered_last: true}
   workers:
     - id: dsh
       label: dsh
       via: dsh                   # 用圆桌的 dsh 工作台（headless 方式），花费计入 dsh.monthly_usd
+      metered: true              # 按用量扣 DeepSeek 余额：只补位
       skills: {research: 0.85, docs: 0.7, code: 0.6, test: 0.55, review: 0.6, frontend: 0.5, split: 0.6, merge: 0.6}
       daily_limit: 20
       max_parallel: 2
