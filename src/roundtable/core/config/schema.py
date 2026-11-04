@@ -4218,6 +4218,9 @@ class BenchRules(_Strict):
     enabled: bool = True
     max_windows: int = Field(default=8, ge=1, le=16)  # 一个工作台最多几个窗口
     max_rounds: int = Field(default=3, ge=1, le=6)  # 质检 + 评审 + 返工最多几轮
+    # 按用量花钱的助手（如 dsh）一次生成最多花多少美元（估算，2026-11-04）：到了以后这次生成
+    # 只派给包月订阅的助手；0 = 不限（仍受 dsh.monthly_usd 管）
+    metered_usd_per_build: float = Field(default=1.0, ge=0)
     pass_avg: float = Field(default=8.0, ge=0, le=10)  # 评审各项平均分过线
     pass_min: float = Field(default=6.0, ge=0, le=10)  # 每一项都不能低于它
     plan_kind: str = "split"  # 拆需求按哪种活打分挑人
@@ -4272,6 +4275,10 @@ class DshRules(_Strict):
     shared_channels: list[str] = Field(default_factory=list)
     monthly_usd: float = Field(default=3.0, ge=0)  # 工作台每月花费上限（UTC 自然月，软上限）
     balance_check_minutes: float = Field(default=5, ge=1, le=120)
+    # 模型服务扣费有延迟（2026-11-04 查账：10-30、10-31 三次生成估算约 ¥20～39，账本只记到约 ¥7）：
+    # dsh 停下或活干完以后这么多分钟内，余额继续往下掉仍算工作台的（扣掉共用渠道），
+    # 下一件活开始时也不重置起点，接着记
+    settle_minutes: float = Field(default=180, ge=0, le=1440)
     # 余额币种换算成美元：{币种: 1 美元合多少}，美元本身不用写
     usd_rates: dict[str, float] = Field(default_factory=lambda: {"CNY": 7.2})
     # 页面上花费、上限、余额用什么币种显示（USD 或 usd_rates 里有的）；上限仍按 monthly_usd 算

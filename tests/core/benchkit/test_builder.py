@@ -1776,3 +1776,70 @@ async def test_handoff_without_project_room_reports_once_when_it_passes(tmp_path
     b2.submit("旅行台")
     await b2.wait()
     assert len(got) == 1
+
+
+async def test_pay_per_use_helper_stops_at_the_per_build_cap(tmp_path):
+    """一次生成里按用量花钱的助手花到 metered_usd_per_build：后面的活只派给订阅的（2026-11-04）。"""
+    from types import SimpleNamespace
+
+    sc = FakeSC()
+    sc.rules = SimpleNamespace(
+        workers=[SimpleNamespace(id=w, metered=w == "c") for w in sc.workers]
+    )
+    spent = [5.0]  # 开始记账以来的累计（上个台花的不算这次）
+    real_step = sc.step
+
+    async def step(kind, prompt, **kw):
+        out = await real_step(kind, prompt, **kw)
+        if sc.calls and sc.calls[-1]["who"] == "c":
+            spent[0] += 1.2
+        return out
+
+    sc.step = step
+    b = BenchBuilder(
+        BenchRules(metered_usd_per_build=1.0),
+        root=tmp_path,
+        supercomputer=sc,
+        render=render,
+        check=fake_check(),
+        seed=7,
+        metered_spent=lambda: spent[0],
+    )
+    build = b.submit("旅行台")
+    await b.wait()
+    m = build["metered"]
+    assert m["start_usd"] == 5.0 and m["capped"] and m["usd"] >= 1.0
+    hits = [i for i, c in enumerate(sc.calls) if c["who"] == "c"]
+    assert len(hits) == 1  # 花了 1.2，超过单次上限，以后不再派给它
+    after = sc.calls[hits[-1] + 1 :]
+    assert after and all("c" in c["exclude"] for c in after)
+    assert any("单次上限" in line["text"] for line in build["log"])
+
+
+async def test_no_cap_without_metered_accounting(tmp_path):
+    sc = FakeSC()
+    b = make(tmp_path, sc)
+    build = b.submit("旅行台")
+    await b.wait()
+    assert "metered" not in build
+    assert not any(c["exclude"] for c in sc.calls if c["role"] == "bench_window")
+
+
+async def test_same_request_twice_warns_once(tmp_path):
+    """两周内同一句话再开做：先提醒（旅行台同一句话跑过两遍），10 分钟内再点就放行。"""
+    from datetime import UTC, datetime, timedelta
+
+    b = make(tmp_path, FakeSC())
+    first = b.submit("旅行台")
+    await b.wait()
+    with pytest.raises(ValueError, match="一模一样"):
+        b.submit("  旅行台 ")
+    second = b.submit("旅行台")  # 再点一次：放行
+    await b.wait()
+    assert second["id"] != first["id"]
+    b.submit("别的台")  # 不一样的需求不拦
+    await b.wait()
+    later = make(tmp_path, FakeSC())
+    later.now = lambda: datetime.now(UTC) + timedelta(days=15)
+    later.submit("旅行台")  # 超过两周不拦
+    await later.wait()

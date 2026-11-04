@@ -376,6 +376,7 @@ class RoundtableService:
             skill=self._bench_skill,
             desk=self.desk,
             report=self._bench_report,
+            metered_spent=self._dsh_total_spent,
         )
         # 办公室交接（M）：工作台开着、项目室开着、有本机数据目录、没在做别的台时，大项目才问老板
         self.orc.bench_ready = lambda: (
@@ -389,6 +390,12 @@ class RoundtableService:
         self._evolution_task: asyncio.Task[None] | None = None
         self._dev_tasks: dict[str, asyncio.Task[None]] = {}  # 「做这条」后正在实现的建议
         self.dev_run: DevRun = run_process  # 叫外部命令（测试换成假的）
+
+    def _dsh_total_spent(self) -> float | None:
+        """dsh 开始记账以来一共花了多少美元（余额差值估算）；没有 dsh 或不记账时为 None。"""
+        if self.dsh is None or not self.dsh.budget()["tracking"]:
+            return None
+        return self.dsh.ledger.total()
 
     @staticmethod
     def _build_dsh(runtime: Runtime, base: Path | None) -> Any:

@@ -1,6 +1,8 @@
 """工作台每月花了多少：dsh 直接用模型服务的 key，钱不经过圆桌，只能用余额差值估算。
 
 - 只在 dsh 运行期间记：启动时以当前余额为起点（停着的时候余额变少不算工作台的）。
+- 扣费有延迟：停下或活干完以后 ``settle_minutes`` 内（``active_until``）余额继续掉仍算工作台的，
+  这段时间里重新开始也不重置起点（2026-11-04 查到漏记大半）。
 - 余额变多是充值，不算花费，只把起点挪上去。
 - 圆桌自己也用同一个 key 的渠道（``dsh.shared_channels``）在同一段时间里的花费，从差值里扣掉。
 - UTC 自然月：每月 1 号自动从 0 开始。
@@ -29,6 +31,7 @@ class UsageState:
     last_raw: float | None = None
     checks: int = 0
     history: dict[str, float] = field(default_factory=dict)  # 往月：{"2026-09": 1.23}
+    active_until: str | None = None  # ISO 时间：到这之前余额变少仍算工作台的（扣费延迟）
 
 
 class UsageLedger:
@@ -62,8 +65,24 @@ class UsageLedger:
     def spent(self, now: datetime) -> float:
         return self.state.spent_usd if self.state.month == month_key(now) else 0.0
 
+    def total(self) -> float:
+        """开始记账以来一共花了多少（往月加本月），用来算一次生成花了多少。"""
+        return sum(self.state.history.values()) + self.state.spent_usd
+
+    def settling(self, now: datetime) -> bool:
+        """还在扣费延迟的窗口里：余额继续往下掉仍算工作台的。"""
+        until = self.state.active_until
+        return bool(until) and now <= datetime.fromisoformat(until)
+
+    def touch(self, until: datetime) -> None:
+        """dsh 停下或活干完：到 until 之前余额继续往下掉仍算工作台的。"""
+        cur = self.state.active_until
+        if not cur or datetime.fromisoformat(cur) < until:
+            self.state.active_until = until.isoformat()
+            self._save()
+
     def rebase(self, balance_usd: float, now: datetime, currency: str, raw: float) -> None:
-        """dsh 启动时：以当前余额为起点，之前的变化不算。"""
+        """dsh 启动时：以当前余额为起点，之前的变化不算（扣费延迟窗口里由调用方改用 observe）。"""
         self._roll(now)
         self._mark(balance_usd, now, currency, raw)
         self._save()
