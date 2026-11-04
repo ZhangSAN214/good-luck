@@ -960,6 +960,9 @@ class OfficeProject(_Strict):
     )
     reviews_per_item: int = Field(default=1, ge=1)
     step_params: dict[str, dict[str, Any]] = Field(default_factory=dict)
+    # M 办公室交接（2026-11-04）：经理决定项目分工时，先问老板要不要交给工作台（项目室）。
+    # 只在工作台和项目室都开着时问；同意后直接生成项目室的需求书，做完把成品和验收结果回报到这场对话
+    bench_handoff: bool = True
 
     @model_validator(mode="after")
     def _range(self) -> OfficeProject:

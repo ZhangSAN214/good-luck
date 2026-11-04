@@ -34,6 +34,7 @@ from roundtable.core.benchkit.intent import (
     add_voice,
     answer_intent,
     clean_form,
+    drop_answered,
     form_text,
     form_voices,
     intent_counts,
@@ -303,6 +304,7 @@ def thumb_of(b: dict[str, Any]) -> str | None:
 
 
 INTENT_HEAD = "理想画像（访谈时整理，括号里是把握）："
+HANDOFF_HEAD = "办公室里已经和用户说清楚的（需求书照这个写，不要再问）："
 ONE_GO = "（这个项目不分段：一次把这个窗口完整做好。）"
 ALL_DONE = "（各段都做完了，现在是整体质检后的返工：按 <problems> 改，别把做好的地方改坏。）"
 
@@ -337,8 +339,11 @@ class BenchBuilder:
         samples: SampleCatalog | None = None,
         skill: Callable[[str], tuple[str, str]] | None = None,
         desk: Any = None,
+        report: Callable[[dict[str, Any]], None] | None = None,
     ) -> None:
         self.rules = rules
+        # 办公室交过来的项目（M）：做完把成品和验收结果回报到办公室那场对话（服务注入）
+        self.report = report
         self.desk = desk  # 资料台（能力地图 + 榜单），写窗口时按工作台类型挑工具附上
         if samples is None:
             try:
@@ -432,6 +437,7 @@ class BenchBuilder:
         *,
         from_product: bool = False,
         form: dict[str, Any] | None = None,
+        handoff: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """开工：一句话，可以带拖进来的素材（先用 stage_material 收下，这里给编号）。
 
@@ -487,6 +493,20 @@ class BenchBuilder:
         }
         add_voice(self.build, "开工", said[:2000], _iso(now))
         form_voices(self.build, filled, _iso(now))
+        if handoff:
+            # 办公室交过来的大项目：办公室里已经说清楚的写进需求书，访谈不再问
+            answered = str(handoff.get("answered") or "").strip()[:4000]
+            self.build["handoff"] = {
+                "from": "office",
+                "session_id": str(handoff.get("session_id") or ""),
+                "title": str(handoff.get("title") or "")[:80],
+                "answered": answered,
+                "reported": None,
+            }
+            if answered:
+                self.build["brief"] = f"{request[:2000]}\n\n{HANDOFF_HEAD}\n{answered}"
+                add_voice(self.build, "办公室", answered[:1000], _iso(now))
+            self._mark(self.build, "立项", "办公室交过来的项目", self.build["handoff"]["title"])
         for item in self.profile():  # 甲方档案：以前定下的偏好，每个新项目都带上
             add_voice(self.build, "档案", item["text"], _iso(now), item["id"])
         self._take_materials(self.build, materials or [])
@@ -565,6 +585,7 @@ class BenchBuilder:
             b["status"] = "cancelled"
             b["finished_at"] = _iso(self.now())
             self._log(b, "你结束了这个项目")
+            self._report_back(b)
         return self.build
 
     async def aclose(self) -> None:
@@ -577,6 +598,57 @@ class BenchBuilder:
                 await self._job
 
     # --- 流程 -------------------------------------------------------------------
+
+    def report_of(self, b: dict[str, Any]) -> dict[str, Any]:
+        """交回办公室的回报：成品在哪、交付没有、验收逐条做到没有、评审分、变更单、用了几轮。"""
+        last = b["rounds"][-1] if b.get("rounds") else {}
+        reqs = [
+            {"id": r["id"], "text": r["text"], "met": bool(r["met"])}
+            for r in last.get("requirements") or []
+        ]
+        outcome = {
+            "delivered": "你验收通过，已交付",
+            "done": "过线" + ("（你选了就这样收下）" if b.get("accepted_as_is") else ""),
+            "failed": "没做成：出错了",
+            "cancelled": "没做完：你结束了这个项目",
+        }.get(b["status"], b["status"])
+        changes = b.get("changes") or []
+        error = ""
+        if b["status"] == "failed":
+            error = next(
+                (x["text"] for x in reversed(b.get("log") or []) if x["text"].startswith("出错了")),
+                "",
+            )
+        return {
+            "bench_id": b["id"],
+            "title": b.get("title") or (b.get("handoff") or {}).get("title") or "",
+            "status": b["status"],
+            "outcome": outcome,
+            "url": f"/bench/{b['id']}/index.html",
+            "score": b.get("score"),
+            "rounds": len(b.get("rounds") or []),
+            "requirements": reqs,
+            "met": sum(1 for r in reqs if r["met"]),
+            "total": len(reqs),
+            "changes": len(changes),
+            "error": error[:300],
+            "at": _iso(self.now()),
+        }
+
+    def _report_back(self, b: dict[str, Any]) -> None:
+        """办公室交过来的项目做完（交付、收下、出错、结束）：把成品和验收结果回报到那场对话。
+        只回报一次；回报出错不影响工作台。"""
+        h = b.get("handoff")
+        if not h or h.get("reported") or self.report is None:
+            return
+        rep = self.report_of(b)
+        try:
+            self.report(rep | {"session_id": h["session_id"]})
+        except Exception as exc:  # noqa: BLE001 - 回报是旁路，出错只记一句
+            self._log(b, f"回报办公室没成：{type(exc).__name__}")
+            return
+        h["reported"] = rep["at"]
+        self._log(b, "已把成品和验收结果回报到办公室那场对话")
 
     def _log(self, b: dict[str, Any], text: str) -> None:
         b["log"].append({"at": _iso(self.now()), "text": text})
@@ -662,6 +734,7 @@ class BenchBuilder:
             b["status"] = "failed"
             b["gate"] = None
             self._log(b, f"出错了：{type(exc).__name__}: {exc}")
+            self._report_back(b)
         finally:
             if b.get("gate") is None:
                 b["finished_at"] = _iso(self.now())
@@ -1120,6 +1193,8 @@ class BenchBuilder:
                 b["status"] = "done"
                 self._log(b, f"第 {n} 轮过线")
                 self._grow(b, spec)
+                if not self.rules.project.enabled:  # 项目室要等你验收了才算交付
+                    self._report_back(b)
                 break
             self._revert(b, n)
             if k == limit:
@@ -1373,6 +1448,7 @@ class BenchBuilder:
             b["status"], b["accepted_as_is"], b["stuck"] = "done", True, None
             self._log(b, "你选了「就这样」，按现在的样子收下")
             self.build = b
+            self._report_back(b)
             self._save()
             return b
         if action not in ("more", "edit"):
@@ -1469,9 +1545,11 @@ class BenchBuilder:
         b["status"] = "interviewing"
         record: dict[str, Any] = {}
         look = b.get("look") or {}
+        answered = (b.get("handoff") or {}).get("answered") or ""
         prompt = self.render(
             "bench_interview",
             request=b["request"],
+            answered=answered or "（没有，这是第一次和用户聊这件事）",
             look=(
                 f"{look.get('summary') or ''}\n配色：{'、'.join(look.get('palette') or [])}\n"
                 + "\n".join(
@@ -1499,6 +1577,12 @@ class BenchBuilder:
                 raw = extract_json_object(result.output)
         intent = intent_of(raw.get("intent"))
         qs = questions_of(raw.get("questions"), self.rules.project.max_questions)
+        if answered:
+            qs, dropped = drop_answered(qs, answered)
+            if dropped:
+                self._log(
+                    b, f"办公室里已经答过的 {len(dropped)} 个问题不再问：" + "；".join(dropped)
+                )
         useful = intent.get("ideal") or any(intent.get(k) for k in FIVE_KEYS)
         b["intent"] = intent if useful else None
         b["interview"] = {"questions": qs, "answers": {}, "worker": record.get("worker")}
@@ -1514,7 +1598,12 @@ class BenchBuilder:
             )
             b["brief"] = f"{b['brief_pre']}\n\n{INTENT_HEAD}\n" + intent_text(b["intent"])
         if not qs:
-            self._log(b, "没有需要你取舍的地方，直接按理想画像往下做")
+            self._log(
+                b,
+                "办公室里都说清楚了，直接生成需求书往下做"
+                if answered
+                else "没有需要你取舍的地方，直接按理想画像往下做",
+            )
             return
         self._mark(b, "立项", "要你取舍", f"{len(qs)} 个问题")
         self._gate(b, "interview", "回答几个取舍（可以跳过，跳过按推荐）")
@@ -1933,6 +2022,7 @@ class BenchBuilder:
                 self._log(b, "你验收通过，项目交付")
                 self.build = b
                 b["finished_at"] = _iso(self.now())
+                self._report_back(b)
                 self._save()
                 return b
             n = int(kind[1:])

@@ -830,6 +830,7 @@ class ProjectSC(FakeSC):
     async def step(self, kind, prompt, **kw):
         p = json.loads(prompt)
         if p["role"] == "bench_interview":
+            self.prompts.append(prompt)
             self.calls.append({"role": p["role"], "who": "a"})
             out = {
                 "questions": [
@@ -1741,3 +1742,37 @@ async def test_proposal_cites_research_and_reviewers_check_what_was_borrowed(tmp
     assert b._problems_for(first, "map-view").count("[借鉴·没做到·t1]") == 1
     assert "[借鉴·没做到" not in b._problems_for(first, "budget")
     assert any("核对借鉴" in x["text"] for x in build["log"])
+
+
+async def test_handoff_without_project_room_reports_once_when_it_passes(tmp_path):
+    got = []
+    sc = FakeSC()
+    b = BenchBuilder(
+        BenchRules(),
+        root=tmp_path,
+        supercomputer=sc,
+        render=render,
+        check=fake_check(),
+        seed=7,
+        report=got.append,
+    )
+    b.submit("旅行台", handoff={"session_id": "s1", "title": "旅行台", "answered": "给爸妈用"})
+    await b.wait()
+    assert b.build["status"] == "done"
+    assert len(got) == 1 and got[0]["session_id"] == "s1" and got[0]["status"] == "done"
+    assert got[0]["outcome"] == "过线" and got[0]["url"].endswith("/index.html")
+    plan = next(json.loads(p) for p in sc.prompts if json.loads(p)["role"] == "bench_plan")
+    assert "办公室里已经和用户说清楚的" in plan["request"] and "给爸妈用" in plan["request"]
+    # 不是办公室交过来的：不回报
+    b2 = BenchBuilder(
+        BenchRules(),
+        root=tmp_path / "x",
+        supercomputer=FakeSC(),
+        render=render,
+        check=fake_check(),
+        seed=7,
+        report=got.append,
+    )
+    b2.submit("旅行台")
+    await b2.wait()
+    assert len(got) == 1

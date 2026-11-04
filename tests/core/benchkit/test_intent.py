@@ -226,3 +226,17 @@ def test_form_fields_are_well_formed_and_voices_are_traced():
     ]
     b["proposal"] = {"requirements": [{"id": "r1", "voices": []}]}
     assert {r["state"] for r in it.trace(b)} == {"已参考"}
+
+
+def test_drop_answered_skips_what_the_office_already_settled():
+    from roundtable.core.benchkit.intent import drop_answered
+
+    qs = [
+        {"id": "q1", "q": "给谁用？", "options": ["自己", "家人"]},
+        {"id": "q2", "q": "对标哪个产品？", "options": []},
+        {"id": "q3", "q": "要不要离线地图？", "options": ["要", "不要"]},
+    ]
+    kept, dropped = drop_answered(qs, "用户的要求：给家人用的旅行台。\n经理：离线地图一定要有")
+    assert dropped == ["给谁用？", "要不要离线地图？"]
+    assert [(q["id"], q["q"]) for q in kept] == [("q1", "对标哪个产品？")]  # 重新编号
+    assert drop_answered(qs, "") == (qs, [])

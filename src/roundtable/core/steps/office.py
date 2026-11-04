@@ -45,7 +45,12 @@ from .base import (
 )
 
 SEARCH_TOOLS = ("search", "fetch")
-MODE_LABELS = {"single": "单人办", "meeting": "开会", "project": "项目分工"}
+MODE_LABELS = {"single": "单人办", "meeting": "开会", "project": "项目分工", "bench": "交给工作台"}
+# 交给工作台后，这场对话的交付（工作台做完再把成品和验收结果回报到这里）
+BENCH_FINAL = (
+    "这件事已交给工作台（项目室）去做：按办公室里说清楚的要求生成需求书，"
+    "做完会把成品和验收结果回报到这场对话。可以在「工作台」里看进度、试用、验收。"
+)
 TAGS = ("question", "brief", "work", "previous", "issues", "staff", "speeches", "speech")
 
 
@@ -77,6 +82,7 @@ class OfficeState:
     fixed: str | None = None  # 退回后改的版本
     speeches: dict[str, str] = field(default_factory=dict)  # 开会：代号 → 发言（按发言顺序）
     decision: dict[str, Any] | None = None  # 开会：经理拍板（text、degraded）
+    bench_report: dict[str, Any] | None = None  # 交给工作台后：工作台回报的成品和验收结果
     performance: Any = None  # 绩效（O5，派活参考；不存库，每题第一次用到时统计）
 
     @property
@@ -88,9 +94,16 @@ class OfficeState:
         return bool(self.intake and self.intake.get("mode") == "project")
 
     @property
+    def bench(self) -> bool:
+        """老板同意交给工作台：这张桌子不再办理，成品由工作台做完回报。"""
+        return bool(self.intake and self.intake.get("mode") == "bench")
+
+    @property
     def final(self) -> str | None:
         if self.project:  # 成果在项目组那张桌子上
             return None
+        if self.bench:
+            return BENCH_FINAL
         if self.meeting:
             return self.decision["text"] if self.decision else None
         return self.fixed or self.work
@@ -121,6 +134,8 @@ def restore_office(state: Any, kind: str, code: str | None, data: dict[str, Any]
         o.speeches[code or ""] = data["text"]
     elif kind == "office_decision":
         o.decision = data
+    elif kind == "office_bench_report":
+        o.bench_report = data
     else:
         return False
     return True
@@ -378,6 +393,22 @@ def group_estimates(config, router, question, lineup) -> dict[str, dict[str, Any
     return out
 
 
+def bench_key(ctx: TableContext) -> str:
+    return f"office_bench:{ctx.table_no}"
+
+
+def bench_offer(ctx: TableContext) -> bool:
+    """经理决定项目分工时，要不要先问老板交给工作台：配置开着、工作台和项目室都开着、
+    工作台现在能接活（有本机数据目录、没在做别的台）。"""
+    cfg = ctx.config.roundtable
+    on = cfg.office.project.bench_handoff and cfg.bench.enabled and cfg.bench.project.enabled
+    if not on:
+        return False
+    if ctx.approval(bench_key(ctx)) is not None:  # 已经问过（恢复时）：照你的回答
+        return True
+    return bool(ctx.bench_ready())
+
+
 def group_key(ctx: TableContext) -> str:
     return f"office_group:{ctx.table_no}"
 
@@ -549,6 +580,10 @@ class IntakeStep:
         o = _office(ctx)
         assert o.intake is not None
         mode, attendees = o.intake["mode"], o.intake["attendees"]
+        if mode == "project" and bench_offer(ctx):
+            notes = self._bench_gate(ctx)
+            if o.bench:
+                return notes
         caps = ctx.config.roundtable.office.task_caps_usd
         cost = o.intake.get("budget_usd")
         if cost is None:  # 旧记录没有预算单
@@ -596,6 +631,47 @@ class IntakeStep:
         )
         raise NeedsApproval(card, group_key(ctx))
 
+    def _bench_gate(self, ctx: TableContext) -> list[str]:
+        """大项目先问老板：交给工作台（项目室：访谈、方案书、分段演示、验收），还是办公室自己做。
+        选工作台：这张桌子到此为止（不派活、不花钱），交付写明已交给工作台；工作台做完回报到这里。"""
+        o = _office(ctx)
+        assert o.intake is not None
+        answer = ctx.approval(bench_key(ctx))
+        if answer == "bench":
+            patch = {"approved": True, "mode": "bench", "handoff": "bench", "attendees": []}
+            o.intake = {**o.intake, **patch}
+            _save(ctx, self.name, "office_approval", patch)
+            return ["老板选择交给工作台，办公室这边不再派活"]
+        if answer == "office":
+            return []
+        names = "、".join(ctx.label(c) for c in o.intake["attendees"])
+        cost = o.intake.get("budget_usd")
+        if cost is None:
+            cost = budget_estimate(ctx, o.intake)
+        card = ConfirmationCard(
+            kind="office",
+            situation=(
+                f"经理判断这是个大项目，建议项目分工（{names}）。"
+                "要不要交给工作台来做？工作台按项目室走：先生成需求书（这里已经说清楚的不再问）、"
+                "方案书给你签字、分段演示给你试用、你验收了才算交付，做完把成品和验收结果回报到这里。"
+            ),
+            options=(
+                CardOption(
+                    "bench",
+                    "交给工作台",
+                    0.0,
+                    "用超级电脑的订阅次数，不花办公室的工资；做完回报到这场对话",
+                ),
+                CardOption(
+                    "office", "办公室自己做", cost, "项目组分工完成，经理合并、另一位经理验收"
+                ),
+                CardOption("stop", "停止", 0.0, "不再继续"),
+            ),
+            recommendation="bench",
+            reason=o.intake.get("reason") or "经理判断这件事需要几个人一起做",
+        )
+        raise NeedsApproval(card, bench_key(ctx))
+
 
 async def _member_call(ctx: TableContext, step: str, code: str, prompt) -> tuple[str, int]:
     o = _office(ctx)
@@ -630,7 +706,7 @@ class HandleStep:
             raise StepFailed("还没有分诊")
         if o.meeting:
             return await run_meeting(ctx, self.name)
-        if o.project:  # 项目分工：交给另开的项目组桌子
+        if o.project or o.bench:  # 项目分工：交给另开的项目组桌子；交给工作台：不在这里办
             return StepResult(self.name)
         code = o.intake["assignee"]
         tried: set[str] = set()
@@ -663,7 +739,7 @@ class CheckStep:
 
     async def run(self, ctx: TableContext) -> StepResult:
         o = _office(ctx)
-        if o.meeting or o.project:  # 开会的结论是经理自己拍板的；项目由另一位经理验收
+        if o.meeting or o.project or o.bench:  # 开会经理拍板；项目另一位经理验收；工作台另有验收
             return StepResult(self.name)
         if o.work is None or o.worker is None:
             raise StepFailed("还没有成果可以过目")
