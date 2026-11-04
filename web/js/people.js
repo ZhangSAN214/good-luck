@@ -5,9 +5,7 @@ import { AboutPanel } from './about.js';
 import { GrowthPanel } from './growth.js';
 import { RelationPanel } from './relation.js';
 import { ProfilePanel } from './profile.js';
-
-const esc = (s) =>
-  String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+import { esc } from './util.js';
 
 const STICKER = { missing: '还没画', pending: '待审', approved: '可以用', rejected: '不要' };
 const LAYER = { note: '记下的', day: '日记', week: '一周', month: '一个月', profile: '长期档案' };

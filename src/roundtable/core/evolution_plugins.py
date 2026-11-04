@@ -22,6 +22,8 @@ from roundtable.core.allocation import NotEnoughModels, cheapest
 from roundtable.core.ideaboard import Board
 from roundtable.core.jsonout import JSONOutputError, extract_json_object
 from roundtable.core.providers import AllChannelsFailed, NoChannelAvailable, ProviderError
+from roundtable.core.textutil import ellipsize
+from roundtable.core.textutil import load_json_dict as load_lists  # noqa: F401  （外部从这里导入）
 
 PLUGINS_KEY = "evolution.plugins"  # app_settings：{"会话 id": {"plugins": [...], ...}}
 KEEP_LISTS = 20
@@ -55,8 +57,7 @@ class Plugin:
 
 
 def _clip(value: Any, limit: int) -> str:
-    text = " ".join(str(value or "").split())
-    return text if len(text) <= limit else text[: limit - 1].rstrip() + "…"
+    return ellipsize(value, limit, rstrip=True)
 
 
 def parse_plugins(text: str, scenes: Sequence[str], *, field_chars: int) -> list[Plugin]:
@@ -141,14 +142,6 @@ def plugins_markdown(*, week: str, session_id: str, plugins: Sequence[Plugin], c
     if not plugins:
         lines += ["（这场没有写出插件）", ""]
     return "\n".join(lines)
-
-
-def load_lists(raw: str | None) -> dict[str, dict[str, Any]]:
-    try:
-        data = json.loads(raw) if raw else {}
-    except ValueError:
-        return {}
-    return data if isinstance(data, dict) else {}
 
 
 def dump_lists(lists: dict[str, dict[str, Any]]) -> str:

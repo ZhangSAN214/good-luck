@@ -1,9 +1,7 @@
 // 上网：成员读哪些公开订阅源（RSS / Atom）。只读、不登录；抓取不花钱，分享和搜索计入生活每日上限。
 // 网络梗：梗库（经典梗、新梗、谁懂）、手动加删、马上更新一次。
 import { tzOpt } from './hometz.js';
-
-const esc = (s) =>
-  String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+import { esc } from './util.js';
 
 const KIND = { news: '新闻', forum: '论坛', blog: '博客' };
 const BACK = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>';

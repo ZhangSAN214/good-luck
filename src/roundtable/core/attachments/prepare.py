@@ -24,6 +24,7 @@ from roundtable.core.providers import (
     NoChannelAvailable,
 )
 from roundtable.core.storage import Repository
+from roundtable.core.textutil import neutralize
 
 from .ingest import MODEL_TAGS, capable
 from .model import Attachment
@@ -246,9 +247,7 @@ async def _video_sound(session_id, data: bytes, config, router, prompts, repo, r
 
 
 def _neutralize(text: str) -> str:
-    for tag in ("transcript", "video_layout", "name"):
-        text = text.replace(f"</{tag}", f"<\u200b/{tag}")
-    return text
+    return neutralize(text, ("transcript", "video_layout", "name"))
 
 
 async def _describe_video(

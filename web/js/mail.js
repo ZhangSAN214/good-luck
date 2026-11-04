@@ -7,9 +7,7 @@
 // 「显示图片」才去取图文版：在不能跑脚本的沙箱框里显示，外部图片默认拦着，你点了才加载。
 // 打开首页时和之后每 15 分钟顺便刷新一次（后端限制最短间隔），后台任务进行中每 1.5 秒问一次进度。
 import { homeDay, homeParts } from './hometz.js';
-
-const esc = (s) =>
-  String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+import { esc } from './util.js';
 
 const AUTO_MS = 15 * 60_000;
 const POLL_MS = 1500;

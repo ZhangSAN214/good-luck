@@ -6,9 +6,7 @@
 // 模型写的内容一律转义后再排版；不执行任何模型写的脚本或网页。
 
 import { md } from './view.js';
-
-const esc = (s) =>
-  String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+import { esc } from './util.js';
 
 const STATE = {
   pending: '',

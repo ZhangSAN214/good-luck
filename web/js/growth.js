@@ -3,8 +3,7 @@
 // 另有从全部经历累积的习惯、按领域的熟练度和每月一份「这个月的我」（程序算，不花钱）。
 // 只用于私聊、群聊、朋友圈和生活；工作和办公室不读取。
 
-const esc = (s) =>
-  String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+import { esc } from './util.js';
 
 const SECTION = { personality: '性格', values: '三观', style: '说话', likes: '喜好' };
 const KIND = { change: '改了', rejected: '没改', skip: '这周没改', revert: '撤回' };

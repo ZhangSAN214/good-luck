@@ -2,9 +2,7 @@
 // 只读：不改预算、不上传；key 只在服务端，这里永远拿不到。渠道名、成员名全部来自接口，不写死。
 // 唯一能改的是「走哪条路」：同一成员有几条渠道时先走哪条、每条渠道每月附送的额度（存本机）。
 import { tzOpt } from './hometz.js';
-
-const esc = (s) =>
-  String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+import { esc } from './util.js';
 
 const BACK = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>';
 const REFRESH = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 12a7 7 0 1 1-2.05-4.95M19 4v4h-4"/></svg>';

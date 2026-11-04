@@ -41,6 +41,8 @@ from roundtable.core.config.loader import (
     _format_errors,
     _read_yaml,
 )
+from roundtable.core.textutil import flat_cut as _text
+from roundtable.core.textutil import iso_seconds as _iso
 
 FetchJSON = Callable[[str], Awaitable[Any]]
 FetchText = Callable[[str], Awaitable[str]]
@@ -118,12 +120,6 @@ def _norm(word: str) -> str:
     return re.sub(r"[\s_-]+", " ", word.lower()).strip()
 
 
-def _stars_text(n: int) -> str:
-    if n >= 10000:
-        return f"{n / 10000:.1f}".rstrip("0").rstrip(".") + " 万星"
-    return f"{n} 星"
-
-
 def zh_blurb(r: dict[str, Any], glossary: Glossary, *, label: str = "", today: str = "") -> str:
     """一行中文「大概做什么」：分类、语言、认出的用途词、许可证、活跃度。只用仓库自带的信息，不调模型。
 
@@ -176,14 +172,6 @@ def zh_blurb(r: dict[str, Any], glossary: Glossary, *, label: str = "", today: s
         elif days > 365:
             parts.append("一年多没更新了")
     return "，".join(p for p in parts if p) + "。"
-
-
-def _iso(t: datetime) -> str:
-    return t.astimezone(UTC).isoformat(timespec="seconds")
-
-
-def _text(v: Any, limit: int) -> str:
-    return re.sub(r"\s+", " ", str(v or "")).strip()[:limit]
 
 
 def repo_of(x: dict[str, Any]) -> dict[str, Any] | None:

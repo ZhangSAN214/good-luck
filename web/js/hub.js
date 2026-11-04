@@ -5,8 +5,7 @@
 // 多时区时钟（clock.js）、公告栏（notice.js，版本更新说明）和邮件栏（mail.js，学校邮箱只读）。
 // 左侧是大立绘（standee.js，伪 Live2D）：有立绘时首页那句提示改由她在对话框里说；没有立绘时照旧。
 
-const esc = (s) =>
-  String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+import { esc } from './util.js';
 
 const REFRESH_MS = 60_000;
 const BG_KEY = 'roundtable.hub.bg'; // default | night | day | custom

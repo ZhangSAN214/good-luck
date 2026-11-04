@@ -2,8 +2,7 @@
 // 调透明度、收成胶囊、投屏停了自己关。只通过 HTTP 和圆桌说话（项目规则 §2.7）。
 // host 决定窗口本身怎么变：电脑上的应用小窗（pywebview）能调整个窗口的透明度和大小；画中画只能调背景深浅。
 
-const esc = (s) =>
-  String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+import { esc } from './util.js';
 
 const POLL_MS = 1500;
 const STATUS_MS = 4000;

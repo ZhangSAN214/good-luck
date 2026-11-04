@@ -22,6 +22,7 @@ from roundtable.core.config.schema import KindRule
 from roundtable.core.media import KIND_LABELS, KINDS, Placement
 from roundtable.core.prompts import RenderedPrompt
 from roundtable.core.providers import Message
+from roundtable.core.textutil import attr_text as _attr
 
 from .base import (
     StepFailed,
@@ -740,10 +741,6 @@ def plan_block(ctx: TableContext) -> str:
         owners = c.assignment.owners.get(s.id, ()) if c.assignment else ()
         lines.append(f"{s.id}「{s.title}」：{'、'.join(ctx.label(o) for o in owners)}")
     return "<plan>\n" + neutralize("\n".join(lines), TAGS) + "\n</plan>"
-
-
-def _attr(text: str) -> str:
-    return " ".join(text.split()).replace('"', "'").replace("<", "‹").replace(">", "›")
 
 
 def upstream_files(ctx: TableContext, subtask: Subtask) -> list[tuple[str, str, dict]]:

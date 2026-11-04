@@ -3,8 +3,7 @@
 // 上面一栏是日历（GET /api/calendar）：今天和未来几天是什么日子（节假日、农历节日、节气、成员生日……），
 // 还能加 / 删你自己的纪念日（只存本机）。只读数据，不调用模型、不花钱。
 
-const esc = (s) =>
-  String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+import { esc } from './util.js';
 
 const KEY = 'roundtable.notice.read'; // 看过的条目 id（#PR 编号；旧版存的是 1.<PR 编号>，读的时候换算）
 const SHOWN = 5; // 默认列出最近几条，更早的折叠起来

@@ -1,8 +1,7 @@
 // 「片头」设置：开机动画放不放、怎么放，以及 GMU 访问许可卡上的头像、名字、二维码等。
 // 全部存在本机 localStorage（roundtable.boot.*），不上传；二维码在本机生成 / 识别，不联网。
 
-const esc = (s) =>
-  String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+import { esc } from './util.js';
 
 const PREFIX = 'roundtable.boot.';
 const MODE = [

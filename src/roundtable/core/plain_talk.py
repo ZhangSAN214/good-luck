@@ -22,6 +22,7 @@ from roundtable.core.attachments.model import append_to_messages
 from roundtable.core.budget.guard import EPS, month_window
 from roundtable.core.prompts import PromptLibrary, RenderedPrompt
 from roundtable.core.providers import Message
+from roundtable.core.textutil import neutralize
 
 ROLE = "plain_talk"
 REWRITE_ROLE = "plain_rewrite"
@@ -242,6 +243,4 @@ async def before_speaking_all(
 
 
 def _neutralize(text: str) -> str:
-    for tag in TAGS:
-        text = text.replace(f"</{tag}", f"<​/{tag}")
-    return text
+    return neutralize(text, TAGS)

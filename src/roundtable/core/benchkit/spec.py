@@ -15,6 +15,7 @@ from typing import Any
 
 from roundtable.core.benchkit.intent import MAX_STAGES, stages_of
 from roundtable.core.benchkit.quality import KIT_DIR
+from roundtable.core.textutil import flat_cut as _text
 
 _ID = re.compile(r"[^a-z0-9-]+")
 SHARED_MAX_CHARS = 6000
@@ -105,10 +106,6 @@ class Spec:
 
 class SpecError(ValueError):
     pass
-
-
-def _text(v: Any, limit: int) -> str:
-    return re.sub(r"\s+", " ", str(v or "")).strip()[:limit]
 
 
 PROBE_DO = ("fill", "select", "click")

@@ -27,6 +27,8 @@ from roundtable.core.jsonout import JSONOutputError, extract_json_object
 from roundtable.core.supercomputer.ledger import Ledger
 from roundtable.core.supercomputer.runner import RunResult, hit_limit, run
 from roundtable.core.supercomputer.scoring import WorkerState, excluded, pick
+from roundtable.core.textutil import iso_seconds as _iso
+from roundtable.core.textutil import utcnow as _utcnow
 
 RECENT = 10
 log = logging.getLogger(__name__)
@@ -53,14 +55,6 @@ class Launcher(Protocol):
 
 Render = Callable[..., str]  # render(角色, **变量) → 发给助手的全文
 Runner = Callable[..., Awaitable[RunResult]]
-
-
-def _utcnow() -> datetime:
-    return datetime.now(UTC)
-
-
-def _iso(t: datetime) -> str:
-    return t.astimezone(UTC).isoformat(timespec="seconds")
 
 
 class Supercomputer:

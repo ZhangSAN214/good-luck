@@ -26,6 +26,7 @@ from typing import Any
 
 from roundtable.core.hometz import home_zone
 from roundtable.core.storage.repository import iso
+from roundtable.core.textutil import to_float as _num
 
 KEY = "member_drift:"
 KINDS = {"k": "kaomoji", "s": "short", "c": "catchphrase", "w": "learned"}
@@ -304,10 +305,3 @@ def _fold(out: dict[str, str], swaps: list[dict[str, Any]]) -> dict[str, str]:
             if old not in out:
                 out[old] = new
     return out
-
-
-def _num(x: Any, default: float = 3.0) -> float:
-    try:
-        return float(x)
-    except (TypeError, ValueError):
-        return default

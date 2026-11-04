@@ -31,19 +31,13 @@ from roundtable.core.hometz import home_zone
 from roundtable.core.member.bus import Event, EventBus
 from roundtable.core.member.profile import ProfileStore
 from roundtable.core.storage.repository import iso
+from roundtable.core.textutil import to_float as _num
 
 KEY = "member_human:"
 USER = "user"
 _CJK2 = re.compile("(?=([一-鿿]{2}))")
 _SPLIT = re.compile(r"[。！？!?\n；;，,~～…]+")
 _QUESTION = re.compile(r"[？?]|(吗|呢|么)[。！!～~]*$")
-
-
-def _num(x: Any, default: float = 3.0) -> float:
-    try:
-        return float(x)
-    except (TypeError, ValueError):
-        return default
 
 
 def _sentences(text: str) -> list[str]:

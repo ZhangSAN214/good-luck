@@ -2,8 +2,7 @@
 // 转换在服务端本地完成，不调用模型、不花钱。上次的选择记在这台设备的浏览器里。
 // 保存位置：浏览器下载 / 每次自己选（浏览器支持时）/ 直接存到电脑上的固定文件夹（只在电脑本机可用）。
 
-const esc = (s) =>
-  String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+import { esc } from './util.js';
 
 const KEY = 'rt.export';
 const DEFAULTS = { format: 'docx', size: 'medium', theme: 'blue', ratio: '16:9', question: true, process: false, dest: 'download' };

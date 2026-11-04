@@ -19,7 +19,6 @@ import os
 import shutil
 import sys
 import time
-import uuid
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
@@ -378,7 +377,3 @@ def pick_sandbox(rules: PythonTool) -> tuple[Sandbox | None, str | None]:
             return sandbox, None
         reasons.append(reason)
     return None, "；".join(reasons)
-
-
-def new_job_id() -> str:
-    return uuid.uuid4().hex[:12]

@@ -18,6 +18,8 @@ import re
 from datetime import date, timedelta
 from typing import Any
 
+from roundtable.core.textutil import ellipsize
+
 # 每颗星的类型：core 中心 / domain 星域 / star 普通星 / gap 缺口 / member 成员（可进入人生星图）
 CORE, DOMAIN, STAR, GAP, MEMBER = "core", "domain", "star", "gap", "member"
 TREE, RELATE, PEER = "tree", "relate", "peer"
@@ -131,8 +133,7 @@ def department_of(text: str) -> str:
 
 
 def _clip(s: Any, n: int) -> str:
-    s = re.sub(r"\s+", " ", str(s or "")).strip()
-    return s if len(s) <= n else s[: n - 1] + "…"
+    return ellipsize(s, n)
 
 
 def _plain(s: Any) -> str:

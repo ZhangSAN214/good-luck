@@ -20,6 +20,8 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from roundtable.core.textutil import flat_cut as _text
+
 LEVELS = ("确定", "推断", "假设")
 FIVE = (
     ("who", "给谁用"),
@@ -36,10 +38,6 @@ MAX_STAGES = 5
 MIN_STAGES = 2
 MAX_ACCEPT = 9  # 每段验收最多几条（越做越肥的第一道闸）
 STAGE_NAMES = ("地基", "最小可用", "主要功能", "打磨", "革新")
-
-
-def _text(v: Any, limit: int) -> str:
-    return re.sub(r"\s+", " ", str(v or "")).strip()[:limit]
 
 
 def _wid(v: Any) -> str:

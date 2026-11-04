@@ -40,6 +40,7 @@ from roundtable.core.hometz import home_zone
 from roundtable.core.member.bus import Event, EventBus
 from roundtable.core.member.profile import ProfileStore
 from roundtable.core.storage.repository import iso
+from roundtable.core.textutil import to_float as _num
 
 KEY = "member_heart:"
 TRACKER = "member_heart.tracker"
@@ -51,13 +52,6 @@ KEEP_VICARIOUS = 4
 SAD_HINTS = ("落空", "泄气", "没什么进展", "卡住")
 GOODBYE = {"睡觉": "晚安", "看病": "早点好起来"}
 _QUESTION = re.compile(r"[？?]|(吗|呢|么)[。！!～~]*$")
-
-
-def _num(x: Any, default: float = 3.0) -> float:
-    try:
-        return float(x)
-    except (TypeError, ValueError):
-        return default
 
 
 def _decay(value: float, since: str, at: datetime, half_life_days: float) -> float:

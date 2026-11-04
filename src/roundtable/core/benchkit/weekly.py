@@ -24,15 +24,11 @@ from pathlib import Path
 from typing import Any
 
 from roundtable.core.benchkit.desk import DESK_DIR, Desk
+from roundtable.core.textutil import iso_week as week_of
 
 WEEKLY_DIR = "weekly"
 WEEK_ID = re.compile(r"^\d{4}-W\d{2}$")
 DAYS = "一二三四五六日"
-
-
-def week_of(t: datetime) -> str:
-    y, w, _ = t.isocalendar()
-    return f"{y}-W{w:02d}"
 
 
 def _days_since(day: str, today: date) -> int | None:

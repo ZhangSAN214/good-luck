@@ -4,9 +4,7 @@
 
 import { EMOJI, TOKEN_RE, emojiHTML, emojify, findSticker, panelPacks, recent, remember, setMemberPacks, soloSticker, stickerSVG, token } from './stickers.js';
 import { ApiError } from './api.js';
-
-const esc = (s) =>
-  String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+import { esc } from './util.js';
 
 export const mediaUrl = (id) => `/api/chat/media/${encodeURIComponent(id)}`;
 const MAX_VOICE_S = 60;

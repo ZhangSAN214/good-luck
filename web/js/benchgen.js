@@ -3,8 +3,7 @@
 // 新收进零件库的零件；做好后在下面直接打开成品（沙箱里运行），成品里的对话窗经 postMessage 交给后端回答。
 // 助手的名字来自超级电脑的接口（label），不写死。
 
-const esc = (s) =>
-  String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+import { esc } from './util.js';
 
 const BUSY_MS = 3000;
 const OPEN_MS = 10000;

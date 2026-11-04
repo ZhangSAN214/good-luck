@@ -24,16 +24,10 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from roundtable.core.hometz import home_zone
+from roundtable.core.textutil import to_float as _num
 
 USER = "user"
 SYSTEM = "system"
-
-
-def _num(x: Any) -> float:
-    try:
-        return float(x)
-    except (TypeError, ValueError):
-        return 3.0
 
 
 def _when(row: dict[str, Any]) -> datetime | None:

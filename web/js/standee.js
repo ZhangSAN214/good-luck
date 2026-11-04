@@ -13,9 +13,7 @@
 import { homeParts } from './hometz.js';
 import { RigRenderer, glSupported } from './standee_gl.js';
 import { IDLE_MOTIONS, Motion } from './standee_motion.js';
-
-const esc = (s) =>
-  String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+import { esc } from './util.js';
 
 const KEY = 'roundtable.hub.standee';
 const STRIPS = 96; // 切成多少条：越多越平滑，96 条在 4K 屏上也看不出台阶

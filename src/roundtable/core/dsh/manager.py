@@ -10,7 +10,7 @@ import contextlib
 import shutil
 import time
 from collections.abc import Callable, Mapping, Sequence
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -23,16 +23,13 @@ from roundtable.core.dsh.overlay import write_overlay
 from roundtable.core.dsh.paths import DshPaths
 from roundtable.core.dsh.sidecar import Sidecar
 from roundtable.core.dsh.usage import UsageLedger
+from roundtable.core.textutil import utcnow as _utcnow
 
 EPS = 1e-9
 HOST = "127.0.0.1"
 
 SharedSpend = Callable[[Sequence[str], datetime, datetime], float]
 SidecarFactory = Callable[..., Sidecar]
-
-
-def _utcnow() -> datetime:
-    return datetime.now(UTC)
 
 
 class DshManager:

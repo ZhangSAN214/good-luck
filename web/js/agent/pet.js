@@ -4,15 +4,13 @@
 import { cutout } from '../cutout.js';
 import { ACTIONS, Brain, EXPRESSIONS, LONG_PRESS_MS, canDrag, clamp, home, loadJSON, saveJSON, snap } from './brain.js';
 import { Reporter, hitPart, lookDir } from './reactions.js';
+import { esc } from '../util.js';
 
 const KEY = 'roundtable.pet'; // {x, y, edge, hidden, member}
 const EGG_KEY = 'roundtable.pet.egg'; // 彩蛋的冷却和每日次数：{动作: {lastAt, day, count}}，只存本机
 const PHONE_MAX_W = 600; // 视口不宽于此按手机处理：小人缩小、收在角落
 const TICK_MS = 100;
 const WALK_PX_PER_S = 36;
-
-const esc = (s) =>
-  String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 
 // 选一位有 chibi 的成员：本地记住的优先，否则排序最靠前的
 export function pickMember(data, preferred) {

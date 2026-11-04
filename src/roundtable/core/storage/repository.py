@@ -1322,15 +1322,6 @@ class Repository:
         )
         return self.memory(memory_id)
 
-    def mark_recalled(self, notes: dict[int, str]) -> None:
-        """记下这些记忆这次被想起了、因为什么（不改 updated_at 和 source）。"""
-        now = self.clock()
-        for memory_id, note in notes.items():
-            self._exec(
-                "UPDATE member_memories SET recalled_at = ?, recall_note = ? WHERE id = ?",
-                (now, note, memory_id),
-            )
-
     def delete_memory(self, memory_id: int) -> bool:
         return self._exec("DELETE FROM member_memories WHERE id = ?", (memory_id,)).rowcount > 0
 
@@ -2004,12 +1995,6 @@ class Repository:
     def save_member_state(self, member: str, data: dict[str, Any]) -> None:
         self.set_setting(STATE_KEY + member, json.dumps(data, ensure_ascii=False))
 
-    def member_state_members(self) -> list[str]:
-        rows = self._exec(
-            "SELECT key FROM app_settings WHERE key LIKE ? ORDER BY key", (STATE_KEY + "%",)
-        ).fetchall()
-        return [r["key"][len(STATE_KEY) :] for r in rows]
-
     def clear_member_state(self, member: str | None = None) -> int:
         if member is None:
             return self._exec(
@@ -2044,12 +2029,6 @@ class Repository:
     def save_growth_data(self, member: str, data: dict[str, Any]) -> None:
         self.set_setting(GROWTH_KEY + member, json.dumps(data, ensure_ascii=False))
 
-    def growth_members(self) -> list[str]:
-        rows = self._exec(
-            "SELECT key FROM app_settings WHERE key LIKE ? ORDER BY key", (GROWTH_KEY + "%",)
-        ).fetchall()
-        return [r["key"][len(GROWTH_KEY) :] for r in rows]
-
     def clear_growth_data(self, member: str | None = None) -> int:
         if member is None:
             return self._exec(
@@ -2065,12 +2044,6 @@ class Repository:
 
     def save_relation_data(self, member: str, data: dict[str, Any]) -> None:
         self.set_setting(RELATION_KEY + member, json.dumps(data, ensure_ascii=False))
-
-    def relation_members(self) -> list[str]:
-        rows = self._exec(
-            "SELECT key FROM app_settings WHERE key LIKE ? ORDER BY key", (RELATION_KEY + "%",)
-        ).fetchall()
-        return [r["key"][len(RELATION_KEY) :] for r in rows]
 
     def relation_tracker(self) -> dict[str, Any]:
         value = self.setting(RELATION_TRACKER)
@@ -2264,11 +2237,6 @@ class Repository:
             row["likes"] = likes.get(row["id"], [])
             row["comments"] = comments.get(row["id"], [])
         return rows
-
-    def moments_by(self, author: str, since: str) -> int:
-        return self._exec(
-            "SELECT COUNT(*) FROM moments WHERE author = ? AND created_at >= ?", (author, since)
-        ).fetchone()[0]
 
     def latest_moment_id(self) -> int:
         return self._exec("SELECT COALESCE(MAX(id), 0) FROM moments").fetchone()[0]

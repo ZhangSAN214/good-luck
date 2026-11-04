@@ -8,6 +8,7 @@ from typing import Any
 
 from roundtable.core.prompts import PromptTemplate
 from roundtable.core.providers import Media, Message
+from roundtable.core.textutil import neutralize
 
 # 附件内容中出现这些结束标签时打断，防止提前闭合外层标签（提示注入）
 _TAGS = ("attachment", "question", "answer", "review", "work", "subtask")
@@ -84,9 +85,7 @@ def style_reference_media(files: Sequence[Attachment], max_refs: int, max_mb: fl
 
 
 def _neutralize(text: str) -> str:
-    for tag in _TAGS:
-        text = text.replace(f"</{tag}", f"<​/{tag}")
-    return text
+    return neutralize(text, _TAGS)
 
 
 def attachment_block(files: Sequence[Attachment], *, vision: bool) -> tuple[str, tuple[Media, ...]]:

@@ -7,9 +7,7 @@
 // 只管显示时间和计时；日期、节假日归日历。
 
 import { homeZone, loadHomeZone, setHomeZone } from './hometz.js';
-
-const esc = (s) =>
-  String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+import { esc } from './util.js';
 
 const KEY = 'roundtable.clock';
 const TIMERS_KEY = 'roundtable.clock.timers'; // 秒表与倒计时：存开始 / 结束的时间点，刷新、切页面都接着走

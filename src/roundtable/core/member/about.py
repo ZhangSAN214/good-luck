@@ -30,6 +30,7 @@ from roundtable.core.hometz import home_zone
 from roundtable.core.member.memory.store import similarity
 from roundtable.core.member.mode import Mode, require_life
 from roundtable.core.recall import _NOISE, grams
+from roundtable.core.textutil import ellipsize
 
 PROFILE = "profile"
 SWITCHES = "switches"
@@ -69,8 +70,7 @@ def norm(text: str) -> str:
 
 
 def one_line(text: str, limit: int) -> str:
-    text = " ".join(str(text or "").split())
-    return text if len(text) <= limit else text[: limit - 1].rstrip() + "…"
+    return ellipsize(text, limit, rstrip=True)
 
 
 def relevance(fact: str, query: str) -> float:

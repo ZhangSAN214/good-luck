@@ -26,6 +26,7 @@ from typing import Any
 
 from roundtable.core.chat_actions import STICKER_RE, DefaultPolicy
 from roundtable.core.plain_talk import Hit
+from roundtable.core.textutil import neutralize
 
 LIFE_ROOMS = frozenset({"group", "dm"})  # 带说话习惯、按档位定节奏的聊天会话
 # 说出口前自查的场合：生活群、私聊，加上成员之间的生活互聊、上网分享、朋友圈动态和评论
@@ -505,6 +506,4 @@ async def before_voice(
 
 
 def _neutral(text: str) -> str:
-    for tag in ("draft", "problems", "voice"):
-        text = text.replace(f"</{tag}", f"<​/{tag}")
-    return text
+    return neutralize(text, ("draft", "problems", "voice"))

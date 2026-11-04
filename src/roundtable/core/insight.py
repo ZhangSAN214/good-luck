@@ -41,6 +41,7 @@ from roundtable.core.member.profile import ProfileStore
 from roundtable.core.member.relation import RelationPlugin
 from roundtable.core.persona import card_text
 from roundtable.core.storage.repository import iso
+from roundtable.core.textutil import ellipsize
 
 ROOM = "relation"
 STEP = "relation"
@@ -326,8 +327,7 @@ class InsightKeeper:
 
 
 def _clip(text: str, n: int) -> str:
-    text = " ".join(str(text or "").split())
-    return text if len(text) <= n else text[: n - 1] + "…"
+    return ellipsize(text, n)
 
 
 def _ids(values: Any, prefix: str) -> list[int]:
