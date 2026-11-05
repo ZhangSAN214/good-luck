@@ -144,7 +144,7 @@ async def test_daily_limit_stops_calls_but_keeps_events():
 
 
 def test_daytime_life_leaves_room_for_the_night_memory():
-    env = life_env(daily_usd=0.10, memory_reserve_usd=0.02)
+    env = life_env(daily_usd=0.10, memory_reserve_usd=0.02, moments_reserve_usd=0.0)
     life = engine(env)
     assert life.allowed(0.08) and not life.allowed(0.09)  # 白天只能花到 $0.08
     assert life.memory.allow(0.09) and not life.memory.allow(0.11)  # 记忆整理能用满上限
@@ -163,6 +163,25 @@ def test_memory_already_done_today_frees_its_reserve_for_daytime():
     assert life.allowed(0.002) and life.allowed(0.04) and not life.allowed(0.041)
     spent["memory"] = 0.06  # 整理花得比留的多：不再留，但不超上限
     assert life.allowed(0.051) and not life.allowed(0.052)
+
+
+def test_moments_keep_their_own_share_of_the_day():
+    """11-05 用户定：$0.15 里给朋友圈留 $0.02，记忆和成长都不能用这笔，朋友圈可以用满上限。"""
+    env = life_env(daily_usd=0.15, memory_reserve_usd=0.05, moments_reserve_usd=0.02)
+    life = engine(env)
+    assert life.allowed(0.08) and not life.allowed(0.081)  # 白天：0.15 − 0.05 − 0.02
+    assert life.memory.allow(0.13) and not life.memory.allow(0.131)  # 记忆整理：不碰朋友圈那笔
+    assert life.weekly_allowed(0.13) and not life.weekly_allowed(0.131)
+    assert life.moments.allow(0.10) and not life.moments.allow(0.101)  # 朋友圈：不碰记忆那笔
+
+
+def test_moments_still_post_after_the_near_cap_halt_but_not_after_errors():
+    env = life_env(daily_usd=0.15, memory_reserve_usd=0.0, moments_reserve_usd=0.02)
+    life = engine(env)
+    life.guard.halt("生活今天已花 $0.149，接近每日上限 $0.15")
+    assert not life.allowed(0.001) and life.moments.allow(0.005)
+    life.guard.halt("连续 3 次调用出错")
+    assert not life.moments.allow(0.005)
 
 
 def test_weekly_reflection_can_use_the_reserve_but_not_beyond_the_cap():
@@ -328,7 +347,7 @@ async def test_live_scene_lines_get_distinct_times_before_now():
 
 
 def test_life_cap_follows_month_pacing():
-    env = life_env(daily_usd=0.15, memory_reserve_usd=0.0)
+    env = life_env(daily_usd=0.15, memory_reserve_usd=0.0, moments_reserve_usd=0.0)
     env.rt.budget.now = lambda: datetime(2026, 10, 30, 12, tzinfo=UTC)  # 含今天还剩 2 天
     env.rt.repo.spent_in_workflow = lambda wf, start, end: 4.9  # 聊天月预算 $5 还剩 $0.10
     life = engine(env)

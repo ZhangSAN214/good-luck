@@ -111,7 +111,8 @@ class LifeEngine:
         memory.allow = lambda estimate_usd: self.allowed(estimate_usd, reserve=False)
         self.browse = Browser(rt, hub, self.allowed)
         self.memes = MemeRadar(rt, self.allowed)
-        self.moments = Moments(rt, hub, self.allowed)
+        # 朋友圈能用到为它留的那笔（11-05：记忆和成长先花完，朋友圈 4 天没更新）
+        self.moments = Moments(rt, hub, lambda usd: self.allowed(usd, moments=True))
         # P7 生活引擎（L0 / L10）：事件库 + 长线剧情 + 按爱好挑去处 + 擅长觉醒（程序挑，不花钱）
         self.story = StoryEngine(rt)
         # L5：旅行打卡（判定卡 → 旅行日记）、B 站看过视频后的私信 / 动态（只存本机列表）
@@ -135,23 +136,31 @@ class LifeEngine:
         却还照样从白天的额度里再留一整笔，10 点就把朋友圈、群聊、私聊全停了一整天。"""
         return max(self.rules.memory_reserve_usd - self.spent_today(("memory",)), 0.0)
 
-    def allowed(self, estimate_usd: float, *, reserve: bool = True) -> bool:
+    def held_for_moments(self) -> float:
+        """还要给朋友圈留多少：留的那笔减去朋友圈今天已经花掉的。"""
+        return max(self.rules.moments_reserve_usd - self.spent_today((MOMENT_STEP,)), 0.0)
+
+    def allowed(self, estimate_usd: float, *, reserve: bool = True, moments: bool = False) -> bool:
         """reserve：给记忆整理留出 ``memory_reserve_usd``（记忆整理自己调用时为 False）。
         记忆整理不受「接近上限」的熔断（10-31 第 3 次试跑：整理了 3 位就熔断，
         5 位一天什么都没记住），
-        但照样不超每日上限、不超总预算，连续出错停掉时也不跑。"""
+        但照样不超每日上限、不超总预算，连续出错停掉时也不跑。
+        moments：朋友圈自己调用。别人都给朋友圈留出 ``moments_reserve_usd``，朋友圈能用这笔、
+        也不受「接近上限」的熔断（11-05 用户定）。"""
         halted = self.guard.halted()
-        if halted and (reserve or halted.startswith(ERRORS)):
+        if halted and ((reserve and not moments) or halted.startswith(ERRORS)):
             return False
-        if not reserve and not self.rt.budget.check(estimate_usd).allowed:
+        if (not reserve or moments) and not self.rt.budget.check(estimate_usd).allowed:
             return False
         cap = self.rules.daily_usd
         paced = chat_paced_daily(self.rt)  # 按剩余天数平摊（chat.budget.pace）
         if paced is not None:
             cap = min(cap, paced)
         if reserve:
-            cap = max(cap - self.held_for_memory(), 0.0)
-        return self.spent_today() + estimate_usd <= cap + 1e-9
+            cap -= self.held_for_memory()
+        if not moments:
+            cap -= self.held_for_moments()
+        return self.spent_today() + estimate_usd <= max(cap, 0.0) + 1e-9
 
     def weekly_allowed(self, estimate_usd: float) -> bool:
         """每周一次的反思（P6 成长、P4 见解）：和记忆整理一样能用到留的那笔、不受「接近上限」熔断，
