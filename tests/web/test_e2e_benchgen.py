@@ -813,3 +813,64 @@ def test_benchgen_edits_versions_and_redo_affected(serve, page, monkeypatch, tmp
     box.locator(".bg-hist li", has_text="退回第").wait_for(timeout=10000)
     assert box.locator('[data-ew="purpose"]').input_value() != "按人头算预算"
     assert drawer.locator("[data-stale]").count() == 1  # 退回也是一次改动，这个窗口又要重做
+
+
+def test_benchgen_found_assets_swap_and_drop(serve, page, monkeypatch, tmp_path):
+    """生成器第二版 · 第 3 块：底部「素材」列出资源检索员找来的文件和署名；换一个、不要。"""
+    from roundtable.core.benchkit.finder import AssetFinder
+    from roundtable.core.config.schema import BenchFinder
+
+    from ..core.benchkit.test_finder import Net, commons_page, plan_with_wants
+
+    pages = {str(i): commons_page(i, ext="png") for i in range(1, 5)}
+    net = Net(
+        {"https://commons.wikimedia.org": {"query": {"pages": pages}}},
+        files={f"https://upload.wikimedia.org/k{i}.png": PNG for i in range(1, 5)},
+    )
+
+    def factory(rules, *, root, **kw):
+        return BenchBuilder(
+            rules.model_copy(
+                update={"project": BenchProject(enabled=False), "team": BenchTeam(enabled=False)}
+            ),
+            root=tmp_path / "bench",
+            supercomputer=SlowSC(plan=plan_with_wants()),
+            render=fake_render,
+            check=check,
+            seed=3,
+            finder=AssetFinder(
+                fetch_json=net.fetch_json,
+                fetch_bytes=net.fetch_bytes,
+                check_url=net.check_url,
+                rules=BenchFinder(sources={"photo": ["commons"]}),
+                net=list(rules.net),
+            ),
+        )
+
+    monkeypatch.setattr(service_mod, "BenchBuilder", factory)
+    srv = serve(confirm_threshold_usd=100.0)
+    page.goto(srv.url)
+    page.locator('#entries [data-m="bench"]').click()
+    pane = page.locator('#bench [data-pane="gen"]')
+    pane.locator("[data-text]").fill("帮我做一个东京三天旅行的工作台")
+    pane.locator("[data-submit]").click()
+    pane.locator(".bg-status.bg-done").wait_for(timeout=15000)
+
+    pane.locator('[data-drawer="found"]').click()
+    found = pane.locator(".bg-found")
+    assert "下了 2 个文件" in found.text_content()
+    need = found.locator(".bg-fneed").first
+    assert "要的照片「京都街景」：找到 2 个" in need.text_content()
+    assert "CC BY-SA 4.0" in need.text_content() and "摄影师 1" in need.text_content()
+    img = need.locator(".bg-fitem img").first
+    page.wait_for_function(
+        "(img) => img.complete && img.naturalWidth > 0", arg=img.element_handle()
+    )
+    assert "汇率" in found.locator(".bg-fneed").nth(1).text_content()
+    if shots := os.environ.get("ROUNDTABLE_SHOTS"):
+        page.set_viewport_size({"width": 1440, "height": 900})
+        page.screenshot(path=str(Path(shots) / "benchgen_found.png"))
+    need.locator('[data-found-swap="f1-1"]').click()
+    need.locator(".bg-fitem", has_text="Kyoto street 3").wait_for(timeout=10000)
+    need.locator('[data-found-drop="f1-2"]').click()
+    need.locator("p", has_text="只留了 1 个").wait_for(timeout=10000)

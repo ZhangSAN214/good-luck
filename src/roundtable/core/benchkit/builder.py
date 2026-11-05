@@ -44,6 +44,12 @@ from roundtable.core.benchkit.edits import (
     research_text,
     versions_of,
 )
+from roundtable.core.benchkit.finder import (
+    FILE_KINDS,
+    AssetFinder,
+    credits_md,
+    found_lines,
+)
 from roundtable.core.benchkit.intent import (
     FIVE_KEYS,
     FORM,
@@ -349,6 +355,7 @@ class BenchBuilder:
         check: Check = run_check,
         scout: Scout | None = None,
         researcher: Researcher | None = None,
+        finder: AssetFinder | None = None,
         whitelist: Callable[[], dict[str, str]] | None = None,
         probe: Callable[..., list[dict[str, Any]]] | None = run_probes,
         now: Callable[[], datetime] = lambda: datetime.now(UTC),
@@ -384,6 +391,7 @@ class BenchBuilder:
         self.check = check
         self.scout = scout
         self.researcher = researcher
+        self.finder = finder  # 资源检索员（第 3 块）：按清单上网找素材和数据（测试换成假的）
         # dsh 插件白名单 {仓库 owner/name: 白名单 id}：调研列出的插件标出「已审过，可以装」
         self.whitelist = whitelist
         self.probe = probe  # 可执行的验收（测试换成假的）
@@ -501,6 +509,7 @@ class BenchBuilder:
             "plan": None,
             "windows": [],
             "sources": [],
+            "found": [],
             "research": None,
             "meeting": None,
             "team": {"cards": []},
@@ -1392,6 +1401,9 @@ class BenchBuilder:
         if spec.needs and self.scout is not None and self.rules.scout:
             b["status"] = "scouting"
             await self._scout(b, spec)
+        if self._wants(spec) and self.finder is not None and self.rules.finder.enabled:
+            b["status"] = "finding"
+            await self._find(b, spec)
         if self.rules.team.enabled:
             b["status"] = "meeting"
             await self._meeting(b, spec, rng)
@@ -2716,6 +2728,175 @@ class BenchBuilder:
         ]
         return spec
 
+    # --- 资源检索员（第 3 块）-----------------------------------------------------------------
+
+    @staticmethod
+    def _wants(spec: Spec) -> list[tuple[str, dict[str, Any]]]:
+        return [(w.id, x) for w in spec.windows for x in w.wants]
+
+    async def _find(self, b: dict[str, Any], spec: Spec) -> None:
+        """按每个窗口的 wants 去找素材和数据：文件放进 assets/found/<窗口>/，署名写进
+        CREDITS.md；数据只用 bench.net 里的公开接口，当场试通不通；找不够的如实记下。"""
+        assert self.finder is not None
+        folder = self.folder(b["id"])
+        wants = self._wants(spec)
+        thread = self._thread_start(b, "找资源", f"按清单找素材和数据（{len(wants)} 项）", "")
+        thread |= {"status": "running", "label": "资源检索员"}
+        await self._wait_unpaused(b, thread)
+        thread["status"] = "running"
+        self._save()
+        budget = self.rules.finder.max_total
+        found: list[dict[str, Any]] = []
+        status = self._net_status()
+        for i, (wid, want) in enumerate(wants, 1):
+            try:
+                if want["kind"] == "data":
+                    res = await self.finder.find_data(want, status)
+                elif want["kind"] == "doc":
+                    res = await self.finder.find_docs(want)
+                elif budget <= 0:
+                    res = self.finder.result(want, 0, [], [], ["这个台下的文件够多了"])
+                    res["status"], res["note"] = "skipped", "这个台已经下了够多文件，这项没再找"
+                else:
+                    res = await self.finder.find_files(want, folder, f"assets/found/{wid}", budget)
+                    budget -= res["got"]
+            except Exception as exc:  # noqa: BLE001 - 一项找不了不影响别的
+                want_n = int(want.get("count") or 1)
+                res = self.finder.result(want, want_n, [], [], [str(exc)[:80]])
+            res |= {"id": f"f{i}", "window": wid}
+            for n, it in enumerate(res["items"], 1):
+                it["id"] = f"f{i}-{n}"
+            found.append(res)
+        b["found"] = found
+        self._write_found(b)
+        files = sum(x["got"] for x in found if x["kind"] in FILE_KINDS)
+        short = [x for x in found if x["status"] in ("short", "none")]
+        summary = f"下了 {files} 个文件；" + (
+            f"{len(short)} 项没找够（" + "、".join(x["what"] for x in short[:4]) + "）"
+            if short
+            else "每项都找够了"
+        )
+        thread |= {"status": "done", "finished_at": _iso(self.now()), "summary": summary}
+        thread["attempts"] = 0
+        self._log(b, f"资源检索员：{summary}")
+        self._mark(b, "立项", "找素材和数据", summary)
+
+    def _net_status(self) -> Callable[[str], Any]:
+        """试数据接口通不通：有资源检索员时用它的 check_url，换成状态码。"""
+        assert self.finder is not None
+        check = self.finder.check_url
+
+        async def status(url: str) -> int:
+            return 200 if await check(url) else 503
+
+        return status
+
+    def _write_found(self, b: dict[str, Any]) -> None:
+        folder = self.folder(b["id"])
+        out = folder / "assets" / "found"
+        out.mkdir(parents=True, exist_ok=True)
+        (out / "CREDITS.md").write_text(credits_md(b.get("found") or []), encoding="utf-8")
+        (folder / "found.json").write_text(
+            json.dumps(b.get("found") or [], ensure_ascii=False, indent=1), encoding="utf-8"
+        )
+
+    def _found_item(self, b: dict[str, Any], item: str) -> tuple[dict[str, Any], dict[str, Any]]:
+        for need in b.get("found") or []:
+            for it in need["items"]:
+                if it.get("id") == item:
+                    return need, it
+        raise LookupError("没有这个素材")
+
+    def swap_found(self, bid: str, item: str) -> dict[str, Any]:
+        """「换一个」：从备选里拿下一个同类型的文件，放在同一个位置（窗口代码不用改），
+        署名跟着换；只把用到它的窗口标成要重新评审。"""
+        b = self._editable(bid)
+        if self.busy:
+            raise RuntimeError("生成器正在干活，等这一步停下再换素材")
+        need, it = self._found_item(b, item)
+        return self._start_swap(b, need, it)
+
+    def _start_swap(self, b: dict[str, Any], need: dict[str, Any], it: dict[str, Any]) -> dict:
+        assert self.finder is not None
+        finder = self.finder
+        spare = [c for c in need.get("spare") or [] if c["ext"] == it["ext"]]
+        if not spare:
+            raise ValueError("没有别的同类备选了，可以点「不要」，或者「重新找」")
+
+        async def work() -> None:
+            folder = self.folder(b["id"])
+            for c in spare:
+                need["spare"] = [x for x in need["spare"] if x is not c]
+                try:
+                    new = await finder.download(c, folder, it["file"])
+                except Exception as exc:  # noqa: BLE001 - 这个下不了就换下一个
+                    self._log(b, f"换素材：「{c['title'][:30]}」没下成（{str(exc)[:60]}）")
+                    continue
+                old = it["title"]
+                it.update(new | {"id": it["id"]})
+                self._review_stale_for(b, need["window"])
+                self._write_found(b)
+                self._log(b, f"你把「{old[:30]}」换成了「{it['title'][:30]}」")
+                break
+            else:
+                self._log(b, "换素材：备选都下不了，素材没换")
+            self._save(b)
+
+        self._start_job(b, work)
+        return b
+
+    def drop_found(self, bid: str, item: str) -> dict[str, Any]:
+        """「不要」：删掉文件和署名；代码里用到这个文件的窗口标成要重做。"""
+        b = self._editable(bid)
+        need, it = self._found_item(b, item)
+        path = self.folder(bid) / it["file"]
+        name = Path(it["file"]).name
+        path.unlink(missing_ok=True)
+        need["items"] = [x for x in need["items"] if x is not it]
+        need["got"] = len(need["items"])
+        if need["got"] < need["want"]:
+            need["status"] = "short" if need["got"] else "none"
+            need["note"] = (
+                f"只留了 {need['got']} 个（要 {need['want']} 个）：你去掉了「{it['title'][:30]}」"
+            )
+        hit = [
+            w["id"] for w in b.get("windows") or [] if name in self._window_code(bid, w["id"])
+        ] or [need["window"]]
+        mark_stale(b, hit, f"不要素材「{it['title'][:30]}」（{name}）了", _iso(self.now()))
+        self._write_found(b)
+        self._log(b, f"你去掉了素材「{it['title'][:30]}」")
+        self._save(b)
+        return b
+
+    def refind(self, bid: str) -> dict[str, Any]:
+        """「重新找」：按现在的规格把清单再找一遍（已下的文件会被覆盖）。"""
+        b = self._editable(bid)
+        if self.busy:
+            raise RuntimeError("生成器正在干活，等这一步停下再重新找")
+        if self.finder is None or not self.rules.finder.enabled:
+            raise ValueError("资源检索员没开（bench.finder.enabled）")
+        spec = load_spec(self.folder(bid))
+        if not self._wants(spec):
+            raise ValueError("规格里没有列要找的素材和数据")
+        before = b.get("status")
+
+        async def work() -> None:
+            await self._find(b, spec)
+            b["status"] = before
+            self._save(b)
+
+        self._start_job(b, work)
+        return b
+
+    def _window_code(self, bid: str, wid: str) -> str:
+        p = self.folder(bid) / "windows" / f"{wid}.js"
+        return p.read_text(encoding="utf-8") if p.is_file() else ""
+
+    def _review_stale_for(self, b: dict[str, Any], wid: str) -> None:
+        rs = b.setdefault("review_stale", [])
+        if wid not in rs:
+            rs.append(wid)
+
     async def _scout(self, b: dict[str, Any], spec: Spec) -> None:
         """按 needs 找插件：达标的每项需求搬一个（总数不超过 max_adopt），其余只借思路；
         都记进清单。"""
@@ -2984,6 +3165,13 @@ class BenchBuilder:
                 )
         if notes := research_text(b):
             lines.append(notes)
+        if b.get("found"):
+            titles = {w["id"]: w.get("title", w["id"]) for w in b.get("windows") or []}
+            lines.append(
+                "- 资源检索员找来的素材和数据（文件已在成品文件夹里，"
+                "署名在 assets/found/CREDITS.md，界面上用到的图片要在角落标出处）："
+            )
+            lines += found_lines(b["found"], titles)
         r = b.get("research") or {}
         for c in r.get("cards") or []:
             where = (

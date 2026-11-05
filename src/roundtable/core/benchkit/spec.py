@@ -52,6 +52,9 @@ class Window:
     actions: list[str] = field(default_factory=list)
     # 在版型里的位置（D 布局模板）：「侧栏列表（电脑上在主视觉右边）」这类大白话，写窗口时照着排
     zone: str = ""
+    # 资源检索员按这份清单去找（第 3 块）：kind、what、query（英文搜索词）、count；
+    # 数据写 service（bench.net 里的名字）或 why；资料写 urls
+    wants: list[dict[str, Any]] = field(default_factory=list)
 
     @property
     def file(self) -> str:
@@ -106,6 +109,37 @@ class Spec:
 
 class SpecError(ValueError):
     pass
+
+
+ASSET_KINDS = ("photo", "illustration", "texture", "model", "icon", "font", "data", "doc")
+WANTS_PER_WINDOW = 4
+
+
+def wants_of(raw: Any) -> list[dict[str, Any]]:
+    """拆需求给每个窗口列的素材和数据清单：认得的种类才留，每个窗口最多 4 项。"""
+    out: list[dict[str, Any]] = []
+    for a in raw if isinstance(raw, list) else []:
+        if not isinstance(a, dict) or a.get("kind") not in ASSET_KINDS:
+            continue
+        item: dict[str, Any] = {"kind": a["kind"], "what": _text(a.get("what"), 60)}
+        if a["kind"] == "data":
+            item["service"] = re.sub(r"[^a-z0-9_-]", "", str(a.get("service") or "").lower())[:30]
+            item["why"] = _text(a.get("why"), 80)
+        elif a["kind"] == "doc":
+            item["urls"] = [str(u).strip()[:300] for u in (a.get("urls") or [])][:3]
+        else:
+            item["query"] = re.sub(r"[^\w\s-]", " ", _text(a.get("query"), 60)).strip()
+            try:
+                item["count"] = max(1, min(4, int(a.get("count") or 1)))
+            except (TypeError, ValueError):
+                item["count"] = 1
+            if not item["query"]:
+                continue
+        if item["what"] or item.get("urls") or item.get("service"):
+            out.append(item)
+        if len(out) >= WANTS_PER_WINDOW:
+            break
+    return out
 
 
 PROBE_DO = ("fill", "select", "click")
@@ -885,6 +919,7 @@ def normalize(
                 parts=[p for p in (w.get("parts") or []) if p in part_names][:8],
                 data=_text(w.get("data"), 600),
                 actions=[_text(a, 40) for a in (w.get("actions") or []) if _text(a, 40)][:10],
+                wants=wants_of(w.get("wants")),
             )
         )
     if not windows:

@@ -19,6 +19,7 @@ from roundtable.api.bodies import (
     BenchConflictBody,
     BenchDecideBody,
     BenchEditBody,
+    BenchFoundBody,
     BenchInstructBody,
     BenchPluginBody,
     BenchProfileBody,
@@ -240,6 +241,21 @@ async def bench_conflict(
     request: Request, bench_id: str, body: BenchConflictBody
 ) -> dict[str, Any]:
     return await svc(request).bench_project(bench_id, "conflict", choice=body.choice)
+
+
+@router.post("/api/bench/{bench_id}/found/swap")
+async def bench_found_swap(request: Request, bench_id: str, body: BenchFoundBody) -> dict[str, Any]:
+    return await svc(request).bench_project(bench_id, "found_swap", item=body.item)
+
+
+@router.post("/api/bench/{bench_id}/found/drop")
+async def bench_found_drop(request: Request, bench_id: str, body: BenchFoundBody) -> dict[str, Any]:
+    return await svc(request).bench_project(bench_id, "found_drop", item=body.item)
+
+
+@router.post("/api/bench/{bench_id}/refind")
+async def bench_refind(request: Request, bench_id: str) -> dict[str, Any]:
+    return await svc(request).bench_project(bench_id, "refind")
 
 
 @router.post("/api/bench/{bench_id}/evolve")

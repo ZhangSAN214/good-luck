@@ -415,3 +415,13 @@
 .bg-err{color:var(--warn);margin:0}
 .bg-epick .chip,.bg-ewins .chip{font-size:12px;padding:2px 10px;border-radius:999px;border:1px solid currentColor;background:none;color:inherit;cursor:pointer;min-height:28px}
 .bg-epick .chip[aria-pressed="true"],.bg-ewins .chip[aria-pressed="true"]{background:var(--accent, #2f5bea);border-color:var(--accent, #2f5bea);color:#fff}
+/* 生成器第二版 · 第 3 块：资源检索员找来的素材 */
+.bg-fneed{margin:6px 0}
+.bg-fneed > p{margin:0 0 4px}
+.bg-f-short > p,.bg-f-none > p{color:var(--warn)}
+.bg-fitems{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:8px}
+.bg-fitem{display:flex;gap:8px;align-items:flex-start;border:1px solid var(--hb-edge);border-radius:8px;padding:6px;min-width:0}
+.bg-fitem img{width:64px;height:64px;object-fit:cover;border-radius:6px;flex:none;background:#fff}
+.bg-fitem > div{min-width:0;display:grid;gap:2px;overflow-wrap:anywhere}
+.bg-fext{width:64px;height:64px;display:grid;place-items:center;border:1px dashed var(--hb-edge);border-radius:6px;flex:none;font-size:12px;text-transform:uppercase}
+.bg-fbtn{display:flex;gap:10px}

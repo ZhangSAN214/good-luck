@@ -364,6 +364,9 @@ export const benchEditView = (id, key, n = null) =>
 export const benchEdit = (id, key, value, why = '') => benchPost(id, 'edit', { key, value, why });
 export const benchRevert = (id, key, n) => benchPost(id, 'revert', { key, n });
 export const benchInstruct = (id, window, text, worker = null) => benchPost(id, 'instruct', { window, text, worker });
+export const benchFoundSwap = (id, item) => benchPost(id, 'found/swap', { item });
+export const benchFoundDrop = (id, item) => benchPost(id, 'found/drop', { item });
+export const benchRefind = (id) => benchPost(id, 'refind', {});
 export const benchRedoStale = (id) => benchPost(id, 'redo-stale', {});
 export const benchConflict = (id, choice) => benchPost(id, 'conflict', { choice });
 export const benchRerun = (id, thread, reason, worker = null) => benchPost(id, 'rerun', { thread, reason, worker });
