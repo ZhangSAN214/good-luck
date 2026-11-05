@@ -129,16 +129,29 @@ async def test_stream_http_error_is_classified_before_parsing():
     assert err.value.status == 429 and err.value.retry_after == 7.0
 
 
-@pytest.mark.xfail(
-    reason="疑似 bug：流式错误块只有文字 code（如 insufficient_quota）时按 500 归类成 SERVER，"
-    "路由会当成暂时故障重试，而不是当额度用完停用这个渠道",
-    strict=True,
-)
-async def test_stream_quota_error_chunk_is_quota():
-    text = sse({"error": {"code": "insufficient_quota", "message": "no credits"}})
+@pytest.mark.parametrize("code", ["insufficient_quota", "billing_error", "insufficient_balance"])
+async def test_stream_quota_error_chunk_is_quota(code):
+    # 回归：错误块的 code 是文字时曾一律当 500（对方出错），路由会冷却后重试而不是停用渠道
+    text = sse({"error": {"code": code, "message": "no credits"}})
     with pytest.raises(ProviderError) as err:
         await stream_provider(text).complete("m", MESSAGES, {"stream": True})
     assert err.value.kind == ErrorKind.QUOTA
+
+
+@pytest.mark.parametrize(
+    ("chunk", "kind"),
+    [
+        ({"error": {"type": "insufficient_quota", "message": "x"}}, ErrorKind.QUOTA),
+        ({"error": {"code": "402", "message": "x"}}, ErrorKind.QUOTA),
+        ({"error": {"code": "401", "message": "x"}}, ErrorKind.AUTH),
+        ({"error": {"code": "rate_limit_exceeded", "message": "x"}}, ErrorKind.SERVER),
+    ],
+)
+async def test_music_stream_error_chunk_is_classified_like_completion(chunk, kind):
+    provider = make(lambda r: httpx.Response(200, text=sse(chunk)))
+    with pytest.raises(ProviderError) as err:
+        await provider.generate_music("song", "一首歌", {})
+    assert err.value.kind == kind
 
 
 # --- 非流式的小边界 ----------------------------------------------------------------

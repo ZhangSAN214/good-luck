@@ -13,7 +13,13 @@ import httpx
 
 from roundtable.core.config.schema import ChannelSpec
 
-from ._http import error_fields, kind_for_status, retry_after, safe_detail
+from ._http import (
+    error_fields,
+    kind_for_status,
+    kind_for_stream_error,
+    retry_after,
+    safe_detail,
+)
 from .base import (
     AccountBalance,
     ImageOutput,
@@ -169,8 +175,7 @@ class OpenAICompatProvider(Provider):
                 continue
             if chunk.get("error"):
                 code, message = error_fields(chunk)
-                status = int(code) if code and code.isdigit() else 500
-                raise self._error(kind_for_status(status, code), message or "生成失败")
+                raise self._error(kind_for_stream_error(code), message or "生成失败")
             for choice in chunk.get("choices") or ():
                 delta = (choice or {}).get("delta") or {}
                 if isinstance(delta.get("content"), str):
@@ -379,8 +384,7 @@ class OpenAICompatProvider(Provider):
                 continue
             if chunk.get("error"):
                 code, message = error_fields(chunk)
-                status = int(code) if code and code.isdigit() else 500
-                raise self._error(kind_for_status(status, code), message or "生成失败")
+                raise self._error(kind_for_stream_error(code), message or "生成失败")
             for choice in chunk.get("choices") or ():
                 delta = (choice or {}).get("delta") or {}
                 piece = (delta.get("audio") or {}).get("data")

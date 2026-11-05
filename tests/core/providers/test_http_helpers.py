@@ -2,7 +2,12 @@ from __future__ import annotations
 
 import pytest
 
-from roundtable.core.providers._http import error_fields, kind_for_status, retry_after
+from roundtable.core.providers._http import (
+    error_fields,
+    kind_for_status,
+    kind_for_stream_error,
+    retry_after,
+)
 from roundtable.core.providers.errors import ErrorKind, ProviderError
 
 
@@ -25,6 +30,26 @@ from roundtable.core.providers.errors import ErrorKind, ProviderError
 )
 def test_kind_for_status(status, code, kind):
     assert kind_for_status(status, code) == kind
+
+
+@pytest.mark.parametrize(
+    "code, kind",
+    [
+        ("429", ErrorKind.RATE_LIMIT),
+        ("402", ErrorKind.QUOTA),
+        ("401", ErrorKind.AUTH),
+        ("503", ErrorKind.SERVER),
+        ("insufficient_quota", ErrorKind.QUOTA),
+        ("billing_error", ErrorKind.QUOTA),
+        ("insufficient_balance", ErrorKind.QUOTA),
+        ("overloaded_error", ErrorKind.SERVER),
+        ("", ErrorKind.SERVER),
+        (None, ErrorKind.SERVER),
+    ],
+)
+def test_kind_for_stream_error(code, kind):
+    """流式中途的错误块：数字按 HTTP 状态，额度类文字归额度用完，其余当对方出错。"""
+    assert kind_for_stream_error(code) == kind
 
 
 @pytest.mark.parametrize(
