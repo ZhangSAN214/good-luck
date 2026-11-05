@@ -27,7 +27,7 @@
   const post = (m) => { if (inFrame) try { parent.postMessage(m, '*'); } catch (_) {} };
   const sfx = (name, arg) => post({ type: 'boot:sfx', name, arg });
   const cv = document.getElementById('c');
-  const g = cv.getContext('2d');
+  let g = cv.getContext('2d');
   let W = 0, H = 0, DPR = 1;
   function fit() {
     DPR = Math.min(window.devicePixelRatio || 1, 2);
@@ -43,6 +43,8 @@
   const seg = (t, a, b) => clamp((t - a) / (b - a));
   function rng(seed) { let s = seed >>> 0; return () => ((s = (Math.imul(s ^ (s >>> 15), 1 | s) + 0x6d2b79f5) | 0), ((s ^ (s >>> 7)) >>> 0) / 4294967296); }
   const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  // 离屏图层：只在窗口大小变化时重建，平时每帧清空重画（每帧重新分配会掉帧）
+  const layer = (c) => { if (c.width !== W || c.height !== H) { c.width = W; c.height = H; } const x = c.getContext('2d'); x.setTransform(1, 0, 0, 1, 0, 0); x.globalAlpha = 1; x.globalCompositeOperation = 'source-over'; x.filter = 'none'; x.clearRect(0, 0, W, H); return x; };
   const LINE = '#8fdcff'; // 线条的冷青色（参考片的主色），标题下划线用成员主题色
 
   /* ── 线稿提取：缩到 ~300px → 灰度（透明处当黑）→ 模糊 → Sobel → 非极大值抑制 → 双阈值 → 沿边连成折线 ── */
@@ -85,7 +87,7 @@
       dir[i] = ang < 22.5 || ang >= 157.5 ? 0 : ang < 67.5 ? 1 : ang < 112.5 ? 2 : 3;
     }
     const OFF = [[1, 0], [1, 1], [0, 1], [-1, 1]];
-    const HI = 150, LO = 70;
+    const HI = 120, LO = 55;
     const edge = new Uint8Array(N);
     for (let yy = 2; yy < h - 2; yy++) for (let xx = 2; xx < w - 2; xx++) {
       const i = yy * w + xx, m = mag[i];
@@ -181,11 +183,14 @@
   const SX = (u) => { const { R, Z, hx, ox } = cam; return (R.x + (R.flip ? 1 - u : u) * R.w - hx) * Z + ox; };
   const SY = (v) => { const { R, Z, hy, oy } = cam; return (R.y + v * R.h - hy) * Z + oy; };
 
+  const linesCv = document.createElement('canvas');
   function drawLines(lines, t, a) {
     if (a <= 0.003) return;
     const live = [];
     for (const st of lines) { const q = clamp((t - st.start) / st.dur); if (q > 0) live.push([st, q, eo(q)]); }
     if (!live.length) return;
+    const screen = g;
+    g = layer(linesCv); // 先画到自己的图层上，再叠一层模糊做辉光
     g.save(); g.globalCompositeOperation = 'lighter'; g.lineCap = 'round'; g.lineJoin = 'round';
     const path = (st, a0, b0, e) => {
       const f = (1 - e) * (1 - e), ox = st.ox * f, oy = st.oy * f, { p, len } = st;
@@ -222,6 +227,17 @@
       g.globalAlpha = a; g.fillStyle = gr; g.fillRect(X - R, Y - R, 2 * R, 2 * R);
     }
     g.restore();
+    g = screen;
+    bloom(linesCv, 1, 1.1);
+  }
+
+  /** 辉光：图层模糊后用「变亮」叠一遍，再叠原图 */
+  function bloom(c, sharp, glow) {
+    g.save(); g.globalCompositeOperation = 'lighter';
+    g.filter = `blur(${10 * DPR}px)`; g.globalAlpha = glow; g.drawImage(c, 0, 0);
+    g.filter = `blur(${3 * DPR}px)`; g.globalAlpha = glow * 0.8; g.drawImage(c, 0, 0);
+    g.filter = 'none'; g.globalAlpha = sharp; g.drawImage(c, 0, 0);
+    g.restore();
   }
 
   /* ── 脸部网格：一只略微转向的球面经纬网，只画在人物身上 ── */
@@ -230,8 +246,7 @@
     if (a <= 0.003) return;
     const p = eo(seg(t, 2.5, 4.0));
     if (p <= 0) return;
-    meshCv.width = W; meshCv.height = H;
-    const m = meshCv.getContext('2d');
+    const m = layer(meshCv);
     const [hu, hv] = fig.head;
     const cx = SX(hu), cy = SY(hv + 0.01), rx = Math.abs(SX(hu + 0.13) - cx), ry = Math.abs(SY(hv + 0.1) - SY(hv));
     m.strokeStyle = LINE; m.lineWidth = 0.9 * DPR; m.globalAlpha = 0.55;
@@ -243,7 +258,7 @@
       return [cx + x1 * rx, cy + y2 * ry, z2];
     };
     m.beginPath();
-    const N = 14;
+    const N = 20;
     for (let i = 1; i < N; i++) { // 纬线
       const lat = -Math.PI / 2 + (i / N) * Math.PI;
       let on = false;
@@ -276,7 +291,7 @@
     const gr = m.createRadialGradient(cx, cy, Math.min(rx, ry) * 0.5, cx, cy, Math.max(rx, ry) * 1.1);
     gr.addColorStop(0, '#000'); gr.addColorStop(1, 'rgba(0,0,0,0)');
     m.fillStyle = gr; m.fillRect(0, 0, W, H);
-    g.save(); g.globalCompositeOperation = 'lighter'; g.globalAlpha = a; g.drawImage(meshCv, 0, 0); g.restore();
+    g.save(); g.globalAlpha = a; bloom(meshCv, 0.9, 0.5); g.restore();
   }
 
   function drawFigureTo(ctx, img) {
@@ -293,8 +308,7 @@
     const rv = seg(t, 3.3, 4.9);
     if (rv <= 0) return;
     const open = eio(seg(t, 5.1, 5.55));
-    revCv.width = W; revCv.height = H;
-    const o = revCv.getContext('2d');
+    const o = layer(revCv);
     if (open < 1) { o.globalAlpha = 1; drawFigureTo(o, fig.closed); }
     if (open > 0) { o.globalAlpha = open; drawFigureTo(o, fig.img); o.globalAlpha = 1; }
     const top = SY(fig.head[1] - 0.2), bot = SY(fig.head[1] + 0.3);
@@ -307,6 +321,9 @@
       o.globalCompositeOperation = 'source-over';
     }
     g.drawImage(revCv, 0, 0);
+    if (rv < 1) { // 显影时人像带一层冷光，扫完慢慢收掉
+      g.save(); g.globalCompositeOperation = 'lighter'; g.filter = `blur(${18 * DPR}px)`; g.globalAlpha = 0.35 * (1 - rv); g.drawImage(revCv, 0, 0); g.restore();
+    }
     if (rv < 1) { // 扫描线
       g.save(); g.globalCompositeOperation = 'lighter';
       const gr = g.createLinearGradient(0, scanY - 30 * DPR, 0, scanY + 4 * DPR);
@@ -399,6 +416,32 @@
     g.restore();
   }
 
+  /* ── 氛围：前景飘过的虚焦光斑（随镜头视差移动）、暗角、胶片颗粒 ── */
+  const grainCv = document.createElement('canvas');
+  (() => { grainCv.width = grainCv.height = 256; const x = grainCv.getContext('2d'); const d = x.createImageData(256, 256); const r = rng(5);
+    for (let i = 0; i < d.data.length; i += 4) { const v = 128 + (r() - 0.5) * 255; d.data[i] = d.data[i + 1] = d.data[i + 2] = v; d.data[i + 3] = 255; } x.putImageData(d, 0, 0); })();
+  function atmosphere(t, a, drift) {
+    if (a <= 0.003) return;
+    g.save(); g.globalCompositeOperation = 'lighter';
+    const r = rng(23);
+    for (let i = 0; i < 14; i++) {
+      const depth = 0.4 + r() * 1.6, R = (18 + r() * 60) * DPR * depth;
+      const x = ((r() * 1.4 - 0.2) * W + t * 14 * DPR * depth + drift * depth * W * 0.15) % (W * 1.3) - W * 0.15, y = r() * H + Math.sin(t * 0.5 + i) * 10 * DPR;
+      const b = g.createRadialGradient(x, y, 0, x, y, R);
+      b.addColorStop(0, `rgba(160,215,255,${0.07 * a})`); b.addColorStop(0.6, `rgba(120,180,255,${0.03 * a})`); b.addColorStop(1, 'rgba(0,0,0,0)');
+      g.fillStyle = b; g.fillRect(x - R, y - R, 2 * R, 2 * R);
+    }
+    g.restore();
+    g.save(); g.globalAlpha = a;
+    const v = g.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.35, W / 2, H / 2, Math.max(W, H) * 0.75);
+    v.addColorStop(0, 'rgba(0,0,0,0)'); v.addColorStop(1, 'rgba(0,0,0,.55)');
+    g.fillStyle = v; g.fillRect(0, 0, W, H);
+    g.globalCompositeOperation = 'overlay'; g.globalAlpha = 0.06 * a;
+    g.fillStyle = g.createPattern(grainCv, 'repeat'); const ox = (t * 997) % 256, oy = (t * 613) % 256;
+    g.translate(-ox, -oy); g.fillRect(0, 0, W + 256, H + 256);
+    g.restore();
+  }
+
   function backdrop(t, a) {
     g.clearRect(0, 0, W, H);
     if (a <= 0) return;
@@ -438,7 +481,7 @@
     const head = Array.isArray(L.head) && L.head.length === 2 ? L.head : [0.47, 0.18];
     const crop = { x: clamp(head[0] - 0.3, 0, 0.4), y: clamp(head[1] - 0.15, 0, 0.6), w: 0.6, h: 0.4 };
     crop.w = Math.min(crop.w, 1 - crop.x); crop.h = Math.min(crop.h, 1 - crop.y);
-    const tr = trace(closed, crop, 640, 900) || { strokes: [] };
+    const tr = trace(closed, crop, 900, 1500) || { strokes: [] };
     return { img, closed, head, lines: prepare(tr.strokes, 4242) };
   }
 
@@ -464,10 +507,15 @@
     const pull = eio(seg(t, 6.9, 8.9));
     setCam(R, fig.head, pull, lerp(0.92, 1.0, eo(seg(t, 0, 6.9))));
     backdrop(t, 1 - eio(seg(t, 7.6, 8.9)));
-    hud(t, 1 - seg(t, 6.8, 7.6));
+    // 镜头：贴脸时略微倾斜、缓缓回正，拉远落地时正好摆正
+    const tilt = lerp(-0.035, 0, eio(seg(t, 0, 8.9)));
+    g.save(); g.translate(W / 2, H / 2); g.rotate(tilt); g.translate(-W / 2, -H / 2);
     drawLines(fig.lines, t, 1 - 0.85 * seg(t, 3.6, 5.0) - 0.15 * seg(t, 6.6, 7.4));
     drawMesh(fig, t, 1 - seg(t, 4.6, 5.6));
     drawPortrait(fig, t);
+    g.restore();
+    atmosphere(t, 1 - eio(seg(t, 7.0, 8.6)), pull);
+    hud(t, 1 - seg(t, 6.8, 7.6));
     title(t, 1 - seg(t, 6.8, 7.5), name, accent);
     if (!fig.cue1 && t > 3.3) { fig.cue1 = true; sfx('whoosh'); }
     if (!fig.cue2 && t > 5.1) { fig.cue2 = true; sfx('confirm'); }
