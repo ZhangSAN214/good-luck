@@ -245,7 +245,7 @@ src/roundtable/
     prompts/       提示词加载与渲染
     allocation/    按档位/标签抽取、代号、互评分配（排除自评）、乱序、身份遮蔽
     routing/       规则判断、规划员、方案与阵容、花费预估、用户模式、升级、每题记录
-    storage/       SQLite 迁移、Repository、揭晓前的匿名视图
+    storage/       SQLite 迁移、Repository、揭晓前的匿名视图（repository.py 是总入口和对外视图；按业务分的部分在 repo/：sessions 会话 / files 附件与用量 / chat 聊天与记忆 / moments 朋友圈 / mail 邮件 / office 绩效与贡献；共用类型在 records.py）
     attachments/   上传文件的识别、文字提取、存放、图片文字版 / 音频转写、发给模型时的呈现
     perception/    成员感官（docs/PERCEPTION.md）：用户在聊天里发的图片 / 语音 / 视频 → 感知卡（快速 / 精细，按内容缓存在 data/perception/），成员读卡回应
     media/         媒体生成：模型选择（标签 + 档位）、计价、MediaService（图片 / 语音 / 视频异步任务）、视频截帧
@@ -286,7 +286,7 @@ src/roundtable/
     runtime.py     组装配置、密钥、渠道、数据库、预算
     jsonout.py     从模型输出中提取 JSON
     service.py     对外 facade
-  cli.py         命令行试用（`roundtable` 命令，见 docs/CLI.md）
+  cli.py         命令行试用（`roundtable` 命令，见 docs/CLI.md）；显示结果在 cli_report.py、各子命令在 cli_commands.py、名称表在 cli_labels.py
   plaintext.py   命令行显示用：LaTeX 数学式转纯文本、去掉 Markdown 加粗符号（不改动存储的原文）
   api/           FastAPI 应用（app.py 只组装）、routes/ 按部门分的接口、bodies.py 请求体、common.py 公用小工具与 SSE
   desktop/       桌面版（docs/DESKTOP.md）：launcher.py 在本进程起服务并打开应用窗口（pywebview → Edge / Chrome 应用窗口 → 默认浏览器），关窗即停；install.py 生成 Windows 快捷方式 / macOS .app；overlay.py 一起看的置顶悬浮窗（tkinter，只通过 HTTP 连本机圆桌）
