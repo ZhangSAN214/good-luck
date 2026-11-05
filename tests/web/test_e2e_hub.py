@@ -48,12 +48,14 @@ def test_hub_landing_can_be_turned_off(serve, page):
 def test_skin_toggle_switches_and_is_remembered(serve, page):
     srv = serve(confirm_threshold_usd=100.0)
     page.goto(srv.url)
-    page.wait_for_selector("#skin")
+    page.wait_for_selector("#skin", state="attached")
     assert page.evaluate("document.documentElement.dataset.skin") == "ark"
+    page.click("#settingsbtn")  # 「外观」收进了设置的常用工具
     page.click("#skin")
+    assert not page.locator("#settingsdlg[open]").count()
     assert page.evaluate("document.documentElement.dataset.skin") == "classic"
     page.reload()
-    page.wait_for_selector("#skin")
+    page.wait_for_selector("#skin", state="attached")
     assert page.evaluate("document.documentElement.dataset.skin") == "classic"
 
 

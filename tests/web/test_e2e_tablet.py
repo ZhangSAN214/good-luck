@@ -176,6 +176,7 @@ def test_drag_resident_with_finger(serve, browser):
 def test_pc_lan_panel_sets_password(serve, page):
     srv = serve(confirm_threshold_usd=100.0)
     page.goto(srv.url)
+    page.click("#settingsbtn")  # 「平板」收进了设置的常用工具
     page.click("#lanbtn")
     page.wait_for_selector("#landlg[open] .lan-state.off")
     assert "start_lan.bat" in page.inner_text("#landlg")

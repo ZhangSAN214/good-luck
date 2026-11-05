@@ -207,6 +207,11 @@ def quiet_boot(ctx) -> None:
         "try { if (!localStorage.getItem('roundtable.landing'))"
         " localStorage.setItem('roundtable.landing', 'work') } catch {}"
     )
+    # 新手指导小卡片会盖在页面上：默认关掉（测新手指导的测试自己清掉）
+    ctx.add_init_script(
+        "try { if (!localStorage.getItem('roundtable.guide'))"
+        " localStorage.setItem('roundtable.guide', '{\"off\":true}') } catch {}"
+    )
 
 
 @pytest.fixture

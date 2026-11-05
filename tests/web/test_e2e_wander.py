@@ -40,6 +40,7 @@ def test_wander_panel_flow(serve, page):
     page.goto(srv.url)
     btn = page.locator("#wanderbtn")
     assert btn.text_content() == "上网"
+    page.click("#settingsbtn")  # 「上网」收进了设置的常用工具
     btn.click()
     dlg = page.locator("#wanderdlg")
     dlg.get_by_text("还没自己上过网").wait_for()
