@@ -1,4 +1,5 @@
-// 开机动画：打开圆桌时先放「晨会协议」片头，再接 GMU（早上好联合）访问授权，然后淡入首页。
+// 开机动画：默认放「线条汇聚」（boot/lines.html，八位成员的线稿汇聚，最后落在首页立绘上，无缝进首页）；
+// 也可以在「片头」设置里换回「晨会协议」片头 + GMU（早上好联合）访问授权。
 // 普通脚本（不是模块），放在 <body> 最前面同步执行：首页还没画出来就先盖住，不会闪一下。
 // 设置都存在本机 localStorage（roundtable.boot.*），在「片头」设置里改；网址加 ?boot=0 不放。
 // 声音都在这一层：浏览器要先有一次点击才肯出声，所以没点过时先显示「按下开机」；
@@ -6,7 +7,7 @@
 // 授权页改编自一个 MIT 许可的开源开机动画，片头是圆桌原创，出处见 web/boot/CREDITS.md。
 (() => {
   const PREFIX = 'roundtable.boot.';
-  const MODES = ['full', 'intro', 'permit', 'off'];
+  const MODES = ['lines', 'full', 'intro', 'permit', 'off'];
   const read = (key, fallback) => {
     try {
       const v = window.localStorage.getItem(PREFIX + key);
@@ -467,7 +468,7 @@
 
   const wantsSound = () => read('sound', 'on') !== 'off' || read('voice', 'on') !== 'off';
 
-  function play(mode = read('mode', 'full')) {
+  function play(mode = read('mode', 'lines')) {
     if (!MODES.includes(mode) || mode === 'off') return null;
     if (live) live.finish();
     const host = document.createElement('div');
@@ -489,12 +490,13 @@
       'color:rgba(214,232,255,.75);background:rgba(3,8,20,.55);border:1px solid rgba(120,180,255,.3);border-radius:4px;padding:5px 10px;cursor:pointer';
     host.append(frame, skip);
 
-    let stage = mode === 'permit' ? 'permit' : 'intro';
+    let stage = mode === 'permit' ? 'permit' : mode === 'lines' ? 'lines' : 'intro';
     let done = false;
     const go = (which, handoff = false) => {
       stage = which;
-      startBed();
-      frame.src = which === 'intro' ? 'boot/dawn.html' : permitUrl(handoff);
+      // 「线条汇聚」要简约：不垫电流嗡声和电报码，只留几下轻音效
+      if (which !== 'lines') startBed();
+      frame.src = which === 'lines' ? 'boot/lines.html' : which === 'intro' ? 'boot/dawn.html' : permitUrl(handoff);
     };
     // 片头最后一帧是居中的徽记；换页那一下 iframe 会空白一瞬间，
     // 所以先在外层盖一枚同位置、同尺寸的徽记和同色背景，授权页画出来后再撤掉。
@@ -551,7 +553,14 @@
     const onMessage = (e) => {
       if (e.source !== frame.contentWindow) return;
       const d = e.data;
-      if (d === 'boot:done' && stage === 'intro') next();
+      if (d === 'boot:done' && stage === 'lines') finish();
+      else if (d && typeof d === 'object' && d.type === 'boot:bg' && stage === 'lines') {
+        // 线条页自己画底色，最后把底色淡掉、露出底下真正的首页（人物正好落在首页立绘上）
+        host.style.background = 'transparent';
+        frame.style.background = 'transparent';
+        // 外层和动画页的配色方案不一样时浏览器会给 iframe 垫一层白底，两边统一成 normal 才真的透明
+        frame.style.colorScheme = 'normal';
+      } else if (d === 'boot:done' && stage === 'intro') next();
       else if (d === 'gmu:done' && stage === 'permit') finish();
       else if (d && typeof d === 'object' && d.type === 'boot:sfx') sfx(String(d.name), Number(d.arg) || 0);
       else if (d && typeof d === 'object' && d.type === 'boot:say') say({ zh: String(d.zh || ''), en: String(d.en || '') });
@@ -596,7 +605,7 @@
       const start = (e) => {
         e?.preventDefault?.();
         document.removeEventListener('keydown', onGateKey, true);
-        ac.resume().then(() => !done && startBed()).catch(() => {});
+        ac.resume().then(() => !done && stage !== 'lines' && startBed()).catch(() => {});
         gate.remove();
         go(stage);
       };
@@ -629,7 +638,7 @@
   } catch {
     return;
   }
-  if (read('mode', 'full') === 'off') return;
+  if (read('mode', 'lines') === 'off') return;
   if (read('when', 'session') === 'session') {
     try {
       if (window.sessionStorage.getItem(PREFIX + 'played') === '1') return;

@@ -1,0 +1,397 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>圆桌 · 开机</title>
+<style>
+  html{color-scheme:normal}
+  html,body{margin:0;height:100%;overflow:hidden;background:transparent}
+  canvas{display:block;width:100vw;height:100vh}
+</style>
+</head>
+<body>
+<canvas id="c" aria-hidden="true"></canvas>
+<script>
+// 开机动画「线条汇聚」（圆桌原创，一镜到底，约 10 秒）：
+// 八位成员的线稿在虚空里一条条生长出来（长线先画、带亮头和尾迹），镜头横移掠过每一位，停在终端首页的立绘成员身上；
+// 她从上往下扫一遍上色，正好落在首页立绘的位置和大小，背景淡去，露出底下真正的首页（无缝衔接）。
+// - 线稿在浏览器里从成员图片现场提取（边缘检测 + 连线），不预先存线稿、不调用模型、不花钱。
+// - 首页立绘的位置向外层要：parent.roundtableLanding() → { image, rect, flip, name }（立绘还在加载时 { pending: true }）；
+//   不在首页或没有立绘时，最后一位就在画面中央上色，然后整体淡出。
+// - 以后成员有了 3D 模型，只把「上色」这一步换成 3D 模型落位，别的不用改。
+// 消息：boot:bg（第一帧画好，外层可以把底色撤掉）、boot:sfx（音效）、boot:done（放完）。
+(() => {
+  const inFrame = window.parent !== window;
+  const post = (m) => { if (inFrame) try { parent.postMessage(m, '*'); } catch (_) {} };
+  const sfx = (name, arg) => post({ type: 'boot:sfx', name, arg });
+  const cv = document.getElementById('c');
+  const g = cv.getContext('2d');
+  let W = 0, H = 0, DPR = 1;
+  function fit() {
+    DPR = Math.min(window.devicePixelRatio || 1, 2);
+    W = Math.round(innerWidth * DPR); H = Math.round(innerHeight * DPR);
+    cv.width = W; cv.height = H;
+  }
+  fit(); addEventListener('resize', fit);
+
+  const clamp = (v, a = 0, b = 1) => Math.min(b, Math.max(a, v));
+  const lerp = (a, b, t) => a + (b - a) * t;
+  const eo = (t) => 1 - Math.pow(1 - t, 3);
+  const eio = (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
+  const seg = (t, a, b) => clamp((t - a) / (b - a));
+  function rng(seed) { let s = seed >>> 0; return () => ((s = (Math.imul(s ^ (s >>> 15), 1 | s) + 0x6d2b79f5) | 0), ((s ^ (s >>> 7)) >>> 0) / 4294967296); }
+  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  /* ── 线稿提取：缩到 ~300px → 灰度（透明处当黑）→ 模糊 → Sobel → 非极大值抑制 → 双阈值 → 沿边连成折线 ── */
+  function trace(img) {
+    const iw = img.naturalWidth || img.width, ih = img.naturalHeight || img.height;
+    if (!iw || !ih) return null;
+    const k = 300 / Math.max(iw, ih);
+    const w = Math.max(8, Math.round(iw * k)), h = Math.max(8, Math.round(ih * k));
+    const c = document.createElement('canvas'); c.width = w; c.height = h;
+    const x = c.getContext('2d', { willReadFrequently: true });
+    x.drawImage(img, 0, 0, w, h);
+    const px = x.getImageData(0, 0, w, h).data;
+    const N = w * h, gray = new Float32Array(N), alpha = new Float32Array(N);
+    for (let i = 0; i < N; i++) {
+      const a = px[i * 4 + 3] / 255;
+      alpha[i] = a;
+      gray[i] = (0.299 * px[i * 4] + 0.587 * px[i * 4 + 1] + 0.114 * px[i * 4 + 2]) * a + 0 * (1 - a);
+    }
+    // 3×3 模糊两遍（像素画的台阶边会变顺）
+    let a = gray, b = new Float32Array(N);
+    for (let pass = 0; pass < 2; pass++) {
+      for (let yy = 1; yy < h - 1; yy++) for (let xx = 1; xx < w - 1; xx++) {
+        const i = yy * w + xx;
+        b[i] = (a[i] * 4 + (a[i - 1] + a[i + 1] + a[i - w] + a[i + w]) * 2 + a[i - w - 1] + a[i - w + 1] + a[i + w - 1] + a[i + w + 1]) / 16;
+      }
+      [a, b] = [b, a];
+    }
+    const mag = new Float32Array(N), dir = new Uint8Array(N);
+    for (let yy = 1; yy < h - 1; yy++) for (let xx = 1; xx < w - 1; xx++) {
+      const i = yy * w + xx;
+      const gx = -a[i - w - 1] - 2 * a[i - 1] - a[i + w - 1] + a[i - w + 1] + 2 * a[i + 1] + a[i + w + 1];
+      const gy = -a[i - w - 1] - 2 * a[i - w] - a[i - w + 1] + a[i + w - 1] + 2 * a[i + w] + a[i + w + 1];
+      // 轮廓（透明边）也算一条边
+      const ax = alpha[i + 1] - alpha[i - 1], ay = alpha[i + w] - alpha[i - w];
+      const m = Math.hypot(gx, gy) + Math.hypot(ax, ay) * 600;
+      mag[i] = m;
+      const ang = ((Math.atan2(gy || ay, gx || ax) * 180) / Math.PI + 180) % 180;
+      dir[i] = ang < 22.5 || ang >= 157.5 ? 0 : ang < 67.5 ? 1 : ang < 112.5 ? 2 : 3;
+    }
+    const OFF = [[1, 0], [1, 1], [0, 1], [-1, 1]];
+    const HI = 150, LO = 70;
+    const edge = new Uint8Array(N);
+    for (let yy = 2; yy < h - 2; yy++) for (let xx = 2; xx < w - 2; xx++) {
+      const i = yy * w + xx, m = mag[i];
+      if (m < LO) continue;
+      const [dx, dy] = OFF[dir[i]];
+      if (m < mag[i + dy * w + dx] || m < mag[i - dy * w - dx]) continue;
+      edge[i] = m >= HI ? 2 : 1;
+    }
+    // 弱边只在连着强边时保留
+    const stack = [];
+    for (let i = 0; i < N; i++) if (edge[i] === 2) stack.push(i);
+    while (stack.length) {
+      const i = stack.pop();
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+        const j = i + dy * w + dx;
+        if (edge[j] === 1) { edge[j] = 2; stack.push(j); }
+      }
+    }
+    // 连线：从端点出发沿着边走，优先保持方向
+    const seen = new Uint8Array(N), strokes = [];
+    const nb = (i) => { const out = []; for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) { if (!dx && !dy) continue; const j = i + dy * w + dx; if (edge[j] === 2 && !seen[j]) out.push(j); } return out; };
+    const walk = (s) => {
+      const pts = [s]; seen[s] = 1; let cur = s, pdx = 0, pdy = 0;
+      for (;;) {
+        const n = nb(cur); if (!n.length) break;
+        let best = n[0], bs = -9;
+        for (const j of n) { const dx = (j % w) - (cur % w), dy = ((j / w) | 0) - ((cur / w) | 0); const sc = dx * pdx + dy * pdy - (Math.abs(dx) + Math.abs(dy)) * 0.1; if (sc > bs) { bs = sc; best = j; } }
+        pdx = (best % w) - (cur % w); pdy = ((best / w) | 0) - ((cur / w) | 0);
+        seen[best] = 1; pts.push(best); cur = best;
+      }
+      return pts;
+    };
+    const order = [];
+    for (let i = 0; i < N; i++) if (edge[i] === 2) order.push(i);
+    // 先从端点（只有一个邻居）开始，线更完整
+    const deg = (i) => { let d = 0; for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if ((dx || dy) && edge[i + dy * w + dx] === 2) d++; return d; };
+    order.sort((p, q) => deg(p) - deg(q));
+    for (const s of order) {
+      if (seen[s]) continue;
+      const pts = walk(s);
+      if (pts.length < 10) continue;
+      // 抽稀：每隔两三个点留一个
+      const out = [];
+      for (let k2 = 0; k2 < pts.length; k2 += 2) out.push([(pts[k2] % w) / w, ((pts[k2] / w) | 0) / h]);
+      const last = pts[pts.length - 1]; out.push([(last % w) / w, ((last / w) | 0) / h]);
+      strokes.push(out);
+    }
+    strokes.sort((p, q) => q.length - p.length);
+    return { strokes: strokes.slice(0, 420), aspect: iw / ih };
+  }
+
+  /** 给每条线排时序：长线（轮廓、发丝主线）先画，短线错开补齐；每条线按弧长生长 */
+  function prepare(fig, seed) {
+    const r = rng(seed);
+    const asp = fig.trace.aspect || 1;
+    const lines = fig.trace.strokes.map((raw) => {
+      // Chaikin 平滑一遍：像素台阶变成顺滑的弧
+      let p = raw;
+      if (p.length > 3) {
+        const q = [p[0]];
+        for (let k = 0; k < p.length - 1; k++) {
+          const [ax, ay] = p[k], [bx, by] = p[k + 1];
+          q.push([ax * 0.75 + bx * 0.25, ay * 0.75 + by * 0.25], [ax * 0.25 + bx * 0.75, ay * 0.25 + by * 0.75]);
+        }
+        q.push(p[p.length - 1]);
+        p = q;
+      }
+      const len = [0];
+      for (let k = 1; k < p.length; k++) len.push(len[k - 1] + Math.hypot((p[k][0] - p[k - 1][0]) * asp, p[k][1] - p[k - 1][1]));
+      return { p, len, L: len[len.length - 1] };
+    });
+    lines.sort((a, b) => b.L - a.L);
+    const maxL = lines.length ? lines[0].L : 1;
+    lines.forEach((st, rank) => {
+      const u = rank / Math.max(1, lines.length - 1);
+      st.start = 0.5 * Math.pow(u, 0.8) + r() * 0.06;
+      st.dur = 0.22 + 0.36 * Math.min(1, st.L / maxL) + r() * 0.06;
+      // 很轻的汇聚：线从外面一点点收拢到位
+      const ang = r() * Math.PI * 2;
+      st.ox = Math.cos(ang) * 0.035; st.oy = Math.sin(ang) * 0.035;
+    });
+    fig.lines = lines;
+  }
+
+  /** 沿弧长取 [a, b] 这一段，加进当前路径 */
+  function subPath(st, a, b, x0, y0, w, h, e) {
+    const { p, len } = st, f = (1 - e) * (1 - e);
+    const ox = st.ox * f, oy = st.oy * f;
+    let started = false;
+    for (let k = 0; k < p.length; k++) {
+      if (len[k] < a) continue;
+      if (len[k] > b) {
+        if (started && k > 0) {
+          const t = (b - len[k - 1]) / Math.max(1e-6, len[k] - len[k - 1]);
+          g.lineTo(x0 + (lerp(p[k - 1][0], p[k][0], t) + ox) * w, y0 + (lerp(p[k - 1][1], p[k][1], t) + oy) * h);
+        }
+        break;
+      }
+      const X = x0 + (p[k][0] + ox) * w, Y = y0 + (p[k][1] + oy) * h;
+      if (!started) { g.moveTo(X, Y); started = true; } else g.lineTo(X, Y);
+    }
+  }
+
+  /** 画一位成员的线稿：(x, y, w, h) 是她在屏幕上的框；p 生长进度 0..1；a 透明度。
+   *  每条线：已画的部分是细亮线 + 外发光，生长头上一段渐亮的尾迹和一颗亮头。 */
+  function drawLines(fig, x0, y0, w, h, p, a) {
+    if (p <= 0 || a <= 0.003 || !fig.lines) return;
+    g.save(); g.globalCompositeOperation = 'lighter'; g.lineCap = 'round'; g.lineJoin = 'round';
+    g.strokeStyle = fig.tint;
+    const s = Math.max(w, h), heads = [];
+    const live = [];
+    for (const st of fig.lines) {
+      const q = clamp((p - st.start) / st.dur);
+      if (q > 0) live.push([st, q, eio(q)]);
+    }
+    // 外发光 + 亮芯：已画的部分
+    for (const [lw, al] of [[s * 0.007, 0.08 * a], [s * 0.0018, 0.8 * a]]) {
+      g.lineWidth = Math.max(0.6 * DPR, lw); g.globalAlpha = al;
+      g.beginPath();
+      for (const [st, q, e] of live) subPath(st, 0, st.L * e, x0, y0, w, h, e);
+      g.stroke();
+    }
+    // 生长中的线：头上一段尾迹更亮
+    g.strokeStyle = '#ffffff'; g.lineWidth = Math.max(0.8 * DPR, s * 0.0026); g.globalAlpha = 0.75 * a;
+    g.beginPath();
+    for (const [st, q, e] of live) {
+      if (q >= 1) continue;
+      const head = st.L * e;
+      subPath(st, Math.max(0, head - Math.max(st.L * 0.18, 0.02)), head, x0, y0, w, h, e);
+      heads.push(st, head, e);
+    }
+    g.stroke();
+    // 亮头：一颗小光点 + 一圈柔光
+    for (let i = 0; i < heads.length; i += 3) {
+      const st = heads[i], head = heads[i + 1], e = heads[i + 2], f = (1 - e) * (1 - e);
+      let k = 1; while (k < st.p.length - 1 && st.len[k] < head) k++;
+      const X = x0 + (st.p[k][0] + st.ox * f) * w, Y = y0 + (st.p[k][1] + st.oy * f) * h;
+      const R = Math.max(2 * DPR, s * 0.012);
+      const gr = g.createRadialGradient(X, Y, 0, X, Y, R);
+      gr.addColorStop(0, 'rgba(255,255,255,.95)'); gr.addColorStop(0.25, fig.tint); gr.addColorStop(1, 'rgba(0,0,0,0)');
+      g.globalAlpha = 0.7 * a; g.fillStyle = gr; g.fillRect(X - R, Y - R, 2 * R, 2 * R);
+    }
+    g.restore();
+  }
+
+  /** 上色：从上往下扫，扫描线处一道亮边（只亮在人物身上） */
+  const off = document.createElement('canvas');
+  function drawFill(fig, x0, y0, w, h, f, flip) {
+    if (f <= 0) return;
+    const cw = Math.max(2, Math.ceil(w)), ch = Math.max(2, Math.ceil(h));
+    off.width = cw; off.height = ch;
+    const o = off.getContext('2d');
+    const paint = () => { o.save(); if (flip) { o.translate(cw, 0); o.scale(-1, 1); } o.drawImage(fig.img, 0, 0, cw, ch); o.restore(); };
+    paint();
+    if (f < 1) {
+      const yy = lerp(-0.15, 1.15, f) * ch;
+      o.globalCompositeOperation = 'destination-in';
+      const gr = o.createLinearGradient(0, yy - ch * 0.14, 0, yy);
+      gr.addColorStop(0, '#000'); gr.addColorStop(1, 'rgba(0,0,0,0)');
+      o.fillStyle = gr; o.fillRect(0, 0, cw, ch);
+      o.globalCompositeOperation = 'source-over';
+    }
+    g.drawImage(off, x0, y0, w, h);
+    if (f < 1) {
+      const yy = lerp(-0.15, 1.15, f) * ch;
+      o.clearRect(0, 0, cw, ch); paint();
+      o.globalCompositeOperation = 'source-in';
+      const gr = o.createLinearGradient(0, yy - ch * 0.03, 0, yy + ch * 0.01);
+      gr.addColorStop(0, 'rgba(255,255,255,0)'); gr.addColorStop(0.7, 'rgba(255,255,255,.9)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
+      o.fillStyle = gr; o.fillRect(0, 0, cw, ch);
+      o.globalCompositeOperation = 'source-over';
+      g.save(); g.globalCompositeOperation = 'lighter'; g.globalAlpha = 0.8; g.drawImage(off, x0, y0, w, h); g.restore();
+    }
+  }
+
+  function backdrop(t, a) {
+    g.clearRect(0, 0, W, H);
+    if (a <= 0) return;
+    g.save(); g.globalAlpha = a;
+    g.fillStyle = '#05060a'; g.fillRect(0, 0, W, H);
+    const gr = g.createRadialGradient(W * 0.5, H * 0.55, 0, W * 0.5, H * 0.55, Math.max(W, H) * 0.7);
+    gr.addColorStop(0, 'rgba(40,52,90,.35)'); gr.addColorStop(1, 'rgba(0,0,0,0)');
+    g.fillStyle = gr; g.fillRect(0, 0, W, H);
+    const r = rng(7); g.globalCompositeOperation = 'lighter'; g.fillStyle = '#9fb4ff';
+    for (let i = 0; i < 90; i++) {
+      const x = (r() * W + t * 20 * DPR * (r() + 0.2)) % W, y = (r() * H - t * 8 * DPR * r() + H) % H;
+      g.globalAlpha = a * (0.12 + 0.25 * r()); g.fillRect(x, y, 1.2 * DPR, 1.2 * DPR);
+    }
+    g.restore();
+  }
+
+  const loadImg = (src) => new Promise((res) => { const i = new Image(); i.onload = () => res(i); i.onerror = () => res(null); i.src = src; });
+  // 外层的首页脚本（模块）可能比这一页还晚跑起来：还没挂上 roundtableLanding 时也当「还在准备」
+  const landing = () => {
+    if (!inFrame) return null;
+    try { return typeof parent.roundtableLanding === 'function' ? parent.roundtableLanding() : { pending: true }; } catch (_) { return null; }
+  };
+  const TINTS = ['#ffb27a', '#c9d3ff', '#e9ecff', '#8fb0ff', '#c39bff', '#f2f2ff', '#ffd98a', '#7fb6ff'];
+  const soft = (hex) => {
+    // 主题色和白色各一半，线条更素净
+    const m = /^#?([0-9a-f]{6})$/i.exec(hex || ''); if (!m) return null;
+    const n = parseInt(m[1], 16), mix = (v) => Math.round(v * 0.55 + 255 * 0.45);
+    return `rgb(${mix(n >> 16)},${mix((n >> 8) & 255)},${mix(n & 255)})`;
+  };
+
+  let figs = [], duty = null, T0 = 0, finished = false;
+  const DUR = 10.2; // 系统开了「减少动态」时整段 2.2 倍速放完（约 4.6 秒）
+  // 镜头最后停的位置（屏幕像素）：首页立绘的位置；还没量到时先用默认位置，量到后平滑挪过去
+  let goal = null, cur = null;
+  function defaultTarget(aspect) {
+    const h = H * 0.98, w = h * aspect;
+    return { x: W * 0.3 - w / 2, y: H - h, w, h, flip: false };
+  }
+  function readLanding() {
+    const L = landing();
+    if (!L || !L.rect || !L.image) return null;
+    const r = L.rect;
+    return { x: r.x * DPR, y: r.y * DPR, w: r.w * DPR, h: r.h * DPR, flip: !!L.flip, img: L.image, name: L.name || '' };
+  }
+  /** 最后一位开始画之前定下来：首页立绘好了就用立绘（线稿也从立绘里提），没好就用她的小人图就地上色 */
+  function settleDuty() {
+    if (duty.settled) return;
+    duty.settled = true;
+    const L = duty.wantsHub ? readLanding() : null;
+    if (L) { duty.img = L.img; goal = L; }
+    if (!duty.img) return;
+    duty.trace = trace(duty.img) || { strokes: [], aspect: 1 };
+    prepare(duty, 4242);
+    if (!L) goal = defaultTarget(duty.trace.aspect);
+  }
+
+  function frame(now) {
+    if (finished) return;
+    const t = (now - T0) / 1000 * (reduce ? 2.2 : 1);
+    const n = figs.length;
+    const step = 6.2 / Math.max(1, n);
+    const stLast = 0.15 + (n - 1) * step;
+    if (t > stLast - 0.3) settleDuty();
+    if (duty.settled && t > 6.6 && !duty.remeasured) {
+      // 快到落点时再量一次（窗口可能改过大小）
+      duty.remeasured = true;
+      const L = duty.wantsHub ? readLanding() : null;
+      if (L) goal = L;
+    }
+    const k = cur === goal ? 1 : 0.12;
+    cur = cur ? { x: lerp(cur.x, goal.x, k), y: lerp(cur.y, goal.y, k), w: lerp(cur.w, goal.w, k), h: lerp(cur.h, goal.h, k), flip: goal.flip } : { ...goal };
+    const tg = cur;
+    const fill = seg(t, 7.3, 8.7);
+    backdrop(t, 1 - eio(seg(t, 8.0, 9.4)));
+    const sp = tg.h * 0.74;
+    const zoomIn = eio(seg(t, 5.4, 8.6));
+    const zoom = lerp(0.52, 1, zoomIn);
+    const camT = eio(seg(t, 0.2, 7.2));
+    const xs = figs.map((_, i) => tg.x + tg.w / 2 - (n - 1 - i) * sp);
+    const focusX = lerp(xs[0], tg.x + tg.w / 2, camT);
+    const camX = lerp(focusX, W / 2, zoomIn), camY = lerp(tg.y + tg.h * 0.55, H / 2, zoomIn);
+    const tx = (x) => (x - camX) * zoom + W / 2, ty = (y) => (y - camY) * zoom + H / 2;
+    figs.forEach((fig, i) => {
+      if (!fig.lines) return;
+      const last = i === n - 1;
+      const st = 0.15 + i * step;
+      const p = seg(t, st, st + 1.9);
+      if (!fig.cued && p > 0) { fig.cued = true; sfx('chime', i % 7); }
+      const h = tg.h, w = h * (last ? tg.w / tg.h : fig.trace.aspect);
+      const X = tx(xs[i] - w / 2), Y = ty(tg.y + tg.h - h), Wd = w * zoom, Hd = h * zoom;
+      const a = last ? 1 - fill * 0.95 : (1 - 0.6 * seg(t, st + 2.6, st + 4)) * (1 - seg(t, 7.4, 8.6));
+      drawLines(fig, X, Y, Wd, Hd, p, a);
+      if (last) drawFill(fig, X, Y, Wd, Hd, fill, tg.flip);
+    });
+    if (!duty.cuedFill && fill > 0) { duty.cuedFill = true; sfx('sunrise'); }
+    if (t >= DUR) { finished = true; post('boot:done'); return; }
+    requestAnimationFrame(frame);
+  }
+
+  const getJson = async (url) => { try { const r = await fetch(url, { credentials: 'same-origin' }); return r.ok ? await r.json() : null; } catch (_) { return null; } };
+
+  async function start() {
+    const [art, sd] = await Promise.all([getJson('/api/members'), getJson('/api/standee')]);
+    let members = (art && art.available && art.members) || [];
+    members = members.filter((m) => m.status !== 'retired' && m.images && m.images.chibi).sort((a, b) => (a.order || 0) - (b.order || 0)).slice(0, 8);
+    // 停在首页并且有立绘：立绘那位放最后、落在立绘上（立绘图要等首页抠好底，最后一位开画前再取）
+    const wantsHub = !!(sd && sd.available && landing());
+    const dutyName = wantsHub ? sd.name || '' : '';
+    const isDuty = (m) => dutyName && [m.name, m.nickname, m.display, m.id].includes(dutyName);
+    const dutyMember = members.find(isDuty) || null;
+    const others = members.filter((m) => !isDuty(m));
+    const imgs = await Promise.all(others.map((m) => loadImg(m.images.chibi)));
+    figs = [];
+    others.forEach((m, i) => { if (imgs[i]) figs.push({ img: imgs[i], tint: soft(m.theme_color) || TINTS[i % 8] }); });
+    if (wantsHub) {
+      const own = dutyMember ? await loadImg(dutyMember.images.chibi) : null;
+      figs.push({ img: own, tint: soft(dutyMember && dutyMember.theme_color) || '#dfe6ff', wantsHub: true });
+    }
+    if (!figs.length) { post('boot:done'); return; }
+    duty = figs[figs.length - 1];
+    figs.forEach((f, i) => { if (f !== duty) { f.trace = trace(f.img) || { strokes: [], aspect: 1 }; prepare(f, i * 977 + 13); } });
+    // 镜头的起点：立绘已经好了就直接用它的位置，否则先用默认位置
+    const L = wantsHub ? readLanding() : null;
+    const guess = duty.img ? (duty.img.naturalWidth || 1) / (duty.img.naturalHeight || 1) : 0.75;
+    goal = L || defaultTarget(guess);
+    if (!wantsHub) settleDuty();
+    backdrop(0, 1);
+    post({ type: 'boot:bg', clear: true });
+    sfx('whoosh');
+    T0 = performance.now();
+    requestAnimationFrame(frame);
+  }
+  window.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { finished = true; post('boot:done'); } });
+  start();
+})();
+</script>
+</body>
+</html>

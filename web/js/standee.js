@@ -238,6 +238,20 @@ export class Standee {
     this.bind();
   }
 
+  /** 开机动画的落点：立绘在屏幕上的位置（CSS 像素）、抠好底的整张图、是否翻转、成员名字。
+   *  首页没显示 → null；立绘还在加载 → { pending: true }；没有立绘或被隐藏 → null。 */
+  landing() {
+    const page = document.getElementById('hub');
+    if (!page || page.hidden) return null;
+    if (!this.info || (this.info.available && !this.cur) || !this.hub) return { pending: true };
+    if (!this.active) return null;
+    if (!this.box) this.place();
+    if (!this.box) return null;
+    const r = this.hub.getBoundingClientRect();
+    const { left, top, w, h, flip } = this.box;
+    return { image: this.cur.canvas, rect: { x: r.left + left, y: r.top + top, w, h }, flip, name: this.info.name || '' };
+  }
+
   /** 有立绘并且没被隐藏：首页据此把原来那句提示换成立绘的对话框。 */
   get active() {
     return Boolean(this.info?.available && !this.store.hidden && this.cur);

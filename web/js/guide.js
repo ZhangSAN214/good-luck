@@ -105,7 +105,7 @@ export const FEATURES = [
     items: [
       { name: '出问题点这里', what: '一键自检，生成能发给我们的体检报告。', steps: ['点顶栏「出问题点这里」', '按现场筛选，点生成报告'], open: { click: '#firstaidbtn' } },
       { name: '一起看', what: '把屏幕给成员看，她们陪你一起看、一起吐槽。', steps: ['点顶栏「一起看」', '选整屏或某个窗口，开始'], open: { click: '#watchbtn' } },
-      { name: '片头', what: '开机动画放不放、放哪一种。', steps: ['在下面「常用工具」点「片头」'], open: { click: '#bootcfg' } },
+      { name: '片头', what: '开机动画放不放、放哪一种。默认是「线条汇聚」：八位成员的线稿汇聚，最后落到首页立绘上。', steps: ['在下面「常用工具」点「片头」'], open: { click: '#bootcfg' } },
       { name: '外观', what: '在方舟式外观和原来的外观之间切换。', steps: ['在下面「常用工具」点「外观」'], open: { click: '#skin' } },
       { name: '平板', what: '在家里的平板、手机上用圆桌。', steps: ['点「平板」', '设口令，或扫码配对'], open: { click: '#lanbtn' } },
       { name: '游戏模式', what: '你玩游戏时圆桌自动让出显卡。', steps: ['点「游戏」', '打开自动，或手动开 / 关'], open: { click: '#gamemodebtn' } },

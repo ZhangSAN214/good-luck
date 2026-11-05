@@ -408,6 +408,10 @@ const home = new Apartment($('#home'), {
   setupOf: (id) => people.open(id),
 });
 const standee = new Standee({ load: API.standee, pointer: () => hub.follow });
+// 开机动画「线条汇聚」最后落在立绘的位置上，向这里要位置和图（web/boot/lines.html）
+// 打开时停在哪一页要等初始化走完才知道，之前一律答「还在准备」
+let entrySettled = false;
+window.roundtableLanding = () => (entrySettled ? standee.landing() : { pending: true });
 const hub = new Hub($('#hub'), {
   music: new Music(),
   clock: new Clock(),
@@ -1808,6 +1812,7 @@ async function init() {
   if (where) setEntry(where[1]);
   else if (!m && landing() === 'hub') setEntry('hub');
   else coach.show(entry); // 停在办公室时没走 setEntry，这里补弹办公室的小卡片
+  entrySettled = true;
   petReady = true;
   syncPet();
   weeklyDot();
