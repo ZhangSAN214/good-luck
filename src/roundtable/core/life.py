@@ -379,7 +379,7 @@ class LifeEngine:
         if self.guard.room_left() > 0 and not self.guard.check(self.spent_today()):
             out["checkins"] = await self.trip_checkins(happenings)
             out["bili"] = await self.bili.tick(now)
-        m = await self.moments.tick(now, offline=offline)
+        m = await self.moments.tick(now, offline=offline, since=start)
         out["moments"] = m["posts"] + m["comments"]
         names = {m.id: m.name for m in self.hub.everyone()}
         out["reports"] = int(self.guard.weekly(self.rt.budget.now(), names) is not None)

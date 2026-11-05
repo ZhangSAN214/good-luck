@@ -953,22 +953,42 @@ class Moments:
             if m.available and schedule(m.id, now.hour, now.weekday())[1] != "sleep"
         ]
 
-    def due_slot(self, member: ChatMember, now: datetime) -> tuple[int, datetime] | None:
-        """今天（本地日）到点、还没发过、也没过期的那一条：（第几条, 计划的时刻）。"""
+    def due_slot(
+        self, member: ChatMember, now: datetime, since: datetime | None = None
+    ) -> tuple[int, datetime] | None:
+        """到点、还没发过、也没过期的那一条：（第几条, 计划的时刻）。
+
+        ``since``（开机补算时传上次推进的时刻）：电脑关着那段时间里本该发的也算，按计划的时刻
+        补发（11-05：电脑每天只开一两个小时，到点时没开机的动态全丢了，朋友圈停了 4 天）。"""
         rules = self.rules
-        local = home_zone(self.rt).local(now)
-        day = local.replace(hour=0, minute=0, second=0, microsecond=0)
-        mine = self.rt.repo.moments(author=member.id, since=iso(day), limit=20)
-        if len(mine) >= rules.posts_per_member:
-            return None
-        used = {(m["meta"] or {}).get("slot") for m in mine}
+        zone = home_zone(self.rt)
+        local = zone.local(now)
         window = timedelta(hours=rules.post_window_hours)
-        for i, at in enumerate(post_slots(rules, member.id, day)):
-            if i not in used and at <= local < at + window:
-                return i, at
+        first = zone.local(since) - window if since is not None else local
+        day = local.replace(hour=0, minute=0, second=0, microsecond=0)
+        days = [day]
+        while since is not None and days[0] > first:
+            days.insert(0, days[0] - timedelta(days=1))
+        for start in days:
+            end = iso(start + timedelta(days=1))
+            mine = [
+                m
+                for m in self.rt.repo.moments(author=member.id, since=iso(start), limit=20)
+                if m["created_at"] < end
+            ]
+            if len(mine) >= rules.posts_per_member:
+                continue
+            used = {(m["meta"] or {}).get("slot") for m in mine}
+            for i, at in enumerate(post_slots(rules, member.id, start)):
+                if i in used:
+                    continue
+                if at <= local < at + window or (since is not None and first <= at <= local):
+                    return i, at
         return None
 
-    async def tick(self, now: datetime, *, offline: bool = False) -> dict[str, int]:
+    async def tick(
+        self, now: datetime, *, offline: bool = False, since: datetime | None = None
+    ) -> dict[str, int]:
         out = {"posts": 0, "comments": 0, "likes": 0, "skipped": 0}
         rules = self.rules
         if not rules.enabled:
@@ -980,13 +1000,15 @@ class Moments:
         for member in awake:
             if out["posts"] >= rules.posts_per_tick:
                 break
-            slot = self.due_slot(member, now)
+            slot = self.due_slot(member, now, since if offline else None)
             if slot is None:
                 continue  # 今天不发 / 还没到点 / 已经发过
             if self.misses("posts").get(member.id, 0) >= rules.post_misses:
                 continue  # 今天写了几次都没过自查：今天不发了（省钱）
             recent = self.recent_posts(now)
-            event = self.event_for(member, now, recent)
+            # 补发的那条只说那天到计划时刻前后发生的事
+            seen = min(now, slot[1] + timedelta(hours=rules.post_window_hours))
+            event = self.event_for(member, seen.astimezone(now.tzinfo), recent)
             if event is None:
                 continue  # 到点了但没事可说：不发
             at = max(slot[1], datetime.fromisoformat(event["at"]))
