@@ -8,8 +8,8 @@ import json
 import pytest
 import yaml
 
-from roundtable.core import simexam
-from roundtable.core.simlab import SIM_FILE, SimError, SimResult, Simulation
+from roundtable.core.sim import exam as simexam
+from roundtable.core.sim.lab import SIM_FILE, SimError, SimResult, Simulation
 
 MATERIAL = yaml.safe_load(SIM_FILE.read_text("utf-8"))
 

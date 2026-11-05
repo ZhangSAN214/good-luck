@@ -8,7 +8,7 @@ from datetime import datetime
 import pytest
 
 from roundtable.core.config.schema import EvolutionRules, EvolutionScoutRules
-from roundtable.core.evolution_scout import (
+from roundtable.core.evolution.scout import (
     SEEN_KEY,
     Scout,
     ScoutError,
@@ -19,8 +19,8 @@ from roundtable.core.evolution_scout import (
 from roundtable.core.search import FakeSearch, SearchHit, SearchService
 from roundtable.core.service import RoundtableService, ServiceError
 
-from .orchestrator.conftest import Env
-from .service.test_service import leaks
+from ..orchestrator.conftest import Env
+from ..service.test_service import leaks
 
 WRITE = "在为一个多 AI 协作平台「圆桌」整理资料"
 CHECK = "你在复核一张资料卡"

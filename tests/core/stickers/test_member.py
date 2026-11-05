@@ -9,7 +9,9 @@ import pytest
 from PIL import Image
 
 from roundtable.core.config import load_config
-from roundtable.core.member_stickers import (
+from roundtable.core.providers import ErrorKind, FakeProvider
+from roundtable.core.runtime import Runtime
+from roundtable.core.stickers.member import (
     CHECK_STEP,
     DRAW_STEP,
     MemberStickers,
@@ -18,10 +20,8 @@ from roundtable.core.member_stickers import (
     StickerError,
     StickerUnavailable,
 )
-from roundtable.core.providers import ErrorKind, FakeProvider
-from roundtable.core.runtime import Runtime
 
-from .members_samples import write_assets
+from ..members_samples import write_assets
 
 OK = json.dumps({"caption_ok": True, "looks_ok": True, "problems": ""})
 BAD = json.dumps({"caption_ok": False, "looks_ok": True, "problems": "配文少了一个字"})
@@ -278,7 +278,7 @@ def grey_sticker(size=360, bg=(228, 228, 230)):
 
 
 def test_light_grey_background_becomes_pure_white_but_the_character_stays(tmp_path):
-    from roundtable.core.member_stickers import _square
+    from roundtable.core.stickers.member import _square
 
     with Image.open(io.BytesIO(_square(grey_sticker(), 360))) as im:
         im = im.convert("RGB")
@@ -434,7 +434,7 @@ def test_moment_photo_prompt_carries_cues_and_daily_must(tmp_path):
 def test_phone_look_is_deterministic_and_changes_the_image():
     import random
 
-    from roundtable.core.member_stickers import phone_look
+    from roundtable.core.stickers.member import phone_look
 
     src = png("blue", (400, 300))
     a = phone_look(src, random.Random("x"))
@@ -633,7 +633,7 @@ def test_local_only_without_a_local_model_draws_nothing(tmp_path):
 
 
 def test_tidy_tags_drops_empty_items():
-    from roundtable.core.member_stickers import tidy_tags
+    from roundtable.core.stickers.member import tidy_tags
 
     assert tidy_tags("positive: a, , b,  ,c\nnegative: x,") == "positive: a, b, c\nnegative: x"
 
@@ -821,7 +821,7 @@ def test_film_look_keeps_the_frame_and_light():
     """11-02 用户：GPT 画的已经够自然，只差一点滤镜——胶片后期不裁、不压饱和。"""
     import random
 
-    from roundtable.core.member_stickers import film_look
+    from roundtable.core.stickers.member import film_look
 
     src = png("orange", (400, 300))
     a = film_look(src, random.Random("x"))

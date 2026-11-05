@@ -5,10 +5,10 @@ from __future__ import annotations
 import pytest
 
 from roundtable.core.config.schema import EvolutionImplementRules, EvolutionRules
-from roundtable.core.evolution_dev import branch_name, find_pr, render_brief, resolve
+from roundtable.core.evolution.dev import branch_name, find_pr, render_brief, resolve
 from roundtable.core.service import ServiceError
 
-from .service.test_evolution_service import make as meeting_env
+from ..service.test_evolution_service import make as meeting_env
 
 PR = "https://github.com/o/r/pull/42"
 

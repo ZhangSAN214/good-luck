@@ -8,8 +8,8 @@ from datetime import datetime
 
 import pytest
 
-from roundtable.core.simlab import SimError, Simulation
-from roundtable.core.simscene import material_with
+from roundtable.core.sim.lab import SimError, Simulation
+from roundtable.core.sim.scene import material_with
 
 
 def test_material_with_swaps_whole_blocks_and_adds_user_kinds():

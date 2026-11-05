@@ -511,7 +511,7 @@ class Moments:
         """按概率给这条动态画一张配图（不用审）；不配、超了每天的张数或画不出来时为 None；
         游戏模式下显卡让路、要排队时为 ``DEFERRED``。planned：已经定了要配（补画时）。"""
         from roundtable.core.chat_media import ChatMediaStore, MediaError
-        from roundtable.core.member_stickers import (
+        from roundtable.core.stickers.member import (
             MemberStickers,
             PhotoDeferred,
             StickerBudgetExceeded,
@@ -599,7 +599,7 @@ class Moments:
         version = rt.config.roundtable.prompts.get(role)
         if not rules.brief or version is None or not self.allow(rules.brief_estimate_usd):
             return ""
-        from roundtable.core.member_stickers import MemberStickers
+        from roundtable.core.stickers.member import MemberStickers
 
         stickers = MemberStickers(rt, rt.sticker_dir)
         people, _ = stickers.people(member.id, member.name, others, landlord=spec.landlord)

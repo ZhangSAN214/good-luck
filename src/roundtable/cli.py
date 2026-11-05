@@ -716,7 +716,7 @@ async def run(
 async def cmd_sim(args: argparse.Namespace, out: TextIO) -> int:
     from datetime import datetime as _dt
 
-    from roundtable.core.simlab import SimError, Simulation
+    from roundtable.core.sim.lab import SimError, Simulation
 
     if args.resume and not args.out:
         print("接着跑要用 --out 指定上次的输出目录", file=out)
@@ -764,8 +764,8 @@ async def cmd_sim_growth(args: argparse.Namespace, out: TextIO) -> int:
     """半年快进：全部指标正常返回 0，有超标或出错返回 1，没跑成返回 2。"""
     from datetime import datetime as _dt
 
-    from roundtable.core.simlab import SimError
-    from roundtable.core.simlong import LongRun
+    from roundtable.core.sim.lab import SimError
+    from roundtable.core.sim.long import LongRun
 
     folder = args.out or f"sim_runs/growth-{_dt.now():%Y%m%d-%H%M%S}"
     try:

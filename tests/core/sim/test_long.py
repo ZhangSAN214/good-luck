@@ -10,8 +10,8 @@ import pytest
 
 from roundtable.cli import run
 from roundtable.core.runtime import DEFAULT_DB
-from roundtable.core.simlab import SimError
-from roundtable.core.simlong import LongRun
+from roundtable.core.sim.lab import SimError
+from roundtable.core.sim.long import LongRun
 
 
 def test_refuses_data_dir_and_unknown_pressure(tmp_path):

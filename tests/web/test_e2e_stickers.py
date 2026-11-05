@@ -7,7 +7,7 @@ import io
 from PIL import Image
 
 from roundtable.core.config.schema import StickerCard, StickerSpec
-from roundtable.core.member_stickers import MemberStickers, card_hash
+from roundtable.core.stickers.member import MemberStickers, card_hash
 
 from .test_e2e_chat import open_chat
 

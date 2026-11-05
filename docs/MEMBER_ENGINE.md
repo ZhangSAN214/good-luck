@@ -115,7 +115,7 @@
 - **这阵子的你**：最近 `recent_days` 天里最新的 `recent_max` 件（看法除外，另有一行）拼成一行放进私聊、群聊的 `<persona>`（相关度 0.5，算在 600 字里，`context_chars` 字以内），让她知道自己最近的变化，说话前后一致。程序拼，不调模型。
 - 配置 `chat.engine.growth.book`。只用于生活模式（`recent_line(mode="work")` 报错）。
 
-### 半年快进与防退化（`core/simlong.py`、`core/member/growth/vitals.py`，成长 G3）
+### 半年快进与防退化（`core/sim/long.py`、`core/member/growth/vitals.py`，成长 G3）
 
 成员一周周地变，半年后会不会出问题？`roundtable sim-growth --days 180` 在临时数据库里**只推进和成长有关的部件**（每天写几句你说的和她回的 → 夜间整理 → 成员引擎 → 每周一反思），180 天约 75 秒、假模型、$0。默认**施压**：假模型每周都想把 8 位往同一个方向改（更外向、少较真、都爱奶茶和猫、去掉自己的口头禅），一半引用你说的话；你每天还反复说同一件事。
 

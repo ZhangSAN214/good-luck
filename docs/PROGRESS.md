@@ -220,7 +220,7 @@
 
 用户电脑上开了第一场（2026-W44，7 位成员匿名，$0.18），用户要求「每次只给结论、由我拍板」，于是：
 - **采纳单第 1 名：bench 自洽投票基线**：`--modes vote:budget[:次数]`，个人作答跑几次取多数答案判分，记为 `vote5`，花费合计，受 `--max-usd` 限制（`core/bench.py`）。
-- **圆桌自己找资料**（`evolution.scout`，`core/evolution_scout.py`）：白名单网站搜索 → 读网页 → 一位成员写卡（`evolution_card/v1`）→ 另一位复核（`evolution_check/v1`）→ 通过的进收件箱；隐藏会话 `evolution_scout` 记账，计入每月上限；自动开会前收件箱空就先找一次（每周最多一次）。`roundtable evolve scout`、`POST /api/evolution/scout`、网页「找资料」。
+- **圆桌自己找资料**（`evolution.scout`，`core/evolution/scout.py`）：白名单网站搜索 → 读网页 → 一位成员写卡（`evolution_card/v1`）→ 另一位复核（`evolution_check/v1`）→ 通过的进收件箱；隐藏会话 `evolution_scout` 记账，计入每月上限；自动开会前收件箱空就先找一次（每周最多一次）。`roundtable evolve scout`、`POST /api/evolution/scout`、网页「找资料」。
 - **你拍板**：网页里开完的例会下列出得票前几名，「做这条 / 不做」写进 `data/evolution/待实现.md`（`POST /api/evolution/meetings/{id}/ideas/{idea}`）；命令行概况也列出前几名与决定。
 - 开过会的卡移到 `data/evolution/已用/<周>/`，下周不再读。
 - 还没做、等用户点头：在用户电脑装 Claude Code 命令行 / gh，让「做这条」自动叫起开发侧；或建每周定时任务。
@@ -229,7 +229,7 @@
 ### 例会页简化 + 自动选大 / 小版本（2026-10-27，预估 1.5～2.5 小时，实际约 1.5 小时）
 
 用户反馈例会页说明太长、按钮太多，并要求「自主根据时间选择小版本和大版本」：
-- **自动判断**（`core/evolution.py` 的 `plan_kind` / `choose_theme` / `plan_meeting`，纯函数）：每个自然月的第一场开大版本，其余小版本；两次大版本至少隔 `major_gap_days`（默认 21）天。大版本主题：你定的（`PUT /api/evolution/next-theme`，用过一次清掉）→ `major_themes` 轮换（没用过的优先）；没有主题时先开小版本。每周自动开、网页「现在开一场」、`roundtable evolve meet` 都按它判断；`--major / --minor`、网页「改成…」只改这一次，手动改成大版本不占每周名额。例会记录多存 `reason`、`override`。
+- **自动判断**（`core/evolution/meeting.py` 的 `plan_kind` / `choose_theme` / `plan_meeting`，纯函数）：每个自然月的第一场开大版本，其余小版本；两次大版本至少隔 `major_gap_days`（默认 21）天。大版本主题：你定的（`PUT /api/evolution/next-theme`，用过一次清掉）→ `major_themes` 轮换（没用过的优先）；没有主题时先开小版本。每周自动开、网页「现在开一场」、`roundtable evolve meet` 都按它判断；`--major / --minor`、网页「改成…」只改这一次，手动改成大版本不占每周名额。例会记录多存 `reason`、`override`。
 - **网页**：改成「成员设定」那套分组卡片——顶上「下一场」大卡片（大 / 小版本、几个选项、自动判断的原因、主题与「改主题」、一个「现在开一场」、本月花费细条），下面「本场结论」每条右边「做 / 不做」，看过程、采纳单、插件清单、找资料、以前的例会收进「更多」；说明只留一句，「怎么运作？」折叠四句话。去掉了手动选小版本 / 大版本的单选。
 - 花费上限不变（每场 $0.40、每月 $1.5）；不改提示词，例会题目对所有成员仍完全相同。
 - 测试：`tests/core/test_evolution.py`、`tests/core/service/test_evolution_service.py`、`tests/api/test_evolution_api.py`、`tests/web/test_e2e_evolution.py`。

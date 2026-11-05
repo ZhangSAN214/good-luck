@@ -8,7 +8,7 @@ import pytest
 from pydantic import ValidationError
 
 from roundtable.core.config.schema import EvolutionRules
-from roundtable.core.evolution import (
+from roundtable.core.evolution.meeting import (
     Meeting,
     adoption_markdown,
     adoption_path,
