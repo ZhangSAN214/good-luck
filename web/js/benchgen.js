@@ -942,7 +942,7 @@ export class BenchGenPanel {
   /** 评分标尺：你挑的参考截图，文件名写分数；评审照着它定尺度（第 4 块）。截图只存在你电脑上。 */
   rulerHtml() {
     const r = this.rulerSt;
-    if (!r) return '<p class="sc-hint">正在读评分标尺…</p>';
+    if (!r) return '<p class="sc-hint bg-ruler-wait">正在读评分标尺…</p>';
     const items = (r.items || [])
       .map(
         (x) => `<li class="bg-ritem"><img src="/api/bench/ruler/${encodeURIComponent(x.file)}" alt="${esc(x.score)} 分的参考截图" loading="lazy">
@@ -967,7 +967,19 @@ export class BenchGenPanel {
       this.rulerSt = { items: [], enabled: false };
       this.rulerErr = x.message;
     }
-    this.paint('drawer', this.drawerHtml(this.st || {}, this.shownBuild()), true);
+    this.paintRuler();
+  }
+
+  /** 只换掉标尺那一块，质检记录（截图）不重画，免得图片刚加载又被换掉。 */
+  paintRuler() {
+    const html = this.drawerHtml(this.st || {}, this.shownBuild());
+    const box = this.el.querySelector('[data-region="drawer"]');
+    const old = box?.querySelector('.bg-ruler, .bg-ruler-wait');
+    if (!old) return this.paint('drawer', html, true);
+    const tmp = document.createElement('div');
+    tmp.innerHTML = this.rulerHtml();
+    old.replaceWith(...tmp.childNodes);
+    box.dataset.html = html;
   }
 
   async rulerAct(fn) {
@@ -978,7 +990,7 @@ export class BenchGenPanel {
     } catch (x) {
       this.rulerErr = x.message;
     }
-    this.paint('drawer', this.drawerHtml(this.st || {}, this.shownBuild()), true);
+    this.paintRuler();
   }
 
   /** 底部「改动」：选一样东西 → 改它、看历史、对比、退回；窗口还能一句话交给助手改。 */
