@@ -69,9 +69,6 @@ class MemoryRules(_Strict):
     # 夜里整理是一段 JSON，思考也算在输出里：600 时三位一个字都没写出来（10-31 真模型试跑）
     max_tokens: int = Field(default=2500, ge=64)
     estimate_usd: float = Field(default=0.003, ge=0)  # 每次整理的预估花费（预算检查用）
-    # 召回方式：half_life 半衰期记忆（默认），按相关 × 鲜活 × 重要挑几件；
-    # layers 按时间固定带几层（旧）
-    recall: Literal["layers", "half_life"] = "half_life"
     half_life_days: float = Field(default=30, ge=1, le=3650)  # 发生过的事过多少天鲜活度减半
     freshness_floor: float = Field(default=0.5, ge=0, le=1)  # 鲜活度保底：再久的事也不低于它
     inject_max: int = Field(default=6, ge=1, le=30)  # 半衰期召回每次最多带几件

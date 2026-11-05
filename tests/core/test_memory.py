@@ -30,11 +30,6 @@ def rules_env(**memory: object) -> Env:
     )
 
 
-def layers_env() -> Env:
-    """旧的分层记忆（recall: layers）：按天整理、周 / 月滚动、长期档案。"""
-    return rules_env(recall="layers")
-
-
 def keeper(env: Env) -> MemoryKeeper:
     hub = ChatHub(env.rt)
     return MemoryKeeper(env.rt, hub.everyone)
@@ -99,7 +94,7 @@ async def test_dm_of_someone_else_is_not_in_the_log():
 
 
 async def test_finished_weeks_and_months_roll_up_and_update_profile():
-    env = layers_env()
+    env = rules_env(night=False)  # 不用夜间整理时：过完的周、月往上压，月小结后更新长期档案
     repo = env.rt.repo
     repo.add_memory("V1", "day", "9 月 15 日的事", period="2026-09-15")
     repo.add_memory("V1", "day", "10 月 13 日的事", period="2026-10-13")
@@ -125,33 +120,15 @@ async def test_user_written_profile_is_kept():
     assert repo.memories("V1", layer="profile") == [old]
 
 
-def test_memory_context_order_and_limit():
-    env = layers_env()
-    repo = env.rt.repo
-    assert memory_context(env.rt, "V1", 800) == "（暂无）"
-    repo.add_memory("V1", "day", "前天", period="2026-10-21")
-    repo.add_memory("V1", "day", "昨天", period="2026-10-22")
-    repo.add_memory("V1", "profile", "档案")
-    repo.add_memory("V1", "note", "用户说下周考试", source="user")
-    text = memory_context(env.rt, "V1", 800)
-    assert text.splitlines() == [
-        "【长期档案】档案",
-        "【那天（2026-10-22）】昨天",
-        "【那天（2026-10-21）】前天",
-        "【记下的】用户说下周考试",
-    ]
-    assert len(memory_context(env.rt, "V1", 10)) == 11
-
-
 async def test_chat_prompt_carries_memory_and_persona():
-    env = layers_env()
+    env = Env()
     env.rt.repo.add_memory("V1", "note", "用户说下周考试", source="user")
     env.rt.repo.set_member_persona("V1", {"personality": "爱较真", "interests": ["天文"]})
     dm = ChatHub(env.rt).room(dm_room("V1"))
     msg, speakers = dm.post("在吗")
     await dm.replies(msg["id"], speakers)
     user = env.fake.calls[-1].messages[-1].content
-    assert "<memory>\n【记下的】用户说下周考试\n【对方是谁】" in user  # 你的身份接在记忆后面
+    assert "<memory>\n【长期】用户说下周考试\n【对方是谁】" in user  # 你的身份接在记忆后面
     assert "性格：爱较真" in user and "兴趣：天文" in user
 
 
@@ -218,7 +195,7 @@ async def test_half_life_recall_uses_conversation_and_records_why():
 def test_half_life_is_default_and_old_memories_are_imported_once():
     env = Env()
     rules = env.config.roundtable.chat.memory
-    assert rules.recall == "half_life" and rules.night and rules.freshness_floor == 0.5
+    assert rules.night and rules.freshness_floor == 0.5
     repo = env.rt.repo
     repo.add_memory("V1", "day", "★用户不吃香菜\n昨天去了图书馆", period="2026-10-22")
     repo.add_memory("V1", "note", "用户下周考试", source="user")
@@ -231,13 +208,6 @@ def test_half_life_is_default_and_old_memories_are_imported_once():
     repo.add_memory("V1", "note", "导入之后再加的", source="user")
     memory_context(env.rt, "V1", 800, "")
     assert repo.count_memory_items("V1") == n  # 只导入一次；之后用户记的经服务写进记忆件
-
-
-def test_layers_mode_does_not_record_recall():
-    env = layers_env()
-    m = env.rt.repo.add_memory("V1", "day", "昨天", period="2026-10-22")
-    memory_context(env.rt, "V1", 800, "昨天")
-    assert env.rt.repo.memory(m["id"])["recalled_at"] is None
 
 
 def test_old_duplicate_and_empty_items_are_cleaned_once():

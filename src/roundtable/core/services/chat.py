@@ -707,8 +707,7 @@ class ChatService:
         """一位成员的记忆件（q 为空时最近的在前，否则按全文索引找）、挂着的事、习惯、统计。"""
         self._chat_member(member)
         repo = self.rt.repo
-        if self.rt.config.roundtable.chat.memory.recall == "half_life":
-            prepare_items(self.rt)
+        prepare_items(self.rt)
         limit = min(max(limit, 1), 500)
         if q:
             ids = repo.search_memory_items(member, query_terms(q), limit)

@@ -6,12 +6,13 @@
   ``chat.memory.catch_up_days`` 天），过完的周、月再往上压一层；当天没有聊天的成员
   不调用模型。调用记在「记忆」隐藏聊天会话上，计入聊天月预算。
 - 用到哪：聊天提示词里放一小段（``memory_context``，有字数上限）。**工作模式与办公室不读取**。
-- 召回方式 ``chat.memory.recall``：``half_life``（默认，P2 记忆与联想）从记忆件里按和当前对话的
-  相关度 × 鲜活度（带保底）× 重要度挑最多 ``inject_max`` 件，加上脑子里挂着的事和联想到的一件
-  （``core/member/memory/``，不调用模型）；``layers``（旧）按时间固定带几层。
+- 召回（半衰期记忆，P2 记忆与联想）：从记忆件里按和当前对话的相关度 × 鲜活度（带保底）
+  × 重要度挑最多 ``inject_max`` 件，加上脑子里挂着的事和联想到的一件
+  （``core/member/memory/``，不调用模型）。
+  旧的「按时间固定带几层」召回方式 2026-11-05 删除（用户同意）。
 - 夜间整理（``night: true``，默认）：每位成员每天只调用一次（``memory_night``），写第一人称日记、
   拆记忆件、更新挂着的事，心情不平静时改几件旧记忆的语气和重要度（原文不改，留旧版）；
-  不再另外滚动周 / 月和长期档案。``night: false`` 时用旧的 ``memory_items`` / ``memory_day``。
+  不再另外滚动周 / 月和长期档案。``night: false`` 时用旧的 ``memory_items`` 加周 / 月滚动。
 - 旧记忆第一次用半衰期时导入成记忆件（原文不改），之后的召回都看记忆件。
 - 敏感内容（密码、证件号、银行卡、验证码、长串数字）整理时丢弃；提示词也要求不记。
 """
@@ -58,10 +59,6 @@ def day_window(day: date, tz: tzinfo | None) -> tuple[str, str]:
     if start.tzinfo is None:
         start = start.astimezone()  # 本机时区
     return iso(start), iso(start + timedelta(days=1))
-
-
-def _cut(text: str, max_chars: int) -> str:
-    return text if len(text) <= max_chars else text[:max_chars].rstrip() + "…"
 
 
 def import_old_memories(rt: Any) -> int:
@@ -130,40 +127,21 @@ def prepare_items(rt: Any) -> None:
 def memory_context(
     rt: Any, member: str, max_chars: int, query: str = "", conversation: str | None = None
 ) -> str:
-    """聊天提示词里的记忆。
+    """聊天提示词里的记忆：按 query（当前对话、场景）召回，加挂着的事和联想，总长 ≤ max_chars。
 
-    ``half_life``：按 query（当前对话、场景）召回，加挂着的事和联想，总长 ≤ max_chars；
     conversation（会话）相同且间隔不久的几次调用算一次对话，带过的不再带。
-    ``layers``：长期档案、最近一月 / 一周 / 三天、最近几条随手记。
     """
-    repo = rt.repo
-    rules = rt.config.roundtable.chat.memory
-    if rules.recall == "half_life":
-        prepare_items(rt)
-        now = rt.budget.now()
-        got = Recaller(rt).recall(
-            member,
-            query,
-            today=now.astimezone(home_zone(rt).tz()).date(),
-            now=now,
-            conversation=conversation,
-            budget_chars=max_chars,
-        )
-        return got.text
-    parts: list[str] = []
-
-    def take(layer: str, n: int, label: str) -> None:
-        for m in repo.memories(member, layer=layer, limit=n):
-            when = f"（{m['period']}）" if m["period"] else ""
-            parts.append(f"【{label}{when}】{m['text']}")
-
-    take("profile", 1, "长期档案")
-    take("month", 1, "上个月")
-    take("week", 1, "最近一周")
-    take("day", 3, "那天")
-    take("note", 5, "记下的")
-    text = "\n".join(parts)
-    return _cut(text, max_chars) if text else NONE
+    prepare_items(rt)
+    now = rt.budget.now()
+    got = Recaller(rt).recall(
+        member,
+        query,
+        today=now.astimezone(home_zone(rt).tz()).date(),
+        now=now,
+        conversation=conversation,
+        budget_chars=max_chars,
+    )
+    return got.text
 
 
 class MemoryKeeper:
@@ -210,7 +188,7 @@ class MemoryKeeper:
 
     @property
     def nightly(self) -> bool:
-        return self.rules.recall == "half_life" and self.rules.night
+        return self.rules.night
 
     def work_lines(self, member: ChatMember, day: date, tz: tzinfo | None) -> list[str]:
         """生活只读工作：这位成员自己在工作模式里参加过的场次记成经历（同一场只记一次）。
@@ -311,19 +289,16 @@ class MemoryKeeper:
         log = self.day_log(member, day, tz)
         if not log:
             return None
-        if self.rules.recall == "half_life":
-            quota = self.rules.daily_quota
-            text = await self._write(
-                member, "memory_items", name=member.name, day=period, log=log, quota=str(quota)
+        quota = self.rules.daily_quota
+        text = await self._write(
+            member, "memory_items", name=member.name, day=period, log=log, quota=str(quota)
+        )
+        text = "\n".join((text or "").splitlines()[:quota])
+        for line in text.splitlines():
+            star = line.startswith(STAR)
+            self.store.write(
+                member.id, line.lstrip(STAR), day=period, fact=star, importance=3 if star else 1
             )
-            text = "\n".join((text or "").splitlines()[:quota])
-            for line in text.splitlines():
-                star = line.startswith(STAR)
-                self.store.write(
-                    member.id, line.lstrip(STAR), day=period, fact=star, importance=3 if star else 1
-                )
-        else:
-            text = await self._write(member, "memory_day", name=member.name, day=period, log=log)
         if not text:
             return None
         return repo.add_memory(member.id, "day", text, period=period, offline=offline)

@@ -83,7 +83,6 @@ def test_repo_config_loads_with_defaults():
         "chat",
         "chat_dm",
         "chat_work",
-        "memory_day",
         "memory_roll",
         "memory_profile",
         "memory_items",
