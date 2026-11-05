@@ -4,6 +4,7 @@ M2 说话像人（聊天原话、短、样子、不发、昵称）；M3 节奏�
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import random
 from collections import Counter
@@ -189,6 +190,55 @@ async def test_post_window_passes_without_event_then_slot_is_gone():
     (a,) = one_awake(env, mo)
     assert mo.due_slot(a, NOW) is not None
     assert mo.due_slot(a, NOW + timedelta(hours=2)) is None  # 过了窗口：今天这条没了
+
+
+async def test_catch_up_finds_slot_missed_while_computer_was_off():
+    """开机补算：电脑关着时到点的那条按计划时刻补发；不是补算时照旧算过期。"""
+    env = Env()
+    due_now(env, post_window_hours=1)
+    mo = moments(env)
+    (a,) = one_awake(env, mo)
+    later = NOW + timedelta(hours=4)
+    assert mo.due_slot(a, later) is None
+    slot = mo.due_slot(a, later, since=NOW - timedelta(hours=3))
+    assert slot is not None and NOW - timedelta(hours=1) <= slot[1] <= NOW
+    assert mo.due_slot(a, later, since=NOW + timedelta(hours=1)) is None  # 关机前已过期的不补
+
+
+async def test_catch_up_tick_posts_missed_slot_backdated():
+    env = Env()
+    due_now(env, post_window_hours=1, comment_counts=[1])
+    seed_events(env)
+    answer(env, post="今天在天台看星星，挺安静的。")
+    mo = moments(env)
+    later = NOW + timedelta(hours=3)
+    out = await mo.tick(later, offline=True, since=NOW - timedelta(hours=3))
+    assert out["posts"] >= 1
+    posted = env.rt.repo.moments(limit=5)
+    assert posted and all(p["created_at"] <= iso(NOW) for p in posted)
+
+
+async def test_empty_answer_after_thinking_is_retried_without_thinking():
+    """思考把上限用光、正文为空：关掉思考再调一次，不当成「不发」。"""
+    env = Env()
+    due_now(env)
+    seed_events(env)
+    mo = moments(env)
+    seen: list[dict] = []
+    orig = env.fake.complete
+
+    async def complete(model, messages, params):
+        seen.append(dict(params))
+        out = await orig(model, messages, params)
+        if "想发一条朋友圈" in messages[0].content and len(seen) == 1:
+            return dataclasses.replace(out, text="", truncated=True)
+        return out
+
+    env.fake.complete = complete
+    answer(env, post=FAKE_POST)
+    out = await mo.tick(NOW)
+    assert out["posts"] >= 1
+    assert seen[1]["reasoning"] == {"enabled": False}
 
 
 # --- M2 说话像人 ----------------------------------------------------------------------

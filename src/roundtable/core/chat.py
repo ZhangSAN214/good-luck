@@ -330,9 +330,24 @@ async def call_member(
     if not rt.budget.check(estimate_usd).allowed or chat_budget(rt).would_exceed(estimate_usd):
         return None
     session = rt.repo.chat_session(room)
-    try:
-        completion = await rt.router.complete(model_id, prompt.messages, params)
-    except (AllChannelsFailed, NoChannelAvailable, ProviderError) as e:
+    guard = rt.config.roundtable.length_guard
+    attempts = [params]
+    completion = None
+    while attempts:
+        sent = attempts.pop(0)
+        try:
+            completion = await rt.router.complete(model_id, prompt.messages, sent)
+        except (AllChannelsFailed, NoChannelAvailable, ProviderError) as e:
+            rt.repo.record_call(
+                session,
+                step=step,
+                role="member",
+                model_id=model_id,
+                messages=prompt.messages,
+                prompt=prompt,
+                failure=e,
+            )
+            return None
         rt.repo.record_call(
             session,
             step=step,
@@ -340,18 +355,13 @@ async def call_member(
             model_id=model_id,
             messages=prompt.messages,
             prompt=prompt,
-            failure=e,
+            completion=completion,
         )
-        return None
-    rt.repo.record_call(
-        session,
-        step=step,
-        role="member",
-        model_id=model_id,
-        messages=prompt.messages,
-        prompt=prompt,
-        completion=completion,
-    )
+        # 思考把输出上限用光、正文为空（11-04 朋友圈：800 个 token 全花在思考上，
+        # 动态被当成「不发」）：关掉思考、提高上限再调一次（不原样重发，只补一次）
+        empty = completion.truncated and not completion.text.strip()
+        if sent is params and guard.enabled and empty:
+            attempts.append(guard.escalate(params) | {"reasoning": {"enabled": False}})
     return completion
 
 
