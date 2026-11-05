@@ -29,6 +29,21 @@ from statistics import mean
 from typing import Any
 
 from roundtable.core.benchkit.appcheck import run_app_check
+from roundtable.core.benchkit.edits import (
+    EditError,
+    add_version,
+    affected,
+    apply_value,
+    check_key,
+    clean_value,
+    current,
+    diff_text,
+    label_of,
+    mark_stale,
+    read_version,
+    research_text,
+    versions_of,
+)
 from roundtable.core.benchkit.intent import (
     FIVE_KEYS,
     FORM,
@@ -867,14 +882,22 @@ class BenchBuilder:
         thread = next((t for t in b.get("threads") or [] if t["id"] == tid), None)
         if thread is None:
             raise KeyError(tid)
-        rec = next((w for w in b.get("windows") or [] if w["id"] == thread.get("window")), None)
-        if rec is None:
+        if not any(w["id"] == thread.get("window") for w in b.get("windows") or []):
             raise ValueError("这条线程不是写窗口的活，暂时只能单独重跑写窗口的线程")
+        return self._rerun(b, thread, f"用户说上次哪里不对：{reason}", worker)
+
+    def _rerun(
+        self, b: dict[str, Any], thread: dict[str, Any], ask: str, worker: str | None
+    ) -> dict[str, Any]:
+        if self.busy:
+            raise RuntimeError("生成器正在干活，等这一步停下（或先暂停）再单独重跑")
+        bid = b["id"]
+        rec = next(w for w in b.get("windows") or [] if w["id"] == thread.get("window"))
         if worker is not None and self.sc.worker(worker) is None:
             raise ValueError(f"没有这位助手：{worker}")
         spec = load_spec(self.folder(bid))
-        rng = self._rng(b, f"rerun-{tid}")
-        prompt = self._rerun_prompt(b, spec, rec, thread, reason)
+        rng = self._rng(b, f"rerun-{thread.get('id') or rec['id']}")
+        prompt = self._rerun_prompt(b, spec, rec, thread, ask)
         if worker is not None:
             rec["author"] = worker  # 换人：交给你指定的这位（_redo 优先交回作者）
         b["status"] = "reworking"
@@ -882,11 +905,198 @@ class BenchBuilder:
 
         async def go() -> None:
             await self._redo(b, rec, prompt, rng, 0)
+            if rec["status"] == "done":
+                (b.get("stale") or {}).pop(rec["id"], None)
             b["status"] = "waiting" if b.get("gate") else "needs_you"
 
         self._start_job(b, go)
         self._save(b)
         return tree_view(b)
+
+    # --- 处处可改（benchkit/edits.py）：每改一次存一版，改了上游只重做受影响的窗口 ------------
+
+    def edit_view(self, bid: str, key: str) -> dict[str, Any]:
+        """一样东西现在的值和它的版本历史。"""
+        b = self._editable(bid)
+        folder = self.folder(bid)
+        out = {
+            "key": key,
+            "label": label_of(key, b),
+            "value": current(b, folder, key),
+            "versions": versions_of(b, key),
+        }
+        if key == "research":  # 界面上逐条勾「删掉 / 钉住」要看到每一条
+            from roundtable.core.benchkit.research import research_refs
+
+            out["refs"] = research_refs(b.get("research") or {})
+        elif key == "materials":
+            out["materials"] = [
+                {"id": m["id"], "name": m.get("name") or m.get("file"), "kind": m.get("kind")}
+                for m in b.get("materials") or []
+            ]
+        elif key == "answers":
+            out["questions"] = [
+                {"id": q["id"], "q": q.get("q", "")}
+                for q in ((b.get("interview") or {}).get("questions")) or []
+            ]
+        return out
+
+    def version_diff(self, bid: str, key: str, n: int) -> dict[str, Any]:
+        """第 n 版和它的上一版（或现在）比，改了什么。"""
+        b = self._editable(bid)
+        check_key(key)
+        folder = self.folder(bid)
+        vs = versions_of(b, key)
+        ns = [v["n"] for v in vs]
+        if n not in ns:
+            raise EditError(f"没有第 {n} 版")
+        new = read_version(folder, key, n)
+        i = ns.index(n)
+        old = read_version(folder, key, ns[i - 1]) if i > 0 else ""
+        return {
+            "key": key,
+            "n": n,
+            "diff": diff_text(old, new, f"第 {ns[i - 1]} 版" if i else "最初", f"第 {n} 版"),
+        }
+
+    def edit(
+        self,
+        bid: str,
+        key: str,
+        value: Any,
+        why: str = "",
+        by: str = "你",
+        *,
+        revert_of: int | None = None,
+    ) -> dict[str, Any]:
+        """你改了一样东西：存一版，受影响的窗口标过期。正在跑的线程用到它时停下来问你。"""
+        b = self._editable(bid)
+        folder = self.folder(bid)
+        kind, wid = check_key(key)
+        old = current(b, folder, key)
+        new = clean_value(b, folder, key, value)
+        if new == old:
+            return {"changed": False, "stale": b.get("stale") or {}}
+        at = _iso(self.now())
+        if not versions_of(b, key):
+            add_version(b, folder, key, old, "生成器", "改之前的样子", at)
+        hit, reason = affected(b, folder, key, old, new)
+        apply_value(b, folder, key, new)
+        note = why.strip() or (f"退回第 {revert_of} 版" if revert_of else "")
+        add_version(b, folder, key, new, by, note or "改了", at)
+        if kind in ("code", "data"):
+            b.setdefault("review_stale", [])
+            if wid not in b["review_stale"]:
+                b["review_stale"].append(wid)  # 你亲手改了代码：上次的评审不算数了，不用重写
+        if hit:
+            mark_stale(b, hit, reason + (f"（你说：{why.strip()}）" if why.strip() else ""), at)
+        running = {
+            t.get("window")
+            for t in b.get("threads") or []
+            if t["status"] == "running" and t.get("window")
+        }
+        if self.busy and (set(hit) & running or (kind in ("code", "data") and wid in running)):
+            b["edit_conflict"] = {"key": key, "label": label_of(key, b), "windows": hit or [wid]}
+            self._log(b, f"你改了{label_of(key, b)}，有线程正在用它：等你决定现在重跑还是跑完再说")
+        self._log(b, f"{by}改了{label_of(key, b)}" + (f"：{note}" if note else ""))
+        self._save(b)
+        return {"changed": True, "stale": b.get("stale") or {}}
+
+    def revert(self, bid: str, key: str, n: int, why: str = "") -> dict[str, Any]:
+        b = self._editable(bid)
+        check_key(key)
+        if n not in [v["n"] for v in versions_of(b, key)]:
+            raise EditError(f"没有第 {n} 版")
+        value = read_version(self.folder(bid), key, n)
+        return self.edit(bid, key, value, why or f"退回第 {n} 版", revert_of=n)
+
+    def instruct(self, bid: str, wid: str, text: str, worker: str | None = None) -> dict[str, Any]:
+        """写一句话让助手改这个窗口（代码或数据）：交回作者（或你指定的人）返工。"""
+        text = text.strip()
+        if not text:
+            raise ValueError("写一句要怎么改")
+        b = self._editable(bid)
+        thread = next((t for t in reversed(b.get("threads") or []) if t.get("window") == wid), None)
+        if thread is None:
+            rec = next((w for w in b.get("windows") or [] if w["id"] == wid), None)
+            if rec is None:
+                raise KeyError(wid)
+            thread = {"id": "", "window": wid, "summary": rec.get("summary") or ""}
+            b.setdefault("threads", [])
+        return self._rerun(b, thread, f"你要这样改：{text}", worker)
+
+    def resolve_conflict(self, bid: str, choice: str) -> dict[str, Any]:
+        """正在跑的线程用到了你刚改的东西：now = 停下用新的重跑；later = 跑完再说（先标过期）。"""
+        b = self._editable(bid)
+        if not b.get("edit_conflict"):
+            raise ValueError("现在没有要你决定的改动")
+        if choice not in ("now", "later"):
+            raise ValueError("choice 只能是 now 或 later")
+        b["edit_conflict"] = None
+        self._log(b, "你选了" + ("用新的重跑" if choice == "now" else "跑完再说"))
+        self._save(b)
+        return {"choice": choice}
+
+    def redo_stale(self, bid: str) -> dict[str, Any]:
+        """只重做受影响的：过期的窗口各交回作者返工一次（带上改了什么），改完只自测这几个。"""
+        b = self._editable(bid)
+        if self.busy:
+            raise RuntimeError("生成器正在干活，等这一步停下再重做")
+        stale = dict(b.get("stale") or {})
+        recs = [w for w in b.get("windows") or [] if w["id"] in stale]
+        if not recs:
+            raise ValueError("没有过期的窗口")
+        spec = load_spec(self.folder(bid))
+        rng = self._rng(b, "stale")
+        b["status"] = "reworking"
+        self._log(b, f"只重做受影响的 {len(recs)} 个窗口：" + "、".join(w["title"] for w in recs))
+
+        async def go() -> None:
+            jobs = []
+            for rec in recs:
+                why = "\n".join(f"- {r['why']}" for r in stale[rec["id"]])
+                prompt = self._fix_prompt(b, spec, rec, f"上游改了，按新的要求改这个窗口：\n{why}")
+                jobs.append(self._redo(b, rec, prompt, rng, 0))
+            await asyncio.gather(*jobs)
+            done = [w["id"] for w in recs if w["status"] == "done"]
+            for wid in done:
+                (b.get("stale") or {}).pop(wid, None)
+            b["review_stale"] = sorted(set(b.get("review_stale") or []) | set(done))
+            await self._selftest(b, spec, rng, only=[w["id"] for w in recs], out="stale")
+            b["status"] = "waiting" if b.get("gate") else "needs_you"
+            self._log(b, f"重做完了：{len(done)}/{len(recs)} 个窗口改好")
+
+        self._start_job(b, go)
+        self._save(b)
+        return {"windows": [w["id"] for w in recs]}
+
+    def _record_code(self, b: dict[str, Any], wid: str, who: Any, why: str) -> None:
+        """助手写完或改完一个窗口：代码存一版，记下是谁改的。"""
+        folder = self.folder(b["id"])
+        label = _who(who) if who is not None else "助手"
+        for key in (f"code:{wid}", f"data:{wid}"):
+            with contextlib.suppress(EditError, OSError, ValueError):
+                add_version(b, folder, key, current(b, folder, key), label, why, _iso(self.now()))
+
+    def _fix_prompt(self, b: dict[str, Any], spec: Spec, rec: dict[str, Any], problems: str) -> str:
+        w = spec.window(rec["id"])
+        assert w is not None
+        return self.render(
+            "bench_rework",
+            request=self._brief(b),
+            spec=json.dumps(spec.to_dict(), ensure_ascii=False, indent=1),
+            window=json.dumps(w.__dict__, ensure_ascii=False, indent=1),
+            file=w.file,
+            data_file=w.data_file,
+            problems=problems,
+            kit=self._kit_text(),
+            sources=self._sources_text(b),
+            net=self._net_text(),
+            samples=self._samples_text(b),
+            stage=b.get("stage_task") or ALL_DONE,
+            skills=self._skills("rework", spec.kind, b),
+            app=self._app_text(spec),
+        )
 
     def _rerun_prompt(
         self, b: dict[str, Any], spec: Spec, rec: dict[str, Any], thread: dict[str, Any], why: str
@@ -901,7 +1111,7 @@ class BenchBuilder:
             window=json.dumps(w.__dict__, ensure_ascii=False, indent=1),
             file=w.file,
             data_file=w.data_file,
-            problems=f"用户说上次哪里不对：{why}\n\n上次交回的说明：\n{last}",
+            problems=f"{why}\n\n上次交回的说明：\n{last}",
             kit=self._kit_text(),
             sources=self._sources_text(b),
             net=self._net_text(),
@@ -2772,6 +2982,8 @@ class BenchBuilder:
                 lines.append(
                     f"- 只借思路：{s['url']}（{s['why']}）为「{s['need']}」：{s['summary']}"
                 )
+        if notes := research_text(b):
+            lines.append(notes)
         r = b.get("research") or {}
         for c in r.get("cards") or []:
             where = (
@@ -2992,6 +3204,7 @@ class BenchBuilder:
         else:
             rec["status"] = "done"
             rec["summary"] = result.output.strip()[-2000:] or "（没有说明）"
+            self._record_code(b, rec["id"], chosen, "写窗口")
         self._run_card(rec, "写", chosen, result, changed)
         self._log(b, f"窗口「{w.title}」{'写好了' if rec['status'] == 'done' else '没写成'}")
 
@@ -3440,6 +3653,7 @@ class BenchBuilder:
         if ok and changed:
             rec["author"], rec["status"] = chosen.id, "done"
             rec["summary"] = result.output.strip()[-2000:] or rec["summary"]
+            self._record_code(b, rec["id"], chosen, "返工")
         elif ok:
             # 假完成：说改好了，文件一个字没动。不算数，也不顶掉原来的说明
             record["fake"] = True

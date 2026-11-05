@@ -16,10 +16,14 @@ from roundtable.api.bodies import (
     BenchAskBody,
     BenchAttachBody,
     BenchBody,
+    BenchConflictBody,
     BenchDecideBody,
+    BenchEditBody,
+    BenchInstructBody,
     BenchPluginBody,
     BenchProfileBody,
     BenchRerunBody,
+    BenchRevertBody,
     BenchReviewBody,
     BenchSignBody,
     BenchTreeKeyBody,
@@ -196,6 +200,46 @@ async def bench_rerun(request: Request, bench_id: str, body: BenchRerunBody) -> 
     return await svc(request).bench_project(
         bench_id, "rerun", thread=body.thread, reason=body.reason, worker=body.worker
     )
+
+
+@router.get("/api/bench/{bench_id}/edit")
+async def bench_edit_view(
+    request: Request, bench_id: str, key: str, n: int | None = None
+) -> dict[str, Any]:
+    return svc(request).bench_edit_view(bench_id, key, n)
+
+
+@router.post("/api/bench/{bench_id}/edit")
+async def bench_edit(request: Request, bench_id: str, body: BenchEditBody) -> dict[str, Any]:
+    return await svc(request).bench_project(
+        bench_id, "edit", key=body.key, value=body.value, why=body.why
+    )
+
+
+@router.post("/api/bench/{bench_id}/revert")
+async def bench_revert(request: Request, bench_id: str, body: BenchRevertBody) -> dict[str, Any]:
+    return await svc(request).bench_project(bench_id, "revert", key=body.key, n=body.n)
+
+
+@router.post("/api/bench/{bench_id}/instruct")
+async def bench_instruct(
+    request: Request, bench_id: str, body: BenchInstructBody
+) -> dict[str, Any]:
+    return await svc(request).bench_project(
+        bench_id, "instruct", window=body.window, text=body.text, worker=body.worker
+    )
+
+
+@router.post("/api/bench/{bench_id}/redo-stale")
+async def bench_redo_stale(request: Request, bench_id: str) -> dict[str, Any]:
+    return await svc(request).bench_project(bench_id, "redo_stale")
+
+
+@router.post("/api/bench/{bench_id}/conflict")
+async def bench_conflict(
+    request: Request, bench_id: str, body: BenchConflictBody
+) -> dict[str, Any]:
+    return await svc(request).bench_project(bench_id, "conflict", choice=body.choice)
 
 
 @router.post("/api/bench/{bench_id}/evolve")

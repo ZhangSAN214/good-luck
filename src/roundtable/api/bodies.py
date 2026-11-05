@@ -430,6 +430,37 @@ class BenchRerunBody(BaseModel):
     worker: str | None = Field(default=None, max_length=40)
 
 
+class BenchEditBody(BaseModel):
+    """改一样东西（第 2 块）：key 见 core/benchkit/edits.py；value 按种类是文字、清单或字典。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    key: str = Field(min_length=1, max_length=80)
+    value: Any = None
+    why: str = Field(default="", max_length=500)
+
+
+class BenchRevertBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    key: str = Field(min_length=1, max_length=80)
+    n: int = Field(ge=1)
+
+
+class BenchInstructBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    window: str = Field(min_length=1, max_length=60)
+    text: str = Field(default="", max_length=1000)
+    worker: str | None = Field(default=None, max_length=40)
+
+
+class BenchConflictBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    choice: Literal["now", "later"]  # 停下来马上重做 / 等这件活做完再说
+
+
 class BenchAttachBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

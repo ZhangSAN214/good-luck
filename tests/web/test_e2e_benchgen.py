@@ -758,3 +758,58 @@ def test_benchgen_profile_and_from_product(serve, page, monkeypatch, tmp_path):
     said = pane.locator(".bg-said")
     said.locator(".bg-saidform dd", has_text="只用本地").wait_for()
     assert "【" not in said.locator("p").inner_text()  # 原话和表单分开显示
+
+
+def test_benchgen_edits_versions_and_redo_affected(serve, page, monkeypatch, tmp_path):
+    """生成器第二版 · 第 2 块：「改动」改窗口说明 → 只标这一个 → 只重做它；看历史、对比、退回。"""
+
+    def factory(rules, *, root, **kw):
+        return BenchBuilder(
+            rules.model_copy(
+                update={"project": BenchProject(enabled=False), "team": BenchTeam(enabled=False)}
+            ),
+            root=tmp_path / "bench",
+            supercomputer=SlowSC(),
+            render=fake_render,
+            check=check,
+            scout=FakeScout(),
+            researcher=FakeResearcher(),
+            seed=3,
+        )
+
+    monkeypatch.setattr(service_mod, "BenchBuilder", factory)
+    srv = serve(confirm_threshold_usd=100.0)
+    page.goto(srv.url)
+    page.locator('#entries [data-m="bench"]').click()
+    pane = page.locator('#bench [data-pane="gen"]')
+    pane.locator("[data-text]").fill("帮我做一个东京三天旅行的工作台")
+    pane.locator("[data-submit]").click()
+    pane.locator(".bg-status.bg-done").wait_for(timeout=15000)
+
+    pane.locator('[data-drawer="edits"]').click()
+    drawer = pane.locator(".bg-drawer")
+    drawer.locator('[data-edit-key="window:budget"]').click()
+    box = drawer.locator('[data-edit-box="window:budget"]')
+    box.locator('[data-ew="purpose"]').fill("按人头算预算")
+    box.locator("[data-edit-why]").fill("要按人头")
+    box.locator("[data-edit-save]").click()
+    stale = drawer.locator("[data-stale]")
+    stale.wait_for(timeout=10000)
+    assert stale.locator("li").count() == 1 and "按人头算预算" in stale.text_content()
+    assert drawer.locator('[data-drawer="edits"] .bg-n').text_content() == "1"
+    hist = box.locator(".bg-hist li")
+    assert hist.count() == 2 and "要按人头" in hist.first.text_content()
+    hist.first.locator("[data-edit-diff]").click()
+    assert "+" in box.locator(".bg-diff").text_content()
+    if shots := os.environ.get("ROUNDTABLE_SHOTS"):
+        page.set_viewport_size({"width": 1440, "height": 900})
+        page.screenshot(path=str(Path(shots) / "benchgen_edits.png"))
+    stale.locator("[data-redo-stale]").click()
+    pane.locator(".bg-status.bg-done").wait_for(timeout=15000)
+    page.wait_for_function("() => !document.querySelector('#bench [data-stale]')", timeout=15000)
+
+    drawer.locator('[data-edit-key="window:budget"]').click()  # 抽屉还开着：重读一遍
+    box.locator(".bg-hist li").nth(1).locator("[data-edit-revert]").click()
+    box.locator(".bg-hist li", has_text="退回第").wait_for(timeout=10000)
+    assert box.locator('[data-ew="purpose"]').input_value() != "按人头算预算"
+    assert drawer.locator("[data-stale]").count() == 1  # 退回也是一次改动，这个窗口又要重做
