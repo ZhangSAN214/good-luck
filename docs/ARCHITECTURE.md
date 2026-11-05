@@ -240,7 +240,7 @@ prompts/       planner/ answer/ answer_quick/ review/ revise/ synthesize/ redo/
                media_brief/ media_review/ media_refine/ work_media/ rework_media/  evolve_review/（开发侧复审）  versions.lock
 src/roundtable/
   core/
-    config/        配置加载与校验
+    config/        配置加载与校验（schema.py 是总入口；chat / chat.engine / 终端 / 办公室几大块的模型在 sections/，外部照旧从 schema.py 导入）
     providers/     Provider 基类、适配器（openai_compat/anthropic/gemini/comfyui（本地出图）/local_tts（本地配音）/fake）、渠道路由、密钥与脱敏、计费
     prompts/       提示词加载与渲染
     allocation/    按档位/标签抽取、代号、互评分配（排除自评）、乱序、身份遮蔽
