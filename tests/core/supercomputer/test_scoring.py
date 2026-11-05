@@ -118,11 +118,9 @@ def test_credit_worker_needs_channel_and_argv():
     assert credit("a").tier == 1 and worker("b").tier == 0 and metered("c").tier == 2
 
 
-def test_repo_config_has_credit_worker_on_a_real_channel():
+def test_repo_config_workbench_does_not_use_api_credit():
+    """2026-11-05 用户定「工作台不要使用 API」：名单里没有走 API 额度的助手。"""
     from roundtable.core.config import load_config
 
     cfg = load_config()
-    api = [w for w in cfg.roundtable.supercomputer.workers if w.via == "credit"]
-    assert api and all(w.credit_channel in cfg.models.channels for w in api)
-    assert all(cfg.models.channels[w.credit_channel].key_env for w in api)
-    assert all(w.json_output and w.json_output.cost_usd for w in api)
+    assert not [w.id for w in cfg.roundtable.supercomputer.workers if w.via == "credit"]
