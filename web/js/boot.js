@@ -1,4 +1,4 @@
-// 开机动画：默认放「线条汇聚」（boot/lines.html，八位成员的线稿汇聚，最后落在首页立绘上，无缝进首页）；
+// 开机动画：默认放「线条汇聚 · 扫描睁眼」（boot/lines.html，线条勾出值班成员的脸 → 显影睁眼 → 拉远落在首页立绘上，无缝进首页）；
 // 也可以在「片头」设置里换回「晨会协议」片头 + GMU（早上好联合）访问授权。
 // 普通脚本（不是模块），放在 <body> 最前面同步执行：首页还没画出来就先盖住，不会闪一下。
 // 设置都存在本机 localStorage（roundtable.boot.*），在「片头」设置里改；网址加 ?boot=0 不放。
@@ -496,6 +496,8 @@
       stage = which;
       // 「线条汇聚」要简约：不垫电流嗡声和电报码，只留几下轻音效
       if (which !== 'lines') startBed();
+      // 外层和动画页的配色方案不一样时浏览器会给 iframe 垫一层白底；线条页要透明，两边统一成 normal
+      if (which === 'lines') frame.style.colorScheme = 'normal';
       frame.src = which === 'lines' ? 'boot/lines.html' : which === 'intro' ? 'boot/dawn.html' : permitUrl(handoff);
     };
     // 片头最后一帧是居中的徽记；换页那一下 iframe 会空白一瞬间，
@@ -558,8 +560,6 @@
         // 线条页自己画底色，最后把底色淡掉、露出底下真正的首页（人物正好落在首页立绘上）
         host.style.background = 'transparent';
         frame.style.background = 'transparent';
-        // 外层和动画页的配色方案不一样时浏览器会给 iframe 垫一层白底，两边统一成 normal 才真的透明
-        frame.style.colorScheme = 'normal';
       } else if (d === 'boot:done' && stage === 'intro') next();
       else if (d === 'gmu:done' && stage === 'permit') finish();
       else if (d && typeof d === 'object' && d.type === 'boot:sfx') sfx(String(d.name), Number(d.arg) || 0);

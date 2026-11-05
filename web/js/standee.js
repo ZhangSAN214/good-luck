@@ -238,7 +238,7 @@ export class Standee {
     this.bind();
   }
 
-  /** 开机动画的落点：立绘在屏幕上的位置（CSS 像素）、抠好底的整张图、是否翻转、成员名字。
+  /** 开机动画的落点：立绘在屏幕上的位置（CSS 像素）、抠好底的整张图、是否翻转、成员名字、脸的位置、闭眼差分。
    *  首页没显示 → null；立绘还在加载 → { pending: true }；没有立绘或被隐藏 → null。 */
   landing() {
     const page = document.getElementById('hub');
@@ -249,7 +249,15 @@ export class Standee {
     if (!this.box) return null;
     const r = this.hub.getBoundingClientRect();
     const { left, top, w, h, flip } = this.box;
-    return { image: this.cur.canvas, rect: { x: r.left + left, y: r.top + top, w, h }, flip, name: this.info.name || '' };
+    const blink = this.cur.overlays?.blink;
+    return {
+      image: this.cur.full || this.cur.canvas,
+      rect: { x: r.left + left, y: r.top + top, w, h },
+      flip,
+      name: this.info.name || '',
+      head: this.cur.head, // 脸在图里的位置（0～1）
+      blink: blink ? { image: blink.img, box: blink.box } : null, // 闭眼差分：box 为空表示整张图
+    };
   }
 
   /** 有立绘并且没被隐藏：首页据此把原来那句提示换成立绘的对话框。 */
@@ -299,7 +307,17 @@ export class Standee {
         }
       }),
     );
-    const prep = { v, canvas, mask, overlays, W, H, aspect: W / H, head: v.head || [0.47, W / H > 0.85 ? 0.2 : 0.17], gl };
+    // 网格形变用的底图没有眼珠（眼珠单独一层）；开机动画要整张原图，这里另外备一份
+    let full = canvas;
+    if (gl) {
+      try {
+        const im = await loadImage(v.image);
+        full = v.cutout ? keyOut(im).canvas : im;
+      } catch {
+        full = canvas;
+      }
+    }
+    const prep = { v, canvas, full, mask, overlays, W, H, aspect: W / H, head: v.head || [0.47, W / H > 0.85 ? 0.2 : 0.17], gl };
     if (gl) {
       gl.setBase(canvas);
       gl.setPatches(overlays, W, H);

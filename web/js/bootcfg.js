@@ -5,7 +5,7 @@ import { esc } from './util.js';
 
 const PREFIX = 'roundtable.boot.';
 const MODE = [
-  ['lines', '线条汇聚（默认，约 10 秒）'],
+  ['lines', '线条汇聚 · 扫描睁眼（默认，约 9 秒）'],
   ['full', '片头 + 授权'],
   ['intro', '只放晨会片头'],
   ['permit', '只放授权'],
