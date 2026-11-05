@@ -1,0 +1,7 @@
+date: 2026-11-05
+pr: [216]
+level: patch
+title: 工作台的 Claude 不再用 API 额度，只用包月
+fixed:
+  - 按你的要求，工作台里拿掉了「Claude Code·API额度」这位助手；工作台的 Claude 只走 Max 包月，API 额度只留给聊天
+howto: 不用做什么。工作台 → 超级电脑的助手名单里不会再出现「Claude Code·API额度」
