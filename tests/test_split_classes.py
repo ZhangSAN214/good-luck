@@ -10,9 +10,10 @@ from collections import defaultdict
 import pytest
 
 from roundtable.cli import CLI
+from roundtable.core.service import RoundtableService
 from roundtable.core.storage.repository import Repository
 
-CLASSES = [Repository, CLI]
+CLASSES = [Repository, CLI, RoundtableService]
 
 
 @pytest.mark.parametrize("cls", CLASSES, ids=lambda c: c.__name__)
