@@ -407,3 +407,17 @@ def test_edits_versions_and_redo_stale_over_http(tmp_path):
         assert r.status_code == 200
         wait_done(c)
         assert c.post(f"{base}/conflict", json={"choice": "later"}).status_code == 400
+
+
+def test_found_actions_over_http(tmp_path):
+    """生成器第二版 · 第 3 块：找到的素材换一个 / 不要 / 重新找（这里没有清单，只测报错）。"""
+    with TestClient(create_app(service_with(tmp_path))) as c:
+        c.post("/api/bench", json={"request": "东京旅行台"})
+        wait_done(c)
+        b = c.get("/api/bench").json()["current"]
+        base = f"/api/bench/{b['id']}"
+        assert b["found"] == []
+        assert c.post(f"{base}/found/swap", json={"item": "f1-1"}).status_code == 404
+        assert c.post(f"{base}/found/drop", json={"item": "f1-1"}).status_code == 404
+        assert c.post(f"{base}/found/drop", json={}).status_code == 422
+        assert c.post(f"{base}/refind").status_code == 400

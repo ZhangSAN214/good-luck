@@ -4084,6 +4084,59 @@ class BenchNetService(_Strict):
         return [re.match(r"^https://[^/]+", u).group(0) for u in [self.url, *self.also]]
 
 
+FINDER_KINDS = ("photo", "illustration", "texture", "model", "icon", "font", "data", "doc")
+
+
+class BenchFinder(_Strict):
+    """资源检索员（生成器第二版第 3 块）：拆需求时每个窗口列出要的素材和数据，程序按清单去
+    免费、不要 key 的公开来源找，记下来源、作者、许可证和下载日期；许可证不宽松的不用，
+    找不够就如实写「只找到 N 个」。``sources`` 是每种素材按顺序去哪些来源找（来源名见
+    ``core/benchkit/finder.py`` 的 SOURCES）。"""
+
+    enabled: bool = True
+    max_per_need: int = Field(default=3, ge=1, le=6)  # 一项需求最多下几个
+    max_total: int = Field(default=24, ge=1, le=60)  # 一个工作台最多下几个文件
+    max_mb_each: float = Field(default=4.0, gt=0, le=30)  # 单个文件超过就不下
+    alternates: int = Field(default=4, ge=0, le=10)  # 每项需求多留几个候选，界面上「换一个」用
+    # 宽松许可证（前缀匹配，不分大小写）；带 NC（非商用）、ND（禁止改编）的一律不用
+    licenses: list[str] = Field(
+        default_factory=lambda: [
+            "cc0",
+            "public domain",
+            "pdm",
+            "cc by",
+            "cc-by",
+            "mit",
+            "isc",
+            "apache",
+            "bsd",
+            "ofl",
+        ],
+        min_length=1,
+    )
+    sources: dict[str, list[str]] = Field(
+        default_factory=lambda: {
+            "photo": ["commons", "openverse"],
+            "illustration": ["openverse", "commons"],
+            "texture": ["polyhaven"],
+            "model": ["khronos"],
+            "icon": ["iconify"],
+            "font": ["fontsource"],
+        }
+    )
+    icon_sets: list[str] = Field(
+        default_factory=lambda: ["lucide", "tabler", "ph"], max_length=10
+    )  # 只在这些开源图标集里找
+
+    @field_validator("sources")
+    @classmethod
+    def _known_kinds(cls, v: dict[str, list[str]]) -> dict[str, list[str]]:
+        bad = sorted(set(v) - set(FINDER_KINDS))
+        if bad:
+            raise ValueError(f"不认得的素材种类：{bad}（可用：{list(FINDER_KINDS)}）")
+        return v
+
+
 class BenchResearch(_Strict):
     """开工前的调研（2026-10-30 用户要求）：GitHub 至少 ``min_github`` 个高质量相关项目，加上论文、
     资讯和视频；分最高的 ``learn`` 个项目源码只读下载，交给助手写学习卡。资讯和视频交给一位能联网
@@ -4276,6 +4329,7 @@ class BenchRules(_Strict):
     max_repo_mb: int = Field(default=20, ge=1, le=200)  # 仓库太大就只借思路
     max_adopt: int = Field(default=3, ge=0, le=10)  # 一个工作台最多搬几个
     research: BenchResearch = Field(default_factory=BenchResearch)
+    finder: BenchFinder = Field(default_factory=BenchFinder)
     project: BenchProject = Field(default_factory=BenchProject)
     hero: BenchHero = Field(default_factory=BenchHero)
     team: BenchTeam = Field(default_factory=BenchTeam)

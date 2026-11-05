@@ -12,6 +12,7 @@ export const STATUS = {
   planning: '正在拆需求',
   researching: '正在调研',
   scouting: '正在找插件',
+  finding: '正在找素材和数据',
   meeting: '方案会',
   citing: '整理技术选择（指向调研）',
   building: '分头写窗口',
@@ -173,7 +174,7 @@ const PANES = [
   ['stage', '成品'],
   ['plan', '计划'],
 ];
-const PREP = ['planning', 'researching', 'scouting', 'meeting', 'citing', 'looking'];
+const PREP = ['planning', 'researching', 'scouting', 'finding', 'meeting', 'citing', 'looking'];
 
 /** 项目走到 7 步里的第几步（从 0 数）。 */
 export function flowIndex(b) {
@@ -1110,6 +1111,7 @@ export class BenchGenPanel {
     const tabs = [
       ['edits', '改动', b ? ((b.tree || {}).stale || []).length : 0],
       ['research', '调研', r ? (r.counts || {}).github || 0 : 0],
+      ['found', '素材', b ? (b.found || []).reduce((n, x) => n + (x.got || 0), 0) : 0],
       ['sources', '插件', b ? (b.sources || []).length : 0],
       ['rounds', '质检', b ? (b.rounds || []).length : 0],
       ['team', '团队', b ? ((b.team || {}).cards || []).length : 0],
@@ -1125,6 +1127,7 @@ export class BenchGenPanel {
     let body = '';
     if (open === 'edits') body = b ? this.editsHtml(b) : '<p class="sc-hint">还没有项目。</p>';
     else if (open === 'research') body = (b && this.researchHtml(b)) || '<p class="sc-hint">还没调研。开工后先查 GitHub、论文和资讯，结果都在这里。</p>';
+    else if (open === 'found') body = (b && this.foundHtml(b)) || '<p class="sc-hint">这次没有要找的素材和数据。拆需求时每个窗口会列出要用的照片、图标、数据，资源检索员按清单去免费来源找。</p>';
     else if (open === 'sources') body = (b && this.sourcesHtml(b)) || '<p class="sc-hint">这次没找插件。</p>';
     else if (open === 'rounds') body = b && (b.rounds || []).length ? b.rounds.map((x) => this.roundHtml(b, x)).join('') : '<p class="sc-hint">还没开始质检。</p>';
     else if (open === 'team') body = (b && this.teamHtml(b)) || '<p class="sc-hint">还没开始协作。</p>';
@@ -1775,6 +1778,35 @@ export class BenchGenPanel {
       <button type="button" class="btn" data-nextver>按提案做下一版</button>` : '<p class="sc-hint">这次没出成提案，可以再试一次。</p>'}</div>`;
   }
 
+  /**
+   * 资源检索员找来的素材和数据：按窗口列，每个文件标来源、作者、许可证、下载日期；
+   * 能「换一个」（同一个位置换成备选，代码不用改）、「不要」；找不够的如实写。
+   */
+  foundHtml(b) {
+    const found = b.found || [];
+    if (!found.length) return '';
+    const KIND = { photo: '照片', illustration: '插图', texture: '材质', model: '3D 模型', icon: '图标', font: '字体', data: '数据', doc: '资料' };
+    const titles = Object.fromEntries((b.windows || []).map((w) => [w.id, w.title || w.id]));
+    const src = (p) => `/bench/${encodeURIComponent(b.id)}/${p.split('/').map(encodeURIComponent).join('/')}`;
+    const item = (it, need) => {
+      const img = /\.(jpe?g|png|webp|gif|svg)$/i.test(it.file || '') ? `<img src="${src(it.file)}" alt="${esc(it.title)}" loading="lazy">` : `<span class="bg-fext">${esc((it.file || '').split('.').pop() || '')}</span>`;
+      const spare = (need.spare || []).some((c) => c.ext === it.ext);
+      return `<li class="bg-fitem">${it.file ? img : ''}<div><b>${esc(it.title)}</b>
+        <span class="sc-sub">${esc(it.author || '')} · ${esc(it.license || '')} · ${it.page || it.url ? `<a class="link" href="${esc(it.page || it.url)}" target="_blank" rel="noopener">${esc(it.source || '来源')}</a>` : esc(it.source || '')}${it.date ? ` · ${esc(it.date)} 下载` : ''}</span>
+        ${it.file ? `<span class="bg-fbtn">${spare ? `<button type="button" class="link" data-found-swap="${esc(it.id)}">换一个</button>` : ''}<button type="button" class="link" data-found-drop="${esc(it.id)}">不要</button></span>` : ''}</div></li>`;
+    };
+    const needs = found
+      .map(
+        (n) => `<li class="bg-fneed bg-f-${esc(n.status)}"><p><b>${esc(titles[n.window] || n.window)}</b> 要的${esc(KIND[n.kind] || n.kind)}「${esc(n.what)}」：${esc(n.note)}</p>
+          ${(n.items || []).length ? `<ul class="bg-fitems">${n.items.map((it) => item(it, n)).join('')}</ul>` : ''}</li>`,
+      )
+      .join('');
+    const files = found.reduce((k, x) => k + (['data', 'doc'].includes(x.kind) ? 0 : x.got || 0), 0);
+    const short = found.filter((x) => ['short', 'none'].includes(x.status)).length;
+    return `<div class="bg-found"><p class="sc-hint">下了 ${files} 个文件${short ? `，${short} 项没找够（如实写了，不凑数）` : '，每项都找够了'}。只用免费、许可证宽松的来源，署名在 <a class="link" href="${src('assets/found/CREDITS.md')}" target="_blank" rel="noopener">CREDITS.md</a>。
+      <button type="button" class="link" data-refind ${this.st && this.st.busy ? 'disabled' : ''}>重新找</button></p><ul class="bg-list">${needs}</ul></div>`;
+  }
+
   sourcesHtml(b) {
     const items = b.sources || [];
     if (!items.length) return '';
@@ -1917,6 +1949,11 @@ export class BenchGenPanel {
     if (t.closest('[data-redo-stale]') && shown) return this.act(() => this.api.redoStale(shown.id));
     const cf = t.closest('[data-conflict]');
     if (cf && shown) return this.act(() => this.api.conflict(shown.id, cf.dataset.conflict));
+    const fs = t.closest('[data-found-swap]');
+    if (fs && shown) return this.act(() => this.api.foundSwap(shown.id, fs.dataset.foundSwap));
+    const fd = t.closest('[data-found-drop]');
+    if (fd && shown) return this.act(() => this.api.foundDrop(shown.id, fd.dataset.foundDrop));
+    if (t.closest('[data-refind]') && shown) return this.act(() => this.api.refind(shown.id));
     const ek = t.closest('[data-edit-key]');
     if (ek) return this.loadEdit(ek.dataset.editKey);
     if (t.closest('[data-edit-save]') && shown && this.editKey) {

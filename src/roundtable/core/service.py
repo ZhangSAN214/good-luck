@@ -32,6 +32,7 @@ from roundtable.core.attachments.detect import TYPES as UPLOAD_TYPES
 from roundtable.core.backup import BackupError, DbBackup
 from roundtable.core.benchkit.builder import BenchBuilder
 from roundtable.core.benchkit.desk import Desk
+from roundtable.core.benchkit.finder import AssetFinder
 from roundtable.core.benchkit.netcheck import http_status, net_check
 from roundtable.core.benchkit.research import Researcher
 from roundtable.core.benchkit.research import http_fetchers as research_fetchers
@@ -374,6 +375,7 @@ class RoundtableService:
             render=self._super_render,
             scout=self._build_scout(runtime.config.roundtable.bench),
             researcher=self._build_researcher(runtime.config.roundtable.bench),
+            finder=self._build_finder(runtime.config.roundtable.bench),
             whitelist=self._dsh_whitelist,
             skill=self._bench_skill,
             desk=self.desk,
@@ -442,6 +444,19 @@ class RoundtableService:
             fetch_bytes=fetch_bytes,
             min_stars=rules.min_stars,
             max_kb=rules.max_repo_mb * 1024,
+        )
+
+    @staticmethod
+    def _build_finder(rules: Any) -> AssetFinder:
+        """资源检索员：只读 GET 免费公开来源（不带任何 key）。"""
+        fetch_json, fetch_bytes = http_fetchers()
+        _, _, check_url = research_fetchers()
+        return AssetFinder(
+            fetch_json=fetch_json,
+            fetch_bytes=fetch_bytes,
+            check_url=check_url,
+            rules=rules.finder,
+            net=list(rules.net),
         )
 
     @staticmethod
@@ -1562,6 +1577,12 @@ class RoundtableService:
                 if choice == "now":  # 停下正在跑的活，只重做受影响的窗口
                     await self.bench.cancel()
                     self.bench.redo_stale(bench_id)
+            elif action == "found_swap":
+                self.bench.swap_found(bench_id, kw.get("item") or "")
+            elif action == "found_drop":
+                self.bench.drop_found(bench_id, kw.get("item") or "")
+            elif action == "refind":
+                self.bench.refind(bench_id)
             elif action == "rerun":
                 self.bench.rerun_thread(
                     bench_id, kw.get("thread") or "", kw.get("reason") or "", kw.get("worker")

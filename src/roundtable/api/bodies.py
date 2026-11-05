@@ -461,6 +461,12 @@ class BenchConflictBody(BaseModel):
     choice: Literal["now", "later"]  # 停下来马上重做 / 等这件活做完再说
 
 
+class BenchFoundBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    item: str = Field(min_length=1, max_length=20)  # 找到的素材编号，如 f1-2
+
+
 class BenchAttachBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
