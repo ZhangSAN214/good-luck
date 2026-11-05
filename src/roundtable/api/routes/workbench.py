@@ -89,6 +89,39 @@ async def bench_material(request: Request, name: str, of: str = "") -> dict[str,
     return service.bench_material(name, b"".join(chunks), of)
 
 
+@router.get("/api/bench/ruler")
+async def bench_ruler(request: Request) -> dict[str, Any]:
+    return svc(request).bench_ruler()
+
+
+@router.post("/api/bench/ruler", status_code=201)
+async def bench_ruler_add(
+    request: Request, name: str, score: int, note: str = ""
+) -> dict[str, Any]:
+    """收一张标尺截图：请求体是原始字节，?name= 文件名，?score= 几分，?note= 一句说明。"""
+    service = svc(request)
+    limit = service.bench_ruler_limit
+    chunks, size = [], 0
+    async for chunk in request.stream():
+        size += len(chunk)
+        if size > limit:
+            raise ServiceError("截图超过大小上限", 413)
+        chunks.append(chunk)
+    return service.bench_ruler_add(name, b"".join(chunks), score, note[:60])
+
+
+@router.get("/api/bench/ruler/{file}")
+async def bench_ruler_file(request: Request, file: str) -> Response:
+    path = svc(request).bench_ruler_file(file)
+    kind = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+    return Response(path.read_bytes(), media_type=kind, headers={"Cache-Control": "no-store"})
+
+
+@router.delete("/api/bench/ruler/{file}")
+async def bench_ruler_drop(request: Request, file: str) -> dict[str, Any]:
+    return svc(request).bench_ruler_drop(file)
+
+
 @router.post("/api/bench/cancel")
 async def bench_cancel(request: Request) -> dict[str, Any]:
     return await svc(request).bench_cancel()

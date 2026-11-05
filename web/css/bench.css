@@ -425,3 +425,12 @@
 .bg-fitem > div{min-width:0;display:grid;gap:2px;overflow-wrap:anywhere}
 .bg-fext{width:64px;height:64px;display:grid;place-items:center;border:1px dashed var(--hb-edge);border-radius:6px;flex:none;font-size:12px;text-transform:uppercase}
 .bg-fbtn{display:flex;gap:10px}
+/* 生成器第二版 · 第 4 块：评分标尺 */
+.bg-ruler{margin:0 0 10px}
+.bg-ritems{list-style:none;margin:6px 0;padding:0;display:flex;flex-wrap:wrap;gap:8px}
+.bg-ritem{display:flex;gap:8px;align-items:flex-start;border:1px solid var(--hb-edge);border-radius:8px;padding:6px;max-width:260px}
+.bg-ritem img{width:96px;height:60px;object-fit:cover;border-radius:6px;flex:none}
+.bg-ritem > div{display:grid;gap:2px;min-width:0}
+.bg-radd{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:6px}
+.bg-radd input[type=text]{flex:1 1 180px;min-width:0}
+.bg-look{margin:4px 0}

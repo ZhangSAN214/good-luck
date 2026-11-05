@@ -4137,6 +4137,16 @@ class BenchFinder(_Strict):
         return v
 
 
+class BenchLook(_Strict):
+    """每个台有自己的样子（生成器第二版第 4 块）。"""
+
+    distinct: bool = True  # 和最近几个台撞了样子（配色、主色、字体、材质、背景）就换掉撞上的几项
+    recent: int = Field(default=5, ge=1, le=20)  # 和最近几个台比
+    ruler: bool = True  # 评审时拿你挑的参考截图当评分标尺
+    ruler_dir: str = Field(default="_ruler", pattern=r"^[\w.-]{1,40}$")  # 标尺放在数据目录下哪
+    ruler_max_mb: float = Field(default=5.0, gt=0, le=20)  # 一张标尺截图最大多少
+
+
 class BenchResearch(_Strict):
     """开工前的调研（2026-10-30 用户要求）：GitHub 至少 ``min_github`` 个高质量相关项目，加上论文、
     资讯和视频；分最高的 ``learn`` 个项目源码只读下载，交给助手写学习卡。资讯和视频交给一位能联网
@@ -4330,6 +4340,7 @@ class BenchRules(_Strict):
     max_adopt: int = Field(default=3, ge=0, le=10)  # 一个工作台最多搬几个
     research: BenchResearch = Field(default_factory=BenchResearch)
     finder: BenchFinder = Field(default_factory=BenchFinder)
+    look: BenchLook = Field(default_factory=BenchLook)
     project: BenchProject = Field(default_factory=BenchProject)
     hero: BenchHero = Field(default_factory=BenchHero)
     team: BenchTeam = Field(default_factory=BenchTeam)
