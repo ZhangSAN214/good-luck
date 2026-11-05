@@ -387,3 +387,16 @@
 .bg-cite li{margin-bottom:6px}
 .bg-cite .sc-sub{display:block}
 .bg-hero-check .bg-demo img{max-width:48%;margin-right:4px}
+/* 三层分工树（生成器第二版 · 第 1 块） */
+.bg-tree,.bg-tprojects,.bg-tthreads{list-style:none;margin:0;padding:0}
+.bg-tree{display:grid;gap:8px;font-size:13px}
+.bg-tprojects{margin:4px 0 0 12px;display:grid;gap:4px}
+.bg-tthreads{margin:4px 0 0 12px;display:grid;gap:4px}
+.bg-tp{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px}
+.bg-tp > details{flex:1 1 auto;min-width:0}
+.bg-tt{border-left:2px solid var(--line, #ccc);padding-left:8px;overflow-wrap:anywhere}
+.bg-tt.sc-st-failed{border-color:var(--bad, #c33)}
+.bg-tt.sc-st-running{border-color:var(--accent, #36c)}
+.bg-tsum{white-space:pre-wrap;font-size:12px;margin:4px 0}
+.bg-redo label{display:block;margin:4px 0;font-size:12px}
+.bg-redo textarea,.bg-redo select{width:100%;box-sizing:border-box}

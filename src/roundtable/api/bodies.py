@@ -414,6 +414,22 @@ class BenchBody(BaseModel):
     form: dict[str, str] = Field(default_factory=dict, max_length=20)  # 按表填的需求（可选）
 
 
+class BenchTreeKeyBody(BaseModel):
+    """分工树里暂停 / 继续哪一块：「大阶段/小项目」，或 * 整个项目（继续时不写 = 全部继续）。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    key: str | None = Field(default=None, max_length=120)
+
+
+class BenchRerunBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    thread: str = Field(min_length=1, max_length=40)
+    reason: str = Field(default="", max_length=1000)
+    worker: str | None = Field(default=None, max_length=40)
+
+
 class BenchAttachBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

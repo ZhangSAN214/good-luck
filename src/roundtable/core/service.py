@@ -37,6 +37,7 @@ from roundtable.core.benchkit.research import Researcher
 from roundtable.core.benchkit.research import http_fetchers as research_fetchers
 from roundtable.core.benchkit.scout import Scout as PluginScout
 from roundtable.core.benchkit.scout import http_fetchers
+from roundtable.core.benchkit.tree import tree_view
 from roundtable.core.benchkit.weekly import Weekly
 from roundtable.core.browse import REFRESH_KEY, feeds_of, set_feeds
 from roundtable.core.budget import report as usage_report
@@ -1431,7 +1432,11 @@ class RoundtableService:
     # --- 工作台生成器（docs/KIT.md） --------------------------------------------------
 
     def bench_status(self) -> dict[str, Any]:
-        return self.bench.status()
+        st = self.bench.status()
+        cur = st.get("current")
+        if cur:  # 右栏的三层分工树（大阶段 → 小项目 → 小线程）
+            st = st | {"current": cur | {"tree": tree_view(cur)}}
+        return st
 
     def bench_profile_add(self, text: str, src: str = "") -> dict[str, Any]:
         """甲方档案：记下一条长期偏好（只存本机），以后每个新项目都带上。"""
@@ -1485,7 +1490,15 @@ class RoundtableService:
         b = self.bench.get(bench_id)
         if b is None:
             raise ServiceError("没有这个工作台", 404)
-        return b
+        return b | {"tree": tree_view(b)}
+
+    def bench_tree(self, bench_id: str) -> dict[str, Any]:
+        """三层分工树：大阶段 → 小项目 → 小线程（docs/KIT.md「生成器第二版」）。"""
+        tree = self.bench.tree(bench_id)
+        if tree is None:
+            raise ServiceError("没有这个工作台", 404)
+        workers = [{"id": w.id, "label": w.label} for w in self.supercomputer.rules.workers]
+        return tree | {"workers": workers, "busy": self.bench.busy}
 
     async def bench_ask(self, bench_id: str, question: str, json: bool = False) -> dict[str, Any]:
         try:
@@ -1518,6 +1531,14 @@ class RoundtableService:
                 self.bench.decide(bench_id, kw.get("choice") or "", kw.get("requirements"))
             elif action == "plugin":
                 self.bench.request_plugin(bench_id, kw.get("name") or "")
+            elif action == "pause":
+                self.bench.pause(bench_id, kw.get("key") or "*")
+            elif action == "resume":
+                self.bench.resume(bench_id, kw.get("key"))
+            elif action == "rerun":
+                self.bench.rerun_thread(
+                    bench_id, kw.get("thread") or "", kw.get("reason") or "", kw.get("worker")
+                )
             else:
                 raise ValueError("不认得这个操作")
         except LookupError as exc:

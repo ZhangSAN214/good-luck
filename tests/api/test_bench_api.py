@@ -348,3 +348,32 @@ def test_submit_with_structured_form(tmp_path):
         assert r.status_code == 200
         assert r.json()["current"]["form"] == {"who": "爸妈"}
         wait_done(c)
+
+
+def test_tree_pause_resume_and_rerun_over_http(tmp_path):
+    """生成器第二版 · 第 1 块：分工树随状态下发；暂停 / 继续；写窗口的线程单独重跑、换人。"""
+    with TestClient(create_app(service_with(tmp_path))) as c:
+        c.post("/api/bench", json={"request": "东京旅行台"})
+        wait_done(c)
+        b = c.get("/api/bench").json()["current"]
+        tree = b["tree"]
+        assert [p["name"] for p in tree["phases"]] == ["立项", "执行", "交付", "革新"]
+        assert c.get(f"/api/bench/{b['id']}").json()["tree"]["phases"]
+        st = c.post(f"/api/bench/{b['id']}/pause", json={"key": "交付/质检与评审"}).json()
+        assert st["current"]["paused"] == ["交付/质检与评审"]
+        assert c.post(f"/api/bench/{b['id']}/pause", json={"key": "乱写"}).status_code == 400
+        st = c.post(f"/api/bench/{b['id']}/resume", json={}).json()
+        assert st["current"]["paused"] == []
+        write = next(t for t in b["threads"] if t["window"])
+        bad = c.post(f"/api/bench/{b['id']}/rerun", json={"thread": write["id"], "reason": ""})
+        assert bad.status_code == 400 and "哪里不对" in bad.json()["detail"]
+        ok = c.post(
+            f"/api/bench/{b['id']}/rerun",
+            json={"thread": write["id"], "reason": "标题太小", "worker": "b"},
+        )
+        assert ok.status_code == 200
+        wait_done(c)
+        last = c.get(f"/api/bench/{b['id']}").json()["threads"][-1]
+        assert last["window"] == write["window"] and last["worker"] == "b"
+        missing = c.post(f"/api/bench/{b['id']}/rerun", json={"thread": "t999", "reason": "x"})
+        assert missing.status_code == 404

@@ -740,6 +740,7 @@ export class BenchGenPanel {
     const body = [];
     if (g.kind === 'sign') body.push(this.proposalHtml(b));
     else {
+      body.push(this.treeHtml(b));
       body.push(this.milestonesHtml(b));
       const wins = (b.windows || [])
         .map(
@@ -753,6 +754,50 @@ export class BenchGenPanel {
       if (b.stuck) body.push(this.stuckInfo(b));
     }
     return `<h3 class="bg-h">乙方 · 计划</h3><ol class="bg-flow bg-steps" aria-label="进度">${flow}</ol>${body.join('')}`;
+  }
+
+  /**
+   * 三层分工树：大阶段 → 小项目 → 小线程。每个节点显示状态、谁在干、用了几次额度、用时；
+   * 小项目能暂停 / 继续；写窗口的线程能写一句「上次哪里不对」单独重跑，也能换人。
+   */
+  treeHtml(b) {
+    const tree = b.tree;
+    if (!tree || !(tree.phases || []).some((p) => (p.projects || []).length)) return '';
+    const ST = { running: '进行中', done: '完成', failed: '没成', waiting: '还没开始', paused: '暂停' };
+    const secs = (s) => (!s ? '' : s < 60 ? `${Math.round(s)} 秒` : `${Math.round(s / 60)} 分钟`);
+    const meta = (n) => [ST[n.status] || n.status, n.attempts ? `${n.attempts} 次额度` : '', secs(n.seconds)].filter(Boolean).join(' · ');
+    const paused = new Set(tree.paused || []);
+    const whole = paused.has('*');
+    const thread = (t) => {
+      const redo = t.window && !t.legacy && !['running', 'waiting', 'paused'].includes(t.status)
+        ? `<details class="bg-redo"><summary>单独重跑</summary>
+            <label>上次哪里不对<textarea data-redo-why="${esc(t.id)}" rows="2" placeholder="例如：标题太小，地图没铺满"></textarea></label>
+            <label>换谁来做<select data-redo-who="${esc(t.id)}"><option value="">交回原来的人</option>${((b.tree || {}).workers || []).map((w) => `<option value="${esc(w.id)}">${esc(w.label)}</option>`).join('')}</select></label>
+            <button type="button" class="btn" data-redo="${esc(t.id)}">重跑这一条</button></details>`
+        : '';
+      return `<li class="bg-tt sc-st-${esc(t.status)}"><b>${esc(t.title || t.role)}</b>
+        <span class="sc-sub">${esc(t.label || t.worker || '还没派人')} · ${esc(meta(t))}</span>
+        ${t.summary ? `<details><summary>交了什么</summary><p class="bg-tsum">${esc(t.summary)}</p></details>` : ''}${redo}</li>`;
+    };
+    const project = (p) => {
+      const btn = p.paused
+        ? `<button type="button" class="link" data-tree-resume="${esc(p.key)}">继续</button>`
+        : `<button type="button" class="link" data-tree-pause="${esc(p.key)}">暂停</button>`;
+      return `<li class="bg-tp sc-st-${esc(p.status)}"><details ${p.status === 'running' ? 'open' : ''}>
+        <summary><b>${esc(p.name)}</b> <span class="sc-sub">${esc(meta(p))}${(p.workers || []).length ? ` · ${esc(p.workers.join('、'))}` : ''}</span></summary>
+        ${(p.threads || []).length ? `<ol class="bg-tthreads">${p.threads.map(thread).join('')}</ol>` : '<p class="sc-sub">还没有派活</p>'}
+        </details>${b.tree.legacy ? '' : btn}</li>`;
+    };
+    const phases = tree.phases
+      .filter((p) => (p.projects || []).length)
+      .map((p) => `<li class="bg-tph sc-st-${esc(p.status)}"><b>${esc(p.name)}</b> <span class="sc-sub">${esc(meta(p))}</span><ol class="bg-tprojects">${p.projects.map(project).join('')}</ol></li>`)
+      .join('');
+    const top = tree.legacy
+      ? '<p class="sc-hint">这是旧项目，按协作记录换算的，没有用时，也不能单独重跑。</p>'
+      : whole
+        ? '<p class="sc-hint">整个项目暂停了：正在跑的那一件跑完后，新的活排队等你。<button type="button" class="link" data-tree-resume="*">全部继续</button></p>'
+        : '<p class="sc-hint"><button type="button" class="link" data-tree-pause="*">暂停整个项目</button></p>';
+    return `<h4 class="bg-h4">分工树</h4>${top}<ol class="bg-tree" aria-label="三层分工树">${phases}</ol>`;
   }
 
   /** 签字前的方案：窗口、联动、共用信息、分段、方案会、借鉴的项目（每块默认收起，只露一句）。 */
@@ -1665,6 +1710,18 @@ export class BenchGenPanel {
       return this.render(true);
     }
     if (t.closest('[data-cancel]') || t.closest('[data-endproj]')) return this.act(() => this.api.cancel());
+    const shown = this.shownBuild();
+    const tp = t.closest('[data-tree-pause]');
+    if (tp && shown) return this.act(() => this.api.pause(shown.id, tp.dataset.treePause));
+    const tr = t.closest('[data-tree-resume]');
+    if (tr && shown) return this.act(() => this.api.resume(shown.id, tr.dataset.treeResume === '*' ? null : tr.dataset.treeResume));
+    const redo = t.closest('[data-redo]');
+    if (redo && shown) {
+      const id = redo.dataset.redo;
+      const why = this.el.querySelector(`[data-redo-why="${CSS.escape(id)}"]`)?.value || '';
+      const who = this.el.querySelector(`[data-redo-who="${CSS.escape(id)}"]`)?.value || null;
+      return this.act(() => this.api.rerun(shown.id, id, why, who));
+    }
     const b = this.viewing || (this.st || {}).current;
     const form = t.closest('[data-form]');
     const opt = t.closest('[data-opt]');

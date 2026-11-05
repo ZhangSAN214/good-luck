@@ -19,8 +19,10 @@ from roundtable.api.bodies import (
     BenchDecideBody,
     BenchPluginBody,
     BenchProfileBody,
+    BenchRerunBody,
     BenchReviewBody,
     BenchSignBody,
+    BenchTreeKeyBody,
     SuperLimitBody,
     SuperScheduleBody,
     SuperTaskBody,
@@ -177,6 +179,23 @@ async def bench_attach(request: Request, bench_id: str, body: BenchAttachBody) -
 @router.post("/api/bench/{bench_id}/look")
 async def bench_look(request: Request, bench_id: str) -> dict[str, Any]:
     return await svc(request).bench_project(bench_id, "look")
+
+
+@router.post("/api/bench/{bench_id}/pause")
+async def bench_pause(request: Request, bench_id: str, body: BenchTreeKeyBody) -> dict[str, Any]:
+    return await svc(request).bench_project(bench_id, "pause", key=body.key or "*")
+
+
+@router.post("/api/bench/{bench_id}/resume")
+async def bench_resume(request: Request, bench_id: str, body: BenchTreeKeyBody) -> dict[str, Any]:
+    return await svc(request).bench_project(bench_id, "resume", key=body.key)
+
+
+@router.post("/api/bench/{bench_id}/rerun")
+async def bench_rerun(request: Request, bench_id: str, body: BenchRerunBody) -> dict[str, Any]:
+    return await svc(request).bench_project(
+        bench_id, "rerun", thread=body.thread, reason=body.reason, worker=body.worker
+    )
 
 
 @router.post("/api/bench/{bench_id}/evolve")
