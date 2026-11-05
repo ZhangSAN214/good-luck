@@ -147,7 +147,7 @@ def test_watch_pair_android_wirelessly(serve, page):
 
 def test_watch_overlay_button_and_pip(serve, page, monkeypatch):
     """投屏中：「悬浮窗」按钮请电脑开置顶小窗（不切屏也能看她们说话）；浏览器支持时有「画中画」。"""
-    import roundtable.core.service as service_mod
+    import roundtable.core.services.terminal as service_mod  # 一起看在终端那一块
 
     started = []
 

@@ -158,7 +158,7 @@ def test_adb_pair_and_connect_from_the_pc():
 
 def test_overlay_starts_once_and_only_on_the_pc(monkeypatch):
     """悬浮窗：另起一个进程连本机圆桌；开着时不重复开；没在投屏或平板上不能开。"""
-    import roundtable.core.service as service_mod
+    import roundtable.core.services.terminal as service_mod  # 一起看在终端那一块
 
     started: list[list[str]] = []
 
