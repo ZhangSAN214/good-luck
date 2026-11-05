@@ -337,6 +337,20 @@ export async function benchMaterial(file, of = '') {
   if (!r.ok) throw new ApiError(errorText(data, r.status), r.status);
   return data;
 }
+export async function benchRulerAdd(file, score, note = '') {
+  const q = `name=${encodeURIComponent(file.name)}&score=${encodeURIComponent(score)}&note=${encodeURIComponent(note)}`;
+  const r = await fetch(`/api/bench/ruler?${q}`, { method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: file });
+  let data = null;
+  try {
+    data = await r.json();
+  } catch {
+    data = null;
+  }
+  if (!r.ok) throw new ApiError(errorText(data, r.status), r.status);
+  return data;
+}
+export const benchRuler = () => api('/api/bench/ruler');
+export const benchRulerDrop = (file) => api(`/api/bench/ruler/${encodeURIComponent(file)}`, { method: 'DELETE' });
 export const benchCancel = () => api('/api/bench/cancel', { method: 'POST' });
 export const benchGet = (id) => api(`/api/bench/${encodeURIComponent(id)}`);
 export const benchAsk = (id, question, json = false) =>

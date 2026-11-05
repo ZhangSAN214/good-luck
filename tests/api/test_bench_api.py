@@ -421,3 +421,26 @@ def test_found_actions_over_http(tmp_path):
         assert c.post(f"{base}/found/drop", json={"item": "f1-1"}).status_code == 404
         assert c.post(f"{base}/found/drop", json={}).status_code == 422
         assert c.post(f"{base}/refind").status_code == 400
+
+
+def test_ruler_over_http(tmp_path):
+    """生成器第二版 · 第 4 块：评分标尺截图的上传、列出、看图、删除。"""
+    import base64
+
+    png = base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="
+    )
+    with TestClient(create_app(service_with(tmp_path))) as c:
+        assert c.get("/api/bench/ruler").json() == {"items": [], "enabled": True}
+        r = c.post("/api/bench/ruler?name=a.png&score=8&note=清爽", content=png)
+        assert r.status_code == 201
+        item = r.json()["items"][0]
+        assert item == {"file": "8分-清爽.png", "score": 8, "note": "清爽"}
+        got = c.get(f"/api/bench/ruler/{item['file']}")
+        assert got.status_code == 200 and got.content == png
+        assert got.headers["content-type"] == "image/png"
+        bad = c.post("/api/bench/ruler?name=a.png&score=8", content=b"<html>")
+        assert bad.status_code == 400 and "图片" in bad.json()["detail"]
+        assert c.get("/api/bench/ruler/..%2Fbuild.json").status_code == 404
+        assert c.delete(f"/api/bench/ruler/{item['file']}").json()["items"] == []
+        assert c.delete(f"/api/bench/ruler/{item['file']}").status_code == 404

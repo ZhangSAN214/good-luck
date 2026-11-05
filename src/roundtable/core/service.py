@@ -805,6 +805,34 @@ class RoundtableService(TerminalService, ApartmentService, ChatService, OfficeSe
         except ValueError as exc:
             raise ServiceError(str(exc), 400) from None
 
+    def bench_ruler(self) -> dict[str, Any]:
+        """评分标尺：你挑的参考截图（文件名写分数），评审时照它定尺度（第 4 块）。"""
+        return {"items": self.bench.ruler(), "enabled": self.bench.rules.look.ruler}
+
+    def bench_ruler_add(self, name: str, data: bytes, score: int, note: str = "") -> dict[str, Any]:
+        try:
+            self.bench.add_ruler(name, data, score, note)
+        except ValueError as exc:
+            raise ServiceError(str(exc), 400) from None
+        return self.bench_ruler()
+
+    def bench_ruler_drop(self, file: str) -> dict[str, Any]:
+        try:
+            self.bench.drop_ruler(file)
+        except LookupError as exc:
+            raise ServiceError(str(exc), 404) from None
+        return self.bench_ruler()
+
+    def bench_ruler_file(self, file: str) -> Path:
+        folder = self.bench.ruler_folder()
+        if folder is None or file not in {r["file"] for r in self.bench.ruler()}:
+            raise ServiceError("没有这张标尺截图", 404)
+        return folder / file
+
+    @property
+    def bench_ruler_limit(self) -> int:
+        return int(self.bench.rules.look.ruler_max_mb * 1024 * 1024)
+
     @property
     def bench_material_limit(self) -> int:
         return self.bench.rules.materials.max_video_mb * 1024 * 1024

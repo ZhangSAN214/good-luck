@@ -874,3 +874,38 @@ def test_benchgen_found_assets_swap_and_drop(serve, page, monkeypatch, tmp_path)
     need.locator(".bg-fitem", has_text="Kyoto street 3").wait_for(timeout=10000)
     need.locator('[data-found-drop="f1-2"]').click()
     need.locator("p", has_text="只留了 1 个").wait_for(timeout=10000)
+
+
+def test_benchgen_ruler_upload_and_drop(serve, page, monkeypatch, tmp_path):
+    """生成器第二版 · 第 4 块：「质检」里加一张评分标尺截图（写几分），能看到、能删。"""
+    shot = tmp_path / "参考.png"
+    shot.write_bytes(PNG)
+
+    def factory(rules, *, root, **kw):
+        return BenchBuilder(
+            rules, root=tmp_path / "bench", supercomputer=SlowSC(), render=fake_render, seed=3
+        )
+
+    monkeypatch.setattr(service_mod, "BenchBuilder", factory)
+    srv = serve(confirm_threshold_usd=100.0)
+    page.goto(srv.url)
+    page.locator('#entries [data-m="bench"]').click()
+    pane = page.locator('#bench [data-pane="gen"]')
+    pane.locator("[data-text]").wait_for()
+    pane.locator('[data-drawer="rounds"]').click()
+    ruler = pane.locator(".bg-ruler")
+    ruler.locator("summary", has_text="评分标尺（0 张）").wait_for(timeout=10000)
+    ruler.locator("[data-ruler-add]").click()
+    ruler.locator(".bg-err", has_text="先选一张截图").wait_for()
+    ruler.locator("[data-ruler-file]").set_input_files(str(shot))
+    ruler.locator("[data-ruler-score]").select_option("9")
+    ruler.locator("[data-ruler-note]").fill("清爽的仪表盘")
+    ruler.locator("[data-ruler-add]").click()
+    item = ruler.locator(".bg-ritem")
+    item.wait_for(timeout=10000)
+    assert "9 分" in item.text_content() and "清爽的仪表盘" in item.text_content()
+    page.wait_for_function(
+        "(img) => img.complete && img.naturalWidth > 0", arg=item.locator("img").element_handle()
+    )
+    item.locator("[data-ruler-drop]").click()
+    ruler.locator("summary", has_text="评分标尺（0 张）").wait_for(timeout=10000)

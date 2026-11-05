@@ -48,6 +48,7 @@ from roundtable.core.benchkit.finder import (
     FILE_KINDS,
     AssetFinder,
     credits_md,
+    file_ok,
     found_lines,
 )
 from roundtable.core.benchkit.intent import (
@@ -71,6 +72,16 @@ from roundtable.core.benchkit.intent import (
 )
 from roundtable.core.benchkit.library import Library
 from roundtable.core.benchkit.lint import hero_facts, lint_data, lint_windows
+from roundtable.core.benchkit.look import (
+    RULER_EXT,
+    RULER_MAX,
+    copy_ruler,
+    distinct,
+    recent_looks,
+    ruler_name,
+    ruler_refs,
+    ruler_text,
+)
 from roundtable.core.benchkit.quality import Finding, QualityError, Report, run_check, run_probes
 from roundtable.core.benchkit.research import (
     Researcher,
@@ -2720,6 +2731,8 @@ class BenchBuilder:
         except (JSONOutputError, SpecError) as exc:
             raise RuntimeError(f"拆需求的结果看不懂：{exc}") from None
         link_voices(spec.requirements, raw.get("requirements"), b.get("voices") or [])
+        if self.rules.look.distinct:
+            self._distinct_look(b, spec, rng)
         b["title"] = spec.title
         b["output"] = {"kind": spec.output, "base": spec.base}
         b["windows"] = [
@@ -2727,6 +2740,65 @@ class BenchBuilder:
             for w in spec.windows
         ]
         return spec
+
+    # --- 每个台有自己的样子（第 4 块）-------------------------------------------------------
+
+    def _distinct_look(self, b: dict[str, Any], spec: Spec, rng: random.Random) -> None:
+        """和最近几个台撞了样子就换掉撞上的几项（只改推荐，签字时还能改回去）。"""
+        recent = recent_looks(self.root, b["id"], self.rules.look.recent)
+        if not recent:
+            return
+        options = {d["key"]: [o["id"] for o in d["options"]] for d in design_catalog()}
+        theme, changes = distinct(spec.design, spec.theme, recent, options, rng)
+        if not changes:
+            return
+        spec.theme = theme
+        b["look_changes"] = changes
+        names = {d["key"]: d["label"] for d in design_catalog()}
+        names["accent"] = names.get("accent", "主色")
+        said = [
+            f"{names.get(c['key'], c['key'])} {c['old'] or '默认'} → {c['new']}（{c['why']}）"
+            for c in changes
+        ]
+        self._log(b, "和最近做的台撞了样子，换了：" + "；".join(said))
+
+    def ruler_folder(self) -> Path | None:
+        return self.root / self.rules.look.ruler_dir if self.root is not None else None
+
+    def ruler(self) -> list[dict[str, Any]]:
+        return ruler_refs(self.ruler_folder())
+
+    def add_ruler(self, name: str, data: bytes, score: int, note: str = "") -> list[dict[str, Any]]:
+        """收下一张标尺截图（文件名按分数起）；最多留 RULER_MAX 张。"""
+        folder = self.ruler_folder()
+        if folder is None:
+            raise ValueError("没有本机数据目录")
+        ext = Path(name).suffix.lower()
+        if ext not in RULER_EXT:
+            raise ValueError("标尺只收 PNG、JPG、WebP 截图")
+        if not 0 <= score <= 10:
+            raise ValueError("分数要在 0～10 之间")
+        if len(data) > self.rules.look.ruler_max_mb * 1024 * 1024:
+            raise ValueError(f"截图太大（超过 {self.rules.look.ruler_max_mb:g} MB）")
+        if not file_ok({".jpeg": "jpg"}.get(ext, ext.lstrip(".")), data):
+            raise ValueError("这不是一张图片")
+        if len(self.ruler()) >= RULER_MAX:
+            raise ValueError(f"标尺最多 {RULER_MAX} 张，先删掉一张")
+        folder.mkdir(parents=True, exist_ok=True)
+        target = folder / ruler_name(score, note, ext)
+        n = 2
+        while target.exists():
+            target = folder / ruler_name(score, f"{note}-{n}", ext)
+            n += 1
+        target.write_bytes(data)
+        return self.ruler()
+
+    def drop_ruler(self, file: str) -> list[dict[str, Any]]:
+        folder = self.ruler_folder()
+        if folder is None or file not in {r["file"] for r in self.ruler()}:
+            raise LookupError("没有这张标尺截图")
+        (folder / file).unlink(missing_ok=True)
+        return self.ruler()
 
     # --- 资源检索员（第 3 块）-----------------------------------------------------------------
 
@@ -3435,6 +3507,10 @@ class BenchBuilder:
         authors = {w["id"]: w["author"] for w in b["windows"] if w["author"]}
         last = b["rounds"][-2] if len(b["rounds"]) > 1 else None
         reviews: list[dict[str, float]] = []
+        refs = copy_ruler(self.ruler_folder(), folder / "ruler") if self.rules.look.ruler else []
+        ruler = ruler_text(refs)
+        if refs:
+            rnd["ruler"] = [{"file": r["file"], "score": r["score"]} for r in refs]
         for author, wids in review_groups(authors).items():
             rec: dict[str, Any] = {"author": author, "windows": wids}
             rnd["reviews"].append(rec)
@@ -3450,6 +3526,7 @@ class BenchBuilder:
                 requirements=requirements_text(spec),
                 cited=self._cited_text(b, wids),
                 skills=self._skills("review", spec.kind, b),
+                ruler=ruler,
             )
             chosen, result = await self._step(
                 b,

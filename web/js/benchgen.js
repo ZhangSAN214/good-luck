@@ -273,6 +273,8 @@ export class BenchGenPanel {
     this.composing = false; // 点了「新项目」：左边写想法，中间是项目墙
     this.device = 'desk'; // 中间成品按电脑还是手机宽度看
     this.drawer = ''; // 底部抽屉开着哪一格（空 = 收起）
+    this.rulerSt = null; // 评分标尺（参考截图，第 4 块）：打开「质检」时读
+    this.rulerErr = '';
     this.editKey = ''; // 「改动」里正在改哪一样（见 core/benchkit/edits.py 的键）
     this.editBid = '';
     this.editView = null;
@@ -823,6 +825,7 @@ export class BenchGenPanel {
     const plugins = (p.plugins || []).length ? `<p class="sc-hint">建议给 dsh 装的插件：${esc(p.plugins.join('、'))}（底部「调研」里点「申请装上」）</p>` : '';
     return `<h4 class="bg-h4">方案</h4>
       ${p.kind_label && p.kind !== 'other' ? `<p class="sc-hint bg-kind">按「${esc(p.kind_label.split('（')[0])}」的做法做</p>` : ''}
+      ${(b.look_changes || []).length ? `<p class="sc-hint bg-look">和最近做的台撞了样子，已换：${esc(b.look_changes.map((c) => `${{ theme: '配色', accent: '主色', type: '字体气质', material: '材质', bg: '背景' }[c.key] || c.key} ${c.old || '默认'} → ${c.new}`).join('；'))}（${esc(b.look_changes[0].why)}；选型台上还能改回去）</p>` : ''}
       ${ms ? `<ol class="bg-flow bg-ms bg-stages">${ms}</ol>` : ''}
       ${fold(`建议池（你没要，这次不做，${(p.pool || []).length} 条）`, list(p.pool))}
       ${fold(`窗口（${(p.windows || []).length} 个）`, wins ? `<ul class="bg-list bg-wins">${wins}</ul>` : '', true)}
@@ -934,6 +937,60 @@ export class BenchGenPanel {
     const items = stale.map((s) => `<li><b>${esc(s.title)}</b>：${esc((s.why || []).join('；'))}</li>`).join('');
     return `${conflict}<div class="bg-stale" data-stale><p>改了上游，这 ${stale.length} 个窗口要跟着改：</p><ul class="bg-list">${items}</ul>
       <button type="button" class="btn" data-redo-stale ${this.st && this.st.busy ? 'disabled title="正在干活，做完再重做"' : ''}>只重做受影响的</button></div>`;
+  }
+
+  /** 评分标尺：你挑的参考截图，文件名写分数；评审照着它定尺度（第 4 块）。截图只存在你电脑上。 */
+  rulerHtml() {
+    const r = this.rulerSt;
+    if (!r) return '<p class="sc-hint bg-ruler-wait">正在读评分标尺…</p>';
+    const items = (r.items || [])
+      .map(
+        (x) => `<li class="bg-ritem"><img src="/api/bench/ruler/${encodeURIComponent(x.file)}" alt="${esc(x.score)} 分的参考截图" loading="lazy">
+          <div><b>${esc(x.score)} 分</b><span class="sc-sub">${esc(x.note || '没写说明')}</span><button type="button" class="link" data-ruler-drop="${esc(x.file)}">删掉</button></div></li>`,
+      )
+      .join('');
+    const opts = [10, 9, 8, 7, 6, 5, 4].map((n) => `<option value="${n}" ${n === 8 ? 'selected' : ''}>${n} 分</option>`).join('');
+    return `<details class="bg-ruler" ${items && !this.rulerTouched ? '' : 'open'}><summary>评分标尺（${(r.items || []).length} 张）${r.enabled ? '' : '：配置里关着'}</summary>
+      <p class="sc-hint">挑几张你心目中几分的界面截图放进来，评审会照着它打分（「这是 8 分的样子」）。截图只存在你电脑上的数据目录里，评审助手打分时会看到。</p>
+      ${items ? `<ul class="bg-ritems">${items}</ul>` : ''}
+      <div class="bg-radd"><input type="file" accept="image/png,image/jpeg,image/webp" data-ruler-file aria-label="选一张截图">
+        <label>这是<select data-ruler-score>${opts}</select>的样子</label>
+        <input type="text" data-ruler-note maxlength="60" placeholder="一句说明（可不写），如 清爽的仪表盘" aria-label="说明">
+        <button type="button" class="btn" data-ruler-add>加进标尺</button></div>
+      ${this.rulerErr ? `<p class="bg-err" role="alert">${esc(this.rulerErr)}</p>` : ''}</details>`;
+  }
+
+  async loadRuler() {
+    try {
+      this.rulerSt = await this.api.ruler();
+    } catch (x) {
+      this.rulerSt = { items: [], enabled: false };
+      this.rulerErr = x.message;
+    }
+    this.paintRuler();
+  }
+
+  /** 只换掉标尺那一块，质检记录（截图）不重画，免得图片刚加载又被换掉。 */
+  paintRuler() {
+    const html = this.drawerHtml(this.st || {}, this.shownBuild());
+    const box = this.el.querySelector('[data-region="drawer"]');
+    const old = box?.querySelector('.bg-ruler, .bg-ruler-wait');
+    if (!old) return this.paint('drawer', html, true);
+    const tmp = document.createElement('div');
+    tmp.innerHTML = this.rulerHtml();
+    old.replaceWith(...tmp.childNodes);
+    box.dataset.html = html;
+  }
+
+  async rulerAct(fn) {
+    this.rulerErr = '';
+    this.rulerTouched = true; // 刚加或删过：标尺保持展开
+    try {
+      this.rulerSt = await fn();
+    } catch (x) {
+      this.rulerErr = x.message;
+    }
+    this.paintRuler();
   }
 
   /** 底部「改动」：选一样东西 → 改它、看历史、对比、退回；窗口还能一句话交给助手改。 */
@@ -1129,7 +1186,7 @@ export class BenchGenPanel {
     else if (open === 'research') body = (b && this.researchHtml(b)) || '<p class="sc-hint">还没调研。开工后先查 GitHub、论文和资讯，结果都在这里。</p>';
     else if (open === 'found') body = (b && this.foundHtml(b)) || '<p class="sc-hint">这次没有要找的素材和数据。拆需求时每个窗口会列出要用的照片、图标、数据，资源检索员按清单去免费来源找。</p>';
     else if (open === 'sources') body = (b && this.sourcesHtml(b)) || '<p class="sc-hint">这次没找插件。</p>';
-    else if (open === 'rounds') body = b && (b.rounds || []).length ? b.rounds.map((x) => this.roundHtml(b, x)).join('') : '<p class="sc-hint">还没开始质检。</p>';
+    else if (open === 'rounds') body = this.rulerHtml() + (b && (b.rounds || []).length ? b.rounds.map((x) => this.roundHtml(b, x)).join('') : '<p class="sc-hint">还没开始质检。</p>');
     else if (open === 'team') body = (b && this.teamHtml(b)) || '<p class="sc-hint">还没开始协作。</p>';
     else if (open === 'log') body = b ? this.logHtml(b) : '<p class="sc-hint">还没有项目。</p>';
     else if (open === 'net') body = `${this.netHtml() || '<p class="sc-hint">点右上「联网自检」，看成品要用的公开数据和调研来源通不通。</p>'}`;
@@ -1949,6 +2006,19 @@ export class BenchGenPanel {
     if (t.closest('[data-redo-stale]') && shown) return this.act(() => this.api.redoStale(shown.id));
     const cf = t.closest('[data-conflict]');
     if (cf && shown) return this.act(() => this.api.conflict(shown.id, cf.dataset.conflict));
+    if (t.closest('[data-ruler-add]')) {
+      const file = this.el.querySelector('[data-ruler-file]')?.files?.[0];
+      if (!file) {
+        this.rulerErr = '先选一张截图';
+        this.rulerTouched = true;
+        return this.paint('drawer', this.drawerHtml(this.st || {}, this.shownBuild()), true);
+      }
+      const score = this.el.querySelector('[data-ruler-score]')?.value || '8';
+      const note = this.el.querySelector('[data-ruler-note]')?.value || '';
+      return this.rulerAct(() => this.api.rulerAdd(file, score, note));
+    }
+    const rd = t.closest('[data-ruler-drop]');
+    if (rd) return this.rulerAct(() => this.api.rulerDrop(rd.dataset.rulerDrop));
     const fs = t.closest('[data-found-swap]');
     if (fs && shown) return this.act(() => this.api.foundSwap(shown.id, fs.dataset.foundSwap));
     const fd = t.closest('[data-found-drop]');
@@ -2108,6 +2178,7 @@ export class BenchGenPanel {
     if (dr) {
       this.drawer = this.drawer === dr.dataset.drawer ? '' : dr.dataset.drawer;
       if (this.drawer === 'desk') this.loadDesk();
+      if (this.drawer === 'rounds') this.loadRuler();
       return this.render(true);
     }
     const dsk = t.closest('[data-desk-tab],[data-desk-cat],[data-desk-mode],[data-desk-kind]');
