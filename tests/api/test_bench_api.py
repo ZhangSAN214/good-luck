@@ -444,3 +444,28 @@ def test_ruler_over_http(tmp_path):
         assert c.get("/api/bench/ruler/..%2Fbuild.json").status_code == 404
         assert c.delete(f"/api/bench/ruler/{item['file']}").json()["items"] == []
         assert c.delete(f"/api/bench/ruler/{item['file']}").status_code == 404
+
+
+def test_shelf_over_http(tmp_path):
+    """项目列表不堆积：收起 / 放回来 / 删进回收站 / 恢复 / 彻底删除。"""
+    with TestClient(create_app(service_with(tmp_path))) as c:
+        c.post("/api/bench", json={"request": "东京旅行台"})
+        wait_done(c)
+        bid = c.get("/api/bench").json()["current"]["id"]
+        base = f"/api/bench/{bid}/shelf"
+        st = c.post(f"{base}/shelve").json()
+        assert st["current"] is None and st["recent"] == []
+        assert [x["id"] for x in st["shelved"]] == [bid]
+        st = c.post(f"{base}/unshelve").json()
+        assert [x["id"] for x in st["recent"]] == [bid] and st["shelved"] == []
+        st = c.post(f"{base}/delete").json()
+        assert st["recent"] == [] and [x["id"] for x in st["trash"]] == [bid]
+        assert st["trash"][0]["left"] == 30
+        assert c.get(f"/api/bench/{bid}").status_code == 404
+        assert c.post(f"{base}/delete").status_code == 404
+        st = c.post(f"{base}/restore").json()
+        assert [x["id"] for x in st["recent"]] == [bid] and st["trash"] == []
+        c.post(f"{base}/delete")
+        assert c.post(f"{base}/purge").json()["trash"] == []
+        assert c.post(f"{base}/purge").status_code == 404
+        assert c.post(f"{base}/explode").status_code == 404
