@@ -879,45 +879,19 @@ class Brain:
             opposed, expect = self._psyche_thoughts(
                 member, s, mine, tags, last, traits, base_traits, at, rng
             )
-        has_sad = any(t.kind == "sad" for t in mine)
-        has_whim = any(t.kind == "whim" for t in mine)
         noticed = self._noticed(s)
         love = self.heart.effects(member, to, at)
-        has_own = any(t.kind == "own" for t in mine)
-        has_claim = any(t.kind == "claim" for t in mine)
-        weights: dict[str, float] = {}
-        for name, rule in self.rules.intents.items():
-            if rule.needs == "own" and not has_own:
-                continue
-            if rule.needs == "claim" and not has_claim:
-                continue
-            if rule.needs == "sad" and not has_sad:
-                continue
-            if rule.needs == "whim" and not has_whim:
-                continue
-            if rule.needs == "last" and not last:
-                continue
-            if name in ("respond", "ask", "disagree") and not last:
-                continue
-            w = rule.base
-            w += sum(c * (_num(traits.get(t, 3)) - 3) for t, c in rule.traits.items())
-            w += sum(c * s.drives.get(d, 0.3) for d, c in rule.drives.items())
-            w += rule.mood * mood + rule.energy * (energy - 0.5)
-            if name == "disagree" and opposed is not None:  # 三观：和她的立场相反更想反驳
-                if opposed[0]:
-                    w = (max(w, 0.0) + ps.values.push) * (1 + ps.values.oppose)
-                else:
-                    w *= ps.values.agree
-            w *= love.get(name, 1.0)  # 对说话对象的感情（在乎、心动、委屈、内疚……）
-            if s.recent[-2:] == [name, name]:
-                w *= 0.4  # 别一直一个套路
-            if noticed == name:  # 元认知：察觉到自己最近老这样，压一压
-                w *= self.rules.meta.damp
-            elif noticed and self.rules.meta.swap.get(noticed) == name:
-                w *= 1.5
-            weights[name] = max(w, 0.0)
-        if not weights or sum(weights.values()) <= 0:
-            weights = {"respond": 1.0} if last else {"share": 1.0}
+        weights = self._intent_weights(
+            s,
+            mine,
+            last=last,
+            traits=traits,
+            mood=mood,
+            energy=energy,
+            opposed=opposed,
+            love=love,
+            noticed=noticed,
+        )
         gist = self.lingo.gist(last, meta) if last else None
         if gist is not None and (gist.quick or gist.sticker):  # 别人分享东西：人一般先给反应
             for name in QUICK_INTENTS & set(weights):
@@ -929,20 +903,7 @@ class Brain:
             weights = {k: v for k, v in weights.items() if k in keep and v > 0} or {"respond": 1.0}
             tags.append(f"asked:{asked}")
         chosen = rng.choices(list(weights), list(weights.values()))[0]
-        pool = mine
-        if chosen in ("share", "shift", "vent"):
-            pool = [t for t in mine if t.kind == "own"] or mine
-            if chosen == "vent":
-                pool = [t for t in pool if t.source == "mood"] or pool
-        elif chosen == "disagree":
-            pool = [t for t in mine if t.kind == "claim"] or mine
-        elif chosen == "comfort":
-            pool = [t for t in mine if t.kind == "sad"] or mine
-        elif chosen == "blurt":
-            pool = [t for t in mine if t.kind == "whim"] or mine
-        elif last:
-            pool = [t for t in mine if t.kind != "own"] or mine
-        focus = self.spotlight(pool, rng)
+        focus = self.spotlight(_pool(chosen, mine, last), rng)
         text = self._card(chosen, focus, mood, energy, s, rng)
         if asked:
             ra = self.rules.asked
@@ -1003,83 +964,39 @@ class Brain:
                 member, s, chosen, last, mood, energy, traits, opposed, at, rng
             )[: ps.extra_lines]
         hurt = bool(to) and self.heart.view(member, to, at).get("hurt", 0) >= self.heart.rules.on
-        meme = self.memes.line(  # 用自己的随机数，不打乱别的区
+        meme, found = self._scene_lines(
             member,
             last=last,
             chosen=chosen,
+            gist=gist,
+            traits=traits,
             hurt=hurt,
             at=at,
-            rng=random.Random(f"meme:{member}:{iso(at)}:{seed}"),
+            seed=seed,
+            to=to,
+            room=room,
+            asked=asked,
         )
-        if meme is not None:  # 网络梗：对方玩梗就接住（不懂就问），平时偶尔提一句最近在玩的梗
-            text = f"{text}\n{meme[1]}"
-            tags.append(meme[0])
-        else:  # 情境说法本：按场合和性格提一条说话招式（只写逻辑），或你常说的短句
-            phrase = self.phrases.line(
-                member,
-                last=last,
-                gist=gist.kind if gist is not None else "",
-                chosen=chosen,
-                traits=traits,
-                care=self.heart.care(member, USER, at),
-                hurt=hurt,
-                at=at,
-                rng=random.Random(f"phrase:{member}:{iso(at)}:{seed}"),
-                first=to == USER and self._exchanges(member) < self.phrases.rules.first_exchanges,
-            )
-            if phrase is not None:
-                text = f"{text}\n{phrase[1]}"
-                tags.append(phrase[0])
-        circle = self.circle.line(member, last)
-        if circle:  # 对方提到她说过的圈外人（室友、老同学……）：照之前说的来
-            text = f"{text}\n{circle}"
-            tags.append("circle")
-        first = (
-            self.firsts.line(member, at, random.Random(f"firsts:{member}:{iso(at)}:{seed}"))
-            if to == USER
-            else None
-        )
-        if first is not None:
-            text = f"{text}\n{first[1]}"
-            tags.append(first[0])
-        hook = (
-            self.hooks.line(member, at, random.Random(f"hooks:{member}:{iso(at)}:{seed}"), room)
-            if to == USER and not asked
-            else None
-        )
-        if hook is not None:  # 话头：你说过的事后来怎样、她上次问你没回的那句
-            text = f"{text}\n{hook[1]}"
-            tags.append(hook[0])
-        extra = self.human.lines(
+        for tag, line in found:
+            text = f"{text}\n{line}"
+            tags.append(tag)
+        first, rest = self._human_lines(
             member,
+            s,
+            mine,
+            lines,
+            heart=heart,
             to=to,
             last=last,
             chosen=chosen,
             room=room,
+            mood=mood,
             energy=energy,
-            social=s.drives.get("social", 0.3) + (0.2 if self._festive(s, at) else 0.0),
-            spotlight=focus,
+            focus=focus,
             hurt=hurt,
             at=at,
             rng=rng,
         )
-        first = [x for x in extra if x[0] in FIRST]
-        if self.feel.enabled():  # 此刻在场的情绪：她自己的理解 + 上回真有这种情绪是为了什么
-            hints = self.feel.hints(
-                heart=heart[0] if heart else "",
-                tense=any(t.source == "expect" and t.strength >= 0.55 for t in mine),
-                novelty=s.drives.get("novelty", 0.3),
-            )
-            if heart and heart[0] == "jealous":  # 吃醋没有别处记：写进卡时就算有过一次
-                self.feel.record(
-                    member, self.feel.rules.love["jealous"], heart[1].split("，")[0], at
-                )
-            emos = self.feel.active(member, mood=mood, last=last, at=at, hints=hints)
-            felt = self.feel.line(member, emos, at)
-            if felt:
-                first.insert(0, ("feel:mix" if "\n" in felt else "feel", felt))
-        rest = lines + [x for x in extra if x[0] not in FIRST]
-        rng.shuffle(rest)
         for tag, line in first + rest:  # 人味里要紧的先给，其余和特质句一起随机
             if budget <= 0:
                 break
@@ -1120,6 +1037,175 @@ class Brain:
             lean,
             quick,
         )
+
+    def _intent_weights(
+        self,
+        s: Any,
+        mine: list[Thought],
+        *,
+        last: str,
+        traits: dict[str, Any],
+        mood: float,
+        energy: float,
+        opposed: Any,
+        love: dict[str, float],
+        noticed: str,
+    ) -> dict[str, float]:
+        """给每种意图打分：性格、驱力、心情精力、三观、对说话对象的感情、别重复套路、元认知。"""
+        ps = self.rules.psyche
+        has_sad = any(t.kind == "sad" for t in mine)
+        has_whim = any(t.kind == "whim" for t in mine)
+        has_own = any(t.kind == "own" for t in mine)
+        has_claim = any(t.kind == "claim" for t in mine)
+        weights: dict[str, float] = {}
+        for name, rule in self.rules.intents.items():
+            if rule.needs == "own" and not has_own:
+                continue
+            if rule.needs == "claim" and not has_claim:
+                continue
+            if rule.needs == "sad" and not has_sad:
+                continue
+            if rule.needs == "whim" and not has_whim:
+                continue
+            if rule.needs == "last" and not last:
+                continue
+            if name in ("respond", "ask", "disagree") and not last:
+                continue
+            w = rule.base
+            w += sum(c * (_num(traits.get(t, 3)) - 3) for t, c in rule.traits.items())
+            w += sum(c * s.drives.get(d, 0.3) for d, c in rule.drives.items())
+            w += rule.mood * mood + rule.energy * (energy - 0.5)
+            if name == "disagree" and opposed is not None:  # 三观：和她的立场相反更想反驳
+                if opposed[0]:
+                    w = (max(w, 0.0) + ps.values.push) * (1 + ps.values.oppose)
+                else:
+                    w *= ps.values.agree
+            w *= love.get(name, 1.0)  # 对说话对象的感情（在乎、心动、委屈、内疚……）
+            if s.recent[-2:] == [name, name]:
+                w *= 0.4  # 别一直一个套路
+            if noticed == name:  # 元认知：察觉到自己最近老这样，压一压
+                w *= self.rules.meta.damp
+            elif noticed and self.rules.meta.swap.get(noticed) == name:
+                w *= 1.5
+            weights[name] = max(w, 0.0)
+        if not weights or sum(weights.values()) <= 0:
+            weights = {"respond": 1.0} if last else {"share": 1.0}
+        return weights
+
+    def _scene_lines(
+        self,
+        member: str,
+        *,
+        last: str,
+        chosen: str,
+        gist: Any,
+        traits: dict[str, Any],
+        hurt: bool,
+        at: datetime,
+        seed: str,
+        to: str,
+        room: str,
+        asked: str,
+    ) -> tuple[Any, list[tuple[str, str]]]:
+        """按场合加的几句：网络梗或情境说法、圈外人、第一次、话头。每样用自己的随机数。
+
+        返回（梗，[(标签, 句子)…]）；梗的「接法」后面还要用来直接回。"""
+        found: list[tuple[str, str]] = []
+        meme = self.memes.line(  # 用自己的随机数，不打乱别的区
+            member,
+            last=last,
+            chosen=chosen,
+            hurt=hurt,
+            at=at,
+            rng=random.Random(f"meme:{member}:{iso(at)}:{seed}"),
+        )
+        if meme is not None:  # 网络梗：对方玩梗就接住（不懂就问），平时偶尔提一句最近在玩的梗
+            found.append((meme[0], meme[1]))
+        else:  # 情境说法本：按场合和性格提一条说话招式（只写逻辑），或你常说的短句
+            phrase = self.phrases.line(
+                member,
+                last=last,
+                gist=gist.kind if gist is not None else "",
+                chosen=chosen,
+                traits=traits,
+                care=self.heart.care(member, USER, at),
+                hurt=hurt,
+                at=at,
+                rng=random.Random(f"phrase:{member}:{iso(at)}:{seed}"),
+                first=to == USER and self._exchanges(member) < self.phrases.rules.first_exchanges,
+            )
+            if phrase is not None:
+                found.append((phrase[0], phrase[1]))
+        circle = self.circle.line(member, last)
+        if circle:  # 对方提到她说过的圈外人（室友、老同学……）：照之前说的来
+            found.append(("circle", circle))
+        first = (
+            self.firsts.line(member, at, random.Random(f"firsts:{member}:{iso(at)}:{seed}"))
+            if to == USER
+            else None
+        )
+        if first is not None:
+            found.append((first[0], first[1]))
+        hook = (
+            self.hooks.line(member, at, random.Random(f"hooks:{member}:{iso(at)}:{seed}"), room)
+            if to == USER and not asked
+            else None
+        )
+        if hook is not None:  # 话头：你说过的事后来怎样、她上次问你没回的那句
+            found.append((hook[0], hook[1]))
+        return meme, found
+
+    def _human_lines(
+        self,
+        member: str,
+        s: Any,
+        mine: list[Thought],
+        lines: list[tuple[str, str]],
+        *,
+        heart: Any,
+        to: str,
+        last: str,
+        chosen: str,
+        room: str,
+        mood: float,
+        energy: float,
+        focus: Any,
+        hurt: bool,
+        at: datetime,
+        rng: random.Random,
+    ) -> tuple[list[tuple[str, str]], list[tuple[str, str]]]:
+        """人味和此刻的情绪：返回（要紧的先给的几句，其余随机排好的几句）。"""
+        extra = self.human.lines(
+            member,
+            to=to,
+            last=last,
+            chosen=chosen,
+            room=room,
+            energy=energy,
+            social=s.drives.get("social", 0.3) + (0.2 if self._festive(s, at) else 0.0),
+            spotlight=focus,
+            hurt=hurt,
+            at=at,
+            rng=rng,
+        )
+        first = [x for x in extra if x[0] in FIRST]
+        if self.feel.enabled():  # 此刻在场的情绪：她自己的理解 + 上回真有这种情绪是为了什么
+            hints = self.feel.hints(
+                heart=heart[0] if heart else "",
+                tense=any(t.source == "expect" and t.strength >= 0.55 for t in mine),
+                novelty=s.drives.get("novelty", 0.3),
+            )
+            if heart and heart[0] == "jealous":  # 吃醋没有别处记：写进卡时就算有过一次
+                self.feel.record(
+                    member, self.feel.rules.love["jealous"], heart[1].split("，")[0], at
+                )
+            emos = self.feel.active(member, mood=mood, last=last, at=at, hints=hints)
+            felt = self.feel.line(member, emos, at)
+            if felt:
+                first.insert(0, ("feel:mix" if "\n" in felt else "feel", felt))
+        rest = lines + [x for x in extra if x[0] not in FIRST]
+        rng.shuffle(rest)
+        return first, rest
 
     def _closeness(self, member: str, other: str, at: datetime) -> float:
         from roundtable.core.member.relation import RelationPlugin  # relation 不依赖本模块
@@ -1362,3 +1448,21 @@ def _clause(text: str) -> str:
 
 def intent_text(card: IntentCard | None, none: str) -> str:
     return card.text if card is not None and card.text else none
+
+
+def _pool(chosen: str, mine: list[Thought], last: str) -> list[Thought]:
+    """按选中的意图挑可以聚焦的念头：说自己的事挑自己的，反驳挑说法，安慰挑难过……"""
+    pool = mine
+    if chosen in ("share", "shift", "vent"):
+        pool = [t for t in mine if t.kind == "own"] or mine
+        if chosen == "vent":
+            pool = [t for t in pool if t.source == "mood"] or pool
+    elif chosen == "disagree":
+        pool = [t for t in mine if t.kind == "claim"] or mine
+    elif chosen == "comfort":
+        pool = [t for t in mine if t.kind == "sad"] or mine
+    elif chosen == "blurt":
+        pool = [t for t in mine if t.kind == "whim"] or mine
+    elif last:
+        pool = [t for t in mine if t.kind != "own"] or mine
+    return pool
