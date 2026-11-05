@@ -29,6 +29,16 @@ def kind_for_status(status: int, code: str | None = None) -> ErrorKind:
     return ErrorKind.BAD_REQUEST
 
 
+def kind_for_stream_error(code: str | None) -> ErrorKind:
+    """流式响应中途的错误块（HTTP 状态已是 200）：code 是数字时按 HTTP 状态归类；
+    是额度类的文字（insufficient_quota 等）时归为额度用完，其余当对方出错。"""
+    if code and code.isdigit():
+        return kind_for_status(int(code), code)
+    if code in QUOTA_CODES:
+        return ErrorKind.QUOTA
+    return ErrorKind.SERVER
+
+
 def error_fields(body: Any) -> tuple[str | None, str]:
     """从常见错误体中取出 (code, message)。兼容 OpenAI / OpenRouter / Gemini 风格。"""
     if not isinstance(body, Mapping):
