@@ -114,7 +114,7 @@ async def test_budget_alarm_halts_life():
     env = life_env(daily_usd=0.01)
     at(env, NOW)
     life = engine(env)
-    life.spent_today = lambda: 0.0095  # 用到上限的 95%
+    life.spent_today = lambda steps=None: 0.0095  # 用到上限的 95%
     env.rt.repo.set_setting(LAST_TICK_KEY, (NOW - timedelta(hours=3)).isoformat())
     out = await life.tick(NOW)
     assert out["written"] == 0 and not life_calls(env)

@@ -404,6 +404,9 @@ class LifeRules(_Strict):
     daily_usd: float = Field(default=0.10, ge=0)  # 生活（含记忆整理）每天最多花多少（UTC 日）
     # 给夜里整理记忆留的钱：白天的聊天、上网、朋友圈花到「上限 − 这笔」就停，记忆整理可以用满上限
     memory_reserve_usd: float = Field(default=0.02, ge=0)
+    # 给朋友圈留的钱（11-05 用户定 $0.02）：别的生活（含记忆整理、成长）花到「上限 − 这笔」就停，
+    # 朋友圈可以用满；接近上限熔断后朋友圈也照发（连续出错时不发）
+    moments_reserve_usd: float = Field(default=0.0, ge=0)
     tick_minutes: int = Field(default=30, ge=5, le=360)  # 电脑开着时多久推进一次
     max_written_per_tick: int = Field(default=2, ge=0, le=10)  # 每次推进最多几件事写成聊天
     max_written_catch_up: int = Field(default=6, ge=0, le=30)  # 开机补算时最多写几件
