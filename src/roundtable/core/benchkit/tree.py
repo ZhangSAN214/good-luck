@@ -178,4 +178,16 @@ def tree_view(b: dict[str, Any], paused: list[str] | None = None) -> dict[str, A
                 | roll
             )
         phases.append({"name": phase, "projects": projects} | _roll(mine))
-    return {"phases": phases, "legacy": b.get("threads") is None, "paused": paused}
+    stale = b.get("stale") or {}
+    titles = {w["id"]: w.get("title", w["id"]) for w in b.get("windows") or []}
+    return {
+        "phases": phases,
+        "legacy": b.get("threads") is None,
+        "paused": paused,
+        # 改了上游、要重做的窗口（第 2 块「只重做受影响的」）
+        "stale": [
+            {"window": w, "title": titles.get(w, w), "why": [r["why"] for r in rs]}
+            for w, rs in stale.items()
+        ],
+        "conflict": b.get("edit_conflict"),
+    }

@@ -1492,6 +1492,17 @@ class RoundtableService:
             raise ServiceError("没有这个工作台", 404)
         return b | {"tree": tree_view(b)}
 
+    def bench_edit_view(self, bench_id: str, key: str, n: int | None = None) -> dict[str, Any]:
+        """一样能改的东西：现在的值、版本历史；带 n 时是第 n 版和上一版的对比。"""
+        try:
+            if n is not None:
+                return self.bench.version_diff(bench_id, key, n)
+            return self.bench.edit_view(bench_id, key)
+        except LookupError as exc:
+            raise ServiceError(str(exc), 404) from None
+        except ValueError as exc:
+            raise ServiceError(str(exc), 400) from None
+
     def bench_tree(self, bench_id: str) -> dict[str, Any]:
         """三层分工树：大阶段 → 小项目 → 小线程（docs/KIT.md「生成器第二版」）。"""
         tree = self.bench.tree(bench_id)
@@ -1535,6 +1546,22 @@ class RoundtableService:
                 self.bench.pause(bench_id, kw.get("key") or "*")
             elif action == "resume":
                 self.bench.resume(bench_id, kw.get("key"))
+            elif action == "edit":
+                self.bench.edit(bench_id, kw.get("key") or "", kw.get("value"), kw.get("why") or "")
+            elif action == "revert":
+                self.bench.revert(bench_id, kw.get("key") or "", int(kw.get("n") or 0))
+            elif action == "instruct":
+                self.bench.instruct(
+                    bench_id, kw.get("window") or "", kw.get("text") or "", kw.get("worker")
+                )
+            elif action == "redo_stale":
+                self.bench.redo_stale(bench_id)
+            elif action == "conflict":
+                choice = kw.get("choice") or ""
+                self.bench.resolve_conflict(bench_id, choice)
+                if choice == "now":  # 停下正在跑的活，只重做受影响的窗口
+                    await self.bench.cancel()
+                    self.bench.redo_stale(bench_id)
             elif action == "rerun":
                 self.bench.rerun_thread(
                     bench_id, kw.get("thread") or "", kw.get("reason") or "", kw.get("worker")

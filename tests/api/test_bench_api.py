@@ -377,3 +377,33 @@ def test_tree_pause_resume_and_rerun_over_http(tmp_path):
         assert last["window"] == write["window"] and last["worker"] == "b"
         missing = c.post(f"/api/bench/{b['id']}/rerun", json={"thread": "t999", "reason": "x"})
         assert missing.status_code == 404
+
+
+def test_edits_versions_and_redo_stale_over_http(tmp_path):
+    """生成器第二版 · 第 2 块：改窗口说明 → 只这一个过期；看版本、对比、退回；只重做受影响的。"""
+    with TestClient(create_app(service_with(tmp_path))) as c:
+        c.post("/api/bench", json={"request": "东京旅行台"})
+        wait_done(c)
+        b = c.get("/api/bench").json()["current"]
+        wid = b["windows"][0]["id"]
+        base = f"/api/bench/{b['id']}"
+        view = c.get(f"{base}/edit", params={"key": f"code:{wid}"}).json()
+        assert view["value"] and view["versions"]
+        r = c.post(f"{base}/edit", json={"key": f"window:{wid}", "value": {"purpose": "改了用途"}})
+        assert r.status_code == 200
+        tree = c.get(base).json()["tree"]
+        assert [s["window"] for s in tree["stale"]] == [wid]
+        vs = c.get(f"{base}/edit", params={"key": f"window:{wid}"}).json()["versions"]
+        diff = c.get(f"{base}/edit", params={"key": f"window:{wid}", "n": vs[-1]["n"]}).json()
+        assert "改了用途" in diff["diff"]
+        assert c.post(f"{base}/revert", json={"key": f"window:{wid}", "n": vs[0]["n"]}).is_success
+        assert c.post(f"{base}/edit", json={"key": "../x", "value": 1}).status_code == 400
+        assert c.get(f"{base}/edit", params={"key": "secrets"}).status_code == 400
+        assert c.post(f"{base}/redo-stale").status_code == 200
+        wait_done(c)
+        assert c.get(base).json()["tree"]["stale"] == []
+        assert c.post(f"{base}/redo-stale").status_code == 400
+        r = c.post(f"{base}/instruct", json={"window": wid, "text": "字大一点"})
+        assert r.status_code == 200
+        wait_done(c)
+        assert c.post(f"{base}/conflict", json={"choice": "later"}).status_code == 400

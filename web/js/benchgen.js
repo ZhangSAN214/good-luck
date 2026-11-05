@@ -272,6 +272,11 @@ export class BenchGenPanel {
     this.composing = false; // 点了「新项目」：左边写想法，中间是项目墙
     this.device = 'desk'; // 中间成品按电脑还是手机宽度看
     this.drawer = ''; // 底部抽屉开着哪一格（空 = 收起）
+    this.editKey = ''; // 「改动」里正在改哪一样（见 core/benchkit/edits.py 的键）
+    this.editBid = '';
+    this.editView = null;
+    this.editDiff = null;
+    this.editErr = '';
     this.desk = null; // 资料台（GitHub 榜单 / 动态 / 能力地图 / 建议卡）
     this.deskTab = 'rank';
     this.deskCat = '';
@@ -797,7 +802,7 @@ export class BenchGenPanel {
       : whole
         ? '<p class="sc-hint">整个项目暂停了：正在跑的那一件跑完后，新的活排队等你。<button type="button" class="link" data-tree-resume="*">全部继续</button></p>'
         : '<p class="sc-hint"><button type="button" class="link" data-tree-pause="*">暂停整个项目</button></p>';
-    return `<h4 class="bg-h4">分工树</h4>${top}<ol class="bg-tree" aria-label="三层分工树">${phases}</ol>`;
+    return `<h4 class="bg-h4">分工树</h4>${this.staleHtml(b)}${top}<ol class="bg-tree" aria-label="三层分工树">${phases}</ol>`;
   }
 
   /** 签字前的方案：窗口、联动、共用信息、分段、方案会、借鉴的项目（每块默认收起，只露一句）。 */
@@ -914,10 +919,196 @@ export class BenchGenPanel {
     return `<p class="sc-sub" data-borrow>核对借鉴 ${done}/${xs.length} 条做到</p>${miss ? `<ul class="bg-reqs">${miss}</ul>` : ''}`;
   }
 
+  /** 改了上游以后：哪些窗口要重做、为什么；有线程正在用改掉的东西时，问你现在重跑还是跑完再说。 */
+  staleHtml(b) {
+    const tree = b.tree || {};
+    const c = tree.conflict;
+    const conflict = c
+      ? `<div class="bg-stale bg-conflict" role="alert"><p>你改了<b>${esc(c.label)}</b>，正在跑的活还在用旧的。</p>
+          <button type="button" class="btn" data-conflict="now">停下来，用新的重做</button>
+          <button type="button" class="btn ghost" data-conflict="later">等这件做完再说</button></div>`
+      : '';
+    const stale = tree.stale || [];
+    if (!stale.length) return conflict;
+    const items = stale.map((s) => `<li><b>${esc(s.title)}</b>：${esc((s.why || []).join('；'))}</li>`).join('');
+    return `${conflict}<div class="bg-stale" data-stale><p>改了上游，这 ${stale.length} 个窗口要跟着改：</p><ul class="bg-list">${items}</ul>
+      <button type="button" class="btn" data-redo-stale ${this.st && this.st.busy ? 'disabled title="正在干活，做完再重做"' : ''}>只重做受影响的</button></div>`;
+  }
+
+  /** 底部「改动」：选一样东西 → 改它、看历史、对比、退回；窗口还能一句话交给助手改。 */
+  editsHtml(b) {
+    const items = [];
+    if ((b.interview || {}).questions) items.push(['answers', '访谈回答']);
+    if (b.research) items.push(['research', '调研']);
+    if ((b.materials || []).length) items.push(['materials', '素材']);
+    if (((b.proposal || {}).milestones || []).length) items.push(['stages', '分段计划']);
+    const pick = items.map(([k, t]) => `<button type="button" class="chip" data-edit-key="${k}" aria-pressed="${this.editKey === k}">${t}</button>`).join('');
+    const wins = (b.windows || [])
+      .map(
+        (w) => `<li><b>${esc(w.title || w.id)}</b> ${[['window', '说明'], ['code', '代码'], ['data', '数据']]
+          .map(([k, t]) => `<button type="button" class="chip" data-edit-key="${k}:${esc(w.id)}" aria-pressed="${this.editKey === `${k}:${w.id}`}">${t}</button>`)
+          .join('')}</li>`,
+      )
+      .join('');
+    const head = `${this.staleHtml(b)}<p class="sc-hint">处处都能改：改完自动存一版，随时退回；只有受影响的窗口会标出来等你重做。</p>
+      <div class="bg-epick">${pick}</div>${wins ? `<ul class="bg-list bg-ewins">${wins}</ul>` : ''}`;
+    if (this.editBid && this.editBid !== b.id) {
+      this.editKey = ''; // 换了项目：上一个项目里选的那一样不算了
+      this.editView = null;
+      this.editBid = '';
+    }
+    const v = this.editView;
+    if (!this.editKey) return head;
+    if (!v || v.key !== this.editKey) return `${head}<p class="sc-hint">${this.editErr ? esc(this.editErr) : '正在读…'}</p>`;
+    return `${head}<div class="bg-edit" data-edit-box="${esc(v.key)}"><h4 class="bg-h4">${esc(v.label)}</h4>
+      ${this.editFormHtml(b, v)}
+      <label>为什么改（可不写）<input type="text" data-edit-why maxlength="200" placeholder="例如：爸妈看不清小字"></label>
+      <button type="button" class="btn" data-edit-save>保存这一版</button>
+      ${this.editErr ? `<p class="bg-err" role="alert">${esc(this.editErr)}</p>` : ''}
+      ${/^(window|code):/.test(v.key) ? this.instructHtml(b, v.key.split(':')[1]) : ''}
+      ${this.historyHtml(v)}</div>`;
+  }
+
+  editFormHtml(b, v) {
+    const kind = v.key.split(':')[0];
+    const val = v.value;
+    if (kind === 'answers') {
+      return (v.questions || [])
+        .map((q) => `<label>${esc(q.q)}<textarea rows="2" data-ea="${esc(q.id)}">${esc((val || {})[q.id] || '')}</textarea></label>`)
+        .join('');
+    }
+    if (kind === 'research') {
+      const state = (id) => ((val.removed || []).includes(id) ? 'removed' : (val.pinned || []).includes(id) ? 'pinned' : '');
+      const rows = (v.refs || [])
+        .map(
+          (x) => `<li><select data-er="${esc(x.id)}" aria-label="${esc(x.title)}">${[['', '保留'], ['pinned', '钉住（必须借鉴）'], ['removed', '删掉']]
+            .map(([k, t]) => `<option value="${k}" ${state(x.id) === k ? 'selected' : ''}>${t}</option>`)
+            .join('')}</select> <b>${esc(x.id)}</b> ${esc(x.kind)} · ${esc(x.title)}</li>`,
+        )
+        .join('');
+      const added = (val.added || []).map((a) => `${a.url}${a.note ? ` ${a.note}` : ''}`).join('\n');
+      return `${rows ? `<ul class="bg-list bg-erefs">${rows}</ul>` : '<p class="sc-hint">调研里没有条目。</p>'}
+        <label>自己加的链接（一行一个：网址 空格 一句说明）<textarea rows="3" data-er-added placeholder="https://… 这个配色好看">${esc(added)}</textarea></label>`;
+    }
+    if (kind === 'materials') {
+      const rows = (v.materials || [])
+        .map((m) => `<li><label><input type="checkbox" data-em="${esc(m.id)}" ${(val || []).includes(m.id) ? 'checked' : ''}> ${esc(m.name || m.id)}</label></li>`)
+        .join('');
+      return `<p class="sc-hint">取消勾选 = 这张不用了；代码里用到它的窗口会标出来重做。</p><ul class="bg-list">${rows}</ul>`;
+    }
+    if (kind === 'stages') {
+      const lines = (val || []).map((m) => `${m.title}：${(m.windows || []).join('、')}`).join('\n');
+      const ids = (b.windows || []).map((w) => `${w.id}（${w.title || w.id}）`).join('、');
+      return `<label>一行一段：「段名：窗口、窗口」<textarea rows="5" data-es>${esc(lines)}</textarea></label><p class="sc-hint">能用的窗口：${esc(ids)}</p>`;
+    }
+    if (kind === 'window') {
+      const w = val || {};
+      return `<label>标题<input type="text" data-ew="title" maxlength="40" value="${esc(w.title || '')}"></label>
+        <label>用途<textarea rows="2" data-ew="purpose">${esc(w.purpose || '')}</textarea></label>
+        <label>数据从哪来<textarea rows="2" data-ew="data">${esc(w.data || '')}</textarea></label>
+        <label>能做的事（用顿号隔开）<input type="text" data-ew="actions" value="${esc((w.actions || []).join('、'))}"></label>`;
+    }
+    return `<textarea class="bg-code" rows="14" spellcheck="false" data-ecode>${esc(val || '')}</textarea>
+      <p class="sc-hint">${kind === 'data' ? '要是合法的 JSON。' : ''}亲手改的不用重做，但质检和评审要重新过一遍。</p>`;
+  }
+
+  /** 从表单里读出新值（格式和后端 edits.clean_value 收的一样）。 */
+  editValue(key) {
+    const box = this.el.querySelector(`[data-edit-box="${CSS.escape(key)}"]`);
+    const kind = key.split(':')[0];
+    const all = (sel) => [...box.querySelectorAll(sel)];
+    if (kind === 'answers') return Object.fromEntries(all('[data-ea]').map((x) => [x.dataset.ea, x.value]));
+    if (kind === 'research') {
+      const pick = (st) => all('[data-er]').filter((x) => x.value === st).map((x) => x.dataset.er);
+      const added = (box.querySelector('[data-er-added]').value || '')
+        .split('\n')
+        .map((l) => l.trim())
+        .filter(Boolean)
+        .map((l) => {
+          const [url, ...rest] = l.split(/\s+/);
+          return { url, note: rest.join(' ') };
+        });
+      return { removed: pick('removed'), pinned: pick('pinned'), added };
+    }
+    if (kind === 'materials') return all('[data-em]').filter((x) => x.checked).map((x) => x.dataset.em);
+    if (kind === 'stages') {
+      return (box.querySelector('[data-es]').value || '')
+        .split('\n')
+        .map((l) => l.trim())
+        .filter(Boolean)
+        .map((l) => {
+          const [title, rest = ''] = l.split(/[：:]/);
+          return { title: title.trim(), windows: rest.split(/[、,，\s]+/).filter(Boolean) };
+        });
+    }
+    if (kind === 'window') {
+      const f = Object.fromEntries(all('[data-ew]').map((x) => [x.dataset.ew, x.value.trim()]));
+      return { ...f, actions: (f.actions || '').split(/[、,，]/).map((x) => x.trim()).filter(Boolean) };
+    }
+    return box.querySelector('[data-ecode]').value;
+  }
+
+  instructHtml(b, wid) {
+    const workers = ((b.tree || {}).workers || []).map((w) => `<option value="${esc(w.id)}">${esc(w.label)}</option>`).join('');
+    return `<details class="bg-instruct"><summary>一句话让助手改</summary>
+      <textarea rows="2" data-instruct-text placeholder="例如：地图铺满整格，标题放大一号"></textarea>
+      <label>交给谁<select data-instruct-who><option value="">原来写它的人</option>${workers}</select></label>
+      <button type="button" class="btn" data-instruct="${esc(wid)}">交给助手改</button></details>`;
+  }
+
+  historyHtml(v) {
+    const vs = (v.versions || []).slice().reverse();
+    if (!vs.length) return '<p class="sc-hint">还没有改过，第一次保存时会先存一份改之前的样子。</p>';
+    const rows = vs
+      .map(
+        (x, i) => `<li><b>第 ${x.n} 版</b> <span class="sc-sub">${esc(x.by)} · ${esc((x.at || '').slice(5, 16).replace('T', ' '))}${x.why ? ` · ${esc(x.why)}` : ''}</span>
+          <button type="button" class="link" data-edit-diff="${x.n}">看改了什么</button>
+          ${i ? `<button type="button" class="link" data-edit-revert="${x.n}">退回这一版</button>` : '<span class="sc-sub">（现在）</span>'}
+          ${this.editDiff && this.editDiff.n === x.n ? `<pre class="bg-diff">${esc(this.editDiff.diff || '没有变化')}</pre>` : ''}</li>`,
+      )
+      .join('');
+    return `<details class="bg-hist" open><summary>历史（${vs.length} 版）</summary><ol class="bg-list">${rows}</ol></details>`;
+  }
+
+  async loadEdit(key) {
+    const b = this.shownBuild();
+    if (!b) return;
+    this.editKey = key;
+    this.editBid = b.id;
+    this.editErr = '';
+    this.editDiff = null;
+    try {
+      this.editView = await this.api.editView(b.id, key);
+    } catch (x) {
+      this.editView = null;
+      this.editErr = x.message;
+    }
+    this.paint('drawer', this.drawerHtml(this.st || {}, this.shownBuild()), true);
+  }
+
+  /** 改动类操作：做完刷新状态，再把正在看的那一样重读一遍（版本号变了）。 */
+  async editAct(fn) {
+    this.editErr = '';
+    try {
+      this.st = await fn();
+      this.shown = JSON.stringify(this.st);
+    } catch (x) {
+      this.editErr = x.message;
+      return this.paint('drawer', this.drawerHtml(this.st || {}, this.shownBuild()), true);
+    }
+    const key = this.editKey;
+    const err = this.editErr;
+    if (key) await this.loadEdit(key);
+    this.editErr = err;
+    this.render(true);
+    this.schedule();
+  }
+
   /** 底部抽屉：调研、插件、质检、团队、过程、联网、零件库。拉起来盖在三栏上，不换页。 */
   drawerHtml(st, b) {
     const r = (b && b.research) || null;
     const tabs = [
+      ['edits', '改动', b ? ((b.tree || {}).stale || []).length : 0],
       ['research', '调研', r ? (r.counts || {}).github || 0 : 0],
       ['sources', '插件', b ? (b.sources || []).length : 0],
       ['rounds', '质检', b ? (b.rounds || []).length : 0],
@@ -932,7 +1123,8 @@ export class BenchGenPanel {
       .map(([k, t, n]) => `<button type="button" role="tab" data-drawer="${k}" aria-selected="${open === k}">${t}${n ? `<span class="bg-n">${esc(n)}</span>` : ''}</button>`)
       .join('');
     let body = '';
-    if (open === 'research') body = (b && this.researchHtml(b)) || '<p class="sc-hint">还没调研。开工后先查 GitHub、论文和资讯，结果都在这里。</p>';
+    if (open === 'edits') body = b ? this.editsHtml(b) : '<p class="sc-hint">还没有项目。</p>';
+    else if (open === 'research') body = (b && this.researchHtml(b)) || '<p class="sc-hint">还没调研。开工后先查 GitHub、论文和资讯，结果都在这里。</p>';
     else if (open === 'sources') body = (b && this.sourcesHtml(b)) || '<p class="sc-hint">这次没找插件。</p>';
     else if (open === 'rounds') body = b && (b.rounds || []).length ? b.rounds.map((x) => this.roundHtml(b, x)).join('') : '<p class="sc-hint">还没开始质检。</p>';
     else if (open === 'team') body = (b && this.teamHtml(b)) || '<p class="sc-hint">还没开始协作。</p>';
@@ -1721,6 +1913,39 @@ export class BenchGenPanel {
       const why = this.el.querySelector(`[data-redo-why="${CSS.escape(id)}"]`)?.value || '';
       const who = this.el.querySelector(`[data-redo-who="${CSS.escape(id)}"]`)?.value || null;
       return this.act(() => this.api.rerun(shown.id, id, why, who));
+    }
+    if (t.closest('[data-redo-stale]') && shown) return this.act(() => this.api.redoStale(shown.id));
+    const cf = t.closest('[data-conflict]');
+    if (cf && shown) return this.act(() => this.api.conflict(shown.id, cf.dataset.conflict));
+    const ek = t.closest('[data-edit-key]');
+    if (ek) return this.loadEdit(ek.dataset.editKey);
+    if (t.closest('[data-edit-save]') && shown && this.editKey) {
+      const key = this.editKey;
+      const why = this.el.querySelector('[data-edit-why]')?.value || '';
+      return this.editAct(() => this.api.edit(shown.id, key, this.editValue(key), why));
+    }
+    const ed = t.closest('[data-edit-diff]');
+    if (ed && shown && this.editKey) {
+      const n = Number(ed.dataset.editDiff);
+      if (this.editDiff && this.editDiff.n === n) this.editDiff = null;
+      else {
+        try {
+          this.editDiff = await this.api.editView(shown.id, this.editKey, n);
+        } catch (x) {
+          this.editErr = x.message;
+        }
+      }
+      return this.paint('drawer', this.drawerHtml(this.st || {}, this.shownBuild()), true);
+    }
+    const er = t.closest('[data-edit-revert]');
+    if (er && shown && this.editKey) {
+      return this.editAct(() => this.api.revert(shown.id, this.editKey, Number(er.dataset.editRevert)));
+    }
+    const ins = t.closest('[data-instruct]');
+    if (ins && shown) {
+      const text = this.el.querySelector('[data-instruct-text]')?.value || '';
+      const who = this.el.querySelector('[data-instruct-who]')?.value || null;
+      return this.editAct(() => this.api.instruct(shown.id, ins.dataset.instruct, text, who));
     }
     const b = this.viewing || (this.st || {}).current;
     const form = t.closest('[data-form]');

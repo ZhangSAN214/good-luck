@@ -359,6 +359,13 @@ export const benchAttach = (id, ids) => benchPost(id, 'materials', { ids });
 export const benchLook = (id) => benchPost(id, 'look', {});
 export const benchPause = (id, key = '*') => benchPost(id, 'pause', { key });
 export const benchResume = (id, key = null) => benchPost(id, 'resume', { key });
+export const benchEditView = (id, key, n = null) =>
+  api(`/api/bench/${encodeURIComponent(id)}/edit?key=${encodeURIComponent(key)}${n ? `&n=${n}` : ''}`);
+export const benchEdit = (id, key, value, why = '') => benchPost(id, 'edit', { key, value, why });
+export const benchRevert = (id, key, n) => benchPost(id, 'revert', { key, n });
+export const benchInstruct = (id, window, text, worker = null) => benchPost(id, 'instruct', { window, text, worker });
+export const benchRedoStale = (id) => benchPost(id, 'redo-stale', {});
+export const benchConflict = (id, choice) => benchPost(id, 'conflict', { choice });
 export const benchRerun = (id, thread, reason, worker = null) => benchPost(id, 'rerun', { thread, reason, worker });
 export const superStatus = () => api('/api/super');
 export const superSubmit = (text, queue = false) =>
