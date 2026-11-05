@@ -6,6 +6,7 @@ from __future__ import annotations
 def test_starmap(serve, page):
     srv = serve(confirm_threshold_usd=100.0)
     page.goto(srv.url)
+    page.click("#settingsbtn")  # 「星图」收进了设置的常用工具
     page.click("#starmapbtn")
     page.wait_for_selector("#starmapdlg[open] .sm-groups li")
     assert page.inner_text("#starmapdlg [data-title]") == "圆桌星图"

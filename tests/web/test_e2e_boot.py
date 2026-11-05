@@ -70,6 +70,7 @@ def test_skip_button_and_escape(serve, page):
 def test_settings_customize_card_photo_and_qr(serve, page):
     srv = serve(confirm_threshold_usd=100.0)
     page.goto(srv.url)
+    page.click("#settingsbtn")  # 「片头」收进了设置的常用工具
     page.click("#bootcfg")
     page.wait_for_selector("#bootdlg[open] .bt")
     page.check("#bootdlg input[name='mode'][value='intro']")
@@ -142,6 +143,7 @@ def test_sound_cues_and_silent_mode(serve, page):
 def test_voice_settings_and_preview(serve, page):
     srv = serve(confirm_threshold_usd=100.0)
     page.goto(srv.url)
+    page.click("#settingsbtn")  # 「片头」收进了设置的常用工具
     page.click("#bootcfg")
     page.wait_for_selector("#bootdlg[open] [data-voices]")
     page.select_option("#bootdlg select[name='lang']", "en")

@@ -62,6 +62,7 @@ import { Mail } from './mail.js';
 import { Evolution } from './evolution.js';
 import { Usage } from './usage.js';
 import { Deck } from './deck.js';
+import { Coach, Settings } from './guide.js';
 import { setEmojiImages, setMemberPacks } from './stickers.js';
 
 const $ = (q) => document.querySelector(q);
@@ -439,6 +440,15 @@ const hub = new Hub($('#hub'), {
     await setEntry('work');
     $('#tabs button[data-t="history"]').click();
   },
+});
+// 顶栏「设置」：一站式说明书；顶栏装不下的小按钮搬进它的「常用工具」。第一次进每个页面弹一张新手指导小卡片
+const coach = new Coach();
+new Settings($('#settingsdlg'), $('#settingsbtn'), {
+  tuck: [...document.querySelectorAll('.brand .gd-tuck')],
+  go: (m) => setEntry(m),
+  calls: { people: () => people.open(), moments: () => moments.open(), usage: () => usage.open() },
+  coach,
+  current: () => entry,
 });
 // 点气泡 / 菜单「跳到讨论」：滚到最新的讨论内容
 function gotoDiscussion() {
@@ -1473,6 +1483,7 @@ function applyEntry(m) {
   else bench.hide();
   document.documentElement.dataset.entry = m;
   syncPet();
+  coach.show(m);
   if (m !== 'work') history.replaceState(null, '', `#m=${m}`);
   else if (location.hash.startsWith('#m=')) history.replaceState(null, '', S.sid ? `#s=${S.sid}` : location.pathname);
   return shown;
@@ -1796,6 +1807,7 @@ async function init() {
   const where = location.hash.match(/m=(\w+)/);
   if (where) setEntry(where[1]);
   else if (!m && landing() === 'hub') setEntry('hub');
+  else coach.show(entry); // 停在办公室时没走 setEntry，这里补弹办公室的小卡片
   petReady = true;
   syncPet();
   weeklyDot();

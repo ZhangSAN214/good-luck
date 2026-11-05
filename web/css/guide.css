@@ -1,0 +1,35 @@
+/* 设置与新手指导（js/guide.js）。颜色全用 app.css 的变量，浅色 / 深色 / 方舟外观都跟着走。 */
+.brand > .gd-tuck{display:none} /* 脚本搬进设置前不闪一下 */
+#settingsbtn{position:relative}
+#settingsbtn.gd-dot::after{content:"";position:absolute;top:-2px;right:-7px;width:6px;height:6px;border-radius:50%;background:var(--ok,#3fbf7f)}
+
+#settingsdlg .gd-body{padding:12px 16px 18px;overflow:auto;max-height:calc(86vh - 50px);display:flex;flex-direction:column;gap:14px}
+#settingsdlg input.gd-search{width:100%;height:36px;padding:0 12px;font-size:14px;box-sizing:border-box}
+#settingsdlg .gd-sec h3{margin:0 0 6px;font-size:14px}
+#settingsdlg .gd-sub{margin:0 0 8px;color:var(--muted);font-size:12px}
+#settingsdlg .gd-tools{display:flex;flex-wrap:wrap;gap:8px}
+#settingsdlg .gd-tool{position:relative;text-decoration:none}
+#settingsdlg .gd-row{display:flex;flex-wrap:wrap;align-items:center;gap:12px}
+#settingsdlg .gd-group{border:1px solid var(--line);border-radius:var(--r);margin-bottom:8px;background:var(--surface-2)}
+#settingsdlg .gd-group summary{cursor:pointer;padding:10px 12px;display:flex;align-items:baseline;gap:8px;list-style:none}
+#settingsdlg .gd-group summary::-webkit-details-marker{display:none}
+#settingsdlg .gd-group summary::before{content:"▸";color:var(--muted);transition:transform .15s}
+#settingsdlg .gd-group[open] summary::before{transform:rotate(90deg)}
+#settingsdlg .gd-group summary small{color:var(--muted)}
+#settingsdlg .gd-item{padding:8px 12px 10px;border-top:1px solid var(--line);background:var(--surface)}
+#settingsdlg .gd-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
+#settingsdlg .gd-item p{margin:4px 0;font-size:13px}
+#settingsdlg .gd-item ol{margin:2px 0 0;padding-left:20px;color:var(--muted);font-size:13px}
+#settingsdlg .gd-go{flex:none;height:28px;font-size:12px}
+#settingsdlg .gd-none{color:var(--muted)}
+
+/* 新手指导小卡片：页面顶部居中，不挡输入框和发送按钮 */
+.coach{position:fixed;z-index:60;top:64px;left:50%;transform:translateX(-50%);width:min(420px,calc(100vw - 32px));box-sizing:border-box;
+  padding:12px 14px;border:1px solid var(--line);border-radius:var(--r-lg);background:var(--surface);color:var(--ink);box-shadow:var(--shadow-2);
+  animation:coach-in .25s ease-out}
+.coach-t{display:block;font-size:14px;margin-bottom:4px}
+.coach-l{margin:0;padding-left:18px;font-size:13px;line-height:1.6}
+.coach-a{display:flex;justify-content:flex-end;gap:8px;margin-top:8px}
+@keyframes coach-in{from{opacity:0;transform:translate(-50%,-6px)}to{opacity:1;transform:translate(-50%,0)}}
+@media (prefers-reduced-motion:reduce){.coach{animation:none}}
+[data-skin="ark"] .coach{background:rgba(18,22,32,.92);backdrop-filter:var(--glass-blur);-webkit-backdrop-filter:var(--glass-blur);border-color:rgba(255,255,255,.14)}
