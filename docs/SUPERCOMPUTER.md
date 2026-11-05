@@ -72,7 +72,9 @@
 
 ## API 额度
 
-2026-11-04 用户定：会员每月送的 $100 Claude API 额度也给工作台用（「两步都做」）。配置里的 `claude-api`（Claude Code·API额度）就是它。
+2026-11-04 用户定：会员每月送的 $100 Claude API 额度也给工作台用（「两步都做」）。配置里的 `claude-api`（Claude Code·API额度）曾经就是它。
+
+**2026-11-05 用户改主意：「工作台不要使用 API」。** `claude-api` 已从 `config/roundtable.yaml` 的名单里拿掉，API 额度只留给聊天；工作台的 Claude 只走包月的 Claude Code（Max 订阅，命令行子进程拿不到任何 API key）。功能代码保留，下面是以后想加回来时的说明。
 
 - **派活顺序：** 包月的（Claude Code、Codex、OpenCode 五位）先上；它们都用不了（冷却、次数用完、没装）才轮到 `claude-api`；dsh 按用量花钱，排在最后。面板「为什么是他」会写「走 API 额度，包月的都用不了时才上」。
 - **key：** 只从 `.env` 的 `ANTHROPIC_API_KEY` 读，只交给这一位的子进程（输出里出现会换成 `***`）。其他助手照旧拿不到任何 key。没填 key 时这位显示「没有 ANTHROPIC_API_KEY 的 key」。

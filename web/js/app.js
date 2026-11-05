@@ -317,6 +317,7 @@ const benchGen = new BenchGenPanel(bench.pane('gen'), {
     foundSwap: API.benchFoundSwap,
     foundDrop: API.benchFoundDrop,
     refind: API.benchRefind,
+    shelf: API.benchShelf,
     ruler: API.benchRuler,
     rulerAdd: API.benchRulerAdd,
     rulerDrop: API.benchRulerDrop,

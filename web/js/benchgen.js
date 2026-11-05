@@ -273,6 +273,8 @@ export class BenchGenPanel {
     this.composing = false; // 点了「新项目」：左边写想法，中间是项目墙
     this.device = 'desk'; // 中间成品按电脑还是手机宽度看
     this.drawer = ''; // 底部抽屉开着哪一格（空 = 收起）
+    this.sureDel = ''; // 点了一下「删除」，等第二下确认（「delete:项目编号」）
+    this.shelfOpen = ''; // 项目墙下面展开着「收起的项目」还是「回收站」
     this.rulerSt = null; // 评分标尺（参考截图，第 4 块）：打开「质检」时读
     this.rulerErr = '';
     this.editKey = ''; // 「改动」里正在改哪一样（见 core/benchkit/edits.py 的键）
@@ -519,6 +521,7 @@ export class BenchGenPanel {
       `<button type="button" class="btn" data-netcheck ${this.net === 'busy' ? 'disabled' : ''}>${this.net === 'busy' ? '正在自检…' : '联网自检'}</button>`,
       busy ? '<button type="button" class="btn" data-cancel>叫停</button>' : '',
       b && !busy ? '<button type="button" class="btn" data-new>新项目</button>' : '',
+      b && !(busy && cur && cur.id === b.id) ? this.shelfBtn(b, b.shelved ? 'unshelve' : 'shelve', b.shelved ? '放回来' : '收起') : '',
     ].join('');
     return `<div class="bg-top-l"><b class="bg-title">${esc(b ? b.title || (b.request || '').slice(0, 16) || '还没起名' : '生成器')}</b>${state}${sw}</div>
       <div class="bg-top-m" ${b ? '' : 'hidden'}>
@@ -716,23 +719,67 @@ export class BenchGenPanel {
       ${log ? `<ol class="bg-live" aria-label="最近在做的">${log}</ol>` : ''}</div>`;
   }
 
-  /** 项目墙：最近的项目，每个一张缩略图 + 状态。 */
+  /** 项目墙：最近的项目，每个一张缩略图 + 状态；不要的能收起或删掉，不在这里堆着。 */
   wallHtml(st) {
     const items = [st.current, ...(st.recent || [])].filter(Boolean);
     const seen = new Set();
+    const busyId = st.busy && st.current ? st.current.id : '';
     const cards = items
       .filter((x) => !seen.has(x.id) && seen.add(x.id))
       .slice(0, 9)
       .map(
-        (x) => `<button type="button" class="bg-wall-i" data-view="${esc(x.id)}">
+        (x) => `<div class="bg-wall-c"><button type="button" class="bg-wall-i" data-view="${esc(x.id)}">
           ${thumbOf(x) ? `<img src="/bench/${encodeURIComponent(x.id)}/${String(thumbOf(x)).split('/').map(encodeURIComponent).join('/')}" alt="" loading="lazy">` : '<span class="bg-wall-ph" aria-hidden="true"></span>'}
           <span class="bg-wall-t">${esc(x.title || (x.request || '').slice(0, 24))}</span>
-          <span class="bg-wall-s"><i class="bg-dot bg-dot-${esc(x.status)}"></i>${esc(STATUS[x.status] || x.status)}${x.score != null ? ` · ${esc(x.score)} 分` : ''}</span></button>`,
+          <span class="bg-wall-s"><i class="bg-dot bg-dot-${esc(x.status)}"></i>${esc(STATUS[x.status] || x.status)}${x.score != null ? ` · ${esc(x.score)} 分` : ''}</span></button>
+          ${x.id === busyId ? '' : `<div class="bg-wall-a">${this.shelfBtn(x, 'shelve', '收起')}${this.delBtn(x)}</div>`}</div>`,
       )
       .join('');
-    return cards
+    const wall = cards
       ? `<div class="bg-stage-bar"><span class="bg-k">最近的项目</span></div><div class="bg-wall">${cards}</div>`
       : '<div class="bg-empty"><p class="bg-empty-h">还没有项目</p><p class="sc-hint">左边写一句话，或者拖一张你喜欢的成品截图进来。</p></div>';
+    return wall + this.shelfHtml(st);
+  }
+
+  shelfBtn(x, action, label) {
+    return `<button type="button" class="link" data-shelf="${action}" data-id="${esc(x.id)}" aria-label="${label}「${esc(x.title || '这个项目')}」">${label}</button>`;
+  }
+
+  /** 删除要点两下（不弹浏览器对话框）：第一下变成「确定删除？」。 */
+  delBtn(x, action = 'delete', label = '删除') {
+    const sure = this.sureDel === `${action}:${x.id}`;
+    return `<button type="button" class="link ${sure ? 'bg-danger' : ''}" data-shelf="${action}" data-id="${esc(x.id)}" ${sure ? 'data-sure' : ''} aria-label="${label}「${esc(x.title || '这个项目')}」">${sure ? `确定${label}？` : label}</button>`;
+  }
+
+  /** 收起的项目和回收站：折叠在项目墙下面，平时不占地方。 */
+  shelfHtml(st) {
+    const sh = st.shelved || [];
+    const tr = st.trash || [];
+    const row = (x, acts) => `<li><span>${esc(x.title || (x.request || '').slice(0, 24) || '没起名的项目')}</span><span class="sc-sub">${acts}</span></li>`;
+    const shelved = sh.length
+      ? `<details class="bg-shelf" ${this.shelfOpen === 'shelved' ? 'open' : ''} data-fold="shelved"><summary>收起的项目（${sh.length}）</summary>
+        <p class="sc-hint">你点了「收起」的，和失败或叫停放了 3 天以上的，都在这里，不占最近的项目。</p>
+        <ul class="bg-list">${sh.map((x) => row(x, `${STATUS[x.status] || x.status} · ${this.shelfBtn(x, 'unshelve', '放回来')} ${this.delBtn(x)}`)).join('')}</ul></details>`
+      : '';
+    const trash = tr.length
+      ? `<details class="bg-shelf" ${this.shelfOpen === 'trash' ? 'open' : ''} data-fold="trash"><summary>回收站（${tr.length}）</summary>
+        <p class="sc-hint">删掉的项目先放这里，30 天后自动清掉；之前随时能恢复。</p>
+        <ul class="bg-list">${tr.map((x) => row(x, `${x.left != null ? `还剩 ${esc(x.left)} 天 · ` : ''}${this.shelfBtn(x, 'restore', '恢复')} ${this.delBtn(x, 'purge', '彻底删除')}`)).join('')}</ul></details>`
+      : '';
+    return shelved || trash ? `<div class="bg-shelves">${shelved}${trash}</div>` : '';
+  }
+
+  async shelfAct(btn) {
+    const { shelf: action, id } = btn.dataset;
+    if (['delete', 'purge'].includes(action) && !('sure' in btn.dataset)) {
+      this.sureDel = `${action}:${id}`;
+      return this.render(true);
+    }
+    this.sureDel = '';
+    if (this.viewing && this.viewing.id === id) this.viewing = null;
+    const fold = btn.closest('[data-fold]');
+    if (fold) this.shelfOpen = fold.dataset.fold;
+    return this.act(() => this.api.shelf(id, action));
   }
 
   /** 右栏「乙方」：7 步走到哪；签字前是方案；开工后是分段、谁在写什么、最近一轮的结果。 */
@@ -2158,6 +2205,17 @@ export class BenchGenPanel {
         this.err = `自检没做成：${x.message}`;
       }
       return this.render(true);
+    }
+    const foldSum = t.closest('[data-fold] > summary');
+    if (foldSum) {
+      const f = foldSum.parentElement.dataset.fold;
+      this.shelfOpen = this.shelfOpen === f ? '' : f; // 记住展开了哪个，重画时不合上
+    }
+    const shelfBtn = t.closest('[data-shelf]');
+    if (shelfBtn) return this.shelfAct(shelfBtn);
+    if (this.sureDel) {
+      this.sureDel = ''; // 点了别处：「确定删除？」退回去
+      this.render(true);
     }
     const view = t.closest('[data-view]');
     if (view) return this.switchTo(view.dataset.view);

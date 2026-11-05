@@ -28,6 +28,7 @@ from pathlib import Path
 from statistics import mean
 from typing import Any
 
+from roundtable.core.benchkit import shelf
 from roundtable.core.benchkit.appcheck import run_app_check
 from roundtable.core.benchkit.edits import (
     EditError,
@@ -430,19 +431,76 @@ class BenchBuilder:
             return "没有本机数据目录"
         return None
 
-    def recent(self) -> list[dict[str, Any]]:
+    def _listing(self, want_folded: bool, limit: int) -> list[dict[str, Any]]:
         if self.root is None or not self.root.is_dir():
             return []
         out = []
-        for p in sorted(self.root.glob("*/build.json"), reverse=True)[:RECENT]:
+        now = self.now()
+        for p in sorted(self.root.glob("*/build.json"), reverse=True):
             with contextlib.suppress(OSError, ValueError):
                 b = json.loads(p.read_text(encoding="utf-8"))
+                if shelf.folded(b, now) != want_folded:
+                    continue
                 keys = ("id", "request", "status", "title", "created_at", "score")
                 rounds = b.get("rounds") or []
                 out.append(
                     {k: b.get(k) for k in keys} | {"rounds": len(rounds), "thumb": thumb_of(b)}
                 )
+                if len(out) >= limit:
+                    break
         return out
+
+    def recent(self) -> list[dict[str, Any]]:
+        """最近的项目（收起的不算，见 shelf.py）。"""
+        return self._listing(False, RECENT)
+
+    def shelved(self) -> list[dict[str, Any]]:
+        """收起的项目：你点了收起的，和失败 / 叫停放了几天的。"""
+        return self._listing(True, 50)
+
+    # --- 收起 / 删除（项目列表不堆积） ------------------------------------------------
+
+    def _idle_project(self, bid: str) -> dict[str, Any]:
+        b = self._editable(bid)
+        if self.busy and self.build and self.build["id"] == bid:
+            raise RuntimeError("这个项目正在做，先叫停再收起或删除")
+        return b
+
+    def shelve(self, bid: str, on: bool = True) -> dict[str, Any]:
+        """收起 / 放回来：只改列表里显不显示，项目本身不动。"""
+        b = self._idle_project(bid)
+        b["shelved"] = bool(on)
+        self._save(b)
+        if on and self.build and self.build["id"] == bid:
+            self.build = None
+        return b
+
+    def delete(self, bid: str) -> None:
+        """删除：整个项目挪进回收站，30 天内能恢复。"""
+        self._idle_project(bid)
+        if self.root is None:
+            raise RuntimeError("没有本机数据目录")
+        shelf.to_trash(self.root, bid, self.now())
+        if self.build and self.build["id"] == bid:
+            self.build = None
+
+    def restore(self, bid: str) -> None:
+        if self.root is None:
+            raise RuntimeError("没有本机数据目录")
+        shelf.restore(self.root, bid)
+
+    def purge(self, bid: str) -> None:
+        """彻底删除回收站里的一个项目（你点了才删）。"""
+        if not shelf.purge(self.root, self.now(), bid):
+            raise KeyError(bid)
+
+    def trash(self) -> list[dict[str, Any]]:
+        now = self.now()
+        day = now.date()
+        if getattr(self, "_purged_on", None) != day:  # 每天顺手清一次放满 30 天的
+            self._purged_on = day
+            shelf.purge(self.root, now)
+        return shelf.trash_list(self.root, now)
 
     def get(self, bid: str) -> dict[str, Any] | None:
         if self.build and self.build["id"] == bid:
@@ -466,6 +524,8 @@ class BenchBuilder:
             "project": self.rules.project.enabled,
             "current": self.build,
             "recent": self.recent(),
+            "shelved": self.shelved(),
+            "trash": self.trash(),
             "profile": self.profile(),
             "form_fields": list(FORM),
             "library": {
