@@ -5,10 +5,10 @@ import { esc } from './util.js';
 
 const PREFIX = 'roundtable.boot.';
 const MODE = [
-  ['lines', '线条汇聚 · 扫描睁眼（默认，约 9 秒）'],
-  ['full', '片头 + 授权'],
+  ['full', '片头 + 授权（默认）'],
   ['intro', '只放晨会片头'],
   ['permit', '只放授权'],
+  ['lines', '线条汇聚 · 扫描睁眼'],
   ['off', '关闭'],
 ];
 const LANG = [
@@ -132,7 +132,7 @@ export class BootSettings {
   }
 
   render() {
-    const mode = get('mode', 'lines');
+    const mode = get('mode', 'full');
     const when = get('when', 'session');
     const card = readCard();
     const photo = get('photo');
@@ -214,7 +214,7 @@ export class BootSettings {
     if (t.closest('[data-close]')) return this.close();
     if (t.closest('[data-preview]')) {
       this.close();
-      window.RoundtableBoot?.play(get('mode', 'lines') === 'off' ? 'lines' : get('mode', 'lines'));
+      window.RoundtableBoot?.play(get('mode', 'full') === 'off' ? 'full' : get('mode', 'full'));
       return;
     }
     if (t.closest('[data-listen]')) {
