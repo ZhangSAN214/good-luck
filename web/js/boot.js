@@ -1,5 +1,5 @@
-// 开机动画：默认放「线条汇聚 · 扫描睁眼」（boot/lines.html，线条勾出值班成员的脸 → 显影睁眼 → 拉远落在首页立绘上，无缝进首页）；
-// 也可以在「片头」设置里换回「晨会协议」片头 + GMU（早上好联合）访问授权。
+// 开机动画：默认放「晨会协议」片头，再接 GMU（早上好联合）访问授权，然后淡入首页（用户 11-06 定回老版）；
+// 「片头」设置里也可以选「线条汇聚 · 扫描睁眼」（boot/lines.html）。
 // 普通脚本（不是模块），放在 <body> 最前面同步执行：首页还没画出来就先盖住，不会闪一下。
 // 设置都存在本机 localStorage（roundtable.boot.*），在「片头」设置里改；网址加 ?boot=0 不放。
 // 声音都在这一层：浏览器要先有一次点击才肯出声，所以没点过时先显示「按下开机」；
@@ -468,7 +468,7 @@
 
   const wantsSound = () => read('sound', 'on') !== 'off' || read('voice', 'on') !== 'off';
 
-  function play(mode = read('mode', 'lines')) {
+  function play(mode = read('mode', 'full')) {
     if (!MODES.includes(mode) || mode === 'off') return null;
     if (live) live.finish();
     const host = document.createElement('div');
@@ -638,7 +638,7 @@
   } catch {
     return;
   }
-  if (read('mode', 'lines') === 'off') return;
+  if (read('mode', 'full') === 'off') return;
   if (read('when', 'session') === 'session') {
     try {
       if (window.sessionStorage.getItem(PREFIX + 'played') === '1') return;
