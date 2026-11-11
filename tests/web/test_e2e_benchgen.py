@@ -9,6 +9,7 @@ from __future__ import annotations
 import base64
 import json
 import os
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import roundtable.core.service as service_mod
@@ -909,3 +910,49 @@ def test_benchgen_ruler_upload_and_drop(serve, page, monkeypatch, tmp_path):
     )
     item.locator("[data-ruler-drop]").click()
     ruler.locator("summary", has_text="评分标尺（0 张）").wait_for(timeout=10000)
+
+
+def test_benchgen_wall_shelve_delete_and_restore(serve, page, monkeypatch, tmp_path):
+    """项目列表不堆积：卡片能收起、删除要点两下进回收站、能恢复；失败放久了的自动收起。"""
+    root = tmp_path / "bench"
+    old = (datetime.now(UTC) - timedelta(days=10)).isoformat(timespec="seconds")
+    for bid, title, status in (
+        ("20261101-090000-aaaa", "旧的失败台", "failed"),
+        ("20261104-090000-bbbb", "旅行台", "delivered"),
+    ):
+        (root / bid).mkdir(parents=True)
+        b = {"id": bid, "title": title, "status": status, "created_at": old, "request": title}
+        (root / bid / "build.json").write_text(json.dumps(b, ensure_ascii=False), "utf-8")
+
+    def factory(rules, *, root, **kw):
+        return BenchBuilder(
+            rules, root=tmp_path / "bench", supercomputer=SlowSC(), render=fake_render, seed=3
+        )
+
+    monkeypatch.setattr(service_mod, "BenchBuilder", factory)
+    srv = serve(confirm_threshold_usd=100.0)
+    page.goto(srv.url)
+    page.locator('#entries [data-m="bench"]').click()
+    pane = page.locator('#bench [data-pane="gen"]')
+    cards = pane.locator(".bg-wall-c")
+    cards.first.wait_for(timeout=10000)
+    assert cards.count() == 1 and "旅行台" in cards.first.text_content()
+    shelves = pane.locator(".bg-shelves")
+    assert "收起的项目（1）" in shelves.text_content()  # 失败放了 10 天：自动收起
+
+    cards.first.locator('[data-shelf="delete"]').click()
+    sure = cards.first.locator("[data-sure]")
+    assert sure.text_content() == "确定删除？"
+    sure.click()
+    shelves.locator("summary", has_text="回收站（1）").wait_for(timeout=10000)
+    assert pane.locator(".bg-wall-c").count() == 0
+    shelves.locator("summary", has_text="回收站（1）").click()
+    shelves.locator('[data-shelf="restore"]').click()
+    pane.locator(".bg-wall-c", has_text="旅行台").wait_for(timeout=10000)
+    assert "回收站" not in shelves.text_content()
+
+    pane.locator('.bg-wall-c [data-shelf="shelve"]').click()
+    shelves.locator("summary", has_text="收起的项目（2）").wait_for(timeout=10000)
+    shelves.locator("summary", has_text="收起的项目（2）").click()
+    shelves.locator("li", has_text="旅行台").locator('[data-shelf="unshelve"]').click()
+    pane.locator(".bg-wall-c", has_text="旅行台").wait_for(timeout=10000)

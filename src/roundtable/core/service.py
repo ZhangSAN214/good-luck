@@ -935,6 +935,14 @@ class RoundtableService(TerminalService, ApartmentService, ChatService, OfficeSe
                     self.bench.redo_stale(bench_id)
             elif action == "found_swap":
                 self.bench.swap_found(bench_id, kw.get("item") or "")
+            elif action in ("shelve", "unshelve"):
+                self.bench.shelve(bench_id, action == "shelve")
+            elif action == "delete":
+                self.bench.delete(bench_id)
+            elif action == "restore":
+                self.bench.restore(bench_id)
+            elif action == "purge":
+                self.bench.purge(bench_id)
             elif action == "found_drop":
                 self.bench.drop_found(bench_id, kw.get("item") or "")
             elif action == "refind":

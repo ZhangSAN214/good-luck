@@ -434,3 +434,10 @@
 .bg-radd{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:6px}
 .bg-radd input[type=text]{flex:1 1 180px;min-width:0}
 .bg-look{margin:4px 0}
+/* 项目列表不堆积：卡片下的收起 / 删除，墙下面折叠的「收起的项目」和「回收站」 */
+.bg-wall-c{display:grid;gap:4px;align-content:start}
+.bg-wall-a{display:flex;gap:12px;justify-content:flex-end;padding:0 8px;font-size:12px}
+.bg-shelves{display:grid;gap:8px;padding:8px 4px 4px}
+.bg-shelf summary{cursor:pointer;color:var(--hb-muted);font-size:13px}
+.bg-shelf li{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap}
+.link.bg-danger{color:#e5484d;font-weight:600}

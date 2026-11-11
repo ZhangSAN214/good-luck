@@ -286,6 +286,14 @@ async def bench_found_drop(request: Request, bench_id: str, body: BenchFoundBody
     return await svc(request).bench_project(bench_id, "found_drop", item=body.item)
 
 
+@router.post("/api/bench/{bench_id}/shelf/{action}")
+async def bench_shelf(request: Request, bench_id: str, action: str) -> dict[str, Any]:
+    """项目列表不堆积：收起 / 放回来 / 删进回收站 / 恢复 / 彻底删。"""
+    if action not in ("shelve", "unshelve", "delete", "restore", "purge"):
+        raise ServiceError("不认得这个操作", 404)
+    return await svc(request).bench_project(bench_id, action)
+
+
 @router.post("/api/bench/{bench_id}/refind")
 async def bench_refind(request: Request, bench_id: str) -> dict[str, Any]:
     return await svc(request).bench_project(bench_id, "refind")
