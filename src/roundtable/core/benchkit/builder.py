@@ -731,7 +731,17 @@ class BenchBuilder:
         if not m or cap <= 0:
             return ()
         total = self._metered_total()
-        if total is not None:
+        if total is None:
+            # 开工时记得了账、现在读不到：花了多少核实不了，按用量的助手先停，订阅的照常
+            # （2026-11-21 ChatGPT 复审第 03 条：原来沿用旧数接着派，可能悄悄超过单次上限）
+            if not m["capped"] and not m.get("unverified"):
+                m["unverified"] = True
+                self._log(b, "按用量花钱的助手的账读不到，核实不了花了多少，先只派给包月订阅的助手")
+            if not m["capped"]:
+                return self._metered_workers()
+        else:
+            if m.pop("unverified", None):
+                self._log(b, "按用量花钱的助手的账又读到了，恢复派活")
             m["usd"] = round(max(0.0, total - m["start_usd"]), 4)
         if m["usd"] >= cap and not m["capped"]:
             m["capped"] = True
@@ -742,6 +752,9 @@ class BenchBuilder:
             )
         if not m["capped"]:
             return ()
+        return self._metered_workers()
+
+    def _metered_workers(self) -> tuple[str, ...]:
         workers = getattr(getattr(self.sc, "rules", None), "workers", ())
         return tuple(w.id for w in workers if getattr(w, "metered", False))
 
