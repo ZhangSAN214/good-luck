@@ -104,6 +104,17 @@ def test_monthly_creative_cap_blocks_new_synthesis_but_not_cache():
     assert asyncio.run(voices.speak("xAI", "第一句")).cached
 
 
+def test_total_budget_blocks_new_synthesis():
+    """语音也受总预算管（11-21 花钱路径审计）。"""
+    rt, fake, voices = build()
+    fake.media_cost = 0.01
+    asyncio.run(voices.speak("xAI", "第一句"))
+    rt.budget.policy = rt.budget.policy.model_copy(update={"monthly_usd": 0.01, "daily_usd": None})
+    with pytest.raises(VoiceBudgetExceeded, match="总预算"):
+        asyncio.run(voices.speak("xAI", "第二句"))
+    assert asyncio.run(voices.speak("xAI", "第一句")).cached
+
+
 def test_text_is_trimmed_and_empty_text_rejected():
     _, fake, voices = build()
     asyncio.run(voices.speak("DeepSeek", "啊" * (MAX_CHARS + 50)))

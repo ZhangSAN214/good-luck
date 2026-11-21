@@ -314,6 +314,9 @@ class MemberStickers:
             spent = self.rt.repo.spent_in_role("media", *self._window())
             if spent + estimate > creative + EPS:
                 raise StickerBudgetExceeded(f"本月创作输出快超过上限 ${creative:g}，这张先不画")
+        # 总预算（每月 / 每日）也要管到：文档一直这么写，原来漏了（2026-11-21 花钱路径审计）
+        if not self.rt.budget.check(estimate).allowed:
+            raise StickerBudgetExceeded("总预算快用完了，这张先不画")
 
     # --- 画 --------------------------------------------------------------------------
 
