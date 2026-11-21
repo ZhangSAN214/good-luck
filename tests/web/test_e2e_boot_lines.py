@@ -86,7 +86,8 @@ def wait_bg_clear(page, log):
         page.wait_for_function(
             "(() => { const h = document.querySelector('.rt-boot');"
             " if (!h) throw new Error('boot gone');"
-            " return h.style.background === 'transparent'; })()",
+            # 新版浏览器把 style.background 序列化成别的写法，看算出来的底色是不是全透明
+            " return getComputedStyle(h).backgroundColor === 'rgba(0, 0, 0, 0)'; })()",
             timeout=10000,
         )
     except Exception as e:  # noqa: BLE001
