@@ -1816,6 +1816,41 @@ async def test_pay_per_use_helper_stops_at_the_per_build_cap(tmp_path):
     assert any("单次上限" in line["text"] for line in build["log"])
 
 
+async def test_pay_per_use_helper_pauses_when_ledger_breaks(tmp_path):
+    """开工时记得了账、中途读不到：核实不了花了多少，按用量的助手先停，订阅的照常（11-21）。"""
+    from types import SimpleNamespace
+
+    sc = FakeSC()
+    sc.rules = SimpleNamespace(
+        workers=[SimpleNamespace(id=w, metered=w == "c") for w in sc.workers]
+    )
+    reads = [0]
+
+    def spent():
+        reads[0] += 1
+        if reads[0] > 1:  # 开工时读到了，之后账本坏了
+            raise OSError("账本读不到")
+        return 5.0
+
+    b = BenchBuilder(
+        BenchRules(metered_usd_per_build=1.0),
+        root=tmp_path,
+        supercomputer=sc,
+        render=render,
+        check=fake_check(),
+        seed=7,
+        metered_spent=spent,
+    )
+    build = b.submit("旅行台")
+    await b.wait()
+    assert build["metered"]["start_usd"] == 5.0 and not build["metered"]["capped"]
+    window = [c for c in sc.calls if c["role"] == "bench_window"]
+    assert window and all("c" in c["exclude"] for c in window)
+    assert not any(c["who"] == "c" for c in sc.calls)
+    logs = [line["text"] for line in build["log"] if "账读不到" in line["text"]]
+    assert len(logs) == 1
+
+
 async def test_no_cap_without_metered_accounting(tmp_path):
     sc = FakeSC()
     b = make(tmp_path, sc)

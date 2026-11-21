@@ -161,6 +161,8 @@ class MemberVoices:
         limit = self.rules.monthly_usd
         if limit > 0 and self.month_spent() + estimate > limit + EPS:
             raise VoiceBudgetExceeded(f"本月创作输出快超过上限 ${limit:g}，这次先不念了")
+        if not self.rt.budget.check(estimate).allowed:  # 总预算也要管到（11-21 花钱路径审计）
+            raise VoiceBudgetExceeded("总预算快用完了，这次先不念了")
         params = {"response_format": self.rules.speech.format}
         try:
             inv = await self.rt.router.invoke(

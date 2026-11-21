@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import contextlib
 import json
+import logging
 from collections.abc import Callable, Mapping, Sequence
 from datetime import datetime
 from typing import Any
@@ -15,6 +15,7 @@ from roundtable.core.storage import Repository
 from .guard import month_window, week_window
 
 SETTING_KEY = "channels.priority"
+log = logging.getLogger(__name__)
 
 
 def _saved(repo: Repository) -> dict[str, Any]:
@@ -130,6 +131,9 @@ class WeeklyCap:
         self.extra: dict[str, Callable[[], float]] = {}  # 渠道 → 本周别处花的（美元）
         # 渠道 → 本月别处花的（美元），如工作台用这个渠道 key 的 Claude Code 自己报的花费
         self.monthly_extra: dict[str, Callable[[], float]] = {}
+        # 外部账本本周 / 本月上次读到的数（键：(周期开始时间, 渠道)）。读不到时用它顶上，
+        # 不当成 0：当成 0 等于每周 / 每月上限暂时失效（2026-11-21 ChatGPT 复审第 02 条）
+        self._extra_last: dict[tuple[datetime, str], float] = {}
 
     @classmethod
     def from_config(cls, config: AppConfig, repo: Repository, now: Callable[[], datetime]):
@@ -161,11 +165,29 @@ class WeeklyCap:
         self._month_cache = (now, spent)
         return spent
 
+    def _read_extra(self, period: datetime, channel: str, read: Callable[[], float]) -> float:
+        """读外部账本；读不到时用本周期上次读到的数（本周期从没读到过才算 0），并记一条警告。"""
+        key = (period, channel)
+        try:
+            value = max(0.0, float(read()))
+        except Exception as exc:  # noqa: BLE001 - 外部账本出什么错都不能让路由崩
+            last = self._extra_last.get(key, 0.0)
+            log.warning(
+                "渠道 %s 的外部账本读不到（%s），按上次读到的 $%.4f 算",
+                channel,
+                type(exc).__name__,
+                last,
+            )
+            return last
+        self._extra_last[key] = value
+        return value
+
     def month_spent(self, channel: str) -> float:
         total = self._month_own().get(channel, 0.0)
         if channel in self.monthly_extra:
-            with contextlib.suppress(Exception):  # 外部账本读不到：只按本机账本算
-                total += max(0.0, float(self.monthly_extra[channel]()))
+            total += self._read_extra(
+                month_window(self._now())[0], channel, self.monthly_extra[channel]
+            )
         return total
 
     def _own(self) -> dict[str, float]:
@@ -179,8 +201,7 @@ class WeeklyCap:
     def spent(self, channel: str) -> float:
         total = self._own().get(channel, 0.0)
         if channel in self.extra:
-            with contextlib.suppress(Exception):  # 外部账本读不到：只按本机账本算，不挡调用
-                total += max(0.0, float(self.extra[channel]()))
+            total += self._read_extra(week_window(self._now())[0], channel, self.extra[channel])
         return total
 
     def _money(self, usd: float) -> str:

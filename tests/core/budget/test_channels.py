@@ -138,6 +138,25 @@ def test_weekly_cap_ignores_broken_extra_ledger(repo):
     assert cap.spent("direct") == 0.0 and cap.blocked("direct") is None
 
 
+def test_weekly_cap_keeps_last_extra_reading_when_ledger_breaks(repo):
+    """外部账本读到过、后来读不到：按上次读到的数算，不当成 0（否则上限暂时失效）。"""
+    from roundtable.core.budget.channels import WeeklyCap
+
+    now = [datetime(2026, 11, 18, 12, tzinfo=UTC)]  # 星期三
+    cap = WeeklyCap({"direct": 1.0}, repo, lambda: now[0], ttl_s=0)
+    cap.extra["direct"] = lambda: 1.2
+    assert cap.blocked("direct")
+
+    def boom():
+        raise OSError("账本读不到")
+
+    cap.extra["direct"] = boom
+    assert cap.spent("direct") == pytest.approx(1.2)
+    assert "每周上限" in (cap.blocked("direct") or "")
+    now[0] = datetime(2026, 11, 23, 12, tzinfo=UTC)  # 下周一：上周的数不带过来
+    assert cap.spent("direct") == 0.0 and cap.blocked("direct") is None
+
+
 def test_weekly_cap_from_config_reads_channels(config, repo):
     from roundtable.core.budget.channels import WeeklyCap
 
@@ -175,7 +194,7 @@ def test_monthly_caps_from_config(config, repo):
 
 
 def test_monthly_cap_adds_workbench_credit_spend(repo):
-    """工作台用 API 额度的 Claude Code 自己报的花费也算进每月上限；外部账本坏了不挡。"""
+    """工作台用 API 额度的 Claude Code 自己报的花费也算进每月上限；外部账本坏了按上次读到的算。"""
     from roundtable.core.budget.channels import WeeklyCap
 
     cap = WeeklyCap({}, repo, lambda: datetime.now(UTC), ttl_s=0, monthly={"direct": 1.0})
@@ -188,5 +207,10 @@ def test_monthly_cap_adds_workbench_credit_spend(repo):
         raise OSError("账本读不到")
 
     cap.monthly_extra["direct"] = broken
-    assert cap.month_spent("direct") == pytest.approx(0.5)
-    assert cap.blocked("direct") is None
+    assert cap.month_spent("direct") == pytest.approx(1.1)
+    assert "每月上限" in (cap.blocked("direct") or "")
+
+    fresh = WeeklyCap({}, repo, lambda: datetime.now(UTC), ttl_s=0, monthly={"direct": 1.0})
+    fresh.monthly_extra["direct"] = broken  # 从没读到过：只按本机账本算，不挡
+    assert fresh.month_spent("direct") == pytest.approx(0.5)
+    assert fresh.blocked("direct") is None

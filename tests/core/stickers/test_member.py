@@ -172,6 +172,16 @@ def test_creative_cap_also_blocks(tmp_path):
         asyncio.run(stickers.draw("OpenAI", "刹车"))
 
 
+def test_total_budget_also_blocks(tmp_path):
+    """表情包和朋友圈配图也受总预算管（11-21 花钱路径审计：原来只看两个每月小上限）。"""
+    rt, fake, stickers = build(tmp_path)
+    fake.media_cost = 0.03
+    rt.budget.policy = rt.budget.policy.model_copy(update={"monthly_usd": 0.03, "daily_usd": None})
+    asyncio.run(stickers.draw("OpenAI", "想想"))
+    with pytest.raises(StickerBudgetExceeded, match="总预算"):
+        asyncio.run(stickers.draw("OpenAI", "刹车"))
+
+
 def test_unknown_sticker_member_or_missing_refs(tmp_path):
     _, _, stickers = build(tmp_path)
     with pytest.raises(StickerError):
