@@ -62,19 +62,52 @@ def boot_lines(page):
     )
 
 
+DIAG = (
+    "window.__bootLog = [];"
+    " window.addEventListener('message', (e) => { try { window.__bootLog.push("
+    "'msg ' + Math.round(performance.now()) + ' ' + JSON.stringify(e.data)) } catch {} }, true);"
+    " document.addEventListener('roundtable:boot-done', () => window.__bootLog.push("
+    "'done ' + Math.round(performance.now()) + ' ' + new Error().stack));"
+)
+
+
+def watch(page):
+    """出错时把动画页发来的消息、控制台和报错一起带出来，方便看 CI 上到底发生了什么。"""
+    log = []
+    page.on("console", lambda m: log.append(f"console {m.type}: {m.text}"))
+    page.on("pageerror", lambda e: log.append(f"pageerror: {e}"))
+    page.on("framenavigated", lambda f: log.append(f"nav: {f.url}"))
+    page.add_init_script(DIAG)
+    return log
+
+
+def wait_bg_clear(page, log):
+    try:
+        page.wait_for_function(
+            "(() => { const h = document.querySelector('.rt-boot');"
+            " if (!h) throw new Error('boot gone');"
+            " return h.style.background === 'transparent'; })()",
+            timeout=10000,
+        )
+    except Exception as e:  # noqa: BLE001
+        extra = page.evaluate("window.__bootLog || []")
+        raise AssertionError(f"{e}\n" + "\n".join(log + extra)) from None
+
+
 def test_lines_land_on_the_hub_standee(serve, page, tmp_path):
     srv = serve(
         confirm_threshold_usd=100.0,
         members_dir=members_dir(tmp_path / "art"),
         standee_file=standee_file(tmp_path / "sd"),
     )
+    log = watch(page)
     page.add_init_script(LAND_HUB)
     boot_lines(page)
     page.emulate_media(reduced_motion="reduce")  # 2.2 倍速，约 4.6 秒放完
     page.goto(srv.url)
     page.wait_for_selector(".rt-boot iframe[src='boot/lines.html']")
     # 线条页画好第一帧后外层撤掉底色，最后露出的就是底下的首页
-    page.wait_for_function("document.querySelector('.rt-boot').style.background === 'transparent'")
+    wait_bg_clear(page, log)
     # 落点 = 首页立绘在屏幕上的位置
     page.wait_for_function("window.roundtableLanding() && !window.roundtableLanding().pending")
     landing = page.evaluate(
@@ -93,11 +126,12 @@ def test_lines_land_on_the_hub_standee(serve, page, tmp_path):
 def test_lines_without_hub_still_finishes(serve, page, tmp_path):
     """停在办公室（没有首页立绘）：最后一位就地上色，照样放完；Esc 随时跳过。"""
     srv = serve(confirm_threshold_usd=100.0, members_dir=members_dir(tmp_path / "art"))
+    log = watch(page)
     boot_lines(page)
     page.goto(srv.url)
     page.wait_for_selector(".rt-boot iframe[src='boot/lines.html']")
     page.wait_for_function("window.roundtableLanding() === null")
-    page.wait_for_function("document.querySelector('.rt-boot').style.background === 'transparent'")
+    wait_bg_clear(page, log)
     page.keyboard.press("Escape")
     page.wait_for_selector(".rt-boot", state="detached")
 
