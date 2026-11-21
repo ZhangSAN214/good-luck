@@ -56,6 +56,7 @@ def standee_file(root):
 def boot_lines(page):
     page.add_init_script(
         "try { localStorage.setItem('roundtable.boot.mode', 'lines');"
+        " localStorage.setItem('roundtable.boot.modeReset1121', '1');"
         " localStorage.setItem('roundtable.boot.sound', 'off');"
         " localStorage.setItem('roundtable.boot.voice', 'off') } catch {}"
     )
@@ -107,3 +108,17 @@ def test_lines_with_no_art_skips_straight_to_home(serve, page):
     page.goto(srv.url)
     page.wait_for_selector(".rt-boot", state="detached", timeout=8000)
     wait_until(lambda: page.is_visible("#main") or page.is_visible("#hub"))
+
+
+def test_old_lines_choice_is_reset_once_to_the_old_boot(serve, page):
+    """以前在设置里选过「线条汇聚」的，更新后自动换回老版片头；只改一次，之后再选照样生效。"""
+    srv = serve(confirm_threshold_usd=100.0)
+    page.goto(srv.url + "?boot=0")
+    page.evaluate("localStorage.setItem('roundtable.boot.mode', 'lines')")
+    page.goto(srv.url)
+    page.wait_for_selector(".rt-boot", state="attached")
+    assert page.evaluate("localStorage.getItem('roundtable.boot.mode')") == "full"
+    page.evaluate("localStorage.setItem('roundtable.boot.mode', 'lines'); sessionStorage.clear()")
+    page.goto(srv.url + "?boot=0")
+    page.goto(srv.url)
+    assert page.evaluate("localStorage.getItem('roundtable.boot.mode')") == "lines"
