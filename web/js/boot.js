@@ -638,6 +638,16 @@
   } catch {
     return;
   }
+  // 用户 11-21 又说「换回原来那版」：之前在设置里选过「线条汇聚」的，本机还记着，更新后也不会变。
+  // 这里只改一次：记着 lines 的改回默认老版；之后再自己去设置里选 lines 照样生效。
+  try {
+    if (!window.localStorage.getItem(PREFIX + 'modeReset1121')) {
+      if (read('mode', 'full') === 'lines') window.localStorage.setItem(PREFIX + 'mode', 'full');
+      window.localStorage.setItem(PREFIX + 'modeReset1121', '1');
+    }
+  } catch {
+    /* 存不下就算了，照原设置放 */
+  }
   if (read('mode', 'full') === 'off') return;
   if (read('when', 'session') === 'session') {
     try {
