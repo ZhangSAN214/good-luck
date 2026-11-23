@@ -34,7 +34,7 @@ def test_open_holdem_play_a_hand_and_leave(serve, page):
     assert "游戏区" in page.inner_text("#arcade .bn-zh")
     assert page.inner_text("[data-coins]") == "2,000"
     # 没做好的游戏是灰的
-    assert page.locator(".ac-game[data-game=mahjong]").is_disabled()
+    assert page.locator(".ac-game[data-game=tanks]").is_disabled()
     page.click(".ac-game[data-game=holdem]")
     page.wait_for_selector(".ac-setup")
     assert page.locator(".ac-pick.on").count() >= 1
@@ -220,3 +220,52 @@ def test_deal_animation_card_feel_and_sound_toggle(serve, page):
     assert "关" in page.inner_text("[data-sfx]")
     page.click("[data-sfx]")
     assert page.evaluate("localStorage.getItem('roundtable.arcade.sfx')") == "on"
+
+
+def test_mahjong_discard_claim_and_finish(serve, page):
+    srv = serve(confirm_threshold_usd=100.0)
+    _fast(srv)
+    page.goto(srv.url + "#m=game")
+    page.wait_for_selector(".ac-lobby")
+    page.click(".ac-game[data-game=mahjong]")
+    page.wait_for_selector(".ac-setup")
+    assert "麻将" in page.inner_text(".ac-setup h3")
+    page.click("[data-think='0']")
+    page.click("[data-act=open]")
+    page.wait_for_selector(".ac-mjfelt")
+    assert page.locator(".ac-rivers .ac-river").count() == 4  # 四家的牌河
+
+    def ready():
+        q = page.locator
+        return (
+            q("#arcade [data-sjopt]").count()
+            or q(".ac-htile:not([tabindex])").count()
+            or q(".ac-results").count()
+        )
+
+    discarded = False
+    for _ in range(300):
+        wait_until(ready, timeout=20)
+        if page.locator(".ac-results").count():
+            break
+        if page.locator(".ac-htile:not([tabindex])").count():
+            hu = page.locator("#arcade [data-sjopt]", has_text="自摸")
+            if hu.count():
+                hu.first.click()
+                continue
+            tile = page.locator(".ac-htile").last
+            tile.click()  # 先选中
+            assert page.locator(".ac-htile.on").count() == 1
+            tile.click()  # 再点一下就打出去
+            discarded = True
+        else:
+            page.locator("#arcade [data-sjopt]").first.click()  # 碰 / 胡 / 杠，没有就过
+        page.wait_for_timeout(80)
+    else:
+        raise AssertionError("这一局没打完")
+    assert discarded
+    assert page.locator(".ac-results li").count() == 4
+    page.click("[data-act=deal]")
+    page.wait_for_selector(".ac-mjfelt")
+    page.click("[data-act=leave]")
+    page.wait_for_selector(".ac-lobby")

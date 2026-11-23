@@ -260,7 +260,7 @@ src/roundtable/
     sim/           成员系统加速时间模拟（docs/SIM.md；lab 主程序、exam 考题、long 半年快进、scene 场景）：临时数据库 + 快进时钟 + 假 / 真模型 + 模拟用户，出报告
     export/        导出成果：从存库的产出取最终成果（deliverable.py）→ Markdown / Word（python-docx）/ PPT（手写 OOXML，按标题分页）/ PDF（手写，阅读器自带中文字体）/ 网页；样式（style.py：字号、配色模板、PPT 比例、附题目 / 过程）；界面可直接存到本机固定文件夹（只限电脑本机，文件夹记在设置里）；不调用模型、不加依赖
     lan.py         局域网访问：口令加盐哈希（data/lan_access.json，不进 git）、登录 cookie 签名与过期、输错限速、一次性配对码、本机局域网地址、二维码（docs/LAN.md）
-    arcade/        游戏区（docs/ARCADE.md）：cards 牌、poker_eval 比牌、holdem 德州规则（纯逻辑）、holdem_bot 本地电脑对手、pattern 出牌类牌型、shedding 斗地主 / 跑得快规则、shed_bot 出牌类电脑对手、shengji 升级规则、sj_bot 升级电脑对手、hub 开桌与成员出牌（群聊里的模型，同一份提示词，只挑合法编号；每天上限只算真掏钱的部分）、金币与押注
+    arcade/        游戏区（docs/ARCADE.md）：cards 牌、poker_eval 比牌、holdem 德州规则（纯逻辑）、holdem_bot 本地电脑对手、pattern 出牌类牌型、shedding 斗地主 / 跑得快规则、shed_bot 出牌类电脑对手、shengji 升级规则、sj_bot 升级电脑对手、mahjong 麻将推倒胡规则、mj_bot 麻将电脑对手、hub 开桌与成员出牌（群聊里的模型，同一份提示词，只挑合法编号；每天上限只算真掏钱的部分）、金币与押注
     gamemode.py    游戏模式（docs/GAMEMODE.md）：玩游戏 / 前台全屏 / 显卡被别的程序占用（NVML）时让出显卡：路由不调 gpu: true 的渠道，朋友圈配图排队（data/gpu_queue.json），连续空闲 5 分钟后补跑；忙时降 CPU 优先级
     starmap.py     星图（docs/STARMAP.md）：圆桌星图（更新按关键词挂到五个部门、成员完整度、体检缺口）与成员人生星图（十个星域、缺口、相关线）的数据；纯函数、只读、不调模型，前端 web/js/starmap.js 用 canvas 自己做透视投影画立体星图
     changelog.py   公告栏：版本更新说明（读 config/changelog.yaml 与 config/changelog.d/*.yaml 合并，校验、按合并先后自动编版本号；只读）
