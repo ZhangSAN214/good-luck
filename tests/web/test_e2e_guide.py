@@ -18,7 +18,7 @@ def test_settings_lists_every_page_and_tucks_toolbar(serve, page):
     page.click("#settingsbtn")
     page.wait_for_selector("#settingsdlg[open] .gd-list")
     groups = page.locator("#settingsdlg .gd-group summary b").all_inner_texts()
-    assert groups == ["终端", "办公室", "公寓楼", "群聊", "工作台", "顶栏工具"]
+    assert groups == ["终端", "办公室", "公寓楼", "群聊", "工作台", "游戏区", "顶栏工具"]
     # 每个功能都有一句话和步骤
     items = page.locator("#settingsdlg .gd-item")
     assert items.count() > 25

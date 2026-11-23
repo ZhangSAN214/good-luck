@@ -52,6 +52,7 @@ import { Wander } from './wander.js';
 import { Workbench } from './workbench.js';
 import { SuperPanel } from './supercomputer.js';
 import { Bench } from './bench.js';
+import { ArcadePage } from './arcade.js';
 import { BenchGenPanel, weeklyUnread } from './benchgen.js';
 import { Hub } from './hub.js';
 import { Standee } from './standee.js';
@@ -325,6 +326,22 @@ const benchGen = new BenchGenPanel(bench.pane('gen'), {
   },
   isOpen: () => bench.visible('gen'),
   label: (id) => superPanel.label(id),
+});
+// 游戏区（docs/ARCADE.md）：牌局在后台，这里只画和发操作
+const arcade = new ArcadePage($('#arcade'), {
+  api: {
+    status: API.arcade,
+    table: API.arcadeTable,
+    open: API.arcadeOpen,
+    act: API.arcadeAct,
+    deal: API.arcadeDeal,
+    think: API.arcadeThink,
+    leave: API.arcadeLeave,
+  },
+  avatar: (id, name) => {
+    const m = gchat.everyone?.find((x) => x.id === id);
+    return m ? gchat.avatar(m, name) : '';
+  },
 });
 bench.onSelect = (name) =>
   name === 'dsh' ? workbench.open() : name === 'gen' ? benchGen.open() : superPanel.open();
@@ -1354,9 +1371,9 @@ function typing(el) {
   return !!el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName));
 }
 
-// --- 入口：办公室 / 公寓楼 / 群聊 / 终端 / 工作台 ------------------------------------------------------------
+// --- 入口：办公室 / 公寓楼 / 群聊 / 终端 / 工作台 / 游戏区 ------------------------------------------------------------
 
-const ENTRIES = ['work', 'home', 'chat', 'hub', 'bench'];
+const ENTRIES = ['work', 'home', 'chat', 'hub', 'bench', 'game'];
 let entry = 'work';
 
 /** 打开网页时进哪个入口：默认终端首页；终端里可以勾选直接进办公室（存在本机）。本机存储不能用时进办公室。 */
@@ -1369,7 +1386,7 @@ function landing() {
 }
 
 /** 切换入口。终端是首页；办公室是原来的界面；公寓楼是只读的基建式剖面图；群聊和成员聊天。地址栏 #m=hub / #m=home / #m=chat 刷新后回到原入口。 */
-const VIEW_OF = { work: '#main', home: '#home', chat: '#gchat', hub: '#hub', bench: '#bench' };
+const VIEW_OF = { work: '#main', home: '#home', chat: '#gchat', hub: '#hub', bench: '#bench', game: '#arcade' };
 
 /**
  * 切换入口，带过渡（仿 iPhone 打开 App，不回弹）：背景和顶栏不动，只有页面在动。
@@ -1485,6 +1502,8 @@ function applyEntry(m) {
   else hub.hide();
   if (m === 'bench') shown = bench.show();
   else bench.hide();
+  if (m === 'game') shown = arcade.show();
+  else arcade.hide();
   document.documentElement.dataset.entry = m;
   syncPet();
   coach.show(m);
@@ -1496,7 +1515,7 @@ function applyEntry(m) {
 /**
  * 全局快捷键（不在输入框里时）：
  * / 或 Ctrl+K 聚焦题目输入框；Esc 离开输入框；1～9 选择等待确认卡片的对应选项；
- * N 新题目；Alt+1 / 2 / 3 / 4 / 5 切换办公室 / 公寓楼 / 群聊 / 终端 / 工作台。输入框里只处理 Esc、Ctrl+K 与 Alt+数字。
+ * N 新题目；Alt+1 / 2 / 3 / 4 / 5 / 6 切换办公室 / 公寓楼 / 群聊 / 终端 / 工作台 / 游戏区。输入框里只处理 Esc、Ctrl+K 与 Alt+数字。
  */
 function shortcut(e) {
   if (composing(e) || e.defaultPrevented) return;

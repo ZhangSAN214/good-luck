@@ -688,3 +688,30 @@ class Respond(BaseModel):
 
     response: str
     note: str | None = None
+
+
+class ArcadeOpenBody(BaseModel):
+    """游戏区开一桌：选哪几位成员、你坐不坐下（不坐就是旁观押注）、成员用不用模型想。"""
+
+    model_config = ConfigDict(extra="forbid")
+    game: str = Field(max_length=20)
+    members: list[str] = Field(min_length=1, max_length=8)
+    sit: bool = True
+    think: bool | None = None
+
+
+class ArcadeActBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    kind: Literal["fold", "check", "call", "raise", "allin"]
+    to: int | None = Field(default=None, ge=0, le=100_000_000)
+
+
+class ArcadeDealBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    bet_on: str | None = Field(default=None, max_length=40)
+    amount: int = Field(default=0, ge=0, le=1_000_000)
+
+
+class ArcadeThinkBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    on: bool

@@ -8,6 +8,7 @@ from typing import Any, Literal
 
 from pydantic import Field, field_validator, model_validator
 
+from roundtable.core.config.sections.arcade import ArcadeRules, HoldemRules, WalletRules
 from roundtable.core.config.sections.base import (
     Tier,
     _Strict,
@@ -1768,6 +1769,7 @@ class RoundtableConfig(_Strict):
     calendar: CalendarRules = CalendarRules()
     backup: BackupRules = BackupRules()
     gamemode: GameModeRules = GameModeRules()
+    arcade: ArcadeRules = ArcadeRules()
 
     @field_validator("prompts")
     @classmethod
@@ -2296,6 +2298,7 @@ class AppConfig(_Strict):
 # 搬到 sections/ 的配置模型照旧可以从这里导入
 __all__ = [
     "AboutRules",
+    "ArcadeRules",
     "AcceptanceRules",
     "AmbivalenceRules",
     "AppConfig",
@@ -2379,6 +2382,7 @@ __all__ = [
     "FlawRule",
     "FloorRules",
     "GameModeRules",
+    "HoldemRules",
     "GistRule",
     "GoalRules",
     "GrowthBookRules",
@@ -2542,6 +2546,7 @@ __all__ = [
     "VoiceCheckRules",
     "VoiceMode",
     "VoiceRules",
+    "WalletRules",
     "WanderRules",
     "WanderSite",
     "WatchRules",
