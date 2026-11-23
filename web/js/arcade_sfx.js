@@ -112,6 +112,11 @@ const SOUNDS = {
     tone(220, at, 0.09, { type: 'square', gain: 0.05, to: 90 });
     noise(at, 0.07, { gain: 0.12, type: 'lowpass', hz: 1800, to: 500 });
   },
+  /** 炮弹弹墙 / 碰斜板：金属的「叮」。 */
+  ting(at) {
+    tone(1850, at, 0.08, { type: 'triangle', gain: 0.05, to: 1400 });
+    noise(at, 0.03, { gain: 0.05, hz: 4200, q: 4 });
+  },
   /** 坦克被击毁：中等的爆炸。 */
   hit(at) {
     tone(120, at, 0.45, { gain: 0.3, to: 40, attack: 0.006 });

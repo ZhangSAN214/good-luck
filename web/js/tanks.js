@@ -2,7 +2,7 @@
 // 每秒 60 帧推进 tanks_core.js 的规则。成员的坦克由本地电脑开（不调模型、不花钱）。
 // 手感：开炮有火光、坦克被击毁震屏加碎片、砖块碎屑、履带印、挡下炮弹闪一下；成员头顶冒小气泡说话（台词来自配置）。
 
-import { BRICK, BUSH, H, STEEL, W, WATER, createGame, placeOf, step } from './tanks_core.js';
+import { BACKSLASH, BRICK, BUSH, H, SLASH, STEEL, W, WATER, createGame, placeOf, step } from './tanks_core.js';
 import { sfx } from './arcade_sfx.js';
 import { esc } from './util.js';
 
@@ -34,7 +34,7 @@ export class TankGame {
    */
   constructor(opts) {
     this.opts = opts;
-    this.g = createGame(opts.players, { seed: opts.seed, lives: opts.lives, seconds: Math.round(opts.minutes * 60), level: opts.level, mode: opts.mode || 'ffa' });
+    this.g = createGame(opts.players, { seed: opts.seed, lives: opts.lives, seconds: Math.round(opts.minutes * 60), level: opts.level, mode: opts.mode || 'ffa', bounce: opts.bounce !== false, maze: opts.maze !== false });
     this.me = opts.players.find((p) => p.human)?.id || null;
     this.lines = opts.lines || {};
     this.held = [];
@@ -56,7 +56,7 @@ export class TankGame {
         <div class="ac-tdpad">${['up', 'left', 'right', 'down'].map((d) => `<button type="button" class="ac-tkey k-${d}" data-tdir="${d}" aria-label="${{ up: '上', down: '下', left: '左', right: '右' }[d]}"></button>`).join('')}</div>
         <div class="ac-tbtns"><button type="button" class="ac-tmine" data-tmine aria-label="放地雷">地雷</button><button type="button" class="ac-tfire" data-tfire aria-label="开炮">开炮</button></div>
       </div>` : ''}
-      <p class="ac-sub ac-ttip">${this.me ? '方向键 / WASD 开动，空格 / J 开炮，E / K 放地雷，P 暂停。手机上用下面的方向键、「开炮」「地雷」。' : '你在旁观：成员们自己开（本地电脑操控）。'}${this.g.mode === 'team' ? '2 对 2：左边两个角一队、右边两个角一队，炮弹打不伤队友。' : ''}草丛能藏身，砖墙打两下就碎，钢墙只有穿甲弹打得碎，水挡车不挡炮弹。补给：盾 护盾、连 连发、修 多一条命、穿 穿甲、速 加速、雷 两颗地雷。</p>`;
+      <p class="ac-sub ac-ttip">${this.me ? '方向键 / WASD 开动，空格 / J 开炮，E / K 放地雷，P 暂停。手机上用下面的方向键、「开炮」「地雷」。' : '你在旁观：成员们自己开（本地电脑操控）。'}${this.g.mode === 'team' ? '2 对 2：左边两个角一队、右边两个角一队，炮弹打不伤队友。' : ''}${this.g.bounce ? '炮弹碰到钢墙和边框会弹回来（最多两次），碰到斜板拐弯；小心被自己弹回来的炮弹打中。' : ''}草丛能藏身，砖墙打两下就碎，钢墙只有穿甲弹打得碎，水挡车不挡炮弹。补给：盾 护盾、连 连发、修 多一条命、穿 穿甲、速 加速、雷 两颗地雷。</p>`;
     this.canvas = this.el.querySelector('canvas');
     this.ctx = this.canvas.getContext('2d');
     this.hud = this.el.querySelector('[data-thud]');
@@ -212,6 +212,10 @@ export class TankGame {
       } else if (e.kind === 'block' || e.kind === 'friendly') {
         fx.blink[e.id] = 0.15;
         this.burst(e.x, e.y, 5, ['#bfe3ff', '#ffffff'], 2.2);
+      } else if (e.kind === 'bounce' || e.kind === 'deflect') {
+        this.burst(e.x, e.y, 3, ['#fff3c4', '#ffd27a'], 1.8);
+      } else if (e.kind === 'catch') {
+        this.burst(e.x, e.y, 4, ['#fff3c4', '#ffffff'], 1.6);
       } else if (e.kind === 'mineboom') {
         fx.shake = Math.max(fx.shake, 0.35);
       } else if (e.kind === 'power') {
@@ -258,6 +262,7 @@ export class TankGame {
 
   sounds() {
     let shoot = false;
+    let ting = false;
     for (const e of this.g.events) {
       if (e.kind === 'shoot' && (e.id === this.me || !shoot)) {
         if (e.id === this.me) sfx('shoot');
@@ -269,6 +274,10 @@ export class TankGame {
       else if (e.kind === 'steel' && e.broke) sfx('bomb');
       else if (e.kind === 'mine' && e.id === this.me) sfx('pick');
       else if (e.kind === 'mineboom') sfx('bomb');
+      else if ((e.kind === 'bounce' || e.kind === 'deflect') && !ting) {
+        sfx('ting'); // 弹墙：一帧只响一下
+        ting = true;
+      }
     }
   }
 
@@ -381,6 +390,7 @@ export class TankGame {
         if (v === BRICK) this.brick(x, y, g.hp[y][x]);
         else if (v === STEEL) this.steel(x, y);
         else if (v === WATER) this.water(x, y, t);
+        else if (v === SLASH || v === BACKSLASH) this.mirror(x, y, v === SLASH);
       }
     }
     this.drawTracks();
@@ -436,6 +446,33 @@ export class TankGame {
       ctx.lineTo(px + c * 0.35, py + c * 0.85);
       ctx.stroke();
     }
+  }
+
+  /** 斜板：深色底座上一块斜着的亮钢板（炮弹碰到拐 90 度）。 */
+  mirror(x, y, slash) {
+    const { ctx } = this;
+    const c = this.cell;
+    const px = x * c;
+    const py = y * c;
+    ctx.fillStyle = '#2b333c';
+    ctx.fillRect(px + c * 0.06, py + c * 0.06, c * 0.88, c * 0.88);
+    ctx.save();
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = '#7d8a97';
+    ctx.lineWidth = c * 0.26;
+    ctx.beginPath();
+    if (slash) {
+      ctx.moveTo(px + c * 0.18, py + c * 0.82);
+      ctx.lineTo(px + c * 0.82, py + c * 0.18);
+    } else {
+      ctx.moveTo(px + c * 0.18, py + c * 0.18);
+      ctx.lineTo(px + c * 0.82, py + c * 0.82);
+    }
+    ctx.stroke();
+    ctx.strokeStyle = '#e8eef4';
+    ctx.lineWidth = c * 0.08;
+    ctx.stroke();
+    ctx.restore();
   }
 
   steel(x, y) {

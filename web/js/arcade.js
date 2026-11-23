@@ -77,6 +77,8 @@ export class ArcadePage {
     this.tankUI = null; // 铁甲突围：正在打的那一局
     this.tankRun = null; // 后台给的这一局（凭证、种子）
     this.tankLevel = 'normal';
+    this.tankBounce = true; // 炮弹反弹
+    this.tankMaze = true; // 迷宫地图
     this.tankMode = 'ffa'; // 各自为战 / 2 对 2
     this.ws = null; // 游戏工坊的状态
     this.wsDraft = ''; // 还没交的要求（重画时不丢）
@@ -343,6 +345,12 @@ export class ArcadePage {
       this.render();
     } else if (d.level) {
       this.tankLevel = d.level;
+      this.render();
+    } else if (d.tbounce) {
+      this.tankBounce = d.tbounce === '1';
+      this.render();
+    } else if (d.tmaze) {
+      this.tankMaze = d.tmaze === '1';
       this.render();
     } else if (d.act === 'open') {
       const body = { game: this.game, members: [...this.pick], sit: this.sit, think: this.thinkOn() };
@@ -647,6 +655,12 @@ export class ArcadePage {
         <button type="button" class="ac-seg" data-sit="1" aria-pressed="${this.sit}">我亲自开</button>
         <button type="button" class="ac-seg" data-sit="0" aria-pressed="${!this.sit}">旁观</button>
       </div>
+      <div class="ac-row" role="group" aria-label="地图">
+        <button type="button" class="ac-seg" data-tmaze="1" aria-pressed="${this.tankMaze}">迷宫地图</button>
+        <button type="button" class="ac-seg" data-tmaze="0" aria-pressed="${!this.tankMaze}">开阔地图</button>
+        <button type="button" class="ac-seg" data-tbounce="1" aria-pressed="${this.tankBounce}">炮弹反弹</button>
+        <button type="button" class="ac-seg" data-tbounce="0" aria-pressed="${!this.tankBounce}">不反弹</button>
+      </div>
       <div class="ac-row" role="group" aria-label="对手多厉害">
         ${[['easy', '新手'], ['normal', '普通'], ['hard', '高手']].map(([k, zh]) => `<button type="button" class="ac-seg" data-level="${k}" aria-pressed="${lv === k}">对手：${zh}</button>`).join('')}
       </div>
@@ -692,6 +706,8 @@ export class ArcadePage {
       minutes: run.minutes,
       level: this.tankLevel,
       mode: run.mode || this.tankMode,
+      bounce: this.tankBounce,
+      maze: this.tankMaze,
       lines: Object.fromEntries(run.members.map((m) => [m.id, m.lines || {}])),
       onEnd: (r) => this.tanksOver(r),
     });
