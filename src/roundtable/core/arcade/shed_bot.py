@@ -6,7 +6,9 @@
 - 自己先出：队友（斗地主的农民）只剩一两张时，出最小的单张 / 对子放她走；
   对手只剩一张时不出单张（除非是外面最大的），只剩两张时不出对子。平时先甩长的连牌、从小往大出。
 - 压牌：队友出的牌一般不压；对手快出完时用能压住的最大的牌拦；
-  平时用最小的压得过的，不拆炸弹，炸弹留到对手快出完或自己快出完时再用。
+  平时挑压完以后手牌最整齐的（hand_shape：不为压一张单牌拆对子、顺子、三张），
+  拆得太亏就不要；不拆炸弹，炸弹留到对手快出完或自己快出完时再用。
+- 自己先出也挑出完以后手牌最整齐的那手，2、王这些控制牌留到后面。
 """
 
 from __future__ import annotations
@@ -15,6 +17,7 @@ import random
 from collections import Counter
 from typing import Any
 
+from roundtable.core.arcade.hand_shape import shape_score
 from roundtable.core.arcade.pattern import classify, value
 from roundtable.core.arcade.shedding import Doudizhu, Shedding
 
@@ -52,6 +55,23 @@ def _boss(game: Shedding, i: int, o: dict[str, Any]) -> bool:
         return False
     out = game.outside(i)
     return not any(n >= pat.size and v > pat.main for v, n in out.items())
+
+
+def _rest(hand: list[str], o: dict[str, Any]) -> list[str]:
+    rest = list(hand)
+    for c in o["cards"]:
+        rest.remove(c)
+    return rest
+
+
+def _controls(o: dict[str, Any]) -> int:
+    """这手里有几张控制牌（2、王）。"""
+    return sum(1 for c in o["cards"] if value(c) >= 15)
+
+
+def _cost(game: Shedding, hand: list[str], o: dict[str, Any], base: float) -> float:
+    """出这手以后手牌变好多少（越小越好；干净地出掉一整手约 -1，拆牌会更大）。"""
+    return shape_score(_rest(hand, o), game.game) - base
 
 
 def _enemies(game: Shedding, i: int) -> list[int]:
@@ -92,11 +112,17 @@ def decide(game: Shedding, i: int, rng: random.Random) -> dict[str, Any]:
         if danger and not lord:  # 农民：地主快出完了，用外面管不上的最小的牌拦住，没有就出最大的
             boss = [o for o in small if _boss(game, i, o)]
             return min(boss, key=_main) if boss else max(small, key=_main)
-        cheapest = min(small, key=_main)
-        # 拿 2、王去压小牌不划算：对手不危险时看情况
-        if passing is not None and _main(cheapest) >= 15 and low_enemy > 5 and rng.random() < 0.6:
+        base = shape_score(me.cards, game.game)
+        late = len(me.cards) <= 6 or low_enemy <= 4
+        scored = [
+            (_cost(game, me.cards, o, base) + (0 if late else 0.35 * _controls(o)), _main(o), o)
+            for o in small
+        ]
+        cost, _, best = min(scored, key=lambda x: (x[0], x[1]))
+        # 压了反而把手牌拆乱（或者拿 2、王去压小牌）：对手不急的时候先不要
+        if passing is not None and not danger and low_enemy > 3 and cost > -0.45:
             return passing
-        return cheapest
+        return best
     if danger or low_enemy <= 3 or len(me.cards) <= 6 or passing is None:
         return min(keep, key=_main)
     return passing
@@ -131,5 +157,15 @@ def _lead(
         safe = [o for o in pool if len(o["cards"]) > 1 or _boss(game, i, o)] or pool
     elif low_enemy == 2:
         safe = [o for o in pool if len(o["cards"]) != 2 or _boss(game, i, o)] or pool
-    # 先甩张数多的（连牌、带牌），同样张数出小的；不把 2 和王单独先甩
-    return max(safe, key=lambda o: (len(o["cards"]) >= 5, len(o["cards"]), -_main(o), rng.random()))
+    # 挑出完以后手牌最整齐的；一样整齐先出小的、张数多的；2 和王这些控制牌留到后面
+    base = shape_score(me.cards, game.game)
+    late = len(me.cards) <= 6
+    return min(
+        safe,
+        key=lambda o: (
+            round(_cost(game, me.cards, o, base) + (0 if late else 0.5 * _controls(o)), 3),
+            _main(o),
+            -len(o["cards"]),
+            rng.random(),
+        ),
+    )

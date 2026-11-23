@@ -67,7 +67,7 @@ class ArcadeRules(_Strict):
     members_think: bool = True
     daily_usd: float = Field(default=0.10, ge=0)  # 成员出牌每天最多花多少（你 2026-11-23 定的）
     estimate_usd: float = Field(default=0.001, gt=0)  # 每次出牌按这个数先看够不够
-    max_tokens: int = Field(default=200, ge=50, le=2000)
+    max_tokens: int = Field(default=1200, ge=50, le=4000)
     timeout_s: float = Field(default=25.0, gt=0, le=120)  # 想太久就换本地电脑出
     think_delay_s: float = Field(default=0.8, ge=0, le=10)  # 本地电脑出牌前停一下，看得清
     holdem: HoldemRules = HoldemRules()

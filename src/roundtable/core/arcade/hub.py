@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+import logging
 import random
 import secrets
 from collections.abc import Callable
@@ -36,6 +37,8 @@ from roundtable.core.budget.guard import day_window
 from roundtable.core.chat import chat_budget
 from roundtable.core.jsonout import JSONOutputError, extract_json_object
 from roundtable.core.providers import AllChannelsFailed, NoChannelAvailable, ProviderError
+
+log = logging.getLogger(__name__)
 
 STEP = "arcade"
 ROOM = "arcade"  # 成员出牌的调用挂在这个隐藏聊天会话上
@@ -849,7 +852,14 @@ class Arcade:
             prompt=prompt,
             completion=completion,
         )
-        return parse_pick(completion.text, options)
+        picked = parse_pick(completion.text, options)
+        if picked is None:  # 答非所问或者被长度截断：本地电脑接手，记一笔方便查
+            log.warning(
+                "游戏区：%s 的回答读不出编号（%d 字），换本地电脑出",
+                member.name,
+                len(completion.text),
+            )
+        return picked
 
 
 def holdem_odds(g: Holdem, i: int, rng: random.Random) -> str:
