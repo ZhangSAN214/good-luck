@@ -1344,8 +1344,8 @@ prompts:
   perceive_listen: v3    # 感官·听歌：整段歌交给能听声音的工具模型，客观写曲风、配器、节奏、结构和歌词
   plain_talk: v2         # 说话底线（去八股化）：接在 plain_talk.roles 的每次调用上，所有成员相同（v2：马克杯警戒线、AI 腔）
   plain_rewrite: v2      # 说话底线·改写：发言查出问题时成员自己用节电档改一次（v2：一行一条气泡）
-  arcade_holdem: v2      # 游戏区·德州扑克：成员从合法出法里挑一个，顺口说一句（v2 多给胜率估算和赔率）
-  arcade_cards: v2       # 游戏区·斗地主 / 跑得快 / 升级：成员从合法出法里挑一个，顺口说一句（v2 多给记牌器和出法后果标注）
+  arcade_holdem: v3      # 游戏区·德州扑克：成员从合法出法里挑一个，顺口说一句（v2 多给胜率估算和赔率；v3 要求直接回答 JSON）
+  arcade_cards: v3       # 游戏区·斗地主 / 跑得快 / 升级 / 麻将：成员从合法出法里挑一个，顺口说一句（v2 多给记牌器和出法后果标注；v3 要求直接回答 JSON）
   arcade_workshop_build: v1    # 游戏工坊·主做：按你的要求做一个网页小游戏（工作台的编程助手，原创、单文件、键盘 + 触屏）
   arcade_workshop_review: v1   # 游戏工坊·辅助：试玩别人做的游戏，找错直接修（不审自己写的）
   arcade_workshop_fix: v1      # 游戏工坊·返工：自动检查还有问题时作者修
@@ -1362,7 +1362,7 @@ step_params:
   watch: {max_tokens: 1200, reasoning: {effort: low}}  # 投屏陪伴：一两句
   memes: {max_tokens: 1500, reasoning: {effort: low}}  # 梗雷达：每天一次提炼梗卡
   wander: {max_tokens: 1200, reasoning: {effort: low}}  # 自己上网：每页一小段 JSON
-  arcade: {max_tokens: 200, reasoning: {effort: low}}  # 游戏区：成员出一步牌（挑编号 + 一句话）
+  arcade: {max_tokens: 1200, reasoning: {effort: low}}  # 游戏区：成员出一步牌（挑编号 + 一句话）
   travel: {max_tokens: 2500, reasoning: {effort: low}}  # 旅行打卡（判定卡、旅行日记）和 B 站私信 / 动态
   chat: {max_tokens: 1500, reasoning: {effort: low}}   # 群聊：一两句话，少想多说（思考会挤占输出，之前 500 上限时有人回复为空）
   review: {max_tokens: 3000, reasoning: {max_tokens: 800}}
@@ -2612,8 +2612,8 @@ arcade:
   enabled: true
   members_think: true     # false = 成员全部由本地电脑代打（$0）
   daily_usd: 0.10         # 成员出牌每天最多花多少（你 2026-11-23 定的）
-  estimate_usd: 0.001     # 每次出牌先按这个数看够不够
-  max_tokens: 200
+  estimate_usd: 0.002     # 每次出牌先按这个数看够不够
+  max_tokens: 1200        # 连思考带回答的上限（200 时思考就用光了、回答被截断，11-23 查出约 2/3 的出牌因此换成本地电脑）
   timeout_s: 25           # 想太久就换本地电脑出
   think_delay_s: 0.8      # 本地电脑出牌前停一下，看得清
   holdem:
