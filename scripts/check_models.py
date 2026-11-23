@@ -56,7 +56,7 @@ UNITS = {"image": "张", "second": "秒", "minute": "分钟", "char": "字符"}
 class Finding:
     model_id: str
     model: str
-    status: str  # ok | missing | price_mismatch | skipped
+    status: str  # ok | missing | missing_off | price_mismatch | skipped
     detail: str = ""
 
 
@@ -81,6 +81,7 @@ def load_local_models(config_dir: Path | None = None) -> list[dict[str, Any]]:
                 # 按 token 计价的图像模型：输出价格对应远端的 image_output
                 "image_tokens": m.image_tokens,
                 "speech_tokens_per_char": m.speech_tokens_per_char,
+                "enabled": m.enabled,
             }
         )
     return entries
@@ -130,7 +131,18 @@ def compare(
             continue
         remote_model = remote_by_id.get(model)
         if remote_model is None:
-            findings.append(Finding(model_id, model, "missing", "OpenRouter 上找不到该 ID"))
+            if entry.get("enabled", True) is False:
+                # 已关掉的模型用不到，找不到只提示，不挡启动
+                findings.append(
+                    Finding(
+                        model_id,
+                        model,
+                        "missing_off",
+                        "OpenRouter 上找不到该 ID（已关，不影响启动）",
+                    )
+                )
+            else:
+                findings.append(Finding(model_id, model, "missing", "OpenRouter 上找不到该 ID"))
             continue
         pricing = remote_model.get("pricing", {})
         price = entry.get("price", {})

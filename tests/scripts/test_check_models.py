@@ -47,6 +47,12 @@ def test_compare_missing():
     assert f.status == "missing"
 
 
+def test_compare_missing_but_disabled_does_not_block():
+    entry = {**local(), "enabled": False}
+    [f] = check_models.compare([entry], remote(("v/other", 1.0, 2.0)))
+    assert f.status == "missing_off"
+
+
 def test_compare_price_mismatch_reports_side():
     [f] = check_models.compare([local()], remote(("v/a", 1.0, 3.0)))
     assert f.status == "price_mismatch"
