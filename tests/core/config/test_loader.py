@@ -148,6 +148,7 @@ def test_repo_config_loads_with_defaults():
         "relation_insight",
         "plain_talk",
         "plain_rewrite",
+        "arcade_holdem",
         "voice_rewrite",
         "watch",
         "wander",

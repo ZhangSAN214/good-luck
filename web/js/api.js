@@ -409,3 +409,12 @@ export const superUnqueue = (id) => api(`/api/super/queue/${encodeURIComponent(i
 export const superReport = (day = '') =>
   api(`/api/super/report${day ? `?day=${encodeURIComponent(day)}` : ''}`);
 export const superAudit = () => api('/api/super/audit');
+
+// 游戏区（docs/ARCADE.md）
+export const arcade = () => api('/api/arcade');
+export const arcadeTable = () => api('/api/arcade/table');
+export const arcadeOpen = (body) => api('/api/arcade/table', { method: 'POST', body });
+export const arcadeAct = (kind, to = null) => api('/api/arcade/table/act', { method: 'POST', body: { kind, to } });
+export const arcadeDeal = (betOn = null, amount = 0) => api('/api/arcade/table/deal', { method: 'POST', body: { bet_on: betOn, amount } });
+export const arcadeThink = (on) => api('/api/arcade/table/think', { method: 'PUT', body: { on } });
+export const arcadeLeave = () => api('/api/arcade/table', { method: 'DELETE' });

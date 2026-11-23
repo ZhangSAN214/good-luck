@@ -84,6 +84,8 @@ class Env:
 
     def reply(self, model, messages):
         system = messages[0].content
+        if "打一桌德州扑克" in system:  # 游戏区：能过牌就过，能跟就跟，否则第一项
+            return holdem_pick(messages[-1].content)
         if "眼睛和耳朵" in system:  # 感官：按 <items> 的编号各写一张感知卡
             body = messages[-1].content.split("<items>")[1].split("</items>")[0]
             count = sum(1 for line in body.splitlines() if line[:1].isdigit() and ". " in line)
@@ -200,3 +202,10 @@ class Env:
 @pytest.fixture
 def env() -> Env:
     return Env()
+
+
+def holdem_pick(user: str) -> str:
+    body = user.split("<options>")[1].split("</options>")[0]
+    lines = [x.strip() for x in body.strip().splitlines()]
+    pick = next((i for i, x in enumerate(lines, 1) if "过牌" in x or "跟注" in x), 1)
+    return json.dumps({"pick": pick, "say": "跟一手看看"}, ensure_ascii=False)

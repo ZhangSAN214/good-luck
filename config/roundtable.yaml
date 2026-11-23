@@ -1344,6 +1344,7 @@ prompts:
   perceive_listen: v3    # 感官·听歌：整段歌交给能听声音的工具模型，客观写曲风、配器、节奏、结构和歌词
   plain_talk: v2         # 说话底线（去八股化）：接在 plain_talk.roles 的每次调用上，所有成员相同（v2：马克杯警戒线、AI 腔）
   plain_rewrite: v2      # 说话底线·改写：发言查出问题时成员自己用节电档改一次（v2：一行一条气泡）
+  arcade_holdem: v1      # 游戏区·德州扑克：成员从合法出法里挑一个，顺口说一句
 
 # 每个步骤对所有模型统一使用的参数（中立：同一步骤参数相同；模型自身必需的参数在 models.yaml）
 step_params:
@@ -1357,6 +1358,7 @@ step_params:
   watch: {max_tokens: 1200, reasoning: {effort: low}}  # 投屏陪伴：一两句
   memes: {max_tokens: 1500, reasoning: {effort: low}}  # 梗雷达：每天一次提炼梗卡
   wander: {max_tokens: 1200, reasoning: {effort: low}}  # 自己上网：每页一小段 JSON
+  arcade: {max_tokens: 200, reasoning: {effort: low}}  # 游戏区：成员出一步牌（挑编号 + 一句话）
   travel: {max_tokens: 2500, reasoning: {effort: low}}  # 旅行打卡（判定卡、旅行日记）和 B 站私信 / 动态
   chat: {max_tokens: 1500, reasoning: {effort: low}}   # 群聊：一两句话，少想多说（思考会挤占输出，之前 500 上限时有人回复为空）
   review: {max_tokens: 3000, reasoning: {max_tokens: 800}}
@@ -2597,3 +2599,25 @@ calendar:
     Sports Day: 日本体育之日
     Culture Day: 日本文化之日
     Labor Thanksgiving Day: 日本勤劳感谢之日
+
+# 游戏区（docs/ARCADE.md）：德州扑克（之后斗地主、跑得快、升级、麻将、坦克）。你可以亲自上桌，也可以旁观成员打、押谁赢。
+# 成员用自己的模型（群聊里那个便宜档）想怎么出，只能从程序算好的合法出法里挑；
+# 到了每天上限、想太久或出错时，本地电脑接手（不花钱）。花费也算进聊天月预算和总预算。
+# 金币是圆桌里的虚拟币，不能充值、不能换真钱。
+arcade:
+  enabled: true
+  members_think: true     # false = 成员全部由本地电脑代打（$0）
+  daily_usd: 0.10         # 成员出牌每天最多花多少（你 2026-11-23 定的）
+  estimate_usd: 0.001     # 每次出牌先按这个数看够不够
+  max_tokens: 200
+  timeout_s: 25           # 想太久就换本地电脑出
+  think_delay_s: 0.8      # 本地电脑出牌前停一下，看得清
+  holdem:
+    stack: 1000           # 每人上桌带多少筹码
+    small_blind: 10
+    big_blind: 20
+    max_members: 7        # 你之外最多几位成员
+  wallet:
+    start: 2000           # 第一次进游戏区给多少金币
+    daily_gift: 500       # 每天第一次进来送多少
+    max_bet: 500          # 旁观时一手最多押多少

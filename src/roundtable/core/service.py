@@ -18,6 +18,7 @@ from urllib.parse import quote
 from roundtable.core import chat_handoff as handoff
 from roundtable.core.allocation import display_name
 from roundtable.core.almanac import Almanac
+from roundtable.core.arcade import Arcade
 from roundtable.core.attachments.detect import TYPES as UPLOAD_TYPES
 from roundtable.core.backup import DbBackup
 from roundtable.core.benchkit.builder import BenchBuilder
@@ -75,6 +76,7 @@ from roundtable.core.screen import (
     ScreenWatch,
 )
 from roundtable.core.services.apartment import ApartmentService
+from roundtable.core.services.arcade import ArcadeService
 from roundtable.core.services.chat import ChatService
 from roundtable.core.services.common import (
     MAX_QUESTION_CHARS,
@@ -122,7 +124,9 @@ __all__ = [
 ]
 
 
-class RoundtableService(TerminalService, ApartmentService, ChatService, OfficeService):
+class RoundtableService(
+    TerminalService, ApartmentService, ChatService, OfficeService, ArcadeService
+):
     def __init__(self, runtime: Runtime) -> None:
         self.rt = runtime
         self.orc = Orchestrator(runtime, on_event=self._publish)
@@ -193,6 +197,8 @@ class RoundtableService(TerminalService, ApartmentService, ChatService, OfficeSe
             },
         )
         self.calendar = Almanac(runtime, self.chats.everyone)
+        # 游戏区（docs/ARCADE.md）：成员用群聊里的模型出牌，到上限换本地电脑；金币是虚拟的
+        self.arcade = Arcade(runtime, self.chats.everyone)
         self.mail = MailBox(runtime.repo)
         self.mail_ai = MailAI(runtime, self.mail)
         if runtime.mail_source is not None:

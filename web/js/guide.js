@@ -35,6 +35,10 @@ export const TIPS = {
     title: '这里是工作台',
     lines: ['生成器：一句话做一个工作台页面。', '超级电脑：把编程的活交给几位助手分工完成。'],
   },
+  game: {
+    title: '这里是游戏区',
+    lines: ['选一个游戏，挑几位成员开桌。', '可以亲自上桌，也可以旁观押谁赢（虚拟金币，不能换真钱）。'],
+  },
 };
 
 // 说明书：open 写法 {entry} 切到那个页面；{click} 点一下页面里已有的按钮；{call} 调用 app.js 交进来的打开函数
@@ -100,6 +104,15 @@ export const FEATURES = [
     ],
   },
   {
+    id: 'game',
+    title: '游戏区',
+    open: { entry: 'game' },
+    items: [
+      { name: '德州扑克', what: '和成员打德州：她们用自己的模型想怎么出，每天有花费上限，到了换本地电脑代打。', steps: ['点顶栏「游戏区」，选「德州扑克」', '挑几位成员，选「我亲自上桌」，点开桌'], open: { entry: 'game' } },
+      { name: '旁观押注', what: '看成员之间打，每一手开始前押一位赢；用的是圆桌里的虚拟金币，不能换真钱。', steps: ['开桌时选「旁观押注」', '每手发牌前选押谁、押多少，点发牌'], open: { entry: 'game' } },
+    ],
+  },
+  {
     id: 'tools',
     title: '顶栏工具',
     items: [
@@ -108,7 +121,7 @@ export const FEATURES = [
       { name: '片头', what: '开机动画放不放、放哪一种。默认是晨会片头 + 早上好联合授权；也可以换成「线条汇聚 · 扫描睁眼」。', steps: ['在下面「常用工具」点「片头」'], open: { click: '#bootcfg' } },
       { name: '外观', what: '在方舟式外观和原来的外观之间切换。', steps: ['在下面「常用工具」点「外观」'], open: { click: '#skin' } },
       { name: '平板', what: '在家里的平板、手机上用圆桌。', steps: ['点「平板」', '设口令，或扫码配对'], open: { click: '#lanbtn' } },
-      { name: '游戏模式', what: '你玩游戏时圆桌自动让出显卡。', steps: ['点「游戏」', '打开自动，或手动开 / 关'], open: { click: '#gamemodebtn' } },
+      { name: '让显卡（游戏模式）', what: '你玩游戏时圆桌自动让出显卡。', steps: ['点「让显卡」', '打开自动，或手动开 / 关'], open: { click: '#gamemodebtn' } },
       { name: '备份', what: '整库备份成员的记忆、关系和聊天，坏了一键恢复。', steps: ['点「备份」', '「现在备份」，需要时选一份恢复'], open: { click: '#backupbtn' } },
       { name: '星图', what: '圆桌和每位成员的立体星图，看变化和缺口。', steps: ['点「星图」', '拖动转动，点星看详情'], open: { click: '#starmapbtn' } },
       { name: '上网', what: '看成员自己逛了什么网站、去哪旅行。', steps: ['点「上网」', '看浏览记录，或让她看一个视频'], open: { click: '#wanderbtn' } },

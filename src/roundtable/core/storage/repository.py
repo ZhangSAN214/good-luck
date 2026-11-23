@@ -288,6 +288,20 @@ class Repository(SessionsRepo, FilesRepo, ChatRepo, MomentsRepo, MailRepo, Offic
             (workflow, *steps, iso(start), iso(end)),
         ).fetchone()[0]
 
+    def spent_in_steps_by_channel(
+        self, workflow: str, steps: Sequence[str], start: datetime, end: datetime
+    ) -> dict[str, float]:
+        """同 spent_in_steps，按渠道分开（没走到渠道的失败调用记在空字符串下）。"""
+        marks = ", ".join("?" for _ in steps)
+        rows = self._exec(
+            "SELECT COALESCE(c.channel, '') AS channel, COALESCE(SUM(c.cost_usd), 0) AS cost"
+            " FROM calls c JOIN sessions s ON s.id = c.session_id"
+            f" WHERE s.workflow = ? AND c.step IN ({marks})"
+            " AND c.created_at >= ? AND c.created_at < ? GROUP BY COALESCE(c.channel, '')",
+            (workflow, *steps, iso(start), iso(end)),
+        ).fetchall()
+        return {r["channel"]: r["cost"] for r in rows}
+
     def count_in_steps(
         self, workflow: str, steps: Sequence[str], start: datetime, end: datetime
     ) -> int:
