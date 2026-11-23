@@ -19,7 +19,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
-from roundtable.core.arcade import holdem_bot, shed_bot
+from roundtable.core.arcade import holdem_bot, shed_bot, sj_bot
 from roundtable.core.arcade.holdem import KIND_ZH, Holdem, HoldemError, Seat
 from roundtable.core.arcade.shedding import (
     Doudizhu,
@@ -30,6 +30,7 @@ from roundtable.core.arcade.shedding import (
     option_text,
     trim_options,
 )
+from roundtable.core.arcade.shengji import Shengji
 from roundtable.core.budget.guard import day_window
 from roundtable.core.chat import chat_budget
 from roundtable.core.jsonout import JSONOutputError, extract_json_object
@@ -45,13 +46,13 @@ GAMES = [
     {"id": "holdem", "name": "德州扑克", "ready": True, "players": "2～9 人"},
     {"id": "doudizhu", "name": "斗地主", "ready": True, "players": "3 人"},
     {"id": "paodekuai", "name": "跑得快", "ready": True, "players": "3 人"},
-    {"id": "shengji", "name": "升级", "ready": False, "players": "4 人"},
+    {"id": "shengji", "name": "升级", "ready": True, "players": "4 人"},
     {"id": "mahjong", "name": "麻将", "ready": False, "players": "4 人"},
     {"id": "tanks", "name": "铁甲突围", "ready": False, "players": "1～2 人"},
 ]
 
 
-CARD_GAMES = {"doudizhu": "斗地主", "paodekuai": "跑得快"}
+CARD_GAMES = {"doudizhu": "斗地主", "paodekuai": "跑得快", "shengji": "升级（拖拉机）"}
 # 给成员看的规则摘要（程序已经只列出合法出法，这里只是让她知道怎么算赢）
 RULES_TEXT = {
     "doudizhu": "三人一桌。先叫分（1～3 分）定地主，地主拿走 3 张底牌、一个人对两个农民。"
@@ -59,7 +60,14 @@ RULES_TEXT = {
     "paodekuai": "三人一桌，每人 16 张。谁先出完谁赢，"
     "其他人按手上剩的张数扣分（剩一张不扣，一张没出翻倍）。"
     "有大必压：压得过就必须出；下家只剩一张时，出单张必须出最大的。",
+    "shengji": "四人两副牌，对家一队。先亮主定主花色，庄家扣底；"
+    "每轮首家出单张、对子、拖拉机或甩牌，"
+    "别人跟同一门，没有这一门可以用主牌毙。5 是 5 分、10 和 K 是 10 分：闲家拿够 80 分就换庄，"
+    "不够庄家升级。对家正大时可以送分，对手大时想办法管住或者少给分。",
 }
+# 几个人一桌（你上桌时另挑的成员 = 人数 - 1）
+TABLE_SIZE = {"doudizhu": 3, "paodekuai": 3, "shengji": 4}
+CARD_CLASS = {"doudizhu": Doudizhu, "paodekuai": Paodekuai, "shengji": Shengji}
 
 
 class ArcadeError(ValueError):
@@ -75,6 +83,7 @@ class Table:
     think: bool  # 成员用不用模型想
     seed: int
     buy_in: int = 0
+    god: bool = False  # 旁观的上帝视角：看所有人的手牌
     bet: dict[str, Any] | None = None  # 旁观时押的这一手：{on, amount, players}
     says: dict[str, str] = field(default_factory=dict)  # 座位 id → 这一手说的话
     brains: dict[str, str] = field(default_factory=dict)  # 座位 id → 上一步谁想的：model / local
@@ -85,6 +94,8 @@ class Table:
 
     @property
     def kind(self) -> str:
+        if isinstance(self.game, Shengji):
+            return "shengji"
         if isinstance(self.game, Doudizhu):
             return "doudizhu"
         if isinstance(self.game, Paodekuai):
@@ -208,6 +219,7 @@ class Arcade:
             },
             "cards": {
                 "coin_per_point": rules.cards.coin_per_point,
+                "coin_per_level": rules.cards.coin_per_level,
                 "max_bet": rules.wallet.max_bet,
             },
             "table": self.view() if self.table else None,
@@ -227,12 +239,12 @@ class Arcade:
         g = t.game
         if isinstance(g, Shedding):
             return self._shed_view(t, g)
-        data = g.view(reveal_all=not t.seated and g.street == "done")
+        data = g.view(reveal_all=not t.seated and (t.god or g.street == "done"))
         for s in data["seats"]:
             s["say"] = t.says.get(s["id"], "")
             s["brain"] = t.brains.get(s["id"], "")
             s["thinking"] = t.thinking == s["id"]
-        if not t.seated:  # 旁观：比牌前看不到任何人的底牌
+        if not t.seated and not t.god:  # 旁观：比牌前看不到任何人的底牌（开了上帝视角除外）
             for s in data["seats"]:
                 if g.street != "done":
                     s["hole"] = ["??", "??"] if s["hole"] else []
@@ -242,6 +254,7 @@ class Arcade:
                 "game": "holdem",
                 "seated": t.seated,
                 "think": t.think,
+                "god": t.god,
                 "thinking": t.thinking,
                 "busy": self.busy(),
                 "note": t.note,
@@ -255,7 +268,7 @@ class Arcade:
         return data
 
     def _shed_view(self, t: Table, g: Shedding) -> dict[str, Any]:
-        data = g.view(YOU if t.seated else None)
+        data = g.view(YOU if t.seated else None, reveal_all=not t.seated and t.god)
         for s in data["seats"]:
             s["say"] = t.says.get(s["id"], "")
             s["brain"] = t.brains.get(s["id"], "")
@@ -265,6 +278,7 @@ class Arcade:
         data.update(self._common(t, can_deal=g.can_start()))
         data["last_coins"] = t.last_coins
         data["coin_per_point"] = self.rules.cards.coin_per_point
+        data["coin_per_level"] = self.rules.cards.coin_per_level
         return data
 
     def _common(self, t: Table, *, can_deal: bool) -> dict[str, Any]:
@@ -273,6 +287,7 @@ class Arcade:
             "game": t.kind,
             "seated": t.seated,
             "think": t.think,
+            "god": t.god,
             "thinking": t.thinking,
             "busy": self.busy(),
             "note": t.note,
@@ -360,11 +375,10 @@ class Arcade:
             self.leave()
         roster = {m.id: m for m in self.everyone()}
         picked = list(dict.fromkeys(i for i in member_ids if i in roster))
-        need = 2 if sit else 3
+        size = TABLE_SIZE[game]
+        need = size - 1 if sit else size
         if len(picked) != need:
-            raise ArcadeError(
-                f"{'你加上' if sit else '旁观要'}{'两' if sit else '三'}位成员正好一桌"
-            )
+            raise ArcadeError(f"{'你加上' if sit else '旁观要'} {need} 位成员正好一桌")
         if sit and int(self.wallet().get("coins", 0)) <= 0:
             raise ArcadeError("金币用完了，明天再来领，或者先旁观押注")
         seed = self.rng.randrange(2**31)
@@ -374,7 +388,7 @@ class Arcade:
         seats = [Hand(id=i, name=roster[i].name) for i in order]
         if sit:
             seats.insert(rng.randrange(len(seats) + 1), Hand(id=YOU, name="你"))
-        cls = Doudizhu if game == "doudizhu" else Paodekuai
+        cls = CARD_CLASS[game]
         self.table = Table(
             id=secrets.token_hex(4),
             game=cls(seats=seats, rng=rng),
@@ -465,6 +479,14 @@ class Arcade:
             raise ArcadeError(str(e)) from None
         t.says.pop(YOU, None)
         self._after_move()
+        return self.view()
+
+    def set_god(self, on: bool) -> dict[str, Any]:
+        """旁观时开 / 关上帝视角（看所有人的手牌）。坐在桌上不能开。"""
+        t = self._need_table()
+        if t.seated and on:
+            raise ArcadeError("坐在桌上不能看别人的牌，旁观时才能开上帝视角")
+        t.god = bool(on)
         return self.view()
 
     def set_think(self, on: bool) -> dict[str, Any]:
@@ -558,6 +580,8 @@ class Arcade:
 
     @staticmethod
     def _bot(t: Table, i: int) -> dict[str, Any]:
+        if isinstance(t.game, Shengji):
+            return sj_bot.decide(t.game, i, t.game.rng)
         if isinstance(t.game, Shedding):
             return shed_bot.decide(t.game, i, t.game.rng)
         return holdem_bot.decide(t.game, i, t.game.rng, t.seed)
@@ -567,7 +591,12 @@ class Arcade:
         t = self._need_table()
         if isinstance(t.game, Shedding) and t.seated:
             row = next(r for r in t.game.results if r["seat"] == YOU)
-            coins = int(row["points"]) * self.rules.cards.coin_per_point
+            per = (
+                self.rules.cards.coin_per_level
+                if t.kind == "shengji"
+                else self.rules.cards.coin_per_point
+            )
+            coins = int(row["points"]) * per
             if coins < 0:
                 coins = -min(-coins, int(self.wallet().get("coins", 0)))
             self._add_coins(coins, won=max(0, coins), lost=max(0, -coins))

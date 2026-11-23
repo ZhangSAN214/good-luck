@@ -336,6 +336,7 @@ const arcade = new ArcadePage($('#arcade'), {
     act: API.arcadeAct,
     deal: API.arcadeDeal,
     think: API.arcadeThink,
+    god: API.arcadeGod,
     leave: API.arcadeLeave,
     play: API.arcadePlay,
   },

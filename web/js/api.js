@@ -416,6 +416,7 @@ export const arcadeTable = () => api('/api/arcade/table');
 export const arcadeOpen = (body) => api('/api/arcade/table', { method: 'POST', body });
 export const arcadeAct = (kind, to = null) => api('/api/arcade/table/act', { method: 'POST', body: { kind, to } });
 export const arcadeDeal = (betOn = null, amount = 0) => api('/api/arcade/table/deal', { method: 'POST', body: { bet_on: betOn, amount } });
+export const arcadeGod = (on) => api('/api/arcade/table/god', { method: 'PUT', body: { on } });
 export const arcadeThink = (on) => api('/api/arcade/table/think', { method: 'PUT', body: { on } });
 export const arcadeLeave = () => api('/api/arcade/table', { method: 'DELETE' });
 export const arcadePlay = (kind, cards = [], bid = 0) => api('/api/arcade/table/play', { method: 'POST', body: { kind, cards, bid } });

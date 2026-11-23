@@ -227,3 +227,50 @@ def test_cards_loss_capped_at_balance():
     arcade.open_cards("paodekuai", ids(arcade, 2), sit=True, think=False)
     play_cards(arcade)
     assert arcade.wallet()["coins"] >= 0
+
+
+def test_shengji_sit_with_three_members_and_coins_per_level():
+    env, arcade = make()
+    with pytest.raises(ArcadeError):
+        arcade.open_cards("shengji", ids(arcade, 2), sit=True)  # 你加三位正好四人
+    v = arcade.open_cards("shengji", ids(arcade, 3), sit=True, think=True)
+    assert v["game"] == "shengji" and len(v["seats"]) == 4 and v["phase"] == "bid"
+    play_cards(arcade)
+    v = arcade.view()
+    me = next(r for r in v["results"] if r["seat"] == YOU)
+    assert v["last_coins"] == me["points"] * 50
+    assert v["summary"]["attack_points"] >= 0 and v["levels"]
+    calls = [c for c in env.fake.calls if "正在和朋友们打升级" in c.messages[0].content]
+    assert calls  # 成员用模型想过
+    arcade.deal()
+    assert arcade.view()["phase"] == "bid"
+
+
+def test_shengji_spectate_bet_pays_double_for_a_team():
+    env, arcade = make(think_delay_s=0)
+    members = ids(arcade, 4)
+    arcade.open_cards("shengji", members, sit=False, think=False)
+    arcade.deal(members[0], 100)
+    asyncio.run(arcade.drive())
+    v = arcade.view()
+    assert v["phase"] == "done"
+    if v["last_bet"]["win"]:
+        assert v["last_bet"]["payout"] == 200  # 四人里两人赢：押中赔两倍
+
+
+def test_god_view_only_when_watching():
+    env, arcade = make(think_delay_s=0)
+    members = ids(arcade, 4)
+    arcade.open_cards("shengji", members, sit=False, think=False)
+    arcade.deal()
+    asyncio.run(arcade.drive())
+    arcade.set_god(False)
+    arcade.deal()
+    v = arcade.view()
+    assert all(s["cards"] == [] for s in v["seats"]) or v["phase"] == "done"
+    v = arcade.set_god(True)
+    assert v["god"] and all(s["cards"] or s["count"] == 0 for s in v["seats"])
+    arcade.leave()
+    arcade.open_cards("doudizhu", ids(arcade, 2), sit=True, think=False)
+    with pytest.raises(ArcadeError):
+        arcade.set_god(True)
