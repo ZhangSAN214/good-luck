@@ -23,6 +23,18 @@ class CardRules(_Strict):
     )  # 升级：赢一局按升了几级算（至少 1 级）
 
 
+class TankRules(_Strict):
+    """原创坦克对战「铁甲突围」：实时的，成员坦克由本地电脑操控（不调模型、不花钱）。"""
+
+    lives: int = Field(default=3, ge=1, le=9)  # 每辆坦克几条命
+    minutes: float = Field(default=3.0, ge=0.5, le=15)  # 一局最长几分钟，到点按击毁数排名
+    max_members: int = Field(default=3, ge=1, le=3)  # 你之外最多几位成员上场（地图四个角）
+    win_coins: int = Field(default=100, ge=0, le=100_000)  # 你拿第一给多少金币
+    kill_coins: int = Field(default=20, ge=0, le=100_000)  # 每击毁一次给多少
+    daily_cap: int = Field(default=600, ge=0, le=1_000_000)  # 坦克每天最多领多少金币
+    min_seconds: float = Field(default=20, ge=0, le=600)  # 一局至少打这么久才算数
+
+
 class WalletRules(_Strict):
     """虚拟金币：只在圆桌里用，不能充值、不能换真钱。"""
 
@@ -42,4 +54,5 @@ class ArcadeRules(_Strict):
     think_delay_s: float = Field(default=0.8, ge=0, le=10)  # 本地电脑出牌前停一下，看得清
     holdem: HoldemRules = HoldemRules()
     cards: CardRules = CardRules()
+    tanks: TankRules = TankRules()
     wallet: WalletRules = WalletRules()

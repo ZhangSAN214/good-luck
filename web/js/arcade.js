@@ -5,6 +5,7 @@
 
 import { esc } from './util.js';
 import { setSfx, sfx, sfxOn } from './arcade_sfx.js';
+import { TankGame } from './tanks.js';
 
 const SUIT = { s: '♠', h: '♥', d: '♦', c: '♣' };
 const RANK = { T: '10' };
@@ -71,6 +72,9 @@ export class ArcadePage {
     this.error = '';
     this.timer = null;
     this.snap = null; // 上一次画的牌桌摘要：和这次比，决定放什么动效和音效
+    this.tankUI = null; // 铁甲突围：正在打的那一局
+    this.tankRun = null; // 后台给的这一局（凭证、种子）
+    this.tankLevel = 'normal';
     root.addEventListener('click', (e) => this.onClick(e));
     root.addEventListener('input', (e) => this.onInput(e));
   }
@@ -85,6 +89,7 @@ export class ArcadePage {
   hide() {
     this.root.hidden = true;
     this.stopPoll();
+    if (this.tankUI && !this.tankUI.paused && !this.tankUI.ended) this.tankUI.togglePause();
   }
 
   async refresh() {
@@ -236,6 +241,19 @@ export class ArcadePage {
     } else if (d.act === 'back') {
       this.screen = 'lobby';
       this.render();
+    } else if (d.act === 'open' && this.game === 'tanks') {
+      await this.startTanks();
+    } else if (d.act === 'tanks-again') {
+      await this.startTanks();
+    } else if (d.act === 'tanks-pause') {
+      this.tankUI?.togglePause();
+    } else if (d.act === 'tanks-back' || d.act === 'tanks-quit') {
+      this.stopTanks();
+      this.screen = 'lobby';
+      await this.refresh();
+    } else if (d.level) {
+      this.tankLevel = d.level;
+      this.render();
     } else if (d.act === 'open') {
       const body = { game: this.game, members: [...this.pick], sit: this.sit, think: this.thinkOn() };
       await this.run(() => this.api.open(body));
@@ -284,11 +302,13 @@ export class ArcadePage {
 
   /** 出牌类三人一桌：你上桌再挑两位，旁观挑三位；德州按配置的上限。 */
   maxPick() {
+    if (this.game === 'tanks') return this.sit ? this.info?.tanks?.max_members || 3 : 4;
     if (CARD_GAMES[this.game]) return TABLE_SIZE[this.game] - (this.sit ? 1 : 0);
     return this.info?.holdem?.max_members || 7;
   }
 
   minPick() {
+    if (this.game === 'tanks') return this.sit ? 1 : 2;
     if (CARD_GAMES[this.game]) return this.maxPick();
     return this.sit ? 1 : 2;
   }
@@ -296,7 +316,7 @@ export class ArcadePage {
   /** 换游戏 / 换上桌方式后，把选的成员补齐或删到合适人数。 */
   fitPicks() {
     const max = this.maxPick();
-    const want = CARD_GAMES[this.game] ? max : Math.min(3, max);
+    const want = CARD_GAMES[this.game] || this.game === 'tanks' ? max : Math.min(3, max);
     for (const id of [...this.pick].slice(max)) this.pick.delete(id);
     if (this.pick.size < want && this.info) {
       for (const m of this.info.members.filter((x) => x.available)) {
@@ -323,7 +343,14 @@ export class ArcadePage {
     const w = this.table?.wallet || this.info?.wallet || { coins: 0 };
     const sp = this.table?.spend || this.info?.spend || { today: 0, cap: 0 };
     const gift = w.gifted ? `<span class="ac-gift">今天送了 ${fmt(w.gifted)}</span>` : '';
-    const body = this.screen === 'table' && this.table ? this.tableHTML() : this.screen === 'setup' ? this.setupHTML() : this.lobbyHTML();
+    const body =
+      this.screen === 'tanks' && this.tankUI
+        ? '<div data-tankslot></div>'
+        : this.screen === 'table' && this.table
+          ? this.tableHTML()
+          : this.screen === 'setup'
+            ? this.setupHTML()
+            : this.lobbyHTML();
     const fx = this.diffFx(w.coins);
     this.root.innerHTML = `<div class="ac-wrap">
       <div class="ac-head">
@@ -337,6 +364,11 @@ export class ArcadePage {
       ${this.error ? `<p class="ac-err" role="alert">${esc(this.error)}</p>` : ''}
       ${body}
     </div>`;
+    const slot = this.root.querySelector('[data-tankslot]');
+    if (slot && this.tankUI) {
+      slot.replaceWith(this.tankUI.el);
+      this.tankUI.resize();
+    }
     this.applyFx(fx);
   }
 
@@ -480,12 +512,105 @@ export class ArcadePage {
       <p class="ac-hint">对手是圆桌的成员：她们用自己的模型想怎么出（每天有花费上限，到了换本地电脑代打）。你可以亲自上桌，也可以旁观押谁赢。</p>`;
   }
 
+  // --- 铁甲突围 ------------------------------------------------------------------
+
+  tanksSetupHTML() {
+    const info = this.info || { members: [] };
+    const tk = info.tanks || {};
+    const members = info.members
+      .map((m) => {
+        const on = this.pick.has(m.id);
+        return `<button type="button" class="ac-pick${on ? ' on' : ''}" data-member="${esc(m.id)}" aria-pressed="${on}">${this.avatar(m.id, m.name)}<span>${esc(m.name)}</span></button>`;
+      })
+      .join('');
+    const need = this.minPick();
+    const max = this.maxPick();
+    const lv = this.tankLevel;
+    const coins = this.sit
+      ? `你拿第一给 ${fmt(tk.win_coins)} 金币，每击毁一次 ${fmt(tk.kill_coins)}；每天最多 ${fmt(tk.daily_cap)}（今天已领 ${fmt(tk.today)}）。`
+      : '旁观不算金币，看她们混战。';
+    return `<div class="ac-setup hb-glass">
+      <h3>铁甲突围 · 开一局</h3>
+      <p class="ac-sub">原创坦克混战：地图每局自动生成，四个角出生。每辆坦克 ${fmt(tk.lives || 3)} 条命，最后剩下的（或者 ${tk.minutes || 3} 分钟到点时击毁最多的）赢。成员的坦克由本地电脑开（实时的游戏等不了模型想，不花钱）。</p>
+      <div class="ac-picks" role="group" aria-label="选成员">${members}</div>
+      <div class="ac-row" role="group" aria-label="怎么玩">
+        <button type="button" class="ac-seg" data-sit="1" aria-pressed="${this.sit}">我亲自开</button>
+        <button type="button" class="ac-seg" data-sit="0" aria-pressed="${!this.sit}">旁观</button>
+      </div>
+      <div class="ac-row" role="group" aria-label="对手多厉害">
+        ${[['easy', '新手'], ['normal', '普通'], ['hard', '高手']].map(([k, zh]) => `<button type="button" class="ac-seg" data-level="${k}" aria-pressed="${lv === k}">对手：${zh}</button>`).join('')}
+      </div>
+      <p class="ac-sub">${coins}${this.sit ? ' 操作：方向键 / WASD 开动，空格 / J 开炮，P 暂停；手机上有触屏方向键。' : ''}</p>
+      <div class="ac-row">
+        <button type="button" class="btn" data-act="back">返回</button>
+        <button type="button" class="btn primary" data-act="open" ${this.pick.size >= need ? '' : 'disabled'}>开打</button>
+        <span class="ac-sub">${this.pick.size < need ? `再选 ${need - this.pick.size} 位` : `最多 ${max} 位`}</span>
+      </div>
+    </div>`;
+  }
+
+  async startTanks() {
+    this.stopTanks();
+    const members = [...this.pick];
+    const roster = Object.fromEntries((this.info?.members || []).map((m) => [m.id, m.name]));
+    let run;
+    if (this.sit) {
+      try {
+        run = await this.api.tanks(members);
+      } catch (err) {
+        this.error = err.message;
+        this.render();
+        return;
+      }
+    } else {
+      const tk = this.info?.tanks || {};
+      run = { token: null, seed: Math.floor(Math.random() * 2 ** 31), members: members.map((id) => ({ id, name: roster[id] || id })), lives: tk.lives || 3, minutes: tk.minutes || 3 };
+    }
+    this.error = '';
+    this.tankRun = run;
+    const players = [...(this.sit ? [{ id: 'you', name: '你', human: true }] : []), ...run.members.map((m) => ({ id: m.id, name: m.name }))];
+    this.tankUI = new TankGame({
+      players,
+      seed: run.seed,
+      lives: run.lives,
+      minutes: run.minutes,
+      level: this.tankLevel,
+      onEnd: (r) => this.tanksOver(r),
+    });
+    this.screen = 'tanks';
+    this.render();
+    this.tankUI.start();
+  }
+
+  async tanksOver(r) {
+    const run = this.tankRun;
+    if (!run?.token || r.place === null) return;
+    this.tankRun = null;
+    try {
+      const res = await this.api.tanksResult(run.token, r.place, r.kills);
+      if (this.info) {
+        this.info.wallet = res.wallet;
+        if (this.info.tanks) this.info.tanks.today = res.today;
+      }
+      this.tankUI?.showOver(res.coins ? `拿到 ${fmt(res.coins)} 金币` : res.note || '这一局没拿到金币');
+      this.render();
+    } catch (err) {
+      this.tankUI?.showOver(err.message);
+    }
+  }
+
+  stopTanks() {
+    this.tankUI?.stop();
+    this.tankUI = null;
+  }
+
   avatar(id, name) {
     const art = this.avatarOf ? this.avatarOf(id, name) : '';
     return art || `<span class="ac-av ini">${esc((name || '?').slice(0, 1))}</span>`;
   }
 
   setupHTML() {
+    if (this.game === 'tanks') return this.tanksSetupHTML();
     const info = this.info || { members: [], holdem: {} };
     const h = info.holdem || {};
     const members = info.members

@@ -49,7 +49,7 @@ GAMES = [
     {"id": "paodekuai", "name": "跑得快", "ready": True, "players": "3 人"},
     {"id": "shengji", "name": "升级", "ready": True, "players": "4 人"},
     {"id": "mahjong", "name": "麻将", "ready": True, "players": "4 人"},
-    {"id": "tanks", "name": "铁甲突围", "ready": False, "players": "1～2 人"},
+    {"id": "tanks", "name": "铁甲突围", "ready": True, "players": "2～4 辆坦克"},
 ]
 
 
@@ -130,6 +130,7 @@ class Arcade:
         self.sleep = sleep
         self.table: Table | None = None
         self._task: asyncio.Task[None] | None = None
+        self._tank_run: dict[str, Any] | None = None  # 正在打的一局坦克
 
     @property
     def rules(self) -> Any:
@@ -234,6 +235,15 @@ class Arcade:
                 "coin_per_point": rules.cards.coin_per_point,
                 "coin_per_level": rules.cards.coin_per_level,
                 "max_bet": rules.wallet.max_bet,
+            },
+            "tanks": {
+                "lives": rules.tanks.lives,
+                "minutes": rules.tanks.minutes,
+                "max_members": rules.tanks.max_members,
+                "win_coins": rules.tanks.win_coins,
+                "kill_coins": rules.tanks.kill_coins,
+                "daily_cap": rules.tanks.daily_cap,
+                "today": self._tank_got(self.wallet()),
             },
             "table": self.view() if self.table else None,
         }
@@ -433,6 +443,62 @@ class Arcade:
             self._add_coins(int(t.bet["amount"]))
         self.table = None
         return {"wallet": self._wallet_view(), "back": back}
+
+    # --- 铁甲突围（实时坦克，网页里跑；这里只发地图种子、记金币） ------------------------
+
+    def _tank_got(self, w: dict[str, Any]) -> int:
+        return int(w.get("tank_got", 0)) if w.get("tank_day") == self._today() else 0
+
+    def tanks_start(self, member_ids: list[str]) -> dict[str, Any]:
+        """开一局坦克：挑 1～3 位成员（坦克由本地电脑开，不花钱），给地图种子和凭证。"""
+        rules = self.rules
+        if not rules.enabled:
+            raise ArcadeError("游戏区关着（config/roundtable.yaml 的 arcade.enabled）")
+        roster = {m.id: m for m in self.everyone()}
+        picked = list(dict.fromkeys(i for i in member_ids if i in roster))
+        if not 1 <= len(picked) <= rules.tanks.max_members:
+            raise ArcadeError(f"挑 1～{rules.tanks.max_members} 位成员上场")
+        seed = self.rng.randrange(2**31)
+        self._tank_run = {
+            "token": secrets.token_hex(8),
+            "seed": seed,
+            "started": self.rt.budget.now(),
+            "members": picked,
+        }
+        return {
+            "token": self._tank_run["token"],
+            "seed": seed,
+            "members": [{"id": i, "name": roster[i].name} for i in picked],
+            "lives": rules.tanks.lives,
+            "minutes": rules.tanks.minutes,
+            "wallet": self._wallet_view(),
+        }
+
+    def tanks_result(self, token: str, place: int, kills: int) -> dict[str, Any]:
+        """一局打完：你拿第一给 ``win_coins``，每击毁一次给 ``kill_coins``，每天最多 ``daily_cap``。
+        同一局只算一次；打得太短（不到 ``min_seconds``）不给。"""
+        rules = self.rules.tanks
+        run = self._tank_run
+        if run is None or not secrets.compare_digest(str(token), run["token"]):
+            raise ArcadeError("这一局已经结算过了，或者不是这一局")
+        self._tank_run = None
+        seconds = (self.rt.budget.now() - run["started"]).total_seconds()
+        kills = max(0, min(int(kills), 99))
+        earned = (rules.win_coins if int(place) == 1 else 0) + kills * rules.kill_coins
+        note = ""
+        if seconds < rules.min_seconds:
+            earned, note = 0, f"这一局不到 {rules.min_seconds:g} 秒，不算金币"
+        w = self.wallet()
+        got = self._tank_got(w)
+        give = max(0, min(earned, rules.daily_cap - got))
+        if earned and give < earned:
+            note = f"今天坦克的金币领到上限了（每天 {rules.daily_cap}）"
+        if give:
+            self._add_coins(give, won=give)
+        w = self.wallet()
+        w["tank_day"], w["tank_got"] = self._today(), got + give
+        self._save_wallet(w)
+        return {"coins": give, "note": note, "today": got + give, "wallet": self._wallet_view()}
 
     # --- 你的动作 ---------------------------------------------------------------
 
