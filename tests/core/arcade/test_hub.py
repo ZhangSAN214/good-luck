@@ -274,3 +274,23 @@ def test_god_view_only_when_watching():
     arcade.open_cards("doudizhu", ids(arcade, 2), sit=True, think=False)
     with pytest.raises(ArcadeError):
         arcade.set_god(True)
+
+
+def test_members_get_tracker_notes_and_holdem_odds():
+    env, arcade = make()
+    arcade.open_cards("doudizhu", ids(arcade, 2), sit=True, think=True)
+    play_cards(arcade)
+    users = [
+        c.messages[-1].content
+        for c in env.fake.calls
+        if "正在和朋友们打斗地主" in c.messages[0].content
+    ]
+    assert any("别人手里还有" in u for u in users)  # 记牌器
+    assert any("出完还剩" in u or "能一手出完" in u for u in users)  # 出法后果标注
+    arcade.leave()
+    arcade.open_holdem(ids(arcade, 2), sit=True, think=True)
+    play_out(arcade)
+    users = [
+        c.messages[-1].content for c in env.fake.calls if "打一桌德州扑克" in c.messages[0].content
+    ]
+    assert users and all("赢的机会约" in u for u in users)

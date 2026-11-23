@@ -205,3 +205,38 @@
   .ac-board{gap:4px}
   .ac-say{max-width:110px;font-size:11px}
 }
+/* 手感：牌有厚度（侧边几层阴影）和一道斜光，大牌中间有花色水印；呢面有细绒纹 */
+.ac-felt{background-image:radial-gradient(rgba(255,255,255,.035) 1px,transparent 1.2px),radial-gradient(ellipse at 50% 40%,#2a6150 0,var(--ac-felt) 55%,var(--ac-felt-edge) 100%);background-size:5px 5px,100% 100%}
+.ac-card{overflow:hidden;box-shadow:0 1px 0 #d9cfb8,0 2px 0 #c8bc9f,0 3px 0 #b3a684,0 4px 8px rgba(0,0,0,.5)}
+.ac-card::before{content:"";position:absolute;inset:0;border-radius:inherit;pointer-events:none;background:linear-gradient(125deg,rgba(255,255,255,.75) 0,rgba(255,255,255,0) 32%,rgba(255,255,255,0) 68%,rgba(0,0,0,.06) 100%);box-shadow:inset 0 0 0 1px rgba(255,255,255,.6),inset 0 -1px 0 rgba(0,0,0,.08)}
+.ac-card b,.ac-card i{position:relative;z-index:1}
+.ac-card em{position:absolute;right:3px;bottom:-4px;font-style:normal;font-size:30px;opacity:.16;line-height:1}
+.ac-hcard .ac-card em{right:4px;bottom:0;font-size:40px;opacity:.2}
+.ac-card.ac-mini{box-shadow:0 1px 0 #c8bc9f,0 2px 4px rgba(0,0,0,.45)}
+.ac-card.back{box-shadow:inset 0 0 0 2px rgba(232,194,120,.55),0 1px 0 #16233a,0 2px 0 #101a2c,0 3px 6px rgba(0,0,0,.5)}
+.ac-card.back::before{background:linear-gradient(125deg,rgba(255,255,255,.22) 0,rgba(255,255,255,0) 35%)}
+.ac-card.slot::before{display:none}
+.ac-card.joker.red{background:linear-gradient(160deg,#fff6e8,#f3dcc0)}
+.ac-hand:not(.idle) .ac-hcard:hover:not(.on){transform:translateY(-6px)}
+.ac-coin b{display:inline-block;transition:color .3s}
+.ac-coin b.ac-up{color:#ffe29a;animation:ac-bump .5s}
+.ac-coin b.ac-down{color:#f0a0a0;animation:ac-bump .5s}
+/* 动效：发牌从桌子中间滑进来、出的牌飞到桌上、翻牌、炸弹震一下 */
+.ac-deal{animation:ac-deal .38s cubic-bezier(.2,.8,.3,1.15) backwards;animation-delay:calc(var(--i,0) * 18ms)}
+.ac-fly{animation:ac-fly .32s cubic-bezier(.2,.9,.3,1.2) backwards;animation-delay:calc(var(--i,0) * 30ms)}
+.ac-flip{animation:ac-flip .42s ease-out backwards;animation-delay:calc(var(--i,0) * 60ms)}
+.ac-pop{animation:ac-pop .3s ease-out}
+.ac-shake{animation:ac-shake .5s}
+@keyframes ac-deal{from{opacity:0;transform:translateY(-60px) rotate(-12deg) scale(.7)}to{opacity:1;transform:none}}
+@keyframes ac-fly{from{opacity:0;transform:translateY(26px) scale(1.25) rotate(4deg)}70%{opacity:1}to{opacity:1;transform:none}}
+@keyframes ac-flip{0%{transform:perspective(400px) rotateY(90deg);filter:brightness(.6)}100%{transform:perspective(400px) rotateY(0);filter:none}}
+@keyframes ac-pop{0%{transform:scale(.6);opacity:0}60%{transform:scale(1.15);opacity:1}100%{transform:scale(1)}}
+@keyframes ac-shake{0%,100%{transform:none}15%{transform:translate(-6px,2px) rotate(-.4deg)}30%{transform:translate(5px,-3px) rotate(.3deg)}45%{transform:translate(-4px,1px)}60%{transform:translate(3px,2px)}80%{transform:translate(-1px,-1px)}}
+@keyframes ac-bump{0%{transform:scale(1)}40%{transform:scale(1.25)}100%{transform:scale(1)}}
+@media (prefers-reduced-motion:reduce){
+  .ac-deal,.ac-fly,.ac-flip,.ac-pop,.ac-shake,.ac-coin b.ac-up,.ac-coin b.ac-down{animation:none}
+}
+@media (max-width:600px){
+  .ac-card em{font-size:22px}
+  .ac-hcard .ac-card em{font-size:26px}
+}

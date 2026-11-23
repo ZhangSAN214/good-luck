@@ -111,3 +111,28 @@ def test_view_hides_others_until_done():
     assert v["seats"][0]["cards"] and v["seats"][1]["cards"] == []
     assert v["seats"][1]["count"] == 17
     assert v["bottom"] == []  # 地主定了才亮底牌
+
+
+def test_pdk_winner_even_when_everyone_else_has_one_card():
+    g = Paodekuai(seats=seats(), rng=random.Random(8))
+    g.start()
+    g.seats[0].cards = ["Kd"]
+    g.seats[1].cards = ["5s"]
+    g.seats[2].cards = ["6s"]
+    g.turn, g.lead, g.lead_by = 0, None, None
+    for s in g.seats:
+        s.plays = 1
+    g.act(0, {"kind": "play", "cards": ["Kd"]})
+    assert g.done and g.winners() == ["p0"]
+    assert all(r["points"] == 0 for r in g.results)
+
+
+def test_tracker_and_notes():
+    g = Doudizhu(seats=seats(), rng=random.Random(5))
+    g.start()
+    g.act(g.turn, {"kind": "bid", "bid": 3})
+    lord = g.turn
+    text = g.tracker(lord)
+    assert "别人手里还有" in text and "炸弹" in text
+    notes = [g.note_for(lord, o) for o in g.legal(lord)]
+    assert all("出完还剩" in n or "能一手出完" in n for n in notes)

@@ -4,6 +4,7 @@
 // 斗地主 / 跑得快：点手牌选中，「出牌」把选中的发给后台（后台认牌型、比大小）；「提示」在能出的组合里轮着挑。
 
 import { esc } from './util.js';
+import { setSfx, sfx, sfxOn } from './arcade_sfx.js';
 
 const SUIT = { s: '♠', h: '♥', d: '♦', c: '♣' };
 const RANK = { T: '10' };
@@ -26,7 +27,8 @@ export function cardHTML(c, cls = '') {
   }
   const red = c[1] === 'h' || c[1] === 'd';
   const r = RANK[c[0]] || c[0];
-  return `<span class="ac-card ${red ? 'red' : ''} ${cls}" aria-label="${esc(r + SUIT[c[1]])}"><b>${esc(r)}</b><i>${SUIT[c[1]]}</i></span>`;
+  const pip = cls.includes('ac-mini') ? '' : `<em aria-hidden="true">${SUIT[c[1]]}</em>`;
+  return `<span class="ac-card ${red ? 'red' : ''} ${cls}" aria-label="${esc(r + SUIT[c[1]])}"><b>${esc(r)}</b><i>${SUIT[c[1]]}</i>${pip}</span>`;
 }
 
 export class ArcadePage {
@@ -51,6 +53,7 @@ export class ArcadePage {
     this.hintAt = -1;
     this.error = '';
     this.timer = null;
+    this.snap = null; // 上一次画的牌桌摘要：和这次比，决定放什么动效和音效
     root.addEventListener('click', (e) => this.onClick(e));
     root.addEventListener('input', (e) => this.onInput(e));
   }
@@ -94,13 +97,16 @@ export class ArcadePage {
   }
 
   async poll() {
+    const before = JSON.stringify(this.table);
+    const err = this.error;
     try {
       this.table = await this.api.table();
       this.error = '';
     } catch (e) {
       this.error = e.message;
     }
-    this.render();
+    // 牌桌没变就不重画（不打断正在放的发牌、出牌动效）
+    if (JSON.stringify(this.table) !== before || this.error !== err) this.render();
     this.maybePoll();
   }
 
@@ -166,10 +172,15 @@ export class ArcadePage {
     const b = e.target.closest('button,[data-member],[data-hand]');
     if (!b || b.disabled) return;
     const d = b.dataset;
-    if (d.hand !== undefined) {
+    if (d.sfx !== undefined) {
+      setSfx(d.sfx === '1');
+      if (d.sfx === '1') sfx('pick');
+      this.render();
+    } else if (d.hand !== undefined) {
       const k = Number(d.hand);
       if (this.chosen.has(k)) this.chosen.delete(k);
       else this.chosen.add(k);
+      sfx('pick');
       this.hintAt = -1;
       this.render();
     } else if (d.game) {
@@ -285,17 +296,145 @@ export class ArcadePage {
     const sp = this.table?.spend || this.info?.spend || { today: 0, cap: 0 };
     const gift = w.gifted ? `<span class="ac-gift">今天送了 ${fmt(w.gifted)}</span>` : '';
     const body = this.screen === 'table' && this.table ? this.tableHTML() : this.screen === 'setup' ? this.setupHTML() : this.lobbyHTML();
+    const fx = this.diffFx(w.coins);
     this.root.innerHTML = `<div class="ac-wrap">
       <div class="ac-head">
         <div class="bn-title"><span class="bn-zh">游戏区</span><span class="bn-en">GAME ROOM</span></div>
         <div class="ac-meta">
           <span class="ac-coin hb-glass" title="圆桌里的虚拟金币：每天送一点，不能充值、不能换真钱"><span class="ac-chip" aria-hidden="true"></span>金币 <b data-coins>${fmt(w.coins)}</b>${gift}</span>
           <span class="ac-spend hb-glass" title="成员用自己的模型出牌，今天真掏钱的部分（送的额度不算）；到上限后本地电脑代打">成员出牌今天 $${Number(sp.today).toFixed(3)} / $${Number(sp.cap).toFixed(2)}</span>
+          <button type="button" class="ac-seg ac-sm" data-sfx="${sfxOn() ? 0 : 1}" aria-pressed="${sfxOn()}" title="出牌、炸弹、筹码的声音（自己合成的，开关存在这台电脑上）">音效${sfxOn() ? ' 开' : ' 关'}</button>
         </div>
       </div>
       ${this.error ? `<p class="ac-err" role="alert">${esc(this.error)}</p>` : ''}
       ${body}
     </div>`;
+    this.applyFx(fx);
+  }
+
+  // --- 动效和音效：和上一次画的比，变了什么就放什么 -----------------------------------
+
+  /** 牌桌摘要（只留比较要用的）。 */
+  snapshot(coins) {
+    const t = this.screen === 'table' ? this.table : null;
+    if (!t || !t.seats) return { coins, table: '' };
+    const open = (s) => (s.cards?.length ? 1 : 0) + ((s.hole || []).some((c) => c && c !== '??') ? 1 : 0);
+    const me = t.seats.find((s) => s.id === 'you');
+    return {
+      coins,
+      table: `${t.game}|${t.seats.map((s) => s.id).join(',')}`,
+      round: `${t.hand_no ?? ''}|${t.round_no ?? ''}`,
+      phase: t.street || t.phase || '',
+      last: Object.fromEntries(t.seats.map((s) => [s.id, s.thinking ? '' : s.last || ''])),
+      lead: t.lead ? `${t.lead.by}|${t.lead.label}|${t.lead.cards.join('')}` : '',
+      leadLabel: t.lead?.label || '',
+      trick: (t.trick || []).map((p) => `${p.seat}:${p.cards.join('')}`),
+      board: (t.board || []).length,
+      open: Object.fromEntries(t.seats.map((s) => [s.id, open(s)])),
+      turn: !!(t.seated && t.options?.length),
+      hand: me ? (me.cards || me.hole || []).length : 0,
+    };
+  }
+
+  /** 这次要放的动效（画之前算，画完了 applyFx 套到新的元素上）。 */
+  diffFx(coins) {
+    const now = this.snapshot(coins);
+    const was = this.snap;
+    this.snap = now;
+    const fx = { sound: [], fly: [], flip: [], deal: false, board: -1, lead: false, shake: false, coinsFrom: null };
+    if (!was) return fx;
+    if (was.coins !== now.coins && Number.isFinite(was.coins) && Number.isFinite(now.coins)) {
+      fx.coinsFrom = was.coins;
+      fx.sound.push(['chip']);
+    }
+    if (!now.table) return fx;
+    const t = this.table;
+    if ((was.table !== now.table || was.round !== now.round) && now.phase !== 'idle') {
+      fx.deal = true;
+      fx.sound.push(['deal', Math.min(12, Math.max(4, now.hand || 6))]);
+      return fx;
+    }
+    if (was.table !== now.table) return fx;
+    if (now.board > was.board) {
+      fx.board = was.board;
+      fx.sound.push(['deal', now.board - was.board]);
+    }
+    const rank = { pass: 1, chip: 2, play: 3, bomb: 4 };
+    let kind = '';
+    const hit = (k) => {
+      if ((rank[k] || 0) > (rank[kind] || 0)) kind = k;
+    };
+    const classify = (label) => (/炸/.test(label) ? 'bomb' : /不要|不叫|过牌|弃牌|不亮|不出/.test(label) ? 'pass' : /跟注|加注|全下|叫|下注|盲/.test(label) ? 'chip' : 'play');
+    for (const [id, label] of Object.entries(now.last)) {
+      if (label && label !== was.last[id]) {
+        fx.fly.push(id);
+        hit(classify(label));
+      }
+    }
+    if (now.lead && now.lead !== was.lead) {
+      fx.lead = true;
+      hit(classify(now.leadLabel));
+    }
+    const fresh = now.trick.filter((p) => !was.trick.includes(p));
+    for (const p of fresh) fx.fly.push(`played:${p.split(':')[0]}`);
+    if (fresh.length) hit('play');
+    if (kind === 'bomb') fx.shake = true;
+    if (kind) fx.sound.push([kind]);
+    for (const [id, n] of Object.entries(now.open)) if (n > (was.open[id] || 0)) fx.flip.push(id);
+    if (now.turn && !was.turn) fx.sound.push(['turn']);
+    if (was.phase !== 'done' && now.phase === 'done') {
+      let mine = null;
+      if (t.seated) mine = t.last_coins ?? (t.results || []).find((r) => r.id === 'you')?.won ?? null;
+      else if (t.last_bet) mine = t.last_bet.win ? 1 : -1;
+      if (mine !== null && mine !== undefined) fx.sound.push([Number(mine) > 0 ? 'win' : 'lose']);
+    }
+    return fx;
+  }
+
+  /** 把动效的样式套到刚画好的元素上，再放声音。 */
+  applyFx(fx) {
+    const root = this.root;
+    const add = (el, cls, i = 0) => {
+      if (!el) return;
+      el.style.setProperty('--i', String(i));
+      el.classList.add(cls);
+    };
+    const seat = (id) => `[data-seat="${CSS.escape(id)}"]`;
+    if (fx.deal) {
+      root.querySelectorAll('.ac-hcard, .ac-seat .ac-cards .ac-card, .ac-seat .ac-fan .ac-card').forEach((el, k) => add(el, 'ac-deal', Math.min(k, 16)));
+    }
+    if (fx.board >= 0) {
+      root.querySelectorAll('.ac-board .ac-card:not(.slot)').forEach((el, k) => {
+        if (k >= fx.board) add(el, 'ac-flip', k - fx.board);
+      });
+    }
+    if (fx.lead) root.querySelectorAll('.ac-leadcards .ac-card').forEach((el, k) => add(el, 'ac-fly', k));
+    for (const id of fx.fly) {
+      if (id.startsWith('played:')) root.querySelectorAll(`${seat(id.slice(7))} .ac-played .ac-card`).forEach((el, k) => add(el, 'ac-fly', k));
+      else add(root.querySelector(`${seat(id)} .ac-last`), 'ac-pop');
+    }
+    for (const id of fx.flip) {
+      root.querySelectorAll(`${seat(id)} .ac-cards .ac-card, ${seat(id)} .ac-fan.open .ac-card`).forEach((el, k) => add(el, 'ac-flip', Math.min(k, 20)));
+    }
+    if (fx.shake) add(root.querySelector('.ac-felt'), 'ac-shake');
+    if (fx.coinsFrom !== null) this.countUp(root.querySelector('[data-coins]'), fx.coinsFrom, this.snap.coins);
+    for (const [name, n] of fx.sound) sfx(name, n);
+  }
+
+  /** 金币数字从旧值跳到新值。 */
+  countUp(el, from, to) {
+    if (!el || from === to) return;
+    el.classList.add(to > from ? 'ac-up' : 'ac-down');
+    setTimeout(() => el.classList.remove('ac-up', 'ac-down'), 1400);
+    if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
+    const t0 = performance.now();
+    const step = (now) => {
+      if (!el.isConnected) return;
+      const k = Math.min(1, (now - t0) / 650);
+      el.textContent = fmt(Math.round(from + (to - from) * (1 - (1 - k) ** 3)));
+      if (k < 1) requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
   }
 
   lobbyHTML() {
