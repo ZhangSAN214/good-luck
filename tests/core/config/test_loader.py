@@ -149,6 +149,7 @@ def test_repo_config_loads_with_defaults():
         "plain_talk",
         "plain_rewrite",
         "arcade_holdem",
+        "arcade_cards",
         "voice_rewrite",
         "watch",
         "wander",

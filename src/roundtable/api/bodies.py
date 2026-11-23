@@ -706,6 +706,15 @@ class ArcadeActBody(BaseModel):
     to: int | None = Field(default=None, ge=0, le=100_000_000)
 
 
+class ArcadePlayBody(BaseModel):
+    """斗地主 / 跑得快：叫分（bid 0～3，0 = 不叫）、不要、出牌（cards 是手上的牌）。"""
+
+    model_config = ConfigDict(extra="forbid")
+    kind: Literal["bid", "pass", "play"]
+    cards: list[str] = Field(default_factory=list, max_length=20)
+    bid: int = Field(default=0, ge=0, le=3)
+
+
 class ArcadeDealBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
     bet_on: str | None = Field(default=None, max_length=40)

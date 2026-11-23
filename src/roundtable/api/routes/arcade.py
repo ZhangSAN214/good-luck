@@ -1,4 +1,4 @@
-"""游戏区（docs/ARCADE.md）：德州扑克的开桌、出牌、下一手、押注、离桌。"""
+"""游戏区（docs/ARCADE.md）：开桌、出牌（德州 / 斗地主 / 跑得快）、下一手、押注、离桌。"""
 
 from __future__ import annotations
 
@@ -6,7 +6,13 @@ from typing import Any
 
 from fastapi import APIRouter, Request
 
-from roundtable.api.bodies import ArcadeActBody, ArcadeDealBody, ArcadeOpenBody, ArcadeThinkBody
+from roundtable.api.bodies import (
+    ArcadeActBody,
+    ArcadeDealBody,
+    ArcadeOpenBody,
+    ArcadePlayBody,
+    ArcadeThinkBody,
+)
 from roundtable.api.common import svc
 
 router = APIRouter()
@@ -30,6 +36,11 @@ async def arcade_open(request: Request, body: ArcadeOpenBody) -> dict[str, Any]:
 @router.post("/api/arcade/table/act")
 async def arcade_act(request: Request, body: ArcadeActBody) -> dict[str, Any]:
     return svc(request).arcade_act(body.kind, body.to)
+
+
+@router.post("/api/arcade/table/play")
+async def arcade_play(request: Request, body: ArcadePlayBody) -> dict[str, Any]:
+    return svc(request).arcade_play(body.kind, body.cards, body.bid)
 
 
 @router.post("/api/arcade/table/deal")

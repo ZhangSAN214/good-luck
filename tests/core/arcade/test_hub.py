@@ -168,3 +168,62 @@ def test_gifted_credit_does_not_count_toward_daily_cap(monkeypatch):
     play_out(arcade)
     assert [c for c in env.fake.calls if "打一桌德州扑克" in c.messages[0].content]
     assert arcade.spent_today() == 0
+
+
+# --- 斗地主 / 跑得快 -----------------------------------------------------------
+
+
+def play_cards(arcade: Arcade) -> None:
+    """你每次挑第一项（叫分 / 出牌 / 不要），成员按各自的方式出，直到这一局结束。"""
+    for _ in range(300):
+        asyncio.run(arcade.drive())
+        v = arcade.view()
+        if v["phase"] == "done":
+            return
+        o = v["options"][0]
+        arcade.play(o)
+    raise AssertionError("这一局没打完")
+
+
+@pytest.mark.parametrize("game", ["doudizhu", "paodekuai"])
+def test_cards_sit_play_and_coins_follow_points(game):
+    env, arcade = make()
+    with pytest.raises(ArcadeError):
+        arcade.open_cards(game, ids(arcade, 3), sit=True)  # 你加两位正好三人
+    v = arcade.open_cards(game, ids(arcade, 2), sit=True, think=True)
+    assert v["game"] == game and len(v["seats"]) == 3 and v["seated"]
+    play_cards(arcade)
+    v = arcade.view()
+    me = next(r for r in v["results"] if r["seat"] == YOU)
+    assert v["last_coins"] == me["points"] * 10
+    assert arcade.wallet()["coins"] == 2000 + v["last_coins"]
+    assert v["can_deal"]
+    calls = [c for c in env.fake.calls if "正在和朋友们打" in c.messages[0].content]
+    assert calls and len({json.dumps(c.params, sort_keys=True) for c in calls}) == 1
+    arcade.deal()
+    assert arcade.view()["phase"] in ("bid", "play")
+
+
+def test_cards_spectate_bet():
+    env, arcade = make(think_delay_s=0)
+    members = ids(arcade, 3)
+    with pytest.raises(ArcadeError):
+        arcade.open_cards("doudizhu", members[:2], sit=False)
+    arcade.open_cards("doudizhu", members, sit=False, think=False)
+    with pytest.raises(ArcadeError):
+        arcade.play({"kind": "pass"})
+    arcade.deal(members[1], 100)
+    asyncio.run(arcade.drive())
+    v = arcade.view()
+    assert v["phase"] == "done" and v["last_bet"]["on"] == members[1]
+    expect = 1900 + (v["last_bet"]["payout"] if v["last_bet"]["win"] else 0)
+    assert arcade.wallet()["coins"] == expect
+    assert all(s["cards"] or s["count"] == 0 for s in v["seats"])  # 结束后亮牌
+
+
+def test_cards_loss_capped_at_balance():
+    env, arcade = make()
+    arcade._add_coins(-1995)
+    arcade.open_cards("paodekuai", ids(arcade, 2), sit=True, think=False)
+    play_cards(arcade)
+    assert arcade.wallet()["coins"] >= 0

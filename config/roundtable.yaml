@@ -1345,6 +1345,7 @@ prompts:
   plain_talk: v2         # 说话底线（去八股化）：接在 plain_talk.roles 的每次调用上，所有成员相同（v2：马克杯警戒线、AI 腔）
   plain_rewrite: v2      # 说话底线·改写：发言查出问题时成员自己用节电档改一次（v2：一行一条气泡）
   arcade_holdem: v1      # 游戏区·德州扑克：成员从合法出法里挑一个，顺口说一句
+  arcade_cards: v1       # 游戏区·斗地主 / 跑得快：成员从合法出法里挑一个（叫分 / 不要 / 出牌），顺口说一句
 
 # 每个步骤对所有模型统一使用的参数（中立：同一步骤参数相同；模型自身必需的参数在 models.yaml）
 step_params:
@@ -2617,6 +2618,8 @@ arcade:
     small_blind: 10
     big_blind: 20
     max_members: 7        # 你之外最多几位成员
+  cards:                  # 斗地主 / 跑得快：你上桌时按得分算金币
+    coin_per_point: 10    # 1 分 = 10 金币（输的最多输光，不会欠）
   wallet:
     start: 2000           # 第一次进游戏区给多少金币
     daily_gift: 500       # 每天第一次进来送多少
