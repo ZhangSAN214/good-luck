@@ -86,7 +86,7 @@ class Env:
         system = messages[0].content
         if "打一桌德州扑克" in system:  # 游戏区：能过牌就过，能跟就跟，否则第一项
             return holdem_pick(messages[-1].content)
-        if "正在和朋友们打斗地主" in system or "正在和朋友们打跑得快" in system:
+        if any(f"正在和朋友们打{g}" in system for g in ("斗地主", "跑得快", "升级")):
             return cards_pick(messages[-1].content)  # 游戏区：叫 1 分 / 出第一手能出的
         if "眼睛和耳朵" in system:  # 感官：按 <items> 的编号各写一张感知卡
             body = messages[-1].content.split("<items>")[1].split("</items>")[0]

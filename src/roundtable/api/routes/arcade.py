@@ -48,6 +48,12 @@ async def arcade_deal(request: Request, body: ArcadeDealBody) -> dict[str, Any]:
     return svc(request).arcade_deal(body.bet_on, body.amount)
 
 
+@router.put("/api/arcade/table/god")
+async def arcade_god(request: Request, body: ArcadeThinkBody) -> dict[str, Any]:
+    """旁观的上帝视角：看所有人的手牌。"""
+    return svc(request).arcade_god(body.on)
+
+
 @router.put("/api/arcade/table/think")
 async def arcade_think(request: Request, body: ArcadeThinkBody) -> dict[str, Any]:
     return svc(request).arcade_think(body.on)

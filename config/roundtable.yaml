@@ -2618,8 +2618,9 @@ arcade:
     small_blind: 10
     big_blind: 20
     max_members: 7        # 你之外最多几位成员
-  cards:                  # 斗地主 / 跑得快：你上桌时按得分算金币
+  cards:                  # 斗地主 / 跑得快 / 升级：你上桌时按得分算金币
     coin_per_point: 10    # 1 分 = 10 金币（输的最多输光，不会欠）
+    coin_per_level: 50    # 升级：上桌赢一局按升了几级算（至少 1 级），1 级 = 50 金币
   wallet:
     start: 2000           # 第一次进游戏区给多少金币
     daily_gift: 500       # 每天第一次进来送多少

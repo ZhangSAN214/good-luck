@@ -252,6 +252,8 @@ class Shedding:
 
 
 def option_text(o: dict[str, Any]) -> str:
+    if o.get("text"):  # 升级：标签里已经带了牌
+        return str(o["text"])
     if o["kind"] == "pass":
         return "不要"
     if o["kind"] == "bid":

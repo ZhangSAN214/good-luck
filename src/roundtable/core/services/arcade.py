@@ -29,7 +29,7 @@ class ArcadeService:
     ) -> dict[str, Any]:
         if game == "holdem":
             return _wrap(self.arcade.open_holdem, members, sit=sit, think=think)
-        if game in ("doudizhu", "paodekuai"):
+        if game in ("doudizhu", "paodekuai", "shengji"):
             return _wrap(self.arcade.open_cards, game, members, sit=sit, think=think)
         raise ServiceError("这个游戏还没做好", 404)
 
@@ -41,6 +41,9 @@ class ArcadeService:
 
     def arcade_deal(self, bet_on: str | None, amount: int) -> dict[str, Any]:
         return _wrap(self.arcade.deal, bet_on, amount)
+
+    def arcade_god(self, on: bool) -> dict[str, Any]:
+        return _wrap(self.arcade.set_god, on)
 
     def arcade_think(self, on: bool) -> dict[str, Any]:
         return _wrap(self.arcade.set_think, on)

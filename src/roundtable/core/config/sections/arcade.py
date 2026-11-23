@@ -15,9 +15,12 @@ class HoldemRules(_Strict):
 
 
 class CardRules(_Strict):
-    """斗地主 / 跑得快：你上桌时一局的得分换成金币（输的最多输光，不会欠）。"""
+    """斗地主 / 跑得快 / 升级：你上桌时一局的得分换成金币（输的最多输光，不会欠）。"""
 
     coin_per_point: int = Field(default=10, ge=1, le=10_000)
+    coin_per_level: int = Field(
+        default=50, ge=1, le=10_000
+    )  # 升级：赢一局按升了几级算（至少 1 级）
 
 
 class WalletRules(_Strict):

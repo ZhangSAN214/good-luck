@@ -5,6 +5,16 @@ from __future__ import annotations
 from tests.web.conftest import wait_until
 
 
+def _fast(srv) -> None:
+    """本地电脑代打不用装作在想（不然一局升级要一两分钟）。"""
+    rt = srv.env.rt
+    cfg = rt.config.roundtable
+    arcade = cfg.arcade.model_copy(update={"think_delay_s": 0.05})
+    rt.config = rt.config.model_copy(
+        update={"roundtable": cfg.model_copy(update={"arcade": arcade})}
+    )
+
+
 def _your_turn_or_done(page) -> str:
     def ready():
         return (
@@ -24,7 +34,7 @@ def test_open_holdem_play_a_hand_and_leave(serve, page):
     assert "游戏区" in page.inner_text("#arcade .bn-zh")
     assert page.inner_text("[data-coins]") == "2,000"
     # 没做好的游戏是灰的
-    assert page.locator(".ac-game[data-game=shengji]").is_disabled()
+    assert page.locator(".ac-game[data-game=mahjong]").is_disabled()
     page.click(".ac-game[data-game=holdem]")
     page.wait_for_selector(".ac-setup")
     assert page.locator(".ac-pick.on").count() >= 1
@@ -120,3 +130,68 @@ def test_doudizhu_bid_pick_cards_and_finish(serve, page):
     wait_until(ready, timeout=20)
     page.click("[data-act=leave]")
     page.wait_for_selector(".ac-lobby")
+
+
+def test_shengji_declare_bury_play_a_round(serve, page):
+    srv = serve(confirm_threshold_usd=100.0)
+    _fast(srv)
+    page.goto(srv.url + "#m=game")
+    page.wait_for_selector(".ac-lobby")
+    page.click(".ac-game[data-game=shengji]")
+    page.wait_for_selector(".ac-setup")
+    assert page.locator(".ac-pick.on").count() == 3  # 你加三位正好四人
+    page.click("[data-think='0']")  # 本地电脑代打，快一点
+    page.click("[data-act=open]")
+    page.wait_for_selector(".ac-sjfelt")
+    assert page.locator(".ac-sjseat").count() == 4
+    assert page.locator(".ac-hand .ac-hcard").count() == 25
+
+    def ready():
+        q = page.locator
+        return (
+            q("#arcade [data-sjopt]").count()
+            or q("[data-shed]").count()
+            or q(".ac-results").count()
+        )
+
+    played = False
+    for _ in range(200):
+        wait_until(ready, timeout=20)
+        if page.locator(".ac-results").count():
+            break
+        if page.locator("#arcade [data-sjopt]").count():
+            page.locator("#arcade [data-sjopt]").first.click()  # 不亮
+        elif page.locator("[data-shed=bury]").count():
+            page.click("[data-shed=hint]")
+            assert page.locator(".ac-hcard.on").count() == 8
+            page.click("[data-shed=bury]")
+        else:
+            page.click("[data-shed=hint]")
+            page.click("[data-shed=play]")
+            played = True
+        page.wait_for_timeout(60)
+    else:
+        raise AssertionError("这一局没打完")
+    assert played
+    assert page.locator(".ac-results li").count() == 4
+    assert "闲家得分" in page.inner_text(".ac-controls")
+    page.click("[data-act=leave]")
+    page.wait_for_selector(".ac-lobby")
+
+
+def test_god_view_when_watching(serve, page):
+    srv = serve(confirm_threshold_usd=100.0)
+    _fast(srv)
+    page.goto(srv.url + "#m=game")
+    page.wait_for_selector(".ac-lobby")
+    page.click(".ac-game[data-game=doudizhu]")
+    page.click("[data-sit='0']")
+    page.click("[data-think='0']")
+    page.click("[data-act=open]")
+    page.wait_for_selector("[data-god]")
+    assert page.locator(".ac-fan.open").count() == 0
+    page.click("[data-act=deal]")
+    page.wait_for_selector(".ac-shfelt")
+    page.click("[data-god='1']")
+    page.wait_for_selector("[data-god='0']")
+    wait_until(lambda: page.locator(".ac-fan.open").count() == 3, timeout=20)  # 三家的牌都看得到
