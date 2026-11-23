@@ -2,6 +2,8 @@
 // 地图每局按种子自动生成（四角出生点、上下左右对称）；砖墙打两下碎、钢墙打不动、水挡车不挡炮弹、草丛能藏身。
 // 每辆坦克几条命，被打中掉一条命、过一会儿在出生点重生（带一小会儿护盾）。
 // 场上会刷六种补给：护盾、连发、修理（+1 命）、穿甲（能打碎钢墙）、加速、地雷（捡到两颗，按 E / K 放在身后）。
+// 炮弹反弹（默认开）：打到钢墙和地图边会弹回来，最多弹 BOUNCES 次；地图上有「斜板」，炮弹碰到拐 90 度；
+// 弹过的炮弹能打中自己（打不伤队友）。关掉反弹时钢墙吃掉炮弹、地图上没有斜板。
 // 两种玩法：混战（各自为战）和组队（左边两个角一队、右边两个角一队，打不伤队友）。
 // 最后只剩一方有命，或者时间到，按（还活着、击毁数、剩几条命）排名；组队按队伍算。
 
@@ -12,6 +14,8 @@ export const BRICK = 1;
 export const STEEL = 2;
 export const WATER = 3;
 export const BUSH = 4;
+export const SLASH = 5; // 斜板「/」：坦克过不去，炮弹碰到拐弯
+export const BACKSLASH = 6; // 斜板「\」
 const TANK = 0.78; // 坦克边长（格）
 const SPEED = 3.2; // 格 / 秒
 const SHOT_SPEED = 9;
@@ -23,6 +27,9 @@ const BUFF = 8; // 连发、穿甲、加速持续几秒
 const FAST = 1.45; // 加速时快多少
 const MINE_ARM = 0.8; // 地雷放下后多久生效
 const MAX_MINES = 3;
+export const BOUNCES = 2; // 一发炮弹最多在钢墙 / 地图边上弹几次
+const SHOT_LIFE = 2; // 炮弹最多飞几秒（约 18 格；免得满地图乱弹，斜板之间绕圈也会停）
+const CATCH = 0.3; // 打出去这么久以内弹回来的，撞到自己算接住
 export const POWERS = ['shield', 'rapid', 'repair', 'pierce', 'speed', 'mine'];
 const POWER_WEIGHT = { shield: 3, rapid: 3, repair: 2, pierce: 2, speed: 2, mine: 2 };
 export const DIRS = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] };
@@ -47,53 +54,146 @@ export const SPAWNS = [
   [W - 2, H - 2],
 ];
 
-const blocks = (c) => c === BRICK || c === STEEL || c === WATER;
+const isMirror = (c) => c === SLASH || c === BACKSLASH;
+const blocks = (c) => c === BRICK || c === STEEL || c === WATER || isMirror(c);
+/** 斜板让炮弹拐弯：「/」右→上、「\」右→下（屏幕坐标 y 向下）。 */
+const turn = (c, dx, dy) => (c === SLASH ? [-dy, -dx] : [dy, dx]);
 
 /** 生成地图：四分之一随机铺，再上下、左右镜像；出生点周围清空；保证四个出生点彼此走得通（砖墙算能打通）。 */
-export function makeMap(seed) {
+export function makeMap(seed, { bounce = true, maze = true } = {}) {
   for (let tries = 0; tries < 30; tries += 1) {
     const r = rng(seed + tries * 7919);
-    const g = Array.from({ length: H }, () => new Array(W).fill(EMPTY));
-    const hw = Math.ceil(W / 2);
-    const hh = Math.ceil(H / 2);
-    const put = (x, y, v) => {
-      for (const [xx, yy] of [
-        [x, y],
-        [W - 1 - x, y],
-        [x, H - 1 - y],
-        [W - 1 - x, H - 1 - y],
-      ]) {
-        g[yy][xx] = v;
-      }
-    };
-    const clusters = 9 + Math.floor(r() * 4);
-    for (let k = 0; k < clusters; k += 1) {
-      const roll = r();
-      const v = roll < 0.55 ? BRICK : roll < 0.68 ? STEEL : roll < 0.8 ? WATER : BUSH;
-      const cw = 1 + Math.floor(r() * 3);
-      const ch = 1 + Math.floor(r() * 3);
-      const x0 = Math.floor(r() * hw);
-      const y0 = Math.floor(r() * hh);
-      for (let y = y0; y < Math.min(hh, y0 + ch); y += 1) for (let x = x0; x < Math.min(hw, x0 + cw); x += 1) put(x, y, v);
-    }
-    // 中间放一圈砖当掩体
-    const cx = Math.floor(W / 2);
-    const cy = Math.floor(H / 2);
-    for (const [dx, dy] of [
-      [-1, -1],
-      [1, -1],
-      [-1, 1],
-      [1, 1],
-    ]) {
-      g[cy + dy][cx + dx] = BRICK;
-    }
-    g[cy][cx] = STEEL;
+    const g = maze ? mazeMap(r, bounce) : openMap(r, bounce);
     for (const [sx, sy] of SPAWNS) {
       for (let y = sy - 1; y <= sy + 1; y += 1) for (let x = sx - 1; x <= sx + 1; x += 1) if (y >= 0 && y < H && x >= 0 && x < W) g[y][x] = EMPTY;
     }
     if (connected(g)) return g;
   }
   return Array.from({ length: H }, () => new Array(W).fill(EMPTY));
+}
+
+const hw = Math.ceil(W / 2);
+const hh = Math.ceil(H / 2);
+
+/** 往四分之一里写一格，同时镜像到另外三个角（斜板跟着翻：左右翻、上下翻各换一次方向）。 */
+function mirrorPut(g) {
+  const flip = (v) => (v === SLASH ? BACKSLASH : v === BACKSLASH ? SLASH : v);
+  return (x, y, v) => {
+    for (const [xx, yy, f] of [
+      [x, y, 0],
+      [W - 1 - x, y, 1],
+      [x, H - 1 - y, 1],
+      [W - 1 - x, H - 1 - y, 0],
+    ]) {
+      g[yy][xx] = f ? flip(v) : v;
+    }
+  };
+}
+
+/**
+ * 迷宫地图：四分之一里先挖一个迷宫（偶数格是通道、奇数格是墙），再随机拆掉一小部分墙留出环路，
+ * 中线上开几个口子连通四块，最后镜像。墙多数是砖（打得穿，越打越开阔），夹着钢墙（反弹用）、
+ * 少量水和草丛，柱子上偶尔放斜板。
+ */
+function mazeMap(r, bounce) {
+  const g = Array.from({ length: H }, () => new Array(W).fill(EMPTY));
+  const put = mirrorPut(g);
+  const q = Array.from({ length: hh }, () => new Array(hw).fill(1)); // 1 = 墙
+  const cells = [];
+  for (let y = 0; y < hh; y += 2) for (let x = 0; x < hw - 1; x += 2) cells.push([x, y]);
+  for (const [x, y] of cells) q[y][x] = 0;
+  // 随机深度优先挖通
+  const seen = new Set(['0,0']);
+  const stack = [[0, 0]];
+  while (stack.length) {
+    const [x, y] = stack[stack.length - 1];
+    const next = [
+      [2, 0],
+      [-2, 0],
+      [0, 2],
+      [0, -2],
+    ]
+      .map(([dx, dy]) => [x + dx, y + dy])
+      .filter(([nx, ny]) => nx >= 0 && ny >= 0 && nx < hw - 1 && ny < hh && q[ny][nx] === 0 && !seen.has(`${nx},${ny}`));
+    if (!next.length) {
+      stack.pop();
+      continue;
+    }
+    const [nx, ny] = next[Math.floor(r() * next.length)];
+    q[(y + ny) / 2][(x + nx) / 2] = 0;
+    seen.add(`${nx},${ny}`);
+    stack.push([nx, ny]);
+  }
+  // 拆墙留环路（只拆墙段，不拆柱子）；中线（最后一列 / 最后一行）上开口子
+  for (let y = 0; y < hh; y += 1) {
+    for (let x = 0; x < hw; x += 1) {
+      if (q[y][x] !== 1 || (x % 2 === 1 && y % 2 === 1)) continue;
+      const axis = x === hw - 1 || y === hh - 1;
+      if (r() < (axis ? 0.45 : 0.14)) q[y][x] = 0;
+    }
+  }
+  q[hh - 1][hw - 3] = 0;
+  q[hh - 3][hw - 1] = 0;
+  for (let y = 0; y < hh; y += 1) {
+    for (let x = 0; x < hw; x += 1) {
+      if (!q[y][x]) {
+        if (r() < 0.06) put(x, y, BUSH);
+        continue;
+      }
+      const pillar = x % 2 === 1 && y % 2 === 1;
+      const roll = r();
+      let v = pillar ? (roll < 0.55 ? STEEL : BRICK) : roll < 0.62 ? BRICK : roll < 0.86 ? STEEL : roll < 0.93 ? WATER : BUSH;
+      put(x, y, v);
+    }
+  }
+  // 每个角放 1～2 块斜板（放在柱子上；不放中线上，中线镜像回自己，斜板翻过来就对不上了）
+  if (bounce) {
+    const spots = [];
+    for (let y = 1; y < hh - 1; y += 2) for (let x = 3; x < hw - 1; x += 2) spots.push([x, y]);
+    for (let k = 1 + (r() < 0.5 ? 1 : 0); k > 0 && spots.length; k -= 1) {
+      const [x, y] = spots.splice(Math.floor(r() * spots.length), 1)[0];
+      put(x, y, r() < 0.5 ? SLASH : BACKSLASH);
+    }
+  }
+  return g;
+}
+
+/** 开阔地图（第一版的样子）：四分之一随机撒几堆砖、钢、水、草，中间一个钢十字。 */
+function openMap(r, bounce) {
+  const g = Array.from({ length: H }, () => new Array(W).fill(EMPTY));
+  const put = mirrorPut(g);
+  const clusters = 9 + Math.floor(r() * 4);
+  for (let k = 0; k < clusters; k += 1) {
+    const roll = r();
+    const v = roll < 0.55 ? BRICK : roll < 0.68 ? STEEL : roll < 0.8 ? WATER : BUSH;
+    const cw = 1 + Math.floor(r() * 3);
+    const ch = 1 + Math.floor(r() * 3);
+    const x0 = Math.floor(r() * hw);
+    const y0 = Math.floor(r() * hh);
+    for (let y = y0; y < Math.min(hh, y0 + ch); y += 1) for (let x = x0; x < Math.min(hw, x0 + cw); x += 1) put(x, y, v);
+  }
+  // 反弹开着时撒几块斜板（单格，离出生点远一点）：打拐弯炮用
+  if (bounce) {
+    const n = 2 + Math.floor(r() * 2);
+    for (let k = 0; k < n; k += 1) {
+      const x = 3 + Math.floor(r() * (hw - 4));
+      const y = 2 + Math.floor(r() * (hh - 3));
+      put(x, y, r() < 0.5 ? SLASH : BACKSLASH);
+    }
+  }
+  // 中间放一圈砖当掩体
+  const cx = Math.floor(W / 2);
+  const cy = Math.floor(H / 2);
+  for (const [dx, dy] of [
+    [-1, -1],
+    [1, -1],
+    [-1, 1],
+    [1, 1],
+  ]) {
+    g[cy + dy][cx + dx] = BRICK;
+  }
+  g[cy][cx] = STEEL;
+  return g;
 }
 
 function connected(g) {
@@ -107,7 +207,7 @@ function connected(g) {
       const ny = y + dy;
       if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
       const c = g[ny][nx];
-      if (c === STEEL || c === WATER || seen.has(`${nx},${ny}`)) continue;
+      if (c === STEEL || c === WATER || isMirror(c) || seen.has(`${nx},${ny}`)) continue;
       seen.add(`${nx},${ny}`);
       q.push([nx, ny]);
     }
@@ -123,11 +223,11 @@ const TEAM_SLOTS = [
 
 /**
  * 开一局。players: [{id, name, human, team?}]（最多 4 位）；
- * opts: {seed, lives, seconds, level: 'easy' | 'normal' | 'hard', mode: 'ffa' | 'team'}。
+ * opts: {seed, lives, seconds, level: 'easy' | 'normal' | 'hard', mode: 'ffa' | 'team', bounce: 炮弹反弹, maze: 迷宫地图}。
  * 混战按顺序坐四个角；组队时 team 为 0 / 1（没写就前两位一队、后两位一队）。
  */
-export function createGame(players, { seed = 1, lives = 3, seconds = 180, level = 'normal', mode = 'ffa' } = {}) {
-  const map = makeMap(seed);
+export function createGame(players, { seed = 1, lives = 3, seconds = 180, level = 'normal', mode = 'ffa', bounce = true, maze = true } = {}) {
+  const map = makeMap(seed, { bounce, maze });
   const hp = map.map((row) => row.map((c) => (c === BRICK ? 2 : 0)));
   const team = mode === 'team';
   const used = [0, 0];
@@ -148,10 +248,11 @@ export function createGame(players, { seed = 1, lives = 3, seconds = 180, level 
       team: side,
       x: SPAWNS[slot][0] + 0.5,
       y: SPAWNS[slot][1] + 0.5,
-      dir: slot % 2 === 0 ? 'up' : 'down',
+      dir: SPAWNS[slot][1] < H / 2 ? 'down' : 'up', // 开局炮口朝中间
       lives,
       kills: 0,
       deaths: 0,
+      selfHits: 0,
       alive: true,
       respawn: 0,
       shield: SHIELD_AFTER_SPAWN,
@@ -170,6 +271,8 @@ export function createGame(players, { seed = 1, lives = 3, seconds = 180, level 
     hp,
     tanks,
     mode: team ? 'team' : 'ffa',
+    bounce: !!bounce,
+    maze: !!maze,
     shots: [],
     powers: [],
     mines: [],
@@ -304,7 +407,7 @@ function fire(g, t) {
   const [dx, dy] = DIRS[t.dir];
   const x = t.x + dx * 0.5;
   const y = t.y + dy * 0.5;
-  g.shots.push({ owner: t.id, team: t.team, x, y, dx, dy, pierce: t.pierce > 0 });
+  g.shots.push({ owner: t.id, team: t.team, x, y, dx, dy, pierce: t.pierce > 0, left: g.bounce ? BOUNCES : 0, bounced: 0, life: SHOT_LIFE, turned: -1 });
   t.cool = t.rapid > 0 ? COOLDOWN / 2.5 : COOLDOWN;
   g.events.push({ kind: 'shoot', id: t.id, x, y, dir: t.dir });
 }
@@ -338,9 +441,15 @@ function tickMines(g, dt) {
 
 function moveShots(g, dt) {
   const sub = 3;
+  for (const s of g.shots) {
+    s.life -= dt;
+    if (s.life <= 0) s.dead = true;
+  }
   for (let k = 0; k < sub; k += 1) {
     for (const s of g.shots) {
       if (s.dead) continue;
+      const px = s.x;
+      const py = s.y;
       s.x += (s.dx * SHOT_SPEED * dt) / sub;
       s.y += (s.dy * SHOT_SPEED * dt) / sub;
       const cx = Math.floor(s.x);
@@ -355,25 +464,55 @@ function moveShots(g, dt) {
         continue;
       }
       if (c === STEEL) {
-        s.dead = true;
-        g.booms.push({ x: s.x, y: s.y, t: 0, small: true });
         // 穿甲弹能打碎钢墙（地图边缘外面的不算）
         const broke = s.pierce && inside(cx, cy);
+        if (!broke && s.left > 0) {
+          // 弹回来：退回墙外，掉头
+          s.x = px;
+          s.y = py;
+          s.dx = -s.dx;
+          s.dy = -s.dy;
+          s.left -= 1;
+          s.bounced += 1;
+          s.turned = -1;
+          g.events.push({ kind: 'bounce', x: px, y: py });
+          continue;
+        }
+        s.dead = true;
+        g.booms.push({ x: s.x, y: s.y, t: 0, small: true });
         if (broke) g.map[cy][cx] = EMPTY;
         g.events.push({ kind: 'steel', broke, x: cx + 0.5, y: cy + 0.5, sx: s.x, sy: s.y });
         continue;
       }
+      if (isMirror(c)) {
+        // 过了斜板中线就拐弯（同一块斜板只拐一次）
+        const key = cy * W + cx;
+        const past = (s.x - cx - 0.5) * s.dx + (s.y - cy - 0.5) * s.dy;
+        if (s.turned !== key && past >= 0) {
+          [s.dx, s.dy] = turn(c, s.dx, s.dy);
+          s.x = cx + 0.5 + s.dx * past;
+          s.y = cy + 0.5 + s.dy * past;
+          s.turned = key;
+          s.bounced += 1;
+          g.events.push({ kind: 'deflect', x: cx + 0.5, y: cy + 0.5 });
+        }
+        continue;
+      }
       for (const t of g.tanks) {
-        if (!t.alive || t.id === s.owner) continue;
+        if (!t.alive) continue;
+        if (t.id === s.owner && !s.bounced) continue; // 刚打出去的炮弹不会打到自己
         if (Math.abs(t.x - s.x) < TANK / 2 + 0.06 && Math.abs(t.y - s.y) < TANK / 2 + 0.06) {
           s.dead = true;
-          if (t.team === s.team) g.events.push({ kind: 'friendly', id: t.id, x: s.x, y: s.y }); // 打不伤队友
+          // 被自己弹回来的炮弹打中；贴着墙打、马上弹回来的算接住了（不然贴墙开炮就是送命）
+          if (t.id === s.owner && SHOT_LIFE - s.life < CATCH) g.events.push({ kind: 'catch', id: t.id, x: s.x, y: s.y });
+          else if (t.id === s.owner) hit(g, t, s.owner);
+          else if (t.team === s.team) g.events.push({ kind: 'friendly', id: t.id, x: s.x, y: s.y }); // 打不伤队友
           else hit(g, t, s.owner);
           break;
         }
       }
     }
-    // 两发炮弹撞上就一起没
+    // 两发炮弹撞上就一起没（同队的互相穿过）
     for (const a of g.shots) {
       if (a.dead) continue;
       for (const b of g.shots) {
@@ -402,8 +541,10 @@ function hit(g, t, by) {
   t.fast = 0;
   const shooter = g.tanks.find((o) => o.id === by);
   if (shooter && foes(shooter, t)) shooter.kills += 1;
+  const self = by === t.id;
+  if (self) t.selfHits += 1;
   g.booms.push({ x: t.x, y: t.y, t: 0, small: false });
-  g.events.push({ kind: 'kill', id: t.id, by, x: t.x, y: t.y, out: t.lives <= 0 });
+  g.events.push({ kind: 'kill', id: t.id, by, x: t.x, y: t.y, out: t.lives <= 0, self });
 }
 
 function dropPower(g) {
@@ -468,10 +609,69 @@ export function placeOf(g, id) {
 // --- 电脑对手 ------------------------------------------------------------------------
 
 const LEVEL = {
-  easy: { react: 0.55, aim: 0.55, dodge: 0.2 },
-  normal: { react: 0.32, aim: 0.8, dodge: 0.55 },
-  hard: { react: 0.18, aim: 0.95, dodge: 0.85 },
-};
+  easy: { react: 0.55, aim: 0.55, dodge: 0.2, bank: 0 },
+  normal: { react: 0.32, aim: 0.8, dodge: 0.55, bank: 1 },
+  hard: { react: 0.18, aim: 0.95, dodge: 0.85, bank: 2 },
+}; // bank：最多算几次弹墙 / 拐弯的炮
+
+/**
+ * 假装朝 dir 开一炮，沿路推演（钢墙和地图边弹回、斜板拐弯、砖墙挡住），看最先碰到谁。
+ * 返回 {foe, turns}（打中对手，中途拐了几次）、{self: true}（会打回自己）或 null（打不到人）。
+ * 坦克当作不动，只是个估计。ghost=true 时当别的坦克都不在（打空了会不会弹回自己）。
+ */
+export function plan(g, t, dir, maxCells = 16, ghost = false) {
+  let [dx, dy] = DIRS[dir];
+  let x = t.x + dx * 0.5;
+  let y = t.y + dy * 0.5;
+  let left = g.bounce ? BOUNCES : 0;
+  let turns = 0;
+  let turned = -1;
+  const stepLen = 0.25;
+  for (let k = 0, n = maxCells / stepLen; k < n; k += 1) {
+    const px = x;
+    const py = y;
+    x += dx * stepLen;
+    y += dy * stepLen;
+    const cx = Math.floor(x);
+    const cy = Math.floor(y);
+    const c = cellAt(g, cx, cy);
+    if (c === BRICK) return null;
+    if (c === STEEL) {
+      if (t.pierce > 0 && inside(cx, cy)) return null;
+      if (left <= 0) return null;
+      left -= 1;
+      turns += 1;
+      x = px;
+      y = py;
+      dx = -dx;
+      dy = -dy;
+      turned = -1;
+      continue;
+    }
+    if (isMirror(c)) {
+      const key = cy * W + cx;
+      const past = (x - cx - 0.5) * dx + (y - cy - 0.5) * dy;
+      if (turned !== key && past >= 0) {
+        [dx, dy] = turn(c, dx, dy);
+        x = cx + 0.5 + dx * past;
+        y = cy + 0.5 + dy * past;
+        turned = key;
+        turns += 1;
+      }
+      continue;
+    }
+    for (const o of g.tanks) {
+      if (!o.alive || (ghost && o !== t)) continue;
+      if (o === t && (!turns || (k * stepLen) / SHOT_SPEED < CATCH)) continue;
+      if (Math.abs(o.x - x) < TANK / 2 + 0.06 && Math.abs(o.y - y) < TANK / 2 + 0.06) {
+        if (o === t) return { self: true };
+        if (o.team === t.team) return null; // 队友挡着
+        return { foe: o, turns };
+      }
+    }
+  }
+  return null;
+}
 
 /** 两点在同一行 / 列且中间没有钢墙：返回朝向（中间有砖也算，炮弹能打开）。 */
 function lineOfFire(g, t, o) {
@@ -513,7 +713,7 @@ function findPath(g, sx, sy, gx, gy) {
       const ny = y + dy;
       if (!inside(nx, ny)) continue;
       const c = g.map[ny][nx];
-      if (c === STEEL || c === WATER) continue;
+      if (c === STEEL || c === WATER || isMirror(c)) continue;
       const nd = d + (c === BRICK ? 3 : 1);
       if (nd < (dist.get(key(nx, ny)) ?? Infinity)) {
         dist.set(key(nx, ny), nd);
@@ -554,7 +754,8 @@ function allyInLine(g, t, lof) {
 
 function danger(g, t) {
   for (const s of g.shots) {
-    if (s.team === t.team) continue;
+    // 对手的炮弹，或者自己弹回来的炮弹（队友的打不伤）
+    if (s.team === t.team && !(s.owner === t.id && s.bounced)) continue;
     const ahead = (t.x - s.x) * s.dx + (t.y - s.y) * s.dy;
     if (ahead <= 0 || ahead > 4) continue;
     const side = s.dx ? Math.abs(t.y - s.y) : Math.abs(t.x - s.x);
@@ -572,8 +773,10 @@ export function think(g, t, dt) {
   b.next = lv.react * (0.7 + g.rand() * 0.6);
   b.fire = false;
   const shot = danger(g, t);
-  if (shot && g.rand() < lv.dodge) {
+  // 自己打出去、弹回来的炮弹心里有数，一定躲；别人的按难度看反应
+  if (shot && (shot.owner === t.id || g.rand() < lv.dodge)) {
     const side = shot.dx ? ['up', 'down'] : ['left', 'right'];
+    if (g.rand() < 0.5) side.reverse(); // 往哪边躲随机，不偏哪个角
     const pick = side.find((d) => {
       const [dx, dy] = DIRS[d];
       return !tankBlocked(g, t, t.x + dx * 0.6, t.y + dy * 0.6);
@@ -594,14 +797,25 @@ export function think(g, t, dt) {
   const visible = enemies.filter((o) => cellAt(g, Math.floor(o.x), Math.floor(o.y)) !== BUSH || Math.hypot(o.x - t.x, o.y - t.y) < 3);
   const pool = visible.length ? visible : enemies;
   const target = pool.reduce((a, o) => (Math.hypot(o.x - t.x, o.y - t.y) < Math.hypot(a.x - t.x, a.y - t.y) ? o : a));
+  // 先看直线能不能打到，再看（按难度）弹墙、拐弯的炮能不能打到对手；会打回自己的不打
   const lof = lineOfFire(g, t, target);
-  if (lof && lof.dist <= 12 && g.rand() < lv.aim && !allyInLine(g, t, lof)) {
-    if (t.dir !== lof.dir) {
-      b.dir = lof.dir;
-      t.dir = lof.dir; // 原地转炮口
+  let aimDir = lof && lof.dist <= 12 && !allyInLine(g, t, lof) ? lof.dir : null;
+  if (aimDir && plan(g, t, aimDir)?.self) aimDir = null;
+  if (!aimDir && lv.bank > 0 && g.bounce) {
+    for (const d of [t.dir, ...DIR_NAMES.filter((d) => d !== t.dir)]) {
+      const p = plan(g, t, d);
+      if (p?.foe && p.turns <= lv.bank) {
+        aimDir = d;
+        break;
+      }
     }
+  }
+  if (aimDir && g.rand() < lv.aim) {
+    t.dir = aimDir; // 原地转炮口
     b.dir = null;
     b.fire = true;
+    // 打空了会弹回来的：开完炮早点回神，好挪开
+    if (plan(g, t, aimDir, 16, true)?.self) b.next = Math.min(b.next, 0.12);
     return { dir: null, fire: true };
   }
   const tx = Math.floor(t.x);
@@ -616,7 +830,7 @@ export function think(g, t, dt) {
   while (b.path && b.path.length && b.path[0][0] === tx && b.path[0][1] === ty) b.path.shift();
   if (!b.path || !b.path.length) {
     b.dir = DIR_NAMES[Math.floor(g.rand() * 4)];
-    return { dir: b.dir, fire: g.rand() < 0.3 };
+    return { dir: b.dir, fire: g.rand() < 0.3 && !plan(g, t, t.dir)?.self };
   }
   const [nx, ny] = b.path[0];
   const dir = nx > tx ? 'right' : nx < tx ? 'left' : ny > ty ? 'down' : 'up';
