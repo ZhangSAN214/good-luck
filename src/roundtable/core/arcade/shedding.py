@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import random
+from collections import Counter
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -19,6 +20,7 @@ from roundtable.core.arcade.pattern import (
     cards_zh,
     classify,
     ddz_deck,
+    name_of,
     pdk_deck,
     sort_cards,
     value,
@@ -184,6 +186,70 @@ class Shedding:
     def winners(self) -> list[str]:
         return [r["seat"] for r in self.results if r["points"] > 0]
 
+    # --- 记牌器和出法标注（给成员看，人人一样） -----------------------------------------
+
+    def full_deck(self) -> list[str]:
+        return ddz_deck(random.Random(0)) if self.game == "ddz" else pdk_deck(random.Random(0))
+
+    def played_cards(self) -> list[str]:
+        return [c for h in self.history if h.get("kind") == "play" for c in h["cards"]]
+
+    def outside(self, i: int) -> Counter:
+        """在别人手里（还没出）的牌，按点数数张数。"""
+        left = Counter(value(c) for c in self.full_deck())
+        left.subtract(value(c) for c in self.seats[i].cards)
+        left.subtract(value(c) for c in self.played_cards())
+        if self.game == "ddz" and getattr(self, "landlord", None) is None:
+            left.subtract(value(c) for c in getattr(self, "bottom", []))  # 底牌还没人拿
+        return +left
+
+    def teammate(self, i: int, j: int | None) -> bool:
+        return False
+
+    def tracker(self, i: int) -> str:
+        out = self.outside(i)
+        big = " ".join(f"{name_of(v)}×{out[v]}" for v in sorted(out, reverse=True) if out[v])
+        bombs = [name_of(v) for v, n in out.items() if n == 4]
+        lines = [f"别人手里还有（从大到小）：{big or '（没了）'}"]
+        if self.game == "ddz" and out.get(16) and out.get(17):
+            bombs.append("王炸")
+        lines.append("别人可能还有的炸弹：" + ("、".join(bombs) if bombs else "没有了"))
+        lines.append(f"已经出过 {len(self.played_cards())} 张")
+        return "\n".join(lines)
+
+    def note_for(self, i: int, o: dict[str, Any]) -> str:
+        me = self.seats[i]
+        notes: list[str] = []
+        lead_by = self.lead_by if self.lead is not None and self.lead_by != i else None
+        if o["kind"] == "pass":
+            if lead_by is not None and self.teammate(i, lead_by):
+                notes.append("让队友的牌走")
+            elif lead_by is not None and len(self.seats[lead_by].cards) <= 2:
+                notes.append(f"对手只剩 {len(self.seats[lead_by].cards)} 张，不要可能让她走")
+            return "，".join(notes)
+        if o["kind"] != "play":
+            return ""
+        cards = o["cards"]
+        pat = classify(cards, self.game, last=len(cards) == len(me.cards))
+        if len(cards) == len(me.cards):
+            return "能一手出完"
+        mine = Counter(value(c) for c in me.cards)
+        used = Counter(value(c) for c in cards)
+        if pat is not None and pat.kind in ("bomb", "rocket"):
+            notes.append("用炸弹")
+        elif any(mine[v] == 4 and n < 4 for v, n in used.items()):
+            notes.append("会拆炸弹")
+        if lead_by is not None and self.teammate(i, lead_by):
+            notes.append("压了队友")
+        if pat is not None and pat.kind in ("single", "pair", "triple"):
+            out = self.outside(i)
+            higher = any(n >= pat.size and v > pat.main for v, n in out.items())
+            bomb = any(n == 4 for n in out.values()) or (out.get(16) and out.get(17))
+            if not higher:
+                notes.append("外面没人管得上" + ("（除非炸）" if bomb else ""))
+        notes.append(f"出完还剩 {len(me.cards) - len(cards)} 张")
+        return "，".join(notes)
+
     # --- 给人看 / 给模型看 -------------------------------------------------------
 
     def view(self, viewer: str | None, *, reveal_all: bool = False) -> dict[str, Any]:
@@ -345,6 +411,10 @@ class Doudizhu(Shedding):
         self.turn = i
         self.redeals = 0
 
+    def teammate(self, i: int, j: int | None) -> bool:
+        lord = self.landlord
+        return j is not None and lord is not None and i != j and lord not in (i, j)
+
     def _on_play(self, i: int, pat: Pattern) -> None:
         if pat.kind in ("bomb", "rocket"):
             self.bombs += 1
@@ -474,6 +544,10 @@ class Paodekuai(Shedding):
         data = super().view(viewer, reveal_all=reveal_all)
         data["game"] = "paodekuai"
         return data
+
+    def winners(self) -> list[str]:
+        """先出完的人赢（别人都只剩一张时她拿 0 分，也算赢）。"""
+        return [r["seat"] for r in self.results if r["left"] == 0]
 
 
 __all__ = [

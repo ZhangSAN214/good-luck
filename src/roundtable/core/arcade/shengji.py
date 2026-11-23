@@ -190,6 +190,7 @@ class Shengji(Shedding):
     note: str = ""
     summary: dict[str, Any] | None = None
     champion: list[int] = field(default_factory=list)  # 打过 A 的队（通关次数）
+    played: list[str] = field(default_factory=list)  # 这一局已经出过的牌（记牌器）
 
     # --- 基本 --------------------------------------------------------------------
 
@@ -222,6 +223,7 @@ class Shengji(Shedding):
         self.trump, self.declared, self.declare_turns = None, None, 0
         self.trick, self.lead_comps, self.lead_klass, self.last_trick = [], [], "", None
         self.points, self.tricks, self.note, self.summary = 0, 0, "", None
+        self.played = []
         self.results, self.history = [], []
         self.lead, self.lead_by = None, None
         self._sort_hands()
@@ -620,6 +622,7 @@ class Shengji(Shedding):
         cards = r.sort(cards)
         s.last = r.zh(cards)
         self.trick.append({"seat": i, "cards": cards})
+        self.played += cards
         self.note = note or (self.note if len(self.trick) > 1 else "")
         entry = {"seat": s.id, "name": s.name, "kind": "play", "cards": cards, "label": s.last}
         if len(self.trick) < 4:
@@ -773,6 +776,67 @@ class Shengji(Shedding):
         self.banker = nxt
         self.phase = "done"
         self.turn = None
+
+    # --- 记牌器和出法标注（给成员看，人人一样） -----------------------------------------
+
+    def outside(self, i: int) -> list[str]:
+        """还在别人手里的牌（庄家扣的底牌对庄家来说不算在外面）。"""
+        left = Counter([r + s for r in RANKS for s in SUITS] * 2 + list(JOKERS) * 2)
+        left.subtract(self.seats[i].cards)
+        left.subtract(self.played)
+        if i == self.banker and self.phase == "play":
+            left.subtract(self.kitty)
+        return list((+left).elements())
+
+    def tracker(self, i: int) -> str:
+        if self.phase in ("bid", "bury"):
+            return "还没开始出牌"
+        r = self.rules
+        out = self.outside(i)
+        trumps = [c for c in out if r.is_trump(c)]
+        big = sorted(trumps, key=r.order, reverse=True)[:8]
+        lines = [
+            f"别人手里的主牌还有 {len(trumps)} 张，最大的几张：{r.zh(big) if big else '（没了）'}"
+        ]
+        for su in SUITS:
+            if su == self.trump:
+                continue
+            side = sorted((c for c in out if r.klass(c) == su), key=r.order, reverse=True)
+            top = " ".join(card_zh(c) for c in side[:4])
+            lines.append(
+                f"{SUIT_ZH[su]}：别人还有 {len(side)} 张" + (f"，最大的 {top}" if side else "")
+            )
+        gone = points_of(self.played)
+        lines.append(
+            f"闲家已得 {self.points} 分；分牌已经出了 {gone} 分，还有 {200 - gone} 分没出（含底牌）"
+        )
+        return "\n".join(lines)
+
+    def note_for(self, i: int, o: dict[str, Any]) -> str:
+        if o["kind"] != "play":
+            return ""
+        r = self.rules
+        cards = o["cards"]
+        pts = points_of(cards)
+        notes: list[str] = []
+        if not self.trick:
+            out = [c for c in self.outside(i) if r.klass(c) == r.klass(cards[0])]
+            comps = r.decompose(cards)
+            if all(not r.beaten_by(c, out) for c in comps):
+                notes.append("外面没人管得上")
+            elif pts:
+                notes.append(f"带 {pts} 分，被管住就送分")
+            return "，".join(notes)
+        cur = self.winning_index()
+        mate = cur is not None and self.team_of(cur) == self.team_of(i)
+        ruff = self.lead_klass != "T" and all(r.is_trump(c) for c in cards)
+        if self.would_win(i, cards):
+            notes.append("能赢这一轮" + ("（毙）" if ruff else ""))
+            if mate:
+                notes.append("压了队友")
+        elif pts:
+            notes.append(f"队友正大，送 {pts} 分" if mate else f"对手正大，会送对手 {pts} 分")
+        return "，".join(notes)
 
     def winners(self) -> list[str]:
         return [r["seat"] for r in self.results if r["points"] > 0]

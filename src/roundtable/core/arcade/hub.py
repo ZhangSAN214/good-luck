@@ -644,7 +644,11 @@ class Arcade:
                 name=member.name,
                 game=CARD_GAMES[t.kind],
                 rules=RULES_TEXT[t.kind],
-                options="\n".join(f"{n}. {option_text(o)}" for n, o in enumerate(options, 1)),
+                options="\n".join(
+                    f"{n}. {option_text(o)}" + (f"（{note}）" if (note := g.note_for(i, o)) else "")
+                    for n, o in enumerate(options, 1)
+                ),
+                tracker=g.tracker(i),
                 **g.brief(i),
             )
         else:
@@ -653,6 +657,7 @@ class Arcade:
                 rt.config.roundtable.prompts["arcade_holdem"],
                 name=member.name,
                 options=option_lines(options, g.current, g.seats[i].bet),
+                odds=holdem_odds(g, i, t.game.rng),
                 **g.brief(i),
             )
         params = {
@@ -687,6 +692,21 @@ class Arcade:
             completion=completion,
         )
         return parse_pick(completion.text, options)
+
+
+def holdem_odds(g: Holdem, i: int, rng: random.Random) -> str:
+    """模拟出来的胜率估算和跟注赔率（人人都给，同样的算法）。"""
+    s = g.seats[i]
+    rivals = sum(1 for j, o in enumerate(g.seats) if j != i and not o.folded and not o.out)
+    win = holdem_bot.equity(s.hole, g.board, max(1, rivals), rng)
+    need = g.to_call(i)
+    text = f"对 {rivals} 个还没弃牌的对手，你这手牌赢的机会约 {round(win * 100)}%"
+    if need:
+        odds = need / (g.pot + need)
+        text += f"；跟注要放 {need}，占跟完后底池的 {round(odds * 100)}%"
+    else:
+        text += "；现在不用再放筹码就能看下一张"
+    return text
 
 
 def option_lines(options: list[dict[str, Any]], current: int, bet: int) -> str:

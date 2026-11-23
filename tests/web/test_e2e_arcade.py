@@ -41,7 +41,8 @@ def test_open_holdem_play_a_hand_and_leave(serve, page):
     page.click("[data-act=open]")
     page.wait_for_selector(".ac-seat.you")
     assert page.locator(".ac-seat.you").count() == 1
-    assert page.inner_text("[data-coins]") == "1,000"  # 带了 1000 上桌
+    # 带了 1000 上桌（金币数字会跳一下，等它停）
+    wait_until(lambda: page.inner_text("[data-coins]") == "1,000", timeout=5)
     # 一直跟到这一手结束
     for _ in range(30):
         if _your_turn_or_done(page) == "done":
@@ -64,6 +65,7 @@ def test_open_holdem_play_a_hand_and_leave(serve, page):
     _your_turn_or_done(page)
     page.click("[data-act=leave]")
     page.wait_for_selector(".ac-lobby")
+    page.wait_for_timeout(900)  # 等金币数字跳完
     coins = int(page.inner_text("[data-coins]").replace(",", ""))
     assert 0 <= coins <= 2000 + 20 * 1000
 
@@ -195,3 +197,26 @@ def test_god_view_when_watching(serve, page):
     page.click("[data-god='1']")
     page.wait_for_selector("[data-god='0']")
     wait_until(lambda: page.locator(".ac-fan.open").count() == 3, timeout=20)  # 三家的牌都看得到
+
+
+def test_deal_animation_card_feel_and_sound_toggle(serve, page):
+    srv = serve(confirm_threshold_usd=100.0)
+    _fast(srv)
+    page.goto(srv.url + "#m=game")
+    page.wait_for_selector(".ac-lobby")
+    page.click(".ac-game[data-game=doudizhu]")
+    page.click("[data-think='0']")
+    page.click("[data-act=open]")
+    page.wait_for_selector(".ac-shfelt")
+    page.wait_for_selector(".ac-hcard.ac-deal", timeout=5000)  # 开桌发牌：手牌一张张滑进来
+    assert page.locator(".ac-hcard .ac-card em").count() >= 1  # 大牌中间有花色水印（王除外）
+    # 音效开关：默认开，点了关，存在这台电脑上，刷新还是关
+    assert "开" in page.inner_text("[data-sfx]")
+    page.click("[data-sfx]")
+    assert "关" in page.inner_text("[data-sfx]")
+    assert page.evaluate("localStorage.getItem('roundtable.arcade.sfx')") == "off"
+    page.reload()
+    page.wait_for_selector("[data-sfx]")
+    assert "关" in page.inner_text("[data-sfx]")
+    page.click("[data-sfx]")
+    assert page.evaluate("localStorage.getItem('roundtable.arcade.sfx')") == "on"
