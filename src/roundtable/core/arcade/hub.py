@@ -244,6 +244,7 @@ class Arcade:
                 "kill_coins": rules.tanks.kill_coins,
                 "daily_cap": rules.tanks.daily_cap,
                 "today": self._tank_got(self.wallet()),
+                "stats": self._tank_stats_view(),
             },
             "table": self.view() if self.table else None,
         }
@@ -449,14 +450,33 @@ class Arcade:
     def _tank_got(self, w: dict[str, Any]) -> int:
         return int(w.get("tank_got", 0)) if w.get("tank_day") == self._today() else 0
 
-    def tanks_start(self, member_ids: list[str]) -> dict[str, Any]:
-        """开一局坦克：挑 1～3 位成员（坦克由本地电脑开，不花钱），给地图种子和凭证。"""
+    def tanks_start(
+        self, member_ids: list[str], mode: str = "ffa", watch: bool = False
+    ) -> dict[str, Any]:
+        """开一局坦克，给地图种子和凭证（成员的坦克由本地电脑开，不花钱）。
+
+        mode：ffa 各自为战 / team 2 对 2。你上场时挑 1～max_members 位（2 对 2 要正好 3 位，
+        第一位是你的队友）；旁观（watch）时挑 2～4 位（2 对 2 要正好 4 位，前两位一队），
+        不算金币、只记战绩。"""
         rules = self.rules
         if not rules.enabled:
             raise ArcadeError("游戏区关着（config/roundtable.yaml 的 arcade.enabled）")
+        if mode not in ("ffa", "team"):
+            raise ArcadeError("玩法只有各自为战和 2 对 2")
         roster = {m.id: m for m in self.everyone()}
         picked = list(dict.fromkeys(i for i in member_ids if i in roster))
-        if not 1 <= len(picked) <= rules.tanks.max_members:
+        n = len(picked)
+        if mode == "team":
+            need = 4 if watch else 3
+            if n != need:
+                raise ArcadeError(
+                    "2 对 2 旁观要挑 4 位（前两位一队）"
+                    if watch
+                    else "2 对 2 要挑 3 位成员（第一位是你的队友）"
+                )
+        elif watch and not 2 <= n <= 4:
+            raise ArcadeError("旁观挑 2～4 位成员")
+        elif not watch and not 1 <= n <= rules.tanks.max_members:
             raise ArcadeError(f"挑 1～{rules.tanks.max_members} 位成员上场")
         seed = self.rng.randrange(2**31)
         self._tank_run = {
@@ -464,19 +484,34 @@ class Arcade:
             "seed": seed,
             "started": self.rt.budget.now(),
             "members": picked,
+            "mode": mode,
+            "watch": bool(watch),
         }
+        lines = self.rt.config.personas.game_lines
         return {
             "token": self._tank_run["token"],
             "seed": seed,
-            "members": [{"id": i, "name": roster[i].name} for i in picked],
+            "mode": mode,
+            "watch": bool(watch),
+            "members": [
+                {
+                    "id": i,
+                    "name": roster[i].name,
+                    "lines": lines[i].model_dump() if i in lines else {},
+                }
+                for i in picked
+            ],
             "lives": rules.tanks.lives,
             "minutes": rules.tanks.minutes,
             "wallet": self._wallet_view(),
         }
 
-    def tanks_result(self, token: str, place: int, kills: int) -> dict[str, Any]:
-        """一局打完：你拿第一给 ``win_coins``，每击毁一次给 ``kill_coins``，每天最多 ``daily_cap``。
-        同一局只算一次；打得太短（不到 ``min_seconds``）不给。"""
+    def tanks_result(
+        self, token: str, place: int, kills: int, rank: list[dict[str, Any]] | None = None
+    ) -> dict[str, Any]:
+        """一局打完：你拿第一（2 对 2 是你们队赢）给 ``win_coins``，每击毁一次给 ``kill_coins``，
+        每天最多 ``daily_cap``。同一局只算一次；打得太短（不到 ``min_seconds``）不给；旁观不给。
+        rank 是这局每辆坦克的名次和击毁数，记进战绩（只认这一局上场的人）。"""
         rules = self.rules.tanks
         run = self._tank_run
         if run is None or not secrets.compare_digest(str(token), run["token"]):
@@ -486,7 +521,9 @@ class Arcade:
         kills = max(0, min(int(kills), 99))
         earned = (rules.win_coins if int(place) == 1 else 0) + kills * rules.kill_coins
         note = ""
-        if seconds < rules.min_seconds:
+        if run.get("watch"):
+            earned = 0
+        elif seconds < rules.min_seconds:
             earned, note = 0, f"这一局不到 {rules.min_seconds:g} 秒，不算金币"
         w = self.wallet()
         got = self._tank_got(w)
@@ -497,8 +534,44 @@ class Arcade:
             self._add_coins(give, won=give)
         w = self.wallet()
         w["tank_day"], w["tank_got"] = self._today(), got + give
+        if seconds >= rules.min_seconds:
+            self._tank_record(w, run, rank or [], None if run.get("watch") else (place, kills))
         self._save_wallet(w)
         return {"coins": give, "note": note, "today": got + give, "wallet": self._wallet_view()}
+
+    def _tank_record(
+        self,
+        w: dict[str, Any],
+        run: dict[str, Any],
+        rank: list[dict[str, Any]],
+        you: tuple[int, int] | None,
+    ) -> None:
+        """战绩：每位（和你）打了几局、赢了几局、击毁几次。"""
+        stats = w.setdefault("tank_stats", {})
+        rows = {
+            str(r.get("id")): r
+            for r in rank
+            if isinstance(r, dict) and r.get("id") in run["members"]
+        }
+        if you is not None:
+            rows[YOU] = {"place": you[0], "kills": you[1]}
+        for wid, r in rows.items():
+            st = stats.setdefault(wid, {"games": 0, "wins": 0, "kills": 0})
+            st["games"] += 1
+            st["wins"] += 1 if int(r.get("place") or 0) == 1 else 0
+            st["kills"] += max(0, min(int(r.get("kills") or 0), 99))
+
+    def _tank_stats_view(self) -> list[dict[str, Any]]:
+        stats = self.wallet().get("tank_stats") or {}
+        names = {m.id: m.name for m in self.everyone()}
+        names[YOU] = "你"
+        rows = [
+            {"id": k, "name": names[k], **v}
+            for k, v in stats.items()
+            if k in names and v.get("games")
+        ]
+        rows.sort(key=lambda r: (-r["wins"], -r["kills"], r["games"]))
+        return rows
 
     # --- 你的动作 ---------------------------------------------------------------
 

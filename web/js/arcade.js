@@ -77,6 +77,7 @@ export class ArcadePage {
     this.tankUI = null; // 铁甲突围：正在打的那一局
     this.tankRun = null; // 后台给的这一局（凭证、种子）
     this.tankLevel = 'normal';
+    this.tankMode = 'ffa'; // 各自为战 / 2 对 2
     this.ws = null; // 游戏工坊的状态
     this.wsDraft = ''; // 还没交的要求（重画时不丢）
     this.wsDel = ''; // 点过一次「删除」、等第二下确认的那个游戏
@@ -336,6 +337,10 @@ export class ArcadePage {
       this.stopTanks();
       this.screen = 'lobby';
       await this.refresh();
+    } else if (d.tmode) {
+      this.tankMode = d.tmode === 'team' ? 'team' : 'ffa';
+      this.fitPicks();
+      this.render();
     } else if (d.level) {
       this.tankLevel = d.level;
       this.render();
@@ -387,12 +392,14 @@ export class ArcadePage {
 
   /** 出牌类三人一桌：你上桌再挑两位，旁观挑三位；德州按配置的上限。 */
   maxPick() {
+    if (this.game === 'tanks' && this.tankMode === 'team') return this.sit ? 3 : 4;
     if (this.game === 'tanks') return this.sit ? this.info?.tanks?.max_members || 3 : 4;
     if (CARD_GAMES[this.game]) return TABLE_SIZE[this.game] - (this.sit ? 1 : 0);
     return this.info?.holdem?.max_members || 7;
   }
 
   minPick() {
+    if (this.game === 'tanks' && this.tankMode === 'team') return this.maxPick();
     if (this.game === 'tanks') return this.sit ? 1 : 2;
     if (CARD_GAMES[this.game]) return this.maxPick();
     return this.sit ? 1 : 2;
@@ -605,22 +612,37 @@ export class ArcadePage {
   tanksSetupHTML() {
     const info = this.info || { members: [] };
     const tk = info.tanks || {};
+    const team = this.tankMode === 'team';
+    const order = [...this.pick];
+    const badge = (id) => {
+      if (!team || !this.pick.has(id)) return '';
+      const k = order.indexOf(id);
+      const zh = this.sit ? (k === 0 ? '队友' : '对手') : k < 2 ? '左队' : '右队';
+      return `<em class="ac-tbadge">${zh}</em>`;
+    };
     const members = info.members
       .map((m) => {
         const on = this.pick.has(m.id);
-        return `<button type="button" class="ac-pick${on ? ' on' : ''}" data-member="${esc(m.id)}" aria-pressed="${on}">${this.avatar(m.id, m.name)}<span>${esc(m.name)}</span></button>`;
+        return `<button type="button" class="ac-pick${on ? ' on' : ''}" data-member="${esc(m.id)}" aria-pressed="${on}">${this.avatar(m.id, m.name)}<span>${esc(m.name)}</span>${badge(m.id)}</button>`;
       })
       .join('');
     const need = this.minPick();
     const max = this.maxPick();
     const lv = this.tankLevel;
+    const win = team ? '你们队赢' : '你拿第一';
     const coins = this.sit
-      ? `你拿第一给 ${fmt(tk.win_coins)} 金币，每击毁一次 ${fmt(tk.kill_coins)}；每天最多 ${fmt(tk.daily_cap)}（今天已领 ${fmt(tk.today)}）。`
-      : '旁观不算金币，看她们混战。';
+      ? `${win}给 ${fmt(tk.win_coins)} 金币，每击毁一次 ${fmt(tk.kill_coins)}；每天最多 ${fmt(tk.daily_cap)}（今天已领 ${fmt(tk.today)}）。`
+      : '旁观不算金币，只记战绩。';
+    const pickTip = team ? (this.sit ? '先点的那位是你的队友，另外两位是对手。' : '先点的两位一队，后两位一队。') : '';
     return `<div class="ac-setup hb-glass">
       <h3>铁甲突围 · 开一局</h3>
-      <p class="ac-sub">原创坦克混战：地图每局自动生成，四个角出生。每辆坦克 ${fmt(tk.lives || 3)} 条命，最后剩下的（或者 ${tk.minutes || 3} 分钟到点时击毁最多的）赢。成员的坦克由本地电脑开（实时的游戏等不了模型想，不花钱）。</p>
+      <p class="ac-sub">原创坦克对战：地图每局自动生成，四个角出生。每辆坦克 ${fmt(tk.lives || 3)} 条命，最后剩下的一方（或者 ${tk.minutes || 3} 分钟到点时击毁多的）赢。成员的坦克由本地电脑开（实时的游戏等不了模型想，不花钱），开局和打中人时会冒个小气泡说话。</p>
+      <div class="ac-row" role="group" aria-label="玩法">
+        <button type="button" class="ac-seg" data-tmode="ffa" aria-pressed="${!team}">各自为战</button>
+        <button type="button" class="ac-seg" data-tmode="team" aria-pressed="${team}">2 对 2</button>
+      </div>
       <div class="ac-picks" role="group" aria-label="选成员">${members}</div>
+      ${pickTip ? `<p class="ac-sub">${pickTip}</p>` : ''}
       <div class="ac-row" role="group" aria-label="怎么玩">
         <button type="button" class="ac-seg" data-sit="1" aria-pressed="${this.sit}">我亲自开</button>
         <button type="button" class="ac-seg" data-sit="0" aria-pressed="${!this.sit}">旁观</button>
@@ -628,41 +650,49 @@ export class ArcadePage {
       <div class="ac-row" role="group" aria-label="对手多厉害">
         ${[['easy', '新手'], ['normal', '普通'], ['hard', '高手']].map(([k, zh]) => `<button type="button" class="ac-seg" data-level="${k}" aria-pressed="${lv === k}">对手：${zh}</button>`).join('')}
       </div>
-      <p class="ac-sub">${coins}${this.sit ? ' 操作：方向键 / WASD 开动，空格 / J 开炮，P 暂停；手机上有触屏方向键。' : ''}</p>
+      <p class="ac-sub">${coins}${this.sit ? ' 操作：方向键 / WASD 开动，空格 / J 开炮，E / K 放地雷，P 暂停；手机上有触屏按键。' : ''}</p>
       <div class="ac-row">
         <button type="button" class="btn" data-act="back">返回</button>
         <button type="button" class="btn primary" data-act="open" ${this.pick.size >= need ? '' : 'disabled'}>开打</button>
-        <span class="ac-sub">${this.pick.size < need ? `再选 ${need - this.pick.size} 位` : `最多 ${max} 位`}</span>
+        <span class="ac-sub">${this.pick.size < need ? `再选 ${need - this.pick.size} 位` : need === max ? `正好 ${max} 位` : `最多 ${max} 位`}</span>
       </div>
+      ${this.tankStatsHTML(tk.stats)}
     </div>`;
+  }
+
+  tankStatsHTML(stats) {
+    if (!stats?.length) return '';
+    const rows = stats
+      .map((r) => `<tr><td>${esc(r.name)}</td><td>${fmt(r.games)}</td><td>${fmt(r.wins)}</td><td>${r.games ? Math.round((r.wins / r.games) * 100) : 0}%</td><td>${fmt(r.kills)}</td></tr>`)
+      .join('');
+    return `<details class="ac-tstats" open><summary>战绩</summary><table><thead><tr><th>谁</th><th>局数</th><th>赢</th><th>胜率</th><th>击毁</th></tr></thead><tbody>${rows}</tbody></table></details>`;
   }
 
   async startTanks() {
     this.stopTanks();
     const members = [...this.pick];
-    const roster = Object.fromEntries((this.info?.members || []).map((m) => [m.id, m.name]));
+    const team = this.tankMode === 'team';
     let run;
-    if (this.sit) {
-      try {
-        run = await this.api.tanks(members);
-      } catch (err) {
-        this.error = err.message;
-        this.render();
-        return;
-      }
-    } else {
-      const tk = this.info?.tanks || {};
-      run = { token: null, seed: Math.floor(Math.random() * 2 ** 31), members: members.map((id) => ({ id, name: roster[id] || id })), lives: tk.lives || 3, minutes: tk.minutes || 3 };
+    try {
+      run = await this.api.tanks(members, this.tankMode, !this.sit);
+    } catch (err) {
+      this.error = err.message;
+      this.render();
+      return;
     }
     this.error = '';
     this.tankRun = run;
-    const players = [...(this.sit ? [{ id: 'you', name: '你', human: true }] : []), ...run.members.map((m) => ({ id: m.id, name: m.name }))];
+    // 2 对 2：你和第一位一队；旁观时前两位一队
+    const teamOf = (k) => (this.sit ? (k === 0 ? 0 : 1) : k < 2 ? 0 : 1);
+    const players = [...(this.sit ? [{ id: 'you', name: '你', human: true, team: 0 }] : []), ...run.members.map((m, k) => ({ id: m.id, name: m.name, team: team ? teamOf(k) : undefined }))];
     this.tankUI = new TankGame({
       players,
       seed: run.seed,
       lives: run.lives,
       minutes: run.minutes,
       level: this.tankLevel,
+      mode: run.mode || this.tankMode,
+      lines: Object.fromEntries(run.members.map((m) => [m.id, m.lines || {}])),
       onEnd: (r) => this.tanksOver(r),
     });
     this.screen = 'tanks';
@@ -672,15 +702,16 @@ export class ArcadePage {
 
   async tanksOver(r) {
     const run = this.tankRun;
-    if (!run?.token || r.place === null) return;
+    if (!run?.token) return;
     this.tankRun = null;
+    const rank = (r.rank || []).filter((x) => x.id !== 'you').map((x) => ({ id: x.id, place: x.place, kills: x.kills }));
     try {
-      const res = await this.api.tanksResult(run.token, r.place, r.kills);
+      const res = await this.api.tanksResult(run.token, r.place || 1, r.kills || 0, rank);
       if (this.info) {
         this.info.wallet = res.wallet;
         if (this.info.tanks) this.info.tanks.today = res.today;
       }
-      this.tankUI?.showOver(res.coins ? `拿到 ${fmt(res.coins)} 金币` : res.note || '这一局没拿到金币');
+      if (this.sit) this.tankUI?.showOver(res.coins ? `拿到 ${fmt(res.coins)} 金币` : res.note || '这一局没拿到金币');
       this.render();
     } catch (err) {
       this.tankUI?.showOver(err.message);

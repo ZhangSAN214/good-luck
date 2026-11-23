@@ -350,3 +350,34 @@ def test_tanks_start_result_coins_once_and_daily_cap():
     assert arcade.status()["tanks"]["today"] == 600
     assert r["coins"] == 0 and "上限" in r["note"]
     assert arcade.wallet()["coins"] == 2000 + 600
+
+
+def test_tanks_team_watch_stats_and_lines():
+    from datetime import timedelta
+
+    env, arcade = make()
+    four = ids(arcade, 4)
+    with pytest.raises(ArcadeError, match="3 位"):
+        arcade.tanks_start(four[:2], mode="team")  # 2 对 2 上场要正好 3 位
+    with pytest.raises(ArcadeError, match="4 位"):
+        arcade.tanks_start(four[:3], mode="team", watch=True)
+    with pytest.raises(ArcadeError, match="玩法"):
+        arcade.tanks_start(four[:1], mode="闯关")
+    run = arcade.tanks_start(four[:3], mode="team")
+    assert run["mode"] == "team" and all("lines" in m for m in run["members"])
+    later = NOW + timedelta(minutes=2)
+    env.rt.budget.now = lambda: later
+    rank = [{"id": four[0], "place": 1, "kills": 2}, {"id": four[1], "place": 2, "kills": 1}]
+    r = arcade.tanks_result(run["token"], 1, 1, rank + [{"id": "外人", "place": 1, "kills": 9}])
+    assert r["coins"] == 100 + 20  # 你们队赢
+    # 旁观：不给金币，只记战绩
+    env.rt.budget.now = lambda: NOW
+    run = arcade.tanks_start(four, watch=True)
+    env.rt.budget.now = lambda: later
+    r = arcade.tanks_result(run["token"], 1, 5, [{"id": four[0], "place": 1, "kills": 3}])
+    assert r["coins"] == 0
+    stats = {s["id"]: s for s in arcade.status()["tanks"]["stats"]}
+    assert stats[four[0]] == {**stats[four[0]], "games": 2, "wins": 2, "kills": 5}
+    assert stats["you"]["games"] == 1 and stats["you"]["wins"] == 1
+    assert stats[four[1]]["wins"] == 0 and "外人" not in stats
+    assert arcade.status()["tanks"]["stats"][0]["id"] == four[0]  # 赢得多的排前面

@@ -718,10 +718,19 @@ class ArcadePlayBody(BaseModel):
 
 
 class ArcadeTanksStartBody(BaseModel):
-    """铁甲突围开一局：挑哪几位成员上场（她们的坦克由本地电脑开）。"""
+    """铁甲突围开一局：挑哪几位成员上场（她们的坦克由本地电脑开）、玩法、是不是旁观。"""
 
     model_config = ConfigDict(extra="forbid")
-    members: list[str] = Field(min_length=1, max_length=3)
+    members: list[str] = Field(min_length=1, max_length=4)
+    mode: Literal["ffa", "team"] = "ffa"  # 各自为战 / 2 对 2
+    watch: bool = False  # 旁观：不算金币，只记战绩
+
+
+class ArcadeTankRow(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    id: str = Field(min_length=1, max_length=60)
+    place: int = Field(ge=1, le=4)
+    kills: int = Field(ge=0, le=99)
 
 
 class ArcadeTanksResultBody(BaseModel):
@@ -731,6 +740,7 @@ class ArcadeTanksResultBody(BaseModel):
     token: str = Field(min_length=1, max_length=40)
     place: int = Field(ge=1, le=4)
     kills: int = Field(ge=0, le=99)
+    rank: list[ArcadeTankRow] = Field(default_factory=list, max_length=4)  # 各车名次
 
 
 class ArcadeWorkshopBody(BaseModel):

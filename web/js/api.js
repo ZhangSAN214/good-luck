@@ -419,10 +419,10 @@ export const arcadeDeal = (betOn = null, amount = 0) => api('/api/arcade/table/d
 export const arcadeGod = (on) => api('/api/arcade/table/god', { method: 'PUT', body: { on } });
 export const arcadeThink = (on) => api('/api/arcade/table/think', { method: 'PUT', body: { on } });
 export const arcadeLeave = () => api('/api/arcade/table', { method: 'DELETE' });
-export const arcadeTanks = (members) => api('/api/arcade/tanks', { method: 'POST', body: { members } });
+export const arcadeTanks = (members, mode = 'ffa', watch = false) => api('/api/arcade/tanks', { method: 'POST', body: { members, mode, watch } });
 export const arcadeWorkshop = () => api('/api/arcade/workshop');
 export const arcadeWorkshopMake = (text) => api('/api/arcade/workshop', { method: 'POST', body: { text } });
 export const arcadeWorkshopCancel = () => api('/api/arcade/workshop/cancel', { method: 'POST' });
 export const arcadeWorkshopDelete = (id) => api(`/api/arcade/workshop/games/${encodeURIComponent(id)}`, { method: 'DELETE' });
-export const arcadeTanksResult = (token, place, kills) => api('/api/arcade/tanks/result', { method: 'POST', body: { token, place, kills } });
+export const arcadeTanksResult = (token, place, kills, rank = []) => api('/api/arcade/tanks/result', { method: 'POST', body: { token, place, kills, rank } });
 export const arcadePlay = (kind, cards = [], bid = 0) => api('/api/arcade/table/play', { method: 'POST', body: { kind, cards, bid } });

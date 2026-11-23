@@ -1830,6 +1830,28 @@ class Persona(_Strict):
     voice: str = Field(default="", max_length=60)  # 语音音色（预留）
 
 
+class GameLines(_Strict):
+    """游戏区「铁甲突围」里一位成员头顶冒的小气泡。
+
+    只用于游戏区；每项最多 6 句、每句最多 16 字。
+    """
+
+    start: list[str] = Field(default_factory=list, max_length=6)  # 开局
+    kill: list[str] = Field(default_factory=list, max_length=6)  # 击毁别人
+    die: list[str] = Field(default_factory=list, max_length=6)  # 被击毁
+    power: list[str] = Field(default_factory=list, max_length=6)  # 捡到补给
+    win: list[str] = Field(default_factory=list, max_length=6)  # 赢了
+    ally: list[str] = Field(default_factory=list, max_length=6)  # 组队时对你说
+
+    @field_validator("start", "kill", "die", "power", "win", "ally")
+    @classmethod
+    def _short(cls, lines: list[str]) -> list[str]:
+        long = [x for x in lines if not x.strip() or len(x) > 16]
+        if long:
+            raise ValueError(f"每句要有字、最多 16 字：{long}")
+        return lines
+
+
 class Signature(_Strict):
     """一位成员最有辨识度的说话特色（只用于私聊、群聊、生活、朋友圈；2026-10-31 用户定）。
 
@@ -1949,6 +1971,8 @@ class PersonasConfig(_Strict):
     personas: dict[str, Persona] = Field(default_factory=dict)  # 厂商 → 人设
     # 厂商 → 最有辨识度的说话特色（优先于人物卡里没写够的地方；只用于聊天和生活）
     signatures: dict[str, Signature] = Field(default_factory=dict)
+    # 游戏区「铁甲突围」的小气泡台词：厂商 → 各种时候说的话（只用于游戏区）
+    game_lines: dict[str, GameLines] = Field(default_factory=dict)
     # 成员固定音色（合成音色，不克隆真人）：厂商 → {语音模型 id → 该模型的音色名}
     voices: dict[str, dict[str, str]] = Field(default_factory=dict)
     # 成员专属表情包：厂商 → 形象卡与表情清单

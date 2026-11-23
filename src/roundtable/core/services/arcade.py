@@ -50,11 +50,15 @@ class ArcadeService:
     def arcade_think(self, on: bool) -> dict[str, Any]:
         return _wrap(self.arcade.set_think, on)
 
-    def arcade_tanks_start(self, members: list[str]) -> dict[str, Any]:
-        return _wrap(self.arcade.tanks_start, members)
+    def arcade_tanks_start(
+        self, members: list[str], mode: str = "ffa", watch: bool = False
+    ) -> dict[str, Any]:
+        return _wrap(self.arcade.tanks_start, members, mode, watch)
 
-    def arcade_tanks_result(self, token: str, place: int, kills: int) -> dict[str, Any]:
-        return _wrap(self.arcade.tanks_result, token, place, kills)
+    def arcade_tanks_result(
+        self, token: str, place: int, kills: int, rank: list[dict[str, Any]] | None = None
+    ) -> dict[str, Any]:
+        return _wrap(self.arcade.tanks_result, token, place, kills, rank)
 
     # --- 游戏工坊 ---------------------------------------------------------------
 
