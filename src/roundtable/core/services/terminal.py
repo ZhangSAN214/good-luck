@@ -294,6 +294,7 @@ class TerminalService:
         self.watch.stop("服务关闭，投屏停了")
         with contextlib.suppress(Exception):
             await self.bench.aclose()
+            await self.workshop.aclose()
             await self.supercomputer.aclose()
         if self.dsh is not None:
             with contextlib.suppress(Exception):

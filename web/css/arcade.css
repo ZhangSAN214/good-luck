@@ -339,3 +339,27 @@
 .ac-tfire{width:96px;height:96px;border:0;border-radius:50%;background:radial-gradient(circle at 40% 35%,#c25b4a,#7d2f25);color:#fff;font:inherit;font-size:16px;box-shadow:0 6px 16px rgba(0,0,0,.5),inset 0 2px 0 rgba(255,255,255,.25);touch-action:none}
 @media (pointer:coarse),(max-width:860px){.ac-tpad{display:flex}}
 @media (max-width:600px){.ac-ttip{font-size:12px}}
+
+/* 游戏工坊 */
+.ac-shop{margin-top:18px;border-radius:28px;padding:20px 24px;display:flex;flex-direction:column;gap:12px}
+.ac-shop h3{margin:0;font-family:var(--hb-serif);font-weight:400;font-size:20px;letter-spacing:.06em}
+.ac-shop h3 .ac-sub{display:inline;margin-left:8px;letter-spacing:0}
+.ac-wsoff{color:var(--bad,#c0392b)}
+.ac-wstext{width:100%;box-sizing:border-box;resize:vertical;min-height:72px;border-radius:14px;border:1px solid var(--hb-line,rgba(127,127,127,.3));background:var(--hb-ink-lo,transparent);color:inherit;font:inherit;padding:10px 12px}
+.ac-wstext:focus-visible{outline:2px solid var(--ac-gold);outline-offset:1px}
+.ac-wsjob{border-radius:16px;padding:12px 14px;background:var(--hb-ink-lo,rgba(127,127,127,.08));display:flex;flex-direction:column;gap:6px}
+.ac-wsdot{width:9px;height:9px;border-radius:50%;background:var(--hb-muted);flex:none}
+.ac-wsjob.live .ac-wsdot{background:#4cc38a;animation:ac-wspulse 1.4s ease-in-out infinite}
+@keyframes ac-wspulse{50%{opacity:.35}}
+.ac-wssteps,.ac-wslog{margin:0;padding-left:20px;font-size:13px;line-height:1.7}
+.ac-wslog{color:var(--hb-muted);list-style:none;padding-left:0}
+.ac-wsstep b{display:inline-block;width:1.2em;color:var(--ac-gold)}
+.ac-wsstep.bad b{color:var(--bad,#c0392b)}
+.ac-wsgames{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:12px}
+.ac-wsgame{border-radius:18px;padding:14px 16px;display:flex;flex-direction:column;gap:6px}
+.ac-wsgt{font-weight:600;display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.ac-wswarn{font-weight:400;font-size:12px;padding:1px 8px;border-radius:999px;background:rgba(232,194,120,.18);color:var(--ac-gold)}
+.ac-wsgame .btn.danger{color:var(--bad,#c0392b)}
+.ac-wsplay{display:flex;flex-direction:column;gap:10px}
+.ac-wsframe{width:100%;height:min(78vh,820px);border:0;border-radius:20px;background:#0b0f14;display:block}
+@media (prefers-reduced-motion: reduce){.ac-wsjob.live .ac-wsdot{animation:none}}

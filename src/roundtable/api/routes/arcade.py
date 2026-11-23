@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import mimetypes
 from typing import Any
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Request, Response
 
 from roundtable.api.bodies import (
     ArcadeActBody,
@@ -14,8 +15,9 @@ from roundtable.api.bodies import (
     ArcadeTanksResultBody,
     ArcadeTanksStartBody,
     ArcadeThinkBody,
+    ArcadeWorkshopBody,
 )
-from roundtable.api.common import svc
+from roundtable.api.common import bench_csp, svc
 
 router = APIRouter()
 
@@ -74,3 +76,37 @@ async def arcade_tanks_result(request: Request, body: ArcadeTanksResultBody) -> 
 @router.delete("/api/arcade/table")
 async def arcade_leave(request: Request) -> dict[str, Any]:
     return svc(request).arcade_leave()
+
+
+# --- 游戏工坊 -----------------------------------------------------------------
+
+
+@router.get("/api/arcade/workshop")
+async def workshop(request: Request) -> dict[str, Any]:
+    return svc(request).workshop_status()
+
+
+@router.post("/api/arcade/workshop")
+async def workshop_submit(request: Request, body: ArcadeWorkshopBody) -> dict[str, Any]:
+    return svc(request).workshop_submit(body.text)
+
+
+@router.post("/api/arcade/workshop/cancel")
+async def workshop_cancel(request: Request) -> dict[str, Any]:
+    return await svc(request).workshop_cancel()
+
+
+@router.delete("/api/arcade/workshop/games/{gid}")
+async def workshop_delete(request: Request, gid: str) -> dict[str, Any]:
+    return svc(request).workshop_delete(gid)
+
+
+@router.get("/arcade-games/{gid}/{path:path}")
+async def workshop_file(request: Request, gid: str, path: str) -> Response:
+    """做好的游戏：和生成的工作台一样在沙箱里打开，碰不到圆桌的接口、存储和登录状态，也不能联网。"""
+    full = svc(request).workshop_file(gid, path)
+    mime = mimetypes.guess_type(full.name)[0] or "application/octet-stream"
+    if full.suffix in (".js", ".mjs"):
+        mime = "text/javascript"
+    headers = {"Cache-Control": "no-cache", "Content-Security-Policy": bench_csp([])}
+    return Response(content=full.read_bytes(), media_type=mime, headers=headers)

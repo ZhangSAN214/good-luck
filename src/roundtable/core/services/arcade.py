@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from roundtable.core.arcade import ArcadeError
+from roundtable.core.arcade.workshop import WorkshopError
 from roundtable.core.services.common import ServiceError
 
 
@@ -53,6 +55,35 @@ class ArcadeService:
 
     def arcade_tanks_result(self, token: str, place: int, kills: int) -> dict[str, Any]:
         return _wrap(self.arcade.tanks_result, token, place, kills)
+
+    # --- 游戏工坊 ---------------------------------------------------------------
+
+    def workshop_status(self) -> dict[str, Any]:
+        return self.workshop.status()
+
+    def workshop_submit(self, text: str) -> dict[str, Any]:
+        try:
+            self.workshop.submit(text)
+        except WorkshopError as e:
+            raise ServiceError(str(e), 409) from None
+        return self.workshop.status()
+
+    async def workshop_cancel(self) -> dict[str, Any]:
+        await self.workshop.cancel()
+        return self.workshop.status()
+
+    def workshop_delete(self, gid: str) -> dict[str, Any]:
+        try:
+            self.workshop.delete(gid)
+        except WorkshopError as e:
+            raise ServiceError(str(e), 404) from None
+        return self.workshop.status()
+
+    def workshop_file(self, gid: str, path: str) -> Path:
+        try:
+            return self.workshop.file(gid, path)
+        except WorkshopError as e:
+            raise ServiceError(str(e), 404) from None
 
     def arcade_leave(self) -> dict[str, Any]:
         return self.arcade.leave()
