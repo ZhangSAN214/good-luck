@@ -401,3 +401,32 @@ def test_workshop_make_play_and_delete(serve, page, monkeypatch, tmp_path):
     assert page.inner_text("[data-ws-del]") == "再点一下删除"
     page.click("[data-ws-del]")
     page.wait_for_selector(".ac-wsgame", state="detached")
+
+
+def test_tanks_two_vs_two_mines_and_stats(serve, page):
+    srv = serve(confirm_threshold_usd=100.0)
+    _short_tanks(srv)
+    errors: list[str] = []
+    page.on("pageerror", lambda e: errors.append(str(e)))
+    page.goto(srv.url + "#m=game")
+    page.wait_for_selector(".ac-lobby")
+    page.click(".ac-game[data-game=tanks]")
+    page.wait_for_selector(".ac-setup")
+    page.click("[data-tmode=team]")
+    assert page.get_attribute("[data-tmode=team]", "aria-pressed") == "true"
+    assert page.locator(".ac-pick.on").count() == 3  # 2 对 2：你 + 3 位
+    assert page.locator(".ac-tbadge", has_text="队友").count() == 1
+    assert page.locator(".ac-tbadge", has_text="对手").count() == 2
+    page.click("[data-act=open]")
+    page.wait_for_selector(".ac-tcanvas")
+    assert page.locator(".ac-tteam", has_text="左队").count() == 2
+    page.keyboard.press("KeyE")  # 没捡到地雷时按了也不出错
+    page.wait_for_selector("[data-tover]:not([hidden])", timeout=15000)
+    assert "你们队" in page.inner_text("[data-tover]")
+    wait_until(lambda: "金币" in page.inner_text("[data-tover]"), timeout=10)
+    page.click("[data-act=tanks-back]")
+    page.wait_for_selector(".ac-lobby")
+    page.click(".ac-game[data-game=tanks]")
+    page.wait_for_selector(".ac-tstats")
+    assert "你" in page.inner_text(".ac-tstats")  # 战绩记上了
+    assert not errors, errors

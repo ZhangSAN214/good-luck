@@ -338,6 +338,11 @@
 .ac-tkey.on,.ac-tfire.on{background:rgba(232,194,120,.4)}
 .ac-tfire{width:96px;height:96px;border:0;border-radius:50%;background:radial-gradient(circle at 40% 35%,#c25b4a,#7d2f25);color:#fff;font:inherit;font-size:16px;box-shadow:0 6px 16px rgba(0,0,0,.5),inset 0 2px 0 rgba(255,255,255,.25);touch-action:none}
 @media (pointer:coarse),(max-width:860px){.ac-tpad{display:flex}}
+.ac-tbtns{display:flex;align-items:center;gap:14px}
+.ac-tmine{width:64px;height:64px;border:0;border-radius:50%;background:radial-gradient(circle at 40% 35%,#5a5f66,#2a2f36);color:#fff;font:inherit;font-size:14px;box-shadow:0 4px 12px rgba(0,0,0,.45),inset 0 2px 0 rgba(255,255,255,.18);touch-action:none}
+.ac-tmine.on{background:rgba(232,194,120,.4)}
+.ac-tteam{font-size:12px;padding:0 6px;border-radius:999px;background:var(--hb-ink-lo,rgba(127,127,127,.15));color:var(--hb-muted)}
+.ac-tbuff{font-size:12px;color:var(--ac-gold)}
 @media (max-width:600px){.ac-ttip{font-size:12px}}
 
 /* 游戏工坊 */
@@ -363,3 +368,8 @@
 .ac-wsplay{display:flex;flex-direction:column;gap:10px}
 .ac-wsframe{width:100%;height:min(78vh,820px);border:0;border-radius:20px;background:#0b0f14;display:block}
 @media (prefers-reduced-motion: reduce){.ac-wsjob.live .ac-wsdot{animation:none}}
+.ac-tbadge{font-style:normal;font-size:11px;padding:0 6px;border-radius:999px;background:rgba(232,194,120,.22);color:var(--ac-gold)}
+.ac-tstats summary{cursor:pointer;color:var(--hb-muted);font-size:13px}
+.ac-tstats table{border-collapse:collapse;font-size:13px;margin-top:6px}
+.ac-tstats th,.ac-tstats td{padding:3px 12px 3px 0;text-align:left}
+.ac-tstats th{color:var(--hb-muted);font-weight:400}

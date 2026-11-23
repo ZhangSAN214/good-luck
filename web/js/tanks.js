@@ -1,28 +1,48 @@
 // 「铁甲突围」的画面和操作：画布画地图和坦克（全部现场画，不用图片素材），键盘 / 手机触屏操作，
 // 每秒 60 帧推进 tanks_core.js 的规则。成员的坦克由本地电脑开（不调模型、不花钱）。
+// 手感：开炮有火光、坦克被击毁震屏加碎片、砖块碎屑、履带印、挡下炮弹闪一下；成员头顶冒小气泡说话（台词来自配置）。
 
 import { BRICK, BUSH, H, STEEL, W, WATER, createGame, placeOf, step } from './tanks_core.js';
 import { sfx } from './arcade_sfx.js';
 import { esc } from './util.js';
 
 const COLORS = ['#e8c278', '#5fc4b8', '#e98a7a', '#a99be8'];
+// 组队时按队伍上色：左边一队暖色，右边一队冷色（按坐的角分深浅）
+const TEAM_COLORS = { 0: '#e8c278', 2: '#e98a5a', 1: '#5fc4b8', 3: '#7fa6e8' };
+const MINE_KEYS = new Set(['KeyE', 'KeyK']);
+// 成员没配台词时用的通用台词
+const LINES = {
+  start: ['来吧！', '这局我要赢', '准备好了'],
+  kill: ['打中了！', '漂亮', '就这？'],
+  die: ['啊！', '下次再算账', '大意了'],
+  power: ['捡到好东西', '嘿嘿', '运气不错'],
+  win: ['赢啦！', '谢谢大家'],
+  ally: ['掩护你', '一起上！'],
+};
 const KEYS = { ArrowUp: 'up', KeyW: 'up', ArrowDown: 'down', KeyS: 'down', ArrowLeft: 'left', KeyA: 'left', ArrowRight: 'right', KeyD: 'right' };
 const FIRE = new Set(['Space', 'KeyJ', 'Enter']);
-const POWER_ZH = { shield: '盾', rapid: '连', repair: '修' };
-const POWER_TIP = { shield: '护盾', rapid: '连发', repair: '修理 +1 命' };
+const POWER_ZH = { shield: '盾', rapid: '连', repair: '修', pierce: '穿', speed: '速', mine: '雷' };
+const POWER_TIP = { shield: '护盾', rapid: '连发', repair: '修理 +1 命', pierce: '穿甲（能打碎钢墙）', speed: '加速', mine: '地雷 ×2' };
+const POWER_BG = { shield: '#3c7fb8', rapid: '#c08a1e', repair: '#3f8f5a', pierce: '#8a4fb8', speed: '#2f9aa0', mine: '#a8433a' };
 const ANGLE = { up: 0, right: Math.PI / 2, down: Math.PI, left: -Math.PI / 2 };
 
 export class TankGame {
   /**
-   * @param {{players: {id: string, name: string, human?: boolean}[], seed: number, lives: number,
-   *   minutes: number, level: string, onEnd: (r: {place: number|null, kills: number, rank: object[]}) => void}} opts
+   * @param {{players: {id: string, name: string, human?: boolean, team?: number}[], seed: number, lives: number,
+   *   minutes: number, level: string, mode?: 'ffa'|'team', lines?: Record<string, Record<string, string[]>>,
+   *   onEnd: (r: {place: number|null, kills: number, rank: object[]}) => void}} opts
    */
   constructor(opts) {
     this.opts = opts;
-    this.g = createGame(opts.players, { seed: opts.seed, lives: opts.lives, seconds: Math.round(opts.minutes * 60), level: opts.level });
+    this.g = createGame(opts.players, { seed: opts.seed, lives: opts.lives, seconds: Math.round(opts.minutes * 60), level: opts.level, mode: opts.mode || 'ffa' });
     this.me = opts.players.find((p) => p.human)?.id || null;
+    this.lines = opts.lines || {};
     this.held = [];
     this.fire = false;
+    this.mine = false;
+    this.fx = { shake: 0, flashes: [], bits: [], tracks: [], bubbles: [], blink: {}, stop: 0, trackAt: 0 };
+    this.saidAt = {};
+    this.lineRand = mulberry(opts.seed ^ 0x51ed);
     this.paused = false;
     this.ended = false;
     this.last = 0;
@@ -34,9 +54,9 @@ export class TankGame {
       <div class="ac-tstage"><canvas class="ac-tcanvas" aria-label="铁甲突围战场" role="img"></canvas><div class="ac-tover" data-tover hidden></div></div>
       ${this.me ? `<div class="ac-tpad" aria-label="触屏操作">
         <div class="ac-tdpad">${['up', 'left', 'right', 'down'].map((d) => `<button type="button" class="ac-tkey k-${d}" data-tdir="${d}" aria-label="${{ up: '上', down: '下', left: '左', right: '右' }[d]}"></button>`).join('')}</div>
-        <button type="button" class="ac-tfire" data-tfire aria-label="开炮">开炮</button>
+        <div class="ac-tbtns"><button type="button" class="ac-tmine" data-tmine aria-label="放地雷">地雷</button><button type="button" class="ac-tfire" data-tfire aria-label="开炮">开炮</button></div>
       </div>` : ''}
-      <p class="ac-sub ac-ttip">${this.me ? '方向键 / WASD 开动，空格 / J 开炮，P 暂停。手机上用下面的方向键和「开炮」。' : '你在旁观：成员们自己开（本地电脑操控）。'}草丛能藏身，砖墙打两下就碎，钢墙打不动，水挡车不挡炮弹。补给：盾 = 护盾、连 = 连发、修 = 多一条命。</p>`;
+      <p class="ac-sub ac-ttip">${this.me ? '方向键 / WASD 开动，空格 / J 开炮，E / K 放地雷，P 暂停。手机上用下面的方向键、「开炮」「地雷」。' : '你在旁观：成员们自己开（本地电脑操控）。'}${this.g.mode === 'team' ? '2 对 2：左边两个角一队、右边两个角一队，炮弹打不伤队友。' : ''}草丛能藏身，砖墙打两下就碎，钢墙只有穿甲弹打得碎，水挡车不挡炮弹。补给：盾 护盾、连 连发、修 多一条命、穿 穿甲、速 加速、雷 两颗地雷。</p>`;
     this.canvas = this.el.querySelector('canvas');
     this.ctx = this.canvas.getContext('2d');
     this.hud = this.el.querySelector('[data-thud]');
@@ -82,6 +102,9 @@ export class TankGame {
     } else if (FIRE.has(e.code)) {
       e.preventDefault();
       this.fire = down;
+    } else if (MINE_KEYS.has(e.code)) {
+      e.preventDefault();
+      this.mine = down;
     } else if (e.code === 'KeyP' && down) {
       this.togglePause();
     }
@@ -91,10 +114,11 @@ export class TankGame {
     const pad = this.el.querySelector('.ac-tpad');
     if (!pad) return;
     const press = (e, on) => {
-      const b = e.target.closest('[data-tdir],[data-tfire]');
+      const b = e.target.closest('[data-tdir],[data-tfire],[data-tmine]');
       if (!b) return;
       e.preventDefault();
       if (b.dataset.tfire !== undefined) this.fire = on;
+      else if (b.dataset.tmine !== undefined) this.mine = on;
       else {
         const d = b.dataset.tdir;
         this.held = this.held.filter((x) => x !== d);
@@ -121,12 +145,16 @@ export class TankGame {
     const dt = Math.min(0.1, (now - this.last) / 1000);
     this.last = now;
     if (!this.paused && !this.ended) {
-      this.acc += dt;
-      const inputs = this.me ? { [this.me]: { dir: this.held[this.held.length - 1] || null, fire: this.fire } } : {};
+      // 击毁的一瞬间顿一下（更有打击感）
+      if (this.fx.stop > 0) this.fx.stop -= dt;
+      else this.acc += dt;
+      const inputs = this.me ? { [this.me]: { dir: this.held[this.held.length - 1] || null, fire: this.fire, mine: this.mine } } : {};
       let n = 0;
       while (this.acc >= 1 / 60 && n < 6) {
+        if (!this.started) this.greet();
         step(this.g, 1 / 60, inputs);
         this.sounds();
+        this.effects();
         this.acc -= 1 / 60;
         n += 1;
         if (this.g.over) break;
@@ -134,7 +162,98 @@ export class TankGame {
       if (n) this.drawHud();
       if (this.g.over) this.end();
     }
+    this.tickFx(this.paused ? 0 : dt);
     this.draw(now / 1000);
+  }
+
+  // --- 手感：火光、碎片、履带印、震屏、气泡 -------------------------------------------
+
+  /** 开局几位成员各说一句（错开一点）。 */
+  greet() {
+    this.started = true;
+    const bots = this.g.tanks.filter((t) => !t.human);
+    bots.forEach((t, k) => setTimeout(() => this.say(t.id, 'start', 1), 300 + k * 700));
+    if (this.g.mode === 'team') {
+      const ally = bots.find((t) => this.me && t.team === this.g.tanks.find((x) => x.id === this.me)?.team);
+      if (ally) setTimeout(() => this.say(ally.id, 'ally', 1), 300 + bots.length * 700);
+    }
+  }
+
+  /** 让一位成员冒个气泡（chance 是说话的概率；每位 2.5 秒内最多一句）。 */
+  say(id, kind, chance = 0.6) {
+    const t = this.g.tanks.find((x) => x.id === id);
+    if (!t || t.human || this.lineRand() > chance) return;
+    const now = this.g.time;
+    if (now - (this.saidAt[id] ?? -9) < 2.5 && kind !== 'win') return;
+    const own = this.lines[id]?.[kind];
+    const pool = own?.length ? own : LINES[kind] || [];
+    if (!pool.length) return;
+    this.saidAt[id] = now;
+    this.fx.bubbles = this.fx.bubbles.filter((b) => b.id !== id);
+    this.fx.bubbles.push({ id, text: pool[Math.floor(this.lineRand() * pool.length)], t: 2.4 });
+  }
+
+  effects() {
+    const fx = this.fx;
+    for (const e of this.g.events) {
+      if (e.kind === 'shoot') {
+        fx.flashes.push({ x: e.x, y: e.y, dir: e.dir, t: 0.09 });
+        if (e.id === this.me) fx.shake = Math.max(fx.shake, 0.06);
+      } else if (e.kind === 'brick' || e.kind === 'steel') {
+        const col = e.kind === 'brick' ? ['#b0633f', '#7d4430', '#d08a5a'] : ['#c5ced8', '#8994a0'];
+        this.burst(e.sx, e.sy, e.broke ? 10 : 4, col, e.broke ? 3.2 : 2);
+        if (e.broke) fx.shake = Math.max(fx.shake, 0.1);
+      } else if (e.kind === 'kill') {
+        this.burst(e.x, e.y, 22, ['#ffd27a', '#ff9a4a', '#5a5f66', '#2a2f36'], 5);
+        fx.shake = Math.max(fx.shake, e.id === this.me || e.by === this.me ? 0.5 : 0.3);
+        if (e.by === this.me || e.id === this.me) fx.stop = 0.07;
+        this.say(e.by, 'kill', 0.75);
+        this.say(e.id, 'die', 0.55);
+      } else if (e.kind === 'block' || e.kind === 'friendly') {
+        fx.blink[e.id] = 0.15;
+        this.burst(e.x, e.y, 5, ['#bfe3ff', '#ffffff'], 2.2);
+      } else if (e.kind === 'mineboom') {
+        fx.shake = Math.max(fx.shake, 0.35);
+      } else if (e.kind === 'power') {
+        this.say(e.id, 'power', 0.45);
+      }
+    }
+    // 履带印：开动的坦克每隔一小段留一道
+    fx.trackAt -= 1 / 60;
+    if (fx.trackAt <= 0) {
+      fx.trackAt = 0.09;
+      for (const t of this.g.tanks) if (t.alive && t.moving) fx.tracks.push({ x: t.x, y: t.y, dir: t.dir, age: 0 });
+      if (fx.tracks.length > 400) fx.tracks.splice(0, fx.tracks.length - 400);
+    }
+  }
+
+  burst(x, y, n, colors, speed) {
+    for (let k = 0; k < n; k += 1) {
+      const a = Math.random() * Math.PI * 2;
+      const v = speed * (0.3 + Math.random() * 0.7);
+      this.fx.bits.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, t: 0.45 + Math.random() * 0.4, col: colors[k % colors.length], r: 0.05 + Math.random() * 0.07 });
+    }
+    if (this.fx.bits.length > 300) this.fx.bits.splice(0, this.fx.bits.length - 300);
+  }
+
+  tickFx(dt) {
+    const fx = this.fx;
+    fx.shake = Math.max(0, fx.shake - dt * 1.6);
+    for (const f of fx.flashes) f.t -= dt;
+    fx.flashes = fx.flashes.filter((f) => f.t > 0);
+    for (const b of fx.bits) {
+      b.x += b.vx * dt;
+      b.y += b.vy * dt;
+      b.vx *= 0.9;
+      b.vy *= 0.9;
+      b.t -= dt;
+    }
+    fx.bits = fx.bits.filter((b) => b.t > 0);
+    for (const tr of fx.tracks) tr.age += dt;
+    fx.tracks = fx.tracks.filter((tr) => tr.age < 5);
+    for (const b of fx.bubbles) b.t -= dt;
+    fx.bubbles = fx.bubbles.filter((b) => b.t > 0);
+    for (const k of Object.keys(fx.blink)) if ((fx.blink[k] -= dt) <= 0) delete fx.blink[k];
   }
 
   sounds() {
@@ -147,6 +266,9 @@ export class TankGame {
       else if (e.kind === 'brick' && e.broke) sfx('pass');
       else if (e.kind === 'power') sfx('power');
       else if (e.kind === 'block') sfx('chip');
+      else if (e.kind === 'steel' && e.broke) sfx('bomb');
+      else if (e.kind === 'mine' && e.id === this.me) sfx('pick');
+      else if (e.kind === 'mineboom') sfx('bomb');
     }
   }
 
@@ -156,6 +278,7 @@ export class TankGame {
     const place = this.me ? placeOf(this.g, this.me) : null;
     const kills = this.me ? this.g.tanks.find((t) => t.id === this.me).kills : 0;
     if (this.me) sfx(place === 1 ? 'win' : 'lose');
+    for (const r of this.g.rank || []) if (r.place === 1) this.say(r.id, 'win', 1);
     this.drawHud();
     this.showOver('');
     this.opts.onEnd?.({ place, kills, rank: this.g.rank });
@@ -165,10 +288,22 @@ export class TankGame {
   showOver(coinLine) {
     const g = this.g;
     const rows = (g.rank || [])
-      .map((r) => `<li class="${r.place === 1 ? 'win' : ''}"><span class="ac-tdot" style="background:${COLORS[g.tanks.find((t) => t.id === r.id).slot]}"></span>第 ${r.place} 名 <b>${esc(r.id === this.me ? '你' : r.name)}</b> 击毁 ${r.kills} 次 · 剩 ${r.lives} 条命</li>`)
+      .map((r) => `<li class="${r.place === 1 ? 'win' : ''}"><span class="ac-tdot" style="background:${this.color(g.tanks.find((t) => t.id === r.id))}"></span>${g.mode === 'team' ? (r.place === 1 ? '胜方' : '败方') : `第 ${r.place} 名`} <b>${esc(r.id === this.me ? '你' : r.name)}</b> 击毁 ${r.kills} 次 · 剩 ${r.lives} 条命</li>`)
       .join('');
     const place = this.me ? placeOf(g, this.me) : null;
-    const head = this.me ? (place === 1 ? '你赢了！' : `你拿了第 ${place} 名`) : `${esc(g.rank?.[0]?.name || '')} 赢了`;
+    const winners = (g.rank || []).filter((r) => r.place === 1).map((r) => (r.id === this.me ? '你' : r.name));
+    const head =
+      g.mode === 'team'
+        ? this.me
+          ? place === 1
+            ? '你们队赢了！'
+            : '你们队输了'
+          : `${esc(winners.join('、'))} 这队赢了`
+        : this.me
+          ? place === 1
+            ? '你赢了！'
+            : `你拿了第 ${place} 名`
+          : `${esc(g.rank?.[0]?.name || '')} 赢了`;
     this.over.hidden = false;
     this.over.innerHTML = `<div class="ac-tpanel hb-glass">
       <h3>${head}</h3>
@@ -200,7 +335,9 @@ export class TankGame {
     const rows = g.tanks
       .map((t) => {
         const hearts = t.lives > 0 ? '♥'.repeat(Math.min(t.lives, 6)) : '出局';
-        return `<span class="ac-tplayer${t.lives <= 0 && !t.alive ? ' out' : ''}"><span class="ac-tdot" style="background:${COLORS[t.slot]}"></span><b>${esc(t.id === this.me ? '你' : t.name)}</b><span class="ac-thearts">${hearts}</span><span class="ac-tkills">击毁 ${t.kills}</span></span>`;
+        const buffs = [t.pierce > 0 ? '穿' : '', t.fast > 0 ? '速' : '', t.rapid > 0 ? '连' : '', t.mines > 0 ? `雷×${t.mines}` : ''].filter(Boolean).join(' ');
+        const side = g.mode === 'team' ? `<span class="ac-tteam">${t.team === 0 ? '左队' : '右队'}</span>` : '';
+        return `<span class="ac-tplayer${t.lives <= 0 && !t.alive ? ' out' : ''}"><span class="ac-tdot" style="background:${this.color(t)}"></span>${side}<b>${esc(t.id === this.me ? '你' : t.name)}</b><span class="ac-thearts">${hearts}</span><span class="ac-tkills">击毁 ${t.kills}</span>${buffs ? `<span class="ac-tbuff">${buffs}</span>` : ''}</span>`;
       })
       .join('');
     const html = `${rows}<span class="ac-grow"></span><span class="ac-ttime">${mm}:${ss}</span>${this.me && !this.ended ? `<button type="button" class="ac-seg ac-sm" data-act="tanks-pause">${this.paused ? '继续' : '暂停'}</button>` : ''}<button type="button" class="btn" data-act="tanks-quit">${this.ended ? '回大厅' : '退出'}</button>`;
@@ -210,9 +347,18 @@ export class TankGame {
     }
   }
 
+  color(tk) {
+    return this.g.mode === 'team' ? TEAM_COLORS[tk.slot] : COLORS[tk.slot];
+  }
+
   draw(t) {
     const { ctx, g } = this;
     const c = this.cell || 20;
+    ctx.save();
+    if (this.fx.shake > 0 && !reduceMotion()) {
+      const a = this.fx.shake * c * 0.5;
+      ctx.translate((Math.random() - 0.5) * a, (Math.random() - 0.5) * a);
+    }
     ctx.fillStyle = '#23282a';
     ctx.fillRect(0, 0, W * c, H * c);
     ctx.strokeStyle = 'rgba(255,255,255,.035)';
@@ -237,12 +383,18 @@ export class TankGame {
         else if (v === WATER) this.water(x, y, t);
       }
     }
+    this.drawTracks();
+    for (const m of g.mines) this.mineAt(m, t);
     for (const p of g.powers) this.power(p, t);
     for (const tk of g.tanks) if (tk.alive) this.tank(tk, t);
     for (const s of g.shots) this.shot(s);
+    for (const f of this.fx.flashes) this.flash(f);
     for (let y = 0; y < H; y += 1) for (let x = 0; x < W; x += 1) if (g.map[y][x] === BUSH) this.bush(x, y);
     for (const b of g.booms) this.boom(b);
+    for (const b of this.fx.bits) this.bit(b);
     for (const tk of g.tanks) if (tk.alive) this.label(tk);
+    for (const b of this.fx.bubbles) this.bubble(b);
+    ctx.restore();
     if (this.paused) {
       ctx.fillStyle = 'rgba(0,0,0,.45)';
       ctx.fillRect(0, 0, W * c, H * c);
@@ -377,8 +529,8 @@ export class TankGame {
       ctx.lineTo(s / 2, yy);
       ctx.stroke();
     }
-    // 车身
-    const col = COLORS[tk.slot];
+    // 车身（挡下炮弹那一下闪白）
+    const col = this.fx.blink[tk.id] ? '#ffffff' : this.color(tk);
     ctx.fillStyle = col;
     roundRect(ctx, -s * 0.3, -s * 0.38, s * 0.6, s * 0.76, s * 0.1);
     ctx.fill();
@@ -410,6 +562,118 @@ export class TankGame {
       ctx.arc(tk.x * c + s * 0.42, tk.y * c - s * 0.42, Math.max(2, c * 0.08), 0, Math.PI * 2);
       ctx.fill();
     }
+    if (tk.pierce > 0) {
+      ctx.fillStyle = '#c98cf0';
+      ctx.beginPath();
+      ctx.arc(tk.x * c - s * 0.42, tk.y * c - s * 0.42, Math.max(2, c * 0.08), 0, Math.PI * 2);
+      ctx.fill();
+    }
+    if (tk.fast > 0 && tk.moving) {
+      // 加速：车尾拖两道风线
+      const [dx, dy] = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] }[tk.dir];
+      ctx.strokeStyle = 'rgba(160,240,240,.55)';
+      ctx.lineWidth = Math.max(1, c / 16);
+      for (const off of [-0.25, 0.25]) {
+        const ox = dy ? off : 0;
+        const oy = dx ? off : 0;
+        ctx.beginPath();
+        ctx.moveTo((tk.x - dx * 0.45 + ox) * c, (tk.y - dy * 0.45 + oy) * c);
+        ctx.lineTo((tk.x - dx * 0.95 + ox) * c, (tk.y - dy * 0.95 + oy) * c);
+        ctx.stroke();
+      }
+    }
+  }
+
+  drawTracks() {
+    const { ctx } = this;
+    const c = this.cell;
+    for (const tr of this.fx.tracks) {
+      const a = 0.16 * (1 - tr.age / 5);
+      ctx.fillStyle = `rgba(0,0,0,${a})`;
+      const along = tr.dir === 'up' || tr.dir === 'down';
+      const w = c * 0.14;
+      const l = c * 0.22;
+      for (const side of [-0.29, 0.29]) {
+        const x = (tr.x + (along ? side : 0)) * c;
+        const y = (tr.y + (along ? 0 : side)) * c;
+        if (along) ctx.fillRect(x - w / 2, y - l / 2, w, l);
+        else ctx.fillRect(x - l / 2, y - w / 2, l, w);
+      }
+    }
+  }
+
+  mineAt(m, t) {
+    const { ctx } = this;
+    const c = this.cell;
+    const mine = this.me && this.g.tanks.find((x) => x.id === this.me)?.team === m.team;
+    // 自己（和队友）的雷看得清；别人的雷只隐约看得见
+    ctx.globalAlpha = mine || !this.me ? 1 : 0.35;
+    ctx.fillStyle = '#2b2f35';
+    ctx.beginPath();
+    ctx.arc(m.x * c, m.y * c, c * 0.22, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,.25)';
+    ctx.lineWidth = Math.max(1, c / 20);
+    ctx.stroke();
+    const on = m.arm > 0 ? Math.sin(t * 20) > 0 : Math.sin(t * 6) > 0;
+    ctx.fillStyle = on ? '#ff5a4a' : '#6b2a24';
+    ctx.beginPath();
+    ctx.arc(m.x * c, m.y * c, c * 0.07, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+  }
+
+  flash(f) {
+    const { ctx } = this;
+    const c = this.cell;
+    const [dx, dy] = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] }[f.dir];
+    const k = f.t / 0.09;
+    const g = ctx.createRadialGradient(f.x * c, f.y * c, 0, f.x * c, f.y * c, c * 0.5);
+    g.addColorStop(0, `rgba(255,250,220,${0.95 * k})`);
+    g.addColorStop(1, 'rgba(255,170,60,0)');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc((f.x + dx * 0.12) * c, (f.y + dy * 0.12) * c, c * 0.5, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  bit(b) {
+    const { ctx } = this;
+    const c = this.cell;
+    ctx.globalAlpha = Math.min(1, b.t * 2.5);
+    ctx.fillStyle = b.col;
+    const r = b.r * c;
+    ctx.fillRect(b.x * c - r, b.y * c - r, r * 2, r * 2);
+    ctx.globalAlpha = 1;
+  }
+
+  bubble(b) {
+    const tk = this.g.tanks.find((x) => x.id === b.id);
+    if (!tk || !tk.alive) return;
+    const { ctx } = this;
+    const c = this.cell;
+    const size = Math.max(11, Math.round(c * 0.55));
+    ctx.font = `${size}px "Noto Sans SC", system-ui, sans-serif`;
+    const text = b.text.length > 16 ? `${b.text.slice(0, 15)}…` : b.text;
+    const w = ctx.measureText(text).width + size;
+    const h = size * 1.6;
+    let x = tk.x * c - w / 2;
+    x = Math.max(2, Math.min(W * c - w - 2, x));
+    let y = tk.y * c - c * 1.1 - h;
+    if (y < 2) y = tk.y * c + c * 0.7;
+    ctx.globalAlpha = Math.min(1, b.t * 3);
+    ctx.fillStyle = 'rgba(250,248,242,.95)';
+    roundRect(ctx, x, y, w, h, h * 0.4);
+    ctx.fill();
+    ctx.strokeStyle = this.color(tk);
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.fillStyle = '#2a2a2e';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(text, x + size / 2, y + h / 2 + 1);
+    ctx.textBaseline = 'alphabetic';
+    ctx.globalAlpha = 1;
   }
 
   label(tk) {
@@ -420,7 +684,7 @@ export class TankGame {
     ctx.fillStyle = 'rgba(0,0,0,.55)';
     const text = tk.id === this.me ? '你' : tk.name;
     ctx.fillText(text, tk.x * c + 1, tk.y * c - c * 0.62 + 1);
-    ctx.fillStyle = COLORS[tk.slot];
+    ctx.fillStyle = this.color(tk);
     ctx.fillText(text, tk.x * c, tk.y * c - c * 0.62);
   }
 
@@ -446,7 +710,7 @@ export class TankGame {
     const s = c * 0.7 * pulse;
     ctx.save();
     ctx.translate((p.x + 0.5) * c, (p.y + 0.5) * c);
-    ctx.fillStyle = { shield: '#3c7fb8', rapid: '#c08a1e', repair: '#3f8f5a' }[p.kind];
+    ctx.fillStyle = POWER_BG[p.kind];
     roundRect(ctx, -s / 2, -s / 2, s, s, s * 0.2);
     ctx.fill();
     ctx.strokeStyle = 'rgba(255,255,255,.7)';
@@ -477,6 +741,22 @@ export class TankGame {
       ctx.fill();
     }
   }
+}
+
+function reduceMotion() {
+  return window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+}
+
+/** 台词用的随机数（和规则的随机分开，不影响对局复现）。 */
+function mulberry(seed) {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
 }
 
 function roundRect(ctx, x, y, w, h, r) {

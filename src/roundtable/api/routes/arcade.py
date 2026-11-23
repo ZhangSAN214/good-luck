@@ -65,12 +65,13 @@ async def arcade_think(request: Request, body: ArcadeThinkBody) -> dict[str, Any
 
 @router.post("/api/arcade/tanks")
 async def arcade_tanks_start(request: Request, body: ArcadeTanksStartBody) -> dict[str, Any]:
-    return svc(request).arcade_tanks_start(body.members)
+    return svc(request).arcade_tanks_start(body.members, body.mode, body.watch)
 
 
 @router.post("/api/arcade/tanks/result")
 async def arcade_tanks_result(request: Request, body: ArcadeTanksResultBody) -> dict[str, Any]:
-    return svc(request).arcade_tanks_result(body.token, body.place, body.kills)
+    rank = [r.model_dump() for r in body.rank]
+    return svc(request).arcade_tanks_result(body.token, body.place, body.kills, rank)
 
 
 @router.delete("/api/arcade/table")

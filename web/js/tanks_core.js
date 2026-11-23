@@ -1,7 +1,9 @@
 // 「铁甲突围」的规则和电脑对手（原创，不复刻任何现成游戏）：纯逻辑，不碰页面，方便测试。
 // 地图每局按种子自动生成（四角出生点、上下左右对称）；砖墙打两下碎、钢墙打不动、水挡车不挡炮弹、草丛能藏身。
-// 每辆坦克几条命，被打中掉一条命、过一会儿在出生点重生（带一小会儿护盾）。场上会刷护盾、连发、修理三种补给。
-// 最后只剩一辆有命的坦克，或者时间到，按（还活着、击毁数、剩几条命）排名。
+// 每辆坦克几条命，被打中掉一条命、过一会儿在出生点重生（带一小会儿护盾）。
+// 场上会刷六种补给：护盾、连发、修理（+1 命）、穿甲（能打碎钢墙）、加速、地雷（捡到两颗，按 E / K 放在身后）。
+// 两种玩法：混战（各自为战）和组队（左边两个角一队、右边两个角一队，打不伤队友）。
+// 最后只剩一方有命，或者时间到，按（还活着、击毁数、剩几条命）排名；组队按队伍算。
 
 export const W = 23;
 export const H = 15;
@@ -17,6 +19,12 @@ const COOLDOWN = 0.5;
 const RESPAWN = 1.6;
 const SHIELD_AFTER_SPAWN = 2.2;
 const POWER_EVERY = 11;
+const BUFF = 8; // 连发、穿甲、加速持续几秒
+const FAST = 1.45; // 加速时快多少
+const MINE_ARM = 0.8; // 地雷放下后多久生效
+const MAX_MINES = 3;
+export const POWERS = ['shield', 'rapid', 'repair', 'pierce', 'speed', 'mine'];
+const POWER_WEIGHT = { shield: 3, rapid: 3, repair: 2, pierce: 2, speed: 2, mine: 2 };
 export const DIRS = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] };
 const DIR_NAMES = ['up', 'down', 'left', 'right'];
 
@@ -107,38 +115,64 @@ function connected(g) {
   return SPAWNS.every(([x, y]) => seen.has(`${x},${y}`));
 }
 
+/** 组队时每队坐哪两个角：左边（左下、左上）一队，右边（右上、右下）一队。 */
+const TEAM_SLOTS = [
+  [0, 2],
+  [1, 3],
+];
+
 /**
- * 开一局。players: [{id, name, human}]（最多 4 位，按顺序坐四个角）；
- * opts: {seed, lives, seconds, level: 'easy' | 'normal' | 'hard'}。
+ * 开一局。players: [{id, name, human, team?}]（最多 4 位）；
+ * opts: {seed, lives, seconds, level: 'easy' | 'normal' | 'hard', mode: 'ffa' | 'team'}。
+ * 混战按顺序坐四个角；组队时 team 为 0 / 1（没写就前两位一队、后两位一队）。
  */
-export function createGame(players, { seed = 1, lives = 3, seconds = 180, level = 'normal' } = {}) {
+export function createGame(players, { seed = 1, lives = 3, seconds = 180, level = 'normal', mode = 'ffa' } = {}) {
   const map = makeMap(seed);
   const hp = map.map((row) => row.map((c) => (c === BRICK ? 2 : 0)));
-  const tanks = players.slice(0, 4).map((p, i) => ({
-    id: p.id,
-    name: p.name,
-    human: !!p.human,
-    slot: i,
-    x: SPAWNS[i][0] + 0.5,
-    y: SPAWNS[i][1] + 0.5,
-    dir: i % 2 === 0 ? 'up' : 'down',
-    lives,
-    kills: 0,
-    deaths: 0,
-    alive: true,
-    respawn: 0,
-    shield: SHIELD_AFTER_SPAWN,
-    rapid: 0,
-    cool: 0,
-    moving: false,
-    brain: { next: 0, dir: null, fire: false, path: null },
-  }));
+  const team = mode === 'team';
+  const used = [0, 0];
+  const tanks = players.slice(0, 4).map((p, i) => {
+    let slot = i;
+    let side = i;
+    if (team) {
+      side = p.team === 0 || p.team === 1 ? p.team : i < 2 ? 0 : 1;
+      if (used[side] >= 2) side = 1 - side;
+      slot = TEAM_SLOTS[side][used[side]];
+      used[side] += 1;
+    }
+    return {
+      id: p.id,
+      name: p.name,
+      human: !!p.human,
+      slot,
+      team: side,
+      x: SPAWNS[slot][0] + 0.5,
+      y: SPAWNS[slot][1] + 0.5,
+      dir: slot % 2 === 0 ? 'up' : 'down',
+      lives,
+      kills: 0,
+      deaths: 0,
+      alive: true,
+      respawn: 0,
+      shield: SHIELD_AFTER_SPAWN,
+      rapid: 0,
+      pierce: 0,
+      fast: 0,
+      mines: 0,
+      mineCool: 0,
+      cool: 0,
+      moving: false,
+      brain: { next: 0, dir: null, fire: false, path: null },
+    };
+  });
   return {
     map,
     hp,
     tanks,
+    mode: team ? 'team' : 'ffa',
     shots: [],
     powers: [],
+    mines: [],
     booms: [],
     events: [],
     time: 0,
@@ -146,10 +180,14 @@ export function createGame(players, { seed = 1, lives = 3, seconds = 180, level 
     powerAt: POWER_EVERY,
     over: false,
     rank: null,
+    winTeam: null,
     rand: rng(seed ^ 0x9e3779b9),
     level,
   };
 }
+
+/** 是不是对手（组队时同队不算）。 */
+export const foes = (a, b) => a !== b && a.team !== b.team;
 
 const inside = (x, y) => x >= 0 && y >= 0 && x < W && y < H;
 const cellAt = (g, x, y) => (inside(x, y) ? g.map[y][x] : STEEL);
@@ -187,11 +225,16 @@ export function step(g, dt, inputs = {}) {
     t.cool = Math.max(0, t.cool - dt);
     t.shield = Math.max(0, t.shield - dt);
     t.rapid = Math.max(0, t.rapid - dt);
+    t.pierce = Math.max(0, t.pierce - dt);
+    t.fast = Math.max(0, t.fast - dt);
+    t.mineCool = Math.max(0, t.mineCool - dt);
     const inp = t.human ? inputs[t.id] || {} : think(g, t, dt);
     move(g, t, inp.dir, dt);
     if (inp.fire) fire(g, t);
+    if (inp.mine) layMine(g, t);
   }
   moveShots(g, dt);
+  tickMines(g, dt);
   pickPowers(g);
   g.powerAt -= dt;
   if (g.powerAt <= 0) {
@@ -199,8 +242,8 @@ export function step(g, dt, inputs = {}) {
     dropPower(g);
   }
   g.booms = g.booms.filter((b) => (b.t += dt) < 0.6);
-  const left = g.tanks.filter((t) => t.lives > 0 || t.alive);
-  if (left.length <= 1 || g.time >= g.limit) finish(g);
+  const sides = new Set(g.tanks.filter((t) => t.lives > 0 || t.alive).map((t) => t.team));
+  if (sides.size <= 1 || g.time >= g.limit) finish(g);
 }
 
 function spawn(g, t) {
@@ -227,8 +270,9 @@ function move(g, t, dir, dt) {
     else t.x = snap(g, t, t.x, t.y, 'x');
     t.dir = dir;
   }
-  const nx = t.x + dx * SPEED * dt;
-  const ny = t.y + dy * SPEED * dt;
+  const speed = SPEED * (t.fast > 0 ? FAST : 1);
+  const nx = t.x + dx * speed * dt;
+  const ny = t.y + dy * speed * dt;
   if (!tankBlocked(g, t, nx, ny)) {
     t.x = nx;
     t.y = ny;
@@ -258,9 +302,38 @@ function fire(g, t) {
   const mine = g.shots.filter((s) => s.owner === t.id).length;
   if (t.cool > 0 || mine >= (t.rapid > 0 ? 2 : 1)) return;
   const [dx, dy] = DIRS[t.dir];
-  g.shots.push({ owner: t.id, x: t.x + dx * 0.5, y: t.y + dy * 0.5, dx, dy });
+  const x = t.x + dx * 0.5;
+  const y = t.y + dy * 0.5;
+  g.shots.push({ owner: t.id, team: t.team, x, y, dx, dy, pierce: t.pierce > 0 });
   t.cool = t.rapid > 0 ? COOLDOWN / 2.5 : COOLDOWN;
-  g.events.push({ kind: 'shoot', id: t.id });
+  g.events.push({ kind: 'shoot', id: t.id, x, y, dir: t.dir });
+}
+
+/** 在身后放一颗地雷（要先捡到「雷」）。 */
+function layMine(g, t) {
+  if (t.mines <= 0 || t.mineCool > 0) return;
+  const [dx, dy] = DIRS[t.dir];
+  const x = t.x - dx * 0.75;
+  const y = t.y - dy * 0.75;
+  if (blocks(cellAt(g, Math.floor(x), Math.floor(y)))) return;
+  t.mines -= 1;
+  t.mineCool = 0.6;
+  g.mines.push({ owner: t.id, team: t.team, x, y, arm: MINE_ARM });
+  g.events.push({ kind: 'mine', id: t.id, x, y });
+}
+
+function tickMines(g, dt) {
+  for (const m of g.mines) {
+    m.arm = Math.max(0, m.arm - dt);
+    if (m.arm > 0) continue;
+    const victim = g.tanks.find((t) => t.alive && t.team !== m.team && Math.abs(t.x - m.x) < 0.6 && Math.abs(t.y - m.y) < 0.6);
+    if (!victim) continue;
+    m.dead = true;
+    g.booms.push({ x: m.x, y: m.y, t: 0, small: false });
+    g.events.push({ kind: 'mineboom', x: m.x, y: m.y });
+    hit(g, victim, m.owner);
+  }
+  g.mines = g.mines.filter((m) => !m.dead);
 }
 
 function moveShots(g, dt) {
@@ -278,20 +351,24 @@ function moveShots(g, dt) {
         if (g.hp[cy][cx] <= 0) g.map[cy][cx] = EMPTY;
         s.dead = true;
         g.booms.push({ x: s.x, y: s.y, t: 0, small: true });
-        g.events.push({ kind: 'brick', broke: g.map[cy][cx] === EMPTY });
+        g.events.push({ kind: 'brick', broke: g.map[cy][cx] === EMPTY, x: cx + 0.5, y: cy + 0.5, sx: s.x, sy: s.y });
         continue;
       }
       if (c === STEEL) {
         s.dead = true;
         g.booms.push({ x: s.x, y: s.y, t: 0, small: true });
-        g.events.push({ kind: 'steel' });
+        // 穿甲弹能打碎钢墙（地图边缘外面的不算）
+        const broke = s.pierce && inside(cx, cy);
+        if (broke) g.map[cy][cx] = EMPTY;
+        g.events.push({ kind: 'steel', broke, x: cx + 0.5, y: cy + 0.5, sx: s.x, sy: s.y });
         continue;
       }
       for (const t of g.tanks) {
         if (!t.alive || t.id === s.owner) continue;
         if (Math.abs(t.x - s.x) < TANK / 2 + 0.06 && Math.abs(t.y - s.y) < TANK / 2 + 0.06) {
           s.dead = true;
-          hit(g, t, s.owner);
+          if (t.team === s.team) g.events.push({ kind: 'friendly', id: t.id, x: s.x, y: s.y }); // 打不伤队友
+          else hit(g, t, s.owner);
           break;
         }
       }
@@ -300,7 +377,7 @@ function moveShots(g, dt) {
     for (const a of g.shots) {
       if (a.dead) continue;
       for (const b of g.shots) {
-        if (b === a || b.dead || b.owner === a.owner) continue;
+        if (b === a || b.dead || b.team === a.team) continue;
         if (Math.abs(a.x - b.x) < 0.25 && Math.abs(a.y - b.y) < 0.25) {
           a.dead = b.dead = true;
           g.booms.push({ x: a.x, y: a.y, t: 0, small: true });
@@ -313,7 +390,7 @@ function moveShots(g, dt) {
 
 function hit(g, t, by) {
   if (t.shield > 0) {
-    g.events.push({ kind: 'block', id: t.id });
+    g.events.push({ kind: 'block', id: t.id, x: t.x, y: t.y });
     return;
   }
   t.lives -= 1;
@@ -321,10 +398,12 @@ function hit(g, t, by) {
   t.alive = false;
   t.respawn = RESPAWN;
   t.rapid = 0;
+  t.pierce = 0;
+  t.fast = 0;
   const shooter = g.tanks.find((o) => o.id === by);
-  if (shooter) shooter.kills += 1;
+  if (shooter && foes(shooter, t)) shooter.kills += 1;
   g.booms.push({ x: t.x, y: t.y, t: 0, small: false });
-  g.events.push({ kind: 'kill', id: t.id, by });
+  g.events.push({ kind: 'kill', id: t.id, by, x: t.x, y: t.y, out: t.lives <= 0 });
 }
 
 function dropPower(g) {
@@ -334,8 +413,10 @@ function dropPower(g) {
     const y = Math.floor(g.rand() * H);
     if (g.map[y][x] !== EMPTY) continue;
     if (g.tanks.some((t) => t.alive && Math.abs(t.x - x - 0.5) < 2 && Math.abs(t.y - y - 0.5) < 2)) continue;
-    const kinds = ['shield', 'rapid', 'repair'];
-    g.powers.push({ x, y, kind: kinds[Math.floor(g.rand() * kinds.length)] });
+    const total = POWERS.reduce((a, k) => a + POWER_WEIGHT[k], 0);
+    let roll = g.rand() * total;
+    const kind = POWERS.find((k) => (roll -= POWER_WEIGHT[k]) < 0) || 'shield';
+    g.powers.push({ x, y, kind });
     g.events.push({ kind: 'drop' });
     return;
   }
@@ -348,7 +429,10 @@ function pickPowers(g) {
     if (!p) continue;
     g.powers = g.powers.filter((q) => q !== p);
     if (p.kind === 'shield') t.shield = Math.max(t.shield, 6);
-    else if (p.kind === 'rapid') t.rapid = 8;
+    else if (p.kind === 'rapid') t.rapid = BUFF;
+    else if (p.kind === 'pierce') t.pierce = BUFF;
+    else if (p.kind === 'speed') t.fast = BUFF;
+    else if (p.kind === 'mine') t.mines = Math.min(MAX_MINES, t.mines + 2);
     else t.lives += 1;
     g.events.push({ kind: 'power', id: t.id, power: p.kind });
   }
@@ -356,8 +440,23 @@ function pickPowers(g) {
 
 function finish(g) {
   g.over = true;
-  const order = [...g.tanks].sort((a, b) => Number(b.lives > 0) - Number(a.lives > 0) || b.kills - a.kills || b.lives - a.lives || a.deaths - b.deaths);
-  g.rank = order.map((t, k) => ({ id: t.id, name: t.name, place: k + 1, kills: t.kills, lives: Math.max(0, t.lives), human: t.human }));
+  const score = (list) => [Number(list.some((t) => t.lives > 0)), list.reduce((a, t) => a + t.kills, 0), list.reduce((a, t) => a + Math.max(0, t.lives), 0), -list.reduce((a, t) => a + t.deaths, 0)];
+  const better = (a, b) => {
+    for (let k = 0; k < a.length; k += 1) if (a[k] !== b[k]) return b[k] - a[k];
+    return 0;
+  };
+  if (g.mode === 'team') {
+    // 组队：按队伍排（还有命的队 → 击毁多 → 剩命多 → 被击毁少），同队名次相同
+    const teams = [0, 1].map((k) => g.tanks.filter((t) => t.team === k)).filter((l) => l.length);
+    teams.sort((a, b) => better(score(a), score(b)));
+    g.winTeam = teams[0]?.[0]?.team ?? null;
+    g.rank = teams.flatMap((list, k) =>
+      [...list].sort((a, b) => better(score([a]), score([b]))).map((t) => ({ id: t.id, name: t.name, place: k + 1, team: t.team, kills: t.kills, lives: Math.max(0, t.lives), human: t.human })),
+    );
+  } else {
+    const order = [...g.tanks].sort((a, b) => better(score([a]), score([b])));
+    g.rank = order.map((t, k) => ({ id: t.id, name: t.name, place: k + 1, team: t.team, kills: t.kills, lives: Math.max(0, t.lives), human: t.human }));
+  }
   g.events.push({ kind: 'over' });
 }
 
@@ -434,9 +533,28 @@ function findPath(g, sx, sy, gx, gy) {
   return path;
 }
 
+/** 对手在自己正后方 5 格以内（放地雷的好时机）。 */
+function behind(t, o) {
+  const [dx, dy] = DIRS[t.dir];
+  const back = (t.x - o.x) * dx + (t.y - o.y) * dy;
+  const side = dx ? Math.abs(t.y - o.y) : Math.abs(t.x - o.x);
+  return back > 0.5 && back < 5 && side < 0.6;
+}
+
+/** 开炮方向上、目标之前有没有队友（有就先别打）。 */
+function allyInLine(g, t, lof) {
+  const [dx, dy] = DIRS[lof.dir];
+  return g.tanks.some((o) => {
+    if (o === t || !o.alive || o.team !== t.team) return false;
+    const ahead = (o.x - t.x) * dx + (o.y - t.y) * dy;
+    const side = dx ? Math.abs(o.y - t.y) : Math.abs(o.x - t.x);
+    return ahead > 0 && ahead <= lof.dist + 0.5 && side < 0.6;
+  });
+}
+
 function danger(g, t) {
   for (const s of g.shots) {
-    if (s.owner === t.id) continue;
+    if (s.team === t.team) continue;
     const ahead = (t.x - s.x) * s.dx + (t.y - s.y) * s.dy;
     if (ahead <= 0 || ahead > 4) continue;
     const side = s.dx ? Math.abs(t.y - s.y) : Math.abs(t.x - s.x);
@@ -465,17 +583,19 @@ export function think(g, t, dt) {
       return { dir: pick, fire: false };
     }
   }
-  const foes = g.tanks.filter((o) => o !== t && o.alive);
-  if (!foes.length) {
+  const enemies = g.tanks.filter((o) => foes(t, o) && o.alive);
+  if (!enemies.length) {
     b.dir = null;
     return { dir: null, fire: false };
   }
+  // 有地雷：有对手跟在身后时放一颗
+  if (t.mines > 0 && (enemies.some((o) => behind(t, o)) || (t.moving && g.rand() < 0.08))) return { dir: b.dir, fire: false, mine: true };
   // 草丛里的看不清：离得远就当没看见
-  const visible = foes.filter((o) => cellAt(g, Math.floor(o.x), Math.floor(o.y)) !== BUSH || Math.hypot(o.x - t.x, o.y - t.y) < 3);
-  const pool = visible.length ? visible : foes;
+  const visible = enemies.filter((o) => cellAt(g, Math.floor(o.x), Math.floor(o.y)) !== BUSH || Math.hypot(o.x - t.x, o.y - t.y) < 3);
+  const pool = visible.length ? visible : enemies;
   const target = pool.reduce((a, o) => (Math.hypot(o.x - t.x, o.y - t.y) < Math.hypot(a.x - t.x, a.y - t.y) ? o : a));
   const lof = lineOfFire(g, t, target);
-  if (lof && lof.dist <= 12 && g.rand() < lv.aim) {
+  if (lof && lof.dist <= 12 && g.rand() < lv.aim && !allyInLine(g, t, lof)) {
     if (t.dir !== lof.dir) {
       b.dir = lof.dir;
       t.dir = lof.dir; // 原地转炮口
@@ -486,7 +606,13 @@ export function think(g, t, dt) {
   }
   const tx = Math.floor(t.x);
   const ty = Math.floor(t.y);
-  if (!b.path || !b.path.length || g.rand() < 0.25) b.path = findPath(g, tx, ty, Math.floor(target.x), Math.floor(target.y));
+  // 补给比对手近（6 格以内）就先去捡
+  const far = Math.hypot(target.x - t.x, target.y - t.y);
+  const near = g.powers.filter((p) => Math.hypot(p.x + 0.5 - t.x, p.y + 0.5 - t.y) < Math.min(6, far));
+  const goal = near.length ? [near[0].x, near[0].y] : [Math.floor(target.x), Math.floor(target.y)];
+  if (b.goal !== `${goal}`) b.path = null;
+  b.goal = `${goal}`;
+  if (!b.path || !b.path.length || g.rand() < 0.25) b.path = findPath(g, tx, ty, goal[0], goal[1]);
   while (b.path && b.path.length && b.path[0][0] === tx && b.path[0][1] === ty) b.path.shift();
   if (!b.path || !b.path.length) {
     b.dir = DIR_NAMES[Math.floor(g.rand() * 4)];
