@@ -35,6 +35,24 @@ class TankRules(_Strict):
     min_seconds: float = Field(default=20, ge=0, le=600)  # 一局至少打这么久才算数
 
 
+class WorkshopRules(_Strict):
+    """游戏工坊：你写要求，工作台的编程助手（超级电脑同一条通道）做成一个能玩的网页小游戏。
+
+    lead / assist 填 supercomputer.workers 里的编号（只在这里按你的安排点名，代码不认具体是谁）。
+    主做的写游戏；辅助的依次试玩、找错、直接修（永远不审自己写的）；机器检查还有问题时交回作者返工。
+    只用这几位：别的助手（包括按 API 额度花钱的）一律不派。
+    """
+
+    enabled: bool = True
+    lead: str = "claude"  # 主做（2026-11-23 你定：Claude Code）
+    assist: list[str] = Field(default_factory=lambda: ["opencode-ds", "codex"])  # 辅助，按顺序
+    fix_rounds: int = Field(default=1, ge=0, le=3)  # 机器检查没过时交回作者返工几次
+    max_games: int = Field(default=30, ge=1, le=500)  # 最多存几个做好的游戏
+    max_request_chars: int = Field(default=2000, ge=50, le=20000)
+    max_bytes: int = Field(default=800_000, ge=10_000, le=20_000_000)  # game.html 最大多大
+    browser_check: bool = True  # 做完在本机浏览器里打开试一下（没装 Playwright 就跳过）
+
+
 class WalletRules(_Strict):
     """虚拟金币：只在圆桌里用，不能充值、不能换真钱。"""
 
@@ -55,4 +73,5 @@ class ArcadeRules(_Strict):
     holdem: HoldemRules = HoldemRules()
     cards: CardRules = CardRules()
     tanks: TankRules = TankRules()
+    workshop: WorkshopRules = WorkshopRules()
     wallet: WalletRules = WalletRules()

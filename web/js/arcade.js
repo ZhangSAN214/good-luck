@@ -6,10 +6,12 @@
 import { esc } from './util.js';
 import { setSfx, sfx, sfxOn } from './arcade_sfx.js';
 import { TankGame } from './tanks.js';
+import { gamesHTML, liveHTML, playHTML, workshopHTML } from './arcade_workshop.js';
 
 const SUIT = { s: '♠', h: '♥', d: '♦', c: '♣' };
 const RANK = { T: '10' };
 const POLL_MS = 700;
+const WS_POLL_MS = 3000; // 工坊在做游戏时多久看一次进度
 const KIND = { fold: '弃牌', check: '过牌', call: '跟注', raise: '加注', allin: '全下' };
 const fmt = (n) => Number(n || 0).toLocaleString('zh-CN');
 const CARD_GAMES = { doudizhu: '斗地主', paodekuai: '跑得快', shengji: '升级', mahjong: '麻将' };
@@ -75,6 +77,11 @@ export class ArcadePage {
     this.tankUI = null; // 铁甲突围：正在打的那一局
     this.tankRun = null; // 后台给的这一局（凭证、种子）
     this.tankLevel = 'normal';
+    this.ws = null; // 游戏工坊的状态
+    this.wsDraft = ''; // 还没交的要求（重画时不丢）
+    this.wsDel = ''; // 点过一次「删除」、等第二下确认的那个游戏
+    this.wsGame = null; // 正在玩的工坊游戏
+    this.wsTimer = null;
     root.addEventListener('click', (e) => this.onClick(e));
     root.addEventListener('input', (e) => this.onInput(e));
   }
@@ -89,6 +96,7 @@ export class ArcadePage {
   hide() {
     this.root.hidden = true;
     this.stopPoll();
+    clearTimeout(this.wsTimer);
     if (this.tankUI && !this.tankUI.paused && !this.tankUI.ended) this.tankUI.togglePause();
   }
 
@@ -102,8 +110,50 @@ export class ArcadePage {
     } catch (e) {
       this.error = e.message;
     }
+    await this.loadWorkshop();
     this.render();
     this.maybePoll();
+  }
+
+  // --- 游戏工坊 --------------------------------------------------------------------
+
+  async loadWorkshop() {
+    if (!this.api.workshop) return;
+    try {
+      this.ws = await this.api.workshop();
+    } catch {
+      this.ws = null; // 工坊出问题不影响打牌
+    }
+    this.wsPoll();
+  }
+
+  wsPoll() {
+    clearTimeout(this.wsTimer);
+    if (this.root.hidden || !this.ws?.busy) return;
+    this.wsTimer = setTimeout(async () => {
+      const was = this.ws;
+      await this.loadWorkshop();
+      if (!this.ws || this.screen !== 'lobby') return;
+      if (was?.busy && !this.ws.busy) {
+        this.render(); // 做完了：整块重画（按钮、游戏列表）
+        if (this.ws.job?.status === 'done') sfx('win');
+        return;
+      }
+      // 还在做：只换进度那一块，不打断正在写的要求
+      const live = this.root.querySelector('[data-ws-live]');
+      if (live) live.innerHTML = liveHTML(this.ws.job);
+    }, WS_POLL_MS);
+  }
+
+  async wsRun(fn) {
+    try {
+      this.ws = await fn();
+      this.error = '';
+    } catch (e) {
+      this.error = e.message;
+    }
+    this.render();
+    this.wsPoll();
   }
 
   maybePoll() {
@@ -179,7 +229,9 @@ export class ArcadePage {
 
   onInput(e) {
     const t = e.target;
-    if (t.matches('[data-raise]')) {
+    if (t.matches('[data-ws-text]')) {
+      this.wsDraft = t.value;
+    } else if (t.matches('[data-raise]')) {
       this.raiseTo = Number(t.value);
       const out = this.root.querySelector('[data-raise-out]');
       if (out) out.textContent = fmt(this.raiseTo);
@@ -241,6 +293,39 @@ export class ArcadePage {
     } else if (d.act === 'back') {
       this.screen = 'lobby';
       this.render();
+    } else if (d.act === 'ws-make') {
+      const text = this.wsDraft.trim();
+      if (!text) {
+        this.error = '先写一下想要什么游戏';
+        this.render();
+        return;
+      }
+      await this.wsRun(async () => {
+        const res = await this.api.workshopMake(text);
+        this.wsDraft = '';
+        return res;
+      });
+    } else if (d.act === 'ws-cancel') {
+      await this.wsRun(() => this.api.workshopCancel());
+    } else if (d.wsDel) {
+      if (this.wsDel !== d.wsDel) {
+        this.wsDel = d.wsDel;
+        const box = this.root.querySelector('[data-ws-games]');
+        if (box) box.innerHTML = gamesHTML(this.ws?.games, this.wsDel);
+        return;
+      }
+      this.wsDel = '';
+      await this.wsRun(() => this.api.workshopDelete(d.wsDel));
+    } else if (d.wsPlay) {
+      this.wsGame = (this.ws?.games || []).find((g) => g.id === d.wsPlay) || null;
+      if (!this.wsGame) return;
+      this.screen = 'wsplay';
+      this.render();
+      this.root.querySelector('[data-ws-frame]')?.focus();
+    } else if (d.act === 'ws-back') {
+      this.wsGame = null;
+      this.screen = 'lobby';
+      await this.refresh();
     } else if (d.act === 'open' && this.game === 'tanks') {
       await this.startTanks();
     } else if (d.act === 'tanks-again') {
@@ -346,7 +431,9 @@ export class ArcadePage {
     const body =
       this.screen === 'tanks' && this.tankUI
         ? '<div data-tankslot></div>'
-        : this.screen === 'table' && this.table
+        : this.screen === 'wsplay' && this.wsGame
+          ? playHTML(this.wsGame)
+          : this.screen === 'table' && this.table
           ? this.tableHTML()
           : this.screen === 'setup'
             ? this.setupHTML()
@@ -509,7 +596,8 @@ export class ArcadePage {
         </button>`,
       )
       .join('')}</div>
-      <p class="ac-hint">对手是圆桌的成员：她们用自己的模型想怎么出（每天有花费上限，到了换本地电脑代打）。你可以亲自上桌，也可以旁观押谁赢。</p>`;
+      <p class="ac-hint">对手是圆桌的成员：她们用自己的模型想怎么出（每天有花费上限，到了换本地电脑代打）。你可以亲自上桌，也可以旁观押谁赢。</p>
+      ${workshopHTML(this.ws, this.wsDraft, this.wsDel)}`;
   }
 
   // --- 铁甲突围 ------------------------------------------------------------------

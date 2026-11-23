@@ -19,6 +19,7 @@ from roundtable.core import chat_handoff as handoff
 from roundtable.core.allocation import display_name
 from roundtable.core.almanac import Almanac
 from roundtable.core.arcade import Arcade
+from roundtable.core.arcade.workshop import Workshop
 from roundtable.core.attachments.detect import TYPES as UPLOAD_TYPES
 from roundtable.core.backup import DbBackup
 from roundtable.core.benchkit.builder import BenchBuilder
@@ -235,6 +236,13 @@ class RoundtableService(
         self.dsh = self._build_dsh(runtime, base if runtime.mail_dir is not None else None)
         self.supercomputer = self._build_super(
             runtime, base if runtime.mail_dir is not None else None
+        )
+        # 游戏工坊：你写要求，超级电脑那几位编程助手做成网页小游戏（docs/ARCADE.md）
+        self.workshop = Workshop(
+            lambda: self.rt.config.roundtable.arcade.workshop,
+            root=(base / "arcade_workshop") if runtime.mail_dir is not None else None,
+            supercomputer=self.supercomputer,
+            render=self._super_render,
         )
         self.desk = self._build_desk(
             runtime.config.roundtable.bench,

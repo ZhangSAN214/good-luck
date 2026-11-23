@@ -733,6 +733,13 @@ class ArcadeTanksResultBody(BaseModel):
     kills: int = Field(ge=0, le=99)
 
 
+class ArcadeWorkshopBody(BaseModel):
+    """游戏工坊：你想要一个什么游戏（长度上限按配置 max_request_chars 再查一次）。"""
+
+    model_config = ConfigDict(extra="forbid")
+    text: str = Field(min_length=1, max_length=20000)
+
+
 class ArcadeDealBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
     bet_on: str | None = Field(default=None, max_length=40)

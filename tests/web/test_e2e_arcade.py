@@ -328,3 +328,76 @@ def test_tanks_spectate_no_coins(serve, page):
     page.click("[data-act=tanks-back]")
     page.wait_for_selector(".ac-lobby")
     assert page.inner_text("[data-coins]") == coins
+
+
+def test_workshop_make_play_and_delete(serve, page, monkeypatch, tmp_path):
+    """游戏工坊：写要求 → 开做（假的编程助手，不跑程序）→ 进度 → 做好的游戏 → 沙箱里玩 → 删除。"""
+    import roundtable.core.service as service_mod
+    from roundtable.core.arcade.workshop import Workshop
+    from roundtable.core.config.schema import SupercomputerRules, SuperWorker
+    from roundtable.core.supercomputer import Supercomputer
+
+    from ..core.arcade.test_workshop import Agents
+    from ..core.supercomputer.test_engine import Launcher, render
+
+    class Slow(Agents):
+        async def __call__(self, argv, **kw):
+            import asyncio
+
+            await asyncio.sleep(0.8)
+            return await super().__call__(argv, **kw)
+
+    agents = Slow()
+
+    def build(self, runtime, base):
+        workers = [
+            SuperWorker(id=w, label=lab, argv=[w], skills={"frontend": 0.5, "review": 0.5})
+            for w, lab in (("claude", "主做甲"), ("opencode-ds", "辅助乙"), ("codex", "辅助丙"))
+        ]
+        return Supercomputer(
+            SupercomputerRules(workers=workers),
+            root=tmp_path / "super",
+            render=render,
+            launchers={"command": Launcher()},
+            runner=agents,
+            seed=7,
+        )
+
+    monkeypatch.setattr(service_mod.RoundtableService, "_build_super", build)
+    real_init = Workshop.__init__
+
+    def init(self, *a, **kw):  # 测试服务用内存数据库，没有本机目录：给工坊一个临时目录
+        real_init(self, *a, **{**kw, "root": tmp_path / "ws", "render": render})
+
+    monkeypatch.setattr(Workshop, "__init__", init)
+    srv = serve(confirm_threshold_usd=100.0)
+    rt = srv.env.rt
+    cfg = rt.config.roundtable
+    ws = cfg.arcade.workshop.model_copy(update={"browser_check": False})
+    arcade = cfg.arcade.model_copy(update={"workshop": ws})
+    rt.config = rt.config.model_copy(
+        update={"roundtable": cfg.model_copy(update={"arcade": arcade})}
+    )
+    page.goto(srv.url + "#m=game")
+    shop = page.locator(".ac-shop")
+    shop.wait_for()
+    assert "主做甲 主做" in shop.inner_text() and "辅助乙、辅助丙" in shop.inner_text()
+    assert "还没有做好的游戏" in shop.inner_text()
+    page.fill("[data-ws-text]", "一个收集星星的原创小游戏")
+    page.click("[data-act=ws-make]")
+    page.wait_for_selector(".ac-wsjob.live")
+    assert page.locator("[data-act=ws-make]").is_disabled()
+    page.wait_for_selector(".ac-wsgame", timeout=20000)
+    assert "星尘收集者" in page.inner_text(".ac-wsgame")
+    assert page.locator(".ac-wsstep").count() == 3  # 主做 + 两位试玩修错
+    assert [c[0] for c in agents.calls] == ["claude", "opencode-ds", "codex"]
+    page.click("[data-ws-play]")
+    frame = page.frame_locator("[data-ws-frame]")
+    frame.locator("canvas").wait_for(state="attached")
+    assert page.get_attribute("[data-ws-frame]", "sandbox") == "allow-scripts"
+    page.click("[data-act=ws-back]")
+    page.wait_for_selector(".ac-shop")
+    page.click("[data-ws-del]")
+    assert page.inner_text("[data-ws-del]") == "再点一下删除"
+    page.click("[data-ws-del]")
+    page.wait_for_selector(".ac-wsgame", state="detached")

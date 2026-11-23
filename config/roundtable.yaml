@@ -1346,6 +1346,9 @@ prompts:
   plain_rewrite: v2      # 说话底线·改写：发言查出问题时成员自己用节电档改一次（v2：一行一条气泡）
   arcade_holdem: v2      # 游戏区·德州扑克：成员从合法出法里挑一个，顺口说一句（v2 多给胜率估算和赔率）
   arcade_cards: v2       # 游戏区·斗地主 / 跑得快 / 升级：成员从合法出法里挑一个，顺口说一句（v2 多给记牌器和出法后果标注）
+  arcade_workshop_build: v1    # 游戏工坊·主做：按你的要求做一个网页小游戏（工作台的编程助手，原创、单文件、键盘 + 触屏）
+  arcade_workshop_review: v1   # 游戏工坊·辅助：试玩别人做的游戏，找错直接修（不审自己写的）
+  arcade_workshop_fix: v1      # 游戏工坊·返工：自动检查还有问题时作者修
 
 # 每个步骤对所有模型统一使用的参数（中立：同一步骤参数相同；模型自身必需的参数在 models.yaml）
 step_params:
@@ -2629,6 +2632,11 @@ arcade:
     kill_coins: 20        # 每击毁一次
     daily_cap: 600        # 坦克每天最多领多少金币
     min_seconds: 20       # 一局至少打 20 秒才算数
+  workshop:               # 游戏工坊：你写要求，工作台的编程助手做成网页小游戏（走包月订阅，不花 API 额度）
+    lead: claude          # 主做：Claude Code（你 2026-11-23 定）
+    assist: [opencode-ds, codex]   # 辅助：DeepSeek（OpenCode 包月）先试玩修错，再由 Codex 复查
+    fix_rounds: 1         # 机器检查没过，交回作者返工 1 次
+    max_games: 30
   wallet:
     start: 2000           # 第一次进游戏区给多少金币
     daily_gift: 500       # 每天第一次进来送多少
