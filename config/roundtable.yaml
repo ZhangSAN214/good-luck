@@ -2621,6 +2621,14 @@ arcade:
   cards:                  # 斗地主 / 跑得快 / 升级：你上桌时按得分算金币
     coin_per_point: 10    # 1 分 = 10 金币（输的最多输光，不会欠）
     coin_per_level: 50    # 升级：上桌赢一局按升了几级算（至少 1 级），1 级 = 50 金币
+  tanks:                  # 原创坦克「铁甲突围」：实时的，成员坦克由本地电脑操控（$0）
+    lives: 3
+    minutes: 3            # 一局最长 3 分钟，到点按击毁数排名
+    max_members: 3
+    win_coins: 100        # 你拿第一
+    kill_coins: 20        # 每击毁一次
+    daily_cap: 600        # 坦克每天最多领多少金币
+    min_seconds: 20       # 一局至少打 20 秒才算数
   wallet:
     start: 2000           # 第一次进游戏区给多少金币
     daily_gift: 500       # 每天第一次进来送多少

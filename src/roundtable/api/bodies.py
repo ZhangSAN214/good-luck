@@ -717,6 +717,22 @@ class ArcadePlayBody(BaseModel):
     bid: int = Field(default=0, ge=0, le=3)
 
 
+class ArcadeTanksStartBody(BaseModel):
+    """铁甲突围开一局：挑哪几位成员上场（她们的坦克由本地电脑开）。"""
+
+    model_config = ConfigDict(extra="forbid")
+    members: list[str] = Field(min_length=1, max_length=3)
+
+
+class ArcadeTanksResultBody(BaseModel):
+    """铁甲突围一局打完：这一局的凭证、你排第几、击毁几次。"""
+
+    model_config = ConfigDict(extra="forbid")
+    token: str = Field(min_length=1, max_length=40)
+    place: int = Field(ge=1, le=4)
+    kills: int = Field(ge=0, le=99)
+
+
 class ArcadeDealBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
     bet_on: str | None = Field(default=None, max_length=40)

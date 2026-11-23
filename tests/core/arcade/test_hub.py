@@ -318,3 +318,35 @@ def test_mahjong_sit_with_three_members_and_spectate():
     assert v["phase"] == "done"
     lb = v["last_bet"]
     assert lb["payout"] == (400 if lb["win"] else 100 if lb.get("draw") else 0)
+
+
+def test_tanks_start_result_coins_once_and_daily_cap():
+    from datetime import timedelta
+
+    env, arcade = make()
+    with pytest.raises(ArcadeError):
+        arcade.tanks_start(ids(arcade, 4))  # 最多 3 位
+    run = arcade.tanks_start(ids(arcade, 3))
+    assert run["seed"] >= 0 and len(run["members"]) == 3 and run["lives"] == 3
+    assert arcade.status()["tanks"]["today"] == 0
+    # 打得太短不给
+    r = arcade.tanks_result(run["token"], 1, 3)
+    assert r["coins"] == 0 and "秒" in r["note"]
+    with pytest.raises(ArcadeError):
+        arcade.tanks_result(run["token"], 1, 3)  # 同一局只算一次
+    later = NOW + timedelta(minutes=2)
+    run = arcade.tanks_start(ids(arcade, 2))
+    env.rt.budget.now = lambda: later
+    r = arcade.tanks_result(run["token"], 1, 2)
+    assert r["coins"] == 100 + 2 * 20 and arcade.wallet()["coins"] == 2000 + 140
+    with pytest.raises(ArcadeError):
+        arcade.tanks_result("别的凭证", 1, 0)
+    # 每天上限 600
+    for _ in range(5):
+        env.rt.budget.now = lambda: NOW
+        run = arcade.tanks_start(ids(arcade, 1))
+        env.rt.budget.now = lambda: later
+        r = arcade.tanks_result(run["token"], 1, 5)
+    assert arcade.status()["tanks"]["today"] == 600
+    assert r["coins"] == 0 and "上限" in r["note"]
+    assert arcade.wallet()["coins"] == 2000 + 600

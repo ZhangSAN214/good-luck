@@ -1,5 +1,5 @@
 // 游戏区音效：全部用 WebAudio 现场合成（不带音频文件，原创）。
-// 发牌是轻快的「嗒」，出牌是牌拍在呢面上的「啪」，炸弹是低沉的轰，筹码是清脆的叮，赢了一串上行的琶音。
+// 发牌是轻快的「嗒」，坦克开炮是短促的「嘭」，出牌是牌拍在呢面上的「啪」，炸弹是低沉的轰，筹码是清脆的叮，赢了一串上行的琶音。
 // 开关存在本机 localStorage（roundtable.arcade.sfx），默认开；浏览器要先有一次点击才肯出声。
 
 const KEY = 'roundtable.arcade.sfx';
@@ -106,6 +106,21 @@ const SOUNDS = {
     tone(2350, at, 0.12, { type: 'triangle', gain: 0.09 });
     tone(3120, at + 0.05, 0.14, { type: 'triangle', gain: 0.07 });
     noise(at, 0.03, { gain: 0.05, hz: 5000, q: 3 });
+  },
+  /** 坦克开炮：短促的「嘭」。 */
+  shoot(at) {
+    tone(220, at, 0.09, { type: 'square', gain: 0.05, to: 90 });
+    noise(at, 0.07, { gain: 0.12, type: 'lowpass', hz: 1800, to: 500 });
+  },
+  /** 坦克被击毁：中等的爆炸。 */
+  hit(at) {
+    tone(120, at, 0.45, { gain: 0.3, to: 40, attack: 0.006 });
+    noise(at, 0.4, { gain: 0.25, type: 'lowpass', hz: 3000, to: 250 });
+  },
+  /** 捡到补给：上行的两声。 */
+  power(at) {
+    tone(880, at, 0.12, { type: 'triangle', gain: 0.08, to: 1320 });
+    tone(1320, at + 0.08, 0.16, { type: 'triangle', gain: 0.07 });
   },
   /** 选中一张手牌。 */
   pick(at) {

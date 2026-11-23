@@ -11,6 +11,8 @@ from roundtable.api.bodies import (
     ArcadeDealBody,
     ArcadeOpenBody,
     ArcadePlayBody,
+    ArcadeTanksResultBody,
+    ArcadeTanksStartBody,
     ArcadeThinkBody,
 )
 from roundtable.api.common import svc
@@ -57,6 +59,16 @@ async def arcade_god(request: Request, body: ArcadeThinkBody) -> dict[str, Any]:
 @router.put("/api/arcade/table/think")
 async def arcade_think(request: Request, body: ArcadeThinkBody) -> dict[str, Any]:
     return svc(request).arcade_think(body.on)
+
+
+@router.post("/api/arcade/tanks")
+async def arcade_tanks_start(request: Request, body: ArcadeTanksStartBody) -> dict[str, Any]:
+    return svc(request).arcade_tanks_start(body.members)
+
+
+@router.post("/api/arcade/tanks/result")
+async def arcade_tanks_result(request: Request, body: ArcadeTanksResultBody) -> dict[str, Any]:
+    return svc(request).arcade_tanks_result(body.token, body.place, body.kills)
 
 
 @router.delete("/api/arcade/table")

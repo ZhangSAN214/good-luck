@@ -33,8 +33,7 @@ def test_open_holdem_play_a_hand_and_leave(serve, page):
     page.wait_for_selector(".ac-lobby")
     assert "游戏区" in page.inner_text("#arcade .bn-zh")
     assert page.inner_text("[data-coins]") == "2,000"
-    # 没做好的游戏是灰的
-    assert page.locator(".ac-game[data-game=tanks]").is_disabled()
+    assert page.locator(".ac-game:disabled").count() == 0  # 六个游戏都能玩了
     page.click(".ac-game[data-game=holdem]")
     page.wait_for_selector(".ac-setup")
     assert page.locator(".ac-pick.on").count() >= 1
@@ -269,3 +268,63 @@ def test_mahjong_discard_claim_and_finish(serve, page):
     page.wait_for_selector(".ac-mjfelt")
     page.click("[data-act=leave]")
     page.wait_for_selector(".ac-lobby")
+
+
+def _short_tanks(srv) -> None:
+    """一局只打 3 秒、一条命，结算马上出来（直接改内存里的配置，不走校验）。"""
+    rt = srv.env.rt
+    cfg = rt.config.roundtable
+    tanks = cfg.arcade.tanks.model_copy(update={"minutes": 0.05, "lives": 1, "min_seconds": 0})
+    arcade = cfg.arcade.model_copy(update={"tanks": tanks})
+    rt.config = rt.config.model_copy(
+        update={"roundtable": cfg.model_copy(update={"arcade": arcade})}
+    )
+
+
+def test_tanks_drive_fire_and_settle(serve, page):
+    srv = serve(confirm_threshold_usd=100.0)
+    _short_tanks(srv)
+    errors: list[str] = []
+    page.on("pageerror", lambda e: errors.append(str(e)))
+    page.goto(srv.url + "#m=game")
+    page.wait_for_selector(".ac-lobby")
+    page.click(".ac-game[data-game=tanks]")
+    page.wait_for_selector(".ac-setup")
+    assert "铁甲突围" in page.inner_text(".ac-setup h3")
+    page.click("[data-level=hard]")
+    assert page.get_attribute("[data-level=hard]", "aria-pressed") == "true"
+    page.click("[data-act=open]")
+    page.wait_for_selector(".ac-tcanvas")
+    assert "你" in page.inner_text("[data-thud]")
+    page.keyboard.down("ArrowUp")
+    page.wait_for_timeout(300)
+    page.keyboard.up("ArrowUp")
+    page.keyboard.press("Space")
+    # 3 秒到点，结算浮层出来，后台记了这一局
+    page.wait_for_selector("[data-tover]:not([hidden])", timeout=15000)
+    wait_until(lambda: "金币" in page.inner_text("[data-tover]"), timeout=10)
+    assert "名" in page.inner_text("[data-tover]")
+    page.click("[data-act=tanks-again]")
+    page.wait_for_selector("[data-tover][hidden]", state="attached")
+    page.click("[data-act=tanks-quit]")
+    page.wait_for_selector(".ac-lobby")
+    assert not errors, errors
+
+
+def test_tanks_spectate_no_coins(serve, page):
+    srv = serve(confirm_threshold_usd=100.0)
+    _short_tanks(srv)
+    page.goto(srv.url + "#m=game")
+    page.wait_for_selector(".ac-lobby")
+    coins = page.inner_text("[data-coins]")
+    page.click(".ac-game[data-game=tanks]")
+    page.wait_for_selector(".ac-setup")
+    page.click("[data-sit='0']")
+    assert "旁观不算金币" in page.inner_text(".ac-setup")
+    page.click("[data-act=open]")
+    page.wait_for_selector(".ac-tcanvas")
+    assert page.locator("[data-act=tanks-pause]").count() == 0  # 旁观不用暂停键
+    page.wait_for_selector("[data-tover]:not([hidden])", timeout=15000)
+    page.click("[data-act=tanks-back]")
+    page.wait_for_selector(".ac-lobby")
+    assert page.inner_text("[data-coins]") == coins
