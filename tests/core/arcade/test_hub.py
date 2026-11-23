@@ -294,3 +294,27 @@ def test_members_get_tracker_notes_and_holdem_odds():
         c.messages[-1].content for c in env.fake.calls if "打一桌德州扑克" in c.messages[0].content
     ]
     assert users and all("赢的机会约" in u for u in users)
+
+
+def test_mahjong_sit_with_three_members_and_spectate():
+    env, arcade = make()
+    with pytest.raises(ArcadeError):
+        arcade.open_cards("mahjong", ids(arcade, 2), sit=True)  # 你加三位正好四人
+    v = arcade.open_cards("mahjong", ids(arcade, 3), sit=True, think=True)
+    assert v["game"] == "mahjong" and len(v["seats"]) == 4 and v["wall"] == 136 - 53
+    play_cards(arcade)
+    v = arcade.view()
+    me = next(r for r in v["results"] if r["seat"] == YOU)
+    assert v["last_coins"] == me["points"] * 10
+    calls = [c for c in env.fake.calls if "正在和朋友们打麻将" in c.messages[0].content]
+    assert calls  # 成员用模型想过，提示词里有记牌器
+    assert any("牌墙还剩" in c.messages[-1].content for c in calls)
+    arcade.leave()
+    members = ids(arcade, 4)
+    arcade.open_cards("mahjong", members, sit=False, think=False)
+    arcade.deal(members[0], 100)
+    asyncio.run(arcade.drive())
+    v = arcade.view()
+    assert v["phase"] == "done"
+    lb = v["last_bet"]
+    assert lb["payout"] == (400 if lb["win"] else 100 if lb.get("draw") else 0)

@@ -29,7 +29,7 @@ class ArcadeService:
     ) -> dict[str, Any]:
         if game == "holdem":
             return _wrap(self.arcade.open_holdem, members, sit=sit, think=think)
-        if game in ("doudizhu", "paodekuai", "shengji"):
+        if game in ("doudizhu", "paodekuai", "shengji", "mahjong"):
             return _wrap(self.arcade.open_cards, game, members, sit=sit, think=think)
         raise ServiceError("这个游戏还没做好", 404)
 

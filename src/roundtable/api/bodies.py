@@ -708,10 +708,11 @@ class ArcadeActBody(BaseModel):
 
 class ArcadePlayBody(BaseModel):
     """斗地主 / 跑得快：叫分（bid 0～3，0 = 不叫）、不要、出牌（cards 是手上的牌）；
-    升级：亮主（declare）、不亮（pass）、扣底（bury，8 张）、出牌。"""
+    升级：亮主（declare）、不亮（pass）、扣底（bury，8 张）、出牌；
+    麻将：打牌（play，一张）、碰（pong）、杠（kong）、胡（hu）、过（pass）。"""
 
     model_config = ConfigDict(extra="forbid")
-    kind: Literal["bid", "pass", "play", "declare", "bury"]
+    kind: Literal["bid", "pass", "play", "declare", "bury", "hu", "pong", "kong"]
     cards: list[str] = Field(default_factory=list, max_length=33)
     bid: int = Field(default=0, ge=0, le=3)
 

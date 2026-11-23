@@ -19,8 +19,9 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
-from roundtable.core.arcade import holdem_bot, shed_bot, sj_bot
+from roundtable.core.arcade import holdem_bot, mj_bot, shed_bot, sj_bot
 from roundtable.core.arcade.holdem import KIND_ZH, Holdem, HoldemError, Seat
+from roundtable.core.arcade.mahjong import Mahjong
 from roundtable.core.arcade.shedding import (
     Doudizhu,
     Hand,
@@ -47,12 +48,17 @@ GAMES = [
     {"id": "doudizhu", "name": "斗地主", "ready": True, "players": "3 人"},
     {"id": "paodekuai", "name": "跑得快", "ready": True, "players": "3 人"},
     {"id": "shengji", "name": "升级", "ready": True, "players": "4 人"},
-    {"id": "mahjong", "name": "麻将", "ready": False, "players": "4 人"},
+    {"id": "mahjong", "name": "麻将", "ready": True, "players": "4 人"},
     {"id": "tanks", "name": "铁甲突围", "ready": False, "players": "1～2 人"},
 ]
 
 
-CARD_GAMES = {"doudizhu": "斗地主", "paodekuai": "跑得快", "shengji": "升级（拖拉机）"}
+CARD_GAMES = {
+    "doudizhu": "斗地主",
+    "paodekuai": "跑得快",
+    "shengji": "升级（拖拉机）",
+    "mahjong": "麻将（推倒胡）",
+}
 # 给成员看的规则摘要（程序已经只列出合法出法，这里只是让她知道怎么算赢）
 RULES_TEXT = {
     "doudizhu": "三人一桌。先叫分（1～3 分）定地主，地主拿走 3 张底牌、一个人对两个农民。"
@@ -64,10 +70,15 @@ RULES_TEXT = {
     "每轮首家出单张、对子、拖拉机或甩牌，"
     "别人跟同一门，没有这一门可以用主牌毙。5 是 5 分、10 和 K 是 10 分：闲家拿够 80 分就换庄，"
     "不够庄家升级。对家正大时可以送分，对手大时想办法管住或者少给分。",
+    "mahjong": "四人一桌，136 张（万、条、筒、东南西北中发白），每人 13 张，摸一张打一张。"
+    "能碰、能杠，不能吃。凑成四组（顺子或刻子）加一对，或者七个对子就能胡；别人打出你要的牌可以点炮胡，"
+    "自己摸到是自摸。番：平胡 1、七对 2、碰碰胡 2，清一色 +2、混一色 +1，"
+    "自摸、杠上开花、海底捞月各 +1。"
+    "自摸三家各付番数，点炮的人付两倍。每个人都是对手：快听牌时少打别人可能要的牌，别给人点炮。",
 }
 # 几个人一桌（你上桌时另挑的成员 = 人数 - 1）
-TABLE_SIZE = {"doudizhu": 3, "paodekuai": 3, "shengji": 4}
-CARD_CLASS = {"doudizhu": Doudizhu, "paodekuai": Paodekuai, "shengji": Shengji}
+TABLE_SIZE = {"doudizhu": 3, "paodekuai": 3, "shengji": 4, "mahjong": 4}
+CARD_CLASS = {"doudizhu": Doudizhu, "paodekuai": Paodekuai, "shengji": Shengji, "mahjong": Mahjong}
 
 
 class ArcadeError(ValueError):
@@ -94,6 +105,8 @@ class Table:
 
     @property
     def kind(self) -> str:
+        if isinstance(self.game, Mahjong):
+            return "mahjong"
         if isinstance(self.game, Shengji):
             return "shengji"
         if isinstance(self.game, Doudizhu):
@@ -580,6 +593,8 @@ class Arcade:
 
     @staticmethod
     def _bot(t: Table, i: int) -> dict[str, Any]:
+        if isinstance(t.game, Mahjong):
+            return mj_bot.decide(t.game, i, t.game.rng)
         if isinstance(t.game, Shengji):
             return sj_bot.decide(t.game, i, t.game.rng)
         if isinstance(t.game, Shedding):
@@ -605,6 +620,10 @@ class Arcade:
             return
         bet, t.bet = t.bet, None
         winners = t.game.winners()
+        if not winners:  # 麻将流局：没人赢，押注退回
+            self._add_coins(int(bet["amount"]))
+            t.last_bet = {**bet, "payout": int(bet["amount"]), "win": False, "draw": True}
+            return
         payout = 0
         if bet["on"] in winners:
             payout = int(bet["amount"]) * max(2, int(bet.get("players", 2))) // len(winners)

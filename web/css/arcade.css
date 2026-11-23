@@ -240,3 +240,72 @@
   .ac-card em{font-size:22px}
   .ac-hcard .ac-card em{font-size:26px}
 }
+/* 麻将：象牙白牌面 + 墨绿牌背（侧边几层阴影做出厚度），汉字牌面自己写；四家坐四边，中间是四家的牌河 */
+.ac-tile{position:relative;display:inline-flex;flex-direction:column;align-items:center;justify-content:center;width:36px;height:48px;border-radius:5px;flex:none;
+  background:linear-gradient(170deg,#fffdf6,#f1ead8);font-family:var(--hb-serif);line-height:1;color:#1d2433;
+  box-shadow:0 1px 0 #d6ccb4,0 2px 0 #2f6b52,0 3px 0 #24563f,0 4px 6px rgba(0,0,0,.5)}
+.ac-tile::before{content:"";position:absolute;inset:0;border-radius:inherit;pointer-events:none;background:linear-gradient(125deg,rgba(255,255,255,.8) 0,rgba(255,255,255,0) 35%)}
+.ac-tile b{position:relative;font-size:17px;font-weight:700}
+.ac-tile i{position:relative;font-style:normal;font-size:13px;margin-top:2px}
+.ac-tile.m i,.ac-tile.z.red b{color:#b23a3a}
+.ac-tile.s i,.ac-tile.z.green b{color:#2f7a4f}
+.ac-tile.p i{color:#2f5d9a}
+.ac-tile.z b{font-size:22px}
+.ac-tile.z.blank::after{content:"";width:58%;height:66%;border:2px solid #4a6aa0;border-radius:3px}
+.ac-tile.back{background:linear-gradient(170deg,#3b8a69,#286a4e);box-shadow:inset 0 0 0 2px rgba(255,255,255,.18),0 1px 0 #f1ead8,0 2px 0 #d6ccb4,0 3px 5px rgba(0,0,0,.5)}
+.ac-tile.ac-sm{width:22px;height:30px;border-radius:3px;box-shadow:0 1px 0 #2f6b52,0 2px 3px rgba(0,0,0,.45)}
+.ac-tile.ac-sm b{font-size:11px}.ac-tile.ac-sm i{font-size:9px;margin-top:0}.ac-tile.ac-sm.z b{font-size:13px}
+.ac-tile.ac-xs{width:18px;height:24px;border-radius:3px;box-shadow:0 1px 0 #2f6b52,0 1px 2px rgba(0,0,0,.4)}
+.ac-tile.ac-xs b{font-size:9px}.ac-tile.ac-xs i{font-size:8px;margin-top:0}.ac-tile.ac-xs.z b{font-size:11px}
+.ac-tile.hot{box-shadow:0 0 0 2px var(--ac-gold),0 1px 2px rgba(0,0,0,.4)}
+.ac-mjfan .ac-tile+.ac-tile{margin-left:-4px}
+.ac-melds{display:flex;gap:6px;flex-wrap:wrap;justify-content:center}
+.ac-meld{display:inline-flex;gap:1px}
+.ac-mjinfo{display:flex;gap:14px;align-items:center;flex-wrap:wrap;justify-content:center;font-size:13px;color:var(--hb-muted)}
+.ac-mjinfo b{color:#eceff3}
+.ac-ldis{display:inline-flex;align-items:center;gap:6px;color:var(--ac-gold)}
+.ac-rivers{display:flex;flex-direction:column;gap:4px;width:min(520px,52vw);padding:8px 10px;border-radius:14px;background:rgba(0,0,0,.18)}
+.ac-river{display:flex;align-items:flex-start;gap:8px;font-size:12px}
+.ac-river.turn .ac-rname{color:var(--ac-gold)}
+.ac-rname{flex:none;width:4.5em;color:var(--hb-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding-top:4px}
+.ac-rtiles{display:flex;flex-wrap:wrap;gap:2px;min-height:24px}
+.ac-felt.ac-mjfelt{height:clamp(470px,calc(100vh - 400px),600px)}
+.ac-mjfelt .ac-center{top:50%}
+.ac-mjseat{min-width:120px}
+.ac-mjseat.pos-top{top:11%}.ac-mjseat.pos-bottom{top:90%}
+.ac-mjseat.pos-right{left:89%}.ac-mjseat.pos-left{left:11%}
+.ac-mjhand{align-items:flex-end}
+.ac-htile+.ac-htile{margin-left:2px}
+.ac-htile .ac-tile{width:44px;height:60px;border-radius:6px}
+.ac-htile .ac-tile b{font-size:21px}.ac-htile .ac-tile i{font-size:15px}.ac-htile .ac-tile.z b{font-size:27px}
+.ac-htile.drawn{margin-left:14px}
+.ac-htile.on{transform:translateY(-14px)}
+.ac-htile.on .ac-tile{box-shadow:0 0 0 2px var(--ac-gold),0 2px 0 #2f6b52,0 4px 8px rgba(0,0,0,.5)}
+.ac-mymelds{display:inline-flex;gap:6px;margin-left:18px;align-self:center}
+@media (max-width:860px){
+  .ac-rivers{width:min(420px,60vw)}
+}
+@media (max-width:600px){
+  .ac-felt.ac-mjfelt{height:560px;border-radius:60px}
+  .ac-mjseat{min-width:72px}
+  .ac-mjseat .ac-melds{max-width:96px}
+  .ac-mjseat.pos-top{top:9%}.ac-mjseat.pos-bottom{top:92%}
+  .ac-mjseat.pos-right{left:84%;top:30%}.ac-mjseat.pos-left{left:16%;top:30%}
+  .ac-mjfelt .ac-center{top:60%}
+  .ac-rivers{width:300px;padding:6px}
+  .ac-rname{width:3em}
+  .ac-htile+.ac-htile{margin-left:1px}
+  .ac-htile .ac-tile{width:24px;height:34px;border-radius:4px}
+  .ac-htile .ac-tile b{font-size:12px}.ac-htile .ac-tile i{font-size:9px;margin-top:0}.ac-htile .ac-tile.z b{font-size:15px}
+  .ac-htile.drawn{margin-left:6px}
+  .ac-mjhand{justify-content:safe center;flex-wrap:nowrap}
+  .ac-mymelds{margin-left:8px}
+}
+/* 麻将上下两家：贴着桌边往里长（亮牌后座位变高也不出桌） */
+.ac-mjseat.pos-top{top:3%;transform:translate(-50%,0)}
+.ac-mjseat.pos-bottom{top:97%;transform:translate(-50%,-100%)}
+@media (max-width:600px){
+  .ac-mjseat.pos-top{top:2%}
+  .ac-mjseat.pos-bottom{top:98%}
+  .ac-mjseat.pos-right,.ac-mjseat.pos-left{top:33%}
+}
