@@ -27,12 +27,17 @@ class ArcadeService:
     def arcade_open(
         self, game: str, members: list[str], *, sit: bool, think: bool | None
     ) -> dict[str, Any]:
-        if game != "holdem":
-            raise ServiceError("这个游戏还没做好", 404)
-        return _wrap(self.arcade.open_holdem, members, sit=sit, think=think)
+        if game == "holdem":
+            return _wrap(self.arcade.open_holdem, members, sit=sit, think=think)
+        if game in ("doudizhu", "paodekuai"):
+            return _wrap(self.arcade.open_cards, game, members, sit=sit, think=think)
+        raise ServiceError("这个游戏还没做好", 404)
 
     def arcade_act(self, kind: str, to: int | None) -> dict[str, Any]:
         return _wrap(self.arcade.act, kind, to)
+
+    def arcade_play(self, kind: str, cards: list[str], bid: int) -> dict[str, Any]:
+        return _wrap(self.arcade.play, {"kind": kind, "cards": cards, "bid": bid})
 
     def arcade_deal(self, bet_on: str | None, amount: int) -> dict[str, Any]:
         return _wrap(self.arcade.deal, bet_on, amount)

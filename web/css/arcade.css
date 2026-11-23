@@ -111,6 +111,52 @@
   .ac-card{width:36px;height:50px}.ac-card b{font-size:16px}
   .ac-raise input[type=range]{width:120px}
 }
+/* 斗地主 / 跑得快：三人桌（你在下方，下家右、上家左），手牌在牌桌下面一排，点了往上抬 */
+.ac-card.joker b{font-size:15px}.ac-card.joker i{font-size:15px}
+.ac-card.ac-mini.joker b,.ac-card.ac-mini.joker i{font-size:10px}
+.ac-shfelt{height:clamp(320px,calc(100vh - 470px),480px)}
+.ac-shseat{transform:translate(-50%,-50%);min-width:130px}
+.ac-shseat.bottom{left:50%;top:86%}
+.ac-shseat.right{left:85%;top:36%}
+.ac-shseat.left{left:15%;top:36%}
+.ac-role{white-space:nowrap;padding:0 6px;border-radius:6px;background:rgba(255,255,255,.14);font-size:11px}
+.ac-role.lord{background:rgba(232,194,120,.3);color:var(--ac-gold)}
+.ac-fan{display:flex;align-items:center;gap:6px;flex-wrap:wrap;justify-content:center;max-width:220px}
+.ac-fan.open{gap:0}
+.ac-fan.open .ac-card+.ac-card{margin-left:-8px}
+.ac-count{font-variant-numeric:tabular-nums}
+.ac-count.warn{color:var(--ac-gold);font-weight:600}
+.ac-lead{display:flex;flex-direction:column;align-items:center;gap:6px;min-height:90px;justify-content:center}
+.ac-leadcards{display:flex}
+.ac-leadcards .ac-card+.ac-card{margin-left:-18px}
+.ac-leadlabel{font-size:13px;color:var(--hb-muted)}
+.ac-ddz{display:flex;align-items:center;gap:10px;font-size:13px;color:var(--hb-muted)}
+.ac-bottom{display:flex;gap:3px}
+.ac-hand{display:flex;justify-content:safe center;padding:18px 8px 4px;overflow-x:auto;scrollbar-width:thin}
+.ac-hand.idle .ac-hcard{cursor:default}
+.ac-hcard{border:0;padding:0;background:none;cursor:pointer;transition:transform .12s;flex:none}
+.ac-hcard+.ac-hcard{margin-left:-22px}
+.ac-hcard .ac-card{width:58px;height:82px;justify-content:flex-start;align-items:flex-start;padding:5px 0 0 6px;box-sizing:border-box;gap:2px}
+.ac-hcard .ac-card b{font-size:19px}.ac-hcard .ac-card i{font-size:16px}
+.ac-hcard .ac-card.joker b,.ac-hcard .ac-card.joker i{font-size:15px}
+.ac-hcard.on{transform:translateY(-14px)}
+.ac-hcard.on .ac-card{box-shadow:0 0 0 2px var(--ac-gold),0 4px 10px rgba(0,0,0,.5)}
+.ac-hcard:focus-visible{outline:none}.ac-hcard:focus-visible .ac-card{box-shadow:0 0 0 2px rgba(160,185,230,.9)}
+@media (max-width:600px){
+  .ac-felt.ac-shfelt{height:360px;border-radius:70px}
+  .ac-shseat{min-width:84px}
+  .ac-shseat.right{left:76%;top:18%}.ac-shseat.left{left:24%;top:18%}
+  .ac-fan{max-width:120px}
+  .ac-fan.open .ac-card+.ac-card{margin-left:-8px}
+  .ac-shfelt .ac-center{top:56%}
+  .ac-ddz{gap:6px;font-size:12px}
+  .ac-hcard+.ac-hcard{margin-left:-25px}
+  .ac-hcard .ac-card{width:42px;height:60px;padding:3px 0 0 3px}
+  .ac-hcard .ac-card b{font-size:14px}.ac-hcard .ac-card i{font-size:12px}
+  .ac-hcard .ac-card.joker b,.ac-hcard .ac-card.joker i{font-size:12px}
+  .ac-hand{justify-content:safe center;padding-left:0;padding-right:0}
+  .ac-leadcards .ac-card+.ac-card{margin-left:-12px}
+}
 /* 六个入口在窄屏上放不下：入口条横向滑动，字不折行 */
 @media (max-width:700px){
   #entries{max-width:100%;overflow-x:auto;scrollbar-width:none}

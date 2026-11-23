@@ -1,6 +1,7 @@
 // 「游戏区」页（分段栏第六个入口，docs/ARCADE.md）：大厅（游戏卡片）→ 开桌设置 → 牌桌。
 // 牌局规则、成员出牌、金币和押注都在后台；这里只画、只发你的操作。成员想的时候每 0.7 秒拉一次牌桌。
 // 牌面、牌背、筹码都是自己画的（CSS），不用别家素材。
+// 斗地主 / 跑得快：点手牌选中，「出牌」把选中的发给后台（后台认牌型、比大小）；「提示」在能出的组合里轮着挑。
 
 import { esc } from './util.js';
 
@@ -9,10 +10,18 @@ const RANK = { T: '10' };
 const POLL_MS = 700;
 const KIND = { fold: '弃牌', check: '过牌', call: '跟注', raise: '加注', allin: '全下' };
 const fmt = (n) => Number(n || 0).toLocaleString('zh-CN');
+const CARD_GAMES = { doudizhu: '斗地主', paodekuai: '跑得快' };
+const ORDER = '3456789TJQKA2';
+const cardValue = (c) => (c === 'BJ' ? 16 : c === 'RJ' ? 17 : ORDER.indexOf(c[0]) + 3);
+const sortCards = (cs) => [...cs].sort((a, b) => cardValue(a) - cardValue(b) || a.localeCompare(b));
 
 /** 一张牌：?? 是背面。 */
 export function cardHTML(c, cls = '') {
   if (!c || c === '??') return `<span class="ac-card back ${cls}" aria-label="背面"></span>`;
+  if (c === 'BJ' || c === 'RJ') {
+    const big = c === 'RJ';
+    return `<span class="ac-card joker ${big ? 'red' : ''} ${cls}" aria-label="${big ? '大王' : '小王'}"><b>${big ? '大' : '小'}</b><i>王</i></span>`;
+  }
   const red = c[1] === 'h' || c[1] === 'd';
   const r = RANK[c[0]] || c[0];
   return `<span class="ac-card ${red ? 'red' : ''} ${cls}" aria-label="${esc(r + SUIT[c[1]])}"><b>${esc(r)}</b><i>${SUIT[c[1]]}</i></span>`;
@@ -33,6 +42,9 @@ export class ArcadePage {
     this.betOn = '';
     this.betAmount = 100;
     this.raiseTo = null;
+    this.game = 'holdem'; // 开桌设置里选的游戏
+    this.chosen = new Set(); // 出牌类：选中的手牌
+    this.hintAt = -1;
     this.error = '';
     this.timer = null;
     root.addEventListener('click', (e) => this.onClick(e));
@@ -98,8 +110,17 @@ export class ArcadePage {
       this.error = e.message;
     }
     this.raiseTo = null;
+    this.chosen.clear();
+    this.hintAt = -1;
     this.render();
     this.maybePoll();
+  }
+
+  /** 出牌类：手牌里还在的选中牌（轮询刷新后清掉已经出掉的）。 */
+  keepChosen() {
+    const me = this.table?.seats?.find((s) => s.id === 'you');
+    const have = new Set(me?.cards || []);
+    for (const c of [...this.chosen]) if (!have.has(c)) this.chosen.delete(c);
   }
 
   // --- 事件 ----------------------------------------------------------------------
@@ -118,23 +139,29 @@ export class ArcadePage {
   }
 
   async onClick(e) {
-    const b = e.target.closest('button,[data-member]');
+    const b = e.target.closest('button,[data-member],[data-hand]');
     if (!b || b.disabled) return;
     const d = b.dataset;
-    if (d.game) {
-      if (d.game !== 'holdem') return;
+    if (d.hand) {
+      if (this.chosen.has(d.hand)) this.chosen.delete(d.hand);
+      else this.chosen.add(d.hand);
+      this.hintAt = -1;
+      this.render();
+    } else if (d.game) {
+      const g = (this.info?.games || []).find((x) => x.id === d.game);
+      if (!g || !g.ready) return;
+      this.game = d.game;
       this.screen = 'setup';
-      if (!this.pick.size && this.info) {
-        for (const m of this.info.members.filter((x) => x.available).slice(0, 3)) this.pick.add(m.id);
-      }
+      this.fitPicks();
       this.render();
     } else if (d.member) {
-      const max = this.info?.holdem?.max_members || 7;
+      const max = this.maxPick();
       if (this.pick.has(d.member)) this.pick.delete(d.member);
       else if (this.pick.size < max) this.pick.add(d.member);
       this.render();
     } else if (d.sit !== undefined) {
       this.sit = d.sit === '1';
+      this.fitPicks();
       this.render();
     } else if (d.think !== undefined) {
       this.think = d.think === '1';
@@ -144,7 +171,7 @@ export class ArcadePage {
       this.screen = 'lobby';
       this.render();
     } else if (d.act === 'open') {
-      const body = { game: 'holdem', members: [...this.pick], sit: this.sit, think: this.thinkOn() };
+      const body = { game: this.game, members: [...this.pick], sit: this.sit, think: this.thinkOn() };
       await this.run(() => this.api.open(body));
     } else if (d.act === 'leave') {
       try {
@@ -161,9 +188,50 @@ export class ArcadePage {
     } else if (d.move) {
       const to = d.move === 'raise' ? Number(this.raiseTo ?? d.to) : d.to ? Number(d.to) : null;
       await this.run(() => this.api.act(d.move, to));
+    } else if (d.bid !== undefined) {
+      await this.run(() => this.api.play('bid', [], Number(d.bid)));
+    } else if (d.shed === 'pass') {
+      await this.run(() => this.api.play('pass'));
+    } else if (d.shed === 'play') {
+      await this.run(() => this.api.play('play', [...this.chosen]));
+    } else if (d.shed === 'hint') {
+      const plays = (this.table?.options || []).filter((o) => o.kind === 'play');
+      if (plays.length) {
+        this.hintAt = (this.hintAt + 1) % plays.length;
+        this.chosen = new Set(plays[this.hintAt].cards);
+      }
+      this.render();
+    } else if (d.shed === 'clear') {
+      this.chosen.clear();
+      this.hintAt = -1;
+      this.render();
     } else if (d.quick) {
       this.raiseTo = Number(d.quick);
       this.render();
+    }
+  }
+
+  /** 出牌类三人一桌：你上桌再挑两位，旁观挑三位；德州按配置的上限。 */
+  maxPick() {
+    if (CARD_GAMES[this.game]) return this.sit ? 2 : 3;
+    return this.info?.holdem?.max_members || 7;
+  }
+
+  minPick() {
+    if (CARD_GAMES[this.game]) return this.maxPick();
+    return this.sit ? 1 : 2;
+  }
+
+  /** 换游戏 / 换上桌方式后，把选的成员补齐或删到合适人数。 */
+  fitPicks() {
+    const max = this.maxPick();
+    const want = CARD_GAMES[this.game] ? max : Math.min(3, max);
+    for (const id of [...this.pick].slice(max)) this.pick.delete(id);
+    if (this.pick.size < want && this.info) {
+      for (const m of this.info.members.filter((x) => x.available)) {
+        if (this.pick.size >= want) break;
+        this.pick.add(m.id);
+      }
     }
   }
 
@@ -221,10 +289,22 @@ export class ArcadePage {
       })
       .join('');
     const think = this.thinkOn();
-    const need = this.sit ? 1 : 2;
+    const need = this.minPick();
+    const cardGame = CARD_GAMES[this.game];
+    const cg = info.cards || {};
+    const intro = cardGame
+      ? `三个人一桌。${this.sit ? '你加上两位成员' : '选三位成员打，你在旁边看'}。${this.game === 'doudizhu' ? '叫分定地主，炸弹、王炸、春天翻倍。' : '每人 16 张，黑桃 3 先出，有大必压，下家报单要出最大的。'}`
+      : `无限注，盲注 ${fmt(h.blinds?.[0])} / ${fmt(h.blinds?.[1])}，每人 ${fmt(h.stack)} 筹码。最多选 ${h.max_members} 位成员。`;
+    const money = cardGame
+      ? this.sit
+        ? `每一局按得分算金币：1 分 = ${fmt(cg.coin_per_point)} 金币，输的最多输光手上的金币。`
+        : `每一局开始前可以押一位成员赢，一局最多 ${fmt(cg.max_bet)} 金币；赢了按人数赔（斗地主押中农民两人平分）。`
+      : this.sit
+        ? `上桌会从金币里带 ${fmt(h.stack)}（不够就全带上），离桌时剩多少换回多少。`
+        : `每一手开始前可以押一位成员赢，一手最多 ${fmt(h.max_bet)} 金币；赢了按这一手的人数赔。`;
     return `<div class="ac-setup hb-glass">
-      <h3>德州扑克 · 开一桌</h3>
-      <p class="ac-sub">无限注，盲注 ${fmt(h.blinds?.[0])} / ${fmt(h.blinds?.[1])}，每人 ${fmt(h.stack)} 筹码。最多选 ${h.max_members} 位成员。</p>
+      <h3>${cardGame || '德州扑克'} · 开一桌</h3>
+      <p class="ac-sub">${intro}</p>
       <div class="ac-picks" role="group" aria-label="选成员">${members}</div>
       <div class="ac-row" role="group" aria-label="怎么玩">
         <button type="button" class="ac-seg" data-sit="1" aria-pressed="${this.sit}">我亲自上桌</button>
@@ -234,10 +314,11 @@ export class ArcadePage {
         <button type="button" class="ac-seg" data-think="1" aria-pressed="${think}">成员自己想（用模型，每天上限 $${Number(info.spend?.cap || 0).toFixed(2)}）</button>
         <button type="button" class="ac-seg" data-think="0" aria-pressed="${!think}">本地电脑代打（免费）</button>
       </div>
-      <p class="ac-sub">${this.sit ? `上桌会从金币里带 ${fmt(h.stack)}（不够就全带上），离桌时剩多少换回多少。` : `每一手开始前可以押一位成员赢，一手最多 ${fmt(h.max_bet)} 金币；赢了按这一手的人数赔。`}</p>
+      <p class="ac-sub">${money}</p>
       <div class="ac-row">
         <button type="button" class="btn" data-act="back">返回</button>
         <button type="button" class="btn primary" data-act="open" ${this.pick.size >= need ? '' : 'disabled'}>开桌</button>
+        ${this.pick.size < need ? `<span class="ac-sub">再选 ${need - this.pick.size} 位</span>` : ''}
       </div>
     </div>`;
   }
@@ -261,6 +342,7 @@ export class ArcadePage {
 
   tableHTML() {
     const t = this.table;
+    if (CARD_GAMES[t.game]) return this.shedHTML();
     const you = t.seats.findIndex((s) => s.id === 'you');
     const start = you >= 0 ? you : 0;
     const order = t.seats.map((_, k) => t.seats[(start + k) % t.seats.length]);
@@ -334,6 +416,125 @@ export class ArcadePage {
       ${rows ? `<ul class="ac-results">${rows}</ul>` : ''}
       ${betLine}${bet}${over}
       <button type="button" class="btn primary" data-act="deal" ${t.can_deal ? '' : 'disabled'}>${t.hand_no ? '下一手' : '发牌'}</button>
+    </div>`;
+  }
+
+  // --- 斗地主 / 跑得快 --------------------------------------------------------------
+
+  shedSeatHTML(s, pos) {
+    const cls = ['ac-seat', 'ac-shseat', pos, s.turn ? 'turn' : '', s.id === 'you' ? 'you' : ''].join(' ');
+    const brain = s.brain === 'model' ? '<span class="ac-brain" title="这一步是她自己想的">想</span>' : s.brain === 'local' ? '<span class="ac-brain local" title="这一步本地电脑代打">代</span>' : '';
+    const role = s.role ? `<span class="ac-role ${s.role === '地主' ? 'lord' : ''}">${esc(s.role)}</span>` : '';
+    let cards = '';
+    if (s.id !== 'you') {
+      cards = s.cards.length
+        ? `<div class="ac-fan open">${sortCards(s.cards).map((c) => cardHTML(c, 'ac-mini')).join('')}</div>`
+        : `<div class="ac-fan">${s.count ? cardHTML('??', 'ac-mini') : ''}<span class="ac-count${s.count <= 2 && s.count ? ' warn' : ''}">${s.count ? `${s.count} 张${s.count === 1 ? ' · 报单' : ''}` : '出完了'}</span></div>`;
+    }
+    return `<div class="${cls}" data-seat="${esc(s.id)}">
+      ${s.say ? `<span class="ac-say">${esc(s.say)}</span>` : ''}
+      <div class="ac-sname">${s.id === 'you' ? '<span class="ac-av ini you">你</span>' : this.avatar(s.id, s.name)}<b>${esc(s.name)}</b>${role}${brain}</div>
+      ${cards}
+      ${s.thinking ? '<div class="ac-last thinking">在想<span class="ac-dots"><i></i><i></i><i></i></span></div>' : s.last ? `<div class="ac-last">${esc(s.last)}</div>` : ''}
+    </div>`;
+  }
+
+  shedHTML() {
+    const t = this.table;
+    this.keepChosen();
+    const name = CARD_GAMES[t.game];
+    const you = t.seats.findIndex((s) => s.id === 'you');
+    const start = you >= 0 ? you : 0;
+    const n = t.seats.length;
+    // 你在下方，下家在右，上家在左（逆时针出牌）
+    const order = [t.seats[start], t.seats[(start + 1) % n], t.seats[(start + 2) % n]];
+    const seats = [this.shedSeatHTML(order[0], 'bottom'), this.shedSeatHTML(order[1], 'right'), this.shedSeatHTML(order[2], 'left')].join('');
+    const phaseZh = { idle: '等发牌', bid: '叫地主', play: '出牌中', done: '这一局结束' }[t.phase] || '';
+    const status = t.round_no ? `${name} · 第 ${t.round_no} 局 · ${phaseZh}` : `${name} · 等发牌`;
+    const lead = t.lead
+      ? `<div class="ac-lead"><div class="ac-leadcards">${sortCards(t.lead.cards).map((c) => cardHTML(c)).join('')}</div><span class="ac-leadlabel">${esc((t.seats.find((s) => s.id === t.lead.by) || {}).name || '')}：${esc(t.lead.label)}</span></div>`
+      : `<div class="ac-lead empty"><span class="ac-leadlabel">${t.phase === 'bid' ? '叫地主中' : t.phase === 'play' ? '新一轮，随便出' : ''}</span></div>`;
+    let extra = '';
+    if (t.game === 'doudizhu' && t.phase !== 'idle') {
+      const bottom = t.bottom?.length ? t.bottom.map((c) => cardHTML(c, 'ac-mini')).join('') : [0, 1, 2].map(() => cardHTML('??', 'ac-mini')).join('');
+      extra = `<div class="ac-ddz"><span class="ac-sub">底牌</span><span class="ac-bottom" title="底牌（地主拿走）">${bottom}</span><span>${t.bid ? `底分 ${t.bid}` : '还没叫'}${t.bombs ? ` · 炸了 ${t.bombs} 次` : ''}</span></div>`;
+    }
+    return `<div class="ac-table-wrap">
+      <div class="ac-bar">
+        <span class="ac-status">${esc(status)}</span>
+        ${t.note ? `<span class="ac-note">${esc(t.note)}</span>` : ''}
+        <span class="ac-grow"></span>
+        <button type="button" class="ac-seg ac-sm" data-think="${t.think ? 0 : 1}" title="成员用模型想 / 本地电脑代打">${t.think ? '成员自己想 ✓' : '本地电脑代打 ✓'}</button>
+        <button type="button" class="btn" data-act="leave">离桌</button>
+      </div>
+      <div class="ac-felt ac-shfelt" role="group" aria-label="${esc(name)}牌桌">
+        <div class="ac-center">${extra}${lead}</div>
+        ${seats}
+      </div>
+      ${this.handHTML(order[0])}
+      ${this.shedControlsHTML()}
+    </div>`;
+  }
+
+  handHTML(me) {
+    if (!this.table.seated || me.id !== 'you') return '';
+    const can = this.table.phase === 'play' && (this.table.options || []).some((o) => o.kind === 'play');
+    const cards = sortCards(me.cards)
+      .map((c) => {
+        const on = this.chosen.has(c);
+        return `<button type="button" class="ac-hcard${on ? ' on' : ''}" data-hand="${esc(c)}" aria-pressed="${on}" ${can ? '' : 'tabindex="-1"'}>${cardHTML(c)}</button>`;
+      })
+      .join('');
+    return `<div class="ac-hand${can ? '' : ' idle'}" role="group" aria-label="你的手牌（点选要出的牌）">${cards || '<span class="ac-sub">出完了</span>'}</div>`;
+  }
+
+  shedControlsHTML() {
+    const t = this.table;
+    if (t.phase === 'done' || t.phase === 'idle') return this.shedBetweenHTML();
+    if (!t.seated) return `<div class="ac-controls hb-glass"><span class="ac-sub">${t.bet ? `你押了 ${esc(t.bet.name)} ${fmt(t.bet.amount)} 金币` : '这一局没押注'}，看她们打…</span></div>`;
+    if (!t.options.length) return `<div class="ac-controls hb-glass"><span class="ac-sub">${t.thinking ? '等成员出牌…' : '等别人…'}</span></div>`;
+    if (t.phase === 'bid') {
+      const btns = t.options.map((o) => `<button type="button" class="btn ${o.bid ? 'primary' : ''}" data-bid="${o.bid}">${o.bid ? `叫 ${o.bid} 分` : '不叫'}</button>`).join('');
+      return `<div class="ac-controls hb-glass"><span class="ac-sub">轮到你叫地主</span>${btns}</div>`;
+    }
+    const canPass = t.options.some((o) => o.kind === 'pass');
+    const hasPlay = t.options.some((o) => o.kind === 'play');
+    const tip = hasPlay ? (this.chosen.size ? `选了 ${this.chosen.size} 张` : '点手牌选要出的，或者点「提示」') : '压不过，只能不要';
+    return `<div class="ac-controls hb-glass">
+      <span class="ac-sub">轮到你了 · ${tip}</span>
+      ${canPass ? '<button type="button" class="btn" data-shed="pass">不要</button>' : ''}
+      ${hasPlay ? '<button type="button" class="btn" data-shed="hint">提示</button>' : ''}
+      ${this.chosen.size ? '<button type="button" class="btn" data-shed="clear">重选</button>' : ''}
+      ${hasPlay ? `<button type="button" class="btn primary" data-shed="play" ${this.chosen.size ? '' : 'disabled'}>出牌</button>` : ''}
+    </div>`;
+  }
+
+  shedBetweenHTML() {
+    const t = this.table;
+    const rows = (t.results || [])
+      .map((r) => {
+        const pts = Number(r.points);
+        const tag = [r.role, r.shut ? '被关' : '', r.left ? `剩 ${r.left} 张` : '出完'].filter(Boolean).join(' · ');
+        return `<li class="${pts > 0 ? 'win' : ''}"><b>${esc(r.name)}</b> ${pts > 0 ? '+' : ''}${pts} 分 <span class="ac-sub">${esc(tag)}</span></li>`;
+      })
+      .join('');
+    const sm = t.summary;
+    const sumLine = sm ? `<p class="ac-sub">${esc(sm.winner)}赢 · 底分 ${t.bid}${t.bombs ? ` × ${2 ** t.bombs}（炸弹）` : ''}${sm.spring ? ' × 2（春天）' : ''} = ${sm.mult} 倍</p>` : '';
+    const coins = t.last_coins;
+    const coinLine = coins !== null && coins !== undefined ? `<p class="ac-betres ${coins > 0 ? 'win' : ''}">你这一局 ${coins >= 0 ? `赢 ${fmt(coins)}` : `输 ${fmt(-coins)}`} 金币</p>` : '';
+    const lb = t.last_bet;
+    const betLine = lb ? `<p class="ac-betres ${lb.win ? 'win' : ''}">你押 ${esc(lb.name)} ${fmt(lb.amount)}：${lb.win ? `赢了，拿回 ${fmt(lb.payout)}` : '输了'}</p>` : '';
+    let bet = '';
+    if (!t.seated && t.can_deal) {
+      const opts = t.seats.map((s) => `<option value="${esc(s.id)}" ${this.betOn === s.id ? 'selected' : ''}>${esc(s.name)}</option>`).join('');
+      bet = `<label class="ac-betpick">押 <select data-bet-on aria-label="押谁赢"><option value="">不押</option>${opts}</select></label>
+        <label class="ac-betpick">金币 <input type="number" data-bet-amount min="1" max="${this.info?.cards?.max_bet || 500}" value="${this.betAmount}" aria-label="押多少"></label>`;
+    }
+    const broke = t.seated && !t.can_deal && (t.wallet?.coins || 0) <= 0 ? '<span class="ac-sub">金币输光了，明天再来领，或者先旁观押注。</span>' : '';
+    return `<div class="ac-controls hb-glass">
+      ${rows ? `<ul class="ac-results">${rows}</ul>` : ''}
+      ${sumLine}${coinLine}${betLine}${bet}${broke}
+      <button type="button" class="btn primary" data-act="deal" ${t.can_deal ? '' : 'disabled'}>${t.round_no ? '再来一局' : '发牌'}</button>
     </div>`;
   }
 }

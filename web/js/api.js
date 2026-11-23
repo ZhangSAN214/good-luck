@@ -418,3 +418,4 @@ export const arcadeAct = (kind, to = null) => api('/api/arcade/table/act', { met
 export const arcadeDeal = (betOn = null, amount = 0) => api('/api/arcade/table/deal', { method: 'POST', body: { bet_on: betOn, amount } });
 export const arcadeThink = (on) => api('/api/arcade/table/think', { method: 'PUT', body: { on } });
 export const arcadeLeave = () => api('/api/arcade/table', { method: 'DELETE' });
+export const arcadePlay = (kind, cards = [], bid = 0) => api('/api/arcade/table/play', { method: 'POST', body: { kind, cards, bid } });

@@ -337,6 +337,7 @@ const arcade = new ArcadePage($('#arcade'), {
     deal: API.arcadeDeal,
     think: API.arcadeThink,
     leave: API.arcadeLeave,
+    play: API.arcadePlay,
   },
   avatar: (id, name) => {
     const m = gchat.everyone?.find((x) => x.id === id);

@@ -14,6 +14,12 @@ class HoldemRules(_Strict):
     max_members: int = Field(default=7, ge=1, le=8)  # 你之外最多几位成员（一桌最多 9 人）
 
 
+class CardRules(_Strict):
+    """斗地主 / 跑得快：你上桌时一局的得分换成金币（输的最多输光，不会欠）。"""
+
+    coin_per_point: int = Field(default=10, ge=1, le=10_000)
+
+
 class WalletRules(_Strict):
     """虚拟金币：只在圆桌里用，不能充值、不能换真钱。"""
 
@@ -32,4 +38,5 @@ class ArcadeRules(_Strict):
     timeout_s: float = Field(default=25.0, gt=0, le=120)  # 想太久就换本地电脑出
     think_delay_s: float = Field(default=0.8, ge=0, le=10)  # 本地电脑出牌前停一下，看得清
     holdem: HoldemRules = HoldemRules()
+    cards: CardRules = CardRules()
     wallet: WalletRules = WalletRules()
